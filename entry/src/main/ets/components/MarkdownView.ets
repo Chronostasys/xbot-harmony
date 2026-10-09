@@ -222,7 +222,9 @@ export struct MarkdownView {
         .width('100%')
         .padding(10)
         .textAlign(TextAlign.Start)
-        .maxLines(this.wrapCode ? 1000 : 1000)
+        // 行数上限只防极端（1000 行）；是否**词内折行**由上面的 wordBreak 决定。
+        // 关闭换行时按 Clip 裁切（与 Web 端代码块不换行的表现一致；不做横向 Scroll 以免宽度/高度约束引入新的不确定性）。
+        .maxLines(1000)
         .textOverflow({ overflow: TextOverflow.Clip })
     }
     .width('100%')
