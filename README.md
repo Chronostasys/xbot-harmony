@@ -52,8 +52,8 @@ xbot 前端有三类能力**结构性无法用 ArkTS 表达**：
 ## 2.1 已构建产物（本机）
 
 ```
-dist/xbot-harmony-debug-unsigned.hap     467,630 B   （debug，便于抓日志）
-dist/xbot-harmony-release-unsigned.hap   216,022 B   （release，体积小）
+dist/xbot-harmony-debug-unsigned.hap     484,426 B   （debug，便于抓日志）
+dist/xbot-harmony-release-unsigned.hap   223,042 B   （release，体积小）
 ```
 
 - `bundleName = com.chronostasys.xbot`，`versionName = 1.0.0`

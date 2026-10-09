@@ -9,6 +9,7 @@
  *   ③ 一个实例只做一次请求，避免并发污染（鸿蒙 http 文档要求）。
  */
 import { http } from '@kit.NetworkKit';
+import { util } from '@kit.ArkTS';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { ApiEnvelope } from './types';
 
@@ -260,6 +261,58 @@ export class XbotHttp {
   async postAs<T>(path: string, body: object): Promise<T> {
     const raw: string = await this.post(path, body);
     return JSON.parse(raw) as T;
+  }
+
+  /**
+   * 以 multipart/form-data 上传一段二进制（自检截图用）。
+   *
+   * 为什么手搓 multipart：ArkTS 的 `http.request` 支持 `extraData: ArrayBuffer`，
+   * 但没有现成的 FormData ⇒ 自己拼 body（boundary + part 头 + 字节 + 结束 boundary）。
+   * 走 `/api/files/upload`（10MB 上限、字段名 `file`）。
+   */
+  async uploadBytes(path: string, filename: string, data: ArrayBuffer, mime: string): Promise<string> {
+    const boundary: string = `----xbot${Date.now().toString(16)}`;
+    const head: string =
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
+      `Content-Type: ${mime}\r\n\r\n`;
+    const tail: string = `\r\n--${boundary}--\r\n`;
+    const headBuf: Uint8Array = new Uint8Array(new util.TextEncoder().encodeInto(head));
+    const tailBuf: Uint8Array = new Uint8Array(new util.TextEncoder().encodeInto(tail));
+    const body: Uint8Array = new Uint8Array(headBuf.length + data.byteLength + tailBuf.length);
+    body.set(headBuf, 0);
+    body.set(new Uint8Array(data), headBuf.length);
+    body.set(tailBuf, headBuf.length + data.byteLength);
+
+    const req: http.HttpRequest = http.createHttp();
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Accept': 'application/json',
+      };
+      const cookie: string = this.cookieHeader();
+      if (cookie.length > 0) {
+        headers['Cookie'] = cookie;
+      }
+      const resp: http.HttpResponse = await req.request(this.baseUrl + path, {
+        method: http.RequestMethod.POST,
+        header: headers,
+        extraData: body.buffer as ArrayBuffer,
+        expectDataType: http.HttpDataType.STRING,
+        connectTimeout: 15000,
+        readTimeout: 60000,
+      });
+      const text: string = typeof resp.result === 'string' ? resp.result as string : '';
+      if (resp.responseCode !== 200) {
+        throw new Error(`HTTP ${resp.responseCode}: ${text.substring(0, 200)}`);
+      }
+      const env: ApiEnvelope = JSON.parse(text) as ApiEnvelope;
+      if (env.ok !== true) {
+        throw new Error('upload failed');
+      }
+      return JSON.stringify(env.data);
+    } finally {
+      req.destroy();
+    }
   }
 
   /**

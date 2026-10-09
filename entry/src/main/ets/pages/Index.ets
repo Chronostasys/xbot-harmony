@@ -1,5 +1,5 @@
 import { common } from '@kit.AbilityKit';
-import { promptAction } from '@kit.ArkUI';
+import { componentSnapshot, promptAction } from '@kit.ArkUI';
 import { image } from '@kit.ImageKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
@@ -86,6 +86,8 @@ struct Index {
   @State showQueue: boolean = false;
   @State showPlugins: boolean = false;
   @State showSelfCheck: boolean = false;
+  @State auditing: boolean = false;
+  @State auditLog: string = '';
   @State renamingId: string = '';
   @State renameText: string = '';
 
@@ -229,6 +231,88 @@ struct Index {
       this.testMsg = `❌ 连不上：${err.message}（检查 IP/端口、手机是否同网段、服务端是否在跑）`;
     } finally {
       this.testing = false;
+    }
+  }
+
+  /** 等待 ms（ArkTS 里没有 await sleep，自己包一层 Promise）。 */
+  private wait(ms: number): Promise<void> {
+    return new Promise<void>((resolve: () => void) => {
+      setTimeout(() => {
+        resolve();
+      }, ms);
+    });
+  }
+
+  /** 截取根容器当前画面并上传到服务端（返回服务端给的 key）。 */
+  private async captureAndUpload(name: string): Promise<string> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return '';
+    }
+    const pm: image.PixelMap = await componentSnapshot.get('xbot-root');
+    const packer: image.ImagePacker = image.createImagePacker();
+    const buf: ArrayBuffer = await packer.packing(pm, { format: 'image/png', quality: 100 });
+    await packer.release();
+    const data: string = await store.http.uploadBytes('/api/files/upload', `${name}.png`, buf, 'image/png');
+    await pm.release();
+    return data;
+  }
+
+  /**
+   * UI 走查：逐页截图并上传（登录页/聊天页/会话抽屉/设置/队列/能力面板/渲染自检）。
+   *
+   * 为什么要自动化：本机无法渲染鸿蒙 Stage 应用（预览器源码 `Linux is not supported`、
+   * 无头容器 `AttachSurface not ready`），只能借助真机。与其让用户一页页手动截图，
+   * 不如让应用**自己**把每一页截下来传到用户自己的服务端 —— 服务端目录我这边可读。
+   */
+  private async runUiAudit(): Promise<void> {
+    if (this.auditing) {
+      return;
+    }
+    this.auditing = true;
+    const done: string[] = [];
+    try {
+      const steps: string[] = ['01-chat'];
+      for (let i = 0; i < steps.length; i++) {
+        await this.wait(600);
+        done.push(`${steps[i]}=${await this.captureAndUpload(steps[i])}`);
+      }
+      // 会话抽屉
+      this.showDrawer = true;
+      await this.wait(900);
+      done.push(`02-drawer=${await this.captureAndUpload('02-drawer')}`);
+      this.showDrawer = false;
+      // 设置
+      this.showSettings = true;
+      await this.wait(900);
+      done.push(`03-settings=${await this.captureAndUpload('03-settings')}`);
+      this.showSettings = false;
+      // 渲染自检
+      this.showSelfCheck = true;
+      await this.wait(1200);
+      done.push(`04-selfcheck=${await this.captureAndUpload('04-selfcheck')}`);
+      this.showSelfCheck = false;
+      // 队列（有内容才有意义，无内容也截，便于对比）
+      this.showQueue = true;
+      await this.wait(900);
+      done.push(`05-queue=${await this.captureAndUpload('05-queue')}`);
+      this.showQueue = false;
+      // 能力面板
+      await this.openPlugins();
+      await this.wait(900);
+      done.push(`06-plugins=${await this.captureAndUpload('06-plugins')}`);
+      this.showPlugins = false;
+      await this.wait(400);
+      done.push(`07-chat-back=${await this.captureAndUpload('07-chat-back')}`);
+      this.auditLog = done.join('  ');
+      this.toast('走查完成，已上传 7 张');
+    } catch (e) {
+      const err: BusinessError = e as BusinessError;
+      this.auditLog = `失败: ${err.message}（已完成: ${done.join(' ') }）`;
+      this.toast(`走查失败: ${err.message}`);
+    } finally {
+      this.auditing = false;
+      this.showSelfCheck = false;
     }
   }
 
@@ -543,6 +627,7 @@ struct Index {
     .width('100%')
     .height('100%')
     .backgroundColor('#0B0F19')
+    .id('xbot-root')
   }
 
   @Builder
@@ -1017,6 +1102,15 @@ struct Index {
           store !== null ? store.http.exportSessionCookie() : '');
         this.toast('已保存（换服务端请退出重登）');
       })
+      Button(this.auditing ? '走查中…' : '① 走查并上传所有页面截图（推荐）').width('100%').height(44)
+        .backgroundColor('#7C3AED')
+        .onClick(() => {
+          this.showSettings = false;
+          this.runUiAudit();
+        })
+      if (this.auditLog.length > 0) {
+        Text(this.auditLog).fontSize(10).fontColor('#9CA3AF').width('100%').maxLines(4)
+      }
       Button('渲染自检（排查渲染问题用）').width('100%').height(40)
         .backgroundColor('#1F2937')
         .onClick(() => {
