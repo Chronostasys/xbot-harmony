@@ -1,0 +1,581 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.RpcBody = exports.QueueReorderBody = exports.QueueCancelBody = exports.AskRespondBody = exports.IterationDetailBody = exports.RenameBody = exports.MessageBody = exports.HistoryBody = exports.ChannelBody = exports.EmptyBody = exports.ChatStore = void 0;
+exports.toolsSummary = toolsSummary;
+/**
+ * ChatStore —— 会话/消息/实时进度/待答问题/队列/插件的唯一数据源。
+ *
+ * 设计取舍（与 web 前端的对应关系）：
+ *   · `rows`（ChatRow）        ≈ web `deriveRows(state)`：一个 turn = 1 user 行 + 1 assistant 行
+ *   · live 迭代（isLive=true） ≈ web 的 live 行 + `progress_structured`
+ *   · seq 水位线               = `ProgressEvent.seq`（per-Run，丢弃重放）
+ *   · `askUser` / `queue`      = 服务端权威（每 (channel,chat) 至多一个 pending）
+ *
+ * 为什么不用 ArkUI 的 @Observed：跨页面共享一个普通类 + 回调通知更简单可控，
+ * 页面把它同步进 @State（见 pages/Index.ets 的 syncFrom）。
+ */
+const http_1 = require("./http");
+const sse_1 = require("./sse");
+const types_1 = require("./types");
+class ChatStore {
+    constructor(baseUrl) {
+        this.channel = 'web';
+        this.sessions = [];
+        this.rows = [];
+        this.busy = false;
+        this.currentChatId = '';
+        this.lastSeq = 0;
+        /** 历史分页（loadMore 游标） */
+        this.hasMore = false;
+        this.oldestId = 0;
+        this.loadingMore = false;
+        /** 待回答的 AskUser（服务端权威：每会话至多一个） */
+        this.askUser = null;
+        /** 待发队列 */
+        this.queue = [];
+        /** 变更通知（页面接到 @State 上） */
+        this.onUpdate = () => {
+        };
+        this.http = new http_1.XbotHttp(baseUrl);
+        this.sse = new sse_1.SseClient(baseUrl);
+    }
+    // ── 会话 ───────────────────────────────────────────────────────────────────
+    async loadSessions() {
+        const data = await this.http.postAs('/api/session-tree', new EmptyBody());
+        const list = data.sessions !== undefined && data.sessions.length > 0
+            ? data.sessions
+            : (data.chats !== undefined ? data.chats : []);
+        this.sessions = list;
+        this.onUpdate();
+    }
+    async createSession() {
+        const created = await this.http.postAs('/api/chats/create', new ChannelBody(this.channel));
+        await this.loadSessions();
+        if (created.chat_id !== undefined && created.chat_id.length > 0) {
+            await this.openSession(created.chat_id);
+        }
+    }
+    async deleteSession(chatId) {
+        await this.http.post('/api/chats/' + encodeURIComponent(chatId) + '/delete', new ChannelBody(this.channel, chatId));
+        if (chatId === this.currentChatId) {
+            this.currentChatId = '';
+            this.rows = [];
+            this.sse.close();
+        }
+        await this.loadSessions();
+    }
+    async renameSession(chatId, label) {
+        await this.http.post('/api/chats/' + encodeURIComponent(chatId) + '/rename', new RenameBody(this.channel, chatId, label));
+        await this.loadSessions();
+    }
+    async openSession(chatId) {
+        this.currentChatId = chatId;
+        this.lastSeq = 0;
+        this.rows = [];
+        this.busy = false;
+        this.askUser = null;
+        this.queue = [];
+        this.hasMore = false;
+        this.oldestId = 0;
+        this.onUpdate();
+        await this.loadHistory();
+        await this.loadQueue();
+        this.subscribe();
+    }
+    // ── 历史（含上拉分页） ─────────────────────────────────────────────────────
+    async loadHistory() {
+        const data = await this.http.postAs('/api/history', new HistoryBody(this.channel, this.currentChatId, 30, 0));
+        this.rows = ChatStore.rowsFromHistory(data.messages !== undefined ? data.messages : []);
+        this.applyHistoryMeta(data);
+        const ap = data.active_progress;
+        if (ap !== undefined) {
+            if (ap.busy === true) {
+                this.busy = true;
+            }
+            this.applyProgress(ap);
+            this.pickAskUserFromProgress(ap);
+        }
+        this.onUpdate();
+    }
+    /** 上拉加载更早历史（`before_id` 游标）。 */
+    async loadMore() {
+        if (!this.hasMore || this.loadingMore || this.oldestId <= 0) {
+            return;
+        }
+        this.loadingMore = true;
+        try {
+            const data = await this.http.postAs('/api/history', new HistoryBody(this.channel, this.currentChatId, 30, this.oldestId));
+            const older = ChatStore.rowsFromHistory(data.messages !== undefined ? data.messages : []);
+            this.rows = older.concat(this.rows);
+            this.applyHistoryMeta(data);
+        }
+        finally {
+            this.loadingMore = false;
+            this.onUpdate();
+        }
+    }
+    applyHistoryMeta(data) {
+        this.hasMore = data.has_more === true;
+        if (data.oldest_id !== undefined) {
+            this.oldestId = data.oldest_id;
+        }
+        if (data.last_seq !== undefined) {
+            this.lastSeq = data.last_seq;
+        }
+    }
+    /** 历史 → 渲染行（每 turn 取第一条 user + 最后一条 assistant）。 */
+    static rowsFromHistory(messages) {
+        const out = [];
+        let current = null;
+        for (let i = 0; i < messages.length; i++) {
+            const m = messages[i];
+            const turnID = m.turn_id !== undefined ? m.turn_id : 0;
+            if (m.role === 'user') {
+                const r = new types_1.ChatRow();
+                r.id = `u-${m.id}`;
+                r.role = 'user';
+                r.turnID = turnID;
+                r.content = m.content !== undefined ? m.content : '';
+                out.push(r);
+                current = null;
+            }
+            else if (m.role === 'assistant') {
+                if (current === null || current.turnID !== turnID) {
+                    const r = new types_1.ChatRow();
+                    r.id = `a-${m.id}`;
+                    r.role = 'assistant';
+                    r.turnID = turnID;
+                    r.content = m.content !== undefined ? m.content : '';
+                    r.iterations = m.iterations !== undefined ? m.iterations : [];
+                    out.push(r);
+                    current = r;
+                }
+                else {
+                    current.content = m.content !== undefined && m.content.length > 0 ? m.content : current.content;
+                    if (m.iterations !== undefined && m.iterations.length > 0) {
+                        current.iterations = m.iterations;
+                    }
+                }
+            }
+        }
+        return out;
+    }
+    /** 按需拉取某迭代的完整工具详情（折叠视图下 summary/args/detail 默认不下发）。 */
+    async fetchIterationDetail(turnID, iteration) {
+        try {
+            const data = await this.http.postAs('/api/iteration_detail', new IterationDetailBody(this.channel, this.currentChatId, turnID, iteration));
+            const it = data.iteration;
+            if (it === undefined) {
+                return null;
+            }
+            this.mergeIterationDetail(turnID, it);
+            return it;
+        }
+        catch (e) {
+            return null;
+        }
+    }
+    mergeIterationDetail(turnID, it) {
+        for (let i = 0; i < this.rows.length; i++) {
+            const row = this.rows[i];
+            if (row.role !== 'assistant' || row.turnID !== turnID) {
+                continue;
+            }
+            for (let k = 0; k < row.iterations.length; k++) {
+                if (row.iterations[k].iteration === it.iteration) {
+                    row.iterations[k] = it; // 同号权威覆盖
+                    this.onUpdate();
+                    return;
+                }
+            }
+        }
+    }
+    // ── 发送 / 取消 ────────────────────────────────────────────────────────────
+    appendLocalUser(text) {
+        const r = new types_1.ChatRow();
+        r.id = `local-${Date.now()}`;
+        r.role = 'user';
+        r.turnID = 0;
+        r.content = text;
+        this.rows.push(r);
+        this.onUpdate();
+    }
+    async send(text) {
+        this.appendLocalUser(text);
+        this.busy = true;
+        this.onUpdate();
+        await this.http.post('/api/message', new MessageBody(this.channel, this.currentChatId, text, 0));
+    }
+    async cancel() {
+        await this.http.post('/api/cancel', new ChannelBody(this.channel, this.currentChatId));
+    }
+    // ── AskUser ────────────────────────────────────────────────────────────────
+    pickAskUserFromProgress(p) {
+        const qs = p.questions;
+        if (qs === undefined || qs.length === 0) {
+            return;
+        }
+        const prompt = { request_id: p.request_id, questions: qs };
+        this.askUser = prompt;
+    }
+    /** 回答（answers: questionId → 文本）。cancelled=true 表示"取消/跳过"。 */
+    async respondAsk(answers, cancelled) {
+        const prompt = this.askUser;
+        if (prompt === null) {
+            return;
+        }
+        let firstQ = '';
+        const qs = prompt.questions;
+        if (qs !== undefined && qs.length > 0 && qs[0].id !== undefined) {
+            firstQ = qs[0].id;
+        }
+        const single = answers[firstQ] !== undefined ? answers[firstQ] : '';
+        await this.http.post('/api/ask_user/respond', new AskRespondBody(this.channel, this.currentChatId, firstQ, single, answers, cancelled));
+        this.askUser = null;
+        this.onUpdate();
+    }
+    // ── 待发队列 ───────────────────────────────────────────────────────────────
+    async loadQueue() {
+        try {
+            const data = await this.http.postAs('/api/queue/list', new ChannelBody(this.channel, this.currentChatId));
+            const list = data.items !== undefined ? data.items
+                : (data.queue !== undefined ? data.queue : []);
+            this.queue = list;
+            this.onUpdate();
+        }
+        catch (e) {
+            // 队列不可用时静默（不影响主链路）
+        }
+    }
+    async cancelQueued(msgId) {
+        await this.http.post('/api/queue/cancel', new QueueCancelBody(this.channel, this.currentChatId, msgId));
+        await this.loadQueue();
+    }
+    /** 上/下移一格：把当前顺序投影回服务端（msg_ids 即权威顺序）。 */
+    async moveQueued(msgId, dir) {
+        const ids = [];
+        for (let i = 0; i < this.queue.length; i++) {
+            const id = this.queue[i].msg_id !== undefined ? this.queue[i].msg_id
+                : (this.queue[i].id !== undefined ? this.queue[i].id : '');
+            if (id.length > 0) {
+                ids.push(id);
+            }
+        }
+        const at = ids.indexOf(msgId);
+        if (at < 0) {
+            return;
+        }
+        const to = at + dir;
+        if (to < 0 || to >= ids.length) {
+            return;
+        }
+        const tmp = ids[at];
+        ids[at] = ids[to];
+        ids[to] = tmp;
+        await this.http.post('/api/queue/reorder', new QueueReorderBody(this.channel, this.currentChatId, ids));
+        await this.loadQueue();
+    }
+    // ── 插件面板（ArkWeb 用） ──────────────────────────────────────────────────
+    /**
+     * 拉取带 web 产物的插件清单。
+     * 服务端 RPC `web_plugin_list`（只返回声明了 web.entry 的插件）；
+     * URL 若后端未给 module_url，则按 `/plugins/<id>/web/<entry>` 拼（与 web 前端同构）。
+     */
+    async listPlugins() {
+        const out = [];
+        try {
+            const data = await this.http.postAs('/api/rpc', new RpcBody('web_plugin_list', new EmptyBody()));
+            const list = data.plugins !== undefined ? data.plugins : [];
+            for (let i = 0; i < list.length; i++) {
+                const p = list[i];
+                const id = p.id !== undefined ? p.id
+                    : (p.plugin_id !== undefined ? p.plugin_id : '');
+                if (id.length === 0) {
+                    continue;
+                }
+                const entry = p.entry !== undefined && p.entry.length > 0 ? p.entry : 'index.js';
+                const info = new types_1.PluginPanelInfo();
+                info.id = id;
+                info.name = p.name !== undefined && p.name.length > 0 ? p.name
+                    : (p.label !== undefined ? p.label : id);
+                info.url = p.module_url !== undefined && p.module_url.length > 0
+                    ? p.module_url
+                    : `${this.http.baseUrl}/plugins/${id}/web/${entry}`;
+                info.icon = p.icon !== undefined ? p.icon : '';
+                out.push(info);
+            }
+        }
+        catch (e) {
+            // 插件系统不可用（或未启用）时返回空表
+        }
+        return out;
+    }
+    // ── SSE ────────────────────────────────────────────────────────────────────
+    subscribe() {
+        if (this.currentChatId.length === 0) {
+            return;
+        }
+        this.sse.connect(this.currentChatId, this.channel, this.http.cookieHeaderForStream(), (event, data) => {
+            this.onSse(event, data);
+        });
+    }
+    onSse(event, data) {
+        let env;
+        try {
+            env = JSON.parse(data);
+        }
+        catch (e) {
+            return;
+        }
+        if (event === types_1.SseEventType.heartbeat) {
+            return;
+        }
+        if (event === types_1.SseEventType.session) {
+            this.onSessionEvent(env.session);
+            return;
+        }
+        if (event === types_1.SseEventType.userEcho) {
+            this.onUserEcho(env);
+            return;
+        }
+        if (event === types_1.SseEventType.progressStructured || event === types_1.SseEventType.streamContent) {
+            if (env.progress !== undefined) {
+                this.applyProgress(env.progress);
+                this.pickAskUserFromProgress(env.progress);
+            }
+            return;
+        }
+        if (event === types_1.SseEventType.askUser) {
+            if (env.progress !== undefined) {
+                this.pickAskUserFromProgress(env.progress);
+                this.onUpdate();
+            }
+            return;
+        }
+        if (event === types_1.SseEventType.askUserResolved) {
+            this.askUser = null;
+            this.onUpdate();
+            return;
+        }
+        if (event === types_1.SseEventType.queueState) {
+            this.loadQueue();
+            return;
+        }
+        if (event === types_1.SseEventType.text) {
+            this.onFinalText(env);
+            return;
+        }
+        if (event === types_1.SseEventType.resyncRequired) {
+            // 环形缓冲已淘汰 ⇒ 回退 DB 权威快照（web 同款语义）
+            this.loadHistory().catch((e) => {
+                console.error(`resync 失败: ${e.message}`);
+            });
+        }
+    }
+    onSessionEvent(ev) {
+        if (ev === undefined) {
+            return;
+        }
+        const state = ev.state !== undefined ? ev.state : '';
+        if (state === 'idle' || state === 'agent-idle') {
+            this.busy = false;
+            this.onUpdate();
+        }
+        else if (state === 'busy' || state === 'agent-busy') {
+            this.busy = true;
+            this.onUpdate();
+        }
+    }
+    onUserEcho(env) {
+        const text = env.content !== undefined ? env.content : '';
+        const turnID = env.turn_id !== undefined ? env.turn_id : 0;
+        for (let i = this.rows.length - 1; i >= 0; i--) {
+            const r = this.rows[i];
+            if (r.role === 'user' && r.turnID === 0 && r.content === text) {
+                r.turnID = turnID;
+                this.busy = true;
+                this.onUpdate();
+                return;
+            }
+        }
+        const r = new types_1.ChatRow();
+        r.id = `echo-${turnID}-${this.rows.length}`;
+        r.role = 'user';
+        r.turnID = turnID;
+        r.content = text;
+        this.rows.push(r);
+        this.busy = true;
+        this.onUpdate();
+    }
+    liveRow() {
+        const last = this.rows.length > 0 ? this.rows[this.rows.length - 1] : undefined;
+        if (last !== undefined && last.role === 'assistant' && last.isLive) {
+            return last;
+        }
+        const r = new types_1.ChatRow();
+        r.id = 'live';
+        r.role = 'assistant';
+        r.isLive = true;
+        this.rows.push(r);
+        return r;
+    }
+    /** 结构化进度：seq 是 per-Run 水位线（丢弃重放），迭代按号 union。 */
+    applyProgress(p) {
+        const seq = p.seq !== undefined ? p.seq : 0;
+        if (seq > 0 && seq <= this.lastSeq) {
+            return;
+        }
+        if (seq > 0) {
+            this.lastSeq = seq;
+        }
+        const it = p.iteration !== undefined ? p.iteration : 0;
+        const row = this.liveRow();
+        const iter = {
+            iteration: it,
+            content: p.content !== undefined ? p.content : '',
+            reasoning: p.reasoning !== undefined ? p.reasoning : '',
+            tools: p.tools !== undefined ? p.tools : [],
+        };
+        let replaced = false;
+        for (let i = 0; i < row.iterations.length; i++) {
+            if (row.iterations[i].iteration === it) {
+                row.iterations[i] = iter;
+                replaced = true;
+                break;
+            }
+        }
+        if (!replaced) {
+            row.iterations.push(iter);
+        }
+        const hist = p.iteration_history;
+        if (hist !== undefined) {
+            for (let i = 0; i < hist.length; i++) {
+                const h = hist[i];
+                let found = false;
+                for (let j = 0; j < row.iterations.length; j++) {
+                    if (row.iterations[j].iteration === h.iteration) {
+                        row.iterations[j] = h;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    row.iterations.push(h);
+                }
+            }
+        }
+        this.onUpdate();
+    }
+    onFinalText(env) {
+        const text = env.content !== undefined ? env.content : '';
+        if (this.rows.length === 0) {
+            return;
+        }
+        const last = this.rows[this.rows.length - 1];
+        if (last.role === 'assistant') {
+            last.content = text.length > 0 ? text : last.content;
+            last.isLive = false;
+            last.turnID = env.turn_id !== undefined ? env.turn_id : last.turnID;
+            last.id = `a-${last.turnID}`;
+        }
+        else {
+            const r = new types_1.ChatRow();
+            r.role = 'assistant';
+            r.turnID = env.turn_id !== undefined ? env.turn_id : 0;
+            r.id = `a-${r.turnID}`;
+            r.content = text;
+            this.rows.push(r);
+        }
+        this.busy = false;
+        this.onUpdate();
+    }
+}
+exports.ChatStore = ChatStore;
+// ── 请求体（显式字段 = 协议契约，见 channel/web/web_rest.go） ─────────────────
+class EmptyBody {
+}
+exports.EmptyBody = EmptyBody;
+class ChannelBody {
+    constructor(channel, chatId) {
+        this.channel = channel;
+        this.chat_id = chatId;
+    }
+}
+exports.ChannelBody = ChannelBody;
+class HistoryBody {
+    constructor(channel, chatId, limit, beforeId) {
+        this.channel = channel;
+        this.chat_id = chatId;
+        this.limit = limit;
+        this.before_id = beforeId;
+    }
+}
+exports.HistoryBody = HistoryBody;
+class MessageBody {
+    constructor(channel, chatId, content, turnId) {
+        this.channel = channel;
+        this.chat_id = chatId;
+        this.content = content;
+        this.turn_id = turnId;
+    }
+}
+exports.MessageBody = MessageBody;
+class RenameBody {
+    constructor(channel, chatId, label) {
+        this.channel = channel;
+        this.chat_id = chatId;
+        this.label = label;
+    }
+}
+exports.RenameBody = RenameBody;
+class IterationDetailBody {
+    constructor(channel, chatId, turnId, iteration) {
+        this.channel = channel;
+        this.chat_id = chatId;
+        this.turn_id = turnId;
+        this.iteration = iteration;
+    }
+}
+exports.IterationDetailBody = IterationDetailBody;
+class AskRespondBody {
+    constructor(channel, chatId, questionId, answer, answers, cancelled) {
+        this.channel = channel;
+        this.chat_id = chatId;
+        this.question_id = questionId;
+        this.answer = answer;
+        this.answers = answers;
+        this.cancelled = cancelled;
+    }
+}
+exports.AskRespondBody = AskRespondBody;
+class QueueCancelBody {
+    constructor(channel, chatId, msgId) {
+        this.channel = channel;
+        this.chat_id = chatId;
+        this.msg_id = msgId;
+    }
+}
+exports.QueueCancelBody = QueueCancelBody;
+class QueueReorderBody {
+    constructor(channel, chatId, msgIds) {
+        this.channel = channel;
+        this.chat_id = chatId;
+        this.msg_ids = msgIds;
+    }
+}
+exports.QueueReorderBody = QueueReorderBody;
+class RpcBody {
+    constructor(method, params) {
+        this.method = method;
+        this.params = params;
+    }
+}
+exports.RpcBody = RpcBody;
+/** 工具摘要（UI 复用）。 */
+function toolsSummary(tools) {
+    const names = [];
+    for (let i = 0; i < tools.length; i++) {
+        names.push(tools[i].name);
+    }
+    return names.join(' · ');
+}
