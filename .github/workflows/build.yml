@@ -1,11 +1,14 @@
 name: Build HAP
 
-# 云端构建 HarmonyOS HAP（**无需 DevEco Studio**，全程在 Linux runner 内完成）。
+# 云端构建 HarmonyOS HAP —— **不需要 DevEco Studio，也不需要 Windows/macOS**。
 #
-# 原理：官方 command-line-tools（内含 hvigorw / ohpm / SDK / Node）跑在容器里，
-# 所以 Windows/macOS 不是必要条件 —— Linux 一样能编译出 .hap，这正是本 workflow 存在的理由。
+# 做法：直接下载官方 command-line-tools（含 hvigorw / ohpm / SDK / Node）到 Linux runner 内解包构建。
+# 为什么不用预置 Docker 镜像：① 镜像 ~3GB，拉取是构建耗时的大头；② 镜像版本固定，
+# 而本仓库需要**按目标鸿蒙版本选 SDK**（见 docs/CI.md「SDK 选型」）。
 #
-# 产出：未签名 debug HAP（artifact）；push 到 main 时额外发布滚动 nightly Release。
+# 默认目标 = 最老可用的 HarmonyOS 5.0.5（`compatibleSdkVersion: 5.0.0(12)`）
+# ⇒ 同一个 HAP 覆盖 HarmonyOS 5.0.0 及以上的手机（含 5.x / 6.x）。
+# 需要给更新的系统出包时，用 workflow_dispatch 覆盖 sdk_tag / compatible_sdk。
 
 on:
   push:
@@ -13,10 +16,14 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
-      image:
-        description: '覆盖 CI 镜像（ghcr.io/owner/harmonyos-ci:<tag>）'
+      sdk_tag:
+        description: 'command-line-tools 版本（ErBWs/ohos-sdk 的 tag：5.0.13.200 / 5.1.0.840 / 6.1.1.280 / 26.0.0.821）'
         required: false
-        default: ''
+        default: '5.0.13.200'
+      compatible_sdk:
+        description: 'build-profile 的 compatibleSdkVersion（5.0.0(12) / 5.1.0(18) / 26.0.0）'
+        required: false
+        default: '5.0.0(12)'
 
 concurrency:
   group: build-hap-${{ github.ref }}
@@ -24,18 +31,33 @@ concurrency:
 
 permissions:
   contents: read
-  packages: read
 
 defaults:
   run:
     shell: bash
 
 env:
-  # 与 build-profile.json5 的 compatibleSdkVersion（26.0.0）对齐。
-  # 换 SDK 时两者必须同改，见 docs/CI.md。
-  CI_IMAGE: ghcr.io/dalongzhuazi/harmonyos-ci:api26r
+  CLI_DIR: ${{ github.workspace }}/.ohos-cli/command-line-tools
 
 jobs:
+  prepare:
+    name: 解析目标 SDK
+    runs-on: ubuntu-latest
+    outputs:
+      sdk_tag: ${{ steps.p.outputs.sdk_tag }}
+      compatible: ${{ steps.p.outputs.compatible }}
+    steps:
+      - id: p
+        env:
+          IN_TAG: ${{ inputs.sdk_tag }}
+          IN_COMPAT: ${{ inputs.compatible_sdk }}
+        run: |
+          tag="${IN_TAG:-5.0.13.200}"
+          compat="${IN_COMPAT:-5.0.0(12)}"
+          echo "sdk_tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "compatible=$compat" >> "$GITHUB_OUTPUT"
+          echo "目标 SDK: $tag ；compatibleSdkVersion: $compat"
+
   static-check:
     name: 静态检查（core/ 用 tsc，秒级）
     runs-on: ubuntu-latest
@@ -44,141 +66,127 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: 安装 typescript
-        run: npm i -g typescript@5
-      - name: 检查 entry/src/main/ets/core（纯 TS 部分）
-        run: tools/typecheck/check.sh
-
-  guard:
-    name: 判定是否为 HarmonyOS 工程
-    runs-on: ubuntu-latest
-    outputs:
-      is_project: ${{ steps.check.outputs.is_project }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: check
-        run: |
-          if [ -f build-profile.json5 ] && [ -f oh-package.json5 ]; then
-            echo "is_project=true" >> "$GITHUB_OUTPUT"
-            echo "HarmonyOS 工程已识别"
-          else
-            echo "is_project=false" >> "$GITHUB_OUTPUT"
-            echo "::error::缺少 build-profile.json5 / oh-package.json5"
-            exit 1
-          fi
-
-  prepare:
-    needs: guard
-    name: 解析 CI 镜像
-    runs-on: ubuntu-latest
-    outputs:
-      image: ${{ steps.img.outputs.image }}
-    steps:
-      - id: img
-        env:
-          INPUT_IMAGE: ${{ inputs.image }}
-          DEFAULT_IMAGE: ${{ env.CI_IMAGE }}
-        run: |
-          image="${INPUT_IMAGE:-$DEFAULT_IMAGE}"
-          echo "使用镜像: $image"
-          echo "image=$image" >> "$GITHUB_OUTPUT"
+      - run: npm i -g typescript@5
+      - run: tools/typecheck/check.sh
 
   build:
     name: 构建 HAP（debug / 未签名）
     needs: prepare
     runs-on: ubuntu-latest
-    container:
-      image: ${{ needs.prepare.outputs.image }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      SDK_TAG: ${{ needs.prepare.outputs.sdk_tag }}
+      COMPATIBLE_SDK: ${{ needs.prepare.outputs.compatible }}
+      OHOS_SDK_HOME: ${{ github.workspace }}/.ohos-cli/command-line-tools/sdk
+      HOS_SDK_HOME: ${{ github.workspace }}/.ohos-cli/command-line-tools/sdk
     steps:
       - uses: actions/checkout@v4
 
-      - name: 剥离本机签名配置
-        run: |
-          if [ -f .github/scripts/strip_signing.py ]; then
-            python3 .github/scripts/strip_signing.py build-profile.json5
-          else
-            echo "::notice::未找到 strip_signing.py，跳过"
-          fi
-
-      - name: 环境自检（工具链版本）
-        run: |
-          set -x
-          which ohpm hvigorw
-          ohpm -v || true
-          hvigorw -v || true
-          node -v
-          java -version 2>&1 | head -3 || true
-
-      - name: 缓存 hvigor / oh_modules
+      - name: 缓存 command-line-tools
+        id: sdk-cache
         uses: actions/cache@v4
         with:
-          path: |
-            /root/.hvigor
-            **/oh_modules
-          key: hvigor-${{ runner.os }}-${{ hashFiles('**/oh-package-lock.json5') }}
-          restore-keys: |
-            hvigor-${{ runner.os }}-
+          path: ${{ github.workspace }}/.ohos-cli
+          key: ohos-cli-${{ runner.os }}-${{ env.SDK_TAG }}
+
+      - name: 下载并解包 command-line-tools
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p .ohos-cli && cd .ohos-cli
+          gh release download "$SDK_TAG" -R ErBWs/ohos-sdk \
+            -p 'ohos-sdk-linux-amd64.tar.gz.*' --clobber
+          cat ohos-sdk-linux-amd64.tar.gz.* > sdk.tar.gz
+          if [ -f ohos-sdk-linux-amd64.tar.gz.sha256 ]; then
+            sha256sum -c ohos-sdk-linux-amd64.tar.gz.sha256 || echo "::warning::sha256 校验失败"
+          fi
+          tar -xzf sdk.tar.gz
+          rm -f sdk.tar.gz ohos-sdk-linux-amd64.tar.gz.*
+          echo "--- 解包结果 ---"
+          ls -la
+          find . -maxdepth 3 \( -name hvigorw -o -name ohpm \) | head
+
+      - name: 工具链自检
+        run: |
+          set -x
+          echo "$CLI_DIR/bin" >> "$GITHUB_PATH"
+          export PATH="$CLI_DIR/bin:$PATH"
+          ls -la "$CLI_DIR" || true
+          which ohpm hvigorw || true
+          node -v
+          java -version 2>&1 | head -2 || true
+
+      - name: 对齐 compatibleSdkVersion
+        run: |
+          sed -i "s/\"compatibleSdkVersion\": \"[^\"]*\"/\"compatibleSdkVersion\": \"$COMPATIBLE_SDK\"/" build-profile.json5
+          sed -i "s/\"targetSdkVersion\": \"[^\"]*\"/\"targetSdkVersion\": \"$COMPATIBLE_SDK\"/" build-profile.json5
+          grep -nE "compatibleSdkVersion|targetSdkVersion" build-profile.json5
+
+      - name: 写 local.properties（hvigor 定位 SDK）
+        run: |
+          echo "sdk.dir=$CLI_DIR/sdk" > local.properties
+          cat local.properties
 
       - name: 安装依赖（ohpm）
-        run: ohpm install --all
+        run: |
+          export PATH="$CLI_DIR/bin:$PATH"
+          ohpm install --all
 
       - name: 编译（hvigorw assembleHap）
-        run: hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-daemon --stacktrace
+        run: |
+          export PATH="$CLI_DIR/bin:$PATH"
+          hvigorw --version || true
+          hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-daemon --stacktrace
 
       - name: 收集并校验产物
         run: |
           set -eu
           mkdir -p dist
           find . -type f -name '*.hap' -path '*/outputs/*' \
-            -not -path './oh_modules/*' -not -path './node_modules/*' \
+            -not -path './.ohos-cli/*' -not -path './oh_modules/*' \
             -exec cp -v {} dist/ \;
           shopt -s nullglob
           haps=(dist/*.hap)
-          if [ ${#haps[@]} -eq 0 ]; then
-            echo "::error::未产出 .hap —— 请检查上方构建日志"
-            exit 1
-          fi
+          [ ${#haps[@]} -gt 0 ] || { echo "::error::未产出 .hap —— 检查上方构建日志"; exit 1; }
           for h in "${haps[@]}"; do
             size=$(stat -c%s "$h")
             [ "$size" -gt 0 ] || { echo "::error::$h 为空"; exit 1; }
-            echo "$h : $size bytes"
-            # HAP 是 zip：校验 PK 魔数，避免"构建成功但产物是坏文件"
             head -c 2 "$h" | xxd -p | grep -qi '^504b' || { echo "::error::$h 不是合法 zip/HAP"; exit 1; }
+            echo "$h : $size bytes"
+            echo "  --- module.json 头部（minAPIVersion/targetAPIVersion）---"
+            unzip -p "$h" module.json 2>/dev/null | head -c 400 || true
+            echo
           done
 
       - uses: actions/upload-artifact@v4
         with:
-          name: hap-unsigned
+          name: hap-unsigned-${{ needs.prepare.outputs.sdk_tag }}
           path: dist/
           if-no-files-found: error
           retention-days: 14
 
-  nightly:
-    name: 滚动 nightly Release
-    needs: build
+  publish:
+    name: 发布到 Release（nightly）
+    needs: [prepare, build]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: hap-unsigned
+          name: hap-unsigned-${{ needs.prepare.outputs.sdk_tag }}
           path: dist
-      - name: 列出产物
-        run: ls -al dist
+      - run: ls -al dist
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: nightly
-          name: nightly
+          name: nightly（未签名）
           prerelease: true
           body: |
             自动构建的**未签名** HAP（滚动更新）。
-            Unsigned HAP built automatically from `${{ github.sha }}`.
+            目标 SDK：`${{ needs.prepare.outputs.sdk_tag }}`，compatibleSdkVersion：`${{ needs.prepare.outputs.compatible }}`。
 
-            安装需要先自行签名（见 docs/CI.md），或使用 `sign-and-release` workflow 的签名产物。
+            ⚠️ 未签名包不能直接安装：需先签名（见 docs/CI.md），或配置签名 Secrets 走 `Sign & Release` workflow。
           files: dist/*.hap
