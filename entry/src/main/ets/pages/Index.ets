@@ -90,6 +90,24 @@ function mdCacheText(): string {
     + ` 占用=${Math.round(st.chars / 1024)}KB 条目=${st.entries}`;
 }
 
+/**
+ * 消息列表的项数 = [可选"加载更早消息"项] + rows + [可选 busy 指示器项]。
+ *
+ * 必须显式算：`onScrollIndex` 给的是**列表项**下标，而项数不等于 rows.length
+ * （头部可能多一项、尾部可能多一项 busy 指示器）—— 用错就会误判"在不在底部"。
+ * 模块级函数：ArkUI 的 struct 不是普通类，真机上静态成员会解析成 undefined（见 docs/ARKTS-GOTCHAS.md）。
+ */
+function listItemCount(hasMore: boolean, loadingMore: boolean, rowsLen: number, busy: boolean): number {
+  let n: number = rowsLen;
+  if (hasMore || loadingMore) {
+    n += 1;
+  }
+  if (busy) {
+    n += 1;
+  }
+  return n;
+}
+
 @Entry
 @Component
 struct Index {
@@ -127,6 +145,14 @@ struct Index {
   @State showPlugins: boolean = false;
   @State showSelfCheck: boolean = false;
   /** 各页版面几何的**屏幕可见文本**（无需网络：截一张图即可把数值带给我） */
+  /**
+   * 用户当前是否停在列表底部。
+   * ⚠️ 自动"跟随到底部"必须由它守卫：流式期间每个事件都会同步一次，若无条件
+   * `scrollEdge(Bottom)`，用户往上滚想看工具/思考详情会被立刻拽回底部 ⇒ 表现为"根本没法用"。
+   * 与 xbot Web 端既有铁律一致（所有 GotoBottom 调用由 !userScrolledUp 守卫）。
+   */
+  @State atBottom: boolean = true;
+
   @State geoText: string = '';
   @State geoRunning: boolean = false;
   @State auditing: boolean = false;
@@ -227,6 +253,10 @@ struct Index {
   }
 
   private syncFrom(store: ChatStore): void {
+    // 切会话 ⇒ 用户预期"看到最新"，总是跳到底（此时门控必须放行）
+    if (store.currentChatId !== this.currentChat) {
+      this.atBottom = true;
+    }
     this.sessions = store.sessions.slice();
     this.rows = store.rows.slice();
     this.busy = store.busy;
@@ -239,13 +269,16 @@ struct Index {
       this.askUser = ask;
       this.askSelections = selectionsFor(ask);
     }
-    setTimeout(() => {
-      try {
-        this.listScroller.scrollEdge(Edge.Bottom);
-      } catch (e) {
-        // 首帧尚未布局
-      }
-    }, 30);
+    // 只有用户本来就在底部才跟随；用户往上滚后就不再抢滚动位置（否则"阅读中被打断"）
+    if (this.atBottom) {
+      setTimeout(() => {
+        try {
+          this.listScroller.scrollEdge(Edge.Bottom);
+        } catch (e) {
+          // 首帧尚未布局
+        }
+      }, 30);
+    }
   }
 
   /** 规范化并校验服务端地址；不合法返回空串并把原因写进 testMsg。 */
@@ -1005,6 +1038,11 @@ struct Index {
         }
       }
       .layoutWeight(1).width('100%').edgeEffect(EdgeEffect.Spring).padding({ left: 8, right: 8 })
+      // 跟踪"用户是否停在底部"：end 是最后一个可见项的下标，等于末项下标即在底部。
+      // 项数 = [可选"加载更早"] + rows + [可选 busy 指示器]，故用 listItemCount() 显式算。
+      .onScrollIndex((start: number, end: number) => {
+        this.atBottom = end >= listItemCount(this.hasMore, this.loadingMore, this.rows.length, this.busy) - 1;
+      })
       .id('xbot-list')
 
       // 输入区

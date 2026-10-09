@@ -131,3 +131,22 @@ Column() { this.Inline(b.text) }
 
 **判定口径**：只有**页面根 / 定高容器**（如 `Column().height('100%')` 挂在页面根、被 `layoutWeight`
 分配的容器）里用 `height('100%')` 才是安全的。写之前先问："这个父容器的高度是确定的吗？"
+
+## 13. 自动"跟随到底部"必须由「用户是否在底部」门控
+
+**现象**：流式输出时用户往上滚想读工具/思考详情，界面**立刻把他拽回底部** —— 感知为"根本没法用"。
+
+**机制**：`syncFrom()` 在**每次 store 变更**时被调用（流式期间 = 每个 SSE 事件一次），而它里面
+**无条件**执行 `listScroller.scrollEdge(Edge.Bottom)` ⇒ 任何滚动位置都被反复重置。
+
+**修法**：`@State atBottom`，由 `List.onScrollIndex` 维护（判据：最后可见项的**列表项下标**是否等于末项下标），
+只在 `atBottom === true` 时跟随；**切会话时强制置 true**（用户预期"看到最新"）。
+
+**两个必须注意的点**：
+
+1. `onScrollIndex` 给的是**列表项**下标，而列表项数 **≠ rows.length**（头部可能多一项"加载更早消息"、
+   尾部可能多一项 busy 指示器）⇒ 必须用显式 `listItemCount(hasMore, loadingMore, rowsLen, busy)` 计算末项下标。
+2. 该 helper 必须是**模块级函数**（ArkUI 的 struct 不是普通类，静态成员在真机上是 `undefined`）。
+
+**同源铁律（与 xbot Web 端一致）**：所有"滚到底部"调用都必须由"用户没往上滚"守卫，
+否则就是抢用户的滚动位置。

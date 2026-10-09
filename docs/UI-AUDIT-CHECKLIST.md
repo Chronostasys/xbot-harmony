@@ -116,3 +116,5 @@ md缓存 命中=… 未命中=…（命中率 …%） 占用=…KB 条目=…
 1. **`height('100%')` 的父容器必须是定高的**（页面根 / 定高容器）。内容定高的父容器里出现百分比高度
    ⇒ 循环测量 ⇒ 元素塌成 0（真实案例：Markdown 引用块竖条，见 ARKTS-GOTCHAS 第 12 条）。
 2. **渲染路径里禁止裸调 `parseMarkdown/parseInline`**（`tools/lint/render-path.sh` 会拦；原因：ArkUI 数据一变整行重建 ⇒ 每次渲染重解析，见 ARKTS-GOTCHAS 第 11 条）。
+3. **自动"跟随到底部"必须门控**：`scrollEdge(Edge.Bottom)` 之类调用只能发生在"用户本就在底部"时，
+   切会话例外（强制跳底）。流式期间每个事件都会同步一次，无条件跟随 = 用户读不了（见 ARKTS-GOTCHAS 第 13 条）。
