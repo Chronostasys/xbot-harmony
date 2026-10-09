@@ -68,6 +68,9 @@ jobs:
           node-version: '20'
       - run: npm i -g typescript@5
       - run: tools/typecheck/check.sh
+      # 渲染路径门禁：components/ 与 pages/ 里禁止裸 parseMarkdown/parseInline
+      # （ArkUI 数据一变整行重建 ⇒ 每次渲染都重解析，长会话卡死；必须走带缓存的版本）
+      - run: tools/lint/render-path.sh
 
   build:
     name: 构建 HAP（debug / 未签名）

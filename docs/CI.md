@@ -119,3 +119,14 @@ base64 -w0 xbot.p7b   # → SIGNING_PROFILE_B64
 - Phodal《在 GitHub Action 上构建 HarmonyOS 应用》：
   https://www.phodal.com/blog/github-action-for-harmonyos
 - 华为官方：`hap-sign-tool` 命令行签名、`networkSecurityConfig` 明文策略
+
+## 渲染路径门禁（`tools/lint/render-path.sh`）
+
+CI 与本地都会跑。规则只有一条：**`entry/src/main/ets/components|pages` 里禁止直接调用
+`parseMarkdown()` / `parseInline()`**，必须用带缓存的 `parseMarkdownCached()` / `parseInlineCached()`。
+
+原因：ArkUI 的 `ForEach` 不比较内容 ⇒ 行级 key 必须带 `rev` ⇒ 数据一变整行重建 ⇒ 组件每次
+渲染都会重跑 `build()` 里的解析。实测单行正文可达 274 KB（单 turn 108 个迭代块）⇒ 流式期间
+每个 SSE 事件重解析几百 KB ⇒ 卡到完全没法用（见 `docs/ARKTS-GOTCHAS.md` 第 11 条）。
+
+自证方式：往 `components/` 丢一个含裸调用的文件，门禁必须变红（脚本里带 `__mutant.ets` 的用法示例）。
