@@ -5,6 +5,7 @@
  * 我按 string 声明后直接 `.split()` ⇒ "undefined is not callable"。
  * 这里用 mock kit（数组形态）+ mock 服务端把该场景钉死；字符串形态也一并覆盖。
  */
+declare const process: { exit: (c: number) => void };
 import { XbotHttp } from './http';
 
 declare const require: (m: string) => any;
@@ -125,3 +126,7 @@ async function main(): Promise<void> {
 }
 
 main();
+
+// 显式退出：node 的事件循环可能被 mock 网络句柄/定时器拉住，不退出会让
+// run.sh（set -e 顺序执行）永远卡在本文件，后续测试根本不跑。
+process.exit(0);

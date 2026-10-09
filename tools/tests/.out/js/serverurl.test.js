@@ -1,11 +1,5 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-/**
- * 服务端地址解析测试。
- *
- * 为什么值得锁：这是"能不能连上"的第一道门 —— 手机端让用户手打 IP:端口，
- * 协议/尾斜杠/空白写错都会变成难懂的连接失败。这里把容错规则钉死。
- */
 const endpoint_1 = require("./endpoint");
 let pass = 0;
 let fail = 0;
@@ -46,3 +40,6 @@ console.log(`serverurl.test: ${pass} passed, ${fail} failed`);
 if (fail > 0) {
     throw new Error('服务端地址解析测试失败');
 }
+// 显式退出：node 的事件循环可能被 mock 网络句柄/定时器拉住，不退出会让
+// run.sh（set -e 顺序执行）永远卡在本文件，后续测试根本不跑。
+process.exit(0);

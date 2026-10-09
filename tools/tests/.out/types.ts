@@ -56,6 +56,14 @@ export interface HistoryIteration {
   tools?: ToolProgress[];
   tools_folded?: boolean;
   created_at?: string;
+  /**
+   * **客户端累积**的流式文本（服务端 `stream_content` 检查点 / `stream_delta` 增量合成）。
+   * 与 `content`（权威快照）分开存放：流式期间只有它更新，收尾时才由 `content` 接管。
+   * 语义见 core/streammerge.ets。
+   */
+  stream_text?: string;
+  /** 同上，推理流。 */
+  stream_reasoning?: string;
 }
 
 /** 历史消息行。 */
@@ -97,6 +105,22 @@ export interface ProgressEvent {
   /** ask_user 事件的载荷字段（服务端 ProgressEvent 的 Questions/RequestID） */
   questions?: AskQuestion[];
   request_id?: string;
+
+  // ── 流式字段（**服务端 protocol/events.go 的实际命名**；合并语义见 core/streammerge.ets）──
+  /** 累积累积文本的**检查点**（非空 ⇒ 整体替换累积值） */
+  stream_content?: string;
+  /** **增量**文本（追加到累积值） */
+  stream_delta?: string;
+  /** 推理流的检查点 与 增量 */
+  reasoning_stream_content?: string;
+  reasoning_stream_delta?: string;
+  /** 在飞工具（流式事件用这个字段名） */
+  streaming_tools?: ToolProgress[];
+  // ── 结构化快照里的工具（progress_structured / history）──
+  active_tools?: ToolProgress[];
+  completed_tools?: ToolProgress[];
+  tool_calls?: ToolProgress[];
+  tools_folded?: boolean;
 }
 
 /** 会话生命周期事件（`session` 事件载荷）。 */
@@ -147,7 +171,16 @@ export class SseEventType {
  * ArkUI 按 key 复用列表项 —— 若原地改字段而 key 不变，框架认为该项无需重建，
  * 界面就会显示陈旧/半新半旧的内容（"整个渲染错乱"的典型来源）。
  */
-export class ChatRow {
+/**
+ * 「有迭代数组」这一最小能力，供 core/streammerge.ets 的纯函数使用。
+ * ⚠️ ArkTS 禁止结构化类型（`arkts-no-structural-typing`）：参数类型必须是**具名**接口，
+ * 且传参方必须**显式 implements**（仅字段形状相同不算）。
+ */
+export interface IterList {
+  iterations: HistoryIteration[];
+}
+
+export class ChatRow implements IterList {
   id: string = '';
   role: string = 'assistant';
   turnID: number = 0;

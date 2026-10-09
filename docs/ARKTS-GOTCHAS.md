@@ -218,3 +218,33 @@ uiCtx.setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);   // 导入自 '@kit.ArkUI
 
 **取舍留档**：没用"横向滚动"（Web 端的做法），因为滚动容器需要确定的宽/高约束，
 在内容定高的列里可能塌成 0 —— 在没有真机画面确认前不引入这类结构性不确定性。
+
+## 17. 进度事件必须分**两条路**处理：`stream_content`（流式）与 `progress_structured`（结构化）
+
+**服务端契约**（`channel/web/web_hub.go` 的 `normalizeSSEEvent` + `isStreamOnlyProgress`；`protocol/ws.go`）：
+
+- 只带流式字段的消息被**改型为 `stream_content`**，且此时 **`iteration == 0`、`content == ""`、工具全空**；
+- 流式字段名：`stream_content`（**检查点**，非空即整体替换）· `stream_delta`（**增量**，追加）·
+  `reasoning_stream_content` · `reasoning_stream_delta` · `streaming_tools`；
+- 结构化字段：`iteration` · `content` · `reasoning` · `active_tools` · `completed_tools` · `iteration_history`。
+
+**错误做法**（本工程真实踩过）：把两类当同一种，"整体替换"迭代对象并按 `iteration ?? 0` 写入 ⇒ 真机上：
+
+1. 流式文本**永远读不到**（字段名不对：读 `content` 而服务端发 `stream_content`）；
+2. **每个流式帧都清空该迭代的 `tools`/`reasoning`** ⇒ 工具 pill 一闪就没；
+3. 冒出**幽灵「迭代 0」**块。
+
+⇒ 用户看到的就是"**渲染整个都是错乱的、完全用不了**"（且 `loadHistory` 后一切正常 ⇒ 极易误判成布局问题）。
+
+**正确做法**（`core/streammerge.ets`，纯函数 + `tools/tests/streammerge.test.ts` 36 条）：
+
+- 流式帧 → 归到**在飞迭代**（号最大者；没有则建 1，**绝不写 0**）；增量追加、检查点替换；
+  工具**只增不减**（不带工具时绝不清空）；
+- 结构化帧 → 按号 upsert，**只更新"事件里确实带了"的字段**；权威 `content`/`reasoning` 到达时清掉流式缓冲；
+- 渲染统一走 `displayContent(it)` / `displayReasoning(it)`（流式缓冲优先，收尾落权威正文）。
+
+## 18. ArkTS 禁止结构化类型：接口参数要求**显式 implements**
+
+`arkts-no-structural-typing`：字段形状相同**不算**类型兼容。把 `ChatRow` 传给
+`f(row: { iterations: HistoryIteration[] })` 这类参数会直接编译失败（且**匿名对象类型本身也不允许**）。
+修法：具名接口（本工程 `IterList` 放 `types.ets`）+ 传参方**显式** `class ChatRow implements IterList`。

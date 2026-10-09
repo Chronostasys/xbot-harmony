@@ -6,6 +6,7 @@ import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
 import { ChatStore } from '../core/store';
 import { mdCacheStats, MdCacheStats } from '../core/markdown';
+import { displayContent, displayReasoning } from '../core/streammerge';
 import {
   AskOption,
   AskQuestion,
@@ -1133,7 +1134,7 @@ struct Index {
     Column({ space: 6 }) {
       Row() {
         Text(`迭代 ${it.iteration}`).fontSize(11).fontColor('#6B7280').layoutWeight(1)
-        if (it.reasoning !== undefined && it.reasoning.length > 0 && this.showReasoning) {
+        if (displayReasoning(it).length > 0 && this.showReasoning) {
           Text(this.openReasonKey === `${row.id}-${it.iteration}` ? '收起思考' : '展开思考')
             .fontSize(11).fontColor('#93C5FD')
             .onClick(() => {
@@ -1144,17 +1145,17 @@ struct Index {
       }
       .width('100%')
 
-      if (this.showReasoning && it.reasoning !== undefined && it.reasoning.length > 0
+      if (this.showReasoning && displayReasoning(it).length > 0
         && this.openReasonKey === `${row.id}-${it.iteration}`) {
-        Text(it.reasoning)
+        Text(displayReasoning(it))
           .wordBreak(WordBreak.BREAK_ALL)
           .fontSize(13).fontColor('#9CA3AF').padding(8).width('100%')
           .backgroundColor('#0F172A').borderRadius(8)
           .copyOption(CopyOptions.LocalDevice)
       }
 
-      if (it.content !== undefined && it.content.length > 0) {
-        MarkdownView({ text: it.content, onImage: (src: string) => {
+      if (displayContent(it).length > 0) {
+        MarkdownView({ text: displayContent(it), onImage: (src: string) => {
           this.openImage(src);
         } })
       }

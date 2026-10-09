@@ -1,12 +1,5 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-/**
- * XbotHttp 登录链路集成测试（Linux 上真跑 HTTP）。
- *
- * 复现 2026-10-09 真机 bug：服务端登录下发 `Set-Cookie`，而鸿蒙把同名头给成**数组**，
- * 我按 string 声明后直接 `.split()` ⇒ "undefined is not callable"。
- * 这里用 mock kit（数组形态）+ mock 服务端把该场景钉死；字符串形态也一并覆盖。
- */
 const http_1 = require("./http");
 const nodeHttp = require('http');
 let pass = 0;
@@ -111,3 +104,6 @@ async function main() {
     }
 }
 main();
+// 显式退出：node 的事件循环可能被 mock 网络句柄/定时器拉住，不退出会让
+// run.sh（set -e 顺序执行）永远卡在本文件，后续测试根本不跑。
+process.exit(0);

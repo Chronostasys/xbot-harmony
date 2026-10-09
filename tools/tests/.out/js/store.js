@@ -16,6 +16,7 @@ exports.toolsSummary = toolsSummary;
  */
 const http_1 = require("./http");
 const sse_1 = require("./sse");
+const streammerge_1 = require("./streammerge");
 const types_1 = require("./types");
 class ChatStore {
     /** 标记行内容已变（ForEach key 随 rev 变化 ⇒ 强制重建该项，避免显示陈旧内容）。 */
@@ -488,7 +489,16 @@ class ChatStore {
         this.rows.push(r);
         return r;
     }
-    /** 结构化进度：seq 是 per-Run 水位线（丢弃重放），迭代按号 union。 */
+    /**
+     * 进度事件落地：**流式与结构化两条路径语义完全不同**（服务端契约见 core/streammerge.ets）。
+     *
+     * - 流式帧（`stream_content`）：按契约**不带迭代号、不带工具**（`isStreamOnlyProgress` 要求
+     *   `iteration==0 && content=="" && 无 tools`）⇒ 必须归到**在飞迭代**，且**只增不减**地累积；
+     *   若当成结构化事件处理，就会造出幽灵「迭代 0」并清空该迭代的 tools/reasoning（真机表现：
+     *   工具 pill 一闪就没 + live 区空白 = "渲染整个都是错乱的、完全用不了"）。
+     * - 结构化帧（`progress_structured`）：迭代按号 upsert，**缺字段时保留旧值**（绝不清空）。
+     * - `seq` 是 per-Run 水位线，用于丢弃**纯重放**；流式帧没有 seq，故只在 `seq > 0` 时判定。
+     */
     applyProgress(p) {
         const seq = p.seq !== undefined ? p.seq : 0;
         if (seq > 0 && seq <= this.lastSeq) {
@@ -497,44 +507,39 @@ class ChatStore {
         if (seq > 0) {
             this.lastSeq = seq;
         }
-        const it = p.iteration !== undefined ? p.iteration : 0;
         const row = this.liveRow();
-        const iter = {
-            iteration: it,
-            content: p.content !== undefined ? p.content : '',
-            reasoning: p.reasoning !== undefined ? p.reasoning : '',
-            tools: p.tools !== undefined ? p.tools : [],
-        };
-        let replaced = false;
-        for (let i = 0; i < row.iterations.length; i++) {
-            if (row.iterations[i].iteration === it) {
-                row.iterations[i] = iter;
-                replaced = true;
-                break;
-            }
+        if ((0, streammerge_1.isStreamOnly)(p)) {
+            (0, streammerge_1.applyStreamFrame)((0, streammerge_1.liveIterationOf)(row), p);
+            this.touch(row);
+            this.onUpdate();
+            return;
         }
-        if (!replaced) {
-            row.iterations.push(iter);
-        }
-        this.touch(row);
+        const itNum = p.iteration !== undefined && p.iteration > 0
+            ? p.iteration : (0, streammerge_1.liveIterationOf)(row).iteration;
+        (0, streammerge_1.applyStructured)((0, streammerge_1.upsertIteration)(row, itNum), p);
+        // 收尾快照携带整段迭代历史：按号 upsert，只覆盖"确实带了内容"的字段
         const hist = p.iteration_history;
         if (hist !== undefined) {
-            this.touch(row);
             for (let i = 0; i < hist.length; i++) {
                 const h = hist[i];
-                let found = false;
-                for (let j = 0; j < row.iterations.length; j++) {
-                    if (row.iterations[j].iteration === h.iteration) {
-                        row.iterations[j] = h;
-                        found = true;
-                        break;
-                    }
+                const target = (0, streammerge_1.upsertIteration)(row, h.iteration);
+                if (h.content !== undefined && h.content.length > 0) {
+                    target.content = h.content;
+                    target.stream_text = '';
                 }
-                if (!found) {
-                    row.iterations.push(h);
+                if (h.reasoning !== undefined && h.reasoning.length > 0) {
+                    target.reasoning = h.reasoning;
+                    target.stream_reasoning = '';
+                }
+                if (h.tools !== undefined && h.tools.length > 0) {
+                    target.tools = (0, streammerge_1.mergeTools)(target.tools, h.tools);
+                }
+                if (h.tools_folded === true) {
+                    target.tools_folded = true;
                 }
             }
         }
+        this.touch(row);
         this.onUpdate();
     }
     onFinalText(env) {

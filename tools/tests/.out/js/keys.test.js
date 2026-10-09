@@ -1,13 +1,5 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-/**
- * 渲染 key 的稳定性守护。
- *
- * 为什么必须有：ArkUI 的 ForEach **按 key 复用组件** ——
- *   · key 重复 ⇒ 复用/错位 ⇒ 整个渲染错乱；
- *   · key 随内容漂移（例如用下标）⇒ 流式增长时旧块被当成新块重建 ⇒ 抖动/错乱。
- * 这里把 MdBlock.key 的两条性质钉死：**同一内容两次解析 key 相同** 且 **追加内容不影响前序块的 key**。
- */
 const markdown_1 = require("./markdown");
 let pass = 0;
 let fail = 0;
@@ -41,3 +33,6 @@ console.log(`keys.test: ${pass} passed, ${fail} failed`);
 if (fail > 0) {
     throw new Error('渲染 key 稳定性测试失败');
 }
+// 显式退出：node 的事件循环可能被 mock 网络句柄/定时器拉住，不退出会让
+// run.sh（set -e 顺序执行）永远卡在本文件，后续测试根本不跑。
+process.exit(0);

@@ -1,12 +1,5 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-/**
- * uploadBytes（自检截图上传）的 multipart 编码测试。
- *
- * 为什么要测：ArkTS 没有 FormData，这段 multipart 是**手搓**的 ——
- * 若 boundary/part 头/字节拼接有误，上传会静默失败（真机上只表现为"走查失败"）。
- * 这里用 mock 服务端**真实解析**请求体，断言字段名/文件名/字节完全正确（二进制安全）。
- */
 const http_1 = require("./http");
 const nodeHttp = require('http');
 let pass = 0;
@@ -97,3 +90,6 @@ async function main() {
     }
 }
 main();
+// 显式退出：node 的事件循环可能被 mock 网络句柄/定时器拉住，不退出会让
+// run.sh（set -e 顺序执行）永远卡在本文件，后续测试根本不跑。
+process.exit(0);

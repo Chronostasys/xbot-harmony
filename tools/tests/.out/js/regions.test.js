@@ -1,15 +1,5 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-/**
- * 「更早的展示区域」按需取回（服务端折叠视图）守护。
- *
- * 背景（serverapp/callbacks.go:386）：REST 历史是**折叠视图** —— 每个 turn 只下发尾部
- * `HistoryRegionWindow = 100` 个展示区域 + `regions_before` 声明，更早的必须用
- * `POST /api/regions {channel,chat_id,turn_id,before_iteration,region_limit}` 取回。
- * 若客户端忽略 `regions_before`：用户"看不到更早的迭代"，历史不完整。
- *
- * 本测试钉死语义：前插 + 去重 + `regions_before` 递减至 0 + 反复可加载。
- */
 const store_1 = require("./store");
 const nodeHttp = require('http');
 let pass = 0;
@@ -98,3 +88,6 @@ async function main() {
     }
 }
 main();
+// 显式退出：node 的事件循环可能被 mock 网络句柄/定时器拉住，不退出会让
+// run.sh（set -e 顺序执行）永远卡在本文件，后续测试根本不跑。
+process.exit(0);

@@ -141,3 +141,13 @@ XBOT_E2E_BASE=http://127.0.0.1:16000 XBOT_E2E_USER=<u> XBOT_E2E_PASS=<p> tools/t
 
 报告每个会话的行数/迭代数/单行最多迭代/实际渲染块数/最大单块字符数，并断言"迭代号唯一且升序、
 渲染块数 ≤ 16"。不设 env 时自动跳过，CI 无依赖。详见 `docs/RENDER-LOAD-MEASUREMENT.md`。
+
+## ⚠️ 测试文件必须**显式 `process.exit`**
+
+`tools/tests/run.sh` 用 `set -e` **顺序**执行：任何一个测试文件若进程不退出（开了 mock HTTP server /
+`ChatStore`（含网络句柄与定时器）等），脚本会**永远卡在该文件**，**后面的测试根本不会跑**。
+
+曾长期被掩盖为"看起来全绿"：套件在 `regions` 处卡死，`rowids`/`serverurl`/`streammerge`/`table_layout`/`upload`
+全都没执行（真实断言数 44 → 修好后 **145**）。
+
+契约：**每个** `*.test.ts` 结尾都必须 `process.exit(...)`（失败路径 `1`、成功 `0`）。

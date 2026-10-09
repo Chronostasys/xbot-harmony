@@ -1,12 +1,5 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-/**
- * Markdown 解析器行为测试（原生渲染的地基，必须有守护）。
- *
- * 运行：tools/tests/run.sh
- * 为什么放在仓库里：`core/markdown.ets` 是纯 TS，可脱离 SDK 直接跑；
- * 渲染层（ArkUI）只能在真机/构建里验，但**解析语义**必须在这里锁死。
- */
 const markdown_1 = require("./markdown");
 let pass = 0;
 let fail = 0;
@@ -55,3 +48,6 @@ console.log(`markdown.test: ${pass} passed, ${fail} failed`);
 if (fail > 0) {
     throw new Error('markdown 解析器测试失败');
 }
+// 显式退出：node 的事件循环可能被 mock 网络句柄/定时器拉住，不退出会让
+// run.sh（set -e 顺序执行）永远卡在本文件，后续测试根本不跑。
+process.exit(0);

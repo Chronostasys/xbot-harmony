@@ -8,6 +8,7 @@
  *
  * 本测试钉死语义：前插 + 去重 + `regions_before` 递减至 0 + 反复可加载。
  */
+declare const process: { exit: (c: number) => void };
 import { ChatStore } from '../../entry/src/main/ets/core/store';
 import { ChatRow } from '../../entry/src/main/ets/core/types';
 
@@ -101,3 +102,7 @@ async function main(): Promise<void> {
 }
 
 main();
+
+// 显式退出：node 的事件循环可能被 mock 网络句柄/定时器拉住，不退出会让
+// run.sh（set -e 顺序执行）永远卡在本文件，后续测试根本不跑。
+process.exit(0);

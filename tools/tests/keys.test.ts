@@ -6,6 +6,7 @@
  *   · key 随内容漂移（例如用下标）⇒ 流式增长时旧块被当成新块重建 ⇒ 抖动/错乱。
  * 这里把 MdBlock.key 的两条性质钉死：**同一内容两次解析 key 相同** 且 **追加内容不影响前序块的 key**。
  */
+declare const process: { exit: (c: number) => void };
 import { parseMarkdown, MdBlock } from '../../entry/src/main/ets/core/markdown';
 
 let pass = 0;
@@ -48,3 +49,7 @@ console.log(`keys.test: ${pass} passed, ${fail} failed`);
 if (fail > 0) {
   throw new Error('渲染 key 稳定性测试失败');
 }
+
+// 显式退出：node 的事件循环可能被 mock 网络句柄/定时器拉住，不退出会让
+// run.sh（set -e 顺序执行）永远卡在本文件，后续测试根本不跑。
+process.exit(0);

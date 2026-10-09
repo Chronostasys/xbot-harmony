@@ -87,5 +87,9 @@ async function main() {
     if (fail > 0) {
         throw new Error('行 id 唯一性测试失败');
     }
+    // ⚠️ 必须显式退出：本测试开了真实 HTTP mock server + ChatStore（含网络句柄）⇒
+    // 不 exit 时 node 事件循环不退出，run.sh（set -e 顺序执行）会**永远卡在这一步**，
+    // 后面的测试文件根本不会跑（曾长期掩盖：看似"全绿"实则后半套件未执行）。
+    process.exit(0);
 }
 main();
