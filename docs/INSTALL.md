@@ -15,8 +15,8 @@
 ## 0.1 已有产物（本机已构建，2026-10-09）
 
 ```
-/home/smith/src/xbot-harmony/dist/xbot-harmony-debug-unsigned.hap     405,890 B
-/home/smith/src/xbot-harmony/dist/xbot-harmony-release-unsigned.hap   187,483 B
+/home/smith/src/xbot-harmony/dist/xbot-harmony-debug-unsigned.hap     405,839 B
+/home/smith/src/xbot-harmony/dist/xbot-harmony-release-unsigned.hap   187,432 B
 ```
 
 - `bundleName = com.chronostasys.xbot`；`minAPIVersion = 50005017` ⇒ **需 HarmonyOS ≥ 5.0.5（API 17）**
