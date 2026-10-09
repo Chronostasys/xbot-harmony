@@ -1,0 +1,16 @@
+/node_modules
+/oh_modules
+**/oh_modules
+/.hvigor
+**/.hvigor
+/build
+**/build
+/.idea
+**/.idea
+/.cxx
+/local.properties
+*.iml
+.DS_Store
+/dist
+/.clangd
+/.clang-format

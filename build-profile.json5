@@ -1,0 +1,29 @@
+{
+  "app": {
+    // 未签名构建（CI 产出 *-unsigned.hap）。要签名请在本地/CI 注入 signingConfigs，
+    // 见 docs/CI.md。此处**故意留空**：带本机绝对路径的签名配置在容器里必然失败。
+    "signingConfigs": [],
+    "products": [
+      {
+        "name": "default",
+        // ⚠️ API 26 工程必须写 "26.0.0"（不能写 26.0.0(26) / 26），见 docs/CI.md
+        "compatibleSdkVersion": "26.0.0",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
+      }
+    ],
+    "buildModeSet": [{ "name": "debug" }, { "name": "release" }]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [{ "name": "default", "applyToProducts": ["default"] }]
+    }
+  ]
+}

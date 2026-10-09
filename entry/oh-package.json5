@@ -1,0 +1,9 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "xbot HarmonyOS entry module (ArkUI shell + ArkWeb surfaces)",
+  "main": "",
+  "author": "Chronostasys",
+  "license": "MIT",
+  "dependencies": {}
+}

@@ -1,0 +1,118 @@
+name: Sign & Release
+
+# tag（v*）触发：构建 → **签名** → 发布带签名 HAP 的 GitHub Release。
+#
+# 签名在 Linux 容器里用官方 `hap-sign-tool.jar`（Java）完成 —— 不需要 DevEco Studio。
+# 需要的 Secrets（缺任一项则本 workflow **干净跳过**，不报红）：
+#   SIGNING_KEY_B64       密钥库 .p12 的 base64
+#   SIGNING_CERT_B64      证书 .cer 的 base64
+#   SIGNING_PROFILE_B64   Profile .p7b 的 base64
+#   SIGNING_KEY_PASSWORD  密钥库口令
+#   SIGNING_KEY_ALIAS     密钥别名（默认 xbot）
+#   SIGNING_PROFILE_PASSWORD  Profile 口令（无则留空）
+# 生成这些材料的步骤见 docs/CI.md「签名」。
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CI_IMAGE: ghcr.io/dalongzhuazi/harmonyos-ci:api26r
+
+jobs:
+  preflight:
+    name: 判定是否具备签名材料
+    runs-on: ubuntu-latest
+    outputs:
+      can_sign: ${{ steps.check.outputs.can_sign }}
+    steps:
+      - id: check
+        env:
+          K: ${{ secrets.SIGNING_KEY_B64 }}
+          C: ${{ secrets.SIGNING_CERT_B64 }}
+          P: ${{ secrets.SIGNING_PROFILE_B64 }}
+        run: |
+          if [ -n "$K" ] && [ -n "$C" ] && [ -n "$P" ]; then
+            echo "can_sign=true" >> "$GITHUB_OUTPUT"
+            echo "签名材料齐全"
+          else
+            echo "can_sign=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::未配置签名 Secrets，跳过签名发布（仅构建未签名 HAP）"
+          fi
+
+  release:
+    needs: preflight
+    if: needs.preflight.outputs.can_sign == 'true'
+    name: 构建 + 签名 + 发布
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ env.CI_IMAGE }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+      SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+      SIGNING_PROFILE_PASSWORD: ${{ secrets.SIGNING_PROFILE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 还原签名材料
+        env:
+          SIGNING_KEY_B64: ${{ secrets.SIGNING_KEY_B64 }}
+          SIGNING_CERT_B64: ${{ secrets.SIGNING_CERT_B64 }}
+          SIGNING_PROFILE_B64: ${{ secrets.SIGNING_PROFILE_B64 }}
+        run: |
+          set -eu
+          mkdir -p .signing
+          echo "$SIGNING_KEY_B64" | base64 -d > .signing/xbot.p12
+          echo "$SIGNING_CERT_B64" | base64 -d > .signing/xbot.cer
+          echo "$SIGNING_PROFILE_B64" | base64 -d > .signing/xbot.p7b
+          ls -al .signing
+
+      - name: 安装依赖
+        run: ohpm install --all
+
+      - name: 构建 release HAP
+        run: hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon --stacktrace
+
+      - name: 签名（hap-sign-tool.jar）
+        run: |
+          set -eu
+          TOOL=$(find / -name 'hap-sign-tool.jar' 2>/dev/null | head -1)
+          [ -n "$TOOL" ] || { echo "::error::镜像内未找到 hap-sign-tool.jar"; exit 1; }
+          echo "sign tool: $TOOL"
+          mkdir -p dist
+          shopt -s nullglob
+          for h in $(find . -type f -name '*-unsigned.hap' -path '*/outputs/*'); do
+            out="dist/$(basename "${h%-unsigned.hap}").hap"
+            java -jar "$TOOL" sign-app \
+              -mode localSign \
+              -keyAlias "${SIGNING_KEY_ALIAS:-xbot}" \
+              -signAlg SHA256withECDSA \
+              -appCertFile .signing/xbot.cer \
+              -profileFile .signing/xbot.p7b \
+              -inFile "$h" \
+              -keystoreFile .signing/xbot.p12 \
+              -outFile "$out" \
+              -keyPwd "$SIGNING_KEY_PASSWORD" \
+              -keystorePwd "$SIGNING_KEY_PASSWORD" \
+              ${SIGNING_PROFILE_PASSWORD:+-profilePwd "$SIGNING_PROFILE_PASSWORD"}
+            echo "signed: $out"
+            java -jar "$TOOL" verify-app -inFile "$out" -outFile dist/verify.json || true
+          done
+          ls -al dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.hap
+          generate_release_notes: true
