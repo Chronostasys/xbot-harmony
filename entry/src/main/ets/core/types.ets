@@ -94,6 +94,9 @@ export interface ProgressEvent {
   chat_id?: string;
   channel?: string;
   turn_id?: number;
+  /** ask_user 事件的载荷字段（服务端 ProgressEvent 的 Questions/RequestID） */
+  questions?: AskQuestion[];
+  request_id?: string;
 }
 
 /** 会话生命周期事件（`session` 事件载荷）。 */
@@ -145,4 +148,69 @@ export class ChatRow {
   content: string = '';
   iterations: HistoryIteration[] = [];
   isLive: boolean = false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// M2 新增：AskUser / 队列 / 插件面板 / 工具详情
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface AskOption {
+  label?: string;
+  description?: string;
+}
+
+export interface AskQuestion {
+  id?: string;
+  header?: string;
+  question?: string;
+  options?: AskOption[];
+  multi_select?: boolean;
+  allow_other?: boolean;
+}
+
+/** `ask_user` 事件的载荷（对应服务端 ProgressEvent 的 Questions/RequestID）。 */
+export interface AskUserPrompt {
+  request_id?: string;
+  questions?: AskQuestion[];
+}
+
+export interface QueueItem {
+  msg_id?: string;
+  id?: string;
+  content?: string;
+  text?: string;
+  created_at?: string;
+}
+
+export interface QueueListData {
+  items?: QueueItem[];
+  queue?: QueueItem[];
+}
+
+/** `web_plugin_list`（RPC）返回的 web 插件（字段做过兼容，服务端可能用 id/plugin_id）。 */
+export interface WebPluginInfo {
+  id?: string;
+  plugin_id?: string;
+  name?: string;
+  label?: string;
+  entry?: string;
+  module_url?: string;
+  icon?: string;
+}
+
+export interface WebPluginListData {
+  plugins?: WebPluginInfo[];
+}
+
+/** `/api/iteration_detail` 的 data。 */
+export interface IterationDetailData {
+  iteration?: HistoryIteration;
+}
+
+/** UI 用的插件面板条目（id/名字/可打开的 URL）。 */
+export class PluginPanelInfo {
+  id: string = '';
+  name: string = '';
+  url: string = '';
+  icon: string = '';
 }

@@ -1,4 +1,5 @@
 import { webview } from '@kit.ArkWeb';
+import { BusinessError } from '@kit.BasicServicesKit';
 
 /**
  * WebSurface —— **全能力逃生舱**（ArkWeb / `Web` 组件）。

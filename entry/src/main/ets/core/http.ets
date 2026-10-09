@@ -145,6 +145,42 @@ export class XbotHttp {
     return JSON.parse(raw) as T;
   }
 
+  /**
+   * GET 二进制（图片附件/头像等）。
+   *
+   * 为什么必须自己取：`/api/files/download`、`/api/files/viewimg/*` 都是 **cookie 鉴权**，
+   * 而 ArkUI 的 `Image(url)` 不会带我们的会话 cookie、ArkWeb 也不是同一个 cookie jar
+   * ⇒ 用本客户端的 cookie 拉字节，再交给 `image.createImageSource()` 解码成 PixelMap。
+   */
+  async getBinary(urlOrPath: string): Promise<ArrayBuffer | null> {
+    const url: string = urlOrPath.startsWith('http')
+      ? urlOrPath
+      : this.baseUrl + (urlOrPath.startsWith('/') ? urlOrPath : '/' + urlOrPath);
+    const req: http.HttpRequest = http.createHttp();
+    try {
+      const headers: Record<string, string> = {};
+      const cookie: string = this.cookieHeader();
+      if (cookie.length > 0) {
+        headers['Cookie'] = cookie;
+      }
+      const resp: http.HttpResponse = await req.request(url, {
+        method: http.RequestMethod.GET,
+        header: headers,
+        expectDataType: http.HttpDataType.ARRAY_BUFFER,
+        connectTimeout: 15000,
+        readTimeout: 60000,
+      });
+      if (resp.responseCode !== 200) {
+        return null;
+      }
+      return resp.result instanceof ArrayBuffer ? resp.result as ArrayBuffer : null;
+    } catch (e) {
+      return null;
+    } finally {
+      req.destroy();
+    }
+  }
+
   // ── 鉴权 ────────────────────────────────────────────────────────────────────
 
   async login(username: string, password: string): Promise<void> {

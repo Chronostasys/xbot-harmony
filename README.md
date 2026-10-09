@@ -22,21 +22,44 @@ xbot 前端有三类能力**结构性无法用 ArkTS 表达**：
 
 > ⚠️ 诚实说明：ArkWeb 与系统浏览器**同引擎**，它解决的是"能力可得性"，**不是渲染性能**。
 
-## 2. 现状（M1）
+## 2. 功能（全功能版）
 
-已实现（原生）：
+**原生 ArkUI 渲染：**
 
-- 登录 / 注册（`/api/auth/*`，**Cookie 会话**，持久化后续冷启动免登录）
-- 会话列表（`/api/session-tree`）、新建会话（`/api/chats/create`）、切换会话
-- 历史加载（`/api/history`，含 `active_progress` 恢复）
-- 发送（`/api/message`）/ 取消（`/api/cancel`）
-- **SSE 实时流**（`/api/sse`：`progress_structured` / `stream_content` / `text` / `session` /
-  `user_echo` / `heartbeat` / `resync_required`），ArkTS 自研 SSE 客户端（无 `EventSource`）
-- 迭代渲染：思考(T) / 正文(O) / 工具 pill(C)，运行中/成功/失败的视觉区分
-- **ArkWeb 逃生舱**：一键打开服务端 Web UI（插件面板 / GenUI / 终端 / 编辑器）
+- 登录 / 注册 / 冷启动免登录（Cookie 会话；`/api/auth/*`）
+- 会话：列表、新建、**切换、改名、删除**（`/api/session-tree`、`/api/chats/*`）
+- 消息：历史加载 + **上拉加载更早**（`/api/history` 的 `before_id` 游标）+ `active_progress` 恢复
+- 发送 / 取消（`/api/message`、`/api/cancel`）
+- **原生 Markdown 渲染**：标题 / 段落 / 有序·无序列表 / 围栏代码块（可复制）/ 引用 / 分隔线 / 表格；
+  行内粗体、斜体、删除线、行内码、链接、图片占位（点击查看）
+- 迭代渲染：思考(T) / 正文(O) / 工具 pill(C)，运行·成功·失败三态；
+  **点击工具 pill 展开 summary / 参数 / 输出**（折叠视图下按需拉 `/api/iteration_detail`）
+- **AskUser 弹层**：单选 / 多选 / 其他自定义 + 取消（`ask_user`、`/api/ask_user/respond`）
+- **待发队列**：列表 / 取消 / 上移下移（`/api/queue/*`，`queue_state` 事件驱动）
+- **设置**：服务端 / 用户名、显示思考过程开关、退出登录
+- **图片查看**：cookie 鉴权端点自行取字节解码（`Image(pixelMap)`），不走 WebView
 
-尚未实现：见 [docs/ROADMAP.md](docs/ROADMAP.md)（M2 起：seq 水位线、窗口化、markdown 渲染、
-AskUser、队列、设置、插件面板原生入口……）。
+**ArkWeb 逃生舱（能力 100% 保留）：**
+
+- 插件面板（逐个插件打开其 `web.entry`）
+- GenUI（`display_html` 的运行时 TSX 求值）
+- 终端（xterm + PTY）、代码编辑器（monaco）
+- 一键打开完整 Web UI
+
+**实时链路**：SSE（`/api/sse`）—— ArkTS 自研客户端：`requestInStream` 帧解析、
+`Last-Event-ID` 续传、指数退避重连、`resync_required` 回退 DB 快照、语义 seq 水位线去重。
+
+## 2.1 已构建产物（本机）
+
+```
+dist/xbot-harmony-debug-unsigned.hap     405,890 B   （debug，便于抓日志）
+dist/xbot-harmony-release-unsigned.hap   187,483 B   （release，体积小）
+```
+
+- `bundleName = com.chronostasys.xbot`，`versionName = 1.0.0`
+- **`minAPIVersion = 50005017` ⇒ 需要 HarmonyOS ≥ 5.0.5（API 17）**
+- 目标 SDK：HarmonyOS 5.0.5（官方 command-line-tools 5.0.13.200）
+- ⚠️ **未签名**：直接 `hdc install` 会失败，需先签名（见 docs/INSTALL.md / docs/CI.md）
 
 ## 3. 构建
 

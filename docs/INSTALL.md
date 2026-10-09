@@ -11,6 +11,33 @@
 | B. 本机 DevEco Studio | 一台 Windows/macOS + DevEco Studio | 本机自动签名后直接运行 |
 | C. 纯命令行 + `hdc` | 已签名的 HAP（来自 A）+ 手机开启开发者模式 | `hdc install` |
 
+
+## 0.1 已有产物（本机已构建，2026-10-09）
+
+```
+/home/smith/src/xbot-harmony/dist/xbot-harmony-debug-unsigned.hap     405,890 B
+/home/smith/src/xbot-harmony/dist/xbot-harmony-release-unsigned.hap   187,483 B
+```
+
+- `bundleName = com.chronostasys.xbot`；`minAPIVersion = 50005017` ⇒ **需 HarmonyOS ≥ 5.0.5（API 17）**
+- 构建用 SDK：HarmonyOS 5.0.5（官方 command-line-tools，装在本机 `/home/smith/ohos-cli/command-line-tools`）
+- ⚠️ **未签名**：`hdc install` 会报签名错误。两条路：
+  1. **DevEco Studio 自动签名**（最省事，需 Win/Mac）：打开本工程 → 「自动签名」→ 运行/打包，IDE 会生成签名后的 HAP；
+  2. **命令行签名**（本机即可，工具已就位）：
+
+```bash
+TOOL=/home/smith/ohos-cli/command-line-tools/sdk/default/openharmony/toolchains/lib/hap-sign-tool.jar
+java -jar "$TOOL" sign-app \
+  -mode localSign -signAlg SHA256withECDSA -keyAlias xbot \
+  -keystoreFile 你的.p12 -keystorePwd 口令 -keyPwd 口令 \
+  -appCertFile 你的.cer -profileFile 你的.p7b \
+  -inFile  dist/xbot-harmony-release-unsigned.hap \
+  -outFile dist/xbot-harmony-release.hap
+```
+
+签名材料（`.p12/.cer/.p7b`）来自华为开发者账号（实名）+ AppGallery Connect；调试证书需登记设备 UDID。
+把三者 base64 写进仓库 Secrets 则可由 CI 产出签名包（见 docs/CI.md）。
+
 ## 1. 获取放行（只有方式 A/B 需要）
 
 1. **华为开发者账号**：https://developer.huawei.com/consumer/cn/ → 实名认证。

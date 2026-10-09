@@ -28,7 +28,7 @@ defaults:
 
 env:
   SDK_TAG: 5.0.13.200
-  COMPATIBLE_SDK: 5.0.0(12)
+  COMPATIBLE_SDK: ""
   CLI_DIR: ${{ github.workspace }}/.ohos-cli/command-line-tools
 
 jobs:
@@ -80,13 +80,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .ohos-cli && cd .ohos-cli
-          gh release download "$SDK_TAG" -R ErBWs/ohos-sdk -p 'ohos-sdk-linux-amd64.tar.gz.*' --clobber
-          cat ohos-sdk-linux-amd64.tar.gz.* > sdk.tar.gz
-          if [ -f ohos-sdk-linux-amd64.tar.gz.sha256 ]; then
-            sha256sum -c ohos-sdk-linux-amd64.tar.gz.sha256 || echo "::warning::sha256 校验失败"
-          fi
-          tar -xzf sdk.tar.gz
-          rm -f sdk.tar.gz ohos-sdk-linux-amd64.tar.gz.*
+          gh release download "$SDK_TAG" -R ErBWs/ohos-sdk -p 'ohos-sdk-linux-amd64.tar.gz.*'
+          cat ohos-sdk-linux-amd64.tar.gz.aa ohos-sdk-linux-amd64.tar.gz.ab > ohos-sdk-linux-amd64.tar.gz
+          sha256sum -c ohos-sdk-linux-amd64.tar.gz.sha256
+          tar -xzf ohos-sdk-linux-amd64.tar.gz
+          rm -f ohos-sdk-linux-amd64.tar.gz ohos-sdk-linux-amd64.tar.gz.aa ohos-sdk-linux-amd64.tar.gz.ab
 
       - name: 还原签名材料
         env:
@@ -101,11 +99,25 @@ jobs:
           printf '%s' "$SIGNING_PROFILE_B64" | base64 -d > .signing/xbot.p7b
           ls -al .signing
 
-      - name: 对齐 compatibleSdkVersion
+      - name: 安装 JDK（打包/签名工具是 Java）
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 对齐 SDK 版本（modelVersion + compatible/targetSdkVersion）
         run: |
-          sed -i "s/\"compatibleSdkVersion\": \"[^\"]*\"/\"compatibleSdkVersion\": \"$COMPATIBLE_SDK\"/" build-profile.json5
-          sed -i "s/\"targetSdkVersion\": \"[^\"]*\"/\"targetSdkVersion\": \"$COMPATIBLE_SDK\"/" build-profile.json5
+          PKG=.ohos-cli/command-line-tools/sdk/default/sdk-pkg.json
+          PLATFORM=$(python3 -c "import json;print(json.load(open('$PKG'))['data']['platformVersion'])")
+          API=$(python3 -c "import json;print(json.load(open('$PKG'))['data']['apiVersion'])")
+          echo "SDK: platformVersion=$PLATFORM apiVersion=$API"
+          sed -i "s/\"modelVersion\": \"[^\"]*\"/\"modelVersion\": \"$PLATFORM\"/" oh-package.json5 hvigor/hvigor-config.json5
+          CS="$COMPATIBLE_SDK"
+          if [ -z "$CS" ]; then CS="$PLATFORM($API)"; fi
+          sed -i "s/\"compatibleSdkVersion\": \"[^\"]*\"/\"compatibleSdkVersion\": \"$CS\"/" build-profile.json5
+          sed -i "s/\"targetSdkVersion\": \"[^\"]*\"/\"targetSdkVersion\": \"$CS\"/" build-profile.json5
           echo "sdk.dir=$CLI_DIR/sdk" > local.properties
+          grep -nE "modelVersion" oh-package.json5 hvigor/hvigor-config.json5
           grep -nE "compatibleSdkVersion|targetSdkVersion" build-profile.json5
 
       - name: 安装依赖 + 构建 release HAP

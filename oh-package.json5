@@ -1,6 +1,6 @@
 {
   // ⚠️ 必须与 hvigor/hvigor-config.json5 的 modelVersion 一致（否则 hvigor 报错）
-  "modelVersion": "26.0.0",
+  "modelVersion": "5.0.5",
   "description": "xbot native HarmonyOS client (hybrid: ArkUI core + ArkWeb surfaces)",
   "dependencies": {},
   "devDependencies": {},

@@ -21,9 +21,9 @@ on:
         required: false
         default: '5.0.13.200'
       compatible_sdk:
-        description: 'build-profile 的 compatibleSdkVersion（5.0.0(12) / 5.1.0(18) / 26.0.0）'
+        description: '留空 = 用 SDK 自身版本（如 5.0.5(17)）；也可显式指定'
         required: false
-        default: '5.0.0(12)'
+        default: ''
 
 concurrency:
   group: build-hap-${{ github.ref }}
@@ -96,13 +96,12 @@ jobs:
           set -euo pipefail
           mkdir -p .ohos-cli && cd .ohos-cli
           gh release download "$SDK_TAG" -R ErBWs/ohos-sdk \
-            -p 'ohos-sdk-linux-amd64.tar.gz.*' --clobber
-          cat ohos-sdk-linux-amd64.tar.gz.* > sdk.tar.gz
-          if [ -f ohos-sdk-linux-amd64.tar.gz.sha256 ]; then
-            sha256sum -c ohos-sdk-linux-amd64.tar.gz.sha256 || echo "::warning::sha256 校验失败"
-          fi
-          tar -xzf sdk.tar.gz
-          rm -f sdk.tar.gz ohos-sdk-linux-amd64.tar.gz.*
+            -p 'ohos-sdk-linux-amd64.tar.gz.*'
+          # 分片必须拼成 .sha256 里记录的那个名字，否则 sha256sum -c 找不到文件
+          cat ohos-sdk-linux-amd64.tar.gz.aa ohos-sdk-linux-amd64.tar.gz.ab > ohos-sdk-linux-amd64.tar.gz
+          sha256sum -c ohos-sdk-linux-amd64.tar.gz.sha256
+          tar -xzf ohos-sdk-linux-amd64.tar.gz
+          rm -f ohos-sdk-linux-amd64.tar.gz ohos-sdk-linux-amd64.tar.gz.aa ohos-sdk-linux-amd64.tar.gz.ab
           echo "--- 解包结果 ---"
           ls -la
           find . -maxdepth 3 \( -name hvigorw -o -name ohpm \) | head
@@ -117,10 +116,30 @@ jobs:
           node -v
           java -version 2>&1 | head -2 || true
 
-      - name: 对齐 compatibleSdkVersion
+      - name: 安装 JDK（打包/签名工具是 Java）
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 对齐 SDK 版本（modelVersion + compatible/targetSdkVersion）
+        env:
+          COMPATIBLE_IN: ${{ needs.prepare.outputs.compatible }}
         run: |
-          sed -i "s/\"compatibleSdkVersion\": \"[^\"]*\"/\"compatibleSdkVersion\": \"$COMPATIBLE_SDK\"/" build-profile.json5
-          sed -i "s/\"targetSdkVersion\": \"[^\"]*\"/\"targetSdkVersion\": \"$COMPATIBLE_SDK\"/" build-profile.json5
+          # sdk-pkg.json 是工具链自带的权威版本信息
+          PKG=.ohos-cli/command-line-tools/sdk/default/sdk-pkg.json
+          PLATFORM=$(python3 -c "import json;print(json.load(open('$PKG'))['data']['platformVersion'])")
+          API=$(python3 -c "import json;print(json.load(open('$PKG'))['data']['apiVersion'])")
+          echo "SDK: platformVersion=$PLATFORM apiVersion=$API"
+          # ⛔ modelVersion 必须与工具链一致，否则 hvigor 直接拒绝：
+          #    Unsupported modelVersion of Hvigor X. The supported Hvigor modelVersion is Y
+          sed -i "s/\"modelVersion\": \"[^\"]*\"/\"modelVersion\": \"$PLATFORM\"/" oh-package.json5 hvigor/hvigor-config.json5
+          # compatibleSdkVersion：显式输入优先；留空则用 SDK 自身版本（能装的东西最多）
+          CS="$COMPATIBLE_IN"
+          if [ -z "$CS" ]; then CS="$PLATFORM($API)"; fi
+          sed -i "s/\"compatibleSdkVersion\": \"[^\"]*\"/\"compatibleSdkVersion\": \"$CS\"/" build-profile.json5
+          sed -i "s/\"targetSdkVersion\": \"[^\"]*\"/\"targetSdkVersion\": \"$CS\"/" build-profile.json5
+          grep -nE "modelVersion" oh-package.json5 hvigor/hvigor-config.json5
           grep -nE "compatibleSdkVersion|targetSdkVersion" build-profile.json5
 
       - name: 写 local.properties（hvigor 定位 SDK）
