@@ -55,7 +55,10 @@ jobs:
     name: 构建 + 签名 + 发布
     runs-on: ubuntu-latest
     container:
-      image: ${{ env.CI_IMAGE }}
+      # ⚠️ 这里必须写**字面量**：`container.image` 不允许 `env` 上下文
+      # （actionlint: context "env" is not allowed here），否则整份 workflow 解析失败、
+      # GitHub 侧表现为 0s failure + 只显示文件路径。
+      image: ghcr.io/dalongzhuazi/harmonyos-ci:api26r
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
