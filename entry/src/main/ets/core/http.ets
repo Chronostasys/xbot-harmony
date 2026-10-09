@@ -13,16 +13,98 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { ApiEnvelope } from './types';
 
 /** 响应头里取 Set-Cookie（ArkTS 限制动态取键 ⇒ 只按已知两种拼写直查）。 */
-function pickSetCookie(header: Record<string, string> | undefined): string {
-  if (header === undefined) {
+
+/**
+ * 把一条（或逗号拼接的多条）`Set-Cookie` 拆开。
+ *
+ * ⛔ 刻意**不用正则 lookahead**（`/,\s*(?=[^;=]+=)/`）：lookahead 属高级正则特性，
+ * ArkTS 引擎上不可靠，而这段只在收到 Set-Cookie 时才执行。纯字符串遍历无引擎依赖。
+ */
+function splitSetCookie(raw: string): string[] {
+  const out: string[] = [];
+  let start: number = 0;
+  for (let i = 0; i < raw.length; i++) {
+    if (raw.charAt(i) !== ',') {
+      continue;
+    }
+    let j: number = i + 1;
+    while (j < raw.length && raw.charAt(j) === ' ') {
+      j++;
+    }
+    let k: number = j;
+    let isNext: boolean = false;
+    while (k < raw.length) {
+      const c: string = raw.charAt(k);
+      if (c === '=') {
+        isNext = k > j;
+        break;
+      }
+      if (c === ';' || c === ',' || c === ' ') {
+        break;
+      }
+      k++;
+    }
+    if (isNext) {
+      out.push(raw.substring(start, i));
+      start = i + 1;
+    }
+  }
+  out.push(raw.substring(start));
+  return out;
+}
+
+/** 把 catch 到的值描述清楚（ArkTS 里字段要显式取；带 name/首行调用点便于定位）。 */
+export function describeError(e: Object): string {
+  const err: Error = e as Error;
+  const name: string = err.name !== undefined ? err.name : '';
+  const msg: string = err.message !== undefined ? err.message : '';
+  const stack: string = err.stack !== undefined ? err.stack : '';
+  let out: string = msg.length > 0 ? msg : JSON.stringify(e);
+  if (name.length > 0 && out.indexOf(name) < 0) {
+    out = `${name}: ${out}`;
+  }
+  if (stack.length > 0) {
+    const lines: string[] = stack.split('\n');
+    const at: string = lines.length > 1 ? lines[1].trim() : stack.trim();
+    out = `${out} @${at}`;
+  }
+  return out;
+}
+
+/**
+ * 取出 Set-Cookie 原始值，**归一化成字符串**。
+ *
+ * ⛔ 必须同时兼容 `string` 与 `string[]` 两种形态 —— 这是 2026-10-09 真机
+ * 「登录报 `undefined is not callable`」的**真正根因**：
+ *   服务端登录成功后下发 `Set-Cookie: xbot_session=...`，而鸿蒙的 `HttpResponse.header`
+ *   对**同名头**给的是**字符串数组**。我按 `string` 声明后直接 `.split(...)`，
+ *   数组没有 split ⇒ 运行期报「undefined is not callable」。
+ *   现象完全吻合：**只有登录崩**（唯一走 Set-Cookie 的路径），`/api/auth/config`
+ *   （无 cookie）一直正常。
+ */
+function pickSetCookie(header: Record<string, Object> | undefined): string {
+  if (header === undefined || header === null) {
     return '';
   }
-  const lower: string = header['set-cookie'];
-  if (lower !== undefined && lower.length > 0) {
-    return lower;
+  let v: Object = header['set-cookie'];
+  if (v === undefined || v === null) {
+    v = header['Set-Cookie'];
   }
-  const upper: string = header['Set-Cookie'];
-  return upper !== undefined ? upper : '';
+  if (v === undefined || v === null) {
+    return '';
+  }
+  if (typeof v === 'string') {
+    return v as string;
+  }
+  if (Array.isArray(v)) {
+    const arr: string[] = v as string[];
+    const out: string[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      out.push(arr[i]);
+    }
+    return out.join(', ');
+  }
+  return `${v}`;
 }
 
 /** 从 Set-Cookie 里抽出 `name=value`（丢掉属性，如 Path/HttpOnly/Max-Age）。 */
@@ -80,8 +162,8 @@ export class XbotHttp {
     if (raw.length === 0) {
       return;
     }
-    // 可能有多条 Set-Cookie 以逗号分隔（`a=b; Path=/, c=d; Path=/`）——按 `, <name>=` 切
-    const cookies: string[] = raw.split(/,\s*(?=[^;=]+=)/);
+    // 可能有多条 Set-Cookie 以逗号分隔（`a=b; Path=/, c=d; Path=/`）
+    const cookies: string[] = splitSetCookie(raw);
     for (let i = 0; i < cookies.length; i++) {
       const pair: string = cookiePairFrom(cookies[i]);
       const eq: number = pair.indexOf('=');
@@ -104,7 +186,22 @@ export class XbotHttp {
    * @throws Error 网络失败 / HTTP 非 2xx / 信封 ok=false
    */
   async post(path: string, body: object): Promise<string> {
-    const req: http.HttpRequest = http.createHttp();
+    // 每个子步骤单独兜底并标注产地：真机一旦抛错，错误文案直接指出是哪一步的哪个 API
+    // （2026-10-09 教训：只有一句 "undefined is not callable" 时无法定位）
+    let bodyText: string;
+    try {
+      bodyText = JSON.stringify(body);
+    } catch (e) {
+      throw new Error(`[body 序列化] ${describeError(e as Object)}`);
+    }
+
+    let req: http.HttpRequest;
+    try {
+      req = http.createHttp();
+    } catch (e) {
+      throw new Error(`[createHttp] ${describeError(e as Object)}`);
+    }
+
     try {
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -114,20 +211,36 @@ export class XbotHttp {
       if (cookie.length > 0) {
         headers['Cookie'] = cookie;
       }
-      const resp: http.HttpResponse = await req.request(this.baseUrl + path, {
-        method: http.RequestMethod.POST,
-        header: headers,
-        extraData: JSON.stringify(body),
-        expectDataType: http.HttpDataType.STRING,
-        connectTimeout: 15000,
-        readTimeout: 120000,
-      });
-      this.rememberCookies(resp.header as Record<string, string>);
+      let resp: http.HttpResponse;
+      try {
+        resp = await req.request(this.baseUrl + path, {
+          method: http.RequestMethod.POST,
+          header: headers,
+          extraData: bodyText,
+          expectDataType: http.HttpDataType.STRING,
+          connectTimeout: 15000,
+          readTimeout: 120000,
+        });
+      } catch (e) {
+        throw new Error(`[发送 ${path}] ${describeError(e as Object)}`);
+      }
+
+      try {
+        this.rememberCookies(resp.header as Record<string, string>);
+      } catch (e) {
+        throw new Error(`[解析 Set-Cookie] ${describeError(e as Object)}`);
+      }
+
       const text: string = typeof resp.result === 'string' ? resp.result as string : '';
       if (resp.responseCode !== 200) {
         throw new Error(`HTTP ${resp.responseCode}: ${text.substring(0, 200)}`);
       }
-      const env: ApiEnvelope = JSON.parse(text) as ApiEnvelope;
+      let env: ApiEnvelope;
+      try {
+        env = JSON.parse(text) as ApiEnvelope;
+      } catch (e) {
+        throw new Error(`[解析响应] ${describeError(e as Object)}：${text.substring(0, 120)}`);
+      }
       if (env.ok !== true) {
         const msg: string = env.error !== undefined && env.error.message !== undefined
           ? env.error.message : 'request failed';
@@ -135,7 +248,11 @@ export class XbotHttp {
       }
       return env.data === undefined ? '{}' : JSON.stringify(env.data);
     } finally {
-      req.destroy();
+      try {
+        req.destroy();
+      } catch (e) {
+        // destroy 失败不影响结果
+      }
     }
   }
 

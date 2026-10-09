@@ -30,6 +30,12 @@ done
 # core/ 里 http/sse/config 依赖 @kit.* ⇒ 必须带上最小 SDK stub 才能整体编译
 cp "$ROOT/tools/typecheck/stubs/kits.d.ts" "$OUT/kits.d.ts"
 $TSC_BIN "$OUT"/*.ts --module commonjs --target ES2021 --strict --skipLibCheck --outDir "$OUT/js"
+# 把 @kit.* 的 Node 实现装进编译产物目录，让 core/ 里的 SDK 调用在 Linux 上"真跑"
+mkdir -p "$OUT/js/node_modules/@kit.NetworkKit"
+cp "$HERE/mocks/NetworkKit.js" "$OUT/js/node_modules/@kit.NetworkKit/index.js"
+cat > "$OUT/js/node_modules/@kit.NetworkKit/package.json" <<'PKG'
+{ "name": "@kit.NetworkKit", "version": "0.0.0", "main": "index.js" }
+PKG
 for t in "$OUT"/js/*.test.js; do
   node "$t"
 done

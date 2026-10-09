@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EmptyBody = exports.LoginBody = exports.XbotHttp = void 0;
+exports.describeError = describeError;
 /**
  * XbotHttp —— xbot Web 渠道的 HTTP 客户端（ArkTS）。
  *
@@ -13,16 +14,95 @@ exports.EmptyBody = exports.LoginBody = exports.XbotHttp = void 0;
  */
 const _kit_NetworkKit_1 = require("@kit.NetworkKit");
 /** 响应头里取 Set-Cookie（ArkTS 限制动态取键 ⇒ 只按已知两种拼写直查）。 */
+/**
+ * 把一条（或逗号拼接的多条）`Set-Cookie` 拆开。
+ *
+ * ⛔ 刻意**不用正则 lookahead**（`/,\s*(?=[^;=]+=)/`）：lookahead 属高级正则特性，
+ * ArkTS 引擎上不可靠，而这段只在收到 Set-Cookie 时才执行。纯字符串遍历无引擎依赖。
+ */
+function splitSetCookie(raw) {
+    const out = [];
+    let start = 0;
+    for (let i = 0; i < raw.length; i++) {
+        if (raw.charAt(i) !== ',') {
+            continue;
+        }
+        let j = i + 1;
+        while (j < raw.length && raw.charAt(j) === ' ') {
+            j++;
+        }
+        let k = j;
+        let isNext = false;
+        while (k < raw.length) {
+            const c = raw.charAt(k);
+            if (c === '=') {
+                isNext = k > j;
+                break;
+            }
+            if (c === ';' || c === ',' || c === ' ') {
+                break;
+            }
+            k++;
+        }
+        if (isNext) {
+            out.push(raw.substring(start, i));
+            start = i + 1;
+        }
+    }
+    out.push(raw.substring(start));
+    return out;
+}
+/** 把 catch 到的值描述清楚（ArkTS 里字段要显式取；带 name/首行调用点便于定位）。 */
+function describeError(e) {
+    const err = e;
+    const name = err.name !== undefined ? err.name : '';
+    const msg = err.message !== undefined ? err.message : '';
+    const stack = err.stack !== undefined ? err.stack : '';
+    let out = msg.length > 0 ? msg : JSON.stringify(e);
+    if (name.length > 0 && out.indexOf(name) < 0) {
+        out = `${name}: ${out}`;
+    }
+    if (stack.length > 0) {
+        const lines = stack.split('\n');
+        const at = lines.length > 1 ? lines[1].trim() : stack.trim();
+        out = `${out} @${at}`;
+    }
+    return out;
+}
+/**
+ * 取出 Set-Cookie 原始值，**归一化成字符串**。
+ *
+ * ⛔ 必须同时兼容 `string` 与 `string[]` 两种形态 —— 这是 2026-10-09 真机
+ * 「登录报 `undefined is not callable`」的**真正根因**：
+ *   服务端登录成功后下发 `Set-Cookie: xbot_session=...`，而鸿蒙的 `HttpResponse.header`
+ *   对**同名头**给的是**字符串数组**。我按 `string` 声明后直接 `.split(...)`，
+ *   数组没有 split ⇒ 运行期报「undefined is not callable」。
+ *   现象完全吻合：**只有登录崩**（唯一走 Set-Cookie 的路径），`/api/auth/config`
+ *   （无 cookie）一直正常。
+ */
 function pickSetCookie(header) {
-    if (header === undefined) {
+    if (header === undefined || header === null) {
         return '';
     }
-    const lower = header['set-cookie'];
-    if (lower !== undefined && lower.length > 0) {
-        return lower;
+    let v = header['set-cookie'];
+    if (v === undefined || v === null) {
+        v = header['Set-Cookie'];
     }
-    const upper = header['Set-Cookie'];
-    return upper !== undefined ? upper : '';
+    if (v === undefined || v === null) {
+        return '';
+    }
+    if (typeof v === 'string') {
+        return v;
+    }
+    if (Array.isArray(v)) {
+        const arr = v;
+        const out = [];
+        for (let i = 0; i < arr.length; i++) {
+            out.push(arr[i]);
+        }
+        return out.join(', ');
+    }
+    return `${v}`;
 }
 /** 从 Set-Cookie 里抽出 `name=value`（丢掉属性，如 Path/HttpOnly/Max-Age）。 */
 function cookiePairFrom(setCookie) {
@@ -72,8 +152,8 @@ class XbotHttp {
         if (raw.length === 0) {
             return;
         }
-        // 可能有多条 Set-Cookie 以逗号分隔（`a=b; Path=/, c=d; Path=/`）——按 `, <name>=` 切
-        const cookies = raw.split(/,\s*(?=[^;=]+=)/);
+        // 可能有多条 Set-Cookie 以逗号分隔（`a=b; Path=/, c=d; Path=/`）
+        const cookies = splitSetCookie(raw);
         for (let i = 0; i < cookies.length; i++) {
             const pair = cookiePairFrom(cookies[i]);
             const eq = pair.indexOf('=');
@@ -93,7 +173,22 @@ class XbotHttp {
      * @throws Error 网络失败 / HTTP 非 2xx / 信封 ok=false
      */
     async post(path, body) {
-        const req = _kit_NetworkKit_1.http.createHttp();
+        // 每个子步骤单独兜底并标注产地：真机一旦抛错，错误文案直接指出是哪一步的哪个 API
+        // （2026-10-09 教训：只有一句 "undefined is not callable" 时无法定位）
+        let bodyText;
+        try {
+            bodyText = JSON.stringify(body);
+        }
+        catch (e) {
+            throw new Error(`[body 序列化] ${describeError(e)}`);
+        }
+        let req;
+        try {
+            req = _kit_NetworkKit_1.http.createHttp();
+        }
+        catch (e) {
+            throw new Error(`[createHttp] ${describeError(e)}`);
+        }
         try {
             const headers = {
                 'Content-Type': 'application/json',
@@ -103,20 +198,37 @@ class XbotHttp {
             if (cookie.length > 0) {
                 headers['Cookie'] = cookie;
             }
-            const resp = await req.request(this.baseUrl + path, {
-                method: _kit_NetworkKit_1.http.RequestMethod.POST,
-                header: headers,
-                extraData: JSON.stringify(body),
-                expectDataType: _kit_NetworkKit_1.http.HttpDataType.STRING,
-                connectTimeout: 15000,
-                readTimeout: 120000,
-            });
-            this.rememberCookies(resp.header);
+            let resp;
+            try {
+                resp = await req.request(this.baseUrl + path, {
+                    method: _kit_NetworkKit_1.http.RequestMethod.POST,
+                    header: headers,
+                    extraData: bodyText,
+                    expectDataType: _kit_NetworkKit_1.http.HttpDataType.STRING,
+                    connectTimeout: 15000,
+                    readTimeout: 120000,
+                });
+            }
+            catch (e) {
+                throw new Error(`[发送 ${path}] ${describeError(e)}`);
+            }
+            try {
+                this.rememberCookies(resp.header);
+            }
+            catch (e) {
+                throw new Error(`[解析 Set-Cookie] ${describeError(e)}`);
+            }
             const text = typeof resp.result === 'string' ? resp.result : '';
             if (resp.responseCode !== 200) {
                 throw new Error(`HTTP ${resp.responseCode}: ${text.substring(0, 200)}`);
             }
-            const env = JSON.parse(text);
+            let env;
+            try {
+                env = JSON.parse(text);
+            }
+            catch (e) {
+                throw new Error(`[解析响应] ${describeError(e)}：${text.substring(0, 120)}`);
+            }
             if (env.ok !== true) {
                 const msg = env.error !== undefined && env.error.message !== undefined
                     ? env.error.message : 'request failed';
@@ -125,7 +237,12 @@ class XbotHttp {
             return env.data === undefined ? '{}' : JSON.stringify(env.data);
         }
         finally {
-            req.destroy();
+            try {
+                req.destroy();
+            }
+            catch (e) {
+                // destroy 失败不影响结果
+            }
         }
     }
     /** 便捷：POST 并返回强类型对象。 */
