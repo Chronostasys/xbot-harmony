@@ -13,6 +13,7 @@ declare const process: { exit: (c: number) => void };
 import {
   isStreamOnly, hasStructured, liveIterationOf, upsertIteration, mergeTools, toolsFromEvent,
   applyStreamFrame, applyStructured, displayContent, displayReasoning,
+  isIdleAction, isBusyAction, shouldReloadHistory,
 } from '../../entry/src/main/ets/core/streammerge';
 import {
   HistoryIteration, IterList, ProgressEvent, ToolProgress,
@@ -117,6 +118,17 @@ eq('空流式回落正文', displayContent({ iteration: 1, content: 'final', str
 const r5 = row([{ iteration: 3, tools: [] }, { iteration: 9, tools: [] }]);
 upsertIteration(r5, 5);
 eq('按号插入并升序', r5.iterations.map((x: HistoryIteration) => x.iteration), [3, 5, 9]);
+
+// ── ⑩ 会话状态事件：服务端字段是 `action`（不是 `state`）──
+// 曾误读 ev.state ⇒ 恒 undefined ⇒ 整条会话状态更新是死代码（收尾后界面停在"运行中/停止"）。
+ok('idle ⇒ 非忙碌', isIdleAction('idle'));
+ok('agent-idle ⇒ 非忙碌', isIdleAction('agent-idle'));
+ok('busy ⇒ 忙碌', isBusyAction('busy'));
+ok('agent-busy ⇒ 忙碌', isBusyAction('agent-busy'));
+ok('history_rewound ⇒ 需重载历史', shouldReloadHistory('history_rewound'));
+ok('user_msg 不改变忙碌态', !isIdleAction('user_msg') && !isBusyAction('user_msg'));
+ok('空 action 不作判定', !isIdleAction('') && !isBusyAction(''));
+ok('rewound 不等价于忙碌/空闲', !isIdleAction('history_rewound') && !isBusyAction('history_rewound'));
 
 if (fail > 0) { console.log(`  streammerge: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  streammerge: ${pass} passed, 0 failed`);

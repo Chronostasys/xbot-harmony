@@ -10,6 +10,9 @@ exports.applyStreamFrame = applyStreamFrame;
 exports.applyStructured = applyStructured;
 exports.displayContent = displayContent;
 exports.displayReasoning = displayReasoning;
+exports.isIdleAction = isIdleAction;
+exports.isBusyAction = isBusyAction;
+exports.shouldReloadHistory = shouldReloadHistory;
 /** 该事件是否"只带流式字段"（与 服务端 isStreamOnlyProgress 同判据，但更宽松：不要求 iteration==0）。 */
 function isStreamOnly(e) {
     const hasStream = nonEmpty(e.stream_content) || nonEmpty(e.stream_delta)
@@ -171,4 +174,23 @@ function displayReasoning(it) {
         return it.stream_reasoning !== undefined ? it.stream_reasoning : '';
     }
     return it.reasoning !== undefined ? it.reasoning : '';
+}
+// ── 会话状态事件（`session`）的语义 ─────────────────────────────────────────
+/**
+ * 服务端 `SessionEvent` 的状态字段是 **`action`**（`protocol/events.go`：`Action string json:"action"`），
+ * 取值实测含 `idle` / `busy` / `history_rewound` / `subagent_started|stopped` / `user_msg` /
+ * `agent_msg` / `progress` / `sync_progress` …
+ *
+ * ⚠️ 客户端曾读 `ev.state` ⇒ 恒为 `undefined` ⇒ **整条会话状态更新是死代码**
+ * （收尾后界面可能一直停在"运行中/停止"）。此处把判定抽成纯函数，由单测锁死。
+ */
+function isIdleAction(action) {
+    return action === 'idle' || action === 'agent-idle';
+}
+function isBusyAction(action) {
+    return action === 'busy' || action === 'agent-busy';
+}
+/** 历史被回退（rewind）⇒ 必须重载历史，否则界面停留在被撤销的内容上。 */
+function shouldReloadHistory(action) {
+    return action === 'history_rewound';
 }

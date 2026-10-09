@@ -443,14 +443,21 @@ class ChatStore {
         if (ev === undefined) {
             return;
         }
-        const state = ev.state !== undefined ? ev.state : '';
-        if (state === 'idle' || state === 'agent-idle') {
+        // ⚠️ 服务端字段是 `action`（不是 `state`，见 core/streammerge.ets 注释）
+        const action = ev.action !== undefined ? ev.action : '';
+        if ((0, streammerge_1.isIdleAction)(action)) {
             this.busy = false;
             this.onUpdate();
         }
-        else if (state === 'busy' || state === 'agent-busy') {
+        else if ((0, streammerge_1.isBusyAction)(action)) {
             this.busy = true;
             this.onUpdate();
+        }
+        else if ((0, streammerge_1.shouldReloadHistory)(action)) {
+            // 历史被回退 ⇒ 必须重载，否则界面停留在已被撤销的内容上
+            this.loadHistory().catch((e) => {
+                console.error(`rewound 重载失败: ${e.message}`);
+            });
         }
     }
     onUserEcho(env) {

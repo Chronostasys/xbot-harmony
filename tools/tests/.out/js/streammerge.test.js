@@ -101,6 +101,16 @@ eq('空流式回落正文', (0, streammerge_1.displayContent)({ iteration: 1, co
 const r5 = row([{ iteration: 3, tools: [] }, { iteration: 9, tools: [] }]);
 (0, streammerge_1.upsertIteration)(r5, 5);
 eq('按号插入并升序', r5.iterations.map((x) => x.iteration), [3, 5, 9]);
+// ── ⑩ 会话状态事件：服务端字段是 `action`（不是 `state`）──
+// 曾误读 ev.state ⇒ 恒 undefined ⇒ 整条会话状态更新是死代码（收尾后界面停在"运行中/停止"）。
+ok('idle ⇒ 非忙碌', (0, streammerge_1.isIdleAction)('idle'));
+ok('agent-idle ⇒ 非忙碌', (0, streammerge_1.isIdleAction)('agent-idle'));
+ok('busy ⇒ 忙碌', (0, streammerge_1.isBusyAction)('busy'));
+ok('agent-busy ⇒ 忙碌', (0, streammerge_1.isBusyAction)('agent-busy'));
+ok('history_rewound ⇒ 需重载历史', (0, streammerge_1.shouldReloadHistory)('history_rewound'));
+ok('user_msg 不改变忙碌态', !(0, streammerge_1.isIdleAction)('user_msg') && !(0, streammerge_1.isBusyAction)('user_msg'));
+ok('空 action 不作判定', !(0, streammerge_1.isIdleAction)('') && !(0, streammerge_1.isBusyAction)(''));
+ok('rewound 不等价于忙碌/空闲', !(0, streammerge_1.isIdleAction)('history_rewound') && !(0, streammerge_1.isBusyAction)('history_rewound'));
 if (fail > 0) {
     console.log(`  streammerge: ${pass} passed, ${fail} failed`);
     process.exit(1);

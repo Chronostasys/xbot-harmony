@@ -13,7 +13,8 @@
 import { XbotHttp } from './http';
 import { SseClient } from './sse';
 import {
-  applyStreamFrame, applyStructured, isStreamOnly, liveIterationOf, upsertIteration, mergeTools,
+  applyStreamFrame, applyStructured, isStreamOnly, isIdleAction, isBusyAction,
+  shouldReloadHistory, liveIterationOf, upsertIteration, mergeTools,
 } from './streammerge';
 import {
   AskQuestion,
@@ -513,13 +514,19 @@ export class ChatStore {
     if (ev === undefined) {
       return;
     }
-    const state: string = ev.state !== undefined ? ev.state : '';
-    if (state === 'idle' || state === 'agent-idle') {
+    // ⚠️ 服务端字段是 `action`（不是 `state`，见 core/streammerge.ets 注释）
+    const action: string = ev.action !== undefined ? ev.action : '';
+    if (isIdleAction(action)) {
       this.busy = false;
       this.onUpdate();
-    } else if (state === 'busy' || state === 'agent-busy') {
+    } else if (isBusyAction(action)) {
       this.busy = true;
       this.onUpdate();
+    } else if (shouldReloadHistory(action)) {
+      // 历史被回退 ⇒ 必须重载，否则界面停留在已被撤销的内容上
+      this.loadHistory().catch((e: Error) => {
+        console.error(`rewound 重载失败: ${e.message}`);
+      });
     }
   }
 

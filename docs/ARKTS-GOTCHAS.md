@@ -248,3 +248,18 @@ uiCtx.setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);   // 导入自 '@kit.ArkUI
 `arkts-no-structural-typing`：字段形状相同**不算**类型兼容。把 `ChatRow` 传给
 `f(row: { iterations: HistoryIteration[] })` 这类参数会直接编译失败（且**匿名对象类型本身也不允许**）。
 修法：具名接口（本工程 `IterList` 放 `types.ets`）+ 传参方**显式** `class ChatRow implements IterList`。
+
+## 19. `session` 事件的状态字段是 **`action`**（不是 `state`）
+
+服务端 `protocol/events.go`：`SessionEvent.Action` = `json:"action"`，实测取值含
+`idle` / `busy` / `history_rewound` / `subagent_started|stopped` / `user_msg` / `agent_msg` / `progress`。
+
+**踩坑**：客户端曾读 `ev.state` ⇒ 恒为 `undefined` ⇒ **整条会话状态更新是死代码**
+（`idle`/`busy` 永不生效，收尾后界面可能一直停在"运行中/停止"；`history_rewound` 也不重载历史，
+界面停在已被撤销的内容上）。
+
+**契约**：判定抽成纯函数（`core/streammerge.ets` 的 `isIdleAction` / `isBusyAction` /
+`shouldReloadHistory`），由 `tools/tests/streammerge.test.ts` 守护；`history_rewound` ⇒ **必须重载历史**。
+
+**同类教训**（两次都是同一坑）：**客户端字段名必须逐字对照服务端 Go 结构体的 json tag**，
+不能凭印象写（另一次：进度事件读 `content` 而服务端发 `stream_content`，见第 17 条）。

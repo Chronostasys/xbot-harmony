@@ -125,9 +125,10 @@ export interface ProgressEvent {
 
 /** 会话生命周期事件（`session` 事件载荷）。 */
 export interface SessionEvent {
+  /** 服务端 `SessionEvent.Action`（json:"action"）：idle / busy / history_rewound / subagent_* … */
+  action?: string;
   chat_id?: string;
   channel?: string;
-  state?: string;
   busy?: boolean;
 }
 
