@@ -80,12 +80,6 @@ export class SseClient {
       url += `&last_event_id=${encodeURIComponent(this.lastEventId)}`;
     }
 
-    req.on('headersReceive', (header: object) => {
-      const h: Record<string, string> = header as Record<string, string>;
-      if (h !== undefined && h['content-type'] !== undefined) {
-        // 说明服务端接受了订阅（text/event-stream）
-      }
-    });
     req.on('dataReceive', (chunk: ArrayBuffer) => {
       const text: string = this.decoder.decodeToString(new Uint8Array(chunk), { stream: true });
       this.buffer += text;

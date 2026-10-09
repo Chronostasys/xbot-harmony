@@ -24,7 +24,8 @@ export class ConfigStore {
   private data: AppConfig = new AppConfig();
 
   async init(context: common.UIAbilityContext): Promise<AppConfig> {
-    this.store = await preferences.getPreferences(context, STORE_NAME);
+    const options: preferences.Options = { name: STORE_NAME };
+    this.store = await preferences.getPreferences(context, options);
     const s: preferences.Preferences = this.store;
     this.data.serverUrl = s.getSync(KEY_SERVER, '') as string;
     this.data.username = s.getSync(KEY_USER, '') as string;
