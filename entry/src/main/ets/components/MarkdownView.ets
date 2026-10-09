@@ -26,6 +26,52 @@ export function imagesIn(text: string): string[] {
   return out;
 }
 
+/**
+ * 行内片段的**预计算样式**。
+ *
+ * 为什么在 TS 侧算好：ArkUI 的 `Text` 只接受 Span 类子组件，在 `Text(){ForEach(){ if/else }}`
+ * 里做条件渲染不保证支持 —— 这正是"渲染错乱"的典型来源。改成一维 ForEach + 纯属性赋值，
+ * 分支逻辑全部提前算完。
+ */
+export class MdInlineStyle {
+  text: string = '';
+  size: number = 15;
+  color: string = '#E5E7EB';
+  bold: boolean = false;
+  italic: boolean = false;
+  strike: boolean = false;
+  underline: boolean = false;
+  mono: boolean = false;
+  bg: string = '#00000000';
+}
+
+export function inlineStyles(text: string): MdInlineStyle[] {
+  const spans: MdSpan[] = parseInline(text);
+  const out: MdInlineStyle[] = [];
+  for (let i = 0; i < spans.length; i++) {
+    const sp: MdSpan = spans[i];
+    const st: MdInlineStyle = new MdInlineStyle();
+    if (sp.code) {
+      st.text = ` ${sp.text} `;
+      st.mono = true;
+      st.size = 13;
+      st.color = '#FCA5A5';
+      st.bg = '#1F2937';
+    } else if (sp.link.length > 0) {
+      st.text = sp.text;
+      st.color = '#60A5FA';
+      st.underline = true;
+    } else {
+      st.text = sp.text;
+      st.bold = sp.bold;
+      st.italic = sp.italic;
+      st.strike = sp.strike;
+    }
+    out.push(st);
+  }
+  return out;
+}
+
 @Component
 export struct MarkdownView {
   @Prop text: string = '';
@@ -112,30 +158,24 @@ export struct MarkdownView {
     }
   }
 
-  /** 段落/引用/列表项的行内渲染。 */
+  /** 段落/引用/列表项的行内渲染（零条件分支：样式全部预计算）。 */
   @Builder
   Inline(text: string) {
     Text() {
-      ForEach(parseInline(text), (s: MdSpan) => {
-        if (s.code) {
-          Span(` ${s.text} `)
-            .fontFamily('monospace')
-            .fontSize(13)
-            .fontColor('#FCA5A5')
-            .backgroundColor('#1F2937')
-        } else if (s.link.length > 0) {
-          Span(s.text).fontColor('#60A5FA').decoration({ type: TextDecorationType.Underline, color: '#60A5FA' })
-        } else {
-          Span(s.text)
-            .fontWeight(s.bold ? FontWeight.Bold : FontWeight.Normal)
-            .fontStyle(s.italic ? FontStyle.Italic : FontStyle.Normal)
-            .decoration(s.strike
-              ? { type: TextDecorationType.LineThrough, color: '#9CA3AF' }
-              : { type: TextDecorationType.None })
-            .fontSize(15)
-            .fontColor('#E5E7EB')
-        }
-      })
+      ForEach(inlineStyles(text), (s: MdInlineStyle) => {
+        Span(s.text)
+          .fontSize(s.size)
+          .fontColor(s.color)
+          .fontWeight(s.bold ? FontWeight.Bold : FontWeight.Normal)
+          .fontStyle(s.italic ? FontStyle.Italic : FontStyle.Normal)
+          .fontFamily(s.mono ? 'monospace' : 'sans-serif')
+          .backgroundColor(s.bg)
+          .decoration({
+            type: s.strike ? TextDecorationType.LineThrough
+              : (s.underline ? TextDecorationType.Underline : TextDecorationType.None),
+            color: s.color,
+          })
+      }, (s: MdInlineStyle, i: number) => `sp-${i}-${s.text.length}`)
     }
     .width('100%')
     .textAlign(TextAlign.Start)
