@@ -913,6 +913,7 @@ struct Index {
 
       if (this.testMsg.length > 0) {
         Text(this.testMsg).fontSize(12)
+          .wordBreak(WordBreak.BREAK_ALL)
           .fontColor(this.testMsg.startsWith('✅') ? '#A7F3D0' : '#FBBF24')
           .width('100%')
       }
@@ -930,6 +931,7 @@ struct Index {
 
       if (this.errMsg.length > 0) {
         Text(this.errMsg).fontSize(12).fontColor('#F87171').width('100%')
+          .wordBreak(WordBreak.BREAK_ALL)
       }
 
       Button('登录').width('100%').constraintSize({ minHeight: 44 }).onClick(() => {
@@ -1205,10 +1207,12 @@ struct Index {
     Column({ space: 4 }) {
       if (t.summary !== undefined && t.summary.length > 0) {
         Text(t.summary).fontSize(12).fontColor('#D1D5DB').width('100%')
+          .wordBreak(WordBreak.BREAK_ALL)
       }
       if (t.args !== undefined && t.args.length > 0) {
         Text('参数').fontSize(10).fontColor('#6B7280')
         Text(t.args)
+          .wordBreak(WordBreak.BREAK_ALL)
           .fontSize(12).fontColor('#E5E7EB').fontFamily('monospace')
           .width('100%').padding(6).backgroundColor('#111827').borderRadius(6)
           .copyOption(CopyOptions.LocalDevice)
@@ -1216,6 +1220,7 @@ struct Index {
       if (t.detail !== undefined && t.detail.length > 0) {
         Text('输出').fontSize(10).fontColor('#6B7280')
         Text(t.detail)
+          .wordBreak(WordBreak.BREAK_ALL)
           .fontSize(12).fontColor('#E5E7EB').fontFamily('monospace')
           .width('100%').padding(6).backgroundColor('#111827').borderRadius(6)
           .copyOption(CopyOptions.LocalDevice)
@@ -1623,6 +1628,7 @@ struct Index {
                 ? q.content
                 : (q.text !== undefined ? q.text : ''))
                 .fontSize(13).fontColor('#E5E7EB').layoutWeight(1).maxLines(3)
+                .wordBreak(WordBreak.BREAK_ALL)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
               Text('↑').fontSize(14).fontColor('#93C5FD').padding(6).onClick(() => {
                 const id: string = q.msg_id !== undefined ? q.msg_id : (q.id !== undefined ? q.id : '');
@@ -1727,7 +1733,7 @@ struct Index {
                     }.layoutWeight(1).alignItems(HorizontalAlign.Start).margin({ left: 6 })
                   }
                   .width('100%').padding(8).backgroundColor('#0F172A')
-      .id('xbot-composer').borderRadius(6)
+                  .borderRadius(6)
                   .onClick(() => {
                     this.toggleAskOption(q.id !== undefined ? q.id : `q${qi}`,
                       opt.label !== undefined ? opt.label : '',
