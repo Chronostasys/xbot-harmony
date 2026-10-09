@@ -344,3 +344,91 @@ export function markdownToPlain(src: string): string {
   }
   return out.join('\n');
 }
+
+
+// ── 解析结果缓存（纯优化：同样的文本必然解析出同样的结果）─────────────────────────────
+/**
+ * 为什么必须有：`MarkdownView.build()` 在**渲染路径里**直接调 parseMarkdown / parseInline，
+ * 而行级 ForEach 的 key 含 `row.rev`（数据一变就换 key ⇒ 整行重建）⇒ 流式期间每来一个
+ * SSE 事件都要把该 turn **全部**迭代块的 Markdown 重新解析一遍。实测单行正文可达 274 KB
+ * （108 个迭代块）⇒ 这就是"卡到完全没法用"的直接机制。
+ *
+ * 键 = **原文本身**（不是 hash、不是长度）：同样的文本必然得到同样的结果，所以
+ * ① 不存在碰撞导致的错内容；② 内容一变键就变 ⇒ 不存在陈旧结果。缓存是**纯优化，不改语义**。
+ * 容量按总字符数封顶，超限按插入顺序淘汰最早的。
+ */
+export class MdCacheStats {
+  /** 命中次数（省下的解析次数） */
+  hits: number = 0;
+  misses: number = 0;
+  /** 当前缓存占用字符数 */
+  chars: number = 0;
+  /** 当前缓存条目数 */
+  entries: number = 0;
+}
+
+const MD_CACHE_MAX_CHARS: number = 2 * 1024 * 1024;
+
+let mdBlockCache: Map<string, MdBlock[]> = new Map<string, MdBlock[]>();
+let mdBlockOrder: string[] = [];
+let mdBlockChars: number = 0;
+
+let mdSpanCache: Map<string, MdSpan[]> = new Map<string, MdSpan[]>();
+let mdSpanOrder: string[] = [];
+let mdSpanChars: number = 0;
+
+let mdCacheHits: number = 0;
+let mdCacheMisses: number = 0;
+
+/** 解析 Markdown（带缓存）。渲染路径一律走这个。 */
+export function parseMarkdownCached(src: string): MdBlock[] {
+  const hit: MdBlock[] | undefined = mdBlockCache.get(src);
+  if (hit !== undefined) {
+    mdCacheHits++;
+    return hit;
+  }
+  mdCacheMisses++;
+  const blocks: MdBlock[] = parseMarkdown(src);
+  mdBlockCache.set(src, blocks);
+  mdBlockOrder.push(src);
+  mdBlockChars += src.length;
+  // 淘汰：至少保留刚写入的一条（单条超预算时不能把自己也删了）
+  while (mdBlockChars > MD_CACHE_MAX_CHARS && mdBlockOrder.length > 1) {
+    const oldest: string = mdBlockOrder[0];
+    mdBlockOrder.splice(0, 1);
+    mdBlockCache.delete(oldest);
+    mdBlockChars -= oldest.length;
+  }
+  return blocks;
+}
+
+/** 解析行内片段（带缓存）。 */
+export function parseInlineCached(text: string): MdSpan[] {
+  const hit: MdSpan[] | undefined = mdSpanCache.get(text);
+  if (hit !== undefined) {
+    mdCacheHits++;
+    return hit;
+  }
+  mdCacheMisses++;
+  const spans: MdSpan[] = parseInline(text);
+  mdSpanCache.set(text, spans);
+  mdSpanOrder.push(text);
+  mdSpanChars += text.length;
+  while (mdSpanChars > MD_CACHE_MAX_CHARS && mdSpanOrder.length > 1) {
+    const oldest: string = mdSpanOrder[0];
+    mdSpanOrder.splice(0, 1);
+    mdSpanCache.delete(oldest);
+    mdSpanChars -= oldest.length;
+  }
+  return spans;
+}
+
+/** 缓存统计（自检页显示，用于确认真机上也真的在命中）。 */
+export function mdCacheStats(): MdCacheStats {
+  const st: MdCacheStats = new MdCacheStats();
+  st.hits = mdCacheHits;
+  st.misses = mdCacheMisses;
+  st.chars = mdBlockChars + mdSpanChars;
+  st.entries = mdBlockOrder.length + mdSpanOrder.length;
+  return st;
+}

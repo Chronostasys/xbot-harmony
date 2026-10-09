@@ -5,6 +5,7 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
 import { ChatStore } from '../core/store';
+import { mdCacheStats, MdCacheStats } from '../core/markdown';
 import {
   AskOption,
   AskQuestion,
@@ -74,6 +75,19 @@ function selectionsFor(ask: AskUserPrompt | null): AskSelection[] {
     out.push(sel);
   }
   return out;
+}
+
+/**
+ * markdown 解析缓存的一行摘要（**模块级函数**：ArkUI 的 struct 不是普通类，真机上静态成员会解析成
+ * undefined —— 见 docs/ARKTS-GOTCHAS.md）。放在自检页是为了在真机截图上**证明**"整行反复重建
+ * 不再反复解析几百 KB"这条优化确实在命中。
+ */
+function mdCacheText(): string {
+  const st: MdCacheStats = mdCacheStats();
+  const total: number = st.hits + st.misses;
+  const rate: number = total > 0 ? Math.round(st.hits * 100 / total) : 0;
+  return `md缓存 命中=${st.hits} 未命中=${st.misses}（命中率 ${rate}%）`
+    + ` 占用=${Math.round(st.chars / 1024)}KB 条目=${st.entries}`;
 }
 
 @Entry
@@ -1205,7 +1219,8 @@ struct Index {
     }
     return `rows=${rows.length}\n迭代总数=${iterTotal}\n单行最多迭代=${maxIter}\n`
       + `实际渲染块数=${rendered}（每行≤${MAX_ITER_VISIBLE}）\n带更早折叠区域的行=${foldedRows}\n`
-      + `会话=${this.currentChat}\nbusy=${this.busy}`;
+      + `会话=${this.currentChat}\nbusy=${this.busy}\n`
+      + mdCacheText();
   }
 
   /** 加载该 turn 更早的展示区域（服务端折叠视图按需取回）。 */

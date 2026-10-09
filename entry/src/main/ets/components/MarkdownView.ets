@@ -1,5 +1,5 @@
 import { pasteboard } from '@kit.BasicServicesKit';
-import { MdBlock, MdBlockKind, MdSpan, parseInline, parseMarkdown } from '../core/markdown';
+import { MdBlock, MdBlockKind, MdSpan, parseInlineCached, parseMarkdownCached } from '../core/markdown';
 
 /**
  * MarkdownView —— 把 Markdown 渲染成原生 ArkUI（零 WebView）。
@@ -17,7 +17,7 @@ import { MdBlock, MdBlockKind, MdSpan, parseInline, parseMarkdown } from '../cor
  */
 export function imagesIn(text: string): string[] {
   const out: string[] = [];
-  const spans: MdSpan[] = parseInline(text);
+  const spans: MdSpan[] = parseInlineCached(text);
   for (let i = 0; i < spans.length; i++) {
     if (spans[i].image.length > 0) {
       out.push(spans[i].image);
@@ -46,7 +46,7 @@ export class MdInlineStyle {
 }
 
 export function inlineStyles(text: string): MdInlineStyle[] {
-  const spans: MdSpan[] = parseInline(text);
+  const spans: MdSpan[] = parseInlineCached(text);
   const out: MdInlineStyle[] = [];
   for (let i = 0; i < spans.length; i++) {
     const sp: MdSpan = spans[i];
@@ -83,7 +83,8 @@ export struct MarkdownView {
 
   build() {
     Column({ space: 6 }) {
-      ForEach(parseMarkdown(this.text), (b: MdBlock, idx: number) => {
+      // 走缓存：流式期间整行会反复重建，没缓存就要反复解析几百 KB（见 core/markdown.ets 注释）
+      ForEach(parseMarkdownCached(this.text), (b: MdBlock, idx: number) => {
         this.Block(b, idx)
       }, (b: MdBlock, idx: number) => b.key)
     }
@@ -95,7 +96,7 @@ export struct MarkdownView {
   Block(b: MdBlock, idx: number) {
     if (b.kind === MdBlockKind.Heading) {
       Text() {
-        ForEach(parseInline(b.text), (s: MdSpan) => {
+        ForEach(parseInlineCached(b.text), (s: MdSpan) => {
           Span(s.text)
             .fontWeight(FontWeight.Bold)
             .fontSize(this.headingSize(b.level))

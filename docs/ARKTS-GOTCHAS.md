@@ -92,3 +92,20 @@ bash "$CMDLINE_TOOLS/codelinter/bin/codelinter" entry/src/main/ets -f json -o li
   需要固定尺寸的只留给图标槽/色条等非文字元素。
 - **本仓库落地**：登录页输入与按钮、顶栏、输入区、设置/抽屉/AskUser 的输入与按钮共 **21 处**
   已由 `height(N)` 改为 `constraintSize({ minHeight: N })`。
+
+## 11. 渲染路径里做解析 + 行级 ForEach key 含 `rev` ⇒ 每个事件整行重建并全量重解析
+
+**现象**：长会话（单 turn 上百个迭代、单行正文几百 KB）里界面卡到没法用、滚动乱跳。
+
+**机制**：ArkUI 的 `ForEach` **不比较内容**——key 不变就完全不重建。所以为了让内容刷新，
+行级 key 里带了 `row.rev`（数据一变就换 key）。但这样一来，**每次数据变更都会重建整行**，
+而 `MarkdownView` 又是在 `build()` 里直接调 `parseMarkdown(text)` 的 ⇒ 该行所有迭代块的
+Markdown 全部重新解析。实测单行 274 KB ⇒ 每个 SSE 事件解析几百 KB。
+
+**修法**：把解析结果**按原文本身**缓存（`core/markdown.ets` 的 `parseMarkdownCached` /
+`parseInlineCached`；键 = 原文 ⇒ 无碰撞、无陈旧；总字符数封顶 + 插入顺序淘汰）。
+渲染路径一律走缓存版本。App 内自检页会显示命中率，便于在真机上确认。
+
+**通用教训**：ArkUI 里"每次数据变化重建组件"是常态（没有 diff），所以**渲染路径里不能有
+与数据规模成正比的重复计算**（解析、排序、过滤、正则）。这类计算要么进缓存，要么前移到
+数据进入 store 的时候算一次。
