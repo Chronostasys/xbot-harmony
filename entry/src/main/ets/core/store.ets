@@ -64,6 +64,11 @@ export class ChatStore {
    */
   private idSeq: number = 1;
 
+  /** 标记行内容已变（ForEach key 随 rev 变化 ⇒ 强制重建该项，避免显示陈旧内容）。 */
+  private touch(row: ChatRow): void {
+    row.rev = row.rev + 1;
+  }
+
   private nextRowID(prefix: string): string {
     this.idSeq++;
     return `${prefix}-${this.idSeq}`;
@@ -241,6 +246,7 @@ export class ChatStore {
       for (let k = 0; k < row.iterations.length; k++) {
         if (row.iterations[k].iteration === it.iteration) {
           row.iterations[k] = it; // 同号权威覆盖
+          this.touch(row);
           this.onUpdate();
           return;
         }
@@ -256,6 +262,7 @@ export class ChatStore {
     r.role = 'user';
     r.turnID = 0;
     r.content = text;
+    this.touch(r);
     this.rows.push(r);
     this.onUpdate();
   }
@@ -469,6 +476,7 @@ export class ChatStore {
       const r: ChatRow = this.rows[i];
       if (r.role === 'user' && r.turnID === 0 && r.content === text) {
         r.turnID = turnID;
+        this.touch(r);
         this.busy = true;
         this.onUpdate();
         return;
@@ -479,6 +487,7 @@ export class ChatStore {
     r.role = 'user';
     r.turnID = turnID;
     r.content = text;
+    this.touch(r);
     this.rows.push(r);
     this.busy = true;
     this.onUpdate();
@@ -493,6 +502,7 @@ export class ChatStore {
     r.id = this.nextRowID('live');
     r.role = 'assistant';
     r.isLive = true;
+    this.touch(r);
     this.rows.push(r);
     return r;
   }
@@ -525,8 +535,10 @@ export class ChatStore {
     if (!replaced) {
       row.iterations.push(iter);
     }
+    this.touch(row);
     const hist: HistoryIteration[] | undefined = p.iteration_history;
     if (hist !== undefined) {
+      this.touch(row);
       for (let i = 0; i < hist.length; i++) {
         const h: HistoryIteration = hist[i];
         let found: boolean = false;
@@ -554,6 +566,7 @@ export class ChatStore {
     if (last.role === 'assistant') {
       last.content = text.length > 0 ? text : last.content;
       last.isLive = false;
+      this.touch(last);
       last.turnID = env.turn_id !== undefined ? env.turn_id : last.turnID;
       // ⚠️ 不改成 `a-<turnID>`：那会与历史行的 id 空间重叠 ⇒ ForEach key 重复 ⇒ 渲染错位
       if (last.id.length === 0) {

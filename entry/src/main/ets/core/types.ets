@@ -140,7 +140,13 @@ export class SseEventType {
   static readonly pluginWidgets: string = 'plugin_widgets';
 }
 
-/** 渲染用行模型：一个 turn = 一条 user 行 + 一条 assistant 行（与 web 一致）。 */
+/**
+ * 渲染用行模型：一个 turn = 一条 user 行 + 一条 assistant 行（与 web 一致）。
+ *
+ * ⚠️ `rev` 是**渲染版本号**，必须每次改动行内容时自增，且参与 ForEach 的 key：
+ * ArkUI 按 key 复用列表项 —— 若原地改字段而 key 不变，框架认为该项无需重建，
+ * 界面就会显示陈旧/半新半旧的内容（"整个渲染错乱"的典型来源）。
+ */
 export class ChatRow {
   id: string = '';
   role: string = 'assistant';
@@ -148,6 +154,8 @@ export class ChatRow {
   content: string = '';
   iterations: HistoryIteration[] = [];
   isLive: boolean = false;
+  /** 渲染版本：每次内容变化自增，参与 ForEach key */
+  rev: number = 0;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

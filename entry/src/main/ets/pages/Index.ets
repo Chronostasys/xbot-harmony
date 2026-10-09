@@ -686,7 +686,7 @@ struct Index {
               this.AssistantBlock(row)
             }
           }
-        }, (row: ChatRow) => row.id)
+        }, (row: ChatRow) => `${row.id}#${row.rev}`)
 
         if (this.busy) {
           ListItem() {
@@ -748,7 +748,7 @@ struct Index {
       }
       ForEach(row.iterations, (it: HistoryIteration) => {
         this.IterationBlock(row, it)
-      }, (it: HistoryIteration) => `${row.id}-${it.iteration}`)
+      }, (it: HistoryIteration) => `${row.id}#${row.rev}-${it.iteration}`)
     }
     .width('100%').alignItems(HorizontalAlign.Start).padding({ top: 6, bottom: 6 })
   }
