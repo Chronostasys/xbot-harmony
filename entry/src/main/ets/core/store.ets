@@ -55,6 +55,20 @@ export class ChatStore {
 
   /** 待发队列 */
   queue: QueueItem[] = [];
+  /**
+   * 行 id 的单调计数器。
+   *
+   * ⛔ 必须全局唯一：`ForEach` 的 key 一旦重复，ArkUI 会复用/错位组件 —— 表现就是"整个渲染错乱"
+   * （与 Web 端 React 重复 key 的 #185 同源）。原先 id 由 消息id / turnID / Date.now() 拼接，
+   * 跨命名空间会撞（`a-<消息id>` vs `a-<turnID>`），同一毫秒连发两条也会撞 ⇒ 统一用计数器。
+   */
+  private idSeq: number = 1;
+
+  private nextRowID(prefix: string): string {
+    this.idSeq++;
+    return `${prefix}-${this.idSeq}`;
+  }
+
 
   /** 变更通知（页面接到 @State 上） */
   onUpdate: () => void = () => {
@@ -174,7 +188,7 @@ export class ChatStore {
       const turnID: number = m.turn_id !== undefined ? m.turn_id : 0;
       if (m.role === 'user') {
         const r: ChatRow = new ChatRow();
-        r.id = `u-${m.id}`;
+        r.id = `u-${m.id}`; // 历史行：消息 id 天然唯一
         r.role = 'user';
         r.turnID = turnID;
         r.content = m.content !== undefined ? m.content : '';
@@ -183,7 +197,7 @@ export class ChatStore {
       } else if (m.role === 'assistant') {
         if (current === null || current.turnID !== turnID) {
           const r: ChatRow = new ChatRow();
-          r.id = `a-${m.id}`;
+          r.id = `a-${m.id}`; // 历史行：消息 id 天然唯一
           r.role = 'assistant';
           r.turnID = turnID;
           r.content = m.content !== undefined ? m.content : '';
@@ -238,7 +252,7 @@ export class ChatStore {
 
   private appendLocalUser(text: string): void {
     const r: ChatRow = new ChatRow();
-    r.id = `local-${Date.now()}`;
+    r.id = this.nextRowID('local');
     r.role = 'user';
     r.turnID = 0;
     r.content = text;
@@ -461,7 +475,7 @@ export class ChatStore {
       }
     }
     const r: ChatRow = new ChatRow();
-    r.id = `echo-${turnID}-${this.rows.length}`;
+    r.id = this.nextRowID('echo');
     r.role = 'user';
     r.turnID = turnID;
     r.content = text;
@@ -476,7 +490,7 @@ export class ChatStore {
       return last;
     }
     const r: ChatRow = new ChatRow();
-    r.id = 'live';
+    r.id = this.nextRowID('live');
     r.role = 'assistant';
     r.isLive = true;
     this.rows.push(r);
@@ -541,12 +555,15 @@ export class ChatStore {
       last.content = text.length > 0 ? text : last.content;
       last.isLive = false;
       last.turnID = env.turn_id !== undefined ? env.turn_id : last.turnID;
-      last.id = `a-${last.turnID}`;
+      // ⚠️ 不改成 `a-<turnID>`：那会与历史行的 id 空间重叠 ⇒ ForEach key 重复 ⇒ 渲染错位
+      if (last.id.length === 0) {
+        last.id = this.nextRowID('a');
+      }
     } else {
       const r: ChatRow = new ChatRow();
       r.role = 'assistant';
       r.turnID = env.turn_id !== undefined ? env.turn_id : 0;
-      r.id = `a-${r.turnID}`;
+      r.id = this.nextRowID('a');
       r.content = text;
       this.rows.push(r);
     }
