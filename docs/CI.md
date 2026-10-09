@@ -130,3 +130,14 @@ CI 与本地都会跑。规则只有一条：**`entry/src/main/ets/components|pa
 每个 SSE 事件重解析几百 KB ⇒ 卡到完全没法用（见 `docs/ARKTS-GOTCHAS.md` 第 11 条）。
 
 自证方式：往 `components/` 丢一个含裸调用的文件，门禁必须变红（脚本里带 `__mutant.ets` 的用法示例）。
+
+## 可选的真实服务端诊断（默认跳过）
+
+`tools/tests/live_scale.test.ts` —— 全量渲染负载扫描（只读）：
+
+```bash
+XBOT_E2E_BASE=http://127.0.0.1:16000 XBOT_E2E_USER=<u> XBOT_E2E_PASS=<p> tools/tests/run.sh
+```
+
+报告每个会话的行数/迭代数/单行最多迭代/实际渲染块数/最大单块字符数，并断言"迭代号唯一且升序、
+渲染块数 ≤ 16"。不设 env 时自动跳过，CI 无依赖。详见 `docs/RENDER-LOAD-MEASUREMENT.md`。
