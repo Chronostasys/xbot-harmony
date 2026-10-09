@@ -1,5 +1,4 @@
 import { webview } from '@kit.ArkWeb';
-import { BusinessError } from '@kit.BasicServicesKit';
 
 /**
  * WebSurface —— **全能力逃生舱**（ArkWeb / `Web` 组件）。
@@ -68,9 +67,8 @@ export struct WebSurface {
           this.title = event !== undefined ? event.url : '';
         })
         .onErrorReceive((event) => {
-          if (event !== undefined) {
-            const err: BusinessError = event.error as BusinessError;
-            console.error(`web error: ${err.message}`);
+          if (event !== undefined && event.error !== undefined) {
+            console.error(`web error: ${event.error.errorInfo} (${event.error.errorCode})`);
           }
         })
         .width('100%')
