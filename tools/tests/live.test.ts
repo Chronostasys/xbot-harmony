@@ -8,9 +8,9 @@
  * 这是客户端最容易理解错、且直接决定"历史能不能看全/会不会卡死"的地方。
  */
 import { ChatStore } from '../../entry/src/main/ets/core/store';
-import { ChatRow } from '../../entry/src/main/ets/core/types';
+import { ChatRow, HistoryData, HistoryMessage } from '../../entry/src/main/ets/core/types';
 
-declare const process: { env: Record<string, string> };
+declare const process: { env: Record<string, string>; exit: (c: number) => void };
 
 const BASE = process.env.XBOT_E2E_BASE;
 const USER = process.env.XBOT_E2E_USER || 'admin';
@@ -36,7 +36,14 @@ async function main(): Promise<void> {
     console.log('live.test: 该实例没有会话，仅验证到会话列表');
   } else {
     const first = store.sessions[0];
-    await store.openSession(first.chat_id !== undefined ? first.chat_id : '');
+    const chatId: string = first.chat_id !== undefined ? first.chat_id : '';
+    // ⚠️ 不用 openSession()：它含 SSE 长连接，会让 node 进程不退出（测试挂住）。
+    // 直接取 history 并用同一静态函数构造行模型 —— 验证的仍是真实解析路径。
+    const hist: HistoryData = await store.http.postAs<HistoryData>('/api/history', {
+      channel: 'web', chat_id: chatId, limit: 30, before_id: 0,
+    });
+    const msgs: HistoryMessage[] = hist.messages !== undefined ? hist.messages : [];
+    store.rows = ChatStore.rowsFromHistory(msgs);
     ok('历史可解析（含 user/assistant 行）', store.rows.length >= 0, `rows=${store.rows.length}`);
     // 折叠视图：找带 regionsBefore 的行，验证按需取回真的能取到更早区域
     const folded: ChatRow | undefined = store.rows.find((r) => r.regionsBefore > 0);
@@ -57,6 +64,7 @@ async function main(): Promise<void> {
   }
   console.log(`live.test: ${pass} passed, ${fail} failed`);
   if (fail > 0) { throw new Error('真实服务端验证失败'); }
+  process.exit(0);   // 确保退出（即使有残留连接）
 }
 
 main();

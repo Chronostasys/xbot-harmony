@@ -39,7 +39,14 @@ async function main() {
     }
     else {
         const first = store.sessions[0];
-        await store.openSession(first.chat_id !== undefined ? first.chat_id : '');
+        const chatId = first.chat_id !== undefined ? first.chat_id : '';
+        // ⚠️ 不用 openSession()：它含 SSE 长连接，会让 node 进程不退出（测试挂住）。
+        // 直接取 history 并用同一静态函数构造行模型 —— 验证的仍是真实解析路径。
+        const hist = await store.http.postAs('/api/history', {
+            channel: 'web', chat_id: chatId, limit: 30, before_id: 0,
+        });
+        const msgs = hist.messages !== undefined ? hist.messages : [];
+        store.rows = store_1.ChatStore.rowsFromHistory(msgs);
         ok('历史可解析（含 user/assistant 行）', store.rows.length >= 0, `rows=${store.rows.length}`);
         // 折叠视图：找带 regionsBefore 的行，验证按需取回真的能取到更早区域
         const folded = store.rows.find((r) => r.regionsBefore > 0);
@@ -59,5 +66,6 @@ async function main() {
     if (fail > 0) {
         throw new Error('真实服务端验证失败');
     }
+    process.exit(0); // 确保退出（即使有残留连接）
 }
 main();
