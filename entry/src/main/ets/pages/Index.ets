@@ -6,7 +6,7 @@ import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
 import { ChatStore } from '../core/store';
 import { mdCacheStats, MdCacheStats } from '../core/markdown';
-import { displayContent, displayReasoning } from '../core/streammerge';
+import { displayContent, displayReasoning, streamStatsText } from '../core/streammerge';
 import {
   AskOption,
   AskQuestion,
@@ -1280,7 +1280,7 @@ struct Index {
     return `rows=${rows.length}\n迭代总数=${iterTotal}\n单行最多迭代=${maxIter}\n`
       + `实际渲染块数=${rendered}（每行≤${MAX_ITER_VISIBLE}）\n带更早折叠区域的行=${foldedRows}\n`
       + `会话=${this.currentChat}\nbusy=${this.busy}\n`
-      + mdCacheText();
+      + mdCacheText() + '\n' + streamStatsText();
   }
 
   /** 加载该 turn 更早的展示区域（服务端折叠视图按需取回）。 */

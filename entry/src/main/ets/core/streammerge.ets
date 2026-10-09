@@ -62,6 +62,7 @@ export function liveIterationOf(row: IterList): HistoryIteration {
     }
   }
   if (best === undefined) {
+    nLiveCreated++;                                 // 诊断：旧实现会在这里写迭代 0
     const created: HistoryIteration = { iteration: 1, content: '', reasoning: '', tools: [] };
     row.iterations.push(created);
     return created;
@@ -137,6 +138,7 @@ export function toolsFromEvent(e: ProgressEvent): ToolProgress[] | undefined {
  * ⚠️ 这条"只增不减"就是本模块存在的理由：违反它 = 工具 pill 在流式期间一闪就没。
  */
 export function applyStreamFrame(it: HistoryIteration, e: ProgressEvent): void {
+  nStreamFrames++;
   if (nonEmpty(e.stream_content)) {
     it.stream_text = e.stream_content;              // 检查点：整体替换累积文本
   } else if (nonEmpty(e.stream_delta)) {
@@ -148,6 +150,7 @@ export function applyStreamFrame(it: HistoryIteration, e: ProgressEvent): void {
     it.stream_reasoning = `${it.stream_reasoning !== undefined ? it.stream_reasoning : ''}${e.reasoning_stream_delta}`;
   }
   if (e.streaming_tools !== undefined && e.streaming_tools.length > 0) {
+    nToolMerges++;
     it.tools = mergeTools(it.tools, e.streaming_tools);
   }
 }
@@ -159,6 +162,7 @@ export function applyStreamFrame(it: HistoryIteration, e: ProgressEvent): void {
  * （避免检查点与增量叠加出重复文本）。
  */
 export function applyStructured(it: HistoryIteration, e: ProgressEvent): void {
+  nStructuredFrames++;
   if (nonEmpty(e.content)) {
     it.content = e.content;
     it.stream_text = '';                            // 权威快照接管，清掉流式缓冲
@@ -169,6 +173,7 @@ export function applyStructured(it: HistoryIteration, e: ProgressEvent): void {
   }
   const tools: ToolProgress[] | undefined = toolsFromEvent(e);
   if (tools !== undefined) {
+    nToolMerges++;
     it.tools = mergeTools(it.tools, tools);
   }
   if (e.tools_folded === true && tools === undefined) {
@@ -213,4 +218,21 @@ export function isBusyAction(action: string): boolean {
 /** 历史被回退（rewind）⇒ 必须重载历史，否则界面停留在被撤销的内容上。 */
 export function shouldReloadHistory(action: string): boolean {
   return action === 'history_rewound';
+}
+
+
+// ── 运行计数（诊断用：让一张自检页截图就能证明"两条路真的走对了"）──────────────
+let nStreamFrames: number = 0;      // 收到的流式帧数
+let nStructuredFrames: number = 0;  // 收到的结构化帧数
+let nToolMerges: number = 0;        // 工具合并次数（>0 说明工具没被清空过）
+let nLiveCreated: number = 0;       // 由流式帧首次建出"在飞迭代"的次数（旧实现会在此写 0）
+
+/**
+ * 一行计数摘要（自检页显示）。
+ * 判读：**结构化帧数 > 0 且工具合并 > 0** = 工具 pill 走了正确的合并路径（不会被清空）；
+ * 若"流式帧数 > 0 但结构化帧数 == 0"，说明只有流、没有结构化 ⇒ 需检查服务端是否在发 progress_structured。
+ */
+export function streamStatsText(): string {
+  return `流式帧=${nStreamFrames} 结构化帧=${nStructuredFrames} 工具合并=${nToolMerges}`
+    + ` 在飞迭代新建=${nLiveCreated}`;
 }
