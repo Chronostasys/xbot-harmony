@@ -1,5 +1,8 @@
 import { pasteboard } from '@kit.BasicServicesKit';
-import { MdBlock, MdBlockKind, MdSpan, parseInlineCached, parseMarkdownCached } from '../core/markdown';
+import {
+  MdBlock, MdBlockKind, MdSpan, parseInlineCached, parseMarkdownCached,
+  TableField, tableRowFields, useTableGrid,
+} from '../core/markdown';
 
 /**
  * MarkdownView —— 把 Markdown 渲染成原生 ArkUI（零 WebView）。
@@ -234,37 +237,77 @@ export struct MarkdownView {
     .margin({ top: 4, bottom: 4 })
   }
 
+  /**
+   * 表格：**列数决定形态**。
+   *
+   * - ≤4 列：等宽网格（手机上每列仍可读）
+   * - ≥5 列：堆叠成「字段: 值」—— 等宽网格在手机上会把每列压成 ~40dp 的**竖条**，
+   *   中文完全不可读（实测真实会话里存在 5/7/8 列表格：`{2:544,3:490,5:267,4:218,8:6,7:5}`），
+   *   这正是"渲染整个都是错乱的、完全用不了"的成因之一。
+   *   堆叠形态只用 Column/Row/Text —— 都是真机已验证可渲染的构件（登录页已证明）。
+   */
   @Builder
   TableBlock(b: MdBlock) {
     Column() {
-      Row() {
-        ForEach(b.header, (h: string) => {
-          Text(h)
-            .wordBreak(WordBreak.BREAK_ALL)
-            .fontSize(13)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#F3F4F6')
-            .layoutWeight(1)
-            .padding(6)
-        }, (h: string, k: number) => `${b.key}-th${k}`)
-      }
-      .width('100%')
-      .backgroundColor('#1F2937')
-
-      ForEach(b.rows, (row: string[], ri: number) => {
+      if (useTableGrid(b.header.length)) {
         Row() {
-          ForEach(row, (cell: string, ci: number) => {
-            Text(cell)
+          ForEach(b.header, (h: string) => {
+            Text(h)
               .wordBreak(WordBreak.BREAK_ALL)
               .fontSize(13)
-              .fontColor('#E5E7EB')
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#F3F4F6')
               .layoutWeight(1)
               .padding(6)
-          }, (cell: string, ci: number) => `${b.key}-td${ri}-${ci}`)
+          }, (h: string, k: number) => `${b.key}-th${k}`)
         }
         .width('100%')
-        .border({ width: { top: 1 }, color: '#1F2937' })
-      }, (row: string[], ri: number) => `${b.key}-tr${ri}`)
+        .backgroundColor('#1F2937')
+
+        ForEach(b.rows, (row: string[], ri: number) => {
+          Row() {
+            ForEach(row, (cell: string, ci: number) => {
+              Text(cell)
+                .wordBreak(WordBreak.BREAK_ALL)
+                .fontSize(13)
+                .fontColor('#E5E7EB')
+                .layoutWeight(1)
+                .padding(6)
+            }, (cell: string, ci: number) => `${b.key}-td${ri}-${ci}`)
+          }
+          .width('100%')
+          .border({ width: { top: 1 }, color: '#1F2937' })
+        }, (row: string[], ri: number) => `${b.key}-tr${ri}`)
+      } else {
+        Row() {
+          Text(`📋 表格（${b.header.length} 列 · ${b.rows.length} 行）`)
+            .fontSize(11).fontColor('#9CA3AF')
+        }
+        .width('100%')
+        .padding({ left: 8, right: 8, top: 6, bottom: 4 })
+
+        ForEach(b.rows, (row: string[], ri: number) => {
+          Column({ space: 3 }) {
+            ForEach(tableRowFields(b.header, row), (f: TableField, fi: number) => {
+              Row({ space: 6 }) {
+                Text(f.label)
+                  .fontSize(12).fontColor('#9CA3AF')
+                  .constraintSize({ minWidth: 84 })
+                Text(f.value)
+                  .wordBreak(WordBreak.BREAK_ALL)
+                  .fontSize(13).fontColor('#E5E7EB')
+                  .layoutWeight(1)
+              }
+              .width('100%')
+              .alignItems(VerticalAlign.Top)
+            }, (f: TableField, fi: number) => `${b.key}-s${ri}-${fi}`)
+          }
+          .width('100%')
+          .alignItems(HorizontalAlign.Start)
+          .padding({ left: 8, right: 8, top: 6, bottom: 6 })
+          .border({ width: { top: ri === 0 ? 0 : 1 }, color: '#1F2937' })
+        }, (row: string[], ri: number) => `${b.key}-sr${ri}`)
+      }
     }
     .width('100%')
     .border({ width: 1, color: '#1F2937' })

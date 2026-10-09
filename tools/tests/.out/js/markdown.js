@@ -9,13 +9,15 @@
  * 复杂图表（mermaid）、公式（katex）不在原生范围 —— 那类消息走 ArkWeb 面板。
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MdCacheStats = exports.MdSpan = exports.MdBlock = exports.MdBlockKind = void 0;
+exports.TableField = exports.TABLE_GRID_MAX_COLS = exports.MdCacheStats = exports.MdSpan = exports.MdBlock = exports.MdBlockKind = void 0;
 exports.parseMarkdown = parseMarkdown;
 exports.parseInline = parseInline;
 exports.markdownToPlain = markdownToPlain;
 exports.parseMarkdownCached = parseMarkdownCached;
 exports.parseInlineCached = parseInlineCached;
 exports.mdCacheStats = mdCacheStats;
+exports.useTableGrid = useTableGrid;
+exports.tableRowFields = tableRowFields;
 var MdBlockKind;
 (function (MdBlockKind) {
     MdBlockKind[MdBlockKind["Paragraph"] = 0] = "Paragraph";
@@ -425,4 +427,45 @@ function mdCacheStats() {
     st.chars = mdBlockChars + mdSpanChars;
     st.entries = mdBlockOrder.length + mdSpanOrder.length;
     return st;
+}
+// ── 表格布局判定（纯函数：可脱离 SDK 单测）───────────────────────────────────
+/**
+ * 表格**等宽网格**能容忍的最大列数。
+ *
+ * 为什么是 4：手机可用宽度约 360–420dp，等宽网格下每列 ≈ 可用宽度 / 列数。
+ * 实测真实会话里存在 5/7/8 列的表格（`{2:544, 3:490, 5:267, 4:218, 8:6, 7:5}`）——
+ * 8 列时每列只有 ~40dp，中文会被压成**竖条**，这正是"渲染整个都是错乱的、完全用不了"的成因之一。
+ * 超过该列数就改用**堆叠形态**（每行 = `字段: 值`），只用 Column/Row/Text（真机已验证可渲染）。
+ */
+exports.TABLE_GRID_MAX_COLS = 4;
+/** 该列数是否应使用等宽网格（否则用堆叠形态）。纯函数，便于单测锁死阈值。 */
+function useTableGrid(cols) {
+    return cols > 0 && cols <= exports.TABLE_GRID_MAX_COLS;
+}
+/** 堆叠形态里的一行字段。 */
+class TableField {
+    constructor() {
+        this.label = '';
+        this.value = '';
+    }
+}
+exports.TableField = TableField;
+/**
+ * 把一行表格单元与表头配对成"字段: 值"列表（堆叠形态用）。
+ *
+ * 表头缺失时回落 `列N`（**显式**而非留空）；单元格少于表头时补空串；
+ * 单元格多于表头时同样用 `列N` 兜底（不丢数据）。
+ */
+function tableRowFields(header, row) {
+    const out = [];
+    const n = row.length > header.length ? row.length : header.length;
+    for (let i = 0; i < n; i++) {
+        const f = new TableField();
+        const h = header[i];
+        f.label = h !== undefined && h.length > 0 ? h : `列${i + 1}`;
+        const c = row[i];
+        f.value = c !== undefined ? c : '';
+        out.push(f);
+    }
+    return out;
 }

@@ -193,3 +193,28 @@ uiCtx.setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);   // 导入自 '@kit.ArkUI
 
 **同源铁律（与 xbot Web 端一致）**：`break-words`（`overflow-wrap: break-word`）**不够**，
 必须 `wrap-anywhere`（`overflow-wrap: anywhere`）—— 两端都是"不可断 token 撑破容器"这同一个根因。
+
+## 16. 表格【列数决定形态】—— ≥5 列必须堆叠，等宽网格会把中文压成竖条
+
+**现象**：聊天页里的宽表格完全不可读 —— 每列被压成 ~40dp 的**竖条**，正是"渲染整个都是错乱的、
+完全用不了"的一大成因。
+
+**实测（真实会话，5,242,820 字符 / 60 个会话）**：表格列数分布
+`{2列:544, 3列:490, 5列:267, 4列:218, 8列:6, 7列:5}` ⇒ **≥5 列的表格出现 44 次**（不是罕见形态）。
+真实样例：`| # | tenant | 渠道 | 会话名（chat_id） | 显示名 / label | 主库里有多少 | 会话库 | … |`。
+
+**机制**：`TableBlock` 给每列 `layoutWeight(1)`（**等宽**）⇒ 列宽 = 可用宽度 / 列数；
+8 列时每列 ≈40dp，中文必然成一字一行。
+
+**修法**（只用**真机已验证可渲染**的构件 Column/Row/Text）：
+
+- `TABLE_GRID_MAX_COLS = 4`，`useTableGrid(cols)` 判定形态；
+- ≤4 列：等宽网格（手机上每列仍可读）；
+- ≥5 列：**堆叠形态** —— 每行渲染为若干条 `字段: 值`，字段名取自表头（缺失时回落 `列N`），
+  值用 `wordBreak(BREAK_ALL)`；
+- 判定与字段配对做成**纯函数**（`core/markdown.ets` 的 `useTableGrid`/`tableRowFields`），
+  由 `tools/tests/table_layout.test.ts`（18 条）守护 —— 渲染用 ArkUI 无法脱机测，
+  但**决策逻辑**必须能测。
+
+**取舍留档**：没用"横向滚动"（Web 端的做法），因为滚动容器需要确定的宽/高约束，
+在内容定高的列里可能塌成 0 —— 在没有真机画面确认前不引入这类结构性不确定性。

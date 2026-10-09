@@ -432,3 +432,46 @@ export function mdCacheStats(): MdCacheStats {
   st.entries = mdBlockOrder.length + mdSpanOrder.length;
   return st;
 }
+
+
+// ── 表格布局判定（纯函数：可脱离 SDK 单测）───────────────────────────────────
+/**
+ * 表格**等宽网格**能容忍的最大列数。
+ *
+ * 为什么是 4：手机可用宽度约 360–420dp，等宽网格下每列 ≈ 可用宽度 / 列数。
+ * 实测真实会话里存在 5/7/8 列的表格（`{2:544, 3:490, 5:267, 4:218, 8:6, 7:5}`）——
+ * 8 列时每列只有 ~40dp，中文会被压成**竖条**，这正是"渲染整个都是错乱的、完全用不了"的成因之一。
+ * 超过该列数就改用**堆叠形态**（每行 = `字段: 值`），只用 Column/Row/Text（真机已验证可渲染）。
+ */
+export const TABLE_GRID_MAX_COLS: number = 4;
+
+/** 该列数是否应使用等宽网格（否则用堆叠形态）。纯函数，便于单测锁死阈值。 */
+export function useTableGrid(cols: number): boolean {
+  return cols > 0 && cols <= TABLE_GRID_MAX_COLS;
+}
+
+/** 堆叠形态里的一行字段。 */
+export class TableField {
+  label: string = '';
+  value: string = '';
+}
+
+/**
+ * 把一行表格单元与表头配对成"字段: 值"列表（堆叠形态用）。
+ *
+ * 表头缺失时回落 `列N`（**显式**而非留空）；单元格少于表头时补空串；
+ * 单元格多于表头时同样用 `列N` 兜底（不丢数据）。
+ */
+export function tableRowFields(header: string[], row: string[]): TableField[] {
+  const out: TableField[] = [];
+  const n: number = row.length > header.length ? row.length : header.length;
+  for (let i = 0; i < n; i++) {
+    const f: TableField = new TableField();
+    const h: string | undefined = header[i];
+    f.label = h !== undefined && h.length > 0 ? h : `列${i + 1}`;
+    const c: string | undefined = row[i];
+    f.value = c !== undefined ? c : '';
+    out.push(f);
+  }
+  return out;
+}
