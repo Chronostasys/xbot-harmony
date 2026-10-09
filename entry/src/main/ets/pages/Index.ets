@@ -846,6 +846,12 @@ struct Index {
         .onClick(() => {
           this.doRegister();
         })
+      // 无需登录/无需网络：直接打开渲染自检页（截图发我即可定位构件级问题）
+      Text('渲染自检（排查渲染问题用）')
+        .fontSize(12).fontColor('#93C5FD').margin({ top: 8 })
+        .onClick(() => {
+          this.showSelfCheck = true;
+        })
     }
     .padding(24).width('100%').height('100%').justifyContent(FlexAlign.Center)
   }
