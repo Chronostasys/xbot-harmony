@@ -1077,6 +1077,7 @@ struct Index {
     Row() {
       Blank()
       Text(row.content)
+        .wordBreak(WordBreak.BREAK_ALL)
         .fontSize(15).fontColor('#F9FAFB').padding(12)
         .constraintSize({ maxWidth: '78%' })
         .backgroundColor('#6D28D9').borderRadius(12)
@@ -1144,6 +1145,7 @@ struct Index {
       if (this.showReasoning && it.reasoning !== undefined && it.reasoning.length > 0
         && this.openReasonKey === `${row.id}-${it.iteration}`) {
         Text(it.reasoning)
+          .wordBreak(WordBreak.BREAK_ALL)
           .fontSize(13).fontColor('#9CA3AF').padding(8).width('100%')
           .backgroundColor('#0F172A').borderRadius(8)
           .copyOption(CopyOptions.LocalDevice)

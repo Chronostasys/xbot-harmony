@@ -104,6 +104,7 @@ export struct MarkdownView {
         }, (s: MdSpan, i: number) => `h-${b.key}-${i}-${s.text.length}`)
       }
       .width('100%')
+      .wordBreak(WordBreak.BREAK_ALL)
       .margin({ top: b.level <= 2 ? 8 : 4, bottom: 2 })
     } else if (b.kind === MdBlockKind.Code) {
       this.CodeBlock(b)
@@ -183,6 +184,9 @@ export struct MarkdownView {
     }
     .width('100%')
     .textAlign(TextAlign.Start)
+    // 不可断超长 token（URL/代码/base64）在 ArkUI 里默认不在词内折行 ⇒ 横向撑破容器；
+    // 与 xbot Web 端已定稿的教训同源（break-words 不够，必须 wrap-anywhere）。
+    .wordBreak(WordBreak.BREAK_ALL)
   }
 
   @Builder
@@ -211,6 +215,7 @@ export struct MarkdownView {
       .padding({ left: 10, right: 10, top: 6, bottom: 2 })
 
       Text(b.code)
+        .wordBreak(this.wrapCode ? WordBreak.BREAK_ALL : WordBreak.NORMAL)
         .fontFamily('monospace')
         .fontSize(13)
         .fontColor('#E5E7EB')
@@ -233,6 +238,7 @@ export struct MarkdownView {
       Row() {
         ForEach(b.header, (h: string) => {
           Text(h)
+            .wordBreak(WordBreak.BREAK_ALL)
             .fontSize(13)
             .fontWeight(FontWeight.Bold)
             .fontColor('#F3F4F6')
@@ -247,6 +253,7 @@ export struct MarkdownView {
         Row() {
           ForEach(row, (cell: string, ci: number) => {
             Text(cell)
+              .wordBreak(WordBreak.BREAK_ALL)
               .fontSize(13)
               .fontColor('#E5E7EB')
               .layoutWeight(1)
