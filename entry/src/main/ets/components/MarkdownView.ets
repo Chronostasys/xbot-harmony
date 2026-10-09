@@ -8,6 +8,24 @@ import { MdBlock, MdBlockKind, MdSpan, parseInline, parseMarkdown } from '../cor
  * 代码块自带复制；图片走 `onImage` 回调（xbot 的图片端点是 cookie 鉴权，需由页面用
  * `XbotHttp.getBinary()` 取字节再解码 —— ArkUI 的 Image(url) 不会带会话 cookie）。
  */
+/**
+ * 取出文本里的图片 src（供页面用 cookie 鉴权拉字节渲染）。
+ *
+ * ⚠️ 必须是**模块级函数**，不能写成 struct 的 static 方法：ArkUI 的 struct 不是普通类，
+ * 真机上静态成员会解析成 undefined，调用直接抛 "undefined is not callable"
+ * （2026-10-09 真机登录报错根因）。同理见 pages/Index.ets 的 selectionsFor。
+ */
+export function imagesIn(text: string): string[] {
+  const out: string[] = [];
+  const spans: MdSpan[] = parseInline(text);
+  for (let i = 0; i < spans.length; i++) {
+    if (spans[i].image.length > 0) {
+      out.push(spans[i].image);
+    }
+  }
+  return out;
+}
+
 @Component
 export struct MarkdownView {
   @Prop text: string = '';
@@ -77,7 +95,7 @@ export struct MarkdownView {
     } else {
       this.Inline(b.text)
       // 图片：xbot 的图片引用是 cookie 鉴权端点 ⇒ 用回调交给页面取字节渲染
-      ForEach(MarkdownView.imagesIn(b.text), (src: string, k: number) => {
+      ForEach(imagesIn(b.text), (src: string, k: number) => {
         Row({ space: 6 }) {
           Text('🖼').fontSize(14)
           Text('查看图片').fontSize(12).fontColor('#93C5FD')
@@ -200,18 +218,6 @@ export struct MarkdownView {
     .borderRadius(8)
     .clip(true)
     .margin({ top: 4, bottom: 4 })
-  }
-
-  /** 取出文本里的图片 src（供页面用 cookie 鉴权拉字节渲染）。 */
-  static imagesIn(text: string): string[] {
-    const out: string[] = [];
-    const spans: MdSpan[] = parseInline(text);
-    for (let i = 0; i < spans.length; i++) {
-      if (spans[i].image.length > 0) {
-        out.push(spans[i].image);
-      }
-    }
-    return out;
   }
 
   private headingSize(level: number): number {

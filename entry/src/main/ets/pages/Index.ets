@@ -25,6 +25,37 @@ class AskSelection {
   other: string = '';
 }
 
+/** 把任意 catch 到的值变成可读文本（BusinessError 有 message/code；其它情况回落 JSON）。 */
+function errText(e: Object): string {
+  const err: BusinessError = e as BusinessError;
+  const m: string = err.message !== undefined ? err.message : '';
+  const c: string = err.code !== undefined ? `${err.code}` : '';
+  if (m.length > 0) {
+    return c.length > 0 ? `${m}（code ${c}）` : m;
+  }
+  const raw: string = JSON.stringify(e);
+  return raw !== undefined && raw.length > 2 ? raw : '未知错误';
+}
+
+/**
+ * 按 AskUser 载荷生成选择状态。
+ * ⚠️ 模块级函数而非 `struct Index` 的 static 方法（ArkUI struct 的静态成员在真机上
+ * 是 undefined，调用即 "undefined is not callable"）。
+ */
+function selectionsFor(ask: AskUserPrompt | null): AskSelection[] {
+  const out: AskSelection[] = [];
+  if (ask === null || ask.questions === undefined) {
+    return out;
+  }
+  for (let i = 0; i < ask.questions.length; i++) {
+    const q: AskQuestion = ask.questions[i];
+    const sel: AskSelection = new AskSelection();
+    sel.qid = q.id !== undefined ? q.id : `q${i}`;
+    out.push(sel);
+  }
+  return out;
+}
+
 @Entry
 @Component
 struct Index {
@@ -95,8 +126,16 @@ struct Index {
   }
 
   private async bootstrap(): Promise<void> {
-    const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
-    const saved: AppConfig = await this.config.init(ctx);
+    // 兜底：即使本地存储不可用，也必须能进登录页（否则永远停在 Loading，无从排查）
+    let saved: AppConfig = new AppConfig();
+    try {
+      const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      saved = await this.config.init(ctx);
+    } catch (e) {
+      this.errMsg = `[本地存储不可用] ${errText(e)}（可继续手填地址登录）`;
+      this.booted = true;
+      return;
+    }
     if (saved.serverUrl.length > 0) {
       this.serverUrl = saved.serverUrl;
     }
@@ -144,7 +183,7 @@ struct Index {
     const ask: AskUserPrompt | null = store.askUser;
     if (ask !== this.askUser) {
       this.askUser = ask;
-      this.askSelections = Index.selectionsFor(ask);
+      this.askSelections = selectionsFor(ask);
     }
     setTimeout(() => {
       try {
@@ -153,20 +192,6 @@ struct Index {
         // 首帧尚未布局
       }
     }, 30);
-  }
-
-  private static selectionsFor(ask: AskUserPrompt | null): AskSelection[] {
-    const out: AskSelection[] = [];
-    if (ask === null || ask.questions === undefined) {
-      return out;
-    }
-    for (let i = 0; i < ask.questions.length; i++) {
-      const q: AskQuestion = ask.questions[i];
-      const sel: AskSelection = new AskSelection();
-      sel.qid = q.id !== undefined ? q.id : `q${i}`;
-      out.push(sel);
-    }
-    return out;
   }
 
   /** 规范化并校验服务端地址；不合法返回空串并把原因写进 testMsg。 */
@@ -219,21 +244,36 @@ struct Index {
       this.errMsg = this.testMsg;
       return;
     }
+    const store: ChatStore = this.makeStore(url);
+    // 分步报错：哪一步挂了 + 原始信息，一眼可定位（真机排查只能靠这个）
     try {
-      const store: ChatStore = this.makeStore(url);
       await store.http.login(this.username, this.password);
+    } catch (e) {
+      this.errMsg = `[登录请求] ${errText(e)}`;
+      return;
+    }
+    try {
       await store.loadSessions();
       this.attach(store);
+    } catch (e) {
+      this.errMsg = `[加载会话] ${errText(e)}`;
+      return;
+    }
+    try {
       await this.config.save(url, this.username, store.http.exportSessionCookie());
       this.recentServers = this.config.recentServers();
-      this.loggedIn = true;
-      const first: SessionItem | undefined = this.sessions.length > 0 ? this.sessions[0] : undefined;
-      if (first !== undefined && first.chat_id !== undefined) {
-        await store.openSession(first.chat_id);
-      }
     } catch (e) {
-      const err: BusinessError = e as BusinessError;
-      this.errMsg = err.message;
+      this.errMsg = `[保存登录态] ${errText(e)}`;
+      return;
+    }
+    this.loggedIn = true;
+    const first: SessionItem | undefined = this.sessions.length > 0 ? this.sessions[0] : undefined;
+    if (first !== undefined && first.chat_id !== undefined) {
+      try {
+        await store.openSession(first.chat_id);
+      } catch (e) {
+        this.errMsg = `[打开会话] ${errText(e)}`;
+      }
     }
   }
 

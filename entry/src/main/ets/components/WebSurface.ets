@@ -68,9 +68,13 @@ export struct WebSurface {
           this.title = event !== undefined ? event.url : '';
         })
         .onErrorReceive((event) => {
-          if (event !== undefined && event.error !== undefined) {
-            // WebResourceError 暴露的是 getErrorInfo() / getErrorCode() 方法（不是属性）
-            console.error(`web error: ${event.error.getErrorInfo()} (${event.error.getErrorCode()})`);
+          // ArkWeb 的错误对象在不同内核版本上暴露的成员不同 ⇒ 不假设方法存在
+          try {
+            if (event !== undefined && event.error !== undefined) {
+              console.error(`web error: ${JSON.stringify(event.error)}`);
+            }
+          } catch (e) {
+            console.error('web error (无法序列化)');
           }
         })
         .width('100%')
