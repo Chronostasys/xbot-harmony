@@ -30,14 +30,6 @@
       { "name": "ohos.permission.INTERNET" },
       { "name": "ohos.permission.GET_NETWORK_INFO" },
       { "name": "ohos.permission.KEEP_BACKGROUND_RUNNING" }
-    ],
-    // ⚠️ 自建 xbot 服务通常是**明文 HTTP**（局域网 http://ip:16000）。HarmonyOS 6.1（API 23）
-    // 起默认全局禁止明文传输 ⇒ 必须显式放行，否则所有请求都会被拦成 https 而失败。
-    // 见 docs/CI.md「明文 HTTP」一节：公网部署建议直接上 HTTPS 并改回 false。
-    "networkSecurityConfig": {
-      "baseConfig": {
-        "cleartextTrafficPermitted": true
-      }
-    }
+    ]
   }
 }

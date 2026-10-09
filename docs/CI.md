@@ -44,15 +44,29 @@ ghcr.io/dalongzhuazi/harmonyos-ci:api26r
 ## 3. 明文 HTTP（自建服务的常见坑）
 
 HarmonyOS 6.1（API 23）起**默认全局禁止明文 HTTP**，请求会被强制走 https 而失败。
-自建 xbot 通常是 `http://<内网IP>:16000`，因此 `entry/src/main/module.json5` 里显式放行：
+自建 xbot 通常是 `http://<内网IP>:16000`，因此需要放行：
 
-```json5
-"networkSecurityConfig": {
-  "baseConfig": { "cleartextTrafficPermitted": true }
+**正确做法**：`entry/src/main/resources/base/profile/network_config.json`
+（按约定位置 + 文件名自动发现，**不需要**在 module.json5 里引用）：
+
+```json
+{
+  "network-security-config": {
+    "base-config": { "cleartextTrafficPermitted": true }
+  }
 }
 ```
 
-公网部署请改用 HTTPS，并把该值改回 `false`（或按域名细粒度放行）。
+### 踩坑（已在 CI 上实测）
+
+❌ 把 `networkSecurityConfig` 写进 `module.json5` ⇒ hvigor 直接报
+`00303038 Configuration Error / Schema validate failed`（API 26 的 module schema
+**没有这个字段**，allowedValues 里只有 metadata/abilities/requestPermissions/... ）。
+若要用 module.json5 的写法，需按 API 23+ 的 `networkSecurityConfig` 结构（baseConfig）
+且 SDK 版本支持；本仓库采用 profile 文件方案，跨版本更稳。
+
+公网部署请改用 HTTPS，并把 `cleartextTrafficPermitted` 改回 `false`（或用
+`domain-config` 只放行内网域名）。
 
 ## 4. 签名（发布正式包才需要）
 

@@ -8,6 +8,7 @@
         "name": "default",
         // ⚠️ API 26 工程必须写 "26.0.0"（不能写 26.0.0(26) / 26），见 docs/CI.md
         "compatibleSdkVersion": "26.0.0",
+        "targetSdkVersion": "26.0.0",
         "runtimeOS": "HarmonyOS",
         "buildOption": {
           "strictMode": {
