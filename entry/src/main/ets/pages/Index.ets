@@ -787,7 +787,7 @@ struct Index {
           this.serverUrl = v;
           this.testMsg = '';
         })
-        .backgroundColor('#111827').fontColor('#E5E7EB').height(44)
+        .backgroundColor('#111827').fontColor('#E5E7EB').constraintSize({ minHeight: 44 })
 
       // 最近用过的地址（一点即填，省得重打 IP）
       if (this.recentServers.length > 0) {
@@ -826,22 +826,22 @@ struct Index {
         .onChange((v: string) => {
           this.username = v;
         })
-        .backgroundColor('#111827').fontColor('#E5E7EB').height(44)
+        .backgroundColor('#111827').fontColor('#E5E7EB').constraintSize({ minHeight: 44 })
       TextInput({ placeholder: '密码' })
         .type(InputType.Password)
         .onChange((v: string) => {
           this.password = v;
         })
-        .backgroundColor('#111827').fontColor('#E5E7EB').height(44)
+        .backgroundColor('#111827').fontColor('#E5E7EB').constraintSize({ minHeight: 44 })
 
       if (this.errMsg.length > 0) {
         Text(this.errMsg).fontSize(12).fontColor('#F87171').width('100%')
       }
 
-      Button('登录').width('100%').height(44).onClick(() => {
+      Button('登录').width('100%').constraintSize({ minHeight: 44 }).onClick(() => {
         this.doLogin();
       })
-      Button('注册（仅服务端允许时）').width('100%').height(40)
+      Button('注册（仅服务端允许时）').width('100%').constraintSize({ minHeight: 40 })
         .backgroundColor('#1F2937')
         .onClick(() => {
           this.doRegister();
@@ -887,7 +887,7 @@ struct Index {
           this.showSettings = true;
         })
       }
-      .width('100%').height(56).padding({ left: 4, right: 4 }).backgroundColor('#111827')
+      .width('100%').constraintSize({ minHeight: 56 }).padding({ left: 4, right: 4 }).backgroundColor('#111827')
       .id('xbot-header')
 
       // 加载失败且列表为空 ⇒ 明确提示 + 重试（网络/代理故障时界面必须自解释）
@@ -898,7 +898,7 @@ struct Index {
             .maxLines(4).textOverflow({ overflow: TextOverflow.Ellipsis })
           Text('常见原因：手机到服务端网络不通（代理/防火墙），或服务端地址填错')
             .fontSize(11).fontColor('#6B7280').maxLines(3)
-          Button('重试').height(38).backgroundColor('#7C3AED').onClick(() => {
+          Button('重试').constraintSize({ minHeight: 38 }).backgroundColor('#7C3AED').onClick(() => {
             this.retryLoad();
           })
         }
@@ -952,12 +952,12 @@ struct Index {
           .onChange((v: string) => {
             this.draft = v;
           })
-          .layoutWeight(1).height(42).backgroundColor('#111827').fontColor('#E5E7EB')
+          .layoutWeight(1).constraintSize({ minHeight: 42 }).backgroundColor('#111827').fontColor('#E5E7EB')
           .onSubmit(() => {
             this.sendDraft();
           })
         Button(this.busy ? '停止' : '发送')
-          .height(42)
+          .constraintSize({ minHeight: 42 })
           .backgroundColor(this.busy ? '#7F1D1D' : '#7C3AED')
           .onClick(() => {
             if (this.busy) {
@@ -1184,7 +1184,7 @@ struct Index {
                     .onChange((v: string) => {
                       this.renameText = v;
                     })
-                    .layoutWeight(1).height(36).backgroundColor('#111827').fontColor('#E5E7EB')
+                    .layoutWeight(1).constraintSize({ minHeight: 36 }).backgroundColor('#111827').fontColor('#E5E7EB')
                   Text('保存').fontSize(13).fontColor('#93C5FD').padding(6).onClick(() => {
                     const store: ChatStore | null = this.store;
                     if (store !== null && s.chat_id !== undefined) {
@@ -1235,7 +1235,7 @@ struct Index {
       }
       .layoutWeight(1).width('100%')
 
-      Button('退出登录').width('100%').height(40).backgroundColor('#1F2937').margin({ top: 8 }).onClick(() => {
+      Button('退出登录').width('100%').constraintSize({ minHeight: 40 }).backgroundColor('#1F2937').margin({ top: 8 }).onClick(() => {
         this.doLogout();
       })
     }
@@ -1263,14 +1263,14 @@ struct Index {
         .onChange((v: string) => {
           this.serverUrl = v;
         })
-        .height(42).backgroundColor('#111827').fontColor('#E5E7EB')
+        .constraintSize({ minHeight: 42 }).backgroundColor('#111827').fontColor('#E5E7EB')
 
       Text('用户名').fontSize(12).fontColor('#9CA3AF').width('100%')
       TextInput({ text: this.username })
         .onChange((v: string) => {
           this.username = v;
         })
-        .height(42).backgroundColor('#111827').fontColor('#E5E7EB')
+        .constraintSize({ minHeight: 42 }).backgroundColor('#111827').fontColor('#E5E7EB')
 
       Row() {
         Text('显示思考过程').fontSize(14).fontColor('#E5E7EB').layoutWeight(1)
@@ -1287,14 +1287,14 @@ struct Index {
           .constraintSize({ maxWidth: 180 })
       }.width('100%')
 
-      Button('保存服务端/用户名').width('100%').height(40).onClick(async () => {
+      Button('保存服务端/用户名').width('100%').constraintSize({ minHeight: 40 }).onClick(async () => {
         const store: ChatStore | null = this.store;
         this.takeServerUrl();
         await this.config.save(this.serverUrl, this.username,
           store !== null ? store.http.exportSessionCookie() : '');
         this.toast('已保存（换服务端请退出重登）');
       })
-      Button(this.auditing ? '走查中…' : '① 走查并上传所有页面截图（推荐）').width('100%').height(44)
+      Button(this.auditing ? '走查中…' : '① 走查并上传所有页面截图（推荐）').width('100%').constraintSize({ minHeight: 44 })
         .backgroundColor('#7C3AED')
         .onClick(() => {
           this.showSettings = false;
@@ -1303,19 +1303,19 @@ struct Index {
       if (this.auditLog.length > 0) {
         Text(this.auditLog).fontSize(10).fontColor('#9CA3AF').width('100%').maxLines(4)
       }
-      Button('渲染自检（排查渲染问题用）').width('100%').height(40)
+      Button('渲染自检（排查渲染问题用）').width('100%').constraintSize({ minHeight: 40 })
         .backgroundColor('#1F2937')
         .onClick(() => {
           this.showSettings = false;
           this.showSelfCheck = true;
         })
-      Button('打开完整 Web UI（插件/GenUI/终端）').width('100%').height(40)
+      Button('打开完整 Web UI（插件/GenUI/终端）').width('100%').constraintSize({ minHeight: 40 })
         .backgroundColor('#1F2937')
         .onClick(() => {
           this.showSettings = false;
           this.panelUrl = this.serverUrl;
         })
-      Button('退出登录').width('100%').height(40)
+      Button('退出登录').width('100%').constraintSize({ minHeight: 40 })
         .backgroundColor('#7F1D1D')
         .onClick(() => {
           this.showSettings = false;
@@ -1566,7 +1566,7 @@ struct Index {
                       }
                       this.askSelections = next;
                     })
-                    .height(38).backgroundColor('#111827').fontColor('#E5E7EB')
+                    .constraintSize({ minHeight: 38 }).backgroundColor('#111827').fontColor('#E5E7EB')
                 }
               }.width('100%').padding(8)
             }
@@ -1575,10 +1575,10 @@ struct Index {
       .constraintSize({ maxHeight: 420 }).width('100%')
 
       Row({ space: 8 }) {
-        Button('取消').layoutWeight(1).height(42).backgroundColor('#1F2937').onClick(() => {
+        Button('取消').layoutWeight(1).constraintSize({ minHeight: 42 }).backgroundColor('#1F2937').onClick(() => {
           this.submitAsk(true);
         })
-        Button(this.askBusy ? '提交中…' : '提交').layoutWeight(1).height(42).onClick(() => {
+        Button(this.askBusy ? '提交中…' : '提交').layoutWeight(1).constraintSize({ minHeight: 42 }).onClick(() => {
           this.submitAsk(false);
         })
       }.width('100%')

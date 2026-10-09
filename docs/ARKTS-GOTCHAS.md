@@ -81,3 +81,14 @@ bash "$CMDLINE_TOOLS/codelinter/bin/codelinter" entry/src/main/ets -f json -o li
 | `codelinter` | ArkUI 规则/性能静态检查 | 不验证视觉 |
 | Linux 预览器 | 冒烟：参数/模块/资源是否加载（需自建 shim） | **Stage ability 在 Linux 未实现**（源码 `RunDebugAbility` 直接返回 `Linux is not supported`）；无头容器里 `AttachSurface not ready` ⇒ 帧恒空白 |
 | **真机 + hdc** | **逐页截图、模拟点击、日志与崩溃栈**（`tools/device/shots.sh`） | 需要设备连着 |
+
+## 8. 承载文字的容器**不要写固定高度**（系统字体缩放会把版面撑坏）⛔
+
+- **现象**：手机上"整个渲染错乱" —— 文字被裁切、行之间互相挤压、按钮文字溢出。
+- **根因**：ArkUI 的 `fontSize(15)` 数字默认单位是 **fp**，**随系统字体缩放**；而容器若写死
+  `height(44)`/`height(56)`，用户把系统字体调大（1.3×/1.5×）后**文字尺寸变了、容器没变**
+  ⇒ 裁切/重叠。
+- **正确写法**：文字容器用 `constraintSize({ minHeight: N })`（随内容增长）而不是 `height(N)`；
+  需要固定尺寸的只留给图标槽/色条等非文字元素。
+- **本仓库落地**：登录页输入与按钮、顶栏、输入区、设置/抽屉/AskUser 的输入与按钮共 **21 处**
+  已由 `height(N)` 改为 `constraintSize({ minHeight: N })`。
