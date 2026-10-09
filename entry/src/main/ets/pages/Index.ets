@@ -346,48 +346,60 @@ struct Index {
       // 会话抽屉
       this.showDrawer = true;
       await this.wait(900);
-      done.push(`02-drawer=${await this.captureAndUpload('02-drawer')}`);
+      try {
+        done.push(`02-drawer=${await this.captureAndUpload('02-drawer')}`);
+      } catch (e) {
+        done.push(`02-drawer=FAILED:${errText(e as Object)}`);
+      }
       geo.push(`--- 02-drawer ---\n${this.collectGeometry()}`);
       this.showDrawer = false;
       // 设置
       this.showSettings = true;
       await this.wait(900);
-      done.push(`03-settings=${await this.captureAndUpload('03-settings')}`);
+      try {
+        done.push(`03-settings=${await this.captureAndUpload('03-settings')}`);
+      } catch (e) {
+        done.push(`03-settings=FAILED:${errText(e as Object)}`);
+      }
       geo.push(`--- 03-settings ---\n${this.collectGeometry()}`);
       this.showSettings = false;
       // 渲染自检
       this.showSelfCheck = true;
       await this.wait(1200);
-      done.push(`04-selfcheck=${await this.captureAndUpload('04-selfcheck')}`);
+      try {
+        done.push(`04-selfcheck=${await this.captureAndUpload('04-selfcheck')}`);
+      } catch (e) {
+        done.push(`04-selfcheck=FAILED:${errText(e as Object)}`);
+      }
       geo.push(`--- 04-selfcheck ---\n${this.collectGeometry()}`);
       this.showSelfCheck = false;
       // 队列（有内容才有意义，无内容也截，便于对比）
       this.showQueue = true;
       await this.wait(900);
-      done.push(`05-queue=${await this.captureAndUpload('05-queue')}`);
+      try {
+        done.push(`05-queue=${await this.captureAndUpload('05-queue')}`);
+      } catch (e) {
+        done.push(`05-queue=FAILED:${errText(e as Object)}`);
+      }
       geo.push(`--- 05-queue ---\n${this.collectGeometry()}`);
       this.showQueue = false;
       // 能力面板
       await this.openPlugins();
       await this.wait(900);
-      done.push(`06-plugins=${await this.captureAndUpload('06-plugins')}`);
+      try {
+        done.push(`06-plugins=${await this.captureAndUpload('06-plugins')}`);
+      } catch (e) {
+        done.push(`06-plugins=FAILED:${errText(e as Object)}`);
+      }
       geo.push(`--- 06-plugins ---\n${this.collectGeometry()}`);
       this.showPlugins = false;
       await this.wait(400);
-      done.push(`07-chat-back=${await this.captureAndUpload('07-chat-back')}`);
-      geo.push(`--- 07-chat-back ---\n${this.collectGeometry()}`);
-      // 版面几何（文本）一并上传，便于脱离看图定位根因
-      const store: ChatStore | null = this.store;
-      if (store !== null) {
-        try {
-          const txt: string = geo.join('\n\n');
-          const bytes: Uint8Array = new Uint8Array(new util.TextEncoder().encodeInto(txt));
-          await store.http.uploadBytes('/api/files/upload', 'audit-layout.txt',
-            bytes.buffer as ArrayBuffer, 'text/plain');
-        } catch (e) {
-          // 几何上传失败不影响截图结果
-        }
+      try {
+        done.push(`07-chat-back=${await this.captureAndUpload('07-chat-back')}`);
+      } catch (e) {
+        done.push(`07-chat-back=FAILED:${errText(e as Object)}`);
       }
+      geo.push(`--- 07-chat-back ---\n${this.collectGeometry()}`);
       this.auditLog = done.join('  ');
       this.toast('走查完成，已上传 7 张截图 + 1 份版面几何');
     } catch (e) {
@@ -395,6 +407,19 @@ struct Index {
       this.auditLog = `失败: ${err.message}（已完成: ${done.join(' ') }）`;
       this.toast(`走查失败: ${err.message}`);
     } finally {
+      // 几何数值必须送达（唯一不依赖图像的信息）：即使中途失败也要上传
+      const st: ChatStore | null = this.store;
+      if (st !== null && geo.length > 0) {
+        try {
+          const txt: string = geo.join('\n\n');
+          const bytes: Uint8Array = new Uint8Array(new util.TextEncoder().encodeInto(txt));
+          await st.http.uploadBytes('/api/files/upload', 'audit-layout.txt',
+            bytes.buffer as ArrayBuffer, 'text/plain');
+          this.auditLog = `${this.auditLog}\n几何已上传(${geo.length} 页)`;
+        } catch (e) {
+          this.auditLog = `${this.auditLog}\n几何上传失败: ${errText(e as Object)}`;
+        }
+      }
       this.auditing = false;
       this.showSelfCheck = false;
     }
