@@ -1194,6 +1194,20 @@ struct Index {
   }
 
   /**
+   * **一段可长按复制的完整取证文本** = 渲染规模 + 各页实测几何。
+   *
+   * 为什么合成一段：取证的最低摩擦路径不是截图，而是「长按 → 复制 → 粘贴到对话里」
+   * —— 截图受限于截图工具/传输，纯文本不会丢信息、也不用修代理。
+   */
+  private auditText(): string {
+    const geo: string = this.geoText.length > 0
+      ? this.geoText
+      : '（几何未采集：请点上面的「采集各页版面几何」按钮）';
+    return `===== xbot-harmony 自检取证（长按可复制）=====\n`
+      + `[渲染规模]\n${this.sessionStats()}\n\n[各页几何 x/y/w/h]\n${geo}`;
+  }
+
+  /**
    * 当前会话的**渲染规模统计**（设备侧实测）。
    *
    * 与 tools/tests/live_dump.test.ts（服务端侧测量）互为印证：一张自检页截图即可带回
@@ -1466,19 +1480,13 @@ struct Index {
         .onClick(() => {
           this.collectAllGeometry();
         })
-      Column({ space: 4 }) {
-        Text('当前会话渲染规模').fontSize(12).fontColor('#9CA3AF').width('100%')
-        Text(this.sessionStats()).fontSize(11).fontColor('#93C5FD').fontFamily('monospace').width('100%')
-      }
-      .width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
-
-      if (this.geoText.length > 0) {
-        Text(this.geoText)
-          .fontSize(11).fontColor('#A7F3D0').fontFamily('monospace')
-          .width('100%').padding(8)
-          .backgroundColor('#111827').borderRadius(8)
-          .copyOption(CopyOptions.LocalDevice)
-      }
+      Text('下方这一段可【长按复制】后直接粘贴给对方 —— 不必截图（零网络也能取证）')
+        .fontSize(11).fontColor('#FCD34D').width('100%')
+      Text(this.auditText())
+        .fontSize(11).fontColor('#A7F3D0').fontFamily('monospace')
+        .width('100%').padding(8)
+        .backgroundColor('#111827').borderRadius(8)
+        .copyOption(CopyOptions.LocalDevice)
 
       Scroll() {
         Column({ space: 10 }) {
