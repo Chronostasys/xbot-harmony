@@ -95,3 +95,28 @@ git status --short                                                              
 3. 按 `docs/UI-AUDIT-CHECKLIST.md` **逐页**判读：先看几何数值定位"哪个容器约束错了"，再看图确认视觉。
 4. 一次只改一处 → 让用户再走查一次 → **同页对比**，直到每页正常。
 5. 排查完成后把 `AUTO_AUDIT_ON_LAUNCH` 改回 `false`。
+
+---
+
+## 六、最终验证快照（本次推送后重跑，全绿）
+
+| 检查 | 结果 |
+|---|---|
+| 编译 release / debug | **BUILD SUCCESSFUL** ✓✓ |
+| 纯逻辑测试 | **61 passed / 0 failed**（http 7 · keys 6 · markdown 22 · rowids 6 · serverurl 14 · upload 6） |
+| 官方 `codelinter` | 正确性相关告警 **0** ✓（仅 19 条 `hp-arkui-use-local-var-to-replace-state-var` 性能提示） |
+| 产物一致性 | 新增文案（`渲染自检`/`已折叠更早的`/`加载会话失败`）**在包内** ✓（注意：`strings` 默认只出 ASCII，中文需 `grep -a` 匹配 UTF-8，否则假阴性） |
+| 工作区 | 干净 ✓ |
+
+```
+dist/xbot-harmony-release-unsigned.hap   233,770 B   sha256 b6924c9d50c58d57d281361c923598fe5c93a08cc45ec27ebbfd0fd423f13af7
+dist/xbot-harmony-debug-unsigned.hap     507,806 B   sha256 a9855f1a1390ee01fb68b674b5e14593c1372ecc12c8ec6d1ac207599eb626d5
+```
+
+## 七、本轮新增修复（第 9–12 项，与 2.1/2.2 同族）
+
+| # | 问题 | 修法 |
+|---|---|---|
+| 9–10 | **承载文字的容器写死高度**，系统字体放大后文字被裁切/挤压 ⇒ "整个错乱" | 23 处 `height(N)` → `constraintSize({ minHeight: N })`（残留固定高仅 spinner 与队列/插件列表高度） |
+| 11 | 同一迭代内**两次同名工具调用** ⇒ pill 的 key 重复 ⇒ 复用错位 | key 加入 `call_id` + 序号 |
+| 12 | ArkWeb 面板顶栏/测试连接按钮同类问题 | 同上改为 `minHeight` |
