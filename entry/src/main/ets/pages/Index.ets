@@ -85,6 +85,7 @@ struct Index {
   @State showSettings: boolean = false;
   @State showQueue: boolean = false;
   @State showPlugins: boolean = false;
+  @State showSelfCheck: boolean = false;
   @State renamingId: string = '';
   @State renameText: string = '';
 
@@ -523,6 +524,10 @@ struct Index {
       // AskUser（服务端权威：有 pending 就弹）
       if (this.askUser !== null) {
         this.AskUserSheet()
+      }
+      // 渲染自检（逐构件隔离排查用）
+      if (this.showSelfCheck) {
+        this.SelfCheckSheet()
       }
       // 图片查看
       if (this.imagePixel !== null || this.imageBusy) {
@@ -1012,6 +1017,12 @@ struct Index {
           store !== null ? store.http.exportSessionCookie() : '');
         this.toast('已保存（换服务端请退出重登）');
       })
+      Button('渲染自检（排查渲染问题用）').width('100%').height(40)
+        .backgroundColor('#1F2937')
+        .onClick(() => {
+          this.showSettings = false;
+          this.showSelfCheck = true;
+        })
       Button('打开完整 Web UI（插件/GenUI/终端）').width('100%').height(40)
         .backgroundColor('#1F2937')
         .onClick(() => {
@@ -1030,6 +1041,99 @@ struct Index {
   }
 
   // ── 弹层：队列 ────────────────────────────────────────────────────────────
+
+  /**
+   * 渲染自检：把每类渲染构件分块画出来（带序号标签）。
+   * 用途：截一张图即可定位"到底哪类构件渲染错乱"，不必逐页猜。
+   *
+   * 注意：ArkUI 的 @Builder **不能接受函数/回调参数**（需 @BuilderParam 组件才行），
+   * 所以这里把每格内联展开，不做回调包装。
+   */
+  @Builder
+  SelfCheckSheet() {
+    Column() {
+      Row() {
+        Text('渲染自检').fontSize(16).fontWeight(FontWeight.Bold).fontColor('#E5E7EB').layoutWeight(1)
+        Text('✕').fontSize(16).fontColor('#9CA3AF').padding(8).onClick(() => {
+          this.showSelfCheck = false;
+        })
+      }.width('100%')
+
+      Scroll() {
+        Column({ space: 10 }) {
+          Column({ space: 6 }) {
+            Text('A 纯文本（自动换行）').fontSize(12).fontColor('#9CA3AF').width('100%')
+            MarkdownView({ text: '这是一段用于自检的普通中文文本，应当自动换行并且左右不溢出。' })
+          }.width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
+          .border({ width: 1, color: '#1F2937' })
+
+          Column({ space: 6 }) {
+            Text('B 行内样式（粗/斜/删除/行内码/链接）').fontSize(12).fontColor('#9CA3AF').width('100%')
+            MarkdownView({ text: '这里有 **粗体**、*斜体*、~~删除线~~、`inlineCode()` 与 [一个链接](https://example.com)。' })
+          }.width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
+          .border({ width: 1, color: '#1F2937' })
+
+          Column({ space: 6 }) {
+            Text('C 标题 + 列表').fontSize(12).fontColor('#9CA3AF').width('100%')
+            MarkdownView({ text: '## 二级标题\n- 列表项一\n- 列表项二\n\n1. 有序一\n2. 有序二' })
+          }.width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
+          .border({ width: 1, color: '#1F2937' })
+
+          Column({ space: 6 }) {
+            Text('D 代码块（含超长行）').fontSize(12).fontColor('#9CA3AF').width('100%')
+            MarkdownView({ text: '```ts\nconst veryLongVariableName: string = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";\n```' })
+          }.width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
+          .border({ width: 1, color: '#1F2937' })
+
+          Column({ space: 6 }) {
+            Text('E 表格').fontSize(12).fontColor('#9CA3AF').width('100%')
+            MarkdownView({ text: '| 列一 | 列二 |\n| --- | --- |\n| 值一 | 值二 |\n| 更长的值 | 另一个值 |' })
+          }.width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
+          .border({ width: 1, color: '#1F2937' })
+
+          Column({ space: 6 }) {
+            Text('F 工具 pill 行（Flex 换行）').fontSize(12).fontColor('#9CA3AF').width('100%')
+            Flex({ wrap: FlexWrap.Wrap }) {
+              ForEach(['✓ Read', '✓ Shell', '● Grep', '✓ Edit', '✗ Fetch'], (t: string) => {
+                Text(t).fontSize(12).fontColor('#A7F3D0')
+                  .padding({ left: 8, right: 8, top: 5, bottom: 5 })
+                  .margin(3).backgroundColor('#111827').borderRadius(6)
+                  .border({ width: 1, color: '#1F2937' })
+              }, (t: string) => t)
+            }.width('100%')
+          }.width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
+          .border({ width: 1, color: '#1F2937' })
+
+          Column({ space: 6 }) {
+            Text('G 长 URL（不可断词）').fontSize(12).fontColor('#9CA3AF').width('100%')
+            Text('https://xbot.pivotlang.tech/api/files/download?key=uploads%2F4%2Faaef9711-1349-420d-97ea-94e70e2401e7.jpg&inline=1')
+              .fontSize(12).fontColor('#93C5FD').width('100%')
+          }.width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
+          .border({ width: 1, color: '#1F2937' })
+
+          Column({ space: 6 }) {
+            Text('H 顶栏内联布局').fontSize(12).fontColor('#9CA3AF').width('100%')
+            Row() {
+              Text('☰').fontSize(20).fontColor('#E5E7EB').padding(10)
+              Text('标题文本').fontSize(15).fontColor('#E5E7EB').layoutWeight(1)
+              Text('⊞').fontSize(20).fontColor('#E5E7EB').padding(10)
+              Text('⚙').fontSize(20).fontColor('#E5E7EB').padding(10)
+            }.width('100%').backgroundColor('#111827')
+          }.width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
+          .border({ width: 1, color: '#1F2937' })
+        }
+        .width('100%')
+        .padding(10)
+      }
+      .layoutWeight(1)
+      .width('100%')
+    }
+    .width('94%').height('86%')
+    .padding(12)
+    .backgroundColor('#0B0F19')
+    .borderRadius(12)
+    .border({ width: 1, color: '#374151' })
+  }
 
   @Builder
   QueueSheet() {
