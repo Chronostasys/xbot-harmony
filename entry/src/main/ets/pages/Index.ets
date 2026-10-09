@@ -27,6 +27,16 @@ class AskSelection {
 }
 
 /**
+ * 单个 turn 默认最多渲染多少个迭代。
+ *
+ * ⛔ 为什么必须限制：一个 turn 可能有**上千个迭代**（每次工具调用一个），若全部渲染 ——
+ * 每个迭代还带完整 Markdown（含 Span/表格/代码块）—— 视口内外的 DOM 会瞬间上千，
+ * 表现就是**卡到没法用 / 看起来"整个渲染错乱"**。Web 端同样的问题是用"迭代级窗口化"解决的
+ * （见 xbot 仓库 docs/agent/gotchas-web-frontend.md）。这里先用**上限 + 手动展开**做等价保护。
+ */
+const MAX_ITER_VISIBLE: number = 16;
+
+/**
  * 诊断开关：登录后**自动**走查并上传所有页面截图。
  *
  * 为什么需要它：用户反馈"渲染错乱、完全用不了"时，可能**连 ⚙ 都点不到** ⇒
@@ -117,6 +127,8 @@ struct Index {
   // ── 工具/迭代展开 ─────────────────────────────────────────────────────────
   @State openToolKey: string = '';
   @State openReasonKey: string = '';
+  /** 展开了全部迭代的 turn（默认只渲染最近 MAX_ITER_VISIBLE 个，防长 turn 爆炸） */
+  @State expandedTurn: string = '';
 
   // ── 显示设置 ──────────────────────────────────────────────────────────────
   @State showReasoning: boolean = true;
@@ -906,7 +918,19 @@ struct Index {
           this.openImage(src);
         } })
       }
-      ForEach(row.iterations, (it: HistoryIteration) => {
+      if (this.hiddenIterCount(row) > 0) {
+        Row({ space: 6 }) {
+          Text(`↑ 已折叠更早的 ${this.hiddenIterCount(row)} 个迭代`)
+            .fontSize(11).fontColor('#93C5FD')
+          Text('（点击展开全部）').fontSize(11).fontColor('#6B7280')
+        }
+        .width('100%')
+        .padding({ top: 4, bottom: 4 })
+        .onClick(() => {
+          this.expandedTurn = row.id;
+        })
+      }
+      ForEach(this.itersFor(row), (it: HistoryIteration) => {
         this.IterationBlock(row, it)
       }, (it: HistoryIteration) => `${row.id}#${row.rev}-${it.iteration}`)
     }
@@ -1018,6 +1042,23 @@ struct Index {
     }
     .width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
     .alignItems(HorizontalAlign.Start)
+  }
+
+  /** 该 turn 实际要渲染的迭代（默认只给最近 MAX_ITER_VISIBLE 个）。 */
+  private itersFor(row: ChatRow): HistoryIteration[] {
+    const all: HistoryIteration[] = row.iterations;
+    if (this.expandedTurn === row.id || all.length <= MAX_ITER_VISIBLE) {
+      return all;
+    }
+    return all.slice(all.length - MAX_ITER_VISIBLE);
+  }
+
+  /** 被折叠掉的迭代数量（0 表示全展示）。 */
+  private hiddenIterCount(row: ChatRow): number {
+    if (this.expandedTurn === row.id) {
+      return 0;
+    }
+    return row.iterations.length > MAX_ITER_VISIBLE ? row.iterations.length - MAX_ITER_VISIBLE : 0;
   }
 
   private toolIcon(t: ToolProgress): string {
