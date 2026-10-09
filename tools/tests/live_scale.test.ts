@@ -123,6 +123,36 @@ async function main(): Promise<void> {
       ok(`${chatId} 行${i} 渲染块数 ≤ ${MAX_ITER_VISIBLE}`,
         Math.min(n, MAX_ITER_VISIBLE) <= MAX_ITER_VISIBLE);
     }
+    // ── 重复渲染检测：row.content 是否与"最后一个非空迭代的 content"相同？──
+    // 若相同 ⇒ 界面若同时渲染 row.content 与迭代内容，最终回复会显示两遍（真实"错乱"形态）。
+    let dupRows = 0;
+    let dupSample = '';
+    for (let i = 0; i < rows.length; i++) {
+      const r: ChatRow = rows[i];
+      if (r.role !== 'assistant' || r.content.length === 0 || r.iterations.length === 0) {
+        continue;
+      }
+      let lastContent = '';
+      for (let k = r.iterations.length - 1; k >= 0; k--) {
+        // 显式收窄：带变量下标的元素访问 TS 不做类型收窄（content?: string）
+        const raw: string | undefined = r.iterations[k].content;
+        const c: string = raw !== undefined ? raw : '';
+        if (c.length > 0) {
+          lastContent = c;
+          break;
+        }
+      }
+      if (lastContent.length > 0 && lastContent === r.content) {
+        dupRows++;
+        if (dupSample.length === 0) {
+          dupSample = `${chatId} 行${i} turn=${r.turnID} 长度=${r.content.length}`;
+        }
+      }
+    }
+    if (dupRows > 0) {
+      console.log(`  ⚠ ${chatId} 行级 content 与末迭代 content **完全相同** 的行数=${dupRows}（样例：${dupSample}）`);
+    }
+
     if (foldedRows > 0) {
       foldedSessions++;
     }

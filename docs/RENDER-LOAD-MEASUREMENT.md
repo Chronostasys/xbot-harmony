@@ -112,3 +112,17 @@ chat_8BCC3ACDD0CB rows=2  迭代=17  单行最多=17  渲染块=16 最大单块=
    它们靠 `content`（1K / 35K）正常渲染。
 4. 顺带确认客户端**已经**使用 `active_progress`（忙会话的权威在飞快照）、`processing`、
    `has_more`/`oldest_id`（向上翻页）、`last_seq`（SSE 断点续传）。
+
+### 追加否掉的假设：「最终回复显示两遍」（行级 content 与末迭代 content 重复）
+
+**担心**：xbot 服务端会把 turn 的收尾回复回填到 assistant 行的 `content`
+（`fillAssistantContentFromIterations`），而同一段文本也在**最后一个迭代**的 `content` 里；
+而客户端 `AssistantBlock` **同时**渲染 `row.content` 与全部迭代 ⇒ 最终回复可能显示两遍。
+
+**实测（8 个会话，`live_scale.test.ts` 常驻检测）**：**没有任何一行**满足
+「`row.content` 非空 且 与末个非空迭代的 content 完全相同」。
+
+- 多迭代的 turn：行级 `content` 为 **0 字节**（正文都在迭代里）⇒ 只渲染一次 ✓
+- 迭代=0 的会话：有 `content`（1K / 35K）而没有迭代 ⇒ 也只渲染一次 ✓
+
+⇒ 该形态在本实例**不存在**；检测已留在 `live_scale.test.ts` 里（一旦某版本开始回填，跑扫描就会打印 `⚠`）。
