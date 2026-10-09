@@ -1048,7 +1048,7 @@ struct Index {
         Flex({ wrap: FlexWrap.Wrap }) {
           ForEach(it.tools, (t: ToolProgress) => {
             this.ToolPill(row, it, t)
-          }, (t: ToolProgress) => this.toolKey(row.turnID, it.iteration, t.name))
+          }, (t: ToolProgress, ti: number) => `${this.toolKey(row.turnID, it.iteration, t.name)}#${t.call_id !== undefined ? t.call_id : ''}#${ti}`)
         }
         .width('100%')
       }
@@ -1059,7 +1059,7 @@ struct Index {
           if (this.openToolKey === this.toolKey(row.turnID, it.iteration, t.name)) {
             this.ToolDetail(t)
           }
-        }, (t: ToolProgress) => `d-${this.toolKey(row.turnID, it.iteration, t.name)}`)
+        }, (t: ToolProgress, ti: number) => `d-${this.toolKey(row.turnID, it.iteration, t.name)}#${ti}`)
       }
     }
     .width('100%').alignItems(HorizontalAlign.Start).padding({ top: 4, bottom: 4 })
