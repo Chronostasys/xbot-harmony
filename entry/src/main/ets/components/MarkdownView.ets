@@ -110,16 +110,19 @@ export struct MarkdownView {
     } else if (b.kind === MdBlockKind.Divider) {
       Divider().color('#374151').strokeWidth(1).margin({ top: 6, bottom: 6 })
     } else if (b.kind === MdBlockKind.Quote) {
-      Row() {
-        Divider().vertical(true).height('100%').color('#6B7280').strokeWidth(3)
+      // ⚠️ 左侧竖条必须用**边框**，绝不能用 `Divider().vertical(true).height('100%')`：
+      // 父容器高度由内容决定时，子元素的百分比高度没有参照（循环测量）⇒ 竖条塌成 0 高、
+      // 引用块失去唯一视觉标识。边框宽度是固定值、随容器自身高度拉伸，不存在百分比依赖。
+      // 见 docs/ARKTS-GOTCHAS.md 第 12 条。同类：任何"内容定高"的父容器里都不要放百分比高度子元素。
+      Column() {
         this.Inline(b.text)
       }
       .width('100%')
-      .alignItems(VerticalAlign.Top)
-      .padding({ left: 8 })
+      .alignItems(HorizontalAlign.Start)
+      .padding({ left: 11, right: 8, top: 8, bottom: 8 })
       .backgroundColor('#0F172A')
       .borderRadius(6)
-      .padding(8)
+      .border({ width: { left: 3, top: 0, right: 0, bottom: 0 }, color: '#6B7280' })
     } else if (b.kind === MdBlockKind.List) {
       Column({ space: 3 }) {
         ForEach(b.items, (item: string, k: number) => {
