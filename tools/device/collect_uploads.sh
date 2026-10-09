@@ -37,6 +37,17 @@ for f in "${FILES[@]}"; do
   i=$((i+1))
 done
 
+# 版面几何文本（走查最后上传的 audit-layout.txt）——直接打印，便于判读
+echo
+for f in $(find "$UP" -type f -newermt "@$SINCE" ! -name '*.png' 2>/dev/null | head -3); do
+  if head -c 64 "$f" | grep -qiE "screen=|xbot-root"; then
+    cp -f "$f" "$OUT/audit-layout.txt"
+    echo "===== audit-layout.txt（版面几何）====="
+    cat "$OUT/audit-layout.txt"
+    echo "======================================"
+  fi
+done
+
 echo
 echo "输出目录: $OUT"
 ls -la "$OUT" | head -20
