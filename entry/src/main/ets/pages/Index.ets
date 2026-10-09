@@ -954,7 +954,7 @@ struct Index {
               }
             })
           }
-        }, (s: SessionItem) => s.chat_id !== undefined ? s.chat_id : s.label)
+        }, (s: SessionItem) => `${s.chat_id}#${s.label}#${s.running}`)
       }
       .layoutWeight(1).width('100%')
 
@@ -1169,7 +1169,7 @@ struct Index {
               })
             }.width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
           }
-        }, (q: QueueItem) => q.msg_id !== undefined ? q.msg_id : (q.id !== undefined ? q.id : 'q'))
+        }, (q: QueueItem) => `${q.msg_id}#${q.content}#${q.text}`)
       }
       .height(300).width('100%')
     }
@@ -1221,7 +1221,7 @@ struct Index {
               this.panelUrl = p.url;
             })
           }
-        }, (p: PluginPanelInfo) => p.id)
+        }, (p: PluginPanelInfo) => `${p.id}#${p.url}`)
       }
       .height(320).width('100%')
     }

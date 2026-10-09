@@ -20,12 +20,25 @@ import { BusinessError } from '@kit.BasicServicesKit';
 @Component
 export struct WebSurface {
   /** 要加载的 URL（通常就是 xbot 服务端根地址，带完整 web UI）。 */
-  url: string = '';
+  // ⚠️ 必须是 @Prop + @Watch：面板从插件 A 切到插件 B 时组件实例不会重建，
+  // 若 url 只是普通成员，ArkWeb 仍停留在旧页面（表现为"点了没反应/显示上一个页面"）。
+  @Prop @Watch('onUrlChanged') url: string = '';
   /** 关闭回调（由页面清空 url 卸载本组件）。 */
   onClose: () => void = () => {
   };
   private controller: webview.WebviewController = new webview.WebviewController();
   @State title: string = '';
+
+  onUrlChanged(): void {
+    if (this.url.length === 0) {
+      return;
+    }
+    try {
+      this.controller.loadUrl(this.url);
+    } catch (e) {
+      console.error('loadUrl failed');
+    }
+  }
 
   build() {
     Column() {
