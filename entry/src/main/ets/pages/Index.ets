@@ -1179,6 +1179,35 @@ struct Index {
     .alignItems(HorizontalAlign.Start)
   }
 
+  /**
+   * 当前会话的**渲染规模统计**（设备侧实测）。
+   *
+   * 与 tools/tests/live_dump.test.ts（服务端侧测量）互为印证：一张自检页截图即可带回
+   * "这台手机上到底要渲染多少块"——用于确认"卡到没法用"是否已由迭代上限解决。
+   */
+  private sessionStats(): string {
+    const rows: ChatRow[] = this.rows;
+    let iterTotal: number = 0;
+    let maxIter: number = 0;
+    let rendered: number = 0;
+    let foldedRows: number = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const r: ChatRow = rows[i];
+      const n: number = r.iterations.length;
+      iterTotal += n;
+      if (n > maxIter) {
+        maxIter = n;
+      }
+      rendered += Math.min(n, MAX_ITER_VISIBLE);
+      if (r.regionsBefore > 0) {
+        foldedRows++;
+      }
+    }
+    return `rows=${rows.length}\n迭代总数=${iterTotal}\n单行最多迭代=${maxIter}\n`
+      + `实际渲染块数=${rendered}（每行≤${MAX_ITER_VISIBLE}）\n带更早折叠区域的行=${foldedRows}\n`
+      + `会话=${this.currentChat}\nbusy=${this.busy}`;
+  }
+
   /** 加载该 turn 更早的展示区域（服务端折叠视图按需取回）。 */
   private async loadMoreRegions(row: ChatRow): Promise<void> {
     const store: ChatStore | null = this.store;
@@ -1422,6 +1451,12 @@ struct Index {
         .onClick(() => {
           this.collectAllGeometry();
         })
+      Column({ space: 4 }) {
+        Text('当前会话渲染规模').fontSize(12).fontColor('#9CA3AF').width('100%')
+        Text(this.sessionStats()).fontSize(11).fontColor('#93C5FD').fontFamily('monospace').width('100%')
+      }
+      .width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
+
       if (this.geoText.length > 0) {
         Text(this.geoText)
           .fontSize(11).fontColor('#A7F3D0').fontFamily('monospace')
