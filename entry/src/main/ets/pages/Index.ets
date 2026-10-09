@@ -1041,6 +1041,18 @@ struct Index {
           this.openImage(src);
         } })
       }
+      // 服务端折叠视图：更早的展示区域需按需取回（与 Web 端「⌃ 更早的 N 个区域」同源）
+      if (row.regionsBefore > 0) {
+        Row({ space: 6 }) {
+          Text(`⌃ 更早的 ${row.regionsBefore} 个区域`).fontSize(11).fontColor('#FBBF24')
+          Text('（点击加载）').fontSize(11).fontColor('#6B7280')
+        }
+        .width('100%')
+        .padding({ top: 4, bottom: 4 })
+        .onClick(() => {
+          this.loadMoreRegions(row);
+        })
+      }
       if (this.hiddenIterCount(row) > 0) {
         Row({ space: 6 }) {
           Text(`↑ 已折叠更早的 ${this.hiddenIterCount(row)} 个迭代`)
@@ -1165,6 +1177,19 @@ struct Index {
     }
     .width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
     .alignItems(HorizontalAlign.Start)
+  }
+
+  /** 加载该 turn 更早的展示区域（服务端折叠视图按需取回）。 */
+  private async loadMoreRegions(row: ChatRow): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    try {
+      await store.loadEarlierRegions(row);
+    } catch (e) {
+      this.toast(`加载更早区域失败: ${errText(e as Object)}`);
+    }
   }
 
   /** 该 turn 实际要渲染的迭代（默认只给最近 MAX_ITER_VISIBLE 个）。 */

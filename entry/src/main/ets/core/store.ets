@@ -26,6 +26,7 @@ import {
   QueueListData,
   SessionEvent,
   SessionItem,
+  RegionsData,
   SessionTreeData,
   SseEnvelope,
   SseEventType,
@@ -207,6 +208,7 @@ export class ChatStore {
           r.turnID = turnID;
           r.content = m.content !== undefined ? m.content : '';
           r.iterations = m.iterations !== undefined ? m.iterations : [];
+          r.regionsBefore = m.regions_before !== undefined ? m.regions_before : 0;
           out.push(r);
           current = r;
         } else {
@@ -214,10 +216,59 @@ export class ChatStore {
           if (m.iterations !== undefined && m.iterations.length > 0) {
             current.iterations = m.iterations;
           }
+          if (m.regions_before !== undefined) {
+            current.regionsBefore = m.regions_before;
+          }
         }
       }
     }
     return out;
+  }
+
+  /**
+   * 加载该 turn **更早的展示区域**（REST 历史是折叠视图：每 turn 只下发尾部 100 个区域）。
+   *
+   * 契约（channel/web/web_api.go handleRegions）：POST /api/regions
+   *   body {channel, chat_id, turn_id, before_iteration, region_limit}
+   *   data {iterations, regions_before}
+   * `before_iteration` 取该 turn 当前**最小**迭代号 ⇒ 取回更早一段；新区段前插并去重，
+   * `regions_before` 归零前可反复加载。与 Web 端同源语义（"⌃ 更早的 N 个区域"）。
+   */
+  async loadEarlierRegions(row: ChatRow): Promise<void> {
+    if (row.regionsBefore <= 0) {
+      return;
+    }
+    let minIter: number = -1;
+    for (let i = 0; i < row.iterations.length; i++) {
+      const n: number = row.iterations[i].iteration;
+      if (minIter < 0 || n < minIter) {
+        minIter = n;
+      }
+    }
+    if (minIter < 0) {
+      return;
+    }
+    const data: RegionsData = await this.http.postAs<RegionsData>('/api/regions', new RegionsBody(
+      this.channel, this.currentChatId, row.turnID, minIter, 100));
+    const older: HistoryIteration[] = data.iterations !== undefined ? data.iterations : [];
+    const merged: HistoryIteration[] = [];
+    const seen: Set<number> = new Set();
+    for (let i = 0; i < older.length; i++) {
+      if (!seen.has(older[i].iteration)) {
+        seen.add(older[i].iteration);
+        merged.push(older[i]);
+      }
+    }
+    for (let i = 0; i < row.iterations.length; i++) {
+      if (!seen.has(row.iterations[i].iteration)) {
+        seen.add(row.iterations[i].iteration);
+        merged.push(row.iterations[i]);
+      }
+    }
+    row.iterations = merged;
+    row.regionsBefore = data.regions_before !== undefined ? data.regions_before : 0;
+    this.touch(row);
+    this.onUpdate();
   }
 
   /** 按需拉取某迭代的完整工具详情（折叠视图下 summary/args/detail 默认不下发）。 */
@@ -694,6 +745,22 @@ export class QueueReorderBody {
     this.channel = channel;
     this.chat_id = chatId;
     this.msg_ids = msgIds;
+  }
+}
+
+export class RegionsBody {
+  channel: string;
+  chat_id: string;
+  turn_id: number;
+  before_iteration: number;
+  region_limit: number;
+
+  constructor(channel: string, chatId: string, turnId: number, beforeIter: number, regionLimit: number) {
+    this.channel = channel;
+    this.chat_id = chatId;
+    this.turn_id = turnId;
+    this.before_iteration = beforeIter;
+    this.region_limit = regionLimit;
   }
 }
 

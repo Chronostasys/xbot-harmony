@@ -43,6 +43,12 @@ class ChatRow {
         this.isLive = false;
         /** 渲染版本：每次内容变化自增，参与 ForEach key */
         this.rev = 0;
+        /**
+         * 该 turn **更早未下发的展示区域数**（服务端 `regions_before`）。
+         * REST 历史是折叠视图（`HistoryRegionWindow = 100`）：每个 turn 只下发尾部 100 个区域，
+         * 更早的必须用 `POST /api/regions` 按需取回。缺省 0 = 已完整下发。
+         */
+        this.regionsBefore = 0;
     }
 }
 exports.ChatRow = ChatRow;

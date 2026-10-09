@@ -156,6 +156,12 @@ export class ChatRow {
   isLive: boolean = false;
   /** 渲染版本：每次内容变化自增，参与 ForEach key */
   rev: number = 0;
+  /**
+   * 该 turn **更早未下发的展示区域数**（服务端 `regions_before`）。
+   * REST 历史是折叠视图（`HistoryRegionWindow = 100`）：每个 turn 只下发尾部 100 个区域，
+   * 更早的必须用 `POST /api/regions` 按需取回。缺省 0 = 已完整下发。
+   */
+  regionsBefore: number = 0;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -213,6 +219,12 @@ export interface WebPluginListData {
 /** `/api/iteration_detail` 的 data。 */
 export interface IterationDetailData {
   iteration?: HistoryIteration;
+}
+
+/** `/api/regions` 的 data：内层区域分页（返回 `iteration < before_iteration` 的下一段更早区域）。 */
+export interface RegionsData {
+  iterations?: HistoryIteration[];
+  regions_before?: number;
 }
 
 /** UI 用的插件面板条目（id/名字/可打开的 URL）。 */
