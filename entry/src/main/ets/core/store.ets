@@ -189,36 +189,33 @@ export class ChatStore {
     } catch (e) {
       return;
     }
-    switch (event) {
-      case SseEventType.heartbeat:
-        return;
-      case SseEventType.session:
-        this.onSessionEvent(env.session);
-        return;
-      case SseEventType.userEcho:
-        this.onUserEcho(env);
-        return;
-      case SseEventType.progressStructured:
-        if (env.progress !== undefined) {
-          this.applyProgress(env.progress);
-        }
-        return;
-      case SseEventType.streamContent:
-        if (env.progress !== undefined) {
-          this.applyProgress(env.progress);
-        }
-        return;
-      case SseEventType.text:
-        this.onFinalText(env);
-        return;
-      case SseEventType.resyncRequired:
-        // 服务端环形缓冲已淘汰 ⇒ 必须回退到 DB 权威快照（web 同款语义）
-        this.loadHistory().catch((e: Error) => {
-          console.error(`resync 失败: ${e.message}`);
-        });
-        return;
-      default:
-        return;
+    // ArkTS：case 标签需常量表达式 ⇒ 用 if/else 链（语义相同）
+    if (event === SseEventType.heartbeat) {
+      return;
+    }
+    if (event === SseEventType.session) {
+      this.onSessionEvent(env.session);
+      return;
+    }
+    if (event === SseEventType.userEcho) {
+      this.onUserEcho(env);
+      return;
+    }
+    if (event === SseEventType.progressStructured || event === SseEventType.streamContent) {
+      if (env.progress !== undefined) {
+        this.applyProgress(env.progress);
+      }
+      return;
+    }
+    if (event === SseEventType.text) {
+      this.onFinalText(env);
+      return;
+    }
+    if (event === SseEventType.resyncRequired) {
+      // 服务端环形缓冲已淘汰 ⇒ 必须回退到 DB 权威快照（web 同款语义）
+      this.loadHistory().catch((e: Error) => {
+        console.error(`resync 失败: ${e.message}`);
+      });
     }
   }
 

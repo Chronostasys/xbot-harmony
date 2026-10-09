@@ -25,7 +25,7 @@ export struct WebSurface {
   onClose: () => void = () => {
   };
   private controller: webview.WebviewController = new webview.WebviewController();
-  @State private title: string = '';
+  @State title: string = '';
 
   build() {
     Column() {

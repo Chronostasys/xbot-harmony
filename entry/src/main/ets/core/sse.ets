@@ -13,6 +13,7 @@
  */
 import { http } from '@kit.NetworkKit';
 import { util } from '@kit.ArkTS';
+import { BusinessError } from '@kit.BasicServicesKit';
 
 export type SseListener = (event: string, data: string) => void;
 
@@ -106,8 +107,8 @@ export class SseClient {
       header: headers,
       connectTimeout: 15000,
       readTimeout: 0,
-    }, (err: Error) => {
-      if (err !== undefined && err !== null) {
+    }, (err: BusinessError, code: number) => {
+      if (err !== undefined && err !== null && err.code !== 0) {
         this.scheduleReconnect();
       }
     });

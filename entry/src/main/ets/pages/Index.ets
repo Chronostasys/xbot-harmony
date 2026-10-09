@@ -34,7 +34,12 @@ struct Index {
   private config: ConfigStore = new ConfigStore();
   private listScroller: Scroller = new Scroller();
 
-  async aboutToAppear(): Promise<void> {
+  aboutToAppear(): void {
+    // ArkUI 生命周期是同步的：异步引导另起（首帧渲染不被阻塞）
+    this.bootstrap();
+  }
+
+  private async bootstrap(): Promise<void> {
     const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
     const saved: AppConfig = await this.config.init(ctx);
     if (saved.serverUrl.length > 0) {

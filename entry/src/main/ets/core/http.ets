@@ -12,19 +12,17 @@ import { http } from '@kit.NetworkKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { ApiEnvelope } from './types';
 
-/** 响应头里取 Set-Cookie（鸿蒙 `http` 把响应头摊平成 `Record<string,string>`）。 */
+/** 响应头里取 Set-Cookie（ArkTS 限制动态取键 ⇒ 只按已知两种拼写直查）。 */
 function pickSetCookie(header: Record<string, string> | undefined): string {
   if (header === undefined) {
     return '';
   }
-  const keys: string[] = Object.keys(header);
-  for (let i = 0; i < keys.length; i++) {
-    const k: string = keys[i];
-    if (k.toLowerCase() === 'set-cookie') {
-      return header[k];
-    }
+  const lower: string = header['set-cookie'];
+  if (lower !== undefined && lower.length > 0) {
+    return lower;
   }
-  return '';
+  const upper: string = header['Set-Cookie'];
+  return upper !== undefined ? upper : '';
 }
 
 /** 从 Set-Cookie 里抽出 `name=value`（丢掉属性，如 Path/HttpOnly/Max-Age）。 */
@@ -182,13 +180,15 @@ export interface AuthConfig {
   need_bootstrap?: boolean;
 }
 
-export interface LoginBody {
+/** 请求体：类而非"接口 + 同名工厂函数"（ArkTS 下更稳，避免值/类型同名）。 */
+export class LoginBody {
   username: string;
   password: string;
-}
 
-export function LoginBody(username: string, password: string): LoginBody {
-  return { username: username, password: password };
+  constructor(username: string, password: string) {
+    this.username = username;
+    this.password = password;
+  }
 }
 
 export class EmptyBody {
