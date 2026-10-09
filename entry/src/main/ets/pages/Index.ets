@@ -1,7 +1,8 @@
 import { common } from '@kit.AbilityKit';
-import { componentSnapshot, promptAction } from '@kit.ArkUI';
+import { componentSnapshot, componentUtils, display, promptAction } from '@kit.ArkUI';
 import { image } from '@kit.ImageKit';
 import { BusinessError } from '@kit.BasicServicesKit';
+import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
 import { ChatStore } from '../core/store';
 import {
@@ -252,6 +253,36 @@ struct Index {
     });
   }
 
+  /**
+   * 采集关键组件的**版面几何数值**（可读文本，不依赖看图）。
+   *
+   * 为什么需要：若渲染乱到看不清，数值仍能指出根因（例如列表高度 0、元素跑到屏幕外、
+   * 宽度为 0）。`componentUtils.getRectangleById(id)` 对不存在的组件会抛错 ⇒ 逐个兜底。
+   */
+  private collectGeometry(): string {
+    const ids: string[] = [
+      'xbot-root', 'xbot-header', 'xbot-list', 'xbot-composer',
+      'xbot-drawer', 'xbot-settings', 'xbot-selfcheck',
+    ];
+    const out: string[] = [];
+    try {
+      const d: display.Display = display.getDefaultDisplaySync();
+      out.push(`screen=${d.width}x${d.height} densityDPI=${d.densityDPI}`);
+    } catch (e) {
+      out.push('screen=unknown');
+    }
+    for (let i = 0; i < ids.length; i++) {
+      try {
+        const r: componentUtils.ComponentInfo = componentUtils.getRectangleById(ids[i]);
+        out.push(`${ids[i]}: x=${Math.round(r.screenOffset.x)} y=${Math.round(r.screenOffset.y)} ` +
+          `w=${Math.round(r.size.width)} h=${Math.round(r.size.height)}`);
+      } catch (e) {
+        out.push(`${ids[i]}: absent`);
+      }
+    }
+    return out.join('\n');
+  }
+
   /** 截取根容器当前画面并上传到服务端（返回服务端给的 key）。 */
   private async captureAndUpload(name: string): Promise<string> {
     const store: ChatStore | null = this.store;
@@ -280,41 +311,61 @@ struct Index {
     }
     this.auditing = true;
     const done: string[] = [];
+    const geo: string[] = [];
     try {
       const steps: string[] = ['01-chat'];
       for (let i = 0; i < steps.length; i++) {
         await this.wait(600);
         done.push(`${steps[i]}=${await this.captureAndUpload(steps[i])}`);
+        geo.push(`--- ${steps[i]} ---\n${this.collectGeometry()}`);
       }
       // 会话抽屉
       this.showDrawer = true;
       await this.wait(900);
       done.push(`02-drawer=${await this.captureAndUpload('02-drawer')}`);
+      geo.push(`--- 02-drawer ---\n${this.collectGeometry()}`);
       this.showDrawer = false;
       // 设置
       this.showSettings = true;
       await this.wait(900);
       done.push(`03-settings=${await this.captureAndUpload('03-settings')}`);
+      geo.push(`--- 03-settings ---\n${this.collectGeometry()}`);
       this.showSettings = false;
       // 渲染自检
       this.showSelfCheck = true;
       await this.wait(1200);
       done.push(`04-selfcheck=${await this.captureAndUpload('04-selfcheck')}`);
+      geo.push(`--- 04-selfcheck ---\n${this.collectGeometry()}`);
       this.showSelfCheck = false;
       // 队列（有内容才有意义，无内容也截，便于对比）
       this.showQueue = true;
       await this.wait(900);
       done.push(`05-queue=${await this.captureAndUpload('05-queue')}`);
+      geo.push(`--- 05-queue ---\n${this.collectGeometry()}`);
       this.showQueue = false;
       // 能力面板
       await this.openPlugins();
       await this.wait(900);
       done.push(`06-plugins=${await this.captureAndUpload('06-plugins')}`);
+      geo.push(`--- 06-plugins ---\n${this.collectGeometry()}`);
       this.showPlugins = false;
       await this.wait(400);
       done.push(`07-chat-back=${await this.captureAndUpload('07-chat-back')}`);
+      geo.push(`--- 07-chat-back ---\n${this.collectGeometry()}`);
+      // 版面几何（文本）一并上传，便于脱离看图定位根因
+      const store: ChatStore | null = this.store;
+      if (store !== null) {
+        try {
+          const txt: string = geo.join('\n\n');
+          const bytes: Uint8Array = new Uint8Array(new util.TextEncoder().encodeInto(txt));
+          await store.http.uploadBytes('/api/files/upload', 'audit-layout.txt',
+            bytes.buffer as ArrayBuffer, 'text/plain');
+        } catch (e) {
+          // 几何上传失败不影响截图结果
+        }
+      }
       this.auditLog = done.join('  ');
-      this.toast('走查完成，已上传 7 张');
+      this.toast('走查完成，已上传 7 张截图 + 1 份版面几何');
     } catch (e) {
       const err: BusinessError = e as BusinessError;
       this.auditLog = `失败: ${err.message}（已完成: ${done.join(' ') }）`;
@@ -759,6 +810,7 @@ struct Index {
         })
       }
       .width('100%').height(56).padding({ left: 4, right: 4 }).backgroundColor('#111827')
+      .id('xbot-header')
 
       // 消息列表
       List({ scroller: this.listScroller }) {
@@ -798,6 +850,7 @@ struct Index {
         }
       }
       .layoutWeight(1).width('100%').edgeEffect(EdgeEffect.Spring).padding({ left: 8, right: 8 })
+      .id('xbot-list')
 
       // 输入区
       Row({ space: 8 }) {
@@ -821,6 +874,7 @@ struct Index {
           })
       }
       .width('100%').padding(8).backgroundColor('#0F172A')
+      .id('xbot-composer')
     }
     .width('100%').height('100%')
   }
@@ -1366,7 +1420,8 @@ struct Index {
                       }
                     }.layoutWeight(1).alignItems(HorizontalAlign.Start).margin({ left: 6 })
                   }
-                  .width('100%').padding(8).backgroundColor('#0F172A').borderRadius(6)
+                  .width('100%').padding(8).backgroundColor('#0F172A')
+      .id('xbot-composer').borderRadius(6)
                   .onClick(() => {
                     this.toggleAskOption(q.id !== undefined ? q.id : `q${qi}`,
                       opt.label !== undefined ? opt.label : '',
