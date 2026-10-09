@@ -809,7 +809,7 @@ struct Index {
 
       Row({ space: 8 }) {
         Button(this.testing ? '测试中…' : '测试连接')
-          .layoutWeight(1).height(38)
+          .layoutWeight(1).constraintSize({ minHeight: 38 })
           .backgroundColor('#1F2937')
           .onClick(() => {
             this.testConnection();

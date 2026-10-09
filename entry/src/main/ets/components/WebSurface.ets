@@ -62,7 +62,7 @@ export struct WebSurface {
         })
       }
       .width('100%')
-      .height(48)
+      .constraintSize({ minHeight: 48 })
       .backgroundColor('#111827')
 
       Web({ src: this.url, controller: this.controller })
