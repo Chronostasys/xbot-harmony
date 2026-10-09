@@ -112,6 +112,9 @@ struct Index {
   @State showQueue: boolean = false;
   @State showPlugins: boolean = false;
   @State showSelfCheck: boolean = false;
+  /** 各页版面几何的**屏幕可见文本**（无需网络：截一张图即可把数值带给我） */
+  @State geoText: string = '';
+  @State geoRunning: boolean = false;
   @State auditing: boolean = false;
   @State auditLog: string = '';
   @State renamingId: string = '';
@@ -265,6 +268,50 @@ struct Index {
       this.testMsg = `❌ 连不上：${err.message}（检查 IP/端口、手机是否同网段、服务端是否在跑）`;
     } finally {
       this.testing = false;
+    }
+  }
+
+  /**
+   * 逐页采集版面几何并**显示在屏幕上**（不依赖网络）。
+   *
+   * 为什么需要：真机画面只能靠用户截图；但"哪个容器高度为 0 / 跑到屏幕外"这类根因，
+   * **数值比图更直接**。把数值渲染成文本后，用户截一张图就等于把 7 页的实测几何带给我。
+   */
+  private async collectAllGeometry(): Promise<void> {
+    if (this.geoRunning) {
+      return;
+    }
+    this.geoRunning = true;
+    const parts: string[] = [];
+    try {
+      parts.push(`# 聊天页\n${this.collectGeometry()}`);
+      this.showDrawer = true;
+      await this.wait(700);
+      parts.push(`# 会话抽屉\n${this.collectGeometry()}`);
+      this.showDrawer = false;
+      this.showSettings = true;
+      await this.wait(700);
+      parts.push(`# 设置\n${this.collectGeometry()}`);
+      this.showSettings = false;
+      this.showQueue = true;
+      await this.wait(700);
+      parts.push(`# 队列\n${this.collectGeometry()}`);
+      this.showQueue = false;
+      this.showPlugins = true;
+      await this.wait(700);
+      parts.push(`# 能力面板\n${this.collectGeometry()}`);
+      this.showPlugins = false;
+      await this.wait(300);
+      parts.push(`# 回到聊天\n${this.collectGeometry()}`);
+      this.geoText = parts.join('\n\n');
+    } catch (e) {
+      this.geoText = `采集失败: ${errText(e as Object)}`;
+    } finally {
+      this.showDrawer = false;
+      this.showSettings = false;
+      this.showQueue = false;
+      this.showPlugins = false;
+      this.geoRunning = false;
     }
   }
 
@@ -1344,6 +1391,19 @@ struct Index {
           this.showSelfCheck = false;
         })
       }.width('100%')
+
+      Button(this.geoRunning ? '采集中…' : '采集各页版面几何（数值，无需网络）')
+        .width('100%').constraintSize({ minHeight: 40 }).backgroundColor('#0E7490')
+        .onClick(() => {
+          this.collectAllGeometry();
+        })
+      if (this.geoText.length > 0) {
+        Text(this.geoText)
+          .fontSize(11).fontColor('#A7F3D0').fontFamily('monospace')
+          .width('100%').padding(8)
+          .backgroundColor('#111827').borderRadius(8)
+          .copyOption(CopyOptions.LocalDevice)
+      }
 
       Scroll() {
         Column({ space: 10 }) {
