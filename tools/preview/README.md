@@ -84,3 +84,17 @@ $HDC shell snapshot_display -f /data/local/tmp/s.jpeg && $HDC file recv /data/lo
 $HDC shell uinput -T -c <x> <y>        # 模拟点击，逐页走查
 $HDC shell hilog | grep -i xbot        # 日志/崩溃栈
 ```
+
+## 6. 实测补充（2026-10-09）
+
+用带 refresh 命令的 WS 客户端（`ws_grab.py` 已内置发送）驱动后，**帧仍恒为空白**；
+日志显示渲染服务在无头环境起不来：
+
+```
+RSUIDirectory::AttachSurface not ready
+RSRenderNode::InitRenderParams failed
+```
+
+⇒ 结论：**本机（无 GPU 的无头容器 + Xvfb）无法作为渲染环境**；加之 Stage ability 在 Linux
+未实现，预览器只能用于"参数/模块/资源是否加载成功"的冒烟检查，**不能用于视觉验证**。
+视觉验证必须走真机 + hdc（`tools/device/shots.sh`）。
