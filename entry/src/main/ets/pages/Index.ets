@@ -25,6 +25,15 @@ class AskSelection {
   other: string = '';
 }
 
+/**
+ * 诊断开关：登录后**自动**走查并上传所有页面截图。
+ *
+ * 为什么需要它：用户反馈"渲染错乱、完全用不了"时，可能**连 ⚙ 都点不到** ⇒
+ * 交互式触发不可靠。置 true 后 App 会在登录后自行走查一遍（每页截图上传到服务端），
+ * 供排查用。**排查完成应改回 false**（避免每次启动都上传）。
+ */
+const AUTO_AUDIT_ON_LAUNCH: boolean = true;
+
 /** 把任意 catch 到的值变成可读文本（BusinessError 有 message/code；其它情况回落 JSON）。 */
 function errText(e: Object): string {
   const err: BusinessError = e as BusinessError;
@@ -352,6 +361,12 @@ struct Index {
       return;
     }
     this.loggedIn = true;
+    if (AUTO_AUDIT_ON_LAUNCH) {
+      // 等界面稳定再走查（不阻塞登录流程）
+      setTimeout(() => {
+        this.runUiAudit();
+      }, 2500);
+    }
     const first: SessionItem | undefined = this.sessions.length > 0 ? this.sessions[0] : undefined;
     if (first !== undefined && first.chat_id !== undefined) {
       try {
