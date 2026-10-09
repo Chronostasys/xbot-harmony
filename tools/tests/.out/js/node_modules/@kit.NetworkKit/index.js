@@ -51,12 +51,34 @@ function perform(url, options) {
 }
 
 function createHttp() {
+  const handlers = { dataReceive: null, dataEnd: null, headersReceive: null };
+  let nodeReq = null;
   return {
     request(url, options) { return perform(url, options); },
-    requestInStream(url, options, cb) { perform(url, options).then(() => cb(undefined, 0)).catch((e) => cb(e, 0)); },
-    on() {},
-    off() {},
-    destroy() {},
+    // 真正的流式实现：把响应分块喂给 dataReceive 回调（SseClient 依赖它）
+    requestInStream(url, options, cb) {
+      const u = new URL(url);
+      const lib = u.protocol === 'https:' ? nodeHttps : nodeHttp;
+      const headers = Object.assign({}, options.header || {});
+      nodeReq = lib.request(
+        { hostname: u.hostname, port: u.port, path: u.pathname + u.search, method: options.method || 'GET', headers },
+        (res) => {
+          if (handlers.headersReceive) handlers.headersReceive(res.headers);
+          res.on('data', (chunk) => {
+            if (handlers.dataReceive) {
+              const ab = chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength);
+              handlers.dataReceive(ab);
+            }
+          });
+          res.on('end', () => { if (handlers.dataEnd) handlers.dataEnd(); });
+        },
+      );
+      nodeReq.on('error', (e) => { if (cb) cb(e, 0); });
+      nodeReq.end();
+    },
+    on(type, cb) { if (handlers[type] !== undefined) handlers[type] = cb; },
+    off(type) { if (handlers[type] !== undefined) handlers[type] = null; },
+    destroy() { if (nodeReq) { try { nodeReq.destroy(); } catch (e) { /* ignore */ } } },
   };
 }
 

@@ -34,12 +34,13 @@ async function main() {
     ok('登录成功并拿到会话 cookie', store.http.hasSession(), store.http.exportSessionCookie().substring(0, 24));
     await store.loadSessions();
     ok('会话列表可解析', store.sessions.length >= 0, `sessions=${store.sessions.length}`);
+    let chatId = '';
     if (store.sessions.length === 0) {
         console.log('live.test: 该实例没有会话，仅验证到会话列表');
     }
     else {
         const first = store.sessions[0];
-        const chatId = first.chat_id !== undefined ? first.chat_id : '';
+        chatId = first.chat_id !== undefined ? first.chat_id : '';
         // ⚠️ 不用 openSession()：它含 SSE 长连接，会让 node 进程不退出（测试挂住）。
         // 直接取 history 并用同一静态函数构造行模型 —— 验证的仍是真实解析路径。
         const hist = await store.http.postAs('/api/history', {
@@ -60,6 +61,54 @@ async function main() {
             ok('折叠历史按需取回：迭代数增加或 regionsBefore 递减', folded.iterations.length > n0 || folded.regionsBefore < before, `iters ${n0}→${folded.iterations.length}, regionsBefore ${before}→${folded.regionsBefore}`);
             ok('取回后无重复迭代号', new Set(folded.iterations.map((i) => i.iteration)).size === folded.iterations.length, folded.iterations.map((i) => i.iteration).join(','));
             ok('迭代号为升序（前插正确）', folded.iterations.every((it, i, a) => i === 0 || a[i - 1].iteration < it.iteration));
+        }
+    }
+    // ── 其余只读路径：队列 / 插件清单 / 工具详情（都是 App 会用到的读接口）──
+    if (chatId.length === 0) {
+        console.log('live.test: 无会话可校验读接口，跳过队列/插件/工具详情');
+    }
+    try {
+        const q = await store.http.postAs('/api/queue/list', { channel: 'web', chat_id: chatId });
+        ok('队列接口可解析（/api/queue/list）', q !== undefined && q !== null);
+    }
+    catch (e) {
+        ok('队列接口可解析（/api/queue/list）', false, `${e}`);
+    }
+    try {
+        const pl = await store.http.postAs('/api/rpc', { method: 'web_plugin_list', params: {} });
+        ok('插件清单接口可解析（/api/rpc web_plugin_list）', pl !== undefined && pl !== null);
+    }
+    catch (e) {
+        ok('插件清单接口可解析（/api/rpc web_plugin_list）', false, `${e}`);
+    }
+    // 工具详情：拿一个带 tools_folded 的迭代去取（App 点击 pill 时走这条）
+    let foldedIter = undefined;
+    let foldedTurn = 0;
+    for (let i = 0; i < store.rows.length; i++) {
+        const r = store.rows[i];
+        for (let k = 0; k < r.iterations.length; k++) {
+            if (r.iterations[k].tools_folded === true) {
+                foldedIter = r.iterations[k];
+                foldedTurn = r.turnID;
+                break;
+            }
+        }
+        if (foldedIter !== undefined) {
+            break;
+        }
+    }
+    if (foldedIter === undefined) {
+        console.log('live.test: 该会话无 tools_folded 迭代，工具详情路径由其它会话覆盖');
+    }
+    else {
+        try {
+            const detail = await store.http.postAs('/api/iteration_detail', {
+                channel: 'web', chat_id: chatId, turn_id: foldedTurn, iteration: foldedIter.iteration,
+            });
+            ok('工具详情可解析（/api/iteration_detail）', detail !== undefined && detail !== null, `turn=${foldedTurn} iter=${foldedIter.iteration}`);
+        }
+        catch (e) {
+            ok('工具详情可解析（/api/iteration_detail）', false, `${e}`);
         }
     }
     console.log(`live.test: ${pass} passed, ${fail} failed`);
