@@ -75,3 +75,19 @@
 2. 一次只改一处，改完让用户再走查一次，**同页截图对比**；
 3. 任何"改了数据界面不更新"的问题，先查 **ForEach key 是否随内容变化**（本仓库约定：
    行模型带 `rev`，key = `${id}#${rev}`）。
+
+---
+
+## 附：当前已验证状态（2026-10-09，可复现）
+
+| 项目 | 命令 | 结果 |
+|---|---|---|
+| 编译（release/debug） | `hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon` | **BUILD SUCCESSFUL** |
+| 纯逻辑测试 | `tools/tests/run.sh` | **55 passed / 0 failed**（http 7 / keys 6 / markdown 22 / serverurl 14 / upload 6） |
+| 官方静态检查 | `bash "$CMDLINE_TOOLS/codelinter/bin/codelinter" entry/src/main/ets -f json -o lint.json` | 告警 15 条，**全部**为 `@performance/hp-arkui-use-local-var-to-replace-state-var`（异步事件里写 @State 的性能提示）；**正确性相关 = 0** |
+| 工作区 | `git status --short` | 干净 |
+
+**产物**：`dist/xbot-harmony-{release,debug}-unsigned.hap`（`bundleName=com.chronostasys.xbot`，
+`minAPIVersion=50000012`，未签名 ⇒ 安装前需签名）。
+
+**待办（唯一阻塞）**：装诊断包 → 打开 App（自动走查）→ 我逐页判读截图与 `audit-layout.txt`。
