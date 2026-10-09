@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2021",
+    "module": "ES2020",
+    "moduleResolution": "node",
+    "strict": true,
+    "noImplicitAny": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": [],
+    "lib": ["ES2021", "DOM"],
+    "outDir": "./build"
+  },
+  "include": ["./build/**/*.ts", "./stubs/**/*.d.ts"]
+}

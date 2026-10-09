@@ -68,7 +68,8 @@ export struct WebSurface {
         })
         .onErrorReceive((event) => {
           if (event !== undefined && event.error !== undefined) {
-            console.error(`web error: ${event.error.errorInfo} (${event.error.errorCode})`);
+            // WebResourceError 暴露的是 getErrorInfo() / getErrorCode() 方法（不是属性）
+            console.error(`web error: ${event.error.getErrorInfo()} (${event.error.getErrorCode()})`);
           }
         })
         .width('100%')

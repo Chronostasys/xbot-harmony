@@ -36,6 +36,19 @@ env:
   CI_IMAGE: ghcr.io/dalongzhuazi/harmonyos-ci:api26r
 
 jobs:
+  static-check:
+    name: 静态检查（core/ 用 tsc，秒级）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: 安装 typescript
+        run: npm i -g typescript@5
+      - name: 检查 entry/src/main/ets/core（纯 TS 部分）
+        run: tools/typecheck/check.sh
+
   guard:
     name: 判定是否为 HarmonyOS 工程
     runs-on: ubuntu-latest
