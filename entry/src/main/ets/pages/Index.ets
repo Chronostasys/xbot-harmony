@@ -161,6 +161,12 @@ struct Index {
         await store.loadSessions();
         this.attach(store);
         this.loggedIn = true;
+        if (AUTO_AUDIT_ON_LAUNCH) {
+          // 冷启动免登录路径同样触发（用户在手机上多半是这个路径）
+          setTimeout(() => {
+            this.runUiAudit();
+          }, 4000);
+        }
         const first: SessionItem | undefined = this.sessions.length > 0 ? this.sessions[0] : undefined;
         if (first !== undefined && first.chat_id !== undefined) {
           await store.openSession(first.chat_id);
