@@ -121,3 +121,44 @@ done
 ⇒ 因此"在 Linux 上跑 HarmonyOS 虚拟机并截图"**不存在可用的镜像来源**；
    与另两条（官方 Linux 预览器不实现 Stage ability；无头渲染 `AttachSurface not ready` 且抓到空白帧）
    合起来 = 三条路穷举完毕。设备侧取证通道（自检页几何 + 回传截图）即为此结论的补偿方案。
+
+## 追加取证：排除"缺 EGL / 缺 X 显示"这两个变量（2026-10-09 22:0x）
+
+上一次的失败是 **headless** 跑的，且宿主**没装 `libEGL`** —— 这两个变量都可能是
+`RSUIDirectory::AttachSurface not ready` 的原因。因此本次把它们**同时补上**再跑：
+
+```bash
+sudo apt-get install -y --no-install-recommends libegl1 libegl-mesa0 libgles2   # 装成功
+ls /usr/lib/x86_64-linux-gnu/libEGL.so.1 /usr/lib/x86_64-linux-gnu/dri/swrast_dri.so   # 都在
+bash tools/preview/run_preview.sh /tmp/prevroot pages/Index egl1                 # 脚本内已起 Xvfb :77
+```
+
+结果：
+
+```
+[frame 1 条] BINARY 49567 bytes -> /tmp/frames/msg1.bin
+saved /tmp/frames/egl1.jpg (49527 bytes)
+
+$ convert /tmp/frames/egl1.jpg -format '%k' info:      # 唯一色数
+1                                                      # ← 纯白（空白）
+$ convert /tmp/frames/egl1.jpg -format '%[pixel:p{600,1300}]' info:
+srgb(255,255,255)
+$ md5sum /tmp/frames/{egl1,frame,live}.jpg
+aebde8593768ae5abf01a34f57d4ad11  egl1.jpg             # ← 与历史帧**逐字节相同**
+aebde8593768ae5abf01a34f57d4ad11  frame.jpg
+aebde8593768ae5abf01a34f57d4ad11  live.jpg
+```
+
+日志里 `RSUIDirector::AttachSurface not ready` 与 `RSRenderNode::InitRenderParams failed`
+**依旧存在**（EGL 装与不装、有 X 与无 X 都一样）。
+
+### 结论（三条路全部有证据地排除）
+
+| 路径 | 结论 | 证据 |
+|---|---|---|
+| 官方 Linux 预览器跑 Stage ability | **不可行** | 源码 `ide_previewer/jsapp/rich/JsAppImpl.cpp:408` → `JsApp::Run ability start failed. Linux is not supported.` |
+| 绕开 ability，用虚拟屏取帧（headless / Xvfb+Mesa EGL 都试过） | **不可行** | `AttachSurface not ready` + `InitRenderParams failed`；帧唯一色数=1、md5 恒定 —— 渲染服务需要 DevEco 编排器提供 surface |
+| QEMU 跑鸿蒙虚拟机 | **不可行** | `repo.huaweicloud.com/openharmony/os/` 全量目录逐个搜 `qemu/x86/vbox` 零命中；`5.1.0-Release/` 只有 dayu200/hispark 真机板镜像；DevEco 模拟器仅 Win/macOS |
+
+⇒ 真正可用的路径只有 **真机 + (hdc | 应用内取证)**。应用内取证见
+`docs/UI-AUDIT-CHECKLIST.md`（自检页那段可长按复制的文本）。
