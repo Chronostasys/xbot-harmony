@@ -112,10 +112,13 @@ jobs:
           API=$(python3 -c "import json;print(json.load(open('$PKG'))['data']['apiVersion'])")
           echo "SDK: platformVersion=$PLATFORM apiVersion=$API"
           sed -i "s/\"modelVersion\": \"[^\"]*\"/\"modelVersion\": \"$PLATFORM\"/" oh-package.json5 hvigor/hvigor-config.json5
-          CS="$COMPATIBLE_SDK"
-          if [ -z "$CS" ]; then CS="$PLATFORM($API)"; fi
-          sed -i "s/\"compatibleSdkVersion\": \"[^\"]*\"/\"compatibleSdkVersion\": \"$CS\"/" build-profile.json5
-          sed -i "s/\"targetSdkVersion\": \"[^\"]*\"/\"targetSdkVersion\": \"$CS\"/" build-profile.json5
+          if [ -n "$COMPATIBLE_SDK" ]; then
+            sed -i "s/\"compatibleSdkVersion\": \"[^\"]*\"/\"compatibleSdkVersion\": \"$COMPATIBLE_SDK\"/" build-profile.json5
+            sed -i "s/\"targetSdkVersion\": \"[^\"]*\"/\"targetSdkVersion\": \"$COMPATIBLE_SDK\"/" build-profile.json5
+            echo "compatibleSdkVersion 已按输入覆盖为 $COMPATIBLE_SDK"
+          else
+            echo "沿用仓库里的 compatibleSdkVersion / targetSdkVersion"
+          fi
           echo "sdk.dir=$CLI_DIR/sdk" > local.properties
           grep -nE "modelVersion" oh-package.json5 hvigor/hvigor-config.json5
           grep -nE "compatibleSdkVersion|targetSdkVersion" build-profile.json5

@@ -134,11 +134,16 @@ jobs:
           # ⛔ modelVersion 必须与工具链一致，否则 hvigor 直接拒绝：
           #    Unsupported modelVersion of Hvigor X. The supported Hvigor modelVersion is Y
           sed -i "s/\"modelVersion\": \"[^\"]*\"/\"modelVersion\": \"$PLATFORM\"/" oh-package.json5 hvigor/hvigor-config.json5
-          # compatibleSdkVersion：显式输入优先；留空则用 SDK 自身版本（能装的东西最多）
-          CS="$COMPATIBLE_IN"
-          if [ -z "$CS" ]; then CS="$PLATFORM($API)"; fi
-          sed -i "s/\"compatibleSdkVersion\": \"[^\"]*\"/\"compatibleSdkVersion\": \"$CS\"/" build-profile.json5
-          sed -i "s/\"targetSdkVersion\": \"[^\"]*\"/\"targetSdkVersion\": \"$CS\"/" build-profile.json5
+          # compatibleSdkVersion 决定 minAPIVersion（能装到多老的手机）。
+          # 默认**沿用仓库里 pin 的值**（5.0.0(12) ⇒ HarmonyOS 5.0.0+），只有显式传输入才覆盖
+          # —— 这样"本地出包"与"云端出包"必然一致。
+          if [ -n "$COMPATIBLE_IN" ]; then
+            sed -i "s/\"compatibleSdkVersion\": \"[^\"]*\"/\"compatibleSdkVersion\": \"$COMPATIBLE_IN\"/" build-profile.json5
+            sed -i "s/\"targetSdkVersion\": \"[^\"]*\"/\"targetSdkVersion\": \"$COMPATIBLE_IN\"/" build-profile.json5
+            echo "compatibleSdkVersion 已按输入覆盖为 $COMPATIBLE_IN"
+          else
+            echo "沿用仓库里的 compatibleSdkVersion / targetSdkVersion"
+          fi
           grep -nE "modelVersion" oh-package.json5 hvigor/hvigor-config.json5
           grep -nE "compatibleSdkVersion|targetSdkVersion" build-profile.json5
 

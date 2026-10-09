@@ -15,11 +15,11 @@
 ## 0.1 已有产物（本机已构建，2026-10-09）
 
 ```
-/home/smith/src/xbot-harmony/dist/xbot-harmony-debug-unsigned.hap     405,839 B
-/home/smith/src/xbot-harmony/dist/xbot-harmony-release-unsigned.hap   187,432 B
+/home/smith/src/xbot-harmony/dist/xbot-harmony-debug-unsigned.hap     407,663 B
+/home/smith/src/xbot-harmony/dist/xbot-harmony-release-unsigned.hap   189,240 B
 ```
 
-- `bundleName = com.chronostasys.xbot`；`minAPIVersion = 50005017` ⇒ **需 HarmonyOS ≥ 5.0.5（API 17）**
+- `bundleName = com.chronostasys.xbot`；`minAPIVersion = 50000012` ⇒ **需 HarmonyOS ≥ 5.0.0（API 12）**（编译用 SDK 为 5.0.5）
 - 构建用 SDK：HarmonyOS 5.0.5（官方 command-line-tools，装在本机 `/home/smith/ohos-cli/command-line-tools`）
 - ⚠️ **未签名**：`hdc install` 会报签名错误。两条路：
   1. **DevEco Studio 自动签名**（最省事，需 Win/Mac）：打开本工程 → 「自动签名」→ 运行/打包，IDE 会生成签名后的 HAP；
