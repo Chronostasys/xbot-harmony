@@ -94,6 +94,12 @@ struct Index {
   @State sessions: SessionItem[] = [];
   @State rows: ChatRow[] = [];
   @State busy: boolean = false;
+  /**
+   * 加载失败原因（网络/代理不通时最常见）。
+   * 聊天页在"列表为空"时必须给出可读原因 + 重试，否则用户看到的就是一片空白，
+   * 极易被误判为「渲染坏了 / 完全用不了」。
+   */
+  @State loadErr: string = '';
   @State currentChat: string = '';
   @State draft: string = '';
   @State hasMore: boolean = false;
@@ -492,8 +498,8 @@ struct Index {
     try {
       await store.openSession(chatId);
     } catch (e) {
-      const err: BusinessError = e as BusinessError;
-      this.toast(`切换失败: ${err.message}`);
+      this.loadErr = errText(e as Object);
+      this.toast(`切换失败: ${this.loadErr}`);
     }
   }
 
@@ -535,6 +541,29 @@ struct Index {
     } catch (e) {
       const err: BusinessError = e as BusinessError;
       this.toast(`发送失败: ${err.message}`);
+    }
+  }
+
+  /** 重试加载当前会话（网络恢复后一键回到正常）。 */
+  private async retryLoad(): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    this.loadErr = '';
+    try {
+      if (this.currentChat.length === 0) {
+        await store.loadSessions();
+        const first: SessionItem | undefined = this.sessions.length > 0 ? this.sessions[0] : undefined;
+        if (first !== undefined && first.chat_id !== undefined) {
+          await store.openSession(first.chat_id);
+        }
+      } else {
+        await store.openSession(this.currentChat);
+      }
+    } catch (e) {
+      this.loadErr = errText(e as Object);
+      this.toast(`仍然失败: ${this.loadErr}`);
     }
   }
 
@@ -829,6 +858,22 @@ struct Index {
       }
       .width('100%').height(56).padding({ left: 4, right: 4 }).backgroundColor('#111827')
       .id('xbot-header')
+
+      // 加载失败且列表为空 ⇒ 明确提示 + 重试（网络/代理故障时界面必须自解释）
+      if (this.rows.length === 0 && this.loadErr.length > 0) {
+        Column({ space: 8 }) {
+          Text('加载会话失败').fontSize(14).fontColor('#FCA5A5')
+          Text(this.loadErr).fontSize(12).fontColor('#9CA3AF')
+            .maxLines(4).textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text('常见原因：手机到服务端网络不通（代理/防火墙），或服务端地址填错')
+            .fontSize(11).fontColor('#6B7280').maxLines(3)
+          Button('重试').height(38).backgroundColor('#7C3AED').onClick(() => {
+            this.retryLoad();
+          })
+        }
+        .width('100%').padding(16).alignItems(HorizontalAlign.Start)
+        .backgroundColor('#111827').borderRadius(10).margin({ left: 12, right: 12, top: 12 })
+      }
 
       // 消息列表
       List({ scroller: this.listScroller }) {
