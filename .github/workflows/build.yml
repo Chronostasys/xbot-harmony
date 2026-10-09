@@ -152,7 +152,9 @@ jobs:
           for h in "${haps[@]}"; do
             size=$(stat -c%s "$h")
             [ "$size" -gt 0 ] || { echo "::error::$h 为空"; exit 1; }
-            head -c 2 "$h" | xxd -p | grep -qi '^504b' || { echo "::error::$h 不是合法 zip/HAP"; exit 1; }
+            # HAP 是 zip（PK\x03\x04）——用纯 bash 校验，别依赖 xxd 之类的可选工具
+            magic=$(head -c 2 "$h")
+            [ "$magic" = "PK" ] || { echo "::error::$h 不是合法 zip/HAP（magic=$magic）"; exit 1; }
             echo "$h : $size bytes"
             echo "  --- module.json 头部（minAPIVersion/targetAPIVersion）---"
             unzip -p "$h" module.json 2>/dev/null | head -c 400 || true
