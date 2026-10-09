@@ -1,5 +1,5 @@
 import { AbilityConstant, UIAbility, Want } from '@kit.AbilityKit';
-import { window } from '@kit.ArkUI';
+import { KeyboardAvoidMode, UIContext, window } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 
@@ -32,6 +32,12 @@ export default class EntryAbility extends UIAbility {
     try {
       const win: window.Window = windowStage.getMainWindowSync();
       win.setWindowLayoutFullScreen(false);
+      // 键盘避让模式：ArkUI 默认是 OFFSET（键盘弹出时把**整页上推**）——底部输入框仍可能被键盘
+      // 盖住、整页内容随键盘抖动，在"边打字边看进度"的聊天场景里体感就是"没法用"。
+      // 选 RESIZE：键盘出现时**缩小布局视口**（列表自然变矮、输入框始终可见、内容不位移），
+      // 与 Web 端既定的 `interactive-widget=resizes-content` 策略一致（见 xbot 移动端适配铁律）。
+      const uiCtx: UIContext = win.getUIContext();
+      uiCtx.setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
       // 深色界面：状态栏/导航栏用浅色图标
       win.setWindowSystemBarProperties({
         statusBarContentColor: '#FFFFFF',
