@@ -85,7 +85,7 @@ export struct MarkdownView {
     Column({ space: 6 }) {
       ForEach(parseMarkdown(this.text), (b: MdBlock, idx: number) => {
         this.Block(b, idx)
-      }, (b: MdBlock, idx: number) => `${idx}-${b.kind}`)
+      }, (b: MdBlock, idx: number) => b.key)
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
@@ -132,7 +132,7 @@ export struct MarkdownView {
           .width('100%')
           .alignItems(VerticalAlign.Top)
           .padding({ left: b.level * 12 })
-        }, (item: string, k: number) => `li-${idx}-${k}`)
+        }, (item: string, k: number) => `${b.key}-li${k}`)
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
@@ -154,7 +154,7 @@ export struct MarkdownView {
         .onClick(() => {
           this.onImage(src);
         })
-      }, (src: string, k: number) => `img-${idx}-${k}`)
+      }, (src: string, k: number) => `${b.key}-img${k}`)
     }
   }
 
@@ -234,7 +234,7 @@ export struct MarkdownView {
             .fontColor('#F3F4F6')
             .layoutWeight(1)
             .padding(6)
-        }, (h: string, k: number) => `th-${k}`)
+        }, (h: string, k: number) => `${b.key}-th${k}`)
       }
       .width('100%')
       .backgroundColor('#1F2937')
@@ -247,11 +247,11 @@ export struct MarkdownView {
               .fontColor('#E5E7EB')
               .layoutWeight(1)
               .padding(6)
-          }, (cell: string, ci: number) => `td-${ri}-${ci}`)
+          }, (cell: string, ci: number) => `${b.key}-td${ri}-${ci}`)
         }
         .width('100%')
         .border({ width: { top: 1 }, color: '#1F2937' })
-      }, (row: string[], ri: number) => `tr-${ri}`)
+      }, (row: string[], ri: number) => `${b.key}-tr${ri}`)
     }
     .width('100%')
     .border({ width: 1, color: '#1F2937' })

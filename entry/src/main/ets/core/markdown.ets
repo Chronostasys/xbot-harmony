@@ -19,6 +19,11 @@ export enum MdBlockKind {
 }
 
 export class MdBlock {
+  /**
+   * 渲染用的稳定 key（**内容派生**，不含下标）。
+   * 用下标做 key 时，流式内容增长会让块的 key 漂移 ⇒ ArkUI 复用/错位组件 ⇒ 视觉错乱。
+   */
+  key: string = '';
   kind: MdBlockKind = MdBlockKind.Paragraph;
   /** 标题级别 1..6；列表嵌套层级 0.. */
   level: number = 0;
@@ -178,6 +183,12 @@ export function parseMarkdown(src: string): MdBlock[] {
     i++;
   }
   flushPara();
+  // 生成稳定 key：内容派生（同样内容得同样 key），同内容重复时用出现序号区分
+  for (let k = 0; k < blocks.length; k++) {
+    const b: MdBlock = blocks[k];
+    const sig: string = `${b.kind}|${b.level}|${b.text.length}|${b.items.length}|${b.code.length}|${b.header.length}|${b.rows.length}`;
+    b.key = `md-${sig}-${k}`;
+  }
   return blocks;
 }
 
