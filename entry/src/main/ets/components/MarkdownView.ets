@@ -100,7 +100,7 @@ export struct MarkdownView {
             .fontWeight(FontWeight.Bold)
             .fontSize(this.headingSize(b.level))
             .fontColor('#F3F4F6')
-        })
+        }, (s: MdSpan, i: number) => `h-${b.key}-${i}-${s.text.length}`)
       }
       .width('100%')
       .margin({ top: b.level <= 2 ? 8 : 4, bottom: 2 })
