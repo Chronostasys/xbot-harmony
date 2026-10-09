@@ -935,9 +935,11 @@ struct Index {
           .wordBreak(WordBreak.BREAK_ALL)
       }
 
-      Button('登录').width('100%').constraintSize({ minHeight: 44 }).onClick(() => {
-        this.doLogin();
-      })
+      Button('登录').width('100%').constraintSize({ minHeight: 44 })
+        .backgroundColor('#7C3AED').fontColor('#FFFFFF')
+        .onClick(() => {
+          this.doLogin();
+        })
       Button('注册（仅服务端允许时）').width('100%').constraintSize({ minHeight: 40 })
         .backgroundColor('#1F2937')
         .onClick(() => {
@@ -1463,7 +1465,9 @@ struct Index {
           .constraintSize({ maxWidth: 180 })
       }.width('100%')
 
-      Button('保存服务端/用户名').width('100%').constraintSize({ minHeight: 40 }).onClick(async () => {
+      Button('保存服务端/用户名').width('100%').constraintSize({ minHeight: 40 })
+        .backgroundColor('#7C3AED').fontColor('#FFFFFF')
+        .onClick(async () => {
         const store: ChatStore | null = this.store;
         this.takeServerUrl();
         await this.config.save(this.serverUrl, this.username,
@@ -1768,9 +1772,11 @@ struct Index {
         Button('取消').layoutWeight(1).constraintSize({ minHeight: 42 }).backgroundColor('#1F2937').onClick(() => {
           this.submitAsk(true);
         })
-        Button(this.askBusy ? '提交中…' : '提交').layoutWeight(1).constraintSize({ minHeight: 42 }).onClick(() => {
-          this.submitAsk(false);
-        })
+        Button(this.askBusy ? '提交中…' : '提交').layoutWeight(1).constraintSize({ minHeight: 42 })
+          .backgroundColor('#7C3AED').fontColor('#FFFFFF')
+          .onClick(() => {
+            this.submitAsk(false);
+          })
       }.width('100%')
     }
     .width('94%').padding(16).backgroundColor('#111827')
