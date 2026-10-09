@@ -1,16 +1,18 @@
 name: "Sign & Release"
 
-# tag（v*）触发：构建 → **签名** → 发布带签名 HAP 的 GitHub Release。
+# tag（v*）触发：构建 release → **签名** → 发布带签名 HAP 的 GitHub Release。
 #
-# 签名在 Linux 容器里用官方 `hap-sign-tool.jar`（Java）完成 —— 不需要 DevEco Studio。
+# 全程 Linux：command-line-tools（来自 ErBWs/ohos-sdk 的分片 tar.gz）+ 官方
+# `hap-sign-tool.jar`（Java）签名 —— 不需要 DevEco Studio。
+#
 # 需要的 Secrets（缺任一项则本 workflow **干净跳过**，不报红）：
-#   SIGNING_KEY_B64       密钥库 .p12 的 base64
-#   SIGNING_CERT_B64      证书 .cer 的 base64
-#   SIGNING_PROFILE_B64   Profile .p7b 的 base64
-#   SIGNING_KEY_PASSWORD  密钥库口令
-#   SIGNING_KEY_ALIAS     密钥别名（默认 xbot）
-#   SIGNING_PROFILE_PASSWORD  Profile 口令（无则留空）
-# 生成这些材料的步骤见 docs/CI.md「签名」。
+#   SIGNING_KEY_B64            密钥库 .p12 的 base64
+#   SIGNING_CERT_B64           证书 .cer 的 base64
+#   SIGNING_PROFILE_B64        Profile .p7b 的 base64
+#   SIGNING_KEY_PASSWORD       密钥库口令
+#   SIGNING_KEY_ALIAS          密钥别名（默认 xbot）
+#   SIGNING_PROFILE_PASSWORD   Profile 口令（无则留空）
+# 生成步骤见 docs/CI.md「签名」。
 
 on:
   push:
@@ -19,14 +21,15 @@ on:
 
 permissions:
   contents: write
-  packages: read
 
 defaults:
   run:
     shell: bash
 
 env:
-  CI_IMAGE: ghcr.io/dalongzhuazi/harmonyos-ci:api26r
+  SDK_TAG: 5.0.13.200
+  COMPATIBLE_SDK: 5.0.0(12)
+  CLI_DIR: ${{ github.workspace }}/.ohos-cli/command-line-tools
 
 jobs:
   preflight:
@@ -46,7 +49,7 @@ jobs:
             echo "签名材料齐全"
           else
             echo "can_sign=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::未配置签名 Secrets，跳过签名发布（仅构建未签名 HAP）"
+            echo "::notice::未配置签名 Secrets，跳过签名发布（请先按 docs/CI.md 配置）"
           fi
 
   release:
@@ -54,20 +57,36 @@ jobs:
     if: needs.preflight.outputs.can_sign == 'true'
     name: 构建 + 签名 + 发布
     runs-on: ubuntu-latest
-    container:
-      # ⚠️ 这里必须写**字面量**：`container.image` 不允许 `env` 上下文
-      # （actionlint: context "env" is not allowed here），否则整份 workflow 解析失败、
-      # GitHub 侧表现为 0s failure + 只显示文件路径。
-      image: ghcr.io/dalongzhuazi/harmonyos-ci:api26r
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
     env:
+      OHOS_SDK_HOME: ${{ github.workspace }}/.ohos-cli/command-line-tools/sdk
+      HOS_SDK_HOME: ${{ github.workspace }}/.ohos-cli/command-line-tools/sdk
       SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
       SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
       SIGNING_PROFILE_PASSWORD: ${{ secrets.SIGNING_PROFILE_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: 缓存 command-line-tools
+        id: sdk-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ohos-cli
+          key: ohos-cli-linux-${{ env.SDK_TAG }}
+
+      - name: 下载并解包 command-line-tools
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p .ohos-cli && cd .ohos-cli
+          gh release download "$SDK_TAG" -R ErBWs/ohos-sdk -p 'ohos-sdk-linux-amd64.tar.gz.*' --clobber
+          cat ohos-sdk-linux-amd64.tar.gz.* > sdk.tar.gz
+          if [ -f ohos-sdk-linux-amd64.tar.gz.sha256 ]; then
+            sha256sum -c ohos-sdk-linux-amd64.tar.gz.sha256 || echo "::warning::sha256 校验失败"
+          fi
+          tar -xzf sdk.tar.gz
+          rm -f sdk.tar.gz ohos-sdk-linux-amd64.tar.gz.*
 
       - name: 还原签名材料
         env:
@@ -77,26 +96,35 @@ jobs:
         run: |
           set -eu
           mkdir -p .signing
-          echo "$SIGNING_KEY_B64" | base64 -d > .signing/xbot.p12
-          echo "$SIGNING_CERT_B64" | base64 -d > .signing/xbot.cer
-          echo "$SIGNING_PROFILE_B64" | base64 -d > .signing/xbot.p7b
+          printf '%s' "$SIGNING_KEY_B64"     | base64 -d > .signing/xbot.p12
+          printf '%s' "$SIGNING_CERT_B64"    | base64 -d > .signing/xbot.cer
+          printf '%s' "$SIGNING_PROFILE_B64" | base64 -d > .signing/xbot.p7b
           ls -al .signing
 
-      - name: 安装依赖
-        run: ohpm install --all
+      - name: 对齐 compatibleSdkVersion
+        run: |
+          sed -i "s/\"compatibleSdkVersion\": \"[^\"]*\"/\"compatibleSdkVersion\": \"$COMPATIBLE_SDK\"/" build-profile.json5
+          sed -i "s/\"targetSdkVersion\": \"[^\"]*\"/\"targetSdkVersion\": \"$COMPATIBLE_SDK\"/" build-profile.json5
+          echo "sdk.dir=$CLI_DIR/sdk" > local.properties
+          grep -nE "compatibleSdkVersion|targetSdkVersion" build-profile.json5
 
-      - name: 构建 release HAP
-        run: hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon --stacktrace
+      - name: 安装依赖 + 构建 release HAP
+        run: |
+          export PATH="$CLI_DIR/bin:$PATH"
+          ohpm install --all
+          hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon --stacktrace
 
       - name: 签名（hap-sign-tool.jar）
         run: |
           set -eu
-          TOOL=$(find / -name 'hap-sign-tool.jar' 2>/dev/null | head -1)
-          [ -n "$TOOL" ] || { echo "::error::镜像内未找到 hap-sign-tool.jar"; exit 1; }
+          TOOL=$(find "$CLI_DIR" -name 'hap-sign-tool.jar' | head -1)
+          [ -n "$TOOL" ] || { echo "::error::工具链内未找到 hap-sign-tool.jar"; exit 1; }
           echo "sign tool: $TOOL"
           mkdir -p dist
           shopt -s nullglob
-          for h in $(find . -type f -name '*-unsigned.hap' -path '*/outputs/*'); do
+          found=0
+          for h in $(find . -type f -name '*-unsigned.hap' -path '*/outputs/*' -not -path './.ohos-cli/*'); do
+            found=1
             out="dist/$(basename "${h%-unsigned.hap}").hap"
             java -jar "$TOOL" sign-app \
               -mode localSign \
@@ -111,8 +139,9 @@ jobs:
               -keystorePwd "$SIGNING_KEY_PASSWORD" \
               ${SIGNING_PROFILE_PASSWORD:+-profilePwd "$SIGNING_PROFILE_PASSWORD"}
             echo "signed: $out"
-            java -jar "$TOOL" verify-app -inFile "$out" -outFile dist/verify.json || true
+            java -jar "$TOOL" verify-app -inFile "$out" -outFile "dist/verify-$(basename "$out").json" || true
           done
+          [ "$found" = "1" ] || { echo "::error::未找到 *-unsigned.hap 产物"; exit 1; }
           ls -al dist
 
       - uses: softprops/action-gh-release@v2
