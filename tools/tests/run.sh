@@ -33,6 +33,11 @@ $TSC_BIN "$OUT"/*.ts --module commonjs --target ES2021 --strict --skipLibCheck -
 # 把 @kit.* 的 Node 实现装进编译产物目录，让 core/ 里的 SDK 调用在 Linux 上"真跑"
 mkdir -p "$OUT/js/node_modules/@kit.NetworkKit"
 cp "$HERE/mocks/NetworkKit.js" "$OUT/js/node_modules/@kit.NetworkKit/index.js"
+mkdir -p "$OUT/js/node_modules/@kit.ArkTS"
+cp "$HERE/mocks/ArkTS.js" "$OUT/js/node_modules/@kit.ArkTS/index.js"
+cat > "$OUT/js/node_modules/@kit.ArkTS/package.json" <<'PKG2'
+{ "name": "@kit.ArkTS", "version": "0.0.0", "main": "index.js" }
+PKG2
 cat > "$OUT/js/node_modules/@kit.NetworkKit/package.json" <<'PKG'
 { "name": "@kit.NetworkKit", "version": "0.0.0", "main": "index.js" }
 PKG

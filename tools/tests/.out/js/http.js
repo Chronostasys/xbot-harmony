@@ -13,6 +13,7 @@ exports.describeError = describeError;
  *   ③ 一个实例只做一次请求，避免并发污染（鸿蒙 http 文档要求）。
  */
 const _kit_NetworkKit_1 = require("@kit.NetworkKit");
+const _kit_ArkTS_1 = require("@kit.ArkTS");
 /** 响应头里取 Set-Cookie（ArkTS 限制动态取键 ⇒ 只按已知两种拼写直查）。 */
 /**
  * 把一条（或逗号拼接的多条）`Set-Cookie` 拆开。
@@ -249,6 +250,56 @@ class XbotHttp {
     async postAs(path, body) {
         const raw = await this.post(path, body);
         return JSON.parse(raw);
+    }
+    /**
+     * 以 multipart/form-data 上传一段二进制（自检截图用）。
+     *
+     * 为什么手搓 multipart：ArkTS 的 `http.request` 支持 `extraData: ArrayBuffer`，
+     * 但没有现成的 FormData ⇒ 自己拼 body（boundary + part 头 + 字节 + 结束 boundary）。
+     * 走 `/api/files/upload`（10MB 上限、字段名 `file`）。
+     */
+    async uploadBytes(path, filename, data, mime) {
+        const boundary = `----xbot${Date.now().toString(16)}`;
+        const head = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
+            `Content-Type: ${mime}\r\n\r\n`;
+        const tail = `\r\n--${boundary}--\r\n`;
+        const headBuf = new Uint8Array(new _kit_ArkTS_1.util.TextEncoder().encodeInto(head));
+        const tailBuf = new Uint8Array(new _kit_ArkTS_1.util.TextEncoder().encodeInto(tail));
+        const body = new Uint8Array(headBuf.length + data.byteLength + tailBuf.length);
+        body.set(headBuf, 0);
+        body.set(new Uint8Array(data), headBuf.length);
+        body.set(tailBuf, headBuf.length + data.byteLength);
+        const req = _kit_NetworkKit_1.http.createHttp();
+        try {
+            const headers = {
+                'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                'Accept': 'application/json',
+            };
+            const cookie = this.cookieHeader();
+            if (cookie.length > 0) {
+                headers['Cookie'] = cookie;
+            }
+            const resp = await req.request(this.baseUrl + path, {
+                method: _kit_NetworkKit_1.http.RequestMethod.POST,
+                header: headers,
+                extraData: body.buffer,
+                expectDataType: _kit_NetworkKit_1.http.HttpDataType.STRING,
+                connectTimeout: 15000,
+                readTimeout: 60000,
+            });
+            const text = typeof resp.result === 'string' ? resp.result : '';
+            if (resp.responseCode !== 200) {
+                throw new Error(`HTTP ${resp.responseCode}: ${text.substring(0, 200)}`);
+            }
+            const env = JSON.parse(text);
+            if (env.ok !== true) {
+                throw new Error('upload failed');
+            }
+            return JSON.stringify(env.data);
+        }
+        finally {
+            req.destroy();
+        }
     }
     /**
      * GET 二进制（图片附件/头像等）。

@@ -38,8 +38,14 @@ function perform(url, options) {
       },
     );
     req.on('error', reject);
-    const body = options.extraData;
-    if (body !== undefined && body !== null) req.write(body);
+    // 真机 http.request 接受 extraData: ArrayBuffer / string；
+    // Node 的 req.write 只吃 Buffer/Uint8Array/string ⇒ 这里做等价转换（保真 SDK 行为）
+    let body = options.extraData;
+    if (body !== undefined && body !== null) {
+      if (body instanceof ArrayBuffer) body = Buffer.from(body);
+      else if (ArrayBuffer.isView(body)) body = Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+      req.write(body);
+    }
     req.end();
   });
 }

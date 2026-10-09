@@ -54,6 +54,13 @@ declare module '@kit.NetworkKit' {
 declare module '@kit.ArkTS' {
   export namespace util {
     export interface DecodeToStringOptions { stream?: boolean }
+    export class TextEncoder {
+      constructor(encoding?: string);
+      encode(input?: string): Uint8Array;
+      encodeInto(input?: string): Uint8Array;
+      readonly encoding: string;
+    }
+
     export class TextDecoder {
       static create(encoding?: string, options?: Object): TextDecoder;
       decodeToString(input: Uint8Array, options?: DecodeToStringOptions): string;
