@@ -7,8 +7,13 @@
  */
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
+import { isValidServerUrl, normalizeServerUrl } from './endpoint';
+
+// 地址规则住在 core/endpoint.ets（纯函数、可脱离 SDK 单测）；这里只做转出，保持原有调用点不变
+export { isValidServerUrl, normalizeServerUrl };
 
 const STORE_NAME: string = 'xbot_settings';
+const KEY_SERVERS: string = 'server_history';
 const KEY_SERVER: string = 'server_url';
 const KEY_USER: string = 'username';
 const KEY_COOKIE: string = 'session_cookie';
@@ -46,9 +51,38 @@ export class ConfigStore {
       return;
     }
     s.putSync(KEY_SERVER, serverUrl);
+    // 最近用过的服务端（去重、最多 5 条）——换机器/换网络时省得重打
+    const prev: string[] = this.recentServers();
+    const next: string[] = [serverUrl];
+    for (let i = 0; i < prev.length && next.length < 5; i++) {
+      if (prev[i] !== serverUrl) {
+        next.push(prev[i]);
+      }
+    }
+    s.putSync(KEY_SERVERS, next.join('\n'));
     s.putSync(KEY_USER, username);
     s.putSync(KEY_COOKIE, sessionCookie);
     await s.flush();
+  }
+
+  /** 最近用过的服务端地址（最新在前）。 */
+  recentServers(): string[] {
+    const s: preferences.Preferences | null = this.store;
+    if (s === null) {
+      return [];
+    }
+    const raw: string = s.getSync(KEY_SERVERS, '') as string;
+    if (raw.length === 0) {
+      return [];
+    }
+    const out: string[] = [];
+    const parts: string[] = raw.split('\n');
+    for (let i = 0; i < parts.length; i++) {
+      if (parts[i].length > 0) {
+        out.push(parts[i]);
+      }
+    }
+    return out;
   }
 
   async clearSession(): Promise<void> {

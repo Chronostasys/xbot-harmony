@@ -2,7 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import { image } from '@kit.ImageKit';
 import { BusinessError } from '@kit.BasicServicesKit';
-import { AppConfig, ConfigStore } from '../core/config';
+import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
 import { ChatStore } from '../core/store';
 import {
   AskOption,
@@ -35,6 +35,9 @@ struct Index {
   @State serverUrl: string = 'http://';
   @State username: string = '';
   @State password: string = '';
+  @State testing: boolean = false;
+  @State testMsg: string = '';
+  @State recentServers: string[] = [];
 
   // ── 聊天数据 ──────────────────────────────────────────────────────────────
   @State sessions: SessionItem[] = [];
@@ -98,6 +101,7 @@ struct Index {
       this.serverUrl = saved.serverUrl;
     }
     this.username = saved.username;
+    this.recentServers = this.config.recentServers();
     if (saved.serverUrl.length > 0 && saved.sessionCookie.length > 0) {
       const store: ChatStore = this.makeStore(saved.serverUrl);
       store.http.importSessionCookie(saved.sessionCookie);
@@ -165,6 +169,43 @@ struct Index {
     return out;
   }
 
+  /** 规范化并校验服务端地址；不合法返回空串并把原因写进 testMsg。 */
+  private takeServerUrl(): string {
+    const url: string = normalizeServerUrl(this.serverUrl);
+    if (!isValidServerUrl(url)) {
+      this.testMsg = '地址不完整：需要 http://主机:端口（例如 http://192.168.1.10:16000）';
+      return '';
+    }
+    this.serverUrl = url;
+    return url;
+  }
+
+  /** 「测试连接」：打公开端点 /api/auth/config（不需要登录），立刻给出可达性结论。 */
+  private async testConnection(): Promise<void> {
+    const url: string = this.takeServerUrl();
+    if (url.length === 0) {
+      return;
+    }
+    this.testing = true;
+    this.testMsg = '';
+    try {
+      const store: ChatStore = this.makeStore(url);
+      const cfg = await store.http.authConfig();
+      const hint: string = cfg.need_bootstrap === true
+        ? '服务端可用：还没有账号，先「注册」建第一个账号'
+        : (cfg.invite_only === true ? '服务端可用：仅允许已存在的账号登录' : '服务端可用：可直接登录或注册');
+      this.testMsg = `✅ ${hint}`;
+      // 顺手记进"最近使用"
+      await this.config.save(url, this.username, '');
+      this.recentServers = this.config.recentServers();
+    } catch (e) {
+      const err: BusinessError = e as BusinessError;
+      this.testMsg = `❌ 连不上：${err.message}（检查 IP/端口、手机是否同网段、服务端是否在跑）`;
+    } finally {
+      this.testing = false;
+    }
+  }
+
   private toast(msg: string): void {
     promptAction.showToast({ message: msg, duration: 2500 });
   }
@@ -173,12 +214,18 @@ struct Index {
 
   private async doLogin(): Promise<void> {
     this.errMsg = '';
+    const url: string = this.takeServerUrl();
+    if (url.length === 0) {
+      this.errMsg = this.testMsg;
+      return;
+    }
     try {
-      const store: ChatStore = this.makeStore(this.serverUrl);
+      const store: ChatStore = this.makeStore(url);
       await store.http.login(this.username, this.password);
       await store.loadSessions();
       this.attach(store);
-      await this.config.save(this.serverUrl, this.username, store.http.exportSessionCookie());
+      await this.config.save(url, this.username, store.http.exportSessionCookie());
+      this.recentServers = this.config.recentServers();
       this.loggedIn = true;
       const first: SessionItem | undefined = this.sessions.length > 0 ? this.sessions[0] : undefined;
       if (first !== undefined && first.chat_id !== undefined) {
@@ -192,8 +239,13 @@ struct Index {
 
   private async doRegister(): Promise<void> {
     this.errMsg = '';
+    const url: string = this.takeServerUrl();
+    if (url.length === 0) {
+      this.errMsg = this.testMsg;
+      return;
+    }
     try {
-      const store: ChatStore = this.makeStore(this.serverUrl);
+      const store: ChatStore = this.makeStore(url);
       await store.http.register(this.username, this.password);
       await this.doLogin();
     } catch (e) {
@@ -462,11 +514,46 @@ struct Index {
       Text('xbot').fontSize(28).fontWeight(FontWeight.Bold).fontColor('#E5E7EB')
       Text('连接你的 xbot 服务端（原生鸿蒙客户端）').fontSize(13).fontColor('#9CA3AF').margin({ bottom: 8 })
 
-      TextInput({ placeholder: 'http://192.168.1.10:16000', text: this.serverUrl })
+      TextInput({ placeholder: '服务端地址，如 192.168.1.10:16000', text: this.serverUrl })
         .onChange((v: string) => {
           this.serverUrl = v;
+          this.testMsg = '';
         })
         .backgroundColor('#111827').fontColor('#E5E7EB').height(44)
+
+      // 最近用过的地址（一点即填，省得重打 IP）
+      if (this.recentServers.length > 0) {
+        Flex({ wrap: FlexWrap.Wrap }) {
+          ForEach(this.recentServers, (u: string) => {
+            Text(u)
+              .fontSize(11).fontColor('#93C5FD')
+              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+              .margin(2)
+              .backgroundColor('#111827').borderRadius(6)
+              .onClick(() => {
+                this.serverUrl = u;
+                this.testMsg = '';
+              })
+          }, (u: string) => u)
+        }
+        .width('100%')
+      }
+
+      Row({ space: 8 }) {
+        Button(this.testing ? '测试中…' : '测试连接')
+          .layoutWeight(1).height(38)
+          .backgroundColor('#1F2937')
+          .onClick(() => {
+            this.testConnection();
+          })
+      }
+      .width('100%')
+
+      if (this.testMsg.length > 0) {
+        Text(this.testMsg).fontSize(12)
+          .fontColor(this.testMsg.startsWith('✅') ? '#A7F3D0' : '#FBBF24')
+          .width('100%')
+      }
       TextInput({ placeholder: '用户名', text: this.username })
         .onChange((v: string) => {
           this.username = v;
@@ -880,6 +967,7 @@ struct Index {
 
       Button('保存服务端/用户名').width('100%').height(40).onClick(async () => {
         const store: ChatStore | null = this.store;
+        this.takeServerUrl();
         await this.config.save(this.serverUrl, this.username,
           store !== null ? store.http.exportSessionCookie() : '');
         this.toast('已保存（换服务端请退出重登）');

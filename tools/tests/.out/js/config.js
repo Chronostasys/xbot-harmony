@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ConfigStore = exports.AppConfig = void 0;
+exports.ConfigStore = exports.AppConfig = exports.normalizeServerUrl = exports.isValidServerUrl = void 0;
 /**
  * 本地配置与凭证（`@kit.ArkData` preferences）。
  *
@@ -9,7 +9,11 @@ exports.ConfigStore = exports.AppConfig = void 0;
  * 持久化它才能在冷启动后保持登录。
  */
 const _kit_ArkData_1 = require("@kit.ArkData");
+const endpoint_1 = require("./endpoint");
+Object.defineProperty(exports, "isValidServerUrl", { enumerable: true, get: function () { return endpoint_1.isValidServerUrl; } });
+Object.defineProperty(exports, "normalizeServerUrl", { enumerable: true, get: function () { return endpoint_1.normalizeServerUrl; } });
 const STORE_NAME = 'xbot_settings';
+const KEY_SERVERS = 'server_history';
 const KEY_SERVER = 'server_url';
 const KEY_USER = 'username';
 const KEY_COOKIE = 'session_cookie';
@@ -47,9 +51,37 @@ class ConfigStore {
             return;
         }
         s.putSync(KEY_SERVER, serverUrl);
+        // 最近用过的服务端（去重、最多 5 条）——换机器/换网络时省得重打
+        const prev = this.recentServers();
+        const next = [serverUrl];
+        for (let i = 0; i < prev.length && next.length < 5; i++) {
+            if (prev[i] !== serverUrl) {
+                next.push(prev[i]);
+            }
+        }
+        s.putSync(KEY_SERVERS, next.join('\n'));
         s.putSync(KEY_USER, username);
         s.putSync(KEY_COOKIE, sessionCookie);
         await s.flush();
+    }
+    /** 最近用过的服务端地址（最新在前）。 */
+    recentServers() {
+        const s = this.store;
+        if (s === null) {
+            return [];
+        }
+        const raw = s.getSync(KEY_SERVERS, '');
+        if (raw.length === 0) {
+            return [];
+        }
+        const out = [];
+        const parts = raw.split('\n');
+        for (let i = 0; i < parts.length; i++) {
+            if (parts[i].length > 0) {
+                out.push(parts[i]);
+            }
+        }
+        return out;
     }
     async clearSession() {
         await this.save(this.data.serverUrl, this.data.username, '');
