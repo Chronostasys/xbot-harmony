@@ -72,6 +72,7 @@ import {
 } from '../core/types';
 import { runeCount } from '../core/typewriter';
 import { LiveTailView } from '../components/LiveTailView';
+import { MessageRowView } from '../components/MessageRow';
 import { UserBubbleView } from '../components/UserBubble';
 import { MarkdownView } from '../components/MarkdownView';
 import { WebSurface } from '../components/WebSurface';
@@ -1533,6 +1534,24 @@ struct Index {
 
   // ── 工具详情 / 迭代展开 ───────────────────────────────────────────────────
 
+
+  /** 行组件回调入口：按 (迭代号, 工具名) 找到工具后沿用 toggleTool 的语义。 */
+  private async toggleToolByKey(row: ChatRow, iter: number, name: string): Promise<void> {
+    for (let i = 0; i < row.iterations.length; i++) {
+      const it: HistoryIteration = row.iterations[i];
+      if (it.iteration !== iter || it.tools === undefined) {
+        continue;
+      }
+      for (let k = 0; k < it.tools.length; k++) {
+        if (it.tools[k].name === name) {
+          await this.toggleTool(row, it, it.tools[k]);
+          return;
+        }
+      }
+    }
+  }
+
+  /** 工具详情的开合键（页面与行组件各自持有一份同实现）。 */
   private toolKey(turnID: number, iter: number, name: string): string {
     return `${turnID}:${iter}:${name}`;
   }
@@ -3543,134 +3562,40 @@ struct Index {
     } else if (!rowIsEmpty(row)) {
       // 空气泡守卫：无正文/思考/工具的行（含等待首帧的 live 行）不渲染卡片；
       // 等待态由列表尾部的「思考中…」占位承担（与 web 的 ShimmerThinking 同语义）
-      this.AssistantBlock(row)
-    }
-  }
-
-
-  @Builder
-  AssistantBlock(row: ChatRow) {
-    Column({ space: 6 }) {
-      if (row.content.length > 0 && row.iterations.length === 0) {
-        MarkdownView({
-          text: row.content,
-          onImage: (src: string) => {
-            this.openImage(src);
-          },
-          loadImage: (src: string) => {
-            return this.loadImageBytes(src);
-          },
-          fontScale: this.fontScale(),
-          wrapCode: this.wrapCode(),
-          theme: this.themeName,
-        })
-      }
-      // 服务端折叠视图：更早的展示区域需按需取回（与 Web 端「⌃ 更早的 N 个区域」同源）
-      if (row.regionsBefore > 0) {
-        Row({ space: 6 }) {
-          Text(`⌃ 更早的 ${row.regionsBefore} 个区域`).fontSize(11).fontColor(this.pal().warn)
-          Text('（点击加载）').fontSize(11).fontColor(this.pal().textMuted)
-        }
-        .width('100%')
-        .padding({ top: 4, bottom: 4 })
-        .onClick(() => {
+      MessageRowView({
+        row: row,
+        theme: this.themeName,
+        fontScaleV: this.fontScale(),
+        wrapCodeV: this.wrapCode(),
+        sweepX: this.sweepX,
+        onImage: (src: string) => {
+          this.openImage(src);
+        },
+        loadImage: (src: string) => {
+          return this.loadImageBytes(src);
+        },
+        onLoadMoreRegions: () => {
           this.loadMoreRegions(row);
-        })
-      }
-      if (this.hiddenIterCount(row) > 0) {
-        Row({ space: 6 }) {
-          Text(`↑ 已折叠更早的 ${this.hiddenIterCount(row)} 个迭代`)
-            .fontSize(11).fontColor(this.pal().accentSoft)
-          Text('（点击展开全部）').fontSize(11).fontColor(this.pal().textMuted)
-        }
-        .width('100%')
-        .padding({ top: 4, bottom: 4 })
-        .onClick(() => {
-          this.expandedTurn = row.id;
-        })
-      }
-      ForEach(this.itersFor(row), (it: HistoryIteration) => {
-        this.IterationBlock(row, it)
-      }, (it: HistoryIteration) => `${row.id}#${row.rev}-${it.iteration}`)
+        },
+        onOpenCtx: (iter: number, name: string) => {
+          this.openCtx(name.length > 0 ? 'tool' : 'iter', row.id, iter, name);
+        },
+        onToggleTool: (iter: number, name: string) => {
+          this.toggleToolByKey(row, iter, name);
+        },
+        onRowLongPress: () => {
+          this.openCtx('row', row.id, 0, '');
+        },
+        onCopy: (text: string, what: string) => {
+          this.copyText(text, what);
+        },
+      })
     }
-    .width('100%').alignItems(HorizontalAlign.Start)
-    .padding({ left: 12, right: 12, top: 10, bottom: 10 })
-    .backgroundColor(this.pal().surface)
-    .borderRadius(14)
-    .border({ width: 1, color: this.pal().border })
-    .shadow({ radius: 10, color: '#14000000', offsetX: 0, offsetY: 2 })
-    .margin({ top: 4, bottom: 4 })
-    // 长按整条 → 复制（回复 / 含思考 / 含工具 / 原始 Markdown）
-    .gesture(LongPressGesture().onAction(() => {
-      this.openCtx('row', row.id, 0, '');
-    }))
   }
+
+
 
   /** 一个迭代 = 思考(T) / 正文(O) / 工具(C)。 */
-  @Builder
-  IterationBlock(row: ChatRow, it: HistoryIteration) {
-    Column({ space: 6 }) {
-      // web 形态：**没有"迭代 N"这种标题**，只有一条可展开的「思考 N 字」
-      if (displayReasoning(it).length > 0) {
-        Row({ space: 6 }) {
-          Text('✳').fontSize(11).fontColor(this.pal().textMuted)
-          Text(`思考 ${runeCount(displayReasoning(it))} 字`)
-            .fontSize(11).fontColor(this.pal().textSecondary)
-          Text(this.openReasonKey === `${row.id}-${it.iteration}` ? '▾' : '▸')
-            .fontSize(11).fontColor(this.pal().textMuted)
-        }
-        .padding({ top: 2, bottom: 2 })
-        .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
-        .onClick(() => {
-          const key: string = `${row.id}-${it.iteration}`;
-          this.openReasonKey = this.openReasonKey === key ? '' : key;
-        })
-      }
-
-      if (displayReasoning(it).length > 0
-        && this.openReasonKey === `${row.id}-${it.iteration}`) {
-        Text(displayReasoning(it))
-          .wordBreak(WordBreak.BREAK_ALL)
-          .fontSize(13).fontColor(this.pal().textSecondary).padding(8).width('100%')
-          .backgroundColor(this.pal().surface).borderRadius(8)
-          .copyOption(CopyOptions.LocalDevice)
-      }
-
-      if (displayContent(it).length > 0) {
-        MarkdownView({
-          text: displayContent(it),
-          onImage: (src: string) => {
-            this.openImage(src);
-          },
-          loadImage: (src: string) => {
-            return this.loadImageBytes(src);
-          },
-          fontScale: this.fontScale(),
-          wrapCode: this.wrapCode(),
-          theme: this.themeName,
-        })
-      }
-
-      if (it.tools !== undefined && it.tools.length > 0) {
-        Flex({ wrap: FlexWrap.Wrap }) {
-          ForEach(it.tools, (t: ToolProgress) => {
-            this.ToolPill(row, it, t)
-          }, (t: ToolProgress, ti: number) => `${this.toolKey(row.turnID, it.iteration, t.name)}#${t.call_id !== undefined ? t.call_id : ''}#${ti}`)
-        }
-        .width('100%')
-      }
-
-      // 工具详情（点击 pill 展开）
-      if (this.openToolKey.startsWith(`${row.turnID}:${it.iteration}:`) && it.tools !== undefined) {
-        ForEach(it.tools, (t: ToolProgress) => {
-          if (this.openToolKey === this.toolKey(row.turnID, it.iteration, t.name)) {
-            this.ToolDetail(t)
-          }
-        }, (t: ToolProgress, ti: number) => `d-${this.toolKey(row.turnID, it.iteration, t.name)}#${ti}`)
-      }
-    }
-    .width('100%').alignItems(HorizontalAlign.Start).padding({ top: 4, bottom: 4 })
-  }
 
 
 
@@ -3686,81 +3611,7 @@ struct Index {
   }
 
 
-  @Builder
-  ToolPill(row: ChatRow, it: HistoryIteration, t: ToolProgress) {
-    Stack() {
-      Row({ space: 4 }) {
-      Text(this.toolIcon(t)).fontSize(11)
-        .fontColor(this.toolColor(t))
-      Text(this.toolLabel(t))
-        .fontSize(12)
-        .fontColor(this.toolColor(t))
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .constraintSize({ maxWidth: 200 })
-    }
-    .padding({ left: 8, right: 8, top: 5, bottom: 5 })
-    .margin(3)
-      // 运行中：一道流光扫过（纯 transform ⇒ 不触发布局，触屏也稳）
-      if (t.status === 'running' || t.status === 'generating') {
-        Row()
-          .width(46).height('100%')
-          .linearGradient({ angle: 90, colors: [
-            [this.pal().accentSoftFade, 0.0], [this.pal().accentSoft, 0.5], [this.pal().accentSoftFade, 1.0],
-          ] })
-          .opacity(0.35)
-          .translate({ x: this.sweepX })
-          .hitTestBehavior(HitTestMode.None)
-      }
-    }
-    .clip(true)
-    .backgroundColor(this.pal().surfaceAlt)
-    .borderRadius(6)
-    .border({ width: 1, color: this.openToolKey === this.toolKey(row.turnID, it.iteration, t.name) ? this.pal().accent : this.pal().border })
-    .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
-    .onClick(() => {
-      this.toggleTool(row, it, t);
-    })
-    .gesture(LongPressGesture().onAction(() => {
-      this.openCtx('tool', row.id, it.iteration, t.name);
-    }))
-  }
 
-  @Builder
-  ToolDetail(t: ToolProgress) {
-    Column({ space: 4 }) {
-      if (t.summary !== undefined && t.summary.length > 0) {
-        Text(t.summary).fontSize(12).fontColor(this.pal().textSecondary).width('100%')
-          .wordBreak(WordBreak.BREAK_ALL)
-      }
-      if (t.args !== undefined && t.args.length > 0) {
-        Text('参数').fontSize(10).fontColor(this.pal().textMuted)
-        Text(t.args)
-          .wordBreak(WordBreak.BREAK_ALL)
-          .fontSize(12).fontColor(this.pal().textPrimary).fontFamily('monospace')
-          .width('100%').padding(6).backgroundColor(this.pal().surfaceAlt).borderRadius(6)
-          .copyOption(CopyOptions.LocalDevice)
-      }
-      if (t.detail !== undefined && t.detail.length > 0) {
-        Text('输出').fontSize(10).fontColor(this.pal().textMuted)
-        Text(t.detail)
-          .wordBreak(WordBreak.BREAK_ALL)
-          .fontSize(12).fontColor(this.pal().textPrimary).fontFamily('monospace')
-          .width('100%').padding(6).backgroundColor(this.pal().surfaceAlt).borderRadius(6)
-          .copyOption(CopyOptions.LocalDevice)
-      }
-      if ((t.summary === undefined || t.summary.length === 0)
-        && (t.args === undefined || t.args.length === 0)
-        && (t.detail === undefined || t.detail.length === 0)) {
-        Text('（详情加载中或该工具无详情）').fontSize(11).fontColor(this.pal().textMuted)
-      }
-      if (t.elapsed_ms !== undefined) {
-        Text(`耗时 ${t.elapsed_ms} ms`).fontSize(10).fontColor(this.pal().textMuted)
-      }
-    }
-    .width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
-    .alignItems(HorizontalAlign.Start)
-  }
 
   /**
    * **一段可长按复制的完整取证文本** = 渲染规模 + 各页实测几何。
@@ -3820,77 +3671,18 @@ struct Index {
   }
 
   /** 该 turn 实际要渲染的迭代（默认只给最近 MAX_ITER_VISIBLE 个）。 */
-  private itersFor(row: ChatRow): HistoryIteration[] {
-    const all: HistoryIteration[] = row.iterations;
-    if (this.expandedTurn === row.id || all.length <= MAX_ITER_VISIBLE) {
-      return all;
-    }
-    return all.slice(all.length - MAX_ITER_VISIBLE);
-  }
 
   /** 被折叠掉的迭代数量（0 表示全展示）。 */
-  private hiddenIterCount(row: ChatRow): number {
-    if (this.expandedTurn === row.id) {
-      return 0;
-    }
-    return row.iterations.length > MAX_ITER_VISIBLE ? row.iterations.length - MAX_ITER_VISIBLE : 0;
-  }
 
-  private toolIcon(t: ToolProgress): string {
-    if (t.status === 'generating') {
-      return '◐';
-    }
-    if (t.status === 'running') {
-      return '●';
-    }
-    if (t.status === 'error' || (t.exit_code !== undefined && t.exit_code !== 0)) {
-      return '✗';
-    }
-    if (t.status === 'pending') {
-      return '○';
-    }
-    return '✓';
-  }
 
   /**
    * 工具状态颜色 —— web 的「色彩只表达状态」法则：
    * 运行/生成中保留注意力色（琥珀会被误读为警告，改用强调色）；完成/排队中性；失败红。
    */
-  private toolColor(t: ToolProgress): string {
-    if (t.status === 'error' || (t.exit_code !== undefined && t.exit_code !== 0)) {
-      return this.pal().dangerText;
-    }
-    if (t.status === 'running' || t.status === 'generating') {
-      return this.pal().accentSoft;
-    }
-    return this.pal().textSecondary;
-  }
 
   /** 工具状态角标（web 五态：generating 带字数、running 带时长、error 带 exit）。 */
-  private toolStatusBadge(t: ToolProgress): string {
-    if (t.status === 'generating') {
-      const n: number = t.gen_chars !== undefined ? t.gen_chars : 0;
-      return n > 0 ? `生成中 ${n} 字` : '生成中…';
-    }
-    if (t.status === 'running') {
-      const ms: number = t.elapsed_ms !== undefined ? t.elapsed_ms : 0;
-      return ms > 0 ? `${(ms / 1000).toFixed(1)}s` : '运行中';
-    }
-    if (t.status === 'error') {
-      return t.exit_code !== undefined && t.exit_code !== 0 ? `失败 exit ${t.exit_code}` : '失败';
-    }
-    if (t.status === 'pending') {
-      return '排队';
-    }
-    return '';
-  }
 
   /** pill 显示名（名字 + 状态角标）。 */
-  private toolLabel(t: ToolProgress): string {
-    const base: string = t.label !== undefined && t.label.length > 0 ? t.label : t.name;
-    const badge: string = this.toolStatusBadge(t);
-    return badge.length > 0 ? `${base} ${badge}` : base;
-  }
 
   // ── 弹层：会话抽屉 ────────────────────────────────────────────────────────
 

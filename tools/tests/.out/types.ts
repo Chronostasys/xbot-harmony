@@ -195,6 +195,7 @@ export interface IterList {
   iterations: HistoryIteration[];
 }
 
+@Observed
 export class ChatRow implements IterList {
   id: string = '';
   role: string = 'assistant';
