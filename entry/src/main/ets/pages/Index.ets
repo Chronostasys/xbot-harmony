@@ -330,7 +330,7 @@ struct Index {
    * 一比一（动画、打字机、样式、状态机全部同一份代码），也避免我重写渲染层时不断偏离。
    * 原生实现完整保留（切到 native 即可用），继续按 web 逐行对齐地演进。
    */
-  @State useWebUI: boolean = true;
+  @State useWebUI: boolean = false;
   /** 内嵌 web UI 的地址（登录成功后写入；空 = 不渲染） */
   @State webUiUrl: string = '';
   @State webCookieReady: boolean = false;
@@ -1667,31 +1667,6 @@ struct Index {
         this.LoadingView()
       } else if (!this.loggedIn) {
         this.LoginView()
-      } else if (this.useWebUI && this.webUiUrl.length > 0) {
-        // 默认：内嵌**完整 web UI**（ArkWeb）⇒ 与 web 一比一（同一份前端代码：
-        // 动画、打字机、样式、状态机全都不用我再重写，也就不会再偏离）。
-        Stack() {
-          WebSurface({
-            url: this.webUiUrl,
-            theme: this.themeName,
-            chrome: false,
-            onClose: () => {
-            },
-          })
-          // 悬浮切换：回到原生界面（半透明、贴角，不挡内容）
-          Text('原生界面')
-            .fontSize(11).fontColor(this.pal().textSecondary)
-            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-            .backgroundColor(this.pal().surfaceAlt)
-            .opacity(0.7)
-            .borderRadius(8)
-            .margin({ left: 8, top: 8 })
-            .onClick(() => {
-              this.setSurface(false);
-            })
-        }
-        .width('100%').height('100%')
-        .alignContent(Alignment.TopStart)
       } else {
         this.ChatView()
       }
@@ -3117,19 +3092,6 @@ struct Index {
         Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
           this.showSettings = false;
         })
-      }.width('100%')
-
-      // 聊天界面承载方式（web = 内嵌完整 web UI，与 web 一比一；native = 原生界面）
-      Row({ space: 8 }) {
-        Text(settingLabel(KEY_SURFACE)).fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
-        Text(this.useWebUI ? '内嵌网页' : '原生')
-          .fontSize(12).fontColor(this.pal().onAccent)
-          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-          .backgroundColor(this.pal().accent).borderRadius(8)
-          .onClick(() => {
-            this.setSurface(!this.useWebUI);
-            this.buzz();
-          })
       }.width('100%')
 
       // 主题（深/浅）
