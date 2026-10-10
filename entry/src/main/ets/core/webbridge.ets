@@ -220,3 +220,65 @@ export function makeBridgeMessage(id: string, type: string, payload: string): Br
     return null;
   }
 }
+
+// ── 宿主侧动作判定（纯函数；副作用由 components/WebSurface.ets 执行）────────────
+
+/** 动作：请求关闭承载页面（页面调用 `xbotNative.postMessage({type:'close'})`）。 */
+export const BRIDGE_ACTION_CLOSE: string = 'close';
+/** 动作：把页面日志转写到原生日志（hilog/console）。 */
+export const BRIDGE_ACTION_LOG: string = 'log';
+/** 动作：页面就绪握手 ⇒ 宿主回一条 `init`（下发主题等能力）。 */
+export const BRIDGE_ACTION_READY: string = 'ready';
+/** 动作：**不处理**（业务类型由上层接线；未接线时既不崩也不编造语义）。 */
+export const BRIDGE_ACTION_IGNORE: string = 'ignore';
+
+/** 宿主动作（`kind` + 供日志用的 `text`）。 */
+export class BridgeHostAction {
+  kind: string = BRIDGE_ACTION_IGNORE;
+  text: string = '';
+
+  constructor(kind: string, text: string) {
+    this.kind = kind;
+    this.text = text;
+  }
+}
+
+/**
+ * 一条桥消息 → 宿主**该做什么**（纯函数，可脱机单测）。
+ *
+ * 边界（有意为之）：
+ *   · 只判定**宿主 chrome 级、无业务含义**的三种：`close` / `log` / `ready`；
+ *   · 业务类型（`call` / `notify` / `result` / `event` / `theme` / `resize` / `openExternal`）
+ *     一律 `ignore` —— 它们需要**上层**（组件注入的 `onBridgeMessage`）决定，宿主组件
+ *     **不替上层编造语义**（例如"打开外部浏览器"涉及系统能力与白名单，不能顺手实现）。
+ */
+export function hostActionFor(msg: BridgeMessage): BridgeHostAction {
+  if (msg === null || msg === undefined) {
+    return new BridgeHostAction(BRIDGE_ACTION_IGNORE, '');
+  }
+  if (msg.type === 'close') {
+    return new BridgeHostAction(BRIDGE_ACTION_CLOSE, '');
+  }
+  if (msg.type === 'log') {
+    // 日志正文来自不受信任的页面 ⇒ 截断，避免把巨串灌进日志系统
+    const t: string = typeof msg.payload === 'string' ? msg.payload : '';
+    return new BridgeHostAction(BRIDGE_ACTION_LOG, t.length > 512 ? t.substring(0, 512) : t);
+  }
+  if (msg.type === 'ready') {
+    return new BridgeHostAction(BRIDGE_ACTION_READY, '');
+  }
+  return new BridgeHostAction(BRIDGE_ACTION_IGNORE, '');
+}
+
+/**
+ * `init` 消息的 payload（宿主 → 页面：下发主题等能力；页面据此与宿主外观对齐）。
+ * 纯函数 + `JSON.stringify`（**防注入**：值一律当数据处理，不拼字符串）。
+ */
+export function bridgeInitPayload(theme: string): string {
+  const t: string = typeof theme === 'string' ? theme : '';
+  try {
+    return JSON.stringify({ theme: t });
+  } catch (e) {
+    return '{"theme":""}';
+  }
+}

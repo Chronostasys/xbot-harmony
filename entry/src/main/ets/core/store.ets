@@ -28,6 +28,15 @@ import { moveOrders } from './sessionops';
 import { BgTask, CronJob, RunnerRow, SubAgentRow } from './panels';
 import { serverKey, toLocalSettings } from './settings';
 import { FsEntry } from './composer';
+import { RPC_WEB_PLUGIN_LIST, rpc } from './rpc';
+import {
+  PluginHostInfo,
+  normalizePluginEntry,
+  normalizePluginId,
+  normalizePluginName,
+  pluginModuleUrl,
+  pluginPanelUrl,
+} from './pluginhost';
 import {
   NOTIFY_KIND_ASK,
   NOTIFY_KIND_TURN_DONE,
@@ -981,30 +990,41 @@ export class ChatStore {
 
   /**
    * 拉取带 web 产物的插件清单。
-   * 服务端 RPC `web_plugin_list`（只返回声明了 web.entry 的插件）；
-   * URL 若后端未给 module_url，则按 `/plugins/<id>/web/<entry>` 拼（与 web 前端同构）。
+   * 服务端 RPC `web_plugin_list`（只返回声明了 `web.entry` 的插件；**无 requireAdmin**，
+   * 普通用户可调 —— `serverapp/rpc_table.go:2262-2264` 的 params 只有可选 `rescan`）。
+   *
+   * ⭐ **URL 语义（2026-10-11 修正）**：`module_url` 是**插件前端 ESM 模块资源**
+   * （`/plugins/<id>/web/<entry>`，宿主用**同页 `import()`** 加载，见 `core/pluginhost.ets` 文件头），
+   * **不是网页**。旧实现把它当页面 URL 交给 WebSurface ⇒ 面板只会显示 JS 源码。
+   * 现在：`info.url` = **权威宿主页 URL**（xbot web 应用本体，插件在那里按 web 语义运行），
+   * ESM 模块 URL 降级到 `info.moduleUrl`（仅元数据）。判据是纯函数 `pluginPanelUrl`。
    */
   async listPlugins(): Promise<PluginPanelInfo[]> {
     const out: PluginPanelInfo[] = [];
     try {
-      const data: WebPluginListData = await this.http.postAs<WebPluginListData>(
-        '/api/rpc', new RpcReq('web_plugin_list'));
+      const data: WebPluginListData = await rpc<WebPluginListData>(this.http, RPC_WEB_PLUGIN_LIST);
       const list: WebPluginInfo[] = arrOrEmpty(data.plugins);
+      const base: string = this.http.baseUrl;
       for (let i = 0; i < list.length; i++) {
         const p: WebPluginInfo = list[i];
-        const id: string = p.id !== undefined ? p.id
-          : (p.plugin_id !== undefined ? p.plugin_id : '');
+        const id: string = normalizePluginId(
+          p.id !== undefined ? p.id : '',
+          p.plugin_id !== undefined ? p.plugin_id : '');
         if (id.length === 0) {
           continue;
         }
-        const entry: string = p.entry !== undefined && p.entry.length > 0 ? p.entry : 'index.js';
-        const info: PluginPanelInfo = new PluginPanelInfo();
+        const entry: string = normalizePluginEntry(p.entry !== undefined ? p.entry : '');
+        const serverUrl: string = p.module_url !== undefined ? p.module_url : '';
+        const info: PluginHostInfo = new PluginHostInfo();
         info.id = id;
-        info.name = p.name !== undefined && p.name.length > 0 ? p.name
-          : (p.label !== undefined ? p.label : id);
-        info.url = p.module_url !== undefined && p.module_url.length > 0
-          ? p.module_url
-          : `${this.http.baseUrl}/plugins/${id}/web/${entry}`;
+        info.name = normalizePluginName(
+          p.name !== undefined ? p.name : '',
+          p.label !== undefined ? p.label : '',
+          id);
+        // 元数据：优先后端下发的 module_url，缺失则按服务端同构规则拼（仅供显示/诊断）
+        info.moduleUrl = serverUrl.length > 0 ? serverUrl : pluginModuleUrl(base, id, entry);
+        // 可打开的 URL：**恒为页面**（同源宿主页）；模块资源/跨源一律回落宿主页
+        info.url = pluginPanelUrl(base, serverUrl);
         info.icon = p.icon !== undefined ? p.icon : '';
         out.push(info);
       }

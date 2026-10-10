@@ -3,6 +3,8 @@ import { Palette, paletteOf } from '../core/theme';
 import { BusinessError } from '@kit.BasicServicesKit';
 import {
   BridgeMessage, parseBridgeMessage, encodeBridgeMessage, encodeBridgeAck, makeBridgeMessage,
+  BridgeHostAction, BRIDGE_ACTION_CLOSE, BRIDGE_ACTION_LOG, BRIDGE_ACTION_READY,
+  hostActionFor, bridgeInitPayload,
 } from '../core/webbridge';
 
 /**
@@ -98,14 +100,45 @@ export struct WebSurface {
   };
 
   /**
-   * 把 `nativeBridge` 的回调接到 `onBridgeMessage`。
+   * 把 `nativeBridge` 的回调接到 `onBridgeMessage`，并执行**宿主 chrome 级动作**。
    * ⚠️ 必须在 `aboutToAppear`（早于 build / 页面加载）完成，确保页面第一次调
    *    `xbotNative.postMessage` 时回调已就位。
+   *
+   * 两条路径分工（判定在 `core/webbridge.ets:hostActionFor` 这个纯函数里，组件只执行副作用）：
+   *   · `applyHostAction` —— 组件自己能闭环的：`close`（关承载页）/ `log`（转原生日志）/
+   *     `ready`（握手 ⇒ 回 `init` 下发主题）；
+   *   · `onBridgeMessage` —— 业务消息交给**上层**（由调用方接线；未接线时安全丢弃）。
    */
   aboutToAppear(): void {
     this.nativeBridge.handler = (m: BridgeMessage): void => {
       this.onBridgeMessage(m);
+      this.applyHostAction(m);
     };
+  }
+
+  /**
+   * 执行宿主 chrome 级动作（纯判定见 `hostActionFor`；这里只做副作用 + 不崩）。
+   * 业务类型（call/notify/…）判定为 `ignore` ⇒ 不在此"假装处理"。
+   */
+  private applyHostAction(m: BridgeMessage): void {
+    try {
+      const action: BridgeHostAction = hostActionFor(m);
+      if (action.kind === BRIDGE_ACTION_CLOSE) {
+        this.onClose();
+        return;
+      }
+      if (action.kind === BRIDGE_ACTION_LOG) {
+        console.log(`[web-host] ${action.text}`);
+        return;
+      }
+      if (action.kind === BRIDGE_ACTION_READY) {
+        // 页面就绪握手 ⇒ 下发 `init`（主题等宿主能力）。id 固定且合法（BRIDGE_ID_RE）。
+        this.postToPageRaw('host-init', 'init', bridgeInitPayload(this.theme));
+      }
+    } catch (e) {
+      const err: BusinessError = e as BusinessError;
+      console.error(`applyHostAction failed: ${err.message}`);
+    }
   }
 
   /**
