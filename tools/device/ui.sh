@@ -75,6 +75,10 @@ def walk(n):
         for c in n: walk(c)
 walk(d)
 if not hit: sys.exit(1)
+# ⚠️ 多命中时取**面积最小**的节点：文本常同时挂在「容器」与「叶子」上，
+#    容器的 bounds 会包含整块区域 ⇒ 点它的中心会落在空白处/标题上而不是按钮上
+#    （2026-10-11 实测：点"允许"命中了通知弹窗的标题，弹窗没关掉）。
+hit.sort(key=lambda h: (h[5]-h[3])*(h[6]-h[4]))
 t,cx,cy,*_=hit[0]
 print(f"{cx} {cy} {t}")
 PY
