@@ -25,7 +25,7 @@ for f in components/*.ets; do
     total=$((total + 1))
     hits="$(grep -rl --include='*.ets' -E "\\b${s}\\b" . 2>/dev/null | grep -v "^\./${f}$" | wc -l | tr -d ' ')"
     if [ "$hits" -eq 0 ]; then
-      echo "  ⚠ 孤儿组件：$f → struct $s（无任何消费者 ⇒ 其 ArkTS 错误不会被类型检查）"
+      echo "  ⚠ 孤儿组件：${f} → struct ${s}（无任何消费者 ⇒ 其 ArkTS 错误不会被类型检查）"
       orphans=$((orphans + 1))
     fi
   done

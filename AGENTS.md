@@ -37,7 +37,12 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
 - **⛔ 未被消费的组件文件不会被 ArkTS 类型检查** ⇒ 新建组件时"门禁全绿"是**假绿**，
   直到它被接线进页面才暴露错误（实例：`AssistantOrb` 的 `size` 冲突在 `828b28a` 提交时没报，
   接进 `LiveTailView` 后才红）。⇒ **新组件要尽早接线，接线后必须重跑 `bash tools/gate.sh`**。
-- **`build-profile.json5` 的 `products[0]` 必须引用 `"signingConfig": "default"`**，否则
+- **`$var` 紧跟中文字符会被 bash 3.2 当成变量名** ⛔：`env.sh` 设了 `LANG/LC_ALL=zh_CN.UTF-8`
+  （模拟器地域校验需要），macOS 自带 bash 3.2 在 UTF-8 locale 下把 `$s（` 的 `（` 就读进变量名 ⇒
+  `unbound variable`（`set -u` 下直接挂）。**症状**：脚本单独跑正常、经过 `source ~/ohos-cli/env.sh`
+  就报错（`LC_CTYPE=C` 时不复现）。**规则**：含中文的字符串里一律写 **`${var}`**，别写 `$var`。
+- **`tools/gate.sh` 的第 ⑤ 步（孤儿组件）是警告级**：ArkTS **不检查没有任何消费者的组件文件**
+  ⇒ "新组件 + 门禁全绿"可能是假绿（见上一条）；接线后请重跑。
   `No signingConfig found for product default` ⇒ 只产出 `*-unsigned.hap` ⇒ 装机报
   `install sign info inconsistent`(9568332)。装机请用 `~/ohos-cli/deploy.sh`。
 - **实机点击是移动靶**：流式时列表自动滚动 ⇒ `dumpLayout → click → snapshot` 必须**同一条
