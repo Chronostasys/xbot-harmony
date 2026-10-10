@@ -356,3 +356,14 @@ Usage of standard library is restricted (arkts-limited-stdlib)
 `IDataSource` / `DataChangeListener` 这类只在 ArkUI 里存在的类型放 `core/` 会直接编译失败
 （`Cannot find name 'IDataSource'`）。正解：**可测纯逻辑放 `core/`，ArkUI 壳子放页面文件**；
 且 `run.sh` 每轮先清 `.out`（否则源码删了、过期产物还在报错，会以假错误误导排查）。
+### 7. 往属性链尾部机械插入属性时，必须先确认"最后一行是完整的调用"
+
+真实事故（本次）：用脚本给 7 个 `@Builder` 的根容器统一插入 `.transition(...)` 时，
+按"最后一个 `\n    .` 行"定位并插到其后 —— 当那个属性行恰好是整段的**最后一行**时，
+`find('\n', idx+1)` 返回 -1，切片退化成 `body[:-1] + insert + body[-1:]`，
+把 `.alignItems(HorizontalAlign.Start)` / `.border({...})` **从中间截断**（连闭合括号一起写坏），
+报错却是 `Property 'transition' does not exist on type 'HorizontalAlign'`（指向参数类型，极易误判）。
+
+规则：**机械插入后必须做括号平衡复核**（本仓 `tools/lint/render-path.sh` 之外，
+我在补丁脚本里加了 `ln.count('(') != ln.count(')')` 的检查），并且插入点要挑"后面一定有换行"的行。
+同类教训：`s.replace(anchor, ...)` 前一定要 `assert anchor in s`（本轮有两次因为漏断言而静默不生效）。

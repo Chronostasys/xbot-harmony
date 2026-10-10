@@ -321,6 +321,10 @@ struct Index {
   @State composerFocused: boolean = false;
   /** 历史加载中（骨架屏判据：只有"还没内容且正在拉"才展示） */
   @State historyLoading: boolean = false;
+  /** 运行中工具的流光位置（纯 transform，不触发布局） */
+  @State sweepX: number = -80;
+  /** 切会话时列表淡入（0.001 → 1 由 animateTo 驱动） */
+  @State listAlpha: number = 1;
   /** 上次发送失败的正文（提供一键重试） */
   @State failedSend: string = '';
   private draftTimer: number = -1;
@@ -517,6 +521,8 @@ struct Index {
     if (busy && this.pulseTimer < 0) {
       this.pulseTimer = setInterval(() => {
         this.pulseOn = !this.pulseOn;
+        // 同一拍顺手推进流光位置（避免为装饰再开一个定时器）
+        this.sweepX = this.sweepX >= 300 ? -80 : this.sweepX + 110;
       }, 600);
       return;
     }
@@ -665,7 +671,9 @@ struct Index {
       await this.wait(700);
       parts.push(`# 会话抽屉\n${this.collectGeometry()}`);
       this.showDrawer = false;
-      this.showSettings = true;
+      this.anim(() => {
+            this.showSettings = true;
+          });
       await this.wait(700);
       parts.push(`# 设置\n${this.collectGeometry()}`);
       this.showSettings = false;
@@ -792,7 +800,9 @@ struct Index {
       geo.push(`--- 02-drawer ---\n${this.collectGeometry()}`);
       this.showDrawer = false;
       // 设置
-      this.showSettings = true;
+      this.anim(() => {
+            this.showSettings = true;
+          });
       await this.wait(900);
       try {
         done.push(`03-settings=${await this.captureAndUpload('03-settings')}`);
@@ -1055,6 +1065,11 @@ struct Index {
     const alreadyOpen: boolean = target.currentChatId === chatId;
     this.store = target;
     this.touchPool(chatId);
+    // 切会话：列表淡入（先置近 0 再 animateTo 回 1 —— 避免"闪一下旧会话"的观感）
+    this.listAlpha = 0.001;
+    this.anim(() => {
+      this.listAlpha = 1;
+    });
     // 切会话即换草稿（每个会话各自一份；弱网下也能恢复）
     this.failedSend = '';
     this.draft = this.config.draftFor(chatId);
@@ -1767,7 +1782,9 @@ struct Index {
           this.openPlugins();
         })
         Text('⚙').fontSize(20).fontColor(this.pal().textPrimary).padding(10).onClick(() => {
-          this.showSettings = true;
+          this.anim(() => {
+            this.showSettings = true;
+          });
         })
       }
       .width('100%').constraintSize({ minHeight: 56 }).padding({ left: 4, right: 4 }).backgroundColor(this.pal().surfaceAlt)
@@ -1884,6 +1901,7 @@ struct Index {
         }
       }
       .layoutWeight(1).width('100%').edgeEffect(EdgeEffect.Spring).padding({ left: 8, right: 8 })
+      .opacity(this.listAlpha)
       // 预构建 4 行：滚动时不必等构建（越小内存越省，越大滚动越顺）
       .cachedCount(4)
       // 跟踪"用户是否停在底部"：end 是最后一个可见项的下标，等于末项下标即在底部。
@@ -1922,7 +1940,9 @@ struct Index {
         }
         .width('100%').padding({ left: 10, right: 10, top: 4, bottom: 2 })
         .onClick(() => {
-          this.showStatus = true;
+          this.anim(() => {
+            this.showStatus = true;
+          });
         })
       }
 
@@ -2240,6 +2260,24 @@ struct Index {
     return paletteOf(this.themeName);
   }
 
+  /** 统一的"轻动效"入口（时长/曲线只有一处，避免每个面板各自为政）。 */
+  private anim(run: () => void): void {
+    animateTo({ duration: 220, curve: Curve.Friction }, run);
+  }
+
+  /** 最近一个迭代号（流式光标只挂在最后一个迭代上）。 */
+  private lastIterationNo(row: ChatRow): number {
+    const n: number = row.iterations.length;
+    return n > 0 ? row.iterations[n - 1].iteration : 0;
+  }
+
+  /** 面板/弹层的统一出入场：从下滑入 + 淡入（只用 transform/opacity）。 */
+  private sheetTransition(): TransitionEffect {
+    return TransitionEffect.translate({ y: 260 })
+      .animation({ duration: 220, curve: Curve.Friction })
+      .combine(TransitionEffect.OPACITY.animation({ duration: 180 }));
+  }
+
   // ── P11：输入体验 ────────────────────────────────────────────────────────
 
   /**
@@ -2364,7 +2402,9 @@ struct Index {
   }
 
   private async openPrefs(): Promise<void> {
-    this.showPrefs = true;
+    this.anim(() => {
+            this.showPrefs = true;
+          });
     const store: ChatStore | null = this.store;
     if (store === null) {
       return;
@@ -2466,7 +2506,9 @@ struct Index {
   }
 
   private openPanels(): void {
-    this.showPanels = true;
+    this.anim(() => {
+            this.showPanels = true;
+          });
     this.refreshPanel();
   }
 
@@ -2503,7 +2545,9 @@ struct Index {
     try {
       const hits: SearchHit[] = await store.searchMessages(q);
       this.searchHits = hits;
-      this.showSearchHits = true;
+      this.anim(() => {
+            this.showSearchHits = true;
+          });
       if (hits.length === 0) {
         this.toast('当前会话里没有匹配的消息');
       }
@@ -2529,7 +2573,9 @@ struct Index {
     this.ctxRowId = rowId;
     this.ctxIter = iter;
     this.ctxTool = tool;
-    this.ctxOpen = true;
+    this.anim(() => {
+      this.ctxOpen = true;
+    });
   }
 
   private ctxRow(): ChatRow | undefined {
@@ -2840,6 +2886,7 @@ struct Index {
     .borderRadius({ topLeft: 14, topRight: 14 })
     .border({ width: 1, color: this.pal().border })
     .alignItems(HorizontalAlign.Start)
+    .transition(this.sheetTransition())
   }
 
   /** 面板：四个标签各拉一个端点（定时任务 / 后台任务 / 子代理 / Runner）。 */
@@ -2949,6 +2996,7 @@ struct Index {
     .borderRadius({ topLeft: 14, topRight: 14 })
     .border({ width: 1, color: this.pal().border })
     .alignItems(HorizontalAlign.Start)
+    .transition(this.sheetTransition())
   }
 
   /** 会话操作菜单（贴底；删除需二次确认）。 */
@@ -2974,6 +3022,7 @@ struct Index {
     .border({ width: 1, color: this.pal().border })
     .padding({ bottom: 10 })
     .alignItems(HorizontalAlign.Start)
+    .transition(this.sheetTransition())
   }
 
   /** 会话内消息搜索结果（点一条复制该片段；只覆盖当前会话）。 */
@@ -3008,6 +3057,7 @@ struct Index {
     .border({ width: 1, color: this.pal().border })
     .padding({ bottom: 10 })
     .alignItems(HorizontalAlign.Start)
+    .transition(this.sheetTransition())
   }
 
   /** 菜单里的一项（点击走 `runCtxAction(code)`；@Builder 不能传闭包 ⇒ 用字符串码派发）。 */
@@ -3073,6 +3123,7 @@ struct Index {
     .border({ width: 1, color: this.pal().border })
     .padding({ bottom: 10 })
     .alignItems(HorizontalAlign.Start)
+    .transition(this.sheetTransition())
   }
 
   /** 一行的主体（用户气泡 / 助手块）——由 `LazyForEach` 的 `ListItem` 调用。 */
@@ -3227,7 +3278,8 @@ struct Index {
 
   @Builder
   ToolPill(row: ChatRow, it: HistoryIteration, t: ToolProgress) {
-    Row({ space: 4 }) {
+    Stack() {
+      Row({ space: 4 }) {
       Text(this.toolIcon(t)).fontSize(11)
         .fontColor(this.toolColor(t))
       Text(t.label !== undefined && t.label.length > 0 ? t.label : t.name)
@@ -3239,6 +3291,19 @@ struct Index {
     }
     .padding({ left: 8, right: 8, top: 5, bottom: 5 })
     .margin(3)
+      // 运行中：一道流光扫过（纯 transform ⇒ 不触发布局，触屏也稳）
+      if (t.status === 'running' || t.status === 'pending') {
+        Row()
+          .width(46).height('100%')
+          .linearGradient({ angle: 90, colors: [
+            [this.pal().accentSoftFade, 0.0], [this.pal().accentSoft, 0.5], [this.pal().accentSoftFade, 1.0],
+          ] })
+          .opacity(0.35)
+          .translate({ x: this.sweepX })
+          .hitTestBehavior(HitTestMode.None)
+      }
+    }
+    .clip(true)
     .backgroundColor(this.pal().surfaceAlt)
     .borderRadius(6)
     .border({ width: 1, color: this.openToolKey === this.toolKey(row.turnID, it.iteration, t.name) ? this.pal().accent : this.pal().border })
@@ -3462,7 +3527,9 @@ struct Index {
                   // 触屏铁律：多个行内操作折叠成「一个 ⋯ + 菜单」，绝不并排常显
                   Text('⋯').fontSize(18).fontColor(this.pal().textSecondary).padding({ left: 10, right: 6, top: 4, bottom: 4 })
                     .onClick(() => {
-                      this.sessMenuId = s.chat_id;
+                      this.anim(() => {
+                        this.sessMenuId = s.chat_id;
+                      });
                       this.sessConfirmDelete = '';
                     })
                 }.width('100%')
@@ -3691,6 +3758,7 @@ struct Index {
     }
     .width('92%').padding(16).backgroundColor(this.pal().appBg)
     .borderRadius(12).border({ width: 1, color: this.pal().border })
+    .transition(this.sheetTransition())
   }
 
   /** 切模型（带 sub_id；防连点；失败把原因原样告诉用户）。 */
@@ -3803,7 +3871,9 @@ struct Index {
       }
       .width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(6)
       .onClick(() => {
-        this.showModel = true;
+        this.anim(() => {
+            this.showModel = true;
+          });
         this.store?.loadLlmConfig();
       })
 
@@ -3831,6 +3901,7 @@ struct Index {
     }
     .width('92%').padding(16).backgroundColor(this.pal().appBg)
     .borderRadius(12).border({ width: 1, color: this.pal().border })
+    .transition(this.sheetTransition())
   }
 
   @Builder

@@ -29,6 +29,8 @@ export class Palette {
   accent: string = '';
   /** 强调色的浅色形态（链接、可点文字） */
   accentSoft: string = '';
+  /** 强调色浅形态的**全透明**版本（流光/渐变的两端；跨主题都不突兀） */
+  accentSoftFade: string = '';
   /** 强调色的深色形态（徽标/标签） */
   accentDeep: string = '';
   /** 强调色上的文字（标签内文字） */
@@ -72,6 +74,7 @@ export function darkPalette(): Palette {
   p.textMuted = '#6B7280';
   p.accent = '#7C3AED';
   p.accentSoft = '#93C5FD';
+  p.accentSoftFade = '#0093C5FD';
   p.accentDeep = '#4C1D95';
   p.accentText = '#C4B5FD';
   p.onAccent = '#FFFFFF';
@@ -100,6 +103,7 @@ export function lightPalette(): Palette {
   p.textMuted = '#94A3B8';
   p.accent = '#6D28D9';
   p.accentSoft = '#1D4ED8';
+  p.accentSoftFade = '#001D4ED8';
   p.accentDeep = '#EDE9FE';
   p.accentText = '#5B21B6';
   p.onAccent = '#FFFFFF';
@@ -146,7 +150,7 @@ export function paletteValues(p: Palette): string[] {
   return [
     p.appBg, p.surface, p.surfaceAlt, p.surfaceHi,
     p.textPrimary, p.textSecondary, p.textMuted,
-    p.accent, p.accentSoft, p.accentDeep, p.accentText, p.onAccent, p.bubbleUser,
+    p.accent, p.accentSoft, p.accentSoftFade, p.accentDeep, p.accentText, p.onAccent, p.bubbleUser,
     p.border, p.borderStrong,
     p.success, p.successText, p.warn, p.warnBg, p.dangerBg, p.dangerText, p.transparent,
   ];
