@@ -96,3 +96,42 @@ bash tools/lint/render-path.sh
 bash tools/typecheck/check.sh
 ~/ohos-cli/deploy.sh             # 构建 → 装机 → 启动 → 截图
 ```
+
+## 8. 插件系统 parity（2026-10-11 调研，任务2）
+
+### 8.1 web 的机制（权威）
+
+- **一个插件 = 可选的后端 Go 进程（工具/hooks/频道）+ 可选的前端 ESM bundle（UI）**，
+  由 `plugin.json` 的一个 id 绑定。
+- 加载路径：清单走 **RPC `web_plugin_list`**（服务端 `rpc_table.go`），模块走**静态**
+  `/plugins/<id>/web/<entry>`，前端 `await import(...)`（`web/src/plugin-runtime/loader.ts`）。
+  **不是** iframe、**不是** `/api/plugins` REST。
+- 贡献点 = `plugin-public` 判别联合（`manifest.ts` 的 `contributes`）；**前端是唯一权威门控**
+  （后端只做传输层检查）。
+- 面板体系 = `panelRegistry`「**一切皆面板**」；内置插件随主 bundle（`entry: 'builtin:*'`），
+  第三方按 URL 动态加载。
+
+### 8.2 原生的现状与**真问题**
+
+| 项 | 现状 | 证据 |
+|---|---|---|
+| `ui_mode` / `ui_libs` | **零渲染消费**（死字段） | `core/render.ets`、`core/types.ets` |
+| `ui_surface` | 原生**不落点** | 同上 |
+| `WebSurface`（ArkWeb 逃生舱） | **已存在可用**，但**无 JS 桥** | `components/WebSurface.ets`；grep `javaScriptProxy`/`runJavaScript` 零命中 |
+| **插件面板打开的是"裸 ESM .js"** | ⛔ 能力面板点某插件 → ArkWeb 显示 **`index.js` 源码** | `core/store.ets` 的 `PluginPanelInfo.url = module_url ?? ${base}/plugins/<id>/web/<entry>`；`pages/Index.ets` 消费 |
+
+> 结论：真问题不是"缺 WebSurface"，而是 **URL 语义错位**（把"模块 URL"当"可导航页面"）+ **无桥**。
+
+### 8.3 落地方案（分波）
+
+1. **波1**：`PluginPanelInfo.url` 语义改为**可导航的插件宿主 URL**（最小实现：`${baseUrl}/`，
+   由 web 的 plugin runtime 渲染全部插件面板）。
+2. **波2**：`WebSurface` 加 `javaScriptProxy` 桥（原生能力/事件注入宿主页）。
+3. **波3**：`web_widgets` / `plugin_widgets` 事件**至少不静默丢**（现状直接忽略）；
+   原生 L1 声明式组件渲染为可选增强。
+
+### 8.4 刻意**不由原生实现**的（走 ArkWeb 逃生舱）
+
+GenUI（LLM 生成 TSX 需 `sucrase` + `new Function` ⇒ ArkTS 禁动态求值）、终端（xterm.js）、
+文件树 / Monaco / Markdown 预览、Dockview 多面板布局 —— 均在"完整 Web UI"里承载。
+
