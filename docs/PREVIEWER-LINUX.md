@@ -74,3 +74,16 @@ Previewer -refresh region -projectID <id> -ts <sock> \
 **替代的自检闭环（当下最省事、可立刻用）**：App 内置**手动**自检快照（自动走查已按用户要求删除）——
 在真机点一次「走查并上传」，`componentSnapshot` 会把**真实渲染 PNG + layout dump** 传到服务端；
 本机从 `~/.xbot/uploads/...` 直接 `view_image` 就能看真实界面 ⇒ 可以据此逐屏修 UI（1 次点击的代价）。
+
+### 5.1 补充诊断（2026-10-10 晚）：不是缺库，是拿不到 GL 上下文
+
+- `ldd` 结果：Previewer 主程序、`libglfw.so`、`libglfw_render_context.so` **均无 "not found"**
+  （补齐 `/tmp/zvlib` + `$B` + `$B/module` + `$SDK/default/hms/toolchains/lib` 后全部解析成功）；
+- 系统侧 `libGL.so.1` / `libEGL.so.1` / `libX11.so.6` / `libxcb.so.1` 与
+  `/usr/lib/x86_64-linux-gnu/dri/{swrast,kms_swrast}_dri.so` **都在**；
+- 但 `InitGlfwEnv` 仍报 `Could not create window`。
+⇒ 结论：**卡点是 GL 上下文创建本身**（无 GPU 容器里，捆绑的 GLFW 不接受本机 Xvfb 的软件 GL，
+即使开了 `+iglx`、`LIBGL_ALWAYS_SOFTWARE=1`、`llvmpipe`、`MESA_GL_VERSION_OVERRIDE=4.5`）。
+⇒ 走通这条路需要：**有真实 GL/EGL 的环境**（GPU 机器、或带 mesa 完整 GLX 的 X 服务器），
+   或者 DevEco 的官方模拟器（Linux 上仅随 IDE 提供）。
+   在此之前，真实界面自检请用「App 手动自检快照 → 上传 → 本机 `view_image`」这条闭环（§5 末段）。
