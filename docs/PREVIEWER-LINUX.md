@@ -43,3 +43,34 @@ DevEco 调用形如：`-refresh region -projectID <id> -ts <socket> -j <预览�
 （另：`libark_inspector.so` / `libark_tooling.so` 也在同一 bin 目录 ⇒ ArkUI Inspector 的
 自动化通道理论上同样可在 Linux 上跑，可用 `harmony-next` skill 的
 `references/ideGuides/DevEco Studio IDE私有接口与AI自动化.md` 与 `lib/hdc + uitest` 路线推进。）
+
+## 5. 实测进展与当前卡点（2026-10-10）
+
+**已打通的**（全部参数从 hvigor 自己的预览调用代码
+`hvigor-ohos-plugin/node_modules/@ohos/coverage/lib/src/commandLine/localTest/previewer.js` 逐字取得，
+**关键：`-or`/`-cr` 各是两个独立 token**，不是一个 `WxH` 字符串 —— 这是之前一直报
+"not match regex" 的真因）：
+
+```
+Previewer -refresh region -projectID <id> -ts <sock> \
+  -j <.../intermediates/assets/default/ets>   # 需含 modules.abc（+ resources.index/module.json/resources）
+  -device phone -shape rect -sd 480 -pm Stage -av ACE_2_0 -n entry \
+  -or 1320 2848  -cr 1320 2848  -lws <port> -p <port> \
+  -pages main_pages -url pages/Index -arp <.../intermediates/res/default> \
+  -ljPath <.../intermediates/loader/default/loader.json> -cm dark -l zh_CN -o portrait
+```
+实测它**能启动 ArkUI 引擎并创建页面**（日志：`root node OnAttachToFrameNode` +
+`Page router manager is creating page[1]: url: pages/Index`）⇒ **参数与产物都对了**。
+
+**当前卡点（本机环境）**：
+1. `[ERROR][JsAppImpl.cpp][InitGlfwEnv]: Could not create window` —— 它自带的 GLFW 需要 GL 上下文；
+   本机是无 GPU 容器，已试并**全部被拒**：`LIBGL_ALWAYS_SOFTWARE=1`、`GALLIUM_DRIVER=llvmpipe`、
+   `LIBGL_DRIVERS_PATH=<dri>`、`MESA_GL_VERSION_OVERRIDE=4.5`、`MESA_GLSL_VERSION_OVERRIDE=450`、
+   `Xvfb +extension GLX +iglx +render`（`swrast_dri.so` 确实存在，但仍建窗失败）。
+2. `[SetAssetPath] Invalid input assetPath` —— 还需要对齐它期望的资源路径形状（hvigor 模板用的是
+   `<module>/.test/default/intermediates/assets/default/ets`，与本机 `entry/build/.../assets/default/ets` 形状一致，
+   仍被判非法 ⇒ 需继续核对 `-arp`/`-j` 的组合约束）。
+
+**替代的自检闭环（当下最省事、可立刻用）**：App 内置**手动**自检快照（自动走查已按用户要求删除）——
+在真机点一次「走查并上传」，`componentSnapshot` 会把**真实渲染 PNG + layout dump** 传到服务端；
+本机从 `~/.xbot/uploads/...` 直接 `view_image` 就能看真实界面 ⇒ 可以据此逐屏修 UI（1 次点击的代价）。
