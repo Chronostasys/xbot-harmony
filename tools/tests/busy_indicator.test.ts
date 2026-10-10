@@ -23,6 +23,7 @@ import {
   busyNow,
   hasRunningSignal,
   showsBusyPlaceholder,
+  showsHistorySkeleton,
 } from '../../entry/src/main/ets/core/indicators';
 import { ChatStore } from '../../entry/src/main/ets/core/store';
 import { rowHasInFlightSignal, rowIsEmpty } from '../../entry/src/main/ets/core/streammerge';
@@ -165,6 +166,33 @@ describe('P0 端到端：真实 store 流水线上不变量恒成立', () => {
     const s = signalsOf(store, true);
     expect(busyNow(s), 'composer 显示停止').toBe(true);
     expect(showsBusyPlaceholder(s), '列表必须给占位符（真机 P0 根治点）').toBe(true);
+  });
+});
+
+// ── 骨架屏唯一判据（真机走查 P0，2026-10-11）────────────────────────────────
+// 缺陷：`pages/Index.ets` 把判据写成 `!historyLoading && rows===0`（与
+//   `BusySignals.loading` 的契约**恰好相反**）⇒ 空会话上骨架屏**永久残留** 4 行灰条，
+//   且与空态「开始对话」**同时**渲染（真机截图：星形 + 开始对话 + 4 行灰条并存）。
+describe('骨架屏判据（与空态互斥）', () => {
+  it('正在拉历史 且 尚无行 ⇒ 出骨架', () => {
+    expect(showsHistorySkeleton(true, 0), 'loading + 0 行').toBe(true);
+  });
+
+  it('拉完仍无行 ⇒ 不出骨架（交空态接管，不得永久残留）', () => {
+    expect(showsHistorySkeleton(false, 0), '非 loading + 0 行').toBe(false);
+  });
+
+  it('已有行 ⇒ 任何 loading 态都不出骨架', () => {
+    expect(showsHistorySkeleton(true, 3), 'loading + 3 行').toBe(false);
+    expect(showsHistorySkeleton(false, 3), '非 loading + 3 行').toBe(false);
+  });
+
+  it('rows===0 时「骨架」与「空态」恰好互斥（不可能同时渲染）', () => {
+    for (const loading of [true, false]) {
+      const skeleton = showsHistorySkeleton(loading, 0);
+      const emptyState = !loading; // 页面空态判据在 rows===0 时的等价值
+      expect(skeleton !== emptyState, `loading=${loading} 时互斥`).toBe(true);
+    }
   });
 });
 

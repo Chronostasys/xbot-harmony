@@ -53,7 +53,7 @@ import {
 } from '../core/attach';
 import { changedByKeys, identityChanged, needsFullReload, rowKey, rowsFpOf, sameRowIds,
   scopedFingerprint, sessionScopedRowKey, tailRows } from '../core/rowdiff';
-import { BusySignals, busyNow, showsBusyPlaceholder, showsJumpToLatest } from '../core/indicators';
+import { BusySignals, busyNow, showsBusyPlaceholder, showsHistorySkeleton, showsJumpToLatest } from '../core/indicators';
 import { OverlayCode, OverlayState, topOverlay } from '../core/overlays';
 import {
   currentTodo, goalText, modelText, todoProgress, usageText,
@@ -2613,9 +2613,12 @@ struct Index {
         .backgroundColor(this.pal().surfaceAlt).borderRadius(10).margin({ left: 12, right: 12, top: 12 })
       }
 
-      // 空态：没有消息、没有错误、也不在跑 —— 给友好的起步引导（而不是一片黑洞）
+      // 空态：没有消息、没有错误、也不在跑 —— 给友好的起步引导（而不是一片黑洞）。
+      // 末项 `!showsHistorySkeleton(...)` 保证与骨架屏**互斥**（二者都是 rows===0 布局，
+      // 判据重叠时会同时渲染 ⇒ 真机走查见过「星形 + 开始对话 + 4 行灰条」并存）。
       if (this.rows.length === 0 && this.loadErr.length === 0 && !this.busy
-        && !this.loadingMore && this.currentChat.length > 0) {
+        && !this.loadingMore && this.currentChat.length > 0
+        && !showsHistorySkeleton(this.historyLoading, this.rows.length)) {
         Column({ space: SP_3 }) {
           SymbolGlyph($r('sys.symbol.star_fill')).fontSize(52).fontColor([this.pal().accent])
             // 阴影只给深色系（accent 外发光有意义）；浅色系（含极简白）**不加** ——
@@ -2634,8 +2637,10 @@ struct Index {
         .id('xbot-empty-state')
       }
 
-      // 骨架屏：历史还没到时给"内容即将出现"的观感（比裸转圈自然）
-      if (!this.historyLoading && this.currentChat.length > 0 && this.rows.length === 0) {
+      // 骨架屏：**只在"正在拉历史且还没有任何行"时**出现（判据在 `core/indicators.ets`，
+      // 可脱机单测）。⛔ 曾经写成 `!historyLoading`（与 `BusySignals.loading` 契约相反）
+      // ⇒ 空会话上骨架屏永久残留，且与下方空态同时渲染（真机走查抓到）。
+      if (showsHistorySkeleton(this.historyLoading, this.rows.length) && this.currentChat.length > 0) {
         Column({ space: 10 }) {
           ForEach([0, 1, 2, 3], (i: number) => {
             Row({ space: 8 }) {

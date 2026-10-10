@@ -66,6 +66,20 @@ export function showsJumpToLatest(atBottom: boolean, rowsLen: number): boolean {
 }
 
 /**
+ * 骨架屏是否该出现 —— **唯一判据**（真机走查 P0，2026-10-11）。
+ *
+ * 只有「**正在拉历史** 且 尚无任何行」才用骨架屏；拉完仍无行 ⇒ 交给空态「开始对话」。
+ * 与 `showsBusyPlaceholder` 里的 `!(o.loading && o.rowsLen === 0)` 是**同一条语义**。
+ *
+ * ⛔ 曾经的真机缺陷：`pages/Index.ets` 把这里的判据写成了 `!historyLoading && rows===0`
+ *   （与 `BusySignals.loading` 的契约**恰好相反**）⇒ 空会话上骨架屏**永久残留** 4 行灰条，
+ *   而且与空态**同时**渲染（星形 +「开始对话」+ 灰条并存）。判据收进本模块后由单测钉死。
+ */
+export function showsHistorySkeleton(loading: boolean, rowsLen: number): boolean {
+  return loading && rowsLen === 0;
+}
+
+/**
  * 不变量自检：**在跑 ⟹ 有信号**（占位符 或 尾部 live 行自带信号）。
  * 供测试/断言使用；runtime 不必调用。
  */
