@@ -557,7 +557,10 @@ Usage of standard library is restricted (arkts-limited-stdlib)
   1. **`size` 是 ArkUI `CustomComponent` 的基类成员**（自定义组件本身有 `.size()` 修饰符）
      ⇒ 子类**不能**用同名成员覆盖。同类基类成员还包括
      `width`/`height`/`position`/`offset`/`scale`/`rotate`/`opacity`/`visibility`/`clip`/`zIndex`/`id`/`key`
-     以及 `onClick` 等事件名。**改名**即可（如 `orbSize`）。
+     以及 `onClick` 等事件名；**另经 2026-10-11 实测确认 `enabled` 也在内**
+     （`components/SettingsTools.ets` / `SettingsLlm.ets` 的 `@Prop enabled` 被判
+     `Property 'enabled' in type 'X' is not assignable to the same property in base type 'CustomComponent'`
+     ⇒ 改名 `isOn` 后通过）。**改名**即可。
   2. **未被任何文件引用的组件不会被 ArkTS 类型检查** ⇒ "新建组件 + 门禁全绿"是**假绿**。
 - **正确做法**：
   - 新建组件**要么尽早接线**（接线后重跑真门禁），**要么**明确知道"这条绿不覆盖它"；
