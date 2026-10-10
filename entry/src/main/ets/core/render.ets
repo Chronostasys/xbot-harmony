@@ -14,7 +14,7 @@
  * 的重叠（这正是 bug1「一个 running turn 被渲染两遍」的根治点）。
  */
 import { ChatRow, HistoryIteration, IterList, ToolProgress } from './types';
-import { WebIteration, WebToolProgress } from './chattypes';
+import { WebCompaction, WebIteration, WebToolProgress } from './chattypes';
 import type { LiveRowView, Row } from './derive';
 
 /** WebToolProgress（web 形状）→ 原生 ToolProgress（渲染层形状）。 */
@@ -211,9 +211,25 @@ function rowSignature(r: Row): string {
         ? r.iterations[r.iterations.length - 1] : undefined;
       const lastSig: string = last !== undefined
         ? `${last.iteration}:${last.content.length}:${last.tools.length}` : '-';
-      return `c#${r.turnID}#${r.iterations.length}#${lastSig}#${r.content.length}#${r.regionsBefore !== undefined ? r.regionsBefore : 0}`;
+      return `c#${r.turnID}#${r.iterations.length}#${lastSig}#${r.content.length}#${r.regionsBefore !== undefined ? r.regionsBefore : 0}#${r.compactions !== undefined ? r.compactions.length : 0}`;
     }
   }
+}
+
+/**
+ * `WebCompaction[]`（readonly）→ 渲染层可变数组（**新增对象、不就地改源**）。
+ *
+ * 与 `toHistoryIterations` 同款：JS/ArkTS 侧 `readonly T[]` 与 `T[]` 不通用 ⇒ 显式拷贝。
+ * 无压缩 ⇒ 空数组（渲染层据此**零渲染**）。元素本身透传引用（WebCompaction 只读消费）。
+ */
+function toCompactions(cs: readonly WebCompaction[] | undefined): WebCompaction[] {
+  const out: WebCompaction[] = [];
+  if (cs !== undefined) {
+    for (let i = 0; i < cs.length; i++) {
+      out.push(cs[i]);
+    }
+  }
+  return out;
 }
 
 /**
@@ -238,6 +254,7 @@ export function applyRow(row: ChatRow, r: Row): boolean {
       row.iterations = [];
       row.isLive = false;
       row.regionsBefore = 0;
+      row.compactions = [];
       break;
     case 'live':
       row.role = 'assistant';
@@ -246,6 +263,8 @@ export function applyRow(row: ChatRow, r: Row): boolean {
       row.iterations = liveIterations(r);
       row.isLive = true;
       row.regionsBefore = r.regionsBefore !== undefined ? r.regionsBefore : 0;
+      // live 行不承载压缩点（压缩只在**已提交** turn 的迭代边界上定位）⇒ 清空。
+      row.compactions = [];
       break;
     case 'frozen':
       row.role = 'assistant';
@@ -254,6 +273,7 @@ export function applyRow(row: ChatRow, r: Row): boolean {
       row.iterations = toHistoryIterations(r.iterations);
       row.isLive = false;
       row.regionsBefore = r.regionsBefore !== undefined ? r.regionsBefore : 0;
+      row.compactions = [];
       break;
     case 'committed':
       row.role = 'assistant';
@@ -262,6 +282,8 @@ export function applyRow(row: ChatRow, r: Row): boolean {
       row.iterations = toHistoryIterations(r.iterations);
       row.isLive = false;
       row.regionsBefore = r.regionsBefore !== undefined ? r.regionsBefore : 0;
+      // turn 内压缩点（迭代之间内联渲染）——派生行 → 渲染行透传（无则空数组）。
+      row.compactions = toCompactions(r.compactions);
       break;
   }
   return true;

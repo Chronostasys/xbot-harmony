@@ -11,20 +11,24 @@
  *   · 三个 @Builder（Assistant/Iteration/ToolPill）与 7 个 helper 由页面**整块搬入**（原样语义）。
  */
 import { ChatRow, HistoryIteration, ToolProgress } from '../core/types';
+import { WebCompaction } from '../core/chattypes';
 import {
   completedBlocks, displayContent, displayReasoning, foldPills, mergeToolRuns, rowIsEmpty,
 } from '../core/streammerge';
 import { runeCount } from '../core/typewriter';
 import { Palette, paletteOf, Effects, effectsOf } from '../core/theme';
-import { BUBBLE } from '../core/bubble';
+import { BUBBLE, withAlpha } from '../core/bubble';
 import { R_MD, R_XL, R_LG, SP_1, SP_2, SP_3, FS_CAPTION } from '../core/tokens';
+import {
+  anchorsAt, COMPACTED_LABEL, compactionAnchors, splitMarker,
+} from '../core/compaction';
 import { MarkdownView } from './MarkdownView';
 import { LiveTailView } from './LiveTailView';
 import { ThinkingLine } from './ThinkingLine';
 import { ToolPill } from './ToolVisual';
 import { isLiveStatus, statusChip, toolStatusKind } from '../core/toolstatus';
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
-import { animMsgIn } from './anim';
+import { animFast, animMsgIn } from './anim';
 
 /** 「更早区域」分隔条行高（vp）—— web `h-7` = 28px。三态**恒定**，避免加载前后布局跳变。 */
 const REGION_ROW_H: number = 28;
@@ -32,6 +36,14 @@ const REGION_ROW_H: number = 28;
 const POP_W: number = 340;
 /** "+N" 溢出浮层宽度。 */
 const OVER_W: number = 320;
+/** 压缩胶囊的圆角（web `rounded-full`）——高度 ~20vp ⇒ 取足够大的值即得全圆头。 */
+const PILL_RADIUS: number = 999;
+/** 压缩摘要正文的最大高度（web `max-h-[40vh] overflow-y-auto`；手机取 ~48% 视口）。 */
+const COMPACT_BODY_MAX_H: number = 420;
+/** 压缩分隔行两侧发丝线的不透明度（web `bg-border/70`）。 */
+const COMPACT_LINE_ALPHA: number = 0.7;
+/** 共享空锚定表（无压缩行 ⇒ 零分配、零渲染；调用方只读）。 */
+const NO_ANCHORS: Map<number, WebCompaction[]> = new Map();
 
 @Component
 export struct MessageRowView {
@@ -263,6 +275,44 @@ export struct MessageRowView {
     return this.mergedBlocks();
   }
 
+  /** 压缩锚点缓存（按 `row.rev` 失效）—— 见 `compactionMap()`。 */
+  private anchorsRev: number = -1;
+  private anchorsCache: Map<number, WebCompaction[]> = new Map();
+
+  /**
+   * 压缩点锚定表（`afterIteration` → 实际渲染块）。
+   *
+   * 对齐 web `TurnBody.compactionByIter`（`TurnBody.tsx:992-1013`）：anchor =
+   * 「已渲染（merged）迭代号中 ≤ afterIteration 的最大者」；0 = 第一个迭代之前。
+   * 工具 only 迭代被折号后 anchor 会落到"最近的更早块"之后 —— 压缩点因此**不丢失**。
+   *
+   * ⛔ PERF（docs/ARKTS-GOTCHAS §11）：渲染路径不能逐块重复做与规模成正比的计算。
+   *   这里是 O(1) 早退（绝大多数行没有压缩点）+ 按 `row.rev` memo（内容一变 rev 即自增，
+   *    见 `core/rowdiff.ets:sessionScopedRowKey` 的同一契约）。
+   */
+  private compactionMap(): Map<number, WebCompaction[]> {
+    const comps: WebCompaction[] = this.row.compactions;
+    if (comps.length === 0) {
+      return NO_ANCHORS;
+    }
+    if (this.anchorsRev === this.row.rev) {
+      return this.anchorsCache;
+    }
+    const blocks: HistoryIteration[] = this.itersFor();
+    const nums: number[] = [];
+    for (let i = 0; i < blocks.length; i++) {
+      nums.push(blocks[i].iteration);
+    }
+    this.anchorsCache = compactionAnchors(nums, comps);
+    this.anchorsRev = this.row.rev;
+    return this.anchorsCache;
+  }
+
+  /** 某迭代块（或 0 = turn 顶部）**之后**要渲染的压缩点。无 ⇒ 共享空数组（零渲染）。 */
+  private compactionsAt(anchor: number): WebCompaction[] {
+    return anchorsAt(this.compactionMap(), anchor);
+  }
+
   /**
    * 自动加载更早区域（可见性触发的唯一入口）。
    *
@@ -371,6 +421,13 @@ export struct MessageRowView {
           mdTheme: this.mdTheme,
         })
       }
+      // ── turn 顶部（第一个迭代之前）的压缩点：`afterIteration === 0` ───────────────
+      //    web `TurnBody.tsx:922-928`：leading 分隔渲染在**全部迭代块之前**（与迭代同级）。
+      if (this.compactionsAt(0).length > 0) {
+        ForEach(this.compactionsAt(0), (c: WebCompaction, ci: number) => {
+          CompactionDividerRow({ body: splitMarker(c.content).body, theme: this.theme })
+        }, (c: WebCompaction, ci: number) => `${this.row.id}#cpt#head#${ci}`)
+      }
       // 已完成迭代。live 行的列表来自**值** `liveBlocks`（@Prop）；普通行走带 key 的
       // LazyForEach（key 含 rev）。在飞块由下方 LiveIterationBlock 单独渲染。
       // ⛔ key 必须含 `live` 标记：在飞块可能与某个**已提交迭代同号**（服务端把
@@ -378,6 +435,14 @@ export struct MessageRowView {
       //   只按 `row.id#iteration` 会撞 key ⇒ ArkUI 复用错位（渲染错乱）。
       ForEach(this.itersFor(), (it: HistoryIteration) => {
         this.IterationBlock(it)
+        // ── 该迭代**之后**的压缩点（迭代之间、与迭代同级内联）──────────────────────
+        //    web `TurnBody.tsx:225-228`：`compactions` 就挂在 IterationBlock 内部末尾。
+        //    无压缩 ⇒ 空数组 ⇒ **不产出任何节点**（不留空行/占位）。
+        if (this.compactionsAt(it.iteration).length > 0) {
+          ForEach(this.compactionsAt(it.iteration), (c: WebCompaction, ci: number) => {
+            CompactionDividerRow({ body: splitMarker(c.content).body, theme: this.theme })
+          }, (c: WebCompaction, ci: number) => `${this.row.id}#cpt#${it.iteration}#${ci}`)
+        }
       }, (it: HistoryIteration) => `${this.row.id}#${it.iteration}#${it.live === true ? 'L' : 'C'}`)
       // ── 在飞迭代块：**同一气泡内的最后一块**（对齐 web TurnBody 的 LiveIteration）──
       // 真机 bug ② 根治点：live 迭代不再是自己一个气泡/一个 ListItem，而是这条
@@ -663,5 +728,100 @@ export struct MessageRowView {
     if (!this.isEmptyBubble()) {
       this.AssistantBlock()
     }
+  }
+}
+
+/**
+ * 上下文压缩点分隔行 —— turn **内部**的压缩位置提示（迭代之间、与迭代**同级**内联，
+ * Cursor 式 "context summarized"）。解释"上下文为何骤降"，避免用户误判丢消息。
+ *
+ * 逐条对齐 web `CompactionDivider.tsx:30-64`（**权威**）：
+ *   · 容器 `flex flex-col gap-1.5 py-1`（Column，垂直内边距 4vp，展开区与胶囊间距 6vp）；
+ *   · 一行 `flex items-center gap-2`：左发丝线 + 虚线圆角胶囊（`Archive` 图标 + 文案
+ *     "上下文已压缩" + 有正文时的 `ChevronDown`）+ 右发丝线；
+ *   · 点击胶囊展开摘要正文：`max-h-[40vh] overflow-y-auto rounded-lg border
+ *     border-border bg-bg-secondary p-3 text-xs whitespace-pre-wrap text-text-secondary`。
+ *
+ * ⛔ **必须是真 `@Component` + `@Prop`/`@State`**（项目铁律）：带参全局 `@Builder`
+ *   的参数是"调用那一刻的快照"、子树不随参数重建（docs/ARKTS-GOTCHAS §4）⇒ 展开态与
+ *    正文会卡在首帧。`body`（不同压缩点不同、异步到达）正是"会变的内容"。
+ *
+ * ⛔ 无正文（body 为空）时**不显示箭头、点击也不展开** —— 对齐 web `:51-53`/`:57-61`。
+ *    颜色一律取自 `pal()` 语义色，间距/圆角取自 `core/tokens.ets`，**无硬编码 hex**。
+ */
+@Component
+struct CompactionDividerRow {
+  /** 摘要正文（可展开；空 ⇒ 不可展开）。由 `splitMarker(content).body` 派生。 */
+  @Prop body: string = '';
+  @Prop theme: string = 'dark';
+  /** 展开态（真 @State ⇒ 点击可切换、子树重建）。 */
+  @State open: boolean = false;
+
+  private pal(): Palette {
+    return paletteOf(this.theme);
+  }
+
+  build() {
+    Column({ space: 6 }) {
+      Row({ space: 8 }) {
+        // 左发丝线（web `h-px flex-1 bg-border/70`）
+        Divider()
+          .strokeWidth(1)
+          .color(withAlpha(this.pal().border, COMPACT_LINE_ALPHA))
+          .layoutWeight(1)
+        // 虚线胶囊（web `rounded-full border border-dashed border-border bg-bg-secondary
+        //   px-2.5 py-0.5 text-[11px] text-text-muted`）
+        Row({ space: 6 }) {
+          SymbolGlyph($r('sys.symbol.archivebox')).fontSize(12).fontColor([this.pal().textMuted])
+          Text(COMPACTED_LABEL).fontSize(11).fontColor(this.pal().textMuted)
+          if (this.body.length > 0) {
+            SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(12).fontColor([this.pal().textMuted])
+              .rotate({ angle: this.open ? 180 : 0 })
+              .animation(animFast())
+          }
+        }
+        .padding({ left: 10, right: 10, top: 2, bottom: 2 })
+        .backgroundColor(this.pal().surfaceAlt)
+        .borderRadius(PILL_RADIUS)
+        .border({ width: 1, color: this.pal().border, style: BorderStyle.Dashed })
+        .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          // 无正文 ⇒ 点击无操作（web：按钮存在但 `open && body` 才展开）
+          if (this.body.length > 0) {
+            this.open = !this.open;
+          }
+        })
+        // 右发丝线
+        Divider()
+          .strokeWidth(1)
+          .color(withAlpha(this.pal().border, COMPACT_LINE_ALPHA))
+          .layoutWeight(1)
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
+      // 展开的摘要正文（web `:57-61`：可滚动、保留换行、弱化文字）
+      if (this.open && this.body.length > 0) {
+        Scroll() {
+          Text(this.body)
+            .fontSize(FS_CAPTION)
+            .fontColor(this.pal().textSecondary)
+            .textAlign(TextAlign.Start)
+            .width('100%')
+            // 正文可能含长 URL/长标识符 ⇒ 允许词内断行（docs/ARKTS-GOTCHAS §15）
+            .wordBreak(WordBreak.BREAK_ALL)
+        }
+        .scrollBar(BarState.Auto)
+        .width('100%')
+        .constraintSize({ maxHeight: COMPACT_BODY_MAX_H })
+        .padding(SP_3)
+        .backgroundColor(this.pal().surfaceAlt)
+        .borderRadius(R_LG)
+        .border({ width: 1, color: this.pal().border })
+      }
+    }
+    .width('100%')
+    .padding({ top: SP_1, bottom: SP_1 })
+    .alignItems(HorizontalAlign.Start)
   }
 }

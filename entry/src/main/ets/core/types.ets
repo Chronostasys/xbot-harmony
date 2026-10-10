@@ -5,6 +5,7 @@
  * 这里只声明**客户端真正读到**的字段；未声明字段在 ArkTS 下会被安全忽略
  * （JSON.parse 后按 interface 取值）。
  */
+import type { WebCompaction } from './chattypes';
 
 /** 统一 REST 信封：`{ok, data, error}`（`channel/web/web_auth.go` writeJSON）。 */
 export interface ApiEnvelope {
@@ -263,6 +264,14 @@ export class ChatRow implements IterList {
    * 更早的必须用 `POST /api/regions` 按需取回。缺省 0 = 已完整下发。
    */
   regionsBefore: number = 0;
+  /**
+   * turn **内部**的上下文压缩点（compaction）—— 渲染在**迭代之间**、与迭代同级
+   * （Cursor 式 "context summarized"）。见 `chattypes.WebCompaction`。
+   *
+   * 空数组 = 该 turn 无压缩 ⇒ 渲染层**不产出任何节点**（不留空行/占位）。
+   * 数据源：`derive` 的 committed Row → `core/render.ets:applyRow` 透传（引用稳定）。
+   */
+  compactions: WebCompaction[] = [];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
