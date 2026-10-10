@@ -100,7 +100,6 @@ const MAX_ITER_VISIBLE: number = 16;
  * 交互式触发不可靠。置 true 后 App 会在登录后自行走查一遍（每页截图上传到服务端），
  * 供排查用。**排查完成应改回 false**（避免每次启动都上传）。
  */
-const AUTO_AUDIT_ON_LAUNCH: boolean = true;
 
 /** 把任意 catch 到的值变成可读文本（BusinessError 有 message/code；其它情况回落 JSON）。 */
 function errText(e: Object): string {
@@ -340,6 +339,17 @@ struct Index {
   /** 安全区（状态栏/导航栏高度，由 EntryAbility 写入）—— 消除"内容顶到状态栏" */
   @StorageProp('safeTopVp') safeTop: number = 0;
   @StorageProp('safeBottomVp') safeBottom: number = 0;
+
+  // ── live 进行中快照（与 web 的 progressSnapshot→LiveIteration 同构）──
+  // 渲染在 LazyForEach **之外**、由 @State 直接驱动：虚拟列表条目在真机上不可靠地
+  // 重建是"流式期间什么都看不到"（无打字机、无工具、结束时内容一次性冒出）的根因。
+  @State liveOn: boolean = false;
+  @State liveText: string = '';
+  @State liveReasoning: string = '';
+  @State liveTools: ToolProgress[] = [];
+  @State liveIterNo: number = 0;
+  @State liveRowTurn: number = 0;
+  @State liveReasonOpen: boolean = false;
   /** 历史加载中（骨架屏判据：只有"还没内容且正在拉"才展示） */
   @State historyLoading: boolean = false;
   // ── 打字机特效（与 web 同算法：50ms 一拍 / gap÷3 / CJK 半速；见 core/typewriter.ets）──
@@ -457,12 +467,6 @@ struct Index {
       });
         this.authExpiredHandled = false;
         this.loggedIn = true;
-        if (AUTO_AUDIT_ON_LAUNCH) {
-          // 冷启动免登录路径同样触发（用户在手机上多半是这个路径）
-          setTimeout(() => {
-            this.runUiAudit();
-          }, 4000);
-        }
         const first: SessionItem | undefined = this.sessions.length > 0 ? this.sessions[0] : undefined;
         if (first !== undefined && first.chat_id !== undefined) {
           await store.openSession(first.chat_id);
@@ -611,6 +615,7 @@ struct Index {
     this.sessions = store.sessions.slice();
     this.rows = store.rows.slice();
     this.syncRowDs();
+    this.syncLiveTail(store);
     this.busy = store.busy;
     this.connState = store.connState;
     this.syncPulse(store.busy);
@@ -955,12 +960,6 @@ struct Index {
       return;
     }
     this.loggedIn = true;
-    if (AUTO_AUDIT_ON_LAUNCH) {
-      // 等界面稳定再走查（不阻塞登录流程）
-      setTimeout(() => {
-        this.runUiAudit();
-      }, 2500);
-    }
     const first: SessionItem | undefined = this.sessions.length > 0 ? this.sessions[0] : undefined;
     if (first !== undefined && first.chat_id !== undefined) {
       try {
@@ -2003,7 +2002,14 @@ struct Index {
           }
         }, (row: ChatRow) => rowKey(row))
 
-        if (this.busy) {
+        // ── live 进行中块（LazyForEach 之外，@State 直驱 ⇒ 流式/打字机/工具必然渲染）──
+        if (this.liveTailHasContent()) {
+          ListItem() {
+            this.LiveTail()
+          }
+        }
+
+        if (this.busy && !this.liveTailHasContent()) {
           ListItem() {
             Row({ space: 8 }) {
               LoadingProgress().width(16).height(16).color(this.pal().accent)
@@ -2021,7 +2027,8 @@ struct Index {
       // 跟踪"用户是否停在底部"：end 是最后一个可见项的下标，等于末项下标即在底部。
       // 项数 = [可选"加载更早"] + rows + [可选 busy 指示器]，故用 listItemCount() 显式算。
       .onScrollIndex((start: number, end: number) => {
-        this.atBottom = end >= listItemCount(this.hasMore, this.loadingMore, this.rowDs.count(), this.busy) - 1;
+        this.atBottom = end >= listItemCount(this.hasMore, this.loadingMore, this.rowDs.count(),
+          this.busy || this.liveOn) - 1;
       })
       .id('xbot-list')
 
@@ -2451,18 +2458,8 @@ struct Index {
       && !isTyping(this.twReason, this.twReasonRunes.length)) {
       this.syncTwTimer(false);
     }
-    // ⚠️ 打字机不生效的根因：`this.twContent` 变化不会触发 LazyForEach 里**键没变**的条目
-    // 重建（条目内容是构建时求值的）。web 靠 React 每拍重渲染；ArkUI 这边必须 bump 该行
-    // 的 rev（键的一部分）⇒ 条目重建 ⇒ 裁剪后的文本真正上屏。
-    if (this.twRowId.length > 0) {
-      for (let i = 0; i < this.rows.length; i++) {
-        if (this.rows[i].id === this.twRowId) {
-          this.rows[i].rev++;
-          break;
-        }
-      }
-      this.syncRowDs();
-    }
+    // 尾块（LiveTail）直接读 @State twContent/twReason ⇒ 每拍必然重渲染，
+    // 不再需要 bump 虚拟列表条目的键（那条路径在真机上不可靠）。
   }
 
   /** live 迭代的正文（打字机裁剪；非 live 迭代原样返回）。 */
@@ -2889,7 +2886,74 @@ struct Index {
 
   /** 把「当前该显示的行」推给数据源（行窗口 + 真虚拟化两层叠加）。 */
   private syncRowDs(): void {
-    this.rowDs.applyRows(tailRows(this.rows, this.rowLimit));
+    // live 行不进虚拟列表（由列表尾的 LiveTail 承担，@State 直驱 ⇒ 必然重渲染）；
+    // 提交（isLive=false）后自动进入列表。
+    const committed: ChatRow[] = [];
+    for (let i = 0; i < this.rows.length; i++) {
+      const r: ChatRow = this.rows[i];
+      if (r.role !== 'assistant' || r.isLive !== true) {
+        committed.push(r);
+      }
+    }
+    this.rowDs.applyRows(tailRows(committed, this.rowLimit));
+  }
+
+  /** 从 store 的 live 行提取进行中快照（正文/思考/工具，全部 @State 镜像）。 */
+  private syncLiveTail(store: ChatStore): void {
+    let liveRow: ChatRow | undefined = undefined;
+    for (let i = store.rows.length - 1; i >= 0; i--) {
+      const r: ChatRow = store.rows[i];
+      if (r.role === 'assistant' && r.isLive) {
+        liveRow = r;
+        break;
+      }
+    }
+    if (liveRow === undefined || liveRow.iterations.length === 0) {
+      this.liveOn = false;
+      this.liveText = '';
+      this.liveReasoning = '';
+      this.liveTools = [];
+      this.liveIterNo = 0;
+      this.liveRowTurn = 0;
+      return;
+    }
+    const it: HistoryIteration = liveRow.iterations[liveRow.iterations.length - 1];
+    this.liveOn = true;
+    this.liveText = displayContent(it);
+    this.liveReasoning = displayReasoning(it);
+    this.liveTools = it.tools !== undefined ? it.tools.slice() : [];
+    this.liveIterNo = it.iteration;
+    this.liveRowTurn = liveRow.turnID;
+  }
+
+  /** live 尾块是否有任何可显示内容（决定 busy 占位符是否让位 —— 恰好一个指示器）。 */
+  private liveTailHasContent(): boolean {
+    return this.liveOn && (this.liveText.length > 0 || this.liveReasoning.length > 0
+      || this.liveTools.length > 0);
+  }
+
+  /** 打字机可见正文（安全回退：定时器未跑 ⇒ 显示全文，绝不让内容不可见）。 */
+  private twVisibleText(): string {
+    const full: string = this.liveText;
+    if (full.length === 0) {
+      return '';
+    }
+    if (this.twTimer < 0 || this.twContent >= this.twTextRunes.length) {
+      return full;
+    }
+    return clipRunes(full, this.twContent);
+  }
+
+  /** 打字机可见思考（同上）。 */
+  private twVisibleReason(): string {
+    const full: string = this.liveReasoning;
+    if (full.length === 0) {
+      return '';
+    }
+    if (this.twTimer < 0 || this.twReason >= this.twReasonRunes.length) {
+      return full;
+    }
+    return clipRunes(full, this.twReason);
   }
 
   // ── P5 消息操作（长按菜单）─────────────────────────────────────────────────
@@ -3608,13 +3672,171 @@ struct Index {
     .width('100%').alignItems(HorizontalAlign.Start).padding({ top: 4, bottom: 4 })
   }
 
+  /** live 进行中块（web 的 LiveIteration 同构：思考行 + 打字机正文 + 全状态工具 pill）。 */
+  @Builder
+  LiveTail() {
+    Column({ space: 6 }) {
+      // 思考行（web 形态：✳ 思考 N 字 ▸/▾）
+      if (this.liveReasoning.length > 0) {
+        Row({ space: 6 }) {
+          Text('✳').fontSize(11).fontColor(this.pal().textMuted)
+          Text(`思考 ${runeCount(this.liveReasoning)} 字`)
+            .fontSize(11).fontColor(this.pal().textSecondary)
+          Text(this.liveReasonOpen ? '▾' : '▸').fontSize(11).fontColor(this.pal().textMuted)
+        }
+        .padding({ top: 2, bottom: 2 })
+        .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          this.liveReasonOpen = !this.liveReasonOpen;
+        })
+      }
+      if (this.liveReasonOpen && this.twVisibleReason().length > 0) {
+        Text(this.twVisibleReason())
+          .wordBreak(WordBreak.BREAK_ALL)
+          .fontSize(12).fontColor(this.pal().textSecondary).padding(8).width('100%')
+          .backgroundColor(this.pal().surfaceAlt).borderRadius(8)
+          .opacity(this.twReason < this.twReasonRunes.length ? (this.pulseOn ? 1 : 0.7) : 1)
+          .animation({ duration: 600, curve: Curve.EaseInOut })
+          .copyOption(CopyOptions.LocalDevice)
+      }
+      // 正文（打字机裁剪 + 光标；@State 直驱 ⇒ 必然逐字上屏）
+      if (this.twVisibleText().length > 0) {
+        Column({ space: 2 }) {
+          MarkdownView({
+            text: this.twVisibleText(),
+            onImage: (src: string) => {
+              this.openImage(src);
+            },
+            loadImage: (src: string) => {
+              return this.loadImageBytes(src);
+            },
+            fontScale: this.fontScale(),
+            wrapCode: this.wrapCode(),
+            theme: this.themeName,
+          })
+          if (this.twContent < this.twTextRunes.length) {
+            Text('▍').fontSize(14).fontColor(this.pal().accent)
+              .opacity(this.pulseOn ? 1 : 0.15)
+              .animation({ duration: 600, curve: Curve.EaseInOut })
+          }
+        }.width('100%').alignItems(HorizontalAlign.Start)
+      }
+      // 工具（全部状态：generating / running / done / error / pending）
+      if (this.liveTools.length > 0) {
+        Column({ space: 4 }) {
+          Flex({ wrap: FlexWrap.Wrap }) {
+            ForEach(this.liveTools, (t: ToolProgress, i: number) => {
+              this.LiveToolPill(t)
+            }, (t: ToolProgress, i: number) => `lt-${i}#${t.name}#${t.status}`)
+          }.width('100%')
+          ForEach(this.liveTools, (t: ToolProgress, i: number) => {
+            if (this.openToolKey === this.toolKey(this.liveRowTurn, this.liveIterNo, t.name)) {
+              this.ToolDetailCard(t)
+            }
+          }, (t: ToolProgress, i: number) => `ltd-${i}#${t.name}#${t.status}`)
+        }.width('100%')
+      }
+    }
+    .width('100%').alignItems(HorizontalAlign.Start)
+    .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+    .backgroundColor(this.pal().surface).borderRadius(14)
+    .border({ width: 1, color: this.pal().border })
+    .shadow({ radius: 10, color: '#14000000', offsetX: 0, offsetY: 2 })
+    .margin({ top: 4, bottom: 4 })
+  }
+
+  /** live 工具 pill（与已提交行同一套五态规则）。 */
+  @Builder
+  LiveToolPill(t: ToolProgress) {
+    Stack() {
+      Row({ space: 4 }) {
+        Text(this.toolIcon(t)).fontSize(11).fontColor(this.toolColor(t))
+        Text(this.toolLabel(t)).fontSize(12).fontColor(this.toolColor(t))
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          .constraintSize({ maxWidth: 240 })
+      }
+      .padding({ left: 8, right: 8, top: 5, bottom: 5 })
+      .margin(3)
+      if (t.status === 'running' || t.status === 'generating') {
+        Row()
+          .width(46).height('100%')
+          .linearGradient({ angle: 90, colors: [
+            [this.pal().accentSoftFade, 0.0], [this.pal().accentSoft, 0.5], [this.pal().accentSoftFade, 1.0],
+          ] })
+          .opacity(0.35)
+          .translate({ x: this.sweepX })
+          .hitTestBehavior(HitTestMode.None)
+      }
+    }
+    .clip(true)
+    .backgroundColor(this.pal().surfaceAlt)
+    .borderRadius(6)
+    .border({
+      width: 1,
+      color: this.openToolKey === this.toolKey(this.liveRowTurn, this.liveIterNo, t.name)
+        ? this.pal().accent : this.pal().border,
+    })
+    .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+    .onClick(() => {
+      const key: string = this.toolKey(this.liveRowTurn, this.liveIterNo, t.name);
+      this.openToolKey = this.openToolKey === key ? '' : key;
+    })
+    .gesture(LongPressGesture().onAction(() => {
+      this.openCtx('tool', this.liveRowIdOf(), this.liveIterNo, t.name);
+    }))
+  }
+
+  /** live 行的行 id（长按菜单用）。 */
+  private liveRowIdOf(): string {
+    for (let i = 0; i < this.rows.length; i++) {
+      const r: ChatRow = this.rows[i];
+      if (r.role === 'assistant' && r.isLive) {
+        return r.id;
+      }
+    }
+    return '';
+  }
+
+  /** 工具详情卡（点 pill 展开：状态行 + 摘要 + 参数 + 输出）。 */
+  @Builder
+  ToolDetailCard(t: ToolProgress) {
+    Column({ space: 6 }) {
+      Row({ space: 8 }) {
+        Text(this.toolIcon(t)).fontSize(12).fontColor(this.toolColor(t))
+        Text(t.label !== undefined && t.label.length > 0 ? t.label : t.name)
+          .fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(this.toolStatusBadge(t).length > 0 ? this.toolStatusBadge(t) : '完成')
+          .fontSize(11).fontColor(this.toolColor(t))
+      }.width('100%')
+      if (t.summary !== undefined && t.summary.length > 0) {
+        Text(t.summary).fontSize(12).fontColor(this.pal().textSecondary).width('100%')
+          .wordBreak(WordBreak.BREAK_ALL).copyOption(CopyOptions.LocalDevice)
+      }
+      if (t.args !== undefined && t.args.length > 0) {
+        Text(t.args).fontSize(11).fontColor(this.pal().textSecondary).width('100%')
+          .backgroundColor(this.pal().surfaceAlt).borderRadius(6).padding(8)
+          .fontFamily('monospace').wordBreak(WordBreak.BREAK_ALL)
+          .copyOption(CopyOptions.LocalDevice)
+      }
+      if (t.detail !== undefined && t.detail.length > 0) {
+        Text(t.detail).fontSize(11).fontColor(this.pal().textSecondary).width('100%')
+          .maxLines(12).textOverflow({ overflow: TextOverflow.Ellipsis })
+          .wordBreak(WordBreak.BREAK_ALL).copyOption(CopyOptions.LocalDevice)
+      }
+    }
+    .width('100%').padding(10)
+    .backgroundColor(this.pal().surfaceAlt).borderRadius(8)
+    .border({ width: 1, color: this.pal().border })
+  }
+
   @Builder
   ToolPill(row: ChatRow, it: HistoryIteration, t: ToolProgress) {
     Stack() {
       Row({ space: 4 }) {
       Text(this.toolIcon(t)).fontSize(11)
         .fontColor(this.toolColor(t))
-      Text(t.label !== undefined && t.label.length > 0 ? t.label : t.name)
+      Text(this.toolLabel(t))
         .fontSize(12)
         .fontColor(this.toolColor(t))
         .maxLines(1)
@@ -3624,7 +3846,7 @@ struct Index {
     .padding({ left: 8, right: 8, top: 5, bottom: 5 })
     .margin(3)
       // 运行中：一道流光扫过（纯 transform ⇒ 不触发布局，触屏也稳）
-      if (t.status === 'running' || t.status === 'pending') {
+      if (t.status === 'running' || t.status === 'generating') {
         Row()
           .width(46).height('100%')
           .linearGradient({ angle: 90, colors: [
@@ -3759,23 +3981,59 @@ struct Index {
   }
 
   private toolIcon(t: ToolProgress): string {
+    if (t.status === 'generating') {
+      return '◐';
+    }
     if (t.status === 'running') {
       return '●';
     }
     if (t.status === 'error' || (t.exit_code !== undefined && t.exit_code !== 0)) {
       return '✗';
     }
+    if (t.status === 'pending') {
+      return '○';
+    }
     return '✓';
   }
 
+  /**
+   * 工具状态颜色 —— web 的「色彩只表达状态」法则：
+   * 运行/生成中保留注意力色（琥珀会被误读为警告，改用强调色）；完成/排队中性；失败红。
+   */
   private toolColor(t: ToolProgress): string {
-    if (t.status === 'running') {
-      return this.pal().warn;
-    }
     if (t.status === 'error' || (t.exit_code !== undefined && t.exit_code !== 0)) {
       return this.pal().dangerText;
     }
-    return this.pal().successText;
+    if (t.status === 'running' || t.status === 'generating') {
+      return this.pal().accentSoft;
+    }
+    return this.pal().textSecondary;
+  }
+
+  /** 工具状态角标（web 五态：generating 带字数、running 带时长、error 带 exit）。 */
+  private toolStatusBadge(t: ToolProgress): string {
+    if (t.status === 'generating') {
+      const n: number = t.gen_chars !== undefined ? t.gen_chars : 0;
+      return n > 0 ? `生成中 ${n} 字` : '生成中…';
+    }
+    if (t.status === 'running') {
+      const ms: number = t.elapsed_ms !== undefined ? t.elapsed_ms : 0;
+      return ms > 0 ? `${(ms / 1000).toFixed(1)}s` : '运行中';
+    }
+    if (t.status === 'error') {
+      return t.exit_code !== undefined && t.exit_code !== 0 ? `失败 exit ${t.exit_code}` : '失败';
+    }
+    if (t.status === 'pending') {
+      return '排队';
+    }
+    return '';
+  }
+
+  /** pill 显示名（名字 + 状态角标）。 */
+  private toolLabel(t: ToolProgress): string {
+    const base: string = t.label !== undefined && t.label.length > 0 ? t.label : t.name;
+    const badge: string = this.toolStatusBadge(t);
+    return badge.length > 0 ? `${base} ${badge}` : base;
   }
 
   // ── 弹层：会话抽屉 ────────────────────────────────────────────────────────

@@ -53,6 +53,8 @@ export interface ToolProgress {
   detail?: string;
   elapsed_ms?: number;
   exit_code?: number;
+  /** generating 状态下参数已生成的字符数（服务端 ToolProgress.GenChars） */
+  gen_chars?: number;
   call_id?: string;
   ui_mode?: string;
   ui_libs?: string[];
