@@ -22,6 +22,28 @@ import { moveOrders } from './sessionops';
 import { BgTask, CronJob, RunnerRow, SubAgentRow } from './panels';
 import { serverKey, toLocalSettings } from './settings';
 import { FsEntry } from './composer';
+import {
+  AskRespondReq,
+  ChannelReq,
+  CreateChatReq,
+  CronRemoveReq,
+  EmptyReq,
+  ForkReq,
+  FsListReq,
+  HistoryReq,
+  IterationDetailReq,
+  LlmModelReq,
+  MaxContextReq,
+  MessageReq,
+  QueueCancelReq,
+  QueueReorderReq,
+  RegionsReq,
+  RenameReq,
+  RpcReq,
+  SearchReq,
+  SessionReq,
+  SettingsReq,
+} from './reqbody';
 import { LlmConfig } from './llmfmt';
 import {
   AskQuestion,
@@ -132,7 +154,7 @@ export class ChatStore {
 
   async loadSessions(): Promise<void> {
     const data: SessionTreeData = await this.http.postAs<SessionTreeData>(
-      '/api/session-tree', new EmptyBody());
+      '/api/session-tree', new EmptyReq());
     // 子代理也来自会话树（面板用；不是另开一个数据源）
     const subs: SubAgentRow[] = [];
     const orphan: SessionItem[] | undefined = data.orphan_subagents;
@@ -156,7 +178,7 @@ export class ChatStore {
 
   async createSession(): Promise<void> {
     const created: SessionItem = await this.http.postAs<SessionItem>(
-      '/api/chats/create', new ChannelBody(this.channel));
+      '/api/chats/create', new CreateChatReq());
     await this.loadSessions();
     if (created.chat_id !== undefined && created.chat_id.length > 0) {
       await this.openSession(created.chat_id);
@@ -182,7 +204,7 @@ export class ChatStore {
 
   async loadSettings(): Promise<void> {
     const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>(
-      '/api/settings', new EmptyBody());
+      '/api/settings', new EmptyReq());
     const srv: Object | undefined = raw['settings'];
     const map: Record<string, string> = srv !== undefined ? srv as Record<string, string> : {};
     this.settings = toLocalSettings(map);
@@ -198,7 +220,7 @@ export class ChatStore {
       srv[serverKey(k)] = pairs[k];
       this.settings[k] = pairs[k];
     }
-    const body: SettingsBody = new SettingsBody(srv);
+    const body: SettingsReq = new SettingsReq(srv);
     await this.http.post('/api/settings', body);
     this.onUpdate();
   }
@@ -216,7 +238,7 @@ export class ChatStore {
 
   async loadCronTasks(): Promise<void> {
     const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>(
-      '/api/cron/list', new ChannelBody(this.channel, this.currentChatId));
+      '/api/cron/list', new SessionReq(this.channel, this.currentChatId));
     const arr: Object | undefined = raw['tasks'];
     this.cronTasks = arr !== undefined ? arr as CronJob[] : [];
     this.onUpdate();
@@ -233,7 +255,7 @@ export class ChatStore {
 
   async loadBgTasks(): Promise<void> {
     const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>(
-      '/api/tasks/list', new ChannelBody(this.channel, this.currentChatId));
+      '/api/tasks/list', new SessionReq(this.channel, this.currentChatId));
     const arr: Object | undefined = raw['background_tasks'];
     this.bgTasks = arr !== undefined ? arr as BgTask[] : [];
     this.onUpdate();
@@ -294,8 +316,10 @@ export class ChatStore {
   }
 
   async deleteSession(chatId: string): Promise<void> {
+    // 服务端 handleChatDeletePOST 只认 `{channel}`（chat_id 在路径上）——
+    // 严格解码下多发一个 chat_id 就是 400
     await this.http.post('/api/chats/' + encodeURIComponent(chatId) + '/delete',
-      new ChannelBody(this.channel, chatId));
+      new ChannelReq(this.channel));
     if (chatId === this.currentChatId) {
       this.currentChatId = '';
       this.rows = [];
@@ -305,8 +329,10 @@ export class ChatStore {
   }
 
   async renameSession(chatId: string, label: string): Promise<void> {
-    await this.http.post('/api/chats/' + encodeURIComponent(chatId) + '/rename', new RenameBody(
-      this.channel, chatId, label));
+    // 服务端 handleChatRename 只认 `{channel, label}`（chat_id 在路径上）——
+    // 严格解码下多发 chat_id 就是 400（真机事故）
+    await this.http.post('/api/chats/' + encodeURIComponent(chatId) + '/rename',
+      new RenameReq(this.channel, label));
     await this.loadSessions();
   }
 
@@ -352,7 +378,7 @@ export class ChatStore {
   }
 
   private async loadHistoryInner(): Promise<void> {
-    const data: HistoryData = await this.http.postAs<HistoryData>('/api/history', new HistoryBody(
+    const data: HistoryData = await this.http.postAs<HistoryData>('/api/history', new HistoryReq(
       this.channel, this.currentChatId, 30, 0));
     this.rows = ChatStore.rowsFromHistory(data.messages !== undefined ? data.messages : []);
     this.applyHistoryMeta(data);
@@ -374,7 +400,7 @@ export class ChatStore {
     }
     this.loadingMore = true;
     try {
-      const data: HistoryData = await this.http.postAs<HistoryData>('/api/history', new HistoryBody(
+      const data: HistoryData = await this.http.postAs<HistoryData>('/api/history', new HistoryReq(
         this.channel, this.currentChatId, 30, this.oldestId));
       const older: ChatRow[] = ChatStore.rowsFromHistory(
         data.messages !== undefined ? data.messages : []);
@@ -459,7 +485,7 @@ export class ChatStore {
     if (minIter < 0) {
       return;
     }
-    const data: RegionsData = await this.http.postAs<RegionsData>('/api/regions', new RegionsBody(
+    const data: RegionsData = await this.http.postAs<RegionsData>('/api/regions', new RegionsReq(
       this.channel, this.currentChatId, row.turnID, minIter, 100));
     const older: HistoryIteration[] = data.iterations !== undefined ? data.iterations : [];
     const merged: HistoryIteration[] = [];
@@ -486,7 +512,7 @@ export class ChatStore {
   async fetchIterationDetail(turnID: number, iteration: number): Promise<HistoryIteration | null> {
     try {
       const data: IterationDetailData = await this.http.postAs<IterationDetailData>(
-        '/api/iteration_detail', new IterationDetailBody(
+        '/api/iteration_detail', new IterationDetailReq(
           this.channel, this.currentChatId, turnID, iteration));
       const it: HistoryIteration | undefined = data.iteration;
       if (it === undefined) {
@@ -556,8 +582,8 @@ export class ChatStore {
     }
     this.onUpdate();
     try {
-      const raw: string = await this.http.post('/api/message', new MessageBody(
-        this.channel, this.currentChatId, text, 0, uploadKeys, fileNames, fileSizes, isInterrupt));
+      const raw: string = await this.http.post('/api/message', new MessageReq(
+        this.channel, this.currentChatId, text, uploadKeys, fileNames, fileSizes, isInterrupt));
       if (isInterrupt) {
         return true;
       }
@@ -631,7 +657,7 @@ export class ChatStore {
     }
     try {
       const st: SessionStatus = await this.http.postAs<SessionStatus>(
-        '/api/session/status', new ChannelBody(this.channel, this.currentChatId));
+        '/api/session/status', new SessionReq(this.channel, this.currentChatId));
       this.usage = st.token_usage;
       this.cwd = st.cwd !== undefined ? st.cwd : '';
       this.todos = st.todos !== undefined ? st.todos : [];
@@ -658,7 +684,7 @@ export class ChatStore {
   }
 
   async cancel(): Promise<void> {
-    await this.http.post('/api/cancel', new ChannelBody(this.channel, this.currentChatId));
+    await this.http.post('/api/cancel', new SessionReq(this.channel, this.currentChatId));
   }
 
   // ── AskUser ────────────────────────────────────────────────────────────────
@@ -684,7 +710,7 @@ export class ChatStore {
       firstQ = qs[0].id;
     }
     const single: string = answers[firstQ] !== undefined ? answers[firstQ] : '';
-    await this.http.post('/api/ask_user/respond', new AskRespondBody(
+    await this.http.post('/api/ask_user/respond', new AskRespondReq(
       this.channel, this.currentChatId, firstQ, single, answers, cancelled));
     this.askUser = null;
     this.onUpdate();
@@ -695,7 +721,7 @@ export class ChatStore {
   async loadQueue(): Promise<void> {
     try {
       const data: QueueListData = await this.http.postAs<QueueListData>(
-        '/api/queue/list', new ChannelBody(this.channel, this.currentChatId));
+        '/api/queue/list', new SessionReq(this.channel, this.currentChatId));
       const list: QueueItem[] = data.items !== undefined ? data.items
         : (data.queue !== undefined ? data.queue : []);
       this.queue = list;
@@ -706,7 +732,7 @@ export class ChatStore {
   }
 
   async cancelQueued(msgId: string): Promise<void> {
-    await this.http.post('/api/queue/cancel', new QueueCancelBody(this.channel, this.currentChatId, msgId));
+    await this.http.post('/api/queue/cancel', new QueueCancelReq(this.channel, this.currentChatId, msgId));
     await this.loadQueue();
   }
 
@@ -731,7 +757,7 @@ export class ChatStore {
     const tmp: string = ids[at];
     ids[at] = ids[to];
     ids[to] = tmp;
-    await this.http.post('/api/queue/reorder', new QueueReorderBody(this.channel, this.currentChatId, ids));
+    await this.http.post('/api/queue/reorder', new QueueReorderReq(this.channel, this.currentChatId, ids));
     await this.loadQueue();
   }
 
@@ -746,7 +772,7 @@ export class ChatStore {
     const out: PluginPanelInfo[] = [];
     try {
       const data: WebPluginListData = await this.http.postAs<WebPluginListData>(
-        '/api/rpc', new RpcBody('web_plugin_list', new EmptyBody()));
+        '/api/rpc', new RpcReq('web_plugin_list'));
       const list: WebPluginInfo[] = data.plugins !== undefined ? data.plugins : [];
       for (let i = 0; i < list.length; i++) {
         const p: WebPluginInfo = list[i];
@@ -864,6 +890,11 @@ export class ChatStore {
       this.onUpdate();
       // 每轮结束刷新一次权威状态（todos/用量会变）
       this.loadStatus().catch(() => {
+        // 忽略
+      });
+      // 会话树的 `running` 是"服务端权威的忙碌标记"（P24：界面状态必须与它一致，
+      // 不能只信本地 busy 标志 —— 否则切会话/重连后会显示成"还在跑"或"已经停"）
+      this.loadSessions().catch(() => {
         // 忽略
       });
     } else if (isBusyAction(action)) {
@@ -1000,18 +1031,7 @@ export class ChatStore {
 
 // ── 请求体（显式字段 = 协议契约，见 channel/web/web_rest.go） ─────────────────
 
-export class EmptyBody {
-}
 
-export class ChannelBody {
-  channel: string;
-  chat_id?: string;
-
-  constructor(channel: string, chatId?: string) {
-    this.channel = channel;
-    this.chat_id = chatId;
-  }
-}
 
 export class HistoryBody {
   channel: string;
@@ -1027,33 +1047,6 @@ export class HistoryBody {
   }
 }
 
-export class MessageBody {
-  channel: string;
-  chat_id: string;
-  content: string;
-  turn_id: number;
-  /**
-   * 附件（服务端 `expandUploadKeys` 会把这三者展开成内容里的引用；
-   * 字段名与 `protocol.WSClientMessage` 的 json tag 逐字一致）。
-   */
-  upload_keys?: string[];
-  file_names?: string[];
-  file_sizes?: number[];
-  /** ⚡ 插话：注入当前回合而不是排队（服务端 `WSClientMessage.Interrupt`） */
-  interrupt?: boolean;
-
-  constructor(channel: string, chatId: string, content: string, turnId: number,
-    uploadKeys?: string[], fileNames?: string[], fileSizes?: number[], interrupt?: boolean) {
-    this.channel = channel;
-    this.chat_id = chatId;
-    this.content = content;
-    this.turn_id = turnId;
-    this.upload_keys = uploadKeys;
-    this.file_names = fileNames;
-    this.file_sizes = fileSizes;
-    this.interrupt = interrupt === true ? true : undefined;
-  }
-}
 
 /** `/api/settings` 的请求体（`{settings:{…}}`）。 */
 export class SettingsBody {
@@ -1069,17 +1062,6 @@ interface SendAck {
   interrupted?: boolean;
 }
 
-export class RenameBody {
-  channel: string;
-  chat_id: string;
-  label: string;
-
-  constructor(channel: string, chatId: string, label: string) {
-    this.channel = channel;
-    this.chat_id = chatId;
-    this.label = label;
-  }
-}
 
 export class IterationDetailBody {
   channel: string;

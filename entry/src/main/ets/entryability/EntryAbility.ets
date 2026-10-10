@@ -39,7 +39,20 @@ export default class EntryAbility extends UIAbility {
       const uiCtx: UIContext = win.getUIContext();
       uiCtx.setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
       // 深色界面：状态栏/导航栏用浅色图标
-      win.setWindowSystemBarProperties({
+      
+      // 安全区：即使窗口被系统判成"全屏"，也把状态栏/导航栏高度写进 AppStorage，
+      // 由页面根容器加 padding（这是 EntryAbility 注释里就写明的配套动作）——
+      // 真机事故：消息文本被画到状态栏图标之下。
+      try {
+        const topArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
+        const bottomArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR);
+        AppStorage.setOrCreate('safeTopVp', px2vp(topArea.topRect.height));
+        AppStorage.setOrCreate('safeBottomVp', px2vp(bottomArea.bottomRect.height));
+      } catch (e) {
+        AppStorage.setOrCreate('safeTopVp', 0);
+        AppStorage.setOrCreate('safeBottomVp', 0);
+      }
+win.setWindowSystemBarProperties({
         statusBarContentColor: '#FFFFFF',
         navigationBarContentColor: '#FFFFFF',
       });

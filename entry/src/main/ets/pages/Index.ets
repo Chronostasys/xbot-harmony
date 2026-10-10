@@ -322,6 +322,9 @@ struct Index {
   @State connState: string = 'idle';
   /** 输入框聚焦（合成器卡片描边亮起） */
   @State composerFocused: boolean = false;
+  /** 安全区（状态栏/导航栏高度，由 EntryAbility 写入）—— 消除"内容顶到状态栏" */
+  @StorageProp('safeTopVp') safeTop: number = 0;
+  @StorageProp('safeBottomVp') safeBottom: number = 0;
   /** 历史加载中（骨架屏判据：只有"还没内容且正在拉"才展示） */
   @State historyLoading: boolean = false;
   // ── 打字机特效（与 web 同算法：50ms 一拍 / gap÷3 / CJK 半速；见 core/typewriter.ets）──
@@ -1740,6 +1743,7 @@ struct Index {
     }
     .width('100%')
     .height('100%')
+    .padding({ top: this.safeTop, bottom: this.safeBottom })
     .backgroundColor(this.pal().appBg)
     .id('xbot-root')
   }
@@ -2216,21 +2220,21 @@ struct Index {
               this.toast(modeHint(this.sendMode));
             })
         }
-        Button(this.busy ? '停止' : '发送')
+        Button(this.runningNow() ? '停止' : '发送')
           .constraintSize({ minHeight: 38, minWidth: 76 })
           .borderRadius(19)
           .fontColor(this.pal().onAccent)
           .backgroundColor(this.pal().accent)
           .linearGradient({
             angle: 135,
-            colors: this.busy
+            colors: this.runningNow()
               ? [[this.pal().dangerBg, 0.0], [this.pal().dangerBg, 1.0]]
               : [[this.pal().accent, 0.0], [this.pal().bubbleUser, 1.0]],
           })
           .shadow({ radius: 10, color: '#33000000', offsetX: 0, offsetY: 2 })
           .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
           .onClick(() => {
-            if (this.busy) {
+            if (this.runningNow()) {
               this.store?.cancel();
             } else {
               this.sendDraft();
@@ -2700,6 +2704,28 @@ struct Index {
   }
 
   /** 打开抽屉：立刻显示（不等网络），同时后台刷新会话列表（避免看到过期快照）。 */
+  /**
+   * 服务端权威的忙碌标记（会话树的 `running`）——与本地 busy 取或。
+   *
+   * 为什么必须这样：本地 `busy` 是事件驱动的快路径（SSE progress/idle），
+   * 切会话、断线重连、或错过一条 idle 事件时它会漂移 ⇒ 界面出现
+   * "idle 会话显示运行中 / busy 会话显示空闲"。会话树的 running 由服务端对账，
+   * 是权威值（web 端同样以它为准）。
+   */
+  private serverRunning(): boolean {
+    for (let i = 0; i < this.sessions.length; i++) {
+      if (this.sessions[i].chat_id === this.currentChat) {
+        return this.sessions[i].running === true;
+      }
+    }
+    return false;
+  }
+
+  /** 界面统一的"是否在跑"（本地快路径 ∪ 服务端权威）。 */
+  private runningNow(): boolean {
+    return this.busy || this.serverRunning();
+  }
+
   private openDrawer(): void {
     this.showDrawer = true;
     const store: ChatStore | null = this.store;
