@@ -32,7 +32,10 @@ check('px-1(0.25rem)=4', M.assistantPadX === 4, `assistantPadX=${M.assistantPadX
 check('.iter-block margin-top(0.25rem)=4', M.iterGap === 4, `iterGap=${M.iterGap}`);
 check('gap-1(0.25rem)=4', M.blockInnerGap === 4, `blockInnerGap=${M.blockInnerGap}`);
 check('py-1.5(0.375rem)=6', M.rowPadY === 6, `rowPadY=${M.rowPadY}`);
-const r = M.userRadius();
+const r = {
+    topLeft: M.userRadiusAll, topRight: M.userRadiusAll,
+    bottomLeft: M.userRadiusAll, bottomRight: M.userRadiusBR,
+};
 check('用户气泡圆角 = 四角 16 / 右下 2', r.topLeft === 16 && r.topRight === 16 && r.bottomLeft === 16 && r.bottomRight === 2, JSON.stringify(r));
 // withAlpha：'#7C3AED' @15% → '#267C3AED'（ARGB）
 check('withAlpha(#7C3AED,0.15)=#267C3AED', (0, bubble_1.withAlpha)('#7C3AED', 0.15) === '#267C3AED', (0, bubble_1.withAlpha)('#7C3AED', 0.15));
@@ -44,7 +47,8 @@ const userSrc = readSrc('entry/src/main/ets/components/UserBubble.ets');
 const rowSrc = readSrc('entry/src/main/ets/components/MessageRow.ets');
 const tailSrc = readSrc('entry/src/main/ets/components/LiveTailView.ets');
 check('UserBubble 引用映射表 userPadX/userPadY', /padding\(\{[\s\S]*?BUBBLE\.userPadX[\s\S]*?BUBBLE\.userPadY/.test(userSrc), '未用映射表');
-check('UserBubble 引用映射表 maxWidth + radius + 底色', userSrc.includes('BUBBLE.userMaxWidthPct') && userSrc.includes('BUBBLE.userRadius()')
+check('UserBubble 引用映射表 maxWidth + radius + 底色', userSrc.includes('BUBBLE.userMaxWidthPct') && userSrc.includes('BUBBLE.userRadiusAll')
+    && userSrc.includes('BUBBLE.userRadiusBR')
     && userSrc.includes('userBubbleBg('), 'user 气泡未走映射表');
 check('UserBubble 外层 `px-1`/`py-1.5`（assistantPadX/rowPadY）', userSrc.includes('BUBBLE.assistantPadX') && userSrc.includes('BUBBLE.rowPadY'), '外层间距未对齐');
 // 助手容器：web `AssistantMessage` = `px-1`，**无** chrome。断言 AssistantBlock 的容器

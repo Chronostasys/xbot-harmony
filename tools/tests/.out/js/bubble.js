@@ -27,13 +27,6 @@ class BubbleMetrics {
         /** `py-1.5`（`.virt-row`）：每条消息行的垂直间距。 */
         this.rowPadY = 6;
     }
-    /** 用户气泡圆角对象（`rounded-2xl rounded-br-sm`）。 */
-    userRadius() {
-        return {
-            topLeft: this.userRadiusAll, topRight: this.userRadiusAll,
-            bottomLeft: this.userRadiusAll, bottomRight: this.userRadiusBR,
-        };
-    }
 }
 exports.BubbleMetrics = BubbleMetrics;
 /** 唯一实例（组件只引用它）。 */

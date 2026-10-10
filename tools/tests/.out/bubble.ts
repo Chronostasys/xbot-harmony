@@ -50,16 +50,6 @@ export class BubbleMetrics {
   blockInnerGap: number = 4;
   /** `py-1.5`（`.virt-row`）：每条消息行的垂直间距。 */
   rowPadY: number = 6;
-
-  /** 用户气泡圆角对象（`rounded-2xl rounded-br-sm`）。 */
-  userRadius(): {
-    topLeft: number; topRight: number; bottomLeft: number; bottomRight: number;
-  } {
-    return {
-      topLeft: this.userRadiusAll, topRight: this.userRadiusAll,
-      bottomLeft: this.userRadiusAll, bottomRight: this.userRadiusBR,
-    };
-  }
 }
 
 /** 唯一实例（组件只引用它）。 */

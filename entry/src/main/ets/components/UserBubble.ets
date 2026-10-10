@@ -43,7 +43,12 @@ export struct UserBubbleView {
         })
         .constraintSize({ maxWidth: `${BUBBLE.userMaxWidthPct}%` })
         .backgroundColor(userBubbleBg(this.pal()))
-        .borderRadius(BUBBLE.userRadius())
+        // `rounded-2xl rounded-br-sm`：四角 16、右下角 2（字面量的目标类型是 ArkUI
+        // `BorderRadiuses`，故 ArkTS 允许；四角值来自映射表）。
+        .borderRadius({
+          topLeft: BUBBLE.userRadiusAll, topRight: BUBBLE.userRadiusAll,
+          bottomLeft: BUBBLE.userRadiusAll, bottomRight: BUBBLE.userRadiusBR,
+        })
         .copyOption(CopyOptions.LocalDevice)
     }
     .width('100%')
