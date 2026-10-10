@@ -165,6 +165,28 @@ export function pluginModuleUrl(baseUrl: string, pluginId: string, entry: string
   return `${host}${PLUGIN_ASSET_PREFIX}${id}${PLUGIN_ASSET_WEB_SEGMENT}${normalizePluginEntry(entry)}`;
 }
 
+/**
+ * 把服务端可能给的**相对路径**资源 URL 补成绝对。
+ *
+ * 为什么需要：服务端 `rpc_table.go:2289` 拼的是**相对路径**（`/plugins/<id>/web/<entry>`），
+ * 而 `module_url` 只用于**显示/诊断** —— 一条 `/plugins/...` 脱离服务器地址没有意义。
+ * 已是绝对 URL（带 scheme）⇒ 原样返回。
+ */
+export function absoluteAssetUrl(baseUrl: string, urlOrPath: string): string {
+  const u: string = urlOrPath !== undefined && urlOrPath !== null ? urlOrPath.trim() : '';
+  if (u.length === 0) {
+    return '';
+  }
+  if (originOf(u).length > 0) {
+    return u;
+  }
+  const host: string = hostPageUrl(baseUrl);
+  if (host.length === 0) {
+    return u;
+  }
+  return u.startsWith('/') ? `${host}${u}` : `${host}/${u}`;
+}
+
 /** 归一化插件 id：服务端历史上给过两种字段名（`id` / `plugin_id`）。 */
 export function normalizePluginId(id: string, pluginId: string): string {
   const a: string = id !== undefined && id !== null ? id.trim() : '';
@@ -194,4 +216,377 @@ export function normalizePluginName(name: string, label: string, id: string): st
 export class PluginHostInfo extends PluginPanelInfo {
   /** 插件前端 ESM 模块 URL —— **仅元数据**（显示/诊断），不是页面（见文件头）。 */
   moduleUrl: string = '';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 插件目录模型（消费 `web.contributes`）—— 让用户"能看见、能选"插件
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// ── 真实数据勘察（2026-10-11 实测 ~/.xbot/plugins/builtin/*/plugin.json）───────
+// ⚠️ 关键事实：`web_plugin_list` 下发的是 **`web.contributes`**（视图贡献点），
+//    不是清单顶层的 `contributes`（那是后端能力声明：`configuration`/`channelProvider`…）：
+//      · `serverapp/rpc_table.go:2306` → `Contributes: e.Manifest.Web.Contributes`；
+//      · 顶层与 web 层的字段名撞车（都叫 contributes），**取错就得到一堆配置 schema**。
+// 实测各插件（`web.contributes`，逐字抄）：
+//   · xbot.git-fancy v0.3.5: [ {kind:view,id:"xbot.git-fancy.panel",container:"right_sidebar",
+//       title:"view.panel.title",icon:"git-branch",entry:"index.js"},
+//       {kind:view,id:"xbot.git-fancy.commit",container:"main",title:"view.commit.title",
+//        icon:"git-commit-horizontal",entry:"commit.js",dynamic:true} ]
+//   · xbot.ssh-runner v1.0.6: [ {…panel, container:"right_sidebar", icon:"server", entry:"index.js"},
+//       {…bar, container:"info_bar", icon:"server", entry:"bar.js"} ]
+//   · xbot.iteration-stats v1.0.0: [ {…badge, container:"status_bar_right", title:"view.badge.title",
+//       entry:"index.js"} ]（**无 icon**）
+//   · xbot.genui v1.0.0: `web.entry="index.js"`、**无 `web.contributes`**（视图由宿主内置渲染）
+//   · xbot.ambience v0.3.0: **无 `web`**（纯后端插件）⇒ 服务端 `rpc_table.go:2294-2296` 已过滤
+// 文本都是 **i18n key**：`name:"manifest.name"`、`title:"view.panel.title"`，
+//   译文在 `web.i18n`（服务端 `:2307` 原样透传）⇒ 原生必须按同一套回退链解析。
+//   web 侧规则：`plugin-runtime/i18n.ts:98-106 resolvePluginText`（key 命中⇒译文；
+//   非 key 或没有表⇒原样返回），回退链见 `:16-45 lookup`（当前语言 → 同语言前缀 → en → 任意语言）。
+
+/** `web.contributes` 里的一个视图贡献点（web `plugin-api/manifest.ts:19-45 ViewContribution`）。 */
+export interface WebViewWire {
+  kind?: string;
+  id?: string;
+  container?: string;
+  title?: string;
+  icon?: string;
+  entry?: string;
+  align?: string;
+  dynamic?: boolean;
+}
+
+/** `web_plugin_list` 的单条（服务端 `rpc_table.go:2277-2291` 的 `webPluginJSON`）。 */
+export interface WebPluginWire {
+  id?: string;
+  plugin_id?: string;
+  name?: string;
+  label?: string;
+  version?: string;
+  state?: string;
+  enabled?: boolean;
+  permissions?: string[];
+  entry?: string;
+  module_url?: string;
+  contributes?: WebViewWire[];
+  /** 插件自带文案表：locale → key → text（实现见 `plugin-runtime/i18n.ts` 与 `createPluginI18n`）。 */
+  i18n?: Record<string, Record<string, string>>;
+}
+
+/** `web_plugin_list` 响应（服务端 `return map[string]any{"plugins": out}`）。 */
+export interface WebPluginListWire {
+  plugins?: WebPluginWire[];
+}
+
+/** 打开方式：只能进**权威宿主页**（视图是 ESM 模块或宿主内置声明式组件，宿主页里才跑得起来）。 */
+export const PLUGIN_OPEN_HOST: string = 'host';
+/** 打开方式：原生**可直接打开**（同源页面 URL；判据复用波1b，不新造第二套）。 */
+export const PLUGIN_OPEN_DIRECT: string = 'direct';
+
+/// 容器 → 原生目录里的分组名。容器集合与 web `ViewContainer` 一致
+/// （`plugin-api/manifest.ts:17`），布局位映射见 `panelRegistry.ts:54-65` / `layoutRegistry.ts:28-34`。
+const CONTAINER_LABELS: Record<string, string> = {
+  right_sidebar: '侧栏',
+  panel: '面板',
+  bottom: '底部',
+  info_bar: '信息栏',
+  status_bar_right: '状态栏',
+  iteration: '迭代内嵌',
+  main: '主区',
+};
+/// 展示顺序（稳定；未知容器排最后）。
+const CONTAINER_ORDER: string[] = [
+  'right_sidebar', 'panel', 'main', 'bottom', 'info_bar', 'status_bar_right', 'iteration',
+];
+
+/** 容器 → 展示分组名（未知容器回落容器名本身，便于暴露协议新增值而不是静默吞掉）。 */
+export function containerLabel(container: string): string {
+  const c: string = container !== undefined && container !== null ? container.trim() : '';
+  if (c.length === 0) {
+    return '其他';
+  }
+  const label: string | undefined = CONTAINER_LABELS[c];
+  return label !== undefined ? label : c;
+}
+
+/** 容器展示次序（用于分组排序；未知容器排最后但仍展示）。 */
+export function containerRank(container: string): number {
+  const i: number = CONTAINER_ORDER.indexOf(container);
+  return i >= 0 ? i : CONTAINER_ORDER.length;
+}
+
+/** 语言标签归一化（`zh_CN` → `zh-CN`；与 web `i18n.ts:16-18 normalizeLocale` 同规则）。 */
+function normalizeLocaleTag(tag: string): string {
+  return tag !== undefined && tag !== null ? tag.trim().replace(/_/g, '-') : '';
+}
+
+/** 单语言精确查表（含"同语言前缀"回落：`zh-CN` 可用 `zh-Hans`/`zh` 的表）。 */
+function lookupLocale(
+  table: Record<string, Record<string, string>>,
+  locale: string,
+  key: string,
+): string | undefined {
+  const l: string = normalizeLocaleTag(locale);
+  const exact: Record<string, string> | undefined = table[l];
+  if (exact !== undefined && exact[key] !== undefined) {
+    return exact[key];
+  }
+  const dash: number = l.indexOf('-');
+  const prefix: string = dash > 0 ? l.substring(0, dash) : '';
+  if (prefix.length > 0) {
+    const keys: string[] = Object.keys(table);
+    for (let i = 0; i < keys.length; i++) {
+      const cand: string = keys[i];
+      if (cand === prefix || cand.startsWith(`${prefix}-`)) {
+        const t: Record<string, string> | undefined = table[cand];
+        if (t !== undefined && t[key] !== undefined) {
+          return t[key];
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * 解析"插件清单文本"（i18n key 或裸文本）—— 与 web `plugin-runtime/i18n.ts:98-106` **同规则**：
+ * 空 ⇒ 空；没有表 ⇒ 原样；命中 ⇒ 当前语言译文；未命中 ⇒ **原样返回 key**（web 的 `t(key, key)`）。
+ */
+export function resolvePluginText(
+  table: Record<string, Record<string, string>> | undefined,
+  keyOrText: string,
+  locale: string,
+): string {
+  const k: string = keyOrText !== undefined && keyOrText !== null ? keyOrText : '';
+  if (k.length === 0) {
+    return '';
+  }
+  if (table === undefined || table === null) {
+    return k;
+  }
+  const exact: string | undefined = lookupLocale(table, locale, k);
+  if (exact !== undefined) {
+    return exact;
+  }
+  const en: string | undefined = lookupLocale(table, 'en', k);
+  if (en !== undefined) {
+    return en;
+  }
+  // 任何语言提供的该 key 都优于"完全没有"（web i18n.ts:38-44 同规则）
+  const locales: string[] = Object.keys(table);
+  for (let i = 0; i < locales.length; i++) {
+    const t: Record<string, string> | undefined = table[locales[i]];
+    if (t !== undefined && t[k] !== undefined) {
+      return t[k];
+    }
+  }
+  return k;
+}
+
+/** 只在表里查 key（**未命中返回空串**）：用于 `manifest.name`/`manifest.description`
+ *  这类"本身就是 key 的清单字段"——未命中时不能把 `manifest.description` 当文案显示。 */
+export function resolveManifestKey(
+  table: Record<string, Record<string, string>> | undefined,
+  key: string,
+  locale: string,
+): string {
+  const v: string = resolvePluginText(table, key, locale);
+  return v === key ? '' : v;
+}
+
+/** 视图/插件的打开目标。 */
+export class PluginTarget {
+  mode: string = PLUGIN_OPEN_HOST;
+  url: string = '';
+
+  constructor(mode: string, url: string) {
+    this.mode = mode;
+    this.url = url;
+  }
+}
+
+/**
+ * 一个贡献点的打开目标（**判据复用波1b**：`isPluginModuleAsset` + `sameOrigin`，不新造第二套）。
+ *
+ * 事实（实测清单）：所有 view 都是 `entry`（ESM 模块，宿主页里 `import()`）或宿主内置声明式组件
+ * ⇒ **一律 `host`**（进权威宿主页）。`direct` 分支留给"插件声明了**同源页面 URL**"的形态
+ * （web 侧对应 `SandboxedUI.tsx:207-239` 的 src mode），判据与 `pluginPanelUrl` 完全相同。
+ */
+export function resolvePluginTarget(candidateUrl: string, baseUrl: string): PluginTarget {
+  const host: string = hostPageUrl(baseUrl);
+  const cand: string = candidateUrl !== undefined && candidateUrl !== null ? candidateUrl.trim() : '';
+  if (cand.length > 0 && !isPluginModuleAsset(cand) && sameOrigin(cand, host)) {
+    return new PluginTarget(PLUGIN_OPEN_DIRECT, cand);
+  }
+  return new PluginTarget(PLUGIN_OPEN_HOST, host);
+}
+
+/** 目录里的一个"视图"（= 一条 `kind:'view'` 的贡献点）。 */
+export class PluginViewItem {
+  id: string = '';
+  pluginId: string = '';
+  pluginName: string = '';
+  container: string = '';
+  containerLabel: string = '';
+  /** 已按当前语言解析过的标题（清单里写的是 i18n key）。 */
+  title: string = '';
+  icon: string = '';
+  entry: string = '';
+  /** `dynamic:true` = 只能由 `ctx.ui.openViewTab` 参数化打开（web `manifest.ts:37-44`）。 */
+  dynamic: boolean = false;
+  align: string = '';
+  /** `PLUGIN_OPEN_HOST` / `PLUGIN_OPEN_DIRECT`。 */
+  openMode: string = PLUGIN_OPEN_HOST;
+  openUrl: string = '';
+}
+
+/** 目录里的一个"插件"。 */
+export class PluginCatalogItem extends PluginHostInfo {
+  description: string = '';
+  version: string = '';
+  /** 服务端 `state`（`active`/…）——**仅展示**，不用它做任何门控。 */
+  state: string = '';
+  views: PluginViewItem[] = [];
+}
+
+/** 按容器聚合的一组视图（目录里的"分区"）。 */
+export class PluginCatalogGroup {
+  container: string = '';
+  label: string = '';
+  views: PluginViewItem[] = [];
+
+  constructor(container: string, label: string, views: PluginViewItem[]) {
+    this.container = container;
+    this.label = label;
+    this.views = views;
+  }
+}
+
+/** 原生插件目录（组件直接消费）。 */
+export class PluginCatalog {
+  items: PluginCatalogItem[] = [];
+  groups: PluginCatalogGroup[] = [];
+}
+
+/** 视图 id 的短名（`xbot.git-fancy.panel` → `panel`）—— i18n 未命中时的兜底显示名。 */
+export function viewShortId(viewId: string): string {
+  const v: string = viewId !== undefined && viewId !== null ? viewId : '';
+  const dot: number = v.lastIndexOf('.');
+  return dot >= 0 && dot < v.length - 1 ? v.substring(dot + 1) : v;
+}
+
+/**
+ * 把 `web_plugin_list` 的响应构造成**原生目录模型**（纯函数，零依赖 ⇒ 可脱机单测）。
+ *
+ * 只消费 `kind:'view'` 的贡献点（目录要展示的就是"有哪些视图能开"）；其余 kind
+ * （`command`/`toolbar`/`contextMenu`/`setting`/`eventHandler`/`theme`）是**宿主行为扩展**，
+ * 原生没有等价承载面 ⇒ 不进目录（见报告 ⑤）。
+ *
+ * 安全：`permissions` **不参与任何门控**（不按插件自述信任）；`module_url` 只作元数据，
+ * 页面 URL 一律走 `pluginPanelUrl`（模块资源/跨源已回落）。
+ */
+export function buildPluginCatalog(
+  data: WebPluginListWire | undefined,
+  locale: string,
+  baseUrl: string,
+): PluginCatalog {
+  const catalog: PluginCatalog = new PluginCatalog();
+  const raw: WebPluginWire[] = data !== undefined && data !== null && data.plugins !== undefined
+    ? data.plugins : [];
+  const host: string = hostPageUrl(baseUrl);
+  for (let i = 0; i < raw.length; i++) {
+    const p: WebPluginWire = raw[i];
+    const id: string = normalizePluginId(
+      p.id !== undefined ? p.id : '',
+      p.plugin_id !== undefined ? p.plugin_id : '');
+    if (id.length === 0) {
+      continue;
+    }
+    const table: Record<string, Record<string, string>> | undefined = p.i18n;
+    const rawName: string = p.name !== undefined ? p.name : '';
+    let name: string = resolvePluginText(table, rawName, locale);
+    if (name === rawName && rawName.indexOf('manifest.') === 0) {
+      // `name` 是 key 但表里没有 ⇒ 别把 'manifest.name' 当显示名（回落 label → id）
+      name = normalizePluginName('', p.label !== undefined ? p.label : '', id);
+    } else if (name.length === 0) {
+      name = normalizePluginName('', p.label !== undefined ? p.label : '', id);
+    }
+    const entry: string = normalizePluginEntry(p.entry !== undefined ? p.entry : '');
+    const serverUrl: string = p.module_url !== undefined ? p.module_url : '';
+
+    const item: PluginCatalogItem = new PluginCatalogItem();
+    item.id = id;
+    item.name = name;
+    item.description = resolveManifestKey(table, 'manifest.description', locale);
+    item.version = p.version !== undefined ? p.version : '';
+    item.state = p.state !== undefined ? p.state : '';
+    item.moduleUrl = absoluteAssetUrl(
+      baseUrl, serverUrl.length > 0 ? serverUrl : pluginModuleUrl(baseUrl, id, entry));
+    // 面板 URL：**恒为页面**（模块资源/跨源回落宿主页 —— 波1b 判据）
+    item.url = pluginPanelUrl(baseUrl, serverUrl);
+
+    const wireViews: WebViewWire[] = p.contributes !== undefined && p.contributes !== null
+      ? p.contributes : [];
+    const views: PluginViewItem[] = [];
+    for (let j = 0; j < wireViews.length; j++) {
+      const w: WebViewWire = wireViews[j];
+      if (w.kind !== 'view') {
+        continue;
+      }
+      const vid: string = w.id !== undefined ? w.id : '';
+      if (vid.length === 0) {
+        continue;
+      }
+      const container: string = w.container !== undefined ? w.container : '';
+      const rawTitle: string = w.title !== undefined ? w.title : '';
+      const t: PluginViewItem = new PluginViewItem();
+      t.id = vid;
+      t.pluginId = id;
+      t.pluginName = name;
+      t.container = container;
+      t.containerLabel = containerLabel(container);
+      const resolved: string = resolvePluginText(table, rawTitle, locale);
+      // `view.*` 是 key 但未命中 ⇒ 用短 id 兜底（别把 'view.badge.title' 当标题）
+      t.title = resolved === rawTitle && rawTitle.indexOf('view.') === 0
+        ? viewShortId(vid) : (resolved.length > 0 ? resolved : viewShortId(vid));
+      t.icon = w.icon !== undefined ? w.icon : '';
+      t.entry = normalizePluginEntry(w.entry !== undefined && w.entry.length > 0 ? w.entry : entry);
+      t.dynamic = w.dynamic === true;
+      t.align = w.align !== undefined ? w.align : '';
+      // 真实贡献点不带 URL（见 resolvePluginTarget 注释）⇒ 传空 ⇒ host；判据与波1b 同源
+      const target: PluginTarget = resolvePluginTarget('', baseUrl);
+      t.openMode = target.mode;
+      t.openUrl = target.url.length > 0 ? target.url : host;
+      views.push(t);
+    }
+    item.views = views;
+    catalog.items.push(item);
+  }
+
+  // ── 按容器聚合（目录的"分区"）：顺序稳定，空分组不进 ──────────────────────
+  const containers: string[] = [];
+  for (let i = 0; i < catalog.items.length; i++) {
+    const vs: PluginViewItem[] = catalog.items[i].views;
+    for (let j = 0; j < vs.length; j++) {
+      if (containers.indexOf(vs[j].container) < 0) {
+        containers.push(vs[j].container);
+      }
+    }
+  }
+  containers.sort((a: string, b: string) => containerRank(a) - containerRank(b));
+  for (let i = 0; i < containers.length; i++) {
+    const c: string = containers[i];
+    const grouped: PluginViewItem[] = [];
+    for (let k = 0; k < catalog.items.length; k++) {
+      const vs: PluginViewItem[] = catalog.items[k].views;
+      for (let j = 0; j < vs.length; j++) {
+        if (vs[j].container === c) {
+          grouped.push(vs[j]);
+        }
+      }
+    }
+    if (grouped.length > 0) {
+      catalog.groups.push(new PluginCatalogGroup(c, containerLabel(c), grouped));
+    }
+  }
+  return catalog;
 }

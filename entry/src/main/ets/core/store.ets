@@ -30,12 +30,9 @@ import { serverKey, toLocalSettings } from './settings';
 import { FsEntry } from './composer';
 import { RPC_WEB_PLUGIN_LIST, rpc } from './rpc';
 import {
-  PluginHostInfo,
-  normalizePluginEntry,
-  normalizePluginId,
-  normalizePluginName,
-  pluginModuleUrl,
-  pluginPanelUrl,
+  PluginCatalog,
+  WebPluginListWire,
+  buildPluginCatalog,
 } from './pluginhost';
 import {
   NOTIFY_KIND_ASK,
@@ -373,8 +370,10 @@ export class ChatStore {
     const created: SessionItem = await this.http.postAs<SessionItem>(
       '/api/chats/create', new CreateChatReq());
     await this.loadSessions();
-    if (created.chat_id !== undefined && created.chat_id.length > 0) {
-      await this.openSession(created.chat_id);
+    // ⚠️ 外来 JSON：字段可能是 null（服务端 nil → null）⇒ 三态判空，否则 `.length` 会炸
+    const newId: string | null | undefined = created.chat_id;
+    if (newId !== undefined && newId !== null && newId.length > 0) {
+      await this.openSession(newId);
     }
   }
 
@@ -589,8 +588,9 @@ export class ChatStore {
     //   盲替换会抹掉"只存在于状态机、DB 快照还没有"的 in-flight/post-fetch commit）。
     this.history = ChatStore.toChatMessages(data.messages);
     this.pushEvent(historyToReplaced(this.history, data.active_progress));
-    const ap: ProgressEvent | undefined = data.active_progress;
-    if (ap !== undefined) {
+    // ⚠️ `active_progress` 在"没有在飞进度"的会话上是 **JSON null**（真机实测）⇒ 必须三态判空
+    const ap: ProgressEvent | null | undefined = data.active_progress;
+    if (isPresent(ap)) {
       this.pickAskUserFromProgress(ap);
     }
     this.onUpdate();
@@ -618,8 +618,11 @@ export class ChatStore {
 
   private applyHistoryMeta(data: HistoryData): void {
     this.hasMore = data.has_more === true;
-    if (data.oldest_id !== undefined) {
-      this.oldestId = data.oldest_id;
+    // ⚠️ 外来 JSON：`oldest_id` 可能是 null（服务端 nil → null）；直接赋值会把 null 塞进
+    //    数值字段，之后当 `before_id` 发出去就是脏请求 ⇒ 必须三态判空
+    const oldest: number | null | undefined = data.oldest_id;
+    if (oldest !== undefined && oldest !== null) {
+      this.oldestId = oldest;
     }
     // ⚠️ 绝不把 history 的 `last_seq` 写进 progress 水位（本次真机 P0 根因）：
     // 它是 **SSE 回放游标**（全局计数，几百量级），而 ProgressEvent.Seq 是 **per-Run**
@@ -730,7 +733,7 @@ export class ChatStore {
       type: 'iterations_loaded',
       turnID: row.turnID,
       iterations: merged,
-      regionsBefore: data.regions_before !== undefined ? data.regions_before : 0,
+      regionsBefore: isPresent(data.regions_before) ? data.regions_before : 0,
     });
   }
 
@@ -914,8 +917,20 @@ export class ChatStore {
 
   // ── AskUser ────────────────────────────────────────────────────────────────
 
-  private pickAskUserFromProgress(p: ProgressEvent): void {
-    const qs: AskQuestion[] = arrOrEmpty(p.questions);
+  /**
+   * 从 progress 载荷里提取 pending 问题（**自身防御**）。
+   *
+   * ⚠️ 入参必须收 `| null`：`POST /api/history` 对**没有在飞进度**的会话返回
+   *    `"active_progress": null`（JSON **null**，不是缺字段）。类型标注 `| undefined`
+   *    骗不过运行时 —— 这是 2026-10-11 真机 P0 的根因（点「＋ 新建」100% 失败，
+   *    Toast `Cannot read property questions of null`；链路：`createSession → openSession
+   *    → loadHistoryInner → 这里`）。
+   *
+   * 为什么把安全性长在**本函数里**、而不是靠调用方判空：调用方判空正是它能再犯的原因
+   * （同类先例见 `:399` 的 `toLocalSettings(null)` 注释：服务端 nil map → JSON null）。
+   */
+  private pickAskUserFromProgress(p: ProgressEvent | null | undefined): void {
+    const qs: AskQuestion[] = p !== undefined && p !== null ? arrOrEmpty(p.questions) : [];
     if (qs.length === 0) {
       return;
     }
@@ -986,52 +1001,39 @@ export class ChatStore {
     await this.loadQueue();
   }
 
-  // ── 插件面板（ArkWeb 用） ──────────────────────────────────────────────────
+  // ── 插件面板 / 插件目录 ────────────────────────────────────────────────────
 
   /**
-   * 拉取带 web 产物的插件清单。
+   * 拉取**插件目录**（消费 `web.contributes`，纯逻辑在 `core/pluginhost.ets`）。
+   *
    * 服务端 RPC `web_plugin_list`（只返回声明了 `web.entry` 的插件；**无 requireAdmin**，
    * 普通用户可调 —— `serverapp/rpc_table.go:2262-2264` 的 params 只有可选 `rescan`）。
    *
-   * ⭐ **URL 语义（2026-10-11 修正）**：`module_url` 是**插件前端 ESM 模块资源**
+   * ⭐ **URL 语义（波1b 修正，波1c 沿用）**：`module_url` 是**插件前端 ESM 模块资源**
    * （`/plugins/<id>/web/<entry>`，宿主用**同页 `import()`** 加载，见 `core/pluginhost.ets` 文件头），
-   * **不是网页**。旧实现把它当页面 URL 交给 WebSurface ⇒ 面板只会显示 JS 源码。
-   * 现在：`info.url` = **权威宿主页 URL**（xbot web 应用本体，插件在那里按 web 语义运行），
-   * ESM 模块 URL 降级到 `info.moduleUrl`（仅元数据）。判据是纯函数 `pluginPanelUrl`。
+   * **不是网页**。`item.url` = 权威宿主页 URL（插件在那里按 web 语义运行），ESM 地址只在 `item.moduleUrl`。
+   *
+   * @param locale 界面语言（清单文本是 i18n key：`manifest.name` / `view.*.title`）；
+   *               缺省用仓库默认 `zh-CN`（与 `core/i18n.ets:DEFAULT_LOCALE` 一致）。
+   */
+  async loadPluginCatalog(locale: string = ''): Promise<PluginCatalog> {
+    const lang: string = locale !== undefined && locale.length > 0 ? locale : 'zh-CN';
+    try {
+      const data: WebPluginListWire = await rpc<WebPluginListWire>(this.http, RPC_WEB_PLUGIN_LIST);
+      return buildPluginCatalog(data, lang, this.http.baseUrl);
+    } catch (e) {
+      // 插件系统不可用（或未启用）⇒ 空目录（不是错误路径）
+      return new PluginCatalog();
+    }
+  }
+
+  /**
+   * 兼容既有消费方（`pages/Index.ets:5143` 只用 id/name/url/icon）：
+   * 直接投影目录条目 —— `Item` 是 `PluginPanelInfo` 的子类，列出与打开语义都不变。
    */
   async listPlugins(): Promise<PluginPanelInfo[]> {
-    const out: PluginPanelInfo[] = [];
-    try {
-      const data: WebPluginListData = await rpc<WebPluginListData>(this.http, RPC_WEB_PLUGIN_LIST);
-      const list: WebPluginInfo[] = arrOrEmpty(data.plugins);
-      const base: string = this.http.baseUrl;
-      for (let i = 0; i < list.length; i++) {
-        const p: WebPluginInfo = list[i];
-        const id: string = normalizePluginId(
-          p.id !== undefined ? p.id : '',
-          p.plugin_id !== undefined ? p.plugin_id : '');
-        if (id.length === 0) {
-          continue;
-        }
-        const entry: string = normalizePluginEntry(p.entry !== undefined ? p.entry : '');
-        const serverUrl: string = p.module_url !== undefined ? p.module_url : '';
-        const info: PluginHostInfo = new PluginHostInfo();
-        info.id = id;
-        info.name = normalizePluginName(
-          p.name !== undefined ? p.name : '',
-          p.label !== undefined ? p.label : '',
-          id);
-        // 元数据：优先后端下发的 module_url，缺失则按服务端同构规则拼（仅供显示/诊断）
-        info.moduleUrl = serverUrl.length > 0 ? serverUrl : pluginModuleUrl(base, id, entry);
-        // 可打开的 URL：**恒为页面**（同源宿主页）；模块资源/跨源一律回落宿主页
-        info.url = pluginPanelUrl(base, serverUrl);
-        info.icon = p.icon !== undefined ? p.icon : '';
-        out.push(info);
-      }
-    } catch (e) {
-      // 插件系统不可用（或未启用）时返回空表
-    }
-    return out;
+    const catalog: PluginCatalog = await this.loadPluginCatalog();
+    return catalog.items;
   }
 
   // ── SSE ────────────────────────────────────────────────────────────────────
@@ -1074,7 +1076,8 @@ export class ChatStore {
     }
     if (event === SseEventType.askUser) {
       const env: SseEnvelope = JSON.parse(data) as SseEnvelope;
-      if (env.progress !== undefined) {
+      // ⚠️ `progress` 可能是 JSON null（服务端 nil → null）⇒ 三态判空
+      if (isPresent(env.progress)) {
         const prevReq: string = this.askRequestId();
         this.pickAskUserFromProgress(env.progress);
         this.onUpdate();
@@ -1116,8 +1119,10 @@ export class ChatStore {
     // AgentPanel 在 busy→idle 边沿重取 get_goal 的同一语义）。
     if (event === SseEventType.session) {
       const env: SseEnvelope = JSON.parse(data) as SseEnvelope;
-      const action: string = env.session !== undefined && env.session.action !== undefined
-        ? env.session.action : '';
+      // ⚠️ `session` 本身也可能是 JSON null（nil 指针 → null）⇒ 先判存在再取成员
+      const sess: SessionEvent | null | undefined = env.session;
+      const action: string = sess !== undefined && sess !== null && sess.action !== undefined
+        ? sess.action : '';
       if (action === 'idle' || action === 'agent-idle') {
         this.loadStatus().catch(() => {
           // 状态非关键路径
@@ -1167,7 +1172,9 @@ export class ChatStore {
   /** 待回答的 `request_id`（通知去重用）：没有 pending 或缺失 ⇒ 空串。 */
   private askRequestId(): string {
     const p: AskUserPrompt | null = this.askUser;
-    return p !== null && p.request_id !== undefined ? p.request_id : '';
+    // ⚠️ `request_id` 来自外来 JSON，可能是 null ⇒ 三态判空（否则把 null 当 id 比对上）
+    const rid: string | null | undefined = p !== null ? p.request_id : undefined;
+    return rid !== undefined && rid !== null ? rid : '';
   }
 
   /** 待回答问题的正文（通知用）：取第一问的问题文本，回落 header。 */
