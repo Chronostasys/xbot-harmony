@@ -444,3 +444,25 @@ Usage of standard library is restricted (arkts-limited-stdlib)
 另：`syncFrom` 里 **身份先于指纹/投影**（顺序错则行键仍用旧会话 id）。
 4. ⛔ **`syncFrom` 里会话身份必须最先落定**：`this.currentChat = store.currentChatId` 原本排在第 632 行
    （指纹比较 / `syncRowDs()` **之后**）⇒ 行键仍用**旧会话 id**（键继续碰撞）。顺序：**身份 → 指纹 → 投影**。
+
+## 批次 10：SSE 流式期间「思考中」闪断 / 只蹦完整迭代（真机 P0，2026-10-10）
+
+**现象**：发消息 → 显示「思考中」→ 消失 → 用户消息后什么都没有 → 又「思考中」→ 最后一次性出现完整迭代；
+**全程没有打字机和进度**。
+
+**根因（三处，同一类：陈旧信号冻结/清零"在飞回合"）**：
+1. `onSessionEvent` 对 `isIdleAction` **无条件 `busy=false`** —— 而 coarse idle 可能是
+   SSE `last_event_id` **重放** 或 `restoreActiveProgress` 竞态的**迟到信号**，此时回合仍在跑。
+2. `loadSessions` 的 busy 对账：发送保护窗口（3s）一过，就用**陈旧的会话树快照**
+   （`running=false`）覆盖 `busy` —— 会话树的 `running` 有 RTT 延迟，在飞回合被当成空闲。
+3. `onFinalText` 收到**空 text** 时清掉 live 行内容并置 `isLive=false` ⇒「用户消息后什么都没有」。
+
+**修复（对齐 web `session_running` 闸门语义）**：
+1. 新增 `serverRunning`（服务端会话树 = **权威**忙碌标记）；coarse idle 在**权威仍说 running** 时
+   **忽略**（只顺手刷新会话树，真结束仍能收尾 → 不卡 busy）。
+2. 会话树对账：**永远可以置 busy=true**（恢复路径）；只有**本地没有在飞的 live 行**
+   （`hasLiveRow()`）**且**已过发送保护窗口，才允许用它**清** busy。
+3. 空 text 不再终结在飞的 live 行（`busy && isLive && !rowIsEmpty` ⇒ 忽略）。
+
+**判据速查**：`busy` 的清零只允许来自「权威 idle（且会话树已翻 false）」或「无 live 行 + 过窗口的快照」；
+任何"看起来像 idle 但回合仍在飞"的信号都必须忽略。
