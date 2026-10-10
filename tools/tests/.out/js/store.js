@@ -943,7 +943,13 @@ class ChatStore {
         }
         const row = this.liveRow();
         if (streamOnly) {
-            (0, streammerge_1.applyStreamFrame)((0, streammerge_1.liveIterationOf)(row), p);
+            // ⛔ 流式帧可能盖着 iteration（服务端语义：新迭代只发流式事件时，前端据此**切迭代边界**并
+            //   清上一迭代的流式状态）。若不按它切，新迭代的打字机会写到旧迭代块里、边界也不清。
+            let target = (0, streammerge_1.liveIterationOf)(row);
+            if (p.iteration !== undefined && p.iteration > target.iteration) {
+                target = (0, streammerge_1.upsertIteration)(row, p.iteration);
+            }
+            (0, streammerge_1.applyStreamFrame)(target, p);
             this.touch(row);
             this.onUpdate();
             return;

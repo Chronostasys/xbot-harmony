@@ -417,6 +417,7 @@ struct Index {
   // ── 生命周期 ──────────────────────────────────────────────────────────────
 
   aboutToAppear(): void {
+    console.log('[xbot-preview-probe] aboutToAppear');
     this.bootstrap();
   }
 
@@ -428,6 +429,7 @@ struct Index {
   }
 
   private async bootstrap(): Promise<void> {
+    console.log('[xbot-preview-probe] bootstrap START');
     // 兜底：即使本地存储不可用，也必须能进登录页（否则永远停在 Loading，无从排查）
     let saved: AppConfig = new AppConfig();
     try {

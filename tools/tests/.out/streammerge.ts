@@ -32,10 +32,18 @@ export function isStreamOnly(e: ProgressEvent): boolean {
   return !hasStructured(e);
 }
 
-/** 是否携带结构化字段（迭代号/正文/推理/工具/历史）。 */
+/**
+ * 是否携带**结构化载荷**（正文/推理/工具/历史）。
+ *
+ * ⛔ 迭代号**单独不能**作为判据：服务端会给**流式帧**盖 `iteration`
+ * （`agent/engine_wire.go`：让前端在"新迭代只发流式事件、结构化边界事件被合并/丢失"时按迭代清状态）。
+ * 若把"有迭代号"当成结构化，流式帧就会走 `applyStructured`，而该函数只认
+ * `content/reasoning/tools` ⇒ `stream_content`/`stream_delta`/`reasoning_stream_*`/`streaming_tools`
+ * 被**静默丢弃**，且还要过 `seq` 闸 ⇒ **整段流式（思考打字机/正文打字机/工具生成中）全不渲染**，
+ * 只在收尾快照才蹦出完整迭代（真机 P0，2026-10-10）。
+ */
 export function hasStructured(e: ProgressEvent): boolean {
-  return (e.iteration !== undefined && e.iteration > 0)
-    || nonEmpty(e.content) || nonEmpty(e.reasoning)
+  return nonEmpty(e.content) || nonEmpty(e.reasoning)
     || (e.active_tools !== undefined && e.active_tools.length > 0)
     || (e.completed_tools !== undefined && e.completed_tools.length > 0)
     || (e.tool_calls !== undefined && e.tool_calls.length > 0)

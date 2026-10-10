@@ -38,7 +38,10 @@ ok('只带增量 ⇒ 流式', (0, streammerge_1.isStreamOnly)(deltaFrame));
 const structuredFrame = { iteration: 3, content: 'abc', seq: 9 };
 ok('带迭代号+正文 ⇒ 非流式', !(0, streammerge_1.isStreamOnly)(structuredFrame));
 const mixed = { iteration: 5, stream_content: 'tail', seq: 10 };
-ok('同时带结构化字段 ⇒ 不按纯流式处理', !(0, streammerge_1.isStreamOnly)(mixed));
+// ⛔ 契约修正（真机 P0，2026-10-10）：服务端会给**流式帧**盖 iteration（用于切迭代边界），
+//    "有迭代号"绝不能算结构化 —— 否则 stream_* 会被 applyStructured 静默丢弃、整段流式不渲染。
+ok('流式帧盖 iteration ⇒ 仍按纯流式处理', (0, streammerge_1.isStreamOnly)(mixed));
+ok('真结构化载荷（正文）⇒ 非流式', !(0, streammerge_1.isStreamOnly)({ iteration: 5, stream_content: 'tail', content: 'z' }));
 ok('空事件 ⇒ 既非流式也非结构化', !(0, streammerge_1.isStreamOnly)({}) && !(0, streammerge_1.hasStructured)({}));
 // ── ② 在飞迭代：流式帧没有迭代号 ⇒ 必须落到"号最大"的迭代，而不是幽灵 0 ──
 const r1 = row([{ iteration: 2, tools: [] }, { iteration: 7, tools: [] }]);
