@@ -15,6 +15,8 @@
 #   tools/device/ui.sh dump                   # 打印屏幕上的文本节点（带 bounds）
 #   tools/device/ui.sh shot /tmp/a.jpeg       # 截图并拉回本地
 #   tools/device/ui.sh wait-text 会话 --timeout 15   # 轮询直到出现该文本
+#   tools/device/ui.sh click-xy 105 190       # 按屏幕坐标点（用于 SymbolGlyph 等**无文本**控件）
+#   tools/device/ui.sh swipe 660 2000 660 600 # 滑动（打开/关闭抽屉、滚动列表）
 #
 # ⚠️ 截图保护：**密码框聚焦时系统进入安全输入，snapshot_display 只能拿到全黑图**
 #   （此时布局树仍正常）。要截图必须先 `key Back` 收起安全键盘 / 让密码框失焦。
@@ -174,6 +176,16 @@ PY
     "$HDC" -t "$T" shell "snapshot_display -f $DEV/ui-shot.jpeg" >/dev/null 2>&1 || true
     "$HDC" -t "$T" file recv "$DEV/ui-shot.jpeg" "$P" >/dev/null 2>&1 || true
     [ -s "$P" ] && echo "→ $P ($(wc -c <"$P" | tr -d ' ') bytes)" || { echo "❌ 截图失败" >&2; exit 1; }
+    ;;
+  click-xy)
+    [ $# -ge 2 ] || { echo "用法: ui.sh click-xy <x> <y>" >&2; exit 1; }
+    "$HDC" -t "$T" shell "uitest uiInput click $1 $2" >/dev/null 2>&1 || true
+    echo "→ 点击 ($1,$2)"
+    ;;
+  swipe)
+    [ $# -ge 4 ] || { echo "用法: ui.sh swipe <x1> <y1> <x2> <y2> [耗时ms]" >&2; exit 1; }
+    "$HDC" -t "$T" shell "uitest uiInput swipe $1 $2 $3 $4 ${5:-300}" >/dev/null 2>&1 || true
+    echo "→ 滑动 ($1,$2)→($3,$4)"
     ;;
   *)
     sed -n '2,30p' "$0"; exit 1
