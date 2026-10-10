@@ -12,6 +12,9 @@ import { ChatStore } from '../core/store';
 import { normalizeTheme, Palette, paletteOf, themeLabel, toggleTheme } from '../core/theme';
 import { loadErrHint, loadErrTitle, needsRelogin, needsSessionRefresh } from '../core/autherr';
 import {
+  advanceVisible, clipRunes, isCJK, isTyping, runeCount, TICK_MS, toRunes,
+} from '../core/typewriter';
+import {
   canMove, MOVE_DOWN, MOVE_TOP, MOVE_UP, hitLine, sessionLabel, sessionMatches,
 } from '../core/sessionops';
 import {
@@ -321,6 +324,20 @@ struct Index {
   @State composerFocused: boolean = false;
   /** 历史加载中（骨架屏判据：只有"还没内容且正在拉"才展示） */
   @State historyLoading: boolean = false;
+  // ── 打字机特效（与 web 同算法：50ms 一拍 / gap÷3 / CJK 半速；见 core/typewriter.ets）──
+  /** live 迭代正文的可见码点数 */
+  @State twContent: number = 0;
+  /** live 迭代思考的可见码点数 */
+  @State twReason: number = 0;
+  /** 打字机当前绑定的身份（`行id#迭代号`；变了就重置，避免上一段文本的进度串到新文本） */
+  private twKey: string = '';
+  private twTextRunes: string[] = [];
+  private twReasonRunes: string[] = [];
+  private twTextLen: number = -1;
+  private twReasonLen: number = -1;
+  private twSkip: boolean = false;
+  private twTimer: number = -1;
+
   /** 运行中工具的流光位置（纯 transform，不触发布局） */
   @State sweepX: number = -80;
   /** 切会话时列表淡入（0.001 → 1 由 animateTo 驱动） */
@@ -573,6 +590,7 @@ struct Index {
     this.busy = store.busy;
     this.connState = store.connState;
     this.syncPulse(store.busy);
+    this.pumpTypewriter();
     this.currentChat = store.currentChatId;
     this.hasMore = store.hasMore;
     this.loadingMore = store.loadingMore;
@@ -2331,6 +2349,111 @@ struct Index {
     return paletteOf(this.themeName);
   }
 
+  /**
+   * 把 live 迭代的正文/思考喂给打字机。
+   *
+   * 算法与 web `useTypewriter` 一致：50ms 一拍、每拍前进 `gap/3`（至少 1）、CJK 每隔一拍才走
+   * （中文否则会"哗"地全出来）。**只在文本增长时重算码点表**（每帧对长文本重算会很贵）。
+   */
+  private pumpTypewriter(): void {
+    let row: ChatRow | undefined = undefined;
+    for (let i = this.rows.length - 1; i >= 0; i--) {
+      if (this.rows[i].isLive === true) {
+        row = this.rows[i];
+        break;
+      }
+    }
+    let it: HistoryIteration | undefined = undefined;
+    if (row !== undefined && row.iterations.length > 0) {
+      it = row.iterations[row.iterations.length - 1];
+    }
+    const key: string = row !== undefined && it !== undefined ? `${row.id}#${it.iteration}` : '';
+    if (key !== this.twKey) {
+      this.twKey = key;
+      this.twContent = 0;
+      this.twReason = 0;
+      this.twTextRunes = [];
+      this.twReasonRunes = [];
+      this.twTextLen = -1;
+      this.twReasonLen = -1;
+      this.twSkip = false;
+    }
+    const text: string = it !== undefined ? displayContent(it) : '';
+    const reason: string = it !== undefined ? displayReasoning(it) : '';
+    if (text.length !== this.twTextLen) {
+      this.twTextLen = text.length;
+      this.twTextRunes = toRunes(text);
+    }
+    if (reason.length !== this.twReasonLen) {
+      this.twReasonLen = reason.length;
+      this.twReasonRunes = toRunes(reason);
+    }
+    const typing: boolean = isTyping(this.twContent, this.twTextRunes.length)
+      || isTyping(this.twReason, this.twReasonRunes.length);
+    this.syncTwTimer(typing);
+  }
+
+  /** 有内容没追平就开 50ms 定时器，追平立刻关（绝不留后台定时器）。 */
+  private syncTwTimer(on: boolean): void {
+    if (on && this.twTimer < 0) {
+      this.twTimer = setInterval(() => {
+        this.twTick();
+      }, TICK_MS);
+      return;
+    }
+    if (!on && this.twTimer >= 0) {
+      clearInterval(this.twTimer);
+      this.twTimer = -1;
+    }
+  }
+
+  /** 一拍：等比推进正文与思考（同一拍共用"是否 CJK 半速"的判定）。 */
+  private twTick(): void {
+    const skip: boolean = this.twSkip;
+    this.twSkip = !this.twSkip;
+    if (isTyping(this.twContent, this.twTextRunes.length)) {
+      const code: number = this.twTextRunes.length > 0
+        ? this.twTextRunes[Math.min(this.twContent, this.twTextRunes.length - 1)].codePointAt(0) as number : 0;
+      this.twContent = advanceVisible(this.twContent, this.twTextRunes.length, skip && isCJK(code));
+    }
+    if (isTyping(this.twReason, this.twReasonRunes.length)) {
+      const code: number = this.twReasonRunes.length > 0
+        ? this.twReasonRunes[Math.min(this.twReason, this.twReasonRunes.length - 1)].codePointAt(0) as number : 0;
+      this.twReason = advanceVisible(this.twReason, this.twReasonRunes.length, skip && isCJK(code));
+    }
+    if (!isTyping(this.twContent, this.twTextRunes.length)
+      && !isTyping(this.twReason, this.twReasonRunes.length)) {
+      this.syncTwTimer(false);
+    }
+  }
+
+  /** live 迭代的正文（打字机裁剪；非 live 迭代原样返回）。 */
+  private liveIterText(row: ChatRow, it: HistoryIteration): string {
+    const full: string = displayContent(it);
+    if (row.isLive !== true || `${row.id}#${it.iteration}` !== this.twKey) {
+      return full;
+    }
+    return clipRunes(full, this.twContent);
+  }
+
+  /** live 迭代的思考（同上）。 */
+  private liveIterReason(row: ChatRow, it: HistoryIteration): string {
+    const full: string = displayReasoning(it);
+    if (row.isLive !== true || `${row.id}#${it.iteration}` !== this.twKey) {
+      return full;
+    }
+    return clipRunes(full, this.twReason);
+  }
+
+  /** 该迭代是否正在"打字"（决定要不要显示光标）。 */
+  private twTyping(row: ChatRow, it: HistoryIteration): boolean {
+    if (row.isLive !== true || `${row.id}#${it.iteration}` !== this.twKey) {
+      return false;
+    }
+    return isTyping(this.twContent, this.twTextRunes.length)
+      || isTyping(this.twReason, this.twReasonRunes.length);
+  }
+
   /** 统一的"轻动效"入口（时长/曲线只有一处，避免每个面板各自为政）。 */
   private anim(run: () => void): void {
     animateTo({ duration: 220, curve: Curve.Friction }, run);
@@ -3297,25 +3420,26 @@ struct Index {
   @Builder
   IterationBlock(row: ChatRow, it: HistoryIteration) {
     Column({ space: 6 }) {
-      Row() {
-        Text(`迭代 ${it.iteration}`).fontSize(11).fontColor(this.pal().textMuted).layoutWeight(1)
-        if (displayReasoning(it).length > 0 && this.showReasoning) {
-          Text(this.openReasonKey === `${row.id}-${it.iteration}` ? '收起思考' : '展开思考')
-            .fontSize(11).fontColor(this.pal().accentSoft)
-            .onClick(() => {
-              const key: string = `${row.id}-${it.iteration}`;
-              this.openReasonKey = this.openReasonKey === key ? '' : key;
-            })
+      // web 形态：**没有"迭代 N"这种标题**，只有一条可展开的「思考 N 字」
+      if (displayReasoning(it).length > 0) {
+        Row({ space: 6 }) {
+          Text('✳').fontSize(11).fontColor(this.pal().textMuted)
+          Text(`思考 ${runeCount(displayReasoning(it))} 字`)
+            .fontSize(11).fontColor(this.pal().textSecondary)
+          Text(this.openReasonKey === `${row.id}-${it.iteration}` ? '▾' : '▸')
+            .fontSize(11).fontColor(this.pal().textMuted)
         }
+        .padding({ top: 2, bottom: 2 })
+        .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          const key: string = `${row.id}-${it.iteration}`;
+          this.openReasonKey = this.openReasonKey === key ? '' : key;
+        })
       }
-      .width('100%')
-      .gesture(LongPressGesture().onAction(() => {
-        this.openCtx('iter', row.id, it.iteration, '');
-      }))
 
-      if (this.showReasoning && displayReasoning(it).length > 0
+      if (displayReasoning(it).length > 0
         && this.openReasonKey === `${row.id}-${it.iteration}`) {
-        Text(displayReasoning(it))
+        Text(this.liveIterReason(row, it))
           .wordBreak(WordBreak.BREAK_ALL)
           .fontSize(13).fontColor(this.pal().textSecondary).padding(8).width('100%')
           .backgroundColor(this.pal().surface).borderRadius(8)
@@ -3324,7 +3448,7 @@ struct Index {
 
       if (displayContent(it).length > 0) {
         MarkdownView({
-          text: displayContent(it),
+          text: this.liveIterText(row, it),
           onImage: (src: string) => {
             this.openImage(src);
           },
