@@ -13,7 +13,7 @@
 import { XbotHttp } from './http';
 import { SseClient } from './sse';
 import {
-  applyStreamFrame, applyStructured, isStreamOnly, isIdleAction, isBusyAction,
+  applyStreamFrame, applyStructured, isIdleAction, isBusyAction,
   shouldReloadHistory, liveIterationOf, upsertIteration, mergeTools, rowIsEmpty, isStaleSeqEvent,
 } from './streammerge';
 import { channelForChat } from './sessionpick';
@@ -422,7 +422,15 @@ export class ChatStore {
       if (ap.busy === true) {
         this.busy = true;
       }
-      this.applyProgress(ap);
+      // active_progress 是服务端权威快照 —— 与 web 的 `case 'progress_structured' | 'sync_progress'`
+      // 同路：结构化字段走结构化路径；若快照同时带流式字段（熄屏/弱网恢复的 catch-up），
+      // 再按流式路径补一遍打字机缓冲（两路径都只写自己那份字段，互不覆盖）。
+      this.applyStructuredProgress(ap);
+      if (ap.stream_content !== undefined || ap.stream_delta !== undefined
+        || ap.reasoning_stream_content !== undefined || ap.reasoning_stream_delta !== undefined
+        || (ap.streaming_tools !== undefined && ap.streaming_tools.length > 0)) {
+        this.applyStreamProgress(ap);
+      }
       this.pickAskUserFromProgress(ap);
     }
     this.onUpdate();
@@ -891,9 +899,19 @@ export class ChatStore {
       this.onUserEcho(env);
       return;
     }
-    if (event === SseEventType.progressStructured || event === SseEventType.streamContent) {
+    // ⛔ 派发必须按**事件名**（web `useProgressStream.ts` 就是 `switch (msg.type)`）——
+    //   绝不能用载荷字段猜分类：服务端会给**流式帧**盖 iteration（切迭代边界语义），
+    //   用字段猜会把流式帧判成"结构化" ⇒ stream_* 被 applyStructured 静默丢弃 ⇒ 整段流式不渲染。
+    if (event === SseEventType.streamContent) {
       if (env.progress !== undefined) {
-        this.applyProgress(env.progress);
+        this.applyStreamProgress(env.progress);
+        this.pickAskUserFromProgress(env.progress);
+      }
+      return;
+    }
+    if (event === SseEventType.progressStructured || event === SseEventType.syncProgress) {
+      if (env.progress !== undefined) {
+        this.applyStructuredProgress(env.progress);
         this.pickAskUserFromProgress(env.progress);
       }
       return;
@@ -1045,38 +1063,37 @@ export class ChatStore {
     return 0;
   }
 
-  private applyProgress(p: ProgressEvent): void {
-    const seq: number = p.seq !== undefined ? p.seq : 0;
-    const streamOnly: boolean = isStreamOnly(p);
-    // 流式帧：**无 seq 闸**（web 同款 —— 累积全量推送，重放无害：非空即整体替换）
-    if (!streamOnly) {
-      // 结构化帧：per-Run 水位 + "新迭代信息豁免"（isStaleSeq，web reduce.ts:423 逐字移植）。
-      // ⚠️ Run 重启后 seq 从 1 计数：只按 seq 丢会把新 Run 整批吞掉（本次真机 P0）。
-      if (seq > 0 && isStaleSeqEvent(this.lastSeq, seq, this.liveMaxIter(), p)) {
-        return;
-      }
-      if (seq > 0) {
-        this.lastSeq = seq;
-      }
-    }
+  /**
+   * 流式帧（`stream_content`）—— 与 web `useProgressStream.ts` 的 `case 'stream_content'` **一一对应**。
+   * ⛔ 本路径**不看**载荷是否"像结构化"：事件名已决定语义（服务端会给流式帧盖 iteration 用于切边界）。
+   */
+  private applyStreamProgress(p: ProgressEvent): void {
     const row: ChatRow = this.liveRow();
-    if (streamOnly) {
-      // ⛔ 流式帧可能盖着 iteration（服务端语义：新迭代只发流式事件时，前端据此**切迭代边界**并
-      //   清上一迭代的流式状态）。若不按它切，新迭代的打字机会写到旧迭代块里、边界也不清。
-      let target: HistoryIteration = liveIterationOf(row);
-      if (p.iteration !== undefined && p.iteration > target.iteration) {
-        target = upsertIteration(row, p.iteration);
-      }
-      applyStreamFrame(target, p);
-      this.touch(row);
-      this.onUpdate();
+    let target: HistoryIteration = liveIterationOf(row);
+    if (p.iteration !== undefined && p.iteration > 0 && p.iteration > target.iteration) {
+      target = upsertIteration(row, p.iteration);
+    }
+    applyStreamFrame(target, p);
+    this.touch(row);
+    this.onUpdate();
+  }
+
+  /**
+   * 结构化帧（`progress_structured` / `sync_progress`）—— 与 web 同名分支对应：
+   * per-Run seq 水位（丢弃纯重放）+ 按号 upsert + 只覆盖"确实带了内容"的字段。
+   */
+  private applyStructuredProgress(p: ProgressEvent): void {
+    const seq: number = p.seq !== undefined ? p.seq : 0;
+    if (seq > 0 && isStaleSeqEvent(this.lastSeq, seq, this.liveMaxIter(), p)) {
       return;
     }
+    if (seq > 0) {
+      this.lastSeq = seq;
+    }
+    const row: ChatRow = this.liveRow();
     const itNum: number = p.iteration !== undefined && p.iteration > 0
       ? p.iteration : liveIterationOf(row).iteration;
     applyStructured(upsertIteration(row, itNum), p);
-
-    // 收尾快照携带整段迭代历史：按号 upsert，只覆盖"确实带了内容"的字段
     const hist: HistoryIteration[] | undefined = p.iteration_history;
     if (hist !== undefined) {
       for (let i = 0; i < hist.length; i++) {
