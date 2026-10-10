@@ -84,7 +84,10 @@ export struct LiveTailView {
 
   private syncTimer(): void {
     // 后台挂起：不推进、不重渲染（回前台时 @Watch 重新拉起）
-    const on: boolean = !this.paused && this.liveNow() && (this.typingText() || this.typingReason());
+    // ⛔ 打字机**绝不能**被"工具是否非终态"门控（原 `liveNow()`）：纯文本/思考回复
+    //   （没有工具，最常见）会让 on=false ⇒ 定时器永不启动 ⇒ shownText() 走"安全回退"
+    //   直接显示全文 ⇒ **没有打字机特效**（真机症状，2026-10-10）。只有"追赶未完成"决定开关。
+    const on: boolean = !this.paused && (this.typingText() || this.typingReason());
     if (on && this.timer < 0) {
       this.timer = setInterval(() => {
         this.tick();
@@ -94,17 +97,6 @@ export struct LiveTailView {
     if (!on && this.timer >= 0) {
       this.stopTimer();
     }
-  }
-
-  /** 「还在跑」的判据：正文/思考还没追平，或工具里还有非终态。 */
-  private liveNow(): boolean {
-    for (let i = 0; i < this.tools.length; i++) {
-      const st: string = this.tools[i].status !== undefined ? this.tools[i].status as string : '';
-      if (st === 'running' || st === 'generating' || st === 'pending') {
-        return true;
-      }
-    }
-    return false;
   }
 
   private stopTimer(): void {

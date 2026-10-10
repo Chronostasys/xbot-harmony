@@ -2769,6 +2769,14 @@ struct Index {
    * 过期的 running=true 快照曾把 idle 会话显示成"运行中"（真机）。
    */
   private runningNow(): boolean {
+    // ⛔ 与 web 同式：`currentSession.running || progressSnapshot.streaming || busyFallback(activeTurn!==null)`
+    //   —— 只要本地还有"在飞的 live 迭代/行"就一定在跑；否则 SSE 抖动会让占位符一闪一没。
+    if (this.liveOn) {
+      return true;
+    }
+    if (this.store !== null && this.store.hasLiveRow()) {
+      return true;
+    }
     if (this.busy) {
       return true;
     }
