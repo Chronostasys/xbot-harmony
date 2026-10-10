@@ -1,6 +1,6 @@
 import preferences from "@ohos:data.preferences";
 import type common from "@ohos:app.ability.common";
-import { isValidServerUrl, normalizeServerUrl } from "@normalized:N&&&entry/src/main/ets/core/endpoint&";
+import { isValidServerUrl, normalizeServerUrl } from "@bundle:com.chronostasys.xbot/entry/ets/core/endpoint";
 // 地址规则住在 core/endpoint.ets（纯函数、可脱离 SDK 单测）；这里只做转出，保持原有调用点不变
 export { isValidServerUrl, normalizeServerUrl };
 const STORE_NAME: string = 'xbot_settings';

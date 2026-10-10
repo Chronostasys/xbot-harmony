@@ -11,8 +11,8 @@ interface WebSurface_Params {
     title?: string;
 }
 import webview from "@ohos:web.webview";
-import { paletteOf } from "@normalized:N&&&entry/src/main/ets/core/theme&";
-import type { Palette } from "@normalized:N&&&entry/src/main/ets/core/theme&";
+import { paletteOf } from "@bundle:com.chronostasys.xbot/entry/ets/core/theme";
+import type { Palette } from "@bundle:com.chronostasys.xbot/entry/ets/core/theme";
 import type { BusinessError as BusinessError } from "@ohos:base";
 export class WebSurface extends ViewPU {
     constructor(parent, params, __localStorage, elmtId = -1, paramsLambda = undefined, extraInfo) {

@@ -20,11 +20,11 @@ interface MessageRowView_Params {
     expandedTurn?: string;
 }
 import type { ChatRow, HistoryIteration, ToolProgress } from '../core/types';
-import { displayContent, displayReasoning, tailOwnedIteration } from "@normalized:N&&&entry/src/main/ets/core/streammerge&";
-import { runeCount } from "@normalized:N&&&entry/src/main/ets/core/typewriter&";
-import { paletteOf } from "@normalized:N&&&entry/src/main/ets/core/theme&";
-import type { Palette } from "@normalized:N&&&entry/src/main/ets/core/theme&";
-import { MarkdownView } from "@normalized:N&&&entry/src/main/ets/components/MarkdownView&";
+import { displayContent, displayReasoning, tailOwnedIteration } from "@bundle:com.chronostasys.xbot/entry/ets/core/streammerge";
+import { runeCount } from "@bundle:com.chronostasys.xbot/entry/ets/core/typewriter";
+import { paletteOf } from "@bundle:com.chronostasys.xbot/entry/ets/core/theme";
+import type { Palette } from "@bundle:com.chronostasys.xbot/entry/ets/core/theme";
+import { MarkdownView } from "@bundle:com.chronostasys.xbot/entry/ets/components/MarkdownView";
 /** 行内最多直出多少个迭代（其余折叠 —— 与页面原有窗口一致）。 */
 const MAX_ITER_VISIBLE: number = 8;
 export class MessageRowView extends ViewPU {

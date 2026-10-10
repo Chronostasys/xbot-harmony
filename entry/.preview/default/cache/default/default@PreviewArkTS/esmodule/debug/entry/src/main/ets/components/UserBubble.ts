@@ -7,8 +7,8 @@ interface UserBubbleView_Params {
     /** 长按（页面据此弹"复制"菜单） */
     onLongPress?: () => void;
 }
-import { paletteOf } from "@normalized:N&&&entry/src/main/ets/core/theme&";
-import type { Palette } from "@normalized:N&&&entry/src/main/ets/core/theme&";
+import { paletteOf } from "@bundle:com.chronostasys.xbot/entry/ets/core/theme";
+import type { Palette } from "@bundle:com.chronostasys.xbot/entry/ets/core/theme";
 export class UserBubbleView extends ViewPU {
     constructor(parent, params, __localStorage, elmtId = -1, paramsLambda = undefined, extraInfo) {
         super(parent, __localStorage, elmtId, extraInfo);

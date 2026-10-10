@@ -62,6 +62,12 @@ class ChatStore {
         this.sessions = [];
         this.rows = [];
         this.busy = false;
+        /**
+         * 服务端会话树给出的**权威**忙碌标记（`sessions[i].running`）。
+         * ⛔ 用途：迟到的 coarse `session(idle)`（SSE 重放 / 切后台恢复）不能冻结在飞的回合 ——
+         * 只要权威仍说 running，就把这条 idle 当陈旧信号忽略（真结束由会话树翻 false 收尾）。
+         */
+        this.serverRunning = false;
         this.currentChatId = '';
         this.lastSeq = 0;
         /** 历史分页（loadMore 游标） */
@@ -141,13 +147,20 @@ class ChatStore {
         // 错过一条 idle（断线重连/切后台）就会永远显示"运行中"。每次拉到会话树都对账一次。
         // 例外：刚发送的 3 秒内不对账（乐观 busy 先行，服务端标记 running 有一个 RTT 窗口）。
         this.sessionsFetchedAt = Date.now();
-        if (Date.now() - this.lastSendAt > 3000) {
-            for (let i = 0; i < this.sessions.length; i++) {
-                if (this.sessions[i].chat_id === this.currentChatId) {
-                    this.busy = this.sessions[i].running === true;
-                    break;
-                }
+        // ⛔ busy 对账（真机 P0，2026-10-10）：会话树是**快照**，服务端 `running` 标记有 RTT 延迟。
+        //  只在 ① 权威说 running=true（恢复），或 ② 本地确实没有在飞的 live 行且已过发送保护窗口
+        //  时才用它改 busy；否则会把**在飞的回合**误判成空闲 ⇒「思考中」一闪一没、
+        //  中间无任何打字机/进度、收尾才蹦出完整迭代（用户报告）。
+        for (let i = 0; i < this.sessions.length; i++) {
+            if (this.sessions[i].chat_id !== this.currentChatId) {
+                continue;
             }
+            const serverRunning = this.sessions[i].running === true;
+            this.serverRunning = serverRunning;
+            if (serverRunning || (!this.hasLiveRow() && Date.now() - this.lastSendAt > 3000)) {
+                this.busy = serverRunning;
+            }
+            break;
         }
         this.onUpdate();
     }
@@ -805,6 +818,14 @@ class ChatStore {
         // ⚠️ 服务端字段是 `action`（不是 `state`，见 core/streammerge.ets 注释）
         const action = ev.action !== undefined ? ev.action : '';
         if ((0, streammerge_1.isIdleAction)(action)) {
+            // ⛔ 迟到的 coarse idle（SSE `last_event_id` 重放 / restoreActiveProgress 竞态）
+            //   绝不能冻结在飞的回合：权威会话树仍说 running ⇒ 视为陈旧信号，只去刷新权威状态。
+            if (this.serverRunning) {
+                this.loadSessions().catch(() => {
+                    // 忽略
+                });
+                return;
+            }
             this.busy = false;
             // 回合结束 ⇒ 水位重置（web：idle 置 null —— 下一个 Run 从 1 计数）
             this.lastSeq = 0;
@@ -856,6 +877,16 @@ class ChatStore {
         this.rows.push(r);
         this.busy = true;
         this.onUpdate();
+    }
+    /** 是否有"在飞的 live 行"（= 本轮正在进行；会话树快照不可用于清 busy）。 */
+    hasLiveRow() {
+        for (let i = this.rows.length - 1; i >= 0; i--) {
+            const r = this.rows[i];
+            if (r.role === 'assistant' && r.isLive) {
+                return true;
+            }
+        }
+        return false;
     }
     liveRow() {
         const last = this.rows.length > 0 ? this.rows[this.rows.length - 1] : undefined;
@@ -966,6 +997,11 @@ class ChatStore {
             return;
         }
         const last = this.rows[this.rows.length - 1];
+        // ⛔ 空 text 且回合仍在跑 ⇒ 不终结 live 行（真实回复随后到）——
+        //   否则会把 live 行的内容清空并置 isLive=false（用户报告："用户消息后什么都没有"）。
+        if (text.length === 0 && this.busy && last.role === 'assistant' && last.isLive && !(0, streammerge_1.rowIsEmpty)(last)) {
+            return;
+        }
         if (last.role !== 'assistant') {
             if (text.length === 0) {
                 return;

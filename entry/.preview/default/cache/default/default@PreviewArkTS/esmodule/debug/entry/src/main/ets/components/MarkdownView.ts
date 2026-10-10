@@ -13,12 +13,12 @@ interface MarkdownView_Params {
     /** 消息内图片最大高度（vp） */
     imageMaxHeight?: number;
 }
-import { AuthImage } from "@normalized:N&&&entry/src/main/ets/components/AuthImage&";
+import { AuthImage } from "@bundle:com.chronostasys.xbot/entry/ets/components/AuthImage";
 import pasteboard from "@ohos:pasteboard";
-import { paletteOf } from "@normalized:N&&&entry/src/main/ets/core/theme&";
-import type { Palette } from "@normalized:N&&&entry/src/main/ets/core/theme&";
-import { MdBlockKind, parseInlineCached, parseMarkdownCached, tableRowFields, useTableGrid, } from "@normalized:N&&&entry/src/main/ets/core/markdown&";
-import type { MdBlock, MdSpan, TableField } from "@normalized:N&&&entry/src/main/ets/core/markdown&";
+import { paletteOf } from "@bundle:com.chronostasys.xbot/entry/ets/core/theme";
+import type { Palette } from "@bundle:com.chronostasys.xbot/entry/ets/core/theme";
+import { MdBlockKind, parseInlineCached, parseMarkdownCached, tableRowFields, useTableGrid, } from "@bundle:com.chronostasys.xbot/entry/ets/core/markdown";
+import type { MdBlock, MdSpan, TableField } from "@bundle:com.chronostasys.xbot/entry/ets/core/markdown";
 /**
  * MarkdownView —— 把 Markdown 渲染成原生 ArkUI（零 WebView）。
  *

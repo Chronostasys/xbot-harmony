@@ -16,8 +16,8 @@ interface AuthImage_Params {
     loading?: boolean;
 }
 import image from "@ohos:multimedia.image";
-import { paletteOf } from "@normalized:N&&&entry/src/main/ets/core/theme&";
-import type { Palette } from "@normalized:N&&&entry/src/main/ets/core/theme&";
+import { paletteOf } from "@bundle:com.chronostasys.xbot/entry/ets/core/theme";
+import type { Palette } from "@bundle:com.chronostasys.xbot/entry/ets/core/theme";
 const PM_CACHE: Map<string, image.PixelMap> = new Map<string, image.PixelMap>();
 const PM_ORDER: string[] = [];
 /** 缓存上限（张）。 */

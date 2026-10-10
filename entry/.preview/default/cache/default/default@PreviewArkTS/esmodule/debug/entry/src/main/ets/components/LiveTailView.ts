@@ -26,10 +26,10 @@ interface LiveTailView_Params {
     lastReasonLen?: number;
 }
 import type { ToolProgress } from '../core/types';
-import { advanceVisible, clipRunes, isCJK, isTyping, runeCount, toRunes } from "@normalized:N&&&entry/src/main/ets/core/typewriter&";
-import { paletteOf } from "@normalized:N&&&entry/src/main/ets/core/theme&";
-import type { Palette } from "@normalized:N&&&entry/src/main/ets/core/theme&";
-import { MarkdownView } from "@normalized:N&&&entry/src/main/ets/components/MarkdownView&";
+import { advanceVisible, clipRunes, isCJK, isTyping, runeCount, toRunes } from "@bundle:com.chronostasys.xbot/entry/ets/core/typewriter";
+import { paletteOf } from "@bundle:com.chronostasys.xbot/entry/ets/core/theme";
+import type { Palette } from "@bundle:com.chronostasys.xbot/entry/ets/core/theme";
+import { MarkdownView } from "@bundle:com.chronostasys.xbot/entry/ets/components/MarkdownView";
 export class LiveTailView extends ViewPU {
     constructor(parent, params, __localStorage, elmtId = -1, paramsLambda = undefined, extraInfo) {
         super(parent, __localStorage, elmtId, extraInfo);
