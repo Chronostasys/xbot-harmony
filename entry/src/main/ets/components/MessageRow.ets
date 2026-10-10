@@ -11,7 +11,7 @@
  *   · 三个 @Builder（Assistant/Iteration/ToolPill）与 7 个 helper 由页面**整块搬入**（原样语义）。
  */
 import { ChatRow, HistoryIteration, ToolProgress } from '../core/types';
-import { displayContent, displayReasoning, rowIsEmpty } from '../core/streammerge';
+import { completedBlocks, displayContent, displayReasoning, rowIsEmpty } from '../core/streammerge';
 import { runeCount } from '../core/typewriter';
 import { Palette, paletteOf } from '../core/theme';
 import { MarkdownView } from './MarkdownView';
@@ -43,6 +43,23 @@ export struct MessageRowView {
   @Prop liveText: string = '';
   @Prop liveReasoning: string = '';
   @Prop liveTools: ToolProgress[] = [];
+  /**
+   * live 行**已完成迭代块列表** —— 由页面 `syncLiveTail()` 从 live 行
+   * （`row.iterations` 去掉末尾在飞块；与渲染读**同一个** `completedBlocks`）
+   * 以 **@Prop 投递**（普通行恒为空）。
+   *
+   * ⛔ 为什么必须也是 @Prop（真机 2026-10-10「iter1 的 tool call 完成后 iter1 消失、
+   *   iter2 前面看不到 iter1」根因）：在飞块修好后（P58），**已完成块**仍走
+   *   带参 @Builder `AssistantBlock(this.row)` 里的 `ForEach(this.itersFor(row))`
+   *   —— 参数是同一个 `ChatRow` 引用（`core/render.ets:applyRow` 就地改它）。
+   *   ArkUI V1 的「按值传参 @Builder」参数不变 ⇒ 其内 UI 不重建（docs/ARKTS-GOTCHAS
+   *   §4）⇒ 已完成块区**冻结在创建那一瞬**（此刻为空）。于是：tool call 完成 →
+   *   iter1 进 `iteration_history`（模型正确）、在飞块随 @Prop 清空 ⇒ 两个区都空 ⇒
+   *   **iter1 从画面消失**；iter2 流式时已完成块区仍冻结为空 ⇒ **看不到 iter1**。
+   *   ⇒ 已完成块也必须走「值变化」通道（对齐 web：`MessageList` 把整份 `liveProgress`
+   *   快照当 prop 传给 `TurnBody`，而不是让 `TurnBody` 从可变对象里读）。
+   */
+  @Prop liveBlocks: HistoryIteration[] = [];
   onImage: (src: string) => void = (src: string) => {
   };
   loadImage: (src: string) => Promise<ArrayBuffer> = async (s: string) => {
@@ -144,30 +161,30 @@ export struct MessageRowView {
     return badge.length > 0 ? `${base} ${badge}` : base;
   }
 
-  /** 已完成迭代（排除在飞块）—— 在飞块由 `LiveIterationBlock`（@Prop 直驱）单独渲染。 */
-  private completedIters(row: ChatRow): HistoryIteration[] {
-    const out: HistoryIteration[] = [];
-    for (let i = 0; i < row.iterations.length; i++) {
-      if (row.iterations[i].live !== true) {
-        out.push(row.iterations[i]);
-      }
-    }
-    return out;
+  /**
+   * 该行此刻要渲染的**已完成迭代块列表**（不含末尾在飞块）。
+   *
+   * live 行 = 页面投递的 `@Prop liveBlocks`（**值** —— 见其声明处的根因说明）；
+   * 普通行 = 行对象里已完成块（普通行经带 key 的 `LazyForEach`，key 含 `rev`，
+   * 内容变即换 key 重建，读取安全）。
+   */
+  private blocksFor(): HistoryIteration[] {
+    return this.row.isLive ? this.liveBlocks : completedBlocks(this.row);
   }
 
-  private itersFor(row: ChatRow): HistoryIteration[] {
-    const all: HistoryIteration[] = this.completedIters(row);
-    if (this.expandedTurn === row.id || all.length <= MAX_ITER_VISIBLE) {
+  private itersFor(): HistoryIteration[] {
+    const all: HistoryIteration[] = this.blocksFor();
+    if (this.expandedTurn === this.row.id || all.length <= MAX_ITER_VISIBLE) {
       return all;
     }
     return all.slice(all.length - MAX_ITER_VISIBLE);
   }
 
-  private hiddenIterCount(row: ChatRow): number {
-    if (this.expandedTurn === row.id) {
+  private hiddenIterCount(): number {
+    if (this.expandedTurn === this.row.id) {
       return 0;
     }
-    const total: number = this.completedIters(row).length;
+    const total: number = this.blocksFor().length;
     return total > MAX_ITER_VISIBLE ? total - MAX_ITER_VISIBLE : 0;
   }
 
@@ -176,12 +193,21 @@ export struct MessageRowView {
     return this.liveText.length > 0 || this.liveReasoning.length > 0 || this.liveTools.length > 0;
   }
 
+  /**
+   * 助手气泡主体。
+   *
+   * ⛔ **无参**（读 `this.row` / `this.liveBlocks`）：带参 @Builder 的按值参数是
+   *   「调用那一刻的快照」，参数引用不变时其内 UI 不重建（docs/ARKTS-GOTCHAS §4）。
+   *   live 行的 `ChatRow` 是**就地更新**的（引用恒定）⇒ 若仍带参 `AssistantBlock(this.row)`，
+   *   已完成块区的 `ForEach` 会冻结在创建那一瞬（= 空）⇒ 真机「iter1 的 tool call 完成后
+   *   iter1 消失、iter2 前面看不到 iter1」。无参 + 值投递（`liveBlocks`）后，值变即重建。
+   */
   @Builder
-  AssistantBlock(row: ChatRow) {
+  AssistantBlock() {
     Column({ space: 6 }) {
-      if (row.content.length > 0 && row.iterations.length === 0) {
+      if (this.row.content.length > 0 && this.row.iterations.length === 0) {
         MarkdownView({
-          text: row.content,
+          text: this.row.content,
           onImage: (src: string) => {
             this.onImage(src);
           },
@@ -194,9 +220,9 @@ export struct MessageRowView {
         })
       }
       // 服务端折叠视图：更早的展示区域需按需取回（与 Web 端「⌃ 更早的 N 个区域」同源）
-      if (row.regionsBefore > 0) {
+      if (this.row.regionsBefore > 0) {
         Row({ space: 6 }) {
-          Text(`⌃ 更早的 ${row.regionsBefore} 个区域`).fontSize(11).fontColor(this.pal().warn)
+          Text(`⌃ 更早的 ${this.row.regionsBefore} 个区域`).fontSize(11).fontColor(this.pal().warn)
           Text('（点击加载）').fontSize(11).fontColor(this.pal().textMuted)
         }
         .width('100%')
@@ -205,26 +231,26 @@ export struct MessageRowView {
           this.onLoadMoreRegions();
         })
       }
-      if (this.hiddenIterCount(row) > 0) {
+      if (this.hiddenIterCount() > 0) {
         Row({ space: 6 }) {
-          Text(`↑ 已折叠更早的 ${this.hiddenIterCount(row)} 个迭代`)
+          Text(`↑ 已折叠更早的 ${this.hiddenIterCount()} 个迭代`)
             .fontSize(11).fontColor(this.pal().accentSoft)
           Text('（点击展开全部）').fontSize(11).fontColor(this.pal().textMuted)
         }
         .width('100%')
         .padding({ top: 4, bottom: 4 })
         .onClick(() => {
-          this.expandedTurn = row.id;
+          this.expandedTurn = this.row.id;
         })
       }
-      // 已完成迭代（稳定 key：不随 rev 抖 —— 内容变化靠 @ObjectLink 就地更新，
-      // 打字机块才能跨帧存活）。在飞块由下方 LiveIterationBlock 单独渲染。
+      // 已完成迭代。live 行的列表来自**值** `liveBlocks`（@Prop）；普通行走带 key 的
+      // LazyForEach（key 含 rev）。在飞块由下方 LiveIterationBlock 单独渲染。
       // ⛔ key 必须含 `live` 标记：在飞块可能与某个**已提交迭代同号**（服务端把
       //   在飞迭代记进 iteration_history 的场景 —— 见 core/render.ets.inFlightBlock），
       //   只按 `row.id#iteration` 会撞 key ⇒ ArkUI 复用错位（渲染错乱）。
-      ForEach(this.itersFor(row), (it: HistoryIteration) => {
-        this.IterationBlock(row, it)
-      }, (it: HistoryIteration) => `${row.id}#${it.iteration}#${it.live === true ? 'L' : 'C'}`)
+      ForEach(this.itersFor(), (it: HistoryIteration) => {
+        this.IterationBlock(it)
+      }, (it: HistoryIteration) => `${this.row.id}#${it.iteration}#${it.live === true ? 'L' : 'C'}`)
       // ── 在飞迭代块：**同一气泡内的最后一块**（对齐 web TurnBody 的 LiveIteration）──
       // 真机 bug ② 根治点：live 迭代不再是自己一个气泡/一个 ListItem，而是这条
       // assistant 消息气泡里的最后一块，与已完成迭代共用同一套块渲染（仅带打字机）。
@@ -282,7 +308,7 @@ export struct MessageRowView {
   }
 
   @Builder
-  IterationBlock(row: ChatRow, it: HistoryIteration) {
+  IterationBlock(it: HistoryIteration) {
     Column({ space: 6 }) {
       // web 形态：**没有"迭代 N"这种标题**，只有一条可展开的「思考 N 字」
       if (displayReasoning(it).length > 0) {
@@ -290,19 +316,19 @@ export struct MessageRowView {
           Text('✳').fontSize(11).fontColor(this.pal().textMuted)
           Text(`思考 ${runeCount(displayReasoning(it))} 字`)
             .fontSize(11).fontColor(this.pal().textSecondary)
-          Text(this.openReasonKey === `${row.id}-${it.iteration}` ? '▾' : '▸')
+          Text(this.openReasonKey === `${this.row.id}-${it.iteration}` ? '▾' : '▸')
             .fontSize(11).fontColor(this.pal().textMuted)
         }
         .padding({ top: 2, bottom: 2 })
         .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
         .onClick(() => {
-          const key: string = `${row.id}-${it.iteration}`;
+          const key: string = `${this.row.id}-${it.iteration}`;
           this.openReasonKey = this.openReasonKey === key ? '' : key;
         })
       }
 
       if (displayReasoning(it).length > 0
-        && this.openReasonKey === `${row.id}-${it.iteration}`) {
+        && this.openReasonKey === `${this.row.id}-${it.iteration}`) {
         Text(displayReasoning(it))
           .wordBreak(WordBreak.BREAK_ALL)
           .fontSize(13).fontColor(this.pal().textSecondary).padding(8).width('100%')
@@ -328,26 +354,26 @@ export struct MessageRowView {
       if (it.tools !== undefined && it.tools.length > 0) {
         Flex({ wrap: FlexWrap.Wrap }) {
           ForEach(it.tools, (t: ToolProgress) => {
-            this.ToolPill(row, it, t)
-          }, (t: ToolProgress, ti: number) => `${this.toolKey(row.turnID, it.iteration, t.name)}#${t.call_id !== undefined ? t.call_id : ''}#${ti}`)
+            this.ToolPill(it, t)
+          }, (t: ToolProgress, ti: number) => `${this.toolKey(this.row.turnID, it.iteration, t.name)}#${t.call_id !== undefined ? t.call_id : ''}#${ti}`)
         }
         .width('100%')
       }
 
       // 工具详情（点击 pill 展开）
-      if (this.openToolKey.startsWith(`${row.turnID}:${it.iteration}:`) && it.tools !== undefined) {
+      if (this.openToolKey.startsWith(`${this.row.turnID}:${it.iteration}:`) && it.tools !== undefined) {
         ForEach(it.tools, (t: ToolProgress) => {
-          if (this.openToolKey === this.toolKey(row.turnID, it.iteration, t.name)) {
+          if (this.openToolKey === this.toolKey(this.row.turnID, it.iteration, t.name)) {
             this.ToolDetail(t)
           }
-        }, (t: ToolProgress, ti: number) => `d-${this.toolKey(row.turnID, it.iteration, t.name)}#${ti}`)
+        }, (t: ToolProgress, ti: number) => `d-${this.toolKey(this.row.turnID, it.iteration, t.name)}#${ti}`)
       }
     }
     .width('100%').alignItems(HorizontalAlign.Start).padding({ top: 4, bottom: 4 })
   }
 
   @Builder
-  ToolPill(row: ChatRow, it: HistoryIteration, t: ToolProgress) {
+  ToolPill(it: HistoryIteration, t: ToolProgress) {
     Stack() {
       Row({ space: 4 }) {
       if (t.status === 'generating' || t.status === 'running') {
@@ -381,7 +407,7 @@ export struct MessageRowView {
     .clip(true)
     .backgroundColor(this.pal().surfaceAlt)
     .borderRadius(6)
-    .border({ width: 1, color: this.openToolKey === this.toolKey(row.turnID, it.iteration, t.name) ? this.pal().accent : this.pal().border })
+    .border({ width: 1, color: this.openToolKey === this.toolKey(this.row.turnID, it.iteration, t.name) ? this.pal().accent : this.pal().border })
     .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
     .onClick(() => {
       this.onToggleTool(it.iteration, t.name);
@@ -429,7 +455,7 @@ export struct MessageRowView {
 
   build() {
     if (!this.isEmptyBubble()) {
-      this.AssistantBlock(this.row)
+      this.AssistantBlock()
     }
   }
 }

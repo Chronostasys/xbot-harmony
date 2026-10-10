@@ -34,7 +34,7 @@ import {
   isInterruptSend, MODE_INTERRUPT, MODE_QUEUE, modeHint, modeLabel, sendToast, toggleMode,
 } from '../core/sendmode';
 import { mdCacheStats, MdCacheStats } from '../core/markdown';
-import { displayContent, displayReasoning, rowIsEmpty, streamStatsText } from '../core/streammerge';
+import { blocksSignature, completedBlocks, displayContent, displayReasoning, rowIsEmpty, streamStatsText } from '../core/streammerge';
 import {
   channelLabel, hiddenRowCount, visibleRows, MAX_ROWS_VISIBLE,
 } from '../core/sessionpick';
@@ -367,6 +367,19 @@ struct Index {
   @State liveText: string = '';
   @State liveReasoning: string = '';
   @State liveTools: ToolProgress[] = [];
+  /**
+   * live 行**已完成迭代块列表**的页面 `@State` 镜像 —— 由 `syncLiveTail()` 从
+   * **同一个** live 行（`completedBlocks(liveRowRef)`，渲染层读同一函数）派生并赋值。
+   *
+   * ⛔ 为什么必须要有（真机 2026-10-10「iter1 的 tool call 完成后 iter1 消失、iter2
+   *   前面看不到 iter1」根因）：P58 修好「在飞块」的投递后，**已完成块**仍走带参 @Builder
+   *   `AssistantBlock(this.row)` 里的 `ForEach`（参数是同一 `ChatRow` 引用，`applyRow`
+   *   就地改它）⇒ 参数不变 ⇒ 其内 UI 不重建（docs/ARKTS-GOTCHAS §4）⇒ 已完成块区
+   *   **冻结在创建那一瞬（空）**。tool call 完成 → iter1 进 iteration_history（模型正确）、
+   *   在飞块随 @Prop 清空 ⇒ 两个区都空 ⇒ iter1 消失。此项提供「值变化」这条唯一可靠的
+   *   重建驱动（对齐 web：`MessageList` 把整份 `liveProgress` 快照当 prop 传 `TurnBody`）。
+   */
+  @State liveBlocks: HistoryIteration[] = [];
   /** 历史加载中（骨架屏判据：只有"还没内容且正在拉"才展示） */
   @State historyLoading: boolean = false;
 
@@ -3121,6 +3134,11 @@ struct Index {
    *   流式期间渲染输入冻结在创建那一瞬（P55 回归）。这三项 `@State` 提供值变化。
    *
    * 赋值前先比较：内容未变（同一引用 / 同值）时**不赋值** ⇒ 不产生多余重建（零额外开销）。
+   *
+   * 除在飞块外，同时把**已完成块列表**（`completedBlocks(liveRowRef)`，与渲染读同一函数）
+   * 镜像进 `@State liveBlocks` —— 这是「iter1 的 tool call 完成后 iter1 消失」的根治项：
+   * 已完成块区必须走**值变化**通道，否则冻结在创建那一瞬（见 `liveBlocks` 的注释）。
+   * 同样按 `blocksSignature` 门控（只在结构/内容变化时赋值 ⇒ 流式期间零额外重建）。
    */
   private syncLiveTail(): void {
     let text: string = '';
@@ -3148,6 +3166,11 @@ struct Index {
     }
     if (this.liveTools !== tools) {
       this.liveTools = tools;
+    }
+    // 已完成块列表（值变化通道）—— 只在结构/内容变化时赋值。
+    const blocks: HistoryIteration[] = this.hasLiveRow ? completedBlocks(this.liveRowRef) : [];
+    if (blocksSignature(this.liveBlocks) !== blocksSignature(blocks)) {
+      this.liveBlocks = blocks;
     }
   }
 
@@ -3811,6 +3834,7 @@ struct Index {
         liveText: this.liveText,
         liveReasoning: this.liveReasoning,
         liveTools: this.liveTools,
+        liveBlocks: this.liveBlocks,
         theme: this.themeName,
         fontScaleV: this.fontScale(),
         wrapCodeV: this.wrapCode(),

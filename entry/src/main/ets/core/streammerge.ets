@@ -254,6 +254,40 @@ export function liveBlockOf(row: ChatRow): HistoryIteration | undefined {
 }
 
 /**
+ * 该行承载的**已完成迭代块**（排除末尾在飞块 `live: true`）。
+ *
+ * 与 `liveBlockOf` 成对：`完成块 ⊕ 在飞块` 即该行要渲染的全部块。
+ * ⛔ 页面（`syncLiveTail` 的已完成块镜像）与渲染层（`blocksFor`）必须读**同一个**
+ *   函数 —— 投递源与判据/渲染同源，杜绝"投递的内容与画的内容分叉"。
+ */
+export function completedBlocks(row: ChatRow): HistoryIteration[] {
+  const out: HistoryIteration[] = [];
+  for (let i = 0; i < row.iterations.length; i++) {
+    if (row.iterations[i].live !== true) {
+      out.push(row.iterations[i]);
+    }
+  }
+  return out;
+}
+
+/**
+ * 块列表的**值指纹** —— 页面把 live 行的已完成块镜像进 `@State liveBlocks` 时用它
+ * 判「结构/内容是否变化」：不变则不赋值（避免每帧新数组触发无谓重建）。
+ *
+ * 含每块的迭代号 / 正文长度 / 思考长度 / 工具数 —— 任一变化即换值（覆盖
+ * "同号权威覆盖" 更新已提交迭代内容的场景）。
+ */
+export function blocksSignature(bs: HistoryIteration[]): string {
+  let s: string = `${bs.length}`;
+  for (let i = 0; i < bs.length; i++) {
+    const b: HistoryIteration = bs[i];
+    s += `|${b.iteration}:${(b.content ?? '').length}:${(b.reasoning ?? '').length}`
+      + `:${b.tools !== undefined ? b.tools.length : 0}`;
+  }
+  return s;
+}
+
+/**
  * 「尾部可见内容量」—— 本行**渲染后会真正画出来**的字符数（工具 pill 计 1）。
  *
  * ⛔ 这是「可见性判据」与「渲染内容」的**唯一同源点**（用户 2026-10-10 P0 定稿：

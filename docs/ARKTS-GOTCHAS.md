@@ -504,3 +504,40 @@ Usage of standard library is restricted (arkts-limited-stdlib)
 ① 页面有 `@State liveText/liveReasoning/liveTools` 且 `syncLiveTail()` 每帧同步；
 ② `MessageRowView` 声明三者 `@Prop` 且**由 @Prop 渲染**（`LiveTailView` 读 `this.liveText`）；
 ③ live 行由**无参** `@Builder` 创建；④ 投递模型断言：live 组件每帧渲染输入 == 当前在飞内容。
+
+## 批次 12：**已完成块**没走「值变化通道」⇒ 迭代边界处整块消失（真机 P0，2026-10-10）
+
+**现象（用户逐字）**：「iter 1 (streaming) → iter 1 的 **tool call 完成**后 **iter 1 直接消失**
+→ 接着 **iter 2 (streaming)**，但它前面**看不到 iter 1**」。
+
+**根因（批次 11 的残留面）**：批次 11 只把「**在飞块**」接到了「值变化」通道。**已完成块**仍走
+**带参 @Builder** `AssistantBlock(this.row)` 里的 `ForEach(this.itersFor(row))` —— 参数是**同一个**
+`ChatRow` 引用（`core/render.ets:applyRow` 就地改它）⇒ 参数不变 ⇒ 该 `@Builder` 内的 UI
+**不重建**（批 1 §4「按值传参 = 调用那刻的快照」）⇒ 已完成块区**冻结在创建那一瞬（空）**。
+
+| 时刻 | 模型 `row.iterations` | 渲染（坏）：已完成块区冻结 `[]` ⊕ 在飞块（值） |
+|---|---|---|
+| iter1 流式 | `[iter1(live)]` | `[iter1]` ✅ |
+| **tool 完成** | `[iter1]` + 在飞块清空 | **`[]` ⇒ iter1 消失** ❌ |
+| iter2 流式 | `[iter1, iter2(live)]` | `[iter2]`（前面看不到 iter1）❌ |
+
+**关键区分**：这不是数据层 bug（`reduce/derive/applyRow` 的 `row.iterations` 逐帧**完全正确**，
+`tools/tests` 探针实测帧 5 = `[i1 bash:done]`、帧 6 = `[i1][i2*]`）。这是**纯投递层** bug ——
+「模型全对、画面不对」，**必须在投递层写判据**（模型测试测不出）。
+
+**修法**：把**已完成块列表**也镜像进页面 `@State liveBlocks`（`completedBlocks(liveRowRef)`，
+按 `blocksSignature` 门控）→ `MessageRowView` 的 `@Prop liveBlocks`；并把 `AssistantBlock` /
+`IterationBlock` / `ToolPill` 改成**无参**（读 `this.row`/值），使已完成块区随值重建。
+对齐 web：`MessageList` 把**整份** `liveProgress` 快照（含 `iterationHistory`）当 prop 传 `TurnBody`。
+
+**性能**：`liveBlocks` 只在**迭代边界**换值（流式期间不变 ⇒ 不赋值），不引入每帧重建 / tick。
+
+**通用教训（批次 11 的加强版）**：一条消息气泡里**每一个**独立的"内容区"都必须有自己的值变化通道。
+只修了其中一个区（在飞块）而另一个区（已完成块）仍读就地改的对象 ⇒ 后者在**迭代边界**（其驱动
+数据发生变化的那一刻）暴露 —— 症状是"某一块在某个特定时刻凭空消失"，极易被误判成数据丢失。
+
+**判据（回归守卫 `tools/tests/live_block_delivery.test.ts`，HEAD 必红）**：
+① 页面有 `@State liveBlocks` 且 `syncLiveTail()` 按 `blocksSignature` 同步；
+② `MessageRowView` 声明 `@Prop liveBlocks` 且**由值渲染**（`blocksFor()` 读 `this.liveBlocks`）；
+③ 投递模型断言：该 turn 的**渲染块列表**跨迭代边界**单调不减**、已完成的 iter1（含 tool pill）
+始终在列表里。HEAD：`渲染块列表回退：1 → 0`（6 passed / 7 failed）；修复后 15 passed / 0 failed。

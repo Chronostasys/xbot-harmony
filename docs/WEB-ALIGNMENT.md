@@ -248,3 +248,42 @@ P54 的 live 尾块由页面 `@State liveText/liveReasoning/liveTools`（`syncLi
 **回归守卫**：`tools/tests/live_tail_delivery.test.ts`（11 项）—— 读**真实源码**判定生产接线
 形态，再用投递模型驱动真实 store 流水线，断言「live 组件每帧渲染输入 == 当前在飞内容」。
 P55 形态必红（渲染输入恒为 ""，重建次数恒为 1）；本修复后绿。
+
+## 9. 回归修复（2026-10-10 第三批）：live 行**已完成块**也走「值变化通道」
+
+**用户原话**：「我发消息 → **iter 1 (streaming)** → iter 1 的 **tool call 完成**后，
+**iter 1 直接消失** → 接着 **iter 2 (streaming)**，但它前面**看不到 iter 1** 了。」
+
+**根因（第 8 节的遗留面）**：第 8 节只把「在飞块」接到了「值变化」通道；**已完成块**仍走
+带参 `@Builder` `AssistantBlock(this.row)` 里的 `ForEach(this.itersFor(row))` —— 参数是
+**同一个** `ChatRow` 引用（`core/render.ets:applyRow` **就地改**它）。ArkUI V1 的
+「按值传参 @Builder」参数不变 ⇒ 其内 UI **不重建**（`ARKTS-GOTCHAS §4`）⇒ 已完成块区
+**冻结在创建那一瞬（空）**。真机逐帧：
+
+| 时刻 | 模型 `row.iterations`（正确） | 渲染（HEAD，已完成块区冻结为 `[]`） |
+|---|---|---|
+| iter1 流式 | `[iter1(live)]` | 在飞块（@Prop）画出 iter1 ✅ |
+| **tool call 完成** | `[iter1]`（进 `iteration_history`）+ 在飞块清空 | **两个区都空 ⇒ iter1 消失** ❌ |
+| iter2 流式 | `[iter1, iter2(live)]` | 只在飞块 ⇒ `[iter2]`，**前面看不到 iter1** ❌ |
+
+**修法（对齐 web，非 hack / 非 tick / 无全局强制重建）**：web 的 `MessageList` 把**整份**
+`liveProgress` 快照（含其 `iterations`）当 prop 传给 `TurnBody`。原生端等价物 = 把
+**已完成块列表**也镜像进 `@State` 并以 `@Prop` 投递，同时让渲染它的 `@Builder` **无参**
+（读值，参数不再冻结）：
+
+| web | 原生端（本修复） |
+|---|---|
+| `liveProgress.iterationHistory`（已完成）随快照当 prop 传 `TurnBody` | `@State liveBlocks` = `completedBlocks(liveRowRef)`（`syncLiveTail` 按 `blocksSignature` 门控赋值）→ `MessageRowView` 的 `@Prop liveBlocks` |
+| `TurnBody` 用 prop 里的 `iterations` 渲染已提交块 | `MessageRowView.blocksFor()`：live 行读 `this.liveBlocks`，普通行读行对象（普通行有 `id#rev` key 兜底） |
+| React 每次 render 按 prop 重算 | `AssistantBlock()` / `IterationBlock(it)` / `ToolPill(it,t)` 改**无参**（读 `this.row`/值），绕开带参 @Builder 快照 |
+
+**性能**：`liveBlocks` 按 `blocksSignature`（迭代号/正文长/思考长/工具数）门控 —— 流式期间
+**不变不赋值**（在飞内容仍走 `liveText/liveReasoning/liveTools` 的既有通道），只有**迭代边界**
+（commit）才换值 ⇒ 每轮新增 ≤ 迭代数次的重建，**不涉及**每帧重建整列表 / tick 硬刷。
+
+**回归守卫**：`tools/tests/live_block_delivery.test.ts`（15 项）—— ①读**真实源码**判定
+「已完成块」的投递形态（value-prop vs row-object）；②用真实 store（SSE → normalize →
+reduce → deriveRows → applyRow）跑真实事件序列（iter1 流式 → 工具 generating/running →
+工具完成 + iter1 commit → iter2 流式）；③以真实接线形态重建「组件每帧**渲染出的块列表**」，
+断言 (M1) 单调不减、(M2) 已完成的 iter1（含 tool pill）始终在列表里。
+HEAD 形态必红（`渲染块列表回退：1 → 0`、iter1 缺失：6 passed / 7 failed）；本修复后绿（15/0）。
