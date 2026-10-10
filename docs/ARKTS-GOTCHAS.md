@@ -640,3 +640,24 @@ Usage of standard library is restricted (arkts-limited-stdlib)
 - **本仓库已有先例**：`core/store.ets:399` 注释早就写过同一件事（"服务端 nil map → JSON null；只判 undefined 会把 null 交下去（`toLocalSettings(null)` 崩）"）⇒ 这是**同类缺陷复发的第二例**。
 - **为什么离线门禁抓不到**：`null` 完全符合 `T | undefined` 的静态类型（ArkTS 的类型检查不追踪 JSON 的 null 可能性）⇒ 三条离线门禁 + `assembleHap` 全绿，只有**真机端到端**能抓。又与批次 13/14 同一结论：**门禁的口径之外，必须真机走一遍主流程**。
 - **真机复现工具**：`tools/device/ui.sh`（`click-text` / `click-input` / `wait-text` / `shot`）—— 本 P0 就是它抓到的。
+
+## 批次 16：**孤儿检测脚本自己漏报** —— 注释里的提及被当成"消费者"（2026-10-11，第三次"假绿"：这次是**工具**在骗人）
+
+- **现象**：`bash tools/gate.sh` 的 ⑤ 步一直打印 `✅ 无孤儿组件（33 个 export struct 均有消费者）`，但实际存在 **3 个真孤儿**（`components/SubAgentTree.ets` / `components/GoalBanner.ets` / `components/TodoPanel.ets`）—— 它们**从未被编译过**。
+- **根因**（旧脚本）：
+  ```bash
+  grep -rl --include='*.ets' -E "\b${s}\b" .   # ← 全文搜索：注释里的名字也算命中
+  ```
+  而本仓的注释习惯是**大量交叉引用**（"web `GoalBanner.tsx` 同构"、"渲染层据此展平后交给 `components/SubAgentTree`"、"原生即 `TodoPanel` 的上一条"）⇒ 只要**注释**里提过一次，就被判为"已接线"。三个孤儿各自的"假消费者"：
+  | struct | 假消费者（实际是注释） | 位置 |
+  |---|---|---|
+  | `SubAgentTree` | `core/types.ets` | `:97`、`:293` |
+  | `GoalBanner` | `core/statusfmt.ets` | `:111`、`:123`、`:138`、`:159` |
+  | `TodoPanel` | `components/GoalBanner.ets` | `:27` |
+- **为什么危险**：批次 13 的全部价值就落在这把尺子上（孤儿 ⇒ 不参与编译 ⇒ **假绿**，已两次真事故：`AssistantOrb` 的基类成员名冲突、`PluginHost` 的 `arkts-no-untyped-obj-literals`）。这把尺子自己漏，等于**防线是假的**；且**漏报方向**最坏 —— 它把"待接线"说成"已接线"，于是孤儿越积越多，每次假绿都埋一颗雷。
+- **修法**（`tools/lint/orphan-components.sh`）：先把每个 `.ets` **剥掉注释**再搜引用
+  ```bash
+  perl -0777 -pe 's{/\*.*?\*/}{}gs; s{(?<!:)//[^\n]*}{}g'   # `://` 不截断，避免打死 URL 行的后半截
+  ```
+  ⇒ 判据变为「**只在注释/文档里被提到 ⇒ 仍是孤儿**」。同时新增 `--self-test` 夹具（注释提及⇒孤儿 / 无提及⇒孤儿 / 真消费者⇒不算孤儿），把本次回归钉死。
+- **教训（比缺陷本身更重要）**：**门禁的每一把尺子都必须能被证伪**。批次 13/14/15 教的是"门禁口径之外要真机走一遍"；这一批教的是"**门禁自己说的话也可能是假的**"。凡"工具报绿"就直接采信，等于把批次 13 再犯一遍。⇒ 新增或修改任何门禁脚本，**必须**带 `--self-test` 或有判别力的 mutation 自证。
