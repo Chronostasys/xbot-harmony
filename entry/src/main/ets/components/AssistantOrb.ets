@@ -55,6 +55,7 @@ import {
   OrbParticle, orbRadius, orbOpacity, orbParticles, orbWave,
 } from '../core/orb';
 import { animBase, MOTION_BREATH_MS, MOTION_QUIET_MS } from './anim';
+import { activityVitality, vitalityGain } from '../core/motion';
 
 /** 默认直径（vp）—— 与既有「思考中」文字行（FS_CAPTION 12fp）等高量级。 */
 const ORB_DEFAULT_SIZE: number = 22;
@@ -82,6 +83,28 @@ const ORB_HALO_ALPHA: number = 0.9;
 const ORB_HALO_ALPHA_LIGHT: number = 0.7;
 /** 进场起始缩放（弹簧放大到 1）—— 与 `anim.ets` 的 spring 曲线配合。 */
 const ORB_ENTER_SCALE: number = 0.86;
+
+// ── 真实信号 → 动势（波5j：由"内容前进速率"驱动，而非定时器自嗨）────────────────
+/**
+ * 呼吸幅度受动势影响的**跨度**：`±0.18`。
+ * `vital=0.5 ⇒ ×1.0`（既有观感逐值不变）；高速 ⇒ ×1.18（更"有劲"）；停顿 ⇒ ×0.82（收敛）。
+ */
+const ORB_VITAL_AMP_SPAN: number = 0.18;
+/** 公转速度受动势影响的跨度：`±0.5`（高速明显转得快 ⇒ "它在赶活"一眼可辨）。 */
+const ORB_VITAL_SPIN_SPAN: number = 0.5;
+/** 光晕受动势影响的跨度：`±0.25`（高速更亮，停顿更暗）。 */
+const ORB_VITAL_HALO_SPAN: number = 0.25;
+/**
+ * 动势初值 = **0.5（中性）**：首帧（还没有心跳采样）⇒ 倍数恰为 1.0
+ * ⇒ 与上一轮验收过的静帧观感**逐值一致**（不会"开场先弱一下"）。
+ */
+const ORB_VITAL_INIT: number = 0.5;
+
+// ── 收束（回合结束的"落地感"）────────────────────────────────────────────────
+/** 收束静止位的缩放（略收 ⇒ 读作"落到停稳"，而不是"被掐断")。 */
+const ORB_SETTLE_SCALE: number = 0.9;
+/** 收束静止位的不透明度。 */
+const ORB_SETTLE_ALPHA: number = 0.72;
 
 // ── 态常数（**导出**：调用方与契约文档引用同一份字符串）────────────────────────
 /** 思考中 / 生成中：呼吸 + 能量脉动（既有观感）。 */
@@ -244,6 +267,13 @@ export struct AssistantOrb {
 
   /** 进场弹簧的可见性（`onAppear` 后置 true；失败兜底见 `build()` 注释）。 */
   @State entered: boolean = false;
+  /**
+   * 收束静止位（回合结束的"落地感"）。
+   * true ⇒ 可见属性缓动到 rest 值（`ORB_SETTLE_SCALE` / `ORB_SETTLE_ALPHA`），
+   * 下一回合开始（`active` 回到 true）再弹回。
+   * ⛔ 只影响 `.opacity()` / `.scale()`（**transform/opacity**）⇒ 不触发 relayout。
+   */
+  @State settled: boolean = false;
 
   private settings: RenderingContextSettings = new RenderingContextSettings(true);
   private ctx: CanvasRenderingContext2D = new CanvasRenderingContext2D(this.settings);
@@ -272,6 +302,19 @@ export struct AssistantOrb {
   private colorMix: number = 0;
   /** 当前生效帧率（态变时用于重设定时器）。 */
   private fpsCur: number = ORB_FPS;
+  /**
+   * 公转相位累加器（ms）。
+   * ⛔ **必须累加，不能用 `now * spinCur`**：增益缓动（1→2.2）时，"绝对时刻 × 缓动增益"
+   *   会让相位**跳变**（`now` 是 1e12 量级，Δgain 0.1 就是 1e11 ms 的相位跳）⇒ 粒子环瞬移。
+   *   累加 = 相位连续、速度平滑变化（物理上正确的"角速度积分"）。
+   */
+  private spinPhaseMs: number = 0;
+  /** 上一帧采样的心跳值（算"内容前进速率"的分子）。 */
+  private beatSample: number = 0;
+  /** 上一帧采样时刻（算速率的分母）。 */
+  private beatSampleAt: number = 0;
+  /** 平滑后的**动势** ∈ [0,1]（0.5 = 常态 ⇒ 倍数恰 1.0；见 `vitalityGain`）。 */
+  private vitalCur: number = ORB_VITAL_INIT;
 
   private pal(): Palette {
     return paletteOf(this.theme);
@@ -298,8 +341,49 @@ export struct AssistantOrb {
       // 心跳前进了 ⇒ 刷新静默计时（并把"从 idle 醒来"交给 syncLoop 重启定时器）
       this.lastBeat = this.orbBeat;
       this.lastBeatAt = Date.now();
+    } else if (p === 'active') {
+      // 回合结束/开始 ⇒ 收束/起势（只动 transform/opacity，见 applySettle）
+      this.applySettle(!this.active);
     }
     this.syncLoop();
+  }
+
+  /**
+   * 回合结束的**收束**（不"啪"地断掉）。
+   *
+   * 为什么需要：`active=false` 时旧实现是"立即停表 + 补画一帧" ⇒ 观感上光球在呼吸中途
+   * **被掐断**（上一轮用户可见的最后一帧没有"落地"）。这里在切换的**那一瞬**用既有动效底座
+   * `animBase()`（220ms + 全站 spring 曲线，曲线自带 overshoot ⇒ 天然"轻回弹后停稳"）
+   * 把 `.opacity()` / `.scale()` 缓动到 rest 值；下一回合开始再弹回。
+   *
+   * ⛔ **只动 transform/opacity**：不碰 width/height/margin/padding/position ⇒ 不触发
+   *   relayout，只走合成层（低端机也不掉帧）。
+   * ⛔ **不是定时器驱动**：每次回合切换只跑 **1 次** `animateTo`，与 30fps 的绘制循环无关
+   *   （绝不引入 `setInterval` 驱动的每帧 setState）。
+   */
+  private applySettle(on: boolean): void {
+    if (on === this.settled) {
+      return;
+    }
+    animateTo(animBase(), () => {
+      this.settled = on;
+    });
+  }
+
+  /** 可见缩放（**收束/进场** 都只在此处体现 ⇒ 属性变化仅限 transform）。 */
+  private visScale(): number {
+    if (!this.entered) {
+      return ORB_ENTER_SCALE;
+    }
+    return this.settled ? ORB_SETTLE_SCALE : 1;
+  }
+
+  /** 可见不透明度（同上，仅 opacity）。 */
+  private visAlpha(): number {
+    if (!this.entered) {
+      return 0;
+    }
+    return this.settled ? ORB_SETTLE_ALPHA : 1;
   }
 
   /** 是否应当持续重绘（后台/停用/降级 ⇒ 一律不跑）。 */
@@ -424,6 +508,22 @@ export struct AssistantOrb {
     this.ringCur = this.ringCur + (st.ring - this.ringCur) * k;
     const mixTarget: number = st.ringTool ? 1 : 0;
     this.colorMix = this.colorMix + (mixTarget - this.colorMix) * k;
+
+    // ── 真实信号 → 动势（波5j）────────────────────────────────────────────────
+    // 唯一连续的"真信号" = 内容**实际前进速率**（`orbBeat` 的增量 / 实际帧间隔）。
+    // ⇒ "它在真干活"可被眼睛感知：吐字快 ⇒ 呼吸更大、公转更快、光晕更亮；
+    //    停顿 ⇒ 同步收敛（在 640ms 静默窗判定 idle 之前就已"慢下来"，不会突兀）。
+    // ⛔ 不用任何自嗨波形/随机数：动势**只能**由这两个采样量决定。
+    const dBeat: number = this.orbBeat - this.beatSample;
+    this.beatSample = this.orbBeat;
+    const sdt: number = now - this.beatSampleAt;
+    this.beatSampleAt = now;
+    const vitalTarget: number = activityVitality(dBeat, sdt);
+    this.vitalCur = this.vitalCur + (vitalTarget - this.vitalCur) * k;
+    const vAmp: number = vitalityGain(this.vitalCur, ORB_VITAL_AMP_SPAN);
+    const vSpin: number = vitalityGain(this.vitalCur, ORB_VITAL_SPIN_SPAN);
+    const vHalo: number = vitalityGain(this.vitalCur, ORB_VITAL_HALO_SPAN);
+
     if (st.fps !== this.fpsCur) {
       this.fpsCur = st.fps;
       this.retuneTimer(st.fps);
@@ -434,14 +534,15 @@ export struct AssistantOrb {
     const paint: OrbPaint = this.paint;
     const ctx: CanvasRenderingContext2D = this.ctx;
 
-    // 呼吸：只对**偏移量**做幅度缩放 ⇒ amp=1 时与既有实现逐值等价
+    // 呼吸：只对**偏移量**做幅度缩放 ⇒ amp=1 且 vital=0.5 时与既有实现逐值等价
     const baseR: number = c * ORB_CORE_SCALE;
     const rRaw: number = orbRadius(now, baseR, MOTION_BREATH_MS, ORB_BREATH_MIN, ORB_BREATH_MAX);
-    const coreR: number = baseR + (rRaw - baseR) * this.ampCur;
+    const coreR: number = baseR + (rRaw - baseR) * this.ampCur * vAmp;
     const oRaw: number = orbOpacity(now, MOTION_BREATH_MS, ORB_OPACITY_MIN, ORB_OPACITY_MAX);
-    const op: number = 1 - (1 - oRaw) * this.ampCur;
-    // 公转相位（spinCur=0 ⇒ 冻结在相位 0；tool=2.2× ⇒ 同一 `ORB_SPIN_MS` 的相位推进更快）
-    const tSpin: number = now * this.spinCur;
+    const op: number = 1 - (1 - oRaw) * this.ampCur * vAmp;
+    // 公转相位：**按实际帧间隔累加**（`dt × 平滑增益`）—— 增益变化时相位连续、不跳（见字段注释）
+    this.spinPhaseMs += dt * this.spinCur * vSpin;
+    const tSpin: number = this.spinPhaseMs;
     const wobble: number = orbWave(tSpin / ORB_SPIN_MS, this.seed * 0.1, this.seed);
 
     ctx.clearRect(0, 0, s, s);
@@ -450,7 +551,7 @@ export struct AssistantOrb {
     const halo: CanvasGradient = ctx.createRadialGradient(c, c, 0, c, c, c);
     halo.addColorStop(0, paint.halo);
     halo.addColorStop(1, paint.clear);
-    ctx.globalAlpha = op * paint.haloAlpha * this.haloCur;
+    ctx.globalAlpha = op * paint.haloAlpha * this.haloCur * vHalo;
     ctx.fillStyle = halo;
     ctx.beginPath();
     ctx.arc(c, c, c, 0, 2 * Math.PI);
@@ -518,14 +619,13 @@ export struct AssistantOrb {
     Canvas(this.ctx)
       .width(this.orbSize)
       .height(this.orbSize)
-      // 进场：opacity 0→1 + scale 0.86→1（`anim.ets` 的 animBase = 220ms + 全站 spring 曲线）
+      // 进场：opacity 0→1 + scale 0.86→1（`anim.ets` 的 animBase = 220ms + 全站 spring 曲线）；
+      // 收束：回合结束 ⇒ opacity/scale 缓动到 rest（同样 animBase）—— **只有 transform/opacity**，
+      // 无任何布局属性变化 ⇒ 不 relayout。
       // ⚠️ 兜底：即使 `animateTo` 未生效，`entered` 也只会停在 false 一帧的场景不存在 ——
       //    `onAppear` 是同步回调，`animateTo` 只影响"怎么变"，不影响"变不变"。
-      .opacity(this.entered ? 1 : 0)
-      .scale({
-        x: this.entered ? 1 : ORB_ENTER_SCALE,
-        y: this.entered ? 1 : ORB_ENTER_SCALE,
-      })
+      .opacity(this.visAlpha())
+      .scale({ x: this.visScale(), y: this.visScale() })
       .onAppear(() => {
         if (!this.entered) {
           animateTo(animBase(), () => {

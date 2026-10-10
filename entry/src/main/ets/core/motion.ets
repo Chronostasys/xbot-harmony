@@ -144,3 +144,55 @@ export function motionIssues(): MotionIssue[] {
   if (!(s.overlapDuration >= 0)) { out.push(new MotionIssue('spring.overlapDuration', '需 ≥ 0')); }
   return out;
 }
+
+// ── 「真实信号 → 动势」—— 波5j：让在飞指示器由**内容实际前进速率**驱动 ─────────────
+//
+// 为什么放在这一层：动势映射必须是**可脱机单测的纯函数**（值域/单调/饱和/边界），
+// 组件只负责"每帧把两个采样量喂进来"。这样"它是不是在真干活"这件事有**唯一的判据**，
+// 而不是散在组件里的魔法系数。
+//
+// 输入信号：`deltaUnits`（自上一帧起"内容"前进了多少单位 —— 本仓 = 正文+思考的
+// 码点长度和的增量）+ `dtMs`（实际帧间隔）。输出 = 速率（单位/毫秒）。
+
+/**
+ * 速率→动势的**半饱和点**（单位/毫秒）：速率等于它时动势恰为 0.5。
+ * 取 0.02 单位/ms ≈ 20 码点/秒 —— 正是"模型正常吐字"的量级（中文 ~15-40 字/秒），
+ * 所以**常态在 0.5 附近**、明显加速才 >0.7、停顿掉到 <0.2。
+ */
+export const MOTION_RATE_HALF: number = 0.02;
+
+/** 夹到 `[0,1]`（NaN/负值 ⇒ 0；>1 ⇒ 1）。 */
+export function clamp01(x: number): number {
+  if (!(x > 0)) {
+    return 0;
+  }
+  return x > 1 ? 1 : x;
+}
+
+/**
+ * 动势 ∈ `[0,1)`：`rate / (rate + MOTION_RATE_HALF)`（饱和曲线）。
+ *
+ * 性质（测试逐条钉住）：`≤0` 的增量或 `≤0` 的间隔 ⇒ **0**（"没前进"就是没前进，
+ * 不用旧值蒙混）；对 `rate` **严格单调递增**；上界 <1（永不到 1，避免"顶格"呆板）；
+ * `rate = MOTION_RATE_HALF` ⇒ 恰 0.5（半饱和点的定义）。
+ */
+export function activityVitality(deltaUnits: number, dtMs: number): number {
+  if (!(deltaUnits > 0) || !(dtMs > 0)) {
+    return 0;
+  }
+  const rate: number = deltaUnits / dtMs;
+  return rate / (rate + MOTION_RATE_HALF);
+}
+
+/**
+ * 动势 → **倍数**（对称、有界、**在中点恰为 1**）：`1 + span * (vital - 0.5) * 2`。
+ *
+ * ⛔ 关键设计：`vital = 0.5` ⇒ 倍数 **恰为 1.0** ⇒ **既有观感逐值不变**。
+ * 于是"动势"只在两端起作用：高速 ⇒ 略强（1+span）、停顿 ⇒ 略弱（1-span）。
+ * 这条性质让本波的新增不会动到前一轮（`5ff1c7c`）已经验收过的静帧观感。
+ */
+export function vitalityGain(vital: number, span: number): number {
+  const v: number = clamp01(vital);
+  const sp: number = span > 0 ? span : 0;
+  return 1 + sp * (v - 0.5) * 2;
+}
