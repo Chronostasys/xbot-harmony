@@ -206,3 +206,65 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 ⚠️ 这些面板若都塞进 `pages/Index.ets`（5200 行、**热文件**）会锁死并行度 ⇒ 应各自独立成
 `components/Settings*.ets`，`Index.ets` 只做入口注入。
 
+## 10. 用户可见功能面 **差距清单**（2026-10-11 全量调研，任务4 波5）
+
+> 判据：每条都能 `grep` 复核。**已迁移的不重复登记**（通知链路 / JS 桥地基 / 压缩分隔行 /
+> 用量环 / 消息导航 / 设置 tools·llm·agent / 强调色·md 主题·星标 / 区域窗口 / 键盘 inset）。
+> 状态口径：**已迁** = 有真实实现；**部分** = 有同类能力但缺 web 的形态/交互；**未迁** = 无。
+> 「需动哪个文件」列写的是**落地该功能必须碰的**文件（`Index.ets` = 必须接线）。
+
+| web 功能 | 入口 file:line | 现状 | 依赖 | 需动哪个文件 |
+|---|---|---|---|---|
+| **SubAgent 进度树** | `components/agent/SubAgentProgressTree.tsx:27` | **未迁（数据已全、零渲染）** ⚠️ | 无 | ✅ 已交付 `core/subagent.ets` + `components/SubAgentTree.ets`；接线 `components/MessageRow.ets` |
+| Todo 拉出面板 | `components/agent/TodoPullOut.tsx:28` | 部分（只有状态**文本** `core/statusfmt.ets:43,57`；无列表/交互） | 无 | 新增 `components/TodoPanel.ets` + `Index.ets` |
+| Goal 横幅 | `components/agent/GoalBanner.tsx:30` | 部分（`core/statusfmt.ets:72` 的状态行） | 无 | 新增 `components/GoalBanner.ets` + `Index.ets` |
+| 消息操作菜单（复制变体/编辑/回退） | `components/agent/MessageActions.tsx:31` | 部分（只有长按整条复制 `core/msgops.ets:11`） | 无 | 扩 `core/msgops.ets` + `Index.ets` 长按菜单 |
+| 消息注释/高亮 | `components/agent/MessageAnnotations.tsx:47`、`lib/messageAnnotations.ts:32` | 未迁 | 本地存储 | 新增 `core/msgannot.ets` + 组件 |
+| 选区工具条 | `components/agent/SelectionToolbar.tsx:40` | 部分（依赖 tiptap 编辑器） | 无 | **存疑**（原生系统选区是否已够用需真机判断） |
+| 图片灯箱 | `components/agent/Lightbox.tsx:21` | **已迁**（`pages/Index.ets:5244` `ImageViewer`） | — | — |
+| Mermaid 图 | `components/agent/MermaidDiagram.tsx:54` | 未迁 | mermaid.js | ⛔ **架构不适用** ⇒ ArkWeb |
+| GenUI 面板 | `components/agent/GenUIPanel.tsx:36` | 未迁 | `sucrase`+`new Function` | ⛔ **架构不适用**（ArkTS 禁动态求值）⇒ ArkWeb |
+| StagingTray（待发暂存区） | `components/agent/StagingTray.tsx:314` | 未迁 | 无 | 新增组件 + `Index.ets` |
+| 会话视图条 | `components/session/SessionViewBar.tsx:34` | 未迁 | 无 | 新增 `core/sessionview.ets` + 组件 |
+| 新建会话对话框 | `components/session/NewSessionDialog.tsx:34` | 部分 | REST/RPC | `Index.ets` |
+| 渠道选择 | `components/session/ChannelPicker.tsx:53` | 部分（`core/sendmode.ets`/`sessiongroup.ets`） | — | **存疑**（手机端是否需要渠道切换） |
+| 路径选择（cwd） | `components/session/PathPicker.tsx:36` | 部分（cwd 在 `core/store.ets`，无选择器） | fs RPC | 新增组件 + `Index.ets` |
+| 会话搜索 | `components/session/SessionSearch.tsx:36` | **部分**（`core/sessionops.ets:72 sessionMatches` + 命中行 `Store.search` + `Index` 的 `SearchHitsSheet`） | REST | 已够用？待核 |
+| 会话项（fork/星标/等待态） | `components/session/SessionItem.tsx:66` | 部分（`core/sessionops.ets` 重排/`stars.ets` 星标） | RPC | — |
+| 多标签（tabs） | `lib/sessionTabs.ts`、`hooks/useTabManager.ts` | 未迁 | 无 | **存疑**（手机端价值低） |
+| 文件树 / Monaco / Markdown 预览 | `components/sidebar/FileExplorer.tsx:34`、`components/file/MonacoEditor.tsx:138`、`components/file/MarkdownPreview.tsx:86` | 未迁 | fs RPC | ⛔ **架构不适用** ⇒ ArkWeb（`docs/WEB-PARITY.md` §8.4） |
+| 终端 | `components/sidebar/TerminalList.tsx`、`lib/terminalWS.ts` | 未迁 | WS | ⛔ **架构不适用**（xterm.js）⇒ ArkWeb |
+| 任务面板 | `components/sidebar/TasksPanel.tsx:26` | 未迁 | RPC | 待定（需服务端能力确认） |
+| 会话信息面板 | `components/sidebar/SessionInfo.tsx` | 部分（`Index` 的 `StatusSheet`） | — | — |
+| Dockview 多面板布局 | `workspace/DockviewContainer.tsx:1` | 未迁 | — | ⛔ **架构不适用** ⇒ ArkWeb |
+| 设置 About | `components/settings/SettingsAbout.tsx:92` | 未迁 | 版本号 | 新增 `components/SettingsAbout.ets` + `SettingsPanel.ets`（**S**） |
+| 设置 General | `components/settings/SettingsGeneral.tsx:32` | 部分（`Index` 的 `PrefsSheet`） | — | — |
+| 设置 Layout | `components/settings/SettingsLayout.tsx:39` | 未迁 | 本地偏好 | **存疑**（原生是否有「面板布局」概念） |
+| 设置 Developer | `components/settings/SettingsDeveloper.tsx:20` | 未迁 | — | 新增组件（**S**） |
+| 设置 Plugins | `components/settings/SettingsPlugins.tsx:60` | 未迁 | `web_plugin_list` | 等 PluginHost 接线后 |
+| 设置 Channels | `components/settings/SettingsChannels.tsx:118` | 未迁 | RPC（admin） | 新增组件（**M**，契约见 §9.2.1） |
+| 设置 Storage / WebUsers | `SettingsStorage.tsx:57` / `SettingsWebUsers.tsx:31` | **他人线进行中** | RPC（admin） | — |
+| LLM 完整 CRUD / 导入导出 | `components/settings/SettingsLLM.tsx`、`llm-console.tsx` | 未迁（只做了读+启停+默认） | RPC | 新增组件（**L**） |
+| 插件面板体系 / 贡献点 | `plugin-api/`、`plugin-runtime/panelRegistry.ts` | 地基已迁（`core/pluginhost.ets` + `core/webbridge.ets`） | RPC+ArkWeb | `pages/Index.ets` 接线 + 修 `PluginPanelInfo.url` 语义（§8.3） |
+| 内置插件（git-fancy/git-info/iteration-stats/session-stats/ssh-runner/ambience/skill-manager） | `plugins/*` | 未迁 | — | ArkWeb（`plugins/` 随 web bundle） |
+| `web_widgets`/`plugin_widgets` 事件 | `plugins/WidgetZone.tsx` | 未迁，**现状直接忽略** | — | `core/store.ets`（至少不静默丢） |
+| Ambience 壁纸/主题 | `ambience/AmbienceRoot.tsx:40` | 未迁 | 本地偏好 | 新增 `core/ambience.ets` + 组件 |
+| **命令路由 / 深链**（`xbot://settings.open?section=llm`） | `lib/commandRouter.ts:61` | 未迁 | 无 | 新增 `core/commandrouter.ets`（**纯逻辑、S**） |
+| **最近工作目录** | `lib/recent-workdirs.ts:12` | 未迁 | 本地偏好 | 新增 `core/recentdirs.ets`（**纯逻辑、S**） |
+| 移动端导航状态 | `lib/mobileNav.ts:26` | 未迁 | — | **存疑**（原生有独立外壳） |
+| Web 缓存（TTL） | `lib/webCache.ts:4` | 部分（`core/config.ets` 偏好缓存） | — | **存疑** |
+| i18n 文案表（zh/en/ja） | `i18n/index.ts` | 部分（`core/i18n.ets` **只**做 locale 读取；UI 文案硬编码中文） | — | 大重构（100+ 处字符串） |
+| PWA / SW 更新提示 | `components/PWAUpdatePrompt.tsx:13`、`UpdateReminder.tsx:27`、`SWUpdateButton.tsx` | ⛔ **不适用** | — | —（无 Service Worker） |
+| 注册页 | `pages/RegisterPage.tsx` | 未迁 | REST | **存疑**（登录已迁 `Index.LoginView`） |
+| 分享页 | `pages/SharePage.tsx:33` | 未迁 | REST token | 待定（手机端价值待判） |
+
+**结论（给调度用）**：
+- 「⛔ 架构不适用」共 6 类（GenUI / Mermaid / 文件树·Monaco·预览 / 终端 / Dockview）——
+  **不是遗漏**，应走 ArkWeb 逃生舱（§8.4）。
+- 「纯逻辑可独立落地（不碰 `pages/`）」的**现成候补**：`命令路由/深链`、`最近工作目录`、
+  `消息注释`、`会话视图条`、`Todo 面板逻辑`、`Goal 逻辑` —— 都是 S 级、可单测。
+- 「必须动 `pages/Index.ets` 才能落地」的：Todo/Goal 面板、StagingTray、PathPicker、
+  插件接线、设置剩余分区 —— **全部要等 `Index.ets` 释放**。
+- 已本波交付的 `SubAgentTree` + `core/subagent.ets` 属**数据已就绪、只差接线**的最高性价比项。
+
+
