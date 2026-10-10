@@ -292,22 +292,49 @@ class ChatStore {
      * ⚠️ 失败时**必须移除乐观插入的那一行**：否则界面上会留下一条"从未发出"的消息
      * （用户看到的就是"发了但没反应/重复"）。失败原因原样抛给调用方展示（含服务端文案）。
      */
-    async send(text, uploadKeys, fileNames, fileSizes) {
-        const row = this.appendLocalUser(text);
-        this.busy = true;
+    /**
+     * 发送消息。
+     *
+     * `interrupt=true` ⇒ **⚡ 插话**：服务端把它注入到正在跑的 turn（下一个工具边界作为
+     * 合成 `user_interrupt` 工具结果喂给模型），**不排队、不产生 user 行、不带 turn_id**。
+     * 因此插话路径**不加乐观行**（否则会留下一条永远等不到后端确认的幽灵消息）。
+     * 会话空闲时服务端会退化为普通发送，返回值会如实反映（`interrupted=false`）。
+     *
+     * @returns 是否真的插话成功（true=已注入当前回合）
+     */
+    async send(text, uploadKeys, fileNames, fileSizes, interrupt) {
+        const isInterrupt = interrupt === true;
+        let row = undefined;
+        if (!isInterrupt) {
+            row = this.appendLocalUser(text);
+            this.busy = true;
+        }
         this.onUpdate();
         try {
-            await this.http.post('/api/message', new MessageBody(this.channel, this.currentChatId, text, 0, uploadKeys, fileNames, fileSizes));
+            const raw = await this.http.post('/api/message', new MessageBody(this.channel, this.currentChatId, text, 0, uploadKeys, fileNames, fileSizes, isInterrupt));
+            if (isInterrupt) {
+                return true;
+            }
+            // 服务端可能把插话退化成普通发送（会话当时空闲）—— 按 ack 如实回执
+            try {
+                const ack = JSON.parse(raw);
+                return ack.interrupted === true;
+            }
+            catch (e) {
+                return false;
+            }
         }
         catch (e) {
-            // 回滚：把这条乐观行摘掉（并复位忙碌态由调用方/SSE 权威决定）
-            for (let i = this.rows.length - 1; i >= 0; i--) {
-                if (this.rows[i].id === row.id) {
-                    this.rows.splice(i, 1);
-                    break;
+            // 回滚：把这条乐观行摘掉（插话路径没有乐观行，只需复位忙态）
+            if (row !== undefined) {
+                for (let i = this.rows.length - 1; i >= 0; i--) {
+                    if (this.rows[i].id === row.id) {
+                        this.rows.splice(i, 1);
+                        break;
+                    }
                 }
+                this.busy = false;
             }
-            this.busy = false;
             this.onUpdate();
             throw e;
         }
@@ -711,7 +738,7 @@ class HistoryBody {
 }
 exports.HistoryBody = HistoryBody;
 class MessageBody {
-    constructor(channel, chatId, content, turnId, uploadKeys, fileNames, fileSizes) {
+    constructor(channel, chatId, content, turnId, uploadKeys, fileNames, fileSizes, interrupt) {
         this.channel = channel;
         this.chat_id = chatId;
         this.content = content;
@@ -719,6 +746,7 @@ class MessageBody {
         this.upload_keys = uploadKeys;
         this.file_names = fileNames;
         this.file_sizes = fileSizes;
+        this.interrupt = interrupt === true ? true : undefined;
     }
 }
 exports.MessageBody = MessageBody;

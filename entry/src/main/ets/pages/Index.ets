@@ -7,6 +7,9 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
 import { ChatStore } from '../core/store';
+import {
+  isInterruptSend, MODE_INTERRUPT, MODE_QUEUE, modeHint, modeLabel, sendToast, toggleMode,
+} from '../core/sendmode';
 import { mdCacheStats, MdCacheStats } from '../core/markdown';
 import { displayContent, displayReasoning, streamStatsText } from '../core/streammerge';
 import {
@@ -198,6 +201,12 @@ struct Index {
   /** 正在切换的模型条目（显示 loading，防连点） */
   @State modelBusy: string = '';
 
+  /**
+   * 发送模式：`queue`（排队）| `interrupt`（⚡ 插话）。
+   * busy=false 时**必须自动复位**（Web gotcha：否则用户以为在发普通消息，实际插进了别人的回合）。
+   */
+  @State sendMode: string = MODE_QUEUE;
+
   // ── 长按菜单（P5 消息操作：消息 / 迭代 / 工具 / 链接）──
   @State ctxOpen: boolean = false;
   /** user | row | iter | tool */
@@ -359,6 +368,10 @@ struct Index {
     this.todos = store.todos.slice();
     this.goal = store.goal;
     this.llmCfg = store.llmConfig;
+    // busy 结束 ⇒ 发送模式复位（插话只对"正在跑"的会话有意义）
+    if (!store.busy && this.sendMode !== MODE_QUEUE) {
+      this.sendMode = MODE_QUEUE;
+    }
     const ask: AskUserPrompt | null = store.askUser;
     if (ask !== this.askUser) {
       this.askUser = ask;
@@ -961,11 +974,18 @@ struct Index {
     const keep: AttachItem[] = this.attachments;
     this.draft = '';
     this.attachments = [];
+    const busyBefore: boolean = this.busy;
+    const interrupt: boolean = isInterruptSend(this.busy, this.sendMode);
     try {
+      let interrupted: boolean = false;
       if (keys.length > 0) {
-        await store.send(content, keys, names, sizes);
+        interrupted = await store.send(content, keys, names, sizes, interrupt);
       } else {
-        await store.send(content);
+        interrupted = await store.send(content, undefined, undefined, undefined, interrupt);
+      }
+      const note: string = sendToast(interrupted, busyBefore);
+      if (note.length > 0) {
+        this.toast(note);
       }
     } catch (e) {
       // 失败：草稿与附件都还给用户（store 已回滚那条乐观行，界面不会留幽灵消息）
@@ -1467,6 +1487,20 @@ struct Index {
           .onSubmit(() => {
             this.sendDraft();
           })
+        if (this.busy) {
+          // ⚡ 插话 / 排队 切换（只在忙碌时出现；点击切换并提示语义）
+          Text(modeLabel(this.sendMode))
+            .fontSize(12)
+            .fontColor(this.sendMode === MODE_INTERRUPT ? '#FDE68A' : '#9CA3AF')
+            .padding({ left: 8, right: 8, top: 8, bottom: 8 })
+            .backgroundColor('#111827')
+            .borderRadius(6)
+            .border({ width: 1, color: this.sendMode === MODE_INTERRUPT ? '#92400E' : '#1F2937' })
+            .onClick(() => {
+              this.sendMode = toggleMode(this.sendMode);
+              this.toast(modeHint(this.sendMode));
+            })
+        }
         Button(this.busy ? '停止' : '发送')
           .constraintSize({ minHeight: 42 })
           .backgroundColor(this.busy ? '#7F1D1D' : '#7C3AED')
