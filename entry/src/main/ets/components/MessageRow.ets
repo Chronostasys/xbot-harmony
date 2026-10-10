@@ -11,7 +11,7 @@
  *   · 三个 @Builder（Assistant/Iteration/ToolPill）与 7 个 helper 由页面**整块搬入**（原样语义）。
  */
 import { ChatRow, HistoryIteration, ToolProgress } from '../core/types';
-import { displayContent, displayReasoning, rowIsEmpty } from '../core/streammerge';
+import { displayContent, displayReasoning, rowIsEmpty, tailOwnedIteration } from '../core/streammerge';
 import { runeCount } from '../core/typewriter';
 import { Palette, paletteOf } from '../core/theme';
 import { MarkdownView } from './MarkdownView';
@@ -60,11 +60,7 @@ export struct MessageRowView {
    * 这正是"每个迭代完成就消失、永远只能看到最新迭代"的修复点。
    */
   private isTailOwned(it: HistoryIteration): boolean {
-    const n: number = this.row.iterations.length;
-    if (this.row.isLive !== true || n === 0) {
-      return false;
-    }
-    return it.iteration === this.row.iterations[n - 1].iteration;
+    return tailOwnedIteration(this.row, it);
   }
 
   private toolKey(turnID: number, iter: number, name: string): string {

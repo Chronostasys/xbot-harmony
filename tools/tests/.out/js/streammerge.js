@@ -10,6 +10,7 @@ exports.applyStreamFrame = applyStreamFrame;
 exports.applyStructured = applyStructured;
 exports.displayContent = displayContent;
 exports.isStaleSeqEvent = isStaleSeqEvent;
+exports.tailOwnedIteration = tailOwnedIteration;
 exports.rowIsEmpty = rowIsEmpty;
 exports.displayReasoning = displayReasoning;
 exports.isIdleAction = isIdleAction;
@@ -205,6 +206,21 @@ function isStaleSeqEvent(lastSeq, seq, maxKnownIter, p) {
         }
     }
     return true;
+}
+/**
+ * 该迭代是否由"列表尾的 live 块"承担（= live 行的**最后一个迭代**，即进行中的那个）。
+ *
+ * ⛔ 真机事故（"每个迭代完成后都消失，永远只能看到最新的迭代"）：当时把 live 行
+ * **整行排除**出列表，只让尾块渲染最后一个迭代 ⇒ live 行里**已完成的迭代**无处渲染，
+ * 完成一个消失一个。修复 = live 行**留在列表**里渲染其已完成迭代，只有**最后一个**
+ * 交给尾块 ⇒ 用本判据做互斥（同一迭代绝不画两遍）。
+ */
+function tailOwnedIteration(row, it) {
+    const n = row.iterations.length;
+    if (row.isLive !== true || n === 0) {
+        return false;
+    }
+    return it.iteration === row.iterations[n - 1].iteration;
 }
 /** 行是否"完全空"（无正文、无思考、无工具 ⇒ 渲染出来就是一张空气泡卡片）。 */
 function rowIsEmpty(row) {
