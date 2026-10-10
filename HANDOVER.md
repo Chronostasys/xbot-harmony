@@ -1,122 +1,77 @@
-# HANDOVER · 真机渲染问题排查交接
+# HANDOVER · 原生鸿蒙客户端（xbot-harmony）
 
-> 目标（用户）：**"渲染整个都是错乱的，完全用不了" —— 彻底修好，每个页面都要截图分析。**
-> 状态：**代码侧能做的已全部做完并验证；只剩"拿到真机画面"这一步需要用户配合。**
-> 最后更新：2026-10-09 ｜ 仓库：[Chronostasys/xbot-harmony](https://github.com/Chronostasys/xbot-harmony)
+> 仓库：<https://github.com/Chronostasys/xbot-harmony>（public）
+> 架构：**混合** —— ArkUI 原生渲染主链路（会话/消息/迭代/工具/输入），ArkWeb 承载结构性不可移植部分
+> （插件 ESM UI、GenUI 的求值、终端、编辑器）。
+> 最后更新：2026-10-10
 
 ---
 
-## 一、当前唯一阻塞：拿不到真机画面
+## 一、当前状态（一句话）
 
-本机能跑鸿蒙**编译/打包/静态检查/纯逻辑测试**，但**渲染不了 Stage 应用**（三条路都走到尽头，均有证据）：
+**代码侧问题已全部修完并验证；已拿到真机画面（登录页渲染正常）；正在等用户对新包复测**
+（飞书会话能否打开 / 长会话是否变顺 / 登录后重走查）。
+
+最新可安装产物（未签名，需 DevEco 自动签名）：
+
+```
+dist/xbot-harmony-release-unsigned.hap   262462 B   sha256 4f259e2f07a91cf0fc91b505dfeaba3a85ffb26cbc27a6118c7eb58b86884c68
+dist/xbot-harmony-debug-unsigned.hap     581184 B   sha256 a8ee383f44cd92babccf97cbba671ab9f32183316b151b6646a5a40730370361
+```
+
+---
+
+## 二、用户报告过的问题 → 根因 → 修法（全部已修，均有守护）
+
+| 用户原话 | 根因（真机/服务端实证） | 修法 / 守护 |
+|---|---|---|
+| 「渲染整个都是错乱的，完全用不了」 | **流式帧被当成结构化事件**：服务端把只带流式字段的消息改型为 `stream_content`，其 `iteration==0`、无 `tools`；客户端却读 `content`（应为 `stream_content`）并按 `iteration ?? 0` 写入 ⇒ 流式文本读不到、工具 pill 一闪就没、冒出**幽灵「迭代 0」** | `core/streammerge.ets` 分两条路：流式帧归**在飞迭代**（只增不减）、结构化帧按号 upsert 且**缺字段不清空**；44 条守护 |
+| （同上） | **`SessionEvent.Action` 误读为 `state`** ⇒ 会话状态更新整条是死代码（收尾后可能停在"运行中/停止"） | `core/streammerge.ets` 的 `isIdleAction`/`isBusyAction`/`shouldReloadHistory`；7 条守护 |
+| （同上） | **宽表格**：真实会话里 ≥5 列表格出现 44 次，而等宽网格在手机上把每列压成 ~40dp 竖条 | 列数决定形态：≤4 列网格、≥5 列堆叠；18 条守护 |
+| （同上） | **不可断超长 token**（实测最长 823 字符）横向撑破容器 | 聊天文本全面 `wordBreak(BREAK_ALL)`（代码块仅在允许换行时） |
+| 「渲染很卡、交互也很差」 | ① `List` + `ForEach` **一次性构建全部行**（单行 ≤16 迭代块 × Markdown）；② 流式期间**每个 SSE 事件都同步一次 UI** | ① 行窗口（默认 12 行 + 「显示更早的 N 条」）；② store→UI **每帧至多一次**合并调度 |
+| 「有些会话打不开（非 web channel 的）」 | `channel` 被硬编码为 `'web'`，而会话列表含**飞书**会话（`oc_`/`ou_` 前缀）⇒ `/api/history` 必 404 | `openSession` 按会话自身渠道（`channelForChat`）；抽屉标注来源；20 条守护 |
+| 走查上传的图全是登录页 | 走查在**未登录**状态跑 ⇒ 聊天页组件不存在，几何全 0 且无法判读 | 未登录拒绝走查；几何文本加「当前页面=」；0 尺寸显式标注 `⚠未布局`；登录页加 id |
+
+其它已修：行 key 含 `rev`（ArkUI 按 key 复用）、行 id 全局单调计数器、`Text` 内条件渲染改 TS 侧预计算、
+Markdown 块 key 内容派生、各列表 keyGenerator、ArkWeb `@Watch`、关闭沉浸式、23 处 `height()`→
+`constraintSize(minHeight)`（字体缩放）、单 turn 迭代上限 16 + 展开、加载失败重试、自动滚底门控、
+键盘避让 `RESIZE`、`MarkdownView` 解析缓存（渲染路径禁止裸解析，CI 门禁 + 变异自证）、
+三个主按钮补品牌配色、引用块竖条改边框（父容器定高时百分比高度无参照）。
+
+另外修了**测试基座**缺陷：6 个测试文件缺 `process.exit` ⇒ `run.sh`（`set -e` 顺序执行）**永远卡在
+`regions`**，后面 5 个文件从未执行（长期被误判为"全绿"）。现套件跑完 **173 条断言**。
+
+---
+
+## 三、为什么本机渲染不了（三条路均已走到尽头，有证据）
 
 | 路 | 结论 | 证据 |
 |---|---|---|
-| 官方 Linux 预览器 | ❌ Stage ability 路径**未实现** | `ide_previewer/jsapp/rich/JsAppImpl.cpp:408` → `JsApp::Run ability start failed. Linux is not supported.` |
-| 预览器（绕开 ability） | ❌ 无头容器渲染服务不可用 | 日志 `RSUIDirectory::AttachSurface not ready`；抓到 7 帧**恒为空白**（连最小绿色测试页一样） |
-| QEMU 虚拟机 | ❌ 官方只发**真机板子镜像**（dayu200/hispark），无 qemu 镜像 | `repo.huaweicloud.com/openharmony/os/5.1.0-Release/` 目录清单 |
-| DevEco 模拟器 | ❌ 仅 Win/macOS | 官方系统要求 |
+| 官方 Linux 预览器 | ❌ Stage ability 未实现 | `ide_previewer/jsapp/rich/JsAppImpl.cpp:408` → `JsApp::Run ability start failed. Linux is not supported.` |
+| 预览器（绕开 ability，虚拟屏取帧） | ❌ headless 与 **Xvfb + Mesa EGL** 都试过仍无画面 | `RSUIDirectory::AttachSurface not ready` + `RSRenderNode::InitRenderParams failed`；帧唯一色数=1、md5 恒定（`aebde859…`） |
+| QEMU 跑鸿蒙虚拟机 | ❌ 官方无 qemu 镜像 | 镜像站 `os/` 全量目录逐个搜 `qemu/x86/vbox` 零命中；`5.1.0-Release/` 只有 dayu200/hispark 真机板；DevEco 模拟器仅 Win/macOS |
 
-> 已自建 shim（补 5 个漏发共享库）+ 反查出完整参数契约 + 帧协议（40 字节头 + JPEG）+ WS 抓帧客户端，
-> 全部记录在 `tools/preview/README.md`（将来官方支持 Stage 时可直接复用）。
-
-**唯一可行通路：真机 + `hdc`**（`hdc` 在本机工具链里）。为把"需要用户配合"降到最低，已实现
-**应用内自动走查并回传**（见下），用户只需：装诊断包 → 打开 App 等十几秒。
-
-⚠️ **当前已知的外部障碍**：用户手机**代理客户端故障**（订阅 URL 为空/规则语法错/经代理连服务端超时），
-导致 App 到服务端不通 ⇒ 回传通道走不了。服务端本身实测正常（`HTTP 200`，直连 1.79s）。
+⇒ 可用通路只有**真机**。应用内已内置取证：`componentSnapshot` 截图 + `uploadBytes` 回传 +
+`componentUtils.getRectangleById` 几何采集（自检页还有一段**可长按复制**的取证文本，零网络可用）。
 
 ---
 
-## 二、已完成的修复（都在 master）
+## 四、下一步（按优先级）
 
-### 2.1 ArkUI 渲染正确性（"错乱"的直接病因）
+1. **等用户复测**上述三条；若长会话仍卡 ⇒ 把 `List` 换成 `LazyForEach` + `IDataSource`
+   （需把"加载更早/busy 指示器"两个非消息项移出 `List` —— LazyForEach 与普通子项混用有约束，属结构性改动）。
+2. **补逐行几何**：给每行加 `xbot-row-N` id，采集行高与右边界 ⇒ 让 R5（横向溢出）/R6（高度爆炸）
+   一次走查即可判读（判据表见 `docs/UI-AUDIT-CHECKLIST.md` 的 R1–R10）。
+3. 走查完成后把 `Index.ets` 的 `AUTO_AUDIT_ON_LAUNCH` 改回 `false`。
+4. 需签名材料（`.p12/.cer/.p7b`）才能真正分发；架构已支持 CLI 签名（`hap-sign-tool.jar` 在
+   `command-line-tools/sdk/default/openharmony/toolchains/lib/`）。
 
-| # | 问题 | 后果 | 修法 |
-|---|---|---|---|
-| 1 | **ForEach key 不变但数据原地改** | ArkUI 按 key 复用列表项 ⇒ **界面陈旧/半新半旧**（最可能主因） | `ChatRow.rev` 渲染版本号 + key = `${id}#${rev}`，8 处改动点接上 `touch(row)` |
-| 2 | 行 id 可能重复（`a-<消息id>` vs `a-<turnID>`、同毫秒 `Date.now()`） | key 重复 ⇒ 组件复用错位 | 全局单调计数器 `nextRowID()` |
-| 3 | `Text(){ForEach(){ if/else }}` 条件渲染 | ArkUI 的 `Text` 只收 Span 子组件，条件渲染不保证支持 | TS 侧预计算样式（`MdInlineStyle`/`inlineStyles`），构件零分支 |
-| 4 | Markdown 块 key 含下标 | 流式增长 ⇒ key 漂移 ⇒ 抖动错乱 | `MdBlock.key` 内容派生 |
-| 5 | 会话/队列/插件 key 无内容指纹 | 改名/重排后显示旧内容 | key 加内容指纹 |
-| 6 | 标题内联 `ForEach` 缺 keyGenerator | 官方 `codelinter` 报 `foreach-args-check` | 补 keyGenerator |
-| 7 | ArkWeb 面板普通成员 `url` | 插件 A→B 时组件不重建 ⇒ 停在旧页 | `@Prop @Watch` + `controller.loadUrl` |
-| 8 | `setWindowLayoutFullScreen(true)` 且无安全区避让 | 顶部被状态栏压住、整体错位 | 关闭沉浸式（交系统做内边距） |
+## 五、知识文档（改渲染/协议前必读）
 
-### 2.2 长会话可用性（"完全用不了"的强候选）
-
-**单 turn 迭代渲染爆炸**：一个 turn 可能有上千迭代（每次工具调用一个），原先全部渲染（每个还带完整
-Markdown）⇒ DOM 上千、卡到没法用。现：默认只渲染**最近 16 个**，上方一行「↑ 已折叠更早的 N 个迭代（点击展开全部）」。
-（与 xbot Web 端 `docs/agent/gotchas-web-frontend.md` 的"迭代级窗口化"同源经验。）
-
-### 2.3 网络故障不再表现为"一片空白"
-
-代理/网络不通时 `loadHistory` 失败 ⇒ 聊天页空列表。现渲染一张卡片：**失败原因 + 常见成因 + 「重试」**
-（`retryLoad`）。用户看到的是可读原因，而不是"什么都没有"。
-
----
-
-## 三、真机画面回传通道（已实现并本地验证）
-
-1. **应用内**：`设置 →「① 走查并上传所有页面截图」`；另有诊断开关
-   `AUTO_AUDIT_ON_LAUNCH = true`（登录**与冷启动免登录**两条路径都会在数秒后自动走查）。
-2. **走查内容**：依次打开 聊天 / 会话抽屉 / 设置 / 渲染自检 / 队列 / 能力面板 / 回到聊天，
-   每页 `componentSnapshot.get('xbot-root')` → `image.createImagePacker().packing(PNG)`
-   → `XbotHttp.uploadBytes`（手搓 multipart）上传到服务端；**逐页 try/catch**，一页失败不中断整轮。
-3. **版面几何**：每页用 `componentUtils.getRectangleById()` 采集 7 个关键组件的 x/y/w/h + 屏幕尺寸，
-   最后在 `finally` 中必传 `audit-layout.txt`（**不依赖图像**，图看不清时靠它定位）。
-4. **接收侧**：`tools/device/collect_uploads.sh`
-   - 按上传顺序推断页名（01-chat … 07-chat-back）；
-   - 直接打印 `audit-layout.txt`；
-   - **自动判读**：对照基线检查（根尺寸/顶栏高/列表高是否为 0/输入区是否在屏外/浮层是否出现），
-     输出「无异常 ✅」或逐条异常。
-5. **判读基线**：`docs/UI-AUDIT-CHECKLIST.md`（每页应有几何 + 常见异常签名 + 修复原则）。
-
----
-
-## 四、当前已验证状态（可复现）
-
-```
-hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon   → BUILD SUCCESSFUL
-tools/tests/run.sh                                                                      → 55 passed / 0 failed
-bash $CMDLINE_TOOLS/codelinter/bin/codelinter entry/src/main/ets -f json -o lint.json   → 正确性告警 0
-                                                                                          （仅 15 条性能提示）
-git status --short                                                                      → 干净
-```
-产物：`dist/xbot-harmony-{release,debug}-unsigned.hap`（`minAPIVersion=50000012`，未签名 ⇒ 安装前需签名）。
-
----
-
-## 五、下一步（拿到输入后立刻执行）
-
-1. 用户**修好手机代理**（或给 `pivotlang.tech` 加直连/绕过规则）→ 装诊断包 → 打开 App 等十几秒；
-   **或**用户直接发两张截图（`设置 → 渲染自检` 整页 + 出问题的聊天页）。
-2. 我执行 `tools/device/collect_uploads.sh` → 拿到 7 页截图 + 几何判读。
-3. 按 `docs/UI-AUDIT-CHECKLIST.md` **逐页**判读：先看几何数值定位"哪个容器约束错了"，再看图确认视觉。
-4. 一次只改一处 → 让用户再走查一次 → **同页对比**，直到每页正常。
-5. 排查完成后把 `AUTO_AUDIT_ON_LAUNCH` 改回 `false`。
-
----
-
-## 六、最终验证快照（本次推送后重跑，全绿）
-
-| 检查 | 结果 |
-|---|---|
-| 编译 release / debug | **BUILD SUCCESSFUL** ✓✓ |
-| 纯逻辑测试 | **61 passed / 0 failed**（http 7 · keys 6 · markdown 22 · rowids 6 · serverurl 14 · upload 6） |
-| 官方 `codelinter` | 正确性相关告警 **0** ✓（仅 19 条 `hp-arkui-use-local-var-to-replace-state-var` 性能提示） |
-| 产物一致性 | 新增文案（`渲染自检`/`已折叠更早的`/`加载会话失败`）**在包内** ✓（注意：`strings` 默认只出 ASCII，中文需 `grep -a` 匹配 UTF-8，否则假阴性） |
-| 工作区 | 干净 ✓ |
-
-```
-dist/xbot-harmony-release-unsigned.hap   233,770 B   sha256 b6924c9d50c58d57d281361c923598fe5c93a08cc45ec27ebbfd0fd423f13af7
-dist/xbot-harmony-debug-unsigned.hap     507,806 B   sha256 a9855f1a1390ee01fb68b674b5e14593c1372ecc12c8ec6d1ac207599eb626d5
-```
-
-## 七、本轮新增修复（第 9–12 项，与 2.1/2.2 同族）
-
-| # | 问题 | 修法 |
-|---|---|---|
-| 9–10 | **承载文字的容器写死高度**，系统字体放大后文字被裁切/挤压 ⇒ "整个错乱" | 23 处 `height(N)` → `constraintSize({ minHeight: N })`（残留固定高仅 spinner 与队列/插件列表高度） |
-| 11 | 同一迭代内**两次同名工具调用** ⇒ pill 的 key 重复 ⇒ 复用错位 | key 加入 `call_id` + 序号 |
-| 12 | ArkWeb 面板顶栏/测试连接按钮同类问题 | 同上改为 `minHeight` |
+`docs/ARKTS-GOTCHAS.md`（**22 条真机坑**：rev-key、条件渲染、百分比高度、wordBreak、
+流式/结构化两条路、`SessionEvent.Action`、行窗口与帧合并、诊断判别力…）、
+`docs/UI-AUDIT-CHECKLIST.md`（逐页判据 + R1–R10 数值判据）、
+`docs/RENDER-LOAD-MEASUREMENT.md`（渲染负载与内容形状清单实测）、
+`docs/CI.md`（静态检查、渲染路径门禁、测试必须 `process.exit`）、
+`tools/preview/README.md`（预览器/虚拟机三路结论，含 shim 与参数契约）。
