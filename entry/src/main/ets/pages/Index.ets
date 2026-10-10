@@ -298,6 +298,13 @@ struct Index {
   // ── 图片查看 ──────────────────────────────────────────────────────────────
   @State imagePixel: image.PixelMap | null = null;
   @State imageBusy: boolean = false;
+  /**
+   * 运行脉冲（P13）：只在有回合在跑时用 600ms 定时器翻转一次 opacity。
+   * 为什么用 opacity 而不是 layout 属性：触屏设备上 layout 动画（height/width）会掉帧，
+   * 这是项目里已定稿的规矩（Web 端同款）。
+   */
+  @State pulseOn: boolean = true;
+  private pulseTimer: number = -1;
   // ── P12 查看器：缩放/平移（夹取逻辑在 core/imgops.ets，已单测）──
   @State imgScale: number = 1;
   @State imgTransX: number = 0;
@@ -409,6 +416,21 @@ struct Index {
    * ⇒ 真机表现"渲染很卡、交互也很差"。与 xbot Web 端已定稿的结论同款：所有"每帧一次"的更新
    * 必须走同一个调度器。（切会话/首帧仍走同步路径 syncFrom，保证不迟一帧。）
    */
+  /** 有回合在跑 ⇒ 开启 600ms 脉冲；空闲 ⇒ 关掉（绝不留后台定时器）。 */
+  private syncPulse(busy: boolean): void {
+    if (busy && this.pulseTimer < 0) {
+      this.pulseTimer = setInterval(() => {
+        this.pulseOn = !this.pulseOn;
+      }, 600);
+      return;
+    }
+    if (!busy && this.pulseTimer >= 0) {
+      clearInterval(this.pulseTimer);
+      this.pulseTimer = -1;
+      this.pulseOn = true;
+    }
+  }
+
   private scheduleSync(store: ChatStore): void {
     // ⚠️ 只有**当前会话**的 store 能驱动界面：池里后台会话的更新照常积累在它自己的
     // 状态里，但绝不能覆盖正在显示的会话（否则两个会话的事件互相打架）。
@@ -445,6 +467,7 @@ struct Index {
     this.rows = store.rows.slice();
     this.syncRowDs();
     this.busy = store.busy;
+    this.syncPulse(store.busy);
     this.currentChat = store.currentChatId;
     this.hasMore = store.hasMore;
     this.loadingMore = store.loadingMore;
@@ -1701,6 +1724,8 @@ struct Index {
             Row({ space: 8 }) {
               LoadingProgress().width(16).height(16).color('#8B5CF6')
               Text('思考中…').fontSize(13).fontColor('#9CA3AF')
+                .opacity(this.pulseOn ? 1 : 0.45)
+                .animation({ duration: 600, curve: Curve.EaseInOut })
             }.padding({ left: 14, top: 8, bottom: 8 })
           }
         }
@@ -1714,6 +1739,23 @@ struct Index {
         this.atBottom = end >= listItemCount(this.hasMore, this.loadingMore, this.rowDs.count(), this.busy) - 1;
       })
       .id('xbot-list')
+
+      // 不在底部时给一个「回到最新」（列表很长时不用一路滑）
+      if (!this.atBottom && this.rows.length > 0) {
+        Row() {
+          Text('↓ 回到最新').fontSize(12).fontColor('#E5E7EB')
+            .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+            .backgroundColor('#4C1D95')
+            .borderRadius(16)
+            .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+            .onClick(() => {
+              this.listScroller.scrollEdge(Edge.Bottom);
+              this.atBottom = true;
+            })
+        }
+        .width('100%').justifyContent(FlexAlign.Center)
+        .padding({ top: 2, bottom: 2 })
+      }
 
       // 状态栏：模型 · token 用量 · todos · goal（点开看全部；全部来自服务端权威值）
       if (this.statusBarText().length > 0) {
@@ -1877,6 +1919,8 @@ struct Index {
         Button(this.busy ? '停止' : '发送')
           .constraintSize({ minHeight: 42 })
           .backgroundColor(this.busy ? '#7F1D1D' : '#7C3AED')
+          // 按压反馈（只改 opacity/scale —— 触屏上不会引发布局抖动）
+          .stateStyles({ pressed: { .opacity(0.7) }, normal: { .opacity(1) } })
           .onClick(() => {
             if (this.busy) {
               this.store?.cancel();
@@ -2749,6 +2793,7 @@ struct Index {
     Text(label)
       .fontSize(14).fontColor('#E5E7EB')
       .width('100%').padding({ left: 16, right: 16, top: 11, bottom: 11 })
+      .stateStyles({ pressed: { .backgroundColor('#111827') }, normal: { .backgroundColor('#0B0F19') } })
       .onClick(() => {
         if (code === 'cancel-hits') {
           this.showSearchHits = false;
@@ -2966,6 +3011,7 @@ struct Index {
     .backgroundColor('#111827')
     .borderRadius(6)
     .border({ width: 1, color: this.openToolKey === this.toolKey(row.turnID, it.iteration, t.name) ? '#7C3AED' : '#1F2937' })
+    .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
     .onClick(() => {
       this.toggleTool(row, it, t);
     })
@@ -3194,6 +3240,7 @@ struct Index {
             .width('100%').padding(10)
             .backgroundColor(s.chat_id === this.currentChat ? '#1F2937' : '#0F172A')
             .borderRadius(8)
+            .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
             .onClick(() => {
               if (s.chat_id !== undefined && this.renamingId.length === 0) {
                 this.switchSession(s.chat_id);
