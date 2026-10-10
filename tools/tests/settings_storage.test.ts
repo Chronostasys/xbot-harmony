@@ -40,7 +40,7 @@ eq('storage methods', [RPC_GET_STORAGE_CONFIG, RPC_SET_STORAGE_CONFIG],
 eq('webusers methods', [RPC_LIST_WEB_USERS, RPC_CREATE_WEB_USER, RPC_DELETE_WEB_USER],
   ['list_web_users', 'create_web_user', 'delete_web_user']);
 eq('就地登记清单', CONFIG_SURFACE_METHODS, ['get_storage_config', 'set_storage_config',
-  'list_web_users', 'create_web_user', 'delete_web_user']);
+  'list_web_users', 'create_web_user', 'delete_web_user', 'get_system_info', 'check_update']);
 eq('清单无重复', new Set(CONFIG_SURFACE_METHODS).size, CONFIG_SURFACE_METHODS.length);
 
 // params 形状（服务端 rpc_table.go:1930-1933 / 1935-1951）

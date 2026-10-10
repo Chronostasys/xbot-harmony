@@ -14,6 +14,8 @@
 import { Palette, paletteOf } from '../core/theme';
 import { XbotHttp } from '../core/http';
 import { FS_CAPTION, R_LG, SP_2, SP_3, SP_5 } from '../core/tokens';
+import { SettingsAbout } from './SettingsAbout';
+import { SettingsAccount } from './SettingsAccount';
 import { SettingsAgent } from './SettingsAgent';
 import { SettingsLlm } from './SettingsLlm';
 import { SettingsStorage } from './SettingsStorage';
@@ -26,6 +28,8 @@ export const SETTINGS_TAB_LLM: string = 'llm';
 export const SETTINGS_TAB_AGENT: string = 'agent';
 export const SETTINGS_TAB_STORAGE: string = 'storage';
 export const SETTINGS_TAB_WEBUSERS: string = 'webusers';
+export const SETTINGS_TAB_ABOUT: string = 'about';
+export const SETTINGS_TAB_ACCOUNT: string = 'account';
 
 /** tab 定义（id + 显示名）——用数组而非 Map，保持 ArkTS 友好与顺序稳定。 */
 class SettingsTab {
@@ -46,6 +50,8 @@ function settingsTabs(): SettingsTab[] {
     new SettingsTab(SETTINGS_TAB_AGENT, '智能体'),
     new SettingsTab(SETTINGS_TAB_STORAGE, '存储'),
     new SettingsTab(SETTINGS_TAB_WEBUSERS, 'Web 账号'),
+    new SettingsTab(SETTINGS_TAB_ABOUT, '关于'),
+    new SettingsTab(SETTINGS_TAB_ACCOUNT, '账号'),
   ];
 }
 
@@ -110,6 +116,12 @@ export struct SettingsPanel {
         SettingsStorage({ http: this.http, theme: this.theme })
       } else if (this.active === SETTINGS_TAB_WEBUSERS) {
         SettingsWebUsers({ http: this.http, theme: this.theme })
+      } else if (this.active === SETTINGS_TAB_ABOUT) {
+        SettingsAbout({ http: this.http, theme: this.theme })
+      } else if (this.active === SETTINGS_TAB_ACCOUNT) {
+        // ⚠️ 用户名需页面侧注入（服务端无 /api/auth/me，见 SettingsAccount 头注）；
+        // 未注入时面板回落中性文案，不会空白。
+        SettingsAccount({ http: this.http, theme: this.theme })
       } else {
         SettingsTools({ http: this.http, theme: this.theme })
       }

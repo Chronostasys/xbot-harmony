@@ -66,7 +66,12 @@ export struct SettingsWebUsers {
     }
   }
 
-  private async create(): Promise<void> {
+  /**
+   * 新建账号。
+   * ⚠️ 方法名**不能叫 `create`** —— ArkTS 明令 `@Component` struct 的成员不可命名为
+   * `create`（编译器 WARN：`cannot have name as 'create'`），与基类成员名黑名单同类。
+   */
+  private async createUser(): Promise<void> {
     const name: string = normalizeUsernameInput(this.newUsername);
     if (!isValidUsername(name) || this.creating) {
       return;
@@ -157,7 +162,7 @@ export struct SettingsWebUsers {
           .borderRadius(R_LG)
           .opacity(isValidUsername(this.newUsername) && !this.creating ? 1 : 0.4)
           .onClick(() => {
-            void this.create();
+            void this.createUser();
           })
       }
       .width('100%')

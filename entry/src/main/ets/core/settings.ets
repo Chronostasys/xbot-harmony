@@ -276,6 +276,10 @@ export const RPC_LIST_WEB_USERS: string = 'list_web_users';
 export const RPC_CREATE_WEB_USER: string = 'create_web_user';
 /** `delete_web_user`（**admin**）`{username}` → void。 */
 export const RPC_DELETE_WEB_USER: string = 'delete_web_user';
+/** `get_system_info`（**admin**，无参）→ `SystemInfoRow`（版本/提交/构建时间/平台/托管方式）。 */
+export const RPC_GET_SYSTEM_INFO: string = 'get_system_info';
+/** `check_update`（**admin**，无参）→ `UpdateCheckRow`（**只读**：只查 GitHub Releases）。 */
+export const RPC_CHECK_UPDATE: string = 'check_update';
 
 /** 就地登记的全部 method（契约测试遍历用）。 */
 export const CONFIG_SURFACE_METHODS: string[] = [
@@ -284,6 +288,8 @@ export const CONFIG_SURFACE_METHODS: string[] = [
   RPC_LIST_WEB_USERS,
   RPC_CREATE_WEB_USER,
   RPC_DELETE_WEB_USER,
+  RPC_GET_SYSTEM_INFO,
+  RPC_CHECK_UPDATE,
 ];
 
 /** `set_storage_config` 的 params（服务端 `rpc_table.go:1930-1933` `Values map[string]string`）。 */
@@ -623,6 +629,183 @@ export class OneTimePw {
     this.password = password;
   }
 }
+
+// ── about 分区：纯逻辑（只读）──────────────────────────────────────────────────
+//
+// 契约（`serverapp/rpc_table.go:1963-1990`；结构 `internal/selfupdate`）：
+//   · `get_system_info`（**admin**，无参 `rpc0err`）→ SystemInfo
+//     web 侧镜像 `SettingsAbout.tsx:26-38`：
+//     version / commit / buildTime / channel / goVersion / os / arch / exePath /
+//     managedBy('systemd'|'launchd'|'supervisord'|'docker'|'none'|…) / devBuild
+//   · `check_update`（**admin**，无参 `rpc0err`）→ UpdateCheck（**只读**，仅查 GitHub Releases）
+//     web 侧镜像 `SettingsAbout.tsx:40-50`：
+//     current / latest / tag / hasUpdate / channel / url / skipped / reason
+//   ⚠️ 本波**不做** `apply_update` / `restart_server`：前者会原子替换服务端二进制，
+//      后者会真的重启服务 —— 手机端误触代价高且本波无法真机验证（见回报⑤）。
+//
+// ⚠️ `check_update` 的契约里 **`skipped=true` 是正常返回**（dev 构建 / 网络离线 /
+//    渠道不匹配都会这样），不是错误 ⇒ UI 必须把 `reason` 显示出来，不能只显示"无更新"。
+
+/** `get_system_info` 的返回（`internal/selfupdate.SystemInfo`；字段可选以防版本差）。 */
+export interface SystemInfoRow {
+  version?: string;
+  commit?: string;
+  buildTime?: string;
+  channel?: string;
+  goVersion?: string;
+  os?: string;
+  arch?: string;
+  exePath?: string;
+  managedBy?: string;
+  devBuild?: boolean;
+}
+
+/** `check_update` 的返回（`internal/selfupdate.UpdateCheck`）。 */
+export interface UpdateCheckRow {
+  current?: string;
+  latest?: string;
+  tag?: string;
+  hasUpdate?: boolean;
+  channel?: string;
+  url?: string;
+  /** true ⇒ 本次检查被跳过（dev 构建 / 离线 / 渠道不适用），看 `reason`。 */
+  skipped?: boolean;
+  reason?: string;
+}
+
+/** 一条「标签 + 值」元信息行。 */
+export class MetaLine {
+  label: string = '';
+  value: string = '';
+
+  constructor(label: string, value: string) {
+    this.label = label;
+    this.value = value;
+  }
+}
+
+/** 空/空白 ⇒ 占位符 `—`（**默认值回落**：面板永远不显示空白行）。 */
+export function textOrDash(v: string | undefined): string {
+  const s: string = v !== undefined && v !== null ? v.trim() : '';
+  return s.length > 0 ? s : '—';
+}
+
+/** 提交号短形态（前 12 位；空 ⇒ `—`）。 */
+export function shortCommit(commit: string | undefined): string {
+  const s: string = commit !== undefined && commit !== null ? commit.trim() : '';
+  if (s.length === 0) {
+    return '—';
+  }
+  return s.length > 12 ? s.substring(0, 12) : s;
+}
+
+/**
+ * 构建时间可读化：ISO → `YYYY-MM-DD HH:MM`（**本地时区**）。
+ * 解析失败**原样返回**（不吞信息），空 ⇒ `—`。
+ */
+export function formatBuildTime(raw: string | undefined): string {
+  const s: string = raw !== undefined && raw !== null ? raw.trim() : '';
+  if (s.length === 0) {
+    return '—';
+  }
+  const d: Date = new Date(s);
+  const ms: number = d.getTime();
+  if (isNaN(ms)) {
+    return s;
+  }
+  const p2 = (n: number): string => (n < 10 ? `0${n}` : `${n}`);
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+}
+
+/** `os/arch` 合并（缺一 ⇒ 只显示有的那个；都缺 ⇒ `—`）。 */
+export function osArch(os: string | undefined, arch: string | undefined): string {
+  const o: string = os !== undefined && os !== null ? os.trim() : '';
+  const a: string = arch !== undefined && arch !== null ? arch.trim() : '';
+  if (o.length === 0 && a.length === 0) {
+    return '—';
+  }
+  if (o.length === 0) {
+    return a;
+  }
+  if (a.length === 0) {
+    return o;
+  }
+  return `${o}/${a}`;
+}
+
+/**
+ * 托管方式 → 中文（**键映射**：服务端给的是 `managedBy` 枚举字面量，`SettingsAbout.tsx:35`）。
+ * 未知值**原样透传**（未来服务端加新枚举时不至于显示空白）。
+ */
+export function managedByLabel(managedBy: string | undefined): string {
+  const m: string = managedBy !== undefined && managedBy !== null ? managedBy.trim() : '';
+  if (m.length === 0) {
+    return '未知';
+  }
+  if (m === 'systemd') {
+    return 'systemd 托管';
+  }
+  if (m === 'launchd') {
+    return 'launchd 托管';
+  }
+  if (m === 'supervisord') {
+    return 'supervisord 托管';
+  }
+  if (m === 'docker') {
+    return 'Docker 容器';
+  }
+  if (m === 'none') {
+    return '手动启动';
+  }
+  return m;
+}
+
+/** 系统信息 → 展示行（顺序 = 展示顺序；空字段走 `—` 回落，**不隐藏**）。 */
+export function systemInfoLines(info: SystemInfoRow | undefined): MetaLine[] {
+  if (info === undefined || info === null) {
+    return [];
+  }
+  const out: MetaLine[] = [];
+  out.push(new MetaLine('版本', textOrDash(info.version) + (info.devBuild === true ? '（开发构建）' : '')));
+  out.push(new MetaLine('提交', shortCommit(info.commit)));
+  out.push(new MetaLine('构建时间', formatBuildTime(info.buildTime)));
+  out.push(new MetaLine('渠道', textOrDash(info.channel)));
+  out.push(new MetaLine('运行时', textOrDash(info.goVersion)));
+  out.push(new MetaLine('平台', osArch(info.os, info.arch)));
+  out.push(new MetaLine('托管方式', managedByLabel(info.managedBy)));
+  out.push(new MetaLine('程序路径', textOrDash(info.exePath)));
+  return out;
+}
+
+/**
+ * 更新检查 → 一句话状态（**取值域判定 + 默认值回落**）。
+ *
+ * 四种取值域，顺序即优先级：
+ *   ① 未检查（`undefined`）② `skipped=true` ⇒ 说明**原因**（正常返回，不是错误）
+ *   ③ `hasUpdate=true` ⇒ 报新版 ④ 其余 ⇒ 已是最新
+ */
+export function updateStatusText(chk: UpdateCheckRow | undefined): string {
+  if (chk === undefined || chk === null) {
+    return '尚未检查更新';
+  }
+  const cur: string = textOrDash(chk.current);
+  if (chk.skipped === true) {
+    const why: string = chk.reason !== undefined && chk.reason !== null && chk.reason.trim().length > 0
+      ? chk.reason.trim() : '未说明原因';
+    return `已跳过检查：${why}`;
+  }
+  if (chk.hasUpdate === true) {
+    return `有新版本 ${textOrDash(chk.latest)}（当前 ${cur}）`;
+  }
+  return `已是最新（当前 ${cur}）`;
+}
+
+/** 账号显示名（**默认值回落**：页面未注入用户名时不显示空白）。 */
+export function accountDisplayName(username: string | undefined): string {
+  const s: string = username !== undefined && username !== null ? username.trim() : '';
+  return s.length > 0 ? s : '当前登录账号';
+}
+
 
 
 
