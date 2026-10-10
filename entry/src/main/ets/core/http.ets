@@ -12,6 +12,7 @@ import { http } from '@kit.NetworkKit';
 import { util } from '@kit.ArkTS';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { ApiEnvelope } from './types';
+import { isPresent } from './guards';
 
 /** 响应头里取 Set-Cookie（ArkTS 限制动态取键 ⇒ 只按已知两种拼写直查）。 */
 
@@ -55,11 +56,16 @@ function splitSetCookie(raw: string): string[] {
 }
 
 /** 把 catch 到的值描述清楚（ArkTS 里字段要显式取；带 name/首行调用点便于定位）。 */
-export function describeError(e: Object): string {
+export function describeError(e: Object | null | undefined): string {
+  // ⛔ catch 到的值可能是任意东西（`throw null` / 非 Error 对象）⇒ 取字段前三态判空，
+  //    否则错误处理路径自身会抛（掩盖真实错误）。
+  if (!isPresent(e)) {
+    return e === null ? 'null' : 'undefined';
+  }
   const err: Error = e as Error;
-  const name: string = err.name !== undefined ? err.name : '';
-  const msg: string = err.message !== undefined ? err.message : '';
-  const stack: string = err.stack !== undefined ? err.stack : '';
+  const name: string = isPresent(err.name) ? err.name : '';
+  const msg: string = isPresent(err.message) ? err.message : '';
+  const stack: string = isPresent(err.stack) ? err.stack : '';
   let out: string = msg.length > 0 ? msg : JSON.stringify(e);
   if (name.length > 0 && out.indexOf(name) < 0) {
     out = `${name}: ${out}`;
@@ -272,18 +278,32 @@ export class XbotHttp {
 if (resp.responseCode !== 200) {
         throw new Error(`HTTP ${resp.responseCode}: ${text.substring(0, 200)}`);
       }
-      let env: ApiEnvelope;
+      // ── 信封解包（外来 JSON 边界）─────────────────────────────────────────────
+      // 服务端 `apiResponse{OK bool; Data any; Error *apiError}` **三个键恒存在**（无 omitempty）：
+      //   成功：`{"ok":true,"data":{…},"error":null}`   ← error 是 JSON **null**
+      //   失败：`{"ok":false,"data":null,"error":{code,message}}` ← data 是 JSON **null**
+      // 另有裸 encoder 路径（web_files.go）会发 `{"ok":true}`（无 data 键）或 `{"ok":false,"error":"str"}`。
+      // ⇒ env 自身 / env.error / env.data 都必须三态，不能只判 `!== undefined`。
+      let env: ApiEnvelope | null | undefined;
       try {
         env = JSON.parse(text) as ApiEnvelope;
       } catch (e) {
         throw new Error(`[解析响应] ${describeError(e as Object)}：${text.substring(0, 120)}`);
       }
+      // 响应体是字面 JSON `null`（`JSON.parse('null') === null`）——`env.ok` 会崩。
+      if (!isPresent(env)) {
+        throw new Error(`[解析响应] 信封为空（JSON null）：${text.substring(0, 120)}`);
+      }
       if (env.ok !== true) {
-        const msg: string = env.error !== undefined && env.error.message !== undefined
+        // `error:null`（或 error 是裸字符串）时**不得**取 `.message` —— null 穿透即崩。
+        const msg: string = isPresent(env.error) && isPresent(env.error.message)
           ? env.error.message : 'request failed';
         throw new Error(msg);
       }
-      return env.data === undefined ? '{}' : JSON.stringify(env.data);
+      // `data:null` 与 `data:undefined`（键缺失）都表示"服务端无可用载荷"：
+      // 二者一律降级为 `'{}'`（空对象）。⛔ 绝不能 `JSON.stringify(null)` —— 那会产出
+      // **字符串 `"null"`**，下游 `JSON.parse` 得 null、再按对象取成员即崩。
+      return isPresent(env.data) ? JSON.stringify(env.data) : '{}';
     } finally {
       try {
         req.destroy();
@@ -345,11 +365,24 @@ if (resp.responseCode !== 200) {
 if (resp.responseCode !== 200) {
         throw new Error(`HTTP ${resp.responseCode}: ${text.substring(0, 200)}`);
       }
-      const env: ApiEnvelope = JSON.parse(text) as ApiEnvelope;
-      if (env.ok !== true) {
-        throw new Error('upload failed');
+      // ── 信封解包（同 sendJson，外来 JSON 边界）───────────────────────────────
+      // ⛔ 裸 `JSON.parse` + `env.data === undefined` 判定：`data:null` 会 stringify 成
+      //    `"null"`；`data` 键缺失时 `JSON.stringify(undefined)` 甚至返回 **非字符串**。
+      let env: ApiEnvelope | null | undefined;
+      try {
+        env = JSON.parse(text) as ApiEnvelope;
+      } catch (e) {
+        throw new Error(`[解析响应] ${describeError(e as Object)}：${text.substring(0, 120)}`);
       }
-      return JSON.stringify(env.data);
+      if (!isPresent(env)) {
+        throw new Error(`[解析响应] 信封为空（JSON null）：${text.substring(0, 120)}`);
+      }
+      if (env.ok !== true) {
+        const msg: string = isPresent(env.error) && isPresent(env.error.message)
+          ? env.error.message : 'upload failed';
+        throw new Error(msg);
+      }
+      return isPresent(env.data) ? JSON.stringify(env.data) : '{}';
     } finally {
       req.destroy();
     }

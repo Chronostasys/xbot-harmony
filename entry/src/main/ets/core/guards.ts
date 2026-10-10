@@ -27,14 +27,27 @@ export function arrOrEmpty<T>(v: T[] | null | undefined): T[] {
  * `x !== undefined && x.length > 0` 的 **null 安全版本**：数组存在**且非空**。
  *
  * 用法（判别式/短路场景，不想引入临时变量时）：
- *   `if (arrPresent(e.streaming_tools) && ...) { … }`
- * ⚠️ 不做类型收窄（与 TS 的 `Array.isArray` 不同）—— 取用元素仍需经 `arrOrEmpty`。
+ *   `if (arrPresent(e.streaming_tools) && xs[0]) { … }`
+ * ✅ **类型谓词**（`v is T[]`）：真分支内 `v` 收窄为 `T[]` ⇒ 可直接 `.length` / 索引。
+ *    语义仍为"存在且**非空**"（谓词只保证"非 null/undefined 的数组"，空数组时返回
+ *    `false`，故真分支内取元素恒安全）。
  */
-export function arrPresent<T>(v: T[] | null | undefined): boolean {
+export function arrPresent<T>(v: T[] | null | undefined): v is T[] {
   return v !== undefined && v !== null && v.length > 0;
 }
 
-/** 值存在（既非 `undefined` 也非 `null`）—— 通用三态守卫（数组/映射/对象通用）。 */
-export function isPresent<T>(v: T | null | undefined): boolean {
+/**
+ * 值存在（既非 `undefined` 也非 `null`）—— 通用三态守卫（数组/映射/对象通用）。
+ *
+ * ✅ **类型谓词**（`v is T`，2026-10-11 升级）：`isPresent(x) ? x : y` 在**赋值 / 成员访问 /
+ *    `.length`** 位置也能通过类型检查（`x` 收窄为 `T`）。
+ *
+ * ⛔ 为什么必须升级：返回 `boolean` 时 TS **不做收窄**，`isPresent(cfg) ? cfg : def` 里
+ *    `cfg` 仍是 `T | null | undefined` ⇒ 赋值报 TS2322、成员访问报 TS18049/TS18048。
+ *    于是调用方被迫退回裸三态（`x !== undefined && x !== null`）——正是缺陷形态的来源。
+ *    升级后 `isPresent` 可用于任意位置，不再需要 `as` 兜底。
+ *    取证与判别力见 `tools/tests/null_boundary.test.ts`。
+ */
+export function isPresent<T>(v: T | null | undefined): v is T {
   return v !== undefined && v !== null;
 }

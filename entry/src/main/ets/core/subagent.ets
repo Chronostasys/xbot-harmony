@@ -20,6 +20,7 @@
  * ⛔ 本文件属 `core/`：`tools/tests/run.sh` 把它当**纯 TS** 编译 ⇒ 禁止 import ArkUI / `@ohos.*`。
  */
 import { WebSubAgentProgress } from './chattypes';
+import { arrOrEmpty, isPresent } from './guards';
 
 /** 状态档：running（含 pending/active）。 */
 export const SUB_RUNNING: string = 'running';
@@ -32,10 +33,10 @@ export const SUB_OTHER: string = 'other';
 
 /**
  * 状态字符串 → 状态档。逐字对齐 web `SubAgentProgressTree.tsx:80-82`。
- * ⚠️ 未知/空值一律归 `SUB_OTHER`（**不**当作 running，避免"幽灵进行中"）。
+ * ⚠️ 未知/空值（含 JSON `null`）一律归 `SUB_OTHER`（**不**当作 running，避免"幽灵进行中"）。
  */
-export function subStatusKind(status: string | undefined): string {
-  const s: string = status !== undefined ? status : '';
+export function subStatusKind(status: string | null | undefined): string {
+  const s: string = isPresent(status) ? status : '';
   if (s === SUB_RUNNING || s === 'active' || s === 'pending') {
     return SUB_RUNNING;
   }
@@ -49,31 +50,41 @@ export function subStatusKind(status: string | undefined): string {
 }
 
 /** 是否"在飞"（web `:80`）—— 决定图标用 accent 还是 muted。 */
-export function isLiveSubAgent(status: string | undefined): boolean {
+export function isLiveSubAgent(status: string | null | undefined): boolean {
   return subStatusKind(status) === SUB_RUNNING;
 }
 
 /**
  * 顶层可见节点（web `:68-70`）：**只保留 running/pending**。
  * 已完成的 SubAgent 由工具调用行承担展示 ⇒ 这里再画就是重复。
+ *
+ * ⚠️ 入参放宽到 `| null`：服务端 `sub_agents` 是 SSE 直接下发的数组字段，
+ *    Go 的 nil slice ⇒ **JSON `null`**（非 undefined）。只判 undefined 会让 null
+ *    穿透到 `nodes.length` / `nodes[i].status` ⇒ 崩（同 `abaec53` 的 P0 形态）。
  */
-export function visibleRoots(nodes: WebSubAgentProgress[] | undefined): WebSubAgentProgress[] {
+export function visibleRoots(
+  nodes: WebSubAgentProgress[] | null | undefined,
+): WebSubAgentProgress[] {
   const out: WebSubAgentProgress[] = [];
-  if (nodes === undefined) {
-    return out;
-  }
-  for (let i = 0; i < nodes.length; i++) {
-    if (isLiveSubAgent(nodes[i].status)) {
-      out.push(nodes[i]);
+  const src: WebSubAgentProgress[] = arrOrEmpty(nodes);
+  for (let i = 0; i < src.length; i++) {
+    // 数组**成员**同样可能为 null（JSON `[null]`）——成员访问前必须三态。
+    const n: WebSubAgentProgress | null | undefined = src[i];
+    if (isPresent(n) && isLiveSubAgent(n.status)) {
+      out.push(n);
     }
   }
   return out;
 }
 
 /** 面板可见标签：`role` + （有 instance 时）`:` + instance（对齐 web `:138-146`）。 */
-export function subAgentLabel(role: string, instance: string | undefined): string {
-  const inst: string = instance !== undefined ? instance : '';
-  return inst.length > 0 ? `${role}:${inst}` : role;
+export function subAgentLabel(
+  role: string | null | undefined,
+  instance: string | null | undefined,
+): string {
+  const r: string = isPresent(role) ? role : '';
+  const inst: string = isPresent(instance) ? instance : '';
+  return inst.length > 0 ? `${r}:${inst}` : r;
 }
 
 /**
@@ -117,12 +128,13 @@ function rowKeyOf(id: string, kind: string, desc: string): string {
 /**
  * 展平：`visibleRoots(nodes)` 的每个节点 + 其**全部后代**（任意深度）。
  *
- * @param nodes 该迭代（或 live 快照）的 SubAgent 树；undefined/空 ⇒ 返回空数组
+ * @param nodes 该迭代（或 live 快照）的 SubAgent 树；null/undefined/空 ⇒ 返回空数组
  *              （调用方据此**零渲染**）。
+ *              ⚠️ 入参含 `| null`：服务端 nil slice → JSON `null`（非 undefined）。
  * @param withSession 宿主是否提供跳转回调（决定 `openable`；纯逻辑不关心 UI，只做布尔）。
  */
 export function flattenSubAgents(
-  nodes: WebSubAgentProgress[] | undefined,
+  nodes: WebSubAgentProgress[] | null | undefined,
   withSession: boolean,
 ): SubAgentRow[] {
   const out: SubAgentRow[] = [];
@@ -140,18 +152,23 @@ function appendNode(
   path: string,
   withSession: boolean,
 ): void {
-  const role: string = node.role !== undefined ? node.role : '';
-  const inst: string = node.instance !== undefined ? node.instance : '';
-  const desc: string = node.desc !== undefined ? node.desc : '';
+  // ⛔ 外来 JSON 边界：以下每个字段都可能为 JSON `null`（Go 零值/omitempty 语义），
+  //    必须三态（isPresent）或归一化（arrOrEmpty），**不能**只判 `!== undefined`
+  //    —— 否则 null 穿透到 `.length` / 模板串（P0 同源同形）。
+  const role: string = isPresent(node.role) ? node.role : '';
+  const inst: string = isPresent(node.instance) ? node.instance : '';
+  const desc: string = isPresent(node.desc) ? node.desc : '';
   const kind: string = subStatusKind(node.status);
-  const key: string = node.sessionKey !== undefined ? node.sessionKey : '';
-  const kids: WebSubAgentProgress[] = node.children !== undefined ? node.children : [];
+  const key: string = isPresent(node.sessionKey) ? node.sessionKey : '';
+  // `children:null` ⇒ `[]`（否则 `kids.length` 抛 "Cannot read property length of null"）。
+  const kids: WebSubAgentProgress[] = arrOrEmpty(node.children);
   const id: string = `${path}|${role}|${inst}`;
   out.push({
     id,
     key: rowKeyOf(id, kind, desc),
     depth,
-    label: subAgentLabel(role, node.instance),
+    // 传**已归一化**的 `inst`（而非原始 `node.instance`）——否则 null 会绕过上面的三态。
+    label: subAgentLabel(role, inst),
     desc,
     kind,
     hasChildren: kids.length > 0,
@@ -159,11 +176,16 @@ function appendNode(
     openable: withSession && key.length > 0,
   });
   for (let j = 0; j < kids.length; j++) {
-    appendNode(out, kids[j], depth + 1, `${path}.${j}`, withSession);
+    const child: WebSubAgentProgress | null | undefined = kids[j];
+    if (isPresent(child)) {
+      appendNode(out, child, depth + 1, `${path}.${j}`, withSession);
+    }
   }
 }
 
 /** 该树是否有任何可渲染的行（= 组件是否产出节点的**唯一**判据）。 */
-export function hasVisibleSubAgents(nodes: WebSubAgentProgress[] | undefined): boolean {
+export function hasVisibleSubAgents(
+  nodes: WebSubAgentProgress[] | null | undefined,
+): boolean {
   return visibleRoots(nodes).length > 0;
 }
