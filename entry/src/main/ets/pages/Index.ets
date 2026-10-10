@@ -10,7 +10,7 @@ import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
 import { webview } from '@kit.ArkWeb';
 import { ChatStore } from '../core/store';
-import { normalizeTheme, Palette, paletteOf, themeLabel, toggleTheme, Effects, effectsOf, isDarkThemeName } from '../core/theme';
+import { ALL_THEMES, normalizeTheme, Palette, paletteOf, themeLabel, Effects, effectsOf, isDarkThemeName } from '../core/theme';
 import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, withAccent } from '../core/accent';
 import { MD_THEMES, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';
 import { localeLabel, normalizeLocale } from '../core/i18n';
@@ -2217,7 +2217,7 @@ struct Index {
       .padding(SP_6)
       .borderRadius(R_2XL)
       .backgroundColor(this.eff().glassBg)
-      .backgroundBlurStyle(BlurStyle.Thin, { colorMode: ThemeColorMode.DARK })
+      .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.glassMode() })
       .border({ width: 1, color: this.eff().glassBorder })
       .shadow({ radius: 28, color: this.eff().elev3, offsetX: 0, offsetY: 12 })
       .margin({ left: SP_4, right: SP_4 })
@@ -2836,6 +2836,19 @@ struct Index {
   /** 视觉效果 token（玻璃/光晕/渐变/层级阴影）—— 由当前色板派生，换主题即换效果。 */
   private eff(): Effects {
     return effectsOf(this.pal());
+  }
+
+  /**
+   * 毛玻璃的明暗模式 —— **跟随当前主题**。
+   *
+   * 为什么需要它：`backgroundBlurStyle` 的 `colorMode` 原先被硬编码为 `DARK`，
+   * 于是切到浅色系主题（light / porcelain）后，白底卡片上会压一层深灰毛玻璃 ——
+   * 正是历史文档警告过的「白卡 + 深灰玻璃」割裂形态。改为按主题判定后，
+   * `effectsOf` 派生的 `glassBg/glassBorder/elev*`（已随色板走柔影分支）与 colorMode 同源一致。
+   * 抽成本地辅助是为了避免 7 个调用点各自展开三元分支。
+   */
+  private glassMode(): ThemeColorMode {
+    return isDarkThemeName(this.themeName) ? ThemeColorMode.DARK : ThemeColorMode.LIGHT;
   }
 
 
@@ -3704,18 +3717,23 @@ struct Index {
           })
       }.width('100%')
 
-      // 主题（深/浅）
-      Row({ space: 8 }) {
-        Text(settingLabel(KEY_APP_THEME)).fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
-        Text(themeLabel(this.themeName))
-          .fontSize(12).fontColor(this.pal().onAccent)
-          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-          .backgroundColor(this.pal().accent).borderRadius(8)
-          .onClick(() => {
-            this.themeName = toggleTheme(this.themeName);
-            this.setSetting(KEY_APP_THEME, this.themeName);
-            this.buzz();
-          })
+      // 主题（5 套：深色/浅色/极光/星云/极简白）—— 用 ALL_THEMES 驱动，不再手写列表
+      Text(settingLabel(KEY_APP_THEME))
+        .fontSize(12).fontColor(this.pal().textSecondary).width('100%')
+      Row({ space: 6 }) {
+        ForEach(ALL_THEMES, (t: string) => {
+          Text(themeLabel(t))
+            .fontSize(12)
+            .fontColor(this.themeName === t ? this.pal().onAccent : this.pal().textSecondary)
+            .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+            .backgroundColor(this.themeName === t ? this.pal().accent : this.pal().surface)
+            .borderRadius(8)
+            .onClick(() => {
+              this.themeName = t;
+              this.setSetting(KEY_APP_THEME, t);
+              this.buzz();
+            })
+        }, (t: string) => `th-${t}`)
       }.width('100%')
 
       // 字号
@@ -3852,7 +3870,7 @@ struct Index {
     }
     .width('100%').padding(16)
     .backgroundColor(this.eff().glassBg)
-    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: ThemeColorMode.DARK })
+    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.glassMode() })
     .borderRadius({ topLeft: R_2XL, topRight: R_2XL })
     .border({ width: 1, color: this.eff().glassBorder })
     .alignItems(HorizontalAlign.Start)
@@ -3964,7 +3982,7 @@ struct Index {
     }
     .width('100%').padding(16)
     .backgroundColor(this.eff().glassBg)
-    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: ThemeColorMode.DARK })
+    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.glassMode() })
     .borderRadius({ topLeft: R_2XL, topRight: R_2XL })
     .border({ width: 1, color: this.eff().glassBorder })
     .alignItems(HorizontalAlign.Start)
@@ -3990,7 +4008,7 @@ struct Index {
     }
     .width('100%')
     .backgroundColor(this.eff().glassBg)
-    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: ThemeColorMode.DARK })
+    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.glassMode() })
     .borderRadius({ topLeft: R_2XL, topRight: R_2XL })
     .border({ width: 1, color: this.eff().glassBorder })
     .padding({ bottom: 10 })
@@ -4026,7 +4044,7 @@ struct Index {
     }
     .width('100%')
     .backgroundColor(this.eff().glassBg)
-    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: ThemeColorMode.DARK })
+    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.glassMode() })
     .borderRadius({ topLeft: R_2XL, topRight: R_2XL })
     .border({ width: 1, color: this.eff().glassBorder })
     .padding({ bottom: 10 })
@@ -4093,7 +4111,7 @@ struct Index {
     }
     .width('100%')
     .backgroundColor(this.eff().glassBg)
-    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: ThemeColorMode.DARK })
+    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.glassMode() })
     .borderRadius({ topLeft: R_2XL, topRight: R_2XL })
     .border({ width: 1, color: this.eff().glassBorder })
     .padding({ bottom: 10 })
@@ -4442,7 +4460,7 @@ struct Index {
     .width('82%').height('100%')
     .padding(SP_3)
     .backgroundColor(this.eff().glassBg)
-    .backgroundBlurStyle(BlurStyle.Regular, { colorMode: ThemeColorMode.DARK })
+    .backgroundBlurStyle(BlurStyle.Regular, { colorMode: this.glassMode() })
     .borderWidth({ right: 1 }).borderColor(this.eff().glassBorder)
     .shadow({ radius: 24, color: this.eff().elev3, offsetX: 8, offsetY: 0 })
     .position({ x: 0, y: 0 })
