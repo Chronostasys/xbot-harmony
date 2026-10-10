@@ -350,23 +350,12 @@ struct Index {
   @State liveIterNo: number = 0;
   @State liveRowTurn: number = 0;
   @State liveReasonOpen: boolean = false;
+  /** 渐入透明度：新流式文本到达时 0.45 → 1 淡入（用户要求用"渐入"替代逐字裁剪） */
+  @State liveFade: number = 1;
+  /** 上一帧 live 文本长度（判断"有新文本"以触发渐入） */
+  private lastLiveLen: number = 0;
   /** 历史加载中（骨架屏判据：只有"还没内容且正在拉"才展示） */
   @State historyLoading: boolean = false;
-  // ── 打字机特效（与 web 同算法：50ms 一拍 / gap÷3 / CJK 半速；见 core/typewriter.ets）──
-  /** live 迭代正文的可见码点数 */
-  @State twContent: number = 0;
-  /** live 迭代思考的可见码点数 */
-  @State twReason: number = 0;
-  /** 打字机当前绑定的身份（`行id#迭代号`；变了就重置，避免上一段文本的进度串到新文本） */
-  private twKey: string = '';
-  /** 打字机绑定的 live 行 id（每拍 bump 它的 rev，让 LazyForEach 重建该条目） */
-  private twRowId: string = '';
-  private twTextRunes: string[] = [];
-  private twReasonRunes: string[] = [];
-  private twTextLen: number = -1;
-  private twReasonLen: number = -1;
-  private twSkip: boolean = false;
-  private twTimer: number = -1;
 
   /** 运行中工具的流光位置（纯 transform，不触发布局） */
   @State sweepX: number = -80;
@@ -619,7 +608,6 @@ struct Index {
     this.busy = store.busy;
     this.connState = store.connState;
     this.syncPulse(store.busy);
-    this.pumpTypewriter();
     this.currentChat = store.currentChatId;
     this.hasMore = store.hasMore;
     this.loadingMore = store.loadingMore;
@@ -2381,112 +2369,22 @@ struct Index {
     return paletteOf(this.themeName);
   }
 
-  /**
-   * 把 live 迭代的正文/思考喂给打字机。
-   *
-   * 算法与 web `useTypewriter` 一致：50ms 一拍、每拍前进 `gap/3`（至少 1）、CJK 每隔一拍才走
-   * （中文否则会"哗"地全出来）。**只在文本增长时重算码点表**（每帧对长文本重算会很贵）。
-   */
-  private pumpTypewriter(): void {
-    let row: ChatRow | undefined = undefined;
-    for (let i = this.rows.length - 1; i >= 0; i--) {
-      if (this.rows[i].isLive === true) {
-        row = this.rows[i];
-        break;
-      }
-    }
-    let it: HistoryIteration | undefined = undefined;
-    if (row !== undefined && row.iterations.length > 0) {
-      it = row.iterations[row.iterations.length - 1];
-    }
-    const key: string = row !== undefined && it !== undefined ? `${row.id}#${it.iteration}` : '';
-    this.twRowId = row !== undefined ? row.id : '';
-    if (key !== this.twKey) {
-      this.twKey = key;
-      this.twContent = 0;
-      this.twReason = 0;
-      this.twTextRunes = [];
-      this.twReasonRunes = [];
-      this.twTextLen = -1;
-      this.twReasonLen = -1;
-      this.twSkip = false;
-    }
-    const text: string = it !== undefined ? displayContent(it) : '';
-    const reason: string = it !== undefined ? displayReasoning(it) : '';
-    if (text.length !== this.twTextLen) {
-      this.twTextLen = text.length;
-      this.twTextRunes = toRunes(text);
-    }
-    if (reason.length !== this.twReasonLen) {
-      this.twReasonLen = reason.length;
-      this.twReasonRunes = toRunes(reason);
-    }
-    const typing: boolean = isTyping(this.twContent, this.twTextRunes.length)
-      || isTyping(this.twReason, this.twReasonRunes.length);
-    this.syncTwTimer(typing);
-  }
 
-  /** 有内容没追平就开 50ms 定时器，追平立刻关（绝不留后台定时器）。 */
-  private syncTwTimer(on: boolean): void {
-    if (on && this.twTimer < 0) {
-      this.twTimer = setInterval(() => {
-        this.twTick();
-      }, TICK_MS);
-      return;
-    }
-    if (!on && this.twTimer >= 0) {
-      clearInterval(this.twTimer);
-      this.twTimer = -1;
-    }
-  }
 
-  /** 一拍：等比推进正文与思考（同一拍共用"是否 CJK 半速"的判定）。 */
-  private twTick(): void {
-    const skip: boolean = this.twSkip;
-    this.twSkip = !this.twSkip;
-    if (isTyping(this.twContent, this.twTextRunes.length)) {
-      const code: number = this.twTextRunes.length > 0
-        ? this.twTextRunes[Math.min(this.twContent, this.twTextRunes.length - 1)].codePointAt(0) as number : 0;
-      this.twContent = advanceVisible(this.twContent, this.twTextRunes.length, skip && isCJK(code));
-    }
-    if (isTyping(this.twReason, this.twReasonRunes.length)) {
-      const code: number = this.twReasonRunes.length > 0
-        ? this.twReasonRunes[Math.min(this.twReason, this.twReasonRunes.length - 1)].codePointAt(0) as number : 0;
-      this.twReason = advanceVisible(this.twReason, this.twReasonRunes.length, skip && isCJK(code));
-    }
-    if (!isTyping(this.twContent, this.twTextRunes.length)
-      && !isTyping(this.twReason, this.twReasonRunes.length)) {
-      this.syncTwTimer(false);
-    }
-    // 尾块（LiveTail）直接读 @State twContent/twReason ⇒ 每拍必然重渲染，
-    // 不再需要 bump 虚拟列表条目的键（那条路径在真机上不可靠）。
-  }
 
-  /** live 迭代的正文（打字机裁剪；非 live 迭代原样返回）。 */
+  /** 该迭代的展示正文（打字机改为**渐入**，不再逐字裁剪）。 */
   private liveIterText(row: ChatRow, it: HistoryIteration): string {
-    const full: string = displayContent(it);
-    if (row.isLive !== true || `${row.id}#${it.iteration}` !== this.twKey) {
-      return full;
-    }
-    return clipRunes(full, this.twContent);
+    return displayContent(it);
   }
 
-  /** live 迭代的思考（同上）。 */
+  /** 该迭代的展示正文（打字机改为**渐入**，不再逐字裁剪）。 */
   private liveIterReason(row: ChatRow, it: HistoryIteration): string {
-    const full: string = displayReasoning(it);
-    if (row.isLive !== true || `${row.id}#${it.iteration}` !== this.twKey) {
-      return full;
-    }
-    return clipRunes(full, this.twReason);
+    return displayReasoning(it);
   }
 
-  /** 该迭代是否正在"打字"（决定要不要显示光标）。 */
+/** 该迭代是否"仍在进行"（显示流式光标）。 */
   private twTyping(row: ChatRow, it: HistoryIteration): boolean {
-    if (row.isLive !== true || `${row.id}#${it.iteration}` !== this.twKey) {
-      return false;
-    }
-    return isTyping(this.twContent, this.twTextRunes.length)
-      || isTyping(this.twReason, this.twReasonRunes.length);
+    return row.isLive === true;
   }
 
   /** 统一的"轻动效"入口（时长/曲线只有一处，避免每个面板各自为政）。 */
@@ -2915,6 +2813,8 @@ struct Index {
       this.liveTools = [];
       this.liveIterNo = 0;
       this.liveRowTurn = 0;
+      this.lastLiveLen = 0;
+      this.liveFade = 1;
       return;
     }
     const it: HistoryIteration = liveRow.iterations[liveRow.iterations.length - 1];
@@ -2924,6 +2824,17 @@ struct Index {
     this.liveTools = it.tools !== undefined ? it.tools.slice() : [];
     this.liveIterNo = it.iteration;
     this.liveRowTurn = liveRow.turnID;
+    // ── 渐入特效（用户要求）──
+    // 为什么不用"逐字裁剪"：那要每 50ms 重新解析整段 Markdown 并重建节点
+    // （代价 O(文本长度)），真机上直接饱和 UI 线程 ⇒ 用户看到的正是
+    // "打字机几秒动一次"。渐入只动 opacity，代价恒定。
+    if (this.liveText.length > this.lastLiveLen) {
+      this.liveFade = 0.45;
+      this.anim(() => {
+        this.liveFade = 1;
+      });
+    }
+    this.lastLiveLen = this.liveText.length;
   }
 
   /** live 尾块是否有任何可显示内容（决定 busy 占位符是否让位 —— 恰好一个指示器）。 */
@@ -2933,27 +2844,15 @@ struct Index {
   }
 
   /** 打字机可见正文（安全回退：定时器未跑 ⇒ 显示全文，绝不让内容不可见）。 */
+  /** 打字机改为**渐入**（见 syncLiveTail 的 liveFade）：这里永远返回全文。 */
   private twVisibleText(): string {
-    const full: string = this.liveText;
-    if (full.length === 0) {
-      return '';
-    }
-    if (this.twTimer < 0 || this.twContent >= this.twTextRunes.length) {
-      return full;
-    }
-    return clipRunes(full, this.twContent);
+    return this.liveText;
   }
 
   /** 打字机可见思考（同上）。 */
+  /** 打字机改为**渐入**（见 syncLiveTail 的 liveFade）：这里永远返回全文。 */
   private twVisibleReason(): string {
-    const full: string = this.liveReasoning;
-    if (full.length === 0) {
-      return '';
-    }
-    if (this.twTimer < 0 || this.twReason >= this.twReasonRunes.length) {
-      return full;
-    }
-    return clipRunes(full, this.twReason);
+    return this.liveReasoning;
   }
 
   // ── P5 消息操作（长按菜单）─────────────────────────────────────────────────
@@ -3695,8 +3594,7 @@ struct Index {
           .wordBreak(WordBreak.BREAK_ALL)
           .fontSize(12).fontColor(this.pal().textSecondary).padding(8).width('100%')
           .backgroundColor(this.pal().surfaceAlt).borderRadius(8)
-          .opacity(this.twReason < this.twReasonRunes.length ? (this.pulseOn ? 1 : 0.7) : 1)
-          .animation({ duration: 600, curve: Curve.EaseInOut })
+          .opacity(this.liveFade)
           .copyOption(CopyOptions.LocalDevice)
       }
       // 正文（打字机裁剪 + 光标；@State 直驱 ⇒ 必然逐字上屏）
@@ -3714,12 +3612,13 @@ struct Index {
             wrapCode: this.wrapCode(),
             theme: this.themeName,
           })
-          if (this.twContent < this.twTextRunes.length) {
+          if (this.liveOn) {
             Text('▍').fontSize(14).fontColor(this.pal().accent)
               .opacity(this.pulseOn ? 1 : 0.15)
               .animation({ duration: 600, curve: Curve.EaseInOut })
           }
         }.width('100%').alignItems(HorizontalAlign.Start)
+        .opacity(this.liveFade)
       }
       // 工具（全部状态：generating / running / done / error / pending）
       if (this.liveTools.length > 0) {
