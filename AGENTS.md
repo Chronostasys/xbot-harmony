@@ -26,6 +26,10 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   **凡需响应更新 ⇒ 真 `@Component` + `@Prop`**；`@Builder` 只用于"参数不变"的静态片段
   （或无参、读 `this` 的片段）。详见 `docs/ARKTS-GOTCHAS.md`。
 - **ArkTS 禁对象字面量作类型标注**（圆角等）—— 用内联 `.borderRadius({...})`。
+- **脱机门禁抓不到 ArkTS 编译错误** ⛔：`tools/tests/run.sh`(只把 `core/` 当纯 TS 编译) +
+  `tools/lint/render-path.sh` + `tools/typecheck/check.sh` **全绿 ≠ 能编译**。组件/页面的 ArkTS
+  严格性与类型错误（如 `Stack` 无 `justifyContent`、SDK 版本门限）**只有 `hvigorw assembleHap`
+  能发现**。判据：必须看到 `BUILD SUCCESSFUL`；只看那三条脚本 = 假绿。
 - **实机点击是移动靶**：流式时列表自动滚动 ⇒ `dumpLayout → click → snapshot` 必须**同一条
   shell 命令原子执行**，坐标才准。
 - **bytecode HAR** 要求 `useNormalizedOHMUrl: true`；依赖抬 `compatibleSdkVersion` 时需用户拍板。
