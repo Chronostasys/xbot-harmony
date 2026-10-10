@@ -219,6 +219,61 @@ bash tools/tests/run.sh && bash tools/lint/render-path.sh && bash tools/typechec
 - 光标：**已去掉彩色外发光**（原 `eff().glow` 在白底会读成"脏"，且是第二个发光体）⇒ 白底自动成立；
 - `思考 N 字` 强调：`accentSoft`（porcelain #0066CC，白底可读）—— 纯前景色，无发光、无灰雾。
 
+## 9. 「空与失败」—— 一个空白屏换来的语言（波5g）
+
+> 起因（真机实测 2026-10-11）：服务端历史 `role=user len=19` + **`role=assistant len=0`**、
+> `processing=False` ⇒ app 里 **用户气泡下面一片空白**，用户以为"坏了 / 卡了 / 我是不是没发出去"。
+> 根因：`MessageRowView.build()` 用 `rowIsEmpty` 把**空**当成了**不存在**（整块跳过）。
+> **「模型没返回内容」与「这个回合不存在」是两件事** —— 后者才该静默。
+
+### 9.1 契约：触发条件 × 呈现 × 颜色 × 是否抢主高亮源
+
+| 情况 | 判据（稳定信号） | 呈现 | 颜色 | 抢主高亮源？ |
+|---|---|---|---|---|
+| **空回复**（回合已结束、整行无产出） | `!row.isLive && rowIsEmpty(row)` | 一行小字（无图标、无填充、无边框、无发光） | `pal().textMuted` | **否**（静态） |
+| **服务端标记的空响应**（哨兵 `'(empty response)'`） | `row.content.trim() === EMPTY_RESPONSE_SENTINEL` | 同一行 + 一枚 `xmark_circle_fill` | `pal().dangerText` | **否**（静态） |
+| 在飞但还没有内容（首个 delta 未到） | `row.isLive && rowIsEmpty(row)` | **本组件不渲染** | — | 否 —— 由列表尾「思考中…」占位承担（`core/indicators.ets`） |
+| 在飞、有内容但长时间无进展 | 光球心跳静默 > `MOTION_QUIET_MS` | 光球转 `idle`（幅度 0.25/12fps）；**内容仍在屏上，不会出现空白** | §7/§8 | 是（光球，但已极弱） |
+| 有内容 | `!rowIsEmpty(row)` | 正常助手气泡 | §7/§8 | 由 §8 的优先级表决定 |
+
+**不变量**：任何时刻**恰好一个**指示器 —— 在飞 ⇒ 占位符 或 在飞块（光球）；回合已结束但无产出 ⇒
+**本提示行**；两者互斥（判据里含 `!row.isLive`，由 `tools/tests/empty_notice.test.ts` 守护）。
+
+### 9.2 web 对齐证据（权威基准，文案**逐字**取用，禁自创）
+
+| 用途 | web 出处 | 取到的值 |
+|---|---|---|
+| 空回复文案 | `web/src/i18n/zh-CN.ts:223` `agent.emptyAssistant`（en.ts:226） | **`（无文本输出）`** / `(no text output)` |
+| 空回复的触发条件 | `AssistantMessage.tsx:150-152`：`!isStreaming && !finalContent && !emptyResponseWarning && iterations.length === 0 && !showProgress(progress)` | 原生等价 =「回合已结束 + 整行无产出」 |
+| 失败/异常文案 | `web/src/i18n/zh-CN.ts:224` `agent.emptyResponseWarning`（en.ts:227） | **`LLM 本次没有返回文本内容，可能是模型输出异常或中途结束。`** |
+| 哨兵字面量与判据 | `AssistantMessage.tsx:169-171` `content.trim() === '(empty response)'` | `EMPTY_RESPONSE_SENTINEL`（同字面量） |
+| 哨兵处的分支 | `AssistantMessage.tsx:147-149` | 先判哨兵 ⇒ 显示提示**而不是**把哨兵当正文渲染 |
+
+**刻意偏离 web 的一处（有据）**：web 的失败态是一个**填充红盒**
+（`AssistantMessage.tsx:173-179`：`rounded border border-status-error/40 bg-status-error/10 px-2 py-1 text-sm`）。
+原生端按用户口令「Apple 的做法是一行小字 + 中性色，**不是大红报错**」⇒ 只保留**一行**（无填充/无边框/无发光），
+加重手段仅有"颜色升一档 + 一枚图标"。若日后要回到 web 的盒子形态，改点在 `EmptyNotice.build()` 一处。
+
+### 9.3 与 §8（在飞视觉语言）的关系
+
+- 空/失败提示**永远是静态**（零动画、零定时器）⇒ 它只出现在"回合已结束"之后，**不可能**与在飞的
+  主高亮源（光球）同屏争抢 ⇒ §8 的"同一时刻只允许一个主高亮源"依然成立。
+- 颜色只用**语义角色**（`textMuted` / `dangerText`）⇒ 深浅色与 `porcelain` 纯白**自动成立**，
+  无需 `isLightPalette` 分叉、无需外发光（白底上 `#B42318` 可见但不刺眼）。
+- 形态与正常回复**同列同左边界**（同一 `BUBBLE.assistantPadX/rowPadY`）⇒ 空态不像"另一个东西"。
+
+### 9.4 契约守护
+
+`tools/tests/empty_notice.test.ts`（49 条）：
+1. **真判定（可执行）**：用真 `ChatRow` 跑「空/非空 × 在飞/已结束」四组合 —— `rowIsEmpty` /
+   `rowHasInFlightSignal` 是 `core/streammerge.ets` 的真函数；并**证明**哨兵被 `rowIsEmpty` 判为"非空"
+   （所以它必须有独立分支）。
+2. **源码形态**：`showsEmptyNotice()` 含 `!this.row.isLive`；哨兵判定 = `trim() ===` 哨兵常量；
+   `build()` 的空分支与正文路径两条出口都接上；文案**逐字**断言；`EmptyNotice` 内**无**
+   `.backgroundColor(` / `.border(` / `.shadow(` / `.blur(` / `isLightPalette` / `animateTo(` / `setInterval(`；
+   基类成员名黑名单逐名校验。
+
+
 ## 9. 补齐的三处语义缺失（波5f，`Surfaces`）
 
 > 来源：波5 全主题一致性审查（真机截图 + 代码审查）认定三处**语义缺失**，

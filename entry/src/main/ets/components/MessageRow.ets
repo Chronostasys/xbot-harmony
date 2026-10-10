@@ -45,6 +45,32 @@ const COMPACT_LINE_ALPHA: number = 0.7;
 /** 共享空锚定表（无压缩行 ⇒ 零分配、零渲染；调用方只读）。 */
 const NO_ANCHORS: Map<number, WebCompaction[]> = new Map();
 
+// ── 「空 / 失败」态的**唯一文案与判定**（逐字对齐 web，禁自创）──────────────────
+/**
+ * 空回复（本回合结束、assistant 产出为空）——**逐字**取自 web `agent.emptyAssistant`
+ * （`web/src/i18n/zh-CN.ts:223`，en 为 `'(no text output)'`）。
+ * 触发点见 web `AssistantMessage.tsx:150-152`：`!isStreaming && !finalContent &&
+ * !emptyResponseWarning && iterations.length === 0 && !showProgress(progress)`。
+ */
+export const EMPTY_NOTICE_TEXT: string = '（无文本输出）';
+/**
+ * 服务端**明确标记**的空响应（`'(empty response)'` 哨兵）——**逐字**取自 web
+ * `agent.emptyResponseWarning`（`web/src/i18n/zh-CN.ts:224`）。
+ * web 的判定 = `isEmptyResponseContent()`（`AssistantMessage.tsx:169-171`：
+ * `content.trim() === '(empty response)'`）；原生端同一份判据（下面 `EMPTY_RESPONSE_SENTINEL`）。
+ *
+ * ⚠️ 形态**刻意偏离** web：web 用一个填充红盒（`border-status-error/40 +
+ * bg-status-error/10`，`AssistantMessage.tsx:173-179`），原生端按用户口令
+ * 「一行小字 + 中性色，不是大红报错」⇒ 只保留一行 + 升一档的颜色（无填充/无边框/无发光）。
+ */
+export const FAILED_NOTICE_TEXT: string = 'LLM 本次没有返回文本内容，可能是模型输出异常或中途结束。';
+/** 服务端空响应哨兵（与 web `AssistantMessage.tsx:170` 同字面量）。 */
+export const EMPTY_RESPONSE_SENTINEL: string = '(empty response)';
+/** 空态档：无产出（中性色）。 */
+export const NOTICE_KIND_EMPTY: string = 'empty';
+/** 异常态档：服务端标记的空/异常响应（升一档颜色 + 一枚状态图标）。 */
+export const NOTICE_KIND_FAILED: string = 'failed';
+
 @Component
 export struct MessageRowView {
   @ObjectLink row: ChatRow;
@@ -194,6 +220,26 @@ export struct MessageRowView {
    */
   private isEmptyBubble(): boolean {
     return rowIsEmpty(this.row);
+  }
+
+  /**
+   * 是否显示「空回复」提示行（本波修复的真机空白屏）。
+   *
+   * ⛔ 与"在飞指示"**互斥**（不变量：任何时刻恰好一个指示器）：
+   *   · 在飞（`row.isLive`）的空行 ⇒ **不显示**（由列表尾「思考中…」占位承担，
+   *     见 `core/indicators.ets:showsBusyPlaceholder`）—— 否则同屏两个指示器；
+   *   · 回合**已结束**（`!row.isLive`）且整行无产出 ⇒ **必须显示**：否则用户看到
+   *     「自己发的气泡 + 下面一片空白」，以为消息没发出去/卡死了
+   *     （2026-10-11 真机实测：`role=assistant len=0`，processing=False）。
+   *   · 判据全部是**稳定信号**（行上的 `isLive` 与整行可见内容），不涉及任何动画/心跳。
+   */
+  private showsEmptyNotice(): boolean {
+    return !this.row.isLive && this.isEmptyBubble();
+  }
+
+  /** 正文是否为服务端标记的**空响应哨兵**（`'(empty response)'`，与 web 同判据）。 */
+  private isEmptyResponse(): boolean {
+    return this.row.content.trim() === EMPTY_RESPONSE_SENTINEL;
   }
 
   private toolKey(turnID: number, iter: number, name: string): string {
@@ -412,19 +458,26 @@ export struct MessageRowView {
         })
       }
       if (this.row.content.length > 0 && this.row.iterations.length === 0) {
-        MarkdownView({
-          text: this.row.content,
-          onImage: (src: string) => {
-            this.onImage(src);
-          },
-          loadImage: (src: string) => {
-            return this.loadImage(src);
-          },
-          fontScale: this.fontScaleV,
-          wrapCode: this.wrapCodeV,
-          theme: this.theme,
-          mdTheme: this.mdTheme,
-        })
+        if (this.isEmptyResponse()) {
+          // 服务端**明确标记**的空响应（哨兵 `'(empty response)'`）⇒ 显示可读文案，
+          // ⛔ 绝不把哨兵字面量当正文上屏（web 同款：先判 `isEmptyResponseContent` 再渲染，
+          //   `AssistantMessage.tsx:147-149` + `:169-171`）。
+          EmptyNotice({ kind: NOTICE_KIND_FAILED, theme: this.theme })
+        } else {
+          MarkdownView({
+            text: this.row.content,
+            onImage: (src: string) => {
+              this.onImage(src);
+            },
+            loadImage: (src: string) => {
+              return this.loadImage(src);
+            },
+            fontScale: this.fontScaleV,
+            wrapCode: this.wrapCodeV,
+            theme: this.theme,
+            mdTheme: this.mdTheme,
+          })
+        }
       }
       // ── turn 顶部（第一个迭代之前）的压缩点：`afterIteration === 0` ───────────────
       //    web `TurnBody.tsx:922-928`：leading 分隔渲染在**全部迭代块之前**（与迭代同级）。
@@ -733,6 +786,18 @@ export struct MessageRowView {
   build() {
     if (!this.isEmptyBubble()) {
       this.AssistantBlock()
+    } else if (this.showsEmptyNotice()) {
+      // ── 「空回复」的诚实表达（本波修复的真机空白屏）────────────────────────────
+      // 判据 = **回合已结束**（`!row.isLive`）且整行无产出（`rowIsEmpty`）—— 详见 showsEmptyNotice()。
+      // 🖼 chrome 与 `AssistantBlock()` 完全一致（同一 `BUBBLE.assistantPadX/rowPadY`）⇒ 空态
+      //    与正常回复在视觉上"同一列、同一左边界"，不会看起来像另一个东西。
+      Column() {
+        EmptyNotice({ kind: NOTICE_KIND_EMPTY, theme: this.theme })
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+      .padding({ left: BUBBLE.assistantPadX, right: BUBBLE.assistantPadX })
+      .margin({ top: BUBBLE.rowPadY, bottom: BUBBLE.rowPadY })
     }
   }
 }
@@ -829,5 +894,67 @@ struct CompactionDividerRow {
     .width('100%')
     .padding({ top: SP_1, bottom: SP_1 })
     .alignItems(HorizontalAlign.Start)
+  }
+}
+
+/**
+ * 「空 / 失败」提示行 —— **这一类异常只有一种语言：一行、克制、静态**。
+ * 契约正文见 `docs/DESIGN-SYSTEM.md §9`。
+ *
+ * 为什么必须有它（2026-10-11 真机空白屏）：`role=assistant len=0` 的回合此前被
+ * `MessageRowView.build()` 的 `rowIsEmpty` 守卫**整块跳过** ⇒ 用户看到「自己发的气泡 +
+ * 下面一片空白」，以为消息没发出去 / 卡住了。**「模型没返回内容」与「这个回合不存在」
+ * 是两件事** —— 后者才该静默。
+ *
+ * 形态（依据用户口令「一行小字 + 中性色，不是大红报错」，**刻意偏离** web 的填充红盒
+ * `AssistantMessage.tsx:173-179` 的 `border-status-error/40 + bg-status-error/10`）：
+ *   · 一行：图标（仅失败档）+ 一行小字；**无填充、无边框、无阴影、无发光**；
+ *   · 颜色只按**严重度升一档**：`empty` ⇒ `pal().textMuted`（中性，读者几乎不必看它）；
+ *     `failed` ⇒ `pal().dangerText`。两者都是**语义角色** ⇒ 深浅色 / `porcelain` 纯白
+ *     自动成立（白底上 `#B42318` 可见但不刺眼），**无需** `isLightPalette` 分叉、无外发光；
+ *   · **零动画 / 静态**：它只出现在"回合已结束"之后，因此绝不会与"在飞主高亮源"
+ *     （光球，见 §8）同屏争抢 —— 同一时刻仍然只有一个主角。
+ *
+ * ⛔ 必须是真 `@Component` + `@Prop`：`kind` 是会变的值（同一行可能从"空"变"失败"），
+ *   带参全局 `@Builder` 的参数是首帧快照 ⇒ 子树不重建（本仓铁律，docs/ARKTS-GOTCHAS §4）。
+ *
+ * ⚠️ **刻意不加 `export`**：它只被本文件（`MessageRowView`）消费 —— 与同文件的
+ *   `CompactionDividerRow` 同款。加了 `export` 就会被 `tools/lint/orphan-components.sh`
+ *   当成"孤儿组件"（该脚本只扫**其它文件**里有没有这个名字）⇒ 报出一条**假警告**。
+ *   本组件在 `MessageRowView` 里有 2 处真实消费，因此**会被 ArkTS 正常类型检查**。
+ */
+@Component
+struct EmptyNotice {
+  /** 档位：`empty`（回合结束但无产出）| `failed`（服务端标记的空/异常响应）。 */
+  @Prop kind: string = NOTICE_KIND_EMPTY;
+  @Prop theme: string = 'dark';
+
+  private pal(): Palette {
+    return paletteOf(this.theme);
+  }
+
+  /** 是否失败档：唯一加重手段 = 升一档颜色 + 一枚状态图标。 */
+  private failed(): boolean {
+    return this.kind === NOTICE_KIND_FAILED;
+  }
+
+  build() {
+    Row({ space: SP_1 }) {
+      if (this.failed()) {
+        // 图标只在失败档出现（符号名已在仓内其它处用过：`ToolVisual` 的失败态 ⇒ 存在性已核实）
+        SymbolGlyph($r('sys.symbol.xmark_circle_fill'))
+          .fontSize(FS_CAPTION)
+          .fontColor([this.pal().dangerText])
+          .flexShrink(0)
+      }
+      Text(this.failed() ? FAILED_NOTICE_TEXT : EMPTY_NOTICE_TEXT)
+        .fontSize(FS_CAPTION)
+        .fontColor(this.failed() ? this.pal().dangerText : this.pal().textMuted)
+        .wordBreak(WordBreak.BREAK_WORD)
+        .layoutWeight(1)
+        .copyOption(CopyOptions.LocalDevice)
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Top)
   }
 }
