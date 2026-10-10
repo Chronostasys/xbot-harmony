@@ -33,6 +33,7 @@ import {
   NOTIFY_KIND_TURN_DONE,
   TURN_DONE_DEDUPE_MS,
   appIsForeground,
+  clearAll,
   clearForChat,
   notifyBody,
   notifyKindForSse,
@@ -295,11 +296,17 @@ export class ChatStore {
       }
       this.onUpdate();
     };
-    this.sse.onUnauthorized = () => {
+    // 会话凭证失效（任何请求/SSE 401）⇒ 同时清掉通知与角标：
+    // 通知内容属于一个**已经进不去的会话**（点它只会再吃一次 401），且登出后也不该留未读提醒。
+    const onExpired = () => {
+      clearAll();
       this.onAuthExpired();
     };
+    this.sse.onUnauthorized = () => {
+      onExpired();
+    };
     this.http.onUnauthorized = () => {
-      this.onAuthExpired();
+      onExpired();
     };
   }
 

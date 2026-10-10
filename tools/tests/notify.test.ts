@@ -20,7 +20,9 @@ import {
   NOTIFY_KIND_NONE,
   NOTIFY_KIND_TURN_DONE,
   TURN_DONE_DEDUPE_MS,
+  UnreadCounter,
   badgeFor,
+  badgeFromCounts,
   fnv1a32,
   notificationIdFor,
   notificationIdFromHash,
@@ -146,6 +148,44 @@ eq('badgeFor(0) = 0', badgeFor(0), 0);
 eq('badgeFor(负数) = 0', badgeFor(-3), 0);
 eq('badgeFor(3) = 3', badgeFor(3), 3);
 eq('badgeFor(2.7) 取整 = 2', badgeFor(2.7), 2);
+
+// ── 未读角标：计数（增/减/归零/边界）+ 与通知清理一致（波4）──────────────────
+const uc = new UnreadCounter();
+eq('未读计数：初始 0', uc.count(), 0);
+uc.add('chat-A');
+eq('未读计数：发提醒 +1', uc.count(), 1);
+uc.add('chat-A');
+eq('未读计数：同一会话重复提醒仍为 1（按会话去重）', uc.count(), 1);
+uc.add('chat-B');
+eq('未读计数：第二个会话 ⇒ 2', uc.count(), 2);
+eq('未读计数：has(A)/has(C)', `${uc.has('chat-A')}/${uc.has('chat-C')}`, 'true/false');
+uc.remove('chat-A');
+eq('未读计数：看过 A ⇒ -1', uc.count(), 1);
+uc.remove('chat-A');
+eq('未读计数：重复 remove 不为负', uc.count(), 1);
+uc.remove('chat-不存在');
+eq('未读计数：remove 未知会话不为负', uc.count(), 1);
+uc.add('');
+eq('未读计数：空 chat_id 被忽略', uc.count(), 1);
+uc.remove('chat-B');
+eq('未读计数：清掉最后一个 ⇒ 归零', uc.count(), 0);
+uc.add('chat-C');
+uc.clear();
+eq('未读计数：clear（登出）⇒ 归零', uc.count(), 0);
+
+eq('角标决策：系统读数优先（系统 0 ⇒ 角标 0，覆盖本地 3）', badgeFromCounts(0, 3), 0);
+eq('角标决策：系统读数优先（系统 2 / 本地 5 ⇒ 2）', badgeFromCounts(2, 5), 2);
+eq('角标决策：读不到（-1）⇒ 回落本地 3', badgeFromCounts(-1, 3), 3);
+eq('角标决策：读不到 + 本地 0 ⇒ 0', badgeFromCounts(-1, 0), 0);
+eq('角标决策：读不到 + 本地负数（异常）⇒ 0（不为负）', badgeFromCounts(-1, -2), 0);
+eq('角标决策：系统负数（-5，异常）也回落本地 1', badgeFromCounts(-5, 1), 1);
+eq('角标决策：小数系统读数取整', badgeFromCounts(2.9, 0), 2);
+
+// 「通知清理与角标一致」：清掉唯一的未读会话后，角标（含回落路径）必须为 0
+const uc2 = new UnreadCounter();
+uc2.add('chat-X');
+uc2.remove('chat-X');
+eq('清理一致：清掉唯一会话 ⇒ 本地 0 且角标 0', `${uc2.count()}/${badgeFromCounts(-1, uc2.count())}`, '0/0');
 
 // ── 组合：判据链路（事件 → 档位 → 是否发）──────────────────────────────────
 function decide(appForeground: boolean, event: string, sessionAction: string, evs: readonly DomainEvent[] | null): boolean {

@@ -126,6 +126,25 @@ export function notificationIdFor(chatId: string): number {
   return notificationIdFromHash(fnv1a32(id));
 }
 
+// ── 未读角标：语义定义 + 计数 + 与系统对账 ─────────────────────────────────────
+//
+// 【什么是"未读"】**已发出系统通知、但用户尚未在应用里看过的那条会话提醒**。
+//   它不是业务状态（后端才是消息/回合状态的权威），只是**本地提醒计数**：
+//   · **+1（按会话去重）**：`publishTurn` 成功发出一条提醒时（只可能在应用**不在前台**时发生
+//     —— 见 `shouldNotify` 的前台抑制；同一会话多次提醒仍只算 1 条未读）；
+//   · **-1**：该会话的通知被清掉时（`clearForChat`）—— 入口是"用户进入了那个会话"
+//     （`store.openSession` → `clearForChat`）；
+//   · **归零**：`clearAll`（登出/换账号）；或与**系统对账**时系统侧已无活动通知。
+//   ⚠️ 角标与通知**同生共死**：两者都从同一处派生（每次通知增/减后立刻重算），
+//      因此不会出现"通知清了、角标还在"。
+//
+// 【为什么要与系统对账】本地计数是内存态，进程被系统杀掉后会归零，而通知中心里可能
+//   还躺着通知 ⇒ 角标会假性为 0。`notificationManager.getActiveNotificationCount()`
+//   （**公开 API，since 9，无需权限**；其文档原文就是 "suitable for scenarios where an
+//   unread notification count prompt needs to be displayed"，
+//   `@ohos.notificationManager.d.ts:540-572`）给出**系统侧权威条数** ⇒ 优先采用它，
+//   读不到（异常/环境不支持）才回落到本地计数。
+
 /** 角标数 = 还有几条未读提醒（纯函数：负数/NaN 归零、取整）。 */
 export function badgeFor(remaining: number): number {
   if (remaining === undefined || remaining === null || !(remaining > 0)) {
@@ -134,14 +153,72 @@ export function badgeFor(remaining: number): number {
   return Math.floor(remaining);
 }
 
-// ── 模块级记账（内存态）：哪些会话"现在挂着未读提醒"────────────────────────────
-//
-// 用途：① 角标 = 未读提醒**条数**（不是"有/无"）；② 回前台只清"用户即将看到的那条"。
-// ⚠️ 进程重启后为空：重启前留下的通知不在集合里 ⇒ 此时角标按 0 处理（与波1 行为一致），
-//    不去猜"系统里还躺着几条"（系统侧查询 API 拿不到"属于哪个会话"这个维度）。
-const pendingNotifyChats: Set<string> = new Set<string>();
+/**
+ * 角标决策（纯函数）：**系统读数优先**，读不到（<0）回落到本地记账。
+ * @param systemCount 系统侧活动通知数；**负数 = 没读到**（异常/不支持）
+ * @param localCount  本地记账（未读会话数）
+ */
+export function badgeFromCounts(systemCount: number, localCount: number): number {
+  if (systemCount !== undefined && systemCount !== null && systemCount >= 0) {
+    return badgeFor(systemCount);
+  }
+  return badgeFor(localCount);
+}
+
+/**
+ * 未读提醒计数（**可脱机单测**）：内部是"会话集合"，因此**不可能为负**，
+ * 且同一会话反复提醒只算 1 条未读（这正是"按会话"而非"按次数"）。
+ */
+export class UnreadCounter {
+  private ids: Set<string> = new Set<string>();
+
+  /** 记一个"有未读提醒"的会话（幂等；空 id 忽略）。 */
+  add(chatId: string): void {
+    if (chatId !== undefined && chatId !== null && chatId.length > 0) {
+      this.ids.add(chatId);
+    }
+  }
+
+  /** 该会话的未读已消费（用户看过 / 通知已清）。 */
+  remove(chatId: string): void {
+    if (chatId !== undefined && chatId !== null && chatId.length > 0) {
+      this.ids.delete(chatId);
+    }
+  }
+
+  has(chatId: string): boolean {
+    return this.ids.has(chatId);
+  }
+
+  /** 归零（登出/换账号）。 */
+  clear(): void {
+    this.ids.clear();
+  }
+
+  /** 未读**会话数**（集合语义 ⇒ 恒 ≥ 0）。 */
+  count(): number {
+    return this.ids.size;
+  }
+}
+
+/** 本地未读记账（模块级单例）。 */
+const unread: UnreadCounter = new UnreadCounter();
 /** 最近一次发出提醒的会话（`reconcileOnForeground` 未显式给 chatId 时清它）。 */
 let lastNotifiedChatId: string = '';
+
+/**
+ * 与系统对账 → 重算角标。**所有**通知增/减路径都走它（角标与通知同生共死）。
+ * 系统读数不可得时回落到本地记账（见 `badgeFromCounts`）。
+ */
+async function syncBadge(): Promise<void> {
+  let systemCount: number = -1;
+  try {
+    systemCount = await notificationManager.getActiveNotificationCount();
+  } catch (e) {
+    // 读不到不是错误路径：回落到本地记账（脱机测试也在这一支）
+  }
+  await setBadge(badgeFromCounts(systemCount, unread.count()));
+}
 
 /** 通知自动过期（10 分钟）：过期的提醒不该一直躺在通知中心。 */
 const AUTO_DELETE_MS: number = 10 * 60 * 1000;
@@ -343,12 +420,12 @@ export async function publishTurn(title: string, text: string, chatId: string): 
       isAlertOnce: true,
     };
     await notificationManager.publish(request);
-    // 记账：该会话现在有未读提醒（角标计数 + 回前台"只清该会话"的依据）
+    // 记账：该会话现在有未读提醒（按会话去重）⇒ 角标与通知同步重算
+    unread.add(chatId);
     if (chatId !== undefined && chatId !== null && chatId.length > 0) {
-      pendingNotifyChats.add(chatId);
       lastNotifiedChatId = chatId;
     }
-    await setBadge(badgeFor(pendingNotifyChats.size));
+    await syncBadge();
     return true;
   } catch (e) {
     console.warn(`xbot notify: publish 失败（忽略）: ${describeError(e as Object)}`);
@@ -356,7 +433,11 @@ export async function publishTurn(title: string, text: string, chatId: string): 
   }
 }
 
-/** 角标（未读提醒数）。 */
+/**
+ * 直接设置角标（低层入口，一般不用）。
+ * ⚠️ 正常路径请走"通知增/减 → `syncBadge()`"：角标与通知必须同生共死，
+ *    单独调它会出现"通知还在、角标已清零"的不一致。
+ */
 export async function setBadge(n: number): Promise<boolean> {
   try {
     await notificationManager.setBadgeNumber(Math.max(0, Math.floor(n)));
@@ -371,9 +452,9 @@ export async function setBadge(n: number): Promise<boolean> {
 export async function clearAll(): Promise<boolean> {
   try {
     await notificationManager.cancelAll();
-    pendingNotifyChats.clear();
+    unread.clear();
     lastNotifiedChatId = '';
-    await setBadge(0);
+    await syncBadge();
     return true;
   } catch (e) {
     return false;
@@ -401,10 +482,10 @@ export async function clearForChat(chatId: string): Promise<boolean> {
     }
   }
   if (chatId !== undefined && chatId !== null && chatId.length > 0) {
-    pendingNotifyChats.delete(chatId);
+    unread.remove(chatId);
   }
-  // 角标 = 剩余未读提醒数（只清了一个会话 ⇒ 其余会话的通知仍在，角标不为 0）
-  await setBadge(badgeFor(pendingNotifyChats.size));
+  // 角标与通知同步重算（清了一个会话 ⇒ 若还有别的会话挂着提醒，角标不为 0）
+  await syncBadge();
   return ok;
 }
 
@@ -423,11 +504,11 @@ export async function reconcileOnForeground(chatId: string = ''): Promise<void> 
     ? chatId
     : lastNotifiedChatId;
   if (target.length > 0) {
-    await clearForChat(target); // 内部已同步角标
+    await clearForChat(target); // 内部已与系统对账并重算角标
     return;
   }
-  // 没有已知的待清会话（冷启动 / 从未发过提醒）⇒ 只归零角标，**不动**其他会话的通知
-  await setBadge(badgeFor(pendingNotifyChats.size));
+  // 没有已知的待清会话（冷启动 / 从未发过提醒）⇒ 只与系统对账重算角标，**不动**其他会话的通知
+  await syncBadge();
 }
 
 // ── 备1：短时任务兜底（≤3 分钟；本轮只提供函数与生命周期）────────────────────
@@ -448,8 +529,24 @@ export function beginTurnKeepAlive(): boolean {
     }
     const info: backgroundTaskManager.DelaySuspendInfo =
       backgroundTaskManager.requestSuspendDelay(KEEP_ALIVE_REASON, () => {
-        // 系统在超时前 ~6 秒回调 ⇒ 句柄即将失效，标记为无（回合结算时会再 end 一次，幂等）
+        // 【系统何时回调】短时任务**到期前约 6 秒**（SDK 原文："Callback used to notify the
+        // application that the transient task is about to time out. Generally, the callback is
+        // invoked 6 seconds before the timeout."，
+        // @ohos.resourceschedule.backgroundTaskManager.d.ts:635-636）。
+        //
+        // 【我们做什么 —— 只有两件，都不臆造能力】
+        //   ① 记一条**明确的日志**：这是"切后台后回合为什么停住"的唯一可观测信号
+        //      （hilog 里能查到原因，否则用户只看到"消息不更新"）；
+        //   ② 把句柄标记为失效：避免之后的 endTurnKeepAlive() 去 cancel 一个已被系统回收的 id。
+        //
+        // 【为什么不做"自动续期"】SDK **没有**延长接口；再申请是一次**新的**短时任务
+        //   （消耗当日配额，且循环续期会被系统判为滥用）。而且**不需要**：回合在**服务端**
+        //   继续执行（客户端只是订阅方），应用被冻结不会中断它；回前台由 SSE 强制探活
+        //   （`sse.forceReconnect`）+ `/api/history` 对账把漏掉的事件补齐
+        //   ⇒ 冻结前没有任何客户端状态需要抢救。
         keepAliveRequestId = -1;
+        console.warn('xbot notify: 短时任务即将到期（约 6s 后应用可能被冻结）——'
+          + ' 回合在服务端继续；回前台会由 SSE 强制探活 + history 对账补齐');
       });
     keepAliveRequestId = info.requestId;
     return true;

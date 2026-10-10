@@ -61,6 +61,7 @@ declare module '@ohos.notificationManager' {
     }
     function addSlot(type: SlotType): Promise<void>;
     function getSlots(): Promise<Array<NotificationSlot>>;
+    function getActiveNotificationCount(): Promise<number>;
     function isNotificationEnabled(): Promise<boolean>;
     function isNotificationEnabledSync(): boolean;
     function requestEnableNotification(context: Object): Promise<void>;
