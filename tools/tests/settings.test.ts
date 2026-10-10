@@ -44,9 +44,18 @@ eq('档位名 大', fontScaleLabel(1.15), '大');
 eq('档位名 特大', fontScaleLabel(1.3), '特大');
 
 eq('发送键标签 enter', sendKeyLabel(SEND_KEY_ENTER), 'Enter 发送');
-eq('发送键标签 mod-enter', sendKeyLabel(SEND_KEY_MOD_ENTER), 'Ctrl/⌘ + Enter 发送');
-eq('规范化未知', normalizeSendKey('weird'), SEND_KEY_ENTER);
-eq('规范化 mod-enter', normalizeSendKey(SEND_KEY_MOD_ENTER), SEND_KEY_MOD_ENTER);
+eq('发送键标签 ctrl-enter', sendKeyLabel(SEND_KEY_MOD_ENTER), 'Ctrl/⌘ + Enter 发送');
+
+// ── send-key 值域迁移（与 web 对齐；判别力：把实现改回旧值域必红）──────────────
+eq('常量值域 = web', SEND_KEY_MOD_ENTER, 'ctrl-enter');
+eq('归一 ctrl-enter', normalizeSendKey('ctrl-enter'), 'ctrl-enter');
+eq('归一历史 mod-enter → ctrl-enter', normalizeSendKey('mod-enter'), 'ctrl-enter');
+eq('归一 enter 保持', normalizeSendKey('enter'), 'enter');
+eq('缺失回落 web 默认 ctrl-enter', normalizeSendKey(undefined), 'ctrl-enter');
+eq('空串回落 ctrl-enter', normalizeSendKey(''), 'ctrl-enter');
+eq('垃圾回落 ctrl-enter', normalizeSendKey('weird'), 'ctrl-enter');
+eq('历史标签迁移为同一文案', sendKeyLabel('mod-enter'), 'Ctrl/⌘ + Enter 发送');
+eq('发送键服务端键名', serverKey(KEY_SEND_KEY), 'web:ui:send-key-mode');
 
 const srv: Record<string, string> = { 'web:ui:code-word-wrap': '0', 'web:ui:font-scale': '1.2' };
 const loc: Record<string, string> = toLocalSettings(srv);

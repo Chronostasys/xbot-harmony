@@ -824,6 +824,17 @@ struct Index {
       this.showReasoning = parseBool(settingOf(store.settings, KEY_REASONING_DEFAULT), this.showReasoning);
       this.reasoningDefaultApplied = true;
     }
+    // 承载方式（web / native）：只在设置**首次到达**时套用一次，之后尊重用户本次切换。
+    // ⚠️ store/http 此处必然就绪：syncFrom 由 store 变更回调驱动，store 已在 attach() 时持有，
+    //    且 settings 非空意味着 loadSettings()（登录成功后）已返回。
+    if (!this.surfaceApplied && Object.keys(store.settings).length > 0) {
+      if (settingOf(store.settings, KEY_SURFACE) === 'web' && !this.useWebUI) {
+        // ⚠️ 必须先置位：prepareWebUI 首行即 `if (!this.useWebUI) return`
+        this.useWebUI = true;
+        this.prepareWebUI(store);
+      }
+      this.surfaceApplied = true;
+    }
     // busy 结束 ⇒ 发送模式复位（插话只对"正在跑"的会话有意义）
     if (!store.busy && this.sendMode !== MODE_QUEUE) {
       this.sendMode = MODE_QUEUE;
@@ -3202,6 +3213,8 @@ struct Index {
   /** 切换"内嵌完整 web UI / 原生界面"（写进设置，两端口径一致）。 */
   private async setSurface(useWeb: boolean): Promise<void> {
     this.useWebUI = useWeb;
+    // 用户已手动选择 ⇒ 后续 settings 到达不再用服务端值覆盖（只首帧套用一次）
+    this.surfaceApplied = true;
     const store: ChatStore | null = this.store;
     if (useWeb && store !== null) {
       this.prepareWebUI(store);
@@ -4446,9 +4459,11 @@ struct Index {
 
       Row() {
         Text('显示思考过程').fontSize(14).fontColor(this.pal().textPrimary).layoutWeight(1)
-        Toggle({ type: ToggleType.Switch, isOn: this.showReasoning })
+        Toggle({ type: ToggleType.Switch, isOn: this.reasoningDefault() })
           .onChange((on: boolean) => {
-            this.showReasoning = on;
+            // 单一真值：与 PrefsSheet 的「思考默认展开」同键（KEY_REASONING_DEFAULT），
+            // 不再只改本地 @State（旧实现在这里就地改 showReasoning，不落盘 ⇒ 与设置面板打架）。
+            this.setSetting(KEY_REASONING_DEFAULT, on ? '1' : '0');
           })
       }.width('100%')
 

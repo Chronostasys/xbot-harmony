@@ -117,10 +117,14 @@ export function joinPath(dir: string, name: string): string {
  * 回车键在该模式下应不应该「发送」。
  *
  * - `enter` 模式：回车发送（软键盘 Enter 键类型设为 Send）；
- * - `mod-enter` 模式：回车换行（Enter 键类型设为 NewLine），发送靠按钮/快捷键。
+ * - `ctrl-enter` 模式：回车换行（Enter 键类型设为 NewLine），发送靠按钮/快捷键。
+ *
+ * ⚠️ 取值域与权威基准 web 对齐（`'ctrl-enter' | 'enter'`）。历史上原生用 `'mod-enter'`
+ * 表示同一模式（同一份服务端 key `web:ui:send-key-mode`），这里一并容忍以防御旧内存状态，
+ * 但**新代码一律用 `'ctrl-enter'`**（normalizeSendKey 已把历史值迁移掉）。
  */
 export function enterSends(mode: string): boolean {
-  return mode !== 'mod-enter';
+  return mode !== 'ctrl-enter' && mode !== 'mod-enter';
 }
 
 /** 输入框高度上限（行数）—— 超过就内部滚动，绝不把消息区挤没。 */

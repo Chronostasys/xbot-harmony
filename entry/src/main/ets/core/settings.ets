@@ -14,6 +14,13 @@ export const KEY_ACCENT: string = 'xbot-accent';
 export const KEY_LOCALE: string = 'xbot-locale';
 export const KEY_SEND_KEY: string = 'xbot-send-key-mode';
 export const KEY_CODE_WRAP: string = 'xbot-code-word-wrap';
+/**
+ * 界面模式（服务端 `web:ui:ui-mode`）。
+ *
+ * ⚠️ **原生端不消费**：原生只有单一手机布局（无 web 的 desktop/mobile 双模式），
+ * 因此本键既无 UI 也无读取点。映射**保留**只为两端 key 表一致 + 往返不被丢；
+ * 服务端键 `web:ui:ui-mode` 由 web 侧拥有，**不要删**（删了会把 web 的设置弄丢）。
+ */
 export const KEY_UI_MODE: string = 'xbot-ui-mode';
 export const KEY_STARRED: string = 'xbot-starred';
 /** 原生端新增（web 不认也无害）：消息字号缩放，`0.9` / `1` / `1.15` */
@@ -132,17 +139,34 @@ export function fontScaleLabel(scale: number): string {
   return '特大';
 }
 
-/** 发送键模式（`enter` = 回车发送；`mod-enter` = Ctrl/⌘+回车发送）。 */
+/**
+ * 发送键模式。取值域与**权威基准 web 逐字对齐**（`web/src/types/agent.ts:38-45`）：
+ *   - `'ctrl-enter'`（默认）：Ctrl/⌘+Enter 发送，回车换行；
+ *   - `'enter'`：回车发送，Shift/Ctrl+Enter 换行。
+ *
+ * `'mod-enter'` 是**原生端历史值**（旧版把它写进过服务端 `web:ui:send-key-mode`）——
+ * 只在 normalize 读入时容忍（迁移兼容），**绝不作为输出**（否则又写回一个 web 不认的值 ⇒ 双向读错）。
+ */
 export const SEND_KEY_ENTER: string = 'enter';
-export const SEND_KEY_MOD_ENTER: string = 'mod-enter';
+export const SEND_KEY_MOD_ENTER: string = 'ctrl-enter';
+/** 历史值（旧原生端写入服务端的值）：仅供读入迁移，新写入一律用 `ctrl-enter`。 */
+export const LEGACY_SEND_KEY_MOD_ENTER: string = 'mod-enter';
 
 export function sendKeyLabel(mode: string): string {
-  return mode === SEND_KEY_MOD_ENTER ? 'Ctrl/⌘ + Enter 发送' : 'Enter 发送';
+  return normalizeSendKey(mode) === SEND_KEY_MOD_ENTER ? 'Ctrl/⌘ + Enter 发送' : 'Enter 发送';
 }
 
-/** 规范化发送键模式（未知值回落 enter）。 */
+/**
+ * 规范化发送键模式（与 web `useSendKeyMode.readStoredMode` **同语义**）：
+ *   - `'enter'` 原样保留；
+ *   - `'ctrl-enter'` / 历史 `'mod-enter'` ⇒ 统一 `'ctrl-enter'`；
+ *   - 缺失 / 未知 ⇒ **web 默认 `'ctrl-enter'`**（不是 `enter`，否则与 web 默认相反）。
+ */
 export function normalizeSendKey(v: string | undefined): string {
-  return v === SEND_KEY_MOD_ENTER ? SEND_KEY_MOD_ENTER : SEND_KEY_ENTER;
+  if (v === SEND_KEY_ENTER) {
+    return SEND_KEY_ENTER;
+  }
+  return SEND_KEY_MOD_ENTER;
 }
 
 /** 把服务端返回的 `{服务端键: 值}` 映射本地化。 */

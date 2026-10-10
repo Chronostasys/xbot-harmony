@@ -44,7 +44,8 @@ eq('拼接路径', joinPath('/a', 'b'), '/a/b');
 eq('拼接已带斜杠', joinPath('/a/', 'b'), '/a/b');
 
 eq('enter 模式回车发送', enterSends('enter'), true);
-eq('mod-enter 模式回车换行', enterSends('mod-enter'), false);
+eq('ctrl-enter 模式回车换行', enterSends('ctrl-enter'), false);
+eq('历史 mod-enter 仍换行（迁移兼容）', enterSends('mod-enter'), false);
 eq('行数上限', maxComposerLines(), 6);
 
 if (fail > 0) { console.log(`  composer: ${pass} passed, ${fail} failed`); process.exit(1); }
