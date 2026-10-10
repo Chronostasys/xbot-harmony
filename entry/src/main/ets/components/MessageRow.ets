@@ -11,7 +11,7 @@
  *   · 三个 @Builder（Assistant/Iteration/ToolPill）与 7 个 helper 由页面**整块搬入**（原样语义）。
  */
 import { ChatRow, HistoryIteration, ToolProgress } from '../core/types';
-import { displayContent, displayReasoning, rowIsEmpty } from '../core/streammerge';
+import { displayContent, displayReasoning, liveBlockOf, rowIsEmpty } from '../core/streammerge';
 import { runeCount } from '../core/typewriter';
 import { Palette, paletteOf } from '../core/theme';
 import { MarkdownView } from './MarkdownView';
@@ -131,14 +131,14 @@ export struct MessageRowView {
     return badge.length > 0 ? `${base} ${badge}` : base;
   }
 
-  /** 在飞迭代块（该行 iterations 末尾 `live:true` 那一块）；无则 undefined。 */
-  private liveBlockOf(row: ChatRow): HistoryIteration | undefined {
-    for (let i = row.iterations.length - 1; i >= 0; i--) {
-      if (row.iterations[i].live === true) {
-        return row.iterations[i];
-      }
-    }
-    return undefined;
+  /**
+   * 在飞迭代块（该行 iterations 里 `live:true` 那一块）；无则 undefined。
+   *
+   * ⛔ 用 `core/streammerge.liveBlockOf`（**同一个**函数也被可见性判据使用）——
+   *   渲染与判据必须读同一处，绝不能两边各自找一遍（"判据/渲染分叉"的温床）。
+   */
+  private liveBlock(row: ChatRow): HistoryIteration | undefined {
+    return liveBlockOf(row);
   }
 
   /** 已完成迭代（排除在飞块）—— 在飞块由 LiveIterationBlock 单独渲染（同气泡末尾）。 */
@@ -169,17 +169,17 @@ export struct MessageRowView {
   }
 
   private liveBlockText(row: ChatRow): string {
-    const it: HistoryIteration | undefined = this.liveBlockOf(row);
+    const it: HistoryIteration | undefined = this.liveBlock(row);
     return it !== undefined ? displayContent(it) : '';
   }
 
   private liveBlockReasoning(row: ChatRow): string {
-    const it: HistoryIteration | undefined = this.liveBlockOf(row);
+    const it: HistoryIteration | undefined = this.liveBlock(row);
     return it !== undefined ? displayReasoning(it) : '';
   }
 
   private liveBlockTools(row: ChatRow): ToolProgress[] {
-    const it: HistoryIteration | undefined = this.liveBlockOf(row);
+    const it: HistoryIteration | undefined = this.liveBlock(row);
     return it !== undefined && it.tools !== undefined ? it.tools : [];
   }
 
@@ -226,13 +226,16 @@ export struct MessageRowView {
       }
       // 已完成迭代（稳定 key：不随 rev 抖 —— 内容变化靠 @ObjectLink 就地更新，
       // 打字机块才能跨帧存活）。在飞块由下方 LiveIterationBlock 单独渲染。
+      // ⛔ key 必须含 `live` 标记：在飞块可能与某个**已提交迭代同号**（服务端把
+      //   在飞迭代记进 iteration_history 的场景 —— 见 core/render.ets.inFlightBlock），
+      //   只按 `row.id#iteration` 会撞 key ⇒ ArkUI 复用错位（渲染错乱）。
       ForEach(this.itersFor(row), (it: HistoryIteration) => {
         this.IterationBlock(row, it)
-      }, (it: HistoryIteration) => `${row.id}#${it.iteration}`)
+      }, (it: HistoryIteration) => `${row.id}#${it.iteration}#${it.live === true ? 'L' : 'C'}`)
       // ── 在飞迭代块：**同一气泡内的最后一块**（对齐 web TurnBody 的 LiveIteration）──
       // 真机 bug ② 根治点：live 迭代不再是自己一个气泡/一个 ListItem，而是这条
       // assistant 消息气泡里的最后一块，与已完成迭代共用同一套块渲染（仅带打字机）。
-      if (this.liveBlockOf(row) !== undefined) {
+      if (this.liveBlock(row) !== undefined) {
         this.LiveIterationBlock(row)
       }
     }

@@ -81,12 +81,34 @@ export function toHistoryIterations(ws: readonly WebIteration[]): HistoryIterati
  * 由同一套块渲染器画出（只有它带打字机/占位）。**不是**第二个气泡/第二行 ——
  * 这正是真机 bug ②「live 迭代是单独的气泡」的根治点。
  *
- * 语义边界（与 reduce 的迭代 commit 语义严格对齐）：
- *   仅当在飞迭代号 **大于** 已完成迭代的最大号（`lastIter > maxCompleted`）
- *   才追加 —— 迭代 commit 后其内容已进 `iterations`（`lastIter <= maxCompleted`），
- *   此时**不追加**（否则同一迭代号出现两块 = 重复渲染，且会让块数回退）。
+ * ⛔ P0（2026-10-10 第二次点名「第一个 SSE 到达占位就消失、中间看不到任何进度、
+ *   直到迭代结束才一次性蹦出」）根因与修法：
+ *   旧实现**只在 `lastIter > maxCompleted` 时**追加在飞块。但服务端会在迭代边界 /
+ *   工具相变时把**当前在飞迭代**（此刻往往还是**空壳**）记进 `iteration_history`
+ *   ⇒ `maxCompleted === lastIter` ⇒ 在飞块**永不追加**；而在飞内容（content /
+ *   reasoning / streamingTools）照常落在 live Row 的顶层字段。于是
+ *   `rowIsEmpty`（旧实现无条件数 `row.content`）说"有内容" ⇒ 占位让位；渲染层
+ *   （`AssistantBlock` 只在 `iterations` 为空时画 `row.content`，且没有在飞块）
+ *   **画不出任何东西** ⇒ 占位没了 + 内容不可见 = 全空。
+ *   修法：只要在飞字段有**尚未被历史渲染**的内容就追加在飞块（给它一个渲染位）；
+ *   内容为空（无正文/思考/工具）时不追加（空态由列表尾「思考中…」占位承担 ——
+ *   与 web 的"恰好一个指示器"不变量同构）。
+ *
+ * 字段级去重**逐字对齐** web `LiveIteration` 的 `effectiveStreamContent` /
+ * `effectiveReasoning`：与**任一**已完成迭代的对应字段相同 ⇒ 该内容已被历史块渲染
+ * ⇒ 置空，避免同一段文本在历史块与在飞块各渲染一份（双渲染）。
  */
-function inFlightBlock(r: LiveRowView): HistoryIteration {
+function inFlightBlock(r: LiveRowView, completed: HistoryIteration[]): HistoryIteration | null {
+  let content: string = r.content;
+  let reasoning: string = r.reasoning;
+  for (let i = 0; i < completed.length; i++) {
+    if (content.length > 0 && completed[i].content === content) {
+      content = '';
+    }
+    if (reasoning.length > 0 && completed[i].reasoning === reasoning) {
+      reasoning = '';
+    }
+  }
   const tools: ToolProgress[] = [];
   for (let i = 0; i < r.activeTools.length; i++) {
     tools.push(toToolProgress(r.activeTools[i]));
@@ -94,10 +116,13 @@ function inFlightBlock(r: LiveRowView): HistoryIteration {
   for (let i = 0; i < r.streamingTools.length; i++) {
     tools.push(toToolProgress(r.streamingTools[i]));
   }
+  if (content.length === 0 && reasoning.length === 0 && tools.length === 0) {
+    return null;
+  }
   const out: HistoryIteration = {
     iteration: r.lastIter,
-    content: r.content,
-    reasoning: r.reasoning,
+    content,
+    reasoning,
     tools,
     tools_folded: false,
     live: true,
@@ -105,17 +130,51 @@ function inFlightBlock(r: LiveRowView): HistoryIteration {
   return out;
 }
 
-/** live Row → 渲染块列表（已完成迭代 ⊕ 末尾在飞块，块数单调不减）。 */
+/** 迭代块是否**空壳**（无可见正文/思考/工具）。 */
+function isShell(it: HistoryIteration): boolean {
+  if (it.content !== undefined && it.content.length > 0) {
+    return false;
+  }
+  if (it.reasoning !== undefined && it.reasoning.length > 0) {
+    return false;
+  }
+  if (it.tools !== undefined && it.tools.length > 0) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * live Row → 渲染块列表（已完成迭代 ⊕ 末尾在飞块）。
+ *
+ * 在飞块的出现条件（两条，缺一即"在飞内容没有渲染位"）：
+ *   ① `lastIter > maxCompleted` —— 在飞迭代号**尚未**作为历史渲染（正常流式）；
+ *   ② 存在**与在飞号同号、且是空壳**的已完成迭代 —— 服务端把当前在飞迭代
+ *      （此刻还是空壳）记进了 `iteration_history` ⇒ `maxCompleted === lastIter`，
+ *      条件 ① 不成立；此时在飞内容只有"补一块"这一个渲染位（P0 就是这里）。
+ * ⛔ 同号已完成迭代**已有可见内容**时不追加：那是在飞字段对同一迭代的重复副本
+ *   （phase_done / commit 后窗口）⇒ 追加会让同一迭代号出现两块（重复渲染 +
+ *   块数回退，真机 bug ① 的形态）。
+ */
 function liveIterations(r: LiveRowView): HistoryIteration[] {
   const out: HistoryIteration[] = toHistoryIterations(r.iterations);
   let maxCompleted: number = 0;
+  let shellSameNum: boolean = false;
   for (let i = 0; i < out.length; i++) {
-    if (out[i].iteration > maxCompleted) {
-      maxCompleted = out[i].iteration;
+    const it: HistoryIteration = out[i];
+    if (it.iteration > maxCompleted) {
+      maxCompleted = it.iteration;
+    }
+    if (it.iteration === r.lastIter && isShell(it)) {
+      shellSameNum = true;
     }
   }
-  if (r.lastIter > maxCompleted) {
-    out.push(inFlightBlock(r));
+  if (!(r.lastIter > maxCompleted || shellSameNum)) {
+    return out;
+  }
+  const block: HistoryIteration | null = inFlightBlock(r, out);
+  if (block !== null) {
+    out.push(block);
   }
   return out;
 }

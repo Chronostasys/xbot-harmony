@@ -48,7 +48,11 @@
    `core/render.ets` 的 `liveIterations` 把在飞内容（content/reasoning/activeTools/
    streamingTools）折成 `iterations` 的**最后一元素**（`live: true`），由 `MessageRowView`
    的同一套块渲染画出（仅最后一块带打字机 `LiveIterationBlock → LiveTailView`）。
-   追加边界：仅当 `lastIter > maxCompleted`（迭代 commit 后不追加，块数**单调不减**）。
+   追加边界：`lastIter > maxCompleted`（正常流式的在飞迭代）**或**「同号已完成迭代是
+   **空壳**」（服务端把在飞迭代记进 `iteration_history` 的情形 —— 见 §7）；同号已完成
+   迭代**已有可见内容**时不追加（那是在飞字段对同一迭代的重复副本 ⇒ 会重复渲染 +
+   块数回退）。字段级去重与 web `LiveIteration` 的 `effectiveStreamContent`/`effectiveReasoning`
+   同判据（与任一已完成迭代相同 ⇒ 置空）。
    ⇒ 判据（isTailOwned/tailOwnedIteration）整个删掉；在飞内容与已完成迭代同一气泡、同一行。
 2. **`get busy()` 额外 `&& this.askUser === null`**。对齐 AgentPanel 的
    `&& !askUser.prompt && currentSession?.status !== 'waiting_input'`（等待用户回答时 turn 是 PAUSED，
@@ -137,3 +141,77 @@ reduce/derive 的「乐观行 ⇄ 回声/回合/历史 收敛」**靠 requestID 
 **回归守卫**：`tools/tests/overlays.test.ts`（7 项）钉死 `topOverlay` 的 z 序（含多层叠加
 "不被下层抢走"）与 `showsJumpToLatest` 的贴底/空列表判据；`tools/tests/busy_indicator.test.ts`
 （6 项）钉死 busy 不变量（穷举 + 真实 store 流水线 + 服务端 running 场景）。
+
+## 7. P0 回归：判据与渲染**不同源** ⇒「占位让位、渲染空白」（2026-10-10 第二次点名）
+
+**用户原话**：「发送后**思考中出现**，**第一个 SSE 到达就消失**，直到**这个 iter 结束**时迭代
+**瞬间出现**，**中间看不到任何进度**」。
+
+### 7.1 根因（两条，必须成对修）
+
+**A. 判据与渲染读的不是同一件事（"判据说有、渲染画不出"）**
+- `core/streammerge.ets` 的 `rowIsEmpty` 旧实现**无条件**把 `row.content` 算作可见内容；
+- 而渲染层 `components/MessageRow.ets` 的 `AssistantBlock` **只在 `row.iterations.length === 0`
+  时**才画 `row.content`（有迭代 ⇒ 内容在迭代内渲染，与 web `AssistantMessage.finalContent`
+  同判据）。
+⇒ live 行的在飞正文落在 `row.content` 时：判据说"有内容" ⇒ `tailShowsIndicator = true`
+⇒ **占位被抑制**；渲染层却画不出它 ⇒ **列表全空**。
+
+**B. 在飞内容没有渲染位（`core/render.ets.liveIterations`）**
+- 旧实现**只在 `lastIter > maxCompleted` 时**追加在飞块。
+- 但服务端会在迭代边界/工具相变时把**当前在飞迭代**（此刻往往还是**空壳**）记进
+  `iteration_history` ⇒ `maxCompleted === lastIter` ⇒ 在飞块**永不追加**；
+  而在飞内容（`content`/`reasoning`/`streamingTools`）照常落在 live Row 顶层字段 ⇒
+  既进不了迭代块、又被 A 的渲染条件挡掉 ⇒ 直到迭代 commit 才由历史块一次性蹦出
+  （正是症状 3+4）。
+
+### 7.2 修法（逐条对齐 web，不做自创）
+
+| 项 | 修法 | web 对应 |
+|---|---|---|
+| A | `core/streammerge.ets` 新增**「尾部可见内容量」纯函数** `rowVisibleChars(row)`：逐条复刻 `AssistantBlock`（`row.content` 仅当 `iterations` 为空 + 每块 思考头/正文/工具）。`rowIsEmpty` 改为 `rowVisibleChars(row) === 0`。**判据（`tailShowsIndicator`）与渲染守卫（`ChatRowBody`/`MessageRowView.build`）都调它** ⇒ 结构上不可能再"判据说有、渲染画不出" | web 的 `MessageList.tailShowsIndicator` 与 `LiveIteration` 的**空内容分支共用 `liveIterationInFlight`**（同一判据，互斥 ⇒ 恰好一个指示器） |
+| B | `core/render.ets`：在飞块的出现条件 = `lastIter > maxCompleted` **或**「同号已完成迭代是空壳」；只要在飞字段有**尚未被历史渲染**的内容就追加（给它渲染位）。字段级去重（与**任一**已完成迭代的 content/reasoning 相同 ⇒ 置空） | web `LiveIteration` 的 `effectiveStreamContent`/`effectiveReasoning`（内容匹配抑制，逐字对齐）；`liveIterationInFlight` = `iteration > maxCompleted` |
+| 键 | `MessageRow` 的迭代块 `ForEach` key 加 `live` 标记（在飞块可能与已提交迭代**同号**，只按 `row.id#iteration` 会撞 key ⇒ ArkUI 复用错位） | web 用 `hKey = turnID:iteration` + LiveIteration 独立挂载点（等价：保证同号两块不撞键） |
+
+**唯一的故意差异（理由充分）**：native 的 `LiveTailView` **没有** web `LiveIteration` 的
+空内容 `ShimmerThinking` 分支 —— 因为 native 的空在飞态由**列表尾「思考中…」占位**承担
+（`showsBusyPlaceholder`），二者由同一判据驱动 ⇒ 仍是 web 的"恰好一个指示器"不变量
+（只是空态指示器的落点是列表尾，而不是气泡内）。加内层 shimmer 会与占位**双渲染**
+（web 自己也为此删过一处 `ShimmerThinking`，见 `AssistantMessage` 注释）。
+
+### 7.3 红 → 绿证据
+
+`tools/tests/p0_tail_visibility.test.ts`：真实 store 流水线（SSE → `normalizeEvent` → `reduce`
+→ `deriveRows` → `applyRow`），**每一步**断言三条联合不变量：
+
+- **(I1)** `尾部可见内容量 > 0` **或** `showsBusyPlaceholder === true`（绝不允许两者皆假）；
+- **(I2)** 判据说"有内容" **⟺** 独立渲染 oracle 画出内容（同源）；且 `rowVisibleChars` 与
+  oracle **逐字符相等**；
+- **(I3)** 在飞期间可见内容量**单调不减**，且**在飞期间真的出现过**可见内容（不得 0 → commit 才跳变）。
+
+**红**（修前，`22 passed / 11 failed`）：
+
+```
+[turn_started]                  渲染可见=0 占位=true   ← ✓
+[第一条 SSE（在飞迭代快照，空）]  渲染可见=0 占位=true   ← ✓
+[第二条 SSE（正文到达）]          渲染可见=0 占位=false  ← ✗ 两者皆假 = 全空（P0）
+   ✗ 尾部可见内容=0 占位=false —— 绝不允许"两者皆假"
+   ✗ 判据(非空)=true 但渲染可见=0 —— 判据与渲染必须同源
+[iter1 commit]                   渲染可见=8 占位=false ← "迭代结束才瞬间出现"
+```
+
+**绿**（修后，`37 passed / 0 failed`）：
+
+```
+[turn_started]                  渲染可见=0 占位=true
+[第一条 SSE（在飞迭代快照，空）]  渲染可见=0 占位=true
+[第二条 SSE（正文「思考一」）]     渲染可见=3 占位=false ← 内容到达即刻可见
+[第三条 SSE（正文变长）]          渲染可见=6 占位=false ← 单调增长
+[第四条 SSE（推理流）]            渲染可见=7 占位=false ← 单调增长（思考头）
+[iter1 commit]                   渲染可见=5 占位=false ← 权威快照替换在飞草稿
+[phase_done]                     渲染可见=5 占位=false
+```
+
+**回归守卫**：`rowempty.test.ts`（10）、`live_iteration_inline.test.ts`（2）、
+`streammerge_row.test.ts`（2）、`busy_indicator.test.ts`（6）+ 全量 `tools/tests/run.sh` EXIT=0。
+

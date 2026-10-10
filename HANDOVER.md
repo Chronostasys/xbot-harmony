@@ -15,8 +15,8 @@
 最新可安装产物（未签名，需 DevEco 自动签名）：
 
 ```
-dist/xbot-harmony-release-unsigned.hap   262462 B   sha256 4f259e2f07a91cf0fc91b505dfeaba3a85ffb26cbc27a6118c7eb58b86884c68
-dist/xbot-harmony-debug-unsigned.hap     581184 B   sha256 a8ee383f44cd92babccf97cbba671ab9f32183316b151b6646a5a40730370361
+dist/xbot-harmony-release-unsigned.hap   700349 B   sha256 9751d5e0659a28e1e19ef84938fe048da25689cc6e8b15bdacf07617c79211cc
+dist/xbot-harmony-debug-unsigned.hap    1646564 B   sha256 58102621b1d848b08769ff71bee4d3a07ff8fcf90c4b1bab4c790f1e866cf7b0
 ```
 
 ---
@@ -25,6 +25,7 @@ dist/xbot-harmony-debug-unsigned.hap     581184 B   sha256 a8ee383f44cd92babccf9
 
 | 用户原话 | 根因（真机/服务端实证） | 修法 / 守护 |
 |---|---|---|
+| 「发送后思考中出现，**第一个 SSE 到达就消失**，直到 iter 结束时迭代瞬间出现，**中间看不到任何进度**」 | **判据与渲染不同源**（A：`rowIsEmpty` 无条件数 `row.content`，而渲染层只在 `iterations` 为空时画它）+ **在飞内容没有渲染位**（B：`render.ets` 只在 `lastIter > maxCompleted` 时追加在飞块，而服务端会把空的在飞迭代记进 `iteration_history` ⇒ 块永不追加）⇒ 判据说"有内容"抑制占位、渲染却画不出 = 全空 | A：`streammerge.rowVisibleChars` 纯函数（判据 = 渲染同源），`rowIsEmpty` 委派它；B：`render.ets.liveIterations` 改为「`lastIter > maxCompleted` **或** 同号已完成迭代是空壳」+ web 的字段级内容去重；`MessageRow` 迭代块 key 加 `live` 标记 |
 | 「渲染整个都是错乱的，完全用不了」 | **流式帧被当成结构化事件**：服务端把只带流式字段的消息改型为 `stream_content`，其 `iteration==0`、无 `tools`；客户端却读 `content`（应为 `stream_content`）并按 `iteration ?? 0` 写入 ⇒ 流式文本读不到、工具 pill 一闪就没、冒出**幽灵「迭代 0」** | `core/streammerge.ets` 分两条路：流式帧归**在飞迭代**（只增不减）、结构化帧按号 upsert 且**缺字段不清空**；44 条守护 |
 | （同上） | **`SessionEvent.Action` 误读为 `state`** ⇒ 会话状态更新整条是死代码（收尾后可能停在"运行中/停止"） | `core/streammerge.ets` 的 `isIdleAction`/`isBusyAction`/`shouldReloadHistory`；7 条守护 |
 | （同上） | **宽表格**：真实会话里 ≥5 列表格出现 44 次，而等宽网格在手机上把每列压成 ~40dp 竖条 | 列数决定形态：≤4 列网格、≥5 列堆叠；18 条守护 |

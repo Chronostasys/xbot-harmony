@@ -10,6 +10,8 @@ exports.applyStreamFrame = applyStreamFrame;
 exports.applyStructured = applyStructured;
 exports.displayContent = displayContent;
 exports.isStaleSeqEvent = isStaleSeqEvent;
+exports.liveBlockOf = liveBlockOf;
+exports.rowVisibleChars = rowVisibleChars;
 exports.rowIsEmpty = rowIsEmpty;
 exports.displayReasoning = displayReasoning;
 exports.isIdleAction = isIdleAction;
@@ -222,24 +224,66 @@ function isStaleSeqEvent(lastSeq, seq, maxKnownIter, p) {
 // activeTools/streamingTools）是**独立字段**，由 LiveIteration/尾块渲染 —— 二者天然
 // 不重叠、无需任何归属判据。原生端已对齐（core/render.ets + store.liveProgress +
 // 页面 syncLiveTail）：列表渲染**全部**迭代，尾块渲染在飞快照。
-/** 行是否"完全空"（无正文、无思考、无工具 ⇒ 渲染出来就是一张空气泡卡片）。 */
-function rowIsEmpty(row) {
-    if (row.content.length > 0) {
-        return false;
+/**
+ * 该行的**在飞迭代块**（`live: true` 的那一块；无则 undefined）。
+ *
+ * 渲染层（`MessageRowView`）与可见性判据（`rowVisibleChars`）读**同一个**函数 ——
+ * 不允许两边各自找一遍（那正是"判据/渲染分叉"的温床）。
+ */
+function liveBlockOf(row) {
+    for (let i = row.iterations.length - 1; i >= 0; i--) {
+        if (row.iterations[i].live === true) {
+            return row.iterations[i];
+        }
+    }
+    return undefined;
+}
+/**
+ * 「尾部可见内容量」—— 本行**渲染后会真正画出来**的字符数（工具 pill 计 1）。
+ *
+ * ⛔ 这是「可见性判据」与「渲染内容」的**唯一同源点**（用户 2026-10-10 P0 定稿：
+ *   「发送后第一个 SSE 到达占位就消失、中间看不到任何进度」）。
+ *   判据点：`rowIsEmpty`（→ `core/indicators.showsBusyPlaceholder` 的
+ *   `tailShowsIndicator`）；渲染守卫点：`pages/Index.ChatRowBody` 与
+ *   `components/MessageRow.MessageRowView.build`。两处**都**用它
+ *   ⇒ 结构上不可能再出现"判据说有、渲染画不出"（占位让位 + 一行空白 = 全空）。
+ *
+ * 逐条对应 `components/MessageRow.ets` 的 `AssistantBlock`（**改渲染必须同步改这里**）：
+ *   · `row.content` **仅当 `iterations` 为空时**才画（有迭代 ⇒ 内容在迭代内渲染，
+ *     与 web `AssistantMessage.finalContent = !hasIterations && !liveHasContent` 同判据）；
+ *   · 每个迭代块 → `IterationBlock`：思考头(displayReasoning>0) + 正文 + 工具 pill；
+ *   · 末尾在飞块（`live:true`）→ `LiveTailView`：同上。
+ *
+ * ⚠️ 计数按**默认（折叠）态**与渲染逐条对齐：思考只计"头"1 个字符量（展开正文时
+ *   渲染更多 —— 故这是**下界**，`>0` 判据不受影响）；正文计全部字符；工具 pill 计 1。
+ *   测试 `p0_tail_visibility.test.ts` 用独立 oracle 断言本函数与渲染**逐字同源**。
+ */
+function rowVisibleChars(row) {
+    let n = 0;
+    if (row.content.length > 0 && row.iterations.length === 0) {
+        n += row.content.length;
     }
     for (let i = 0; i < row.iterations.length; i++) {
         const it = row.iterations[i];
-        if (displayContent(it).length > 0) {
-            return false;
-        }
         if (displayReasoning(it).length > 0) {
-            return false;
+            n += 1;
         }
+        n += displayContent(it).length;
         if (it.tools !== undefined && it.tools.length > 0) {
-            return false;
+            n += 1;
         }
     }
-    return true;
+    return n;
+}
+/**
+ * 行是否没有任何**可见**内容（渲染出来就是一张空气泡卡片 / 占位符该顶上）。
+ *
+ * ⛔ 必须是 `rowVisibleChars(row) === 0`（与渲染同源）—— 旧实现无条件把
+ *   `row.content` 算作内容，而渲染层只在 `iterations` 为空时才画它 ⇒ 在飞内容
+ *   落在 `row.content` 时，判据说"有"、渲染空白（P0）。
+ */
+function rowIsEmpty(row) {
+    return rowVisibleChars(row) === 0;
 }
 /** 该迭代当前应显示的推理文本。 */
 function displayReasoning(it) {
