@@ -79,7 +79,10 @@ export struct ContextRing {
         .style({ strokeWidth: CTX_RING_STROKE, enableSmoothEffect: true })  // web `strokeWidth="2"` + 300ms 过渡
     }
     .width(SP_7).height(SP_7)                 // web `span size-7` = 28px（= 点击热区）
-    .justifyContent(FlexAlign.Center)
+    // web 是 `flex items-center justify-center` ⇒ ArkUI 的等价物是 Stack 的 **alignContent**
+    // （⛔ Stack **没有** justifyContent —— 那是 Column/Row/Flex 的属性；写了会 ArkTS 编译失败，
+    //   且离线门禁（run.sh/lint/typecheck，只编译 core/）抓不到 ⇒ 唯一真门禁是 hvigorw assembleHap）。
+    .alignContent(Alignment.Center)
     .borderRadius(R_MD)                       // web `rounded-md`
     .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
     .onClick(() => {
