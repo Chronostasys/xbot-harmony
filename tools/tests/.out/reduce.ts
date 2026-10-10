@@ -1,0 +1,1968 @@
+/**
+ * **状态机转移表**（逐字移植自 xbot web `web/src/chat/reduce.ts`）。
+ *
+ * 这是用户要求的「逻辑一比一」的核心：原生端不另写一套近似实现，而是用与 web **同一份**
+ * 转移规则（8 类事件 + 不变量 I1–I6：槽位唯一 / committed 可渲染 / 活动唯一 /
+ * 迭代 append-only / seq 单调 / 无 null），从而渲染与状态行为与 web 一致。
+ */
+import { util } from '@kit.ArkTS';
+/**
+ * reduce.ts — 状态机转移表（全部业务规则集中于此，8 case 穷尽）。
+ *
+ * 纯函数：reduce : ChatState × DomainEvent → ChatState
+ *   - 返回原引用 = 无变化（React 零渲染 —— 迟到/旧 turn 事件的统一语义）
+ *   - immutable 替换 —— 永不原地修改（readonly 类型阻止）
+ *
+ * 不变量维护（每条标注在转移点，归纳证明见 design doc §5.4）：
+ *   I1 槽位唯一   — turns: ReadonlyMap（Map key 语义）
+ *   I2 committed 可渲染 — CommittedPayload 构造函数签名
+ *   I3 活动唯一   — activeTurn 唯一指针；turn_started 收尸旧 active
+ *   I4 迭代 append-only — iterations 仅 3 处写入（append/fold/commit union），只增
+ *   I5 seq 单调（per-turn）— lastSeq 属于 activeTurn；turn_started 重置
+ *   I6 无 null   — normalize 已保证（reducer 零格式防御）
+ */
+
+import type { GoalInfo, TodoItem, WebCompaction, WebIteration, WebSubAgentProgress, WebToolProgress } from './chattypes'
+import {
+  EMPTY_LIVE,
+  commitViaFold,
+  commitViaText,
+  initialChatState,
+  nonEmptyArr,
+  nonEmptyStr,
+  turnID,
+  type ChatState,
+  type DomainEvent,
+  type EventSeq,
+  type IterNum,
+  type LiveSnapshot,
+  type Turn,
+  type TurnID,
+} from './chat_types_full'
+
+// ─── 工具：迭代合并（I4 append-only + 权威覆盖语义） ──────────
+
+/**
+ * 已知的最大 turn id（0 = 尚无 turn）—— 命令行（turn-less）的**时间锚点**。
+ *
+ * 命令由后端并发执行：不分配 turn、不落库，渲染层没有任何 turn 归属可用。锚点记录
+ * "它发生在哪个 turn 之后"，`sortTurnKey` 据此把它插回原位（旧行为一律沉底 ⇒ 后到的
+ * turn 长在它们**上面** = 用户报告的「所有 !cmd 内容固定挂在会话底部」）。
+ * O(T) —— 只在命令事件（极低频）上调用。
+ */
+function lastTurnIDOf(s: ChatState): number {
+  let max = 0
+  for (const id of s.turns.keys()) if (id > max) max = id
+  return max
+}
+
+// 命令回复（`!cmd` / slash）渲染为 legacy 独立行 —— 单调序号保证 React key 唯一
+// （同毫秒连续两条命令回复也必须区分，与 normalize.ts 的 echoSeq 同一模式）。
+/**
+ * 无 turn 的独立行（命令回复 `!cmd` / slash）的行 id。
+ *
+ * 生命周期：只在收到一条**显式命令回复**时生成一次；命令不落库，reload 后这些行由
+ * DB 历史替换（`history_replaced` 会重建 standalone 段），因此它只需在**当前会话的
+ * 生命周期内**唯一。
+ *
+ * 用 `util.generateRandomUUID()` 而不是模块级自增计数器：计数器是跨会话/跨刷新共享的
+ * **隐式全局状态**（刷新后从 1 重新开始，会与其它会话/历史行的 id 撞车），违反
+ * 「行 id 唯一」的契约（CR 2026-09-21 P2-1）。与 `useChatMessages.newMessageRequestID()`
+ * 同一范式。
+ */
+function commandRowId(): string {
+  const uuid = globalThis.crypto?.randomUUID?.()
+  return uuid
+    ? `cmd-${uuid.replaceAll('-', '').slice(0, 12)}`
+    : `cmd-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+/**
+ * 会话级状态携带（todos + goal）：iteration/phase_done 事件在【任何】路径（早期
+ * return / 主路径）都必须应用事件携带的会话级字段 —— 事件未携带（undefined）时保留
+ * 现值（与 optTodos/optGoal 的"缺省=不覆盖"语义一致）。
+ * goal 三态（xbotgh CR 🔴 清除链路）：GoalInfo = 状态更新；null = 显式清除（后端
+ * ClearGoal 推 {objective:"",status:"cleared"} 标记——nil Goal 经 omitempty 字段消失与"未携带"
+ * 不可区分，故用标记表达"目标已删除"，null 写入 s.goal）；undefined = 事件未携带。
+ */
+function applySessionFields(
+  s: ChatState,
+  todos: readonly TodoItem[] | undefined,
+  goal: GoalInfo | null | undefined,
+): ChatState {
+  let next = s
+  if (todos !== undefined) next = { ...next, todos }
+  if (goal !== undefined) next = { ...next, goal }
+  return next
+}
+
+
+/** 「轻字段」迭代判定 —— 工具详情载荷（summary/args/detail/toolHints）已被后端
+ *  `tools_folded` 省略，pill 轻字段仍完整。normalize 已把缺省归一成 false
+ *  （`normalize.ts` 的 `toolsFolded: r.tools_folded === true`）⇒ `=== true` 判定可靠，
+ *  不会因「有的迭代带该键、有的不带」抖动。 */
+function isFolded(it: WebIteration): boolean {
+  return it.toolsFolded === true
+}
+
+/**
+ * union 迭代按 iteration# 排序。**同号合并四象限**（D3，方案 §3.3）：
+ *
+ * | incoming \ prev | prev 轻          | prev 完整        |
+ * |-----------------|------------------|------------------|
+ * | incoming 完整   | incoming 胜      | incoming 胜      |
+ * | incoming 轻     | prev 胜（引用稳）| **prev 胜**（★） |
+ *
+ * - 「完整」= `toolsFolded` falsy（详情字段齐全；缺省即完整）；
+ *   「轻」= `toolsFolded === true`。
+ * - ★核心象限：**轻字段永不覆盖已加载的完整数据** —— reload / `active_progress`
+ *   水合 / 区域段都带轻字段，正文式的 `incoming 胜` 会把浮层已 hydrate 的
+ *   `summary/args/detail` 抹掉（用户点开过的详情再次点开要重拉 = 有感的倒退）。
+ * - 轻 vs 轻 ⇒ prev 胜：引用稳定（幂等重放零渲染；`reuseIfSame` 纪律的输入前提）。
+ * - 新迭代号（prev 不存在）无论轻重一律 append（I4 只增不减）。
+ *
+ * 引用稳定纪律：被覆盖/新增之外的元素必须是 **base 的原引用**（不重建），否则
+ * 下游 `reuseIfSame` 判不出「无变化」⇒ 逐帧击穿 TurnBody 的迭代 memo。
+ */
+function mergeIterations(
+  base: readonly WebIteration[],
+  authoritative: readonly WebIteration[],
+): readonly WebIteration[] {
+  if (authoritative.length === 0) return base
+  // 快路径：authoritative 与 base 逐元素同引用（幂等重放的最常见形态 —— 每帧
+  // history_replaced 把同一份 DB 迭代再喂一次）⇒ 直接返回 base，免掉 Map 构建 +
+  // 排序的分配（仍 O(N) 比较，但不分配）。
+  if (authoritative.length === base.length) {
+    let identical = true
+    for (let i = 0; i < base.length; i++) {
+      if (base[i] !== authoritative[i]) {
+        identical = false
+        break
+      }
+    }
+    if (identical) return base
+  }
+  const byNum = new Map<number, WebIteration>()
+  for (const it of base) byNum.set(it.iteration, it)
+  for (const it of authoritative) {
+    const prev = byNum.get(it.iteration)
+    // 四象限：incoming 轻 ⇒ prev 胜（prev 轻=引用稳定；prev 完整=★不倒退）；
+    // incoming 完整 ⇒ incoming 胜（浮层/区域段 hydrate 与既有权威方向一致）。
+    if (prev !== undefined && isFolded(it)) continue
+    byNum.set(it.iteration, it)
+  }
+  const merged = [...byNum.values()].sort((a, b) => a.iteration - b.iteration)
+  // 结果与 base 逐元素同引用（轻 incoming 全部被 prev 挡下 / 子集重放）⇒ 返回 base
+  // —— 把引用稳定做进 mergeIterations 本身，调用方的 reuseIfSame 之外也成立。
+  if (merged.length === base.length) {
+    let identical = true
+    for (let i = 0; i < base.length; i++) {
+      if (merged[i] !== base[i]) {
+        identical = false
+        break
+      }
+    }
+    if (identical) return base
+  }
+  return merged
+}
+
+/**
+ * 已持有迭代窗口的最大迭代号（'' 前置条件：调用方已确认 `iterations.length > 0`）。
+ * 跳变检测的「本地基准」——判「到达的迭代号是否接上了已持有的连续窗口」。
+ */
+function maxHeldIteration(iterations: readonly WebIteration[]): number {
+  let max = 0
+  for (const it of iterations) if (it.iteration > max) max = it.iteration
+  return max
+}
+
+/**
+ * **SSE 增量路径的迭代丢失洞**（P0 2026-10-06，chat_AE903161C55A turn 445 实证）。
+ *
+ * iterationHistory 是增量 feed：某迭代的完成 delta 在链路上丢失后，**没有任何
+ * 后续事件会回头补它**（快照只带「新」迭代）。渲染层 `continuousIterations` 在洞
+ * 处截断 ⇒ 后续每个迭代的 commit「出现（live）即消失（done 后历史不显示）」、
+ * view 永久停在洞前（用户实测：view 停在 1-40，后端已到 84）。
+ *
+ * 证据标准：迭代号在 turn 域内逐 +1 单调（引擎循环 iteration++），到达的迭代号
+ * **没有接上已持有窗口**（`from > maxHeld + 1`）在数学上不可能是正常事件 ⇒ 中间
+ * 洞 [maxHeld+1 .. from-1] 的 delta 全部丢失。与遮蔽解除（ev.iter > maxIter）同
+ * 一个证据家族：后端绝不会对更早的迭代重发更大号。
+ *
+ * 处理：不拼合、不遮掩 —— 记洞签名；签名变化 ⇒ `gapReloadToken` 自增（面板
+ * `markHistoryStale` + `reset` + 权威 reload ⇒ REST DB 窗口 union 补洞）。同一
+ * 签名只自增一次（reload 在途时后续迭代的 commit 跳变不重复报 ⇒ 无重载风暴）。
+ *
+ * @param from 到达侧的最小迭代号（iteration case = delta 最小号；stream case =
+ *             流式迭代号本身）。
+ * @returns 新签名（'' = 无跳变，调用方不得改 state）。
+ */
+function lostIterGapSig(
+  s: ChatState,
+  turnID: TurnID,
+  held: readonly WebIteration[],
+  from: number,
+): string {
+  if (held.length === 0) return '' // 空窗口无「已持有」基准（reset 后回放帧）——reload 本就在途
+  const maxHeld = maxHeldIteration(held)
+  if (from <= maxHeld + 1) return '' // 接上了（含 restore 快照自带补洞 delta）⇒ 无洞
+  // ⚠️ 签名只锚定**洞下界**（maxHeld+1），不含上界：stream 帧逐帧到达时 from 单调
+  // 递增（81, 82, 83…），含上界（from-1）的签名每帧变化 ⇒ 去重失效 ⇒ 每帧自增
+  // token = 重载风暴。下界由已持有窗口决定：同一轮丢失内恒定（maxHeld 不变）⇒
+  // 同洞去重成立；洞被修复（maxHeld 前移）后再丢 ⇒ 新下界 ⇒ 重新触发。
+  const sig = `${turnID}:gapFrom${maxHeld + 1}`
+  return sig === s.lostIterGapSig ? '' : sig // 同洞去重：重复报 = 重载风暴
+}
+
+/**
+ * **「无法追赶的 gap」判据**（用户 2026-09-21：「出现无法追赶的 gap 就重新加载 session」）。
+ *
+ * 本地窗口 ∪ 权威窗口之后**仍有洞**，且**洞有一部分落在权威窗口之外**（服务端历史按 turn
+ * 尾部有界 ⇒ 那段不在响应里、也再取不回来）⇒ 本地视图与权威之间**永久断裂**（线性一致性
+ * 被破坏）⇒ 不能拼合、不能遮掩，只能**重新加载该会话**（丢弃本地带洞窗口 + 权威重载）。
+ *
+ * 反之：洞完全落在权威窗口内 ⇒ 只是本地丢了一张 delta（可追赶）：既有的 union 补洞 +
+ * 下一次 reload（DB 权威）即可修复 ⇒ **不**触发重载。
+ *
+ * 返回 `''` = 没有无法追赶的洞；否则返回缺口形状签名（供幂等判重，避免重载循环）。
+ */
+function unreachableGapSig(
+  turn: TurnID,
+  localIts: readonly WebIteration[],
+  incomingIts: readonly WebIteration[],
+  incomingRegionsBefore?: number,
+): string {
+  if (localIts.length === 0 || incomingIts.length === 0) return ''
+  let incMin = Infinity
+  let incMax = 0
+  for (const it of incomingIts) {
+    if (it.iteration < incMin) incMin = it.iteration
+    if (it.iteration > incMax) incMax = it.iteration
+  }
+  const merged = mergeIterations(incomingIts, localIts)
+  for (let i = 1; i < merged.length; i++) {
+    const a = merged[i - 1].iteration
+    const b = merged[i].iteration
+    if (b <= a + 1) continue
+    // 洞 = [a+1, b-1]：只要有一部分在权威窗口之外 ⇒ 追不回来。
+    // ⚠️ 例外（2026-10-02 P0：熄屏恢复 × 折叠窗口）：洞**整段落在 incoming 窗口
+    // 下方**且 incoming 带 regionsBefore>0（服务端显式声明「窗口之前还有未下发的
+    // 展示区域」——该洞就在声明区域内，POST /api/regions 可完整取回）⇒ 这是
+    // **可追赶**的洞，不是「追不回来」：本地熄屏前的低号迭代（[1..40]）与恢复
+    // reload 的折叠窗口（[52..90]）之间必然产生这种洞，误报 reload 只会拿到同样
+    // 的窗口（死循环）；追赶由 useRegionWindow 的洞检测自动 fetchRegions 完成。
+    if (a + 1 < incMin && (incomingRegionsBefore ?? 0) > 0) continue
+    if (a + 1 < incMin || b - 1 > incMax) return `${turn}:gap${a + 1}-${b - 1}`
+  }
+  return ''
+}
+
+function joinSig(acc: string, sig: string): string {
+  if (sig === '') return acc
+  return acc === '' ? sig : `${acc},${sig}`
+}
+
+/** merged 与 existing 逐元素同引用（同长、同序、同对象）⇒ 返回 existing。
+ *
+ * 幂等重放（useChatMessages 的 store 每帧 notify → setMessages → historyMessages
+ * 换引用 → history_replaced）必须保住渲染层已持有的 iterations 引用 —— 否则
+ * TurnBody→CommittedTurn 的 memo 被逐帧击穿，流式帧代价重新变成 O(turn 迭代数)。
+ * union 只增（I4）："无新增且无同号覆盖"是重放的常见形态。 */
+function reuseIfSame<T>(merged: readonly T[], existing: readonly T[]): readonly T[] {
+  if (merged.length !== existing.length) return merged
+  for (let i = 0; i < merged.length; i++) if (merged[i] !== existing[i]) return merged
+  return existing
+}
+
+/** filter 结果与输入逐元素恒等（未剔除任何元素）⇒ 返回输入（保住引用）。 */
+function filterIfNeeded<T>(arr: readonly T[], pred: (x: T) => boolean): readonly T[] {
+  for (const x of arr) if (!pred(x)) return arr.filter(pred)
+  return arr
+}
+
+/** 两个数组逐元素同引用。 */
+function sameItems<T>(a: readonly T[], b: readonly T[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+  return true
+}
+
+/** Turn Map 逐项同引用（键集合 + 每个 Turn 对象恒等）。 */
+function sameTurnMap(a: ReadonlyMap<TurnID, Turn>, b: ReadonlyMap<TurnID, Turn>): boolean {
+  if (a === b) return true
+  if (a.size !== b.size) return false
+  for (const [k, v] of b) if (a.get(k) !== v) return false
+  return true
+}
+
+/** LiveSnapshot['streamStats'] 的字段级合并。
+ *
+ * 后端 stream_stats 帧在滑动窗口数据不足（帧间 <200ms / 增量 0）时会带
+ * tokens_per_sec=0 / ttft_ms=0 —— 这是"无数据"而非"速度为 0"。整体覆盖
+ * 会把上一帧的有效 tkps 清零（前端数字消失只剩 "streaming"）。
+ *
+ * 规则：
+ *  - ttftMs：per-Run 不变（后端闭包 firstChunkAt - requestStartAt 固定），
+ *    迭代前进也不重置 —— 逐字段合并（>0 才覆盖，0/undefined 保留 prev）。
+ *  - tokensPerSec：迭代前进时重置为 0（新迭代从零开始）；非前进时逐字段
+ *    合并（>0 才覆盖，0/undefined 保留 prev —— "没数据用本迭代之前的数据"）。
+ *  - 其余字段（tpotMs/totalMs/chunks）：逐字段合并。
+ */
+function mergeStreamStats(
+  prev: LiveSnapshot['streamStats'],
+  next: LiveSnapshot['streamStats'] | undefined,
+  advanced: boolean,
+): LiveSnapshot['streamStats'] {
+  // 无新数据帧：保留前一帧。
+  if (!next) return prev ?? null
+  if (!prev) return next // 首帧：next 即权威值（advanced 时也如此 —— prev 为 null 无需重置）
+  // ttftMs：per-Run 不变 —— 永远逐字段合并（>0 才覆盖），迭代前进也不重置。
+  // tokensPerSec：迭代前进时重置为 0（新迭代从零开始）；非前进时逐字段合并。
+  const tokensPerSec = advanced ? 0 : (next.tokensPerSec > 0 ? next.tokensPerSec : prev.tokensPerSec)
+  return {
+    ttftMs: next.ttftMs > 0 ? next.ttftMs : prev.ttftMs,
+    tpotMs: next.tpotMs > 0 ? next.tpotMs : prev.tpotMs,
+    tokensPerSec,
+    totalMs: next.totalMs > 0 ? next.totalMs : prev.totalMs,
+    chunks: next.chunks > 0 ? next.chunks : prev.chunks,
+  }
+}
+
+/** turn 是否有实质产出（决定收尸方式：fold commit / 空壳清除）。 */
+function hasOutput(live: LiveSnapshot): boolean {
+  return (
+    live.content !== '' ||
+    live.reasoning !== '' ||
+    live.iterations.length > 0 ||
+    live.genui !== ''
+  )
+}
+
+const withTurn = (s: ChatState, id: TurnID, patch: (t: Turn) => Turn): ChatState => {
+  const turns = new Map(s.turns)
+  const t = turns.get(id)
+  if (!t) return s
+  turns.set(id, patch(t))
+  return { ...s, turns }
+}
+
+/**
+ * lazyAdoptLive — 无 active turn 时把 turn 槽创建/升级为 live（打字机的
+ * 宽容语义）。空壳占位（frozen 无输出，user-only 历史行组成）会被升级
+ * —— 空壳没有可保数据，它只是"DB 有 user 行"的占位符。
+ *
+ * 场景（用户报告："切换或刷新后只显示 history，live progress 不显示"）：
+ *   切回 → fetchHistory → turn 57 的 user 行组成 frozen 空壳 → active_progress
+ *   恢复分支见 existing 存在就跳过 → activeTurn=null → stream 事件
+ *   turns.get(57) 是 frozen 非 live → 丢弃 → 永远只显示 history。
+ */
+function lazyAdoptLive(s: ChatState, id: TurnID, snapshot?: LiveSnapshot): ChatState {
+  const prev = s.turns.get(id)
+  const turns = new Map(s.turns)
+  turns.set(id, {
+    id,
+    user: prev?.user ?? null,
+    phase: { kind: 'live', data: snapshot ? { ...snapshot } : { ...EMPTY_LIVE } },
+    requestID: prev?.requestID ?? null,
+  })
+  return { ...s, turns, activeTurn: id, lastSeq: null }
+}
+
+/** frozen 空壳判定：无任何输出（占位符，非终态数据）。 */
+function isHollowFrozen(t: Turn | undefined): boolean {
+  return !!t && t.phase.kind === 'frozen' && !hasOutput(t.phase.data)
+}
+
+/** stream 事件携带实质载荷（活动证据）：内容/思考/genui/流式工具任一非空。 */
+/**
+ * 迭代边界保留：把仍在跑/生成/排队中的工具标记为「已完成」（视觉上 done，
+ * 而不是误导性的 "仍在跑"）。
+ *
+ * ⛔ 线性一致性（用户 2026-09-18 P0，信息倒退）：「一个迭代的工具执行完成后会从
+ * web 迭代历史里消失，直到收到下一个迭代的第一个新 SSE 才重新出现。」
+ * 根因：迭代推进/commit 的边界事件常常**不带**该迭代的 `iteration_history`
+ * （多为 phase:undefined 的流式 delta / 新迭代首个事件），而本状态机原先
+ * `activeTools: ev.activeTools` 是**整表替换** ⇒ 上一迭代的工具被清空，直到下一个
+ * 携带 `iterationsDelta` 的事件到达才回来。旧 store 早有同款守卫
+ * （progressStore.ts "ALREADY-RENDERED CONTENT NEVER DISAPPEARS"）。
+ */
+function markToolsCompleted<T extends { status: string }>(tools: readonly T[]): readonly T[] {
+  return tools.map((t) =>
+    t.status === 'running' || t.status === 'generating' || t.status === 'pending'
+      ? ({ ...t, status: 'done' } as T)
+      : t,
+  )
+}
+
+function hasStreamEvidence(ev: { content?: string; reasoning?: string; genui?: string; streamingTools?: readonly unknown[] }): boolean {
+  return (
+    (ev.content !== undefined && ev.content !== '') ||
+    (ev.reasoning !== undefined && ev.reasoning !== '') ||
+    (ev.genui !== undefined && ev.genui !== '') ||
+    (ev.streamingTools !== undefined && ev.streamingTools.length > 0)
+  )
+}
+
+/**
+ * I5 重放判定 —— **seq ≤ 水位 且 无新迭代信息**，绝不能只看 seq。
+ *
+ * ⛔ 根因（用户 2026-09-20 报告）：「手机熄屏很久之后回来：新迭代 live 时**会渲染**、
+ * **完成后立刻消失**，前端显示的历史永久卡死在熄屏前的进度。」
+ *
+ * `ProgressEvent.Seq` 是 **per-Run** 水位 —— 后端 `buildMainRunConfig` 每次 Run 新建
+ * 一个 `atomic.Uint64`（`agent/engine_wire.go`），而**同一个 turn 的 Run 会被重启**：
+ * 最典型的是服务端重启后的 resume（`resolveResumeTurnID` 复用被中断 turn 的 turn_id +
+ * `IterationStart = K+1` 续接迭代号）——**同一 turn、迭代号连续，但新 Run 的 Seq 从 1
+ * 重新计数**。客户端在熄屏/断线期间保留的是**旧 Run** 的水位（`ChatState.lastSeq`）⇒
+ * 恢复后新 Run 的 structured 事件（seq 1..N ≤ 旧水位）被整批判成"重放"丢弃；而
+ * `stream` 事件**没有** seq gate（累积全量推送）⇒ 打字机照常更新。于是：
+ *   · live 帧看得到内容（stream 生效）；
+ *   · 迭代推进时下一帧 stream 的 `advanced` 清空流式内容，而携带该迭代 delta 的
+ *     structured 事件被吞 ⇒ 迭代**出现即消失**；
+ *   · `iterations` 永不增长 ⇒ **历史卡死**（刷新从 DB 恢复才回来）。
+ *
+ * 判据（与遮蔽解除 `ev.iter > maxIter` 同一证据标准）：迭代号在 turn 域内单调，
+ * 后端**绝不会**对更早的迭代重发更大号 ⇒ 携带更大迭代号 / 我们还没有的迭代 delta 的
+ * 事件**不可能**是"已应用过的重放"，只能是新 Run 的事件（应用它并让水位切到新 Run）。
+ * 真·重放（同号、delta 已持有）仍被丢弃 —— 该 gate 的原始目的不变。
+ */
+function isStaleSeq(
+  lastSeq: EventSeq | null,
+  seq: EventSeq | null,
+  live: Pick<LiveSnapshot, 'iter' | 'iterations'>,
+  extra: {
+    iter?: IterNum
+    iterationsDelta?: readonly WebIteration[]
+    finalIteration?: WebIteration | null
+  },
+): boolean {
+  if (lastSeq === null || seq === null || seq > lastSeq) return false
+  if (extra.iter !== undefined && extra.iter > live.iter) return false
+  const maxKnown = live.iterations.reduce((m, it) => Math.max(m, it.iteration), 0)
+  if (extra.iterationsDelta?.some((it) => it.iteration > maxKnown)) return false
+  // phase_done 的 finalIteration 是**进行中迭代**的收尾快照（可能 = live.iter）——
+  // "是否新信息"看它是否已落进 iterations（`> maxKnown`），不看 live.iter。
+  if (extra.finalIteration != null && extra.finalIteration.iteration > maxKnown) return false
+  return true
+}
+
+/**
+ * 不变量（用户 2026-09-19）：「输入框是 cancel（busy）⟹ 上面必须能看到进行中信号」。
+ *
+ * ⛔ 教训（我上一版的回归，用户二次报告「普通切换 session 就必现、更严重」）：
+ * **绝不允许为了让不变量成立而"伪造 live turn"。** 上一版在 `history_replaced`
+ *（每次切会话都会跑）里按"最新未 finalize 的 turn"提升，而判据 `via !== 'text'`
+ * 对 DB 还原的 turn **恒成立** —— `integrate.ts` 对带迭代的历史 turn 用的是
+ * `commitViaFold`，所以**已结束的 turn 被伪装成 live**：
+ *   ① `busyFallback` / `progressSnapshot.streaming` 变 true ⇒ composer 显示 stop
+ *      （幽灵 busy）；
+ *   ② 占位符被 `liveShowsIndicator` 抑制，而伪造的 live 行往往不在可视尾部
+ *   ⇒ 用户看到「cancel + 完全没有进行中信号」（不变量更严重地被破坏）。
+ *
+ * 分工（单一权威、**不造状态**）：
+ *   · live-ness 只由真实信号决定：事件（`stream`/`iteration` 的遮蔽解除）+
+ *     服务端权威快照（`history_replaced` 的 `ev.active`，仅当它指向该 turn 时恢复 live）。
+ *   · `sessionRunning` 只作**闸门**：true ⇒ coarse idle **不得**冻结运行中的 turn
+ *     （陈旧/误传信号）；false ⇒ live turn 定格（权威收尾，内容保留）。
+ *   · **可视保障交给渲染层**：busy 而列表尾行没有"进行中"渲染时，必须渲染占位符
+ *     （见 `MessageList` 的 `tailShowsIndicator`）。
+ */
+
+// ─── reduce：8 case 穷尽（never 检查由 TS 判别联合保证） ───────
+
+export function reduce(s: ChatState, ev: DomainEvent): ChatState {
+  switch (ev.type) {
+    // ── turn_started：收尸旧 active + 新 turn 进 live + 绑定 user ──
+    // ── 权威 idle（session(idle) / agent-idle）───────────────────────────────
+    // busyFallback = activeTurn !== null。若没有任何权威 idle 清它，任何一次
+    // turn 结束事件丢失（SSE gap / 面板当时未订阅 / 事件被合并）都会让 busy
+    // **永久**卡住，直到整页刷新（用户 2026-09-18 P0：后端 idle、前端 busy）。
+    // 清 activeTurn 的同时把活跃 turn 定格为 frozen —— **保留已渲染内容**
+    // （与 cancel 的 freeze 同语义，绝不 wipe），并把 streaming 置 false。
+    case 'session_idle': {
+      // ⛔ 权威按 `sessionRunning` 判定（不变量：输入框 = cancel ⇒ 上面必须显示
+      // 进行中信号）。`session(idle)` / `agent-idle` 是 **coarse 会话级**信号
+      //（不带 turn 身份），可能来自 SSE 重连的 last_event_id 回放窗口或
+      // restoreActiveProgress 竞态 —— 与"真 idle"无法区分。服务端 reconcile 后
+      // 的 running 仍为 true 时，这条 idle 必然是陈旧/误传的 ⇒ **不得**冻结
+      // 运行中的 turn（否则输入框仍 cancel、列表却渲染成 idle 内容）。
+      // 真结束时 running 会由会话状态对账翻成 false，那条 `session_running(false)`
+      // 才是权威收尾（内容保留，不 wipe）。
+      if (s.sessionRunning) return s
+      if (s.activeTurn === null) return s // 幂等：无活跃 turn ⇒ 原 state（零渲染）
+      const turns = new Map(s.turns)
+      const t = turns.get(s.activeTurn)
+      if (t && t.phase.kind === 'live') {
+        turns.set(s.activeTurn, {
+          ...t,
+          phase: { kind: 'frozen', data: { ...t.phase.data, streaming: false } },
+        })
+      }
+      return { ...s, turns, activeTurn: null, lastSeq: null }
+    }
+
+    // ── session_running：会话 running（服务端 reconcile 权威）─────────────
+    // 唯一职责：让 turn 的 live-ness 服从它 —— running=true 且 store 里没有
+    // live turn 时，把**最新未 finalize** 的 turn 提回 live（内容/迭代全保留、
+    // streaming=true ⇒ 渲染出进行中信号）；running=false 时把 live turn 定格
+    // （内容保留）。这是「输入框 = cancel ⇒ 内容不能像 idle」不变量的结构性保证。
+    case 'session_running': {
+      if (s.sessionRunning === ev.running) return s // 幂等（零渲染）
+      const flagged: ChatState = { ...s, sessionRunning: ev.running }
+      // ⛔ running=true 只更新**闸门**（stale idle 不得冻结运行中的 turn）——
+      // **绝不伪造 live turn**（上一版在此提升"未 finalize"的 turn，而 DB 还原的
+      // turn 走 `commitViaFold`（integrate.ts），判据恒成立 ⇒ 已结束的 turn 被
+      // 伪装成 live ⇒ composer 幽灵 busy + 占位符被抑制 ⇒ 普通切换会话就必现
+      // 「cancel + 看不到任何进行中信号」）。live-ness 只由真实信号决定。
+      if (ev.running) return flagged
+      // 权威收尾：running=false 而 turn 还是 live ⇒ 定格（绝不 wipe 内容）。
+      if (s.activeTurn === null) return flagged
+      const t = s.turns.get(s.activeTurn)
+      if (!t || t.phase.kind !== 'live') return flagged
+      const turns = new Map(s.turns)
+      turns.set(s.activeTurn, {
+        ...t,
+        phase: { kind: 'frozen', data: { ...t.phase.data, streaming: false } },
+      })
+      return { ...flagged, turns, activeTurn: null, lastSeq: null }
+    }
+
+    case 'turn_started': {
+      // I5：seq 属于 per-run —— 新 turn 重置。
+      let next: ChatState = { ...s, activeTurn: ev.turnID, lastSeq: null }
+
+      // I3 维护：收尸旧 active（唯一 live 产生点 —— 新 live 之前旧 active 必须离场）。
+      if (s.activeTurn !== null && s.activeTurn !== ev.turnID) {
+        const old = s.turns.get(s.activeTurn)
+        if (old && old.phase.kind === 'live') {
+          // [TURNDROP] 诊断：turn_started(N+1) 到达时旧 turn 还是 live（mid-turn
+          // 收尸）。正常时序 text_final(N) 先 commit（旧 turn 已 committed，这里
+          // 不触发）。此路径会把旧 live 收尸（有产出 → committed/fold；无产出 →
+          // frozen 空壳 → derive 跳过 → "整个 turn 的 assistant 消失"形态），
+          // 且旧 turn 的后续事件因 kind!=='live' 被丢弃。捕获触发证据。
+          console.warn('[TURNDROP] turn_started(N+1) folded a LIVE turn mid-flight', {
+            chatID: s.chatID, oldTurn: old.id, newTurn: ev.turnID,
+            oldHasOutput: hasOutput(old.phase.data), oldUser: old.user !== null,
+            contentLen: old.phase.data.content.length,
+            reasoningLen: old.phase.data.reasoning.length,
+            iterations: old.phase.data.iterations.length, iter: old.phase.data.iter,
+            trigger: ev.trigger, lastSeq: s.lastSeq,
+          })
+          const folded: Turn =
+            hasOutput(old.phase.data) || old.user !== null
+              ? { ...old, phase: foldPhase(old.phase.data) }
+              : { ...old, phase: { kind: 'frozen', data: old.phase.data } } // 无产出：定格（derive 跳过空 assistant）
+          const turns = new Map(next.turns)
+          turns.set(old.id, folded)
+          next = { ...next, turns }
+        }
+      }
+
+      // 新 turn 槽（I1：Map set —— 槽位唯一）。
+      // requestID 精确绑定（V2 语义）→ turnHint 绑定（user_echo 先于
+      // turn_started 到达时，echo 行带 turn_id 提示）。失配留在 pending。
+      let user = null as Turn['user']
+      let pending = s.pendingUsers
+      let idx = -1
+      if (ev.requestID !== null) {
+        idx = s.pendingUsers.findIndex((u) => u.requestID === ev.requestID)
+      }
+      if (idx < 0) {
+        idx = s.pendingUsers.findIndex((u) => u.turnHint !== undefined && u.turnHint === ev.turnID)
+      }
+      if (idx >= 0) {
+        // B1 修复：排队消息开始处理时清除 queued 标记（turn_started 是权威
+        // "开始处理"信号 —— 排队中的 pendingUser 不再排队）。
+        user = { ...s.pendingUsers[idx], queued: false }
+        pending = s.pendingUsers.filter((_, i) => i !== idx)
+      }
+      // v3 staging-tray fallback: queued message was removed from pendingUsers
+      // by user_ack(queued=true) — turn_started(trigger=user) is the authoritative
+      // signal that the queued message is now being processed. Materialize the
+      // user row from turn_start.content (same pattern as notification fallback
+      // above, but isNotification=false). Non-queued messages always have a
+      // pendingUsers entry (user_ack queued=false keeps it) — this fallback only
+      // fires for queued messages dequeued from the StagingTray.
+      if (user === null && ev.trigger === 'user') {
+        const userContent = nonEmptyStr(ev.content)
+        if (userContent !== null) {
+          user = {
+            id: `dequeue-${ev.turnID}`,
+            content: userContent,
+            timestamp: new Date().toISOString(),
+            isNotification: false,
+            queued: false,
+            sending: false,
+            requestID: ev.requestID,
+            turnHint: undefined,
+            dbID: undefined,
+          }
+        }
+      }
+      // notification trigger：turn_start.content 携带通知内容（后端
+      // TurnStartInfo）。弱网下 inject_user WS 消息丢失时，turn_started 是
+      // 通知内容的唯一载体 —— pending 未命中则用 content 构造通知 user 行
+      //（isNotification → 🔔 badge + muted style），否则用户只看到"思考中"
+      // 看不到 system notification 本身（用户报告）。通知无 REST 请求
+      //（requestID=null），迟到 inject_user 走 useChatMessages →
+      // history_replaced 过滤（dbID undefined），不会双行。
+      // F#10：nonEmptyStr smart constructor 收窄为 NonEmptyS（原 `as never`
+      // 绕过 branded 类型 —— no-as 规则）。
+      const notifContent = ev.trigger === 'notification' ? nonEmptyStr(ev.content) : null
+      if (user === null && notifContent !== null) {
+        user = {
+          id: `notif-${ev.turnID}`,
+          content: notifContent,
+          timestamp: new Date().toISOString(),
+          isNotification: true,
+          queued: false,
+          sending: false,
+          requestID: null,
+          turnHint: undefined,
+          dbID: undefined,
+        }
+      }
+      // ⚠️ 已存在同 ID turn：live（lazy 采纳过）保留数据；frozen 空壳
+      // （user-only 占位）升级为 live（turn_started 是权威开始信号）；committed
+      // /有输出 frozen 嫁接 user 不动 phase（I3：指针只指 live，保持原值）。
+      // 覆盖为空 live 会抹掉已渲染进度（性质测试 seed=1/42 抓出 T3 violated）。
+      const existing = next.turns.get(ev.turnID)
+      const turns = new Map(next.turns)
+      if (existing) {
+        if (existing.phase.kind === 'live') {
+          turns.set(ev.turnID, {
+            id: ev.turnID,
+            user: existing.user ?? user,
+            phase: existing.phase,
+            requestID: existing.requestID,
+          })
+          return { ...next, turns, pendingUsers: pending, activeTurn: ev.turnID }
+        }
+        if (existing.phase.kind === 'frozen' && !hasOutput(existing.phase.data)) {
+          // 空壳占位 → 升级为 live（turn_started 是权威开始信号）。
+          turns.set(ev.turnID, {
+            id: ev.turnID,
+            user: existing.user ?? user,
+            phase: { kind: 'live', data: existing.phase.data },
+            requestID: existing.requestID,
+          })
+          return { ...next, turns, pendingUsers: pending, activeTurn: ev.turnID }
+        }
+        // committed / 有输出 frozen：嫁接 user，不动 phase（I3：指针只指
+        // live，保持原值 —— next 已被预改，须显式回滚 activeTurn/lastSeq）。
+        turns.set(ev.turnID, existing.user ? existing : { ...existing, user: user ?? existing.user })
+        return { ...next, turns, pendingUsers: pending, activeTurn: s.activeTurn, lastSeq: s.lastSeq }
+      }
+      turns.set(ev.turnID, {
+        id: ev.turnID,
+        user,
+        phase: { kind: 'live', data: { ...EMPTY_LIVE } },
+        requestID: ev.requestID,
+      })
+      return { ...next, turns, pendingUsers: pending }
+    }
+
+    // ── iteration：仅 active turn；迭代 append-only（I4） ──
+    case 'iteration': {
+      // turnID null（turn_id=0 缺失）→ 回退 activeTurn（与 stream 一致）。
+      // todos 是会话级状态，不因 turn 缺失而丢弃。
+      const target = ev.turnID !== null ? ev.turnID : s.activeTurn
+      if (target === null) {
+        return applySessionFields(s, ev.todos, ev.goal)
+      }
+      if (target !== s.activeTurn) {
+        const t0 = s.turns.get(target)
+        // ⚠️ committed 遮蔽解除（用户报告："sse 不断收到新消息但前端渲染
+        // 不变"，dump 铁证：turn-108-c committed 只含 iteration 1，SSE 还在
+        // 发 iteration 22）：DB 增量持久化的中间迭代经 history merge 组成
+        // committed turn，遮蔽仍在运行的 live。后端不会对已结束的 turn 发
+        // 新迭代 —— 迭代事件是活动的权威证据：incoming 迭代号 > committed
+        // 已有最大迭代 → 升级回 live（迭代 union 保留，content 用事件值）。
+        if (t0 && t0.phase.kind === 'committed' && s.activeTurn === null) {
+          const maxIter = t0.phase.payload.iterations.reduce((m, it) => Math.max(m, it.iteration), 0)
+          // ⛔ 线性一致性红线（2026-09-18 用户报告回归，已回滚 c3cb2f02 的
+          // 「ev.iter >= maxIter 且带在跑工具也放行」）：committed 的迭代前缀是
+          // 持久化权威；「同号 + 在跑工具」无法区分【仍在跑】与【已结束 turn 的
+          // 迟到重放】（重放事件在工具完成前捕获，天然带 running/generating 工具）
+          // ⇒ 误升级成 live 后，live 行（以 iter=ev.iter 重建）与 committed 渲染
+          // （含尾部截断的「更早 N 个迭代」路径）分叉 ⇒ 上下文视图缺迭代（刷新才
+          // 恢复）。只有【新迭代】（ev.iter > maxIter —— 后端不会对已结束的 turn
+          // 发新迭代）才能证明 turn 仍在运行并解除遮蔽。
+          if (ev.iter > maxIter) {
+            const live: LiveSnapshot = {
+              ...EMPTY_LIVE,
+              iter: ev.iter,
+              content: t0.phase.payload.content,
+              iterations: t0.phase.payload.iterations,
+            }
+            const turns = new Map(s.turns)
+            turns.set(target, { ...t0, phase: { kind: "live", data: live } })
+            s = { ...s, turns, activeTurn: target, lastSeq: null }
+          } else {
+            return s // 已含该迭代的 committed 快照 —— 重放，丢弃
+          }
+        } else if (t0 && t0.phase.kind === 'frozen' && s.activeTurn === null && !isHollowFrozen(t0)) {
+          // ⛔ 线性一致性红线（2026-09-18 用户报告「切换 session 后 live iter 不断
+          // 出现消失，刷新才恢复」）───────────────────────────────────────────
+          // turn 结尾信号族（session(idle) / session_idle / 空 text_final）会把
+          // live turn **冻结**并清 activeTurn；此后该 turn 的 iteration 事件因
+          // kind !== 'live' 被**整批丢弃**，直到带 active 快照的 history_replaced
+          // 把它复活 ⇒ 出现 ⇒ 再次冻结 ⇒ 消失……（P0 测试逐帧复现）。
+          // 后端的顺序保证：turn 的迭代事件只出现在它的 idle 之前，之后绝不会再有
+          // ⇒ 冻结后收到**更大迭代号**即证明该 idle 是陈旧/误传的
+          //（restoreActiveProgress 竞态 / SSE 重放），必须解冻恢复 live ——
+          // 与上面 committed 遮蔽解除**同一规则、同一证据标准**（ev.iter > maxIter）。
+          // 保留 frozen 数据（已渲染的迭代/内容/工具一个不少），流式恢复更新。
+          const maxIter = t0.phase.data.iterations.reduce((m, it) => Math.max(m, it.iteration), 0)
+          if (ev.iter > maxIter) {
+            const live: LiveSnapshot = {
+              ...t0.phase.data,
+              iter: ev.iter,
+              content: ev.content ?? t0.phase.data.content,
+              reasoning: ev.reasoning ?? t0.phase.data.reasoning,
+              streaming: true,
+              iterations: t0.phase.data.iterations,
+            }
+            const turns = new Map(s.turns)
+            turns.set(target, { ...t0, phase: { kind: 'live', data: live } })
+            s = { ...s, turns, activeTurn: target, lastSeq: null }
+          } else {
+            return s // 冻结快照已含该迭代 —— 重放，丢弃
+          }
+        } else {
+          if (s.activeTurn !== null && t0?.phase.kind !== 'live') return s
+          if (s.activeTurn !== null && t0?.phase.kind === 'live' && s.activeTurn !== target) return s
+          if (t0 && !isHollowFrozen(t0)) return s // committed/有输出 frozen —— 重放，丢弃
+          // 无槽（或空壳占位）且无 active → lazy 采纳/升级（切回会话场景）。
+          s = lazyAdoptLive(s, target)
+        }
+      }
+      const t = s.turns.get(target)
+      if (!t || t.phase.kind !== 'live') return s
+
+      const prev = t.phase.data
+      // I5：重放丢弃（seq ≤ 水位 **且** 无新迭代信息 —— 见 isStaleSeq 的 Run 重启说明）。
+      if (isStaleSeq(s.lastSeq, ev.seq, prev, { iter: ev.iter, iterationsDelta: ev.iterationsDelta })) return s
+      const advanced = ev.iter > prev.iter
+      // ── 迭代 commit（history append 且 iteration 未前进）──
+      // 事件 A（snapshotCompletedIteration）：iterationsDelta append 了刚完成
+      // 的迭代，但 ev.iter 还停在 N（前进事件后到）。live 的流式文本已随迭代
+      // 进入 iterations（权威版本）——必须同步清空，否则同一 content/reasoning
+      // 在 committed fold 和 live fold 各渲染一份，直到前进事件到达（用户报告：
+      // "每次新的 iter 完成都要闪烁一下"）。防护：gap 修复 delta 可能携带旧迭代
+      // 而 live 已在流式更新的迭代 —— 仅当 live 属于刚 commit 的迭代
+      // （ev.iter <= appendedMax）才清。
+      const merged = mergeIterations(prev.iterations, ev.iterationsDelta)
+      const appendedNew = merged.length > prev.iterations.length
+      const appendedMax = ev.iterationsDelta.length > 0
+        ? Math.max(...ev.iterationsDelta.map((it) => it.iteration))
+        : 0
+      // committedNow = "刚 commit 的迭代" 恰是 live 当前迭代（delta 补的恰好是
+      // prev.iter 这一个）。用 appendedMax === prev.iter 判断 —— 若 delta 补的是
+      // 更早的迭代（gap 修复，appendedMax < prev.iter），live 仍在流式更新当前
+      // 迭代，绝不能清空其 content/reasoning（用户报告：缺迭代补上时当前流被
+      // 重置）。旧实现 `ev.iter <= appendedMax` 在 gap 场景（ev.iter 落后）误判为
+      // commit，清空 live 流式内容。
+      const committedNow = !advanced && appendedNew && appendedMax === prev.iter
+      const data: LiveSnapshot = {
+        ...prev,
+        // ⚠️ 迭代号**单调不回退**（gap 修复 delta 可能携带更早的迭代号 —— 后端
+        // attachIterationDelta 附的是"前一个"迭代）：回退会让"进行中迭代"落到一个
+        // 已渲染成历史块的迭代上 ⇒ LiveIteration / MessageList 的「思考中…」与上方
+        // 已完成的「思考 N 字」同时出现（用户 2026-09-20 报告的矛盾画面）。
+        iter: advanced ? ev.iter : prev.iter,
+        // progressPhase（后端 structuredProgress.Phase 透传——'compressing' 等）：
+        // 事件携带时更新；undefined 保留 prev（同 LiveSnapshot 其他字段的覆盖
+        // 语义——phase 缺失不回退初始值）。这是 web 端压缩提示（agent.compressing
+        // 的 liveProgress?.phase === 'compressing'）的渲染数据源。
+        progressPhase: ev.phase !== undefined ? ev.phase : prev.progressPhase,
+        // 迭代边界：清空流式字段（新迭代从零开始）；commit 同样清空（已进
+        // iterations 权威版本）；非前进非 commit 则替换。
+        content: advanced
+          ? (ev.content ?? '')
+          : committedNow
+            ? ''
+            : (ev.content ?? prev.content),
+        reasoning: advanced
+          ? (ev.reasoning ?? '')
+          : committedNow
+            ? ''
+            : (ev.reasoning ?? prev.reasoning),
+        // I4：append-only 合并（dedup by iteration#，同号权威覆盖）
+        iterations: merged,
+        // ⛔ 已渲染的工具绝不消失（线性一致性，用户 2026-09-18 P0）：
+        // 边界事件（迭代推进/commit）常常不带上一迭代的 iteration_history 与
+        // active_tools ⇒ 整表替换会让刚跑完的工具「消失到下一个带 iterationsDelta
+        // 的事件到达」才回来。规则（与旧 store 同语义）：边界且事件不带工具时，
+        // 保留 prev 的已渲染工具并把在跑中的标记为 done；事件自带列表时以其为权威
+        // （新迭代的工具照常替换）。
+        activeTools:
+          (advanced || committedNow) && ev.activeTools.length === 0
+            ? markToolsCompleted(prev.activeTools)
+            : ev.activeTools,
+        // 工具去重（旧前端 mergeProgressState 语义）：工具从 generating 转
+        // running 时，stream 事件残留的同名 streamingTools 条目必须清除 ——
+        // 否则同一工具渲染两个（一个 executing 带参数 + 一个 generating 无
+        // 参数，用户报告 100% 复现）。规则：streamingTools ∩ activeTools = ∅。
+        // 迭代前进或 commit 时全部清空（流式字段随迭代边界重置 —— 旧语义）。
+        streamingTools: advanced || committedNow
+          ? []
+          : prev.streamingTools.filter(
+              (t) => !ev.activeTools.some((a) => a.name === t.name),
+            ),
+        genui: advanced || committedNow ? '' : prev.genui,
+        todos: ev.todos ?? prev.todos,
+        subAgents: ev.subAgents ?? prev.subAgents,
+        tokenUsage: ev.tokenUsage ?? prev.tokenUsage,
+        streamStats: ev.streamStats ?? prev.streamStats,
+      }
+      // I5 基准推进：成功处理后 lastSeq = ev.seq（重放检测的比较基准）。
+      // 会话级 todos：事件携带时同步 state.todos（turn 结束后存活）。
+      const next = withTurn(s, target, (tt) => ({ ...tt, phase: { kind: 'live', data } }))
+      // ── 迭代丢失洞（P0 2026-10-06 turn 445）────────────────────────────────
+      // delta 没有接上已持有窗口（min(delta) > maxHeld+1）⇒ 中间迭代的完成 delta
+      // 已在链路上丢失（增量 feed 无人回头补）⇒ 触发会话重载信号；restore 快照自带
+      // 的补洞 delta（min = maxHeld+1，区间完整）天然不触发。同洞去重见 helper。
+      const iterGapSig = lostIterGapSig(
+        s,
+        target,
+        prev.iterations,
+        ev.iterationsDelta.length > 0 ? Math.min(...ev.iterationsDelta.map((it) => it.iteration)) : 0,
+      )
+      return applySessionFields(
+        {
+          ...next,
+          lastSeq: ev.seq,
+          ...(iterGapSig !== ''
+            ? { gapReloadToken: s.gapReloadToken + 1, lostIterGapSig: iterGapSig }
+            : {}),
+        },
+        ev.todos ?? s.todos,
+        ev.goal,
+      )
+    }
+
+    // ── stream：仅 active turn；全量替换（无追加/回退歧义） ──
+    // ⚠️ 不做 seq gate：stream 是【累积全量推送】（delta_push 默认关闭），
+    // 旧前端明确把 stream 字段处理放在 seq 检查【之前】（"stream deltas are
+    // cumulative, not ordered by seq"）。seq gate 会按到达序误杀打字机帧。
+    // ⚠️ turnID 缺失（后端 gap）回退 activeTurn —— 事件属于当前流。
+    // ⚠️ lazy 采纳：切回会话（turn_started 已过、active_progress 未恢复/
+    //   失败）时从 stream 事件重建 live turn —— 否则事件永远被丢弃
+    //   （"切回来看不到任何新进度"）。
+    case 'stream': {
+      const target = ev.turnID !== null ? ev.turnID : s.activeTurn
+      if (target === null) return s
+      if (s.turns.has(target)) {
+        const t0 = s.turns.get(target)!
+        if (t0.phase.kind !== 'live') {
+          // ── 遮蔽解除（与 `iteration` case **同一规则、同一证据标准**）──────────
+          // 用户 2026-09-19 P0（手机熄屏解锁后 busy 会话「live 进度消失且**永远
+          // 不再更新**」）：非空壳 frozen turn 的 stream 事件此前被整批 `return s`
+          // 丢弃 —— 而 LLM 生成期**只有** stream 事件（结构化事件只在迭代边界/
+          // 工具状态变化时发）⇒ turn 一旦被迟到/误传的 idle 冻结，live 进度就再也
+          // 回不来（`iteration` case 当时已做遮蔽解除，`stream` case 漏做 ——
+          // AGENTS 的「对称性检查表：committed 与 frozen 的遮蔽解除规则必须成对
+          // 存在」）。
+          //
+          // 证据标准：`ev.iteration > maxIter`。后端绝不会对已结束的 turn 发新迭代
+          // （也绝不会发新流式），故「更大迭代号」即可证明该 turn 仍在跑；仅凭
+          // 「带流式载荷」不足以证明活动 —— 重放事件同样带载荷（可能来自已结束的
+          // turn），照旧规则升级会让**已结束**的 turn 复活成 live（busy 幽灵）。
+          // 两个分支的既有状态分开取（TS 判别联合的安全取法）。
+          const committedPayload = t0.phase.kind === 'committed' ? t0.phase.payload : null
+          const frozenData = t0.phase.kind === 'frozen' ? t0.phase.data : null
+          const its = committedPayload !== null
+            ? committedPayload.iterations
+            : (frozenData?.iterations ?? [])
+          const maxIter = its.reduce((m, it) => Math.max(m, it.iteration), 0)
+          const evIter = ev.iteration
+          if (
+            s.activeTurn === null &&
+            evIter !== null &&
+            evIter > maxIter &&
+            hasStreamEvidence(ev)
+          ) {
+            const live: LiveSnapshot = {
+              ...EMPTY_LIVE,
+              // iter 必须落在**进行中的那个迭代**上：EMPTY_LIVE.iter=1 会让紧随其后的
+              // 同迭代 stream 事件被判「迭代前进」⇒ 清空刚恢复的流式内容/正文。
+              iter: evIter,
+              content: committedPayload !== null ? committedPayload.content : (frozenData?.content ?? ''),
+              reasoning: committedPayload !== null ? '' : (frozenData?.reasoning ?? ''),
+              iterations: its,
+            }
+            const turns = new Map(s.turns)
+            turns.set(target, { ...t0, phase: { kind: 'live', data: live } })
+            s = { ...s, turns, activeTurn: target }
+          } else if (isHollowFrozen(t0) && s.activeTurn === null) {
+            // 空壳占位（user-only 历史行）→ 升级为 live（流式事件是活动的证据）。
+            s = lazyAdoptLive(s, target)
+          } else {
+            return s
+          }
+        }
+      } else {
+        if (s.activeTurn !== null) return s // 已有别的活动 turn —— 事件属旧 turn，丢弃
+        s = lazyAdoptLive(s, target)
+      }
+      const t = s.turns.get(target)
+      if (!t || t.phase.kind !== 'live') return s
+      const prev = t.phase.data
+      // 迭代前进（后端 stamp 的 iteration > 当前 iter）：清空流式字段 —— 否则
+      // 迭代 N+1 的 stream 到达时，若 content 尚未产出，迭代 N 的旧 content
+      // /reasoning 残留到新迭代（"老 content 到新迭代"竞态，用户报告）。
+      const advanced = ev.iteration !== null && ev.iteration > prev.iter
+      const data: LiveSnapshot = {
+        ...prev,
+        iter: advanced ? ev.iteration : prev.iter,
+        content: advanced ? (ev.content ?? '') : (ev.content !== undefined ? ev.content : prev.content),
+        reasoning: advanced ? (ev.reasoning ?? '') : (ev.reasoning !== undefined ? ev.reasoning : prev.reasoning),
+        // 工具去重（同名双渲染根治）：streamingTools 是流式检测中的工具
+        // （generating，参数不全），activeTools 是结构化事件的执行中工具
+        // （running，参数全）。同名共存 → 同一工具渲染两个（用户报告
+        // 100% 复现）。规则：streamingTools ∩ activeTools = ∅（旧前端
+        // mergeProgressState 同款过滤）。迭代前进时全部清空（流式字段随
+        // 迭代边界重置）。
+        streamingTools: advanced
+          ? []
+          : ev.streamingTools !== undefined
+            ? ev.streamingTools.filter((t2) => !prev.activeTools.some((a) => a.name === t2.name))
+            : prev.streamingTools,
+        genui: ev.genui !== undefined ? ev.genui : prev.genui,
+        // 实时流式时序（stream_stats）：每个 stream SSE 帧都携带 —— live
+        // 据此实时更新 tkps（此前只在 iteration 事件解析，流式帧丢弃导致
+        // "到达太晚 + 每迭代不变"）。
+        // ⚠️ 字段级合并，不是整体覆盖：后端滑动窗口在帧间不足 200ms 或增量
+        // 为 0 时会回传 tokensPerSec=0（"无数据"而非"速度为 0"）——整体覆盖
+        // 会把上一帧的有效 tkps 清零 → 前端数字消失只剩 "streaming"。只有
+        // 新帧提供了 >0 的字段才更新该字段，0/undefined 保留前一帧。
+        // 迭代前进（advanced）时随流式字段一起重置（新迭代从零开始）。
+        streamStats: mergeStreamStats(prev.streamStats, ev.streamStats, advanced),
+      }
+      // ── 迭代丢失洞（P0 2026-10-06，与 `iteration` case 同一证据标准）─────────
+      // 流式迭代号没有接上已持有窗口（ev.iteration > maxHeld+1）⇒ 中间迭代的完成
+      // delta 全部丢失（用户实测：本地 [1..40]，stream 帧直接带 iteration=81 ——
+      // 41..80 的 commit 事件在断连窗口丢失，live 帧照常到达）。首帧触发后
+      // prev.iter 已推进 ⇒ 同迭代后续帧不再判出；同洞去重在 helper。
+      const streamGapSig =
+        ev.iteration !== null ? lostIterGapSig(s, target, prev.iterations, ev.iteration) : ''
+      if (streamGapSig === '') {
+        return withTurn(s, target, (tt) => ({ ...tt, phase: { kind: 'live', data } }))
+      }
+      return withTurn(
+        { ...s, gapReloadToken: s.gapReloadToken + 1, lostIterGapSig: streamGapSig },
+        target,
+        (tt) => ({ ...tt, phase: { kind: 'live', data } }),
+      )
+    }
+
+    // ── phase_done：仅 active turn；fold 最后迭代（T3 根治点）+ 停流 ──
+    case 'phase_done': {
+      // turnID null（turn_id=0 缺失）→ 回退 activeTurn；todos 会话级不丢弃。
+      const target = ev.turnID !== null ? ev.turnID : s.activeTurn
+      if (target === null) return applySessionFields(s, ev.todos, ev.goal)
+      if (target !== s.activeTurn) {
+        // ── P0 同类修复（2026-09-16）──────────────────────────────────────
+        // finalIteration 是"最后迭代"的另一个唯一权威载体（后端 recordFinalIteration）。
+        // 旧代码在本分支直接丢弃它 ⇒ 切会话回来后（该 turn 已不是 activeTurn）最后
+        // 迭代内容缺失。改为：目标 turn 已在本地时增量并入（同号权威覆盖、幂等）。
+        const tt = s.turns.get(target)
+        if (tt && ev.finalIteration) {
+          const its = tt.phase.kind === 'committed'
+            ? (tt.phase.payload.iterations ?? [])
+            : (tt.phase.data.iterations ?? [])
+          const mergedIts = mergeIterations(its, [ev.finalIteration])
+          const changed =
+            mergedIts.length !== its.length ||
+            mergedIts.some((it, i) => (it.content ?? '') !== (its[i]?.content ?? ''))
+          if (changed) {
+            const turnsPatched = new Map(s.turns)
+            if (tt.phase.kind === 'committed') {
+              const payload = { ...tt.phase.payload, iterations: mergedIts } as typeof tt.phase.payload
+              turnsPatched.set(target, { ...tt, phase: { kind: 'committed', payload } })
+            } else {
+              turnsPatched.set(target, {
+                ...tt,
+                phase: { ...tt.phase, data: { ...tt.phase.data, iterations: mergedIts } },
+              })
+            }
+            return applySessionFields({ ...s, turns: turnsPatched }, ev.todos, ev.goal)
+          }
+        }
+        return applySessionFields(s, ev.todos, ev.goal)
+      }
+      const t = s.turns.get(target)
+      if (!t || t.phase.kind !== 'live') return applySessionFields(s, ev.todos, ev.goal)
+      const prev = t.phase.data
+      // I5：重放丢弃（seq ≤ 水位 **且** 无新迭代信息 —— 见 isStaleSeq 的 Run 重启说明）。
+      if (isStaleSeq(s.lastSeq, ev.seq, prev, { finalIteration: ev.finalIteration })) {
+        return applySessionFields(s, ev.todos, ev.goal)
+      }
+      // I4：finalIteration（后端 recordFinalIteration 补记的最后迭代）fold 进
+      // iterations —— text 到达前它已在 committed 路径的数据里（不依赖 text 重建）。
+      const data: LiveSnapshot = {
+        ...prev,
+        iterations: ev.finalIteration
+          ? mergeIterations(prev.iterations, [ev.finalIteration])
+          : prev.iterations,
+        streaming: false,
+        todos: ev.todos ?? prev.todos,
+      }
+      // I5 基准推进。会话级 todos：事件携带时同步（turn 结束后存活）。
+      const next = withTurn(s, target, (tt) => ({ ...tt, phase: { kind: 'live', data } }))
+      return applySessionFields({ ...next, lastSeq: ev.seq }, ev.todos ?? s.todos, ev.goal)
+    }
+
+    // ── text_final：权威 finalizer —— live/frozen → committed（I2 构造） ──
+    case 'text_final': {
+      // ⚠️ turnID 为 null 的 text_final = **命令回复**（`!cmd` bang / slash 命令）：
+      // 后端命令分发（chatWorker 的 Concurrent 分支）按设计**不分配 turn**
+      // （无 turn_started、无 turn_id），输出以独立消息形式 sendMessage 回来。
+      // 它不属于任何 turn —— 绝不能绑 activeTurn（会污染正在进行的 turn），
+      // 更不能丢弃：旧代码 `target === null → return s` 把命令输出整个吞掉
+      // （用户报告 "我输入 !pwd 没有输出啊" —— 服务端日志证明命令已执行，且
+      // `sendMessage directSend dispatch | send_channel=web` 已发到正确会话）。
+      // 渲染为 **standalone** 独立行（不是 legacy：legacy 是 DB 历史前缀，derive
+      // 排在 turns **之前**，会让命令输出出现在会话顶部 —— 用户仍会觉得"没输出"。
+      // standalone 排 turns 之后 = 底部，即用户视角的最新消息）。
+      //
+      // ⚠️ **只有显式命令回复**（后端 `metadata.command_reply`）才走这里：其余
+      // turnID 缺失的 text（后端 gap / 重启恢复会让普通 turn 的 text 丢 turn_id）
+      // 必须按 master 语义提交进 `s.activeTurn` —— 否则会被误判成命令回复、排到
+      // 底部 standalone 行并与 live 行重复渲染，且该 live turn 直到刷新都不收尾
+      // （CR 2026-09-21 P1-1）。
+      if (ev.turnID === null && ev.commandReply === true) {
+        const content = ev.content ?? ''
+        if (content === '') return s
+        return {
+          ...s,
+          standalone: [...s.standalone, {
+            id: commandRowId(),
+            role: 'assistant',
+            content,
+            iterations: ev.progressHistory ?? [],
+            timestamp: new Date().toISOString(),
+            dbID: undefined,
+            // ⚠️ **显式标记为「无 turn」** —— CI 真实 Chromium 抓到的尺寸缓存串味根因：
+            // standalone 行是 assistant、若不加标记就与"缺 turn_id 的普通 assistant 行"
+            // 无法区分，`bindTurnIDs` 会把它绑到**最近的前一个 turn**（= 正在跑的那个）
+            // → 它的虚拟列表 key 与 live 行完全相同（`turn-N-assistant`）→ 尺寸缓存/
+            // 高度记忆被两行共用 ⇒ 总高翻倍（实测 `wrapperHeight=17320px`＝8660×2）、
+            // 命令输出被推到可视区之上（用户看到的仍然是"没有输出"）。
+            // 标记后 turnID 保持 0 ⇒ 虚拟键回落到 `row.id`（`cmd-N`，天然唯一）。
+            standalone: true,
+            // 时间锚点：插回"命令发生的那一刻"（见 lastTurnIDOf 注释）。
+            anchorTurnID: lastTurnIDOf(s),
+          }],
+        }
+      }
+      // 非命令回复：turnID 缺失时按 master 语义回落到 `s.activeTurn`
+      //（后端 gap / 重启恢复丢 turn_id 的普通回复必须并入正在跑的 turn，而不是
+      // 变成底部独立行 —— 见上方 P1-1 注释）。
+      const target = ev.turnID !== null ? ev.turnID : s.activeTurn
+      if (target === null) return s
+      const t = s.turns.get(target)
+      if (!t) return s
+
+      // [TURNDROP] 诊断：text_final 到达时 target 已 frozen（session-idle mid-flight
+      // 冻结 / turn_started 收尸后 text 迟到恢复的证据链 —— 与上面两条配对看）。
+      if (t.phase.kind === 'frozen') {
+        console.warn('[TURNDROP] late text_final recovered a FROZEN turn', {
+          chatID: s.chatID, turnID: target, cancelled: ev.cancelled,
+          contentLen: ev.content?.length ?? 0,
+        })
+      }
+
+      if (t.phase.kind === 'committed') {
+        // ── P0 修复（2026-09-16 用户报告）────────────────────────────────
+        // "一个会话从 busy 跑到 idle 后，从别的会话切回去**看不到最后一个迭代的
+        //  内容**，刷新后才出现。"
+        //
+        // 机制：最后一个迭代的**唯一权威载体**是 text.progressHistory（后端
+        // recordFinalIteration 补记 —— 它没有"下一迭代"事件可带动，只能靠 text）。
+        // 而切会话时面板是 mounted 的（只切可见性），本地 turn 可能已按**过时快照**
+        // committed（history_replaced / session(idle) 定格）；SSE 重连后用
+        // last_event_id 回放的那条 text_final 一到就被这里**无条件 return** 丢弃
+        // ⇒ 唯一载体丢失 ⇒ 最后迭代内容永久缺失，只有下一次完整 fetch（F5）才补回。
+        //
+        // 修复：把 incoming progressHistory **增量并入**已 committed 的 payload
+        // （同号以权威覆盖、append-only）；无实际变化时仍返回原 state（幂等、零渲染）。
+        const prevIts = t.phase.payload.iterations ?? []
+        const mergedIts = mergeIterations(prevIts, ev.progressHistory ?? [])
+        const changed =
+          mergedIts.length !== prevIts.length ||
+          mergedIts.some(
+            (it, i) =>
+              (it.content ?? '') !== (prevIts[i]?.content ?? '') ||
+              (it.tools?.length ?? 0) !== (prevIts[i]?.tools?.length ?? 0),
+          )
+        if (!changed) return s
+        const payload = { ...t.phase.payload, iterations: mergedIts } as typeof t.phase.payload
+        const turnsPatched = new Map(s.turns)
+        turnsPatched.set(target, { ...t, phase: { kind: 'committed', payload } })
+        return { ...s, turns: turnsPatched }
+      }
+
+      // live / frozen → committed。cancelled 时保留 cancel 定格内容作为 fold content。
+      const live = t.phase.data
+      // T3 + 权威：iterations = union(live.iterations, progressHistory)，
+      // 同号 progressHistory 覆盖（后端权威），append-only。
+      const iterations0 = mergeIterations(live.iterations, ev.progressHistory)
+      // cancel：正在执行的工具（activeTools/streamingTools，从未完成 ——
+      // progress_history 不含它们）折进最后迭代（标 error）—— "已渲染内容
+      // 永不消失"（cancel 后正在执行的 tool 保留在最新迭代）。不折则丢失。
+      // foldInFlightToIterations 与 foldPhase（turn_started 收尸路径）共用 ——
+      // 两条 commit 路径的 in-flight 折叠语义永不分叉。append 传 ('','')：
+      // finalText 覆盖逻辑（下方 inFlightIter map/追加）统一处理新迭代的
+      // content 写入。
+      const iterations = foldInFlightToIterations(live.activeTools, live.streamingTools, iterations0, live.iter, '', '')
+      // 最终回复文本：text 顶层 content（v55 唯一权威值）> cancel 定格 content。
+      const finalText = ev.content !== null ? ev.content : nonEmptyStr(live.content)
+      // v55 渲染层 hasIterations=true 时不渲染顶层 content —— 最终回复必须存在于
+      // 迭代内（否则 'all' 折叠的 lastText 取最后迭代 reasoning，回复丢失，
+      // notification turn 用户报告："Done processing notification" 不显示）。
+      // ⚠️ finalText 属于【进行中的迭代】，不是简单的"最后一个已存在迭代"：
+      //    进行中迭代号 = max(live.iter, progressHistory 最后迭代号) ——
+      //    progressHistory 可能已补齐全（后端权威快照比前端 live 领先，如
+      //    cancel 时后端已到 iter2 而前端只收到 iter1），此时 finalText
+      //    （cancel 定格 content）属于 progressHistory 的最后一个迭代。
+      //    - 该迭代已在 iterations 里 → 覆盖它（正常完成 / progressHistory 补齐）。
+      //    - 未在且比最后一个大（AskUser cancel：AskUser 工具调用中取消，无
+      //      in-flight 工具 → 不触发 foldInFlightToIterations 追加）→ 【追加】新迭代。
+      //      旧代码无条件覆盖最后一个已存在迭代，把已完成迭代的 content 替换成
+      //      当前迭代文本 —— 用户报告"askuser 取消后迭代渲染混乱顺序错乱"
+      //      （iter2 内容变成 iter3 文本）。
+      const iterListLast = iterations.length > 0 ? iterations[iterations.length - 1].iteration : 0
+      const inFlightIter = Math.max(live.iter, iterListLast)
+      // ⛔ 空 finalText（WaitingUser 的空 text 信封）不得擦已有内容：
+      //    AskUser 弹窗瞬间 web 通道会发一条空 text（ask 面板事件之外），把它当
+      //    权威 finalizer 提交时，`content: ''` 会擦掉最后迭代的正文/思考
+      //    （用户 2026-09-17：「Thought 1848 chars 消失、content 还在、稍后自愈」
+      //    —— 稍后对账 reload 又把内容带回来 = 闪烁）。
+      //    ⚠️ reasoning 同理：进行中迭代的 reasoning 只存在于 live 快照（turn 暂停
+      //    没跑 snapshotCompletedIteration，DB iteration_history 还没有它），覆盖/
+      //    追加时必须把 live.reasoning 带上，否则提交行丢「Thought N chars」。
+      const iterationsFinal = finalText !== null && finalText !== '' && iterations.length > 0
+        ? (iterations.some((it) => it.iteration === inFlightIter)
+            ? iterations.map((it) => it.iteration === inFlightIter
+                ? { ...it, content: finalText, reasoning: it.reasoning || live.reasoning || '' }
+                : it)
+            : [...iterations, {
+                iteration: inFlightIter,
+                content: finalText,
+                reasoning: live.reasoning ?? '',
+                tools: [],
+                toolCount: 0,
+              }])
+        : iterations
+      // ⛔ WaitingUser 空 text 信封（finalText=''）：在飞迭代的 reasoning/content
+      // 只存在于 live 快照（turn 暂停，后端没跑 snapshotCompletedIteration，DB
+      // iteration_history 没有它；text 路径的 foldInFlightToIterations 只折工具、
+      // append 传 ('','')）—— 它不在 iterations 里时必须从 live 补上，否则提交行
+      // 丢「Thought N chars」（用户 2026-09-17：弹窗瞬间 CoT 消失、content 还在、
+      // 稍后对账 reload 才恢复 = 闪烁）。
+      const iterationsWithLive = (finalText === '' || finalText === null) && live.iter > 0
+        && !iterationsFinal.some((it) => it.iteration === inFlightIter)
+        && (nonEmptyStr(live.reasoning) !== null || nonEmptyStr(live.content) !== null)
+        ? [...iterationsFinal, {
+            iteration: inFlightIter,
+            content: live.content ?? '',
+            reasoning: live.reasoning ?? '',
+            tools: [],
+            toolCount: 0,
+          }]
+        : iterationsFinal
+
+      let payload
+      if (finalText !== null && finalText !== '') {
+        payload = commitViaText(finalText, iterationsWithLive)
+      } else {
+        // 空 finalText（WaitingUser 的空 text 信封）与 cancel（null）同语义：走
+        // fold 提交 —— via:'text' 的不变式要求顶层 content 非空，空串提交会被
+        // assertInvariants 拒绝；fold 提交只带迭代（含在飞折叠）。
+        const nonEmptyIts = nonEmptyArr(iterationsWithLive)
+        if (nonEmptyIts === null) {
+          // 完全无产出（text 也空、iterations 也空）—— frozen 定格。
+          // I2：不可构造空 committed。该 turn 渲染 user 行（若有）。
+          // I3 修复：活动指针必须同步清空 —— text_final 是 turn 终态事件，
+          // 即使无产出也要结束该 turn（性质测试 seed=777 抓出：activeTurn
+          // 残留指向 frozen turn，后续 iteration 事件因 kind!=='live' 被静默
+          // 丢弃，而 I3 断言失败）。
+          if (t.phase.kind === 'frozen') {
+            return s.activeTurn === target ? { ...s, activeTurn: null } : s
+          }
+          const frozenTurns = new Map(s.turns)
+          frozenTurns.set(target, { ...t, phase: { kind: 'frozen', data: live } })
+          const activeTurn = s.activeTurn === target ? null : s.activeTurn
+          return { ...s, turns: frozenTurns, activeTurn }
+        }
+        payload = commitViaFold(nonEmptyIts, live.content, 0, undefined, live.regionsBefore)
+      }
+
+      const turns = new Map(s.turns)
+      turns.set(target, { ...t, phase: { kind: 'committed', payload } })
+      // commit 后：若这是 active turn，活动指针清空（turn 结束）。
+      const activeTurn = s.activeTurn === target ? null : s.activeTurn
+      return { ...s, turns, activeTurn }
+    }
+
+    // ── session_fields：会话级字段的本地水合（get_goal RPC 兜底） ──
+    // 只走 applySessionFields（与 iteration/phase_done 同一 helper）—— 不碰 turn
+    // 状态，不推进 I5 基准。三态与 structured 事件一致（undefined = 不改）。
+    case 'session_fields':
+      return applySessionFields(s, ev.todos, ev.goal)
+
+    // ── session：busy/idle —— idle 是 live 的收尾兜底（幽灵行灭绝） ──
+    case 'session': {
+      if (ev.busy) return s.busy ? s : { ...s, busy: true }
+      // idle：active live 的兜底收尾。
+      // ⛔ 同 session_idle：coarse 会话级 idle 在服务端 reconcile 的 running 仍为
+      // true 时必然陈旧/误传 ⇒ 不得冻结运行中的 turn（不变量：cancel ⇒ 进行中
+      // 可见）。真结束由 `session_running(false)` 权威收尾。
+      if (s.sessionRunning) return s
+      if (s.activeTurn === null) return s.busy ? { ...s, busy: false } : s
+      const t = s.turns.get(s.activeTurn)
+      if (!t || t.phase.kind !== 'live') return s.busy ? { ...s, busy: false } : s
+      const live = t.phase.data
+      if (hasOutput(live)) {
+        // 有产出：frozen 定格（text 迟到仍可 commit —— turnID 匹配 frozen）。
+        // [TURNDROP] 诊断：idle 在 activeTurn 还是 live 时到达（mid-turn idle
+        // —— text_final/PhaseDone 之前）。正常时序 text_final 先 commit
+        //（activeTurn=null，上面已 return）。此路径会把 live 冻结 + 后续
+        // iteration/stream 事件因 kind!=='live' 被丢弃（"live progress 消失
+        // 再也不更新"的 reduce 层形态）。捕获触发证据。
+        console.warn('[TURNDROP] session(idle) froze a LIVE turn mid-flight', {
+          chatID: s.chatID, turnID: t.id, lastSeq: s.lastSeq,
+          contentLen: live.content.length, reasoningLen: live.reasoning.length,
+          iterations: live.iterations.length, iter: live.iter, streaming: live.streaming,
+        })
+        const turns = new Map(s.turns)
+        turns.set(t.id, { ...t, phase: { kind: 'frozen', data: { ...live, streaming: false } } })
+        return { ...s, turns, activeTurn: null, busy: false }
+      }
+      // 无产出：**必须区分两种空壳**（P0#2，2026-09-16 用户报告：「切会话后两个 turn
+      // 之间的 notification（user 形式）不渲染，两侧 assistant 消息粘连」）：
+      //   · turn **有 user 行**（最典型：通知 turn —— `turn_started(trigger=notification)`
+      //     只注入 user 行，agent 不产出 assistant）⇒ **必须保留该 turn**，冻成空壳：
+      //     derive 只跳过 assistant 行（hollow frozen），user 行照常渲染。
+      //     旧实现无条件 `turns.delete(t.id)` 把**通知行一起删掉** ⇒ 两个 turn 的
+      //     assistant 在视觉上粘连（切会话若不重拉 history 就一直不回来，刷新才恢复）。
+      //   · turn **无 user 行** ⇒ 真·空壳，删槽（"空壳行灭绝"，保持原语义）。
+      if (t.user !== null && t.user !== undefined) {
+        const hollowTurns = new Map(s.turns)
+        hollowTurns.set(t.id, { ...t, phase: { kind: 'frozen', data: { ...live, streaming: false } } })
+        return { ...s, turns: hollowTurns, activeTurn: null, busy: false }
+      }
+      // [TURNDROP] 诊断：mid-turn idle 删除无产出且无 user 行的 live（空壳行灭绝）。
+      // reasoning-only streaming 若 reasoning 已被迭代边界清空（advanced 清流式字段后
+      // 新内容未到）即命中此分支。
+      console.warn('[TURNDROP] session(idle) DELETED a live turn with no output', {
+        chatID: s.chatID, turnID: t.id, lastSeq: s.lastSeq,
+        contentLen: live.content.length, reasoningLen: live.reasoning.length,
+        iterations: live.iterations.length, iter: live.iter, streaming: live.streaming,
+      })
+      const turns = new Map(s.turns)
+      turns.delete(t.id)
+      return { ...s, turns, activeTurn: null, busy: false }
+    }
+
+    // ── history_replaced：merge 语义（reload / hydration / rewind —— 同一转移） ──
+    // ⚠️ 不能盲替换（用户报告两个 P0）：
+    //  1) "发送 user msg 会导致上一个 turn 的 agent 消息消失" —— text_final 的
+    //     committed turn 只存在于状态机（useChatMessages 的 messages 不再被
+    //     appendAssistant 同步），盲替换会抹掉 DB 快照还没有的唯一数据源。
+    //  2) "打字机没了" —— user_echo 触发 messages 变化 → history_replaced 若抹掉
+    //     turn_started 刚建的 live turn（echo 与 turn_started 的 listener 时序可
+    //     颠倒），activeTurn=null → 后续 stream 事件全被丢弃。
+    // merge 规则：DB 权威覆盖它【有】的 turn（带 dbID）；状态机持有的
+    //  in-flight（live）与 post-fetch commit（DB 快照缺失）保留；hydration
+    //  的 ev.active 在无 live turn 时创建之（刷新恢复 live 此前也是坏的）。
+    case 'history_replaced': {
+      const turns = new Map<TurnID, Turn>()
+      const incomingIds = new Set(ev.turns.map((t) => t.id))
+
+      // 1. incoming（DB 权威）—— 同 turnID 状态机有 live（in-flight）时 live 胜
+      //    （SSE 比快照新）；live 缺 user 时从 DB 行嫁接（拿 dbID，rewind 需要）。
+      //    ⚠️ incoming 是【无输出空壳】（user-only 历史行组成的 frozen 空壳 ——
+      //    DB 快照还没有 assistant 行）时不得覆盖状态机的 committed /
+      //    frozen-with-output（集成测试 C 抓出：发 user msg 后上一 turn 的
+      //    agent 消息消失 —— 空壳覆盖了唯一数据源）。
+      //    ⚠️ committed/frozen-with-output：union 合并（I4 append-only）—— DB 快照
+      //    可能【过时】（reload/replay_gap 在 turn 运行中拉过一次，DB 只有中间行；
+      //    或最终行尚未持久化）。覆盖会丢最后迭代（用户报告："发新消息后上一
+      //    turn 最后一条迭代消息直接消失"—— 发新消息必然触发 REST ack patchUser
+      //    → messages 变化 → history_replaced，若 chat.messages 含 turn 的过时 DB
+      //    行即复现）。迭代 union（incoming 同号权威覆盖 —— DB 是持久化权威，
+      //    append-only 不减）；content 非空优先（状态机 SSE text 是权威 finalizer；
+      //    DB 空 content 是 tool_summary 中间行）。
+      // ⛔ 「无法追赶的 gap」检测（用户 2026-09-21：「出现无法追赶的 gap 就重新加载 session」）：
+      // 逐 turn 比较「本地窗口」与「权威窗口」——合并后仍有洞、且洞在权威窗口之外（服务端
+      // 历史按 turn 尾部有界，那段再也取不回来）⇒ 本地视图永久断裂 ⇒ 触发整会话重载。
+      let gapSig = ''
+      for (const h of ev.turns) {
+        const cur = s.turns.get(h.id)
+        if (cur) {
+          const curIts = cur.phase.kind === 'committed'
+            ? cur.phase.payload.iterations
+            : cur.phase.data.iterations
+          const incIts = h.phase.kind === 'committed'
+            ? h.phase.payload.iterations
+            : h.phase.kind === 'frozen'
+              ? h.phase.data.iterations
+              : []
+          // incoming 的窗口声明（可追赶洞的豁免判据 —— 见 unreachableGapSig 的例外注释）。
+          const incRb = h.phase.kind === 'committed'
+            ? h.phase.payload.regionsBefore
+            : h.phase.kind === 'frozen'
+              ? h.phase.data.regionsBefore
+              : undefined
+          gapSig = joinSig(gapSig, unreachableGapSig(h.id, curIts, incIts, incRb))
+        }
+        if (cur && cur.phase.kind === 'live') {
+          // live 胜（SSE 比 DB 快照新）—— 但 live 只含【增量】迭代（重启
+          // resume 后 SSE 先到的 lazy 采纳只带 resume Run 的迭代 k+1..；DB
+          // committed 携带全量 1..k）。不 union 会竞态性丢失 1..k（SSE 先到
+          // + fetchHistory 后到 → "重启后 turn 的 iter 1..k 全消失"、"切换
+          // 会话有时能看到迭代有时看不到"）。union：同号 live 权威（SSE 比
+          // DB 新）——与 step 3.5 的 active 快照 union 同原则（I4 append-only）。
+          const incomingIts = h.phase.kind === 'committed'
+            ? h.phase.payload.iterations
+            : h.phase.kind === 'frozen'
+              ? h.phase.data.iterations
+              : []
+          if (incomingIts.length === 0) {
+            turns.set(h.id, cur.user ? cur : { ...cur, user: h.user })
+          } else {
+            // 幂等重放（每帧 history_replaced）：union 未产生新迭代且 user 已就位
+            // ⇒ 复用原 Turn 对象（零重建 —— 否则 derive 的行 memo + TurnBody 的
+            // iterations memo 被逐帧击穿，代价 O(turn 迭代数)）。
+            const mergedIts = reuseIfSame(
+              mergeIterations(incomingIts, cur.phase.data.iterations),
+              cur.phase.data.iterations,
+            )
+            // 2026-10-02 P0 修复（6641c9b3 重应用）：live-wins 分支必须传播 incoming
+            // 的 regionsBefore。熄屏场景：本地 live [1..300] × incoming committed
+            // 窗口 [659..758]+regionsBefore=658 ⇒ union 产生洞 [301..658]，但若不
+            // 传播 ⇒ data.regionsBefore 保持 undefined ⇒ regionWindow.enabled=false
+            // ⇒ auto-catch-up 永不触发 ⇒ 洞永不填 ⇒ contiguous 截断在 300 ⇒ 历史
+            // 冻结在熄屏时刻 + 后续迭代落在截断区外「消失」（用户两轮报告「历史迭代
+            // 完全不更新，新迭代一 commit 就消失」）。取 min（本地已加载过段 ⇒ 更小
+            // = 更完整 —— 与 mergeTurnData / 3.5 分支同语义）。注：上方 `if (cur)` 块
+            // 里虽有同源 incRb，但那是兄弟作用域 —— 此处须自行提取。
+            const incRbLive = h.phase.kind === 'committed'
+              ? h.phase.payload.regionsBefore
+              : h.phase.kind === 'frozen'
+                ? h.phase.data.regionsBefore
+                : undefined
+            const curRbLive = cur.phase.data.regionsBefore
+            const mergedRbLive =
+              curRbLive !== undefined && incRbLive !== undefined
+                ? Math.min(curRbLive, incRbLive)
+                : curRbLive ?? incRbLive
+            const rbChanged = mergedRbLive !== curRbLive
+            if (mergedIts === cur.phase.data.iterations && !rbChanged && (cur.user || !h.user)) {
+              turns.set(h.id, cur)
+            } else {
+              turns.set(h.id, {
+                ...cur,
+                user: cur.user ?? h.user,
+                phase: {
+                  kind: 'live',
+                  data: {
+                    ...cur.phase.data,
+                    iterations: mergedIts as WebIteration[],
+                    ...(rbChanged ? { regionsBefore: mergedRbLive } : {}),
+                  },
+                },
+              })
+            }
+          }
+        } else if (
+          cur &&
+          cur.phase.kind !== 'live' &&
+          h.phase.kind === 'frozen' &&
+          !hasOutput(h.phase.data)
+        ) {
+          // 空壳不覆盖（状态机数据保全）—— 但 user 必须嫁接（DB 权威行）。
+          // 2026-09-02 user 消失实录（tenant 167343 turn 26）：切走 app →
+          // turn_started(26) 丢失（SSE 断连窗口）→ SSE replay 的 lazy iteration
+          // + text_final 把错误回复 commit 成 user=null 的 turn → 切回 reload
+          // 的 incoming 是空壳（DB 只有 user 行——错误回复不持久化）→ 本分支
+          // `turns.set(h.id, cur)` 直接保留 user=null → DB user(1408796) 被丢弃
+          // → 渲染 turn-24-c → turn-26-c 直接相邻，user 无处显示。
+          // 对齐 live 胜分支（cur.user ? cur : { ...cur, user: h.user }）。
+          turns.set(h.id, cur.user ? cur : { ...cur, user: h.user })
+        } else if (cur && cur.phase.kind !== 'live') {
+          turns.set(h.id, mergeTurnData(cur, h)) // union 合并（不丢任何一侧迭代）
+        } else {
+          turns.set(h.id, h)
+        }
+      }
+
+      // 2. 状态机独有（DB 快照缺失）—— 有数据则保留（live / committed /
+      //    frozen-with-output；空壳 frozen 舍弃）。
+      for (const [id, t] of s.turns) {
+        if (incomingIds.has(id)) continue
+        const keep =
+          t.phase.kind === 'live' ||
+          t.phase.kind === 'committed' ||
+          (t.phase.kind === 'frozen' && hasOutput(t.phase.data))
+        if (keep) turns.set(id, t)
+      }
+
+      // 3. activeTurn：保留下来的 live 优先；否则 hydration 的 ev.active。
+      // ⚠️ 空壳占位（user-only 历史行组成的 frozen 空壳）必须升级为 live ——
+      // DB 权威快照声明该 turn 正在运行；不升级则 activeTurn=null → 后续
+      // stream 事件全部被丢弃（用户报告："切换或刷新后只显示 history，
+      // live progress 不显示"）。
+      let activeTurn: TurnID | null = null
+      if (s.activeTurn !== null) {
+        const t = turns.get(s.activeTurn)
+        if (t && t.phase.kind === 'live') activeTurn = s.activeTurn
+      }
+      if (activeTurn === null && ev.active !== null) {
+        const tid = ev.active.turnID
+        const existing = turns.get(tid)
+        if (existing && existing.phase.kind === 'live') {
+          activeTurn = tid
+        } else if (!existing || isHollowFrozen(existing)) {
+          turns.set(tid, {
+            id: tid,
+            user: existing?.user ?? null,
+            phase: { kind: 'live', data: ev.active.snapshot },
+            requestID: existing?.requestID ?? null,
+          })
+          activeTurn = tid
+        } else {
+          // ⚠️ P0（2026-09-18 用户报告「手机端 busy 会话熄屏再打开，loading 后状态
+          // 不对：明明 busy 却看不到最新进度，且再也不更新」）────────────────────
+          // DB 里已有该 turn 的中间行（增量持久化的 assistant/tool 行 + 已完成迭代的
+          // iteration_history）⇒ historyToReplaced 把它折成 **committed**；而服务端
+          // active_progress（同一次 fetchHistory 返回的一致快照；phase ∈ {done,frozen}
+          // 时 historyToReplaced 根本不会构造 ev.active，turn 结束时后端也会删掉该
+          // 快照）明确声明它 **仍在跑**。旧实现只升级「无 turn / 空壳 frozen」，
+          // committed（"跑了一半"的**常态**）被原样保留 ⇒ activeTurn=null：
+          //   · liveProgressFromState 返回 EMPTY ⇒ 看不到 live 进度
+          //   · 后续 iteration/stream 事件先被「committed 遮蔽」拦下
+          //     （ev.iter 不大于已落库 maxIter 时 return s）⇒ 界面永久冻结
+          // ⇒ 按服务端的权威声明升级回 live；两侧迭代 union（DB 侧可能比快照更全 ——
+          // 快照与 DB 历史现在都**完整**下发，不再有任何尾部截断），
+          // 同号以**快照**权威（服务端 live 比 DB 增量行新——与 3.5 同向）。
+          // 对照保护（本文件 P0 测试「没有 active 快照时 committed 不得被复活」）：
+          // 只有在 ev.active 指向该 turn 时才升级，真结束的 turn 不受影响。
+          const dbIters = existing.phase.kind === 'committed'
+            ? existing.phase.payload.iterations
+            : existing.phase.data.iterations
+          const dbContent = existing.phase.kind === 'committed'
+            ? existing.phase.payload.content
+            : existing.phase.data.content
+          const snap = ev.active.snapshot
+          turns.set(tid, {
+            ...existing,
+            phase: {
+              kind: 'live',
+              data: {
+                ...snap,
+                content: nonEmptyStr(snap.content) ?? dbContent,
+                iterations: mergeIterations(dbIters, snap.iterations),
+              },
+            },
+          })
+          activeTurn = tid
+        }
+      }
+
+      // 3.5 ev.active 与已保留的 live turn 同 ID → 快照数据 union 进 live
+      // （切换会话竞态修复）：切换后 SSE delta 先到（lazy 采纳，push 协议每事件
+      // 只携带【新完成】的 0-1 个迭代），fetchHistory 的 active_progress 快照
+      // 携带【完整】iterationHistory —— live 胜出时必须吸收快照迭代，否则
+      // 最新 turn 只渲染切换后的最后一两个 live iter（用户报告："切换会话有
+      // 概率最新 turn 只渲染最后一两个 live iter"）。
+      // I4：mergeIterations union 只增（同号快照权威覆盖 —— 已完成迭代以
+      // 服务端为权威）。流式字段 live 非空优先（SSE 比快照新）。
+      if (ev.active !== null && activeTurn !== null && activeTurn === ev.active.turnID) {
+        const t = turns.get(activeTurn)
+        if (t && t.phase.kind === 'live') {
+          const snap = ev.active.snapshot
+          const d = t.phase.data
+          // 工具相变不变量（streamingTools ∩ activeTools = ∅，与 reduce 的
+          // stream/iteration case 同语义）：合并两侧数据新鲜度不同 —— 保留
+          // live 的 stale streamingTools（切 tab 断连丢了清除它的结构化事件）
+          // + 快照的 activeTools（running）→ 同一工具双渲染（用户实录：切 tab
+          // 后 task_wait 一个 generating pill + 一个 running pill）。同名
+          // generating 条目在 activeTools 声明 running 时即过期 —— 合并结果
+          // 强制过滤；不同名条目各自独立（Read generating + Shell running 共存）。
+          const mergedActiveTools = d.activeTools.length > 0 ? d.activeTools : snap.activeTools
+          const mergedStreamingTools = filterIfNeeded(
+            d.streamingTools.length > 0 ? d.streamingTools : snap.streamingTools,
+            (t2) => !mergedActiveTools.some((a) => a.name === t2.name),
+          )
+          // 幂等重放（每帧 history_replaced）：逐字段都无变化 ⇒ 不重建（保住
+          // Turn / iterations / 工具数组引用 —— 渲染层 memo 依赖它们）。
+          const mergedIterations = reuseIfSame(mergeIterations(d.iterations, snap.iterations), d.iterations)
+          const mergedIter = d.iter > snap.iter ? d.iter : snap.iter
+          const mergedContent = d.content !== '' ? d.content : snap.content
+          const mergedReasoning = d.reasoning !== '' ? d.reasoning : snap.reasoning
+          const mergedGenui = d.genui !== '' ? d.genui : snap.genui
+          const mergedTodos = d.todos.length > 0 ? d.todos : snap.todos
+          const mergedSubAgents = d.subAgents.length > 0 ? d.subAgents : snap.subAgents
+          const mergedTokenUsage = d.tokenUsage ?? snap.tokenUsage
+          // 区域窗口声明（2026-10-02 P0 复现实证的透传遗漏点）：快照的 regions_before
+          // 是服务端对该 turn 折叠窗口的权威声明（熄屏恢复 resync 路径必带）；本地值
+          // 可能来自更早的段加载（更小 = 更完整）。取 min（与 mergeTurnData 同语义）。
+          const mergedRegionsBefore =
+            d.regionsBefore !== undefined && snap.regionsBefore !== undefined
+              ? Math.min(d.regionsBefore, snap.regionsBefore)
+              : d.regionsBefore ?? snap.regionsBefore
+          const unchanged =
+            mergedIterations === d.iterations &&
+            mergedActiveTools === d.activeTools &&
+            mergedStreamingTools === d.streamingTools &&
+            mergedIter === d.iter &&
+            mergedContent === d.content &&
+            mergedReasoning === d.reasoning &&
+            mergedGenui === d.genui &&
+            mergedTodos === d.todos &&
+            mergedSubAgents === d.subAgents &&
+            mergedTokenUsage === d.tokenUsage &&
+            mergedRegionsBefore === d.regionsBefore
+          if (!unchanged) {
+            turns.set(activeTurn, {
+              ...t,
+              phase: {
+                kind: 'live',
+                data: {
+                  ...d,
+                  iter: mergedIter,
+                  content: mergedContent,
+                  reasoning: mergedReasoning,
+                  iterations: mergedIterations as WebIteration[],
+                  activeTools: mergedActiveTools as WebToolProgress[],
+                  streamingTools: mergedStreamingTools as WebToolProgress[],
+                  genui: mergedGenui,
+                  todos: mergedTodos as TodoItem[],
+                  subAgents: mergedSubAgents as WebSubAgentProgress[],
+                  tokenUsage: mergedTokenUsage,
+                  regionsBefore: mergedRegionsBefore,
+                },
+              },
+            })
+          }
+        }
+      }
+
+      // 4. lastSeq：保留了 active turn 时维持 per-run seq 连续性（否则重放检测
+      //    基准丢失）。无 active 时用事件携带值。
+      const lastSeq = activeTurn !== null ? s.lastSeq : ev.lastSeq
+
+      // 5. pendingUsers：已被合并 turns 绑定的（turnHint/requestID 命中）剔除。
+      const pendingUsers = s.pendingUsers.filter(
+        (u) =>
+          !(u.turnHint !== undefined && turns.has(turnID(u.turnHint))) &&
+          !(u.requestID !== null && [...turns.values()].some((t) => t.user?.requestID === u.requestID)),
+      )
+
+      // legacy 合并（不替换）：旧 legacy 消息不在新快照里也保留 —— tab 切换 →
+      // SSE 重连 → reload → fetchHistory 可能返回更短的 legacy（分页窗口不含旧消息
+      // / DB 压缩移除旧消息）。直接替换会丢失旧消息（用户报告 msg 消失）。
+      // 同 id 消息以 incoming 为权威（DB 是持久化权威）。
+      //
+      // 乱序 + 脏行修复（xbotgh CR）：
+      // 1. 脏行清理：旧行 dbID >= 新窗口最小 dbID 且不在 incoming 中 → 已被 DB
+      //    删除（rewind/压缩——fetchHistory 窗口是"最新 N 条"，不会跳过中间消息，
+      //    窗口内不存在的行唯一解释是被删）→ 剔除。dbID < minDb 的旧行保留
+      //    （窗口外，分页缩短不是删除）。空窗口（ev.legacy=[]）不清理——
+      //    空可能是 fetchHistory 异常/首开返回（非删除语义），保留旧行
+      //    （"tab 缓存 msg 消失"的既有防线）。
+      // 2. 乱序：Map.values() 按插入序返回（旧 state 行在前、新窗口消息 append
+      //    尾部）—— 窗口扩大（回翻页/loadMore，含更旧消息）时新旧行错位，
+      //    时间线错乱。合并后按 dbID 排序（DB 自增 id = 时间线顺序）。
+      const legacyById = new Map(s.legacy.map((l) => [l.id, l]))
+      if (ev.legacy.length > 0) {
+        const minDb = Math.min(...ev.legacy.map((l) => l.dbID ?? Infinity))
+        for (const [id, l] of legacyById) {
+          if (l.dbID !== undefined && l.dbID >= minDb && !ev.legacy.some((e) => e.id === id)) {
+            legacyById.delete(id)
+          }
+        }
+      }
+      for (const l of ev.legacy) legacyById.set(l.id, l)
+      const legacy = [...legacyById.values()].sort((a, b) => (a.dbID ?? 0) - (b.dbID ?? 0))
+      const todos = s.todos.length > 0 ? s.todos : ev.todos
+
+      // 幂等回放短路：逐项恒等（turns 每个 Turn 对象 / legacy / pendingUsers 元素
+      // 引用 + activeTurn/lastSeq/todos）⇒ 返回原 state。
+      // 每帧 history_replaced（useChatMessages 的 store 每帧 notify → setMessages
+      // → historyMessages 换引用 → 本 case）在历史未变时必须是**零通知零渲染**的
+      // no-op —— 否则每次重放都重建全部 Turn，击穿 derive/MessageItem 的行 memo，
+      // 流式帧代价变成 O(全会话迭代数)。判定只用引用比较（不做语义比较 ——
+      // 漏判会吞掉真实更新）。
+      if (
+        sameTurnMap(turns, s.turns) &&
+        sameItems(legacy, s.legacy) &&
+        sameItems(pendingUsers, s.pendingUsers) &&
+        activeTurn === s.activeTurn &&
+        lastSeq === s.lastSeq &&
+        sameItems(todos, s.todos) &&
+        // 「无法追赶的 gap」形状变化时必须返回新 state（否则 gapReloadToken 的自增被
+        // 短路吞掉，面板拿不到"重载该会话"的信号）。
+        gapSig === s.unreachableGapSig
+      ) {
+        return s
+      }
+
+      // ⛔ 这里【绝不】"提升 turn 为 live"（我上一版的回归）：DB 还原的 turn 走
+      // `commitViaFold`（integrate.ts:94），"未 finalize"判据对它恒成立 ⇒ 每次切
+      // 会话都会把**已结束**的 turn 伪装成 live（composer 幽灵 busy + 占位符被
+      // 抑制 ⇒ 「cancel + 看不到进行中信号」）。live-ness 只由真实信号决定：
+      // 服务端权威快照 `ev.active`（仅当它指向该 turn 时恢复 live，见上文 step 3）
+      // + 事件路径（stream/iteration 的遮蔽解除）。切片时的可视保障由渲染层的
+      // 占位符承担（MessageList 的 tailShowsIndicator）。
+      return {
+        chatID: s.chatID, turns, legacy, activeTurn, lastSeq,
+        busy: s.busy, pendingUsers, queue: s.queue, todos, goal: s.goal,
+        sessionRunning: s.sessionRunning,
+        // 命令行（`!cmd`）落库行：事件带 standalone 时**采纳**它（刷新后状态是空的，
+        // DB 权威行必须进渲染）；事件未带（手写事件/旧路径）则保留现有。
+        standalone: ev.standalone ?? s.standalone,
+        // ⛔ 出现**无法追赶的 gap**（本地洞在权威窗口之外 ⇒ 永久断裂）⇒ 自增触发面板
+        // **重新加载该会话**（丢弃带洞的本地窗口 + 权威重载 + loading 屏）。同一缺口形状
+        // 只自增一次 ⇒ 不可能造成重载循环；形状消失后再出现会重新触发。
+        gapReloadToken:
+          gapSig !== '' && gapSig !== s.unreachableGapSig ? s.gapReloadToken + 1 : s.gapReloadToken,
+        unreachableGapSig: gapSig,
+        // SSE 增量路径的丢失洞签名（iteration/stream case 写入）在权威窗口到达时
+        // 随状态一起传播（未被 reset 打断的 reload 链路里保持去重语义）。
+        lostIterGapSig: s.lostIterGapSig,
+      }
+    }
+
+    // ── iterations_loaded：区域段 / 迭代详情到达 —— union 并入目标 turn ──
+    // 两条端点共用（`POST /api/regions` 段 / `POST /api/iteration_detail` 详情）：
+    //   · 区域段：轻字段形态的整段（段边界对齐展示区域 ⇒ 永不劈开工具组），
+    //     `regionsBefore` = 仍剩更早区域数（权威覆盖）。
+    //   · 详情：单个**完整**迭代（hydrate 浮层），`regionsBefore` 缺省 = 不动。
+    //
+    // ⛔ 与 `text_final` 的 committed 增量分支同族（reuseIfSame + 幂等短路），但
+    // **绝不触碰** activeTurn / lastSeq / busy / gapReloadToken / unreachableGapSig /
+    // sessionRunning —— 区域段是服务端**显式声明的可取回窗口**，不是 gap：它的到达
+    // 只能让本地窗口更完整。碰这些字段 = 让一次上滚加载伪造出「turn 结束/live 切换/
+    // 会话重载」的语义（用户会看到 loading 屏 / 打字机中断）。
+    case 'iterations_loaded': {
+      // turnID 缺失/0 ⇒ 回退 activeTurn（与 stream/iteration/phase_done 同规则）。
+      const target = ev.turnID > 0 ? turnID(ev.turnID) : s.activeTurn
+      if (target === null) return s
+      const t = s.turns.get(target)
+      // turn 不存在 ⇒ 静默丢弃（服务端权威下发段时 turn 必在 —— DB 里有该 turn 的
+      // 行才会被请求；miss 说明是脏数据/跨会话串扰，不得凭空造 turn）。
+      if (!t) return s
+      // 三态 union：committed 读 payload.iterations，live/frozen 读 data.iterations。
+      const existing = t.phase.kind === 'committed' ? t.phase.payload.iterations : t.phase.data.iterations
+      const merged = reuseIfSame(mergeIterations(existing, ev.iterations), existing)
+      // regionsBefore 三态（与 optTodos/optGoal 的「缺省=不覆盖」同语义）：
+      // undefined = 事件未携带（详情端点）⇒ 保留现值；数字 = 权威覆盖。
+      // regionsBefore 只存在于 committed payload（live/frozen 无该字段 —— 区域计数
+      // 是**历史行**概念，live turn 的迭代不经区域窗口）。
+      const rb = ev.regionsBefore
+      const curRb = t.phase.kind === 'committed' ? t.phase.payload.regionsBefore : undefined
+      if (merged === existing && (rb === undefined || rb === curRb)) return s // 幂等：原 state 引用
+      const turns = new Map(s.turns)
+      if (t.phase.kind === 'committed') {
+        const payload = {
+          ...t.phase.payload,
+          iterations: merged,
+          ...(rb !== undefined ? { regionsBefore: rb } : {}),
+        } as typeof t.phase.payload
+        turns.set(target, { ...t, phase: { kind: 'committed', payload } })
+      } else {
+        // live/frozen 分支：段到达后同样更新窗口声明（regionsBefore 显式携带时权威
+        // 覆盖——服务端按 beforeIter 计算的「该点以上剩余区域数」比本地旧值准确）。
+        turns.set(target, {
+          ...t,
+          phase: {
+            ...t.phase,
+            data: {
+              ...t.phase.data,
+              iterations: merged,
+              ...(rb !== undefined ? { regionsBefore: rb } : {}),
+            },
+          },
+        })
+      }
+      return { ...s, turns }
+    }
+
+    // ── user_sent：乐观行入 pending 队列 ──
+    case 'user_sent': {
+      return { ...s, pendingUsers: [...s.pendingUsers, ev.row] }
+    }
+
+    // ── user_echo：后端权威回显（带 turn_id）。已绑定同 request -> 幂等；
+    //     turn 已存在但 user 空 -> 挂 user；否则入 pending（turnHint 绑定）。 ──
+    // ⚠️ 核心修复（双 user 行 + 双思考中）：user_echo 是"同一条 user 消息的
+    //    权威回显"，绝不产生【第二条】渲染行 —— 渲染源是状态机 pendingUsers
+    //    （user_sent 直通）+ turns[].user（turn_started/echo 绑定）。当
+    //    turn_started 已把乐观 user（requestID=R）绑定进 turn 后，迟到且同 R
+    //    的 user_echo 若被追加进 pendingUsers，会与 turn.user 构成同消息两行
+    //    （Bug：用户看到 user msg + 思考中 完整复制两份）。幂等规则：
+    //      - 同 R 已在 turn.user       → 返回不变（权威回显，零副作用）
+    //      - 同 R 已在 pendingUsers     → 就地用 echo 替换（清 sending、收敛），不新增（仍一行）
+    case 'user_echo': {
+      // ① 幂等：同 R 已在 turn.user（turn_started 已绑定乐观行）→ 权威回显，
+      //    零副作用返回（绝不再产生第二行 —— 双 user+双思考中根治）。
+      if (ev.row.requestID !== null) {
+        for (const t of s.turns.values()) {
+          if (t.user && t.user.requestID === ev.row.requestID) return s
+        }
+        // ② pending 已有同 R 行（乐观 user_sent / 更早 echo）：就地用 echo
+        // 权威字段替换（清 sending、回填 turnHint/turn 归属），不新增行 ——
+        // 仍保持单行（echo 取代乐观语义，历史的 append 副本在此收敛）。
+        const existingIdx = s.pendingUsers.findIndex((u) => u.requestID === ev.row.requestID)
+        if (existingIdx >= 0) {
+          const pendingUsers = s.pendingUsers.slice()
+          pendingUsers[existingIdx] = { ...pendingUsers[existingIdx], ...ev.row, id: pendingUsers[existingIdx].id }
+          return { ...s, pendingUsers }
+        }
+      }
+      // ③ hint 指向未绑定 turn → 直接挂 user。
+      // ③b activeTurn 兜底（2026-09-02 cron user 消失实录，tenant 166286 turn
+      // 1030/1031）：turn_started 丢失（tab 后台 SSE 节流——连接不断，无 resync/
+      // reload）→ iteration lazy 采纳（activeTurn 的 user=null）→ inject_user echo
+      // 到达（WSMessage 四字段无 turn_id → turnHint=undefined → ③ 不命中）→ ③.5
+      // 内容幂等误杀（turns 里旧 turn 的同内容 notif user 匹配——cron 每分钟同
+      // 内容通知，1029/1030 的 notif user 挡住 1031 的 echo）→ user 永缺（DOM：
+      // turn-1030-c 与 turn-1031-c 相邻无 user 行，DB 铁证 user 行存在）。
+      // 修复：echo 无 turnHint 时挂 active turn 的空 user 槽（lazy 采纳的
+      // activeTurn 是权威归属——turn 进行中），在 ③.5 误杀之前恢复。
+      const hint = ev.row.turnHint
+      if (hint !== undefined) {
+        const tid = turnID(hint)
+        const t = s.turns.get(tid)
+        if (t && t.user === null) {
+          return withTurn(s, tid, (tt) => ({ ...tt, user: ev.row }))
+        }
+      } else if (s.activeTurn !== null) {
+        const t = s.turns.get(s.activeTurn)
+        if (t && t.user === null && !ev.row.isNotification) {
+          return withTurn(s, s.activeTurn, (tt) => ({ ...tt, user: ev.row }))
+        }
+      }
+      // ③.5 notification echo 内容幂等（同一通知双行根治）：turn_started(notification)
+      //    已用 turn_start.content 构造 notif user 行后，后端 InjectUserMessage 的
+      //    inject_user echo 后到 —— web.go 的 WSMessage 只有 Type/TS/ChatID/Content
+      //    （无 request_id/turn_id/is_notification）→ ①②③ 全不命中 → ④ 无条件
+      //    append → 同一通知渲染两行（turn.user 的 notif-${turnID} 行 + 沉底 echo 行）。
+      //    幂等锚点在 turns/pending 侧的 isNotification 行（echo 侧无归属标记可匹配）：
+      //    已存在 isNotification 且 content 相同的 user 行 → 同一逻辑消息，丢弃 echo。
+      //    echo 自带 requestID/turnHint 的正常路径（①②③）不受影响。
+      if (
+        ev.row.isNotification ||
+        [...s.turns.values()].some((t) => t.user?.isNotification === true && t.user.content === ev.row.content)
+      ) {
+        if (
+          [...s.turns.values()].some((t) => t.user?.isNotification === true && t.user.content === ev.row.content) ||
+          s.pendingUsers.some((u) => u.isNotification && u.content === ev.row.content)
+        ) {
+          return s
+        }
+      }
+      // ④ 全新 user（无未绑定 pending）→ 入 pending（turnHint 后续绑定）。
+      return { ...s, pendingUsers: [...s.pendingUsers, ev.row] }
+    }
+
+    // ── user_ack：REST 发送成功 —— 清 sending、回填服务端信息 ──
+    // v3 staging-tray: queued=true → 从 pendingUsers 移除（排队消息不进主 view，
+    // 只在 StagingTray 显示；turn_started 时从 content 构造 user 行）。
+    case 'user_ack': {
+      const dbID = ev.dbID > 0 ? ev.dbID : undefined
+      const idx = s.pendingUsers.findIndex((u) => u.requestID === ev.requestID)
+      if (idx >= 0) {
+        // 命令（`!cmd`/slash；REST 响应的**显式** `command` 标记）**没有 turn 生命周期**：
+        // 它永远等不到 turn_started，若留在 pendingUsers 就会固定沉底、且渲染在自己输出
+        // **之后**（用户报告：「所有 !cmd 内容（包括输入和输出）固定挂在会话底部」）。
+        // 移入 standalone 段并记录锚点（到达时已知的最大 turn id）——`sortTurnKey` 据此
+        // 把它插回原位；turnID 保持 0 ⇒ 虚拟键回落 row.id（不与 turn 行撞键）。
+        // 有 turn_id 的命令（有状态命令走串行队列）不受影响：正常绑定到它的 turn。
+        if (ev.command === true && !ev.turnHint) {
+          const row = s.pendingUsers[idx]
+          return {
+            ...s,
+            pendingUsers: s.pendingUsers.filter((_, i) => i !== idx),
+            standalone: [...s.standalone, {
+              id: row.id,
+              role: 'user',
+              content: row.content,
+              iterations: [],
+              timestamp: row.timestamp,
+              dbID,
+              standalone: true,
+              anchorTurnID: lastTurnIDOf(s),
+            }],
+          }
+        }
+        // queued → 撤出消息流（StagingTray 是唯一渲染面）。
+        if (ev.queued === true) {
+          const pendingUsers = s.pendingUsers.filter((_, i) => i !== idx)
+          return { ...s, pendingUsers }
+        }
+        // 非 queued → 正常更新（清 sending、回填 dbID/turnHint）。
+        const pendingUsers = s.pendingUsers.slice()
+        const u = pendingUsers[idx]
+        pendingUsers[idx] = {
+          ...u,
+          dbID: dbID ?? u.dbID,
+          sending: false,
+          queued: false,
+          turnHint: u.turnHint ?? ev.turnHint,
+        }
+        return { ...s, pendingUsers }
+      }
+      // 已绑定进 turn 的 user（turn_started 先于 REST 完成的时序）。
+      for (const t of s.turns.values()) {
+        if (t.user?.requestID === ev.requestID) {
+          return withTurn(s, t.id, (tt) =>
+            tt.user
+              ? { ...tt, user: { ...tt.user, dbID: dbID ?? tt.user.dbID, sending: false } }
+              : tt,
+          )
+        }
+      }
+      return s
+    }
+
+    // ── user_fail：REST 发送失败 —— 移除乐观行 ──
+    case 'user_fail': {
+      const pendingUsers = s.pendingUsers.filter((u) => u.requestID !== ev.requestID)
+      if (pendingUsers.length === s.pendingUsers.length) return s
+      return { ...s, pendingUsers }
+    }
+
+    // ── queue_state：全量替换排队消息快照（Staging Tray 数据源） ──
+    case 'queue_state': {
+      return { ...s, queue: ev.queue }
+    }
+  }
+}
+
+/** in-flight 工具折叠（"已渲染内容永不消失"）—— foldPhase（turn_started 收尸）
+ * 与 text_final（权威 finalizer）共用：running/generating/pending 工具从未完成
+ * （iteration_history 不含），不折则从渲染消失。
+ * 标 error 折进 lastIter 迭代：已有该迭代 → 合并 tools；无 → 追加新迭代
+ * （appendContent/appendReasoning 写入新迭代 —— v55 渲染 hasIterations 时不渲染
+ * 顶层 content，流式文本必须存在于迭代内；text_final 传 ('','')，finalText
+ * 覆盖逻辑统一处理 content）。 */
+function foldInFlightToIterations(
+  activeTools: readonly WebToolProgress[],
+  streamingTools: readonly WebToolProgress[],
+  iterations: readonly WebIteration[],
+  lastIter: IterNum,
+  appendContent: string,
+  appendReasoning: string,
+): readonly WebIteration[] {
+  const inFlight = [...activeTools, ...streamingTools].filter((t) =>
+    t.status === 'running' || t.status === 'generating' || t.status === 'pending')
+  if (inFlight.length === 0) return iterations
+  const errTools = inFlight.map((t) => ({ ...t, status: 'error' as const }))
+  const arr = [...iterations]
+  const idx = arr.findIndex((it) => it.iteration === lastIter)
+  if (idx >= 0) {
+    arr[idx] = {
+      ...arr[idx],
+      tools: [...arr[idx].tools, ...errTools],
+      toolCount: (arr[idx].toolCount ?? 0) + errTools.length,
+    }
+  } else {
+    arr.push({ iteration: lastIter, content: appendContent, reasoning: appendReasoning, tools: errTools, toolCount: errTools.length })
+  }
+  return arr
+}
+
+// ─── foldPhase：live 数据 → committed/frozen（turn_started 收尸） ──
+
+/**
+ * history_replaced step1 的 union 合并：状态机 committed/frozen-with-output ×
+ * incoming（DB）committed/frozen-with-output。迭代 append-only union（incoming
+ * 同号权威覆盖 —— DB 是持久化权威），content 非空优先（状态机 SSE text 是权威
+ * finalizer；DB 空 content 是 tool_summary 中间行）。user 嫁接（保留已有，补
+ * DB 的 dbID 行）。进此函数的两侧都必有输出（空壳已在 step1 前分流），构造
+ * committed 是渲染等价的安全形态。
+ */
+function mergeTurnData(cur: Turn, h: Turn): Turn {
+  const curIts = cur.phase.kind === 'committed' ? cur.phase.payload.iterations : cur.phase.data.iterations
+  const incIts = h.phase.kind === 'committed' ? h.phase.payload.iterations : h.phase.data.iterations
+  const curContent = cur.phase.kind === 'committed' ? cur.phase.payload.content : cur.phase.data.content
+  const incContent = h.phase.kind === 'committed' ? h.phase.payload.content : h.phase.data.content
+  // turn 内压缩点（迭代之间内联渲染）：DB 侧是持久化权威，本地 live→committed 的 turn
+  // 没有它 ⇒ **必须吸收**，否则「压缩点到达」被并合吞掉、内联分隔永不出现（压缩触发的
+  // reload 正是这条路径：本地 committed（无 compactions）× incoming committed（有））。
+  // 内容相同则复用当前引用 —— 否则每帧 history_replaced 都会因新数组引用而重建整个 Turn，
+  // 击穿 derive/MessageBody 的行 memo（幂等重放必须零重建）。
+  const curComps = cur.phase.kind === 'committed' ? cur.phase.payload.compactions : undefined
+  const incComps = h.phase.kind === 'committed' ? h.phase.payload.compactions : undefined
+  let compactions = curComps
+  if (incComps && incComps.length > 0 && !sameCompactions(incComps, curComps)) {
+    compactions = incComps
+  }
+  const iterations = reuseIfSame(mergeIterations(curIts, incIts), curIts)
+  const content = curContent !== '' ? curContent : incContent
+  // 区域窗口声明（live 闭环）：union 后本地窗口 ⊇ 服务端 reload 窗口（本地加载过的
+  // 段让 regionsBefore 已被段响应更新得更小）⇒ 取 **min** 反映真实剩余；单侧有值取
+  // 该侧（undefined 不压过数字）。frozen-with-output 定格的 data.regionsBefore 同源。
+  const curRb = cur.phase.kind === 'committed' ? cur.phase.payload.regionsBefore : cur.phase.data.regionsBefore
+  const incRb = h.phase.kind === 'committed' ? h.phase.payload.regionsBefore : h.phase.data.regionsBefore
+  const regionsBefore = curRb !== undefined && incRb !== undefined ? Math.min(curRb, incRb) : curRb ?? incRb
+  // 幂等重放（每帧 history_replaced）：committed 侧逐项未变 ⇒ 复用原对象。
+  // （frozen→committed 是真实相变，不走此短路。）
+  if (
+    cur.phase.kind === 'committed' &&
+    iterations === curIts &&
+    content === curContent &&
+    compactions === curComps &&
+    (cur.user !== null || h.user === null) &&
+    (cur.requestID !== null || h.requestID === null)
+  ) {
+    return cur
+  }
+  const text = nonEmptyStr(content)
+  const its = nonEmptyArr(iterations)
+  const phase: Turn['phase'] =
+    text !== null
+      ? { kind: 'committed', payload: commitViaText(text, iterations as WebIteration[], compactions, regionsBefore) }
+      : its !== null
+        ? { kind: 'committed', payload: commitViaFold(its, content, 0, compactions, regionsBefore) }
+        : { kind: 'frozen', data: cur.phase.kind === 'frozen' ? cur.phase.data : h.phase.kind === 'frozen' ? h.phase.data : { ...EMPTY_LIVE } }
+  return { id: h.id, user: cur.user ?? h.user, phase, requestID: cur.requestID ?? h.requestID }
+}
+
+/** 压缩点内容相等（幂等重放用 —— 直接引用比较会把每帧的新数组误判为「真实变化」）。 */
+function sameCompactions(a?: readonly WebCompaction[], b?: readonly WebCompaction[]): boolean {
+  if (a === b) return true
+  const A = a ?? []
+  const B = b ?? []
+  if (A.length !== B.length) return false
+  for (let i = 0; i < A.length; i++) {
+    if (A[i].afterIteration !== B[i].afterIteration || A[i].content !== B[i].content) return false
+  }
+  return true
+}
+
+function foldPhase(data: LiveSnapshot): Turn['phase'] {
+  // F2（Loop2）：in-flight 工具折叠 —— 与 text_final 同语义
+  // （foldInFlightToIterations 共用）。收尸时 text 可能永不到达（用户发新
+  // 消息触发 turn_started 收尸旧 turn），正在执行的工具（activeTools/
+  // streamingTools，从未完成，不在 iteration_history）若不折进 committed 的
+  // 迭代就从渲染消失。追加新迭代时 content/reasoning 写进迭代（v55 渲染
+  // hasIterations 时不渲染顶层 content —— 流式文本必须存在于迭代内）。
+  const iterations = foldInFlightToIterations(data.activeTools, data.streamingTools, data.iterations, data.iter, data.content, data.reasoning)
+  const its = nonEmptyArr(iterations)
+  if (its !== null) return { kind: 'committed', payload: commitViaFold(its, data.content, 0, undefined, data.regionsBefore) }
+  const text = nonEmptyStr(data.content)
+  if (text !== null) return { kind: 'committed', payload: commitViaText(text, [], undefined, data.regionsBefore) }
+  // 无任何产出：frozen 定格（derive 跳过空 assistant 行；user 行保留）。
+  return { kind: 'frozen', data }
+}
+
+export { initialChatState }
