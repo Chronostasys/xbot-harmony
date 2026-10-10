@@ -1818,6 +1818,7 @@ class Index extends ViewPU {
     private rowDs: ChatRowDataSource;
     // ── 生命周期 ──────────────────────────────────────────────────────────────
     aboutToAppear(): void {
+        console.log('[xbot-preview-probe] aboutToAppear');
         this.bootstrap();
     }
     aboutToDisappear(): void {
@@ -1827,6 +1828,7 @@ class Index extends ViewPU {
         }
     }
     private async bootstrap(): Promise<void> {
+        console.log('[xbot-preview-probe] bootstrap START');
         // 兜底：即使本地存储不可用，也必须能进登录页（否则永远停在 Loading，无从排查）
         let saved: AppConfig = new AppConfig();
         try {
@@ -3108,7 +3110,7 @@ class Index extends ViewPU {
     initialRender() {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Stack.create();
-            Stack.debugLine("entry/src/main/ets/pages/Index.ets(1729:5)", "entry");
+            Stack.debugLine("entry/src/main/ets/pages/Index.ets(1731:5)", "entry");
             Stack.width('100%');
             Stack.height('100%');
             Stack.padding({ top: this.safeTop, bottom: this.safeBottom });
@@ -3132,7 +3134,7 @@ class Index extends ViewPU {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         // ArkWeb 承载完整 web UI（设置里可切换；右下角按钮一键切回原生）
                         Stack.create();
-                        Stack.debugLine("entry/src/main/ets/pages/Index.ets(1736:9)", "entry");
+                        Stack.debugLine("entry/src/main/ets/pages/Index.ets(1738:9)", "entry");
                         // ArkWeb 承载完整 web UI（设置里可切换；右下角按钮一键切回原生）
                         Stack.width('100%');
                         // ArkWeb 承载完整 web UI（设置里可切换；右下角按钮一键切回原生）
@@ -3144,7 +3146,7 @@ class Index extends ViewPU {
                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                             if (isInitialRender) {
                                 let componentCall = new WebSurface(this, { url: this.webUiUrl, theme: this.themeName, chrome: false, onClose: () => {
-                                    } }, undefined, elmtId, () => { }, { page: "entry/src/main/ets/pages/Index.ets", line: 1737, col: 11 });
+                                    } }, undefined, elmtId, () => { }, { page: "entry/src/main/ets/pages/Index.ets", line: 1739, col: 11 });
                                 ViewPU.create(componentCall);
                                 let paramsLambda = () => {
                                     return {
@@ -3166,7 +3168,7 @@ class Index extends ViewPU {
                     }
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create('切回原生');
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(1739:11)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(1741:11)", "entry");
                         Text.fontSize(11);
                         Text.fontColor(this.pal().textSecondary);
                         Text.padding({ left: 10, right: 10, top: 5, bottom: 5 });
@@ -3316,13 +3318,13 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Column.create();
-                        Column.debugLine("entry/src/main/ets/pages/Index.ets(1789:9)", "entry");
+                        Column.debugLine("entry/src/main/ets/pages/Index.ets(1791:9)", "entry");
                         Column.width('100%');
                         Column.height('100%');
                     }, Column);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Blank.create();
-                        Blank.debugLine("entry/src/main/ets/pages/Index.ets(1790:11)", "entry");
+                        Blank.debugLine("entry/src/main/ets/pages/Index.ets(1792:11)", "entry");
                         Blank.layoutWeight(1);
                         Blank.width('100%');
                         Blank.onClick(() => {
@@ -3348,13 +3350,13 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Column.create();
-                        Column.debugLine("entry/src/main/ets/pages/Index.ets(1798:9)", "entry");
+                        Column.debugLine("entry/src/main/ets/pages/Index.ets(1800:9)", "entry");
                         Column.width('100%');
                         Column.height('100%');
                     }, Column);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Blank.create();
-                        Blank.debugLine("entry/src/main/ets/pages/Index.ets(1799:11)", "entry");
+                        Blank.debugLine("entry/src/main/ets/pages/Index.ets(1801:11)", "entry");
                         Blank.layoutWeight(1);
                         Blank.width('100%');
                         Blank.onClick(() => {
@@ -3380,13 +3382,13 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Column.create();
-                        Column.debugLine("entry/src/main/ets/pages/Index.ets(1807:9)", "entry");
+                        Column.debugLine("entry/src/main/ets/pages/Index.ets(1809:9)", "entry");
                         Column.width('100%');
                         Column.height('100%');
                     }, Column);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Blank.create();
-                        Blank.debugLine("entry/src/main/ets/pages/Index.ets(1808:11)", "entry");
+                        Blank.debugLine("entry/src/main/ets/pages/Index.ets(1810:11)", "entry");
                         Blank.layoutWeight(1);
                         Blank.width('100%');
                         Blank.onClick(() => {
@@ -3413,13 +3415,13 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Column.create();
-                        Column.debugLine("entry/src/main/ets/pages/Index.ets(1817:9)", "entry");
+                        Column.debugLine("entry/src/main/ets/pages/Index.ets(1819:9)", "entry");
                         Column.width('100%');
                         Column.height('100%');
                     }, Column);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Blank.create();
-                        Blank.debugLine("entry/src/main/ets/pages/Index.ets(1818:11)", "entry");
+                        Blank.debugLine("entry/src/main/ets/pages/Index.ets(1820:11)", "entry");
                         Blank.layoutWeight(1);
                         Blank.width('100%');
                         Blank.onClick(() => {
@@ -3445,13 +3447,13 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Column.create();
-                        Column.debugLine("entry/src/main/ets/pages/Index.ets(1826:9)", "entry");
+                        Column.debugLine("entry/src/main/ets/pages/Index.ets(1828:9)", "entry");
                         Column.width('100%');
                         Column.height('100%');
                     }, Column);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Blank.create();
-                        Blank.debugLine("entry/src/main/ets/pages/Index.ets(1827:11)", "entry");
+                        Blank.debugLine("entry/src/main/ets/pages/Index.ets(1829:11)", "entry");
                         Blank.layoutWeight(1);
                         Blank.width('100%');
                         Blank.onClick(() => {
@@ -3495,7 +3497,7 @@ class Index extends ViewPU {
                             if (isInitialRender) {
                                 let componentCall = new WebSurface(this, { url: this.panelUrl, theme: this.themeName, onClose: () => {
                                         this.panelUrl = '';
-                                    } }, undefined, elmtId, () => { }, { page: "entry/src/main/ets/pages/Index.ets", line: 1839, col: 9 });
+                                    } }, undefined, elmtId, () => { }, { page: "entry/src/main/ets/pages/Index.ets", line: 1841, col: 9 });
                                 ViewPU.create(componentCall);
                                 let paramsLambda = () => {
                                     return {
@@ -3528,21 +3530,21 @@ class Index extends ViewPU {
     LoadingView(parent = null) {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create();
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(1853:5)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(1855:5)", "entry");
             Column.width('100%');
             Column.height('100%');
             Column.justifyContent(FlexAlign.Center);
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             LoadingProgress.create();
-            LoadingProgress.debugLine("entry/src/main/ets/pages/Index.ets(1854:7)", "entry");
+            LoadingProgress.debugLine("entry/src/main/ets/pages/Index.ets(1856:7)", "entry");
             LoadingProgress.width(48);
             LoadingProgress.height(48);
             LoadingProgress.color(this.pal().accent);
         }, LoadingProgress);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('xbot');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(1855:7)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(1857:7)", "entry");
             Text.fontSize(18);
             Text.fontColor(this.pal().textPrimary);
             Text.margin({ top: 12 });
@@ -3553,7 +3555,7 @@ class Index extends ViewPU {
     LoginView(parent = null) {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 12 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(1861:5)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(1863:5)", "entry");
             Column.padding(24);
             Column.width('100%');
             Column.height('100%');
@@ -3562,7 +3564,7 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('xbot');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(1862:7)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(1864:7)", "entry");
             Text.fontSize(34);
             Text.fontWeight(FontWeight.Bold);
             Text.linearGradient({ angle: 135, colors: [[this.pal().accent, 0.0], [this.pal().accentSoft, 1.0]] });
@@ -3570,7 +3572,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('连接你的 xbot 服务端（原生鸿蒙客户端）');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(1864:7)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(1866:7)", "entry");
             Text.fontSize(13);
             Text.fontColor(this.pal().textSecondary);
             Text.margin({ bottom: 8 });
@@ -3578,7 +3580,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             TextInput.create({ placeholder: '服务端地址，如 192.168.1.10:16000', text: this.serverUrl });
-            TextInput.debugLine("entry/src/main/ets/pages/Index.ets(1866:7)", "entry");
+            TextInput.debugLine("entry/src/main/ets/pages/Index.ets(1868:7)", "entry");
             TextInput.onChange((v: string) => {
                 this.serverUrl = v;
                 this.testMsg = '';
@@ -3596,7 +3598,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Flex.create({ wrap: FlexWrap.Wrap });
-                        Flex.debugLine("entry/src/main/ets/pages/Index.ets(1876:9)", "entry");
+                        Flex.debugLine("entry/src/main/ets/pages/Index.ets(1878:9)", "entry");
                         Flex.width('100%');
                     }, Flex);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
@@ -3605,7 +3607,7 @@ class Index extends ViewPU {
                             const u = _item;
                             this.observeComponentCreation2((elmtId, isInitialRender) => {
                                 Text.create(u);
-                                Text.debugLine("entry/src/main/ets/pages/Index.ets(1878:13)", "entry");
+                                Text.debugLine("entry/src/main/ets/pages/Index.ets(1880:13)", "entry");
                                 Text.fontSize(11);
                                 Text.fontColor(this.pal().accentSoft);
                                 Text.padding({ left: 8, right: 8, top: 4, bottom: 4 });
@@ -3633,12 +3635,12 @@ class Index extends ViewPU {
         If.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Row.create({ space: 8 });
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(1892:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(1894:7)", "entry");
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Button.createWithLabel(this.testing ? '测试中…' : '测试连接');
-            Button.debugLine("entry/src/main/ets/pages/Index.ets(1893:9)", "entry");
+            Button.debugLine("entry/src/main/ets/pages/Index.ets(1895:9)", "entry");
             Button.layoutWeight(1);
             Button.constraintSize({ minHeight: 38 });
             Button.backgroundColor(this.pal().surfaceHi);
@@ -3654,7 +3656,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create(this.testMsg);
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(1903:9)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(1905:9)", "entry");
                         Text.fontSize(12);
                         Text.wordBreak(WordBreak.BREAK_ALL);
                         Text.fontColor(this.testMsg.startsWith('✅') ? this.pal().successText : this.pal().warn);
@@ -3671,7 +3673,7 @@ class Index extends ViewPU {
         If.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             TextInput.create({ placeholder: '用户名', text: this.username });
-            TextInput.debugLine("entry/src/main/ets/pages/Index.ets(1908:7)", "entry");
+            TextInput.debugLine("entry/src/main/ets/pages/Index.ets(1910:7)", "entry");
             TextInput.onChange((v: string) => {
                 this.username = v;
             });
@@ -3683,7 +3685,7 @@ class Index extends ViewPU {
         }, TextInput);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             TextInput.create({ placeholder: '密码' });
-            TextInput.debugLine("entry/src/main/ets/pages/Index.ets(1914:7)", "entry");
+            TextInput.debugLine("entry/src/main/ets/pages/Index.ets(1916:7)", "entry");
             TextInput.type(InputType.Password);
             TextInput.onChange((v: string) => {
                 this.password = v;
@@ -3700,7 +3702,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create(this.errMsg);
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(1923:9)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(1925:9)", "entry");
                         Text.fontSize(12);
                         Text.fontColor(this.pal().dangerText);
                         Text.width('100%');
@@ -3717,7 +3719,7 @@ class Index extends ViewPU {
         If.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Button.createWithLabel('登录');
-            Button.debugLine("entry/src/main/ets/pages/Index.ets(1927:7)", "entry");
+            Button.debugLine("entry/src/main/ets/pages/Index.ets(1929:7)", "entry");
             Button.width('100%');
             Button.constraintSize({ minHeight: 44 });
             Button.backgroundColor(this.pal().accent);
@@ -3729,7 +3731,7 @@ class Index extends ViewPU {
         Button.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Button.createWithLabel('注册（仅服务端允许时）');
-            Button.debugLine("entry/src/main/ets/pages/Index.ets(1932:7)", "entry");
+            Button.debugLine("entry/src/main/ets/pages/Index.ets(1934:7)", "entry");
             Button.width('100%');
             Button.constraintSize({ minHeight: 40 });
             Button.backgroundColor(this.pal().surfaceHi);
@@ -3741,7 +3743,7 @@ class Index extends ViewPU {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             // 无需登录/无需网络：直接打开渲染自检页（截图发我即可定位构件级问题）
             Text.create('渲染自检（排查渲染问题用）');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(1938:7)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(1940:7)", "entry");
             // 无需登录/无需网络：直接打开渲染自检页（截图发我即可定位构件级问题）
             Text.fontSize(12);
             // 无需登录/无需网络：直接打开渲染自检页（截图发我即可定位构件级问题）
@@ -3760,14 +3762,14 @@ class Index extends ViewPU {
     ChatView(parent = null) {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create();
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(1950:5)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(1952:5)", "entry");
             Column.width('100%');
             Column.height('100%');
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             // 顶栏
             Row.create();
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(1952:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(1954:7)", "entry");
             // 顶栏
             Row.width('100%');
             // 顶栏
@@ -3781,7 +3783,7 @@ class Index extends ViewPU {
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('☰');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(1953:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(1955:9)", "entry");
             Text.fontSize(20);
             Text.fontColor(this.pal().textPrimary);
             Text.padding(10);
@@ -3792,13 +3794,13 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create();
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(1956:9)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(1958:9)", "entry");
             Column.layoutWeight(1);
             Column.alignItems(HorizontalAlign.Start);
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(this.currentChat.length > 0 ? this.labelOf(this.currentChat) : 'xbot');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(1957:11)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(1959:11)", "entry");
             Text.fontSize(15);
             Text.fontColor(this.pal().textPrimary);
             Text.maxLines(1);
@@ -3807,7 +3809,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(this.busy ? '运行中…' : '空闲');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(1959:11)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(1961:11)", "entry");
             Text.fontSize(11);
             Text.fontColor(this.busy ? this.pal().warn : this.pal().textMuted);
         }, Text);
@@ -3819,7 +3821,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create(`队列 ${this.queue.length}`);
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(1966:11)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(1968:11)", "entry");
                         Text.fontSize(12);
                         Text.fontColor(this.pal().warn);
                         Text.padding(8);
@@ -3838,7 +3840,7 @@ class Index extends ViewPU {
         If.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('⊞');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(1972:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(1974:9)", "entry");
             Text.fontSize(20);
             Text.fontColor(this.pal().textPrimary);
             Text.padding(10);
@@ -3849,7 +3851,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('⚙');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(1975:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(1977:9)", "entry");
             Text.fontSize(20);
             Text.fontColor(this.pal().textPrimary);
             Text.padding(10);
@@ -3869,7 +3871,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Column.create({ space: 8 });
-                        Column.debugLine("entry/src/main/ets/pages/Index.ets(1986:9)", "entry");
+                        Column.debugLine("entry/src/main/ets/pages/Index.ets(1988:9)", "entry");
                         Column.width('100%');
                         Column.padding(16);
                         Column.alignItems(HorizontalAlign.Start);
@@ -3879,14 +3881,14 @@ class Index extends ViewPU {
                     }, Column);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create(loadErrTitle(this.loadErr));
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(1987:11)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(1989:11)", "entry");
                         Text.fontSize(14);
                         Text.fontColor(this.pal().dangerText);
                     }, Text);
                     Text.pop();
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create(this.loadErr);
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(1988:11)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(1990:11)", "entry");
                         Text.fontSize(12);
                         Text.fontColor(this.pal().textSecondary);
                         Text.maxLines(4);
@@ -3895,7 +3897,7 @@ class Index extends ViewPU {
                     Text.pop();
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create(loadErrHint(this.loadErr));
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(1990:11)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(1992:11)", "entry");
                         Text.fontSize(11);
                         Text.fontColor(this.pal().textMuted);
                         Text.maxLines(3);
@@ -3904,7 +3906,7 @@ class Index extends ViewPU {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         // 判据与标题同一处：401 给「重新登录」，其余给「重试」
                         Button.createWithLabel(needsRelogin(this.loadErr) ? '重新登录' : (needsSessionRefresh(this.loadErr) ? '刷新会话列表' : '重试'));
-                        Button.debugLine("entry/src/main/ets/pages/Index.ets(1993:11)", "entry");
+                        Button.debugLine("entry/src/main/ets/pages/Index.ets(1995:11)", "entry");
                         // 判据与标题同一处：401 给「重新登录」，其余给「重试」
                         Button.constraintSize({ minHeight: 38 });
                         // 判据与标题同一处：401 给「重新登录」，其余给「重试」
@@ -3943,7 +3945,7 @@ class Index extends ViewPU {
                     if (!If.canRetake('xbot-empty-state')) {
                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                             Column.create({ space: 10 });
-                            Column.debugLine("entry/src/main/ets/pages/Index.ets(2011:9)", "entry");
+                            Column.debugLine("entry/src/main/ets/pages/Index.ets(2013:9)", "entry");
                             Column.width('100%');
                             Column.layoutWeight(1);
                             Column.justifyContent(FlexAlign.Center);
@@ -3951,7 +3953,7 @@ class Index extends ViewPU {
                         }, Column);
                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                             Text.create('✦');
-                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2012:11)", "entry");
+                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2014:11)", "entry");
                             Context.animation({ duration: 1400, curve: Curve.EaseInOut });
                             Text.fontSize(44);
                             Text.fontColor(this.pal().accent);
@@ -3961,7 +3963,7 @@ class Index extends ViewPU {
                         Text.pop();
                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                             Text.create('开始对话');
-                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2015:11)", "entry");
+                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2017:11)", "entry");
                             Text.fontSize(18);
                             Text.fontColor(this.pal().textPrimary);
                             Text.fontWeight(FontWeight.Medium);
@@ -3969,7 +3971,7 @@ class Index extends ViewPU {
                         Text.pop();
                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                             Text.create('直接说需求；也可以用 / 选命令、@ 提文件、📎 加附件');
-                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2016:11)", "entry");
+                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2018:11)", "entry");
                             Text.fontSize(12);
                             Text.fontColor(this.pal().textMuted);
                             Text.textAlign(TextAlign.Center);
@@ -3995,7 +3997,7 @@ class Index extends ViewPU {
                     if (!If.canRetake('xbot-skeleton')) {
                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                             Column.create({ space: 10 });
-                            Column.debugLine("entry/src/main/ets/pages/Index.ets(2026:9)", "entry");
+                            Column.debugLine("entry/src/main/ets/pages/Index.ets(2028:9)", "entry");
                             Column.width('100%');
                             Column.layoutWeight(1);
                             Column.padding({ left: 4, right: 4, top: 12 });
@@ -4007,23 +4009,23 @@ class Index extends ViewPU {
                                 const i = _item;
                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                     Row.create({ space: 8 });
-                                    Row.debugLine("entry/src/main/ets/pages/Index.ets(2028:13)", "entry");
+                                    Row.debugLine("entry/src/main/ets/pages/Index.ets(2030:13)", "entry");
                                     Row.width('100%');
                                 }, Row);
                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                     Circle.create({ width: 26, height: 26 });
-                                    Circle.debugLine("entry/src/main/ets/pages/Index.ets(2029:15)", "entry");
+                                    Circle.debugLine("entry/src/main/ets/pages/Index.ets(2031:15)", "entry");
                                     Circle.fill(this.pal().surfaceHi);
                                 }, Circle);
                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                     Column.create({ space: 6 });
-                                    Column.debugLine("entry/src/main/ets/pages/Index.ets(2030:15)", "entry");
+                                    Column.debugLine("entry/src/main/ets/pages/Index.ets(2032:15)", "entry");
                                     Column.layoutWeight(1);
                                     Column.alignItems(HorizontalAlign.Start);
                                 }, Column);
                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                     Row.create();
-                                    Row.debugLine("entry/src/main/ets/pages/Index.ets(2031:17)", "entry");
+                                    Row.debugLine("entry/src/main/ets/pages/Index.ets(2033:17)", "entry");
                                     Row.width(i % 2 === 0 ? '72%' : '54%');
                                     Row.height(10);
                                     Row.backgroundColor(this.pal().surfaceHi);
@@ -4032,7 +4034,7 @@ class Index extends ViewPU {
                                 Row.pop();
                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                     Row.create();
-                                    Row.debugLine("entry/src/main/ets/pages/Index.ets(2033:17)", "entry");
+                                    Row.debugLine("entry/src/main/ets/pages/Index.ets(2035:17)", "entry");
                                     Context.animation({ duration: 900, curve: Curve.EaseInOut });
                                     Row.width(i % 2 === 0 ? '46%' : '64%');
                                     Row.height(10);
@@ -4062,7 +4064,7 @@ class Index extends ViewPU {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             // 消息列表
             List.create({ scroller: this.listScroller });
-            List.debugLine("entry/src/main/ets/pages/Index.ets(2046:7)", "entry");
+            List.debugLine("entry/src/main/ets/pages/Index.ets(2048:7)", "entry");
             // 消息列表
             List.layoutWeight(1);
             // 消息列表
@@ -4097,13 +4099,13 @@ class Index extends ViewPU {
                         };
                         const itemCreation2 = (elmtId, isInitialRender) => {
                             ListItem.create(deepRenderFunction, true);
-                            ListItem.debugLine("entry/src/main/ets/pages/Index.ets(2048:11)", "entry");
+                            ListItem.debugLine("entry/src/main/ets/pages/Index.ets(2050:11)", "entry");
                         };
                         const deepRenderFunction = (elmtId, isInitialRender) => {
                             itemCreation(elmtId, isInitialRender);
                             this.observeComponentCreation2((elmtId, isInitialRender) => {
                                 Row.create();
-                                Row.debugLine("entry/src/main/ets/pages/Index.ets(2049:13)", "entry");
+                                Row.debugLine("entry/src/main/ets/pages/Index.ets(2051:13)", "entry");
                                 Row.width('100%');
                                 Row.justifyContent(FlexAlign.Center);
                                 Row.padding(10);
@@ -4114,14 +4116,14 @@ class Index extends ViewPU {
                                     this.ifElseBranchUpdateFunction(0, () => {
                                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                                             LoadingProgress.create();
-                                            LoadingProgress.debugLine("entry/src/main/ets/pages/Index.ets(2051:17)", "entry");
+                                            LoadingProgress.debugLine("entry/src/main/ets/pages/Index.ets(2053:17)", "entry");
                                             LoadingProgress.width(16);
                                             LoadingProgress.height(16);
                                             LoadingProgress.color(this.pal().accent);
                                         }, LoadingProgress);
                                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                                             Text.create('加载更早消息…');
-                                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2052:17)", "entry");
+                                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2054:17)", "entry");
                                             Text.fontSize(12);
                                             Text.fontColor(this.pal().textSecondary);
                                             Text.margin({ left: 6 });
@@ -4133,7 +4135,7 @@ class Index extends ViewPU {
                                     this.ifElseBranchUpdateFunction(1, () => {
                                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                                             Text.create('↑ 加载更早消息');
-                                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2054:17)", "entry");
+                                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2056:17)", "entry");
                                             Text.fontSize(12);
                                             Text.fontColor(this.pal().accentSoft);
                                             Text.onClick(() => {
@@ -4180,13 +4182,13 @@ class Index extends ViewPU {
                         };
                         const itemCreation2 = (elmtId, isInitialRender) => {
                             ListItem.create(deepRenderFunction, true);
-                            ListItem.debugLine("entry/src/main/ets/pages/Index.ets(2067:11)", "entry");
+                            ListItem.debugLine("entry/src/main/ets/pages/Index.ets(2069:11)", "entry");
                         };
                         const deepRenderFunction = (elmtId, isInitialRender) => {
                             itemCreation(elmtId, isInitialRender);
                             this.observeComponentCreation2((elmtId, isInitialRender) => {
                                 Row.create();
-                                Row.debugLine("entry/src/main/ets/pages/Index.ets(2068:13)", "entry");
+                                Row.debugLine("entry/src/main/ets/pages/Index.ets(2070:13)", "entry");
                                 Row.width('100%');
                                 Row.justifyContent(FlexAlign.Center);
                                 Row.padding(10);
@@ -4197,7 +4199,7 @@ class Index extends ViewPU {
                             }, Row);
                             this.observeComponentCreation2((elmtId, isInitialRender) => {
                                 Text.create(`↑ 显示更早的 ${hiddenRowCount(this.rows.length, this.rowLimit)} 条`);
-                                Text.debugLine("entry/src/main/ets/pages/Index.ets(2069:15)", "entry");
+                                Text.debugLine("entry/src/main/ets/pages/Index.ets(2071:15)", "entry");
                                 Text.fontSize(12);
                                 Text.fontColor(this.pal().accentSoft);
                             }, Text);
@@ -4222,7 +4224,7 @@ class Index extends ViewPU {
                 {
                     const itemCreation2 = (elmtId, isInitialRender) => {
                         ListItem.create(() => { }, false);
-                        ListItem.debugLine("entry/src/main/ets/pages/Index.ets(2080:11)", "entry");
+                        ListItem.debugLine("entry/src/main/ets/pages/Index.ets(2082:11)", "entry");
                     };
                     const observedDeepRender = () => {
                         this.observeComponentCreation2(itemCreation2, ListItem);
@@ -4252,7 +4254,7 @@ class Index extends ViewPU {
                         };
                         const itemCreation2 = (elmtId, isInitialRender) => {
                             ListItem.create(deepRenderFunction, true);
-                            ListItem.debugLine("entry/src/main/ets/pages/Index.ets(2087:11)", "entry");
+                            ListItem.debugLine("entry/src/main/ets/pages/Index.ets(2089:11)", "entry");
                         };
                         const deepRenderFunction = (elmtId, isInitialRender) => {
                             itemCreation(elmtId, isInitialRender);
@@ -4279,7 +4281,7 @@ class Index extends ViewPU {
                                             onToolLongPress: (name: string) => {
                                                 this.openCtx('tool', this.liveRowIdOf(), this.liveIterNo, name);
                                             },
-                                        }, undefined, elmtId, () => { }, { page: "entry/src/main/ets/pages/Index.ets", line: 2090, col: 13 });
+                                        }, undefined, elmtId, () => { }, { page: "entry/src/main/ets/pages/Index.ets", line: 2092, col: 13 });
                                         ViewPU.create(componentCall);
                                         let paramsLambda = () => {
                                             return {
@@ -4344,25 +4346,25 @@ class Index extends ViewPU {
                         };
                         const itemCreation2 = (elmtId, isInitialRender) => {
                             ListItem.create(deepRenderFunction, true);
-                            ListItem.debugLine("entry/src/main/ets/pages/Index.ets(2112:11)", "entry");
+                            ListItem.debugLine("entry/src/main/ets/pages/Index.ets(2114:11)", "entry");
                         };
                         const deepRenderFunction = (elmtId, isInitialRender) => {
                             itemCreation(elmtId, isInitialRender);
                             this.observeComponentCreation2((elmtId, isInitialRender) => {
                                 Row.create({ space: 8 });
-                                Row.debugLine("entry/src/main/ets/pages/Index.ets(2113:13)", "entry");
+                                Row.debugLine("entry/src/main/ets/pages/Index.ets(2115:13)", "entry");
                                 Row.padding({ left: 14, top: 8, bottom: 8 });
                             }, Row);
                             this.observeComponentCreation2((elmtId, isInitialRender) => {
                                 LoadingProgress.create();
-                                LoadingProgress.debugLine("entry/src/main/ets/pages/Index.ets(2114:15)", "entry");
+                                LoadingProgress.debugLine("entry/src/main/ets/pages/Index.ets(2116:15)", "entry");
                                 LoadingProgress.width(16);
                                 LoadingProgress.height(16);
                                 LoadingProgress.color(this.pal().accent);
                             }, LoadingProgress);
                             this.observeComponentCreation2((elmtId, isInitialRender) => {
                                 Text.create('思考中…');
-                                Text.debugLine("entry/src/main/ets/pages/Index.ets(2115:15)", "entry");
+                                Text.debugLine("entry/src/main/ets/pages/Index.ets(2117:15)", "entry");
                                 Context.animation({ duration: 600, curve: Curve.EaseInOut });
                                 Text.fontSize(13);
                                 Text.fontColor(this.pal().textSecondary);
@@ -4393,14 +4395,14 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Row.create();
-                        Row.debugLine("entry/src/main/ets/pages/Index.ets(2136:9)", "entry");
+                        Row.debugLine("entry/src/main/ets/pages/Index.ets(2138:9)", "entry");
                         Row.width('100%');
                         Row.justifyContent(FlexAlign.Center);
                         Row.padding({ top: 2, bottom: 2 });
                     }, Row);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create('↓ 回到最新');
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(2137:11)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(2139:11)", "entry");
                         Text.fontSize(12);
                         Text.fontColor(this.pal().textPrimary);
                         Text.padding({ left: 12, right: 12, top: 7, bottom: 7 });
@@ -4434,7 +4436,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Row.create({ space: 10 });
-                        Row.debugLine("entry/src/main/ets/pages/Index.ets(2153:9)", "entry");
+                        Row.debugLine("entry/src/main/ets/pages/Index.ets(2155:9)", "entry");
                         Row.width('100%');
                         Row.padding({ left: 10, right: 10, top: 4, bottom: 2 });
                         Row.onClick(() => {
@@ -4445,7 +4447,7 @@ class Index extends ViewPU {
                     }, Row);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create(this.statusBarText());
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(2154:11)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(2156:11)", "entry");
                         Text.fontSize(11);
                         Text.fontColor(this.pal().textSecondary);
                         Text.layoutWeight(1);
@@ -4459,7 +4461,7 @@ class Index extends ViewPU {
                             this.ifElseBranchUpdateFunction(0, () => {
                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                     Text.create('详情');
-                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(2158:13)", "entry");
+                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(2160:13)", "entry");
                                     Text.fontSize(11);
                                     Text.fontColor(this.pal().accentSoft);
                                     Text.padding({ left: 6, right: 6 });
@@ -4490,21 +4492,21 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Row.create({ space: 6 });
-                        Row.debugLine("entry/src/main/ets/pages/Index.ets(2171:9)", "entry");
+                        Row.debugLine("entry/src/main/ets/pages/Index.ets(2173:9)", "entry");
                         Row.width('100%');
                         Row.padding({ left: 12, right: 12, top: 6, bottom: 6 });
                         Row.backgroundColor(this.pal().warnBg);
                     }, Row);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         LoadingProgress.create();
-                        LoadingProgress.debugLine("entry/src/main/ets/pages/Index.ets(2172:11)", "entry");
+                        LoadingProgress.debugLine("entry/src/main/ets/pages/Index.ets(2174:11)", "entry");
                         LoadingProgress.width(14);
                         LoadingProgress.height(14);
                         LoadingProgress.color(this.pal().warn);
                     }, LoadingProgress);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create('连接断开，正在重连…（恢复后自动补齐消息）');
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(2173:11)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(2175:11)", "entry");
                         Text.fontSize(11);
                         Text.fontColor(this.pal().warn);
                         Text.layoutWeight(1);
@@ -4529,13 +4531,13 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Row.create({ space: 8 });
-                        Row.debugLine("entry/src/main/ets/pages/Index.ets(2183:9)", "entry");
+                        Row.debugLine("entry/src/main/ets/pages/Index.ets(2185:9)", "entry");
                         Row.width('100%');
                         Row.padding({ left: 10, right: 6, top: 6, bottom: 2 });
                     }, Row);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create('上次发送失败');
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(2184:11)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(2186:11)", "entry");
                         Text.fontSize(12);
                         Text.fontColor(this.pal().dangerText);
                         Text.layoutWeight(1);
@@ -4543,7 +4545,7 @@ class Index extends ViewPU {
                     Text.pop();
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create('重试');
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(2185:11)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(2187:11)", "entry");
                         Text.fontSize(12);
                         Text.fontColor(this.pal().warn);
                         Text.padding(6);
@@ -4562,7 +4564,7 @@ class Index extends ViewPU {
                     Text.pop();
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create('丢弃');
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(2193:11)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(2195:11)", "entry");
                         Text.fontSize(12);
                         Text.fontColor(this.pal().textSecondary);
                         Text.padding(6);
@@ -4588,7 +4590,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Column.create({ space: 2 });
-                        Column.debugLine("entry/src/main/ets/pages/Index.ets(2203:9)", "entry");
+                        Column.debugLine("entry/src/main/ets/pages/Index.ets(2205:9)", "entry");
                         Column.width('100%');
                         Column.padding({ left: 8, right: 8, bottom: 4 });
                         Column.backgroundColor(this.pal().appBg);
@@ -4605,7 +4607,7 @@ class Index extends ViewPU {
                                         const c = _item;
                                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                                             Row.create({ space: 8 });
-                                            Row.debugLine("entry/src/main/ets/pages/Index.ets(2206:15)", "entry");
+                                            Row.debugLine("entry/src/main/ets/pages/Index.ets(2208:15)", "entry");
                                             Row.width('100%');
                                             Row.padding({ left: 10, right: 10, top: 7, bottom: 7 });
                                             Row.backgroundColor(this.pal().surface);
@@ -4616,7 +4618,7 @@ class Index extends ViewPU {
                                         }, Row);
                                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                                             Text.create(c.name);
-                                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2207:17)", "entry");
+                                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2209:17)", "entry");
                                             Text.fontSize(13);
                                             Text.fontColor(this.pal().accentText);
                                             Text.constraintSize({ maxWidth: 150 });
@@ -4626,7 +4628,7 @@ class Index extends ViewPU {
                                         Text.pop();
                                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                                             Text.create(c.desc);
-                                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2209:17)", "entry");
+                                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2211:17)", "entry");
                                             Text.fontSize(11);
                                             Text.fontColor(this.pal().textMuted);
                                             Text.layoutWeight(1);
@@ -4657,7 +4659,7 @@ class Index extends ViewPU {
                                         const e = _item;
                                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                                             Row.create({ space: 8 });
-                                            Row.debugLine("entry/src/main/ets/pages/Index.ets(2221:15)", "entry");
+                                            Row.debugLine("entry/src/main/ets/pages/Index.ets(2223:15)", "entry");
                                             Row.width('100%');
                                             Row.padding({ left: 10, right: 10, top: 7, bottom: 7 });
                                             Row.backgroundColor(this.pal().surface);
@@ -4668,13 +4670,13 @@ class Index extends ViewPU {
                                         }, Row);
                                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                                             Text.create(e.isDir ? '📁' : '📄');
-                                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2222:17)", "entry");
+                                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2224:17)", "entry");
                                             Text.fontSize(12);
                                         }, Text);
                                         Text.pop();
                                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                                             Text.create(e.name);
-                                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2223:17)", "entry");
+                                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2225:17)", "entry");
                                             Text.fontSize(13);
                                             Text.fontColor(this.pal().textPrimary);
                                             Text.layoutWeight(1);
@@ -4684,7 +4686,7 @@ class Index extends ViewPU {
                                         Text.pop();
                                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                                             Text.create(this.fsDir);
-                                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2225:17)", "entry");
+                                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2227:17)", "entry");
                                             Text.fontSize(10);
                                             Text.fontColor(this.pal().textMuted);
                                             Text.maxLines(1);
@@ -4722,14 +4724,14 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Scroll.create();
-                        Scroll.debugLine("entry/src/main/ets/pages/Index.ets(2244:9)", "entry");
+                        Scroll.debugLine("entry/src/main/ets/pages/Index.ets(2246:9)", "entry");
                         Scroll.scrollable(ScrollDirection.Horizontal);
                         Scroll.width('100%');
                         Scroll.padding({ left: 10, right: 10, top: 6 });
                     }, Scroll);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Row.create({ space: 6 });
-                        Row.debugLine("entry/src/main/ets/pages/Index.ets(2245:11)", "entry");
+                        Row.debugLine("entry/src/main/ets/pages/Index.ets(2247:11)", "entry");
                     }, Row);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         ForEach.create();
@@ -4737,7 +4739,7 @@ class Index extends ViewPU {
                             const cid = _item;
                             this.observeComponentCreation2((elmtId, isInitialRender) => {
                                 Row.create({ space: 4 });
-                                Row.debugLine("entry/src/main/ets/pages/Index.ets(2247:15)", "entry");
+                                Row.debugLine("entry/src/main/ets/pages/Index.ets(2249:15)", "entry");
                                 Row.padding({ left: 8, right: 6, top: 4, bottom: 4 });
                                 Row.backgroundColor(cid === this.currentChat ? this.pal().accentDeep : this.pal().surfaceAlt);
                                 Row.borderRadius(6);
@@ -4749,7 +4751,7 @@ class Index extends ViewPU {
                             }, Row);
                             this.observeComponentCreation2((elmtId, isInitialRender) => {
                                 Text.create(this.tabLabel(cid));
-                                Text.debugLine("entry/src/main/ets/pages/Index.ets(2248:17)", "entry");
+                                Text.debugLine("entry/src/main/ets/pages/Index.ets(2250:17)", "entry");
                                 Text.fontSize(11);
                                 Text.fontColor(cid === this.currentChat ? this.pal().onAccent : this.pal().textSecondary);
                                 Text.maxLines(1);
@@ -4763,7 +4765,7 @@ class Index extends ViewPU {
                                     this.ifElseBranchUpdateFunction(0, () => {
                                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                                             Text.create('●');
-                                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2253:19)", "entry");
+                                            Text.debugLine("entry/src/main/ets/pages/Index.ets(2255:19)", "entry");
                                             Text.fontSize(9);
                                             Text.fontColor(this.pal().successText);
                                         }, Text);
@@ -4778,7 +4780,7 @@ class Index extends ViewPU {
                             If.pop();
                             this.observeComponentCreation2((elmtId, isInitialRender) => {
                                 Text.create('✕');
-                                Text.debugLine("entry/src/main/ets/pages/Index.ets(2255:17)", "entry");
+                                Text.debugLine("entry/src/main/ets/pages/Index.ets(2257:17)", "entry");
                                 Text.fontSize(10);
                                 Text.fontColor(this.pal().textMuted);
                                 Text.onClick(() => {
@@ -4809,7 +4811,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Column.create({ space: 4 });
-                        Column.debugLine("entry/src/main/ets/pages/Index.ets(2277:9)", "entry");
+                        Column.debugLine("entry/src/main/ets/pages/Index.ets(2279:9)", "entry");
                         Column.width('100%');
                         Column.padding({ left: 10, right: 4, top: 6 });
                     }, Column);
@@ -4819,12 +4821,12 @@ class Index extends ViewPU {
                             const it = _item;
                             this.observeComponentCreation2((elmtId, isInitialRender) => {
                                 Row.create({ space: 6 });
-                                Row.debugLine("entry/src/main/ets/pages/Index.ets(2279:13)", "entry");
+                                Row.debugLine("entry/src/main/ets/pages/Index.ets(2281:13)", "entry");
                                 Row.width('100%');
                             }, Row);
                             this.observeComponentCreation2((elmtId, isInitialRender) => {
                                 Text.create(attachChipText(it));
-                                Text.debugLine("entry/src/main/ets/pages/Index.ets(2280:15)", "entry");
+                                Text.debugLine("entry/src/main/ets/pages/Index.ets(2282:15)", "entry");
                                 Text.fontSize(12);
                                 Text.fontColor(it.status === ATTACH_FAILED ? this.pal().dangerText : this.pal().accentSoft);
                                 Text.layoutWeight(1);
@@ -4834,7 +4836,7 @@ class Index extends ViewPU {
                             Text.pop();
                             this.observeComponentCreation2((elmtId, isInitialRender) => {
                                 Text.create(it.status === ATTACH_FAILED ? '重试' : '✕');
-                                Text.debugLine("entry/src/main/ets/pages/Index.ets(2284:15)", "entry");
+                                Text.debugLine("entry/src/main/ets/pages/Index.ets(2286:15)", "entry");
                                 Text.fontSize(12);
                                 Text.fontColor(it.status === ATTACH_FAILED ? this.pal().warn : this.pal().dangerText);
                                 Text.padding(6);
@@ -4866,7 +4868,7 @@ class Index extends ViewPU {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             // 输入区：圆角卡片（附件 / 输入 / 发送），聚焦时描边亮起
             Row.create({ space: 6 });
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(2302:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(2304:7)", "entry");
             // 输入区：圆角卡片（附件 / 输入 / 发送），聚焦时描边亮起
             Row.width('100%');
             // 输入区：圆角卡片（附件 / 输入 / 发送），聚焦时描边亮起
@@ -4886,7 +4888,7 @@ class Index extends ViewPU {
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('📎');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(2303:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(2305:9)", "entry");
             Text.fontSize(19);
             Text.fontColor(this.pal().accentSoft);
             Text.padding(6);
@@ -4902,7 +4904,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('▣');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(2308:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(2310:9)", "entry");
             Text.fontSize(19);
             Text.fontColor(this.pal().accentSoft);
             Text.padding(6);
@@ -4918,7 +4920,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             TextArea.create({ placeholder: '发消息…', text: this.draft });
-            TextArea.debugLine("entry/src/main/ets/pages/Index.ets(2313:9)", "entry");
+            TextArea.debugLine("entry/src/main/ets/pages/Index.ets(2315:9)", "entry");
             TextArea.onChange((v: string) => {
                 this.draft = v;
                 this.refreshCompletion(v);
@@ -4952,7 +4954,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create(modeLabel(this.sendMode));
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(2338:11)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(2340:11)", "entry");
                         Text.fontSize(12);
                         Text.fontColor(this.sendMode === MODE_INTERRUPT ? this.pal().warn : this.pal().textSecondary);
                         Text.padding({ left: 8, right: 8, top: 8, bottom: 8 });
@@ -4975,7 +4977,7 @@ class Index extends ViewPU {
         If.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Button.createWithLabel(this.runningNow() ? '停止' : '发送');
-            Button.debugLine("entry/src/main/ets/pages/Index.ets(2350:9)", "entry");
+            Button.debugLine("entry/src/main/ets/pages/Index.ets(2352:9)", "entry");
             Button.constraintSize({ minHeight: 38, minWidth: 76 });
             Button.borderRadius(19);
             Button.fontColor(this.pal().onAccent);
@@ -5789,7 +5791,7 @@ class Index extends ViewPU {
     PrefsSheet(parent = null) {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 10 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(3214:5)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(3216:5)", "entry");
             Column.width('100%');
             Column.padding(16);
             Column.backgroundColor(this.pal().appBg);
@@ -5800,12 +5802,12 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Row.create();
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(3215:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(3217:7)", "entry");
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('设置');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3216:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3218:9)", "entry");
             Text.fontSize(16);
             Text.fontWeight(FontWeight.Bold);
             Text.fontColor(this.pal().textPrimary);
@@ -5814,7 +5816,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('✕');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3217:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3219:9)", "entry");
             Text.fontSize(16);
             Text.fontColor(this.pal().textSecondary);
             Text.padding(8);
@@ -5827,13 +5829,13 @@ class Index extends ViewPU {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             // 聊天界面：原生 / 内嵌 ArkWeb（用户要求可切换；ArkWeb 内也有"切回原生"按钮）
             Row.create({ space: 8 });
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(3223:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(3225:7)", "entry");
             // 聊天界面：原生 / 内嵌 ArkWeb（用户要求可切换；ArkWeb 内也有"切回原生"按钮）
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('聊天界面');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3224:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3226:9)", "entry");
             Text.fontSize(13);
             Text.fontColor(this.pal().textPrimary);
             Text.layoutWeight(1);
@@ -5841,7 +5843,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(this.useWebUI ? '内嵌网页' : '原生');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3225:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3227:9)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().onAccent);
             Text.padding({ left: 12, right: 12, top: 6, bottom: 6 });
@@ -5858,13 +5860,13 @@ class Index extends ViewPU {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             // 主题（深/浅）
             Row.create({ space: 8 });
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(3236:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(3238:7)", "entry");
             // 主题（深/浅）
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(settingLabel(KEY_APP_THEME));
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3237:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3239:9)", "entry");
             Text.fontSize(13);
             Text.fontColor(this.pal().textPrimary);
             Text.layoutWeight(1);
@@ -5872,7 +5874,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(themeLabel(this.themeName));
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3238:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3240:9)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().onAccent);
             Text.padding({ left: 12, right: 12, top: 6, bottom: 6 });
@@ -5890,7 +5892,7 @@ class Index extends ViewPU {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             // 字号
             Text.create(`${settingLabel(KEY_FONT_SCALE)}：${fontScaleLabel(this.fontScale())}`);
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3250:7)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3252:7)", "entry");
             // 字号
             Text.fontSize(12);
             // 字号
@@ -5902,7 +5904,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Row.create({ space: 6 });
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(3252:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(3254:7)", "entry");
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
@@ -5911,7 +5913,7 @@ class Index extends ViewPU {
                 const n = _item;
                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                     Text.create(fontScaleLabel(n));
-                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3254:11)", "entry");
+                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3256:11)", "entry");
                     Text.fontSize(12);
                     Text.fontColor(Math.abs(this.fontScale() - n) < 0.01 ? this.pal().onAccent : this.pal().textSecondary);
                     Text.padding({ left: 12, right: 12, top: 6, bottom: 6 });
@@ -5930,13 +5932,13 @@ class Index extends ViewPU {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             // 代码换行
             Row.create({ space: 8 });
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(3267:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(3269:7)", "entry");
             // 代码换行
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(settingLabel(KEY_CODE_WRAP));
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3268:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3270:9)", "entry");
             Text.fontSize(13);
             Text.fontColor(this.pal().textPrimary);
             Text.layoutWeight(1);
@@ -5944,7 +5946,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(this.wrapCode() ? '开' : '关');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3269:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3271:9)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().onAccent);
             Text.padding({ left: 12, right: 12, top: 6, bottom: 6 });
@@ -5960,13 +5962,13 @@ class Index extends ViewPU {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             // 思考默认展开
             Row.create({ space: 8 });
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(3278:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(3280:7)", "entry");
             // 思考默认展开
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(settingLabel(KEY_REASONING_DEFAULT));
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3279:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3281:9)", "entry");
             Text.fontSize(13);
             Text.fontColor(this.pal().textPrimary);
             Text.layoutWeight(1);
@@ -5974,7 +5976,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(this.reasoningDefault() ? '开' : '关');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3280:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3282:9)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().onAccent);
             Text.padding({ left: 12, right: 12, top: 6, bottom: 6 });
@@ -5990,13 +5992,13 @@ class Index extends ViewPU {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             // 发送快捷键
             Row.create({ space: 8 });
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(3289:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(3291:7)", "entry");
             // 发送快捷键
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(settingLabel(KEY_SEND_KEY));
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3290:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3292:9)", "entry");
             Text.fontSize(13);
             Text.fontColor(this.pal().textPrimary);
             Text.layoutWeight(1);
@@ -6004,7 +6006,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(sendKeyLabel(this.sendKeyMode()));
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3291:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3293:9)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().onAccent);
             Text.padding({ left: 12, right: 12, top: 6, bottom: 6 });
@@ -6020,7 +6022,7 @@ class Index extends ViewPU {
         Row.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Divider.create();
-            Divider.debugLine("entry/src/main/ets/pages/Index.ets(3300:7)", "entry");
+            Divider.debugLine("entry/src/main/ets/pages/Index.ets(3302:7)", "entry");
             Divider.color(this.pal().surfaceHi);
         }, Divider);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
@@ -6030,12 +6032,12 @@ class Index extends ViewPU {
                 const k = _item;
                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                     Row.create({ space: 8 });
-                    Row.debugLine("entry/src/main/ets/pages/Index.ets(3304:9)", "entry");
+                    Row.debugLine("entry/src/main/ets/pages/Index.ets(3306:9)", "entry");
                     Row.width('100%');
                 }, Row);
                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                     Text.create(settingLabel(k));
-                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3305:11)", "entry");
+                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3307:11)", "entry");
                     Text.fontSize(12);
                     Text.fontColor(this.pal().textSecondary);
                     Text.layoutWeight(1);
@@ -6043,7 +6045,7 @@ class Index extends ViewPU {
                 Text.pop();
                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                     Text.create(settingOf(this.settings, k).length > 0 ? settingOf(this.settings, k) : '（未设置）');
-                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3306:11)", "entry");
+                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3308:11)", "entry");
                     Text.fontSize(12);
                     Text.fontColor(this.pal().textMuted);
                     Text.maxLines(1);
@@ -6058,7 +6060,7 @@ class Index extends ViewPU {
         ForEach.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('浅色主题需要色板重构（已单列为 P9b），当前仅深色。');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3311:7)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3313:7)", "entry");
             Text.fontSize(11);
             Text.fontColor(this.pal().textMuted);
             Text.width('100%');
@@ -6066,12 +6068,12 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Row.create({ space: 8 });
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(3314:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(3316:7)", "entry");
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('刷新');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3315:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3317:9)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().accentSoft);
             Text.padding(8);
@@ -6087,7 +6089,7 @@ class Index extends ViewPU {
     PanelsSheet(parent = null) {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 8 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(3331:5)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(3333:5)", "entry");
             Column.width('100%');
             Column.padding(16);
             Column.backgroundColor(this.pal().appBg);
@@ -6098,12 +6100,12 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Row.create();
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(3332:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(3334:7)", "entry");
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('面板');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3333:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3335:9)", "entry");
             Text.fontSize(16);
             Text.fontWeight(FontWeight.Bold);
             Text.fontColor(this.pal().textPrimary);
@@ -6116,7 +6118,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         LoadingProgress.create();
-                        LoadingProgress.debugLine("entry/src/main/ets/pages/Index.ets(3335:11)", "entry");
+                        LoadingProgress.debugLine("entry/src/main/ets/pages/Index.ets(3337:11)", "entry");
                         LoadingProgress.width(16);
                         LoadingProgress.height(16);
                         LoadingProgress.color(this.pal().accent);
@@ -6131,7 +6133,7 @@ class Index extends ViewPU {
         If.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('刷新');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3337:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3339:9)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().accentSoft);
             Text.padding(8);
@@ -6142,7 +6144,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('✕');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3340:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3342:9)", "entry");
             Text.fontSize(16);
             Text.fontColor(this.pal().textSecondary);
             Text.padding(8);
@@ -6154,7 +6156,7 @@ class Index extends ViewPU {
         Row.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Row.create({ space: 6 });
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(3345:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(3347:7)", "entry");
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
@@ -6163,7 +6165,7 @@ class Index extends ViewPU {
                 const tab = _item;
                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                     Text.create(this.panelTabLabel(tab));
-                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3347:11)", "entry");
+                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3349:11)", "entry");
                     Text.fontSize(12);
                     Text.fontColor(this.panelTab === tab ? this.pal().onAccent : this.pal().textSecondary);
                     Text.padding({ left: 10, right: 10, top: 6, bottom: 6 });
@@ -6189,7 +6191,7 @@ class Index extends ViewPU {
                             this.ifElseBranchUpdateFunction(0, () => {
                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                     Text.create('（本会话暂无定时任务）');
-                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3361:11)", "entry");
+                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3363:11)", "entry");
                                     Text.fontSize(12);
                                     Text.fontColor(this.pal().textMuted);
                                     Text.width('100%');
@@ -6201,7 +6203,7 @@ class Index extends ViewPU {
                             this.ifElseBranchUpdateFunction(1, () => {
                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                     List.create({ space: 6 });
-                                    List.debugLine("entry/src/main/ets/pages/Index.ets(3363:11)", "entry");
+                                    List.debugLine("entry/src/main/ets/pages/Index.ets(3365:11)", "entry");
                                     List.constraintSize({ maxHeight: 420 });
                                     List.width('100%');
                                 }, List);
@@ -6220,13 +6222,13 @@ class Index extends ViewPU {
                                             };
                                             const itemCreation2 = (elmtId, isInitialRender) => {
                                                 ListItem.create(deepRenderFunction, true);
-                                                ListItem.debugLine("entry/src/main/ets/pages/Index.ets(3365:15)", "entry");
+                                                ListItem.debugLine("entry/src/main/ets/pages/Index.ets(3367:15)", "entry");
                                             };
                                             const deepRenderFunction = (elmtId, isInitialRender) => {
                                                 itemCreation(elmtId, isInitialRender);
                                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                                     Row.create({ space: 6 });
-                                                    Row.debugLine("entry/src/main/ets/pages/Index.ets(3366:17)", "entry");
+                                                    Row.debugLine("entry/src/main/ets/pages/Index.ets(3368:17)", "entry");
                                                     Row.width('100%');
                                                     Row.padding(8);
                                                     Row.backgroundColor(this.pal().surface);
@@ -6234,7 +6236,7 @@ class Index extends ViewPU {
                                                 }, Row);
                                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                                     Text.create(cronLine(job));
-                                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3367:19)", "entry");
+                                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3369:19)", "entry");
                                                     Text.fontSize(12);
                                                     Text.fontColor(this.pal().textPrimary);
                                                     Text.layoutWeight(1);
@@ -6244,7 +6246,7 @@ class Index extends ViewPU {
                                                 Text.pop();
                                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                                     Text.create('✕');
-                                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3369:19)", "entry");
+                                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3371:19)", "entry");
                                                     Text.fontSize(12);
                                                     Text.fontColor(this.pal().dangerText);
                                                     Text.padding(6);
@@ -6278,7 +6280,7 @@ class Index extends ViewPU {
                             this.ifElseBranchUpdateFunction(0, () => {
                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                     Text.create('（本会话暂无后台任务）');
-                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3379:11)", "entry");
+                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3381:11)", "entry");
                                     Text.fontSize(12);
                                     Text.fontColor(this.pal().textMuted);
                                     Text.width('100%');
@@ -6290,7 +6292,7 @@ class Index extends ViewPU {
                             this.ifElseBranchUpdateFunction(1, () => {
                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                     List.create({ space: 6 });
-                                    List.debugLine("entry/src/main/ets/pages/Index.ets(3381:11)", "entry");
+                                    List.debugLine("entry/src/main/ets/pages/Index.ets(3383:11)", "entry");
                                     List.constraintSize({ maxHeight: 420 });
                                     List.width('100%');
                                 }, List);
@@ -6309,13 +6311,13 @@ class Index extends ViewPU {
                                             };
                                             const itemCreation2 = (elmtId, isInitialRender) => {
                                                 ListItem.create(deepRenderFunction, true);
-                                                ListItem.debugLine("entry/src/main/ets/pages/Index.ets(3383:15)", "entry");
+                                                ListItem.debugLine("entry/src/main/ets/pages/Index.ets(3385:15)", "entry");
                                             };
                                             const deepRenderFunction = (elmtId, isInitialRender) => {
                                                 itemCreation(elmtId, isInitialRender);
                                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                                     Text.create(bgTaskLine(t, this.nowMs()));
-                                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3384:17)", "entry");
+                                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3386:17)", "entry");
                                                     Text.fontSize(12);
                                                     Text.fontColor(this.pal().textPrimary);
                                                     Text.width('100%');
@@ -6351,7 +6353,7 @@ class Index extends ViewPU {
                             this.ifElseBranchUpdateFunction(0, () => {
                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                     Text.create('（暂无子代理会话）');
-                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3394:11)", "entry");
+                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3396:11)", "entry");
                                     Text.fontSize(12);
                                     Text.fontColor(this.pal().textMuted);
                                     Text.width('100%');
@@ -6363,7 +6365,7 @@ class Index extends ViewPU {
                             this.ifElseBranchUpdateFunction(1, () => {
                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                     List.create({ space: 6 });
-                                    List.debugLine("entry/src/main/ets/pages/Index.ets(3396:11)", "entry");
+                                    List.debugLine("entry/src/main/ets/pages/Index.ets(3398:11)", "entry");
                                     List.constraintSize({ maxHeight: 420 });
                                     List.width('100%');
                                 }, List);
@@ -6382,13 +6384,13 @@ class Index extends ViewPU {
                                             };
                                             const itemCreation2 = (elmtId, isInitialRender) => {
                                                 ListItem.create(deepRenderFunction, true);
-                                                ListItem.debugLine("entry/src/main/ets/pages/Index.ets(3398:15)", "entry");
+                                                ListItem.debugLine("entry/src/main/ets/pages/Index.ets(3400:15)", "entry");
                                             };
                                             const deepRenderFunction = (elmtId, isInitialRender) => {
                                                 itemCreation(elmtId, isInitialRender);
                                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                                     Text.create(subagentLine(a));
-                                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3399:17)", "entry");
+                                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3401:17)", "entry");
                                                     Text.fontSize(12);
                                                     Text.fontColor(a.running === true ? this.pal().successText : this.pal().textSecondary);
                                                     Text.width('100%');
@@ -6429,7 +6431,7 @@ class Index extends ViewPU {
                             this.ifElseBranchUpdateFunction(0, () => {
                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                     Text.create('（没有受管机器；Runner 由 xbot.ssh-runner 插件纳管）');
-                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3415:11)", "entry");
+                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3417:11)", "entry");
                                     Text.fontSize(12);
                                     Text.fontColor(this.pal().textMuted);
                                     Text.width('100%');
@@ -6441,7 +6443,7 @@ class Index extends ViewPU {
                             this.ifElseBranchUpdateFunction(1, () => {
                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                     List.create({ space: 6 });
-                                    List.debugLine("entry/src/main/ets/pages/Index.ets(3417:11)", "entry");
+                                    List.debugLine("entry/src/main/ets/pages/Index.ets(3419:11)", "entry");
                                     List.constraintSize({ maxHeight: 420 });
                                     List.width('100%');
                                 }, List);
@@ -6460,13 +6462,13 @@ class Index extends ViewPU {
                                             };
                                             const itemCreation2 = (elmtId, isInitialRender) => {
                                                 ListItem.create(deepRenderFunction, true);
-                                                ListItem.debugLine("entry/src/main/ets/pages/Index.ets(3419:15)", "entry");
+                                                ListItem.debugLine("entry/src/main/ets/pages/Index.ets(3421:15)", "entry");
                                             };
                                             const deepRenderFunction = (elmtId, isInitialRender) => {
                                                 itemCreation(elmtId, isInitialRender);
                                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                                     Text.create(runnerLine(r));
-                                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3420:17)", "entry");
+                                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3422:17)", "entry");
                                                     Text.fontSize(12);
                                                     Text.fontColor(r.online === true ? this.pal().successText : this.pal().textSecondary);
                                                     Text.width('100%');
@@ -6501,7 +6503,7 @@ class Index extends ViewPU {
     SessSheet(parent = null) {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 0 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(3441:5)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(3443:5)", "entry");
             Column.width('100%');
             Column.backgroundColor(this.pal().appBg);
             Column.borderRadius({ topLeft: 14, topRight: 14 });
@@ -6512,7 +6514,7 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(this.menuLabel());
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3442:7)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3444:7)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().textSecondary);
             Text.width('100%');
@@ -6529,7 +6531,7 @@ class Index extends ViewPU {
         this.CtxItem.bind(this)(this.sessConfirmDelete === this.sessMenuId ? '确认删除（再点一次）' : '删除', 'delete');
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Divider.create();
-            Divider.debugLine("entry/src/main/ets/pages/Index.ets(3452:7)", "entry");
+            Divider.debugLine("entry/src/main/ets/pages/Index.ets(3454:7)", "entry");
             Divider.color(this.pal().surfaceHi);
             Divider.margin({ top: 4 });
         }, Divider);
@@ -6540,7 +6542,7 @@ class Index extends ViewPU {
     SearchHitsSheet(parent = null) {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 0 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(3467:5)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(3469:5)", "entry");
             Column.width('100%');
             Column.backgroundColor(this.pal().appBg);
             Column.borderRadius({ topLeft: 14, topRight: 14 });
@@ -6551,7 +6553,7 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(`本会话命中 ${this.searchHits.length} 条（点一条复制片段）`);
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3468:7)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3470:7)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().textSecondary);
             Text.width('100%');
@@ -6560,7 +6562,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             List.create({ space: 6 });
-            List.debugLine("entry/src/main/ets/pages/Index.ets(3471:7)", "entry");
+            List.debugLine("entry/src/main/ets/pages/Index.ets(3473:7)", "entry");
             List.constraintSize({ maxHeight: 420 });
             List.width('100%');
         }, List);
@@ -6579,13 +6581,13 @@ class Index extends ViewPU {
                     };
                     const itemCreation2 = (elmtId, isInitialRender) => {
                         ListItem.create(deepRenderFunction, true);
-                        ListItem.debugLine("entry/src/main/ets/pages/Index.ets(3473:11)", "entry");
+                        ListItem.debugLine("entry/src/main/ets/pages/Index.ets(3475:11)", "entry");
                     };
                     const deepRenderFunction = (elmtId, isInitialRender) => {
                         itemCreation(elmtId, isInitialRender);
                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                             Text.create(hitLine(h.role !== undefined ? h.role : '', h.snippet !== undefined ? h.snippet : '', 120));
-                            Text.debugLine("entry/src/main/ets/pages/Index.ets(3474:13)", "entry");
+                            Text.debugLine("entry/src/main/ets/pages/Index.ets(3476:13)", "entry");
                             Text.fontSize(13);
                             Text.fontColor(this.pal().textPrimary);
                             Text.width('100%');
@@ -6612,7 +6614,7 @@ class Index extends ViewPU {
         List.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Divider.create();
-            Divider.debugLine("entry/src/main/ets/pages/Index.ets(3487:7)", "entry");
+            Divider.debugLine("entry/src/main/ets/pages/Index.ets(3489:7)", "entry");
             Divider.color(this.pal().surfaceHi);
             Divider.margin({ top: 6 });
         }, Divider);
@@ -6623,7 +6625,7 @@ class Index extends ViewPU {
     CtxItem(label: string, code: string, parent = null) {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(label);
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3502:5)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3504:5)", "entry");
             Text.fontSize(14);
             Text.fontColor(this.pal().textPrimary);
             Text.width('100%');
@@ -6652,7 +6654,7 @@ class Index extends ViewPU {
     ContextSheet(parent = null) {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 0 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(3523:5)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(3525:5)", "entry");
             Column.width('100%');
             Column.backgroundColor(this.pal().appBg);
             Column.borderRadius({ topLeft: 14, topRight: 14 });
@@ -6663,7 +6665,7 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(this.ctxKind === 'tool' ? '工具操作' : (this.ctxKind === 'iter' ? '迭代操作' : '消息操作'));
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3524:7)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3526:7)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().textSecondary);
             Text.width('100%');
@@ -6726,7 +6728,7 @@ class Index extends ViewPU {
         If.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Divider.create();
-            Divider.debugLine("entry/src/main/ets/pages/Index.ets(3553:7)", "entry");
+            Divider.debugLine("entry/src/main/ets/pages/Index.ets(3555:7)", "entry");
             Divider.color(this.pal().surfaceHi);
             Divider.margin({ top: 4 });
         }, Divider);
@@ -6748,7 +6750,7 @@ class Index extends ViewPU {
                                     onLongPress: () => {
                                         this.openCtx('user', row.id, 0, '');
                                     },
-                                }, undefined, elmtId, () => { }, { page: "entry/src/main/ets/pages/Index.ets", line: 3569, col: 7 });
+                                }, undefined, elmtId, () => { }, { page: "entry/src/main/ets/pages/Index.ets", line: 3571, col: 7 });
                                 ViewPU.create(componentCall);
                                 let paramsLambda = () => {
                                     return {
@@ -6806,7 +6808,7 @@ class Index extends ViewPU {
                                     onCopy: (text: string, what: string) => {
                                         this.copyText(text, what);
                                     },
-                                }, undefined, elmtId, () => { }, { page: "entry/src/main/ets/pages/Index.ets", line: 3579, col: 7 });
+                                }, undefined, elmtId, () => { }, { page: "entry/src/main/ets/pages/Index.ets", line: 3581, col: 7 });
                                 ViewPU.create(componentCall);
                                 let paramsLambda = () => {
                                     return {
@@ -6938,7 +6940,7 @@ class Index extends ViewPU {
     DrawerSheet(parent = null) {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create();
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(3705:5)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(3707:5)", "entry");
             Column.width('82%');
             Column.height('100%');
             Column.padding(12);
@@ -6948,13 +6950,13 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Row.create();
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(3706:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(3708:7)", "entry");
             Row.width('100%');
             Row.padding(8);
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('会话');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3707:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3709:9)", "entry");
             Text.fontSize(17);
             Text.fontWeight(FontWeight.Bold);
             Text.fontColor(this.pal().textPrimary);
@@ -6963,7 +6965,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('＋ 新建');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3708:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3710:9)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().onAccent);
             Text.padding({ left: 12, right: 12, top: 6, bottom: 6 });
@@ -6981,7 +6983,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('✕');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3715:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3717:9)", "entry");
             Text.fontSize(16);
             Text.fontColor(this.pal().textSecondary);
             Text.padding(8);
@@ -6995,7 +6997,7 @@ class Index extends ViewPU {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             // 搜索：本地筛选（即时）+ 「搜索本会话消息」（服务端 /api/search）
             Row.create({ space: 6 });
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(3723:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(3725:7)", "entry");
             // 搜索：本地筛选（即时）+ 「搜索本会话消息」（服务端 /api/search）
             Row.width('100%');
             // 搜索：本地筛选（即时）+ 「搜索本会话消息」（服务端 /api/search）
@@ -7003,7 +7005,7 @@ class Index extends ViewPU {
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             TextInput.create({ placeholder: '筛选会话…', text: this.sessQuery });
-            TextInput.debugLine("entry/src/main/ets/pages/Index.ets(3724:9)", "entry");
+            TextInput.debugLine("entry/src/main/ets/pages/Index.ets(3726:9)", "entry");
             TextInput.onChange((v: string) => {
                 this.sessQuery = v;
             });
@@ -7021,7 +7023,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         LoadingProgress.create();
-                        LoadingProgress.debugLine("entry/src/main/ets/pages/Index.ets(3732:11)", "entry");
+                        LoadingProgress.debugLine("entry/src/main/ets/pages/Index.ets(3734:11)", "entry");
                         LoadingProgress.width(16);
                         LoadingProgress.height(16);
                         LoadingProgress.color(this.pal().accent);
@@ -7032,7 +7034,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(1, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create('搜消息');
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(3734:11)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(3736:11)", "entry");
                         Text.fontSize(12);
                         Text.fontColor(this.pal().accentSoft);
                         Text.padding(6);
@@ -7049,7 +7051,7 @@ class Index extends ViewPU {
         Row.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             List.create();
-            List.debugLine("entry/src/main/ets/pages/Index.ets(3742:7)", "entry");
+            List.debugLine("entry/src/main/ets/pages/Index.ets(3744:7)", "entry");
             List.layoutWeight(1);
             List.width('100%');
         }, List);
@@ -7068,13 +7070,13 @@ class Index extends ViewPU {
                     };
                     const itemCreation2 = (elmtId, isInitialRender) => {
                         ListItem.create(deepRenderFunction, true);
-                        ListItem.debugLine("entry/src/main/ets/pages/Index.ets(3744:11)", "entry");
+                        ListItem.debugLine("entry/src/main/ets/pages/Index.ets(3746:11)", "entry");
                     };
                     const deepRenderFunction = (elmtId, isInitialRender) => {
                         itemCreation(elmtId, isInitialRender);
                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                             Column.create({ space: 4 });
-                            Column.debugLine("entry/src/main/ets/pages/Index.ets(3745:13)", "entry");
+                            Column.debugLine("entry/src/main/ets/pages/Index.ets(3747:13)", "entry");
                             Column.width('100%');
                             Column.padding(12);
                             Column.backgroundColor(s.chat_id === this.currentChat ? this.pal().surfaceHi : this.pal().surface);
@@ -7104,12 +7106,12 @@ class Index extends ViewPU {
                                 this.ifElseBranchUpdateFunction(0, () => {
                                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                                         Row.create({ space: 6 });
-                                        Row.debugLine("entry/src/main/ets/pages/Index.ets(3747:17)", "entry");
+                                        Row.debugLine("entry/src/main/ets/pages/Index.ets(3749:17)", "entry");
                                         Row.width('100%');
                                     }, Row);
                                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                                         TextInput.create({ text: this.renameText });
-                                        TextInput.debugLine("entry/src/main/ets/pages/Index.ets(3748:19)", "entry");
+                                        TextInput.debugLine("entry/src/main/ets/pages/Index.ets(3750:19)", "entry");
                                         TextInput.onChange((v: string) => {
                                             this.renameText = v;
                                         });
@@ -7120,7 +7122,7 @@ class Index extends ViewPU {
                                     }, TextInput);
                                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                                         Text.create('保存');
-                                        Text.debugLine("entry/src/main/ets/pages/Index.ets(3753:19)", "entry");
+                                        Text.debugLine("entry/src/main/ets/pages/Index.ets(3755:19)", "entry");
                                         Text.fontSize(13);
                                         Text.fontColor(this.pal().accentSoft);
                                         Text.padding(6);
@@ -7135,7 +7137,7 @@ class Index extends ViewPU {
                                     Text.pop();
                                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                                         Text.create('取消');
-                                        Text.debugLine("entry/src/main/ets/pages/Index.ets(3760:19)", "entry");
+                                        Text.debugLine("entry/src/main/ets/pages/Index.ets(3762:19)", "entry");
                                         Text.fontSize(13);
                                         Text.fontColor(this.pal().textSecondary);
                                         Text.padding(6);
@@ -7151,18 +7153,18 @@ class Index extends ViewPU {
                                 this.ifElseBranchUpdateFunction(1, () => {
                                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                                         Row.create();
-                                        Row.debugLine("entry/src/main/ets/pages/Index.ets(3765:17)", "entry");
+                                        Row.debugLine("entry/src/main/ets/pages/Index.ets(3767:17)", "entry");
                                         Row.width('100%');
                                     }, Row);
                                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                                         Column.create();
-                                        Column.debugLine("entry/src/main/ets/pages/Index.ets(3766:19)", "entry");
+                                        Column.debugLine("entry/src/main/ets/pages/Index.ets(3768:19)", "entry");
                                         Column.layoutWeight(1);
                                         Column.alignItems(HorizontalAlign.Start);
                                     }, Column);
                                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                                         Row.create({ space: 6 });
-                                        Row.debugLine("entry/src/main/ets/pages/Index.ets(3767:21)", "entry");
+                                        Row.debugLine("entry/src/main/ets/pages/Index.ets(3769:21)", "entry");
                                         Row.width('100%');
                                     }, Row);
                                     this.observeComponentCreation2((elmtId, isInitialRender) => {
@@ -7171,7 +7173,7 @@ class Index extends ViewPU {
                                             this.ifElseBranchUpdateFunction(0, () => {
                                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                                     Circle.create({ width: 7, height: 7 });
-                                                    Circle.debugLine("entry/src/main/ets/pages/Index.ets(3769:25)", "entry");
+                                                    Circle.debugLine("entry/src/main/ets/pages/Index.ets(3771:25)", "entry");
                                                     Context.animation({ duration: 600, curve: Curve.EaseInOut });
                                                     Circle.fill(this.pal().success);
                                                     Circle.opacity(this.pulseOn ? 1 : 0.35);
@@ -7187,7 +7189,7 @@ class Index extends ViewPU {
                                     If.pop();
                                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                                         Text.create(this.tabLabel(s.chat_id));
-                                        Text.debugLine("entry/src/main/ets/pages/Index.ets(3773:23)", "entry");
+                                        Text.debugLine("entry/src/main/ets/pages/Index.ets(3775:23)", "entry");
                                         Text.fontSize(15);
                                         Text.fontColor(s.chat_id === this.currentChat ? this.pal().accentText : this.pal().textPrimary);
                                         Text.maxLines(1);
@@ -7198,12 +7200,12 @@ class Index extends ViewPU {
                                     Row.pop();
                                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                                         Row.create({ space: 6 });
-                                        Row.debugLine("entry/src/main/ets/pages/Index.ets(3779:21)", "entry");
+                                        Row.debugLine("entry/src/main/ets/pages/Index.ets(3781:21)", "entry");
                                         Row.width('100%');
                                     }, Row);
                                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                                         Text.create(channelLabel(s.channel !== undefined ? s.channel : 'web'));
-                                        Text.debugLine("entry/src/main/ets/pages/Index.ets(3780:23)", "entry");
+                                        Text.debugLine("entry/src/main/ets/pages/Index.ets(3782:23)", "entry");
                                         Text.fontSize(9);
                                         Text.fontColor(this.pal().accentText);
                                         Text.padding({ left: 4, right: 4, top: 1, bottom: 1 });
@@ -7213,7 +7215,7 @@ class Index extends ViewPU {
                                     Text.pop();
                                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                                         Text.create(s.chat_id);
-                                        Text.debugLine("entry/src/main/ets/pages/Index.ets(3784:23)", "entry");
+                                        Text.debugLine("entry/src/main/ets/pages/Index.ets(3786:23)", "entry");
                                         Text.fontSize(10);
                                         Text.fontColor(this.pal().textMuted);
                                         Text.maxLines(1);
@@ -7226,7 +7228,7 @@ class Index extends ViewPU {
                                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                                         // 触屏铁律：多个行内操作折叠成「一个 ⋯ + 菜单」，绝不并排常显
                                         Text.create('⋯');
-                                        Text.debugLine("entry/src/main/ets/pages/Index.ets(3793:19)", "entry");
+                                        Text.debugLine("entry/src/main/ets/pages/Index.ets(3795:19)", "entry");
                                         // 触屏铁律：多个行内操作折叠成「一个 ⋯ + 菜单」，绝不并排常显
                                         Text.fontSize(18);
                                         // 触屏铁律：多个行内操作折叠成「一个 ⋯ + 菜单」，绝不并排常显
@@ -7261,7 +7263,7 @@ class Index extends ViewPU {
         List.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Button.createWithLabel('设置（字号 / 换行 / 思考）');
-            Button.debugLine("entry/src/main/ets/pages/Index.ets(3825:7)", "entry");
+            Button.debugLine("entry/src/main/ets/pages/Index.ets(3827:7)", "entry");
             Button.width('100%');
             Button.constraintSize({ minHeight: 40 });
             Button.backgroundColor(this.pal().surfaceHi);
@@ -7273,7 +7275,7 @@ class Index extends ViewPU {
         Button.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Button.createWithLabel('面板（任务 / 子代理 / Runner）');
-            Button.debugLine("entry/src/main/ets/pages/Index.ets(3829:7)", "entry");
+            Button.debugLine("entry/src/main/ets/pages/Index.ets(3831:7)", "entry");
             Button.width('100%');
             Button.constraintSize({ minHeight: 40 });
             Button.backgroundColor(this.pal().surfaceHi);
@@ -7285,7 +7287,7 @@ class Index extends ViewPU {
         Button.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Button.createWithLabel('退出登录');
-            Button.debugLine("entry/src/main/ets/pages/Index.ets(3833:7)", "entry");
+            Button.debugLine("entry/src/main/ets/pages/Index.ets(3835:7)", "entry");
             Button.width('100%');
             Button.constraintSize({ minHeight: 40 });
             Button.backgroundColor(this.pal().surfaceHi);
@@ -7301,7 +7303,7 @@ class Index extends ViewPU {
     SettingsSheet(parent = null) {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 10 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(3848:5)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(3850:5)", "entry");
             Column.width('92%');
             Column.padding(16);
             Column.backgroundColor(this.pal().appBg);
@@ -7310,12 +7312,12 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Row.create();
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(3849:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(3851:7)", "entry");
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('设置');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3850:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3852:9)", "entry");
             Text.fontSize(17);
             Text.fontWeight(FontWeight.Bold);
             Text.fontColor(this.pal().textPrimary);
@@ -7324,7 +7326,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('✕');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3851:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3853:9)", "entry");
             Text.fontSize(16);
             Text.fontColor(this.pal().textSecondary);
             Text.padding(8);
@@ -7336,7 +7338,7 @@ class Index extends ViewPU {
         Row.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('服务端');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3856:7)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3858:7)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().textSecondary);
             Text.width('100%');
@@ -7344,7 +7346,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             TextInput.create({ text: this.serverUrl });
-            TextInput.debugLine("entry/src/main/ets/pages/Index.ets(3857:7)", "entry");
+            TextInput.debugLine("entry/src/main/ets/pages/Index.ets(3859:7)", "entry");
             TextInput.onChange((v: string) => {
                 this.serverUrl = v;
             });
@@ -7354,7 +7356,7 @@ class Index extends ViewPU {
         }, TextInput);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('用户名');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3863:7)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3865:7)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().textSecondary);
             Text.width('100%');
@@ -7362,7 +7364,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             TextInput.create({ text: this.username });
-            TextInput.debugLine("entry/src/main/ets/pages/Index.ets(3864:7)", "entry");
+            TextInput.debugLine("entry/src/main/ets/pages/Index.ets(3866:7)", "entry");
             TextInput.onChange((v: string) => {
                 this.username = v;
             });
@@ -7372,12 +7374,12 @@ class Index extends ViewPU {
         }, TextInput);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Row.create();
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(3870:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(3872:7)", "entry");
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('显示思考过程');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3871:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3873:9)", "entry");
             Text.fontSize(14);
             Text.fontColor(this.pal().textPrimary);
             Text.layoutWeight(1);
@@ -7385,7 +7387,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Toggle.create({ type: ToggleType.Switch, isOn: this.showReasoning });
-            Toggle.debugLine("entry/src/main/ets/pages/Index.ets(3872:9)", "entry");
+            Toggle.debugLine("entry/src/main/ets/pages/Index.ets(3874:9)", "entry");
             Toggle.onChange((on: boolean) => {
                 this.showReasoning = on;
             });
@@ -7394,12 +7396,12 @@ class Index extends ViewPU {
         Row.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Row.create();
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(3878:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(3880:7)", "entry");
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('当前会话 ID');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3879:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3881:9)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().textSecondary);
             Text.layoutWeight(1);
@@ -7407,7 +7409,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(this.currentChat.length > 0 ? this.currentChat : '-');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3880:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3882:9)", "entry");
             Text.fontSize(11);
             Text.fontColor(this.pal().textMuted);
             Text.maxLines(1);
@@ -7418,7 +7420,7 @@ class Index extends ViewPU {
         Row.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Button.createWithLabel('保存服务端/用户名');
-            Button.debugLine("entry/src/main/ets/pages/Index.ets(3885:7)", "entry");
+            Button.debugLine("entry/src/main/ets/pages/Index.ets(3887:7)", "entry");
             Button.width('100%');
             Button.constraintSize({ minHeight: 40 });
             Button.backgroundColor(this.pal().accent);
@@ -7433,7 +7435,7 @@ class Index extends ViewPU {
         Button.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Button.createWithLabel(this.auditing ? '走查中…' : '① 走查并上传所有页面截图（推荐）');
-            Button.debugLine("entry/src/main/ets/pages/Index.ets(3894:7)", "entry");
+            Button.debugLine("entry/src/main/ets/pages/Index.ets(3896:7)", "entry");
             Button.width('100%');
             Button.constraintSize({ minHeight: 44 });
             Button.backgroundColor(this.pal().accent);
@@ -7449,7 +7451,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create(this.auditLog);
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(3901:9)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(3903:9)", "entry");
                         Text.fontSize(10);
                         Text.fontColor(this.pal().textSecondary);
                         Text.width('100%');
@@ -7466,7 +7468,7 @@ class Index extends ViewPU {
         If.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Button.createWithLabel('渲染自检（排查渲染问题用）');
-            Button.debugLine("entry/src/main/ets/pages/Index.ets(3903:7)", "entry");
+            Button.debugLine("entry/src/main/ets/pages/Index.ets(3905:7)", "entry");
             Button.width('100%');
             Button.constraintSize({ minHeight: 40 });
             Button.backgroundColor(this.pal().surfaceHi);
@@ -7478,7 +7480,7 @@ class Index extends ViewPU {
         Button.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Button.createWithLabel('打开完整 Web UI（插件/GenUI/终端）');
-            Button.debugLine("entry/src/main/ets/pages/Index.ets(3909:7)", "entry");
+            Button.debugLine("entry/src/main/ets/pages/Index.ets(3911:7)", "entry");
             Button.width('100%');
             Button.constraintSize({ minHeight: 40 });
             Button.backgroundColor(this.pal().surfaceHi);
@@ -7490,7 +7492,7 @@ class Index extends ViewPU {
         Button.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Button.createWithLabel('退出登录');
-            Button.debugLine("entry/src/main/ets/pages/Index.ets(3915:7)", "entry");
+            Button.debugLine("entry/src/main/ets/pages/Index.ets(3917:7)", "entry");
             Button.width('100%');
             Button.constraintSize({ minHeight: 40 });
             Button.backgroundColor(this.pal().dangerBg);
@@ -7520,7 +7522,7 @@ class Index extends ViewPU {
     ModelSheet(parent = null) {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 10 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(3944:5)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(3946:5)", "entry");
             Column.width('92%');
             Column.padding(16);
             Column.backgroundColor(this.pal().appBg);
@@ -7530,12 +7532,12 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Row.create();
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(3945:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(3947:7)", "entry");
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('模型与上下文');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3946:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3948:9)", "entry");
             Text.fontSize(16);
             Text.fontWeight(FontWeight.Bold);
             Text.fontColor(this.pal().textPrimary);
@@ -7544,7 +7546,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('✕');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3947:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3949:9)", "entry");
             Text.fontSize(16);
             Text.fontColor(this.pal().textSecondary);
             Text.padding(8);
@@ -7556,7 +7558,7 @@ class Index extends ViewPU {
         Row.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(`当前：${this.currentModelName()}`);
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3952:7)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3954:7)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().successText);
             Text.width('100%');
@@ -7566,7 +7568,7 @@ class Index extends ViewPU {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             // 上下文上限
             Text.create(`上下文上限：${this.ctxText().length > 0 ? this.ctxText() : '未设置'}`);
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3957:7)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3959:7)", "entry");
             // 上下文上限
             Text.fontSize(12);
             // 上下文上限
@@ -7578,7 +7580,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Row.create({ space: 6 });
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(3959:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(3961:7)", "entry");
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
@@ -7587,7 +7589,7 @@ class Index extends ViewPU {
                 const p = _item;
                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                     Text.create(this.ctxPresetText(p));
-                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3961:11)", "entry");
+                    Text.debugLine("entry/src/main/ets/pages/Index.ets(3963:11)", "entry");
                     Text.fontSize(12);
                     Text.fontColor(this.pal().accentSoft);
                     Text.padding({ left: 10, right: 10, top: 5, bottom: 5 });
@@ -7606,12 +7608,12 @@ class Index extends ViewPU {
         Row.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Row.create({ space: 6 });
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(3972:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(3974:7)", "entry");
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             TextInput.create({ placeholder: '自定义，如 200k / 1m', text: this.ctxInput });
-            TextInput.debugLine("entry/src/main/ets/pages/Index.ets(3973:9)", "entry");
+            TextInput.debugLine("entry/src/main/ets/pages/Index.ets(3975:9)", "entry");
             TextInput.onChange((v: string) => {
                 this.ctxInput = v;
             });
@@ -7623,7 +7625,7 @@ class Index extends ViewPU {
         }, TextInput);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('应用');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(3979:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(3981:9)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().onAccent);
             Text.padding({ left: 12, right: 12, top: 8, bottom: 8 });
@@ -7647,19 +7649,19 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Row.create({ space: 8 });
-                        Row.debugLine("entry/src/main/ets/pages/Index.ets(3993:9)", "entry");
+                        Row.debugLine("entry/src/main/ets/pages/Index.ets(3995:9)", "entry");
                         Row.padding(10);
                     }, Row);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         LoadingProgress.create();
-                        LoadingProgress.debugLine("entry/src/main/ets/pages/Index.ets(3994:11)", "entry");
+                        LoadingProgress.debugLine("entry/src/main/ets/pages/Index.ets(3996:11)", "entry");
                         LoadingProgress.width(16);
                         LoadingProgress.height(16);
                         LoadingProgress.color(this.pal().accent);
                     }, LoadingProgress);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create('正在读取模型列表…');
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(3995:11)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(3997:11)", "entry");
                         Text.fontSize(12);
                         Text.fontColor(this.pal().textSecondary);
                     }, Text);
@@ -7671,7 +7673,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(1, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create('（没有可选模型：请在设置里添加订阅）');
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(3998:9)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4000:9)", "entry");
                         Text.fontSize(12);
                         Text.fontColor(this.pal().textMuted);
                     }, Text);
@@ -7682,13 +7684,13 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(2, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Scroll.create();
-                        Scroll.debugLine("entry/src/main/ets/pages/Index.ets(4000:9)", "entry");
+                        Scroll.debugLine("entry/src/main/ets/pages/Index.ets(4002:9)", "entry");
                         Scroll.constraintSize({ maxHeight: 420 });
                         Scroll.width('100%');
                     }, Scroll);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Column.create({ space: 8 });
-                        Column.debugLine("entry/src/main/ets/pages/Index.ets(4001:11)", "entry");
+                        Column.debugLine("entry/src/main/ets/pages/Index.ets(4003:11)", "entry");
                         Column.width('100%');
                     }, Column);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
@@ -7697,12 +7699,12 @@ class Index extends ViewPU {
                             const g = _item;
                             this.observeComponentCreation2((elmtId, isInitialRender) => {
                                 Column.create({ space: 4 });
-                                Column.debugLine("entry/src/main/ets/pages/Index.ets(4003:15)", "entry");
+                                Column.debugLine("entry/src/main/ets/pages/Index.ets(4005:15)", "entry");
                                 Column.width('100%');
                             }, Column);
                             this.observeComponentCreation2((elmtId, isInitialRender) => {
                                 Text.create(g.name);
-                                Text.debugLine("entry/src/main/ets/pages/Index.ets(4004:17)", "entry");
+                                Text.debugLine("entry/src/main/ets/pages/Index.ets(4006:17)", "entry");
                                 Text.fontSize(11);
                                 Text.fontColor(this.pal().textMuted);
                                 Text.width('100%');
@@ -7714,7 +7716,7 @@ class Index extends ViewPU {
                                     const e = _item;
                                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                                         Row.create({ space: 8 });
-                                        Row.debugLine("entry/src/main/ets/pages/Index.ets(4006:19)", "entry");
+                                        Row.debugLine("entry/src/main/ets/pages/Index.ets(4008:19)", "entry");
                                         Row.width('100%');
                                         Row.padding(8);
                                         Row.backgroundColor(this.pal().surface);
@@ -7729,7 +7731,7 @@ class Index extends ViewPU {
                                     }, Row);
                                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                                         Text.create(this.labelOfModel(e));
-                                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4007:21)", "entry");
+                                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4009:21)", "entry");
                                         Text.fontSize(13);
                                         Text.fontColor(this.modelSelectable(e) ? this.pal().textPrimary : this.pal().textMuted);
                                         Text.layoutWeight(1);
@@ -7743,7 +7745,7 @@ class Index extends ViewPU {
                                             this.ifElseBranchUpdateFunction(0, () => {
                                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                                     LoadingProgress.create();
-                                                    LoadingProgress.debugLine("entry/src/main/ets/pages/Index.ets(4011:23)", "entry");
+                                                    LoadingProgress.debugLine("entry/src/main/ets/pages/Index.ets(4013:23)", "entry");
                                                     LoadingProgress.width(14);
                                                     LoadingProgress.height(14);
                                                     LoadingProgress.color(this.pal().accent);
@@ -7754,7 +7756,7 @@ class Index extends ViewPU {
                                             this.ifElseBranchUpdateFunction(1, () => {
                                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                                     Text.create('✓ 当前');
-                                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(4013:23)", "entry");
+                                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(4015:23)", "entry");
                                                     Text.fontSize(11);
                                                     Text.fontColor(this.pal().successText);
                                                 }, Text);
@@ -7852,7 +7854,7 @@ class Index extends ViewPU {
     StatusSheet(parent = null) {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 10 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(4110:5)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(4112:5)", "entry");
             Column.width('92%');
             Column.padding(16);
             Column.backgroundColor(this.pal().appBg);
@@ -7862,12 +7864,12 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Row.create();
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(4111:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(4113:7)", "entry");
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('会话状态');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4112:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4114:9)", "entry");
             Text.fontSize(16);
             Text.fontWeight(FontWeight.Bold);
             Text.fontColor(this.pal().textPrimary);
@@ -7876,7 +7878,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('✕');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4113:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4115:9)", "entry");
             Text.fontSize(16);
             Text.fontColor(this.pal().textSecondary);
             Text.padding(8);
@@ -7892,7 +7894,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create(this.goalLine());
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4119:9)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4121:9)", "entry");
                         Text.fontSize(13);
                         Text.fontColor(this.pal().warn);
                         Text.width('100%');
@@ -7913,7 +7915,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create(`进行中：${this.currentTodoLine()}`);
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4123:9)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4125:9)", "entry");
                         Text.fontSize(12);
                         Text.fontColor(this.pal().accentSoft);
                         Text.width('100%');
@@ -7930,7 +7932,7 @@ class Index extends ViewPU {
         If.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(this.statusBarText().length > 0 ? this.statusBarText() : '（暂无用量/模型信息）');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4126:7)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4128:7)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().textSecondary);
             Text.width('100%');
@@ -7939,7 +7941,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(`todos ${todoProgress(this.todos).length > 0 ? todoProgress(this.todos) : '0/0'}`);
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4128:7)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4130:7)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().textSecondary);
             Text.width('100%');
@@ -7951,7 +7953,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create(`cwd: ${this.cwd}`);
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4131:9)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4133:9)", "entry");
                         Text.fontSize(11);
                         Text.fontColor(this.pal().textMuted);
                         Text.width('100%');
@@ -7971,7 +7973,7 @@ class Index extends ViewPU {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             // 模型 / 上下文上限（下一步：切换）
             Row.create({ space: 8 });
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(4136:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(4138:7)", "entry");
             // 模型 / 上下文上限（下一步：切换）
             Row.width('100%');
             // 模型 / 上下文上限（下一步：切换）
@@ -7990,7 +7992,7 @@ class Index extends ViewPU {
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(`模型：${this.currentModelName()}`);
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4137:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4139:9)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().textPrimary);
             Text.layoutWeight(1);
@@ -8004,7 +8006,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create(`上下文 ${this.ctxText()}`);
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4141:11)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4143:11)", "entry");
                         Text.fontSize(11);
                         Text.fontColor(this.pal().textSecondary);
                     }, Text);
@@ -8019,7 +8021,7 @@ class Index extends ViewPU {
         If.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('切换 ›');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4143:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4145:9)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().accentSoft);
             Text.padding({ left: 6, right: 6 });
@@ -8033,7 +8035,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         List.create({ space: 6 });
-                        List.debugLine("entry/src/main/ets/pages/Index.ets(4154:9)", "entry");
+                        List.debugLine("entry/src/main/ets/pages/Index.ets(4156:9)", "entry");
                         List.constraintSize({ maxHeight: 380 });
                         List.width('100%');
                     }, List);
@@ -8052,13 +8054,13 @@ class Index extends ViewPU {
                                 };
                                 const itemCreation2 = (elmtId, isInitialRender) => {
                                     ListItem.create(deepRenderFunction, true);
-                                    ListItem.debugLine("entry/src/main/ets/pages/Index.ets(4156:13)", "entry");
+                                    ListItem.debugLine("entry/src/main/ets/pages/Index.ets(4158:13)", "entry");
                                 };
                                 const deepRenderFunction = (elmtId, isInitialRender) => {
                                     itemCreation(elmtId, isInitialRender);
                                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                                         Row.create({ space: 8 });
-                                        Row.debugLine("entry/src/main/ets/pages/Index.ets(4157:15)", "entry");
+                                        Row.debugLine("entry/src/main/ets/pages/Index.ets(4159:15)", "entry");
                                         Row.width('100%');
                                         Row.padding(8);
                                         Row.backgroundColor(this.pal().surface);
@@ -8066,14 +8068,14 @@ class Index extends ViewPU {
                                     }, Row);
                                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                                         Text.create(td.status === 'completed' ? '✅' : (td.status === 'in_progress' ? '◐' : '○'));
-                                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4158:17)", "entry");
+                                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4160:17)", "entry");
                                         Text.fontSize(13);
                                         Text.fontColor(td.status === 'completed' ? this.pal().successText : this.pal().textSecondary);
                                     }, Text);
                                     Text.pop();
                                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                                         Text.create(td.text !== undefined ? td.text : '');
-                                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4160:17)", "entry");
+                                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4162:17)", "entry");
                                         Text.fontSize(13);
                                         Text.fontColor(td.status === 'completed' ? this.pal().textMuted : this.pal().textPrimary);
                                         Text.layoutWeight(1);
@@ -8097,7 +8099,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(1, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create('（本会话暂无 todos）');
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4172:9)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4174:9)", "entry");
                         Text.fontSize(12);
                         Text.fontColor(this.pal().textMuted);
                         Text.width('100%');
@@ -8112,7 +8114,7 @@ class Index extends ViewPU {
     SelfCheckSheet(parent = null) {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create();
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(4182:5)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(4184:5)", "entry");
             Column.width('94%');
             Column.height('86%');
             Column.padding(12);
@@ -8122,12 +8124,12 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Row.create();
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(4183:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(4185:7)", "entry");
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('渲染自检');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4184:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4186:9)", "entry");
             Text.fontSize(16);
             Text.fontWeight(FontWeight.Bold);
             Text.fontColor(this.pal().textPrimary);
@@ -8136,7 +8138,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('✕');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4185:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4187:9)", "entry");
             Text.fontSize(16);
             Text.fontColor(this.pal().textSecondary);
             Text.padding(8);
@@ -8148,7 +8150,7 @@ class Index extends ViewPU {
         Row.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Button.createWithLabel(this.geoRunning ? '采集中…' : '采集各页版面几何（数值，无需网络）');
-            Button.debugLine("entry/src/main/ets/pages/Index.ets(4190:7)", "entry");
+            Button.debugLine("entry/src/main/ets/pages/Index.ets(4192:7)", "entry");
             Button.width('100%');
             Button.constraintSize({ minHeight: 40 });
             Button.backgroundColor(this.pal().accentSoft);
@@ -8159,7 +8161,7 @@ class Index extends ViewPU {
         Button.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('下方这一段可【长按复制】后直接粘贴给对方 —— 不必截图（零网络也能取证）');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4195:7)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4197:7)", "entry");
             Text.fontSize(11);
             Text.fontColor(this.pal().warn);
             Text.width('100%');
@@ -8167,7 +8169,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(this.auditText());
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4197:7)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4199:7)", "entry");
             Text.fontSize(11);
             Text.fontColor(this.pal().successText);
             Text.fontFamily('monospace');
@@ -8180,19 +8182,19 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Scroll.create();
-            Scroll.debugLine("entry/src/main/ets/pages/Index.ets(4203:7)", "entry");
+            Scroll.debugLine("entry/src/main/ets/pages/Index.ets(4205:7)", "entry");
             Scroll.layoutWeight(1);
             Scroll.width('100%');
         }, Scroll);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 10 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(4204:9)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(4206:9)", "entry");
             Column.width('100%');
             Column.padding(10);
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 6 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(4205:11)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(4207:11)", "entry");
             Column.width('100%');
             Column.padding(8);
             Column.backgroundColor(this.pal().surface);
@@ -8201,7 +8203,7 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('A 纯文本（自动换行）');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4206:13)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4208:13)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().textSecondary);
             Text.width('100%');
@@ -8210,7 +8212,7 @@ class Index extends ViewPU {
         {
             this.observeComponentCreation2((elmtId, isInitialRender) => {
                 if (isInitialRender) {
-                    let componentCall = new MarkdownView(this, { text: '这是一段用于自检的普通中文文本，应当自动换行并且左右不溢出。' }, undefined, elmtId, () => { }, { page: "entry/src/main/ets/pages/Index.ets", line: 4207, col: 13 });
+                    let componentCall = new MarkdownView(this, { text: '这是一段用于自检的普通中文文本，应当自动换行并且左右不溢出。' }, undefined, elmtId, () => { }, { page: "entry/src/main/ets/pages/Index.ets", line: 4209, col: 13 });
                     ViewPU.create(componentCall);
                     let paramsLambda = () => {
                         return {
@@ -8229,7 +8231,7 @@ class Index extends ViewPU {
         Column.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 6 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(4211:11)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(4213:11)", "entry");
             Column.width('100%');
             Column.padding(8);
             Column.backgroundColor(this.pal().surface);
@@ -8238,7 +8240,7 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('B 行内样式（粗/斜/删除/行内码/链接）');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4212:13)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4214:13)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().textSecondary);
             Text.width('100%');
@@ -8247,7 +8249,7 @@ class Index extends ViewPU {
         {
             this.observeComponentCreation2((elmtId, isInitialRender) => {
                 if (isInitialRender) {
-                    let componentCall = new MarkdownView(this, { text: '这里有 **粗体**、*斜体*、~~删除线~~、`inlineCode()` 与 [一个链接](https://example.com)。' }, undefined, elmtId, () => { }, { page: "entry/src/main/ets/pages/Index.ets", line: 4213, col: 13 });
+                    let componentCall = new MarkdownView(this, { text: '这里有 **粗体**、*斜体*、~~删除线~~、`inlineCode()` 与 [一个链接](https://example.com)。' }, undefined, elmtId, () => { }, { page: "entry/src/main/ets/pages/Index.ets", line: 4215, col: 13 });
                     ViewPU.create(componentCall);
                     let paramsLambda = () => {
                         return {
@@ -8266,7 +8268,7 @@ class Index extends ViewPU {
         Column.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 6 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(4217:11)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(4219:11)", "entry");
             Column.width('100%');
             Column.padding(8);
             Column.backgroundColor(this.pal().surface);
@@ -8275,7 +8277,7 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('C 标题 + 列表');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4218:13)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4220:13)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().textSecondary);
             Text.width('100%');
@@ -8284,7 +8286,7 @@ class Index extends ViewPU {
         {
             this.observeComponentCreation2((elmtId, isInitialRender) => {
                 if (isInitialRender) {
-                    let componentCall = new MarkdownView(this, { text: '## 二级标题\n- 列表项一\n- 列表项二\n\n1. 有序一\n2. 有序二' }, undefined, elmtId, () => { }, { page: "entry/src/main/ets/pages/Index.ets", line: 4219, col: 13 });
+                    let componentCall = new MarkdownView(this, { text: '## 二级标题\n- 列表项一\n- 列表项二\n\n1. 有序一\n2. 有序二' }, undefined, elmtId, () => { }, { page: "entry/src/main/ets/pages/Index.ets", line: 4221, col: 13 });
                     ViewPU.create(componentCall);
                     let paramsLambda = () => {
                         return {
@@ -8303,7 +8305,7 @@ class Index extends ViewPU {
         Column.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 6 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(4223:11)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(4225:11)", "entry");
             Column.width('100%');
             Column.padding(8);
             Column.backgroundColor(this.pal().surface);
@@ -8312,7 +8314,7 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('D 代码块（含超长行）');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4224:13)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4226:13)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().textSecondary);
             Text.width('100%');
@@ -8321,7 +8323,7 @@ class Index extends ViewPU {
         {
             this.observeComponentCreation2((elmtId, isInitialRender) => {
                 if (isInitialRender) {
-                    let componentCall = new MarkdownView(this, { text: '```ts\nconst veryLongVariableName: string = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";\n```' }, undefined, elmtId, () => { }, { page: "entry/src/main/ets/pages/Index.ets", line: 4225, col: 13 });
+                    let componentCall = new MarkdownView(this, { text: '```ts\nconst veryLongVariableName: string = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";\n```' }, undefined, elmtId, () => { }, { page: "entry/src/main/ets/pages/Index.ets", line: 4227, col: 13 });
                     ViewPU.create(componentCall);
                     let paramsLambda = () => {
                         return {
@@ -8340,7 +8342,7 @@ class Index extends ViewPU {
         Column.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 6 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(4229:11)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(4231:11)", "entry");
             Column.width('100%');
             Column.padding(8);
             Column.backgroundColor(this.pal().surface);
@@ -8349,7 +8351,7 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('E 表格');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4230:13)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4232:13)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().textSecondary);
             Text.width('100%');
@@ -8358,7 +8360,7 @@ class Index extends ViewPU {
         {
             this.observeComponentCreation2((elmtId, isInitialRender) => {
                 if (isInitialRender) {
-                    let componentCall = new MarkdownView(this, { text: '| 列一 | 列二 |\n| --- | --- |\n| 值一 | 值二 |\n| 更长的值 | 另一个值 |' }, undefined, elmtId, () => { }, { page: "entry/src/main/ets/pages/Index.ets", line: 4231, col: 13 });
+                    let componentCall = new MarkdownView(this, { text: '| 列一 | 列二 |\n| --- | --- |\n| 值一 | 值二 |\n| 更长的值 | 另一个值 |' }, undefined, elmtId, () => { }, { page: "entry/src/main/ets/pages/Index.ets", line: 4233, col: 13 });
                     ViewPU.create(componentCall);
                     let paramsLambda = () => {
                         return {
@@ -8377,7 +8379,7 @@ class Index extends ViewPU {
         Column.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 6 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(4235:11)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(4237:11)", "entry");
             Column.width('100%');
             Column.padding(8);
             Column.backgroundColor(this.pal().surface);
@@ -8386,7 +8388,7 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('F 工具 pill 行（Flex 换行）');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4236:13)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4238:13)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().textSecondary);
             Text.width('100%');
@@ -8394,7 +8396,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Flex.create({ wrap: FlexWrap.Wrap });
-            Flex.debugLine("entry/src/main/ets/pages/Index.ets(4237:13)", "entry");
+            Flex.debugLine("entry/src/main/ets/pages/Index.ets(4239:13)", "entry");
             Flex.width('100%');
         }, Flex);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
@@ -8403,7 +8405,7 @@ class Index extends ViewPU {
                 const t = _item;
                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                     Text.create(t);
-                    Text.debugLine("entry/src/main/ets/pages/Index.ets(4239:17)", "entry");
+                    Text.debugLine("entry/src/main/ets/pages/Index.ets(4241:17)", "entry");
                     Text.fontSize(12);
                     Text.fontColor(this.pal().successText);
                     Text.padding({ left: 8, right: 8, top: 5, bottom: 5 });
@@ -8421,7 +8423,7 @@ class Index extends ViewPU {
         Column.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 6 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(4248:11)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(4250:11)", "entry");
             Column.width('100%');
             Column.padding(8);
             Column.backgroundColor(this.pal().surface);
@@ -8430,7 +8432,7 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('G 长 URL（不可断词）');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4249:13)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4251:13)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().textSecondary);
             Text.width('100%');
@@ -8438,7 +8440,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('https://xbot.pivotlang.tech/api/files/download?key=uploads%2F4%2Faaef9711-1349-420d-97ea-94e70e2401e7.jpg&inline=1');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4250:13)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4252:13)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().accentSoft);
             Text.width('100%');
@@ -8447,7 +8449,7 @@ class Index extends ViewPU {
         Column.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 6 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(4255:11)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(4257:11)", "entry");
             Column.width('100%');
             Column.padding(8);
             Column.backgroundColor(this.pal().surface);
@@ -8456,7 +8458,7 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('H 顶栏内联布局');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4256:13)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4258:13)", "entry");
             Text.fontSize(12);
             Text.fontColor(this.pal().textSecondary);
             Text.width('100%');
@@ -8464,28 +8466,12 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Row.create();
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(4257:13)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(4259:13)", "entry");
             Row.width('100%');
             Row.backgroundColor(this.pal().surfaceAlt);
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('☰');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4258:15)", "entry");
-            Text.fontSize(20);
-            Text.fontColor(this.pal().textPrimary);
-            Text.padding(10);
-        }, Text);
-        Text.pop();
-        this.observeComponentCreation2((elmtId, isInitialRender) => {
-            Text.create('标题文本');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4259:15)", "entry");
-            Text.fontSize(15);
-            Text.fontColor(this.pal().textPrimary);
-            Text.layoutWeight(1);
-        }, Text);
-        Text.pop();
-        this.observeComponentCreation2((elmtId, isInitialRender) => {
-            Text.create('⊞');
             Text.debugLine("entry/src/main/ets/pages/Index.ets(4260:15)", "entry");
             Text.fontSize(20);
             Text.fontColor(this.pal().textPrimary);
@@ -8493,8 +8479,24 @@ class Index extends ViewPU {
         }, Text);
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
-            Text.create('⚙');
+            Text.create('标题文本');
             Text.debugLine("entry/src/main/ets/pages/Index.ets(4261:15)", "entry");
+            Text.fontSize(15);
+            Text.fontColor(this.pal().textPrimary);
+            Text.layoutWeight(1);
+        }, Text);
+        Text.pop();
+        this.observeComponentCreation2((elmtId, isInitialRender) => {
+            Text.create('⊞');
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4262:15)", "entry");
+            Text.fontSize(20);
+            Text.fontColor(this.pal().textPrimary);
+            Text.padding(10);
+        }, Text);
+        Text.pop();
+        this.observeComponentCreation2((elmtId, isInitialRender) => {
+            Text.create('⚙');
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4263:15)", "entry");
             Text.fontSize(20);
             Text.fontColor(this.pal().textPrimary);
             Text.padding(10);
@@ -8509,7 +8511,7 @@ class Index extends ViewPU {
     QueueSheet(parent = null) {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 8 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(4281:5)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(4283:5)", "entry");
             Column.width('92%');
             Column.padding(16);
             Column.backgroundColor(this.pal().appBg);
@@ -8518,12 +8520,12 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Row.create();
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(4282:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(4284:7)", "entry");
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create(`待发队列 (${this.queue.length})`);
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4283:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4285:9)", "entry");
             Text.fontSize(16);
             Text.fontWeight(FontWeight.Bold);
             Text.fontColor(this.pal().textPrimary);
@@ -8532,7 +8534,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('✕');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4285:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4287:9)", "entry");
             Text.fontSize(16);
             Text.fontColor(this.pal().textSecondary);
             Text.padding(8);
@@ -8544,7 +8546,7 @@ class Index extends ViewPU {
         Row.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             List.create();
-            List.debugLine("entry/src/main/ets/pages/Index.ets(4290:7)", "entry");
+            List.debugLine("entry/src/main/ets/pages/Index.ets(4292:7)", "entry");
             List.height(300);
             List.width('100%');
         }, List);
@@ -8563,13 +8565,13 @@ class Index extends ViewPU {
                     };
                     const itemCreation2 = (elmtId, isInitialRender) => {
                         ListItem.create(deepRenderFunction, true);
-                        ListItem.debugLine("entry/src/main/ets/pages/Index.ets(4292:11)", "entry");
+                        ListItem.debugLine("entry/src/main/ets/pages/Index.ets(4294:11)", "entry");
                     };
                     const deepRenderFunction = (elmtId, isInitialRender) => {
                         itemCreation(elmtId, isInitialRender);
                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                             Row.create({ space: 6 });
-                            Row.debugLine("entry/src/main/ets/pages/Index.ets(4293:13)", "entry");
+                            Row.debugLine("entry/src/main/ets/pages/Index.ets(4295:13)", "entry");
                             Row.width('100%');
                             Row.padding(8);
                             Row.backgroundColor(this.pal().surface);
@@ -8579,7 +8581,7 @@ class Index extends ViewPU {
                             Text.create(q.content !== undefined && q.content.length > 0
                                 ? q.content
                                 : (q.text !== undefined ? q.text : ''));
-                            Text.debugLine("entry/src/main/ets/pages/Index.ets(4294:15)", "entry");
+                            Text.debugLine("entry/src/main/ets/pages/Index.ets(4296:15)", "entry");
                             Text.fontSize(13);
                             Text.fontColor(this.pal().textPrimary);
                             Text.layoutWeight(1);
@@ -8590,7 +8592,7 @@ class Index extends ViewPU {
                         Text.pop();
                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                             Text.create('↑');
-                            Text.debugLine("entry/src/main/ets/pages/Index.ets(4300:15)", "entry");
+                            Text.debugLine("entry/src/main/ets/pages/Index.ets(4302:15)", "entry");
                             Text.fontSize(14);
                             Text.fontColor(this.pal().accentSoft);
                             Text.padding(6);
@@ -8602,7 +8604,7 @@ class Index extends ViewPU {
                         Text.pop();
                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                             Text.create('↓');
-                            Text.debugLine("entry/src/main/ets/pages/Index.ets(4304:15)", "entry");
+                            Text.debugLine("entry/src/main/ets/pages/Index.ets(4306:15)", "entry");
                             Text.fontSize(14);
                             Text.fontColor(this.pal().accentSoft);
                             Text.padding(6);
@@ -8614,7 +8616,7 @@ class Index extends ViewPU {
                         Text.pop();
                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                             Text.create('✕');
-                            Text.debugLine("entry/src/main/ets/pages/Index.ets(4308:15)", "entry");
+                            Text.debugLine("entry/src/main/ets/pages/Index.ets(4310:15)", "entry");
                             Text.fontSize(14);
                             Text.fontColor(this.pal().dangerText);
                             Text.padding(6);
@@ -8641,7 +8643,7 @@ class Index extends ViewPU {
     PluginsSheet(parent = null) {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 8 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(4326:5)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(4328:5)", "entry");
             Column.width('92%');
             Column.padding(16);
             Column.backgroundColor(this.pal().appBg);
@@ -8650,12 +8652,12 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Row.create();
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(4327:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(4329:7)", "entry");
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('能力面板');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4328:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4330:9)", "entry");
             Text.fontSize(16);
             Text.fontWeight(FontWeight.Bold);
             Text.fontColor(this.pal().textPrimary);
@@ -8664,7 +8666,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('✕');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4329:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4331:9)", "entry");
             Text.fontSize(16);
             Text.fontColor(this.pal().textSecondary);
             Text.padding(8);
@@ -8676,7 +8678,7 @@ class Index extends ViewPU {
         Row.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('原生渲染聊天主链路；下列能力由 ArkWeb 承载（与 Web 版同源、能力一致）：');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4334:7)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4336:7)", "entry");
             Text.fontSize(11);
             Text.fontColor(this.pal().textSecondary);
             Text.width('100%');
@@ -8684,7 +8686,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             List.create();
-            List.debugLine("entry/src/main/ets/pages/Index.ets(4337:7)", "entry");
+            List.debugLine("entry/src/main/ets/pages/Index.ets(4339:7)", "entry");
             List.height(320);
             List.width('100%');
         }, List);
@@ -8700,13 +8702,13 @@ class Index extends ViewPU {
             };
             const itemCreation2 = (elmtId, isInitialRender) => {
                 ListItem.create(deepRenderFunction, true);
-                ListItem.debugLine("entry/src/main/ets/pages/Index.ets(4339:9)", "entry");
+                ListItem.debugLine("entry/src/main/ets/pages/Index.ets(4341:9)", "entry");
             };
             const deepRenderFunction = (elmtId, isInitialRender) => {
                 itemCreation(elmtId, isInitialRender);
                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                     Row.create();
-                    Row.debugLine("entry/src/main/ets/pages/Index.ets(4340:11)", "entry");
+                    Row.debugLine("entry/src/main/ets/pages/Index.ets(4342:11)", "entry");
                     Row.width('100%');
                     Row.padding(12);
                     Row.backgroundColor(this.pal().surfaceAlt);
@@ -8718,7 +8720,7 @@ class Index extends ViewPU {
                 }, Row);
                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                     Text.create('🌐  完整 Web UI');
-                    Text.debugLine("entry/src/main/ets/pages/Index.ets(4341:13)", "entry");
+                    Text.debugLine("entry/src/main/ets/pages/Index.ets(4343:13)", "entry");
                     Text.fontSize(14);
                     Text.fontColor(this.pal().textPrimary);
                     Text.layoutWeight(1);
@@ -8726,7 +8728,7 @@ class Index extends ViewPU {
                 Text.pop();
                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                     Text.create('打开');
-                    Text.debugLine("entry/src/main/ets/pages/Index.ets(4342:13)", "entry");
+                    Text.debugLine("entry/src/main/ets/pages/Index.ets(4344:13)", "entry");
                     Text.fontSize(12);
                     Text.fontColor(this.pal().accentSoft);
                 }, Text);
@@ -8754,13 +8756,13 @@ class Index extends ViewPU {
                     };
                     const itemCreation2 = (elmtId, isInitialRender) => {
                         ListItem.create(deepRenderFunction, true);
-                        ListItem.debugLine("entry/src/main/ets/pages/Index.ets(4351:11)", "entry");
+                        ListItem.debugLine("entry/src/main/ets/pages/Index.ets(4353:11)", "entry");
                     };
                     const deepRenderFunction = (elmtId, isInitialRender) => {
                         itemCreation(elmtId, isInitialRender);
                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                             Row.create();
-                            Row.debugLine("entry/src/main/ets/pages/Index.ets(4352:13)", "entry");
+                            Row.debugLine("entry/src/main/ets/pages/Index.ets(4354:13)", "entry");
                             Row.width('100%');
                             Row.padding(12);
                             Row.backgroundColor(this.pal().surfaceAlt);
@@ -8772,20 +8774,20 @@ class Index extends ViewPU {
                         }, Row);
                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                             Column.create();
-                            Column.debugLine("entry/src/main/ets/pages/Index.ets(4353:15)", "entry");
+                            Column.debugLine("entry/src/main/ets/pages/Index.ets(4355:15)", "entry");
                             Column.layoutWeight(1);
                             Column.alignItems(HorizontalAlign.Start);
                         }, Column);
                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                             Text.create(p.name);
-                            Text.debugLine("entry/src/main/ets/pages/Index.ets(4354:17)", "entry");
+                            Text.debugLine("entry/src/main/ets/pages/Index.ets(4356:17)", "entry");
                             Text.fontSize(14);
                             Text.fontColor(this.pal().textPrimary);
                         }, Text);
                         Text.pop();
                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                             Text.create(p.url);
-                            Text.debugLine("entry/src/main/ets/pages/Index.ets(4355:17)", "entry");
+                            Text.debugLine("entry/src/main/ets/pages/Index.ets(4357:17)", "entry");
                             Text.fontSize(10);
                             Text.fontColor(this.pal().textMuted);
                             Text.maxLines(1);
@@ -8795,7 +8797,7 @@ class Index extends ViewPU {
                         Column.pop();
                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                             Text.create('打开');
-                            Text.debugLine("entry/src/main/ets/pages/Index.ets(4358:15)", "entry");
+                            Text.debugLine("entry/src/main/ets/pages/Index.ets(4360:15)", "entry");
                             Text.fontSize(12);
                             Text.fontColor(this.pal().accentSoft);
                         }, Text);
@@ -8817,7 +8819,7 @@ class Index extends ViewPU {
     AskUserSheet(parent = null) {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create({ space: 10 });
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(4378:5)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(4380:5)", "entry");
             Column.width('94%');
             Column.padding(16);
             Column.backgroundColor(this.pal().surfaceAlt);
@@ -8826,7 +8828,7 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('xbot 需要你确认');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4379:7)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4381:7)", "entry");
             Text.fontSize(15);
             Text.fontWeight(FontWeight.Bold);
             Text.fontColor(this.pal().warn);
@@ -8835,7 +8837,7 @@ class Index extends ViewPU {
         Text.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             List.create();
-            List.debugLine("entry/src/main/ets/pages/Index.ets(4380:7)", "entry");
+            List.debugLine("entry/src/main/ets/pages/Index.ets(4382:7)", "entry");
             List.constraintSize({ maxHeight: 420 });
             List.width('100%');
         }, List);
@@ -8854,13 +8856,13 @@ class Index extends ViewPU {
                     };
                     const itemCreation2 = (elmtId, isInitialRender) => {
                         ListItem.create(deepRenderFunction, true);
-                        ListItem.debugLine("entry/src/main/ets/pages/Index.ets(4383:13)", "entry");
+                        ListItem.debugLine("entry/src/main/ets/pages/Index.ets(4385:13)", "entry");
                     };
                     const deepRenderFunction = (elmtId, isInitialRender) => {
                         itemCreation(elmtId, isInitialRender);
                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                             Column.create({ space: 6 });
-                            Column.debugLine("entry/src/main/ets/pages/Index.ets(4384:15)", "entry");
+                            Column.debugLine("entry/src/main/ets/pages/Index.ets(4386:15)", "entry");
                             Column.width('100%');
                             Column.padding(8);
                         }, Column);
@@ -8870,7 +8872,7 @@ class Index extends ViewPU {
                                 this.ifElseBranchUpdateFunction(0, () => {
                                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                                         Text.create(q.header);
-                                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4386:19)", "entry");
+                                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4388:19)", "entry");
                                         Text.fontSize(12);
                                         Text.fontColor(this.pal().textSecondary);
                                         Text.width('100%');
@@ -8886,7 +8888,7 @@ class Index extends ViewPU {
                         If.pop();
                         this.observeComponentCreation2((elmtId, isInitialRender) => {
                             Text.create(q.question !== undefined ? q.question : '');
-                            Text.debugLine("entry/src/main/ets/pages/Index.ets(4388:17)", "entry");
+                            Text.debugLine("entry/src/main/ets/pages/Index.ets(4390:17)", "entry");
                             Text.fontSize(14);
                             Text.fontColor(this.pal().textPrimary);
                             Text.width('100%');
@@ -8898,7 +8900,7 @@ class Index extends ViewPU {
                                 const opt = _item;
                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                     Row.create();
-                                    Row.debugLine("entry/src/main/ets/pages/Index.ets(4391:19)", "entry");
+                                    Row.debugLine("entry/src/main/ets/pages/Index.ets(4393:19)", "entry");
                                     Row.width('100%');
                                     Row.padding(8);
                                     Row.backgroundColor(this.pal().surface);
@@ -8909,21 +8911,21 @@ class Index extends ViewPU {
                                 }, Row);
                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                     Text.create(this.isAskSelected(q.id !== undefined ? q.id : `q${qi}`, opt.label !== undefined ? opt.label : '') ? '◉' : '○');
-                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(4392:21)", "entry");
+                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(4394:21)", "entry");
                                     Text.fontSize(14);
                                     Text.fontColor(this.pal().accentText);
                                 }, Text);
                                 Text.pop();
                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                     Column.create();
-                                    Column.debugLine("entry/src/main/ets/pages/Index.ets(4395:21)", "entry");
+                                    Column.debugLine("entry/src/main/ets/pages/Index.ets(4397:21)", "entry");
                                     Column.layoutWeight(1);
                                     Column.alignItems(HorizontalAlign.Start);
                                     Column.margin({ left: 6 });
                                 }, Column);
                                 this.observeComponentCreation2((elmtId, isInitialRender) => {
                                     Text.create(opt.label !== undefined ? opt.label : '');
-                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(4396:23)", "entry");
+                                    Text.debugLine("entry/src/main/ets/pages/Index.ets(4398:23)", "entry");
                                     Text.fontSize(13);
                                     Text.fontColor(this.pal().textPrimary);
                                 }, Text);
@@ -8934,7 +8936,7 @@ class Index extends ViewPU {
                                         this.ifElseBranchUpdateFunction(0, () => {
                                             this.observeComponentCreation2((elmtId, isInitialRender) => {
                                                 Text.create(opt.description);
-                                                Text.debugLine("entry/src/main/ets/pages/Index.ets(4398:25)", "entry");
+                                                Text.debugLine("entry/src/main/ets/pages/Index.ets(4400:25)", "entry");
                                                 Text.fontSize(11);
                                                 Text.fontColor(this.pal().textMuted);
                                             }, Text);
@@ -8959,7 +8961,7 @@ class Index extends ViewPU {
                                 this.ifElseBranchUpdateFunction(0, () => {
                                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                                         TextInput.create({ placeholder: '其他（自己填）' });
-                                        TextInput.debugLine("entry/src/main/ets/pages/Index.ets(4412:19)", "entry");
+                                        TextInput.debugLine("entry/src/main/ets/pages/Index.ets(4414:19)", "entry");
                                         TextInput.onChange((v: string) => {
                                             const next: AskSelection[] = [];
                                             for (let i = 0; i < this.askSelections.length; i++) {
@@ -8997,12 +8999,12 @@ class Index extends ViewPU {
         List.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Row.create({ space: 8 });
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(4433:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(4435:7)", "entry");
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Button.createWithLabel('取消');
-            Button.debugLine("entry/src/main/ets/pages/Index.ets(4434:9)", "entry");
+            Button.debugLine("entry/src/main/ets/pages/Index.ets(4436:9)", "entry");
             Button.layoutWeight(1);
             Button.constraintSize({ minHeight: 42 });
             Button.backgroundColor(this.pal().surfaceHi);
@@ -9013,7 +9015,7 @@ class Index extends ViewPU {
         Button.pop();
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Button.createWithLabel(this.askBusy ? '提交中…' : '提交');
-            Button.debugLine("entry/src/main/ets/pages/Index.ets(4437:9)", "entry");
+            Button.debugLine("entry/src/main/ets/pages/Index.ets(4439:9)", "entry");
             Button.layoutWeight(1);
             Button.constraintSize({ minHeight: 42 });
             Button.backgroundColor(this.pal().accent);
@@ -9030,7 +9032,7 @@ class Index extends ViewPU {
     ImageViewer(parent = null) {
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Column.create();
-            Column.debugLine("entry/src/main/ets/pages/Index.ets(4452:5)", "entry");
+            Column.debugLine("entry/src/main/ets/pages/Index.ets(4454:5)", "entry");
             Column.width('94%');
             Column.height('80%');
             Column.padding(12);
@@ -9040,12 +9042,12 @@ class Index extends ViewPU {
         }, Column);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Row.create({ space: 8 });
-            Row.debugLine("entry/src/main/ets/pages/Index.ets(4453:7)", "entry");
+            Row.debugLine("entry/src/main/ets/pages/Index.ets(4455:7)", "entry");
             Row.width('100%');
         }, Row);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('图片');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4454:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4456:9)", "entry");
             Text.fontSize(15);
             Text.fontColor(this.pal().textPrimary);
             Text.layoutWeight(1);
@@ -9057,14 +9059,14 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create(scaleText(this.imgScale));
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4456:11)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4458:11)", "entry");
                         Text.fontSize(12);
                         Text.fontColor(this.pal().textSecondary);
                     }, Text);
                     Text.pop();
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create('复位');
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4457:11)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4459:11)", "entry");
                         Text.fontSize(12);
                         Text.fontColor(this.pal().accentSoft);
                         Text.padding(6);
@@ -9089,7 +9091,7 @@ class Index extends ViewPU {
             // 保存到相册：走系统安全组件（SaveButton）—— 用户授权后才有写权限，
             // 因此不需要申请相册写权限，也不会在未授权时静默失败。
             SaveButton.create({ icon: SaveIconStyle.FULL_FILLED, text: SaveDescription.SAVE_IMAGE, buttonType: ButtonType.Capsule });
-            SaveButton.debugLine("entry/src/main/ets/pages/Index.ets(4465:9)", "entry");
+            SaveButton.debugLine("entry/src/main/ets/pages/Index.ets(4467:9)", "entry");
             // 保存到相册：走系统安全组件（SaveButton）—— 用户授权后才有写权限，
             // 因此不需要申请相册写权限，也不会在未授权时静默失败。
             SaveButton.onClick((event: ClickEvent, result: SaveButtonOnClickResult) => {
@@ -9103,7 +9105,7 @@ class Index extends ViewPU {
         }, SaveButton);
         this.observeComponentCreation2((elmtId, isInitialRender) => {
             Text.create('✕');
-            Text.debugLine("entry/src/main/ets/pages/Index.ets(4473:9)", "entry");
+            Text.debugLine("entry/src/main/ets/pages/Index.ets(4475:9)", "entry");
             Text.fontSize(16);
             Text.fontColor(this.pal().textSecondary);
             Text.padding(10);
@@ -9119,20 +9121,20 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(0, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Column.create();
-                        Column.debugLine("entry/src/main/ets/pages/Index.ets(4479:9)", "entry");
+                        Column.debugLine("entry/src/main/ets/pages/Index.ets(4481:9)", "entry");
                         Column.layoutWeight(1);
                         Column.justifyContent(FlexAlign.Center);
                     }, Column);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         LoadingProgress.create();
-                        LoadingProgress.debugLine("entry/src/main/ets/pages/Index.ets(4480:11)", "entry");
+                        LoadingProgress.debugLine("entry/src/main/ets/pages/Index.ets(4482:11)", "entry");
                         LoadingProgress.width(32);
                         LoadingProgress.height(32);
                         LoadingProgress.color(this.pal().accent);
                     }, LoadingProgress);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Text.create('加载图片…');
-                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4481:11)", "entry");
+                        Text.debugLine("entry/src/main/ets/pages/Index.ets(4483:11)", "entry");
                         Text.fontSize(12);
                         Text.fontColor(this.pal().textSecondary);
                         Text.margin({ top: 8 });
@@ -9145,7 +9147,7 @@ class Index extends ViewPU {
                 this.ifElseBranchUpdateFunction(1, () => {
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Stack.create();
-                        Stack.debugLine("entry/src/main/ets/pages/Index.ets(4484:9)", "entry");
+                        Stack.debugLine("entry/src/main/ets/pages/Index.ets(4486:9)", "entry");
                         Stack.layoutWeight(1);
                         Stack.width('100%');
                         Stack.clip(true);
@@ -9156,7 +9158,7 @@ class Index extends ViewPU {
                     }, Stack);
                     this.observeComponentCreation2((elmtId, isInitialRender) => {
                         Image.create(this.imagePixel);
-                        Image.debugLine("entry/src/main/ets/pages/Index.ets(4485:11)", "entry");
+                        Image.debugLine("entry/src/main/ets/pages/Index.ets(4487:11)", "entry");
                         Image.objectFit(ImageFit.Contain);
                         Image.width('100%');
                         Image.height('100%');
