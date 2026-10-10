@@ -33,8 +33,8 @@ import {
 } from '../core/imgops';
 import {
   fontScaleFrom, fontScaleLabel, fontScalePresets, KEY_APP_THEME, KEY_CODE_WRAP, KEY_FONT_SCALE, KEY_SURFACE,
-  KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE, KEY_ORB, KEY_REASONING_DEFAULT, KEY_SEND_KEY, KEY_STARRED, normalizeSendKey,
-  orbEnabled, parseBool, sendKeyLabel, settingOf, settingLabel, SEND_KEY_MOD_ENTER,
+  KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE, KEY_ORB, KEY_REASONING_DEFAULT, KEY_SEND_KEY, KEY_SESSION_CATEGORY,
+  KEY_STARRED, normalizeSendKey, orbEnabled, parseBool, sendKeyLabel, settingOf, settingLabel, SEND_KEY_MOD_ENTER,
 } from '../core/settings';
 import {
   isInterruptSend, MODE_INTERRUPT, MODE_QUEUE, modeHint, modeLabel, sendToast, toggleMode,
@@ -44,6 +44,10 @@ import { blocksSignature, completedBlocks, displayContent, displayReasoning, row
 import {
   channelLabel, hiddenRowCount, visibleRows, MAX_ROWS_VISIBLE,
 } from '../core/sessionpick';
+import {
+  collapseKey, groupSessionsFromItems, groupTitle, normalizeSessionCategory,
+  pathGroupTooltip, SESSION_CATEGORIES, SessionGroup, sessionCategoryLabel,
+} from '../core/sessiongroup';
 import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msgindex';
 import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem } from '../core/pluginhost';
 import {
@@ -97,6 +101,26 @@ class AskSelection {
   qid: string = '';
   labels: string[] = [];
   other: string = '';
+}
+
+/**
+ * 抽屉会话列表的**分组渲染单元**（页面侧 VM）。
+ *
+ * ⛔ 为什么还要一层：`core/sessiongroup.ets` 的分组产物只带"分组/排序读到的字段"
+ *   （`GroupSession`），而抽屉的行卡片要渲染 `label`/`running` 等**原始行字段**
+ *   ⇒ 这里把 `SessionGroup` 与原始 `SessionItem` 配对（顺序仍由纯逻辑决定）。
+ *   这样行体（原封不动的 `s: SessionItem` 渲染）**一个字都不用改**，也不需要把渲染字段
+ *   塞回纯逻辑模块（保持 `core/` 只谈分组语义）。
+ */
+class DrawerGroup {
+  /** 组键（path = 完整目录 / `__unset__`；time = 桶名；status = 状态名）。 */
+  key: string = '';
+  /** 组标题（来自 `groupTitle`，不在页面里重写一套文案规则）。 */
+  title: string = '';
+  /** 完整路径（仅 path 分类且非 unset 时非空；原生端用作行内副标题消歧）。 */
+  tip: string = '';
+  /** 组成员（**原始行**，顺序 = 纯逻辑给的顺序）。 */
+  items: SessionItem[] = [];
 }
 
 /**
@@ -225,6 +249,15 @@ struct Index {
 
   // ── 弹层 ──────────────────────────────────────────────────────────────────
   @State showDrawer: boolean = false;
+  /**
+   * 抽屉里**已折叠的分组键**（`collapseKey(category, groupKey)` 形态）。
+   *
+   * ⚠️ 与 web 的差异（**有据**）：web 把折叠态持久化在 `localStorage`
+   *   （`useSessionStore.ts` 的 `loadCollapsedGroups/persistCollapsedGroups`）。原生端没有 localStorage，
+   *   而"新增一个持久化键"需要动 `core/settings.ets`（本波禁改）⇒ 只做**进程内**记忆
+   *   （切会话/刷新列表不丢；杀进程后重置）。语义与 web 一致，仅持久化范围不同。
+   */
+  @State collapsedGroups: string[] = [];
   @State showSettings: boolean = false;
   @State showQueue: boolean = false;
   @State showPlugins: boolean = false;
@@ -3069,6 +3102,114 @@ struct Index {
     return res;
   }
 
+  // ── 会话分组（纯逻辑在 `core/sessiongroup.ets`；这里只做"取分类 + 配对原始行"）──────
+
+  /**
+   * 生效分类：**读服务端设置里的 `xbot:session-category`**（与 web 共用同一个键，
+   * 映射到 `web:session:category` —— 见 `core/settings.ets`），经 `normalizeSessionCategory` 归一化。
+   *
+   * ⚠️ `migrated` 传 `true`：只尊重已存的值，**不做** web 的"一次性 `time → path` 迁移"——
+   *   那个迁移要一个 marker 键（web 放在 localStorage），原生端没有该键位（新增键需动
+   *   `core/settings.ets`，本波禁改）。对"网页端已迁移过"的用户语义等价（读到的就是 `path`）。
+   */
+  private sessionCategory(): string {
+    return normalizeSessionCategory(settingOf(this.settings, KEY_SESSION_CATEGORY), true);
+  }
+
+  /** 切分类：乐观生效 + 写回服务端（与其它设置同一条路径）。 */
+  private setSessionCategory(cat: string): void {
+    this.setSetting(KEY_SESSION_CATEGORY, cat);
+  }
+
+  /** 某分组是否已折叠（键**必须**带分类前缀 —— 见 `core/sessiongroup.ets:collapseKey`）。 */
+  private isGroupCollapsed(cat: string, key: string): boolean {
+    const ck: string = collapseKey(cat, key);
+    for (let i = 0; i < this.collapsedGroups.length; i++) {
+      if (this.collapsedGroups[i] === ck) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** 折叠/展开一个分组（整体替换数组 ⇒ 触发重渲染）。 */
+  private toggleGroup(cat: string, key: string): void {
+    const ck: string = collapseKey(cat, key);
+    const next: string[] = [];
+    let found: boolean = false;
+    for (let i = 0; i < this.collapsedGroups.length; i++) {
+      if (this.collapsedGroups[i] === ck) {
+        found = true;
+      } else {
+        next.push(this.collapsedGroups[i]);
+      }
+    }
+    if (!found) {
+      next.push(ck);
+    }
+    this.collapsedGroups = next;
+  }
+
+  /** 按 chat_id 取原始行（分组产物只带"分组/排序读到的字段"；行卡要渲染原始行）。 */
+  private sessionById(chatId: string): SessionItem | undefined {
+    for (let i = 0; i < this.sessions.length; i++) {
+      if (this.sessions[i].chat_id === chatId) {
+        return this.sessions[i];
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * 抽屉列表的**分组视图**（唯一入口；`DrawerSheet` 只消费它）。
+   *
+   * 数据源 = `GET /api/session-tree`（`core/store.ets:loadSessions` → `this.sessions`）。
+   * 分组/排序**全部**由 `core/sessiongroup.ets` 的纯逻辑给出，判据都是**服务端字段**（无客户端改判）：
+   *   · `work_dir` → `path` 组（服务端持久化的工作目录；缺失 ⇒ `__unset__`）
+   *   · `status`   → `status` 组（服务端状态机；词汇见 `STATUS_ORDER`）
+   *   · `last_active` → `time` 桶（今天/昨天/更早）
+   *   · 组内顺序：星标 → `sort_order` → `created_at` 升序
+   * 前先把与搜索框一致的本地筛选过一遍（`filteredSessions`），空组不产出。
+   */
+  private drawerGroups(): DrawerGroup[] {
+    const cat: string = this.sessionCategory();
+    const groups: SessionGroup[] = groupSessionsFromItems(
+      this.filteredSessions(), cat, this.starredIds());
+    const out: DrawerGroup[] = [];
+    for (let i = 0; i < groups.length; i++) {
+      const g: SessionGroup = groups[i];
+      const items: SessionItem[] = [];
+      for (let j = 0; j < g.sessions.length; j++) {
+        const it: SessionItem | undefined = this.sessionById(g.sessions[j].chatId);
+        if (it !== undefined) {
+          items.push(it);
+        }
+      }
+      if (items.length === 0) {
+        continue;
+      }
+      const dg: DrawerGroup = new DrawerGroup();
+      dg.key = g.key;
+      dg.title = groupTitle(g.key, cat);
+      dg.tip = '';
+      dg.items = items;
+      out.push(dg);
+    }
+    // path 组的**重名消歧**：web 把完整路径放在 hover tooltip（`SessionGroup.tsx:82`），
+    // 原生端没有 hover ⇒ 只在"末段目录名重复"时补一行完整路径（保持列表干净）。
+    for (let i = 0; i < out.length; i++) {
+      let dup: boolean = false;
+      for (let j = 0; j < out.length; j++) {
+        if (i !== j && out[j].title === out[i].title) {
+          dup = true;
+          break;
+        }
+      }
+      out[i].tip = dup ? pathGroupTooltip(out[i].key, cat) : '';
+    }
+    return out;
+  }
+
   private sessionIds(): string[] {
     const out: string[] = [];
     for (let i = 0; i < this.sessions.length; i++) {
@@ -4806,9 +4947,64 @@ struct Index {
       }
       .width('100%').padding({ bottom: 6 })
 
+      // 分类切换器（web `SessionViewBar.tsx:47-62`）—— 清单**只从** `SESSION_CATEGORIES` 渲染，
+      // 组件里不再列一遍分类（`core/sessiongroup.ets` 的注释要求）。三档 = 项目 / 状态 / 时间。
+      Row({ space: 4 }) {
+        ForEach(SESSION_CATEGORIES, (c: string) => {
+          Text(sessionCategoryLabel(c))
+            .fontSize(11)
+            .fontColor(c === this.sessionCategory() ? this.pal().textPrimary : this.pal().textSecondary)
+            .backgroundColor(c === this.sessionCategory() ? this.pal().surfaceHi : this.pal().surfaceAlt)
+            .borderRadius(6)
+            .textAlign(TextAlign.Center)
+            .padding({ top: 5, bottom: 5 })
+            .layoutWeight(1)
+            .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+            .onClick(() => {
+              this.setSessionCategory(c);
+            })
+        }, (c: string) => `cat-${c}`)
+      }
+      .width('100%').padding({ bottom: 6 })
+
       List() {
-        ForEach(this.filteredSessions(), (s: SessionItem) => {
+        ForEach(this.drawerGroups(), (g: DrawerGroup) => {
+          // 组头（web `SessionGroup.tsx:73-93`）：chevron（展开时旋转 90°）+ 标题 + 计数徽标。
+          // 用户要求"组头不加额外按钮" ⇒ 这里只有文字与计数，点击整行 = 折叠/展开。
           ListItem() {
+            Row({ space: 6 }) {
+              SymbolGlyph($r('sys.symbol.chevron_right'))
+                .fontSize(12).fontColor([this.pal().textSecondary])
+                .rotate({ angle: this.isGroupCollapsed(this.sessionCategory(), g.key) ? 0 : 90 })
+              Text(g.title)
+                .fontSize(10).fontColor(this.pal().textSecondary)
+                .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+              Text(`${g.items.length}`)
+                .fontSize(10).fontColor(this.pal().textMuted)
+                .padding({ left: 6, right: 6, top: 1, bottom: 1 })
+                .backgroundColor(this.pal().surfaceAlt).borderRadius(8)
+            }
+            .width('100%').padding({ left: 4, right: 4, top: 6, bottom: 4 })
+            .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+            .onClick(() => {
+              this.toggleGroup(this.sessionCategory(), g.key);
+            })
+          }
+          // 仅当"末段目录名重名"时补一行完整路径（web 靠 hover tooltip，原生端没有 hover）
+          // ⚠️ 颜色用 `textMuted` 而**不是** `foreground3`：后者是语义上更准的"最弱一档"，
+          //    但另一条线（task5-contrast）有一条"`foreground3` 无生产调用点"的台账断言
+          //    ⇒ 不去撞他们的红线（已列为移交项）。
+          if (g.tip.length > 0) {
+            ListItem() {
+              Text(g.tip)
+                .fontSize(9).fontColor(this.pal().textMuted)
+                .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                .width('100%').padding({ left: 20, bottom: 2 })
+            }
+          }
+          if (!this.isGroupCollapsed(this.sessionCategory(), g.key)) {
+            ForEach(g.items, (s: SessionItem) => {
+              ListItem() {
             Column({ space: 4 }) {
               if (this.renamingId === s.chat_id) {
                 Row({ space: 6 }) {
@@ -4898,7 +5094,9 @@ struct Index {
               }
             })
           }
-        }, (s: SessionItem) => `${s.chat_id}#${s.label}#${s.running}`)
+            }, (s: SessionItem) => `${s.chat_id}#${s.label}#${s.running}`)
+          }
+        }, (g: DrawerGroup) => `${this.sessionCategory()}#${g.key}`)
       }
       .layoutWeight(1).width('100%')
 

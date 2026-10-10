@@ -14,6 +14,9 @@
  * 手工移植说明（不等于"重写规则"）：web 用 `Map`/`for…of`/对象字面量，这里改成
  * ArkTS 可接受的 `Map` + 下标循环 + `class`，**比较函数与键的生成逐字对应**。
  */
+// ⚠️ 只 import **纯类型/纯逻辑**（本文件被 `tools/tests/run.sh` 当纯 TS 编译 ⇒ 仍禁 ArkUI/@ohos）。
+//    `core/types.ets` 是纯接口声明、无反向依赖，不构成环。
+import { SessionItem } from './types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. 分类（category）常量与归一化
@@ -558,4 +561,108 @@ export function groupTitle(key: string, category: string): string {
 /** path 组的完整路径 tooltip（web `SessionGroup.tsx:82`：仅 path 分类且非 unset 时给出）。 */
 export function pathGroupTooltip(key: string, category: string): string {
   return category === SESSION_CATEGORY_PATH && key !== UNSET_WORK_PATH ? key : '';
+}
+
+/** 分类的**界面标签**（web `SessionViewBar.tsx:23-31` labelForCategory + i18n `zh-CN.ts:105-107`）。 */
+export function sessionCategoryLabel(category: string): string {
+  if (category === SESSION_CATEGORY_TIME) {
+    return '时间';
+  }
+  if (category === SESSION_CATEGORY_STATUS) {
+    return '状态';
+  }
+  return '项目';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. 接线层：后端会话行 ⇒ 分组输入（`pages/Index.ets` 抽屉列表用）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `GET /api/session-tree` 会话行的**完整后端形状**（snake_case = 服务端 JSON 原样）。
+ *
+ * ⛔ 为什么本模块要自己声明一份：本仓 `core/types.ets:33-39` 的 `SessionItem` 只声明了
+ *   `chat_id/channel/label/last_active/running` **5 个字段**（该文件本波禁改），而
+ *   `path`/`status` 分组需要的 `work_dir`/`status`，以及排序需要的
+ *   `created_at`/`sort_order`、SubAgent 判定需要的 `type`/`parent_chat_id` **都由同一个 RPC 一起下发** ——
+ *   权威结构见服务端 `channel/web/web.go:268-289`（`UserChatWithPreview` 的 json 标签），
+ *   web 端亦从同一 RPC 取（`web/src/hooks/useSessionStore.ts:1028` POST `/api/session-tree`）。
+ *   所以这不是"客户端私有改判"，而是**把同一份后端数据里已被声明之外的字段读出来**：
+ *   每个字段都**原样直传**给 `GroupSession`，本模块不做任何语义改写。
+ *
+ * ⚠️ 除 `chat_id` 外全部可选：`SessionItem` → 本接口是**加宽**转换（目标多出的字段都可选，
+ *   两个方向都成立），元素级 `as` 因此合法；字段缺失时按 web 的默认值语义回落
+ *   （缺 `work_dir` ⇒ `__unset__` 组）。
+ */
+export interface SessionGroupRow {
+  chat_id: string;
+  channel?: string;
+  label?: string;
+  /** 服务端持久化的工作目录 —— path 分组的首选依据（web `session-grouping.ts:112`）。 */
+  work_dir?: string;
+  /** RFC3339 最后活跃 —— 时间分桶唯一依据（web `session-grouping.ts:149`）。 */
+  last_active?: string;
+  /** RFC3339 创建时间 —— 无 sortOrder 时的排序回落键（web `session-grouping.ts:191`）。 */
+  created_at?: string;
+  /** 用户自定义排序（0/缺失 = 未设；越小越靠前）。web `session-grouping.ts:180-189`。 */
+  sort_order?: number;
+  /** 状态（`running`/`waiting_input`/`pending`/`unread`/`idle`/`error`）—— **服务端权威**。 */
+  status?: string;
+  /** `'agent'` ⇒ 历史 SubAgent 行（web `SessionInfo.type`）。 */
+  type?: string;
+  /** SubAgent 的父会话 id / 渠道（有值 ⇒ SubAgent）。 */
+  parent_chat_id?: string;
+  parent_channel?: string;
+  /** TUI 交互式 SubAgent 全键。 */
+  full_key?: string;
+  /** 是否历史遗留行。 */
+  historical?: boolean;
+  /** 会话是否在跑（服务端会话树权威忙态）。 */
+  running?: boolean;
+}
+
+/**
+ * 后端行 ⇒ 分组输入（**只做字段搬运**，缺字段按默认值回落）。
+ *
+ * 默认值口径与 web/后端一致：
+ *   · `channel` 缺失 ⇒ 空串（`sessionKey` 内部再按 `'web'` 回落，与 web `13-15` 一致）；
+ *   · `status` 缺失 ⇒ `'idle'`（web `SessionInfo.status` 的默认档）；
+ *   · `sort_order` 缺失 ⇒ 0（= 未设，不参与自定义排序）；
+ *   · `last_active` 缺失 ⇒ 空串 ⇒ `timeBucket` 判 `earlier`（解析失败同 web `150-151`）。
+ */
+export function sessionRowToGroup(r: SessionGroupRow): GroupSession {
+  const g: GroupSession = new GroupSession();
+  g.chatId = r.chat_id;
+  g.channel = r.channel !== undefined ? r.channel : '';
+  g.label = r.label !== undefined ? r.label : '';
+  g.lastActive = r.last_active !== undefined ? r.last_active : '';
+  g.createdAt = r.created_at !== undefined ? r.created_at : '';
+  g.sortOrder = r.sort_order !== undefined ? r.sort_order : 0;
+  g.status = r.status !== undefined && r.status.length > 0 ? r.status : 'idle';
+  g.workDir = r.work_dir !== undefined ? r.work_dir : '';
+  g.type = r.type !== undefined ? r.type : '';
+  g.parentChatId = r.parent_chat_id !== undefined ? r.parent_chat_id : '';
+  g.parentChannel = r.parent_channel !== undefined ? r.parent_channel : '';
+  g.fullKey = r.full_key !== undefined ? r.full_key : '';
+  g.historical = r.historical === true;
+  return g;
+}
+
+/**
+ * 抽屉列表的**唯一分组入口**：后端会话行 ⇒ 分组（组间/组内顺序见 `groupSessions`）。
+ *
+ * ⚠️ 为什么入参是 `SessionItem[]`（5 字段的欠声明类型）而不是 `SessionGroupRow[]`：
+ *   页面手里的 `store.sessions` 就是这个类型（`core/types.ets` 本波禁改）。这里做**元素级加宽**
+ *   转换读出同 RPC 已下发的其余字段（理由见 `SessionGroupRow` 注释）。
+ *   —— 判据（分组键/排序）**全部**来自服务端字段，客户端不重新判定任何状态。
+ */
+export function groupSessionsFromItems(
+  items: SessionItem[], category: string, starredIds: string[],
+): SessionGroup[] {
+  const rows: GroupSession[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const r: SessionGroupRow = items[i] as SessionGroupRow;
+    rows.push(sessionRowToGroup(r));
+  }
+  return groupSessions(rows, category, starredIds);
 }
