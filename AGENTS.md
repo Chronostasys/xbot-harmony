@@ -26,10 +26,13 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   **凡需响应更新 ⇒ 真 `@Component` + `@Prop`**；`@Builder` 只用于"参数不变"的静态片段
   （或无参、读 `this` 的片段）。详见 `docs/ARKTS-GOTCHAS.md`。
 - **ArkTS 禁对象字面量作类型标注**（圆角等）—— 用内联 `.borderRadius({...})`。
-- **脱机门禁抓不到 ArkTS 编译错误** ⛔：`tools/tests/run.sh`(只把 `core/` 当纯 TS 编译) +
-  `tools/lint/render-path.sh` + `tools/typecheck/check.sh` **全绿 ≠ 能编译**。组件/页面的 ArkTS
-  严格性与类型错误（如 `Stack` 无 `justifyContent`、SDK 版本门限）**只有 `hvigorw assembleHap`
-  能发现**。判据：必须看到 `BUILD SUCCESSFUL`；只看那三条脚本 = 假绿。
+- **⛔ 真门禁是 `bash tools/gate.sh`**（离线三条 + **ArkTS 编译**）。脱机三条脚本全绿 **≠** 能编译：
+  `run.sh` 只把 `core/**` 当纯 TS 编译，`lint`/`typecheck` 也不碰 ArkUI 组件与页面 ⇒ 组件/页面的
+  ArkTS 严格性与类型错误（如 `Stack` 无 `justifyContent`、调用联合类型、SDK 版本门限）**一个都抓不到**。
+  唯一判据是 `hvigorw assembleHap` 打出 `BUILD SUCCESSFUL`。
+- **`build-profile.json5` 的 `products[0]` 必须引用 `"signingConfig": "default"`**，否则
+  `No signingConfig found for product default` ⇒ 只产出 `*-unsigned.hap` ⇒ 装机报
+  `install sign info inconsistent`(9568332)。装机请用 `~/ohos-cli/deploy.sh`。
 - **实机点击是移动靶**：流式时列表自动滚动 ⇒ `dumpLayout → click → snapshot` 必须**同一条
   shell 命令原子执行**，坐标才准。
 - **bytecode HAR** 要求 `useNormalizedOHMUrl: true`；依赖抬 `compatibleSdkVersion` 时需用户拍板。
