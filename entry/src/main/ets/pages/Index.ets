@@ -639,6 +639,12 @@ struct Index {
       this.syncRowDs();
     }
     this.syncLiveTail(store);
+    // ⛔ 底部跟随（真机："看不到任何进度/思考打字机看不到"，2026-10-10）：
+    //   live 尾块在**生长**（思考/正文打字机、工具 pill 增加）⇒ 若用户仍在底部，
+    //   必须跟着滚到底，否则流式内容掉到视口下方 —— 看上去就是"没有进度、只有收尾才出现"。
+    if (this.atBottom) {
+      this.listScroller.scrollEdge(Edge.Bottom);
+    }
     this.busy = store.busy;
     this.connState = store.connState;
     this.syncPulse(store.busy);
