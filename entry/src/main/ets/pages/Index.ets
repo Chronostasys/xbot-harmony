@@ -351,7 +351,18 @@ struct Index {
   @State liveRowTurn: number = 0;
   @State liveReasonOpen: boolean = false;
   /** 渐入透明度：新流式文本到达时 0.45 → 1 淡入（用户要求用"渐入"替代逐字裁剪） */
-  @State liveFade: number = 1;
+  // ── 打字机（用户语义：正文任何时候逐字；思考折叠只跳数字、展开逐字；**追赶同 web**）──
+  @State twVisible: number = 0;         // 正文已推进的码点数（每拍按 gap/3 追赶）
+  @State twRenderAt: number = 0;        // 正文**已渲染**的码点数（自适应节奏，见 twTick）
+  @State twReasonVisible: number = 0;   // 思考已推进码点数（展开时可见）
+  private twTextRunes: string[] = [];
+  private twReasonRunes: string[] = [];
+  private twTextLen: number = -1;
+  private twReasonLen: number = -1;
+  private twSkip: boolean = false;
+  private twTimer: number = -1;
+  private twTickCount: number = 0;
+  private twKey: string = '';
   /** 上一帧 live 文本长度（判断"有新文本"以触发渐入） */
   private lastLiveLen: number = 0;
   /** 历史加载中（骨架屏判据：只有"还没内容且正在拉"才展示） */
@@ -605,6 +616,7 @@ struct Index {
     this.rows = store.rows.slice();
     this.syncRowDs();
     this.syncLiveTail(store);
+    this.pumpTypewriter();
     this.busy = store.busy;
     this.connState = store.connState;
     this.syncPulse(store.busy);
@@ -1656,6 +1668,23 @@ struct Index {
         this.LoadingView()
       } else if (!this.loggedIn) {
         this.LoginView()
+      } else if (this.useWebUI && this.webUiUrl.length > 0) {
+        // ArkWeb 承载完整 web UI（设置里可切换；右下角按钮一键切回原生）
+        Stack() {
+          WebSurface({ url: this.webUiUrl, theme: this.themeName, chrome: false, onClose: () => {
+          } })
+          Text('切回原生')
+            .fontSize(11).fontColor(this.pal().textSecondary)
+            .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+            .backgroundColor(this.pal().surfaceAlt)
+            .borderRadius(8)
+            .margin({ left: 8, top: 8 })
+            .onClick(() => {
+              this.setSurface(false);
+            })
+        }
+        .width('100%').height('100%')
+        .alignContent(Alignment.TopStart)
       } else {
         this.ChatView()
       }
@@ -2382,6 +2411,98 @@ struct Index {
     return displayReasoning(it);
   }
 
+/**
+   * 打字机驱动（用户语义）：
+   *   · **正文任何时候都逐字**；但正文是 Markdown —— 逐字裁剪要按拍重解析整段文本，
+   *     真机教训「打字机几秒动一次」正是 20 次/秒 × 上千字符的重解析把 UI 线程吃满。
+   *     因此正文**每 3 拍推进一次（≈150ms）**：观感仍是逐字（6–7 次/秒），解析压力降 1/3。
+   *   · **思考**（纯文本、代价低）：展开时每拍（50ms）逐字；**折叠时不推进**，
+   *     只让「思考 N 字」的数字随流式跳动（用户明确要求）。
+   */
+  private pumpTypewriter(): void {
+    let row: ChatRow | undefined = undefined;
+    for (let i = this.rows.length - 1; i >= 0; i--) {
+      const r: ChatRow = this.rows[i];
+      if (r.role === 'assistant' && r.isLive) {
+        row = r;
+        break;
+      }
+    }
+    let it: HistoryIteration | undefined = undefined;
+    if (row !== undefined && row.iterations.length > 0) {
+      it = row.iterations[row.iterations.length - 1];
+    }
+    const key: string = row !== undefined && it !== undefined ? `${row.id}#${it.iteration}` : '';
+    if (key !== this.twKey) {
+      this.twKey = key;
+      this.twVisible = 0;
+      this.twReasonVisible = 0;
+      this.twTextRunes = [];
+      this.twReasonRunes = [];
+      this.twTextLen = -1;
+      this.twReasonLen = -1;
+      this.twSkip = false;
+    }
+    const text: string = it !== undefined ? displayContent(it) : '';
+    const reason: string = it !== undefined ? displayReasoning(it) : '';
+    if (text.length !== this.twTextLen) {
+      this.twTextLen = text.length;
+      this.twTextRunes = toRunes(text);
+    }
+    if (reason.length !== this.twReasonLen) {
+      this.twReasonLen = reason.length;
+      this.twReasonRunes = toRunes(reason);
+    }
+    const typing: boolean = isTyping(this.twVisible, this.twTextRunes.length)
+      || (this.liveReasonOpen && isTyping(this.twReasonVisible, this.twReasonRunes.length));
+    this.syncTwTimer(typing);
+  }
+
+  /** 有内容没追平就开 50ms 定时器；追平立刻关（绝不留后台定时器）。 */
+  private syncTwTimer(on: boolean): void {
+    if (on && this.twTimer < 0) {
+      this.twTimer = setInterval(() => {
+        this.twTick();
+      }, 50);
+      return;
+    }
+    if (!on && this.twTimer >= 0) {
+      clearInterval(this.twTimer);
+      this.twTimer = -1;
+    }
+  }
+
+  private twTick(): void {
+    const skip: boolean = this.twSkip;
+    this.twSkip = !this.twSkip;
+    if (this.liveReasonOpen && isTyping(this.twReasonVisible, this.twReasonRunes.length)) {
+      const rc: number = this.twReasonRunes.length > 0
+        ? this.twReasonRunes[Math.min(this.twReasonVisible, this.twReasonRunes.length - 1)]
+          .codePointAt(0) as number : 0;
+      this.twReasonVisible = advanceVisible(this.twReasonVisible, this.twReasonRunes.length, skip && isCJK(rc));
+    }
+    // 正文：**每拍都按 gap/3 追赶（与 web 同一算法，50ms 一拍）** —— 推进本身很便宜；
+    // 真正贵的是"把新前缀交给 MarkdownView 重新解析"。所以推进每拍做，**渲染按文本长度自适应**：
+    // 短文本（≤300 码点）每拍上屏（真·web 手感）；长文本每 N 拍上屏（N=ceil(len/300)），
+    // 大幅降低解析次数而不牺牲追赶速度（内容按 web 的指数追赶秒级追平）。
+    if (isTyping(this.twVisible, this.twTextRunes.length)) {
+      const tc: number = this.twTextRunes.length > 0
+        ? this.twTextRunes[Math.min(this.twVisible, this.twTextRunes.length - 1)]
+          .codePointAt(0) as number : 0;
+      this.twVisible = advanceVisible(this.twVisible, this.twTextRunes.length, skip && isCJK(tc));
+      const renderEvery: number = Math.max(1, Math.ceil(this.twTextRunes.length / 300));
+      this.twTickCount = this.twTickCount + 1;
+      if (this.twTickCount >= renderEvery || this.twVisible >= this.twTextRunes.length) {
+        this.twTickCount = 0;
+        this.twRenderAt = this.twVisible;
+      }
+    }
+    if (!isTyping(this.twVisible, this.twTextRunes.length)
+      && !(this.liveReasonOpen && isTyping(this.twReasonVisible, this.twReasonRunes.length))) {
+      this.syncTwTimer(false);
+    }
+  }
+
 /** 该迭代是否"仍在进行"（显示流式光标）。 */
   private twTyping(row: ChatRow, it: HistoryIteration): boolean {
     return row.isLive === true;
@@ -2814,7 +2935,6 @@ struct Index {
       this.liveIterNo = 0;
       this.liveRowTurn = 0;
       this.lastLiveLen = 0;
-      this.liveFade = 1;
       return;
     }
     const it: HistoryIteration = liveRow.iterations[liveRow.iterations.length - 1];
@@ -2828,13 +2948,6 @@ struct Index {
     // 为什么不用"逐字裁剪"：那要每 50ms 重新解析整段 Markdown 并重建节点
     // （代价 O(文本长度)），真机上直接饱和 UI 线程 ⇒ 用户看到的正是
     // "打字机几秒动一次"。渐入只动 opacity，代价恒定。
-    if (this.liveText.length > this.lastLiveLen) {
-      this.liveFade = 0.45;
-      this.anim(() => {
-        this.liveFade = 1;
-      });
-    }
-    this.lastLiveLen = this.liveText.length;
   }
 
   /** live 尾块是否有任何可显示内容（决定 busy 占位符是否让位 —— 恰好一个指示器）。 */
@@ -2844,15 +2957,28 @@ struct Index {
   }
 
   /** 打字机可见正文（安全回退：定时器未跑 ⇒ 显示全文，绝不让内容不可见）。 */
-  /** 打字机改为**渐入**（见 syncLiveTail 的 liveFade）：这里永远返回全文。 */
+/** 打字机可见正文（安全回退：定时器未跑 ⇒ 全文，绝不让内容不可见）。 */
   private twVisibleText(): string {
-    return this.liveText;
+    const full: string = this.liveText;
+    if (full.length === 0) {
+      return '';
+    }
+    if (this.twTimer < 0 || this.twRenderAt >= this.twTextRunes.length) {
+      return full;
+    }
+    return clipRunes(full, this.twRenderAt);
   }
 
-  /** 打字机可见思考（同上）。 */
-  /** 打字机改为**渐入**（见 syncLiveTail 的 liveFade）：这里永远返回全文。 */
+/** 打字机可见思考（同上）。 */
   private twVisibleReason(): string {
-    return this.liveReasoning;
+    const full: string = this.liveReasoning;
+    if (full.length === 0) {
+      return '';
+    }
+    if (this.twTimer < 0 || this.twReasonVisible >= this.twReasonRunes.length) {
+      return full;
+    }
+    return clipRunes(full, this.twReasonVisible);
   }
 
   // ── P5 消息操作（长按菜单）─────────────────────────────────────────────────
@@ -3086,6 +3212,19 @@ struct Index {
         Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
           this.showSettings = false;
         })
+      }.width('100%')
+
+      // 聊天界面：原生 / 内嵌 ArkWeb（用户要求可切换；ArkWeb 内也有"切回原生"按钮）
+      Row({ space: 8 }) {
+        Text('聊天界面').fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
+        Text(this.useWebUI ? '内嵌网页' : '原生')
+          .fontSize(12).fontColor(this.pal().onAccent)
+          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+          .backgroundColor(this.pal().accent).borderRadius(8)
+          .onClick(() => {
+            this.setSurface(!this.useWebUI);
+            this.buzz();
+          })
       }.width('100%')
 
       // 主题（深/浅）
@@ -3594,7 +3733,6 @@ struct Index {
           .wordBreak(WordBreak.BREAK_ALL)
           .fontSize(12).fontColor(this.pal().textSecondary).padding(8).width('100%')
           .backgroundColor(this.pal().surfaceAlt).borderRadius(8)
-          .opacity(this.liveFade)
           .copyOption(CopyOptions.LocalDevice)
       }
       // 正文（打字机裁剪 + 光标；@State 直驱 ⇒ 必然逐字上屏）
@@ -3612,13 +3750,13 @@ struct Index {
             wrapCode: this.wrapCode(),
             theme: this.themeName,
           })
-          if (this.liveOn) {
+          if (this.liveOn && (isTyping(this.twVisible, this.twTextRunes.length)
+            || (this.liveReasonOpen && isTyping(this.twReasonVisible, this.twReasonRunes.length)))) {
             Text('▍').fontSize(14).fontColor(this.pal().accent)
               .opacity(this.pulseOn ? 1 : 0.15)
               .animation({ duration: 600, curve: Curve.EaseInOut })
           }
         }.width('100%').alignItems(HorizontalAlign.Start)
-        .opacity(this.liveFade)
       }
       // 工具（全部状态：generating / running / done / error / pending）
       if (this.liveTools.length > 0) {
