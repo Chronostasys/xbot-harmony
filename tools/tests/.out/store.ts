@@ -197,16 +197,24 @@ export class ChatStore {
     //  只在 ① 权威说 running=true（恢复），或 ② 本地确实没有在飞的 live 行且已过发送保护窗口
     //  时才用它改 busy；否则会把**在飞的回合**误判成空闲 ⇒「思考中」一闪一没、
     //  中间无任何打字机/进度、收尾才蹦出完整迭代（用户报告）。
+    let found: boolean = false;
     for (let i = 0; i < this.sessions.length; i++) {
       if (this.sessions[i].chat_id !== this.currentChatId) {
         continue;
       }
+      found = true;
       const serverRunning: boolean = this.sessions[i].running === true;
       this.serverRunning = serverRunning;
+      // ⛔ 对账只在 ① 权威 running=true（恢复）或 ② 本地确实没有在飞的 live 行
+      //   且已过发送保护窗口 时才动 busy；否则会把在飞回合误判成空闲。
       if (serverRunning || (!this.hasLiveRow() && Date.now() - this.lastSendAt > 3000)) {
         this.busy = serverRunning;
       }
       break;
+    }
+    // web 用 `currentSession?.running ?? false`：会话不在列表里 ⇒ 权威值回落 false
+    if (!found) {
+      this.serverRunning = false;
     }
     this.onUpdate();
   }
@@ -954,11 +962,16 @@ export class ChatStore {
       // ⛔ 迟到的 coarse idle（SSE `last_event_id` 重放 / restoreActiveProgress 竞态）
       //   绝不能冻结在飞的回合：权威会话树仍说 running ⇒ 视为陈旧信号，只去刷新权威状态。
       if (this.serverRunning) {
+        // ⛔ 权威（会话树 running）仍为 true ⇒ 这条 coarse idle 必然陈旧/误传，
+        //    不得冻结运行中的 turn（web reduce.ts `case 'session'` 同款闸门）。
+        //    真结束由会话树翻 false 后的下一条 idle 收尾。
         this.loadSessions().catch(() => {
           // 忽略
         });
         return;
       }
+      // 照抄 web：idle = live 的**收尾兜底**（有产出定格 / 空壳保留 / 真空壳删除）
+      this.settleLiveOnIdle();
       this.busy = false;
       // 回合结束 ⇒ 水位重置（web：idle 置 null —— 下一个 Run 从 1 计数）
       this.lastSeq = 0;
@@ -982,6 +995,31 @@ export class ChatStore {
       this.loadHistory().catch((e: Error) => {
         console.error(`rewound 重载失败: ${e.message}`);
       });
+    }
+  }
+
+  /**
+   * idle 收尾 —— **逐字对齐 web `reduce.ts` 的 `case 'session'` idle 分支**：
+   *  · 有产出的 live 行 ⇒ **定格**（`isLive=false`，内容全部保留 = frozen 语义）
+   *  · 无产出但前面有 user 行 ⇒ **保留为空壳**（只定格，不删 —— 否则 user 行悬空/粘连）
+   *  · 无产出且无 user 行 ⇒ **删除**（"空壳行灭绝"）
+   */
+  private settleLiveOnIdle(): void {
+    for (let i = this.rows.length - 1; i >= 0; i--) {
+      const r: ChatRow = this.rows[i];
+      if (r.role !== 'assistant' || !r.isLive) {
+        continue;
+      }
+      const hasOutput: boolean = r.iterations.length > 0 && !rowIsEmpty(r);
+      const prev: ChatRow | undefined = i > 0 ? this.rows[i - 1] : undefined;
+      const hasUser: boolean = prev !== undefined && prev.role === 'user';
+      if (hasOutput || hasUser) {
+        r.isLive = false;
+        this.touch(r);
+      } else {
+        this.rows.splice(i, 1);
+      }
+      return;
     }
   }
 
