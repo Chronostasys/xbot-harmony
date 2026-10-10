@@ -598,9 +598,17 @@ struct Index {
       this.atBottom = true;
       this.rowLimit = MAX_ROWS_VISIBLE;   // 切会话重置行窗口（否则行数会无限累积增长）
     }
-    this.sessions = store.sessions.slice();
-    this.rows = store.rows.slice();
-    this.syncRowDs();
+    const sessFp: string = this.fingerprintSessions(store.sessions);
+    if (sessFp !== this.sessionsFp) {
+      this.sessionsFp = sessFp;
+      this.sessions = store.sessions.slice();
+    }
+    const rowsFp: string = this.fingerprintRows(store.rows);
+    if (rowsFp !== this.rowsFp) {
+      this.rowsFp = rowsFp;
+      this.rows = store.rows.slice();
+      this.syncRowDs();
+    }
     this.syncLiveTail(store);
     this.busy = store.busy;
     this.connState = store.connState;
@@ -608,16 +616,32 @@ struct Index {
     this.currentChat = store.currentChatId;
     this.hasMore = store.hasMore;
     this.loadingMore = store.loadingMore;
-    this.queue = store.queue.slice();
+    const queueFp: string = this.fingerprintQueue(store.queue);
+    if (queueFp !== this.queueFp) {
+      this.queueFp = queueFp;
+      this.queue = store.queue.slice();
+    }
     this.usage = store.usage;
     this.cwd = store.cwd;
-    this.todos = store.todos.slice();
+    const todosFp: string = `${store.todos.length}|${store.todos.map((t: TodoItem) => `${t.status}#${t.text}`).join(',')}`;
+    if (todosFp !== this.todosFp) {
+      this.todosFp = todosFp;
+      this.todos = store.todos.slice();
+    }
     this.goal = store.goal;
     this.llmCfg = store.llmConfig;
-    this.cronTasks = store.cronTasks;
-    this.bgTasks = store.bgTasks;
-    this.runners = store.runners;
-    this.subagents = store.subagents;
+    if (this.cronTasks !== store.cronTasks) {
+      this.cronTasks = store.cronTasks;
+    }
+    if (this.bgTasks !== store.bgTasks) {
+      this.bgTasks = store.bgTasks;
+    }
+    if (this.runners !== store.runners) {
+      this.runners = store.runners;
+    }
+    if (this.subagents !== store.subagents) {
+      this.subagents = store.subagents;
+    }
     this.settings = store.settings;
     const t: string = settingOf(store.settings, KEY_APP_THEME);
     if (t.length > 0) {
@@ -2812,6 +2836,47 @@ struct Index {
     } finally {
       this.searchBusy = false;
     }
+  }
+
+  // ── 帧内变更判定（官方性能规范：避免无效刷新）──
+  // ⚠️ 为什么必须做：`syncFrom` 每帧都跑，而 `this.rows = store.rows.slice()` 这类
+  // **数组/对象赋值在 ArkUI 里一定触发重渲染**（哪怕内容没变）⇒ 每个 SSE 帧都整页重刷，
+  // 滚动与流式同时卡。指纹是 O(n) 字符串比较（n = 窗口内行数），**任何变化都会改变指纹**，
+  // 所以"指纹没变就不赋值"既省渲染又不可能漏更新。
+  private rowsFp: string = '';
+  private sessionsFp: string = '';
+  private queueFp: string = '';
+  private todosFp: string = '';
+
+  private fingerprintRows(rows: ChatRow[]): string {
+    const parts: string[] = [];
+    for (let i = 0; i < rows.length; i++) {
+      parts.push(`${rows[i].id}#${rows[i].rev}`);
+    }
+    return `${rows.length}|${parts.join(',')}`;
+  }
+
+  private fingerprintSessions(items: SessionItem[]): string {
+    const parts: string[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const s: SessionItem = items[i];
+      parts.push(`${s.chat_id}#${s.running === true ? 1 : 0}#${s.label !== undefined ? s.label : ''}`);
+    }
+    return parts.join(',');
+  }
+
+  private fingerprintQueue(items: QueueItem[]): string {
+    const parts: string[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const it: QueueItem = items[i];
+      // 字段都可选（协议里 msg_id/content 与 id/text 两套命名并存）⇒ 显式取值
+      const id: string = it.msg_id !== undefined ? it.msg_id
+        : (it.id !== undefined ? it.id : '');
+      const body: string = it.content !== undefined ? it.content
+        : (it.text !== undefined ? it.text : '');
+      parts.push(`${id}#${body.length}`);
+    }
+    return parts.join(',');
   }
 
   /** 把「当前该显示的行」推给数据源（行窗口 + 真虚拟化两层叠加）。 */
