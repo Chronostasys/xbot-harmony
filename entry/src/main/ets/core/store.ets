@@ -13,6 +13,7 @@
 import { XbotHttp } from './http';
 import { SseClient } from './sse';
 import { rowIsEmpty } from './streammerge';
+import { arrOrEmpty, isPresent } from './guards';
 import { ChatState, DomainEvent, initialChatState, NonEmptyS, nonEmptyStr, UserRow } from './chat_types_full';
 import { reduce } from './reduce';
 import { deriveRows, Row } from './derive';
@@ -296,21 +297,21 @@ export class ChatStore {
       '/api/session-tree', new EmptyReq());
     // 子代理也来自会话树（面板用；不是另开一个数据源）
     const subs: SubAgentRow[] = [];
-    const orphan: SessionItem[] | undefined = data.orphan_subagents;
-    if (orphan !== undefined) {
-      for (let i = 0; i < orphan.length; i++) {
-        const src: SessionItem = orphan[i];
-        const row: SubAgentRow = new SubAgentRow();
-        row.chat_id = src.chat_id !== undefined ? src.chat_id : '';
-        row.label = src.label !== undefined ? src.label : '';
-        row.running = src.running === true;
-        subs.push(row);
-      }
+    // ⚠️ 服务端 Go 的 nil slice → JSON null：必须用 arrOrEmpty，不能只判 undefined。
+    //   P0 根因：orphan_subagents 为 null 时 `orphan.length` 抛 "Cannot read property length of null"。
+    const orphan: SessionItem[] = arrOrEmpty(data.orphan_subagents);
+    for (let i = 0; i < orphan.length; i++) {
+      const src: SessionItem = orphan[i];
+      const row: SubAgentRow = new SubAgentRow();
+      row.chat_id = src.chat_id !== undefined ? src.chat_id : '';
+      row.label = src.label !== undefined ? src.label : '';
+      row.running = src.running === true;
+      subs.push(row);
     }
     this.subagents = subs;
-    const list: SessionItem[] = data.sessions !== undefined && data.sessions.length > 0
-      ? data.sessions
-      : (data.chats !== undefined ? data.chats : []);
+    // sessions/chats 同为服务端返回 ⇒ 均可能为 null（曾 `sessions !== undefined && sessions.length` 崩溃）。
+    const sessionList: SessionItem[] = arrOrEmpty(data.sessions);
+    const list: SessionItem[] = sessionList.length > 0 ? sessionList : arrOrEmpty(data.chats);
     this.sessions = list;
     // 会话树的 `running` 是服务端权威忙碌标记 —— 本地 busy 只是 SSE 事件的快路径，
     // 错过一条 idle（断线重连/切后台）就会永远显示"运行中"。每次拉到会话树都对账一次。
@@ -369,7 +370,8 @@ export class ChatStore {
     const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>(
       '/api/settings', new EmptyReq());
     const srv: Object | undefined = raw['settings'];
-    const map: Record<string, string> = srv !== undefined ? srv as Record<string, string> : {};
+    // 服务端 nil map → JSON null；只判 undefined 会把 null 交下去（toLocalSettings(null) 崩）。
+    const map: Record<string, string> = isPresent(srv) ? srv as Record<string, string> : {};
     this.settings = toLocalSettings(map);
     this.onUpdate();
   }
@@ -396,14 +398,14 @@ export class ChatStore {
     const body: Record<string, string> = { 'path': path.length > 0 ? path : '/' };
     const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>('/api/fs/list', body);
     const arr: Object | undefined = raw['entries'];
-    return arr !== undefined ? arr as FsEntry[] : [];
+    return arrOrEmpty(arr as FsEntry[]);
   }
 
   async loadCronTasks(): Promise<void> {
     const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>(
       '/api/cron/list', new SessionReq(this.channel, this.currentChatId));
     const arr: Object | undefined = raw['tasks'];
-    this.cronTasks = arr !== undefined ? arr as CronJob[] : [];
+    this.cronTasks = arrOrEmpty(arr as CronJob[]);
     this.onUpdate();
   }
 
@@ -420,7 +422,7 @@ export class ChatStore {
     const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>(
       '/api/tasks/list', new SessionReq(this.channel, this.currentChatId));
     const arr: Object | undefined = raw['background_tasks'];
-    this.bgTasks = arr !== undefined ? arr as BgTask[] : [];
+    this.bgTasks = arrOrEmpty(arr as BgTask[]);
     this.onUpdate();
   }
 
@@ -434,7 +436,7 @@ export class ChatStore {
     const body: Record<string, string> = { 'method': 'runner_list' };
     const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>('/api/rpc', body);
     const arr: Object | undefined = raw['runners'];
-    this.runners = arr !== undefined ? arr as RunnerRow[] : [];
+    this.runners = arrOrEmpty(arr as RunnerRow[]);
     this.onUpdate();
   }
 
@@ -475,7 +477,7 @@ export class ChatStore {
     const body: Record<string, string> = { 'channel': this.channel, 'chat_id': this.currentChatId, 'q': q };
     const res: Record<string, Object> = await this.http.postAs<Record<string, Object>>('/api/search', body);
     const arr: Object | undefined = res['results'];
-    return arr !== undefined ? arr as SearchHit[] : [];
+    return arrOrEmpty(arr as SearchHit[]);
   }
 
   async deleteSession(chatId: string): Promise<void> {
@@ -596,13 +598,12 @@ export class ChatStore {
   }
 
   /** 历史消息 → web `ChatMessage[]`（`historyToReplaced` 的输入形状）。 */
-  static toChatMessages(messages: HistoryMessage[] | undefined): ChatMessage[] {
+  static toChatMessages(messages: HistoryMessage[] | null | undefined): ChatMessage[] {
     const out: ChatMessage[] = [];
-    if (messages === undefined) {
-      return out;
-    }
-    for (let i = 0; i < messages.length; i++) {
-      const m: HistoryMessage = messages[i];
+    // 服务端 messages 可能为流式 payload/历史快照的缺失字段 —— null 与 undefined 一律归一为空。
+    const src: HistoryMessage[] = arrOrEmpty(messages);
+    for (let i = 0; i < src.length; i++) {
+      const m: HistoryMessage = src[i];
       const role: ChatMessageRole = m.role === 'user' ? 'user'
         : (m.role === 'system' ? 'system' : 'assistant');
       const msg: ChatMessage = {
@@ -622,13 +623,11 @@ export class ChatStore {
   }
 
   /** 原生 HistoryIteration[] → web WebIteration[]（经 normalizeWebIteration 归一，web 同一函数）。 */
-  static toWebIterations(iters: HistoryIteration[] | undefined): WebIteration[] {
+  static toWebIterations(iters: HistoryIteration[] | null | undefined): WebIteration[] {
     const out: WebIteration[] = [];
-    if (iters === undefined) {
-      return out;
-    }
-    for (let i = 0; i < iters.length; i++) {
-      const w: WebIteration | null = normalizeWebIteration(iters[i]);
+    const src: HistoryIteration[] = arrOrEmpty(iters);
+    for (let i = 0; i < src.length; i++) {
+      const w: WebIteration | null = normalizeWebIteration(src[i]);
       if (w !== null) {
         out.push(w);
       }
@@ -679,7 +678,7 @@ export class ChatStore {
     }
     const data: RegionsData = await this.http.postAs<RegionsData>('/api/regions', new RegionsReq(
       this.channel, this.currentChatId, row.turnID, minIter, 100));
-    const older: HistoryIteration[] = data.iterations !== undefined ? data.iterations : [];
+    const older: HistoryIteration[] = arrOrEmpty(data.iterations);
     // 段边界去重后经 `iterations_loaded` 交给状态机 —— reduce 做 union 合并（同号权威
     // 覆盖、轻字段永不覆盖完整数据），与 web `iterations_loaded` 同一语义。
     const seen: Set<number> = new Set();
@@ -768,7 +767,17 @@ export class ChatStore {
         this.channel, this.currentChatId, text, uploadKeys, fileNames, fileSizes, isInterrupt,
         requestID));
       if (isInterrupt) {
-        return true;
+        // 对齐 web（`sseConnection.ts:473` → 服务端 `web_rest.go:95-104`）：插话成功的**唯一判据**是
+        // 响应里的 `interrupted === true`。旧实现无条件 `return true` ⇒ 服务端在"会话已空闲"时
+        // 把插话**降级成普通发送**（`session_queue.go:484`），前端却报"插话成功"，随后
+        // `turn_started.content` 在回复之后又冒出一条**独立 user 气泡**（用户看到的就是这个 bug）。
+        let ack: SendAck = {};
+        try {
+          ack = JSON.parse(raw) as SendAck;
+        } catch (e) {
+          ack = {};
+        }
+        return ack.interrupted === true;
       }
       let ack: SendAck = {};
       try {
@@ -798,7 +807,10 @@ export class ChatStore {
   async loadLlmConfig(): Promise<void> {
     try {
       const cfg: LlmConfig = await this.http.getAs<LlmConfig>('/api/llm-config');
-      this.llmConfig = cfg;
+      // ⚠️ `/api/llm-config` 无可用配置时服务端 **data 整块为 null**（实测）⇒ `getAs` 返回 null。
+      //   必须归一成 undefined（"拿不到"），否则 `llmConfig=null` 会让下游
+      //   `llmConfig.model_entries` 抛 "Cannot read property 'model_entries' of null"。
+      this.llmConfig = isPresent(cfg) ? cfg : undefined;
       this.onUpdate();
     } catch (e) {
       // 选择栏非关键路径：失败不打断主链路
@@ -841,7 +853,7 @@ export class ChatStore {
         '/api/session/status', new SessionReq(this.channel, this.currentChatId));
       this.usage = st.token_usage;
       this.cwd = st.cwd !== undefined ? st.cwd : '';
-      this.todos = st.todos !== undefined ? st.todos : [];
+      this.todos = arrOrEmpty(st.todos);
       this.onUpdate();
     } catch (e) {
       // 状态拉取失败不影响主链路（历史/发送优先）
@@ -871,8 +883,8 @@ export class ChatStore {
   // ── AskUser ────────────────────────────────────────────────────────────────
 
   private pickAskUserFromProgress(p: ProgressEvent): void {
-    const qs: AskQuestion[] | undefined = p.questions;
-    if (qs === undefined || qs.length === 0) {
+    const qs: AskQuestion[] = arrOrEmpty(p.questions);
+    if (qs.length === 0) {
       return;
     }
     const prompt: AskUserPrompt = { request_id: p.request_id, questions: qs };
@@ -886,8 +898,8 @@ export class ChatStore {
       return;
     }
     let firstQ: string = '';
-    const qs: AskQuestion[] | undefined = prompt.questions;
-    if (qs !== undefined && qs.length > 0 && qs[0].id !== undefined) {
+    const qs: AskQuestion[] = arrOrEmpty(prompt.questions);
+    if (qs.length > 0 && qs[0].id !== undefined) {
       firstQ = qs[0].id;
     }
     const single: string = answers[firstQ] !== undefined ? answers[firstQ] : '';
@@ -903,8 +915,8 @@ export class ChatStore {
     try {
       const data: QueueListData = await this.http.postAs<QueueListData>(
         '/api/queue/list', new SessionReq(this.channel, this.currentChatId));
-      const list: QueueItem[] = data.items !== undefined ? data.items
-        : (data.queue !== undefined ? data.queue : []);
+      const items: QueueItem[] = arrOrEmpty(data.items);
+      const list: QueueItem[] = items.length > 0 ? items : arrOrEmpty(data.queue);
       this.queue = list;
       this.onUpdate();
     } catch (e) {
@@ -954,7 +966,7 @@ export class ChatStore {
     try {
       const data: WebPluginListData = await this.http.postAs<WebPluginListData>(
         '/api/rpc', new RpcReq('web_plugin_list'));
-      const list: WebPluginInfo[] = data.plugins !== undefined ? data.plugins : [];
+      const list: WebPluginInfo[] = arrOrEmpty(data.plugins);
       for (let i = 0; i < list.length; i++) {
         const p: WebPluginInfo = list[i];
         const id: string = p.id !== undefined ? p.id

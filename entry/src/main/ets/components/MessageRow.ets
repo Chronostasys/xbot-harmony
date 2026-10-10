@@ -11,20 +11,33 @@
  *   · 三个 @Builder（Assistant/Iteration/ToolPill）与 7 个 helper 由页面**整块搬入**（原样语义）。
  */
 import { ChatRow, HistoryIteration, ToolProgress } from '../core/types';
-import { completedBlocks, displayContent, displayReasoning, rowIsEmpty } from '../core/streammerge';
+import {
+  completedBlocks, displayContent, displayReasoning, foldPills, mergeToolRuns, rowIsEmpty,
+} from '../core/streammerge';
 import { runeCount } from '../core/typewriter';
-import { Palette, paletteOf } from '../core/theme';
+import { Palette, paletteOf, Effects, effectsOf } from '../core/theme';
 import { BUBBLE } from '../core/bubble';
+import { R_MD, R_XL, R_LG, SP_1, SP_2, SP_3, FS_CAPTION } from '../core/tokens';
 import { MarkdownView } from './MarkdownView';
 import { LiveTailView } from './LiveTailView';
+import { ThinkingLine } from './ThinkingLine';
+import { ToolPill } from './ToolVisual';
+import { isLiveStatus, statusChip, toolStatusKind } from '../core/toolstatus';
+import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
 
-/** 行内最多直出多少个迭代（其余折叠 —— 与页面原有窗口一致）。 */
-const MAX_ITER_VISIBLE: number = 8;
+/** 「更早区域」分隔条行高（vp）—— web `h-7` = 28px。三态**恒定**，避免加载前后布局跳变。 */
+const REGION_ROW_H: number = 28;
+/** 浮层宽度（对齐 web `FoldedToolGroup` 的 `POPOVER_CLASS` 宽 430px；手机端收窄到 340vp）。 */
+const POP_W: number = 340;
+/** "+N" 溢出浮层宽度。 */
+const OVER_W: number = 320;
 
 @Component
 export struct MessageRowView {
   @ObjectLink row: ChatRow;
   @Prop theme: string = 'dark';
+  /** Markdown 主题 id（透传给 MarkdownView，只影响代码块/行内码配色）。 */
+  @Prop mdTheme: string = 'vscode-dark';
   @Prop fontScaleV: number = 1;
   @Prop wrapCodeV: boolean = true;
   /** 运行中工具 pill 的流光位置（页面统一推进 ⇒ 每行不再各开定时器） */
@@ -66,7 +79,8 @@ export struct MessageRowView {
   loadImage: (src: string) => Promise<ArrayBuffer> = async (s: string) => {
     return new ArrayBuffer(0);
   };
-  onLoadMoreRegions: () => void = () => {
+  onLoadMoreRegions: () => Promise<boolean> = async () => {
+    return false;
   };
   onOpenCtx: (iter: number, toolName: string) => void = (iter: number, toolName: string) => {
   };
@@ -79,11 +93,47 @@ export struct MessageRowView {
   };
 
   @State openReasonKey: string = '';
-  @State openToolKey: string = '';
-  @State expandedTurn: string = '';
+  /** 「更早区域」自动加载的三态（对齐 web `RegionsDivider` 的 idle/loading/error）。
+   *  ⛔ 触发源是**可见性**（`onVisibleAreaChange` 哨兵语义），**不是点击** ——
+   *  用户 2026-10-10 明确禁止「点击加载更多」。 */
+  @State regionStatus: string = 'idle';
+  /** 当前**浮层**对应的工具的唯一键（空串 = 无浮层；非空 = 该 pill 的浮层打开）。
+   *  ⛔ 对齐 web：点 pill **弹浮层**（`FoldedToolGroup.tsx:485-534`），**绝不内联展开**
+   *  （内联会逐帧改行高 ⇒ 虚拟列表逐帧 relayout，见 `:4-8`）。
+   *  ⛔ **不能用 `(迭代号, 工具名)` 当身份**：同一次迭代里同一工具可被调用多次
+   *  （真机实测：一轮里两次 `FileReplace` ⇒ 两枚 pill 的判据同时成立 ⇒ 点一下弹**两个**浮层）。
+   *  唯一键 = `pillKeyOf()`（含 `call_id`，缺失时用同迭代内下标兜底）。 */
+  @State popKey: string = '';
+  /** 当前 "+N" 溢出浮层对应的迭代（`>= 0` ⇒ 打开；对齐 web `OverflowPillsMenu`）。 */
+  @State overIter: number = -1;
 
   private pal(): Palette {
     return paletteOf(this.theme);
+  }
+
+  /** 工具是否处于"在飞"（运行/生成中）—— 决定发光与扫光。判定收敛在 `core/toolstatus`。 */
+  private toolLive(t: ToolProgress): boolean {
+    return isLiveStatus(toolStatusKind(t.status, t.exit_code));
+  }
+
+  /** 语义状态档（done/error/running/pending/killed）—— 与 live 块同源判定。 */
+  private toolKind(t: ToolProgress): string {
+    return toolStatusKind(t.status, t.exit_code);
+  }
+
+  /** 状态 chip 文案（空 = 无 chip）。 */
+  private toolChip(t: ToolProgress): string {
+    return statusChip(this.toolKind(t), t.exit_code, t.gen_chars);
+  }
+
+  /** pill 展示文本（名称/标签，**不含**状态 badge —— 状态由 chip 表达）。 */
+  private toolLabelText(t: ToolProgress): string {
+    return t.label !== undefined && t.label.length > 0 ? t.label : t.name;
+  }
+
+  /** 视觉 token（玻璃/光晕/渐变/层级）—— 由色板派生，跨主题自动一致。 */
+  private eff(): Effects {
+    return effectsOf(this.pal());
   }
 
   // ⛔ 已删除 `isTailOwned`（bug1「一个 running turn 被渲染两遍」的根因）：
@@ -112,20 +162,16 @@ export struct MessageRowView {
     return `${turnID}:${iter}:${name}`;
   }
 
-  private toolIcon(t: ToolProgress): string {
-    if (t.status === 'generating') {
-      return '◐';
-    }
-    if (t.status === 'running') {
-      return '●';
-    }
-    if (t.status === 'error' || (t.exit_code !== undefined && t.exit_code !== 0)) {
-      return '✗';
-    }
-    if (t.status === 'pending') {
-      return '○';
-    }
-    return '✓';
+  /**
+   * 单枚工具 pill 的**唯一键**（弹层开关的身份判据）。
+   *
+   * ⛔ 历史 bug（真机实测）：身份曾用 `(迭代号, 工具名)`，而**同一次迭代里同一工具可被调用多次**
+   *    （一轮里两次 `FileReplace`）⇒ 两枚 pill 的判据同时成立 ⇒ 点一下弹**两个**浮层。
+   *    这里把 `call_id` 纳入键；服务端未给 `call_id` 时用**同迭代内下标**兜底（仍唯一）。
+   */
+  private pillKeyOf(it: HistoryIteration, t: ToolProgress, idx: number): string {
+    const cid: string = t.call_id !== undefined && t.call_id.length > 0 ? t.call_id : `idx${idx}`;
+    return `${this.toolKey(this.row.turnID, it.iteration, t.name)}#${cid}`;
   }
 
   private toolColor(t: ToolProgress): string {
@@ -135,7 +181,11 @@ export struct MessageRowView {
     if (t.status === 'running' || t.status === 'generating') {
       return this.pal().accentSoft;
     }
-    return this.pal().textSecondary;
+    if (t.status === 'pending') {
+      return this.pal().textMuted;
+    }
+    // 成功：**中性色**（几十个绿点是全局最花的配色噪音；颜色只留给"运行中/失败"）
+    return this.pal().textMuted;
   }
 
   private toolStatusBadge(t: ToolProgress): string {
@@ -163,7 +213,7 @@ export struct MessageRowView {
   }
 
   /**
-   * 该行此刻要渲染的**已完成迭代块列表**（不含末尾在飞块）。
+   * 该行此刻要渲染的**已完成迭代块**（不含末尾在飞块）。
    *
    * live 行 = 页面投递的 `@Prop liveBlocks`（**值** —— 见其声明处的根因说明）；
    * 普通行 = 行对象里已完成块（普通行经带 key 的 `LazyForEach`，key 含 `rev`，
@@ -173,20 +223,57 @@ export struct MessageRowView {
     return this.row.isLive ? this.liveBlocks : completedBlocks(this.row);
   }
 
-  private itersFor(): HistoryIteration[] {
-    const all: HistoryIteration[] = this.blocksFor();
-    if (this.expandedTurn === this.row.id || all.length <= MAX_ITER_VISIBLE) {
-      return all;
-    }
-    return all.slice(all.length - MAX_ITER_VISIBLE);
+  /**
+   * 已完成块 → **跨迭代合并**后的块列表（连续「纯工具」迭代合成一块 ⇒ 渲染成一行 pill）。
+   * 逐字对齐 web `TurnBody.mergeToolRuns`（`TurnBody.tsx:942-967`），逻辑在 `core/streammerge.ets`。
+   */
+  private mergedBlocks(): HistoryIteration[] {
+    return mergeToolRuns(this.blocksFor());
   }
 
-  private hiddenIterCount(): number {
-    if (this.expandedTurn === this.row.id) {
-      return 0;
+  /**
+   * 该行要渲染的**全部**已完成块。
+   *
+   * ⛔ 不再「只显示最近 8 个 + 点击展开全部」（原生自创）：web `TurnBody` 渲染**全部**迭代，
+   *    靠 `content-visibility` 做窗口化，**没有"点击展开"这种交互**（用户 2026-10-10 明确
+   *    禁止）。历史过长时的性能由 ArkUI 的 `LazyForEach`/`@Reusable` 承担。
+   */
+  private itersFor(): HistoryIteration[] {
+    return this.mergedBlocks();
+  }
+
+  /**
+   * 自动加载更早区域（可见性触发的唯一入口）。
+   *
+   * ⛔ **不是"点击加载"**：由分隔条的 `onVisibleAreaChange` 在它进入视口时调用 ——
+   *    体感等价"向上滚动自然加载更多"。`regionStatus === 'loading'` 时直接返回，
+   *    防止同一次露出重复发请求（web `useRegionWindow` 的 arm/disarm 同源目的）。
+   */
+  private autoLoadRegions(): void {
+    if (this.row.regionsBefore <= 0 || this.regionStatus === 'loading') {
+      return;
     }
-    const total: number = this.blocksFor().length;
-    return total > MAX_ITER_VISIBLE ? total - MAX_ITER_VISIBLE : 0;
+    this.regionStatus = 'loading';
+    this.onLoadMoreRegions().then((ok: boolean) => {
+      this.regionStatus = ok ? 'idle' : 'error';
+    }).catch(() => {
+      this.regionStatus = 'error';
+    });
+  }
+
+  /** 同一迭代内**直出**的 pill（≤8 全量；>8 前 7 枚）—— 对齐 web `MergedPills`。 */
+  private shownPills(it: HistoryIteration): ToolProgress[] {
+    return foldPills(it.tools !== undefined ? it.tools : []).shown;
+  }
+
+  /** 同一迭代内被收进 `+N` 的 pill（>8 时 = 第 8 枚起）。 */
+  private hiddenPills(it: HistoryIteration): ToolProgress[] {
+    return foldPills(it.tools !== undefined ? it.tools : []).hidden;
+  }
+
+  /** `+N` 的 N（收起枚数）。 */
+  private hideCount(it: HistoryIteration): number {
+    return foldPills(it.tools !== undefined ? it.tools : []).hideCount;
   }
 
   /** 在飞内容是否非空（@Prop 直驱 —— 与页面 `syncLiveTail` 的派生同源）。 */
@@ -209,6 +296,45 @@ export struct MessageRowView {
     //   `.iter-block{margin-top:0.25rem}` 提供（见下方 IterationBlock/LiveIterationBlock 的
     //   `.margin({ top: BUBBLE.iterGap })`）。用 Column 的 space 会在首块前留白、与 web 不符。
     Column() {
+      // ── 「更早区域」分隔条：**必须是本 turn 最顶部的内容** ────────────────────────
+      //    web `AssistantMessage`：`{regionWindow.enabled && <RegionsDivider/>}`
+      //    **在 `<TurnBody>` 之前**，是 assistant 容器的第一个子节点 —— 原生照此把它放到
+      //    最前（此前它排在正文之后，用户 2026-10-10 指出「divider 上方不能有任何内容」）。
+      //
+      //    ⛔ **自动加载**（可见性即触发，等价 web 的 IO 哨兵）：**绝不做「点击加载」**
+      //    （用户明确禁止）。体感要与「向上滚动自然加载更多」一致，而不是"我们藏了东西
+      //    让你点" —— 故文案用「正在加载更多…」，不用「折叠/展开」这类词。
+      if (this.row.regionsBefore > 0) {
+        Row({ space: 6 }) {
+          if (this.regionStatus === 'loading') {
+            LoadingProgress().width(13).height(13).color(this.pal().textMuted)
+            Text('正在加载更多…').fontSize(11).fontColor(this.pal().textMuted)
+          } else if (this.regionStatus === 'error') {
+            // 失败**不自动重试**（对齐 web `useRegionWindow`：避免弱网下的自动请求循环），
+            // 只在此处提供手动重试（web `RegionsDivider` 的 error 态同样是可点按钮）。
+            SymbolGlyph($r('sys.symbol.arrow_counterclockwise')).fontSize(12).fontColor([this.pal().warn])
+            Text('加载失败 · 重试').fontSize(11).fontColor(this.pal().warn)
+          } else {
+            SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(12).fontColor([this.pal().textMuted])
+            Text(`更早的 ${this.row.regionsBefore} 个区域`).fontSize(11).fontColor(this.pal().textMuted)
+          }
+        }
+        .width('100%')
+        .height(REGION_ROW_H)     // **恒定行高**（web `h-7`）：三态不改变布局，避免滚动跳变
+        .justifyContent(FlexAlign.Center)
+        // 可见性哨兵：滚到顶部露出本条 ⇒ 自动取更早一段（web `useRegionWindow` 的 IO 哨兵）
+        .onVisibleAreaChange([0.0, 1.0], (isVisible: boolean) => {
+          if (isVisible) {
+            this.autoLoadRegions();
+          }
+        })
+        .onClick(() => {
+          // 仅 error 态允许点（重试）；idle 态点击无操作（不做"点击加载"）
+          if (this.regionStatus === 'error') {
+            this.autoLoadRegions();
+          }
+        })
+      }
       if (this.row.content.length > 0 && this.row.iterations.length === 0) {
         MarkdownView({
           text: this.row.content,
@@ -221,30 +347,7 @@ export struct MessageRowView {
           fontScale: this.fontScaleV,
           wrapCode: this.wrapCodeV,
           theme: this.theme,
-        })
-      }
-      // 服务端折叠视图：更早的展示区域需按需取回（与 Web 端「⌃ 更早的 N 个区域」同源）
-      if (this.row.regionsBefore > 0) {
-        Row({ space: 6 }) {
-          Text(`⌃ 更早的 ${this.row.regionsBefore} 个区域`).fontSize(11).fontColor(this.pal().warn)
-          Text('（点击加载）').fontSize(11).fontColor(this.pal().textMuted)
-        }
-        .width('100%')
-        .padding({ top: 4, bottom: 4 })
-        .onClick(() => {
-          this.onLoadMoreRegions();
-        })
-      }
-      if (this.hiddenIterCount() > 0) {
-        Row({ space: 6 }) {
-          Text(`↑ 已折叠更早的 ${this.hiddenIterCount()} 个迭代`)
-            .fontSize(11).fontColor(this.pal().accentSoft)
-          Text('（点击展开全部）').fontSize(11).fontColor(this.pal().textMuted)
-        }
-        .width('100%')
-        .padding({ top: 4, bottom: 4 })
-        .onClick(() => {
-          this.expandedTurn = this.row.id;
+          mdTheme: this.mdTheme,
         })
       }
       // 已完成迭代。live 行的列表来自**值** `liveBlocks`（@Prop）；普通行走带 key 的
@@ -307,6 +410,7 @@ export struct MessageRowView {
       })
     }
     // `.iter-block{margin-top:0.25rem}`（TurnBody）—— 与已完成迭代块之间 4px 间距
+    // （映射表 = 唯一 web 对齐来源；iterGap === SP_1 === 4）
     .margin({ top: BUBBLE.iterGap })
     .width('100%').alignItems(HorizontalAlign.Start)
   }
@@ -316,28 +420,18 @@ export struct MessageRowView {
     Column({ space: BUBBLE.blockInnerGap }) {
       // web 形态：**没有"迭代 N"这种标题**，只有一条可展开的「思考 N 字」
       if (displayReasoning(it).length > 0) {
-        Row({ space: 6 }) {
-          Text('✳').fontSize(11).fontColor(this.pal().textMuted)
-          Text(`思考 ${runeCount(displayReasoning(it))} 字`)
-            .fontSize(11).fontColor(this.pal().textSecondary)
-          Text(this.openReasonKey === `${this.row.id}-${it.iteration}` ? '▾' : '▸')
-            .fontSize(11).fontColor(this.pal().textMuted)
-        }
-        .padding({ top: 2, bottom: 2 })
-        .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
-        .onClick(() => {
-          const key: string = `${this.row.id}-${it.iteration}`;
-          this.openReasonKey = this.openReasonKey === key ? '' : key;
+        // ⛔ 与 live 块**共用同一组件**（web `ThinkingLine`：图标 + 标签、无箭头）。
+        //    用组件而非带参 `@Builder`：后者子树不随参数重建（ARKTS-GOTCHAS §4）。
+        ThinkingLine({
+          label: `思考 ${runeCount(displayReasoning(it))} 字`,
+          body: displayReasoning(it),
+          open: this.openReasonKey === `${this.row.id}-${it.iteration}`,
+          theme: this.theme,
+          onToggle: () => {
+            const key: string = `${this.row.id}-${it.iteration}`;
+            this.openReasonKey = this.openReasonKey === key ? '' : key;
+          },
         })
-      }
-
-      if (displayReasoning(it).length > 0
-        && this.openReasonKey === `${this.row.id}-${it.iteration}`) {
-        Text(displayReasoning(it))
-          .wordBreak(WordBreak.BREAK_ALL)
-          .fontSize(13).fontColor(this.pal().textSecondary).padding(8).width('100%')
-          .backgroundColor(this.pal().surface).borderRadius(8)
-          .copyOption(CopyOptions.LocalDevice)
       }
 
       if (displayContent(it).length > 0) {
@@ -352,110 +446,184 @@ export struct MessageRowView {
           fontScale: this.fontScaleV,
           wrapCode: this.wrapCodeV,
           theme: this.theme,
+          mdTheme: this.mdTheme,
         })
       }
 
       if (it.tools !== undefined && it.tools.length > 0) {
+        // 同一迭代内：**每工具一枚 pill**，全部塞进一个 flex-wrap 行；>8 枚时前 7 枚 + "+N"
+        // （逐字对齐 web `FoldedToolGroup.tsx:541-574` 的 `MergedPills`）。
         Flex({ wrap: FlexWrap.Wrap }) {
-          ForEach(it.tools, (t: ToolProgress) => {
-            this.ToolPill(it, t)
+          ForEach(this.shownPills(it), (t: ToolProgress, ti: number) => {
+            this.ToolPillItem(it, t, ti)
           }, (t: ToolProgress, ti: number) => `${this.toolKey(this.row.turnID, it.iteration, t.name)}#${t.call_id !== undefined ? t.call_id : ''}#${ti}`)
+          if (this.hideCount(it) > 0) {
+            this.OverflowBadge(it)
+          }
         }
         .width('100%')
       }
 
-      // 工具详情（点击 pill 展开）
-      if (this.openToolKey.startsWith(`${this.row.turnID}:${it.iteration}:`) && it.tools !== undefined) {
-        ForEach(it.tools, (t: ToolProgress) => {
-          if (this.openToolKey === this.toolKey(this.row.turnID, it.iteration, t.name)) {
-            this.ToolDetail(t)
-          }
-        }, (t: ToolProgress, ti: number) => `d-${this.toolKey(this.row.turnID, it.iteration, t.name)}#${ti}`)
-      }
+      // ⛔ 工具详情**不再内联**插入（web：点 pill 弹浮层，见 ToolPill 的 bindPopup）——
+      //   内联会让折叠行逐帧改高 ⇒ `LazyForEach` 逐帧 relayout（web `:4-8` 的踩坑根因）。
     }
-    // `.iter-block{margin-top:0.25rem}`（TurnBody）—— 块间（含首块前）间距 4px
-    .width('100%').alignItems(HorizontalAlign.Start).margin({ top: BUBBLE.iterGap })
+    // `.iter-block{margin-top:0.25rem}`（TurnBody）—— 块间（含首块前）间距 4px（=SP_1）
+    .width('100%').alignItems(HorizontalAlign.Start)
+    // ⛔ 不再加左边导轨（2px accent 半透明）：web `.iter-block` **只有 margin-top、无 rail**
+    //    （2026-10-10 核对 `index.css:1416`）。live 块本就没有 rail ⇒ 保留会让"同一个迭代
+    //    在 live 形态与 committed 形态长得不一样"（用户要求 iter 完全统一样式）。
+    .margin({ top: BUBBLE.iterGap })
   }
 
   @Builder
-  ToolPill(it: HistoryIteration, t: ToolProgress) {
+  ToolPillItem(it: HistoryIteration, t: ToolProgress, ti: number) {
     Stack() {
-      Row({ space: 4 }) {
-      if (t.status === 'generating' || t.status === 'running') {
-        // 原生指示器（会动）。之前用静态字符 "◐" —— 既不动、也是 TUI 观感（用户明确否掉）
-        LoadingProgress().width(13).height(13).color(this.toolColor(t))
-      } else {
-        Text(this.toolIcon(t)).fontSize(11)
-          .fontColor(this.toolColor(t))
-      }
-      Text(this.toolLabel(t))
-        .fontSize(12)
-        .fontColor(this.toolColor(t))
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .constraintSize({ maxWidth: 200 })
-    }
-    .padding({ left: 8, right: 8, top: 5, bottom: 5 })
-    .margin(3)
-      // 运行中：一道流光扫过（纯 transform ⇒ 不触发布局，触屏也稳）
-      if (t.status === 'running' || t.status === 'generating') {
+      // 与 live 块**共用同一套 pill 视觉**（web `FoldedToolGroup.toolPill`：状态标记 + 名称
+      // + 状态 chip）—— 修"done 与 executing 没区别"（用户 2026-10-10）。
+      ToolPill({
+        label: this.toolLabelText(t),
+        kind: this.toolKind(t),
+        chip: this.toolChip(t),
+        live: this.toolLive(t),
+        selected: this.popKey.length > 0 && this.popKey === this.pillKeyOf(it, t, ti),
+        theme: this.theme,
+      })
+      // 运行中：一道 accent 扫光（纯 transform ⇒ 不触发布局，触屏也稳），中心叠 sheen 高光
+      if (this.toolLive(t)) {
         Row()
           .width(46).height('100%')
           .linearGradient({ angle: 90, colors: [
-            [this.pal().accentSoftFade, 0.0], [this.pal().accentSoft, 0.5], [this.pal().accentSoftFade, 1.0],
+            [this.pal().accentSoftFade, 0.0], [this.pal().accentSoft, 0.35],
+            [this.eff().sheen, 0.5], [this.pal().accentSoft, 0.65], [this.pal().accentSoftFade, 1.0],
           ] })
-          .opacity(0.35)
+          .opacity(0.45)
           .translate({ x: this.sweepX })
           .hitTestBehavior(HitTestMode.None)
       }
     }
+    .margin(3)
+    // 与 live 块同款宽度上限（生成中的参数是流式文本，可能几百字符；无上限会撑破屏幕）
+    .constraintSize({ maxWidth: 240 })
     .clip(true)
-    .backgroundColor(this.pal().surfaceAlt)
-    .borderRadius(6)
-    .border({ width: 1, color: this.openToolKey === this.toolKey(this.row.turnID, it.iteration, t.name) ? this.pal().accent : this.pal().border })
     .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
     .onClick(() => {
+      // ① 保留既有能力：页面 `toggleTool` 负责折叠视图下 `fetchIterationDetail` 按需拉取。
       this.onToggleTool(it.iteration, t.name);
+      // ② 打开**浮层**（对齐 web：点 pill 弹 Popover，绝不内联展开）；再点同枚 = 关闭。
+      //    身份用唯一键（`pillKeyOf`），同迭代内多次调用同一工具**只开对应那一枚**。
+      const key: string = this.pillKeyOf(it, t, ti);
+      this.popKey = this.popKey === key ? '' : key;
+    })
+    /** 浮层：内容挂在**弹层节点**里（脱离 LazyForEach 布局树，同 web Portal）。
+     *  返回键/点外部经 `onWillDismiss`（`DismissReason.PRESS_BACK`/`TOUCH_OUTSIDE`）关闭。 */
+    .bindPopup(this.popKey.length > 0 && this.popKey === this.pillKeyOf(it, t, ti), {
+      builder: this.ToolPopBody,
+      placement: Placement.Bottom,
+      enableArrow: false,
+      mask: false,
+      popupColor: this.pal().surfaceAlt,
+      radius: R_XL,
+      width: POP_W,
+      onWillDismiss: (action: DismissPopupAction) => {
+        this.popKey = '';
+      },
     })
     .gesture(LongPressGesture().onAction(() => {
       this.onOpenCtx(it.iteration, t.name);
     }))
   }
 
+  /** "+N" 徽标：被收起的工具枚数（>8 时出现）—— 点击弹**溢出全量列表**浮层。 */
   @Builder
-  ToolDetail(t: ToolProgress) {
-    Column({ space: 4 }) {
-      if (t.summary !== undefined && t.summary.length > 0) {
-        Text(t.summary).fontSize(12).fontColor(this.pal().textSecondary).width('100%')
-          .wordBreak(WordBreak.BREAK_ALL)
+  OverflowBadge(it: HistoryIteration) {
+    Text(`+${this.hideCount(it)}`)
+      .fontSize(FS_CAPTION)
+      .fontColor(this.pal().textMuted)
+      .padding({ left: SP_2, right: SP_2, top: 5, bottom: 5 })
+      .margin(3)
+      .backgroundColor(this.overIter === it.iteration ? this.pal().surfaceHi : this.pal().surfaceAlt)
+      .borderRadius(R_LG)
+      .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+      .onClick(() => {
+        this.overIter = this.overIter === it.iteration ? -1 : it.iteration;
+      })
+      .bindPopup(this.overIter === it.iteration, {
+        builder: this.OverflowPopBody,
+        placement: Placement.Bottom,
+        enableArrow: false,
+        mask: false,
+        popupColor: this.pal().surface,
+        radius: R_XL,
+        width: OVER_W,
+        onWillDismiss: (action: DismissPopupAction) => {
+          this.overIter = -1;
+        },
+      })
+  }
+
+  /** 浮层里"当前工具"（按 `popKey` 唯一键从**合并后**的块里查 —— 被吸收进本块的成员工具
+   *  也在 head 块里；详情懒加载回填后仍读到最新一份）。
+   *  键的算法必须与 `ToolPill` 渲染时**完全一致**（都用 `pillKeyOf` + 同迭代内下标）。 */
+  private popTool(): ToolProgress | undefined {
+    if (this.popKey.length === 0) {
+      return undefined;
+    }
+    const bs: HistoryIteration[] = this.mergedBlocks();
+    for (let i = 0; i < bs.length; i++) {
+      const it: HistoryIteration = bs[i];
+      if (it.tools === undefined) {
+        continue;
       }
-      if (t.args !== undefined && t.args.length > 0) {
-        Text('参数').fontSize(10).fontColor(this.pal().textMuted)
-        Text(t.args)
-          .wordBreak(WordBreak.BREAK_ALL)
-          .fontSize(12).fontColor(this.pal().textPrimary).fontFamily('monospace')
-          .width('100%').padding(6).backgroundColor(this.pal().surfaceAlt).borderRadius(6)
-          .copyOption(CopyOptions.LocalDevice)
-      }
-      if (t.detail !== undefined && t.detail.length > 0) {
-        Text('输出').fontSize(10).fontColor(this.pal().textMuted)
-        Text(t.detail)
-          .wordBreak(WordBreak.BREAK_ALL)
-          .fontSize(12).fontColor(this.pal().textPrimary).fontFamily('monospace')
-          .width('100%').padding(6).backgroundColor(this.pal().surfaceAlt).borderRadius(6)
-          .copyOption(CopyOptions.LocalDevice)
-      }
-      if ((t.summary === undefined || t.summary.length === 0)
-        && (t.args === undefined || t.args.length === 0)
-        && (t.detail === undefined || t.detail.length === 0)) {
-        Text('（详情加载中或该工具无详情）').fontSize(11).fontColor(this.pal().textMuted)
-      }
-      if (t.elapsed_ms !== undefined) {
-        Text(`耗时 ${t.elapsed_ms} ms`).fontSize(10).fontColor(this.pal().textMuted)
+      for (let k = 0; k < it.tools.length; k++) {
+        if (this.pillKeyOf(it, it.tools[k], k) === this.popKey) {
+          return it.tools[k];
+        }
       }
     }
-    .width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
-    .alignItems(HorizontalAlign.Start)
+    return undefined;
+  }
+
+  /** 浮层 VM（模块级自由函数 + 类内包装 —— `@Builder` 里不能直接调自由函数）。 */
+  private popVM(): ToolDetailVM {
+    const t: ToolProgress | undefined = this.popTool();
+    const color: string = t !== undefined ? this.toolColor(t) : this.pal().textMuted;
+    const status: string = t !== undefined ? this.toolStatusBadge(t) : '';
+    return toolDetailVM(t, color, status);
+  }
+
+  /** 溢出浮层里的工具列表（被 `+N` 收起的那些）—— 从**合并后**的块里取。 */
+  private overTools(): ToolProgress[] {
+    const bs: HistoryIteration[] = this.mergedBlocks();
+    for (let i = 0; i < bs.length; i++) {
+      if (bs[i].iteration === this.overIter) {
+        return this.hiddenPills(bs[i]);
+      }
+    }
+    return [];
+  }
+
+  /** 单工具浮层内容（对齐 web `ToolPopoverDetail`）。 */
+  @Builder
+  ToolPopBody() {
+    ToolPopoverCard({
+      vm: this.popVM(),
+      theme: this.theme,
+      onCopy: (text: string, what: string) => {
+        this.onCopy(text, what);
+      },
+    })
+  }
+
+  /** "+N" 溢出浮层内容（对齐 web `ToolPopoverContent`）。 */
+  @Builder
+  OverflowPopBody() {
+    ToolOverflowList({
+      tools: this.overTools(),
+      theme: this.theme,
+      onCopy: (text: string, what: string) => {
+        this.onCopy(text, what);
+      },
+    })
   }
 
   build() {

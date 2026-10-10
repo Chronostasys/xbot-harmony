@@ -1,6 +1,8 @@
 import { AuthImage } from './AuthImage';
 import { pasteboard } from '@kit.BasicServicesKit';
-import { Palette, paletteOf } from '../core/theme';
+import { Palette, paletteOf, Effects, effectsOf } from '../core/theme';
+import { codeBgOf, codeFgOf, codeTone, CodeTone, normalizeMdTheme } from '../core/mdtheme';
+import { R_SM, R_LG, SP_1, SP_2, SP_3 } from '../core/tokens';
 import {
   MdBlock, MdBlockKind, MdSpan, parseInlineCached, parseMarkdownCached,
   TableField, tableRowFields, useTableGrid,
@@ -52,19 +54,22 @@ export class MdInlineStyle {
   bg: string = '';
 }
 
-export function inlineStyles(text: string, pal: Palette): MdInlineStyle[] {
+export function inlineStyles(text: string, pal: Palette, mdTheme: string): MdInlineStyle[] {
   const spans: MdSpan[] = parseInlineCached(text);
   const out: MdInlineStyle[] = [];
+  const tone: CodeTone = codeTone(mdTheme);
   for (let i = 0; i < spans.length; i++) {
     const sp: MdSpan = spans[i];
     const st: MdInlineStyle = new MdInlineStyle();
     st.color = pal.textPrimary;
+    st.bg = pal.transparent;
     if (sp.code) {
       st.text = ` ${sp.text} `;
       st.mono = true;
       st.size = 13;
-      st.color = pal.dangerText;
-      st.bg = pal.surfaceHi;
+      // 行内码：胶囊底用**所选 md 主题的行内码底**（与代码块同源，避免两种"代码"配色打架）
+      st.color = pal.accentText;
+      st.bg = tone.inlineBg;
     } else if (sp.link.length > 0) {
       st.text = sp.text;
       st.color = pal.accentSoft;
@@ -89,10 +94,17 @@ export struct MarkdownView {
   @Prop fontScale: number = 1;
   /** 主题（由页面透传；语义色板见 core/theme.ets） */
   @Prop theme: string = 'dark';
+  /** Markdown 主题 id（与 web 共享 `web:ui:md-theme`；只影响代码块/行内码配色）。 */
+  @Prop mdTheme: string = 'vscode-dark';
 
   /** 当前语义色板（深浅两套，换主题只换取值） */
   private pal(): Palette {
     return paletteOf(this.theme);
+  }
+
+  /** 视觉效果 token（玻璃/光晕/渐变/层级）—— 由色板派生，跨主题自动一致。 */
+  private eff(): Effects {
+    return effectsOf(this.pal());
   }
   /** 点击图片占位时的回调（参数是图片 src） */
   onImage: (src: string) => void = () => {
@@ -143,10 +155,11 @@ export struct MarkdownView {
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
-      .padding({ left: 11, right: 8, top: 8, bottom: 8 })
-      .backgroundColor(this.pal().surface)
-      .borderRadius(6)
-      .border({ width: { left: 3, top: 0, right: 0, bottom: 0 }, color: this.pal().textMuted })
+      .padding({ left: 11, right: SP_2, top: SP_2, bottom: SP_2 })
+      // 引用块：左侧 3px accent 竖条 + 半透明玻璃底（竖条必须用 border，见上）
+      .backgroundColor(this.eff().glassBg)
+      .borderRadius(R_LG)
+      .border({ width: { left: 3, top: 0, right: 0, bottom: 0 }, color: this.pal().accent })
     } else if (b.kind === MdBlockKind.List) {
       Column({ space: 3 }) {
         ForEach(b.items, (item: string, k: number) => {
@@ -186,14 +199,15 @@ export struct MarkdownView {
   @Builder
   Inline(text: string) {
     Text() {
-      ForEach(inlineStyles(text, this.pal()), (s: MdInlineStyle) => {
+      ForEach(inlineStyles(text, this.pal(), this.mdTheme), (s: MdInlineStyle) => {
         Span(s.text)
           .fontSize(this.sz(s.size))
           .fontColor(s.color)
           .fontWeight(s.bold ? FontWeight.Bold : FontWeight.Normal)
           .fontStyle(s.italic ? FontStyle.Italic : FontStyle.Normal)
           .fontFamily(s.mono ? 'monospace' : 'sans-serif')
-          .backgroundColor(s.bg)
+          // 行内码圆角胶囊（Span 的 backgroundColor 无圆角，改用 textBackgroundStyle 带 R_SM）
+          .textBackgroundStyle({ color: s.bg, radius: R_SM })
           .decoration({
             type: s.strike ? TextDecorationType.LineThrough
               : (s.underline ? TextDecorationType.Underline : TextDecorationType.None),
@@ -236,15 +250,17 @@ export struct MarkdownView {
           })
       }
       .width('100%')
-      .padding({ left: 12, right: 12, top: 8, bottom: 4 })
+      .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_1 })
       .backgroundColor(this.pal().surfaceAlt)
-      .borderRadius({ topLeft: 10, topRight: 10 })
+      .borderRadius({ topLeft: R_LG, topRight: R_LG })
+      // 顶部细条（语言标签条）与代码区之间一条玻璃分隔线
+      .border({ width: { bottom: 1 }, color: this.eff().glassBorder })
 
       Text(b.code)
         .wordBreak(this.wrapCode ? WordBreak.BREAK_ALL : WordBreak.NORMAL)
         .fontFamily('monospace')
         .fontSize(13)
-        .fontColor(this.pal().textPrimary)
+        .fontColor(codeFgOf(this.mdTheme))
         .width('100%')
         .padding(10)
         .textAlign(TextAlign.Start)
@@ -254,10 +270,12 @@ export struct MarkdownView {
         .textOverflow({ overflow: TextOverflow.Clip })
     }
     .width('100%')
-    .backgroundColor(this.pal().surfaceAlt)
-    .borderRadius(8)
-    .border({ width: 1, color: this.pal().border })
-    .margin({ top: 4, bottom: 4 })
+    // 代码块：**用所选 Markdown 主题的代码底/字**（与 web markdown-themes 同源；
+    // 不跟随会退化成"23 套主题长得一模一样"的假功能）。圆角与描边保持全局语言。
+    .backgroundColor(codeBgOf(this.mdTheme, this.pal()))
+    .borderRadius(R_LG)
+    .border({ width: 1, color: this.eff().glassBorder })
+    .margin({ top: SP_1, bottom: SP_1 })
   }
 
   /**
@@ -285,8 +303,8 @@ export struct MarkdownView {
           }, (h: string, k: number) => `${b.key}-th${k}`)
         }
         .width('100%')
-        .backgroundColor(this.pal().surfaceHi)
-        .borderRadius({ topLeft: 10, topRight: 10 })
+        .backgroundColor(this.pal().surfaceAlt)
+        .borderRadius({ topLeft: R_LG, topRight: R_LG })
         .padding({ left: 2, right: 2 })
 
         ForEach(b.rows, (row: string[], ri: number) => {
@@ -301,7 +319,7 @@ export struct MarkdownView {
             }, (cell: string, ci: number) => `${b.key}-td${ri}-${ci}`)
           }
           .width('100%')
-          .border({ width: { top: 1 }, color: this.pal().border })
+          .border({ width: { top: 1 }, color: this.eff().glassBorder })
         }, (row: string[], ri: number) => `${b.key}-tr${ri}`)
       } else {
         Row() {
@@ -330,15 +348,15 @@ export struct MarkdownView {
           .width('100%')
           .alignItems(HorizontalAlign.Start)
           .padding({ left: 8, right: 8, top: 6, bottom: 6 })
-          .border({ width: { top: ri === 0 ? 0 : 1 }, color: this.pal().border })
+          .border({ width: { top: ri === 0 ? 0 : 1 }, color: this.eff().glassBorder })
         }, (row: string[], ri: number) => `${b.key}-sr${ri}`)
       }
     }
     .width('100%')
-    .border({ width: 1, color: this.pal().border })
-    .borderRadius(8)
+    .border({ width: 1, color: this.eff().glassBorder })
+    .borderRadius(R_LG)
     .clip(true)
-    .margin({ top: 4, bottom: 4 })
+    .margin({ top: SP_1, bottom: SP_1 })
   }
 
   private headingSize(level: number): number {

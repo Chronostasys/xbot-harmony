@@ -1,4 +1,4 @@
-import { AbilityConstant, UIAbility, Want } from '@kit.AbilityKit';
+import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { KeyboardAvoidMode, UIContext, window } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { BusinessError } from '@kit.BasicServicesKit';
@@ -8,6 +8,13 @@ const TAG: string = 'xbot';
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    // ⛔ **全局锁定深色**（不是"可选优化"，是这类观感 bug 的总开关）。
+    //   应用自带完整深色语义色板，但**系统绘制的表面不听我们的**：模糊材质
+    //   （`backgroundBlurStyle` 的 `colorMode` 默认是 SYSTEM）、`bindPopup` 的弹窗底、
+    //   文本选择/长按菜单等。系统是浅色时它们一律渲染成浅灰，压在深色卡片上就是
+    //   "深里突然一块白"的割裂（真机实测两处：抽屉曾整片发白；工具 pill 浮层一半浅一半深）。
+    //   在进程最早的 onCreate 锁定，能让**所有**系统表面与自绘色板口径一致。
+    this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
     hilog.info(DOMAIN, TAG, 'EntryAbility onCreate');
   }
 

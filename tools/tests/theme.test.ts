@@ -22,12 +22,16 @@ eq('浅色取值表同样覆盖', paletteValues(l).length, Object.keys(l).length
 eq('浅色色板完整', paletteComplete(l), true);
 eq('两套色板字段数一致', Object.keys(d).length, Object.keys(l).length);
 
-// 深色保留改造前的观感（逐值核对关键角色）
-eq('深色背景', d.appBg, '#0B0F19');
-eq('深色卡片', d.surface, '#0F172A');
-eq('深色正文', d.textPrimary, '#E5E7EB');
-eq('深色强调', d.accent, '#7C3AED');
-eq('深色边框', d.border, '#1F2937');
+// 深色 = "深空仪表盘"：单一紫色系 + 每级约 8% 亮度阶梯（2026-10 重设计，逐值核对）
+eq('深色背景', d.appBg, '#0B0B0E');
+eq('深色卡片', d.surface, '#0E0E14');
+eq('深色正文', d.textPrimary, '#EDEDF2');
+eq('深色强调', d.accent, '#7C5CFF');
+eq('深色边框', d.border, '#20202B');
+// 纪律：accentSoft 必须是**紫系**（历史 bug：曾是浅蓝 #93C5FD，与紫主色打架）
+eq('强调浅色同色相(紫)', d.accentSoft, '#B9A7FF');
+// 纪律：border 不能等于 surfaceHi（历史 bug：两者都曾 #1F2937）
+eq('边框与选中面不同值', d.border === d.surfaceHi, false);
 
 // 浅色必须与深色逐字段不同（否则等于没换）
 let same = 0;
@@ -45,9 +49,9 @@ eq('浅色仅 3 个字段与深色相同', same, 3);
 eq('浅色背景亮', l.appBg, '#F8FAFC');
 eq('浅色正文暗', l.textPrimary, '#0F172A');
 
-eq('取色板 dark', paletteOf(THEME_DARK).appBg, '#0B0F19');
+eq('取色板 dark', paletteOf(THEME_DARK).appBg, '#0B0B0E');
 eq('取色板 light', paletteOf(THEME_LIGHT).appBg, '#F8FAFC');
-eq('未知主题回落深色', paletteOf('weird').appBg, '#0B0F19');
+eq('未知主题回落深色', paletteOf('weird').appBg, '#0B0B0E');
 eq('规范化未知', normalizeTheme('weird'), THEME_DARK);
 eq('规范化 light', normalizeTheme(THEME_LIGHT), THEME_LIGHT);
 eq('规范化 undefined', normalizeTheme(undefined), THEME_DARK);

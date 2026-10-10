@@ -210,7 +210,11 @@ function snapshotToLive(live: ProgressSnapshot): LiveSnapshot {
     iter: iterNum(Math.max(1, live.iteration || live.lastIter || 1)),
     streaming: live.streaming,
     content: live.streamContent || live.content || '',
-    reasoning: live.reasoningStreamContent || '',
+    // ⚠️ 必须带 `lastReasoning` 兜底（与 web `LiveIteration` 的
+    // `reasoningStreamContent || lastReasoning || ''` **逐字一致**）：
+    // 只取流式字段时，结构化快照携带的 reasoning（无流式字段的帧）会整段丢失 ⇒
+    // 思考字数停在上一次流式的值（真机症状：数字不涨、结束时才跳）。
+    reasoning: live.reasoningStreamContent || live.lastReasoning || '',
     iterations: live.iterationHistory ?? [],
     // busy 快照折叠视图的区域窗口声明（live 闭环）—— live/frozen 行顶部的
     // 「更早区域」分隔条数据源（与 committed 的 payload.regionsBefore 同语义）。

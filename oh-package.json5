@@ -1,9 +1,11 @@
 {
-  // ⚠️ 必须与 hvigor/hvigor-config.json5 的 modelVersion 一致（否则 hvigor 报错）
   "modelVersion": "5.0.5",
   "description": "xbot native HarmonyOS client (hybrid: ArkUI core + ArkWeb surfaces)",
-  "dependencies": {},
+  "dependencies": {
+    "@hxa-atpc/noties_prism4j": "^1.0.0"
+  },
   "devDependencies": {},
   "license": "MIT",
-  "author": "Chronostasys"
+  "author": "Chronostasys",
+  "dynamicDependencies": {}
 }

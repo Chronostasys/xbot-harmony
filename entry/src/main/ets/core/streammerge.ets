@@ -383,6 +383,134 @@ export function displayReasoning(it: HistoryIteration): string {
 }
 
 
+// ── 工具 pill 的**分组 / 折叠**（逐字移植 web，纯函数 ⇒ 可脱机单测）──────────────
+// web 权威：
+//   · 同一迭代内 `MergedPills`（`FoldedToolGroup.tsx:541-574`）——每工具一枚 pill，
+//     全部塞进一个 flex-wrap 行；>8 枚时前 7 枚 + `+N` 徽标（`:41-42, 551-552`）。
+//   · 跨迭代 `mergeToolRuns`（`TurnBody.tsx:942-967`）——把**连续「纯工具」迭代**
+//     （含工具且无 content 且无 reasoning）吸收进**前一个**含工具迭代，保留 head 迭代号。
+// 由 `tools/tests/toolgroup.test.ts` 守护；UI 层（MessageRow/LiveTailView）只消费结果。
+
+/** 折叠行 pill 上限：**超过** 8 枚 ⇒ 前 7 枚 + `+N`（web `PILL_INLINE_MAX`/`PILL_INLINE_HEAD`）。 */
+export const PILL_INLINE_MAX: number = 8;
+export const PILL_INLINE_HEAD: number = 7;
+
+/** pill 行的折叠结果（`shown` = 直出的 pill；`hidden` = 收进 `+N` 的 pill）。 */
+export interface PillSlice {
+  shown: ToolProgress[];
+  hidden: ToolProgress[];
+  overflow: boolean;
+  hideCount: number;
+}
+
+/**
+ * 把一段工具列表折成「≤8 全量；>8 前 7 + `+N`」——逐字移植 web `MergedPills`。
+ *
+ * ⚠️ 边界：`length === 8` **不折叠**（web 判据是 `tools.length > PILL_INLINE_MAX`）；
+ * 顺序**原样保留**（先出现的在 `shown` 里、被收纳的按原顺序进 `hidden`）。
+ */
+export function foldPills(tools: ToolProgress[]): PillSlice {
+  const overflow: boolean = tools.length > PILL_INLINE_MAX;
+  const shown: ToolProgress[] = [];
+  const hidden: ToolProgress[] = [];
+  for (let i = 0; i < tools.length; i++) {
+    if (overflow && i >= PILL_INLINE_HEAD) {
+      hidden.push(tools[i]);
+    } else {
+      shown.push(tools[i]);
+    }
+  }
+  return { shown, hidden, overflow, hideCount: hidden.length };
+}
+
+/** 该迭代是否"含工具"（web `mergeToolRuns.hasTools`）。 */
+function iterHasTools(it: HistoryIteration): boolean {
+  return it.tools !== undefined && it.tools.length > 0;
+}
+
+/** 该迭代是否"纯工具"（含工具且无正文且无推理）——可被前一个含工具迭代吸收（web `absorbs`）。 */
+function iterAbsorbable(it: HistoryIteration): boolean {
+  return iterHasTools(it) && !nonEmpty(it.content) && !nonEmpty(it.reasoning);
+}
+
+/** 把 head 的字段与吸收来的工具合成合并块（⛔ ArkTS 禁 spread ⇒ 逐字段拷贝）。 */
+function mergeIntoHead(head: HistoryIteration, tools: ToolProgress[], blockFolded: boolean): HistoryIteration {
+  const out: HistoryIteration = {
+    iteration: head.iteration,
+    content: head.content,
+    reasoning: head.reasoning,
+    tools,
+    tools_folded: head.tools_folded === true || blockFolded,
+  };
+  // 保留 head 的其它渲染字段（live / 流式缓冲 / 创建时间）——渲染层仍要读它们。
+  if (head.created_at !== undefined) {
+    out.created_at = head.created_at;
+  }
+  if (head.live !== undefined) {
+    out.live = head.live;
+  }
+  if (head.stream_text !== undefined) {
+    out.stream_text = head.stream_text;
+  }
+  if (head.stream_reasoning !== undefined) {
+    out.stream_reasoning = head.stream_reasoning;
+  }
+  return out;
+}
+
+/**
+ * 连续「纯工具」迭代合并进前一个含工具的迭代 —— **逐字移植** web `TurnBody.mergeToolRuns`
+ * （`TurnBody.tsx:942-967`）。
+ *
+ * 规则（与 web 一一对应）：
+ *   · 头部迭代**可以**带 reasoning/content（工具行与文本块同属该迭代）；只有**后续成员**
+ *     才要求"只有工具"（`!content && !reasoning`）⇒ 文本不合并、不丢失；
+ *   · 合并后**保留头部迭代号**（高度缓存 / 窗口 key 稳定）；
+ *   · 工具**顺序** = 先 head 后各成员（先出现的在前）；
+ *   · `tools_folded` **聚合**（任一成员带标记 ⇒ 合并块带标记）——成员 pill 的详情 gate 不失明。
+ *
+ * ⚠️ 无工具迭代原样透传（**不做**跨文本合并）。返回新数组；未合并的 head 保持**对象恒等**
+ *   （ArkUI ForEach 复用友好）。
+ */
+export function mergeToolRuns(iters: HistoryIteration[]): HistoryIteration[] {
+  const out: HistoryIteration[] = [];
+  let i: number = 0;
+  while (i < iters.length) {
+    const head: HistoryIteration = iters[i];
+    const headTools: ToolProgress[] = head.tools !== undefined ? head.tools : [];
+    if (headTools.length === 0) {
+      out.push(head);
+      i++;
+      continue;
+    }
+    const tools: ToolProgress[] = [];
+    for (let k = 0; k < headTools.length; k++) {
+      tools.push(headTools[k]);
+    }
+    let j: number = i;
+    let blockFolded: boolean = head.tools_folded === true;
+    while (j + 1 < iters.length && iterAbsorbable(iters[j + 1])) {
+      j++;
+      const member: HistoryIteration = iters[j];
+      const mt: ToolProgress[] = member.tools !== undefined ? member.tools : [];
+      for (let k = 0; k < mt.length; k++) {
+        tools.push(mt[k]);
+      }
+      if (member.tools_folded === true) {
+        blockFolded = true;
+      }
+    }
+    if (j === i) {
+      out.push(head);
+    } else {
+      out.push(mergeIntoHead(head, tools, blockFolded));
+    }
+    i = j + 1;
+  }
+  return out;
+}
+
+
 // ── 会话状态事件（`session`）的语义 ─────────────────────────────────────────
 /**
  * 服务端 `SessionEvent` 的状态字段是 **`action`**（`protocol/events.go`：`Action string json:"action"`），

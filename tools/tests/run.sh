@@ -60,6 +60,13 @@ PKG2
 cat > "$OUT/js/node_modules/@kit.NetworkKit/package.json" <<'PKG'
 { "name": "@kit.NetworkKit", "version": "0.0.0", "main": "index.js" }
 PKG
+# noties_prism4j 是 bytecode HAR（真机才跑得起来）；脱机构建/运行时给它一个 stub 实现，
+# 让 core/highlight.ets 能被单测覆盖其**退化路径**（衡量标准见 mocks/prism4j.js 注释）。
+mkdir -p "$OUT/js/node_modules/@hxa-atpc/noties_prism4j"
+cp "$HERE/mocks/prism4j.js" "$OUT/js/node_modules/@hxa-atpc/noties_prism4j/index.js"
+cat > "$OUT/js/node_modules/@hxa-atpc/noties_prism4j/package.json" <<'PKG3'
+{ "name": "@hxa-atpc/noties_prism4j", "version": "0.0.0", "main": "index.js" }
+PKG3
 # 装饰器运行期垫片：编译期由 stubs/*.d.ts 解决，运行期需要真实存在（见 mocks/decorators.js）
 cp "$HERE/mocks/decorators.js" "$OUT/js/__decorators.js"
 for t in "$OUT"/js/*.test.js; do

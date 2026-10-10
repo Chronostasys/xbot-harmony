@@ -10,8 +10,13 @@ import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
 import { webview } from '@kit.ArkWeb';
 import { ChatStore } from '../core/store';
-import { normalizeTheme, Palette, paletteOf, themeLabel, toggleTheme } from '../core/theme';
-import { loadErrHint, loadErrTitle, needsRelogin, needsSessionRefresh } from '../core/autherr';
+import { normalizeTheme, Palette, paletteOf, themeLabel, toggleTheme, Effects, effectsOf, isDarkThemeName } from '../core/theme';
+import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, withAccent } from '../core/accent';
+import { MD_THEMES, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';
+import { localeLabel, normalizeLocale } from '../core/i18n';
+import { isStarred, parseStarred, serializeStarred, starredFirst, toggleStarred } from '../core/stars';
+import { D_BASE, EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_CAPTION, FS_HERO, FS_TITLE, R_2XL, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_6, SP_8 } from '../core/tokens';
+import { isUnauthorized, loadErrHint, loadErrTitle, needsRelogin, needsSessionRefresh } from '../core/autherr';
 import {
   canMove, MOVE_DOWN, MOVE_TOP, MOVE_UP, hitLine, sessionLabel, sessionMatches,
 } from '../core/sessionops';
@@ -27,7 +32,7 @@ import {
 } from '../core/imgops';
 import {
   fontScaleFrom, fontScaleLabel, fontScalePresets, KEY_APP_THEME, KEY_CODE_WRAP, KEY_FONT_SCALE, KEY_SURFACE,
-  KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE, KEY_REASONING_DEFAULT, KEY_SEND_KEY, normalizeSendKey,
+  KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE, KEY_REASONING_DEFAULT, KEY_SEND_KEY, KEY_STARRED, normalizeSendKey,
   parseBool, sendKeyLabel, settingOf, settingLabel, SEND_KEY_MOD_ENTER,
 } from '../core/settings';
 import {
@@ -103,6 +108,19 @@ const MAX_ITER_VISIBLE: number = 16;
  * 交互式触发不可靠。置 true 后 App 会在登录后自行走查一遍（每页截图上传到服务端），
  * 供排查用。**排查完成应改回 false**（避免每次启动都上传）。
  */
+
+/** 等待 ms 毫秒（冷启动自动登录的重试退避用）。 */
+function sleepMs(ms: number): Promise<void> {
+  return new Promise<void>((resolve: (v: void) => void) => {
+    setTimeout(() => {
+      resolve();
+    }, ms);
+  });
+}
+
+/** 冷启动自动登录的最大尝试次数（首次 + 重试）。
+ *  为什么要重试而不是直接掉回登录页：见 `bootstrap()` 里的注释（真机实测的"偶发登出"）。 */
+const AUTO_LOGIN_ATTEMPTS: number = 3;
 
 /** 把任意 catch 到的值变成可读文本（BusinessError 有 message/code；其它情况回落 JSON）。 */
 function errText(e: Object): string {
@@ -412,8 +430,6 @@ struct Index {
   // ── 工具/迭代展开 ─────────────────────────────────────────────────────────
   @State openToolKey: string = '';
   @State openReasonKey: string = '';
-  /** 展开了全部迭代的 turn（默认只渲染最近 MAX_ITER_VISIBLE 个，防长 turn 爆炸） */
-  @State expandedTurn: string = '';
 
   // ── 显示设置 ──────────────────────────────────────────────────────────────
   @State showReasoning: boolean = true;
@@ -472,24 +488,57 @@ struct Index {
     if (saved.serverUrl.length > 0 && saved.sessionCookie.length > 0) {
       this.cookie = saved.sessionCookie;
       const store: ChatStore = this.makeStore(saved.serverUrl, saved.sessionCookie);
-      try {
-        await store.loadSessions();
+      // 冷启动自动登录：**必须区分「凭据失效(401)」与「瞬态连不上」**。
+      //   · 401 ⇒ http/SSE 的 onUnauthorized 已经走了 handleAuthExpired（清凭证 + 回登录页 + 写明原因），正确。
+      //   · 其它失败（连接被拒 / 超时 / 服务端抖动 / 装包重启窗口内端口转发未就绪）⇒ 只是"连不上"。
+      //     旧实现在 catch 里直接 `loggedIn = false` ⇒ **静默掉回登录页**，用户以为"又被登出了"，
+      //     而 cookie 其实完全有效（真机实测：这是最容易误判成"登出"的现象）。
+      //   ⇒ 退避重试；凭证原样保留；最终失败也给可读原因，而不是一张毫无信息量的登录页。
+      let ok: boolean = false;
+      let lastErr: string = '';
+      for (let attempt = 0; attempt < AUTO_LOGIN_ATTEMPTS && !ok; attempt++) {
+        try {
+          await store.loadSessions();
+          ok = true;
+        } catch (e) {
+          lastErr = errText(e as Object);
+          if (isUnauthorized(lastErr)) {
+            // 401：handleAuthExpired 已处理（清凭证 + 回登录页 + "登录已过期"），不重试
+            break;
+          }
+          if (attempt + 1 < AUTO_LOGIN_ATTEMPTS) {
+            this.errMsg = `${loadErrTitle(lastErr)}：正在重试（${attempt + 2}/${AUTO_LOGIN_ATTEMPTS}）…`;
+            await sleepMs(400 * (attempt + 1));
+          }
+        }
+      }
+      if (ok) {
         this.attach(store);
         this.cookie = store.http.exportSessionCookie();
-      this.prepareWebUI(store);
-      store.loadSettings().catch(() => {
-        // 设置非关键路径
-      });
+        this.prepareWebUI(store);
+        store.loadSettings().catch(() => {
+          // 设置非关键路径
+        });
         this.authExpiredHandled = false;
         this.loggedIn = true;
-        const first: SessionItem | undefined = this.sessions.length > 0 ? this.sessions[0] : undefined;
-        if (first !== undefined && first.chat_id !== undefined) {
-          await store.openSession(first.chat_id);
-          // 启动 store 也入池并按它真正打开的会话建索引（否则切回该会话会再建一个 ⇒ 双订阅）
-          this.rekeyPool(store, first.chat_id);
+        this.errMsg = '';
+        // ⚠️ 打开首个会话**必须**单独兜住：它有网络等待（history/queue/status/subscribe）。
+        //    若让它抛出到 bootstrap 外层，`booted` 永远不置位 ⇒ **无限启动页**（真机实测过）。
+        //    失败只是"这个会话没打开"，用户可在界面上另选，不该拖死整个启动。
+        try {
+          const first: SessionItem | undefined = this.sessions.length > 0 ? this.sessions[0] : undefined;
+          if (first !== undefined && first.chat_id !== undefined) {
+            await store.openSession(first.chat_id);
+            // 启动 store 也入池并按它真正打开的会话建索引（否则切回该会话会再建一个 ⇒ 双订阅）
+            this.rekeyPool(store, first.chat_id);
+          }
+        } catch (e) {
+          this.loadErr = errText(e as Object);
         }
-      } catch (e) {
+      } else if (!this.authExpiredHandled) {
+        // 网络/服务端问题：**保留凭证**（下次冷启动仍会自动登录），并给出可读原因
         this.loggedIn = false;
+        this.errMsg = `${loadErrTitle(lastErr)}：${lastErr}（登录凭证已保留，可直接重试）`;
       }
     }
     this.booted = true;
@@ -1150,9 +1199,13 @@ struct Index {
 
   // ── 会话 ──────────────────────────────────────────────────────────────────
 
-  /** 池上限（超过按 LRU 驱逐并关连接）。 */
+  /** 池上限（超过按 LRU 驱逐并关连接）。
+   *  ⚠️ 不能太小：驱逐 = 下次切回来要 `openSession()` → **重新拉一次 `/api/history`**。
+   *  用户实测"来回切会话看到大量没必要的历史请求"的根因就是这里只有 3 —— 只要会话数 > 3，
+   *  切第 4 个就把第 1 个赶走。聊天应用常态会在 5~8 个会话间来回切，故放宽到 8
+   *  （每个 store 只是一份内存状态机 + 一条 SSE，代价可控）。 */
   private poolMax(): number {
-    return 3;
+    return 8;
   }
 
   /** 取会话对应的 store（池里有就复用；没有就建 + 入池 + 必要时驱逐）。 */
@@ -2005,127 +2058,223 @@ struct Index {
 
   @Builder
   LoginView() {
-    Column({ space: 12 }) {
-      Text('xbot').fontSize(34).fontWeight(FontWeight.Bold)
-        .linearGradient({ angle: 135, colors: [[this.pal().accent, 0.0], [this.pal().accentSoft, 1.0]] })
-      Text('连接你的 xbot 服务端（原生鸿蒙客户端）').fontSize(13).fontColor(this.pal().textSecondary).margin({ bottom: 8 })
-
-      TextInput({ placeholder: '服务端地址，如 192.168.1.10:16000', text: this.serverUrl })
-        .onChange((v: string) => {
-          this.serverUrl = v;
-          this.testMsg = '';
+    Stack({ alignContent: Alignment.Center }) {
+      // ── 深空底：垂直渐变（appBg → surfaceAlt → appBg）──
+      Column()
+        .width('100%').height('100%')
+        .linearGradient({
+          angle: 180,
+          colors: [[this.pal().appBg, 0.0], [this.pal().surfaceAlt, 0.52], [this.pal().appBg, 1.0]],
         })
-        .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary)
-        .constraintSize({ minHeight: 46 }).borderRadius(12).padding({ left: 12, right: 12 })
+      // ── 顶部光晕：径向 accent 辉光（未来感的来源，纯装饰）──
+      Column()
+        .width(620).height(620).borderRadius(310)
+        .radialGradient({
+          center: ['50%', '50%'],
+          radius: 310,
+          colors: [[this.eff().glowSoft, 0.0], [this.pal().transparent, 1.0]],
+        })
+        .offset({ y: -300 })
 
-      // 最近用过的地址（一点即填，省得重打 IP）
-      if (this.recentServers.length > 0) {
-        Flex({ wrap: FlexWrap.Wrap }) {
-          ForEach(this.recentServers, (u: string) => {
-            Text(u)
-              .fontSize(11).fontColor(this.pal().accentSoft)
-              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-              .margin(2)
-              .backgroundColor(this.pal().surfaceAlt).borderRadius(6)
-              .onClick(() => {
-                this.serverUrl = u;
-                this.testMsg = '';
-              })
-          }, (u: string) => u)
+      // ── 玻璃表单卡 ──
+      Column({ space: SP_2 }) {
+        Text('xbot')
+          .fontSize(40).fontWeight(FontWeight.Bold)
+          .linearGradient({
+            angle: 135,
+            colors: [[this.eff().gradientFrom, 0.0], [this.eff().gradientTo, 1.0]],
+          })
+          .shadow({ radius: 22, color: this.eff().glow, offsetX: 0, offsetY: 0 })
+        Text('连接你的 xbot 服务端 · 原生鸿蒙客户端')
+          .fontSize(FS_CAPTION).fontColor(this.pal().textMuted)
+          .margin({ bottom: SP_4 })
+
+        TextInput({ placeholder: '服务端地址，如 192.168.1.10:16000', text: this.serverUrl })
+          .onChange((v: string) => {
+            this.serverUrl = v;
+            this.testMsg = '';
+          })
+          .placeholderColor(this.pal().textMuted)
+          .backgroundColor(this.eff().glassBg).fontColor(this.pal().textPrimary)
+          .constraintSize({ minHeight: 48 }).borderRadius(R_XL)
+          .border({ width: 1, color: this.eff().glassBorder })
+          .padding({ left: SP_3, right: SP_3 })
+
+        // 最近用过的地址（一点即填，省得重打 IP）
+        if (this.recentServers.length > 0) {
+          Flex({ wrap: FlexWrap.Wrap }) {
+            ForEach(this.recentServers, (u: string) => {
+              Text(u)
+                .fontSize(FS_CAPTION).fontColor(this.pal().accentSoft)
+                .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
+                .margin(SP_1)
+                .backgroundColor(this.eff().glassBg).borderRadius(R_MD)
+                .border({ width: 1, color: this.eff().glassBorder })
+                .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
+                .onClick(() => {
+                  this.serverUrl = u;
+                  this.testMsg = '';
+                })
+            }, (u: string) => u)
+          }
+          .width('100%')
         }
-        .width('100%')
-      }
 
-      Row({ space: 8 }) {
         Button(this.testing ? '测试中…' : '测试连接')
-          .layoutWeight(1).constraintSize({ minHeight: 38 })
-          .backgroundColor(this.pal().surfaceHi)
+          .width('100%').constraintSize({ minHeight: 42 })
+          .fontSize(FS_BODY)
+          .fontColor(this.pal().textSecondary)
+          .backgroundColor(this.pal().transparent)
+          .borderRadius(R_XL)
+          .border({ width: 1, color: this.eff().glassBorder })
+          .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.testConnection();
           })
-      }
-      .width('100%')
 
-      if (this.testMsg.length > 0) {
-        Text(this.testMsg).fontSize(12)
-          .wordBreak(WordBreak.BREAK_ALL)
-          .fontColor(this.testMsg.startsWith('✅') ? this.pal().successText : this.pal().warn)
-          .width('100%')
-      }
-      TextInput({ placeholder: '用户名', text: this.username })
-        .onChange((v: string) => {
-          this.username = v;
-        })
-        .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary)
-        .constraintSize({ minHeight: 46 }).borderRadius(12).padding({ left: 12, right: 12 })
-      TextInput({ placeholder: '密码' })
-        .type(InputType.Password)
-        .onChange((v: string) => {
-          this.password = v;
-        })
-        .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary)
-        .constraintSize({ minHeight: 46 }).borderRadius(12).padding({ left: 12, right: 12 })
+        if (this.testMsg.length > 0) {
+          Text(this.testMsg).fontSize(FS_CAPTION)
+            .wordBreak(WordBreak.BREAK_ALL)
+            .fontColor(this.testMsg.startsWith('✅') ? this.pal().successText : this.pal().warn)
+            .width('100%')
+        }
 
-      if (this.errMsg.length > 0) {
-        Text(this.errMsg).fontSize(12).fontColor(this.pal().dangerText).width('100%')
-          .wordBreak(WordBreak.BREAK_ALL)
-      }
+        TextInput({ placeholder: '用户名', text: this.username })
+          .onChange((v: string) => {
+            this.username = v;
+          })
+          .placeholderColor(this.pal().textMuted)
+          .backgroundColor(this.eff().glassBg).fontColor(this.pal().textPrimary)
+          .constraintSize({ minHeight: 48 }).borderRadius(R_XL)
+          .border({ width: 1, color: this.eff().glassBorder })
+          .padding({ left: SP_3, right: SP_3 })
+        TextInput({ placeholder: '密码' })
+          .type(InputType.Password)
+          .onChange((v: string) => {
+            this.password = v;
+          })
+          .placeholderColor(this.pal().textMuted)
+          .backgroundColor(this.eff().glassBg).fontColor(this.pal().textPrimary)
+          .constraintSize({ minHeight: 48 }).borderRadius(R_XL)
+          .border({ width: 1, color: this.eff().glassBorder })
+          .padding({ left: SP_3, right: SP_3 })
 
-      Button('登录').width('100%').constraintSize({ minHeight: 44 })
-        .backgroundColor(this.pal().accent).fontColor(this.pal().onAccent)
-        .onClick(() => {
-          this.doLogin();
-        })
-      Button('注册（仅服务端允许时）').width('100%').constraintSize({ minHeight: 40 })
-        .backgroundColor(this.pal().surfaceHi)
-        .onClick(() => {
-          this.doRegister();
-        })
-      // 无需登录/无需网络：直接打开渲染自检页（截图发我即可定位构件级问题）
-      Text('渲染自检（排查渲染问题用）')
-        .fontSize(12).fontColor(this.pal().accentSoft).margin({ top: 8 })
-        .onClick(() => {
-          this.showSelfCheck = true;
-        })
+        if (this.errMsg.length > 0) {
+          Text(this.errMsg).fontSize(FS_CAPTION).fontColor(this.pal().dangerText).width('100%')
+            .wordBreak(WordBreak.BREAK_ALL)
+        }
+
+        // 主 CTA：渐变 + 光晕
+        Button('登录').width('100%').constraintSize({ minHeight: 50 })
+          .fontSize(FS_TITLE).fontWeight(FontWeight.Medium)
+          .borderRadius(R_XL)
+          .fontColor(this.pal().onAccent)
+          .backgroundColor(this.pal().accent)
+          .linearGradient({
+            angle: 135,
+            colors: [[this.eff().gradientFrom, 0.0], [this.eff().gradientTo, 1.0]],
+          })
+          .shadow({ radius: 18, color: this.eff().glow, offsetX: 0, offsetY: 6 })
+          .stateStyles({ pressed: { .opacity(0.78).scale({ x: 0.985, y: 0.985 }) }, normal: { .opacity(1).scale({ x: 1, y: 1 }) } })
+          .margin({ top: SP_2 })
+          .onClick(() => {
+            this.doLogin();
+          })
+        // 次 CTA：幽灵按钮
+        Button('注册（仅服务端允许时）').width('100%').constraintSize({ minHeight: 44 })
+          .fontSize(FS_BODY)
+          .fontColor(this.pal().textSecondary)
+          .backgroundColor(this.pal().transparent)
+          .borderRadius(R_XL)
+          .border({ width: 1, color: this.eff().glassBorder })
+          .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            this.doRegister();
+          })
+        // 无需登录/无需网络：直接打开渲染自检页（截图发我即可定位构件级问题）
+        Text('渲染自检（排查渲染问题用）')
+          .fontSize(FS_CAPTION).fontColor(this.pal().accentSoft)
+          .margin({ top: SP_3 })
+          .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            this.showSelfCheck = true;
+          })
+      }
+      .constraintSize({ maxWidth: 460 })
+      .padding(SP_6)
+      .borderRadius(R_2XL)
+      .backgroundColor(this.eff().glassBg)
+      .backgroundBlurStyle(BlurStyle.Thin, { colorMode: ThemeColorMode.DARK })
+      .border({ width: 1, color: this.eff().glassBorder })
+      .shadow({ radius: 28, color: this.eff().elev3, offsetX: 0, offsetY: 12 })
+      .margin({ left: SP_4, right: SP_4 })
+      .id('xbot-login')
     }
-    .padding(24).width('100%').height('100%').justifyContent(FlexAlign.Center)
-    .id('xbot-login')
+    .width('100%').height('100%')
   }
 
   @Builder
   ChatView() {
     Column() {
-      // 顶栏
+      // 顶栏：玻璃材质 + 底部细描边（磨砂顶栏是"干净/未来感"的关键一笔）
       Row() {
-        Text('☰').fontSize(20).fontColor(this.pal().textPrimary).padding(10).onClick(() => {
-          this.openDrawer();
-        })
-        Column() {
+        SymbolGlyph($r('sys.symbol.line_3_horizontal')).fontSize(22).fontColor([this.pal().textPrimary])
+          .padding(10)
+          .borderRadius(R_MD)
+          .stateStyles({ pressed: { .opacity(0.55) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            this.openDrawer();
+          })
+        Column({ space: 2 }) {
           Text(this.currentChat.length > 0 ? this.labelOf(this.currentChat) : 'xbot')
-            .fontSize(15).fontColor(this.pal().textPrimary).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-          Text(this.busy ? '运行中…' : '空闲')
-            .fontSize(11).fontColor(this.busy ? this.pal().warn : this.pal().textMuted)
+            .fontSize(FS_TITLE).fontWeight(FontWeight.Medium)
+            .fontColor(this.pal().textPrimary).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          Row({ space: SP_1 }) {
+            Circle({ width: 6, height: 6 })
+              .fill(this.busy ? this.pal().accent : this.pal().textMuted)
+              .shadow({ radius: this.busy ? 6 : 0, color: this.eff().glow, offsetX: 0, offsetY: 0 })
+              .opacity(this.busy ? (this.pulseOn ? 1 : 0.4) : 1)
+              .animation({ duration: 1200, curve: Curve.EaseInOut })
+            Text(this.busy ? '运行中…' : '空闲')
+              .fontSize(FS_CAPTION).fontColor(this.busy ? this.pal().accentSoft : this.pal().textMuted)
+          }
         }
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
 
         if (this.queue.length > 0) {
           Text(`队列 ${this.queue.length}`)
-            .fontSize(12).fontColor(this.pal().warn).padding(8)
+            .fontSize(FS_CAPTION).fontColor(this.pal().warn)
+            .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
+            .backgroundColor(this.eff().glassBg)
+            .borderRadius(R_MD)
+            .border({ width: 1, color: this.eff().glassBorder })
+            .margin({ right: SP_1 })
+            .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
             .onClick(() => {
               this.showQueue = true;
             })
         }
-        Text('⊞').fontSize(20).fontColor(this.pal().textPrimary).padding(10).onClick(() => {
-          this.openPlugins();
-        })
-        Text('⚙').fontSize(20).fontColor(this.pal().textPrimary).padding(10).onClick(() => {
-          this.anim(() => {
-            this.showSettings = true;
-          });
-        })
+        SymbolGlyph($r('sys.symbol.square_grid_2x2')).fontSize(22).fontColor([this.pal().textPrimary])
+          .padding(10)
+          .borderRadius(R_MD)
+          .stateStyles({ pressed: { .opacity(0.55) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            this.openPlugins();
+          })
+        SymbolGlyph($r('sys.symbol.gearshape')).fontSize(22).fontColor([this.pal().textPrimary])
+          .padding(10)
+          .borderRadius(R_MD)
+          .stateStyles({ pressed: { .opacity(0.55) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            this.anim(() => {
+              this.showSettings = true;
+            });
+          })
       }
-      .width('100%').constraintSize({ minHeight: 56 }).padding({ left: 4, right: 4 }).backgroundColor(this.pal().surfaceAlt)
+      .width('100%').constraintSize({ minHeight: 56 }).padding({ left: SP_2, right: SP_2 })
+      .backgroundColor(this.pal().appBg)
+      .borderWidth({ bottom: 1 }).borderColor(this.pal().border)
       .id('xbot-header')
 
       // 加载失败且列表为空 ⇒ 明确提示 + 重试（网络/代理故障时界面必须自解释）
@@ -2155,14 +2304,16 @@ struct Index {
       // 空态：没有消息、没有错误、也不在跑 —— 给友好的起步引导（而不是一片黑洞）
       if (this.rows.length === 0 && this.loadErr.length === 0 && !this.busy
         && !this.loadingMore && this.currentChat.length > 0) {
-        Column({ space: 10 }) {
-          Text('✦').fontSize(44).fontColor(this.pal().accent)
-            .opacity(this.pulseOn ? 1 : 0.55)
+        Column({ space: SP_3 }) {
+          SymbolGlyph($r('sys.symbol.star_fill')).fontSize(52).fontColor([this.pal().accent])
+            .shadow({ radius: 24, color: this.eff().glow, offsetX: 0, offsetY: 0 })
+            .opacity(this.pulseOn ? 1 : 0.5)
             .animation({ duration: 1400, curve: Curve.EaseInOut })
-          Text('开始对话').fontSize(18).fontColor(this.pal().textPrimary).fontWeight(FontWeight.Medium)
+          Text('开始对话').fontSize(FS_HERO).fontWeight(FontWeight.Medium)
+            .fontColor(this.pal().textPrimary)
           Text('直接说需求；也可以用 / 选命令、@ 提文件、📎 加附件')
-            .fontSize(12).fontColor(this.pal().textMuted).textAlign(TextAlign.Center)
-            .padding({ left: 32, right: 32 })
+            .fontSize(FS_CAPTION).fontColor(this.pal().textMuted).textAlign(TextAlign.Center)
+            .padding({ left: SP_8, right: SP_8 })
         }
         .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
         .id('xbot-empty-state')
@@ -2189,40 +2340,34 @@ struct Index {
         .id('xbot-skeleton')
       }
 
-      // 消息列表
+      // 消息列表 —— 顶部**只有**「更早」这一类指示器（自动触发，不可点），保证其上方没有任何消息行
       List({ scroller: this.listScroller }) {
-        if (this.hasMore || this.loadingMore) {
+        if (this.hasMore || this.loadingMore || hiddenRowCount(this.rows.length, this.rowLimit) > 0) {
           ListItem() {
-            Row() {
-              if (this.loadingMore) {
-                LoadingProgress().width(16).height(16).color(this.pal().accent)
-                Text('加载更早消息…').fontSize(12).fontColor(this.pal().textSecondary).margin({ left: 6 })
-              } else {
-                Text('↑ 加载更早消息').fontSize(12).fontColor(this.pal().accentSoft).onClick(() => {
-                  this.loadMore();
-                })
-              }
+            Row({ space: 6 }) {
+              LoadingProgress().width(14).height(14).color(this.pal().accent)
+                .visibility(this.loadingMore ? Visibility.Visible : Visibility.Hidden)
+              Text(this.loadingMore
+                ? '加载更早消息…'
+                : (this.hasMore ? '下拉到底部自动加载更早消息' : '已到最早'))
+                .fontSize(FS_CAPTION).fontColor(this.pal().textMuted)
             }
-            .width('100%').justifyContent(FlexAlign.Center).padding(10)
+            .width('100%').justifyContent(FlexAlign.Center).padding({ top: SP_2, bottom: SP_2 })
+            .onClick(() => {
+              // 兜底：万一自动触发没打到（例如列表未滚动），点一下也能放开窗口
+              if (hiddenRowCount(this.rows.length, this.rowLimit) > 0) {
+                this.rowLimit += MAX_ROWS_VISIBLE;
+                this.syncRowDs();
+              } else if (!this.loadingMore && this.hasMore) {
+                this.loadMore();
+              }
+            })
           }
         }
 
         // 行窗口：`List` + `ForEach` 会**一次性构建全部行**（每行 ≤16 个迭代块 × Markdown）
         // ⇒ 几十行就是几千个节点（真机"很卡、交互差"的主因之一）。只渲染末尾 rowLimit 行，
-        // 更早的按批放开。
-        if (hiddenRowCount(this.rows.length, this.rowLimit) > 0) {
-          ListItem() {
-            Row() {
-              Text(`↑ 显示更早的 ${hiddenRowCount(this.rows.length, this.rowLimit)} 条`)
-                .fontSize(12).fontColor(this.pal().accentSoft)
-            }
-            .width('100%').justifyContent(FlexAlign.Center).padding(10)
-            .onClick(() => {
-              this.rowLimit += MAX_ROWS_VISIBLE;
-              this.syncRowDs();
-            })
-          }
-        }
+        // 更早的按批放开（滚到顶时自动放开，见上面的 onScrollIndex/onReachStart）。
         LazyForEach(this.rowDs, (row: ChatRow) => {
           ListItem() {
             this.ChatRowBody(row)
@@ -2270,6 +2415,16 @@ struct Index {
         const liveRows: number = this.hasLiveRow ? 1 : 0;
         this.atBottom = end >= listItemCount(this.hasMore, this.loadingMore, this.rowDs.count(),
           busyPlaceholder, liveRows) - 1;
+        // 对齐 web：滚到顶部**自动**拉更早历史（web 用 IntersectionObserver 哨兵，同语义），
+        // 不再要求用户先点一下按钮。loadingMore 自锁，避免请求风暴。
+        if (start === 0 && !this.loadingMore && this.hasMore) {
+          this.loadMore();
+        }
+      })
+      .onReachStart(() => {
+        if (!this.loadingMore && this.hasMore) {
+          this.loadMore();
+        }
       })
       .id('xbot-list')
 
@@ -2394,7 +2549,7 @@ struct Index {
                 if (this.tabRunning(cid)) {
                   Text('●').fontSize(9).fontColor(this.pal().successText)
                 }
-                Text('✕').fontSize(10).fontColor(this.pal().textMuted)
+                SymbolGlyph($r('sys.symbol.xmark')).fontSize(11).fontColor([this.pal().textMuted])
                   .onClick(() => {
                     this.closeTab(cid);
                   })
@@ -2440,15 +2595,17 @@ struct Index {
         .width('100%').padding({ left: 10, right: 4, top: 6 })
       }
 
-      // 输入区：圆角卡片（附件 / 输入 / 发送），聚焦时描边亮起
-      Row({ space: 6 }) {
-        Text('📎').fontSize(19).fontColor(this.pal().accentSoft).padding(6)
-          .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
+      // 输入区：**单一面**（附件 / 输入 / 发送共用一条胶囊），靠留白分层，不靠描边。
+      Row({ space: SP_1 }) {
+        SymbolGlyph($r('sys.symbol.paperclip')).fontSize(22).fontColor([this.pal().textSecondary])
+          .padding({ left: SP_3, right: SP_1, top: SP_2, bottom: SP_2 })
+          .stateStyles({ pressed: { .opacity(0.5) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.pickFiles();
           })
-        Text('▣').fontSize(19).fontColor(this.pal().accentSoft).padding(6)
-          .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
+        SymbolGlyph($r('sys.symbol.picture')).fontSize(22).fontColor([this.pal().textSecondary])
+          .padding({ left: SP_1, right: SP_1, top: SP_2, bottom: SP_2 })
+          .stateStyles({ pressed: { .opacity(0.5) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.pickImages();
           })
@@ -2469,8 +2626,10 @@ struct Index {
             this.composerFocused = false;
           })
           .layoutWeight(1).constraintSize({ minHeight: 40, maxHeight: 150 })
-          .backgroundColor('#00000000').fontColor(this.pal().textPrimary)
-          .borderRadius(0).padding({ left: 2, right: 2 })
+          .backgroundColor(this.pal().transparent).fontColor(this.pal().textPrimary)
+          .placeholderColor(this.pal().textMuted)
+          .fontSize(FS_TITLE)
+          .borderRadius(0).padding({ left: 0, right: 0 })
           .onSubmit(() => {
             if (enterSends(this.sendKeyMode())) {
               this.sendDraft();
@@ -2478,44 +2637,43 @@ struct Index {
           })
         if (this.busy) {
           Text(modeLabel(this.sendMode))
-            .fontSize(12)
-            .fontColor(this.sendMode === MODE_INTERRUPT ? this.pal().warn : this.pal().textSecondary)
-            .padding({ left: 8, right: 8, top: 8, bottom: 8 })
-            .backgroundColor(this.pal().surfaceAlt)
-            .borderRadius(8)
-            .border({ width: 1, color: this.sendMode === MODE_INTERRUPT ? this.pal().warn : this.pal().border })
+            .fontSize(FS_CAPTION)
+            .fontColor(this.sendMode === MODE_INTERRUPT ? this.pal().warn : this.pal().textMuted)
+            .padding({ left: SP_2, right: SP_2 })
+            .stateStyles({ pressed: { .opacity(0.5) }, normal: { .opacity(1) } })
             .onClick(() => {
               this.sendMode = toggleMode(this.sendMode);
               this.toast(modeHint(this.sendMode));
             })
         }
-        Button(this.runningNow() ? '停止' : '发送')
-          .constraintSize({ minHeight: 38, minWidth: 76 })
-          .borderRadius(19)
-          .fontColor(this.pal().onAccent)
-          .backgroundColor(this.pal().accent)
-          .linearGradient({
-            angle: 135,
-            colors: this.runningNow()
-              ? [[this.pal().dangerBg, 0.0], [this.pal().dangerBg, 1.0]]
-              : [[this.pal().accent, 0.0], [this.pal().bubbleUser, 1.0]],
-          })
-          .shadow({ radius: 10, color: '#33000000', offsetX: 0, offsetY: 2 })
-          .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            if (this.runningNow()) {
-              this.store?.cancel();
-            } else {
-              this.sendDraft();
-            }
-          })
+        // 唯一的实心圆按钮：发送=紫光纸飞机；停止=同形方块（**不再用红色大块**）
+        // ⚠️ `SymbolGlyph` 一旦给了固定 width/height **不会自动把图标居中**（图标会偏上/偏左）——
+        //    必须用 `Stack({alignContent: Alignment.Center})` 显式居中；圆形底、阴影、点击态挂在外层 Stack。
+        Stack({ alignContent: Alignment.Center }) {
+          SymbolGlyph(this.runningNow() ? $r('sys.symbol.square_fill') : $r('sys.symbol.paperplane_fill'))
+            .fontSize(this.runningNow() ? 14 : 20)
+            .fontColor([this.runningNow() ? this.pal().textSecondary : this.pal().onAccent])
+        }
+        .width(40).height(40)
+        .borderRadius(20)
+        .backgroundColor(this.runningNow() ? this.pal().surfaceHi : this.pal().accent)
+        .shadow({ radius: this.runningNow() ? 0 : 14, color: this.runningNow() ? this.pal().transparent : this.eff().glow, offsetX: 0, offsetY: 0 })
+        .stateStyles({ pressed: { .opacity(0.7).scale({ x: 0.94, y: 0.94 }) }, normal: { .opacity(1).scale({ x: 1, y: 1 }) } })
+        .onClick(() => {
+          if (this.runningNow()) {
+            this.store?.cancel();
+          } else {
+            this.sendDraft();
+          }
+        })
       }
-      .width('100%').padding({ left: 8, right: 8, top: 8, bottom: 8 })
-      .backgroundColor(this.pal().surface)
-      .borderRadius(22)
+      .width('100%')
+      .constraintSize({ minHeight: 56 })
+      .padding({ left: SP_1, right: SP_1 })
+      .backgroundColor(this.pal().surfaceAlt)
+      .borderRadius(this.composerFocused ? 24 : 22)
       .border({ width: 1, color: this.composerFocused ? this.pal().accent : this.pal().border })
-      .shadow({ radius: 14, color: '#1A000000', offsetX: 0, offsetY: 3 })
-      .margin({ left: 8, right: 8, top: 2, bottom: 8 })
+      .margin({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
       .id('xbot-composer')
     }
     .width('100%').height('100%')
@@ -2533,7 +2691,25 @@ struct Index {
         out.push(s);
       }
     }
-    return out;
+    // 星标优先（对齐 web `sortSessions` 的第一关键字）；同组内保持服务端下发顺序，
+    // 不重排其余项 —— 避免与既有的置顶/上移/下移打架。
+    const starred: string[] = this.starredIds();
+    if (starred.length === 0) {
+      return out;
+    }
+    const order: string[] = [];
+    const byId: Map<string, SessionItem> = new Map<string, SessionItem>();
+    for (let i = 0; i < out.length; i++) {
+      order.push(out[i].chat_id);
+      byId.set(out[i].chat_id, out[i]);
+    }
+    const sorted: string[] = starredFirst(order, starred);
+    const res: SessionItem[] = [];
+    for (let i = 0; i < sorted.length; i++) {
+      const it: SessionItem | undefined = byId.get(sorted[i]);
+      if (it !== undefined) { res.push(it); }
+    }
+    return res;
   }
 
   private sessionIds(): string[] {
@@ -2619,7 +2795,18 @@ struct Index {
 
   /** 当前语义色板（**全页面唯一取色入口**；theme.ets 之外不再有颜色字面量）。 */
   private pal(): Palette {
-    return paletteOf(this.themeName);
+    // 强调色叠加在主题色板之上（**只覆盖 accent 家族**，亮度阶梯保持不变）。
+    // 对齐 web：`providers/theme.tsx` 把 accentColor 写进 --accent* CSS 变量。
+    // ⚠️ 未显式设置时必须**原样返回主题色板**（不能回落 web 的默认强调色 ——
+    //    那会把主题自己的强调色顶掉，整套配色的身份就没了）。
+    const base: Palette = paletteOf(this.themeName);
+    const a: string = this.accentHex();
+    return a.length === 0 ? base : withAccent(base, a, isDarkThemeName(this.themeName));
+  }
+
+  /** 视觉效果 token（玻璃/光晕/渐变/层级阴影）—— 由当前色板派生，换主题即换效果。 */
+  private eff(): Effects {
+    return effectsOf(this.pal());
   }
 
 
@@ -2765,6 +2952,48 @@ struct Index {
   /** 当前字号缩放（来自设置；非法值回落 1）。 */
   private fontScale(): number {
     return fontScaleFrom(settingOf(this.settings, KEY_FONT_SCALE));
+  }
+
+  /** 当前强调色：**未设置返回空串 = 不覆盖主题本色**；设置了才规范化。
+   *  （空串与非法值语义不同：非法值回落 DEFAULT_ACCENT，未设置则保持主题。） */
+  private accentHex(): string {
+    const raw: string = settingOf(this.settings, KEY_ACCENT);
+    return raw.trim().length === 0 ? '' : normalizeAccent(raw);
+  }
+
+  /** 当前 Markdown 主题 id（与 web 共享 `web:ui:md-theme`；未知回落默认）。 */
+  private mdThemeId(): string {
+    return normalizeMdTheme(settingOf(this.settings, KEY_MD_THEME));
+  }
+
+  /** Markdown 主题可选项（与 web `MARKDOWN_THEMES` 同序同 id）。 */
+  private mdThemeChoices(): string[] {
+    const out: string[] = [];
+    for (let i = 0; i < MD_THEMES.length; i++) {
+      out.push(MD_THEMES[i].id);
+    }
+    return out;
+  }
+
+  /** 当前语言（仅展示；见 core/i18n.ets 顶部说明）。 */
+  private localeId(): string {
+    return normalizeLocale(settingOf(this.settings, KEY_LOCALE));
+  }
+
+  /** 已星标的会话 id 列表（与 web 共享 `web:session:starred`）。 */
+  private starredIds(): string[] {
+    return parseStarred(settingOf(this.settings, KEY_STARRED));
+  }
+
+  private isStarredChat(chatId: string): boolean {
+    return isStarred(this.starredIds(), chatId);
+  }
+
+  /** 切换会话星标（乐观更新 + 失败回滚由 `setSetting` 负责）。 */
+  private toggleStarChat(chatId: string): void {
+    const next: string[] = toggleStarred(this.starredIds(), chatId);
+    this.setSetting(KEY_STARRED, serializeStarred(next));
+    this.buzz();
   }
 
   /** 代码是否自动换行（默认开）。 */
@@ -3425,7 +3654,8 @@ struct Index {
     Column({ space: 10 }) {
       Row() {
         Text('设置').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
-        Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
+        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
+.onClick(() => {
           this.showSettings = false;
         })
       }.width('100%')
@@ -3510,17 +3740,78 @@ struct Index {
 
       Divider().color(this.pal().surfaceHi)
 
-      // 与 web 共享的只读项（原生端暂不改这些）
-      ForEach(this.readonlySettings(), (k: string) => {
-        Row({ space: 8 }) {
-          Text(settingLabel(k)).fontSize(12).fontColor(this.pal().textSecondary).layoutWeight(1)
-          Text(settingOf(this.settings, k).length > 0 ? settingOf(this.settings, k) : '（未设置）')
-            .fontSize(12).fontColor(this.pal().textMuted)
-            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-        }.width('100%')
-      }, (k: string) => `ro-${k}`)
-      Text('浅色主题需要色板重构（已单列为 P9b），当前仅深色。')
-        .fontSize(11).fontColor(this.pal().textMuted).width('100%')
+      // ── 强调色（对齐 web `SettingsAppearance.ACCENT_PRESETS`）─────────────────
+      // 语义：只覆盖 accent 家族，亮度阶梯不变；「跟随主题」= 清空该项（不覆盖）。
+      Row({ space: 8 }) {
+        Text(settingLabel(KEY_ACCENT)).fontSize(12).fontColor(this.pal().textSecondary).layoutWeight(1)
+        Text(this.accentHex().length > 0 ? accentLabel(this.accentHex()) : '跟随主题')
+          .fontSize(12).fontColor(this.pal().textMuted)
+      }.width('100%')
+      Row({ space: SP_2 }) {
+        ForEach(ACCENT_PRESETS, (hex: string) => {
+          Stack({ alignContent: Alignment.Center }) {
+            if (this.accentHex().toUpperCase() === hex) {
+              SymbolGlyph($r('sys.symbol.checkmark')).fontSize(15).fontColor([contrastForeground(hex)])
+            }
+          }
+          .width(34).height(34).borderRadius(17)
+          .backgroundColor(hex)
+          .border({
+            width: this.accentHex().toUpperCase() === hex ? 2 : 1,
+            color: this.accentHex().toUpperCase() === hex ? this.pal().textPrimary : this.eff().glassBorder,
+          })
+          .stateStyles({ pressed: { .opacity(0.7).scale({ x: 0.92, y: 0.92 }) }, normal: { .opacity(1).scale({ x: 1, y: 1 }) } })
+          .onClick(() => {
+            this.setSetting(KEY_ACCENT, hex);
+            this.buzz();
+          })
+        }, (hex: string) => `ac-${hex}`)
+        // 「跟随主题」：清空该项 ⇒ pal() 原样返回主题色板
+        Stack({ alignContent: Alignment.Center }) {
+          SymbolGlyph($r('sys.symbol.arrow_counterclockwise')).fontSize(16).fontColor([this.pal().textSecondary])
+        }
+        .width(34).height(34).borderRadius(17)
+        .backgroundColor(this.pal().surfaceAlt)
+        .border({ width: 1, color: this.eff().glassBorder })
+        .stateStyles({ pressed: { .opacity(0.7).scale({ x: 0.92, y: 0.92 }) }, normal: { .opacity(1).scale({ x: 1, y: 1 }) } })
+        .onClick(() => {
+          this.setSetting(KEY_ACCENT, '');
+          this.buzz();
+        })
+      }.width('100%')
+
+      // ── Markdown 主题（与 web 共享同一组 id，选择会同步到 web）────────────────
+      Row({ space: 8 }) {
+        Text(settingLabel(KEY_MD_THEME)).fontSize(12).fontColor(this.pal().textSecondary).layoutWeight(1)
+        Text(this.mdThemeId())
+          .fontSize(12).fontColor(this.pal().textMuted).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+      }.width('100%')
+      Flex({ wrap: FlexWrap.Wrap }) {
+        ForEach(this.mdThemeChoices(), (id: string) => {
+          Text(mdThemeLabel(id))
+            .fontSize(12)
+            .fontColor(this.mdThemeId() === id ? this.pal().onAccent : this.pal().textSecondary)
+            .padding({ left: SP_3, right: SP_3, top: 6, bottom: 6 })
+            .margin(SP_1)
+            .backgroundColor(this.mdThemeId() === id ? this.pal().accent : this.pal().surfaceAlt)
+            .borderRadius(R_LG)
+            .stateStyles({ pressed: { .opacity(0.7) }, normal: { .opacity(1) } })
+            .onClick(() => {
+              this.setSetting(KEY_MD_THEME, id);
+              this.buzz();
+            })
+        }, (id: string) => `md-${id}`)
+      }.width('100%')
+
+      // ── 语言（i18n）────────────────────────────────────────────────────────
+      // ⚠️ 如实展示：原生端 UI 文案目前是中文（硬编码），抽表是独立重构，见 core/i18n.ets 顶部说明。
+      //    这里**不给可点切换**，避免"点了没反应"的假功能；该项与 web 共享，改 web 会同步过来。
+      Row({ space: 8 }) {
+        Text(settingLabel(KEY_LOCALE)).fontSize(12).fontColor(this.pal().textSecondary).layoutWeight(1)
+        Text(`${localeLabel(this.localeId())}（界面文案待抽表）`)
+          .fontSize(12).fontColor(this.pal().textMuted)
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+      }.width('100%')
 
       Row({ space: 8 }) {
         Text('刷新').fontSize(12).fontColor(this.pal().accentSoft).padding(8).onClick(() => {
@@ -3529,9 +3820,10 @@ struct Index {
       }.width('100%')
     }
     .width('100%').padding(16)
-    .backgroundColor(this.pal().appBg)
-    .borderRadius({ topLeft: 14, topRight: 14 })
-    .border({ width: 1, color: this.pal().border })
+    .backgroundColor(this.eff().glassBg)
+    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: ThemeColorMode.DARK })
+    .borderRadius({ topLeft: R_2XL, topRight: R_2XL })
+    .border({ width: 1, color: this.eff().glassBorder })
     .alignItems(HorizontalAlign.Start)
     .transition(this.sheetTransition())
   }
@@ -3548,7 +3840,8 @@ struct Index {
         Text('刷新').fontSize(12).fontColor(this.pal().accentSoft).padding(8).onClick(() => {
           this.refreshPanel();
         })
-        Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
+        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
+.onClick(() => {
           this.showPanels = false;
         })
       }.width('100%')
@@ -3577,7 +3870,7 @@ struct Index {
                 Row({ space: 6 }) {
                   Text(cronLine(job)).fontSize(12).fontColor(this.pal().textPrimary).layoutWeight(1)
                     .maxLines(2).wordBreak(WordBreak.BREAK_ALL)
-                  Text('✕').fontSize(12).fontColor(this.pal().dangerText).padding(6).onClick(() => {
+                  SymbolGlyph($r('sys.symbol.xmark')).fontSize(13).fontColor([this.pal().dangerText]).padding(6).onClick(() => {
                     this.removeCron(job.id !== undefined ? job.id : '');
                   })
                 }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(6)
@@ -3639,9 +3932,10 @@ struct Index {
       }
     }
     .width('100%').padding(16)
-    .backgroundColor(this.pal().appBg)
-    .borderRadius({ topLeft: 14, topRight: 14 })
-    .border({ width: 1, color: this.pal().border })
+    .backgroundColor(this.eff().glassBg)
+    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: ThemeColorMode.DARK })
+    .borderRadius({ topLeft: R_2XL, topRight: R_2XL })
+    .border({ width: 1, color: this.eff().glassBorder })
     .alignItems(HorizontalAlign.Start)
     .transition(this.sheetTransition())
   }
@@ -3664,9 +3958,10 @@ struct Index {
       this.CtxItem('取消', 'cancel')
     }
     .width('100%')
-    .backgroundColor(this.pal().appBg)
-    .borderRadius({ topLeft: 14, topRight: 14 })
-    .border({ width: 1, color: this.pal().border })
+    .backgroundColor(this.eff().glassBg)
+    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: ThemeColorMode.DARK })
+    .borderRadius({ topLeft: R_2XL, topRight: R_2XL })
+    .border({ width: 1, color: this.eff().glassBorder })
     .padding({ bottom: 10 })
     .alignItems(HorizontalAlign.Start)
     .transition(this.sheetTransition())
@@ -3699,9 +3994,10 @@ struct Index {
       this.CtxItem('关闭', 'cancel-hits')
     }
     .width('100%')
-    .backgroundColor(this.pal().appBg)
-    .borderRadius({ topLeft: 14, topRight: 14 })
-    .border({ width: 1, color: this.pal().border })
+    .backgroundColor(this.eff().glassBg)
+    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: ThemeColorMode.DARK })
+    .borderRadius({ topLeft: R_2XL, topRight: R_2XL })
+    .border({ width: 1, color: this.eff().glassBorder })
     .padding({ bottom: 10 })
     .alignItems(HorizontalAlign.Start)
     .transition(this.sheetTransition())
@@ -3765,9 +4061,10 @@ struct Index {
       this.CtxItem('取消', 'cancel')
     }
     .width('100%')
-    .backgroundColor(this.pal().appBg)
-    .borderRadius({ topLeft: 14, topRight: 14 })
-    .border({ width: 1, color: this.pal().border })
+    .backgroundColor(this.eff().glassBg)
+    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: ThemeColorMode.DARK })
+    .borderRadius({ topLeft: R_2XL, topRight: R_2XL })
+    .border({ width: 1, color: this.eff().glassBorder })
     .padding({ bottom: 10 })
     .alignItems(HorizontalAlign.Start)
     .transition(this.sheetTransition())
@@ -3790,6 +4087,7 @@ struct Index {
       MessageRowView({
         row: row,
         theme: this.themeName,
+        mdTheme: this.mdThemeId(),
         fontScaleV: this.fontScale(),
         wrapCodeV: this.wrapCode(),
         sweepX: this.sweepX,
@@ -3801,7 +4099,7 @@ struct Index {
           return this.loadImageBytes(src);
         },
         onLoadMoreRegions: () => {
-          this.loadMoreRegions(row);
+          return this.loadMoreRegions(row);
         },
         onOpenCtx: (iter: number, name: string) => {
           this.openCtx(name.length > 0 ? 'tool' : 'iter', row.id, iter, name);
@@ -3843,6 +4141,7 @@ struct Index {
         liveTools: this.liveTools,
         liveBlocks: this.liveBlocks,
         theme: this.themeName,
+        mdTheme: this.mdThemeId(),
         fontScaleV: this.fontScale(),
         wrapCodeV: this.wrapCode(),
         sweepX: this.sweepX,
@@ -3854,7 +4153,7 @@ struct Index {
           return this.loadImageBytes(src);
         },
         onLoadMoreRegions: () => {
-          this.loadMoreRegions(this.liveRowRef);
+          return this.loadMoreRegions(this.liveRowRef);
         },
         onOpenCtx: (iter: number, name: string) => {
           this.openCtx(name.length > 0 ? 'tool' : 'iter', this.liveRowRef.id, iter, name);
@@ -3908,8 +4207,8 @@ struct Index {
     const rows: ChatRow[] = this.rows;
     let iterTotal: number = 0;
     let maxIter: number = 0;
-    let rendered: number = 0;
-    let foldedRows: number = 0;
+    let regionRows: number = 0;
+    let regionTotal: number = 0;
     for (let i = 0; i < rows.length; i++) {
       const r: ChatRow = rows[i];
       const n: number = r.iterations.length;
@@ -3917,33 +4216,37 @@ struct Index {
       if (n > maxIter) {
         maxIter = n;
       }
-      rendered += Math.min(n, MAX_ITER_VISIBLE);
       if (r.regionsBefore > 0) {
-        foldedRows++;
+        regionRows++;
+        regionTotal += r.regionsBefore;
       }
     }
-    return `rows=${rows.length}\n迭代总数=${iterTotal}\n单行最多迭代=${maxIter}\n`
-      + `实际渲染块数=${rendered}（每行≤${MAX_ITER_VISIBLE}）\n带更早折叠区域的行=${foldedRows}\n`
+    // 迭代**全量渲染**（对齐 web：无「点击展开全部」）⇒ 渲染块数 = 迭代总数
+    return `rows=${rows.length}\n迭代总数=${iterTotal}（全量渲染）\n单行最多迭代=${maxIter}\n`
+      + `带更早区域的行=${regionRows}（共 ${regionTotal} 个区域可上滑加载）\n`
       + `会话=${this.currentChat}\nbusy=${this.busy}\n`
       + mdCacheText() + '\n' + streamStatsText();
   }
 
-  /** 加载该 turn 更早的展示区域（服务端折叠视图按需取回）。 */
-  private async loadMoreRegions(row: ChatRow): Promise<void> {
+  /**
+   * 加载该 turn 更早的展示区域（服务端折叠视图按需取回）。
+   *
+   * 返回是否成功 —— 行组件据此显示 idle / error（**失败不自动重试**，与 web
+   * `useRegionWindow` 一致：避免弱网下的自动请求循环）。
+   */
+  private async loadMoreRegions(row: ChatRow): Promise<boolean> {
     const store: ChatStore | null = this.store;
     if (store === null) {
-      return;
+      return false;
     }
     try {
       await store.loadEarlierRegions(row);
+      return true;
     } catch (e) {
       this.toast(`加载更早区域失败: ${errText(e as Object)}`);
+      return false;
     }
   }
-
-  /** 该 turn 实际要渲染的迭代（默认只给最近 MAX_ITER_VISIBLE 个）。 */
-
-  /** 被折叠掉的迭代数量（0 表示全展示）。 */
 
 
   /**
@@ -3969,7 +4272,8 @@ struct Index {
           .onClick(() => {
           this.newSession();
         })
-        Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
+        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
+.onClick(() => {
           this.showDrawer = false;
           this.renamingId = '';
         })
@@ -4046,8 +4350,21 @@ struct Index {
                   }
                   .layoutWeight(1).alignItems(HorizontalAlign.Start)
 
+                  // 星标（收藏）：一点即切，已星标用实心星 + accent 色
+                  SymbolGlyph(this.isStarredChat(s.chat_id)
+                    ? $r('sys.symbol.star_fill') : $r('sys.symbol.star'))
+                    .fontSize(17)
+                    .fontColor([this.isStarredChat(s.chat_id) ? this.pal().accent : this.pal().textMuted])
+                    .padding({ left: 6, right: 2, top: 4, bottom: 4 })
+                    .stateStyles({ pressed: { .opacity(0.5).scale({ x: 0.9, y: 0.9 }) }, normal: { .opacity(1).scale({ x: 1, y: 1 }) } })
+                    .onClick(() => {
+                      this.toggleStarChat(s.chat_id);
+                    })
                   // 触屏铁律：多个行内操作折叠成「一个 ⋯ + 菜单」，绝不并排常显
-                  Text('⋯').fontSize(18).fontColor(this.pal().textSecondary).padding({ left: 10, right: 6, top: 4, bottom: 4 })
+                  // ⚠️ 这里**刻意不用 SymbolGlyph**：鸿蒙符号集里的 `more` 是「四宫格」（与顶栏 ⊞ 面板按钮撞脸、
+                  //    语义完全不对），而 `ellipsis` 只作为消息气泡类图标存在。`⋯`(U+22EF) 没有 emoji 变体，
+                  //    不会像 `✳`/`📎` 那样被渲染成彩色 emoji，是这里最合适的字形。
+                  Text('⋯').fontSize(19).fontColor(this.pal().textSecondary).padding({ left: 6, right: 6, top: 4, bottom: 4 })
                     .onClick(() => {
                       this.anim(() => {
                         this.sessMenuId = s.chat_id;
@@ -4067,7 +4384,7 @@ struct Index {
                 top: this.pal().border, right: this.pal().border, bottom: this.pal().border,
               },
             })
-            .shadow({ radius: 8, color: '#10000000', offsetX: 0, offsetY: 2 })
+            .shadow({ radius: 10, color: this.eff().elev1, offsetX: 0, offsetY: 2 })
             .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
             .onClick(() => {
               if (s.chat_id !== undefined && this.renamingId.length === 0) {
@@ -4092,9 +4409,11 @@ struct Index {
       })
     }
     .width('82%').height('100%')
-    .padding(12)
-    .backgroundColor(this.pal().appBg)
-    .border({ width: { right: 1 }, color: this.pal().border })
+    .padding(SP_3)
+    .backgroundColor(this.eff().glassBg)
+    .backgroundBlurStyle(BlurStyle.Regular, { colorMode: ThemeColorMode.DARK })
+    .borderWidth({ right: 1 }).borderColor(this.eff().glassBorder)
+    .shadow({ radius: 24, color: this.eff().elev3, offsetX: 8, offsetY: 0 })
     .position({ x: 0, y: 0 })
   }
 
@@ -4105,7 +4424,8 @@ struct Index {
     Column({ space: 10 }) {
       Row() {
         Text('设置').fontSize(17).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
-        Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
+        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
+.onClick(() => {
           this.showSettings = false;
         })
       }.width('100%')
@@ -4201,7 +4521,8 @@ struct Index {
     Column({ space: 10 }) {
       Row() {
         Text('模型与上下文').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
-        Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
+        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
+.onClick(() => {
           this.showModel = false;
         })
       }.width('100%')
@@ -4367,7 +4688,8 @@ struct Index {
     Column({ space: 10 }) {
       Row() {
         Text('会话状态').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
-        Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
+        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
+.onClick(() => {
           this.showStatus = false;
         })
       }.width('100%')
@@ -4439,7 +4761,8 @@ struct Index {
     Column() {
       Row() {
         Text('渲染自检').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
-        Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
+        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
+.onClick(() => {
           this.showSelfCheck = false;
         })
       }.width('100%')
@@ -4512,10 +4835,10 @@ struct Index {
           Column({ space: 6 }) {
             Text('H 顶栏内联布局').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
             Row() {
-              Text('☰').fontSize(20).fontColor(this.pal().textPrimary).padding(10)
+              SymbolGlyph($r('sys.symbol.line_3_horizontal')).fontSize(20).fontColor([this.pal().textPrimary]).padding(10)
               Text('标题文本').fontSize(15).fontColor(this.pal().textPrimary).layoutWeight(1)
-              Text('⊞').fontSize(20).fontColor(this.pal().textPrimary).padding(10)
-              Text('⚙').fontSize(20).fontColor(this.pal().textPrimary).padding(10)
+              SymbolGlyph($r('sys.symbol.square_grid_2x2')).fontSize(20).fontColor([this.pal().textPrimary]).padding(10)
+              SymbolGlyph($r('sys.symbol.gearshape')).fontSize(20).fontColor([this.pal().textPrimary]).padding(10)
             }.width('100%').backgroundColor(this.pal().surfaceAlt)
           }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
           .border({ width: 1, color: this.pal().border })
@@ -4539,7 +4862,8 @@ struct Index {
       Row() {
         Text(`待发队列 (${this.queue.length})`).fontSize(16).fontWeight(FontWeight.Bold)
           .fontColor(this.pal().textPrimary).layoutWeight(1)
-        Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
+        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
+.onClick(() => {
           this.showQueue = false;
         })
       }.width('100%')
@@ -4562,7 +4886,7 @@ struct Index {
                 const id: string = q.msg_id !== undefined ? q.msg_id : (q.id !== undefined ? q.id : '');
                 this.store?.moveQueued(id, 1);
               })
-              Text('✕').fontSize(14).fontColor(this.pal().dangerText).padding(6).onClick(() => {
+              SymbolGlyph($r('sys.symbol.xmark')).fontSize(15).fontColor([this.pal().dangerText]).padding(6).onClick(() => {
                 const id: string = q.msg_id !== undefined ? q.msg_id : (q.id !== undefined ? q.id : '');
                 this.store?.cancelQueued(id);
               })
@@ -4583,7 +4907,8 @@ struct Index {
     Column({ space: 8 }) {
       Row() {
         Text('能力面板').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
-        Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
+        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
+.onClick(() => {
           this.showPlugins = false;
         })
       }.width('100%')
@@ -4727,7 +5052,7 @@ struct Index {
               this.toast('需要授权才能保存到相册');
             }
           })
-        Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(10).onClick(() => {
+        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(10).onClick(() => {
           this.closeViewer();
         })
       }.width('100%')

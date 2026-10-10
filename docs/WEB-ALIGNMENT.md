@@ -376,3 +376,110 @@ oracle 计算语义），喂真实 store 序列 `iter1 commit → 空隙（无 i
    （`BUBBLE.userPadX`/`userRadius()`/`userBubbleBg`/`assistantPadX`/`rowPadY`/`iterGap`/
    `blockInnerGap`），而不是散落的魔法数。
 
+## 12. 迭代视觉统一（2026-10-10 第五批）—— live 与 committed **同一形态**
+
+**用户原话**：「你思考中在 live iter 和 commited iter 里渲染怎么不一样？iter 必须完全统一样式」
++「还有 tool done 和 tool executing 没区别」。两处都是**同一个病**：live 与 committed 各写一份
+渲染，语义相同、形态不同。
+
+### 12.1 思考折叠行 —— 收敛到一处（web `ThinkingLine.tsx`）
+
+| | 修前（committed） | 修前（live） | 修后（两端共用） |
+|---|---|---|---|
+| 左图标 | `chevron_right` 符号 | 文本字符 `✳` | `lightbulb` 符号 |
+| 右图标 | `chevron_down/right` 符号 | 文本字符 `⌃`/`⌄` | **无**（web 用户要求删除箭头） |
+| 底色 | 胶囊 `surfaceAlt` | 胶囊 `surfaceAlt` | **无**（web 无底色） |
+| 展开体 | 13px + `glassBg` | 12px + `glassBg` | 12px + **左侧 2px 竖线** + 0.75 透明（web `border-l-2 pl-2.5 opacity-75`） |
+
+web 权威：`ThinkingLine.tsx` 注释「LiveIteration（流式）与 TurnBody（committed 历史）**共用同一形态**」，
+且「**无展开箭头指示器（用户要求删除）**」。原生把这两个 `@Builder` 收敛到
+`components/ThinkingLine.ets`（`ThinkingHeader`/`ThinkingBody`），`MessageRow.IterationBlock`
+与 `LiveTailView.build()` **各自只调用它**（不再各写一份）。
+
+> 图标：web 用 lucide `Brain`；HarmonyOS 符号集无 brain（`sysResource.js` 4042 项里无匹配），
+> 取语义最近的 `sys.symbol.lightbulb`。
+
+**顺带对齐**：committed 迭代块原有的「2px accent 左边导轨」是**原生自创**（web `.iter-block`
+只有 `margin-top`，见 `index.css:1416`），且 live 块从未有过 ⇒ 正是"同一迭代两种长相"的来源，
+**已移除**。
+
+### 12.2 工具 pill —— 状态语义收敛到一处（web `statusVisual.ts` + `FoldedToolGroup.toolPill`）
+
+**根因**：两端各写一份 pill，状态只有一枚 9px 圆点，且**连颜色都不一致**
+（committed 成功 = muted 灰、live 成功 = 绿）⇒ done 与 executing 肉眼不可辨。
+
+修法：web 的**形状 + 文案双通道**，判定/文案落 `core/toolstatus.ets`（纯函数），画法落
+`components/ToolVisual.ets`（`ToolStatusMark`/`ToolStatusChip`/`ToolPillVisual`），两端只调用。
+
+| 状态 | 标记 | chip |
+|---|---|---|
+| done | 描边绿勾（`checkmark_circle`） | **无**（成功安静） |
+| running / generating | 会动的原生指示器（`LoadingProgress`） | 「执行中」/「生成中 N 字」 |
+| pending | 空心虚线圆（`circle_dashed`） | 「排队」 |
+| error | 红实心叉（`xmark_circle_fill`） | 「失败」/「失败 exit N」 |
+| killed | 灰虚线减号（`minus_circle`） | 「已终止」 |
+
+**布局硬约束**：pill 内容用 `Flex(NoWrap)` + `flexShrink`（与 web `inline-flex` 同构）——
+名称 `flexShrink(1)`（长参数截断出省略号）、标记与 chip `flexShrink(0)`。⚠️ 首版用 `Row` 时
+chip 被 `maxWidth 240` 裁掉（用户只能看到一枚点）—— 这正是"没区别"的第二个来源。
+
+**门禁**：`tools/tests/toolstatus.test.ts`（28 项，含核心不变量「done ≠ running」）；
+布局不可单测，由真机截图验收。
+
+## 13. 第六批（2026-10-10）：思考行回归修复 + 浮层/加载对齐
+
+### 13.1 ⛔ 回归：带参全局 `@Builder` 冻结思考行（我引入，已修）
+
+第五批把思考头/体抽成 `components/ThinkingLine.ets` 的**带参全局 `@Builder`**
+（`ThinkingHeader(label, theme, onToggle)` / `ThinkingBody(text, theme)`）。这触发了本项目
+已记录的 ArkUI 陷阱（`docs/ARKTS-GOTCHAS.md §4`）：**带参 `@Builder` 的参数是"调用那一刻
+的快照"，其子树不随参数变化重建**。真机症状（用户 2026-10-10 报）：
+
+- 新迭代的「思考 N 字」**卡在首帧的值不变**，直到该迭代结束才跳变为真实值；
+- 思考正文**打字机不推进**；
+- **点它无法展开**（子树冻结 ⇒ 点击后的展开分支不重建）。
+
+修法：改为 **`@Component struct ThinkingLine`**，`@Prop label/body/open` + `onToggle`
+（`@Prop` 走值变化通道）。live / committed 两处都改为实例化该组件。
+
+> 教训：**凡"内容会变"的 UI，一律走 `@Component` + `@Prop`（或 @State/@ObjectLink）变化通道；
+> 带参 `@Builder` 只用于"参数不变"的静态片段**（与 `MessageRow.AssistantBlock` 的"无参 @Builder"注释同源）。
+
+### 13.2 思考字数 = 打字机可见字数（对齐 web `reasoningCount`）
+
+web：`reasoningCount = reasoningStreaming ? rw.visibleChars : length`，且**折叠时也让数字跳动**
+（展开才逐字）。原生此前用全长 + 要求展开态 ⇒ 折叠时数字不动。已改为
+`reasonCount() = typingReason() ? visReason : reasonRunes.length`，且 `typingReason()` **不再要求展开**。
+
+同时补 **`lastReasoning` 兜底**（`core/integrate.ts`）：`reasoningStreamContent || lastReasoning || ''`，
+与 web `LiveIteration` 逐字一致 —— 只取流式字段时，结构化快照携带的 reasoning 会整段丢失。
+
+### 13.3 live 工具状态：`pending` ⇒ **执行中**（真机实测 + 服务端源码依据）
+
+服务端 `engine_run_tools.go:49-64` 把**整批**工具先建为 `ToolPending`，随后**每条工具的
+goroutine 启动时**才翻 `ToolRunning`（`:150`）。于是 live 块里正在执行的工具经常仍是 `pending`
+⇒ 直接映射成「排队」会让用户以为"还没开始"（用户实测：FileReplace 已 done、Shell 正
+executing，两枚都显示「排队」）。live 块里的工具**都是本迭代已派发的（在飞）** ⇒ `pending`
+一律按**执行中**渲染（web 同义：active/streaming 工具一律标 `streaming:true`）。
+`done`/`error`/`killed` 仍严格按服务端状态。committed 块不变（终态才是它的语义）。
+
+### 13.4 浮层：FileCreate 内容按语言高亮 + 代码块横向滚动
+
+- 新增 `core/toolargs.ets`（移植 web `ToolRender.langFromPath` 的扩展名表）：FileCreate/FileReplace
+  的 `path`/`content` 从 args 抽出，按扩展名推语言，`内容 · <lang>` 块用 **Prism4j** 高亮；
+  有内容时不再重复显示 `参数`（同一份 content，重复即噪音，对齐 web `hideArgs`）。
+- **代码块 / diff 一律不折行 + 横向滚动**（`WordBreak.NORMAL` + `Scroll(Free)` + 内层不设
+  `width('100%')`），对齐 web 的 `whitespace-pre` + 卡片 `overflow-auto`。
+  用户原话：「这种源代码要允许横向滚动，不要 hard wrap」。
+
+### 13.5 加载更早区域：**取消点击**，改可见性自动加载 + 分隔条置最顶
+
+- 删掉原生自创的两条"点击"：`↑ 已折叠更早的 N 个迭代（点击展开全部）`（**迭代改全量渲染**，
+  web `TurnBody` 本就渲染全部迭代、靠 `content-visibility` 窗口化）与
+  `⌃ 更早的 N 个区域（点击加载）`。
+- 分隔条移到 **assistant 容器最顶部**（web `AssistantMessage`：`{regionWindow.enabled && <RegionsDivider/>}`
+  在 `<TurnBody>` **之前**）。用户要求「divider 上方不能有任何内容」。
+- 由 `onVisibleAreaChange` **可见即自动加载**（等价 web `useRegionWindow` 的 IO 哨兵），
+  三态恒定行高（web `h-7`=28）；失败**不自动重试**，只留手动重试（web 同款）。
+  文案用「正在加载更多…」而非"折叠/展开"——体感是「向上滚动自然加载更多」。
+

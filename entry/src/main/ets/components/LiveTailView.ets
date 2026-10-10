@@ -13,9 +13,20 @@
  */
 import { ToolProgress } from '../core/types';
 import { advanceVisible, clipRunes, isCJK, isTyping, runeCount, toRunes } from '../core/typewriter';
-import { Palette, paletteOf } from '../core/theme';
+import { foldPills } from '../core/streammerge';
+import { Palette, paletteOf, Effects, effectsOf } from '../core/theme';
 import { BUBBLE } from '../core/bubble';
+import { R_MD, R_XL, R_LG, SP_2, FS_CAPTION } from '../core/tokens';
 import { MarkdownView } from './MarkdownView';
+import { ThinkingLine } from './ThinkingLine';
+import { ToolPill } from './ToolVisual';
+import { isLiveStatus, statusChip, toolStatusKind } from '../core/toolstatus';
+import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
+
+/** 单工具浮层宽度（对齐 web 浮层 430px；手机端收窄）。 */
+const LT_POP_W: number = 320;
+/** "+N" 溢出浮层宽度。 */
+const LT_OVER_W: number = 300;
 
 @Component
 export struct LiveTailView {
@@ -27,6 +38,8 @@ export struct LiveTailView {
   /** 应用是否在后台（官方性能规范 §3：后台必须挂起非必要定时器/动画） */
   @Prop @Watch('onSource') paused: boolean = false;
   @Prop theme: string = 'dark';
+  /** Markdown 主题 id（透传给 MarkdownView，只影响代码块/行内码配色）。 */
+  @Prop mdTheme: string = 'vscode-dark';
   @Prop fontScale: number = 1;
   @Prop wrapCode: boolean = true;
   onImage: (src: string) => void = (src: string) => {
@@ -40,7 +53,10 @@ export struct LiveTailView {
   @State vis: number = 0;
   @State visReason: number = 0;
   @State reasonOpen: boolean = false;
-  @State openTool: string = '';
+  /** 当前**浮层**对应的 live pill 下标（-1 = 无）—— 对齐 web：点 pill 弹浮层，不内联展开。 */
+  @State popIdx: number = -1;
+  /** "+N" 溢出浮层开关。 */
+  @State overOpen: boolean = false;
   @State caretOn: boolean = true;
   private runes: string[] = [];
   private reasonRunes: string[] = [];
@@ -52,6 +68,38 @@ export struct LiveTailView {
 
   private pal(): Palette {
     return paletteOf(this.theme);
+  }
+
+  /** 视觉效果 token（玻璃/光晕/渐变/层级）—— 由色板派生，跨主题自动一致。 */
+  private eff(): Effects {
+    return effectsOf(this.pal());
+  }
+
+  /** 工具是否处于"在飞"（运行/生成中）—— 决定发光。判定收敛在 `core/toolstatus`。 */
+  private live(t: ToolProgress): boolean {
+    return isLiveStatus(toolStatusKind(t.status, t.exit_code));
+  }
+
+  /**
+   * 语义状态档 —— **一律以后端 `status` 为准**。
+   *
+   * ⛔ 不做任何"私有改判"（曾试过把 `pending` 当执行中，已回退）：工具有些并行、有些串行
+   *   （服务端整批先建为 `pending`，各 goroutine 启动时逐条翻 `running`），`pending` 就是
+   *   真的排队 —— 私自改判会让"排队"这一档消失，反而失真（用户 2026-10-10 明确要求
+   *   「以后端数据为准」）。
+   */
+  private kind(t: ToolProgress): string {
+    return toolStatusKind(t.status, t.exit_code);
+  }
+
+  /** 状态 chip 文案（空 = 无 chip）。 */
+  private chip(t: ToolProgress): string {
+    return statusChip(this.kind(t), t.exit_code, t.gen_chars);
+  }
+
+  /** pill 展示文本（名称/标签，**不含**状态 badge —— 状态由 chip 表达）。 */
+  private labelText(t: ToolProgress): string {
+    return t.label !== undefined && t.label.length > 0 ? t.label : t.name;
   }
 
   aboutToAppear(): void {
@@ -79,8 +127,22 @@ export struct LiveTailView {
     return isTyping(this.vis, this.runes.length);
   }
 
+  /**
+   * 思考打字机是否在追赶 —— **不看展开态**。
+   *
+   * web `LiveIteration` 的 `reasoningStreaming = isLive`（与展开无关），字数由
+   * `rw.visibleChars` 平滑增长：**思考折叠时只有数字在跳动**（展开才逐字）。
+   * 此前这里要求 `reasonOpen` ⇒ 折叠时定时器不启动 ⇒ **数字不跳、只在结束时突变**
+   * （用户 2026-10-10 实测：「新迭代反复显示思考 N 字符、不会变化，直到思考彻底完成后
+   * 跳变为真实值」）。
+   */
   private typingReason(): boolean {
-    return this.reasonOpen && isTyping(this.visReason, this.reasonRunes.length);
+    return isTyping(this.visReason, this.reasonRunes.length);
+  }
+
+  /** 思考字数（对齐 web `reasoningCount`：追赶中显示**可见**字数，否则全长）。 */
+  private reasonCount(): number {
+    return this.typingReason() ? this.visReason : this.reasonRunes.length;
   }
 
   private syncTimer(): void {
@@ -179,22 +241,6 @@ export struct LiveTailView {
     return '';
   }
 
-  private icon(t: ToolProgress): string {
-    if (t.status === 'generating') {
-      return '◐';
-    }
-    if (t.status === 'running') {
-      return '●';
-    }
-    if (t.status === 'error' || (t.exit_code !== undefined && t.exit_code !== 0)) {
-      return '✗';
-    }
-    if (t.status === 'pending') {
-      return '○';
-    }
-    return '✓';
-  }
-
   private color(t: ToolProgress): string {
     if (t.status === 'error' || (t.exit_code !== undefined && t.exit_code !== 0)) {
       return this.pal().dangerText;
@@ -202,7 +248,11 @@ export struct LiveTailView {
     if (t.status === 'running' || t.status === 'generating') {
       return this.pal().accentSoft;
     }
-    return this.pal().textSecondary;
+    if (t.status === 'pending') {
+      return this.pal().textMuted;
+    }
+    // 成功：语义色浅形态（降低饱和）
+    return this.pal().successText;
   }
 
   private label(t: ToolProgress): string {
@@ -211,29 +261,94 @@ export struct LiveTailView {
     return b.length > 0 ? `${base} ${b}` : base;
   }
 
+  // ── 工具 pill 折叠 / 浮层（对齐 web `MergedPills` + `LazyPillPopover`）──────────
+
+  /** 直出的 pill（≤8 全量；>8 前 7 枚）。 */
+  private shownList(): ToolProgress[] {
+    return foldPills(this.tools).shown;
+  }
+
+  /** `+N` 的 N（收起枚数）。 */
+  private hideN(): number {
+    return foldPills(this.tools).hideCount;
+  }
+
+  /** 当前浮层对应的工具（按下标从 shown 里取 —— 与 pill 的下标一致）。 */
+  private popTool(): ToolProgress | undefined {
+    const shown: ToolProgress[] = this.shownList();
+    return this.popIdx >= 0 && this.popIdx < shown.length ? shown[this.popIdx] : undefined;
+  }
+
+  private popVM(): ToolDetailVM {
+    const t: ToolProgress | undefined = this.popTool();
+    const c: string = t !== undefined ? this.color(t) : this.pal().textMuted;
+    const b: string = t !== undefined ? this.badge(t) : '';
+    return toolDetailVM(t, c, b);
+  }
+
+  /** 单工具浮层内容（对齐 web `ToolPopoverDetail`）。 */
+  @Builder
+  ToolPopBody() {
+    ToolPopoverCard({
+      vm: this.popVM(),
+      theme: this.theme,
+    })
+  }
+
+  /** "+N" 徽标：被收起的工具枚数（点击弹溢出全量列表）。 */
+  @Builder
+  OverflowBadge() {
+    Text(`+${this.hideN()}`)
+      .fontSize(FS_CAPTION)
+      .fontColor(this.pal().textMuted)
+      .padding({ left: SP_2, right: SP_2, top: 5, bottom: 5 })
+      .margin(3)
+      .backgroundColor(this.overOpen ? this.eff().glassBorder : this.eff().glassBg)
+      .borderRadius(R_LG)
+      .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+      .onClick(() => {
+        this.overOpen = !this.overOpen;
+      })
+      .bindPopup(this.overOpen, {
+        builder: this.OverflowPopBody,
+        placement: Placement.Bottom,
+        enableArrow: false,
+        mask: false,
+        popupColor: this.pal().surface,
+        radius: R_XL,
+        width: LT_OVER_W,
+        onWillDismiss: (action: DismissPopupAction) => {
+          this.overOpen = false;
+        },
+      })
+  }
+
+  /** "+N" 溢出浮层内容：被收起的工具全量列表。 */
+  @Builder
+  OverflowPopBody() {
+    ToolOverflowList({
+      tools: foldPills(this.tools).hidden,
+      theme: this.theme,
+    })
+  }
+
   build() {
     // `gap-1`（web `LiveIteration` 的 `flex flex-col gap-1`）—— 思考/正文/工具之间 4px
     Column({ space: BUBBLE.blockInnerGap }) {
       if (this.reasoning.length > 0) {
-        Row({ space: 6 }) {
-          Text('✳').fontSize(11).fontColor(this.pal().textMuted)
-          Text(`思考 ${runeCount(this.reasoning)} 字`).fontSize(11).fontColor(this.pal().textSecondary)
-          Text(this.reasonOpen ? '▾' : '▸').fontSize(11).fontColor(this.pal().textMuted)
-        }
-        .padding({ top: 2, bottom: 2 })
-        .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
-        .onClick(() => {
-          this.reasonOpen = !this.reasonOpen;
-          this.syncTimer();
+        // ⛔ 必须是**组件**（`@Prop` 值变化通道）——带参 `@Builder` 的参数是"调用那一刻的快照"，
+        //    其子树**不随参数重建**（docs/ARKTS-GOTCHAS §4）⇒ 症状正是用户 2026-10-10 报的：
+        //    字数卡住不变、打字机不推进、**点它无法展开**。
+        ThinkingLine({
+          label: `思考 ${this.reasonCount()} 字`,
+          body: this.shownReason(),
+          open: this.reasonOpen,
+          theme: this.theme,
+          onToggle: () => {
+            this.reasonOpen = !this.reasonOpen;
+            this.syncTimer();
+          },
         })
-      }
-      if (this.reasonOpen && this.reasoning.length > 0) {
-        Text(this.shownReason())
-          .width('100%')
-          .wordBreak(WordBreak.BREAK_ALL)
-          .fontSize(12).fontColor(this.pal().textSecondary).padding(8)
-          .backgroundColor(this.pal().surfaceAlt).borderRadius(8)
-          .copyOption(CopyOptions.LocalDevice)
       }
       if (this.text.length > 0) {
         Column({ space: 2 }) {
@@ -244,9 +359,15 @@ export struct LiveTailView {
             fontScale: this.fontScale,
             wrapCode: this.wrapCode,
             theme: this.theme,
+            mdTheme: this.mdTheme,
           })
           if (this.typingText() || this.typingReason()) {
-            Text('▍').fontSize(14).fontColor(this.pal().accent)
+            // 打字机光标：accent 色 + glow 发光的细竖条（替代纯文本 `▍`）
+            Row()
+              .width(2).height(14)
+              .backgroundColor(this.pal().accent)
+              .borderRadius(1)
+              .shadow({ radius: 6, color: this.eff().glow, offsetX: 0, offsetY: 0 })
               .opacity(this.caretOn ? 1 : 0.2)
           }
         }
@@ -255,37 +376,50 @@ export struct LiveTailView {
       }
       if (this.tools.length > 0) {
         Column({ space: 4 }) {
+          // 同一迭代内：**每工具一枚 pill**；>8 枚时前 7 枚 + "+N"（对齐 web `MergedPills`）。
           Flex({ wrap: FlexWrap.Wrap }) {
-            ForEach(this.tools, (t: ToolProgress, i: number) => {
+            ForEach(this.shownList(), (t: ToolProgress, i: number) => {
               Stack() {
-                Row({ space: 4 }) {
-                  if (t.status === 'generating' || t.status === 'running') {
-                    // 原生指示器（会动；替代静态 "◐" 的 TUI 观感）
-                    LoadingProgress().width(13).height(13).color(this.color(t))
-                  } else {
-                    Text(this.icon(t)).fontSize(11).fontColor(this.color(t))
-                  }
-                  Text(this.label(t)).fontSize(12).fontColor(this.color(t))
-                    .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                }
-                .padding({ left: 8, right: 8, top: 5, bottom: 5 })
+                // 与 committed 块**共用同一套 pill 视觉**（状态标记 + 名称 + 状态 chip）。
+                // ⛔ 组件（@Prop 值变化通道）—— 带参 @Builder 会冻在第一帧（状态永不更新）。
+                ToolPill({
+                  label: this.labelText(t),
+                  kind: this.kind(t),
+                  chip: this.chip(t),
+                  live: this.live(t),
+                  selected: this.popIdx === i,
+                  theme: this.theme,
+                })
               }
               // 硬约束宽度：生成中的 label 是**流式参数**（可能几百字符），
               // 不给上限就会撑得比屏幕还长（真机铁证）
               .constraintSize({ maxWidth: 240 })
               .margin(3)
               .clip(true)
-              .backgroundColor(this.pal().surfaceAlt)
-              .borderRadius(6)
-              .border({ width: 1, color: this.pal().border })
               .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
               .onClick(() => {
-                this.openTool = this.openTool === t.name ? '' : (t.name !== undefined ? t.name : '');
+                // 点 pill **弹浮层**（对齐 web），再点同枚 = 关闭。
+                this.popIdx = this.popIdx === i ? -1 : i;
+              })
+              .bindPopup(this.popIdx === i, {
+                builder: this.ToolPopBody,
+                placement: Placement.Bottom,
+                enableArrow: false,
+                mask: false,
+                popupColor: this.pal().surface,
+                radius: R_XL,
+                width: LT_POP_W,
+                onWillDismiss: (action: DismissPopupAction) => {
+                  this.popIdx = -1;
+                },
               })
               .gesture(LongPressGesture().onAction(() => {
                 this.onToolLongPress(t.name);
               }))
             }, (t: ToolProgress, i: number) => `lt-${i}#${t.name}#${t.status}`)
+            if (this.hideN() > 0) {
+              this.OverflowBadge()
+            }
           }
           .width('100%')
         }

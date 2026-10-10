@@ -16,7 +16,7 @@
  *   · `max-w-[85%]` ⇒ 最大宽度 85%；
  *   · 外层 `px-1` + `.virt-row py-1.5` ⇒ 水平 4 / 垂直 6。
  */
-import { Palette, paletteOf } from '../core/theme';
+import { Palette, paletteOf, Effects, effectsOf } from '../core/theme';
 import { BUBBLE, userBubbleBg } from '../core/bubble';
 
 @Component
@@ -31,24 +31,34 @@ export struct UserBubbleView {
     return paletteOf(this.theme);
   }
 
+  /** 视觉效果 token（玻璃/光晕/渐变/层级）—— 由色板派生，跨主题自动一致。 */
+  private eff(): Effects {
+    return effectsOf(this.pal());
+  }
+
   build() {
     Row() {
       Blank()
       Text(this.text)
         .wordBreak(WordBreak.BREAK_ALL)
-        .fontSize(15).fontColor(this.pal().textPrimary)
+        .fontSize(15).fontColor(this.pal().onAccent)
         .padding({
           left: BUBBLE.userPadX, right: BUBBLE.userPadX,
           top: BUBBLE.userPadY, bottom: BUBBLE.userPadY,
         })
         .constraintSize({ maxWidth: `${BUBBLE.userMaxWidthPct}%` })
+        // 映射表底色（accent @15%）+ 设计系统渐变叠层（accent → accentSoft，135°）
         .backgroundColor(userBubbleBg(this.pal()))
-        // `rounded-2xl rounded-br-sm`：四角 16、右下角 2（字面量的目标类型是 ArkUI
-        // `BorderRadiuses`，故 ArkTS 允许；四角值来自映射表）。
+        .linearGradient({
+          angle: 135,
+          colors: [[this.eff().gradientFrom, 0.0], [this.eff().gradientTo, 1.0]],
+        })
+        // `rounded-2xl rounded-br-sm`：四角 16、右下角单独收小（"气泡尾巴"感）
         .borderRadius({
           topLeft: BUBBLE.userRadiusAll, topRight: BUBBLE.userRadiusAll,
           bottomLeft: BUBBLE.userRadiusAll, bottomRight: BUBBLE.userRadiusBR,
         })
+        .shadow({ radius: 12, color: this.eff().elev1, offsetX: 0, offsetY: 2 })
         .copyOption(CopyOptions.LocalDevice)
     }
     .width('100%')

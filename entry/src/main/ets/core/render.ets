@@ -30,6 +30,7 @@ export function toToolProgress(t: WebToolProgress): ToolProgress {
     call_id: t.callID,
     ui_mode: t.uiMode,
     gen_chars: t.genChars,
+    tool_hints: t.toolHints,
   };
   if (t.uiLibs !== undefined) {
     out.ui_libs = t.uiLibs;

@@ -58,6 +58,8 @@ export interface ToolProgress {
   call_id?: string;
   ui_mode?: string;
   ui_libs?: string[];
+  /** 工具提示（PostToolUse hook 产出的 markdown，含 ```diff 围栏）—— diff 卡的**唯一数据源**。 */
+  tool_hints?: string;
 }
 
 /** 迭代（一个 LLM 请求-响应回合内的一个迭代）。 */

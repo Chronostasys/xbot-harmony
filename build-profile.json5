@@ -2,29 +2,62 @@
   "app": {
     // 未签名构建（CI 产出 *-unsigned.hap）。要签名请在本地/CI 注入 signingConfigs，
     // 见 docs/CI.md。此处**故意留空**：带本机绝对路径的签名配置在容器里必然失败。
-    "signingConfigs": [],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "/Users/bobli/.ohos/config/default_xbot-harmony_mY232WjY-IQHMDmsbe9aCw25X4ZjM1Ijj-DDZ6rn2cQ=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001BC61840E1768746E353BB5DE106C6ADBF6F20DF22BBFDB27EE87157746FA95EBBFC8CF882393A94",
+          "profile": "/Users/bobli/.ohos/config/default_xbot-harmony_mY232WjY-IQHMDmsbe9aCw25X4ZjM1Ijj-DDZ6rn2cQ=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "/Users/bobli/.ohos/config/default_xbot-harmony_mY232WjY-IQHMDmsbe9aCw25X4ZjM1Ijj-DDZ6rn2cQ=.p12",
+          "storePassword": "0000001BFC2DFCB5B5B5562FDE45AE5CE603C53B30D7BD8FC8169F72236C9A624B0CD0B1FA666ADBFC498D"
+        }
+      }
+    ],
     "products": [
       {
         "name": "default",
         // ⚠️ API 26 工程必须写 "26.0.0"（不能写 26.0.0(26) / 26），见 docs/CI.md
-        "compatibleSdkVersion": "5.0.0(12)",
-        "targetSdkVersion": "5.0.0(12)",
+        // 2026-10-10 抬高：为引入 `@hxa-atpc/noties_prism4j`（语法高亮分词器，要求 ≥21）。
+        // ⛔ 这会把最低支持从 HarmonyOS 5.0 抬到 6.0 —— 是**产品级取舍**，已与需求方确认
+        //    （其设备为 HarmonyOS 7.0）。若要恢复 5.x 支持，需回退到 5.0.0(12) 并放弃该依赖。
+        "compatibleSdkVersion": "6.0.1(21)",
+        "targetSdkVersion": "6.0.1(21)",
         "runtimeOS": "HarmonyOS",
         "buildOption": {
           "strictMode": {
             "caseSensitiveCheck": true,
-            "useNormalizedOHMUrl": false
+            // 2026-10-10 改 true：bytecode HAR（`@hxa-atpc/noties_prism4j`）**要求**
+            // `useNormalizedOHMUrl: true`，否则构建报 00306046（见 errorcode-00306）。
+            "useNormalizedOHMUrl": true
           }
         }
       }
     ],
-    "buildModeSet": [{ "name": "debug" }, { "name": "release" }]
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "release"
+      }
+    ]
   },
   "modules": [
     {
       "name": "entry",
       "srcPath": "./entry",
-      "targets": [{ "name": "default", "applyToProducts": ["default"] }]
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
     }
   ]
 }
