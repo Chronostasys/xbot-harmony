@@ -107,8 +107,23 @@ ACE 引擎跑起来（`xwininfo` 实证 `"glfw window": 1320x2848+0+0`），无�
    `#if !defined(PANDA_TARGET_WINDOWS) && !defined(PANDA_TARGET_MACOS)` 排除在 Win/Mac 外
    ⇒ **「Mac 预览正常、Linux 一跑就 FATAL」的根因**。绕过：/tmp 副本里改那 25 字节常量（**SDK 本体不动**）。
 
-**未打通的最后一环（诚实记录）**：帧经**本地 socket** 送 IDE（`-s`/`-ts`），无 IDE 时不 present
-（`import -window root` 空白；`eglSwapBuffers`/`glXSwapBuffers`/`glFinish`/`glDrawArrays` 的 LD_PRELOAD 钩子 **0 命中**）。
-⇒ **UI 走查当前以真机截图（App 内「走查并上传」）为准**；完全自动化需实现该 IDE socket 协议。
+**决定性纠正（2026-10-10，用户指出"Linux 肯定能 preview，你方法不对" —— 用户是对的）**：
+Previewer **根本不往 X 窗口画**，它把渲染帧从 **WebSocket（`-lws` 那个端口）**推给客户端
+（DevEco 就是连这个口显示预览）。所以"X 截图全白 / `eglSwapBuffers|glXSwapBuffers|glFinish|glDrawArrays`
+LD_PRELOAD 钩子 0 命中"是**方法错**，不是 Linux 不行。实测已拿到真实帧（**59,723 B JPEG，1320×2848**）：
+
+```
+[WebSocketServer.cpp] Engine Websocket protocol init / Websocket client connect / writeable
+[VirtualScreenImpl.cpp][SendPixmap] Get first render buffer -> Send first buffer finish
+[WebSocketServer.cpp] Send last image after websocket reconnected
+帧格式：off0 magic 12 34 56 78 | off4 width(BE) | off8 height(BE) | … | off40 JPEG(FFD8FFE0…)
+```
+
+**残留（诚实）**：连接瞬间那帧是 `Get first render buffer`，页面可能还没 attach ⇒ 内容为纯白；
+要**连续收帧/主动刷新**得接 IDE 的 **command 通道**（`-s <name>` 派生出 `<name>_commandPipe`/`_imagePipe`，
+且 `LocalSocket::ConnectToServer` 表明 **Previewer 是客户端** ⇒ 需自建这两个 unix socket 服务端）。
+帧通道本身已打通；`view_image` 看帧即"我自己能看到 UI"。
 
 **一键复现**：`tools/previewer/run.sh`
+
+- `tools/previewer/shot.sh`：起 Previewer 后连 WS 收帧 → 切出 JPEG → 直接 `view_image` 看真图。
