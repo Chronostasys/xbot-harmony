@@ -2916,16 +2916,12 @@ struct Index {
 
   /** 把「当前该显示的行」推给数据源（行窗口 + 真虚拟化两层叠加）。 */
   private syncRowDs(): void {
-    // live 行不进虚拟列表（由列表尾的 LiveTail 承担，@State 直驱 ⇒ 必然重渲染）；
-    // 提交（isLive=false）后自动进入列表。
-    const committed: ChatRow[] = [];
-    for (let i = 0; i < this.rows.length; i++) {
-      const r: ChatRow = this.rows[i];
-      if (r.role !== 'assistant' || r.isLive !== true) {
-        committed.push(r);
-      }
-    }
-    this.rowDs.applyRows(tailRows(committed, this.rowLimit));
+    // ⚠️ **不能**把 live 行整行排除：那样 live 行里**已完成的迭代**就再也没有渲染位置，
+    // 而列表尾的 LiveTail 只渲染"进行中的最后一个迭代" ⇒ 每完成一个迭代就消失一个，
+    // 用户只能看到最新的那个（真机严重 bug）。
+    // 正解：live 行**进列表**（其已完成迭代正常渲染），只是它的**最后一个迭代**
+    // （= 进行中）由尾块承担 —— 渲染侧用 `isTailOwned` 互斥，不会画两遍。
+    this.rowDs.applyRows(tailRows(this.rows, this.rowLimit));
   }
 
   /** 从 store 的 live 行提取进行中快照（正文/思考/工具，全部 @State 镜像）。 */

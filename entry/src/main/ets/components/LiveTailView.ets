@@ -265,7 +265,12 @@ export struct LiveTailView {
             ForEach(this.tools, (t: ToolProgress, i: number) => {
               Stack() {
                 Row({ space: 4 }) {
-                  Text(this.icon(t)).fontSize(11).fontColor(this.color(t))
+                  if (t.status === 'generating' || t.status === 'running') {
+                    // 原生指示器（会动；替代静态 "◐" 的 TUI 观感）
+                    LoadingProgress().width(13).height(13).color(this.color(t))
+                  } else {
+                    Text(this.icon(t)).fontSize(11).fontColor(this.color(t))
+                  }
                   Text(this.label(t)).fontSize(12).fontColor(this.color(t))
                     .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                 }

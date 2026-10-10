@@ -53,6 +53,20 @@ export struct MessageRowView {
     return paletteOf(this.theme);
   }
 
+  /**
+   * 该迭代是否由"列表尾的 LiveTail"承担（= live 行的**最后一个迭代**，即进行中的那个）。
+   *
+   * 互斥保证同一迭代不会被画两遍；而它**之前**的迭代仍在本组件里渲染 ——
+   * 这正是"每个迭代完成就消失、永远只能看到最新迭代"的修复点。
+   */
+  private isTailOwned(it: HistoryIteration): boolean {
+    const n: number = this.row.iterations.length;
+    if (this.row.isLive !== true || n === 0) {
+      return false;
+    }
+    return it.iteration === this.row.iterations[n - 1].iteration;
+  }
+
   private toolKey(turnID: number, iter: number, name: string): string {
     return `${turnID}:${iter}:${name}`;
   }
@@ -164,7 +178,9 @@ export struct MessageRowView {
         })
       }
       ForEach(this.itersFor(row), (it: HistoryIteration) => {
-        this.IterationBlock(row, it)
+        if (!this.isTailOwned(it)) {
+          this.IterationBlock(row, it)
+        }
       }, (it: HistoryIteration) => `${row.id}#${row.rev}-${it.iteration}`)
     }
     .width('100%').alignItems(HorizontalAlign.Start)
@@ -249,8 +265,13 @@ export struct MessageRowView {
   ToolPill(row: ChatRow, it: HistoryIteration, t: ToolProgress) {
     Stack() {
       Row({ space: 4 }) {
-      Text(this.toolIcon(t)).fontSize(11)
-        .fontColor(this.toolColor(t))
+      if (t.status === 'generating' || t.status === 'running') {
+        // 原生指示器（会动）。之前用静态字符 "◐" —— 既不动、也是 TUI 观感（用户明确否掉）
+        LoadingProgress().width(13).height(13).color(this.toolColor(t))
+      } else {
+        Text(this.toolIcon(t)).fontSize(11)
+          .fontColor(this.toolColor(t))
+      }
       Text(this.toolLabel(t))
         .fontSize(12)
         .fontColor(this.toolColor(t))
