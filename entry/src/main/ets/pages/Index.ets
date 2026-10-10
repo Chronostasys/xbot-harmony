@@ -425,6 +425,8 @@ struct Index {
         const first: SessionItem | undefined = this.sessions.length > 0 ? this.sessions[0] : undefined;
         if (first !== undefined && first.chat_id !== undefined) {
           await store.openSession(first.chat_id);
+          // 启动 store 也入池并按它真正打开的会话建索引（否则切回该会话会再建一个 ⇒ 双订阅）
+          this.rekeyPool(store, first.chat_id);
         }
       } catch (e) {
         this.loggedIn = false;
@@ -995,6 +997,34 @@ struct Index {
     return store;
   }
 
+  /**
+   * 把 store 在池里的注册**归位到它当前真正打开的会话**。
+   *
+   * 为什么需要：池按 chatId 建索引，但 store 的 `currentChatId` 会变（新建会话、分支、
+   * 冷启动首个会话）。不归位就会出现两种隐患：① 同一个会话被两个 store 订阅（双连、双事件）；
+   * ② 旧键指向一个已经打开别的会话的 store ⇒ 切回去时白白重拉。
+   */
+  private rekeyPool(store: ChatStore, chatId: string): void {
+    const stale: string[] = [];
+    const keys: string[] = Array.from(this.pools.keys());
+    for (let i = 0; i < keys.length; i++) {
+      const k: string = keys[i];
+      const v: ChatStore | undefined = this.pools.get(k);
+      if (v === store && k !== chatId) {
+        stale.push(k);
+      }
+    }
+    for (let i = 0; i < stale.length; i++) {
+      this.pools.delete(stale[i]);
+      const oi: number = this.poolOrder.indexOf(stale[i]);
+      if (oi >= 0) {
+        this.poolOrder.splice(oi, 1);
+      }
+    }
+    this.pools.set(chatId, store);
+    this.touchPool(chatId);
+  }
+
   /** 标记最近使用（LRU）。 */
   private touchPool(chatId: string): void {
     const i: number = this.poolOrder.indexOf(chatId);
@@ -1073,7 +1103,7 @@ struct Index {
     }
     const alreadyOpen: boolean = target.currentChatId === chatId;
     this.store = target;
-    this.touchPool(chatId);
+    this.rekeyPool(target, chatId);
     // 切会话：列表淡入（先置近 0 再 animateTo 回 1 —— 避免"闪一下旧会话"的观感）
     this.listAlpha = 0.001;
     this.anim(() => {
