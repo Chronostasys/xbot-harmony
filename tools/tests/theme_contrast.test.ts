@@ -33,7 +33,8 @@ declare function require(m: 'path'): { join(...parts: string[]): string };
 declare const __dirname: string;
 
 import {
-  Palette, Effects, ALL_THEMES, paletteOf, effectsOf, themeLabel,
+  Palette, Effects, Surfaces, ALL_THEMES, paletteOf, effectsOf, surfacesOf, surfacesComplete,
+  themeLabel, HAIRLINE_TARGET_RATIO,
   contrastRatio, compositeOver, relativeLuminance, parseColorRgba,
 } from '../../entry/src/main/ets/core/theme';
 
@@ -128,10 +129,14 @@ const CANVAS_ROLES: Tier[] = [
   { fg: 'statusRunning', tier: T_SECOND },     // AssistantOrb.ets:365 工具在飞环色
 ];
 
-/** 画布面（`appBg`..`surfaceHi` 都是**不透明**面；`glassBg` 是半透明 ⇒ 必须先合成）。 */
+/** 画布面（`appBg`..`surfaceHi` 都是**不透明**面；`glassBg` 是半透明 ⇒ 必须先合成）。
+ *  `sunken` = 下沉内容面（代码块 / 终端块 / diff 行底）。历史上那 5 处用的是**阴影 token**
+ *  `Effects.elev1`（`ToolPopover.ets:280/303/336/370/421`，其卡底是 `surface`，见 `:383`），
+ *  故 `text* × sunken` 这组对**已经在生产里成立**，只是过去用错了 token 表达。 */
 const CANVAS_FACES: string[] = [
   'appBg', 'surface', 'surfaceAlt', 'surfaceHi',
   'glassBg/appBg', 'glassBg/surface',
+  'sunken',
 ];
 
 /**
@@ -167,13 +172,14 @@ function facesOf(p: Palette): Record<string, string> {
   m['surface'] = p.surface;
   m['surfaceAlt'] = p.surfaceAlt;
   m['surfaceHi'] = p.surfaceHi;
-  // glassBg = surface@62%（Effects 派生）⇒ 真正决定可读性的是合成结果
+  // glassBg = glassBase@62%（Effects 派生）⇒ 真正决定可读性的是合成结果
   m['glassBg/appBg'] = compositeOver(e.glassBg, p.appBg);
   m['glassBg/surface'] = compositeOver(e.glassBg, p.surface);
   // 填充面（当底色用）
   m['accent'] = p.accent;
   m['accentDeep'] = p.accentDeep;
   m['warnBg'] = p.warnBg;
+  m['sunken'] = surfacesOf(p).sunken;
   return m;
 }
 
@@ -251,6 +257,11 @@ const LEDGER: string[] = [
   // 最小改动建议：porcelain 的 textMuted 压深一档（如 #8E8E93，= 它自己的 statusIdle）。
   'porcelain|textMuted|surfaceHi',
   'porcelain|textMuted|accentDeep',
+  // ── 根因 E 的**同一个病**在新面 sunken 上复现（波5f 新增的面暴露出来的） ──────────
+  // porcelain 下沉面（#F2F2F2）压 textMuted = 1.98 < 2.0。深色四套都过（dark 3.32 / aurora 4.87 /
+  // nebula 3.38 / light 2.27）⇒ 又是**纯白族 textMuted 太浅**这一个根因，不是 sunken 取值的问题。
+  // 最小改动建议：同根因 E（压深 porcelain 的 textMuted）一处改动即可同时消掉 3 条台账。
+  'porcelain|textMuted|sunken',
 ];
 
 const ledgerSet: Record<string, boolean> = {};
@@ -295,6 +306,8 @@ const ALL_ROLE_NAMES: string[] = [
   'statusRunning', 'statusWaiting', 'statusIdle', 'statusError',
   'transparent', 'glassBg', 'glassBorder', 'glassBlur',
   'glow', 'glowSoft', 'gradientFrom', 'gradientTo', 'sheen', 'elev1', 'elev2', 'elev3',
+  // 2026-10-11 新增的 Surfaces 角色（本波只建设色板，接线留给下一波）
+  'hairline', 'sunken', 'glassBase',
 ];
 
 function listEts(dir: string): string[] {
@@ -374,8 +387,131 @@ for (let i = 0; i < ZERO_USE_ROLES.length; i++) {
   ok(`${r} 声明"无生产调用点"（实测 ${roleUses[r]} 次）`, roleUses[r] === 0);
 }
 
+/** 波5f 新增、**尚未接线**的面角色（本波只建色板；消费者接线留给下一波）。
+ *  ⛔ 下一波把 `hairline`/`sunken` 接进 components/ 之后，本段会红 ——
+ *  那是**设计意图**：请把它们从本表移入 §B 的 CANVAS_ROLES/JUDGED_ROLES 并给出阈值/判定表，
+ *  而不是删掉这条断言。（`glassBase` 通常不会被组件直呼，它只喂 `effectsOf.glassBg`。） */
+const PENDING_WIRING_ROLES: string[] = ['hairline', 'sunken', 'glassBase'];
+for (let i = 0; i < PENDING_WIRING_ROLES.length; i++) {
+  const r: string = PENDING_WIRING_ROLES[i];
+  ok(`${r} 本波尚未接线（实测 ${roleUses[r]} 次引用；接线后请移入 §B）`, roleUses[r] === 0);
+}
+
 // ════════════════════════════════════════════════════════════════════════════
-// §E 报告（给设计决策看的真数据 —— 永远打印，不只在失败时）
+// §E 补齐的三处语义缺失（`Surfaces`：hairline / sunken / glassBase）
+//
+// 背景：另一条线（task5-orb-wire）在真机 + 代码审查里认定三处**语义缺失**，
+// 本波在色板层补齐。本段的判据分两类：
+//  (a) **零回归等价性**：新角色对**深色**的取值必须与它替代的现值逐字节/逐公式等价
+//      （否则就是未授权的视觉回归）—— 逐字节断言，不靠"我保证"；
+//  (b) **浅色系达标**：新角色存在的意义就是修浅色系的糊 —— 必须真的达标，
+//      且必须**严格强于**它替代的旧值（否则补了等于没补）。
+// ════════════════════════════════════════════════════════════════════════════
+console.log('\n▶ §E 补齐的三处语义缺失（hairline / sunken / glassBase）');
+
+// ── E1 完整性 + 与 `Effects` 的字段数各自独立（新增面不能漏填） ─────────────
+for (let ti = 0; ti < ALL_THEMES.length; ti++) {
+  const th: string = ALL_THEMES[ti];
+  const s: Surfaces = surfacesOf(paletteOf(th));
+  ok(`${th} surfaces 完整（hairline/sunken/glassBase 都非空）`, surfacesComplete(s));
+  eq(`${th} Surfaces 字段数 = 3`, Object.keys(s).length, 3);
+}
+
+// ── E2 `hairline`：深色族 = `border` 逐字节等价（观感已批准，不许动） ────────
+// 为什么深色可以等价：深色系底色暗，`border` 本身对画布的可见度已够（dark 1.22 / aurora 1.44 /
+// nebula 1.35），真机观感是批准过的 ⇒ 新角色只改"浅色系命名的语义"，不改深色的像素。
+const DARK_FAMILY: string[] = ['dark', 'aurora', 'nebula'];
+const LIGHT_FAMILY: string[] = ['light', 'porcelain'];
+for (let i = 0; i < DARK_FAMILY.length; i++) {
+  const th: string = DARK_FAMILY[i];
+  const p: Palette = paletteOf(th);
+  eq(`${th} hairline ≡ border（逐字节等价 ⇒ 零回归）`, surfacesOf(p).hairline, p.border);
+}
+
+// ── E3 `hairline`：浅色系必须达到 web 权威基线的可见度，且严格强于旧 border ──
+// 基线 = `web/src/index.css:160` 浅色 `--border: #e0e0e0` on `:153 --bg-primary: #ffffff`
+eq('门禁常量 HAIRLINE_TARGET_RATIO = web 浅色 border 实测值',
+  HAIRLINE_TARGET_RATIO.toFixed(4), contrastRatio('#e0e0e0', '#FFFFFF').toFixed(4));
+for (let i = 0; i < LIGHT_FAMILY.length; i++) {
+  const th: string = LIGHT_FAMILY[i];
+  const p: Palette = paletteOf(th);
+  const h: string = surfacesOf(p).hairline;
+  const bases: string[] = [p.appBg, p.surface];
+  for (let bi = 0; bi < bases.length; bi++) {
+    const got: number = contrastRatio(h, bases[bi]);
+    ok(`${th} hairline 对 ${bi === 0 ? 'appBg' : 'surface'} 达 web 基线`
+      + `（${got.toFixed(4)} >= ${HAIRLINE_TARGET_RATIO}）`, got >= HAIRLINE_TARGET_RATIO);
+    // 严格强于旧值：证明"补这个角色"不是空转（数字必须真的变好）
+    ok(`${th} hairline 严格强于旧 border（对 ${bi === 0 ? 'appBg' : 'surface'}）`,
+      got > contrastRatio(p.border, bases[bi]));
+  }
+  ok(`${th} hairline ≠ border（是真的另一个角色）`, h !== p.border);
+}
+// 旧值的实测（把这些数字钉住 ⇒ 若哪天有人"顺手"把 border 调亮，本段立刻红）
+eq('light 旧 border 可见度（1.1783，弱于 web 基线）',
+  contrastRatio(paletteOf('light').border, paletteOf('light').appBg).toFixed(4), '1.1783');
+eq('porcelain 旧 border 可见度（1.1798，弱于 web 基线）',
+  contrastRatio(paletteOf('porcelain').border, paletteOf('porcelain').appBg).toFixed(4), '1.1798');
+// 浅色系 hairline 的**快照**（推导结果必须可见、可复核；换了推导规则就会红）
+eq('light hairline 快照', surfacesOf(paletteOf('light')).hairline, '#D5DBE2');
+eq('porcelain hairline 快照（中性无色相偏移）', surfacesOf(paletteOf('porcelain')).hairline, '#DFDFE1');
+
+// ── E4 `sunken`：与"旧的 elev1 当底色"**逐字节等价** ─────────────────────────
+// 等价性构造在 `theme.ets` 里（共用 `legacyElev1Of`）；这里独立复算一遍：
+// `compositeOver(effectsOf(p).elev1, p.surface)` 必须与 `surfacesOf(p).sunken` 逐字节相同。
+for (let ti = 0; ti < ALL_THEMES.length; ti++) {
+  const th: string = ALL_THEMES[ti];
+  const p: Palette = paletteOf(th);
+  eq(`${th} sunken ≡ compositeOver(旧 elev1, surface)（逐字节）`,
+    surfacesOf(p).sunken, compositeOver(effectsOf(p).elev1, p.surface));
+}
+// 深色族的 elev1 逐字节不动（其他线依赖其观感）+ sunken 快照
+eq('dark elev1 仍为黑@24%（逐字节未动）', effectsOf(paletteOf('dark')).elev1, '#3D000000');
+eq('dark sunken 快照', surfacesOf(paletteOf('dark')).sunken, '#0B0B0F');
+eq('aurora sunken 快照', surfacesOf(paletteOf('aurora')).sunken, '#080F1B');
+eq('nebula sunken 快照', surfacesOf(paletteOf('nebula')).sunken, '#0B0817');
+eq('light sunken 快照', surfacesOf(paletteOf('light')).sunken, '#F1F1F2');
+eq('porcelain sunken 快照', surfacesOf(paletteOf('porcelain')).sunken, '#F2F2F2');
+// 下沉面必须真与卡面**可分辨**（否则"下沉"看不出来 —— 这正是它要修的东西）
+for (let ti = 0; ti < ALL_THEMES.length; ti++) {
+  const th: string = ALL_THEMES[ti];
+  const p: Palette = paletteOf(th);
+  const r: number = contrastRatio(surfacesOf(p).sunken, p.surface);
+  ok(`${th} sunken 与 surface 可分辨（${r.toFixed(4)} > 1.0）`, r > 1.0);
+}
+
+// ── E5 `glassBase` / `glassBg`：浅色系玻璃底不能与画布恒等 ────────────────────
+// 根因：`effectsOf.glassBg = 基色@62%`，porcelain 里 `surface == appBg == #FFFFFF`
+// ⇒ 合成结果 == 画布 ⇒ **玻璃面板在白底上恒等不可见**（实测 1.0000）。
+for (let ti = 0; ti < ALL_THEMES.length; ti++) {
+  const th: string = ALL_THEMES[ti];
+  const p: Palette = paletteOf(th);
+  const e: Effects = effectsOf(p);
+  const s: Surfaces = surfacesOf(p);
+  const glassHex: string = compositeOver(e.glassBg, p.appBg);
+  // (a) 恒等不可见 ⇒ 红（"玻璃底等于画布"这种 bug 不许再出现）
+  ok(`${th} 玻璃底不与画布恒等（${glassHex} ≠ ${p.appBg}）`, glassHex !== p.appBg);
+  // (b) 浅色系玻璃底必须有**可辨**的可见度（实测地板 = light 的 1.0274 ⇒ 门禁取 1.02）
+  if (LIGHT_FAMILY.indexOf(th) >= 0) {
+    ok(`${th} 浅色族玻璃底可见度 >= 1.02（${contrastRatio(glassHex, p.appBg).toFixed(4)}）`,
+      contrastRatio(glassHex, p.appBg) >= 1.02);
+  }
+  // (c) 深色四套逐字节不变（glassBase == surface ⇒ 与旧公式同值）
+  if (DARK_FAMILY.indexOf(th) >= 0 || th === 'light') {
+    eq(`${th} 玻璃基色未改（零回归）`, s.glassBase, p.surface);
+  }
+}
+eq('dark glassBg 逐字节不变', effectsOf(paletteOf('dark')).glassBg, '#9E0E0E14');
+eq('aurora glassBg 逐字节不变', effectsOf(paletteOf('aurora')).glassBg, '#9E0B1424');
+eq('nebula glassBg 逐字节不变', effectsOf(paletteOf('nebula')).glassBg, '#9E0F0A1E');
+eq('light glassBg 逐字节不变（surface≠appBg ⇒ 无需切换）', effectsOf(paletteOf('light')).glassBg, '#9EFFFFFF');
+eq('porcelain 玻璃基色切换为次级面 surfaceAlt', surfacesOf(paletteOf('porcelain')).glassBase, '#F6F6F7');
+eq('porcelain glassBg 由恒白变为次级面', effectsOf(paletteOf('porcelain')).glassBg, '#9EF6F6F7');
+ok('porcelain 玻璃底不再恒等（1.0000 → 真有差异）',
+  contrastRatio(compositeOver(effectsOf(paletteOf('porcelain')).glassBg, '#FFFFFF'), '#FFFFFF') > 1.0);
+
+// ════════════════════════════════════════════════════════════════════════════
+// §F 报告（给设计决策看的真数据 —— 永远打印，不只在失败时）
 // ════════════════════════════════════════════════════════════════════════════
 function pad(s: string, n: number): string {
   let out: string = s;
@@ -395,6 +531,25 @@ for (let i = 0; i < FILL_PAIRS.length; i++) {
 }
 console.log('\n   ⛔ 未纳入判定的角色（实测 0 次生产引用 ⇒ 判它没有意义）：');
 console.log('   ' + ZERO_USE_ROLES.join(', '));
+console.log('   ⏳ 波5f 新增、待下一波接线（接线后须移入 §B）：');
+console.log('   ' + PENDING_WIRING_ROLES.join(', '));
+
+console.log('\n▼ 补齐的三处语义缺失（Surfaces）实测表');
+console.log('   ' + pad('主题', 11) + pad('hairline', 10) + pad('对画布', 9) + pad('sunken', 10)
+  + pad('对卡面', 9) + pad('玻璃底基色', 12) + pad('玻璃合成', 10) + '对画布');
+for (let ti = 0; ti < ALL_THEMES.length; ti++) {
+  const th: string = ALL_THEMES[ti];
+  const p: Palette = paletteOf(th);
+  const s: Surfaces = surfacesOf(p);
+  const e: Effects = effectsOf(p);
+  const gh: string = compositeOver(e.glassBg, p.appBg);
+  console.log('   ' + pad(th, 11) + pad(s.hairline, 10)
+    + pad(contrastRatio(s.hairline, p.appBg).toFixed(4), 9)
+    + pad(s.sunken, 10) + pad(contrastRatio(s.sunken, p.surface).toFixed(4), 9)
+    + pad(s.glassBase, 12) + pad(gh, 10) + contrastRatio(gh, p.appBg).toFixed(4));
+}
+console.log('   （hairline 目标 = ' + HAIRLINE_TARGET_RATIO + ' = web 浅色 --border #e0e0e0 / #ffffff；'
+  + '深色族 ≡ border ⇒ 逐字节零回归）');
 
 console.log('\n▼ 每套主题最差 5 对（按 实测/阈值 升序；比值 < 1.0 即不达标）');
 for (let ti = 0; ti < ALL_THEMES.length; ti++) {

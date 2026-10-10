@@ -14,6 +14,17 @@
  *    数值逐字取自 `.research/design-system.md` 的 xbot-aurora / xbot-nebula 表；
  *  - 新增 `Effects`（玻璃/光晕/渐变/层级）—— 由色板**派生**，跨主题自动一致，故单列结构
  *    （glassBlur 是数值，无法混进全 string 的 Palette）。
+ *
+ * 2026-10-11 扩展（**不改任何既有角色的取值** —— `darkPalette()`..`porcelainPalette()` 五套色板
+ * 与 `paletteValues` 一字未动；只新增**派生结构**）：
+ *  - 新增 `Surfaces`（`surfacesOf`）：补三处**语义缺失**，消掉"白色主题不割裂"的结构性根因 ——
+ *    ① `hairline` 结构性发丝（浅色系从 `border` 压深到 `HAIRLINE_TARGET_RATIO`；深色族 = `border` 逐字节）；
+ *    ② `sunken` 下沉内容面（**替代**历史上把阴影色 `Effects.elev1` 当块底色的误用，逐公式等价）；
+ *    ③ `glassBase` 玻璃底基色（浅色系 `surface == appBg` 时改用 `surfaceAlt`，
+ *       否则白底上玻璃面板恒等不可见 —— `effectsOf.glassBg` 已改用它）。
+ *    ⚠️ 为什么进派生结构而不是 `Palette` 字段：`core/accent.ets` 的 `withAccent()` 逐字段复制，
+ *    加字段会让"换强调色后的色板"多出空字段（`tools/tests/accent.test.ts:80` 会红）。详见 `Surfaces` 注释。
+ *  - 门禁：`tools/tests/theme_contrast.test.ts`（WCAG 2.1）已把这三个角色纳入矩阵与台账。
  */
 
 /** 一套语义色板。字段名就是"用途"，不是"颜色"—— 这样浅色主题才可能正确。 */
@@ -406,6 +417,34 @@ function alphaHex(hex: string, alpha: number): string {
 }
 
 /**
+ * 玻璃拟态面的**基色**（`effectsOf.glassBg` 由它派生，`Surfaces.glassBase` 也暴露它）。
+ *
+ * 为什么需要单独一层：玻璃底是 `基色 @62%`，压在**画布**上。若基色与画布同色
+ * （`porcelain` 的 `surface == appBg == #FFFFFF`），合成结果 = 画布本身 ⇒
+ * **玻璃面板在白底上恒等不可见**（实测对比度 1.0000，受影响点：`MarkdownView` 引用块底色）。
+ * 深/浅分支此前只覆盖了 `sheen/elev*`，没覆盖玻璃底 —— 这里补上：
+ * 浅色系若 `surface` 与画布同色，改用**次级面** `surfaceAlt`（"次级面口径"），
+ * 于是白底上也能看出"这是一块面板"。**深色四套逐字节不变**（surface ≠ appBg ⇒ 直接返回 surface）。
+ */
+function glassBaseOf(p: Palette): string {
+  if (isLightPalette(p) && p.surface === p.appBg) { return p.surfaceAlt; }
+  return p.surface;
+}
+
+/**
+ * 层级阴影 1（`elev1`）的**唯一**公式 —— `Effects` 与 `Surfaces.sunken` 共用。
+ *
+ * 为什么要抽出来：`elev*` 本是"阴影色"，却被 5 处当**块底色**用
+ * （`ToolPopover` 的代码块/终端块/diff 行底）。新增的 `sunken`（下沉内容面）
+ * 必须与旧观感**逐字节等价**，否则就是未授权的视觉回归 ⇒ 共用同一个公式，
+ * 等价性由**构造**保证（测试里再逐字节复核 `compositeOver(elev1, surface) === sunken`）。
+ * 公式本身**逐字未改**：浅色 = 正文色 @6%，深色 = 黑 @24%。
+ */
+function legacyElev1Of(p: Palette): string {
+  return isLightPalette(p) ? alphaHex(p.textPrimary, 0.06) : alphaHex('#000000', 0.24);
+}
+
+/**
  * 视觉手段 token（玻璃拟态 / 光晕 / 渐变 / 层级阴影）。
  *
  * 为什么单列结构而非塞进 Palette：
@@ -447,7 +486,7 @@ export class Effects {
 export function effectsOf(p: Palette): Effects {
   const e: Effects = new Effects();
   const light: boolean = isLightPalette(p);
-  e.glassBg = alphaHex(p.surface, 0.62);
+  e.glassBg = alphaHex(glassBaseOf(p), 0.62);
   e.glassBorder = alphaHex(p.borderStrong, 0.55);
   e.glassBlur = 18;
   e.glow = alphaHex(p.accent, 0.45);
@@ -458,12 +497,12 @@ export function effectsOf(p: Palette): Effects {
     // 浅底：白高光物理上不可见 ⇒ 换"中性"（无色相偏移）的极淡黑，读作扫光中心。
     e.sheen = alphaHex('#000000', 0.06);
     // 柔影：中性（取正文色相 → 略带主题冷调）+ 低透明；扩散交给调用点的 radius。
-    e.elev1 = alphaHex(p.textPrimary, 0.06);
+    e.elev1 = legacyElev1Of(p);
     e.elev2 = alphaHex(p.textPrimary, 0.10);
     e.elev3 = alphaHex(p.textPrimary, 0.16);
   } else {
     e.sheen = alphaHex('#FFFFFF', 0.06);
-    e.elev1 = alphaHex('#000000', 0.24);
+    e.elev1 = legacyElev1Of(p);
     e.elev2 = alphaHex('#000000', 0.32);
     e.elev3 = alphaHex('#000000', 0.42);
   }
@@ -573,4 +612,112 @@ export function compositeOver(top: string, bottom: string): string {
   const g: number = t[1] * a + b[1] * (1 - a);
   const bl: number = t[2] * a + b[2] * (1 - a);
   return `#${byteHex(r)}${byteHex(g)}${byteHex(bl)}`;
+}
+
+/**
+ * 结构化「面」与「边界」（**由色板派生**，与 `Effects` 同一纪律）。
+ *
+ * 为什么单列结构而不是直接往 `Palette` 加字段（**这是本模块新增角色的既定纪律**）：
+ *  1. 这些值**不必逐主题手写**，它们由色板**按规则**得出 ⇒ 派生后跨主题自动一致、
+ *     新主题零重复（`Effects` 当初就是这么做的）；
+ *  2. `core/accent.ets` 的 `withAccent()` 是**逐字段复制**建新色板（`:104-134`）——
+ *     往 `Palette` 加字段会让"换强调色后的色板"多出空字段
+ *     （`tools/tests/accent.test.ts:80`「换色后无空字段」会立刻红）。
+ *     派生结构**天然规避**这个陷阱：换强调色不改 `border/surface/...` ⇒ 派生值不变。
+ *  ⚠️ 若将来确实要把某个角色提升为 `Palette` 字段，**必须同时**给 `withAccent` 加复制行。
+ */
+export class Surfaces {
+  /** **结构性发丝**：承载信息的边界 / 分隔线（`ThinkingLine` 左栅栏、`MarkdownView` 分隔线、
+   *  缩略图卡与压缩卡描边）。与装饰性的 `border` 相对 —— 浅色系必须**真的看得见**。 */
+  hairline: string = '';
+  /** **下沉内容面**：比卡片更深一档的"内容块"底（代码块 / 终端块 / diff 行底）。
+   *  ⛔ 替代历史上"把阴影色 `Effects.elev1` 当底色用"的误用；取值与旧观感**逐字节等价**。 */
+  sunken: string = '';
+  /** 玻璃拟态面的基色（`Effects.glassBg` 的派生源，见 `glassBaseOf`）。 */
+  glassBase: string = '';
+}
+
+/**
+ * 结构性发丝的**目标可见度**（WCAG 对比度）—— 逐字取 **web 权威基线**：
+ * `web/src/index.css:160` 浅色 `--border: #e0e0e0` 压在 `--bg-primary: #ffffff`（`:153`）上的实测值。
+ *
+ * 为什么用 web 的浅色 border 当基准：原生浅色系的 `border`（light `#E2E8F0` 对画布 1.178、
+ * porcelain `#ECECEE` 对画布 1.180）比 web 基线**弱约 11%** —— 这正是"白底上结构性边界糊掉"的
+ * **量化根因**（另一条线在真机上认定、此处给出数字）。深色族**不受此约束**：它们沿用已批准的观感。
+ */
+export const HAIRLINE_TARGET_RATIO: number = 1.3201;
+
+/** 线性（线性化后）→ sRGB 8bit 浮点（0..255；未量化）。 */
+function linearToSrgb8(lin: number): number {
+  const c: number = lin <= 0.0031308 ? lin * 12.92 : 1.055 * Math.pow(lin, 1 / 2.4) - 0.055;
+  const v: number = c * 255;
+  if (v < 0) { return 0; }
+  if (v > 255) { return 255; }
+  return v;
+}
+
+/** 候选色是否对 `bases` 里每个底都达到 `target` 对比度。 */
+function meetsAllRatio(cand: string, bases: string[], target: number): boolean {
+  for (let i = 0; i < bases.length; i++) {
+    if (contrastRatio(cand, bases[i]) < target) { return false; }
+  }
+  return true;
+}
+
+/**
+ * 把 `hex` 在**线性空间整体压深**，直到它对 `bases` 里每个底都达到 `target` 对比度。
+ * 闭式（不做搜索 ⇒ 无渲染路径开销）：先求最严的底所要求的目标亮度 `lStar`，
+ * 再按 `f = lStar / 当前亮度` 缩放**线性通道**（缩放线性通道 ≡ 保持色相、只改明度）。
+ * 量化到 8bit 后可能差一点点，故末尾逐通道减 1 兜底（实测 1 步；上限 8 步）。
+ * ⚠️ 注释里别写 `L*斜杠L(...)` 那种式子 —— `星号斜杠` 会提前终止块注释（本文件踩过一次）。
+ */
+function deepenToRatio(hex: string, bases: string[], target: number): string {
+  let lStar: number = 2;
+  for (let i = 0; i < bases.length; i++) {
+    const need: number = (relativeLuminance(bases[i]) + 0.05) / target - 0.05;
+    if (need < lStar) { lStar = need; }
+  }
+  const rgb: number[] = parseColorRgba(hex);
+  const lum: number = relativeLuminance(hex);
+  let f: number = lum > 0 ? lStar / lum : 0;
+  if (f > 1) { f = 1; }   // 已经比目标更暗 ⇒ 不再压深（是否达标由门禁判定，不在这里偷偷加暗）
+  if (f < 0) { f = 0; }
+  const ch: number[] = [
+    linearToSrgb8(srgbChannelLinear(rgb[0]) * f),
+    linearToSrgb8(srgbChannelLinear(rgb[1]) * f),
+    linearToSrgb8(srgbChannelLinear(rgb[2]) * f),
+  ];
+  let cand: string = `#${byteHex(ch[0])}${byteHex(ch[1])}${byteHex(ch[2])}`;
+  let guard: number = 0;
+  while (guard < 8 && !meetsAllRatio(cand, bases, target)) {
+    ch[0] = ch[0] - 1;
+    ch[1] = ch[1] - 1;
+    ch[2] = ch[2] - 1;
+    cand = `#${byteHex(ch[0])}${byteHex(ch[1])}${byteHex(ch[2])}`;
+    guard++;
+  }
+  return cand;
+}
+
+/** 结构性发丝：深色族 = `border` 现值（**逐字节等价**，观感已批准不动）；
+ *  浅色族 = 把 `border` 按 `HAIRLINE_TARGET_RATIO` 压深（保持各主题自己的色相：slate / 中性）。 */
+function hairlineOf(p: Palette): string {
+  if (!isLightPalette(p)) { return p.border; }
+  return deepenToRatio(p.border, [p.appBg, p.surface], HAIRLINE_TARGET_RATIO);
+}
+
+/** 由色板派生「面 / 边界」token（单一口径 —— 换主题即换面）。 */
+export function surfacesOf(p: Palette): Surfaces {
+  const s: Surfaces = new Surfaces();
+  s.hairline = hairlineOf(p);
+  // 下沉内容面：**逐公式等价**于旧的"elev1 阴影色当底色"（同一公式 + 同一合成底 `surface`）
+  s.sunken = compositeOver(legacyElev1Of(p), p.surface);
+  s.glassBase = glassBaseOf(p);
+  return s;
+}
+
+/** 面 token 是否完整（穷尽性守卫，与 `effectsComplete` 同一纪律）。 */
+export function surfacesComplete(s: Surfaces): boolean {
+  if (s.hairline.length === 0 || s.sunken.length === 0 || s.glassBase.length === 0) { return false; }
+  return true;
 }
