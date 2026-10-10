@@ -15,6 +15,7 @@ exports.completedBlocks = completedBlocks;
 exports.blocksSignature = blocksSignature;
 exports.rowVisibleChars = rowVisibleChars;
 exports.rowIsEmpty = rowIsEmpty;
+exports.rowHasInFlightSignal = rowHasInFlightSignal;
 exports.displayReasoning = displayReasoning;
 exports.isIdleAction = isIdleAction;
 exports.isBusyAction = isBusyAction;
@@ -318,6 +319,43 @@ function rowVisibleChars(row) {
  */
 function rowIsEmpty(row) {
     return rowVisibleChars(row) === 0;
+}
+/**
+ * 尾部行是否正在渲染**在飞信号**（末尾 `live:true` 块里有 思考/正文/工具）。
+ *
+ * 这是「尾部有没有『进行中』信号」的**唯一判据**（用户 2026-10-10 点名 ①）：
+ *   「每个 iter 刚完成、下一个 iter 的 SSE 到来之前，应该也要渲染思考中」。
+ *
+ * ⛔ **绝不是「行非空」**（`!rowIsEmpty`）：`rowVisibleChars` 数的是**整行**可见内容，
+ *   其中包含**已提交（历史）迭代块**。迭代刚 commit、下一迭代首个 delta 还没到（空隙）时，
+ *   行非空（历史块在）但**没有任何在飞信号** —— 用「行非空」当在飞判据 ⇒ 占位符被抑制
+ *   ⇒ 空隙里什么都没有。
+ *
+ * 对齐 web（唯一参照）：`MessageList.tailShowsIndicator` 用
+ *   `tailIsLiveRow && (compressing || (streaming && liveIterationInFlight(...)))`；
+ *   `progressStore.liveIterationInFlight` 语义 =「**进行中的那个迭代尚未作为历史渲染过**」。
+ *   空隙时进行中号已被历史渲染 ⇒ `false` ⇒ 尾部**无在飞信号** ⇒ 由列表尾「思考中…」占位承担。
+ *   原生端等价物 = 末尾在飞块（`live:true`，由 `core/render.ets` 从在飞字段折叠）里
+ *   确有可见内容 —— 与渲染同源（同一个 `liveBlockOf`）。
+ *
+ * 不变量（恰好一个指示器）：有在飞信号 ⇒ 占位让位；无 ⇒ 占位出现；
+ *   任何时刻不允许「两者皆无」。
+ */
+function rowHasInFlightSignal(row) {
+    const b = liveBlockOf(row);
+    if (b === undefined) {
+        return false;
+    }
+    if (displayReasoning(b).length > 0) {
+        return true;
+    }
+    if (displayContent(b).length > 0) {
+        return true;
+    }
+    if (b.tools !== undefined && b.tools.length > 0) {
+        return true;
+    }
+    return false;
 }
 /** 该迭代当前应显示的推理文本。 */
 function displayReasoning(it) {

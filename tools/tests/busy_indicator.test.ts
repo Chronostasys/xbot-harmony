@@ -25,7 +25,7 @@ import {
   showsBusyPlaceholder,
 } from '../../entry/src/main/ets/core/indicators';
 import { ChatStore } from '../../entry/src/main/ets/core/store';
-import { rowIsEmpty } from '../../entry/src/main/ets/core/streammerge';
+import { rowHasInFlightSignal, rowIsEmpty } from '../../entry/src/main/ets/core/streammerge';
 import { ChatRow } from '../../entry/src/main/ets/core/types';
 import type { SseListener } from '../../entry/src/main/ets/core/sse';
 
@@ -122,7 +122,8 @@ function signalsOf(store: ChatStore, freshServerRunning: boolean): BusySignals {
   return {
     localBusy: store.busy,
     liveHasContent: store.hasLiveRowWithContent(),
-    tailShowsIndicator: hasLiveRow && !rowIsEmpty(live[0]),
+    // 与生产 `busySignals().tailShowsIndicator` 同源（在飞信号，非「行非空」）。
+    tailShowsIndicator: hasLiveRow && rowHasInFlightSignal(live[0]),
     freshServerRunning,
     loading: false,
     rowsLen: store.rows.length,

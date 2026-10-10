@@ -28,7 +28,7 @@ declare const process: { exit: (c: number) => void };
 
 import { ChatStore } from './store';
 import { ChatRow, HistoryIteration } from './types';
-import { displayContent, displayReasoning, rowIsEmpty, rowVisibleChars } from './streammerge';
+import { displayContent, displayReasoning, rowHasInFlightSignal, rowIsEmpty, rowVisibleChars } from './streammerge';
 import { BusySignals, busyNow, showsBusyPlaceholder } from './indicators';
 import type { SseListener } from './sse';
 
@@ -99,7 +99,8 @@ function pageSignals(store: ChatStore): BusySignals {
   return {
     localBusy: store.busy,
     liveHasContent: store.hasLiveRowWithContent(),
-    tailShowsIndicator: live !== undefined && !rowIsEmpty(live),
+    // 与生产 `busySignals().tailShowsIndicator` 同源（在飞信号，非「行非空」）。
+    tailShowsIndicator: live !== undefined && rowHasInFlightSignal(live),
     freshServerRunning: false,
     loading: false,
     rowsLen: store.rows.length,

@@ -89,7 +89,8 @@ function signalsOf(store, freshServerRunning) {
     return {
         localBusy: store.busy,
         liveHasContent: store.hasLiveRowWithContent(),
-        tailShowsIndicator: hasLiveRow && !(0, streammerge_1.rowIsEmpty)(live[0]),
+        // 与生产 `busySignals().tailShowsIndicator` 同源（在飞信号，非「行非空」）。
+        tailShowsIndicator: hasLiveRow && (0, streammerge_1.rowHasInFlightSignal)(live[0]),
         freshServerRunning,
         loading: false,
         rowsLen: store.rows.length,

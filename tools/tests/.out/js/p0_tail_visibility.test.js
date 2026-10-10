@@ -69,7 +69,8 @@ function pageSignals(store) {
     return {
         localBusy: store.busy,
         liveHasContent: store.hasLiveRowWithContent(),
-        tailShowsIndicator: live !== undefined && !(0, streammerge_1.rowIsEmpty)(live),
+        // 与生产 `busySignals().tailShowsIndicator` 同源（在飞信号，非「行非空」）。
+        tailShowsIndicator: live !== undefined && (0, streammerge_1.rowHasInFlightSignal)(live),
         freshServerRunning: false,
         loading: false,
         rowsLen: store.rows.length,

@@ -34,7 +34,7 @@ import {
   isInterruptSend, MODE_INTERRUPT, MODE_QUEUE, modeHint, modeLabel, sendToast, toggleMode,
 } from '../core/sendmode';
 import { mdCacheStats, MdCacheStats } from '../core/markdown';
-import { blocksSignature, completedBlocks, displayContent, displayReasoning, rowIsEmpty, streamStatsText } from '../core/streammerge';
+import { blocksSignature, completedBlocks, displayContent, displayReasoning, rowHasInFlightSignal, rowIsEmpty, streamStatsText } from '../core/streammerge';
 import {
   channelLabel, hiddenRowCount, visibleRows, MAX_ROWS_VISIBLE,
 } from '../core/sessionpick';
@@ -2923,7 +2923,11 @@ struct Index {
     return {
       localBusy: this.busy,
       liveHasContent: store !== null && store.hasLiveRowWithContent(),
-      tailShowsIndicator: this.hasLiveRow && !rowIsEmpty(this.liveRowRef),
+      // ⛔ 用户 2026-10-10 ①：尾部**在飞信号**才让位（末尾在飞块有 正文/思考/工具），
+      //   绝不是「行非空」—— 后者含**已提交（历史）迭代块**。迭代刚 commit、下一迭代
+      //   首个 delta 未到时行非空 ⇒ 旧判据抑制占位 ⇒ 空隙里什么都没有。见
+      //   core/streammerge.rowHasInFlightSignal 与 docs/WEB-ALIGNMENT.md §10。
+      tailShowsIndicator: this.hasLiveRow && rowHasInFlightSignal(this.liveRowRef),
       freshServerRunning: fresh && this.serverRunning(),
       loading: this.historyLoading,
       rowsLen: this.rows.length,
@@ -3175,14 +3179,17 @@ struct Index {
   }
 
   /**
-   * live turn 是否已有可显示内容（决定「思考中…」占位符是否让位 —— 恰好一个指示器）。
+   * live turn 是否已有**在飞信号**（决定「思考中…」占位符是否让位 —— 恰好一个指示器）。
    *
+   * ⛔ 判据 = `rowHasInFlightSignal`（末尾在飞块里有 正文/思考/工具），**不是**「行非空」：
+   *   行非空含**已提交（历史）迭代块**，用它当判据会让迭代空隙的「思考中」消失
+   *   （用户 2026-10-10 ①）。与 `busySignals().tailShowsIndicator` 同一函数 —— 判据唯一。
    * 数据源 = live 行本身（其末尾在飞块由 `core/render.ets` 从状态机在飞字段折叠而来）——
    * 不再由页面从 `liveProgressFromState` 拼凑第二份在飞内容（那正是 bug ② 的来源）。
    * 会话隔离由 `syncRowDs` 保证（`this.rows` 只来自**当前** store）。
    */
   private liveTailHasContent(): boolean {
-    return this.hasLiveRow && !rowIsEmpty(this.liveRowRef);
+    return this.hasLiveRow && rowHasInFlightSignal(this.liveRowRef);
   }
 
   /** 打字机可见正文（安全回退：定时器未跑 ⇒ 显示全文，绝不让内容不可见）。 */
