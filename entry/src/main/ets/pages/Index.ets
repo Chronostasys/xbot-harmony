@@ -11,6 +11,9 @@ import {
   canMove, MOVE_DOWN, MOVE_TOP, MOVE_UP, hitLine, sessionLabel, sessionMatches,
 } from '../core/sessionops';
 import {
+  BgTask, bgTaskLine, CronJob, cronLine, RunnerRow, runnerLine, SubAgentRow, subagentLine,
+} from '../core/panels';
+import {
   isInterruptSend, MODE_INTERRUPT, MODE_QUEUE, modeHint, modeLabel, sendToast, toggleMode,
 } from '../core/sendmode';
 import { mdCacheStats, MdCacheStats } from '../core/markdown';
@@ -211,6 +214,16 @@ struct Index {
    */
   @State sendMode: string = MODE_QUEUE;
 
+  // ── P8 面板（定时任务 / 后台任务 / 子代理 / Runner）──
+  @State showPanels: boolean = false;
+  /** cron | tasks | subs | runners */
+  @State panelTab: string = 'cron';
+  @State cronTasks: CronJob[] = [];
+  @State bgTasks: BgTask[] = [];
+  @State runners: RunnerRow[] = [];
+  @State subagents: SubAgentRow[] = [];
+  @State panelBusy: boolean = false;
+
   // ── P7 会话管理（搜索 / 排序 / 分支）──
   /** 抽屉里的本地筛选词（只过滤显示，不打断会话） */
   @State sessQuery: string = '';
@@ -384,6 +397,10 @@ struct Index {
     this.todos = store.todos.slice();
     this.goal = store.goal;
     this.llmCfg = store.llmConfig;
+    this.cronTasks = store.cronTasks;
+    this.bgTasks = store.bgTasks;
+    this.runners = store.runners;
+    this.subagents = store.subagents;
     // busy 结束 ⇒ 发送模式复位（插话只对"正在跑"的会话有意义）
     if (!store.busy && this.sendMode !== MODE_QUEUE) {
       this.sendMode = MODE_QUEUE;
@@ -1211,6 +1228,15 @@ struct Index {
       if (this.showModel) {
         this.ModelSheet()
       }
+      // 面板（定时任务 / 后台任务 / 子代理 / Runner）
+      if (this.showPanels) {
+        Column() {
+          Blank().layoutWeight(1).width('100%').onClick(() => {
+            this.showPanels = false;
+          })
+          this.PanelsSheet()
+        }.width('100%').height('100%')
+      }
       // 会话操作菜单（置顶/上移/下移/改名/分支/删除）
       if (this.sessMenuId.length > 0) {
         Column() {
@@ -1649,6 +1675,89 @@ struct Index {
     }
   }
 
+  // ── P8：面板 ─────────────────────────────────────────────────────────────
+
+  private panelCount(tab: string): number {
+    if (tab === 'tasks') {
+      return this.bgTasks.length;
+    }
+    if (tab === 'subs') {
+      return this.subagents.length;
+    }
+    if (tab === 'runners') {
+      return this.runners.length;
+    }
+    return this.cronTasks.length;
+  }
+
+  private panelTabLabel(tab: string): string {
+    if (tab === 'tasks') {
+      return `后台任务 ${this.panelCount(tab)}`;
+    }
+    if (tab === 'subs') {
+      return `子代理 ${this.panelCount(tab)}`;
+    }
+    if (tab === 'runners') {
+      return `Runner ${this.panelCount(tab)}`;
+    }
+    return `定时任务 ${this.panelCount(tab)}`;
+  }
+
+  private panelTabs(): string[] {
+    return ['cron', 'tasks', 'subs', 'runners'];
+  }
+
+  /** 刷新当前标签页的数据（每个标签只拉自己那一个端点）。 */
+  private async refreshPanel(): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null || this.panelBusy) {
+      return;
+    }
+    this.panelBusy = true;
+    try {
+      if (this.panelTab === 'cron') {
+        await store.loadCronTasks();
+      } else if (this.panelTab === 'tasks') {
+        await store.loadBgTasks();
+      } else if (this.panelTab === 'runners') {
+        await store.loadRunners();
+      } else {
+        await store.loadSessions();  // 子代理来自会话树
+      }
+    } catch (e) {
+      this.toast(`加载失败: ${errText(e as Object)}`);
+    } finally {
+      this.panelBusy = false;
+    }
+  }
+
+  private openPanels(): void {
+    this.showPanels = true;
+    this.refreshPanel();
+  }
+
+  private switchPanelTab(tab: string): void {
+    this.panelTab = tab;
+    this.refreshPanel();
+  }
+
+  private async removeCron(jobId: string): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null || jobId.length === 0) {
+      return;
+    }
+    try {
+      await store.removeCronTask(jobId);
+      this.toast('定时任务已删除');
+    } catch (e) {
+      this.toast(`删除失败: ${errText(e as Object)}`);
+    }
+  }
+
+  private nowMs(): number {
+    return Date.now();
+  }
+
   /** 在当前会话里搜索消息（服务端只检索当前会话 —— 不是全局搜索）。 */
   private async runSearch(): Promise<void> {
     const store: ChatStore | null = this.store;
@@ -1894,6 +2003,115 @@ struct Index {
       return COPY_TOOLS;
     }
     return COPY_RAW;
+  }
+
+  /** 面板：四个标签各拉一个端点（定时任务 / 后台任务 / 子代理 / Runner）。 */
+  @Builder
+  PanelsSheet() {
+    Column({ space: 8 }) {
+      Row() {
+        Text('面板').fontSize(16).fontWeight(FontWeight.Bold).fontColor('#E5E7EB').layoutWeight(1)
+        if (this.panelBusy) {
+          LoadingProgress().width(16).height(16).color('#8B5CF6')
+        }
+        Text('刷新').fontSize(12).fontColor('#93C5FD').padding(8).onClick(() => {
+          this.refreshPanel();
+        })
+        Text('✕').fontSize(16).fontColor('#9CA3AF').padding(8).onClick(() => {
+          this.showPanels = false;
+        })
+      }.width('100%')
+
+      Row({ space: 6 }) {
+        ForEach(this.panelTabs(), (tab: string) => {
+          Text(this.panelTabLabel(tab))
+            .fontSize(12)
+            .fontColor(this.panelTab === tab ? '#FFFFFF' : '#9CA3AF')
+            .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+            .backgroundColor(this.panelTab === tab ? '#7C3AED' : '#0F172A')
+            .borderRadius(8)
+            .onClick(() => {
+              this.switchPanelTab(tab);
+            })
+        }, (tab: string) => `ptab-${tab}`)
+      }.width('100%')
+
+      if (this.panelTab === 'cron') {
+        if (this.cronTasks.length === 0) {
+          Text('（本会话暂无定时任务）').fontSize(12).fontColor('#6B7280').width('100%')
+        } else {
+          List({ space: 6 }) {
+            ForEach(this.cronTasks, (job: CronJob, i: number) => {
+              ListItem() {
+                Row({ space: 6 }) {
+                  Text(cronLine(job)).fontSize(12).fontColor('#E5E7EB').layoutWeight(1)
+                    .maxLines(2).wordBreak(WordBreak.BREAK_ALL)
+                  Text('✕').fontSize(12).fontColor('#F87171').padding(6).onClick(() => {
+                    this.removeCron(job.id !== undefined ? job.id : '');
+                  })
+                }.width('100%').padding(8).backgroundColor('#0F172A').borderRadius(6)
+              }
+            }, (job: CronJob, i: number) => `cron-${job.id}#${i}`)
+          }.constraintSize({ maxHeight: 420 }).width('100%')
+        }
+      } else if (this.panelTab === 'tasks') {
+        if (this.bgTasks.length === 0) {
+          Text('（本会话暂无后台任务）').fontSize(12).fontColor('#6B7280').width('100%')
+        } else {
+          List({ space: 6 }) {
+            ForEach(this.bgTasks, (t: BgTask, i: number) => {
+              ListItem() {
+                Text(bgTaskLine(t, this.nowMs())).fontSize(12).fontColor('#E5E7EB')
+                  .width('100%').padding(8).backgroundColor('#0F172A').borderRadius(6)
+                  .maxLines(3).wordBreak(WordBreak.BREAK_ALL)
+                  .copyOption(CopyOptions.LocalDevice)
+              }
+            }, (t: BgTask, i: number) => `bg-${t.id}#${t.status}#${i}`)
+          }.constraintSize({ maxHeight: 420 }).width('100%')
+        }
+      } else if (this.panelTab === 'subs') {
+        if (this.subagents.length === 0) {
+          Text('（暂无子代理会话）').fontSize(12).fontColor('#6B7280').width('100%')
+        } else {
+          List({ space: 6 }) {
+            ForEach(this.subagents, (a: SubAgentRow, i: number) => {
+              ListItem() {
+                Text(subagentLine(a)).fontSize(12)
+                  .fontColor(a.running === true ? '#A7F3D0' : '#9CA3AF')
+                  .width('100%').padding(8).backgroundColor('#0F172A').borderRadius(6)
+                  .maxLines(2).wordBreak(WordBreak.BREAK_ALL)
+                  .onClick(() => {
+                    this.showPanels = false;
+                    if (a.chat_id !== undefined) {
+                      this.switchSession(a.chat_id);
+                    }
+                  })
+              }
+            }, (a: SubAgentRow, i: number) => `sub-${a.chat_id}#${i}`)
+          }.constraintSize({ maxHeight: 420 }).width('100%')
+        }
+      } else {
+        if (this.runners.length === 0) {
+          Text('（没有受管机器；Runner 由 xbot.ssh-runner 插件纳管）').fontSize(12).fontColor('#6B7280').width('100%')
+        } else {
+          List({ space: 6 }) {
+            ForEach(this.runners, (r: RunnerRow, i: number) => {
+              ListItem() {
+                Text(runnerLine(r)).fontSize(12)
+                  .fontColor(r.online === true ? '#A7F3D0' : '#9CA3AF')
+                  .width('100%').padding(8).backgroundColor('#0F172A').borderRadius(6)
+                  .maxLines(2).wordBreak(WordBreak.BREAK_ALL)
+              }
+            }, (r: RunnerRow, i: number) => `run-${r.name}#${r.online}#${i}`)
+          }.constraintSize({ maxHeight: 420 }).width('100%')
+        }
+      }
+    }
+    .width('100%').padding(16)
+    .backgroundColor('#0B0F19')
+    .borderRadius({ topLeft: 14, topRight: 14 })
+    .border({ width: 1, color: '#1F2937' })
+    .alignItems(HorizontalAlign.Start)
   }
 
   /** 会话操作菜单（贴底；删除需二次确认）。 */
@@ -2412,6 +2630,10 @@ struct Index {
       }
       .layoutWeight(1).width('100%')
 
+      Button('面板（任务 / 子代理 / Runner）').width('100%').constraintSize({ minHeight: 40 })
+        .backgroundColor('#1F2937').margin({ top: 8 }).onClick(() => {
+          this.openPanels();
+        })
       Button('退出登录').width('100%').constraintSize({ minHeight: 40 }).backgroundColor('#1F2937').margin({ top: 8 }).onClick(() => {
         this.doLogout();
       })

@@ -19,6 +19,7 @@ const sse_1 = require("./sse");
 const streammerge_1 = require("./streammerge");
 const sessionpick_1 = require("./sessionpick");
 const sessionops_1 = require("./sessionops");
+const panels_1 = require("./panels");
 const types_1 = require("./types");
 class ChatStore {
     /** 标记行内容已变（ForEach key 随 rev 变化 ⇒ 强制重建该项，避免显示陈旧内容）。 */
@@ -66,12 +67,35 @@ class ChatStore {
         /** 变更通知（页面接到 @State 上） */
         this.onUpdate = () => {
         };
+        // ── P8 面板数据（定时任务 / 后台任务 / Runner；子代理取会话树） ──────────────
+        /** 定时任务（`POST /api/cron/list` → `{tasks}`） */
+        this.cronTasks = [];
+        /** 后台 shell 任务（`POST /api/tasks/list` → `{background_tasks}`） */
+        this.bgTasks = [];
+        /** 受管机器（RPC `runner_list` → `{runners}`；凭据绝不下发） */
+        this.runners = [];
+        /** 子代理（会话树的 orphan_subagents） */
+        this.subagents = [];
         this.http = new http_1.XbotHttp(baseUrl);
         this.sse = new sse_1.SseClient(baseUrl);
     }
     // ── 会话 ───────────────────────────────────────────────────────────────────
     async loadSessions() {
         const data = await this.http.postAs('/api/session-tree', new EmptyBody());
+        // 子代理也来自会话树（面板用；不是另开一个数据源）
+        const subs = [];
+        const orphan = data.orphan_subagents;
+        if (orphan !== undefined) {
+            for (let i = 0; i < orphan.length; i++) {
+                const src = orphan[i];
+                const row = new panels_1.SubAgentRow();
+                row.chat_id = src.chat_id !== undefined ? src.chat_id : '';
+                row.label = src.label !== undefined ? src.label : '';
+                row.running = src.running === true;
+                subs.push(row);
+            }
+        }
+        this.subagents = subs;
         const list = data.sessions !== undefined && data.sessions.length > 0
             ? data.sessions
             : (data.chats !== undefined ? data.chats : []);
@@ -84,6 +108,39 @@ class ChatStore {
         if (created.chat_id !== undefined && created.chat_id.length > 0) {
             await this.openSession(created.chat_id);
         }
+    }
+    async loadCronTasks() {
+        const raw = await this.http.postAs('/api/cron/list', new ChannelBody(this.channel, this.currentChatId));
+        const arr = raw['tasks'];
+        this.cronTasks = arr !== undefined ? arr : [];
+        this.onUpdate();
+    }
+    /** 删除一条定时任务（`POST /api/cron/remove` body `{channel, chat_id, job_id}`）。 */
+    async removeCronTask(jobId) {
+        const body = {
+            'channel': this.channel, 'chat_id': this.currentChatId, 'job_id': jobId,
+        };
+        await this.http.post('/api/cron/remove', body);
+        await this.loadCronTasks();
+    }
+    async loadBgTasks() {
+        const raw = await this.http.postAs('/api/tasks/list', new ChannelBody(this.channel, this.currentChatId));
+        const arr = raw['background_tasks'];
+        this.bgTasks = arr !== undefined ? arr : [];
+        this.onUpdate();
+    }
+    /**
+     * 受管机器列表（走 REST RPC 桥 `POST /api/rpc` body `{method, params}`）。
+     * 用 RPC 而不是 `/api/runners/list`：后者是给插件面板用的包装，RPC 是同一权威数据源。
+     */
+    async loadRunners() {
+        // 只发 method：服务端对空 params 会补 `{}`（见 handleRPC）——
+        // ArkTS 禁止嵌套空对象字面量 `{...: {}}`（arkts-no-untyped-obj-literals）。
+        const body = { 'method': 'runner_list' };
+        const raw = await this.http.postAs('/api/rpc', body);
+        const arr = raw['runners'];
+        this.runners = arr !== undefined ? arr : [];
+        this.onUpdate();
     }
     /**
      * 会话分支（`POST /api/chats/fork` body `{source_channel, source_chat_id, label?}`）。
