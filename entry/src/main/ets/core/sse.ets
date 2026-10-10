@@ -43,6 +43,27 @@ export const SSE_SILENCE_THRESHOLD_MS: number = 45000;
 export const SSE_FORCE_RECONNECT_THROTTLE_MS: number = 2000;
 
 /**
+ * **自主看门狗**的巡检周期。
+ *
+ * 为什么要自主看门狗（2026-10-11 真机缺陷的根因）：`readTimeout: 0` ⇒ 连接被中间设备
+ * **静默掐死**（没有 FIN/RST）时既不会有 `dataEnd`、也不会有 `err` ⇒ 客户端永远停在
+ * `connecting`/`reconnecting`，界面**永久**显示"连接断开，正在重连…"，且**再也不重试**。
+ * 权威基准（web `src/providers/sseConnection.ts:32,85-88,250-258`）正是用"**45s 半开看门狗**"
+ * 兜住这件事，且**在 onerror 里也布防**（"onopen never fires ⇒ watchdog never armed"）。
+ * 本类的看门狗等价于它，但由客户端自己周期性巡检（不依赖页面 `onPageShow`）。
+ */
+export const SSE_WATCHDOG_TICK_MS: number = 5000;
+
+/**
+ * 一次连接尝试的**挂死阈值**：超过它仍没收到任何帧（连心跳都没有）⇒ 判定这次尝试死了、重试。
+ *
+ * 取值依据：服务端心跳 **15s**（`channel/web/web_sse.go:24 sseHeartbeatInterval`）⇒ 健康连接
+ * 最迟 ~15s 内必有第一帧；20s 覆盖"首个心跳 + 调度抖动"，同时比 `connectTimeout`(15s) 略长，
+ * 因此**不会**与"TCP 层连接超时"打架（那种情况由 err 回调走既有退避）。
+ */
+export const SSE_ATTEMPT_STALL_MS: number = 20000;
+
+/**
  * 是否该**强制重连**（纯函数）。
  *
  * 只有"**看着已连上、但久无帧**"才值得动手：
@@ -115,6 +136,65 @@ export function buildStreamUrl(
   return url;
 }
 
+/** 看门狗动作：一切正常，什么都不做。 */
+export const WATCHDOG_IDLE: string = 'idle';
+/** 看门狗动作：拆掉当前连接并走既有退避重连（半开连接 / 尝试挂死）。 */
+export const WATCHDOG_RECONNECT: string = 'reconnect';
+/** 看门狗动作：连接也没了、退避计时器也没了（异常态）⇒ 直接重开一次。 */
+export const WATCHDOG_RESTART: string = 'restart';
+
+/**
+ * 看门狗的一次巡检决策（**纯函数**，可脱机单测）。
+ *
+ * 覆盖三种"没人管会永久卡住"的形态：
+ *   ① `open` + 久无帧（≥ `silenceMs`）⇒ `reconnect`：半开连接（中间设备静默掐死，
+ *      既无 `dataEnd` 也无 `err`）—— 这就是真机"永久显示正在重连"的那一类；
+ *   ② `connecting`/`reconnecting` + 尝试已跑 ≥ `stallMs` 且**没有任何帧/错误**⇒ `reconnect`：
+ *      尝试挂死（TCP 被中间设备接受但从不转发，`connectTimeout` 已过、`readTimeout:0` 永不超时）；
+ *   ③ `connecting`/`reconnecting` + 既无底层连接、也无退避计时器 ⇒ `restart`（计时器丢失的异常态）。
+ *
+ * ⚠️ `retryPending === true`（退避计时器在跑）时**一律 IDLE**：不许和既有退避抢方向盘（否则重连风暴）。
+ *
+ * @param state        `idle` | `connecting` | `open` | `reconnecting`
+ * @param reqHeld      是否持有底层 `HttpRequest`
+ * @param attemptAtMs  本次尝试的开始时刻（`0` = 无尝试）
+ * @param lastFrameAtMs 最后一帧到达时刻（`0` = 从未收到）
+ * @param retryPending 退避计时器是否在跑
+ */
+export function watchdogDecision(
+  state: string,
+  reqHeld: boolean,
+  attemptAtMs: number,
+  lastFrameAtMs: number,
+  nowMs: number,
+  silenceMs: number,
+  stallMs: number,
+  retryPending: boolean,
+): string {
+  if (state === 'idle') {
+    return WATCHDOG_IDLE;
+  }
+  if (state === 'open') {
+    if (!reqHeld) {
+      return WATCHDOG_RECONNECT; // 自称已连上却没有连接（异常态）⇒ 立刻接管
+    }
+    return shouldForceReconnect(state, reqHeld, lastFrameAtMs, nowMs, silenceMs)
+      ? WATCHDOG_RECONNECT
+      : WATCHDOG_IDLE;
+  }
+  // connecting / reconnecting
+  if (retryPending) {
+    return WATCHDOG_IDLE; // 退避计时器在跑：交给它，别抢
+  }
+  if (!reqHeld) {
+    return WATCHDOG_RESTART; // 无连接、无计时器 ⇒ 卡死态，直接重开
+  }
+  if (attemptAtMs > 0 && nowMs - attemptAtMs >= stallMs) {
+    return WATCHDOG_RECONNECT;
+  }
+  return WATCHDOG_IDLE;
+}
+
 export class SseClient {
   private baseUrl: string = '';
   private req: http.HttpRequest | null = null;
@@ -132,6 +212,12 @@ export class SseClient {
   private lastFrameAt: number = 0;
   /** 上次强制探活的发起时刻（节流用）。0 = 从未。 */
   private lastForceReconnectAt: number = 0;
+  /** 本次连接尝试的开始时刻（`0` = 无尝试）—— 看门狗判"尝试是否挂死"用。 */
+  private attemptAt: number = 0;
+  /** 看门狗是否已布防（自续期的 `setTimeout`，避免依赖 `setInterval` 可用性）。 */
+  private watchdogArmed: boolean = false;
+  /** 看门狗下一次巡检的定时器句柄（`-1` = 无）。 */
+  private watchdogTimer: number = -1;
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
@@ -162,7 +248,85 @@ export class SseClient {
   }
 
   /**
-   * **强制探活 / 重连** —— 供页面在 `onPageShow`（回前台）调用。
+   * **自主看门狗**：布防一次周期巡检（自续期 `setTimeout`，不依赖 `setInterval` 可用性）。
+   *
+   * 为什么必须有它（真机 2026-10-11 缺陷根因）：`readTimeout: 0` ⇒ 中间设备（hdc 反向隧道/
+   * NAT/系统）**静默**掐断长连接时，既没有 `dataEnd` 也没有 `err` ⇒ 客户端**永远**停在
+   * `reconnecting`，界面永久显示"连接断开，正在重连…"，且**再也不重试**。权威基准 web
+   * （`src/providers/sseConnection.ts:32,85-88,250-258`）用 45s 半开看门狗兜住同一件事。
+   * 这里由客户端自己巡检（不依赖页面 `onPageShow` 调 `forceReconnect`）。
+   */
+  private armWatchdog(): void {
+    if (this.watchdogArmed) {
+      return;
+    }
+    this.watchdogArmed = true;
+    this.scheduleWatchdogTick();
+  }
+
+  /** 停表（`close()` 时调用；避免切会话/退出后仍有定时器在跑）。 */
+  private stopWatchdog(): void {
+    this.watchdogArmed = false;
+    if (this.watchdogTimer >= 0) {
+      clearTimeout(this.watchdogTimer);
+      this.watchdogTimer = -1;
+    }
+  }
+
+  private scheduleWatchdogTick(): void {
+    if (!this.watchdogArmed) {
+      return;
+    }
+    this.watchdogTimer = setTimeout(() => {
+      this.watchdogTimer = -1;
+      this.watchdogTick(Date.now());
+      if (this.watchdogArmed) {
+        this.scheduleWatchdogTick(); // 自续期：一次巡检后安排下一次
+      }
+    }, SSE_WATCHDOG_TICK_MS);
+  }
+
+  /**
+   * 巡检一次并按纯函数结论动作（判定在 `watchdogDecision`，这里只做副作用 + 不抛）。
+   * @param nowMs 注入的当前时刻（脱机测试/页面可显式驱动；真实巡检传 `Date.now()`）
+   * @returns 实际采取的动作（`WATCHDOG_IDLE`/`WATCHDOG_RECONNECT`/`WATCHDOG_RESTART`）
+   */
+  probeNow(nowMs: number): string {
+    try {
+      if (this.stopped) {
+        this.stopWatchdog();
+        return WATCHDOG_IDLE;
+      }
+      const action: string = watchdogDecision(
+        this.state,
+        this.req !== null,
+        this.attemptAt,
+        this.lastFrameAt,
+        nowMs,
+        SSE_SILENCE_THRESHOLD_MS,
+        SSE_ATTEMPT_STALL_MS,
+        this.reconnectTimer >= 0,
+      );
+      if (action === WATCHDOG_RECONNECT) {
+        this.scheduleReconnect();
+      } else if (action === WATCHDOG_RESTART) {
+        this.openStream();
+      }
+      return action;
+    } catch (e) {
+      const err: Error = e as Error;
+      console.warn(`xbot sse: watchdog 失败（已忽略）: ${err.message}`);
+      return WATCHDOG_IDLE;
+    }
+  }
+
+  /** 巡检（内部定时器用）。 */
+  private watchdogTick(nowMs: number): void {
+    this.probeNow(nowMs);
+  }
+
+  /**
+   * 强制探活 / 重连 —— 供页面在 `onPageShow`（回前台）调用。
    *
    * 解决什么：`readTimeout: 0` ⇒ 连接被静默掐死时**收不到 `dataEnd`**，只看状态会一直
    * 以为"还连着"（消息不再更新）。这里用一个"久无帧"的判据主动拆掉旧连接重连。
@@ -214,6 +378,9 @@ export class SseClient {
     // 新订阅 ⇒ 探活计时从零开始（旧订阅的帧时刻/强探活时刻不属于它）
     this.lastFrameAt = 0;
     this.lastForceReconnectAt = 0;
+    this.attemptAt = 0;
+    // 自主看门狗：只要订阅着就周期巡检（半开连接 / 尝试挂死 / 计时器丢失三种卡死态）
+    this.armWatchdog();
     this.setState('connecting');
     this.openStream();
   }
@@ -221,6 +388,8 @@ export class SseClient {
   close(): void {
     this.stopped = true;
     this.setState('idle');
+    this.stopWatchdog();
+    this.attemptAt = 0;
     if (this.reconnectTimer >= 0) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = -1;
@@ -242,6 +411,9 @@ export class SseClient {
     const req: http.HttpRequest = http.createHttp();
     this.req = req;
     this.buffer = '';
+    // 本次尝试的开始时刻（看门狗据此判"尝试挂死"：TCP 被中间设备接受却永不转发时，
+    // connectTimeout 已过、readTimeout:0 永不超时 ⇒ 只有这里能救）
+    this.attemptAt = Date.now();
     // 续传游标由**纯函数**拼（`buildStreamUrl`）⇒ 脱机测试能直接钉死"带/不带 last_event_id"
     const url: string = buildStreamUrl(this.baseUrl, this.chatId, this.channel, this.lastEventId);
 
