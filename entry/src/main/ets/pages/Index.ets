@@ -3551,7 +3551,7 @@ struct Index {
   @Builder
   AssistantBlock(row: ChatRow) {
     Column({ space: 6 }) {
-      if (row.content.length > 0) {
+      if (row.content.length > 0 && row.iterations.length === 0) {
         MarkdownView({
           text: row.content,
           onImage: (src: string) => {

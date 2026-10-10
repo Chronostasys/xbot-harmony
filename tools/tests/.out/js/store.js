@@ -945,33 +945,50 @@ class ChatStore {
         this.touch(row);
         this.onUpdate();
     }
+    /**
+     * `text` 事件（回合收尾文本）—— **逐字对齐 web `chat/reduce.ts` 的 `text_final`**。
+     *
+     * ⛔ 真机铁证（"同一条回复渲染两次"）：旧实现把 finalText 写进**行级 `row.content`**，
+     * 而迭代里已经有同一段文本 ⇒ 渲染层两处都画（一遍带「思考 N 字」、一遍不带）。
+     * web 的语义是：**finalText 属于「进行中迭代」** —— 并入该迭代（保留它的 reasoning），
+     * 行级 content 保持为空（行级 content 只服务历史/legacy 行）。
+     */
     onFinalText(env) {
         const text = env.content !== undefined ? env.content : '';
         if (this.rows.length === 0) {
             return;
         }
         const last = this.rows[this.rows.length - 1];
-        if (last.role === 'assistant') {
-            last.content = text.length > 0 ? text : last.content;
-            last.isLive = false;
-            this.touch(last);
-            last.turnID = env.turn_id !== undefined ? env.turn_id : last.turnID;
-            // ⚠️ 不改成 `a-<turnID>`：那会与历史行的 id 空间重叠 ⇒ ForEach key 重复 ⇒ 渲染错位
-            if (last.id.length === 0) {
-                last.id = this.nextRowID('a');
+        if (last.role !== 'assistant') {
+            if (text.length === 0) {
+                return;
             }
-            // 空气泡根因：无正文、无思考、无工具的回合不该落地成一张空卡片
-            if ((0, streammerge_1.rowIsEmpty)(last)) {
-                this.rows.splice(this.rows.length - 1, 1);
-            }
-        }
-        else if (text.length > 0) {
             const r = new types_1.ChatRow();
             r.role = 'assistant';
             r.turnID = env.turn_id !== undefined ? env.turn_id : 0;
             r.id = this.nextRowID('a');
-            r.content = text;
+            r.iterations = [{ iteration: 1, content: text, reasoning: '', tools: [] }];
             this.rows.push(r);
+            this.busy = false;
+            this.lastSeq = 0;
+            this.onUpdate();
+            return;
+        }
+        if (text.length > 0) {
+            // 进行中迭代号 = 该行最大迭代号（web：max(live.iter, 迭代列表最后号)）
+            const itNum = (0, streammerge_1.liveIterationOf)(last).iteration;
+            const it = (0, streammerge_1.upsertIteration)(last, itNum);
+            it.content = text;
+            it.stream_text = ''; // 权威快照接管，清流式缓冲
+            // ⚠️ reasoning 绝不清空（进行中迭代的思考只存在于 live 快照，
+            //    真机曾出现"提交后 Thought N chars 消失"）
+        }
+        last.isLive = false;
+        last.turnID = env.turn_id !== undefined ? env.turn_id : last.turnID;
+        this.touch(last);
+        // 完全无产出（text 空、迭代也空）⇒ 不落地空行（空气泡）
+        if ((0, streammerge_1.rowIsEmpty)(last)) {
+            this.rows.splice(this.rows.length - 1, 1);
         }
         this.busy = false;
         this.lastSeq = 0;
