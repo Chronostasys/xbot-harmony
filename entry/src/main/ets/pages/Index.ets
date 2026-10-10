@@ -609,17 +609,27 @@ struct Index {
   }
 
   private syncFrom(store: ChatStore): void {
-    // 切会话 ⇒ 用户预期"看到最新"，总是跳到底（此时门控必须放行）
+    // ── ⛔ 真机严重事故（"所有会话都渲染了第一个打开的会话的迭代"）的顺序契约 ──
+    // ① **会话身份必须最先落定**：下面行指纹 / 行键 / live 尾 全部以 `this.currentChat` 为准，
+    //    它排在后面会让行键仍用**旧会话 id**（跨会话键仍碰撞 = 复用旧条目）。
+    // ② **指纹缓存必须随身份作废**：行 id 是**每 store 独立计数**（`live-1`/`a-1`…），
+    //    两个会话的行指纹可能**逐字相同** ⇒ 不重置就永远不刷新 `this.rows`
+    //    （表现为"切到哪个会话都显示上一个会话的内容"，且 busy 与内容来自不同会话 = 状态混乱）。
     if (store.currentChatId !== this.currentChat) {
+      this.currentChat = store.currentChatId;   // ← 身份先定
       this.atBottom = true;
       this.rowLimit = MAX_ROWS_VISIBLE;   // 切会话重置行窗口（否则行数会无限累积增长）
+      this.rowsFp = '';
+      this.sessionsFp = '';
+      this.queueFp = '';
+      this.todosFp = '';   // 逐一会话作废（见下）
     }
-    const sessFp: string = this.fingerprintSessions(store.sessions);
+    const sessFp: string = this.fingerprintSessions(store.sessions, store.currentChatId);
     if (sessFp !== this.sessionsFp) {
       this.sessionsFp = sessFp;
       this.sessions = store.sessions.slice();
     }
-    const rowsFp: string = this.fingerprintRows(store.rows);
+    const rowsFp: string = this.fingerprintRows(store.rows, store.currentChatId);
     if (rowsFp !== this.rowsFp) {
       this.rowsFp = rowsFp;
       this.rows = store.rows.slice();
@@ -632,7 +642,7 @@ struct Index {
     this.currentChat = store.currentChatId;
     this.hasMore = store.hasMore;
     this.loadingMore = store.loadingMore;
-    const queueFp: string = this.fingerprintQueue(store.queue);
+    const queueFp: string = this.fingerprintQueue(store.queue, store.currentChatId);
     if (queueFp !== this.queueFp) {
       this.queueFp = queueFp;
       this.queue = store.queue.slice();
@@ -2883,24 +2893,25 @@ struct Index {
   private queueFp: string = '';
   private todosFp: string = '';
 
-  private fingerprintRows(rows: ChatRow[]): string {
+  private fingerprintRows(rows: ChatRow[], chatId: string): string {
     const parts: string[] = [];
     for (let i = 0; i < rows.length; i++) {
       parts.push(`${rows[i].id}#${rows[i].rev}`);
     }
-    return `${rows.length}|${parts.join(',')}`;
+    // ⛔ 会话身份进指纹：行 id 每 store 独立计数 ⇒ 不带身份时两个会话可能同指纹
+    return `${chatId}|${rows.length}|${parts.join(',')}`;
   }
 
-  private fingerprintSessions(items: SessionItem[]): string {
+  private fingerprintSessions(items: SessionItem[], chatId: string): string {
     const parts: string[] = [];
     for (let i = 0; i < items.length; i++) {
       const s: SessionItem = items[i];
       parts.push(`${s.chat_id}#${s.running === true ? 1 : 0}#${s.label !== undefined ? s.label : ''}`);
     }
-    return parts.join(',');
+    return `${chatId}|${parts.join(',')}`;
   }
 
-  private fingerprintQueue(items: QueueItem[]): string {
+  private fingerprintQueue(items: QueueItem[], chatId: string): string {
     const parts: string[] = [];
     for (let i = 0; i < items.length; i++) {
       const it: QueueItem = items[i];
@@ -2911,7 +2922,7 @@ struct Index {
         : (it.text !== undefined ? it.text : '');
       parts.push(`${id}#${body.length}`);
     }
-    return parts.join(',');
+    return `${chatId}|${parts.join(',')}`;
   }
 
   /** 把「当前该显示的行」推给数据源（行窗口 + 真虚拟化两层叠加）。 */
