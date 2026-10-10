@@ -8,6 +8,7 @@ import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
+import { webview } from '@kit.ArkWeb';
 import { ChatStore } from '../core/store';
 import { normalizeTheme, Palette, paletteOf, themeLabel, toggleTheme } from '../core/theme';
 import { loadErrHint, loadErrTitle, needsRelogin, needsSessionRefresh } from '../core/autherr';
@@ -28,7 +29,7 @@ import {
   clampOffset, clampScale, isZoomed, nextZoom, panLimit, saveImageName, scaleText,
 } from '../core/imgops';
 import {
-  fontScaleFrom, fontScaleLabel, fontScalePresets, KEY_APP_THEME, KEY_CODE_WRAP, KEY_FONT_SCALE,
+  fontScaleFrom, fontScaleLabel, fontScalePresets, KEY_APP_THEME, KEY_CODE_WRAP, KEY_FONT_SCALE, KEY_SURFACE,
   KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE, KEY_REASONING_DEFAULT, KEY_SEND_KEY, normalizeSendKey,
   parseBool, sendKeyLabel, settingOf, settingLabel, SEND_KEY_MOD_ENTER,
 } from '../core/settings';
@@ -322,6 +323,20 @@ struct Index {
   @State connState: string = 'idle';
   /** 输入框聚焦（合成器卡片描边亮起） */
   @State composerFocused: boolean = false;
+  /**
+   * 聊天界面承载方式：`web`（默认，ArkWeb 内嵌**完整 web UI** ⇒ 与 web 一比一）或 `native`。
+   *
+   * 为什么默认 web：用户明确要求「一比一和 web 对齐」。把真实 web UI 嵌进来就是**由构造保证**的
+   * 一比一（动画、打字机、样式、状态机全部同一份代码），也避免我重写渲染层时不断偏离。
+   * 原生实现完整保留（切到 native 即可用），继续按 web 逐行对齐地演进。
+   */
+  @State useWebUI: boolean = true;
+  /** 内嵌 web UI 的地址（登录成功后写入；空 = 不渲染） */
+  @State webUiUrl: string = '';
+  @State webCookieReady: boolean = false;
+  /** 承载方式偏好是否已套用（只在首次拿到设置时套用，之后尊重用户本次切换） */
+  private surfaceApplied: boolean = false;
+
   /** 安全区（状态栏/导航栏高度，由 EntryAbility 写入）—— 消除"内容顶到状态栏" */
   @StorageProp('safeTopVp') safeTop: number = 0;
   @StorageProp('safeBottomVp') safeBottom: number = 0;
@@ -434,6 +449,10 @@ struct Index {
         await store.loadSessions();
         this.attach(store);
         this.cookie = store.http.exportSessionCookie();
+      this.prepareWebUI(store);
+      store.loadSettings().catch(() => {
+        // 设置非关键路径
+      });
         this.authExpiredHandled = false;
         this.loggedIn = true;
         if (AUTO_AUDIT_ON_LAUNCH) {
@@ -1648,6 +1667,31 @@ struct Index {
         this.LoadingView()
       } else if (!this.loggedIn) {
         this.LoginView()
+      } else if (this.useWebUI && this.webUiUrl.length > 0) {
+        // 默认：内嵌**完整 web UI**（ArkWeb）⇒ 与 web 一比一（同一份前端代码：
+        // 动画、打字机、样式、状态机全都不用我再重写，也就不会再偏离）。
+        Stack() {
+          WebSurface({
+            url: this.webUiUrl,
+            theme: this.themeName,
+            chrome: false,
+            onClose: () => {
+            },
+          })
+          // 悬浮切换：回到原生界面（半透明、贴角，不挡内容）
+          Text('原生界面')
+            .fontSize(11).fontColor(this.pal().textSecondary)
+            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+            .backgroundColor(this.pal().surfaceAlt)
+            .opacity(0.7)
+            .borderRadius(8)
+            .margin({ left: 8, top: 8 })
+            .onClick(() => {
+              this.setSurface(false);
+            })
+        }
+        .width('100%').height('100%')
+        .alignContent(Alignment.TopStart)
       } else {
         this.ChatView()
       }
@@ -2726,6 +2770,54 @@ struct Index {
     return this.busy || this.serverRunning();
   }
 
+  /**
+   * 准备内嵌 web UI：把会话 cookie 注入 ArkWeb 的 cookie 存储（httpOnly 由 ArkWeb 自己处理），
+   * 再设地址 ⇒ 打开即已登录（与原生侧同一凭据，用户不用在 webview 里再登一次）。
+   */
+  private prepareWebUI(store: ChatStore): void {
+    if (!this.useWebUI) {
+      return;
+    }
+    const base: string = store.http.baseUrl;
+    const cookie: string = store.http.exportSessionCookie();
+    try {
+      if (cookie.length > 0) {
+        // 服务端 cookie 是 host-only；对根地址配置即可覆盖整站
+        webview.WebCookieManager.configCookieSync(base + '/', cookie);
+      }
+      this.webCookieReady = true;
+    } catch (e) {
+      // 注入失败不阻塞：webview 里会落到登录页，用户可再登一次
+      this.webCookieReady = false;
+    }
+    this.webUiUrl = base + '/';
+  }
+
+  /** 切换"内嵌完整 web UI / 原生界面"（写进设置，两端口径一致）。 */
+  private async setSurface(useWeb: boolean): Promise<void> {
+    this.useWebUI = useWeb;
+    const store: ChatStore | null = this.store;
+    if (useWeb && store !== null) {
+      this.prepareWebUI(store);
+      store.loadSettings().catch(() => {
+        // 设置非关键路径
+      });
+    }
+    if (this.webUiUrl.length > 0 && !useWeb) {
+      // 切回原生时清掉 web 地址（卸载 ArkWeb，释放资源）
+      this.webUiUrl = '';
+    }
+    if (store !== null) {
+      const pairs: Record<string, string> = {};
+      pairs[KEY_SURFACE] = useWeb ? 'web' : 'native';
+      try {
+        await store.saveSettings(pairs);
+      } catch (e) {
+        // 持久化失败不影响本次切换
+      }
+    }
+  }
+
   private openDrawer(): void {
     this.showDrawer = true;
     const store: ChatStore | null = this.store;
@@ -3025,6 +3117,19 @@ struct Index {
         Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
           this.showSettings = false;
         })
+      }.width('100%')
+
+      // 聊天界面承载方式（web = 内嵌完整 web UI，与 web 一比一；native = 原生界面）
+      Row({ space: 8 }) {
+        Text(settingLabel(KEY_SURFACE)).fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
+        Text(this.useWebUI ? '内嵌网页' : '原生')
+          .fontSize(12).fontColor(this.pal().onAccent)
+          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+          .backgroundColor(this.pal().accent).borderRadius(8)
+          .onClick(() => {
+            this.setSurface(!this.useWebUI);
+            this.buzz();
+          })
       }.width('100%')
 
       // 主题（深/浅）

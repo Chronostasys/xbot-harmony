@@ -31,6 +31,11 @@ export struct WebSurface {
   private pal(): Palette {
     return paletteOf(this.theme);
   }
+  /**
+   * 是否带顶部 chrome（"‹ 返回"那行）。
+   * 全屏承载**完整 web UI** 时置 false —— 一行原生 UI 都不留，才叫"与 web 一比一"。
+   */
+  @Prop chrome: boolean = true;
   /** 关闭回调（由页面清空 url 卸载本组件）。 */
   onClose: () => void = () => {
   };
@@ -50,28 +55,30 @@ export struct WebSurface {
 
   build() {
     Column() {
-      Row() {
-        Text('‹ 返回').fontSize(15).fontColor(this.pal().accentSoft).padding(10).onClick(() => {
-          this.onClose();
-        })
-        Text(this.title.length > 0 ? this.title : this.url)
-          .fontSize(12)
-          .fontColor(this.pal().textSecondary)
-          .layoutWeight(1)
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text('⟳').fontSize(16).fontColor(this.pal().accentSoft).padding(10).onClick(() => {
-          try {
-            this.controller.refresh();
-          } catch (e) {
-            const err: BusinessError = e as BusinessError;
-            console.error(`refresh failed: ${err.message}`);
-          }
-        })
+      if (this.chrome) {
+        Row() {
+          Text('‹ 返回').fontSize(15).fontColor(this.pal().accentSoft).padding(10).onClick(() => {
+            this.onClose();
+          })
+          Text(this.title.length > 0 ? this.title : this.url)
+            .fontSize(12)
+            .fontColor(this.pal().textSecondary)
+            .layoutWeight(1)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text('⟳').fontSize(16).fontColor(this.pal().accentSoft).padding(10).onClick(() => {
+            try {
+              this.controller.refresh();
+            } catch (e) {
+              const err: BusinessError = e as BusinessError;
+              console.error(`refresh failed: ${err.message}`);
+            }
+          })
+        }
+        .width('100%')
+        .constraintSize({ minHeight: 48 })
+        .backgroundColor(this.pal().surfaceAlt)
       }
-      .width('100%')
-      .constraintSize({ minHeight: 48 })
-      .backgroundColor(this.pal().surfaceAlt)
 
       Web({ src: this.url, controller: this.controller })
         .javaScriptAccess(true)
