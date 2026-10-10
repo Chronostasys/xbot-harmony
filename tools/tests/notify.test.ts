@@ -14,10 +14,16 @@
 declare const process: { exit: (c: number) => void };
 
 import {
+  NOTIFY_ID_FALLBACK,
+  NOTIFY_ID_MAX,
   NOTIFY_KIND_ASK,
   NOTIFY_KIND_NONE,
   NOTIFY_KIND_TURN_DONE,
   TURN_DONE_DEDUPE_MS,
+  badgeFor,
+  fnv1a32,
+  notificationIdFor,
+  notificationIdFromHash,
   notifyBody,
   notifyKindForSse,
   notifyTitle,
@@ -77,6 +83,69 @@ eq('正文超长截断（120 + 省略号）',
   notifyBody(NOTIFY_KIND_ASK, 'x'.repeat(200)).length, 121);
 eq('正文截断保留前 120 字符',
   notifyBody(NOTIFY_KIND_ASK, 'x'.repeat(200)), `${'x'.repeat(120)}…`);
+
+// ── 通知 id 派生：哈希与 id（波3：多会话提醒并存，不再互相覆盖）──────────────
+
+/** 教科书 FNV-1a 32 位（用 `Math.imul`）—— 只作**对拍基准**，node 里必然存在。 */
+function fnv1a32Reference(text: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h = h ^ text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+const HASH_SAMPLES: string[] = [
+  '', 'a', 'ab', 'chat-1', 'chat-2', 'web:chat_1730000000_abcd',
+  'oc_9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c', '会话一', '🙂', 'x'.repeat(500),
+  'turn_id=42', 'A', 'aa', 'aab', 'zzzzzzzzzz',
+];
+for (let i = 0; i < HASH_SAMPLES.length; i++) {
+  const s = HASH_SAMPLES[i];
+  eq(`fnv1a32 与教科书实现逐字节一致: ${JSON.stringify(s.length > 12 ? `${s.substring(0, 12)}…(${s.length})` : s)}`,
+    fnv1a32(s), fnv1a32Reference(s));
+}
+eq('fnv1a32 空串 = offset basis', fnv1a32(''), 0x811c9dc5);
+eq('fnv1a32 确定性（同输入两次相同）', fnv1a32('chat-1'), fnv1a32('chat-1'));
+eq('fnv1a32 输出落在 32 位无符号', fnv1a32('🙂聊天') >= 0 && fnv1a32('🙂聊天') <= 0xFFFFFFFF, true);
+
+// notificationIdFromHash：非负、避开 0 与回落 id、不越界
+eq('哈希 0 ⇒ 让开为 1（0 是 SDK 默认值）', notificationIdFromHash(0), 1);
+eq('哈希 = 回落 id ⇒ 让开 +1', notificationIdFromHash(NOTIFY_ID_FALLBACK), NOTIFY_ID_FALLBACK + 1);
+eq('哈希 = 上界 ⇒ 原样', notificationIdFromHash(NOTIFY_ID_MAX), NOTIFY_ID_MAX);
+eq('哈希负数（-1）⇒ 取低 31 位 = 上界', notificationIdFromHash(-1), NOTIFY_ID_MAX);
+eq('哈希 = 0xFFFFFFFF ⇒ 低 31 位 = 上界', notificationIdFromHash(0xFFFFFFFF), NOTIFY_ID_MAX);
+eq('回落 id 前一格不动它', notificationIdFromHash(NOTIFY_ID_FALLBACK - 1), NOTIFY_ID_FALLBACK - 1);
+eq('普通哈希原样（0x1234）', notificationIdFromHash(0x1234), 0x1234);
+eq('回落 id 是合法 id（≥1 且 ≤ 上界）',
+  NOTIFY_ID_FALLBACK >= 1 && NOTIFY_ID_FALLBACK <= NOTIFY_ID_MAX, true);
+
+// notificationIdFor：确定性（同会话 ⇒ 同 id ⇒ 更新而非堆叠）
+eq('同一会话 id 稳定', notificationIdFor('chat-1'), notificationIdFor('chat-1'));
+eq('空 chat_id ⇒ 回落 id', notificationIdFor(''), NOTIFY_ID_FALLBACK);
+eq('同一会话（重复调用 3 次）恒定', [0, 1, 2].map(() => notificationIdFor('web:oc_a1b2c3')).join(','),
+  [notificationIdFor('web:oc_a1b2c3'), notificationIdFor('web:oc_a1b2c3'), notificationIdFor('web:oc_a1b2c3')].join(','));
+eq('不同会话 ⇒ 不同 id（样本 200 个全不撞）', (() => {
+  const seen = new Set<number>();
+  for (let i = 0; i < 200; i++) { seen.add(notificationIdFor(`chat-${i}`)); }
+  return seen.size;
+})(), 200);
+eq('所有派生 id 都在 [1, 上界]（非负、不越界、不为 0）', (() => {
+  for (let i = 0; i < 200; i++) {
+    const id = notificationIdFor(`c${i}`);
+    if (!(id >= 1 && id <= NOTIFY_ID_MAX)) { return `bad:${id}`; }
+  }
+  return 'ok';
+})(), 'ok');
+eq('非 ASCII chat_id 也能派生（OC id / 中文）',
+  notificationIdFor('oc_9f8a7b6c') !== NOTIFY_ID_FALLBACK, true);
+
+// badgeFor：角标 = 未读提醒条数
+eq('badgeFor(0) = 0', badgeFor(0), 0);
+eq('badgeFor(负数) = 0', badgeFor(-3), 0);
+eq('badgeFor(3) = 3', badgeFor(3), 3);
+eq('badgeFor(2.7) 取整 = 2', badgeFor(2.7), 2);
 
 // ── 组合：判据链路（事件 → 档位 → 是否发）──────────────────────────────────
 function decide(appForeground: boolean, event: string, sessionAction: string, evs: readonly DomainEvent[] | null): boolean {

@@ -25,6 +25,7 @@ import notificationManager from '@ohos.notificationManager';
 import wantAgent from '@ohos.app.ability.wantAgent';
 import backgroundTaskManager from '@ohos.resourceschedule.backgroundTaskManager';
 import type { common } from '@kit.AbilityKit';
+import type { BusinessError } from '@kit.BasicServicesKit';
 import type { DomainEvent } from './chat_types_full';
 import { describeError } from './http';
 
@@ -44,8 +45,104 @@ export const PENDING_CHAT_KEY: string = 'pendingOpenChatId';
 /** `AppStorage` 键：上述待打开会话的**序号**（同一会话二次点击也要能被页面察觉）。 */
 export const PENDING_CHAT_SEQ_KEY: string = 'pendingOpenChatSeq';
 
-/** 通知 id 固定 ⇒ 后发通知**替换**前一条（不堆叠成一串）。 */
-const NOTIFY_ID: number = 0x7862;
+// ── 通知 id：按会话派生（多会话的提醒**并存**，而不是互相覆盖）──────────────────
+//
+// 为什么：固定 id ⇒ 同 id 的通知会被**更新**（SDK：`NotificationRequest.id` "If a notification
+// with the same ID exists, the notification is [updated]"，`notification/notificationRequest.d.ts:74-105`）
+// ⇒ A 会话的提醒会被 B 会话的提醒冲掉，用户只能看到最后一条。微信/飞书都是按会话区分的。
+
+/**
+ * `chat_id` 缺失/为空时的**回落 id**（无归属的提醒只需要一条）。
+ * 取 `0x7862`（"xb"）而不是 1/1000：一眼能认出这是降级形态，且不易与真实会话撞。
+ */
+export const NOTIFY_ID_FALLBACK: number = 0x7862;
+
+/**
+ * 通知 id 合法上界：掩到 **31 位**（`0x7FFFFFFF`）。
+ *
+ * 依据（SDK 声明，不是猜的）：
+ *   · `NotificationRequest.id?: number`，文档只说"同 id 会**更新**该通知；**默认值 0**"
+ *     （`notification/notificationRequest.d.ts:74-105`）——没写区间；
+ *   · 平台侧通知 id 是 **32 位有符号整数**，且 **0 = 默认/未指定**。
+ * ⇒ 我们只产出 `[1, 0x7FFFFFFF]`：**非负**、**避开 0**（不占用"默认值"语义）。
+ */
+export const NOTIFY_ID_MAX: number = 0x7FFFFFFF;
+
+/**
+ * 全部聊天提醒共用的**分组名**（系统会把同组通知折叠展示，而不是拉成一长条）。
+ * 依据（SDK）：`NotificationRequest.groupName?: string` —— "When different notifications have the
+ * same groupName, these notifications will be displayed as a group"（`notificationRequest.d.ts:331-340`，since 8）。
+ */
+export const NOTIFY_GROUP_NAME: string = 'xbot.chat';
+
+/**
+ * FNV-1a 32 位哈希（纯函数，确定性）。
+ *
+ * ⚠️ **刻意不用 `Math.imul`**：它虽是 ES2015 标准，但本模块的 ArkTS 侧我无法在本轮编译验证，
+ *    不赌它存在。改用移位展开 FNV 质数 `16777619 = 2^24 + 2^8 + 147`：
+ *      `x * prime ≡ (x<<24) + (x<<8) + x*147  (mod 2^32)`
+ *    三项（各 `< 2^32`）之和 `< 2^53` ⇒ IEEE754 双精度**精确**，`>>> 0` 即"模 2^32 取无符号"。
+ *    正确性不靠人眼：`tools/tests/notify.test.ts` 用 `Math.imul` 的教科书实现**逐字节对拍**。
+ */
+export function fnv1a32(text: string): number {
+  let h: number = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    const mixed: number = (h ^ text.charCodeAt(i)) >>> 0;
+    h = ((mixed << 24) + (mixed << 8) + mixed * 147) >>> 0;
+  }
+  return h >>> 0;
+}
+
+/**
+ * 32 位哈希 → 通知 id（纯函数）。
+ * 取低 31 位保证非负；**让开** `0`（SDK 默认值）与回落 id（否则"无归属"的提醒会和某会话互相覆盖）。
+ */
+export function notificationIdFromHash(hash: number): number {
+  const low: number = hash & NOTIFY_ID_MAX;
+  if (low === 0 || low === NOTIFY_ID_FALLBACK) {
+    return low + 1;
+  }
+  return low;
+}
+
+/**
+ * 会话 → 通知 id（纯函数：**确定性** ⇒ 同一会话永远同一 id）。
+ *
+ * 语义（正是"专业"的部分）：
+ *   · 同一会话的新提醒 ⇒ **更新**那一条（不堆叠）；
+ *   · 不同会话 ⇒ **不同 id ⇒ 并存**（各自的提醒都留在通知中心）。
+ *
+ * ⚠️ **碰撞取舍（已知并接受）**：31 位空间（≈2.1e9），"同时挂着未读提醒的会话数"现实中
+ *    是个位/十位数。以 100 个会话估算，碰撞概率 ≈ n²/2^32 ≈ **2.3e-6**；即便真撞上，后果是
+ *    **两条提醒合并展示**（后到的更新前者，会话数据本身在应用里完好，不会丢消息）。
+ *    可接受的另一个原因：确定性哈希是**跨进程重启稳定**的 —— 换成"启动后顺序分配 id"虽然零碰撞，
+ *    但重启后同一会话换 id ⇒ 旧通知不被更新而**堆叠**，比极低概率的合并更糟。
+ */
+export function notificationIdFor(chatId: string): number {
+  const id: string = chatId !== undefined && chatId !== null ? chatId : '';
+  if (id.length === 0) {
+    return NOTIFY_ID_FALLBACK;
+  }
+  return notificationIdFromHash(fnv1a32(id));
+}
+
+/** 角标数 = 还有几条未读提醒（纯函数：负数/NaN 归零、取整）。 */
+export function badgeFor(remaining: number): number {
+  if (remaining === undefined || remaining === null || !(remaining > 0)) {
+    return 0;
+  }
+  return Math.floor(remaining);
+}
+
+// ── 模块级记账（内存态）：哪些会话"现在挂着未读提醒"────────────────────────────
+//
+// 用途：① 角标 = 未读提醒**条数**（不是"有/无"）；② 回前台只清"用户即将看到的那条"。
+// ⚠️ 进程重启后为空：重启前留下的通知不在集合里 ⇒ 此时角标按 0 处理（与波1 行为一致），
+//    不去猜"系统里还躺着几条"（系统侧查询 API 拿不到"属于哪个会话"这个维度）。
+const pendingNotifyChats: Set<string> = new Set<string>();
+/** 最近一次发出提醒的会话（`reconcileOnForeground` 未显式给 chatId 时清它）。 */
+let lastNotifiedChatId: string = '';
+
 /** 通知自动过期（10 分钟）：过期的提醒不该一直躺在通知中心。 */
 const AUTO_DELETE_MS: number = 10 * 60 * 1000;
 /** 目标应用（与 `AppScope/app.json5` 的 bundleName 一致）。 */
@@ -233,16 +330,25 @@ export async function publishTurn(title: string, text: string, chatId: string): 
       normal: { title: title, text: text },
     };
     const request: notificationManager.NotificationRequest = {
-      id: NOTIFY_ID,
+      // ⭐ 按会话派生 id：同会话**更新**那一条，不同会话**并存**（见 notificationIdFor 的碰撞取舍）
+      id: notificationIdFor(chatId),
       content: content,
       wantAgent: agent,
       notificationSlotType: notificationManager.SlotType.SOCIAL_COMMUNICATION,
+      // 同一应用的所有聊天提醒归一组 ⇒ 系统可折叠展示（SDK since 8 支持）
+      groupName: NOTIFY_GROUP_NAME,
       autoDeletedTime: Date.now() + AUTO_DELETE_MS,
       tapDismissed: true,
       // 同一 id 的更新不重复响铃（phase_done 与 session idle 会各来一次）
       isAlertOnce: true,
     };
     await notificationManager.publish(request);
+    // 记账：该会话现在有未读提醒（角标计数 + 回前台"只清该会话"的依据）
+    if (chatId !== undefined && chatId !== null && chatId.length > 0) {
+      pendingNotifyChats.add(chatId);
+      lastNotifiedChatId = chatId;
+    }
+    await setBadge(badgeFor(pendingNotifyChats.size));
     return true;
   } catch (e) {
     console.warn(`xbot notify: publish 失败（忽略）: ${describeError(e as Object)}`);
@@ -261,10 +367,13 @@ export async function setBadge(n: number): Promise<boolean> {
   }
 }
 
-/** 清掉本应用的通知（回前台对账：用户已经看到内容了）。 */
+/** 清掉本应用**全部**通知（登出/换账号等"整机清场"场景）。 */
 export async function clearAll(): Promise<boolean> {
   try {
     await notificationManager.cancelAll();
+    pendingNotifyChats.clear();
+    lastNotifiedChatId = '';
+    await setBadge(0);
     return true;
   } catch (e) {
     return false;
@@ -272,12 +381,53 @@ export async function clearAll(): Promise<boolean> {
 }
 
 /**
- * 回前台对账：清角标 + 清通知。
- * "三档状态"里"前台"这一档的收尾动作（后台/未知档由通知本身承担）。
+ * 清掉**某一个会话**的提醒（进入该会话 / 回前台时调用）。
+ *
+ * 依据（SDK）：`cancel(id: number, label?: string): Promise<void>` —— 按 id（+label）取消单条通知；
+ * `label` 缺省 = 空 label，而我们的 `publish` 不设 `label` ⇒ `cancel(id)` 恰好命中它
+ * （`@ohos.notificationManager.d.ts:234`；`notificationRequest.d.ts` 的 `label` 默认空）。
+ * ⚠️ 通知不存在时 SDK 抛 `1600007` —— 对我们**不是错误**（本来就该是空的）⇒ 静默视为成功。
  */
-export async function reconcileOnForeground(): Promise<void> {
-  await setBadge(0);
-  await clearAll();
+export async function clearForChat(chatId: string): Promise<boolean> {
+  let ok: boolean = false;
+  try {
+    await notificationManager.cancel(notificationIdFor(chatId));
+    ok = true;
+  } catch (e) {
+    const err: BusinessError = e as BusinessError;
+    ok = err !== undefined && err.code === 1600007;
+    if (!ok) {
+      console.warn(`xbot notify: cancel 失败（忽略）: ${describeError(e as Object)}`);
+    }
+  }
+  if (chatId !== undefined && chatId !== null && chatId.length > 0) {
+    pendingNotifyChats.delete(chatId);
+  }
+  // 角标 = 剩余未读提醒数（只清了一个会话 ⇒ 其余会话的通知仍在，角标不为 0）
+  await setBadge(badgeFor(pendingNotifyChats.size));
+  return ok;
+}
+
+/**
+ * 回前台对账：**只清"用户即将看到的那条"**，其余会话的提醒**保留**（专业语义）。
+ *
+ * 为什么不能像之前那样 `cancelAll()`：用户进的是 A 会话，B 会话的提醒还没看 ⇒ 不该被清掉。
+ *
+ * @param chatId 页面**当前**会话。缺省 ⇒ 用最近一次发出提醒的会话（`lastNotifiedChatId`）。
+ *        ⚠️ `EntryAbility.onForeground` 拿不到页面当前会话 ⇒ 现在走缺省路径；
+ *        **波3b-2** 可以在那里把 `store.currentChatId` 传进来（接口已支持），语义会更精确。
+ *        另外"进入某会话"这条路径已由 `store.openSession` 调 `clearForChat` 覆盖。
+ */
+export async function reconcileOnForeground(chatId: string = ''): Promise<void> {
+  const target: string = chatId !== undefined && chatId !== null && chatId.length > 0
+    ? chatId
+    : lastNotifiedChatId;
+  if (target.length > 0) {
+    await clearForChat(target); // 内部已同步角标
+    return;
+  }
+  // 没有已知的待清会话（冷启动 / 从未发过提醒）⇒ 只归零角标，**不动**其他会话的通知
+  await setBadge(badgeFor(pendingNotifyChats.size));
 }
 
 // ── 备1：短时任务兜底（≤3 分钟；本轮只提供函数与生命周期）────────────────────

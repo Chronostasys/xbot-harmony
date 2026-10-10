@@ -33,6 +33,7 @@ import {
   NOTIFY_KIND_TURN_DONE,
   TURN_DONE_DEDUPE_MS,
   appIsForeground,
+  clearForChat,
   notifyBody,
   notifyKindForSse,
   notifyTitle,
@@ -525,6 +526,9 @@ export class ChatStore {
     }
     this.channel = channelForChat(this.sessions, chatId);
     this.currentChatId = chatId;
+    // 通知（波3）：用户**正在看这个会话** ⇒ 它的提醒已被"读到"，**只**清它（其余会话的提醒保留）。
+    // 失败/不存在都在 notify.clearForChat 内部吞掉（1600007 = 本来就没有 ⇒ 视为成功）。
+    clearForChat(chatId);
     // ⛔ 会话隔离（用户反复强调，真机 P0）：切会话必须**整体复位状态机**。
     //   ChatState 是**唯一事实源**，`initialChatState(chatId)` 一次重建即复位
     //   【全部】per-session 状态（turns/lastSeq/activeTurn/busy/pendingUsers/

@@ -57,6 +57,7 @@ declare module '@ohos.notificationManager' {
       isAlertOnce?: boolean;
       badgeNumber?: number;
       label?: string;
+      groupName?: string;
     }
     function addSlot(type: SlotType): Promise<void>;
     function getSlots(): Promise<Array<NotificationSlot>>;
