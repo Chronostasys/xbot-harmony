@@ -423,6 +423,8 @@ struct Index {
     } catch (e) {
       out.push('screen=unknown');
     }
+    // 显式标注当前页：否则"聊天页组件全 0 尺寸"会被误读成渲染塌陷（实际是当时在登录页）
+    out.push(`当前页面=${this.loggedIn ? '聊天页' : '登录页（聊天页组件不存在，几何全 0 属正常）'}`);
     for (let i = 0; i < ids.length; i++) {
       try {
         const r: componentUtils.ComponentInfo = componentUtils.getRectangleById(ids[i]);
@@ -465,6 +467,13 @@ struct Index {
    */
   private async runUiAudit(): Promise<void> {
     if (this.auditing) {
+      return;
+    }
+    // ⚠️ 未登录时走查毫无意义：只会上传 7 张**登录页**（真机已发生过一次，白跑一轮）。
+    // 这里直接拦住并说明原因，避免产生无法判读的证据。
+    if (!this.loggedIn) {
+      this.auditLog = '未登录：走查只能拍到登录页，已跳过（请先登录再走查）';
+      this.toast('未登录：请先登录再走查（否则只能拍到登录页）');
       return;
     }
     this.auditing = true;
