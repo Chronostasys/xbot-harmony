@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  xbot 开屏标记（单层矢量 / 512×512，透明底）
+  挂在 module.json5 的 startWindowIcon 上，居中压在 startWindowBackground 之上。
+    · 透明底 —— 背景色由 resources/base|dark/element/color.json 的
+      start_window_background 按系统深浅色模式供给（浅 #F8FAFC / 深 #0B0B0E）
+    · 标记自带颜色（accent #7C5CFF 气泡 + 白星芒）—— 因此**在浅底与深底上都可见**
+    · 与 app_icon.svg 同一几何，仅去掉满幅底、星芒改白色（保证任意底色上可读）
+  语义：圆角对话气泡 =「对话」；气泡内四角星芒 =「智能体 / 生成」。
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- 对话气泡：圆角方 + 左下角尾巴 -->
+  <path fill="#7C5CFF" d="
+    M 186 116
+    H 326
+    A 74 74 0 0 1 400 190
+    V 276
+    A 74 74 0 0 1 326 350
+    H 238
+    L 150 422
+    L 150 350
+    H 186
+    A 74 74 0 0 1 112 276
+    V 190
+    A 74 74 0 0 1 186 116
+    Z"/>
+
+  <!-- 星芒：白色（不透明，浅/深底均可读） -->
+  <path fill="#FFFFFF" d="
+    M 256 173
+    Q 256 233 316 233
+    Q 256 233 256 293
+    Q 256 233 196 233
+    Q 256 233 256 173
+    Z"/>
+</svg>
