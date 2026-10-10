@@ -21,5 +21,5 @@
 # 调研产物（本地产出，不进仓库）
 /.research/
 
-# 脱机测试的编译产物（run.sh 每次重建；绝不入库）
-tools/tests/.out/
+# 脱机测试的编译产物（run.sh 每次重建；绝不入库。新版目录名带 PID）
+tools/tests/.out*/

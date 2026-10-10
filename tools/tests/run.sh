@@ -3,10 +3,14 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-OUT="$HERE/.out"
+# ⚠️ 目录名带 PID：多条线（subagent）并发跑本套件时，共享目录会互相 `rm -rf`
+# ⇒ 假绿/假红（A 的产物被 B 清掉，报出与源码无关的错）。各跑各的目录，彻底解耦。
+OUT="$HERE/.out.$$"
 
 # 每次先清空产物目录：否则源码删除/改名后，过期产物会以假错误误导（2026-10 踩到）
 rm -rf "$OUT"
+# 退出（含失败）时清理本进程目录，不留垃圾
+trap 'rm -rf "$OUT"' EXIT
 
 find_tsc() {
   if [ -n "${TSC:-}" ] && [ -x "$TSC" ]; then echo "$TSC"; return; fi
