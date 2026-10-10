@@ -306,3 +306,53 @@ uiCtx.setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);   // 导入自 '@kit.ArkUI
 
 **修法**：0 尺寸显式标注 `⚠未布局(0尺寸,或被弹层遮挡/当前不在该页)`；给登录页也加 id
 （`xbot-login`），使"当前在哪一页"可判。
+
+## 2026-10-10：HarmonyOS 客户端（xbot-harmony）实测新增限制
+
+以下每条都在本仓真实构建/测试里踩到过（不是理论推断），附**报错原文**与**正解**。
+
+### 1. 禁止空对象字面量（`arkts-no-untyped-obj-literals`）
+
+```
+Object literal must correspond to some explicitly declared class or interface
+```
+`const row: SomeInterface = {};` **不合法**（哪怕有类型标注）。正解：
+- 需要就地构造 ⇒ 把类型改成 **class** 再 `new SomeClass()`；
+- 只是从 JSON 解析 ⇒ `JSON.parse(raw) as SomeInterface` 合法（`as` 转型没问题）；
+- **嵌套空字面量**同样违规：`{ method: 'x', params: {} }` ✗ ⇒ 干脆不发 `params`
+  （服务端对空 params 会补 `{}`）。
+
+### 2. `@Builder` 里的裸标识符会被当成类成员
+
+```
+Property 'currentModelText' does not exist on type 'Index'
+```
+在 `@Builder` 里直接调用 **imported 自由函数**（`currentModelText(...)`）会被 ArkTS 转译成
+`this.currentModelText(...)` ⇒ 报"类上没有这个属性"。正解：加一层类内包装方法
+（`private currentModelName(): string { return currentModelText(...); }`），`@Builder` 里只写
+`this.currentModelName()`。
+
+### 3. `Object.assign` 属受限标准库（`arkts-limited-stdlib`）
+
+```
+Usage of standard library is restricted (arkts-limited-stdlib)
+```
+不能用 `Object.assign({}, obj)` 做浅拷贝 ⇒ 手写 for 循环拷键值。
+
+### 4. `String.prototype.endsWith` 同样受限
+
+`code.endsWith('reply')` 在 ArkTS 里也要报 `arkts-limited-stdlib` ⇒ 用
+`code.substring(code.length - 5) === 'reply'`。
+
+### 5. 页面里新增 state / builder 前必须先查重名
+
+`Duplicate identifier 'showSettings'` / `Duplicate function implementation`：
+页面**已有** `showSettings` 与 `SettingsSheet()`（旧设置弹层）⇒ 新面板必须换名
+（本次用 `showPrefs` / `PrefsSheet` / `openPrefs`）。**先 grep 再命名**，否则一次重命名要连带改 5 处。
+
+### 6. `core/` 里不能引用 ArkUI 全局类型
+
+`tools/tests/run.sh` 会把 `core/*.ets` **当纯 TS 在 Node 里编译**（无 ArkUI 全局）⇒
+`IDataSource` / `DataChangeListener` 这类只在 ArkUI 里存在的类型放 `core/` 会直接编译失败
+（`Cannot find name 'IDataSource'`）。正解：**可测纯逻辑放 `core/`，ArkUI 壳子放页面文件**；
+且 `run.sh` 每轮先清 `.out`（否则源码删了、过期产物还在报错，会以假错误误导排查）。

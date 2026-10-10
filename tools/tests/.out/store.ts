@@ -20,6 +20,7 @@ import { channelForChat } from './sessionpick';
 import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
 import { moveOrders } from './sessionops';
 import { BgTask, CronJob, RunnerRow, SubAgentRow } from './panels';
+import { serverKey, toLocalSettings } from './settings';
 import { LlmConfig } from './llmfmt';
 import {
   AskQuestion,
@@ -151,6 +152,35 @@ export class ChatStore {
   runners: RunnerRow[] = [];
   /** 子代理（会话树的 orphan_subagents） */
   subagents: SubAgentRow[] = [];
+
+  /**
+   * 用户设置（服务端权威；键为**本地键名**）。
+   * `POST /api/settings`（空体）→ `{settings:{服务端键:值}}` ⇒ `toLocalSettings` 本地化。
+   */
+  settings: Record<string, string> = {};
+
+  async loadSettings(): Promise<void> {
+    const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>(
+      '/api/settings', new EmptyBody());
+    const srv: Object | undefined = raw['settings'];
+    const map: Record<string, string> = srv !== undefined ? srv as Record<string, string> : {};
+    this.settings = toLocalSettings(map);
+    this.onUpdate();
+  }
+
+  /** 保存若干设置项（本地键 → 服务端键后批量写；本地缓存同步更新，界面立即生效）。 */
+  async saveSettings(pairs: Record<string, string>): Promise<void> {
+    const srv: Record<string, string> = {};
+    const keys: string[] = Object.keys(pairs);
+    for (let i = 0; i < keys.length; i++) {
+      const k: string = keys[i];
+      srv[serverKey(k)] = pairs[k];
+      this.settings[k] = pairs[k];
+    }
+    const body: SettingsBody = new SettingsBody(srv);
+    await this.http.post('/api/settings', body);
+    this.onUpdate();
+  }
 
   async loadCronTasks(): Promise<void> {
     const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>(
@@ -956,6 +986,15 @@ export class MessageBody {
     this.file_names = fileNames;
     this.file_sizes = fileSizes;
     this.interrupt = interrupt === true ? true : undefined;
+  }
+}
+
+/** `/api/settings` 的请求体（`{settings:{…}}`）。 */
+export class SettingsBody {
+  settings: Record<string, string>;
+
+  constructor(settings: Record<string, string>) {
+    this.settings = settings;
   }
 }
 

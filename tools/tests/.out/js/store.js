@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.RpcBody = exports.RegionsBody = exports.QueueReorderBody = exports.QueueCancelBody = exports.AskRespondBody = exports.IterationDetailBody = exports.RenameBody = exports.MessageBody = exports.HistoryBody = exports.ChannelBody = exports.EmptyBody = exports.ChatStore = void 0;
+exports.RpcBody = exports.RegionsBody = exports.QueueReorderBody = exports.QueueCancelBody = exports.AskRespondBody = exports.IterationDetailBody = exports.RenameBody = exports.SettingsBody = exports.MessageBody = exports.HistoryBody = exports.ChannelBody = exports.EmptyBody = exports.ChatStore = void 0;
 exports.toolsSummary = toolsSummary;
 /**
  * ChatStore —— 会话/消息/实时进度/待答问题/队列/插件的唯一数据源。
@@ -20,6 +20,7 @@ const streammerge_1 = require("./streammerge");
 const sessionpick_1 = require("./sessionpick");
 const sessionops_1 = require("./sessionops");
 const panels_1 = require("./panels");
+const settings_1 = require("./settings");
 const types_1 = require("./types");
 class ChatStore {
     /** 标记行内容已变（ForEach key 随 rev 变化 ⇒ 强制重建该项，避免显示陈旧内容）。 */
@@ -76,6 +77,11 @@ class ChatStore {
         this.runners = [];
         /** 子代理（会话树的 orphan_subagents） */
         this.subagents = [];
+        /**
+         * 用户设置（服务端权威；键为**本地键名**）。
+         * `POST /api/settings`（空体）→ `{settings:{服务端键:值}}` ⇒ `toLocalSettings` 本地化。
+         */
+        this.settings = {};
         this.http = new http_1.XbotHttp(baseUrl);
         this.sse = new sse_1.SseClient(baseUrl);
     }
@@ -108,6 +114,26 @@ class ChatStore {
         if (created.chat_id !== undefined && created.chat_id.length > 0) {
             await this.openSession(created.chat_id);
         }
+    }
+    async loadSettings() {
+        const raw = await this.http.postAs('/api/settings', new EmptyBody());
+        const srv = raw['settings'];
+        const map = srv !== undefined ? srv : {};
+        this.settings = (0, settings_1.toLocalSettings)(map);
+        this.onUpdate();
+    }
+    /** 保存若干设置项（本地键 → 服务端键后批量写；本地缓存同步更新，界面立即生效）。 */
+    async saveSettings(pairs) {
+        const srv = {};
+        const keys = Object.keys(pairs);
+        for (let i = 0; i < keys.length; i++) {
+            const k = keys[i];
+            srv[(0, settings_1.serverKey)(k)] = pairs[k];
+            this.settings[k] = pairs[k];
+        }
+        const body = new SettingsBody(srv);
+        await this.http.post('/api/settings', body);
+        this.onUpdate();
     }
     async loadCronTasks() {
         const raw = await this.http.postAs('/api/cron/list', new ChannelBody(this.channel, this.currentChatId));
@@ -845,6 +871,13 @@ class MessageBody {
     }
 }
 exports.MessageBody = MessageBody;
+/** `/api/settings` 的请求体（`{settings:{…}}`）。 */
+class SettingsBody {
+    constructor(settings) {
+        this.settings = settings;
+    }
+}
+exports.SettingsBody = SettingsBody;
 class RenameBody {
     constructor(channel, chatId, label) {
         this.channel = channel;

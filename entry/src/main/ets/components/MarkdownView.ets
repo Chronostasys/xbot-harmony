@@ -81,6 +81,8 @@ export struct MarkdownView {
   @Prop text: string = '';
   /** 代码块是否换行（设置里可切） */
   @Prop wrapCode: boolean = true;
+  /** 消息字号缩放（1 = 默认；由设置面板控制，范围 0.85–1.4 已在上游夹取） */
+  @Prop fontScale: number = 1;
   /** 点击图片占位时的回调（参数是图片 src） */
   onImage: (src: string) => void = () => {
   };
@@ -109,7 +111,7 @@ export struct MarkdownView {
         ForEach(parseInlineCached(b.text), (s: MdSpan) => {
           Span(s.text)
             .fontWeight(FontWeight.Bold)
-            .fontSize(this.headingSize(b.level))
+            .fontSize(this.sz(this.headingSize(b.level)))
             .fontColor('#F3F4F6')
         }, (s: MdSpan, i: number) => `h-${b.key}-${i}-${s.text.length}`)
       }
@@ -174,7 +176,7 @@ export struct MarkdownView {
     Text() {
       ForEach(inlineStyles(text), (s: MdInlineStyle) => {
         Span(s.text)
-          .fontSize(s.size)
+          .fontSize(this.sz(s.size))
           .fontColor(s.color)
           .fontWeight(s.bold ? FontWeight.Bold : FontWeight.Normal)
           .fontStyle(s.italic ? FontStyle.Italic : FontStyle.Normal)
@@ -192,6 +194,11 @@ export struct MarkdownView {
     // 不可断超长 token（URL/代码/base64）在 ArkUI 里默认不在词内折行 ⇒ 横向撑破容器；
     // 与 xbot Web 端已定稿的教训同源（break-words 不够，必须 wrap-anywhere）。
     .wordBreak(WordBreak.BREAK_ALL)
+  }
+
+  /** 统一字号缩放入口（所有正文/标题/代码都经这里，避免漏改一处导致大小不一致）。 */
+  private sz(n: number): number {
+    return n * this.fontScale;
   }
 
   @Builder

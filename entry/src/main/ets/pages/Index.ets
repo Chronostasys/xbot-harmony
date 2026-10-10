@@ -14,6 +14,11 @@ import {
   BgTask, bgTaskLine, CronJob, cronLine, RunnerRow, runnerLine, SubAgentRow, subagentLine,
 } from '../core/panels';
 import {
+  fontScaleFrom, fontScaleLabel, fontScalePresets, KEY_CODE_WRAP, KEY_FONT_SCALE,
+  KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE, KEY_REASONING_DEFAULT, KEY_SEND_KEY, normalizeSendKey,
+  parseBool, sendKeyLabel, settingOf, settingLabel, SEND_KEY_MOD_ENTER,
+} from '../core/settings';
+import {
   isInterruptSend, MODE_INTERRUPT, MODE_QUEUE, modeHint, modeLabel, sendToast, toggleMode,
 } from '../core/sendmode';
 import { mdCacheStats, MdCacheStats } from '../core/markdown';
@@ -214,6 +219,13 @@ struct Index {
    */
   @State sendMode: string = MODE_QUEUE;
 
+  // ── P9 设置（服务端权威：/api/settings；与 web 共用同一份偏好）──
+  // ⚠️ 名字必须与**已有的** SettingsSheet（插件/旧设置弹层）区分开，否则 ArkTS 报重复标识符。
+  @State showPrefs: boolean = false;
+  @State settings: Record<string, string> = {};
+  /** 是否已把"思考默认展开"应用过一次（避免每次同步都覆盖用户手动切换） */
+  private reasoningDefaultApplied: boolean = false;
+
   // ── P8 面板（定时任务 / 后台任务 / 子代理 / Runner）──
   @State showPanels: boolean = false;
   /** cron | tasks | subs | runners */
@@ -401,6 +413,12 @@ struct Index {
     this.bgTasks = store.bgTasks;
     this.runners = store.runners;
     this.subagents = store.subagents;
+    this.settings = store.settings;
+    if (!this.reasoningDefaultApplied && Object.keys(store.settings).length > 0) {
+      // 只在设置首次到达时套用默认展开状态（之后尊重用户的手动切换）
+      this.showReasoning = parseBool(settingOf(store.settings, KEY_REASONING_DEFAULT), this.showReasoning);
+      this.reasoningDefaultApplied = true;
+    }
     // busy 结束 ⇒ 发送模式复位（插话只对"正在跑"的会话有意义）
     if (!store.busy && this.sendMode !== MODE_QUEUE) {
       this.sendMode = MODE_QUEUE;
@@ -1228,6 +1246,15 @@ struct Index {
       if (this.showModel) {
         this.ModelSheet()
       }
+      // 偏好设置（字号 / 换行 / 思考默认 / 快捷键）
+      if (this.showPrefs) {
+        Column() {
+          Blank().layoutWeight(1).width('100%').onClick(() => {
+            this.showPrefs = false;
+          })
+          this.PrefsSheet()
+        }.width('100%').height('100%')
+      }
       // 面板（定时任务 / 后台任务 / 子代理 / Runner）
       if (this.showPanels) {
         Column() {
@@ -1546,6 +1573,7 @@ struct Index {
           })
           .layoutWeight(1).constraintSize({ minHeight: 42 }).backgroundColor('#111827').fontColor('#E5E7EB')
           .onSubmit(() => {
+            // 发送快捷键模式（Ctrl/⌘+Enter 模式在 P11 的多行输入里生效；单行下 Enter 仍发送）
             this.sendDraft();
           })
         if (this.busy) {
@@ -1673,6 +1701,73 @@ struct Index {
       this.renameText = s !== undefined && s.label !== undefined ? s.label : '';
       this.sessMenuId = '';
     }
+  }
+
+  // ── P9：设置 ─────────────────────────────────────────────────────────────
+
+  /** 当前字号缩放（来自设置；非法值回落 1）。 */
+  private fontScale(): number {
+    return fontScaleFrom(settingOf(this.settings, KEY_FONT_SCALE));
+  }
+
+  /** 代码是否自动换行（默认开）。 */
+  private wrapCode(): boolean {
+    return parseBool(settingOf(this.settings, KEY_CODE_WRAP), true);
+  }
+
+  /** 发送快捷键模式（默认 Enter 发送）。 */
+  private sendKeyMode(): string {
+    return normalizeSendKey(settingOf(this.settings, KEY_SEND_KEY));
+  }
+
+  private reasoningDefault(): boolean {
+    return parseBool(settingOf(this.settings, KEY_REASONING_DEFAULT), false);
+  }
+
+  private async openPrefs(): Promise<void> {
+    this.showPrefs = true;
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    try {
+      await store.loadSettings();
+    } catch (e) {
+      this.toast(`读取设置失败: ${errText(e as Object)}`);
+    }
+  }
+
+  /** 改一项设置（立刻生效 + 写回服务端；失败回滚显示）。 */
+  private async setSetting(key: string, value: string): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    const prev: string = settingOf(this.settings, key);
+    const pairs: Record<string, string> = {};
+    pairs[key] = value;
+    this.settings[key] = value;   // 乐观：界面立刻变
+    try {
+      await store.saveSettings(pairs);
+      if (key === KEY_REASONING_DEFAULT) {
+        this.showReasoning = parseBool(value, false);
+        this.reasoningDefaultApplied = true;
+      }
+    } catch (e) {
+      // 回滚显示（ArkTS 限制：不能用 Object.assign —— 受限标准库）
+      const rollback: Record<string, string> = {};
+      const ks: string[] = Object.keys(this.settings);
+      for (let i = 0; i < ks.length; i++) {
+        rollback[ks[i]] = this.settings[ks[i]];
+      }
+      rollback[key] = prev;
+      this.settings = rollback;
+      this.toast(`保存失败: ${errText(e as Object)}`);
+    }
+  }
+
+  private readonlySettings(): string[] {
+    return [KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE];
   }
 
   // ── P8：面板 ─────────────────────────────────────────────────────────────
@@ -2005,6 +2100,95 @@ struct Index {
     return COPY_RAW;
   }
 
+  /** 偏好设置面板（本地偏好 + 服务端偏好；与 web 共用同一份键）。 */
+  @Builder
+  PrefsSheet() {
+    Column({ space: 10 }) {
+      Row() {
+        Text('设置').fontSize(16).fontWeight(FontWeight.Bold).fontColor('#E5E7EB').layoutWeight(1)
+        Text('✕').fontSize(16).fontColor('#9CA3AF').padding(8).onClick(() => {
+          this.showSettings = false;
+        })
+      }.width('100%')
+
+      // 字号
+      Text(`${settingLabel(KEY_FONT_SCALE)}：${fontScaleLabel(this.fontScale())}`)
+        .fontSize(12).fontColor('#9CA3AF').width('100%')
+      Row({ space: 6 }) {
+        ForEach(fontScalePresets(), (n: number) => {
+          Text(fontScaleLabel(n))
+            .fontSize(12)
+            .fontColor(Math.abs(this.fontScale() - n) < 0.01 ? '#FFFFFF' : '#9CA3AF')
+            .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+            .backgroundColor(Math.abs(this.fontScale() - n) < 0.01 ? '#7C3AED' : '#0F172A')
+            .borderRadius(8)
+            .onClick(() => {
+              this.setSetting(KEY_FONT_SCALE, `${n}`);
+            })
+        }, (n: number) => `fs-${n}`)
+      }.width('100%')
+
+      // 代码换行
+      Row({ space: 8 }) {
+        Text(settingLabel(KEY_CODE_WRAP)).fontSize(13).fontColor('#E5E7EB').layoutWeight(1)
+        Text(this.wrapCode() ? '开' : '关')
+          .fontSize(12).fontColor('#FFFFFF').padding({ left: 12, right: 12, top: 6, bottom: 6 })
+          .backgroundColor(this.wrapCode() ? '#059669' : '#374151').borderRadius(8)
+          .onClick(() => {
+            this.setSetting(KEY_CODE_WRAP, this.wrapCode() ? '0' : '1');
+          })
+      }.width('100%')
+
+      // 思考默认展开
+      Row({ space: 8 }) {
+        Text(settingLabel(KEY_REASONING_DEFAULT)).fontSize(13).fontColor('#E5E7EB').layoutWeight(1)
+        Text(this.reasoningDefault() ? '开' : '关')
+          .fontSize(12).fontColor('#FFFFFF').padding({ left: 12, right: 12, top: 6, bottom: 6 })
+          .backgroundColor(this.reasoningDefault() ? '#059669' : '#374151').borderRadius(8)
+          .onClick(() => {
+            this.setSetting(KEY_REASONING_DEFAULT, this.reasoningDefault() ? '0' : '1');
+          })
+      }.width('100%')
+
+      // 发送快捷键
+      Row({ space: 8 }) {
+        Text(settingLabel(KEY_SEND_KEY)).fontSize(13).fontColor('#E5E7EB').layoutWeight(1)
+        Text(sendKeyLabel(this.sendKeyMode()))
+          .fontSize(12).fontColor('#FFFFFF').padding({ left: 12, right: 12, top: 6, bottom: 6 })
+          .backgroundColor('#374151').borderRadius(8)
+          .onClick(() => {
+            const next: string = this.sendKeyMode() === SEND_KEY_MOD_ENTER ? 'enter' : SEND_KEY_MOD_ENTER;
+            this.setSetting(KEY_SEND_KEY, next);
+          })
+      }.width('100%')
+
+      Divider().color('#1F2937')
+
+      // 与 web 共享的只读项（原生端暂不改这些）
+      ForEach(this.readonlySettings(), (k: string) => {
+        Row({ space: 8 }) {
+          Text(settingLabel(k)).fontSize(12).fontColor('#9CA3AF').layoutWeight(1)
+          Text(settingOf(this.settings, k).length > 0 ? settingOf(this.settings, k) : '（未设置）')
+            .fontSize(12).fontColor('#6B7280')
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        }.width('100%')
+      }, (k: string) => `ro-${k}`)
+      Text('浅色主题需要色板重构（已单列为 P9b），当前仅深色。')
+        .fontSize(11).fontColor('#6B7280').width('100%')
+
+      Row({ space: 8 }) {
+        Text('刷新').fontSize(12).fontColor('#93C5FD').padding(8).onClick(() => {
+          this.openPrefs();
+        })
+      }.width('100%')
+    }
+    .width('100%').padding(16)
+    .backgroundColor('#0B0F19')
+    .borderRadius({ topLeft: 14, topRight: 14 })
+    .border({ width: 1, color: '#1F2937' })
+    .alignItems(HorizontalAlign.Start)
+  }
+
   /** 面板：四个标签各拉一个端点（定时任务 / 后台任务 / 子代理 / Runner）。 */
   @Builder
   PanelsSheet() {
@@ -2276,6 +2460,8 @@ struct Index {
           loadImage: (src: string) => {
             return this.loadImageBytes(src);
           },
+          fontScale: this.fontScale(),
+          wrapCode: this.wrapCode(),
         })
       }
       // 服务端折叠视图：更早的展示区域需按需取回（与 Web 端「⌃ 更早的 N 个区域」同源）
@@ -2351,6 +2537,8 @@ struct Index {
           loadImage: (src: string) => {
             return this.loadImageBytes(src);
           },
+          fontScale: this.fontScale(),
+          wrapCode: this.wrapCode(),
         })
       }
 
@@ -2630,6 +2818,10 @@ struct Index {
       }
       .layoutWeight(1).width('100%')
 
+      Button('设置（字号 / 换行 / 思考）').width('100%').constraintSize({ minHeight: 40 })
+        .backgroundColor('#1F2937').margin({ top: 8 }).onClick(() => {
+          this.openPrefs();
+        })
       Button('面板（任务 / 子代理 / Runner）').width('100%').constraintSize({ minHeight: 40 })
         .backgroundColor('#1F2937').margin({ top: 8 }).onClick(() => {
           this.openPanels();
