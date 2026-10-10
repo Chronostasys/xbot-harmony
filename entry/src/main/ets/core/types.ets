@@ -76,6 +76,16 @@ export interface HistoryIteration {
   stream_text?: string;
   /** 同上，推理流。 */
   stream_reasoning?: string;
+  /**
+   * ⚠️ 渲染层标记：这一块是**在飞（in-flight）迭代**（尚未 commit）。
+   *
+   * `core/render.ets` 从 live Row 的在飞字段（content/reasoning/activeTools/
+   * streamingTools + lastIter）折叠出的**最后一个迭代块** —— 与已完成迭代
+   * **共用同一套块渲染**，仅它带打字机/占位（对齐 web `TurnBody` 里 iterations
+   * 之后追加的 `LiveIteration`：live 迭代就是该消息气泡**内部的最后一块**，
+   * 而不是另一个气泡/另一行）。
+   */
+  live?: boolean;
 }
 
 /** 历史消息行。 */

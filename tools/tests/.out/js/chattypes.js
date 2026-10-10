@@ -6,3 +6,27 @@
  * 这样原生端的渲染/状态行为与 web 由**代码同一性**保证一致，而不是靠我"照着理解再写"。
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.EMPTY_PROGRESS_SNAPSHOT = void 0;
+/** 空快照 —— idle 态（逐字取自 web `types/shared.ts:544`）。 */
+exports.EMPTY_PROGRESS_SNAPSHOT = {
+    eventSeq: 0,
+    phase: '',
+    iteration: 0,
+    streamContent: '',
+    reasoningStreamContent: '',
+    content: '',
+    streaming: false,
+    activeTools: [],
+    completedTools: [],
+    iterationHistory: [],
+    streamingTools: [],
+    genuiContent: '',
+    lastIter: 0,
+    lastReasoning: '',
+    todos: [],
+    goal: null,
+    subAgents: [],
+    tokenUsage: null,
+    streamStats: null,
+    turnID: 0,
+};

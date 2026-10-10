@@ -43,7 +43,7 @@ import {
   attachmentRef, baseName, doneKeys, doneNames, doneRefs, doneSizes, hasRef, humanSize, mimeOf,
   patchByUid, pendingCount, removeByUid,
 } from '../core/attach';
-import { changedRowIndices, identityChanged, needsFullReload, rowKey, rowsFpOf, sameRowIds,
+import { changedByKeys, identityChanged, needsFullReload, rowKey, rowsFpOf, sameRowIds,
   scopedFingerprint, sessionScopedRowKey, tailRows } from '../core/rowdiff';
 import {
   currentTodo, goalText, modelText, todoProgress, usageText,
@@ -71,10 +71,7 @@ import {
   TokenUsage,
   ToolProgress,
 } from '../core/types';
-import { ProgressSnapshot, WebToolProgress } from '../core/chattypes';
-import { toNativeTools } from '../core/render';
 import { runeCount } from '../core/typewriter';
-import { LiveTailView } from '../components/LiveTailView';
 import { MessageRowView } from '../components/MessageRow';
 import { UserBubbleView } from '../components/UserBubble';
 import { MarkdownView } from '../components/MarkdownView';
@@ -150,18 +147,19 @@ function mdCacheText(): string {
 }
 
 /**
- * 消息列表的项数 = [可选"加载更早消息"项] + rows + [可选 busy 指示器项]。
+ * 消息列表的项数 = [可选"加载更早消息"项] + rows + [可选 live 行项] + [可选 busy 指示器项]。
  *
  * 必须显式算：`onScrollIndex` 给的是**列表项**下标，而项数不等于 rows.length
- * （头部可能多一项、尾部可能多一项 busy 指示器）—— 用错就会误判"在不在底部"。
+ * （头部可能多一项、尾部可能多一项 busy 指示器 / live 行）—— 用错就会误判"在不在底部"。
  * 模块级函数：ArkUI 的 struct 不是普通类，真机上静态成员会解析成 undefined（见 docs/ARKTS-GOTCHAS.md）。
  */
-function listItemCount(hasMore: boolean, loadingMore: boolean, rowsLen: number, busy: boolean): number {
-  let n: number = rowsLen;
+function listItemCount(hasMore: boolean, loadingMore: boolean, rowsLen: number,
+  busyPlaceholder: boolean, liveRows: number): number {
+  let n: number = rowsLen + liveRows;
   if (hasMore || loadingMore) {
     n += 1;
   }
-  if (busy) {
+  if (busyPlaceholder) {
     n += 1;
   }
   return n;
@@ -344,18 +342,14 @@ struct Index {
   @StorageProp('safeTopVp') safeTop: number = 0;
   @StorageProp('safeBottomVp') safeBottom: number = 0;
 
-  // ── live 进行中快照（与 web 的 progressSnapshot→LiveIteration 同构）──
-  // 渲染在 LazyForEach **之外**、由 @State 直接驱动：虚拟列表条目在真机上不可靠地
-  // 重建是"流式期间什么都看不到"（无打字机、无工具、结束时内容一次性冒出）的根因。
-  @State liveOn: boolean = false;
-  @State liveText: string = '';
-  @State liveReasoning: string = '';
-  @State liveTools: ToolProgress[] = [];
-  @State liveIterNo: number = 0;
-  @State liveRowTurn: number = 0;
-  /** 渐入透明度：新流式文本到达时 0.45 → 1 淡入（用户要求用"渐入"替代逐字裁剪） */
-  /** 上一帧 live 文本长度（判断"有新文本"以触发渐入） */
-  private lastLiveLen: number = 0;
+  // ── live turn 的整条 assistant 消息（同气泡：已完成迭代 + 在飞块）──
+  // ⚠️ 为什么**非懒**渲染（LazyForEach 之外、@State 直驱）：虚拟列表条目在真机上
+  //    不可靠地重建是"流式期间什么都看不到"（无打字机、无工具、结束时内容一次性冒出）
+  //    的根因。live 行整条（含其已完成迭代与末尾在飞块）由一个 ListItem 承担。
+  // ⚠️ 不变量（真机 bug ①/② 根治）：**在飞迭代是这条消息气泡内的最后一块**，
+  //    与已完成迭代同一气泡、同一套块渲染 —— 绝不再是独立的气泡/独立的 ListItem。
+  @State hasLiveRow: boolean = false;
+  @State liveRowRef: ChatRow = new ChatRow();
   /** 历史加载中（骨架屏判据：只有"还没内容且正在拉"才展示） */
   @State historyLoading: boolean = false;
 
@@ -638,9 +632,9 @@ struct Index {
     if (rowsFp !== this.rowsFp) {
       this.rowsFp = rowsFp;
       this.rows = store.rows.slice();
+      // live 行整条（已完成迭代 + 末尾在飞块）在 syncRowDs 里抽出为非懒尾项
       this.syncRowDs();
     }
-    this.syncLiveTail(store);
     // ⛔ 底部跟随（真机："看不到任何进度/思考打字机看不到"，2026-10-10）：
     //   live 尾块在**生长**（思考/正文打字机、工具 pill 增加）⇒ 若用户仍在底部，
     //   必须跟着滚到底，否则流式内容掉到视口下方 —— 看上去就是"没有进度、只有收尾才出现"。
@@ -2092,29 +2086,16 @@ struct Index {
           }
         }, (row: ChatRow) => sessionScopedRowKey(this.currentChat, row))
 
-        // ── live 进行中块（LazyForEach 之外，@State 直驱 ⇒ 流式/打字机/工具必然渲染）──
-        if (this.liveTailHasContent()) {
+        // ── live turn 的整条 assistant 消息（LazyForEach 之外，@State 直驱）──
+        // 真机 bug ② 根治点：live 迭代不再是"单独的气泡/单独的 ListItem"，而是这条
+        // assistant 消息气泡内的**最后一块**（MessageRowView 内部渲染：
+        // 已完成迭代 ⊕ 末尾在飞块，共用同一套块渲染）。整条非懒渲染是可靠性要求
+        // （虚拟列表条目在真机不可靠重建 = 流式期间什么都看不到）。
+        if (this.hasLiveRow) {
           ListItem() {
-            // ⚠️ 打字机（20Hz）状态在**这个子组件内部** —— 否则每拍会重跑整页 build，
-            // 把系统 spinner 都拖到 2Hz（真机"卡的要死 + spinner 半秒动一次"的根因）
-            LiveTailView({
-              text: this.liveText,
-              reasoning: this.liveReasoning,
-              tools: this.liveTools,
-              paused: this.appPaused,
-              theme: this.themeName,
-              fontScale: this.fontScale(),
-              wrapCode: this.wrapCode(),
-              onImage: (src: string) => {
-                this.openImage(src);
-              },
-              loadImage: (src: string) => {
-                return this.loadImageBytes(src);
-              },
-              onToolLongPress: (name: string) => {
-                this.openCtx('tool', this.liveRowIdOf(), this.liveIterNo, name);
-              },
-            })
+            // ⚠️ 打字机（20Hz）状态在 **LiveTailView 子组件内部**（MessageRowView 里）
+            // —— 否则每拍会重跑整页 build，把系统 spinner 都拖到 2Hz。
+            this.ChatRowBody(this.liveRowRef)
           }
         }
 
@@ -2134,10 +2115,13 @@ struct Index {
       // 预构建 4 行：滚动时不必等构建（越小内存越省，越大滚动越顺）
       .cachedCount(4)
       // 跟踪"用户是否停在底部"：end 是最后一个可见项的下标，等于末项下标即在底部。
-      // 项数 = [可选"加载更早"] + rows + [可选 busy 指示器]，故用 listItemCount() 显式算。
+      // 项数 = [可选"加载更早"] + rows + [可选 live 行项] + [可选 busy 指示器]，
+      // 故用 listItemCount() 显式算。
       .onScrollIndex((start: number, end: number) => {
+        const busyPlaceholder: boolean = this.busy && !this.liveTailHasContent();
+        const liveRows: number = this.hasLiveRow ? 1 : 0;
         this.atBottom = end >= listItemCount(this.hasMore, this.loadingMore, this.rowDs.count(),
-          this.busy || this.liveOn) - 1;
+          busyPlaceholder, liveRows) - 1;
       })
       .id('xbot-list')
 
@@ -2788,7 +2772,7 @@ struct Index {
     }
     // ⛔ 与 web 同式：`currentSession.running || progressSnapshot.streaming || busyFallback(activeTurn!==null)`
     //   —— 只要本地还有"在飞的 live 迭代/行"就一定在跑；否则 SSE 抖动会让占位符一闪一没。
-    if (this.liveOn) {
+    if (this.hasLiveRow && !rowIsEmpty(this.liveRowRef)) {
       return true;
     }
     if (this.store !== null && this.store.hasLiveRowWithContent()) {
@@ -2957,66 +2941,41 @@ struct Index {
 
   /** 把「当前该显示的行」推给数据源（行窗口 + 真虚拟化两层叠加）。 */
   private syncRowDs(): void {
-    // ⚠️ **不能**把 live 行整行排除：那样 live 行里**已完成的迭代**就再也没有渲染位置，
-    // 而列表尾的 LiveTail 只渲染"进行中的最后一个迭代" ⇒ 每完成一个迭代就消失一个，
-    // 用户只能看到最新的那个（真机严重 bug）。
-    // 正解：live 行**进列表**（其已完成迭代正常渲染），只是它的**最后一个迭代**
-    // （= 进行中）由尾块承担 —— 渲染侧用 `isTailOwned` 互斥，不会画两遍。
+    // ── live 行**整条**交给非懒尾项渲染（同气泡：已完成迭代 + 末尾在飞块）──
+    // 为什么整条排除（而不是只排除"在飞那一块"）：① 在飞迭代现在是该消息气泡内的
+    // 最后一块，与已完成迭代必须同一气泡 ⇒ 不能跨 LazyForEach 边界；② 虚拟列表条目
+    // 在真机不可靠重建（流式期间什么都看不到的根因）⇒ live 行整条走非懒路径。
+    // 绝不再是"列表里一条 live 行 + 尾部另一个 live 气泡"（真机 bug ② 根治点）。
+    let live: ChatRow | undefined = undefined;
+    const rest: ChatRow[] = [];
+    for (let i = 0; i < this.rows.length; i++) {
+      const r: ChatRow = this.rows[i];
+      if (live === undefined && r.isLive) {
+        live = r;
+      } else {
+        rest.push(r);
+      }
+    }
+    if (live !== undefined) {
+      this.liveRowRef = live;
+      this.hasLiveRow = true;
+    } else {
+      this.hasLiveRow = false;
+    }
     // 必须把**会话身份**一起交给数据源：否则两个会话同形时它会判「骨架未变」=> 零通知 =>
     // LazyForEach 保留上一个会话的条目（真机「所有会话都显示第一个会话的内容」）。
-    this.rowDs.applyRows(tailRows(this.rows, this.rowLimit), this.currentChat);
+    this.rowDs.applyRows(tailRows(rest, this.rowLimit), this.currentChat);
   }
 
   /**
-   * 从**当前会话**的 live 进度快照提取进行中内容（正文/思考/工具 → 页面 @State）。
+   * live turn 是否已有可显示内容（决定「思考中…」占位符是否让位 —— 恰好一个指示器）。
    *
-   * 数据源 = 状态机 `liveProgressFromState(state)`（对齐 web MessageList 的 `liveProgress`
-   * prop / `progressStore` 快照）—— 在飞内容只此一份，不再由页面拼凑。
-   *
-   * ⛔ 会话隔离：先校验 `store.currentChatId === this.currentChat` —— 池里任何其它
-   *   store 的 busy/live 都不得驱动当前界面（真机："隔壁会话 busy，当前也显示 busy"）。
+   * 数据源 = live 行本身（其末尾在飞块由 `core/render.ets` 从状态机在飞字段折叠而来）——
+   * 不再由页面从 `liveProgressFromState` 拼凑第二份在飞内容（那正是 bug ② 的来源）。
+   * 会话隔离由 `syncRowDs` 保证（`this.rows` 只来自**当前** store）。
    */
-  private syncLiveTail(store: ChatStore): void {
-    if (store.currentChatId !== this.currentChat) {
-      this.clearLiveTail();
-      return;
-    }
-    const p: ProgressSnapshot = store.liveProgress();
-    const hasContent: boolean = p.streamContent.length > 0 || p.content.length > 0
-      || p.reasoningStreamContent.length > 0
-      || p.activeTools.length > 0 || p.streamingTools.length > 0;
-    if (!hasContent) {
-      this.clearLiveTail();
-      return;
-    }
-    this.liveOn = true;
-    // 在飞正文：流式缓冲优先（正在流的那一份），否则用结构化快照 content（服务端
-    // 用 progress_structured 发文本时的 fallback）—— 与 web LiveIteration 同序。
-    this.liveText = p.streamContent.length > 0 ? p.streamContent : p.content;
-    this.liveReasoning = p.reasoningStreamContent.length > 0
-      ? p.reasoningStreamContent : (p.lastReasoning.length > 0 ? p.lastReasoning : '');
-    // 在飞工具：streaming_tools（参数生成中）优先，否则 active_tools（执行中）—— web 同序。
-    const tools: WebToolProgress[] = p.streamingTools.length > 0 ? p.streamingTools : p.activeTools;
-    this.liveTools = toNativeTools(tools);
-    this.liveIterNo = p.iteration > 0 ? p.iteration : 1;
-    this.liveRowTurn = p.turnID;
-  }
-
-  /** 清空 live 尾块镜像（无内容 / 非当前会话时）。 */
-  private clearLiveTail(): void {
-    this.liveOn = false;
-    this.liveText = '';
-    this.liveReasoning = '';
-    this.liveTools = [];
-    this.liveIterNo = 0;
-    this.liveRowTurn = 0;
-    this.lastLiveLen = 0;
-  }
-
-  /** live 尾块是否有任何可显示内容（决定 busy 占位符是否让位 —— 恰好一个指示器）。 */
   private liveTailHasContent(): boolean {
-    return this.liveOn && (this.liveText.length > 0 || this.liveReasoning.length > 0
-      || this.liveTools.length > 0);
+    return this.hasLiveRow && !rowIsEmpty(this.liveRowRef);
   }
 
   /** 打字机可见正文（安全回退：定时器未跑 ⇒ 显示全文，绝不让内容不可见）。 */
@@ -3620,6 +3579,7 @@ struct Index {
         fontScaleV: this.fontScale(),
         wrapCodeV: this.wrapCode(),
         sweepX: this.sweepX,
+        paused: this.appPaused,
         onImage: (src: string) => {
           this.openImage(src);
         },
@@ -3653,13 +3613,7 @@ struct Index {
 
   /** live 行的行 id（长按菜单用）。 */
   private liveRowIdOf(): string {
-    for (let i = 0; i < this.rows.length; i++) {
-      const r: ChatRow = this.rows[i];
-      if (r.role === 'assistant' && r.isLive) {
-        return r.id;
-      }
-    }
-    return '';
+    return this.hasLiveRow ? this.liveRowRef.id : '';
   }
 
 
@@ -4592,6 +4546,16 @@ class ChatRowDataSource implements IDataSource {
   private rows: ChatRow[] = [];
   /** 当前承载的**会话身份**（切会话必须整表重建，见 needsFullReload） */
   private chatId: string = '';
+  /**
+   * 上一帧的 `id#rev` 键快照。
+   *
+   * ⛔ 必须快照（不能用 `changedRowIndices(this.rows, next)`）：`ChatRow` 是**就地更新**
+   * 的（保 @ObjectLink 恒等，见 core/render.ets）⇒ `this.rows[i]` 与 `next[i]` 是
+   * **同一对象引用**，`rowKey` 读到的 `rev` 是同一个（已自增）⇒ 恒相等 ⇒ 零通知 ⇒
+   * `LazyForEach` 永不重建该行（bug ①「迭代 commit 后消失」的根因之一）。见
+   * core/rowdiff.changedByKeys。
+   */
+  private keys: string[] = [];
   private listeners: DataChangeListener[] = [];
 
   totalCount(): number {
@@ -4624,9 +4588,16 @@ class ChatRowDataSource implements IDataSource {
   applyRows(next: ChatRow[], chatId: string): void {
     // 骨架重建判据必须含**会话身份**（见 core/rowdiff.needsFullReload 的事故注释）
     const structural: boolean = needsFullReload(this.rows, next, this.chatId, chatId);
-    const changed: number[] = structural ? [] : changedRowIndices(this.rows, next);
+    // ⚠️ 变更判定用**上一帧键快照**（不是 changedRowIndices(this.rows, next) ——
+    //    行对象是就地更新的，新貌旧貌同一引用 ⇒ 永远判"没变" ⇒ 零通知）。
+    const changed: number[] = structural ? [] : changedByKeys(this.keys, next);
     this.rows = next;
     this.chatId = chatId;
+    const keys: string[] = [];
+    for (let i = 0; i < next.length; i++) {
+      keys.push(rowKey(next[i]));
+    }
+    this.keys = keys;
     if (structural) {
       for (let i = 0; i < this.listeners.length; i++) {
         this.listeners[i].onDataReloaded();

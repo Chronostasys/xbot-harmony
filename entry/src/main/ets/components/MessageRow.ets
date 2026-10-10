@@ -15,6 +15,7 @@ import { displayContent, displayReasoning, rowIsEmpty } from '../core/streammerg
 import { runeCount } from '../core/typewriter';
 import { Palette, paletteOf } from '../core/theme';
 import { MarkdownView } from './MarkdownView';
+import { LiveTailView } from './LiveTailView';
 
 /** 行内最多直出多少个迭代（其余折叠 —— 与页面原有窗口一致）。 */
 const MAX_ITER_VISIBLE: number = 8;
@@ -27,6 +28,8 @@ export struct MessageRowView {
   @Prop wrapCodeV: boolean = true;
   /** 运行中工具 pill 的流光位置（页面统一推进 ⇒ 每行不再各开定时器） */
   @Prop sweepX: number = 0;
+  /** 应用是否在后台（打字机在后台挂起 —— 与 LiveTailView 同款） */
+  @Prop paused: boolean = false;
   onImage: (src: string) => void = (src: string) => {
   };
   loadImage: (src: string) => Promise<ArrayBuffer> = async (s: string) => {
@@ -60,16 +63,18 @@ export struct MessageRowView {
   //   syncLiveTail），列表**渲染全部迭代**、尾块渲染在飞快照，无需任何归属判据。
 
   /**
-   * live 行在「全部内容都在飞」（无已完成迭代、无正文）时**不出空盒**。
+   * 行是否有任何可见内容（正文/思考/工具）。无 ⇒ 不渲染气泡（空气泡守卫）。
    *
    * ⛔ bug2 根因之一（真机截图：几百 px 空盒里只有一行「Shell 生成中 N 字」）：
-   * 该 turn 的可见内容此刻**全部**在飞（正文/思考/工具都在 live 快照里），列表里的
-   * live 行还没有任何**已完成**迭代 ⇒ 若照常渲染气泡，就是一个只有边框/阴影的空盒。
-   * web 模型下不存在这个盒子：live 行 = LiveIteration（在飞快照由尾块唯一渲染）。
-   * 因此列表侧对「全在飞的 live 行」不渲染任何东西，可见内容由 LiveTailView 唯一承担。
+   * 该 turn 的可见内容此刻**全部**在飞（正文/思考/工具都在末尾在飞块里），列表里
+   * 若照常渲染气泡就是一个只有边框/阴影的空盒。web 模型下不存在这个盒子。
+   * ⇒ 空行为不渲染任何东西，可见内容由末尾在飞块（同气泡）承担。
+   *
+   * ⚠️ 逐块判定（rowIsEmpty 已含末尾在飞块）—— 不再用旧的
+   * `isLive && iterations.length===0` 判据（在飞块现在**在 iterations 里**）。
    */
-  private isEmptyLiveBubble(): boolean {
-    return this.row.isLive && this.row.iterations.length === 0 && this.row.content.length === 0;
+  private isEmptyBubble(): boolean {
+    return rowIsEmpty(this.row);
   }
 
   private toolKey(turnID: number, iter: number, name: string): string {
@@ -126,8 +131,29 @@ export struct MessageRowView {
     return badge.length > 0 ? `${base} ${badge}` : base;
   }
 
+  /** 在飞迭代块（该行 iterations 末尾 `live:true` 那一块）；无则 undefined。 */
+  private liveBlockOf(row: ChatRow): HistoryIteration | undefined {
+    for (let i = row.iterations.length - 1; i >= 0; i--) {
+      if (row.iterations[i].live === true) {
+        return row.iterations[i];
+      }
+    }
+    return undefined;
+  }
+
+  /** 已完成迭代（排除在飞块）—— 在飞块由 LiveIterationBlock 单独渲染（同气泡末尾）。 */
+  private completedIters(row: ChatRow): HistoryIteration[] {
+    const out: HistoryIteration[] = [];
+    for (let i = 0; i < row.iterations.length; i++) {
+      if (row.iterations[i].live !== true) {
+        out.push(row.iterations[i]);
+      }
+    }
+    return out;
+  }
+
   private itersFor(row: ChatRow): HistoryIteration[] {
-    const all: HistoryIteration[] = row.iterations;
+    const all: HistoryIteration[] = this.completedIters(row);
     if (this.expandedTurn === row.id || all.length <= MAX_ITER_VISIBLE) {
       return all;
     }
@@ -138,7 +164,23 @@ export struct MessageRowView {
     if (this.expandedTurn === row.id) {
       return 0;
     }
-    return row.iterations.length > MAX_ITER_VISIBLE ? row.iterations.length - MAX_ITER_VISIBLE : 0;
+    const total: number = this.completedIters(row).length;
+    return total > MAX_ITER_VISIBLE ? total - MAX_ITER_VISIBLE : 0;
+  }
+
+  private liveBlockText(row: ChatRow): string {
+    const it: HistoryIteration | undefined = this.liveBlockOf(row);
+    return it !== undefined ? displayContent(it) : '';
+  }
+
+  private liveBlockReasoning(row: ChatRow): string {
+    const it: HistoryIteration | undefined = this.liveBlockOf(row);
+    return it !== undefined ? displayReasoning(it) : '';
+  }
+
+  private liveBlockTools(row: ChatRow): ToolProgress[] {
+    const it: HistoryIteration | undefined = this.liveBlockOf(row);
+    return it !== undefined && it.tools !== undefined ? it.tools : [];
   }
 
   @Builder
@@ -182,9 +224,17 @@ export struct MessageRowView {
           this.expandedTurn = row.id;
         })
       }
+      // 已完成迭代（稳定 key：不随 rev 抖 —— 内容变化靠 @ObjectLink 就地更新，
+      // 打字机块才能跨帧存活）。在飞块由下方 LiveIterationBlock 单独渲染。
       ForEach(this.itersFor(row), (it: HistoryIteration) => {
         this.IterationBlock(row, it)
-      }, (it: HistoryIteration) => `${row.id}#${row.rev}-${it.iteration}`)
+      }, (it: HistoryIteration) => `${row.id}#${it.iteration}`)
+      // ── 在飞迭代块：**同一气泡内的最后一块**（对齐 web TurnBody 的 LiveIteration）──
+      // 真机 bug ② 根治点：live 迭代不再是自己一个气泡/一个 ListItem，而是这条
+      // assistant 消息气泡里的最后一块，与已完成迭代共用同一套块渲染（仅带打字机）。
+      if (this.liveBlockOf(row) !== undefined) {
+        this.LiveIterationBlock(row)
+      }
     }
     .width('100%').alignItems(HorizontalAlign.Start)
     .padding({ left: 12, right: 12, top: 10, bottom: 10 })
@@ -197,6 +247,36 @@ export struct MessageRowView {
     .gesture(LongPressGesture().onAction(() => {
       this.onRowLongPress();
     }))
+  }
+
+  /**
+   * 在飞迭代块 —— 同气泡内的最后一块。内容走 `LiveTailView`（打字机 + 工具 pill
+   * + 思考头），但**不带自己的气泡 chrome**（背景/边框/圆角/外边距都在外层
+   * AssistantBlock 上）⇒ 与已完成迭代在同一个气泡里。
+   */
+  @Builder
+  LiveIterationBlock(row: ChatRow) {
+    Column({ space: 6 }) {
+      LiveTailView({
+        text: this.liveBlockText(row),
+        reasoning: this.liveBlockReasoning(row),
+        tools: this.liveBlockTools(row),
+        paused: this.paused,
+        theme: this.theme,
+        fontScale: this.fontScaleV,
+        wrapCode: this.wrapCodeV,
+        onImage: (src: string) => {
+          this.onImage(src);
+        },
+        loadImage: (src: string) => {
+          return this.loadImage(src);
+        },
+        onToolLongPress: (name: string) => {
+          this.onOpenCtx(row.turnID, name);
+        },
+      })
+    }
+    .width('100%').alignItems(HorizontalAlign.Start)
   }
 
   @Builder
@@ -346,7 +426,7 @@ export struct MessageRowView {
   }
 
   build() {
-    if (!this.isEmptyLiveBubble()) {
+    if (!this.isEmptyBubble()) {
       this.AssistantBlock(this.row)
     }
   }

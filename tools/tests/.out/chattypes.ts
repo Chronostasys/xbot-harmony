@@ -61,6 +61,15 @@ export interface WebToolProgress {
    * as a fancy top-level panel (header + collapse + fullscreen) instead of
    * being folded into the normal tool list. */
   surface?: UISurface
+  /**
+   * generating 状态下参数已生成的字符数（服务端 `protocol.ToolProgress.GenChars`
+   * → JSON `gen_chars`）。
+   *
+   * ⚠️ 原生端**扩展字段**（web 的 WebToolProgress 无此字段 —— web 的 generating
+   * 角标只显示文字）。原生 pill 显示「生成中 N 字」（用户已见的形态），故保留它；
+   * 归一化在 `progress_types.ts` 的 normalizeWebTool（web 同函数 + 本字段）。
+   */
+  genChars?: number
 }
 
 /** Iteration snapshot — one completed iteration's reasoning + tools + text output. */
@@ -138,4 +147,111 @@ export interface UISurface {
   collapsible?: boolean;
   fullscreen?: boolean;
   defaultOpen?: boolean;
+}
+
+/** Token 用量（逐字取自 web `types/shared.ts:528`；镜像 protocol.TokenUsage）。 */
+export interface TokenUsageInfo {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+/** 实时流式时序（逐字取自 web `types/shared.ts:535`；镜像 protocol.StreamStats）。 */
+export interface StreamStatsInfo {
+  ttftMs: number;
+  tpotMs: number;
+  tokensPerSec: number;
+  totalMs: number;
+  chunks: number;
+}
+
+/**
+ * ProgressSnapshot —— live 进度快照（逐字取自 web `types/shared.ts:486`）。
+ *
+ * 这是 progressStore 的字段面：live 行（LiveIteration）消费的就是它。
+ * normalize/integrate 的 `historyProgressToLive` 产出它、`liveProgressFromState`
+ * 产出它（对齐 web 的同一函数）。
+ */
+export interface ProgressSnapshot {
+  /** Monotonic semantic progress-log ID from protocol.ProgressEvent.Seq. */
+  eventSeq: number;
+  phase: string;
+  iteration: number;
+  streamContent: string;
+  reasoningStreamContent: string;
+  content: string;
+  streaming: boolean;
+  activeTools: WebToolProgress[];
+  completedTools: WebToolProgress[];
+  iterationHistory: WebIteration[];
+  streamingTools: WebToolProgress[];
+  /** 折叠视图窗口声明（后端 iteration_regions_before）。 */
+  iterationRegionsBefore?: number;
+  genuiContent: string;
+  lastIter: number;
+  lastReasoning: string;
+  todos: TodoItem[];
+  goal: GoalInfo | null;
+  subAgents: WebSubAgentProgress[];
+  tokenUsage: TokenUsageInfo | null;
+  streamStats?: StreamStatsInfo | null;
+  turnID: number;
+}
+
+/** 空快照 —— idle 态（逐字取自 web `types/shared.ts:544`）。 */
+export const EMPTY_PROGRESS_SNAPSHOT: ProgressSnapshot = {
+  eventSeq: 0,
+  phase: '',
+  iteration: 0,
+  streamContent: '',
+  reasoningStreamContent: '',
+  content: '',
+  streaming: false,
+  activeTools: [],
+  completedTools: [],
+  iterationHistory: [],
+  streamingTools: [],
+  genuiContent: '',
+  lastIter: 0,
+  lastReasoning: '',
+  todos: [],
+  goal: null,
+  subAgents: [],
+  tokenUsage: null,
+  streamStats: null,
+  turnID: 0,
+};
+
+/** 聊天消息角色（逐字取自 web `types/shared.ts:568`）。 */
+export type ChatMessageRole = 'user' | 'assistant' | 'system';
+
+/**
+ * Committed chat message（逐字取自 web `types/shared.ts:575`）—— 所有渲染组件
+ * 消费的形状。`integrate.rowsToChatMessages` 把 derive 的 Row 映射成它。
+ *
+ * ⚠️ 原生端渲染层（MessageRowView / LiveTailView）目前消费的是 `ChatRow`
+ * （@Observed class）—— 见 store 的 rowFromDerived 适配：字段逐一对应。
+ */
+export interface ChatMessage {
+  id: string;
+  role: ChatMessageRole;
+  content: string;
+  iterations: WebIteration[];
+  iterationsTruncated?: number;
+  regionsBefore?: number;
+  compactions?: WebCompaction[];
+  timestamp: string;
+  isPartial: boolean;
+  frozen?: boolean;
+  turnID: number;
+  displayOnly?: boolean;
+  persisted?: boolean;
+  sending?: boolean;
+  queued?: boolean;
+  isNotification?: boolean;
+  eventSeq?: number;
+  standalone?: boolean;
+  anchorTurnID?: number;
+  requestID?: string;
+  dbID?: number;
 }

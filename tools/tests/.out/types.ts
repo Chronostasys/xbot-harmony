@@ -76,6 +76,16 @@ export interface HistoryIteration {
   stream_text?: string;
   /** 同上，推理流。 */
   stream_reasoning?: string;
+  /**
+   * ⚠️ 渲染层标记：这一块是**在飞（in-flight）迭代**（尚未 commit）。
+   *
+   * `core/render.ets` 从 live Row 的在飞字段（content/reasoning/activeTools/
+   * streamingTools + lastIter）折叠出的**最后一个迭代块** —— 与已完成迭代
+   * **共用同一套块渲染**，仅它带打字机/占位（对齐 web `TurnBody` 里 iterations
+   * 之后追加的 `LiveIteration`：live 迭代就是该消息气泡**内部的最后一块**，
+   * 而不是另一个气泡/另一行）。
+   */
+  live?: boolean;
 }
 
 /** 历史消息行。 */
@@ -135,6 +145,41 @@ export interface ProgressEvent {
   tools_folded?: boolean;
   /** 结构化事件里的目标（服务端 ProgressEvent.Goal） */
   goal?: GoalInfo;
+  /** 会话级 todos（服务端 ProgressEvent.Todos）—— web normalize/integrate 读取。 */
+  todos?: ProtoTodoItem[];
+  /** SubAgent 进度树（服务端 ProgressEvent.SubAgents）—— web 读取并归一。 */
+  sub_agents?: ProtoSubAgent[];
+  /** busy 快照折叠窗口声明（服务端 ProgressEvent.IterationRegionsBefore）。 */
+  iteration_regions_before?: number;
+  /** 实时流式时序（服务端 ProgressEvent.StreamStats）—— web parseStreamStats 读取。 */
+  stream_stats?: ProtoStreamStats;
+}
+
+/** 服务端 ProgressEvent.SubAgents 的节点（ArkTS 禁止 unknown ⇒ 具名递归接口）。 */
+export interface ProtoSubAgent {
+  role?: string;
+  instance?: string;
+  session_key?: string;
+  status?: string;
+  desc?: string;
+  iteration?: number;
+  children?: ProtoSubAgent[];
+}
+
+/** 服务端 ProgressEvent.Todos 的元素（ArkTS 禁止对象字面量作类型 ⇒ 具名接口）。 */
+export interface ProtoTodoItem {
+  id?: string;
+  text?: string;
+  status?: string;
+}
+
+/** 服务端 ProgressEvent.StreamStats（实时流式时序）。 */
+export interface ProtoStreamStats {
+  ttft_ms?: number;
+  tpot_ms?: number;
+  tokens_per_sec?: number;
+  total_ms?: number;
+  chunks?: number;
 }
 
 /** 会话生命周期事件（`session` 事件载荷）。 */
@@ -205,6 +250,11 @@ export class ChatRow implements IterList {
   isLive: boolean = false;
   /** 渲染版本：每次内容变化自增，参与 ForEach key */
   rev: number = 0;
+  /**
+   * 派生行内容指纹（`core/render.ets` 写入）—— 与上一帧相同则**不更新字段**、
+   * 不自增 rev（保住 @ObjectLink 恒等 + 避免无谓重建）。⚠️ 纯内部状态，不参与 UI。
+   */
+  signature: string = '';
   /**
    * 该 turn **更早未下发的展示区域数**（服务端 `regions_before`）。
    * REST 历史是折叠视图（`HistoryRegionWindow = 100`）：每个 turn 只下发尾部 100 个区域，

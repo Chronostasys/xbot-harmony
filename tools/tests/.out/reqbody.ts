@@ -21,21 +21,38 @@
  *   /api/files/list {path, show_hidden}；/api/llm-config/model {sub_id, model}；/api/llm-max-context {max_context}
  */
 
-/** `/api/message`（= `protocol.WSClientMessage` 的可用子集；**绝不含 turn_id**）。 */
+/**
+ * `/api/message`（= `protocol.WSClientMessage` 的可用子集；**绝不含 turn_id**）。
+ *
+ * `id`（可选）= 客户端**乐观 user 行的 requestID**。必须是服务端 `WSClientMessage.ID`
+ * 字段（`json:"id,omitempty"`，严格解码也认它），服务端据此把它原样回显到
+ * `user_echo.ID` 与 `turn_started.turn_start.request_id` ⇒ reduce 用 requestID
+ * 把乐观行与回声/历史**收敛为同一条 user 行**（web 的 `ws.send({id: rid})` 同源）。
+ *
+ * ⚠️ 不传 `id` 的后果（2026-10-10 真机 bug「你好渲染两次」根因）：服务端自生成
+ * requestID（uuid）⇒ 回声 ID 与本地乐观行对不上 ⇒ `user_echo` 无法就地收敛、
+ * 被当新 user 追加 ⇒ 同一句用户消息两条 user 行（一条绑进 turn 在回复之前、
+ * 一条 pending 沉底在回复之后 —— 用户看到的"先并排、后前后各一个"）。
+ */
 export class MessageReq {
   channel: string = '';
   chat_id: string = '';
   content: string = '';
+  /** 客户端 requestID（乐观行 requestID）—— 服务端回声/回合按它精确匹配。 */
+  id?: string;
   upload_keys?: string[];
   file_names?: string[];
   file_sizes?: number[];
   interrupt?: boolean;
 
   constructor(channel: string, chatId: string, content: string, uploadKeys?: string[],
-    fileNames?: string[], fileSizes?: number[], interrupt?: boolean) {
+    fileNames?: string[], fileSizes?: number[], interrupt?: boolean, requestID?: string) {
     this.channel = channel;
     this.chat_id = chatId;
     this.content = content;
+    if (requestID !== undefined && requestID.length > 0) {
+      this.id = requestID;
+    }
     if (uploadKeys !== undefined && uploadKeys.length > 0) {
       this.upload_keys = uploadKeys;
       this.file_names = fileNames;

@@ -36,16 +36,20 @@
 | `useChatMessages`：渲染行 = `rowsToChatMessages(deriveRows(state))` | `core/store.ets` `rebuildRows()` + `core/render.ts` `applyRow` | 逐字一致（就地更新保 @ObjectLink 恒等，等价 web 的对象恒等 memo） |
 | `useChatMessages` history → `history_replaced` | `core/store.ets` `loadHistoryInner/loadMore`（`ChatStore.toChatMessages` + `historyToReplaced`） | 逐字一致 |
 | `useProgressStream`：按 `msg.type` 派发 | `core/store.ets` `onSse`（`raw.type = eventName` → `normalizeEvent` → `reduce`） | 逐字一致（事件名 = 权威类型，绝不按载荷字段猜分类） |
-| `MessageList`/`LiveIteration`：live 行渲染**已完成迭代**（在列表）+ 在飞快照（`liveProgress`） | `MessageRow.ets`（列表渲染全部迭代）+ `LiveTailView.ets`（尾块渲染 `store.liveProgress()`） | 语义一致 |
-| `LiveIteration` 渲染序 T→O→C + 空内容时 `ShimmerThinking` | `LiveTailView.ets`（思考头 → 正文打字机 → 工具 pill） | 语义一致 |
+| `MessageList`/`TurnBody`：live 行渲染**已完成迭代**，`liveProgress` 追加 `LiveIteration`（**同一气泡内**最后一块） | `MessageRow.ets`（`AssistantBlock` 渲染 `iterations` ⊕ 末尾在飞块）+ `core/render.ets` `liveIterations`（把在飞块折进行 `iterations`，`live:true`） | 逐字对齐（同气泡最后一块） |
+| `LiveIteration` 渲染序 T→O→C + 空内容时 `ShimmerThinking` | `MessageRow.ets` `LiveIterationBlock` → `LiveTailView.ets`（思考头 → 正文打字机 → 工具 pill；**无自己的气泡 chrome**） | 语义一致 |
 | `progressStore.fullReset`（切会话复位 store + `lastTurnID/lastIter`） | `core/store.ets` `openSession` → `this.state = initialChatState(chatId)` | 语义一致（整体重建 ⇒ 不可能漏字段） |
 
 ## 2. 有差异的地方 + 理由（逐条）
 
-1. **`tailOwnedIteration` / `MessageRowView.isTailOwned` 被删除**（bug1 根因）。
-   web 的 live 行 `iterations` **只含已完成迭代**，在飞内容（content/reasoning/tools）是独立字段；
-   原生旧实现把在飞内容折进"最后一个迭代"，再让列表跳过它、由尾块渲染 ⇒ 两处必须严格互斥，
-   稍有不一致就"同一个 turn 渲染两遍"。对齐 web 后二者天然不重叠 ⇒ 判据整个删掉。
+1. **`tailOwnedIteration` / `MessageRowView.isTailOwned` 已删除**（bug1 根因）—— 且**在飞块
+   不再有独立气泡**（bug2）。web 的 `TurnBody` 在**同一个气泡内**渲染 `iterations`（已完成）
+   之后追加 `<LiveIteration>`（在飞）。native 一行 = 一条消息 = 一个气泡 ⇒ 等价做法是
+   `core/render.ets` 的 `liveIterations` 把在飞内容（content/reasoning/activeTools/
+   streamingTools）折成 `iterations` 的**最后一元素**（`live: true`），由 `MessageRowView`
+   的同一套块渲染画出（仅最后一块带打字机 `LiveIterationBlock → LiveTailView`）。
+   追加边界：仅当 `lastIter > maxCompleted`（迭代 commit 后不追加，块数**单调不减**）。
+   ⇒ 判据（isTailOwned/tailOwnedIteration）整个删掉；在飞内容与已完成迭代同一气泡、同一行。
 2. **`get busy()` 额外 `&& this.askUser === null`**。对齐 AgentPanel 的
    `&& !askUser.prompt && currentSession?.status !== 'waiting_input'`（等待用户回答时 turn 是 PAUSED，
    输入框不得显示 generating/stop）。native 只有 `askUser`（无 `currentSession.status`），故取前一半。
@@ -70,6 +74,12 @@
   重启 resume/seq 重启、notification 行、重复 key、last-iteration、gap、in-flight 工具折叠。
 - `tools/tests/streammerge_row.test.ts`（2 项）：live 行「已完成迭代在列表 / 在飞快照在尾块，
   **互不重叠**」的不变量（bug1 回归守卫）。
+- `tools/tests/live_iteration_inline.test.ts`（2 项）：**2026-10-10 真机 bug ①/② 回归守卫** ——
+  驱动含 3 迭代的真实事件序列（turn_started→iteration×3→phase_done→text_final，中间 stream
+  推进），断言：该 turn 恰一条 assistant 行、其 `iterations` 数**单调不减**、第 k 个迭代
+  commit 后**仍在该行**、在飞块是该行**最后一个迭代块**（同气泡，非独立行/气泡）。
+- `tools/tests/rowdiff.test.ts`：行数据源 diff 语义（含 `changedByKeys` 键快照 diff ——
+  bug ① 的页面侧根因：就地更新的行对象 ⇒ 新旧数组同一引用 ⇒ 直接比 `rev` 恒相等 ⇒ 零通知）。
 - `tools/tests/user_row_integrity.test.ts`（7 项）：**一条用户消息恰一条 user 行** ——
   端到端驱动 `ChatStore.send()`（打桩 HTTP/SSE），覆盖「乐观发送 → 回声/回合开始 →
   最终文本」以及「历史合并」「通知 turn 回声」三类路径（bug2「你好渲染两次」回归守卫）。

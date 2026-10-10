@@ -30,6 +30,15 @@ eq('无变化', (0, rowdiff_1.changedRowIndices)([row('a', 1), row('b', 1)], [ro
 eq('单行 rev 变化', (0, rowdiff_1.changedRowIndices)([row('a', 1), row('b', 1)], [row('a', 2), row('b', 1)]), [0]);
 eq('两行变化', (0, rowdiff_1.changedRowIndices)([row('a', 1), row('b', 1)], [row('a', 2), row('b', 2)]), [0, 1]);
 eq('长度不等时只比公共前缀（身份变化走 reload）', (0, rowdiff_1.changedRowIndices)([row('a', 1)], [row('a', 1), row('b', 1)]), []);
+// ── changedByKeys：数据源必须用**上一帧键快照**比较（对象就地更新 ⇒ 新旧数组同一引用）──
+// 复现 bug ① 的页面侧根因：同一对象被就地更新后，changedRowIndices(old, new) 恒为空。
+const a1 = row('a', 1);
+const liveOld = [a1];
+a1.rev = 2; // 就地更新（模拟 core/render.ets applyRow + touch）
+eq('⛔ 就地更新后 changedRowIndices 恒为空（对象别名陷阱）', (0, rowdiff_1.changedRowIndices)(liveOld, [a1]), []);
+eq('⛔ 键快照能判出变化（数据源修法）', (0, rowdiff_1.changedByKeys)(['a#1'], [a1]), [0]);
+eq('键快照：未变化不通知', (0, rowdiff_1.changedByKeys)(['a#2'], [a1]), []);
+eq('键快照：只报变化行', (0, rowdiff_1.changedByKeys)(['x#9', 'a#2'], [row('x', 9), a1]), []);
 eq('窗口：limit 大于总长', (0, rowdiff_1.tailRows)([row('a', 1)], 5).length, 1);
 eq('窗口：取末尾', (0, rowdiff_1.tailRows)([row('a', 1), row('b', 1), row('c', 1)], 2).map((r) => r.id), ['b', 'c']);
 eq('窗口：limit=0 视为全量', (0, rowdiff_1.tailRows)([row('a', 1)], 0).length, 1);

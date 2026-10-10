@@ -38,6 +38,27 @@ export function changedRowIndices(a: ChatRow[], b: ChatRow[]): number[] {
   return out;
 }
 
+/**
+ * 内容发生变化的下标 —— 用**上一帧的键快照**比较（**必须**用它，不要用 changedRowIndices）。
+ *
+ * ⛔ 真机严重事故（bug ①「迭代 commit 后消失，新 turn 永远只有 0-1 个迭代」的根因之一）：
+ * `rows` 里的 `ChatRow` 是**就地更新**的（保 @ObjectLink 恒等，见 core/render.ets）——
+ * 数据源持有的旧数组与新数组是**同一批对象引用**，`changedRowIndices(old, new)` 对每个
+ * 下标比较的都是**同一个对象**的 `rev`（已自增过）⇒ 恒相等 ⇒ **零通知** ⇒
+ * `LazyForEach` 永不重建该行 ⇒ live 行的已完成迭代/内容更新**永远不显示**。
+ * 修法：数据源在每次 `applyRows` 时把**当时的 `id#rev` 键**快照下来；下次用快照比。
+ */
+export function changedByKeys(prevKeys: string[], next: ChatRow[]): number[] {
+  const out: number[] = [];
+  const n: number = prevKeys.length < next.length ? prevKeys.length : next.length;
+  for (let i = 0; i < n; i++) {
+    if (prevKeys[i] !== rowKey(next[i])) {
+      out.push(i);
+    }
+  }
+  return out;
+}
+
 /** 末尾 N 行（行窗口：只让数据源持有最近 N 行）。 */
 export function tailRows(rows: ChatRow[], limit: number): ChatRow[] {
   if (limit <= 0 || rows.length <= limit) {

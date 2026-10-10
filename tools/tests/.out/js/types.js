@@ -43,6 +43,11 @@ let ChatRow = class ChatRow {
         /** 渲染版本：每次内容变化自增，参与 ForEach key */
         this.rev = 0;
         /**
+         * 派生行内容指纹（`core/render.ets` 写入）—— 与上一帧相同则**不更新字段**、
+         * 不自增 rev（保住 @ObjectLink 恒等 + 避免无谓重建）。⚠️ 纯内部状态，不参与 UI。
+         */
+        this.signature = '';
+        /**
          * 该 turn **更早未下发的展示区域数**（服务端 `regions_before`）。
          * REST 历史是折叠视图（`HistoryRegionWindow = 100`）：每个 turn 只下发尾部 100 个区域，
          * 更早的必须用 `POST /api/regions` 按需取回。缺省 0 = 已完整下发。

@@ -18,8 +18,14 @@ function keysOf(o) {
 }
 // ⛔ 最关键的回归守卫：/api/message 绝不能出现 turn_id（真机 400 的根因）
 eq('消息体键集（无 turn_id）', keysOf(new reqbody_1.MessageReq('web', 'c1', '你好')), ['channel', 'chat_id', 'content']);
+// 客户端 requestID 必须能随请求体发出（服务端回声/回合据它把乐观行与回显收敛为
+// 同一条 user 行 —— 缺它 = 真机「你好渲染两次」根因）。服务端 WSClientMessage 的
+// `ID json:"id,omitempty"` 是合法字段，严格解码不拒。
+eq('消息体：携带客户端 requestID（id）', keysOf(new reqbody_1.MessageReq('web', 'c1', '你好', undefined, undefined, undefined, false, 'req-1')), ['channel', 'chat_id', 'content', 'id']);
+eq('消息体：空 requestID 不发 id 字段', keysOf(new reqbody_1.MessageReq('web', 'c1', '你好', undefined, undefined, undefined, false, '')), ['channel', 'chat_id', 'content']);
 eq('消息体：无附件不出现 upload 字段', keysOf(new reqbody_1.MessageReq('web', 'c1', 'hi', undefined, undefined, undefined, false)), ['channel', 'chat_id', 'content']);
 eq('消息体：带附件', keysOf(new reqbody_1.MessageReq('web', 'c1', 'hi', ['k1'], ['a.png'], [12], true)), ['channel', 'chat_id', 'content', 'file_names', 'file_sizes', 'interrupt', 'upload_keys']);
+eq('消息体：带附件 + requestID', keysOf(new reqbody_1.MessageReq('web', 'c1', 'hi', ['k1'], ['a.png'], [12], true, 'req-1')), ['channel', 'chat_id', 'content', 'file_names', 'file_sizes', 'id', 'interrupt', 'upload_keys']);
 eq('会话体键集', keysOf(new reqbody_1.SessionReq('web', 'c1')), ['channel', 'chat_id']);
 eq('仅 channel 体', keysOf(new reqbody_1.ChannelReq('web')), ['channel']);
 eq('空体', keysOf(new reqbody_1.EmptyReq()), []);

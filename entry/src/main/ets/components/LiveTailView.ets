@@ -290,10 +290,10 @@ export struct LiveTailView {
         .width('100%')
       }
     }
+    // ⚠️ **无自己的气泡 chrome**（无背景/边框/圆角/外边距）：它是「同气泡内最后一个
+    //    迭代块」的内容渲染器 —— 气泡由外层 MessageRowView.AssistantBlock 提供。
+    //    （真机 bug ②「live 迭代是单独的气泡」的根治点：此前它自带 chrome 且是独立
+    //    ListItem，于是画成第二个气泡。）
     .width('100%').alignItems(HorizontalAlign.Start)
-    .padding({ left: 12, right: 12, top: 10, bottom: 10 })
-    .backgroundColor(this.pal().surface).borderRadius(14)
-    .border({ width: 1, color: this.pal().border })
-    .margin({ top: 4, bottom: 4 })
   }
 }
