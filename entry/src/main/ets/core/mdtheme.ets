@@ -7,7 +7,7 @@
  *
  * 纯数据 + 纯函数 ⇒ 可脱机单测（`tools/tests/mdtheme.test.ts`）。
  */
-import { Palette } from './theme';
+import { Palette, isLightPalette } from './theme';
 
 /** web `DEFAULT_MARKDOWN_THEME`。 */
 export const DEFAULT_MD_THEME: string = 'vscode-dark';
@@ -125,7 +125,10 @@ export function codeBgOf(id: string, p: Palette): string {
   // 跟随全局主题模式时（例如全局浅色却选了深色 md 主题）以 md 主题自己的模式为准，
   // 否则会出现"浅色代码块压在深色页面上"的割裂。
   if (mode === 'light') { return t.bg; }
-  if (p.appBg === '#F8FAFC') { return '#1E1E1E'; }
+  // 全局浅色（含新增的 porcelain）却选了深色 md 主题 ⇒ 统一用规范深底。
+  // ⚠️ 判据必须是**按色板亮度**（isLightPalette），不能把 `lightPalette().appBg`（曾硬编码 '#F8FAFC'）
+  //    当魔法常量 —— 否则换色板（porcelain 的 appBg 是 #FFFFFF）后该分支失效。
+  if (isLightPalette(p)) { return '#1E1E1E'; }
   return t.bg;
 }
 

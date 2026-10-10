@@ -11,9 +11,9 @@
 declare const process: { exit: (c: number) => void };
 
 import {
-  darkPalette, lightPalette, auroraPalette, nebulaPalette, paletteOf, paletteComplete, paletteValues,
+  darkPalette, lightPalette, auroraPalette, nebulaPalette, porcelainPalette, paletteOf, paletteComplete, paletteValues,
   effectsOf, effectsComplete, normalizeTheme, themeLabel,
-  THEME_DARK, THEME_LIGHT, THEME_AURORA, THEME_NEBULA, ALL_THEMES,
+  THEME_DARK, THEME_LIGHT, THEME_AURORA, THEME_NEBULA, THEME_PORCELAIN, ALL_THEMES,
 } from '../../entry/src/main/ets/core/theme';
 
 import {
@@ -38,20 +38,24 @@ const D = darkPalette();
 const L = lightPalette();
 const A = auroraPalette();
 const N = nebulaPalette();
+const P = porcelainPalette();
 
-// ── (a) 穷尽性：四套主题每个角色都有值；枚举表覆盖全部字段 ──────────────────
+// ── (a) 穷尽性：五套主题每个角色都有值；枚举表覆盖全部字段 ──────────────────
 eq('dark 完整', paletteComplete(D), true);
 eq('light 完整', paletteComplete(L), true);
 eq('aurora 完整', paletteComplete(A), true);
 eq('nebula 完整', paletteComplete(N), true);
+eq('porcelain 完整', paletteComplete(P), true);
 eq('dark 枚举表=字段数', paletteValues(D).length, Object.keys(D).length);
 eq('light 枚举表=字段数', paletteValues(L).length, Object.keys(L).length);
 eq('aurora 枚举表=字段数', paletteValues(A).length, Object.keys(A).length);
 eq('nebula 枚举表=字段数', paletteValues(N).length, Object.keys(N).length);
+eq('porcelain 枚举表=字段数', paletteValues(P).length, Object.keys(P).length);
 eq('四套字段数一致', Object.keys(D).length, Object.keys(A).length);
 eq('四套字段数一致(2)', Object.keys(L).length, Object.keys(N).length);
-ok('字段数=24（23 角色 + accentHover）', Object.keys(D).length === 24);
-ok('ALL_THEMES 覆盖四套', ALL_THEMES.length === 4);
+eq('五套字段数一致', Object.keys(P).length, Object.keys(D).length);
+ok('字段数=29（原 24 + foreground3 + 状态四色）', Object.keys(D).length === 29);
+ok('ALL_THEMES 覆盖五套', ALL_THEMES.length === 5);
 
 // ── (b) aurora / nebula 关键色值 vs 设计基线表（逐值相等；源表为小写 hex） ──
 // aurora（xbot-aurora）

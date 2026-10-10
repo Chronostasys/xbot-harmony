@@ -4,7 +4,8 @@
  */
 declare const process: { exit: (c: number) => void };
 
-import { MD_THEMES, DEFAULT_MD_THEME, mdThemeLabel, mdThemeMode, normalizeMdTheme, isLightMdTheme, codeTone } from '../../entry/src/main/ets/core/mdtheme';
+import { MD_THEMES, DEFAULT_MD_THEME, mdThemeLabel, mdThemeMode, normalizeMdTheme, isLightMdTheme, codeTone, codeBgOf } from '../../entry/src/main/ets/core/mdtheme';
+import { darkPalette, porcelainPalette } from '../../entry/src/main/ets/core/theme';
 
 let pass = 0, fail = 0;
 function eq(name: string, got: unknown, want: unknown): void {
@@ -52,6 +53,13 @@ eq('浅色主题代码底比字亮', ((): boolean => {
   const t = codeTone('github-light');
   return t.bg > t.fg;   // 字符串比较对 #RRGGBB 近似等价于亮度比较（同为 # 开头定长）
 })(), true);
+
+// 4. codeBgOf：全局浅色（**含新白主题 porcelain**）配深色 md 主题时必须回落规范深底。
+//    判别力：旧实现在此处硬编码 `p.appBg === '#F8FAFC'`，porcelain 的 appBg 是 #FFFFFF ⇒
+//    会漏判、返回 md 主题底色（#161B22）而不是规范深底（#1E1E1E）——这两条能抓住该回归。
+eq('深色页 + github-dark ⇒ 用 md 主题底', codeBgOf('github-dark', darkPalette()), '#161B22');
+eq('极简白页 + github-dark ⇒ 回落规范深底', codeBgOf('github-dark', porcelainPalette()), '#1E1E1E');
+eq('浅色 md 主题 ⇒ 用自己的浅底', codeBgOf('github-light', porcelainPalette()), '#F6F8FA');
 
 console.log(`mdtheme: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

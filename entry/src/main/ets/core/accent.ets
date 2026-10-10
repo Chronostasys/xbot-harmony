@@ -109,6 +109,7 @@ export function withAccent(p: Palette, hex: string, isDark: boolean): Palette {
   next.textPrimary = p.textPrimary;
   next.textSecondary = p.textSecondary;
   next.textMuted = p.textMuted;
+  next.foreground3 = p.foreground3;
   next.accent = a;
   next.accentHover = isDark ? lighten(a, 0.12) : darken(a, 0.1);
   next.accentSoft = isDark ? lighten(a, 0.45) : darken(a, 0.18);
@@ -125,6 +126,10 @@ export function withAccent(p: Palette, hex: string, isDark: boolean): Palette {
   next.warnBg = p.warnBg;
   next.dangerBg = p.dangerBg;
   next.dangerText = p.dangerText;
+  next.statusRunning = p.statusRunning;
+  next.statusWaiting = p.statusWaiting;
+  next.statusIdle = p.statusIdle;
+  next.statusError = p.statusError;
   next.transparent = p.transparent;
   return next;
 }
