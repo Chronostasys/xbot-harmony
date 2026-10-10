@@ -39,6 +39,9 @@ else
 fi
 rm -f "$LOG"
 
+echo "===== ⑤ 孤儿组件（警告级，不影响退出码）====="
+bash "$HERE/lint/orphan-components.sh" || true
+
 echo
 if [ "$fail" -ne 0 ]; then
   echo "❌ 真门禁**未通过**（见上方红灯）"
