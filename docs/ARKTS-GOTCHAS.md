@@ -614,3 +614,29 @@ Usage of standard library is restricted (arkts-limited-stdlib)
   可以自由设计，但**必须是有意为之**；凡是"意外渲染出来的样子"都不算设计。
   开屏（startWindow）则已有判据：`docs/BRAND.md` §4，底色取
   `lightPalette().appBg = #F8FAFC` / `darkPalette().appBg = #0B0B0E`（**与主界面同色，开屏→首屏不跳色**）。
+
+---
+
+## 批次 15：**服务端 JSON `null` ≠ ArkTS `undefined`** —— 只判 `!== undefined` 的门会把 `null` 放过去（真机 P0：新建会话失败，2026-10-11）
+
+- **现象**（真机端到端）：点会话抽屉的「＋ 新建」⇒ Toast **`新建失败: Cannot read property questions of null`**，新建会话 100% 失败。
+- **链路**：`pages/Index.ets:1509 newSession()` → `core/store.ets:369 createSession()` → `openSession()` → `loadHistoryInner()` → **`:589-592`**。
+- **实测证据**（**别只推理，要打服务端**）：对一个没有在飞进度的会话（新会话必然如此），`POST /api/history` 返回
+  ```json
+  {"ok":true,"data":{"active_progress":null,"messages":null,"has_more":false,...},"error":null}
+  ```
+  即 **JSON `null`**（不是缺字段、不是 `undefined`）。复现：`curl -c/‑b cookie.jar POST /api/auth/login` → `/api/chats/create` → 用返回的 `chat_id` 打 `/api/history`。
+- **根因**：
+  ```ts
+  const ap: ProgressEvent | undefined = data.active_progress;   // 运行期是 null！
+  if (ap !== undefined) { this.pickAskUserFromProgress(ap); }   // null !== undefined ⇒ 为真 ⇒ 放行
+  ```
+  进 `pickAskUserFromProgress(null)` ⇒ `arrOrEmpty(p.questions)` **先求值 `p.questions`** ⇒ 抛异常。
+- **为什么容易复发**：类型标注写成 `| undefined` 会让人以为"判 `undefined` 就够了"；而 Go 侧的 nil slice / nil map / nil pointer 序列化成 JSON 时是 **`null`**，不是缺字段。
+- **正确做法**：
+  1. 一切**外来 JSON**（`postAs<T>()` 的结果 / `JSON.parse(...) as T` / SSE `env.*`）的判空**一律**用 `core/guards.ets` 的 `isPresent()`（`v !== undefined && v !== null`）/ `arrPresent()` / `arrOrEmpty()`；
+  2. **纯函数/私有方法的入口自身也要防御**（签名放宽为 `T | null | undefined`），**不要把安全性寄托在调用方** —— 本批次的缺陷能复发，正是因为这个方法自己不设防。
+  3. 本地变量的 `!== undefined` 不必改（别扩大爆炸半径）。
+- **本仓库已有先例**：`core/store.ets:399` 注释早就写过同一件事（"服务端 nil map → JSON null；只判 undefined 会把 null 交下去（`toLocalSettings(null)` 崩）"）⇒ 这是**同类缺陷复发的第二例**。
+- **为什么离线门禁抓不到**：`null` 完全符合 `T | undefined` 的静态类型（ArkTS 的类型检查不追踪 JSON 的 null 可能性）⇒ 三条离线门禁 + `assembleHap` 全绿，只有**真机端到端**能抓。又与批次 13/14 同一结论：**门禁的口径之外，必须真机走一遍主流程**。
+- **真机复现工具**：`tools/device/ui.sh`（`click-text` / `click-input` / `wait-text` / `shot`）—— 本 P0 就是它抓到的。
