@@ -26,12 +26,14 @@ import { XbotHttp } from '../core/http';
 import { FS_BODY, FS_CAPTION, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5 } from '../core/tokens';
 import {
   countModelsForSub, DefaultSubscriptionParams, GetSettingsParams, isSubscriptionEnabled,
-  ModelEntryRow, readableRpcError, rpc, RpcMethod, SetSettingParams, SETTINGS_NS_CLI,
-  SubscriptionEnabledParams, SubscriptionRow,
+  LlmConcurrencyParams, ModelEntryRow, readableRpcError, rpc, RpcMethod, SetSettingParams,
+  SETTINGS_NS_CLI, SubscriptionEnabledParams, SubscriptionRow, ThinkingModeParams,
 } from '../core/rpc';
 import {
-  formatTierValue, isTierEntryCurrent, tierDisplayText, tierHint, tierKey, tierLabel,
-  tierPickerEntries, TIERS, TIER_UNSET_TEXT, tierValues,
+  clampConcurrency, concurrencyFrom, concurrencyStep, formatTierValue, isTierEntryCurrent,
+  LLM_CONCURRENCY_MAX, LLM_CONCURRENCY_MIN, thinkDbFromDisplay, thinkDisplayFromDb, thinkHint,
+  thinkLabel, THINK_OPTIONS, tierDisplayText, tierHint, tierKey, tierLabel, tierPickerEntries,
+  TIERS, TIER_UNSET_TEXT, tierValues,
 } from '../core/settings';
 import { SettingsErrorBar, SettingsPanelHeader, SettingsSubCard } from './SettingsRows';
 
@@ -55,6 +57,12 @@ export struct SettingsLlm {
   @State private tierQuery: string = '';
   /** 档位写入中。 */
   @State private tierBusy: boolean = false;
+  /** 思考模式（**显示值**：auto/think/think-max/disabled）。 */
+  @State private thinking: string = 'auto';
+  /** 并发（生效值）。 */
+  @State private concurrency: number = 5;
+  /** 推理设置写入中。 */
+  @State private inferenceBusy: boolean = false;
 
   aboutToAppear(): void {
     void this.load();
@@ -91,6 +99,13 @@ export struct SettingsLlm {
       const settings: Record<string, string> = await rpc<Record<string, string>>(
         this.http, RpcMethod.getSettings, new GetSettingsParams(SETTINGS_NS_CLI));
       this.tiers = tierValues(settings);
+      // 思考模式 / 并发走**专用 RPC**（`rpc_table.go:690,714`；与 web `useLLMSettings.ts:106-112` 同源）：
+      // 并发读走它才拿得到**生效值**（`get_settings` 对未设置过的 `max_concurrency` **不下发**，
+      // 见 `rpc_table.go:486-492` 的注释），思考模式读走它拿的是**库内规范形态**（空串 = auto）。
+      const mode: string = await rpc<string>(this.http, RpcMethod.getUserThinkingMode);
+      this.thinking = thinkDisplayFromDb(mode);
+      const conc: number = await rpc<number>(this.http, RpcMethod.getLlmConcurrency);
+      this.concurrency = concurrencyFrom(conc);
       this.error = '';
     } catch (e) {
       this.error = readableRpcError((e as Error).message);
@@ -127,6 +142,56 @@ export struct SettingsLlm {
       const settings: Record<string, string> = await rpc<Record<string, string>>(
         this.http, RpcMethod.getSettings, new GetSettingsParams(SETTINGS_NS_CLI));
       this.tiers = tierValues(settings);
+    }
+  }
+
+  /**
+   * 写思考模式：**显示值 → 库值**（`think`→`enabled`，`auto` 原样交给服务端归一成空串）。
+   *
+   * 服务端 `SetUserThinkingMode`（`agent/llm_config_handler.go:629-643`）会做
+   * `auto → ""` 归一 + `InvalidateSender` —— 那正是**不能**用 `set_setting` 代劳的原因
+   * （`set_setting` 不做归一会把字面 `"auto"` 落库，而域里没有它，见 `setting_keys.go:105`）。
+   */
+  private async commitThinking(display: string): Promise<void> {
+    if (this.inferenceBusy) {
+      return;
+    }
+    this.inferenceBusy = true;
+    const prev: string = this.thinking;
+    this.thinking = display;
+    try {
+      await rpc<void>(this.http, RpcMethod.setUserThinkingMode,
+        new ThinkingModeParams(thinkDbFromDisplay(display)));
+      this.error = '';
+    } catch (e) {
+      this.thinking = prev;   // 失败回滚，绝不留一个"看起来已生效"的假值
+      this.error = readableRpcError((e as Error).message);
+    } finally {
+      this.inferenceBusy = false;
+      const mode: string = await rpc<string>(this.http, RpcMethod.getUserThinkingMode);
+      this.thinking = thinkDisplayFromDb(mode);
+    }
+  }
+
+  /** 写并发：`set_llm_concurrency {personal}`（域 1-100，见 `setting_keys.go:154`）。 */
+  private async commitConcurrency(next: number): Promise<void> {
+    if (this.inferenceBusy) {
+      return;
+    }
+    const want: number = clampConcurrency(next);
+    this.inferenceBusy = true;
+    const prev: number = this.concurrency;
+    this.concurrency = want;
+    try {
+      await rpc<void>(this.http, RpcMethod.setLlmConcurrency, new LlmConcurrencyParams(want));
+      this.error = '';
+    } catch (e) {
+      this.concurrency = prev;
+      this.error = readableRpcError((e as Error).message);
+    } finally {
+      this.inferenceBusy = false;
+      const conc: number = await rpc<number>(this.http, RpcMethod.getLlmConcurrency);
+      this.concurrency = concurrencyFrom(conc);
     }
   }
 
@@ -184,6 +249,103 @@ export struct SettingsLlm {
       } else {
         Scroll() {
           Column({ space: SP_3 }) {
+            // ── 模型推理：思考模式 + 最大并发 ──
+            // web `SettingsLLM.tsx:278-303`（thinkingMode 四档开关 + maxConcurrency −/＋ 步进）。
+            // 读写走专用 RPC（`get/set_user_thinking_mode`、`get/set_llm_concurrency`）。
+            Column({ space: SP_2 }) {
+              Text('模型推理')
+                .fontSize(FS_BODY)
+                .fontColor(this.pal().textPrimary)
+                .width('100%')
+
+              Text('思考模式')
+                .fontSize(FS_CAPTION)
+                .fontColor(this.pal().textPrimary)
+                .width('100%')
+              Text(thinkHint(this.thinking))
+                .fontSize(FS_CAPTION)
+                .fontColor(this.pal().textMuted)
+                .width('100%')
+              Flex({ wrap: FlexWrap.Wrap }) {
+                ForEach(THINK_OPTIONS, (mode: string) => {
+                  Text(thinkLabel(mode))
+                    .fontSize(FS_CAPTION)
+                    .fontColor(mode === this.thinking ? this.pal().onAccent : this.pal().textSecondary)
+                    .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+                    .backgroundColor(mode === this.thinking ? this.pal().accent : this.pal().surfaceAlt)
+                    .borderRadius(R_LG)
+                    .border({ width: 1, color: mode === this.thinking ? this.pal().accent : this.pal().border })
+                    .margin({ right: SP_2, bottom: SP_2 })
+                    .opacity(this.inferenceBusy ? 0.5 : 1)
+                    .onClick(() => {
+                      if (!this.inferenceBusy && mode !== this.thinking) {
+                        void this.commitThinking(mode);
+                      }
+                    })
+                }, (mode: string) => `think|${mode}`)
+              }
+              .width('100%')
+
+              Row({ space: SP_2 }) {
+                Column({ space: 2 }) {
+                  Text('最大并发')
+                    .fontSize(FS_CAPTION)
+                    .fontColor(this.pal().textPrimary)
+                    .width('100%')
+                  Text(`同时进行的 LLM 调用 / 会话回合上限（${LLM_CONCURRENCY_MIN}-${LLM_CONCURRENCY_MAX}）`)
+                    .fontSize(FS_CAPTION)
+                    .fontColor(this.pal().textMuted)
+                    .maxLines(2)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .width('100%')
+                }
+                .alignItems(HorizontalAlign.Start)
+                .layoutWeight(1)
+
+                Row({ space: SP_2 }) {
+                  Text('−')
+                    .fontSize(FS_BODY)
+                    .fontColor(this.pal().textPrimary)
+                    .padding({ left: SP_3, right: SP_3, top: SP_1, bottom: SP_1 })
+                    .backgroundColor(this.pal().surfaceAlt)
+                    .borderRadius(R_LG)
+                    .border({ width: 1, color: this.pal().borderStrong })
+                    .opacity(this.inferenceBusy || this.concurrency <= LLM_CONCURRENCY_MIN ? 0.4 : 1)
+                    .onClick(() => {
+                      if (!this.inferenceBusy && this.concurrency > LLM_CONCURRENCY_MIN) {
+                        void this.commitConcurrency(concurrencyStep(this.concurrency, -1));
+                      }
+                    })
+                  Text(`${this.concurrency}`)
+                    .fontSize(FS_BODY)
+                    .fontFamily('monospace')
+                    .fontColor(this.pal().textPrimary)
+                    .width(36)
+                    .textAlign(TextAlign.Center)
+                  Text('＋')
+                    .fontSize(FS_BODY)
+                    .fontColor(this.pal().textPrimary)
+                    .padding({ left: SP_3, right: SP_3, top: SP_1, bottom: SP_1 })
+                    .backgroundColor(this.pal().surfaceAlt)
+                    .borderRadius(R_LG)
+                    .border({ width: 1, color: this.pal().borderStrong })
+                    .opacity(this.inferenceBusy || this.concurrency >= LLM_CONCURRENCY_MAX ? 0.4 : 1)
+                    .onClick(() => {
+                      if (!this.inferenceBusy && this.concurrency < LLM_CONCURRENCY_MAX) {
+                        void this.commitConcurrency(concurrencyStep(this.concurrency, 1));
+                      }
+                    })
+                }
+              }
+              .width('100%')
+              .alignItems(VerticalAlign.Center)
+            }
+            .width('100%')
+            .padding(SP_4)
+            .backgroundColor(this.pal().surface)
+            .borderRadius(R_XL)
+            .border({ width: 1, color: this.pal().border })
+
             // ── SubAgent 三档模型 ──
             // web `SettingsLLM.tsx:307-327`（tier 区块）+ `llm-console.tsx:353-398`（选择弹窗）；
             // 读写复用**既有** `get_settings` / `set_setting`（`useLLMSettings.ts:111,428`）。

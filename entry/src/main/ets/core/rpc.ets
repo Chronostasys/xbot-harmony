@@ -65,6 +65,19 @@ export const RPC_SET_DEFAULT_SUBSCRIPTION: string = 'set_default_subscription';
 export const RPC_GET_SETTINGS: string = 'get_settings';
 export const RPC_SET_SETTING: string = 'set_setting';
 
+// ── llm 分区的「并发 / 思考模式」（波6；逐个核对服务端 rpc_table.go，非猜测）──────
+//
+// ⚠️ 这 4 个都是 **no-admin**（`rpc0`/`rpc1void` 直接注册，没有 `requireAdmin` 包裹）——
+//    与 `get_tools_settings` 那类 admin 方法不同。见 `rpc_table.go:690-695, 714-729`。
+/** `get_llm_concurrency`（无参 `rpc0`）→ `int` = 生效并发数。`rpc_table.go:714`。 */
+export const RPC_GET_LLM_CONCURRENCY: string = 'get_llm_concurrency';
+/** `set_llm_concurrency`（`rpc1void`）`{personal:int}` → void。`rpc_table.go:715-729`。 */
+export const RPC_SET_LLM_CONCURRENCY: string = 'set_llm_concurrency';
+/** `get_user_thinking_mode`（无参 `rpc0`）→ `string`（**空串 = auto**）。`rpc_table.go:690`。 */
+export const RPC_GET_USER_THINKING_MODE: string = 'get_user_thinking_mode';
+/** `set_user_thinking_mode`（`rpc1void`）`{mode:string}` → void。`rpc_table.go:691-695`。 */
+export const RPC_SET_USER_THINKING_MODE: string = 'set_user_thinking_mode';
+
 /**
  * method 名常量表（静态访问形式：`RpcMethod.getToolsSettings`）。
  *
@@ -82,6 +95,10 @@ export class RpcMethod {
   static readonly setDefaultSubscription: string = RPC_SET_DEFAULT_SUBSCRIPTION;
   static readonly getSettings: string = RPC_GET_SETTINGS;
   static readonly setSetting: string = RPC_SET_SETTING;
+  static readonly getLlmConcurrency: string = RPC_GET_LLM_CONCURRENCY;
+  static readonly setLlmConcurrency: string = RPC_SET_LLM_CONCURRENCY;
+  static readonly getUserThinkingMode: string = RPC_GET_USER_THINKING_MODE;
+  static readonly setUserThinkingMode: string = RPC_SET_USER_THINKING_MODE;
 
   /** 全部 method（顺序 = 展示/文档顺序）。 */
   static readonly ALL: string[] = [
@@ -95,6 +112,10 @@ export class RpcMethod {
     RPC_SET_DEFAULT_SUBSCRIPTION,
     RPC_GET_SETTINGS,
     RPC_SET_SETTING,
+    RPC_GET_LLM_CONCURRENCY,
+    RPC_SET_LLM_CONCURRENCY,
+    RPC_GET_USER_THINKING_MODE,
+    RPC_SET_USER_THINKING_MODE,
   ];
 }
 
@@ -170,6 +191,35 @@ export class SetSettingParams {
     this.namespace = namespace;
     this.key = key;
     this.value = value;
+  }
+}
+
+/**
+ * `set_llm_concurrency` 的 params（服务端 `rpc_table.go:715-717`）。
+ *
+ * ⚠️ 字段名是 **`personal`**（不是 `n`/`value`/`concurrency`）—— web `agent/api.ts:830-832`
+ * 就是 `rpc('set_llm_concurrency', { personal })`。取值域 `1-100`（`setting_keys.go:154`）。
+ */
+export class LlmConcurrencyParams {
+  personal: number = 0;
+
+  constructor(personal: number) {
+    this.personal = personal;
+  }
+}
+
+/**
+ * `set_user_thinking_mode` 的 params（服务端 `rpc_table.go:691-693`）。
+ *
+ * ⚠️ 服务端会把 `"auto"` **归一成空串**再落库（`agent/llm_config_handler.go:630-632`），
+ * 取值域见 `setting_keys.go:105`：`|think|think-max|disabled|enabled`（**空串 = auto**）。
+ * 传 `"enabled"` 是 web 的显示值 `think` 对应的库内形态（`SettingsLLM.tsx:120-121`）。
+ */
+export class ThinkingModeParams {
+  mode: string = '';
+
+  constructor(mode: string) {
+    this.mode = mode;
   }
 }
 

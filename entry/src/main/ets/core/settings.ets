@@ -991,6 +991,144 @@ export function tierValues(settings: Record<string, string> | undefined): Record
   return out;
 }
 
+// ── llm 分区：思考模式 + 并发（波6）────────────────────────────────────────────
+//
+// 服务端契约（**逐字核对，非猜测**）：
+//   · `get_user_thinking_mode`（无参 `rpc0`）→ `string`；`set_user_thinking_mode`（`rpc1void`）`{mode}`
+//     —— `serverapp/rpc_table.go:690-695`；实现 `agent/llm_config_handler.go:615-643`。
+//     取值域（`channel/setting_keys.go:105`）：`|think|think-max|disabled|enabled`，DefaultValue `""`
+//     —— ⚠️ **空串就是 auto**（域里没有字面 `"auto"`）。
+//   · `get_llm_concurrency`（无参 `rpc0`）→ `int`；`set_llm_concurrency`（`rpc1void`）`{personal}`
+//     —— `rpc_table.go:714-729`；键 `max_concurrency` 域 `1-100`、DefaultValue `5`
+//     （`setting_keys.go:154`）。
+//
+// web 依据（`web/src/components/settings/SettingsLLM.tsx`）：
+//   · 思考模式四档        `:41-45`（THINK_OPTS：auto / think / think-max / disabled）
+//   · **显示值换算**      `:102`  `thinkingMode === 'enabled' ? 'think' : thinkingMode || 'auto'`
+//   · **写库换算**        `:120-121`  `mode === 'think' ? 'enabled' : mode`
+//   · 并发 UI（−/＋ 步进）`:296-302`（`Math.max(1, concVal - 1)` / `concVal + 1`）
+//   · 初始值              `:103`  `conc ?? data.llmConcurrency ?? 0`
+
+export const THINK_AUTO: string = 'auto';
+export const THINK_THINK: string = 'think';
+export const THINK_THINK_MAX: string = 'think-max';
+export const THINK_DISABLED: string = 'disabled';
+/** 库内历史别名：语义等同显示值 `think`（`SettingsLLM.tsx:102`）。 */
+export const THINK_DB_ENABLED: string = 'enabled';
+
+/** 四档（顺序 = web `THINK_OPTS` 的展示顺序）。 */
+export const THINK_OPTIONS: string[] = [THINK_AUTO, THINK_THINK, THINK_THINK_MAX, THINK_DISABLED];
+
+/** 档位中文名。未知值原样透传（服务端将来加枚举不至于显示空白）。 */
+export function thinkLabel(mode: string): string {
+  if (mode === THINK_AUTO) {
+    return '自动';
+  }
+  if (mode === THINK_THINK) {
+    return '思考';
+  }
+  if (mode === THINK_THINK_MAX) {
+    return '最大思考';
+  }
+  if (mode === THINK_DISABLED) {
+    return '关闭';
+  }
+  return mode;
+}
+
+/** 档位说明。 */
+export function thinkHint(mode: string): string {
+  if (mode === THINK_AUTO) {
+    return '由服务端与模型自行决定';
+  }
+  if (mode === THINK_THINK) {
+    return '开启推理（多数模型默认档）';
+  }
+  if (mode === THINK_THINK_MAX) {
+    return '最大推理预算，适合难题，较慢';
+  }
+  if (mode === THINK_DISABLED) {
+    return '关闭推理，最快';
+  }
+  return '';
+}
+
+/**
+ * **库内值 → 显示值**（逐字对齐 web `SettingsLLM.tsx:102`）。
+ *
+ *   · `'enabled'`（历史别名）→ `'think'`
+ *   · 空串 / 缺省 → `'auto'`（**空串即 auto**，见 `setting_keys.go:105` 的域）
+ *   · 其余（`think` / `think-max` / `disabled` / 未知）→ 原样
+ */
+export function thinkDisplayFromDb(db: string | undefined): string {
+  const s: string = db !== undefined && db !== null ? db.trim() : '';
+  if (s === THINK_DB_ENABLED) {
+    return THINK_THINK;
+  }
+  if (s.length === 0) {
+    return THINK_AUTO;
+  }
+  return s;
+}
+
+/**
+ * **显示值 → 待写库值**（逐字对齐 web `SettingsLLM.tsx:120-121`）。
+ *
+ * ⚠️ 只有 `'think'` 要映射成 `'enabled'`；`'auto'` **原样交给服务端**
+ * —— 服务端 `SetUserThinkingMode` 会把它归一成空串（`llm_config_handler.go:630-632`）。
+ * **不要在客户端自己归一成空串**：那是在复制服务端语义，服务端一改就漂移。
+ */
+export function thinkDbFromDisplay(display: string): string {
+  const s: string = display !== undefined && display !== null ? display.trim() : '';
+  return s === THINK_THINK ? THINK_DB_ENABLED : s;
+}
+
+/** 展示值是否在已知四档内（用于测试与"未知档"提示）。 */
+export function isKnownThinkOption(display: string): boolean {
+  return THINK_OPTIONS.indexOf(display) >= 0;
+}
+
+// ── 并发（`max_concurrency`，域 1-100，默认 5）─────────────────────────────────
+
+export const LLM_CONCURRENCY_MIN: number = 1;
+export const LLM_CONCURRENCY_MAX: number = 100;
+export const LLM_CONCURRENCY_DEFAULT: number = 5;
+
+/**
+ * 钳位到契约域 `1-100`。
+ *
+ * ⚠️ 与 web 的**有意差异**：web 的步进只钳下界（`Math.max(1, n-1)`，`:296`）**不钳上界**，
+ * 但服务端键的取值域是 `1-100`（`setting_keys.go:154`）。这里按**文档化契约**钳上界
+ * （否则能经 UI 造出 1000 槽信号量）。非数字 / 越界一律回落**默认 5**。
+ */
+export function clampConcurrency(n: number): number {
+  if (n === undefined || n === null || isNaN(n)) {
+    return LLM_CONCURRENCY_DEFAULT;
+  }
+  if (n < LLM_CONCURRENCY_MIN) {
+    return LLM_CONCURRENCY_MIN;
+  }
+  if (n > LLM_CONCURRENCY_MAX) {
+    return LLM_CONCURRENCY_MAX;
+  }
+  return Math.floor(n);
+}
+
+/** 读回来的生效值 → 界面初值（web `:103` 的 `?? 0` 之上再加一层默认回落）。 */
+export function concurrencyFrom(raw: number | undefined): number {
+  if (raw === undefined || raw === null || isNaN(raw) || raw <= 0) {
+    return LLM_CONCURRENCY_DEFAULT;
+  }
+  return clampConcurrency(raw);
+}
+
+/** 步进（web `:296-302` 的 −/＋）：先加 delta 再钳位。 */
+export function concurrencyStep(current: number, delta: number): number {
+  const base: number = concurrencyFrom(current);
+  return clampConcurrency(base + delta);
+}
+
+
 
 
 
