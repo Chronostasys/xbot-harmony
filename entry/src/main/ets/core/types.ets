@@ -131,6 +131,8 @@ export interface ProgressEvent {
   completed_tools?: ToolProgress[];
   tool_calls?: ToolProgress[];
   tools_folded?: boolean;
+  /** 结构化事件里的目标（服务端 ProgressEvent.Goal） */
+  goal?: GoalInfo;
 }
 
 /** 会话生命周期事件（`session` 事件载荷）。 */
@@ -277,4 +279,37 @@ export class PluginPanelInfo {
   name: string = '';
   url: string = '';
   icon: string = '';
+}
+
+/** `/api/session/status` 返回的 token 用量（服务端 sessionTokenUsage 的键）。 */
+export interface TokenUsage {
+  available?: boolean;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  max_context_tokens?: number;
+  /** 0..100 */
+  usage_percent?: number;
+  model?: string;
+  subscription_name?: string;
+}
+
+/** 一条 todo（`protocol.TodoItem`）。 */
+export interface TodoItem {
+  id?: string;
+  text?: string;
+  /** pending | in_progress | completed */
+  status?: string;
+}
+
+/** 目标（结构化进度事件里的 `goal`）。 */
+export interface GoalInfo {
+  text?: string;
+  status?: string;
+}
+
+/** `/api/session/status` 的响应（`{token_usage, cwd, todos}`）。 */
+export interface SessionStatus {
+  token_usage?: TokenUsage;
+  cwd?: string;
+  todos?: TodoItem[];
 }

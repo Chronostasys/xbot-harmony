@@ -13,14 +13,20 @@ import {
 } from '../core/sessionpick';
 import { baseName, humanSize, mimeOf } from '../core/attach';
 import {
+  currentTodo, goalText, modelText, todoProgress, usageText,
+} from '../core/statusfmt';
+import {
   AskOption,
   AskQuestion,
   AskUserPrompt,
   ChatRow,
+  GoalInfo,
   HistoryIteration,
   PluginPanelInfo,
   QueueItem,
   SessionItem,
+  TodoItem,
+  TokenUsage,
   ToolProgress,
 } from '../core/types';
 import { MarkdownView } from '../components/MarkdownView';
@@ -168,6 +174,13 @@ struct Index {
   @State attachSize: number = 0;
   @State attaching: boolean = false;
 
+  // ── 会话状态栏（todos / goal / token 用量 / cwd）──
+  @State showStatus: boolean = false;
+  @State usage: TokenUsage | undefined = undefined;
+  @State cwd: string = '';
+  @State todos: TodoItem[] = [];
+  @State goal: GoalInfo | undefined = undefined;
+
   @State geoText: string = '';
   @State geoRunning: boolean = false;
   @State auditing: boolean = false;
@@ -306,6 +319,10 @@ struct Index {
     this.hasMore = store.hasMore;
     this.loadingMore = store.loadingMore;
     this.queue = store.queue.slice();
+    this.usage = store.usage;
+    this.cwd = store.cwd;
+    this.todos = store.todos.slice();
+    this.goal = store.goal;
     const ask: AskUserPrompt | null = store.askUser;
     if (ask !== this.askUser) {
       this.askUser = ask;
@@ -750,6 +767,40 @@ struct Index {
     }
   }
 
+  /** 状态栏一行（只用服务端真实值拼装；都没有则返回空串，不占位）。 */
+  private statusBarText(): string {
+    const parts: string[] = [];
+    const m: string = modelText(this.usage);
+    if (m.length > 0) {
+      parts.push(m);
+    }
+    const u: string = usageText(this.usage);
+    if (u.length > 0) {
+      parts.push(u);
+    }
+    const tp: string = todoProgress(this.todos);
+    if (tp.length > 0) {
+      parts.push(`todos ${tp}`);
+    }
+    if (this.cwd.length > 0) {
+      parts.push(this.cwd);
+    }
+    return parts.join('  ·  ');
+  }
+
+  private todoCount(): number {
+    return this.todos.length;
+  }
+
+  private goalLine(): string {
+    return goalText(this.goal);
+  }
+
+  /** 当前进行中的 todo（面板顶部显示）。 */
+  private currentTodoLine(): string {
+    return currentTodo(this.todos);
+  }
+
   private clearAttachment(): void {
     this.attachKey = '';
     this.attachName = '';
@@ -960,6 +1011,10 @@ struct Index {
       // 渲染自检（逐构件隔离排查用）
       if (this.showSelfCheck) {
         this.SelfCheckSheet()
+      }
+      // 会话状态（todos / goal / 用量 / cwd）
+      if (this.showStatus) {
+        this.StatusSheet()
       }
       // 图片查看
       if (this.imagePixel !== null || this.imageBusy) {
@@ -1180,6 +1235,22 @@ struct Index {
         this.atBottom = end >= listItemCount(this.hasMore, this.loadingMore, this.rows.length, this.busy) - 1;
       })
       .id('xbot-list')
+
+      // 状态栏：模型 · token 用量 · todos · goal（点开看全部；全部来自服务端权威值）
+      if (this.statusBarText().length > 0) {
+        Row({ space: 10 }) {
+          Text(this.statusBarText())
+            .fontSize(11).fontColor('#9CA3AF').layoutWeight(1)
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          if (this.todoCount() > 0 || this.goalLine().length > 0) {
+            Text('详情').fontSize(11).fontColor('#93C5FD').padding({ left: 6, right: 6 })
+          }
+        }
+        .width('100%').padding({ left: 10, right: 10, top: 4, bottom: 2 })
+        .onClick(() => {
+          this.showStatus = true;
+        })
+      }
 
       // 附件 chip（已附加/上传中时显示）
       if (this.attachName.length > 0) {
@@ -1675,6 +1746,60 @@ struct Index {
    * 注意：ArkUI 的 @Builder **不能接受函数/回调参数**（需 @BuilderParam 组件才行），
    * 所以这里把每格内联展开，不做回调包装。
    */
+  /** 会话状态面板：goal + todos 全量 + 用量 + cwd（服务端权威值，不做本地推算）。 */
+  @Builder
+  StatusSheet() {
+    Column({ space: 10 }) {
+      Row() {
+        Text('会话状态').fontSize(16).fontWeight(FontWeight.Bold).fontColor('#E5E7EB').layoutWeight(1)
+        Text('✕').fontSize(16).fontColor('#9CA3AF').padding(8).onClick(() => {
+          this.showStatus = false;
+        })
+      }.width('100%')
+
+      if (this.goalLine().length > 0) {
+        Text(this.goalLine()).fontSize(13).fontColor('#FDE68A').width('100%')
+          .wordBreak(WordBreak.BREAK_ALL)
+      }
+      if (this.currentTodoLine().length > 0) {
+        Text(`进行中：${this.currentTodoLine()}`).fontSize(12).fontColor('#93C5FD').width('100%')
+          .wordBreak(WordBreak.BREAK_ALL)
+      }
+      Text(this.statusBarText().length > 0 ? this.statusBarText() : '（暂无用量/模型信息）')
+        .fontSize(12).fontColor('#9CA3AF').width('100%').wordBreak(WordBreak.BREAK_ALL)
+      Text(`todos ${todoProgress(this.todos).length > 0 ? todoProgress(this.todos) : '0/0'}`)
+        .fontSize(12).fontColor('#9CA3AF').width('100%')
+      if (this.cwd.length > 0) {
+        Text(`cwd: ${this.cwd}`).fontSize(11).fontColor('#6B7280').width('100%')
+          .wordBreak(WordBreak.BREAK_ALL).copyOption(CopyOptions.LocalDevice)
+      }
+
+      if (this.todos.length > 0) {
+        List({ space: 6 }) {
+          ForEach(this.todos, (td: TodoItem, i: number) => {
+            ListItem() {
+              Row({ space: 8 }) {
+                Text(td.status === 'completed' ? '✅' : (td.status === 'in_progress' ? '◐' : '○'))
+                  .fontSize(13).fontColor(td.status === 'completed' ? '#A7F3D0' : '#9CA3AF')
+                Text(td.text !== undefined ? td.text : '')
+                  .fontSize(13)
+                  .fontColor(td.status === 'completed' ? '#6B7280' : '#E5E7EB')
+                  .layoutWeight(1)
+                  .wordBreak(WordBreak.BREAK_ALL)
+              }
+              .width('100%').padding(8).backgroundColor('#0F172A').borderRadius(6)
+            }
+          }, (td: TodoItem, i: number) => `${i}#${td.status}#${td.text}`)
+        }
+        .constraintSize({ maxHeight: 380 }).width('100%')
+      } else {
+        Text('（本会话暂无 todos）').fontSize(12).fontColor('#6B7280').width('100%')
+      }
+    }
+    .width('92%').padding(16).backgroundColor('#0B0F19')
+    .borderRadius(12).border({ width: 1, color: '#1F2937' })
+  }
+
   @Builder
   SelfCheckSheet() {
     Column() {

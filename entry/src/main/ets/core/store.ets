@@ -17,7 +17,7 @@ import {
   shouldReloadHistory, liveIterationOf, upsertIteration, mergeTools,
 } from './streammerge';
 import { channelForChat } from './sessionpick';
-import { UploadResult } from './types';
+import { GoalInfo, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
 import {
   AskQuestion,
   AskUserPrompt,
@@ -45,6 +45,16 @@ export class ChatStore {
   http: XbotHttp;
   sse: SseClient;
   channel: string = 'web';
+
+  // ── 会话状态（服务端权威；/api/session/status + 结构化事件里的 goal）──
+  /** token/上下文用量（拿不到就是 undefined，界面不显示、绝不估算） */
+  usage: TokenUsage | undefined = undefined;
+  /** 工作目录 */
+  cwd: string = '';
+  /** todos（服务端权威） */
+  todos: TodoItem[] = [];
+  /** 目标（来自结构化进度事件的 goal） */
+  goal: GoalInfo | undefined = undefined;
 
   sessions: SessionItem[] = [];
   rows: ChatRow[] = [];
@@ -144,6 +154,9 @@ export class ChatStore {
     this.onUpdate();
     await this.loadHistory();
     await this.loadQueue();
+    this.loadStatus().catch(() => {
+      // 状态非关键路径
+    });
     this.subscribe();
   }
 
@@ -356,6 +369,28 @@ export class ChatStore {
   }
 
   /**
+   * 拉取会话状态（`/api/session/status` → `{token_usage, cwd, todos}`）。
+   *
+   * 为什么单独一次：它是**服务端权威**的 todos / token 用量（不做估算，见项目铁律）。
+   * 在打开会话、每轮结束（idle）时各拉一次即可 —— 不做轮询。
+   */
+  async loadStatus(): Promise<void> {
+    if (this.currentChatId.length === 0) {
+      return;
+    }
+    try {
+      const st: SessionStatus = await this.http.postAs<SessionStatus>(
+        '/api/session/status', new ChannelBody(this.channel, this.currentChatId));
+      this.usage = st.token_usage;
+      this.cwd = st.cwd !== undefined ? st.cwd : '';
+      this.todos = st.todos !== undefined ? st.todos : [];
+      this.onUpdate();
+    } catch (e) {
+      // 状态拉取失败不影响主链路（历史/发送优先）
+    }
+  }
+
+  /**
    * 上传一个附件，返回服务端给的 `upload_key`（发消息时放进 `upload_keys`）。
    *
    * 服务端契约（`channel/web/web_file.go` 的 writeJSON）：`{upload_key, name, size}` ——
@@ -560,6 +595,10 @@ export class ChatStore {
     if (isIdleAction(action)) {
       this.busy = false;
       this.onUpdate();
+      // 每轮结束刷新一次权威状态（todos/用量会变）
+      this.loadStatus().catch(() => {
+        // 忽略
+      });
     } else if (isBusyAction(action)) {
       this.busy = true;
       this.onUpdate();

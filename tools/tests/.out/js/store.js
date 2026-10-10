@@ -30,6 +30,15 @@ class ChatStore {
     }
     constructor(baseUrl) {
         this.channel = 'web';
+        // ── 会话状态（服务端权威；/api/session/status + 结构化事件里的 goal）──
+        /** token/上下文用量（拿不到就是 undefined，界面不显示、绝不估算） */
+        this.usage = undefined;
+        /** 工作目录 */
+        this.cwd = '';
+        /** todos（服务端权威） */
+        this.todos = [];
+        /** 目标（来自结构化进度事件的 goal） */
+        this.goal = undefined;
         this.sessions = [];
         this.rows = [];
         this.busy = false;
@@ -101,6 +110,9 @@ class ChatStore {
         this.onUpdate();
         await this.loadHistory();
         await this.loadQueue();
+        this.loadStatus().catch(() => {
+            // 状态非关键路径
+        });
         this.subscribe();
     }
     // ── 历史（含上拉分页） ─────────────────────────────────────────────────────
@@ -299,6 +311,27 @@ class ChatStore {
         }
     }
     /**
+     * 拉取会话状态（`/api/session/status` → `{token_usage, cwd, todos}`）。
+     *
+     * 为什么单独一次：它是**服务端权威**的 todos / token 用量（不做估算，见项目铁律）。
+     * 在打开会话、每轮结束（idle）时各拉一次即可 —— 不做轮询。
+     */
+    async loadStatus() {
+        if (this.currentChatId.length === 0) {
+            return;
+        }
+        try {
+            const st = await this.http.postAs('/api/session/status', new ChannelBody(this.channel, this.currentChatId));
+            this.usage = st.token_usage;
+            this.cwd = st.cwd !== undefined ? st.cwd : '';
+            this.todos = st.todos !== undefined ? st.todos : [];
+            this.onUpdate();
+        }
+        catch (e) {
+            // 状态拉取失败不影响主链路（历史/发送优先）
+        }
+    }
+    /**
      * 上传一个附件，返回服务端给的 `upload_key`（发消息时放进 `upload_keys`）。
      *
      * 服务端契约（`channel/web/web_file.go` 的 writeJSON）：`{upload_key, name, size}` ——
@@ -488,6 +521,10 @@ class ChatStore {
         if ((0, streammerge_1.isIdleAction)(action)) {
             this.busy = false;
             this.onUpdate();
+            // 每轮结束刷新一次权威状态（todos/用量会变）
+            this.loadStatus().catch(() => {
+                // 忽略
+            });
         }
         else if ((0, streammerge_1.isBusyAction)(action)) {
             this.busy = true;
