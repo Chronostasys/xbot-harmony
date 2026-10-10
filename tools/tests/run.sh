@@ -5,6 +5,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 OUT="$HERE/.out"
 
+# 每次先清空产物目录：否则源码删除/改名后，过期产物会以假错误误导（2026-10 踩到）
+rm -rf "$OUT"
+
 find_tsc() {
   if [ -n "${TSC:-}" ] && [ -x "$TSC" ]; then echo "$TSC"; return; fi
   if command -v tsc >/dev/null 2>&1; then command -v tsc; return; fi

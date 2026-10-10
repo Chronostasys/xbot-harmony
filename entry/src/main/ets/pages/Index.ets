@@ -12,6 +12,7 @@ import {
   channelLabel, hiddenRowCount, visibleRows, MAX_ROWS_VISIBLE,
 } from '../core/sessionpick';
 import { baseName, humanSize, mimeOf } from '../core/attach';
+import { changedRowIndices, rowKey, sameRowIds, tailRows } from '../core/rowdiff';
 import {
   currentTodo, goalText, modelText, todoProgress, usageText,
 } from '../core/statusfmt';
@@ -216,6 +217,11 @@ struct Index {
   private syncScheduled: boolean = false;
   private config: ConfigStore = new ConfigStore();
   private listScroller: Scroller = new Scroller();
+  /**
+   * `LazyForEach` 数据源：只有可视区附近的行会被真正构建（真虚拟化）。
+   * 之前 `List` + `ForEach` 一次性构建全部行 ⇒ 几十行 × 每行多个 Markdown 迭代块 = 数千节点。
+   */
+  private rowDs: ChatRowDataSource = new ChatRowDataSource();
 
   // ── 生命周期 ──────────────────────────────────────────────────────────────
 
@@ -314,6 +320,7 @@ struct Index {
     }
     this.sessions = store.sessions.slice();
     this.rows = store.rows.slice();
+    this.syncRowDs();
     this.busy = store.busy;
     this.currentChat = store.currentChatId;
     this.hasMore = store.hasMore;
@@ -676,6 +683,7 @@ struct Index {
     this.store = null;
     this.loggedIn = false;
     this.rows = [];
+    this.syncRowDs();
     this.sessions = [];
     this.showDrawer = false;
   }
@@ -1206,18 +1214,15 @@ struct Index {
             .width('100%').justifyContent(FlexAlign.Center).padding(10)
             .onClick(() => {
               this.rowLimit += MAX_ROWS_VISIBLE;
+              this.syncRowDs();
             })
           }
         }
-        ForEach(visibleRows(this.rows, this.rowLimit), (row: ChatRow) => {
+        LazyForEach(this.rowDs, (row: ChatRow) => {
           ListItem() {
-            if (row.role === 'user') {
-              this.UserBubble(row)
-            } else {
-              this.AssistantBlock(row)
-            }
+            this.ChatRowBody(row)
           }
-        }, (row: ChatRow) => `${row.id}#${row.rev}`)
+        }, (row: ChatRow) => rowKey(row))
 
         if (this.busy) {
           ListItem() {
@@ -1229,10 +1234,12 @@ struct Index {
         }
       }
       .layoutWeight(1).width('100%').edgeEffect(EdgeEffect.Spring).padding({ left: 8, right: 8 })
+      // 预构建 4 行：滚动时不必等构建（越小内存越省，越大滚动越顺）
+      .cachedCount(4)
       // 跟踪"用户是否停在底部"：end 是最后一个可见项的下标，等于末项下标即在底部。
       // 项数 = [可选"加载更早"] + rows + [可选 busy 指示器]，故用 listItemCount() 显式算。
       .onScrollIndex((start: number, end: number) => {
-        this.atBottom = end >= listItemCount(this.hasMore, this.loadingMore, this.rows.length, this.busy) - 1;
+        this.atBottom = end >= listItemCount(this.hasMore, this.loadingMore, this.rowDs.count(), this.busy) - 1;
       })
       .id('xbot-list')
 
@@ -1299,6 +1306,21 @@ struct Index {
       .id('xbot-composer')
     }
     .width('100%').height('100%')
+  }
+
+  /** 把「当前该显示的行」推给数据源（行窗口 + 真虚拟化两层叠加）。 */
+  private syncRowDs(): void {
+    this.rowDs.applyRows(tailRows(this.rows, this.rowLimit));
+  }
+
+  /** 一行的主体（用户气泡 / 助手块）——由 `LazyForEach` 的 `ListItem` 调用。 */
+  @Builder
+  ChatRowBody(row: ChatRow) {
+    if (row.role === 'user') {
+      this.UserBubble(row)
+    } else {
+      this.AssistantBlock(row)
+    }
   }
 
   @Builder
@@ -2095,5 +2117,65 @@ struct Index {
     }
     .width('94%').height('80%').padding(12)
     .backgroundColor('#0B0F19').borderRadius(12).border({ width: 1, color: '#1F2937' })
+  }
+}
+
+/**
+ * `LazyForEach` 的数据源（ArkUI `IDataSource` 壳子）。
+ *
+ * 为什么放在页面文件里而不是 `core/`：它引用 ArkUI 全局类型（`IDataSource`/`DataChangeListener`），
+ * 而 `tools/tests/run.sh` 会把 `core/*.ets` 当纯 TS 在 Node 里编译（没有这些全局）⇒ 放 core 会直接编译失败。
+ * 可脱机单测的 diff 逻辑在 `core/rowdiff.ets`。
+ *
+ * 只做一件事：把「当前该显示哪些行」告诉框架，并按最小代价通知变化
+ * （身份不变 ⇒ 逐行 `onDataChange`；身份变了 ⇒ 整表 reload）。
+ */
+class ChatRowDataSource implements IDataSource {
+  private rows: ChatRow[] = [];
+  private listeners: DataChangeListener[] = [];
+
+  totalCount(): number {
+    return this.rows.length;
+  }
+
+  getData(index: number): ChatRow {
+    return this.rows[index];
+  }
+
+  registerDataChangeListener(listener: DataChangeListener): void {
+    if (this.listeners.indexOf(listener) < 0) {
+      this.listeners.push(listener);
+    }
+  }
+
+  unregisterDataChangeListener(listener: DataChangeListener): void {
+    const i: number = this.listeners.indexOf(listener);
+    if (i >= 0) {
+      this.listeners.splice(i, 1);
+    }
+  }
+
+  /** 当前持有行数（滚动位置的项数计算用）。 */
+  count(): number {
+    return this.rows.length;
+  }
+
+  /** 用新行集替换（骨架不变则只通知变更行，避免整表重建丢滚动锚点）。 */
+  applyRows(next: ChatRow[]): void {
+    const structural: boolean = !sameRowIds(this.rows, next);
+    const changed: number[] = structural ? [] : changedRowIndices(this.rows, next);
+    this.rows = next;
+    if (structural) {
+      for (let i = 0; i < this.listeners.length; i++) {
+        this.listeners[i].onDataReloaded();
+      }
+      return;
+    }
+    for (let i = 0; i < changed.length; i++) {
+      const idx: number = changed[i];
+      for (let j = 0; j < this.listeners.length; j++) {
+        this.listeners[j].onDataChange(idx);
+      }
+    }
   }
 }
