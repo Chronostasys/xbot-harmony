@@ -16,9 +16,10 @@ import { advanceVisible, clipRunes, isCJK, isTyping, runeCount, toRunes } from '
 import { foldPills } from '../core/streammerge';
 import { Palette, paletteOf, Effects, effectsOf } from '../core/theme';
 import { BUBBLE } from '../core/bubble';
-import { R_MD, R_XL, R_LG, SP_2, FS_CAPTION } from '../core/tokens';
+import { R_MD, R_XL, R_LG, SP_1, SP_2, SP_5, FS_CAPTION } from '../core/tokens';
 import { MarkdownView } from './MarkdownView';
 import { ThinkingLine } from './ThinkingLine';
+import { AssistantOrb } from './AssistantOrb';
 import { ToolPill } from './ToolVisual';
 import { isLiveStatus, statusChip, toolStatusKind } from '../core/toolstatus';
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
@@ -27,6 +28,16 @@ import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from '.
 const LT_POP_W: number = 320;
 /** "+N" 溢出浮层宽度。 */
 const LT_OVER_W: number = 300;
+/**
+ * 旗舰在飞指示器（光球）的直径 —— 取**尺度 token** `SP_5`（20vp）。
+ *
+ * 为什么是 token 而不是裸数字：`AssistantOrb` 内部的全部几何都按 `size` 等比缩放
+ * （`unit = s / ORB_DEFAULT_SIZE`，见 `AssistantOrb.draw()`），其默认 22vp 只是调校基准；
+ * 20vp 与 22vp 相差 9%，不产生失真，却让尺寸落回设计系统的尺度表（见 `core/tokens.ets`）。
+ */
+const LT_ORB_SIZE: number = SP_5;
+/** 光球相位种子：与同屏其它实例错开（本波同屏至多一枚，为多实例预留）。 */
+const LT_ORB_SEED: number = 7;
 
 @Component
 export struct LiveTailView {
@@ -49,6 +60,14 @@ export struct LiveTailView {
   };
   onToolLongPress: (name: string) => void = (name: string) => {
   };
+  /**
+   * 是否渲染旗舰「思考中 / 生成中」光球（`components/AssistantOrb`）。
+   *
+   * 默认 `true` ⇒ 与接线前行为一致（只是把在飞指示升级为光球）。
+   * 这是**设置开关的接线缝**：`core/settings.ets` 的 `orbEnabled(settings)` → 由
+   * `MessageRowView` 投递（`pages/**` 与 `MessageRow.ets` 本波禁改 ⇒ 端到端投递见移交项）。
+   */
+  @Prop orb: boolean = true;
 
   @State vis: number = 0;
   @State visReason: number = 0;
@@ -335,6 +354,43 @@ export struct LiveTailView {
   build() {
     // `gap-1`（web `LiveIteration` 的 `flex flex-col gap-1`）—— 思考/正文/工具之间 4px
     Column({ space: BUBBLE.blockInnerGap }) {
+      // ── 旗舰「思考中 / 生成中」指示器（在飞块的最前面）──────────────────────────
+      // 位置对齐 web：`LiveIteration` 把在飞指示（`ShimmerThinking`）作为块的**首个**
+      // 元素渲染（`web/src/components/agent/LiveIteration.tsx:217-219`）。
+      //
+      // ⛔ 必须走**真 `@Component` + `@Prop`**（`AssistantOrb`）：带参全局 `@Builder`
+      //    的参数是"调用那一刻的快照"、其子树不随参数重建（docs/ARKTS-GOTCHAS §4 ——
+      //    本项目已两次栽在这：字数卡住、点不开）。
+      //
+      // 可见性判据 = 「本组件被挂载」本身（**不是**打字机每拍状态）：
+      //   · `MessageRowView` 只在 live 行末尾在飞块**确有内容**时才建 `LiveTailView`
+      //     （`MessageRow.ets:301-303 hasLiveContent` → `:387-389`）；
+      //   · 回合离开 live 路径时页面清空 `liveText/liveReasoning/liveTools`
+      //     （`pages/Index.ets:3420-3446 syncLiveTail`）⇒ 本组件被删除 ⇒ 光球随之消失。
+      //   ⇒ 挂载 ⟺ 尾部确有在飞信号（与 `core/streammerge.ets:360 rowHasInFlightSignal`
+      //     同源）⇒ **已提交/历史迭代不走这条路径，永远不会出现光球**。
+      //
+      // 性能取舍（为什么**不**做"每帧 @State 推进"，也不把可见性绑到 `typingText()`）：
+      //   · 绑打字机状态 ⇒ 该状态流式期以 ≤20Hz 翻转（每拍追平/落后），每次翻转都会
+      //     **卸载再重建** Canvas 组件（`new RenderingContextSettings` + `setInterval`）
+      //     ⇒ 抖 + 浪费，正是要避免的那种卡顿；
+      //   · 绑挂载生命周期 ⇒ 一个在飞块内 Canvas 与定时器**只创建一次**；30fps 的
+      //     `clearRect + 重绘` 全发生在 `AssistantOrb` 自己的画布里（其 `draw()`），
+      //     **不产生任何 ArkUI 树重建**；父组件 20Hz 的重建只用**同值**重新求值这里的
+      //     `if` 与 `@Prop` ⇒ 复用既有节点，画布不受打扰。
+      //   · 后台（`paused`）⇒ 光球按契约**立即停表**并画一帧静息态（官规 §3）。
+      if (this.orb) {
+        Row() {
+          AssistantOrb({
+            theme: this.theme,
+            orbSize: LT_ORB_SIZE,
+            active: true,
+            paused: this.paused,
+            seed: LT_ORB_SEED,
+          })
+        }
+        .padding({ left: SP_1 })
+      }
       if (this.reasoning.length > 0) {
         // ⛔ 必须是**组件**（`@Prop` 值变化通道）——带参 `@Builder` 的参数是"调用那一刻的快照"，
         //    其子树**不随参数重建**（docs/ARKTS-GOTCHAS §4）⇒ 症状正是用户 2026-10-10 报的：

@@ -19,6 +19,7 @@ import {
   OrbParticle, orbPhase, orbBreath, orbRadius, orbOpacity, orbParticles, orbWave,
 } from '../../entry/src/main/ets/core/orb';
 import { D_SLOW } from '../../entry/src/main/ets/core/tokens';
+import { KEY_CODE_WRAP, KEY_ORB, localKey, orbEnabled, serverKey, settingLabel } from '../../entry/src/main/ets/core/settings';
 
 let pass = 0;
 let fail = 0;
@@ -162,6 +163,21 @@ ok('orbWave 非常量（确在波动）', (() => {
   }
   return hi - lo > 0.5;
 })());
+
+// ── (g) 光球开关（`core/settings.ets` 增补键）──────────────────────────────────
+// 为什么放在本文件：本波只允许触碰 `tools/tests/orb.test.ts`（`settings.test.ts` 属禁改面），
+// 而这条判据必须**可脱机自证**（改错必红）：
+//   · `orbEnabled` 的默认值由 true 改成 false   ⇒ '缺失即开' 红
+//   · 键映射写错/漏进 `localKey` 表            ⇒ '往返一致' 红
+eq('默认（键缺失）= 开', orbEnabled({}), true);
+eq('显式 0 = 关', orbEnabled({ 'xbot-assistant-orb': '0' }), false);
+eq('显式 off = 关', orbEnabled({ 'xbot-assistant-orb': 'off' }), false);
+eq('显式 1 = 开', orbEnabled({ 'xbot-assistant-orb': '1' }), true);
+eq('垃圾值回落 = 开', orbEnabled({ 'xbot-assistant-orb': 'maybe' }), true);
+eq('服务端键名', serverKey(KEY_ORB), 'web:ui:assistant-orb');
+eq('键往返一致', localKey(serverKey(KEY_ORB)), KEY_ORB);
+eq('设置项显示名非空', settingLabel(KEY_ORB), '思考光球动效');
+eq('不误伤其它键（键表未被顶掉）', serverKey(KEY_CODE_WRAP), 'web:ui:code-word-wrap');
 
 if (fail > 0) {
   console.log(`  orb: ${pass} passed, ${fail} failed`);

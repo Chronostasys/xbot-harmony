@@ -22,7 +22,7 @@
  *   · `active=false` 或 `paused=true`（后台）⇒ **立即停表**（不空转），只画一帧静息态；
  *   · 每帧只做"1 次 clearRect + 2 个径向渐变 + N 个 arc"，无分配、无字符串拼接（色值缓存于私有字段）。
  *
- * 本波**不接线**：尚未被任何页面/组件引用（见交付报告「移交项」）。
+ * 本波**已接线**：`components/LiveTailView.ets` 的在飞块首位（判据见该处注释）。
  */
 import { Palette, paletteOf, Effects, effectsOf } from '../core/theme';
 import {
@@ -47,8 +47,25 @@ const ORB_CORE_SCALE: number = 0.62;
 export struct AssistantOrb {
   /** 主题名（决定语义色板；未知值在 `paletteOf` 内回落深色）。 */
   @Prop @Watch('onInputChange') theme: string = 'dark';
-  /** 直径（vp）。 */
-  @Prop @Watch('onInputChange') size: number = ORB_DEFAULT_SIZE;
+  /**
+   * 直径（vp）。
+   *
+   * ⛔ **绝不能命名为 `size`**：ArkUI 的 `CustomComponent` 基类已占用 `size`
+   *   （自定义组件支持通用属性 `.size()`）⇒ 子类声明同名成员直接编译失败：
+   *   `Property 'size' in type 'AssistantOrb' is not assignable to the same property
+   *    in base type 'CustomComponent'`（2026-10-11 真机门禁实测，此前该组件无消费者
+   *   ⇒ 从未被 ArkTS 类型检查过，接线后才暴露）。
+   *
+   *   同类需避开的基类成员名（`sdk …/ets/component/common.d.ts` 的
+   *   `CommonAttribute` + `BaseCustomComponent` 实测清单）：
+   *   `width` / `height` / `padding` / `margin` / `position` / `offset` / `scale` /
+   *   `rotate` / `opacity` / `visibility` / `clip` / `zIndex` / `id` / `key` /
+   *   `enabled` / `layout` / `measure` / `uniqueId` / `measureResult` / `align` /
+   *   `direction` / `layoutWeight` / `constraintSize` / `stateStyles` / `transform` /
+   *   `translate` / 一切 `on*`（`onAppear`/`onClick`/`onMeasure` …）。
+   *   安全写法：语义化前缀（本处 `orbSize`）。
+   */
+  @Prop @Watch('onInputChange') orbSize: number = ORB_DEFAULT_SIZE;
   /** 是否正在思考/生成。false ⇒ 停表 + 画一帧静息态。 */
   @Prop @Watch('onInputChange') active: boolean = true;
   /** 应用是否在后台（官方性能规范：后台必须挂起非必要动画）。 */
@@ -113,7 +130,7 @@ export struct AssistantOrb {
    * 直接喂给 `core/orb.ets` 的纯函数即可（相位函数自带取模，无需本地累加）。
    */
   private draw(): void {
-    const s: number = this.size > 0 ? this.size : ORB_DEFAULT_SIZE;
+    const s: number = this.orbSize > 0 ? this.orbSize : ORB_DEFAULT_SIZE;
     const c: number = s / 2;
     const t: number = Date.now();
     const pal: Palette = this.pal();
@@ -181,8 +198,8 @@ export struct AssistantOrb {
 
   build() {
     Canvas(this.ctx)
-      .width(this.size)
-      .height(this.size)
+      .width(this.orbSize)
+      .height(this.orbSize)
       .onReady(() => {
         this.ready = true;
         this.draw();

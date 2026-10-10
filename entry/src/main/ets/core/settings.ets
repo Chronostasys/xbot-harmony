@@ -39,6 +39,14 @@ export const KEY_SURFACE: string = 'xbot-surface';
  * 取值与归一化（含历史 `time → path` 迁移）见 `core/sessiongroup.ets`。
  */
 export const KEY_SESSION_CATEGORY: string = 'xbot:session-category';
+/**
+ * 旗舰「思考中 / 生成中」光球动效开关（`components/AssistantOrb`，消费点 `LiveTailView.orb`）。
+ *
+ * 原生端新增（web 不认也无害，与既有「字号/思考默认展开」同款做法 —— 只为键表一致）。
+ * web 侧的在飞指示是 `ShimmerThinking` 文字扫光；本光球是原生端进一步的视觉，
+ * 故**缺失即开**（见 `orbEnabled`：只有明确的假值才关）。
+ */
+export const KEY_ORB: string = 'xbot-assistant-orb';
 
 /** 本地键 → 服务端键（web `userSettings.ts` 的同一张表）。 */
 export function serverKey(localKey: string): string {
@@ -78,6 +86,9 @@ export function serverKey(localKey: string): string {
   if (localKey === KEY_SESSION_CATEGORY) {
     return 'web:session:category';
   }
+  if (localKey === KEY_ORB) {
+    return 'web:ui:assistant-orb';
+  }
   return localKey;
 }
 
@@ -85,7 +96,7 @@ export function serverKey(localKey: string): string {
 export function localKey(srvKey: string): string {
   const table: string[] = [KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE, KEY_SEND_KEY, KEY_CODE_WRAP,
     KEY_UI_MODE, KEY_STARRED, KEY_FONT_SCALE, KEY_REASONING_DEFAULT, KEY_APP_THEME, KEY_SURFACE,
-    KEY_SESSION_CATEGORY];
+    KEY_SESSION_CATEGORY, KEY_ORB];
   for (let i = 0; i < table.length; i++) {
     if (serverKey(table[i]) === srvKey) {
       return table[i];
@@ -229,5 +240,18 @@ export function settingLabel(key: string): string {
   if (key === KEY_UI_MODE) {
     return '界面模式';
   }
+  if (key === KEY_ORB) {
+    return '思考光球动效';
+  }
   return key;
+}
+
+/**
+ * 取「思考光球动效」开关（消费点：`components/LiveTailView` 的 `@Prop orb`）。
+ *
+ * 默认 **true**：键缺失/垃圾值一律回落"开" —— 它是视觉增强，默认开启才与接线前的
+ * 在飞指示等价；只有明确的假值（`0`/`false`/`off`/`no`）才关闭。
+ */
+export function orbEnabled(map: Record<string, string>): boolean {
+  return parseBool(settingOf(map, KEY_ORB), true);
 }
