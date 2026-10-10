@@ -117,7 +117,7 @@ bash tools/typecheck/check.sh
 |---|---|---|
 | `ui_mode` / `ui_libs` | **零渲染消费**（死字段） | `core/render.ets`、`core/types.ets` |
 | `ui_surface` | 原生**不落点** | 同上 |
-| `WebSurface`（ArkWeb 逃生舱） | **已存在可用**，但**无 JS 桥** | `components/WebSurface.ets`；grep `javaScriptProxy`/`runJavaScript` 零命中 |
+| `WebSurface`（ArkWeb 逃生舱） | **已存在可用**；**协议层 + 原生端 JS 桥已落地**（2026-10-11 波1a），**页面侧待接线** | `components/WebSurface.ets`（`.javaScriptProxy` 注入 `window.xbotNative.postMessage`）；协议层 `core/webbridge.ets`（信封/解析/编码/白名单，可脱机单测 `tools/tests/webbridge.test.ts`） |
 | **插件面板打开的是"裸 ESM .js"** | ⛔ 能力面板点某插件 → ArkWeb 显示 **`index.js` 源码** | `core/store.ets` 的 `PluginPanelInfo.url = module_url ?? ${base}/plugins/<id>/web/<entry>`；`pages/Index.ets` 消费 |
 
 > 结论：真问题不是"缺 WebSurface"，而是 **URL 语义错位**（把"模块 URL"当"可导航页面"）+ **无桥**。
@@ -127,6 +127,10 @@ bash tools/typecheck/check.sh
 1. **波1**：`PluginPanelInfo.url` 语义改为**可导航的插件宿主 URL**（最小实现：`${baseUrl}/`，
    由 web 的 plugin runtime 渲染全部插件面板）。
 2. **波2**：`WebSurface` 加 `javaScriptProxy` 桥（原生能力/事件注入宿主页）。
+   —— **波1a 已完成原生端 + 协议层**（`core/webbridge.ets` + `components/WebSurface.ets`）；
+   **波1b 待办**：① 页面侧监听 `window 'xbot:bridge'` 事件、`JSON.parse(e.detail)`，
+   并调用 `xbotNative.postMessage(json)`；② 修 `PluginPanelInfo.url` 的裸 `.js` 语义错位。
+   协议契约（信封 / 白名单 / 上限）见 `core/webbridge.ets` 头注释。
 3. **波3**：`web_widgets` / `plugin_widgets` 事件**至少不静默丢**（现状直接忽略）；
    原生 L1 声明式组件渲染为可选增强。
 
