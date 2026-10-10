@@ -29,15 +29,48 @@ if [ -f "$HOME/ohos-cli/env.sh" ]; then
   source "$HOME/ohos-cli/env.sh" >/dev/null 2>&1 || true
 fi
 cd "$ROOT"
+
+# ⛔ 构建串行锁：多条线在**同一工作树**并行跑 gate 时，两个 hvigor 会互相踩，
+#    症状是 `Read buffer from input error` 之类**假红**（真机/本仓实测过）。
+#    用 mkdir 原子性做锁；等待有上限（超时则继续，只是可能再撞一次）。
+LOCK="${TMPDIR:-/tmp}/xbot-gate-build.lock"
+waited=0
+while ! mkdir "$LOCK" 2>/dev/null; do
+  if [ "$waited" -ge 300 ]; then
+    echo "⚠ 等待构建锁超时（>300s），继续（可能与并发构建冲突）"
+    break
+  fi
+  [ "$waited" -eq 0 ] && echo "⏳ 另一条线正在构建，等待锁…"
+  sleep 2
+  waited=$((waited + 2))
+done
+# 无论怎么退出都要释放锁（含 Ctrl-C / 编译失败）
+trap 'rmdir "$LOCK" 2>/dev/null' EXIT INT TERM
+
 LOG="$(mktemp -t xbot-gate.XXXXXX)"
-if hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-daemon >"$LOG" 2>&1; then
+build_once() {
+  hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-daemon >"$LOG" 2>&1
+}
+
+ok=0
+build_once && ok=1
+if [ "$ok" -eq 0 ] && grep -qE "Read buffer from input error|input error" "$LOG"; then
+  # 瞬时/并发类错误：**重试一次**（这类假红重跑即绿，重试能省掉一整轮误判）
+  echo "⚠ 检测到疑似并发/瞬时构建错误，重试一次…"
+  sleep 3
+  build_once && ok=1
+fi
+
+if [ "$ok" -eq 1 ]; then
   grep -E "BUILD SUCCESSFUL" "$LOG" | tail -1
 else
   echo "❌ ArkTS 编译失败："
-  grep -E "ArkTS Compiler Error|Error Message|BUILD FAILED" "$LOG" | head -20
+  grep -E "ArkTS Compiler Error|Error Message|BUILD FAILED|input error" "$LOG" | head -20
   fail=1
 fi
 rm -f "$LOG"
+rmdir "$LOCK" 2>/dev/null
+trap - EXIT INT TERM
 
 echo "===== ⑤ 孤儿组件（警告级，不影响退出码）====="
 bash "$HERE/lint/orphan-components.sh" || true
