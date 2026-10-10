@@ -550,8 +550,22 @@ struct Index {
   }
 
   /** 有回合在跑 ⇒ 开启 600ms 脉冲；空闲 ⇒ 关掉（绝不留后台定时器）。 */
+  /** 应用是否在后台（官方性能规范 §3：后台挂起非必要定时器与动画）。 */
+  @State appPaused: boolean = false;
+
+  onPageHide(): void {
+    // 进后台：停掉脉冲与打字机的所有定时器（降功耗；回前台自动恢复）
+    this.appPaused = true;
+    this.syncPulse(false);
+  }
+
+  onPageShow(): void {
+    this.appPaused = false;
+    this.syncPulse(this.busy);
+  }
+
   private syncPulse(busy: boolean): void {
-    if (busy && this.pulseTimer < 0) {
+    if (busy && !this.appPaused && this.pulseTimer < 0) {
       this.pulseTimer = setInterval(() => {
         this.pulseOn = !this.pulseOn;
         // 同一拍顺手推进流光位置（避免为装饰再开一个定时器）
@@ -2037,6 +2051,7 @@ struct Index {
               text: this.liveText,
               reasoning: this.liveReasoning,
               tools: this.liveTools,
+              paused: this.appPaused,
               theme: this.themeName,
               fontScale: this.fontScale(),
               wrapCode: this.wrapCode(),

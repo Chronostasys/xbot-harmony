@@ -23,6 +23,8 @@ export struct LiveTailView {
   /** 已收到的思考 */
   @Prop @Watch('onSource') reasoning: string = '';
   @Prop tools: ToolProgress[] = [];
+  /** 应用是否在后台（官方性能规范 §3：后台必须挂起非必要定时器/动画） */
+  @Prop @Watch('onSource') paused: boolean = false;
   @Prop theme: string = 'dark';
   @Prop fontScale: number = 1;
   @Prop wrapCode: boolean = true;
@@ -81,7 +83,8 @@ export struct LiveTailView {
   }
 
   private syncTimer(): void {
-    const on: boolean = this.liveNow() && (this.typingText() || this.typingReason());
+    // 后台挂起：不推进、不重渲染（回前台时 @Watch 重新拉起）
+    const on: boolean = !this.paused && this.liveNow() && (this.typingText() || this.typingReason());
     if (on && this.timer < 0) {
       this.timer = setInterval(() => {
         this.tick();
@@ -112,6 +115,10 @@ export struct LiveTailView {
   }
 
   private tick(): void {
+    if (this.paused) {
+      this.stopTimer();
+      return;
+    }
     const skip: boolean = this.skip;
     this.skip = !this.skip;
     this.caretOn = !this.caretOn;
