@@ -296,18 +296,12 @@ const LEDGER: string[] = [
   // ── 根因 D：dark 主题主按钮上的白字（#FFFFFF / #7C5CFF）只有 4.35，**略低于** AA 4.5 ────
   // 证据：Index.ets:2293/4674/5231。最小改动建议：accent 压暗一档（如 #6B4AE6）或按钮字色用 #F5F5FF。
   'dark|onAccent|accent',
-  // ── 根因 E：porcelain 的 `textMuted`（Apple tertiaryLabel #AEAEB2）压 surfaceHi(#EDEDEF)
-  // 只有 1.89 < 2.0；压 accentDeep(#E8F1FD) 只有 1.94 < 2.0。**纯白族最弱的一档**。
-  // surfaceHi 确实被当 Text 填充用（Index.ets:4553 channelLabel），故属潜在风险
-  // （实测当前无 textMuted 直呼点，见 §D 报告）。
-  // 最小改动建议：porcelain 的 textMuted 压深一档（如 #8E8E93，= 它自己的 statusIdle）。
-  'porcelain|textMuted|surfaceHi',
-  'porcelain|textMuted|accentDeep',
-  // ── 根因 E 的**同一个病**在新面 sunken 上复现（波5f 新增的面暴露出来的） ──────────
-  // porcelain 下沉面（#F2F2F2）压 textMuted = 1.98 < 2.0。深色四套都过（dark 3.32 / aurora 4.87 /
-  // nebula 3.38 / light 2.27）⇒ 又是**纯白族 textMuted 太浅**这一个根因，不是 sunken 取值的问题。
-  // 最小改动建议：同根因 E（压深 porcelain 的 textMuted）一处改动即可同时消掉 3 条台账。
-  'porcelain|textMuted|sunken',
+  // ── 根因 E（**已修**：2026-10-11 波5h）──────────────────────────────────────────────
+  // porcelain 的 `textMuted` 曾是 Apple tertiaryLabel `#AEAEB2`：压 surfaceHi(#EDEDEF) 1.89、
+  // 压 accentDeep(#E8F1FD) 1.94、压 sunken(#F2F2F2) 1.98 —— 三处都 < 2.0（"更弱的一档"糊掉）。
+  // 已改为 `#A2A2A7`（取值依据 = 两条约束一起解，见 `core/theme.ets` 的 porcelainPalette 注释）。
+  // ⛔ 这三条**不许加回台账**：它们现在由 §F 直接断言（比台账强 —— 台账只保证"不新增"，
+  //    §F 保证"确实达标且留有余量"）。重新登记 = 承认重新引入可读性缺陷。
 ];
 
 const ledgerSet: Record<string, boolean> = {};
@@ -559,7 +553,101 @@ ok('porcelain 玻璃底不再恒等（1.0000 → 真有差异）',
   contrastRatio(compositeOver(effectsOf(paletteOf('porcelain')).glassBg, '#FFFFFF'), '#FFFFFF') > 1.0);
 
 // ════════════════════════════════════════════════════════════════════════════
-// §F 报告（给设计决策看的真数据 —— 永远打印，不只在失败时）
+// §F 文字层级与余量不变量（波5h：`porcelain.textMuted` 数值决策的守护）
+//
+// 为什么单列一段：§C 的台账只能表达"已知欠债"，表达不了另外两件事 ——
+//  ① 修好之后**不许退回**（台账项一删，就没有东西拦着它变回去了）；
+//  ② 修的时候**不许把文字层级压塌**：porcelain 有四级文字
+//     （textPrimary / textSecondary / textMuted / foreground3），
+//     "把 textMuted 压深到能看清" 与 "次级/更弱还分得出来" 是**一对冲突约束** ——
+//     压过头（例如直接借用它自己的 `statusIdle #8E8E93`）会让 `textMuted↔textSecondary`
+//     的间距跌到**全场最紧**（1.555，其他四套最小是 1.845）⇒ 丢一级文字层级。
+//     "一改消 3 条台账"若以丢层级为代价，那是亏不是赚 ⇒ 本段把两条约束**同时**断言。
+// ⛔ 阈值一个都没放宽（T_MUTED 仍是 2.0）；下面全是**新增的更强断言**。
+// ════════════════════════════════════════════════════════════════════════════
+console.log('\n▶ §F 文字层级与余量不变量（porcelain.textMuted = #A2A2A7）');
+
+const POR: Palette = paletteOf('porcelain');
+const POR_SUNKEN: string = surfacesOf(POR).sunken;
+/** porcelain 白底族的**全部**文字落点：画布/卡片/次级面/悬停面/下沉面/强调浅底。 */
+const POR_FACES: string[] = ['appBg', 'surface', 'surfaceAlt', 'surfaceHi', 'sunken', 'accentDeep'];
+const POR_FACE_HEX: Record<string, string> = {
+  appBg: POR.appBg, surface: POR.surface, surfaceAlt: POR.surfaceAlt,
+  surfaceHi: POR.surfaceHi, sunken: POR_SUNKEN, accentDeep: POR.accentDeep,
+};
+/** 同族灰的判据：Apple 自家 label 家族是 `R=G` 且 `B=R+5` 的轻微冷偏（不是纯无彩色）。 */
+function isAppleGrayFamily(hex: string): boolean {
+  const c: number[] = parseColorRgba(hex);
+  return c[0] === c[1] && c[2] === c[0] + 5;
+}
+
+// ── F1「已修的 3 条台账」⇒ 改成**直接断言**（比台账强：台账只保证"不新增"） ────────
+// 这 6 条就是 porcelain.textMuted 的全部落点；任何一条掉到线下 ⇒ 红（不会再被台账吞掉）。
+for (let i = 0; i < POR_FACES.length; i++) {
+  const f: string = POR_FACES[i];
+  const r: number = contrastRatio(POR.textMuted, POR_FACE_HEX[f]);
+  ok(`porcelain textMuted 压 ${f} 达标（${r.toFixed(3)} >= ${T_MUTED}；${POR.textMuted} on ${POR_FACE_HEX[f]}）`,
+    r >= T_MUTED);
+}
+
+// ── F2 余量（不贴线）：最紧的一面要比阈值留出 ≥0.15 ───────────────────────────
+// 为什么 0.15：2.0 是"最弱文字档"的硬阈值，**贴线意味着相邻色板任何一次微调都会把它顶到线下**
+// （下一条主题/强调色的改动不该连带打红另一套主题）。0.15 = 阈值的 7.5% 余量。
+let porMin: number = 99;
+let porMinFace: string = '';
+for (let i = 0; i < POR_FACES.length; i++) {
+  const r: number = contrastRatio(POR.textMuted, POR_FACE_HEX[POR_FACES[i]]);
+  if (r < porMin) { porMin = r; porMinFace = POR_FACES[i]; }
+}
+ok(`porcelain textMuted 最紧面留有余量（${porMinFace} = ${porMin.toFixed(3)} >= 2.15）`, porMin >= 2.15);
+
+// ── F3 层级不塌陷（冲突约束 ②）：与相邻档的间距不得小于**其他四套主题的最小值** ──
+// 判据取自色板自身（不发明新尺度）：porcelain 不许成为"次级↔更弱最分不出"的那一套。
+const OTHER_THEMES: string[] = ['dark', 'light', 'aurora', 'nebula'];
+let otherGapSec: number = 99;
+let otherGapFg3: number = 99;
+for (let i = 0; i < OTHER_THEMES.length; i++) {
+  const q: Palette = paletteOf(OTHER_THEMES[i]);
+  otherGapSec = Math.min(otherGapSec, contrastRatio(q.textSecondary, q.textMuted));
+  otherGapFg3 = Math.min(otherGapFg3, contrastRatio(q.textMuted, q.foreground3));
+}
+const porGapSec: number = contrastRatio(POR.textSecondary, POR.textMuted);
+const porGapFg3: number = contrastRatio(POR.textMuted, POR.foreground3);
+ok(`porcelain 次级↔更弱 间距不塌陷（${porGapSec.toFixed(3)} >= 其他四套最小 ${otherGapSec.toFixed(3)}）`,
+  porGapSec >= otherGapSec);
+ok(`porcelain 更弱↔最弱 间距不塌陷（${porGapFg3.toFixed(3)} >= 其他四套最小 ${otherGapFg3.toFixed(3)}）`,
+  porGapFg3 >= otherGapFg3);
+// 顺带钉住"压过头"的边界：直接借用 statusIdle(#8E8E93) 会跌破这条线 —— 显式留证据
+ok('压过头会被拦下（#8E8E93 的次级↔更弱间距 1.555 < 其他四套最小）',
+  contrastRatio(POR.textSecondary, '#8E8E93') < otherGapSec);
+
+// ── F4 四级阶梯**严格有序**（对纯白画布，对比度严格递减） ──────────────────────
+const POR_LADDER: string[] = [POR.textPrimary, POR.textSecondary, POR.textMuted, POR.foreground3];
+for (let i = 1; i < POR_LADDER.length; i++) {
+  const hi: number = contrastRatio(POR_LADDER[i - 1], POR.appBg);
+  const lo: number = contrastRatio(POR_LADDER[i], POR.appBg);
+  ok(`porcelain 四级阶梯严格递减（第 ${i} 级 ${lo.toFixed(3)} < ${hi.toFixed(3)}）`, lo < hi);
+}
+
+// ── F5 色相：三个灰阶必须同族（`R=G`、`B=R+5`）────────────────────────────────
+// 为什么不是 R=G=B：Apple 自家 label / secondaryLabel / tertiaryLabel / quaternaryLabel
+// 都带 `B=+2..+5` 的轻微冷偏 —— 与**既有** porcelain 值保持一致比追求"纯无彩色"更不割裂。
+for (let i = 1; i < POR_LADDER.length; i++) {
+  const name: string = i === 1 ? 'textSecondary' : (i === 2 ? 'textMuted' : 'foreground3');
+  ok(`porcelain ${name} 属 Apple 灰族（R=G、B=R+5）`, isAppleGrayFamily(POR_LADDER[i]));
+}
+
+// ── F6 零回归：其他四套主题逐字节不动 + 本波唯一改动的值钉成快照 ────────────────
+eq('dark textMuted 逐字节不动', paletteOf('dark').textMuted, '#63636F');
+eq('light textMuted 逐字节不动', paletteOf('light').textMuted, '#94A3B8');
+eq('aurora textMuted 逐字节不动', paletteOf('aurora').textMuted, '#6b8399');
+eq('nebula textMuted 逐字节不动', paletteOf('nebula').textMuted, '#8577ad');
+eq('porcelain 本波唯一改动的值 = #A2A2A7', POR.textMuted, '#A2A2A7');
+eq('porcelain textSecondary 未动', POR.textSecondary, '#6E6E73');
+eq('porcelain foreground3 未动', POR.foreground3, '#C7C7CC');
+
+// ════════════════════════════════════════════════════════════════════════════
+// §G 报告（给设计决策看的真数据 —— 永远打印，不只在失败时）
 // ════════════════════════════════════════════════════════════════════════════
 function pad(s: string, n: number): string {
   let out: string = s;

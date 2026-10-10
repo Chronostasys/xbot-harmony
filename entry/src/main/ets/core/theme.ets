@@ -263,10 +263,25 @@ export function nebulaPalette(): Palette {
  *
  * 设计口径（对齐 Apple 系统色）：
  *  - 画布/卡片同为纯白，靠**发丝线 + 柔影**分层（不是靠灰底，故不出现 slate 的蓝灰）；
- *  - 正文/次级/更弱/最弱 = Apple label 四阶（#1D1D1F / #6E6E73 / #AEAEB2 / #C7C7CC），
- *    纯中性（无蓝灰），这是"干净"的关键；
+ *  - 正文/次级/更弱/最弱 = 四阶文字（#1D1D1F / #6E6E73 / #A2A2A7 / #C7C7CC），
+ *    中性（R=G，B=R+5 —— 与 Apple 自家 label 家族同族偏移，非纯无彩色）；"干净"的关键；
+ *    ⚠️ `textMuted` **刻意不等于** Apple `tertiaryLabel #AEAEB2`：那一个值压在
+ *    `surfaceHi #EDEDEF`(1.89) / `accentDeep #E8F1FD`(1.94) / `sunken #F2F2F2`(1.98) 三处
+ *    都 < 2:1（"更弱的一档"在白底族上糊掉），故按**两条约束**重算（见下）；
  *  - 强调色用 Apple Blue #0071E3（科技感签名色；用户强调色仍可覆盖）；
  *  - 用户气泡同为 Apple 蓝（**不留 slate 浅色里的品牌紫**）。
+ *
+ * ── `textMuted = #A2A2A7` 的取值依据（2026-10-11，两条约束一起解，不是拍一个值）──────
+ *  · 约束 ①（可读性下限）：对**每一个**白底族的面（`appBg`/`surface`/`surfaceAlt`/`surfaceHi`/
+ *    `sunken`/`accentDeep`）都必须 ≥ 2.0:1（最弱文字档的门禁阈值，**不放宽**）。
+ *      可行窗口的下缘（本约束最紧）= `#A8A8AD`（最紧面 `surfaceHi` = 2.025）。
+ *  · 约束 ②（层级不许塌陷）：`textMuted` 与 `textSecondary` 的间距不得**小于其他四套主题的最小值**
+ *    （= nebula 的 1.845:1），否则 porcelain 会成为"次级/更弱分不出"的异类（丢掉一级文字层级）。
+ *      可行窗口的上缘（本约束最紧）= `#9C9CA1`（间距 1.856）。
+ *  · 窗口 = `#A8A8AD`…`#9C9CA1`；取**min-max 归一化余量最优**的中点 = `#A2A2A7`：
+ *    最紧面 2.174（余量 +8.7%）、层级间距 1.995（余量 +8.2%）—— 两边都不贴线。
+ *    旁证：它的 BT.601 亮度阶梯 52.0 落在其余四套的 [49.3, 77.8] 区间内。
+ *  · 门禁把这两条约束**都断言**（`tools/tests/theme_contrast.test.ts` §G），改坏任一条即红。
  */
 export function porcelainPalette(): Palette {
   const p: Palette = new Palette();
@@ -276,7 +291,7 @@ export function porcelainPalette(): Palette {
   p.surfaceHi = '#EDEDEF';    // 悬停 / 选中
   p.textPrimary = '#1D1D1F';  // Apple label
   p.textSecondary = '#6E6E73';// Apple secondaryLabel
-  p.textMuted = '#AEAEB2';    // Apple tertiaryLabel
+  p.textMuted = '#A2A2A7';    // 「更弱」一档：**不用 Apple tertiaryLabel #AEAEB2**（见下）
   p.foreground3 = '#C7C7CC';  // Apple quaternaryLabel（最弱一档）
   p.accent = '#0071E3';       // Apple Blue
   p.accentHover = '#0062C4';  // 浅色系 hover 压暗（与 withAccent 的 light 分支同向）
