@@ -44,6 +44,7 @@ import { blocksSignature, completedBlocks, displayContent, displayReasoning, row
 import {
   channelLabel, hiddenRowCount, visibleRows, MAX_ROWS_VISIBLE,
 } from '../core/sessionpick';
+import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msgindex';
 import {
   ATTACH_DONE, ATTACH_FAILED, ATTACH_UPLOADING, AttachItem, MAX_ATTACH, appendRef, attachChipText,
   attachmentRef, baseName, doneKeys, doneNames, doneRefs, doneSizes, hasRef, humanSize, mimeOf,
@@ -87,6 +88,7 @@ import { MarkdownView } from '../components/MarkdownView';
 import { WebSurface } from '../components/WebSurface';
 import { ContextRing } from '../components/ContextRing';
 import { SettingsPanel } from '../components/SettingsPanel';
+import { MessageNav } from '../components/MessageNav';
 
 /** 一个问题当前选中的答案（用类而非 Map/Record：ArkTS 下最稳，且能整体替换触发重渲染）。 */
 class AskSelection {
@@ -236,6 +238,13 @@ struct Index {
 
   /** 首屏渲染的行窗口（避免一次性构建几十行；点上方的「显示更早」按批放开） */
   @State rowLimit: number = MAX_ROWS_VISIBLE;
+
+  /**
+   * 列表第一个**可见列表项**下标（`onScrollIndex` 的 `start`）—— 供「用户消息导航」算当前锚点。
+   * ⚠️ 它是**列表项**下标（含可选的「加载更早」头项 + busy/live 尾项），不是行下标；
+   *    换算见 `navActiveSeq()`。
+   */
+  @State listStart: number = 0;
 
   // ── 附件（web 有、原生原先没有：发文件/图片）──────────────────────────────
   /**
@@ -1829,6 +1838,69 @@ struct Index {
     await store.loadMore();
   }
 
+  // ── 用户消息导航（components/MessageNav + core/msgindex）──────────────────────
+
+  /** 导航锚点（用户消息 + 同 turn 首个 assistant 预览）—— 与组件读**同一**纯函数。 */
+  private navAnchors(): NavAnchor[] {
+    return buildAnchors(this.rows, userAnchorRows(this.rows));
+  }
+
+  /**
+   * 当前可视锚点序号（1-based；0 = 无）。
+   *
+   * 把 `onScrollIndex` 给的**列表项**下标换算回**行**下标，再交给 `core/msgindex.nearestSeq`
+   * （与 web `MessageUserNav` 的 `visibleStart + ACTIVE_ANCHOR_ROWS` 判定同源）：
+   *   rowStart = 列表项下标 − 「加载更早」头项 − 行窗口起点
+   * （行窗口 `rowLimit` 会把更早的行挡在数据源之外）。越界一律夹到 0。
+   */
+  private navActiveSeq(): number {
+    const len: number = this.rows.length;
+    const liveRows: number = this.hasLiveRow ? 1 : 0;
+    const restLen: number = len - liveRows > 0 ? len - liveRows : 0;
+    const head: number = (this.hasMore || this.loadingMore
+      || hiddenRowCount(len, this.rowLimit) > 0) ? 1 : 0;
+    const windowStart: number = restLen - this.rowLimit > 0 ? restLen - this.rowLimit : 0;
+    let rowStart: number = this.listStart - head + windowStart;
+    if (rowStart < 0) {
+      rowStart = 0;
+    }
+    return nearestSeq(userAnchorRows(this.rows), rowStart);
+  }
+
+  /**
+   * 跳转到某行（`MessageNav` 的 `onNavigate`）—— **纯滚动**，绝不触发任何"加载更多"。
+   *
+   * 目标行若落在渲染窗口（`rowLimit`）之外 ⇒ 先把窗口**本地**放开到包含它（这些行**已在内存**，
+   * `rowLimit` 只是渲染上限，放开它不产生任何网络请求）；再解除"贴底跟随"并把列表滚到该项。
+   */
+  private navToRow(rowIndex: number): void {
+    const len: number = this.rows.length;
+    if (rowIndex < 0 || rowIndex >= len) {
+      return;
+    }
+    // 用户主动跳转 ⇒ 解除贴底跟随（否则随后的流式 `scrollEdge(Bottom)` 会把他拉回底部）
+    this.atBottom = false;
+    const needWindow: number = len - rowIndex + MAX_ROWS_VISIBLE;
+    if (needWindow > this.rowLimit) {
+      this.rowLimit = needWindow;
+      this.syncRowDs();
+    }
+    const liveRows: number = this.hasLiveRow ? 1 : 0;
+    const restLen: number = len - liveRows > 0 ? len - liveRows : 0;
+    const head: number = (this.hasMore || this.loadingMore
+      || hiddenRowCount(len, this.rowLimit) > 0) ? 1 : 0;
+    const windowStart: number = restLen - this.rowLimit > 0 ? restLen - this.rowLimit : 0;
+    const isLiveTarget: boolean = liveRows === 1 && rowIndex === len - 1;
+    const listIndex: number = isLiveTarget
+      ? head + this.rowDs.count()
+      : head + (rowIndex - windowStart);
+    try {
+      this.listScroller.scrollToIndex(listIndex);
+    } catch (e) {
+      // 首帧尚未布局：忽略（下一次滚动索引回调会纠正高亮）
+    }
+  }
+
   // ── 工具详情 / 迭代展开 ───────────────────────────────────────────────────
 
 
@@ -2029,13 +2101,18 @@ struct Index {
         this.ChatView()
       }
 
-      // 会话抽屉（左侧滑出）：**点右侧空白收起**（对齐 web 的 backdrop 点击语义；
-      // 之前的抽屉没有背景板 ⇒ 点抽屉外没反应、只能点 ✕）。
+      // 会话抽屉（左侧滑出）：**scrim 遮罩 + 点击遮罩收起**（对齐 web backdrop 语义）。
+      // scrim 颜色取调色板派生 token `eff().elev2`（深色系 = 中性黑@32%、浅色系 = 正文色@10%，
+      // 与 Apple 侧栏 scrim 同量级；浅色主题自动更淡）——**不引入任何 hex 字面量**，也不按
+      // 主题名硬判（`effectsOf` 内部用 `isLightPalette` 亮度口径，新增主题自动成立）。
       if (this.showDrawer) {
         Stack() {
           Row() {
             Blank()
-          }.width('100%').height('100%').onClick(() => {
+          }
+          .width('100%').height('100%')
+          .backgroundColor(this.eff().elev2)
+          .onClick(() => {
             this.closeDrawer();
           })
           this.DrawerSheet()
@@ -2502,7 +2579,10 @@ struct Index {
         .id('xbot-skeleton')
       }
 
-      // 消息列表 —— 顶部**只有**「更早」这一类指示器（自动触发，不可点），保证其上方没有任何消息行
+      // 消息列表 —— 顶部**只有**「更早」这一类指示器（自动触发，不可点），保证其上方没有任何消息行。
+      // 外层 Stack：把「用户消息导航」（右上角悬浮按钮 + 浮层列表，components/MessageNav）
+      // 叠在消息区右上角（其自身在 < 2 个锚点时不产出任何节点）。
+      Stack({ alignContent: Alignment.TopEnd }) {
       List({ scroller: this.listScroller }) {
         if (this.hasMore || this.loadingMore || hiddenRowCount(this.rows.length, this.rowLimit) > 0) {
           ListItem() {
@@ -2565,7 +2645,7 @@ struct Index {
           }
         }
       }
-      .layoutWeight(1).width('100%').edgeEffect(EdgeEffect.Spring).padding({ left: 8, right: 8 })
+      .width('100%').height('100%').edgeEffect(EdgeEffect.Spring).padding({ left: 8, right: 8 })
       .opacity(this.listAlpha)
       // 预构建 4 行：滚动时不必等构建（越小内存越省，越大滚动越顺）
       .cachedCount(4)
@@ -2573,6 +2653,7 @@ struct Index {
       // 项数 = [可选"加载更早"] + rows + [可选 live 行项] + [可选 busy 指示器]，
       // 故用 listItemCount() 显式算。
       .onScrollIndex((start: number, end: number) => {
+        this.listStart = start;   // 用户消息导航据此算当前锚点
         const busyPlaceholder: boolean = showsBusyPlaceholder(this.busySignals());
         const liveRows: number = this.hasLiveRow ? 1 : 0;
         this.atBottom = end >= listItemCount(this.hasMore, this.loadingMore, this.rowDs.count(),
@@ -2589,6 +2670,20 @@ struct Index {
         }
       })
       .id('xbot-list')
+
+        // 用户消息导航（右上角 32×32 悬浮按钮 + 浮层列表）。`anchors`/`activeSeq` 由本页
+        // 用核心纯函数派生；点击条目 ⇒ `navToRow` 纯滚动（绝不触发"加载更多"）。
+        MessageNav({
+          anchors: this.navAnchors(),
+          activeSeq: this.navActiveSeq(),
+          theme: this.themeName,
+          onNavigate: (rowIndex: number) => {
+            this.navToRow(rowIndex);
+          },
+        })
+        .margin({ top: SP_2, right: SP_2 })
+      }
+      .layoutWeight(1).width('100%')
 
       // 不在底部时给一个「回到最新」（列表很长时不用一路滑）；贴底不显示
       if (showsJumpToLatest(this.atBottom, this.rows.length)) {
@@ -2721,7 +2816,10 @@ struct Index {
             ForEach(this.poolOrder, (cid: string) => {
               Row({ space: 4 }) {
                 Text(this.tabLabel(cid)).fontSize(11)
-                  .fontColor(cid === this.currentChat ? this.pal().onAccent : this.pal().textSecondary)
+                  // 选中态底色是**浅填充** `accentDeep`（浅色系 = 强调色 lighten(0.78)）⇒ 字色必须用
+                  // `accentText`（角色定义即"强调色浅底上的文字"）；`onAccent` 是为**实心** accent 底
+                  // 设计的白字，压在浅填充上浅色主题仅 1.1x（见对比度台账 B）
+                  .fontColor(cid === this.currentChat ? this.pal().accentText : this.pal().textSecondary)
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                   .constraintSize({ maxWidth: 90 })
                 if (this.tabRunning(cid)) {
@@ -4034,7 +4132,9 @@ struct Index {
       Row({ space: 8 }) {
         Text(settingLabel(KEY_SEND_KEY)).fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
         Text(sendKeyLabel(this.sendKeyMode()))
-          .fontSize(12).fontColor(this.pal().onAccent).padding({ left: 12, right: 12, top: 6, bottom: 6 })
+          // 底色是中性面 `surfaceHi` ⇒ 必须用中性文字色 `textPrimary`（`onAccent` 是"主按钮
+          // 上的文字"，与 surfaceHi 四套主题对比度均 <1.25，全场不达标；见对比度台账 A）
+          .fontSize(12).fontColor(this.pal().textPrimary).padding({ left: 12, right: 12, top: 6, bottom: 6 })
           .backgroundColor(this.pal().surfaceHi).borderRadius(8)
           .onClick(() => {
             const next: string = this.sendKeyMode() === SEND_KEY_MOD_ENTER ? 'enter' : SEND_KEY_MOD_ENTER;
