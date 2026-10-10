@@ -568,3 +568,42 @@ Usage of standard library is restricted (arkts-limited-stdlib)
     并以 **`BUILD SUCCESSFUL`** 为唯一判据（见 `AGENTS.md` GOTCHAS）。
 - **定位手段**：报错只有 1 ERROR 且指向**你不拥有的文件**时，用 **`git stash push -- <你的文件>`**
   后重跑构建 ⇒ 若仍报同一错误，即**跨线阻断**、与你无关（举证手段，别硬扛）。
+
+---
+
+## 批次 14：`linearGradient` 是**背景**渐变，不是"文字填充渐变"（2026-10-11，真机截图抓到）
+
+- **现象**：登录页字标本想做 web 那种**渐变字**，代码是（`pages/Index.ets:2192-2198`）：
+  ```ts
+  Text('xbot').fontSize(40).fontWeight(FontWeight.Bold)
+    .linearGradient({ angle: 135, colors: [[this.eff().gradientFrom, 0.0], [this.eff().gradientTo, 1.0]] })
+    .shadow({ radius: 22, color: this.eff().glow, offsetX: 0, offsetY: 0 })
+  ```
+  真机渲染结果是**一块直角紫色方块 + 白色 "xbot"** —— 完全不是渐变字。
+- **根因**：`linearGradient` / `radialGradient` / `sweepGradient` 定义在 **`CommonAttribute`** 上，
+  语义 = **组件背景**（等价 `backgroundImage`），**与 `.fontColor()` 无关**。
+  **ArkUI 没有 gradient-text**（不存在 `fontGradient` / `textGradient`）。
+  于是"给 `Text` 加渐变" = "给 `Text` 刷背景"，而 `Text` 没有 `borderRadius` ⇒ 直角色块。
+  同理 `.shadow()` 是**外阴影**（不是内高光）；`.backgroundColor()` / `.backgroundBlurStyle()` 都是容器语义。
+- **正确做法**（三选一，别赌）：
+  1. **徽标（推荐）** —— 把"色块"做实：外层容器显式给 `borderRadius` + `padding` +
+     `justifyContent(FlexAlign.Center)`，渐变刷在**容器**上，内部 `Text` 用 `onAccent` 白字。
+     此时"背景渐变"从 bug 变成**有意为之的 app 徽标**（squircle 方章）。
+  2. **纯色字（最省事）** —— 直接 `.fontColor(accent)`，学 Apple 的克制；极简风里纯色字标往往比渐变字更好。
+  3. **真·渐变字** —— `Stack` 叠层 + `.blendMode(BlendMode.SrcIn)` 反向裁切。**复杂度高**，
+     不同渲染后端 `blendMode` 行为不一致，真机必须复验；除非设计硬要求，否则不做。
+- **为什么离线门禁抓不到**：这类缺陷**不是类型错误**，三条离线门禁 + `hvigorw assembleHap` 全绿。
+  **只有真机截图能抓到** ⇒ 凡"视觉层"改动，交付必须附**真机截图**，
+  不许只报 `BUILD SUCCESSFUL`（与批次 13"假绿"是同一类问题的两个面：一个是查不到，一个是测不到）。
+- **同批附带的第二个坑（脏默认值盖住占位符）**：`pages/Index.ets:198`
+  `@State serverUrl: string = 'http://'` ⇒ 输入框被真值填满，
+  `TextInput` 的 `placeholder`（`服务端地址，如 192.168.1.10:16000`）**从未显示过**，用户还得先手删 `http://`。
+  而 `core/endpoint.ets:16` 的 `normalizeServerUrl()` **本来就会补协议**（`192.168.1.10:16000 → http://192.168.1.10:16000`）
+  ⇒ 预填是**纯负担**。
+  **教训**：任何"预填默认值"动笔前先问两句 ——
+  ① 它会不会**盖住提示**（placeholder）？② 它是会不会**重复下游已有的归一化**？
+- **附带事实（对齐 web 时别搞错基准）**：web 登录页**没有 logo**
+  （`web/src/pages/LoginPage.tsx:56-63` 只有标题 + 副标题）⇒ 原生端的 logo 是**超越 web 的独享项**，
+  可以自由设计，但**必须是有意为之**；凡是"意外渲染出来的样子"都不算设计。
+  开屏（startWindow）则已有判据：`docs/BRAND.md` §4，底色取
+  `lightPalette().appBg = #F8FAFC` / `darkPalette().appBg = #0B0B0E`（**与主界面同色，开屏→首屏不跳色**）。
