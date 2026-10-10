@@ -2,6 +2,7 @@
   "string": [
     { "name": "module_desc", "value": "xbot native client" },
     { "name": "EntryAbility_desc", "value": "xbot" },
-    { "name": "EntryAbility_label", "value": "xbot" }
+    { "name": "EntryAbility_label", "value": "xbot" },
+    { "name": "thinking_placeholder", "value": "思考中…" }
   ]
 }

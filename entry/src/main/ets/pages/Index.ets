@@ -45,6 +45,8 @@ import {
 } from '../core/attach';
 import { changedByKeys, identityChanged, needsFullReload, rowKey, rowsFpOf, sameRowIds,
   scopedFingerprint, sessionScopedRowKey, tailRows } from '../core/rowdiff';
+import { BusySignals, busyNow, showsBusyPlaceholder, showsJumpToLatest } from '../core/indicators';
+import { OverlayCode, OverlayState, topOverlay } from '../core/overlays';
 import {
   currentTodo, goalText, modelText, todoProgress, usageText,
 } from '../core/statusfmt';
@@ -561,6 +563,68 @@ struct Index {
   onPageShow(): void {
     this.appPaused = false;
     this.syncPulse(this.busy);
+  }
+
+  /** 当前所有浮层的状态投影（给 core/overlays 的纯函数用）。 */
+  private overlayState(): OverlayState {
+    return {
+      drawer: this.showDrawer,
+      settings: this.showSettings,
+      queue: this.showQueue,
+      plugins: this.showPlugins,
+      selfCheck: this.showSelfCheck,
+      status: this.showStatus,
+      model: this.showModel,
+      prefs: this.showPrefs,
+      panels: this.showPanels,
+      sessMenu: this.sessMenuId.length > 0,
+      searchHits: this.showSearchHits,
+      ctxMenu: this.ctxOpen,
+      image: this.imagePixel !== null || this.imageBusy,
+      webPanel: this.panelUrl.length > 0,
+    };
+  }
+
+  /**
+   * 返回键 = web 的 `Esc`：先关**最上层**浮层；没有浮层才交还系统（退出/回桌面）。
+   *
+   * ⛔ 此前原生端**没有**任何返回键处理 ⇒ 浮层打开时按返回直接退出应用
+   * （与 web 用户按 Esc"关弹窗"的语义不一致，且会误退）。AskUser 是服务端权威
+   * 的必答项，故意不在此关闭（见 core/overlays.topOverlay 的说明）。
+   */
+  onBackPress(): boolean {
+    const code: OverlayCode = topOverlay(this.overlayState());
+    if (code === '') {
+      return false;
+    }
+    this.closeOverlay(code);
+    return true;
+  }
+
+  private closeOverlay(code: OverlayCode): void {
+    switch (code) {
+      case 'webPanel': this.panelUrl = ''; break;
+      case 'image': this.closeViewer(); break;
+      case 'ctxMenu': this.ctxOpen = false; break;
+      case 'searchHits': this.showSearchHits = false; break;
+      case 'sessMenu': this.sessMenuId = ''; this.sessConfirmDelete = ''; break;
+      case 'panels': this.showPanels = false; break;
+      case 'prefs': this.showPrefs = false; break;
+      case 'model': this.showModel = false; break;
+      case 'status': this.showStatus = false; break;
+      case 'selfCheck': this.showSelfCheck = false; break;
+      case 'plugins': this.showPlugins = false; break;
+      case 'queue': this.showQueue = false; break;
+      case 'settings': this.showSettings = false; break;
+      case 'drawer': this.closeDrawer(); break;
+      default: break;
+    }
+  }
+
+  /** 收起会话抽屉（web backdrop 点击 / 返回键同款语义：一并复位改名态）。 */
+  private closeDrawer(): void {
+    this.showDrawer = false;
+    this.renamingId = '';
   }
 
   private syncPulse(busy: boolean): void {
@@ -1756,21 +1820,51 @@ struct Index {
         this.ChatView()
       }
 
-      // 会话抽屉
+      // 会话抽屉（左侧滑出）：**点右侧空白收起**（对齐 web 的 backdrop 点击语义；
+      // 之前的抽屉没有背景板 ⇒ 点抽屉外没反应、只能点 ✕）。
       if (this.showDrawer) {
-        this.DrawerSheet()
+        Stack() {
+          Row() {
+            Blank()
+          }.width('100%').height('100%').onClick(() => {
+            this.closeDrawer();
+          })
+          this.DrawerSheet()
+        }
+        .width('100%').height('100%')
       }
-      // 设置
+      // 设置（backdrop：点空白收起，与 web dialog 一致）
       if (this.showSettings) {
-        this.SettingsSheet()
+        Stack() {
+          Row() {
+            Blank()
+          }.width('100%').height('100%').onClick(() => {
+            this.showSettings = false;
+          })
+          this.SettingsSheet()
+        }.width('100%').height('100%')
       }
       // 队列
       if (this.showQueue) {
-        this.QueueSheet()
+        Stack() {
+          Row() {
+            Blank()
+          }.width('100%').height('100%').onClick(() => {
+            this.showQueue = false;
+          })
+          this.QueueSheet()
+        }.width('100%').height('100%')
       }
       // 插件面板选择
       if (this.showPlugins) {
-        this.PluginsSheet()
+        Stack() {
+          Row() {
+            Blank()
+          }.width('100%').height('100%').onClick(() => {
+            this.showPlugins = false;
+          })
+          this.PluginsSheet()
+        }.width('100%').height('100%')
       }
       // AskUser（服务端权威：有 pending 就弹）
       if (this.askUser !== null) {
@@ -1778,15 +1872,36 @@ struct Index {
       }
       // 渲染自检（逐构件隔离排查用）
       if (this.showSelfCheck) {
-        this.SelfCheckSheet()
+        Stack() {
+          Row() {
+            Blank()
+          }.width('100%').height('100%').onClick(() => {
+            this.showSelfCheck = false;
+          })
+          this.SelfCheckSheet()
+        }.width('100%').height('100%')
       }
       // 会话状态（todos / goal / 用量 / cwd）
       if (this.showStatus) {
-        this.StatusSheet()
+        Stack() {
+          Row() {
+            Blank()
+          }.width('100%').height('100%').onClick(() => {
+            this.showStatus = false;
+          })
+          this.StatusSheet()
+        }.width('100%').height('100%')
       }
       // 模型 / 上下文上限选择栏
       if (this.showModel) {
-        this.ModelSheet()
+        Stack() {
+          Row() {
+            Blank()
+          }.width('100%').height('100%').onClick(() => {
+            this.showModel = false;
+          })
+          this.ModelSheet()
+        }.width('100%').height('100%')
       }
       // 偏好设置（字号 / 换行 / 思考默认 / 快捷键）
       if (this.showPrefs) {
@@ -2099,11 +2214,12 @@ struct Index {
           }
         }
 
-        if (this.busy && !this.liveTailHasContent()) {
+        if (showsBusyPlaceholder(this.busySignals())) {
           ListItem() {
             Row({ space: 8 }) {
               LoadingProgress().width(16).height(16).color(this.pal().accent)
-              Text('思考中…').fontSize(13).fontColor(this.pal().textSecondary)
+              // i18n（对齐 web `t('agent.thinking')`）：字符串来自资源，不硬编码
+              Text($r('app.string.thinking_placeholder')).fontSize(13).fontColor(this.pal().textSecondary)
                 .opacity(this.pulseOn ? 1 : 0.45)
                 .animation({ duration: 600, curve: Curve.EaseInOut })
             }.padding({ left: 14, top: 8, bottom: 8 })
@@ -2118,15 +2234,15 @@ struct Index {
       // 项数 = [可选"加载更早"] + rows + [可选 live 行项] + [可选 busy 指示器]，
       // 故用 listItemCount() 显式算。
       .onScrollIndex((start: number, end: number) => {
-        const busyPlaceholder: boolean = this.busy && !this.liveTailHasContent();
+        const busyPlaceholder: boolean = showsBusyPlaceholder(this.busySignals());
         const liveRows: number = this.hasLiveRow ? 1 : 0;
         this.atBottom = end >= listItemCount(this.hasMore, this.loadingMore, this.rowDs.count(),
           busyPlaceholder, liveRows) - 1;
       })
       .id('xbot-list')
 
-      // 不在底部时给一个「回到最新」（列表很长时不用一路滑）
-      if (!this.atBottom && this.rows.length > 0) {
+      // 不在底部时给一个「回到最新」（列表很长时不用一路滑）；贴底不显示
+      if (showsJumpToLatest(this.atBottom, this.rows.length)) {
         Row() {
           Text('↓ 回到最新').fontSize(12).fontColor(this.pal().textPrimary)
             .padding({ left: 12, right: 12, top: 7, bottom: 7 })
@@ -2762,6 +2878,26 @@ struct Index {
    * `serverRunning()` 只在**快照新鲜**（20s 内拉过会话树）时采信 ——
    * 过期的 running=true 快照曾把 idle 会话显示成"运行中"（真机）。
    */
+  /**
+   * 采集判定"是否在跑"的全部信号 —— composer 与列表占用符**共用**（见 core/indicators.ets）。
+   *
+   * ⛔ 真机 P0（2026-10-10「发送完了连思考中都没来」）：按钮此前用 `runningNow()`、
+   *   列表占位符用 `this.busy`，两套判据分叉 ⇒ 服务端已 running 但本地 turn_started 未到
+   *   时按钮=停止、列表=空。统一到本方法 + `busyNow/showsBusyPlaceholder` 后不变量按构造成立。
+   */
+  private busySignals(): BusySignals {
+    const store: ChatStore | null = this.store;
+    const fresh: boolean = store !== null && Date.now() - store.sessionsFetchedAt <= 20000;
+    return {
+      localBusy: this.busy,
+      liveHasContent: store !== null && store.hasLiveRowWithContent(),
+      tailShowsIndicator: this.hasLiveRow && !rowIsEmpty(this.liveRowRef),
+      freshServerRunning: fresh && this.serverRunning(),
+      loading: this.historyLoading,
+      rowsLen: this.rows.length,
+    };
+  }
+
   private runningNow(): boolean {
     // ⛔ 会话隔离（用户要求）：busy 只能来自**当前会话自己的 store**，且身份必须一致。
     //   切换瞬间 store / currentChat 可能短暂不一致（或 store 已置空）⇒ 一律按"不在跑"处理，
@@ -2772,23 +2908,7 @@ struct Index {
     }
     // ⛔ 与 web 同式：`currentSession.running || progressSnapshot.streaming || busyFallback(activeTurn!==null)`
     //   —— 只要本地还有"在飞的 live 迭代/行"就一定在跑；否则 SSE 抖动会让占位符一闪一没。
-    if (this.hasLiveRow && !rowIsEmpty(this.liveRowRef)) {
-      return true;
-    }
-    if (this.store !== null && this.store.hasLiveRowWithContent()) {
-      return true;
-    }
-    if (this.busy) {
-      return true;
-    }
-    const store: ChatStore | null = this.store;
-    if (store === null) {
-      return false;
-    }
-    if (Date.now() - store.sessionsFetchedAt > 20000) {
-      return false;
-    }
-    return this.serverRunning();
+    return busyNow(this.busySignals());
   }
 
   /**

@@ -105,3 +105,35 @@ reduce/derive 的「乐观行 ⇄ 回声/回合/历史 收敛」**靠 requestID 
 `llm.ChatMessage.Internal` 行（`channel/subscription.go`）⇒ 原生端历史里不会出现注入行，
 无需再补过滤（`HistoryMessage` 也不带 `internal` 字段）。**通知行**保留为独立 user 行
 （`isNotification`），`inject_user` 回声由 reduce ③.5 内容幂等收敛。
+
+## 5. P0 回归：busy 判据分叉 ⇒「思考中…」不出现（2026-10-10）
+
+**不变量**（用户两次点名）：**composer 显示"停止"（busy）⟹ 列表尾部必须有一个可见的
+"进行中"信号**（「思考中…」占位 或 live 行自身渲染出的在飞内容）。
+
+- **根因（页面层，非 store 层）**：`pages/Index.ets` 里 composer 的「停止/发送」按钮读
+  `runningNow()`（= 本地 `store.busy` **∥ 有产出的 live 行 ∥ 新鲜的服务端 running**），
+  而列表占位符读 `this.busy`（= `store.busy`，**仅本地事件驱动的快路径**）。两套判据分叉：
+  服务端已 `running`（会话树权威）但本地 `turn_started` 尚未到达（SSE 延迟/错过/刚切到运行中
+  会话）时，**按钮=停止、列表却一片空白** —— 用户看到的正是「发送完了连思考中都没来」。
+  （store→rows→判据的纯逻辑本身正确，`tools/tests/busy_indicator.test.ts` 的端到端用例可证。）
+- **修法（对齐 web 的"单一 busy"）**：新增 `core/indicators.ets`：
+  `busyNow(signals)` = 与 `runningNow()` 逐项同源的统一判据；`showsBusyPlaceholder(signals)`
+  强制由 `busyNow` 驱动（**不再用 `localBusy`**）。页面 `runningNow()` 与列表占位符
+  （`if` 渲染 + `onScrollIndex` 的 `listItemCount` 项数）**全部改走这两个函数** ⇒ 不变量按构造成立。
+  占位符文案改走 i18n（`$r('app.string.thinking_placeholder')`，对齐 web `t('agent.thinking')`）。
+- **红→绿**：`tools/tests/busy_indicator.test.ts` 先红（穷举组合、「服务端 running 本地未到」
+  两处 `expected false toBe true`，4 passed / 2 failed）→ 修后绿（6 passed）。
+
+## 6. 交互对齐（2026-10-10，②）
+
+| # | before（原生端现象/判据） | after（对齐 web 的哪段逻辑） |
+|---|---|---|
+| 1 | **返回键无处理** —— 任何浮层打开时按返回直接退出应用 | `onBackPress` = web 的 `Esc`：先关**最上层**浮层（`core/overlays.ets` `topOverlay`，顺序 = 渲染 z 序逆序），无浮层才交还系统。`AskUser` 是服务端权威必答，**故意不在此列**（web 同样不给 Esc 关闭入口） |
+| 2 | **抽屉点空白无反应** —— 只能点 ✕ 收起 | 抽屉加 backdrop：点右侧空白/返回键收起（`closeDrawer` 一并复位改名态），对齐 web backdrop 点击关闭 |
+| 3 | 设置/队列/插件/自检/状态/模型 六个 sheet **点空白无反应** | 统一加 backdrop tap-catcher（`Stack{ Row{Blank} + Sheet }`，保持居中），与 `Prefs/Panels/Sess/SearchHits/Ctx` 既有模式一致 |
+| 4 | 「↓ 回到最新」判据内联 `!atBottom && rows.length>0` | 抽为 `indicators.showsJumpToLatest(atBottom, rowsLen)` —— **贴底不显示、空列表不显示**（web：仅 follow 暂停时给"回到底部"入口） |
+
+**回归守卫**：`tools/tests/overlays.test.ts`（7 项）钉死 `topOverlay` 的 z 序（含多层叠加
+"不被下层抢走"）与 `showsJumpToLatest` 的贴底/空列表判据；`tools/tests/busy_indicator.test.ts`
+（6 项）钉死 busy 不变量（穷举 + 真实 store 流水线 + 服务端 running 场景）。
