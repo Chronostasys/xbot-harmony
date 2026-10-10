@@ -127,3 +127,14 @@ LD_PRELOAD 钩子 0 命中"是**方法错**，不是 Linux 不行。实测已拿
 **一键复现**：`tools/previewer/run.sh`
 
 - `tools/previewer/shot.sh`：起 Previewer 后连 WS 收帧 → 切出 JPEG → 直接 `view_image` 看真图。
+
+
+## 13. 命令通道实证（2026-10-10 后半段）
+
+已实现"扮演 DevEco IDE"的最小客户端：托管 `/tmp/<name>_commandPipe` + `_imagePipe`（Previewer 是**客户端**），
+按 **NUL 结尾**发 `{"version","type","command","args"}`；实测 `LoadDocument` → `result:true` + `LoadPage Success`，
+`inspector`(type:get) 回组件树 JSON，`MemoryRefresh` 回 `FastPreviewMsg`。
+**仍差最后一步**：组件树只有 root、帧纯白 ⇒ 页面 JS 未执行，日志
+`Cannot find module 'com.chronostasys.xbot/entry/ets/pages/Index', which is application Entry Point`
+（runtime 要 bundle 限定 ohmurl 记录名，abc 里是 `&entry/src/main/ets/...&`）。
+脚本：/tmp/pvfinal.py（本机）；参数注册表见 `ide_previewer/util/CommandParser.cpp`（含 `-bn`/`-abp`/`-abn`）。

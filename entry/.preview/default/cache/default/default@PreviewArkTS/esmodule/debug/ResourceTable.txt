@@ -1,0 +1,9 @@
+string EntryAbility_desc 0x01000005
+string EntryAbility_label 0x01000006
+string app_name 0x01000001
+string module_desc 0x01000007
+color start_window_background 0x01000008
+media app_icon 0x01000000
+media startIcon 0x01000004
+profile main_pages 0x01000003
+profile network_config 0x01000002
