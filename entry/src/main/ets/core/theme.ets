@@ -479,3 +479,98 @@ export function effectsComplete(e: Effects): boolean {
   if (!(e.glassBlur > 0)) { return false; }
   return true;
 }
+
+/**
+ * ────────────────────────────────────────────────────────────────────────────
+ * 对比度（WCAG 2.1）—— 让「某套主题的前景色糊在某背景上」**离线可判**。
+ *
+ * 为什么放在这里而不是测试里：视觉缺陷（白底白字 / 浅底浅字）此前只能靠人眼在模拟器上
+ * 发现（`docs/ARKTS-GOTCHAS.md` 批次 13/14 是同一类问题的两个面：门禁查不到、测不到）。
+ * 把度量的**唯一实现**放进"全应用唯一颜色来源"里，任何主题改动都能被
+ * `tools/tests/theme_contrast.test.ts` 用同一口径机械判定；同时未来若要让代码
+ * **按对比度自动挑前景色**（如 `accentDeep` 上的文字），也只应调用这几个函数，不要再造一份。
+ *
+ * 口径（逐条按 WCAG 2.1 定义，**不是**简单亮度均值）：
+ *  - sRGB 通道先线性化（分段函数，不是直接取 8bit 均值）；
+ *  - 相对亮度 L = 0.2126R + 0.7152G + 0.0722B（线性化后）；
+ *  - 对比度 = (L亮 + 0.05) / (L暗 + 0.05)，范围 1..21。
+ *
+ * ⚠️ 不要用 `isLightPalette` 的 BT.601 感知亮度（`core/accent.ets` 的 `contrastForeground`
+ * 也是那一套）来当对比度判据 —— 那是"分档挑黑/白字"的近似启发式，不是可审计的比值。
+ */
+function srgbChannelLinear(c8: number): number {
+  const c: number = c8 / 255;
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+function isHexDigits(h: string): boolean {
+  const digits: string = '0123456789abcdefABCDEF';
+  for (let i = 0; i < h.length; i++) {
+    if (digits.indexOf(h.charAt(i)) < 0) { return false; }
+  }
+  return true;
+}
+
+function byteHex(v0: number): string {
+  const digits: string = '0123456789ABCDEF';
+  let v: number = Math.round(v0);
+  if (v < 0) { v = 0; }
+  if (v > 255) { v = 255; }
+  return `${digits.charAt(Math.floor(v / 16))}${digits.charAt(v % 16)}`;
+}
+
+/**
+ * 解析 `#RRGGBB` / `#AARRGGBB` → `[r, g, b, a]`（各 0..255）。
+ * 非法输入（长度不对/非十六进制）回落**不透明黑**，保证调用方永不拿到 NaN。
+ * 与私有的 `hexToRgb` 不同：后者只认 6 位（`isLightPalette` 专用），本函数额外支持
+ * ArkUI 的 8 位 ARGB 字面量（`Effects.glassBg` 等半透明 token）。
+ */
+export function parseColorRgba(hex: string): number[] {
+  let h: string = hex.charAt(0) === '#' ? hex.slice(1) : hex;
+  if (h.length === 6) { h = `FF${h}`; }
+  if (h.length !== 8 || !isHexDigits(h)) { return [0, 0, 0, 255]; }
+  return [
+    parseInt(h.substring(2, 4), 16),
+    parseInt(h.substring(4, 6), 16),
+    parseInt(h.substring(6, 8), 16),
+    parseInt(h.substring(0, 2), 16),
+  ];
+}
+
+/** WCAG 2.1 相对亮度（0 = 黑，1 = 白）。**忽略 alpha**（视为已合成的不透明色）。 */
+export function relativeLuminance(hex: string): number {
+  const c: number[] = parseColorRgba(hex);
+  const r: number = srgbChannelLinear(c[0]);
+  const g: number = srgbChannelLinear(c[1]);
+  const b: number = srgbChannelLinear(c[2]);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/**
+ * WCAG 2.1 对比度（1..21）。参数顺序无关。
+ * 判据参考：正文 4.5:1（AA）/ 7:1（AAA）；大字与图形 3:1；装饰性最弱一档 2:1。
+ */
+export function contrastRatio(a: string, b: string): number {
+  const la: number = relativeLuminance(a);
+  const lb: number = relativeLuminance(b);
+  const hi: number = Math.max(la, lb);
+  const lo: number = Math.min(la, lb);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/**
+ * 把**半透明**的「上层色」合成到不透明底色上，返回 `#RRGGBB`。
+ *
+ * 用途：玻璃拟态的 `Effects.glassBg`（`surface @62%`）压在 `appBg` / `surface` 上时，
+ * 真正决定文字可读性的是**合成后**的颜色，不是 `glassBg` 本身。直接拿带 alpha 的
+ * `#AARRGGBB` 去算对比度是错的（alpha 会被当成第 4 个颜色通道丢掉）。
+ */
+export function compositeOver(top: string, bottom: string): string {
+  const t: number[] = parseColorRgba(top);
+  const b: number[] = parseColorRgba(bottom);
+  const a: number = t[3] / 255;
+  const r: number = t[0] * a + b[0] * (1 - a);
+  const g: number = t[1] * a + b[1] * (1 - a);
+  const bl: number = t[2] * a + b[2] * (1 - a);
+  return `#${byteHex(r)}${byteHex(g)}${byteHex(bl)}`;
+}
