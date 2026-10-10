@@ -720,6 +720,16 @@ struct Index {
   onPageShow(): void {
     this.appPaused = false;
     this.syncPulse(this.busy);
+    // 回前台强制探活（旁路，仅此处一处调用）：`readTimeout:0` ⇒ 连接被中间设备静默掐死时
+    // **收不到 `dataEnd`**，`dataEnd→scheduleReconnect` 那条路根本不走 ⇒ 界面看着在连、其实早死
+    // （表现：消息不再更新）。`SseClient.forceReconnect()` 自判（久无帧 + 非 idle + 2s 节流，
+    // 见 core/sse.ets:164-203），复用 `scheduleReconnect()` ⇒ 带 `last_event_id` 续传、不清会话状态；
+    // 不需要页面传上下文，任何异常它内部已吞掉（返回 false）。**只在 onPageShow 调一次**，
+    // 绝不放进 build()/高频回调（避免重连风暴）。
+    const store: ChatStore | null = this.store;
+    if (store !== null) {
+      store.sse.forceReconnect();
+    }
   }
 
   /** 当前所有浮层的状态投影（给 core/overlays 的纯函数用）。 */
