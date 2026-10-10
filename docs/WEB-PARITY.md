@@ -135,3 +135,47 @@ bash tools/typecheck/check.sh
 GenUI（LLM 生成 TSX 需 `sucrase` + `new Function` ⇒ ArkTS 禁动态求值）、终端（xterm.js）、
 文件树 / Monaco / Markdown 预览、Dockview 多面板布局 —— 均在"完整 Web UI"里承载。
 
+## 9. 设置「服务端配置面」parity（2026-10-11 调研，任务3 波2）
+
+web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language）已对齐（§1、任务3 波1）；
+余下 **agent / tools / llm / channels / storage / webusers** 是**服务端 RPC 配置面**，原生此前**全无**。
+
+### 9.1 通道结论（决定实现成本）
+
+- 全部走 **`post('/api/rpc', {method, params})`**（web `lib/api.ts`；服务端 `rpc_table.go`）。
+- ⚠️ 原生 `core/reqbody.ets` 的 `RpcReq` **只有 `method`、没有 `params`**，且现有两处消费
+  （`store.ets:448` `runner_list`、`store.ets:979` `web_plugin_list`）都是**无参** RPC
+  ⇒ 必须先加「带 params 的 RPC 请求体 + 统一封装」（本会话新增 `core/rpc.ets`）。
+
+### 9.2 分区 → RPC 速查
+
+| 分区 | 关键 RPC | 权限 | 成本 |
+|---|---|---|---|
+| `tools` | `get_tools_settings` / `set_tool_enabled` | admin | **S** |
+| `llm`（读+启停+默认） | `list_subscriptions` / `list_all_model_entries` / `set_subscription_enabled` / `set_default_subscription` | — | **M** |
+| `llm`（完整 CRUD/导入导出） | `add/update/remove_subscription` / `upsert_model` / `remove_model` / `export/import_subscriptions` | — | **L** |
+| `agent` | `get_settings` / `set_setting`（namespace `cli`） | — | **S** |
+| `storage` | `get_storage_config` / `set_storage_config`（schema 驱动表单） | admin | **M** |
+| `channels` | `get_channel_config` / `set_channel_config`（+飞书绑定三件套） | admin | **M~L** |
+| `webusers` | `list/create/delete_web_user` | admin | **S**（手机端价值低） |
+
+⚠️ **tools 的 MCP 分组坑**：后端字段是 `server_name`，web 曾因 snake/camel 错位导致**分组静默失效**
+（`SettingsTools.tsx:44-46` 注释）⇒ 原生必须归一 `server_name → serverName`。
+
+### 9.3 🔴 敏感面（凭据）—— 含一处**服务端疑似遗漏**
+
+| 凭据 | web 回显 | 服务端证据 | 原生要求 |
+|---|---|---|---|
+| LLM `api_key` | **掩码** `abcd****` | `rpc_table.go:2983` `maskAPIKey` | 只读展示；提交掩码值时发空串 |
+| storage secret | **掩码** | `storage_config.go:33-45,75-79` | 同上 |
+| Web 账号密码 | **一次性明文**（仅 create 返回） | `rpc_table.go:1935-1943` | 只展示一次，不入日志/偏好 |
+| 🔴 **飞书 `app_secret`/`encrypt_key`/`verification_token`** | 明文（仅靠 `type=password` 遮显） | **`channel_config.go:32-39` 未打码** | ⚠️ 原生拉 `get_channel_config` 会拿到**真实 secret**；渲染必须自带遮罩、**绝不**落日志/偏好。**建议向服务端确认这是否为遗漏**（若是，修服务端比客户端绕更划算） |
+
+### 9.4 落地顺序（建议）
+
+`core/rpc.ets`（地基） → `tools` → `llm`（读+启停+默认） → `agent` → `storage` →
+`channels`（飞书一键绑定可延后） → `webusers` → `llm` 完整 CRUD/导入导出（最后）。
+
+⚠️ 这些面板若都塞进 `pages/Index.ets`（5200 行、**热文件**）会锁死并行度 ⇒ 应各自独立成
+`components/Settings*.ets`，`Index.ets` 只做入口注入。
+
