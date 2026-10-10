@@ -30,6 +30,13 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   `run.sh` 只把 `core/**` 当纯 TS 编译，`lint`/`typecheck` 也不碰 ArkUI 组件与页面 ⇒ 组件/页面的
   ArkTS 严格性与类型错误（如 `Stack` 无 `justifyContent`、调用联合类型、SDK 版本门限）**一个都抓不到**。
   唯一判据是 `hvigorw assembleHap` 打出 `BUILD SUCCESSFUL`。
+- **ArkUI `CustomComponent` 基类的成员名不能用作组件成员名**：`size`/`width`/`height`/`position`/
+  `offset`/`scale`/`rotate`/`opacity`/`visibility`/`clip`/`zIndex`/`id`/`key`（以及 `onClick` 等事件名）。
+  写成 `@Prop size: number` 会报 `10505001 Property 'size' in type 'X' is not assignable to the same
+  property in base type 'CustomComponent'`（实例：`AssistantOrb`）。**改名**（如 `orbSize`）即可。
+- **⛔ 未被消费的组件文件不会被 ArkTS 类型检查** ⇒ 新建组件时"门禁全绿"是**假绿**，
+  直到它被接线进页面才暴露错误（实例：`AssistantOrb` 的 `size` 冲突在 `828b28a` 提交时没报，
+  接进 `LiveTailView` 后才红）。⇒ **新组件要尽早接线，接线后必须重跑 `bash tools/gate.sh`**。
 - **`build-profile.json5` 的 `products[0]` 必须引用 `"signingConfig": "default"`**，否则
   `No signingConfig found for product default` ⇒ 只产出 `*-unsigned.hap` ⇒ 装机报
   `install sign info inconsistent`(9568332)。装机请用 `~/ohos-cli/deploy.sh`。
