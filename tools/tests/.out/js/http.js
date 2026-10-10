@@ -119,6 +119,12 @@ class XbotHttp {
         this.baseUrl = '';
         /** cookie jar：name → value（xbot 只用一个会话 cookie）。 */
         this.cookies = new Map();
+        /**
+         * 401（会话凭据失效）回调。页面据此**退回登录页** ——
+         * 绝不能把它当成网络故障（真实事故：web 会话有效，客户端却提示"网络不通"）。
+         */
+        this.onUnauthorized = () => {
+        };
         this.baseUrl = baseUrl.replace(/\/+$/, '');
     }
     cookieHeader() {
@@ -238,6 +244,15 @@ class XbotHttp {
                 throw new Error(`[解析 Set-Cookie] ${describeError(e)}`);
             }
             const text = typeof resp.result === 'string' ? resp.result : '';
+            if (resp.responseCode === 401) {
+                this.clearSession();
+                this.onUnauthorized();
+                throw new Error(`HTTP 401: ${text.substring(0, 200)}`);
+            }
+            if (resp.responseCode === 401) {
+                this.clearSession();
+                this.onUnauthorized();
+            }
             if (resp.responseCode !== 200) {
                 throw new Error(`HTTP ${resp.responseCode}: ${text.substring(0, 200)}`);
             }
@@ -306,6 +321,10 @@ class XbotHttp {
                 readTimeout: 60000,
             });
             const text = typeof resp.result === 'string' ? resp.result : '';
+            if (resp.responseCode === 401) {
+                this.clearSession();
+                this.onUnauthorized();
+            }
             if (resp.responseCode !== 200) {
                 throw new Error(`HTTP ${resp.responseCode}: ${text.substring(0, 200)}`);
             }
@@ -344,6 +363,11 @@ class XbotHttp {
                 connectTimeout: 15000,
                 readTimeout: 60000,
             });
+            if (resp.responseCode === 401) {
+                this.clearSession();
+                this.onUnauthorized();
+                return null;
+            }
             if (resp.responseCode !== 200) {
                 return null;
             }

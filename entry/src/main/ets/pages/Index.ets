@@ -10,6 +10,7 @@ import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
 import { ChatStore } from '../core/store';
 import { normalizeTheme, Palette, paletteOf, themeLabel, toggleTheme } from '../core/theme';
+import { loadErrHint, loadErrTitle, needsRelogin } from '../core/autherr';
 import {
   canMove, MOVE_DOWN, MOVE_TOP, MOVE_UP, hitLine, sessionLabel, sessionMatches,
 } from '../core/sessionops';
@@ -301,6 +302,17 @@ struct Index {
   @State imageBusy: boolean = false;
 
   // ── P14 弱网与健壮性 ──
+  /**
+   * 会话 cookie（**应用级唯一来源**）。
+   *
+   * ⚠️ 教训（真机 401 事故）：cookie 属于「应用会话」，不属于某个 store 实例。
+   * 任何新建的 store 都必须带上它 —— 否则该 store 的每个请求都会 401
+   * （多会话池正是这样踩的：头部显示着会话名，历史加载却 401，还被误报成"网络不通"）。
+   */
+  private cookie: string = '';
+  /** 401 只处理一次（多个请求可能同时失败，避免重复弹回登录） */
+  private authExpiredHandled: boolean = false;
+
   /** 应用主题（深/浅；与 Web 共用服务端偏好键 xbot-app-theme） */
   @State themeName: string = 'dark';
   /** SSE 连接状态（来自 store：idle|connecting|open|reconnecting） */
@@ -388,11 +400,13 @@ struct Index {
     this.username = saved.username;
     this.recentServers = this.config.recentServers();
     if (saved.serverUrl.length > 0 && saved.sessionCookie.length > 0) {
-      const store: ChatStore = this.makeStore(saved.serverUrl);
-      store.http.importSessionCookie(saved.sessionCookie);
+      this.cookie = saved.sessionCookie;
+      const store: ChatStore = this.makeStore(saved.serverUrl, saved.sessionCookie);
       try {
         await store.loadSessions();
         this.attach(store);
+        this.cookie = store.http.exportSessionCookie();
+        this.authExpiredHandled = false;
         this.loggedIn = true;
         if (AUTO_AUDIT_ON_LAUNCH) {
           // 冷启动免登录路径同样触发（用户在手机上多半是这个路径）
@@ -411,12 +425,62 @@ struct Index {
     this.booted = true;
   }
 
-  private makeStore(url: string): ChatStore {
+  /**
+   * 建 store —— **必须显式给 cookie**（除了"尚未登录"的探测/登录/注册场景）。
+   *
+   * 为什么把 cookie 做成必填参数：它是应用级凭据，而 store 是可随时新建的（多会话池、
+   * 新会话、分支…）。漏传一次，那个 store 的**所有**请求都会 401，且症状会伪装成
+   * "会话加载失败/网络不通"，极难定位（真机踩过一次）。显式参数让编译器帮我们兜住。
+   */
+  private makeStore(url: string, cookie: string): ChatStore {
     const store: ChatStore = new ChatStore(url);
+    if (cookie.length > 0) {
+      store.http.importSessionCookie(cookie);
+    }
     store.onUpdate = () => {
       this.scheduleSync(store);
     };
+    store.onAuthExpired = () => {
+      this.handleAuthExpired();
+    };
     return store;
+  }
+
+  /**
+   * 会话凭据失效（任何请求/SSE 返回 401）⇒ 退回登录页。
+   *
+   * ⚠️ 绝不能把它当成网络故障（真机事故：web 会话有效，客户端却提示"网络不通"）。
+   * 这里做三件事：清池（关掉所有已失效连接）、清本地凭据、回到登录页并写明原因。
+   */
+  private handleAuthExpired(): void {
+    if (this.authExpiredHandled) {
+      return;
+    }
+    this.authExpiredHandled = true;
+    const poolKeys: string[] = Array.from(this.pools.keys());
+    for (let i = 0; i < poolKeys.length; i++) {
+      const ps: ChatStore | undefined = this.pools.get(poolKeys[i]);
+      if (ps !== undefined) {
+        ps.dispose();
+      }
+    }
+    this.pools.clear();
+    this.poolOrder = [];
+    const cur: ChatStore | null = this.store;
+    if (cur !== null) {
+      cur.dispose();
+    }
+    this.store = null;
+    this.cookie = '';
+    this.config.save(this.serverUrl, this.username, '').catch(() => {
+      // 清凭据失败不影响退回登录
+    });
+    this.rows = [];
+    this.syncRowDs();
+    this.busy = false;
+    this.loadErr = '';
+    this.loggedIn = false;
+    this.errMsg = '登录已过期，请重新登录';
   }
 
   /**
@@ -561,7 +625,8 @@ struct Index {
     this.testing = true;
     this.testMsg = '';
     try {
-      const store: ChatStore = this.makeStore(url);
+      // 探测服务端可用性：此时**还没登录**，不带凭据
+      const store: ChatStore = this.makeStore(url, '');
       const cfg = await store.http.authConfig();
       const hint: string = cfg.need_bootstrap === true
         ? '服务端可用：还没有账号，先「注册」建第一个账号'
@@ -807,8 +872,8 @@ struct Index {
       this.errMsg = this.testMsg;
       return;
     }
-    const store: ChatStore = this.makeStore(url);
-    // 分步报错：哪一步挂了 + 原始信息，一眼可定位（真机排查只能靠这个）
+    // 登录：此时还没有凭据（login() 成功后 cookie 由 http 内部持有）
+    const store: ChatStore = this.makeStore(url, '');
     try {
       await store.http.login(this.username, this.password);
     } catch (e) {
@@ -823,7 +888,9 @@ struct Index {
       return;
     }
     try {
-      await this.config.save(url, this.username, store.http.exportSessionCookie());
+      this.cookie = store.http.exportSessionCookie();
+      this.authExpiredHandled = false;
+      await this.config.save(url, this.username, this.cookie);
       this.recentServers = this.config.recentServers();
     } catch (e) {
       this.errMsg = `[保存登录态] ${errText(e)}`;
@@ -854,7 +921,7 @@ struct Index {
       return;
     }
     try {
-      const store: ChatStore = this.makeStore(url);
+      const store: ChatStore = this.makeStore(url, '');
       await store.http.register(this.username, this.password);
       await this.doLogin();
     } catch (e) {
@@ -906,7 +973,8 @@ struct Index {
       this.touchPool(chatId);
       return hit;
     }
-    const store: ChatStore = this.makeStore(this.serverUrl);
+    // 池里的 store 也必须带上会话凭据（否则它发出的每个请求都是 401）
+    const store: ChatStore = this.makeStore(this.serverUrl, this.cookie);
     this.pools.set(chatId, store);
     this.poolOrder.push(chatId);
     this.evictPools();
@@ -1704,14 +1772,20 @@ struct Index {
       // 加载失败且列表为空 ⇒ 明确提示 + 重试（网络/代理故障时界面必须自解释）
       if (this.rows.length === 0 && this.loadErr.length > 0) {
         Column({ space: 8 }) {
-          Text('加载会话失败').fontSize(14).fontColor(this.pal().dangerText)
+          Text(loadErrTitle(this.loadErr)).fontSize(14).fontColor(this.pal().dangerText)
           Text(this.loadErr).fontSize(12).fontColor(this.pal().textSecondary)
             .maxLines(4).textOverflow({ overflow: TextOverflow.Ellipsis })
-          Text('常见原因：手机到服务端网络不通（代理/防火墙），或服务端地址填错')
+          Text(loadErrHint(this.loadErr))
             .fontSize(11).fontColor(this.pal().textMuted).maxLines(3)
-          Button('重试').constraintSize({ minHeight: 38 }).backgroundColor(this.pal().accent).onClick(() => {
-            this.retryLoad();
-          })
+          // 判据与标题同一处：401 给「重新登录」，其余给「重试」
+          Button(needsRelogin(this.loadErr) ? '重新登录' : '重试')
+            .constraintSize({ minHeight: 38 }).backgroundColor(this.pal().accent).onClick(() => {
+              if (needsRelogin(this.loadErr)) {
+                this.handleAuthExpired();
+              } else {
+                this.retryLoad();
+              }
+            })
         }
         .width('100%').padding(16).alignItems(HorizontalAlign.Start)
         .backgroundColor(this.pal().surfaceAlt).borderRadius(10).margin({ left: 12, right: 12, top: 12 })

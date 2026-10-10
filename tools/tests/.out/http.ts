@@ -174,6 +174,13 @@ export class XbotHttp {
     }
   }
 
+  /**
+   * 401（会话凭据失效）回调。页面据此**退回登录页** ——
+   * 绝不能把它当成网络故障（真实事故：web 会话有效，客户端却提示"网络不通"）。
+   */
+  onUnauthorized: () => void = () => {
+  };
+
   hasSession(): boolean {
     return this.cookies.has('xbot_session');
   }
@@ -253,7 +260,16 @@ export class XbotHttp {
       }
 
       const text: string = typeof resp.result === 'string' ? resp.result as string : '';
-      if (resp.responseCode !== 200) {
+      if (resp.responseCode === 401) {
+        this.clearSession();
+        this.onUnauthorized();
+        throw new Error(`HTTP 401: ${text.substring(0, 200)}`);
+      }
+      if (resp.responseCode === 401) {
+          this.clearSession();
+          this.onUnauthorized();
+        }
+if (resp.responseCode !== 200) {
         throw new Error(`HTTP ${resp.responseCode}: ${text.substring(0, 200)}`);
       }
       let env: ApiEnvelope;
@@ -322,7 +338,11 @@ export class XbotHttp {
         readTimeout: 60000,
       });
       const text: string = typeof resp.result === 'string' ? resp.result as string : '';
-      if (resp.responseCode !== 200) {
+      if (resp.responseCode === 401) {
+          this.clearSession();
+          this.onUnauthorized();
+        }
+if (resp.responseCode !== 200) {
         throw new Error(`HTTP ${resp.responseCode}: ${text.substring(0, 200)}`);
       }
       const env: ApiEnvelope = JSON.parse(text) as ApiEnvelope;
@@ -360,6 +380,11 @@ export class XbotHttp {
         connectTimeout: 15000,
         readTimeout: 60000,
       });
+      if (resp.responseCode === 401) {
+        this.clearSession();
+        this.onUnauthorized();
+        return null;
+      }
       if (resp.responseCode !== 200) {
         return null;
       }

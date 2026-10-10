@@ -40,6 +40,9 @@ export class SseClient {
    * 界面据此显示「连接断开，正在重连…」——弱网下用户必须知道"消息会不会丢"。
    */
   state: string = 'idle';
+  /** 401（会话失效）回调：停止重连并交给页面退回登录（重连只会一直 401）。 */
+  onUnauthorized: () => void = () => {
+  };
   /** 状态变化回调（页面订阅） */
   onState: (state: string) => void = (state: string) => {
   };
@@ -124,6 +127,13 @@ export class SseClient {
       connectTimeout: 15000,
       readTimeout: 0,
     }, (err: BusinessError, code: number) => {
+      if (code === 401) {
+        // 会话失效：重连没有意义（只会一直 401）⇒ 停掉并让页面退回登录
+        this.stopped = true;
+        this.setState('idle');
+        this.onUnauthorized();
+        return;
+      }
       if (err !== undefined && err !== null && err.code !== 0) {
         this.scheduleReconnect();
       }

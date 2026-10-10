@@ -34,6 +34,12 @@ class ChatStore {
     constructor(baseUrl) {
         this.channel = 'web';
         // ── 会话状态（服务端权威；/api/session/status + 结构化事件里的 goal）──
+        /**
+         * 会话凭据失效（任何请求或 SSE 返回 401）时回调 —— 页面据此退回登录页。
+         * 汇聚点只有这一个：http 与 sse 的 401 都走这里（避免两处各自处理漏掉一个）。
+         */
+        this.onAuthExpired = () => {
+        };
         /** SSE 连接状态（`idle|connecting|open|reconnecting`）——弱网提示用 */
         this.connState = 'idle';
         /** LLM 配置（订阅/可选模型/上下文上限；`GET /api/llm-config`） */
@@ -89,6 +95,12 @@ class ChatStore {
         this.sse.onState = (state) => {
             this.connState = state;
             this.onUpdate();
+        };
+        this.sse.onUnauthorized = () => {
+            this.onAuthExpired();
+        };
+        this.http.onUnauthorized = () => {
+            this.onAuthExpired();
         };
     }
     // ── 会话 ───────────────────────────────────────────────────────────────────
