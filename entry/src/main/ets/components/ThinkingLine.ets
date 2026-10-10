@@ -29,6 +29,19 @@ export struct ThinkingLine {
   /** 是否展开。 */
   @Prop open: boolean = false;
   @Prop theme: string = 'dark';
+  /**
+   * **是否由本行当"主高亮源"**（在飞视觉语言，见 `docs/DESIGN-SYSTEM.md §8`）。
+   *
+   * 同一时刻只允许一个主高亮源：有工具在飞 / 正在写正文时 = **光球**（本行静态弱化）；
+   * 只有思考在流（无工具、无正文）时才轮到本行 ⇒ 图标+标签转 `accentSoft` 并按共享呼吸
+   * 刻度做极弱强调。默认 `false` ⇒ **committed 迭代零行为变化**（永远 muted、永远静态）。
+   */
+  @Prop live: boolean = false;
+  /**
+   * 共享呼吸权重 ∈[0,1]（调用方按 `anim.ets` 的 `MOTION_BREATH_MS` 用 `orbBreath()` 算出）。
+   * **会变** ⇒ 必须 `@Prop`（`@Builder` 参数是首帧快照）。非 live 时无意义（不参与渲染）。
+   */
+  @Prop emphasis: number = 1;
   /** 点击开合（状态由调用方持有 —— 同一语义两处共用）。 */
   onToggle: () => void = () => {
   };
@@ -39,13 +52,15 @@ export struct ThinkingLine {
       Row({ space: SP_1 }) {
         SymbolGlyph($r('sys.symbol.lightbulb'))
           .fontSize(FS_CAPTION)
-          .fontColor([paletteOf(this.theme).textMuted])
+          .fontColor([this.live ? paletteOf(this.theme).accentSoft : paletteOf(this.theme).textMuted])
         Text(this.label)
           .fontSize(FS_CAPTION)
-          .fontColor(paletteOf(this.theme).textMuted)
+          .fontColor(this.live ? paletteOf(this.theme).accentSoft : paletteOf(this.theme).textMuted)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
       }
+      // 主高亮时：按共享呼吸刻度做**极弱**强调（0.72→1.0），不是第二个发光体
+      .opacity(this.live ? 0.72 + 0.28 * this.emphasis : 1)
       .padding({ left: SP_1, right: SP_1, top: 2, bottom: 2 })
       .borderRadius(R_LG)
       .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })

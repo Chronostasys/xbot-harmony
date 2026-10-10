@@ -17,9 +17,11 @@ import { foldPills } from '../core/streammerge';
 import { Palette, paletteOf, Effects, effectsOf } from '../core/theme';
 import { BUBBLE } from '../core/bubble';
 import { R_MD, R_XL, R_LG, SP_1, SP_2, SP_5, FS_CAPTION } from '../core/tokens';
+import { orbBreath } from '../core/orb';
+import { MOTION_BEAT_MS, MOTION_BREATH_MS } from './anim';
 import { MarkdownView } from './MarkdownView';
 import { ThinkingLine } from './ThinkingLine';
-import { AssistantOrb, ORB_MODE_THINKING, ORB_MODE_TOOL } from './AssistantOrb';
+import { AssistantOrb, ORB_MODE_THINKING, ORB_MODE_TOOL, ORB_MODE_SECONDARY } from './AssistantOrb';
 import { ToolPill } from './ToolVisual';
 import { isLiveStatus, statusChip, toolStatusKind } from '../core/toolstatus';
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
@@ -76,7 +78,10 @@ export struct LiveTailView {
   @State popIdx: number = -1;
   /** "+N" 溢出浮层开关。 */
   @State overOpen: boolean = false;
-  @State caretOn: boolean = true;
+  /** 共享呼吸权重 ∈[0,1]（整组同一心跳；相位只由 `Date.now()` 与 `anim.ets` 的刻度决定）。 */
+  @State breathAmp: number = 1;
+  /** 打字机光标不透明度（按 `MOTION_BEAT_MS` 呼吸；**不再** 10Hz 硬闪）。 */
+  @State caretAlpha: number = 1;
   private runes: string[] = [];
   private reasonRunes: string[] = [];
   private timer: number = -1;
@@ -100,21 +105,68 @@ export struct LiveTailView {
   }
 
   /**
-   * 光球运行态（`AssistantOrb.orbMode`）：**任一工具在飞 ⇒ `tool`，否则 `thinking`**。
+   * 光球运行态（`AssistantOrb.orbMode`）。
    *
-   * ⚠️ 只给"稳定信号"：这两个值在整段流式里都不会抖。**不**把打字机的每拍状态
-   *   （`typingText()/typingReason()`，流式期 ≤20Hz 翻转）接进来 —— 那会让光球以同样频率
-   *   重建 Canvas 组件（新建 `RenderingContextSettings` + `setInterval`），正是要避免的抖动。
+   * 在飞视觉语言的**优先级表**（见 `docs/DESIGN-SYSTEM.md §8`）：
+   *   ① 任一工具在飞 ⇒ `tool`（光球=主高亮：轨道偏移+状态色）
+   *   ② 只有思考在流（无工具、无正文）⇒ `secondary`（**让位**：`思考 N 字` 才是主高亮）
+   *   ③ 其余在飞（正在写正文 / 刚起头）⇒ `thinking`
+   * ⚠️ 只给"稳定信号"（工具在飞 ∥ 内容存在）。**不**把打字机每拍状态接进来 —— 那会让光球
+   *   以 ≤20Hz 频率重建 Canvas 组件（新建 `RenderingContextSettings` + `setInterval`）。
    * ⚠️ `idle` **不在这里判**：它需要"多久没动静"（时间），父组件没有也不该有那个定时器
-   *   ⇒ 交给光球按 `orbBeat` 自判（见其 `effectiveMode`）。
+   *   ⇒ 交给光球按 `orbBeat` 自判（见其 `effectiveMode`，静默窗与 `思考 N 字` 同源）。
    */
   private orbMode(): string {
+    if (this.hasLiveTool()) {
+      return ORB_MODE_TOOL;
+    }
+    return this.thinkingIsPrimary() ? ORB_MODE_SECONDARY : ORB_MODE_THINKING;
+  }
+
+  /** 是否有工具在飞（稳定信号：整段工具执行期不变）。 */
+  private hasLiveTool(): boolean {
     for (let i = 0; i < this.tools.length; i++) {
       if (this.live(this.tools[i])) {
-        return ORB_MODE_TOOL;
+        return true;
       }
     }
-    return ORB_MODE_THINKING;
+    return false;
+  }
+
+  /**
+   * 此刻**主高亮源**是不是 `思考 N 字` 行。
+   *
+   * 判据对齐 web 的 `reasoningInProgress`（`LiveIteration.tsx:186`）：
+   * `streaming && phase === 'thinking' && !hasStreamContent && !hasToolInProgress`
+   * ⇒ 原生等价物 = **有思考、无正文、无在飞工具**。
+   * 只有这种"机器只在想、还没开始写"的窗口，眼睛才该落在思考行的字数上；其余时刻光球领读。
+   */
+  private thinkingIsPrimary(): boolean {
+    return !this.hasLiveTool() && this.reasoning.length > 0 && this.text.length === 0;
+  }
+
+  /**
+   * 降级（reduce motion）—— **整组在飞动效的唯一开关**。
+   *
+   * 同一个值同时决定：光球是否停表（`AssistantOrb.reduceMotion`）、`思考 N 字` 是否做呼吸强调
+   * （`emphasis` 固定 1 = 静态）、光标是否呼吸（固定 1 = 常亮）。**一个来源，三处生效**，
+   * 不允许某个元素单独"还在动"。
+   * ⚠️ 本工程 `compatibleSdkVersion 21`：系统查询 `accessibility.isAnimationReduceEnabledSync()`
+   *   是 **@since 23**（`sdk …/api/@ohos.accessibility.d.ts:658`）⇒ **当前拿不到系统值**，
+   *   这里作为接线点暂时恒 false；将来 SDK 抬到 23 时只改这一个方法体。
+   */
+  private reduceMotion(): boolean {
+    return false;
+  }
+
+  /**
+   * 共享呼吸权重 ∈[0,1]：整组唯一的"心跳"。
+   *
+   * 相位只由 `Date.now()` 与 `MOTION_BREATH_MS` 决定（`core/orb.ets` 的纯函数，无本地累加器）
+   * ⇒ 光球的呼吸与思考行的强调**天然同源同相**，读作一个整体在呼吸。
+   */
+  private breath(): number {
+    return this.reduceMotion() ? 1 : orbBreath(Date.now(), MOTION_BREATH_MS);
   }
 
   /**
@@ -224,7 +276,13 @@ export struct LiveTailView {
     }
     const skip: boolean = this.skip;
     this.skip = !this.skip;
-    this.caretOn = !this.caretOn;
+    // ── 共享呼吸（整组同一心跳）──────────────────────────────────────────────
+    // 相位只由 `Date.now()` + `anim.ets` 的刻度决定 ⇒ 与光球同源同相（读作一个整体在呼吸）。
+    // 打字机追平后本定时器会停 ⇒ 呼吸值**停在当前相位**（定格）；下一批 token 到达即续上。
+    // 这是刻意的：**有动静才呼吸**（与光球"静默即 idle"同一哲学），代价是幅度极弱时的一次相位跳跃。
+    const now: number = Date.now();
+    this.breathAmp = this.breath();
+    this.caretAlpha = this.reduceMotion() ? 1 : 0.35 + 0.65 * orbBreath(now, MOTION_BEAT_MS);
     // 思考：展开时逐字（纯 Text，便宜）
     if (this.typingReason()) {
       const rc: number = this.reasonRunes.length > 0
@@ -416,13 +474,12 @@ export struct LiveTailView {
             active: true,
             paused: this.paused,
             seed: LT_ORB_SEED,
-            // 运行态（稳定信号：工具在飞 ⇒ tool，否则 thinking；idle 由光球按心跳自判）
+            // 运行态（优先级表见 `orbMode()`：tool > secondary(让位) > thinking）
             orbMode: this.orbMode(),
             // 活动心跳（正文+思考的码点长度和）—— 光球据此在静默 >640ms 后转入 idle
             orbBeat: this.orbBeat(),
-            // 降级（reduce motion）接线点：本工程 API 21 无系统查询 API（`isAnimationReduceEnabledSync`
-            // 是 @since 23，见 AssistantOrb 的 @Prop 注释）⇒ 暂无可信来源，显式传 false 占位。
-            reduceMotion: false,
+            // 降级：**整组唯一开关**（同一值也决定思考行是否呼吸、光标是否呼吸）
+            reduceMotion: this.reduceMotion(),
           })
         }
         .padding({ left: SP_1 })
@@ -436,6 +493,9 @@ export struct LiveTailView {
           body: this.shownReason(),
           open: this.reasonOpen,
           theme: this.theme,
+          // 主高亮源判定 + 整组共享的呼吸权重（见 docs/DESIGN-SYSTEM.md §8）
+          live: this.thinkingIsPrimary(),
+          emphasis: this.breathAmp,
           onToggle: () => {
             this.reasonOpen = !this.reasonOpen;
             this.syncTimer();
@@ -454,13 +514,14 @@ export struct LiveTailView {
             mdTheme: this.mdTheme,
           })
           if (this.typingText() || this.typingReason()) {
-            // 打字机光标：accent 色 + glow 发光的细竖条（替代纯文本 `▍`）
+            // 打字机光标 = "**正在写入**"的局部标记（分工见 `docs/DESIGN-SYSTEM.md §8`）：
+            //   · 不再有彩色外发光（发光体**只允许光球一个**；且白底上彩色光晕会读成"脏"）；
+            //   · 不再 10Hz 硬闪，改为按 `MOTION_BEAT_MS`（2×D_SLOW=640ms）呼吸 ⇒ 与整组同刻度。
             Row()
               .width(2).height(14)
               .backgroundColor(this.pal().accent)
               .borderRadius(1)
-              .shadow({ radius: 6, color: this.eff().glow, offsetX: 0, offsetY: 0 })
-              .opacity(this.caretOn ? 1 : 0.2)
+              .opacity(this.caretAlpha)
           }
         }
         .width('100%')

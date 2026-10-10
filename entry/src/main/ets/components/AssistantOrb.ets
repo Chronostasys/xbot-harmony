@@ -50,11 +50,11 @@
  */
 import { Palette, paletteOf, Effects, effectsOf, isLightPalette } from '../core/theme';
 import {
-  ORB_BREATH_MS, ORB_SPIN_MS, ORB_BREATH_MIN, ORB_BREATH_MAX,
+  ORB_SPIN_MS, ORB_BREATH_MIN, ORB_BREATH_MAX,
   ORB_OPACITY_MIN, ORB_OPACITY_MAX, ORB_RING_RADIUS,
   OrbParticle, orbRadius, orbOpacity, orbParticles, orbWave,
 } from '../core/orb';
-import { animBase } from './anim';
+import { animBase, MOTION_BREATH_MS, MOTION_QUIET_MS } from './anim';
 
 /** 默认直径（vp）—— 与既有「思考中」文字行（FS_CAPTION 12fp）等高量级。 */
 const ORB_DEFAULT_SIZE: number = 22;
@@ -69,10 +69,13 @@ const ORB_FPS: number = 30;
 const ORB_IDLE_FPS: number = 12;
 /** 核半径比例（相对半尺寸）—— 呼吸在此基准上浮动。 */
 const ORB_CORE_SCALE: number = 0.62;
-/** 态过渡收敛时长 = 呼吸周期/8 = 320ms（= `core/tokens.D_SLOW`，与全站过渡同刻度）。 */
-const ORB_EASE_MS: number = ORB_BREATH_MS / 8;
-/** 静默判定窗口 = 呼吸周期/4 = 640ms（= 2×D_SLOW）—— 复用既有节奏，不新造时长。 */
-const ORB_QUIET_MS: number = ORB_BREATH_MS / 4;
+/** 态过渡收敛时长 = 主呼吸/8 = 320ms（= `core/tokens.D_SLOW`，与全站过渡同刻度）。 */
+const ORB_EASE_MS: number = MOTION_BREATH_MS / 8;
+/**
+ * 静默判定窗口：**直接取 `anim.ets` 的共享常量**（`思考 N 字` 用的是同一个值）
+ * ⇒ 整组对"机器还在动吗"的判断必然一致，不会一个还在呼吸、另一个已经定格。
+ */
+const ORB_QUIET_MS: number = MOTION_QUIET_MS;
 /** 外光晕不透明度（深色系 —— 既有值，观感不变）。 */
 const ORB_HALO_ALPHA: number = 0.9;
 /** 外光晕不透明度（浅色系：中性柔影已很淡，再收一点避免白底发灰雾）。 */
@@ -87,6 +90,12 @@ export const ORB_MODE_THINKING: string = 'thinking';
 export const ORB_MODE_TOOL: string = 'tool';
 /** 空闲：极低幅度（呼吸 ×0.25、光晕 ×0.45、粒子冻结）+ 降帧 —— "静止也是设计"。 */
 export const ORB_MODE_IDLE: string = 'idle';
+/**
+ * 让位态：**此刻别处才是主高亮源**（典型 = `思考 N 字` 的强调脉冲，见
+ * `docs/DESIGN-SYSTEM.md §8`）⇒ 光球仍在（呼吸/公转都减半），但一眼看去明显不是主角。
+ * 与 `idle` 的区别：`idle` = "机器没动静"；`secondary` = "机器在动，但这次不是它领读"。
+ */
+export const ORB_MODE_SECONDARY: string = 'secondary';
 
 // ── 态 → 视觉参数 ────────────────────────────────────────────────────────────
 /** tool 态：呼吸幅度（略收 —— 注意力交给"轨道/色彩"，不靠抖）。 */
@@ -103,6 +112,12 @@ const ORB_TOOL_RING_GAIN: number = 1.08;
 const ORB_IDLE_AMP: number = 0.25;
 /** idle 态：光晕强度缩放。 */
 const ORB_IDLE_HALO: number = 0.45;
+/** 让位态：呼吸幅度减半（还在呼吸，但明显不是主角）。 */
+const ORB_SECONDARY_AMP: number = 0.5;
+/** 让位态：光晕减半。 */
+const ORB_SECONDARY_HALO: number = 0.55;
+/** 让位态：公转减半（慢下来，"退到背景"）。 */
+const ORB_SECONDARY_SPIN: number = 0.5;
 
 /**
  * 一个态的视觉参数（**纯数据**）。
@@ -135,6 +150,7 @@ export class OrbState {
 const ST_THINKING: OrbState = new OrbState(1, 1, 1, 1, false, ORB_FPS);
 const ST_TOOL: OrbState = new OrbState(ORB_TOOL_AMP, 1, ORB_TOOL_SPIN_GAIN, ORB_TOOL_RING_GAIN, true, ORB_FPS);
 const ST_IDLE: OrbState = new OrbState(ORB_IDLE_AMP, ORB_IDLE_HALO, 0, 1, false, ORB_IDLE_FPS);
+const ST_SECONDARY: OrbState = new OrbState(ORB_SECONDARY_AMP, ORB_SECONDARY_HALO, ORB_SECONDARY_SPIN, 1, false, ORB_FPS);
 
 /** 态名 → 视觉参数（未知态回落 `thinking`；返回**共享常量**，无分配）。 */
 export function orbStateOf(mode: string): OrbState {
@@ -143,6 +159,9 @@ export function orbStateOf(mode: string): OrbState {
   }
   if (mode === ORB_MODE_IDLE) {
     return ST_IDLE;
+  }
+  if (mode === ORB_MODE_SECONDARY) {
+    return ST_SECONDARY;
   }
   return ST_THINKING;
 }
@@ -417,9 +436,9 @@ export struct AssistantOrb {
 
     // 呼吸：只对**偏移量**做幅度缩放 ⇒ amp=1 时与既有实现逐值等价
     const baseR: number = c * ORB_CORE_SCALE;
-    const rRaw: number = orbRadius(now, baseR, ORB_BREATH_MS, ORB_BREATH_MIN, ORB_BREATH_MAX);
+    const rRaw: number = orbRadius(now, baseR, MOTION_BREATH_MS, ORB_BREATH_MIN, ORB_BREATH_MAX);
     const coreR: number = baseR + (rRaw - baseR) * this.ampCur;
-    const oRaw: number = orbOpacity(now, ORB_BREATH_MS, ORB_OPACITY_MIN, ORB_OPACITY_MAX);
+    const oRaw: number = orbOpacity(now, MOTION_BREATH_MS, ORB_OPACITY_MIN, ORB_OPACITY_MAX);
     const op: number = 1 - (1 - oRaw) * this.ampCur;
     // 公转相位（spinCur=0 ⇒ 冻结在相位 0；tool=2.2× ⇒ 同一 `ORB_SPIN_MS` 的相位推进更快）
     const tSpin: number = now * this.spinCur;

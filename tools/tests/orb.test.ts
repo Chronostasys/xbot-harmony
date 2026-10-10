@@ -221,9 +221,9 @@ has(orbSrc, 'const ORB_TOOL_RING_GAIN: number = 1.08;', 'tool 轨道外扩 1.08�
 has(orbSrc, 'const ORB_IDLE_AMP: number = 0.25;', 'idle 呼吸幅度 0.25（极低幅度）');
 has(orbSrc, 'const ORB_IDLE_HALO: number = 0.45;', 'idle 光晕强度 0.45');
 has(orbSrc, 'const ORB_IDLE_FPS: number = 12;', 'idle 降帧 12fps');
-// (h3) 节奏**复用既有刻度**（禁自造一套时长）：静默窗 = 呼吸/4、缓动 = 呼吸/8 = D_SLOW
-has(orbSrc, 'const ORB_EASE_MS: number = ORB_BREATH_MS / 8;', '缓动 = 呼吸周期/8');
-has(orbSrc, 'const ORB_QUIET_MS: number = ORB_BREATH_MS / 4;', '静默窗 = 呼吸周期/4');
+// (h3) 节奏**复用既有刻度**（禁自造一套时长）：静默窗/缓动都取共享刻度
+has(orbSrc, 'const ORB_EASE_MS: number = MOTION_BREATH_MS / 8;', '缓动 = 主呼吸/8');
+has(orbSrc, 'const ORB_QUIET_MS: number = MOTION_QUIET_MS;', '静默窗 = 共享常量（与思考行同源）');
 eq('呼吸/8 == tokens.D_SLOW（320ms，与全站过渡同刻度）', ORB_BREATH_MS / 8, D_SLOW);
 eq('静默窗 == 2×D_SLOW（640ms）', ORB_BREATH_MS / 4, D_SLOW * 2);
 // (h4) 白底分叉判据 = **色板亮度**（⛔ 不能按主题名硬判）
@@ -259,7 +259,7 @@ has(tailSrc, 'orbMode: this.orbMode(),', 'LiveTailView 传 orbMode（@Prop 值�
 has(tailSrc, 'orbBeat: this.orbBeat(),', 'LiveTailView 传 orbBeat（活动心跳）');
 const modeBody: string = bodyOf(tailSrc, 'private orbMode(): string {');
 ok('LiveTailView.orbMode() 函数体可定位', modeBody.length > 20);
-has(modeBody, 'this.live(this.tools[i])', 'orbMode 只看"工具是否在飞"（稳定信号）');
+has(modeBody, 'this.hasLiveTool()', 'orbMode 只看"工具是否在飞"（稳定信号）');
 hasNot(modeBody, 'typingText(', 'orbMode 不接打字机每拍状态（避免 ≤20Hz 抖动）');
 hasNot(modeBody, 'typingReason(', 'orbMode 不接思考打字机每拍状态');
 // (h9) 「加速公转」= **同一函数的相位推进**（禁新造波形/函数）—— 真函数跑数值关系
