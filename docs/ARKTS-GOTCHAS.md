@@ -541,3 +541,27 @@ Usage of standard library is restricted (arkts-limited-stdlib)
 ② `MessageRowView` 声明 `@Prop liveBlocks` 且**由值渲染**（`blocksFor()` 读 `this.liveBlocks`）；
 ③ 投递模型断言：该 turn 的**渲染块列表**跨迭代边界**单调不减**、已完成的 iter1（含 tool pill）
 始终在列表里。HEAD：`渲染块列表回退：1 → 0`（6 passed / 7 failed）；修复后 15 passed / 0 failed。
+
+---
+
+## 批次 13：**门禁假的绿** —— 组件不被消费就不被类型检查（2026-10-11）
+
+- **现象**：新建的 `components/AssistantOrb.ets`（`828b28a`）提交时**三条离线门禁 + `hvigorw` 全绿**；
+  直到另一条线把它接进 `components/LiveTailView.ets` 才报：
+  ```
+  ERROR: 10505001 ArkTS Compiler Error
+  Error Message: Property 'size' in type 'AssistantOrb' is not assignable to the same
+  property in base type 'CustomComponent'.
+  ```
+- **根因两条，都要记**：
+  1. **`size` 是 ArkUI `CustomComponent` 的基类成员**（自定义组件本身有 `.size()` 修饰符）
+     ⇒ 子类**不能**用同名成员覆盖。同类基类成员还包括
+     `width`/`height`/`position`/`offset`/`scale`/`rotate`/`opacity`/`visibility`/`clip`/`zIndex`/`id`/`key`
+     以及 `onClick` 等事件名。**改名**即可（如 `orbSize`）。
+  2. **未被任何文件引用的组件不会被 ArkTS 类型检查** ⇒ "新建组件 + 门禁全绿"是**假绿**。
+- **正确做法**：
+  - 新建组件**要么尽早接线**（接线后重跑真门禁），**要么**明确知道"这条绿不覆盖它"；
+  - 交付/验收时一律用 `bash tools/gate.sh`（离线三条 **+** `hvigorw assembleHap`），
+    并以 **`BUILD SUCCESSFUL`** 为唯一判据（见 `AGENTS.md` GOTCHAS）。
+- **定位手段**：报错只有 1 ERROR 且指向**你不拥有的文件**时，用 **`git stash push -- <你的文件>`**
+  后重跑构建 ⇒ 若仍报同一错误，即**跨线阻断**、与你无关（举证手段，别硬扛）。
