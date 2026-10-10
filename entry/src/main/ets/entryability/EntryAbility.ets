@@ -11,19 +11,30 @@ import {
   reconcileOnForeground,
   setAppForeground,
 } from '../core/notify';
+import { readCachedTheme } from '../core/config';
+import { isDarkThemeName } from '../core/theme';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'xbot';
 
 export default class EntryAbility extends UIAbility {
+  private darkSystem: boolean = true;
+
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
-    // ⛔ **全局锁定深色**（不是"可选优化"，是这类观感 bug 的总开关）。
-    //   应用自带完整深色语义色板，但**系统绘制的表面不听我们的**：模糊材质
-    //   （`backgroundBlurStyle` 的 `colorMode` 默认是 SYSTEM）、`bindPopup` 的弹窗底、
-    //   文本选择/长按菜单等。系统是浅色时它们一律渲染成浅灰，压在深色卡片上就是
-    //   "深里突然一块白"的割裂（真机实测两处：抽屉曾整片发白；工具 pill 浮层一半浅一半深）。
-    //   在进程最早的 onCreate 锁定，能让**所有**系统表面与自绘色板口径一致。
-    this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
+    // ⛔ **系统表面跟随主题**（原为硬编码深色 —— 浅色主题下会造成"外壳深、卡片浅"的割裂）。
+    //   应用自带完整语义色板，但**系统绘制的表面不听色板**：模糊材质（`backgroundBlurStyle`
+    //   的 `colorMode` 默认 SYSTEM）、`bindPopup` 弹窗底、文本选择/长按菜单、状态栏前景等，
+    //   它们的明暗只由**应用级 colorMode** 决定。
+    //   冷启动时服务端 settings（主题真值）还没到 ⇒ 从**本地缓存**读（页面切主题时会写，
+    //   见 Index.syncSystemTheme）；读不到（未存过/异常）⇒ 回落深色（保持既有语义）。
+    //   **必须同步**（`getPreferencesSync`）：只有同步才能在**首帧之前**定下系统表面，
+    //   否则浅色主题用户会先看到一帧深色再翻转（闪色）。
+    //   判据用 `isDarkThemeName`（与页面 glassMode()/色板**同源**）⇒ 不会"状态栏深、玻璃浅"。
+    const cachedTheme: string = readCachedTheme(this.context);
+    this.darkSystem = cachedTheme.length === 0 || isDarkThemeName(cachedTheme);
+    this.context.getApplicationContext().setColorMode(this.darkSystem
+      ? ConfigurationConstant.ColorMode.COLOR_MODE_DARK
+      : ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT);
     // ── 通知（主方案）：建槽 + 记录"在前台" + 冷启动时接收"点通知进来"的 chat_id ──
     // 三条都是旁路：失败只记日志，绝不影响启动（见 core/notify.ets 的 try/catch 兜底）。
     initSlots();
@@ -62,23 +73,11 @@ export default class EntryAbility extends UIAbility {
       // 与 Web 端既定的 `interactive-widget=resizes-content` 策略一致（见 xbot 移动端适配铁律）。
       const uiCtx: UIContext = win.getUIContext();
       uiCtx.setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
-      // 深色界面：状态栏/导航栏用浅色图标
-      
-      // 安全区：即使窗口被系统判成"全屏"，也把状态栏/导航栏高度写进 AppStorage，
-      // 由页面根容器加 padding（这是 EntryAbility 注释里就写明的配套动作）——
-      // 真机事故：消息文本被画到状态栏图标之下。
-      try {
-        const topArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
-        const bottomArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR);
-        AppStorage.setOrCreate('safeTopVp', px2vp(topArea.topRect.height));
-        AppStorage.setOrCreate('safeBottomVp', px2vp(bottomArea.bottomRect.height));
-      } catch (e) {
-        AppStorage.setOrCreate('safeTopVp', 0);
-        AppStorage.setOrCreate('safeBottomVp', 0);
-      }
-win.setWindowSystemBarProperties({
-        statusBarContentColor: '#FFFFFF',
-        navigationBarContentColor: '#FFFFFF',
+      // 状态栏/导航栏**前景色跟随主题**：深色主题用浅色图标（#FFFFFF），浅色主题用深色（#000000）。
+      // 判据 = `this.darkSystem`（onCreate 里**同步**读缓存主题算得；与页面 glassMode() 同源），不再硬编码。
+      win.setWindowSystemBarProperties({
+        statusBarContentColor: this.darkSystem ? '#FFFFFF' : '#000000',
+        navigationBarContentColor: this.darkSystem ? '#FFFFFF' : '#000000',
       });
     } catch (e) {
       const err: BusinessError = e as BusinessError;

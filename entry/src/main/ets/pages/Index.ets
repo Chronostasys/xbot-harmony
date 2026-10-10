@@ -1,6 +1,6 @@
-import { common } from '@kit.AbilityKit';
+import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { fileIo, picker } from '@kit.CoreFileKit';
-import { componentSnapshot, componentUtils, display, promptAction } from '@kit.ArkUI';
+import { componentSnapshot, componentUtils, display, promptAction, window } from '@kit.ArkUI';
 import { image } from '@kit.ImageKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { vibrator } from '@kit.SensorServiceKit';
@@ -195,7 +195,7 @@ struct Index {
   @State booted: boolean = false;
   @State loggedIn: boolean = false;
   @State errMsg: string = '';
-  @State serverUrl: string = 'http://';
+  @State serverUrl: string = '';
   @State username: string = '';
   @State password: string = '';
   @State testing: boolean = false;
@@ -915,6 +915,9 @@ struct Index {
     if (t.length > 0) {
       this.themeName = normalizeTheme(t);
     }
+    // 系统表面跟随主题（幂等：仅主题变化时打系统 API + 写本地缓存）。
+    // 冷启动 settings 到达这条路由它覆盖 EntryAbility 的缓存判定（热启动亦生效）。
+    this.syncSystemTheme();
     if (!this.reasoningDefaultApplied && Object.keys(store.settings).length > 0) {
       // 只在设置首次到达时套用默认展开状态（之后尊重用户的手动切换）
       this.showReasoning = parseBool(settingOf(store.settings, KEY_REASONING_DEFAULT), this.showReasoning);
@@ -2189,13 +2192,24 @@ struct Index {
 
       // ── 玻璃表单卡 ──
       Column({ space: SP_2 }) {
-        Text('xbot')
-          .fontSize(40).fontWeight(FontWeight.Bold)
-          .linearGradient({
-            angle: 135,
-            colors: [[this.eff().gradientFrom, 0.0], [this.eff().gradientTo, 1.0]],
-          })
-          .shadow({ radius: 22, color: this.eff().glow, offsetX: 0, offsetY: 0 })
+        // 应用徽标：ArkUI 的 `linearGradient` 是 **CommonAttribute 的背景渐变**（≈ backgroundImage），
+        // 与 `fontColor` 无关（ArkUI 没有 gradient-text）⇒ 渐变必须放在**容器**上，文字用纯色前景。
+        // 原写法把 Text 的背景刷成紫渐变、且无 borderRadius ⇒ 真机上是"直角紫方块"
+        // （见 docs/ARKTS-GOTCHAS.md 批次 14）。此处改为有意的应用徽标（squircle 观感）。
+        Column() {
+          Text('xbot').fontSize(34).fontWeight(FontWeight.Bold)
+            .fontColor(this.pal().onAccent)
+            .letterSpacing(0.5)
+        }
+        .width(108).height(108)
+        .borderRadius(30)
+        .linearGradient({
+          angle: 135,
+          colors: [[this.eff().gradientFrom, 0.0], [this.eff().gradientTo, 1.0]],
+        })
+        .border({ width: 1, color: this.eff().glassBorder })
+        .shadow({ radius: 26, color: this.eff().glow, offsetX: 0, offsetY: 10 })
+        .justifyContent(FlexAlign.Center)
         Text('连接你的 xbot 服务端 · 原生鸿蒙客户端')
           .fontSize(FS_CAPTION).fontColor(this.pal().textMuted)
           .margin({ bottom: SP_4 })
@@ -2947,6 +2961,52 @@ struct Index {
    */
   private glassMode(): ThemeColorMode {
     return isDarkThemeName(this.themeName) ? ThemeColorMode.DARK : ThemeColorMode.LIGHT;
+  }
+
+  /** 上一次已应用到**系统表面**的主题（`''` = 还没应用过）；幂等用，避免重复打系统 API。 */
+  private appliedSystemTheme: string = '';
+
+  /**
+   * 把当前主题应用到**系统表面**（应用级 colorMode + 状态栏/导航栏前景色）。
+   *
+   * 为什么必须：自绘色板由 `pal()` 负责，但**系统绘制的表面**（系统弹框 / 选择与长按菜单 /
+   * 状态栏前景…）只听 `setColorMode` / `setWindowSystemBarProperties`（EntryAbility 冷启动
+   * 已按缓存主题设过一次，这里覆盖运行期切换）。判据用 `isDarkThemeName`（与 `glassMode()`
+   * **同源**）⇒ 不会出现"状态栏深、玻璃浅"。
+   *
+   * 幂等：只在主题**真的变化**时打系统 API（`syncFrom` 每帧都会调它，不变即早返回）；
+   * 同一处顺带把主题写进**本地缓存**（EntryAbility 冷启动据此定系统表面）。
+   * 旁路：任何失败只记日志，绝不影响切主题本身。
+   */
+  private async syncSystemTheme(): Promise<void> {
+    const t: string = this.themeName;
+    if (t.length === 0 || t === this.appliedSystemTheme) {
+      return;
+    }
+    this.appliedSystemTheme = t;
+    const dark: boolean = isDarkThemeName(t);
+    // 本地缓存（冷启动 EntryAbility 读它）：只在主题变化时写一次盘
+    this.config.saveTheme(t).catch(() => {
+      // 缓存写盘失败不影响切主题
+    });
+    try {
+      const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      ctx.getApplicationContext().setColorMode(dark
+        ? ConfigurationConstant.ColorMode.COLOR_MODE_DARK
+        : ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT);
+    } catch (e) {
+      console.warn(`xbot theme: setColorMode 失败（已忽略）: ${errText(e as Object)}`);
+    }
+    try {
+      const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      const win: window.Window = await window.getLastWindow(ctx);
+      await win.setWindowSystemBarProperties({
+        statusBarContentColor: dark ? '#FFFFFF' : '#000000',
+        navigationBarContentColor: dark ? '#FFFFFF' : '#000000',
+      });
+    } catch (e) {
+      console.warn(`xbot theme: 状态栏更新失败（已忽略）: ${errText(e as Object)}`);
+    }
   }
 
 
@@ -3829,6 +3889,8 @@ struct Index {
             .onClick(() => {
               this.themeName = t;
               this.setSetting(KEY_APP_THEME, t);
+              // 系统表面跟随（setColorMode + 状态栏前景）+ 写本地缓存（内部一处完成，幂等）
+              this.syncSystemTheme();
               this.buzz();
             })
         }, (t: string) => `th-${t}`)

@@ -17,6 +17,9 @@ const KEY_SERVERS: string = 'server_history';
 const KEY_SERVER: string = 'server_url';
 const KEY_USER: string = 'username';
 const KEY_COOKIE: string = 'session_cookie';
+// 主题本地缓存（**原生独有副本**）：主题的业务真值在服务端 settings（登录后才拿到），
+// 而系统表面（应用级 colorMode / 状态栏前景）必须在**进程最早**锁定 ⇒ EntryAbility 从这里同步读。
+const KEY_THEME: string = 'app_theme';
 // 离线草稿（弱网/杀进程不丢正在写的内容；只保最近一个会话）
 const KEY_DRAFT_CHAT: string = 'draft_chat_id';
 const KEY_DRAFT_TEXT: string = 'draft_text';
@@ -25,6 +28,8 @@ export class AppConfig {
   serverUrl: string = '';
   username: string = '';
   sessionCookie: string = '';
+  /** 主题名本地缓存（`''` = 未存过 ⇒ 系统表面回落深色）。 */
+  theme: string = '';
   /** 草稿所属会话与内容（空 = 没有草稿） */
   draftChatId: string = '';
   draftText: string = '';
@@ -41,6 +46,7 @@ export class ConfigStore {
     this.data.serverUrl = s.getSync(KEY_SERVER, '') as string;
     this.data.username = s.getSync(KEY_USER, '') as string;
     this.data.sessionCookie = s.getSync(KEY_COOKIE, '') as string;
+    this.data.theme = s.getSync(KEY_THEME, '') as string;
     this.data.draftChatId = s.getSync(KEY_DRAFT_CHAT, '') as string;
     this.data.draftText = s.getSync(KEY_DRAFT_TEXT, '') as string;
     return this.data;
@@ -48,6 +54,22 @@ export class ConfigStore {
 
   current(): AppConfig {
     return this.data;
+  }
+
+  /** 本地缓存的主题名（`''` = 未存过）。 */
+  cachedTheme(): string {
+    return this.data.theme;
+  }
+
+  /** 保存主题名到本地（写盘失败不影响切主题本身）。 */
+  async saveTheme(theme: string): Promise<void> {
+    this.data.theme = theme;
+    const s: preferences.Preferences | null = this.store;
+    if (s === null) {
+      return;
+    }
+    s.putSync(KEY_THEME, theme);
+    await s.flush();
   }
 
   /** 某会话的草稿（只保最近一个会话；不匹配返回空串）。 */
@@ -113,5 +135,23 @@ export class ConfigStore {
 
   async clearSession(): Promise<void> {
     await this.save(this.data.serverUrl, this.data.username, '');
+  }
+}
+
+/**
+ * **同步**读主题缓存 —— 供 `EntryAbility.onCreate` 在**进程最早**锁定系统表面
+ * （应用级 colorMode / 状态栏前景）。
+ *
+ * 为什么必须同步：这些系统表面要在**首帧之前**定下来；异步读盘会先按默认（深色）渲染一帧
+ * 再翻转 ⇒ 浅色主题用户会看到闪色。用 `getPreferencesSync` 取同一个 store 直接读。
+ * 失败 / 未存过 ⇒ 返回 `''`（调用方回落深色，保持既有语义）。
+ */
+export function readCachedTheme(context: common.Context): string {
+  try {
+    const options: preferences.Options = { name: STORE_NAME };
+    const s: preferences.Preferences = preferences.getPreferencesSync(context, options);
+    return s.getSync(KEY_THEME, '') as string;
+  } catch (e) {
+    return '';
   }
 }
