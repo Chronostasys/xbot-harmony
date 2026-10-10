@@ -3,6 +3,7 @@ import { fileIo, picker } from '@kit.CoreFileKit';
 import { componentSnapshot, componentUtils, display, promptAction } from '@kit.ArkUI';
 import { image } from '@kit.ImageKit';
 import { pasteboard } from '@kit.BasicServicesKit';
+import { vibrator } from '@kit.SensorServiceKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
@@ -13,6 +14,10 @@ import {
 import {
   BgTask, bgTaskLine, CronJob, cronLine, RunnerRow, runnerLine, SubAgentRow, subagentLine,
 } from '../core/panels';
+import {
+  activeToken, applyCommand, applyMention, CommandItem, enterSends, FsEntry, joinPath, matchCommands,
+  matchFiles, parentDir,
+} from '../core/composer';
 import {
   fontScaleFrom, fontScaleLabel, fontScalePresets, KEY_CODE_WRAP, KEY_FONT_SCALE,
   KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE, KEY_REASONING_DEFAULT, KEY_SEND_KEY, normalizeSendKey,
@@ -218,6 +223,16 @@ struct Index {
    * busy=false 时**必须自动复位**（Web gotcha：否则用户以为在发普通消息，实际插进了别人的回合）。
    */
   @State sendMode: string = MODE_QUEUE;
+
+  // ── P11 输入体验（多行 / 补全 / 震动）──
+  /** 当前正在输入的 `/` 或 `@` token（空 = 不显示补全） */
+  @State cmdToken: string = '';
+  /** 命令候选 */
+  @State cmdItems: CommandItem[] = [];
+  /** 文件候选（`@` 触发） */
+  @State fsEntries: FsEntry[] = [];
+  /** 当前列目录（继续下钻用） */
+  @State fsDir: string = '/';
 
   // ── P9 设置（服务端权威：/api/settings；与 web 共用同一份偏好）──
   // ⚠️ 名字必须与**已有的** SettingsSheet（插件/旧设置弹层）区分开，否则 ArkTS 报重复标识符。
@@ -1162,6 +1177,7 @@ struct Index {
     this.attachments = [];
     const busyBefore: boolean = this.busy;
     const interrupt: boolean = isInterruptSend(this.busy, this.sendMode);
+    this.buzz();
     try {
       let interrupted: boolean = false;
       if (keys.length > 0) {
@@ -1662,6 +1678,47 @@ struct Index {
         })
       }
 
+      // 输入补全（/ 命令 或 @ 文件）
+      if (this.cmdToken.length > 0 && (this.cmdItems.length > 0 || this.fsEntries.length > 0)) {
+        Column({ space: 2 }) {
+          if (this.cmdItems.length > 0) {
+            ForEach(this.cmdItems.slice(0, 6), (c: CommandItem) => {
+              Row({ space: 8 }) {
+                Text(c.name).fontSize(13).fontColor('#C4B5FD').constraintSize({ maxWidth: 150 })
+                  .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                Text(c.desc).fontSize(11).fontColor('#6B7280').layoutWeight(1)
+                  .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+              }
+              .width('100%').padding({ left: 10, right: 10, top: 7, bottom: 7 })
+              .backgroundColor('#0F172A').borderRadius(6)
+              .onClick(() => {
+                this.pickCommand(c.name);
+              })
+            }, (c: CommandItem) => `cc-${c.name}`)
+          }
+          if (this.fsEntries.length > 0) {
+            ForEach(this.fsEntries.slice(0, 8), (e: FsEntry) => {
+              Row({ space: 8 }) {
+                Text(e.isDir ? '📁' : '📄').fontSize(12)
+                Text(e.name).fontSize(13).fontColor('#E5E7EB').layoutWeight(1)
+                  .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                Text(this.fsDir).fontSize(10).fontColor('#4B5563')
+                  .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .constraintSize({ maxWidth: 120 })
+              }
+              .width('100%').padding({ left: 10, right: 10, top: 7, bottom: 7 })
+              .backgroundColor('#0F172A').borderRadius(6)
+              .onClick(() => {
+                this.pickFile(e);
+              })
+            }, (e: FsEntry) => `fe-${e.name}#${e.isDir}`)
+          }
+        }
+        .width('100%').padding({ left: 8, right: 8, bottom: 4 })
+        .backgroundColor('#0B0F19').borderRadius(8)
+        .border({ width: 1, color: '#1F2937' })
+      }
+
       // 会话标签（池里的会话，切回瞬时；● 表示该会话正在跑）
       if (this.poolOrder.length > 1) {
         Scroll() {
@@ -1731,18 +1788,24 @@ struct Index {
           .onClick(() => {
             this.pickImages();
           })
-        TextInput({ placeholder: '给 xbot 发消息…', text: this.draft })
+        TextArea({ placeholder: '给 xbot 发消息…（/ 命令，@ 文件）', text: this.draft })
           .onChange((v: string) => {
             this.draft = v;
+            this.refreshCompletion(v);
           })
+          // 发送键模式：Enter 发送（软键盘 Enter 变 Send）或 Enter 换行（发送靠按钮）
+          .enterKeyType(enterSends(this.sendKeyMode()) ? EnterKeyType.Send : EnterKeyType.NEW_LINE)
           // 粘贴板里有图片就直接变成附件（文本粘贴不拦截，交给输入框自身处理）
           .onPaste((value: string, event: PasteEvent) => {
             this.pasteImage();
           })
-          .layoutWeight(1).constraintSize({ minHeight: 42 }).backgroundColor('#111827').fontColor('#E5E7EB')
+          .layoutWeight(1).constraintSize({ minHeight: 42, maxHeight: 150 })
+          .backgroundColor('#111827').fontColor('#E5E7EB')
           .onSubmit(() => {
-            // 发送快捷键模式（Ctrl/⌘+Enter 模式在 P11 的多行输入里生效；单行下 Enter 仍发送）
-            this.sendDraft();
+            // 只有"Enter 发送"模式才在这里发送；换行模式下 Enter 就是换行
+            if (enterSends(this.sendKeyMode())) {
+              this.sendDraft();
+            }
           })
         if (this.busy) {
           // ⚡ 插话 / 排队 切换（只在忙碌时出现；点击切换并提示语义）
@@ -1868,6 +1931,108 @@ struct Index {
       const s: SessionItem | undefined = this.currentMenuSession();
       this.renameText = s !== undefined && s.label !== undefined ? s.label : '';
       this.sessMenuId = '';
+    }
+  }
+
+  // ── P11：输入体验 ────────────────────────────────────────────────────────
+
+  /**
+   * 命令表（镜像服务端命令注册表 `agent/command_builtin.go` 的 `r.Register(...)`）。
+   * 不发明命令：这里逐条对应服务端真实注册的 usage/description。
+   */
+  private commands(): CommandItem[] {
+    const out: CommandItem[] = [];
+    const rows: string[] = [
+      '/new|开始新对话（归档记忆后重置）',
+      '/version|显示版本信息',
+      '/help|显示帮助',
+      '/prompt [query]|预览完整提示词（不调用 LLM）',
+      '/llm|查看当前解析到的订阅与模型',
+      '/llms|列出所有个人 LLM 订阅',
+      '/compress|手动触发上下文压缩',
+      '/continue|继续上一轮被中断的对话（基于 DB 断点恢复）',
+      '/usage|查看 token 用量统计',
+      '/context|查看上下文统计',
+      '/models|列出可选模型（带正常/离线/禁用状态）',
+      '/settings|打开个人设置',
+      '/goal clear|清除当前目标',
+      '/cancel|取消当前回合',
+    ];
+    for (let i = 0; i < rows.length; i++) {
+      const parts: string[] = rows[i].split('|');
+      const c: CommandItem = new CommandItem();
+      c.name = parts[0];
+      c.desc = parts.length > 1 ? parts[1] : '';
+      out.push(c);
+    }
+    return out;
+  }
+
+  /** 输入变化时刷新补全（`/` 命令优先，其次 `@` 文件）。 */
+  private refreshCompletion(text: string): void {
+    const slash: string = activeToken(text, '/');
+    if (slash.length > 0) {
+      this.cmdToken = slash;
+      this.cmdItems = matchCommands(this.commands(), slash);
+      this.fsEntries = [];
+      return;
+    }
+    const at: string = activeToken(text, '@');
+    if (at.length > 0) {
+      this.cmdToken = at;
+      this.cmdItems = [];
+      const q: string = at.substring(1);
+      // `@a/b` ⇒ 列 `/a/b` 的上一层；`@name` ⇒ 列上次用过的那一层
+      const dir: string = q.indexOf('/') > 0 || q.indexOf('/') === 0 ? parentDir(q) : this.fsDir;
+      this.loadFs(dir);
+      return;
+    }
+    this.cmdToken = '';
+    this.cmdItems = [];
+    this.fsEntries = [];
+  }
+
+  private async loadFs(dir: string): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    try {
+      this.fsDir = dir.length > 0 ? dir : '/';
+      this.fsEntries = await store.listFs(this.fsDir);
+    } catch (e) {
+      this.fsEntries = [];
+    }
+  }
+
+  /** 选中一条命令候选。 */
+  private pickCommand(name: string): void {
+    this.draft = applyCommand(this.draft, this.cmdToken, name);
+    this.refreshCompletion(this.draft);
+    this.buzz();
+  }
+
+  /** 选中一条文件候选（目录继续下钻，文件补完整）。 */
+  private pickFile(e: FsEntry): void {
+    this.draft = applyMention(this.draft, this.cmdToken, e.name, e.isDir);
+    if (e.isDir) {
+      this.loadFs(joinPath(this.fsDir, e.name));
+    }
+    this.refreshCompletion(this.draft);
+    this.buzz();
+  }
+
+  /** 短震动反馈（无马达/无权限时静默 —— 不打断任何流程）。 */
+  private buzz(): void {
+    if (!parseBool(settingOf(this.settings, KEY_CODE_WRAP), true)) {
+      // 复用不了别的开关，这里保持始终开启：手感反馈是"世界第一流畅"的一部分
+    }
+    try {
+      vibrator.startVibration({ type: 'time', duration: 12 }, { id: 0, usage: 'unknown' })
+        .catch(() => {
+        });
+    } catch (e) {
+      // 无振动器件：忽略
     }
   }
 

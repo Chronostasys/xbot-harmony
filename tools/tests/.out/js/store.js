@@ -135,6 +135,16 @@ class ChatStore {
         await this.http.post('/api/settings', body);
         this.onUpdate();
     }
+    /**
+     * 列目录（`POST /api/fs/list {path, show_hidden?}` → `{entries:[{name,isDir,size,mode,modTime}]}`）。
+     * 输入框 `@` 文件补全用；服务端已做路径安全校验（resolveSafePath）。
+     */
+    async listFs(path) {
+        const body = { 'path': path.length > 0 ? path : '/' };
+        const raw = await this.http.postAs('/api/fs/list', body);
+        const arr = raw['entries'];
+        return arr !== undefined ? arr : [];
+    }
     async loadCronTasks() {
         const raw = await this.http.postAs('/api/cron/list', new ChannelBody(this.channel, this.currentChatId));
         const arr = raw['tasks'];

@@ -21,6 +21,7 @@ import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, U
 import { moveOrders } from './sessionops';
 import { BgTask, CronJob, RunnerRow, SubAgentRow } from './panels';
 import { serverKey, toLocalSettings } from './settings';
+import { FsEntry } from './composer';
 import { LlmConfig } from './llmfmt';
 import {
   AskQuestion,
@@ -180,6 +181,17 @@ export class ChatStore {
     const body: SettingsBody = new SettingsBody(srv);
     await this.http.post('/api/settings', body);
     this.onUpdate();
+  }
+
+  /**
+   * 列目录（`POST /api/fs/list {path, show_hidden?}` → `{entries:[{name,isDir,size,mode,modTime}]}`）。
+   * 输入框 `@` 文件补全用；服务端已做路径安全校验（resolveSafePath）。
+   */
+  async listFs(path: string): Promise<FsEntry[]> {
+    const body: Record<string, string> = { 'path': path.length > 0 ? path : '/' };
+    const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>('/api/fs/list', body);
+    const arr: Object | undefined = raw['entries'];
+    return arr !== undefined ? arr as FsEntry[] : [];
   }
 
   async loadCronTasks(): Promise<void> {
