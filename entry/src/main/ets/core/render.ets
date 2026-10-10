@@ -14,7 +14,7 @@
  * 的重叠（这正是 bug1「一个 running turn 被渲染两遍」的根治点）。
  */
 import { ChatRow, HistoryIteration, IterList, ToolProgress } from './types';
-import { WebCompaction, WebIteration, WebToolProgress } from './chattypes';
+import { WebCompaction, WebIteration, WebSubAgentProgress, WebToolProgress } from './chattypes';
 import type { LiveRowView, Row } from './derive';
 
 /** WebToolProgress（web 形状）→ 原生 ToolProgress（渲染层形状）。 */
@@ -47,6 +47,45 @@ export function toNativeTools(ws: readonly WebToolProgress[]): ToolProgress[] {
   return out;
 }
 
+/**
+ * `readonly WebSubAgentProgress[]`（状态机形状，只读）→ 渲染层**可变拷贝**。
+ *
+ * 与 `toHistoryIterations` 同款：JS/ArkTS 侧 `readonly T[]` 与 `T[]` 不通用 ⇒ 显式拷贝。
+ * 元素本身**透传引用**（`WebSubAgentProgress` 只读消费，不就地改源）。
+ * 缺省/空 ⇒ 空数组（**不新增键**的判定由调用方做，见 `toHistoryIteration`）。
+ */
+function toSubAgents(ws: readonly WebSubAgentProgress[] | undefined): WebSubAgentProgress[] {
+  const out: WebSubAgentProgress[] = [];
+  if (ws !== undefined) {
+    for (let i = 0; i < ws.length; i++) {
+      out.push(ws[i]);
+    }
+  }
+  return out;
+}
+
+/**
+ * SubAgent 树指纹（**live 行签名**用）—— 树变化必须让 `applyRow` 认为行变了，
+ * 否则行上的 `subAgents` 会冻结在首帧（聊天树不更新）。
+ *
+ * 递归覆盖 children（树很小：几只 agent）；无 ⇒ `'-'`。
+ * ⚠️ 只读**结构/状态**字段：desc 逐字进指纹会让长描述抖动，但那是"内容变了"的正当信号
+ *    （与 `rowSignature` 里其它 `.length` 同款 —— 只求"变了就变指纹"）。
+ */
+function subAgentSig(ws: readonly WebSubAgentProgress[] | undefined): string {
+  if (ws === undefined || ws.length === 0) {
+    return '-';
+  }
+  const parts: string[] = [];
+  for (let i = 0; i < ws.length; i++) {
+    const n: WebSubAgentProgress = ws[i];
+    const inst: string = n.instance !== undefined ? n.instance : '';
+    parts.push(`${n.role}:${inst}:${n.status}:${n.desc !== undefined ? n.desc.length : 0}`
+      + `[${subAgentSig(n.children)}]`);
+  }
+  return parts.join(',');
+}
+
 /** WebIteration（web 形状）→ HistoryIteration（渲染层形状）。 */
 export function toHistoryIteration(w: WebIteration): HistoryIteration {
   const tools: ToolProgress[] = [];
@@ -60,6 +99,11 @@ export function toHistoryIteration(w: WebIteration): HistoryIteration {
     tools,
     tools_folded: w.toolsFolded === true,
   };
+  // SubAgent 树：**只在有值时新增键**（无 SubAgent 的迭代保持既有形状不变 —— 零回归）。
+  const subs: WebSubAgentProgress[] = toSubAgents(w.subAgents);
+  if (subs.length > 0) {
+    out.subAgents = subs;
+  }
   return out;
 }
 
@@ -197,7 +241,9 @@ function rowSignature(r: Row): string {
       return `l#${r.turnID}#${r.iterations.length}#${lastSig}#${r.streaming ? 1 : 0}`
         + `#${r.regionsBefore !== undefined ? r.regionsBefore : 0}`
         + `#${r.lastIter}#${r.content.length}#${r.reasoning.length}`
-        + `#${r.activeTools.length}#${r.streamingTools.length}`;
+        + `#${r.activeTools.length}#${r.streamingTools.length}`
+        // SubAgent 树（live 快照）：变了必须让行重建，否则行上的 subAgents 冻结在首帧
+        + `#${subAgentSig(r.subAgents)}`;
     }
     case 'frozen': {
       const last: WebIteration | undefined = r.iterations.length > 0
@@ -255,6 +301,7 @@ export function applyRow(row: ChatRow, r: Row): boolean {
       row.isLive = false;
       row.regionsBefore = 0;
       row.compactions = [];
+      row.subAgents = [];
       break;
     case 'live':
       row.role = 'assistant';
@@ -265,6 +312,8 @@ export function applyRow(row: ChatRow, r: Row): boolean {
       row.regionsBefore = r.regionsBefore !== undefined ? r.regionsBefore : 0;
       // live 行不承载压缩点（压缩只在**已提交** turn 的迭代边界上定位）⇒ 清空。
       row.compactions = [];
+      // live 快照的 SubAgent 树（行级；已提交行的树在 iterations[].subAgents 上）
+      row.subAgents = toSubAgents(r.subAgents);
       break;
     case 'frozen':
       row.role = 'assistant';
@@ -274,6 +323,7 @@ export function applyRow(row: ChatRow, r: Row): boolean {
       row.isLive = false;
       row.regionsBefore = r.regionsBefore !== undefined ? r.regionsBefore : 0;
       row.compactions = [];
+      row.subAgents = [];
       break;
     case 'committed':
       row.role = 'assistant';
@@ -284,6 +334,9 @@ export function applyRow(row: ChatRow, r: Row): boolean {
       row.regionsBefore = r.regionsBefore !== undefined ? r.regionsBefore : 0;
       // turn 内压缩点（迭代之间内联渲染）——派生行 → 渲染行透传（无则空数组）。
       row.compactions = toCompactions(r.compactions);
+      // 已提交行：SubAgent 树**逐迭代**在 iterations[].subAgents 上（迭代边界冻结，
+      // 不合并到行级 —— 与 web 逐迭代渲染同源）⇒ 行级清空。
+      row.subAgents = [];
       break;
   }
   return true;

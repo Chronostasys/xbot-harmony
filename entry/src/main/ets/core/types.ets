@@ -5,7 +5,7 @@
  * 这里只声明**客户端真正读到**的字段；未声明字段在 ArkTS 下会被安全忽略
  * （JSON.parse 后按 interface 取值）。
  */
-import type { WebCompaction } from './chattypes';
+import type { WebCompaction, WebSubAgentProgress } from './chattypes';
 
 /** 统一 REST 信封：`{ok, data, error}`（`channel/web/web_auth.go` writeJSON）。 */
 export interface ApiEnvelope {
@@ -89,6 +89,16 @@ export interface HistoryIteration {
    * 而不是另一个气泡/另一行）。
    */
   live?: boolean;
+  /**
+   * 该迭代 spawn 的 **SubAgent 进度树**（对齐 web `chattypes.WebIteration.subAgents`，
+   * 迭代边界冻结 —— 后台 SubAgent 的进度归属到原迭代，不漂移到最新迭代）。
+   *
+   * 数据源：状态机 `WebIteration.subAgents` → `core/render.ets:toHistoryIteration` 拷贝。
+   * 渲染层据此展平（`core/subagent.flattenSubAgents`）后交给 `components/SubAgentTree`。
+   * ⚠️ **只在有值时存在**（无 SubAgent 的迭代**不新增该键**，保持既有行对象形状不变）；
+   *    空/缺省 ⇒ 渲染层**零产出**（不留空行）。
+   */
+  subAgents?: WebSubAgentProgress[];
 }
 
 /** 历史消息行。 */
@@ -272,6 +282,17 @@ export class ChatRow implements IterList {
    * 数据源：`derive` 的 committed Row → `core/render.ets:applyRow` 透传（引用稳定）。
    */
   compactions: WebCompaction[] = [];
+  /**
+   * 该行**当前**的 **SubAgent 进度树**快照 —— 对齐 web live 快照的 `subAgents`。
+   *
+   * 数据源：状态机 `LiveRowView.subAgents` → `core/render.ets:applyRow` 写入。
+   * **只有 live 行会有值**；已提交/frozen 行的各迭代树在 `iterations[].subAgents` 上
+   * （迭代边界冻结，故不合并到行级 —— 与 web 逐迭代渲染同源）。
+   *
+   * 渲染层据此展平（`core/subagent.flattenSubAgents(row.subAgents, …)`）后交给
+   * `components/SubAgentTree`；空数组 ⇒ **零产出**。
+   */
+  subAgents: WebSubAgentProgress[] = [];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
