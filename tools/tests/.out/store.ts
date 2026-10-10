@@ -16,6 +16,7 @@ import {
   applyStreamFrame, applyStructured, isStreamOnly, isIdleAction, isBusyAction,
   shouldReloadHistory, liveIterationOf, upsertIteration, mergeTools,
 } from './streammerge';
+import { channelForChat } from './sessionpick';
 import {
   AskQuestion,
   AskUserPrompt,
@@ -128,6 +129,9 @@ export class ChatStore {
   }
 
   async openSession(chatId: string): Promise<void> {
+    // ⚠️ 会话可能属于**非 web 渠道**（飞书 oc_*/ou_*）。必须用它自己的 channel，
+    // 否则 /api/history 会返回 404 session not found（真机实测，见 core/sessionpick.ets）。
+    this.channel = channelForChat(this.sessions, chatId);
     this.currentChatId = chatId;
     this.lastSeq = 0;
     this.rows = [];

@@ -17,6 +17,7 @@ exports.toolsSummary = toolsSummary;
 const http_1 = require("./http");
 const sse_1 = require("./sse");
 const streammerge_1 = require("./streammerge");
+const sessionpick_1 = require("./sessionpick");
 const types_1 = require("./types");
 class ChatStore {
     /** 标记行内容已变（ForEach key 随 rev 变化 ⇒ 强制重建该项，避免显示陈旧内容）。 */
@@ -86,6 +87,9 @@ class ChatStore {
         await this.loadSessions();
     }
     async openSession(chatId) {
+        // ⚠️ 会话可能属于**非 web 渠道**（飞书 oc_*/ou_*）。必须用它自己的 channel，
+        // 否则 /api/history 会返回 404 session not found（真机实测，见 core/sessionpick.ets）。
+        this.channel = (0, sessionpick_1.channelForChat)(this.sessions, chatId);
         this.currentChatId = chatId;
         this.lastSeq = 0;
         this.rows = [];

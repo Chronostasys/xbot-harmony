@@ -263,3 +263,46 @@ uiCtx.setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);   // 导入自 '@kit.ArkUI
 
 **同类教训**（两次都是同一坑）：**客户端字段名必须逐字对照服务端 Go 结构体的 json tag**，
 不能凭印象写（另一次：进度事件读 `content` 而服务端发 `stream_content`，见第 17 条）。
+
+## 20. 会话可能属于**非 web 渠道**：`channel` 必须按会话传，绝不能硬编码
+
+**现象**（真机截图实证）：点开某个会话得到
+`HTTP 404 {"code":"not_found","message":"session not found"}`，界面显示"加载会话失败/切换失败"。
+
+**机制**：`/api/session-tree` 返回**所有渠道**的会话（含飞书 `oc_*` / `ou_*`），而
+`/api/history`、`/api/regions`、`/api/queue/*`、`/api/message`、`/api/cancel`、SSE 都要求
+`channel` 与**该会话实际所属渠道**一致。客户端曾把 `this.channel` 恒设为 `'web'`
+⇒ 任何非 web 会话都 404。
+
+**修法**：`openSession(chatId)` 里先按会话列表解析渠道
+（`core/sessionpick.ets` 的 `channelForChat(sessions, chatId)`；找不到回落 `web`），
+再发后续请求；抽屉里用 `channelLabel()` 标注来源（回答"这个会话为什么不一样"）。
+守护：`tools/tests/sessionpick.test.ts`（飞书会话必须解析成 `feishu` —— 旧实现该组全红）。
+
+## 21. `List` + `ForEach` 会**一次性构建全部行** ⇒ 必须做行窗口 + 帧合并
+
+**现象**：真机"渲染很卡、交互也很差"。
+
+**机制**：`List` 里的 `ForEach` 不是虚拟化（ArkUI 的虚拟化容器是 `LazyForEach`），
+会把所有行都建出来；而本应用**单行最多 16 个迭代块 × 每块 Markdown** ⇒ 30 行 ≈ 几千个节点。
+再叠加"每个 SSE 事件都同步一次 UI"，UI 线程被打满。
+
+**修法**（两层，均不引入新的容器类型，故零布局风险）：
+
+1. **行窗口**：只渲染末尾 `rowLimit` 行（默认 `MAX_ROWS_VISIBLE`），
+   更早的用「↑ 显示更早的 N 条」按批放开（`visibleRows` / `hiddenRowCount` 纯函数）；
+   切会话时重置，避免窗口无限增长。
+2. **帧合并**：store→UI 同步走 `scheduleSync()`，**每帧至多一次**（16ms 合并）。
+   与 xbot Web 端已定稿的结论同款：所有"每帧一次"的更新必须走同一个调度器。
+
+（若日后仍不够：把 `List` 换成 `LazyForEach` + `IDataSource` —— 但需把"加载更早/busy 指示器"
+两个非消息项移出 `List`（LazyForEach 与普通子项混用有约束），属结构性改动，需真机确认后再做。）
+
+## 22. 诊断结论必须能区分「未布局」与「不存在」
+
+`componentUtils.getRectangleById(id)` 对**不存在**的组件往往返回 **0 尺寸**而不是抛错
+⇒ 只打印 `w=0 h=0` 会让"组件真的塌了"与"当前不在那一页"无法区分（真实事故：一份几何文本
+`xbot-root y=-96` + 全部子项 0×0，事后才知道那次走查是在**未登录**状态跑的，聊天页组件压根不存在）。
+
+**修法**：0 尺寸显式标注 `⚠未布局(0尺寸,或被弹层遮挡/当前不在该页)`；给登录页也加 id
+（`xbot-login`），使"当前在哪一页"可判。

@@ -8,6 +8,9 @@ import { ChatStore } from '../core/store';
 import { mdCacheStats, MdCacheStats } from '../core/markdown';
 import { displayContent, displayReasoning, streamStatsText } from '../core/streammerge';
 import {
+  channelLabel, hiddenRowCount, visibleRows, MAX_ROWS_VISIBLE,
+} from '../core/sessionpick';
+import {
   AskOption,
   AskQuestion,
   AskUserPrompt,
@@ -154,6 +157,9 @@ struct Index {
    */
   @State atBottom: boolean = true;
 
+  /** 首屏渲染的行窗口（避免一次性构建几十行；点上方的「显示更早」按批放开） */
+  @State rowLimit: number = MAX_ROWS_VISIBLE;
+
   @State geoText: string = '';
   @State geoRunning: boolean = false;
   @State auditing: boolean = false;
@@ -184,6 +190,9 @@ struct Index {
   @State showReasoning: boolean = true;
 
   private store: ChatStore | null = null;
+  /** 合并同步用：待同步的 store 与"已排帧"标志（见 scheduleSync） */
+  private pendingSync: ChatStore | null = null;
+  private syncScheduled: boolean = false;
   private config: ConfigStore = new ConfigStore();
   private listScroller: Scroller = new Scroller();
 
@@ -243,9 +252,32 @@ struct Index {
   private makeStore(url: string): ChatStore {
     const store: ChatStore = new ChatStore(url);
     store.onUpdate = () => {
-      this.syncFrom(store);
+      this.scheduleSync(store);
     };
     return store;
+  }
+
+  /**
+   * 把 store→UI 的同步**合并到每帧至多一次**。
+   *
+   * 为什么：流式期间每个 SSE 事件都会 onUpdate（每秒可达数十次），逐次同步会把 UI 线程打满
+   * ⇒ 真机表现"渲染很卡、交互也很差"。与 xbot Web 端已定稿的结论同款：所有"每帧一次"的更新
+   * 必须走同一个调度器。（切会话/首帧仍走同步路径 syncFrom，保证不迟一帧。）
+   */
+  private scheduleSync(store: ChatStore): void {
+    this.pendingSync = store;
+    if (this.syncScheduled) {
+      return;
+    }
+    this.syncScheduled = true;
+    setTimeout(() => {
+      this.syncScheduled = false;
+      const s: ChatStore | null = this.pendingSync;
+      this.pendingSync = null;
+      if (s !== null) {
+        this.syncFrom(s);
+      }
+    }, 16);
   }
 
   private attach(store: ChatStore): void {
@@ -257,6 +289,7 @@ struct Index {
     // 切会话 ⇒ 用户预期"看到最新"，总是跳到底（此时门控必须放行）
     if (store.currentChatId !== this.currentChat) {
       this.atBottom = true;
+      this.rowLimit = MAX_ROWS_VISIBLE;   // 切会话重置行窗口（否则行数会无限累积增长）
     }
     this.sessions = store.sessions.slice();
     this.rows = store.rows.slice();
@@ -380,7 +413,7 @@ struct Index {
    */
   private collectGeometry(): string {
     const ids: string[] = [
-      'xbot-root', 'xbot-header', 'xbot-list', 'xbot-composer',
+      'xbot-root', 'xbot-header', 'xbot-list', 'xbot-composer', 'xbot-login',
       'xbot-drawer', 'xbot-settings', 'xbot-selfcheck',
     ];
     const out: string[] = [];
@@ -393,10 +426,16 @@ struct Index {
     for (let i = 0; i < ids.length; i++) {
       try {
         const r: componentUtils.ComponentInfo = componentUtils.getRectangleById(ids[i]);
-        out.push(`${ids[i]}: x=${Math.round(r.screenOffset.x)} y=${Math.round(r.screenOffset.y)} ` +
-          `w=${Math.round(r.size.width)} h=${Math.round(r.size.height)}`);
+        const gx: number = Math.round(r.screenOffset.x);
+        const gy: number = Math.round(r.screenOffset.y);
+        const gw: number = Math.round(r.size.width);
+        const gh: number = Math.round(r.size.height);
+        // ⚠️ ArkUI 对"不存在"的 id 往往返回 0 尺寸而不是抛错 ⇒ 必须显式标注，
+        // 否则"组件真的 0 尺寸"与"组件不存在"分不开（曾导致一份几何文本无法判读）。
+        const flag: string = (gw === 0 || gh === 0) ? ' ⚠未布局(0尺寸,或被弹层遮挡/当前不在该页)' : '';
+        out.push(`${ids[i]}: x=${gx} y=${gy} w=${gw} h=${gh}${flag}`);
       } catch (e) {
-        out.push(`${ids[i]}: absent`);
+        out.push(`${ids[i]}: absent（getRectangleById 抛错=确实不存在）`);
       }
     }
     return out.join('\n');
@@ -953,6 +992,7 @@ struct Index {
         })
     }
     .padding(24).width('100%').height('100%').justifyContent(FlexAlign.Center)
+    .id('xbot-login')
   }
 
   @Builder
@@ -1023,7 +1063,22 @@ struct Index {
           }
         }
 
-        ForEach(this.rows, (row: ChatRow) => {
+        // 行窗口：`List` + `ForEach` 会**一次性构建全部行**（每行 ≤16 个迭代块 × Markdown）
+        // ⇒ 几十行就是几千个节点（真机"很卡、交互差"的主因之一）。只渲染末尾 rowLimit 行，
+        // 更早的按批放开。
+        if (hiddenRowCount(this.rows.length, this.rowLimit) > 0) {
+          ListItem() {
+            Row() {
+              Text(`↑ 显示更早的 ${hiddenRowCount(this.rows.length, this.rowLimit)} 条`)
+                .fontSize(12).fontColor('#93C5FD')
+            }
+            .width('100%').justifyContent(FlexAlign.Center).padding(10)
+            .onClick(() => {
+              this.rowLimit += MAX_ROWS_VISIBLE;
+            })
+          }
+        }
+        ForEach(visibleRows(this.rows, this.rowLimit), (row: ChatRow) => {
           ListItem() {
             if (row.role === 'user') {
               this.UserBubble(row)
@@ -1381,9 +1436,16 @@ struct Index {
                       .fontSize(14)
                       .fontColor(s.chat_id === this.currentChat ? '#C4B5FD' : '#E5E7EB')
                       .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                    Text(s.chat_id)
-                      .fontSize(10).fontColor('#6B7280')
-                      .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                    Row({ space: 6 }) {
+                      Text(channelLabel(s.channel !== undefined ? s.channel : 'web'))
+                        .fontSize(9).fontColor('#C4B5FD')
+                        .padding({ left: 4, right: 4, top: 1, bottom: 1 })
+                        .backgroundColor('#1F2937').borderRadius(4)
+                      Text(s.chat_id)
+                        .fontSize(10).fontColor('#6B7280')
+                        .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                        .layoutWeight(1)
+                    }.width('100%')
                   }
                   .layoutWeight(1).alignItems(HorizontalAlign.Start)
 
