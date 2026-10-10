@@ -313,3 +313,17 @@ export interface SessionStatus {
   cwd?: string;
   todos?: TodoItem[];
 }
+
+/** 搜索命中（服务端 `searchHit`）。⚠️ 只在**当前会话**的消息里检索。 */
+export interface SearchHit {
+  id?: number;
+  role?: string;
+  created_at?: string;
+  snippet?: string;
+}
+
+/** 会话分支（fork）结果（服务端 `{chat_id, channel}`）。 */
+export interface ForkResult {
+  chat_id?: string;
+  channel?: string;
+}

@@ -18,6 +18,7 @@ const http_1 = require("./http");
 const sse_1 = require("./sse");
 const streammerge_1 = require("./streammerge");
 const sessionpick_1 = require("./sessionpick");
+const sessionops_1 = require("./sessionops");
 const types_1 = require("./types");
 class ChatStore {
     /** 标记行内容已变（ForEach key 随 rev 变化 ⇒ 强制重建该项，避免显示陈旧内容）。 */
@@ -83,6 +84,43 @@ class ChatStore {
         if (created.chat_id !== undefined && created.chat_id.length > 0) {
             await this.openSession(created.chat_id);
         }
+    }
+    /**
+     * 会话分支（`POST /api/chats/fork` body `{source_channel, source_chat_id, label?}`）。
+     * @returns 新会话 id（服务端 `{chat_id}`）
+     */
+    async forkSession(chatId, label) {
+        const body = {
+            'source_channel': this.channel,
+            'source_chat_id': chatId,
+            'label': label,
+        };
+        const res = await this.http.postAs('/api/chats/fork', body);
+        const id = res.chat_id;
+        if (id === undefined || id.length === 0) {
+            throw new Error('服务端未返回新会话 id');
+        }
+        return id;
+    }
+    /**
+     * 会话排序（`POST /api/chats/reorder` body `{channel, orders}`）。
+     * `ids` 为当前**显示顺序**的会话 id 列表；内部算好全量序号再提交。
+     */
+    async reorderSessions(ids, movedId, dir) {
+        const orders = (0, sessionops_1.moveOrders)(ids, movedId, dir);
+        const body = { 'channel': this.channel, 'orders': orders };
+        await this.http.post('/api/chats/reorder', body);
+        await this.loadSessions();
+    }
+    /**
+     * 在当前会话里搜索消息（`POST /api/search` legacy → `GET /api/search?q=`）。
+     * ⚠️ 服务端只检索**当前会话**的 tenant（不是全局搜索）。
+     */
+    async searchMessages(q) {
+        const body = { 'channel': this.channel, 'chat_id': this.currentChatId, 'q': q };
+        const res = await this.http.postAs('/api/search', body);
+        const arr = res['results'];
+        return arr !== undefined ? arr : [];
     }
     async deleteSession(chatId) {
         await this.http.post('/api/chats/' + encodeURIComponent(chatId) + '/delete', new ChannelBody(this.channel, chatId));

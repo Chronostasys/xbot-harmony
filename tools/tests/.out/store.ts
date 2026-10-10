@@ -17,7 +17,8 @@ import {
   shouldReloadHistory, liveIterationOf, upsertIteration, mergeTools,
 } from './streammerge';
 import { channelForChat } from './sessionpick';
-import { GoalInfo, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
+import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
+import { moveOrders } from './sessionops';
 import { LlmConfig } from './llmfmt';
 import {
   AskQuestion,
@@ -123,6 +124,46 @@ export class ChatStore {
     if (created.chat_id !== undefined && created.chat_id.length > 0) {
       await this.openSession(created.chat_id);
     }
+  }
+
+  /**
+   * 会话分支（`POST /api/chats/fork` body `{source_channel, source_chat_id, label?}`）。
+   * @returns 新会话 id（服务端 `{chat_id}`）
+   */
+  async forkSession(chatId: string, label: string): Promise<string> {
+    const body: Record<string, string> = {
+      'source_channel': this.channel,
+      'source_chat_id': chatId,
+      'label': label,
+    };
+    const res: ForkResult = await this.http.postAs<ForkResult>('/api/chats/fork', body);
+    const id: string | undefined = res.chat_id;
+    if (id === undefined || id.length === 0) {
+      throw new Error('服务端未返回新会话 id');
+    }
+    return id;
+  }
+
+  /**
+   * 会话排序（`POST /api/chats/reorder` body `{channel, orders}`）。
+   * `ids` 为当前**显示顺序**的会话 id 列表；内部算好全量序号再提交。
+   */
+  async reorderSessions(ids: string[], movedId: string, dir: string): Promise<void> {
+    const orders: Record<string, number> = moveOrders(ids, movedId, dir);
+    const body: Record<string, Object> = { 'channel': this.channel, 'orders': orders };
+    await this.http.post('/api/chats/reorder', body);
+    await this.loadSessions();
+  }
+
+  /**
+   * 在当前会话里搜索消息（`POST /api/search` legacy → `GET /api/search?q=`）。
+   * ⚠️ 服务端只检索**当前会话**的 tenant（不是全局搜索）。
+   */
+  async searchMessages(q: string): Promise<SearchHit[]> {
+    const body: Record<string, string> = { 'channel': this.channel, 'chat_id': this.currentChatId, 'q': q };
+    const res: Record<string, Object> = await this.http.postAs<Record<string, Object>>('/api/search', body);
+    const arr: Object | undefined = res['results'];
+    return arr !== undefined ? arr as SearchHit[] : [];
   }
 
   async deleteSession(chatId: string): Promise<void> {

@@ -8,6 +8,9 @@ import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
 import { ChatStore } from '../core/store';
 import {
+  canMove, MOVE_DOWN, MOVE_TOP, MOVE_UP, hitLine, sessionLabel, sessionMatches,
+} from '../core/sessionops';
+import {
   isInterruptSend, MODE_INTERRUPT, MODE_QUEUE, modeHint, modeLabel, sendToast, toggleMode,
 } from '../core/sendmode';
 import { mdCacheStats, MdCacheStats } from '../core/markdown';
@@ -41,6 +44,7 @@ import {
   HistoryIteration,
   PluginPanelInfo,
   QueueItem,
+  SearchHit,
   SessionItem,
   TodoItem,
   TokenUsage,
@@ -206,6 +210,18 @@ struct Index {
    * busy=false 时**必须自动复位**（Web gotcha：否则用户以为在发普通消息，实际插进了别人的回合）。
    */
   @State sendMode: string = MODE_QUEUE;
+
+  // ── P7 会话管理（搜索 / 排序 / 分支）──
+  /** 抽屉里的本地筛选词（只过滤显示，不打断会话） */
+  @State sessQuery: string = '';
+  /** 打开「⋯」操作菜单的会话 id（空=关闭） */
+  @State sessMenuId: string = '';
+  /** 删除二次确认的目标 id */
+  @State sessConfirmDelete: string = '';
+  /** 会话内消息搜索结果 */
+  @State searchHits: SearchHit[] = [];
+  @State searchBusy: boolean = false;
+  @State showSearchHits: boolean = false;
 
   // ── 长按菜单（P5 消息操作：消息 / 迭代 / 工具 / 链接）──
   @State ctxOpen: boolean = false;
@@ -1195,6 +1211,25 @@ struct Index {
       if (this.showModel) {
         this.ModelSheet()
       }
+      // 会话操作菜单（置顶/上移/下移/改名/分支/删除）
+      if (this.sessMenuId.length > 0) {
+        Column() {
+          Blank().layoutWeight(1).width('100%').onClick(() => {
+            this.sessMenuId = '';
+            this.sessConfirmDelete = '';
+          })
+          this.SessSheet()
+        }.width('100%').height('100%')
+      }
+      // 会话内搜索结果
+      if (this.showSearchHits) {
+        Column() {
+          Blank().layoutWeight(1).width('100%').onClick(() => {
+            this.showSearchHits = false;
+          })
+          this.SearchHitsSheet()
+        }.width('100%').height('100%')
+      }
       // 长按操作菜单（消息 / 迭代 / 工具 / 链接）——贴底弹出，点空白关闭
       if (this.ctxOpen) {
         Column() {
@@ -1518,6 +1553,124 @@ struct Index {
     .width('100%').height('100%')
   }
 
+  // ── P7：会话管理 ─────────────────────────────────────────────────────────
+
+  /** 抽屉里显示的会话（本地筛选：按名字/chat_id，大小写不敏感）。 */
+  private filteredSessions(): SessionItem[] {
+    const out: SessionItem[] = [];
+    for (let i = 0; i < this.sessions.length; i++) {
+      const s: SessionItem = this.sessions[i];
+      const label: string = s.label !== undefined ? s.label : '';
+      if (sessionMatches(label, s.chat_id, this.sessQuery)) {
+        out.push(s);
+      }
+    }
+    return out;
+  }
+
+  private sessionIds(): string[] {
+    const out: string[] = [];
+    for (let i = 0; i < this.sessions.length; i++) {
+      out.push(this.sessions[i].chat_id);
+    }
+    return out;
+  }
+
+  private currentMenuSession(): SessionItem | undefined {
+    for (let i = 0; i < this.sessions.length; i++) {
+      if (this.sessions[i].chat_id === this.sessMenuId) {
+        return this.sessions[i];
+      }
+    }
+    return undefined;
+  }
+
+  private menuLabel(): string {
+    const s: SessionItem | undefined = this.currentMenuSession();
+    return s === undefined ? '' : sessionLabel(s.label !== undefined ? s.label : '', s.chat_id);
+  }
+
+  /** 会话操作菜单项的可点状态（置顶/上移在顶部时置灰）。 */
+  private menuCanMove(dir: string): boolean {
+    return canMove(this.sessionIds(), this.sessMenuId, dir);
+  }
+
+  /** 执行会话操作（字符串码派发，@Builder 不能传闭包）。 */
+  private async runSessAction(code: string): Promise<void> {
+    const store: ChatStore | null = this.store;
+    const id: string = this.sessMenuId;
+    if (store === null || id.length === 0) {
+      return;
+    }
+    if (code === 'delete') {
+      // 二次确认：第一次点只切到"确认删除"态
+      if (this.sessConfirmDelete !== id) {
+        this.sessConfirmDelete = id;
+        return;
+      }
+      this.sessMenuId = '';
+      this.sessConfirmDelete = '';
+      try {
+        await store.deleteSession(id);
+        this.toast('会话已删除');
+      } catch (e) {
+        this.toast(`删除失败: ${errText(e as Object)}`);
+      }
+      return;
+    }
+    if (code === MOVE_TOP || code === MOVE_UP || code === MOVE_DOWN) {
+      this.sessMenuId = '';
+      try {
+        await store.reorderSessions(this.sessionIds(), id, code);
+      } catch (e) {
+        this.toast(`排序失败: ${errText(e as Object)}`);
+      }
+      return;
+    }
+    if (code === 'fork') {
+      this.sessMenuId = '';
+      const s: SessionItem | undefined = this.currentMenuSession();
+      const base: string = s !== undefined ? sessionLabel(s.label !== undefined ? s.label : '', s.chat_id) : id;
+      try {
+        const newId: string = await store.forkSession(id, `${base} 分支`);
+        await store.loadSessions();
+        this.toast(`已分支为 ${newId}`);
+        this.switchSession(newId);
+      } catch (e) {
+        this.toast(`分支失败: ${errText(e as Object)}`);
+      }
+      return;
+    }
+    if (code === 'rename') {
+      this.renamingId = id;
+      const s: SessionItem | undefined = this.currentMenuSession();
+      this.renameText = s !== undefined && s.label !== undefined ? s.label : '';
+      this.sessMenuId = '';
+    }
+  }
+
+  /** 在当前会话里搜索消息（服务端只检索当前会话 —— 不是全局搜索）。 */
+  private async runSearch(): Promise<void> {
+    const store: ChatStore | null = this.store;
+    const q: string = this.sessQuery.trim();
+    if (store === null || q.length === 0 || this.searchBusy) {
+      return;
+    }
+    this.searchBusy = true;
+    try {
+      const hits: SearchHit[] = await store.searchMessages(q);
+      this.searchHits = hits;
+      this.showSearchHits = true;
+      if (hits.length === 0) {
+        this.toast('当前会话里没有匹配的消息');
+      }
+    } catch (e) {
+      this.toast(`搜索失败: ${errText(e as Object)}`);
+    } finally {
+      this.searchBusy = false;
+    }
+  }
+
   /** 把「当前该显示的行」推给数据源（行窗口 + 真虚拟化两层叠加）。 */
   private syncRowDs(): void {
     this.rowDs.applyRows(tailRows(this.rows, this.rowLimit));
@@ -1743,6 +1896,65 @@ struct Index {
     return COPY_RAW;
   }
 
+  /** 会话操作菜单（贴底；删除需二次确认）。 */
+  @Builder
+  SessSheet() {
+    Column({ space: 0 }) {
+      Text(this.menuLabel())
+        .fontSize(12).fontColor('#9CA3AF')
+        .width('100%').padding({ left: 16, top: 12, bottom: 6 })
+        .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+      this.CtxItem(this.menuCanMove(MOVE_TOP) ? '置顶' : '置顶（已在顶部）', MOVE_TOP)
+      this.CtxItem(this.menuCanMove(MOVE_UP) ? '上移' : '上移（已在顶部）', MOVE_UP)
+      this.CtxItem(this.menuCanMove(MOVE_DOWN) ? '下移' : '下移（已在底部）', MOVE_DOWN)
+      this.CtxItem('重命名', 'rename')
+      this.CtxItem('分支（fork 出新会话）', 'fork')
+      this.CtxItem(this.sessConfirmDelete === this.sessMenuId ? '确认删除（再点一次）' : '删除', 'delete')
+      Divider().color('#1F2937').margin({ top: 4 })
+      this.CtxItem('取消', 'cancel')
+    }
+    .width('100%')
+    .backgroundColor('#0B0F19')
+    .borderRadius({ topLeft: 14, topRight: 14 })
+    .border({ width: 1, color: '#1F2937' })
+    .padding({ bottom: 10 })
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  /** 会话内消息搜索结果（点一条复制该片段；只覆盖当前会话）。 */
+  @Builder
+  SearchHitsSheet() {
+    Column({ space: 0 }) {
+      Text(`本会话命中 ${this.searchHits.length} 条（点一条复制片段）`)
+        .fontSize(12).fontColor('#9CA3AF')
+        .width('100%').padding({ left: 16, top: 12, bottom: 6 })
+      List({ space: 6 }) {
+        ForEach(this.searchHits, (h: SearchHit, i: number) => {
+          ListItem() {
+            Text(hitLine(h.role !== undefined ? h.role : '', h.snippet !== undefined ? h.snippet : '', 120))
+              .fontSize(13).fontColor('#E5E7EB')
+              .width('100%').padding(10)
+              .backgroundColor('#0F172A').borderRadius(6)
+              .maxLines(3).wordBreak(WordBreak.BREAK_ALL)
+              .onClick(() => {
+                this.copyText(h.snippet !== undefined ? h.snippet : '', '片段');
+                this.showSearchHits = false;
+              })
+          }
+        }, (h: SearchHit, i: number) => `hit-${h.id}#${i}`)
+      }
+      .constraintSize({ maxHeight: 420 }).width('100%')
+      Divider().color('#1F2937').margin({ top: 6 })
+      this.CtxItem('关闭', 'cancel-hits')
+    }
+    .width('100%')
+    .backgroundColor('#0B0F19')
+    .borderRadius({ topLeft: 14, topRight: 14 })
+    .border({ width: 1, color: '#1F2937' })
+    .padding({ bottom: 10 })
+    .alignItems(HorizontalAlign.Start)
+  }
+
   /** 菜单里的一项（点击走 `runCtxAction(code)`；@Builder 不能传闭包 ⇒ 用字符串码派发）。 */
   @Builder
   CtxItem(label: string, code: string) {
@@ -1750,6 +1962,15 @@ struct Index {
       .fontSize(14).fontColor('#E5E7EB')
       .width('100%').padding({ left: 16, right: 16, top: 11, bottom: 11 })
       .onClick(() => {
+        if (code === 'cancel-hits') {
+          this.showSearchHits = false;
+          return;
+        }
+        if (code === MOVE_TOP || code === MOVE_UP || code === MOVE_DOWN || code === 'rename'
+          || code === 'fork' || code === 'delete') {
+          this.runSessAction(code);
+          return;
+        }
         this.runCtxAction(code);
       })
   }
@@ -2108,8 +2329,27 @@ struct Index {
       }
       .width('100%').padding(8)
 
+      // 搜索：本地筛选（即时）+ 「搜索本会话消息」（服务端 /api/search）
+      Row({ space: 6 }) {
+        TextInput({ placeholder: '筛选会话…', text: this.sessQuery })
+          .onChange((v: string) => {
+            this.sessQuery = v;
+          })
+          .layoutWeight(1).constraintSize({ minHeight: 36 })
+          .backgroundColor('#111827').fontColor('#E5E7EB').fontSize(13)
+        if (this.searchBusy) {
+          LoadingProgress().width(16).height(16).color('#8B5CF6')
+        } else {
+          Text('搜消息').fontSize(12).fontColor('#93C5FD').padding(6)
+            .onClick(() => {
+              this.runSearch();
+            })
+        }
+      }
+      .width('100%').padding({ bottom: 6 })
+
       List() {
-        ForEach(this.sessions, (s: SessionItem) => {
+        ForEach(this.filteredSessions(), (s: SessionItem) => {
           ListItem() {
             Column({ space: 4 }) {
               if (this.renamingId === s.chat_id) {
@@ -2150,16 +2390,12 @@ struct Index {
                   }
                   .layoutWeight(1).alignItems(HorizontalAlign.Start)
 
-                  Text('改名').fontSize(12).fontColor('#93C5FD').padding(6).onClick(() => {
-                    this.renamingId = s.chat_id !== undefined ? s.chat_id : '';
-                    this.renameText = s.label !== undefined ? s.label : '';
-                  })
-                  Text('删除').fontSize(12).fontColor('#F87171').padding(6).onClick(() => {
-                    const store: ChatStore | null = this.store;
-                    if (store !== null && s.chat_id !== undefined) {
-                      store.deleteSession(s.chat_id);
-                    }
-                  })
+                  // 触屏铁律：多个行内操作折叠成「一个 ⋯ + 菜单」，绝不并排常显
+                  Text('⋯').fontSize(18).fontColor('#9CA3AF').padding({ left: 10, right: 6, top: 4, bottom: 4 })
+                    .onClick(() => {
+                      this.sessMenuId = s.chat_id;
+                      this.sessConfirmDelete = '';
+                    })
                 }.width('100%')
               }
             }
