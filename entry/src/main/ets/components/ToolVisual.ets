@@ -14,9 +14,12 @@
  * 布局用 `Flex(NoWrap)` + `flexShrink`（与 web `inline-flex` 同构）：名称可收缩、状态标记与
  * chip 不可收缩 ⇒ 「执行中」chip 永不被长参数挤掉。
  */
-import { effectsOf, paletteOf, Palette } from '../core/theme';
+import { effectsOf, paletteOf, Palette, isLightPalette } from '../core/theme';
 import { FS_CAPTION, R_LG, R_SM, SP_1, SP_2 } from '../core/tokens';
 import { ST_DONE, ST_ERROR, ST_KILLED, ST_PENDING } from '../core/toolstatus';
+
+/** 在飞 pill 的柔影半径（vp）—— 浅色系用它把"在飞"读作悬浮卡片而非发光体。 */
+const LIVE_SHADOW_RADIUS: number = 12;
 
 /** 状态 → 语义色（**一处定义，两端一致**）。 */
 export function statusColorOf(kind: string, theme: string): string {
@@ -30,6 +33,27 @@ export function statusColorOf(kind: string, theme: string): string {
 /** pill 文本色：失败=红（吵闹，是它的语义）；其余=中性前景（成功要安静）。 */
 export function pillTextColorOf(kind: string, theme: string): string {
   return kind === ST_ERROR ? paletteOf(theme).dangerText : paletteOf(theme).textPrimary;
+}
+
+/**
+ * 在飞 pill 的阴影色（**唯一的主题分叉点**）。
+ *
+ * 为什么不一律用 `eff().glow`：`glow` = accent@45% 的**彩色外发光** —— 在深色底上它是
+ * "在飞"的高级感来源；但在**白色主题**（`porcelain` / `light`）上，45% 饱和色晕压在白卡
+ * 边上会读成"脏"，正是用户要的"干净"的反面。
+ * `effectsOf` 的**浅色分支**已经备好中性柔影档（`elev1/2/3` = 正文色相 @6/10/16%），
+ * 这里直接复用（不在组件里自造色值 —— `core/theme.ets` 是本波禁改面）。
+ *
+ * ⚠️ 深色系（dark/aurora/nebula）走 `glow`，**逐字节不变**（其它线依赖其观感）。
+ * 判据用 `isLightPalette`（按 `appBg` 感知亮度，对新增色板/强调色覆盖都成立 —— 见其注释），
+ * 不用主题名硬判。
+ */
+function liveShadowColorOf(theme: string, live: boolean): string {
+  const p: Palette = paletteOf(theme);
+  if (!live) {
+    return p.transparent;
+  }
+  return isLightPalette(p) ? effectsOf(p).elev2 : effectsOf(p).glow;
 }
 
 @Component
@@ -108,8 +132,8 @@ export struct ToolPill {
     .borderRadius(R_LG)
     .clip(true)
     .shadow({
-      radius: this.live ? 12 : 0,
-      color: this.live ? effectsOf(paletteOf(this.theme)).glow : paletteOf(this.theme).transparent,
+      radius: this.live ? LIVE_SHADOW_RADIUS : 0,
+      color: liveShadowColorOf(this.theme, this.live),
       offsetX: 0, offsetY: 0,
     })
   }
