@@ -14,7 +14,7 @@ import { XbotHttp } from './http';
 import { SseClient } from './sse';
 import {
   applyStreamFrame, applyStructured, isStreamOnly, isIdleAction, isBusyAction,
-  shouldReloadHistory, liveIterationOf, upsertIteration, mergeTools, rowIsEmpty,
+  shouldReloadHistory, liveIterationOf, upsertIteration, mergeTools, rowIsEmpty, isStaleSeqEvent,
 } from './streammerge';
 import { channelForChat } from './sessionpick';
 import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
@@ -439,9 +439,12 @@ export class ChatStore {
     if (data.oldest_id !== undefined) {
       this.oldestId = data.oldest_id;
     }
-    if (data.last_seq !== undefined) {
-      this.lastSeq = data.last_seq;
-    }
+    // ⚠️ 绝不把 history 的 `last_seq` 写进 progress 水位（本次真机 P0 根因）：
+    // 它是 **SSE 回放游标**（全局计数，几百量级），而 ProgressEvent.Seq 是 **per-Run**
+    // 从 1 计数 —— 混用后新回合的全部事件被 `seq <= lastSeq` 整批丢弃
+    // （表现：SSE 事件完全不渲染、思考中消失后永远空白）。web 的 lastSeq 属于
+    // activeTurn、turn_started 重置、从不从 history 设置。SSE 回放游标由
+    // SseClient 的 lastEventId 单独负责。
   }
 
   /** 历史 → 渲染行（每 turn 取第一条 user + 最后一条 assistant）。 */
@@ -918,6 +921,8 @@ export class ChatStore {
     const action: string = ev.action !== undefined ? ev.action : '';
     if (isIdleAction(action)) {
       this.busy = false;
+      // 回合结束 ⇒ 水位重置（web：idle 置 null —— 下一个 Run 从 1 计数）
+      this.lastSeq = 0;
       this.onUpdate();
       // 每轮结束刷新一次权威状态（todos/用量会变）
       this.loadStatus().catch(() => {
@@ -930,6 +935,8 @@ export class ChatStore {
       });
     } else if (isBusyAction(action)) {
       this.busy = true;
+      // 回合开始 ⇒ 水位重置（新 Run 的 seq 从 1 计数）
+      this.lastSeq = 0;
       this.onUpdate();
     } else if (shouldReloadHistory(action)) {
       // 历史被回退 ⇒ 必须重载，否则界面停留在已被撤销的内容上
@@ -948,6 +955,8 @@ export class ChatStore {
         r.turnID = turnID;
         this.touch(r);
         this.busy = true;
+        // 新 turn ⇒ progress 水位重置（seq 是 per-Run 计数；web：turn_started 置 null）
+        this.lastSeq = 0;
         this.onUpdate();
         return;
       }
@@ -987,16 +996,39 @@ export class ChatStore {
    * - 结构化帧（`progress_structured`）：迭代按号 upsert，**缺字段时保留旧值**（绝不清空）。
    * - `seq` 是 per-Run 水位线，用于丢弃**纯重放**；流式帧没有 seq，故只在 `seq > 0` 时判定。
    */
+  /** 当前 live 行已持有的最大迭代号（无 live 行 = 0；**不创建**行）。 */
+  private liveMaxIter(): number {
+    for (let i = this.rows.length - 1; i >= 0; i--) {
+      const r: ChatRow = this.rows[i];
+      if (r.role === 'assistant' && r.isLive) {
+        let max: number = 0;
+        for (let j = 0; j < r.iterations.length; j++) {
+          if (r.iterations[j].iteration > max) {
+            max = r.iterations[j].iteration;
+          }
+        }
+        return max;
+      }
+    }
+    return 0;
+  }
+
   private applyProgress(p: ProgressEvent): void {
     const seq: number = p.seq !== undefined ? p.seq : 0;
-    if (seq > 0 && seq <= this.lastSeq) {
-      return;
-    }
-    if (seq > 0) {
-      this.lastSeq = seq;
+    const streamOnly: boolean = isStreamOnly(p);
+    // 流式帧：**无 seq 闸**（web 同款 —— 累积全量推送，重放无害：非空即整体替换）
+    if (!streamOnly) {
+      // 结构化帧：per-Run 水位 + "新迭代信息豁免"（isStaleSeq，web reduce.ts:423 逐字移植）。
+      // ⚠️ Run 重启后 seq 从 1 计数：只按 seq 丢会把新 Run 整批吞掉（本次真机 P0）。
+      if (seq > 0 && isStaleSeqEvent(this.lastSeq, seq, this.liveMaxIter(), p)) {
+        return;
+      }
+      if (seq > 0) {
+        this.lastSeq = seq;
+      }
     }
     const row: ChatRow = this.liveRow();
-    if (isStreamOnly(p)) {
+    if (streamOnly) {
       applyStreamFrame(liveIterationOf(row), p);
       this.touch(row);
       this.onUpdate();
@@ -1060,6 +1092,7 @@ export class ChatStore {
       this.rows.push(r);
     }
     this.busy = false;
+    this.lastSeq = 0;
     this.onUpdate();
   }
 }

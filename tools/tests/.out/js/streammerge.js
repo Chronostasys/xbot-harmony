@@ -9,6 +9,7 @@ exports.toolsFromEvent = toolsFromEvent;
 exports.applyStreamFrame = applyStreamFrame;
 exports.applyStructured = applyStructured;
 exports.displayContent = displayContent;
+exports.isStaleSeqEvent = isStaleSeqEvent;
 exports.rowIsEmpty = rowIsEmpty;
 exports.displayReasoning = displayReasoning;
 exports.isIdleAction = isIdleAction;
@@ -174,6 +175,36 @@ function displayContent(it) {
         return it.stream_text !== undefined ? it.stream_text : '';
     }
     return it.content !== undefined ? it.content : '';
+}
+/**
+ * seq 重放判据（逐字移植 web `chat/reduce.ts` 的 `isStaleSeq`）。
+ *
+ * ⚠️ 背景（真机 P0：SSE 事件完全不渲染）：`ProgressEvent.Seq` 是 **per-Run** 水位 ——
+ * 同一 turn 的 Run 重启后 **seq 从 1 重新计数**，而客户端保留的是旧 Run 的水位。
+ * 若只按 `seq <= lastSeq` 丢弃，新 Run 的全部事件会被整批吞掉（live 行永远建不起来）。
+ *
+ * 证据标准（与遮蔽解除同源）：**迭代号在 turn 域内单调，后端绝不对更早的迭代重发更大号**
+ * ⇒ 携带更大迭代号的事件不可能是"已应用过的重放"。
+ *
+ * 判据：`seq ≤ 水位` **且** 事件不携带任何新迭代信息（`p.iteration > maxKnownIter`，
+ * 或 `iteration_history` 中含 `> maxKnownIter` 的迭代）才算重放。
+ */
+function isStaleSeqEvent(lastSeq, seq, maxKnownIter, p) {
+    if (lastSeq <= 0 || seq <= 0 || seq > lastSeq) {
+        return false;
+    }
+    if (p.iteration !== undefined && p.iteration > maxKnownIter) {
+        return false;
+    }
+    const hist = p.iteration_history;
+    if (hist !== undefined) {
+        for (let i = 0; i < hist.length; i++) {
+            if (hist[i].iteration > maxKnownIter) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 /** 行是否"完全空"（无正文、无思考、无工具 ⇒ 渲染出来就是一张空气泡卡片）。 */
 function rowIsEmpty(row) {
