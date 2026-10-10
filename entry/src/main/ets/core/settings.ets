@@ -7,6 +7,7 @@
  * Web 的用户偏好就存在服务端，键形如 `xbot-*`（服务端名 `web:ui:*`）——
  * **原生端读写同一份 ⇒ 两端偏好天然一致**（项目要求「两边数据统一」）。
  */
+import { ModelEntryRow, SubscriptionRow } from './rpc';
 
 // 本地键名（与服务端名一一对应；与 web `userSettings.ts` 的映射表一致）
 export const KEY_MD_THEME: string = 'xbot-md-theme';
@@ -805,6 +806,191 @@ export function accountDisplayName(username: string | undefined): string {
   const s: string = username !== undefined && username !== null ? username.trim() : '';
   return s.length > 0 ? s : '当前登录账号';
 }
+
+// ── llm 分区：SubAgent 三档模型（tier）—— 走**既有** get_settings / set_setting ──
+//
+// 为什么这一块能"不新增 RPC 就落地"：web 的写路径就是 `set_setting`
+// （`web/src/hooks/useLLMSettings.ts:428` `setSetting(conn, 'cli', \`tier_${tier}\`, value)`），
+// 读路径是 `get_settings`（`:111`）—— 两者**已在 `core/rpc.ets` 的常量表里**（`getSettings`/`setSetting`）。
+//
+// web 依据（逐条核对）：
+//   · tier 区块 UI            `web/src/components/settings/SettingsLLM.tsx:307-327`
+//   · 选择弹窗                `web/src/components/settings/llm-console.tsx:353-398`（TierPickerModal）
+//   · 三档元数据（标签/图标/色）`SettingsLLM.tsx:48-52`（TIER_META: vanguard/balance/swift）
+//   · 写入                    `SettingsLLM.tsx:174-178` → `useLLMSettings.ts:424-441`
+//   · 读取                    `useLLMSettings.ts:118-120`（settings['tier_vanguard'] …）
+//   · 解析（`subID|model` / 裸模型名）`SettingsLLM.tsx:211-221`（tierCur）
+//   · 未设置文案              `settings.llmConsole.tierUnset`；「换档」= `changeTier`
+// 服务端契约（`channel/setting_keys.go:112-114`）：
+//   `tier_vanguard` / `tier_balance` / `tier_swift`，ScopeUser、DefaultValue `""`、
+//   ValidValues `"subID|model or plain model name"`；**非 Runtime**（Agent 在 SubAgent 调用时惰性读）。
+
+export const TIER_VANGUARD: string = 'vanguard';
+export const TIER_BALANCE: string = 'balance';
+export const TIER_SWIFT: string = 'swift';
+
+/** 三档（顺序 = 展示顺序，对齐 web `TIER_META` 的 Object.keys 序）。 */
+export const TIERS: string[] = [TIER_VANGUARD, TIER_BALANCE, TIER_SWIFT];
+
+/** `tier_<档>` → 服务端 user_settings 键（`setting_keys.go:112-114`）。 */
+export function tierKey(tier: string): string {
+  return `tier_${tier}`;
+}
+
+/** 档位中文名（web 走 i18n `tierVanguard/tierBalance/tierSwift`）。 */
+export function tierLabel(tier: string): string {
+  if (tier === TIER_VANGUARD) {
+    return '先锋';
+  }
+  if (tier === TIER_BALANCE) {
+    return '均衡';
+  }
+  if (tier === TIER_SWIFT) {
+    return '疾速';
+  }
+  return tier;
+}
+
+/** 档位用途说明（web `SettingsLLM.tsx:307-308` 的 tierSection + tierUnsetHint 语义）。 */
+export function tierHint(tier: string): string {
+  if (tier === TIER_VANGUARD) {
+    return '最强推理档，用于最难的子代理任务';
+  }
+  if (tier === TIER_BALANCE) {
+    return '通用档，子代理默认使用';
+  }
+  if (tier === TIER_SWIFT) {
+    return '最快档，用于简单/高频的子代理任务';
+  }
+  return '';
+}
+
+/** 未设置时的占位（web `settings.llmConsole.tierUnset`）。 */
+export const TIER_UNSET_TEXT: string = '未设置';
+
+/** 已解析的档位值。 */
+export class TierRef {
+  /** `subID|model` 形态里的 subID；裸模型名形态为空串。 */
+  subId: string = '';
+  model: string = '';
+  /** true = 值是**裸模型名**（没有 `|`）⇒ subId 需由 model 反查。 */
+  plainModel: boolean = false;
+  /** 原始值（回显/比较用）。 */
+  raw: string = '';
+}
+
+/**
+ * 解析档位值（逐字对齐 web `tierCur` 的 `indexOf('|')` 逻辑）。
+ * 空 ⇒ `undefined`（"未设置"）；`mid|m` ⇒ subId=`mid`, model=`m`；`m` ⇒ 裸模型名。
+ */
+export function parseTierValue(raw: string | undefined): TierRef | undefined {
+  const s: string = raw !== undefined && raw !== null ? raw.trim() : '';
+  if (s.length === 0) {
+    return undefined;
+  }
+  const ref: TierRef = new TierRef();
+  ref.raw = s;
+  const idx: number = s.indexOf('|');
+  if (idx < 0) {
+    ref.model = s;
+    ref.plainModel = true;
+    return ref;
+  }
+  ref.subId = s.substring(0, idx);
+  ref.model = s.substring(idx + 1);
+  ref.plainModel = false;
+  return ref;
+}
+
+/** 组装档位值（web `pickTier` → `subID + '|' + model`）。 */
+export function formatTierValue(subId: string, model: string): string {
+  return `${subId}|${model}`;
+}
+
+/** 一条可选模型：**直接用 `core/rpc.ets` 的 `ModelEntryRow`**（`list_all_model_entries` 的元素）。
+ *
+ * ⚠️ 为什么不在这里另起一个同形接口：ArkTS **禁结构化类型**（`arkts-no-structural-typing`）——
+ * 另起 `TierEntry` 后，组件里 `ModelEntryRow[]` 传进 `TierEntry[]` 参数会被判不兼容。
+ * （类型位置使用 ⇒ TS 会 elide 该 import，运行期**零**跨模块依赖。） */
+
+/** 档位当前显示文案（web `SettingsLLM.tsx:329`：`cur.model + ' · ' + cur.sub`；无 sub 只显示 model）。 */
+export function tierDisplayText(raw: string | undefined, entries: ModelEntryRow[], subs: SubscriptionRow[]): string {
+  const ref: TierRef | undefined = parseTierValue(raw);
+  if (ref === undefined) {
+    return '';
+  }
+  let subName: string = '';
+  if (ref.plainModel) {
+    // 裸模型名：拿 entries 里的 sub_name 反查（web `tierCur` 的 `idx < 0` 分支）
+    for (let i = 0; i < entries.length; i++) {
+      if (entries[i].model === ref.model) {
+        const n: string | undefined = entries[i].sub_name;
+        subName = n !== undefined && n !== null ? n : '';
+        break;
+      }
+    }
+  } else {
+    for (let i = 0; i < subs.length; i++) {
+      if (subs[i].id === ref.subId) {
+        subName = subs[i].name;
+        break;
+      }
+    }
+  }
+  return subName.length > 0 ? `${ref.model} · ${subName}` : ref.model;
+}
+
+/** `status === 'disabled'` 的模型不可选（web `llm-console.tsx:364`）。 */
+export function tierEntrySelectable(status: string | undefined): boolean {
+  return status !== 'disabled';
+}
+
+/**
+ * 档位选择列表（web `TierPickerModal` 的过滤：先剔除 `disabled`，再按
+ * `model + ' ' + sub_name` 大小写不敏感包含匹配，`llm-console.tsx:363-367`）。
+ */
+export function tierPickerEntries(entries: ModelEntryRow[], query: string): ModelEntryRow[] {
+  const q: string = query !== undefined && query !== null ? query.trim().toLowerCase() : '';
+  const out: ModelEntryRow[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const e: ModelEntryRow = entries[i];
+    if (!tierEntrySelectable(e.status)) {
+      continue;
+    }
+    if (q.length === 0) {
+      out.push(e);
+      continue;
+    }
+    const hay: string = `${e.model} ${e.sub_name !== undefined && e.sub_name !== null ? e.sub_name : ''}`.toLowerCase();
+    if (hay.indexOf(q) >= 0) {
+      out.push(e);
+    }
+  }
+  return out;
+}
+
+/** 该档位当前是否选中了某条 entry（web `llm-console.tsx:380` 的 `props.value === sub_id + '|' + model`）。 */
+export function isTierEntryCurrent(raw: string | undefined, entry: ModelEntryRow): boolean {
+  const ref: TierRef | undefined = parseTierValue(raw);
+  if (ref === undefined) {
+    return false;
+  }
+  const subId: string = entry.sub_id !== undefined && entry.sub_id !== null ? entry.sub_id : '';
+  return ref.raw === formatTierValue(subId, entry.model);
+}
+
+/** 从 `get_settings` 的 map 里取三档值（缺键 ⇒ 空串 = 未设置）。 */
+export function tierValues(settings: Record<string, string> | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (let i = 0; i < TIERS.length; i++) {
+    const k: string = tierKey(TIERS[i]);
+    // 注意：这里**不**调 `core/rpc.ets` 的 `settingValue` —— 保持本文件零跨模块依赖（纯逻辑）。
+    const v: string | undefined = settings !== undefined && settings !== null ? settings[k] : undefined;
+    out[TIERS[i]] = v !== undefined && v !== null ? v : '';
+  }
+  return out;
+}
+
 
 
 
