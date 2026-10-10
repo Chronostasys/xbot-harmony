@@ -899,7 +899,7 @@ struct CompactionDividerRow {
 
 /**
  * 「空 / 失败」提示行 —— **这一类异常只有一种语言：一行、克制、静态**。
- * 契约正文见 `docs/DESIGN-SYSTEM.md §9`。
+ * 契约正文见 `docs/DESIGN-SYSTEM.md §10`。
  *
  * 为什么必须有它（2026-10-11 真机空白屏）：`role=assistant len=0` 的回合此前被
  * `MessageRowView.build()` 的 `rowIsEmpty` 守卫**整块跳过** ⇒ 用户看到「自己发的气泡 +
