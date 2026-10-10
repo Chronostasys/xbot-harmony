@@ -1,4 +1,5 @@
 import { webview } from '@kit.ArkWeb';
+import { Palette, paletteOf } from '../core/theme';
 import { BusinessError } from '@kit.BasicServicesKit';
 
 /**
@@ -23,6 +24,13 @@ export struct WebSurface {
   // ⚠️ 必须是 @Prop + @Watch：面板从插件 A 切到插件 B 时组件实例不会重建，
   // 若 url 只是普通成员，ArkWeb 仍停留在旧页面（表现为"点了没反应/显示上一个页面"）。
   @Prop @Watch('onUrlChanged') url: string = '';
+  /** 主题（由上层透传；语义色板见 core/theme.ets） */
+  @Prop theme: string = 'dark';
+
+  /** 当前语义色板 */
+  private pal(): Palette {
+    return paletteOf(this.theme);
+  }
   /** 关闭回调（由页面清空 url 卸载本组件）。 */
   onClose: () => void = () => {
   };
@@ -43,16 +51,16 @@ export struct WebSurface {
   build() {
     Column() {
       Row() {
-        Text('‹ 返回').fontSize(15).fontColor('#93C5FD').padding(10).onClick(() => {
+        Text('‹ 返回').fontSize(15).fontColor(this.pal().accentSoft).padding(10).onClick(() => {
           this.onClose();
         })
         Text(this.title.length > 0 ? this.title : this.url)
           .fontSize(12)
-          .fontColor('#9CA3AF')
+          .fontColor(this.pal().textSecondary)
           .layoutWeight(1)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text('⟳').fontSize(16).fontColor('#93C5FD').padding(10).onClick(() => {
+        Text('⟳').fontSize(16).fontColor(this.pal().accentSoft).padding(10).onClick(() => {
           try {
             this.controller.refresh();
           } catch (e) {
@@ -63,7 +71,7 @@ export struct WebSurface {
       }
       .width('100%')
       .constraintSize({ minHeight: 48 })
-      .backgroundColor('#111827')
+      .backgroundColor(this.pal().surfaceAlt)
 
       Web({ src: this.url, controller: this.controller })
         .javaScriptAccess(true)
@@ -95,6 +103,6 @@ export struct WebSurface {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#0B0F19')
+    .backgroundColor(this.pal().appBg)
   }
 }

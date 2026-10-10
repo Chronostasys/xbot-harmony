@@ -1,5 +1,6 @@
 import { AuthImage } from './AuthImage';
 import { pasteboard } from '@kit.BasicServicesKit';
+import { Palette, paletteOf } from '../core/theme';
 import {
   MdBlock, MdBlockKind, MdSpan, parseInlineCached, parseMarkdownCached,
   TableField, tableRowFields, useTableGrid,
@@ -40,7 +41,8 @@ export function imagesIn(text: string): string[] {
 export class MdInlineStyle {
   text: string = '';
   size: number = 15;
-  color: string = '#E5E7EB';
+  /** 由调用方按当前色板赋值（类字段默认值不能依赖主题） */
+  color: string = '';
   bold: boolean = false;
   italic: boolean = false;
   strike: boolean = false;
@@ -49,21 +51,22 @@ export class MdInlineStyle {
   bg: string = '#00000000';
 }
 
-export function inlineStyles(text: string): MdInlineStyle[] {
+export function inlineStyles(text: string, pal: Palette): MdInlineStyle[] {
   const spans: MdSpan[] = parseInlineCached(text);
   const out: MdInlineStyle[] = [];
   for (let i = 0; i < spans.length; i++) {
     const sp: MdSpan = spans[i];
     const st: MdInlineStyle = new MdInlineStyle();
+    st.color = pal.textPrimary;
     if (sp.code) {
       st.text = ` ${sp.text} `;
       st.mono = true;
       st.size = 13;
-      st.color = '#FCA5A5';
-      st.bg = '#1F2937';
+      st.color = pal.dangerText;
+      st.bg = pal.surfaceHi;
     } else if (sp.link.length > 0) {
       st.text = sp.text;
-      st.color = '#60A5FA';
+      st.color = pal.accentSoft;
       st.underline = true;
     } else {
       st.text = sp.text;
@@ -83,6 +86,13 @@ export struct MarkdownView {
   @Prop wrapCode: boolean = true;
   /** 消息字号缩放（1 = 默认；由设置面板控制，范围 0.85–1.4 已在上游夹取） */
   @Prop fontScale: number = 1;
+  /** 主题（由页面透传；语义色板见 core/theme.ets） */
+  @Prop theme: string = 'dark';
+
+  /** 当前语义色板（深浅两套，换主题只换取值） */
+  private pal(): Palette {
+    return paletteOf(this.theme);
+  }
   /** 点击图片占位时的回调（参数是图片 src） */
   onImage: (src: string) => void = () => {
   };
@@ -112,7 +122,7 @@ export struct MarkdownView {
           Span(s.text)
             .fontWeight(FontWeight.Bold)
             .fontSize(this.sz(this.headingSize(b.level)))
-            .fontColor('#F3F4F6')
+            .fontColor(this.pal().textPrimary)
         }, (s: MdSpan, i: number) => `h-${b.key}-${i}-${s.text.length}`)
       }
       .width('100%')
@@ -121,7 +131,7 @@ export struct MarkdownView {
     } else if (b.kind === MdBlockKind.Code) {
       this.CodeBlock(b)
     } else if (b.kind === MdBlockKind.Divider) {
-      Divider().color('#374151').strokeWidth(1).margin({ top: 6, bottom: 6 })
+      Divider().color(this.pal().surfaceHi).strokeWidth(1).margin({ top: 6, bottom: 6 })
     } else if (b.kind === MdBlockKind.Quote) {
       // ⚠️ 左侧竖条必须用**边框**，绝不能用 `Divider().vertical(true).height('100%')`：
       // 父容器高度由内容决定时，子元素的百分比高度没有参照（循环测量）⇒ 竖条塌成 0 高、
@@ -133,16 +143,16 @@ export struct MarkdownView {
       .width('100%')
       .alignItems(HorizontalAlign.Start)
       .padding({ left: 11, right: 8, top: 8, bottom: 8 })
-      .backgroundColor('#0F172A')
+      .backgroundColor(this.pal().surface)
       .borderRadius(6)
-      .border({ width: { left: 3, top: 0, right: 0, bottom: 0 }, color: '#6B7280' })
+      .border({ width: { left: 3, top: 0, right: 0, bottom: 0 }, color: this.pal().textMuted })
     } else if (b.kind === MdBlockKind.List) {
       Column({ space: 3 }) {
         ForEach(b.items, (item: string, k: number) => {
           Row({ space: 6 }) {
             Text(b.ordered ? `${k + 1}.` : '•')
               .fontSize(14)
-              .fontColor('#9CA3AF')
+              .fontColor(this.pal().textSecondary)
               .margin({ top: 2 })
             this.Inline(item)
           }
@@ -165,6 +175,7 @@ export struct MarkdownView {
           load: this.loadImage,
           onOpen: this.onImage,
           maxHeight: this.imageMaxHeight,
+          theme: this.theme,
         })
       }, (src: string, k: number) => `${b.key}-img${k}`)
     }
@@ -174,7 +185,7 @@ export struct MarkdownView {
   @Builder
   Inline(text: string) {
     Text() {
-      ForEach(inlineStyles(text), (s: MdInlineStyle) => {
+      ForEach(inlineStyles(text, this.pal()), (s: MdInlineStyle) => {
         Span(s.text)
           .fontSize(this.sz(s.size))
           .fontColor(s.color)
@@ -207,11 +218,11 @@ export struct MarkdownView {
       Row() {
         Text(b.lang.length > 0 ? b.lang : 'code')
           .fontSize(11)
-          .fontColor('#9CA3AF')
+          .fontColor(this.pal().textSecondary)
           .layoutWeight(1)
         Text('复制')
           .fontSize(11)
-          .fontColor('#93C5FD')
+          .fontColor(this.pal().accentSoft)
           .onClick(() => {
             // 剪贴板：用 pasteboard（`getContext(this).getApplicationContext().getPasteboard()` 不是 ArkTS API）
             try {
@@ -230,7 +241,7 @@ export struct MarkdownView {
         .wordBreak(this.wrapCode ? WordBreak.BREAK_ALL : WordBreak.NORMAL)
         .fontFamily('monospace')
         .fontSize(13)
-        .fontColor('#E5E7EB')
+        .fontColor(this.pal().textPrimary)
         .width('100%')
         .padding(10)
         .textAlign(TextAlign.Start)
@@ -240,9 +251,9 @@ export struct MarkdownView {
         .textOverflow({ overflow: TextOverflow.Clip })
     }
     .width('100%')
-    .backgroundColor('#111827')
+    .backgroundColor(this.pal().surfaceAlt)
     .borderRadius(8)
-    .border({ width: 1, color: '#1F2937' })
+    .border({ width: 1, color: this.pal().border })
     .margin({ top: 4, bottom: 4 })
   }
 
@@ -265,13 +276,13 @@ export struct MarkdownView {
               .wordBreak(WordBreak.BREAK_ALL)
               .fontSize(13)
               .fontWeight(FontWeight.Bold)
-              .fontColor('#F3F4F6')
+              .fontColor(this.pal().textPrimary)
               .layoutWeight(1)
               .padding(6)
           }, (h: string, k: number) => `${b.key}-th${k}`)
         }
         .width('100%')
-        .backgroundColor('#1F2937')
+        .backgroundColor(this.pal().surfaceHi)
 
         ForEach(b.rows, (row: string[], ri: number) => {
           Row() {
@@ -279,18 +290,18 @@ export struct MarkdownView {
               Text(cell)
                 .wordBreak(WordBreak.BREAK_ALL)
                 .fontSize(13)
-                .fontColor('#E5E7EB')
+                .fontColor(this.pal().textPrimary)
                 .layoutWeight(1)
                 .padding(6)
             }, (cell: string, ci: number) => `${b.key}-td${ri}-${ci}`)
           }
           .width('100%')
-          .border({ width: { top: 1 }, color: '#1F2937' })
+          .border({ width: { top: 1 }, color: this.pal().border })
         }, (row: string[], ri: number) => `${b.key}-tr${ri}`)
       } else {
         Row() {
           Text(`📋 表格（${b.header.length} 列 · ${b.rows.length} 行）`)
-            .fontSize(11).fontColor('#9CA3AF')
+            .fontSize(11).fontColor(this.pal().textSecondary)
         }
         .width('100%')
         .padding({ left: 8, right: 8, top: 6, bottom: 4 })
@@ -300,11 +311,11 @@ export struct MarkdownView {
             ForEach(tableRowFields(b.header, row), (f: TableField, fi: number) => {
               Row({ space: 6 }) {
                 Text(f.label)
-                  .fontSize(12).fontColor('#9CA3AF')
+                  .fontSize(12).fontColor(this.pal().textSecondary)
                   .constraintSize({ minWidth: 84 })
                 Text(f.value)
                   .wordBreak(WordBreak.BREAK_ALL)
-                  .fontSize(13).fontColor('#E5E7EB')
+                  .fontSize(13).fontColor(this.pal().textPrimary)
                   .layoutWeight(1)
               }
               .width('100%')
@@ -314,12 +325,12 @@ export struct MarkdownView {
           .width('100%')
           .alignItems(HorizontalAlign.Start)
           .padding({ left: 8, right: 8, top: 6, bottom: 6 })
-          .border({ width: { top: ri === 0 ? 0 : 1 }, color: '#1F2937' })
+          .border({ width: { top: ri === 0 ? 0 : 1 }, color: this.pal().border })
         }, (row: string[], ri: number) => `${b.key}-sr${ri}`)
       }
     }
     .width('100%')
-    .border({ width: 1, color: '#1F2937' })
+    .border({ width: 1, color: this.pal().border })
     .borderRadius(8)
     .clip(true)
     .margin({ top: 4, bottom: 4 })

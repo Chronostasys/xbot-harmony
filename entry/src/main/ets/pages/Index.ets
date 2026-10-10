@@ -9,6 +9,7 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
 import { ChatStore } from '../core/store';
+import { normalizeTheme, Palette, paletteOf, themeLabel, toggleTheme } from '../core/theme';
 import {
   canMove, MOVE_DOWN, MOVE_TOP, MOVE_UP, hitLine, sessionLabel, sessionMatches,
 } from '../core/sessionops';
@@ -23,7 +24,7 @@ import {
   clampOffset, clampScale, isZoomed, nextZoom, panLimit, saveImageName, scaleText,
 } from '../core/imgops';
 import {
-  fontScaleFrom, fontScaleLabel, fontScalePresets, KEY_CODE_WRAP, KEY_FONT_SCALE,
+  fontScaleFrom, fontScaleLabel, fontScalePresets, KEY_APP_THEME, KEY_CODE_WRAP, KEY_FONT_SCALE,
   KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE, KEY_REASONING_DEFAULT, KEY_SEND_KEY, normalizeSendKey,
   parseBool, sendKeyLabel, settingOf, settingLabel, SEND_KEY_MOD_ENTER,
 } from '../core/settings';
@@ -300,6 +301,8 @@ struct Index {
   @State imageBusy: boolean = false;
 
   // ── P14 弱网与健壮性 ──
+  /** 应用主题（深/浅；与 Web 共用服务端偏好键 xbot-app-theme） */
+  @State themeName: string = 'dark';
   /** SSE 连接状态（来自 store：idle|connecting|open|reconnecting） */
   @State connState: string = 'idle';
   /** 上次发送失败的正文（提供一键重试） */
@@ -508,6 +511,10 @@ struct Index {
     this.runners = store.runners;
     this.subagents = store.subagents;
     this.settings = store.settings;
+    const t: string = settingOf(store.settings, KEY_APP_THEME);
+    if (t.length > 0) {
+      this.themeName = normalizeTheme(t);
+    }
     if (!this.reasoningDefaultApplied && Object.keys(store.settings).length > 0) {
       // 只在设置首次到达时套用默认展开状态（之后尊重用户的手动切换）
       this.showReasoning = parseBool(settingOf(store.settings, KEY_REASONING_DEFAULT), this.showReasoning);
@@ -1556,47 +1563,47 @@ struct Index {
       }
       // ArkWeb 逃生舱（插件 UI / GenUI / 终端 / 编辑器 / 完整 Web UI）
       if (this.panelUrl.length > 0) {
-        WebSurface({ url: this.panelUrl, onClose: () => {
+        WebSurface({ url: this.panelUrl, theme: this.themeName, onClose: () => {
           this.panelUrl = '';
         } })
       }
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#0B0F19')
+    .backgroundColor(this.pal().appBg)
     .id('xbot-root')
   }
 
   @Builder
   LoadingView() {
     Column() {
-      LoadingProgress().width(48).height(48).color('#8B5CF6')
-      Text('xbot').fontSize(18).fontColor('#E5E7EB').margin({ top: 12 })
+      LoadingProgress().width(48).height(48).color(this.pal().accent)
+      Text('xbot').fontSize(18).fontColor(this.pal().textPrimary).margin({ top: 12 })
     }.width('100%').height('100%').justifyContent(FlexAlign.Center)
   }
 
   @Builder
   LoginView() {
     Column({ space: 12 }) {
-      Text('xbot').fontSize(28).fontWeight(FontWeight.Bold).fontColor('#E5E7EB')
-      Text('连接你的 xbot 服务端（原生鸿蒙客户端）').fontSize(13).fontColor('#9CA3AF').margin({ bottom: 8 })
+      Text('xbot').fontSize(28).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary)
+      Text('连接你的 xbot 服务端（原生鸿蒙客户端）').fontSize(13).fontColor(this.pal().textSecondary).margin({ bottom: 8 })
 
       TextInput({ placeholder: '服务端地址，如 192.168.1.10:16000', text: this.serverUrl })
         .onChange((v: string) => {
           this.serverUrl = v;
           this.testMsg = '';
         })
-        .backgroundColor('#111827').fontColor('#E5E7EB').constraintSize({ minHeight: 44 })
+        .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary).constraintSize({ minHeight: 44 })
 
       // 最近用过的地址（一点即填，省得重打 IP）
       if (this.recentServers.length > 0) {
         Flex({ wrap: FlexWrap.Wrap }) {
           ForEach(this.recentServers, (u: string) => {
             Text(u)
-              .fontSize(11).fontColor('#93C5FD')
+              .fontSize(11).fontColor(this.pal().accentSoft)
               .padding({ left: 8, right: 8, top: 4, bottom: 4 })
               .margin(2)
-              .backgroundColor('#111827').borderRadius(6)
+              .backgroundColor(this.pal().surfaceAlt).borderRadius(6)
               .onClick(() => {
                 this.serverUrl = u;
                 this.testMsg = '';
@@ -1609,7 +1616,7 @@ struct Index {
       Row({ space: 8 }) {
         Button(this.testing ? '测试中…' : '测试连接')
           .layoutWeight(1).constraintSize({ minHeight: 38 })
-          .backgroundColor('#1F2937')
+          .backgroundColor(this.pal().surfaceHi)
           .onClick(() => {
             this.testConnection();
           })
@@ -1619,39 +1626,39 @@ struct Index {
       if (this.testMsg.length > 0) {
         Text(this.testMsg).fontSize(12)
           .wordBreak(WordBreak.BREAK_ALL)
-          .fontColor(this.testMsg.startsWith('✅') ? '#A7F3D0' : '#FBBF24')
+          .fontColor(this.testMsg.startsWith('✅') ? this.pal().successText : this.pal().warn)
           .width('100%')
       }
       TextInput({ placeholder: '用户名', text: this.username })
         .onChange((v: string) => {
           this.username = v;
         })
-        .backgroundColor('#111827').fontColor('#E5E7EB').constraintSize({ minHeight: 44 })
+        .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary).constraintSize({ minHeight: 44 })
       TextInput({ placeholder: '密码' })
         .type(InputType.Password)
         .onChange((v: string) => {
           this.password = v;
         })
-        .backgroundColor('#111827').fontColor('#E5E7EB').constraintSize({ minHeight: 44 })
+        .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary).constraintSize({ minHeight: 44 })
 
       if (this.errMsg.length > 0) {
-        Text(this.errMsg).fontSize(12).fontColor('#F87171').width('100%')
+        Text(this.errMsg).fontSize(12).fontColor(this.pal().dangerText).width('100%')
           .wordBreak(WordBreak.BREAK_ALL)
       }
 
       Button('登录').width('100%').constraintSize({ minHeight: 44 })
-        .backgroundColor('#7C3AED').fontColor('#FFFFFF')
+        .backgroundColor(this.pal().accent).fontColor(this.pal().onAccent)
         .onClick(() => {
           this.doLogin();
         })
       Button('注册（仅服务端允许时）').width('100%').constraintSize({ minHeight: 40 })
-        .backgroundColor('#1F2937')
+        .backgroundColor(this.pal().surfaceHi)
         .onClick(() => {
           this.doRegister();
         })
       // 无需登录/无需网络：直接打开渲染自检页（截图发我即可定位构件级问题）
       Text('渲染自检（排查渲染问题用）')
-        .fontSize(12).fontColor('#93C5FD').margin({ top: 8 })
+        .fontSize(12).fontColor(this.pal().accentSoft).margin({ top: 8 })
         .onClick(() => {
           this.showSelfCheck = true;
         })
@@ -1665,49 +1672,49 @@ struct Index {
     Column() {
       // 顶栏
       Row() {
-        Text('☰').fontSize(20).fontColor('#E5E7EB').padding(10).onClick(() => {
+        Text('☰').fontSize(20).fontColor(this.pal().textPrimary).padding(10).onClick(() => {
           this.showDrawer = true;
         })
         Column() {
           Text(this.currentChat.length > 0 ? this.labelOf(this.currentChat) : 'xbot')
-            .fontSize(15).fontColor('#E5E7EB').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+            .fontSize(15).fontColor(this.pal().textPrimary).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
           Text(this.busy ? '运行中…' : '空闲')
-            .fontSize(11).fontColor(this.busy ? '#FBBF24' : '#6B7280')
+            .fontSize(11).fontColor(this.busy ? this.pal().warn : this.pal().textMuted)
         }
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
 
         if (this.queue.length > 0) {
           Text(`队列 ${this.queue.length}`)
-            .fontSize(12).fontColor('#FBBF24').padding(8)
+            .fontSize(12).fontColor(this.pal().warn).padding(8)
             .onClick(() => {
               this.showQueue = true;
             })
         }
-        Text('⊞').fontSize(20).fontColor('#E5E7EB').padding(10).onClick(() => {
+        Text('⊞').fontSize(20).fontColor(this.pal().textPrimary).padding(10).onClick(() => {
           this.openPlugins();
         })
-        Text('⚙').fontSize(20).fontColor('#E5E7EB').padding(10).onClick(() => {
+        Text('⚙').fontSize(20).fontColor(this.pal().textPrimary).padding(10).onClick(() => {
           this.showSettings = true;
         })
       }
-      .width('100%').constraintSize({ minHeight: 56 }).padding({ left: 4, right: 4 }).backgroundColor('#111827')
+      .width('100%').constraintSize({ minHeight: 56 }).padding({ left: 4, right: 4 }).backgroundColor(this.pal().surfaceAlt)
       .id('xbot-header')
 
       // 加载失败且列表为空 ⇒ 明确提示 + 重试（网络/代理故障时界面必须自解释）
       if (this.rows.length === 0 && this.loadErr.length > 0) {
         Column({ space: 8 }) {
-          Text('加载会话失败').fontSize(14).fontColor('#FCA5A5')
-          Text(this.loadErr).fontSize(12).fontColor('#9CA3AF')
+          Text('加载会话失败').fontSize(14).fontColor(this.pal().dangerText)
+          Text(this.loadErr).fontSize(12).fontColor(this.pal().textSecondary)
             .maxLines(4).textOverflow({ overflow: TextOverflow.Ellipsis })
           Text('常见原因：手机到服务端网络不通（代理/防火墙），或服务端地址填错')
-            .fontSize(11).fontColor('#6B7280').maxLines(3)
-          Button('重试').constraintSize({ minHeight: 38 }).backgroundColor('#7C3AED').onClick(() => {
+            .fontSize(11).fontColor(this.pal().textMuted).maxLines(3)
+          Button('重试').constraintSize({ minHeight: 38 }).backgroundColor(this.pal().accent).onClick(() => {
             this.retryLoad();
           })
         }
         .width('100%').padding(16).alignItems(HorizontalAlign.Start)
-        .backgroundColor('#111827').borderRadius(10).margin({ left: 12, right: 12, top: 12 })
+        .backgroundColor(this.pal().surfaceAlt).borderRadius(10).margin({ left: 12, right: 12, top: 12 })
       }
 
       // 消息列表
@@ -1716,10 +1723,10 @@ struct Index {
           ListItem() {
             Row() {
               if (this.loadingMore) {
-                LoadingProgress().width(16).height(16).color('#8B5CF6')
-                Text('加载更早消息…').fontSize(12).fontColor('#9CA3AF').margin({ left: 6 })
+                LoadingProgress().width(16).height(16).color(this.pal().accent)
+                Text('加载更早消息…').fontSize(12).fontColor(this.pal().textSecondary).margin({ left: 6 })
               } else {
-                Text('↑ 加载更早消息').fontSize(12).fontColor('#93C5FD').onClick(() => {
+                Text('↑ 加载更早消息').fontSize(12).fontColor(this.pal().accentSoft).onClick(() => {
                   this.loadMore();
                 })
               }
@@ -1735,7 +1742,7 @@ struct Index {
           ListItem() {
             Row() {
               Text(`↑ 显示更早的 ${hiddenRowCount(this.rows.length, this.rowLimit)} 条`)
-                .fontSize(12).fontColor('#93C5FD')
+                .fontSize(12).fontColor(this.pal().accentSoft)
             }
             .width('100%').justifyContent(FlexAlign.Center).padding(10)
             .onClick(() => {
@@ -1753,8 +1760,8 @@ struct Index {
         if (this.busy) {
           ListItem() {
             Row({ space: 8 }) {
-              LoadingProgress().width(16).height(16).color('#8B5CF6')
-              Text('思考中…').fontSize(13).fontColor('#9CA3AF')
+              LoadingProgress().width(16).height(16).color(this.pal().accent)
+              Text('思考中…').fontSize(13).fontColor(this.pal().textSecondary)
                 .opacity(this.pulseOn ? 1 : 0.45)
                 .animation({ duration: 600, curve: Curve.EaseInOut })
             }.padding({ left: 14, top: 8, bottom: 8 })
@@ -1774,9 +1781,9 @@ struct Index {
       // 不在底部时给一个「回到最新」（列表很长时不用一路滑）
       if (!this.atBottom && this.rows.length > 0) {
         Row() {
-          Text('↓ 回到最新').fontSize(12).fontColor('#E5E7EB')
+          Text('↓ 回到最新').fontSize(12).fontColor(this.pal().textPrimary)
             .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-            .backgroundColor('#4C1D95')
+            .backgroundColor(this.pal().accentDeep)
             .borderRadius(16)
             .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
             .onClick(() => {
@@ -1792,10 +1799,10 @@ struct Index {
       if (this.statusBarText().length > 0) {
         Row({ space: 10 }) {
           Text(this.statusBarText())
-            .fontSize(11).fontColor('#9CA3AF').layoutWeight(1)
+            .fontSize(11).fontColor(this.pal().textSecondary).layoutWeight(1)
             .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
           if (this.todoCount() > 0 || this.goalLine().length > 0) {
-            Text('详情').fontSize(11).fontColor('#93C5FD').padding({ left: 6, right: 6 })
+            Text('详情').fontSize(11).fontColor(this.pal().accentSoft).padding({ left: 6, right: 6 })
           }
         }
         .width('100%').padding({ left: 10, right: 10, top: 4, bottom: 2 })
@@ -1807,20 +1814,20 @@ struct Index {
       // 弱网：连接断开时明确告知（并说明恢复后会自动补齐，避免用户重复发）
       if (this.connState === 'reconnecting' || this.connState === 'connecting') {
         Row({ space: 6 }) {
-          LoadingProgress().width(14).height(14).color('#FBBF24')
+          LoadingProgress().width(14).height(14).color(this.pal().warn)
           Text('连接断开，正在重连…（恢复后自动补齐消息）')
-            .fontSize(11).fontColor('#FCD34D').layoutWeight(1)
+            .fontSize(11).fontColor(this.pal().warn).layoutWeight(1)
             .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         }
         .width('100%').padding({ left: 12, right: 12, top: 6, bottom: 6 })
-        .backgroundColor('#1C1917')
+        .backgroundColor(this.pal().warnBg)
       }
 
       // 上次发送失败 ⇒ 一键重试（不必重新打字）
       if (this.failedSend.length > 0) {
         Row({ space: 8 }) {
-          Text('上次发送失败').fontSize(12).fontColor('#FCA5A5').layoutWeight(1)
-          Text('重试').fontSize(12).fontColor('#FCD34D').padding(6)
+          Text('上次发送失败').fontSize(12).fontColor(this.pal().dangerText).layoutWeight(1)
+          Text('重试').fontSize(12).fontColor(this.pal().warn).padding(6)
             .stateStyles({ pressed: { .opacity(0.7) }, normal: { .opacity(1) } })
             .onClick(() => {
               const t: string = this.failedSend;
@@ -1828,7 +1835,7 @@ struct Index {
               this.draft = t;
               this.sendDraft();
             })
-          Text('丢弃').fontSize(12).fontColor('#9CA3AF').padding(6)
+          Text('丢弃').fontSize(12).fontColor(this.pal().textSecondary).padding(6)
             .onClick(() => {
               this.failedSend = '';
             })
@@ -1842,13 +1849,13 @@ struct Index {
           if (this.cmdItems.length > 0) {
             ForEach(this.cmdItems.slice(0, 6), (c: CommandItem) => {
               Row({ space: 8 }) {
-                Text(c.name).fontSize(13).fontColor('#C4B5FD').constraintSize({ maxWidth: 150 })
+                Text(c.name).fontSize(13).fontColor(this.pal().accentText).constraintSize({ maxWidth: 150 })
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                Text(c.desc).fontSize(11).fontColor('#6B7280').layoutWeight(1)
+                Text(c.desc).fontSize(11).fontColor(this.pal().textMuted).layoutWeight(1)
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
               }
               .width('100%').padding({ left: 10, right: 10, top: 7, bottom: 7 })
-              .backgroundColor('#0F172A').borderRadius(6)
+              .backgroundColor(this.pal().surface).borderRadius(6)
               .onClick(() => {
                 this.pickCommand(c.name);
               })
@@ -1858,14 +1865,14 @@ struct Index {
             ForEach(this.fsEntries.slice(0, 8), (e: FsEntry) => {
               Row({ space: 8 }) {
                 Text(e.isDir ? '📁' : '📄').fontSize(12)
-                Text(e.name).fontSize(13).fontColor('#E5E7EB').layoutWeight(1)
+                Text(e.name).fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                Text(this.fsDir).fontSize(10).fontColor('#4B5563')
+                Text(this.fsDir).fontSize(10).fontColor(this.pal().textMuted)
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                   .constraintSize({ maxWidth: 120 })
               }
               .width('100%').padding({ left: 10, right: 10, top: 7, bottom: 7 })
-              .backgroundColor('#0F172A').borderRadius(6)
+              .backgroundColor(this.pal().surface).borderRadius(6)
               .onClick(() => {
                 this.pickFile(e);
               })
@@ -1873,8 +1880,8 @@ struct Index {
           }
         }
         .width('100%').padding({ left: 8, right: 8, bottom: 4 })
-        .backgroundColor('#0B0F19').borderRadius(8)
-        .border({ width: 1, color: '#1F2937' })
+        .backgroundColor(this.pal().appBg).borderRadius(8)
+        .border({ width: 1, color: this.pal().border })
       }
 
       // 会话标签（池里的会话，切回瞬时；● 表示该会话正在跑）
@@ -1884,19 +1891,19 @@ struct Index {
             ForEach(this.poolOrder, (cid: string) => {
               Row({ space: 4 }) {
                 Text(this.tabLabel(cid)).fontSize(11)
-                  .fontColor(cid === this.currentChat ? '#FFFFFF' : '#9CA3AF')
+                  .fontColor(cid === this.currentChat ? this.pal().onAccent : this.pal().textSecondary)
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                   .constraintSize({ maxWidth: 90 })
                 if (this.tabRunning(cid)) {
-                  Text('●').fontSize(9).fontColor('#34D399')
+                  Text('●').fontSize(9).fontColor(this.pal().successText)
                 }
-                Text('✕').fontSize(10).fontColor('#6B7280')
+                Text('✕').fontSize(10).fontColor(this.pal().textMuted)
                   .onClick(() => {
                     this.closeTab(cid);
                   })
               }
               .padding({ left: 8, right: 6, top: 4, bottom: 4 })
-              .backgroundColor(cid === this.currentChat ? '#4C1D95' : '#111827')
+              .backgroundColor(cid === this.currentChat ? this.pal().accentDeep : this.pal().surfaceAlt)
               .borderRadius(6)
               .onClick(() => {
                 if (cid !== this.currentChat) {
@@ -1917,11 +1924,11 @@ struct Index {
             Row({ space: 6 }) {
               Text(attachChipText(it))
                 .fontSize(12)
-                .fontColor(it.status === ATTACH_FAILED ? '#FCA5A5' : '#93C5FD')
+                .fontColor(it.status === ATTACH_FAILED ? this.pal().dangerText : this.pal().accentSoft)
                 .layoutWeight(1).maxLines(1).wordBreak(WordBreak.BREAK_ALL)
               Text(it.status === ATTACH_FAILED ? '重试' : '✕')
                 .fontSize(12)
-                .fontColor(it.status === ATTACH_FAILED ? '#FCD34D' : '#F87171')
+                .fontColor(it.status === ATTACH_FAILED ? this.pal().warn : this.pal().dangerText)
                 .padding(6)
                 .onClick(() => {
                   if (it.status === ATTACH_FAILED) {
@@ -1938,11 +1945,11 @@ struct Index {
 
       // 输入区
       Row({ space: 8 }) {
-        Text('📎').fontSize(20).fontColor('#93C5FD').padding(6)
+        Text('📎').fontSize(20).fontColor(this.pal().accentSoft).padding(6)
           .onClick(() => {
             this.pickFiles();
           })
-        Text('🖼').fontSize(20).fontColor('#93C5FD').padding(6)
+        Text('🖼').fontSize(20).fontColor(this.pal().accentSoft).padding(6)
           .onClick(() => {
             this.pickImages();
           })
@@ -1959,7 +1966,7 @@ struct Index {
             this.pasteImage();
           })
           .layoutWeight(1).constraintSize({ minHeight: 42, maxHeight: 150 })
-          .backgroundColor('#111827').fontColor('#E5E7EB')
+          .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary)
           .onSubmit(() => {
             // 只有"Enter 发送"模式才在这里发送；换行模式下 Enter 就是换行
             if (enterSends(this.sendKeyMode())) {
@@ -1970,11 +1977,11 @@ struct Index {
           // ⚡ 插话 / 排队 切换（只在忙碌时出现；点击切换并提示语义）
           Text(modeLabel(this.sendMode))
             .fontSize(12)
-            .fontColor(this.sendMode === MODE_INTERRUPT ? '#FDE68A' : '#9CA3AF')
+            .fontColor(this.sendMode === MODE_INTERRUPT ? this.pal().warn : this.pal().textSecondary)
             .padding({ left: 8, right: 8, top: 8, bottom: 8 })
-            .backgroundColor('#111827')
+            .backgroundColor(this.pal().surfaceAlt)
             .borderRadius(6)
-            .border({ width: 1, color: this.sendMode === MODE_INTERRUPT ? '#92400E' : '#1F2937' })
+            .border({ width: 1, color: this.sendMode === MODE_INTERRUPT ? this.pal().warn : this.pal().border })
             .onClick(() => {
               this.sendMode = toggleMode(this.sendMode);
               this.toast(modeHint(this.sendMode));
@@ -1982,7 +1989,7 @@ struct Index {
         }
         Button(this.busy ? '停止' : '发送')
           .constraintSize({ minHeight: 42 })
-          .backgroundColor(this.busy ? '#7F1D1D' : '#7C3AED')
+          .backgroundColor(this.busy ? this.pal().dangerBg : this.pal().accent)
           // 按压反馈（只改 opacity/scale —— 触屏上不会引发布局抖动）
           .stateStyles({ pressed: { .opacity(0.7) }, normal: { .opacity(1) } })
           .onClick(() => {
@@ -1993,7 +2000,7 @@ struct Index {
             }
           })
       }
-      .width('100%').padding(8).backgroundColor('#0F172A')
+      .width('100%').padding(8).backgroundColor(this.pal().surface)
       .id('xbot-composer')
     }
     .width('100%').height('100%')
@@ -2093,6 +2100,11 @@ struct Index {
       this.renameText = s !== undefined && s.label !== undefined ? s.label : '';
       this.sessMenuId = '';
     }
+  }
+
+  /** 当前语义色板（**全页面唯一取色入口**；theme.ets 之外不再有颜色字面量）。 */
+  private pal(): Palette {
+    return paletteOf(this.themeName);
   }
 
   // ── P11：输入体验 ────────────────────────────────────────────────────────
@@ -2599,22 +2611,36 @@ struct Index {
   PrefsSheet() {
     Column({ space: 10 }) {
       Row() {
-        Text('设置').fontSize(16).fontWeight(FontWeight.Bold).fontColor('#E5E7EB').layoutWeight(1)
-        Text('✕').fontSize(16).fontColor('#9CA3AF').padding(8).onClick(() => {
+        Text('设置').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
+        Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
           this.showSettings = false;
         })
       }.width('100%')
 
+      // 主题（深/浅）
+      Row({ space: 8 }) {
+        Text(settingLabel(KEY_APP_THEME)).fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
+        Text(themeLabel(this.themeName))
+          .fontSize(12).fontColor(this.pal().onAccent)
+          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+          .backgroundColor(this.pal().accent).borderRadius(8)
+          .onClick(() => {
+            this.themeName = toggleTheme(this.themeName);
+            this.setSetting(KEY_APP_THEME, this.themeName);
+            this.buzz();
+          })
+      }.width('100%')
+
       // 字号
       Text(`${settingLabel(KEY_FONT_SCALE)}：${fontScaleLabel(this.fontScale())}`)
-        .fontSize(12).fontColor('#9CA3AF').width('100%')
+        .fontSize(12).fontColor(this.pal().textSecondary).width('100%')
       Row({ space: 6 }) {
         ForEach(fontScalePresets(), (n: number) => {
           Text(fontScaleLabel(n))
             .fontSize(12)
-            .fontColor(Math.abs(this.fontScale() - n) < 0.01 ? '#FFFFFF' : '#9CA3AF')
+            .fontColor(Math.abs(this.fontScale() - n) < 0.01 ? this.pal().onAccent : this.pal().textSecondary)
             .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-            .backgroundColor(Math.abs(this.fontScale() - n) < 0.01 ? '#7C3AED' : '#0F172A')
+            .backgroundColor(Math.abs(this.fontScale() - n) < 0.01 ? this.pal().accent : this.pal().surface)
             .borderRadius(8)
             .onClick(() => {
               this.setSetting(KEY_FONT_SCALE, `${n}`);
@@ -2624,10 +2650,10 @@ struct Index {
 
       // 代码换行
       Row({ space: 8 }) {
-        Text(settingLabel(KEY_CODE_WRAP)).fontSize(13).fontColor('#E5E7EB').layoutWeight(1)
+        Text(settingLabel(KEY_CODE_WRAP)).fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
         Text(this.wrapCode() ? '开' : '关')
-          .fontSize(12).fontColor('#FFFFFF').padding({ left: 12, right: 12, top: 6, bottom: 6 })
-          .backgroundColor(this.wrapCode() ? '#059669' : '#374151').borderRadius(8)
+          .fontSize(12).fontColor(this.pal().onAccent).padding({ left: 12, right: 12, top: 6, bottom: 6 })
+          .backgroundColor(this.wrapCode() ? this.pal().success : this.pal().borderStrong).borderRadius(8)
           .onClick(() => {
             this.setSetting(KEY_CODE_WRAP, this.wrapCode() ? '0' : '1');
           })
@@ -2635,10 +2661,10 @@ struct Index {
 
       // 思考默认展开
       Row({ space: 8 }) {
-        Text(settingLabel(KEY_REASONING_DEFAULT)).fontSize(13).fontColor('#E5E7EB').layoutWeight(1)
+        Text(settingLabel(KEY_REASONING_DEFAULT)).fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
         Text(this.reasoningDefault() ? '开' : '关')
-          .fontSize(12).fontColor('#FFFFFF').padding({ left: 12, right: 12, top: 6, bottom: 6 })
-          .backgroundColor(this.reasoningDefault() ? '#059669' : '#374151').borderRadius(8)
+          .fontSize(12).fontColor(this.pal().onAccent).padding({ left: 12, right: 12, top: 6, bottom: 6 })
+          .backgroundColor(this.reasoningDefault() ? this.pal().success : this.pal().borderStrong).borderRadius(8)
           .onClick(() => {
             this.setSetting(KEY_REASONING_DEFAULT, this.reasoningDefault() ? '0' : '1');
           })
@@ -2646,40 +2672,40 @@ struct Index {
 
       // 发送快捷键
       Row({ space: 8 }) {
-        Text(settingLabel(KEY_SEND_KEY)).fontSize(13).fontColor('#E5E7EB').layoutWeight(1)
+        Text(settingLabel(KEY_SEND_KEY)).fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
         Text(sendKeyLabel(this.sendKeyMode()))
-          .fontSize(12).fontColor('#FFFFFF').padding({ left: 12, right: 12, top: 6, bottom: 6 })
-          .backgroundColor('#374151').borderRadius(8)
+          .fontSize(12).fontColor(this.pal().onAccent).padding({ left: 12, right: 12, top: 6, bottom: 6 })
+          .backgroundColor(this.pal().surfaceHi).borderRadius(8)
           .onClick(() => {
             const next: string = this.sendKeyMode() === SEND_KEY_MOD_ENTER ? 'enter' : SEND_KEY_MOD_ENTER;
             this.setSetting(KEY_SEND_KEY, next);
           })
       }.width('100%')
 
-      Divider().color('#1F2937')
+      Divider().color(this.pal().surfaceHi)
 
       // 与 web 共享的只读项（原生端暂不改这些）
       ForEach(this.readonlySettings(), (k: string) => {
         Row({ space: 8 }) {
-          Text(settingLabel(k)).fontSize(12).fontColor('#9CA3AF').layoutWeight(1)
+          Text(settingLabel(k)).fontSize(12).fontColor(this.pal().textSecondary).layoutWeight(1)
           Text(settingOf(this.settings, k).length > 0 ? settingOf(this.settings, k) : '（未设置）')
-            .fontSize(12).fontColor('#6B7280')
+            .fontSize(12).fontColor(this.pal().textMuted)
             .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         }.width('100%')
       }, (k: string) => `ro-${k}`)
       Text('浅色主题需要色板重构（已单列为 P9b），当前仅深色。')
-        .fontSize(11).fontColor('#6B7280').width('100%')
+        .fontSize(11).fontColor(this.pal().textMuted).width('100%')
 
       Row({ space: 8 }) {
-        Text('刷新').fontSize(12).fontColor('#93C5FD').padding(8).onClick(() => {
+        Text('刷新').fontSize(12).fontColor(this.pal().accentSoft).padding(8).onClick(() => {
           this.openPrefs();
         })
       }.width('100%')
     }
     .width('100%').padding(16)
-    .backgroundColor('#0B0F19')
+    .backgroundColor(this.pal().appBg)
     .borderRadius({ topLeft: 14, topRight: 14 })
-    .border({ width: 1, color: '#1F2937' })
+    .border({ width: 1, color: this.pal().border })
     .alignItems(HorizontalAlign.Start)
   }
 
@@ -2688,14 +2714,14 @@ struct Index {
   PanelsSheet() {
     Column({ space: 8 }) {
       Row() {
-        Text('面板').fontSize(16).fontWeight(FontWeight.Bold).fontColor('#E5E7EB').layoutWeight(1)
+        Text('面板').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
         if (this.panelBusy) {
-          LoadingProgress().width(16).height(16).color('#8B5CF6')
+          LoadingProgress().width(16).height(16).color(this.pal().accent)
         }
-        Text('刷新').fontSize(12).fontColor('#93C5FD').padding(8).onClick(() => {
+        Text('刷新').fontSize(12).fontColor(this.pal().accentSoft).padding(8).onClick(() => {
           this.refreshPanel();
         })
-        Text('✕').fontSize(16).fontColor('#9CA3AF').padding(8).onClick(() => {
+        Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
           this.showPanels = false;
         })
       }.width('100%')
@@ -2704,9 +2730,9 @@ struct Index {
         ForEach(this.panelTabs(), (tab: string) => {
           Text(this.panelTabLabel(tab))
             .fontSize(12)
-            .fontColor(this.panelTab === tab ? '#FFFFFF' : '#9CA3AF')
+            .fontColor(this.panelTab === tab ? this.pal().onAccent : this.pal().textSecondary)
             .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-            .backgroundColor(this.panelTab === tab ? '#7C3AED' : '#0F172A')
+            .backgroundColor(this.panelTab === tab ? this.pal().accent : this.pal().surface)
             .borderRadius(8)
             .onClick(() => {
               this.switchPanelTab(tab);
@@ -2716,31 +2742,31 @@ struct Index {
 
       if (this.panelTab === 'cron') {
         if (this.cronTasks.length === 0) {
-          Text('（本会话暂无定时任务）').fontSize(12).fontColor('#6B7280').width('100%')
+          Text('（本会话暂无定时任务）').fontSize(12).fontColor(this.pal().textMuted).width('100%')
         } else {
           List({ space: 6 }) {
             ForEach(this.cronTasks, (job: CronJob, i: number) => {
               ListItem() {
                 Row({ space: 6 }) {
-                  Text(cronLine(job)).fontSize(12).fontColor('#E5E7EB').layoutWeight(1)
+                  Text(cronLine(job)).fontSize(12).fontColor(this.pal().textPrimary).layoutWeight(1)
                     .maxLines(2).wordBreak(WordBreak.BREAK_ALL)
-                  Text('✕').fontSize(12).fontColor('#F87171').padding(6).onClick(() => {
+                  Text('✕').fontSize(12).fontColor(this.pal().dangerText).padding(6).onClick(() => {
                     this.removeCron(job.id !== undefined ? job.id : '');
                   })
-                }.width('100%').padding(8).backgroundColor('#0F172A').borderRadius(6)
+                }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(6)
               }
             }, (job: CronJob, i: number) => `cron-${job.id}#${i}`)
           }.constraintSize({ maxHeight: 420 }).width('100%')
         }
       } else if (this.panelTab === 'tasks') {
         if (this.bgTasks.length === 0) {
-          Text('（本会话暂无后台任务）').fontSize(12).fontColor('#6B7280').width('100%')
+          Text('（本会话暂无后台任务）').fontSize(12).fontColor(this.pal().textMuted).width('100%')
         } else {
           List({ space: 6 }) {
             ForEach(this.bgTasks, (t: BgTask, i: number) => {
               ListItem() {
-                Text(bgTaskLine(t, this.nowMs())).fontSize(12).fontColor('#E5E7EB')
-                  .width('100%').padding(8).backgroundColor('#0F172A').borderRadius(6)
+                Text(bgTaskLine(t, this.nowMs())).fontSize(12).fontColor(this.pal().textPrimary)
+                  .width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(6)
                   .maxLines(3).wordBreak(WordBreak.BREAK_ALL)
                   .copyOption(CopyOptions.LocalDevice)
               }
@@ -2749,14 +2775,14 @@ struct Index {
         }
       } else if (this.panelTab === 'subs') {
         if (this.subagents.length === 0) {
-          Text('（暂无子代理会话）').fontSize(12).fontColor('#6B7280').width('100%')
+          Text('（暂无子代理会话）').fontSize(12).fontColor(this.pal().textMuted).width('100%')
         } else {
           List({ space: 6 }) {
             ForEach(this.subagents, (a: SubAgentRow, i: number) => {
               ListItem() {
                 Text(subagentLine(a)).fontSize(12)
-                  .fontColor(a.running === true ? '#A7F3D0' : '#9CA3AF')
-                  .width('100%').padding(8).backgroundColor('#0F172A').borderRadius(6)
+                  .fontColor(a.running === true ? this.pal().successText : this.pal().textSecondary)
+                  .width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(6)
                   .maxLines(2).wordBreak(WordBreak.BREAK_ALL)
                   .onClick(() => {
                     this.showPanels = false;
@@ -2770,14 +2796,14 @@ struct Index {
         }
       } else {
         if (this.runners.length === 0) {
-          Text('（没有受管机器；Runner 由 xbot.ssh-runner 插件纳管）').fontSize(12).fontColor('#6B7280').width('100%')
+          Text('（没有受管机器；Runner 由 xbot.ssh-runner 插件纳管）').fontSize(12).fontColor(this.pal().textMuted).width('100%')
         } else {
           List({ space: 6 }) {
             ForEach(this.runners, (r: RunnerRow, i: number) => {
               ListItem() {
                 Text(runnerLine(r)).fontSize(12)
-                  .fontColor(r.online === true ? '#A7F3D0' : '#9CA3AF')
-                  .width('100%').padding(8).backgroundColor('#0F172A').borderRadius(6)
+                  .fontColor(r.online === true ? this.pal().successText : this.pal().textSecondary)
+                  .width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(6)
                   .maxLines(2).wordBreak(WordBreak.BREAK_ALL)
               }
             }, (r: RunnerRow, i: number) => `run-${r.name}#${r.online}#${i}`)
@@ -2786,9 +2812,9 @@ struct Index {
       }
     }
     .width('100%').padding(16)
-    .backgroundColor('#0B0F19')
+    .backgroundColor(this.pal().appBg)
     .borderRadius({ topLeft: 14, topRight: 14 })
-    .border({ width: 1, color: '#1F2937' })
+    .border({ width: 1, color: this.pal().border })
     .alignItems(HorizontalAlign.Start)
   }
 
@@ -2797,7 +2823,7 @@ struct Index {
   SessSheet() {
     Column({ space: 0 }) {
       Text(this.menuLabel())
-        .fontSize(12).fontColor('#9CA3AF')
+        .fontSize(12).fontColor(this.pal().textSecondary)
         .width('100%').padding({ left: 16, top: 12, bottom: 6 })
         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
       this.CtxItem(this.menuCanMove(MOVE_TOP) ? '置顶' : '置顶（已在顶部）', MOVE_TOP)
@@ -2806,13 +2832,13 @@ struct Index {
       this.CtxItem('重命名', 'rename')
       this.CtxItem('分支（fork 出新会话）', 'fork')
       this.CtxItem(this.sessConfirmDelete === this.sessMenuId ? '确认删除（再点一次）' : '删除', 'delete')
-      Divider().color('#1F2937').margin({ top: 4 })
+      Divider().color(this.pal().surfaceHi).margin({ top: 4 })
       this.CtxItem('取消', 'cancel')
     }
     .width('100%')
-    .backgroundColor('#0B0F19')
+    .backgroundColor(this.pal().appBg)
     .borderRadius({ topLeft: 14, topRight: 14 })
-    .border({ width: 1, color: '#1F2937' })
+    .border({ width: 1, color: this.pal().border })
     .padding({ bottom: 10 })
     .alignItems(HorizontalAlign.Start)
   }
@@ -2822,15 +2848,15 @@ struct Index {
   SearchHitsSheet() {
     Column({ space: 0 }) {
       Text(`本会话命中 ${this.searchHits.length} 条（点一条复制片段）`)
-        .fontSize(12).fontColor('#9CA3AF')
+        .fontSize(12).fontColor(this.pal().textSecondary)
         .width('100%').padding({ left: 16, top: 12, bottom: 6 })
       List({ space: 6 }) {
         ForEach(this.searchHits, (h: SearchHit, i: number) => {
           ListItem() {
             Text(hitLine(h.role !== undefined ? h.role : '', h.snippet !== undefined ? h.snippet : '', 120))
-              .fontSize(13).fontColor('#E5E7EB')
+              .fontSize(13).fontColor(this.pal().textPrimary)
               .width('100%').padding(10)
-              .backgroundColor('#0F172A').borderRadius(6)
+              .backgroundColor(this.pal().surface).borderRadius(6)
               .maxLines(3).wordBreak(WordBreak.BREAK_ALL)
               .onClick(() => {
                 this.copyText(h.snippet !== undefined ? h.snippet : '', '片段');
@@ -2840,13 +2866,13 @@ struct Index {
         }, (h: SearchHit, i: number) => `hit-${h.id}#${i}`)
       }
       .constraintSize({ maxHeight: 420 }).width('100%')
-      Divider().color('#1F2937').margin({ top: 6 })
+      Divider().color(this.pal().surfaceHi).margin({ top: 6 })
       this.CtxItem('关闭', 'cancel-hits')
     }
     .width('100%')
-    .backgroundColor('#0B0F19')
+    .backgroundColor(this.pal().appBg)
     .borderRadius({ topLeft: 14, topRight: 14 })
-    .border({ width: 1, color: '#1F2937' })
+    .border({ width: 1, color: this.pal().border })
     .padding({ bottom: 10 })
     .alignItems(HorizontalAlign.Start)
   }
@@ -2855,9 +2881,9 @@ struct Index {
   @Builder
   CtxItem(label: string, code: string) {
     Text(label)
-      .fontSize(14).fontColor('#E5E7EB')
+      .fontSize(14).fontColor(this.pal().textPrimary)
       .width('100%').padding({ left: 16, right: 16, top: 11, bottom: 11 })
-      .stateStyles({ pressed: { .backgroundColor('#111827') }, normal: { .backgroundColor('#0B0F19') } })
+      .stateStyles({ pressed: { .backgroundColor(this.pal().surfaceAlt) }, normal: { .backgroundColor(this.pal().appBg) } })
       .onClick(() => {
         if (code === 'cancel-hits') {
           this.showSearchHits = false;
@@ -2877,7 +2903,7 @@ struct Index {
   ContextSheet() {
     Column({ space: 0 }) {
       Text(this.ctxKind === 'tool' ? '工具操作' : (this.ctxKind === 'iter' ? '迭代操作' : '消息操作'))
-        .fontSize(12).fontColor('#9CA3AF')
+        .fontSize(12).fontColor(this.pal().textSecondary)
         .width('100%').padding({ left: 16, top: 12, bottom: 6 })
 
       if (this.ctxKind === 'user') {
@@ -2905,13 +2931,13 @@ struct Index {
         }, (l: string, i: number) => `ctx-link-${i}`)
       }
 
-      Divider().color('#1F2937').margin({ top: 4 })
+      Divider().color(this.pal().surfaceHi).margin({ top: 4 })
       this.CtxItem('取消', 'cancel')
     }
     .width('100%')
-    .backgroundColor('#0B0F19')
+    .backgroundColor(this.pal().appBg)
     .borderRadius({ topLeft: 14, topRight: 14 })
-    .border({ width: 1, color: '#1F2937' })
+    .border({ width: 1, color: this.pal().border })
     .padding({ bottom: 10 })
     .alignItems(HorizontalAlign.Start)
   }
@@ -2932,9 +2958,9 @@ struct Index {
       Blank()
       Text(row.content)
         .wordBreak(WordBreak.BREAK_ALL)
-        .fontSize(15).fontColor('#F9FAFB').padding(12)
+        .fontSize(15).fontColor(this.pal().textPrimary).padding(12)
         .constraintSize({ maxWidth: '78%' })
-        .backgroundColor('#6D28D9').borderRadius(12)
+        .backgroundColor(this.pal().bubbleUser).borderRadius(12)
         .copyOption(CopyOptions.LocalDevice)
     }
     .width('100%').padding({ top: 6, bottom: 6 })
@@ -2957,13 +2983,14 @@ struct Index {
           },
           fontScale: this.fontScale(),
           wrapCode: this.wrapCode(),
+          theme: this.themeName,
         })
       }
       // 服务端折叠视图：更早的展示区域需按需取回（与 Web 端「⌃ 更早的 N 个区域」同源）
       if (row.regionsBefore > 0) {
         Row({ space: 6 }) {
-          Text(`⌃ 更早的 ${row.regionsBefore} 个区域`).fontSize(11).fontColor('#FBBF24')
-          Text('（点击加载）').fontSize(11).fontColor('#6B7280')
+          Text(`⌃ 更早的 ${row.regionsBefore} 个区域`).fontSize(11).fontColor(this.pal().warn)
+          Text('（点击加载）').fontSize(11).fontColor(this.pal().textMuted)
         }
         .width('100%')
         .padding({ top: 4, bottom: 4 })
@@ -2974,8 +3001,8 @@ struct Index {
       if (this.hiddenIterCount(row) > 0) {
         Row({ space: 6 }) {
           Text(`↑ 已折叠更早的 ${this.hiddenIterCount(row)} 个迭代`)
-            .fontSize(11).fontColor('#93C5FD')
-          Text('（点击展开全部）').fontSize(11).fontColor('#6B7280')
+            .fontSize(11).fontColor(this.pal().accentSoft)
+          Text('（点击展开全部）').fontSize(11).fontColor(this.pal().textMuted)
         }
         .width('100%')
         .padding({ top: 4, bottom: 4 })
@@ -2999,10 +3026,10 @@ struct Index {
   IterationBlock(row: ChatRow, it: HistoryIteration) {
     Column({ space: 6 }) {
       Row() {
-        Text(`迭代 ${it.iteration}`).fontSize(11).fontColor('#6B7280').layoutWeight(1)
+        Text(`迭代 ${it.iteration}`).fontSize(11).fontColor(this.pal().textMuted).layoutWeight(1)
         if (displayReasoning(it).length > 0 && this.showReasoning) {
           Text(this.openReasonKey === `${row.id}-${it.iteration}` ? '收起思考' : '展开思考')
-            .fontSize(11).fontColor('#93C5FD')
+            .fontSize(11).fontColor(this.pal().accentSoft)
             .onClick(() => {
               const key: string = `${row.id}-${it.iteration}`;
               this.openReasonKey = this.openReasonKey === key ? '' : key;
@@ -3018,8 +3045,8 @@ struct Index {
         && this.openReasonKey === `${row.id}-${it.iteration}`) {
         Text(displayReasoning(it))
           .wordBreak(WordBreak.BREAK_ALL)
-          .fontSize(13).fontColor('#9CA3AF').padding(8).width('100%')
-          .backgroundColor('#0F172A').borderRadius(8)
+          .fontSize(13).fontColor(this.pal().textSecondary).padding(8).width('100%')
+          .backgroundColor(this.pal().surface).borderRadius(8)
           .copyOption(CopyOptions.LocalDevice)
       }
 
@@ -3034,6 +3061,7 @@ struct Index {
           },
           fontScale: this.fontScale(),
           wrapCode: this.wrapCode(),
+          theme: this.themeName,
         })
       }
 
@@ -3072,9 +3100,9 @@ struct Index {
     }
     .padding({ left: 8, right: 8, top: 5, bottom: 5 })
     .margin(3)
-    .backgroundColor('#111827')
+    .backgroundColor(this.pal().surfaceAlt)
     .borderRadius(6)
-    .border({ width: 1, color: this.openToolKey === this.toolKey(row.turnID, it.iteration, t.name) ? '#7C3AED' : '#1F2937' })
+    .border({ width: 1, color: this.openToolKey === this.toolKey(row.turnID, it.iteration, t.name) ? this.pal().accent : this.pal().border })
     .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
     .onClick(() => {
       this.toggleTool(row, it, t);
@@ -3088,35 +3116,35 @@ struct Index {
   ToolDetail(t: ToolProgress) {
     Column({ space: 4 }) {
       if (t.summary !== undefined && t.summary.length > 0) {
-        Text(t.summary).fontSize(12).fontColor('#D1D5DB').width('100%')
+        Text(t.summary).fontSize(12).fontColor(this.pal().textSecondary).width('100%')
           .wordBreak(WordBreak.BREAK_ALL)
       }
       if (t.args !== undefined && t.args.length > 0) {
-        Text('参数').fontSize(10).fontColor('#6B7280')
+        Text('参数').fontSize(10).fontColor(this.pal().textMuted)
         Text(t.args)
           .wordBreak(WordBreak.BREAK_ALL)
-          .fontSize(12).fontColor('#E5E7EB').fontFamily('monospace')
-          .width('100%').padding(6).backgroundColor('#111827').borderRadius(6)
+          .fontSize(12).fontColor(this.pal().textPrimary).fontFamily('monospace')
+          .width('100%').padding(6).backgroundColor(this.pal().surfaceAlt).borderRadius(6)
           .copyOption(CopyOptions.LocalDevice)
       }
       if (t.detail !== undefined && t.detail.length > 0) {
-        Text('输出').fontSize(10).fontColor('#6B7280')
+        Text('输出').fontSize(10).fontColor(this.pal().textMuted)
         Text(t.detail)
           .wordBreak(WordBreak.BREAK_ALL)
-          .fontSize(12).fontColor('#E5E7EB').fontFamily('monospace')
-          .width('100%').padding(6).backgroundColor('#111827').borderRadius(6)
+          .fontSize(12).fontColor(this.pal().textPrimary).fontFamily('monospace')
+          .width('100%').padding(6).backgroundColor(this.pal().surfaceAlt).borderRadius(6)
           .copyOption(CopyOptions.LocalDevice)
       }
       if ((t.summary === undefined || t.summary.length === 0)
         && (t.args === undefined || t.args.length === 0)
         && (t.detail === undefined || t.detail.length === 0)) {
-        Text('（详情加载中或该工具无详情）').fontSize(11).fontColor('#6B7280')
+        Text('（详情加载中或该工具无详情）').fontSize(11).fontColor(this.pal().textMuted)
       }
       if (t.elapsed_ms !== undefined) {
-        Text(`耗时 ${t.elapsed_ms} ms`).fontSize(10).fontColor('#6B7280')
+        Text(`耗时 ${t.elapsed_ms} ms`).fontSize(10).fontColor(this.pal().textMuted)
       }
     }
-    .width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
+    .width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
     .alignItems(HorizontalAlign.Start)
   }
 
@@ -3206,12 +3234,12 @@ struct Index {
 
   private toolColor(t: ToolProgress): string {
     if (t.status === 'running') {
-      return '#FBBF24';
+      return this.pal().warn;
     }
     if (t.status === 'error' || (t.exit_code !== undefined && t.exit_code !== 0)) {
-      return '#F87171';
+      return this.pal().dangerText;
     }
-    return '#A7F3D0';
+    return this.pal().successText;
   }
 
   // ── 弹层：会话抽屉 ────────────────────────────────────────────────────────
@@ -3220,11 +3248,11 @@ struct Index {
   DrawerSheet() {
     Column() {
       Row() {
-        Text('会话').fontSize(17).fontWeight(FontWeight.Bold).fontColor('#E5E7EB').layoutWeight(1)
-        Text('＋ 新建').fontSize(13).fontColor('#93C5FD').padding(8).onClick(() => {
+        Text('会话').fontSize(17).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
+        Text('＋ 新建').fontSize(13).fontColor(this.pal().accentSoft).padding(8).onClick(() => {
           this.newSession();
         })
-        Text('✕').fontSize(16).fontColor('#9CA3AF').padding(8).onClick(() => {
+        Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
           this.showDrawer = false;
           this.renamingId = '';
         })
@@ -3238,11 +3266,11 @@ struct Index {
             this.sessQuery = v;
           })
           .layoutWeight(1).constraintSize({ minHeight: 36 })
-          .backgroundColor('#111827').fontColor('#E5E7EB').fontSize(13)
+          .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary).fontSize(13)
         if (this.searchBusy) {
-          LoadingProgress().width(16).height(16).color('#8B5CF6')
+          LoadingProgress().width(16).height(16).color(this.pal().accent)
         } else {
-          Text('搜消息').fontSize(12).fontColor('#93C5FD').padding(6)
+          Text('搜消息').fontSize(12).fontColor(this.pal().accentSoft).padding(6)
             .onClick(() => {
               this.runSearch();
             })
@@ -3260,15 +3288,15 @@ struct Index {
                     .onChange((v: string) => {
                       this.renameText = v;
                     })
-                    .layoutWeight(1).constraintSize({ minHeight: 36 }).backgroundColor('#111827').fontColor('#E5E7EB')
-                  Text('保存').fontSize(13).fontColor('#93C5FD').padding(6).onClick(() => {
+                    .layoutWeight(1).constraintSize({ minHeight: 36 }).backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary)
+                  Text('保存').fontSize(13).fontColor(this.pal().accentSoft).padding(6).onClick(() => {
                     const store: ChatStore | null = this.store;
                     if (store !== null && s.chat_id !== undefined) {
                       store.renameSession(s.chat_id, this.renameText);
                     }
                     this.renamingId = '';
                   })
-                  Text('取消').fontSize(13).fontColor('#9CA3AF').padding(6).onClick(() => {
+                  Text('取消').fontSize(13).fontColor(this.pal().textSecondary).padding(6).onClick(() => {
                     this.renamingId = '';
                   })
                 }.width('100%')
@@ -3277,15 +3305,15 @@ struct Index {
                   Column() {
                     Text(s.label !== undefined && s.label.length > 0 ? s.label : s.chat_id)
                       .fontSize(14)
-                      .fontColor(s.chat_id === this.currentChat ? '#C4B5FD' : '#E5E7EB')
+                      .fontColor(s.chat_id === this.currentChat ? this.pal().accentText : this.pal().textPrimary)
                       .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                     Row({ space: 6 }) {
                       Text(channelLabel(s.channel !== undefined ? s.channel : 'web'))
-                        .fontSize(9).fontColor('#C4B5FD')
+                        .fontSize(9).fontColor(this.pal().accentText)
                         .padding({ left: 4, right: 4, top: 1, bottom: 1 })
-                        .backgroundColor('#1F2937').borderRadius(4)
+                        .backgroundColor(this.pal().surfaceHi).borderRadius(4)
                       Text(s.chat_id)
-                        .fontSize(10).fontColor('#6B7280')
+                        .fontSize(10).fontColor(this.pal().textMuted)
                         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                         .layoutWeight(1)
                     }.width('100%')
@@ -3293,7 +3321,7 @@ struct Index {
                   .layoutWeight(1).alignItems(HorizontalAlign.Start)
 
                   // 触屏铁律：多个行内操作折叠成「一个 ⋯ + 菜单」，绝不并排常显
-                  Text('⋯').fontSize(18).fontColor('#9CA3AF').padding({ left: 10, right: 6, top: 4, bottom: 4 })
+                  Text('⋯').fontSize(18).fontColor(this.pal().textSecondary).padding({ left: 10, right: 6, top: 4, bottom: 4 })
                     .onClick(() => {
                       this.sessMenuId = s.chat_id;
                       this.sessConfirmDelete = '';
@@ -3302,7 +3330,7 @@ struct Index {
               }
             }
             .width('100%').padding(10)
-            .backgroundColor(s.chat_id === this.currentChat ? '#1F2937' : '#0F172A')
+            .backgroundColor(s.chat_id === this.currentChat ? this.pal().surfaceHi : this.pal().surface)
             .borderRadius(8)
             .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
             .onClick(() => {
@@ -3316,21 +3344,21 @@ struct Index {
       .layoutWeight(1).width('100%')
 
       Button('设置（字号 / 换行 / 思考）').width('100%').constraintSize({ minHeight: 40 })
-        .backgroundColor('#1F2937').margin({ top: 8 }).onClick(() => {
+        .backgroundColor(this.pal().surfaceHi).margin({ top: 8 }).onClick(() => {
           this.openPrefs();
         })
       Button('面板（任务 / 子代理 / Runner）').width('100%').constraintSize({ minHeight: 40 })
-        .backgroundColor('#1F2937').margin({ top: 8 }).onClick(() => {
+        .backgroundColor(this.pal().surfaceHi).margin({ top: 8 }).onClick(() => {
           this.openPanels();
         })
-      Button('退出登录').width('100%').constraintSize({ minHeight: 40 }).backgroundColor('#1F2937').margin({ top: 8 }).onClick(() => {
+      Button('退出登录').width('100%').constraintSize({ minHeight: 40 }).backgroundColor(this.pal().surfaceHi).margin({ top: 8 }).onClick(() => {
         this.doLogout();
       })
     }
     .width('82%').height('100%')
     .padding(12)
-    .backgroundColor('#0B0F19')
-    .border({ width: { right: 1 }, color: '#1F2937' })
+    .backgroundColor(this.pal().appBg)
+    .border({ width: { right: 1 }, color: this.pal().border })
     .position({ x: 0, y: 0 })
   }
 
@@ -3340,28 +3368,28 @@ struct Index {
   SettingsSheet() {
     Column({ space: 10 }) {
       Row() {
-        Text('设置').fontSize(17).fontWeight(FontWeight.Bold).fontColor('#E5E7EB').layoutWeight(1)
-        Text('✕').fontSize(16).fontColor('#9CA3AF').padding(8).onClick(() => {
+        Text('设置').fontSize(17).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
+        Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
           this.showSettings = false;
         })
       }.width('100%')
 
-      Text('服务端').fontSize(12).fontColor('#9CA3AF').width('100%')
+      Text('服务端').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
       TextInput({ text: this.serverUrl })
         .onChange((v: string) => {
           this.serverUrl = v;
         })
-        .constraintSize({ minHeight: 42 }).backgroundColor('#111827').fontColor('#E5E7EB')
+        .constraintSize({ minHeight: 42 }).backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary)
 
-      Text('用户名').fontSize(12).fontColor('#9CA3AF').width('100%')
+      Text('用户名').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
       TextInput({ text: this.username })
         .onChange((v: string) => {
           this.username = v;
         })
-        .constraintSize({ minHeight: 42 }).backgroundColor('#111827').fontColor('#E5E7EB')
+        .constraintSize({ minHeight: 42 }).backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary)
 
       Row() {
-        Text('显示思考过程').fontSize(14).fontColor('#E5E7EB').layoutWeight(1)
+        Text('显示思考过程').fontSize(14).fontColor(this.pal().textPrimary).layoutWeight(1)
         Toggle({ type: ToggleType.Switch, isOn: this.showReasoning })
           .onChange((on: boolean) => {
             this.showReasoning = on;
@@ -3369,14 +3397,14 @@ struct Index {
       }.width('100%')
 
       Row() {
-        Text('当前会话 ID').fontSize(12).fontColor('#9CA3AF').layoutWeight(1)
+        Text('当前会话 ID').fontSize(12).fontColor(this.pal().textSecondary).layoutWeight(1)
         Text(this.currentChat.length > 0 ? this.currentChat : '-')
-          .fontSize(11).fontColor('#6B7280').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          .fontSize(11).fontColor(this.pal().textMuted).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
           .constraintSize({ maxWidth: 180 })
       }.width('100%')
 
       Button('保存服务端/用户名').width('100%').constraintSize({ minHeight: 40 })
-        .backgroundColor('#7C3AED').fontColor('#FFFFFF')
+        .backgroundColor(this.pal().accent).fontColor(this.pal().onAccent)
         .onClick(async () => {
         const store: ChatStore | null = this.store;
         this.takeServerUrl();
@@ -3385,35 +3413,35 @@ struct Index {
         this.toast('已保存（换服务端请退出重登）');
       })
       Button(this.auditing ? '走查中…' : '① 走查并上传所有页面截图（推荐）').width('100%').constraintSize({ minHeight: 44 })
-        .backgroundColor('#7C3AED')
+        .backgroundColor(this.pal().accent)
         .onClick(() => {
           this.showSettings = false;
           this.runUiAudit();
         })
       if (this.auditLog.length > 0) {
-        Text(this.auditLog).fontSize(10).fontColor('#9CA3AF').width('100%').maxLines(4)
+        Text(this.auditLog).fontSize(10).fontColor(this.pal().textSecondary).width('100%').maxLines(4)
       }
       Button('渲染自检（排查渲染问题用）').width('100%').constraintSize({ minHeight: 40 })
-        .backgroundColor('#1F2937')
+        .backgroundColor(this.pal().surfaceHi)
         .onClick(() => {
           this.showSettings = false;
           this.showSelfCheck = true;
         })
       Button('打开完整 Web UI（插件/GenUI/终端）').width('100%').constraintSize({ minHeight: 40 })
-        .backgroundColor('#1F2937')
+        .backgroundColor(this.pal().surfaceHi)
         .onClick(() => {
           this.showSettings = false;
           this.panelUrl = this.serverUrl;
         })
       Button('退出登录').width('100%').constraintSize({ minHeight: 40 })
-        .backgroundColor('#7F1D1D')
+        .backgroundColor(this.pal().dangerBg)
         .onClick(() => {
           this.showSettings = false;
           this.doLogout();
         })
     }
-    .width('92%').padding(16).backgroundColor('#0B0F19')
-    .borderRadius(12).border({ width: 1, color: '#1F2937' })
+    .width('92%').padding(16).backgroundColor(this.pal().appBg)
+    .borderRadius(12).border({ width: 1, color: this.pal().border })
   }
 
   // ── 弹层：队列 ────────────────────────────────────────────────────────────
@@ -3436,26 +3464,26 @@ struct Index {
   ModelSheet() {
     Column({ space: 10 }) {
       Row() {
-        Text('模型与上下文').fontSize(16).fontWeight(FontWeight.Bold).fontColor('#E5E7EB').layoutWeight(1)
-        Text('✕').fontSize(16).fontColor('#9CA3AF').padding(8).onClick(() => {
+        Text('模型与上下文').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
+        Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
           this.showModel = false;
         })
       }.width('100%')
 
       Text(`当前：${this.currentModelName()}`)
-        .fontSize(12).fontColor('#A7F3D0').width('100%')
+        .fontSize(12).fontColor(this.pal().successText).width('100%')
         .wordBreak(WordBreak.BREAK_ALL)
 
       // 上下文上限
       Text(`上下文上限：${this.ctxText().length > 0 ? this.ctxText() : '未设置'}`)
-        .fontSize(12).fontColor('#9CA3AF').width('100%')
+        .fontSize(12).fontColor(this.pal().textSecondary).width('100%')
       Row({ space: 6 }) {
         ForEach(this.ctxPresets(), (p: number, i: number) => {
           Text(this.ctxPresetText(p))
-            .fontSize(12).fontColor('#93C5FD')
+            .fontSize(12).fontColor(this.pal().accentSoft)
             .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-            .backgroundColor('#0F172A').borderRadius(6)
-            .border({ width: 1, color: '#1F2937' })
+            .backgroundColor(this.pal().surface).borderRadius(6)
+            .border({ width: 1, color: this.pal().border })
             .onClick(() => {
               this.applyMaxContext(p);
             })
@@ -3468,9 +3496,9 @@ struct Index {
             this.ctxInput = v;
           })
           .layoutWeight(1).constraintSize({ minHeight: 36 })
-          .backgroundColor('#111827').fontColor('#E5E7EB').fontSize(12)
-        Text('应用').fontSize(12).fontColor('#FFFFFF').padding({ left: 12, right: 12, top: 8, bottom: 8 })
-          .backgroundColor('#7C3AED').borderRadius(6)
+          .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary).fontSize(12)
+        Text('应用').fontSize(12).fontColor(this.pal().onAccent).padding({ left: 12, right: 12, top: 8, bottom: 8 })
+          .backgroundColor(this.pal().accent).borderRadius(6)
           .onClick(() => {
             const n: number = parseContext(this.ctxInput);
             if (n <= 0) {
@@ -3484,29 +3512,29 @@ struct Index {
       // 模型列表（按订阅分组）
       if (this.llmCfg === undefined) {
         Row({ space: 8 }) {
-          LoadingProgress().width(16).height(16).color('#8B5CF6')
-          Text('正在读取模型列表…').fontSize(12).fontColor('#9CA3AF')
+          LoadingProgress().width(16).height(16).color(this.pal().accent)
+          Text('正在读取模型列表…').fontSize(12).fontColor(this.pal().textSecondary)
         }.padding(10)
       } else if (this.modelGroups().length === 0) {
-        Text('（没有可选模型：请在设置里添加订阅）').fontSize(12).fontColor('#6B7280')
+        Text('（没有可选模型：请在设置里添加订阅）').fontSize(12).fontColor(this.pal().textMuted)
       } else {
         Scroll() {
           Column({ space: 8 }) {
             ForEach(this.modelGroups(), (g: ModelGroup) => {
               Column({ space: 4 }) {
-                Text(g.name).fontSize(11).fontColor('#6B7280').width('100%')
+                Text(g.name).fontSize(11).fontColor(this.pal().textMuted).width('100%')
                 ForEach(g.entries, (e: LlmModelEntry, i: number) => {
                   Row({ space: 8 }) {
                     Text(this.labelOfModel(e)).fontSize(13)
-                      .fontColor(this.modelSelectable(e) ? '#E5E7EB' : '#4B5563')
+                      .fontColor(this.modelSelectable(e) ? this.pal().textPrimary : this.pal().textMuted)
                       .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                     if (this.modelBusy === `${g.subId}#${e.model}`) {
-                      LoadingProgress().width(14).height(14).color('#8B5CF6')
+                      LoadingProgress().width(14).height(14).color(this.pal().accent)
                     } else if (e.model === this.currentModelName()) {
-                      Text('✓ 当前').fontSize(11).fontColor('#A7F3D0')
+                      Text('✓ 当前').fontSize(11).fontColor(this.pal().successText)
                     }
                   }
-                  .width('100%').padding(8).backgroundColor('#0F172A').borderRadius(6)
+                  .width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(6)
                   .onClick(() => {
                     if (!this.modelSelectable(e)) {
                       this.toast('该模型已禁用');
@@ -3522,8 +3550,8 @@ struct Index {
         .constraintSize({ maxHeight: 420 }).width('100%')
       }
     }
-    .width('92%').padding(16).backgroundColor('#0B0F19')
-    .borderRadius(12).border({ width: 1, color: '#1F2937' })
+    .width('92%').padding(16).backgroundColor(this.pal().appBg)
+    .borderRadius(12).border({ width: 1, color: this.pal().border })
   }
 
   /** 切模型（带 sub_id；防连点；失败把原因原样告诉用户）。 */
@@ -3601,40 +3629,40 @@ struct Index {
   StatusSheet() {
     Column({ space: 10 }) {
       Row() {
-        Text('会话状态').fontSize(16).fontWeight(FontWeight.Bold).fontColor('#E5E7EB').layoutWeight(1)
-        Text('✕').fontSize(16).fontColor('#9CA3AF').padding(8).onClick(() => {
+        Text('会话状态').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
+        Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
           this.showStatus = false;
         })
       }.width('100%')
 
       if (this.goalLine().length > 0) {
-        Text(this.goalLine()).fontSize(13).fontColor('#FDE68A').width('100%')
+        Text(this.goalLine()).fontSize(13).fontColor(this.pal().warn).width('100%')
           .wordBreak(WordBreak.BREAK_ALL)
       }
       if (this.currentTodoLine().length > 0) {
-        Text(`进行中：${this.currentTodoLine()}`).fontSize(12).fontColor('#93C5FD').width('100%')
+        Text(`进行中：${this.currentTodoLine()}`).fontSize(12).fontColor(this.pal().accentSoft).width('100%')
           .wordBreak(WordBreak.BREAK_ALL)
       }
       Text(this.statusBarText().length > 0 ? this.statusBarText() : '（暂无用量/模型信息）')
-        .fontSize(12).fontColor('#9CA3AF').width('100%').wordBreak(WordBreak.BREAK_ALL)
+        .fontSize(12).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_ALL)
       Text(`todos ${todoProgress(this.todos).length > 0 ? todoProgress(this.todos) : '0/0'}`)
-        .fontSize(12).fontColor('#9CA3AF').width('100%')
+        .fontSize(12).fontColor(this.pal().textSecondary).width('100%')
       if (this.cwd.length > 0) {
-        Text(`cwd: ${this.cwd}`).fontSize(11).fontColor('#6B7280').width('100%')
+        Text(`cwd: ${this.cwd}`).fontSize(11).fontColor(this.pal().textMuted).width('100%')
           .wordBreak(WordBreak.BREAK_ALL).copyOption(CopyOptions.LocalDevice)
       }
 
       // 模型 / 上下文上限（下一步：切换）
       Row({ space: 8 }) {
         Text(`模型：${this.currentModelName()}`)
-          .fontSize(12).fontColor('#E5E7EB').layoutWeight(1)
+          .fontSize(12).fontColor(this.pal().textPrimary).layoutWeight(1)
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         if (this.ctxText().length > 0) {
-          Text(`上下文 ${this.ctxText()}`).fontSize(11).fontColor('#9CA3AF')
+          Text(`上下文 ${this.ctxText()}`).fontSize(11).fontColor(this.pal().textSecondary)
         }
-        Text('切换 ›').fontSize(12).fontColor('#93C5FD').padding({ left: 6, right: 6 })
+        Text('切换 ›').fontSize(12).fontColor(this.pal().accentSoft).padding({ left: 6, right: 6 })
       }
-      .width('100%').padding(8).backgroundColor('#0F172A').borderRadius(6)
+      .width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(6)
       .onClick(() => {
         this.showModel = true;
         this.store?.loadLlmConfig();
@@ -3646,111 +3674,111 @@ struct Index {
             ListItem() {
               Row({ space: 8 }) {
                 Text(td.status === 'completed' ? '✅' : (td.status === 'in_progress' ? '◐' : '○'))
-                  .fontSize(13).fontColor(td.status === 'completed' ? '#A7F3D0' : '#9CA3AF')
+                  .fontSize(13).fontColor(td.status === 'completed' ? this.pal().successText : this.pal().textSecondary)
                 Text(td.text !== undefined ? td.text : '')
                   .fontSize(13)
-                  .fontColor(td.status === 'completed' ? '#6B7280' : '#E5E7EB')
+                  .fontColor(td.status === 'completed' ? this.pal().textMuted : this.pal().textPrimary)
                   .layoutWeight(1)
                   .wordBreak(WordBreak.BREAK_ALL)
               }
-              .width('100%').padding(8).backgroundColor('#0F172A').borderRadius(6)
+              .width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(6)
             }
           }, (td: TodoItem, i: number) => `${i}#${td.status}#${td.text}`)
         }
         .constraintSize({ maxHeight: 380 }).width('100%')
       } else {
-        Text('（本会话暂无 todos）').fontSize(12).fontColor('#6B7280').width('100%')
+        Text('（本会话暂无 todos）').fontSize(12).fontColor(this.pal().textMuted).width('100%')
       }
     }
-    .width('92%').padding(16).backgroundColor('#0B0F19')
-    .borderRadius(12).border({ width: 1, color: '#1F2937' })
+    .width('92%').padding(16).backgroundColor(this.pal().appBg)
+    .borderRadius(12).border({ width: 1, color: this.pal().border })
   }
 
   @Builder
   SelfCheckSheet() {
     Column() {
       Row() {
-        Text('渲染自检').fontSize(16).fontWeight(FontWeight.Bold).fontColor('#E5E7EB').layoutWeight(1)
-        Text('✕').fontSize(16).fontColor('#9CA3AF').padding(8).onClick(() => {
+        Text('渲染自检').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
+        Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
           this.showSelfCheck = false;
         })
       }.width('100%')
 
       Button(this.geoRunning ? '采集中…' : '采集各页版面几何（数值，无需网络）')
-        .width('100%').constraintSize({ minHeight: 40 }).backgroundColor('#0E7490')
+        .width('100%').constraintSize({ minHeight: 40 }).backgroundColor(this.pal().accentSoft)
         .onClick(() => {
           this.collectAllGeometry();
         })
       Text('下方这一段可【长按复制】后直接粘贴给对方 —— 不必截图（零网络也能取证）')
-        .fontSize(11).fontColor('#FCD34D').width('100%')
+        .fontSize(11).fontColor(this.pal().warn).width('100%')
       Text(this.auditText())
-        .fontSize(11).fontColor('#A7F3D0').fontFamily('monospace')
+        .fontSize(11).fontColor(this.pal().successText).fontFamily('monospace')
         .width('100%').padding(8)
-        .backgroundColor('#111827').borderRadius(8)
+        .backgroundColor(this.pal().surfaceAlt).borderRadius(8)
         .copyOption(CopyOptions.LocalDevice)
 
       Scroll() {
         Column({ space: 10 }) {
           Column({ space: 6 }) {
-            Text('A 纯文本（自动换行）').fontSize(12).fontColor('#9CA3AF').width('100%')
+            Text('A 纯文本（自动换行）').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
             MarkdownView({ text: '这是一段用于自检的普通中文文本，应当自动换行并且左右不溢出。' })
-          }.width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
-          .border({ width: 1, color: '#1F2937' })
+          }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
+          .border({ width: 1, color: this.pal().border })
 
           Column({ space: 6 }) {
-            Text('B 行内样式（粗/斜/删除/行内码/链接）').fontSize(12).fontColor('#9CA3AF').width('100%')
+            Text('B 行内样式（粗/斜/删除/行内码/链接）').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
             MarkdownView({ text: '这里有 **粗体**、*斜体*、~~删除线~~、`inlineCode()` 与 [一个链接](https://example.com)。' })
-          }.width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
-          .border({ width: 1, color: '#1F2937' })
+          }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
+          .border({ width: 1, color: this.pal().border })
 
           Column({ space: 6 }) {
-            Text('C 标题 + 列表').fontSize(12).fontColor('#9CA3AF').width('100%')
+            Text('C 标题 + 列表').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
             MarkdownView({ text: '## 二级标题\n- 列表项一\n- 列表项二\n\n1. 有序一\n2. 有序二' })
-          }.width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
-          .border({ width: 1, color: '#1F2937' })
+          }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
+          .border({ width: 1, color: this.pal().border })
 
           Column({ space: 6 }) {
-            Text('D 代码块（含超长行）').fontSize(12).fontColor('#9CA3AF').width('100%')
+            Text('D 代码块（含超长行）').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
             MarkdownView({ text: '```ts\nconst veryLongVariableName: string = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";\n```' })
-          }.width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
-          .border({ width: 1, color: '#1F2937' })
+          }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
+          .border({ width: 1, color: this.pal().border })
 
           Column({ space: 6 }) {
-            Text('E 表格').fontSize(12).fontColor('#9CA3AF').width('100%')
+            Text('E 表格').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
             MarkdownView({ text: '| 列一 | 列二 |\n| --- | --- |\n| 值一 | 值二 |\n| 更长的值 | 另一个值 |' })
-          }.width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
-          .border({ width: 1, color: '#1F2937' })
+          }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
+          .border({ width: 1, color: this.pal().border })
 
           Column({ space: 6 }) {
-            Text('F 工具 pill 行（Flex 换行）').fontSize(12).fontColor('#9CA3AF').width('100%')
+            Text('F 工具 pill 行（Flex 换行）').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
             Flex({ wrap: FlexWrap.Wrap }) {
               ForEach(['✓ Read', '✓ Shell', '● Grep', '✓ Edit', '✗ Fetch'], (t: string) => {
-                Text(t).fontSize(12).fontColor('#A7F3D0')
+                Text(t).fontSize(12).fontColor(this.pal().successText)
                   .padding({ left: 8, right: 8, top: 5, bottom: 5 })
-                  .margin(3).backgroundColor('#111827').borderRadius(6)
-                  .border({ width: 1, color: '#1F2937' })
+                  .margin(3).backgroundColor(this.pal().surfaceAlt).borderRadius(6)
+                  .border({ width: 1, color: this.pal().border })
               }, (t: string) => t)
             }.width('100%')
-          }.width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
-          .border({ width: 1, color: '#1F2937' })
+          }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
+          .border({ width: 1, color: this.pal().border })
 
           Column({ space: 6 }) {
-            Text('G 长 URL（不可断词）').fontSize(12).fontColor('#9CA3AF').width('100%')
+            Text('G 长 URL（不可断词）').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
             Text('https://xbot.pivotlang.tech/api/files/download?key=uploads%2F4%2Faaef9711-1349-420d-97ea-94e70e2401e7.jpg&inline=1')
-              .fontSize(12).fontColor('#93C5FD').width('100%')
-          }.width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
-          .border({ width: 1, color: '#1F2937' })
+              .fontSize(12).fontColor(this.pal().accentSoft).width('100%')
+          }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
+          .border({ width: 1, color: this.pal().border })
 
           Column({ space: 6 }) {
-            Text('H 顶栏内联布局').fontSize(12).fontColor('#9CA3AF').width('100%')
+            Text('H 顶栏内联布局').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
             Row() {
-              Text('☰').fontSize(20).fontColor('#E5E7EB').padding(10)
-              Text('标题文本').fontSize(15).fontColor('#E5E7EB').layoutWeight(1)
-              Text('⊞').fontSize(20).fontColor('#E5E7EB').padding(10)
-              Text('⚙').fontSize(20).fontColor('#E5E7EB').padding(10)
-            }.width('100%').backgroundColor('#111827')
-          }.width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
-          .border({ width: 1, color: '#1F2937' })
+              Text('☰').fontSize(20).fontColor(this.pal().textPrimary).padding(10)
+              Text('标题文本').fontSize(15).fontColor(this.pal().textPrimary).layoutWeight(1)
+              Text('⊞').fontSize(20).fontColor(this.pal().textPrimary).padding(10)
+              Text('⚙').fontSize(20).fontColor(this.pal().textPrimary).padding(10)
+            }.width('100%').backgroundColor(this.pal().surfaceAlt)
+          }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
+          .border({ width: 1, color: this.pal().border })
         }
         .width('100%')
         .padding(10)
@@ -3760,9 +3788,9 @@ struct Index {
     }
     .width('94%').height('86%')
     .padding(12)
-    .backgroundColor('#0B0F19')
+    .backgroundColor(this.pal().appBg)
     .borderRadius(12)
-    .border({ width: 1, color: '#374151' })
+    .border({ width: 1, color: this.pal().borderStrong })
   }
 
   @Builder
@@ -3770,8 +3798,8 @@ struct Index {
     Column({ space: 8 }) {
       Row() {
         Text(`待发队列 (${this.queue.length})`).fontSize(16).fontWeight(FontWeight.Bold)
-          .fontColor('#E5E7EB').layoutWeight(1)
-        Text('✕').fontSize(16).fontColor('#9CA3AF').padding(8).onClick(() => {
+          .fontColor(this.pal().textPrimary).layoutWeight(1)
+        Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
           this.showQueue = false;
         })
       }.width('100%')
@@ -3783,29 +3811,29 @@ struct Index {
               Text(q.content !== undefined && q.content.length > 0
                 ? q.content
                 : (q.text !== undefined ? q.text : ''))
-                .fontSize(13).fontColor('#E5E7EB').layoutWeight(1).maxLines(3)
+                .fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1).maxLines(3)
                 .wordBreak(WordBreak.BREAK_ALL)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
-              Text('↑').fontSize(14).fontColor('#93C5FD').padding(6).onClick(() => {
+              Text('↑').fontSize(14).fontColor(this.pal().accentSoft).padding(6).onClick(() => {
                 const id: string = q.msg_id !== undefined ? q.msg_id : (q.id !== undefined ? q.id : '');
                 this.store?.moveQueued(id, -1);
               })
-              Text('↓').fontSize(14).fontColor('#93C5FD').padding(6).onClick(() => {
+              Text('↓').fontSize(14).fontColor(this.pal().accentSoft).padding(6).onClick(() => {
                 const id: string = q.msg_id !== undefined ? q.msg_id : (q.id !== undefined ? q.id : '');
                 this.store?.moveQueued(id, 1);
               })
-              Text('✕').fontSize(14).fontColor('#F87171').padding(6).onClick(() => {
+              Text('✕').fontSize(14).fontColor(this.pal().dangerText).padding(6).onClick(() => {
                 const id: string = q.msg_id !== undefined ? q.msg_id : (q.id !== undefined ? q.id : '');
                 this.store?.cancelQueued(id);
               })
-            }.width('100%').padding(8).backgroundColor('#0F172A').borderRadius(8)
+            }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
           }
         }, (q: QueueItem) => `${q.msg_id}#${q.content}#${q.text}`)
       }
       .height(300).width('100%')
     }
-    .width('92%').padding(16).backgroundColor('#0B0F19')
-    .borderRadius(12).border({ width: 1, color: '#1F2937' })
+    .width('92%').padding(16).backgroundColor(this.pal().appBg)
+    .borderRadius(12).border({ width: 1, color: this.pal().border })
   }
 
   // ── 弹层：插件面板 ────────────────────────────────────────────────────────
@@ -3814,23 +3842,23 @@ struct Index {
   PluginsSheet() {
     Column({ space: 8 }) {
       Row() {
-        Text('能力面板').fontSize(16).fontWeight(FontWeight.Bold).fontColor('#E5E7EB').layoutWeight(1)
-        Text('✕').fontSize(16).fontColor('#9CA3AF').padding(8).onClick(() => {
+        Text('能力面板').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
+        Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
           this.showPlugins = false;
         })
       }.width('100%')
 
       Text('原生渲染聊天主链路；下列能力由 ArkWeb 承载（与 Web 版同源、能力一致）：')
-        .fontSize(11).fontColor('#9CA3AF').width('100%')
+        .fontSize(11).fontColor(this.pal().textSecondary).width('100%')
 
       List() {
         // 完整 Web UI（插件 / GenUI / 终端 / 编辑器都在里面）
         ListItem() {
           Row() {
-            Text('🌐  完整 Web UI').fontSize(14).fontColor('#E5E7EB').layoutWeight(1)
-            Text('打开').fontSize(12).fontColor('#93C5FD')
+            Text('🌐  完整 Web UI').fontSize(14).fontColor(this.pal().textPrimary).layoutWeight(1)
+            Text('打开').fontSize(12).fontColor(this.pal().accentSoft)
           }
-          .width('100%').padding(12).backgroundColor('#111827').borderRadius(8)
+          .width('100%').padding(12).backgroundColor(this.pal().surfaceAlt).borderRadius(8)
           .onClick(() => {
             this.showPlugins = false;
             this.panelUrl = this.serverUrl;
@@ -3840,13 +3868,13 @@ struct Index {
           ListItem() {
             Row() {
               Column() {
-                Text(p.name).fontSize(14).fontColor('#E5E7EB')
-                Text(p.url).fontSize(10).fontColor('#6B7280').maxLines(1)
+                Text(p.name).fontSize(14).fontColor(this.pal().textPrimary)
+                Text(p.url).fontSize(10).fontColor(this.pal().textMuted).maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
               }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-              Text('打开').fontSize(12).fontColor('#93C5FD')
+              Text('打开').fontSize(12).fontColor(this.pal().accentSoft)
             }
-            .width('100%').padding(12).backgroundColor('#111827').borderRadius(8)
+            .width('100%').padding(12).backgroundColor(this.pal().surfaceAlt).borderRadius(8)
             .onClick(() => {
               this.showPlugins = false;
               this.panelUrl = p.url;
@@ -3856,8 +3884,8 @@ struct Index {
       }
       .height(320).width('100%')
     }
-    .width('92%').padding(16).backgroundColor('#0B0F19')
-    .borderRadius(12).border({ width: 1, color: '#1F2937' })
+    .width('92%').padding(16).backgroundColor(this.pal().appBg)
+    .borderRadius(12).border({ width: 1, color: this.pal().border })
   }
 
   // ── 弹层：AskUser ────────────────────────────────────────────────────────
@@ -3865,30 +3893,30 @@ struct Index {
   @Builder
   AskUserSheet() {
     Column({ space: 10 }) {
-      Text('xbot 需要你确认').fontSize(15).fontWeight(FontWeight.Bold).fontColor('#FDE68A').width('100%')
+      Text('xbot 需要你确认').fontSize(15).fontWeight(FontWeight.Bold).fontColor(this.pal().warn).width('100%')
       List() {
         ForEach(this.askUser !== null && this.askUser.questions !== undefined ? this.askUser.questions : [],
           (q: AskQuestion, qi: number) => {
             ListItem() {
               Column({ space: 6 }) {
                 if (q.header !== undefined && q.header.length > 0) {
-                  Text(q.header).fontSize(12).fontColor('#9CA3AF').width('100%')
+                  Text(q.header).fontSize(12).fontColor(this.pal().textSecondary).width('100%')
                 }
-                Text(q.question !== undefined ? q.question : '').fontSize(14).fontColor('#E5E7EB').width('100%')
+                Text(q.question !== undefined ? q.question : '').fontSize(14).fontColor(this.pal().textPrimary).width('100%')
 
                 ForEach(q.options !== undefined ? q.options : [], (opt: AskOption, oi: number) => {
                   Row() {
                     Text(this.isAskSelected(q.id !== undefined ? q.id : `q${qi}`,
                       opt.label !== undefined ? opt.label : '') ? '◉' : '○')
-                      .fontSize(14).fontColor('#A78BFA')
+                      .fontSize(14).fontColor(this.pal().accentText)
                     Column() {
-                      Text(opt.label !== undefined ? opt.label : '').fontSize(13).fontColor('#E5E7EB')
+                      Text(opt.label !== undefined ? opt.label : '').fontSize(13).fontColor(this.pal().textPrimary)
                       if (opt.description !== undefined && opt.description.length > 0) {
-                        Text(opt.description).fontSize(11).fontColor('#6B7280')
+                        Text(opt.description).fontSize(11).fontColor(this.pal().textMuted)
                       }
                     }.layoutWeight(1).alignItems(HorizontalAlign.Start).margin({ left: 6 })
                   }
-                  .width('100%').padding(8).backgroundColor('#0F172A')
+                  .width('100%').padding(8).backgroundColor(this.pal().surface)
                   .borderRadius(6)
                   .onClick(() => {
                     this.toggleAskOption(q.id !== undefined ? q.id : `q${qi}`,
@@ -3911,7 +3939,7 @@ struct Index {
                       }
                       this.askSelections = next;
                     })
-                    .constraintSize({ minHeight: 38 }).backgroundColor('#111827').fontColor('#E5E7EB')
+                    .constraintSize({ minHeight: 38 }).backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary)
                 }
               }.width('100%').padding(8)
             }
@@ -3920,18 +3948,18 @@ struct Index {
       .constraintSize({ maxHeight: 420 }).width('100%')
 
       Row({ space: 8 }) {
-        Button('取消').layoutWeight(1).constraintSize({ minHeight: 42 }).backgroundColor('#1F2937').onClick(() => {
+        Button('取消').layoutWeight(1).constraintSize({ minHeight: 42 }).backgroundColor(this.pal().surfaceHi).onClick(() => {
           this.submitAsk(true);
         })
         Button(this.askBusy ? '提交中…' : '提交').layoutWeight(1).constraintSize({ minHeight: 42 })
-          .backgroundColor('#7C3AED').fontColor('#FFFFFF')
+          .backgroundColor(this.pal().accent).fontColor(this.pal().onAccent)
           .onClick(() => {
             this.submitAsk(false);
           })
       }.width('100%')
     }
-    .width('94%').padding(16).backgroundColor('#111827')
-    .borderRadius(12).border({ width: 1, color: '#F59E0B' })
+    .width('94%').padding(16).backgroundColor(this.pal().surfaceAlt)
+    .borderRadius(12).border({ width: 1, color: this.pal().warn })
   }
 
   // ── 弹层：图片查看 ────────────────────────────────────────────────────────
@@ -3940,10 +3968,10 @@ struct Index {
   ImageViewer() {
     Column() {
       Row({ space: 8 }) {
-        Text('图片').fontSize(15).fontColor('#E5E7EB').layoutWeight(1)
+        Text('图片').fontSize(15).fontColor(this.pal().textPrimary).layoutWeight(1)
         if (isZoomed(this.imgScale)) {
-          Text(scaleText(this.imgScale)).fontSize(12).fontColor('#9CA3AF')
-          Text('复位').fontSize(12).fontColor('#93C5FD').padding(6).onClick(() => {
+          Text(scaleText(this.imgScale)).fontSize(12).fontColor(this.pal().textSecondary)
+          Text('复位').fontSize(12).fontColor(this.pal().accentSoft).padding(6).onClick(() => {
             this.imgScale = 1;
             this.imgTransX = 0;
             this.imgTransY = 0;
@@ -3959,15 +3987,15 @@ struct Index {
               this.toast('需要授权才能保存到相册');
             }
           })
-        Text('✕').fontSize(16).fontColor('#9CA3AF').padding(10).onClick(() => {
+        Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(10).onClick(() => {
           this.closeViewer();
         })
       }.width('100%')
 
       if (this.imageBusy) {
         Column() {
-          LoadingProgress().width(32).height(32).color('#8B5CF6')
-          Text('加载图片…').fontSize(12).fontColor('#9CA3AF').margin({ top: 8 })
+          LoadingProgress().width(32).height(32).color(this.pal().accent)
+          Text('加载图片…').fontSize(12).fontColor(this.pal().textSecondary).margin({ top: 8 })
         }.layoutWeight(1).justifyContent(FlexAlign.Center)
       } else if (this.imagePixel !== null) {
         Stack() {
@@ -4025,7 +4053,7 @@ struct Index {
       }
     }
     .width('94%').height('80%').padding(12)
-    .backgroundColor('#0B0F19').borderRadius(12).border({ width: 1, color: '#1F2937' })
+    .backgroundColor(this.pal().appBg).borderRadius(12).border({ width: 1, color: this.pal().border })
   }
 }
 

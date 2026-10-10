@@ -20,6 +20,8 @@ export const KEY_STARRED: string = 'xbot-starred';
 export const KEY_FONT_SCALE: string = 'xbot-font-scale';
 /** 新增：思考块默认是否展开（原生端偏好） */
 export const KEY_REASONING_DEFAULT: string = 'xbot-reasoning-default';
+/** 新增：应用主题深浅（原生端偏好；角色语义见 core/theme.ets） */
+export const KEY_APP_THEME: string = 'xbot-app-theme';
 
 /** 本地键 → 服务端键（web `userSettings.ts` 的同一张表）。 */
 export function serverKey(localKey: string): string {
@@ -50,13 +52,16 @@ export function serverKey(localKey: string): string {
   if (localKey === KEY_REASONING_DEFAULT) {
     return 'web:ui:reasoning-default';
   }
+  if (localKey === KEY_APP_THEME) {
+    return 'web:ui:app-theme';
+  }
   return localKey;
 }
 
 /** 服务端键 → 本地键（读回来时反查；未知键原样保留）。 */
 export function localKey(srvKey: string): string {
   const table: string[] = [KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE, KEY_SEND_KEY, KEY_CODE_WRAP,
-    KEY_UI_MODE, KEY_STARRED, KEY_FONT_SCALE, KEY_REASONING_DEFAULT];
+    KEY_UI_MODE, KEY_STARRED, KEY_FONT_SCALE, KEY_REASONING_DEFAULT, KEY_APP_THEME];
   for (let i = 0; i < table.length; i++) {
     if (serverKey(table[i]) === srvKey) {
       return table[i];
@@ -164,6 +169,9 @@ export function settingLabel(key: string): string {
   }
   if (key === KEY_REASONING_DEFAULT) {
     return '思考默认展开';
+  }
+  if (key === KEY_APP_THEME) {
+    return '应用主题';
   }
   if (key === KEY_MD_THEME) {
     return 'Markdown 主题';

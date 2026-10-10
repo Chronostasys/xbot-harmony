@@ -9,7 +9,7 @@
  * **原生端读写同一份 ⇒ 两端偏好天然一致**（项目要求「两边数据统一」）。
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SEND_KEY_MOD_ENTER = exports.SEND_KEY_ENTER = exports.KEY_REASONING_DEFAULT = exports.KEY_FONT_SCALE = exports.KEY_STARRED = exports.KEY_UI_MODE = exports.KEY_CODE_WRAP = exports.KEY_SEND_KEY = exports.KEY_LOCALE = exports.KEY_ACCENT = exports.KEY_MD_THEME = void 0;
+exports.SEND_KEY_MOD_ENTER = exports.SEND_KEY_ENTER = exports.KEY_APP_THEME = exports.KEY_REASONING_DEFAULT = exports.KEY_FONT_SCALE = exports.KEY_STARRED = exports.KEY_UI_MODE = exports.KEY_CODE_WRAP = exports.KEY_SEND_KEY = exports.KEY_LOCALE = exports.KEY_ACCENT = exports.KEY_MD_THEME = void 0;
 exports.serverKey = serverKey;
 exports.localKey = localKey;
 exports.parseBool = parseBool;
@@ -34,6 +34,8 @@ exports.KEY_STARRED = 'xbot-starred';
 exports.KEY_FONT_SCALE = 'xbot-font-scale';
 /** 新增：思考块默认是否展开（原生端偏好） */
 exports.KEY_REASONING_DEFAULT = 'xbot-reasoning-default';
+/** 新增：应用主题深浅（原生端偏好；角色语义见 core/theme.ets） */
+exports.KEY_APP_THEME = 'xbot-app-theme';
 /** 本地键 → 服务端键（web `userSettings.ts` 的同一张表）。 */
 function serverKey(localKey) {
     if (localKey === exports.KEY_MD_THEME) {
@@ -63,12 +65,15 @@ function serverKey(localKey) {
     if (localKey === exports.KEY_REASONING_DEFAULT) {
         return 'web:ui:reasoning-default';
     }
+    if (localKey === exports.KEY_APP_THEME) {
+        return 'web:ui:app-theme';
+    }
     return localKey;
 }
 /** 服务端键 → 本地键（读回来时反查；未知键原样保留）。 */
 function localKey(srvKey) {
     const table = [exports.KEY_MD_THEME, exports.KEY_ACCENT, exports.KEY_LOCALE, exports.KEY_SEND_KEY, exports.KEY_CODE_WRAP,
-        exports.KEY_UI_MODE, exports.KEY_STARRED, exports.KEY_FONT_SCALE, exports.KEY_REASONING_DEFAULT];
+        exports.KEY_UI_MODE, exports.KEY_STARRED, exports.KEY_FONT_SCALE, exports.KEY_REASONING_DEFAULT, exports.KEY_APP_THEME];
     for (let i = 0; i < table.length; i++) {
         if (serverKey(table[i]) === srvKey) {
             return table[i];
@@ -165,6 +170,9 @@ function settingLabel(key) {
     }
     if (key === exports.KEY_REASONING_DEFAULT) {
         return '思考默认展开';
+    }
+    if (key === exports.KEY_APP_THEME) {
+        return '应用主题';
     }
     if (key === exports.KEY_MD_THEME) {
         return 'Markdown 主题';

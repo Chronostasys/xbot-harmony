@@ -5,6 +5,7 @@
  * 缓存按 src 做（图片内容不可变），上限 24 张 —— 超出按插入顺序淘汰（避免长会话把内存吃满）。
  */
 import image from '@ohos.multimedia.image';
+import { Palette, paletteOf } from '../core/theme';
 
 const PM_CACHE: Map<string, image.PixelMap> = new Map<string, image.PixelMap>();
 const PM_ORDER: string[] = [];
@@ -25,6 +26,13 @@ export struct AuthImage {
   };
   /** 最大显示高度（vp） */
   maxHeight: number = 340;
+  /** 主题（由上层透传；语义色板见 core/theme.ets） */
+  @Prop theme: string = 'dark';
+
+  /** 当前语义色板 */
+  private pal(): Palette {
+    return paletteOf(this.theme);
+  }
   @State pm: image.PixelMap | undefined = undefined;
   @State failed: boolean = false;
   @State loading: boolean = true;
@@ -74,28 +82,28 @@ export struct AuthImage {
         .constraintSize({ maxHeight: this.maxHeight })
         .objectFit(ImageFit.Contain)
         .borderRadius(8)
-        .backgroundColor('#0B0F19')
+        .backgroundColor(this.pal().appBg)
         .onClick(() => {
           this.onOpen(this.src);
         })
     } else if (this.loading) {
       Row({ space: 6 }) {
-        LoadingProgress().width(14).height(14).color('#8B5CF6')
-        Text('图片加载中…').fontSize(11).fontColor('#6B7280')
+        LoadingProgress().width(14).height(14).color(this.pal().accent)
+        Text('图片加载中…').fontSize(11).fontColor(this.pal().textMuted)
       }
       .padding(8)
-      .backgroundColor('#111827')
+      .backgroundColor(this.pal().surfaceAlt)
       .borderRadius(6)
     } else {
       Row({ space: 6 }) {
         Text('🖼').fontSize(14)
-        Text(this.failed ? '图片加载失败（点按重试）' : '查看图片').fontSize(12).fontColor('#93C5FD')
+        Text(this.failed ? '图片加载失败（点按重试）' : '查看图片').fontSize(12).fontColor(this.pal().accentSoft)
       }
       .padding({ left: 8, right: 8, top: 5, bottom: 5 })
       .margin({ top: 2, bottom: 2 })
-      .backgroundColor('#111827')
+      .backgroundColor(this.pal().surfaceAlt)
       .borderRadius(6)
-      .border({ width: 1, color: '#1F2937' })
+      .border({ width: 1, color: this.pal().border })
       .onClick(() => {
         if (this.failed) {
           this.failed = false;
