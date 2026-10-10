@@ -71,6 +71,19 @@ cp "$HERE/mocks/prism4j.js" "$OUT/js/node_modules/@hxa-atpc/noties_prism4j/index
 cat > "$OUT/js/node_modules/@hxa-atpc/noties_prism4j/package.json" <<'PKG3'
 { "name": "@hxa-atpc/noties_prism4j", "version": "0.0.0", "main": "index.js" }
 PKG3
+# 通知/短时任务 SDK（core/notify.ets 在**模块顶层** import；任何 `import store` 的单测
+# 都会 require 它们）—— 脱机给"能被 require 且不抛"的最小实现，否则整批测试 MODULE_NOT_FOUND。
+# 同一份实现按三个模块名各装一份：三者都只用 default 导出（tsc commonjs 语义）。
+install_notify_sdk() {
+  local name="$1"
+  mkdir -p "$OUT/js/node_modules/$name"
+  cp "$HERE/mocks/notify_sdk.js" "$OUT/js/node_modules/$name/index.js"
+  printf '{ "name": "%s", "version": "0.0.0", "main": "index.js" }\n' "$name" \
+    > "$OUT/js/node_modules/$name/package.json"
+}
+install_notify_sdk '@ohos.notificationManager'
+install_notify_sdk '@ohos.app.ability.wantAgent'
+install_notify_sdk '@ohos.resourceschedule.backgroundTaskManager'
 # 装饰器运行期垫片：编译期由 stubs/*.d.ts 解决，运行期需要真实存在（见 mocks/decorators.js）
 cp "$HERE/mocks/decorators.js" "$OUT/js/__decorators.js"
 for t in "$OUT"/js/*.test.js; do

@@ -29,6 +29,18 @@ import { BgTask, CronJob, RunnerRow, SubAgentRow } from './panels';
 import { serverKey, toLocalSettings } from './settings';
 import { FsEntry } from './composer';
 import {
+  NOTIFY_KIND_ASK,
+  NOTIFY_KIND_TURN_DONE,
+  TURN_DONE_DEDUPE_MS,
+  appIsForeground,
+  notifyBody,
+  notifyKindForSse,
+  notifyTitle,
+  publishTurn,
+  shouldNotify,
+  withinDedupeWindow,
+} from './notify';
+import {
   AskRespondReq,
   ChannelReq,
   CreateChatReq,
@@ -1032,8 +1044,13 @@ export class ChatStore {
     if (event === SseEventType.askUser) {
       const env: SseEnvelope = JSON.parse(data) as SseEnvelope;
       if (env.progress !== undefined) {
+        const prevReq: string = this.askRequestId();
         this.pickAskUserFromProgress(env.progress);
         this.onUpdate();
+        // 通知旁路（新增）：**待用户回答** —— 同一 request_id 重复送达不重复提醒。
+        if (this.askRequestId() !== prevReq) {
+          this.notifyOnSse(event, '', null);
+        }
       }
       return;
     }
@@ -1058,7 +1075,11 @@ export class ChatStore {
     //   SSE 事件名 = 权威类型（web WSMessage.type 同源）——绝不按载荷字段猜分类
     //   （服务端会给流式帧盖 iteration，猜错会把 stream_* 当结构化静默丢弃）。
     raw['type'] = event;
-    this.pushEvents(normalizeEvent(raw, this.currentChatId));
+    const evs: readonly DomainEvent[] | null = normalizeEvent(raw, this.currentChatId);
+    this.pushEvents(evs);
+    // 通知旁路（新增；不改状态机语义）：回合结束取**上面同一份**归一化结果
+    // （`phase_done`）——判据与状态机同源，不二次解析载荷。
+    this.notifyOnSse(event, '', evs);
     // session 事件：idle 收尾后刷新权威状态（todos/用量/会话树 running）。状态机本身
     // 已按 reduce 的 session 分支定格/清 activeTurn —— 这里只是 REST 对账（web 的
     // AgentPanel 在 busy→idle 边沿重取 get_goal 的同一语义）。
@@ -1073,8 +1094,74 @@ export class ChatStore {
         this.loadSessions().catch(() => {
           // 对账失败不影响主链路
         });
+        // 通知旁路（新增）：会话空闲 = 回合结束（与 phase_done 同一档；
+        // 同一回合的第二次信号被 withinDedupeWindow 吃掉）。
+        this.notifyOnSse(event, action, null);
       }
     }
+  }
+
+  // ── 通知（主方案：本地通知 + 前台抑制；**旁路**，绝不参与状态机语义）─────────
+
+  /** 上一次"回合结束"提醒的时刻（去重窗口用；0 = 从没提醒过）。 */
+  private lastTurnDoneNotifyAt: number = 0;
+
+  /**
+   * 事件 + 归一化结果 → 该不该发通知 → 发。
+   *
+   * 判据是 `core/notify.ets` 里的**纯函数**（`notifyKindForSse` + `shouldNotify`），
+   * 这里只负责取上下文（前台标志、会话名、问题文本）与调用 SDK。
+   * ⚠️ 任何异常都吞掉：通知是旁路，失败不能影响聊天主链路。
+   */
+  private notifyOnSse(event: string, sessionAction: string, evs: readonly DomainEvent[] | null): void {
+    try {
+      const kind: string = notifyKindForSse(event, sessionAction, evs);
+      if (!shouldNotify(appIsForeground(), kind)) {
+        return;
+      }
+      if (kind === NOTIFY_KIND_TURN_DONE) {
+        const now: number = Date.now();
+        if (withinDedupeWindow(now, this.lastTurnDoneNotifyAt, TURN_DONE_DEDUPE_MS)) {
+          return;
+        }
+        this.lastTurnDoneNotifyAt = now;
+      }
+      const detail: string = kind === NOTIFY_KIND_ASK ? this.askDetailForNotify() : '';
+      publishTurn(notifyTitle(kind, this.currentChatLabel()), notifyBody(kind, detail), this.currentChatId);
+    } catch (e) {
+      // 通知是旁路：静默（主链路不受影响）
+    }
+  }
+
+  /** 待回答的 `request_id`（通知去重用）：没有 pending 或缺失 ⇒ 空串。 */
+  private askRequestId(): string {
+    const p: AskUserPrompt | null = this.askUser;
+    return p !== null && p.request_id !== undefined ? p.request_id : '';
+  }
+
+  /** 待回答问题的正文（通知用）：取第一问的问题文本，回落 header。 */
+  private askDetailForNotify(): string {
+    const p: AskUserPrompt | null = this.askUser;
+    if (p === null || p.questions === undefined || p.questions.length === 0) {
+      return '';
+    }
+    const q: AskQuestion = p.questions[0];
+    if (q.question !== undefined && q.question.length > 0) {
+      return q.question;
+    }
+    return q.header !== undefined ? q.header : '';
+  }
+
+  /** 当前会话的展示名（通知标题用）：找不到就回落 chat_id，再没有就空串。 */
+  private currentChatLabel(): string {
+    const id: string = this.currentChatId;
+    for (let i = 0; i < this.sessions.length; i++) {
+      if (this.sessions[i].chat_id === id) {
+        const l: string | undefined = this.sessions[i].label;
+        return l !== undefined && l.length > 0 ? l : id;
+      }
+    }
+    return '';
   }
 
 }

@@ -2,6 +2,15 @@ import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.Ab
 import { KeyboardAvoidMode, UIContext, window } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { BusinessError } from '@kit.BasicServicesKit';
+import {
+  PENDING_CHAT_KEY,
+  PENDING_CHAT_SEQ_KEY,
+  endTurnKeepAlive,
+  ensureEnabled,
+  initSlots,
+  reconcileOnForeground,
+  setAppForeground,
+} from '../core/notify';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'xbot';
@@ -15,6 +24,11 @@ export default class EntryAbility extends UIAbility {
     //   "深里突然一块白"的割裂（真机实测两处：抽屉曾整片发白；工具 pill 浮层一半浅一半深）。
     //   在进程最早的 onCreate 锁定，能让**所有**系统表面与自绘色板口径一致。
     this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
+    // ── 通知（主方案）：建槽 + 记录"在前台" + 冷启动时接收"点通知进来"的 chat_id ──
+    // 三条都是旁路：失败只记日志，绝不影响启动（见 core/notify.ets 的 try/catch 兜底）。
+    initSlots();
+    setAppForeground(true);
+    this.captureOpenChat(want);
     hilog.info(DOMAIN, TAG, 'EntryAbility onCreate');
   }
 
@@ -29,6 +43,9 @@ export default class EntryAbility extends UIAbility {
         return;
       }
       hilog.info(DOMAIN, TAG, 'loadContent succeeded');
+      // 通知授权必须**在 UI 就绪之后**请求（授权框需要一个已加载好的 UIAbility 上下文）；
+      // 失败（用户拒绝 / 弹框冲突）只记日志，不影响启动。
+      ensureEnabled(this.context);
     });
 
     // ⛔ 不启用沉浸式（full-screen layout）。
@@ -74,8 +91,53 @@ win.setWindowSystemBarProperties({
   }
 
   onForeground(): void {
+    // ── "三档状态"的前台档：写标志（store 据此**抑制**通知）+ 回前台对账 ──
+    setAppForeground(true);
+    // 用户已经回来了：短时任务不再需要（幂等），角标/通知一并清掉。
+    endTurnKeepAlive();
+    reconcileOnForeground();
   }
 
   onBackground(): void {
+    setAppForeground(false);
+  }
+
+  /**
+   * 通知点击 / 外部 Want 再次拉起（ability 已在运行时走这里；冷启动走 onCreate）。
+   * 之前**完全缺失** ⇒ 点通知回到应用后页面收不到会话 id。
+   */
+  onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    this.captureOpenChat(want);
+  }
+
+  /**
+   * 把"点通知要打开的会话"交给页面（通道：**AppStorage**）。
+   *
+   * 为什么用 AppStorage：EntryAbility 与页面同进程，页面用
+   * `@StorageProp('pendingOpenChatId')` 即可读到；另写一个**序号**
+   * （`pendingOpenChatSeq`）保证"同一个会话被点第二次"也能被页面察觉
+   * （只改同一个字符串值时，StorageProp 不产生新变更）。
+   *
+   * ⚠️ 页面消费后应把 `pendingOpenChatId` 清空（`AppStorage.delete`），
+   *    否则冷启动不会重复消费，但"返回页面"可能再次触发。
+   */
+  private captureOpenChat(want: Want): void {
+    try {
+      const params: Record<string, Object> | undefined = want.parameters;
+      if (params === undefined) {
+        return;
+      }
+      const raw: Object = params['chat_id'];
+      if (typeof raw !== 'string' || (raw as string).length === 0) {
+        return;
+      }
+      const chatId: string = raw as string;
+      AppStorage.setOrCreate<string>(PENDING_CHAT_KEY, chatId);
+      AppStorage.setOrCreate<number>(PENDING_CHAT_SEQ_KEY, Date.now());
+      hilog.info(DOMAIN, TAG, 'notification wants chat: %{public}s', chatId);
+    } catch (e) {
+      const err: BusinessError = e as BusinessError;
+      hilog.warn(DOMAIN, TAG, 'captureOpenChat skipped: %{public}s', err.message);
+    }
   }
 }
