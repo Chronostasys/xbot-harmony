@@ -36,9 +36,14 @@
    ⚠️ 符号名**必须**在 `toolchains/id_defined.json` 的 `record[type=="symbol"].name` 里核实存在，
    否则编译失败。常用：`line_3_horizontal` `square_grid_2x2` `gearshape` `paperclip` `picture`
    `paperplane_fill` `square_fill` `xmark` `chevron_right` `chevron_down`（`sparkles`/`ellipsis` **不存在**）。
-9. **主题**：`dark` / `light` / `aurora(#34d3b4)` / `nebula(#a78bfa)`，由 `paletteOf(themeName)` 统一供给。
+9. **主题**：`dark` / `light` / `aurora(#34d3b4)` / `nebula(#a78bfa)` / `porcelain(#0071E3，极简白，原生独享)`,
+   由 `paletteOf(themeName)` 统一供给。
    ⛔ 新增/修改主题时必须同步 `tools/tests/theme.test.ts` 的快照值（它会逐值核对关键角色）。
-   ⛔ `toggleTheme` 是**深/浅二态**（测试钉死），极光/星云经 `normalizeTheme` + `paletteOf` 进入。
+   ⛔ `toggleTheme` 是**深/浅二态**（测试钉死），极光/星云/极简白经 `normalizeTheme` + `paletteOf` 进入。
+   ⛔ 明暗判据有两把：`isDarkThemeName(theme)`（按**名**，porcelain 归浅色）与
+   `isLightPalette(palette)`（按 **appBg 亮度**，供只拿得到 Palette 的调用点用，如 `effectsOf` /
+   `mdtheme.codeBgOf`）——**不要**再把某个色板的 appBg 当魔法常量判浅色。浅色主题的阴影走
+   `effectsOf` 的柔影分支（正文色 @6/10/16% + 中性 sheen），深色四值不动。
 
 ## 3. 常用尺度（`core/tokens.ets`）
 
