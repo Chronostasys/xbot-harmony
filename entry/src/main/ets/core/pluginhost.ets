@@ -282,30 +282,42 @@ export const PLUGIN_OPEN_HOST: string = 'host';
 /** 打开方式：原生**可直接打开**（同源页面 URL；判据复用波1b，不新造第二套）。 */
 export const PLUGIN_OPEN_DIRECT: string = 'direct';
 
-/// 容器 → 原生目录里的分组名。容器集合与 web `ViewContainer` 一致
-/// （`plugin-api/manifest.ts:17`），布局位映射见 `panelRegistry.ts:54-65` / `layoutRegistry.ts:28-34`。
-const CONTAINER_LABELS: Record<string, string> = {
-  right_sidebar: '侧栏',
-  panel: '面板',
-  bottom: '底部',
-  info_bar: '信息栏',
-  status_bar_right: '状态栏',
-  iteration: '迭代内嵌',
-  main: '主区',
-};
-/// 展示顺序（稳定；未知容器排最后）。
+/// 容器展示顺序（稳定；未知容器排最后）。
 const CONTAINER_ORDER: string[] = [
   'right_sidebar', 'panel', 'main', 'bottom', 'info_bar', 'status_bar_right', 'iteration',
 ];
 
-/** 容器 → 展示分组名（未知容器回落容器名本身，便于暴露协议新增值而不是静默吞掉）。 */
+/**
+ * 容器 → 展示分组名（未知容器回落容器名本身，便于暴露协议新增值而不是静默吞掉）。
+ *
+ * ⚠️ 用 if 链而不是 `Record<string,string>` 对象字面量：ArkTS 的
+ * `arkts-no-untyped-obj-literals` 会拒绝这种字面量（真门禁 ④ 实测：
+ * `Object literal must correspond to some explicitly declared class or interface`）。
+ */
 export function containerLabel(container: string): string {
   const c: string = container !== undefined && container !== null ? container.trim() : '';
-  if (c.length === 0) {
-    return '其他';
+  if (c === 'right_sidebar') {
+    return '侧栏';
   }
-  const label: string | undefined = CONTAINER_LABELS[c];
-  return label !== undefined ? label : c;
+  if (c === 'panel') {
+    return '面板';
+  }
+  if (c === 'bottom') {
+    return '底部';
+  }
+  if (c === 'info_bar') {
+    return '信息栏';
+  }
+  if (c === 'status_bar_right') {
+    return '状态栏';
+  }
+  if (c === 'iteration') {
+    return '迭代内嵌';
+  }
+  if (c === 'main') {
+    return '主区';
+  }
+  return c.length > 0 ? c : '其他';
 }
 
 /** 容器展示次序（用于分组排序；未知容器排最后但仍展示）。 */

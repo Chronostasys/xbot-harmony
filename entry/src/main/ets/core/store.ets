@@ -329,8 +329,12 @@ export class ChatStore {
     for (let i = 0; i < orphan.length; i++) {
       const src: SessionItem = orphan[i];
       const row: SubAgentRow = new SubAgentRow();
-      row.chat_id = src.chat_id !== undefined ? src.chat_id : '';
-      row.label = src.label !== undefined ? src.label : '';
+      // ⚠️ 外来 JSON：字符串字段可能是 null（Go nil → JSON null）⇒ 必须三态，
+      //    否则 `null` 会落进 `row.chat_id`（标注 string）并在下游 `.length` 处炸。
+      const cid: string | null | undefined = src.chat_id;
+      const lb: string | null | undefined = src.label;
+      row.chat_id = cid !== undefined && cid !== null ? cid : '';
+      row.label = lb !== undefined && lb !== null ? lb : '';
       row.running = src.running === true;
       subs.push(row);
     }
@@ -644,13 +648,17 @@ export class ChatStore {
       const msg: ChatMessage = {
         id: `m-${m.id}`,
         role,
-        content: m.content !== undefined ? m.content : '',
+        // ⚠️ 外来 JSON（`/api/history` 的 messages 元素）：字符串/数值字段都可能是
+        //    JSON null（Go nil → null）⇒ 必须**显式三态**（`isPresent` 不做类型收窄，
+        //    用在赋值/成员访问位置会因 `| null` 而编译不过）
+        content: m.content !== undefined && m.content !== null ? m.content : '',
         iterations: ChatStore.toWebIterations(m.iterations),
-        turnID: m.turn_id !== undefined ? m.turn_id : 0,
-        timestamp: m.timestamp !== undefined ? m.timestamp : '',
+        turnID: m.turn_id !== undefined && m.turn_id !== null ? m.turn_id : 0,
+        timestamp: m.timestamp !== undefined && m.timestamp !== null ? m.timestamp : '',
         isPartial: false,
         dbID: m.id,
-        regionsBefore: m.regions_before !== undefined ? m.regions_before : undefined,
+        regionsBefore: m.regions_before !== undefined && m.regions_before !== null
+          ? m.regions_before : undefined,
       };
       out.push(msg);
     }
@@ -823,8 +831,9 @@ export class ChatStore {
       this.pushEvent({
         type: 'user_ack',
         requestID,
-        dbID: ack.id !== undefined ? ack.id : 0,
-        turnHint: ack.turn_id !== undefined ? ack.turn_id : undefined,
+        // ⚠️ `/api/message` 回执是外来 JSON：字段可能 null ⇒ 显式三态（null 落进 dbID 会污染后续分页游标）
+        dbID: ack.id !== undefined && ack.id !== null ? ack.id : 0,
+        turnHint: ack.turn_id !== undefined && ack.turn_id !== null ? ack.turn_id : undefined,
         queued: ack.queued === true,
         command: ack.command === true,
       });
@@ -886,8 +895,11 @@ export class ChatStore {
     try {
       const st: SessionStatus = await this.http.postAs<SessionStatus>(
         '/api/session/status', new SessionReq(this.channel, this.currentChatId));
-      this.usage = st.token_usage;
-      this.cwd = st.cwd !== undefined ? st.cwd : '';
+      // ⚠️ 外来 JSON：`token_usage` 可能是 JSON null（无用量时服务端给 nil 指针）⇒ 必须在这里
+      //    收口成 `undefined`，否则 null 会落进 `usage: TokenUsage | undefined` 字段，
+      //    下游 `usage !== undefined` 判真 ⇒ 取 `usage.prompt_tokens` 炸（同类缺陷的典型形态）。
+      this.usage = st.token_usage !== undefined && st.token_usage !== null ? st.token_usage : undefined;
+      this.cwd = st.cwd !== undefined && st.cwd !== null ? st.cwd : '';
       this.todos = arrOrEmpty(st.todos);
       this.onUpdate();
     } catch (e) {
@@ -930,7 +942,10 @@ export class ChatStore {
    * （同类先例见 `:399` 的 `toLocalSettings(null)` 注释：服务端 nil map → JSON null）。
    */
   private pickAskUserFromProgress(p: ProgressEvent | null | undefined): void {
-    const qs: AskQuestion[] = p !== undefined && p !== null ? arrOrEmpty(p.questions) : [];
+    if (p === undefined || p === null) {
+      return; // 三态守卫：JSON null 与"缺字段"一视同仁（顺便让下面的 `p.xxx` 通过类型收窄）
+    }
+    const qs: AskQuestion[] = arrOrEmpty(p.questions);
     if (qs.length === 0) {
       return;
     }
@@ -946,8 +961,10 @@ export class ChatStore {
     }
     let firstQ: string = '';
     const qs: AskQuestion[] = arrOrEmpty(prompt.questions);
-    if (qs.length > 0 && qs[0].id !== undefined) {
-      firstQ = qs[0].id;
+    // ⚠️ 外来 JSON（ask_user 载荷）：`id` 可能 null（Go nil → null）⇒ 显式三态，别把 null 当问题 id 发回去
+    const firstId: string | null | undefined = qs.length > 0 ? qs[0].id : undefined;
+    if (firstId !== undefined && firstId !== null && firstId.length > 0) {
+      firstQ = firstId;
     }
     const single: string = answers[firstQ] !== undefined ? answers[firstQ] : '';
     await this.http.post('/api/ask_user/respond', new AskRespondReq(
@@ -980,8 +997,11 @@ export class ChatStore {
   async moveQueued(msgId: string, dir: number): Promise<void> {
     const ids: string[] = [];
     for (let i = 0; i < this.queue.length; i++) {
-      const id: string = this.queue[i].msg_id !== undefined ? this.queue[i].msg_id as string
-        : (this.queue[i].id !== undefined ? this.queue[i].id as string : '');
+      // ⚠️ 外来 JSON（`/api/queue/list` 的 items/queue 元素）：两个 id 字段都可能 null ⇒ 三态
+      const mid: string | null | undefined = this.queue[i].msg_id;
+      const qid: string | null | undefined = this.queue[i].id;
+      const id: string = mid !== undefined && mid !== null ? mid
+        : (qid !== undefined && qid !== null ? qid : '');
       if (id.length > 0) {
         ids.push(id);
       }
@@ -1162,8 +1182,9 @@ export class ChatStore {
         }
         this.lastTurnDoneNotifyAt = now;
       }
-      const detail: string = kind === NOTIFY_KIND_ASK ? this.askDetailForNotify() : '';
-      publishTurn(notifyTitle(kind, this.currentChatLabel()), notifyBody(kind, detail), this.currentChatId);
+      const detail: string = kind === NOTIFY_KIND_ASK ? ChatStore.askDetailOf(this.askUser) : '';
+      publishTurn(notifyTitle(kind, ChatStore.chatLabelOf(this.sessions, this.currentChatId)),
+        notifyBody(kind, detail), this.currentChatId);
     } catch (e) {
       // 通知是旁路：静默（主链路不受影响）
     }
@@ -1177,26 +1198,39 @@ export class ChatStore {
     return rid !== undefined && rid !== null ? rid : '';
   }
 
-  /** 待回答问题的正文（通知用）：取第一问的问题文本，回落 header。 */
-  private askDetailForNotify(): string {
-    const p: AskUserPrompt | null = this.askUser;
-    if (p === null || p.questions === undefined || p.questions.length === 0) {
+  /**
+   * 待回答问题的正文（通知用）：取第一问的问题文本，回落 header。
+   *
+   * 抽成**静态纯函数**：`askUser` 由外来 JSON 构造（`questions`/`question`/`header` 都可能是
+   * JSON null），而它的唯一调用点在"通知真的发出"时才会执行（脱机测试里永远走到不到）
+   * ⇒ 做成静态函数后可直接对 null 输入断言（判别力）。
+   */
+  static askDetailOf(p: AskUserPrompt | null | undefined): string {
+    // ⚠️ 旧写法 `p.questions === undefined` 对 null 为假，紧接 `.length` 直接抛
+    if (p === undefined || p === null) {
       return '';
     }
-    const q: AskQuestion = p.questions[0];
-    if (q.question !== undefined && q.question.length > 0) {
+    const qs: AskQuestion[] | null | undefined = p.questions;
+    if (qs === undefined || qs === null || qs.length === 0) {
+      return '';
+    }
+    const q: AskQuestion = qs[0];
+    if (q.question !== undefined && q.question !== null && q.question.length > 0) {
       return q.question;
     }
-    return q.header !== undefined ? q.header : '';
+    return q.header !== undefined && q.header !== null ? q.header : '';
   }
 
-  /** 当前会话的展示名（通知标题用）：找不到就回落 chat_id，再没有就空串。 */
-  private currentChatLabel(): string {
-    const id: string = this.currentChatId;
-    for (let i = 0; i < this.sessions.length; i++) {
-      if (this.sessions[i].chat_id === id) {
-        const l: string | undefined = this.sessions[i].label;
-        return l !== undefined && l.length > 0 ? l : id;
+  /**
+   * 会话展示名（通知标题用）：找不到就回落 chat_id，再没有就空串。
+   * 同样抽成静态纯函数（`label` 来自会话树 = 外来 JSON，可能是 null ⇒ 可测）。
+   */
+  static chatLabelOf(sessions: readonly SessionItem[], chatId: string): string {
+    for (let i = 0; i < sessions.length; i++) {
+      if (sessions[i].chat_id === chatId) {
+        // ⚠️ 旧写法 `l !== undefined && l.length` 在 label 为 null 时抛 Cannot read property 'length' of null
+        const l: string | null | undefined = sessions[i].label;
+        return l !== undefined && l !== null && l.length > 0 ? l : chatId;
       }
     }
     return '';

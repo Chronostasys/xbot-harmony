@@ -18,6 +18,7 @@
 declare const process: { exit: (c: number) => void };
 
 import { ChatStore } from '../../entry/src/main/ets/core/store';
+import type { AskQuestion, AskUserPrompt, SessionItem } from '../../entry/src/main/ets/core/types';
 
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean, extra?: string): void {
@@ -107,10 +108,12 @@ async function main(): Promise<void> {
       progress: { request_id: 'r1', questions: [{ id: 'q1', question: '继续吗？' }] },
     }));
     ok('正向对照：合法 ask_user 仍造出 pending 问题', store.askUser !== null);
-    ok('正向对照：问题文本正确',
-      store.askUser !== null && store.askUser.questions.length === 1
-        ? (store.askUser.questions[0].question !== undefined ? store.askUser.questions[0].question : '') : '',
-      '继续吗？');
+    const qs0: AskQuestion[] = store.askUser !== null
+      && store.askUser.questions !== undefined && store.askUser.questions !== null
+      ? store.askUser.questions : [];
+    const q0: string = qs0.length === 1 && qs0[0].question !== undefined && qs0[0].question !== null
+      ? qs0[0].question : '';
+    ok('正向对照：问题文本正确', q0 === '继续吗？', q0);
   }
 
   // ── ⑤ createSession：`/api/chats/create` 回 `chat_id:null` 不得抛 ──────────
@@ -129,6 +132,74 @@ async function main(): Promise<void> {
     }
     ok('★ createSession + chat_id:null 不得抛', threw.length === 0, threw);
   }
+
+  // ── ⑥ 本波（1d）新增类别：会话树 / 历史消息 / 队列 / 状态 / ask_user 的 null 字段 ──
+  {
+    const store = new ChatStore('http://127.0.0.1:9');
+    stubHttp(store, {
+      // 会话树：orphan_subagents 里的字符串字段为 null + sessions 的 label 为 null
+      '/api/session-tree': {
+        sessions: [{ chat_id: 'c1', channel: 'web', label: null }],
+        chats: null,
+        orphan_subagents: [{ chat_id: null, label: null, running: true }],
+      } as unknown as object,
+      // 历史：messages 元素的关键字段全 null（Go 零值/nil → JSON null）
+      '/api/history': {
+        messages: [{
+          id: 1, role: 'user', content: null, turn_id: null, timestamp: null,
+          regions_before: null, iterations: null,
+        }],
+        active_progress: null, has_more: null, last_seq: null, oldest_id: null,
+      } as unknown as object,
+      '/api/queue/list': { items: [{ msg_id: null, id: null, content: null }], queue: null } as unknown as object,
+      '/api/session/status': { cwd: null, token_usage: null, todos: null } as unknown as object,
+    });
+    stubSse(store);
+    let t1: string = '';
+    try {
+      await store.openSession('c1');
+    } catch (e) { t1 = (e as Error).message; }
+    ok('★ session-tree + history 的 null 字段不得抛', t1.length === 0, t1);
+
+    let t2: string = '';
+    try {
+      await store.loadSessions();
+    } catch (e) { t2 = (e as Error).message; }
+    ok('★ loadSessions（orphan_subagents 字段为 null）不得抛', t2.length === 0, t2);
+    ok('★ null 的 label 归一化为空串（不是 null）',
+      store.subagents.length > 0 && store.subagents[0].label === '', `${store.subagents.length}`);
+
+    let t3: string = '';
+    try {
+      await store.loadQueue();
+      await store.moveQueued('x', 1);
+    } catch (e) { t3 = (e as Error).message; }
+    ok('★ loadQueue/moveQueued（msg_id/id 为 null）不得抛', t3.length === 0, t3);
+
+    let t4: string = '';
+    try {
+      await store.loadStatus();
+    } catch (e) { t4 = (e as Error).message; }
+    ok('★ loadStatus（token_usage/cwd 为 null）不得抛', t4.length === 0, t4);
+    ok('★ null 的 token_usage 收口成 undefined（不是 null ⇒ 下游 `!== undefined` 不再误判）',
+      store.usage === undefined, `${store.usage}`);
+    ok('★ null 的 cwd 归一化为空串', store.cwd === '', store.cwd);
+  }
+
+  // ── ⑦ 通知侧两个纯函数（抽成静态后可直接喂 null）─────────────────────────
+  ok('askDetailOf(null) ⇒ 空', ChatStore.askDetailOf(null) === '');
+  ok('askDetailOf(questions:null) ⇒ 空', ChatStore.askDetailOf({ questions: null } as unknown as AskUserPrompt) === '');
+  ok('askDetailOf(question:null & header:null) ⇒ 空',
+    ChatStore.askDetailOf({ questions: [{ question: null, header: null }] } as unknown as AskUserPrompt) === '');
+  ok('askDetailOf(question 正常) ⇒ 原文',
+    ChatStore.askDetailOf({ questions: [{ question: '继续吗？' }] } as unknown as AskUserPrompt) === '继续吗？');
+  ok('askDetailOf(question:null 回落 header)',
+    ChatStore.askDetailOf({ questions: [{ question: null, header: '标题' }] } as unknown as AskUserPrompt) === '标题');
+  ok('chatLabelOf(label:null) ⇒ 回落 chat_id',
+    ChatStore.chatLabelOf([{ chat_id: 'c1', label: null }] as unknown as SessionItem[], 'c1') === 'c1');
+  ok('chatLabelOf(label 正常) ⇒ 用它',
+    ChatStore.chatLabelOf([{ chat_id: 'c1', label: '会话一' }] as unknown as SessionItem[], 'c1') === '会话一');
+  ok('chatLabelOf(找不到会话) ⇒ 空', ChatStore.chatLabelOf([], 'c9') === '');
 
   if (fail > 0) { console.log(`  store_null: ${pass} passed, ${fail} failed`); process.exit(1); }
   console.log(`  store_null: ${pass} passed, 0 failed`);

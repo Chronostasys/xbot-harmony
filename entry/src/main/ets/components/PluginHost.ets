@@ -130,8 +130,12 @@ export struct PluginHost {
                     Text(`v${p.version}`).fontSize(10).fontColor(this.pal().textMuted)
                   }
                   if (p.state.length > 0 && p.state !== 'active') {
-                    // 非 active（禁用/未激活）如实标注：不假装可用
-                    Text(p.state).fontSize(10).fontColor(this.pal().errorText)
+                    // 非 active（禁用/未激活）如实标注：不假装可用。
+                    // 语气是**中性**，不是出错 —— web 权威基准 `PluginManagerPanel.tsx:223`
+                    // (`isActive ? 'bg-green-500' : 'bg-slate-400'`) 非 active = 中性灰。
+                    // 用 `textSecondary` 而非 `textMuted`：后者（porcelain `#AEAEB2`）叠在
+                    // `surfaceAlt` 上对比度不足，10px 字读不清；`textSecondary` 五套主题都达标。
+                    Text(p.state).fontSize(10).fontColor(this.pal().textSecondary)
                       .padding({ left: 6, right: 6, top: 1, bottom: 1 })
                       .borderRadius(6)
                       .backgroundColor(this.pal().surfaceAlt)
