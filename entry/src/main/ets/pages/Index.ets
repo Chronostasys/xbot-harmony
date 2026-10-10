@@ -2771,6 +2771,13 @@ struct Index {
    * 过期的 running=true 快照曾把 idle 会话显示成"运行中"（真机）。
    */
   private runningNow(): boolean {
+    // ⛔ 会话隔离（用户要求）：busy 只能来自**当前会话自己的 store**，且身份必须一致。
+    //   切换瞬间 store / currentChat 可能短暂不一致（或 store 已置空）⇒ 一律按"不在跑"处理，
+    //   绝不用别的会话或上一会话的状态 —— 真机："隔壁会话 busy，我这也显示 busy"。
+    const runningStore: ChatStore | null = this.store;
+    if (runningStore === null || runningStore.currentChatId !== this.currentChat) {
+      return false;
+    }
     // ⛔ 与 web 同式：`currentSession.running || progressSnapshot.streaming || busyFallback(activeTurn!==null)`
     //   —— 只要本地还有"在飞的 live 迭代/行"就一定在跑；否则 SSE 抖动会让占位符一闪一没。
     if (this.liveOn) {

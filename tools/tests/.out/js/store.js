@@ -1090,7 +1090,19 @@ class ChatStore {
             it.stream_reasoning = this.streamReasoning;
         }
         if (this.streamTools.length > 0) {
-            it.tools = (0, streammerge_1.mergeTools)(it.tools, this.streamTools);
+            // 折叠时把仍是 generating/pending 的占位工具**丢弃**（它们只属于"正在流"的那一瞬），
+            // 只保留真实工具 —— 否则会在迭代上留下永不消失的 "生成中" 残留。
+            const real = [];
+            for (let i = 0; i < this.streamTools.length; i++) {
+                const st = this.streamTools[i].status !== undefined
+                    ? this.streamTools[i].status : '';
+                if (st !== 'generating' && st !== 'pending') {
+                    real.push(this.streamTools[i]);
+                }
+            }
+            if (real.length > 0) {
+                it.tools = (0, streammerge_1.mergeTools)(it.tools, real);
+            }
         }
         this.streamText = '';
         this.streamReasoning = '';
@@ -1118,6 +1130,15 @@ class ChatStore {
         // 迭代前进 ⇒ 先把流式缓冲折叠进上一迭代（否则同一段内容会被重复渲染到两个迭代）
         if (itNum > (0, streammerge_1.liveIterationOf)(row).iteration) {
             this.foldStreamBuffers(row);
+        }
+        // ⛔ 权威工具出现 ⇒ 清掉流式占位工具（web `clearStreamState` 同义）：
+        //   否则 `streaming_tools` 的 "generating" 会和真实工具**并存并残留**
+        //   （真机："shell 还是 generating 会状态残留"，2026-10-10）。
+        const authoritativeTools = (p.active_tools !== undefined && p.active_tools.length > 0)
+            || (p.completed_tools !== undefined && p.completed_tools.length > 0)
+            || (p.tool_calls !== undefined && p.tool_calls.length > 0);
+        if (authoritativeTools) {
+            this.streamTools = [];
         }
         (0, streammerge_1.applyStructured)((0, streammerge_1.upsertIteration)(row, itNum), p);
         const hist = p.iteration_history;
