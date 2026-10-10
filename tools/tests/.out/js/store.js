@@ -321,7 +321,16 @@ class ChatStore {
         }
         this.channel = (0, sessionpick_1.channelForChat)(this.sessions, chatId);
         this.currentChatId = chatId;
+        // ⛔ 会话隔离：**所有 per-turn / per-session 状态**都必须在这里复位，否则池里被复用的
+        //   store 会把上一个会话的状态带进来（真机："会话之间没隔离、状态不对"）。
+        //   —— 我先后新增过 lastTurnID / streamText / streamReasoning / streamTools / serverRunning，
+        //      必须与 lastSeq/rows/busy 同处复位，少一个就是一处串台。
         this.lastSeq = 0;
+        this.lastTurnID = 0;
+        this.streamText = '';
+        this.streamReasoning = '';
+        this.streamTools = [];
+        this.serverRunning = false;
         this.rows = [];
         this.busy = false;
         this.askUser = null;
