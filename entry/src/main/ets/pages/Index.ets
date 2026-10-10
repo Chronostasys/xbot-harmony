@@ -1,4 +1,5 @@
 import { common } from '@kit.AbilityKit';
+import { fileIo, picker } from '@kit.CoreFileKit';
 import { componentSnapshot, componentUtils, display, promptAction } from '@kit.ArkUI';
 import { image } from '@kit.ImageKit';
 import { BusinessError } from '@kit.BasicServicesKit';
@@ -10,6 +11,7 @@ import { displayContent, displayReasoning, streamStatsText } from '../core/strea
 import {
   channelLabel, hiddenRowCount, visibleRows, MAX_ROWS_VISIBLE,
 } from '../core/sessionpick';
+import { baseName, humanSize, mimeOf } from '../core/attach';
 import {
   AskOption,
   AskQuestion,
@@ -159,6 +161,12 @@ struct Index {
 
   /** 首屏渲染的行窗口（避免一次性构建几十行；点上方的「显示更早」按批放开） */
   @State rowLimit: number = MAX_ROWS_VISIBLE;
+
+  // ── 附件（web 有、原生原先没有：发文件/图片）──────────────────────────────
+  @State attachName: string = '';
+  @State attachKey: string = '';
+  @State attachSize: number = 0;
+  @State attaching: boolean = false;
 
   @State geoText: string = '';
   @State geoRunning: boolean = false;
@@ -697,18 +705,77 @@ struct Index {
 
   // ── 发送 / 取消 / 分页 ────────────────────────────────────────────────────
 
+  /**
+   * 选一个文件 → 读字节 → 上传 → 记下 `upload_key`（发送时随消息带上）。
+   *
+   * 与服务端契约一致：multipart 字段名 `file`，响应用 `upload_key`（见 core/attach.ets 与
+   * store.uploadAttachment）。上传完成前不允许发送（避免发出没有 key 的空附件）。
+   */
+  private async pickAndUpload(): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null || this.attaching) {
+      return;
+    }
+    let uri: string = '';
+    try {
+      const opt: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+      opt.maxSelectNumber = 1;
+      const res: string[] = await new picker.DocumentViewPicker().select(opt);
+      if (res === undefined || res.length === 0) {
+        return;
+      }
+      uri = res[0];
+    } catch (e) {
+      this.toast(`选择文件失败: ${errText(e as Object)}`);
+      return;
+    }
+    this.attaching = true;
+    this.attachName = baseName(uri);
+    this.attachKey = '';
+    try {
+      const st: fileIo.Stat = fileIo.statSync(uri);
+      const f: fileIo.File = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
+      const buf: ArrayBuffer = new ArrayBuffer(st.size);
+      fileIo.readSync(f.fd, buf);
+      fileIo.closeSync(f);
+      this.attachKey = await store.uploadAttachment(this.attachName, buf, mimeOf(this.attachName));
+      this.attachSize = st.size;
+      this.toast(`已附加 ${this.attachName}（${humanSize(st.size)}）`);
+    } catch (e) {
+      this.attachKey = '';
+      this.attachName = '';
+      this.toast(`上传失败: ${errText(e as Object)}`);
+    } finally {
+      this.attaching = false;
+    }
+  }
+
+  private clearAttachment(): void {
+    this.attachKey = '';
+    this.attachName = '';
+    this.attachSize = 0;
+  }
+
   private async sendDraft(): Promise<void> {
     const store: ChatStore | null = this.store;
     const text: string = this.draft.trim();
-    if (store === null || text.length === 0) {
+    const key: string = this.attachKey;
+    // 只有文字或只有附件都能发；上传中禁止发送（否则会发出没有 upload_key 的空附件）
+    if (store === null || this.attaching || (text.length === 0 && key.length === 0)) {
       return;
     }
     this.draft = '';
     try {
-      await store.send(text);
+      if (key.length > 0) {
+        await store.send(text, [key], [this.attachName], [this.attachSize]);
+        this.clearAttachment();
+      } else {
+        await store.send(text);
+      }
     } catch (e) {
-      const err: BusinessError = e as BusinessError;
-      this.toast(`发送失败: ${err.message}`);
+      // 失败：草稿与附件都还给用户（store 已回滚那条乐观行，界面不会留幽灵消息）
+      this.draft = text;
+      this.toast(`发送失败: ${errText(e as Object)}`);
     }
   }
 
@@ -1114,8 +1181,30 @@ struct Index {
       })
       .id('xbot-list')
 
+      // 附件 chip（已附加/上传中时显示）
+      if (this.attachName.length > 0) {
+        Row({ space: 6 }) {
+          Text(this.attaching
+            ? `⏳ 上传中… ${this.attachName}`
+            : `📎 ${this.attachName}（${humanSize(this.attachSize)}）`)
+            .fontSize(12).fontColor('#93C5FD').layoutWeight(1)
+            .maxLines(1).wordBreak(WordBreak.BREAK_ALL)
+          if (!this.attaching) {
+            Text('✕').fontSize(13).fontColor('#F87171').padding(6)
+              .onClick(() => {
+                this.clearAttachment();
+              })
+          }
+        }
+        .width('100%').padding({ left: 10, right: 4, top: 6 })
+      }
+
       // 输入区
       Row({ space: 8 }) {
+        Text('📎').fontSize(20).fontColor('#93C5FD').padding(8)
+          .onClick(() => {
+            this.pickAndUpload();
+          })
         TextInput({ placeholder: '给 xbot 发消息…', text: this.draft })
           .onChange((v: string) => {
             this.draft = v;

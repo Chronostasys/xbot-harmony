@@ -19,6 +19,16 @@ export interface ApiError {
 }
 
 /** 会话项（`/api/session-tree` / `/api/chats/list`）。 */
+/**
+ * `/api/files/upload` 的响应（服务端 `channel/web/web_file.go` 的 writeJSON：
+ * `{upload_key, name, size}`；Web 前端读的也是 `upload_key`）。
+ */
+export interface UploadResult {
+  upload_key?: string;
+  name?: string;
+  size?: number;
+}
+
 export interface SessionItem {
   chat_id: string;
   channel?: string;

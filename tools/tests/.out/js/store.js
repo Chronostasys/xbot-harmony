@@ -270,12 +270,48 @@ class ChatStore {
         this.touch(r);
         this.rows.push(r);
         this.onUpdate();
+        return r;
     }
-    async send(text) {
-        this.appendLocalUser(text);
+    /**
+     * 发送一条用户消息（可带附件）。
+     *
+     * ⚠️ 失败时**必须移除乐观插入的那一行**：否则界面上会留下一条"从未发出"的消息
+     * （用户看到的就是"发了但没反应/重复"）。失败原因原样抛给调用方展示（含服务端文案）。
+     */
+    async send(text, uploadKeys, fileNames, fileSizes) {
+        const row = this.appendLocalUser(text);
         this.busy = true;
         this.onUpdate();
-        await this.http.post('/api/message', new MessageBody(this.channel, this.currentChatId, text, 0));
+        try {
+            await this.http.post('/api/message', new MessageBody(this.channel, this.currentChatId, text, 0, uploadKeys, fileNames, fileSizes));
+        }
+        catch (e) {
+            // 回滚：把这条乐观行摘掉（并复位忙碌态由调用方/SSE 权威决定）
+            for (let i = this.rows.length - 1; i >= 0; i--) {
+                if (this.rows[i].id === row.id) {
+                    this.rows.splice(i, 1);
+                    break;
+                }
+            }
+            this.busy = false;
+            this.onUpdate();
+            throw e;
+        }
+    }
+    /**
+     * 上传一个附件，返回服务端给的 `upload_key`（发消息时放进 `upload_keys`）。
+     *
+     * 服务端契约（`channel/web/web_file.go` 的 writeJSON）：`{upload_key, name, size}` ——
+     * 与 Web 前端读的字段一致（`res.upload_key`）。字段名写错会得到 undefined ⇒ 附件静默丢失。
+     */
+    async uploadAttachment(name, data, mime) {
+        const raw = await this.http.uploadBytes('/api/files/upload', name, data, mime);
+        const res = JSON.parse(raw);
+        const key = res.upload_key;
+        if (key === undefined || key.length === 0) {
+            throw new Error('上传成功但响应里没有 upload_key（服务端契约变化？）');
+        }
+        return key;
     }
     async cancel() {
         await this.http.post('/api/cancel', new ChannelBody(this.channel, this.currentChatId));
@@ -603,11 +639,14 @@ class HistoryBody {
 }
 exports.HistoryBody = HistoryBody;
 class MessageBody {
-    constructor(channel, chatId, content, turnId) {
+    constructor(channel, chatId, content, turnId, uploadKeys, fileNames, fileSizes) {
         this.channel = channel;
         this.chat_id = chatId;
         this.content = content;
         this.turn_id = turnId;
+        this.upload_keys = uploadKeys;
+        this.file_names = fileNames;
+        this.file_sizes = fileSizes;
     }
 }
 exports.MessageBody = MessageBody;
