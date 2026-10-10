@@ -26,6 +26,10 @@ import {
   modelLabel, parseContext, selectable,
 } from '../core/llmfmt';
 import {
+  COPY_RAW, COPY_REPLY, COPY_THINKING, COPY_TOOLS, CopyParts, composeCopy, linkLabel, linksIn,
+  resolveOpenable, toolArgsOnly, toolCopyText, toolResultOnly,
+} from '../core/msgops';
+import {
   AskOption,
   AskQuestion,
   AskUserPrompt,
@@ -193,6 +197,14 @@ struct Index {
   @State ctxInput: string = '';
   /** 正在切换的模型条目（显示 loading，防连点） */
   @State modelBusy: string = '';
+
+  // ── 长按菜单（P5 消息操作：消息 / 迭代 / 工具 / 链接）──
+  @State ctxOpen: boolean = false;
+  /** user | row | iter | tool */
+  @State ctxKind: string = '';
+  @State ctxRowId: string = '';
+  @State ctxIter: number = 0;
+  @State ctxTool: string = '';
   @State usage: TokenUsage | undefined = undefined;
   @State cwd: string = '';
   @State todos: TodoItem[] = [];
@@ -1163,6 +1175,15 @@ struct Index {
       if (this.showModel) {
         this.ModelSheet()
       }
+      // 长按操作菜单（消息 / 迭代 / 工具 / 链接）——贴底弹出，点空白关闭
+      if (this.ctxOpen) {
+        Column() {
+          Blank().layoutWeight(1).width('100%').onClick(() => {
+            this.ctxOpen = false;
+          })
+          this.ContextSheet()
+        }.width('100%').height('100%')
+      }
       // 图片查看
       if (this.imagePixel !== null || this.imageBusy) {
         this.ImageViewer()
@@ -1468,6 +1489,281 @@ struct Index {
     this.rowDs.applyRows(tailRows(this.rows, this.rowLimit));
   }
 
+  // ── P5 消息操作（长按菜单）─────────────────────────────────────────────────
+  //
+  // 对齐 Web（`MessageActions.tsx`）：复制粒度四档 reply/thinking/tools/raw；
+  // 工具级复制输出/参数；链接走白名单（http/https/mailto），相对地址按服务端地址解析。
+
+  private openCtx(kind: string, rowId: string, iter: number, tool: string): void {
+    this.ctxKind = kind;
+    this.ctxRowId = rowId;
+    this.ctxIter = iter;
+    this.ctxTool = tool;
+    this.ctxOpen = true;
+  }
+
+  private ctxRow(): ChatRow | undefined {
+    for (let i = 0; i < this.rows.length; i++) {
+      if (this.rows[i].id === this.ctxRowId) {
+        return this.rows[i];
+      }
+    }
+    return undefined;
+  }
+
+  private ctxIteration(): HistoryIteration | undefined {
+    const row: ChatRow | undefined = this.ctxRow();
+    if (row === undefined) {
+      return undefined;
+    }
+    for (let i = 0; i < row.iterations.length; i++) {
+      if (row.iterations[i].iteration === this.ctxIter) {
+        return row.iterations[i];
+      }
+    }
+    return undefined;
+  }
+
+  private ctxToolObj(): ToolProgress | undefined {
+    const it: HistoryIteration | undefined = this.ctxIteration();
+    if (it === undefined || it.tools === undefined) {
+      return undefined;
+    }
+    for (let i = 0; i < it.tools.length; i++) {
+      if (it.tools[i].name === this.ctxTool) {
+        return it.tools[i];
+      }
+    }
+    return undefined;
+  }
+
+  /** 一个迭代的内容分段（正文/思考/工具/原文）。 */
+  private partsForIteration(it: HistoryIteration): CopyParts {
+    const p: CopyParts = new CopyParts();
+    p.reply = displayContent(it);
+    p.thinking = displayReasoning(it);
+    p.raw = it.content !== undefined ? it.content : '';
+    const segs: string[] = [];
+    if (it.tools !== undefined) {
+      for (let i = 0; i < it.tools.length; i++) {
+        const t: ToolProgress = it.tools[i];
+        const args: string = t.args !== undefined ? t.args : '';
+        const out: string = t.detail !== undefined ? t.detail : '';
+        segs.push(toolCopyText(t.name, args, out));
+      }
+    }
+    p.tools = segs.join('\n---\n');
+    return p;
+  }
+
+  /** 整条消息的分段（Web 语义：顶层 content → 最后一迭代正文 → 该迭代思考/工具）。 */
+  private partsForRow(row: ChatRow): CopyParts {
+    const p: CopyParts = new CopyParts();
+    let last: HistoryIteration | undefined = undefined;
+    if (row.iterations.length > 0) {
+      last = row.iterations[row.iterations.length - 1];
+    }
+    if (row.content.length > 0) {
+      p.reply = row.content;
+    } else if (last !== undefined) {
+      p.reply = displayContent(last);
+    }
+    if (last !== undefined) {
+      const ip: CopyParts = this.partsForIteration(last);
+      p.thinking = ip.thinking;
+      p.tools = ip.tools;
+      p.raw = ip.raw;
+    } else {
+      p.raw = row.content;
+    }
+    return p;
+  }
+
+  /** 当前菜单目标的文本（用于抽链接与整体复制）。 */
+  private ctxTargetText(): string {
+    const row: ChatRow | undefined = this.ctxRow();
+    if (row === undefined) {
+      return '';
+    }
+    if (this.ctxKind === 'user') {
+      return row.content;
+    }
+    if (this.ctxKind === 'iter') {
+      const it: HistoryIteration | undefined = this.ctxIteration();
+      return it !== undefined ? this.partsForIteration(it).reply : '';
+    }
+    if (this.ctxKind === 'tool') {
+      const t: ToolProgress | undefined = this.ctxToolObj();
+      return t !== undefined ? toolCopyText(t.name, t.args !== undefined ? t.args : '',
+        t.detail !== undefined ? t.detail : '') : '';
+    }
+    return this.partsForRow(row).reply;
+  }
+
+  /** 当前菜单目标里的链接（最多 3 条，避免菜单过长）。 */
+  private ctxLinks(): string[] {
+    const all: string[] = linksIn(this.ctxTargetText());
+    return all.length > 3 ? all.slice(0, 3) : all;
+  }
+
+  /** 复制到系统剪贴板（失败原样报错）。 */
+  private async copyText(text: string, what: string): Promise<void> {
+    if (text.trim().length === 0) {
+      this.toast('没有可复制的内容');
+      return;
+    }
+    try {
+      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+      await pasteboard.getSystemPasteboard().setData(data);
+      this.toast(`已复制${what}`);
+    } catch (e) {
+      this.toast(`复制失败: ${errText(e as Object)}`);
+    }
+  }
+
+  /** 打开链接（协议白名单 + 相对地址按服务端地址解析）。 */
+  private async openUrl(href: string): Promise<void> {
+    const store: ChatStore | null = this.store;
+    const base: string = store !== null ? store.http.baseUrl : normalizeServerUrl(this.serverUrl);
+    const abs: string = resolveOpenable(href, base);
+    if (abs.length === 0) {
+      this.toast('该链接不能打开（仅支持 http/https/mailto）');
+      return;
+    }
+    try {
+      const ctx: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      await ctx.startAbility({ action: 'ohos.want.action.viewData', uri: abs });
+    } catch (e) {
+      this.toast(`打开失败: ${errText(e as Object)}`);
+    }
+  }
+
+  private runCtxAction(code: string): void {
+    const row: ChatRow | undefined = this.ctxRow();
+    this.ctxOpen = false;
+    if (code === 'cancel') {
+      return;
+    }
+    if (code.indexOf('open-link:') === 0) {
+      const idx: number = Number.parseInt(code.substring(10), 10);
+      const ls: string[] = this.ctxLinks();
+      if (idx >= 0 && idx < ls.length) {
+        this.openUrl(ls[idx]);
+      }
+      return;
+    }
+    if (code.indexOf('copy-link:') === 0) {
+      const idx: number = Number.parseInt(code.substring(10), 10);
+      const ls: string[] = this.ctxLinks();
+      if (idx >= 0 && idx < ls.length) {
+        this.copyText(ls[idx], '链接地址');
+      }
+      return;
+    }
+    if (row === undefined) {
+      return;
+    }
+    if (code === 'user-text') {
+      this.copyText(row.content, '文本');
+      return;
+    }
+    if (code.indexOf('row-') === 0) {
+      this.copyText(composeCopy(this.partsForRow(row), this.variantOf(code)), '消息');
+      return;
+    }
+    if (code.indexOf('iter-') === 0) {
+      const it: HistoryIteration | undefined = this.ctxIteration();
+      if (it === undefined) {
+        return;
+      }
+      this.copyText(composeCopy(this.partsForIteration(it), this.variantOf(code)), '该迭代');
+      return;
+    }
+    if (code.indexOf('tool-') === 0) {
+      const t: ToolProgress | undefined = this.ctxToolObj();
+      if (t === undefined) {
+        return;
+      }
+      const args: string = t.args !== undefined ? t.args : '';
+      const out: string = t.detail !== undefined ? t.detail : '';
+      if (code === 'tool-out') {
+        this.copyText(toolResultOnly(out), '工具输出');
+      } else if (code === 'tool-args') {
+        this.copyText(toolArgsOnly(args), '工具参数');
+      } else {
+        this.copyText(toolCopyText(t.name, args, out), '工具内容');
+      }
+    }
+  }
+
+  private variantOf(code: string): string {
+    if (code.endsWith('reply')) {
+      return COPY_REPLY;
+    }
+    if (code.endsWith('thinking')) {
+      return COPY_THINKING;
+    }
+    if (code.endsWith('tools')) {
+      return COPY_TOOLS;
+    }
+    return COPY_RAW;
+  }
+
+  /** 菜单里的一项（点击走 `runCtxAction(code)`；@Builder 不能传闭包 ⇒ 用字符串码派发）。 */
+  @Builder
+  CtxItem(label: string, code: string) {
+    Text(label)
+      .fontSize(14).fontColor('#E5E7EB')
+      .width('100%').padding({ left: 16, right: 16, top: 11, bottom: 11 })
+      .onClick(() => {
+        this.runCtxAction(code);
+      })
+  }
+
+  /** 长按操作菜单（底部弹出，贴手指易点区）。 */
+  @Builder
+  ContextSheet() {
+    Column({ space: 0 }) {
+      Text(this.ctxKind === 'tool' ? '工具操作' : (this.ctxKind === 'iter' ? '迭代操作' : '消息操作'))
+        .fontSize(12).fontColor('#9CA3AF')
+        .width('100%').padding({ left: 16, top: 12, bottom: 6 })
+
+      if (this.ctxKind === 'user') {
+        this.CtxItem('复制文本', 'user-text')
+      } else if (this.ctxKind === 'tool') {
+        this.CtxItem('复制输出', 'tool-out')
+        this.CtxItem('复制参数', 'tool-args')
+        this.CtxItem('复制全部（名字+参数+输出）', 'tool-all')
+      } else if (this.ctxKind === 'iter') {
+        this.CtxItem('复制该迭代正文', 'iter-reply')
+        this.CtxItem('复制该迭代（含思考）', 'iter-thinking')
+        this.CtxItem('复制该迭代（含工具）', 'iter-tools')
+      } else {
+        this.CtxItem('复制回复', 'row-reply')
+        this.CtxItem('复制（含思考）', 'row-thinking')
+        this.CtxItem('复制（含工具）', 'row-tools')
+        this.CtxItem('复制原始 Markdown', 'row-raw')
+      }
+
+      // 链接（命中链接时才有 —— 与 Web 的落点语义一致）
+      if (this.ctxKind !== 'tool') {
+        ForEach(this.ctxLinks(), (l: string, i: number) => {
+          this.CtxItem(`打开链接 ${linkLabel(l)}`, `open-link:${i}`)
+          this.CtxItem(`复制链接地址 ${linkLabel(l)}`, `copy-link:${i}`)
+        }, (l: string, i: number) => `ctx-link-${i}`)
+      }
+
+      Divider().color('#1F2937').margin({ top: 4 })
+      this.CtxItem('取消', 'cancel')
+    }
+    .width('100%')
+    .backgroundColor('#0B0F19')
+    .borderRadius({ topLeft: 14, topRight: 14 })
+    .border({ width: 1, color: '#1F2937' })
+    .padding({ bottom: 10 })
+    .alignItems(HorizontalAlign.Start)
+  }
+
   /** 一行的主体（用户气泡 / 助手块）——由 `LazyForEach` 的 `ListItem` 调用。 */
   @Builder
   ChatRowBody(row: ChatRow) {
@@ -1490,6 +1786,9 @@ struct Index {
         .copyOption(CopyOptions.LocalDevice)
     }
     .width('100%').padding({ top: 6, bottom: 6 })
+    .gesture(LongPressGesture().onAction(() => {
+      this.openCtx('user', row.id, 0, '');
+    }))
   }
 
   @Builder
@@ -1535,6 +1834,10 @@ struct Index {
       }, (it: HistoryIteration) => `${row.id}#${row.rev}-${it.iteration}`)
     }
     .width('100%').alignItems(HorizontalAlign.Start).padding({ top: 6, bottom: 6 })
+    // 长按整条 → 复制（回复 / 含思考 / 含工具 / 原始 Markdown）
+    .gesture(LongPressGesture().onAction(() => {
+      this.openCtx('row', row.id, 0, '');
+    }))
   }
 
   /** 一个迭代 = 思考(T) / 正文(O) / 工具(C)。 */
@@ -1553,6 +1856,9 @@ struct Index {
         }
       }
       .width('100%')
+      .gesture(LongPressGesture().onAction(() => {
+        this.openCtx('iter', row.id, it.iteration, '');
+      }))
 
       if (this.showReasoning && displayReasoning(it).length > 0
         && this.openReasonKey === `${row.id}-${it.iteration}`) {
@@ -1616,6 +1922,9 @@ struct Index {
     .onClick(() => {
       this.toggleTool(row, it, t);
     })
+    .gesture(LongPressGesture().onAction(() => {
+      this.openCtx('tool', row.id, it.iteration, t.name);
+    }))
   }
 
   @Builder
