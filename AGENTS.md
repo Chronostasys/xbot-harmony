@@ -42,6 +42,7 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
 | `docs/WEB-ALIGNMENT.md` | 与 web 的逐条对照 + 历批修复记录（**最权威**） |
 | `docs/WEB-PARITY.md` | 功能面 parity 清单 |
 | `docs/DESIGN-SYSTEM.md` | 设计系统（tokens/主题/玻璃） |
+| `docs/BRAND.md` | 品牌：应用图标 / 开屏的 SVG 设计与再生成 |
 | `docs/TOOLPOPOVER-SPEC.md` | 工具 pill 浮层规格 |
 | `docs/UI-AUDIT-CHECKLIST.md` | UI 自检清单 |
 | `docs/INSTALL.md` / `docs/CI.md` / `docs/PREVIEWER-LINUX.md` | 环境/CI/预览器 |
@@ -55,3 +56,7 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
 - 组件只消费状态机产物；**判据与渲染必须同源**（同一个纯函数）。
 - 每个纯逻辑模块都要有判别力测试（`tools/tests/*.test.ts`，结尾 `process.exit`）。
 - 图标用 `SymbolGlyph($r('sys.symbol.*'))`；**HarmonyOS 无 brain 符号**，思考用 `lightbulb`。
+- **动效统一走底座**：`core/motion.ets`（纯数值，可脱机单测）+ `components/anim.ets`（UI 侧 `AnimateParam`
+  工厂，唯一 import `@ohos.curves` 处）。**`core/*.ets` 禁止 import ArkUI/`@ohos.*` 全局类型**
+  —— `run.sh` 把它当纯 TS 编译，会 TS2307。
+- **门禁并发安全**：`tools/tests/run.sh` 的产物目录带 PID（`.out.$$`），可多线并发跑互不干扰。
