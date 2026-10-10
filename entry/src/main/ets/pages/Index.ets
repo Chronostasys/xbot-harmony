@@ -55,6 +55,7 @@ import { OverlayCode, OverlayState, topOverlay } from '../core/overlays';
 import {
   currentTodo, goalText, modelText, todoProgress, usageText,
 } from '../core/statusfmt';
+import { ctxHasUsage, ctxLabel, ctxPercent } from '../core/ctxring';
 import {
   contextPresets, contextText, currentModelText, groupModels, LlmConfig, LlmModelEntry, ModelGroup,
   modelLabel, parseContext, selectable,
@@ -83,6 +84,7 @@ import { MessageRowView } from '../components/MessageRow';
 import { UserBubbleView } from '../components/UserBubble';
 import { MarkdownView } from '../components/MarkdownView';
 import { WebSurface } from '../components/WebSurface';
+import { ContextRing } from '../components/ContextRing';
 
 /** 一个问题当前选中的答案（用类而非 Map/Record：ArkTS 下最稳，且能整体替换触发重渲染）。 */
 class AskSelection {
@@ -2456,22 +2458,38 @@ struct Index {
         .padding({ top: 2, bottom: 2 })
       }
 
-      // 状态栏：模型 · token 用量 · todos · goal（点开看全部；全部来自服务端权威值）
+      // 状态栏：上下文用量环 + 模型 · token 用量 · todos · goal（点开看全部；全部来自服务端权威值）
       if (this.statusBarText().length > 0) {
-        Row({ space: 10 }) {
-          Text(this.statusBarText())
-            .fontSize(11).fontColor(this.pal().textSecondary).layoutWeight(1)
-            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-          if (this.todoCount() > 0 || this.goalLine().length > 0) {
-            Text('详情').fontSize(11).fontColor(this.pal().accentSoft).padding({ left: 6, right: 6 })
+        Row({ space: 8 }) {
+          // 上下文用量环（web `ContextRing.tsx` 同构）：常驻可视，≥80% 变告警色。
+          // ⛔ 无服务端用量时**不挂载**（web 画空轨道；这里整环不出现，绝不显示 "0%" 假值）。
+          if (ctxHasUsage(this.usage)) {
+            ContextRing({
+              percent: ctxPercent(this.usage),
+              label: ctxLabel(this.usage),
+              theme: this.themeName,
+            })
           }
+          // ⛔ "详情"的 onClick 绑在**这层内 Row**（不是外层 Row）：环自己带点击（弹明细浮层），
+          //    ArkUI 里更内层的 onClick 会吃掉事件 ⇒ 绑在外层就点不到"详情"。内 Row 用
+          //    layoutWeight(1) + 垂直 padding 补齐热区（≈ 改造前的整行可点面积）。
+          Row({ space: 10 }) {
+            Text(this.statusBarText())
+              .fontSize(11).fontColor(this.pal().textSecondary).layoutWeight(1)
+              .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+            if (this.todoCount() > 0 || this.goalLine().length > 0) {
+              Text('详情').fontSize(11).fontColor(this.pal().accentSoft).padding({ left: 6, right: 6 })
+            }
+          }
+          .layoutWeight(1)
+          .padding({ top: 4, bottom: 2 })
+          .onClick(() => {
+            this.anim(() => {
+              this.showStatus = true;
+            });
+          })
         }
-        .width('100%').padding({ left: 10, right: 10, top: 4, bottom: 2 })
-        .onClick(() => {
-          this.anim(() => {
-            this.showStatus = true;
-          });
-        })
+        .width('100%').padding({ left: 10, right: 10 })
       }
 
       // 弱网：连接断开时明确告知（并说明恢复后会自动补齐，避免用户重复发）
