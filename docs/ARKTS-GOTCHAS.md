@@ -367,3 +367,49 @@ Usage of standard library is restricted (arkts-limited-stdlib)
 规则：**机械插入后必须做括号平衡复核**（本仓 `tools/lint/render-path.sh` 之外，
 我在补丁脚本里加了 `ln.count('(') != ln.count(')')` 的检查），并且插入点要挑"后面一定有换行"的行。
 同类教训：`s.replace(anchor, ...)` 前一定要 `assert anchor in s`（本轮有两次因为漏断言而静默不生效）。
+## 2026-10-10 第二批：性能 / 组件复用 / 测试门禁（都来自真机与官方规范）
+
+依据 `harmony-next` skill（`~/.xbot/skills/harmony-next`）的《应用体验与性能规范》
+与 `guides/@Reusable装饰器：V1组件复用.md`；对照真实项目 ClashBox（`ProxyNodeItem.ets` 的
+`@Reusable` + `aboutToReuse`、`common/datasources/BaseDataSource.ets`）。
+
+### 1. 高频状态必须下沉到子组件，绝不能放页面级 @State
+真机现象：**"卡得要死、系统 spinner 半秒才动一次"**。根因：打字机是 20Hz 状态，
+放在页面级 `@State` ⇒ **每一拍都重跑整页 build**（列表、合成器、连系统 spinner 一起被拖慢）。
+正解：收进 `components/LiveTailView.ets` 这样的子组件 —— 高频刷新只重建那一棵子树。
+
+### 2. 每帧的数组/对象赋值在 ArkUI 里**一定**触发重渲染
+`this.rows = store.rows.slice()`、`this.sessions = …` 这类赋值即使内容没变也会刷新
+⇒ 每个 SSE 帧都整页重刷。正解：**内容指纹门控**（`长度 | 每行 id#rev`；sessions 为
+`chat_id#running#label`）——指纹包含每行 rev ⇒ 任何变化都会改变指纹，**不可能漏更新**；
+"变化时才替换"的数组（cronTasks/bgTasks/runners/subagents）直接比**引用**。
+
+### 3. `@Prop` 对**对象**是深拷贝 ⇒ 行数据必须 `@ObjectLink` + `@Observed class`
+行对象含上百迭代，用 `@Prop` 传会持续深拷贝。正解：`types.ets` 里
+`@Observed export class ChatRow` + 行组件 `@ObjectLink row: ChatRow`（不拷贝、可观测）。
+
+### 4. `@Reusable` 只对 **LazyForEach 的条目**生效
+把气泡/pill 抽成 `@Reusable` **没有收益**（它们不是 LazyForEach 条目）。
+真正的复用目标是**整行**：`components/MessageRow.ets`（`@Component @Reusable struct MessageRowView`）。
+
+### 5. `@Local` 是 **V2** 装饰器，V1 `@Component` 里非法
+搬块时把 `@State` 写成 `@Local` 会直接编译失败 ⇒ V1 组件用 `@State`。
+
+### 6. 机械搬块必须按**括号深度**定位，不能找"第一个 2 空格 }"
+否则会切坏块边界（括号不平衡 ⇒ 报 `Declaration expected.` / `',' expected.`，且报错位置
+指向无关行，极易误判）。本仓 `MessageRow` 的抽取改为 `depth = count('{') - count('}')`
+归零判定，并在写入前**断言括号平衡**。
+
+### 7. ArkUI 装饰器在"纯 TS" harness 下需要**双垫片**
+`tools/tests/run.sh` 把 `core/*.ets` 当纯 TS 编译 ⇒ `@Observed` 这类装饰器：
+- 编译期：`tools/typecheck/stubs/arkui_decorators.d.ts`（`declare const Observed: any;` …）；
+- **运行期**：装饰器语法编译后会**调用**该标识符 ⇒ 还需 `tools/tests/mocks/decorators.js`
+  把装饰器定义成恒等函数，并 `node -r` 预载（否则 `ReferenceError: Observed is not defined`）。
+
+### 8. 门禁绝不能用管道检查（血泪）
+`./tools/tests/run.sh | tail -2` —— **管道吞掉退出码**，测试红了也照样通过。
+必须 `./tools/tests/run.sh > log 2>&1; echo EXIT=$?` 显式看退出码。
+
+### 9. 进后台必须挂起非必要定时器（官方 §3）
+`onPageHide()` 挂起脉冲与打字机（`appPaused` + 组件 `paused` 属性），`onPageShow()` 恢复；
+否则后台空耗电，回前台还会与追赶逻辑打架（早该追平的文本突然"重新打字"）。

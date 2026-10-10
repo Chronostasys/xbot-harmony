@@ -143,3 +143,12 @@ MIT
 - ArkTS 限制与踩坑：`docs/ARKTS-GOTCHAS.md`
 
 唯一未交付项：**浅色主题**（378 处硬编码颜色需先收敛成语义 token，见走查清单末节）。
+
+## 2026-10-10 第二批：性能与组件复用（对齐官方规范 + 真实项目）
+
+- **组件级复用**：整行抽成 `components/MessageRow.ets`（`@Component @Reusable`，`@ObjectLink` + `@Observed class ChatRow`）；
+  用户气泡抽成 `components/UserBubbleView`；live 进行中块为 `components/LiveTailView`（打字机状态隔离在组件内）。
+- **渲染开销**：`syncFrom` 内容指纹门控（避免每帧数组赋值引发的整页重刷）；进后台挂起定时器（官方 §3）。
+- **参考**：`harmony-next` skill（官方规范与 API 12–26 离线参考）、ClashBox（`@Reusable`+`aboutToReuse`、`BaseDataSource`）。
+- **细节与坑**：见 `docs/ARKTS-GOTCHAS.md`（装饰器双垫片、@Prop 深拷贝、@Reusable 生效范围、
+  机械搬块必须按括号深度、门禁不能走管道 等 9 条）。
