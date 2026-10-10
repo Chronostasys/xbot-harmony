@@ -1,3 +1,4 @@
+import { AuthImage } from './AuthImage';
 import { pasteboard } from '@kit.BasicServicesKit';
 import {
   MdBlock, MdBlockKind, MdSpan, parseInlineCached, parseMarkdownCached,
@@ -83,6 +84,12 @@ export struct MarkdownView {
   /** 点击图片占位时的回调（参数是图片 src） */
   onImage: (src: string) => void = () => {
   };
+  /** 取图片字节（带鉴权；页面持有 HTTP 客户端） */
+  loadImage: (src: string) => Promise<ArrayBuffer> = async (s: string) => {
+    return new ArrayBuffer(0);
+  };
+  /** 消息内图片最大高度（vp） */
+  imageMaxHeight: number = 340;
 
   build() {
     Column({ space: 6 }) {
@@ -148,19 +155,14 @@ export struct MarkdownView {
       this.TableBlock(b)
     } else {
       this.Inline(b.text)
-      // 图片：xbot 的图片引用是 cookie 鉴权端点 ⇒ 用回调交给页面取字节渲染
+      // 图片：xbot 的图片引用是 cookie 鉴权端点（ArkUI Image(url) 不带 cookie）
+      // ⇒ 由页面取字节，AuthImage 负责解码/显示/缓存；点按交给查看器。
       ForEach(imagesIn(b.text), (src: string, k: number) => {
-        Row({ space: 6 }) {
-          Text('🖼').fontSize(14)
-          Text('查看图片').fontSize(12).fontColor('#93C5FD')
-        }
-        .padding({ left: 8, right: 8, top: 5, bottom: 5 })
-        .margin({ top: 2, bottom: 2 })
-        .backgroundColor('#111827')
-        .borderRadius(6)
-        .border({ width: 1, color: '#1F2937' })
-        .onClick(() => {
-          this.onImage(src);
+        AuthImage({
+          src: src,
+          load: this.loadImage,
+          onOpen: this.onImage,
+          maxHeight: this.imageMaxHeight,
         })
       }, (src: string, k: number) => `${b.key}-img${k}`)
     }

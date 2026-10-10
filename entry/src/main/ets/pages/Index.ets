@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { fileIo, picker } from '@kit.CoreFileKit';
 import { componentSnapshot, componentUtils, display, promptAction } from '@kit.ArkUI';
 import { image } from '@kit.ImageKit';
+import { pasteboard } from '@kit.BasicServicesKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
@@ -11,7 +12,11 @@ import { displayContent, displayReasoning, streamStatsText } from '../core/strea
 import {
   channelLabel, hiddenRowCount, visibleRows, MAX_ROWS_VISIBLE,
 } from '../core/sessionpick';
-import { baseName, humanSize, mimeOf } from '../core/attach';
+import {
+  ATTACH_DONE, ATTACH_FAILED, ATTACH_UPLOADING, AttachItem, MAX_ATTACH, appendRef, attachChipText,
+  attachmentRef, baseName, doneKeys, doneNames, doneRefs, doneSizes, hasRef, humanSize, mimeOf,
+  patchByUid, pendingCount, removeByUid,
+} from '../core/attach';
 import { changedRowIndices, rowKey, sameRowIds, tailRows } from '../core/rowdiff';
 import {
   currentTodo, goalText, modelText, todoProgress, usageText,
@@ -170,10 +175,11 @@ struct Index {
   @State rowLimit: number = MAX_ROWS_VISIBLE;
 
   // ── 附件（web 有、原生原先没有：发文件/图片）──────────────────────────────
-  @State attachName: string = '';
-  @State attachKey: string = '';
-  @State attachSize: number = 0;
-  @State attaching: boolean = false;
+  /**
+   * 附件列表（支持多选 + 逐条状态）。上传是并发的：**按 uid 回填，不按下标**。
+   * 只有 done 的才会进发送载荷；有 uploading 时禁止发送（否则发出没有 key 的空附件）。
+   */
+  @State attachments: AttachItem[] = [];
 
   // ── 会话状态栏（todos / goal / token 用量 / cwd）──
   @State showStatus: boolean = false;
@@ -736,43 +742,142 @@ struct Index {
    * 与服务端契约一致：multipart 字段名 `file`，响应用 `upload_key`（见 core/attach.ets 与
    * store.uploadAttachment）。上传完成前不允许发送（避免发出没有 key 的空附件）。
    */
-  private async pickAndUpload(): Promise<void> {
-    const store: ChatStore | null = this.store;
-    if (store === null || this.attaching) {
-      return;
-    }
-    let uri: string = '';
+  private async pickFiles(): Promise<void> {
     try {
       const opt: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
-      opt.maxSelectNumber = 1;
+      opt.maxSelectNumber = MAX_ATTACH;
       const res: string[] = await new picker.DocumentViewPicker().select(opt);
       if (res === undefined || res.length === 0) {
         return;
       }
-      uri = res[0];
+      await this.uploadUris(res);
     } catch (e) {
       this.toast(`选择文件失败: ${errText(e as Object)}`);
+    }
+  }
+
+  /** 从相册选图（多选）。 */
+  private async pickImages(): Promise<void> {
+    try {
+      const opt: picker.PhotoSelectOptions = new picker.PhotoSelectOptions();
+      opt.MIMEType = picker.PhotoViewMIMETypes.IMAGE_TYPE;
+      opt.maxSelectNumber = MAX_ATTACH;
+      const res: picker.PhotoSelectResult = await new picker.PhotoViewPicker().select(opt);
+      const uris: string[] = res !== undefined ? res.photoUris : [];
+      if (uris.length === 0) {
+        return;
+      }
+      await this.uploadUris(uris);
+    } catch (e) {
+      this.toast(`选择图片失败: ${errText(e as Object)}`);
+    }
+  }
+
+  /** 是否还有附件在上传（>0 禁止发送）。 */
+  private anyUploading(): boolean {
+    return pendingCount(this.attachments) > 0;
+  }
+
+  /** 批量入列并逐个上传（每个文件独立状态，互不影响）。 */
+  private async uploadUris(uris: string[]): Promise<void> {
+    const items: AttachItem[] = [];
+    for (let i = 0; i < uris.length; i++) {
+      const it: AttachItem = new AttachItem();
+      it.uid = util.generateRandomUUID();
+      it.uri = uris[i];
+      it.name = baseName(uris[i]);
+      it.mime = mimeOf(it.name);
+      it.status = ATTACH_UPLOADING;
+      items.push(it);
+    }
+    this.attachments = this.attachments.concat(items);
+    for (let i = 0; i < items.length; i++) {
+      await this.uploadOne(items[i].uid, items[i].uri, items[i].name, items[i].mime);
+    }
+  }
+
+  /** 上传一个本地文件（按 uid 回填状态）。 */
+  private async uploadOne(uid: string, uri: string, name: string, mime: string): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
       return;
     }
-    this.attaching = true;
-    this.attachName = baseName(uri);
-    this.attachKey = '';
     try {
       const st: fileIo.Stat = fileIo.statSync(uri);
       const f: fileIo.File = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
       const buf: ArrayBuffer = new ArrayBuffer(st.size);
       fileIo.readSync(f.fd, buf);
       fileIo.closeSync(f);
-      this.attachKey = await store.uploadAttachment(this.attachName, buf, mimeOf(this.attachName));
-      this.attachSize = st.size;
-      this.toast(`已附加 ${this.attachName}（${humanSize(st.size)}）`);
+      const key: string = await store.uploadAttachment(name, buf, mime);
+      this.attachments = patchByUid(this.attachments, uid, key, st.size, ATTACH_DONE, '');
     } catch (e) {
-      this.attachKey = '';
-      this.attachName = '';
-      this.toast(`上传失败: ${errText(e as Object)}`);
-    } finally {
-      this.attaching = false;
+      this.attachments = patchByUid(this.attachments, uid, '', 0, ATTACH_FAILED, errText(e as Object));
     }
+  }
+
+  /** 粘贴板里的图片直接变成附件（文本粘贴不拦截，交给输入框自身）。 */
+  private async pasteImage(): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    try {
+      const board: pasteboard.SystemPasteboard = pasteboard.getSystemPasteboard();
+      const data: pasteboard.PasteData = await board.getData();
+      const mime: string = data.getPrimaryMimeType().toLowerCase();
+      if (mime.indexOf('image/') !== 0) {
+        return;
+      }
+      const pm: image.PixelMap | undefined = await data.getPrimaryPixelMap();
+      if (pm === undefined) {
+        return;
+      }
+      const packer: image.ImagePacker = image.createImagePacker();
+      const buf: ArrayBuffer = await packer.packing(pm, { format: 'image/png', quality: 100 });
+      const it: AttachItem = new AttachItem();
+      it.uid = util.generateRandomUUID();
+      it.uri = '';
+      it.name = `粘贴图片-${Date.now()}.png`;
+      it.mime = 'image/png';
+      it.status = ATTACH_UPLOADING;
+      this.attachments = this.attachments.concat([it]);
+      this.toast(`正在上传${it.name}…`);
+      try {
+        const key: string = await store.uploadAttachment(it.name, buf, it.mime);
+        this.attachments = patchByUid(this.attachments, it.uid, key, buf.byteLength, ATTACH_DONE, '');
+      } catch (e) {
+        this.attachments = patchByUid(this.attachments, it.uid, '', 0, ATTACH_FAILED, errText(e as Object));
+      }
+    } catch (e) {
+      // 粘贴板无图片 / 无权限：静默（不打断用户输入）
+    }
+  }
+
+  /** 失败重试（用记录的本地 URI 重传）。 */
+  private async retryAttachment(uid: string): Promise<void> {
+    let target: AttachItem | undefined = undefined;
+    for (let i = 0; i < this.attachments.length; i++) {
+      if (this.attachments[i].uid === uid) {
+        target = this.attachments[i];
+      }
+    }
+    if (target === undefined || target.uri.length === 0) {
+      this.toast('无法重试：本地文件已不可用');
+      return;
+    }
+    this.attachments = patchByUid(this.attachments, uid, '', 0, ATTACH_UPLOADING, '');
+    const uri: string = target.uri;
+    const name: string = target.name;
+    const mime: string = target.mime;
+    await this.uploadOne(uid, uri, name, mime);
+  }
+
+  private removeAttachment(uid: string): void {
+    this.attachments = removeByUid(this.attachments, uid);
+  }
+
+  private clearAttachments(): void {
+    this.attachments = [];
   }
 
   /** 状态栏一行（只用服务端真实值拼装；都没有则返回空串，不占位）。 */
@@ -809,33 +914,52 @@ struct Index {
     return currentTodo(this.todos);
   }
 
-  private clearAttachment(): void {
-    this.attachKey = '';
-    this.attachName = '';
-    this.attachSize = 0;
-  }
-
   private async sendDraft(): Promise<void> {
     const store: ChatStore | null = this.store;
     const text: string = this.draft.trim();
-    const key: string = this.attachKey;
-    // 只有文字或只有附件都能发；上传中禁止发送（否则会发出没有 upload_key 的空附件）
-    if (store === null || this.attaching || (text.length === 0 && key.length === 0)) {
+    if (store === null || this.anyUploading()) {
       return;
     }
+    const keys: string[] = doneKeys(this.attachments);
+    const names: string[] = doneNames(this.attachments);
+    const sizes: number[] = doneSizes(this.attachments);
+    if (text.length === 0 && keys.length === 0) {
+      return;
+    }
+    // 正文里带上引用（看得见发了什么）。服务端 `appendUploadRef` 自带去重：
+    // 正文已有同一引用时不会再追加 —— 这正是 Web 上「图片变两张」的根治点。
+    let content: string = text;
+    const refs: string[] = doneRefs(this.attachments);
+    for (let i = 0; i < refs.length && i < keys.length; i++) {
+      if (!hasRef(content, keys[i])) {
+        content = appendRef(content, refs[i]);
+      }
+    }
+    const keep: AttachItem[] = this.attachments;
     this.draft = '';
+    this.attachments = [];
     try {
-      if (key.length > 0) {
-        await store.send(text, [key], [this.attachName], [this.attachSize]);
-        this.clearAttachment();
+      if (keys.length > 0) {
+        await store.send(content, keys, names, sizes);
       } else {
-        await store.send(text);
+        await store.send(content);
       }
     } catch (e) {
       // 失败：草稿与附件都还给用户（store 已回滚那条乐观行，界面不会留幽灵消息）
       this.draft = text;
+      this.attachments = keep;
       this.toast(`发送失败: ${errText(e as Object)}`);
     }
+  }
+
+  /** 取图片字节（带会话鉴权）—— AuthImage 与查看器共用同一实现。 */
+  private async loadImageBytes(src: string): Promise<ArrayBuffer> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return new ArrayBuffer(0);
+    }
+    const buf: ArrayBuffer | null = await store.http.getBinary(src);
+    return buf !== null ? buf : new ArrayBuffer(0);
   }
 
   /** 重试加载当前会话（网络恢复后一键回到正常）。 */
@@ -1259,33 +1383,49 @@ struct Index {
         })
       }
 
-      // 附件 chip（已附加/上传中时显示）
-      if (this.attachName.length > 0) {
-        Row({ space: 6 }) {
-          Text(this.attaching
-            ? `⏳ 上传中… ${this.attachName}`
-            : `📎 ${this.attachName}（${humanSize(this.attachSize)}）`)
-            .fontSize(12).fontColor('#93C5FD').layoutWeight(1)
-            .maxLines(1).wordBreak(WordBreak.BREAK_ALL)
-          if (!this.attaching) {
-            Text('✕').fontSize(13).fontColor('#F87171').padding(6)
-              .onClick(() => {
-                this.clearAttachment();
-              })
-          }
+      // 附件 chips：每条独立状态（⏳ 上传中 / 📎 已就绪 / ⚠ 失败可重试），✕ 移除
+      if (this.attachments.length > 0) {
+        Column({ space: 4 }) {
+          ForEach(this.attachments, (it: AttachItem, i: number) => {
+            Row({ space: 6 }) {
+              Text(attachChipText(it))
+                .fontSize(12)
+                .fontColor(it.status === ATTACH_FAILED ? '#FCA5A5' : '#93C5FD')
+                .layoutWeight(1).maxLines(1).wordBreak(WordBreak.BREAK_ALL)
+              Text(it.status === ATTACH_FAILED ? '重试' : '✕')
+                .fontSize(12)
+                .fontColor(it.status === ATTACH_FAILED ? '#FCD34D' : '#F87171')
+                .padding(6)
+                .onClick(() => {
+                  if (it.status === ATTACH_FAILED) {
+                    this.retryAttachment(it.uid);
+                  } else {
+                    this.removeAttachment(it.uid);
+                  }
+                })
+            }.width('100%')
+          }, (it: AttachItem, i: number) => `${it.uid}#${it.status}`)
         }
         .width('100%').padding({ left: 10, right: 4, top: 6 })
       }
 
       // 输入区
       Row({ space: 8 }) {
-        Text('📎').fontSize(20).fontColor('#93C5FD').padding(8)
+        Text('📎').fontSize(20).fontColor('#93C5FD').padding(6)
           .onClick(() => {
-            this.pickAndUpload();
+            this.pickFiles();
+          })
+        Text('🖼').fontSize(20).fontColor('#93C5FD').padding(6)
+          .onClick(() => {
+            this.pickImages();
           })
         TextInput({ placeholder: '给 xbot 发消息…', text: this.draft })
           .onChange((v: string) => {
             this.draft = v;
+          })
+          // 粘贴板里有图片就直接变成附件（文本粘贴不拦截，交给输入框自身处理）
+          .onPaste((value: string, event: PasteEvent) => {
+            this.pasteImage();
           })
           .layoutWeight(1).constraintSize({ minHeight: 42 }).backgroundColor('#111827').fontColor('#E5E7EB')
           .onSubmit(() => {
@@ -1341,9 +1481,15 @@ struct Index {
   AssistantBlock(row: ChatRow) {
     Column({ space: 6 }) {
       if (row.content.length > 0) {
-        MarkdownView({ text: row.content, onImage: (src: string) => {
-          this.openImage(src);
-        } })
+        MarkdownView({
+          text: row.content,
+          onImage: (src: string) => {
+            this.openImage(src);
+          },
+          loadImage: (src: string) => {
+            return this.loadImageBytes(src);
+          },
+        })
       }
       // 服务端折叠视图：更早的展示区域需按需取回（与 Web 端「⌃ 更早的 N 个区域」同源）
       if (row.regionsBefore > 0) {
@@ -1403,9 +1549,15 @@ struct Index {
       }
 
       if (displayContent(it).length > 0) {
-        MarkdownView({ text: displayContent(it), onImage: (src: string) => {
-          this.openImage(src);
-        } })
+        MarkdownView({
+          text: displayContent(it),
+          onImage: (src: string) => {
+            this.openImage(src);
+          },
+          loadImage: (src: string) => {
+            return this.loadImageBytes(src);
+          },
+        })
       }
 
       if (it.tools !== undefined && it.tools.length > 0) {
