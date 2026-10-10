@@ -4,6 +4,7 @@ import { componentSnapshot, componentUtils, display, promptAction } from '@kit.A
 import { image } from '@kit.ImageKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { vibrator } from '@kit.SensorServiceKit';
+import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
@@ -18,6 +19,9 @@ import {
   activeToken, applyCommand, applyMention, CommandItem, enterSends, FsEntry, joinPath, matchCommands,
   matchFiles, parentDir,
 } from '../core/composer';
+import {
+  clampOffset, clampScale, isZoomed, nextZoom, panLimit, saveImageName, scaleText,
+} from '../core/imgops';
 import {
   fontScaleFrom, fontScaleLabel, fontScalePresets, KEY_CODE_WRAP, KEY_FONT_SCALE,
   KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE, KEY_REASONING_DEFAULT, KEY_SEND_KEY, normalizeSendKey,
@@ -294,6 +298,17 @@ struct Index {
   // ── 图片查看 ──────────────────────────────────────────────────────────────
   @State imagePixel: image.PixelMap | null = null;
   @State imageBusy: boolean = false;
+  // ── P12 查看器：缩放/平移（夹取逻辑在 core/imgops.ets，已单测）──
+  @State imgScale: number = 1;
+  @State imgTransX: number = 0;
+  @State imgTransY: number = 0;
+  @State imgW: number = 0;
+  @State imgH: number = 0;
+  @State viewW: number = 0;
+  @State viewH: number = 0;
+  private imgBaseScale: number = 1;
+  private imgBaseX: number = 0;
+  private imgBaseY: number = 0;
 
   // ── 工具/迭代展开 ─────────────────────────────────────────────────────────
   @State openToolKey: string = '';
@@ -1329,6 +1344,37 @@ struct Index {
 
   // ── 图片（cookie 鉴权端点 → 自行取字节解码） ──────────────────────────────
 
+  /** 关闭查看器（复位缩放/位移，下次打开是干净的）。 */
+  private closeViewer(): void {
+    this.imagePixel = null;
+    this.imageBusy = false;
+    this.imgScale = 1;
+    this.imgTransX = 0;
+    this.imgTransY = 0;
+  }
+
+  /** 把当前图片存进相册（SaveButton 授权成功后调用；失败原样报错，不静默）。 */
+  private async saveToAlbum(): Promise<void> {
+    const pm: image.PixelMap | null = this.imagePixel;
+    if (pm === null) {
+      return;
+    }
+    try {
+      const ctx: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const helper: photoAccessHelper.PhotoAccessHelper = photoAccessHelper.getPhotoAccessHelper(ctx);
+      const opts: photoAccessHelper.CreateOptions = { title: saveImageName(Date.now()) };
+      const uri: string = await helper.createAsset(photoAccessHelper.PhotoType.IMAGE, 'png', opts);
+      const f: fileIo.File = await fileIo.open(uri, fileIo.OpenMode.READ_WRITE);
+      const packer: image.ImagePacker = image.createImagePacker();
+      const buf: ArrayBuffer = await packer.packing(pm, { format: 'image/png', quality: 100 });
+      await fileIo.write(f.fd, buf);
+      await fileIo.close(f);
+      this.toast('已保存到相册');
+    } catch (e) {
+      this.toast(`保存失败: ${errText(e as Object)}`);
+    }
+  }
+
   private async openImage(src: string): Promise<void> {
     const store: ChatStore | null = this.store;
     if (store === null) {
@@ -1344,6 +1390,13 @@ struct Index {
       }
       const source: image.ImageSource = image.createImageSource(buf);
       const pm: image.PixelMap = await source.createPixelMap();
+      // 记录原始尺寸（平移边界要用）并复位缩放/位移
+      const info: image.ImageInfo = await pm.getImageInfo();
+      this.imgW = info.size.width;
+      this.imgH = info.size.height;
+      this.imgScale = 1;
+      this.imgTransX = 0;
+      this.imgTransY = 0;
       this.imagePixel = pm;
     } catch (e) {
       const err: BusinessError = e as BusinessError;
@@ -3775,11 +3828,28 @@ struct Index {
   @Builder
   ImageViewer() {
     Column() {
-      Row() {
+      Row({ space: 8 }) {
         Text('图片').fontSize(15).fontColor('#E5E7EB').layoutWeight(1)
+        if (isZoomed(this.imgScale)) {
+          Text(scaleText(this.imgScale)).fontSize(12).fontColor('#9CA3AF')
+          Text('复位').fontSize(12).fontColor('#93C5FD').padding(6).onClick(() => {
+            this.imgScale = 1;
+            this.imgTransX = 0;
+            this.imgTransY = 0;
+          })
+        }
+        // 保存到相册：走系统安全组件（SaveButton）—— 用户授权后才有写权限，
+        // 因此不需要申请相册写权限，也不会在未授权时静默失败。
+        SaveButton({ icon: SaveIconStyle.FULL_FILLED, text: SaveDescription.SAVE_IMAGE, buttonType: ButtonType.Capsule })
+          .onClick((event: ClickEvent, result: SaveButtonOnClickResult) => {
+            if (result === SaveButtonOnClickResult.SUCCESS) {
+              this.saveToAlbum();
+            } else {
+              this.toast('需要授权才能保存到相册');
+            }
+          })
         Text('✕').fontSize(16).fontColor('#9CA3AF').padding(10).onClick(() => {
-          this.imagePixel = null;
-          this.imageBusy = false;
+          this.closeViewer();
         })
       }.width('100%')
 
@@ -3789,10 +3859,58 @@ struct Index {
           Text('加载图片…').fontSize(12).fontColor('#9CA3AF').margin({ top: 8 })
         }.layoutWeight(1).justifyContent(FlexAlign.Center)
       } else if (this.imagePixel !== null) {
-        Image(this.imagePixel)
-          .objectFit(ImageFit.Contain)
-          .layoutWeight(1)
-          .width('100%')
+        Stack() {
+          Image(this.imagePixel)
+            .objectFit(ImageFit.Contain)
+            .width('100%')
+            .height('100%')
+            .scale({ x: this.imgScale, y: this.imgScale })
+            .translate({ x: this.imgTransX, y: this.imgTransY })
+            .gesture(
+              GestureGroup(GestureMode.Parallel,
+                // 双指缩放：以手势开始时的缩放为基准（否则会指数级失控）
+                PinchGesture({ fingers: 2 })
+                  .onActionStart(() => {
+                    this.imgBaseScale = this.imgScale;
+                  })
+                  .onActionUpdate((e: GestureEvent) => {
+                    this.imgScale = clampScale(this.imgBaseScale * e.scale);
+                    if (!isZoomed(this.imgScale)) {
+                      this.imgTransX = 0;
+                      this.imgTransY = 0;
+                    }
+                  }),
+                // 拖动平移：位移同样以手势开始时的位置为基准，并按放大倍数夹取
+                PanGesture({ fingers: 1 })
+                  .onActionStart(() => {
+                    this.imgBaseX = this.imgTransX;
+                    this.imgBaseY = this.imgTransY;
+                  })
+                  .onActionUpdate((e: GestureEvent) => {
+                    const limX: number = panLimit(this.imgScale, this.viewW, this.imgW);
+                    const limY: number = panLimit(this.imgScale, this.viewH, this.imgH);
+                    this.imgTransX = clampOffset(this.imgBaseX + e.offsetX, limX);
+                    this.imgTransY = clampOffset(this.imgBaseY + e.offsetY, limY);
+                  }),
+                // 双击：1 ↔ 2.5 倍
+                TapGesture({ count: 2 })
+                  .onAction(() => {
+                    this.imgScale = nextZoom(this.imgScale);
+                    if (!isZoomed(this.imgScale)) {
+                      this.imgTransX = 0;
+                      this.imgTransY = 0;
+                    }
+                  })
+              )
+            )
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .clip(true)
+        .onAreaChange((oldArea: Area, newArea: Area) => {
+          this.viewW = Number(newArea.width);
+          this.viewH = Number(newArea.height);
+        })
       }
     }
     .width('94%').height('80%').padding(12)
