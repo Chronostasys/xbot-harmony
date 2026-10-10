@@ -72,6 +72,7 @@ import {
 } from '../core/types';
 import { runeCount } from '../core/typewriter';
 import { LiveTailView } from '../components/LiveTailView';
+import { UserBubbleView } from '../components/UserBubble';
 import { MarkdownView } from '../components/MarkdownView';
 import { WebSurface } from '../components/WebSurface';
 
@@ -3532,7 +3533,13 @@ struct Index {
   @Builder
   ChatRowBody(row: ChatRow) {
     if (row.role === 'user') {
-      this.UserBubble(row)
+      UserBubbleView({
+        text: row.content,
+        theme: this.themeName,
+        onLongPress: () => {
+          this.openCtx('user', row.id, 0, '');
+        },
+      })
     } else if (!rowIsEmpty(row)) {
       // 空气泡守卫：无正文/思考/工具的行（含等待首帧的 live 行）不渲染卡片；
       // 等待态由列表尾部的「思考中…」占位承担（与 web 的 ShimmerThinking 同语义）
@@ -3540,22 +3547,6 @@ struct Index {
     }
   }
 
-  @Builder
-  UserBubble(row: ChatRow) {
-    Row() {
-      Blank()
-      Text(row.content)
-        .wordBreak(WordBreak.BREAK_ALL)
-        .fontSize(15).fontColor(this.pal().textPrimary).padding(12)
-        .constraintSize({ maxWidth: '78%' })
-        .backgroundColor(this.pal().bubbleUser).borderRadius(12)
-        .copyOption(CopyOptions.LocalDevice)
-    }
-    .width('100%').padding({ top: 6, bottom: 6 })
-    .gesture(LongPressGesture().onAction(() => {
-      this.openCtx('user', row.id, 0, '');
-    }))
-  }
 
   @Builder
   AssistantBlock(row: ChatRow) {
