@@ -216,7 +216,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | web 功能 | 入口 file:line | 现状 | 依赖 | 需动哪个文件 |
 |---|---|---|---|---|
 | **SubAgent 进度树** | `components/agent/SubAgentProgressTree.tsx:27` | **未迁（数据已全、零渲染）** ⚠️ | 无 | ✅ 已交付 `core/subagent.ets` + `components/SubAgentTree.ets`；接线 `components/MessageRow.ets` |
-| Todo 拉出面板 | `components/agent/TodoPullOut.tsx:28` | 部分（只有状态**文本** `core/statusfmt.ets:43,57`；无列表/交互） | 无 | 新增 `components/TodoPanel.ets` + `Index.ets` |
+| Todo 拉出面板 | `components/agent/TodoPullOut.tsx:28` | **已交付纯逻辑+组件（待接线）** —— `core/todos.ets` + `components/TodoPanel.ets`（`dae96fe` 之后的波6）；原状态：只有状态**文本** `core/statusfmt.ets:43,57` | 无 | 接线 `pages/Index.ets`（`@Prop` 契约见 `core/todos.ets` 头注释） |
 | Goal 横幅 | `components/agent/GoalBanner.tsx:30` | 部分（`core/statusfmt.ets:72` 的状态行） | 无 | 新增 `components/GoalBanner.ets` + `Index.ets` |
 | 消息操作菜单（复制变体/编辑/回退） | `components/agent/MessageActions.tsx:31` | 部分（只有长按整条复制 `core/msgops.ets:11`） | 无 | 扩 `core/msgops.ets` + `Index.ets` 长按菜单 |
 | 消息注释/高亮 | `components/agent/MessageAnnotations.tsx:47`、`lib/messageAnnotations.ts:32` | 未迁 | 本地存储 | 新增 `core/msgannot.ets` + 组件 |
@@ -266,5 +266,16 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 - 「必须动 `pages/Index.ets` 才能落地」的：Todo/Goal 面板、StagingTray、PathPicker、
   插件接线、设置剩余分区 —— **全部要等 `Index.ets` 释放**。
 - 已本波交付的 `SubAgentTree` + `core/subagent.ets` 属**数据已就绪、只差接线**的最高性价比项。
+
+**进度更新（2026-10-11 波6）**：
+- ✅ **已交付（纯逻辑 + 组件，待接线）**：`Todo 拉出面板` —— `core/todos.ets`（状态归一 /
+  `TodoState` 统计 / toggle·rename·remove / goal 判定 / `set_todos` 载荷）+ `components/TodoPanel.ets`。
+- 🔴 **本波发现的原生 bug（未修，不在我的文件范围）**：`core/statusfmt.ets:50` 用
+  `status === 'completed'`、`:62` 用 `status === 'in_progress'` 判 todo 状态，**而服务端权威词汇是
+  `"pending" | "doing" | "done"`**（`xbot/tools/todo.go:15`、`xbot/protocol/events.go:19`；
+  web 侧同为 `done`/`doing`，见 `web/src/hooks/useTodos.ts:37-41`）
+  ⇒ 原生「todos N/M」**恒为 `0/N`**、`currentTodo` **恒为空串**（状态行永远不显示当前任务）。
+  修法：把 `'completed'`→`'done'`、`'in_progress'`→`'doing'`（或直接复用 `core/todos.ets:todoStatusKind`）。
+- 其余未迁项按上表「需动哪个文件」列各自排队；**必须动 `pages/Index.ets` 的都等它释放**。
 
 
