@@ -11,7 +11,7 @@ import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '..
 import { webview } from '@kit.ArkWeb';
 import { ChatStore } from '../core/store';
 import { beginTurnKeepAlive, endTurnKeepAlive, ensureEnabled, notificationsEnabled, PENDING_CHAT_KEY, PENDING_CHAT_SEQ_KEY } from '../core/notify';
-import { ALL_THEMES, normalizeTheme, Palette, paletteOf, themeLabel, Effects, effectsOf, isDarkThemeName } from '../core/theme';
+import { ALL_THEMES, normalizeTheme, Palette, paletteOf, themeLabel, Effects, effectsOf, isDarkThemeName, isLightPalette } from '../core/theme';
 import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, withAccent } from '../core/accent';
 import { MD_THEMES, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';
 import { localeLabel, normalizeLocale } from '../core/i18n';
@@ -45,6 +45,7 @@ import {
   channelLabel, hiddenRowCount, visibleRows, MAX_ROWS_VISIBLE,
 } from '../core/sessionpick';
 import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msgindex';
+import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem } from '../core/pluginhost';
 import {
   ATTACH_DONE, ATTACH_FAILED, ATTACH_UPLOADING, AttachItem, MAX_ATTACH, appendRef, attachChipText,
   attachmentRef, baseName, doneKeys, doneNames, doneRefs, doneSizes, hasRef, humanSize, mimeOf,
@@ -89,6 +90,7 @@ import { WebSurface } from '../components/WebSurface';
 import { ContextRing } from '../components/ContextRing';
 import { SettingsPanel } from '../components/SettingsPanel';
 import { MessageNav } from '../components/MessageNav';
+import { PluginHost } from '../components/PluginHost';
 
 /** 一个问题当前选中的答案（用类而非 Map/Record：ArkTS 下最稳，且能整体替换触发重渲染）。 */
 class AskSelection {
@@ -342,6 +344,12 @@ struct Index {
   // ── 插件 / ArkWeb 面板 ────────────────────────────────────────────────────
   @State plugins: PluginPanelInfo[] = [];
   @State panelUrl: string = '';
+  /** 原生「插件目录 + 宿主页」（components/PluginHost）的全屏浮层与数据。 */
+  @State showPluginHost: boolean = false;
+  @State pluginItems: PluginCatalogItem[] = [];
+  @State pluginGroups: PluginCatalogGroup[] = [];
+  /** 插件宿主页 URL（**与页面级 `panelUrl` 分离** ⇒ 不会同时挂载两个 WebSurface）。 */
+  @State pluginPageUrl: string = '';
 
   // ── 图片查看 ──────────────────────────────────────────────────────────────
   @State imagePixel: image.PixelMap | null = null;
@@ -778,6 +786,15 @@ struct Index {
    * 的必答项，故意不在此关闭（见 core/overlays.topOverlay 的说明）。
    */
   onBackPress(): boolean {
+    // 全屏插件宿主浮层：优先关"承载的宿主页"，其次关整个浮层（与 WebSurface 的 ‹ 返回同序）
+    if (this.showPluginHost) {
+      if (this.pluginPageUrl.length > 0) {
+        this.pluginPageUrl = '';
+      } else {
+        this.showPluginHost = false;
+      }
+      return true;
+    }
     // 全屏设置分区面板（工具/模型/智能体）优先于既有浮层栈关闭（它是渲染在最上层的全屏层）
     if (this.showSettingsPanel) {
       this.showSettingsPanel = false;
@@ -2008,6 +2025,32 @@ struct Index {
     this.showPlugins = true;
   }
 
+  /**
+   * 打开**原生插件目录 + 宿主页**（`components/PluginHost` 的唯一注入点）。
+   * 目录数据 = `store.loadPluginCatalog()`（服务端 `web_plugin_list` 元数据，零猜测）。
+   * 宿主页 URL 用**独立的** `pluginPageUrl`（与页面级 `panelUrl` 分离）。
+   */
+  private async openPluginHost(): Promise<void> {
+    // 浮层互斥：从抽屉/能力面板进入 ⇒ 先收它们
+    this.showDrawer = false;
+    this.showPlugins = false;
+    this.panelUrl = '';
+    this.pluginPageUrl = '';
+    this.showPluginHost = true;
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    try {
+      const catalog: PluginCatalog = await store.loadPluginCatalog(this.localeId());
+      this.pluginItems = catalog.items;
+      this.pluginGroups = catalog.groups;
+    } catch (e) {
+      // 目录非关键路径：失败留空目录（PluginHost 会显示"没有声明前端产物的插件"）
+      this.toast(`插件目录加载失败: ${errText(e as Object)}`);
+    }
+  }
+
   // ── 图片（cookie 鉴权端点 → 自行取字节解码） ──────────────────────────────
 
   /** 关闭查看器（复位缩放/位移，下次打开是干净的）。 */
@@ -2264,6 +2307,36 @@ struct Index {
           } else {
             Text('未连接服务端').fontSize(FS_CAPTION).fontColor(this.pal().textMuted).padding(SP_4)
           }
+        }
+        .width('100%').height('100%')
+        .backgroundColor(this.pal().appBg)
+      }
+      // 全屏：原生插件目录 + 宿主页（components/PluginHost 的**唯一注入点**，消孤儿）。
+      if (this.showPluginHost) {
+        Column() {
+          Row() {
+            Text('插件').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
+            SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
+              .onClick(() => {
+                this.showPluginHost = false;
+                this.pluginPageUrl = '';
+              })
+          }.width('100%').padding({ left: SP_5, right: SP_2, top: SP_3, bottom: SP_1 })
+
+          Column() {
+            PluginHost({
+              items: this.pluginItems,
+              groups: this.pluginGroups,
+              theme: this.themeName,
+              panelUrl: this.pluginPageUrl,
+              onOpen: (url: string) => {
+                this.pluginPageUrl = url;
+              },
+              onClose: () => {
+                this.pluginPageUrl = '';
+              },
+            })
+          }.width('100%').layoutWeight(1)
         }
         .width('100%').height('100%')
         .backgroundColor(this.pal().appBg)
@@ -2545,7 +2618,10 @@ struct Index {
         && !this.loadingMore && this.currentChat.length > 0) {
         Column({ space: SP_3 }) {
           SymbolGlyph($r('sys.symbol.star_fill')).fontSize(52).fontColor([this.pal().accent])
-            .shadow({ radius: 24, color: this.eff().glow, offsetX: 0, offsetY: 0 })
+            // 阴影只给深色系（accent 外发光有意义）；浅色系（含极简白）**不加** ——
+            // `.shadow` 按**字形包围盒**渲染，白底上会读成"多余的白盒+软阴影"（真机走查）。
+            // 判据用 `isLightPalette`（按 appBg 感知亮度，新增主题自动成立），不按主题名硬判。
+            .shadow(this.emptyStarShadow())
             .opacity(this.pulseOn ? 1 : 0.5)
             .animation({ duration: 1400, curve: Curve.EaseInOut })
           Text('开始对话').fontSize(FS_HERO).fontWeight(FontWeight.Medium)
@@ -3086,6 +3162,20 @@ struct Index {
   }
 
   /**
+   * 空态星形的阴影：**深色系**保留既有 accent 外发光；**浅色系**（含极简白）返回"无阴影"。
+   *
+   * 为什么：`.shadow` 是按**字形包围盒**渲染的 —— 在白底上，那圈软阴影会被读成
+   * "多了一张没人要的白盒卡片"而不是有意为之（真机走查）。判据用 `isLightPalette`
+   * （按 `appBg` 感知亮度，新增主题自动成立），**不按主题名硬判**。
+   */
+  private emptyStarShadow(): ShadowOptions {
+    if (isLightPalette(this.pal())) {
+      return { radius: 0, color: this.pal().transparent, offsetX: 0, offsetY: 0 };
+    }
+    return { radius: 24, color: this.eff().glow, offsetX: 0, offsetY: 0 };
+  }
+
+  /**
    * 毛玻璃的明暗模式 —— **跟随当前主题**。
    *
    * 为什么需要它：`backgroundBlurStyle` 的 `colorMode` 原先被硬编码为 `DARK`，
@@ -3383,6 +3473,8 @@ struct Index {
   }
 
   private async openPrefs(): Promise<void> {
+    // 浮层互斥：偏好设置面板由抽屉进入 ⇒ **先收抽屉**（否则两个浮层叠加，顶部既没被压暗也没被盖住）
+    this.showDrawer = false;
     this.anim(() => {
             this.showPrefs = true;
           });
@@ -3612,6 +3704,8 @@ struct Index {
   }
 
   private openPanels(): void {
+    // 浮层互斥：面板由抽屉进入 ⇒ 先收抽屉（同一时刻只允许一个半屏/全屏浮层）
+    this.showDrawer = false;
     this.anim(() => {
             this.showPanels = true;
           });
@@ -4212,7 +4306,8 @@ struct Index {
       //    这里**不给可点切换**，避免"点了没反应"的假功能；该项与 web 共享，改 web 会同步过来。
       Row({ space: 8 }) {
         Text(settingLabel(KEY_LOCALE)).fontSize(12).fontColor(this.pal().textSecondary).layoutWeight(1)
-        Text(`${localeLabel(this.localeId())}（界面文案待抽表）`)
+        // 只展示语言名（用户可见文案里**不留**任何内部术语/TODO）
+        Text(localeLabel(this.localeId()))
           .fontSize(12).fontColor(this.pal().textMuted)
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
       }.width('100%')
@@ -5333,6 +5428,17 @@ struct Index {
         .fontSize(11).fontColor(this.pal().textSecondary).width('100%')
 
       List() {
+        // 原生插件目录（components/PluginHost）：列出所有插件/视图贡献点，点开在宿主页运行
+        ListItem() {
+          Row() {
+            Text('插件目录（原生）').fontSize(14).fontColor(this.pal().textPrimary).layoutWeight(1)
+            Text('打开').fontSize(12).fontColor(this.pal().accentSoft)
+          }
+          .width('100%').padding(12).backgroundColor(this.pal().surfaceAlt).borderRadius(8)
+          .onClick(() => {
+            this.openPluginHost();
+          })
+        }
         // 完整 Web UI（插件 / GenUI / 终端 / 编辑器都在里面）
         ListItem() {
           Row() {
