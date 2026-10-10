@@ -10,6 +10,7 @@ import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
 import { webview } from '@kit.ArkWeb';
 import { ChatStore } from '../core/store';
+import { beginTurnKeepAlive, endTurnKeepAlive, PENDING_CHAT_KEY, PENDING_CHAT_SEQ_KEY } from '../core/notify';
 import { ALL_THEMES, normalizeTheme, Palette, paletteOf, themeLabel, Effects, effectsOf, isDarkThemeName } from '../core/theme';
 import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, withAccent } from '../core/accent';
 import { MD_THEMES, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';
@@ -364,6 +365,15 @@ struct Index {
   @StorageProp('safeTopVp') safeTop: number = 0;
   @StorageProp('safeBottomVp') safeBottom: number = 0;
 
+  // ── 点通知要打开的会话（通道 = AppStorage，键由 EntryAbility.captureOpenChat 写入）──
+  // ⚠️ 装饰器参数必须是**字面量**（不能用导入的常量），这里的字符串与 core/notify.ets 的
+  //    `PENDING_CHAT_KEY`/`PENDING_CHAT_SEQ_KEY` 逐字一致；下面的 AppStorage.get 则用导入常量
+  //    （单一真值点），二者不得分叉。
+  /** 目标会话 id。 */
+  @StorageProp('pendingOpenChatId') @Watch('onPendingChatChanged') pendingChatId: string = '';
+  /** 序号（number）：同一会话被点第二次时 id 不变，靠它察觉变化（@StorageProp 只在值变了才通知）。 */
+  @StorageProp('pendingOpenChatSeq') @Watch('onPendingChatChanged') pendingChatSeq: number = 0;
+
   // ── live turn 的整条 assistant 消息（同气泡：已完成迭代 + 在飞块）──
   // ⚠️ 为什么**非懒**渲染（LazyForEach 之外、@State 直驱）：虚拟列表条目在真机上
   //    不可靠地重建是"流式期间什么都看不到"（无打字机、无工具、结束时内容一次性冒出）
@@ -471,6 +481,70 @@ struct Index {
     }
   }
 
+  // ── 点通知要打开的会话（主 UX：点通知回到应用 ⇒ 切到对应会话）────────────────────
+
+  /** 已消费过的「id#seq」——防同一条待打开请求被重复消费（@Watch 可能重复触发 / 冷启动再读一次）。 */
+  private pendingChatConsumed: string = '';
+
+  /**
+   * 备1 短时任务是否由本页申请在手（旁路；只为"同一次回合只 end 一次"，
+   * 避免 syncFrom 每帧都调 endTurnKeepAlive）。真正的幂等在 core/notify.ets 里。
+   */
+  private keepAliveTurn: boolean = false;
+
+  /**
+   * `@StorageProp` 变更回调（**热启动路**）。
+   *
+   * 热启动：应用在后台，EntryAbility.onNewWant 写 AppStorage ⇒ 本回调触发。
+   * 冷启动不会走这里（见 `openPendingChat` 的说明）—— 故它与 bootstrap 末尾各调一次同一函数。
+   */
+  private onPendingChatChanged(): void {
+    this.openPendingChat();
+  }
+
+  /**
+   * 消费「点通知要打开的会话」——**只切会话，绝不改会话/消息状态语义**（状态以后端为准）。
+   *
+   * 两条路都要覆盖（缺一不可）：
+   *  · **热启动**：应用已在后台，`onNewWant` 写 AppStorage ⇒ `@Watch('onPendingChatChanged')` 触发。
+   *  · **冷启动**：`EntryAbility.onCreate` 写值**可能早于 `Index` 挂载** ⇒ 挂载时值已存在，
+   *    `@Watch` 不产生「变更」⇒ 永远不触发。故必须由 `bootstrap()` 完成后**主动读一次初值**。
+   *
+   * 就绪判定：未登录 / store 未建时**不消费**（把值留在 AppStorage 里），待 bootstrap 完成后再调一次
+   * 即可打开 —— 这样冷启动那条路也不会因为"值来得太早、应用还没登录"而丢事件。
+   *
+   * 幂等：用 `id#seq` 去重（同一会话二次点击 seq 变、token 也变，故能再次消费）。
+   * 消费后 `AppStorage.delete(PENDING_CHAT_KEY)`（EntryAbility 注释明确要求），防"返回页面"重复触发。
+   */
+  private openPendingChat(): void {
+    if (!this.loggedIn || this.store === null) {
+      // 未就绪：不消费（保留 AppStorage 值），bootstrap 完成后会再调一次
+      return;
+    }
+    const idV: string | undefined = AppStorage.get<string>(PENDING_CHAT_KEY);
+    const id: string = idV !== undefined ? idV : '';
+    if (id.length === 0) {
+      return;   // 无待打开会话（含"已被消费后 @Watch 再次触发"）
+    }
+    const seqV: number | undefined = AppStorage.get<number>(PENDING_CHAT_SEQ_KEY);
+    const seq: number = seqV !== undefined ? seqV : 0;
+    const token: string = `${id}#${seq}`;
+    if (token === this.pendingChatConsumed) {
+      return;   // 同一条请求已处理过
+    }
+    this.pendingChatConsumed = token;
+    // 消费掉：防重复消费（"从后台返回"会再次进入，不清空就会反复切会话）
+    try {
+      AppStorage.delete(PENDING_CHAT_KEY);
+    } catch (e) {
+      // 脱机/异常：删不掉也不致命（token 去重已兜住重复消费）
+    }
+    if (id !== this.currentChat) {
+      // 走 store 既有的选会话入口（池化 / 切草稿 / 状态机复位 / 清会话作用域前端状态）
+      this.switchSession(id);
+    }
+  }
+
   private async bootstrap(): Promise<void> {
     // 兜底：即使本地存储不可用，也必须能进登录页（否则永远停在 Loading，无从排查）
     let saved: AppConfig = new AppConfig();
@@ -537,6 +611,10 @@ struct Index {
         } catch (e) {
           this.loadErr = errText(e as Object);
         }
+        // 冷启动路（点通知把**未运行**的进程拉起）：EntryAbility.onCreate 早于本页挂载，
+        // `@Watch` 不会触发 ⇒ 必须在这里（已登录 + store 就绪）主动消费一次。
+        // 它若命中会把界面从"默认首个会话"切到通知指向的会话（幂等，见 openPendingChat）。
+        this.openPendingChat();
       } else if (!this.authExpiredHandled) {
         // 网络/服务端问题：**保留凭证**（下次冷启动仍会自动登录），并给出可读原因
         this.loggedIn = false;
@@ -787,6 +865,12 @@ struct Index {
     this.busy = store.busy;
     this.connState = store.connState;
     this.syncPulse(store.busy);
+    // 备1 短时任务（旁路，幂等）：回合结束（busy 落）⇒ 结束短时任务。
+    // 只在本回合确实申请过时调一次（避免每帧 syncFrom 都触发无谓的 end 调用）。
+    if (!store.busy && this.keepAliveTurn) {
+      this.keepAliveTurn = false;
+      endTurnKeepAlive();
+    }
     this.currentChat = store.currentChatId;
     this.hasMore = store.hasMore;
     this.loadingMore = store.loadingMore;
@@ -1638,6 +1722,10 @@ struct Index {
       if (note.length > 0) {
         this.toast(note);
       }
+      // 备1 短时任务（旁路，幂等）：发送成功 ⇒ 申请一段"不被冻结"的窗口，
+      // 兜住"用户发完立刻切后台"。绝不参与发送/会话语义（失败只记日志）。
+      this.keepAliveTurn = true;
+      beginTurnKeepAlive();
     } catch (e) {
       // 失败：草稿与附件都还给用户（store 已回滚那条乐观行，界面不会留幽灵消息）
       this.draft = text;
