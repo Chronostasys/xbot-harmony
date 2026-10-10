@@ -566,6 +566,13 @@ Usage of standard library is restricted (arkts-limited-stdlib)
   - 新建组件**要么尽早接线**（接线后重跑真门禁），**要么**明确知道"这条绿不覆盖它"；
   - 交付/验收时一律用 `bash tools/gate.sh`（离线三条 **+** `hvigorw assembleHap`），
     并以 **`BUILD SUCCESSFUL`** 为唯一判据（见 `AGENTS.md` GOTCHAS）。
+  - **接线前**想真验一个孤儿组件（2026-10-11 实测有效）：把整个工程 rsync 到 `/tmp/<x>`（排除
+    `.git/.hvigor/entry/build`），在被引用的 `pages/**` 里加一个**探针页**（并把它加进
+    `main_pages.json`）引用你的组件，在 `/tmp` 里 `hvigorw assembleHap`。
+    ⛔ **必须做灵敏度对照**：先在探针页/组件里塞一个**确定能报错的语法错**（如
+    `function __probe(: number = ;`）确认 `BUILD FAILED`，再用干净版本跑出 `BUILD SUCCESSFUL`
+    —— 否则"绿"同样可能是没编到（实测：孤儿文件塞语法错，`rm -rf entry/build` 后**冷构建**
+    依然 `BUILD SUCCESSFUL`，证明它压根不在编译图里）。
 - **定位手段**：报错只有 1 ERROR 且指向**你不拥有的文件**时，用 **`git stash push -- <你的文件>`**
   后重跑构建 ⇒ 若仍报同一错误，即**跨线阻断**、与你无关（举证手段，别硬扛）。
 
