@@ -105,13 +105,13 @@ export function downloadRef(key: string, inline: boolean): string {
  * 往消息正文里插入的附件引用。
  *
  * - 图片 → Markdown 图片（内联显示）
- * - 其他 → 带 📎 前缀的链接（可点下载）
+ * - 其他 → 普通链接（可点下载）
  */
 export function attachmentRef(key: string, name: string, mime: string): string {
   if (isImageMime(mime)) {
     return `![${name}](${downloadRef(key, true)})`;
   }
-  return `[📎 ${name}](${downloadRef(key, false)})`;
+  return `[${name}](${downloadRef(key, false)})`;
 }
 
 /**
@@ -158,19 +158,22 @@ export class AttachItem {
   error: string = '';
 }
 
-/** 附件 chip 的文案（状态 + 名字 + 体积）。 */
+/**
+ * 附件 chip 的文案（状态 + 名字 + 体积）。
+ *
+ * ⚠️ 无 emoji 图标：设计系统 §2.8「图标禁用 emoji」（`📎` 等在部分字体下走彩色 emoji 字形、
+ * 无法用 `fontColor` 控制）；且本模块属 `core/`，只能返回**字符串**、用不了 `SymbolGlyph`。
+ * 状态改由**文字本身**表达（上传中 / 上传失败），就绪态只余文件名（类型由扩展名体现）。
+ */
 export function attachChipText(it: AttachItem): string {
-  const icon: string = it.status === ATTACH_DONE
-    ? (isImageMime(it.mime) ? '🖼' : '📎')
-    : (it.status === ATTACH_FAILED ? '⚠' : '⏳');
   const size: string = it.size > 0 ? `（${humanSize(it.size)}）` : '';
   if (it.status === ATTACH_FAILED) {
-    return `${icon} ${it.name} 上传失败`;
+    return `${it.name} 上传失败`;
   }
   if (it.status === ATTACH_UPLOADING) {
-    return `${icon} 上传中… ${it.name}${size}`;
+    return `上传中… ${it.name}${size}`;
   }
-  return `${icon} ${it.name}${size}`;
+  return `${it.name}${size}`;
 }
 
 /** 还在上传中的条数（>0 ⇒ 禁止发送，否则会发出没有 key 的空附件）。 */

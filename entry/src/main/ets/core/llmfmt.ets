@@ -83,11 +83,12 @@ export function selectable(e: LlmModelEntry): boolean {
   return e.status !== 'disabled';
 }
 
-/** 模型显示名（带视觉能力标记；视觉是**手动开关**，不是白名单 ⇒ 只作信息展示）。 */
+/** 模型显示名（带视觉能力标记；视觉是**手动开关**，不是白名单 ⇒ 只作信息展示）。
+ *  文本标记（`（视觉）`），不用 emoji —— 见设计系统 §2.8。 */
 export function modelLabel(e: LlmModelEntry): string {
   const m: string = e.model !== undefined ? e.model : '';
   const badge: string = statusLabel(e.status);
-  const vision: string = e.vision === true ? ' 🖼' : '';
+  const vision: string = e.vision === true ? '（视觉）' : '';
   return badge.length > 0 ? `${m}（${badge}）${vision}` : `${m}${vision}`;
 }
 

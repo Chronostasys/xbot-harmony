@@ -68,13 +68,13 @@ export function currentTodo(todos: TodoItem[] | undefined): string {
   return '';
 }
 
-/** goal 一行（完成打 ✅；无 goal 返回空串）。 */
+/** goal 一行（纯文字状态前缀，无 emoji —— 设计系统 §2.8；无 goal 返回空串）。 */
 export function goalText(g: GoalInfo | undefined): string {
   if (g === undefined || g.text === undefined || g.text.length === 0) {
     return '';
   }
   const done: boolean = g.status === 'completed' || g.status === 'done';
-  return `${done ? '✅ ' : '🎯 '}${g.text}`;
+  return `${done ? '已完成：' : '目标：'}${g.text}`;
 }
 
 /** 状态栏的模型名（拿不到返回空串）。 */

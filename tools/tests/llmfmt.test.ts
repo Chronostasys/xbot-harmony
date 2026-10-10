@@ -33,7 +33,7 @@ eq('离线可选', selectable({ status: 'offline' }), true);
 
 eq('模型名', modelLabel({ model: 'm1', status: 'normal' }), 'm1');
 eq('离线模型名', modelLabel({ model: 'm1', status: 'offline' }), 'm1（离线）');
-eq('视觉标记', modelLabel({ model: 'm1', status: 'normal', vision: true }), 'm1 🖼');
+eq('视觉标记', modelLabel({ model: 'm1', status: 'normal', vision: true }), 'm1（视觉）');
 
 eq('当前模型取服务端值', currentModelText({ model: 'm9' }, 'fallback'), 'm9');
 eq('无配置回落', currentModelText(undefined, 'fallback'), 'fallback');

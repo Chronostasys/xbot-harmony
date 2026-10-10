@@ -19,9 +19,9 @@ export function toggleMode(mode: string): string {
   return mode === MODE_INTERRUPT ? MODE_QUEUE : MODE_INTERRUPT;
 }
 
-/** 模式显示名。 */
+/** 模式显示名（纯文字，无 emoji —— 设计系统 §2.8）。 */
 export function modeLabel(mode: string): string {
-  return mode === MODE_INTERRUPT ? '⚡ 插话' : '排队';
+  return mode === MODE_INTERRUPT ? '插话' : '排队';
 }
 
 /** 模式说明（按钮 title 区不够放时用于 toast/提示）。 */

@@ -34,8 +34,8 @@ eq('无进行中', currentTodo([{ status: 'pending', text: 'C' }]), '');
 
 eq('无 goal', goalText(undefined), '');
 eq('空文本 goal', goalText({ text: '' }), '');
-eq('进行中 goal', goalText({ text: '发布 v1', status: 'active' }), '🎯 发布 v1');
-eq('已完成 goal', goalText({ text: '发布 v1', status: 'completed' }), '✅ 发布 v1');
+eq('进行中 goal', goalText({ text: '发布 v1', status: 'active' }), '目标：发布 v1');
+eq('已完成 goal', goalText({ text: '发布 v1', status: 'completed' }), '已完成：发布 v1');
 
 eq('无模型', modelText(undefined), '');
 eq('模型名', modelText({ model: 'glm-5.3-flash' }), 'glm-5.3-flash');

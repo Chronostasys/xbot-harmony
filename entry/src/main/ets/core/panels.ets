@@ -9,6 +9,10 @@
  *                              output,exit_code,error?}]}`（`tools.BackgroundTask`）；
  * - `POST /api/rpc` `{method:"runner_list"}` → `{runners:[{name,mode,docker_image,workspace,
  *                              created_at,online,version?}]}`（`tools.RunnerInfo`；凭据绝不下发）。
+ *
+ * ⚠️ 状态标记一律用**纯文字**（运行中/完成/失败/在线/离线），禁用 emoji —— 设计系统 §2.8
+ *    「图标禁用 emoji」（彩色字形、各平台不一致、`fontColor` 控不住）。本模块属 `core/`，
+ *    只能返回字符串、用不了 `SymbolGlyph`，故文字是唯一自洽解。
  */
 
 export interface CronJob {
@@ -95,16 +99,16 @@ export function cronLine(job: CronJob): string {
   return `${one}${scheduleText(job)} · ${msg}${tail}`;
 }
 
-/** 后台任务的状态图标。 */
+/** 后台任务的状态标记（纯文字，无 emoji —— 设计系统 §2.8；见 core/panels 顶部说明）。 */
 export function statusIcon(status: string | undefined): string {
   if (status === 'running' || status === 'started' || status === 'pending') {
-    return '▶';
+    return '运行中';
   }
   if (status === 'done' || status === 'completed' || status === 'success') {
-    return '✓';
+    return '完成';
   }
   if (status === 'failed' || status === 'error' || status === 'killed') {
-    return '✗';
+    return '失败';
   }
   return '·';
 }
@@ -147,9 +151,9 @@ export function bgTaskLine(t: BgTask, nowMs: number): string {
   return `${icon} ${cmd}${durPart}${exitPart}（${id}）`;
 }
 
-/** 一条 Runner 的显示行（凭据永不显示）。 */
+/** 一条 Runner 的显示行（凭据永不显示）。状态用**纯文字**（在线/离线），无 emoji —— 设计系统 §2.8。 */
 export function runnerLine(r: RunnerRow): string {
-  const dot: string = r.online === true ? '🟢' : '⚪';
+  const dot: string = r.online === true ? '在线' : '离线';
   const name: string = r.name !== undefined ? r.name : '(未命名)';
   const mode: string = r.mode !== undefined && r.mode.length > 0 ? r.mode : 'native';
   const ver: string = r.version !== undefined && r.version.length > 0 ? ` · v${r.version}` : '';
@@ -157,9 +161,9 @@ export function runnerLine(r: RunnerRow): string {
   return `${dot} ${name} · ${mode}${ver}${ws}`;
 }
 
-/** 一条子代理的显示行。 */
+/** 一条子代理的显示行。状态用**纯文字**（运行中/完成），无 emoji —— 设计系统 §2.8。 */
 export function subagentLine(s: SubAgentRow): string {
-  const dot: string = s.running === true ? '▶' : '✓';
+  const dot: string = s.running === true ? '运行中' : '完成';
   const label: string = s.label !== undefined && s.label.length > 0
     ? s.label : (s.chat_id !== undefined ? s.chat_id : '');
   return `${dot} ${label}`;

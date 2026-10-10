@@ -52,9 +52,9 @@ eq('下载引用（内联）',
 eq('图片引用 = Markdown 图片',
   attachmentRef('uploads/3/z.png', 'z.png', 'image/png'),
   '![z.png](/api/files/download?key=uploads%2F3%2Fz.png&inline=1)');
-eq('非图片引用 = 📎 链接',
+eq('非图片引用 = 普通链接',
   attachmentRef('uploads/3/a.pdf', 'a.pdf', 'application/pdf'),
-  '[📎 a.pdf](/api/files/download?key=uploads%2F3%2Fa.pdf)');
+  '[a.pdf](/api/files/download?key=uploads%2F3%2Fa.pdf)');
 
 eq('正文已含引用（防重复追加）',
   hasRef('hi ![z](/api/files/download?key=uploads%2F3%2Fz.png&inline=1)', 'uploads/3/z.png'), true);
@@ -69,10 +69,10 @@ function item(uid: string, status: string, name: string, mime: string, key: stri
   it.uid = uid; it.status = status; it.name = name; it.mime = mime; it.key = key; it.size = size;
   return it;
 }
-eq('上传中 chip', attachChipText(item('1', ATTACH_UPLOADING, 'a.png', 'image/png', '', 0)), '⏳ 上传中… a.png');
-eq('图片就绪 chip', attachChipText(item('1', ATTACH_DONE, 'a.png', 'image/png', 'k', 2048)), '🖼 a.png（2 KB）');
-eq('文件就绪 chip', attachChipText(item('1', ATTACH_DONE, 'a.pdf', 'application/pdf', 'k', 1024)), '📎 a.pdf（1 KB）');
-eq('失败 chip', attachChipText(item('1', ATTACH_FAILED, 'a.pdf', 'application/pdf', '', 0)), '⚠ a.pdf 上传失败');
+eq('上传中 chip', attachChipText(item('1', ATTACH_UPLOADING, 'a.png', 'image/png', '', 0)), '上传中… a.png');
+eq('图片就绪 chip', attachChipText(item('1', ATTACH_DONE, 'a.png', 'image/png', 'k', 2048)), 'a.png（2 KB）');
+eq('文件就绪 chip', attachChipText(item('1', ATTACH_DONE, 'a.pdf', 'application/pdf', 'k', 1024)), 'a.pdf（1 KB）');
+eq('失败 chip', attachChipText(item('1', ATTACH_FAILED, 'a.pdf', 'application/pdf', '', 0)), 'a.pdf 上传失败');
 
 const list = [
   item('1', ATTACH_DONE, 'a.png', 'image/png', 'uploads/3/a.png', 10),

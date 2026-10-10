@@ -15,7 +15,7 @@ eq('排队 → 插话', toggleMode(MODE_QUEUE), MODE_INTERRUPT);
 eq('插话 → 排队', toggleMode(MODE_INTERRUPT), MODE_QUEUE);
 
 eq('排队名', modeLabel(MODE_QUEUE), '排队');
-eq('插话名', modeLabel(MODE_INTERRUPT), '⚡ 插话');
+eq('插话名', modeLabel(MODE_INTERRUPT), '插话');
 eq('提示非空', modeHint(MODE_INTERRUPT).length > 0, true);
 
 eq('忙碌时生效插话', effectiveMode(true, MODE_INTERRUPT), MODE_INTERRUPT);
