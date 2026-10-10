@@ -765,7 +765,8 @@ export class ChatStore {
     }
     try {
       const raw: string = await this.http.post('/api/message', new MessageReq(
-        this.channel, this.currentChatId, text, uploadKeys, fileNames, fileSizes, isInterrupt));
+        this.channel, this.currentChatId, text, uploadKeys, fileNames, fileSizes, isInterrupt,
+        requestID));
       if (isInterrupt) {
         return true;
       }

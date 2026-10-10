@@ -70,4 +70,28 @@
   重启 resume/seq 重启、notification 行、重复 key、last-iteration、gap、in-flight 工具折叠。
 - `tools/tests/streammerge_row.test.ts`（2 项）：live 行「已完成迭代在列表 / 在飞快照在尾块，
   **互不重叠**」的不变量（bug1 回归守卫）。
-- 全部 35 个测试文件 `run.sh` 通过；release+debug 双产物 `EXIT=0`。
+- `tools/tests/user_row_integrity.test.ts`（7 项）：**一条用户消息恰一条 user 行** ——
+  端到端驱动 `ChatStore.send()`（打桩 HTTP/SSE），覆盖「乐观发送 → 回声/回合开始 →
+  最终文本」以及「历史合并」「通知 turn 回声」三类路径（bug2「你好渲染两次」回归守卫）。
+- 全部 36 个测试文件 `run.sh` 通过；release+debug 双产物 `EXIT=0`。
+
+## 4. requestID 传输契约（一条用户消息恰一条 user 行的**前提**）
+
+reduce/derive 的「乐观行 ⇄ 回声/回合/历史 收敛」**靠 requestID 精确匹配**。web 侧由
+`useChatMessages.sendMessage` 把乐观行的 requestID 作为 `id` 发进 `ws.send(...)` 保证；
+原生端走 REST `/api/message`，因此 **`MessageReq` 必须带 `id`**（服务端
+`protocol.WSClientMessage.ID json:"id,omitempty"`，严格解码认它）——
+`ChatStore.send()` 现在把 `nextRowID('req')` 生成的 requestID 传进去。
+
+- 服务端据此把它原样回显到 `user_echo.ID`（`normalizeUserEcho` 读 `env.request_id ?? env.id`）
+  与 `turn_started.turn_start.request_id`，`reduce` 的 `user_echo`/`turn_started` 分支
+  即可就地收敛（**不新增任何去重逻辑** —— 用 web 既有转移规则）。
+- 缺 `id` 的后果（2026-10-10 真机 bug）：服务端自生成 uuid ⇒ 回声 ID 与乐观行对不上 ⇒
+  `user_echo` 被当新 user 追加进 `pendingUsers` ⇒ 同一句用户消息渲染两条 user 行
+  （一条绑进 turn 在回复之前、一条 pending 沉底在回复之后）。
+
+**内部行（`view_image` 注入）**：服务端 `/api/history` 已在
+`channel.ConvertMessagesToHistory*` 里经 `filterInternalMessages` 丢弃
+`llm.ChatMessage.Internal` 行（`channel/subscription.go`）⇒ 原生端历史里不会出现注入行，
+无需再补过滤（`HistoryMessage` 也不带 `internal` 字段）。**通知行**保留为独立 user 行
+（`isNotification`），`inject_user` 回声由 reduce ③.5 内容幂等收敛。
