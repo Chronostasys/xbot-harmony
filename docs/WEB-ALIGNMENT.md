@@ -215,3 +215,36 @@ reduce/derive 的「乐观行 ⇄ 回声/回合/历史 收敛」**靠 requestID 
 **回归守卫**：`rowempty.test.ts`（10）、`live_iteration_inline.test.ts`（2）、
 `streammerge_row.test.ts`（2）、`busy_indicator.test.ts`（6）+ 全量 `tools/tests/run.sh` EXIT=0。
 
+
+## 8. 回归修复（2026-10-10 第二批）：live 内容「投递机制」—— 值变化通道
+
+**用户原话**：「发送后思考中出现，**第一个 SSE 到达就消失**，直到这个 iter 结束时迭代瞬间
+出现，**中间看不到任何进度**」；用户定性为**回归**（「重复 user msg 修复之前，typer 是好的」）。
+
+**回归窗口（git 证据）**：`0a17f76`(P54，最后可用) → `fa07632`(P55，罪魁)。
+P54 的 live 尾块由页面 `@State liveText/liveReasoning/liveTools`（`syncLiveTail` 每帧赋值）
+**直接**建 `LiveTailView`；P55 删除该机制，改为从**就地修改**的 `ChatRow` 里读。
+
+**根因**：ArkUI V1 组件只在「收到的值发生变化」时重建；`ChatRow` 就地更新 ⇒ 引用恒定
+⇒ 无值变化；live 行又经带参 `@Builder`（按值 = 快照）创建、且不在带 key 的 `LazyForEach`
+里 ⇒ 整个流式期间组件重建 0 次 ⇒ 渲染输入冻结在创建那一刻（空）⇒ 全空，直到 commit 后
+由 `LazyForEach` 重建才一次性出现。**数据层正常**（`rev`/`rowsFp` 每帧变）。
+
+**修法（与 web 的对应）**：web 侧 `MessageList` 把 `liveProgress`（progressStore 快照）
+作为 **prop** 传给 `TurnBody`/`LiveIteration` —— 原生端等价物 = 页面 `@State` 派生 + `@Prop`
+投递：
+
+| web | 原生端（本修复） |
+|---|---|
+| `useProgressStream` → `progressStore` 快照 | `pages/Index.syncLiveTail()`：从 live 行末尾在飞块派生（与 `rowIsEmpty` **同源**） |
+| `liveProgress` 作为 prop 传给列表/`TurnBody` | `@State liveText/liveReasoning/liveTools` → `MessageRowView` 的 `@Prop` |
+| 在同一气泡内 `iterations ⊕ <LiveIteration>` | `MessageRowView.AssistantBlock`：已完成迭代 ⊕ `LiveIterationBlock()`（**无参**，读 @Prop） |
+| `liveId` 尾行由 React 正常渲染 | live 行由**无参** `@Builder LiveRowBody()` 创建（绕开带参 @Builder 的快照语义）|
+
+**差异说明**：原 `render.ets.liveIterations` 仍把在飞内容折进行 `iterations` 的一块（`live:true`）——
+保留它是为了让**可见性判据**（`rowVisibleChars/rowIsEmpty`）与**投递源**读**同一块**（同源），
+渲染则由 `@Prop` 完成（`completedIters` 已排除 `live:true` 块 ⇒ 不会双渲染）。
+
+**回归守卫**：`tools/tests/live_tail_delivery.test.ts`（11 项）—— 读**真实源码**判定生产接线
+形态，再用投递模型驱动真实 store 流水线，断言「live 组件每帧渲染输入 == 当前在飞内容」。
+P55 形态必红（渲染输入恒为 ""，重建次数恒为 1）；本修复后绿。

@@ -352,6 +352,21 @@ struct Index {
   //    与已完成迭代同一气泡、同一套块渲染 —— 绝不再是独立的气泡/独立的 ListItem。
   @State hasLiveRow: boolean = false;
   @State liveRowRef: ChatRow = new ChatRow();
+  /**
+   * live 行「在飞内容」的**页面 @State 镜像** —— 由 `syncLiveTail()` 在每次 store 更新时
+   * 从**同一个** live 行（其末尾在飞块，与 `rowIsEmpty` 判据同源）派生并赋值。
+   *
+   * ⛔ 为什么必须要有（P55→P58 回归根因）：ArkUI V1 组件只在**收到的状态值发生变化**时
+   *   重建。`ChatRow` 是**就地更新**的（保 @ObjectLink 恒等）⇒ 引用恒定 ⇒ **不构成值变化**；
+   *   P55 把 live 行改成「非懒尾项 + 只从行对象读在飞内容」后，整个流式期间 live 组件
+   *   **一次都不重建**（渲染输入冻结在创建那一瞬 = 空）⇒ 占位让位却画不出任何东西
+   *   （真机「第一条 SSE 到达就消失、中间全空、commit 才一次性出现」）。
+   *   这三项提供了「值变化」这个唯一可靠的重建驱动（= 回归前 P54 的机制，web 亦是把
+   *   live 快照当 prop 往下传）。
+   */
+  @State liveText: string = '';
+  @State liveReasoning: string = '';
+  @State liveTools: ToolProgress[] = [];
   /** 历史加载中（骨架屏判据：只有"还没内容且正在拉"才展示） */
   @State historyLoading: boolean = false;
 
@@ -2210,7 +2225,11 @@ struct Index {
           ListItem() {
             // ⚠️ 打字机（20Hz）状态在 **LiveTailView 子组件内部**（MessageRowView 里）
             // —— 否则每拍会重跑整页 build，把系统 spinner 都拖到 2Hz。
-            this.ChatRowBody(this.liveRowRef)
+            // ⛔ 走**无参** @Builder（`LiveRowBody`）：其内部直接读页面 @State
+            //   （`liveRowRef`/`liveText`/`liveReasoning`/`liveTools`）—— 带参 @Builder
+            //   按值传参是「调用那一刻的快照」，参数引用不变时其内容的就地变化不驱动刷新
+            //   （官方语义，见 docs/ARKTS-GOTCHAS.md §4）；live 行必须在内容变化时重建。
+            this.LiveRowBody()
           }
         }
 
@@ -3082,9 +3101,54 @@ struct Index {
     } else {
       this.hasLiveRow = false;
     }
+    // live 行「在飞内容」→ 页面 @State 镜像（**必须**：见 `liveText` 的注释 ——
+    // 行对象只被就地修改，引用恒定，不产生 ArkUI 能看见的「值变化」）。
+    this.syncLiveTail();
     // 必须把**会话身份**一起交给数据源：否则两个会话同形时它会判「骨架未变」=> 零通知 =>
     // LazyForEach 保留上一个会话的条目（真机「所有会话都显示第一个会话的内容」）。
     this.rowDs.applyRows(tailRows(rest, this.rowLimit), this.currentChat);
+  }
+
+  /**
+   * 把当前 live 行的**在飞内容**同步进页面 `@State`（`liveText/liveReasoning/liveTools`）。
+   *
+   * 数据源 = live 行本身末尾那块 `live:true` 的在飞块（`core/render.ets` 从状态机在飞字段
+   * 折叠而来）—— 与可见性判据 `rowIsEmpty`/`rowVisibleChars` **同源**（同一个块），
+   * 因此「判据说有内容」与「@Prop 投递给渲染的内容」不可能分叉。
+   *
+   * ⛔ 为什么必须显式同步（而不是让组件直接读行对象）：ArkUI V1 只在「收到的值变化」时
+   *   重建组件；对同一 `ChatRow` 引用的就地修改不构成值变化 ⇒ live 组件永不重建 ⇒
+   *   流式期间渲染输入冻结在创建那一瞬（P55 回归）。这三项 `@State` 提供值变化。
+   *
+   * 赋值前先比较：内容未变（同一引用 / 同值）时**不赋值** ⇒ 不产生多余重建（零额外开销）。
+   */
+  private syncLiveTail(): void {
+    let text: string = '';
+    let reasoning: string = '';
+    let tools: ToolProgress[] = [];
+    if (this.hasLiveRow) {
+      const its: HistoryIteration[] = this.liveRowRef.iterations;
+      for (let i = its.length - 1; i >= 0; i--) {
+        if (its[i].live === true) {
+          text = displayContent(its[i]);
+          reasoning = displayReasoning(its[i]);
+          const t: ToolProgress[] | undefined = its[i].tools;
+          if (t !== undefined) {
+            tools = t;
+          }
+          break;
+        }
+      }
+    }
+    if (this.liveText !== text) {
+      this.liveText = text;
+    }
+    if (this.liveReasoning !== reasoning) {
+      this.liveReasoning = reasoning;
+    }
+    if (this.liveTools !== tools) {
+      this.liveTools = tools;
+    }
   }
 
   /**
@@ -3726,6 +3790,56 @@ struct Index {
   }
 
 
+
+  /**
+   * live turn 的整条 assistant 消息体（同气泡：已完成迭代 ⊕ 末尾在飞块）。
+   *
+   * ⛔ **无参** @Builder，内部全部读页面 `@State`（`liveRowRef` / `liveText` /
+   *   `liveReasoning` / `liveTools`）—— 这是本回归的根治点：
+   *   · live 行**不能**带参调用（`this.ChatRowBody(this.liveRowRef)`）：@Builder 按值
+   *     传参是"调用那一刻的快照"，`ChatRow` 又是就地更新的（引用恒定）⇒ 组件永不重建
+   *     ⇒ 流式期间渲染输入冻结（真机「第一条 SSE 到达就消失、中间全空」）。见
+   *     docs/ARKTS-GOTCHAS.md §4 与 `liveText` 的注释。
+   *   · 三项 `live*` 由 `syncLiveTail()` 从**同一个** live 行的末尾在飞块派生
+   *     （与 `rowIsEmpty` 判据同源）⇒ 投递给渲染的内容与判据不可能分叉。
+   */
+  @Builder
+  LiveRowBody() {
+    if (!rowIsEmpty(this.liveRowRef)) {
+      MessageRowView({
+        row: this.liveRowRef,
+        liveText: this.liveText,
+        liveReasoning: this.liveReasoning,
+        liveTools: this.liveTools,
+        theme: this.themeName,
+        fontScaleV: this.fontScale(),
+        wrapCodeV: this.wrapCode(),
+        sweepX: this.sweepX,
+        paused: this.appPaused,
+        onImage: (src: string) => {
+          this.openImage(src);
+        },
+        loadImage: (src: string) => {
+          return this.loadImageBytes(src);
+        },
+        onLoadMoreRegions: () => {
+          this.loadMoreRegions(this.liveRowRef);
+        },
+        onOpenCtx: (iter: number, name: string) => {
+          this.openCtx(name.length > 0 ? 'tool' : 'iter', this.liveRowRef.id, iter, name);
+        },
+        onToggleTool: (iter: number, name: string) => {
+          this.toggleToolByKey(this.liveRowRef, iter, name);
+        },
+        onRowLongPress: () => {
+          this.openCtx('row', this.liveRowRef.id, 0, '');
+        },
+        onCopy: (text: string, what: string) => {
+          this.copyText(text, what);
+        },
+      })
+    }
+  }
 
   /** 一个迭代 = 思考(T) / 正文(O) / 工具(C)。 */
 

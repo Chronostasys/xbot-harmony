@@ -466,3 +466,41 @@ Usage of standard library is restricted (arkts-limited-stdlib)
 
 **判据速查**：`busy` 的清零只允许来自「权威 idle（且会话树已翻 false）」或「无 live 行 + 过窗口的快照」；
 任何"看起来像 idle 但回合仍在飞"的信号都必须忽略。
+
+## 批次 11：流式内容「投递机制」回归 —— live 行读就地修改的对象 ⇒ 组件永不重建（真机 P0，2026-10-10）
+
+**现象（用户逐字）**：发送后「思考中…」出现 → **第一条 SSE 到达即消失** → 整个迭代期间
+列表**全空**（没有打字机、没有进度）→ **该迭代 commit 之后才一次性出现**。
+用户明确定性：**回归**（「在重复 user msg 那个 bug 修复之前，typer 是好的」）。
+
+**回归窗口（git 证据）**：
+| 提交 | `grep -c liveText <(git show <sha>:…/pages/Index.ets)` | live 内容怎么到渲染 |
+|---|---|---|
+| `c174364`(P53) / `0a17f76`(P54) | 5 | 页面 `@State liveText/liveReasoning/liveTools`（`syncLiveTail` 每帧赋值）→ 页面 build **直接**建 `LiveTailView({text: this.liveText,…})` |
+| `fa07632`(P55) ← **罪魁** | 0 | live 行改「非懒尾项」`ListItem(){ this.ChatRowBody(this.liveRowRef) }`，在飞内容只能从**就地修改**的 `ChatRow` 里读 |
+
+**根因（ArkUI V1 语义）**：组件只在**收到的值发生变化**时重建。
+- `ChatRow` 是 `@Observed` + **就地更新**（保 `@ObjectLink` 恒等）⇒ **引用恒定**，不构成「值变化」；
+- live 行经**带参 @Builder**（`ChatRowBody(this.liveRowRef)`）创建 —— 按值传参是「调用那一刻的快照」，
+  参数引用不变时其内容的就地变化**不驱动**其内 UI 更新；
+- 该行又**不在**带 key 的 `LazyForEach` 里（其余行的刷新全靠 `id#rev` 键变化）。
+⇒ 整个流式期间 live 组件**重建次数 = 1（仅创建那次）** ⇒ 渲染输入冻结在「创建那一刻」（此刻为空）
+⇒ 占位让位却画不出任何东西（全空）；直到 turn 离开 live 路径（commit）后由带 key 的 `LazyForEach`
+重建，才「一次性出现」。**数据层是完全正常的**（实测 `rev` 每帧自增、`rowsFp` 每帧变、在飞块有内容）。
+
+**修法（恢复回归前的投递机制，非 hack）**：
+1. 页面恢复 `@State liveText/liveReasoning/liveTools` + `syncLiveTail()` —— 从 live 行**末尾在飞块**
+   派生（与 `rowIsEmpty/rowVisibleChars` 判据**同源**，同一块），每次内容变化赋新值 ⇒ 产生「值变化」；
+2. live 行改用**无参** `@Builder LiveRowBody()`（内部直接读页面 @State）—— 绕开「带参 @Builder 按值快照」；
+3. `MessageRowView` 声明 `@Prop liveText/liveReasoning/liveTools`，在飞块由它们渲染（不再读行对象）。
+**性能**：`syncLiveTail` 赋值前先比较（同值不赋值）；行组件重建时其已完成迭代 `ForEach` 键稳定
+⇒ Markdown 不重解析；打字机仍在 `LiveTailView` 内（高频状态不外溢）。
+
+**通用教训**：**任何"由外部就地修改、引用恒定"的数据，都不能作为组件刷新的唯一输入**。要刷新，必须有
+「状态变量的值变化」或「带 key 的列表项 key 变化」。行对象（`ChatRow`）可以被就地改以保恒等，
+但**必须**另有一条值变化通道把"要显示的内容"投递给渲染。
+
+**判据（回归守卫 `tools/tests/live_tail_delivery.test.ts`，改回旧机制必红）**：
+① 页面有 `@State liveText/liveReasoning/liveTools` 且 `syncLiveTail()` 每帧同步；
+② `MessageRowView` 声明三者 `@Prop` 且**由 @Prop 渲染**（`LiveTailView` 读 `this.liveText`）；
+③ live 行由**无参** `@Builder` 创建；④ 投递模型断言：live 组件每帧渲染输入 == 当前在飞内容。

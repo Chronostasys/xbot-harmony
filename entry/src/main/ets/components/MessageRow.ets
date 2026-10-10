@@ -11,7 +11,7 @@
  *   · 三个 @Builder（Assistant/Iteration/ToolPill）与 7 个 helper 由页面**整块搬入**（原样语义）。
  */
 import { ChatRow, HistoryIteration, ToolProgress } from '../core/types';
-import { displayContent, displayReasoning, liveBlockOf, rowIsEmpty } from '../core/streammerge';
+import { displayContent, displayReasoning, rowIsEmpty } from '../core/streammerge';
 import { runeCount } from '../core/typewriter';
 import { Palette, paletteOf } from '../core/theme';
 import { MarkdownView } from './MarkdownView';
@@ -30,6 +30,19 @@ export struct MessageRowView {
   @Prop sweepX: number = 0;
   /** 应用是否在后台（打字机在后台挂起 —— 与 LiveTailView 同款） */
   @Prop paused: boolean = false;
+  /**
+   * live 行「在飞内容」—— 由页面 `syncLiveTail()` 从 live 行末尾在飞块派生、
+   * 以 **@Prop 投递**（普通行恒为空）。
+   *
+   * ⛔ 为什么必须是 @Prop 而不是"从行对象里读"（P55→P58 回归根因）：ArkUI V1 组件只在
+   *   **收到的值发生变化**时重建；`ChatRow` 是就地更新的（引用恒定）⇒ 不构成值变化 ⇒
+   *   组件永不重建 ⇒ 流式期间渲染输入冻结在创建那一瞬（真机「第一条 SSE 到达就消失、
+   *   中间全空、commit 才一次性出现」）。这三项提供值变化（= 回归前 P54 的机制；web
+   *   亦是把 live 快照当 prop 往下传）。
+   */
+  @Prop liveText: string = '';
+  @Prop liveReasoning: string = '';
+  @Prop liveTools: ToolProgress[] = [];
   onImage: (src: string) => void = (src: string) => {
   };
   loadImage: (src: string) => Promise<ArrayBuffer> = async (s: string) => {
@@ -131,17 +144,7 @@ export struct MessageRowView {
     return badge.length > 0 ? `${base} ${badge}` : base;
   }
 
-  /**
-   * 在飞迭代块（该行 iterations 里 `live:true` 那一块）；无则 undefined。
-   *
-   * ⛔ 用 `core/streammerge.liveBlockOf`（**同一个**函数也被可见性判据使用）——
-   *   渲染与判据必须读同一处，绝不能两边各自找一遍（"判据/渲染分叉"的温床）。
-   */
-  private liveBlock(row: ChatRow): HistoryIteration | undefined {
-    return liveBlockOf(row);
-  }
-
-  /** 已完成迭代（排除在飞块）—— 在飞块由 LiveIterationBlock 单独渲染（同气泡末尾）。 */
+  /** 已完成迭代（排除在飞块）—— 在飞块由 `LiveIterationBlock`（@Prop 直驱）单独渲染。 */
   private completedIters(row: ChatRow): HistoryIteration[] {
     const out: HistoryIteration[] = [];
     for (let i = 0; i < row.iterations.length; i++) {
@@ -168,19 +171,9 @@ export struct MessageRowView {
     return total > MAX_ITER_VISIBLE ? total - MAX_ITER_VISIBLE : 0;
   }
 
-  private liveBlockText(row: ChatRow): string {
-    const it: HistoryIteration | undefined = this.liveBlock(row);
-    return it !== undefined ? displayContent(it) : '';
-  }
-
-  private liveBlockReasoning(row: ChatRow): string {
-    const it: HistoryIteration | undefined = this.liveBlock(row);
-    return it !== undefined ? displayReasoning(it) : '';
-  }
-
-  private liveBlockTools(row: ChatRow): ToolProgress[] {
-    const it: HistoryIteration | undefined = this.liveBlock(row);
-    return it !== undefined && it.tools !== undefined ? it.tools : [];
+  /** 在飞内容是否非空（@Prop 直驱 —— 与页面 `syncLiveTail` 的派生同源）。 */
+  private hasLiveContent(): boolean {
+    return this.liveText.length > 0 || this.liveReasoning.length > 0 || this.liveTools.length > 0;
   }
 
   @Builder
@@ -235,8 +228,10 @@ export struct MessageRowView {
       // ── 在飞迭代块：**同一气泡内的最后一块**（对齐 web TurnBody 的 LiveIteration）──
       // 真机 bug ② 根治点：live 迭代不再是自己一个气泡/一个 ListItem，而是这条
       // assistant 消息气泡里的最后一块，与已完成迭代共用同一套块渲染（仅带打字机）。
-      if (this.liveBlock(row) !== undefined) {
-        this.LiveIterationBlock(row)
+      // ⛔ 内容来自 **@Prop**（页面 `syncLiveTail` 派生）—— 不是"从被就地修改的行对象里读"
+      //   （那条路不产生 ArkUI 能看见的「值变化」⇒ 组件永不重建 ⇒ 流式期间全空）。
+      if (this.hasLiveContent()) {
+        this.LiveIterationBlock()
       }
     }
     .width('100%').alignItems(HorizontalAlign.Start)
@@ -256,14 +251,18 @@ export struct MessageRowView {
    * 在飞迭代块 —— 同气泡内的最后一块。内容走 `LiveTailView`（打字机 + 工具 pill
    * + 思考头），但**不带自己的气泡 chrome**（背景/边框/圆角/外边距都在外层
    * AssistantBlock 上）⇒ 与已完成迭代在同一个气泡里。
+   *
+   * ⛔ **无参**：内容全部读 `@Prop liveText/liveReasoning/liveTools`（页面 `@State` 投递）。
+   *   绝不再从 `row.iterations` 里找那一块 —— 行对象就地更新、引用恒定，读它不产生
+   *   「值变化」⇒ 组件不重建（P55 回归：流式期间全空）。
    */
   @Builder
-  LiveIterationBlock(row: ChatRow) {
+  LiveIterationBlock() {
     Column({ space: 6 }) {
       LiveTailView({
-        text: this.liveBlockText(row),
-        reasoning: this.liveBlockReasoning(row),
-        tools: this.liveBlockTools(row),
+        text: this.liveText,
+        reasoning: this.liveReasoning,
+        tools: this.liveTools,
         paused: this.paused,
         theme: this.theme,
         fontScale: this.fontScaleV,
@@ -275,7 +274,7 @@ export struct MessageRowView {
           return this.loadImage(src);
         },
         onToolLongPress: (name: string) => {
-          this.onOpenCtx(row.turnID, name);
+          this.onOpenCtx(this.row.turnID, name);
         },
       })
     }
