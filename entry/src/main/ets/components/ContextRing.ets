@@ -26,11 +26,12 @@
  *
  * ⛔ 颜色一律走 `core/theme.ets` 的 `pal()` 语义色，**绝不硬编码 `#RRGGBB`**：
  *   弧 = `high ? pal().dangerText : pal().accent`（web `text-status-error` / `text-accent`，
- *   `ContextRing.tsx:70-73`）；轨道 = `pal().border`（web 轨道是 `currentColor`@0.22，
+ *   `ContextRing.tsx:70-73`）；轨道 = `Surfaces.hairline`（web 轨道是 `currentColor`@0.22，
  *   而 `textMuted`@22% 合成后 ≈ 发丝边框色 —— 数值最接近的主题角色，见 `core/theme.ets` 的
- *   dark `textMuted #63636F`@22% ≈ `border #20202B`）。
+ *   dark `textMuted #63636F`@22% ≈ `border #20202B`）。⚠️ 轨道是"弧占多少"的**参照系**，
+ *   浅色/极简白下若用 `border` 会淡到读不出占比 ⇒ 必须有足够的可见度（走结构性发丝 `hairline`）。
  */
-import { Palette, paletteOf } from '../core/theme';
+import { Palette, paletteOf, surfacesOf } from '../core/theme';
 import { FS_CAPTION, R_MD, SP_3, SP_5, SP_7, SP_1 } from '../core/tokens';
 import {
   CTX_RING_STROKE, CTX_ROLE_DANGER, ctxColorRole, ctxDrawnPercent, ctxLevel,
@@ -74,7 +75,7 @@ export struct ContextRing {
       // 一圈环：`backgroundColor` = 轨道，`color` = 进度弧。
       Progress({ value: ctxDrawnPercent(this.percent), total: 100, type: ProgressType.Ring })
         .width(SP_5).height(SP_5)             // web `svg size-5` = 20px
-        .backgroundColor(this.pal().border)   // 轨道（≈ web currentColor@0.22）
+        .backgroundColor(surfacesOf(this.pal()).hairline)   // 轨道（≈ web currentColor@0.22；浅色下需足够可见度）
         .color(this.arcColor())
         .style({ strokeWidth: CTX_RING_STROKE, enableSmoothEffect: true })  // web `strokeWidth="2"` + 300ms 过渡
     }

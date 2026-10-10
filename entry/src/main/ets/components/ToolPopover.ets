@@ -11,7 +11,7 @@
  *     渲染照它的信息结构：`@@` 块头徽标 / 双列行号 / 增绿删红。
  *  3. **弹层底座** —— 交给 `bindPopup`（ArkUI 原生），本文件不做浮层定位。
  */
-import { Palette, paletteOf, Effects, effectsOf } from '../core/theme';
+import { Palette, paletteOf, Surfaces, surfacesOf, Effects, effectsOf } from '../core/theme';
 import { R_LG, R_MD, R_SM, R_XL, SP_1, SP_2, SP_3, FS_BODY, FS_CAPTION } from '../core/tokens';
 import { ToolProgress } from '../core/types';
 import { fileArgFields, FileArgFields, isFileTool, langFromPath, pathFromLabel } from '../core/toolargs';
@@ -179,6 +179,14 @@ export struct ToolPopoverCard {
     return effectsOf(this.pal());
   }
 
+  /** 面 / 边界 token（**由色板派生**，与 `eff()` 同一纪律、同样无缓存薄访问器）。
+   *  代码块 / 终端块 / diff 行底曾把**阴影 token** `eff().elev1` 当底色用——语义错位，
+   *  现改用 `Surfaces.sunken`（其取值逐字节 ≡ `compositeOver(elev1, surface)`，见 theme.ets
+   *  `legacyElev1Of`）⇒ 观感零变化、语义归位。 */
+  private surf(): Surfaces {
+    return surfacesOf(this.pal());
+  }
+
   /** 语义色键 ⇒ 主题色（**高亮配色与全站设计系统同源**）。 */
   private keyColor(k: string): string {
     if (k === K_COMMENT) { return this.pal().textMuted; }
@@ -277,7 +285,7 @@ export struct ToolPopoverCard {
       .width('100%')
       .constraintSize({ maxHeight: BODY_MAX_H })
       .padding(SP_2)
-      .backgroundColor(this.eff().elev1)
+      .backgroundColor(this.surf().sunken)
       .borderRadius(R_MD)
     }
     .width('100%').alignItems(HorizontalAlign.Start)
@@ -300,7 +308,7 @@ export struct ToolPopoverCard {
       .width('100%')
       .constraintSize({ maxHeight: BODY_MAX_H })
       .padding(SP_2)
-      .backgroundColor(this.eff().elev1)
+      .backgroundColor(this.surf().sunken)
       .borderRadius(R_MD)
     }
     .width('100%').alignItems(HorizontalAlign.Start)
@@ -333,7 +341,7 @@ export struct ToolPopoverCard {
           : (ln.kind === DIFF_DEL ? this.pal().dangerText : this.pal().textSecondary))
         .copyOption(CopyOptions.LocalDevice)
     }
-    .backgroundColor(ln.kind === DIFF_ADD ? this.eff().elev1
+    .backgroundColor(ln.kind === DIFF_ADD ? this.surf().sunken
       : (ln.kind === DIFF_DEL ? this.pal().warnBg : this.pal().transparent))
   }
 
@@ -367,7 +375,7 @@ export struct ToolPopoverCard {
         Text(`−${f.dels}`).fontSize(10).fontColor(this.pal().dangerText)
       }
       .width('100%').padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
-      .backgroundColor(this.eff().elev1)
+      .backgroundColor(this.surf().sunken)
 
       ForEach(tailLinesOfFile(f, MAX_DIFF_LINES), (ln: DiffLine, li: number) => {
         if (ln.kind === DIFF_HUNK) {
@@ -418,7 +426,7 @@ export struct ToolPopoverCard {
           Text(this.vm.status)
             .fontSize(10).fontColor(this.vm.statusColor)
             .padding({ left: SP_1, right: SP_1, top: 2, bottom: 2 })
-            .backgroundColor(this.eff().elev1).borderRadius(R_SM)
+            .backgroundColor(this.surf().sunken).borderRadius(R_SM)
         }
         if (this.vm.elapsedMs > 0) {
           Text(formatElapsed(this.vm.elapsedMs)).fontSize(10).fontColor(this.pal().textMuted)

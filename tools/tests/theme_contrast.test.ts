@@ -211,6 +211,52 @@ for (let ti = 0; ti < ALL_THEMES.length; ti++) {
   }
 }
 
+// ── §B.2 结构性边界（`hairline`）与下沉面（`sunken`）的生产接线判定（波3b-6） ──────────────
+// `sunken` 作为"**面**"已在 CANVAS_FACES 里（其上的文字角色被 §B 判定）。
+// `hairline` 是"**边界**"，只与**相邻的底**相接（`appBg`/`surface`），**不**与 `surfaceHi`/`surfaceAlt`
+// 相接 ⇒ 故**不**并入 CANVAS_ROLES×CANVAS_FACES 的叉乘（边界贴 surfaceHi 的对比度 ~1.0 是无意义的对，
+// 硬判只会逼出一条假台账）。这里给 `hairline` 单列**阈值/判定表**，阈值**分族**：
+//   · 浅色族（light/porcelain）：必须达到 `HAIRLINE_TARGET_RATIO`（web 权威基线，与 §E3 同源）；
+//   · 深色族（dark/aurora/nebula）：必须**至少与它替代的 `border` 一样可见**（`hairline ≡ border`
+//     ⇒ 恰好达标；若哪天有人破坏这个逐字节等价，本段立刻红）。
+const DARK_FAMILY: string[] = ['dark', 'aurora', 'nebula'];
+const LIGHT_FAMILY: string[] = ['light', 'porcelain'];
+
+interface BoundaryPair {
+  theme: string;
+  role: string;
+  base: string;
+  hex: string;
+  baseHex: string;
+  ratio: number;
+  tier: number;
+}
+const BOUNDARY_BASES: string[] = ['appBg', 'surface'];
+const BOUNDARY_PAIRS: BoundaryPair[] = [];
+for (let ti = 0; ti < ALL_THEMES.length; ti++) {
+  const bTheme: string = ALL_THEMES[ti];
+  const bp: Palette = paletteOf(bTheme);
+  const bs: Surfaces = surfacesOf(bp);
+  const lightFam: boolean = LIGHT_FAMILY.indexOf(bTheme) >= 0;
+  for (let bi = 0; bi < BOUNDARY_BASES.length; bi++) {
+    const base: string = BOUNDARY_BASES[bi];
+    const baseHex: string = base === 'appBg' ? bp.appBg : bp.surface;
+    const tier: number = lightFam ? HAIRLINE_TARGET_RATIO : contrastRatio(bp.border, baseHex);
+    BOUNDARY_PAIRS.push({
+      theme: bTheme, role: 'hairline', base: base, hex: bs.hairline, baseHex: baseHex,
+      ratio: contrastRatio(bs.hairline, baseHex), tier: tier,
+    });
+  }
+}
+for (let i = 0; i < BOUNDARY_PAIRS.length; i++) {
+  const b: BoundaryPair = BOUNDARY_PAIRS[i];
+  if (b.ratio >= b.tier) { pass++; } else {
+    fail++;
+    console.log(`  ✗ 结构性边界不达标 ${b.theme} · ${b.role} 贴 ${b.base}` +
+      ` = ${b.ratio.toFixed(4)}:1 (< ${b.tier.toFixed(4)}；${b.hex} on ${b.baseHex})`);
+  }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // §C 台账（已知不达标的对）—— **只准删不准加**
 //
@@ -367,12 +413,15 @@ for (let i = 0; i < ALL_ROLE_NAMES.length; i++) {
 
 ok(`源码扫描到 pages/+components/ 的 .ets（${scanFiles.length} 个文件）`, scanFiles.length > 0);
 
-/** §B 判定用到的角色（前景 ∪ 背景）。 */
+/** §B 判定用到的角色（前景 ∪ 背景 ∪ 边界）。
+ *  波3b-6 接线：`hairline`（边界，§B.2 判定）/ `sunken`（面，CANVAS_FACES 判定）已进生产
+ *  （`pages/`+`components/`）⇒ 从 PENDING 移入本表。 */
 const JUDGED_ROLES: string[] = [
   'textPrimary', 'textSecondary', 'textMuted', 'accent', 'accentSoft',
   'dangerText', 'successText', 'warn', 'statusError', 'statusRunning',
   'onAccent', 'accentText', 'appBg', 'surface', 'surfaceAlt', 'surfaceHi',
   'accentDeep', 'warnBg',
+  'hairline', 'sunken',
 ];
 for (let i = 0; i < JUDGED_ROLES.length; i++) {
   const r: string = JUDGED_ROLES[i];
@@ -387,11 +436,11 @@ for (let i = 0; i < ZERO_USE_ROLES.length; i++) {
   ok(`${r} 声明"无生产调用点"（实测 ${roleUses[r]} 次）`, roleUses[r] === 0);
 }
 
-/** 波5f 新增、**尚未接线**的面角色（本波只建色板；消费者接线留给下一波）。
- *  ⛔ 下一波把 `hairline`/`sunken` 接进 components/ 之后，本段会红 ——
- *  那是**设计意图**：请把它们从本表移入 §B 的 CANVAS_ROLES/JUDGED_ROLES 并给出阈值/判定表，
- *  而不是删掉这条断言。（`glassBase` 通常不会被组件直呼，它只喂 `effectsOf.glassBg`。） */
-const PENDING_WIRING_ROLES: string[] = ['hairline', 'sunken', 'glassBase'];
+/** 波5f 新增、**尚未接线**的面角色（本波只建色板；消费者接线已由波3b-6 完成 `hairline`/`sunken`）。
+ *  ⛔ `hairline`/`sunken` 已于波3b-6 接进 `components/`，故**已从本表移入 §B.2 / JUDGED_ROLES**；
+ *  剩 `glassBase` 仍为 0 引用 —— 它只喂 `effectsOf.glassBg`（组件不直呼），属**设计如此**。
+ *  若哪天有组件直呼 `.glassBase`，本段会红：那时请把它移入 §B 并给出阈值，别只改这里。 */
+const PENDING_WIRING_ROLES: string[] = ['glassBase'];
 for (let i = 0; i < PENDING_WIRING_ROLES.length; i++) {
   const r: string = PENDING_WIRING_ROLES[i];
   ok(`${r} 本波尚未接线（实测 ${roleUses[r]} 次引用；接线后请移入 §B）`, roleUses[r] === 0);
@@ -420,8 +469,7 @@ for (let ti = 0; ti < ALL_THEMES.length; ti++) {
 // ── E2 `hairline`：深色族 = `border` 逐字节等价（观感已批准，不许动） ────────
 // 为什么深色可以等价：深色系底色暗，`border` 本身对画布的可见度已够（dark 1.22 / aurora 1.44 /
 // nebula 1.35），真机观感是批准过的 ⇒ 新角色只改"浅色系命名的语义"，不改深色的像素。
-const DARK_FAMILY: string[] = ['dark', 'aurora', 'nebula'];
-const LIGHT_FAMILY: string[] = ['light', 'porcelain'];
+// （`DARK_FAMILY`/`LIGHT_FAMILY` 已在 §B.2 定义，供 §B 与 §E 共用。）
 for (let i = 0; i < DARK_FAMILY.length; i++) {
   const th: string = DARK_FAMILY[i];
   const p: Palette = paletteOf(th);
@@ -531,7 +579,7 @@ for (let i = 0; i < FILL_PAIRS.length; i++) {
 }
 console.log('\n   ⛔ 未纳入判定的角色（实测 0 次生产引用 ⇒ 判它没有意义）：');
 console.log('   ' + ZERO_USE_ROLES.join(', '));
-console.log('   ⏳ 波5f 新增、待下一波接线（接线后须移入 §B）：');
+console.log('   ⏳ 仍未接线（设计如此：只喂派生、组件不直呼）：');
 console.log('   ' + PENDING_WIRING_ROLES.join(', '));
 
 console.log('\n▼ 补齐的三处语义缺失（Surfaces）实测表');
@@ -550,6 +598,16 @@ for (let ti = 0; ti < ALL_THEMES.length; ti++) {
 }
 console.log('   （hairline 目标 = ' + HAIRLINE_TARGET_RATIO + ' = web 浅色 --border #e0e0e0 / #ffffff；'
   + '深色族 ≡ border ⇒ 逐字节零回归）');
+
+console.log('\n▼ 结构性边界（hairline）判定表（波3b-6：接线后新增判定）');
+console.log('   ' + pad('主题', 11) + pad('贴', 10) + pad('实测', 9) + pad('阈值', 9) + pad('判定', 8) + '色值');
+for (let i = 0; i < BOUNDARY_PAIRS.length; i++) {
+  const b: BoundaryPair = BOUNDARY_PAIRS[i];
+  const verdict: string = b.ratio >= b.tier ? '✓ 通过' : '✗ 不达标';
+  console.log('   ' + pad(b.theme, 11) + pad(b.base, 10) + pad(b.ratio.toFixed(4), 9)
+    + pad(b.tier.toFixed(4), 9) + pad(verdict, 8) + `${b.hex} on ${b.baseHex}`);
+}
+console.log('   （浅色族阈值 = HAIRLINE_TARGET_RATIO（web 基线）；深色族 = 它替代的 border 可见度，≡ ⇒ 恰好达标）');
 
 console.log('\n▼ 每套主题最差 5 对（按 实测/阈值 升序；比值 < 1.0 即不达标）');
 for (let ti = 0; ti < ALL_THEMES.length; ti++) {

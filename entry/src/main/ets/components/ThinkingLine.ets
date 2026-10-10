@@ -17,7 +17,7 @@
  * 图标说明：web 用 lucide `Brain`；HarmonyOS 符号集无 brain（`sysResource.js` 4042 项无匹配），
  * 取语义最近的 `lightbulb`。**图标只是提示符，不承载状态**。
  */
-import { paletteOf } from '../core/theme';
+import { paletteOf, surfacesOf } from '../core/theme';
 import { FS_CAPTION, R_LG, SP_1, SP_2 } from '../core/tokens';
 
 @Component
@@ -76,7 +76,9 @@ export struct ThinkingLine {
           .width('100%')
           .wordBreak(WordBreak.BREAK_WORD)
           .padding({ left: SP_2, top: 2, bottom: 2 })
-          .border({ width: { left: 2 }, color: paletteOf(this.theme).border })
+          // 左栅栏是**结构性边界**（承载"这是思考展开体"的信息）⇒ 走 `hairline`
+          // （浅色/极简白下比 `border` 明显更清楚；深色族 `hairline ≡ border` 逐字节零变化）。
+          .border({ width: { left: 2 }, color: surfacesOf(paletteOf(this.theme)).hairline })
           .copyOption(CopyOptions.LocalDevice)
       }
     }

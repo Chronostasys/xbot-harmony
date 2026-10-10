@@ -1,6 +1,6 @@
 import { AuthImage } from './AuthImage';
 import { pasteboard } from '@kit.BasicServicesKit';
-import { Palette, paletteOf, Effects, effectsOf } from '../core/theme';
+import { Palette, paletteOf, surfacesOf, Effects, effectsOf } from '../core/theme';
 import { codeBgOf, codeFgOf, codeTone, CodeTone, normalizeMdTheme } from '../core/mdtheme';
 import { R_SM, R_LG, SP_1, SP_2, SP_3 } from '../core/tokens';
 import {
@@ -144,9 +144,10 @@ export struct MarkdownView {
     } else if (b.kind === MdBlockKind.Code) {
       this.CodeBlock(b)
     } else if (b.kind === MdBlockKind.Divider) {
-      // 分隔线用**发丝线语义色**（`border`）；原先误用 `surfaceHi`（那是"悬停/选中底色"，
+      // 分隔线用**结构性发丝**（`Surfaces.hairline`）；原先误用 `surfaceHi`（那是"悬停/选中底色"，
       // 语义是 L3 填充不是分隔）⇒ 主题一变分隔线就与底色打架，且深浅下都不"安静"。
-      Divider().color(this.pal().border).strokeWidth(1).margin({ top: 6, bottom: 6 })
+      // 深色族 `hairline ≡ border` 逐字节零变化；浅色/极简白下比 `border` 清楚（承载"分段"信息）。
+      Divider().color(surfacesOf(this.pal()).hairline).strokeWidth(1).margin({ top: 6, bottom: 6 })
     } else if (b.kind === MdBlockKind.Quote) {
       // ⚠️ 左侧竖条必须用**边框**，绝不能用 `Divider().vertical(true).height('100%')`：
       // 父容器高度由内容决定时，子元素的百分比高度没有参照（循环测量）⇒ 竖条塌成 0 高、

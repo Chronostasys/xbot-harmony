@@ -5,7 +5,7 @@
  * 缓存按 src 做（图片内容不可变），上限 24 张 —— 超出按插入顺序淘汰（避免长会话把内存吃满）。
  */
 import image from '@ohos.multimedia.image';
-import { Palette, paletteOf } from '../core/theme';
+import { Palette, paletteOf, surfacesOf } from '../core/theme';
 
 const PM_CACHE: Map<string, image.PixelMap> = new Map<string, image.PixelMap>();
 const PM_ORDER: string[] = [];
@@ -108,7 +108,9 @@ export struct AuthImage {
       .margin({ top: 2, bottom: 2 })
       .backgroundColor(this.pal().surfaceAlt)
       .borderRadius(6)
-      .border({ width: 1, color: this.pal().border })
+      // 图片卡描边是**结构性边界**（承载"这是一张可点的图"的信息）⇒ `hairline`
+      // （浅色/极简白下比 `border` 清楚；深色族 `hairline ≡ border` 逐字节零变化）。
+      .border({ width: 1, color: surfacesOf(this.pal()).hairline })
       .onClick(() => {
         if (this.failed) {
           this.failed = false;
