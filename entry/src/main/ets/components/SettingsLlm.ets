@@ -18,138 +18,17 @@
  *    同源但**字段形状不同**（旧接口是 `{subscriptions, models, max_context}` 的自定义形态）。
  *    本面板**统一走 RPC**，与 web 同源同字段（见 `core/rpc.ets` 顶部注释）。
  *
- * ⛔ **不用带参全局 `@Builder`**（参数快照 ⇒ 不重建）；卡片是真 `@Component` + `@Prop`。
+ * ⛔ **不用带参全局 `@Builder`**（参数快照 ⇒ 不重建）；卡片来自 `components/SettingsRows.ets`
+ *    的 `SettingsSubCard`（真 `@Component` + `@Prop`，跨文件真实引用 ⇒ 不是孤儿）。
  */
 import { Palette, paletteOf } from '../core/theme';
 import { XbotHttp } from '../core/http';
-import { FS_BODY, FS_CAPTION, FS_TITLE, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5 } from '../core/tokens';
+import { FS_CAPTION, SP_3, SP_4, SP_5 } from '../core/tokens';
 import {
-  countModelsForSub, DefaultSubscriptionParams, defaultSubscriptionId, displayApiKey,
-  isSubscriptionEnabled, ModelEntryRow, providerLine, readableRpcError, rpc, RpcMethod,
-  stripScheme, SubscriptionEnabledParams, SubscriptionRow,
+  countModelsForSub, DefaultSubscriptionParams, isSubscriptionEnabled, ModelEntryRow,
+  readableRpcError, rpc, RpcMethod, SubscriptionEnabledParams, SubscriptionRow,
 } from '../core/rpc';
-
-/** 一张订阅卡（名称 / 提供方 / base_url / 默认徽标 / 启用开关 / 掩码密钥 / 设默认）。 */
-@Component
-export struct SettingsSubCard {
-  @Prop subId: string = '';
-  @Prop name: string = '';
-  @Prop provider: string = '';
-  @Prop baseUrl: string = '';
-  @Prop model: string = '';
-  @Prop apiKey: string = '';
-  /** ⛔ 不能叫 `enabled`（ArkUI `CustomComponent` 基类成员，10505001）——同 `SettingsToolRow.isOn`。 */
-  @Prop isOn: boolean = false;
-  @Prop isDefault: boolean = false;
-  @Prop modelCount: number = 0;
-  @Prop busy: boolean = false;
-  @Prop theme: string = 'dark';
-  onToggle: (subId: string, next: boolean) => void = () => {
-  };
-  onSetDefault: (subId: string) => void = () => {
-  };
-
-  private pal(): Palette {
-    return paletteOf(this.theme);
-  }
-
-  build() {
-    Column({ space: SP_2 }) {
-      // 第一行：名称 + 默认徽标 + 启用开关
-      Row({ space: SP_2 }) {
-        Column({ space: 2 }) {
-          Row({ space: SP_2 }) {
-            Text(this.name.length > 0 ? this.name : this.subId)
-              .fontSize(FS_BODY)
-              .fontColor(this.pal().textPrimary)
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-            if (this.isDefault) {
-              Text('默认')
-                .fontSize(FS_CAPTION)
-                .fontColor(this.pal().accentText)
-                .padding({ left: SP_2, right: SP_2, top: 1, bottom: 1 })
-                .backgroundColor(this.pal().accentDeep)
-                .borderRadius(R_LG)
-            }
-          }
-          Text(`${providerLine(this.provider, '')} · ${stripScheme(this.baseUrl)}`)
-            .fontSize(FS_CAPTION)
-            .fontColor(this.pal().textMuted)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .width('100%')
-        }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
-
-        Toggle({ type: ToggleType.Switch, isOn: this.isOn })
-          .enabled(!this.busy)
-          .onChange((isOn: boolean) => {
-            this.onToggle(this.subId, isOn);
-          })
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Top)
-
-      // 第二行：模型 + 模型数
-      Row({ space: SP_2 }) {
-        Text(this.model.length > 0 ? this.model : '未指定默认模型')
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().textSecondary)
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .layoutWeight(1)
-        Text(`${this.modelCount} 个模型`)
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().textMuted)
-      }
-      .width('100%')
-
-      // 第三行：掩码密钥（只读）+ 设默认
-      Row({ space: SP_2 }) {
-        Column({ space: 2 }) {
-          Text('API Key（服务端掩码，只读）')
-            .fontSize(FS_CAPTION)
-            .fontColor(this.pal().textMuted)
-            .width('100%')
-          Text(displayApiKey(this.apiKey))
-            .fontSize(FS_CAPTION)
-            .fontFamily('monospace')
-            .fontColor(this.pal().textSecondary)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .width('100%')
-        }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
-
-        if (!this.isDefault) {
-          Text('设为默认')
-            .fontSize(FS_CAPTION)
-            .fontColor(this.pal().accentSoft)
-            .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-            .borderRadius(R_LG)
-            .border({ width: 1, color: this.pal().borderStrong })
-            .opacity(this.busy ? 0.5 : 1)
-            .onClick(() => {
-              if (!this.busy) {
-                this.onSetDefault(this.subId);
-              }
-            })
-        }
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Bottom)
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
-    .padding(SP_4)
-    .backgroundColor(this.pal().surface)
-    .borderRadius(R_XL)
-    .border({ width: 1, color: this.pal().border })
-  }
-}
+import { SettingsErrorBar, SettingsPanelHeader, SettingsSubCard } from './SettingsRows';
 
 @Component
 export struct SettingsLlm {
@@ -221,23 +100,14 @@ export struct SettingsLlm {
 
   build() {
     Column({ space: SP_3 }) {
-      Text('模型订阅')
-        .fontSize(FS_TITLE)
-        .fontColor(this.pal().textPrimary)
-        .width('100%')
-      Text('启停订阅只影响模型选择器与可用范围，凭据保留；「默认」用于新会话的初始模型。')
-        .fontSize(FS_CAPTION)
-        .fontColor(this.pal().textMuted)
-        .width('100%')
+      SettingsPanelHeader({
+        title: '模型订阅',
+        subtitle: '启停订阅只影响模型选择器与可用范围，凭据保留；「默认」用于新会话的初始模型。',
+        theme: this.theme,
+      })
 
       if (this.error.length > 0) {
-        Text(this.error)
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().dangerText)
-          .width('100%')
-          .padding(SP_3)
-          .backgroundColor(this.pal().surfaceAlt)
-          .borderRadius(R_MD)
+        SettingsErrorBar({ message: this.error, theme: this.theme })
       }
 
       if (this.loading) {
@@ -280,6 +150,7 @@ export struct SettingsLlm {
         .width('100%')
         .layoutWeight(1)
         .scrollBar(BarState.Auto)
+        .align(Alignment.Top)
       }
     }
     .width('100%')

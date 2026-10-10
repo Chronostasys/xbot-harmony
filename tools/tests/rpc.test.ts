@@ -15,14 +15,23 @@
 declare const process: { exit: (c: number) => void };
 
 import {
-  buildToolsView, countModelsForSub, DefaultSubscriptionParams, defaultSubscriptionId, displayApiKey,
-  EmptyParams, ENTRY_MCP_HEAD, flattenToolsView, isSubscriptionEnabled, McpGroup, ModelEntryRow,
-  normalizeToolSetting, normalizeToolsSettings, providerLine, RawToolSetting, readableRpcError, rpc,
-  RpcMethod, RpcParamsReq, RPC_PATH, RPC_GET_TOOLS_SETTINGS,
+  AGENT_KEY_ALLOW_SELF_COMPACT, AGENT_KEY_VISION_JPEG_QUALITY, AGENT_KEY_VISION_MAX_IMAGE_BYTES,
+  AGENT_KEY_VISION_MAX_IMAGE_EDGE_PX, AGENT_KEY_VISION_OUTPUT_FORMAT, AGENT_SETTING_KEYS,
+  boolSettingValue, buildToolsView, buildVisionWrites, BYTES_PER_MB, bytesToMbInput, clampSettingInt,
+  countModelsForSub,
+  DefaultSubscriptionParams, defaultSubscriptionId, displayApiKey,
+  EmptyParams, ENTRY_MCP_HEAD, flattenToolsView, GetSettingsParams, isSubscriptionEnabled,
+  mbInputToBytes, McpGroup, ModelEntryRow,
+  normalizeToolSetting, normalizeToolsSettings, normalizeVisionFormat, providerLine, RawToolSetting,
+  readableRpcError, rpc,
+  RpcMethod, RpcParamsReq, RPC_GET_SETTINGS, RPC_GET_TOOLS_SETTINGS, RPC_PATH,
   RPC_LIST_ALL_MODEL_ENTRIES, RPC_LIST_SUBSCRIPTIONS, RPC_RUNNER_LIST,
-  RPC_SET_DEFAULT_SUBSCRIPTION, RPC_SET_SUBSCRIPTION_ENABLED, RPC_SET_TOOL_ENABLED,
-  RPC_WEB_PLUGIN_LIST, setToolsEnabled, stripScheme, SubscriptionEnabledParams, SubscriptionRow,
+  RPC_SET_DEFAULT_SUBSCRIPTION, RPC_SET_SETTING, RPC_SET_SUBSCRIPTION_ENABLED, RPC_SET_TOOL_ENABLED,
+  RPC_WEB_PLUGIN_LIST, setToolsEnabled, settingIsTrue, settingValue, SetSettingParams,
+  SETTINGS_NS_CLI, SettingWrite, stripScheme, SubscriptionEnabledParams, SubscriptionRow,
   ToolEnabledParams, ToolSettingRow, ToolsEntry, toolsEntryBusyKey, toolsEntryKey, ToolsSettingsData,
+  VISION_DEFAULT_EDGE_PX, VISION_DEFAULT_JPEG_QUALITY, VISION_DEFAULT_MAX_IMAGE_MB,
+  VISION_FORMATS, VISION_FORMAT_AUTO, VISION_FORMAT_JPEG,
 } from '../../entry/src/main/ets/core/rpc';
 import { XbotHttp } from '../../entry/src/main/ets/core/http';
 
@@ -59,7 +68,7 @@ eq('RPC 路径常量', RPC_PATH, '/api/rpc');
 const NAMED: string[] = [
   RPC_RUNNER_LIST, RPC_WEB_PLUGIN_LIST, RPC_GET_TOOLS_SETTINGS, RPC_SET_TOOL_ENABLED,
   RPC_LIST_SUBSCRIPTIONS, RPC_LIST_ALL_MODEL_ENTRIES, RPC_SET_SUBSCRIPTION_ENABLED,
-  RPC_SET_DEFAULT_SUBSCRIPTION,
+  RPC_SET_DEFAULT_SUBSCRIPTION, RPC_GET_SETTINGS, RPC_SET_SETTING,
 ];
 for (let i = 0; i < NAMED.length; i++) {
   ok(`ALL 登记了 ${NAMED[i]}`, RpcMethod.ALL.indexOf(NAMED[i]) >= 0);
@@ -71,9 +80,17 @@ eq('字面量：tools', [RPC_GET_TOOLS_SETTINGS, RPC_SET_TOOL_ENABLED], ['get_to
 eq('字面量：llm', [RPC_LIST_SUBSCRIPTIONS, RPC_LIST_ALL_MODEL_ENTRIES, RPC_SET_SUBSCRIPTION_ENABLED,
   RPC_SET_DEFAULT_SUBSCRIPTION], ['list_subscriptions', 'list_all_model_entries',
   'set_subscription_enabled', 'set_default_subscription']);
+eq('字面量：settings', [RPC_GET_SETTINGS, RPC_SET_SETTING], ['get_settings', 'set_setting']);
 // 静态访问形式与具名常量同值
-eq('静态表与常量一致', [RpcMethod.getToolsSettings, RpcMethod.setToolEnabled],
-  [RPC_GET_TOOLS_SETTINGS, RPC_SET_TOOL_ENABLED]);
+eq('静态表与常量一致', [RpcMethod.getToolsSettings, RpcMethod.setToolEnabled, RpcMethod.getSettings,
+  RpcMethod.setSetting], [RPC_GET_TOOLS_SETTINGS, RPC_SET_TOOL_ENABLED, RPC_GET_SETTINGS, RPC_SET_SETTING]);
+
+// settings 两个 method 的 params 形状（服务端 rpc_table.go:450-453 / 506-511）
+eq('get_settings params', JSON.stringify(new GetSettingsParams(SETTINGS_NS_CLI)),
+  '{"namespace":"cli","sender_id":""}');
+eq('set_setting params', JSON.stringify(new SetSettingParams(SETTINGS_NS_CLI, 'k', 'v')),
+  '{"namespace":"cli","sender_id":"","key":"k","value":"v"}');
+eq('namespace 常量 = cli', SETTINGS_NS_CLI, 'cli');
 
 // ── ③ 工具归一 + MCP 分组（静默失效根因守卫）────────────────────────────────
 
@@ -158,6 +175,73 @@ eq('默认订阅 id', defaultSubscriptionId(subsForDefault), 's2');
 eq('无默认 → 空串', defaultSubscriptionId([]), '');
 eq('enabled 缺省即 false', [isSubscriptionEnabled(subsForDefault[0]), isSubscriptionEnabled({ id: 'x', name: '',
   provider: '', base_url: '', api_key: '', model: '', active: false, enabled: true })], [false, true]);
+
+// ── ③d agent 分区（get_settings / set_setting，web SettingsAgent.tsx 为权威）─────────
+
+// 键名 / 取值域 / 默认值逐条对齐 web（改错键名 ⇒ 服务端静默存一个没人读的键）
+eq('agent 键清单', AGENT_SETTING_KEYS, ['allow_self_compact', 'vision_max_image_edge_px',
+  'vision_max_image_bytes', 'vision_output_format', 'vision_jpeg_quality']);
+eq('agent 键无重复', new Set(AGENT_SETTING_KEYS).size, AGENT_SETTING_KEYS.length);
+ok('ALL 不存在于 agent 键里（method 与 setting key 是两套命名）',
+  AGENT_SETTING_KEYS.indexOf('get_settings') < 0);
+eq('键字面量', [AGENT_KEY_ALLOW_SELF_COMPACT, AGENT_KEY_VISION_MAX_IMAGE_EDGE_PX,
+  AGENT_KEY_VISION_MAX_IMAGE_BYTES, AGENT_KEY_VISION_OUTPUT_FORMAT, AGENT_KEY_VISION_JPEG_QUALITY],
+  ['allow_self_compact', 'vision_max_image_edge_px', 'vision_max_image_bytes',
+    'vision_output_format', 'vision_jpeg_quality']);
+eq('默认值常量', [VISION_DEFAULT_EDGE_PX, VISION_DEFAULT_JPEG_QUALITY, VISION_DEFAULT_MAX_IMAGE_MB, BYTES_PER_MB],
+  [1024, 85, 4, 1048576]);
+eq('格式取值域', VISION_FORMATS, ['auto', 'jpeg']);
+
+// 布尔读法：web 只认字符串 'true'（SettingsAgent.tsx:136）
+eq('读布尔 true', settingIsTrue('true'), true);
+eq('读布尔 false', settingIsTrue('false'), false);
+eq('读布尔 undefined', settingIsTrue(undefined), false);
+eq('读布尔 1（非 true 一律 false）', settingIsTrue('1'), false);
+eq('写布尔', [boolSettingValue(true), boolSettingValue(false)], ['true', 'false']);
+
+// 整数档：空/非法/越界 ⇒ 默认（与 web 的 else 分支同义）
+eq('整数：正常', clampSettingInt('2048', 256, 8192, 1024), 2048);
+eq('整数：空 ⇒ 默认', clampSettingInt('', 256, 8192, 1024), 1024);
+eq('整数：空白 ⇒ 默认', clampSettingInt('   ', 256, 8192, 1024), 1024);
+eq('整数：非数字 ⇒ 默认', clampSettingInt('abc', 256, 8192, 1024), 1024);
+eq('整数：过小 ⇒ 默认', clampSettingInt('255', 256, 8192, 1024), 1024);
+eq('整数：过大 ⇒ 默认', clampSettingInt('8193', 256, 8192, 1024), 1024);
+eq('整数：边界内', [clampSettingInt('256', 256, 8192, 1024), clampSettingInt('8192', 256, 8192, 1024)],
+  [256, 8192]);
+eq('质量：越界/非法 ⇒ 85', [clampSettingInt('49', 50, 100, 85), clampSettingInt('101', 50, 100, 85),
+  clampSettingInt('x', 50, 100, 85), clampSettingInt('70', 50, 100, 85)], [85, 85, 85, 70]);
+
+// 字节 ↔ MB（web SettingsAgent.tsx:140 / :180）
+eq('字节 → MB 输入', bytesToMbInput('4194304'), '4');
+eq('字节 → MB（小数）', bytesToMbInput('2097152'), '2');
+eq('字节 → MB 空', bytesToMbInput(''), '');
+eq('字节 → MB 非法', bytesToMbInput('abc'), '');
+eq('MB → 字节', mbInputToBytes('4'), '4194304');
+eq('MB → 字节（小数）', mbInputToBytes('1.5'), '1572864');
+eq('MB → 字节：空 ⇒ 4MB 默认', mbInputToBytes(''), '4194304');
+eq('MB → 字节：0 ⇒ 默认', mbInputToBytes('0'), '4194304');
+eq('MB → 字节：>20 ⇒ 默认', mbInputToBytes('21'), '4194304');
+eq('格式归一', [normalizeVisionFormat('jpeg'), normalizeVisionFormat('auto'), normalizeVisionFormat(''),
+  normalizeVisionFormat('weird')], ['jpeg', 'auto', 'auto', 'auto']);
+
+// buildVisionWrites：顺序 + 回落（web saveVisionSettings 的 writes 顺序逐条一致）
+const w1 = buildVisionWrites('2048', '2', VISION_FORMAT_JPEG, '70');
+eq('视觉写入顺序', w1.map((w: SettingWrite) => w.key), ['vision_max_image_edge_px', 'vision_max_image_bytes',
+  'vision_output_format', 'vision_jpeg_quality']);
+eq('视觉写入值（全填）', w1.map((w: SettingWrite) => w.value), ['2048', '2097152', 'jpeg', '70']);
+const w2 = buildVisionWrites('', '', '', '');
+eq('视觉写入值（全空 ⇒ 默认）', w2.map((w: SettingWrite) => w.value),
+  ['1024', '4194304', 'auto', '85']);
+const w3 = buildVisionWrites('100', '99', 'jpeg', '10');
+eq('视觉写入值（越界 ⇒ 默认，格式仍生效）', w3.map((w: SettingWrite) => w.value),
+  ['1024', '4194304', 'jpeg', '85']);
+eq('SettingWrite 键集', Object.keys(JSON.parse(JSON.stringify(new SettingWrite('k', 'v'))) as object).sort(),
+  ['key', 'value']);
+
+// settingValue：缺键/undefined 载荷都要安全
+eq('取值：命中', settingValue({ a: '1' } as Record<string, string>, 'a'), '1');
+eq('取值：缺键', settingValue({ a: '1' } as Record<string, string>, 'b'), '');
+eq('取值：undefined 载荷', settingValue(undefined, 'a'), '');
 
 // ── ③b 权限错误可读化 ────────────────────────────────────────────────────────
 

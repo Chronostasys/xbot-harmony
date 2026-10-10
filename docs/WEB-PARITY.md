@@ -173,6 +173,8 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | `list_all_model_entries` | 无参 | `rpc_table.go:754` |
 | `set_subscription_enabled` | `{sub_id, enabled}` | `rpc_table.go:672-675` |
 | `set_default_subscription` | ⚠️ **`{id, chat_id, channel}`** —— 字段是 **`id`**，**不是** `sub_id`（`chat_id` 为会话；`channel` 缺省回落 `"cli"`，**web 会话必须传 `"web"`**，否则 per-session tenant 映射写到错的 channel 行） | `rpc_table.go:2696-2705`；web 调用点 `web/src/components/agent/api.ts:752` |
+| `get_settings` | `{namespace, sender_id}`（原生固定 `namespace='cli'`、`sender_id=''`）→ `Record<string,string>`；服务端会**注入 config 默认值**（如 `allow_self_compact` ← `Cfg.Agent.AllowSelfCompact`） | `rpc_table.go:450-505`（注入默认值 `:501-502`）；web `agent/api.ts:836-841` |
+| `set_setting` | `{namespace, sender_id, key, value}` —— **逐键写**。⚠️ 普通 user 级键**无白名单/范围校验**（直接落 `user_settings`）⇒ **取值范围只在客户端把关** | `rpc_table.go:506-544`（落库 `:537`）；web `agent/api.ts:843-845` |
 
 ⚠️ **tools 的 MCP 分组坑**：后端字段是 `server_name`，web 曾因 snake/camel 错位导致**分组静默失效**
 （`SettingsTools.tsx:44-46` 注释）⇒ 原生必须归一 `server_name → serverName`。
@@ -190,6 +192,16 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 
 `core/rpc.ets`（地基） → `tools` → `llm`（读+启停+默认） → `agent` → `storage` →
 `channels`（飞书一键绑定可延后） → `webusers` → `llm` 完整 CRUD/导入导出（最后）。
+
+**进度（2026-10-11）**：
+- 已落地：`core/rpc.ets`（`{method,params}` 地基 + method 常量表 + `rpc<T>()`）、
+  `tools`（`components/SettingsTools.ets`）、`llm` 读+启停+默认（`components/SettingsLlm.ets`）、
+  `agent`（`components/SettingsAgent.ets`，5 个键：`allow_self_compact` + 4 个 `vision_*`）。
+- 共用原子在 `components/SettingsRows.ets`（`SettingsToolRow`/`SettingsMcpHead`/`SettingsSubCard`/
+  `SettingsNumberRow`/`SettingsChipRow`/`SettingsPanelHeader`/`SettingsErrorBar`）——
+  **三个面板跨文件真实引用**它们 ⇒ 进依赖图、被 ArkTS 真编译覆盖（不是孤儿）。
+- **唯一待接线**：`components/SettingsPanel.ets`（三面板 tab 聚合，**唯一注入点**）。
+  `pages/Index.ets` 注入一行即可：`SettingsPanel({ http: store.http, theme: this.theme })`。
 
 ⚠️ 这些面板若都塞进 `pages/Index.ets`（5200 行、**热文件**）会锁死并行度 ⇒ 应各自独立成
 `components/Settings*.ets`，`Index.ets` 只做入口注入。

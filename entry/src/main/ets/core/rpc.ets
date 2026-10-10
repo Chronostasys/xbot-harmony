@@ -62,6 +62,8 @@ export const RPC_LIST_SUBSCRIPTIONS: string = 'list_subscriptions';
 export const RPC_LIST_ALL_MODEL_ENTRIES: string = 'list_all_model_entries';
 export const RPC_SET_SUBSCRIPTION_ENABLED: string = 'set_subscription_enabled';
 export const RPC_SET_DEFAULT_SUBSCRIPTION: string = 'set_default_subscription';
+export const RPC_GET_SETTINGS: string = 'get_settings';
+export const RPC_SET_SETTING: string = 'set_setting';
 
 /**
  * method 名常量表（静态访问形式：`RpcMethod.getToolsSettings`）。
@@ -78,6 +80,8 @@ export class RpcMethod {
   static readonly listAllModelEntries: string = RPC_LIST_ALL_MODEL_ENTRIES;
   static readonly setSubscriptionEnabled: string = RPC_SET_SUBSCRIPTION_ENABLED;
   static readonly setDefaultSubscription: string = RPC_SET_DEFAULT_SUBSCRIPTION;
+  static readonly getSettings: string = RPC_GET_SETTINGS;
+  static readonly setSetting: string = RPC_SET_SETTING;
 
   /** 全部 method（顺序 = 展示/文档顺序）。 */
   static readonly ALL: string[] = [
@@ -89,6 +93,8 @@ export class RpcMethod {
     RPC_LIST_ALL_MODEL_ENTRIES,
     RPC_SET_SUBSCRIPTION_ENABLED,
     RPC_SET_DEFAULT_SUBSCRIPTION,
+    RPC_GET_SETTINGS,
+    RPC_SET_SETTING,
   ];
 }
 
@@ -129,6 +135,41 @@ export class DefaultSubscriptionParams {
 
   constructor(id: string) {
     this.id = id;
+  }
+}
+
+/** 设置命名空间常量（web 全程用 `'cli'`；服务端把它落到单操作员的 `cli_user` 行）。 */
+export const SETTINGS_NS_CLI: string = 'cli';
+
+/**
+ * `get_settings` 的 params（服务端 `rpc_table.go:450-453`）→ `Record<string,string>`。
+ *
+ * ⚠️ `sender_id` 必须**显式发空串**：服务端忽略它（用 `cliSenderID`），
+ * 但 web 的 `api.ts:836-841` 就是发 `{namespace, sender_id: ''}`，保持一致。
+ */
+export class GetSettingsParams {
+  namespace: string = SETTINGS_NS_CLI;
+  sender_id: string = '';
+
+  constructor(namespace: string) {
+    this.namespace = namespace;
+  }
+}
+
+/**
+ * `set_setting` 的 params（服务端 `rpc_table.go:506-511`）。
+ * web `api.ts:843-845`：`{namespace, sender_id: '', key, value}` —— **逐键写**。
+ */
+export class SetSettingParams {
+  namespace: string = SETTINGS_NS_CLI;
+  sender_id: string = '';
+  key: string = '';
+  value: string = '';
+
+  constructor(namespace: string, key: string, value: string) {
+    this.namespace = namespace;
+    this.key = key;
+    this.value = value;
   }
 }
 
@@ -464,6 +505,149 @@ export function defaultSubscriptionId(subs: SubscriptionRow[]): string {
 /** 订阅是否启用（服务端 `enabled,omitempty` ⇒ 缺省即 false）。 */
 export function isSubscriptionEnabled(sub: SubscriptionRow): boolean {
   return sub.enabled === true;
+}
+
+// ── 纯逻辑：agent 分区（get_settings / set_setting，namespace `cli`）──────────────
+//
+// 键与取值域**逐条取自 web `components/settings/SettingsAgent.tsx`**（web 是权威基准）：
+//   · allow_self_compact       : 「true」|「false」（设置页读 `=== 'true'`，写 `next ? 'true':'false'`）
+//                                SettingsAgent.tsx:136 / :155
+//   · vision_max_image_edge_px : 整数 256..8192，缺省/越界回落 **1024**   SettingsAgent.tsx:174-177
+//   · vision_max_image_bytes   : **字节数字符串**；界面用 MB，`mb>0 && mb<=20`，缺省回落 **4MB=4194304**
+//                                SettingsAgent.tsx:178-183
+//   · vision_output_format     : 「auto」|「jpeg」，缺省回落 **auto**      SettingsAgent.tsx:184 / :249-252
+//   · vision_jpeg_quality      : 整数 50..100，缺省/越界回落 **85**        SettingsAgent.tsx:185-190
+//
+// 服务端侧：`get_settings` 会为 DB 里没有的键注入 config 默认值（`rpc_table.go:501-502`
+// 注入 allow_self_compact；`config/config.go:343` `AllowSelfCompact ... omitempty` ⇒ 默认 false）。
+// `set_setting` 对普通 user 级键**不做白名单校验**（`rpc_table.go:537` 直接落 user_settings），
+// ⇒ 上面的**取值范围只在客户端把关**（与 web 相同）。
+
+export const AGENT_KEY_ALLOW_SELF_COMPACT: string = 'allow_self_compact';
+export const AGENT_KEY_VISION_MAX_IMAGE_EDGE_PX: string = 'vision_max_image_edge_px';
+export const AGENT_KEY_VISION_MAX_IMAGE_BYTES: string = 'vision_max_image_bytes';
+export const AGENT_KEY_VISION_OUTPUT_FORMAT: string = 'vision_output_format';
+export const AGENT_KEY_VISION_JPEG_QUALITY: string = 'vision_jpeg_quality';
+
+/** agent 面板用的全部键（顺序 = 展示顺序；契约测试用它守完整性）。 */
+export const AGENT_SETTING_KEYS: string[] = [
+  AGENT_KEY_ALLOW_SELF_COMPACT,
+  AGENT_KEY_VISION_MAX_IMAGE_EDGE_PX,
+  AGENT_KEY_VISION_MAX_IMAGE_BYTES,
+  AGENT_KEY_VISION_OUTPUT_FORMAT,
+  AGENT_KEY_VISION_JPEG_QUALITY,
+];
+
+export const VISION_FORMAT_AUTO: string = 'auto';
+export const VISION_FORMAT_JPEG: string = 'jpeg';
+/** 输出格式取值域（web `SettingsAgent.tsx:249-252` 的两个 option）。 */
+export const VISION_FORMATS: string[] = [VISION_FORMAT_AUTO, VISION_FORMAT_JPEG];
+
+/** 默认值（web 的回落值，写回服务端时用）。 */
+export const VISION_DEFAULT_EDGE_PX: number = 1024;
+export const VISION_DEFAULT_JPEG_QUALITY: number = 85;
+export const VISION_DEFAULT_MAX_IMAGE_MB: number = 4;
+/** 字节/MB 换算（1024 进制；web 用 `1024*1024`）。 */
+export const BYTES_PER_MB: number = 1048576;
+export const VISION_MIN_EDGE_PX: number = 256;
+export const VISION_MAX_EDGE_PX: number = 8192;
+export const VISION_MIN_MB: number = 1;
+export const VISION_MAX_MB: number = 20;
+export const VISION_MIN_JPEG_QUALITY: number = 50;
+export const VISION_MAX_JPEG_QUALITY: number = 100;
+
+/** 一次设置写入（逐键 RPC 的一行）。 */
+export class SettingWrite {
+  key: string = '';
+  value: string = '';
+
+  constructor(key: string, value: string) {
+    this.key = key;
+    this.value = value;
+  }
+}
+
+/** 布尔设置读法：web 只认字符串 `'true'`（`SettingsAgent.tsx:136`）——其余一律 false。 */
+export function settingIsTrue(value: string | undefined): boolean {
+  return value === 'true';
+}
+
+/** 布尔设置写法（`SettingsAgent.tsx:155`）。 */
+export function boolSettingValue(on: boolean): string {
+  return on ? 'true' : 'false';
+}
+
+/**
+ * 设置面板里的整数档：**空/非法/越界 ⇒ 回落默认值**（与 web 的 `if (…>=min && …<=max) push else push(默认)` 同义）。
+ * 供"写回"使用 —— web 的 placeholder 只是占位，真正落库的是默认值。
+ */
+export function clampSettingInt(raw: string, min: number, max: number, fallback: number): number {
+  const t: string = raw !== undefined && raw !== null ? raw.trim() : '';
+  if (t.length === 0) {
+    return fallback;
+  }
+  const n: number = parseInt(t, 10);
+  if (isNaN(n) || n < min || n > max) {
+    return fallback;
+  }
+  return n;
+}
+
+/** 字节数 → MB 显示（保留 1 位小数；web `SettingsAgent.tsx:140`）。空/非法 ⇒ 空串（界面显示占位）。 */
+export function bytesToMbInput(raw: string | undefined): string {
+  const t: string = raw !== undefined && raw !== null ? raw.trim() : '';
+  if (t.length === 0) {
+    return '';
+  }
+  const n: number = parseInt(t, 10);
+  if (isNaN(n)) {
+    return '';
+  }
+  return `${Math.round(n / BYTES_PER_MB * 10) / 10}`;
+}
+
+/** MB 档 → 字节字符串（web `Math.round(mb * 1024 * 1024)`）；空/越界 ⇒ 默认 4MB。 */
+export function mbInputToBytes(raw: string): string {
+  const t: string = raw !== undefined && raw !== null ? raw.trim() : '';
+  if (t.length === 0) {
+    return `${VISION_DEFAULT_MAX_IMAGE_MB * BYTES_PER_MB}`;
+  }
+  const mb: number = parseFloat(t);
+  if (isNaN(mb) || mb <= 0 || mb > VISION_MAX_MB) {
+    return `${VISION_DEFAULT_MAX_IMAGE_MB * BYTES_PER_MB}`;
+  }
+  return `${Math.round(mb * BYTES_PER_MB)}`;
+}
+
+/** 输出格式归一：只认 auto/jpeg，其余 ⇒ auto（web `outputFormat || 'auto'`）。 */
+export function normalizeVisionFormat(raw: string): string {
+  return raw === VISION_FORMAT_JPEG ? VISION_FORMAT_JPEG : VISION_FORMAT_AUTO;
+}
+
+/**
+ * 视觉设置 → **写入列表**（与 web `saveVisionSettings`（`SettingsAgent.tsx:167-200`）逐条同序同义）。
+ *
+ * 顺序即 web 的 `writes.push` 顺序：edge_px → bytes → output_format → jpeg_quality。
+ */
+export function buildVisionWrites(edgePx: string, maxImageMb: string, format: string, jpegQuality: string): SettingWrite[] {
+  const edge: number = clampSettingInt(edgePx, VISION_MIN_EDGE_PX, VISION_MAX_EDGE_PX, VISION_DEFAULT_EDGE_PX);
+  const quality: number = clampSettingInt(jpegQuality, VISION_MIN_JPEG_QUALITY, VISION_MAX_JPEG_QUALITY,
+    VISION_DEFAULT_JPEG_QUALITY);
+  return [
+    new SettingWrite(AGENT_KEY_VISION_MAX_IMAGE_EDGE_PX, `${edge}`),
+    new SettingWrite(AGENT_KEY_VISION_MAX_IMAGE_BYTES, mbInputToBytes(maxImageMb)),
+    new SettingWrite(AGENT_KEY_VISION_OUTPUT_FORMAT, normalizeVisionFormat(format)),
+    new SettingWrite(AGENT_KEY_VISION_JPEG_QUALITY, `${quality}`),
+  ];
+}
+
+/** 从 `get_settings` 结果里取键（缺省 ⇒ 空串，调用方走各自的 placeholder/默认）。 */
+export function settingValue(settings: Record<string, string> | undefined, key: string): string {
+  if (settings === undefined || settings === null) {
+    return '';
+  }
+  const v: string | undefined = settings[key];
+  return v === undefined || v === null ? '' : v;
 }
 
 // ── 纯逻辑：权限错误可读化 ─────────────────────────────────────────────────────
