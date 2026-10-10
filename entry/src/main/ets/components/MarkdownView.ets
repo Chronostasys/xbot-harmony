@@ -48,7 +48,8 @@ export class MdInlineStyle {
   strike: boolean = false;
   underline: boolean = false;
   mono: boolean = false;
-  bg: string = '#00000000';
+  /** 背景（由调用方按当前色板赋值；空 = 无背景） */
+  bg: string = '';
 }
 
 export function inlineStyles(text: string, pal: Palette): MdInlineStyle[] {
