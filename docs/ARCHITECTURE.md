@@ -63,7 +63,7 @@ ArkTS 既无 ESM 加载器也无动态求值 ⇒ 物理上无法原生执行。
 
 | 维度 | Web | 本仓库（M1） |
 |---|---|---|
-| 状态机 | `reduce.ts` 纯函数 reducer + 类型级不变量 | 命令式 `ChatStore`（M2 计划迁移为 reducer，见 ROADMAP） |
+| 状态机 | `reduce.ts` 纯函数 reducer + 类型级不变量 | **已接入**：`core/reduce.ts` + `core/{normalize,derive,integrate,agent_normalize,progress_types,chat_types_full}.ts`（逐字移植），渲染行由 `deriveRows(state)` 得出，busy 用 AgentPanel 三元公式 —— 见 `docs/WEB-ALIGNMENT.md` |
 | 窗口化 | 迭代级窗口化 + 虚拟列表 | 依赖 ArkUI `List` 的原生复用（M2 评估是否需要手动窗口化） |
 | Markdown | react-markdown + katex + mermaid | M1 纯文本（M2 接入原生 markdown 渲染，公式/图表走 ArkWeb） |
 | 离线/多标签 | Service Worker + 多 tab | 单进程（M3 考虑） |

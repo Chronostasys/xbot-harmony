@@ -12,10 +12,15 @@
  */
 import { XbotHttp } from './http';
 import { SseClient } from './sse';
-import {
-  applyStreamFrame, applyStructured, isIdleAction, isBusyAction,
-  shouldReloadHistory, liveIterationOf, upsertIteration, mergeTools, rowIsEmpty, isStaleSeqEvent,
-} from './streammerge';
+import { rowIsEmpty } from './streammerge';
+import { ChatState, DomainEvent, initialChatState, NonEmptyS, nonEmptyStr, UserRow } from './chat_types_full';
+import { reduce } from './reduce';
+import { deriveRows, Row } from './derive';
+import { normalizeEvent } from './normalize';
+import { historyToReplaced, liveProgressFromState } from './integrate';
+import { applyRow } from './render';
+import { ChatMessage, ChatMessageRole, EMPTY_PROGRESS_SNAPSHOT, ProgressSnapshot, WebIteration } from './chattypes';
+import { normalizeWebIteration } from './agent_normalize';
 import { channelForChat } from './sessionpick';
 import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
 import { moveOrders } from './sessionops';
@@ -100,29 +105,134 @@ export class ChatStore {
   goal: GoalInfo | undefined = undefined;
 
   sessions: SessionItem[] = [];
+
+  /**
+   * 渲染行（`ChatRow`）—— **由状态机派生**，对齐 web `useChatMessages`：
+   * `rows = applyRow(deriveRows(state))`。不再手写维护（手写近似 = 全部 bug 的源头）。
+   */
   rows: ChatRow[] = [];
-  busy: boolean = false;
+
   /**
-   * 服务端会话树给出的**权威**忙碌标记（`sessions[i].running`）。
-   * ⛔ 用途：迟到的 coarse `session(idle)`（SSE 重放 / 切后台恢复）不能冻结在飞的回合 ——
-   * 只要权威仍说 running，就把这条 idle 当陈旧信号忽略（真结束由会话树翻 false 收尾）。
+   * 单会话**唯一事实源**：`ChatState`（逐字移植 web `chat/types.ts` / `reduce.ts`）。
+   *
+   * 所有进度事件经 `normalizeEvent → reduce` 落入它；渲染行由 `deriveRows` 得出、
+   * busy 由 AgentPanel 三元公式得出。打开会话时**整体复位**（会话隔离，见 openSession）。
    */
-  serverRunning: boolean = false;
+  private state: ChatState = initialChatState('');
+
+  /** 行对象缓存（id → ChatRow）——就地更新，保住 @ObjectLink 恒等。 */
+  private rowCache: Map<string, ChatRow> = new Map();
+
+  /** 已拉取的历史消息累积（对齐 web `useChatMessages` 的 messages 数组）——
+   *  分页只追加更早段，每次派发 `history_replaced(全量)` 让 reduce 做 merge。 */
+  private history: ChatMessage[] = [];
+
   currentChatId: string = '';
-  lastSeq: number = 0;
+
+  /** 当前会话的 live 进度快照（对齐 web `liveProgressFromState`）。页面 live 尾块读它。 */
+  liveProgress(): ProgressSnapshot {
+    return liveProgressFromState(this.state);
+  }
+
   /**
-   * **turn 级**流式缓冲（对齐 web `ProgressStore.streamContent/streamReasoning/streamingTools`）。
-   * ⛔ 绝不能把流式内容直接挂到某个 iteration 对象上：流式帧的归属迭代会随服务端盖号变化，
-   *    挂错就会"同一段内容重复渲染到不同迭代"（真机 2026-10-10）。正确模型：
-   *    · 流式帧只写这组缓冲；**迭代前进时**把缓冲"折叠"进上一迭代，然后清空；
-   *    · 收尾（text / idle）时折叠进当前迭代并清空。
+   * 忙碌 —— 逐字对齐 web `AgentPanel.tsx:713` 的三元公式：
+   *   `currentSession.running || progressSnapshot.streaming || busyFallback(activeTurn!==null)`
+   * 再叠加 AskUser-pending 的互斥（web 同款：等待用户回答时回合是 PAUSED，不得显示 busy）。
    */
-  streamText: string = '';
-  streamReasoning: string = '';
-  streamTools: ToolProgress[] = [];
-  /** 已定稿的最大 turnID（web `store.lastTurnID`）：用于丢弃**迟到/旧 turn** 的进度事件 —— 
-   *  否则收尾后一条迟到事件会创建空 live 行 ⇒ busy 永远卡住（真机 2026-10-10）。 */
-  lastTurnID: number = 0;
+  get busy(): boolean {
+    const snap: ProgressSnapshot = liveProgressFromState(this.state);
+    const busyFallback: boolean = this.state.activeTurn !== null;
+    return (this.state.sessionRunning || snap.streaming || busyFallback) && this.askUser === null;
+  }
+
+  /** 服务端会话树给出的权威 running（`sessions[i].running`，经 session_running 入状态机）。 */
+  get serverRunning(): boolean {
+    return this.state.sessionRunning;
+  }
+
+  /** 是否有一条在飞的 live turn（会话隔离判据：只读当前 store 的 state）。 */
+  hasLiveTurn(): boolean {
+    return this.state.activeTurn !== null;
+  }
+
+  /** 当前是否持有带产出的 live 行（尾块/占位符让位判据）。 */
+  hasLiveRowWithContent(): boolean {
+    if (this.state.activeTurn === null) {
+      return false;
+    }
+    const snap: ProgressSnapshot = liveProgressFromState(this.state);
+    return snap.streamContent.length > 0 || snap.reasoningStreamContent.length > 0
+      || snap.activeTools.length > 0 || snap.streamingTools.length > 0
+      || snap.iterationHistory.length > 0;
+  }
+
+  /** 状态机自愈：busy=false 却残留空壳 live turn（迟到的进度事件造的）⇒ 由 reduce 的
+   *  idle 分支收尾；此处仅保留旧接口名给页面调用（对齐 web 无此步 —— 见对照表）。 */
+  pruneEmptyLiveRowIfIdle(): boolean {
+    return false;
+  }
+
+  /** 把一批 DomainEvent 依次喂给状态机，然后重建渲染行。 */
+  private pushEvents(evs: readonly DomainEvent[] | null): void {
+    if (evs === null) {
+      return;
+    }
+    let next: ChatState = this.state;
+    for (let i = 0; i < evs.length; i++) {
+      next = reduce(next, evs[i]);
+    }
+    this.state = next;
+    this.rebuildRows();
+  }
+
+  /** 单个 DomainEvent（内部便捷）。 */
+  private pushEvent(ev: DomainEvent): void {
+    this.state = reduce(this.state, ev);
+    this.rebuildRows();
+  }
+
+  /** `ChatState → rows`：`deriveRows` + 就地适配（对象恒等）。 */
+  private rebuildRows(): void {
+    const derived: readonly Row[] = deriveRows(this.state);
+    const next: ChatRow[] = [];
+    const alive: Set<string> = new Set();
+    for (let i = 0; i < derived.length; i++) {
+      const r: Row = derived[i];
+      alive.add(r.id);
+      let row: ChatRow | undefined = this.rowCache.get(r.id);
+      if (row === undefined) {
+        row = new ChatRow();
+        row.id = r.id;
+        this.rowCache.set(r.id, row);
+      }
+      const changed: boolean = applyRow(row, r);
+      if (changed) {
+        this.touch(row);
+      }
+      next.push(row);
+    }
+    // 淘汰已消失的行（turn 被删/切会话）
+    if (this.rowCache.size > alive.size) {
+      const stale: string[] = [];
+      this.rowCache.forEach((_v: ChatRow, k: string) => {
+        if (!alive.has(k)) {
+          stale.push(k);
+        }
+      });
+      for (let i = 0; i < stale.length; i++) {
+        this.rowCache.delete(stale[i]);
+      }
+    }
+    this.rows = next;
+    this.onUpdate();
+  }
+
+  /** 清空行缓存（切会话 / 整体复位时）。 */
+  private resetRows(): void {
+    this.state = initialChatState(this.currentChatId);
+    this.rowCache = new Map();
+    this.rows = [];
+  }
 
   /** 历史分页（loadMore 游标） */
   hasMore: boolean = false;
@@ -206,28 +316,25 @@ export class ChatStore {
     // 错过一条 idle（断线重连/切后台）就会永远显示"运行中"。每次拉到会话树都对账一次。
     // 例外：刚发送的 3 秒内不对账（乐观 busy 先行，服务端标记 running 有一个 RTT 窗口）。
     this.sessionsFetchedAt = Date.now();
-    // ⛔ busy 对账（真机 P0，2026-10-10）：会话树是**快照**，服务端 `running` 标记有 RTT 延迟。
-    //  只在 ① 权威说 running=true（恢复），或 ② 本地确实没有在飞的 live 行且已过发送保护窗口
-    //  时才用它改 busy；否则会把**在飞的回合**误判成空闲 ⇒「思考中」一闪一没、
-    //  中间无任何打字机/进度、收尾才蹦出完整迭代（用户报告）。
+    // ⛔ 会话树的 `running` 是**服务端 reconcile 后的权威**忙态（对齐 web
+    //   `AgentPanel.tsx:433` `sessionRunning: currentSession?.running ?? false`）。
+    //   它经状态机 `session_running` 事件落进 `state.sessionRunning`：
+    //     · running=true  ⇒ 只更新闸门（迟到的 coarse idle 不得冻结在飞 turn）；
+    //     · running=false ⇒ 把仍在 live 的 turn 定格收尾（内容保留，绝不 wipe）。
+    //   busy 本身由 AgentPanel 三元公式**计算**（get busy），不再在此手写对账 ——
+    //   手写"对账窗口"正是「busy 残留 / 切会话几秒不对」的根源（真机 2026-10-10）。
     let found: boolean = false;
     for (let i = 0; i < this.sessions.length; i++) {
       if (this.sessions[i].chat_id !== this.currentChatId) {
         continue;
       }
       found = true;
-      const serverRunning: boolean = this.sessions[i].running === true;
-      this.serverRunning = serverRunning;
-      // ⛔ 对账只在 ① 权威 running=true（恢复）或 ② 本地确实没有在飞的 live 行
-      //   且已过发送保护窗口 时才动 busy；否则会把在飞回合误判成空闲。
-      if (serverRunning || (!this.hasLiveRow() && Date.now() - this.lastSendAt > 3000)) {
-        this.busy = serverRunning;
-      }
+      this.pushEvent({ type: 'session_running', running: this.sessions[i].running === true });
       break;
     }
     // web 用 `currentSession?.running ?? false`：会话不在列表里 ⇒ 权威值回落 false
     if (!found) {
-      this.serverRunning = false;
+      this.pushEvent({ type: 'session_running', running: false });
     }
     this.onUpdate();
   }
@@ -404,18 +511,15 @@ export class ChatStore {
     }
     this.channel = channelForChat(this.sessions, chatId);
     this.currentChatId = chatId;
-    // ⛔ 会话隔离：**所有 per-turn / per-session 状态**都必须在这里复位，否则池里被复用的
-    //   store 会把上一个会话的状态带进来（真机："会话之间没隔离、状态不对"）。
-    //   —— 我先后新增过 lastTurnID / streamText / streamReasoning / streamTools / serverRunning，
-    //      必须与 lastSeq/rows/busy 同处复位，少一个就是一处串台。
-    this.lastSeq = 0;
-    this.lastTurnID = 0;
-    this.streamText = '';
-    this.streamReasoning = '';
-    this.streamTools = [];
-    this.serverRunning = false;
+    // ⛔ 会话隔离（用户反复强调，真机 P0）：切会话必须**整体复位状态机**。
+    //   ChatState 是**唯一事实源**，`initialChatState(chatId)` 一次重建即复位
+    //   【全部】per-session 状态（turns/lastSeq/activeTurn/busy/pendingUsers/
+    //   todos/goal/queue/sessionRunning/gapReloadToken/…）—— 不存在"漏重置某个
+    //   字段"的可能（旧实现逐字段手写复位，先后漏过 lastTurnID/stream*/serverRunning，
+    //   每漏一个就是一处串台）。
+    this.state = initialChatState(chatId);
+    this.rowCache = new Map();
     this.rows = [];
-    this.busy = false;
     this.askUser = null;
     this.queue = [];
     this.hasMore = false;
@@ -445,22 +549,14 @@ export class ChatStore {
   private async loadHistoryInner(): Promise<void> {
     const data: HistoryData = await this.http.postAs<HistoryData>('/api/history', new HistoryReq(
       this.channel, this.currentChatId, 30, 0));
-    this.rows = ChatStore.rowsFromHistory(data.messages !== undefined ? data.messages : []);
     this.applyHistoryMeta(data);
+    // 历史 → `history_replaced`（逐字对齐 web `integrate.ts` 的 historyToReplaced）：
+    //   经状态机（**merge 语义**，不盲替换 —— 见 reduce.ets 的 history_replaced 注释；
+    //   盲替换会抹掉"只存在于状态机、DB 快照还没有"的 in-flight/post-fetch commit）。
+    this.history = ChatStore.toChatMessages(data.messages);
+    this.pushEvent(historyToReplaced(this.history, data.active_progress));
     const ap: ProgressEvent | undefined = data.active_progress;
     if (ap !== undefined) {
-      if (ap.busy === true) {
-        this.busy = true;
-      }
-      // active_progress 是服务端权威快照 —— 与 web 的 `case 'progress_structured' | 'sync_progress'`
-      // 同路：结构化字段走结构化路径；若快照同时带流式字段（熄屏/弱网恢复的 catch-up），
-      // 再按流式路径补一遍打字机缓冲（两路径都只写自己那份字段，互不覆盖）。
-      this.applyStructuredProgress(ap);
-      if (ap.stream_content !== undefined || ap.stream_delta !== undefined
-        || ap.reasoning_stream_content !== undefined || ap.reasoning_stream_delta !== undefined
-        || (ap.streaming_tools !== undefined && ap.streaming_tools.length > 0)) {
-        this.applyStreamProgress(ap);
-      }
       this.pickAskUserFromProgress(ap);
     }
     this.onUpdate();
@@ -475,10 +571,11 @@ export class ChatStore {
     try {
       const data: HistoryData = await this.http.postAs<HistoryData>('/api/history', new HistoryReq(
         this.channel, this.currentChatId, 30, this.oldestId));
-      const older: ChatRow[] = ChatStore.rowsFromHistory(
-        data.messages !== undefined ? data.messages : []);
-      this.rows = older.concat(this.rows);
+      const older: ChatMessage[] = ChatStore.toChatMessages(data.messages);
+      this.history = older.concat(this.history);
       this.applyHistoryMeta(data);
+      // 分页只增量喂历史（active 快照传 null —— 不得动 live turn）。
+      this.pushEvent(historyToReplaced(this.history, null));
     } finally {
       this.loadingMore = false;
       this.onUpdate();
@@ -498,52 +595,63 @@ export class ChatStore {
     // SseClient 的 lastEventId 单独负责。
   }
 
-  /** 历史 → 渲染行（每 turn 取第一条 user + 最后一条 assistant）。 */
-  static rowsFromHistory(messages: HistoryMessage[]): ChatRow[] {
-    const out: ChatRow[] = [];
-    let current: ChatRow | null = null;
+  /** 历史消息 → web `ChatMessage[]`（`historyToReplaced` 的输入形状）。 */
+  static toChatMessages(messages: HistoryMessage[] | undefined): ChatMessage[] {
+    const out: ChatMessage[] = [];
+    if (messages === undefined) {
+      return out;
+    }
     for (let i = 0; i < messages.length; i++) {
       const m: HistoryMessage = messages[i];
-      const turnID: number = m.turn_id !== undefined ? m.turn_id : 0;
-      if (m.role === 'user') {
-        const r: ChatRow = new ChatRow();
-        r.id = `u-${m.id}`; // 历史行：消息 id 天然唯一
-        r.role = 'user';
-        r.turnID = turnID;
-        r.content = m.content !== undefined ? m.content : '';
-        out.push(r);
-        current = null;
-      } else if (m.role === 'assistant') {
-        if (current === null || current.turnID !== turnID) {
-          const r: ChatRow = new ChatRow();
-          r.id = `a-${m.id}`; // 历史行：消息 id 天然唯一
-          r.role = 'assistant';
-          r.turnID = turnID;
-          r.content = m.content !== undefined ? m.content : '';
-          r.iterations = m.iterations !== undefined ? m.iterations : [];
-          r.regionsBefore = m.regions_before !== undefined ? m.regions_before : 0;
-          out.push(r);
-          current = r;
-        } else {
-          current.content = m.content !== undefined && m.content.length > 0 ? m.content : current.content;
-          if (m.iterations !== undefined && m.iterations.length > 0) {
-            current.iterations = m.iterations;
-          }
-          if (m.regions_before !== undefined) {
-            current.regionsBefore = m.regions_before;
-          }
-        }
+      const role: ChatMessageRole = m.role === 'user' ? 'user'
+        : (m.role === 'system' ? 'system' : 'assistant');
+      const msg: ChatMessage = {
+        id: `m-${m.id}`,
+        role,
+        content: m.content !== undefined ? m.content : '',
+        iterations: ChatStore.toWebIterations(m.iterations),
+        turnID: m.turn_id !== undefined ? m.turn_id : 0,
+        timestamp: m.timestamp !== undefined ? m.timestamp : '',
+        isPartial: false,
+        dbID: m.id,
+        regionsBefore: m.regions_before !== undefined ? m.regions_before : undefined,
+      };
+      out.push(msg);
+    }
+    return out;
+  }
+
+  /** 原生 HistoryIteration[] → web WebIteration[]（经 normalizeWebIteration 归一，web 同一函数）。 */
+  static toWebIterations(iters: HistoryIteration[] | undefined): WebIteration[] {
+    const out: WebIteration[] = [];
+    if (iters === undefined) {
+      return out;
+    }
+    for (let i = 0; i < iters.length; i++) {
+      const w: WebIteration | null = normalizeWebIteration(iters[i]);
+      if (w !== null) {
+        out.push(w);
       }
     }
-    // 空气泡过滤：无正文且无迭代内容的 assistant 行不渲染（用户真机"莫名其妙的空气泡"）
-    const visible: ChatRow[] = [];
-    for (let i = 0; i < out.length; i++) {
-      const r: ChatRow = out[i];
-      if (r.role === 'user' || !rowIsEmpty(r)) {
-        visible.push(r);
-      }
+    return out;
+  }
+
+  /**
+   * 历史消息 → 渲染行（**走状态机**：`historyToReplaced → reduce → deriveRows → applyRow`）。
+   * 与页面渲染同一条路径（不再是独立的手写映射）。live 诊断测试用。
+   */
+  static rowsFromHistory(messages: HistoryMessage[]): ChatRow[] {
+    const ev: DomainEvent = historyToReplaced(ChatStore.toChatMessages(messages), null);
+    const state: ChatState = reduce(initialChatState(''), ev);
+    const derived: readonly Row[] = deriveRows(state);
+    const out: ChatRow[] = [];
+    for (let i = 0; i < derived.length; i++) {
+      const row: ChatRow = new ChatRow();
+      row.id = derived[i].id;
+      applyRow(row, derived[i]);
+      out.push(row);
     }
-    return visible;
+    return out;
   }
 
   /**
@@ -572,24 +680,27 @@ export class ChatStore {
     const data: RegionsData = await this.http.postAs<RegionsData>('/api/regions', new RegionsReq(
       this.channel, this.currentChatId, row.turnID, minIter, 100));
     const older: HistoryIteration[] = data.iterations !== undefined ? data.iterations : [];
-    const merged: HistoryIteration[] = [];
+    // 段边界去重后经 `iterations_loaded` 交给状态机 —— reduce 做 union 合并（同号权威
+    // 覆盖、轻字段永不覆盖完整数据），与 web `iterations_loaded` 同一语义。
     const seen: Set<number> = new Set();
+    const merged: WebIteration[] = [];
     for (let i = 0; i < older.length; i++) {
-      if (!seen.has(older[i].iteration)) {
-        seen.add(older[i].iteration);
-        merged.push(older[i]);
+      const n: number = older[i].iteration;
+      if (seen.has(n)) {
+        continue;
+      }
+      seen.add(n);
+      const w: WebIteration | null = normalizeWebIteration(older[i]);
+      if (w !== null) {
+        merged.push(w);
       }
     }
-    for (let i = 0; i < row.iterations.length; i++) {
-      if (!seen.has(row.iterations[i].iteration)) {
-        seen.add(row.iterations[i].iteration);
-        merged.push(row.iterations[i]);
-      }
-    }
-    row.iterations = merged;
-    row.regionsBefore = data.regions_before !== undefined ? data.regions_before : 0;
-    this.touch(row);
-    this.onUpdate();
+    this.pushEvent({
+      type: 'iterations_loaded',
+      turnID: row.turnID,
+      iterations: merged,
+      regionsBefore: data.regions_before !== undefined ? data.regions_before : 0,
+    });
   }
 
   /** 按需拉取某迭代的完整工具详情（折叠视图下 summary/args/detail 默认不下发）。 */
@@ -602,56 +713,30 @@ export class ChatStore {
       if (it === undefined) {
         return null;
       }
-      this.mergeIterationDetail(turnID, it);
+      const w: WebIteration | null = normalizeWebIteration(it);
+      if (w !== null) {
+        // 同号权威覆盖（regionsBefore 缺省 = 不变 —— 详情 hydrate 不动区域计数）。
+        this.pushEvent({ type: 'iterations_loaded', turnID, iterations: [w] });
+      }
       return it;
     } catch (e) {
       return null;
     }
   }
 
-  private mergeIterationDetail(turnID: number, it: HistoryIteration): void {
-    for (let i = 0; i < this.rows.length; i++) {
-      const row: ChatRow = this.rows[i];
-      if (row.role !== 'assistant' || row.turnID !== turnID) {
-        continue;
-      }
-      for (let k = 0; k < row.iterations.length; k++) {
-        if (row.iterations[k].iteration === it.iteration) {
-          row.iterations[k] = it; // 同号权威覆盖
-          this.touch(row);
-          this.onUpdate();
-          return;
-        }
-      }
-    }
-  }
-
   // ── 发送 / 取消 ────────────────────────────────────────────────────────────
 
-  private appendLocalUser(text: string): ChatRow {
-    const r: ChatRow = new ChatRow();
-    r.id = this.nextRowID('local');
-    r.role = 'user';
-    r.turnID = 0;
-    r.content = text;
-    this.touch(r);
-    this.rows.push(r);
-    this.onUpdate();
-    return r;
-  }
-
-  /**
-   * 发送一条用户消息（可带附件）。
-   *
-   * ⚠️ 失败时**必须移除乐观插入的那一行**：否则界面上会留下一条"从未发出"的消息
-   * （用户看到的就是"发了但没反应/重复"）。失败原因原样抛给调用方展示（含服务端文案）。
-   */
   /**
    * 发送消息。
    *
-   * `interrupt=true` ⇒ **⚡ 插话**：服务端把它注入到正在跑的 turn（下一个工具边界作为
-   * 合成 `user_interrupt` 工具结果喂给模型），**不排队、不产生 user 行、不带 turn_id**。
-   * 因此插话路径**不加乐观行**（否则会留下一条永远等不到后端确认的幽灵消息）。
+   * 事件全部交给状态机（对齐 web `useChatMessages` 的 user_sent/user_ack/user_fail）：
+   *  · user_sent —— 乐观 user 行进 pendingUsers（`sending=true`）；
+   *  · user_ack  —— REST 成功：清 sending、回填 turnHint/dbID/queued/command；
+   *  · user_fail —— REST 失败：移除乐观行（对齐旧 removeById 语义）。
+   *
+   * `interrupt=true` ⇒ **⚡ 插话**：服务端把它注入正在跑的 turn（下一个工具边界作为
+   * 合成 `user_interrupt` 工具结果喂给模型），**不排队、不产生 user 行、不带 turn_id** ——
+   * 因此插话路径**不发 user_sent**（否则会留下永远等不到后端确认的幽灵消息）。
    * 会话空闲时服务端会退化为普通发送，返回值会如实反映（`interrupted=false`）。
    *
    * @returns 是否真的插话成功（true=已注入当前回合）
@@ -660,37 +745,47 @@ export class ChatStore {
     interrupt?: boolean): Promise<boolean> {
     const isInterrupt: boolean = interrupt === true;
     this.lastSendAt = Date.now();
-    let row: ChatRow | undefined = undefined;
+    const requestID: string = this.nextRowID('req');
     if (!isInterrupt) {
-      row = this.appendLocalUser(text);
-      this.busy = true;
+      const c: NonEmptyS | null = nonEmptyStr(text);
+      if (c !== null) {
+        const row: UserRow = {
+          id: `local-${requestID}`,
+          content: c,
+          timestamp: new Date().toISOString(),
+          isNotification: false,
+          queued: false,
+          sending: true,
+          requestID,
+          turnHint: undefined,
+          dbID: undefined,
+        };
+        this.pushEvent({ type: 'user_sent', row });
+      }
     }
-    this.onUpdate();
     try {
       const raw: string = await this.http.post('/api/message', new MessageReq(
         this.channel, this.currentChatId, text, uploadKeys, fileNames, fileSizes, isInterrupt));
       if (isInterrupt) {
         return true;
       }
-      // 服务端可能把插话退化成普通发送（会话当时空闲）—— 按 ack 如实回执
+      let ack: SendAck = {};
       try {
-        const ack: SendAck = JSON.parse(raw) as SendAck;
-        return ack.interrupted === true;
+        ack = JSON.parse(raw) as SendAck;
       } catch (e) {
-        return false;
+        ack = {};
       }
+      this.pushEvent({
+        type: 'user_ack',
+        requestID,
+        dbID: ack.id !== undefined ? ack.id : 0,
+        turnHint: ack.turn_id !== undefined ? ack.turn_id : undefined,
+        queued: ack.queued === true,
+        command: ack.command === true,
+      });
+      return ack.interrupted === true;
     } catch (e) {
-      // 回滚：把这条乐观行摘掉（插话路径没有乐观行，只需复位忙态）
-      if (row !== undefined) {
-        for (let i = this.rows.length - 1; i >= 0; i--) {
-          if (this.rows[i].id === row.id) {
-            this.rows.splice(i, 1);
-            break;
-          }
-        }
-        this.busy = false;
-      }
-      this.onUpdate();
+      this.pushEvent({ type: 'user_fail', requestID });
       throw e as Error;
     }
   }
@@ -912,41 +1007,17 @@ export class ChatStore {
   }
 
   private onSse(event: string, data: string): void {
-    let env: SseEnvelope;
-    try {
-      env = JSON.parse(data) as SseEnvelope;
-    } catch (e) {
-      return;
-    }
     if (event === SseEventType.heartbeat) {
       return;
     }
-    if (event === SseEventType.session) {
-      this.onSessionEvent(env.session);
-      return;
-    }
-    if (event === SseEventType.userEcho) {
-      this.onUserEcho(env);
-      return;
-    }
-    // ⛔ 派发必须按**事件名**（web `useProgressStream.ts` 就是 `switch (msg.type)`）——
-    //   绝不能用载荷字段猜分类：服务端会给**流式帧**盖 iteration（切迭代边界语义），
-    //   用字段猜会把流式帧判成"结构化" ⇒ stream_* 被 applyStructured 静默丢弃 ⇒ 整段流式不渲染。
-    if (event === SseEventType.streamContent) {
-      if (env.progress !== undefined) {
-        this.applyStreamProgress(env.progress);
-        this.pickAskUserFromProgress(env.progress);
-      }
-      return;
-    }
-    if (event === SseEventType.progressStructured || event === SseEventType.syncProgress) {
-      if (env.progress !== undefined) {
-        this.applyStructuredProgress(env.progress);
-        this.pickAskUserFromProgress(env.progress);
-      }
+    let raw: Record<string, Object>;
+    try {
+      raw = JSON.parse(data) as Record<string, Object>;
+    } catch (e) {
       return;
     }
     if (event === SseEventType.askUser) {
+      const env: SseEnvelope = JSON.parse(data) as SseEnvelope;
       if (env.progress !== undefined) {
         this.pickAskUserFromProgress(env.progress);
         this.onUpdate();
@@ -962,395 +1033,37 @@ export class ChatStore {
       this.loadQueue();
       return;
     }
-    if (event === SseEventType.text) {
-      this.onFinalText(env);
-      return;
-    }
     if (event === SseEventType.resyncRequired) {
       // 环形缓冲已淘汰 ⇒ 回退 DB 权威快照（web 同款语义）
       this.loadHistory().catch((e: Error) => {
         console.error(`resync 失败: ${e.message}`);
       });
-    }
-  }
-
-  private onSessionEvent(ev: SessionEvent | undefined): void {
-    if (ev === undefined) {
       return;
     }
-    // ⚠️ 服务端字段是 `action`（不是 `state`，见 core/streammerge.ets 注释）
-    const action: string = ev.action !== undefined ? ev.action : '';
-    if (isIdleAction(action)) {
-      // ⛔ 迟到的 coarse idle（SSE `last_event_id` 重放 / restoreActiveProgress 竞态）
-      //   绝不能冻结在飞的回合：权威会话树仍说 running ⇒ 视为陈旧信号，只去刷新权威状态。
-      if (this.serverRunning) {
-        // ⛔ 权威（会话树 running）仍为 true ⇒ 这条 coarse idle 必然陈旧/误传，
-        //    不得冻结运行中的 turn（web reduce.ts `case 'session'` 同款闸门）。
-        //    真结束由会话树翻 false 后的下一条 idle 收尾。
-        this.loadSessions().catch(() => {
-          // 忽略
+    // ⛔ 事件 → DomainEvent 的**唯一入口**（逐字移植 web `normalize.ts` 的 normalizeEvent）：
+    //   按**事件名**分流（raw.type）、chat 过滤、null 数组归一、数值校验全在 normalize 里。
+    //   SSE 事件名 = 权威类型（web WSMessage.type 同源）——绝不按载荷字段猜分类
+    //   （服务端会给流式帧盖 iteration，猜错会把 stream_* 当结构化静默丢弃）。
+    raw['type'] = event;
+    this.pushEvents(normalizeEvent(raw, this.currentChatId));
+    // session 事件：idle 收尾后刷新权威状态（todos/用量/会话树 running）。状态机本身
+    // 已按 reduce 的 session 分支定格/清 activeTurn —— 这里只是 REST 对账（web 的
+    // AgentPanel 在 busy→idle 边沿重取 get_goal 的同一语义）。
+    if (event === SseEventType.session) {
+      const env: SseEnvelope = JSON.parse(data) as SseEnvelope;
+      const action: string = env.session !== undefined && env.session.action !== undefined
+        ? env.session.action : '';
+      if (action === 'idle' || action === 'agent-idle') {
+        this.loadStatus().catch(() => {
+          // 状态非关键路径
         });
-        return;
+        this.loadSessions().catch(() => {
+          // 对账失败不影响主链路
+        });
       }
-      // 照抄 web：idle = live 的**收尾兜底**（有产出定格 / 空壳保留 / 真空壳删除）
-      this.settleLiveOnIdle();
-      this.busy = false;
-      // 回合结束 ⇒ 水位重置（web：idle 置 null —— 下一个 Run 从 1 计数）
-      this.lastSeq = 0;
-      this.onUpdate();
-      // 每轮结束刷新一次权威状态（todos/用量会变）
-      this.loadStatus().catch(() => {
-        // 忽略
-      });
-      // 会话树的 `running` 是"服务端权威的忙碌标记"（P24：界面状态必须与它一致，
-      // 不能只信本地 busy 标志 —— 否则切会话/重连后会显示成"还在跑"或"已经停"）
-      this.loadSessions().catch(() => {
-        // 忽略
-      });
-    } else if (isBusyAction(action)) {
-      this.busy = true;
-      // 回合开始 ⇒ 水位重置（新 Run 的 seq 从 1 计数）
-      this.lastSeq = 0;
-      this.onUpdate();
-    } else if (shouldReloadHistory(action)) {
-      // 历史被回退 ⇒ 必须重载，否则界面停留在已被撤销的内容上
-      this.loadHistory().catch((e: Error) => {
-        console.error(`rewound 重载失败: ${e.message}`);
-      });
     }
   }
 
-  /**
-   * idle 收尾 —— **逐字对齐 web `reduce.ts` 的 `case 'session'` idle 分支**：
-   *  · 有产出的 live 行 ⇒ **定格**（`isLive=false`，内容全部保留 = frozen 语义）
-   *  · 无产出但前面有 user 行 ⇒ **保留为空壳**（只定格，不删 —— 否则 user 行悬空/粘连）
-   *  · 无产出且无 user 行 ⇒ **删除**（"空壳行灭绝"）
-   */
-  private settleLiveOnIdle(): void {
-    // 回合结束 ⇒ 先折叠残留缓冲（把最后一段流式内容落到当前迭代），再定格/删除
-    for (let i = this.rows.length - 1; i >= 0; i--) {
-      if (this.rows[i].role === 'assistant' && this.rows[i].isLive) {
-        this.foldStreamBuffers(this.rows[i]);
-        break;
-      }
-    }
-    for (let i = this.rows.length - 1; i >= 0; i--) {
-      const r: ChatRow = this.rows[i];
-      if (r.role !== 'assistant' || !r.isLive) {
-        continue;
-      }
-      const hasOutput: boolean = r.iterations.length > 0 && !rowIsEmpty(r);
-      const prev: ChatRow | undefined = i > 0 ? this.rows[i - 1] : undefined;
-      const hasUser: boolean = prev !== undefined && prev.role === 'user';
-      if (hasOutput || hasUser) {
-        r.isLive = false;
-        this.touch(r);
-      } else {
-        this.rows.splice(i, 1);
-      }
-      return;
-    }
-  }
-
-  private onUserEcho(env: SseEnvelope): void {
-    const text: string = env.content !== undefined ? env.content : '';
-    const turnID: number = env.turn_id !== undefined ? env.turn_id : 0;
-    for (let i = this.rows.length - 1; i >= 0; i--) {
-      const r: ChatRow = this.rows[i];
-      if (r.role === 'user' && r.turnID === 0 && r.content === text) {
-        r.turnID = turnID;
-        if (turnID > this.lastTurnID) {
-          this.lastTurnID = turnID;
-        }
-        this.touch(r);
-        this.busy = true;
-        // 新 turn ⇒ progress 水位重置（seq 是 per-Run 计数；web：turn_started 置 null）
-        this.lastSeq = 0;
-        this.onUpdate();
-        return;
-      }
-    }
-    const r: ChatRow = new ChatRow();
-    r.id = this.nextRowID('echo');
-    r.role = 'user';
-    r.turnID = turnID;
-    r.content = text;
-    this.touch(r);
-    this.rows.push(r);
-    this.busy = true;
-    this.onUpdate();
-  }
-
-  /** 是否有一条**带产出**的在飞 live 行（busy 判据只认它 —— 空壳不能把 busy 钉死）。 */
-  hasLiveRowWithContent(): boolean {
-    for (let i = this.rows.length - 1; i >= 0; i--) {
-      const r: ChatRow = this.rows[i];
-      if (r.role === 'assistant' && r.isLive) {
-        return r.iterations.length > 0 && !rowIsEmpty(r);
-      }
-    }
-    return false;
-  }
-
-  /** 自愈：busy=false 却残留【空 live 行】（迟到事件造的）⇒ 删除。返回是否删了。 */
-  pruneEmptyLiveRowIfIdle(): boolean {
-    if (this.busy) {
-      return false;
-    }
-    for (let i = this.rows.length - 1; i >= 0; i--) {
-      const r: ChatRow = this.rows[i];
-      if (r.role !== 'assistant' || !r.isLive) {
-        continue;
-      }
-      const empty: boolean = (r.iterations.length === 0 || rowIsEmpty(r))
-        && this.streamText.length === 0 && this.streamReasoning.length === 0 && this.streamTools.length === 0;
-      if (empty) {
-        this.rows.splice(i, 1);
-        return true;
-      }
-      return false;
-    }
-    return false;
-  }
-
-  /** 是否有"在飞的 live 行"（= 本轮正在进行；会话树快照不可用于清 busy）。 */
-  hasLiveRow(): boolean {
-    for (let i = this.rows.length - 1; i >= 0; i--) {
-      const r: ChatRow = this.rows[i];
-      if (r.role === 'assistant' && r.isLive) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  private liveRow(): ChatRow {
-    const last: ChatRow | undefined = this.rows.length > 0 ? this.rows[this.rows.length - 1] : undefined;
-    if (last !== undefined && last.role === 'assistant' && last.isLive) {
-      return last;
-    }
-    const r: ChatRow = new ChatRow();
-    r.id = this.nextRowID('live');
-    r.role = 'assistant';
-    r.isLive = true;
-    this.touch(r);
-    this.rows.push(r);
-    return r;
-  }
-
-  /**
-   * 进度事件落地：**流式与结构化两条路径语义完全不同**（服务端契约见 core/streammerge.ets）。
-   *
-   * - 流式帧（`stream_content`）：按契约**不带迭代号、不带工具**（`isStreamOnlyProgress` 要求
-   *   `iteration==0 && content=="" && 无 tools`）⇒ 必须归到**在飞迭代**，且**只增不减**地累积；
-   *   若当成结构化事件处理，就会造出幽灵「迭代 0」并清空该迭代的 tools/reasoning（真机表现：
-   *   工具 pill 一闪就没 + live 区空白 = "渲染整个都是错乱的、完全用不了"）。
-   * - 结构化帧（`progress_structured`）：迭代按号 upsert，**缺字段时保留旧值**（绝不清空）。
-   * - `seq` 是 per-Run 水位线，用于丢弃**纯重放**；流式帧没有 seq，故只在 `seq > 0` 时判定。
-   */
-  /** 当前 live 行已持有的最大迭代号（无 live 行 = 0；**不创建**行）。 */
-  private liveMaxIter(): number {
-    for (let i = this.rows.length - 1; i >= 0; i--) {
-      const r: ChatRow = this.rows[i];
-      if (r.role === 'assistant' && r.isLive) {
-        let max: number = 0;
-        for (let j = 0; j < r.iterations.length; j++) {
-          if (r.iterations[j].iteration > max) {
-            max = r.iterations[j].iteration;
-          }
-        }
-        return max;
-      }
-    }
-    return 0;
-  }
-
-  /**
-   * 流式帧（`stream_content`）—— 与 web `useProgressStream.ts` 的 `case 'stream_content'` **一一对应**。
-   * ⛔ 本路径**不看**载荷是否"像结构化"：事件名已决定语义（服务端会给流式帧盖 iteration 用于切边界）。
-   */
-  private applyStreamProgress(p: ProgressEvent): void {
-    // ⛔ 旧 turn 的迟到流式帧必须丢弃（web `case 'stream_content'` 同款守卫）：
-    //   否则会创建一条空的 live 行，把 busy 永远钉住（'idle 却显示 busy' 的真机根因）。
-    if (p.turn_id !== undefined && p.turn_id > 0 && this.lastTurnID > 0 && p.turn_id < this.lastTurnID) {
-      return;
-    }
-    const row: ChatRow = this.liveRow();
-    // 迭代前进 ⇒ 先把 turn 级缓冲折叠进**上一迭代**（web: advanced ⇒ fold），再清缓冲
-    if (p.iteration !== undefined && p.iteration > 0 && p.iteration > liveIterationOf(row).iteration) {
-      this.foldStreamBuffers(row);
-      upsertIteration(row, p.iteration);
-    }
-    // 只写 turn 级缓冲（delta 追加 / checkpoint 替换）——与 web setStreamContent/appendStreamContent 同义
-    if (p.stream_content !== undefined && p.stream_content.length > 0) {
-      this.streamText = p.stream_content;
-    } else if (p.stream_delta !== undefined && p.stream_delta.length > 0) {
-      this.streamText = this.streamText + p.stream_delta;
-    }
-    if (p.reasoning_stream_content !== undefined && p.reasoning_stream_content.length > 0) {
-      this.streamReasoning = p.reasoning_stream_content;
-    } else if (p.reasoning_stream_delta !== undefined && p.reasoning_stream_delta.length > 0) {
-      this.streamReasoning = this.streamReasoning + p.reasoning_stream_delta;
-    }
-    if (p.streaming_tools !== undefined && p.streaming_tools.length > 0) {
-      this.streamTools = mergeTools(this.streamTools, p.streaming_tools);
-    }
-    this.touch(row);
-    this.onUpdate();
-  }
-
-  /** 把 turn 级流式缓冲折叠进指定迭代（默认当前在飞迭代），并清空缓冲。 */
-  private foldStreamBuffers(row: ChatRow): void {
-    const it: HistoryIteration = liveIterationOf(row);
-    if (this.streamText.length > 0) {
-      it.stream_text = this.streamText;
-    }
-    if (this.streamReasoning.length > 0) {
-      it.stream_reasoning = this.streamReasoning;
-    }
-    if (this.streamTools.length > 0) {
-      // 折叠时把仍是 generating/pending 的占位工具**丢弃**（它们只属于"正在流"的那一瞬），
-      // 只保留真实工具 —— 否则会在迭代上留下永不消失的 "生成中" 残留。
-      const real: ToolProgress[] = [];
-      for (let i = 0; i < this.streamTools.length; i++) {
-        const st: string = this.streamTools[i].status !== undefined
-          ? this.streamTools[i].status as string : '';
-        if (st !== 'generating' && st !== 'pending') {
-          real.push(this.streamTools[i]);
-        }
-      }
-      if (real.length > 0) {
-        it.tools = mergeTools(it.tools, real);
-      }
-    }
-    this.streamText = '';
-    this.streamReasoning = '';
-    this.streamTools = [];
-    this.touch(row);
-  }
-
-  /**
-   * 结构化帧（`progress_structured` / `sync_progress`）—— 与 web 同名分支对应：
-   * per-Run seq 水位（丢弃纯重放）+ 按号 upsert + 只覆盖"确实带了内容"的字段。
-   */
-  private applyStructuredProgress(p: ProgressEvent): void {
-    if (p.turn_id !== undefined && p.turn_id > 0 && this.lastTurnID > 0 && p.turn_id < this.lastTurnID) {
-      return;
-    }
-    const seq: number = p.seq !== undefined ? p.seq : 0;
-    if (seq > 0 && isStaleSeqEvent(this.lastSeq, seq, this.liveMaxIter(), p)) {
-      return;
-    }
-    if (seq > 0) {
-      this.lastSeq = seq;
-    }
-    const row: ChatRow = this.liveRow();
-    const itNum: number = p.iteration !== undefined && p.iteration > 0
-      ? p.iteration : liveIterationOf(row).iteration;
-    // 迭代前进 ⇒ 先把流式缓冲折叠进上一迭代（否则同一段内容会被重复渲染到两个迭代）
-    if (itNum > liveIterationOf(row).iteration) {
-      this.foldStreamBuffers(row);
-    }
-    // ⛔ 权威工具出现 ⇒ 清掉流式占位工具（web `clearStreamState` 同义）：
-    //   否则 `streaming_tools` 的 "generating" 会和真实工具**并存并残留**
-    //   （真机："shell 还是 generating 会状态残留"，2026-10-10）。
-    const authoritativeTools: boolean = (p.active_tools !== undefined && p.active_tools.length > 0)
-      || (p.completed_tools !== undefined && p.completed_tools.length > 0)
-      || (p.tool_calls !== undefined && p.tool_calls.length > 0);
-    if (authoritativeTools) {
-      this.streamTools = [];
-    }
-    applyStructured(upsertIteration(row, itNum), p);
-    const hist: HistoryIteration[] | undefined = p.iteration_history;
-    if (hist !== undefined) {
-      for (let i = 0; i < hist.length; i++) {
-        const h: HistoryIteration = hist[i];
-        const target: HistoryIteration = upsertIteration(row, h.iteration);
-        if (h.content !== undefined && h.content.length > 0) {
-          target.content = h.content;
-          target.stream_text = '';
-        }
-        if (h.reasoning !== undefined && h.reasoning.length > 0) {
-          target.reasoning = h.reasoning;
-          target.stream_reasoning = '';
-        }
-        if (h.tools !== undefined && h.tools.length > 0) {
-          target.tools = mergeTools(target.tools, h.tools);
-        }
-        if (h.tools_folded === true) {
-          target.tools_folded = true;
-        }
-      }
-    }
-    this.touch(row);
-    this.onUpdate();
-  }
-
-  /**
-   * `text` 事件（回合收尾文本）—— **逐字对齐 web `chat/reduce.ts` 的 `text_final`**。
-   *
-   * ⛔ 真机铁证（"同一条回复渲染两次"）：旧实现把 finalText 写进**行级 `row.content`**，
-   * 而迭代里已经有同一段文本 ⇒ 渲染层两处都画（一遍带「思考 N 字」、一遍不带）。
-   * web 的语义是：**finalText 属于「进行中迭代」** —— 并入该迭代（保留它的 reasoning），
-   * 行级 content 保持为空（行级 content 只服务历史/legacy 行）。
-   */
-  private onFinalText(env: SseEnvelope): void {
-    const text: string = env.content !== undefined ? env.content : '';
-    // ⛔ 空 text 信封（WaitingUser / 中途空 text）**不得**提交、**不得**删行、**不得**动 busy：
-    // web `chat/reduce.ts` 的 text_final 明确规定「空 finalText 不得擦已有内容」。
-    // 旧实现在空 text 时走"空行 ⇒ splice 删除"，于是**正在流式的整行被删掉**
-    // （用户报"迭代完成了就消失、永远只能看到最新迭代"）；回合结束由 session idle 决定。
-    if (text.length === 0) {
-      return;
-    }
-    if (this.rows.length === 0) {
-      return;
-    }
-    const last: ChatRow = this.rows[this.rows.length - 1];
-    // ⛔ 空 text 且回合仍在跑 ⇒ 不终结 live 行（真实回复随后到）——
-    //   否则会把 live 行的内容清空并置 isLive=false（用户报告："用户消息后什么都没有"）。
-    if (text.length === 0 && this.busy && last.role === 'assistant' && last.isLive && !rowIsEmpty(last)) {
-      return;
-    }
-    if (last.role !== 'assistant') {
-      if (text.length === 0) {
-        return;
-      }
-      const r: ChatRow = new ChatRow();
-      r.role = 'assistant';
-      r.turnID = env.turn_id !== undefined ? env.turn_id : 0;
-      r.id = this.nextRowID('a');
-      r.iterations = [{ iteration: 1, content: text, reasoning: '', tools: [] }];
-      this.rows.push(r);
-      this.busy = false;
-      this.lastSeq = 0;
-      this.onUpdate();
-      return;
-    }
-    {
-      // 进行中迭代号 = 该行最大迭代号（web：max(live.iter, 迭代列表最后号)）
-      const itNum: number = liveIterationOf(last).iteration;
-      const it: HistoryIteration = upsertIteration(last, itNum);
-      it.content = text;
-      it.stream_text = '';               // 权威快照接管，清流式缓冲
-      // ⚠️ reasoning 绝不清空（进行中迭代的思考只存在于 live 快照，
-      //    真机曾出现"提交后 Thought N chars 消失"）
-    }
-    this.foldStreamBuffers(last);
-    last.isLive = false;
-    last.turnID = env.turn_id !== undefined ? env.turn_id : last.turnID;
-    if (last.turnID > this.lastTurnID) {
-      this.lastTurnID = last.turnID;
-    }
-    this.touch(last);
-    // 完全无产出（text 空、迭代也空）⇒ 不落地空行（空气泡）
-    if (rowIsEmpty(last)) {
-      this.rows.splice(this.rows.length - 1, 1);
-    }
-    this.busy = false;
-    this.lastSeq = 0;
-    this.onUpdate();
-  }
 }
 
 // ── 请求体（显式字段 = 协议契约，见 channel/web/web_rest.go） ─────────────────
@@ -1381,9 +1094,17 @@ export class SettingsBody {
   }
 }
 
-/** 发送回执（服务端 `{interrupted: true}` 表示插话已注入当前回合）。 */
+/** 发送回执（服务端 `{interrupted, turn_id, queued, command, id}`）。 */
 interface SendAck {
   interrupted?: boolean;
+  /** 服务端分配的 turn_id（排队/命令消息缺省）。 */
+  turn_id?: number;
+  /** 消息入队（chat 忙，排队等待执行）。 */
+  queued?: boolean;
+  /** 后端判定这条消息是命令（`!cmd`/slash）。 */
+  command?: boolean;
+  /** 落库后的消息 id（DB auto-increment）。 */
+  id?: number;
 }
 
 

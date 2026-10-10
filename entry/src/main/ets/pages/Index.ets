@@ -71,6 +71,8 @@ import {
   TokenUsage,
   ToolProgress,
 } from '../core/types';
+import { ProgressSnapshot, WebToolProgress } from '../core/chattypes';
+import { toNativeTools } from '../core/render';
 import { runeCount } from '../core/typewriter';
 import { LiveTailView } from '../components/LiveTailView';
 import { MessageRowView } from '../components/MessageRow';
@@ -2965,46 +2967,50 @@ struct Index {
     this.rowDs.applyRows(tailRows(this.rows, this.rowLimit), this.currentChat);
   }
 
-  /** 从 store 的 live 行提取进行中快照（正文/思考/工具，全部 @State 镜像）。 */
+  /**
+   * 从**当前会话**的 live 进度快照提取进行中内容（正文/思考/工具 → 页面 @State）。
+   *
+   * 数据源 = 状态机 `liveProgressFromState(state)`（对齐 web MessageList 的 `liveProgress`
+   * prop / `progressStore` 快照）—— 在飞内容只此一份，不再由页面拼凑。
+   *
+   * ⛔ 会话隔离：先校验 `store.currentChatId === this.currentChat` —— 池里任何其它
+   *   store 的 busy/live 都不得驱动当前界面（真机："隔壁会话 busy，当前也显示 busy"）。
+   */
   private syncLiveTail(store: ChatStore): void {
-    let liveRow: ChatRow | undefined = undefined;
-    for (let i = store.rows.length - 1; i >= 0; i--) {
-      const r: ChatRow = store.rows[i];
-      if (r.role === 'assistant' && r.isLive) {
-        liveRow = r;
-        break;
-      }
-    }
-    const hasBuf: boolean = store.streamText.length > 0
-      || store.streamReasoning.length > 0 || store.streamTools.length > 0;
-    if (liveRow === undefined || (liveRow.iterations.length === 0 && !hasBuf)) {
-      this.liveOn = false;
-      this.liveText = '';
-      this.liveReasoning = '';
-      this.liveTools = [];
-      this.liveIterNo = 0;
-      this.liveRowTurn = 0;
-      this.lastLiveLen = 0;
+    if (store.currentChatId !== this.currentChat) {
+      this.clearLiveTail();
       return;
     }
-    const it: HistoryIteration | undefined = liveRow.iterations.length > 0
-      ? liveRow.iterations[liveRow.iterations.length - 1] : undefined;
+    const p: ProgressSnapshot = store.liveProgress();
+    const hasContent: boolean = p.streamContent.length > 0 || p.content.length > 0
+      || p.reasoningStreamContent.length > 0
+      || p.activeTools.length > 0 || p.streamingTools.length > 0;
+    if (!hasContent) {
+      this.clearLiveTail();
+      return;
+    }
     this.liveOn = true;
-    // ⛔ 与 web 同模型：**在飞内容优先取 turn 级流式缓冲**（store.streamText/…）——它才是
-    //   "正在流"的那一份；缓冲为空（未开始/已折叠进迭代）时才回落到迭代自身字段。
-    //   之前直接把流式内容挂到迭代对象上 ⇒ 同一段内容重复渲染到不同迭代（真机 2026-10-10）。
-    this.liveText = store.streamText.length > 0
-      ? store.streamText : (it !== undefined ? displayContent(it) : '');
-    this.liveReasoning = store.streamReasoning.length > 0
-      ? store.streamReasoning : (it !== undefined ? displayReasoning(it) : '');
-    this.liveTools = store.streamTools.length > 0
-      ? store.streamTools.slice() : (it !== undefined && it.tools !== undefined ? it.tools.slice() : []);
-    this.liveIterNo = it !== undefined ? it.iteration : 1;
-    this.liveRowTurn = liveRow.turnID;
-    // ── 渐入特效（用户要求）──
-    // 为什么不用"逐字裁剪"：那要每 50ms 重新解析整段 Markdown 并重建节点
-    // （代价 O(文本长度)），真机上直接饱和 UI 线程 ⇒ 用户看到的正是
-    // "打字机几秒动一次"。渐入只动 opacity，代价恒定。
+    // 在飞正文：流式缓冲优先（正在流的那一份），否则用结构化快照 content（服务端
+    // 用 progress_structured 发文本时的 fallback）—— 与 web LiveIteration 同序。
+    this.liveText = p.streamContent.length > 0 ? p.streamContent : p.content;
+    this.liveReasoning = p.reasoningStreamContent.length > 0
+      ? p.reasoningStreamContent : (p.lastReasoning.length > 0 ? p.lastReasoning : '');
+    // 在飞工具：streaming_tools（参数生成中）优先，否则 active_tools（执行中）—— web 同序。
+    const tools: WebToolProgress[] = p.streamingTools.length > 0 ? p.streamingTools : p.activeTools;
+    this.liveTools = toNativeTools(tools);
+    this.liveIterNo = p.iteration > 0 ? p.iteration : 1;
+    this.liveRowTurn = p.turnID;
+  }
+
+  /** 清空 live 尾块镜像（无内容 / 非当前会话时）。 */
+  private clearLiveTail(): void {
+    this.liveOn = false;
+    this.liveText = '';
+    this.liveReasoning = '';
+    this.liveTools = [];
+    this.liveIterNo = 0;
+    this.liveRowTurn = 0;
+    this.lastLiveLen = 0;
   }
 
   /** live 尾块是否有任何可显示内容（决定 busy 占位符是否让位 —— 恰好一个指示器）。 */

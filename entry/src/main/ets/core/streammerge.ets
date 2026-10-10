@@ -229,21 +229,14 @@ export function isStaleSeqEvent(lastSeq: number, seq: number, maxKnownIter: numb
   return true;
 }
 
-/**
- * 该迭代是否由"列表尾的 live 块"承担（= live 行的**最后一个迭代**，即进行中的那个）。
- *
- * ⛔ 真机事故（"每个迭代完成后都消失，永远只能看到最新的迭代"）：当时把 live 行
- * **整行排除**出列表，只让尾块渲染最后一个迭代 ⇒ live 行里**已完成的迭代**无处渲染，
- * 完成一个消失一个。修复 = live 行**留在列表**里渲染其已完成迭代，只有**最后一个**
- * 交给尾块 ⇒ 用本判据做互斥（同一迭代绝不画两遍）。
- */
-export function tailOwnedIteration(row: ChatRow, it: HistoryIteration): boolean {
-  const n: number = row.iterations.length;
-  if (row.isLive !== true || n === 0) {
-    return false;
-  }
-  return it.iteration === row.iterations[n - 1].iteration;
-}
+// ⛔ 已删除 `tailOwnedIteration`（bug1「一个 running turn 被渲染两遍」的根因）。
+//
+// 旧模型：live 行的**最后一个迭代** = 在飞迭代（store 把流式内容折进它），列表跳过它、
+// 由尾块渲染 ⇒ 两处必须严格互斥（否则同一迭代画两遍或两处都不画）。
+// web 模型：live 行的 `iterations` **只含已完成迭代**；在飞内容（content/reasoning/
+// activeTools/streamingTools）是**独立字段**，由 LiveIteration/尾块渲染 —— 二者天然
+// 不重叠、无需任何归属判据。原生端已对齐（core/render.ets + store.liveProgress +
+// 页面 syncLiveTail）：列表渲染**全部**迭代，尾块渲染在飞快照。
 
 /** 行是否"完全空"（无正文、无思考、无工具 ⇒ 渲染出来就是一张空气泡卡片）。 */
 export function rowIsEmpty(row: ChatRow): boolean {

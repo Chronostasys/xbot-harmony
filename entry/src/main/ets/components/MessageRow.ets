@@ -11,7 +11,7 @@
  *   · 三个 @Builder（Assistant/Iteration/ToolPill）与 7 个 helper 由页面**整块搬入**（原样语义）。
  */
 import { ChatRow, HistoryIteration, ToolProgress } from '../core/types';
-import { displayContent, displayReasoning, rowIsEmpty, tailOwnedIteration } from '../core/streammerge';
+import { displayContent, displayReasoning, rowIsEmpty } from '../core/streammerge';
 import { runeCount } from '../core/typewriter';
 import { Palette, paletteOf } from '../core/theme';
 import { MarkdownView } from './MarkdownView';
@@ -52,14 +52,24 @@ export struct MessageRowView {
     return paletteOf(this.theme);
   }
 
+  // ⛔ 已删除 `isTailOwned`（bug1「一个 running turn 被渲染两遍」的根因）：
+  //   旧模型把在飞内容塞进 live 行的**最后一个迭代**，再让列表跳过它、由尾块渲染 ⇒
+  //   两处必须严格互斥，稍有不一致就重复/丢失。web 模型里 live 行的 `iterations`
+  //   **只含已完成迭代**、在飞内容（content/reasoning/tools）是独立字段由尾块渲染 ——
+  //   二者天然不重叠。原生端对齐后（见 core/render.ets / store.liveProgress / 页面
+  //   syncLiveTail），列表**渲染全部迭代**、尾块渲染在飞快照，无需任何归属判据。
+
   /**
-   * 该迭代是否由"列表尾的 LiveTail"承担（= live 行的**最后一个迭代**，即进行中的那个）。
+   * live 行在「全部内容都在飞」（无已完成迭代、无正文）时**不出空盒**。
    *
-   * 互斥保证同一迭代不会被画两遍；而它**之前**的迭代仍在本组件里渲染 ——
-   * 这正是"每个迭代完成就消失、永远只能看到最新迭代"的修复点。
+   * ⛔ bug2 根因之一（真机截图：几百 px 空盒里只有一行「Shell 生成中 N 字」）：
+   * 该 turn 的可见内容此刻**全部**在飞（正文/思考/工具都在 live 快照里），列表里的
+   * live 行还没有任何**已完成**迭代 ⇒ 若照常渲染气泡，就是一个只有边框/阴影的空盒。
+   * web 模型下不存在这个盒子：live 行 = LiveIteration（在飞快照由尾块唯一渲染）。
+   * 因此列表侧对「全在飞的 live 行」不渲染任何东西，可见内容由 LiveTailView 唯一承担。
    */
-  private isTailOwned(it: HistoryIteration): boolean {
-    return tailOwnedIteration(this.row, it);
+  private isEmptyLiveBubble(): boolean {
+    return this.row.isLive && this.row.iterations.length === 0 && this.row.content.length === 0;
   }
 
   private toolKey(turnID: number, iter: number, name: string): string {
@@ -173,9 +183,7 @@ export struct MessageRowView {
         })
       }
       ForEach(this.itersFor(row), (it: HistoryIteration) => {
-        if (!this.isTailOwned(it)) {
-          this.IterationBlock(row, it)
-        }
+        this.IterationBlock(row, it)
       }, (it: HistoryIteration) => `${row.id}#${row.rev}-${it.iteration}`)
     }
     .width('100%').alignItems(HorizontalAlign.Start)
@@ -338,6 +346,8 @@ export struct MessageRowView {
   }
 
   build() {
-    this.AssistantBlock(this.row)
+    if (!this.isEmptyLiveBubble()) {
+      this.AssistantBlock(this.row)
+    }
   }
 }

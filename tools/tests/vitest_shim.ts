@@ -10,6 +10,13 @@ export function describe(name: string, fn: () => void): void {
   fn();
 }
 
+/** vitest 风格的 it.todo / it.skip（移植用例里可能用到）。 */
+function itTodo(_name: string, _fn?: () => void): void {
+  // 待办用例：不计入 pass/fail（与 vitest 的 todo 语义一致）
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+;(it as unknown as { todo: typeof itTodo }).todo = itTodo;
+
 export function it(name: string, fn: () => void): void {
   try {
     fn();
@@ -71,20 +78,27 @@ function deepEq(a: unknown, b: unknown): boolean {
 
 class Expectation {
   private neg: boolean = false;
-  constructor(private value: unknown) {
+  constructor(private value: unknown, private message?: string) {
   }
 
   get not(): Expectation {
-    const e = new Expectation(this.value);
+    const e = new Expectation(this.value, this.message);
     e.neg = !this.neg;
     return e;
   }
 
+  /** 把断言失败信息与调用方自定义 message 串联（移植用例大量带 message）。 */
   private check(ok: boolean, msg: string): void {
     const finalOk = this.neg ? !ok : ok;
     if (!finalOk) {
-      throw new Error(`${this.neg ? 'not ' : ''}${msg}`);
+      const suffix = this.message !== undefined && this.message.length > 0 ? ` — ${this.message}` : '';
+      throw new Error(`${this.neg ? 'not ' : ''}${msg}${suffix}`);
     }
+  }
+
+  private num(what: string): { v: number; ok: boolean } {
+    const v = typeof this.value === 'number' ? this.value : NaN;
+    return { v, ok: !Number.isNaN(v) };
   }
 
   toBe(want: unknown): void {
@@ -131,6 +145,43 @@ class Expectation {
     this.check(!this.value, `expected ${show(this.value)} toBeFalsy`);
   }
 
+  toBeGreaterThan(n: number): void {
+    const { v, ok } = this.num('toBeGreaterThan');
+    this.check(ok && v > n, `expected ${show(this.value)} toBeGreaterThan ${n}`);
+  }
+
+  toBeGreaterThanOrEqual(n: number): void {
+    const { v, ok } = this.num('toBeGreaterThanOrEqual');
+    this.check(ok && v >= n, `expected ${show(this.value)} toBeGreaterThanOrEqual ${n}`);
+  }
+
+  toBeLessThan(n: number): void {
+    const { v, ok } = this.num('toBeLessThan');
+    this.check(ok && v < n, `expected ${show(this.value)} toBeLessThan ${n}`);
+  }
+
+  toBeLessThanOrEqual(n: number): void {
+    const { v, ok } = this.num('toBeLessThanOrEqual');
+    this.check(ok && v <= n, `expected ${show(this.value)} toBeLessThanOrEqual ${n}`);
+  }
+
+  toMatch(re: RegExp | string): void {
+    const s = String(this.value);
+    const ok = re instanceof RegExp ? re.test(s) : s.indexOf(re) >= 0;
+    this.check(ok, `expected ${show(this.value)} toMatch ${show(re)}`);
+  }
+
+  toHaveProperty(key: string, want?: unknown): void {
+    const v = this.value as Record<string, unknown> | null;
+    const has = v !== null && typeof v === 'object' && Object.prototype.hasOwnProperty.call(v, key);
+    if (want === undefined) {
+      this.check(has, `expected value toHaveProperty ${key}`);
+      return;
+    }
+    this.check(has && deepEq((v as Record<string, unknown>)[key], want),
+      `expected property ${key} to be ${show(want)}`);
+  }
+
   toThrow(): void {
     let threw = false;
     try {
@@ -142,6 +193,7 @@ class Expectation {
   }
 }
 
-export function expect(value: unknown): Expectation {
-  return new Expectation(value);
+/** vitest 的 expect（兼容移植用例里的 `expect(value, message)` 两参形式）。 */
+export function expect(value: unknown, message?: string): Expectation {
+  return new Expectation(value, message);
 }

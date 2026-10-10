@@ -20,14 +20,29 @@ TSC_BIN="$(find_tsc)"
 
 rm -f "$OUT"/*.js 2>/dev/null || true
 mkdir -p "$OUT"
-# core/*.ets 是纯 TS：直接拷成 .ts 一起编译
-for f in "$ROOT"/entry/src/main/ets/core/*.ets; do
-  cp "$f" "$OUT/$(basename "${f%.ets}").ts"
+# core/* 是纯 TS：状态机端口件（reduce/derive/integrate/normalize/agent_normalize/
+# progress_types/chat_types_full）以 .ts 形式存在（走 TS 语义，不受 ArkTS 严格规则约束）；
+# 其余为 .ets。两者都拷进临时目录一起编译。
+for f in "$ROOT"/entry/src/main/ets/core/*.ets "$ROOT"/entry/src/main/ets/core/*.ts; do
+  [ -f "$f" ] || continue
+  b="$(basename "$f")"
+  case "$b" in
+    *.ets) cp "$f" "$OUT/${b%.ets}.ts" ;;
+    *.ts)  cp "$f" "$OUT/$b" ;;
+  esac
 done
 # 测试文件里用「指向真实源码」的相对路径（便于人读）；
 # 拷进临时目录时把它改写成同目录的 ./xxx（core 也已拷到同目录）
 for t in "$HERE"/*.test.ts; do
   sed 's#\.\./\.\./entry/src/main/ets/core/#./#g' "$t" > "$OUT/$(basename "$t")"
+done
+# 非测试的 TS 辅助件（vitest 垫片等）—— 移植的 web 测试 `import … from './vitest_shim'`，
+# 必须一起拷进临时目录，否则 tsc 解析不到（TS2307）。
+for h in "$HERE"/*.ts; do
+  case "$(basename "$h")" in
+    *.test.ts) ;;
+    *) cp "$h" "$OUT/$(basename "$h")" ;;
+  esac
 done
 
 # core/ 里 http/sse/config 依赖 @kit.* ⇒ 必须带上最小 SDK stub 才能整体编译

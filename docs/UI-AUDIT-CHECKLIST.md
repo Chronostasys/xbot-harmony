@@ -182,7 +182,8 @@ md缓存 命中=… 未命中=…（命中率 …%） 占用=…KB 条目=…
 
 ## 2026-10-10 交付批次 P1–P14：真机走查清单
 
-回归证据：`tools/tests/run.sh` **26 个测试文件全通过**、release+debug 双产物 `EXIT=0`、
+回归证据：`tools/tests/run.sh` **35 个测试文件全通过**（含接入后的状态机 `reduce.test.ts` 78 项 +
+`streammerge_row.test.ts` 2 项）、release+debug 双产物 `EXIT=0`、
 `tools/lint/render-path.sh` 门禁通过。产物：`dist/xbot-harmony-{release,debug}-unsigned.hap`。
 
 逐项在真机上确认（每项都写了"怎么判定通过"）：
