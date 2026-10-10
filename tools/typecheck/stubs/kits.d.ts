@@ -79,13 +79,32 @@ declare module '@kit.ArkData' {
       flush(): Promise<void>;
     }
     export function getPreferences(context: Object, options: Options): Promise<Preferences>;
+    /**
+     * 同步版 —— **必须声明**。
+     *
+     * `EntryAbility.onCreate` 需要在 `loadContent` **之前**读缓存主题/系统色，
+     * 否则首帧会先按默认色渲染再跳色（闪色）。这条要求只能由同步 API 满足。
+     * 若 stub 不声明它，产品代码会被测试基建逼着写成异步 —— **因果颠倒**：
+     * 测试桩是给产品代码兜底的，不该反过来限制产品设计。
+     */
+    export function getPreferencesSync(context: Object, options: Options): Preferences;
   }
 }
 
 declare module '@kit.AbilityKit' {
   export namespace common {
-    export class UIAbilityContext {
+    /**
+     * `common.Context` 是**真实** SDK 类型（`@ohos.app.ability.common`）。
+     * 它的缺失会让「只接 `common.Context` 的纯函数」在离线检查里报 TS2694，
+     * 从而逼着调用方改签名 —— 又是测试基建限制产品设计，必须补上。
+     */
+    export class Context {
       readonly filesDir: string;
+      readonly cacheDir: string;
+      readonly tempDir: string;
+    }
+    export class UIAbilityContext extends Context {
+      readonly eventHub?: Object;
     }
   }
   export namespace AbilityConstant {
