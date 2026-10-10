@@ -1,7 +1,9 @@
 {
   "app": {
-    // 未签名构建（CI 产出 *-unsigned.hap）。要签名请在本地/CI 注入 signingConfigs，
-    // 见 docs/CI.md。此处**故意留空**：带本机绝对路径的签名配置在容器里必然失败。
+    // ⚠️ `signingConfigs` 里有 `default`（本机 DevEco 自动签名产物）**且 products[0] 必须引用它**
+    //    （`"signingConfig": "default"`），否则 hvigor 报 `No signingConfig found for product default`
+    //    ⇒ 产出 *-unsigned.hap ⇒ 装机必报 `install sign info inconsistent`（9568332）。
+    //    CI 里请覆盖本块（带本机绝对路径的配置在 CI 必然失败），见 docs/CI.md。
     "signingConfigs": [
       {
         "name": "default",
@@ -26,6 +28,7 @@
         //    （其设备为 HarmonyOS 7.0）。若要恢复 5.x 支持，需回退到 5.0.0(12) 并放弃该依赖。
         "compatibleSdkVersion": "6.0.1(21)",
         "targetSdkVersion": "6.0.1(21)",
+        "signingConfig": "default",
         "runtimeOS": "HarmonyOS",
         "buildOption": {
           "strictMode": {
