@@ -317,6 +317,10 @@ struct Index {
   @State themeName: string = 'dark';
   /** SSE 连接状态（来自 store：idle|connecting|open|reconnecting） */
   @State connState: string = 'idle';
+  /** 输入框聚焦（合成器卡片描边亮起） */
+  @State composerFocused: boolean = false;
+  /** 历史加载中（骨架屏判据：只有"还没内容且正在拉"才展示） */
+  @State historyLoading: boolean = false;
   /** 上次发送失败的正文（提供一键重试） */
   @State failedSend: string = '';
   private draftTimer: number = -1;
@@ -1791,6 +1795,43 @@ struct Index {
         .backgroundColor(this.pal().surfaceAlt).borderRadius(10).margin({ left: 12, right: 12, top: 12 })
       }
 
+      // 空态：没有消息、没有错误、也不在跑 —— 给友好的起步引导（而不是一片黑洞）
+      if (this.rows.length === 0 && this.loadErr.length === 0 && !this.busy
+        && !this.loadingMore && this.currentChat.length > 0) {
+        Column({ space: 10 }) {
+          Text('✦').fontSize(44).fontColor(this.pal().accent)
+            .opacity(this.pulseOn ? 1 : 0.55)
+            .animation({ duration: 1400, curve: Curve.EaseInOut })
+          Text('开始对话').fontSize(18).fontColor(this.pal().textPrimary).fontWeight(FontWeight.Medium)
+          Text('直接说需求；也可以用 / 选命令、@ 提文件、📎 加附件')
+            .fontSize(12).fontColor(this.pal().textMuted).textAlign(TextAlign.Center)
+            .padding({ left: 32, right: 32 })
+        }
+        .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
+        .id('xbot-empty-state')
+      }
+
+      // 骨架屏：历史还没到时给"内容即将出现"的观感（比裸转圈自然）
+      if (!this.historyLoading && this.currentChat.length > 0 && this.rows.length === 0) {
+        Column({ space: 10 }) {
+          ForEach([0, 1, 2, 3], (i: number) => {
+            Row({ space: 8 }) {
+              Circle({ width: 26, height: 26 }).fill(this.pal().surfaceHi)
+              Column({ space: 6 }) {
+                Row().width(i % 2 === 0 ? '72%' : '54%').height(10)
+                  .backgroundColor(this.pal().surfaceHi).borderRadius(5)
+                Row().width(i % 2 === 0 ? '46%' : '64%').height(10)
+                  .backgroundColor(this.pal().surfaceHi).borderRadius(5)
+                  .opacity(this.pulseOn ? 0.85 : 0.45)
+                  .animation({ duration: 900, curve: Curve.EaseInOut })
+              }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+            }.width('100%')
+          }, (i: number) => `sk-${i}`)
+        }
+        .width('100%').layoutWeight(1).padding({ left: 4, right: 4, top: 12 })
+        .id('xbot-skeleton')
+      }
+
       // 消息列表
       List({ scroller: this.listScroller }) {
         if (this.hasMore || this.loadingMore) {
@@ -2017,44 +2058,49 @@ struct Index {
         .width('100%').padding({ left: 10, right: 4, top: 6 })
       }
 
-      // 输入区
-      Row({ space: 8 }) {
-        Text('📎').fontSize(20).fontColor(this.pal().accentSoft).padding(6)
+      // 输入区：圆角卡片（附件 / 输入 / 发送），聚焦时描边亮起
+      Row({ space: 6 }) {
+        Text('📎').fontSize(19).fontColor(this.pal().accentSoft).padding(6)
+          .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.pickFiles();
           })
-        Text('🖼').fontSize(20).fontColor(this.pal().accentSoft).padding(6)
+        Text('▣').fontSize(19).fontColor(this.pal().accentSoft).padding(6)
+          .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.pickImages();
           })
-        TextArea({ placeholder: '给 xbot 发消息…（/ 命令，@ 文件）', text: this.draft })
+        TextArea({ placeholder: '发消息…', text: this.draft })
           .onChange((v: string) => {
             this.draft = v;
             this.refreshCompletion(v);
             this.scheduleDraftSave(v);
           })
-          // 发送键模式：Enter 发送（软键盘 Enter 变 Send）或 Enter 换行（发送靠按钮）
           .enterKeyType(enterSends(this.sendKeyMode()) ? EnterKeyType.Send : EnterKeyType.NEW_LINE)
-          // 粘贴板里有图片就直接变成附件（文本粘贴不拦截，交给输入框自身处理）
           .onPaste((value: string, event: PasteEvent) => {
             this.pasteImage();
           })
-          .layoutWeight(1).constraintSize({ minHeight: 42, maxHeight: 150 })
-          .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary)
+          .onFocus(() => {
+            this.composerFocused = true;
+          })
+          .onBlur(() => {
+            this.composerFocused = false;
+          })
+          .layoutWeight(1).constraintSize({ minHeight: 40, maxHeight: 150 })
+          .backgroundColor('#00000000').fontColor(this.pal().textPrimary)
+          .borderRadius(0).padding({ left: 2, right: 2 })
           .onSubmit(() => {
-            // 只有"Enter 发送"模式才在这里发送；换行模式下 Enter 就是换行
             if (enterSends(this.sendKeyMode())) {
               this.sendDraft();
             }
           })
         if (this.busy) {
-          // ⚡ 插话 / 排队 切换（只在忙碌时出现；点击切换并提示语义）
           Text(modeLabel(this.sendMode))
             .fontSize(12)
             .fontColor(this.sendMode === MODE_INTERRUPT ? this.pal().warn : this.pal().textSecondary)
             .padding({ left: 8, right: 8, top: 8, bottom: 8 })
             .backgroundColor(this.pal().surfaceAlt)
-            .borderRadius(6)
+            .borderRadius(8)
             .border({ width: 1, color: this.sendMode === MODE_INTERRUPT ? this.pal().warn : this.pal().border })
             .onClick(() => {
               this.sendMode = toggleMode(this.sendMode);
@@ -2062,10 +2108,18 @@ struct Index {
             })
         }
         Button(this.busy ? '停止' : '发送')
-          .constraintSize({ minHeight: 42 })
-          .backgroundColor(this.busy ? this.pal().dangerBg : this.pal().accent)
-          // 按压反馈（只改 opacity/scale —— 触屏上不会引发布局抖动）
-          .stateStyles({ pressed: { .opacity(0.7) }, normal: { .opacity(1) } })
+          .constraintSize({ minHeight: 38, minWidth: 76 })
+          .borderRadius(19)
+          .fontColor(this.pal().onAccent)
+          .backgroundColor(this.pal().accent)
+          .linearGradient({
+            angle: 135,
+            colors: this.busy
+              ? [[this.pal().dangerBg, 0.0], [this.pal().dangerBg, 1.0]]
+              : [[this.pal().accent, 0.0], [this.pal().bubbleUser, 1.0]],
+          })
+          .shadow({ radius: 10, color: '#33000000', offsetX: 0, offsetY: 2 })
+          .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
           .onClick(() => {
             if (this.busy) {
               this.store?.cancel();
@@ -2074,7 +2128,12 @@ struct Index {
             }
           })
       }
-      .width('100%').padding(8).backgroundColor(this.pal().surface)
+      .width('100%').padding({ left: 8, right: 8, top: 8, bottom: 8 })
+      .backgroundColor(this.pal().surface)
+      .borderRadius(22)
+      .border({ width: 1, color: this.composerFocused ? this.pal().accent : this.pal().border })
+      .shadow({ radius: 14, color: '#1A000000', offsetX: 0, offsetY: 3 })
+      .margin({ left: 8, right: 8, top: 2, bottom: 8 })
       .id('xbot-composer')
     }
     .width('100%').height('100%')
@@ -3088,7 +3147,13 @@ struct Index {
         this.IterationBlock(row, it)
       }, (it: HistoryIteration) => `${row.id}#${row.rev}-${it.iteration}`)
     }
-    .width('100%').alignItems(HorizontalAlign.Start).padding({ top: 6, bottom: 6 })
+    .width('100%').alignItems(HorizontalAlign.Start)
+    .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+    .backgroundColor(this.pal().surface)
+    .borderRadius(14)
+    .border({ width: 1, color: this.pal().border })
+    .shadow({ radius: 10, color: '#14000000', offsetX: 0, offsetY: 2 })
+    .margin({ top: 4, bottom: 4 })
     // 长按整条 → 复制（回复 / 含思考 / 含工具 / 原始 Markdown）
     .gesture(LongPressGesture().onAction(() => {
       this.openCtx('row', row.id, 0, '');

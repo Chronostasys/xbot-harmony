@@ -96,7 +96,7 @@ export struct AuthImage {
       .borderRadius(6)
     } else {
       Row({ space: 6 }) {
-        Text('🖼').fontSize(14)
+        Text('▣').fontSize(14)
         Text(this.failed ? '图片加载失败（点按重试）' : '查看图片').fontSize(12).fontColor(this.pal().accentSoft)
       }
       .padding({ left: 8, right: 8, top: 5, bottom: 5 })

@@ -58,6 +58,8 @@ export class ChatStore {
    */
   onAuthExpired: () => void = () => {
   };
+  /** 历史是否正在加载（骨架屏判据：只有"还没内容且正在拉"才展示骨架） */
+  historyLoading: boolean = false;
   /** SSE 连接状态（`idle|connecting|open|reconnecting`）——弱网提示用 */
   connState: string = 'idle';
   /** LLM 配置（订阅/可选模型/上下文上限；`GET /api/llm-config`） */
@@ -332,6 +334,17 @@ export class ChatStore {
   // ── 历史（含上拉分页） ─────────────────────────────────────────────────────
 
   async loadHistory(): Promise<void> {
+    this.historyLoading = true;
+    this.onUpdate();
+    try {
+      await this.loadHistoryInner();
+    } finally {
+      this.historyLoading = false;
+      this.onUpdate();
+    }
+  }
+
+  private async loadHistoryInner(): Promise<void> {
     const data: HistoryData = await this.http.postAs<HistoryData>('/api/history', new HistoryBody(
       this.channel, this.currentChatId, 30, 0));
     this.rows = ChatStore.rowsFromHistory(data.messages !== undefined ? data.messages : []);
