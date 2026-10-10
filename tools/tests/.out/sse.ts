@@ -35,6 +35,23 @@ export class SseClient {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
   }
 
+  /**
+   * 连接状态：`idle` | `connecting` | `open` | `reconnecting`。
+   * 界面据此显示「连接断开，正在重连…」——弱网下用户必须知道"消息会不会丢"。
+   */
+  state: string = 'idle';
+  /** 状态变化回调（页面订阅） */
+  onState: (state: string) => void = (state: string) => {
+  };
+
+  private setState(next: string): void {
+    if (this.state === next) {
+      return;
+    }
+    this.state = next;
+    this.onState(next);
+  }
+
   isOpen(): boolean {
     return this.req !== null;
   }
@@ -48,11 +65,13 @@ export class SseClient {
     this.listener = listener;
     this.stopped = false;
     this.retry = 0;
+    this.setState('connecting');
     this.openStream();
   }
 
   close(): void {
     this.stopped = true;
+    this.setState('idle');
     if (this.reconnectTimer >= 0) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = -1;
@@ -81,6 +100,9 @@ export class SseClient {
     }
 
     req.on('dataReceive', (chunk: ArrayBuffer) => {
+      // 收到第一帧即视为已连上（心跳也算）
+      this.setState('open');
+      this.retry = 0;
       const text: string = this.decoder.decodeToString(new Uint8Array(chunk), { stream: true });
       this.buffer += text;
       this.drain();
@@ -112,6 +134,7 @@ export class SseClient {
     if (this.stopped) {
       return;
     }
+    this.setState('reconnecting');
     if (this.req !== null) {
       const r: http.HttpRequest = this.req;
       this.req = null;

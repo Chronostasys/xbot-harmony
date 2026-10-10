@@ -17,11 +17,17 @@ const KEY_SERVERS: string = 'server_history';
 const KEY_SERVER: string = 'server_url';
 const KEY_USER: string = 'username';
 const KEY_COOKIE: string = 'session_cookie';
+// 离线草稿（弱网/杀进程不丢正在写的内容；只保最近一个会话）
+const KEY_DRAFT_CHAT: string = 'draft_chat_id';
+const KEY_DRAFT_TEXT: string = 'draft_text';
 
 export class AppConfig {
   serverUrl: string = '';
   username: string = '';
   sessionCookie: string = '';
+  /** 草稿所属会话与内容（空 = 没有草稿） */
+  draftChatId: string = '';
+  draftText: string = '';
 }
 
 export class ConfigStore {
@@ -35,11 +41,31 @@ export class ConfigStore {
     this.data.serverUrl = s.getSync(KEY_SERVER, '') as string;
     this.data.username = s.getSync(KEY_USER, '') as string;
     this.data.sessionCookie = s.getSync(KEY_COOKIE, '') as string;
+    this.data.draftChatId = s.getSync(KEY_DRAFT_CHAT, '') as string;
+    this.data.draftText = s.getSync(KEY_DRAFT_TEXT, '') as string;
     return this.data;
   }
 
   current(): AppConfig {
     return this.data;
+  }
+
+  /** 某会话的草稿（只保最近一个会话；不匹配返回空串）。 */
+  draftFor(chatId: string): string {
+    return this.data.draftChatId === chatId ? this.data.draftText : '';
+  }
+
+  /** 保存草稿（空文本等于清除；写盘失败不影响输入）。 */
+  async saveDraft(chatId: string, text: string): Promise<void> {
+    this.data.draftChatId = text.trim().length > 0 ? chatId : '';
+    this.data.draftText = text;
+    const s: preferences.Preferences | null = this.store;
+    if (s === null) {
+      return;
+    }
+    s.putSync(KEY_DRAFT_CHAT, this.data.draftChatId);
+    s.putSync(KEY_DRAFT_TEXT, text);
+    await s.flush();
   }
 
   async save(serverUrl: string, username: string, sessionCookie: string): Promise<void> {

@@ -298,6 +298,13 @@ struct Index {
   // ── 图片查看 ──────────────────────────────────────────────────────────────
   @State imagePixel: image.PixelMap | null = null;
   @State imageBusy: boolean = false;
+
+  // ── P14 弱网与健壮性 ──
+  /** SSE 连接状态（来自 store：idle|connecting|open|reconnecting） */
+  @State connState: string = 'idle';
+  /** 上次发送失败的正文（提供一键重试） */
+  @State failedSend: string = '';
+  private draftTimer: number = -1;
   /**
    * 运行脉冲（P13）：只在有回合在跑时用 600ms 定时器翻转一次 opacity。
    * 为什么用 opacity 而不是 layout 属性：触屏设备上 layout 动画（height/width）会掉帧，
@@ -416,6 +423,24 @@ struct Index {
    * ⇒ 真机表现"渲染很卡、交互也很差"。与 xbot Web 端已定稿的结论同款：所有"每帧一次"的更新
    * 必须走同一个调度器。（切会话/首帧仍走同步路径 syncFrom，保证不迟一帧。）
    */
+  /**
+   * 草稿落盘（600ms 防抖）。
+   * 弱网/杀进程/来电切走都不该丢掉用户正在写的内容 —— 落盘失败也不打断输入。
+   */
+  private scheduleDraftSave(text: string): void {
+    if (this.draftTimer >= 0) {
+      clearTimeout(this.draftTimer);
+    }
+    this.draftTimer = setTimeout(() => {
+      this.draftTimer = -1;
+      if (this.currentChat.length > 0) {
+        this.config.saveDraft(this.currentChat, text).catch(() => {
+          // 落盘失败：静默（下次输入还会再存一次）
+        });
+      }
+    }, 600);
+  }
+
   /** 有回合在跑 ⇒ 开启 600ms 脉冲；空闲 ⇒ 关掉（绝不留后台定时器）。 */
   private syncPulse(busy: boolean): void {
     if (busy && this.pulseTimer < 0) {
@@ -467,6 +492,7 @@ struct Index {
     this.rows = store.rows.slice();
     this.syncRowDs();
     this.busy = store.busy;
+    this.connState = store.connState;
     this.syncPulse(store.busy);
     this.currentChat = store.currentChatId;
     this.hasMore = store.hasMore;
@@ -950,6 +976,9 @@ struct Index {
     const alreadyOpen: boolean = target.currentChatId === chatId;
     this.store = target;
     this.touchPool(chatId);
+    // 切会话即换草稿（每个会话各自一份；弱网下也能恢复）
+    this.failedSend = '';
+    this.draft = this.config.draftFor(chatId);
     if (alreadyOpen) {
       // 池里这个会话一直开着：直接把已累积的状态映到界面（不发生任何网络等待）
       this.syncFrom(target);
@@ -1223,6 +1252,7 @@ struct Index {
       } else {
         interrupted = await store.send(content, undefined, undefined, undefined, interrupt);
       }
+      this.failedSend = '';
       const note: string = sendToast(interrupted, busyBefore);
       if (note.length > 0) {
         this.toast(note);
@@ -1231,6 +1261,7 @@ struct Index {
       // 失败：草稿与附件都还给用户（store 已回滚那条乐观行，界面不会留幽灵消息）
       this.draft = text;
       this.attachments = keep;
+      this.failedSend = text;
       this.toast(`发送失败: ${errText(e as Object)}`);
     }
   }
@@ -1773,6 +1804,38 @@ struct Index {
         })
       }
 
+      // 弱网：连接断开时明确告知（并说明恢复后会自动补齐，避免用户重复发）
+      if (this.connState === 'reconnecting' || this.connState === 'connecting') {
+        Row({ space: 6 }) {
+          LoadingProgress().width(14).height(14).color('#FBBF24')
+          Text('连接断开，正在重连…（恢复后自动补齐消息）')
+            .fontSize(11).fontColor('#FCD34D').layoutWeight(1)
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .width('100%').padding({ left: 12, right: 12, top: 6, bottom: 6 })
+        .backgroundColor('#1C1917')
+      }
+
+      // 上次发送失败 ⇒ 一键重试（不必重新打字）
+      if (this.failedSend.length > 0) {
+        Row({ space: 8 }) {
+          Text('上次发送失败').fontSize(12).fontColor('#FCA5A5').layoutWeight(1)
+          Text('重试').fontSize(12).fontColor('#FCD34D').padding(6)
+            .stateStyles({ pressed: { .opacity(0.7) }, normal: { .opacity(1) } })
+            .onClick(() => {
+              const t: string = this.failedSend;
+              this.failedSend = '';
+              this.draft = t;
+              this.sendDraft();
+            })
+          Text('丢弃').fontSize(12).fontColor('#9CA3AF').padding(6)
+            .onClick(() => {
+              this.failedSend = '';
+            })
+        }
+        .width('100%').padding({ left: 10, right: 6, top: 6, bottom: 2 })
+      }
+
       // 输入补全（/ 命令 或 @ 文件）
       if (this.cmdToken.length > 0 && (this.cmdItems.length > 0 || this.fsEntries.length > 0)) {
         Column({ space: 2 }) {
@@ -1887,6 +1950,7 @@ struct Index {
           .onChange((v: string) => {
             this.draft = v;
             this.refreshCompletion(v);
+            this.scheduleDraftSave(v);
           })
           // 发送键模式：Enter 发送（软键盘 Enter 变 Send）或 Enter 换行（发送靠按钮）
           .enterKeyType(enterSends(this.sendKeyMode()) ? EnterKeyType.Send : EnterKeyType.NEW_LINE)

@@ -34,6 +34,8 @@ class ChatStore {
     constructor(baseUrl) {
         this.channel = 'web';
         // ── 会话状态（服务端权威；/api/session/status + 结构化事件里的 goal）──
+        /** SSE 连接状态（`idle|connecting|open|reconnecting`）——弱网提示用 */
+        this.connState = 'idle';
         /** LLM 配置（订阅/可选模型/上下文上限；`GET /api/llm-config`） */
         this.llmConfig = undefined;
         /** token/上下文用量（拿不到就是 undefined，界面不显示、绝不估算） */
@@ -84,6 +86,10 @@ class ChatStore {
         this.settings = {};
         this.http = new http_1.XbotHttp(baseUrl);
         this.sse = new sse_1.SseClient(baseUrl);
+        this.sse.onState = (state) => {
+            this.connState = state;
+            this.onUpdate();
+        };
     }
     // ── 会话 ───────────────────────────────────────────────────────────────────
     async loadSessions() {
