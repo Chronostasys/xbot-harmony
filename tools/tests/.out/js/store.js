@@ -955,6 +955,13 @@ class ChatStore {
      */
     onFinalText(env) {
         const text = env.content !== undefined ? env.content : '';
+        // ⛔ 空 text 信封（WaitingUser / 中途空 text）**不得**提交、**不得**删行、**不得**动 busy：
+        // web `chat/reduce.ts` 的 text_final 明确规定「空 finalText 不得擦已有内容」。
+        // 旧实现在空 text 时走"空行 ⇒ splice 删除"，于是**正在流式的整行被删掉**
+        // （用户报"迭代完成了就消失、永远只能看到最新迭代"）；回合结束由 session idle 决定。
+        if (text.length === 0) {
+            return;
+        }
         if (this.rows.length === 0) {
             return;
         }
@@ -974,7 +981,7 @@ class ChatStore {
             this.onUpdate();
             return;
         }
-        if (text.length > 0) {
+        {
             // 进行中迭代号 = 该行最大迭代号（web：max(live.iter, 迭代列表最后号)）
             const itNum = (0, streammerge_1.liveIterationOf)(last).iteration;
             const it = (0, streammerge_1.upsertIteration)(last, itNum);

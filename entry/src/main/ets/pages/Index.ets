@@ -13,9 +13,6 @@ import { ChatStore } from '../core/store';
 import { normalizeTheme, Palette, paletteOf, themeLabel, toggleTheme } from '../core/theme';
 import { loadErrHint, loadErrTitle, needsRelogin, needsSessionRefresh } from '../core/autherr';
 import {
-  advanceVisible, clipRunes, isCJK, isTyping, runeCount, TICK_MS, toRunes,
-} from '../core/typewriter';
-import {
   canMove, MOVE_DOWN, MOVE_TOP, MOVE_UP, hitLine, sessionLabel, sessionMatches,
 } from '../core/sessionops';
 import {
@@ -73,6 +70,8 @@ import {
   TokenUsage,
   ToolProgress,
 } from '../core/types';
+import { runeCount } from '../core/typewriter';
+import { LiveTailView } from '../components/LiveTailView';
 import { MarkdownView } from '../components/MarkdownView';
 import { WebSurface } from '../components/WebSurface';
 
@@ -349,20 +348,7 @@ struct Index {
   @State liveTools: ToolProgress[] = [];
   @State liveIterNo: number = 0;
   @State liveRowTurn: number = 0;
-  @State liveReasonOpen: boolean = false;
   /** 渐入透明度：新流式文本到达时 0.45 → 1 淡入（用户要求用"渐入"替代逐字裁剪） */
-  // ── 打字机（用户语义：正文任何时候逐字；思考折叠只跳数字、展开逐字；**追赶同 web**）──
-  @State twVisible: number = 0;         // 正文已推进的码点数（每拍按 gap/3 追赶）
-  @State twRenderAt: number = 0;        // 正文**已渲染**的码点数（自适应节奏，见 twTick）
-  @State twReasonVisible: number = 0;   // 思考已推进码点数（展开时可见）
-  private twTextRunes: string[] = [];
-  private twReasonRunes: string[] = [];
-  private twTextLen: number = -1;
-  private twReasonLen: number = -1;
-  private twSkip: boolean = false;
-  private twTimer: number = -1;
-  private twTickCount: number = 0;
-  private twKey: string = '';
   /** 上一帧 live 文本长度（判断"有新文本"以触发渐入） */
   private lastLiveLen: number = 0;
   /** 历史加载中（骨架屏判据：只有"还没内容且正在拉"才展示） */
@@ -616,7 +602,6 @@ struct Index {
     this.rows = store.rows.slice();
     this.syncRowDs();
     this.syncLiveTail(store);
-    this.pumpTypewriter();
     this.busy = store.busy;
     this.connState = store.connState;
     this.syncPulse(store.busy);
@@ -2022,7 +2007,25 @@ struct Index {
         // ── live 进行中块（LazyForEach 之外，@State 直驱 ⇒ 流式/打字机/工具必然渲染）──
         if (this.liveTailHasContent()) {
           ListItem() {
-            this.LiveTail()
+            // ⚠️ 打字机（20Hz）状态在**这个子组件内部** —— 否则每拍会重跑整页 build，
+            // 把系统 spinner 都拖到 2Hz（真机"卡的要死 + spinner 半秒动一次"的根因）
+            LiveTailView({
+              text: this.liveText,
+              reasoning: this.liveReasoning,
+              tools: this.liveTools,
+              theme: this.themeName,
+              fontScale: this.fontScale(),
+              wrapCode: this.wrapCode(),
+              onImage: (src: string) => {
+                this.openImage(src);
+              },
+              loadImage: (src: string) => {
+                return this.loadImageBytes(src);
+              },
+              onToolLongPress: (name: string) => {
+                this.openCtx('tool', this.liveRowIdOf(), this.liveIterNo, name);
+              },
+            })
           }
         }
 
@@ -2401,15 +2404,7 @@ struct Index {
 
 
 
-  /** 该迭代的展示正文（打字机改为**渐入**，不再逐字裁剪）。 */
-  private liveIterText(row: ChatRow, it: HistoryIteration): string {
-    return displayContent(it);
-  }
 
-  /** 该迭代的展示正文（打字机改为**渐入**，不再逐字裁剪）。 */
-  private liveIterReason(row: ChatRow, it: HistoryIteration): string {
-    return displayReasoning(it);
-  }
 
 /**
    * 打字机驱动（用户语义）：
@@ -2419,94 +2414,10 @@ struct Index {
    *   · **思考**（纯文本、代价低）：展开时每拍（50ms）逐字；**折叠时不推进**，
    *     只让「思考 N 字」的数字随流式跳动（用户明确要求）。
    */
-  private pumpTypewriter(): void {
-    let row: ChatRow | undefined = undefined;
-    for (let i = this.rows.length - 1; i >= 0; i--) {
-      const r: ChatRow = this.rows[i];
-      if (r.role === 'assistant' && r.isLive) {
-        row = r;
-        break;
-      }
-    }
-    let it: HistoryIteration | undefined = undefined;
-    if (row !== undefined && row.iterations.length > 0) {
-      it = row.iterations[row.iterations.length - 1];
-    }
-    const key: string = row !== undefined && it !== undefined ? `${row.id}#${it.iteration}` : '';
-    if (key !== this.twKey) {
-      this.twKey = key;
-      this.twVisible = 0;
-      this.twReasonVisible = 0;
-      this.twTextRunes = [];
-      this.twReasonRunes = [];
-      this.twTextLen = -1;
-      this.twReasonLen = -1;
-      this.twSkip = false;
-    }
-    const text: string = it !== undefined ? displayContent(it) : '';
-    const reason: string = it !== undefined ? displayReasoning(it) : '';
-    if (text.length !== this.twTextLen) {
-      this.twTextLen = text.length;
-      this.twTextRunes = toRunes(text);
-    }
-    if (reason.length !== this.twReasonLen) {
-      this.twReasonLen = reason.length;
-      this.twReasonRunes = toRunes(reason);
-    }
-    const typing: boolean = isTyping(this.twVisible, this.twTextRunes.length)
-      || (this.liveReasonOpen && isTyping(this.twReasonVisible, this.twReasonRunes.length));
-    this.syncTwTimer(typing);
-  }
 
-  /** 有内容没追平就开 50ms 定时器；追平立刻关（绝不留后台定时器）。 */
-  private syncTwTimer(on: boolean): void {
-    if (on && this.twTimer < 0) {
-      this.twTimer = setInterval(() => {
-        this.twTick();
-      }, 50);
-      return;
-    }
-    if (!on && this.twTimer >= 0) {
-      clearInterval(this.twTimer);
-      this.twTimer = -1;
-    }
-  }
 
-  private twTick(): void {
-    const skip: boolean = this.twSkip;
-    this.twSkip = !this.twSkip;
-    if (this.liveReasonOpen && isTyping(this.twReasonVisible, this.twReasonRunes.length)) {
-      const rc: number = this.twReasonRunes.length > 0
-        ? this.twReasonRunes[Math.min(this.twReasonVisible, this.twReasonRunes.length - 1)]
-          .codePointAt(0) as number : 0;
-      this.twReasonVisible = advanceVisible(this.twReasonVisible, this.twReasonRunes.length, skip && isCJK(rc));
-    }
-    // 正文：**每拍都按 gap/3 追赶（与 web 同一算法，50ms 一拍）** —— 推进本身很便宜；
-    // 真正贵的是"把新前缀交给 MarkdownView 重新解析"。所以推进每拍做，**渲染按文本长度自适应**：
-    // 短文本（≤300 码点）每拍上屏（真·web 手感）；长文本每 N 拍上屏（N=ceil(len/300)），
-    // 大幅降低解析次数而不牺牲追赶速度（内容按 web 的指数追赶秒级追平）。
-    if (isTyping(this.twVisible, this.twTextRunes.length)) {
-      const tc: number = this.twTextRunes.length > 0
-        ? this.twTextRunes[Math.min(this.twVisible, this.twTextRunes.length - 1)]
-          .codePointAt(0) as number : 0;
-      this.twVisible = advanceVisible(this.twVisible, this.twTextRunes.length, skip && isCJK(tc));
-      const renderEvery: number = Math.max(1, Math.ceil(this.twTextRunes.length / 300));
-      this.twTickCount = this.twTickCount + 1;
-      if (this.twTickCount >= renderEvery || this.twVisible >= this.twTextRunes.length) {
-        this.twTickCount = 0;
-        this.twRenderAt = this.twVisible;
-      }
-    }
-    if (!isTyping(this.twVisible, this.twTextRunes.length)
-      && !(this.liveReasonOpen && isTyping(this.twReasonVisible, this.twReasonRunes.length))) {
-      this.syncTwTimer(false);
-    }
-  }
 
 /** 该迭代是否"仍在进行"（显示流式光标）。 */
-  private twTyping(row: ChatRow, it: HistoryIteration): boolean {
-    return row.isLive === true;
-  }
 
   /** 统一的"轻动效"入口（时长/曲线只有一处，避免每个面板各自为政）。 */
   private anim(run: () => void): void {
@@ -2958,28 +2869,8 @@ struct Index {
 
   /** 打字机可见正文（安全回退：定时器未跑 ⇒ 显示全文，绝不让内容不可见）。 */
 /** 打字机可见正文（安全回退：定时器未跑 ⇒ 全文，绝不让内容不可见）。 */
-  private twVisibleText(): string {
-    const full: string = this.liveText;
-    if (full.length === 0) {
-      return '';
-    }
-    if (this.twTimer < 0 || this.twRenderAt >= this.twTextRunes.length) {
-      return full;
-    }
-    return clipRunes(full, this.twRenderAt);
-  }
 
 /** 打字机可见思考（同上）。 */
-  private twVisibleReason(): string {
-    const full: string = this.liveReasoning;
-    if (full.length === 0) {
-      return '';
-    }
-    if (this.twTimer < 0 || this.twReasonVisible >= this.twReasonRunes.length) {
-      return full;
-    }
-    return clipRunes(full, this.twReasonVisible);
-  }
 
   // ── P5 消息操作（长按菜单）─────────────────────────────────────────────────
   //
@@ -3667,7 +3558,7 @@ struct Index {
 
       if (displayReasoning(it).length > 0
         && this.openReasonKey === `${row.id}-${it.iteration}`) {
-        Text(this.liveIterReason(row, it))
+        Text(displayReasoning(it))
           .wordBreak(WordBreak.BREAK_ALL)
           .fontSize(13).fontColor(this.pal().textSecondary).padding(8).width('100%')
           .backgroundColor(this.pal().surface).borderRadius(8)
@@ -3676,7 +3567,7 @@ struct Index {
 
       if (displayContent(it).length > 0) {
         MarkdownView({
-          text: this.liveIterText(row, it),
+          text: displayContent(it),
           onImage: (src: string) => {
             this.openImage(src);
           },
@@ -3710,118 +3601,7 @@ struct Index {
     .width('100%').alignItems(HorizontalAlign.Start).padding({ top: 4, bottom: 4 })
   }
 
-  /** live 进行中块（web 的 LiveIteration 同构：思考行 + 打字机正文 + 全状态工具 pill）。 */
-  @Builder
-  LiveTail() {
-    Column({ space: 6 }) {
-      // 思考行（web 形态：✳ 思考 N 字 ▸/▾）
-      if (this.liveReasoning.length > 0) {
-        Row({ space: 6 }) {
-          Text('✳').fontSize(11).fontColor(this.pal().textMuted)
-          Text(`思考 ${runeCount(this.liveReasoning)} 字`)
-            .fontSize(11).fontColor(this.pal().textSecondary)
-          Text(this.liveReasonOpen ? '▾' : '▸').fontSize(11).fontColor(this.pal().textMuted)
-        }
-        .padding({ top: 2, bottom: 2 })
-        .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
-        .onClick(() => {
-          this.liveReasonOpen = !this.liveReasonOpen;
-        })
-      }
-      if (this.liveReasonOpen && this.twVisibleReason().length > 0) {
-        Text(this.twVisibleReason())
-          .wordBreak(WordBreak.BREAK_ALL)
-          .fontSize(12).fontColor(this.pal().textSecondary).padding(8).width('100%')
-          .backgroundColor(this.pal().surfaceAlt).borderRadius(8)
-          .copyOption(CopyOptions.LocalDevice)
-      }
-      // 正文（打字机裁剪 + 光标；@State 直驱 ⇒ 必然逐字上屏）
-      if (this.twVisibleText().length > 0) {
-        Column({ space: 2 }) {
-          MarkdownView({
-            text: this.twVisibleText(),
-            onImage: (src: string) => {
-              this.openImage(src);
-            },
-            loadImage: (src: string) => {
-              return this.loadImageBytes(src);
-            },
-            fontScale: this.fontScale(),
-            wrapCode: this.wrapCode(),
-            theme: this.themeName,
-          })
-          if (this.liveOn && (isTyping(this.twVisible, this.twTextRunes.length)
-            || (this.liveReasonOpen && isTyping(this.twReasonVisible, this.twReasonRunes.length)))) {
-            Text('▍').fontSize(14).fontColor(this.pal().accent)
-              .opacity(this.pulseOn ? 1 : 0.15)
-              .animation({ duration: 600, curve: Curve.EaseInOut })
-          }
-        }.width('100%').alignItems(HorizontalAlign.Start)
-      }
-      // 工具（全部状态：generating / running / done / error / pending）
-      if (this.liveTools.length > 0) {
-        Column({ space: 4 }) {
-          Flex({ wrap: FlexWrap.Wrap }) {
-            ForEach(this.liveTools, (t: ToolProgress, i: number) => {
-              this.LiveToolPill(t)
-            }, (t: ToolProgress, i: number) => `lt-${i}#${t.name}#${t.status}`)
-          }.width('100%')
-          ForEach(this.liveTools, (t: ToolProgress, i: number) => {
-            if (this.openToolKey === this.toolKey(this.liveRowTurn, this.liveIterNo, t.name)) {
-              this.ToolDetailCard(t)
-            }
-          }, (t: ToolProgress, i: number) => `ltd-${i}#${t.name}#${t.status}`)
-        }.width('100%')
-      }
-    }
-    .width('100%').alignItems(HorizontalAlign.Start)
-    .padding({ left: 12, right: 12, top: 10, bottom: 10 })
-    .backgroundColor(this.pal().surface).borderRadius(14)
-    .border({ width: 1, color: this.pal().border })
-    .shadow({ radius: 10, color: '#14000000', offsetX: 0, offsetY: 2 })
-    .margin({ top: 4, bottom: 4 })
-  }
 
-  /** live 工具 pill（与已提交行同一套五态规则）。 */
-  @Builder
-  LiveToolPill(t: ToolProgress) {
-    Stack() {
-      Row({ space: 4 }) {
-        Text(this.toolIcon(t)).fontSize(11).fontColor(this.toolColor(t))
-        Text(this.toolLabel(t)).fontSize(12).fontColor(this.toolColor(t))
-          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-          .constraintSize({ maxWidth: 240 })
-      }
-      .padding({ left: 8, right: 8, top: 5, bottom: 5 })
-      .margin(3)
-      if (t.status === 'running' || t.status === 'generating') {
-        Row()
-          .width(46).height('100%')
-          .linearGradient({ angle: 90, colors: [
-            [this.pal().accentSoftFade, 0.0], [this.pal().accentSoft, 0.5], [this.pal().accentSoftFade, 1.0],
-          ] })
-          .opacity(0.35)
-          .translate({ x: this.sweepX })
-          .hitTestBehavior(HitTestMode.None)
-      }
-    }
-    .clip(true)
-    .backgroundColor(this.pal().surfaceAlt)
-    .borderRadius(6)
-    .border({
-      width: 1,
-      color: this.openToolKey === this.toolKey(this.liveRowTurn, this.liveIterNo, t.name)
-        ? this.pal().accent : this.pal().border,
-    })
-    .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
-    .onClick(() => {
-      const key: string = this.toolKey(this.liveRowTurn, this.liveIterNo, t.name);
-      this.openToolKey = this.openToolKey === key ? '' : key;
-    })
-    .gesture(LongPressGesture().onAction(() => {
-      this.openCtx('tool', this.liveRowIdOf(), this.liveIterNo, t.name);
-    }))
-  }
 
   /** live 行的行 id（长按菜单用）。 */
   private liveRowIdOf(): string {
@@ -3834,38 +3614,6 @@ struct Index {
     return '';
   }
 
-  /** 工具详情卡（点 pill 展开：状态行 + 摘要 + 参数 + 输出）。 */
-  @Builder
-  ToolDetailCard(t: ToolProgress) {
-    Column({ space: 6 }) {
-      Row({ space: 8 }) {
-        Text(this.toolIcon(t)).fontSize(12).fontColor(this.toolColor(t))
-        Text(t.label !== undefined && t.label.length > 0 ? t.label : t.name)
-          .fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
-          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text(this.toolStatusBadge(t).length > 0 ? this.toolStatusBadge(t) : '完成')
-          .fontSize(11).fontColor(this.toolColor(t))
-      }.width('100%')
-      if (t.summary !== undefined && t.summary.length > 0) {
-        Text(t.summary).fontSize(12).fontColor(this.pal().textSecondary).width('100%')
-          .wordBreak(WordBreak.BREAK_ALL).copyOption(CopyOptions.LocalDevice)
-      }
-      if (t.args !== undefined && t.args.length > 0) {
-        Text(t.args).fontSize(11).fontColor(this.pal().textSecondary).width('100%')
-          .backgroundColor(this.pal().surfaceAlt).borderRadius(6).padding(8)
-          .fontFamily('monospace').wordBreak(WordBreak.BREAK_ALL)
-          .copyOption(CopyOptions.LocalDevice)
-      }
-      if (t.detail !== undefined && t.detail.length > 0) {
-        Text(t.detail).fontSize(11).fontColor(this.pal().textSecondary).width('100%')
-          .maxLines(12).textOverflow({ overflow: TextOverflow.Ellipsis })
-          .wordBreak(WordBreak.BREAK_ALL).copyOption(CopyOptions.LocalDevice)
-      }
-    }
-    .width('100%').padding(10)
-    .backgroundColor(this.pal().surfaceAlt).borderRadius(8)
-    .border({ width: 1, color: this.pal().border })
-  }
 
   @Builder
   ToolPill(row: ChatRow, it: HistoryIteration, t: ToolProgress) {
@@ -3878,7 +3626,7 @@ struct Index {
         .fontColor(this.toolColor(t))
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .constraintSize({ maxWidth: 220 })
+        .constraintSize({ maxWidth: 200 })
     }
     .padding({ left: 8, right: 8, top: 5, bottom: 5 })
     .margin(3)
