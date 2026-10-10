@@ -431,5 +431,16 @@ Usage of standard library is restricted (arkts-limited-stdlib)
 3. ⛔ **同步指纹必须随会话身份作废**：`rowsFp`/`sessionsFp`/`queueFp`/`todosFp` 是**页面级**缓存，而行指纹
    只由 `id#rev` 组成 ⇒ 两个会话可能**逐字同指纹** ⇒ 切会话时 `this.rows` **永不刷新**（一直显示上一个
    会话的内容）。两条一起修：① 身份变化时**清空全部指纹**；② 指纹里**显式带上 `chatId`**（同指纹不可能）。
+5. ⛔ **数据源骨架判据必须含会话身份（最致命的一处）**：`ChatRowDataSource.applyRows` 原本只用
+   `sameRowIds`（**纯 id 序列**）判断"骨架是否变了" —— 而行 id 是每 store 独立计数 ⇒ 两个会话同形
+   ⇒ 判"骨架未变" ⇒ `changedRowIndices` 为空 ⇒ **一条变更通知都不发** ⇒ `LazyForEach` 保留第一个
+   会话已构建的条目 ⇒ **切到任何会话都显示第一个会话的内容**。判据 = `needsFullReload(prev, next,
+   prevChatId, nextChatId)`（身份变化 **或** id 序列变化 ⇒ `onDataReloaded()` 整表重建）。
+
+**收口清单（四处，纯函数都在 `core/rowdiff.ets` 且有判别测试 `tools/tests/session_identity.test.ts`，
+修复前必红）**：① `sessionScopedRowKey(chatId,row)` 作 `LazyForEach` 键；
+② `rowsFpOf(rows,chatId)` / `scopedFingerprint(chatId,parts)` 作同步指纹；
+③ `identityChanged(prev,next)` 触发**全部指纹作废**；④ `needsFullReload(...)` 作数据源骨架判据。
+另：`syncFrom` 里 **身份先于指纹/投影**（顺序错则行键仍用旧会话 id）。
 4. ⛔ **`syncFrom` 里会话身份必须最先落定**：`this.currentChat = store.currentChatId` 原本排在第 632 行
    （指纹比较 / `syncRowDs()` **之后**）⇒ 行键仍用**旧会话 id**（键继续碰撞）。顺序：**身份 → 指纹 → 投影**。

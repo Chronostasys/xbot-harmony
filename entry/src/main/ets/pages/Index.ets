@@ -43,7 +43,8 @@ import {
   attachmentRef, baseName, doneKeys, doneNames, doneRefs, doneSizes, hasRef, humanSize, mimeOf,
   patchByUid, pendingCount, removeByUid,
 } from '../core/attach';
-import { changedRowIndices, rowKey, sameRowIds, tailRows } from '../core/rowdiff';
+import { changedRowIndices, identityChanged, needsFullReload, rowKey, rowsFpOf, sameRowIds,
+  scopedFingerprint, sessionScopedRowKey, tailRows } from '../core/rowdiff';
 import {
   currentTodo, goalText, modelText, todoProgress, usageText,
 } from '../core/statusfmt';
@@ -615,7 +616,7 @@ struct Index {
     // ② **指纹缓存必须随身份作废**：行 id 是**每 store 独立计数**（`live-1`/`a-1`…），
     //    两个会话的行指纹可能**逐字相同** ⇒ 不重置就永远不刷新 `this.rows`
     //    （表现为"切到哪个会话都显示上一个会话的内容"，且 busy 与内容来自不同会话 = 状态混乱）。
-    if (store.currentChatId !== this.currentChat) {
+    if (identityChanged(this.currentChat, store.currentChatId)) {
       this.currentChat = store.currentChatId;   // ← 身份先定
       this.atBottom = true;
       this.rowLimit = MAX_ROWS_VISIBLE;   // 切会话重置行窗口（否则行数会无限累积增长）
@@ -2070,7 +2071,7 @@ struct Index {
           ListItem() {
             this.ChatRowBody(row)
           }
-        }, (row: ChatRow) => `${this.currentChat}#${rowKey(row)}`)
+        }, (row: ChatRow) => sessionScopedRowKey(this.currentChat, row))
 
         // ── live 进行中块（LazyForEach 之外，@State 直驱 ⇒ 流式/打字机/工具必然渲染）──
         if (this.liveTailHasContent()) {
@@ -2894,12 +2895,7 @@ struct Index {
   private todosFp: string = '';
 
   private fingerprintRows(rows: ChatRow[], chatId: string): string {
-    const parts: string[] = [];
-    for (let i = 0; i < rows.length; i++) {
-      parts.push(`${rows[i].id}#${rows[i].rev}`);
-    }
-    // ⛔ 会话身份进指纹：行 id 每 store 独立计数 ⇒ 不带身份时两个会话可能同指纹
-    return `${chatId}|${rows.length}|${parts.join(',')}`;
+    return rowsFpOf(rows, chatId);   // 纯函数在 core/rowdiff（带会话身份，有判别测试）
   }
 
   private fingerprintSessions(items: SessionItem[], chatId: string): string {
@@ -2908,7 +2904,7 @@ struct Index {
       const s: SessionItem = items[i];
       parts.push(`${s.chat_id}#${s.running === true ? 1 : 0}#${s.label !== undefined ? s.label : ''}`);
     }
-    return `${chatId}|${parts.join(',')}`;
+    return scopedFingerprint(chatId, parts);
   }
 
   private fingerprintQueue(items: QueueItem[], chatId: string): string {
@@ -2922,7 +2918,7 @@ struct Index {
         : (it.text !== undefined ? it.text : '');
       parts.push(`${id}#${body.length}`);
     }
-    return `${chatId}|${parts.join(',')}`;
+    return scopedFingerprint(chatId, parts);
   }
 
   /** 把「当前该显示的行」推给数据源（行窗口 + 真虚拟化两层叠加）。 */
@@ -2932,7 +2928,9 @@ struct Index {
     // 用户只能看到最新的那个（真机严重 bug）。
     // 正解：live 行**进列表**（其已完成迭代正常渲染），只是它的**最后一个迭代**
     // （= 进行中）由尾块承担 —— 渲染侧用 `isTailOwned` 互斥，不会画两遍。
-    this.rowDs.applyRows(tailRows(this.rows, this.rowLimit));
+    // 必须把**会话身份**一起交给数据源：否则两个会话同形时它会判「骨架未变」=> 零通知 =>
+    // LazyForEach 保留上一个会话的条目（真机「所有会话都显示第一个会话的内容」）。
+    this.rowDs.applyRows(tailRows(this.rows, this.rowLimit), this.currentChat);
   }
 
   /** 从 store 的 live 行提取进行中快照（正文/思考/工具，全部 @State 镜像）。 */
@@ -4545,6 +4543,8 @@ struct Index {
  */
 class ChatRowDataSource implements IDataSource {
   private rows: ChatRow[] = [];
+  /** 当前承载的**会话身份**（切会话必须整表重建，见 needsFullReload） */
+  private chatId: string = '';
   private listeners: DataChangeListener[] = [];
 
   totalCount(): number {
@@ -4574,10 +4574,12 @@ class ChatRowDataSource implements IDataSource {
   }
 
   /** 用新行集替换（骨架不变则只通知变更行，避免整表重建丢滚动锚点）。 */
-  applyRows(next: ChatRow[]): void {
-    const structural: boolean = !sameRowIds(this.rows, next);
+  applyRows(next: ChatRow[], chatId: string): void {
+    // 骨架重建判据必须含**会话身份**（见 core/rowdiff.needsFullReload 的事故注释）
+    const structural: boolean = needsFullReload(this.rows, next, this.chatId, chatId);
     const changed: number[] = structural ? [] : changedRowIndices(this.rows, next);
     this.rows = next;
+    this.chatId = chatId;
     if (structural) {
       for (let i = 0; i < this.listeners.length; i++) {
         this.listeners[i].onDataReloaded();
