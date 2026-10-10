@@ -159,6 +159,17 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | `channels` | `get_channel_config` / `set_channel_config`（+飞书绑定三件套） | admin | **M~L** |
 | `webusers` | `list/create/delete_web_user` | admin | **S**（手机端价值低） |
 
+### 9.2.1 参数契约（**已逐条核对服务端 `serverapp/rpc_table.go`**，勿凭记忆）
+
+| method | params（服务端 struct json tag） | 证据 |
+|---|---|---|
+| `get_tools_settings` | **无参**，`requireAdmin` 包裹 | `rpc_table.go:699` |
+| `set_tool_enabled` | `{name, enabled}`，`requireAdmin` 包裹 | `rpc_table.go:702` |
+| `list_subscriptions` | 无参 | `rpc_table.go:815` |
+| `list_all_model_entries` | 无参 | `rpc_table.go:754` |
+| `set_subscription_enabled` | `{sub_id, enabled}` | `rpc_table.go:672-675` |
+| `set_default_subscription` | ⚠️ **`{id, chat_id, channel}`** —— 字段是 **`id`**，**不是** `sub_id`（`chat_id` 为会话；`channel` 缺省回落 `"cli"`，**web 会话必须传 `"web"`**，否则 per-session tenant 映射写到错的 channel 行） | `rpc_table.go:2696-2705`；web 调用点 `web/src/components/agent/api.ts:752` |
+
 ⚠️ **tools 的 MCP 分组坑**：后端字段是 `server_name`，web 曾因 snake/camel 错位导致**分组静默失效**
 （`SettingsTools.tsx:44-46` 注释）⇒ 原生必须归一 `server_name → serverName`。
 
