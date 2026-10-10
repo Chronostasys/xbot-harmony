@@ -14,6 +14,7 @@
 import { ToolProgress } from '../core/types';
 import { advanceVisible, clipRunes, isCJK, isTyping, runeCount, toRunes } from '../core/typewriter';
 import { Palette, paletteOf } from '../core/theme';
+import { BUBBLE } from '../core/bubble';
 import { MarkdownView } from './MarkdownView';
 
 @Component
@@ -211,7 +212,8 @@ export struct LiveTailView {
   }
 
   build() {
-    Column({ space: 6 }) {
+    // `gap-1`（web `LiveIteration` 的 `flex flex-col gap-1`）—— 思考/正文/工具之间 4px
+    Column({ space: BUBBLE.blockInnerGap }) {
       if (this.reasoning.length > 0) {
         Row({ space: 6 }) {
           Text('✳').fontSize(11).fontColor(this.pal().textMuted)

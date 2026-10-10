@@ -14,6 +14,7 @@ import { ChatRow, HistoryIteration, ToolProgress } from '../core/types';
 import { completedBlocks, displayContent, displayReasoning, rowIsEmpty } from '../core/streammerge';
 import { runeCount } from '../core/typewriter';
 import { Palette, paletteOf } from '../core/theme';
+import { BUBBLE } from '../core/bubble';
 import { MarkdownView } from './MarkdownView';
 import { LiveTailView } from './LiveTailView';
 
@@ -204,7 +205,10 @@ export struct MessageRowView {
    */
   @Builder
   AssistantBlock() {
-    Column({ space: 6 }) {
+    // ⛔ `Column()`（无 space）—— web `.iter-blocks` 是 `display:block`，块间间距由**块自身**
+    //   `.iter-block{margin-top:0.25rem}` 提供（见下方 IterationBlock/LiveIterationBlock 的
+    //   `.margin({ top: BUBBLE.iterGap })`）。用 Column 的 space 会在首块前留白、与 web 不符。
+    Column() {
       if (this.row.content.length > 0 && this.row.iterations.length === 0) {
         MarkdownView({
           text: this.row.content,
@@ -261,12 +265,10 @@ export struct MessageRowView {
       }
     }
     .width('100%').alignItems(HorizontalAlign.Start)
-    .padding({ left: 12, right: 12, top: 10, bottom: 10 })
-    .backgroundColor(this.pal().surface)
-    .borderRadius(14)
-    .border({ width: 1, color: this.pal().border })
-    .shadow({ radius: 10, color: '#14000000', offsetX: 0, offsetY: 2 })
-    .margin({ top: 4, bottom: 4 })
+    // 对齐 web `AssistantMessage`：容器 `group/msg px-1` —— **无** 底色/边框/圆角/阴影
+    // （CopyTarget 不渲染可见 UI）。垂直间距来自 `.virt-row py-1.5`（= rowPadY）。
+    .padding({ left: BUBBLE.assistantPadX, right: BUBBLE.assistantPadX })
+    .margin({ top: BUBBLE.rowPadY, bottom: BUBBLE.rowPadY })
     // 长按整条 → 复制（回复 / 含思考 / 含工具 / 原始 Markdown）
     .gesture(LongPressGesture().onAction(() => {
       this.onRowLongPress();
@@ -284,7 +286,7 @@ export struct MessageRowView {
    */
   @Builder
   LiveIterationBlock() {
-    Column({ space: 6 }) {
+    Column({ space: BUBBLE.blockInnerGap }) {
       LiveTailView({
         text: this.liveText,
         reasoning: this.liveReasoning,
@@ -304,12 +306,14 @@ export struct MessageRowView {
         },
       })
     }
+    // `.iter-block{margin-top:0.25rem}`（TurnBody）—— 与已完成迭代块之间 4px 间距
+    .margin({ top: BUBBLE.iterGap })
     .width('100%').alignItems(HorizontalAlign.Start)
   }
 
   @Builder
   IterationBlock(it: HistoryIteration) {
-    Column({ space: 6 }) {
+    Column({ space: BUBBLE.blockInnerGap }) {
       // web 形态：**没有"迭代 N"这种标题**，只有一条可展开的「思考 N 字」
       if (displayReasoning(it).length > 0) {
         Row({ space: 6 }) {
@@ -369,7 +373,8 @@ export struct MessageRowView {
         }, (t: ToolProgress, ti: number) => `d-${this.toolKey(this.row.turnID, it.iteration, t.name)}#${ti}`)
       }
     }
-    .width('100%').alignItems(HorizontalAlign.Start).padding({ top: 4, bottom: 4 })
+    // `.iter-block{margin-top:0.25rem}`（TurnBody）—— 块间（含首块前）间距 4px
+    .width('100%').alignItems(HorizontalAlign.Start).margin({ top: BUBBLE.iterGap })
   }
 
   @Builder

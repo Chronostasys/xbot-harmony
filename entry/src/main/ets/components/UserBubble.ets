@@ -8,8 +8,16 @@
  * 「对于长列表，务必使用 `LazyForEach`…结合 `@Reusable` 装饰器实现组件级复用，
  *   降低创建和销毁的开销」；§1「主线程解放」。
  * 这里只接**原始类型**（text/theme）与回调，避免 @Prop 深拷贝对象（ArkUI @Prop 对对象是拷贝语义）。
+ *
+ * 样式**逐条映射 web**（`core/bubble.ets` 是唯一映射表）：
+ *   · 气泡 `rounded-2xl rounded-br-sm` ⇒ 四角 16、右下 2；
+ *   · `px-3.5 py-2` ⇒ 水平 14 / 垂直 8；
+ *   · `bg-accent/15` ⇒ 主题 accent @15%；
+ *   · `max-w-[85%]` ⇒ 最大宽度 85%；
+ *   · 外层 `px-1` + `.virt-row py-1.5` ⇒ 水平 4 / 垂直 6。
  */
 import { Palette, paletteOf } from '../core/theme';
+import { BUBBLE, userBubbleBg } from '../core/bubble';
 
 @Component
 export struct UserBubbleView {
@@ -28,12 +36,22 @@ export struct UserBubbleView {
       Blank()
       Text(this.text)
         .wordBreak(WordBreak.BREAK_ALL)
-        .fontSize(15).fontColor(this.pal().textPrimary).padding(12)
-        .constraintSize({ maxWidth: '78%' })
-        .backgroundColor(this.pal().bubbleUser).borderRadius(12)
+        .fontSize(15).fontColor(this.pal().textPrimary)
+        .padding({
+          left: BUBBLE.userPadX, right: BUBBLE.userPadX,
+          top: BUBBLE.userPadY, bottom: BUBBLE.userPadY,
+        })
+        .constraintSize({ maxWidth: `${BUBBLE.userMaxWidthPct}%` })
+        .backgroundColor(userBubbleBg(this.pal()))
+        .borderRadius(BUBBLE.userRadius())
         .copyOption(CopyOptions.LocalDevice)
     }
-    .width('100%').padding({ top: 6, bottom: 6 })
+    .width('100%')
+    // 外层 `px-1` + `.virt-row py-1.5`（与助手行同一条带）
+    .padding({
+      left: BUBBLE.assistantPadX, right: BUBBLE.assistantPadX,
+      top: BUBBLE.rowPadY, bottom: BUBBLE.rowPadY,
+    })
     .gesture(LongPressGesture().onAction(() => {
       this.onLongPress();
     }))

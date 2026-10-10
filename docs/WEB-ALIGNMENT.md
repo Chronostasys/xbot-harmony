@@ -287,3 +287,92 @@ reduce → deriveRows → applyRow）跑真实事件序列（iter1 流式 → �
 工具完成 + iter1 commit → iter2 流式）；③以真实接线形态重建「组件每帧**渲染出的块列表**」，
 断言 (M1) 单调不减、(M2) 已完成的 iter1（含 tool pill）始终在列表里。
 HEAD 形态必红（`渲染块列表回退：1 → 0`、iter1 缺失：6 passed / 7 failed）；本修复后绿（15/0）。
+
+## 10. 判据修复（2026-10-10 第四批）：迭代空隙「思考中」消失（①）
+
+**用户原话**：「每个 iter 刚完成、下一个 iter 的 SSE 到来之前，应该也要渲染**思考中**」。
+
+**根因（判据问题）**：`pages/Index.busySignals()` 的
+`tailShowsIndicator = hasLiveRow && !rowIsEmpty(row)`。`rowIsEmpty` = `rowVisibleChars(row) === 0`
+数的是**整行**可见内容，**包含已提交（历史）迭代块**。于是迭代刚 commit（iter1 已成历史块，
+行非空）、下一迭代首个 delta 还没到（空隙）时 ⇒ 判据以为「尾部已有信号」⇒ 占位符让位
+⇒ **空隙里什么都没有**。
+
+**修法（对齐 web，判据唯一、非 hack）**：
+
+| 项 | 修法 | web 对应 |
+|---|---|---|
+| A | `core/streammerge.ets` 新增纯函数 `rowHasInFlightSignal(row)` =「末尾 `live:true` 块里有 正文/思考/工具」（与渲染读**同一个** `liveBlockOf`）—— 这才是「尾部正在渲染在飞信号」 | `MessageList.tailShowsIndicator` 用 `progressStore.liveIterationInFlight`（=「进行中的迭代**尚未**作为历史渲染过」）而非「行非空」 |
+| B | `pages/Index.busySignals()` 与 `liveTailHasContent()` 都改用它（**判据唯一**，删掉第二套互相矛盾的「行非空」判据） | `liveIterationInFlight` 被 `MessageList` 与 `LiveIteration` 空内容分支**共用**（同一判据 ⇒ 恰好一个指示器） |
+
+**不变量**：有在飞信号 ⇒ 占位让位；无 ⇒ 占位出现；**任何时刻不允许「两者皆无」**。
+
+**唯一的故意差异（理由充分）**：web 的 `showBusyPlaceholder` 还带 `&& !tailIsLiveRow`
+（尾行就是 live 行时不再叠加占位）；native **故意不带**这条 —— 因为 native 的 live 行
+永远是尾行（渲染在列表末），照搬 `!tailIsLiveRow` 会让**第一迭代窗口**也失去占位
+（那正是 2026-10-10 已修过的 P0「发送完了连思考中都没来」）。native 的 `tailShowsIndicator`
+已收紧到「**真在飞信号**」（非行非空），故空隙时占位补上、在飞时让位，恒为「恰好一个」。
+
+### 10.1 红 → 绿证据
+
+`tools/tests/iter_gap_indicator.test.ts`：**读生产源码**判定页面用哪条判据（无引用的独立
+oracle 计算语义），喂真实 store 序列 `iter1 commit → 空隙（无 iter2 事件）→ iter2 stream`。
+
+**红**（HEAD，`7 passed / 2 failed`，EXIT=1）：
+
+```
+[源码判据] 页面用在飞信号=false 页面仍用行非空=true 生产 rowHasInFlightSignal=false
+✗ G1 生产 busySignals().tailShowsIndicator 采用「在飞信号」判据（非「行非空」）
+[空隙（iter1 完成、iter2 未到）] 渲染可见=5 占位=false 尾部信号=true busyNow=true
+✗ G2 空隙（iter1 完成、iter2 未到） 空隙必须显示「思考中」: 空隙期间占位=false（尾部信号=true）
+```
+
+**绿**（修复后，`9 passed / 0 failed`）：
+
+```
+[源码判据] 页面用在飞信号=true 页面仍用行非空=false 生产 rowHasInFlightSignal=true
+[iter1 commit]                   渲染可见=5 占位=true  尾部信号=false
+[空隙（iter1 完成、iter2 未到）] 渲染可见=5 占位=true  尾部信号=false ← 空隙显示「思考中」
+[iter2 正文到达]                 渲染可见=8 占位=false 尾部信号=true  ← 在飞内容到达 ⇒ 让位
+```
+
+**回归守卫**：`tools/tests/in_flight_signal.test.ts`（12 项）—— 生产 `rowHasInFlightSignal`
+与**独立渲染 oracle** 逐例对拍（含「空隙形态 = 仅已完成块 ⇒ 无在飞信号」的关键反例）。
+
+## 11. 气泡样式对齐 web（2026-10-10 第四批，②）
+
+**用户原话**：「现在这种气泡设计是不是有点丑？直接改一下，小问题」，要求**以 web 的类名为准
+逐条映射**。唯一映射表 = `entry/src/main/ets/core/bubble.ets`（组件只引用它，不散落魔法数）。
+
+### 11.1 映射表（web class → 原生属性/值；1rem=16px，原生 vp 与 web px 1:1）
+
+| web class（来源） | 值 | 原生（`BubbleMetrics` / 落点） |
+|---|---|---|
+| `rounded-2xl`（`UserMessage` 气泡） | 1rem = 16 | `userRadiusAll` → `.borderRadius(BUBBLE.userRadius())` 四角 |
+| `rounded-br-sm`（`UserMessage` 气泡右下） | 0.125rem = 2 | `userRadiusBR` → 圆角对象的 `bottomRight` |
+| `px-3.5`（`UserMessage` 气泡） | 0.875rem = 14 | `userPadX` → 气泡 `.padding({left/right})` |
+| `py-2`（`UserMessage` 气泡） | 0.5rem = 8 | `userPadY` → 气泡 `.padding({top/bottom})` |
+| `bg-accent/15`（`UserMessage` 气泡底） | accent @15% | `userBubbleAlpha` + `userBubbleBg(pal)` → `.backgroundColor(...)` |
+| `max-w-[85%]`（`UserMessage` 列） | 85% | `userMaxWidthPct` → `.constraintSize({maxWidth})` |
+| `px-1`（`AssistantMessage` 外框） | 0.25rem = 4 | `assistantPadX` → 助手容器 + 用户外框水平 padding |
+| `.iter-block{margin-top:.25rem}`（`TurnBody`） | 4 | `iterGap` → `IterationBlock`/`LiveIterationBlock` 的 `.margin({top})` |
+| `gap-1`（`IterationGroup` / `LiveIteration`） | 0.25rem = 4 | `blockInnerGap` → 块内 `Column({space})`（含 `LiveTailView`） |
+| `py-1.5`（`MessageList` `.virt-row`） | 0.375rem = 6 | `rowPadY` → 每行 `.margin({top/bottom})` |
+
+**助手容器"去 chrome"是对齐结果，不是漏改**：web 的 `AssistantMessage` 容器是
+`group/msg px-1` —— **没有** `bg-*` / `border*` / `rounded*` / `shadow*`（`CopyTarget`
+不渲染任何可见 UI）。故原生 `MessageRow.AssistantBlock` 相应移除 `surface` 底色 / `border`
+/ `borderRadius` / `shadow`，只保留 `px-1` 水平内边距 + `py-1.5` 行间距。
+
+### 11.2 结构守卫（`tools/tests/bubble_style.test.ts`，28 项）
+
+可视化无法单测，用「映射表值 + 源码接线 + 判据」兜：
+
+1. **不存在「可见内容为 0 的 committed 气泡」**：`MessageRowView.build()` 有
+   `if (!this.isEmptyBubble())` 守卫，且 `isEmptyBubble()` 与 `rowIsEmpty`（= 渲染同源）同判据。
+2. **单一气泡容器**：在飞块 `LiveIterationBlock()` 在 `AssistantBlock()` **内部**（源码切片断言），
+   且 `LiveIterationBlock` 自身**不带** chrome（无 底色/边框/圆角/阴影）⇒ 不会画成第二个气泡。
+3. **映射表存在且值正确**：`BUBBLE.*` 逐条等于 web class 换算值；组件源码确实引用映射表
+   （`BUBBLE.userPadX`/`userRadius()`/`userBubbleBg`/`assistantPadX`/`rowPadY`/`iterGap`/
+   `blockInnerGap`），而不是散落的魔法数。
+
