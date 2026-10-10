@@ -483,3 +483,39 @@ executing，两枚都显示「排队」）。live 块里的工具**都是本迭�
   三态恒定行高（web `h-7`=28）；失败**不自动重试**，只留手动重试（web 同款）。
   文案用「正在加载更多…」而非"折叠/展开"——体感是「向上滚动自然加载更多」。
 
+## 14. 第七批（2026-10-11）：设置值域对齐 · 动效底座 · 品牌资源
+
+### 14.1 ⚠️ 发送键**取值域**两端不一致（P0，双向读错）
+
+- web：`'ctrl-enter' | 'enter'`，默认 **`ctrl-enter`**（`web/src/types/agent.ts:41,44`）。
+- 原生（修前）：`'mod-enter' | 'enter'`，默认 `enter` —— 却与 web 共用同一服务端 key
+  `web:ui:send-key-mode` ⇒ **双向解析失败**（web 读 `mod-enter` 判为非法回落 `ctrl-enter`；
+  原生读 `ctrl-enter` 判为未知回落 `enter`）。
+- 修后：`SEND_KEY_MOD_ENTER = 'ctrl-enter'`；`normalizeSendKey` **容忍历史值 `'mod-enter'`
+  并统一输出 `'ctrl-enter'`**，缺失/未知回落 `'ctrl-enter'`（与 web 默认一致）。
+- 连带必需修复：`core/composer.ets` `enterSends` 原判 `mode !== 'mod-enter'`，
+  在新值域下**恒真**（`ctrl-enter` 模式回车不换行）⇒ 改 `mode !== 'ctrl-enter' && mode !== 'mod-enter'`。
+- 判别力测试：`tools/tests/settings.test.ts`（9 条）+ `composer.test.ts`；变异自证已跑（改回旧值必红）。
+
+### 14.2 设置消费面补齐
+
+- `pages/Index.ets` settings 到达处**回读 `KEY_SURFACE`**（原 `useWebUI` 初值恒 false、只在 `setSurface` 赋值）
+  ⇒ 冷启动可正确进 ArkWeb 面；`surfaceApplied` 标志防止服务端旧值覆盖用户手动切换。
+- 「显示思考过程」抽屉开关改为走 **`setSetting(KEY_REASONING_DEFAULT, …)`**（单一真值，与偏好面板同键）。
+- `KEY_UI_MODE` 死映射加注释说明「原生单手机布局，不消费；服务端键由 web 拥有，勿删」。
+
+### 14.3 动效底座（任务5 第1波）
+
+- 新增 `core/motion.ets`（**纯数值/纯函数**，可脱机单测）+ `components/anim.ets`（唯一 import
+  `@ohos.curves` 处）。复刻 web 统一 spring `cubic-bezier(0.34,1.56,0.64,1)`：`animFast()=180ms`、
+  `animBase()=220ms`、`animMsgIn()=200ms`、`animSlow()=320ms`、`animSpring()`（物理弹簧，**不设 duration**）。
+- ⚠️ 铁律：`core/` 会被 `tools/tests/run.sh` 当**纯 TS** 编译 ⇒ **`core/*.ets` 禁止 import ArkUI 全局类型**。
+
+### 14.4 品牌资源
+
+- `AppScope/resources/base/media/app_icon.svg` + `entry/.../media/app_icon.svg`（同源镜像）、
+  `entry/.../media/start_icon.svg`（开屏）；`module.json5` 指向 `$media:start_icon`。
+- 开屏底色**双份**：`base/element/color.json = #F8FAFC`（浅）/ `dark/element/color.json = #0B0B0E`（深）。
+  因玻璃材质当前锁 DARK，冷启动走 dark 限定符 ⇒ **无白闪割裂**。
+
+
