@@ -236,7 +236,9 @@ export struct MarkdownView {
           })
       }
       .width('100%')
-      .padding({ left: 10, right: 10, top: 6, bottom: 2 })
+      .padding({ left: 12, right: 12, top: 8, bottom: 4 })
+      .backgroundColor(this.pal().surfaceAlt)
+      .borderRadius({ topLeft: 10, topRight: 10 })
 
       Text(b.code)
         .wordBreak(this.wrapCode ? WordBreak.BREAK_ALL : WordBreak.NORMAL)
@@ -284,6 +286,8 @@ export struct MarkdownView {
         }
         .width('100%')
         .backgroundColor(this.pal().surfaceHi)
+        .borderRadius({ topLeft: 10, topRight: 10 })
+        .padding({ left: 2, right: 2 })
 
         ForEach(b.rows, (row: string[], ri: number) => {
           Row() {

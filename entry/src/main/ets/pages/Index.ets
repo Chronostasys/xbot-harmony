@@ -1672,7 +1672,8 @@ struct Index {
   @Builder
   LoginView() {
     Column({ space: 12 }) {
-      Text('xbot').fontSize(28).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary)
+      Text('xbot').fontSize(34).fontWeight(FontWeight.Bold)
+        .linearGradient({ angle: 135, colors: [[this.pal().accent, 0.0], [this.pal().accentSoft, 1.0]] })
       Text('连接你的 xbot 服务端（原生鸿蒙客户端）').fontSize(13).fontColor(this.pal().textSecondary).margin({ bottom: 8 })
 
       TextInput({ placeholder: '服务端地址，如 192.168.1.10:16000', text: this.serverUrl })
@@ -1680,7 +1681,8 @@ struct Index {
           this.serverUrl = v;
           this.testMsg = '';
         })
-        .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary).constraintSize({ minHeight: 44 })
+        .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary)
+        .constraintSize({ minHeight: 46 }).borderRadius(12).padding({ left: 12, right: 12 })
 
       // 最近用过的地址（一点即填，省得重打 IP）
       if (this.recentServers.length > 0) {
@@ -1720,13 +1722,15 @@ struct Index {
         .onChange((v: string) => {
           this.username = v;
         })
-        .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary).constraintSize({ minHeight: 44 })
+        .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary)
+        .constraintSize({ minHeight: 46 }).borderRadius(12).padding({ left: 12, right: 12 })
       TextInput({ placeholder: '密码' })
         .type(InputType.Password)
         .onChange((v: string) => {
           this.password = v;
         })
-        .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary).constraintSize({ minHeight: 44 })
+        .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary)
+        .constraintSize({ minHeight: 46 }).borderRadius(12).padding({ left: 12, right: 12 })
 
       if (this.errMsg.length > 0) {
         Text(this.errMsg).fontSize(12).fontColor(this.pal().dangerText).width('100%')
@@ -3453,7 +3457,11 @@ struct Index {
     Column() {
       Row() {
         Text('会话').fontSize(17).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
-        Text('＋ 新建').fontSize(13).fontColor(this.pal().accentSoft).padding(8).onClick(() => {
+        Text('＋ 新建').fontSize(12).fontColor(this.pal().onAccent)
+          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+          .backgroundColor(this.pal().accent).borderRadius(14)
+          .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+          .onClick(() => {
           this.newSession();
         })
         Text('✕').fontSize(16).fontColor(this.pal().textSecondary).padding(8).onClick(() => {
@@ -3469,8 +3477,9 @@ struct Index {
           .onChange((v: string) => {
             this.sessQuery = v;
           })
-          .layoutWeight(1).constraintSize({ minHeight: 36 })
+          .layoutWeight(1).constraintSize({ minHeight: 38 })
           .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary).fontSize(13)
+          .borderRadius(12).padding({ left: 12, right: 12 })
         if (this.searchBusy) {
           LoadingProgress().width(16).height(16).color(this.pal().accent)
         } else {
@@ -3507,10 +3516,18 @@ struct Index {
               } else {
                 Row() {
                   Column() {
-                    Text(s.label !== undefined && s.label.length > 0 ? s.label : s.chat_id)
-                      .fontSize(14)
-                      .fontColor(s.chat_id === this.currentChat ? this.pal().accentText : this.pal().textPrimary)
-                      .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                    Row({ space: 6 }) {
+                      if (s.running === true) {
+                        Circle({ width: 7, height: 7 }).fill(this.pal().success)
+                          .opacity(this.pulseOn ? 1 : 0.35)
+                          .animation({ duration: 600, curve: Curve.EaseInOut })
+                      }
+                      Text(this.tabLabel(s.chat_id))
+                        .fontSize(15)
+                        .fontColor(s.chat_id === this.currentChat ? this.pal().accentText : this.pal().textPrimary)
+                        .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                        .layoutWeight(1)
+                    }.width('100%')
                     Row({ space: 6 }) {
                       Text(channelLabel(s.channel !== undefined ? s.channel : 'web'))
                         .fontSize(9).fontColor(this.pal().accentText)
@@ -3535,9 +3552,17 @@ struct Index {
                 }.width('100%')
               }
             }
-            .width('100%').padding(10)
+            .width('100%').padding(12)
             .backgroundColor(s.chat_id === this.currentChat ? this.pal().surfaceHi : this.pal().surface)
-            .borderRadius(8)
+            .borderRadius(12)
+            .border({
+              width: { left: 3, top: 1, right: 1, bottom: 1 },
+              color: {
+                left: s.chat_id === this.currentChat ? this.pal().accent : this.pal().border,
+                top: this.pal().border, right: this.pal().border, bottom: this.pal().border,
+              },
+            })
+            .shadow({ radius: 8, color: '#10000000', offsetX: 0, offsetY: 2 })
             .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
             .onClick(() => {
               if (s.chat_id !== undefined && this.renamingId.length === 0) {
