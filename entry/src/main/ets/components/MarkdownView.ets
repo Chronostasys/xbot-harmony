@@ -144,7 +144,9 @@ export struct MarkdownView {
     } else if (b.kind === MdBlockKind.Code) {
       this.CodeBlock(b)
     } else if (b.kind === MdBlockKind.Divider) {
-      Divider().color(this.pal().surfaceHi).strokeWidth(1).margin({ top: 6, bottom: 6 })
+      // 分隔线用**发丝线语义色**（`border`）；原先误用 `surfaceHi`（那是"悬停/选中底色"，
+      // 语义是 L3 填充不是分隔）⇒ 主题一变分隔线就与底色打架，且深浅下都不"安静"。
+      Divider().color(this.pal().border).strokeWidth(1).margin({ top: 6, bottom: 6 })
     } else if (b.kind === MdBlockKind.Quote) {
       // ⚠️ 左侧竖条必须用**边框**，绝不能用 `Divider().vertical(true).height('100%')`：
       // 父容器高度由内容决定时，子元素的百分比高度没有参照（循环测量）⇒ 竖条塌成 0 高、
@@ -322,11 +324,17 @@ export struct MarkdownView {
           .border({ width: { top: 1 }, color: this.eff().glassBorder })
         }, (row: string[], ri: number) => `${b.key}-tr${ri}`)
       } else {
-        Row() {
-          Text(`📋 表格（${b.header.length} 列 · ${b.rows.length} 行）`)
+        Row({ space: SP_1 }) {
+          // 图标走系统符号（项目纪律：禁 emoji/字符图标；`square_grid_2x2` 语义 = 网格/表格，
+          // 已在仓内其它处使用过，符号名已核实存在于 sys.symbol 资源）。
+          SymbolGlyph($r('sys.symbol.square_grid_2x2'))
+            .fontSize(12).fontColor([this.pal().textSecondary])
+            .flexShrink(0)
+          Text(`表格（${b.header.length} 列 · ${b.rows.length} 行）`)
             .fontSize(11).fontColor(this.pal().textSecondary)
         }
         .width('100%')
+        .alignItems(VerticalAlign.Center)
         .padding({ left: 8, right: 8, top: 6, bottom: 4 })
 
         ForEach(b.rows, (row: string[], ri: number) => {

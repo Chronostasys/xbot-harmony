@@ -62,8 +62,17 @@ export struct ToolPill {
           SymbolGlyph($r('sys.symbol.minus_circle'))
             .fontSize(13).fontColor([statusColorOf(this.kind, this.theme)])
         } else if (this.kind === ST_PENDING) {
+          // 排队态：静态虚线圆 → 加一记**符号缩放呼吸**（Apple 式）。**纯附加**（原先无动效），
+          // 不触碰"执行中/生成中"的 `LoadingProgress`（真机已定稿：执行中必须是**会动的原生
+          // 指示器**，静态字符被用户明确否掉 ⇒ 不拿可能静默的符号动效去替换它）。
+          // 依据（d.ts）：`symbolEffect(symbolEffect, isActive?)` —— symbolglyph.d.ts:761；
+          //   `ScaleSymbolEffect(scope?, direction?)` —— :324；枚举 `EffectScope`/`EffectDirection`
+          //   —— :197/:163。
+          // ⚠️ 待验证：真机是否**循环**呼吸（d.ts 只保证"激活缩放动效"；SDK 符号配置里该动效是
+          //   一记 spring 弹跳）。若不循环 ⇒ 等价一次性弹入，无副作用、不影响正确性。
           SymbolGlyph($r('sys.symbol.circle_dashed'))
             .fontSize(12).fontColor([statusColorOf(this.kind, this.theme)])
+            .symbolEffect(new ScaleSymbolEffect(EffectScope.WHOLE, EffectDirection.UP), true)
         } else {
           // 运行/生成中：**会动的**原生指示器（静态字符是 TUI 观感，用户明确否掉）
           LoadingProgress().width(13).height(13).color(statusColorOf(this.kind, this.theme))

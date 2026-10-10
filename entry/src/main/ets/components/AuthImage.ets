@@ -82,7 +82,10 @@ export struct AuthImage {
         .constraintSize({ maxHeight: this.maxHeight })
         .objectFit(ImageFit.Contain)
         .borderRadius(8)
-        .backgroundColor(this.pal().appBg)
+        // 垫底用 **surfaceAlt**（`bg-tertiary` 语义）：透明 PNG / 深色截图在纯白主题底
+        // （appBg，本主题里最浅的画布色）上几乎没有边界，垫一层次级面板色才能"看得见图"。
+        // 深色主题下 surfaceAlt 与 appBg 同为近黑（亮度差 <8%），不改变既有深色观感。
+        .backgroundColor(this.pal().surfaceAlt)
         .onClick(() => {
           this.onOpen(this.src);
         })
@@ -96,7 +99,9 @@ export struct AuthImage {
       .borderRadius(6)
     } else {
       Row({ space: 6 }) {
-        Text('▣').fontSize(14)
+        // 图标走系统符号（项目纪律：禁字符图标；原先的 `▣` 是硬编码 dingbat）。
+        SymbolGlyph($r('sys.symbol.picture')).fontSize(13)
+          .fontColor([this.pal().accentSoft]).flexShrink(0)
         Text(this.failed ? '图片加载失败（点按重试）' : '查看图片').fontSize(12).fontColor(this.pal().accentSoft)
       }
       .padding({ left: 8, right: 8, top: 5, bottom: 5 })

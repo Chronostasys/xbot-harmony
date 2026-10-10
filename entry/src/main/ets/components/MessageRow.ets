@@ -24,6 +24,7 @@ import { ThinkingLine } from './ThinkingLine';
 import { ToolPill } from './ToolVisual';
 import { isLiveStatus, statusChip, toolStatusKind } from '../core/toolstatus';
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
+import { animMsgIn } from './anim';
 
 /** 「更早区域」分隔条行高（vp）—— web `h-7` = 28px。三态**恒定**，避免加载前后布局跳变。 */
 const REGION_ROW_H: number = 28;
@@ -106,9 +107,29 @@ export struct MessageRowView {
   @State popKey: string = '';
   /** 当前 "+N" 溢出浮层对应的迭代（`>= 0` ⇒ 打开；对齐 web `OverflowPillsMenu`）。 */
   @State overIter: number = -1;
+  /**
+   * 行入场动效的进度位：`false` = 起始态（透明 + 下沉 4px），`true` = 终态。
+   *
+   * 复刻 web `msgIn`（`index.css:705`：`opacity 0→1`、`translateY 4px→0`、200ms spring）。
+   * ⛔ **web 铁律**：入场动效只作用**行内层**（`.animate-msg-in > *`），**绝不改行自身的定位
+   *   transform** —— 虚拟列表用 `translateY(item.start)` 定位行，动效里的 transform 会覆盖它
+   *   ⇒ 行被画到容器原点、压在上一条上（web 2026-09-16 快速滚动抖动重叠的真根因，
+   *   守护见 `web/src/index.test.ts` 的 virt-row 用例）。原生端行定位由 `List`/`ListItem`
+   *   （pages/Index.ets）负责、不用 transform，但纪律同源：动效只挂在**行内容**上
+   *   （即 ListItem 的直接子节点 = 本组件的 `AssistantBlock` 根 Column），不碰外层定位节点。
+   *
+   * 只给 **live 行**播入场（对齐 web `row.id === liveId`）：历史行不播，避免滚动时逐行闪入。
+   */
+  @State entered: boolean = false;
 
   private pal(): Palette {
     return paletteOf(this.theme);
+  }
+
+  aboutToAppear(): void {
+    // 非 live 行直接到终态（不动画，随滚动创建的历史行不闪入）；live 行保持起始态，
+    // 由行根的 `onAppear` 用 `animMsgIn()` 播一次 spring 入场。
+    this.entered = !this.row.isLive;
   }
 
   /** 工具是否处于"在飞"（运行/生成中）—— 决定发光与扫光。判定收敛在 `core/toolstatus`。 */
@@ -372,6 +393,18 @@ export struct MessageRowView {
     // （CopyTarget 不渲染可见 UI）。垂直间距来自 `.virt-row py-1.5`（= rowPadY）。
     .padding({ left: BUBBLE.assistantPadX, right: BUBBLE.assistantPadX })
     .margin({ top: BUBBLE.rowPadY, bottom: BUBBLE.rowPadY })
+    // 入场动效（web `msgIn`：opacity 0→1 + translateY 4px→0，200ms spring）—— 只挂在行内容上
+    // （本 Column = ListItem 的直接子节点，等价 web `.animate-msg-in > *`），不动外层定位节点。
+    // 见 `entered` 声明处的铁律说明。`.translate` 是渲染变换、不参与 List 布局，触屏也稳。
+    .opacity(this.entered ? 1 : 0)
+    .translate({ y: this.entered ? 0 : 4 })
+    .onAppear(() => {
+      if (!this.entered) {
+        animateTo(animMsgIn(), () => {
+          this.entered = true;
+        });
+      }
+    })
     // 长按整条 → 复制（回复 / 含思考 / 含工具 / 原始 Markdown）
     .gesture(LongPressGesture().onAction(() => {
       this.onRowLongPress();
