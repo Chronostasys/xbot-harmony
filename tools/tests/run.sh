@@ -31,8 +31,9 @@ for t in "$HERE"/*.test.ts; do
 done
 
 # core/ 里 http/sse/config 依赖 @kit.* ⇒ 必须带上最小 SDK stub 才能整体编译
-cp "$ROOT/tools/typecheck/stubs/kits.d.ts" "$OUT/kits.d.ts"
-$TSC_BIN "$OUT"/*.ts --module commonjs --target ES2021 --strict --skipLibCheck --outDir "$OUT/js"
+# 全部 stub（kits + ArkUI 装饰器声明）都要带上，否则 core/*.ets 当纯 TS 编译会报未定义
+cp "$ROOT/tools/typecheck/stubs/"*.d.ts "$OUT/"
+$TSC_BIN "$OUT"/*.ts --module commonjs --target ES2021 --strict --skipLibCheck --experimentalDecorators --outDir "$OUT/js"
 # 把 @kit.* 的 Node 实现装进编译产物目录，让 core/ 里的 SDK 调用在 Linux 上"真跑"
 mkdir -p "$OUT/js/node_modules/@kit.NetworkKit"
 cp "$HERE/mocks/NetworkKit.js" "$OUT/js/node_modules/@kit.NetworkKit/index.js"
@@ -44,7 +45,9 @@ PKG2
 cat > "$OUT/js/node_modules/@kit.NetworkKit/package.json" <<'PKG'
 { "name": "@kit.NetworkKit", "version": "0.0.0", "main": "index.js" }
 PKG
+# 装饰器运行期垫片：编译期由 stubs/*.d.ts 解决，运行期需要真实存在（见 mocks/decorators.js）
+cp "$HERE/mocks/decorators.js" "$OUT/js/__decorators.js"
 for t in "$OUT"/js/*.test.js; do
-  node "$t"
+  node -r "$OUT/js/__decorators.js" "$t"
 done
 echo "✅ 纯逻辑测试通过"
