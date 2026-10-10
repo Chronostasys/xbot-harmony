@@ -19,7 +19,7 @@ import { BUBBLE } from '../core/bubble';
 import { R_MD, R_XL, R_LG, SP_1, SP_2, SP_5, FS_CAPTION } from '../core/tokens';
 import { MarkdownView } from './MarkdownView';
 import { ThinkingLine } from './ThinkingLine';
-import { AssistantOrb } from './AssistantOrb';
+import { AssistantOrb, ORB_MODE_THINKING, ORB_MODE_TOOL } from './AssistantOrb';
 import { ToolPill } from './ToolVisual';
 import { isLiveStatus, statusChip, toolStatusKind } from '../core/toolstatus';
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
@@ -97,6 +97,35 @@ export struct LiveTailView {
   /** 工具是否处于"在飞"（运行/生成中）—— 决定发光。判定收敛在 `core/toolstatus`。 */
   private live(t: ToolProgress): boolean {
     return isLiveStatus(toolStatusKind(t.status, t.exit_code));
+  }
+
+  /**
+   * 光球运行态（`AssistantOrb.orbMode`）：**任一工具在飞 ⇒ `tool`，否则 `thinking`**。
+   *
+   * ⚠️ 只给"稳定信号"：这两个值在整段流式里都不会抖。**不**把打字机的每拍状态
+   *   （`typingText()/typingReason()`，流式期 ≤20Hz 翻转）接进来 —— 那会让光球以同样频率
+   *   重建 Canvas 组件（新建 `RenderingContextSettings` + `setInterval`），正是要避免的抖动。
+   * ⚠️ `idle` **不在这里判**：它需要"多久没动静"（时间），父组件没有也不该有那个定时器
+   *   ⇒ 交给光球按 `orbBeat` 自判（见其 `effectiveMode`）。
+   */
+  private orbMode(): string {
+    for (let i = 0; i < this.tools.length; i++) {
+      if (this.live(this.tools[i])) {
+        return ORB_MODE_TOOL;
+      }
+    }
+    return ORB_MODE_THINKING;
+  }
+
+  /**
+   * 光球活动心跳（`AssistantOrb.orbBeat`）：正文+思考的**码点长度和**。
+   *
+   * 只在"内容真的前进"时变化 ⇒ 光球据此把静默计时重置；工具期内容不前进也无妨
+   * （那时 `orbMode === 'tool'`，光球不判静默）。复用已算好的码点表（`runes/reasonRunes`），
+   * 本方法只是两次 `.length`，零额外开销。
+   */
+  private orbBeat(): number {
+    return this.runes.length + this.reasonRunes.length;
   }
 
   /**
@@ -387,6 +416,13 @@ export struct LiveTailView {
             active: true,
             paused: this.paused,
             seed: LT_ORB_SEED,
+            // 运行态（稳定信号：工具在飞 ⇒ tool，否则 thinking；idle 由光球按心跳自判）
+            orbMode: this.orbMode(),
+            // 活动心跳（正文+思考的码点长度和）—— 光球据此在静默 >640ms 后转入 idle
+            orbBeat: this.orbBeat(),
+            // 降级（reduce motion）接线点：本工程 API 21 无系统查询 API（`isAnimationReduceEnabledSync`
+            // 是 @since 23，见 AssistantOrb 的 @Prop 注释）⇒ 暂无可信来源，显式传 false 占位。
+            reduceMotion: false,
           })
         }
         .padding({ left: SP_1 })

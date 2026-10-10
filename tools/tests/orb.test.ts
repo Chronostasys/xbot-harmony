@@ -179,6 +179,98 @@ eq('键往返一致', localKey(serverKey(KEY_ORB)), KEY_ORB);
 eq('设置项显示名非空', settingLabel(KEY_ORB), '思考光球动效');
 eq('不误伤其它键（键表未被顶掉）', serverKey(KEY_CODE_WRAP), 'web:ui:code-word-wrap');
 
+// ── (h) 旗舰光球「三态状态机」契约（**组件层形态守护**）─────────────────────────
+// 为什么用"读真实源码"断言：`tools/tests/run.sh` 只把 `core/**` 当纯 TS 编译
+// （见其 for 循环），`components/**` **不进这套 harness** ⇒ 组件层无法直接 import 单测。
+// 本仓既有先例：`tools/tests/live_tail_delivery.test.ts` 同法读源码做形态断言。
+// 下列每条都**改坏就红**（mutation 证据见交付报告）；数值关系部分仍用真函数跑。
+declare function require(m: 'fs'): { readFileSync(p: string, e: string): string };
+declare function require(m: 'path'): { join(...parts: string[]): string };
+declare const __dirname: string;
+
+const fsMod = require('fs');
+const pathMod = require('path');
+const repoRoot = pathMod.join(__dirname, '..', '..', '..', '..'); // <repo>/tools/tests/.out.PID/js → 4 级
+const orbSrc: string = fsMod.readFileSync(
+  pathMod.join(repoRoot, 'entry', 'src', 'main', 'ets', 'components', 'AssistantOrb.ets'), 'utf-8');
+const tailSrc: string = fsMod.readFileSync(
+  pathMod.join(repoRoot, 'entry', 'src', 'main', 'ets', 'components', 'LiveTailView.ets'), 'utf-8');
+
+/** 取某个方法/函数的**函数体**文本（本仓缩进约定：成员方法结束于行首两空格 + `}`）。 */
+function bodyOf(src: string, sig: string): string {
+  const i = src.indexOf(sig);
+  if (i < 0) { return ''; }
+  const j = src.indexOf('\n  }', i);
+  return j < 0 ? src.substring(i) : src.substring(i, j);
+}
+function has(src: string, needle: string, name: string): void {
+  ok(name, src.indexOf(needle) >= 0);
+}
+function hasNot(src: string, needle: string, name: string): void {
+  ok(name, src.indexOf(needle) < 0);
+}
+
+// (h1) 三个态的名与值（改一个 ⇒ 这里红）
+has(orbSrc, "export const ORB_MODE_THINKING: string = 'thinking';", '态名 thinking');
+has(orbSrc, "export const ORB_MODE_TOOL: string = 'tool';", '态名 tool');
+has(orbSrc, "export const ORB_MODE_IDLE: string = 'idle';", '态名 idle');
+// (h2) 态 → 视觉参数表（旗舰观感的"数值契约"）
+has(orbSrc, 'const ORB_TOOL_AMP: number = 0.9;', 'tool 呼吸幅度 0.9');
+has(orbSrc, 'const ORB_TOOL_SPIN_GAIN: number = 2.2;', 'tool 公转加速 2.2×');
+has(orbSrc, 'const ORB_TOOL_RING_GAIN: number = 1.08;', 'tool 轨道外扩 1.08×');
+has(orbSrc, 'const ORB_IDLE_AMP: number = 0.25;', 'idle 呼吸幅度 0.25（极低幅度）');
+has(orbSrc, 'const ORB_IDLE_HALO: number = 0.45;', 'idle 光晕强度 0.45');
+has(orbSrc, 'const ORB_IDLE_FPS: number = 12;', 'idle 降帧 12fps');
+// (h3) 节奏**复用既有刻度**（禁自造一套时长）：静默窗 = 呼吸/4、缓动 = 呼吸/8 = D_SLOW
+has(orbSrc, 'const ORB_EASE_MS: number = ORB_BREATH_MS / 8;', '缓动 = 呼吸周期/8');
+has(orbSrc, 'const ORB_QUIET_MS: number = ORB_BREATH_MS / 4;', '静默窗 = 呼吸周期/4');
+eq('呼吸/8 == tokens.D_SLOW（320ms，与全站过渡同刻度）', ORB_BREATH_MS / 8, D_SLOW);
+eq('静默窗 == 2×D_SLOW（640ms）', ORB_BREATH_MS / 4, D_SLOW * 2);
+// (h4) 白底分叉判据 = **色板亮度**（⛔ 不能按主题名硬判）
+has(orbSrc, 'isLightPalette(pal)', '白/深分叉用 isLightPalette（按 appBg 亮度）');
+hasNot(orbSrc, "=== THEME_LIGHT", '不按主题名硬判（无 === THEME_LIGHT）');
+hasNot(orbSrc, "theme === 'light'", "不按主题名硬判（无 theme === 'light'）");
+has(orbSrc, 'this.paint.halo = eff.glow;', '深色：光晕 = glow（既有观感）');
+has(orbSrc, 'this.paint.halo = eff.elev2;', '浅色：光晕 = 中性柔影 elev2');
+has(orbSrc, 'this.paint.stroke = pal.border;', '浅色：细环 = 中性发丝 border');
+// (h5) 绘制路径**零解析/零字符串运算**：draw() 内不得出现 paletteOf/effectsOf
+const drawBody: string = bodyOf(orbSrc, 'private draw(): void {');
+ok('draw() 函数体可定位（形态守护有效）', drawBody.length > 200);
+hasNot(drawBody, 'paletteOf(', 'draw() 内不调 paletteOf（每帧零对象/字符串分配）');
+hasNot(drawBody, 'effectsOf(', 'draw() 内不调 effectsOf');
+has(orbSrc, 'if (this.paintDirty) {', '绘制色在 theme 变化时预解析（OrbPaint 缓存）');
+has(orbSrc, 'private buildPaint(): void {', '预解析入口存在');
+// (h6) ArkTS 基类成员名黑名单（10505001）：不得用这些名字做组件成员
+const banned: string[] = ['size', 'width', 'height', 'position', 'offset', 'scale', 'rotate',
+  'opacity', 'visibility', 'clip', 'zIndex', 'id', 'key', 'enabled'];
+for (let i = 0; i < banned.length; i++) {
+  const b: string = banned[i];
+  hasNot(orbSrc, `@Prop @Watch('onInputChange') ${b}:`, `基类成员名黑名单：${b} 未被用作 @Prop`);
+}
+has(orbSrc, "@Prop @Watch('onInputChange') orbSize: number = ORB_DEFAULT_SIZE;",
+  '直径成员叫 orbSize（避让基类 size）');
+// (h7) 停表门控：后台 + 降级必须停表
+const runBody: string = bodyOf(orbSrc, 'private shouldRun(): boolean {');
+ok('shouldRun() 函数体可定位', runBody.length > 20);
+has(runBody, 'this.paused', '停表门控含 paused（后台）');
+has(runBody, 'this.reduceMotion', '停表门控含 reduceMotion（降级）');
+// (h8) 状态必须由**稳定信号**驱动（工具在飞），且不接打字机每拍状态
+has(tailSrc, 'orbMode: this.orbMode(),', 'LiveTailView 传 orbMode（@Prop 值变化通道）');
+has(tailSrc, 'orbBeat: this.orbBeat(),', 'LiveTailView 传 orbBeat（活动心跳）');
+const modeBody: string = bodyOf(tailSrc, 'private orbMode(): string {');
+ok('LiveTailView.orbMode() 函数体可定位', modeBody.length > 20);
+has(modeBody, 'this.live(this.tools[i])', 'orbMode 只看"工具是否在飞"（稳定信号）');
+hasNot(modeBody, 'typingText(', 'orbMode 不接打字机每拍状态（避免 ≤20Hz 抖动）');
+hasNot(modeBody, 'typingReason(', 'orbMode 不接思考打字机每拍状态');
+// (h9) 「加速公转」= **同一函数的相位推进**（禁新造波形/函数）—— 真函数跑数值关系
+const G = 2.2;
+eq('tool 加速 == 用更短周期跑同一 orbParticles',
+  orbParticles(9, 1000 * G, 3, ORB_SPIN_MS), orbParticles(9, 1000, 3, ORB_SPIN_MS / G));
+ok('冻结（增益 0）≠ 运动（证明"静止也是设计"确有效果）',
+  JSON.stringify(orbParticles(9, 0, 3, ORB_SPIN_MS)) !== JSON.stringify(orbParticles(9, 500, 3, ORB_SPIN_MS)));
+eq('冻结时不同时刻位置恒定（帧间零变化）',
+  orbParticles(9, 123456 * 0, 7, ORB_SPIN_MS), orbParticles(9, 999 * 0, 7, ORB_SPIN_MS));
+
 if (fail > 0) {
   console.log(`  orb: ${pass} passed, ${fail} failed`);
   process.exit(1);
