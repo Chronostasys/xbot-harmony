@@ -174,8 +174,6 @@ class XbotHttp {
      * @throws Error 网络失败 / HTTP 非 2xx / 信封 ok=false
      */
     async post(path, body) {
-        // 每个子步骤单独兜底并标注产地：真机一旦抛错，错误文案直接指出是哪一步的哪个 API
-        // （2026-10-09 教训：只有一句 "undefined is not callable" 时无法定位）
         let bodyText;
         try {
             bodyText = JSON.stringify(body);
@@ -183,6 +181,24 @@ class XbotHttp {
         catch (e) {
             throw new Error(`[body 序列化] ${describeError(e)}`);
         }
+        return this.sendJson(_kit_NetworkKit_1.http.RequestMethod.POST, path, bodyText);
+    }
+    /** GET `/api/<path>`，返回信封里的 `data`（原始 JSON 字符串）。 */
+    async get(path) {
+        return this.sendJson(_kit_NetworkKit_1.http.RequestMethod.GET, path, undefined);
+    }
+    /** 便捷：GET 并返回强类型对象。 */
+    async getAs(path) {
+        const raw = await this.get(path);
+        return JSON.parse(raw);
+    }
+    /**
+     * 统一的 JSON 请求（POST/GET 共用同一套错误标注与 cookie 处理）。
+     *
+     * 每个子步骤单独兜底并标注产地：真机一旦抛错，错误文案直接指出是哪一步的哪个 API
+     * （2026-10-09 教训：只有一句 "undefined is not callable" 时无法定位）。
+     */
+    async sendJson(method, path, bodyText) {
         let req;
         try {
             req = _kit_NetworkKit_1.http.createHttp();
@@ -192,9 +208,11 @@ class XbotHttp {
         }
         try {
             const headers = {
-                'Content-Type': 'application/json',
                 'Accept': 'application/json',
             };
+            if (bodyText !== undefined) {
+                headers['Content-Type'] = 'application/json';
+            }
             const cookie = this.cookieHeader();
             if (cookie.length > 0) {
                 headers['Cookie'] = cookie;
@@ -202,7 +220,7 @@ class XbotHttp {
             let resp;
             try {
                 resp = await req.request(this.baseUrl + path, {
-                    method: _kit_NetworkKit_1.http.RequestMethod.POST,
+                    method: method,
                     header: headers,
                     extraData: bodyText,
                     expectDataType: _kit_NetworkKit_1.http.HttpDataType.STRING,

@@ -187,15 +187,33 @@ export class XbotHttp {
    * @throws Error 网络失败 / HTTP 非 2xx / 信封 ok=false
    */
   async post(path: string, body: object): Promise<string> {
-    // 每个子步骤单独兜底并标注产地：真机一旦抛错，错误文案直接指出是哪一步的哪个 API
-    // （2026-10-09 教训：只有一句 "undefined is not callable" 时无法定位）
     let bodyText: string;
     try {
       bodyText = JSON.stringify(body);
     } catch (e) {
       throw new Error(`[body 序列化] ${describeError(e as Object)}`);
     }
+    return this.sendJson(http.RequestMethod.POST, path, bodyText);
+  }
 
+  /** GET `/api/<path>`，返回信封里的 `data`（原始 JSON 字符串）。 */
+  async get(path: string): Promise<string> {
+    return this.sendJson(http.RequestMethod.GET, path, undefined);
+  }
+
+  /** 便捷：GET 并返回强类型对象。 */
+  async getAs<T>(path: string): Promise<T> {
+    const raw: string = await this.get(path);
+    return JSON.parse(raw) as T;
+  }
+
+  /**
+   * 统一的 JSON 请求（POST/GET 共用同一套错误标注与 cookie 处理）。
+   *
+   * 每个子步骤单独兜底并标注产地：真机一旦抛错，错误文案直接指出是哪一步的哪个 API
+   * （2026-10-09 教训：只有一句 "undefined is not callable" 时无法定位）。
+   */
+  private async sendJson(method: http.RequestMethod, path: string, bodyText: string | undefined): Promise<string> {
     let req: http.HttpRequest;
     try {
       req = http.createHttp();
@@ -205,9 +223,11 @@ export class XbotHttp {
 
     try {
       const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
         'Accept': 'application/json',
       };
+      if (bodyText !== undefined) {
+        headers['Content-Type'] = 'application/json';
+      }
       const cookie: string = this.cookieHeader();
       if (cookie.length > 0) {
         headers['Cookie'] = cookie;
@@ -215,7 +235,7 @@ export class XbotHttp {
       let resp: http.HttpResponse;
       try {
         resp = await req.request(this.baseUrl + path, {
-          method: http.RequestMethod.POST,
+          method: method,
           header: headers,
           extraData: bodyText,
           expectDataType: http.HttpDataType.STRING,

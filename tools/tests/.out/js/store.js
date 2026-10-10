@@ -31,6 +31,8 @@ class ChatStore {
     constructor(baseUrl) {
         this.channel = 'web';
         // ── 会话状态（服务端权威；/api/session/status + 结构化事件里的 goal）──
+        /** LLM 配置（订阅/可选模型/上下文上限；`GET /api/llm-config`） */
+        this.llmConfig = undefined;
         /** token/上下文用量（拿不到就是 undefined，界面不显示、绝不估算） */
         this.usage = undefined;
         /** 工作目录 */
@@ -309,6 +311,39 @@ class ChatStore {
             this.onUpdate();
             throw e;
         }
+    }
+    /**
+     * 拉取 LLM 配置（`GET /api/llm-config` → 订阅/模型条目/上下文上限）。
+     * 只读；切换见 `setModel` / `setMaxContext`。
+     */
+    async loadLlmConfig() {
+        try {
+            const cfg = await this.http.getAs('/api/llm-config');
+            this.llmConfig = cfg;
+            this.onUpdate();
+        }
+        catch (e) {
+            // 选择栏非关键路径：失败不打断主链路
+        }
+    }
+    /**
+     * 切换模型（`POST /api/llm-config/model`，body `{sub_id, model}`）。
+     *
+     * ⚠️ 必须带 `sub_id` —— 项目铁律：绝不裸模型名解析（同名模型可能属于多个订阅）。
+     * 服务端按 sender 生效，切换后立刻刷新配置与状态（用量里的模型名会变）。
+     */
+    async setModel(subId, model) {
+        const body = { 'sub_id': subId, 'model': model };
+        await this.http.post('/api/llm-config/model', body);
+        await this.loadLlmConfig();
+        await this.loadStatus();
+    }
+    /** 设置上下文上限（`POST /api/llm-max-context`）。 */
+    async setMaxContext(n) {
+        const body = { 'max_context': n };
+        await this.http.post('/api/llm-max-context', body);
+        await this.loadLlmConfig();
+        await this.loadStatus();
     }
     /**
      * 拉取会话状态（`/api/session/status` → `{token_usage, cwd, todos}`）。

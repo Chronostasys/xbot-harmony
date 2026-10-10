@@ -22,6 +22,10 @@ import {
   currentTodo, goalText, modelText, todoProgress, usageText,
 } from '../core/statusfmt';
 import {
+  contextPresets, contextText, currentModelText, groupModels, LlmConfig, LlmModelEntry, ModelGroup,
+  modelLabel, parseContext, selectable,
+} from '../core/llmfmt';
+import {
   AskOption,
   AskQuestion,
   AskUserPrompt,
@@ -183,6 +187,12 @@ struct Index {
 
   // ── 会话状态栏（todos / goal / token 用量 / cwd）──
   @State showStatus: boolean = false;
+  /** LLM 选择栏（订阅/模型/上下文上限；服务端权威值） */
+  @State showModel: boolean = false;
+  @State llmCfg: LlmConfig | undefined = undefined;
+  @State ctxInput: string = '';
+  /** 正在切换的模型条目（显示 loading，防连点） */
+  @State modelBusy: string = '';
   @State usage: TokenUsage | undefined = undefined;
   @State cwd: string = '';
   @State todos: TodoItem[] = [];
@@ -336,6 +346,7 @@ struct Index {
     this.cwd = store.cwd;
     this.todos = store.todos.slice();
     this.goal = store.goal;
+    this.llmCfg = store.llmConfig;
     const ask: AskUserPrompt | null = store.askUser;
     if (ask !== this.askUser) {
       this.askUser = ask;
@@ -1148,6 +1159,10 @@ struct Index {
       if (this.showStatus) {
         this.StatusSheet()
       }
+      // 模型 / 上下文上限选择栏
+      if (this.showModel) {
+        this.ModelSheet()
+      }
       // 图片查看
       if (this.imagePixel !== null || this.imageBusy) {
         this.ImageViewer()
@@ -1920,6 +1935,177 @@ struct Index {
    * 注意：ArkUI 的 @Builder **不能接受函数/回调参数**（需 @BuilderParam 组件才行），
    * 所以这里把每格内联展开，不做回调包装。
    */
+  /**
+   * LLM 选择栏：按订阅分组的模型列表 + 上下文上限预设/手输。
+   *
+   * 契约：`GET /api/llm-config`（model_entries[].{sub_id,sub_name,model,status,vision}、max_context）；
+   * 切换 `POST /api/llm-config/model {sub_id, model}`（**必带 sub_id**：绝不裸模型名解析）；
+   * 上限 `POST /api/llm-max-context {max_context}`。
+   */
+  @Builder
+  ModelSheet() {
+    Column({ space: 10 }) {
+      Row() {
+        Text('模型与上下文').fontSize(16).fontWeight(FontWeight.Bold).fontColor('#E5E7EB').layoutWeight(1)
+        Text('✕').fontSize(16).fontColor('#9CA3AF').padding(8).onClick(() => {
+          this.showModel = false;
+        })
+      }.width('100%')
+
+      Text(`当前：${this.currentModelName()}`)
+        .fontSize(12).fontColor('#A7F3D0').width('100%')
+        .wordBreak(WordBreak.BREAK_ALL)
+
+      // 上下文上限
+      Text(`上下文上限：${this.ctxText().length > 0 ? this.ctxText() : '未设置'}`)
+        .fontSize(12).fontColor('#9CA3AF').width('100%')
+      Row({ space: 6 }) {
+        ForEach(this.ctxPresets(), (p: number, i: number) => {
+          Text(this.ctxPresetText(p))
+            .fontSize(12).fontColor('#93C5FD')
+            .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+            .backgroundColor('#0F172A').borderRadius(6)
+            .border({ width: 1, color: '#1F2937' })
+            .onClick(() => {
+              this.applyMaxContext(p);
+            })
+        }, (p: number, i: number) => `ctx-preset-${p}`)
+      }.width('100%')
+
+      Row({ space: 6 }) {
+        TextInput({ placeholder: '自定义，如 200k / 1m', text: this.ctxInput })
+          .onChange((v: string) => {
+            this.ctxInput = v;
+          })
+          .layoutWeight(1).constraintSize({ minHeight: 36 })
+          .backgroundColor('#111827').fontColor('#E5E7EB').fontSize(12)
+        Text('应用').fontSize(12).fontColor('#FFFFFF').padding({ left: 12, right: 12, top: 8, bottom: 8 })
+          .backgroundColor('#7C3AED').borderRadius(6)
+          .onClick(() => {
+            const n: number = parseContext(this.ctxInput);
+            if (n <= 0) {
+              this.toast('上下文上限格式不对（示例：200k / 1m / 200000）');
+              return;
+            }
+            this.applyMaxContext(n);
+          })
+      }.width('100%')
+
+      // 模型列表（按订阅分组）
+      if (this.llmCfg === undefined) {
+        Row({ space: 8 }) {
+          LoadingProgress().width(16).height(16).color('#8B5CF6')
+          Text('正在读取模型列表…').fontSize(12).fontColor('#9CA3AF')
+        }.padding(10)
+      } else if (this.modelGroups().length === 0) {
+        Text('（没有可选模型：请在设置里添加订阅）').fontSize(12).fontColor('#6B7280')
+      } else {
+        Scroll() {
+          Column({ space: 8 }) {
+            ForEach(this.modelGroups(), (g: ModelGroup) => {
+              Column({ space: 4 }) {
+                Text(g.name).fontSize(11).fontColor('#6B7280').width('100%')
+                ForEach(g.entries, (e: LlmModelEntry, i: number) => {
+                  Row({ space: 8 }) {
+                    Text(this.labelOfModel(e)).fontSize(13)
+                      .fontColor(this.modelSelectable(e) ? '#E5E7EB' : '#4B5563')
+                      .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                    if (this.modelBusy === `${g.subId}#${e.model}`) {
+                      LoadingProgress().width(14).height(14).color('#8B5CF6')
+                    } else if (e.model === this.currentModelName()) {
+                      Text('✓ 当前').fontSize(11).fontColor('#A7F3D0')
+                    }
+                  }
+                  .width('100%').padding(8).backgroundColor('#0F172A').borderRadius(6)
+                  .onClick(() => {
+                    if (!this.modelSelectable(e)) {
+                      this.toast('该模型已禁用');
+                      return;
+                    }
+                    this.pickModel(g.subId, e.model !== undefined ? e.model : '');
+                  })
+                }, (e: LlmModelEntry, i: number) => `${g.subId}#${e.model}`)
+              }.width('100%')
+            }, (g: ModelGroup) => `grp-${g.subId}`)
+          }.width('100%')
+        }
+        .constraintSize({ maxHeight: 420 }).width('100%')
+      }
+    }
+    .width('92%').padding(16).backgroundColor('#0B0F19')
+    .borderRadius(12).border({ width: 1, color: '#1F2937' })
+  }
+
+  /** 切模型（带 sub_id；防连点；失败把原因原样告诉用户）。 */
+  private async pickModel(subId: string, model: string): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null || model.length === 0 || this.modelBusy.length > 0) {
+      return;
+    }
+    this.modelBusy = `${subId}#${model}`;
+    try {
+      await store.setModel(subId, model);
+      this.toast(`已切换到 ${model}`);
+      this.showModel = false;
+    } catch (e) {
+      this.toast(`切换失败: ${errText(e as Object)}`);
+    } finally {
+      this.modelBusy = '';
+    }
+  }
+
+  /** 设置上下文上限（服务端权威；成功后刷新显示）。 */
+  private async applyMaxContext(n: number): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    try {
+      await store.setMaxContext(n);
+      this.toast(`上下文上限已设为 ${contextText(n)}`);
+      this.ctxInput = '';
+    } catch (e) {
+      this.toast(`设置失败: ${errText(e as Object)}`);
+    }
+  }
+
+  // ── @Builder 可用的包装（ArkUI 的 @Builder 里裸标识符会被解析为类成员 ⇒ 必须经 this） ──
+
+  /** 当前生效的模型名（优先服务端 llm-config，回落状态里的 usage.model）。 */
+  private currentModelName(): string {
+    return currentModelText(this.llmCfg, modelText(this.usage));
+  }
+
+  /** 上下文上限文本（拿不到则空串）。 */
+  private ctxText(): string {
+    return contextText(this.llmCfg !== undefined ? this.llmCfg.max_context : undefined);
+  }
+
+  /** 按订阅分组的模型列表。 */
+  private modelGroups(): ModelGroup[] {
+    return this.llmCfg !== undefined ? groupModels(this.llmCfg.model_entries) : [];
+  }
+
+  /** 上下文预设。 */
+  private ctxPresets(): number[] {
+    return contextPresets();
+  }
+
+  /** 预设的可读文本。 */
+  private ctxPresetText(p: number): string {
+    return contextText(p);
+  }
+
+  /** 模型条目显示名。 */
+  private labelOfModel(e: LlmModelEntry): string {
+    return modelLabel(e);
+  }
+
+  /** 该模型是否可选（禁用的不给点）。 */
+  private modelSelectable(e: LlmModelEntry): boolean {
+    return selectable(e);
+  }
+
   /** 会话状态面板：goal + todos 全量 + 用量 + cwd（服务端权威值，不做本地推算）。 */
   @Builder
   StatusSheet() {
@@ -1947,6 +2133,22 @@ struct Index {
         Text(`cwd: ${this.cwd}`).fontSize(11).fontColor('#6B7280').width('100%')
           .wordBreak(WordBreak.BREAK_ALL).copyOption(CopyOptions.LocalDevice)
       }
+
+      // 模型 / 上下文上限（下一步：切换）
+      Row({ space: 8 }) {
+        Text(`模型：${this.currentModelName()}`)
+          .fontSize(12).fontColor('#E5E7EB').layoutWeight(1)
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        if (this.ctxText().length > 0) {
+          Text(`上下文 ${this.ctxText()}`).fontSize(11).fontColor('#9CA3AF')
+        }
+        Text('切换 ›').fontSize(12).fontColor('#93C5FD').padding({ left: 6, right: 6 })
+      }
+      .width('100%').padding(8).backgroundColor('#0F172A').borderRadius(6)
+      .onClick(() => {
+        this.showModel = true;
+        this.store?.loadLlmConfig();
+      })
 
       if (this.todos.length > 0) {
         List({ space: 6 }) {
