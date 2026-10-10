@@ -10,7 +10,7 @@ import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
 import { ChatStore } from '../core/store';
 import { normalizeTheme, Palette, paletteOf, themeLabel, toggleTheme } from '../core/theme';
-import { loadErrHint, loadErrTitle, needsRelogin } from '../core/autherr';
+import { loadErrHint, loadErrTitle, needsRelogin, needsSessionRefresh } from '../core/autherr';
 import {
   canMove, MOVE_DOWN, MOVE_TOP, MOVE_UP, hitLine, sessionLabel, sessionMatches,
 } from '../core/sessionops';
@@ -1062,6 +1062,15 @@ struct Index {
   private async switchSession(chatId: string): Promise<void> {
     this.showDrawer = false;
     const target: ChatStore = this.storeFor(chatId);
+    // 会话列表是**应用级**数据，但快照存在 store 上：池里刚建的 store 是空的，
+    // 若直接切过去，抽屉会没数据、渠道解析也会错（⇒ 404）。这里先补齐。
+    if (target.sessions.length === 0) {
+      try {
+        await target.loadSessions();
+      } catch (e) {
+        // 拉不到列表不阻塞切换：openSession 里还会再试一次
+      }
+    }
     const alreadyOpen: boolean = target.currentChatId === chatId;
     this.store = target;
     this.touchPool(chatId);
@@ -1368,6 +1377,32 @@ struct Index {
     }
     const buf: ArrayBuffer | null = await store.http.getBinary(src);
     return buf !== null ? buf : new ArrayBuffer(0);
+  }
+
+  /**
+   * 会话在服务端已不存在（404）：刷新列表并切到第一个可用会话。
+   * 这类错误**重试没有意义**（会话真的没了），必须换一个会话。
+   */
+  private async recoverMissingSession(): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    this.loadErr = '';
+    this.toast('该会话已不存在，正在刷新会话列表…');
+    try {
+      await store.loadSessions();
+      const first: SessionItem | undefined = this.sessions.length > 0 ? this.sessions[0] : undefined;
+      if (first !== undefined && first.chat_id !== undefined && first.chat_id.length > 0) {
+        await this.switchSession(first.chat_id);
+      } else {
+        this.currentChat = '';
+        this.rows = [];
+        this.syncRowDs();
+      }
+    } catch (e) {
+      this.loadErr = errText(e as Object);
+    }
   }
 
   /** 重试加载当前会话（网络恢复后一键回到正常）。 */
@@ -1764,7 +1799,7 @@ struct Index {
       // 顶栏
       Row() {
         Text('☰').fontSize(20).fontColor(this.pal().textPrimary).padding(10).onClick(() => {
-          this.showDrawer = true;
+          this.openDrawer();
         })
         Column() {
           Text(this.currentChat.length > 0 ? this.labelOf(this.currentChat) : 'xbot')
@@ -1803,10 +1838,12 @@ struct Index {
           Text(loadErrHint(this.loadErr))
             .fontSize(11).fontColor(this.pal().textMuted).maxLines(3)
           // 判据与标题同一处：401 给「重新登录」，其余给「重试」
-          Button(needsRelogin(this.loadErr) ? '重新登录' : '重试')
+          Button(needsRelogin(this.loadErr) ? '重新登录' : (needsSessionRefresh(this.loadErr) ? '刷新会话列表' : '重试'))
             .constraintSize({ minHeight: 38 }).backgroundColor(this.pal().accent).onClick(() => {
               if (needsRelogin(this.loadErr)) {
                 this.handleAuthExpired();
+              } else if (needsSessionRefresh(this.loadErr)) {
+                this.recoverMissingSession();
               } else {
                 this.retryLoad();
               }
@@ -2506,6 +2543,17 @@ struct Index {
       this.toast(`加载失败: ${errText(e as Object)}`);
     } finally {
       this.panelBusy = false;
+    }
+  }
+
+  /** 打开抽屉：立刻显示（不等网络），同时后台刷新会话列表（避免看到过期快照）。 */
+  private openDrawer(): void {
+    this.showDrawer = true;
+    const store: ChatStore | null = this.store;
+    if (store !== null) {
+      store.loadSessions().catch(() => {
+        // 刷新失败保留旧列表（弱网下仍能看到上次的会话）
+      });
     }
   }
 

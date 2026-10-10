@@ -2,7 +2,7 @@
 declare const process: { exit: (c: number) => void };
 
 import {
-  isUnauthorized, loadErrHint, loadErrTitle, needsRelogin,
+  isNotFound, isUnauthorized, loadErrHint, loadErrTitle, needsRelogin, needsSessionRefresh,
 } from './autherr';
 
 let pass = 0, fail = 0;
@@ -29,6 +29,16 @@ eq('其他提示指向网络/地址', loadErrHint('connect timeout').indexOf('�
 
 eq('401 需要重新登录按钮', needsRelogin(real), true);
 eq('网络错误只需重试', needsRelogin('connect timeout'), false);
+
+const notFound = 'HTTP 404: {"ok":false,"error":{"code":"not_found","message":"session not found"}}';
+eq('404 判为会话不存在', isNotFound(notFound), true);
+eq('404 不是会话失效', isUnauthorized(notFound), false);
+eq('404 标题', loadErrTitle(notFound), '会话已不存在');
+eq('404 提示指向刷新列表', loadErrHint(notFound).indexOf('刷新会话列表') >= 0, true);
+eq('404 需要刷新而不是重登录', needsRelogin(notFound), false);
+eq('404 需要刷新列表', needsSessionRefresh(notFound), true);
+eq('401 不需要刷新列表', needsSessionRefresh(real), false);
+eq('网络错误不需要刷新列表', needsSessionRefresh('connect timeout'), false);
 
 if (fail > 0) { console.log(`  autherr: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  autherr: ${pass} passed, 0 failed`);

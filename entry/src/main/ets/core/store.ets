@@ -313,6 +313,13 @@ export class ChatStore {
   async openSession(chatId: string): Promise<void> {
     // ⚠️ 会话可能属于**非 web 渠道**（飞书 oc_*/ou_*）。必须用它自己的 channel，
     // 否则 /api/history 会返回 404 session not found（真机实测，见 core/sessionpick.ets）。
+    //
+    // ⚠️ 而渠道解析**依赖会话列表**：列表为空时 channelForChat 会回落默认渠道 ⇒ 非 web 会话
+    // 被当成 web ⇒ 404。多会话池引入后这一点会真实发生（池里新 store 从没拉过列表，真机复现），
+    // 所以这里先确保列表就绪 —— 把"渠道解析的前置条件"在**使用点**落实，而不是期待调用方记得。
+    if (this.sessions.length === 0) {
+      await this.loadSessions();
+    }
     this.channel = channelForChat(this.sessions, chatId);
     this.currentChatId = chatId;
     this.lastSeq = 0;

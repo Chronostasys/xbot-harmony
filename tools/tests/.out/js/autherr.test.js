@@ -26,6 +26,15 @@ eq('5xx 提示', (0, autherr_1.loadErrHint)('HTTP 500: boom').indexOf('服务端
 eq('其他提示指向网络/地址', (0, autherr_1.loadErrHint)('connect timeout').indexOf('网络不通') >= 0, true);
 eq('401 需要重新登录按钮', (0, autherr_1.needsRelogin)(real), true);
 eq('网络错误只需重试', (0, autherr_1.needsRelogin)('connect timeout'), false);
+const notFound = 'HTTP 404: {"ok":false,"error":{"code":"not_found","message":"session not found"}}';
+eq('404 判为会话不存在', (0, autherr_1.isNotFound)(notFound), true);
+eq('404 不是会话失效', (0, autherr_1.isUnauthorized)(notFound), false);
+eq('404 标题', (0, autherr_1.loadErrTitle)(notFound), '会话已不存在');
+eq('404 提示指向刷新列表', (0, autherr_1.loadErrHint)(notFound).indexOf('刷新会话列表') >= 0, true);
+eq('404 需要刷新而不是重登录', (0, autherr_1.needsRelogin)(notFound), false);
+eq('404 需要刷新列表', (0, autherr_1.needsSessionRefresh)(notFound), true);
+eq('401 不需要刷新列表', (0, autherr_1.needsSessionRefresh)(real), false);
+eq('网络错误不需要刷新列表', (0, autherr_1.needsSessionRefresh)('connect timeout'), false);
 if (fail > 0) {
     console.log(`  autherr: ${pass} passed, ${fail} failed`);
     process.exit(1);
