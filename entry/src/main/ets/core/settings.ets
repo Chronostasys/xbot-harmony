@@ -31,6 +31,14 @@ export const KEY_REASONING_DEFAULT: string = 'xbot-reasoning-default';
 export const KEY_APP_THEME: string = 'xbot-app-theme';
 /** 新增：聊天界面承载方式（`web` = 内嵌完整 web UI，与 web 一比一；`native` = 原生界面） */
 export const KEY_SURFACE: string = 'xbot-surface';
+/**
+ * 会话列表分类（`path` / `status` / `time`）。
+ *
+ * 与 web **共用同一个键**（web `src/hooks/useSessionStore.ts:37` `CATEGORY_KEY`，
+ * 服务端名见 `web/src/lib/userSettings.ts:42`）—— 两端偏好天然一致。
+ * 取值与归一化（含历史 `time → path` 迁移）见 `core/sessiongroup.ets`。
+ */
+export const KEY_SESSION_CATEGORY: string = 'xbot:session-category';
 
 /** 本地键 → 服务端键（web `userSettings.ts` 的同一张表）。 */
 export function serverKey(localKey: string): string {
@@ -67,13 +75,17 @@ export function serverKey(localKey: string): string {
   if (localKey === KEY_SURFACE) {
     return 'web:ui:surface';
   }
+  if (localKey === KEY_SESSION_CATEGORY) {
+    return 'web:session:category';
+  }
   return localKey;
 }
 
 /** 服务端键 → 本地键（读回来时反查；未知键原样保留）。 */
 export function localKey(srvKey: string): string {
   const table: string[] = [KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE, KEY_SEND_KEY, KEY_CODE_WRAP,
-    KEY_UI_MODE, KEY_STARRED, KEY_FONT_SCALE, KEY_REASONING_DEFAULT, KEY_APP_THEME, KEY_SURFACE];
+    KEY_UI_MODE, KEY_STARRED, KEY_FONT_SCALE, KEY_REASONING_DEFAULT, KEY_APP_THEME, KEY_SURFACE,
+    KEY_SESSION_CATEGORY];
   for (let i = 0; i < table.length; i++) {
     if (serverKey(table[i]) === srvKey) {
       return table[i];
