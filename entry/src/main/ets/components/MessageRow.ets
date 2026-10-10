@@ -20,7 +20,6 @@ import { MarkdownView } from './MarkdownView';
 const MAX_ITER_VISIBLE: number = 8;
 
 @Component
-@Reusable
 export struct MessageRowView {
   @ObjectLink row: ChatRow;
   @Prop theme: string = 'dark';

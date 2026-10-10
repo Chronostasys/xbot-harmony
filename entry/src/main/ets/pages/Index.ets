@@ -2060,7 +2060,7 @@ struct Index {
           ListItem() {
             this.ChatRowBody(row)
           }
-        }, (row: ChatRow) => rowKey(row))
+        }, (row: ChatRow) => `${this.currentChat}#${rowKey(row)}`)
 
         // ── live 进行中块（LazyForEach 之外，@State 直驱 ⇒ 流式/打字机/工具必然渲染）──
         if (this.liveTailHasContent()) {

@@ -1,5 +1,8 @@
 /**
- * 用户气泡（从页面抽出的**可复用组件**）。
+ * 用户气泡（从页面抽出的组件）。
+ *
+ * ⛔ 同上：@Reusable 的复用必须在 `aboutToReuse(params)` 里更新数据，否则复用实例会保留
+ * **旧参数**（@Prop 也不会自动刷新）⇒ 跨会话串内容。先用无复用的正确版本。
  *
  * 依据 harmony-next skill 的《应用体验与性能规范》§2 帧率优化：
  * 「对于长列表，务必使用 `LazyForEach`…结合 `@Reusable` 装饰器实现组件级复用，
@@ -9,7 +12,6 @@
 import { Palette, paletteOf } from '../core/theme';
 
 @Component
-@Reusable
 export struct UserBubbleView {
   @Prop text: string = '';
   @Prop theme: string = 'dark';
