@@ -1168,6 +1168,15 @@ struct Index {
    */
   private async switchSession(chatId: string): Promise<void> {
     this.showDrawer = false;
+    // ⛔ 会话作用域的**前端状态**必须随切换清空（同「跨会话串内容」一类事故，2026-10-10）：
+    //   attachments —— 在 A 会话挂的文件绝不能跟着带到 B 会话（切过去直接发 => 发错文件）
+    //   cmd* / fs*  —— 上一个会话残留的 `/` `@` 补全菜单
+    //   ctxOpen     —— 长按菜单指向的是上一个会话的行，切换后必须关掉
+    this.attachments = [];
+    this.cmdToken = '';
+    this.cmdItems = [];
+    this.fsEntries = [];
+    this.ctxOpen = false;
     const target: ChatStore = this.storeFor(chatId);
     // 会话列表是**应用级**数据，但快照存在 store 上：池里刚建的 store 是空的，
     // 若直接切过去，抽屉会没数据、渠道解析也会错（⇒ 404）。这里先补齐。

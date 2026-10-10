@@ -87,3 +87,28 @@ Previewer -refresh region -projectID <id> -ts <sock> \
 ⇒ 走通这条路需要：**有真实 GL/EGL 的环境**（GPU 机器、或带 mesa 完整 GLX 的 X 服务器），
    或者 DevEco 的官方模拟器（Linux 上仅随 IDE 提供）。
    在此之前，真实界面自检请用「App 手动自检快照 → 上传 → 本机 `view_image`」这条闭环（§5 末段）。
+
+## 12. Linux Previewer 零 GPU 打通记录（2026-10-10，含源码级根因）
+
+**结论：不需要 GPU。** 软件渲染（Xvfb + Mesa llvmpipe，Mesa 23.2.1，GL 4.5）已能让 GLFW 建窗、
+ACE 引擎跑起来（`xwininfo` 实证 `"glfw window": 1320x2848+0+0`），无需 B300 等 GPU 机。
+
+**四个真坑（缺一个就跑不起来）：**
+
+1. `-lws` 是 **WebSocket 端口号**（hvigor 权威样例 `const portNum = findPort(40000,…); '-lws', portNum`）。
+   传 `-lws 4000x` ⇒ `Launch -lws parameters is not match regex` ⇒ `Start args is invalid` ⇒ 引擎不启动。
+2. `-j`=app path，**目录名要含 `.abc`** 且**该目录直接放着 `modules.abc`**；`-arp`=含 `resources.index` 的目录；
+   `-ljPath`=`<...>/loader.json`（**没有**多一层 `loader/`）。
+3. `-url` 必须用**限定名** `com.<bundle>/pages/Index`；用 `pages/Index` ⇒
+   `Cannot find module 'com.chronostasys.xbot/pages/Index'` ⇒ `failed to create page in LoadPage`。
+4. **FATAL 真因（源码级）**：`JSNApi::SetAssetPath` 在 Linux 上执行
+   `ModulePathHelper::ValidateAbcPath(path, ABC)`（要求以 `BUNDLE_INSTALL_PATH = "/data/storage/el1/bundle/"`
+   开头且含 `.abc`），失败即 `LOG_FULL(FATAL)`；该校验被
+   `#if !defined(PANDA_TARGET_WINDOWS) && !defined(PANDA_TARGET_MACOS)` 排除在 Win/Mac 外
+   ⇒ **「Mac 预览正常、Linux 一跑就 FATAL」的根因**。绕过：/tmp 副本里改那 25 字节常量（**SDK 本体不动**）。
+
+**未打通的最后一环（诚实记录）**：帧经**本地 socket** 送 IDE（`-s`/`-ts`），无 IDE 时不 present
+（`import -window root` 空白；`eglSwapBuffers`/`glXSwapBuffers`/`glFinish`/`glDrawArrays` 的 LD_PRELOAD 钩子 **0 命中**）。
+⇒ **UI 走查当前以真机截图（App 内「走查并上传」）为准**；完全自动化需实现该 IDE socket 协议。
+
+**一键复现**：`tools/previewer/run.sh`
