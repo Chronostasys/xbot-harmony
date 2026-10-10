@@ -634,6 +634,22 @@ class ChatStore {
         return out;
     }
     // ── SSE ────────────────────────────────────────────────────────────────────
+    /**
+     * 释放这个 store（多会话池驱逐 / 退出登录时调用）。
+     *
+     * 只做两件事：关掉 SSE（后端资源）与断开 UI 回调（避免已释放的 store 再驱动界面）。
+     * 不清数据 —— 池里被驱逐后若用户再切回，重新 openSession 拉一次权威历史即可。
+     */
+    dispose() {
+        try {
+            this.sse.close();
+        }
+        catch (e) {
+            // 关闭失败不影响释放语义
+        }
+        this.onUpdate = () => {
+        };
+    }
     subscribe() {
         if (this.currentChatId.length === 0) {
             return;

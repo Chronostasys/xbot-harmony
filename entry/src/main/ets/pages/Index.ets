@@ -292,6 +292,16 @@ struct Index {
   private store: ChatStore | null = null;
   /** 合并同步用：待同步的 store 与"已排帧"标志（见 scheduleSync） */
   private pendingSync: ChatStore | null = null;
+
+  /**
+   * 多会话池（P10）：最多同时保持 3 个会话的 SSE 与状态。
+   *
+   * 为什么要池：切会话若"关连接 + 重建 + 重拉历史"，用户会看到 loading 与重连空窗；
+   * 池化后**切回已打开的会话是瞬时的**（状态一直在累积），后台会话的进度也不丢
+   * （后端仍在推，它自己的 store 一直在收）。超出上限按 LRU 驱逐并 dispose（关 SSE）。
+   */
+  private pools: Map<string, ChatStore> = new Map<string, ChatStore>();
+  private poolOrder: string[] = [];
   private syncScheduled: boolean = false;
   private config: ConfigStore = new ConfigStore();
   private listScroller: Scroller = new Scroller();
@@ -370,6 +380,11 @@ struct Index {
    * 必须走同一个调度器。（切会话/首帧仍走同步路径 syncFrom，保证不迟一帧。）
    */
   private scheduleSync(store: ChatStore): void {
+    // ⚠️ 只有**当前会话**的 store 能驱动界面：池里后台会话的更新照常积累在它自己的
+    // 状态里，但绝不能覆盖正在显示的会话（否则两个会话的事件互相打架）。
+    if (store !== this.store) {
+      return;
+    }
     this.pendingSync = store;
     if (this.syncScheduled) {
       return;
@@ -773,6 +788,16 @@ struct Index {
       store.sse.close();
     }
     await this.config.clearSession();
+    // 清空多会话池（每个 store 都要关 SSE，否则会留下后台连接）
+    const poolKeys: string[] = Array.from(this.pools.keys());
+    for (let i = 0; i < poolKeys.length; i++) {
+      const ps: ChatStore | undefined = this.pools.get(poolKeys[i]);
+      if (ps !== undefined) {
+        ps.dispose();
+      }
+    }
+    this.pools.clear();
+    this.poolOrder = [];
     this.store = null;
     this.loggedIn = false;
     this.rows = [];
@@ -783,18 +808,128 @@ struct Index {
 
   // ── 会话 ──────────────────────────────────────────────────────────────────
 
+  /** 池上限（超过按 LRU 驱逐并关连接）。 */
+  private poolMax(): number {
+    return 3;
+  }
+
+  /** 取会话对应的 store（池里有就复用；没有就建 + 入池 + 必要时驱逐）。 */
+  private storeFor(chatId: string): ChatStore {
+    const hit: ChatStore | undefined = this.pools.get(chatId);
+    if (hit !== undefined) {
+      this.touchPool(chatId);
+      return hit;
+    }
+    const store: ChatStore = this.makeStore(this.serverUrl);
+    this.pools.set(chatId, store);
+    this.poolOrder.push(chatId);
+    this.evictPools();
+    return store;
+  }
+
+  /** 标记最近使用（LRU）。 */
+  private touchPool(chatId: string): void {
+    const i: number = this.poolOrder.indexOf(chatId);
+    if (i >= 0) {
+      this.poolOrder.splice(i, 1);
+    }
+    this.poolOrder.push(chatId);
+  }
+
+  /** 超出上限：从最久未用的开始驱逐（**不能驱逐当前会话**）。 */
+  private evictPools(): void {
+    while (this.poolOrder.length > this.poolMax()) {
+      let victim: string = '';
+      for (let i = 0; i < this.poolOrder.length; i++) {
+        if (this.poolOrder[i] !== this.currentChat) {
+          victim = this.poolOrder[i];
+          break;
+        }
+      }
+      if (victim.length === 0) {
+        return;
+      }
+      const store: ChatStore | undefined = this.pools.get(victim);
+      if (store !== undefined) {
+        store.dispose();
+      }
+      this.pools.delete(victim);
+      const idx: number = this.poolOrder.indexOf(victim);
+      if (idx >= 0) {
+        this.poolOrder.splice(idx, 1);
+      }
+    }
+  }
+
+  /** 关掉一个标签（若是当前会话，先切到别的；没有别的就清空视图）。 */
+  private closeTab(chatId: string): void {
+    const store: ChatStore | undefined = this.pools.get(chatId);
+    if (store !== undefined) {
+      store.dispose();
+    }
+    this.pools.delete(chatId);
+    const i: number = this.poolOrder.indexOf(chatId);
+    if (i >= 0) {
+      this.poolOrder.splice(i, 1);
+    }
+    if (chatId === this.currentChat) {
+      const next: string = this.poolOrder.length > 0 ? this.poolOrder[this.poolOrder.length - 1] : '';
+      if (next.length > 0) {
+        this.switchSession(next);
+      } else {
+        this.store = null;
+        this.currentChat = '';
+        this.rows = [];
+        this.syncRowDs();
+        this.busy = false;
+      }
+    }
+  }
+
+  /**
+   * 切换会话：**池里已有 ⇒ 瞬时切换**（不重建、不断连、不重新拉历史）。
+   *
+   * 这与 Web 端的 MultiSSEManager 同思路：可见会话保持连接与状态，切回是 0 等待。
+   */
   private async switchSession(chatId: string): Promise<void> {
-    const store: ChatStore | null = this.store;
-    if (store === null) {
+    this.showDrawer = false;
+    const target: ChatStore = this.storeFor(chatId);
+    const alreadyOpen: boolean = target.currentChatId === chatId;
+    this.store = target;
+    this.touchPool(chatId);
+    if (alreadyOpen) {
+      // 池里这个会话一直开着：直接把已累积的状态映到界面（不发生任何网络等待）
+      this.syncFrom(target);
       return;
     }
-    this.showDrawer = false;
     try {
-      await store.openSession(chatId);
+      await target.openSession(chatId);
     } catch (e) {
       this.loadErr = errText(e as Object);
       this.toast(`切换失败: ${this.loadErr}`);
     }
+  }
+
+  /** 标签显示名（来自会话列表的名字，取不到则用 id 末段）。 */
+  private tabLabel(chatId: string): string {
+    for (let i = 0; i < this.sessions.length; i++) {
+      if (this.sessions[i].chat_id === chatId) {
+        const s: SessionItem = this.sessions[i];
+        return sessionLabel(s.label !== undefined ? s.label : '', chatId);
+      }
+    }
+    return sessionLabel('', chatId);
+  }
+
+  /** 该标签的会话是否在跑（用会话列表的 running，或该池 store 的 busy）。 */
+  private tabRunning(chatId: string): boolean {
+    for (let i = 0; i < this.sessions.length; i++) {
+      if (this.sessions[i].chat_id === chatId) {
+        return this.sessions[i].running === true;
+      }
+    }
+    const st: ChatStore | undefined = this.pools.get(chatId);
+    return st !== undefined && st.busy;
   }
 
   private async newSession(): Promise<void> {
@@ -1525,6 +1660,39 @@ struct Index {
         .onClick(() => {
           this.showStatus = true;
         })
+      }
+
+      // 会话标签（池里的会话，切回瞬时；● 表示该会话正在跑）
+      if (this.poolOrder.length > 1) {
+        Scroll() {
+          Row({ space: 6 }) {
+            ForEach(this.poolOrder, (cid: string) => {
+              Row({ space: 4 }) {
+                Text(this.tabLabel(cid)).fontSize(11)
+                  .fontColor(cid === this.currentChat ? '#FFFFFF' : '#9CA3AF')
+                  .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .constraintSize({ maxWidth: 90 })
+                if (this.tabRunning(cid)) {
+                  Text('●').fontSize(9).fontColor('#34D399')
+                }
+                Text('✕').fontSize(10).fontColor('#6B7280')
+                  .onClick(() => {
+                    this.closeTab(cid);
+                  })
+              }
+              .padding({ left: 8, right: 6, top: 4, bottom: 4 })
+              .backgroundColor(cid === this.currentChat ? '#4C1D95' : '#111827')
+              .borderRadius(6)
+              .onClick(() => {
+                if (cid !== this.currentChat) {
+                  this.switchSession(cid);
+                }
+              })
+            }, (cid: string) => `tab-${cid}#${cid === this.currentChat}#${this.tabRunning(cid)}`)
+          }
+        }
+        .scrollable(ScrollDirection.Horizontal)
+        .width('100%').padding({ left: 10, right: 10, top: 6 })
       }
 
       // 附件 chips：每条独立状态（⏳ 上传中 / 📎 已就绪 / ⚠ 失败可重试），✕ 移除
