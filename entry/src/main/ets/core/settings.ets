@@ -255,3 +255,374 @@ export function settingLabel(key: string): string {
 export function orbEnabled(map: Record<string, string>): boolean {
   return parseBool(settingOf(map, KEY_ORB), true);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 服务端「配置面」RPC —— **就地定义**（待后续波折叠进 `core/rpc.ets` 的 `RpcMethod` 表）
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// 背景：`tools`（rpc_table.go:699-713）与 `agent`（:450-544）的参数化 RPC 已进
+// `core/rpc.ets` 的常量表；但 `storage` / `webusers` 两个分区本波才落地，而
+// `core/rpc.ets` 当前由别的线占用 ⇒ 这里**就地定义常量与 params 类**，组件直接消费。
+// ⚠️ 后续波把下面 5 个 method 名并入 `RpcMethod.ALL` 时，**删掉这里的副本**并改 import，
+//   否则会出现两份真值（`tools/tests/rpc.test.ts` 的"常量表完整性"断言能抓重复）。
+
+/** `get_storage_config`（**admin**，无参）→ `Record<string,string>`（含 `_schema` / `_active`）。 */
+export const RPC_GET_STORAGE_CONFIG: string = 'get_storage_config';
+/** `set_storage_config`（**admin**）`{values}` → 同形状的 `Record<string,string>`。 */
+export const RPC_SET_STORAGE_CONFIG: string = 'set_storage_config';
+/** `list_web_users`（**admin**，无参）→ `{users: WebUserRow[]}`。 */
+export const RPC_LIST_WEB_USERS: string = 'list_web_users';
+/** `create_web_user`（**admin**）`{username}` → `{password}`（**一次性明文**）。 */
+export const RPC_CREATE_WEB_USER: string = 'create_web_user';
+/** `delete_web_user`（**admin**）`{username}` → void。 */
+export const RPC_DELETE_WEB_USER: string = 'delete_web_user';
+
+/** 就地登记的全部 method（契约测试遍历用）。 */
+export const CONFIG_SURFACE_METHODS: string[] = [
+  RPC_GET_STORAGE_CONFIG,
+  RPC_SET_STORAGE_CONFIG,
+  RPC_LIST_WEB_USERS,
+  RPC_CREATE_WEB_USER,
+  RPC_DELETE_WEB_USER,
+];
+
+/** `set_storage_config` 的 params（服务端 `rpc_table.go:1930-1933` `Values map[string]string`）。 */
+export class SetStorageConfigParams {
+  values: Record<string, string> = {};
+
+  constructor(values: Record<string, string>) {
+    this.values = values;
+  }
+}
+
+/** `create_web_user` / `delete_web_user` 的 params（服务端 `rpc_table.go:1935-1951`）。 */
+export class UsernameParams {
+  username: string = '';
+
+  constructor(username: string) {
+    this.username = username;
+  }
+}
+
+// ── storage 分区：schema 驱动表单的纯逻辑 ──────────────────────────────────────
+//
+// 契约（服务端 `serverapp/storage_config.go` + `channel/storage_defs.go`）：
+//   · `get_storage_config`（admin，无参）→ `Record<string,string>`：
+//       每个 schema 键一个当前值 + `_schema`（`[]SettingDefinition` 的 JSON 串）+
+//       `_active`（**正在运行**的 provider，可能与 config.json 短暂不同）。
+//   · `set_storage_config`（admin）`{values: Record<string,string>}` → 同形状（写后回读）。
+//   · ⚠️ 密文键（`channel.StorageSecretKeys()` = qiniu/s3 的 secret/access key）**读取时打码**
+//       （`maskStorageSecret` = 前 4 位 + `****`，`storage_config.go:33-46`）；
+//       **回写掩码值会被跳过**（`isMaskedStorageValue` 查 `****`，`:48-51`）⇒ 真凭据不受损。
+
+/** schema 字段（客户端镜像 `channel.SettingDefinition`，`channel/capability.go:16-32`）。 */
+export interface StorageFieldOption {
+  label?: string;
+  value: string;
+  description?: string;
+}
+
+export interface StorageFieldDef {
+  key: string;
+  label?: string;
+  description?: string;
+  /** `text` | `password` | `toggle` | `select` | `textarea`（`capability.go:37-44`）。 */
+  type?: string;
+  default_value?: string;
+  category?: string;
+  /** true ⇒ 只读展示（不可编辑）。 */
+  read_only?: boolean;
+  options?: StorageFieldOption[];
+  /** 条件可见：仅当 `depends_on_key` 的当前值命中 `depends_on_values` 之一时显示。 */
+  depends_on_key?: string;
+  /** 逗号分隔的触发值（服务端原样给出，如 `"s3,aliyun,cos"`）。 */
+  depends_on_values?: string;
+}
+
+export const STORAGE_TYPE_TEXT: string = 'text';
+export const STORAGE_TYPE_PASSWORD: string = 'password';
+export const STORAGE_TYPE_TOGGLE: string = 'toggle';
+export const STORAGE_TYPE_SELECT: string = 'select';
+export const STORAGE_TYPE_TEXTAREA: string = 'textarea';
+
+/** schema 里以 `_` 开头的元键（`_schema` / `_active`）——**不是**用户字段。 */
+export function isStorageMetaKey(key: string): boolean {
+  return key.length > 0 && key.charAt(0) === '_';
+}
+
+/**
+ * 解析 `_schema`（服务端 `json.Marshal(channel.StorageSchema())`）。
+ * 容错：非 JSON / 非数组 / 元素缺 `key` ⇒ 一律返回空数组，**绝不抛**（面板显示"无可用字段"）。
+ */
+export function parseStorageSchema(raw: string | undefined): StorageFieldDef[] {
+  const s: string = raw !== undefined && raw !== null ? raw : '';
+  if (s.length === 0) {
+    return [];
+  }
+  let parsed: Object;
+  try {
+    parsed = JSON.parse(s) as Object;
+  } catch (e) {
+    return [];
+  }
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+  const arr: Object[] = parsed as Object[];
+  const out: StorageFieldDef[] = [];
+  for (let i = 0; i < arr.length; i++) {
+    const item: StorageFieldDef = arr[i] as StorageFieldDef;
+    if (item === undefined || item === null) {
+      continue;
+    }
+    const k: string = item.key !== undefined && item.key !== null ? item.key : '';
+    if (k.length === 0) {
+      continue;
+    }
+    out.push(item);
+  }
+  return out;
+}
+
+/** 条件可见的触发值列表（逗号分隔 → trim → 去空）。空 = 无约束（总是可见）。 */
+export function parseDependsOnValues(raw: string | undefined): string[] {
+  const s: string = raw !== undefined && raw !== null ? raw : '';
+  if (s.length === 0) {
+    return [];
+  }
+  const parts: string[] = s.split(',');
+  const out: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const t: string = parts[i].trim();
+    if (t.length > 0) {
+      out.push(t);
+    }
+  }
+  return out;
+}
+
+/**
+ * 字段当前是否可见（对齐 web `SettingsStorage.tsx:88-98` 的 `isVisible`）。
+ * `valueOf` 是"取某键当前输入值"的取值器（传函数而非 map，便于逐字段用 draft 覆盖 config）。
+ */
+export function storageFieldVisible(f: StorageFieldDef, valueOf: (key: string) => string): boolean {
+  const depKey: string = f.depends_on_key !== undefined && f.depends_on_key !== null ? f.depends_on_key : '';
+  if (depKey.length === 0) {
+    return true;
+  }
+  const want: string[] = parseDependsOnValues(f.depends_on_values);
+  if (want.length === 0) {
+    return true;
+  }
+  return want.indexOf(valueOf(depKey)) >= 0;
+}
+
+/**
+ * 可编辑字段（schema 顺序）：去元键、去只读、按当前值过滤条件可见（对齐 web `:82-85,118`）。
+ */
+export function editableStorageFields(defs: StorageFieldDef[], valueOf: (key: string) => string): StorageFieldDef[] {
+  const out: StorageFieldDef[] = [];
+  for (let i = 0; i < defs.length; i++) {
+    const f: StorageFieldDef = defs[i];
+    if (isStorageMetaKey(f.key)) {
+      continue;
+    }
+    if (f.read_only === true) {
+      continue;
+    }
+    if (!storageFieldVisible(f, valueOf)) {
+      continue;
+    }
+    out.push(f);
+  }
+  return out;
+}
+
+/** 掩码密文判定（服务端 `isMaskedStorageValue`：含 `****`）。 */
+export function isMaskedSecret(v: string | undefined): boolean {
+  const s: string = v !== undefined && v !== null ? v : '';
+  return s.indexOf('****') >= 0;
+}
+
+/** 掩码展示（空 ⇒ 空串；≤4 位 ⇒ `****`；否则前 4 位 + `****`）——与 `maskStorageSecret` 同规则。 */
+export function maskSecretForDisplay(v: string | undefined): string {
+  const s: string = v !== undefined && v !== null ? v : '';
+  if (s.length === 0) {
+    return '';
+  }
+  if (isMaskedSecret(s)) {
+    return s;
+  }
+  if (s.length <= 4) {
+    return '****';
+  }
+  return `${s.substring(0, 4)}****`;
+}
+
+/**
+ * 脏检测（对齐 web `:99-102`）：任一可编辑字段的当前值 ≠ 已保存值。
+ * `valueOf` 已含 draft 覆盖语义（由调用方实现为 `draft[k] ?? config[k] ?? ''`）。
+ */
+export function storageDirty(fields: StorageFieldDef[], valueOf: (key: string) => string,
+  savedOf: (key: string) => string): boolean {
+  for (let i = 0; i < fields.length; i++) {
+    const f: StorageFieldDef = fields[i];
+    if (valueOf(f.key) !== savedOf(f.key)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * 保存载荷（对齐 web `:130-134`）：**只含当前可见的可编辑字段**。
+ *
+ * ⚠️ 掩码密文**原样回传**是安全的（服务端跳过含 `****` 的值 ⇒ 真凭据不动）；
+ * 但**不要**主动把掩码替换成空串 —— 那会被当成"用户清空了密钥"而写坏配置。
+ */
+export function buildStorageValues(fields: StorageFieldDef[], valueOf: (key: string) => string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (let i = 0; i < fields.length; i++) {
+    const k: string = fields[i].key;
+    out[k] = valueOf(k);
+  }
+  return out;
+}
+
+/** 正在运行的 provider（`_active`；缺失/空 ⇒ `local`，与服务端默认一致）。 */
+export function liveStorageProvider(config: Record<string, string> | undefined): string {
+  if (config === undefined || config === null) {
+    return 'local';
+  }
+  const v: string | undefined = config['_active'];
+  return v !== undefined && v !== null && v.length > 0 ? v : 'local';
+}
+
+/**
+ * 载入期的**防御性打码**：把所有 `password` 型字段的值过一遍 `maskSecretForDisplay`。
+ *
+ * 为什么在**载入期**做、而不是渲染期：
+ *  - 服务端已经打码（`storage_config.go:80-87`），这里是纵深防御 —— 万一服务端漏打，
+ *    真凭据也**绝不会被渲染出来**；
+ *  - ⛔ **渲染期打码是错的**：用户开始输入新密钥时，草稿里是明文 ⇒ 渲染时再打码会把
+ *    用户刚敲的字符直接替换成 `****`（第 5 个字符起就永远打不进去）。输入框只靠
+ *    `InputType.Password` 做视觉遮显。
+ *  - 载入期打码还有一个好处：用户不动该字段时，回传的就是掩码 ⇒ 服务端跳过写入 ⇒ 真凭据不变。
+ */
+export function maskPasswordFields(config: Record<string, string>, defs: StorageFieldDef[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  const keys: string[] = Object.keys(config);
+  for (let i = 0; i < keys.length; i++) {
+    out[keys[i]] = config[keys[i]];
+  }
+  for (let i = 0; i < defs.length; i++) {
+    const f: StorageFieldDef = defs[i];
+    if (f.type !== STORAGE_TYPE_PASSWORD) {
+      continue;
+    }
+    const cur: string | undefined = out[f.key];
+    if (cur !== undefined && cur !== null && cur.length > 0 && !isMaskedSecret(cur)) {
+      out[f.key] = maskSecretForDisplay(cur);
+    }
+  }
+  return out;
+}
+
+/** provider 的显示名（从 schema 的 select options 里找；找不到回落原值）。 */
+export function storageOptionLabel(defs: StorageFieldDef[], key: string, value: string): string {
+  for (let i = 0; i < defs.length; i++) {
+    const f: StorageFieldDef = defs[i];
+    if (f.key !== key) {
+      continue;
+    }
+    const opts: StorageFieldOption[] | undefined = f.options;
+    if (opts === undefined) {
+      continue;
+    }
+    for (let j = 0; j < opts.length; j++) {
+      if (opts[j].value === value) {
+        const l: string | undefined = opts[j].label;
+        return l !== undefined && l.length > 0 ? l : value;
+      }
+    }
+  }
+  return value;
+}
+
+/**
+ * toggle 字段的取值判定（服务端默认值也是字符串 `"false"`，`storage_defs.go:71`）。
+ * 只有明确的 `true` 才算开（与 `parseBool` 不同：这里**不吃** `1/on/yes`，因为 schema 契约就是 `true|false`）。
+ */
+export function storageToggleOn(v: string | undefined): boolean {
+  return v === 'true';
+}
+
+/** 保存后是否成功（对齐 web `setSaved(true)`）—— 判据是服务端回读了值。 */
+export function storageSaveApplied(returned: Record<string, string> | undefined, key: string, want: string): boolean {
+  if (returned === undefined || returned === null) {
+    return false;
+  }
+  return returned[key] === want;
+}
+
+// ── webusers 分区：纯逻辑 ─────────────────────────────────────────────────────
+//
+// 契约（服务端 `serverapp/rpc_table.go:1935-1951`；结构 `channel/web/web_auth.go:116-122`）：
+//   · `list_web_users`（**admin**，无参）→ `{users: [{id, username, created_at}]}`
+//   · `create_web_user`（**admin**）`{username}` → `{password}` —— ⚠️ **一次性明文**
+//   · `delete_web_user`（**admin**）`{username}` → void
+
+/** web 账号行（`channel/web/web_auth.go:116-122` WebUserInfo）。 */
+export interface WebUserRow {
+  id?: number;
+  username: string;
+  created_at?: string;
+}
+
+/** `list_web_users` 的 data。 */
+export interface WebUsersData {
+  users?: WebUserRow[];
+}
+
+/** 用户名输入归一（去首尾空白；服务端按原样建号，故客户端必须先 trim）。 */
+export function normalizeUsernameInput(raw: string | undefined): string {
+  const s: string = raw !== undefined && raw !== null ? raw : '';
+  return s.trim();
+}
+
+/** 用户名是否可提交（非空即可 —— 服务端没有额外字符约束，别自造规则）。 */
+export function isValidUsername(raw: string | undefined): boolean {
+  return normalizeUsernameInput(raw).length > 0;
+}
+
+/** 容错解包 `{users}`（缺字段/非数组 ⇒ 空数组，绝不抛）。 */
+export function webUsersFrom(data: WebUsersData | undefined): WebUserRow[] {
+  if (data === undefined || data === null || data.users === undefined || !Array.isArray(data.users)) {
+    return [];
+  }
+  return data.users as WebUserRow[];
+}
+
+/** 一次性密码提示（**只在内存里拼**；绝不写偏好/日志）。 */
+export function oneTimePasswordNotice(username: string, password: string): string {
+  return `账号 ${username} 已创建：${password}`;
+}
+
+/**
+ * 一次性明文密码（`create_web_user` 的返回）。
+ *
+ * ⛔ 只允许存在于内存（组件 `@State`）——**绝不**落偏好/日志/文件；
+ *    组件销毁即随引用消失（web 同款契约：shown ONCE, never stored）。
+ */
+export class OneTimePw {
+  username: string = '';
+  password: string = '';
+
+  constructor(username: string, password: string) {
+    this.username = username;
+    this.password = password;
+  }
+}
+
+
+

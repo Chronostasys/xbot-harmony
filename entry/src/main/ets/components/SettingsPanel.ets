@@ -16,12 +16,16 @@ import { XbotHttp } from '../core/http';
 import { FS_CAPTION, R_LG, SP_2, SP_3, SP_5 } from '../core/tokens';
 import { SettingsAgent } from './SettingsAgent';
 import { SettingsLlm } from './SettingsLlm';
+import { SettingsStorage } from './SettingsStorage';
 import { SettingsTools } from './SettingsTools';
+import { SettingsWebUsers } from './SettingsWebUsers';
 
 /** 分区 id（tab 顺序 = 此顺序）。 */
 export const SETTINGS_TAB_TOOLS: string = 'tools';
 export const SETTINGS_TAB_LLM: string = 'llm';
 export const SETTINGS_TAB_AGENT: string = 'agent';
+export const SETTINGS_TAB_STORAGE: string = 'storage';
+export const SETTINGS_TAB_WEBUSERS: string = 'webusers';
 
 /** tab 定义（id + 显示名）——用数组而非 Map，保持 ArkTS 友好与顺序稳定。 */
 class SettingsTab {
@@ -40,6 +44,8 @@ function settingsTabs(): SettingsTab[] {
     new SettingsTab(SETTINGS_TAB_TOOLS, '工具'),
     new SettingsTab(SETTINGS_TAB_LLM, '模型'),
     new SettingsTab(SETTINGS_TAB_AGENT, '智能体'),
+    new SettingsTab(SETTINGS_TAB_STORAGE, '存储'),
+    new SettingsTab(SETTINGS_TAB_WEBUSERS, 'Web 账号'),
   ];
 }
 
@@ -67,35 +73,43 @@ export struct SettingsPanel {
     return settingsTabs();
   }
 
-  /** 分区切换条（与各面板的"片"同视觉语言）。 */
+  /** 分区切换条（与各面板的"片"同视觉语言）。5 个分区 ⇒ 横向可滚，避免窄屏挤爆。 */
   @Builder
   TabBar() {
-    Row({ space: SP_2 }) {
-      ForEach(this.tabs(), (t: SettingsTab) => {
-        Text(t.label)
-          .fontSize(FS_CAPTION)
-          .fontColor(t.id === this.active ? this.pal().onAccent : this.pal().textSecondary)
-          .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-          .backgroundColor(t.id === this.active ? this.pal().accent : this.pal().surfaceAlt)
-          .borderRadius(R_LG)
-          .border({ width: 1, color: t.id === this.active ? this.pal().accent : this.pal().border })
-          .onClick(() => {
-            this.active = t.id;
-          })
-      }, (t: SettingsTab) => `tab|${t.id}`)
+    Scroll() {
+      Row({ space: SP_2 }) {
+        ForEach(this.tabs(), (t: SettingsTab) => {
+          Text(t.label)
+            .fontSize(FS_CAPTION)
+            .fontColor(t.id === this.active ? this.pal().onAccent : this.pal().textSecondary)
+            .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+            .backgroundColor(t.id === this.active ? this.pal().accent : this.pal().surfaceAlt)
+            .borderRadius(R_LG)
+            .border({ width: 1, color: t.id === this.active ? this.pal().accent : this.pal().border })
+            .onClick(() => {
+              this.active = t.id;
+            })
+        }, (t: SettingsTab) => `tab|${t.id}`)
+      }
     }
     .width('100%')
+    .scrollable(ScrollDirection.Horizontal)
+    .scrollBar(BarState.Off)
   }
 
   build() {
     Column({ space: SP_3 }) {
       this.TabBar()
 
-      // ⚠️ 三个分区面板各自 `height('100%')`，用 if/else 只挂一个（避免三份同时发请求）。
+      // ⚠️ 各分区面板都 `height('100%')`，用 if/else 只挂一个（避免多份同时发请求）。
       if (this.active === SETTINGS_TAB_LLM) {
         SettingsLlm({ http: this.http, theme: this.theme })
       } else if (this.active === SETTINGS_TAB_AGENT) {
         SettingsAgent({ http: this.http, theme: this.theme })
+      } else if (this.active === SETTINGS_TAB_STORAGE) {
+        SettingsStorage({ http: this.http, theme: this.theme })
+      } else if (this.active === SETTINGS_TAB_WEBUSERS) {
+        SettingsWebUsers({ http: this.http, theme: this.theme })
       } else {
         SettingsTools({ http: this.http, theme: this.theme })
       }

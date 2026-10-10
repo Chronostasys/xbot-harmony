@@ -250,7 +250,7 @@ export struct SettingsChipRow {
           .fontColor(this.pal().textMuted)
           .width('100%')
       }
-      Row({ space: SP_2 }) {
+      Flex({ wrap: FlexWrap.Wrap }) {
         ForEach(this.chips(), (opt: string) => {
           Text(this.labelOf(opt))
             .fontSize(FS_CAPTION)
@@ -259,6 +259,7 @@ export struct SettingsChipRow {
             .backgroundColor(opt === this.value ? this.pal().accent : this.pal().surfaceAlt)
             .borderRadius(R_LG)
             .border({ width: 1, color: opt === this.value ? this.pal().accent : this.pal().border })
+            .margin({ right: SP_2, bottom: SP_2 })
             .opacity(this.busy ? 0.5 : 1)
             .onClick(() => {
               if (!this.busy) {
@@ -268,6 +269,57 @@ export struct SettingsChipRow {
         }, (opt: string) => `chip|${opt}`)
       }
       .width('100%')
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding({ right: SP_2, top: SP_2, bottom: SP_2 })
+  }
+}
+
+/** 一行「标题 + 说明 + 单行输入（可选密码遮显）」。 */
+@Component
+export struct SettingsTextFieldRow {
+  @Prop label: string = '';
+  @Prop description: string = '';
+  @Prop value: string = '';
+  @Prop placeholder: string = '';
+  /** true ⇒ 密码遮显（`InputType.Password`）。 */
+  @Prop password: boolean = false;
+  @Prop busy: boolean = false;
+  @Prop theme: string = 'dark';
+  onInput: (v: string) => void = (v: string) => {
+  };
+
+  private pal(): Palette {
+    return paletteOf(this.theme);
+  }
+
+  build() {
+    Column({ space: SP_1 }) {
+      Text(this.label)
+        .fontSize(FS_BODY)
+        .fontColor(this.pal().textPrimary)
+        .width('100%')
+      if (this.description.length > 0) {
+        Text(this.description)
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().textMuted)
+          .width('100%')
+      }
+      TextInput({ text: this.value, placeholder: this.placeholder })
+        .type(this.password ? InputType.Password : InputType.Normal)
+        .enabled(!this.busy)
+        .width('100%')
+        .fontSize(FS_BODY)
+        .fontColor(this.pal().textPrimary)
+        .placeholderColor(this.pal().textMuted)
+        .backgroundColor(this.pal().surfaceAlt)
+        .borderRadius(R_LG)
+        .border({ width: 1, color: this.pal().border })
+        .padding({ left: SP_2, right: SP_2 })
+        .onChange((v: string) => {
+          this.onInput(v);
+        })
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
