@@ -10,13 +10,13 @@ import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
 import { webview } from '@kit.ArkWeb';
 import { ChatStore } from '../core/store';
-import { beginTurnKeepAlive, endTurnKeepAlive, PENDING_CHAT_KEY, PENDING_CHAT_SEQ_KEY } from '../core/notify';
+import { beginTurnKeepAlive, endTurnKeepAlive, ensureEnabled, notificationsEnabled, PENDING_CHAT_KEY, PENDING_CHAT_SEQ_KEY } from '../core/notify';
 import { ALL_THEMES, normalizeTheme, Palette, paletteOf, themeLabel, Effects, effectsOf, isDarkThemeName } from '../core/theme';
 import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, withAccent } from '../core/accent';
 import { MD_THEMES, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';
 import { localeLabel, normalizeLocale } from '../core/i18n';
 import { isStarred, parseStarred, serializeStarred, starredFirst, toggleStarred } from '../core/stars';
-import { D_BASE, EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_CAPTION, FS_HERO, FS_TITLE, R_2XL, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_6, SP_8 } from '../core/tokens';
+import { D_BASE, EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_CAPTION, FS_HERO, FS_TITLE, R_2XL, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5, SP_6, SP_8 } from '../core/tokens';
 import { isUnauthorized, loadErrHint, loadErrTitle, needsRelogin, needsSessionRefresh } from '../core/autherr';
 import {
   canMove, MOVE_DOWN, MOVE_TOP, MOVE_UP, hitLine, sessionLabel, sessionMatches,
@@ -33,8 +33,8 @@ import {
 } from '../core/imgops';
 import {
   fontScaleFrom, fontScaleLabel, fontScalePresets, KEY_APP_THEME, KEY_CODE_WRAP, KEY_FONT_SCALE, KEY_SURFACE,
-  KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE, KEY_REASONING_DEFAULT, KEY_SEND_KEY, KEY_STARRED, normalizeSendKey,
-  parseBool, sendKeyLabel, settingOf, settingLabel, SEND_KEY_MOD_ENTER,
+  KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE, KEY_ORB, KEY_REASONING_DEFAULT, KEY_SEND_KEY, KEY_STARRED, normalizeSendKey,
+  orbEnabled, parseBool, sendKeyLabel, settingOf, settingLabel, SEND_KEY_MOD_ENTER,
 } from '../core/settings';
 import {
   isInterruptSend, MODE_INTERRUPT, MODE_QUEUE, modeHint, modeLabel, sendToast, toggleMode,
@@ -86,6 +86,7 @@ import { UserBubbleView } from '../components/UserBubble';
 import { MarkdownView } from '../components/MarkdownView';
 import { WebSurface } from '../components/WebSurface';
 import { ContextRing } from '../components/ContextRing';
+import { SettingsPanel } from '../components/SettingsPanel';
 
 /** 一个问题当前选中的答案（用类而非 Map/Record：ArkTS 下最稳，且能整体替换触发重渲染）。 */
 class AskSelection {
@@ -271,6 +272,14 @@ struct Index {
   // ── P9 设置（服务端权威：/api/settings；与 web 共用同一份偏好）──
   // ⚠️ 名字必须与**已有的** SettingsSheet（插件/旧设置弹层）区分开，否则 ArkTS 报重复标识符。
   @State showPrefs: boolean = false;
+  /**
+   * 「工具 / 模型 / 智能体」设置分区面板（`components/SettingsPanel`）的**全屏**浮层开关。
+   * ⚠️ 它**不进** `core/overlays.OverlayState`（那是给别人用的封闭枚举）—— 由 `onBackPress`
+   *    在既有浮层栈之前优先关闭（见该方法），语义与"最上层浮层"一致。
+   */
+  @State showSettingsPanel: boolean = false;
+  /** 系统通知授权状态（**只读系统真值**，不本地另记；由设置面板的开关展示）。 */
+  @State notifyOn: boolean = false;
   @State settings: Record<string, string> = {};
   /** 是否已把"思考默认展开"应用过一次（避免每次同步都覆盖用户手动切换） */
   private reasoningDefaultApplied: boolean = false;
@@ -760,6 +769,11 @@ struct Index {
    * 的必答项，故意不在此关闭（见 core/overlays.topOverlay 的说明）。
    */
   onBackPress(): boolean {
+    // 全屏设置分区面板（工具/模型/智能体）优先于既有浮层栈关闭（它是渲染在最上层的全屏层）
+    if (this.showSettingsPanel) {
+      this.showSettingsPanel = false;
+      return true;
+    }
     const code: OverlayCode = topOverlay(this.overlayState());
     if (code === '') {
       return false;
@@ -981,13 +995,13 @@ struct Index {
       const hint: string = cfg.need_bootstrap === true
         ? '服务端可用：还没有账号，先「注册」建第一个账号'
         : (cfg.invite_only === true ? '服务端可用：仅允许已存在的账号登录' : '服务端可用：可直接登录或注册');
-      this.testMsg = `✅ ${hint}`;
+      this.testMsg = `连接成功：${hint}`;
       // 顺手记进"最近使用"
       await this.config.save(url, this.username, '');
       this.recentServers = this.config.recentServers();
     } catch (e) {
       const err: BusinessError = e as BusinessError;
-      this.testMsg = `❌ 连不上：${err.message}（检查 IP/端口、手机是否同网段、服务端是否在跑）`;
+      this.testMsg = `连接失败：${err.message}（检查 IP/端口、手机是否同网段、服务端是否在跑）`;
     } finally {
       this.testing = false;
     }
@@ -1077,7 +1091,7 @@ struct Index {
         const gh: number = Math.round(r.size.height);
         // ⚠️ ArkUI 对"不存在"的 id 往往返回 0 尺寸而不是抛错 ⇒ 必须显式标注，
         // 否则"组件真的 0 尺寸"与"组件不存在"分不开（曾导致一份几何文本无法判读）。
-        const flag: string = (gw === 0 || gh === 0) ? ' ⚠未布局(0尺寸,或被弹层遮挡/当前不在该页)' : '';
+        const flag: string = (gw === 0 || gh === 0) ? ' 未布局(0尺寸,或被弹层遮挡/当前不在该页)' : '';
         out.push(`${ids[i]}: x=${gx} y=${gy} w=${gw} h=${gh}${flag}`);
       } catch (e) {
         out.push(`${ids[i]}: absent（getRectangleById 抛错=确实不存在）`);
@@ -2154,6 +2168,29 @@ struct Index {
           this.panelUrl = '';
         } })
       }
+      // 全屏：工具 / 模型 / 智能体 设置分区（components/SettingsPanel 的**唯一注入点**；
+      // 它真实实例化 SettingsTools/SettingsLlm/SettingsAgent，消掉孤儿并让三者被真编译覆盖）。
+      if (this.showSettingsPanel) {
+        Column() {
+          Row() {
+            Text('偏好设置').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
+            SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
+              .onClick(() => {
+                this.showSettingsPanel = false;
+              })
+          }.width('100%').padding({ left: SP_5, right: SP_2, top: SP_3, bottom: SP_1 })
+
+          if (this.store !== null) {
+            Column() {
+              SettingsPanel({ http: this.store.http, theme: this.themeName })
+            }.width('100%').layoutWeight(1)
+          } else {
+            Text('未连接服务端').fontSize(FS_CAPTION).fontColor(this.pal().textMuted).padding(SP_4)
+          }
+        }
+        .width('100%').height('100%')
+        .backgroundColor(this.pal().appBg)
+      }
     }
     .width('100%')
     .height('100%')
@@ -2260,7 +2297,7 @@ struct Index {
         if (this.testMsg.length > 0) {
           Text(this.testMsg).fontSize(FS_CAPTION)
             .wordBreak(WordBreak.BREAK_ALL)
-            .fontColor(this.testMsg.startsWith('✅') ? this.pal().successText : this.pal().warn)
+            .fontColor(this.testMsg.startsWith('连接成功') ? this.pal().successText : this.pal().warn)
             .width('100%')
         }
 
@@ -2436,7 +2473,7 @@ struct Index {
             .animation({ duration: 1400, curve: Curve.EaseInOut })
           Text('开始对话').fontSize(FS_HERO).fontWeight(FontWeight.Medium)
             .fontColor(this.pal().textPrimary)
-          Text('直接说需求；也可以用 / 选命令、@ 提文件、📎 加附件')
+          Text('直接说需求；也可以用 / 选命令、@ 提文件、加附件')
             .fontSize(FS_CAPTION).fontColor(this.pal().textMuted).textAlign(TextAlign.Center)
             .padding({ left: SP_8, right: SP_8 })
         }
@@ -2556,7 +2593,7 @@ struct Index {
       // 不在底部时给一个「回到最新」（列表很长时不用一路滑）；贴底不显示
       if (showsJumpToLatest(this.atBottom, this.rows.length)) {
         Row() {
-          Text('↓ 回到最新').fontSize(12).fontColor(this.pal().textPrimary)
+          Text('回到最新').fontSize(12).fontColor(this.pal().textPrimary)
             .padding({ left: 12, right: 12, top: 7, bottom: 7 })
             .backgroundColor(this.pal().accentDeep)
             .borderRadius(16)
@@ -2657,7 +2694,7 @@ struct Index {
           if (this.fsEntries.length > 0) {
             ForEach(this.fsEntries.slice(0, 8), (e: FsEntry) => {
               Row({ space: 8 }) {
-                Text(e.isDir ? '📁' : '📄').fontSize(12)
+                Text(e.isDir ? '目录' : '文件').fontSize(12)
                 Text(e.name).fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                 Text(this.fsDir).fontSize(10).fontColor(this.pal().textMuted)
@@ -2688,7 +2725,7 @@ struct Index {
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                   .constraintSize({ maxWidth: 90 })
                 if (this.tabRunning(cid)) {
-                  Text('●').fontSize(9).fontColor(this.pal().successText)
+                  Circle({ width: 6, height: 6 }).fill(this.pal().successText)
                 }
                 SymbolGlyph($r('sys.symbol.xmark')).fontSize(11).fontColor([this.pal().textMuted])
                   .onClick(() => {
@@ -2719,7 +2756,7 @@ struct Index {
                 .fontSize(12)
                 .fontColor(it.status === ATTACH_FAILED ? this.pal().dangerText : this.pal().accentSoft)
                 .layoutWeight(1).maxLines(1).wordBreak(WordBreak.BREAK_ALL)
-              Text(it.status === ATTACH_FAILED ? '重试' : '✕')
+              Text(it.status === ATTACH_FAILED ? '重试' : '移除')
                 .fontSize(12)
                 .fontColor(it.status === ATTACH_FAILED ? this.pal().warn : this.pal().dangerText)
                 .padding(6)
@@ -3210,10 +3247,50 @@ struct Index {
     return parseBool(settingOf(this.settings, KEY_REASONING_DEFAULT), false);
   }
 
+  /** 「思考光球动效」是否开启（键 = `core/settings.KEY_ORB`；缺失回落开）。投到 `LiveTailView.orb`。 */
+  private orbOn(): boolean {
+    return orbEnabled(this.settings);
+  }
+
+  /** 从**系统**读通知授权状态（不本地另记；失败保守 false）。打开设置面板时刷新一次。 */
+  private async refreshNotifyState(): Promise<void> {
+    this.notifyOn = await notificationsEnabled();
+  }
+
+  /**
+   * 设置面板的「通知提醒」开关动作。
+   *
+   * 状态**以系统为准**（不本地另记）：开 ⇒ 走既有 `ensureEnabled`（已授权无框；未授权弹系统框），
+   * 之后**重新读系统状态**；关 ⇒ 应用**无法**自行关闭系统通知 ⇒ 只提示去系统设置，并把开关
+   * 复原成系统真值。任何失败只 toast，绝不影响设置面板本身。
+   */
+  private async applyNotifyToggle(on: boolean): Promise<void> {
+    try {
+      const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      if (on) {
+        await ensureEnabled(ctx);
+        this.notifyOn = await notificationsEnabled();
+        if (!this.notifyOn) {
+          this.toast('未获得通知权限，可在系统设置中开启');
+        }
+      } else {
+        // 应用无权关闭自身通知 ⇒ 以系统真值覆盖回去，避免开关显示与系统不一致
+        this.notifyOn = await notificationsEnabled();
+        this.toast('如需关闭，请在系统设置中关闭本应用的通知');
+      }
+    } catch (e) {
+      this.notifyOn = await notificationsEnabled();
+      this.toast(`通知设置失败: ${errText(e as Object)}`);
+    }
+  }
+
   private async openPrefs(): Promise<void> {
     this.anim(() => {
             this.showPrefs = true;
           });
+    // 顺手刷新系统通知授权状态（开关反映系统真值；不本地另记）
+    this.refreshNotifyState().catch(() => {
+    });
     const store: ChatStore | null = this.store;
     if (store === null) {
       return;
@@ -3935,6 +4012,24 @@ struct Index {
           })
       }.width('100%')
 
+      // 思考光球动效（旗舰在飞指示；键 = core/settings.KEY_ORB，端到端投到 LiveTailView.orb）
+      Row({ space: 8 }) {
+        Text(settingLabel(KEY_ORB)).fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
+        Toggle({ type: ToggleType.Switch, isOn: this.orbOn() })
+          .onChange((on: boolean) => {
+            this.setSetting(KEY_ORB, on ? '1' : '0');
+          })
+      }.width('100%')
+
+      // 通知提醒（开关反映**系统授权状态**；应用不能自行开关系统通知，只能申请/提示）
+      Row({ space: 8 }) {
+        Text('通知提醒').fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
+        Toggle({ type: ToggleType.Switch, isOn: this.notifyOn })
+          .onChange((on: boolean) => {
+            this.applyNotifyToggle(on);
+          })
+      }.width('100%')
+
       // 发送快捷键
       Row({ space: 8 }) {
         Text(settingLabel(KEY_SEND_KEY)).fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
@@ -4300,6 +4395,7 @@ struct Index {
         fontScaleV: this.fontScale(),
         wrapCodeV: this.wrapCode(),
         sweepX: this.sweepX,
+        orb: this.orbOn(),
         paused: this.appPaused,
         onImage: (src: string) => {
           this.openImage(src);
@@ -4354,6 +4450,7 @@ struct Index {
         fontScaleV: this.fontScale(),
         wrapCodeV: this.wrapCode(),
         sweepX: this.sweepX,
+        orb: this.orbOn(),
         paused: this.appPaused,
         onImage: (src: string) => {
           this.openImage(src);
@@ -4639,6 +4736,14 @@ struct Index {
         })
       }.width('100%')
 
+      // 工具 / 模型 / 智能体（服务端偏好）—— 收编进 components/SettingsPanel（全屏）
+      Button('偏好设置：工具 / 模型 / 智能体').width('100%').constraintSize({ minHeight: 44 })
+        .backgroundColor(this.pal().accent).fontColor(this.pal().onAccent)
+        .onClick(() => {
+          this.showSettings = false;
+          this.showSettingsPanel = true;
+        })
+
       Text('服务端').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
       TextInput({ text: this.serverUrl })
         .onChange((v: string) => {
@@ -4799,7 +4904,7 @@ struct Index {
                     if (this.modelBusy === `${g.subId}#${e.model}`) {
                       LoadingProgress().width(14).height(14).color(this.pal().accent)
                     } else if (e.model === this.currentModelName()) {
-                      Text('✓ 当前').fontSize(11).fontColor(this.pal().successText)
+                      Text('当前').fontSize(11).fontColor(this.pal().successText)
                     }
                   }
                   .width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(6)
@@ -4945,7 +5050,7 @@ struct Index {
           ForEach(this.todos, (td: TodoItem, i: number) => {
             ListItem() {
               Row({ space: 8 }) {
-                Text(td.status === 'completed' ? '✅' : (td.status === 'in_progress' ? '◐' : '○'))
+                Text(td.status === 'completed' ? '已完成' : (td.status === 'in_progress' ? '进行中' : '待办'))
                   .fontSize(13).fontColor(td.status === 'completed' ? this.pal().successText : this.pal().textSecondary)
                 Text(td.text !== undefined ? td.text : '')
                   .fontSize(13)
@@ -5026,7 +5131,7 @@ struct Index {
           Column({ space: 6 }) {
             Text('F 工具 pill 行（Flex 换行）').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
             Flex({ wrap: FlexWrap.Wrap }) {
-              ForEach(['✓ Read', '✓ Shell', '● Grep', '✓ Edit', '✗ Fetch'], (t: string) => {
+              ForEach(['已完成 Read', '已完成 Shell', '运行中 Grep', '已完成 Edit', '失败 Fetch'], (t: string) => {
                 Text(t).fontSize(12).fontColor(this.pal().successText)
                   .padding({ left: 8, right: 8, top: 5, bottom: 5 })
                   .margin(3).backgroundColor(this.pal().surfaceAlt).borderRadius(6)
@@ -5131,7 +5236,7 @@ struct Index {
         // 完整 Web UI（插件 / GenUI / 终端 / 编辑器都在里面）
         ListItem() {
           Row() {
-            Text('🌐  完整 Web UI').fontSize(14).fontColor(this.pal().textPrimary).layoutWeight(1)
+            Text('完整 Web UI').fontSize(14).fontColor(this.pal().textPrimary).layoutWeight(1)
             Text('打开').fontSize(12).fontColor(this.pal().accentSoft)
           }
           .width('100%').padding(12).backgroundColor(this.pal().surfaceAlt).borderRadius(8)
@@ -5183,7 +5288,7 @@ struct Index {
                 ForEach(q.options !== undefined ? q.options : [], (opt: AskOption, oi: number) => {
                   Row() {
                     Text(this.isAskSelected(q.id !== undefined ? q.id : `q${qi}`,
-                      opt.label !== undefined ? opt.label : '') ? '◉' : '○')
+                      opt.label !== undefined ? opt.label : '') ? '已选' : '未选')
                       .fontSize(14).fontColor(this.pal().accentText)
                     Column() {
                       Text(opt.label !== undefined ? opt.label : '').fontSize(13).fontColor(this.pal().textPrimary)

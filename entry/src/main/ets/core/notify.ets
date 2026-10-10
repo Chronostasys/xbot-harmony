@@ -383,6 +383,19 @@ export async function ensureEnabled(ctx: common.UIAbilityContext): Promise<boole
 }
 
 /**
+ * **只读**系统通知授权状态（**不弹框**）—— 设置面板的「通知提醒」开关据此反映**系统真值**
+ * （不自己另记一份状态）。读取口径与 `ensureEnabled` 同一个 `isNotificationEnabled`。
+ * 失败conservatively取 false（宁可显示"关"，也不谎报"开"）。
+ */
+export async function notificationsEnabled(): Promise<boolean> {
+  try {
+    return await notificationManager.isNotificationEnabled();
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
  * 发一条通知（回合结束 / 待回答）。点击 → 拉起本应用并带 `parameters.chat_id`
  * （EntryAbility.onNewWant 接收）。
  */

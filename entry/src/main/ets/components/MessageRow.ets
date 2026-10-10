@@ -58,6 +58,11 @@ export struct MessageRowView {
   /** 应用是否在后台（打字机在后台挂起 —— 与 LiveTailView 同款） */
   @Prop paused: boolean = false;
   /**
+   * 旗舰「思考中/生成中」光球开关（由 `core/settings.ets` 的 `orbEnabled` 派生）。
+   * 由页面以 **@Prop 投递**，再透传给 `LiveTailView.orb`（设置面板的开关端到端接线）。
+   */
+  @Prop orb: boolean = true;
+  /**
    * live 行「在飞内容」—— 由页面 `syncLiveTail()` 从 live 行末尾在飞块派生、
    * 以 **@Prop 投递**（普通行恒为空）。
    *
@@ -496,6 +501,7 @@ export struct MessageRowView {
         theme: this.theme,
         fontScale: this.fontScaleV,
         wrapCode: this.wrapCodeV,
+        orb: this.orb,
         onImage: (src: string) => {
           this.onImage(src);
         },
