@@ -70,6 +70,16 @@ class ChatStore {
         this.serverRunning = false;
         this.currentChatId = '';
         this.lastSeq = 0;
+        /**
+         * **turn 级**流式缓冲（对齐 web `ProgressStore.streamContent/streamReasoning/streamingTools`）。
+         * ⛔ 绝不能把流式内容直接挂到某个 iteration 对象上：流式帧的归属迭代会随服务端盖号变化，
+         *    挂错就会"同一段内容重复渲染到不同迭代"（真机 2026-10-10）。正确模型：
+         *    · 流式帧只写这组缓冲；**迭代前进时**把缓冲"折叠"进上一迭代，然后清空；
+         *    · 收尾（text / idle）时折叠进当前迭代并清空。
+         */
+        this.streamText = '';
+        this.streamReasoning = '';
+        this.streamTools = [];
         /** 历史分页（loadMore 游标） */
         this.hasMore = false;
         this.oldestId = 0;
@@ -891,6 +901,13 @@ class ChatStore {
      *  · 无产出且无 user 行 ⇒ **删除**（"空壳行灭绝"）
      */
     settleLiveOnIdle() {
+        // 回合结束 ⇒ 先折叠残留缓冲（把最后一段流式内容落到当前迭代），再定格/删除
+        for (let i = this.rows.length - 1; i >= 0; i--) {
+            if (this.rows[i].role === 'assistant' && this.rows[i].isLive) {
+                this.foldStreamBuffers(this.rows[i]);
+                break;
+            }
+        }
         for (let i = this.rows.length - 1; i >= 0; i--) {
             const r = this.rows[i];
             if (r.role !== 'assistant' || !r.isLive) {
@@ -989,13 +1006,46 @@ class ChatStore {
      */
     applyStreamProgress(p) {
         const row = this.liveRow();
-        let target = (0, streammerge_1.liveIterationOf)(row);
-        if (p.iteration !== undefined && p.iteration > 0 && p.iteration > target.iteration) {
-            target = (0, streammerge_1.upsertIteration)(row, p.iteration);
+        // 迭代前进 ⇒ 先把 turn 级缓冲折叠进**上一迭代**（web: advanced ⇒ fold），再清缓冲
+        if (p.iteration !== undefined && p.iteration > 0 && p.iteration > (0, streammerge_1.liveIterationOf)(row).iteration) {
+            this.foldStreamBuffers(row);
+            (0, streammerge_1.upsertIteration)(row, p.iteration);
         }
-        (0, streammerge_1.applyStreamFrame)(target, p);
+        // 只写 turn 级缓冲（delta 追加 / checkpoint 替换）——与 web setStreamContent/appendStreamContent 同义
+        if (p.stream_content !== undefined && p.stream_content.length > 0) {
+            this.streamText = p.stream_content;
+        }
+        else if (p.stream_delta !== undefined && p.stream_delta.length > 0) {
+            this.streamText = this.streamText + p.stream_delta;
+        }
+        if (p.reasoning_stream_content !== undefined && p.reasoning_stream_content.length > 0) {
+            this.streamReasoning = p.reasoning_stream_content;
+        }
+        else if (p.reasoning_stream_delta !== undefined && p.reasoning_stream_delta.length > 0) {
+            this.streamReasoning = this.streamReasoning + p.reasoning_stream_delta;
+        }
+        if (p.streaming_tools !== undefined && p.streaming_tools.length > 0) {
+            this.streamTools = (0, streammerge_1.mergeTools)(this.streamTools, p.streaming_tools);
+        }
         this.touch(row);
         this.onUpdate();
+    }
+    /** 把 turn 级流式缓冲折叠进指定迭代（默认当前在飞迭代），并清空缓冲。 */
+    foldStreamBuffers(row) {
+        const it = (0, streammerge_1.liveIterationOf)(row);
+        if (this.streamText.length > 0) {
+            it.stream_text = this.streamText;
+        }
+        if (this.streamReasoning.length > 0) {
+            it.stream_reasoning = this.streamReasoning;
+        }
+        if (this.streamTools.length > 0) {
+            it.tools = (0, streammerge_1.mergeTools)(it.tools, this.streamTools);
+        }
+        this.streamText = '';
+        this.streamReasoning = '';
+        this.streamTools = [];
+        this.touch(row);
     }
     /**
      * 结构化帧（`progress_structured` / `sync_progress`）—— 与 web 同名分支对应：
@@ -1012,6 +1062,10 @@ class ChatStore {
         const row = this.liveRow();
         const itNum = p.iteration !== undefined && p.iteration > 0
             ? p.iteration : (0, streammerge_1.liveIterationOf)(row).iteration;
+        // 迭代前进 ⇒ 先把流式缓冲折叠进上一迭代（否则同一段内容会被重复渲染到两个迭代）
+        if (itNum > (0, streammerge_1.liveIterationOf)(row).iteration) {
+            this.foldStreamBuffers(row);
+        }
         (0, streammerge_1.applyStructured)((0, streammerge_1.upsertIteration)(row, itNum), p);
         const hist = p.iteration_history;
         if (hist !== undefined) {
@@ -1087,6 +1141,7 @@ class ChatStore {
             // ⚠️ reasoning 绝不清空（进行中迭代的思考只存在于 live 快照，
             //    真机曾出现"提交后 Thought N chars 消失"）
         }
+        this.foldStreamBuffers(last);
         last.isLive = false;
         last.turnID = env.turn_id !== undefined ? env.turn_id : last.turnID;
         this.touch(last);

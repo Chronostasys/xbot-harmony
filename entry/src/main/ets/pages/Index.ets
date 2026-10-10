@@ -2960,7 +2960,9 @@ struct Index {
         break;
       }
     }
-    if (liveRow === undefined || liveRow.iterations.length === 0) {
+    const hasBuf: boolean = store.streamText.length > 0
+      || store.streamReasoning.length > 0 || store.streamTools.length > 0;
+    if (liveRow === undefined || (liveRow.iterations.length === 0 && !hasBuf)) {
       this.liveOn = false;
       this.liveText = '';
       this.liveReasoning = '';
@@ -2970,12 +2972,19 @@ struct Index {
       this.lastLiveLen = 0;
       return;
     }
-    const it: HistoryIteration = liveRow.iterations[liveRow.iterations.length - 1];
+    const it: HistoryIteration | undefined = liveRow.iterations.length > 0
+      ? liveRow.iterations[liveRow.iterations.length - 1] : undefined;
     this.liveOn = true;
-    this.liveText = displayContent(it);
-    this.liveReasoning = displayReasoning(it);
-    this.liveTools = it.tools !== undefined ? it.tools.slice() : [];
-    this.liveIterNo = it.iteration;
+    // ⛔ 与 web 同模型：**在飞内容优先取 turn 级流式缓冲**（store.streamText/…）——它才是
+    //   "正在流"的那一份；缓冲为空（未开始/已折叠进迭代）时才回落到迭代自身字段。
+    //   之前直接把流式内容挂到迭代对象上 ⇒ 同一段内容重复渲染到不同迭代（真机 2026-10-10）。
+    this.liveText = store.streamText.length > 0
+      ? store.streamText : (it !== undefined ? displayContent(it) : '');
+    this.liveReasoning = store.streamReasoning.length > 0
+      ? store.streamReasoning : (it !== undefined ? displayReasoning(it) : '');
+    this.liveTools = store.streamTools.length > 0
+      ? store.streamTools.slice() : (it !== undefined && it.tools !== undefined ? it.tools.slice() : []);
+    this.liveIterNo = it !== undefined ? it.iteration : 1;
     this.liveRowTurn = liveRow.turnID;
     // ── 渐入特效（用户要求）──
     // 为什么不用"逐字裁剪"：那要每 50ms 重新解析整段 Markdown 并重建节点
