@@ -80,6 +80,9 @@ class ChatStore {
         this.streamText = '';
         this.streamReasoning = '';
         this.streamTools = [];
+        /** 已定稿的最大 turnID（web `store.lastTurnID`）：用于丢弃**迟到/旧 turn** 的进度事件 ——
+         *  否则收尾后一条迟到事件会创建空 live 行 ⇒ busy 永远卡住（真机 2026-10-10）。 */
+        this.lastTurnID = 0;
         /** 历史分页（loadMore 游标） */
         this.hasMore = false;
         this.oldestId = 0;
@@ -933,6 +936,9 @@ class ChatStore {
             const r = this.rows[i];
             if (r.role === 'user' && r.turnID === 0 && r.content === text) {
                 r.turnID = turnID;
+                if (turnID > this.lastTurnID) {
+                    this.lastTurnID = turnID;
+                }
                 this.touch(r);
                 this.busy = true;
                 // 新 turn ⇒ progress 水位重置（seq 是 per-Run 计数；web：turn_started 置 null）
@@ -950,6 +956,36 @@ class ChatStore {
         this.rows.push(r);
         this.busy = true;
         this.onUpdate();
+    }
+    /** 是否有一条**带产出**的在飞 live 行（busy 判据只认它 —— 空壳不能把 busy 钉死）。 */
+    hasLiveRowWithContent() {
+        for (let i = this.rows.length - 1; i >= 0; i--) {
+            const r = this.rows[i];
+            if (r.role === 'assistant' && r.isLive) {
+                return r.iterations.length > 0 && !(0, streammerge_1.rowIsEmpty)(r);
+            }
+        }
+        return false;
+    }
+    /** 自愈：busy=false 却残留【空 live 行】（迟到事件造的）⇒ 删除。返回是否删了。 */
+    pruneEmptyLiveRowIfIdle() {
+        if (this.busy) {
+            return false;
+        }
+        for (let i = this.rows.length - 1; i >= 0; i--) {
+            const r = this.rows[i];
+            if (r.role !== 'assistant' || !r.isLive) {
+                continue;
+            }
+            const empty = (r.iterations.length === 0 || (0, streammerge_1.rowIsEmpty)(r))
+                && this.streamText.length === 0 && this.streamReasoning.length === 0 && this.streamTools.length === 0;
+            if (empty) {
+                this.rows.splice(i, 1);
+                return true;
+            }
+            return false;
+        }
+        return false;
     }
     /** 是否有"在飞的 live 行"（= 本轮正在进行；会话树快照不可用于清 busy）。 */
     hasLiveRow() {
@@ -1005,6 +1041,11 @@ class ChatStore {
      * ⛔ 本路径**不看**载荷是否"像结构化"：事件名已决定语义（服务端会给流式帧盖 iteration 用于切边界）。
      */
     applyStreamProgress(p) {
+        // ⛔ 旧 turn 的迟到流式帧必须丢弃（web `case 'stream_content'` 同款守卫）：
+        //   否则会创建一条空的 live 行，把 busy 永远钉住（'idle 却显示 busy' 的真机根因）。
+        if (p.turn_id !== undefined && p.turn_id > 0 && this.lastTurnID > 0 && p.turn_id < this.lastTurnID) {
+            return;
+        }
         const row = this.liveRow();
         // 迭代前进 ⇒ 先把 turn 级缓冲折叠进**上一迭代**（web: advanced ⇒ fold），再清缓冲
         if (p.iteration !== undefined && p.iteration > 0 && p.iteration > (0, streammerge_1.liveIterationOf)(row).iteration) {
@@ -1052,6 +1093,9 @@ class ChatStore {
      * per-Run seq 水位（丢弃纯重放）+ 按号 upsert + 只覆盖"确实带了内容"的字段。
      */
     applyStructuredProgress(p) {
+        if (p.turn_id !== undefined && p.turn_id > 0 && this.lastTurnID > 0 && p.turn_id < this.lastTurnID) {
+            return;
+        }
         const seq = p.seq !== undefined ? p.seq : 0;
         if (seq > 0 && (0, streammerge_1.isStaleSeqEvent)(this.lastSeq, seq, this.liveMaxIter(), p)) {
             return;
@@ -1144,6 +1188,9 @@ class ChatStore {
         this.foldStreamBuffers(last);
         last.isLive = false;
         last.turnID = env.turn_id !== undefined ? env.turn_id : last.turnID;
+        if (last.turnID > this.lastTurnID) {
+            this.lastTurnID = last.turnID;
+        }
         this.touch(last);
         // 完全无产出（text 空、迭代也空）⇒ 不落地空行（空气泡）
         if ((0, streammerge_1.rowIsEmpty)(last)) {

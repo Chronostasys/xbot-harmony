@@ -610,6 +610,8 @@ struct Index {
   }
 
   private syncFrom(store: ChatStore): void {
+    // 自愈：not busy 却残留空 live 行（迟到事件造的）⇒ 先删掉再投影，避免 busy 被钉死
+    store.pruneEmptyLiveRowIfIdle();
     // ── ⛔ 真机严重事故（"所有会话都渲染了第一个打开的会话的迭代"）的顺序契约 ──
     // ① **会话身份必须最先落定**：下面行指纹 / 行键 / live 尾 全部以 `this.currentChat` 为准，
     //    它排在后面会让行键仍用**旧会话 id**（跨会话键仍碰撞 = 复用旧条目）。
@@ -2774,7 +2776,7 @@ struct Index {
     if (this.liveOn) {
       return true;
     }
-    if (this.store !== null && this.store.hasLiveRow()) {
+    if (this.store !== null && this.store.hasLiveRowWithContent()) {
       return true;
     }
     if (this.busy) {
