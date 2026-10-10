@@ -18,7 +18,7 @@
  *
  * 本模块是**纯函数**（不依赖 SDK），由 `tools/tests/streammerge.test.ts` 守护。
  */
-import { HistoryIteration, IterList, ProgressEvent, ToolProgress } from './types';
+import { ChatRow, HistoryIteration, IterList, ProgressEvent, ToolProgress } from './types';
 
 /** 该事件是否"只带流式字段"（与 服务端 isStreamOnlyProgress 同判据，但更宽松：不要求 iteration==0）。 */
 export function isStreamOnly(e: ProgressEvent): boolean {
@@ -187,6 +187,26 @@ export function displayContent(it: HistoryIteration): string {
     return it.stream_text !== undefined ? it.stream_text : '';
   }
   return it.content !== undefined ? it.content : '';
+}
+
+/** 行是否"完全空"（无正文、无思考、无工具 ⇒ 渲染出来就是一张空气泡卡片）。 */
+export function rowIsEmpty(row: ChatRow): boolean {
+  if (row.content.length > 0) {
+    return false;
+  }
+  for (let i = 0; i < row.iterations.length; i++) {
+    const it: HistoryIteration = row.iterations[i];
+    if (displayContent(it).length > 0) {
+      return false;
+    }
+    if (displayReasoning(it).length > 0) {
+      return false;
+    }
+    if (it.tools !== undefined && it.tools.length > 0) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /** 该迭代当前应显示的推理文本。 */

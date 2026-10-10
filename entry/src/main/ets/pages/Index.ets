@@ -37,7 +37,7 @@ import {
   isInterruptSend, MODE_INTERRUPT, MODE_QUEUE, modeHint, modeLabel, sendToast, toggleMode,
 } from '../core/sendmode';
 import { mdCacheStats, MdCacheStats } from '../core/markdown';
-import { displayContent, displayReasoning, streamStatsText } from '../core/streammerge';
+import { displayContent, displayReasoning, rowIsEmpty, streamStatsText } from '../core/streammerge';
 import {
   channelLabel, hiddenRowCount, visibleRows, MAX_ROWS_VISIBLE,
 } from '../core/sessionpick';
@@ -349,6 +349,8 @@ struct Index {
   @State twReason: number = 0;
   /** 打字机当前绑定的身份（`行id#迭代号`；变了就重置，避免上一段文本的进度串到新文本） */
   private twKey: string = '';
+  /** 打字机绑定的 live 行 id（每拍 bump 它的 rev，让 LazyForEach 重建该条目） */
+  private twRowId: string = '';
   private twTextRunes: string[] = [];
   private twReasonRunes: string[] = [];
   private twTextLen: number = -1;
@@ -2391,6 +2393,7 @@ struct Index {
       it = row.iterations[row.iterations.length - 1];
     }
     const key: string = row !== undefined && it !== undefined ? `${row.id}#${it.iteration}` : '';
+    this.twRowId = row !== undefined ? row.id : '';
     if (key !== this.twKey) {
       this.twKey = key;
       this.twContent = 0;
@@ -2447,6 +2450,18 @@ struct Index {
     if (!isTyping(this.twContent, this.twTextRunes.length)
       && !isTyping(this.twReason, this.twReasonRunes.length)) {
       this.syncTwTimer(false);
+    }
+    // ⚠️ 打字机不生效的根因：`this.twContent` 变化不会触发 LazyForEach 里**键没变**的条目
+    // 重建（条目内容是构建时求值的）。web 靠 React 每拍重渲染；ArkUI 这边必须 bump 该行
+    // 的 rev（键的一部分）⇒ 条目重建 ⇒ 裁剪后的文本真正上屏。
+    if (this.twRowId.length > 0) {
+      for (let i = 0; i < this.rows.length; i++) {
+        if (this.rows[i].id === this.twRowId) {
+          this.rows[i].rev++;
+          break;
+        }
+      }
+      this.syncRowDs();
     }
   }
 
@@ -2740,9 +2755,25 @@ struct Index {
     return false;
   }
 
-  /** 界面统一的"是否在跑"（本地快路径 ∪ 服务端权威）。 */
+  /**
+   * 界面统一的"是否在跑"。
+   *
+   * busy 本身已被 loadSessions 对账（SSE 事件快路径 + 会话树权威值）；
+   * `serverRunning()` 只在**快照新鲜**（20s 内拉过会话树）时采信 ——
+   * 过期的 running=true 快照曾把 idle 会话显示成"运行中"（真机）。
+   */
   private runningNow(): boolean {
-    return this.busy || this.serverRunning();
+    if (this.busy) {
+      return true;
+    }
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return false;
+    }
+    if (Date.now() - store.sessionsFetchedAt > 20000) {
+      return false;
+    }
+    return this.serverRunning();
   }
 
   /**
@@ -3429,7 +3460,9 @@ struct Index {
   ChatRowBody(row: ChatRow) {
     if (row.role === 'user') {
       this.UserBubble(row)
-    } else {
+    } else if (!rowIsEmpty(row)) {
+      // 空气泡守卫：无正文/思考/工具的行（含等待首帧的 live 行）不渲染卡片；
+      // 等待态由列表尾部的「思考中…」占位承担（与 web 的 ShimmerThinking 同语义）
       this.AssistantBlock(row)
     }
   }

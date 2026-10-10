@@ -9,6 +9,7 @@ exports.toolsFromEvent = toolsFromEvent;
 exports.applyStreamFrame = applyStreamFrame;
 exports.applyStructured = applyStructured;
 exports.displayContent = displayContent;
+exports.rowIsEmpty = rowIsEmpty;
 exports.displayReasoning = displayReasoning;
 exports.isIdleAction = isIdleAction;
 exports.isBusyAction = isBusyAction;
@@ -173,6 +174,25 @@ function displayContent(it) {
         return it.stream_text !== undefined ? it.stream_text : '';
     }
     return it.content !== undefined ? it.content : '';
+}
+/** 行是否"完全空"（无正文、无思考、无工具 ⇒ 渲染出来就是一张空气泡卡片）。 */
+function rowIsEmpty(row) {
+    if (row.content.length > 0) {
+        return false;
+    }
+    for (let i = 0; i < row.iterations.length; i++) {
+        const it = row.iterations[i];
+        if (displayContent(it).length > 0) {
+            return false;
+        }
+        if (displayReasoning(it).length > 0) {
+            return false;
+        }
+        if (it.tools !== undefined && it.tools.length > 0) {
+            return false;
+        }
+    }
+    return true;
 }
 /** 该迭代当前应显示的推理文本。 */
 function displayReasoning(it) {

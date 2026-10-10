@@ -14,7 +14,7 @@ import { XbotHttp } from './http';
 import { SseClient } from './sse';
 import {
   applyStreamFrame, applyStructured, isStreamOnly, isIdleAction, isBusyAction,
-  shouldReloadHistory, liveIterationOf, upsertIteration, mergeTools,
+  shouldReloadHistory, liveIterationOf, upsertIteration, mergeTools, rowIsEmpty,
 } from './streammerge';
 import { channelForChat } from './sessionpick';
 import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
@@ -81,6 +81,10 @@ export class ChatStore {
   onAuthExpired: () => void = () => {
   };
   /** 历史是否正在加载（骨架屏判据：只有"还没内容且正在拉"才展示骨架） */
+  /** 会话树最近一次拉取时刻（busy 对账的新鲜度判据） */
+  sessionsFetchedAt: number = 0;
+  /** 最近一次发送时刻（乐观 busy 的保护窗口，见 loadSessions 的对账） */
+  lastSendAt: number = 0;
   historyLoading: boolean = false;
   /** SSE 连接状态（`idle|connecting|open|reconnecting`）——弱网提示用 */
   connState: string = 'idle';
@@ -140,6 +144,12 @@ export class ChatStore {
     this.sse = new SseClient(baseUrl);
     this.sse.onState = (state: string) => {
       this.connState = state;
+      if (state === 'open') {
+        // 重连后必须对账：断线期间可能错过 idle/busy 事件（错过 idle ⇒ 永远"运行中"）
+        this.loadSessions().catch(() => {
+          // 对账失败不影响连接本身
+        });
+      }
       this.onUpdate();
     };
     this.sse.onUnauthorized = () => {
@@ -173,6 +183,18 @@ export class ChatStore {
       ? data.sessions
       : (data.chats !== undefined ? data.chats : []);
     this.sessions = list;
+    // 会话树的 `running` 是服务端权威忙碌标记 —— 本地 busy 只是 SSE 事件的快路径，
+    // 错过一条 idle（断线重连/切后台）就会永远显示"运行中"。每次拉到会话树都对账一次。
+    // 例外：刚发送的 3 秒内不对账（乐观 busy 先行，服务端标记 running 有一个 RTT 窗口）。
+    this.sessionsFetchedAt = Date.now();
+    if (Date.now() - this.lastSendAt > 3000) {
+      for (let i = 0; i < this.sessions.length; i++) {
+        if (this.sessions[i].chat_id === this.currentChatId) {
+          this.busy = this.sessions[i].running === true;
+          break;
+        }
+      }
+    }
     this.onUpdate();
   }
 
@@ -459,7 +481,15 @@ export class ChatStore {
         }
       }
     }
-    return out;
+    // 空气泡过滤：无正文且无迭代内容的 assistant 行不渲染（用户真机"莫名其妙的空气泡"）
+    const visible: ChatRow[] = [];
+    for (let i = 0; i < out.length; i++) {
+      const r: ChatRow = out[i];
+      if (r.role === 'user' || !rowIsEmpty(r)) {
+        visible.push(r);
+      }
+    }
+    return visible;
   }
 
   /**
@@ -575,6 +605,7 @@ export class ChatStore {
   async send(text: string, uploadKeys?: string[], fileNames?: string[], fileSizes?: number[],
     interrupt?: boolean): Promise<boolean> {
     const isInterrupt: boolean = interrupt === true;
+    this.lastSendAt = Date.now();
     let row: ChatRow | undefined = undefined;
     if (!isInterrupt) {
       row = this.appendLocalUser(text);
@@ -1016,7 +1047,11 @@ export class ChatStore {
       if (last.id.length === 0) {
         last.id = this.nextRowID('a');
       }
-    } else {
+      // 空气泡根因：无正文、无思考、无工具的回合不该落地成一张空卡片
+      if (rowIsEmpty(last)) {
+        this.rows.splice(this.rows.length - 1, 1);
+      }
+    } else if (text.length > 0) {
       const r: ChatRow = new ChatRow();
       r.role = 'assistant';
       r.turnID = env.turn_id !== undefined ? env.turn_id : 0;
