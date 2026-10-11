@@ -12,8 +12,11 @@
 declare const process: { exit: (c: number) => void };
 
 import {
-  AnsiSpan, ANSI_DARK_PALETTE, ANSI_LIGHT_PALETTE, color256, incompleteTail, parseAnsi,
+  AnsiSpan, ANSI_DARK_PALETTE, ANSI_LIGHT_PALETTE, ANSI_COLOR_ROLES, ansiPaletteOf,
+  color256, incompleteTail, parseAnsi,
 } from '../../entry/src/main/ets/core/ansi';
+import { paletteOf, ALL_THEMES, Palette } from '../../entry/src/main/ets/core/theme';
+import { colorOf } from '../../entry/src/main/ets/core/design';
 
 let pass = 0, fail = 0;
 function eq(name: string, got: unknown, want: unknown): void {
@@ -159,6 +162,68 @@ eq('前置文本的未完成 CSI', incompleteTail('abc\x1b[38;5;'), 3);
 eq('完整 CSI ⇒ -1', incompleteTail('a\x1b[31m'), -1);
 eq('完整 OSC(BEL) ⇒ -1', incompleteTail('\x1b]0;t\x07'), -1);
 eq('无 ESC ⇒ -1', incompleteTail('plain text'), -1);
+
+// ── 中文混排（任务点名的边界）：CJK 不因多字节被切碎，转义嵌在中文之间也正确 ────────────
+eq('中文 + 转义 + 中文', projAll(parseAnsi('错误：\x1b[31m文件未找到\x1b[0m（继续）', false)),
+  [{ text: '错误：' }, { text: '文件未找到', fg: '#cf222e' }, { text: '（继续）' }]);
+// emoji/代理对：\r 重写与取色都不拆坏它们
+eq('emoji 混排逐字累积稳定', projAll(parseAnsi('\x1b[32m✓\x1b[0m 🙂 完成', false)),
+  [{ text: '✓', fg: '#116329' }, { text: ' 🙂 完成' }]);
+eq('中文 + \\r 重写取最后一段', projAll(parseAnsi('进度 10%\r进度 100% ✓', false)), [{ text: '进度 100% ✓' }]);
+
+// ── 嵌套/连续属性叠加（多段 SGR 逐次累积，非"一次性解析"）────────────────────────
+eq('三段叠加：加粗→加色→下划线', projAll(parseAnsi('\x1b[1mA\x1b[31mB\x1b[4mC', false)),
+  [{ text: 'A', bold: true }, { text: 'B', fg: '#cf222e', bold: true },
+   { text: 'C', fg: '#cf222e', bold: true, underline: true }]);
+// 背景 + 前景各自独立复位（39 只清前景，保留背景）
+eq('39 只清前景、背景保留', projAll(parseAnsi('\x1b[31;44mX\x1b[39mY\x1b[0mZ', false)),
+  [{ text: 'X', fg: '#cf222e', bg: '#0550ae' }, { text: 'Y', bg: '#0550ae' }, { text: 'Z' }]);
+
+// ── 超长行（任务点名的边界）：不丢内容、不失速、切分正确 ────────────────────────
+{
+  const n = 200000;
+  const longline = 'x'.repeat(n);
+  const seg = parseAnsi(longline, false);
+  eq('超长纯文本单 span 且长度不丢', [seg.length, seg[0].text.length], [1, n]);
+  const manyHues = ('\x1b[31m' + 'y'.repeat(100)).repeat(2000); // 2000 段着色
+  const segs = parseAnsi(manyHues, false);
+  eq('超多着色段全部命中红且文本长度守恒', [
+    segs.length, segs.every((s: AnsiSpan): boolean => s.fg === '#cf222e' || s.text !== ''),
+    segs.map((s: AnsiSpan): number => s.text.length).reduce((a: number, b: number): number => a + b, 0),
+  ], [2000, true, 200000]);
+}
+
+// ── 到本仓色板的映射（ANSI_COLOR_ROLES + ansiPaletteOf）────────────────────────
+eq('映射表长度 = 16', ANSI_COLOR_ROLES.length, 16);
+// 判别力核心：每个 role 必须是**真源里的合法 role**（未知 role ⇒ colorOf 静默给 transparent）
+{
+  let bad: string[] = [];
+  for (const theme of ALL_THEMES) {
+    const p: Palette = paletteOf(theme);
+    for (const role of ANSI_COLOR_ROLES) {
+      if (colorOf(p, role) === p.transparent) { bad.push(`${theme}:${role}`); }
+    }
+  }
+  eq('映射表每个 role 在 5 套色板都合法（非 transparent）', bad, []);
+}
+// ansiPaletteOf 与 colorOf 逐槽一致
+{
+  const p: Palette = paletteOf('dark');
+  const pal: string[] = ansiPaletteOf(p);
+  eq('ansiPaletteOf 长度 16', pal.length, 16);
+  eq('ansiPaletteOf 逐槽 = colorOf(role)', pal[1], colorOf(p, 'statusError'));
+  eq('ansiPaletteOf 实测渲染：\\x1b[31m 走本仓 statusError',
+    proj(parseAnsi('\x1b[31mx', true, ansiPaletteOf(p))[0]).fg, colorOf(p, 'statusError'));
+}
+// 颜色语义可区分：红/绿/黄/蓝 四族在深色板里两两不同（否则"颜色语义"名存实亡）
+{
+  const p: Palette = paletteOf('dark');
+  const red = colorOf(p, 'statusError');
+  const green = colorOf(p, 'successText');
+  const yellow = colorOf(p, 'statusWaiting');
+  const blue = colorOf(p, 'accent');
+  eq('四族语义色两两不同', new Set([red, green, yellow, blue]).size, 4);
+}
 
 console.log(`  ansi: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

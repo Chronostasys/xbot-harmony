@@ -38,10 +38,21 @@
  *  求"尾部未完成转义的起点"，把该尾巴**推迟到下一个 delta 再渲染**（web 没有这一步，
  *  属**可选增强**；解析语义不受影响）。
  *
+ * ── 两层色板（web 字节对齐 vs 本仓设计系统）──────────────────────────────
+ *  ① **默认**（`parseAnsi(text, dark)`）：走 `ANSI_LIGHT/DARK_PALETTE` = **web 的 xterm/
+ *     GitHub 原值**（逐字移植，用于与 webui 字节对齐）。这是与 web **行为一致**的默认。
+ *  ② **本仓色板映射**（`ansiPaletteOf(paletteOf(theme))`）：把 16 槽经 `ANSI_COLOR_ROLES`
+ *     表映射到 `colorOf(p, role)` 语义出口 ⇒ 终端输出随应用 5 套色板走。原生要"用本仓
+ *     设计语言渲染"时，把结果作为 `parseAnsi` 第 3 参传入即可。见 `ANSI_COLOR_ROLES` 注释
+ *     （含"同族槽有意折叠"的明记）。⛔ 映射表只写 role 名，**不写任何色值**。
+ *
  * 纯函数 ⇒ 可脱机单测（`tools/tests/ansi.test.ts`）。本文件属 `core/`，会被
  * `tools/tests/run.sh` 当**纯 TS** 在 Node 里编译 ⇒ **禁止** import ArkUI / `@ohos.*`；
  * 也须避开 ArkTS 严格规则（禁 `is` 类型谓词、禁对象字面量作类型标注 ⇒ 用 class）。
  */
+
+import { Palette } from './theme';
+import { colorOf } from './design';
 
 /** 一段带样式的文本（对齐 web `AnsiSegment`，字段名 fg/bg ↔ web 的 color/backgroundColor）。 */
 export class AnsiSpan {
@@ -82,6 +93,52 @@ export const ANSI_DARK_PALETTE: string[] = [
 
 /** xterm 256 色立方体的 6 级分量（16-231 段用）。 */
 export const ANSI_CUBE: number[] = [0, 95, 135, 175, 215, 255];
+
+/**
+ * **到本仓色板的映射表**（ANSI 16 色槽 → 语义取色 role）。
+ *
+ * 为什么需要它：`ANSI_LIGHT/DARK_PALETTE` 是 **web 的 xterm/GitHub 原值**（逐字移植、
+ * 用于与 web 字节对齐），**不跟本仓 5 套色板（dark/light/aurora/nebula/porcelain）走**。
+ * 原生要"用本仓设计语言渲染终端输出"，就得有一条 **ANSI 槽 → `colorOf` 语义出口** 的映射
+ * —— 这张表就是唯一出口（`ansiPaletteOf` 消费它）。⛔ 这里**不出现任何色值**（只写 role 名），
+ * 遵从设计系统「颜色一律取自语义出口」。
+ *
+ * 语义优先于终端亮暗档：ANSI 的 16 槽里，`0-7`（标准）与 `8-15`（bright）**成对同族**
+ * （如 1/9 = 红、2/10 = 绿）⇒ 本表**有意**让同族的两槽落到同一 role（本仓语义角色里没有
+ * "更亮的那一档红"）。红=错误/绿=成功/黄=警示/蓝=品牌/青=运行 的**颜色语义保住了**，
+ * 丢的只是终端特有的"亮/暗"微差 —— 这是"接本仓设计系统"的代价，已在此明记。
+ */
+export const ANSI_COLOR_ROLES: string[] = [
+  'textMuted',       // 0  黑
+  'statusError',     // 1  红
+  'successText',     // 2  绿
+  'statusWaiting',   // 3  黄（警示）
+  'accent',          // 4  蓝（品牌）
+  'accentDeep',      // 5  品红
+  'statusRunning',   // 6  青（运行）
+  'textPrimary',     // 7  白
+  'textSecondary',   // 8  bright 黑（淡灰）
+  'dangerText',      // 9  bright 红
+  'successText',     // 10 bright 绿（与 2 同族）
+  'statusWaiting',   // 11 bright 黄（与 3 同族）
+  'accentSoft',      // 12 bright 蓝
+  'accentText',      // 13 bright 品红
+  'statusRunning',   // 14 bright 青（与 6 同族）
+  'textPrimary',     // 15 bright 白（与 7 同族）
+];
+
+/**
+ * 由本仓色板构造 16 色 ANSI 调色板（**到本仓色板的映射**，纯函数）。
+ * 渲染层应把结果作为 `parseAnsi` 的第 3 参（`palette`）传入，即可让终端输出随应用主题走。
+ * @param p `paletteOf(theme)` 得到的色板。
+ */
+export function ansiPaletteOf(p: Palette): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < ANSI_COLOR_ROLES.length; i++) {
+    out.push(colorOf(p, ANSI_COLOR_ROLES[i]));
+  }
+  return out;
+}
 
 /**
  * 256 色（0-255）→ 具体颜色串。
