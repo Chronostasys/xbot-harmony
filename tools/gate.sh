@@ -81,6 +81,13 @@ trap - EXIT INT TERM
 echo "===== ⑤ 孤儿组件（警告级，不影响退出码）====="
 bash "$HERE/lint/orphan-components.sh" || true
 
+# ⚠️ 警告级：判据单一性（ForEach key 含状态字段 / 同一文件 ≥2 段状态→颜色映射）。
+#    为什么暂不设硬性：现在有**真实命中**（4 处），立刻转硬会红掉在飞的多条线 —— 那是
+#    "让门禁挡路"，不是"让缺陷自动红"。升级条件（命中清零 / 全部进带理由的允许清单）
+#    写在 tools/lint/criteria-single-source.sh 的脚本头，达到后把这里的 `|| true` 去掉即可。
+echo "===== ⑥ 判据单一性（警告级，不影响退出码）====="
+bash "$HERE/lint/criteria-single-source.sh" || true
+
 echo
 if [ "$fail" -ne 0 ]; then
   echo "❌ 真门禁**未通过**（见上方红灯）"
