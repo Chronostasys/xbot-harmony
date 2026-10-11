@@ -15,6 +15,24 @@ import {
   HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_PILL, SPACE_XS, STROKE_HAIRLINE,
 } from '../core/design';
 import { fs, fw, lh } from './SettingsRows';
+import { hilog } from '@kit.PerformanceAnalysisKit';
+
+// ── 早期注入探针（`runJavaScriptOnDocumentStart`）────────────────────────────────
+// 目的：在不改 web 仓的前提下，验证**原生能否在页面脚本之前**往页面注入自己的 JS
+//（目标②「插件全支持」的根问题是"桥由 web 自己注入、原生拿不到" —— 先证明注入这条路可行）。
+// ⛔ 本补丁**只观测**：把 `window.__xbotProbe` 挂上去 + `console.log` 出 `window` 上所有
+//    `/xbot/i` 的全局名 ⇒ web 侧 JS 加一行 `console.log(Object.keys(window).filter(...))`
+//    就能观测到原生注入物。**不实现任何业务**（业务桥仍是 `window.xbotNative`）。
+const PROBE_TAG: string = 'XBOTPROBE';
+const PROBE_JS: string =
+  '(function(){try{'
+  + 'var all=Object.keys(window),keys=[],i=0;'
+  + 'for(i=0;i<all.length;i++){if(/xbot/i.test(all[i])){keys.push(all[i]);}}'
+  + 'window.__xbotProbe={t:Date.now(),readyState:document.readyState,'
+  + 'hasHead:!!document.head,hasBody:!!document.body,'
+  + 'nativeType:(typeof window.xbotNative),xbotKeys:keys};'
+  + 'console.log("[XBOT-PROBE] xbotKeys="+JSON.stringify(keys));'
+  + '}catch(e){console.log("[XBOT-PROBE] fail "+e);}})();';
 
 /**
  * 注入页面 `window.xbotNative` 的**原生代理对象**（ArkWeb `javaScriptProxy` 的 `object`）。
@@ -383,6 +401,24 @@ export struct WebSurface {
           methodList: ['postMessage'],
           controller: this.controller,
         })
+        // ── 早期注入探针：`runJavaScriptOnDocumentStart`（`@since 15`，`WebAttribute`）──────
+        // 语义（SDK 原文）："after the root element (HTML Element) of the web page file is created,
+        // but before any other content is loaded" ⇒ 这是**唯一**能在页面脚本前注入的官方能力。
+        // ⚠️ `ScriptItem` 以字面量传入（形参类型已知 ⇒ ArkTS 允许，同 `Web({...})` 的 `WebOptions`）。
+        // ⚠️ `scriptRules: ['*']` = 所有来源；只**观测**，不下发任何业务数据。
+        .runJavaScriptOnDocumentStart([{ script: PROBE_JS, scriptRules: ['*'] }])
+        // 页面 `console.*` → 原生日志（tag = PROBE_TAG）⇒ 真机 `hdc shell hilog` 可观测注入是否发生。
+        // 返回 false = 不消费（不阻断页面自身的 console 行为）。
+        .onConsole((event) => {
+          try {
+            if (event !== undefined && event.message !== undefined) {
+              hilog.info(0x0000, PROBE_TAG, '%{public}s', event.message.getMessage());
+            }
+          } catch (e) {
+            // 观测通路不得影响页面（console 取字段失败即放弃这条）
+          }
+          return false;
+        })
         .onPageBegin((event) => {
           this.title = event !== undefined ? event.url : '';
           // 新导航开始 ⇒ 清掉上一次的失败态（否则失败后成功加载仍显示错误条）
@@ -394,6 +430,16 @@ export struct WebSurface {
           if (this.phase !== WEB_PHASE_ERROR) {
             this.phase = WEB_PHASE_READY;
           }
+          // ── 探针回读（只观测）──────────────────────────────────────────────
+          // 证明 `window.__xbotProbe` **真的留在了页面上**（含注入时机信号：readyState/hasHead/hasBody
+          // + `nativeType` = 属性式 `javaScriptProxy` 是否早于页面脚本）。读不到 ⇒ 注入没生效。
+          this.controller.runJavaScript('JSON.stringify(window.__xbotProbe || null)')
+            .then((r: string) => {
+              hilog.info(0x0000, PROBE_TAG, 'probe %{public}s', r);
+            })
+            .catch((e: Error) => {
+              hilog.error(0x0000, PROBE_TAG, 'probe-read fail %{public}s', e.message);
+            });
         })
         .onErrorReceive((event) => {
           // ⛔ 加载失败**必须可见**（旧实现只 console.error ⇒ 空白屏无解释）。
