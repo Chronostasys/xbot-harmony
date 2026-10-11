@@ -173,6 +173,48 @@ export function linkLabel(url: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// AskUser 答案拼装
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 一个问题的选择（页面 `AskSelection` 的纯逻辑镜像）：已选标签 + "其它"输入。 */
+export class AskAnswerInput {
+  labels: string[] = [];
+  other: string = '';
+
+  constructor(labels: string[], other: string) {
+    this.labels = labels;
+    this.other = other;
+  }
+}
+
+/** 多选连接符（逐字对齐 web `AskUserPanel.tsx:37 MULTI_JOIN`）。 */
+export const MULTI_JOIN: string = '、';
+
+/**
+ * 选择 → 提交给服务端的 `answers`（逐字对齐 web `AskUserPanel.tsx:67-88`）。
+ *
+ * ⛔ 契约（web 权威，服务端按此解析）：
+ *   · **键 = 问题下标** `String(i)`（不是 `q.id`！旧版用 q.id ⇒ 服务端按 web 契约取不到答案）；
+ *   · 优先级：**"其它"输入 > 已选标签**（其它值独占该题答案，不是附加后缀）；
+ *   · 多选以 `、`（`MULTI_JOIN`）连接。
+ */
+export function mergeAskAnswers(inputs: AskAnswerInput[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (let i = 0; i < inputs.length; i++) {
+    const s: AskAnswerInput = inputs[i];
+    const other: string = s.other.trim();
+    if (other.length > 0) {
+      out[String(i)] = other;
+      continue;
+    }
+    if (s.labels.length > 0) {
+      out[String(i)] = s.labels.join(MULTI_JOIN);
+    }
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // rewind（消息编辑并重发 / 回退）
 // ─────────────────────────────────────────────────────────────────────────────
 

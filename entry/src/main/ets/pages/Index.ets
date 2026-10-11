@@ -69,8 +69,8 @@ import {
   modelLabel, parseContext, selectable,
 } from '../core/llmfmt';
 import {
-  COPY_RAW, COPY_REPLY, COPY_THINKING, COPY_TOOLS, CopyParts, composeCopy, linkLabel, linksIn,
-  resolveOpenable, RewindTarget, toolArgsOnly, toolCopyText, toolResultOnly,
+  AskAnswerInput, COPY_RAW, COPY_REPLY, COPY_THINKING, COPY_TOOLS, CopyParts, composeCopy, linkLabel,
+  linksIn, mergeAskAnswers, resolveOpenable, RewindTarget, toolArgsOnly, toolCopyText, toolResultOnly,
 } from '../core/msgops';
 import {
   AskOption,
@@ -2223,12 +2223,12 @@ struct Index {
     }
     this.askBusy = true;
     try {
-      const answers: Record<string, string> = {};
+      const inputs: AskAnswerInput[] = [];
       for (let i = 0; i < this.askSelections.length; i++) {
         const s: AskSelection = this.askSelections[i];
-        const joined: string = s.labels.join(', ');
-        answers[s.qid] = s.other.length > 0 ? (joined.length > 0 ? `${joined}；${s.other}` : s.other) : joined;
+        inputs.push(new AskAnswerInput(s.labels, s.other));
       }
+      const answers: Record<string, string> = mergeAskAnswers(inputs);
       await store.respondAsk(answers, cancelled);
       this.askUser = null;
       this.askSelections = [];
