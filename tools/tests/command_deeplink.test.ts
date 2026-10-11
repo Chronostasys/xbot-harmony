@@ -123,6 +123,23 @@ function stripComments(src: string): string {
   const oc: string = stripComments(fs.readFileSync(
     path.join(root, 'entry/src/main/ets/entryability/EntryAbility.ets'), 'utf8'));
   ok('扫到源码（非空）—— 零扫描判红', oc.length > 0);
+  // ── **扫描器自证**（⛔ 不空转）：打印"扫了哪个文件 + 逐形态命中数 + 白名单集合" ──
+  {
+    const nParse: number = (oc.match(/parseCommandUri\(/g) || []).length;
+    const nIsCmd: number = (oc.match(/isCommandUri\(/g) || []).length;
+    const nShape: number = (oc.match(/commandActionValid\(/g) || []).length;
+    const nReg: number = (oc.match(/commandRegistered\(/g) || []).length;
+    const nCall: number = (oc.match(/this\.captureCommandUri\(want\);/g) || []).length;
+    const nLogErr: number = (oc.match(/hilog\.error\(DOMAIN, TAG/g) || []).length;
+    const nDrop: number = (oc.match(/AppStorage\.setOrCreate<string>\(PENDING_COMMAND_KEY/g) || []).length;
+    console.log(`▶ 深链接线扫描：entryability/EntryAbility.ets（剥注释后 ${oc.length} 字符）`);
+    console.log(`    命中：parseCommandUri=${nParse} · isCommandUri=${nIsCmd} · commandActionValid=${nShape}`
+      + ` · commandRegistered=${nReg} · captureCommandUri(want)=${nCall} · hilog.error=${nLogErr}`
+      + ` · setOrCreate(PENDING_COMMAND_KEY)=${nDrop}`);
+    console.log(`    白名单：${registeredCommands().join(' | ')}`);
+    ok('自证：四道形态各至少命中 1（扫描器不是空转）',
+      nParse >= 1 && nIsCmd >= 1 && nShape >= 1 && nReg >= 1);
+  }
 
   ok('③ 真 import `../core/command`', oc.indexOf("from '../core/command'") >= 0);
   ok('③ 生产调用 `parseCommandUri(` ≥ 1（消零消费）', (oc.match(/parseCommandUri\(/g) || []).length >= 1);
