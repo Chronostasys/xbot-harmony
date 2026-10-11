@@ -7,6 +7,8 @@
  * - 打开链接的协议白名单：只放行 `http` / `https` / `mailto`（`javascript:`/`data:`/`file:` 一律拒绝）。
  */
 
+import { ChatMessage } from './chattypes';
+
 export const COPY_REPLY: string = 'reply';
 export const COPY_THINKING: string = 'thinking';
 export const COPY_TOOLS: string = 'tools';
@@ -168,4 +170,102 @@ export function linkLabel(url: string): string {
   }
   const stripped: string = s.replace('https://', '').replace('http://', '').replace('mailto:', '');
   return stripped.length > 48 ? `${stripped.substring(0, 45)}…` : stripped;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// rewind（消息编辑并重发 / 回退）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `POST /api/history/rewind` 的请求体 —— 逐字对齐服务端 `channel/web/web_api.go:266-270`
+ * （`{channel, chat_id, history_id:int64}`；`history_id<=0` 直接 400）。
+ *
+ * ⚠️ 项目约定 REST 请求体集中在 `core/reqbody.ets`（唯一构造入口；服务端用
+ *    `DisallowUnknownFields` 严格解码，多一个字段就 400）。本波 `reqbody.ets` 属禁改文件，
+ *    故与 rewind 纯逻辑同置于此 —— 后续应迁回 `reqbody.ets`。
+ */
+export class RewindReq {
+  channel: string = '';
+  chat_id: string = '';
+  history_id: number = 0;
+
+  constructor(channel: string, chatId: string, historyId: number) {
+    this.channel = channel;
+    this.chat_id = chatId;
+    this.history_id = historyId;
+  }
+}
+
+/**
+ * rewind 的目标 user 行 —— 对应 web `rewind.ts` 的 `Pick<ChatMessage, 'role'|'turnID'|'content'>`。
+ *
+ * 用 class 而非 interface：页面在 ArkTS 下要 `new`（ArkTS 禁未类型化对象字面量作参数）。
+ */
+export class RewindTarget {
+  role: string = 'user';
+  turnID: number = 0;
+  content: string = '';
+
+  constructor(turnID: number, content: string, role?: string) {
+    this.turnID = turnID;
+    this.content = content;
+    if (role !== undefined) {
+      this.role = role;
+    }
+  }
+}
+
+/**
+ * 从一份**新鲜历史快照**里解出某条 user 消息的 **DB id**（逐字移植 web
+ * `rewind.ts:33 resolveUserMessageDBID`）。
+ *
+ * 为什么需要它：web/原生把 user 行从 `user_echo` SSE 渲染出来，而该回声在**入队时**就发出
+ * （早于 agent loop 落库），因此回声带权威 `turnID` 却**没有** DB id（`session_messages` 自增 id
+ * 只在落库时分配）。`dbID` 只随一次历史重载下发（`toChatMessages → dbID: m.id`）。
+ * 而 rewind 必须用这个 DB id，故当回声行缺 dbID 时从新鲜重载里解析。
+ *
+ * 匹配规则：
+ * - `turnID>0`：`turnID + content` **精确**匹配。回声 content 等于落库 content
+ *   （agent loop 落的是同一串展开文本），不匹配即"不是这条" ⇒ 返回"不可用"，
+ *   **绝不**跨 turn 猜。
+ * - `turnID=0`（附件展开回声）：无 turnID 可匹配 ⇒ 退回按 content。`rows` 按 DB id 升序，
+ *   故**反向**扫以命中**最近**一次出现 —— rewind 语义上针对最新一条同内容消息；
+ *   正向扫会命中最早的同内容行，内容重复时回退到错误位置。
+ *
+ * @param rows   新鲜历史行（必须带 dbID）
+ * @param target 用户想 rewind 的那条回声行
+ * @returns 匹配到的 DB id；**0 表示"没找到/尚未落库"**（web 返回 undefined —— 原生用 0 做哨兵，
+ *          因为服务端 `history_id<=0` 本就非法，0 是无歧义的"不可用"值，调用方据此提示）。
+ */
+export function rewindTargetDBID(rows: ChatMessage[], target: RewindTarget): number {
+  if (target.turnID > 0) {
+    for (let i = 0; i < rows.length; i++) {
+      const m: ChatMessage = rows[i];
+      if (m.role !== 'user') {
+        continue;
+      }
+      const db: number | undefined = m.dbID;
+      if (db === undefined) {
+        continue;
+      }
+      if (m.turnID === target.turnID && m.content === target.content) {
+        return db;
+      }
+    }
+    return 0;
+  }
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const m: ChatMessage = rows[i];
+    if (m.role !== 'user') {
+      continue;
+    }
+    const db: number | undefined = m.dbID;
+    if (db === undefined) {
+      continue;
+    }
+    if (m.content.length > 0 && m.content === target.content) {
+      return db;
+    }
+  }
+  return 0;
 }

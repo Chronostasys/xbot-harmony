@@ -12,7 +12,7 @@
  */
 import { XbotHttp } from './http';
 import { SseClient } from './sse';
-import { rowIsEmpty } from './streammerge';
+import { rowIsEmpty, shouldReloadHistory } from './streammerge';
 import { arrOrEmpty, isPresent } from './guards';
 import { ChatState, DomainEvent, initialChatState, NonEmptyS, nonEmptyStr, UserRow } from './chat_types_full';
 import { reduce } from './reduce';
@@ -25,6 +25,7 @@ import { normalizeWebIteration } from './agent_normalize';
 import { channelForChat } from './sessionpick';
 import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
 import { moveOrders } from './sessionops';
+import { RewindReq, RewindTarget, rewindTargetDBID } from './msgops';
 import { BgTask, CronJob, RunnerRow, SubAgentRow } from './panels';
 import { serverKey, toLocalSettings } from './settings';
 import { FsEntry } from './composer';
@@ -1021,6 +1022,108 @@ export class ChatStore {
     await this.loadQueue();
   }
 
+  /**
+   * 清空待发队列 —— **无独立端点**（web 同款）：**逐个** `POST /api/queue/cancel`。
+   *
+   * ⚠️ 先快照 id 再逐个取消：`cancelQueued` 内的 `loadQueue` 会**改写** `this.queue`，
+   *    边遍历边取消会漏项。
+   */
+  async clearQueue(): Promise<void> {
+    const ids: string[] = this.queuedMsgIds();
+    for (let i = 0; i < ids.length; i++) {
+      await this.cancelQueued(ids[i]);
+    }
+  }
+
+  /** 当前队列里可寻址的 msg_id（顺序 = 队列顺序）。 */
+  private queuedMsgIds(): string[] {
+    const ids: string[] = [];
+    for (let i = 0; i < this.queue.length; i++) {
+      const id: string = queueItemId(this.queue[i]);
+      if (id.length > 0) {
+        ids.push(id);
+      }
+    }
+    return ids;
+  }
+
+  /**
+   * **立刻插话（interject）** —— 把队列里某条待发消息**立刻注入正在跑的 turn**。
+   *
+   * web `useChatMessages.ts:899-920 interjectQueued` 的原生移植（**无独立端点**）：
+   *   ① `POST /api/queue/cancel {…, msg_id}` 先从队列移除；
+   *   ② 以 `interrupt=true` 重发内容（`send(content, …, true)`）—— 服务端把它注入当前 turn 的
+   *      下一个工具边界；会话空闲时自动退化为普通发送（返回值如实反映）。
+   *
+   * ⛔ 两个真坑（web CR 记档）：
+   *   · **必须传完整 `content`**，绝不能用服务端截断的 `preview`（>80 runes 会丢内容，
+   *     而队列原件已被取消 ⇒ 不可恢复）；
+   *   · cancel 返回 `{cancelled:false, already_processing:true}` **不是错误**（消息已被
+   *     dequeue 正在处理，用户"移出队列"的意图已满足）—— `http.post` 只在非 2xx 抛，
+   *     故此处**不得**把 `cancelled:false` 当失败、必须继续 send。
+   *
+   * @returns send 是否真的插话成功（`interrupted===true`）
+   */
+  async interjectQueued(msgId: string, content: string): Promise<boolean> {
+    // ① 先从队列移除（already_processing=true 不是错误 —— 见上）
+    await this.cancelQueued(msgId);
+    // ② 以 interrupt=true 重发**完整**内容
+    return await this.send(content, undefined, undefined, undefined, true);
+  }
+
+  // ── 消息编辑并重发（rewind） ────────────────────────────────────────────────
+
+  /**
+   * **消息编辑并重发（rewind）** —— web `AgentPanel.tsx:929 rewindTo` 的原生移植。
+   *
+   * ⛔ 铁律顺序（web `AgentPanel.tsx:959-970` 注释钉死，**一步都不能省**）：
+   *   ① **REST rewind**：`POST /api/history/rewind {channel, chat_id, history_id}`
+   *      （服务端删掉该 history_id 起的消息）；
+   *   ② **reset 状态机**：`initialChatState` 整体重建 —— 漏了这一步，被删 assistant 的
+   *      live 残渣会在下一个 `turn_started` 时提交，把**已被回退掉的回复回放**在新回合下方；
+   *   ③ **reload**（= `loadHistory`）：**必须在 send 之前** —— 否则 send 的乐观 user 行会被
+   *      紧随其后的新历史抹掉（web 注释：messageMutationGen 竞态）；
+   *   ④ **send(editedContent)**：把编辑后的内容作为新消息发出。
+   *
+   * @param historyId    目标 user 行的 DB id（`resolveRewindDBID` 解出；<=0 直接拒绝 —— 服务端亦 400）
+   * @param editedContent 编辑后的完整内容（非空）
+   * @returns 是否执行了回退
+   */
+  async rewindTo(historyId: number, editedContent: string): Promise<boolean> {
+    if (historyId <= 0 || editedContent.length === 0) {
+      return false;
+    }
+    // ① rewind（先删服务端消息）
+    await this.http.post('/api/history/rewind',
+      new RewindReq(this.channel, this.currentChatId, historyId));
+    // ② reset 状态机（漏了 ⇒ 被删的 assistant 回放）
+    this.resetStateMachine();
+    // ③ reload 必须在 send 之前（否则乐观行被新历史抹掉）
+    await this.loadHistory();
+    // ④ 发送编辑后的内容
+    await this.send(editedContent);
+    return true;
+  }
+
+  /**
+   * 从当前会话的历史行解出目标 user 行的 DB id（纯逻辑见 `core/msgops.ets:rewindTargetDBID`）。
+   * 找不到返回 0（= 尚未落库/不可用）。
+   */
+  resolveRewindDBID(target: RewindTarget): number {
+    return rewindTargetDBID(this.history, target);
+  }
+
+  /**
+   * 整体复位状态机 + 行缓存 + 历史累积（rewind / 重载前用）。
+   * 与 `openSession` 的复位同源（`initialChatState` —— 杜绝"漏重置某个字段"）。
+   */
+  private resetStateMachine(): void {
+    this.resetRows();
+    this.history = [];
+    this.hasMore = false;
+    this.oldestId = 0;
+  }
+
   // ── 插件面板 / 插件目录 ────────────────────────────────────────────────────
 
   /**
@@ -1143,7 +1246,13 @@ export class ChatStore {
       const sess: SessionEvent | null | undefined = env.session;
       const action: string = sess !== undefined && sess !== null && sess.action !== undefined
         ? sess.action : '';
-      if (action === 'idle' || action === 'agent-idle') {
+      if (shouldReloadHistory(action)) {
+        // 外部 rewind（别的客户端 / 本机编辑确定后服务端广播 `history_rewound`）⇒
+        // 历史已被截断，必须重载（复用 core/streammerge.ets 的判据，与 web 同源）。
+        this.loadHistory().catch(() => {
+          // 重载失败不影响主链路；下一次事件/切会话会再兜底
+        });
+      } else if (action === 'idle' || action === 'agent-idle') {
         this.loadStatus().catch(() => {
           // 状态非关键路径
         });
@@ -1370,4 +1479,20 @@ export function toolsSummary(tools: ToolProgress[]): string {
     names.push(tools[i].name);
   }
   return names.join(' · ');
+}
+
+/**
+ * 队列项的可寻址 id（`msg_id` 优先，回落 `id`）。
+ * ⚠️ 外来 JSON（`/api/queue/list` 的 items 元素）：两个字段都可能 null ⇒ 显式三态。
+ */
+export function queueItemId(item: QueueItem): string {
+  const mid: string | null | undefined = item.msg_id;
+  if (mid !== undefined && mid !== null && mid.length > 0) {
+    return mid;
+  }
+  const qid: string | null | undefined = item.id;
+  if (qid !== undefined && qid !== null) {
+    return qid;
+  }
+  return '';
 }
