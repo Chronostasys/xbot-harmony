@@ -109,8 +109,14 @@ has(tailSrc, 'reduceMotion: this.reduceMotion(),',
   '降级唯一来源仍投给光球');
 
 // ── (6) thinkingIsPrimary 语义未退化：仍是"有思考、无正文、无在飞工具"──────────────
-has(tailSrc, 'return !this.hasLiveTool() && this.reasoning.length > 0 && this.text.length === 0;',
-  'thinkingIsPrimary() 判据未变（只改色，不再触发第二处动效）');
+// ⚠️ 2026-10-11（§12-C）**有意更新**：判据由 `!this.hasLiveTool()`（不含 pending）改为
+//    `!this.hasToolInProgress()`（**含 pending**，= web `statusVisual.ts:20-22` isToolInProgress）。
+//    本条**保留它真正要防的东西**：`thinkingIsPrimary()` 语义不得退化 —— 它只决定"领读/配色"
+//    （`ORB_MODE_SECONDARY` 让位），⛔ **不得**变成第二处在飞动效的触发源。
+ok('thinkingIsPrimary() 语义仍是「无在飞工具(含 pending) + 有思考 + 无正文」',
+  tailSrc.indexOf('!this.hasToolInProgress() && this.reasoning.length > 0 && this.text.length === 0') >= 0);
+ok('thinkingIsPrimary() 仍只用于领读让位（ORB_MODE_SECONDARY）—— ⛔ 不得触发第二处在飞动效',
+  tailSrc.indexOf('this.thinkingIsPrimary() ? ORB_MODE_SECONDARY : ORB_MODE_THINKING') >= 0);
 
 if (fail > 0) {
   console.log(`  one_inflight_motion: ${pass} passed, ${fail} failed`);

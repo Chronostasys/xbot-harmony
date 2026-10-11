@@ -87,7 +87,7 @@ ok('呼吸值域 ⊆ [0,1]（可直接当权重用）', (() => {
 // ── (b) 主高亮唯一性：谁在什么时候领读（优先级表）──────────────────────────────
 const primaryBody: string = bodyOf(tailSrc, 'private thinkingIsPrimary(): boolean {');
 ok('thinkingIsPrimary() 可定位', primaryBody.length > 20);
-has(primaryBody, 'this.hasLiveTool()', '判据含"无在飞工具"');
+has(primaryBody, 'this.hasToolInProgress()', '判据含"无在飞工具"（§12-C：**含 pending**，= web statusVisual.ts:20-22 isToolInProgress；⛔ 与 isLiveStatus 有意分叉）');
 has(primaryBody, 'this.reasoning.length > 0', '判据含"有思考"');
 has(primaryBody, 'this.text.length === 0', '判据含"无正文"（对齐 web reasoningInProgress）');
 // 优先级：工具在飞 ⇒ 光球领读（tool）；只有思考 ⇒ 光球让位（secondary）；其余 ⇒ thinking
