@@ -10,7 +10,7 @@ import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
 import { webview } from '@kit.ArkWeb';
 import { ChatStore } from '../core/store';
-import { beginTurnKeepAlive, endTurnKeepAlive, ensureEnabled, notificationsEnabled, PENDING_CHAT_KEY, PENDING_CHAT_SEQ_KEY } from '../core/notify';
+import { beginTurnKeepAlive, endTurnKeepAlive, ensureEnabled, notificationsEnabled, PENDING_CHAT_KEY, PENDING_CHAT_SEQ_KEY, PENDING_ACTION_KEY, isKnownNotifyAction, NOTIFY_ACTION_STOP, NOTIFY_ACTION_CONTINUE } from '../core/notify';
 import { ALL_THEMES, normalizeTheme, Palette, paletteOf, themeLabel, Effects, effectsOf, isDarkThemeName, isLightPalette } from '../core/theme';
 import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, withAccent } from '../core/accent';
 import { MD_THEMES, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';
@@ -578,6 +578,8 @@ struct Index {
   @StorageProp('pendingOpenChatId') @Watch('onPendingChatChanged') pendingChatId: string = '';
   /** 序号（number）：同一会话被点第二次时 id 不变，靠它察觉变化（@StorageProp 只在值变了才通知）。 */
   @StorageProp('pendingOpenChatSeq') @Watch('onPendingChatChanged') pendingChatSeq: number = 0;
+  /** 通知**动作按钮**带来的动作 id（EntryAbility 从 `want.parameters.notify_action` 白名单解析后写入）。 */
+  @StorageProp('pendingNotifyAction') @Watch('onPendingActionChanged') pendingAction: string = '';
 
   // ── live turn 的整条 assistant 消息（同气泡：已完成迭代 + 在飞块）──
   // ⚠️ 为什么**非懒**渲染（LazyForEach 之外、@State 直驱）：虚拟列表条目在真机上
@@ -709,6 +711,49 @@ struct Index {
     this.openPendingChat();
   }
 
+  /** `@StorageProp` 变更回调（**热启动路**）：通知动作按钮 → 页面动作。 */
+  private onPendingActionChanged(): void {
+    this.consumePendingAction();
+  }
+
+  /**
+   * 消费「通知动作按钮」——把动作 id 派发到**既有**状态机入口（⛔ 不在页面就地判）。
+   *
+   * 判据与 `core/notify.ets` **同源**：白名单 `isKnownNotifyAction`（EntryAbility 已过滤一次，
+   * 这里再判一次防注入）；未就绪（未登录 / store 未建）**不消费**（保留值，待 bootstrap 后再调）；
+   * 消费后清空 `PENDING_ACTION_KEY`（与 `openPendingChat` 删 `PENDING_CHAT_KEY` 同款）。
+   */
+  private consumePendingAction(): void {
+    if (!this.loggedIn || this.store === null) {
+      return;
+    }
+    const v: string | undefined = AppStorage.get<string>(PENDING_ACTION_KEY);
+    const action: string = v !== undefined ? v : '';
+    if (action.length === 0) {
+      return;
+    }
+    try {
+      AppStorage.delete(PENDING_ACTION_KEY);
+    } catch (e) {
+    }
+    if (!isKnownNotifyAction(action)) {
+      return;   // 白名单外：不执行任何能力（防注入）
+    }
+    if (action === NOTIFY_ACTION_STOP) {
+      this.store.cancel();
+      return;
+    }
+    if (action === NOTIFY_ACTION_CONTINUE) {
+      this.store.send('/continue').then(() => {
+        this.keepAliveTurn = true;
+        beginTurnKeepAlive();
+      }).catch(() => {
+      });
+      return;
+    }
+    // NOTIFY_ACTION_OPEN：已由 pendingOpenChatId 覆盖 ⇒ no-op
+  }
+
   /**
    * 消费「点通知要打开的会话」——**只切会话，绝不改会话/消息状态语义**（状态以后端为准）。
    *
@@ -825,6 +870,8 @@ struct Index {
         // `@Watch` 不会触发 ⇒ 必须在这里（已登录 + store 就绪）主动消费一次。
         // 它若命中会把界面从"默认首个会话"切到通知指向的会话（幂等，见 openPendingChat）。
         this.openPendingChat();
+        // 通知**动作按钮**同款冷启动路：onCreate 写值可能早于挂载 ⇒ @Watch 不触发 ⇒ 这里补读一次
+        this.consumePendingAction();
       } else if (!this.authExpiredHandled) {
         // 网络/服务端问题：**保留凭证**（下次冷启动仍会自动登录），并给出可读原因
         this.loggedIn = false;
