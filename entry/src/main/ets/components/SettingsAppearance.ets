@@ -36,7 +36,7 @@ import {
   SEND_KEY_ENTER, SEND_KEY_MOD_ENTER,
 } from '../core/settings';
 import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent } from '../core/accent';
-import { normalizeMdTheme } from '../core/mdtheme';
+import { mdThemePickerDescription, normalizeMdTheme } from '../core/mdtheme';
 import { localeLabel, normalizeLocale } from '../core/i18n';
 import {
   HIT_TARGET_MIN, SPACE_XS, SPACE_SM, SPACE_LG, STROKE_HAIRLINE, hairlineOf,
@@ -165,8 +165,7 @@ export struct SettingsAppearance {
       SettingsMdThemePicker({
         theme: this.theme,
         label: settingLabel(KEY_MD_THEME),
-        description: '仅作用于 Markdown 代码高亮；与 Web 端共用同一组 id。19 项按明暗分组，'
-          + '默认展开当前主题那一组。',
+        description: mdThemePickerDescription(),
         value: this.mdThemeId(),
         onSelect: (id: string) => {
           this.onSetSetting(KEY_MD_THEME, id);

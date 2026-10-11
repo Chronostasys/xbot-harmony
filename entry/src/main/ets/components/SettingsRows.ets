@@ -719,7 +719,7 @@ export struct SettingsActionRow {
 /**
  * 一行「单选列表项」（左标签 + 选中打勾）—— 用于**长枚举**的单选（如 Markdown 主题）。
  *
- * 为什么不复用 `SettingsChipRow`：chip 只适合 2–5 个选项；19 项平铺成 chip 是一片糊。
+ * 为什么不复用 `SettingsChipRow`：chip 只适合 2–5 个选项；23 项平铺成 chip 是一片糊。
  * 单选项就该是**列表行**（可扫读、可扩展、可预览）。内距/字阶/命中区与 `SettingsToolRow` 同款。
  */
 @Component

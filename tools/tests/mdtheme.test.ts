@@ -4,7 +4,7 @@
  */
 declare const process: { exit: (c: number) => void };
 
-import { MD_THEMES, DEFAULT_MD_THEME, mdThemeLabel, mdThemeMode, normalizeMdTheme, isLightMdTheme, codeTone, codeBgOf } from '../../entry/src/main/ets/core/mdtheme';
+import { MD_THEMES, DEFAULT_MD_THEME, mdThemeLabel, mdThemeMode, mdThemePickerDescription, normalizeMdTheme, isLightMdTheme, codeTone, codeBgOf } from '../../entry/src/main/ets/core/mdtheme';
 import { darkPalette, porcelainPalette } from '../../entry/src/main/ets/core/theme';
 
 let pass = 0, fail = 0;
@@ -23,6 +23,12 @@ const WANT_IDS = [
 eq('主题数量 = web(23)', MD_THEMES.length, 23);
 eq('id 与顺序逐字一致', MD_THEMES.map((t) => t.id).join(','), WANT_IDS.join(','));
 eq('默认主题 = web DEFAULT_MARKDOWN_THEME', DEFAULT_MD_THEME, 'vscode-dark');
+// 说明文案里的**项数**必须由 MD_THEMES 派生（2026-10-11 审计钓出：组件曾硬编码「19 项」，
+// 而实为 23 套 ⇒ 用户看到的数量与取值集不符）。
+// ★ 判别力（mutation 必红）：把 mdThemePickerDescription() 里的 `${MD_THEMES.length}` 改成 `19`
+//   ⇒ 下面两条立刻红（第一条找不到「23 项」，第二条找到「19 项」）。
+eq('说明文案含真实项数（23 项）', mdThemePickerDescription().indexOf(`${MD_THEMES.length} 项`) >= 0, true);
+eq('说明文案不含历史硬编码的 19 项', mdThemePickerDescription().indexOf('19 项') < 0, true);
 eq('每套都有非空显示名', MD_THEMES.filter((t) => t.label.length === 0).length, 0);
 eq('mode 只能是 dark/light', MD_THEMES.filter((t) => t.mode !== 'dark' && t.mode !== 'light').length, 0);
 eq('浅色主题数量 = 4', MD_THEMES.filter((t) => t.mode === 'light').length, 4);

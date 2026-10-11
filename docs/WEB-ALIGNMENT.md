@@ -640,7 +640,7 @@ web：`reasoningCount = reasoningStreaming ? rw.visibleChars : length`，且**�
 |---|---|---|---|---|---|
 | 10 | **抽屉（会话列表）形态** | 卡片 + 1px 描边（含 3px accent 左色条）+ 阴影 | **扁平行**：`RADIUS_PILL` + 选中一档填充 + `hairlineOf()` 分隔 + `type.*` 字号阶梯 + 命中区 44 | 用户亲报"侧边栏丑的要死"；"卡片式装饰"正是"丑"的根因（宪法：层级靠字重/内距/发丝，不靠描边阴影） | 24 |
 | 11 | **设置入口数量** | 单面板 | 原为三份（抽屉 `PrefsSheet` / 右上 ⚙ `SettingsSheet` / 偏好设置 `SettingsPanel`）⇒ **收敛为唯一 `components/SettingsPanel`**（11 分区 + 共享原子） | 用户亲报"两个设置面板…右上角那个像垃圾"；同一切面两份实现=第二判据（本仓铁律） | 24 |
-| 12 | **Markdown 主题枚举的呈现** | 下拉/列表 | **按亮/暗分组（`MdThemeItem.mode`）+ 折叠 + 组内单选列表行 + 当前主题预览**（19 项）；⛔ 不是 chip 平铺 | 用户提供的真机截图里 **19 个 chip 糊成一片**是"像垃圾"最直观来源 ⇒ 这是**长枚举结构问题**，不是样式问题 | 24（形态已裁决，落地中） |
+| 12 | **Markdown 主题枚举的呈现** | 下拉/列表 | **按亮/暗分组（`MdThemeItem.mode`）+ 折叠 + 组内单选列表行 + 当前主题预览**（**23 项**）；⛔ 不是 chip 平铺 | 用户提供的真机截图里 **一屏 chip 糊成一片**是"像垃圾"最直观来源 ⇒ 这是**长枚举结构问题**，不是样式问题。⚠️ 本行原写「19 项」是**计数笔误**（`MD_THEMES` 自始即 23 套，`tools/tests/mdtheme.test.ts:23` 早已断言）；2026-10-11 设置审计已把 UI 文案改为由 `MD_THEMES.length` 派生（`core/mdtheme.ets:mdThemePickerDescription`） | 24（形态已裁决，落地中） |
 | 13 | **代码块底 / 圆角** | `codeBgOf()` 底 + `R_MD`(6)（`msgflow_visual.test.ts:79` 已钉住 web 值） | **`surface.well`(sunken) + `RADIUS_CARD`(12) + 发丝 + 横向滚动** | 依批次 23 #6「视觉以设计系统为权威」；⚠️ 与该测试期望值冲突 ⇒ **需同步该断言**（chat-surface 已如实上报，未擅自改测试） | 24（**待落地**） |
 | 14 | **用户气泡尾角半径** | 无此值 | `RADIUS_BUBBLE_TAIL = 4`（**统一** `BUBBLE.userRadiusBR=2` 与 `RADIUS_BUBBLE_TAIL=4` 两个值） | 同一语义两处值 = 第二判据；4 落在 4 网格上、语义为"小圆角" | 24 |
 | 15 | **按压不透明度** | `.6` | `PRESS_OPACITY = 0.6`（`TodoPanel` 历史值 `0.7` 归一到 0.6） | 样张 `docs/mockups/interaction.html` 明文 0.6；历史值无依据 | 24 |
@@ -682,8 +682,111 @@ web：`reasoningCount = reasoningStreaming ? rw.visibleChars : length`，且**�
 
 **本批把 §16.2 的遗留逐条销账（诚实对照）**：
 - #11 三面板收敛 ✅ 完成（`ccbf7e3` 移除 flag 所有权表两行）；**入口去重本条补完** ✅（`c673d26`）
-- #12 19 主题新形态 ✅ 落地（`be9e239`：明暗分组 + 折叠 + 组内单选 + 当前主题预览）
+- #12 Markdown 主题新形态 ✅ 落地（`be9e239`：明暗分组 + 折叠 + 组内单选 + 当前主题预览，**23 项**）
 - #13 代码块底/圆角 ✅ 落地（`38f7dc0`：`surface.well` + `RADIUS_CARD` + 发丝；`msgflow_visual.test.ts` 断言已显式授权同步）
 - #14 `RADIUS_BUBBLE_TAIL` ✅ / #15 `PRESS_OPACITY = 0.6` ✅ / #16 光球静态线索 ✅ / #17 `effectsOf()` 光晕 ✅（`7841978` 起语义令牌齐备：goal / 控件 / 浮层 / 在飞光晕 / 危险态）
 - 未认领组件三面（`SubAgentTree` / `MessageNav` / `AuthImage`）✅ 已迁入语义层（`7d97304`）
 - **仍未完成（明账）**：①「长词换行策略」（批次23 #9 的 `BREAK_ALL` 妥协，设计系统已定稿 ⇒ 待一次性裁决）；②品牌主色 `onAccent` vs `accent` = 4.3461 < 4.5 AA（**待用户拍板**）；③分层图标（需卸载重装 ⇒ 清 App 数据，**待用户拍板**）；④开屏 `FOLLOW_APPLICATION`（**待用户拍板**）；⑤`pages/Index.ets` 内联可见面第二轮 + `PluginWidgets` 接线。
+
+---
+
+## 17. 目标③：设置页对齐 web —— 差异审计 + 可执行清单（2026-10-11）
+
+> 方法：对照 **web 权威真源**（`web/src/components/settings/*.tsx` + `lib/userSettings.ts` + `hooks/useLLMSettings.ts`，
+> 14 个 Tab）逐项与**本仓唯一设置面** `components/SettingsPanel.ets`（12 个分区）+ `core/settings*.ets` 比对；
+> 两侧枚举均带 `file:line`（web 侧 / 原生侧各自的逐项审计表见本轮交付）。
+> ⚠️ 本节**只登记设置面差异**，不重复 §16.2/§16.3 已登记的视觉分歧。
+
+### 17.1 一句话结论
+
+**功能面的"取值集"几乎全对齐**：Markdown 主题（23）、强调色预设（6，同值同序）、发送键（2）、语言（3）、
+thinking（4 档）、tier（3 档）、provider（2）、api_type（2）、CTX/OUT 预设、vision 四默认（1024/4MB/85/auto）
+**逐值一致** ⇒ **不存在"纯逻辑（枚举/默认值/序列化）不一致"**（本轮最重要的**负面**结论：**没有便宜可捡**）。
+差异**全部在"控件/接线"层**：本仓是"分组不同 + 少若干控件"，web 是"完整 CRUD 控制台"。
+
+### 17.2 四态差异表（分区级）
+
+| 分区 | web（14 Tab） | 本仓（12 分区） | 态 |
+|---|---|---|---|
+| 外观 | UI 外壳模式 / md 主题 / 强调色预设 + **自定义 hex** | 应用主题(5) / 强调色预设 + 「跟随主题」/ md 主题 / 语言(只读) / 字号 / 换行 / 思考展开 / 光球 / 聊天界面 / 发送键 / 通知提醒 / 刷新 | ⚠️ 少「自定义 hex」；本仓多 6 项（见 ➕） |
+| 交互 | 换行 + 发送键（**独立 Tab**） | **并入「外观」** | ✅ 语义同、分组不同 |
+| 语言 | 语言 select(3) + **清除缓存** | 语言**只读**，无清除缓存 | ❌ 缺"可写 + 清缓存" |
+| 智能体 | 自我压缩 + vision×4（+保存） | 同（5 键） | ✅ |
+| 工具 | 工具开关 + MCP 组开关 | 同（`get_tools_settings` / `set_tool_enabled`） | ✅ |
+| 模型 / LLM | thinking + 并发 + tier×3 + **订阅 CRUD + 导入导出 + 按模型配置** | thinking + 并发 + tier×3 + 订阅启停/默认 + 新增/编辑 + 模型管理 + 导入导出订阅 | ⚠️ 接近，但**按模型配置 UI 完整度**不及 web 控制台 |
+| 消息渠道 | web 渠道 + 插件渠道 + 飞书绑定 | schema 驱动（飞书绑定有） | ⚠️ 渠道集较小 |
+| 存储 | schema 驱动（static/oss…） | 同 | ✅ |
+| 账号 | 用户名 + 退出 | 同 | ✅ |
+| Web 账号 | 建/列/删（一次性密码） | 同 | ✅ |
+| 开发者 | 录制开关 + **导出 Turn/benchmark/openai/codex** | 录制开关 + 复制/清空 + **连接状态卡** | ⚠️ **缺导出按钮**（`core/export.ets` 逻辑已在，**未接线**） |
+| 布局 | slot 选择 + 重置（VSCode 式面板布局） | **无** | ❌（**N/A**：原生单布局，无 dock 概念） |
+| 插件 | 搜索 + 配置字段（number 滑条 / multiselect / image 上传） | 配置字段（Toggle/Text/Chip；**image 禁编辑**）+ 启停 + 重载 | ⚠️ 控件类型较少 |
+| 关于 | 版本 + 更新 + 重启 + **PWA 安装** | 版本/提交/构建/渠道/运行时/托管 + 更新 + 重启 | ✅（PWA **N/A**） |
+| 通知 | **无此 Tab** | **通知 Tab（正文隐私开关）** | ➕ 本仓独有 |
+
+**计数（分区级）**：**✅ 7**（交互·智能体·工具·存储·账号·Web账号·关于）·
+**⚠️ 5**（外观·LLM·渠道·开发者·插件）· **❌ 2**（语言·布局；布局 **N/A**）·
+**➕ 9**（原生独有，**保留**：应用主题 5 套含「极简白」/ 字号 / 思考默认展开 / 思考光球 / 聊天界面 /
+通知 Tab / 通知提醒 / 开发者连接卡 / 重新读取设置）。
+
+### 17.3 排序后的可执行清单（按「用户可感知 × 实现成本」）
+
+> 「碰 Index.ets」列 = 是否需要 `pages/Index.ets`（当前被 brand-impl 占用 ⇒ **等释放**）。
+
+| # | 项 | 态 | 改哪个文件（`file:line`） | 碰 Index.ets？ | 验收判据 |
+|---|---|---|---|---|---|
+| 1 | **自定义 hex 强调色输入框** | ⚠️ | `components/SettingsAppearance.ets`（强调色段 `:157-163` + `AccentSwatches` `:298-338`）；逻辑已在 `core/accent.ets:normalizeAccent` | **否** | 输入 `#RRGGBB`/`#RGB` ⇒ 即时落 `KEY_ACCENT`；非法 ⇒ 回退并显错（web `SettingsAppearance.tsx:166-195` 同语义）。判别力：`accent.test.ts` 补 normalize 用例 + 组件源码形态断言（mutation：去掉校验 ⇒ 红） |
+| 2 | **开发者「导出会话」按钮组**（openai / codex / benchmark） | ⚠️ | `components/SettingsDeveloper.ets` + 需 `http`/回调注入 | **是**（该组件**当前不注入 `http`**，须页面补传）⇒ **等释放** | 产物 == `core/export.ets:toCodexJsonl/toMulticaJsonl/toBenchmarkJsonl`；判别力：`export.test.ts`（已有）+ 源码形态断言 |
+| 3 | **语言可写 + 清除缓存** | ❌ | `components/SettingsAppearance.ets` + 需 i18n 真正切换（`core/i18n.ets` **只做读取**，UI 文案硬编码中文） | 否（但依赖大重构） | ⛔ **不建议现在做**（见 §17.5-1） |
+| 4 | **LLM 按模型配置 UI 补全** | ⚠️ | `components/SettingsLlm.ets`（按模型编辑器 `:735+`；逻辑在 `core/permodelcfg.ets`，**已齐**） | 否 | 与 web `llm-console.tsx` 的 `CTX_PRESETS/OUT_PRESETS/API_TYPES/vision_detail` 逐项对齐；判别力：`permodelcfg` 已有测试 + 新增 UI 形态断言 |
+| 5 | **插件控件类型补全**（number 滑条 / image 上传） | ⚠️ | `components/SettingsPlugins.ets` + `core/settingsplugins.ets`（`isFieldEditable` 现把 `image` 判**禁编辑** `:70-74`） | 否 | 与 web `SettingsPlugins.tsx:582-700` 的 `prop.type` 分支对齐；判别力：`settingsplugins` 已有测试（补 image/number 用例 + mutation） |
+| 6 | **渠道集对齐**（web 渠道 + 插件渠道） | ⚠️ | 数据驱动（`get_channel_config` 返回值）⇒ 多在**服务端/插件**面 | 否 | 以服务端返回为准；本仓仅需确认渲染不丢渠道 |
+| 7 | **并发默认显示**（web 0 / 本仓 5） | ⚠️ | `core/settings.ets:1178-1214`（**已是有意差异**） | 否 | **只登记**（§17.5-3），不改代码 |
+| 8 | **md 主题文案计数（19→23）** | ⚠️ | `core/mdtheme.ets:mdThemePickerDescription` + `components/SettingsAppearance.ets` | 否 | ✅ **本轮已做掉**（见 §17.4） |
+
+**波次建议**（按文件冲突矩阵）：
+- **波 A（不占线，随时可做）**：#8（已做）· #1（`SettingsAppearance.ets`，无 Index 依赖）· #4/#5（LLM/插件组件）。
+- **波 B（等 `Index.ets` 释放）**：#2（开发者导出，需页面补传 `http`）。
+- **不做**：#3（无 i18n 地基）· #6（服务端面）· #7（已是有意差异）。
+
+### 17.4 本轮**已落地**（文案修正 + 判别力测试）
+
+**⚠️ 硬伤：Markdown 主题文案声称「19 项」，实际 **23 套**。**
+
+- 根因（"判据与渲染不同源"的变体）：`MD_THEMES` 自始即 23 套（`tools/tests/mdtheme.test.ts:23` 早已断言
+  `length === 23`），但 **UI 文案把数量写死成 19**（`components/SettingsAppearance.ets` 的 description；
+  `SettingsMdTheme.ets`/`SettingsRows.ets` 的注释；`docs/WEB-ALIGNMENT.md` 批次 24 #12；`docs/mockups/porcelain.html`）
+  ⇒ 用户看到的项数与真实取值集不符。
+- 修法：新增**唯一来源** `core/mdtheme.ets:mdThemePickerDescription()`（数量由 `MD_THEMES.length` **派生**），
+  组件改为引用它；其余"19"残留逐处订正为 23。
+- 证据：`tools/tests/mdtheme.test.ts` 新增 2 条（文案含真实项数、不含历史硬编码 19）；
+  mutation = 把派生式改回 `19` ⇒ 两条立刻红；`run-one.sh mdtheme` **24 passed / 0 failed**。
+- ⛔ 纪律：**文案里的数量也是取值集的派生量** —— 与组件里禁写死数值同一类。
+
+### 17.5 明账：**不建议**改的项（附理由，不是清单复制）
+
+1. **语言可写（#3）—— 不建议**：本仓**没有 i18n 文案表**（`core/i18n.ets` 只做 locale 读取，UI 文案硬编码中文）。
+   此时把语言"改成可写"，用户切到 `en` 界面**仍是中文** ⇒ **假功能**，比只读更差。
+   ⛔ 正确顺序 = **先建文案表（100+ 字符串，大重构）**，再开写入口。web 敢开放是因为它有完整 zh/en/ja 文案。
+2. **布局 Tab（❌）—— 不建议**：web 的「布局」是 VSCode 式 dock（6 slot / 拖放 / `panel-layout-v2`）。
+   原生单手机布局、无 dock 概念 ⇒ 这是**平台差异**（N/A），不是缺口。⛔ 别为"清单齐全"造假面板。
+3. **并发默认显示（0 vs 5）—— 不建议改**：`core/settings.ets:1178-1214` 已注明这是**有意差异**
+   （web 步进只钳下界不钳上界，本仓按服务端契约 `1-100` 钳上界）⇒ 只应**登记**（本条即登记）。
+4. **`KEY_UI_MODE`（auto/desktop/mobile）—— 不建议消费**：原生无 desktop shell；键保留只为两端 key 表一致
+   （`core/settings.ets:18-25` 已注明）。⛔ 别删该键（删了会让 web 侧设置丢失）。
+5. **web 独有布局键（`leftSidebarWidth`/`layout:overrides`/`layout:order`/`panel-layout*`/`recent-workdirs:v1`）—— 不建议映射**：
+   本仓无对应概念；`localKey()` 未收录 ⇒ 原生读写**原样保留**（不丢），符合预期。
+
+### 17.6 ⚠️ 顺带订正：§1「共享设置键」表的措辞（**不是"同源"**）
+
+`docs/WEB-PARITY.md §1` 原写"映射表与 web `userSettings.ts` **同源**" —— **不准确**。实测两张表：
+
+| 类别 | 键 | 说明 |
+|---|---|---|
+| **真共享（8）** | `md-theme`/`accent`/`locale`/`send-key-mode`/`code-word-wrap`/`ui-mode`/`starred`/`session-category` | 两端 `SETTING_MAP` 都有 ⇒ 跨设备一致 |
+| **原生独有（8）** | `font-scale`/`reasoning-default`/`app-theme`/`surface`/`orb`/`notify-ask`/`notify-turn-done`/`notify-detail` | 本仓 `serverKey()` 单方面映射到 `web:ui:*`；**web 的 `SETTING_MAP` 没有这些键** ⇒ web 视为未知键、按 `REVERSE_MAP` 过滤忽略（`userSettings.ts:79-81`），不串味、**也不跨端可见** |
+| **web 独有（6）** | `leftSidebarWidth`/`layout:overrides`/`layout:order`/`panel-layout`/`panel-layout-v2`/`recent-workdirs:v1` | 桌面布局概念，原生 N/A；本仓 `localKey()` 未收录 ⇒ 原样保留不丢 |
+
+⇒ **安全性已核**：web `syncAndMigrateSettings()`（`userSettings.ts:67-113`）只回写 `REVERSE_MAP` 内的键，
+原生写进的 `web:ui:<原生独有>` **不会**污染 web 的 localStorage；原生 `localKey()` 对未收录键原样返回 ⇒ **双向零丢键**。
+（本轮已按此表订正 `WEB-PARITY.md` 的措辞。）

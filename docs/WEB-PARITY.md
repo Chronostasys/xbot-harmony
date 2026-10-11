@@ -5,22 +5,36 @@
 
 ## 1. 共享设置键（**两端必须同 id**）
 
-映射表在 `core/settings.ets` 的 `serverKey()/localKey()`，与 web `userSettings.ts` 同源：
+映射表在 `core/settings.ets` 的 `serverKey()/localKey()`。⚠️ **2026-10-11 订正**：原写"与 web `userSettings.ts` 同源"**不准确** ——
+实测**只有 8 个键真共享**，其余是**本仓单方面映射**到 `web:ui:*`（web 的 `SETTING_MAP` 没有它们 ⇒ web 读到按未知键忽略，**不串味但也不跨端可见**）。
+逐键归属见 `docs/WEB-ALIGNMENT.md §17.6`。
 
-| 本地键 | 服务端键 | 状态 |
-|---|---|---|
-| `xbot-app-theme` | `web:ui:app-theme` | ✅ 可改（深/浅/极光/星云） |
-| `xbot-accent` | `web:ui:accent` | ✅ 可改（6 预设 + 跟随主题） |
-| `xbot-md-theme` | `web:ui:md-theme` | ✅ 可改（23 套，只影响代码块/行内码） |
-| `xbot-starred` | `web:session:starred` | ✅ 可改（星标 + 星标优先排序） |
-| `xbot-locale` | `web:ui:locale` | ⚠️ **只读展示**（见 §3） |
-| `xbot-font-scale` | `web:ui:font-scale` | ✅ 可改 |
-| `xbot-code-word-wrap` | `web:ui:code-word-wrap` | ✅ 可改 |
-| `xbot-reasoning-default` | `web:ui:reasoning-default` | ✅ 可改 |
-| `xbot-send-key-mode` | `web:ui:send-key-mode` | ✅ 可改 |
-| `xbot-surface` | `web:ui:surface` | ✅ 可改（原生 / 内嵌 ArkWeb） |
+**真共享（8，两端 `SETTING_MAP` 都有 ⇒ 跨设备一致）**：`md-theme` / `accent` / `locale` / `send-key-mode` /
+`code-word-wrap` / `ui-mode` / `starred` / `session-category`。
 
-> 改了共享键 = 改了两端（含 web）。所以**写入前必须确认语义与 web 一致**。
+**原生独有（8，借用 `web:ui:*` 命名空间但 web 不认）**：`app-theme` / `font-scale` / `reasoning-default` /
+`surface` / `assistant-orb` / `notify-ask` / `notify-turn-done` / `notify-detail`。
+
+| 本地键 | 服务端键 | 归属 | 状态 |
+|---|---|---|---|
+| `xbot-app-theme` | `web:ui:app-theme` | 原生独有 | ✅ 可改（深/浅/极光/星云/极简白） |
+| `xbot-accent` | `web:ui:accent` | **真共享** | ✅ 可改（6 预设 + 跟随主题） |
+| `xbot-md-theme` | `web:ui:md-theme` | **真共享** | ✅ 可改（23 套，只影响代码块/行内码） |
+| `xbot-starred` | `web:session:starred` | **真共享** | ✅ 可改（星标 + 星标优先排序） |
+| `xbot-locale` | `web:ui:locale` | **真共享** | ⚠️ **只读展示**（web 可改；本仓无 i18n 文案表 ⇒ 见 §3 / `WEB-ALIGNMENT §17.5-1`） |
+| `xbot-font-scale` | `web:ui:font-scale` | 原生独有 | ✅ 可改（web 无此设置） |
+| `xbot-code-word-wrap` | `web:ui:code-word-wrap` | **真共享** | ✅ 可改 |
+| `xbot-reasoning-default` | `web:ui:reasoning-default` | 原生独有 | ✅ 可改 |
+| `xbot-send-key-mode` | `web:ui:send-key-mode` | **真共享** | ✅ 可改 |
+| `xbot-surface` | `web:ui:surface` | 原生独有 | ✅ 可改（原生 / 内嵌 ArkWeb） |
+| `xbot-assistant-orb` | `web:ui:assistant-orb` | 原生独有 | ✅ 可改（光球在飞指示） |
+| `xbot-notify-ask` / `-turn-done` / `-detail` | `web:ui:notify-*` | 原生独有 | ✅ 可改（通知事件 + 正文隐私） |
+| `xbot-ui-mode` | `web:ui:ui-mode` | **真共享** | ⛔ **本仓不消费**（单手机布局）—— 保留仅为 key 表一致，⛔ 勿删 |
+| `xbot:session-category` | `web:session:category` | **真共享** | ✅ 可改（会话分组：path/status/time） |
+
+> 改了**真共享**键 = 改了两端（含 web）。所以**写入前必须确认语义与 web 一致**。
+> 写**原生独有**键只影响本仓（web 忽略），但**别把 web 独有键**（`leftSidebarWidth` / `layout:*` / `panel-layout*` / `recent-workdirs:v1`）
+> 收进 `localKey()` 的映射表 —— 它们靠 `localKey()` 的"未收录即原样返回"**零丢键**（见 `WEB-ALIGNMENT §17.5-5`）。
 
 ## 2. 本轮新增的对齐实现
 

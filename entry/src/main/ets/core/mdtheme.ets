@@ -72,6 +72,19 @@ export function mdThemeMode(id: string): string {
 }
 
 /**
+ * 「Markdown 主题」设置项的**说明文案**（唯一来源 —— 数字由 `MD_THEMES.length` **派生**）。
+ *
+ * ⚠️ 历史 bug（2026-10-11 审计钓出）：组件里**硬编码**「19 项」，而 `MD_THEMES` 实为 **23 套**
+ *    （`tools/tests/mdtheme.test.ts` 早就断言 `length === 23`，但没人管文案）⇒ 用户看到的项数
+ *    与实际取值集不符。归因同「判据与渲染必须同源」：**文案里的数量也是取值集的派生量**，
+ *    ⛔ 不许再在 UI 里写死数字。
+ */
+export function mdThemePickerDescription(): string {
+  return '仅作用于 Markdown 代码高亮；与 Web 端共用同一组 id。'
+    + `${MD_THEMES.length} 项按明暗分组，默认展开当前主题那一组。`;
+}
+
+/**
  * 代码块配色 —— 只挑 web 每套主题里**最有辨识度**的 3 个角色
  * （代码底 / 代码字 / 行内码底），逐套给出。
  *
