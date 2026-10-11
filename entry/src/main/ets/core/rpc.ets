@@ -454,7 +454,33 @@ export interface ModelEntryRow {
 }
 
 /**
- * `list_subscriptions` 的元素（`protocol/events.go:327-345`）。
+ * 逐模型（per-model）覆盖配置（`protocol/events.go:348-368` `PerModelConfig`）。
+ *
+ * ⚠️ **六个字段在服务端全部 `omitempty`**（`protocol/events.go:349-368`）⇒ 零值**会从 JSON 里消失**：
+ *   · 订阅级 `per_model_configs` 为空 ⇒ 该**整个键**都不出现（`events.go:339` `omitempty`）；
+ *   · 某个模型的条目里 `max_context=0` ⇒ 该**子字段**不出现。
+ *   ⇒ 所以"条目在、子字段缺"是**正常形态**（缺 = 用默认），而"条目不在 / 整个键不在"才是
+ *     **无法预填**（见 `core/permodelcfg.ets: perModelConfigFrom`）。⛔ 两者不可混为一谈。
+ * ⚠️ `enabled` 是**读侧投影**（`subscription_models.enabled`）；写路径归 `set_model_enabled`，
+ *    故 `update_per_model_config` 的提交体里恒 `true`（`core/rpc.ets:PerModelConfigBody`）。
+ */
+export class PerModelConfig {
+  /** 0 = 跟随订阅默认。 */
+  max_output_tokens?: number;
+  /** 0 = 跟随默认（系统默认 1M）。 */
+  max_context?: number;
+  /** `''` = 跟随订阅默认；仅 OpenAI 有意义（`chat_completions` | `responses`）。 */
+  api_type?: string;
+  /** 该模型是否启用（读侧投影）。 */
+  enabled?: boolean;
+  /** 视觉（多模态）开关 —— **纯手动**，无模型名白名单。 */
+  vision?: boolean;
+  /** OpenAI `image_url.detail`：`''`(auto) | `low` | `high`。 */
+  vision_detail?: string;
+}
+
+/**
+ * `list_subscriptions` 的元素（`protocol/events.go:328-345`）。
  * ⚠️ `api_key` 是**掩码**（`abcd****`，`rpc_table.go:2983` → `maskAPIKey`）——只读展示，禁止回填/提交。
  */
 export interface SubscriptionRow {
@@ -468,6 +494,17 @@ export interface SubscriptionRow {
   max_context?: number;
   thinking_mode?: string;
   api_type?: string;
+  /**
+   * 逐模型覆盖配置（模型名 → 配置）。
+   *
+   * ⚠️ **必须可选**：服务端 `omitempty`（`protocol/events.go:339`）⇒ 订阅**没有任何模型**时
+   *    整键缺失；老版本服务端亦可能不回传。⛔ 缺失 ≠ 全零对象 —— 见
+   *    `core/permodelcfg.ets: perModelConfigFrom`（缺失 ⇒ `null`，绝不伪造）。
+   * 服务端填充链（只读取证）：`storage/sqlite/user_llm_subscription.go:95-114 loadPerModelConfigs`
+   *    （v42，按 `subscription_models` **每模型一条**）→ `serverapp/rpc_table.go:2980 subToChannel`
+   *    → `:2568 listSubscriptions`。
+   */
+  per_model_configs?: Record<string, PerModelConfig>;
   /** 是否当前默认订阅（服务端 `IsDefault`）。 */
   active: boolean;
   /** 订阅级启用开关（v40；`omitempty` ⇒ 缺省即 false）。 */
