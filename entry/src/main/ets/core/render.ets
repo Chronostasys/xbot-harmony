@@ -262,6 +262,77 @@ function isShell(it: HistoryIteration): boolean {
   return true;
 }
 
+// ── live 行**已完成块**的转换记忆化（按源数组**对象恒等**）─────────────────────────
+/**
+ * `LiveSnapshot.iterations`（WebIteration[]）→ `HistoryIteration[]` 的**按源数组记忆化**。
+ *
+ * ⛔ 为什么（可离线量化的「每帧工作量」）：
+ *   流式期间**每一帧**都会重建 live 行的 `ChatRow.iterations`（`applyRow` 的 live 分支），
+ *   而其中的**已完成**部分（`r.iterations`）在该帧里**根本没变** —— 状态机的流式/结构化帧
+ *   是字段级合并（`core/reduce.ts` 的 `{ ...prev, content, … }`），`iterations` 直接沿用
+ *   `prev.iterations`（**同一数组对象**；判据 `tools/tests/perf_live_frame.test.ts` §A 直接断言）。
+ *   旧实现每帧对它整份重新转换 ⇒ 每帧重新分配 N 个 `HistoryIteration` + K 个 `ToolProgress`
+ *   + N 个 tools 数组（实测 N=108：`toHistoryIterations` ≈2.9 µs/帧、162 个对象/帧）。
+ *   真实服务端单行可达 **108+** 已完成块 ⇒ 这是**随 turn 长度线性增长**的每帧分配（GC 压力）。
+ *   ⇒ 按源数组对象恒等记忆化：键不变（内容也没变）⇒ 复用上次结果，每帧 **0 分配**。
+ *
+ * ⚠️ 不变量（缓存正确性的前提 —— 判据在 `tools/tests/perf_live_frame.test.ts`）：
+ *   · 源数组一律**整体替换、绝不就地改**（每个 commit/fold 路径都产新数组：
+ *     `mergeIterations` / `foldInFlightToIterations`）⇒ 换数组即换键 ⇒ **结构上不可能陈旧**；
+ *   · 缓存值是**共享**的 ⇒ 调用方**只许读**，要改必须先 `slice()`（`liveIterations` 已如此）。
+ *     转换结果（`HistoryIteration`）仓内只被只读消费 —— 会就地改它的 `applyStreamFrame` /
+ *     `applyStructured`（`core/streammerge.ets`）在**全仓没有任何调用点**（已 grep 核实）；
+ *   · WeakMap 键 ⇒ 源数组被 GC 时条目一并回收（**无容量上限、无泄漏**）—— 与
+ *     `core/derive.ts` 的 `assistantRowByTurn` / `core/markdown.ets` 的 mdCache 同一手法。
+ */
+const liveBlocksMemo = new WeakMap<object, HistoryIteration[]>();
+let liveConvHits = 0;
+let liveConvMisses = 0;
+let liveConvBlocks = 0;      // 累计**转换过的块数**（= 每帧真实工作量；命中不计）
+
+/** 按源数组对象恒等取「已完成块」的转换结果（**共享**数组 —— 调用方只读）。 */
+function convertedBlocksMemo(src: readonly WebIteration[]): HistoryIteration[] {
+  const hit: HistoryIteration[] | undefined = liveBlocksMemo.get(src);
+  if (hit !== undefined) {
+    liveConvHits++;
+    return hit;
+  }
+  liveConvMisses++;
+  liveConvBlocks += src.length;                 // 本次真转换的块数（诊断/判据口径）
+  const conv: HistoryIteration[] = toHistoryIterations(src);
+  liveBlocksMemo.set(src, conv);
+  return conv;
+}
+
+/**
+ * `liveBlocksConvStats()` 的返回形状。
+ * ⛔ ArkTS **禁对象字面量作类型标注**（`arkts-no-obj-literals-as-types`）⇒ 必须显式声明
+ *   interface；对象字面量本身对应已声明接口（`arkts-no-untyped-obj-literals`）才合法。
+ *   （脱机 `run-one.sh` 把 `core/**` 当**纯 TS** 编译，抓不到这条 —— 见 `docs/ARKTS-GOTCHAS.md`。）
+ */
+export interface LiveBlocksConvStats {
+  hits: number;
+  misses: number;
+  /** 累计**真转换过的块数**（命中算 0）—— 判据口径的「每帧工作量」。 */
+  blocks: number;
+}
+
+/**
+ * 诊断：live 行「已完成块转换」的命中/未命中/累计转换块数
+ * （口径同 `core/markdown.ets` 的 `mdCacheStats`）。
+ *
+ * 判据消费方：`tools/tests/perf_live_frame.test.ts` —— 钉"**未变化的已完成块每帧零转换**"。
+ * `blocks` 才是"每帧工作量"（命中一次算 0 块）；`misses` 只说明"换了源数组"。
+ */
+export function liveBlocksConvStats(): LiveBlocksConvStats {
+  const st: LiveBlocksConvStats = {
+    hits: liveConvHits,
+    misses: liveConvMisses,
+    blocks: liveConvBlocks,
+  };
+  return st;
+}
+
 /**
  * live Row → 渲染块列表（已完成迭代 ⊕ 末尾在飞块）。
  *
@@ -275,7 +346,9 @@ function isShell(it: HistoryIteration): boolean {
  *   块数回退，真机 bug ① 的形态）。
  */
 function liveIterations(r: LiveRowView): HistoryIteration[] {
-  const out: HistoryIteration[] = toHistoryIterations(r.iterations);
+  // 已完成部分走**按源数组记忆化**（未变化 ⇒ 每帧 0 分配）。
+  // `slice()` 必需：下面可能 push 在飞块，而缓存数组是**共享**的（只读）。
+  const out: HistoryIteration[] = convertedBlocksMemo(r.iterations).slice();
   let maxCompleted: number = 0;
   let shellSameNum: boolean = false;
   for (let i = 0; i < out.length; i++) {

@@ -140,6 +140,30 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
   **空态（无 live 行）0.05%** vs **流式中 4.4–4.7%**（该会话只有 30 行 / 0 块）
   ⇒ 这 4.7% 是**流式地板成本**，全来自定时器驱动的重绘。
 
+### 1.6b live 行「每帧工作量」—— ✅ **2026-10-11 落地：按源数组记忆化**
+
+> 口径 = **计数**（每帧真转换/分配的块数），**不是墙钟** —— 理由同 `row_signature_cost.test.ts`
+> （耗时只能真机测）。判据（可复跑）：`bash tools/tests/run-one.sh perf_live_frame`
+> （13 passed；mutation ⇒ **exit 1**）。
+
+| 指标（N=108 已完成块 = 真实最重单行） | 旧写法 | **现在** | 落地 |
+|---|---|---|---|
+| live 行每帧**重新转换**的已完成块 | **108**（+54 个 `ToolProgress` + 108 个 tools 数组） | **0** | ✅ `core/render.ets` `liveBlocksMemo`（WeakMap，按源数组**对象恒等**）— `§5` |
+| live 行已完成块对象**跨帧复用** | 0/108（每帧全新对象） | **108/108** | 同上 |
+| 该转换耗时（宿主机微基准，仅量级参考） | ≈2.9 µs/帧（`toHistoryIterations(108)`） | ≈0（命中） | 同上 |
+
+- **为什么旧写法贵**（可离线证明，非推断）：流式帧是**字段级合并**（`core/reduce.ts` 的 `{ ...prev, … }`）
+  ⇒ `LiveSnapshot.iterations` 跨帧是**同一数组对象**（判据 `perf_live_frame` **§A 直接断言**），
+  而 `applyRow` 的 live 分支每帧都对它整份 `toHistoryIterations(...)` ⇒ 每帧 N+K 个对象分配，
+  **随 turn 长度线性增长**（真实服务端单行可达 108+ 块，见 `docs/RENDER-LOAD-MEASUREMENT.md`）。
+- **语义等价**（不是"为省调用改可见行为"）：`toHistoryIteration` 是源对象的**纯函数**；只按源数组
+  **对象恒等**取缓存 ⇒ ① 输出逐字节不变（`perf_live_frame` **§D** 用 oracle `toHistoryIterations` 比对）；
+  ② 换源数组（commit/fold）**必重算**（**§C**）。WeakMap 键 ⇒ 源数组 GC 时条目一并回收，
+  **无容量上限 / 无泄漏**（与 `core/derive.ts` 的 `assistantRowByTurn`、`core/markdown.ets` 的 mdCache 同手法）。
+- ⚠️ **仍未销账**（下一步，⛔ 别在没有恒等前提处直接套缓存）：
+  · `blocksSignature`（`pages/Index.ets` 每次 sync 调 **2 次**）仍是最大单项（≈6.7 µs/次 @340 块）；
+  · `inFlightBlock` 每帧仍重建 `completedKeys`（O(已提交工具数)，≈1.8 µs/帧 @K=54）。
+
 ### 1.7 TURNDROP 噪声（已修，留基线防回归）
 - 现状（`1cfad7a`）：逐 turn `console.debug` + burst 结束**一条** warn 汇总；`turndropSeen` 去重。
 - 判别测试：`tools/tests/turndrop.test.ts`（5 passed；含 3 段 mutation 说明）。
@@ -258,6 +282,7 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
 |---|---|---|---|---|
 | 2026-10-11 | 全部（首次建立） | — | 用**跨多次 run 的实测最大值 × ~3** 起阈值；sub-µs 指标跨 run 可差 10× ⇒ 只做数量级护栏 | perf 线 |
 | 2026-10-11 | 第 22~24 条（行内块窗口） | 新增 | **不是放宽**：`6ad8477` 落地 TOP1 后**新增**的硬计数判据（渲染块数 ≤24 / 隐藏 ≥1 / 估算节点 ≤600），阈值 = 判据本身（确定性计数，无抖动） | perf 线 |
+| 2026-10-11 | live 行每帧已完成块转换（**新增判据，非门禁阈值**） | — | 目标⑤落地：`core/render.ets` `liveBlocksMemo`（按源数组对象恒等）把 live 行每帧对**未变化**已完成块的转换数 **N → 0**（N=108）。判据 `tools/tests/perf_live_frame.test.ts`（13 passed；mutation ⇒ exit 1）。**不是放宽任何门槛**：`guard.sh`/`bench_core` 的既有指标（含 `blocksSignature_340_us`）一律未动 | perf 线（目标⑤） |
 
 > 规则：任何上调都必须在**本表**写明"为什么不是代码退化"（附 `bench_core.sh` 两遍输出）。
 
