@@ -559,20 +559,21 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | web 功能 | web file:line | 状态 | 原生 file:line / 证据 |
 |---|---|---|---|
 | 设置容器（14 分区 nav） | `settings/SettingsDialog.tsx:117-131` | ✅ 等价 7-tab | `components/SettingsPanel.ets:46 settingsTabs()`（分派 `:111-127`） |
-| ├ General（locale + 清除缓存） | `settings/SettingsGeneral.tsx:32` | 🟡 | `Index.ets:4508` PrefsSheet（locale **只读**；**无清缓存**） |
-| ├ Appearance（主题/md/accent/UI_MODE） | `settings/SettingsAppearance.tsx:54` | 🟡 | PrefsSheet；**缺 UI_MODE 外壳切换**（`KEY_UI_MODE` 死字段） |
-| ├ Interaction（发送键 / 换行） | `settings/SettingsInteraction.tsx:21` | ✅ | `Index.ets:4508` PrefsSheet |
+| ├ General（locale + 清除缓存） | `settings/SettingsGeneral.tsx:32` | 🟡 | 「外观」分区（`components/SettingsAppearance.ets:186` locale **只读**；**无清缓存**）⇒ 见 §XI 判 N/A |
+| ├ Appearance（主题/md/accent/UI_MODE） | `settings/SettingsAppearance.tsx:54` | 🟡 | `components/SettingsAppearance.ets`；**缺 UI_MODE 外壳切换**（`KEY_UI_MODE` 死字段，§XI 判 N/A） |
+| ├ Interaction（发送键 / 换行） | `settings/SettingsInteraction.tsx:21` | ✅ | `components/SettingsAppearance.ets`（`KEY_SEND_KEY`/`KEY_CODE_WRAP`，归「界面/文字与阅读」组） |
 | ├ Language | `SettingsDialog.tsx:115,177` | 🟡 | 刻意只读（文案硬编码，见 §3） |
-| ├ Agent | `settings/SettingsAgent.tsx:113` | ✅ | `components/SettingsAgent.ets` |
+| ├ Agent | `settings/SettingsAgent.tsx:113` | ✅ | `components/SettingsAgent.ets`（`allow_self_compact` + vision×4） |
 | ├ Tools | `settings/SettingsTools.tsx:35` | ✅ | `components/SettingsTools.ets` |
-| ├ LLM（读/启停/默认/CRUD/档位/思考） | `settings/SettingsLLM.tsx:78`、`llm-console.tsx` | 🟡 | `components/SettingsLlm.ets`（含 CRUD）；**缺 import/export_subscriptions** |
-| ├ **Channels**（飞书/插件渠道 + 一键绑定） | `settings/SettingsChannels.tsx:118` | ❌ | 见 11.5 证据 ⑨ |
+| ├ LLM（读/启停/默认/CRUD/档位/思考） | `settings/SettingsLLM.tsx:78`、`llm-console.tsx` | 🟡 | `components/SettingsLlm.ets`（含 CRUD）；**缺 import/export_subscriptions**（§XI 记档待做） |
+| ├ **Channels**（飞书/插件渠道 + 一键绑定） | `settings/SettingsChannels.tsx:118` | ✅（**2026-10-11 订正**：11.5 ⑨ 已过期） | `components/SettingsChannels.ets`（1151 行，逐条移植）+ 纯逻辑 `core/channelscfg.ets`；判据 `tools/tests/settings_url_overflow.test.ts` 钉 URL 折行 |
 | ├ Storage | `settings/SettingsStorage.tsx:57` | ✅ | `components/SettingsStorage.ets` |
 | ├ WebUsers | `settings/SettingsWebUsers.tsx:31` | ✅ | `components/SettingsWebUsers.ets` |
 | ├ Account（用户名 + 登出） | `SettingsDialog.tsx:69` | ✅ | `components/SettingsAccount.ets` |
-| ├ **Developer**（SSE REC + 导出） | `settings/SettingsDeveloper.tsx:20` | ❌ | 见 11.5 证据 ⑩ |
-| ├ Layout（slot 配置） | `settings/SettingsLayout.tsx:39` | ⚪ | Dockview 专属 |
-| ├ Plugins（配置表单 + 图标上传） | `settings/SettingsPlugins.tsx:60` | 🟡 | `components/PluginHost.ets` 只读目录；缺 `plugin_config_set` |
+| ├ **Developer**（SSE REC + 导出） | `settings/SettingsDeveloper.tsx:20` | ✅（**2026-10-11 订正**：11.5 ⑩ 已过期） | `components/SettingsDeveloper.ets`（552 行，录制+连接状态+导出会话；已接 `SettingsPanel.ets` `SETTINGS_TAB_DEVELOPER`） |
+| ├ Layout（slot 配置） | `settings/SettingsLayout.tsx:39` | ⚪ | Dockview 专属（§XI 判 N/A） |
+| ├ Plugins（配置表单 + 图标上传） | `settings/SettingsPlugins.tsx:60` | 🟡 | `components/SettingsPlugins.ets`（803 行，配置读写+启停+重载，已接 tab）；缺**图标上传** |
+| ├ **Notify**（原生独有，web 无此分区） | — | ✅（**波11 补齐**） | `components/SettingsPanel.ets` NotifySection：`KEY_NOTIFY_ASK`/`KEY_NOTIFY_TURN_DONE`/`KEY_NOTIFY_DETAIL` 三开关（判据 `tools/tests/settings_notify_ui.test.ts`） |
 | └ About（版本 + update + **应用内更新/重启**） | `settings/SettingsAbout.tsx:92` | ✅ | `components/SettingsAbout.ets` + `core/aboutops.ets`（apply_update/restart_server 两步确认 + 40s 轮询；release notes 外链可点） |
 | 插件目录 + 宿主页运行时 | `plugin-runtime/loader.ts` | ✅ | `components/PluginHost.ets` + `core/pluginhost.ets:573`（裸 `.js` 语义**已修**） |
 | 插件管理面板（启停/配置） | `plugins/manager/PluginManagerPanel.tsx` | 🟡 | 原生只读目录 |
@@ -994,3 +995,102 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 | 选区工具条（tiptap） | 原生输入是**纯文本**，富文本选区语义不存在（本轮由"存疑"结为 N/A） |
 | GenUI / Mermaid / 文件树·Monaco·预览 / 终端 / Dockview / PWA | **架构不适用**，统一走 ArkWeb 逃生舱（§8.4 既有裁决） |
 | 会话搜索"再做一轮" | **已有实现**（`sessionMatches` + `Store.search` + `SearchHitsSheet`）⇒ 不必重复劳动 |
+
+---
+
+## §XI 设置面 **key 级差集**（波11 · 目标③ · 2026-10-11）
+
+**做法**：web 侧以**代码里的 key 表**为准（`src/lib/userSettings.ts:20-45` 的 `SETTING_MAP` + 各
+`components/settings/*.tsx` 里读写的 localStorage/RPC 键），⛔ 不看截图猜；原生侧以
+`entry/src/main/ets/core/settings.ets` 的 `KEY_*` 常量表 + `components/Settings*.ets` 的控件为准。
+web 的**服务端 RPC 配置面**（LLM/Storage/Channels/WebUsers/About/Agent/Tools）已由 §9 / §11.3 覆盖，
+本节只补 **key 级（localStorage/设置表）** 的逐键差集。
+
+### XI.1 Web 设置面的 key 清单（按 `userSettings.ts` + `settings/*.tsx` 取证）
+
+| web key | 控件 | 缺省 / 范围 | web 落点 |
+|---|---|---|---|
+| `xbot-theme`（legacy） | —（md-theme 的 mode 现由 md 主题推导） | — | `types/theme.ts:24` |
+| `xbot-accent` | 6 预设色板 + 自定义 hex | `#3388BB`；`#rrggbb` | `SettingsAppearance.tsx:132-196` |
+| `xbot-md-theme` | 23 个 chip | `vscode-dark`（首项） | `SettingsAppearance.tsx:106-129` |
+| `xbot-ui-mode` | 3 chip（auto/desktop/mobile） | `auto` | `SettingsAppearance.tsx:73-104` |
+| `xbot-code-word-wrap` | 开关 | `true` | `SettingsInteraction.tsx:29-63` |
+| `xbot-send-key-mode` | 2 单选 | `ctrl-enter` | `SettingsInteraction.tsx:66-106` |
+| `xbot-locale` | 下拉（zh-CN/en/ja） | `zh-CN` | `SettingsGeneral.tsx:41-54` |
+| （清除缓存·按钮） | destructive 按钮 + reload | — | `SettingsGeneral.tsx:55-60` |
+| `xbot:developer-mode` | 开关 | `false` | `useDeveloperMode.ts:3` |
+| `xbot:ambience` | 壁纸 + 玻璃透明度/模糊 | `''` | `SettingsAppearance.tsx`（ambience 组）/ `ambience/store.ts:77` |
+| `xbot-starred` | 会话星标（列表项） | `''` | `useSessionStore.ts:36` |
+| `xbot:session-category` | 分类切换（path/status/time） | `path` | `useSessionStore.ts:37` |
+| `xbot:session-collapsed-groups` | 折叠组（列表） | `''` | `useSessionStore.ts:43` |
+| `xbot:session-unread` | 未读（列表，UI 态） | `''` | `useSessionStore.ts:44` |
+| `xbot:active-channel` | 渠道过滤（UI 态） | `''` | `useSessionStore.ts:45` |
+| `xbot:recent-workdirs:v1` | 最近工作目录（PathPicker） | `''` | `recent-workdirs.ts:3` |
+| `xbot:layout:overrides`/`:order`/`:collapsed` | slot 拖拽/排序/折叠 | `{}` | `layoutTypes.ts:87,90,103` |
+| `xbot:panel-layout` / `-v2` | Dockview per-panel 布局 | `{}` | `userSettings.ts:37,39` |
+| `xbot:leftSidebarWidth`/`Collapsed`、`xbot:leftbar:section-*` | 桌面侧栏拖拽/折叠 | — | `AppShell.tsx:56,57`、`SidebarSectionStack.tsx:28,29` |
+| `xbot:update-reminder:dismissed:v1` | 更新提示已忽略 | — | `UpdateReminder.tsx:16` |
+
+> 另有**服务端 RPC 配置面**（非 localStorage）：Agent（`allow_self_compact` + `vision_*` ×4）、Tools
+> （`set_tool_enabled` ×N）、LLM（订阅 CRUD + `import/export_subscriptions`）、Storage（schema 驱动）、
+> Channels（逐渠道字段 + 绑定）、WebUsers（list/create/delete）、About（check/apply_update/restart）、
+> Plugins（`plugin_config_set` + 图标上传）—— 归属见 §9 / §11.3，本节不重复。
+
+### XI.2 原生设置面（`core/settings.ets` KEY 表 + `Settings*.ets` 控件）
+
+原生 KEY 表 16 个：`KEY_MD_THEME`/`KEY_ACCENT`/`KEY_LOCALE`/`KEY_SEND_KEY`/`KEY_CODE_WRAP`/
+`KEY_UI_MODE`/`KEY_STARRED`/`KEY_FONT_SCALE`/`KEY_REASONING_DEFAULT`/`KEY_APP_THEME`/`KEY_SURFACE`/
+`KEY_SESSION_CATEGORY`/`KEY_ORB`/`KEY_NOTIFY_ASK`/`KEY_NOTIFY_TURN_DONE`/`KEY_NOTIFY_DETAIL`。
+其中 **`KEY_FONT_SCALE`/`KEY_REASONING_DEFAULT`/`KEY_APP_THEME`/`KEY_SURFACE`/`KEY_ORB`/
+`KEY_NOTIFY_*`×3 是原生独有**（web 无此设置，§1）。
+
+### XI.3 差集（web key → 原生是否支持）
+
+| web key | 控件 | 原生支持 | 落点 / 判据 |
+|---|---|---|---|
+| `xbot-accent` | 色板 + hex | ✅ | `SettingsAppearance.ets:166-173` + `core/accent.ets` |
+| `xbot-md-theme` | 23 chip | ✅ | `SettingsMdTheme.ets` + `core/mdtheme.ets` |
+| `xbot-code-word-wrap` | 开关 | ✅ | `SettingsAppearance.ets:207-216` |
+| `xbot-send-key-mode` | 2 chip | ✅ | `SettingsAppearance.ets`（`KEY_SEND_KEY`） |
+| `xbot-starred` | 星标 | ✅ | `core/stars.ets` + `Index.ets` SessSheet |
+| `xbot:session-category` | 分类 | ✅ | `Index.ets:4243` + `core/sessiongroup.ets` |
+| `xbot:developer-mode` | 开关 | ✅ | `SettingsDeveloper.ets:45`（本地 prefs `xbot_devtools/developer-mode`） |
+| `xbot-ui-mode` | 3 chip | ⛔ **N/A** | 原生**单手机布局**（无 desktop shell）⇒ `KEY_UI_MODE` 死字段白名单（`tools/tests/settings_keys_consumed.test.ts:146`）。保留键只为与 web 共享 key 表 |
+| `xbot-locale` | 下拉 | ⛔ **N/A** | 原生 UI 文案中文硬编码 ~100 处 ⇒ 只读展示（§3） |
+| `xbot-theme`（legacy） | — | ⛔ **N/A** | web 的 md 主题现驱动 mode；原生用 `KEY_APP_THEME`（5 套，原生独有）替代 |
+| （清除缓存） | 按钮 | ⛔ **N/A** | web 的清缓存 = `clearWebCaches()`（会话树/进度快照/注释缓存）+ `location.reload()`；原生无 Service Worker、会话树缓存由 `core/store` 内存管理、markdown 解析缓存**有界**（`MD_CACHE_MAX_CHARS` 自动淘汰）⇒ 无对应可清对象，"清缓存"会是假功能 |
+| `xbot:ambience`（壁纸） | 上传 + 滑杆 | 🟡 **缺** | 玻璃 `opacity`/`blur` 的**消费**已就绪（`core/theme.ets` 消费插件环境值）；**壁纸上传 UI 缺**（需相册/文件选择）。登记待做 |
+| `xbot:recent-workdirs:v1` | 路径选择 | ⛔ **N/A** | 依赖 `PathPicker`（`§11.5 ⑦` 已判 N/A 方向：无原生 cwd 编辑入口） |
+| `xbot:layout:*` / `panel-layout*` / `leftSidebar*` / `leftbar:*` | 桌面布局 | ⛔ **N/A** | Dockview/桌面外壳专属（§3 / §8.4） |
+| `xbot:session-collapsed-groups`/`unread`/`active-channel` | 列表 UI 态 | ⛔ **N/A** | 原生会话列表无"折叠组"三态同步需求（分组折叠是本地渲染态，不跨端）；`active-channel` 属 `ChannelPicker` 过滤（§11.2 证据 ⑦） |
+| `xbot:update-reminder:dismissed:v1` | 更新提示 | ⛔ **N/A** | 无 Service Worker（§11.3 PWA 行） |
+
+**净差集**：web key 级共 **18** 项 → 原生已支持 **7**、**N/A 9**、**缺 1**（`xbot:ambience` 壁纸 UI）+ 1 待做
+（LLM `import/export_subscriptions`，属服务端面）。**无"该支持却缺"的 key 级开关**。
+
+### XI.4 本轮**补齐**：通知分区的 ask / turn-done 开关（原生独有键的 UI 缺口）
+
+**缺陷形态**（与"死开关"同类，但方向相反）：`KEY_NOTIFY_ASK` / `KEY_NOTIFY_TURN_DONE` 两键
+**有键、有消费链、无 UI 入口** —— `settings.notifyPrefsFrom` → `notify.applyNotifyPrefs`
+（`core/store.ets:453` 唯一调用点）→ `notify.notifyPrefEnabled` → `store.notifyOnSse`；
+但补齐前 `SettingsPanel` 的「通知」分区**只**暴露 `KEY_NOTIFY_DETAIL` ⇒ 用户**关不掉**
+「收到提问时通知 / 回合完成时通知」（默认两类都开）。
+
+**修法**：`components/SettingsPanel.ets` 的 `NotifySection` 由 1 行扩为 3 行（复用既有
+`SettingsToolRow` 原子 + `setNotifyPref(key, next)` 统一写入路径，写后**回读**）；三个开关
+显示值同源于 `notifyPrefsFrom`（判据与渲染同源）。
+
+**判据**：`tools/tests/settings_notify_ui.test.ts`（20 断言）
+- ① 三键都在 `SettingsPanel.ets` 有 **`setNotifyPref(KEY_NOTIFY_*)` 调用点**（计数 ≥1，⛔ 不钉"方法体存在"）；
+- ② **消费点计数**：`notifyPrefEnabled` 真读 `prefs.ask` / `prefs.turnDone`（计数 ≥1）+ 运行期同源验证；
+- ③ **mutation 自证**：抽掉 `notifyPrefEnabled` 里的 `prefs.turnDone` ⇒ 消费点计数归零 ⇒ 判据②必红；
+- ④ 三键显示名非空（UI 不显示裸键名）+ `notifyPrefValue` 值域 `1/0`。
+
+### XI.5 判 N/A 的依据（一句话汇总，⛔ 不许当"遗漏"）
+
+`ui-mode`（单手机布局）· `locale`（文案硬编码）· `clear-cache`（无可清对象，会是假功能）·
+`ambience 壁纸`（需相册选择，消费层已就绪待接 UI）· `recent-workdirs` / `layout:*` /
+`panel-layout*` / `leftSidebar*` / `leftbar:*`（桌面范式，走 ArkWeb 或标签栏替代）·
+`session-collapsed-groups`/`unread`/`active-channel`（本地渲染态，不跨端）·
+`update-reminder`（无 SW）。
+
