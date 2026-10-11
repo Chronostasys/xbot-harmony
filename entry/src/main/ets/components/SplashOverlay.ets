@@ -34,7 +34,7 @@
  */
 import { Palette, darkPalette } from '../core/theme';
 import {
-  RADIUS_CHIP, SPACE_HAIR, SPACE_SM, SPACE_XL, colorOf, typeOf,
+  RADIUS_CHIP, SPACE_HAIR, SPACE_SM, SPACE_XL, colorOf, typeOf, PRESS_OPACITY,
 } from '../core/design';
 import {
   SPLASH_HINT_DELAY_MS,
@@ -176,7 +176,9 @@ export struct SplashOverlay {
           .fontColor(colorOf(this.pal(), 'textMuted'))
           .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_HAIR, bottom: SPACE_HAIR })
           .borderRadius(RADIUS_CHIP)
-          .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
+          // 按压值 = 全站唯一 `PRESS_OPACITY`(0.6)（⛔ 不再就地写字面量 `0.6` —— 值与 token 相同，
+          // 纯消魔数、零视觉变化；见 `tools/tests/polish_states_press.test.ts`）。
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.onSkip();
           })

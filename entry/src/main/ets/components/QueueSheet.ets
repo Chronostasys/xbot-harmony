@@ -9,7 +9,7 @@ import { Palette, paletteOf } from '../core/theme';
 import { QueueItem } from '../core/types';
 import { PRESS_OPACITY, STROKE_HAIRLINE, SURFACE_CARD, hairlineOf, surfaceFillOf, ICON_LG, HIT_TARGET_MIN } from '../core/design';
 import { FS_CAPTION, FS_TITLE, R_LG, R_MD, R_XL, SP_2, SP_3, SP_4 } from '../core/tokens';
-import { fs, fw } from './SettingsRows';
+import { fs, fw, lh } from './SettingsRows';
 // 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线/位移；E3 统一）。
 import { sheetTransition } from './anim';
 
@@ -57,6 +57,9 @@ export struct QueueSheet {
           .fontColor(this.pal().textPrimary).layoutWeight(1)
         Text('清空').fontSize(FS_CAPTION).fontColor(this.pal().dangerText)
           .padding({ left: SP_2, right: SP_2, top: 6, bottom: 6 })
+          // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44, Apple HIG)：原先只靠 `padding` 撑高（≈28~32）⇒ 低于阈值。
+          //    ⚠️ 本行**零视觉变化**：同级已有 44×44 的关闭盒 ⇒ 行高已 = 44，本 `minHeight` 不改变布局。
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             // 无 clear 端点（web 同款）：页面遍历逐个 cancel。
@@ -75,6 +78,20 @@ export struct QueueSheet {
         })
       }.width('100%')
 
+      // ── 空态（2026-10-11 补）：队列可被「清空」清成 0 条（面板**仍然**开着）——
+      //    原先只剩标题「待发队列 (0)」+ 一块 300 高的空白 `List` ⇒ 与 §10「空态 = 一行小字」
+      //    口径不符（用户点「清空」后看到的是"一片空"，读不出"清干净了/这里本就没有"）。
+      //    形态对齐同族弹层（`SearchHitsSheet`/`AskUserSheet`/`StatusSheet`）：`type.callout`
+      //    + `textMuted`，无填充/无边框/无发光。
+      if (this.queue.length === 0) {
+        Text('当前没有待发消息')
+          .fontSize(fs('type.callout'))
+          .fontWeight(fw('type.callout'))
+          .lineHeight(lh('type.callout'))
+          .fontColor(this.pal().textMuted)
+          .width('100%')
+          .padding({ top: SP_3, bottom: SP_3 })
+      } else {
       List() {
         ForEach(this.queue, (q: QueueItem) => {
           ListItem() {
@@ -131,6 +148,7 @@ export struct QueueSheet {
       // ⛔ 用户报「滚动栏挡住交互」：**行内右侧就是可点图标**（上/下移、取消）⇒ 默认 `BarState.Auto`
       //    的滚动条叠在最右缘、参与命中测试 ⇒ 会抢掉右侧图标的点击。面板内短列表 ⇒ 显式关条。
       .scrollBar(BarState.Off)
+      }
     }
     .width('92%').padding(SP_4).backgroundColor(this.pal().appBg)
     .borderRadius(R_XL).border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })

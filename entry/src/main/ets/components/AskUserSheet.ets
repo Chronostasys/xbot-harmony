@@ -124,7 +124,10 @@ export struct AskUserSheet {
         }
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center)
-        .stateStyles({ pressed: { .opacity(DISABLED_OPACITY) }, normal: { .opacity(1) } })
+        // ⛔ 按压反馈值 = 全站唯一 `PRESS_OPACITY`(0.6)（与 `StatusSheet`/`PluginsSheet`/`QueueSheet`/
+        //    `SelfCheckSheet` 的关闭 X 同款）。此前误用 `DISABLED_OPACITY`(0.4，= **禁用态**语义)
+        //    当按压值 ⇒ 本弹层 X 的按压比其它弹层深一档（不一致）。
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
           this.onClose();
         })
