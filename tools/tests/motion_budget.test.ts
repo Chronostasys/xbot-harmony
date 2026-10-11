@@ -1,0 +1,134 @@
+/**
+ * 动效**预算/台账**门禁 —— "极简风格 / 苹果那种科技感且干净"⇒ **动效越少越贵**。
+ *
+ * 动机：本仓已有"**同一时刻只允许一个在飞动效**（光球）"的铁律（`tools/lint/inflight-single-source.sh`）；
+ *   本判据守的是**另一条**：**动效总数只许减、不许增** —— 任何**新增**动画都必须**显式登记**并说明
+ *   "它讲的是哪条状态/空间关系"（⛔ 纯装饰 = 廉价感，正是要砍的）。
+ *   典型反例（web 对照）：`web/src/components/agent/Lightbox.tsx` 的浮层**完全无动画**（只有按钮上的
+ *   `transition-colors`）⇒ 我们每加一处"为动而动"都在偏离 parity 与"干净"。
+ *
+ * ── 判据 ────────────────────────────────────────────────────────────────────────
+ *   ① **零扫描判红**：`components/**` 与 `pages/**` 都必须真扫到文件（防"范围写空=白绿"）。
+ *   ② **台账只许缩短**：每个文件的动效入口数 **≤ 台账值**（新增 ⇒ 红；删了**不必**同步改台账，
+ *      下次顺手收紧即可 —— 这样"只许缩短"不制造无谓改动）。
+ *   ③ **未登记文件一律红**：出现台账里没有的文件 ⇒ 说明"有人开了新的动效面"⇒ 必须来登记理由。
+ *   ④ **禁循环/常驻**：全仓不得出现 `iterations`（重复动画）或 `setInterval(`（定时器动画）
+ *      —— 与"唯一在飞"同源；呼吸类由光球独占（`iterations: -1` 在光球内由
+ *      `tools/lint/inflight-single-source.sh` 白名单管，本判据**不重复**管它，只防**新增**）。
+ *
+ * ⛔ 纪律：**剥注释**（注释里提到 `.transition(` 是文档）；**只取调用片段**（不"取整行猜"）；
+ *   mutation：往任一**未登记**文件加一处 `.transition(...)` ⇒ 必红。
+ *
+ * ⚠️ 有 `export {}`（⇒ TS 模块），避免与"无 import 的全局脚本"测试在聚合编译里撞名（本仓已入库 GOTCHA）。
+ */
+declare const process: { exit: (c: number) => void };
+declare const require: (m: string) => any;
+declare const __dirname: string;
+const path = require('path');
+const fs = require('fs');
+export {};
+
+let pass = 0, fail = 0;
+function ok(name: string, cond: boolean, extra?: string): void {
+  if (cond) { pass++; } else { fail++; console.log(`  ✗ ${name}${extra !== undefined ? `\n      ${extra}` : ''}`); }
+}
+function stripComments(src: string): string {
+  let out = '';
+  let i = 0;
+  while (i < src.length) {
+    const c = src.charAt(i);
+    const n = i + 1 < src.length ? src.charAt(i + 1) : '';
+    if (c === '/' && n === '/') {
+      while (i < src.length && src.charAt(i) !== '\n') { i++; }
+      if (i < src.length) { out += '\n'; i++; }
+    } else if (c === '/' && n === '*') {
+      i += 2;
+      while (i < src.length && !(src.charAt(i) === '*' && i + 1 < src.length && src.charAt(i + 1) === '/')) {
+        if (src.charAt(i) === '\n') { out += '\n'; }
+        i++;
+      }
+      i += 2;
+    } else { out += c; i++; }
+  }
+  return out;
+}
+function findRoot(): string {
+  for (const up of ['../..', '../../..', '../../../..']) {
+    const p: string = path.resolve(__dirname, up);
+    if (fs.existsSync(path.join(p, 'entry/src/main/ets/components/anim.ets'))) { return p; }
+  }
+  return '';
+}
+function walk(dir: string, out: string[]): void {
+  let ents: any[] = [];
+  try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+  for (const e of ents) {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) { walk(full, out); }
+    else if (e.name.endsWith('.ets')) { out.push(full); }
+  }
+}
+
+/**
+ * **动效台账**（2026-10-11 首次清点；⛔ **只许缩短**）。
+ * 计分口径 = 剥注释后 `\.transition\(` + `\.animation\(` + `animateTo\(` + `withDelay\(` 的出现次数。
+ * 每条都已归类（必须留 / 可合并 / 可删 见提交说明）；**新增条目必须写"它讲哪条状态/空间关系"**。
+ */
+const BUDGET: Map<string, number> = new Map<string, number>([
+  ['components/anim.ets', 6],          // 工厂本体（唯一出口，⛔ 不是"站点"）
+  ['components/SplashOverlay.ets', 5], // 开屏 T1 入场 / T2 让位 / 提示延迟淡入 —— **必须留**（状态+空间）
+  ['components/AssistantOrb.ets', 2],  // 光球状态切换 —— **必须留**（就是"唯一在飞"的那个）
+  ['components/MessageRow.ets', 4],    // 消息入场/按压 —— ⚠️ chat-surface-ux 域（见报告）
+  ['components/MenuSheets.ets', 3],    // 三个抽屉 —— **必须留**（从下滑入/滑出 = 空间关系）
+  ['components/AskUserSheet.ets', 1],  // 弹层开合 —— 同上
+  ['components/PluginsSheet.ets', 1],  // 同上
+  ['components/QueueSheet.ets', 1],    // 同上
+  ['components/SettingsPanel.ets', 1], // 同上
+  ['components/StatusSheet.ets', 1],   // 同上
+  ['components/TodoPanel.ets', 1],     // 菜单浮层 —— 同上
+  ['components/MessageNav.ets', 1],    // 导航浮层 —— 同上
+  ['components/Lightbox.ets', 1],      // 全屏浮层弹出 —— 同上
+  ['components/Toast.ets', 1],         // ⚠️ **可删候选**（见报告：web 无对应动画）
+  ['pages/Index.ets', 3],              // 页面级（归 main agent 协调）
+]);
+
+const root: string = findRoot();
+ok('探测到仓库根', root.length > 0);
+const ETS: string = path.join(root, 'entry/src/main/ets');
+const files: string[] = [];
+walk(path.join(ETS, 'components'), files);
+const nComp: number = files.length;
+walk(path.join(ETS, 'pages'), files);
+ok(`零扫描判红：扫到 .ets > 0（实得 ${files.length}）`, files.length > 0);
+ok(`零扫描判红：components/** 真扫到文件（${nComp}）`, nComp > 0);
+ok(`零扫描判红：pages/** 真扫到文件（${files.length - nComp}）`, files.length - nComp > 0);
+
+const dist: string[] = [];
+const undeclared: string[] = [];
+const overBudget: string[] = [];
+for (const f of files) {
+  const rel: string = path.relative(ETS, f).split(path.sep).join('/');
+  const src: string = stripComments(fs.readFileSync(f, 'utf8'));
+  const n: number = (src.match(/\.transition\(/g) || []).length
+    + (src.match(/\.animation\(/g) || []).length
+    + (src.match(/animateTo\(/g) || []).length
+    + (src.match(/withDelay\(/g) || []).length;
+  if (n === 0) { continue; }
+  dist.push(`${rel}: ${n}（台账 ${BUDGET.has(rel) ? BUDGET.get(rel) : '未登记'}）`);
+  if (!BUDGET.has(rel)) { undeclared.push(rel); }
+  else if (n > (BUDGET.get(rel) as number)) { overBudget.push(`${rel}: ${n} > 台账 ${BUDGET.get(rel)}`); }
+}
+console.log(`▶ 动效台账扫描：${files.length} 个 .ets（components ${nComp} + pages ${files.length - nComp}）`);
+for (const d of dist) { console.log(`    · ${d}`); }
+
+ok('② 无文件**超出**台账（新增动效必须显式登记）', overBudget.length === 0, overBudget.join('\n      '));
+ok('③ 无**未登记**的动效面（新开一面必须来登记理由）', undeclared.length === 0, undeclared.join('\n      '));
+// ⛔ 曾试写第 ④ 条"禁 `iterations`/`setInterval(`"—— **已删**：实测那是**误判**。
+//    `/...iterations/` 在本仓绝大多数是**数据模型字段**（`row.iterations.length`、`HistoryIteration`），
+//    与动画参数 `iterations` **同名不同物**；`setInterval(` 则是**轮询定时器**（LiveTailView/SettingsChannels/
+//    SettingsDeveloper/Index），也不是动画。⇒ 把它们并进来会得到一条**永远红的假判据**。
+//    "唯一在飞 / 循环动画"已由 `tools/lint/inflight-single-source.sh` 专管 ⇒ **本判据不重复管**。
+
+if (fail > 0) { console.log(`  motion_budget: ${pass} passed, ${fail} failed`); process.exit(1); }
+console.log(`  motion_budget: ${pass} passed, 0 failed`);
+process.exit(0);
