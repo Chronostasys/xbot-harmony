@@ -13,7 +13,7 @@
  */
 import { Palette, paletteOf } from '../core/theme';
 import { XbotHttp } from '../core/http';
-import { FS_CAPTION, R_LG, SP_2, SP_3, SP_5 } from '../core/tokens';
+import { FS_CAPTION, R_LG, R_XL, SP_2, SP_3, SP_5 } from '../core/tokens';
 import { SettingsAbout } from './SettingsAbout';
 import { SettingsAccount } from './SettingsAccount';
 import { SettingsAgent } from './SettingsAgent';
@@ -27,7 +27,7 @@ import { fallbackTabId, SettingsTabSpec, visibleTabs } from '../core/settingsplu
 import { SettingsErrorBar, SettingsPanelHeader, SettingsToolRow } from './SettingsRows';
 import { KEY_NOTIFY_DETAIL, notifyPrefValue, notifyPrefsFrom, settingLabel } from '../core/settings';
 import {
-  GetSettingsParams, readableRpcError, rpc, RPC_GET_SETTINGS, RPC_SET_SETTING, SETTINGS_NS_CLI,
+  GetSettingsParams, readableRpcError, rpc, RPC_GET_SETTINGS, RPC_SET_SETTING, SETTINGS_NS_CLI, SetSettingParams,
 } from '../core/rpc';
 
 /** 分区 id（tab 顺序 = 此顺序）。 */
