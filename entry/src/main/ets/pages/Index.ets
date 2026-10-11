@@ -65,7 +65,7 @@ import {
   isInterruptSend, MODE_INTERRUPT, MODE_QUEUE, modeHint, modeLabel, sendToast, toggleMode,
 } from '../core/sendmode';
 import { mdCacheStats, MdCacheStats } from '../core/markdown';
-import { blocksSignature, completedBlocks, displayContent, displayReasoning, rowHasInFlightSignal, rowIsEmpty, streamStatsText } from '../core/streammerge';
+import { completedBlocks, displayContent, displayReasoning, rowHasInFlightSignal, rowIsEmpty, streamStatsText } from '../core/streammerge';
 import { canRewindWhile } from '../core/ctxmenu';
 import { rowById } from '../core/rowquery';
 import {
@@ -160,7 +160,7 @@ import { animBase, sheetTransition } from '../components/anim';
 import { readableRpcError, rpc, RPC_WEB_PLUGIN_LIST } from '../core/rpc';
 import { TodoPayloadRow, removeTodoAt, renameTodoAt, todoPayloadRows, toggleTodoAt } from '../core/todos';
 import { WebSubAgentProgress } from '../core/chattypes';
-import { subAgentsFingerprint } from '../core/render';
+import { EMPTY_BLOCKS_SIGNATURE, liveBlocksSignature, subAgentsFingerprint } from '../core/render';
 import { withAlpha } from '../core/bubble';
 
 /** 一个问题当前选中的答案（用类而非 Map/Record：ArkTS 下最稳，且能整体替换触发重渲染）。 */
@@ -5393,6 +5393,13 @@ struct Index {
   private todosFp: string = '';
   /** live SubAgent 树指纹（值投递门控 —— 见 `syncLiveTail`）。 */
   private liveSubAgentsFp: string = '-';
+  /**
+   * live 行**已完成块指纹**的页侧副本（值投递门控 —— 见 `syncLiveTail`）。
+   * ⛔ 与 `liveBlocks` 同步写入：`liveBlocksSig` 是"当初赋给 `liveBlocks` 的那份指纹"，
+   *    下一帧只须把它与行侧指纹（`liveBlocksSignature(liveRowRef)`，O(1)）比一次即可。
+   *    初值 = 空块指纹（`liveBlocks` 初值 `[]` 的指纹）⇒ 首帧不会误赋值。
+   */
+  private liveBlocksSig: string = EMPTY_BLOCKS_SIGNATURE;
 
   private fingerprintRows(rows: ChatRow[], chatId: string): string {
     return rowsFpOf(rows, chatId);   // 纯函数在 core/rowdiff（带会话身份，有判别测试）
@@ -5498,9 +5505,14 @@ struct Index {
       this.liveTools = tools;
     }
     // 已完成块列表（值变化通道）—— 只在结构/内容变化时赋值。
-    const blocks: HistoryIteration[] = this.hasLiveRow ? completedBlocks(this.liveRowRef) : [];
-    if (blocksSignature(this.liveBlocks) !== blocksSignature(blocks)) {
-      this.liveBlocks = blocks;
+    // ⛔ 双命中（目标⑤ round4）：行侧指纹按**派生行源数组对象恒等**记忆化（`liveBlocksSignature`，
+    //    见 `core/render.ets`），页侧指纹随赋值一起记进 `liveBlocksSig` ⇒ 本判定每帧 **O(1)**：
+    //    不再每帧 `completedBlocks`（O(块数) 过滤分配）+ `buildBlocksSignature`（O(块数) 拼串）。
+    //    旧写法 `blocksSignature(this.liveBlocks) !== blocksSignature(blocks)` 的右侧每帧新数组 ⇒ 必 miss。
+    const blocksSig: string = this.hasLiveRow ? liveBlocksSignature(this.liveRowRef) : EMPTY_BLOCKS_SIGNATURE;
+    if (blocksSig !== this.liveBlocksSig) {
+      this.liveBlocksSig = blocksSig;
+      this.liveBlocks = this.hasLiveRow ? completedBlocks(this.liveRowRef) : [];
     }
     // live SubAgent 树（值变化通道）—— 用 render 的**同一份**指纹门控（判据与渲染同源）：
     // 只在树内容真变了才投递新引用（applyRow 每次都会换新数组 ⇒ 不门控会逐帧重建）。

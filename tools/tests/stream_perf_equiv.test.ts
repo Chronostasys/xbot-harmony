@@ -15,14 +15,18 @@
 declare const process: { exit: (c: number) => void };
 
 import { toRunes, runeCount, clipRunes } from '../../entry/src/main/ets/core/typewriter';
-import { inFlightBlock } from '../../entry/src/main/ets/core/render';
+import { applyRow, inFlightBlock, liveBlocksSignature, EMPTY_BLOCKS_SIGNATURE } from '../../entry/src/main/ets/core/render';
 import {
   completedBlocks, mergeToolRuns, blocksSignature, toolKey,
 } from '../../entry/src/main/ets/core/streammerge';
-import { parseMarkdown, parseMarkdownCached, parseInline, resetMdCache } from '../../entry/src/main/ets/core/markdown';
+import { parseMarkdown, parseMarkdownCached, parseInline, resetMdCache, MdSpan } from '../../entry/src/main/ets/core/markdown';
 import { HistoryIteration, ToolProgress, ChatRow } from '../../entry/src/main/ets/core/types';
-import { LiveRowView } from '../../entry/src/main/ets/core/derive';
-import { WebToolProgress } from '../../entry/src/main/ets/core/chattypes';
+import { deriveRows, LiveRowView, Row } from '../../entry/src/main/ets/core/derive';
+import { reduce } from '../../entry/src/main/ets/core/reduce';
+import {
+  ChatState, DomainEvent, initialChatState, iterNum, turnID, eventSeq,
+} from '../../entry/src/main/ets/core/chat_types_full';
+import { WebToolProgress, WebIteration } from '../../entry/src/main/ets/core/chattypes';
 
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean): void {
@@ -452,6 +456,192 @@ console.log('\n▶ §9 parseInline：纯文本早退 ≡ 旧行为（空串仍 [
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+console.log('\n▶ §10 「双命中」：live 行已完成块指纹（O(1)）== oracle，且不陈旧');
+//   oracle = 页面的**旧写法** `blocksSignature(completedBlocks(row))`（每帧新数组、每帧 miss）。
+//   新写法 `liveBlocksSignature(row)` 按**派生行源数组对象恒等**记忆化（`core/render.ets`）
+//   ⇒ 二者必须逐帧**逐字节**相等；且换源数组（commit）必换值（不陈旧）。
+{
+  const T10 = turnID(1);
+  const iterD10 = (n: number, c: string): WebIteration =>
+    ({ iteration: n, content: c, reasoning: '', tools: [], toolCount: 0 } as unknown as WebIteration);
+  const itEv10 = (n: number): DomainEvent => ({
+    type: 'iteration', turnID: T10, iter: iterNum(n), seq: eventSeq(n * 10),
+    content: undefined, reasoning: undefined, activeTools: [], completedTools: [],
+    iterationsDelta: [iterD10(n, `iter-${n}-final`)], todos: undefined,
+    subAgents: undefined, tokenUsage: undefined, streamStats: undefined,
+  } as unknown as DomainEvent);
+  const streamEv10 = (n: number, c: string): DomainEvent => ({
+    type: 'stream', turnID: T10, seq: eventSeq(100000 + n), iteration: iterNum(n + 1),
+    content: c, reasoning: '', streamingTools: undefined, genui: undefined, streamStats: undefined,
+  } as unknown as DomainEvent);
+  const buildLive10 = (k: number): ChatState => {
+    let s: ChatState = initialChatState('c');
+    s = reduce(s, { type: 'turn_started', turnID: T10, requestID: null, trigger: 'user', content: null } as unknown as DomainEvent);
+    for (let n = 1; n <= k; n++) { s = reduce(s, itEv10(n)); }
+    return s;
+  };
+  const liveView10 = (s: ChatState): LiveRowView => {
+    const rows: readonly Row[] = deriveRows(s);
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i].kind === 'live') { return rows[i] as LiveRowView; }
+    }
+    throw new Error('§10 无 live 行 —— 构造器坏了（零扫描防线）');
+  };
+  let eqAll = true, changedDetected = true, stableHit = true, sawNonEmpty = false;
+  for (const K of [0, 8, 24, 108]) {
+    const base = buildLive10(K);
+    const row: ChatRow = new ChatRow();
+    const frames: ChatState[] = [base];
+    let s: ChatState = base;
+    for (let f = 0; f < 6; f++) { s = reduce(s, streamEv10(K, 'x'.repeat(f + 1))); frames.push(s); }
+    frames.push(reduce(s, itEv10(K + 1)));
+    for (const st of frames) {
+      applyRow(row, liveView10(st));
+      if (liveBlocksSignature(row) !== blocksSignature(completedBlocks(row))) { eqAll = false; }
+    }
+    if (completedBlocks(row).length > 0) { sawNonEmpty = true; }
+    // 纯 stream 帧 ⇒ 指纹稳定（缓存可命中）；commit 帧 ⇒ 必变（不陈旧）
+    const rowB: ChatRow = new ChatRow();
+    applyRow(rowB, liveView10(base));
+    const a = liveBlocksSignature(rowB);
+    const sB1 = reduce(base, streamEv10(K, 'q'));
+    applyRow(rowB, liveView10(sB1));
+    const b = liveBlocksSignature(rowB);
+    const sB2 = reduce(sB1, streamEv10(K, 'qq'));
+    applyRow(rowB, liveView10(sB2));
+    if (!(a === b && b === liveBlocksSignature(rowB))) { stableHit = false; }
+    const sC = reduce(sB2, itEv10(K + 1));
+    applyRow(rowB, liveView10(sC));
+    if (liveBlocksSignature(rowB) === b) { changedDetected = false; }
+  }
+  ok('★10 逐帧（含 commit）：liveBlocksSignature == oracle blocksSignature(completedBlocks(row))', eqAll);
+  ok('★10 纯 stream 帧 ⇒ 指纹不变（记忆化可命中）', stableHit);
+  ok('★10 commit 帧 ⇒ 指纹必变（记忆化不陈旧）', changedDetected);
+  ok('★10 零扫描防线：K>0 时确实有已完成块（判据不是"两边都空"的假绿）', sawNonEmpty);
+  const fresh: ChatRow = new ChatRow();
+  eq('★10 新建行（未 applyRow）⇒ 空块指纹', liveBlocksSignature(fresh), EMPTY_BLOCKS_SIGNATURE);
+  eq('★10 EMPTY_BLOCKS_SIGNATURE == blocksSignature([])', EMPTY_BLOCKS_SIGNATURE, blocksSignature([]));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n▶ §11 parseInline：charCode 快路径 + run-slice ≡ 旧实现（旧算法即 oracle）');
+//   旧实现（round4 前）**逐字复刻**为 oracle ⇒ 改坏新实现（漏分支、把 `*_` 当偶对、
+//   普通文本段切错起点、未闭合标记吞字符…）都会**逐字段不等** ⇒ 红。
+{
+  const oracleInline = (text: string): MdSpan[] => {
+    const spans: MdSpan[] = [];
+    if (text.length > 0 && !/[`!\[*_~]/.test(text)) {
+      const s: MdSpan = new MdSpan(); s.text = text; spans.push(s); return spans;
+    }
+    let buf: string = '';
+    let i: number = 0;
+    const pushPlain = (bold: boolean, italic: boolean, strike: boolean): void => {
+      if (buf.length === 0) { return; }
+      const s: MdSpan = new MdSpan(); s.text = buf; s.bold = bold; s.italic = italic; s.strike = strike;
+      spans.push(s); buf = '';
+    };
+    while (i < text.length) {
+      if (text.charAt(i) === '`') {
+        const end: number = text.indexOf('`', i + 1);
+        if (end > i) {
+          pushPlain(false, false, false);
+          const s: MdSpan = new MdSpan(); s.text = text.substring(i + 1, end); s.code = true; spans.push(s);
+          i = end + 1; continue;
+        }
+      }
+      if (text.charAt(i) === '!' && text.charAt(i + 1) === '[') {
+        const close: number = text.indexOf(']', i + 2);
+        if (close > i && text.charAt(close + 1) === '(') {
+          const paren: number = text.indexOf(')', close + 2);
+          if (paren > close) {
+            pushPlain(false, false, false);
+            const s: MdSpan = new MdSpan(); s.text = text.substring(i + 2, close);
+            s.image = text.substring(close + 2, paren); spans.push(s); i = paren + 1; continue;
+          }
+        }
+      }
+      if (text.charAt(i) === '[') {
+        const close: number = text.indexOf(']', i + 1);
+        if (close > i && text.charAt(close + 1) === '(') {
+          const paren: number = text.indexOf(')', close + 2);
+          if (paren > close) {
+            pushPlain(false, false, false);
+            const s: MdSpan = new MdSpan(); s.text = text.substring(i + 1, close);
+            s.link = text.substring(close + 2, paren); spans.push(s); i = paren + 1; continue;
+          }
+        }
+      }
+      if (text.startsWith('**', i) || text.startsWith('__', i)) {
+        const marker: string = text.substring(i, i + 2);
+        const end: number = text.indexOf(marker, i + 2);
+        if (end > i) {
+          pushPlain(false, false, false);
+          const s: MdSpan = new MdSpan(); s.text = text.substring(i + 2, end); s.bold = true; spans.push(s);
+          i = end + 2; continue;
+        }
+      }
+      if (text.startsWith('~~', i)) {
+        const end: number = text.indexOf('~~', i + 2);
+        if (end > i) {
+          pushPlain(false, false, false);
+          const s: MdSpan = new MdSpan(); s.text = text.substring(i + 2, end); s.strike = true; spans.push(s);
+          i = end + 2; continue;
+        }
+      }
+      const ch: string = text.charAt(i);
+      if ((ch === '*' || ch === '_') && !text.startsWith(ch + ch, i)) {
+        const end: number = text.indexOf(ch, i + 1);
+        if (end > i + 1) {
+          pushPlain(false, false, false);
+          const s: MdSpan = new MdSpan(); s.text = text.substring(i + 1, end); s.italic = true; spans.push(s);
+          i = end + 1; continue;
+        }
+      }
+      buf += text.charAt(i);
+      i++;
+    }
+    pushPlain(false, false, false);
+    return spans;
+  };
+  const corpus: string[] = [
+    '', 'plain', '这是一段纯文本', '**bold**', '__bold__', '*italic*', '_italic_', '~~strike~~', '`code`',
+    '[link](http://a.b)', '![alt](http://a.b/img.png)', '![alt](x) [l](y)', 'a**b**c', 'a*b*c', 'a_b_c',
+    'a__b__c', '***both***', '**bold with `code` inside**', '*a `b` c*', '**unclosed', '*unclosed',
+    '`unclosed', '~~unclosed', '[unclosed', '![unclosed', '![a](b', '[a](b', 'a!b[c', '!x[', '[]()',
+    '**', '__', '~~', '`', '*', '_', '~', '!', '[', '`a` and **b** and *c* and ~~d~~ and [e](f)',
+    'multi\nline **bold**\ntext', '中**粗**文', '中`码`文', '[中文](链接)', '****', '**a**b**c**',
+    '*a*b*c*', '`a``b`', '~~a~~b~~c~~', '_*mixed*_', '*_mixed_*', '__(_)_', '`**not bold**`',
+    '**`code`**', 'a'.repeat(300) + '**x**' + 'b'.repeat(300), '**' + 'x'.repeat(500) + '**',
+    '| `a` | *b* | [c](d) |', 'text with trailing _', '_leading', 'a_', '**a *b* c**', '*a **b** c*',
+    // ⛔ 专攻「粗体判据必须是**同一字符偶对**」的语料：混对 `*_`/`_*` 若被当偶对 ⇒ 结果分叉
+    '*_*_', '_*_*', '*_*', '_*_', '**__', '__**', 'a*_b_*c', '_*_*_', '*_*_*', '__*_*__', '*___*',
+  ];
+  let bad = 0;
+  let produced = 0;
+  for (const s of corpus) {
+    const a = parseInline(s), b = oracleInline(s);
+    produced += a.length + b.length;
+    if (JSON.stringify(a) !== JSON.stringify(b)) { bad++; }
+  }
+  ok('★11 语料逐字等价（含 `*_` 混对 / 未闭合 / 孤立标记 / 长文本 / 全角）', bad === 0);
+  ok('★11 零扫描防线：语料确实产出 span（不是"两边都返回 []"的假绿）', produced > corpus.length);
+  // 随机语料（标记字符随机组合）—— 覆盖面远超手写语料
+  // ⛔ 必须用真随机（LCG）：**确定性线性公式**（`marks[(t*13+k*5)%n]`）会让相邻字符恒隔固定步长
+  //    ⇒ **永不产生相邻标记对**（如 `*_`）⇒ 判据形同虚设（本波实测：混对 mutation 逃逸）。见 §6。
+  const marks: string[] = ['*', '_', '`', '~', '!', '[', ']', '(', ')', 'a', 'b', '中', ' '];
+  let seed: number = 20261011;
+  const rnd = (): number => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed; };
+  let bad2 = 0;
+  for (let t = 0; t < 8000; t++) {
+    const len: number = rnd() % 24;
+    let s: string = '';
+    for (let k = 0; k < len; k++) { s += marks[rnd() % marks.length]; }
+    if (JSON.stringify(parseInline(s)) !== JSON.stringify(oracleInline(s))) { bad2++; }
+  }
+  ok('★11 随机 8000 条逐字等价（标记字符随机组合，含相邻标记对）', bad2 === 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 console.log('\n▶ §6 mutation 自证（由外部脚本注入，改动语义 ⇒ 本文件必红）:');
 console.log('   · `core/typewriter.ets` `runeWidthAt` 改 `return 1`（忽略代理对）');
 console.log('     ⇒ §1 clipRunes/runeCount 与 oracle 不等 ⇒ 红；');
@@ -466,7 +656,14 @@ console.log('     ⇒ §7「key 含全局下标」/「增量 == 全量」必红�
 console.log('   · `core/streammerge.ets` `blocksSignature` 内核改 `return \'\'`（记忆化产物被改）');
 console.log('     ⇒ §8 oracle 不等 ⇒ 红；');
 console.log('   · `core/markdown.ets` parseInline 早退条件改成 `!false`（永远早退）');
-console.log('     ⇒ §9 「含标记字符仍正确」红。');
+console.log('     ⇒ §9 「含标记字符仍正确」红；');
+console.log('   · [round4] `core/render.ets` applyRow 的 live 分支把行指纹改成');
+console.log('     `buildBlocksSignature(row.iterations)`（**误含在飞块**，与 oracle 的"仅已完成块"分叉）');
+console.log('     ⇒ §10 「==oracle」与「纯 stream 帧不变」两条红（实测 2 failed）；');
+console.log('   · [round4] `core/markdown.ets` 粗体判据改成"`*`/`_` **任意相邻对**"（把混对 `*_` 当偶对）');
+console.log('     ⇒ §11 语料 + 随机各红（实测 2 failed）。');
+console.log('     ⚠️ 该 mutation **最初逃逸**：§11 的"随机语料"用确定性线性公式生成 ⇒ 相邻字符恒隔');
+console.log('        固定步长 ⇒ 永不产生相邻标记对。改真 LCG + 补 `*_*_` 语料后必红（判据自身也要可判别）。');
 
 if (fail > 0) { console.log(`\n  stream_perf_equiv: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`\n  stream_perf_equiv: ${pass} passed, 0 failed`);

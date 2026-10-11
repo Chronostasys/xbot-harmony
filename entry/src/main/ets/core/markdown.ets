@@ -341,113 +341,136 @@ export function parseInline(text: string): MdSpan[] {
     spans.push(s);
     return spans;
   }
-  let buf: string = '';
+  // ── 逐字符扫描（2026-10-11 round4：charCode 快路径 + run-slice）─────────────────
+  // ⛔ 为什么（实测热度）：真实单块正文 ≈2.5K 字符、含标记 ⇒ 本函数 **≈32 µs/次**
+  //    （8K ⇒ ≈100 µs；对照纯文本早退 ≈2.5 µs/8K）。流式期最后一段正文每拍都在变 ⇒
+  //    `parseInlineCached` 每拍未命中 ⇒ 这正是"每拍重解析"里非 Markdown 块级那一半。
+  // 两处**语义不变**的改法：
+  //   ① **charCode 快路径**：只有 `` ` ``(96) `!`(33) `[`(91) `*`(42) `_`(95) `~`(126)
+  //      这 6 个字符可能开启任一分支；其余字符一定落进"普通文本" ⇒ 只判一次 charCode 就跳过，
+  //      不再对每个字跑 7 个分支（`charAt`/`startsWith`/`indexOf`）。
+  //   ② **run-slice**：普通文本段用 `(bufStart, i)` 记录区间、flush 时**一次 `substring`**，
+  //      替代 `buf += text.charAt(i)` 的逐字符拼接与逐字符 `charAt` 分配。
+  //    两者对任何输入都与旧实现产出**同一组 span**（旧算法即规格）—— 判据
+  //    `tools/tests/stream_perf_equiv.test.ts` §11 用旧实现的**逐字复刻 oracle** 在语料上比对。
+  let bufStart: number = 0;
   let i: number = 0;
 
-  const pushPlain = (bold: boolean, italic: boolean, strike: boolean): void => {
-    if (buf.length === 0) {
+  /** 把 `[bufStart, upTo)` 这段普通文本 flush 成一个 span（空段不产 span —— 与旧 `buf.length===0` 同）。 */
+  const pushPlain = (upTo: number): void => {
+    if (upTo <= bufStart) {
       return;
     }
     const s: MdSpan = new MdSpan();
-    s.text = buf;
-    s.bold = bold;
-    s.italic = italic;
-    s.strike = strike;
+    s.text = text.substring(bufStart, upTo);
     spans.push(s);
-    buf = '';
+    bufStart = upTo;
   };
 
   while (i < text.length) {
+    const c: number = text.charCodeAt(i);
+    // ① 快路径：非标记字符（不可能开启任何分支）⇒ 原样并入当前普通文本段。
+    if (c !== 96 && c !== 33 && c !== 91 && c !== 42 && c !== 95 && c !== 126) {
+      i++;
+      continue;
+    }
     // 行内代码
-    if (text.charAt(i) === '`') {
+    if (c === 96) {
       const end: number = text.indexOf('`', i + 1);
       if (end > i) {
-        pushPlain(false, false, false);
+        pushPlain(i);
         const s: MdSpan = new MdSpan();
         s.text = text.substring(i + 1, end);
         s.code = true;
         spans.push(s);
         i = end + 1;
+        bufStart = i;
         continue;
       }
     }
     // 图片 ![alt](src)
-    if (text.charAt(i) === '!' && text.charAt(i + 1) === '[') {
+    if (c === 33 && text.charAt(i + 1) === '[') {
       const close: number = text.indexOf(']', i + 2);
       if (close > i && text.charAt(close + 1) === '(') {
         const paren: number = text.indexOf(')', close + 2);
         if (paren > close) {
-          pushPlain(false, false, false);
+          pushPlain(i);
           const s: MdSpan = new MdSpan();
           s.text = text.substring(i + 2, close);
           s.image = text.substring(close + 2, paren);
           spans.push(s);
           i = paren + 1;
+          bufStart = i;
           continue;
         }
       }
     }
     // 链接 [text](href)
-    if (text.charAt(i) === '[') {
+    if (c === 91) {
       const close: number = text.indexOf(']', i + 1);
       if (close > i && text.charAt(close + 1) === '(') {
         const paren: number = text.indexOf(')', close + 2);
         if (paren > close) {
-          pushPlain(false, false, false);
+          pushPlain(i);
           const s: MdSpan = new MdSpan();
           s.text = text.substring(i + 1, close);
           s.link = text.substring(close + 2, paren);
           spans.push(s);
           i = paren + 1;
+          bufStart = i;
           continue;
         }
       }
     }
-    // 粗体 **text** 或 __text__
-    if (text.startsWith('**', i) || text.startsWith('__', i)) {
+    // 粗体 **text** 或 __text__（⛔ 只认**同一字符的偶对** `**`/`__`；`*_`/`_*` 不算 —— 与旧实现逐字一致）
+    if ((c === 42 && text.charCodeAt(i + 1) === 42) || (c === 95 && text.charCodeAt(i + 1) === 95)) {
       const marker: string = text.substring(i, i + 2);
       const end: number = text.indexOf(marker, i + 2);
       if (end > i) {
-        pushPlain(false, false, false);
+        pushPlain(i);
         const s: MdSpan = new MdSpan();
         s.text = text.substring(i + 2, end);
         s.bold = true;
         spans.push(s);
         i = end + 2;
+        bufStart = i;
         continue;
       }
     }
     // 删除线 ~~text~~
-    if (text.startsWith('~~', i)) {
+    if (c === 126 && text.startsWith('~~', i)) {
       const end: number = text.indexOf('~~', i + 2);
       if (end > i) {
-        pushPlain(false, false, false);
+        pushPlain(i);
         const s: MdSpan = new MdSpan();
         s.text = text.substring(i + 2, end);
         s.strike = true;
         spans.push(s);
         i = end + 2;
+        bufStart = i;
         continue;
       }
     }
     // 斜体 *text* 或 _text_
-    const ch: string = text.charAt(i);
-    if ((ch === '*' || ch === '_') && !text.startsWith(ch + ch, i)) {
-      const end: number = text.indexOf(ch, i + 1);
-      if (end > i + 1) {
-        pushPlain(false, false, false);
-        const s: MdSpan = new MdSpan();
-        s.text = text.substring(i + 1, end);
-        s.italic = true;
-        spans.push(s);
-        i = end + 1;
-        continue;
+    if (c === 42 || c === 95) {
+      const ch: string = text.charAt(i);
+      if (!text.startsWith(ch + ch, i)) {
+        const end: number = text.indexOf(ch, i + 1);
+        if (end > i + 1) {
+          pushPlain(i);
+          const s: MdSpan = new MdSpan();
+          s.text = text.substring(i + 1, end);
+          s.italic = true;
+          spans.push(s);
+          i = end + 1;
+          bufStart = i;
+          continue;
+        }
       }
     }
-    buf += text.charAt(i);
     i++;
   }
-  pushPlain(false, false, false);
+  pushPlain(text.length);
   return spans;
 }
 

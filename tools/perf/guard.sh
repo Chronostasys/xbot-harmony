@@ -152,6 +152,15 @@ else
   le "parseMarkdown(8K)"                "$(val parseMarkdown_8k_us)"     900    "us/call"
   le "parseMarkdown(274K)"              "$(val parseMarkdown_274k_ms)"   50     "ms/call"
   le "parseInline"                      "$(val parseInline_us)"          40     "us/call"
+  # ── 目标⑤ round4 **新增**度量（⛔ 上列既有阈值一个未动）──────────────────────────
+  #   · liveRowFrame_108_us：live 行每帧构造路径（实测 ≈1.1 µs；×~14 余量）
+  #   · liveRowGate_108_us：页面每帧门控 = `liveBlocksSignature`（O(1)，实测 ≈0.006 µs）。
+  #     ⛔ 判据意图：换回「每帧 blocksSignature(completedBlocks(row))」⇒ @108 块约 4–5 µs ⇒ 必红。
+  #   · parseInline_marked_2560_us：含标记 2.5K 文本（实测 ≈7.6 µs；OLD 同进程 A/B ≈33 µs）。
+  #     ⚠️ 阈值 30 ⇒ 对"改回逐字符分支扫描"敏感，同时给宿主抖动留 ~4 倍余量。
+  le "live 行每帧构造（108 已完成块）"   "$(val liveRowFrame_108_us)"     15     "us/call"
+  le "live 行已完成块门控（108，O(1)）"  "$(val liveRowGate_108_us)"      2      "us/call"
+  le "parseInline（含标记 2.5K，round4）" "$(val parseInline_marked_2560_us)" 30  "us/call"
   le "签名长度比 340/24（线性度）"       "$(val signature_len_ratio_340_24)" 25 "x"
   le "mergeToolRuns 耗时比 340/24（线性度）" "$(val mergeToolRuns_time_ratio_340_24)" 60 "x"
   le "流式增长 120 拍总耗时"             "$(val streamingGrowth_120ticks_ms)" 300 "ms/120ticks"

@@ -16,7 +16,7 @@
 import { ChatRow, HistoryIteration, IterList, ToolProgress } from './types';
 import { WebCompaction, WebIteration, WebSubAgentProgress, WebToolProgress } from './chattypes';
 import type { LiveRowView, Row } from './derive';
-import { mergeTools, toolKey } from './streammerge';
+import { buildBlocksSignature, mergeTools, toolKey } from './streammerge';
 
 /** WebToolProgress（web 形状）→ 原生 ToolProgress（渲染层形状）。 */
 export function toToolProgress(t: WebToolProgress): ToolProgress {
@@ -294,6 +294,57 @@ let liveConvHits = 0;
 let liveConvMisses = 0;
 let liveConvBlocks = 0;      // 累计**转换过的块数**（= 每帧真实工作量；命中不计）
 
+// ── live 行**已完成块指纹**（供页面 O(1) 门控「值投递」）────────────────────────────
+/**
+ * 已完成块指纹 = `buildBlocksSignature(convertedBlocksMemo(src))`。
+ *
+ * ⛔ 为什么（目标⑤ 第四轮，「双命中」）：
+ *   页面 `syncLiveTail` 每帧判「live 行的已完成块是否变化」，旧写法是
+ *   `blocksSignature(this.liveBlocks) !== blocksSignature(completedBlocks(liveRowRef))`。
+ *   · `this.liveBlocks` 侧：稳定数组 ⇒ 命中记忆化（≈0）；
+ *   · `completedBlocks(liveRowRef)` 侧：**每帧新数组**（`liveIterations` 里的 `.slice()`
+ *     ＋可能 push 在飞块）⇒ `blocksSignature` 每帧**未命中** ⇒ O(块数) 拼串 + O(块数) 过滤分配。
+ *   ⇒ 两端都 O(1)：本函数按**派生行源数组对象恒等**记忆化（流式帧之间 `r.iterations`
+ *     是同一数组对象 —— 判据 `tools/tests/perf_live_frame.test.ts` §A 直接断言），
+ *     命中即复用上次算出的指纹字符串（不可变、可共享）。
+ *
+ * ⚠️ 正确性前提（与 `convertedBlocksMemo` 同一不变量）：源数组**整体替换、绝不就地改**；
+ *   只按对象恒等取缓存 ⇒ ① 输出逐字节不变（纯函数，判据 `stream_perf_equiv` §10 用
+ *   独立 oracle `blocksSignature(completedBlocks(row))` 比对）；② 换源数组（commit/fold）
+ *   必重算（同 §10 的变更检测断言）。WeakMap 键 ⇒ 源数组 GC 时条目一并回收。
+ */
+const completedSigMemo = new WeakMap<object, string>();
+/** 行对象 → 该行当前「已完成块指纹」（`applyRow` 的 live 分支写入；页面读）。 */
+const liveRowSigMemo = new WeakMap<object, string>();
+
+/** 空块列表的指纹（页面在无 live 行时用它当"期望值"）。 = `buildBlocksSignature([])`。 */
+export const EMPTY_BLOCKS_SIGNATURE: string = buildBlocksSignature([]);
+
+function completedSigOf(src: readonly WebIteration[]): string {
+  const hit: string | undefined = completedSigMemo.get(src);
+  if (hit !== undefined) {
+    return hit;
+  }
+  const s: string = buildBlocksSignature(convertedBlocksMemo(src));
+  completedSigMemo.set(src, s);
+  return s;
+}
+
+/**
+ * 某渲染行当前 **live 行已完成块** 的指纹（**O(1)**）—— 页面据此门控 `@State liveBlocks`
+ * 的值投递（只在变化时赋值）。由 `applyRow` 的 live 分支在每次重算该行时写入。
+ *
+ * ⛔ 与「页面算 `blocksSignature(completedBlocks(row))`」**逐字节等价**：`row.iterations`
+ *   在 live 下 = 已完成转换块 ⊕ （可选）末尾在飞块（`live:true`）；`completedBlocks` 只滤掉
+ *   在飞块 ⇒ 元素集合与顺序 = `convertedBlocksMemo(r.iterations)` ⇒ 指纹相同（§10 断言）。
+ *   行对象从未被 `applyRow` 写过（如新建后首帧前调用）⇒ 指纹取空值（`EMPTY_BLOCKS_SIGNATURE`），
+ *   与"该行尚无已完成块"一致（`row.iterations` 为空）。
+ */
+export function liveBlocksSignature(row: ChatRow): string {
+  const hit: string | undefined = liveRowSigMemo.get(row);
+  return hit !== undefined ? hit : EMPTY_BLOCKS_SIGNATURE;
+}
+
 /** 按源数组对象恒等取「已完成块」的转换结果（**共享**数组 —— 调用方只读）。 */
 function convertedBlocksMemo(src: readonly WebIteration[]): HistoryIteration[] {
   const hit: HistoryIteration[] | undefined = liveBlocksMemo.get(src);
@@ -458,6 +509,9 @@ export function applyRow(row: ChatRow, r: Row): boolean {
       row.turnID = r.turnID;
       row.content = r.content;
       row.iterations = liveIterations(r);
+      // 「已完成块指纹」按**派生行源数组对象恒等**记忆化（流式帧命中 ⇒ O(1)，见 `completedSigOf`）。
+      // 页面用它门控 `@State liveBlocks` 的值投递（旧写法每帧 O(块数) 拼串 + 过滤分配）。
+      liveRowSigMemo.set(row, completedSigOf(r.iterations));
       row.isLive = true;
       row.regionsBefore = r.regionsBefore !== undefined ? r.regionsBefore : 0;
       // live 行不承载压缩点（压缩只在**已提交** turn 的迭代边界上定位）⇒ 清空。

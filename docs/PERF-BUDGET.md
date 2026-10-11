@@ -220,6 +220,50 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
   mutation 自证 3 处（`assignKeys` 局部下标 / `blocksSignature` 内核破坏 / `parseInline` 早退恒真 ⇒ 均红）；
   反向自证：增量路径改回 `assignKeys(blocks,0)` ⇒ **仍全绿**（证明"尾部重编号 ≡ 全量重编号"）。
 
+### 1.6e 第四轮（✅ 2026-10-11）：`blocksSignature` **双命中** + `parseInline` 含标记快路径
+
+> ⚠️ **口径**：同进程 A/B（OLD 复刻 vs NEW 生产/双 bundle，交替 ≥5 轮取中位），不受跨 run 负载漂移影响。
+> 判据：`bash tools/tests/run-one.sh stream_perf_equiv`（三节 §10/§11；**46 passed**；2 处 mutation ⇒ 红，见下）。
+
+| 靶子 | OLD | **NEW** | 倍率 | 手法 |
+|---|---|---|---|---|
+| live 行已完成块**门控**（/帧，K=24 块） | 3.31 µs | **1.42 µs** | **2.33×** | `core/render.ets` 新增 `liveBlocksSignature(row)`：指纹按**派生行源数组对象恒等**（`WeakMap`）记忆化；页面 `syncLiveTail` 只比一次 O(1) |
+| 同上（K=108） | 8.36 µs | **2.01 µs** | **4.15×** | 同上（`completedBlocks` O(N) 过滤 + `buildBlocksSignature` O(N) 拼串 ⇒ 每帧 0） |
+| 同上（K=340，真实最重单行） | 21.67 µs | **3.47 µs** | **6.25×** | 同上 |
+| `parseInline`（含标记，短） | 0.840 µs | **0.225 µs** | **3.74×** | `core/markdown.ets`：**charCode 快路径**（只 6 个字符可能开分支）+ **run-slice**（普通文本段一次 `substring`，替代逐字符拼串） |
+| `parseInline`（含标记 2560 字符） | 33.19 µs | **9.35 µs** | **3.55×** | 同上 |
+| `parseInline`（含标记 8192 字符） | 108.2 µs | **26.7 µs** | **4.05×** | 同上 |
+
+- **靶子1（双命中）三候选结论**（⛔ 以实测为准）：
+  · **(a) 让 `completedBlocks` 返回共享数组** ⇒ **否决**：live 行的已完成块每帧经 `liveIterations` 的
+    `.slice()`（＋可能 push 在飞块）**必然是新数组** ⇒ 按源数组恒等对 `completedBlocks` 记忆化**命中不了**；
+    且把**可变数组**共享出去有 alias 风险（消费点 `MessageRow.itersFor`/页面 `liveBlocks`）。
+  · **(b) 廉价前置判据（块数 + 末块身份）** ⇒ **否决**：`blocksSignature` 现编码**每块**的
+    `(迭代号, 正文长, 思考长, 工具数)`；只判"块数 + 末块"会在**中间块内容变化**（同号权威覆盖、
+    已提交迭代内工具完成）时**漏更新** ⇒ 判别力下降。
+  · **(c) 按源数组对象恒等记忆化 + 页面侧 O(1) 比** ⇒ **采用**。**为什么能命中**：流式帧的
+    **派生行** `r.iterations` 是**同一数组对象**（`perf_live_frame.test.ts` §A 直接断言）⇒ 指纹值
+    （不可变字符串）可安全复用。**输出不变**由 §10 用独立 oracle `blocksSignature(completedBlocks(row))`
+    逐帧逐字节比对；**不陈旧**由 §10 的 commit 帧断言守护。
+- **靶子5（上轮未测）实测结论 —— 诚实**：本波量清三处，**均非纯逻辑瓶颈**：
+  · **live 帧路径**：`applyRow` 的 live 分支每帧 ≈**1.06 µs** @108 已完成块（新度量 `liveRowFrame_108_us`）；
+    门控（旧写法）才是每帧的大头（21.67 µs @340）—— 已由靶子1 解决。
+  · **长列表 / 滚动**：行级 diff（`core/rowdiff`）+ 数据源 `applyRows` 是 **O(行数)** 的 `id#rev` 键比较
+    （行数 = 窗口 `rowLimit`，非块数）⇒ µs–十µs 级；**真正的滚动成本在 ArkUI 侧**（measure/layout/绘制），
+    离线测不到，且 `components/**` 本轮不在可改域。⇒ **未改**。
+  · **首帧到可交互**：唯一真源是**设备侧** `coldstart.sh`（被动只读）与 App 内埋点；纯逻辑侧改不了它。⇒ **未改**。
+- **新增度量**（⛔ 仅新增，**未动任何既有阈值**）：`liveRowGate_108_us`（O(1) 门控，实测 ≈0.006 µs）·
+  `liveRowFrame_108_us` · `parseInline_marked_2560_us`；三者各配一条**新增** `guard.sh` 门槛
+  （2 / 15 / 30 µs）。⚠️ `blocksSignature_callerpat_340_us` 是 **round3** 的调用点形态（round4 起生产
+  **已不再用它**，留作趋势；生产门控 = `liveRowGate_108_us`）。
+- **mutation 自证（本波 2 处，均实测红）**：
+  · `core/render.ets` 把行指纹改成 `buildBlocksSignature(row.iterations)`（**误含在飞块**）⇒ §10 两条红；
+  · `core/markdown.ets` 粗体判据改成"`*`/`_` 任意相邻对"（**把 `*_` 当偶对**）⇒ §11 语料 + 随机各红。
+- ⚠️ **判据自身的坑（本波踩到并修正，务必记住）**：§11 最初的"随机语料"用**确定性线性公式**
+  （`marks[(t*13+k*5)%n]`）生成 ⇒ 相邻字符恒隔固定步长 ⇒ **永不产生相邻标记对**（如 `*_`）⇒
+  上面那条 mutation **逃逸**（假绿）。⇒ 改为**真 LCG 随机**并补 `*_*_`/`_*_*` 等语料后 mutation 才红。
+  **教训：随机语料的"随机"本身必须可判别**（否则覆盖面是假的）。
+
 ### 1.7 TURNDROP 噪声（已修，留基线防回归）
 - 现状（`1cfad7a`）：逐 turn `console.debug` + burst 结束**一条** warn 汇总；`turndropSeen` 去重。
 - 判别测试：`tools/tests/turndrop.test.ts`（5 passed；含 3 段 mutation 说明）。
@@ -341,6 +385,7 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
 | 2026-10-11 | live 行每帧已完成块转换（**新增判据，非门禁阈值**） | — | 目标⑤落地：`core/render.ets` `liveBlocksMemo`（按源数组对象恒等）把 live 行每帧对**未变化**已完成块的转换数 **N → 0**（N=108）。判据 `tools/tests/perf_live_frame.test.ts`（13 passed；mutation ⇒ exit 1）。**不是放宽任何门槛**：`guard.sh`/`bench_core` 的既有指标（含 `blocksSignature_340_us`）一律未动 | perf 线（目标⑤） |
 | 2026-10-11 | `runeCount`/`clipRunes`/`inFlightBlock`（**新增度量，阈值一个没动**） | — | 目标⑤第二轮：`core/typewriter.ets` 的 `runeCount`/`clipRunes` 改**免分配**（−2.3×/−6× @8K）；`core/render.ets` `inFlightBlock` 的已提交键容器 `Array.indexOf`→`Set.has`（大在飞数档 16.2→6.9 µs）。**仅新增** `bench_core` 度量行（`runeCount_8k_us`/`clipRunes_8k_half_us`/`inFlightBlock_K54_us`/`inFlightBlock_K54D64_us`），**未动任何既有阈值**。判据 `tools/tests/stream_perf_equiv.test.ts`（26 passed；3 处 mutation ⇒ exit 1）。详见 §1.6c | perf 线（目标⑤） |
 | 2026-10-11 | `blocksSignature` 记忆化 + `assignKeys` 尾部重编号 + `parseInline` 早退（**新增度量，阈值一个没动**） | — | 目标⑤第三轮：`core/streammerge.ets` `blocksSignature` 按**源数组对象恒等**记忆化（调用点形态 89.4→42.1 µs，2.12×）；`core/markdown.ets` `parseMarkdownCached` 增量路径 `assignKeys` **只重编号尾部**（`streamingGrowth` 2674→1815 µs，1.47×；去掉 O(块数)/拍 的 O(n²) 项）+ `parseInline` 纯文本早退（0.723→0.193 µs，3.7×）。**仅新增** 度量行（`blocksSignature_callerpat_340_us`/`parseInline_plain_us`）；`blocksSignature_340_us` 输入改为**未缓存内核** `buildBlocksSignature`（否则记忆化会让它测到 ≈0）—— **未动任何既有阈值**。判据 `stream_perf_equiv` §7/§8/§9（37 passed；3 mutation ⇒ exit 1；含反向自证"尾部重编号 ≡ 全量重编号"）。详见 §1.6d | perf 线（目标⑤） |
+| 2026-10-11 | `liveBlocksSignature` 双命中 + `parseInline` charCode/run-slice（**新增 3 度量 + 3 新门槛，既有阈值一个没动**） | — | 目标⑤第四轮：`core/render.ets` 新增 `liveBlocksSignature(row)`（按**派生行源数组对象恒等**记忆化）+ `pages/Index.ets` 门控改 O(1) ⇒ live 行已完成块门控 **2.33×/4.15×/6.25×**（K=24/108/340，同进程 A/B）；`core/markdown.ets` `parseInline` **charCode 快路径 + run-slice** ⇒ 含标记文本 **3.74×/3.55×/4.05×**（短/2560/8192，同进程**双 bundle** A/B）。**新增**度量行 `liveRowGate_108_us`(≈0.006) / `liveRowFrame_108_us`(≈1.06) / `parseInline_marked_2560_us`(≈7.6)，并**新增** `guard.sh` 门槛 2 / 15 / 30 µs（**既有阈值一行未改**）。判据 `stream_perf_equiv` §10/§11（46 passed；2 mutation ⇒ 红）。详见 §1.6e | perf 线（目标⑤） |
 
 > 规则：任何上调都必须在**本表**写明"为什么不是代码退化"（附 `bench_core.sh` 两遍输出）。
 

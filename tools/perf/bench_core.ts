@@ -24,7 +24,7 @@ import {
 } from '../../entry/src/main/ets/core/streammerge';
 import { parseMarkdown, parseMarkdownCached, parseInline, mdCacheStats } from '../../entry/src/main/ets/core/markdown';
 import { runeCount, clipRunes } from '../../entry/src/main/ets/core/typewriter';
-import { inFlightBlock } from '../../entry/src/main/ets/core/render';
+import { inFlightBlock, applyRow, liveBlocksSignature, EMPTY_BLOCKS_SIGNATURE } from '../../entry/src/main/ets/core/render';
 import { springBezier, springParams } from '../../entry/src/main/ets/core/motion';
 import {
   visibleBlocks as rvVisibleBlocks, hiddenBlockCount as rvHiddenBlockCount,
@@ -32,8 +32,8 @@ import {
 } from '../../entry/src/main/ets/core/rowsview';
 import { ChatStore } from '../../entry/src/main/ets/core/store';
 import { ChatRow, HistoryIteration, HistoryMessage, ToolProgress } from '../../entry/src/main/ets/core/types';
-import type { LiveRowView } from '../../entry/src/main/ets/core/derive';
-import type { WebToolProgress } from '../../entry/src/main/ets/core/chattypes';
+import type { LiveRowView, Row } from '../../entry/src/main/ets/core/derive';
+import type { WebToolProgress, WebIteration } from '../../entry/src/main/ets/core/chattypes';
 
 // ── 微基准工具：min-of-N（单位 µs；N 次里取最小）────────────────────────────────
 // ⚠️ reps 越大越抗"宿主被多条线同时占用"的抖动（实测同一指标跨次可差 3×）。
@@ -128,6 +128,19 @@ function mkLiveView(kBlocks: number, dLive: number): LiveRowView {
   } as unknown as LiveRowView;
 }
 
+/** 一个含 K 个**已完成迭代块**的 live 行视图（`applyRow` 的 live 分支 / `liveBlocksSignature` 用）。 */
+function mkLiveViewWithIts(k: number): LiveRowView {
+  const its: WebIteration[] = [];
+  for (let i = 1; i <= k; i++) {
+    its.push({ iteration: i, content: `第${i}块 正文`, reasoning: '', tools: [] } as unknown as WebIteration);
+  }
+  return {
+    kind: 'live', id: 'live', turnID: 1, isPartial: true, streaming: true,
+    content: 'x'.repeat(200), reasoning: '', iterations: its, activeTools: [],
+    streamingTools: [], genui: '', subAgents: [], todos: [], lastIter: k + 1,
+  } as unknown as LiveRowView;
+}
+
 const blocksWorst = mkBlocks(N_BLOCKS_WORST);
 const blocksFixture = mkBlocks(N_BLOCKS_FIXTURE);
 const blocksSmall = mkBlocks(24);
@@ -173,6 +186,33 @@ const sigStable = blocksWorst.slice();
 metric('blocksSignature_callerpat_340_us',
   benchUs(() => { if (blocksSignature(sigStable) !== blocksSignature(blocksWorst.slice())) { throw 1; } }, 2000), 'us/call');
 
+// ── 3b. live 行「每帧」成本 + 「双命中」门控（目标⑤ round4）─────────────────────
+//   · `liveRowFrame_108_us`：live 行**每帧**的构造路径（`applyRow` 的 live 分支）——源 `iterations`
+//     数组恒等（与生产流式帧一致，见 `perf_live_frame` §A）、只有正文长度变化 ⇒ 走**缓存命中**路径。
+//     抓「live 每帧重新转换/分配」回归（round1 的 `liveBlocksMemo`）。
+//   · `liveRowGate_108_us`：页面每帧的「已完成块是否变化」门控 —— 生产形态
+//     `liveBlocksSignature(row)`（按**派生行源数组对象恒等**记忆化 ⇒ O(1)）。
+//     ⛔ 若有人把它换回「每帧 `blocksSignature(completedBlocks(row))`」⇒ 这里会从 ~0 跳到数 µs ⇒ 红。
+//   · 对照：`blocksSignature_callerpat_340_us` 是 **round3** 的调用点形态（round4 起生产**已不再用它**，
+//     留作趋势；生产的门控形态 = `liveRowGate_108_us`）。
+const liveRowGate = new ChatRow();
+applyRow(liveRowGate, mkLiveViewWithIts(N_BLOCKS_FIXTURE) as unknown as Row);
+const liveRowGateSig: string = liveBlocksSignature(liveRowGate);
+metric('liveRowGate_108_us',
+  benchUs(() => { if (liveBlocksSignature(liveRowGate) !== liveRowGateSig) { throw 1; } }, 20000), 'us/call');
+{
+  // 生产流式帧：`iterations` 数组恒等、正文长度每帧变化 ⇒ `applyRow` 走完整 live 分支且不早退。
+  const frameRow = new ChatRow();
+  const frameView = mkLiveViewWithIts(N_BLOCKS_FIXTURE);
+  let tick = 0;
+  metric('liveRowFrame_108_us', benchUs(() => {
+    tick++;
+    (frameView as unknown as { content: string }).content = 'x'.repeat(200 + (tick % 97));
+    applyRow(frameRow, frameView as unknown as Row);
+  }, 5000), 'us/call');
+  if (liveBlocksSignature(new ChatRow()) !== EMPTY_BLOCKS_SIGNATURE) { throw new Error('EMPTY_BLOCKS_SIGNATURE 不自洽'); }
+}
+
 // 线性度（O(N²) 回归会把这两个比值顶起来）
 const sig340 = blocksSignature(blocksWorst).length;
 const sig24 = blocksSignature(blocksSmall).length;
@@ -208,6 +248,11 @@ metric('parseInline_us', benchUs(() => { parseInline('**粗体** 与 `code` 和 
 // 纯文本（无行内标记字符）⇒ 命中前置早退（round3 新增）。对照：`parseInline_us` 用的是**含标记**
 // 文本（早退不触发）⇒ 那条**不变**；这条才体现早退收益。
 metric('parseInline_plain_us', benchUs(() => { parseInline('这是一段没有任何行内标记的纯文本正文' + 'x'.repeat(40)); }, 20000, 9), 'us/call');
+// 含标记的**长文本**（round4 新增）：真实单块正文 ≈2.5K、散落行内标记。这是流式期"最后一段正文
+// 每拍都变 ⇒ parseInlineCached 每拍未命中"的**实际成本口径**。round4 的 charCode 快路径 + run-slice
+// 把它从 ≈33 µs 降到 ≈9 µs（同进程双 bundle A/B：3.55×）。若有人改回逐字符分支扫描 ⇒ 这里会跳回去。
+const inlineMarked2560 = big.slice(0, 2560);
+metric('parseInline_marked_2560_us', benchUs(() => { parseInline(inlineMarked2560); }, 2000, 9), 'us/call');
 
 // 缓存：**同一文本重复解析必须全命中**（防"重构把缓存拆了"）
 const before = mdCacheStats();
