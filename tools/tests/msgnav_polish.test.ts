@@ -62,9 +62,14 @@ ok('全文件无 stateStyles `normal:` 分支（杜绝属性接管）', src.inde
 has(src, '.stateStyles({ pressed: { .opacity(0.7) } })', '条目按压反馈只写 pressed');
 has(src, '.backgroundColor(withAlpha(this.pal().accent, ACCENT_TINT))', '按钮按下切 accent 底纹（web hover 等价）');
 
-// ── E. 位置指示：当前条目序号走 accent ───────────────────────────────────────
-has(src, '.fontColor(this.row.active ? this.pal().accent : this.pal().textMuted)',
-  '当前条目序号用 accent（一眼看出"我在哪"）');
+// ── E. 位置指示：当前条目序号走强调色 ────────────────────────────────────────
+// ⛔ 2026-10-11 目标⑤改写：序号是 **normal 字号（10）文字** ⇒ 需 AA_TEXT 4.5；
+//    `accent` 是**非文本/图形** role（3.0）⇒ 压激活底纹 porcelain 仅 4.10、dark 4.05 ⇒ 越界。
+//    改走语义等价的**文字** role `accentText`（"强调文字"4.5 档，三主题实算全 ≥4.5）。
+//    ⛔ 意图不变：当前条目序号仍走强调色（一眼看出"我在哪"）；变的只是"用哪一个合法 role"。
+//    判据见 `tools/tests/accent_chrome.test.ts`。
+has(src, '.fontColor(this.row.active ? this.pal().accentText : this.pal().textMuted)',
+  '当前条目序号用 accentText（一眼看出"我在哪"，且达 AA 4.5）');
 
 // ── F. 性能快路径：结构未变 ⇒ 只翻高亮，不重赋 rows ──────────────────────────
 has(src, 'private sameStructure(): boolean {', '存在结构一致性判定');

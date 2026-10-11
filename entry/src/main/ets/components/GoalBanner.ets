@@ -129,7 +129,12 @@ export struct GoalBanner {
             })
           Text('保存')
             .fontSize(typeOf(TYPE_GOAL).size)
-            .fontColor(this.pal().accent)
+            // ⛔ 目标⑤：`accent` 是**非文本/图形** role（AA_NON_TEXT 3.0，供弧/环/图标用），
+            //    此处是 12 的 **normal 字号文字** ⇒ 需 AA_TEXT 4.5。实算 porcelain 压
+            //    `goalBadgeBgOf`(= accent@15% over `surface`) 只有 **3.83**（dark 3.84 亦不足）
+            //    ⇒ 改走语义等价的**文字** role `accentText`（本仓为"强调文字/徽标字"定义的 4.5 档）：
+            //    逐主题实算 porcelain 5.60 / dark 9.63 / light 7.01 / aurora 10.19 / nebula 8.55（全 ≥4.5）。
+            .fontColor(this.pal().accentText)
             .padding({ left: SPACE_XS, right: SPACE_XS, top: 3, bottom: 3 })
             .borderRadius(R_SM)
             .backgroundColor(goalBadgeBgOf(this.pal(), false))
@@ -177,7 +182,11 @@ export struct GoalBanner {
             .fontWeight(FontWeight.Medium)
             // ⛔ **水平溢出**：徽标文案长度不可控（模型生成）⇒ 加宽上限，否则顶出所在 Row。
             .constraintSize({ maxWidth: PILL_MAX_W })
-            .fontColor(this.display().completed ? this.pal().success : this.pal().accent)
+            // ⛔ 目标⑤：徽标字（10 档）是 normal 字号文字 ⇒ 需 AA_TEXT 4.5。`accent` 是图形 role
+            //    （3.0）⇒ 压 `goalBadgeBgOf`(= accent@15% over `surface`) porcelain 仅 **3.83**
+            //    （dark 3.84 亦不足）⇒ 进行中分支改走文字 role `accentText`（porcelain 5.60 ✓）。
+            //    `success` 分支保留（`success` 在 porcelain 已按 4.5 档取值，非本次越界项）。
+            .fontColor(this.display().completed ? this.pal().success : this.pal().accentText)
             .backgroundColor(goalBadgeBgOf(this.pal(), this.display().completed))
             .borderRadius(R_SM)
             .padding({ left: 6, right: 6, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })

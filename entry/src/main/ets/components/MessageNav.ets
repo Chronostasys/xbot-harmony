@@ -126,7 +126,12 @@ struct NavItemView {
           // 位置指示（"我在哪"）：当前条目的序号走强调色（其余 muted）—— 只改一处颜色，
           // 不新增任何描边/色块 ⇒ 一眼可辨且不喧哗（web `:194` 恒 muted，此处是**刻意的**
           // 触屏增强：原生无 hover，仅靠 `bg-accent/10` 底纹在浅色主题下过淡）。
-          .fontColor(this.row.active ? this.pal().accent : this.pal().textMuted)
+          // ⛔ 目标⑤：序号（`type.micro`=10，normal 字号）是**文字** ⇒ 需 AA_TEXT 4.5。
+          //    `accent` 是**非文本/图形** role（3.0）⇒ 压本行激活底纹（`accent@10% over surface`）
+          //    实算 porcelain 仅 **4.10**、dark 仅 **4.05** ⇒ 不足 ⇒ 改走文字 role `accentText`
+          //    （porcelain 6.00 / dark 10.16 / light 7.59 / aurora 11.29 / nebula 9.27，全 ≥4.5）。
+          //    非激活分支的 `textMuted` 属元信息档（AA_MUTED 2.0），不在本次越界范围。
+          .fontColor(this.row.active ? this.pal().accentText : this.pal().textMuted)
           .fontWeight(this.row.active ? FontWeight.Medium : FontWeight.Normal)
         Text(userTextOrPlaceholder(this.row.userText))
           .fontSize(fs('type.caption'))      // web `text-xs`

@@ -187,7 +187,12 @@ struct TodoRowView {
       if (this.isGoal) {
         Text('goal')
           .fontSize(typeOf(TYPE_CHIP).size)
-          .fontColor(this.pal().accent)
+          // ⛔ 目标⑤：徽标字（`TYPE_CHIP`=10，normal 字号）是**文字** ⇒ 需 AA_TEXT 4.5。
+          //    `accent` 是**非文本/图形** role（3.0）⇒ 压本行 goal 底纹（`accent@14% over 已 tint 行`
+          //    = 双层 tint）+ 卡片面，实算 porcelain 仅 **3.25**、light **4.54**（贴线）⇒ 不足/不稳
+          //    ⇒ 改走文字 role `accentText`（porcelain 4.75 / dark 9.77 / light 5.74 / aurora 10.44 /
+          //    nebula 8.77，全 ≥4.5）。底纹 `goalRowTintOf` 不动（观感意图保持）。
+          .fontColor(this.pal().accentText)
           .backgroundColor(goalRowTintOf(this.pal()))
           .borderRadius(RADIUS_CHIP)
           .padding({ left: INSET_CHIP_X, right: INSET_CHIP_X, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })

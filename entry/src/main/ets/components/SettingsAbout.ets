@@ -355,8 +355,13 @@ export struct SettingsAbout {
                   if (releaseNotesUrl(this.check).length > 0) {
                     Text('发布说明')
                       .fontSize(FS_CAPTION)
-                      .fontColor(this.pal().accent)
-                      .decoration({ type: TextDecorationType.Underline, color: this.pal().accent })
+                      // ⛔ 目标⑤：这是**链接/可点文字**（FS_CAPTION=12，normal 字号）⇒ 需 AA_TEXT 4.5。
+                      //    `accent` 是**非文本/图形** role（3.0）⇒ 压卡片面 `surface` 实算 dark 仅
+                      //    **4.43**（porcelain 4.70 勉强）⇒ 不足 ⇒ 改走本仓为"链接/可点文字"定义的
+                      //    `accentSoft`（4.5 档；porcelain 5.57 / dark 9.19 / light 6.70 / aurora 12.01 /
+                      //    nebula 8.31，全 ≥4.5）。下划线用**同一 role** ⇒ 色相不劈叉。
+                      .fontColor(this.pal().accentSoft)
+                      .decoration({ type: TextDecorationType.Underline, color: this.pal().accentSoft })
                       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                       .onClick(() => {
                         void this.openReleaseNotes();
