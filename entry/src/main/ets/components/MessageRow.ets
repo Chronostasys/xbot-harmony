@@ -16,13 +16,13 @@ import {
   completedBlocks, displayContent, displayReasoning, foldPills, mergeToolRuns, rowIsEmpty,
 } from '../core/streammerge';
 import { runeCount } from '../core/typewriter';
-import { Palette, paletteOf, Effects, effectsOf } from '../core/theme';
+import { Palette, paletteOf, Effects, effectsOf, shadowRadiusOf } from '../core/theme';
 import { BUBBLE, withAlpha } from '../core/bubble';
 import { R_MD, R_XL, R_LG, SP_1, SP_2, SP_3, FS_CAPTION } from '../core/tokens';
 // 语义令牌（`7841978` §4.6/§4.7/§6）：浮层宽 / 分隔条高 / 全圆角 / pill 间距与最大宽 / 按压。
 import {
-  GAP_PILL, INSET_PILL_Y, OVERLAY_ROW_H, PILL_MAX_W, POPOVER_W, POPOVER_W_OVERFLOW, PRESS_OPACITY,
-  RADIUS_FULL, SPACE_HAIR,
+  ELEV_OVERLAY, GAP_PILL, INSET_PILL_Y, OVERLAY_ROW_H, PILL_MAX_W, POPOVER_W, POPOVER_W_OVERFLOW,
+  PRESS_OPACITY, RADIUS_CARD, RADIUS_FULL, SPACE_HAIR, elevationColorOf, surfaceFillOf,
 } from '../core/design';
 import {
   anchorsAt, COMPACTED_LABEL, compactionAnchors, splitMarker,
@@ -532,6 +532,10 @@ export struct MessageRowView {
             this.autoLoadRegions();
           }
         })
+        // ⛔ 可点性被 `regionStatus` 守卫（仅 error 态可重试）⇒ 必须 `.enabled(同一判据)`：
+        //    否则 idle 态照有 press 假反馈却点了没动作 = **交互死区**（判据 ⑤ 同一纪律）。
+        .enabled(this.regionStatus === 'error')
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
           // 仅 error 态允许点（重试）；idle 态点击无操作（不做"点击加载"）
           if (this.regionStatus === 'error') {
@@ -844,8 +848,12 @@ export struct MessageRowView {
       placement: Placement.Bottom,
       enableArrow: false,
       mask: false,
-      popupColor: this.pal().surfaceAlt,
-      radius: R_XL,
+      // 浮层三件套走设计系统口径（C4 续）：面 = `surface.overlay`；圆角 = 语义档；柔影 = token。
+      // ⚠️ 原为 `pal().surfaceAlt`（RUNG_RAISED）——与**同一组件**的 `OverflowBadge` 浮层（下）不一致；
+      //    收敛到唯一浮层面（`surface.overlay`）= RUNG_CARD（深色下 #14141C→#0E0E14，**有意**的归一）。
+      popupColor: surfaceFillOf(this.pal(), 'surface.overlay'),
+      radius: RADIUS_CARD,
+      shadow: { radius: shadowRadiusOf(this.pal(), 'overlay'), color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 },
       width: POPOVER_W,
       onWillDismiss: (action: DismissPopupAction) => {
         this.popKey = '';
@@ -875,8 +883,10 @@ export struct MessageRowView {
         placement: Placement.Bottom,
         enableArrow: false,
         mask: false,
-        popupColor: this.pal().surface,
-        radius: R_XL,
+        // 浮层三件套走设计系统口径（C4 续）：面 = `surface.overlay`；圆角 = 语义档；柔影 = token。
+        popupColor: surfaceFillOf(this.pal(), 'surface.overlay'),
+        radius: RADIUS_CARD,
+        shadow: { radius: shadowRadiusOf(this.pal(), 'overlay'), color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 },
         width: POPOVER_W_OVERFLOW,
         onWillDismiss: (action: DismissPopupAction) => {
           this.overIter = -1;

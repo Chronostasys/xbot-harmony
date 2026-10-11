@@ -9,7 +9,7 @@
 import { Palette, paletteOf } from '../core/theme';
 import { FS_CAPTION, FS_TITLE, R_LG, R_XL, SP_2, SP_3 } from '../core/tokens';
 import {
-  GAP_PILL, INSET_CARD_X, INSET_PILL_X, INSET_PILL_Y, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, hairlineOf, surfaceFillOf,
+  PRESS_OPACITY, GAP_PILL, INSET_CARD_X, INSET_PILL_X, INSET_PILL_Y, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, hairlineOf, surfaceFillOf,
 } from '../core/design';
 import { fs, fw } from './SettingsRows';
 import { MarkdownView } from './MarkdownView';
@@ -39,6 +39,7 @@ export struct SelfCheckSheet {
           .fontColor(this.pal().textPrimary).layoutWeight(1)
         SymbolGlyph($r('sys.symbol.xmark')).fontSize(17)
           .fontColor([this.pal().textSecondary]).padding(SP_2)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.onClose();
           })

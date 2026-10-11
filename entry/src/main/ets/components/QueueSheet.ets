@@ -7,7 +7,7 @@
  */
 import { Palette, paletteOf } from '../core/theme';
 import { QueueItem } from '../core/types';
-import { STROKE_HAIRLINE, SURFACE_CARD, hairlineOf, surfaceFillOf } from '../core/design';
+import { PRESS_OPACITY, STROKE_HAIRLINE, SURFACE_CARD, hairlineOf, surfaceFillOf } from '../core/design';
 import { FS_CAPTION, FS_TITLE, R_LG, R_MD, R_XL, SP_2, SP_3, SP_4 } from '../core/tokens';
 import { fs, fw } from './SettingsRows';
 // 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线/位移；E3 统一）。
@@ -57,13 +57,14 @@ export struct QueueSheet {
           .fontColor(this.pal().textPrimary).layoutWeight(1)
         Text('清空').fontSize(FS_CAPTION).fontColor(this.pal().dangerText)
           .padding({ left: SP_2, right: SP_2, top: 6, bottom: 6 })
-          .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             // 无 clear 端点（web 同款）：页面遍历逐个 cancel。
             this.onClear();
           })
         SymbolGlyph($r('sys.symbol.xmark')).fontSize(17)
           .fontColor([this.pal().textSecondary]).padding(SP_2)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.onClose();
           })

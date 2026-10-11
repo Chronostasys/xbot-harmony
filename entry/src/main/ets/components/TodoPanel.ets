@@ -21,12 +21,13 @@
  * ⛔ 颜色只用 `pal()` 语义色（**禁 hex**），浅色判据用 `isLightPalette`（**不按主题名硬判**），
  *    尺度用 `core/tokens.ets`，动效用 `components/anim.ets`。
  */
-import { Palette, paletteOf } from '../core/theme';
+import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
 import { FS_CAPTION, R_MD, R_SM, SP_1, SP_2, SP_3 } from '../core/tokens';
 // 语义令牌（`7841978` §4.7/§4.8/§6）：控件行高 / 进度条 / 清单高 / 菜单宽 / goal 行底纹 / 按压。
 import {
-  CONTROL_ROW_H, ICON_MD, ICON_SM, INSET_CHIP_X, INSET_CHIP_Y, LIST_MAX_H, MENU_W, PRESS_OPACITY,
-  PROGRESS_H, PROGRESS_W, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP, goalRowTintOf, hairlineOf,
+  CONTROL_ROW_H, ELEV_OVERLAY, ICON_MD, ICON_SM, INSET_CHIP_X, INSET_CHIP_Y, LIST_MAX_H, MENU_W,
+  PRESS_OPACITY, PROGRESS_H, PROGRESS_W, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP,
+  elevationColorOf, goalRowTintOf, hairlineOf,
   surfaceFillOf, typeOf, colorOf, } from '../core/design';
 import { animFast } from './anim';
 import { TodoItem } from '../core/types';
@@ -200,8 +201,10 @@ struct TodoRowView {
             placement: Placement.BottomRight,
             enableArrow: false,
             mask: false,
-            popupColor: this.pal().surface,
-            radius: R_MD,
+            // 浮层三件套走设计系统口径（C4 续）：面 = `surface.overlay`；圆角 = 语义档；柔影 = token。
+            popupColor: surfaceFillOf(this.pal(), 'surface.overlay'),
+            radius: RADIUS_CHIP,
+            shadow: { radius: shadowRadiusOf(this.pal(), 'overlay'), color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 },
             onWillDismiss: (action: DismissPopupAction) => {
               this.menuOpen = false;
             },
@@ -225,6 +228,7 @@ struct TodoRowView {
         .fontColor(this.pal().textPrimary)
         .width('100%')
         .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
           this.menuOpen = false;
           this.onStartEdit();
@@ -234,6 +238,7 @@ struct TodoRowView {
         .fontColor(this.pal().dangerText)
         .width('100%')
         .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
           this.menuOpen = false;
           this.onRemove();
@@ -348,6 +353,7 @@ export struct TodoPanel {
           }
           .layoutWeight(1)
           .height('100%')
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.expanded = !this.expanded;
           })
@@ -358,6 +364,7 @@ export struct TodoPanel {
               .fontSize(ICON_MD)
               .fontColor([colorOf(this.pal(), 'iconMuted')])
               .padding(SP_1)
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
                 this.onSetGoal();
               })
