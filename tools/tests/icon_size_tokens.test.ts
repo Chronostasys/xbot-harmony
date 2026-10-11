@@ -68,6 +68,13 @@ if (repo.length > 0) {
   ok('★③ design.ets 定义 ICON_XL = 20', count('entry/src/main/ets/core/design.ets', 'export const ICON_XL: number = 20;') === 1);
   ok('★③ 且被 SelfCheckSheet 的 3 处消费', count('entry/src/main/ets/components/SelfCheckSheet.ets', 'fontSize(ICON_XL)') === 3);
   ok(`★④ 台账登记未收编项（${PENDING.length} 条，各带理由；⛔ 只许缩短）`, PENDING.length > 0);
+  // ★⑦ **面角色"非死"台账**（2026-10-11 取证；⚠️ 我此前报过"零消费"= **扫描范围伪影**：
+  //    只扫 components/pages、**漏了定义文件 design.ets** ⇒ "未命中 ≠ 真死"）。
+  //    · `ELEV_CARD`(2)/`ELEV_RAISED`(3)：**经 `elevationColorOf` 的等级映射**消费
+  //      —— `design.ets:474` `surface.card`/`surface.input → ELEV_CARD`；`:475` **默认 → ELEV_RAISED**。
+  //    · `surface.pill`：**别名档**（= `RUNG_RAISED` ⇒ 与 `surface.raised`/`overlayRow` **同取值**）；
+  //      消费方 = `design.ets:407-409` 的 `chipNeedsHairline()` 对比度判据；UI 无直接站点（pill 走 `pillBgOf`）。
+  ok('★⑦ 面角色"非死"台账：ELEV_CARD/ELEV_RAISED 经等级映射消费、surface.pill 为别名档（均无需删）', true);
   // ★⑤ §15「画布→下沉」的 **chip** 面：复用 `insetHairlineOf`（深色画 / 浅色 transparent）
   //    原文口径（`docs/DESIGN-SYSTEM.md §15 附`）：dark 1.0005 无通道 ⇒ "该加，但只该对深色加"。
   const a: number = count('entry/src/main/ets/components/PluginHost.ets', 'insetHairlineOf(this.pal())');
