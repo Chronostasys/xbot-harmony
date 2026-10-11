@@ -6623,9 +6623,19 @@ struct Index {
                             }
                             this.renamingId = '';
                           })
-                          Text('取消').fontSize(typeOf('type.subhead').size).fontColor(this.pal().textSecondary).padding(SPACE_XS).onClick(() => {
-                            this.renamingId = '';
-                          })
+                          Text('取消')
+                            .fontSize(typeOf('type.subhead').size)
+                            // ⛔ 不做无条件 `textSecondary`：本行底 = **当前会话**时 `surface.overlayRowHover`
+                            // （= `RUNG_ACTIVE` = `surfaceHi`，语义别名掩盖的落点）——porcelain 下
+                            // `textSecondary` 压它仅 **4.337 < AA 4.5**（文字 role，13）。
+                            // 修法 = **只改当前会话这一支**的 fg 到 `textPrimary`（各主题 ≥12：
+                            // 另见 `tools/tests/surface_alias.test.ts`）；⛔ 不改行底 —— 当前会话的
+                            // 填充强调必须保留（porcelain 的 RUNG_RAISED 仅 1.009 vs 画布 ≈ 不可见）。
+                            .fontColor(s.chat_id === this.currentChat ? this.pal().textPrimary : this.pal().textSecondary)
+                            .padding(SPACE_XS)
+                            .onClick(() => {
+                              this.renamingId = '';
+                            })
                         }.width('100%')
                       } else {
                         Row({ space: SPACE_XS }) {
@@ -6670,7 +6680,14 @@ struct Index {
                               this.toggleStarChat(s.chat_id);
                             })
                           // 触屏铁律：多个行内操作折叠成「一个 ⋯ + 菜单」，绝不并排常显。
-                          Text('⋯').fontSize(typeOf('type.headline').size).fontColor(this.pal().textSecondary).padding(SPACE_XS)
+                          // ⛔ 前景是 **`Text`**（文字字形，⛔ 不是 `SymbolGlyph`）⇒ 地板 = AA_TEXT(4.5)，
+                          // 而 porcelain 下 `textSecondary` 压本行**当前会话**底（`surface.overlayRowHover`
+                          // = `surfaceHi`）仅 **4.337 < 4.5** ⇒ 当前会话支改 `textPrimary`（各主题 ≥12）；
+                          // 非当前会话底 = `transparent`（画布）⇒ 仍用 `textSecondary`（porcelain 5.07 ✓）。
+                          Text('⋯')
+                            .fontSize(typeOf('type.headline').size)
+                            .fontColor(s.chat_id === this.currentChat ? this.pal().textPrimary : this.pal().textSecondary)
+                            .padding(SPACE_XS)
                             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                             .onClick(() => {
                               this.anim(() => {

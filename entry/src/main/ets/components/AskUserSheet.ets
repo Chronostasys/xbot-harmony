@@ -21,7 +21,10 @@
  *     · 内距 = `INSET_CARD_X/Y`（面板）/ `INSET_ROW_X/Y`（行）；
  *       圆角 = `RADIUS_CARD`（面板）/ `RADIUS_PILL`（选项/按钮）。
  *     · 选项行 `constraintSize({ minHeight: HIT_TARGET_MIN })`（≥44）；选中态 = 一枚
- *       `checkmark` 图标 + 面提升一档（`surface.overlayRowHover`），
+ *       `checkmark` 图标 + 面**提升一档**（未选中 = 与浮层面齐平 `surface.overlay` ⇒ 选中 = `surface.overlayRow`）。
+ *       ⚠️ ⛔ **不得**用 `surface.overlayRowHover`（= `surfaceHi`）：本行 `description`（`type.callout`
+ *       = `textSecondary`）压它 porcelain 仅 **4.337 < AA 4.5** ⇒ 整族 `RUNG_ACTIVE` 同色，一律不可作
+ *       该文字的底（判据 `tools/tests/surface_alias.test.ts`）。
  *       ⛔ 取代旧的「已选/未选」纯文本（同一信息两处）。
  *     · 关闭：面板**自带** `onClose`（`@Prop`，头部 X 走它）——
  *       见 `core/sheets.ets` 的 flag 所有权表（⛔ 不在面板内部写别的面板的 flag）。
@@ -208,9 +211,16 @@ export struct AskUserSheet {
                   .constraintSize({ minHeight: HIT_TARGET_MIN })
                   .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
                   .backgroundColor(surfaceFillOf(this.pal(),
+                    // 选中 = 面**提升一档**：未选中与浮层面齐平（RUNG_CARD = `surface.overlay`）⇒ 选中 = RUNG_RAISED。
+                    // ⛔ 不用 RUNG_ACTIVE（`surface.overlayRowHover` = `surfaceHi`）：本行 `description`
+                    // 是 `type.callout` ⇒ **textSecondary**，porcelain 下压 `surfaceHi` 仅 **4.337 < AA 4.5**
+                    // （文字 role，14）。整族（`surface.active` / `surface.pillSelected` / `surface.overlayRowHover`）
+                    // 同 rung 同色 ⇒ 换到 RUNG_RAISED 是唯一既**保留「面提升一档」**又达标的档位
+                    // （porcelain `textSecondary × surface.overlayRow` = 4.696 ✓、× `surface.overlay` = 5.071 ✓）。
+                    // 判据：`tools/tests/surface_alias.test.ts`（别名家族**派生** + 落点形态 + mutation）。
                     this.isSelected(this.qidOf(q, qi), this.labelOf(opt))
-                      ? 'surface.overlayRowHover'
-                      : 'surface.overlayRow'))
+                      ? 'surface.overlayRow'
+                      : 'surface.overlay'))
                   .borderRadius(RADIUS_PILL)
                   .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                   .onClick(() => {
