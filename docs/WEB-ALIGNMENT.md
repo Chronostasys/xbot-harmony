@@ -454,14 +454,36 @@ web：`reasoningCount = reasoningStreaming ? rw.visibleChars : length`，且**�
 同时补 **`lastReasoning` 兜底**（`core/integrate.ts`）：`reasoningStreamContent || lastReasoning || ''`，
 与 web `LiveIteration` 逐字一致 —— 只取流式字段时，结构化快照携带的 reasoning 会整段丢失。
 
-### 13.3 live 工具状态：`pending` ⇒ **执行中**（真机实测 + 服务端源码依据）
+### 13.3 live 工具状态：**`live?` 必须是显式输入**（真机实测 + 服务端源码依据）
 
-服务端 `engine_run_tools.go:49-64` 把**整批**工具先建为 `ToolPending`，随后**每条工具的
-goroutine 启动时**才翻 `ToolRunning`（`:150`）。于是 live 块里正在执行的工具经常仍是 `pending`
-⇒ 直接映射成「排队」会让用户以为"还没开始"（用户实测：FileReplace 已 done、Shell 正
-executing，两枚都显示「排队」）。live 块里的工具**都是本迭代已派发的（在飞）** ⇒ `pending`
-一律按**执行中**渲染（web 同义：active/streaming 工具一律标 `streaming:true`）。
-`done`/`error`/`killed` 仍严格按服务端状态。committed 块不变（终态才是它的语义）。
+> ⛔ **本节是权威裁决，任何"只看 raw status"的实现都是回归。**
+> 批次 22 真事故：`core/toolstatus.ets:12-19` 曾把本节裁决**反向**写进注释
+> （"一律按 raw status 分支 …否则排队/生成中都会显示执行中"）⇒ 用户 2026-10-11 再次报
+> 「**executing 的 tool 被当成排队**」，**与本条 10-10 的那次报告一字不差**。
+
+**依据**：服务端 `engine_run_tools.go:49-64` 把**整批**工具先建为 `ToolPending`，随后**每条工具的
+goroutine 启动时**才翻 `ToolRunning`（`:150`）⇒ **live 块里正在执行的工具经常仍是 `pending`**。
+
+**权威表**（一个纯函数产出「文案 / 是否在飞(形态)」，`live` 与 `raw` 同为入参）：
+
+| 块 | raw status | 文案 | 在飞（扫光/空心点形态） |
+|---|---|---|---|
+| **live** | `pending` | **执行中**（⚠️ **不是**「排队」） | 是 |
+| **live** | `generating` | **`生成中 N 字`**；字数缺失/0 ⇒ **`生成中…`** | 是 |
+| **live** | `running` | 执行中（可带时长） | 是 |
+| **live** | `error` / `exit≠0` | 失败 exit N / 失败 | 否 |
+| **live** | `killed`/`aborted`/`cancelled` | 已终止 | 否 |
+| **committed** | 严格按服务端终态 | `done` ⇒ **无 chip**（安静）；其余同左表 | 仅 `running`/`generating` |
+
+**要点**
+1. **`generating` 在任何块都不得显示「执行中」**（用户原话另一半）。
+2. **committed 块不受本节放宽影响**：终态才是它的语义。
+3. **与 web 的差异是"经批准的分歧"，不是笔误**：web `FoldedToolGroup.tsx:211` 对 `pending` 一律
+   输出 `Queued`；我们**只在 live 块**把它渲染为"执行中"，因为服务端状态**落后于事实**（上引源码）。
+   web 靠 `streaming:true` 的扫光表达"在飞"，我们两端都给（文案 + 形态）。
+4. **同一状态只能有四处判据里的"一处"**：`pill` / `浮层` / `live 行` / 溢出列表项**必须**共用
+   同一纯函数与同一映射表（状态→颜色亦然）。批次 22 审计实测：原生曾把状态→颜色写了 **4 份**、
+   浮层自带第二套 `badge()/color()`，其中 `killed` 在 live 浮层被画成**绿色**。
 
 ### 13.4 浮层：FileCreate 内容按语言高亮 + 代码块横向滚动
 
