@@ -502,6 +502,7 @@ web 浅色 `src/index.css:160 --border: #e0e0e0` 压在 `:153 --bg-primary: #fff
 | 字号+配套字色 | `typeOf('type.x')`（或 `TYPE_*` 常量） | 带点（`type.*`） |
 | 品牌色（logo/开屏/标记） | `core/brand.ets: brandAccent()` / `brandOnAccent()` | **函数**，不是 role |
 | 发丝 / 玻璃 / 高程 | `hairlineOf(p)` / `glassFillOf(p)` / `elevationColorOf(p, lv)` | — |
+| 在飞光晕 / 光球细环 | `inflightHaloOf(p)` / `orbRingStrokeOf(p)`（浅深两套值；经 `colorOf` 的 role 亦可用） | — |
 
 合法集合**从真源自动抽取**（见 §12.3），此处不复制粘贴以免两处漂移。
 
@@ -519,6 +520,11 @@ colorOf(p, 'text.pillName')   // ← docs/REDESIGN-INPUT-*.md 与 docs/mockups/*
 `text.pillName → textPrimary`｜`text.chip → textSecondary`｜`text.pillNameError → dangerText`｜
 `status.danger → statusError`｜`text.thinkingPrimary → textPrimary`｜
 `brand.primary → brandAccent()`｜`brand.onPrimary → brandOnAccent()`
+
+✅ **2026-10-11 补齐**：`warn` 已并入 `colorOf` 合法集合（`colorOf(p, 'warn') → Palette.warn`，
+逐主题语义色，不自造色相）。守护 = `tools/tests/design.test.ts` 的"`warn` 必须解析出非 transparent"
+断言 + 门禁 **⑥b**（`tools/lint/color-roles.sh`）。此前 `pal().warn` 只能绕过唯一入口（组件侧临时口径），
+落地后应改回 `colorOf(p, 'warn')`。
 
 ### 12.3 机器判据（硬红）
 

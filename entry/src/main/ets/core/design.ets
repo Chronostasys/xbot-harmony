@@ -520,6 +520,19 @@ export function inflightPillShadowOf(p: Palette): string {
 /** `colorOf` 的 role：在飞光晕（= `inflightHaloOf`，深色 glow / 浅色 elev2）。 */
 export const INFLIGHT_HALO: string = 'inflightHalo';
 
+/**
+ * 光球**细环描边**色（**唯一出口**）：浅色系 = 结构性发丝 `hairline`（白底上真的看得见）；
+ * 深色系 = `effectsOf().glowSoft`（accent @22% 弱发光，既有观感**逐字节不变**）。
+ * 消费方：`AssistantOrb` 的 `paint.stroke`（⛔ 消除组件对 `Effects` 的直接读取；
+ *   `inflightHaloOf` 只覆盖 glow/elev2、`hairlineOf` 只覆盖 hairline ⇒ 这里是第三档）。
+ * ⛔ 未知档不静默：经 `colorOf(p, ORB_RING_STROKE)` 取用时受门禁 ⑥b 守护（字面量必须合法）。
+ */
+export function orbRingStrokeOf(p: Palette): string {
+  return isLightSurface(p) ? hairlineOf(p) : effectsOf(p).glowSoft;
+}
+/** `colorOf` 的 role：光球细环描边（= `orbRingStrokeOf`，浅 hairline / 深 glowSoft）。 */
+export const ORB_RING_STROKE: string = 'orbRingStroke';
+
 // ════════════════════════════════════════════════════════════════════════════
 // 4.7 组件专属尺寸档（图标 / 控件 / 面板 / 浮层）—— 收编三线交回的"魔数无 token"
 // ════════════════════════════════════════════════════════════════════════════
@@ -785,6 +798,11 @@ export function colorOf(p: Palette, role: string): string {
   if (role === 'inflightHalo') { return inflightHaloOf(p); }
   if (role === 'dangerBg') { return p.dangerBg; }
   if (role === 'warnBg') { return p.warnBg; }
+  // 警告文字/图标（`Palette.warn`，**逐主题语义色**）—— 不自造色相，直接用真源 `warn` 字段
+  // （浅/深两套取值由色板给：如 dark 偏亮、light/porcelain 偏深，均沿用既有主题语义）。
+  if (role === 'warn') { return p.warn; }
+  // 光球细环描边（浅 hairline / 深 glowSoft）—— 第三档细环出口（见 `orbRingStrokeOf`）。
+  if (role === 'orbRingStroke') { return orbRingStrokeOf(p); }
   if (role === 'dangerOnFill') { return onFillFgOf(p, p.dangerBg); }
   if (role === 'warnOnFill') { return onFillFgOf(p, p.warnBg); }
   return p.transparent;

@@ -3,11 +3,30 @@
  *
  * 分层铁律（同 `StatusSheet`）：只读 `plugins` 列表 + 回调；`showPlugins` / `panelUrl`
  * 所有权留页面（前者是弹层 flag 必须集中，后者是 ArkWeb 承载状态、页面独占）。
+ *
+ * ── 视觉语言（2026-10-11，与 `PluginHost` 对齐）──────────────────────────────
+ * 「能力面板」是 `PluginHost`（原生插件目录）的**入口载体** ⇒ 用同一套语义令牌：
+ *   · 字阶 = 语义排版档 `type.*`（标题 `type.headline` / 行名 `type.callout` / 说明 `type.caption`）；
+ *   · 行卡 = `surfaceFillOf(p, SURFACE_CARD)` + **结构性发丝** `hairlineOf(p)` + `RADIUS_CARD`；
+ *   · 内距 = `INSET_ROW_X/Y`；行间距 = `GAP_ROW_Y`；
+ *   · 按压走全站唯一 `PRESS_OPACITY`；行命中区 ≥ `HIT_TARGET_MIN`（`constraintSize`）；
+ *   · 关闭按钮热区用 `responseRegion` 外扩（⛔ 不改布局/视觉尺寸）。
+ * ⛔ 颜色不写 hex；浅/深分叉只走 `isLightPalette(paletteOf(theme))`。
  */
 import { Palette, paletteOf } from '../core/theme';
 import { PluginPanelInfo } from '../core/types';
-import { FS_CAPTION, FS_TITLE, R_LG, R_XL, SP_2, SP_3, SP_4 } from '../core/tokens';
+import {
+  GAP_ROW_Y, hairlineOf, surfaceFillOf, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y,
+  PRESS_OPACITY, RADIUS_CARD, RADIUS_SHEET, SPACE_MD, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD,
+} from '../core/design';
 import { fs, fw } from './SettingsRows';
+
+/**
+ * 关闭按钮**视觉**边长 ≈ 图标 17 + 2×`SPACE_XS`(8) = 33；热区靠 `responseRegion` 外扩到
+ * `HIT_TARGET_MIN`(44) —— ⛔ 不改布局/视觉尺寸（同 `WebSurface` / `MessageNav` 的手艺）。
+ */
+const CLOSE_VISUAL: number = 33;
+const CLOSE_HIT_PAD: number = (HIT_TARGET_MIN - CLOSE_VISUAL) / 2;
 
 @Component
 export struct PluginsSheet {
@@ -32,12 +51,16 @@ export struct PluginsSheet {
   }
 
   build() {
-    Column({ space: SP_2 }) {
+    Column({ space: SPACE_XS }) {
       Row() {
-        Text('能力面板').fontSize(FS_TITLE).fontWeight(fw('type.headline'))
+        Text('能力面板').fontSize(fs('type.headline')).fontWeight(fw('type.headline'))
           .fontColor(this.pal().textPrimary).layoutWeight(1)
         SymbolGlyph($r('sys.symbol.xmark')).fontSize(17)
-          .fontColor([this.pal().textSecondary]).padding(SP_2)
+          .fontColor([this.pal().textSecondary]).padding(SPACE_XS)
+          .responseRegion({
+            x: -CLOSE_HIT_PAD, y: -CLOSE_HIT_PAD,
+            width: CLOSE_VISUAL + CLOSE_HIT_PAD * 2, height: CLOSE_VISUAL + CLOSE_HIT_PAD * 2,
+          })
           .onClick(() => {
             this.onClose();
           })
@@ -51,9 +74,15 @@ export struct PluginsSheet {
         ListItem() {
           Row() {
             Text('插件目录（原生）').fontSize(fs('type.callout')).fontColor(this.pal().textPrimary).layoutWeight(1)
-            Text('打开').fontSize(FS_CAPTION).fontColor(this.pal().accentSoft)
+            Text('打开').fontSize(fs('type.caption')).fontColor(this.pal().accentSoft)
           }
-          .width('100%').padding(SP_3).backgroundColor(this.pal().surfaceAlt).borderRadius(R_LG)
+          .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
+          .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+          .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))
+          .borderRadius(RADIUS_CARD)
+          .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .margin({ bottom: GAP_ROW_Y })
           .onClick(() => {
             this.onOpenPluginHost();
           })
@@ -62,9 +91,15 @@ export struct PluginsSheet {
         ListItem() {
           Row() {
             Text('完整 Web UI').fontSize(fs('type.callout')).fontColor(this.pal().textPrimary).layoutWeight(1)
-            Text('打开').fontSize(FS_CAPTION).fontColor(this.pal().accentSoft)
+            Text('打开').fontSize(fs('type.caption')).fontColor(this.pal().accentSoft)
           }
-          .width('100%').padding(SP_3).backgroundColor(this.pal().surfaceAlt).borderRadius(R_LG)
+          .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
+          .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+          .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))
+          .borderRadius(RADIUS_CARD)
+          .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .margin({ bottom: GAP_ROW_Y })
           .onClick(() => {
             this.onOpenWebUi();
           })
@@ -77,9 +112,15 @@ export struct PluginsSheet {
                 Text(p.url).fontSize(fs('type.micro')).fontColor(this.pal().textMuted).maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
               }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-              Text('打开').fontSize(FS_CAPTION).fontColor(this.pal().accentSoft)
+              Text('打开').fontSize(fs('type.caption')).fontColor(this.pal().accentSoft)
             }
-            .width('100%').padding(SP_3).backgroundColor(this.pal().surfaceAlt).borderRadius(R_LG)
+            .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
+            .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+            .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))
+            .borderRadius(RADIUS_CARD)
+            .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+            .margin({ bottom: GAP_ROW_Y })
             .onClick(() => {
               this.onOpenPlugin(p);
             })
@@ -88,7 +129,7 @@ export struct PluginsSheet {
       }
       .height(320).width('100%')
     }
-    .width('92%').padding(SP_4).backgroundColor(this.pal().appBg)
-    .borderRadius(R_XL).border({ width: 1, color: this.pal().border })
+    .width('92%').padding(SPACE_MD).backgroundColor(this.pal().appBg)
+    .borderRadius(RADIUS_SHEET).border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
   }
 }

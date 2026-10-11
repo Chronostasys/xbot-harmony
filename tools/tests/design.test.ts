@@ -314,6 +314,15 @@ for (const t of ALL_THEMES) {
   eq(`[${t}] chip 与选中无关（恒 sunken）`,
     surfaceFillOf(p, 'surface.chip') === wellOf(p), true);
 }
+// 8) 取色 role 合法性缺口：`warn` / `orbRingStroke` 必须解析出**非 transparent**
+//    （`docs/DESIGN-SYSTEM.md §12`）。背景：`colorOf` 对未知 role 静默 `return p.transparent`
+//    —— 编译零警告、运行时文字/图标/描边不可见。
+//    mutation 自证：删掉 `core/design.ets` 里 `role === 'warn'`（或 `'orbRingStroke'`）分支 ⇒ 必红。
+for (const t of ALL_THEMES) {
+  const p = paletteOf(t);
+  ok(`[${t}] colorOf(p,'warn') 解析出非 transparent`, colorOf(p, 'warn') !== p.transparent);
+  ok(`[${t}] colorOf(p,'orbRingStroke') 解析出非 transparent`, colorOf(p, 'orbRingStroke') !== p.transparent);
+}
 
 if (fail > 0) { console.log(`  design: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  design: ${pass} passed, 0 failed`);
