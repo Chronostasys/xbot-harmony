@@ -1,0 +1,214 @@
+/**
+ * pluginview.ets —— **插件三个面的展示判据**（纯逻辑，零依赖，可脱机单测）。
+ *
+ * ── 为什么单独成模块（本仓铁律 §11「单一"状态 → 视图"管线」）──────────────────
+ *   `components/{PluginHost,PluginWidgets,WebSurface}.ets` 之前各自在 `build()` 里**就地判**：
+ *     · PluginHost：`if (p.state.length > 0 && p.state !== 'active')` + `if (v.dynamic)`；
+ *     · PluginWidgets：`pct()` 的夹取、`deltaRole()` 的正负判、降级行的文案拼接、标题回落；
+ *     组件不进离线 harness（`tools/tests/run.sh` 只把 `core/**` 当纯 TS 编译）⇒ **写在组件里 = 不可测**。
+ *   本模块把这些判据收敛到 `core/`，组件**只画**（`docs/REDESIGN.md` §11）。
+ *
+ * ── 纪律 ──────────────────────────────────────────────────────────────────────
+ *   ⛔ 本文件属 `core/` ⇒ 被 `run.sh` 当**纯 TS** 编译：禁 import ArkUI / `@ohos.*`；
+ *      禁无类型对象字面量（一律用 `class`）；无 `any`。
+ *   ⛔ 这里**只产出角色名 / 文案 / 数值**，不产出颜色（颜色由组件经 `core/design.ets:colorOf` 解析）。
+ *      ⇒ 产出的 `colorRole` 必须是 `colorOf` 的合法角色（`docs/DESIGN-SYSTEM.md §12`）。
+ */
+import { isPresent } from './guards';
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ① 插件目录：状态徽标 / 视图徽标 / 计数 / 空态（`components/PluginHost.ets`）
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** 服务端 `web_plugin_list` 的 `state` 里的"正常"档（`rpc_table.go` 的实测取值）。 */
+export const PLUGIN_STATE_ACTIVE: string = 'active';
+
+/** 一个徽标的显示判据（是否显示 / 文案 / 语义色角色）。 */
+export class PluginBadge {
+  show: boolean = false;
+  text: string = '';
+  /** `colorOf` 合法角色（本模块**只产出**它支持的三种：textSecondary / dangerText / textMuted）。 */
+  colorRole: string = 'textSecondary';
+
+  constructor(show: boolean, text: string, colorRole: string) {
+    this.show = show;
+    this.text = text;
+    this.colorRole = colorRole;
+  }
+}
+
+/**
+ * 插件 `state` → 状态徽标。
+ *
+ * 规则（逐条对齐 web 权威基准 `plugins/manager/PluginManagerPanel.tsx:223`
+ * `isActive ? 'bg-green-500' : 'bg-slate-400'`）：
+ *   · 空 / `active` ⇒ **不显示**（成功要安静 —— 满屏绿点是最吵的噪音源，`REDESIGN.md §2.7`）；
+ *   · 其余（`disabled`/`inactive`/…）⇒ **原样**显示该 state 文本，语气**中性**（`textSecondary`）。
+ *   ⛔ 不把 state 翻成中文：web 没有这套文案，自造即背离"文案逐字取 web、禁自创"。
+ *   ⛔ 不用 `statusWaiting`/`statusIdle` 等**状态标记/点色**当正文色（浅底仅 1.7–2.1:1，读不出）。
+ */
+export function pluginStateBadge(state: string): PluginBadge {
+  const s: string = isPresent(state) ? state.trim() : '';
+  if (s.length === 0 || s === PLUGIN_STATE_ACTIVE) {
+    return new PluginBadge(false, '', 'textSecondary');
+  }
+  return new PluginBadge(true, s, 'textSecondary');
+}
+
+/**
+ * 视图的 `dynamic` 旗标 → 徽标。
+ *
+ * web 语义（`plugin-api/manifest.ts:37-44`）：`dynamic:true` 的视图**只能由插件经
+ * `ctx.ui.openViewTab(...)` 参数化打开**，目录里点不动 ⇒ 原生如实标注「按需」，
+ * 绝不渲染一个"点了没反应"的行（诚实优先）。
+ */
+export function pluginViewBadge(dynamic: boolean): PluginBadge {
+  return dynamic ? new PluginBadge(true, '按需', 'textSecondary') : new PluginBadge(false, '', 'textSecondary');
+}
+
+/** 视图数文案（`PluginCatalogItem.views` 长度 → 人类可读）。 */
+export function pluginViewCountText(n: number): string {
+  const count: number = typeof n === 'number' && isFinite(n) && n > 0 ? n : 0;
+  return `${count} 个视图`;
+}
+
+/** 目录概览标题（`插件目录（N）`）。 */
+export function pluginCatalogSummaryText(count: number): string {
+  const n: number = typeof count === 'number' && isFinite(count) && count > 0 ? count : 0;
+  return `插件目录（${n}）`;
+}
+
+/** 概览行右侧提示（web 侧插件 UI 一律在权威宿主页里运行，见 `core/pluginhost.ets` 文件头）。 */
+export function pluginCatalogHint(): string {
+  return '在宿主页里运行';
+}
+
+/** 目录空态文案（**不是**错误：服务端未启用插件系统，或插件都没有 `web.entry`）。 */
+export function pluginCatalogEmptyNotice(): string {
+  return '没有声明前端产物的插件（服务端未启用插件系统，或插件都没有 web.entry）';
+}
+
+/** 目录脚注（诚实告知：为什么点开后在宿主页里运行）。 */
+export function pluginCatalogFootnote(): string {
+  return '说明：插件 UI 是浏览器 ESM 模块（需要 web 宿主的 React 与能力注入），'
+    + '因此点击后在宿主页内运行；本目录只做"有哪些插件/视图"的索引。';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ② 插件 widget：展示判据（`components/PluginWidgets.ets`）
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// ⚠️ "该不该显示 / 怎么降级 / 用什么色角色"的**主判据**在 `core/widgetsview.ets`；
+//    本节只收编组件里**残留**的展示算术（百分比夹取 / delta 正负 / 标题回落 / 降级行拼接）。
+
+/** 降级行的固定前缀（`kind` 未实现 / 未知 / code-src 沙箱 —— 一律可见，绝不静默）。 */
+export const WIDGET_UNSUPPORTED_LABEL: string = '暂不支持';
+
+/**
+ * 进度百分比（**结果恒落在 [0,100] 且有限**；`max ≤ 0`/非有限 ⇒ 视作 100，`value` 非有限 ⇒ 0）。
+ *
+ * 判据与 web `ProgressWidget` 同义：进度条读的是**比例**，坏数据（NaN/负数/超上限）
+ * 一律夹到合法区间，绝不让布局吃到负宽或 >100% 的宽。
+ * ⚠️ 与旧组件内联实现的一处**有意修正**：旧的 `Infinity/100*100 > 100 ⇒ 100`（满格）；
+ *    本版把"非有限 `value`"与 `NaN` **同档**（= 0，无数据），语义更一致（`core/widgetsview.ets`
+ *    的 `asNum` 对非有限值也已回落缺省）。
+ */
+export function widgetPercent(value: number, max: number): number {
+  const m: number = typeof max === 'number' && isFinite(max) && max > 0 ? max : 100;
+  const v: number = typeof value === 'number' && isFinite(value) ? value : 0;
+  let p: number = (v / m) * 100;
+  if (!isFinite(p)) { p = 0; }
+  if (p < 0) { p = 0; }
+  if (p > 100) { p = 100; }
+  return p;
+}
+
+/**
+ * metric 的 delta → 语义色角色（web `plugins/components.tsx:78`：delta **不以 '-' 开头** ⇒ 正向绿）。
+ * 空 delta ⇒ `textMuted`（没有 delta 就不该有颜色）。
+ * 产出的角色都在 `colorOf` 合法集合内。
+ */
+export function widgetDeltaRole(delta: string): string {
+  const d: string = isPresent(delta) ? delta : '';
+  if (d.length === 0) { return 'textMuted'; }
+  return d.startsWith('-') ? 'dangerText' : 'successText';
+}
+
+/** 声明式组件的标题：有 `title` 用它，否则回落 `widget_id`（两者都空 ⇒ 空串，调用方不画）。 */
+export function widgetLabel(title: string, widgetId: string): string {
+  const t: string = isPresent(title) ? title : '';
+  if (t.length > 0) { return t; }
+  return isPresent(widgetId) ? widgetId : '';
+}
+
+/** 降级行的明细文案：`kind · reason`（两者都空 ⇒ 空串）。修正了旧表达式在 `kind` 为空时的前导 ` · `。 */
+export function widgetDegradeDetail(kind: string, reason: string): string {
+  const k: string = isPresent(kind) ? kind.trim() : '';
+  const r: string = isPresent(reason) ? reason.trim() : '';
+  if (k.length === 0) { return r; }
+  if (r.length === 0) { return k; }
+  return `${k} · ${r}`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ③ ArkWeb 承载面：加载 / 就绪 / 失败三态（`components/WebSurface.ets`）
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// ⛔ 状态条**恒静态**（`REDESIGN.md §4.1`：同一时刻只允许一个"在飞动效" = 光球）
+//    ⇒ 这里只有文案与色角色，**没有任何时长/动画**；"加载中"是**一行小字**，不是 spinner。
+
+/** 尚未开始加载（初始态 / 无人消费）。 */
+export const WEB_PHASE_IDLE: string = 'idle';
+/** 正在加载（`onPageBegin` / 切 URL）。 */
+export const WEB_PHASE_LOADING: string = 'loading';
+/** 页面已就绪（`onPageEnd`）。 */
+export const WEB_PHASE_READY: string = 'ready';
+/** 加载失败（`onErrorReceive`；`detail` 带内核给的原因）。 */
+export const WEB_PHASE_ERROR: string = 'error';
+
+/** 承载面状态条：是否显示 / 文案 / 色角色 / 是否给出"重试"。 */
+export class WebStatus {
+  show: boolean = false;
+  text: string = '';
+  /** `colorOf` 合法角色。 */
+  colorRole: string = 'textMuted';
+  canRetry: boolean = false;
+
+  constructor(show: boolean, text: string, colorRole: string, canRetry: boolean) {
+    this.show = show;
+    this.text = text;
+    this.colorRole = colorRole;
+    this.canRetry = canRetry;
+  }
+}
+
+/**
+ * 承载面阶段 + 失败原因 → 状态条。
+ *
+ *   · `error`  ⇒ 显示「加载失败」+ 内核原因（有才拼），`dangerText`，**可重试**；
+ *   · `loading`⇒ 显示「正在加载…」，`textMuted`，不可重试（**静态**，不是 spinner）；
+ *   · 其余     ⇒ 不显示（`ready/idle` 都安静）。
+ */
+export function webStatusOf(phase: string, detail: string): WebStatus {
+  const p: string = isPresent(phase) ? phase : WEB_PHASE_IDLE;
+  if (p === WEB_PHASE_ERROR) {
+    const d: string = isPresent(detail) ? detail.trim() : '';
+    return new WebStatus(true, d.length > 0 ? `加载失败：${d}` : '加载失败', 'dangerText', true);
+  }
+  if (p === WEB_PHASE_LOADING) {
+    return new WebStatus(true, '正在加载…', 'textMuted', false);
+  }
+  return new WebStatus(false, '', 'textMuted', false);
+}
+
+/**
+ * 内核错误（`WebResourceError.getErrorInfo()` / `getErrorCode()`）→ 展示明细。
+ *   有 info 用 info；否则有非零 code 用 `错误码 N`；都没有 ⇒ 空串（调用方落回"加载失败"）。
+ *   纯函数 ⇒ 可脱机断言（组件里只做"取内核值 → 交给它"）。
+ */
+export function webErrorDetail(info: string, code: number): string {
+  const i: string = isPresent(info) ? info.trim() : '';
+  if (i.length > 0) { return i; }
+  const c: number = typeof code === 'number' && isFinite(code) && code !== 0 ? code : 0;
+  return c !== 0 ? `错误码 ${c}` : '';
+}
