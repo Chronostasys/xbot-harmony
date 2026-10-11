@@ -1114,7 +1114,7 @@ web 的**服务端 RPC 配置面**（LLM/Storage/Channels/WebUsers/About/Agent/T
 | ② | 插件 **API `ctx`**（9 权限：events/commands/rpc/state/ui/plugins/config/files/share） | `plugin-api/context.ts:18-48`、`manifest.ts:13` | 无 | **N/A** —— 运行在宿主页内；§8.6 已**穷举证伪**「web 期望原生桥方法」的假设（web 侧 0 消费 `xbotNative`） |
 | ② | 宿主**全局注入**（`__xbot_session__`/`__xbot_i18n__`/`__xbot_iteration__`/`__xbot_ui__`/`React`） | `usePluginRuntimeHost.ts:373-388`、`iteration-render.tsx:20-28`、`SandboxedUI.tsx:37-41` | 无 | **N/A**（同上；原生无 `window`/React 运行时语义） |
 | ③ | 插件 **widget**：zones（styled spans）+ 声明式组件 | `plugins/PluginWidgetProvider.tsx:41-95`、`WidgetZone.tsx:14-69`、`components.tsx:37-259` | `core/widgetsview.ets:361 widgetsView` + `components/PluginWidgets.ets`；载荷接线 `core/store.ets:121-129` → `pages/Index.ets:1480-1482,3275-3276` → `PluginHost.ets:173-183` | **✅ 声明式 7 种齐**（`badge/progress/metric/sparkline/table/list/markdown`，与 web `components.tsx:236-259` **一一对应**）；`code`/`src` 仍降级（需 iframe 沙箱）。⚠️ **2026-10-11 收口 `sparkline`/`table`**（此前显式降级）——见 XII.5 |
-| ③ | widget 的**常驻落点**（`infoBar` 状态条） | `plugins/InfoBar.tsx:15-27`（**常驻**，含 `PluginPanelContainer container="info_bar"` + `WidgetZone zone="infoBar"` + `SWUpdateButton`）· 挂载 `layouts/MobileAppShell.tsx:487` · 另 `git-info/GitStatusPanel.tsx:41` | **无** —— `PluginWidgets` **只被 `PluginHost`（插件目录浮层）消费**（`PluginHost.ets:176`） | **⛔ 缺（最高价值）** —— 正常使用路径下 widget zones **不可见**（只有打开"插件目录"浮层才看得到） |
+| ③ | widget 的**常驻落点**（`infoBar` 状态条） | `plugins/InfoBar.tsx:15-27`（**常驻**，含 `PluginPanelContainer container="info_bar"` + `WidgetZone zone="infoBar" excludePrefixes={['git:']}` + `SWUpdateButton`）· 挂载 `layouts/MobileAppShell.tsx:483-487` · 另 `git-info/GitStatusPanel.tsx:41` | `core/widgetsview.ets:640-710 widgetDockView`（纯逻辑）+ `components/WidgetDock.ets`（细条渲染）+ 接线 `pages/Index.ets`（`ChatView` 的输入框**下方**） | **✅ 2026-10-11 已落地（信息栏 zone 口径）** —— `infoBar` zone 的 spans 落在聊天页常驻细条（空态**零占位**）；⚠️ **刻意分叉**：web 恒占 24px 条（含 SW 更新按钮），原生**无 widget 时零高度**（不改变既有布局）；`git:` 前缀 span 随 web 排除（web 由 fancy `GitStatusPanel` 呈现，原生无该视图 ⇒ 不重复显示）。见 XII.6 |
 | ④ | 插件管理：**启用/禁用** + **重载** | `plugins/manager/PluginManagerPanel.tsx:82-127`（`plugin_reload` / `plugin_set_enabled` + 主动同步前端 runtime） | `components/SettingsPlugins.ets`（`RPC_PLUGIN_RELOAD`/`RPC_PLUGIN_SET_ENABLED`，`core/rpc.ets:1085,1087`）；判据 `core/settingsplugins.ets` | **✅ 已支持**（原生按用户要求收严为"写后回读"，不乐观更新） |
 | ④ | 插件管理：**安装 `.zip`** | `PluginManagerPanel.tsx:129-143` → `installPluginFile`（`components/agent/api.ts:644-649`，`POST /api/plugin/install-file` multipart） | **无**（`SettingsPlugins.ets:19` 明示"本期不呈现"） | **⛔ 缺** —— 需文件选择 + multipart 上传；修点 `components/Settings*.ets`（**域外**） |
 | ④ | **后端插件全量**视图（含**无 web 产物**者） | `PluginManagerPanel.tsx:52-76`（`plugin_status {rescan:true}` → script/grpc 运行时插件全貌） | **无** —— 原生只消费 `web_plugin_list`（`core/store.ets:1042`） | **⛔ 缺** —— 用户**看不到/管不了**纯后端插件；需新 RPC（`core/rpc.ets`，**域外**） |
@@ -1128,7 +1128,7 @@ web 的**服务端 RPC 配置面**（LLM/Storage/Channels/WebUsers/About/Agent/T
 
 | 优先级 | 差距 | 价值 | 成本 / 阻塞 | 备注 |
 |---|---|---|---|---|
-| **P0** | **widget 常驻落点（`infoBar`）** | **高** —— 现在 widget 在正常使用路径**完全不可见**（插件如 `xbot.git-fancy` 的状态此前一直"推了但没人看"） | 修点在 `pages/Index.ets`（**域外 · `light-fix3` 独占**）⇒ 需编排者协调 | 建议：在 `MobileAppShell` 的等价位（页面主链外侧）注入一个常驻 `PluginWidgets`（`core/widgetsview.ets` + `PluginWidgets.ets` **已就绪**，只差落点 + 载荷透传） |
+| **P0** | **widget 常驻落点（`infoBar`）** | **高** —— 此前 widget 在正常使用路径**完全不可见**（插件如 `xbot.git-fancy` 的状态一直"推了但没人看"） | `pages/Index.ets`（只加落点/接线）+ `components/WidgetDock.ets` + `core/widgetsview.ets` | **✅ 2026-10-11 已落地** —— 聊天页输入框下方常驻细条消费 `infoBar` zone（空态**零占位**）；判据 `tools/tests/widget_dock.test.ts`（35 断言 + 5 mutation）。见 XII.6 |
 | **P1** | `plugin_status` **全量后端插件** | 中高 —— "支持**所有**插件"的直接需求（纯后端插件现无入口） | 新 RPC（`core/rpc.ets`）+ 管理 UI（`Settings*.ets`）—— **均在域外** | 需先把 `plugin_status` 加入 `core/rpc.ets` 常量表 |
 | **P1** | **`.zip` 安装** | 中 —— 自助装插件（web 用户可自助，原生不能） | 文件选择 + multipart 上传；落 `components/SettingsPlugins.ets`（**域外**） | 参考 `installPluginFile` 的端点契约 `POST /api/plugin/install-file` |
 | **P2** | widget **`sparkline`/`table`** | 中低 —— 真插件用得少但存在（`iteration-stats` 类偏 metric） | `core/widgetsview.ets` + `components/PluginWidgets.ets` | **✅ 2026-10-11 已落地**（此前是**显式降级行**）——见 XII.5 |
@@ -1160,10 +1160,10 @@ mutation 实测：抽 `search` 分支 → 4 红；换回本地副本 → 3 红�
 
 ### XII.4 一句话结论
 
-**插件面已高度 parity**（目录/宿主页/设置配置表单/启停重载/频道/飞书绑定/**声明式 widget 7/7** 均已落地）；
-**真缺口 3 条** —— ① widget **常驻落点**（P0，阻塞在 `pages/Index.ets` 域外）② `plugin_status` 全量后端插件
-（需新 RPC）③ `.zip` 安装；另有 **4 条 N/A**（沙箱/桥/行为扩展/深链）
-与 **1 条 web 侧待补**（视图深链）。**⚠️ 无一条经过真机验证（本波设备禁令）⇒ 均标"待设备验证"。**
+**插件面已高度 parity**（目录/宿主页/设置配置表单/启停重载/频道/飞书绑定/**声明式 widget 7/7**/**widget 常驻信息栏落点** 均已落地）；
+**真缺口 2 条** —— ① `plugin_status` 全量后端插件（需新 RPC）② `.zip` 安装；
+另有 **4 条 N/A**（沙箱/桥/行为扩展/深链）与 **1 条 web 侧待补**（视图深链）。
+**⚠️ 无一条经过真机验证（本波设备禁令）⇒ 均标"待设备验证"。**
 
 ### XII.5 收口：声明式 widget `sparkline`/`table`（2026-10-11，目标②④）
 
@@ -1188,5 +1188,54 @@ mutation 实测：抽 `search` 分支 → 4 红；换回本地副本 → 3 红�
 + 既有 `widgets_view.test.ts` 的陈旧断言同步收口（`SUPPORTED_KINDS` 5→7、sparkline/table 不再降级）。
 mutation 实测：删渲染层 sparkline 分支 → 2 红；把降级特判加回 → 1 红；`SUPPORTED_KINDS` 退回 5 种 → 红。
 **⚠️ 未装机（设备禁令）⇒ 折线/柱/表的**视觉**与 `Shape.viewPort` 缩放**待设备验证**。**
+
+### XII.6 收口：widget **常驻落点**（`infoBar` 信息栏，2026-10-11，目标② P0）
+
+> **缺口（真实，非凑数）**：`components/PluginWidgets.ets` 的**唯一消费者**是
+> `components/PluginHost.ets:172-186`（"插件目录"全屏浮层）⇒ 正常聊天路径下，插件推来的
+> widget **一个都看不到**（`MobileAppShell.tsx:483-487` 在 `main` 下方**常驻** `<InfoBar/>`）。
+
+**web 契约（逐条核对，⛔ 非印象）**
+
+| 问题 | 证据 | 结论 |
+|---|---|---|
+| 何时出现 | `plugins/InfoBar.tsx:7-9`（原文 "ALWAYS rendered (even with no plugin content)…stable fixed-height strip"）· `MobileAppShell.tsx:487` **无条件** | web **恒渲染**固定高条 |
+| 放哪 | `MobileAppShell.tsx:481-487`（`<main>` 之后、`bottomNav` 之前）· `MessageInput.test.tsx:206`（"delegates the bottom safe area to the InfoBar below"） | 屏幕**底部**，**输入框下方** |
+| 哪些 widget 进 | `InfoBar.tsx:23`（`PluginPanelContainer container="info_bar"`）· `:24`（`WidgetZone zone="infoBar" excludePrefixes={['git:']}`） | ① `infoBar` **zone** 的 span 流；② 声明到 `info_bar` 容器的插件 view；③ SW 更新按钮（原生不移植） |
+| 槽位标记 | `plugin/plugin/manifest.go:187,222`（`contributes.ui[].slot` 合法值含 `infoBar`）· `plugin/web_widget.go:35-37`（7 zone 名单） | 服务端按 **slot/zone** 分组推 spans（`RenderSessionWebWidgets`） |
+| 消失/收起 | `plugin-runtime/plugin-runtime`→`plugins/PluginWidgetProvider.tsx:84-87`（切会话 `setZones({})`）· `WidgetZone.tsx:61`（`spans.length === 0 ⇒ empty`，InfoBar 未传 ⇒ `null` ⇒ **零节点**） | 切会话即清空；**流式不影响**；空 zone 天然零节点 |
+
+**修法（最小 diff，3 个文件）**
+- `core/widgetsview.ets:640-710`（+70 行）：新增 `DOCK_ZONE` / `DOCK_EXCLUDE_PREFIXES` /
+  `dockSpanExcluded` / `WidgetDockView` / `widgetDockView(event, content)` —— **复用** `widgetsView`
+  的同一份解析，只做"挑出 `infoBar` 一个 zone + 过滤 `git:` 前缀"的**投影**（**判据与渲染同源**）。
+- `components/WidgetDock.ets`（新，~120 行）：24vp 细条（`height(DOCK_H)`，逐字对齐 web `1.5rem`）+
+  横向 `Scroll`（`width('100%')` + `clip(true)`，门禁 H0）+ 语义色 span（`colorOf(p, s.colorRole)`）；
+  整体包在 `if (this.view.visible)` 内 ⇒ **空态零节点 / 零高度**。
+- `pages/Index.ets`：`import { WidgetDock }`（`:139`）+ `ChatView()` 里输入框胶囊**下方**实例化（`WidgetDock({content: this.widgetContent, event: this.widgetEvent, theme: this.themeName})`）。
+
+**与 web 的**刻意分叉**（诚实记账）**
+1. **空态不占位**：web 恒占 24px（用户明写"不要突然跳出来，一直渲染"）；原生**无内容时零高度** ——
+   采取本任务口径（不改变既有聊天页布局）。⇒ **有 widget 出现时输入框会整体上移 24vp**（观感**待设备验证**）。
+2. **SW 更新按钮不移植**（原生无 SW 概念）。
+3. `excludePrefixes={['git:']}` **照抄**：web 侧该 span 由 fancy `git-info/GitStatusPanel.tsx:40-46`
+   渲染成徽章组（同读 `zones['infoBar']`），原生**无该视图** ⇒ 排除后 git 信息在原生**不显示**
+   （⛔ 不把 web 明确排除的原始文本塞回信息栏）。
+4. `href`（web 渲染成 `<a>`）原生**无链接语义** ⇒ 只画文本（同 `table` 单元格 `action` 的"架构性缺"阵营）。
+5. 声明式 `components`（`payload.components`）**不进**信息栏（web 里那条走 `PluginComponentPanel`，
+   而原生由插件目录浮层承载）—— dock **只**消费 `infoBar` zone。
+
+**判据** `tools/tests/widget_dock.test.ts`（**35 断言**）：① 空态零占位（空串 / `{}` / 坏 JSON /
+只有别 zone / 空数组 5 种）；② 有 widget 才出现 + `git:` 排除；③ **同源**（`dock.spans`
+逐项 == `widgetsView(infoBar).spans` 过滤后）；④ span 的取色 role 必须落在 `core/design.ets:colorOf`
+的**合法集合**内（防"未知 role ⇒ 运行时静默不可见"）；⑤ 渲染层源码形态（`if (this.view.visible)` /
+经 `widgetDockView` 取值 / 不用 `content.length > 0` / `@Watch('syncView')` / Index 真接线）。
+**零扫描判红** 3 条 + **mutation 自证 5 条**（`if(true)` 常驻占位 / 改 `content.length>0` /
+`visible` 恒 true / 删 Index 接线 / 去掉前缀排除 ⇒ 各自必红）。
+**实测**：`run-one.sh widget_dock` **35 passed, 0 failed**；`ash tools/lint/color-roles.sh` ✅（119 处合法）、
+`no-color-literals` ✅、`render-path` ✅、`core/` typecheck ✅、`horizontal_overflow_gate` 10 ✅、
+`minimal_chrome` 31 ✅、`motion_budget` 10 ✅、`widgets_view` 54 ✅、`widgets_parse` ✅；
+**真 ArkTS 编译 `hvigorw assembleHap` ⇒ `BUILD SUCCESSFUL in 11 s 710 ms`**。
+**⚠️ 未装机（设备禁令）⇒ 信息栏的**观感**（24vp 条高 / 出现时的布局位移 / 横向滚动）**待设备验证**。**
 
 

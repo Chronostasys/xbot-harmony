@@ -637,3 +637,74 @@ export function widgetsView(event: string, content: string): WidgetsView {
   out.visible = out.zones.length > 0 || hasRenderableComponent(out.components);
   return out;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 常驻信息栏（infoBar dock）—— 声明式 widget 在**正常聊天路径**的落点
+//
+// 权威基准（web）：
+//   · `web/src/layouts/MobileAppShell.tsx:483-487` —— 手机端在 `main` **下方**常驻 `<InfoBar/>`
+//     （与桌面 `AppShell` 同位：底栏；`MessageInput.test.tsx:206` 印证"输入框不自己留安全区，
+//      交给它下面的 InfoBar"）；
+//   · `web/src/plugins/InfoBar.tsx:15-27` —— 条内容 = `WidgetZone zone="infoBar"
+//     excludePrefixes={['git:']}`（+ SW 更新按钮，原生无对应 ⇒ 不移植）；
+//   · `web/src/plugins/WidgetZone.tsx:56-69` —— **显示判据**：`spans.length === 0 ⇒ 渲染 empty`
+//     （此处 `empty` 缺省 `null` ⇒ **零节点**）。
+//
+// ⛔ 与 `PluginWidgets`（插件目录浮层里的全量 widget 卡片）分工：
+//   本落点**只**取 `infoBar` 这**一个** zone 的 spans，做成细条常驻；其余 zone / 声明式组件
+//   仍由插件目录浮层承载。⛔ **空态零占位**：没有 infoBar 内容时**不产出任何节点**、不占高度
+//   （web 是恒占一条 24px —— 原生刻意不跟随，见交付「与 web 的分叉」）。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 常驻信息栏消费的 zone（web `InfoBar.tsx:24` 的 `zone="infoBar"`）。 */
+export const DOCK_ZONE: string = 'infoBar';
+
+/**
+ * 常驻信息栏**排除**的 span 前缀（逐字对齐 web `InfoBar.tsx:24` 的 `excludePrefixes={['git:']}`）。
+ *
+ * 为什么要排除：`git:` 前缀的 span 是 `git-info` 脚本插件的原始数据，web 侧由 fancy 视图
+ * （`plugins/git-info/GitStatusPanel.tsx:40-46`，从同一个 `zones['infoBar']` 里解析）渲染成
+ * 带图标的徽章组；若信息栏再原样渲染一遍 ⇒ **同一条信息两处出现**（`AppShell.test.tsx:111-112`）。
+ * 原生没有该 fancy 视图 ⇒ 排除后这条 git 信息在原生**不显示** —— 诚实跟随 web 的"分工"语义
+ * （不假装渲染），而不是把原始 `git:` 文本塞进信息栏（那才是 web 明确排除的东西）。
+ */
+export const DOCK_EXCLUDE_PREFIXES: string[] = ['git:'];
+
+/** 常驻信息栏的视图（**判据与渲染同源**：由 `widgetsView` 派生，不另解析一次载荷）。 */
+export class WidgetDockView {
+  /** 是否应渲染 —— **唯一显示判据**；空 ⇒ 调用方**零节点 / 零高度**。 */
+  visible: boolean = false;
+  /** `infoBar` zone 的 spans（已按 `DOCK_EXCLUDE_PREFIXES` 过滤；顺序保持服务端推送序）。 */
+  spans: WidgetSpanView[] = [];
+}
+
+/** 该 span 文本是否被排除（web `WidgetZone.tsx:59` 的 `startsWith(p)` 同义）。 */
+export function dockSpanExcluded(text: string): boolean {
+  for (let i = 0; i < DOCK_EXCLUDE_PREFIXES.length; i++) {
+    if (text.startsWith(DOCK_EXCLUDE_PREFIXES[i])) { return true; }
+  }
+  return false;
+}
+
+/**
+ * 载荷 → 常驻信息栏视图（**唯一入口**）。
+ *
+ * ⛔ 判据与渲染同源：**复用** `widgetsView`（同一份解析 / 同一个 `ok`/`reason`/`visible` 判据），
+ *    本函数只做"挑出 infoBar 这一个 zone + 过滤排除前缀"的**投影**，绝不第二次解析 JSON。
+ * ⛔ 空态零占位：`spans` 为空 ⇒ `visible=false`（含：没收到载荷 / 载荷坏 / infoBar 无 span /
+ *    infoBar 只有被排除的 span）。
+ */
+export function widgetDockView(event: string, content: string): WidgetDockView {
+  const out: WidgetDockView = new WidgetDockView();
+  const view: WidgetsView = widgetsView(event, content);
+  for (let i = 0; i < view.zones.length; i++) {
+    const z: WidgetZoneView = view.zones[i];
+    if (z.name !== DOCK_ZONE) { continue; }
+    for (let j = 0; j < z.spans.length; j++) {
+      const s: WidgetSpanView = z.spans[j];
+      if (!dockSpanExcluded(s.text)) { out.spans.push(s); }
+    }
+  }
+  out.visible = out.spans.length > 0;
+  return out;
+}

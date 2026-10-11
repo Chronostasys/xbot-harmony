@@ -137,6 +137,7 @@ import {
 import { MessageNav } from '../components/MessageNav';
 import { PluginHost } from '../components/PluginHost';
 import { GoalBanner } from '../components/GoalBanner';
+import { WidgetDock } from '../components/WidgetDock';
 import { TodoPanel } from '../components/TodoPanel';
 import { StatusSheet } from '../components/StatusSheet';
 import { QueueSheet } from '../components/QueueSheet';
@@ -4240,6 +4241,18 @@ struct Index {
       })
       .margin({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
       .id('xbot-composer')
+
+      // ── 常驻信息栏（插件**声明式 widget** 的落点）────────────────────────────────
+      // 权威（web，逐条核对）：`MobileAppShell.tsx:483-487` 在 `main` **下方**常驻 `<InfoBar/>`
+      //   → `plugins/InfoBar.tsx:15-27`：`WidgetZone zone="infoBar" excludePrefixes={['git:']}`
+      //   → `WidgetZone.tsx:56-69`：无 span ⇒ 零节点。
+      // ⛔ 显示判据**唯一**在 `core/widgetsview.widgetDockView`（复用 `widgetsView` 的同一次解析）
+      //   ⇒ 无 `infoBar` widget 时**零节点 / 零高度**，与改造前的聊天页布局逐字节一致。
+      WidgetDock({
+        content: this.widgetContent,
+        event: this.widgetEvent,
+        theme: this.themeName,
+      })
     }
     .width('100%').height('100%')
   }
