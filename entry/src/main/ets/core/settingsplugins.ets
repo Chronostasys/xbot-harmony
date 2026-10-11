@@ -1197,3 +1197,126 @@ export function pluginInstallErrorText(status: number, reason: string): string {
   if (hint.length > 0) { return `${head}：${hint}`; }
   return r.length > 0 ? `${head}：${r}` : head;
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ⑥ 后端插件**全量**（`plugin_status`）—— `components/SettingsPlugins.ets` 只消费
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// 为什么需要（波12 差集 P1-b，本波新增）：本仓此前**只**通过两条口看插件 ——
+//   · `web_plugin_list`：**有 web 产物**的插件（`core/store.ets:1042`）；
+//   · `plugin_config`：**带配置声明**的插件（`rpc_table.go:2370-2453`）。
+// ⇒ **纯后端插件**（script/grpc 运行时 / 无 web 产物 / 无 config）在原生端**完全不可见**，
+//   用户也**管不了**（看不到 ⇒ 无从启停/重载）。这不是"没做"，是**没有第三只眼**。
+// 权威基准：web `plugins/manager/PluginManagerPanel.tsx:52-76` —— 它用 `plugin_status {rescan:true}`
+//   列**后端 Go 插件系统全量**（文件头注释原文：`pm.ListPlugins()`；script/grpc runtime）。
+// 服务端契约（只读核实 `serverapp/rpc_table.go:2011-2053`）：
+//   · params `{rescan:bool}`；`rescan:true` ⇒ `Discover()` + `ActivateAll()`（**只激活新发现的**；
+//     注释明言**不用** `ReloadAll` —— `DeactivateAll` 可能超时 30s ⇒ 会阻塞几十秒）；激活失败只记日志、不阻断；
+//   · 返回 `{plugins:[{id,name,version,state,runtime}], active:int, total:int}`；
+//   · 插件系统不可用 ⇒ RPC 报错 `plugin system not available`（`:2015-2017`）⇒ 调用方**可读化**展示。
+//   ⛔ 启停/重载**复用既有** RPC（`plugin_set_enabled` `:2213-2233` / `plugin_reload` `:2099-2133`）
+//      —— 本节**不新增**任何服务端交互、不发新方法。
+
+/** `plugin_status` 响应里的单条（服务端 `pluginJSON`，`rpc_table.go:2031-2037`）。 */
+interface PluginStatusEntryWire {
+  id?: string;
+  name?: string;
+  version?: string;
+  state?: string;
+  runtime?: string;
+}
+
+/** `plugin_status` 响应整体。 */
+interface PluginStatusWire {
+  plugins?: PluginStatusEntryWire[];
+  active?: number;
+  total?: number;
+}
+
+/** `plugin_status` 的一条（视图模型）。 */
+export class PluginStatusEntry {
+  id: string = '';
+  name: string = '';
+  version: string = '';
+  /** 服务端 `state`（`active`/`error`/…）—— **仅展示 + 决定开关初始态**，不做任何门控。 */
+  state: string = '';
+  /** 运行时（`script`/`grpc`/…）—— 纯后端插件才有的信息（`web_plugin_list` 里看不到）。 */
+  runtime: string = '';
+
+  constructor(id: string, name: string, version: string, state: string, runtime: string) {
+    this.id = id;
+    this.name = name;
+    this.version = version;
+    this.state = state;
+    this.runtime = runtime;
+  }
+}
+
+/** `plugin_status` 的整体视图。 */
+export class PluginStatusList {
+  entries: PluginStatusEntry[] = [];
+  /** 服务端 `active`（启用数）。 */
+  active: number = 0;
+  /** 服务端 `total`（总数）。 */
+  total: number = 0;
+}
+
+/**
+ * `state` 是否"已启用"（开关初始态）。
+ * ⛔ 不 import `core/pluginview.ets:PLUGIN_STATE_ACTIVE`：本模块与 pluginview 无既有依赖，
+ *    为一个字面量引依赖会把"纯逻辑模块"的图变复杂；此处逐字对齐该常量值（`'active'`）。
+ */
+export function pluginStatusIsActive(state: string): boolean {
+  return isPresent(state) && state.trim() === 'active';
+}
+
+/**
+ * `plugin_status` 响应 → 视图模型（**全容错**：null / 缺字段 / 坏数组都不炸）。
+ * · 无 `id` 的条目**跳过**（没有 id 就启停/重载不了 ⇒ 宁可不显示，也不做一个点了报错的控件）；
+ * · `name` 空 ⇒ 回落 `id`（⛔ 不画空标题）；`active`/`total` 非有限 ⇒ 用条目数兜底。
+ */
+export function parsePluginStatus(raw: Object | null | undefined): PluginStatusList {
+  const out: PluginStatusList = new PluginStatusList();
+  if (!isPresent(raw)) {
+    return out;
+  }
+  const wire: PluginStatusWire = raw as PluginStatusWire;
+  const list: PluginStatusEntryWire[] = arrOrEmpty(wire.plugins);
+  for (let i = 0; i < list.length; i++) {
+    const e: PluginStatusEntryWire | undefined = list[i];
+    if (!isPresent(e)) {
+      continue;
+    }
+    const id: string = isPresent(e.id) ? e.id.trim() : '';
+    if (id.length === 0) {
+      continue;
+    }
+    const name: string = isPresent(e.name) && e.name.length > 0 ? e.name : id;
+    out.entries.push(new PluginStatusEntry(
+      id, name,
+      isPresent(e.version) ? e.version : '',
+      isPresent(e.state) ? e.state : '',
+      isPresent(e.runtime) ? e.runtime : ''));
+  }
+  const a: number = typeof wire.active === 'number' && isFinite(wire.active) ? wire.active : -1;
+  const t: number = typeof wire.total === 'number' && isFinite(wire.total) ? wire.total : -1;
+  out.active = a >= 0 ? a : out.entries.length;
+  out.total = t >= 0 ? t : out.entries.length;
+  return out;
+}
+
+/** 概览文案（`全部插件（启用 M / 共 N）`）—— 与 `pluginCatalogSummaryText` 同风格。 */
+export function pluginStatusSummaryText(active: number, total: number): string {
+  const a: number = typeof active === 'number' && isFinite(active) && active > 0 ? active : 0;
+  const t: number = typeof total === 'number' && isFinite(total) && total > 0 ? total : 0;
+  return `全部插件（启用 ${a} / 共 ${t}）`;
+}
+
+/** 行内元信息（`v<版本> · <runtime> · <state>`；空段自动省略，全空 ⇒ 空串，调用方不画）。 */
+export function pluginStatusMetaText(e: PluginStatusEntry): string {
+  const parts: string[] = [];
+  if (isPresent(e.version) && e.version.length > 0) { parts.push(`v${e.version}`); }
+  if (isPresent(e.runtime) && e.runtime.length > 0) { parts.push(e.runtime); }
+  if (isPresent(e.state) && e.state.length > 0) { parts.push(e.state); }
+  return parts.join(' · ');
+}

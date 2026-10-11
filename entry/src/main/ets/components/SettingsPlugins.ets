@@ -29,8 +29,9 @@ import { common } from '@kit.AbilityKit';
 import { FS_CAPTION, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5 } from '../core/tokens';
 import {
   PluginConfigParams, PluginConfigSetParams, PluginReloadParams, PluginSetEnabledParams,
+  PluginStatusParams,
   readableRpcError, rpc, RPC_PLUGIN_CONFIG, RPC_PLUGIN_CONFIG_SET, RPC_PLUGIN_RELOAD,
-  RPC_PLUGIN_SET_ENABLED,
+  RPC_PLUGIN_SET_ENABLED, RPC_PLUGIN_STATUS,
 } from '../core/rpc';
 import {
   ConfigValue, PLUGIN_FIELD_BOOLEAN, PLUGIN_FIELD_IMAGE, PLUGIN_FIELD_MULTISELECT,
@@ -50,6 +51,8 @@ import {
   PLUGIN_INSTALL_MAX_BYTES, PLUGIN_INSTALL_MIME, PLUGIN_INSTALL_PATH,
   PluginInstallResult, parsePluginInstallResult, pluginInstallErrorText,
   pluginInstallFilenameFromUri, pluginInstallSizeOk, pluginInstallSuccessText,
+  PluginStatusEntry, PluginStatusList, parsePluginStatus, pluginStatusIsActive,
+  pluginStatusMetaText, pluginStatusSummaryText,
 } from '../core/settingsplugins';
 import { PRESS_OPACITY, CONTROL_INPUT_H, colorOf, hairlineOf } from '../core/design';
 import { SettingsErrorBar, SettingsPanelHeader } from './SettingsRows';
@@ -422,9 +425,14 @@ export struct SettingsPlugins {
   @State private installBusy: boolean = false;
   /** 安装失败文案（**已可读化**；空 = 无错）。 */
   @State private installErr: string = '';
+  /** 后端插件**全量**（`plugin_status`；纯后端插件此前在原生端完全不可见 —— 见 `core/settingsplugins.ets` ⑥）。 */
+  @State private backend: PluginStatusList = new PluginStatusList();
+  /** 全量列表的错误（可读；空 = 无错）。插件系统不可用 ⇒ 服务端报 `plugin system not available`。 */
+  @State private backendErr: string = '';
 
   aboutToAppear(): void {
     void this.load();
+    void this.loadBackend();
   }
 
   private pal(): Palette {
@@ -481,6 +489,23 @@ export struct SettingsPlugins {
       this.catalog = new PluginConfigCatalog();
     } finally {
       this.loading = false;
+    }
+  }
+
+  /**
+   * 拉**后端插件全量**（`plugin_status`；见 `core/settingsplugins.ets` ⑥）。
+   * ⛔ 与 `load()` **互不牵连**：插件系统不可用（服务端报 `plugin system not available`）时，
+   *    配置面仍要能用 ⇒ 两条链各自记错，不互相清空。
+   * `rescan:false` —— 普通刷新不必重扫磁盘（`rescan:true` 会走 `Discover+ActivateAll`，更贵）。
+   */
+  private async loadBackend(): Promise<void> {
+    try {
+      const raw: Object = await rpc<Object>(this.http, RPC_PLUGIN_STATUS, new PluginStatusParams(false));
+      this.backend = parsePluginStatus(raw);
+      this.backendErr = '';
+    } catch (e) {
+      this.backendErr = readableRpcError((e as Error).message);
+      this.backend = new PluginStatusList();
     }
   }
 
@@ -594,6 +619,7 @@ export struct SettingsPlugins {
     try {
       await rpc<Object>(this.http, RPC_PLUGIN_SET_ENABLED, new PluginSetEnabledParams(pid, next));
       await this.load();
+      await this.loadBackend();
       this.notice = next ? '插件已启用' : '插件已停用';
     } catch (e) {
       this.error = readableRpcError((e as Error).message);
@@ -612,6 +638,7 @@ export struct SettingsPlugins {
     try {
       await rpc<Object>(this.http, RPC_PLUGIN_RELOAD, new PluginReloadParams(pid));
       await this.load();
+      await this.loadBackend();
       this.notice = '插件已重载';
     } catch (e) {
       this.error = readableRpcError((e as Error).message);
@@ -871,6 +898,84 @@ export struct SettingsPlugins {
         .scrollBar(BarState.Auto)
         .align(Alignment.Top)
       }
+
+      // ── 全部插件（后端**全量**，`plugin_status`）—— 对齐 web `PluginManagerPanel.tsx:206-256` ──
+      // 为什么单列一张：`web_plugin_list` 只含**有 web 产物**的插件、`plugin_config` 只含
+      // **带配置声明**的插件 ⇒ **纯后端插件**（script/grpc）在上面那个列表里**根本不出现**。
+      // 判据全在 `core/settingsplugins.ets` ⑥；启停/重载**复用同一对方法**（服务端同一组 RPC）。
+      Column({ space: SP_2 }) {
+        Row({ space: SP_2 }) {
+          Text(pluginStatusSummaryText(this.backend.active, this.backend.total))
+            .fontSize(FS_CAPTION)
+            .fontColor(this.pal().textPrimary)
+            .layoutWeight(1)
+          Text('刷新')
+            .fontSize(FS_CAPTION)
+            .fontColor(this.pal().accentSoft)
+            .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+            .onClick(() => {
+              void this.loadBackend();
+            })
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+
+        if (this.backendErr.length > 0) {
+          Text(this.backendErr)
+            .fontSize(FS_CAPTION)
+            .fontColor(this.pal().dangerText)
+            .width('100%')
+        } else if (this.backend.entries.length === 0) {
+          Text('后端没有插件（插件系统未启用，或插件目录为空）。')
+            .fontSize(FS_CAPTION)
+            .fontColor(this.pal().textMuted)
+            .width('100%')
+        } else {
+          ForEach(this.backend.entries, (e: PluginStatusEntry) => {
+            Row({ space: SP_2 }) {
+              Text(e.name)
+                .fontSize(FS_CAPTION)
+                .fontColor(this.pal().textPrimary)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .layoutWeight(1)
+              Text(pluginStatusMetaText(e))
+                .fontSize(FS_CAPTION)
+                .fontColor(this.pal().textMuted)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Text(this.confirmReload === e.id ? '确认重载？' : '重载')
+                .fontSize(FS_CAPTION)
+                .fontColor(this.pal().warn)
+                .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
+                .backgroundColor(this.confirmReload === e.id ? this.pal().warnBg : this.pal().transparent)
+                .borderRadius(R_LG)
+                .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+                .onClick(() => {
+                  if (this.confirmReload === e.id) {
+                    void this.reload(e.id);
+                  } else if (this.busy.length === 0) {
+                    this.confirmReload = e.id;
+                  }
+                })
+              Toggle({ type: ToggleType.Switch, isOn: pluginStatusIsActive(e.state) })
+                .enabled(this.busy.length === 0)
+                .onChange((on: boolean) => {
+                  void this.toggleEnabled(e.id, on);
+                })
+            }
+            .width('100%')
+            .alignItems(VerticalAlign.Center)
+            .padding(SP_2)
+            .backgroundColor(this.pal().surface)
+            .borderRadius(R_XL)
+            .border({ width: 1, color: this.pal().border })
+          }, (e: PluginStatusEntry) => e.id)
+        }
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
     }
     .width('100%')
     .layoutWeight(1)

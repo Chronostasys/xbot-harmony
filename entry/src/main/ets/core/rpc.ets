@@ -1085,6 +1085,18 @@ export const RPC_PLUGIN_CONFIG_SET: string = 'plugin_config_set';
 export const RPC_PLUGIN_SET_ENABLED: string = 'plugin_set_enabled';
 /** `plugin_reload`（`rpc1`）`{id}` → `{status:"ok"}`。`rpc_table.go:2099-2133`。 */
 export const RPC_PLUGIN_RELOAD: string = 'plugin_reload';
+/**
+ * `plugin_status`（`rpc1`）`{rescan}` → `{plugins:[{id,name,version,state,runtime}],active,total}`。
+ * `rpc_table.go:2011-2053`；web `plugins/manager/PluginManagerPanel.tsx:60`。
+ *
+ * ⚠️ 与 `plugin_config` 的**关键区别**：`plugin_config` 只返回**带配置声明**的插件，`web_plugin_list`
+ * 只返回**有 web 产物**的插件 ⇒ 两者都看不到**纯后端插件**（script/grpc 运行时）。
+ * `plugin_status` 返回后端 Go 插件系统**全量**（`pm.ListPlugins()`）⇒ 它才是"看得到所有插件"的口。
+ *
+ * ⚠️ 未登记进 `RpcMethod.ALL`（同 `RPC_PLUGIN_CONFIG` 等既有插件 RPC 的现状）——`tools/tests/rpc.test.ts`
+ * 的 `NAMED` 是**硬编码清单**且断言 `ALL.length === NAMED.length` ⇒ 登记会让它红。待其归属线一并登记。
+ */
+export const RPC_PLUGIN_STATUS: string = 'plugin_status';
 
 /** `plugin_config` 的 params（`id` 省略/空串 ⇒ 返回**全部**带配置声明的插件）。 */
 export class PluginConfigParams {
@@ -1133,5 +1145,19 @@ export class PluginReloadParams {
 
   constructor(id: string) {
     this.id = id;
+  }
+}
+
+/**
+ * `plugin_status` 的 params。
+ * `rescan:true` ⇒ 服务端 `Discover()` + `ActivateAll()`（**只激活新发现的**；注释明言**不用**
+ * `ReloadAll`——`DeactivateAll` 可能超时 30s 阻塞，`rpc_table.go:2018-2029`）⇒ 装了新插件后
+ * 想立刻看到，才需要 `true`；普通刷新用 `false`（便宜）。
+ */
+export class PluginStatusParams {
+  rescan: boolean = false;
+
+  constructor(rescan: boolean) {
+    this.rescan = rescan;
   }
 }
