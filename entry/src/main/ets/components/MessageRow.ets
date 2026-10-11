@@ -38,6 +38,7 @@ import {
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
 import { SubAgentTree } from './SubAgentTree';
 import { flattenSubAgents } from '../core/subagent';
+import { SweepBand, sweepBandOf } from '../core/sweep';
 import { animFast, animMsgIn } from './anim';
 
 /** 压缩摘要正文的最大高度（web `max-h-[40vh] overflow-y-auto`；手机取 ~48% 视口）。 */
@@ -232,6 +233,18 @@ export struct MessageRowView {
   /** 视觉 token（玻璃/光晕/渐变/层级）—— 由色板派生，跨主题自动一致。 */
   private eff(): Effects {
     return effectsOf(this.pal());
+  }
+
+  /** 扫光三色（判据与渲染同源：`core/sweep.ets:sweepBandOf`）—— 按 theme 记忆化。 */
+  private bandTheme: string = '';
+  private bandCache: SweepBand = new SweepBand();
+
+  private sweepBand(): SweepBand {
+    if (this.bandTheme !== this.theme) {
+      this.bandTheme = this.theme;
+      this.bandCache = sweepBandOf(this.pal());
+    }
+    return this.bandCache;
   }
 
   // ⛔ 已删除 `isTailOwned`（bug1「一个 running turn 被渲染两遍」的根因）：
@@ -725,13 +738,15 @@ export struct MessageRowView {
         selected: this.popKey.length > 0 && this.popKey === this.pillKeyOf(it, t, ti),
         theme: this.theme,
       })
-      // 运行中：一道 accent 扫光（纯 transform ⇒ 不触发布局，触屏也稳），中心叠 sheen 高光
+      // 运行中：一道扫光（纯 transform ⇒ 不触发布局，触屏也稳），中心叠 sheen 高光。
+      // 取色**唯一口径** = `core/sweep.ets:sweepBandOf`（判据与渲染同源）：深色 = 彩色 accent 扫光
+      // （逐字节原值）；浅色 = 中性柔影（同 `Effects.glow/glowSoft` 口径，白底不出彩色脏光晕）。
       if (this.toolLive(t)) {
         Row()
           .width(46).height('100%')
           .linearGradient({ angle: 90, colors: [
-            [this.pal().accentSoftFade, 0.0], [this.pal().accentSoft, 0.35],
-            [this.eff().sheen, 0.5], [this.pal().accentSoft, 0.65], [this.pal().accentSoftFade, 1.0],
+            [this.sweepBand().fade, 0.0], [this.sweepBand().core, 0.35],
+            [this.sweepBand().sheen, 0.5], [this.sweepBand().core, 0.65], [this.sweepBand().fade, 1.0],
           ] })
           .opacity(0.45)
           .translate({ x: this.sweepX })
