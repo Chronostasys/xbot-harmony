@@ -125,6 +125,8 @@ export struct AuthImage {
           .fontColor([colorOf(this.pal(), 'accentSoft')])
           .flexShrink(0)
         Text(this.failed ? '图片加载失败（点按重试）' : '查看图片')
+          // 兜底不溢出（文案可长可短 ⇒ 换行而非截断，⛔ 不删信息）
+          .wordBreak(WordBreak.BREAK_ALL)
           .fontSize(fs('type.caption'))
           .fontWeight(fw('type.caption'))
           .lineHeight(lh('type.caption'))

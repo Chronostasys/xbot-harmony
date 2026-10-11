@@ -34,6 +34,8 @@ struct Fallback {
         .fontSize(typeOf('type.caption').size)
         .fontColor(colorOf(darkPalette(), 'textMuted'))
         .textAlign(TextAlign.Center)
+        // 兜底不溢出（长句 + `tag: xbot` 这类不可断 token ⇒ 换行，⛔ 不截断）
+        .wordBreak(WordBreak.BREAK_ALL)
     }
     .width('100%')
     .height('100%')

@@ -108,6 +108,8 @@ export struct Lightbox {
         Text(scaleText(this.zoom))
           .fontSize(typeOf(TYPE_META).size)
           .fontColor(colorOf(this.pal(), 'textSecondary'))
+          // 兜底不溢出（本值恒短如 "250%"，但**判据要求每个 Text 都有兜底**；`BREAK_ALL` 对短串是 no-op）
+          .wordBreak(WordBreak.BREAK_ALL)
         Text('复位')
           .fontSize(typeOf(TYPE_META).size)
           .fontColor(colorOf(this.pal(), 'accentSoft'))

@@ -53,6 +53,9 @@ export struct Toast {
         .lineHeight(lh(TOAST_TYPE))
         .fontColor(tc(this.pal(), TOAST_TYPE))
         .textAlign(TextAlign.Center)
+        // ⛔ 长**不可断**串（长 URL / 无空格长错误码）必须能断 —— 否则撑破 `maxWidth` 溢出屏幕。
+        //    用 `BREAK_ALL` **换行**（⛔ 不设 `maxLines`：那会**截断信息**，与"不删信息"冲突）。
+        .wordBreak(WordBreak.BREAK_ALL)
         .constraintSize({ maxWidth: '92%' })
         .padding({ left: SPACE_MD, right: SPACE_MD, top: SPACE_SM, bottom: SPACE_SM })
         .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
