@@ -22,6 +22,20 @@
 /** 展开态最大条目数（web `MAX_ENTRIES`）。 */
 export const REASONING_OPEN_MAX: number = 300;
 
+/**
+ * ⛔ 纯 TS 端口（`core/*.ts` 被 `run.sh` 当纯 TS 编译）**不许** import `./types`（那是 **ArkTS 文件**）——
+ *    否则 ArkTS 编译期硬红 `10605999 Importing ArkTS files in JS and TS files is forbidden`
+ *    （**脱机三条永远抓不到**，只有真门禁 ④ 抓）。⇒ 这里只用**最小结构契约**：消费方（`.ets`）传
+ *    `HistoryIteration` 天然满足，类型兼容性由 ArkTS 编译在**调用点**校验。
+ *    见 `docs/ARKTS-GOTCHAS.md` 批次 33a。
+ */
+export interface IterationLike {
+  /** 是否在飞迭代（`HistoryIteration.live`）。 */
+  live?: boolean;
+  /** 迭代号（`HistoryIteration.iteration`）。 */
+  iteration: number;
+}
+
 /** key → 是否展开（Map 迭代序 = LRU 序：末尾最新）。 */
 const openByKey: Map<string, boolean> = new Map<string, boolean>();
 
@@ -75,27 +89,15 @@ export function resetReasoningOpenState(): void {
 }
 
 /**
- * `liveIterationNo` 的**最小结构契约** —— 只声明用到的两个字段。
+ * 取一组迭代里**在飞迭代**的迭代号（live 侧构造 `reasoningKey()` 的输入）。
  *
- * ⚠️ 为什么不直接 import `HistoryIteration`：它定义在 `core/types.ets`，而**本文件是 `.ts`**
- *   —— ArkTS **禁止 `.ts` 文件 import `.ets` 文件**（`10605999 Importing ArkTS files in JS
- *   and TS files is forbidden`）。该错误**脱机三条（run.sh/lint/typecheck）抓不到**，只有 ArkTS
- *   编译能抓（见 `docs/ARKTS-GOTCHAS.md`）。调用的 `.ets` 侧传 `HistoryIteration` 由 ArkTS 编译校验。
- */
-export interface IterationLike {
-  live?: boolean;
-  iteration: number;
-}
-
-/**
- * 取一组迭代里**在飞迭代**的迭代号（live 侧构造 `reasoningKey(turnID, iteration)` 的输入）。
- *
- * 数据源 = 行上被 `core/render.ets` 标了 `live: true` 的那块（`inFlightBlock` 的
- * `iteration: r.lastIter`）⇒ 与渲染**同源**（不另立判据）。
- * 无在飞块（刚起头/已 commit）⇒ 回落已完成块**最大号**；空数组 ⇒ 0。
+ * 数据源 = 行上被 `core/render.ets` 标了 `live: true` 的那块（`render.ets:178/183`
+ * 的 `iteration: r.lastIter`）⇒ 与渲染**同源**（不另立判据）。
+ * 无在飞块（如刚起头/已 commit）⇒ 回落已完成块**最大号**（与本仓 `inFlightBlock`
+ * 的号语义一致）；空数组 ⇒ 0。
  *
  * ⚠️ live 与 committed 两侧必须各取到**同一个** (turnID, iteration)，否则 commit 后
- *   读不到之前写下的展开态（= 思考块又自动收起）。**只此一份实现**，两侧都 import 它。
+ *   读不到之前写下的展开态（= 思考块又自动收起）。
  */
 export function liveIterationNo(iterations: IterationLike[]): number {
   for (let i = iterations.length - 1; i >= 0; i--) {
