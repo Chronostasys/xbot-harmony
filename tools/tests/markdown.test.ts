@@ -6,7 +6,7 @@
  * 渲染层（ArkUI）只能在真机/构建里验，但**解析语义**必须在这里锁死。
  */
 declare const process: { exit: (c: number) => void };
-import { parseMarkdown, parseInline, MdBlockKind } from '../../entry/src/main/ets/core/markdown';
+import { parseMarkdown, parseInline, tableAlignsOf, alignOf, MdBlockKind } from '../../entry/src/main/ets/core/markdown';
 
 let pass = 0;
 let fail = 0;
@@ -75,6 +75,19 @@ eq('硬换行（2 空格）保留', parseMarkdown('第一行  \n第二行')[0].t
 eq('硬换行（反斜杠）保留且去反斜杠', parseMarkdown('第一行\\\n第二行')[0].text, '第一行\n第二行');
 eq('单行段落不变', parseMarkdown('就一行')[0].text, '就一行');
 eq('软换行不跨块（空行仍分段）', parseMarkdown('a\n\nb').length, 2);
+
+// ── 表格列对齐（GFM `:---`/`:---:`/`---:`；web remark-gfm 支持，原生此前忽略）──────
+eq('tableAlignsOf：左/中/右/默认', tableAlignsOf('| :--- | :---: | ---: | --- |'), [0, 1, 2, 0]);
+eq('tableAlignsOf：无边框竖线', tableAlignsOf(':-- | --:'), [0, 2]);
+eq('alignOf：有效下标取对齐', [alignOf([1, 2, 0], 0), alignOf([1, 2, 0], 1), alignOf([1, 2, 0], 2)], [1, 2, 0]);
+eq('alignOf：越界 ⇒ 左', [alignOf([1, 2], 5), alignOf([], 0)], [0, 0]);
+{
+  const t = parseMarkdown('| a | b | c |\n| :---: | ---: | --- |\n| 1 | 2 | 3 |')[0];
+  eq('表格块：aligns 解析', t.aligns, [1, 2, 0]);
+  eq('表格块：header/rows 不受影响', [t.header, t.rows], [['a', 'b', 'c'], [['1', '2', '3']]]);
+}
+// 无对齐标记的表格 ⇒ 全左（不误判）
+eq('普通表格分隔行 ⇒ 全左', parseMarkdown('| a | b |\n| --- | --- |\n| 1 | 2 |')[0].aligns, [0, 0]);
 
 console.log(`markdown.test: ${pass} passed, ${fail} failed`);
 if (fail > 0) {

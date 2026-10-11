@@ -57,6 +57,12 @@ export class MdBlock {
   /** 表格：表头 + 行（单元格文本） */
   header: string[] = [];
   rows: string[][] = [];
+  /**
+   * 表格**逐列对齐**（GFM 分隔行 `:---`/`:---:`/`---:` ⇒ `0`=左 / `1`=中 / `2`=右；默认左）。
+   * web 走 remark-gfm ⇒ `<th align>` / 内联 `style="text-align"`（`MarkdownRenderer.tsx:31`）；
+   * 原生此前**忽略对齐**（一律左）。长度可能 < 列数 ⇒ 取值用 `alignOf` 兜底。
+   */
+  aligns: number[] = [];
 }
 
 export class MdSpan {
@@ -187,6 +193,7 @@ export function parseMarkdown(src: string): MdBlock[] {
       const b: MdBlock = new MdBlock();
       b.kind = MdBlockKind.Table;
       b.header = splitRow(line);
+      b.aligns = tableAlignsOf(lines[i + 1]);
       b.start = lineOff[i];
       i += 2;
       while (i < lines.length && lines[i].indexOf('|') >= 0 && lines[i].trim().length > 0) {
@@ -287,6 +294,30 @@ function splitRow(line: string): string[] {
     out.push(cells[k].trim());
   }
   return out;
+}
+
+/**
+ * 表格**逐列对齐**（GFM）：解析分隔行（`| :--- | :---: | ---: |`）⇒ 每列
+ * `0`=左（默认）/ `1`=中 / `2`=右。web 走 remark-gfm 的同一条规则
+ * （`MarkdownRenderer.tsx:31`）；原生此前忽略对齐。
+ */
+export function tableAlignsOf(sep: string): number[] {
+  const cells: string[] = splitRow(sep);
+  const out: number[] = [];
+  for (let k = 0; k < cells.length; k++) {
+    const c: string = cells[k];
+    const lead: boolean = c.startsWith(':');
+    const trail: boolean = c.endsWith(':');
+    if (lead && trail) { out.push(1); }
+    else if (trail) { out.push(2); }
+    else { out.push(0); }
+  }
+  return out;
+}
+
+/** 第 `ci` 列的对齐（数组不足/异常 ⇒ 左）。 */
+export function alignOf(aligns: number[], ci: number): number {
+  return ci >= 0 && ci < aligns.length ? aligns[ci] : 0;
 }
 
 /** 行内解析：粗体 / 斜体 / 行内码 / 删除线 / 链接。 */

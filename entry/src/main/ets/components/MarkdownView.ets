@@ -15,7 +15,7 @@ import {
   RADIUS_CARD, hairlineOf, wellOf,
 } from '../core/design';
 import {
-  MdBlock, MdBlockKind, MdSpan, parseInlineCached, parseMarkdownCached,
+  MdBlock, MdBlockKind, MdSpan, alignOf, parseInlineCached, parseMarkdownCached,
   TableField, tableRowFields, useTableGrid,
 } from '../core/markdown';
 // 渲染**判据**全在 core/mdview（纯逻辑、可脱机单测）：链接目标 / 溢出策略 / 代码 token 色 / 行内样式记忆化。
@@ -493,19 +493,58 @@ export struct MarkdownView {
    *   这正是"渲染整个都是错乱的、完全用不了"的成因之一。
    *   堆叠形态只用 Column/Row/Text —— 都是真机已验证可渲染的构件（登录页已证明）。
    */
+  /**
+   * 表格单元格：**行内解析 + 列对齐**（对齐 web）。
+   * web 的 `COMPONENTS` 只覆盖 `code`/`a`/`img`（`MarkdownRenderer.tsx:319-338`）⇒ `td`/`th` 走
+   * react-markdown **默认渲染**（单元格内的 `**粗体**`/`` `码` ``/链接**照常解析**）；
+   * GFM 列对齐（`remark-gfm`，`:31`）同理。原生此前用裸 `Text(cell)` ⇒ 单元格内标记**原样上屏**。
+   * ⛔ 字号用 `MD_TABLE_SIZE`（单元格自己的尺度），不能用 `MdInlineStyle.size`（默认 15=正文）。
+   */
+  @Builder
+  TableCellSpan(text: string, ci: number, b: MdBlock, head: boolean) {
+    Text() {
+      ForEach(inlineStyles(text, this.pal(), this.mdTheme, this.pal().textPrimary), (s: MdInlineStyle, i: number) => {
+        Span(s.text)
+          .fontSize(MD_TABLE_SIZE)
+          .fontColor(s.color)
+          .fontWeight((s.bold || head) ? FontWeight.Bold : FontWeight.Normal)
+          .fontStyle(s.italic ? FontStyle.Italic : FontStyle.Normal)
+          .fontFamily(s.mono ? 'monospace' : 'sans-serif')
+          .textBackgroundStyle({ color: s.bg, radius: R_SM })
+          .decoration({
+            type: s.strike ? TextDecorationType.LineThrough
+              : (s.underline ? TextDecorationType.Underline : TextDecorationType.None),
+            color: s.color,
+          })
+          .onClick(() => {
+            if (s.link.length > 0) {
+              this.openLink(s.link);
+            }
+          })
+      }, (s: MdInlineStyle, i: number) => `tc-${b.key}-${ci}-${i}-${s.text.length}`)
+    }
+    .wordBreak(WordBreak.BREAK_ALL)
+    .fontSize(MD_TABLE_SIZE)
+    .fontColor(this.pal().textPrimary)
+    .textAlign(this.ta(alignOf(b.aligns, ci)))
+    .layoutWeight(1)
+    .padding({ left: MD_TABLE_CELL_X, right: MD_TABLE_CELL_X, top: MD_TABLE_CELL_Y, bottom: MD_TABLE_CELL_Y })
+  }
+
+  /** 列对齐码（`0`=左 / `1`=中 / `2`=右）⇒ `TextAlign`。 */
+  private ta(n: number): TextAlign {
+    if (n === 1) { return TextAlign.Center; }
+    if (n === 2) { return TextAlign.End; }
+    return TextAlign.Start;
+  }
+
   @Builder
   TableBlock(b: MdBlock) {
     Column() {
       if (useTableGrid(b.header.length)) {
         Row() {
-          ForEach(b.header, (h: string) => {
-            Text(h)
-              .wordBreak(WordBreak.BREAK_ALL)
-              .fontSize(MD_TABLE_SIZE)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(this.pal().textPrimary)
-              .layoutWeight(1)
-              .padding({ left: MD_TABLE_CELL_X, right: MD_TABLE_CELL_X, top: MD_TABLE_CELL_Y, bottom: MD_TABLE_CELL_Y })
+          ForEach(b.header, (h: string, k: number) => {
+            this.TableCellSpan(h, k, b, true)
           }, (h: string, k: number) => `${b.key}-th${k}`)
         }
         .width('100%')
@@ -516,12 +555,7 @@ export struct MarkdownView {
         ForEach(b.rows, (row: string[], ri: number) => {
           Row() {
             ForEach(row, (cell: string, ci: number) => {
-              Text(cell)
-                .wordBreak(WordBreak.BREAK_ALL)
-                .fontSize(MD_TABLE_SIZE)
-                .fontColor(this.pal().textPrimary)
-                .layoutWeight(1)
-                .padding({ left: MD_TABLE_CELL_X, right: MD_TABLE_CELL_X, top: MD_TABLE_CELL_Y, bottom: MD_TABLE_CELL_Y })
+              this.TableCellSpan(cell, ci, b, false)
             }, (cell: string, ci: number) => `${b.key}-td${ri}-${ci}`)
           }
           .width('100%')
