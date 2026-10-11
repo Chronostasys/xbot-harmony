@@ -51,3 +51,16 @@ export function arrPresent<T>(v: T[] | null | undefined): v is T[] {
 export function isPresent<T>(v: T | null | undefined): v is T {
   return v !== undefined && v !== null;
 }
+
+/**
+ * **非空字符串**守卫 —— `nonEmpty` 的**唯一出口**（2026-10-11 收敛，QA 抓到真漂移）。
+ *
+ * 收敛前本仓有 **3 份**同名实现，其中两份是 `s !== undefined && s.length > 0`
+ * ⇒ **对 `null` 会抛**（`null.length`），而第三份（`channelscfg`）用 `isPresent` ⇒ 安全。
+ * 同一事实（"是否非空串"）对 `null` 输入给出两种行为 ⇒ **真漂移**（本模块头注释那类
+ * "`x !== undefined` 对 `null` 为真 ⇒ `x.length` 抛"的缺陷形态，只是这回藏在同名助手体内）。
+ * 收敛到**更宽的那份**（`isPresent` 版）：对合法输入行为完全相同，对越界输入**不崩** ⇒ 兼容。
+ */
+export function nonEmpty(v: string | null | undefined): boolean {
+  return isPresent(v) && v.length > 0;
+}

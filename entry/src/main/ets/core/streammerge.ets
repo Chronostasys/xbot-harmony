@@ -20,6 +20,7 @@
  */
 import { ChatRow, HistoryIteration, IterList, ProgressEvent, ToolProgress } from './types';
 import { ST_GENERATING } from './toolstatus';
+import { nonEmpty } from './guards';
 
 /** 该事件是否"只带流式字段"（与 服务端 isStreamOnlyProgress 同判据，但更宽松：不要求 iteration==0）。 */
 export function isStreamOnly(e: ProgressEvent): boolean {
@@ -51,9 +52,6 @@ export function hasStructured(e: ProgressEvent): boolean {
     || (e.iteration_history !== undefined && e.iteration_history.length > 0);
 }
 
-function nonEmpty(s: string | undefined): boolean {
-  return s !== undefined && s.length > 0;
-}
 
 
 /**

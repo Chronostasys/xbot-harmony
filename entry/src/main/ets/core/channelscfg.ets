@@ -36,7 +36,7 @@
  *   本文件用 `maskSecret()` 做展示掩码、`isSecretField()` 定类型；组件对未编辑的敏感字段
  *   保留服务端原值（draft 初值 = 服务端真值，与 web 一致）。
  */
-import { isPresent } from './guards';
+import { isPresent, nonEmpty } from './guards';
 
 // ── RPC method 常量 + 具名 params 类 ──────────────────────────────────────────
 // ⚠️ 放本文件而**不动** `core/rpc.ets`：该文件有主（parity-gap 线）。
@@ -181,11 +181,6 @@ function strListOf(raw: string[] | null | undefined): string[] {
     }
   }
   return out;
-}
-
-/** 值存在且非空串。 */
-function nonEmpty(v: string | null | undefined): boolean {
-  return isPresent(v) && v.length > 0;
 }
 
 // ── 线格式 → 视图模型 ─────────────────────────────────────────────────────────

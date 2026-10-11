@@ -24,6 +24,7 @@
  *    ⚠️ 本文件**尚未被 UI 消费** ⇒ ArkTS 严格检查要等接线后才跑到（见本仓 GOTCHAS 的
  *    "未被消费的文件不被类型检查"）；下一波接线后请重跑 `tools/gate.sh` 复核。
  */
+import { nonEmpty } from './guards';
 
 // ── 格式判别（对齐 web `agent/api.ts:340 ExportFormat` 中 client 侧会自行生成的分支）──────
 
@@ -305,9 +306,6 @@ function optionalString(o: Object | undefined): string | undefined {
 }
 
 /** 非空（web 的 `if (x)` 真值判断，用于 optional 字符串/数组）。 */
-function nonEmpty(s: string | undefined): boolean {
-  return s !== undefined && s.length > 0;
-}
 
 function hasItems(o: Object | undefined): boolean {
   return o !== undefined && Array.isArray(o) && (o as Object[]).length > 0;
