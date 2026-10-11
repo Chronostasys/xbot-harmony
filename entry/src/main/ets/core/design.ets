@@ -888,6 +888,21 @@ export function colorOf(p: Palette, role: string): string {
   if (role === 'structuralRule') { return structuralRuleOf(p); }
   if (role === 'dangerOnFill') { return onFillFgOf(p, p.dangerBg); }
   if (role === 'warnOnFill') { return onFillFgOf(p, p.warnBg); }
+  // ── 目标⑤：补齐 6 个此前**只能 `pal().xxx` 直取**的角色 ─────────────────────────────
+  // 语义/取值**逐字不变**（= 同名 `Palette` 字段）。接入的唯一目的：让「唯一取色入口」覆盖它们
+  // ⇒ `tools/lint/color-roles.sh`（合法集**从本函数派生**，`sed 's/.*role === .../...'`）对它们
+  //   也形成机器护栏（此前这些名字无论怎么拼都不会被 ⑥b 抓住）。
+  // ⚠️ `foreground3` 目前 **0 消费点**（预留角色，见 `Palette.foreground3` 字段注释）—— 接入是
+  //    **为门禁覆盖**，⛔ **不代表它有落点**（死角色登记见 `theme_contrast.test.ts` 的 `ZERO_USE_ROLES`）。
+  // ⛔ `transparent` **刻意不接入**：它是"未知 role"的**兜底返回值**；把兜底值登记成合法 role，会让
+  //    「请求了一个渲染为不可见的名字」（拼错 role 的典型症状）不再被 ⑥b 抓住 ⇒ 保留其**哨兵**语义
+  //    （真正需要显式透明色的调用方走 `pal().transparent` 直取，属既有惯例）。
+  if (role === 'foreground3') { return p.foreground3; }
+  if (role === 'accentHover') { return p.accentHover; }
+  if (role === 'accentSoftFade') { return p.accentSoftFade; }
+  if (role === 'bubbleUser') { return p.bubbleUser; }
+  if (role === 'borderStrong') { return p.borderStrong; }
+  if (role === 'success') { return p.success; }
   return p.transparent;
 }
 
@@ -913,6 +928,16 @@ export function contrastReqs(): ContrastReq[] {
     new ContrastReq('textPrimary', 'surfaceAlt', AA_TEXT, 'pill / 浮层行名称'),
     new ContrastReq('textSecondary', 'sunken', AA_TEXT, 'chip / 凹槽内文字'),
     new ContrastReq('textPrimary', 'surfaceHi', AA_TEXT, '选中 pill 名称'),
+    // ── 目标⑤（2026-10-11）：把 `surfaceHi` 也纳入 `textSecondary` / `accent` 的底 ─────────────
+    // 背景：`surfaceHi`（= `surface.active` / `surface.pillSelected` / `surface.overlayRowHover`，
+    //   RUNG_ACTIVE）此前**只**作为 `textPrimary` 的底进矩阵 ⇒ 选中 pill / 高亮行 / 悬停行上的
+    //   **次要文字**与**强调色图形**没有判定（`porcelain-audit` ⚠️-3，实测 `file:line` 见新判据
+    //   `tools/tests/porcelain_surfacehi_contrast.test.ts` 的 §3）。
+    // 判定口径（⛔ 不统一调色、⛔ 不放宽阈值）：与同列表里 `textSecondary` / `textPrimary` 一致取
+    //   `AA_TEXT`(4.5)。实算 porcelain 这两格不达标 ⇒ 按仓内「**台账只减不增**」纪律登记到
+    //   `knownContrastLedger()`（修好 ⇒ 断言变 ⇒ 红 ⇒ 逼同步删台账）。
+    new ContrastReq('textSecondary', 'surfaceHi', AA_TEXT, '选中/高亮面上的次要文字（porcelain 4.337，见台账）'),
+    new ContrastReq('accent', 'surfaceHi', AA_TEXT, '强调色图形/文字压选中面（porcelain 4.017 / dark 3.839，见台账）'),
     new ContrastReq('accentSoft', 'surfaceAlt', AA_NON_TEXT, '在飞标记（非文本）压 pill'),
     // 弱交互图标（chevron / 关闭 / 把手）—— **非文本** 3:1（WCAG §1.4.11）
     // 浅色 = textSecondary（≥3:1）/ 深色 = textMuted（逐字节）。见 `iconMutedOf`。
@@ -976,16 +1001,33 @@ export function contrastAudit(theme: string): ContrastResult[] {
  * **已知台账**：历史遗留、当前**无生产调用点**或需一次设计决策才可修的达标缺口。
  * 格式 `theme|fg|bg`。⛔ 条目**不许删**（删 = 放宽阈值）；新增"未知缺口"会红。
  *
- * 实测（2026-10-11，本文件 `contrastAudit` 逐主题跑）：**只有 dark 一条**
- * （`onAccent` = 纯白压在品牌紫 `accent` = 4.346，差 0.154）。
- * 出处：`docs/DESIGN-SYSTEM.md §11.3`（唯一杠杆是品牌主色，需用户拍板；主按钮真实底是渐变，
- * 最亮端 `accentSoft` 上白字只有 2.09 ⇒ 压暗 accent 治不了根）。
- * ⚠️ aurora / nebula 的 `onAccent` 是**深色字**（压亮底），实测 9.937 / 6.951 ⇒ **达标**，
- * 故**不**入台账（列进来就等于白送一个容忍位）。
+ * 实测（2026-10-11，本文件 `contrastAudit` 逐主题跑）：
+ *   · `dark|onAccent|accent` = **4.346**（纯白压品牌紫，差 0.154）。
+ *     出处：`docs/DESIGN-SYSTEM.md §11.3`（唯一杠杆是品牌主色，需用户拍板；主按钮真实底是渐变，
+ *     最亮端 `accentSoft` 上白字只有 2.09 ⇒ 压暗 accent 治不了根）。
+ *     ⚠️ aurora / nebula 的 `onAccent` 是**深色字**（压亮底），实测 9.937 / 6.951 ⇒ **达标**，
+ *     故**不**入台账（列进来就等于白送一个容忍位）。
+ *   · **目标⑤（2026-10-11）`surfaceHi` 三格**（本波把 `surfaceHi` 纳入 `textSecondary`/`accent` 的底
+ *     后**新暴露**的**实测缺口**，逐格给`file:line`落点证据见
+ *     `tools/tests/porcelain_surfacehi_contrast.test.ts` §3）：
+ *       - `porcelain|textSecondary|surfaceHi` = **4.337** < 4.5
+ *         （落点：`LiveTailView.ets:442+445` 与 `MessageRow.ets:925+928` 的 `OverflowBadge`「+N」、
+ *          `SettingsLlm.ets:819+831` 的「取消」—— 均为 `FS_CAPTION` 小号文字坐在 `surfaceHi` 面上）
+ *       - `porcelain|accent|surfaceHi` = **4.017** < 4.5（**无生产落点**，仅为护栏）
+ *       - `dark|accent|surfaceHi` = **3.839** < 4.5（**无生产落点**，仅为护栏）
+ *     **为什么入台账而非就地修**：这两格在 porcelain 的达标修法**二选一**——① 压深
+ *     `textSecondary`/`accent`（牵动**全站**浅色次要文字 / 品牌蓝 ⇒ 跨主题、影响面大）；
+ *     ② 改落点的**面**（`LiveTailView`/`SettingsLlm`/`MessageRow`/`Index` 组件侧，其中
+ *     `MessageRow.ets` / `Index.ets` 本波被其他线持有）⇒ **均超出本线域**，按仓内纪律
+ *     **显式登记 + 交由主 agent 裁决**（⛔ 不静默留缺口、⛔ 不放宽阈值）。
+ *     ⚠️ 本波**不允许**为了变绿而删这两行 —— 删 = 承认重新引入不可读的选中面文字。
  */
 export function knownContrastLedger(): string[] {
   return [
     'dark|onAccent|accent',
+    'porcelain|textSecondary|surfaceHi',
+    'porcelain|accent|surfaceHi',
+    'dark|accent|surfaceHi',
   ];
 }
 

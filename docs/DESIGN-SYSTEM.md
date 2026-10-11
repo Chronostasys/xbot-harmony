@@ -611,6 +611,16 @@ colorOf(p, 'text.pillName')   // ← docs/REDESIGN-INPUT-*.md 与 docs/mockups/*
 断言 + 门禁 **⑥b**（`tools/lint/color-roles.sh`）。此前 `pal().warn` 只能绕过唯一入口（组件侧临时口径），
 落地后应改回 `colorOf(p, 'warn')`。
 
+✅ **2026-10-11 再补齐（目标⑤，porcelain-audit ⚠️-4）**：6 个此前**只能 `pal().xxx` 直取**
+（⇒ 绕过 ⑥b）的角色已并入 `colorOf`，**取值逐字不变**（= 同名 `Palette` 字段）：
+`foreground3` · `accentHover` · `accentSoftFade` · `bubbleUser` · `borderStrong` · `success`。
+守护 = `tools/tests/porcelain_surfacehi_contrast.test.ts` §2（**形态**：真源必须含 `role === 'x'` 分支
++ **取值**：逐主题 `colorOf(p,'x') === p.x` 且非 transparent）。
+⚠️ **`foreground3` 目前仍 0 消费点**（预留角色，见 `Palette.foreground3` 与 `theme_contrast.test.ts`
+的 `ZERO_USE_ROLES`）——接入**只为门禁覆盖**，⛔ 不代表它有落点。
+⛔ **`transparent` 刻意不接入**：它是"未知 role"的**兜底返回值**，登记成合法 role 会让"请求了一个
+渲染为不可见的名字"（拼错 role 的典型症状）不再被 ⑥b 抓住 ⇒ 保留其**哨兵**语义。
+
 ### 12.3 机器判据（硬红）
 
 `bash tools/lint/color-roles.sh`（已接入 `tools/gate.sh` 的 **⑥b**，**硬红**）：
