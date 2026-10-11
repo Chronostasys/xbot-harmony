@@ -40,6 +40,19 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   ⑥ 在**干净 worktree / 新 clone** 里跑门禁前先 `ohpm install --all` —— `oh_modules` 是 git-ignored，
   否则 ④ 必因缺 `@hxa-atpc/noties_prism4j` 之类**假红**（我本人差点因此拦住一次装机；
   `deploy.sh` 与验收脚本自带这步，装机路径不受影响）。详见 `docs/ARKTS-GOTCHAS.md` 批次 28。
+- **⛔ `core/*.ts`（纯 TS 端口）不许 import `.ets`**：`import { X } from './types'` 解析到 `types.ets` ⇒
+  ArkTS 硬红 `10605999 Importing ArkTS files in JS and TS files is forbidden`（实例 `core/reasoningopen.ts:25`，
+  **推前隔离门禁 ④ 实测**）。**脱机三条（run.sh/lint/typecheck）永远抓不到** —— 只有真门禁 ④ 能抓。
+  合法修法：本文件 `export interface XLike {…}` 最小**结构**契约（调用点由 ArkTS 校验），或类型搬纯 `.ts`；
+  ⛔ 别把有同源语义的纯函数拆成"消费者各写一份"。
+- **⛔ "死消费"类缺陷（函数/偏好全仓 0 消费方 ⇒ 用户操作静默无效）**：已抓到 3 例 —— 强调色 `withAccent`
+  （全仓仅 1 调用点 `Index.ets pal()`，而 **40 组件/80 处走 `paletteOf`** ⇒ 拿不到覆盖）、通知 3 开关
+  `applyNotifyPrefs`（**0 调用点**）、思考展开态 `reasoningopen`（**0 消费方**，接线前"修好了"是假的）。
+  ⇒ **形态断言必须钉"调用点计数"**（钉"方法体存在"会假绿）；改这类函数前先 `grep -rn` 数消费点。
+- **开屏 T0 不跟应用主题（真机实测）**：`startWindowColorModeType: FOLLOW_APPLICATION`（`base/profile/startWindow.json`）
+  **真机不生效**；`base`/`dark` 的 `element/color.json` **都是 `#0B0B0E`** ⇒ 系统开屏恒深。
+  ⛔ 别把 `base` 改浅（会让系统浅色下的深色主题用户白闪，`18db95a` 修过）⇒ **T1 品牌开屏恒深**
+  （`core/splash.ets` 的 `splashBrandCanvas`），靠 T2 渐隐过渡到应用主题（否则浅色用户看到画布中途翻白）。
 - **ArkUI `CustomComponent` 基类的成员名不能用作组件成员名**：`size`/`width`/`height`/`position`/
   `offset`/`scale`/`rotate`/`opacity`/`visibility`/`clip`/`zIndex`/`id`/`key`（以及 `onClick` 等事件名）。
   写成 `@Prop size: number` 会报 `10505001 Property 'size' in type 'X' is not assignable to the same

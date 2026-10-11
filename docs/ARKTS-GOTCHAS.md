@@ -1025,3 +1025,52 @@ At File: entry/src/main/ets/core/highlight.ets:18:8
 - **通用教训**：**ArkTS 的"合法位置"比"合法语法"更窄** —— 同一段 `const x = f(y);`
   在方法里合法、在 `@Builder` 顶层非法、在 `build()` 里也非法。
   写组件时先问"这一行是在**UI 描述位置**还是在**普通语句位置**"，再想怎么消冗余。
+
+
+## 批次 33：三条"**脱机三条全绿也照样红/照样坏**"的新实例（2026-10-11，真门禁 ④ + 真机各抓一条）
+
+### 33a. `core/*.ts`（纯 TS 端口）**不许 import `.ets`** —— 只有真门禁 ④ 抓得到
+- 实例：`core/reasoningopen.ts:25` `import { HistoryIteration } from './types';`（`./types` 解析到 **`types.ets`**）
+  ⇒ `hvigorw`：`10605999 ArkTS Compiler Error: Importing ArkTS files in JS and TS files is forbidden`。
+- 为什么漏网：`core/*.ts` 被 `tools/tests/run.sh` 当**纯 TS** 编译（`tools/lint`、`typecheck` 也不碰 ArkTS 模块规则）
+  ⇒ **离线三条全绿**，只有 `hvigorw assembleHap`（门禁 ④）报。
+- 合法修法（二选一，都验过）：
+  1. 本文件内 `export interface IterationLike { live?: boolean; iteration: number }` —— **最小结构契约**，
+     消费方（`.ets`）传 `HistoryIteration` 天然满足，类型兼容性由 **ArkTS 编译在调用点**校验；
+  2. 把类型搬到**纯 `.ts`**（如 `core/iterlike.ts`）供双端复用。
+  ⛔ 别把有"同源语义"的纯函数（如 `liveIterationNo`：live/committed 两侧必须取**同一个**键）拆成"消费者各写一份"
+  —— 那是本仓反复出事故的"判据与其消费端不同源"。
+- **反方向**（早已在册）：`core/*.ets` 不许 import ArkUI/`@ohos.*` 全局类型（同样因为 run.sh 当纯 TS 编）。
+
+### 33b. "**死消费**"类缺陷：函数/偏好**全仓 0 消费方** ⇒ 用户操作静默无效
+| 实例 | 形态 | 后果 |
+|---|---|---|
+| 强调色 | `withAccent` 全仓仅 **1** 调用点（`Index.ets` 的 `pal()`），而 **40 组件/80 处走 `paletteOf`**（不认识强调色） | 除 Index 内联样式外**全站拿不到强调色**（用户选色看着"没生效"） |
+| 通知 3 开关 | `applyNotifyPrefs` **0 调用点** | 用户关掉通知开关**完全不生效**（死开关） |
+| 思考展开态 | `reasoningopen`（web `reasoningOpenState.ts` 逐字移植）**0 消费方** | "修了 live→commit 自动收起"是**假的**（门禁却全绿） |
+- **形态断言铁律**：源码形态断言必须钉 **调用点计数**（`grep -c` 数量），**别钉"方法体存在"**
+  —— 第一版判据就是因此**假绿**。
+- 改这类"判据/偏好/存储"函数前：先 `grep -rn <name>` **数消费点**；0 或 1 ⇒ 先怀疑"没人用"。
+
+### 33c. 开屏 **T0 不跟应用主题**（真机实测 + SDK 证据）
+- SDK：`startWindowColorModeType` 枚举只有 `{FOLLOW_SYSTEM, FOLLOW_APPLICATION}`、**默认 FOLLOW_SYSTEM**
+  （`~/ohos-cli/command-line-tools/sdk/default/openharmony/toolchains/modulecheck/startWindow.json:75-84`）；
+  我们已填 `FOLLOW_APPLICATION`（`base/profile/startWindow.json`）但**真机无效**。
+- 资源：`base`/`dark` 的 `element/color.json` **都是 `#0B0B0E`** ⇒ 系统开屏**恒深**。
+  ⛔ 别把 `base` 改浅 —— 那会让**系统浅色 + 应用深色**的用户在冷启时白闪（`18db95a` 修过这一课）。
+- T1（品牌开屏）旧实现把画布绑在**可变** `themeName` 上 ⇒ 设置加载后画布**由深翻白**（浅色用户可见闪烁，
+  真机逐帧实测：f1–f3 `#0B0B0D` → f4 `#FFFFFF`），且标记恒品牌紫（与"标记随主题"的注释不符）。
+  ⇒ **T1 恒深**（`core/splash.ets` 的 `splashBrandCanvas`，不接 `theme`），与 T0 同色、T0→T1 零跳色，
+  之后由 T2 **渐隐**过渡到应用主题（渐隐≠硬切）。
+
+### 33d. **可读性 ≠ 取色**：先量"不透明度"再怀疑调色板（用户亲报"白底看不清"）
+- 症状（用户原话"你看看你这白色看得清吗"）：白/浅色主题下**消息正文几乎看不见**，而同屏标题、UI 框架正常。
+- **量化手法**（比肉眼判更硬，本波新造）：
+  1. `sips -s format bmp` 转 BMP（⚠️ HarmonyOS 截图给的是 **32bpp、负高度=自上而下**，索引要按 `|h|` 算）；
+  2. 全幅**颜色直方图** + **逐带（每 32 行）最暗色** ⇒ 立刻分清"字色"与"面/发丝线色"；
+  3. 若实测字色 = `#E1E1E6`（**B 通道偏高 = 蓝偏**）而 `textPrimary` 是 `#0F172A`（蓝偏）
+     ⇒ **字被按不透明度压淡了**（`α = (L_bg − L_blend)/(L_bg − L_text) ≈ 0.08`），**不是**取色调错
+     （全仓没有任何 role 等于那些灰）。
+- 判据方向：**不透明度/入场动画不得成为可读性的唯一依赖**（本仓 `MessageRow` 的入场淡入
+  `entered = !isLive` + `.opacity(entered?1:0)` + `onAppear` 里 `animateTo` ⇒ 动画被打断/`onAppear` 不再触发
+  就会**永久卡在低不透明度**）。⛔ 修法不许靠"放宽对比度台账阈值"。
