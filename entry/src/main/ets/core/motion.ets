@@ -20,11 +20,13 @@
 
 // spring 曲线控制点 + springMotion 三参：**引用 tokens.ets 的既有常量，不复制**。
 import {
-  D_FAST, D_SLOW,
+  D_FAST, D_SLOW, SP_8,
   EASE_SPRING_CSS,
   EASE_SPRING_P1X, EASE_SPRING_P1Y, EASE_SPRING_P2X, EASE_SPRING_P2Y,
   EASE_SPRING_RESPONSE, EASE_SPRING_DAMPING, EASE_SPRING_OVERLAP,
 } from './tokens';
+// 开屏「超时兜底」= 在飞主呼吸 1×（`core/orb.ets` 只 import `./tokens` ⇒ **不成环**）。
+import { ORB_BREATH_MS } from './orb';
 
 // ── 时长族（ms）───────────────────────────────────────────────────────────────
 /** 过渡/hover/状态切换：web `.transition-spring` 180ms（`index.css:690`）。= tokens.D_FAST。 */
@@ -117,6 +119,33 @@ export class Durations {
 export function durations(): Durations {
   return new Durations(MOTION_FAST_MS, MOTION_BASE_MS, MOTION_SLOW_MS);
 }
+
+// ── 开屏 / 冷启动（brand-impl 交付时**以派生式先行**，本波按裁决**收进底座**；⛔ 零裸数字）──────
+/**
+ * 开屏「**最短停留**」= `MOTION_BASE_MS + MOTION_FAST_MS` = 220 + 180 = **400ms**。
+ *
+ * ⚠️ **语义是"一段 hold"，不是"动画时长"** ⇒ **不进** `allowedDurations()` —— 那个集合管的是
+ *   "过渡/关键帧的动画时长"（`design.ets:motionRoles` 的取值域）；本值是把两档动画时长**相加**
+ *   得到的**停留策略**，进集合反而会把它变成"合法动画时长"，稀释档位口径。
+ */
+export const MOTION_MIN_DWELL_MS: number = MOTION_BASE_MS + MOTION_FAST_MS;
+/**
+ * 开屏「**超时兜底**」= 在飞主呼吸 1× = `ORB_BREATH_MS` = **2560ms**
+ * （宁可显示首帧，也不无限停在开屏）。
+ */
+export const MOTION_SPLASH_TIMEOUT_MS: number = ORB_BREATH_MS;
+/**
+ * 开屏**标记入场起点缩放**（`scale 0.92 → 1`）—— 设计输入 `docs/REDESIGN-INPUT-BRAND.md:145`。
+ * ⚠️ 这是**设计值**（无既有常量可派生）；⛔ **不**与光球专属的 `ORB_ENTER_SCALE(0.86)` 合并（裁决）。
+ */
+export const MOTION_ENTER_SCALE: number = 0.92;
+/**
+ * 开屏**标记展示尺寸**（vp）= `SPACE_XXL × 5` = 32 × 5 = **160**。
+ * ⚠️ 用 `tokens.SP_8`（=32，`SPACE_XXL` 的**源**）而**非** `design.SPACE_XXL`：`core/design.ets`
+ *   **import 了本文件**（`design.ets:37`），反引会**成环**（顶层读到 undefined ⇒ NaN）。
+ *   `design.spaceRoles()` 最高档即 `xxl = SP_8 = 32`。
+ */
+export const MOTION_SPLASH_MARK_VP: number = SP_8 * 5;
 
 /** 数值区间校验（纯函数）：`lo <= x <= hi`。 */
 export function inRange(x: number, lo: number, hi: number): boolean {
