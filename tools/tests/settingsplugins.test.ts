@@ -197,8 +197,10 @@ eq('展示：boolean 开/关', [displayValue(pFlag, valueFromToggle(true)),
   displayValue(pFlag, valueFromToggle(false))], ['开', '关']);
 eq('展示：multiselect 用「、」拼 label',
   displayValue(pTags, readValue(PLUGIN_FIELD_MULTISELECT, ['t1', 't2'])), 'T1、T2');
-eq('展示：secret 掩码（前2位****）', maskedSecret('abcdefgh'), 'ab****');
+eq('展示：secret 掩码（绝不露字符 — 对齐 web type=password）', maskedSecret('abcdefgh'), '****');
+eq('展示：secret 不含原文前 2 位', maskedSecret('abcdefgh').indexOf('ab') < 0, true);
 eq('展示：secret 极短值不露长度', maskedSecret('ab'), '****');
+eq('展示：secret 长值不露长度（与极短同形）', maskedSecret('a'.repeat(200)), maskedSecret('ab'));
 eq('展示：secret 空串仍空', maskedSecret(''), '');
 eq('文本初值：number', textInputValue(pNum, readValue(PLUGIN_FIELD_NUMBER, 3)), '3');
 

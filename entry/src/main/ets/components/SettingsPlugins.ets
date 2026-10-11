@@ -47,10 +47,14 @@ import {
 } from '../core/settingsplugins';
 import { CONTROL_INPUT_H, colorOf, hairlineOf } from '../core/design';
 import { SettingsErrorBar, SettingsPanelHeader } from './SettingsRows';
+import { AuthImage } from './AuthImage';
 
 /** 单字段的行高/内边距常量（与各设置面板同视觉语言）。 */
 const FIELD_PAD_T: number = SP_2;
 const FIELD_PAD_B: number = SP_2;
+/** image 预览框尺寸（vp）：宽固定 + 高上限（高度真上限由 `AuthImage.maxHeight` 兜）。 */
+const PREVIEW_W: number = 120;
+const PREVIEW_H: number = 90;
 
 /** 一行字段的展示输入（全部**基础类型/数组** —— ArkTS `@Prop` 对复杂类的深拷贝不可靠）。 */
 @Component
@@ -85,6 +89,15 @@ struct PluginFieldRow {
   /** image 字段：上传中 / 失败文案（空 = 无错）。 */
   @Prop uploading: boolean = false;
   @Prop uploadErr: string = '';
+  /** image 字段的**预览用绝对 URL**（`pluginImagePreviewUrl` 产物；空 ⇒ 不画预览）。 */
+  @Prop imgPreview: string = '';
+  /**
+   * 取图片字节（带鉴权；由父组件注入 `http.getBinary`）。
+   * ⚠️ 用**普通成员**而非 `@Prop`（与 `onClose` 等回调同因：`@Prop` 承载函数不可靠）。
+   */
+  loadImage: (src: string) => Promise<ArrayBuffer> = async (src: string) => {
+    return new ArrayBuffer(0);
+  };
 
   onBool: (next: boolean) => void = (next: boolean) => {
   };
@@ -161,6 +174,20 @@ struct PluginFieldRow {
               })
           }, (ov: string, oi: number) => `img-opt#${ov}#${oi}`)
         }
+      }
+      // 当前图片**小预览**（复用 `AuthImage`：自带字节缓存 + 鉴权下载 + 失败态 ⇒ 不新造下载器）。
+      // ⛔ URL 由 `pluginImagePreviewUrl(baseUrl, value)` 产（纯逻辑）：uploaded ⇒ 拼 base；
+      //    preset / 空 ⇒ 空串 ⇒ 此处不画（preset 是样式名，不是图片 URL）。
+      if (this.imgPreview.length > 0) {
+        AuthImage({
+          src: this.imgPreview,
+          load: this.loadImage,
+          maxHeight: PREVIEW_H,
+          theme: this.theme,
+        })
+          .width(PREVIEW_W)
+          .borderRadius(R_LG)
+          .border({ width: 1, color: this.pal().border })
       }
       Text(this.imgValue.length > 0 ? this.imgValue : '（未设置图片）')
         .fontSize(FS_CAPTION)
@@ -462,6 +489,12 @@ export struct SettingsPlugins {
     await this.writeValue(pid, p, valueFromToggle(on));
   }
 
+  /** 取图片字节（`AuthImage.load` 的注入；null ⇒ 空 buffer ⇒ AuthImage 走失败态，可读）。 */
+  private async loadImageBytes(src: string): Promise<ArrayBuffer> {
+    const buf: ArrayBuffer | null = await this.http.getBinary(src);
+    return buf === null ? new ArrayBuffer(0) : buf;
+  }
+
   /**
    * image 字段：选图 → 读字节 → 上传 → 用**服务端返回的 url** 写回（`plugin_config_set`）。
    * 契约/判据全在 `core/settingsplugins.ets` ④；失败一律**可读**（HTTP 码 + 原因）。
@@ -687,8 +720,10 @@ export struct SettingsPlugins {
                         minv: p.min,
                         maxv: p.max,
                         imgValue: this.backendValue(e.id, p).s,
+                        imgPreview: pluginImagePreviewUrl(this.http.baseUrl, this.backendValue(e.id, p).s),
                         uploading: this.uploadBusy === `${e.id}#${p.key}`,
                         uploadErr: this.uploadErr,
+                        loadImage: (s: string): Promise<ArrayBuffer> => this.loadImageBytes(s),
                         onBool: (on: boolean) => {
                           void this.setBool(e.id, p, on);
                         },

@@ -431,14 +431,15 @@ export function optionLabel(prop: PluginConfigProperty, value: string): string {
  *
  * ⛔ 只用于**显示**；真值绝不落日志/偏好（web `SettingsPlugins.tsx` 的 secret 语义）。
  */
+/**
+ * secret 的**只读掩码**。
+ *
+ * ⛔ **绝不露任何原文字符**（2026-10-11 修）：旧实现 `return \`${s.substring(0,2)}****\`` 会泄露
+ *    密钥/令牌的**前 2 位**；web 权威用 `<Input type="password">`（`SettingsPlugins.tsx:639`）
+ *    —— 浏览器**一个字符都不显示**。两处对齐 ⇒ 非空即 `****`（长度也不泄露：极短/极长同形）。
+ */
 export function maskedSecret(s: string): string {
-  if (s.length === 0) {
-    return '';
-  }
-  if (s.length <= 4) {
-    return '****';
-  }
-  return `${s.substring(0, 2)}****`;
+  return s.length === 0 ? '' : '****';
 }
 
 /** 只读展示文案（各类型统一口径）。 */
