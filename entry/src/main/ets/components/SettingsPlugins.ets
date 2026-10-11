@@ -36,6 +36,8 @@ import {
   PluginConfigEntry, PluginConfigGroup, PluginConfigProperty, configValueFingerprint, displayValue,
   filterPluginCatalog, groupBySection, isFieldEditable, listHas, parsePluginConfig,
   pluginEntryFingerprint, pluginFieldHasRange, pluginSliderStep, pluginSliderValue, readValue,
+  PLUGIN_CTRL_CHIPS, PLUGIN_CTRL_TEXT, PLUGIN_INPUT_DECIMAL, PLUGIN_INPUT_SECRET,
+  pluginControlKind, pluginInputMode,
   submitValue, textInputValue, toggleListValue, validateValue, valueFromText, valueFromSingle,
   valueFromToggle, valueOfProp,
 } from '../core/settingsplugins';
@@ -90,9 +92,26 @@ struct PluginFieldRow {
     return paletteOf(this.theme);
   }
 
-  /** 该字段是否用文本框（string/number）。 */
-  private isText(): boolean {
-    return this.kind === PLUGIN_FIELD_STRING || this.kind === PLUGIN_FIELD_NUMBER;
+  /** 控件档（判据在 `core/settingsplugins.ets:pluginControlKind`；组件**不自己判控件**）。 */
+  private controlKind(): string {
+    return pluginControlKind(this.kind);
+  }
+
+  /**
+   * 值框的输入档 → ArkUI `InputType`（判据在 `core/settingsplugins.ets:pluginInputMode`）。
+   * ⛔ **禁 `InputType.Number`**：它是整数档（SDK 原文 "decimals are not supported"）⇒ 会丢小数点
+   *    （真机缺陷：`0.82` → `082` → 滑条钳到 max）。此处只做"角色名 → 枚举"的**机械映射**，
+   *    判定逻辑一律在 core（`pluginInputMode`）。源码守卫见 `tools/tests/settingsplugins.test.ts`。
+   */
+  private inputType(): InputType {
+    const mode: string = pluginInputMode(this.kind, this.secret);
+    if (mode === PLUGIN_INPUT_DECIMAL) {
+      return InputType.NUMBER_DECIMAL;
+    }
+    if (mode === PLUGIN_INPUT_SECRET) {
+      return InputType.Password;
+    }
+    return InputType.Normal;
   }
 
   /** 滑条当前值（判据在 `core/settingsplugins.ets:pluginSliderValue` ⇒ 判据与渲染同源）。 */
@@ -153,7 +172,7 @@ struct PluginFieldRow {
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .width('100%')
-      } else if (this.isText()) {
+      } else if (this.controlKind() === PLUGIN_CTRL_TEXT) {
         if (this.kind === PLUGIN_FIELD_NUMBER && this.hasRange) {
           // 声明了有效范围 ⇒ 滑条（对齐 web `SettingsPlugins.tsx:464-477`）；
           // 拖动**只**更新草稿，松手/点击才提交（⛔ 不逐帧写服务端）。
@@ -183,15 +202,11 @@ struct PluginFieldRow {
         Row({ space: SP_2 }) {
           TextInput({ text: this.s, placeholder: this.placeholder })
             .enabled(!this.busy)
-            // ⛔ number 字段必须用**小数档**：`InputType.Number` 是整数档
-            //    （本机 SDK `ets/component/text_input.d.ts:40-42`："Digit input mode.
-            //      Negative numbers and decimals are not supported."）⇒ 它会把值框里的
-            //    `0.82` 滤成 `082` ⇒ `parseFloat=82` ⇒ 滑条钳到 `max`（真机现象：值框 `082`
-            //    + 滑条跳到最右，**同源同因**）。web 权威用 `type="number" inputMode="decimal"`
-            //    （`SettingsPlugins.tsx:437-438`）；原生等价物 = `InputType.NUMBER_DECIMAL`
-            //    （SDK `:138-150`，API 11+；本模块 compatibleSdkVersion=21 ⇒ 可用）。
-            .type(this.kind === PLUGIN_FIELD_NUMBER ? InputType.NUMBER_DECIMAL
-              : (this.secret ? InputType.Password : InputType.Normal))
+            // ⛔ 输入档**只**由 `core/settingsplugins.ets:pluginInputMode` 判（本组件不自己拍）。
+            //    历史缺陷（2026-10-11）：这里曾直接写 `InputType.Number`（整数档，SDK 原文
+            //    "decimals are not supported"）⇒ 服务端默认 `0.82` 被滤成 `082` ⇒ 滑条钳到 max。
+            //    现由源码守卫钉死：本文件**不得出现** `InputType.Number`（见 settingsplugins 测试）。
+            .type(this.inputType())
             .layoutWeight(1)
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().textPrimary)
@@ -215,7 +230,7 @@ struct PluginFieldRow {
             })
         }
         .width('100%')
-      } else if (this.kind === PLUGIN_FIELD_SELECT || this.kind === PLUGIN_FIELD_MULTISELECT) {
+      } else if (this.controlKind() === PLUGIN_CTRL_CHIPS) {
         Flex({ wrap: FlexWrap.Wrap }) {
           ForEach(this.optValues, (ov: string, oi: number) => {
             Text(this.optLabels[oi >= 0 && oi < this.optLabels.length ? oi : 0])

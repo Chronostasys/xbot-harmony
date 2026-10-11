@@ -728,6 +728,73 @@ export function pluginSliderStep(min: number, max: number): number {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// ③c 字段类型 ⇒ 控件 / 输入档（**唯一映射表**；组件只把角色名映射到 ArkUI）
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// 为什么要有这张表：真机抓到一类"字段类型 ↔ 控件"错配（2026-10-11）——
+//   number 字段用了 `InputType.Number`（**整数档**，本机 SDK 原文 "Digit input mode.
+//   Negative numbers and decimals are not supported."）⇒ 服务端默认 `0.82` 被滤成 `082`
+//   ⇒ `parseFloat("082")=82` ⇒ 滑条钳到 max（跳到最右）。
+// 结论：**输入档不能由组件各自拍**，必须单点判定、可脱机测、并被源码守卫钉死（禁 `InputType.Number`）。
+
+/** 输入档角色：纯文本（ArkUI `InputType.Normal`）。 */
+export const PLUGIN_INPUT_TEXT: string = 'text';
+/** 输入档角色：**小数档**（ArkUI `InputType.NUMBER_DECIMAL` = web `inputMode="decimal"`）。 */
+export const PLUGIN_INPUT_DECIMAL: string = 'decimal';
+/** 输入档角色：遮蔽（ArkUI `InputType.Password`）。 */
+export const PLUGIN_INPUT_SECRET: string = 'secret';
+
+/** 控件档角色：只读展示（image / unknown）。 */
+export const PLUGIN_CTRL_STATIC: string = 'static';
+/** 控件档角色：开关（boolean）。 */
+export const PLUGIN_CTRL_SWITCH: string = 'switch';
+/** 控件档角色：候选 chips（select / multiselect）。 */
+export const PLUGIN_CTRL_CHIPS: string = 'chips';
+/** 控件档角色：文本框（string / number；number 有范围时组件**附带**滑条）。 */
+export const PLUGIN_CTRL_TEXT: string = 'text';
+
+/**
+ * 字段 ⇒ **控件档**（唯一映射；组件不得自己 if/else 判控件）。
+ *   · image / unknown ⇒ `static`（只读展示 + 说明；`isFieldEditable` 已表达这条）；
+ *   · boolean ⇒ `switch`；select / multiselect ⇒ `chips`；其余（number / string）⇒ `text`
+ *     （number 且 `pluginFieldHasRange` ⇒ 组件在 `text` 里**附带**滑条，对齐 web `SettingsPlugins.tsx:464-477`）。
+ */
+export function pluginControlKind(kind: string): string {
+  if (!isFieldEditable(kind)) {
+    return PLUGIN_CTRL_STATIC;
+  }
+  if (kind === PLUGIN_FIELD_BOOLEAN) {
+    return PLUGIN_CTRL_SWITCH;
+  }
+  if (kind === PLUGIN_FIELD_SELECT || kind === PLUGIN_FIELD_MULTISELECT) {
+    return PLUGIN_CTRL_CHIPS;
+  }
+  return PLUGIN_CTRL_TEXT;
+}
+
+/**
+ * 字段 ⇒ **输入档**（值框 `InputType` 的唯一判据；组件只做"角色名 → ArkUI 枚举"的机械映射）。
+ *
+ * ⛔ **number 一律 `decimal`，永不整数档**。依据两条（都可复核）：
+ *   ① **web 权威**：`SettingsPlugins.tsx:437-438` 对所有 number 都是
+ *      `type="number" inputMode="decimal"` —— **没有整数特例**；
+ *   ② **schema 无法证明"只可能整数"**：`plugin.json` 的 number 只有 `minimum/maximum/default`
+ *      （实测 5 个内置插件：`wallpaperOpacity 0.1..1.0`、`glassOpacity 0.5..1.0`、
+ *      `glassBlur 0..24`、`defaultLogLimit 1..100`），**没有 `step`** ⇒ 整数性不可判
+ *      ⇒ 用整数档必然存在丢小数点的风险；小数档是**信息无损超集**（整数照样能输）。
+ *   · `secret`（string）⇒ `secret`；其余可编辑文本 ⇒ `text`；boolean/chips/static 不走值框（调用方不读）。
+ */
+export function pluginInputMode(kind: string, secret: boolean): string {
+  if (kind === PLUGIN_FIELD_NUMBER) {
+    return PLUGIN_INPUT_DECIMAL;
+  }
+  if (secret === true) {
+    return PLUGIN_INPUT_SECRET;
+  }
+  return PLUGIN_INPUT_TEXT;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // ③b 搜索过滤（对齐 web `SettingsPlugins.tsx:133-155`）
 // ══════════════════════════════════════════════════════════════════════════════
 //

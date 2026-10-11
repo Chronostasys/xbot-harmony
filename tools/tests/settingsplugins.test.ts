@@ -15,11 +15,15 @@
  *   · `pluginSliderValue` 的"非有限数回落 lo"删掉（改成直接用 n）⇒ ★D「空串/非数 ⇒ 下界」红。
  */
 declare const process: { exit: (c: number) => void };
+declare function require(m: 'fs'): { readFileSync(p: string, e: string): string };
+declare function require(m: 'path'): { join(...parts: string[]): string };
+declare const __dirname: string;
 
 import {
   ConfigValue, entryOf, groupBySection, isFieldEditable, listHas, maskedSecret,
   normalizeFieldType, parsePluginConfig, readValue, sameValue, setEntryValues,
   pluginSliderStep, pluginSliderValue,
+  pluginControlKind, pluginInputMode,
   shouldShowTab, submitValue, textInputValue, toggleListValue, validateValue, valueFromText,
   valueFromToggle, visibleTabs, fallbackTabId, displayValue,
   configValueFingerprint, pluginEntryFingerprint, filterPluginCatalog, pluginPropMatches, pluginFieldHasRange,
@@ -325,6 +329,70 @@ eq('fallbackTabId：全隐藏 ⇒ 空串', fallbackTabId([new SettingsTabSpec('x
   // 往返：UI 把钳制值写回值框 ⇒ 再喂回滑条必须稳定（不再漂移）
   const clamped: string = `${pluginSliderValue('082', 0.5, 1.0)}`;
   eq('★D 钳制值回写后再喂 ⇒ 稳定（幂等）', pluginSliderValue(clamped, 0.5, 1.0), 1.0);
+}
+
+const fsMod = require('fs');
+const pathMod = require('path');
+const repoRoot = pathMod.join(__dirname, '..', '..', '..', '..');
+const componentPath = pathMod.join(
+  repoRoot, 'entry', 'src', 'main', 'ets', 'components', 'SettingsPlugins.ets');
+
+// ── E. 字段类型 ⇒ 控件 / 输入档（唯一映射表 2026-10-11）──────────────────────────
+// 真机缺陷系统化的产物：这类"类型 ↔ 控件"错配不能再由组件各自拍。
+{
+  // 输入档：number **一律小数档**（web 权威 inputMode="decimal"；schema 无 step ⇒ 不可证明整数）
+  eq('★E number ⇒ decimal（~ 绝不整数档）', pluginInputMode(PLUGIN_FIELD_NUMBER, false), 'decimal');
+  eq('★E number + secret ⇒ 仍 decimal（类型优先）', pluginInputMode(PLUGIN_FIELD_NUMBER, true), 'decimal');
+  eq('★E secret string ⇒ secret', pluginInputMode(PLUGIN_FIELD_STRING, true), 'secret');
+  eq('★E 普通 string ⇒ text', pluginInputMode(PLUGIN_FIELD_STRING, false), 'text');
+  eq('★E image ⇒ text 角色（但不可编辑 ⇒ 组件走 static）', pluginInputMode(PLUGIN_FIELD_IMAGE, false), 'text');
+  eq('★E unknown ⇒ text 角色（不可编辑 ⇒ static）', pluginInputMode(PLUGIN_FIELD_UNKNOWN, false), 'text');
+  // 控件档
+  eq('★E boolean ⇒ switch', pluginControlKind(PLUGIN_FIELD_BOOLEAN), 'switch');
+  eq('★E select ⇒ chips', pluginControlKind(PLUGIN_FIELD_SELECT), 'chips');
+  eq('★E multiselect ⇒ chips', pluginControlKind(PLUGIN_FIELD_MULTISELECT), 'chips');
+  eq('★E number ⇒ text（有范围时组件附带滑条）', pluginControlKind(PLUGIN_FIELD_NUMBER), 'text');
+  eq('★E string ⇒ text', pluginControlKind(PLUGIN_FIELD_STRING), 'text');
+  eq('★E image ⇒ static（不可编辑，只读展示）', pluginControlKind(PLUGIN_FIELD_IMAGE), 'static');
+  eq('★E unknown ⇒ static', pluginControlKind(PLUGIN_FIELD_UNKNOWN), 'static');
+  eq('★E 未知类型（协议新增）也 ⇒ static（不猜）', pluginControlKind('whatever'), 'static');
+  eq('★E 空类型 ⇒ static', pluginControlKind(''), 'static');
+}
+
+// ── F. 源码守卫：`SettingsPlugins.ets` 的**代码里**不得出现 `InputType.Number`（整数档）──
+// ⛔ 判据≠信号：先**剥注释**再查 —— 本文件的文档注释**故意**提到 `InputType.Number`（记录禁用原因），
+//    直接 grep 会假红（AGENTS.md「判据≠信号」）。守卫只认"代码里真的用了它"。
+{
+  /** 剥掉块注释 + 行注释（保护 `https://` 里的 `//`）。 */
+  const stripComments = (src: string): string => {
+    const noBlock: string = src.replace(/\/\*[\s\S]*?\*\//g, '');
+    const lines: string[] = noBlock.split('\n');
+    const out: string[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const ln: string = lines[i];
+      const idx: number = ln.indexOf('//');
+      if (idx >= 0 && (idx === 0 || ln.charAt(idx - 1) !== ':')) {
+        out.push(ln.substring(0, idx));
+      } else {
+        out.push(ln);
+      }
+    }
+    return out.join('\n');
+  };
+  // 守卫自身有效性（先证它抓得住"代码里的用法"）
+  ok('★F 守卫对代码用法有效（剥注释后仍命中）',
+    stripComments('const x = InputType.Number; // 注释').indexOf('InputType.Number') >= 0);
+  ok('★F 守卫对注释提及免疫', stripComments('// 禁 InputType.Number\nconst x = 1;').indexOf('InputType.Number') < 0);
+  ok('★F 守卫不误伤 https:// 字符串',
+    stripComments('const u = "https://x.dev";').indexOf('https://x.dev') >= 0);
+
+  const raw: string = fsMod.readFileSync(componentPath, 'utf-8');
+  const code: string = stripComments(raw);
+  ok('★F 代码里无 InputType.Number（整数档禁入）', code.indexOf('InputType.Number') < 0);
+  ok('★F 代码里有 NUMBER_DECIMAL（小数档在用）', code.indexOf('InputType.NUMBER_DECIMAL') >= 0);
+  ok('★F 输入档经映射表 pluginInputMode', code.indexOf('pluginInputMode(') >= 0);
+  ok('★F 控件档经映射表 pluginControlKind', code.indexOf('pluginControlKind(') >= 0);
+  ok('★F 不再有 isText() 就地判控件（已并入映射表）', code.indexOf('.isText(') < 0);
 }
 
 if (fail > 0) { console.log(`  settingsplugins: ${pass} passed, ${fail} failed`); process.exit(1); }
