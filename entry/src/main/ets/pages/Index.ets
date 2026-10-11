@@ -12,7 +12,9 @@ import { webview } from '@kit.ArkWeb';
 import { ChatStore } from '../core/store';
 import { beginTurnKeepAlive, endTurnKeepAlive, ensureEnabled, notificationsEnabled, PENDING_CHAT_KEY, PENDING_CHAT_SEQ_KEY, PENDING_ACTION_KEY, isKnownNotifyAction, NOTIFY_ACTION_STOP, NOTIFY_ACTION_CONTINUE } from '../core/notify';
 import { HAPTIC_TAP_MS } from '../core/haptics';
-import { ALL_THEMES, normalizeTheme, Palette, paletteOf, themeLabel, Effects, effectsOf, isDarkThemeName, isLightPalette, shadowColorOf, shadowRadiusOf } from '../core/theme';
+// ⚠️ 2026-10-11：`isDarkThemeName` **已从这里移除** —— 本文件 3 处旧用法已全部改走**亮度口径**
+//   （`isLightPalette(paletteOf(theme))`，铁律「禁按主题名硬判」）⇒ 该导入**已无消费者**（死导入）。
+import { ALL_THEMES, normalizeTheme, Palette, paletteOf, themeLabel, Effects, effectsOf, isLightPalette, shadowColorOf, shadowRadiusOf } from '../core/theme';
 import { brandAccentFor } from '../core/brand';
 import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, withAccent } from '../core/accent';
 import { MD_THEMES, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';

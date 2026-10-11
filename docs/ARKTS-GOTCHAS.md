@@ -1133,3 +1133,41 @@ this[closeFlagOf('drawer')] = false;   // ⛔ ArkTS 禁动态属性 —— 不�
 - 附带（同一次踩出）：`this.store` 这类**可空成员**在回调里要显式 `if (this.store !== null)`，
   否则 `10605999 Object is possibly 'null'`。
 - 纪律：凡"给子组件加回调" ⇒ 直接用普通成员；改完 **必跑 ④**（这正是"碰 ArkTS 侧必须自跑 `assembleHap`"的价值）。
+
+## 批次 36：两条"**真因只有一对字符**、却报成语法灾难"的 ArkTS 陷阱（2026-10-11，我本人踩，`Index.ets` 收口时）
+
+### 36a. ⛔ **JSDoc/块注释里不能再写完整的 `/* … */`**（嵌套块注释）—— 症状是**级联假错**
+
+- **我怎么踩的**：给一段已删的死码写"原文留痕"，在 `/** … */` 里写了
+  `` * `if (…) { /* 只有注释 */ }` `` —— 内层那个 **`*/` 把外层块注释提前闭合**，
+  **余下的注释文本变成游离代码**。
+- **症状（极具误导性）**：与真因**毫无关系**的一串报错 ——
+  ```
+  Rollup Error: Unexpected token (Note that you need plugins to import files that are not JavaScript)
+  Cannot find name 'starred'. Did you mean 'isStarred'?
+  Private "#" identifiers are not supported (arkts-no-private-identifiers)   ← 指向模板串里的 `#`（如 `${id}#${k}`）
+  "delete" operator is not supported (arkts-no-delete)                        ← 指向 AppStorage.delete(...)
+  ```
+  ⇒ 看着像"整个文件语法崩了"，其实**真因只有一个多余的 `*/`**：注释提前闭合后，解析器从错误处重新找语句，
+  把后面的**模板字面量 `${s.chat_id}#…`** 当成 `#` 私有标识符、把方法调用 `delete(...)` 当成 `delete` 算子。
+- **定位手法（关键，别对着级联报错瞎改）**：
+  1. 先 `cp entry/src/main/ets/pages/Index.ets /tmp/Index.ets.mine`（**备份自己的版本**，⛔ 别用 `git checkout` 碰未提交改动）；
+  2. 把 **HEAD 版**放回去跑一次 `assembleHap` ⇒ **HEAD 过、我的不过** = 真因在我；
+  3. **`diff` + 括号计数**：只统计"我新增/替换的行"的 `{}` 净差（净差 0 ≠ 没问题 —— **块注释提前闭合会让"注释里的 `}`"被算成代码**，我当时正是靠"净差 +1"起疑）；
+  4. 最后 `grep -n '{\s*/\*' <file>` 一搜即中。
+- **纪律**：注释里要描述 C 风格块注释时，⛔ **不要写出完整的 `/* … */`** —— 写 `… 分支体只有注释 …`、
+  用行注释 `//`，或把星号隔开（如 `/\* … \*/`）。
+
+### 36b. ⛔ **全局 `declare namespace` 的东西不要 import**（`focusControl` / `AppStorage` / `Curve` 一类）
+
+- **我怎么踩的**：`import { focusControl } from '@kit.ArkUI';` ⇒
+  `Module '"@kit.ArkUI"' has no exported member 'focusControl'`
+  （另报 `'focusControl' is not exported from Kit '@kit.ArkUI'`）。
+- **为什么**：`focusControl.requestFocus(value: string): boolean` 定义在
+  `sdk/.../component/common.d.ts` 的 **`declare namespace focusControl`** ⇒ 是**全局**的（与 `AppStorage`、
+  `Curve`、`HitTestMode` 同款）⇒ **直接用，不 import**。
+  ⚠️ 查 API 时只看"**声明在哪个 d.ts**"不够，要看它是 `declare namespace`（全局）还是
+  `declare function` 在一个 **module** 里（需 import）；`@kit.*` 只是**聚合 kit**，不包含这些全局命名空间。
+- **附带**：同一次还漏了 `import { PENDING_COMMAND_KEY, … } from '../core/command';`
+  ⇒ `Cannot find name 'PENDING_COMMAND_KEY'`（这类**忘 import 自有模块**的错，只有 ④ `assembleHap` 抓得到，
+  脱机三条 / `lint` / `typecheck` 全绿）。

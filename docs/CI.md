@@ -131,6 +131,12 @@ CI 与本地都会跑。规则只有一条：**`entry/src/main/ets/components|pa
 
 自证方式：往 `components/` 丢一个含裸调用的文件，门禁必须变红（脚本里带 `__mutant.ets` 的用法示例）。
 
+⚠️ **碰 ArkTS 侧 ⇒ 必须自跑 `assembleHap`**：脱机三条 + `lint` + `typecheck` **都抓不到编译错**
+（它们只把 `core/**` 当纯 TS 编译，不碰 ArkUI 组件与页面）。最新两例见 `docs/ARKTS-GOTCHAS.md` **批次 36**：
+① **注释里嵌套 `/* … */`** 会提前闭合外层块注释 ⇒ 余下文本变游离代码 ⇒ 报成一串**级联假错**
+（`Unexpected token` + "私有 `#` 标识符不支持"）。② **全局 `declare namespace`（`focusControl`/`AppStorage`/`Curve`）
+不要 import** —— 它不在 `@kit.*` 的导出里。
+
 ## 可选的真实服务端诊断（默认跳过）
 
 `tools/tests/live_scale.test.ts` —— 全量渲染负载扫描（只读）：
