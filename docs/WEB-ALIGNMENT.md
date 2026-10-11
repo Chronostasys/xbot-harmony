@@ -658,3 +658,32 @@ web：`reasoningCount = reasoningStreaming ? rw.visibleChars : length`，且**�
 3. **品牌主色对比度**：`onAccent` vs `accent` = **4.3461 < 4.5 AA 正文**（`docs/BRAND.md`）⇒ **待用户拍板**（未擅自改品牌色）；
 4. **配置面两补丁**（开屏 `FOLLOW_APPLICATION`、分层图标）⇒ **待用户拍板**，精确 diff 见 `docs/BRAND.md §12`；
 5. **`pages/Index.ets` 内联可见面第二轮**（`ChatView`/`ChatRowBody`/`LiveRowBody`/`CtxItem`/`LoadingView`/`LoginView`/`ImageViewer`/`RewindEditBar`/`ModelSheet`/`PanelsSheet`）+ 未认领组件（`SubAgentTree`/`MessageNav`/`AuthImage`/`PluginWidgets` 接线）——见 `docs/…`（作战计划另存）。
+
+---
+
+### 16.3 批次 25（2026-10-11）：**入口去重** —— 用户真机亲报「为什么有两个设置按钮」
+
+> 用户真机原话：「为什么有两个设置按钮，你觉得自己设计的很好？」（并同时表达了我上一轮回复又长又密的不满）
+
+我的漏：**面板收敛 ≠ 入口收敛**。上一批把三份设置面板收敛成唯一 `components/SettingsPanel`（#11 ✓），
+但**可见入口**仍是两个 —— 顶栏右上 ⚙ 与抽屉底部「设置」行都开同一个面板；同理顶栏 ⊞ 与抽屉
+「面板（任务 / 子代理 / Runner）」行。**我自己截的验收图里就摆着这个重复，却没点出来** ⇒ 验收必须是
+"盯着同屏所有可见入口数数"，不是"确认目标面板能打开"。
+
+| # | 分歧点 | web 行为 | 原生行为 | 理由 | 批次 |
+|---|---|---|---|---|---|
+| 18 | **顶栏动作组** | 顶栏带工具按钮 | **顶栏只留 `☰ + 标题 + 状态行（● 运行中…）`**；设置/面板/退出登录**只**在抽屉底部成组行 | iOS/macOS 惯例：设置与账户在侧边栏底部；工具栏不重复同一动作。且顶栏越少装饰越安静（宪法 §1） | 25（`c673d26`）|
+
+**新纪律（已写入 `docs/REDESIGN.md §5` 表格第五小节）**：
+**同一动作，在同屏只允许一个可见入口** —— 与 §4.1「同一时刻只有一个在飞动效」同源：重复的动效、
+重复的入口、重复的面板，是同一种病（**克制是设计语言的一部分**）。
+⚠️ 判据是**同屏可见的入口**，⛔ **不是**"调用点数"：我实测 `grep -c 'this.openSettingsPanel('` = 3 处、
+`this.newSession(` = 4 处，但可见入口只有 2 个/若干（空态 CTA、内部调用都会被算进来）⇒ **弱信号，不能当结论**。
+
+**本批把 §16.2 的遗留逐条销账（诚实对照）**：
+- #11 三面板收敛 ✅ 完成（`ccbf7e3` 移除 flag 所有权表两行）；**入口去重本条补完** ✅（`c673d26`）
+- #12 19 主题新形态 ✅ 落地（`be9e239`：明暗分组 + 折叠 + 组内单选 + 当前主题预览）
+- #13 代码块底/圆角 ✅ 落地（`38f7dc0`：`surface.well` + `RADIUS_CARD` + 发丝；`msgflow_visual.test.ts` 断言已显式授权同步）
+- #14 `RADIUS_BUBBLE_TAIL` ✅ / #15 `PRESS_OPACITY = 0.6` ✅ / #16 光球静态线索 ✅ / #17 `effectsOf()` 光晕 ✅（`7841978` 起语义令牌齐备：goal / 控件 / 浮层 / 在飞光晕 / 危险态）
+- 未认领组件三面（`SubAgentTree` / `MessageNav` / `AuthImage`）✅ 已迁入语义层（`7d97304`）
+- **仍未完成（明账）**：①「长词换行策略」（批次23 #9 的 `BREAK_ALL` 妥协，设计系统已定稿 ⇒ 待一次性裁决）；②品牌主色 `onAccent` vs `accent` = 4.3461 < 4.5 AA（**待用户拍板**）；③分层图标（需卸载重装 ⇒ 清 App 数据，**待用户拍板**）；④开屏 `FOLLOW_APPLICATION`（**待用户拍板**）；⑤`pages/Index.ets` 内联可见面第二轮 + `PluginWidgets` 接线。
