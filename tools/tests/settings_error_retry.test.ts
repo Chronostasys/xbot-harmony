@@ -114,6 +114,24 @@ eq('零扫描防线：读到 SettingsRows.ets（非空）', srcOf(ERR_BAR_REL).l
   eq('三个目标分区都必须把 onRetry/canRetry 透传到 SettingsErrorBar（否则是假重试）', bad.length, 0);
 }
 
+// ── ③ 页面层：Index 必须**注入**两个回调（防整链静默断）════════════════════════
+// 取证出处：`pages/Index.ets:3058 onRetrySettings:` / `:3063-3064 onRetryPluginCatalog: → this.loadPluginCatalog()`
+{
+  const idx: string = srcOf('pages/Index.ets');
+  eq('零扫描防线：读到 pages/Index.ets（非空）', idx.length > 1000, true);
+  const injA: number = (idx.match(/onRetrySettings:/g) || []).length;
+  const injB: number = (idx.match(/onRetryPluginCatalog:/g) || []).length;
+  console.log(`    pages/Index.ets  onRetrySettings: × ${injA}   onRetryPluginCatalog: × ${injB}`);
+  eq('Index 必须注入 onRetrySettings（About/Agent 用）', injA >= 1, true);
+  eq('Index 必须注入 onRetryPluginCatalog（Plugins 用）', injB >= 1, true);
+  // ⛔ **假重试红线（反面板）**：Plugins 的重试**不得**接到 loadSettings（那是设置表，不是插件目录）
+  const seg: RegExpMatchArray | null = idx.match(/onRetryPluginCatalog:[\s\S]{0,240}?\n\s*\}/);
+  const segText: string = seg === null ? '' : seg[0];
+  eq('假重试红线：onRetryPluginCatalog 的实现段被抽到（否则无法核对 ⇒ 红）', segText.length > 0, true);
+  eq('假重试红线：onRetryPluginCatalog 不得调 loadSettings(', segText.indexOf('loadSettings(') < 0, true);
+  eq('假重试红线：onRetryPluginCatalog 必须调 loadPluginCatalog(', segText.indexOf('loadPluginCatalog(') >= 0, true);
+}
+
 // ── 反向确认：五个无 web 权威的分区**不该**有重试（防"超出 parity 的臆造"）──────
 {
   const overreach: string[] = [];
