@@ -78,6 +78,20 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
 - **⛔ 共享工作树里禁 `rm -rf`、禁一切 git 写命令**（只许 `git add <确切文件>` / `git commit -o -F - -- <确切文件>`）：
   本轮一条线用 `rm -rf "$(dirname "$(dirname "$D")")"` 拼路径，**误删整个 `tools/tests/`（251 文件）**。
   临时产物只 `rm -f <字面绝对路径>`；⛔ 永不 `dirname` 拼删除路径、永不 `checkout -- .`/`git clean`/`restore -R`。
+- **⛔ 提交前必看 `git diff --stat`：行数必须"只有你的"**（2026-10-11 **我本人**踩中）：
+  `git commit -o -F - -- <file>` 提交的是该文件的**当前全部内容** ⇒ 若**别人正持有同一文件**的未提交改动，
+  会**一并卷进你这一笔**。症状 = **改动行数远超预期**（我提交自己的小修复却看到 `147 insertions` 没停下核对）
+  ⇒ 把另一条线的**半成品**（`pages/Index.ets` 里 `import { selPrev } from '../core/composer'`，而该导出
+  **尚未提交**）写进历史 ⇒ **真门禁 ArkTS 编译红**（脱机三条永远绿，**只有真编译能抓**）。
+  ⇒ 处置：先与文件持有人对齐，或**把两边改动同批提交**（缺一边就不自洽）；⛔ 别在别人持有某文件时对它做 `-o` 提交。
+- **⛔ 真机实测：`responseRegion` 的"负偏移外扩"不生效**（2026-10-11 装机对照实验，**我亲手验的**）：
+  给一个 X 图标加 `.responseRegion({x:-6, y:-6, width:44, height:44})`，装机后点：**视觉中心 ⇒ 命中** ✓；
+  **框外 11px（上方）/15px（左侧，仍在父容器内）⇒ 不命中** ✗ ⇒ 「靠 `responseRegion` 把热区外扩到 44」
+  **在本机/SDK21 上是无效做法**（等于没修）。**可靠做法 = 让元素自己的布局盒 ≥ 44**：
+  把图标放进 `Row().width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)`
+  并把 `onClick` 落在**该 Row** 上（视觉尺寸不变、盒内居中）。⚠️ 本仓多处（`PluginsSheet`/`AskUserSheet`/
+  `MessageNav`/`Index`「回到最新」等）用的是失效的那套 ⇒ **判据只能看到属性存在，抓不到"真机是否生效"**，
+  必须**装机点击对照实验**（点中心 vs 点框外）才能定性。详见 `docs/UI-AUDIT-CHECKLIST.md`。
 - **ArkUI `CustomComponent` 基类的成员名不能用作组件成员名**：`size`/`width`/`height`/`position`/
   `offset`/`scale`/`rotate`/`opacity`/`visibility`/`clip`/`zIndex`/`id`/`key`（以及 `onClick` 等事件名）。
   写成 `@Prop size: number` 会报 `10505001 Property 'size' in type 'X' is not assignable to the same
