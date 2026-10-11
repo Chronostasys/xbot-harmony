@@ -33,7 +33,7 @@ const CDIR: string = path.join(REPO, 'entry/src/main/ets/components');
 /** 聊天流交互组件（见文件头：只扫不在他人手上的）。 */
 const FILES: string[] = [
   'MessageRow.ets', 'LiveTailView.ets', 'MarkdownView.ets', 'AuthImage.ets',
-  'SubAgentTree.ets', 'ToolVisual.ets',
+  'SubAgentTree.ets', 'ToolVisual.ets', 'LlmErrorNotice.ets',
 ];
 
 /**
@@ -68,6 +68,15 @@ for (let i = 0; i < FILES.length; i++) {
     presses === 0 || src.indexOf('PRESS_OPACITY') >= 0 || PRESS_EXEMPT.indexOf(f) >= 0);
   // ③ 不得写死按压不透明度
   ok(`${f}：无写死的 .opacity(0.6)`, src.indexOf('.opacity(0.6)') < 0);
+}
+
+// ── ④ 交互死区：**受保护的可点行必须真禁用**（否则照常有 press、点了却没反应）──────────
+// SubAgentTree 行 `onClick` 被 `if (this.openable)` 守卫 ⇒ 不可点行必须 `.enabled(openable)`
+// 一并关掉 press/事件（web `SubAgentProgressTree.tsx:124` 的 `disabled` 同义）。
+{
+  const treeSrc: string = fs.readFileSync(path.join(CDIR, 'SubAgentTree.ets'), 'utf8');
+  ok('SubAgentTree：受守卫的可点行带 .enabled(openable)',
+    treeSrc.indexOf('.enabled(this.openable)') >= 0 && treeSrc.indexOf('if (this.openable)') >= 0);
 }
 
 console.log(`  interactive_feedback: ${pass} passed, ${fail} failed`);

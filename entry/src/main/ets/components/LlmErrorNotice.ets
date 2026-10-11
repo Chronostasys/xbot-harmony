@@ -16,7 +16,7 @@
 import { LlmError, llmErrorRepeatLabel, parseLlmError } from '../core/llmerror';
 import { Palette, paletteOf } from '../core/theme';
 import { FS_CAPTION, R_LG, R_MD, SP_1, SP_2 } from '../core/tokens';
-import { RADIUS_CHIP, SPACE_HAIR, TYPE_CHIP, colorOf, typeOf, wellOf } from '../core/design';
+import { PRESS_OPACITY, RADIUS_CHIP, SPACE_HAIR, TYPE_CHIP, colorOf, typeOf, wellOf } from '../core/design';
 
 /** 展开后的详情框最大高度（vp）—— 限高内滚，绝不把屏幕撑满。 */
 const DETAIL_MAX_H: number = 260;
@@ -85,6 +85,8 @@ export struct LlmErrorNotice {
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
+      // press 反馈（全 App 统一口径 `PRESS_OPACITY`，与 pill/抄送按钮同款；此前**点了像没反应**）
+      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
       .onClick(() => {
         this.open = !this.open;
       })

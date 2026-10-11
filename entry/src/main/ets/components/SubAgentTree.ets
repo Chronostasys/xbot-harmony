@@ -191,11 +191,16 @@ struct SubAgentRowView {
             bottom: this.cardBorderColor(),
           },
         })
+    // ⛔ **不可点的行必须真的"禁用"**（`.enabled(openable)`）：否则它照常有 press 反馈、点了却
+    //    没反应 —— "能点但没用"的**交互死区**（web `SubAgentProgressTree.tsx:124` 正是用
+    //    `disabled:cursor-default` 区分可点/不可点）。`.enabled(false)` 会一并关掉 press 态与 onClick。
+    .enabled(this.openable)
     // ⛔ 静息态**不写** `normal`（`normal` 会接管属性、盖掉动态值）——与 ThinkingLine / ContextRing
     //    同一「按压纪律」：只写 `pressed`（web 静息态无 opacity 规则，默认即 1）。
     .stateStyles({ pressed: { .opacity(0.75) } })
     .onClick(() => {
-      // 不可点（无 sessionKey / 无宿主回调）⇒ 点击无操作（web `disabled`）
+      // 不可点（无 sessionKey / 无宿主回调）⇒ 点击无操作（web `disabled`）。
+      // ⚠️ 保留此判据作双保险（`.enabled` 已从事件层关掉），语义与 web `enabled:cursor-pointer` 同。
       if (this.openable) {
         this.onOpen();
       }
