@@ -188,7 +188,10 @@ for (let ti = 0; ti < ALL_THEMES.length; ti++) {
 //    ⇒ 部分 (主题 × 预设) 组合只有 3.5–3.9。**根因在 `core/theme.ets`（归 brand-impl）⇒ 只出 spec**。
 //    这里按仓内既有的「台账」纪律处理：**只准删不准加**（修好一条 ⇒ 计数变 ⇒ 红，逼你同步删台账；
 //    新增一条 ⇒ 计数变 ⇒ 红，逼你上报）。⛔ 不放宽阈值、不删断言。
-const KNOWN_BAD_ONACCENT_COUNT: number = 15;
+// 【已修 2026-10-11】brand-impl 按裁决把 contrastForeground 由 BT.601 lum>150 二值改为
+// 按 WCAG 相对亮度在黑白两候选中取对比度更高者（core/theme.ets:173-186）=> 15 组全部达标，台账归零。
+// 断言保留"计数变化即红"：若改回粗阈值、或新增 accent 预设不保 AA => 计数 > 0 => 立即红。
+const KNOWN_BAD_ONACCENT_COUNT: number = 0;
 const badPairs: string[] = [];
 for (let ti = 0; ti < ALL_THEMES.length; ti++) {
   const theme: string = ALL_THEMES[ti];
