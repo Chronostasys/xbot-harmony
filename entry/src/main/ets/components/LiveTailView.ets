@@ -28,7 +28,9 @@ import { ThinkingLine } from './ThinkingLine';
 import { AssistantOrb, ORB_MODE_THINKING, ORB_MODE_TOOL, ORB_MODE_SECONDARY } from './AssistantOrb';
 import { ToolPill, statusColorOf } from './ToolVisual';
 import { SyntheticCard } from './SyntheticCard';
+import { LlmErrorNotice } from './LlmErrorNotice';
 import { isSyntheticToolName } from '../core/synthhints';
+import { looksLikeLlmError } from '../core/llmerror';
 import { isLiveStatus, renderKind, statusChip } from '../core/toolstatus';
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
 
@@ -497,15 +499,20 @@ return renderKind(t.status, t.exit_code, true);
       }
       if (this.text.length > 0) {
         Column({ space: SPACE_HAIR }) {
-          MarkdownView({
-            text: this.shownText(),
-            onImage: this.onImage,
-            loadImage: this.loadImage,
-            fontScale: this.fontScale,
-            wrapCode: this.wrapCode,
-            theme: this.theme,
-            mdTheme: this.mdTheme,
-          })
+          if (looksLikeLlmError(this.shownText())) {
+            // 在飞正文已是 LLM 失败文本 ⇒ 摘要行 + 可展开详情（判据与渲染同源，同 MessageRow）。
+            LlmErrorNotice({ text: this.shownText(), theme: this.theme })
+          } else {
+            MarkdownView({
+              text: this.shownText(),
+              onImage: this.onImage,
+              loadImage: this.loadImage,
+              fontScale: this.fontScale,
+              wrapCode: this.wrapCode,
+              theme: this.theme,
+              mdTheme: this.mdTheme,
+            })
+          }
           if (this.typingText() || this.typingReason()) {
             // 打字机光标 = "**正在写入**"的局部标记（分工见 `docs/DESIGN-SYSTEM.md §8`）：
             //   · 不再有彩色外发光（发光体**只允许光球一个**；且白底上彩色光晕会读成"脏"）；

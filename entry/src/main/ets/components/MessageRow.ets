@@ -32,7 +32,9 @@ import { LiveTailView } from './LiveTailView';
 import { ThinkingLine } from './ThinkingLine';
 import { ToolPill, statusColorOf } from './ToolVisual';
 import { SyntheticCard } from './SyntheticCard';
+import { LlmErrorNotice } from './LlmErrorNotice';
 import { isSyntheticToolName } from '../core/synthhints';
+import { looksLikeLlmError } from '../core/llmerror';
 import { isInFlight, renderKind, statusChip } from '../core/toolstatus';
 import {
   MSG_BLOCK_WINDOW, MSG_BLOCK_SENTINEL_H, visibleBlocks, hiddenBlockCount, widenBlocks,
@@ -543,6 +545,10 @@ export struct MessageRowView {
           // ⛔ 绝不把哨兵字面量当正文上屏（web 同款：先判 `isEmptyResponseContent` 再渲染，
           //   `AssistantMessage.tsx:147-149` + `:169-171`）。
           EmptyNotice({ kind: NOTICE_KIND_FAILED, theme: this.theme })
+        } else if (looksLikeLlmError(this.row.content)) {
+          // LLM 调用失败 ⇒ **摘要行 + 可展开详情**（判据与渲染同源：`core/llmerror.ets`）。
+          // 真机取证：此前把整段 `#1..#5` 原样铺满屏 ⇒ 现在首屏仅 1 行，点开才看原文。
+          LlmErrorNotice({ text: this.row.content, theme: this.theme })
         } else {
           MarkdownView({
             text: this.row.content,
@@ -707,19 +713,24 @@ export struct MessageRowView {
       }
 
       if (displayContent(it).length > 0) {
-        MarkdownView({
-          text: displayContent(it),
-          onImage: (src: string) => {
-            this.onImage(src);
-          },
-          loadImage: (src: string) => {
-            return this.loadImage(src);
-          },
-          fontScale: this.fontScaleV,
-          wrapCode: this.wrapCodeV,
-          theme: this.theme,
-          mdTheme: this.mdTheme,
-        })
+        if (looksLikeLlmError(displayContent(it))) {
+          // 迭代内正文是 LLM 失败文本 ⇒ 摘要行 + 可展开详情（同 row 级判据，判据与渲染同源）。
+          LlmErrorNotice({ text: displayContent(it), theme: this.theme })
+        } else {
+          MarkdownView({
+            text: displayContent(it),
+            onImage: (src: string) => {
+              this.onImage(src);
+            },
+            loadImage: (src: string) => {
+              return this.loadImage(src);
+            },
+            fontScale: this.fontScaleV,
+            wrapCode: this.wrapCodeV,
+            theme: this.theme,
+            mdTheme: this.mdTheme,
+          })
+        }
       }
 
       if (it.tools !== undefined && it.tools.length > 0) {
