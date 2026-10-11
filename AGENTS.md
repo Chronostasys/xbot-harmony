@@ -97,6 +97,11 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
 | `docs/INSTALL.md` / `docs/CI.md` / `docs/PREVIEWER-LINUX.md` | 环境/CI/预览器 |
 | `docs/RENDER-LOAD-MEASUREMENT.md` | 渲染规模实测方法 |
 | `docs/ROADMAP.md` | 路线图 |
+| `docs/NOTIFY.md` | 通知能力专项（能力清点 / SDK 实证 / 后台接收明账）——**改通知前必读** |
+| `docs/NOTIFY-ACCEPTANCE.md` | 通知真机验收清单（步骤/预期/判据/最可能原因；两用：不装机也能审） |
+| `docs/SPLASH-SPEC.md` | 开屏阶段模型与判据（**唯一真源规格**；资源与降级链见 `BRAND.md`） |
+| `docs/PERF-BUDGET.md` | 性能预算与护栏（量化基线 + 重构后不许越过的预算 + `tools/perf/guard.sh`） |
+| `docs/ACCENT-CONTRAST.md` | 强调色 a11y 对比度拆解与候选值（纯分析，服务 `theme_contrast`） |
 
 ## 关键约定
 
