@@ -156,6 +156,7 @@ const PRESS_VALUE_EXEMPT: Map<string, string> = new Map<string, string>([
   ['AskUserSheet.ets', 'DISABLED_OPACITY —— 禁用档 ≠ 按压档'],
   ['SplashOverlay.ets', 'splash-ux 在跑（0.6 字面量）⇒ 只上报'],
   ['QueueSheet.ets', '另一线在途（0.6 字面量）⇒ 只上报'],
+  ['MessageNav.ets', '导航条目**有意**更轻的按压 0.7（msgnav_polish.test.ts:54 钉死 + :53 钉"只写 pressed"）'],
 ]);
 {
   const comps: string[] = fs.readdirSync(CDIR).filter((n: string): boolean => n.endsWith('.ets')).sort();
