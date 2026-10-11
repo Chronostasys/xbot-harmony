@@ -5,7 +5,7 @@
 > **本文件的每条都在 `git log` 里可考据**：行尾 `→ <短哈希>` 即该提交。
 > ⏳ 标记 = **已落地但截至本文撰写时尚未提交**（工作树内，无哈希可引）——见第 2 节末。
 >
-> 生成日期：2026-10-11 · 生成快照 HEAD `37a0e56`（⚠️ 工作树仍在推进；本文件引用的哈希均为 `git log` 实测）
+> 生成日期：2026-10-11 · 生成快照 HEAD `dac2e96`（⚠️ 工作树仍在推进；本文件引用的哈希均为 `git log` 实测）
 
 ---
 
@@ -53,7 +53,7 @@
 | 越界数字**不再写默认值覆盖后端**（对齐 web「以后端为准」）。 | `024256d` |
 | **偏好设置**：字号 / 代码换行 / 思考默认 / 发送快捷键——与 web **共用同一份服务端偏好**。 | `09703dd` `e919628` |
 | 设置页**主题入口 5 选 1**，玻璃材质跟随主题。 | `686ebf1` |
-| 「**消息渠道（Channels）**」分区：web 的渠道配置面。**组件与纯逻辑已提交，但尚未接线进设置面板**（tab 登记为"未实现" ⇒ 隐藏，避免空壳）⇒ **当前用户不可见**。 | `4b200af` `37a0e56`（⏳ 未接线） |
+| 「**消息渠道（Channels）**」分区：设置里可配置消息渠道（飞书等），整段对齐 web。 | `4b200af` `37a0e56`（组件 + 纯逻辑）；接线 = `SettingsPanel` 实例化 + tab 转「已实现」（⏳ 工作树内，待提交） |
 
 ### 1.4 web 功能迁移（Web feature migration）
 
@@ -67,7 +67,7 @@
 | 待发队列「**插队 / 清空**」+「**编辑并重发**」（rewind）+ **渠道过滤**。 | `3cc645c` `d63a627` |
 | 抽屉渠道过滤现在**正确含父/子渠道**（选「飞书」能列出飞书会话**及其 SubAgent 子会话**，不再空列表）。 | `5b94f78` |
 | 选项题答案按**问题下标**对齐、多选值**正确拼接**。 | `38e0062` |
-| **Markdown 正文里的链接可点**（此前带下划线却点不开）。 | ⏳ 在途（`MarkdownView.ets` 未提交）｜已提交的相邻能力：`abaa69c` |
+| **Markdown 正文里的链接可点**（此前带下划线却**点不开**）；同批还修了「代码长行**不再被裁剪丢数据**」（改横向滚动）。 | `53c0bfa`（门禁 `d297499`，36 条） |
 | 工具浮层**真语法高亮**（Prism4j）+ **diff 渲染**。 | `37ea786` |
 | **Markdown 性能**：按块增量复用解析，流式喂入字符量降到约 **1/3.4**。 | `96299ec`（+ 按原文缓存 `33120ec`；行内块窗口 `6ad8477`） |
 | Markdown 视图逻辑收敛到 `core/mdview`（链接目标 / 溢出策略 / 代码色对比度护栏）。 | `8f4e8e2` |
@@ -82,7 +82,7 @@
 | 设计系统有**机器门禁**（123 条断言 + mutation 自证），改动可被证伪。 | `f8188c7` `1d03cc4` |
 | **骨架重构方案**（strangler，分阶段、可回滚）+ **令牌迁移计划**。 | `1d76ab1` |
 | `Index.ets` **拆分 P1**：状态详情面板抽成独立组件（行为不变）。 | `19b58bb` |
-| `Index.ets` **拆分 P2**：其余只读弹层（队列/插件/选项/自检/上下文/会话/搜索）抽成组件。 | ⏳ 在途（部分已 `add`：`PluginsSheet` / `QueueSheet` / `SelfCheckSheet`） |
+| `Index.ets` **拆分 P2-1**：抽 3 个只读弹层（**队列 / 插件 / 自检**）成真组件（行为不变）。 | `3aa3945` |
 | **性能预算与护栏**（`tools/perf/guard.sh`，退化就红）。 | `1715e4f` |
 | **行内块级窗口**：单行 340 块 → 24 块（大消息不再卡）。 | `6ad8477` |
 | **动效收敛**：同一时刻**只有一个「在飞」动效 = 光球**（其余只允许一次性过渡）。 | `2753031` `4f1489c` `0c45e97` |
@@ -122,13 +122,16 @@
 | 10 | 长词换行策略 | **待设计定稿** | ArkUI **无** `wrap-anywhere` 等价物，现用 `BREAK_ALL` + "不撑破气泡"妥协。 | `docs/WEB-ALIGNMENT.md §16 #9` |
 | 11 | **PWA 安装诊断**（添加到主屏/离线） | **不迁** | 原生无 PWA 概念（web 的 SW/多标签本就不适用）。 | `docs/WEB-PARITY.md`（设置 About 行）+ `docs/ARCHITECTURE.md §5` |
 | 12 | 构建门禁的"**并发假红**" | **部分缓解** | `check.sh` 的 PID 目录 + hvigor 串行锁已缓解，但多线同树并行仍可能互扰（**非阻塞**，重跑即可）。 | `docs/RELEASE.md §5` |
-| 13 | 「消息渠道（Channels）」分区**接线** | **组件已提交，未接线** | `SettingsChannels.ets` 与 `core/channelscfg.ets` 已提交（`4b200af` / `37a0e56`），但 `SettingsPanel` **未实例化**它（`build()` 里无 `SettingsChannels({…})`），且 tab 显式登记 `implemented=false`（隐藏，避免"点进去是空壳"）⇒ **用户暂不可见**；接线后把 `implemented` 改 `true` 即出现。 | `SettingsPanel.ets:81`（`new SettingsTabSpec(SETTINGS_TAB_CHANNELS, '渠道', false)`，头注 `:46-50`）+ `core/settingsplugins.ets:636-656` |
-| 14 | Markdown 正文链接直点 / Index P2 弹层抽取 | **落盘未提交（在途）** | 见第 1 节里 `⏳` 标记的两处：`MarkdownView.ets` 的链接 `onClick`（HEAD 尚无）与 `Index` 的 P2 弹层（`PluginsSheet`/`QueueSheet`/`SelfCheckSheet` 已 `add` 未提交）。截至本文撰写时**无哈希可引**。 | `git status --porcelain`（2026-10-11，HEAD `37a0e56`） |
+| 13 | 「消息渠道（Channels）」分区**接线提交** | **已接线，待提交** | `SettingsPanel.ets` 已 `import { SettingsChannels }`、tab 由 `false`⇒`true`（`'消息渠道'`）、`build()` 内 `SettingsChannels({ http, theme })`（均在工作树内）；但截至本文撰写**尚未提交**（无哈希）；提交后用户即可在设置里看到「消息渠道」。 | `git status --porcelain`（`M entry/src/main/ets/components/SettingsPanel.ets`，2026-10-11） |
+| 14 | `Index.ets` 拆分 **P2 剩余 4 个只读弹层**（选项 / 上下文 / 会话 / 搜索） | **后续阶段** | P2-1 已抽 3 个（`3aa3945`）；其余 4 个（`AskUserSheet` / `ContextSheet` / `SessSheet` / `SearchHitsSheet`）尚未抽出。 | `docs/INDEX-SPLIT-PLAN.md §3`（P2 行列出 7 个）+ `git ls-files`（2026-10-11） |
 
 > 未决项口径（供验收时对账 AskUser 问题清单是否穷尽）：
 > `grep -rIcE '待用户拍板|待拍板' docs` —— 见 `docs/RELEASE.md §3.2`。
 
 ---
+
+> ⚠️ **验收前必读**：先确认**模拟器在线**（`hdc list targets` 应含 `127.0.0.1:5555`）——
+> **用户给窗口时再装**，且**只在自己新建的会话**里走查，⛔ 不 force-stop、不抢用户会话。
 
 ## 3. 验收材料索引（用户要看的文件清单）
 
