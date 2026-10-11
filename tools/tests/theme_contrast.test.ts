@@ -296,9 +296,20 @@ for (let i = 0; i < BOUNDARY_PAIRS.length; i++) {
 const LEDGER: string[] = [
   // ── 目标⑤（2026-10-11 阈值字号校正后**新暴露**）────────────────────────────────────
   // `textSecondary` 档位由 3.0 校正到 4.5（它有 10–14 的 normal 字号落点，见 CANVAS_ROLES 注释）
-  // ⇒ porcelain 的 `surfaceHi` 面暴露为 4.34:1。落点 = `LiveTailView.ets:442+445` /
-  // `MessageRow.ets:925+928`（`OverflowBadge`「+N」FS_CAPTION=12）、`SettingsLlm.ets:819+831`（「取消」12）。
-  // ⚠️ 修法跨域（压深全站浅色次要文字 / 改落点面）⇒ 由主 agent 另派线修，修完**必须删本行**。
+  // ⇒ porcelain 的 `surfaceHi` 面暴露为 4.34:1。
+  // ⚠️ **本行仍须保留**（⛔ 别收缩）—— 落点分两批，第一批已修、第二批在改：
+  //   · **第一批（已修，`8fbe8d2`）**：`LiveTailView.ets` / `MessageRow.ets` / `SettingsLlm.ets`
+  //     的 3 处**直接** `pal().surfaceHi` 换底（→ `surface.raised` / `surface.card`，
+  //     porcelain ≥4.5）。第 4 处（`Index.ets` 发送键）经复核是 **`SymbolGlyph` 图标**
+  //     ⇒ 适用 `AA_NON_TEXT`(3.0) ⇒ **本就达标、非缺陷、不改**（`contrast_landing.test.ts §5` 钉死）。
+  //   · **第二批（别名掩盖，`surface-alias` 线在修）**：`'surface.overlayRowHover'` /
+  //     `'surface.pillSelected'` / `'surface.active'` **同属 `RUNG_ACTIVE` ≡ `surfaceHi`**
+  //     ⇒ 只按字面量 `'surfaceHi'` 搜**会漏**。实测仍有 3 处文字落点坐在别名底上：
+  //     `pages/Index.ets:6626`（'取消'，底 `surface.overlayRowHover`）、
+  //     `pages/Index.ets:6673`（'⋯'，同底）、`components/AskUserSheet.ets:199`
+  //     （`type.callout`=textSecondary，底 `surface.overlayRowHover`）。
+  //   ⇒ **等第二批修完再收缩本行**。判据侧的教训已落成 `surfaceAliasesOf()`
+  //     （`core/design.ets`，从 `surfaceRoles()` 派生别名家族）+ `porcelain_surfacehi_contrast §7`。
   'porcelain|textSecondary|surfaceHi',
   // ── 根因 A：`onAccent`（定义是"主按钮上的文字"）被用在**中性面** surfaceHi 上 ──────────
   // 证据：pages/Index.ets:3942-3943（同一 Text：fontColor(onAccent) + backgroundColor(surfaceHi)

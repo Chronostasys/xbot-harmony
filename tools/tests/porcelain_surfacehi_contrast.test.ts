@@ -7,15 +7,21 @@
  * `surface.pillSelected` / `surface.overlayRowHover`，`RUNG_ACTIVE` = `surfaceHi`）上的**次要文字**
  * 与**强调色图形/文字**」**没有任何判定**。审计当时**未逐一 grep 消费点**，只记为"护栏"。
  *
- * 本判据补三件事（口径 = 仓内已批准常量，⛔ 不放宽）：
+ * 本判据补这些（口径 = 仓内已批准常量，⛔ 不放宽）：
  *   §1 把 `surfaceHi` 纳入 `textSecondary` / `accent` 的**下限断言**（矩阵形态 + 零扫描判红）；
  *   §2 钉住 ⚠️-4：`colorOf` 必须覆盖 6 个此前只能 `pal()` 直取的角色（**形态 + 逐主题取值**）；
- *   §3 **核实真实落点**并给 `file:line` 证据 + **逐主题实算比值**；
- *   §4 台账纪律：不达标格**必须已登记**（未登记 ⇒ 红）、台账条目**必须仍是不达标对**（修好 ⇒ 陈旧 ⇒ 红）。
+ *   §3 **核实真实落点**并给 `file:line` 证据 + **逐主题实算比值**（含 L1–L4 的**现状**：1–3 已换底、4 是图标）；
+ *   §4 台账纪律：不达标格**必须已登记**（未登记 ⇒ 红）、台账条目**必须仍是不达标对**（修好 ⇒ 陈旧 ⇒ 红）；
+ *   §5 阈值来源 = **字号档**（文字 4.5 / 非文本 3.0 / 元信息 2.0）逐格钉死；
+ *   §6 「ANSI 终端语义色」**例外**（裁决 2）+ 边界扫描 + 越界台账；
+ *   §7 **别名家族**：`surfaceHi` 的同 rung 别名必须全部 ≡ `p.surfaceHi`（从 `surfaceRoles()` **派生**，
+ *       ⛔ 不硬编面名 —— 这是"按名搜面必漏"教训的机器防线）。
  *
  * ★ mutation 自证（交付回报含原文）：
  *   ① 删 `contrastReqs()` 里 `('textSecondary','surfaceHi',…)` 一行 ⇒ §1 必红；
- *   ② 删 `colorOf()` 里任一新增 `if (role === 'x')` ⇒ §2 必红（形态 + 取值双路）。
+ *   ② 删 `colorOf()` 里任一新增 `if (role === 'x')` ⇒ §2 必红（形态 + 取值双路）；
+ *   ③ 非终端落点注入 `accent` 当文字 ⇒ §6 必红；④ 删例外登记一条 ⇒ §6 必红；
+ *   ⑤ 把 `surface.pillSelected` 的 rung 改成 `RUNG_RAISED` ⇒ §7 必红（别名家族被拆散）。
  *
  * ⚠️ 本文件**只判不改色板**：真不达标的格归 `core/theme.ets`（brand-impl）或落点组件侧
  * ⇒ 出 spec / 登记台账，⛔ 不在此越权改色值。
@@ -31,6 +37,7 @@ import { paletteOf, ALL_THEMES, contrastRatio, Palette, THEME_PORCELAIN } from '
 import {
   colorOf, contrastReqs, contrastAudit, contrastFailures, knownContrastLedger,
   ansiTerminalExceptions, ansiRoleTextLeaks, AnsiTextException,
+  surfaceAliasesOf, surfaceRoles, surfaceFillOf,
   AA_TEXT, AA_NON_TEXT, AA_MUTED, ContrastReq, ContrastResult, ContrastFailure,
 } from '../../entry/src/main/ets/core/design';
 
@@ -103,21 +110,28 @@ for (let ti = 0; ti < ALL_THEMES.length; ti++) {
 // ════════════════════════════════════════════════════════════════════════════
 // §3 真实落点取证 + 逐主题实算（审计数的复核）
 // ════════════════════════════════════════════════════════════════════════════
-// 真实落点（`textSecondary` 坐在 `surfaceHi` 面上）—— 审计当时**未**逐一 grep，本处查实：
-//   · components/LiveTailView.ets:442  .fontColor(pal().textSecondary)
-//                    同元素 :445      .backgroundColor(overOpen ? pal().surfaceHi : …)  「+N」溢出徽标
-//   · components/MessageRow.ets:925    .fontColor(pal().textSecondary)
-//                   同元素 :928        .backgroundColor(overIter===it ? pal().surfaceHi : …) 「+N」溢出徽标
-//   · components/SettingsLlm.ets:819   Text('取消').fontColor(pal().textSecondary)（FS_CAPTION）
-//                   容器 :831          .backgroundColor(surfaceFillOf(p,'surface.active'))  = surfaceHi
-//   · pages/Index.ets:4210             .fontColor(runningNow() ? pal().textSecondary : …)（发送键图标）
-//                   同元素 :4222        .backgroundColor(runningNow() ? pal().surfaceHi : …)
+// 真实落点（`textSecondary` 坐在 `surfaceHi` 面 / 其**别名**面上）—— 审计当时**未**逐一 grep，本处查实。
+// ⚠️ **现状（2026-10-11，两批处置）**：
+//   · **第一批｜已修（`8fbe8d2`，直接 `pal().surfaceHi`）**：
+//       L1 `components/LiveTailView.ets`  `OverflowBadge`「+N」：展开态底 → `surface.raised`（porcelain 4.696 ✓）
+//       L2 `components/MessageRow.ets`     `OverflowBadge`「+N」：展开态底 → `surface.card`（porcelain 5.071 ✓）
+//       L3 `components/SettingsLlm.ets`    「取消」容器底 → `surface.raised`（porcelain 4.696 ✓）
+//       L4 `pages/Index.ets` 运行中发送键：前景是 **`SymbolGlyph` 图标（非文字）** ⇒ `AA_NON_TEXT`(3.0)
+//          ⇒ porcelain 4.337 ≥ 3.0 **本就达标、非缺陷、不改**（`contrast_landing.test.ts §5` 钉死）。
+//   · **第二批｜别名掩盖（`surface-alias` 线在修，⛔ 未修完前本条目不收缩）**：
+//       `'surface.overlayRowHover'` / `'surface.pillSelected'` / `'surface.active'` **同属 `RUNG_ACTIVE`
+//       ≡ `surfaceHi`**（⇒ 同一底色、不同名字）⇒ **只按字面量 `'surfaceHi'` 搜会漏**。实测仍有 3 处
+//       **文字**落点坐在别名底上：`pages/Index.ets:6626`（'取消'，底 `surface.overlayRowHover`）·
+//       `pages/Index.ets:6673`（'⋯'，同底）· `components/AskUserSheet.ets:199`
+//       （`type.callout` = `textSecondary`，底 `surface.overlayRowHover`）。
+//       ⇒ **结构性教训**：凡"按面名搜落点"必须**展开别名** —— 已固化成 `surfaceAliasesOf()`
+//         （`core/design.ets`，**从 `surfaceRoles()` 派生**）+ 本文件 §7。
 // ⚠️ `accent` 坐在 `surfaceHi` 上：**未找到**真实落点（已 grep `pal().accent` 全部前景用法；
 //    MessageNav 的 `accent` 坐在 `withAlpha(accent, 0.10)` 上、非 surfaceHi）⇒ 该格按 accent 的
 //    **非文本/图形**类别取 `AA_NON_TEXT`(3.0) ⇒ 各主题均达标。
 //    ⚠️ 但 `accent` **另有** normal 字号（10–14）**文字**落点（ANSI 终端文本
 //    `SyntheticCard.ets:248/260`、`ToolVisual.ets:115`；`MessageNav.ets:121-129` 序号）—— 那是
-//    **跨类把图形 role 当文字用** ⇒ 属**落点侧**缺陷，列"落点修复清单"（⛔ 不靠抬 role 档位兜）。
+//    **跨类把图形 role 当文字用** ⇒ 属**落点侧**缺陷，已作 §6 例外 + 越界台账（⛔ 不靠抬 role 档位兜）。
 const por: Palette = paletteOf(THEME_PORCELAIN);
 const porTs: number = contrastRatio(por.textSecondary, por.surfaceHi);
 const porAc: number = contrastRatio(por.accent, por.surfaceHi);
@@ -312,14 +326,66 @@ function textLeaks(): string[] {
 }
 const leaks: string[] = textLeaks();
 const KNOWN_LEAKS: string[] = ansiRoleTextLeaks().slice().sort();
-ok('§6.2 零扫描判红：边界扫描确实扫到组件/页面源码（>0 文件）',
-  walkEts(pathMod.join(etsRoot, 'components')).length > 0 && walkEts(pathMod.join(etsRoot, 'pages')).length > 0);
-ok('§6.2 零扫描判红：已知越界清单非空（否则本判据会白绿）', KNOWN_LEAKS.length > 0, `got ${KNOWN_LEAKS.length}`);
+/** 扫描活性自证：走过的文件数 + 见到的 `.fontColor(` 行数（防"扫描器与真源脱节 ⇒ 白绿"）。 */
+function scanLiveness(): number[] {
+  const files: string[] = walkEts(pathMod.join(etsRoot, 'components')).concat(walkEts(pathMod.join(etsRoot, 'pages')));
+  let n: number = 0;
+  for (let fi = 0; fi < files.length; fi++) {
+    let lines: string[] = [];
+    try { lines = fsMod.readFileSync(files[fi], 'utf-8').split('\n'); } catch (ee) { continue; }
+    for (let i = 0; i < lines.length; i++) { if (lines[i].indexOf('.fontColor(') >= 0) { n++; } }
+  }
+  return [files.length, n];
+}
+const LIVE: number[] = scanLiveness();
+ok('§6.2 零扫描判红：扫描确实走过组件/页面源码（文件 >0）', LIVE[0] > 0, `files=${LIVE[0]}`);
+ok('§6.2 零扫描判红：扫描确实见到 `.fontColor(` 行（>0 ⇒ 扫描器与真源相连）', LIVE[1] > 0, `fontColor lines=${LIVE[1]}`);
 ok('§6.2 非终端直接文字用法 == 已知越界清单（新增 ⇒ 红；修好 ⇒ 红 ⇒ 逼缩清单）',
   JSON.stringify(leaks) === JSON.stringify(KNOWN_LEAKS),
   `got ${JSON.stringify(leaks)}`);
 console.log('  · §6.2 已知越界（非终端 accent 文字，⛔ 只许缩短；修法 = 换 accentSoft）:');
 for (let i = 0; i < leaks.length; i++) { console.log(`      ${leaks[i]}`); }
+
+// ════════════════════════════════════════════════════════════════════════════
+// §7 别名家族：`RUNG_ACTIVE` 的面（= `p.surfaceHi` 的别名）必须全部 ≡ `p.surfaceHi`
+// ════════════════════════════════════════════════════════════════════════════
+// 结构性教训（`contrast-landing` 复核）：**按面名搜落点必须能展开别名**，否则永远漏 ——
+//   `surface.active` / `surface.pillSelected` / `surface.overlayRowHover` 与 `surfaceHi`
+//   **同属 `RUNG_ACTIVE`** ⇒ **同一底色、不同名字**（实测漏掉 3 处坐在别名底上的文字落点）。
+// ⚠️ `surfaceHi` 是 **Palette 字段名**（不是面角色名）⇒ 家族要**从一个真实角色名派生**。
+// ⇒ 本节的家族**从 `surfaceRoles()` 派生**（`surfaceAliasesOf`），⛔ 不硬编面名字面量。
+const ACTIVE_ALIASES: string[] = surfaceAliasesOf('surface.active').slice().sort();
+const EXPECT_ALIASES: string[] = ['surface.active', 'surface.overlayRowHover', 'surface.pillSelected'].sort();
+ok('§7 零扫描判红：别名家族可从真源派生且非空', ACTIVE_ALIASES.length > 0, `got ${ACTIVE_ALIASES.length}`);
+ok('§7 零扫描判红：面表非空（= 别名的派生来源）', surfaceRoles().length >= 10, `got ${surfaceRoles().length}`);
+ok('§7 RUNG_ACTIVE 别名家族冻结 = {surface.active, surface.overlayRowHover, surface.pillSelected}',
+  JSON.stringify(ACTIVE_ALIASES) === JSON.stringify(EXPECT_ALIASES), `got ${JSON.stringify(ACTIVE_ALIASES)}`);
+// ★ 家族每一项 × 每一主题 都**逐字节** = `p.surfaceHi`（"别名 = 同一 rung ⇒ 同一底色"的机器形式）
+for (let ti = 0; ti < ALL_THEMES.length; ti++) {
+  const theme: string = ALL_THEMES[ti];
+  const p: Palette = paletteOf(theme);
+  for (let i = 0; i < ACTIVE_ALIASES.length; i++) {
+    ok(`§7 [${theme}] surfaceFillOf('${ACTIVE_ALIASES[i]}') ≡ p.surfaceHi（别名 = 同一 rung）`,
+      surfaceFillOf(p, ACTIVE_ALIASES[i]) === p.surfaceHi,
+      `got ${surfaceFillOf(p, ACTIVE_ALIASES[i])} want ${p.surfaceHi}`);
+  }
+}
+// 反面：**不同 rung** 的面不得混进家族（否则"别名"无从谈"同一底色"）
+const NON_ACTIVE: string[] = ['surface.card', 'surface.overlay', 'surface.raised', 'surface.overlayRow',
+  'surface.pill', 'surface.chip', 'surface.well', 'surface.input', 'surface.canvas'];
+for (let i = 0; i < NON_ACTIVE.length; i++) {
+  ok(`§7 反面：${NON_ACTIVE[i]}（不同 rung）不在 RUNG_ACTIVE 别名家族里`,
+    ACTIVE_ALIASES.indexOf(NON_ACTIVE[i]) < 0);
+}
+// 反向自证锚：家族成员必须**真解析到 surfaceHi**（防"家族名拼错 ⇒ 静默回落 card"）
+for (let ti = 0; ti < ALL_THEMES.length; ti++) {
+  const p: Palette = paletteOf(ALL_THEMES[ti]);
+  for (let i = 0; i < ACTIVE_ALIASES.length; i++) {
+    ok(`§7 反向锚：[${ALL_THEMES[ti]}] '${ACTIVE_ALIASES[i]}' 解析值 ≠ card 的 surface（未回落）`,
+      surfaceFillOf(p, ACTIVE_ALIASES[i]) !== p.surface,
+      `got ${surfaceFillOf(p, ACTIVE_ALIASES[i])}`);
+  }
+}
 
 console.log(`\n  porcelain_surfacehi_contrast: ${pass} passed, ${fail} failed`);
 if (fail > 0) { process.exit(1); }

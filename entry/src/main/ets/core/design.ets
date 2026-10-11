@@ -328,6 +328,21 @@ export function surfaceRoles(): SurfaceRole[] {
     // （`RUNG_ACTIVE` 只有两个**有语义**的角色：`overlayRowHover`=浮层行悬停 / `pillSelected`=选中的 pill）
     // ⇒ 直取 `pal().surfaceHi` 的调用点无法收敛到唯一口径。本 role 提供**语义中性**的恒等入口。
     // ⛔ 取值 = `p.surfaceHi`（走 `RUNG_ACTIVE` ⇒ 与现状调用点**逐字节等价**，深色渲染不变）。
+    //
+    // ⚠️ **2026-10-11 复核（裁决：保留，登记为「预留 / 暂无消费」）**——
+    //   背景：其**唯一**消费者 `SettingsLlm.ets` 的"就地编辑框底"在 `8fbe8d2` 换底为
+    //   `surface.raised`（RUNG_RAISED，porcelain 下 `textSecondary` 4.696 ✓）⇒ 本 role 当前
+    //   **0 个 `.ets` 消费者**。判定依据（三条，全部可复核）：
+    //     ① **语义不重复**：本 role = RUNG_ACTIVE（`p.surfaceHi`）；`surface.raised` = RUNG_RAISED
+    //        （`p.surfaceAlt`）—— **不同层级**（`surface_active.test.ts` ★③ 已钉二者不等）。
+    //     ② **它是 RUNG_ACTIVE 的"中性恒等入口"**：同层的另两个名字（`pillSelected` /
+    //        `overlayRowHover`）**语义狭窄**（"选中的 pill" / "浮层行悬停"）；未来任何"激活/选中"面
+    //        直取 `pal().surfaceHi` 的调用点，收敛到本 role 才不丢语义 ⇒ 属**有意预留**。
+    //     ③ **删除跨域**：删它会让**他域**判据变红 —— `tools/tests/design.test.ts:145`（面表计数 12）
+    //        + `tools/tests/surface_active.test.ts`（本 role 的专属判据）⇒ 非本线可单方面决定。
+    //   ⛔ 与 `Palette.foreground3`（⚠️-5）同类：**预留角色**，已登记，**不静默删**。
+    //   ⛔ 若哪天真要收敛掉：须**同批**改 `design.test.ts` 的计数 + 退役 `surface_active.test.ts`，
+    //      并给出"RUNG_ACTIVE 不需要中性入口"的论证（现有 `pillSelected`/`overlayRowHover` 覆盖不了）。
     new SurfaceRole('surface.active', RUNG_ACTIVE, false),
     new SurfaceRole('surface.overlayRowHover', RUNG_ACTIVE, false),
     new SurfaceRole('surface.pill', RUNG_RAISED, false),        // 工具 pill（普通）
@@ -350,6 +365,27 @@ export function surfaceFillOf(p: Palette, role: string): string {
     if (s[i].name === role) { rung = s[i].rung; }
   }
   return fillOfRung(p, rung);
+}
+
+/**
+ * **同 rung 的别名家族**：与 `name` 落在**同一层级**的全部面角色（含它自己）。
+ *
+ * 为什么要这个出口（2026-10-11，结构性教训，来自 `contrast-landing` 的复核）：
+ * 「按**面名**搜落点」的排查**必须能展开别名**，否则**永远漏** —— 别名 = 同一 rung ⇒ **同一底色**，
+ * 但名字不同（`surfaceHi` / `surface.active` / `surface.pillSelected` / `surface.overlayRowHover`
+ * 都是 `RUNG_ACTIVE`）。实例：只按字面量 `'surfaceHi'` 搜 ⇒ 漏掉坐在
+ * `'surface.overlayRowHover'` 底上的文字落点（`pages/Index.ets:6626`·`:6673`、
+ * `components/AskUserSheet.ets:199`）。
+ * ⇒ **判据/排查一律从本函数派生**（它从 `surfaceRoles()` 表算），⛔ 别再硬编面名字面量。
+ */
+export function surfaceAliasesOf(name: string): string[] {
+  const s = surfaceRoles();
+  let target: number = -1;
+  for (let i = 0; i < s.length; i++) { if (s[i].name === name) { target = s[i].rung; } }
+  const out: string[] = [];
+  if (target < 0) { return out; }
+  for (let i = 0; i < s.length; i++) { if (s[i].rung === target) { out.push(s[i].name); } }
+  return out;
 }
 
 /** 层级 → 填充色（与 `surfaceFillOf` 同源，供只拿到 rung 的调用点用）。 */
@@ -1108,20 +1144,16 @@ export function ansiTerminalExceptions(): AnsiTextException[] {
 /**
  * **越界的直接文字用法**（`role` 作 `.fontColor` 且**既非** ANSI 通道、**也非**图形 widget）。
  * ⛔ **只许缩短**（新增 ⇒ 判据红）；修法 = 换**文字** role（`accent` → `accentSoft` 就是本仓为
- * "链接/可点文字"定义的 4.5 档），**属落点侧**（组件），交主 agent 另派线。
- * 说明（10–12 的 normal 字号**文字**，`accent` 压其宿主面在 porcelain 下不足 4.5）：
- *   `GoalBanner.ets:132`（'保存' CTA，`type.goal`=caption 12）· `GoalBanner.ets:180`（状态徽标，`TYPE_CHIP`=10）·
- *   `MessageNav.ets:129`（序号 `type.micro`=10）· `SettingsAbout.ets:358`（'发布说明'，`FS_CAPTION`=12）·
- *   `TodoPanel.ets:190`（'goal' 徽标，`TYPE_CHIP`=10）。
+ * "链接/可点文字"定义的 4.5 档），**属落点侧**（组件）。
+ *
+ * ✅ **2026-10-11 已清空**（`accent-chrome` 线，commit `e1428a2`）：原 5 处越界全部改走文字 role ——
+ *   `GoalBanner.ets:132`('保存') / `GoalBanner.ets:180`(状态徽标) → `accentText`；
+ *   `MessageNav.ets:129`(序号) / `SettingsAbout.ets:358`('发布说明') / `TodoPanel.ets:190`('goal') → 同批改走文字 role。
+ * ⚠️ 本表**保持为空**（而不是删函数）：它是 §6 边界扫描的**白名单**，扫描结果必须 == 它
+ *   ⇒ 将来任何一处"把图形 role 当文字用"会被立刻抓住（mutation：注入一条 ⇒ 必红）。
  */
 export function ansiRoleTextLeaks(): string[] {
-  return [
-    'components/GoalBanner.ets:132',
-    'components/GoalBanner.ets:180',
-    'components/MessageNav.ets:129',
-    'components/SettingsAbout.ets:358',
-    'components/TodoPanel.ets:190',
-  ];
+  return [];
 }
 
 /** 台账之外的对比度缺口（空数组 = 全绿）。 */

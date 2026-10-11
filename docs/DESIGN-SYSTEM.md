@@ -1157,15 +1157,15 @@ vs 深色黑柔影 **1.0206/1.0122** ⇒ 再次确认"浅色柔影比深色黑�
 | `iconMuted` | **非文本**（图标） | 3.0 | ✅ |
 | `textMuted` | 元信息 | 2.0 | ✅ |
 
-### 15.3 跨类 role：`accent` / `statusError` / `statusRunning`（**落点修复清单**，⛔ 未动组件）
+### 15.3 跨类 role：`accent` / `statusError` / `statusRunning`（**已裁决为"显式例外"**，见 §15.4）
 
 三者在本表里建模的是**图形**落点，但它们**另有 normal 字号（10–14）的**文字**落点**（跨类把图形 role 当文字用）：
 
-| role | 文字落点 | 字号 | 实算（不达标面）|
+| role | 文字落点（**现状**） | 字号 | 实算（不达标面）|
 |---|---|---|---|
-| `accent` | ANSI 终端文本 `SyntheticCard.ets:248/260`、`ToolVisual.ets:115`；`MessageNav.ets:121-129` 序号 | 12/14；10 | dark 压 `surface` 4.43 / `surfaceAlt` 4.21 / `surfaceHi` 3.84；porcelain 压 `appBg` 4.39 / `surfaceAlt` 4.35 / `surfaceHi` 4.02 / `sunken` 4.20 |
-| `statusError` | ANSI 终端（槽 1 红）`SyntheticCard.ets:248` | 12/14 | light 压 `surfaceHi` 4.25 |
-| `statusRunning` | ANSI 终端（槽 6/14 青） | 12/14 | light 压 `appBg` 3.73 / `surface` 3.90 / `surfaceAlt` 3.56 / `surfaceHi` 3.17 / `sunken` 3.46 / `glassBg/appBg` 3.87 / `glassBg/surface` 3.90；porcelain 压 `appBg` 4.39 / `surfaceAlt` 4.35 / `surfaceHi` 4.02 / `sunken` 4.20；dark 压 `surfaceHi` 4.27 |
+| `accent` | **仅** ANSI 终端文本 `SyntheticCard.ets:248/260`、`ToolVisual.ets:115`（原 `MessageNav.ets:129` 序号等 5 处 UI 铬文本**已于 `e1428a2` 改走文字 role**，见 §15.4） | 12/14 | dark 压 `surface` 4.43 / `surfaceAlt` 4.21 / `surfaceHi` 3.84；porcelain 压 `appBg` 4.39 / `surfaceAlt` 4.35 / `surfaceHi` 4.02 / `sunken` 4.20 |
+| `statusError` | ANSI 终端（槽 1 红）`SyntheticCard.ets:248/260` | 12/14 | light 压 `surfaceHi` 4.25 |
+| `statusRunning` | ANSI 终端（槽 6/14 青）`SyntheticCard.ets:248/260` | 12/14 | light 压 `appBg` 3.73 / `surface` 3.90 / `surfaceAlt` 3.56 / `surfaceHi` 3.17 / `sunken` 3.46 / `glassBg/appBg` 3.87 / `glassBg/surface` 3.90；porcelain 压 `appBg` 4.39 / `surfaceAlt` 4.35 / `surfaceHi` 4.02 / `sunken` 4.20；dark 压 `surfaceHi` 4.27 |
 
 **为什么不把三者整体抬到 4.5**（主 agent 裁决 2，2026-10-11）：那会把「该 role × **无落点的面**」也判红
 （≈22 格虚构台账 = **造账**，不是修缺陷），并迫使**只作图形**的落点（青/紫弧、进度环）满足**正文**阈值；
@@ -1192,9 +1192,43 @@ vs 深色黑柔影 **1.0206/1.0122** ⇒ 再次确认"浅色柔影比深色黑�
 4. **边界扫描**：`components/**`+`pages/**` 里这三个 role 的**非终端直接文字用法**（`.fontColor` 且最近
    前导 widget 是 `Text`/`Span`）必须 ⊆ `ansiRoleTextLeaks()`（**只许缩短**）。
 
-**⚠️ 越界台账（→**落点修复清单②**，⛔ 本波未动组件，交主 agent 另派）**：`accent` 有 **5 处**直接当**文字**用的
-UI 铬文本（10–12 的 normal 字号，**非**终端）：`GoalBanner.ets:132`（'保存'）· `GoalBanner.ets:180`（状态徽标）·
-`MessageNav.ets:129`（序号）· `SettingsAbout.ets:358`（'发布说明'）· `TodoPanel.ets:190`（'goal' 徽标）。
-**推荐修法** = 改用 `accentSoft`（本仓为"链接/可点文字"定义的 4.5 档），或改走 `warn`/`dangerText` 等文字 role。
+**⚠️ 越界台账 —— ✅ 已清空（`accent-chrome` 线，commit `e1428a2`）**：先前列出的 **5 处** `accent` 直接当
+**文字**用的 UI 铬文本（10–12 的 normal 字号、**非**终端）：`GoalBanner.ets:132`（'保存'）· `GoalBanner.ets:180`（状态徽标）·
+`MessageNav.ets:129`（序号）· `SettingsAbout.ets:358`（'发布说明'）· `TodoPanel.ets:190`（'goal' 徽标）
+⇒ **全部改走文字 role**（`accentText` 等 4.5 档）。`ansiRoleTextLeaks()` 现返回 **`[]`**
+（⛔ 函数**保留**：它是 §6 边界扫描的白名单，将来任何"图形 role 当文字用"会被立刻抓住；mutation 已自证）。
+
+---
+
+### 15.5 面名别名 = **同一 rung**（结构性教训，2026-10-11）
+
+> 教训来源：`contrast-landing` 复核 `porcelain_surfacehi_contrast` 的落点排查时发现 ——
+> 它**只搜了字面量 `'surfaceHi'`**，因此**漏掉**坐在**别名底**上的同类文字落点。
+
+**规则**：`surfaceRoles()` 里 **rung 相同 ⇒ 面填充色相同**（`surfaceFillOf` 只按 rung 取色，见 `core/design.ets`）。
+`RUNG_ACTIVE` 一族的名字有 **3 个**：`surface.active` / `surface.overlayRowHover` / `surface.pillSelected`
+（它们的填充都 = `Palette.surfaceHi`）；`RUNG_RAISED` 有 `surface.raised` / `surface.overlayRow` / `surface.pill`
+（= `surfaceAlt`）；`RUNG_CARD` 有 `surface.card` / `surface.overlay` / `surface.input`（= `surface`）。
+
+⇒ **凡"按面名搜落点"的排查/判据，必须展开别名家族**，否则**永远漏**（实测漏掉
+`pages/Index.ets:6626`（'取消'）· `pages/Index.ets:6673`（'⋯'）· `components/AskUserSheet.ets:199`
+—— 三处 `textSecondary` 文字坐在 `surface.overlayRowHover`(= `RUNG_ACTIVE`) 底上）。
+
+**机器防线**：`core/design.ets: surfaceAliasesOf(name)`（**从 `surfaceRoles()` 派生**同 rung 家族，
+⛔ 不硬编面名）+ `tools/tests/porcelain_surfacehi_contrast.test.ts §7`
+（家族冻结 + 每成员逐主题 ≡ `p.surfaceHi` + 反面"异 rung 不入家族" + 「未回落」反向锚）。
+
+**⚠️ `surface.active` 的去留（裁决：保留，登记为「预留 / 暂无消费」）**——其**唯一**消费者
+（`SettingsLlm.ets` 就地编辑框底）在 `8fbe8d2` 换底为 `surface.raised` ⇒ 现 **0 个 `.ets` 消费者**。三条依据：
+1. **语义不重复**：`surface.active` = `RUNG_ACTIVE`（`surfaceHi`）；`surface.raised` = `RUNG_RAISED`（`surfaceAlt`）
+   —— **不同层级**（`surface_active.test.ts ★③` 已钉二者不等）；
+2. **它是 `RUNG_ACTIVE` 的"中性恒等入口"**：同层另两名（`pillSelected` / `overlayRowHover`）语义狭窄
+   ⇒ 未来"激活/选中"面直取 `pal().surfaceHi` 的调用点，收散到它才不丢语义 ⇒ **有意预留**；
+3. **删除跨域**：删它会让**他域**判据红 —— `tools/tests/design.test.ts:145`（面表计数 12）+
+   `tools/tests/surface_active.test.ts`（专属判据）⇒ 非本线可单方面决定。
+⛔ 与 `Palette.foreground3`（`PORCELAIN-AUDIT ⚠️-5`）同类：**预留角色，已登记，不静默删**。
+⛔ 若将来真要收敛：须**同批**改 `design.test.ts` 计数 + 退役 `surface_active.test.ts`，并论证
+「`RUNG_ACTIVE` 不需要中性入口」（现有两个名字覆盖不了）。留痕处：`core/design.ets` 的
+`surfaceRoles()` 注释（`new SurfaceRole('surface.active', …)` 上方）。
 
 
