@@ -1172,3 +1172,33 @@ session uses background highlight."*；`:332-347 relativeTime` 给出五档文�
 **未做（明确记账）**：分段控件轨道里塞折叠键（控制类型混用）；「分类分段 + 渠道 chips」两条并列筛选条
 占 ~250px（IA 重复）；footer 文案技术化（`面板（任务 / 子代理 / Runner）`）；分组头 44vp 偏高。
 ⇒ 下一批（B-2c）。
+
+### 21.13 目标③（侧栏重设计 · 第二批）：抽屉 chrome 收成**单行**筛选条（2026-10-12）
+
+**问题（真机 `dumpLayout` 量测）**：抽屉里有两组**并列**筛选条，占 ~250px 纵向 chrome：
+① 分段控件（项目/状态/时间）；② 渠道 chips 行（全部/Web/CLI）。且分段控件**轨道内塞了一个折叠动作**
+（`chevron_down/up` 当第 4 段）⇒ **控制类型混用**（用户点它会以为切换了分组维度）。web 权威：渠道筛选
+是**下拉**（`web/src/components/session/ChannelPicker.tsx:90-119` PopoverTrigger = `label` + `ChevronDown`，
+`:120-142` PopoverContent = 「全部」+ 各渠道项）—— 我们做成 chips 行属**容器漂移**。
+
+**改后（一行）**：`[分段控件 (layoutWeight 1)] [全部折叠/展开 44] [渠道触发器 ▾]`
+- 分段控件**只装互斥选项**；折叠动作移出轨道（判据：轨道块内不得出现 `collapseAllPlanNow`）。
+- 渠道 chips 行**删除**，改**平台菜单** `bindMenu`（触发器显示**当前值**⇒ 信息不减：选中「全部」= 凹槽面
+  `surface.pillSelected`、选中具体渠道 = 中性 chip + 内凹发丝；菜单项当前值走 `accentText`）。
+- 真机实测：`全部/Web/CLI` 三行、200vp 宽、右对齐触发器；点项即选中且**自动收起**；连点 5 次开合 5/5 正确。
+
+**为什么不是 `bindPopup`**（⚠️ 这是**修缺陷**不是换风格，细节见 `ARKTS-GOTCHAS.md` 批次 43）：
+`bindPopup` + 自持 `@State` + `onClick` toggle 与 ArkUI 的 dismiss 回调**竞态** ⇒ "从关到开"约 **25% 漏点**；
+`mask: true` 会吃掉锚点点击（4/4 打不开）。`bindMenu` 由 ArkUI 自管开合 ⇒ 无竞态。仓内 `bindPopup` 8→7 处
+（`popup_uniform` 下限 7，仍绿）。
+
+**判据（判别力已 mutation 自证）**：`tools/tests/status_sheet_drawer.test.ts` 新增靶子4c 四条 ——
+① 折叠动作不在轨道内（注入回轨道 ⇒ 红）；② `bindMenu(this.ChannelPickerMenu` 在（换回 bindPopup ⇒ 红）；
+③ `chfilter-` 键消失（注回 ⇒ 红）；④ 触发器保留既有面口径 `activeChannel.length === 0 ? 'surface.pillSelected' : 'surface.chip'`。
+
+**自证**：`status_sheet_drawer` 24/0 · 全量 `✅ 纯逻辑测试通过` · `typecheck` 95 文件 ✅ ·
+`render-path` ✅ · **`BUILD SUCCESSFUL in 8 s 286 ms`** · 真机：抽屉单行筛选条 + 平台菜单开/选/收全通。
+
+**未做（明确记账，下一批）**：③ footer 文案技术化（`面板（任务 / 子代理 / Runner）`）；
+④ 分组头 44vp 偏高（它是可点行 ⇒ 受 `hit_target_gate` ≥44 约束，⛔ 不能简单压小）；
+⑤ 行高 61vp 若嫌空旷需评估（`INSET_ROW_Y=8` 被 `hittarget_audit.test.ts:74` 与 `sheets2_visual.test.ts:143` pin 住，改要先同步判据）。

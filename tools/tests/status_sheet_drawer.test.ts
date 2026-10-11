@@ -116,5 +116,22 @@ has(indexSrc, 'Text(this.relTimeOf(s.last_active))', '会话行渲染相对时�
 hasNot(indexSrc, 'Text(s.chat_id)', '⛔ 会话行不再渲染裸 chat_id（开发者噪音，web 权威无此项）');
 hasNot(indexSrc, 'Text(channelLabel(', '⛔ 会话行不再渲染渠道 chip（同上；渠道过滤条仍在）');
 
+// ── 靶子4c：抽屉**筛选工具条 = 单行**（2026-10-12 目标③ 第二批）─────────────────────
+// 形态契约（只认"结构"，不认"观感"）：
+//   ① 侧栏渠道筛选走**平台菜单原语** `bindMenu`（ArkUI 自管开合）。原 `bindPopup` + 自持
+//      `@State` + `onClick` toggle 在真机上"从关到开"约 **25% 漏点**（与 ArkUI 的 dismiss 回调
+//      竞态；`mask: true` 又 4/4 打不开）⇒ 换原语是**修缺陷**、不是换风格。
+//   ② 旧的**渠道 chips 行**（`chfilter-` 键 + 外层 `Flex(wrap)`）必须消失 —— 它与分段控件构成
+//      "两条并列筛选条"（同一份数据两种容器、IA 重复；web `ChannelPicker` 本身是**下拉**）。
+//   ③ 分段控件的**轨道内不得再出现折叠动作**（`collapseAllPlanNow`）：分段控件只装**互斥选项**，
+//      把"全部折叠"塞进轨道 = 控制类型混用（用户点它会以为切换了分组维度）。
+const track: string = between(indexSrc, 'Row({ space: SPACE_HAIR }) {', '.borderRadius(RADIUS_PILL)');
+ok('分段控件轨道块可定位（零扫描判红）', track.length > 100);
+hasNot(track, 'collapseAllPlanNow', '⛔ 折叠动作不在分段控件轨道内（控制类型不混用）');
+has(indexSrc, 'bindMenu(this.ChannelPickerMenu', '渠道筛选走平台菜单原语 bindMenu（自管开合）');
+hasNot(indexSrc, 'chfilter-', '⛔ 旧渠道 chips 行已删（两条并列筛选条 ⇒ 单条）');
+has(indexSrc, 'this.activeChannel.length === 0 ? \'surface.pillSelected\' : \'surface.chip\'',
+  '触发器保留「选中全部 = 凹槽面」的既有面口径（⛔ 未新造面名）');
+
 console.log(`  status_sheet_drawer: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

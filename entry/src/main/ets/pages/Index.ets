@@ -34,7 +34,8 @@ import { EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_BOOT_WORDMARK, F
 import {
   GAP_BLOCK, HIT_TARGET_MIN, ICON_MD, INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X, INSET_ROW_Y,
   PRESS_OPACITY, PRESS_SCALE, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, RADIUS_SHEET, SPACE_HAIR, SPACE_LG, SPACE_MD,
-  SPACE_SM, SPACE_XL, SPACE_XS, SPACE_XXL, SPACE_XXS, STROKE_HAIRLINE, colorOf, hairlineOf, insetHairlineOf, surfaceFillOf, typeOf,
+  SPACE_SM, SPACE_XL, SPACE_XS, SPACE_XXL, SPACE_XXS, STROKE_HAIRLINE, colorOf, hairlineOf,
+  insetHairlineOf, surfaceFillOf, typeOf,
 } from '../core/design';
 import { isUnauthorized, loadErrHint, loadErrTitle, needsRelogin, needsSessionRefresh } from '../core/autherr';
 import {
@@ -6821,6 +6822,57 @@ struct Index {
 
   // ── 弹层：会话抽屉 ────────────────────────────────────────────────────────
 
+  /**
+   * 渠道筛选**下拉内容**（web `ChannelPicker.tsx:120-142` 的 `PopoverContent` 等价物）。
+   *
+   * ⛔ 纯客户端派生（`availableChannels`），只作用于列表视图；**不动** `channelForChat`
+   *    （真机事故：否则点开非 web 会话报 `session not found`）。
+   * ⛔ 无参 `@Builder`（读 `this`，非带参 ⇒ 不触 `ARKTS-GOTCHAS` 的"带参 @Builder 快照"坑）。
+   *    浮层内容会随 `activeChannel` 变（accent 跟随当前值），开合即重建，故不缓存快照。
+   */
+  @Builder
+  ChannelPickerMenu() {
+    Column() {
+      // 「全部」（web `data-channel="__all__"`）：当前值走 accent 强调
+      // （对齐 web `!current ? 'font-medium text-accent'`）—— 判据同源（`activeChannel`）。
+      Text(activeChannelLabel(''))
+        .width('100%')
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .fontSize(typeOf('type.subhead').size)
+        .fontColor(this.activeChannel.length === 0 ? this.pal().accentText : this.pal().textSecondary)
+        .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_XS, bottom: SPACE_XS })
+        .borderRadius(RADIUS_CHIP)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          this.activeChannel = '';
+          // 切换成功后落盘（对齐 web localStorage；失败不影响本次过滤）
+          this.config.saveActiveChannel('').catch(() => {
+          });
+        })
+      ForEach(availableChannels(this.sessions), (ch: string) => {
+        Text(activeChannelLabel(ch))
+          .width('100%')
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
+          .fontSize(typeOf('type.subhead').size)
+          .fontColor(this.activeChannel === ch ? this.pal().accentText : this.pal().textSecondary)
+          .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_XS, bottom: SPACE_XS })
+          .borderRadius(RADIUS_CHIP)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            this.activeChannel = ch;
+            // 切换成功后落盘（对齐 web localStorage；失败不影响本次过滤）
+            this.config.saveActiveChannel(ch).catch(() => {
+            });
+          })
+      }, (ch: string) => `chmenu-${ch}`)
+    }
+    .padding(SPACE_HAIR)
+    // 菜单宽度**显式给**：行内的 `width('100%')` 若没有父宽度约束，会被 ArkUI 按浮层**最大宽**
+    // 解析 ⇒ popup 被撑到 ~375vp（真机实测），菜单项左右各留一大片空白。给死宽度后行面 = 菜单宽
+    // （点按热区随之满行）。
+    .width(200)
+  }
+
   @Builder
   DrawerSheet() {
     Column() {
@@ -6901,34 +6953,51 @@ struct Index {
       }
       .width('100%').padding({ bottom: SPACE_SM })
 
-      // ── 分类切换器（iOS 分段控件）：下沉轨道（`surface.chip`）+ 选中段浮起 ────
-      // 清单**只从** `SESSION_CATEGORIES` 渲染（组件里不再列一遍分类）。
-      Row({ space: SPACE_HAIR }) {
-        ForEach(SESSION_CATEGORIES, (c: string) => {
-          Row() {
-            Text(sessionCategoryLabel(c))
-              .fontSize(typeOf('type.caption').size)
-              .fontWeight(c === this.sessionCategory() ? FontWeight.Medium : FontWeight.Regular)
-              .fontColor(c === this.sessionCategory() ? this.pal().textPrimary : this.pal().textSecondary)
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-          }
-          .layoutWeight(1)
-          .height(HIT_TARGET_MIN)
-          .justifyContent(FlexAlign.Center)
-          .alignItems(VerticalAlign.Center)
-          .backgroundColor(c === this.sessionCategory()
-            ? surfaceFillOf(this.pal(), 'surface.card')
-            : this.pal().transparent)
-          .borderRadius(RADIUS_CHIP)
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            this.setSessionCategory(c);
-          })
-        }, (c: string) => `cat-${c}`)
-        // 全部折叠 / 全部展开（web `SessionViewBar.tsx:66-78`）—— 只在有分组时出现（`plan.visible`）。
-        // 判据与动作**同源**（`collapseAllPlan`）：`allCollapsed` 决定图标，点击落 `applyCollapseAll`。
-        // 折叠态走既有 `collapsedGroups`（与单组折叠同一套）⇒ ⛔ 不自造状态、不加动效。
+      // ── 筛选工具条（**单行**；2026-10-12 目标③ 第二批）─────────────────────────
+      // ① 分段控件**只装互斥选项**：原实现把「全部折叠/展开」的动作键塞进轨道当第 4 段 ⇒
+      //    **控制类型混用**（点它会以为切换了分组维度）⇒ 已移到轨道**之外**。
+      // ② 渠道筛选对齐 web 的**下拉**语义：`ChannelPicker.tsx:90-119` 的触发器 = `label` + `ChevronDown`
+      //    （内容 = 「全部」+ 各渠道项，`:120-142`）。此前把同一份数据画成**第二条 chips 行**与分段控件
+      //    并列 ⇒ 两条并列筛选条（IA 重复、~250px 纵向 chrome）⇒ 收成**一个触发器**。
+      //    ⛔ 绝不动 `channelForChat`（真机事故：否则点开非 web 会话报 `session not found`）。
+      Row({ space: SPACE_XS }) {
+        // ① 分类切换器（iOS 分段控件）：下沉轨道（`surface.chip`）+ 选中段浮起。
+        //    清单**只从** `SESSION_CATEGORIES` 渲染（组件里不再列一遍分类）。
+        Row({ space: SPACE_HAIR }) {
+          ForEach(SESSION_CATEGORIES, (c: string) => {
+            Row() {
+              Text(sessionCategoryLabel(c))
+                .fontSize(typeOf('type.caption').size)
+                .fontWeight(c === this.sessionCategory() ? FontWeight.Medium : FontWeight.Regular)
+                .fontColor(c === this.sessionCategory() ? this.pal().textPrimary : this.pal().textSecondary)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+            }
+            .layoutWeight(1)
+            .height(HIT_TARGET_MIN)
+            .justifyContent(FlexAlign.Center)
+            .alignItems(VerticalAlign.Center)
+            .backgroundColor(c === this.sessionCategory()
+              ? surfaceFillOf(this.pal(), 'surface.card')
+              : this.pal().transparent)
+            .borderRadius(RADIUS_CHIP)
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+            .onClick(() => {
+              this.setSessionCategory(c);
+            })
+          }, (c: string) => `cat-${c}`)
+        }
+        .layoutWeight(1)
+        .padding(SPACE_HAIR)
+        .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
+        // §15：chip 面补**内凹发丝**（深色才有值、浅色 transparent ⇒ 浅色逐字节不变）
+        .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
+        .borderRadius(RADIUS_PILL)
+
+        // ② 全部折叠 / 全部展开（web `SessionViewBar.tsx:66-78`）—— **轨道之外**，只在有分组时出现
+        //    （`plan.visible`）。判据与动作**同源**（`collapseAllPlan`）：`allCollapsed` 决定图标，
+        //    点击落 `applyCollapseAll`。折叠态走既有 `collapsedGroups`（与单组折叠同一套）
+        //    ⇒ ⛔ 不自造状态、不加动效。
         if (this.collapseAllPlanNow().visible) {
           Row() {
             if (this.collapseAllPlanNow().allCollapsed) {
@@ -6958,57 +7027,42 @@ struct Index {
             this.applyCollapseAll();
           })
         }
+
+        // ③ 渠道筛选**下拉触发器**（web `ChannelPicker.tsx:90-119` 同构）。中性治装：选中「全部」
+        //    = 凹槽面（`surface.pillSelected`）；选中具体渠道 = 中性 chip + 内凹发丝。**当前值显示在
+        //    触发器上** ⇒ 删掉 chips 行后信息不减（用户一眼看得出"正在按渠道过滤"）。
+        Row({ space: SPACE_HAIR }) {
+          Text(activeChannelLabel(this.activeChannel))
+            .fontSize(typeOf('type.micro').size)
+            .fontColor(this.activeChannel.length === 0 ? this.pal().textPrimary : this.pal().textSecondary)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          SymbolGlyph($r('sys.symbol.chevron_down'))
+            .fontSize(typeOf('type.micro').size)
+            .fontColor([colorOf(this.pal(), 'iconMuted')])
+        }
+        .height(HIT_TARGET_MIN)
+        .padding({ left: SPACE_XS, right: SPACE_XS })
+        .justifyContent(FlexAlign.Center)
+        .alignItems(VerticalAlign.Center)
+        .backgroundColor(surfaceFillOf(this.pal(),
+          this.activeChannel.length === 0 ? 'surface.pillSelected' : 'surface.chip'))
+        // §15：**只给 chip 支**补内凹发丝；选中态（pillSelected）保持无边框。
+        .border({ width: STROKE_HAIRLINE, color: this.activeChannel.length === 0 ? this.pal().transparent : insetHairlineOf(this.pal()) })
+        .borderRadius(RADIUS_CHIP)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        // ③ 渠道筛选**下拉**（平台菜单原语 `bindMenu`）：ArkUI **自管开合**（点锚点开/关、点外部收起）
+        //    ⇒ 页面**不自持**开合态、⛔ 不写 `onClick`（否则与 ArkUI 的锚点处理打架）。
+        //    ⚠️ 真机实测：`bindPopup` + 自持 `@State` + `onClick` toggle 与 ArkUI 的 dismiss 回调
+        //    会竞态 —— "从关到开"约 25% 漏点，不可交付；`mask: true` 又会吃掉锚点点击（4/4 打不开）。
+        .bindMenu(this.ChannelPickerMenu, {
+          placement: Placement.BottomRight,
+          enableArrow: false,
+        })
       }
       .width('100%')
-      .padding(SPACE_HAIR)
-      .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
-      // §15：chip 面补**内凹发丝**（深色才有值、浅色 transparent ⇒ 浅色逐字节不变）
-      .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
-      .borderRadius(RADIUS_PILL)
-      .margin({ bottom: SPACE_SM })
-
-      // ── 渠道筛选（web `ChannelPicker.tsx`；纯客户端派生，只作用于列表）──────
-      // ⛔ 绝不动 `channelForChat`（真机事故：否则点开非 web 会话报 `session not found`）。
-      // chip 统一**中性**（灰阶 + 凹槽面），选中只提一档填充 —— 不做彩色装饰。
-      Flex({ wrap: FlexWrap.Wrap }) {
-        Text(activeChannelLabel(this.activeChannel))
-          .fontSize(typeOf('type.micro').size)
-          .fontColor(this.activeChannel.length === 0 ? this.pal().textPrimary : this.pal().textSecondary)
-          .backgroundColor(surfaceFillOf(this.pal(),
-            this.activeChannel.length === 0 ? 'surface.pillSelected' : 'surface.chip'))
-          // §15：**只给 chip 支**补内凹发丝；选中态（pillSelected）保持无边框。
-          .border({ width: STROKE_HAIRLINE, color: this.activeChannel.length === 0 ? this.pal().transparent : insetHairlineOf(this.pal()) })
-          .borderRadius(RADIUS_CHIP).textAlign(TextAlign.Center)
-          .padding({ left: SPACE_XS, right: SPACE_XS, top: SPACE_XS, bottom: SPACE_XS })
-          .margin(SPACE_HAIR)
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            this.activeChannel = '';
-            // 切换成功后落盘（对齐 web localStorage；失败不影响本次过滤）
-            this.config.saveActiveChannel('').catch(() => {
-            });
-          })
-        ForEach(availableChannels(this.sessions), (ch: string) => {
-          Text(activeChannelLabel(ch))
-            .fontSize(typeOf('type.micro').size)
-            .fontColor(this.activeChannel === ch ? this.pal().textPrimary : this.pal().textSecondary)
-            .backgroundColor(surfaceFillOf(this.pal(),
-              this.activeChannel === ch ? 'surface.pillSelected' : 'surface.chip'))
-            // §15：**只给 chip 支**补内凹发丝；选中态保持无边框。
-            .border({ width: STROKE_HAIRLINE, color: this.activeChannel === ch ? this.pal().transparent : insetHairlineOf(this.pal()) })
-            .borderRadius(RADIUS_CHIP).textAlign(TextAlign.Center)
-            .padding({ left: SPACE_XS, right: SPACE_XS, top: SPACE_XS, bottom: SPACE_XS })
-            .margin(SPACE_HAIR)
-            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-            .onClick(() => {
-              this.activeChannel = ch;
-              // 切换成功后落盘（对齐 web localStorage；失败不影响本次过滤）
-              this.config.saveActiveChannel(ch).catch(() => {
-              });
-            })
-        }, (ch: string) => `chfilter-${ch}`)
-      }
-      .width('100%').padding({ bottom: SPACE_SM })
+      .alignItems(VerticalAlign.Center)
+      .padding({ bottom: SPACE_SM })
 
       // ── 列表 / 空态 ────────────────────────────────────────────────────────
       // 空态判据走 `core/indicators.ets`（与骨架/占位同族，⛔ 页面不写第二套 `if`）。
