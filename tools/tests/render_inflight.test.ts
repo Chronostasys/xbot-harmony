@@ -127,6 +127,21 @@ function hist(iter: number, tools: ToolProgress[]): HistoryIteration {
   eq('★⑤ isCurrentIterTool(无 iteration) == true', isCurrentIterTool(tw('X', 'pending', 'k'), 2), true);
   eq('★⑤ isCurrentIterTool(iteration <= 已提交) == false', isCurrentIterTool(stale, 2), false);
   eq('★⑤ isCurrentIterTool(iteration > 已提交) == true', isCurrentIterTool(cur, 2), true);
+  // ⛔ 2026-10-12 P0（用户实拍「迭代里 tool1(排队) tool2(排队)、没有任何 executing」）：
+  //    **在飞**工具即便带**陈旧**迭代号也必须保留 —— 服务端整批先标 `pending` 且可能带上一迭代的号
+  //    ⇒ 旧实现把号陈旧的 `running` 滤掉、只留号为空/陈旧的 `pending` ⇒ 画面上"清一色排队"。
+  const rStale: WebToolProgress = tw('R', 'running', 'r-stale-1');
+  (rStale as unknown as { iteration?: number }).iteration = 1;
+  eq('★⑤ 在飞 running（号陈旧 ≤ max）**仍保留**', isCurrentIterTool(rStale, 2), true);
+  const gStale: WebToolProgress = tw('G', 'generating', 'g-stale-1');
+  (gStale as unknown as { iteration?: number }).iteration = 1;
+  eq('★⑤ 在飞 generating（号陈旧）**仍保留**', isCurrentIterTool(gStale, 2), true);
+  const eStale: WebToolProgress = tw('E', 'executing', 'e-stale-1');
+  (eStale as unknown as { iteration?: number }).iteration = 1;
+  eq('★⑤ 在飞 executing（号陈旧）**仍保留**', isCurrentIterTool(eStale, 2), true);
+  const pStale: WebToolProgress = tw('P', 'pending', 'p-stale-1');
+  (pStale as unknown as { iteration?: number }).iteration = 1;
+  eq('★⑤ 非在飞 pending（号陈旧）仍**被滤掉**', isCurrentIterTool(pStale, 2), false);
 }
 
 // ── ⑥ 零样本防线：工具全被滤掉 ⇒ 只靠正文，且**绝不**产出「全是排队」的假象 ──────

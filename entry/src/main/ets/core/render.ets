@@ -50,6 +50,18 @@ export function toToolProgress(t: WebToolProgress): ToolProgress {
  *    用户亲报症状：「所有 tool 都渲染为排队 / executing 的 tool 被渲染成排队」。
  */
 export function isCurrentIterTool(t: WebToolProgress, maxCompletedIter: number): boolean {
+  // ⛔ **在飞的工具永不按迭代号过滤**（2026-10-12 真机 P0 用户实拍：迭代里
+  //    `tool1(排队) tool2(排队)` 而**没有任何 executing**）：
+  //    服务端整批先标 `pending` 且**可能带着上一迭代的号**（`agent/engine_run_tools.go:49-64`
+  //    到 goroutine 启动才翻 `running`；`engine_wire.go:2436-2445` 点名"必须由前端按 iteration
+  //    过滤"），于是 **`running` 但号陈旧的那一个被滤掉，而号为空(`null`)的 `pending` 全留下**
+  //    ⇒ 画面上就是"清一色排队"💥。而 `running`/`generating` 按定义**就是此刻在执行的那一个**
+  //    ①它必须可见 ②用户明确要求"不可能所有 tool 都在排队"。
+  //    ⇒ 只有**非在飞**（`pending`/终态）才走迭代号过滤（那正是滤掉"过去迭代残留 pending"的本意）。
+  const s: string = t.status !== undefined ? t.status : '';
+  if (s === 'running' || s === 'executing' || s === 'generating') {
+    return true;
+  }
   const it: number | undefined = t.iteration;
   if (it === undefined) {
     return true;
