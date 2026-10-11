@@ -16,7 +16,8 @@
  */
 import { Palette, paletteOf, Effects, effectsOf, isLightPalette } from './theme';
 import {
-  ROLE_DANGER, ROLE_MUTED, ROLE_SUCCESS, ST_ERROR, statusColorRole,
+  ROLE_DANGER, ROLE_MUTED, ROLE_SUCCESS, ST_DONE, ST_ERROR, ST_KILLED, ST_PENDING,
+  statusColorRole,
 } from './toolstatus';
 
 /** 在飞 pill 的柔影半径（vp）—— 浅色系用它把"在飞"读作悬浮卡片而非发光体。 */
@@ -24,6 +25,35 @@ export const PILL_LIVE_GLOW_RADIUS: number = 12;
 
 /** 状态标记槽边长（vp）——**恒定**是"所有 pill 的图标/名字左对齐"的前提（web 实测要求）。 */
 export const PILL_MARKER_SLOT: number = 14;
+
+// ── 形态档（marker shape）—— **判据**，组件据此选 glyph；测试据此断言"无色可辨" ──────
+// 为什么要独立成档（而不是让组件直接 `if (kind === …)` 分五个支）：
+//   · 组件的 `if` 分支是 ArkUI 文件（`run.sh` 不编译）⇒ 无法断言"六档的形态互不相同"；
+//   · 可访问性门禁 `tools/tests/tool_legibility.test.ts` 要问"把颜色全抹掉后还认得出吗"，
+//     它必须读**同一个**来源 ⇒ 形态判断下沉此处，`components/ToolVisual.ets` 只消费。
+export const SHAPE_CHECK: string = 'check';       // done：描边勾
+export const SHAPE_CROSS: string = 'cross';       // error：实心叉
+export const SHAPE_MINUS: string = 'minus';       // killed：减号
+export const SHAPE_RING: string = 'ring';         // pending：虚线空心圆（静态）
+export const SHAPE_SPINNER: string = 'spinner';   // running / generating：系统 `LoadingProgress`
+/** 全部形态档（测试用穷尽性）。 */
+export const ALL_SHAPES: string[] = [SHAPE_CHECK, SHAPE_CROSS, SHAPE_MINUS, SHAPE_RING, SHAPE_SPINNER];
+
+/**
+ * 语义档 ⇒ **形态档**（唯一映射）。
+ *
+ * ⚠️ `running` 与 `generating` **共用** `SHAPE_SPINNER`（系统指示器 = "工具身份"，不是"整机状态"；
+ *    `docs/DESIGN-SYSTEM.md §8`）—— 二者的区分由 **chip 文案**承担（「执行中」/「生成中…」）
+ *    ⇒ 这正是"无色可辨"（色盲可用性）要求的**多一维冗余**。任何**新增**的形态合并都须报警
+ *    （见 `tool_legibility.test.ts` ②b：形态合并只允许发生在"在飞"同族内部）。
+ */
+export function markerShape(kind: string): string {
+  if (kind === ST_DONE) { return SHAPE_CHECK; }
+  if (kind === ST_ERROR) { return SHAPE_CROSS; }
+  if (kind === ST_KILLED) { return SHAPE_MINUS; }
+  if (kind === ST_PENDING) { return SHAPE_RING; }
+  return SHAPE_SPINNER;   // running / generating
+}
 
 // ── 主题 → Palette / Effects 记忆化（纯函数；主题名唯一决定取值）───────────────
 const PALETTE_MEMO: Map<string, Palette> = new Map<string, Palette>();
@@ -106,6 +136,8 @@ export function glowColorOf(kind: string, live: boolean, theme: string): string 
 export interface PillVisual {
   /** 形态档（= 语义档；组件据此选"勾/叉/减号/虚线圆/spinner"）。 */
   marker: string;
+  /** **形态档**（`markerShape` 的结果）——与 `marker` 同值来源，供"无色可辨"断言。 */
+  shape: string;
   /** 状态标记 & chip 文字色（同一个值 ⇒ 两者不可能异色）。 */
   accent: string;
   /** 名称色（中性为主；只有失败才红）。 */
@@ -125,6 +157,7 @@ export function pillVisual(kind: string, live: boolean, selected: boolean,
   theme: string): PillVisual {
   const v: PillVisual = {
     marker: kind,
+    shape: markerShape(kind),
     accent: statusColorOf(kind, theme),
     textColor: pillTextColorOf(kind, theme),
     pillBg: pillBgOf(kind, selected, theme),
