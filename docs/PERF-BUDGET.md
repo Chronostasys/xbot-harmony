@@ -105,18 +105,36 @@ TARGET=127.0.0.1:5555 bash tools/perf/render_scale.sh
 - 折算：单行 108 块 ≈ **616 节点**；340 块 ≈ **1938 节点**（**超单行预算 600 的 3.2×**）。
 - 行级虚拟化（`LazyForEach`）**已生效**；**行内**不虚拟化 ⇒ 乘法项就在这里。
 
-### 1.6 分配热点（"每帧对象构造数"）
+### 1.6 分配热点（"每帧对象构造数"）—— ⚠️ **2026-10-11 订正：三项"无记忆化"已落地**
+
 ```bash
-grep -ro 'this.pal()'  entry/src/main/ets/components entry/src/main/ets/pages | wc -l   # 891
-grep -ro 'this.eff()'  entry/src/main/ets/components entry/src/main/ets/pages | wc -l   # 57
-grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components,pages} | wc -l  # 14
+grep -ro 'this.pal()'  entry/src/main/ets/components entry/src/main/ets/pages | wc -l   # 1078
+grep -ro 'this.eff()'  entry/src/main/ets/components entry/src/main/ets/pages | wc -l   # 35
+grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components,pages} | wc -l  # 13
 ```
+
+**订正（本表的旧值留着不动，便于看趋势；"现在"以 2026-10-11 实测为准）**
+
+| 热点 | 旧基线 | **现在（实测）** | 落地 |
+|---|---|---|---|
+| `paletteOf()` | 0.01 µs（"无记忆化"） | **0.009 µs/次** | ✅ **已记忆化** `PALETTE_MEMO`（`core/theme.ets:385`，容量 64）— `0c0b2e3` |
+| `effectsOf()` | 2.1–3.3 µs（比 pal 贵 ~250×） | **0.028 µs/次**（**快 ~100×**） | ✅ **已记忆化** `EFFECTS_MEMO`（`:634`）— `0c0b2e3` |
+| `surfacesOf()` | 1.7–5.7 µs | **0.008 µs/次** | ✅ **已记忆化** `SURFACES_MEMO`（`:855`）— `0c0b2e3` |
+| `anim*()` 每次新建 `ICurve` | "未记忆化" | **已记忆化**（`springCurveMemo` / `springMotionMemo`） | ✅ `components/anim.ets:38,80` — `e60d1f6` |
+| `this.pal()` 调用点 | 891 | **1078**（护栏上限 1250，✅） | — |
+| `this.eff()` 调用点 | 57 | **35**（上限 80，✅） | — |
+| `anim*()` 调用点 | 14 | **13**（上限 20，✅） | — |
+| 常驻定时器 | `setInterval` 4 / `setTimeout` 5 | **5 / 7**（上限 6 / 7，✅ 顶格） | ⚠️ `setTimeout` **已用满 7**（见 §2 第 18 条） |
+
+> ⛔ **订正的原因**：本表原先三条"无记忆化"的结论已被两个 perf 提交推翻（`0c0b2e3` / `e60d1f6`）。
+> 留着旧值是为了**看趋势**，但**别再据此派"给 effectsOf 加缓存"的活**——那已经做完了。
+> ⇒ §3 末尾"同族但量级小"里 `effectsOf/surfacesOf` 与 `anim.ets` 两条**已销账**；
+> 仍未销账的只剩 **`blocksSignature`**（`pages/Index.ets:4253` 每次 sync 调 2 次，基线 33–110 µs）。
+
 | 热点 | 基线 | 说明 |
 |---|---|---|
-| `paletteOf()` | **0.01 µs/次**（很便宜） | 每次**新建** `Palette`（无记忆化，`core/theme.ets:352`）——但实测极便宜，**不是瓶颈** |
-| `effectsOf()` | **2.1–3.3 µs/次** | **比 `paletteOf` 贵 ~250×**，每次新建 `Effects`（`core/theme.ets:531`）。调用点 57 处 |
-| `surfacesOf()` | **1.7–5.7 µs/次** | 同上（`core/theme.ets:755`） |
-| `animFast/Base/Slow/Spring/MsgIn()` | 14 调用点 | 每次调用 → 新 `AnimateParam` **+ 新 `ICurve`**（`components/anim.ets:28` 里 `curves.cubicBezierCurve` **未记忆化**） |
+| `blocksSignature(340 块)` | **33.3 µs/次**（护栏上限 400 ✅） | **仍是最贵的 O(块数) 操作**；`pages/Index.ets:4253` 每次 sync 调 **2 次** ⇒ 单次 sync ≈ **67 µs**。⛔ 该文件属滚动行调度者，**不在 perf 线可改域** |
+
 | 常驻定时器 | `setInterval` **4** 处 / `setTimeout` **5** 处 | `AssistantOrb.ets` 2 / `LiveTailView.ets` 3（20Hz 打字机）/ `SettingsDeveloper` 2 / `pages/Index.ets` 6 处（含 600ms 脉冲） |
 - 真机 CPU（同一台模拟器，7s 窗口，`hidumper --cpuusage <pid>`）：
   **空态（无 live 行）0.05%** vs **流式中 4.4–4.7%**（该会话只有 30 行 / 0 块）

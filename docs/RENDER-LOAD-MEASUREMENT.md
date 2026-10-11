@@ -151,3 +151,52 @@ table-row 1531 · code-fence 1464 · heading 1230 · math 151 · hr 145 · quote
 ```bash
 # 登录 → /api/session-tree 取 chat_* → 逐个 /api/history → 统计行首标记与行内模式
 ```
+
+---
+
+## 真机**动态**指标采集（2026-10-11 首轮；方法固化）
+
+> 上面全部是**静态/规模代理**（要渲染多少）。本节补**真机上跑起来之后**的数字：
+> 帧率 / 内存 / CPU。工具 = 设备自带 `SP_daemon`（OpenHarmony SmartPerf 命令行版）
+> + `hidumper`，或仓内脚本 `tools/perf/scroll_fps.sh`（新增，**默认被动、不驱动 UI**）。
+
+### 采集口径与命令（可照抄）
+
+| 指标 | 命令 | 口径/说明 |
+|---|---|---|
+| 进程 PSS | `hdc -t <T> shell "hidumper --mem <pid>"` | 取表尾 `Total` 行的 `Pss Total (kB)` |
+| 进程 CPU% | `hdc -t <T> shell "hidumper --cpuusage <pid>"` | 一个采样窗口一行；**连续采 3 次**取众数（单次抖动大） |
+| 滚动帧率 / jank | `TARGET=<T> bash tools/perf/scroll_fps.sh 8` | `SP_daemon -N 8 -PID <pid> -f`；**默认不滚**，采集窗口内**人工滚**长会话；`--drive` 才由脚本代滚 |
+| 渲染规模（节点） | `TARGET=<T> bash tools/perf/render_scale.sh` | `uitest dumpLayout`（只读 dump，不点不滑） |
+| 冷启动骨架 | `TARGET=<T> bash tools/perf/coldstart.sh 25` | **被动**监听 hilog，绝不 force-stop |
+
+⛔ **两条防坑（本波踩过/已记录）**
+1. **流式/注入类锚点**：必须先 `hdc shell hilog -r` 清缓冲，**再触发一次真正的导航/操作**
+   —— 只清日志不重新触发 ⇒ **0 命中是假阴性**（`docs/WEB-PARITY.md §8.7-C` 同款教训）。
+2. `hdc shell hilog`（无参数）**会一直流不返回**（超时会挂死脚本）⇒ 用设备侧
+   `hilog -x > /data/local/tmp/h.txt` 再 `hdc file recv`。
+
+### 首轮实测（2026-10-11，`8d73980`，模拟器 `xbot_phone` 1320×2848）
+
+| 指标 | 实测 | 场景 | 判读 |
+|---|---|---|---|
+| **Pss Total** | **218 497 kB ≈ 213 MB** | 前台空转（原生聊天面） | 无预算项 ⇒ 记基线；**滚动不应单调爬升**（爬升才是泄漏） |
+| ark ts heap | 61 234 kB | 同上 | JS/ArkTS 堆，主要可控项 |
+| native heap | 101 255 kB | 同上 | 含 `.so`/Canvas 等 |
+| **app CPU** | **0.00 / 0.02 / 0.03 %**（3 次采样） | 空态（无 live 行） | ✅ 与既有基线 0.05% 同量级 ⇒ 空转确实不烧电 |
+| 屏幕节点总数 | **83**（ListItem=1） | 原生聊天面、1 行占屏 | 与 §1.5 的 63（空态）/217（30 行）同口径 |
+| 离线微基准（护栏） | `✅ 31 / ❌ 0` | `bash tools/perf/guard.sh` | 见 `docs/PERF-BUDGET.md §1`；数字以 guard 输出为准 |
+
+⚠️ **本波未采到的三项**（原因：设备正被另一条线做真机验收，按协作纪律未做任何交互）：
+**① 大会话滚动帧率/jank**、**② 冷启动窗口内样本**、**③ 流式期 CPU**（需在设备上触发一次真实生成）。
+⇒ 解封后按上表命令补采（`scroll_fps.sh` 已就绪）。
+
+### 判读口径（与预算表对应）
+
+- **帧率**：滚动窗口内应贴近屏幕刷新率；明显低于刷新率 / jitters 高 ⇒ 掉帧。先看这条链：
+  **单行块数**（§1.4：真实最重 340 块）→ **行内窗口化**（`MSG_BLOCK_WINDOW=24`，已落地）
+  → **节点数**（`render_scale.sh`）。三者的关系是乘法的，任一项失控都会顶穿单帧预算。
+- **CPU**：空态基线 **≤0.05%**；流式基线 **4.4–4.7%**（`docs/PERF-BUDGET.md §1.6`，定时器地板）。
+  滚动期若**无流式**却 >5% ⇒ 先查是否同屏多枚 30fps Canvas 光球（`components/AssistantOrb.ets`）。
+- **内存**：PSS 只在"切会话/加载历史"时**阶梯**上升；**随滚动单调爬升 = 泄漏**。
+
