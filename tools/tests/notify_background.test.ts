@@ -194,10 +194,13 @@ ok('落盘层与扩展**同源取数**（`turnKeyOf` + `/api/history` 的 `last_
 // 背景：此前全仓 0 调用 ⇒ 登出后后台对账仍带着旧会话空跑（读不到 cookie 只是静默跳过）。
 // 修法：`core/notify.clearAll`（"整机清场"既有出口，`store.ets` 在 401 时调它）
 // → 端口 `sessionClearedHook()` → `workreconcile/schedule.cancelReconcileScheduled`。
-eq('⛔ `cancelReconcileScheduled` 全仓有 **恰 1** 个真调用点（合计 2 − 定义 1）',
-  grepTree('entry/src/main/ets', 'cancelReconcileScheduled(') - 1, 1);
+eq('⛔ `cancelReconcileScheduled` 全仓有 **恰 2** 个真调用点（合计 3 − 定义 1）：EntryAbility（清场钩子）+ 显式登出',
+  grepTree('entry/src/main/ets', 'cancelReconcileScheduled(') - 1, 2);
 eq('接线：EntryAbility 在清场钩子里调 `cancelReconcileScheduled();` **恰 1 处**',
   countStr(entry, 'cancelReconcileScheduled();'), 1);
+// 显式登出（`doLogout`）**不调** `clearAll` ⇒ 那条路径不被清场钩子覆盖 ⇒ 必须自己调一次（`00fd338` 补的最后一环）
+eq('接线：`pages/Index.ets` 的 `doLogout` 也调 **恰 1 处**（显式登出不受 `clearAll` 覆盖）',
+  countStr(readS('entry/src/main/ets/pages/Index.ets'), 'cancelReconcileScheduled();'), 1);
 eq('接线：EntryAbility 注册 `setSessionClearedHook(` **恰 1 处**',
   countStr(entry, 'setSessionClearedHook('), 1);
 eq('core 侧：`clearAll` 真的调了端口 `sessionClearedHook()`（非空壳）',
