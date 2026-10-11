@@ -813,3 +813,16 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 - 本轮**更正 5 处过期旧判**（均已在上表就地标注）：`§11.3` Channels ❌→✅、`§11.3` LLM import/export 🟡→✅、
   `§11.7 #3/#4/#5` ❌/🟡→✅、`§11.5 ①`/`§11.7 #2` rewind（已具纯逻辑）。
 - ⛔ 仍未接线的高可感项 = **AnsiText 接色** + **rewind 入口**（两者均**逻辑就绪**，**只差 UI**）。
+
+### 2.9 spec（待排期，主 agent 已裁决「原生应当消费」）——插件玻璃/壁纸/柔焦值未下沉
+
+- **现状（不同源）**：真值来源 = 插件后端值 `plugin_config_get` 的 `glassOpacity`(0.5..1.0) /
+  `wallpaperOpacity`(0.1..1.0) / `glassBlur`(0..24)（`core/settingsplugins.ets:782` 仅注释引用）；
+  **原生端 0 消费点**，而 `core/theme.ets:755 e.glassBlur = 18` 是**写死**的
+  ⇒ 用户在插件里调这三项，**原生玻璃面板/壁纸像素毫无变化**（只在插件自己的 Web UI 内生效）＝期望落空。
+- **裁决**：原生**应当消费**（web 侧生效 ⇒ parity 要求原生也生效）。
+- **建议下沉点**：`core/theme.ets` 的 `effectsOf`（与 `paletteOf` 同级 —— 与强调色修法同构：
+  应用级覆盖下沉到唯一取值入口，而不是散在各消费点）。缓存键需含这三个值。
+- **判据**：改插件 `glassOpacity` ⇒ 原生玻璃面板像素变（真机逐点量像素，方法见 §17.7 的像素量法）；
+  纯逻辑测试 = `effectsOf` 在给定覆盖下逐值断言 + mutation。
+- **归属**：`core/theme.ets` 现归 **brand-impl**（在落浅色专属参数）⇒ **排期由主 agent 串行处理**。
