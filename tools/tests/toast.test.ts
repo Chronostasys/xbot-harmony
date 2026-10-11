@@ -18,7 +18,8 @@ const path = require('path');
 const fs = require('fs');
 
 import {
-  TOAST_KIND_COPY, TOAST_KIND_NOTICE, TOAST_MS_COPY, TOAST_MS_NOTICE,
+  TOAST_KIND_COPY, TOAST_KIND_NOTICE, TOAST_KIND_NOTICE_ERR, TOAST_KIND_NOTICE_OK,
+  TOAST_MS_COPY, TOAST_MS_NOTICE, TOAST_MS_NOTICE_ERR, TOAST_MS_NOTICE_OK,
   emptyToast, nextToast, toastDurationMs, toastExpired, toastLabel, toastVisible,
 } from '../../entry/src/main/ets/core/toast';
 import { COPY_FEEDBACK_MS } from '../../entry/src/main/ets/core/feedback';
@@ -117,7 +118,21 @@ function eq(name: string, got: unknown, want: unknown): void {
   ok('⛔ 组件不自持定时器（无 setTimeout(）—— dismiss 只能由页面 `delay()` 驱动', code.indexOf('setTimeout(') < 0);
 }
 
-// ── 汇总 ──────────────────────────────────────────────────────────────────
-if (fail > 0) { console.log(`  toast: ${pass} passed, ${fail} failed`); process.exit(1); }
-console.log(`  toast: ${pass} passed, 0 failed`);
-process.exit(0);
+// ── ⓪b notice **分场景**档（对齐 web 的两个 call site；此前是单一 2560）──────────
+eq('notice-ok 档 = 5000（web ToolRender.tsx:508）', TOAST_MS_NOTICE_OK, 5000);
+eq('notice-err 档 = 4000（web ToolRender.tsx:514）', TOAST_MS_NOTICE_ERR, 4000);
+eq('notice-ok ⇒ 5000（映射）', toastDurationMs(TOAST_KIND_NOTICE_OK), TOAST_MS_NOTICE_OK);
+eq('notice-err ⇒ 4000（映射）', toastDurationMs(TOAST_KIND_NOTICE_ERR), TOAST_MS_NOTICE_ERR);
+// 向后兼容：旧 `notice` 与未知类别 ⇒ 一般档 2560（老 call site 行为不变）
+eq('notice（旧）⇒ 2560（向后兼容）', toastDurationMs(TOAST_KIND_NOTICE), TOAST_MS_NOTICE);
+eq('未知类别 ⇒ 2560（保守，宁可多留）', toastDurationMs('mystery-kind'), TOAST_MS_NOTICE);
+
+// ── 汇总（⚠️ 见下：这里曾是**陷阱**）────────────────────────────────────────
+//
+// ⛔ **历史陷阱（2026-10-11 实锤）**：本文件的汇总**曾是**
+//      `if (fail > 0) { console.log(\`  toast: ${pass} passed, ${fail} failed\`); process.exit(1); }`
+//    ⇒ 那个 `console.log` **在失败分支之内** ⇒ 任何以它作"末尾前"锚点插入的断言
+//    **落在 `fail===0` 永不执行的死区** ⇒ "加了 4 条断言，改前/改后/mutation 三次都是 29 passed"。
+// ⛔ **新纪律**：汇总**无条件打印**、退出码由 `fail` 决定（下两行）—— 别再把它包进 `if`。
+console.log(`  toast: ${pass} passed, ${fail} failed`);
+process.exit(fail > 0 ? 1 : 0);

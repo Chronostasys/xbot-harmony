@@ -23,6 +23,14 @@ import { ORB_BREATH_MS } from './orb';
 export const TOAST_KIND_COPY: string = 'copy';
 /** 一般提示（链接失败 / 保存成功 / 附件上限 …）—— 文案由调用方给。 */
 export const TOAST_KIND_NOTICE: string = 'notice';
+/**
+ * **notice 分场景档**（对齐 web 的两个 call site，把"一般提示"拆成成功/失败两支）：
+ *   · `NOTICE_OK`  = 后台任务**成功**反馈（web `ToolRender.tsx:508 duration: 5000`）；
+ *   · `NOTICE_ERR` = **失败/重试**反馈（web `ToolRender.tsx:514 duration: 4000`）。
+ * ⚠️ 失败档**更短**（4000 < 5000）不是笔误 —— web 就这么写的（失败是打扰，少留一会儿）。
+ */
+export const TOAST_KIND_NOTICE_OK: string = 'notice-ok';
+export const TOAST_KIND_NOTICE_ERR: string = 'notice-err';
 
 // ── 时长档（**全部派生自底座**，零裸数字）─────────────────────────────────────
 /**
@@ -36,10 +44,25 @@ export const TOAST_MS_COPY: number = COPY_FEEDBACK_MS;
  * ⇒ 沿用"刻度派生"口径（⛔ 不新造时长；近似值且唯一来源）。
  */
 export const TOAST_MS_NOTICE: number = ORB_BREATH_MS;
+/**
+ * **notice-ok** 档 = 5000ms —— 与 web `ToolRender.tsx:508`（后台任务**成功** `duration: 5000`）逐值一致。
+ */
+export const TOAST_MS_NOTICE_OK: number = 5000;
+/**
+ * **notice-err** 档 = 4000ms —— 与 web `ToolRender.tsx:514`（**失败/重试** `duration: 4000`）逐值一致。
+ */
+export const TOAST_MS_NOTICE_ERR: number = 4000;
 
-/** 类别 → 时长档（唯一映射）。未知类别 ⇒ 按一般提示（保守：宁可多留一会儿）。 */
+/**
+ * 类别 → 时长档（唯一映射）。
+ * · `copy` ⇒ 复制档（1200）；· `notice-ok` ⇒ 5000；· `notice-err` ⇒ 4000；
+ * · 其余（含旧 `notice` 与未知类别）⇒ 一般档 2560（**向后兼容**：老 call site 行为不变）。
+ */
 export function toastDurationMs(kind: string): number {
-  return kind === TOAST_KIND_COPY ? TOAST_MS_COPY : TOAST_MS_NOTICE;
+  if (kind === TOAST_KIND_COPY) { return TOAST_MS_COPY; }
+  if (kind === TOAST_KIND_NOTICE_OK) { return TOAST_MS_NOTICE_OK; }
+  if (kind === TOAST_KIND_NOTICE_ERR) { return TOAST_MS_NOTICE_ERR; }
+  return TOAST_MS_NOTICE;
 }
 
 /**
