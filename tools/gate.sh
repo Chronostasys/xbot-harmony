@@ -27,6 +27,21 @@ bash "$HERE/lint/render-path.sh" || fail=1
 echo "===== ③ core/ 静态检查 ====="
 bash "$HERE/typecheck/check.sh" || fail=1
 
+# ⚠️ 新增（本波）：在飞动效单一来源 —— 铁律「同一时刻只允许一个**在飞动效** = 光球」的机器门禁。
+#    **默认 A 硬红 / B 警告**（刻意**不加** `--strict`）：A 类（循环/重复类 = 真·在飞动效）判红；
+#    B 类（连续动画 LoadProgress/Marquee、未走动底座的一次性过渡，实测 18 条）**仅警告、不误伤**。
+#    放在 ④ ArkTS 真编译**之前**：它只扫源码、秒级（实测 ~2s），属"离线"块 ⇒ 快速失败、不碰构建锁。
+#    `LC_ALL=C` 是**规避**（不是修复）：本仓 AGENTS.md GOTCHA —— bash 3.2 + UTF-8 locale 会把
+#    `$var（` 的 `（` 吞进变量名。gate 在 ④ 里 `source env.sh`（LANG=zh_CN.UTF-8）⇒ 之后的子脚本
+#    若写 `$var（` 就会 `unbound variable`。**已知**：`tools/perf/guard.sh:83` 有这处（其作者
+#    perf-audit 应改成 `${fail}`）；此处统一在 C locale 下跑离线 lint，保证 gate 判定与开发者
+#    locale 无关（不掩盖逻辑，只消掉解析隐患）。
+echo "===== ③b 在飞动效单一来源（A 硬红 / B 警告）====="
+inflight_t0=$(date +%s)
+LC_ALL=C bash "$HERE/lint/inflight-single-source.sh" || fail=1
+inflight_dt=$(( $(date +%s) - inflight_t0 ))
+echo "（③b 耗时 ${inflight_dt}s）"
+
 echo "===== ④ ArkTS 编译（唯一能抓 ArkTS 错误的判据）====="
 if [ -f "$HOME/ohos-cli/env.sh" ]; then
   # shellcheck disable=SC1090
@@ -92,9 +107,18 @@ bash "$HERE/lint/orphan-components.sh" || true
 echo "===== ⑥ 判据单一性（警告级，不影响退出码）====="
 bash "$HERE/lint/criteria-single-source.sh" || true
 
+# ⚠️ 新增（本波）：性能静态预算（`perf-audit` 交付）。秒级零抖动、**硬红**。
+#    ⛔ 刻意放在**最后一步**：它不读 ArkUI 源码、只做静态预算比对，**不与 ④ 的 ArkTS 真编译争构建锁**，
+#    也不拖慢主流程（实测 ~0s）。产物/耗时照打（便于识别假绿）。
+echo "===== ⑦ 性能静态预算（秒级，硬红）====="
+perf_t0=$(date +%s)
+LC_ALL=C bash "$HERE/perf/guard.sh" --static || fail=1
+perf_dt=$(( $(date +%s) - perf_t0 ))
+echo "（⑦ 耗时 ${perf_dt}s）"
+
 echo
 if [ "$fail" -ne 0 ]; then
   echo "❌ 真门禁**未通过**（见上方红灯）"
   exit 1
 fi
-echo "✅ 真门禁全绿（离线三条 + ArkTS 编译）"
+echo "✅ 真门禁全绿（离线三条 + 在飞单一来源 + ArkTS 编译 + 性能预算）"
