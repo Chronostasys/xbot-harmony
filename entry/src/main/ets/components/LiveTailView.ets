@@ -426,7 +426,8 @@ return renderKind(t.status, t.exit_code, true);
   OverflowBadge() {
     Text(`+${this.hideN()}`)
       .fontSize(FS_CAPTION)
-      .fontColor(this.pal().textMuted)
+      // 可点（点开溢出全量浮层）⇒ 弱档 `textMuted` 在 porcelain 对 chip 仅 2.27:1 < 3 ⇒ 用达标档 `textSecondary`
+      .fontColor(this.pal().textSecondary)
       .padding({ left: SP_2, right: SP_2, top: INSET_PILL_Y, bottom: INSET_PILL_Y })
       .margin(GAP_PILL)
       .backgroundColor(this.overOpen ? this.pal().surfaceHi : surfaceFillOf(this.pal(), SURFACE_CHIP))

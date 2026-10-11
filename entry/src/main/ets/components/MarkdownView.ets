@@ -13,7 +13,7 @@ import {
   MD_TABLE_CELL_Y, MD_TABLE_SIZE, MdHeading, mdHeadings, typeOf, SPACE_HAIR,
   // `#13` 视觉裁决（`docs/WEB-ALIGNMENT.md §16.2 #13`）：代码块底 = `surface.well`(sunken)、
   // 圆角 = `RADIUS_CARD`、边 = 结构性发丝 `hairlineOf`。
-  PRESS_OPACITY, RADIUS_CARD, hairlineOf, wellOf, ICON_SM } from '../core/design';
+  PRESS_OPACITY, RADIUS_CARD, colorOf, hairlineOf, wellOf, ICON_SM } from '../core/design';
 import { COPY_FEEDBACK_MS, copyLabel } from '../core/feedback';
 import {
   MdBlock, MdBlockKind, MdSpan, alignOf, parseInlineCached, parseMarkdownCached,
@@ -263,7 +263,7 @@ export struct MarkdownView {
               SymbolGlyph(this.liChecked(b, k) === 1
                 ? $r('sys.symbol.checkmark_circle_fill') : $r('sys.symbol.circle'))
                 .fontSize(typeOf('type.callout').size)
-                .fontColor([this.liChecked(b, k) === 1 ? this.pal().successText : this.pal().textMuted])
+                .fontColor([this.liChecked(b, k) === 1 ? this.pal().successText : colorOf(this.pal(), 'iconMuted')])
                 .margin({ top: SPACE_HAIR })
                 .flexShrink(0)
             } else {

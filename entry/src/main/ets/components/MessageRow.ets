@@ -22,7 +22,7 @@ import { R_MD, R_XL, R_LG, SP_1, SP_2, SP_3, FS_CAPTION, FS_META } from '../core
 // 语义令牌（`7841978` §4.6/§4.7/§6）：浮层宽 / 分隔条高 / 全圆角 / pill 间距与最大宽 / 按压。
 import {
   ELEV_OVERLAY, GAP_PILL, INSET_PILL_Y, OVERLAY_ROW_H, PILL_MAX_W, POPOVER_W, POPOVER_W_OVERFLOW,
-  PRESS_OPACITY, RADIUS_CARD, RADIUS_FULL, SPACE_HAIR, elevationColorOf, surfaceFillOf,
+  PRESS_OPACITY, RADIUS_CARD, RADIUS_FULL, SPACE_HAIR, colorOf, elevationColorOf, surfaceFillOf,
 } from '../core/design';
 import {
   anchorsAt, COMPACTED_LABEL, compactionAnchors, splitMarker,
@@ -538,7 +538,8 @@ export struct MessageRowView {
             SymbolGlyph($r('sys.symbol.arrow_counterclockwise')).fontSize(12).fontColor([this.pal().warn])
             Text('加载失败 · 重试').fontSize(FS_META).fontColor(this.pal().warn)
           } else {
-            SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(12).fontColor([this.pal().textMuted])
+            // 图标取色走 `iconMuted`（弱图标专用角色；porcelain 下 `textMuted` 压 chip 仅 2.27:1 < 3）
+            SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(12).fontColor([colorOf(this.pal(), 'iconMuted')])
             Text(`更早的 ${this.row.regionsBefore} 个区域`).fontSize(FS_META).fontColor(this.pal().textMuted)
           }
         }
@@ -610,7 +611,8 @@ export struct MessageRowView {
       //     同上方 `autoLoadRegions` 的纪律）。一次放开 `MSG_BLOCK_BATCH` 块。
       if (this.hiddenBlocks() > 0) {
         Row({ space: 6 }) {
-          SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(12).fontColor([this.pal().textMuted])
+          // 图标取色走 `iconMuted`（弱图标专用；porcelain 下 `textMuted` < 3:1）
+          SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(12).fontColor([colorOf(this.pal(), 'iconMuted')])
           Text(`更早的 ${this.hiddenBlocks()} 个迭代块`).fontSize(FS_META).fontColor(this.pal().textMuted)
         }
         .width('100%')
@@ -895,7 +897,8 @@ export struct MessageRowView {
   OverflowBadge(it: HistoryIteration) {
     Text(`+${this.hideCount(it)}`)
       .fontSize(FS_CAPTION)
-      .fontColor(this.pal().textMuted)
+      // 可点（点开溢出全量浮层）⇒ 弱档 `textMuted` 压 overlay 仅 2.37:1 < 3 ⇒ 用达标档 `textSecondary`
+      .fontColor(this.pal().textSecondary)
       .padding({ left: SP_2, right: SP_2, top: INSET_PILL_Y, bottom: INSET_PILL_Y })
       .margin(GAP_PILL)
       .backgroundColor(this.overIter === it.iteration ? this.pal().surfaceHi : this.pal().surfaceAlt)
@@ -1045,10 +1048,12 @@ struct CompactionDividerRow {
         // 虚线胶囊（web `rounded-full border border-dashed border-border bg-bg-secondary
         //   px-2.5 py-0.5 text-[11px] text-text-muted`）
         Row({ space: 6 }) {
-          SymbolGlyph($r('sys.symbol.archivebox')).fontSize(12).fontColor([this.pal().textMuted])
+          // 图标取色走 `iconMuted`（弱图标专用；porcelain 下 `textMuted` < 3:1）
+          SymbolGlyph($r('sys.symbol.archivebox')).fontSize(12).fontColor([colorOf(this.pal(), 'iconMuted')])
           Text(COMPACTED_LABEL).fontSize(FS_META).fontColor(this.pal().textMuted)
           if (this.body.length > 0) {
-            SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(12).fontColor([this.pal().textMuted])
+            // 同上：折叠指示图标走 `iconMuted`
+            SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(12).fontColor([colorOf(this.pal(), 'iconMuted')])
               .rotate({ angle: this.open ? 180 : 0 })
               .animation(animFast())
           }

@@ -26,7 +26,7 @@ import { D_BASE, EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_BOOT_WOR
 import {
   GAP_BLOCK, HIT_TARGET_MIN, ICON_MD, INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X, INSET_ROW_Y,
   PRESS_OPACITY, PRESS_SCALE, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, RADIUS_SHEET, SPACE_HAIR, SPACE_LG, SPACE_MD,
-  SPACE_SM, SPACE_XL, SPACE_XS, SPACE_XXL, SPACE_XXS, STROKE_HAIRLINE, hairlineOf, insetHairlineOf, surfaceFillOf, typeOf,
+  SPACE_SM, SPACE_XL, SPACE_XS, SPACE_XXL, SPACE_XXS, STROKE_HAIRLINE, colorOf, hairlineOf, insetHairlineOf, surfaceFillOf, typeOf,
 } from '../core/design';
 import { isUnauthorized, loadErrHint, loadErrTitle, needsRelogin, needsSessionRefresh } from '../core/autherr';
 import {
@@ -3970,7 +3970,7 @@ struct Index {
                 if (this.tabRunning(cid)) {
                   Row().width(6).height(6).borderRadius(6 / 2).backgroundColor(this.pal().successText)
                 }
-                SymbolGlyph($r('sys.symbol.xmark')).fontSize(11).fontColor([this.pal().textMuted])
+                SymbolGlyph($r('sys.symbol.xmark')).fontSize(11).fontColor([colorOf(this.pal(), 'iconMuted')])
                   .onClick(() => {
                     this.closeTab(cid);
                   })
@@ -6090,7 +6090,7 @@ struct Index {
         Column({ space: SPACE_SM }) {
           SymbolGlyph($r('sys.symbol.square_grid_2x2'))
             .fontSize(typeOf('type.display').size)
-            .fontColor([this.pal().textMuted])
+            .fontColor([colorOf(this.pal(), 'iconMuted')])
           Text(drawerEmptyHint(this.drawerEmpty()))
             .fontSize(typeOf('type.subhead').size)
             .fontColor(this.pal().textPrimary)
@@ -6144,7 +6144,7 @@ struct Index {
             ListItem() {
               Row({ space: SPACE_XS }) {
                 SymbolGlyph($r('sys.symbol.chevron_right'))
-                  .fontSize(typeOf('type.micro').size).fontColor([this.pal().textMuted])
+                  .fontSize(typeOf('type.micro').size).fontColor([colorOf(this.pal(), 'iconMuted')])
                   .rotate({ angle: this.isGroupCollapsed(this.sessionCategory(), g.key) ? 0 : 90 })
                 Text(g.title)
                   .fontSize(typeOf('type.micro').size).fontWeight(typeOf('type.subhead').weight).fontColor(this.pal().textSecondary)
@@ -6237,7 +6237,7 @@ struct Index {
                           SymbolGlyph(this.isStarredChat(s.chat_id)
                             ? $r('sys.symbol.star_fill') : $r('sys.symbol.star'))
                             .fontSize(typeOf('type.headline').size)
-                            .fontColor([this.isStarredChat(s.chat_id) ? this.pal().accent : this.pal().textMuted])
+                            .fontColor([this.isStarredChat(s.chat_id) ? this.pal().accent : colorOf(this.pal(), 'iconMuted')])
                             .padding(SPACE_XS)
                             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                             .onClick(() => {
@@ -6290,7 +6290,7 @@ struct Index {
           Text('设置')
             .fontSize(typeOf('type.subhead').size).fontColor(this.pal().textPrimary).layoutWeight(1)
           SymbolGlyph($r('sys.symbol.chevron_right'))
-            .fontSize(typeOf('type.caption').size).fontColor([this.pal().textMuted])
+            .fontSize(typeOf('type.caption').size).fontColor([colorOf(this.pal(), 'iconMuted')])
         }
         .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
         .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
@@ -6305,7 +6305,7 @@ struct Index {
           Text('面板（任务 / 子代理 / Runner）')
             .fontSize(typeOf('type.subhead').size).fontColor(this.pal().textPrimary).layoutWeight(1)
           SymbolGlyph($r('sys.symbol.chevron_right'))
-            .fontSize(typeOf('type.caption').size).fontColor([this.pal().textMuted])
+            .fontSize(typeOf('type.caption').size).fontColor([colorOf(this.pal(), 'iconMuted')])
         }
         .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
         .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
@@ -6319,7 +6319,7 @@ struct Index {
           Text('能力面板（插件 / Web UI）')
             .fontSize(typeOf('type.subhead').size).fontColor(this.pal().textPrimary).layoutWeight(1)
           SymbolGlyph($r('sys.symbol.chevron_right'))
-            .fontSize(typeOf('type.caption').size).fontColor([this.pal().textMuted])
+            .fontSize(typeOf('type.caption').size).fontColor([colorOf(this.pal(), 'iconMuted')])
         }
         .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
         .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
