@@ -22,6 +22,16 @@ declare const __dirname: string;
 import { rowIsEmpty, rowHasInFlightSignal } from '../../entry/src/main/ets/core/streammerge';
 import { ChatRow, HistoryIteration, ToolProgress } from '../../entry/src/main/ets/core/types';
 
+/**
+ * **剥注释**（本仓约定：注释里记代码片段/色值是**允许且鼓励**的 ⇒ 判据扫源码前**必须**先剥，
+ * 否则两个方向都错：禁串被注释提及 ⇒ **假红**；要求串只在注释里出现 ⇒ **假绿**）。
+ * ⚠️ 保留换行（不压行）⇒ 行号不漂移（本仓已入库 GOTCHA）。
+ */
+function stripSrc(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, (m: string) => m.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (m: string, p: string) => p + ' '.repeat(m.length - p.length));
+}
+
 let pass = 0;
 let fail = 0;
 function ok(name: string, cond: boolean): void {
@@ -85,8 +95,8 @@ ok('哨兵字面量与 web 同值', sentinel.content.trim() === '(empty response
 const fsMod = require('fs');
 const pathMod = require('path');
 const repoRoot = pathMod.join(__dirname, '..', '..', '..', '..');
-const rowSrc: string = fsMod.readFileSync(
-  pathMod.join(repoRoot, 'entry', 'src', 'main', 'ets', 'components', 'MessageRow.ets'), 'utf-8');
+const rowSrc: string = stripSrc(fsMod.readFileSync(
+  pathMod.join(repoRoot, 'entry', 'src', 'main', 'ets', 'components', 'MessageRow.ets'), 'utf-8'));
 
 // (B1) 判定：必须"已结束"才说话（否则与在飞占位打架）
 const noticeBody: string = bodyOf(rowSrc, 'private showsEmptyNotice(): boolean {');
@@ -128,6 +138,17 @@ const banned: string[] = ['size', 'width', 'height', 'position', 'offset', 'scal
   'opacity', 'visibility', 'clip', 'zIndex', 'id', 'key', 'enabled'];
 for (let i = 0; i < banned.length; i++) {
   hasNot(noticeComp, `@Prop ${banned[i]}:`, `基类成员名黑名单：${banned[i]} 未用作 @Prop`);
+}
+
+
+// ── 剥注释的**判别力自证**（防"剥注释把扫描也剥没了"这类白绿）──────────────────────
+{
+  ok('判别力：**注释里**的禁串被剥掉（不误红）',
+    stripSrc('// .fontColor([this.pal().textMuted])').indexOf('.fontColor(') < 0);
+  ok('判别力：**代码里**的同一串仍在（不误绿）',
+    stripSrc('const a = 1; .fontColor([this.pal().textMuted])').indexOf('.fontColor(') >= 0);
+  ok('判别力：剥注释**保留换行**（行号不漂移）',
+    stripSrc('a\n// x\nb').split('\n').length === 3);
 }
 
 if (fail > 0) {

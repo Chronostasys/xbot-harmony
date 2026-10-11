@@ -25,6 +25,16 @@ declare const __dirname: string;
 import { D_SLOW } from '../../entry/src/main/ets/core/tokens';
 import { ORB_BREATH_MS, orbBreath, orbParticles, ORB_SPIN_MS } from '../../entry/src/main/ets/core/orb';
 
+/**
+ * **剥注释**（本仓约定：注释里记代码片段/色值是**允许且鼓励**的 ⇒ 判据扫源码前**必须**先剥，
+ * 否则两个方向都错：禁串被注释提及 ⇒ **假红**；要求串只在注释里出现 ⇒ **假绿**）。
+ * ⚠️ 保留换行（不压行）⇒ 行号不漂移（本仓已入库 GOTCHA）。
+ */
+function stripSrc(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, (m: string) => m.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (m: string, p: string) => p + ' '.repeat(m.length - p.length));
+}
+
 let pass = 0;
 let fail = 0;
 function ok(name: string, cond: boolean): void {
@@ -52,10 +62,13 @@ const fsMod = require('fs');
 const pathMod = require('path');
 const repoRoot = pathMod.join(__dirname, '..', '..', '..', '..');
 const COMP = pathMod.join(repoRoot, 'entry', 'src', 'main', 'ets', 'components');
-const animSrc: string = fsMod.readFileSync(pathMod.join(COMP, 'anim.ets'), 'utf-8');
-const orbSrc: string = fsMod.readFileSync(pathMod.join(COMP, 'AssistantOrb.ets'), 'utf-8');
-const tailSrc: string = fsMod.readFileSync(pathMod.join(COMP, 'LiveTailView.ets'), 'utf-8');
-const thinkSrc: string = fsMod.readFileSync(pathMod.join(COMP, 'ThinkingLine.ets'), 'utf-8');
+const animSrc: string = stripSrc(fsMod.readFileSync(pathMod.join(COMP, 'anim.ets'), 'utf-8'));
+const orbSrc: string = stripSrc(fsMod.readFileSync(pathMod.join(COMP, 'AssistantOrb.ets'), 'utf-8'));
+const tailSrc: string = stripSrc(fsMod.readFileSync(pathMod.join(COMP, 'LiveTailView.ets'), 'utf-8'));
+// ⚠️ 本文件**唯一**一条「断言对象就是注释」的判据（见下方"理由必须写在接线点旁"）⇒ 它得读**原文**：
+//    否则会把"注释里有、代码里没有"误判。其余判据一律用剥过的 `tailSrc`。
+const tailRaw: string = fsMod.readFileSync(pathMod.join(COMP, 'LiveTailView.ets'), 'utf-8');
+const thinkSrc: string = stripSrc(fsMod.readFileSync(pathMod.join(COMP, 'ThinkingLine.ets'), 'utf-8'));
 
 // ── (a) 共享节奏刻度：整组唯一心跳，且**全部由既有刻度派生**（禁新造时长）────────
 has(animSrc, 'export const MOTION_BREATH_MS: number = ORB_BREATH_MS;',
@@ -129,12 +142,25 @@ has(tailSrc, 'this.caretAlpha = this.reduceMotion() ? 1 : 0.35 + 0.65 * orbBreat
 has(orbSrc, 'this.ready && this.active && !this.paused && !this.reduceMotion && this.visible;',
   '光球 shouldRun() 含 reduceMotion（另含 visible：不可见 ⇒ 停表）');
 // 降级来源的真实性：API 21 拿不到系统值（@since 23）—— 断言注释/理由留在代码里，防止被"顺手接上"
-has(tailSrc, '@since 23', '降级来源不可用的理由（@since 23）写在接线点旁');
+// ⚠️ 剥注释后暴露的**真缺陷**（2026-10-11 清扫）：这条要求"理由**写在接线点旁**" ⇒ 命中的本来就
+//    只有**注释** ⇒ 用剥过的 `tailSrc` 会红/（修复前是）假绿。改用**原文** `tailRaw`（本条断言对象就是注释）。
+has(tailRaw, '@since 23', '降级来源不可用的理由（@since 23）写在接线点旁');
 
 // ── (e) 数值：让位/静默不该改变"既有观感"的等价性 ──────────────────────────────
 // thinking 全权重时，呼吸/公转/轨道都必须是原值（= 既有观感逐值不变）
 eq('公转刻度未变（tool 加速仍是同一函数）',
   orbParticles(9, 1000 * 2.2, 3, ORB_SPIN_MS), orbParticles(9, 1000, 3, ORB_SPIN_MS / 2.2));
+
+
+// ── 剥注释的**判别力自证**（防"剥注释把扫描也剥没了"这类白绿）──────────────────────
+{
+  ok('判别力：**注释里**的禁串被剥掉（不误红）',
+    stripSrc('// .fontColor([this.pal().textMuted])').indexOf('.fontColor(') < 0);
+  ok('判别力：**代码里**的同一串仍在（不误绿）',
+    stripSrc('const a = 1; .fontColor([this.pal().textMuted])').indexOf('.fontColor(') >= 0);
+  ok('判别力：剥注释**保留换行**（行号不漂移）',
+    stripSrc('a\n// x\nb').split('\n').length === 3);
+}
 
 if (fail > 0) {
   console.log(`  inflight_language: ${pass} passed, ${fail} failed`);
