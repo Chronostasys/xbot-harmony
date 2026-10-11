@@ -34,7 +34,7 @@ declare const __dirname: string;
 
 import {
   Palette, Effects, Surfaces, ALL_THEMES, paletteOf, effectsOf, surfacesOf, surfacesComplete,
-  themeLabel, HAIRLINE_TARGET_RATIO, paletteValues, GRADIENT_TEXT_MIN_RATIO,
+  themeLabel, HAIRLINE_TARGET_RATIO, paletteValues, GRADIENT_TEXT_MIN_RATIO, GLASS_BASE_MIN_RATIO,
   contrastRatio, compositeOver, relativeLuminance, parseColorRgba,
 } from '../../entry/src/main/ets/core/theme';
 // 语义令牌层：主按钮字重断言需**解析真值**（`typeOf(role).weight`）而非只认字面量（见下 D 段）。
@@ -594,14 +594,45 @@ eq('nebula glassBg 逐字节不变', effectsOf(paletteOf('nebula')).glassBg, '#9
 //    基色链（`glassBase`）**未动**（light 仍 = surface）。
 //    深色族仍逐字节（见上 dark/aurora/nebula 三条）。
 eq('light glassBg = surface 白 @84%（C3 浅色玻璃更实）', effectsOf(paletteOf('light')).glassBg, '#D6FFFFFF');
-// ⚠️ L2 后 porcelain 的 `surface(#FFFFFF) ≠ appBg(#F7F7F8)` ⇒ 历史那条"玻璃基色切换"**不再必要**
-//    （它的存在前提就是"porcelain 玻璃恒等不可见"）⇒ 基色自动回到 `surface` = 纯白（白玻璃压淡灰画布）。
-eq('porcelain 玻璃基色 = surface（L2 后无需切换，白玻璃压淡灰画布）', surfacesOf(paletteOf('porcelain')).glassBase, '#FFFFFF');
+// ⚠️ 订正（2026-10-11，porcelain-audit ⚠️-2）：旧注释说"L2 后那条玻璃基色切换不再必要" —— 属实，
+//    但 `glassBaseOf` 的旧判据（`surface === appBg`）因此变成**死分支**（5 套主题全为假）
+//    ⇒ 已改成**显式活规则**（阈值守卫）：浅色系 `surface` 对画布 ≥ `GLASS_BASE_MIN_RATIO` 就用它，
+//    否则退 `surfaceAlt`（真·退化面）。porcelain/light 实测 1.0616/1.0462 ⇒ 都走 `surface`（零像素变化）。
+//    ⛔ 审计处方的「浅色一律 surfaceAlt」**被否**（实测打回）：porcelain 玻璃对画布 1.0616 → 1.0088，
+//       跌破本段地板 1.02 ⇒ 是**更不可见**，与"恢复分层感"目标相反 ⇒ 不采纳（下面用活分支判据钉住）。
+eq('porcelain 玻璃基色 = surface（白玻璃压淡灰画布比 surfaceAlt 更可辨）',
+  surfacesOf(paletteOf('porcelain')).glassBase, '#FFFFFF');
 eq('porcelain glassBg = 白 @84%（C3 + L2 基色回 surface）', effectsOf(paletteOf('porcelain')).glassBg, '#D6FFFFFF');
-// L2 后玻璃 = 白@80% 压**淡灰画布** ⇒ 差异来自"玻璃 vs 画布"（不是"玻璃自身带灰"）
-ok('porcelain 玻璃底与画布有可辨差异（白玻璃压淡灰画布）',
+// 逐浅色主题：玻璃基色**仍是 surface**（零回归）+ 玻璃对画布**达地板**（floor 与渲染同源常量）
+for (let ti = 0; ti < LIGHT_FAMILY.length; ti++) {
+  const th: string = LIGHT_FAMILY[ti];
+  const lp: Palette = paletteOf(th);
+  const gb: string = surfacesOf(lp).glassBase;
+  ok(`${th} 玻璃基色仍是 surface（阈值守卫：可辨 ⇒ 不换基色，零回归）`, gb === lp.surface);
+  const gcr: number = contrastRatio(compositeOver(effectsOf(lp).glassBg, lp.appBg), lp.appBg);
+  ok(`${th} 玻璃底对画布达地板 ${GLASS_BASE_MIN_RATIO}（${gcr.toFixed(4)}）`, gcr >= GLASS_BASE_MIN_RATIO);
+}
+// ★ 判别力（活分支自证）：合成两枚退化浅色板 ⇒ `glassBaseOf` 必须退到 `surfaceAlt`。
+//   · ①真退化（surface==appBg，历史 porcelain） ②近同色（surface≈appBg 但不等 —— 旧"== 判据"会漏判）
+//   mutation 自证：把判据改回旧 `surface === appBg` ⇒ ②仍返回 surface（≠ surfaceAlt）⇒ 本段红。
+{
+  const mkSynth = (sur: string, alt: string): Palette => {
+    const q: Palette = new Palette();
+    q.appBg = '#FFFFFF'; q.surface = sur; q.surfaceAlt = alt;
+    q.textPrimary = '#111111'; q.border = '#EEEEEE';
+    return q;
+  };
+  const s1: Palette = mkSynth('#FFFFFF', '#F0F0F0');   // 真退化
+  const s2: Palette = mkSynth('#FEFEFE', '#F0F0F0');   // 近同色（旧 "==" 判据漏判）
+  ok('§E5b 退化浅色板（surface==appBg）⇒ 玻璃基色回退 surfaceAlt（活分支）',
+    surfacesOf(s1).glassBase === '#F0F0F0');
+  ok('§E5b 近同色浅色板（surface≈appBg 但不等）⇒ 也回退 surfaceAlt（阈值判据抓得到）',
+    surfacesOf(s2).glassBase === '#F0F0F0');
+}
+// L2 后玻璃 = 白@84% 压**淡灰画布** ⇒ 差异来自"玻璃 vs 画布"（不是"玻璃自身带灰"）
+ok('porcelain 玻璃底与画布有可辨差异（白玻璃压淡灰画布，≥ 地板 1.02）',
   contrastRatio(compositeOver(effectsOf(paletteOf('porcelain')).glassBg, paletteOf('porcelain').appBg),
-    paletteOf('porcelain').appBg) > 1.0);
+    paletteOf('porcelain').appBg) >= 1.02);
 
 // ════════════════════════════════════════════════════════════════════════════
 // §F 文字层级与余量不变量（波5h：`porcelain.textMuted` 数值决策的守护）
@@ -913,6 +944,76 @@ for (let ti = 0; ti < ALL_THEMES.length; ti++) {
 ok('dark.accent 未被渐变护航改动（品牌主色/发光 token 零回归）',
   contrastRatio(paletteOf('dark').accent, '#FFFFFF').toFixed(4) === '4.3461');
 ok('dark.accentSoft 未动（最亮端仍是原品牌浅紫）', paletteOf('dark').accentSoft === '#B9A7FF');
+
+// ════════════════════════════════════════════════════════════════════════════
+// §J porcelain 语义色**当小号正文**时的**正文级**门槛（porcelain-audit ⚠️-1）
+//
+// 背景：`warn`/`success` 在 porcelain 里被**当小号正文**用（13 处 `.fontColor(pal().warn|success)`，
+// 落点行号见 `core/theme.ets:porcelainPalette` 注释）—— 它们是**语义色**，但在 porcelain 上必须
+// 同时满足 **AA 正文 4.5**（不是 §B 里 `warn` 的那档 3.0 非文本线）。旧值 warn 4.238 / success 4.205
+// 对白底不达标（porcelain 专属；light 主题 warn #92400E = 7.09 / success #047857 = 5.48 早已达标）。
+//
+// 本段把「porcelain 的 warn/success **作正文** ≥4.5」钉成判据（阈值一个没放宽，T_BODY 仍 4.5）：
+//   · 六个白底族面（与 §F 的 POR_FACES 同族）**全部** ≥ T_BODY；
+//   · 三个主要落点（appBg/surface/surfaceAlt）再留 ≥0.15 余量（与 §F2 同刻度，不贴线）。
+// ★ 判别力（mutation 必红）：把 `porcelainPalette` 的 `warn`/`success` 改回 `#B26A00`/`#1E8E3E`
+//   ⇒ 立刻跌破 4.5（4.238/4.205）⇒ 本段红（实测见报告）。
+// ════════════════════════════════════════════════════════════════════════════
+console.log('\n▶ §J porcelain 语义色当正文（warn/success ≥ AA 4.5）');
+/** 作正文消费的 porcelain 语义色（每个都**确有** pages/+components/ 的 `.fontColor` 调用点）。 */
+const POR_TEXT_SEMANTIC: string[] = ['warn', 'success'];
+/** 主要落点（语义色文本最常出现：画布 / 卡片 / 次级 pill）。 */
+const POR_MAIN_FACES: string[] = ['appBg', 'surface', 'surfaceAlt'];
+// 零扫描判红：清单为空 ⇒ 白绿防线（下面 for 一圈都不跑 ⇒ 必须显式判红）
+ok(`§J 待判语义色清单非空（${POR_TEXT_SEMANTIC.length} 个）`, POR_TEXT_SEMANTIC.length > 0);
+ok(`§J 待判面族非空（${POR_FACES.length} 个）`, POR_FACES.length > 0);
+ok(`§J 主要落点非空（${POR_MAIN_FACES.length} 个）`, POR_MAIN_FACES.length > 0);
+for (let i = 0; i < POR_TEXT_SEMANTIC.length; i++) {
+const role: string = POR_TEXT_SEMANTIC[i];
+// 生产接线自证（非空对）：该角色确实被 pages/+components/ 消费（¥roleUses 来自 §D 的全仓扫描）
+ok(`§J ${role} 确有生产调用点（非空对；${roleUses[role]} 处）`, roleUses[role] > 0);
+for (let f = 0; f < POR_FACES.length; f++) {
+const face: string = POR_FACES[f];
+const r: number = contrastRatio(roleHex(POR, role), POR_FACE_HEX[face]);
+ok(`§J porcelain ${role} 压 ${face} ≥ ${T_BODY}（实测 ${r.toFixed(3)}；`
++ `${roleHex(POR, role)} on ${POR_FACE_HEX[face]}）`, r >= T_BODY);
+}
+// 主要落点留余量（与 §F2 同刻度 0.15）
+let minMain: number = 99;
+let minMainFace: string = '';
+for (let f = 0; f < POR_MAIN_FACES.length; f++) {
+const face: string = POR_MAIN_FACES[f];
+const r: number = contrastRatio(roleHex(POR, role), POR_FACE_HEX[face]);
+if (r < minMain) { minMain = r; minMainFace = face; }
+}
+ok(`§J porcelain ${role} 最紧主要落点留余量（${minMainFace} = ${minMain.toFixed(3)}`
++ ` >= ${T_BODY + 0.15}）`, minMain >= T_BODY + 0.15);
+}
+// 零回归：其他四套主题的 warn/success 逐字节不动（本波只改 porcelain）
+eq('§J dark warn 未动', paletteOf('dark').warn, '#E8B44A');
+eq('§J light warn 未动', paletteOf('light').warn, '#92400E');
+eq('§J aurora warn 未动', paletteOf('aurora').warn, '#fbbf24');
+eq('§J nebula warn 未动', paletteOf('nebula').warn, '#fbbf24');
+eq('§J dark success 未动', paletteOf('dark').success, '#3DD68C');
+eq('§J light success 未动', paletteOf('light').success, '#047857');
+// 本波唯一改动的值 → 快照（改坏即红）+ 严格深于旧值（证明真的在修，不是空转）
+eq('§J porcelain warn 新值 = #9C5900', POR.warn, '#9C5900');
+eq('§J porcelain success 新值 = #1B7A34', POR.success, '#1B7A34');
+ok('§J porcelain warn 严格深于旧值 #B26A00',
+relativeLuminance(POR.warn) < relativeLuminance('#B26A00'));
+ok('§J porcelain success 严格深于旧值 #1E8E3E',
+relativeLuminance(POR.success) < relativeLuminance('#1E8E3E'));
+// 色相未变：取值 = 三通道同比压深 ⇒ 通道不升、大小关系（R>G>=B / G>R>B）保持
+ok('§J porcelain warn 三通道均不高于旧值（只压深，不换色）', (() => {
+const n: number[] = parseColorRgba(POR.warn);
+const o: number[] = parseColorRgba('#B26A00');
+return n[0] <= o[0] && n[1] <= o[1] && n[2] <= o[2];
+})());
+ok('§J porcelain success 三通道均不高于旧值（只压深，不换色）', (() => {
+const n: number[] = parseColorRgba(POR.success);
+const o: number[] = parseColorRgba('#1E8E3E');
+return n[0] <= o[0] && n[1] <= o[1] && n[2] <= o[2];
+})());
 
 // ════════════════════════════════════════════════════════════════════════════
 // §H 报告（给设计决策看的真数据 —— 永远打印，不只在失败时）

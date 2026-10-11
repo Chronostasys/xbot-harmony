@@ -49,7 +49,13 @@ export class Palette {
   textSecondary: string = '';
   /** 更弱的说明文字 */
   textMuted: string = '';
-  /** 最弱一档文字（web `--foreground-3`）—— 时间戳/占位等"几乎不该被读到"的层级 */
+  /** 最弱一档文字（web `--foreground-3`）—— 时间戳/占位等"几乎不该被读到"的层级。
+   *  ⚠️ 2026-10-11（porcelain-audit ⚠️-5）：本仓**尚无生产消费点**（pages/+components/ 里 0 处
+   *     `.foreground3`；全仓仅本文件：声明 / 5 套色板赋值 / `withAccent` 逐字段拷贝 / `paletteValues`）
+   *     ⇒ 它是**预留角色**（为对齐 web 权威的 `--foreground-3` **四阶文字契约**而保留）。
+   *     ⛔ **不删**：删了会破 `paletteValues`（穷尽性）/ 五套色板的四阶阶梯 / web parity。
+   *     ⛔ **已登记**：`tools/tests/theme_contrast.test.ts` 的 `ZERO_USE_ROLES` 机械核实它 0 引用；
+   *        一旦有组件开始用 `.foreground3`，那段会**红** ⇒ 那时请把它纳入 §B 判定并给阈值。 */
   foreground3: string = '';
   /** 强调色背景（主按钮） */
   accent: string = '';
@@ -471,15 +477,27 @@ export function porcelainPalette(): Palette {
   p.bubbleUser = '#0071E3';   // Apple 蓝用户气泡（清除紫残留）
   p.border = '#ECECEE';       // 极淡发丝（几乎不可见但存在）
   p.borderStrong = '#D8D8DC'; // 次要按钮描边
-  p.success = '#1E8E3E';
+  // ⚠️ 2026-10-11（porcelain-audit ⚠️-1）：`warn`/`success` 被**当小号正文**用（13 处
+  //   `.fontColor(pal().warn|pal().success)`：`AskUserSheet:113`/`MessageRow:563`/`QueueSheet:111`/
+  //   `SelfCheckSheet:60`/`SettingsAbout:445,461,552,568`/`SettingsChannels:476,556,562,1053`/
+  //   `Index.ets:3942,4053,4196`）⇒ 对白底必须过 **AA 正文 4.5**（旧值仅 4.238/4.205 ⇒ 不达标）。
+  //   取值 = 原值在线性空间**整体压深**（保色相、只改明度，与 neon `accentDeep` 同一手法），
+  //   目标 = porcelain 白底族**六个面**（appBg/surface/surfaceAlt/surfaceHi/sunken/accentDeep）全 ≥4.5：
+  //     warn    `#B26A00` → **`#9C5900`**（最紧面 surfaceHi = 4.674，余量 +0.174）
+  //     success `#1E8E3E` → **`#1B7A34`**（最紧面 surfaceHi = 4.629，余量 +0.129）
+  //   ⛔ 不碰 `successText`(7.13) / `dangerText`(6.57)（已达标，别改浅）；⛔ 阈值一个没放宽。
+  //   门禁：`tools/tests/theme_contrast.test.ts` §J（含零扫描判红 + mutation 自证）。
+  p.success = '#1B7A34';
   p.successText = '#166534';
-  p.warn = '#B26A00';
+  p.warn = '#9C5900';
   p.warnBg = '#FFF4E5';
   p.dangerBg = '#D92D20';
   p.dangerText = '#B42318';
   // 状态四色（running 走主色 blue；waiting 压暗琥珀；idle 中性灰；error 苹果红）
   p.statusRunning = '#0071E3';
-  p.statusWaiting = '#B26A00';
+  // `statusWaiting` 与 `warn` **同值**（保持 porcelain 既有关系）；它作**状态点色**（0 生产文本落点）
+  // ⇒ 同步压深只为与 warn 语义一致（更深一档 ⇒ 点更清楚；非文本需 ≥3:1，此处 ≥4.5，无越界）。
+  p.statusWaiting = '#9C5900';
   p.statusIdle = '#8E8E93';
   p.statusError = '#D70015';
   p.transparent = '#00000000';
@@ -678,19 +696,40 @@ function alphaHex(hex: string, alpha: number): string {
   return `#${hi}${lo}${h.slice(0, 6).toUpperCase()}`;
 }
 
+/** 浅色玻璃底对画布的**最低可辨度**（= `tools/tests/theme_contrast.test.ts` §E5 的地板；判据与渲染同源）。
+ *  低于它 ⇒ 玻璃面板≈画布（"磨砂白材质"失去分层感）⇒ `glassBaseOf` 退到 `surfaceAlt`。 */
+export const GLASS_BASE_MIN_RATIO: number = 1.02;
+
 /**
  * 玻璃拟态面的**基色**（`effectsOf.glassBg` 由它派生，`Surfaces.glassBase` 也暴露它）。
  *
- * 为什么需要单独一层：玻璃底是 `基色 @62%`，压在**画布**上。若基色与画布同色
- * （`porcelain` 的 `surface == appBg == #FFFFFF`），合成结果 = 画布本身 ⇒
- * **玻璃面板在白底上恒等不可见**（实测对比度 1.0000，受影响点：`MarkdownView` 引用块底色）。
- * 深/浅分支此前只覆盖了 `sheen/elev*`，没覆盖玻璃底 —— 这里补上：
- * 浅色系若 `surface` 与画布同色，改用**次级面** `surfaceAlt`（"次级面口径"），
- * 于是白底上也能看出"这是一块面板"。**深色四套逐字节不变**（surface ≠ appBg ⇒ 直接返回 surface）。
+ * 为什么需要单独一层：玻璃底是 **基色 @84%(浅) / @62%(深)**，压在**它身后的画布**上。若基色与画布
+ * 可辨度不足，合成结果≈画布本身 ⇒ 玻璃面板恒等不可见（"磨砂白材质"失去分层感）。
+ *
+ * ── ⚠️ 订正（2026-10-11，porcelain-audit ⚠️-2）──────────────────────────────────────────
+ * 旧实现（+ 旧注释）写「`porcelain` 的 `surface == appBg == #FFFFFF` ⇒ 同色回退 `surfaceAlt`」，
+ * **两个前提都已过期**：L2 把 porcelain 画布改成 `#F7F7F8`（白卡浮淡灰），`surface` 仍是 `#FFFFFF`
+ * ⇒ `p.surface === p.appBg` 对**现有 5 套主题全为假** ⇒ 那条回退是**死分支**（永不触发）。
+ * ⇒ 改为**显式活规则**（同名函数、同签名，仅换判据）：
+ *   · **深色臂**：返回 `surface`（**逐字节不变** —— 玻璃深色=既定正确，其他线依赖其观感）；
+ *   · **浅色臂**：`surface` 对画布**已够可辨**（≥ `GLASS_BASE_MIN_RATIO` = 门禁 §E5 地板）⇒ 就用它；
+ *     否则（历史 porcelain：`surface == appBg` ⇒ 恒等不可见）退到**次级面** `surfaceAlt`，
+ *     且**仅当它确实更可辨**（否则退它反而更糟）。
+ *     现状：porcelain/light 的 `surface` 对画布 **1.0616 / 1.0462**（均 ≥ 1.02）⇒ 走 `surface`
+ *     （**零像素变化**，判据从"死分支"变成"真在算的活规则"）。
+ * ⛔ **曾考虑的「浅色一律 `surfaceAlt`」被否**（审计处方，实测打回）：那会让 porcelain 玻璃对画布掉到
+ *    **1.0088**，跌破门禁 §E5 的地板 **1.02** ⇒ **更不可见**，与"恢复分层感"目标相反；且会把 light
+ *    （`surfaceAlt` 恰比 `surface` 更贴画布）也改坏。本规则保证玻璃底**不差于 surface 方案**，深色零回归。
+ * ⚠️ 判据按 `isLightPalette(p)`（色板亮度），⛔ 不按主题名。
  */
 function glassBaseOf(p: Palette): string {
-  if (isLightPalette(p) && p.surface === p.appBg) { return p.surfaceAlt; }
-  return p.surface;
+  if (!isLightPalette(p)) { return p.surface; }
+  // `surface` 对画布已够可辨（≥ 门禁地板）⇒ 白玻璃压淡灰画布 = 现状，零像素变化。
+  if (contrastRatio(p.surface, p.appBg) >= GLASS_BASE_MIN_RATIO) { return p.surface; }
+  // 退化（surface≈画布 ⇒ 恒等不可见）⇒ 退次级面；仅当它确实更可辨时才退（否则更糟）。
+  return contrastRatio(p.surfaceAlt, p.appBg) > contrastRatio(p.surface, p.appBg)
+    ? p.surfaceAlt
+    : p.surface;
 }
 
 /**

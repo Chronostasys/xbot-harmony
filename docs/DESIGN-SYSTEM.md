@@ -348,7 +348,7 @@ bash tools/lint/color-roles.sh
 |---|---|---|---|
 | `hairline` | **结构性发丝**：承载信息的边界 / 分隔线（`ThinkingLine` 展开体左栅栏、`MarkdownView` 分隔线、`AuthImage` 缩略图卡描边、`MessageRow` 压缩卡描边） | ≡ 该主题 `border`（**逐字节**，观感已批准不动） | `border` **按对比度压深**到 §9.2 的目标（保持各自色相：slate / 中性） |
 | `sunken` | **下沉内容面**：比卡片更深一档的"内容块"底（代码块 / 终端块 / diff 行底） | ≡ 旧 `elev1` 压 `surface` 的合成色 | 同左（同一公式） |
-| `glassBase` | **玻璃拟态面的基色**（`Effects.glassBg` 的派生源） | ≡ `surface`（**逐字节**） | `surface`；仅当 `surface == appBg`（porcelain）⇒ 改用 `surfaceAlt` |
+| `glassBase` | **玻璃拟态面的基色**（`Effects.glassBg` 的派生源） | ≡ `surface`（**逐字节**） | **显式活规则**：`surface` 对画布 ≥ `GLASS_BASE_MIN_RATIO`(1.02) ⇒ 用 `surface`；否则（真退化 `surface≈appBg`）退 `surfaceAlt`（**仅当更可辨**）。porcelain/light 实测 1.0616/1.0380 ⇒ 走 `surface` |
 
 **为什么进派生结构，而不是往 `Palette` 加字段**（这是新角色的既定纪律，不是偷懒）：
 1. 三个值都**由色板按规则得出**，跨主题自动一致、新主题零重复；
@@ -389,17 +389,23 @@ web 浅色 `src/index.css:160 --border: #e0e0e0` 压在 `:153 --bg-primary: #fff
 
 ### 9.4 `glassBase`：白底玻璃不再恒等不可见
 
-`glassBg = 基色 @62%` 压在画布上。porcelain 里 `surface == appBg == #FFFFFF`
-⇒ 合成结果 == 画布 ⇒ **玻璃面板在白底上恒等不可见**（实测 1.0000；受影响点：`MarkdownView` 引用块底色）。
-浅色系若 `surface == appBg` ⇒ 玻璃基色改用**次级面** `surfaceAlt`；**深色四套 + light 逐字节不变**。
+`glassBg = 基色 @84%(浅) / @62%(深)` 压在**它身后的画布**上。若基色与画布恒等，合成结果 = 画布本身
+⇒ **玻璃面板恒等不可见**（历史上 porcelain 的 `surface == appBg == #FFFFFF` 即此情形）。
+
+**⚠️ 订正（2026-10-11，porcelain-audit ⚠️-2）**：L2 把 porcelain 画布改成 `#F7F7F8`（白卡浮淡灰）
+⇒ 旧判据 `surface === appBg` **对现有 5 套主题全为假**（死分支）⇒ 已改为**显式活规则**：
+浅色系 `surface` 对画布 ≥ `GLASS_BASE_MIN_RATIO`(1.02) 就用它；否则退 `surfaceAlt`（**仅当更可辨**）。
+⛔ 审计处方的「浅色一律 `surfaceAlt`」**被实测否掉**（porcelain 玻璃对画布会掉到 **1.0088 < 1.02**，更不可见）。
 
 | 主题 | 玻璃基色 | 合成底 | 对画布 |
 |---|---|---|---|
 | dark | `#0E0E14`（不变） | `#0D0D12` | 1.0140 |
-| light | `#FFFFFF`（不变） | `#FCFDFE` | 1.0274 |
+| light | `#FFFFFF`（不变） | `#FCFDFE` | 1.0380 |
 | aurora | `#0b1424`（不变） | `#09111F` | 1.0358 |
 | nebula | `#0f0a1e`（不变） | `#0C0818` | 1.0194 |
-| porcelain | `#F6F6F7`（**改**） | `#F9F9FA` | **1.0000 → 1.0522** |
+| porcelain | `#FFFFFF`（= `surface`，阈值守卫；零像素变化） | `#FEFEFE` | **1.0616** |
+
+> 判据：`theme_contrast.test.ts` §E5（+ §E5b 合成退化板自证活分支）；mutation：改回旧 `==` 判据 ⇒ §E5b 红。
 
 ### 9.5 纪律（违反即回归）
 
@@ -721,6 +727,26 @@ colorOf(p, 'text.pillName')   // ← docs/REDESIGN-INPUT-*.md 与 docs/mockups/*
 - ⚠️ **`glowSoft` 未动**（V6 冻结，等真机截图）——它同样零 chroma，若定夺采纳，同法改透明。
 - ⚠️ **调用点**（`pages/Index.ets:3176/3191/3283/3949`，归 main agent）：把 glow 当**投影**用的那几处，
   浅色下会变成"无投影"；若要保留浅色柔影，改走 `elevationColorOf(p, …)`。
+
+### 13.8 语义色**当小号正文**时的正文级门槛（porcelain ⚠️-1，2026-10-11）
+
+`warn`/`success` 在 porcelain 被**当小号正文**用（13 处 `.fontColor(pal().warn|success)`：`AskUserSheet:113`/
+`MessageRow:563`/`QueueSheet:111`/`SelfCheckSheet:60`/`SettingsAbout:445,461,552,568`/`SettingsChannels:476,556,562,1053`/
+`Index.ets:3942,4053,4196`）⇒ 必须过 **AA 正文 4.5**（不是非文本 3.0）。旧值 `warn #B26A00`=4.238 / `success #1E8E3E`=4.205
+（porcelain 专属；light 主题 `#92400E`=7.09 / `#047857`=5.48 早已达标）。
+
+| 角色 | 旧 | 新（**保色相压深**） | 对 surfaceHi（最紧面） |
+|---|---|---|---|
+| `warn` | `#B26A00` | **`#9C5900`** | 3.625 → **4.674** |
+| `success` | `#1E8E3E` | **`#1B7A34`** | 3.597 → **4.629** |
+| `statusWaiting` | `#B26A00` | **`#9C5900`**（与 `warn` 同值；作点色，0 文本落点） | 3.625 → **4.674** |
+
+- 取值 = 三通道**同比压深**（与 neon `accentDeep` 同法）；目标 = 白底族六面全 ≥4.5。
+- ⛔ 未碰 `successText`(7.13)/`dangerText`(6.57)；⛔ 阈值未放宽。判据 = `theme_contrast.test.ts` **§J**（含零扫描 + mutation 18 红）。
+- ⚠️ 影响面：`success` 亦作 goal 徽标 tint（`design.ets:635`）⇒ 浅绿底略深；**待真机连拍**核对观感。
+
+> `foreground3`（web `--foreground-3` 对齐）：本仓 **0 生产消费点** ⇒ **预留角色**，已登记
+> `theme_contrast.test.ts:ZERO_USE_ROLES`（⛔ 不删；接线后请纳入 §B 判定）。
 
 ---
 

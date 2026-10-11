@@ -53,6 +53,62 @@
 
 ---
 
+## 0.3 本轮修复（porcelain ⚠️-1 / ⚠️-2 / ⚠️-5，2026-10-11；⚠️-3/⚠️-4 只出方案）
+
+> 落点**只在 `core/theme.ets` + `tools/tests/theme_contrast.test.ts`**（⛔ 未碰 `core/design.ets`、未碰任何组件/页面）。
+> 判据实算（与 `theme.ets` 的 WCAG 实现同源，非手抄）；mutation 自证见各行。
+
+### ⚠️-1 `warn`/`success`/`statusWaiting` 作小号正文 < AA 4.5 —— ✅ 已修（压深，保色相）
+
+真实落点 13 处均为 `.fontColor(pal().warn|pal().success)`，压在 porcelain 的浅面上。
+
+| 角色 | 旧值 | 新值 | 对 surface | 对 appBg | 对 surfaceHi（最紧面） | 判 |
+|---|---|---|---|---|---|---|
+| `warn` | `#B26A00` | **`#9C5900`** | 4.238 → **5.465** | 3.959 → **5.105** | 3.625 → **4.674** | ✅ ≥4.5 |
+| `success` | `#1E8E3E` | **`#1B7A34`** | 4.205 → **5.412** | 3.928 → **5.055** | 3.597 → **4.629** | ✅ ≥4.5 |
+| `statusWaiting` | `#B26A00` | **`#9C5900`**（与 `warn` 同值） | 4.238 → **5.465** | 3.959 → **5.105** | 3.625 → **4.674** | ✅ ≥4.5 |
+
+- **取值口径** = 原值在线性空间**三通道同比压深**（保色相、只改明度；与 neon `accentDeep` 同一手法）——
+  目标 = porcelain 白底族**六个面**（appBg/surface/surfaceAlt/surfaceHi/sunken/accentDeep）全 ≥4.5。
+- ⛔ 未碰 `successText`(7.13) / `dangerText`(6.57)（已达标，别改浅）；⛔ 阈值一个没放宽（T_BODY 仍 4.5）。
+- 判据：`theme_contrast.test.ts` **§J**（新增，含**零扫描判红** + **mutation 自证**：把值改回旧值 ⇒ **18 红**）。
+- ⚠️ 影响面（无判据覆盖，需真机连拍核对）：`success` 亦作 goal 徽标 **tint**（`design.ets:635` 的 `withAlpha(p.success, α)`）
+  ⇒ 徽标浅绿底略深一档；`statusWaiting` 为**点色**（0 生产文本落点 ⇒ 零像素影响）。
+
+### ⚠️-2 `glassBaseOf`「同色回退」失效 —— ✅ 已修（改成**显式活规则**，⛔ 但**否掉**审计处方）
+
+- **事实核对**：旧判据 `p.surface === p.appBg` 对现有 5 套主题**全为假** ⇒ 死分支（确认）。
+- ⛔ **审计处方「浅色一律 `surfaceAlt`」被实测否掉**：那会让 porcelain 玻璃底对画布 **1.0616 → 1.0088**
+  —— **跌破**门禁 §E5 地板 **1.02** ⇒ 是**更不可见**，与"恢复分层感"目标相反；且会把 light 主题也改坏。
+- **实际修法**（同名函数/同签名，仅换判据）：浅色系 `surface` 对画布 ≥ `GLASS_BASE_MIN_RATIO`(1.02) ⇒ 就用它；
+  否则（真退化 `surface≈appBg`）退 `surfaceAlt`，**且仅当它确实更可辨**。porcelain/light 实测 1.0616/1.0380
+  ⇒ 都走 `surface` ⇒ **零像素变化**，但判据从"死分支"变成"真在算的活规则"。
+- 判据：`theme_contrast.test.ts` **§E5**（+新增 §E5b 合成退化板：**活分支自证** + **mutation 自证**：改回旧 `==` 判据 ⇒ **§E5b 红**）。
+
+### ⚠️-5 `foreground3` 0 消费点 —— ✅ 已登记（**预留角色**，非死代码，⛔ 不删）
+
+- 全仓仅 `core/theme.ets`（声明/5 套色板赋值/`withAccent` 拷贝/`paletteValues`），**0 个 UI 消费点**。
+- 定性 = **预留角色**（为对齐 web 权威 `--foreground-3` 的**四阶文字契约**而保留；删了会破
+  `paletteValues` 穷尽性 / 五套色板四阶阶梯 / web parity）。
+- **登记**：`theme_contrast.test.ts` 的 `ZERO_USE_ROLES` 已机械核实其 0 引用（一旦有组件用 `.foreground3` ⇒ 那段红）；
+  `core/theme.ets` 的 `Palette.foreground3` 字段注释已补"预留/已登记"说明。
+
+### ⚠️-3 / ⚠️-4 —— 只出方案（`core/design.ets` 被 `motion-source` 持有，本波不碰）
+
+- **⚠️-3**：`colorOf` 的 `contrastReqs()` 缺 **`textSecondary`/`accent` × `surfaceHi`** 两格
+  （实算 `textSecondary #6E6E73` on `surfaceHi #EDEDEF` = **4.337**、`accent #0071E3` on `surfaceHi` = **4.017**，<4.5）。
+  方案：在 `design.ets:contrastReqs()` 增两行 `new ContrastReq('textSecondary','surfaceHi',AA_TEXT,…)` /
+  `('accent','surfaceHi',AA_TEXT,…)`；**但**修这两格要么压深 `textSecondary`/`accent`（会牵动全站浅色文字/品牌蓝，
+  ⛔ 跨主题），要么改选中 pill 的底（组件侧）。⇒ **交回主 agent 派单**（见报告 §方案）。
+- **⚠️-4**：`colorOf` 未暴露 6 角色（`foreground3`/`accentHover`/`accentSoftFade`/`bubbleUser`/`borderStrong`/`success`）
+  ⇒ 只能 `pal()` 直取、绕过 ⑥b role 门禁。方案：在 `design.ets:colorOf` 补 6 条 `if (role === …) return p.…;` +
+  在 `contrastReqs()` 给能压底的补判定；⛔ 跨域（design.ets）。
+
+> **判据基线**：`run.sh` **654/0（theme_contrast）** 全绿（全套 ✅）；`guard.sh --static` **15/0**；
+> `hvigorw assembleHap`（clean 后）**BUILD SUCCESSFUL**。观感**待真机连拍**（⛔ 离线数字 ≠ 已验证好看）。
+
+---
+
 ## 1. 汇总表（逐面）
 
 | # | 面 | ① 语义出口 | ② 主题名硬判 | ③ 深色假设写死 | ④ 对比度 | 结论 |
