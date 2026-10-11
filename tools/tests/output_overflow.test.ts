@@ -51,12 +51,12 @@ if (repo.length > 0) {
   const mono: number = count(tp, "fontFamily('monospace')");
   ok(`★③ ToolPopover 等宽块分布（实得 ${mono} ≥1；零扫描判红）`, mono >= 1);
   ok(`★③ 其中 maxLines 受控（实得 ${count(tp, '.maxLines(')} ≥1）`, count(tp, '.maxLines(') >= 1);
-}
-// ── ★④ 系统卡（`SyntheticCard`）：其**等宽块**必须**折行** `WordBreak.BREAK_ALL` ──────────────
-// 裁决（主 agent 2026-10-11）：工具输出 = **块内横滑**（保持）；系统卡 = **折行** ——
-// 理由：系统卡是"告知性"内容（任务名/命令/路径），**不该靠横滑才能读全**；且 `BREAK_WORD`
-// 对 **URL/长英文串仍会溢出** ⇒ 会撞用户报的"字超出屏幕"。
-{
+  // ── ★④ 系统卡（`SyntheticCard`）：其**等宽块**必须**折行** `WordBreak.BREAK_ALL` ─────────────
+  // 裁决（主 agent 2026-10-11）：工具输出 = **块内横滑**（保持）；系统卡 = **折行** ——
+  // 理由：系统卡是"告知性"内容（任务名/命令/路径），**不该靠横滑才能读全**；且 `BREAK_WORD`
+  // 对 **URL/长英文串仍会溢出** ⇒ 会撞用户报的"字超出屏幕"。
+  // ⚠️ 2026-10-11 修复：★④ 原先写在 **`if (repo.length > 0) { … }` 之外** ⇒ `COMP`/`fsMod`/`pathMod`/
+  //    `strip` 全部越界 ⇒ **TS2304 编译红**（判据从未跑起来）。⇒ 移进本块内（作用域不再越界）。
   const sc: string = strip(fsMod.readFileSync(pathMod.join(COMP, 'SyntheticCard.ets'), 'utf-8'));
   let monoAll: number = 0, monoWord: number = 0;
   const L: string[] = sc.split('\n');
