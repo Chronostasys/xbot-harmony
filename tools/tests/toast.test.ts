@@ -111,7 +111,7 @@ function eq(name: string, got: unknown, want: unknown): void {
   ok('② 出场用 .transition(toastTransition())', code.indexOf('.transition(toastTransition())') >= 0);
   ok('③ 面 token：surfaceFillOf(p, ...overlay...)', code.indexOf('surfaceFillOf(') >= 0 && code.indexOf('surface.overlay') >= 0);
   ok('③ 发丝 token：hairlineOf(', code.indexOf('hairlineOf(') >= 0);
-  ok('③ 柔影 token：shadowRadiusOf(', code.indexOf('shadowRadiusOf(') >= 0);
+  ok('③ 柔影 token：shadowLayersOf(', code.indexOf('shadowLayersOf(') >= 0);
   ok('③ 字角色（⛔ 不写裸字号）：fs(/tc(', code.indexOf('fs(TOAST_TYPE)') >= 0 && code.indexOf('tc(') >= 0);
   ok('⛔ 不再调系统 toast（promptAction / showToast 均不得出现）',
     code.indexOf('promptAction') < 0 && code.indexOf('showToast') < 0);

@@ -294,8 +294,12 @@ eq(`⑤ 待批台账条数 = ${KNOWN_PENDING.length}（只许缩短）`, KNOWN_P
   // mutation B（L1）：把 `Toast` 根的通道改回 `structuralRuleOf` ⇒ 扫描器必须报出 `structuralRuleOf`。
   const rootMarker: string = "backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))";
   const base: string[] = linesOf('components/Toast.ets');
+  // ⛔ 取**带通道**的那个根面 marker（G1 后 Toast 的"背板 Stack"也有同面 marker，
+  //    旧的"取最后一个"会把背板误当根 ⇒ 基线恒 ''。带通道的那个才是真正的根面容器）。
   let idx = -1;
-  for (let i = 0; i < base.length; i++) { if (base[i].indexOf(rootMarker) >= 0) { idx = i; } }
+  for (let i = 0; i < base.length; i++) {
+    if (base[i].indexOf(rootMarker) >= 0 && channelAfter(base, i).length > 0) { idx = i; break; }
+  }
   const baseFn: string = idx >= 0 ? channelAfter(base, idx) : '';
   eq('④ mutation 基线：Toast 根通道 = hairlineOf', baseFn, 'hairlineOf');
   const mutated: string = base.join('\n').replace('color: hairlineOf(this.pal())', 'color: structuralRuleOf(this.pal())');

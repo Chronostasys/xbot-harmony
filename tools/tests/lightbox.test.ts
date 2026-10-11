@@ -88,9 +88,9 @@ function stripComments(src: string): string {
     !/\.opacity\([^)]*\?/.test(oc));
   ok('①-2 按压反馈按统一口径（`.opacity(PRESS_OPACITY)`，⛔ 不写死数值）',
     oc.indexOf('pressed: { .opacity(PRESS_OPACITY) }') >= 0);
-  ok('② 面/发丝/柔影全走唯一口径（surfaceFillOf / hairlineOf / shadowRadiusOf + elevationColorOf）',
+  ok('② 面/发丝/柔影全走唯一口径（surfaceFillOf / hairlineOf / shadowLayersOf）',
     oc.indexOf('surfaceFillOf(') >= 0 && oc.indexOf('hairlineOf(') >= 0
-    && oc.indexOf('shadowRadiusOf(') >= 0 && oc.indexOf('elevationColorOf(') >= 0);
+    && oc.indexOf('shadowLayersOf(') >= 0);
   ok('② 字/图标色走 `colorOf` 角色 + 字号走 `typeOf`（⛔ 不写裸字号/裸色）',
     oc.indexOf('colorOf(') >= 0 && oc.indexOf('typeOf(') >= 0);
   ok('② ⛔ 无裸调色板字段（`this.pal().surface|border|appBg|textXxx` 之类一律不许 —— 必须经口径）',

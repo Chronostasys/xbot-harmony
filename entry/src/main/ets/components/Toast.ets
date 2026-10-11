@@ -22,10 +22,10 @@
  * ⚠️ 新组件的**孤儿风险**：ArkTS 不检查"无消费者"的组件文件（`docs/ARKTS-GOTCHAS.md` 批次13）
  *    ⇒ 必须由页面接线后才真正进编译图（接线 spec 见交付说明，`pages/Index.ets` 归主 agent）。
  */
-import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
+import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import {
-  ELEV_OVERLAY, RADIUS_SHEET, SPACE_MD, SPACE_SM, SPACE_XL, STROKE_HAIRLINE,
-  elevationColorOf, hairlineOf, surfaceFillOf,
+  RADIUS_SHEET, SPACE_MD, SPACE_SM, SPACE_XL, STROKE_HAIRLINE,
+  hairlineOf, surfaceFillOf,
 } from '../core/design';
 import { fs, fw, lh, tc } from './SettingsRows';
 import { toastTransition } from './anim';
@@ -44,29 +44,48 @@ export struct Toast {
     return paletteOf(this.theme);
   }
 
+  /** 本 toast 的两层柔影（浅色 = 贴合 + 环境；深色 = 透明 + 原值）—— `core/theme.shadowLayersOf`。 */
+  private toastLayers(): ShadowLayer[] {
+    return shadowLayersOf(this.pal(), 'overlay');
+  }
+
   build() {
     // 全屏透明容器 + **底对齐**（toast 贴底居中）；`hitTestBehavior(None)` ⇒ 不吃任何点击事件。
     Column() {
-      Text(this.msg)
-        .fontSize(fs(TOAST_TYPE))
-        .fontWeight(fw(TOAST_TYPE))
-        .lineHeight(lh(TOAST_TYPE))
-        .fontColor(tc(this.pal(), TOAST_TYPE))
-        .textAlign(TextAlign.Center)
-        // ⛔ 长**不可断**串（长 URL / 无空格长错误码）必须能断 —— 否则撑破 `maxWidth` 溢出屏幕。
-        //    用 `BREAK_ALL` **换行**（⛔ 不设 `maxLines`：那会**截断信息**，与"不删信息"冲突）。
-        .wordBreak(WordBreak.BREAK_ALL)
-        .constraintSize({ maxWidth: '92%' })
-        .padding({ left: SPACE_MD, right: SPACE_MD, top: SPACE_SM, bottom: SPACE_SM })
-        .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
-        .borderRadius(RADIUS_SHEET)
-        .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
-        .shadow({
-          radius: shadowRadiusOf(this.pal(), 'overlay'),
-          color: elevationColorOf(this.pal(), ELEV_OVERLAY),
-          offsetX: 0,
-          offsetY: 0,
-        })
+      // ── 多层柔影（C3 推广，G1）：`shadowLayersOf` 恒返 [near, far] ─────────────────────────
+      // 浅色：near = 贴合影（`elev2` 小半径）、far = 环境影（大半径）⇒ "落在纸面上"；
+      // 深色：near **透明**（零成本、不渲染）、far = 该档原值 ⇒ 净观感**逐字节不变**。
+      // ⛔ ArkUI 每元素只能挂一层 `.shadow()` ⇒ 外层 `Stack` 承载 far（同 `SyntheticCard` 范例）。
+      Stack() {
+        Text(this.msg)
+          .fontSize(fs(TOAST_TYPE))
+          .fontWeight(fw(TOAST_TYPE))
+          .lineHeight(lh(TOAST_TYPE))
+          .fontColor(tc(this.pal(), TOAST_TYPE))
+          .textAlign(TextAlign.Center)
+          // ⛔ 长**不可断**串（长 URL / 无空格长错误码）必须能断 —— 否则撑破 `maxWidth` 溢出屏幕。
+          //    用 `BREAK_ALL` **换行**（⛔ 不设 `maxLines`：那会**截断信息**，与"不删信息"冲突）。
+          .wordBreak(WordBreak.BREAK_ALL)
+          .constraintSize({ maxWidth: '92%' })
+          .padding({ left: SPACE_MD, right: SPACE_MD, top: SPACE_SM, bottom: SPACE_SM })
+          .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
+          .borderRadius(RADIUS_SHEET)
+          .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+          // 贴合层（near）：浅色 = `elev2` 小半径贴合影；深色 = 透明（不渲染 ⇒ 净观感不变）。
+          .shadow({
+            radius: this.toastLayers()[0].radius,
+            color: this.toastLayers()[0].color,
+            offsetX: 0, offsetY: this.toastLayers()[0].offsetY,
+          })
+      }
+      // 环境层（far）：浅色 = 大半径环境柔影；深色 = 该档原值（`elev3`/`glow`，逐字节不变）。
+      .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
+      .borderRadius(RADIUS_SHEET)
+      .shadow({
+        radius: this.toastLayers()[1].radius,
+        color: this.toastLayers()[1].color,
+        offsetX: 0, offsetY: this.toastLayers()[1].offsetY,
+      })
     }
     .width('100%')
     .height('100%')

@@ -26,10 +26,10 @@
  *    （接线 spec 见交付说明；`pages/Index.ets` 归主 agent）。
  */
 import image from '@ohos.multimedia.image';
-import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
+import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import {
-  ELEV_OVERLAY, PRESS_OPACITY, RADIUS_CARD, SPACE_SM, SPACE_XS, STROKE_HAIRLINE,
-  colorOf, elevationColorOf, hairlineOf, surfaceFillOf, typeOf, ICON_LG, HIT_TARGET_MIN } from '../core/design';
+  PRESS_OPACITY, RADIUS_CARD, SPACE_SM, SPACE_XS, STROKE_HAIRLINE,
+  colorOf, hairlineOf, surfaceFillOf, typeOf, ICON_LG, HIT_TARGET_MIN } from '../core/design';
 import {
   clampOffset, clampScale, isZoomed, nextZoom, panLimit, scaleText, shouldDismissBySwipe,
 } from '../core/imgops';
@@ -79,6 +79,11 @@ export struct Lightbox {
 
   private pal(): Palette {
     return paletteOf(this.theme);
+  }
+
+  /** 工具栏的两层柔影（浅色 = 贴合 + 环境；深色 = 透明 + 原值）—— `core/theme.shadowLayersOf`。 */
+  private overlayLayers(): ShadowLayer[] {
+    return shadowLayersOf(this.pal(), 'overlay');
   }
 
   /** 复位（双击回 1 / 点"复位" / 关闭前）—— 单一出口。 */
@@ -155,11 +160,12 @@ export struct Lightbox {
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .borderRadius(RADIUS_CARD)
     .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+    // 贴合层（near）：浅色 = `elev2` 小半径贴合影；深色 = 透明（不渲染 ⇒ 净观感不变）。
     .shadow({
-      radius: shadowRadiusOf(this.pal(), 'overlay'),
-      color: elevationColorOf(this.pal(), ELEV_OVERLAY),
+      radius: this.overlayLayers()[0].radius,
+      color: this.overlayLayers()[0].color,
       offsetX: 0,
-      offsetY: 0,
+      offsetY: this.overlayLayers()[0].offsetY,
     })
   }
 
@@ -259,7 +265,22 @@ export struct Lightbox {
 
       // ── 内容：点它**不**关闭（= web 的 `stopPropagation`）；未达阈值时随下滑手势跟随 ──
       Column({ space: SPACE_SM }) {
-        this.Toolbar()
+        // ── 多层柔影（C3 推广，G1）：`shadowLayersOf` 恒返 [near, far] ─────────────────────────
+        // 浅色：near = 贴合影（小半径）、far = 环境影（大半径）；深色：near 透明、far = 原值（逐字节不变）。
+        // ⛔ ArkUI 每元素只能挂一层 `.shadow()` ⇒ 外层 `Stack` 承载 far（同 `SyntheticCard` 范例）。
+        Stack() {
+          this.Toolbar()
+        }
+        // 环境层（far）：浅色 = 大半径环境柔影；深色 = 该档原值（`elev3`/`glow`，逐字节不变）。
+        .width('100%')
+        .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
+        .borderRadius(RADIUS_CARD)
+        .shadow({
+          radius: this.overlayLayers()[1].radius,
+          color: this.overlayLayers()[1].color,
+          offsetX: 0,
+          offsetY: this.overlayLayers()[1].offsetY,
+        })
         this.Body()
       }
       .width('100%')
