@@ -18,7 +18,7 @@ import {
 import { runeCount } from '../core/typewriter';
 import { Palette, paletteOf, Effects, effectsOf, shadowRadiusOf } from '../core/theme';
 import { BUBBLE, withAlpha } from '../core/bubble';
-import { R_MD, R_XL, R_LG, SP_1, SP_2, SP_3, FS_CAPTION } from '../core/tokens';
+import { R_MD, R_XL, R_LG, SP_1, SP_2, SP_3, FS_CAPTION, FS_META } from '../core/tokens';
 // 语义令牌（`7841978` §4.6/§4.7/§6）：浮层宽 / 分隔条高 / 全圆角 / pill 间距与最大宽 / 按压。
 import {
   ELEV_OVERLAY, GAP_PILL, INSET_PILL_Y, OVERLAY_ROW_H, PILL_MAX_W, POPOVER_W, POPOVER_W_OVERFLOW,
@@ -531,15 +531,15 @@ export struct MessageRowView {
         Row({ space: 6 }) {
           if (this.regionStatus === 'loading') {
             LoadingProgress().width(13).height(13).color(this.pal().textMuted)
-            Text('正在加载更多…').fontSize(11).fontColor(this.pal().textMuted)
+            Text('正在加载更多…').fontSize(FS_META).fontColor(this.pal().textMuted)
           } else if (this.regionStatus === 'error') {
             // 失败**不自动重试**（对齐 web `useRegionWindow`：避免弱网下的自动请求循环），
             // 只在此处提供手动重试（web `RegionsDivider` 的 error 态同样是可点按钮）。
             SymbolGlyph($r('sys.symbol.arrow_counterclockwise')).fontSize(12).fontColor([this.pal().warn])
-            Text('加载失败 · 重试').fontSize(11).fontColor(this.pal().warn)
+            Text('加载失败 · 重试').fontSize(FS_META).fontColor(this.pal().warn)
           } else {
             SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(12).fontColor([this.pal().textMuted])
-            Text(`更早的 ${this.row.regionsBefore} 个区域`).fontSize(11).fontColor(this.pal().textMuted)
+            Text(`更早的 ${this.row.regionsBefore} 个区域`).fontSize(FS_META).fontColor(this.pal().textMuted)
           }
         }
         .width('100%')
@@ -611,7 +611,7 @@ export struct MessageRowView {
       if (this.hiddenBlocks() > 0) {
         Row({ space: 6 }) {
           SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(12).fontColor([this.pal().textMuted])
-          Text(`更早的 ${this.hiddenBlocks()} 个迭代块`).fontSize(11).fontColor(this.pal().textMuted)
+          Text(`更早的 ${this.hiddenBlocks()} 个迭代块`).fontSize(FS_META).fontColor(this.pal().textMuted)
         }
         .width('100%')
         .height(MSG_BLOCK_SENTINEL_H)
@@ -1046,7 +1046,7 @@ struct CompactionDividerRow {
         //   px-2.5 py-0.5 text-[11px] text-text-muted`）
         Row({ space: 6 }) {
           SymbolGlyph($r('sys.symbol.archivebox')).fontSize(12).fontColor([this.pal().textMuted])
-          Text(COMPACTED_LABEL).fontSize(11).fontColor(this.pal().textMuted)
+          Text(COMPACTED_LABEL).fontSize(FS_META).fontColor(this.pal().textMuted)
           if (this.body.length > 0) {
             SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(12).fontColor([this.pal().textMuted])
               .rotate({ angle: this.open ? 180 : 0 })

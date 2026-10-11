@@ -41,6 +41,18 @@ export const FS_HERO: number = 21;    // 主标题（≈ h1 1.4em）
 /** [FS_CAPTION, FS_BODY, FS_TITLE, FS_HERO]（测试用；严格递增）。 */
 export const FONT_SIZES: number[] = [FS_CAPTION, FS_BODY, FS_TITLE, FS_HERO];
 
+// ── 阶梯外字号（**有意**、有据可依；⛔ 不进 `FONT_SIZES` 阶梯）────────────────────
+// 设计系统阶梯最高 `display`=28、最低 `micro`=10；以下三档**刻意**落在阶梯外，是本轮从
+// `pages/Index.ets` / `components/MessageRow.ets` 的散落字面量**收编**而来（原挂在
+// `tools/tests/type_role_gate.test.ts` 的「阶梯外」台账 ⇒ 常量化后从台账移除）。
+// ⛔ **不是"硬塞档"**：这些是组件专属字级，不与排版阶梯的语义档混用。
+/** 登录徽标（108×108 squircle）内的 `'xbot'` 字形 —— web `auth.loginTitle`(`'xbot'`,`LoginPage.tsx:61`) 渲成 `text-2xl` font-semibold；原生把**同一 wordmark** 放进 108 盒 ⇒ 字号放大到 34（native-only 尺寸）。 */
+export const FS_BRAND_WORDMARK: number = 34;
+/** 启动加载页 `LoadingView` 的 `'xbot'` —— ⚠️ web SPA 无 boot 文字 ⇒ native-only（设计取自 `docs/REDESIGN-INPUT-STATES.md §5` LoadingView）。 */
+export const FS_BOOT_WORDMARK: number = 18;
+/** 消息行的微型说明（分区/迭代块折叠/压缩标记）—— web `text-[11px]`（`AssistantMessage.tsx:154` 压缩标记 / `CompactionDivider.tsx:45`）/ `text-[11.5px]`（`RegionsDivider.tsx:40`）。 */
+export const FS_META: number = 11;
+
 // ── 动效时长（ms） ──────────────────────────────────────────────────────────
 // 来源：web spring 过渡统一 180ms；入场 200~220ms；Sheet 300/500ms。
 export const D_FAST: number = 180;   // hover / 状态过渡（web spring）

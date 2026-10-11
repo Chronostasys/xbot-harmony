@@ -181,23 +181,18 @@ const KNOWN_OK: string[] = [
 ];
 /** `PENDING_SPEC`：本线**禁改**的文件（归他人）—— ⛔ 只许缩短。 */
 const PENDING_SPEC: string[] = [
-  // 消息行（归 chat-surface-ux）：`11` 是**阶梯外**值（`type.micro`=10 的源码注释就写着"替代 10/11 字面量"）
-  "components/MessageRow.ets :: 11 :: '正在加载更多…'",
-  "components/MessageRow.ets :: 11 :: '加载失败 · 重试'",
-  "components/MessageRow.ets :: 11 :: `更早的 ${this.row.regionsBefore} 个区域`",
-  "components/MessageRow.ets :: 11 :: `更早的 ${this.hiddenBlocks()} 个迭代块`",
-  "components/MessageRow.ets :: 11 :: COMPACTED_LABEL",
   // dev 面板（`components/Settings*.ets` 归 tokens-ux）：等宽日志行，10 是 micro 档值却写死
   "components/SettingsDeveloper.ets :: 10 :: a.desc",
   "components/SettingsDeveloper.ets :: 10 :: fmtClock(e.atMs)",
   "components/SettingsDeveloper.ets :: 10 :: e.name",
   "components/SettingsDeveloper.ets :: 10 :: previewText(e.payload, 120)",
   "components/SettingsDeveloper.ets :: 10 :: '录制中'",
-  // 登录/空态大字（归 chat-surface-ux）：18 / 34 **阶梯外**（阶梯最高 display=28）；两次 `'xbot'` 靠**多重集**区分
-  "pages/Index.ets :: 18 :: 'xbot'",
-  "pages/Index.ets :: 34 :: 'xbot'",
-  "pages/Index.ets :: 34 :: 'xbot'",
 ];
+// ✅ **已收编（本轮，常量化 ⇒ 从 PENDING_SPEC 移出；台账只许缩短）**：
+//   · `components/MessageRow.ets` 的 5 处 `11` ⇒ `FS_META`（web `text-[11px]`/`[11.5px]`）；
+//   · `pages/Index.ets` 的 `18`/`34`(×2) ⇒ `FS_BOOT_WORDMARK` / `FS_BRAND_WORDMARK`。
+//   ⇒ 这 8 处**不再计为字面量**（换成常量后 `\.fontSize\(\d+\)` 不命中）⇒ 台账 13 → 5。
+//   ⚠️ 若有人把它们**改回字面量**：`measured` 会多出这 8 条 ⇒ `unreg` 非空 ⇒ 硬红（见 §C3 亦可）。
 const reg: string[] = KNOWN_OK.concat(PENDING_SPEC);
 const measured: string[] = sites.map(keyOf);
 /** **多重集**差集（⛔ 不能用集合：`'xbot'` 那类重复实参会被吞掉一处）。 */
@@ -295,6 +290,36 @@ console.log('\n▶ §D mutation 自证（合成源码）');
   console.log(`     [drift] 注入 12 空行后键 = ${k}`);
   ok('mutation：键**不含行号** ⇒ 行号漂移不影响判定（第一版正是这样被别的线改红）',
     k === "components/Fake.ets :: 34 :: 'xbot'");
+}
+
+// ── §C3 收编钉住（本轮）：阶梯外字号已常量化（⛔ 不许回落到字面量）──────────────
+console.log('\n▶ §C3 收编钉住：Index/MessageRow 的阶梯外字号走 `core/tokens.ets` 常量');
+{
+  const countIn = (rel: string, needle: string): number => {
+    const raw: string | undefined = srcByRel.get(rel);
+    if (raw === undefined) { return -1; }
+    const s: string = stripComments(raw);
+    let n: number = 0, i: number = 0;
+    while ((i = s.indexOf(needle, i)) >= 0) { n++; i += needle.length; }
+    return n;
+  };
+  const WANT: string[][] = [
+    ['pages/Index.ets', 'fontSize(FS_BOOT_WORDMARK)', '1'],
+    ['pages/Index.ets', 'fontSize(FS_BRAND_WORDMARK)', '2'],
+    ['components/MessageRow.ets', 'fontSize(FS_META)', '5'],
+  ];
+  let total: number = 0;
+  for (let i = 0; i < WANT.length; i++) {
+    const n: number = countIn(WANT[i][0], WANT[i][1]);
+    total += n > 0 ? n : 0;
+    ok(`§C3 ${WANT[i][0]} 走 ${WANT[i][1]}（应 ${WANT[i][2]} 处，实得 ${n}）`, String(n) === WANT[i][2]);
+  }
+  ok(`§C3 零扫描判红：token 消费合计 ${total}（> 0）`, total > 0);
+  // mutation：把常量改回字面量 ⇒ 必被 §B 枚举到（⇒ `unreg` 非空 ⇒ §C 硬红）
+  const inj: Map<string, string> = new Map<string, string>();
+  inj.set('pages/Index.ets', "build() {\n  Text('xbot')\n    .fontSize(34)\n}\n");
+  const got: Site[] = textLiteralSizes(inj);
+  ok('§C3 mutation：常量改回 `fontSize(34)` ⇒ 重新被枚举（落进 unreg ⇒ 硬红）', got.length === 1 && got[0].val === 34);
 }
 
 console.log('\n▼ 摘要');
