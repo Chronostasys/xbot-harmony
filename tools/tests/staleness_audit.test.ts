@@ -167,6 +167,11 @@ const STORAGE_ORPHAN_ALLOW: string[] = [
 ];
 
 const READER_RE = /@Storage(?:Prop|Link)\(\s*'([^']+)'\s*\)/g;
+// ⛔ `@StorageLink('k')` **既是读取方也是写入方**（ArkUI 双向绑定：写 `this.x` 即写 AppStorage）。
+//    ⇒ 必须计入 writers —— 否则「页面用 `@StorageLink` 当唯一真源」这一**正确**修法会被判成孤儿。
+//    本轮实例：`0a42528` 修「浅色历史白字」正用 `@StorageLink('appTheme')` + 行组件 `@StorageProp('appTheme')`
+//    （键自动创建、3 个既有写入点经 link 写回）⇒ 旧 R2 误报 **7 个 `appTheme` 孤儿**（假红，门禁级）。
+const LINK_WRITER_RE = /@StorageLink\(\s*'([^']+)'\s*\)/g;
 const WRITER_LIT_RE = /AppStorage\.(?:setOrCreate|set)(?:<[^>]*>)?\(\s*'([^']+)'/g;
 const WRITER_ID_RE = /AppStorage\.(?:setOrCreate|set)(?:<[^>]*>)?\(\s*([A-Za-z_$][\w$]*)\s*[,)]/g;
 function collect(re: RegExp, src: string, group: number): string[] {
@@ -192,6 +197,8 @@ for (const f of ETS_ALL) {
   const src: string = stripSrc(fsMod.readFileSync(f, 'utf-8'));
   for (const k of collect(READER_RE, src, 1)) { readers.push(k); }
   for (const k of collect(WRITER_LIT_RE, src, 1)) { writers.push(k); }
+  // `@StorageLink('k')` 计入写入方（见 `LINK_WRITER_RE` 注释：双向绑定 ⇒ 写 `this.x` 即写 AppStorage）
+  for (const k of collect(LINK_WRITER_RE, src, 1)) { writers.push(k); }
   for (const id of collect(WRITER_ID_RE, src, 1)) {
     if (constMap[id] !== undefined) { writers.push(constMap[id]); }
   }
@@ -205,6 +212,8 @@ ok(`★ R2 扫到 AppStorage 写入键（${writers.length} 个；零扫描判红
   ok('R2 自证：读取键正则命中', collect(READER_RE, "  @StorageProp('foo') x: number = 0;", 1).join() === 'foo');
   ok('R2 自证：字面量写入键正则命中', collect(WRITER_LIT_RE, "AppStorage.setOrCreate('foo', 1);", 1).join() === 'foo');
   ok('R2 自证：标识符写入键正则命中', collect(WRITER_ID_RE, 'AppStorage.setOrCreate(K_X, 1);', 1).join() === 'K_X');
+  ok('R2 自证：`@StorageLink` 计入写入方（双向绑定）',
+    collect(LINK_WRITER_RE, "  @StorageLink('bar') y: string = '';", 1).join() === 'bar');
 }
 
 const orphans: string[] = readers.filter(
@@ -340,23 +349,47 @@ ok(`R4 文件级带参 @Builder == 0（实测 ${globalBad.length}）`
   console.log(`  ℹ️ W1 带参 @Builder 体里读 this 状态 ${w1.length} 处（需人判是否随调用点重建）：${w1.slice(0, 24).join(' | ')}${w1.length > 24 ? ' …' : ''}`);
 }
 
-// W2：`ForEach/LazyForEach` 的 item 生成器里投递 `theme:`（本轮 bug 形态）。
-//     ⛔ 不硬红：**键是否含主题维度**才决定真伪，纯文本判不稳 ⇒ 列出来供人复核。
+// W2（**硬红**）：`LazyForEach` 的 item 生成器里投递 `theme:` / `mdTheme:` —— 本轮「浅色历史白字」的形态。
+//
+// ⛔ 为什么「`LazyForEach` + 投递 theme:」**一投就是缺陷**（判别性成立，不是启发式）：
+//    `LazyForEach` 的 item builder **只在行键变化时**执行（本仓键 = `id#rev`，`core/rowdiff.ets`），
+//    而**主题不在键里**（门禁⑥ 也禁止把主题写进 key）⇒ 已存在行的 `@Prop theme` **永远冻结在创建那刻**。
+//    ⇒ 这类"会变的全局量"必须走**组件级订阅**（`@StorageProp('appTheme')`），由行自己取
+//      —— 正确先例 = `0a42528`（页面 `@StorageLink('appTheme')` + 行组件各自 `@StorageProp` + `themeId()` resolver）。
+//    ⚠️ **`ForEach`（非懒）不在本规则内**：它的数组整体变化会重建全部条目 ⇒ 投递 `theme:` 是安全的。
+//      （旧版规则把两者混判 ⇒ 只能"log 不硬红"；收窄到 `LazyForEach` 后判别性成立。）
+//
+// 台账 `W2_LEDGER`（**只许缩短**：条目与实测必须一一对应；接线/删除后不清台账 ⇒ 红）。
+const W2_LEDGER: string[] = [];
 {
+  let lazySeen: number = 0;
   const w2: string[] = [];
   for (const f of ETS_ALL) {
     if (f.indexOf('/components/') < 0 && f.indexOf('/pages/') < 0) { continue; }
     const src: string = stripSrc(fsMod.readFileSync(f, 'utf-8'));
     const lines: string[] = src.split('\n');
     for (let i = 0; i < lines.length; i++) {
-      if (!/(?:Lazy)?ForEach\(/.test(lines[i])) { continue; }
+      if (lines[i].indexOf('LazyForEach(') < 0) { continue; }
+      lazySeen++;
       const win: string = lines.slice(i, Math.min(lines.length, i + 14)).join('\n');
-      if (/\btheme:\s*this\./.test(win)) {
+      if (/\b(theme|mdTheme)\s*:\s*this\./.test(win)) {
         w2.push(`${pathMod.basename(f)}:${i + 1}`);
       }
     }
   }
-  console.log(`  ℹ️ W2 ForEach/LazyForEach item 内投递 theme: ${w2.length} 处（本轮 bug 形态，须核 key 是否含主题）：${w2.join(', ')}`);
+  ok(`W2 零扫描判红：扫到 LazyForEach ≥ 1（实得 ${lazySeen}）`, lazySeen >= 1);
+  ok(`W2 LazyForEach item 内**不得**投递 theme:/mdTheme:（实测 ${w2.length} 处：${w2.join(', ')}）`, w2.length === 0);
+  ok(`W2 台账与实测一一对应（实测 ${w2.length} / 登记 ${W2_LEDGER.length}）`,
+    w2.length === W2_LEDGER.length && w2.every((h: string) => W2_LEDGER.indexOf(h) >= 0));
+  // mutation 自证（规则本体）：注入"必红样本"必须命中；无投递必须不命中。
+  const injBad: string = 'LazyForEach(x, (r) => { MessageRowView({ row: r, theme: this.themeName }) })';
+  const injOk: string = 'LazyForEach(x, (r) => { MessageRowView({ row: r }) })';
+  const hit = (s: string): boolean => {
+    const at: number = s.indexOf('LazyForEach(');
+    return at >= 0 && /\b(theme|mdTheme)\s*:\s*this\./.test(s.slice(at));
+  };
+  ok('W2 mutation 自证：`theme: this.x` 注入 ⇒ 命中（必红）', hit(injBad));
+  ok('W2 mutation 自证：无投递 ⇒ 不命中（不误报）', !hit(injOk));
 }
 
 // W3：静息态不透明度由状态位决定（门禁⑨ 拦 `.opacity(x ? 1 : 0)` A 级；这里补 B 级/语义面）。
