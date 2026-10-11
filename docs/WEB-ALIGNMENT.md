@@ -937,3 +937,42 @@ web 全仓（505 个 `src` 文件）`vibrat|haptic`（宽松 `-i`）**0 命中**
 ### 20.7 排队（未完成）
 开屏真机连拍（需卡 180ms 窗，工具不可用）· 通知真机复验（卡服务端未配 LLM）· 目标⑤ 持续迭代（`polish-audit`/`perf4` 在飞）。
 
+
+---
+
+## §21 批次 28–30 留痕（目标④/⑤ + 判据自身质量）
+
+> 本批三批共 15 笔，全部经 **gate68/69/70** 真门禁（含真编译）放行。以下只记**需要后来者知道**的事。
+
+### 21.1 目标④：会话信息面板补全（`995f830`）
+- **web 真口径**（`web/src/components/sidebar/SessionInfo.tsx`）：会话 ID `:48` · 渠道 `:49` · cwd **可编辑** `:138-173`（写路径 `/api/rpc` `method:'set_cwd'`，`agent/api.ts:168-177`）· 最后活跃 `:174-176`（**truthy 才显示**）· 模型 `:190` · 订阅/用量（**仅 `channel==='agent'`**）。
+- ⛔ **「消息数」不是 web 字段**（只出现在陈旧 docblock `:4`）⇒ 台账里"缺消息数"是**伪缺口**（已在 `WEB-PARITY.md` 订正）。
+- **原生结构约束（关键，别再踩）**：`StatusSheet` 是**纯展示 `@Component`**（文件头明文铁律「只吃已算好的字符串；⛔ 不许 import store」），且**全仓无 `ChatStore` 单例**（`grep ChatStore components/` = 0；页面持私有 `pools: Map<string, ChatStore>`）⇒ **组件结构上无法自取数**，任何新字段都必须 `@Prop` + 页面调用点传参。**"改一个组件文件就能补"是错的判断** —— `parity-audit` 初判"单文件低冲突"、`sessioninfo` 实测**否证**并停手（`db002a4`），这是正确处置。
+- **落地**（`995f830`）：新增 `@Prop sessionId/channel/lastActive` + `onSubmitCwd`；抽出**唯一** `set_cwd` 发送点 `sendSetCwd()`（原调用点改调它，行为不变）+ `submitCwd()` 复用 + `loadStatus()` 回流权威值；判据 `status_sheet_wiring`（63 断言）**专治"死 props"**：每个新 prop 都要钉「声明 ∧ 消费 ≥2 处 ∧ 渲染落点传参」。
+- **三处已裁定偏差**（登记于 `WEB-PARITY.md §11.12.3`）：① Escape 取消**无原生对应**（触屏无该键；退出编辑 = Enter / 关面板丢草稿）⇒ 接受，⛔ 不新增"取消"按钮；② 「订阅」行**数据面缺**（`core/rpc.ets` 无 `get_session_subscription`）⇒ 待派；③ cwd 行可见性**微差**（web 有 `activeId` 即渲染 vs 原生 `cwd` 空即隐藏）⇒ 接受。
+
+### 21.2 目标⑤：命中区判据的**"三条缝"**（`d710364`）
+- **缺陷类**：靠 `padding(+fontSize)` 撑高的**可点 `Text`**（保存/取消/复制/删除/刷新…）曾**同时**漏过三条判据 —— ① 无显式尺寸 ⇒ `hit_target_gate` 不红；② 非 `SymbolGlyph` ⇒ `hittarget_audit` A2 不红；③ 是 `Text` ⇒ 同文件 §D **只警告不判红**。
+- **新判据** `tools/tests/hit_target_pad.test.ts`：链上有 CLICK ∧ 无 `height/constraintSize/HIT_TARGET_MIN` ∧ `est = fontSize×1.35 + 竖直padding < 44` ⇒ 红。`fontSize`/padding **从 `tokens.ets`/`design.ets` 现场解析**（⛔ 不写死）。
+- ⚠️ **非 `Text` 容器**（高度由子节点决定）**静态判不了** ⇒ 只打印"待人工/真机核实"，⛔ **别硬判＝猜布局**。
+- **实测规模**：`components/**` 可点 `Text` **71 个中 63 个 < 44**。本波修 6（视觉不变），余 **57 进台账 `PAD_LEDGER`（只许缩短）**。⇒ 后续**按文件分批 + 真机截图逐批核**。
+
+### 21.3 目标⑤：模型面板"**永久转圈**"（`277a522` · 审计项 A4）
+- **根因**（非 UI 层）：`core/store.ets` 的 `loadLlmConfig` **catch 空体静默吞错** ⇒ 请求失败/超时/服务端 `null` 时 `llmConfig` **恒 `undefined`** ⇒ 面板停在 spinner +「正在读取模型列表…」**永不结束**（用户无法区分"慢"与"坏"）。
+- **修法**：把**既有取数路径的真结果**暴露出来（`llmConfigState`/`llmConfigError`，新增两字段，**加性**）⇒ 三态渲染（加载 / **失败 + 重试** / 空），三态纯逻辑落 `core/llmfmt.ets modelPanelStatus`（对齐 `core/pluginview.ets:pluginPanelStatus` 先例 ⇒ **判据与渲染同源**）。
+- ⛔ **不许用 `setTimeout` 猜超时**（本仓 `setTimeout` 调用点计数是性能护栏的一项，本波未增）。重试必须走**既有取数入口**。
+- **通用教训**：**静默吞错 = 缺陷源**。"加载态只有一个分支"这类面板，先查**取数侧是否暴露了失败**，别只改渲染层。
+
+### 21.4 判据自身的质量（`e0117d5`）—— 别让判据变成陈旧源
+- **陈旧描述串**：`transition_frame_contrast.test.ts` 里写死的行号（`StatusSheet:230`，实际早已是 229）⇒ **全文件行号硬编码一律换内容锚**（如 `anim.ets 的 sheetTransition()`）。⛔ **判据不许写行号**（会漂；本仓 `haptics.test.ts` 已因行号硬编码**全失效**过）。
+- **判据脆性 → 假红**：§9 的 `.fontColor` 提取窗口原为 4 行，加注释后偏离 5–6 行 ⇒ **假红**。已改为**10 行窗口 + 遇下一个 widget 即停**（防跨元素误取）。⇒ **加注释也会弄红判据**，改窗口而非改断言。
+- **白名单清零**：`KNOWN_LOADING_LEVEL_EXCEPTIONS` 从 `['components/SettingsAbout.ets']` → **`[]`**（加载文案统一 `this.pal().textMuted`，**web 口径**：6 处 web 落点一律 `text-text-muted`）。
+- **a11y 约定新立**（`13c8d94`，全仓首例）：**图标-only / 无可见文案的可点控件必须有 `.accessibilityText(...)`**（动态跟随状态；文案对齐 web i18n）。样板 = `Index.ets` 全部折叠/展开按钮（`:6541`）。
+- **③ 全折/全展接线**（`d0027a8`）：`core/sessiongroup.ets:770 collapseAllPlan` 曾是**唯一"纯逻辑已就绪、0 UI 消费"**的功能缺口（本仓最危险的缺陷类：用户点不到）。现消费于 `Index.ets:4491`。⛔ 语义与 web `SessionViewBar.tsx:34-79` **逐条一致**，`core/sessiongroup.ets` **未改一行**。
+
+### 21.5 卡死处置经验（编排者本人）
+`hittarget` 跑了 **22 分钟零产出**（工作树干净、无 hvigor/tsc 进程）⇒ 判定卡死（非逻辑错）⇒ `interrupt` + **重派收紧版**（明确"⛔ 不要反复全仓扫描；**若一小时定不下口径就停手回报**；分阶段交付"）⇒ 收紧版 6.5 分钟出货。
+⇒ **派单纪律**：给"先摸底再决定口径"的探索任务**必须写时间盒 + 明确的停手条件 + 分阶段交付**，否则可能空转。
+
+### 21.6 排队（未完成）
+a11y 扫描线（全仓图标-only 按钮统一 `accessibilityText`）· ④ 高冲突项 D/E/F（`NewSessionDialog` 残余 / `PathPicker` 自动补全 / `ThinkingModeControl` 入 composer，**均须动 `Index.ets`**）· `core/rpc.ets` 补 `get_session_subscription`（订阅行）· B6 系统 toast → 品牌 toast（`MarkdownView` 经 `MessageRow`/`LiveTailView` 透传）· 开屏真机连拍 · 通知真机复验（卡服务端未配 LLM）。
