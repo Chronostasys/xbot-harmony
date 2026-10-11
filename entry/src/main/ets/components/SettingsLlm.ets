@@ -41,10 +41,40 @@ import {
   subscriptionFormValid, thinkDbFromDisplay, thinkDisplayFromDb, thinkHint, thinkLabel, THINK_OPTIONS,
   tierDisplayText, tierHint, tierKey, tierLabel, tierPickerEntries, TIERS, TIER_UNSET_TEXT, tierValues,
 } from '../core/settings';
-import { isSystemSubscription, resolveUpdateBody } from '../core/llmcfg';
+import { fileIo, picker } from '@kit.CoreFileKit';
+import { util } from '@kit.ArkTS';
+import {
+  IMPORT_BAD_FORMAT, IMPORT_EMPTY, IMPORT_OK, ImportParseResult, isSystemSubscription,
+  parseSubscriptionsImport, resolveUpdateBody, serializeSubscriptionsDoc, subscriptionsDocCount,
+} from '../core/llmcfg';
 import {
   SettingsChipRow, SettingsErrorBar, SettingsPanelHeader, SettingsSubCard, SettingsTextFieldRow,
 } from './SettingsRows';
+
+/**
+ * S12：订阅导出 / 导入的 RPC 方法名 + 参数体。
+ *
+ * ⚠️ 定义在**本文件**：`core/rpc.ets` 未登记这两个方法（且该文件当前有主，不越界添加）。
+ * 契约以 web 权威为准 —— `SettingsLLM.tsx:55` `export_subscriptions {ids:[]}`、
+ * `:200` `import_subscriptions {subs, overwrite:false}`。
+ */
+const RPC_EXPORT_SUBSCRIPTIONS: string = 'export_subscriptions';
+const RPC_IMPORT_SUBSCRIPTIONS: string = 'import_subscriptions';
+
+class ExportSubscriptionsParams {
+  /** 空数组 = 导出全部（web `:55`）。 */
+  ids: string[] = [];
+}
+
+class ImportSubscriptionsParams {
+  subs: Object[] = [];
+  /** 恒 false（web `:200`：不覆盖同名）。 */
+  overwrite: boolean = false;
+
+  constructor(subs: Object[]) {
+    this.subs = subs;
+  }
+}
 
 @Component
 export struct SettingsLlm {
@@ -56,6 +86,10 @@ export struct SettingsLlm {
   @State private entries: ModelEntryRow[] = [];
   @State private loading: boolean = true;
   @State private error: string = '';
+  /** S12：导出/导入进行中（禁用两个按钮，防并发）。 */
+  @State private ioBusy: boolean = false;
+  /** S12：一次性成功提示（导出/导入完成；下次操作清除）。 */
+  @State private notice: string = '';
   /** 正在操作的订阅 id（切换开关 / 设默认）。 */
   @State private busy: string = '';
   /** SubAgent 三档模型当前值（`tier_vanguard`/`tier_balance`/`tier_swift` → 原始串；空 = 未设置）。 */
@@ -420,6 +454,104 @@ export struct SettingsLlm {
     }
   }
 
+  /**
+   * S12 导出：`export_subscriptions {ids:[]}` → JSON 文档 → 存为文件。
+   * 权威 web `SettingsLLM.tsx:54-76`（空集合 ⇒ 提示、不产文件；文件名 `xbot-llm-subscriptions.json`、
+   * 2 空格缩进、内容 = `import_subscriptions` 的同一份入参契约）。
+   */
+  private async exportSubscriptions(): Promise<void> {
+    if (this.ioBusy) {
+      return;
+    }
+    this.ioBusy = true;
+    this.notice = '';
+    try {
+      const resp: Object = await rpc<Object>(this.http, RPC_EXPORT_SUBSCRIPTIONS,
+        new ExportSubscriptionsParams());
+      const count: number = subscriptionsDocCount(resp);
+      if (count === 0) {
+        this.error = '没有可导出的订阅';
+        return;
+      }
+      const json: string = serializeSubscriptionsDoc(resp);
+      const opt: picker.DocumentSaveOptions = new picker.DocumentSaveOptions();
+      opt.newFileNames = ['xbot-llm-subscriptions.json'];
+      const uris: string[] = await new picker.DocumentViewPicker().save(opt);
+      if (uris === undefined || uris.length === 0) {
+        return; // 用户取消：不算失败
+      }
+      const f: fileIo.File = fileIo.openSync(uris[0],
+        fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+      try {
+        fileIo.writeSync(f.fd, json);
+      } finally {
+        fileIo.closeSync(f);
+      }
+      this.error = '';
+      this.notice = `已导出 ${count} 个订阅`;
+    } catch (e) {
+      this.error = readableRpcError((e as Error).message);
+    } finally {
+      this.ioBusy = false;
+    }
+  }
+
+  /** 读一个本地文件为 UTF-8 文本（导入用；`filePicker` 返回的 uri）。 */
+  private readTextUri(uri: string): string {
+    const st: fileIo.Stat = fileIo.statSync(uri);
+    const f: fileIo.File = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
+    try {
+      const buf: ArrayBuffer = new ArrayBuffer(st.size);
+      fileIo.readSync(f.fd, buf);
+      const dec: util.TextDecoder = util.TextDecoder.create('utf-8');
+      return dec.decodeToString(new Uint8Array(buf));
+    } finally {
+      fileIo.closeSync(f);
+    }
+  }
+
+  /**
+   * S12 导入：选文件 → **先校验**（`parseSubscriptionsImport`）→ 只在 `ok` 时调
+   * `import_subscriptions {subs, overwrite:false}`。
+   * 权威 web `SettingsLLM.tsx:179-209`：JSON 解析失败/顶层非对象/`subs` 非数组一律**可见失败**、
+   * **绝不静默半导入**；成功后 reload。
+   */
+  private async importSubscriptions(): Promise<void> {
+    if (this.ioBusy) {
+      return;
+    }
+    this.ioBusy = true;
+    this.notice = '';
+    try {
+      const opt: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+      opt.maxSelectNumber = 1;
+      const uris: string[] = await new picker.DocumentViewPicker().select(opt);
+      if (uris === undefined || uris.length === 0) {
+        return; // 用户取消
+      }
+      const raw: string = this.readTextUri(uris[0]);
+      const parsed: ImportParseResult = parseSubscriptionsImport(raw);
+      if (parsed.kind !== IMPORT_OK) {
+        // 可见失败（绝不把坏文档发下去 —— 服务端会半导入）。
+        this.error = parsed.kind === IMPORT_EMPTY
+          ? '导入文件里没有任何订阅'
+          : (parsed.kind === IMPORT_BAD_FORMAT
+            ? '导入文件格式不对（缺少 subs 数组）'
+            : '导入文件不是合法的 JSON');
+        return;
+      }
+      await rpc<void>(this.http, RPC_IMPORT_SUBSCRIPTIONS,
+        new ImportSubscriptionsParams(parsed.subs));
+      this.error = '';
+      this.notice = `已导入 ${parsed.subs.length} 个订阅`;
+      await this.load();
+    } catch (e) {
+      this.error = readableRpcError((e as Error).message);
+    } finally {
+      this.ioBusy = false;
+    }
+  }
+
   /** 展开/收起某订阅的模型管理（`''` = 收起）。 */
   private toggleManage(subId: string): void {
     this.manageSubId = this.manageSubId === subId ? '' : subId;
@@ -479,6 +611,29 @@ export struct SettingsLlm {
           .onClick(() => {
             void this.refreshModels();
           })
+        // ── S12：导出 / 导入（web `SettingsLLM.tsx:260-266` —— 工具栏右端、刷新与新增之间）──
+        Text(this.ioBusy ? '…' : '导出')
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().textSecondary)
+          .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+          .backgroundColor(this.pal().surfaceAlt)
+          .borderRadius(R_LG)
+          .border({ width: 1, color: this.pal().border })
+          .opacity(this.ioBusy ? 0.5 : 1)
+          .onClick(() => {
+            void this.exportSubscriptions();
+          })
+        Text(this.ioBusy ? '导入中…' : '导入')
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().textSecondary)
+          .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+          .backgroundColor(this.pal().surfaceAlt)
+          .borderRadius(R_LG)
+          .border({ width: 1, color: this.pal().border })
+          .opacity(this.ioBusy ? 0.5 : 1)
+          .onClick(() => {
+            void this.importSubscriptions();
+          })
         Text('新增订阅')
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().accentSoft)
@@ -492,6 +647,13 @@ export struct SettingsLlm {
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
+
+      if (this.notice.length > 0) {
+        Text(this.notice)
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().successText)
+          .width('100%')
+      }
 
       if (this.error.length > 0) {
         SettingsErrorBar({ message: this.error, theme: this.theme })

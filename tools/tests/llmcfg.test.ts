@@ -15,8 +15,16 @@ import { SubscriptionBody, SubscriptionRow } from '../../entry/src/main/ets/core
 import {
   applyInheritedSubFields,
   findSubscriptionById,
+  IMPORT_BAD_FORMAT,
+  IMPORT_EMPTY,
+  IMPORT_OK,
+  IMPORT_PARSE_ERROR,
+  ImportParseResult,
   isSystemSubscription,
+  parseSubscriptionsImport,
   resolveUpdateBody,
+  serializeSubscriptionsDoc,
+  subscriptionsDocCount,
 } from '../../entry/src/main/ets/core/llmcfg';
 
 function row(id: string, maxOutput?: number, thinking?: string): SubscriptionRow {
@@ -108,6 +116,52 @@ describe('S7：is_system 订阅门控（编辑/删除/加模型）', () => {
     (r as unknown as { is_system?: boolean }).is_system = false;
     // mutation：把判据改成 `r.is_system !== undefined` ⇒ 此处返回 true ⇒ 必红。
     expect(isSystemSubscription(r)).toBe(false);
+  })
+})
+
+describe('S12：订阅导出/导入（往返等价 + 校验可见失败）', () => {
+  const doc: Object = {
+    version: 1,
+    subs: [
+      { id: 'a', name: 'A', provider: 'openai', base_url: 'https://a', api_key: 'k', model: 'm1', max_output_tokens: 8192, thinking_mode: 'think' },
+      { id: 'b', name: 'B', provider: 'anthropic', base_url: 'https://b', api_key: 'k2', model: 'm2' },
+    ],
+  }
+
+  it('往返等价：serialize → parse 后 subs 与原文逐字相等', () => {
+    const json: string = serializeSubscriptionsDoc(doc);
+    const parsed: ImportParseResult = parseSubscriptionsImport(json);
+    expect(parsed.kind).toBe(IMPORT_OK);
+    expect(parsed.subs.length).toBe(2);
+    // 深比较（JSON 往返后逐字相同）—— 这就是「导出→导入闭环」的判据。
+    expect(JSON.stringify(parsed.subs)).toBe(JSON.stringify((doc as Record<string, Object>)['subs']));
+  })
+
+  it('serialize 是 2 空格缩进（web :65 `null, 2`）', () => {
+    const json: string = serializeSubscriptionsDoc({ version: 1, subs: [{ id: 'x' }] });
+    expect(json.indexOf('\n  "version"') >= 0).toBe(true);
+  })
+
+  it('subscriptionsDocCount：有 subs / 无 subs / subs 非数组', () => {
+    expect(subscriptionsDocCount(doc)).toBe(2);
+    expect(subscriptionsDocCount({ version: 1 })).toBe(0);
+    expect(subscriptionsDocCount({ subs: 'oops' })).toBe(0);
+  })
+
+  it('坏 JSON ⇒ parseError（不静默半导入）', () => {
+    // mutation：把 try/catch 去掉（直接 JSON.parse）⇒ 抛异常 ⇒ 必红。
+    expect(parseSubscriptionsImport('not-json{').kind).toBe(IMPORT_PARSE_ERROR);
+  })
+
+  it('顶层缺 subs / subs 非数组 ⇒ badFormat', () => {
+    expect(parseSubscriptionsImport('{"version":1}').kind).toBe(IMPORT_BAD_FORMAT);
+    // mutation：删掉 Array.isArray(subs) 校验 ⇒ 此例返回 ok ⇒ 必红。
+    expect(parseSubscriptionsImport('{"subs":"nope"}').kind).toBe(IMPORT_BAD_FORMAT);
+    expect(parseSubscriptionsImport('123').kind).toBe(IMPORT_BAD_FORMAT);
+  })
+
+  it('subs 为空数组 ⇒ empty（可见失败）', () => {
+    expect(parseSubscriptionsImport('{"version":1,"subs":[]}').kind).toBe(IMPORT_EMPTY);
   })
 })
 

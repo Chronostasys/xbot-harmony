@@ -90,3 +90,74 @@ export function isSystemSubscription(sub: SubscriptionRow): boolean {
   const r: SystemFlaggedRow = sub as SystemFlaggedRow;
   return r.is_system === true;
 }
+
+// ─── S12：订阅导出 / 导入（web `SettingsLLM.tsx:55-76` + `:179-209`）──────────────
+//
+// 契约：导出文档 = `import_subscriptions` 的入参（顶层 `{version, subs:[...]}`）⇒
+// 「导出→导入」闭环。⛔ 导入必须**先校验、可见失败**，绝不静默半导入。
+
+/** 导入解析档位（判别字符串，ArkTS 友好）。 */
+export const IMPORT_OK: string = 'ok';
+export const IMPORT_EMPTY: string = 'empty';
+export const IMPORT_BAD_FORMAT: string = 'badFormat';
+export const IMPORT_PARSE_ERROR: string = 'parseError';
+
+/** 导入解析结果（判别联合的 class 形态）。 */
+export class ImportParseResult {
+  /** `ok` | `empty` | `badFormat` | `parseError`。 */
+  kind: string = IMPORT_PARSE_ERROR;
+  /** 解析出的订阅数组（仅 `ok` 时非空）。 */
+  subs: Object[] = [];
+}
+
+/**
+ * 导出序列化（web `SettingsLLM.tsx:65` `JSON.stringify(resp, null, 2)`）—— 2 空格缩进。
+ * 内容原样透传（不解释字段），保证「导出文档 = 导入入参」的往返等价。
+ */
+export function serializeSubscriptionsDoc(resp: Object): string {
+  return JSON.stringify(resp, null, 2);
+}
+
+/** 导出回包里的订阅条数（无 `subs` 数组 ⇒ 0 ⇒ UI 提示"没有可导出的订阅"，web `:61-64`）。 */
+export function subscriptionsDocCount(resp: Object): number {
+  const subs: Object | undefined = (resp as Record<string, Object>)['subs'];
+  return Array.isArray(subs) ? (subs as Object[]).length : 0;
+}
+
+/**
+ * 解析导入文档（web `SettingsLLM.tsx:187-198` 的校验分支，一比一）：
+ *   · JSON 解析失败            ⇒ `parseError`（对 web 的 `importFailed: msg`）
+ *   · 顶层不是对象 / `subs` 非数组 ⇒ `badFormat`（对 web 的 `importBadFormat`）
+ *   · `subs` 为空数组          ⇒ `empty`
+ *   · 否则                     ⇒ `ok` + subs
+ *
+ * ⛔ 这是"不静默半导入"的**唯一判据点**：非 `ok` 一律不发起 `import_subscriptions`。
+ */
+export function parseSubscriptionsImport(raw: string): ImportParseResult {
+  let parsed: Object;
+  try {
+    parsed = JSON.parse(raw) as Object;
+  } catch (e) {
+    return new ImportParseResult(); // kind = parseError
+  }
+  if (parsed === null || parsed === undefined || typeof parsed !== 'object') {
+    const bad: ImportParseResult = new ImportParseResult();
+    bad.kind = IMPORT_BAD_FORMAT;
+    return bad;
+  }
+  const subsRaw: Object | undefined = (parsed as Record<string, Object>)['subs'];
+  if (!Array.isArray(subsRaw)) {
+    const bad: ImportParseResult = new ImportParseResult();
+    bad.kind = IMPORT_BAD_FORMAT;
+    return bad;
+  }
+  const subs: Object[] = subsRaw as Object[];
+  const out: ImportParseResult = new ImportParseResult();
+  if (subs.length === 0) {
+    out.kind = IMPORT_EMPTY;
+    return out;
+  }
+  out.kind = IMPORT_OK;
+  out.subs = subs;
+  return out;
+}
