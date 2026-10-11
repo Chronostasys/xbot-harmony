@@ -147,3 +147,45 @@ export function channelFilterMatches(channel: string, active: string): boolean {
 export function activeChannelLabel(active: string): string {
   return active.length === 0 ? '全部' : channelLabel(active);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 渠道过滤的**本地持久化**（键 / 默认 / 非法值回落：读、写共用同一对纯函数）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * activeChannel 的本地偏好键 —— **与 web 逐字一致**
+ * （`hooks/useSessionStore.ts:45 ACTIVE_CHANNEL_KEY = 'xbot:active-channel'`）。
+ *
+ * ⚠️ web 存 `localStorage`，原生存 `@kit.ArkData` preferences（`core/config.ets`）
+ *    —— 容器不同、**键字符串保持一致**（便于跨端诊断/未来同步）。
+ * ⚠️ 纯逻辑住在本文件（channel 域、无 `@kit` 依赖、可脱机单测）；IO 住 `core/config.ets`
+ *    —— 与本仓既有惯例一致（`config.ets` 头注释：地址规则住 `core/endpoint.ets`）。
+ */
+export const ACTIVE_CHANNEL_KEY: string = 'xbot:active-channel';
+
+/** 默认值：空串 = **全部**（对齐 web `activeChannel: null`）。 */
+export const DEFAULT_ACTIVE_CHANNEL: string = '';
+
+/**
+ * 归一化 activeChannel —— **读、写共用同一函数**（键名/默认/非法值回落单点）。
+ *
+ * · `null` / `undefined` / 纯空白 ⇒ 默认（全部）；
+ * · 给定 `candidates` 且值不在其中（该渠道已消失）⇒ 默认（全部）——
+ *   否则重启后列表会因"筛一个不存在的渠道"而**恒空**。
+ *
+ * ⚠️ 不校验是否在 `ALL_CHANNEL_ORDER`（web 也不校验；未知渠道可被筛出，见
+ *    `channelFilterMatches` 注释）—— 只在调用方给候选集时才做存在性回落。
+ */
+export function normalizeActiveChannel(raw: string | null | undefined, candidates?: string[]): string {
+  if (raw === null || raw === undefined) {
+    return DEFAULT_ACTIVE_CHANNEL;
+  }
+  const t: string = raw.trim();
+  if (t.length === 0) {
+    return DEFAULT_ACTIVE_CHANNEL;
+  }
+  if (candidates !== undefined && candidates.length > 0 && candidates.indexOf(t) < 0) {
+    return DEFAULT_ACTIVE_CHANNEL;
+  }
+  return t;
+}

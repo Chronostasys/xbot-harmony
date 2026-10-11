@@ -8,9 +8,13 @@
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { isValidServerUrl, normalizeServerUrl } from './endpoint';
+import { ACTIVE_CHANNEL_KEY, DEFAULT_ACTIVE_CHANNEL, normalizeActiveChannel } from './sessionpick';
 
 // 地址规则住在 core/endpoint.ets（纯函数、可脱离 SDK 单测）；这里只做转出，保持原有调用点不变
 export { isValidServerUrl, normalizeServerUrl };
+// 渠道过滤的键/默认/回落同样住在纯模块（`core/sessionpick.ets`，无 @kit 依赖、可脱机单测）；
+// 这里只做**转出**（调用方从 config 拿），读写共用同一对纯函数。
+export { ACTIVE_CHANNEL_KEY, DEFAULT_ACTIVE_CHANNEL, normalizeActiveChannel };
 
 const STORE_NAME: string = 'xbot_settings';
 const KEY_SERVERS: string = 'server_history';
@@ -33,6 +37,8 @@ export class AppConfig {
   /** 草稿所属会话与内容（空 = 没有草稿） */
   draftChatId: string = '';
   draftText: string = '';
+  /** 会话列表渠道过滤（空串 = 全部；对齐 web `activeChannel:null`）。 */
+  activeChannel: string = '';
 }
 
 export class ConfigStore {
@@ -49,6 +55,8 @@ export class ConfigStore {
     this.data.theme = s.getSync(KEY_THEME, '') as string;
     this.data.draftChatId = s.getSync(KEY_DRAFT_CHAT, '') as string;
     this.data.draftText = s.getSync(KEY_DRAFT_TEXT, '') as string;
+    // 渠道过滤：读盘后立刻归一化（纯函数 —— 与写盘同一口径，键名/默认/回落单点）
+    this.data.activeChannel = normalizeActiveChannel(s.getSync(ACTIVE_CHANNEL_KEY, '') as string);
     return this.data;
   }
 
@@ -87,6 +95,21 @@ export class ConfigStore {
     }
     s.putSync(KEY_DRAFT_CHAT, this.data.draftChatId);
     s.putSync(KEY_DRAFT_TEXT, text);
+    await s.flush();
+  }
+
+  /**
+   * 保存渠道过滤（空串 = 全部）。**写盘前用与读盘同一对纯函数归一化**
+   * （`normalizeActiveChannel`）—— 键名/默认/回落单点，写坏值读回来也自动回落。
+   */
+  async saveActiveChannel(channel: string): Promise<void> {
+    const norm: string = normalizeActiveChannel(channel);
+    this.data.activeChannel = norm;
+    const s: preferences.Preferences | null = this.store;
+    if (s === null) {
+      return;
+    }
+    s.putSync(ACTIVE_CHANNEL_KEY, norm);
     await s.flush();
   }
 
