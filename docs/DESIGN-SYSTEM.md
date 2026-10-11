@@ -468,18 +468,36 @@ web 浅色 `src/index.css:160 --border: #e0e0e0` 压在 `:153 --bg-primary: #fff
 它够**暗**（L ≤ 0.083）⇒ **亮度窗口无交集，压暗无解**。该组合当前**无生产调用点**（唯一曾用它的一处
 已改用 `accentText`），台账保留当**回归护栏**；真要修在**消费者侧**。
 
-### 11.3 主按钮「白字 `#FFFFFF` 叠 `#7C5CFF`」= 4.35:1 —— 取证结论：**本波不改**（且不放宽阈值）
+### 11.3 主按钮「白字 `#FFFFFF` 压 accent 家族」—— **已决策并落地**（2026-10-11 ②）
 
 - **换算（不是机械按 4.5）**：主按钮 `Button('登录')`（`pages/Index.ets`）= `.fontSize(FS_TITLE)` = **16fp**
-  + `FontWeight.Medium` = **500**。WCAG 2.1 SC 1.4.3 的"大字"例外 = **≥18.66px 且 bold（≥700）**，
-  或 **≥24px 常规** ⇒ **16px + 500 两条都不满足 ⇒ 不是大字 ⇒ 阈值仍是 4.5** ⇒ 4.35 确实不达标
+  + `FontWeight.Medium`（经 `typeOf('type.subhead').weight`）= **500**。WCAG 2.1 SC 1.4.3 的"大字"例外
+  = **≥18.66px 且 bold（≥700）**，或 **≥24px 常规** ⇒ 16px + 500 两条都不满足 ⇒ **不是大字 ⇒ 阈值仍是 4.5**
   （用户把字号调到最大档 1.3 也只有 20.8px、且仍非 bold）。
-- ⇒ **台账条目保留**，且门禁 §G6 **断言它不许被删**（= 不许拿"大字"当借口放宽阈值）。
-- **为什么不动色**：唯一杠杆是品牌主色 `#7C5CFF`（`accent` 家族 / `accentDeep` / `glow` / `gradientFrom`
-  的派生源，且被 `tools/tests/theme.test.ts:30` 快照钉死）⇒ 改它 = 改品牌，需用户拍板；
-  且主按钮**真实底色是渐变**（`accent → accentSoft`），最亮端 `#B9A7FF` 上白字只有 **2.09:1**
-  —— 比 4.35 更差、连"大字"的 3:1 都过不了 ⇒ **"把 accent 压暗 3%"治不了根**。
-- **移交**：需要一次设计决策（改品牌主色 / 改 CTA 渐变的端色或字色 / 把 `theme.test.ts` 纳入 pathspec）。
+- **真问题在"渐变的最亮端"（不是纯色 accent）**：主按钮/应用徽标的真实底色是**渐变**
+  `gradientFrom → gradientTo`（`core/theme.ets:effectsOf`）。旧派生 `gradientFrom = accent`、
+  `gradientTo = accentSoft` ⇒ dark 实测白字压 `accent #7C5CFF` = **4.35**、压 `accentSoft #B9A7FF`
+  = **2.09**（连大字 3:1 都过不了）。⇒ **只压 `accent` 是"让测试变绿、真按钮仍不达标"**。
+- **决策（用户 2026-10-11 拍板）**：把**渐变两端**都护航到白字 ≥ **4.5**（保色相、取最小压深），
+  且**只动派生 `gradientFrom/gradientTo`**，⛔ 不动 `accent`/`accentSoft`/`onAccent` 本身
+  ⇒ 品牌主色 `#7C5CFF`（`brandAccent()`）、发光 token（`glow = accent@45%`）、链接色**零回归**。
+- **落地**：`core/theme.ets` 新增 `GRADIENT_TEXT_MIN_RATIO = 4.5` 与 `gradientEndOf(color, onAccent)`
+  （= `contrastRatio` 已达标则**逐字节返回原值**；否则 `deepenToRatio` 在**线性空间三通道等比缩放**、
+  取满足目标的**最小**压深）。实测（`docs/ACCENT-CONTRAST.md §6`）：
+
+  | 主题 | gradientFrom | 白字 | gradientTo | 白字 | 备注 |
+  |---|---|---|---|---|---|
+  | **dark** | `#7C5CFF` → **`#795AFA`** | 4.35 → **4.5104** | `#B9A7FF` → **`#7B6EAB`** | 2.09 → **4.5058** | 唯一改动面 |
+  | light | `#6D28D9`（不动） | 7.1049 | `#1D4ED8`（不动） | 6.7016 | 原本达标 |
+  | aurora | `#34d3b4`（不动） | 9.9370 | `#63e6c8`（不动） | 12.2246 | 原本达标（深色字） |
+  | nebula | `#a78bfa`（不动） | 6.9507 | `#d68bff`（不动） | 8.1034 | 原本达标（深色字） |
+  | porcelain | `#0071E3`（不动） | 4.6967 | `#0066CC`（不动） | 5.5666 | 原本达标 |
+
+- **门禁**：`tools/tests/theme_contrast.test.ts` 新增 **§I**（把"渐变两端"纳入判定，阈值仍 4.5、
+  ⛔ 未放宽；mutation = 改回裸 accent ⇒ dark 两条跌破 4.5 红）；`tools/tests/theme_tokens.test.ts`
+  的 `gradientFrom = accent` 不变量替换为"端色对 `onAccent` ≥4.5 + 已达标的端逐字节不动"。
+- **`dark|onAccent|accent` 台账条目保留**（§G6 断言不许删）—— 它建模的是**纯色** accent；
+  真实按钮由渐变端色承重，已达标（§I）。**保留 = 不放宽阈值、不删断言。**
 
 ### 11.4 纪律（违反即回归）
 

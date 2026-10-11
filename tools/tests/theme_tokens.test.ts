@@ -12,7 +12,7 @@ declare const process: { exit: (c: number) => void };
 
 import {
   darkPalette, lightPalette, auroraPalette, nebulaPalette, porcelainPalette, paletteOf, paletteComplete, paletteValues,
-  effectsOf, effectsComplete, normalizeTheme, themeLabel,
+  effectsOf, effectsComplete, normalizeTheme, themeLabel, contrastRatio,
   THEME_DARK, THEME_LIGHT, THEME_AURORA, THEME_NEBULA, THEME_PORCELAIN, ALL_THEMES,
 } from '../../entry/src/main/ets/core/theme';
 
@@ -101,7 +101,15 @@ ok('effects 四主题均完整', effectsComplete(eA) && effectsComplete(eN) && e
 eq('effects 字段数', Object.keys(eD).length, 11);
 ok('glassBlur 为正数', eD.glassBlur > 0);
 ok('glow 随主题 accent 变（aurora≠dark）', eD.glow !== eA.glow);
-ok('gradientFrom = accent', eD.gradientFrom === D.accent);
+// 渐变端色 = 对 onAccent（压在按钮上的字）的**对比度护航**（2026-10-11 ②）：
+// 真按钮底是**渐变**（不是纯 accent）⇒ 只判 accent 是"让测试变绿、真按钮仍不达标"。
+// 端点取"满足 4.5 的**最小**压深"（保色相）；已达标的端逐字节不动（浅色/霓虹原本就过）。
+ok('dark gradientFrom 对 onAccent ≥4.5（真实按钮端达标）',
+  contrastRatio(eD.gradientFrom, D.onAccent) >= 4.5);
+ok('dark gradientTo 对 onAccent ≥4.5（最亮端曾仅 2.09）',
+  contrastRatio(eD.gradientTo, D.onAccent) >= 4.5);
+ok('light 渐变端已达标 ⇒ 逐字节不动（gradientFrom=accent / gradientTo=accentSoft）',
+  eL.gradientFrom === L.accent && eL.gradientTo === L.accentSoft);
 ok('玻璃底带 alpha（#AARRGGBB）', eD.glassBg.length === 9 && eD.glassBg.charAt(0) === '#');
 
 // ── (c) 尺寸 / 字阶 / 动效 token ────────────────────────────────────────────

@@ -253,3 +253,32 @@
 - **待用户拍板**：§6.4 三选一（是否动品牌紫 / 是否升大字）。
 - **行号会漂移**：本文行号基于 `10aae43` 当时工作树；`Index.ets`/`ToolPopover.ets` 正被多线并发改，
   **以文中给的锚点文本为准**。
+
+---
+
+## 10. 已决策并落地（2026-10-11 ②，用户拍板）—— 改**派生端色**，不动 `accent`/`accentSoft`
+
+**决策**：§6.4 的方案 **②（治真按钮的根）** 被采纳，但**不按"改 `accent` 字段"落地**，理由：`accent`
+是派生源（`glow` = `accent@45%` / `gradientFrom` / `accentDeep` / `brandAccent()` = `darkPalette().accent`），
+改它会**牵连品牌主色与发光 token**（与同波"① 深色品牌主色 #7C5CFF 不动"、"▲ 深色 glow 逐字节不变"
+两条硬约束冲突），且被 `tools/tests/theme.test.ts:30` 快照钉死。
+
+**落地**：`core/theme.ets` 的 `buildEffects()` 只改**派生** `gradientFrom/gradientTo` —— 经
+`gradientEndOf(color, onAccent)`（新增；`GRADIENT_TEXT_MIN_RATIO = 4.5`）：
+
+| 主题 | gradientFrom | 白字实测 | gradientTo | 白字实测 | 处理 |
+|---|---|---|---|---|---|
+| **dark** | `#7C5CFF` → **`#795AFA`** | 4.3461 → **4.5104** | `#B9A7FF` → **`#7B6EAB`** | 2.0928 → **4.5058** | `deepenToRatio` 最小压深 |
+| light | `#6D28D9` | 7.1049 | `#1D4ED8` | 6.7016 | 达标 ⇒ 逐字节不动 |
+| aurora | `#34d3b4` | 9.9370 | `#63e6c8` | 12.2246 | 达标 ⇒ 不动 |
+| nebula | `#a78bfa` | 6.9507 | `#d68bff` | 8.1034 | 达标 ⇒ 不动 |
+| porcelain | `#0071E3` | 4.6967 | `#0066CC` | 5.5666 | 达标 ⇒ 不动 |
+
+- **算法**：沿用 §8 的"线性空间三通道等比缩放"——已在 `core/theme.ets:deepenToRatio`（闭式，无搜索），
+  取满足目标的**最小**压深 ⇒ `#795AFA`(4.5104) / `#7B6EAB`(4.5058)，与 §6.2 的候选值**逐字节一致**。
+- **零回归**：`dark.accent`（4.3461 → 不变）、`dark.accentSoft`（`#B9A7FF` 不变）、`dark.glow` 不变
+  ⇒ 品牌标记、图标、发光全部不受牵连。
+- **门禁**：`theme_contrast.test.ts` 新增 **§I**（把渐变两端纳入判定，阈值仍 4.5）；`theme_tokens.test.ts`
+  的 `gradientFrom = accent` 不变量 → "端色对 `onAccent` ≥4.5 + 已达标的端逐字节不动"。
+  `dark|onAccent|accent` 台账**保留**（§G6 断言不许删 —— 不放宽阈值、不删断言）。
+- **ΔL（相对原色，线性空间等比缩放）**：from `k≈0.957`（ΔL ≈ 0.0088）；to `k≈0.405`（ΔL ≈ 0.20）。

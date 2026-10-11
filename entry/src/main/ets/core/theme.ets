@@ -561,6 +561,30 @@ export class Effects {
   elev3: string = '';
 }
 
+/** 渐变**端色**对 `onAccent`（压在其上的字）要求的最低对比度 —— WCAG AA 正文级，
+ *  与 `tools/tests/theme_contrast.test.ts` 的 `T_BODY` 同值（判据与渲染同源）。 */
+export const GRADIENT_TEXT_MIN_RATIO: number = 4.5;
+
+/**
+ * 渐变**端色**（主按钮 / 徽标的 `gradientFrom`/`gradientTo`）：保证 `onAccent` 压在它上面
+ * ≥ `GRADIENT_TEXT_MIN_RATIO`。
+ *
+ * 为什么不能直接用 `accent`/`accentSoft`：真按钮底色是**渐变**（不是纯 `accent`），最坏面在
+ * **最亮端** `accentSoft` —— dark 实测白字压 `accent #7C5CFF` = **4.35**、压 `accentSoft #B9A7FF`
+ * 仅 **2.09**（连大字 3:1 都过不了）⇒ 只压 `accent` 是"让测试变绿、真按钮仍不达标"。
+ *
+ * 口径（与 `deepenToRatio` 同一手法）：**只压深、不改色相**（线性空间三通道等比缩放，取满足目标
+ * 的**最小**压深 ⇒ 尽量保留品牌观感）；**已达标的端逐字节不动**（浅色/霓虹主题原本就达标）。
+ * ⛔ 只动**派生** `gradientFrom/To`，**不动** `accent`/`accentSoft`/`onAccent` 本身
+ * ⇒ 品牌标记 `brandAccent()`、发光 token（`glow` = `accent@45%`）、链接色**全不受牵连**。
+ */
+function gradientEndOf(color: string, onAccent: string): string {
+  if (contrastRatio(color, onAccent) >= GRADIENT_TEXT_MIN_RATIO) {
+    return color;
+  }
+  return deepenToRatio(color, [onAccent], GRADIENT_TEXT_MIN_RATIO);
+}
+
 /** 由色板派生视觉效果 token（单一口径 —— 换主题即换效果）。
  *
  *  ⚠️ 深色主题的四个值（sheen/elev1..3）**逐字节不动**（其他线依赖其观感）；
@@ -572,8 +596,9 @@ function buildEffects(p: Palette): Effects {
   e.glassBg = alphaHex(glassBaseOf(p), 0.62);
   e.glassBorder = alphaHex(p.borderStrong, 0.55);
   e.glassBlur = 18;
-  e.gradientFrom = p.accent;
-  e.gradientTo = p.accentSoft;
+  // 渐变端色走**对比度护航**（真按钮底色是渐变，不是纯 accent —— 见 `gradientEndOf`）
+  e.gradientFrom = gradientEndOf(p.accent, p.onAccent);
+  e.gradientTo = gradientEndOf(p.accentSoft, p.onAccent);
   if (light) {
     // 浅底：白高光物理上不可见 ⇒ 换"中性"（无色相偏移）的极淡黑，读作扫光中心。
     e.sheen = alphaHex('#000000', 0.06);

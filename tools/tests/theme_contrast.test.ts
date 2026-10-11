@@ -34,7 +34,7 @@ declare const __dirname: string;
 
 import {
   Palette, Effects, Surfaces, ALL_THEMES, paletteOf, effectsOf, surfacesOf, surfacesComplete,
-  themeLabel, HAIRLINE_TARGET_RATIO, paletteValues,
+  themeLabel, HAIRLINE_TARGET_RATIO, paletteValues, GRADIENT_TEXT_MIN_RATIO,
   contrastRatio, compositeOver, relativeLuminance, parseColorRgba,
 } from '../../entry/src/main/ets/core/theme';
 // 语义令牌层：主按钮字重断言需**解析真值**（`typeOf(role).weight`）而非只认字面量（见下 D 段）。
@@ -863,6 +863,45 @@ ok('主按钮真实底色是渐变（accent→accentSoft）⇒ 最坏面比模�
   && loginBlock.indexOf('gradientTo') >= 0);
 eq('渐变最亮端 #B9A7FF 上白字实测（大字阈 3:1 也过不了）',
   contrastRatio('#FFFFFF', paletteOf('dark').accentSoft).toFixed(2), '2.09');
+
+// ════════════════════════════════════════════════════════════════════════════
+// §I 主按钮 / 徽标「渐变两端」判定（2026-10-11 ②：真按钮底是**渐变**，不是纯 accent）
+//
+// 为什么单列：§B 的 `onAccent × accent` 只建模**纯色** `accent`；而主按钮/应用徽标的
+// 真实底色是 `.linearGradient(gradientFrom → gradientTo)`（`pages/Index.ets` 的 `Button('登录')`
+// 与徽标），**承重面在最亮端**（dark 的 `accentSoft #B9A7FF` 上白字仅 2.09）⇒ 只判 accent
+// 是"判据 ≠ 渲染"。本段把**真实渲染的两个端色**纳入判定（阈值仍 4.5，⛔ 未放宽）。
+// 取值口径见 `core/theme.ets:gradientEndOf`（满足 4.5 的**最小**压深，保色相；已达标的端不动）。
+// ★ 判别力（mutation 必红）：把 buildEffects 的 gradientFrom/To 改回裸 `p.accent`/`p.accentSoft`
+//   ⇒ dark 两条 `onAccent 压 gradient*` 立刻跌破 4.5（4.35 / 2.09）⇒ 本段红。
+// ════════════════════════════════════════════════════════════════════════════
+console.log('\n▶ §I 主按钮/徽标「渐变两端」（onAccent 压 gradientFrom/gradientTo）');
+eq('GRADIENT_TEXT_MIN_RATIO = T_BODY（判据与渲染同源）', GRADIENT_TEXT_MIN_RATIO, T_BODY);
+for (let ti = 0; ti < ALL_THEMES.length; ti++) {
+  const th: string = ALL_THEMES[ti];
+  const p: Palette = paletteOf(th);
+  const e: Effects = effectsOf(p);
+  const ends: string[] = [e.gradientFrom, e.gradientTo];
+  const names: string[] = ['gradientFrom', 'gradientTo'];
+  for (let i = 0; i < ends.length; i++) {
+    const r: number = contrastRatio(p.onAccent, ends[i]);
+    ok(`${th} · onAccent（${p.onAccent}）压 ${names[i]}（${ends[i]}）= ${r.toFixed(4)} >= ${T_BODY}`,
+      r >= T_BODY);
+  }
+}
+// 已达标的端**逐字节不动**（浅色/霓虹主题原本就过 4.5 ⇒ 不该被本波改动牵连）
+for (let ti = 0; ti < ALL_THEMES.length; ti++) {
+  const th: string = ALL_THEMES[ti];
+  const p: Palette = paletteOf(th);
+  if (contrastRatio(p.onAccent, p.accent) >= T_BODY && contrastRatio(p.onAccent, p.accentSoft) >= T_BODY) {
+    const e: Effects = effectsOf(p);
+    ok(`${th} 渐变端原本达标 ⇒ 逐字节不动`, e.gradientFrom === p.accent && e.gradientTo === p.accentSoft);
+  }
+}
+// 端色 ≠ 品牌主色时，品牌标记色 `brandAccent()`（= dark.accent）**不受牵连**（① 的护栏）
+ok('dark.accent 未被渐变护航改动（品牌主色/发光 token 零回归）',
+  contrastRatio(paletteOf('dark').accent, '#FFFFFF').toFixed(4) === '4.3461');
+ok('dark.accentSoft 未动（最亮端仍是原品牌浅紫）', paletteOf('dark').accentSoft === '#B9A7FF');
 
 // ════════════════════════════════════════════════════════════════════════════
 // §H 报告（给设计决策看的真数据 —— 永远打印，不只在失败时）
