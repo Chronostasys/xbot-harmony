@@ -457,7 +457,13 @@ export const ELEV_OVERLAY: string = 'elev3';
 /** 阴影语义档 → 实际色（唯一出口）。 */
 export function elevationColorOf(p: Palette, level: string): string {
   const e = effectsOf(p);
-  if (level === ELEV_OVERLAY) { return e.elev3; }
+  if (level === ELEV_OVERLAY) {
+    // **浮层级**的边界通道（2026-10-11 修，`overlay_boundary_contrast` 量出的深色缺口）：
+    //   深色族 `#000000@42%` 黑影压在近黑画布上，边处净值只有 **1.0122**（= 没有边界）；
+    //   而"深色靠**发光**立层次"是本仓既有的品牌语言 ⇒ 深色浮层改走 `glow`（`accent@45%` 彩色发光）。
+    //   浅色族：发光已按 E2 关闭（= 透明）⇒ 仍走 `elev3` 柔影（⛔ 不能让浅色浮层失去阴影）。
+    return isLightPalette(p) ? e.elev3 : e.glow;
+  }
   if (level === ELEV_RAISED) { return e.elev2; }
   return e.elev1;
 }

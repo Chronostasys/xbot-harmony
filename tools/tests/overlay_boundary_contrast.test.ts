@@ -108,10 +108,12 @@ console.log(`  填充vs底    浅色最差 ${minL((x)=>x.fillVs, lights).toFixed
 console.log(`  净影(独自)  浅色最差 ${minL((x)=>x.netShadow, lights).toFixed(4)}  vs  深色最差 ${minL((x)=>x.netShadow, darks).toFixed(4)}`);
 ok('浅色族的**台阶**不弱于深色族（浅色的白度差接管了分层）',
   minL((x) => x.step, lights) > minL((x) => x.step, darks));
-ok('浅色族的**净影独自**反而**强于**深色族（深色影是 #000 压在近黑底上，几乎不可见）',
-  minL((x) => x.netShadow, lights) > minL((x) => x.netShadow, darks));
-ok('深色族的净影独自**远达不到**面差标准（⇒ 深色边界只能靠填充，影帮不上）',
-  minL((x) => x.netShadow, darks) < SURFACE_DIFF_MIN);
+// ⚠️ 2026-10-11 修复后**前提已反转**：深色浮层的影改走 `glow`（accent@45% 彩色发光）⇒ 净影**达标**。
+//    （原断言"深色净影由 #000@42% 黑影压近黑底 ⇒ 1.0122、远达不到 1.03"描述的是**修复前**。）
+ok('深色族的净影独自（发光通道）现已**达到**面差标准（修复前 1.0122 < 1.03）',
+  minL((x) => x.netShadow, darks) >= SURFACE_DIFF_MIN);
+ok('  · 浅色族仍靠 `elev3` 柔影达标（两条通道各有主题依赖，不是"谁永远更强"）',
+  minL((x) => x.netShadow, lights) >= SURFACE_DIFF_MIN);
 
 console.log('\n▶ §C 判据：**至少一条通道** ≥ 1.03（面 vs 面已批准标准）');
 /**
@@ -126,7 +128,9 @@ console.log('\n▶ §C 判据：**至少一条通道** ≥ 1.03（面 vs 面已�
  *   ⇒ spec 归 **brand-impl**（`core/theme.ets`/`core/design.ets`）：深色浮层要么走发光档，
  *     要么抬填充白度差；⛔ 本线不改 theme/design。
  */
-const PENDING_SPEC: string[] = ['dark'];
+// ✅ 2026-10-11 **已清空**：`dark` 修好（深色浮层改走发光通道 ⇒ 净影达标）⇒ 按纪律从名单**删掉**。
+//    ⛔ 本表**只许缩短**（断言"实际不达标集合 == 本表"仍生效 ⇒ 再冒新的不达标主题会立刻红）。
+const PENDING_SPEC: string[] = [];
 
 let bad: Row[] = [];
 for (let i = 0; i < rows.length; i++) {
@@ -142,10 +146,13 @@ ok(`未登记的其它主题全部达标（${rows.length - PENDING_SPEC.length} 
   rows.filter((x) => PENDING_SPEC.indexOf(x.t) < 0).every((x) => Math.max(x.fillVs, x.netShadow) >= SURFACE_DIFF_MIN));
 ok('"影半径"浅色族确实更大（LIGHT_SHADOW_DIFFUSION=1.5 生效）',
   minL((x) => x.r, lights) > Math.max(...darks.map((x) => x.r)));
-ok('"影更强"不等于"边界更清楚"：深色影更浓（α 42% vs 16%）但**净影更弱**',
-  alphaPct(elevationColorOf(paletteOf('dark'), ELEV_OVERLAY)) === '42%'
-  && alphaPct(elevationColorOf(paletteOf('porcelain'), ELEV_OVERLAY)) === '16%'
-  && minL((x) => x.netShadow, darks) < minL((x) => x.netShadow, lights));
+// ⚠️ 修复后：深色浮层影 = `glow`（accent@45%）⇒ α 由 42% → **45%**，且净影**不再更弱**。
+//    "影更浓 ≠ 边界更清楚"这条**洞见仍成立**（正是它把深色从 `#000@42%` 推到发光通道）。
+ok('深色浮层影 = 发光档（α 45%）/ 浅色 = 柔影档（α 16%）',
+  alphaPct(elevationColorOf(paletteOf('dark'), ELEV_OVERLAY)) === '45%'
+  && alphaPct(elevationColorOf(paletteOf('porcelain'), ELEV_OVERLAY)) === '16%');
+ok('  · 且深色净影 **不低于** 浅色（修复前是"更浓却更弱"）',
+  minL((x) => x.netShadow, darks) >= minL((x) => x.netShadow, lights) - 1e-9);
 
 console.log('\n▶ §D mutation 自证（纯函数，逐条注入）');
 // 判据本体：**已登记例外之外**的主题，至少一条通道达标。
@@ -179,26 +186,33 @@ ok('mutation：零主题 ⇒ 判红（空扫描防线）', boundaryOk([], PENDIN
 }
 {
   // 注入 ②b：只塌**靠填充兜底**的那几套的填充 ⇒ 应**判红**（它们没有第二通道）
-  const fillBacked: string[] = rows.filter((r) => r.netShadow < SURFACE_DIFF_MIN && PENDING_SPEC.indexOf(r.t) < 0).map((r) => r.t);
+  // ⚠️ 修复后"靠填充兜底（无影通道）"的集合**已空**（深色也走发光）⇒ 改为**构造**一个两通道都塌的主题，
+  //    验证判据仍然抓得住（注入 ① 是"全部塌"，这里只塌**一套**）。
   const injB: Row[] = rows.map((r) => {
     const y: Row = new Row(); Object.assign(y, r);
-    if (fillBacked.indexOf(r.t) >= 0) { y.fillVs = 1; }
+    if (r.light === false) { y.fillVs = 1; y.netShadow = 1; }   // 只把所有深色套两通道塌掉
     return y;
   });
-  ok(`mutation：只塌「靠填充兜底」的 ${fillBacked.join('/')} 的填充 ⇒ 判红（无第二通道）`,
+  ok('mutation：只塌深色族的两条通道 ⇒ 判红（单套注入也抓得住）',
     boundaryOk(injB, PENDING_SPEC) === false);
 }
 {
-  // 注入 ③：把例外名单清空 ⇒ 基线立刻红（证明例外**是被判据盯着**的，不是装饰）
-  ok('mutation：清空例外名单 ⇒ 基线判红（例外名单受判据管，⛔ 不能随手加）',
-    boundaryOk(rows, []) === false);
+  // 注入 ③（**本笔修复的载荷性守卫**）：把深色的影塌回"无影"（模拟回退到 `#000@42%` 的旧行为）
+  //   ⇒ 基线立刻红（深色只有填充 1.0217 < 1.03）⇒ 证明"深色改走发光"**是承重的**，不是装饰。
+  const injC: Row[] = rows.map((r) => {
+    const y: Row = new Row(); Object.assign(y, r);
+    if (r.t === 'dark') { y.netShadow = 1; }
+    return y;
+  });
+  ok('mutation：深色影塌回旧行为（#000@42%）⇒ 基线判红（本笔修复承重）',
+    boundaryOk(injC, PENDING_SPEC) === false);
 }
 
 console.log('\n▼ 摘要');
 console.log(`  面差标准 SURFACE_DIFF_MIN = ${SURFACE_DIFF_MIN}（出处 docs/DESIGN-SYSTEM.md §13.3；代码先例 palette_accent_rule.test.ts:55）`);
 console.log(`  台阶：浅色 ${minL((x)=>x.step, lights).toFixed(4)} / 深色 ${minL((x)=>x.step, darks).toFixed(4)}`);
 console.log(`  净影：浅色 ${minL((x)=>x.netShadow, lights).toFixed(4)} / 深色 ${minL((x)=>x.netShadow, darks).toFixed(4)}`);
-console.log('  ⇒ 浅色**不弱**（白度差接管分层）；深色**全靠填充兜底**，影只是贴边暗示。');
+console.log('  ⇒ 浅色：白度差 + 柔影；深色：填充(1.0217) + **发光通道**(修复后) ⇒ 两族各有可靠边界。');
 
 if (fail > 0) { console.log(`\n  overlay_boundary_contrast: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`\n  overlay_boundary_contrast: ${pass} passed, 0 failed`);
