@@ -6,6 +6,15 @@ import {
   BridgeHostAction, BRIDGE_ACTION_CLOSE, BRIDGE_ACTION_LOG, BRIDGE_ACTION_READY,
   hostActionFor, bridgeInitPayload,
 } from '../core/webbridge';
+import {
+  WEB_PHASE_ERROR, WEB_PHASE_IDLE, WEB_PHASE_LOADING, WEB_PHASE_READY,
+  WebStatus, webErrorDetail, webStatusOf,
+} from '../core/pluginview';
+import {
+  colorOf, hairlineOf, surfaceFillOf,
+  HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_PILL, SPACE_XS, STROKE_HAIRLINE,
+} from '../core/design';
+import { fs, fw, lh } from './SettingsRows';
 
 /**
  * 注入页面 `window.xbotNative` 的**原生代理对象**（ArkWeb `javaScriptProxy` 的 `object`）。
@@ -42,6 +51,19 @@ class NativeBridgeProxy {
   }
 }
 
+// ── chrome 的几何（vp）——**视觉可小、热区必 ≥44**（`REDESIGN.md §5`）──────────────
+/** chrome 图标视觉字号（vp）。 */
+const CHROME_GLYPH: number = 20;
+/** chrome 图标内距（vp）。 */
+const CHROME_PAD: number = SPACE_XS;
+/** chrome 图标视觉盒（vp）= 字号 + 2×内距。 */
+const CHROME_BOX: number = CHROME_GLYPH + CHROME_PAD * 2;
+/**
+ * 热区每侧外扩量（vp）—— 把 `CHROME_BOX` 撑到 `HIT_TARGET_MIN`（44）。
+ * ⛔ 外扩靠 `responseRegion`，**不改布局/视觉尺寸**（与 `MessageNav.ets:308-315` 同法）。
+ */
+const CHROME_HIT_PAD: number = (HIT_TARGET_MIN - CHROME_BOX) / 2;
+
 /**
  * WebSurface —— **全能力逃生舱**（ArkWeb / `Web` 组件）。
  *
@@ -54,6 +76,14 @@ class NativeBridgeProxy {
  *     ③ 终端/代码编辑器 —— xterm.js / monaco（无 ArkTS 等价物）。
  *   ⇒ 这些面板交给 ArkWeb 承载（内核即 Chromium，能力 100% 保留），
  *     其余主链路（会话/消息/迭代/工具/输入）走原生 ArkUI。
+ *
+ * ── 视觉重排（2026-10-11，`docs/REDESIGN.md`）────────────────────────────────
+ *   · chrome 的"返回/刷新"从**字符**（`‹` / `⟳`）改为**系统符号**
+ *     （`chevron_left` / `arrow_clockwise`）—— 字符图标会走 emoji 字形、颜色不可控；
+ *   · 图标视觉 20vp，热区靠 `responseRegion` 外扩到 44（⛔ 不改布局/视觉尺寸）；
+ *   · 承载面加**恒静态**三态条（加载中 / 加载失败 + 重试）：判据在 `core/pluginview.ets`
+ *     （`webStatusOf`），⛔ **不是 spinner**（唯一在飞动效 = 光球，见 §4.1）；
+ *   · 颜色一律经 `colorOf`；面经 `surfaceFillOf`；边界经 `hairlineOf`（门禁 ⑥c）。
  *
  * ⚠️ ArkWeb 与系统浏览器同引擎 ⇒ 它**不改善**渲染性能，只解决"能力可得性"。
  *    见 docs/ARCHITECTURE.md 的取舍说明。
@@ -74,6 +104,7 @@ export struct WebSurface {
   /**
    * 是否带顶部 chrome（"‹ 返回"那行）。
    * 全屏承载**完整 web UI** 时置 false —— 一行原生 UI 都不留，才叫"与 web 一比一"。
+   * ⚠️ 即便 chrome=false，**加载失败**状态条仍会显示（否则失败被静默 ⇒ 用户面对白屏无从判断）。
    */
   @Prop chrome: boolean = true;
   /** 关闭回调（由页面清空 url 卸载本组件）。 */
@@ -81,6 +112,10 @@ export struct WebSurface {
   };
   private controller: webview.WebviewController = new webview.WebviewController();
   @State title: string = '';
+  /** 承载面阶段（`core/pluginview.ets` 三态：idle/loading/ready/error）。 */
+  @State phase: string = WEB_PHASE_IDLE;
+  /** 失败明细（`webErrorDetail` 产出；仅 `phase === error` 时有意义）。 */
+  @State loadErr: string = '';
 
   /**
    * JS 桥：注入页面的原生代理对象。**在 build 之前构造**（`javaScriptProxy` 属性在
@@ -114,6 +149,27 @@ export struct WebSurface {
       this.onBridgeMessage(m);
       this.applyHostAction(m);
     };
+    // `@Prop` 初值不触发 @Watch ⇒ 首帧手动置一次加载态（空 url 则由页面后续赋值触发）。
+    if (this.url.length > 0) {
+      this.phase = WEB_PHASE_LOADING;
+    }
+  }
+
+  /** 承载面状态条（判据在 core；本组件只消费）。 */
+  private status(): WebStatus {
+    return webStatusOf(this.phase, this.loadErr);
+  }
+
+  /** 刷新当前页（chrome 的 ⟳ 与失败态"重试"共用同一入口）。 */
+  private refresh(): void {
+    this.phase = WEB_PHASE_LOADING;
+    this.loadErr = '';
+    try {
+      this.controller.refresh();
+    } catch (e) {
+      const err: BusinessError = e as BusinessError;
+      console.error(`refresh failed: ${err.message}`);
+    }
   }
 
   /**
@@ -163,7 +219,7 @@ export struct WebSurface {
    * 原生 → 页面：投递一条桥消息。
    *
    * 通路：`window.dispatchEvent(new CustomEvent('xbot:bridge', { detail: <信封JSON串> }))`。
-   * 页面侧监听 `xbot:bridge` 后 `JSON.parse(e.detail)` 即得信封（**波1b 负责页面侧接线**）。
+   * 页面侧监听 `xbot:bridge` 后 `JSON.parse(e.detail)` 即得信封（**页面侧接线**见交付说明）。
    *
    * ⛔ 防注入：`encode` 得到的是 JSON 串，**再经 `JSON.stringify` 转义**成 JS 字符串字面量
    *    后才拼进代码（`JSON.stringify` 会转义 `"`/`\`/换行/控制字符 ⇒ 无法逃逸出字符串）。
@@ -196,9 +252,13 @@ export struct WebSurface {
     if (this.url.length === 0) {
       return;
     }
+    this.phase = WEB_PHASE_LOADING;
+    this.loadErr = '';
     try {
       this.controller.loadUrl(this.url);
     } catch (e) {
+      this.phase = WEB_PHASE_ERROR;
+      this.loadErr = '无法加载 URL';
       console.error('loadUrl failed');
     }
   }
@@ -206,28 +266,96 @@ export struct WebSurface {
   build() {
     Column() {
       if (this.chrome) {
-        Row() {
-          Text('‹ 返回').fontSize(15).fontColor(this.pal().accentSoft).padding(10).onClick(() => {
-            this.onClose();
-          })
+        Column() {
+          Row() {
+            // 返回：系统符号（⛔ 不用 `‹` 字符 —— 会走 emoji 字形/颜色不可控）
+            SymbolGlyph($r('sys.symbol.chevron_left'))
+            .fontSize(CHROME_GLYPH)
+            .fontColor([colorOf(this.pal(), 'accentSoft')])
+            .padding(CHROME_PAD)
+            // 热区外扩到 44（⛔ 不改布局/视觉尺寸）
+            .responseRegion({
+              x: -CHROME_HIT_PAD,
+              y: -CHROME_HIT_PAD,
+              width: HIT_TARGET_MIN,
+              height: HIT_TARGET_MIN,
+            })
+            .onClick(() => {
+              this.onClose();
+            })
           Text(this.title.length > 0 ? this.title : this.url)
-            .fontSize(12)
-            .fontColor(this.pal().textSecondary)
+            .fontSize(fs('type.caption'))
+            .fontWeight(fw('type.caption'))
+            .lineHeight(lh('type.caption'))
+            .fontColor(colorOf(this.pal(), 'textSecondary'))
             .layoutWeight(1)
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
-          Text('⟳').fontSize(16).fontColor(this.pal().accentSoft).padding(10).onClick(() => {
-            try {
-              this.controller.refresh();
-            } catch (e) {
-              const err: BusinessError = e as BusinessError;
-              console.error(`refresh failed: ${err.message}`);
-            }
-          })
+            .padding({ left: SPACE_XS })
+          // 刷新：系统符号（⛔ 不用 `⟳` 字符）
+          SymbolGlyph($r('sys.symbol.arrow_clockwise'))
+            .fontSize(CHROME_GLYPH)
+            .fontColor([colorOf(this.pal(), 'accentSoft')])
+            .padding(CHROME_PAD)
+            .responseRegion({
+              x: -CHROME_HIT_PAD,
+              y: -CHROME_HIT_PAD,
+              width: HIT_TARGET_MIN,
+              height: HIT_TARGET_MIN,
+            })
+            .onClick(() => {
+              this.refresh();
+            })
         }
         .width('100%')
-        .constraintSize({ minHeight: 48 })
-        .backgroundColor(this.pal().surfaceAlt)
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .alignItems(VerticalAlign.Center)
+        .padding({ left: SPACE_XS, right: SPACE_XS })
+        .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlayRow'))
+          Divider()
+            .strokeWidth(STROKE_HAIRLINE)
+            .color(hairlineOf(this.pal()))
+            .width('100%')
+        }
+        .width('100%')
+      }
+
+      // ── 承载面状态条（**恒静态**，不是 spinner）─────────────────────────────────
+      // loading：只在带 chrome 时显示（全屏 web 模式"一行原生 UI 都不留"）；
+      // error  ：**恒**显示（否则加载失败 = 白屏无解释，用户无从判断）。
+      if (this.status().show && (this.chrome || this.status().canRetry)) {
+        Row({ space: SPACE_XS }) {
+          Text(this.status().text)
+            .fontSize(fs('type.caption'))
+            .fontWeight(fw('type.caption'))
+            .lineHeight(lh('type.caption'))
+            .fontColor(colorOf(this.pal(), this.status().colorRole))
+            .layoutWeight(1)
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          if (this.status().canRetry) {
+            Text('重试')
+              .fontSize(fs('type.caption'))
+              .fontWeight(fw('type.caption'))
+              .lineHeight(lh('type.caption'))
+              .fontColor(colorOf(this.pal(), 'accentSoft'))
+              .padding({
+                left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y,
+              })
+              .borderRadius(RADIUS_PILL)
+              .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+              .constraintSize({ minHeight: HIT_TARGET_MIN })
+              .onClick(() => {
+                this.refresh();
+              })
+          }
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+        .padding({
+          left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y,
+        })
+        .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlayRow'))
       }
 
       Web({ src: this.url, controller: this.controller })
@@ -257,14 +385,29 @@ export struct WebSurface {
         })
         .onPageBegin((event) => {
           this.title = event !== undefined ? event.url : '';
+          // 新导航开始 ⇒ 清掉上一次的失败态（否则失败后成功加载仍显示错误条）
+          this.phase = WEB_PHASE_LOADING;
+          this.loadErr = '';
+        })
+        .onPageEnd((event) => {
+          // 失败后再来的 onPageEnd 不得把错误态刷成就绪（错误条要保持到用户重试/换页）
+          if (this.phase !== WEB_PHASE_ERROR) {
+            this.phase = WEB_PHASE_READY;
+          }
         })
         .onErrorReceive((event) => {
-          // ArkWeb 的错误对象在不同内核版本上暴露的成员不同 ⇒ 不假设方法存在
+          // ⛔ 加载失败**必须可见**（旧实现只 console.error ⇒ 空白屏无解释）。
+          //    ArkWeb 的 `WebResourceError` 用 getter 取原因（不同内核版本成员不同 ⇒ 走 API）。
           try {
             if (event !== undefined && event.error !== undefined) {
-              console.error(`web error: ${JSON.stringify(event.error)}`);
+              const info: string = event.error.getErrorInfo();
+              const code: number = event.error.getErrorCode();
+              this.loadErr = webErrorDetail(info, code);
+              this.phase = WEB_PHASE_ERROR;
+              console.error(`web error: ${info} (${code})`);
             }
           } catch (e) {
+            this.phase = WEB_PHASE_ERROR;
             console.error('web error (无法序列化)');
           }
         })
@@ -273,6 +416,6 @@ export struct WebSurface {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(this.pal().appBg)
+    .backgroundColor(colorOf(this.pal(), 'appBg'))
   }
 }
