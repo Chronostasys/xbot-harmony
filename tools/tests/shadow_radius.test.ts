@@ -183,7 +183,7 @@ function eq(name: string, got: unknown, want: unknown): void {
     // ★⑤ 双白名单（G1 后，2026-10-11）：多层消费者 = `SyntheticCard`（card）+ 六处浮层 `overlay`
     //   （AskUserSheet / Lightbox / MenuSheets / StatusSheet / Toast / PluginsSheet / QueueSheet / SelfCheckSheet）；
     //   单层遗留 = `ToolVisual`（发光通道 `glowColorOf`，**非**柔影 ⇒ 不该迁）
-    //   + `pages/Index.ets`（见报告，语义不合）。
+    //   + `pages/Index.ets`（**已迁**：G1 加性 near 层 —— 登录品牌瓦片 / 登录 CTA / 发送钮；far 留调用点）。
     //   ⚠️ 迁移进行时 ⇒ 多层白名单**增长**、单层白名单**缩短**；任何变化都逼同步本表（防静默漂移）。
     //   ✅ 2026-10-11（目标⑤ E1 待批 #1）：`PluginsSheet`/`QueueSheet`/`SelfCheckSheet` 三面板的 L1 根面
     //      从"裸 `appBg` + 无柔影"迁到 `shadowLayersOf('overlay')` 多层柔影 ⇒ 从"无影站点"变为多层消费者。
@@ -191,9 +191,10 @@ function eq(name: string, got: unknown, want: unknown): void {
       'components/AskUserSheet.ets', 'components/Lightbox.ets', 'components/MenuSheets.ets',
       'components/PluginsSheet.ets', 'components/QueueSheet.ets', 'components/SelfCheckSheet.ets',
       'components/StatusSheet.ets', 'components/SyntheticCard.ets', 'components/Toast.ets',
+      'pages/Index.ets',
     ];
     const EXPECT_SINGLE: string[] = [
-      'components/ToolVisual.ets', 'pages/Index.ets',
+      'components/ToolVisual.ets',
     ];
     console.log(`  · ★⑤ 多层柔影消费文件（期望**增长**）：${JSON.stringify(multiConsumers.slice().sort())}`);
     console.log(`  · ★⑤ 单层遗留文件（期望**缩短**，${singleLayerFiles.length} 个）：${JSON.stringify(singleLayerFiles.slice().sort())}`);

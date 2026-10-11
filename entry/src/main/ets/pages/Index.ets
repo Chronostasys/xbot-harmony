@@ -22,7 +22,7 @@ import {
 } from '../core/haptics';
 // ⚠️ 2026-10-11：`isDarkThemeName` **已从这里移除** —— 本文件 3 处旧用法已全部改走**亮度口径**
 //   （`isLightPalette(paletteOf(theme))`，铁律「禁按主题名硬判」）⇒ 该导入**已无消费者**（死导入）。
-import { ALL_THEMES, normalizeTheme, Palette, paletteOf, themeLabel, Effects, effectsOf, isLightPalette, shadowColorOf, shadowRadiusOf } from '../core/theme';
+import { ALL_THEMES, normalizeTheme, Palette, paletteOf, themeLabel, Effects, effectsOf, isLightPalette, shadowColorOf, shadowLayersOf, ShadowLayer, shadowRadiusOf } from '../core/theme';
 import { brandAccentFor } from '../core/brand';
 import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, withAccent } from '../core/accent';
 import { MD_THEMES, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';
@@ -3609,17 +3609,25 @@ struct Index {
         // 深色面**逐字节不变**（品牌渐变 + `onAccent` glyph + `glassBorder`）。
         // 深浅只经 `isLightPalette(paletteOf(theme))` 判（⛔ 不按主题名硬判）。
         if (isLightPalette(this.pal())) {
-          Column() {
-            Text('xbot').fontSize(FS_BRAND_WORDMARK).fontWeight(typeOf('type.headline').weight)
-              .fontColor(brandAccentFor(this.pal()))
-              .letterSpacing(0.5)
+          // G1（加性多层柔影）：外层 `Stack` 承载**贴合层 near**（浅色接触影；深色透明 ⇒ 零变化）；
+          // 内层保留原单层 far（色/半径/offsetY 10 逐字节不变 ⇒ 深色族观感不变）。
+          Stack() {
+            Column() {
+              Text('xbot').fontSize(FS_BRAND_WORDMARK).fontWeight(typeOf('type.headline').weight)
+                .fontColor(brandAccentFor(this.pal()))
+                .letterSpacing(0.5)
+            }
+            .width(108).height(108)
+            .borderRadius(30)
+            .backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))
+            .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+            .shadow({ radius: shadowRadiusOf(this.pal(), 'hero'), color: shadowColorOf(this.pal(), 'raised'), offsetX: 0, offsetY: 10 })
+            .justifyContent(FlexAlign.Center)
           }
           .width(108).height(108)
           .borderRadius(30)
           .backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))
-          .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
-          .shadow({ radius: shadowRadiusOf(this.pal(), 'hero'), color: shadowColorOf(this.pal(), 'raised'), offsetX: 0, offsetY: 10 })
-          .justifyContent(FlexAlign.Center)
+          .shadow({ radius: this.contactLayer('hero').radius, color: this.contactLayer('hero').color, offsetX: 0, offsetY: this.contactLayer('hero').offsetY })
         } else {
           Column() {
             Text('xbot').fontSize(FS_BRAND_WORDMARK).fontWeight(typeOf('type.headline').weight)
@@ -3716,21 +3724,28 @@ struct Index {
         }
 
         // 主 CTA：渐变 + 光晕
-        Button('登录').width('100%').constraintSize({ minHeight: 50 })
-          .fontSize(FS_TITLE).fontWeight(typeOf('type.subhead').weight)
-          .borderRadius(R_XL)
-          .fontColor(this.pal().onAccent)
-          .backgroundColor(this.pal().accent)
-          .linearGradient({
-            angle: 135,
-            colors: [[this.eff().gradientFrom, 0.0], [this.eff().gradientTo, 1.0]],
-          })
-          .shadow({ radius: shadowRadiusOf(this.pal(), 'raised'), color: shadowColorOf(this.pal(), 'raised'), offsetX: 0, offsetY: 6 })
-          .stateStyles({ pressed: { .opacity(0.78).scale({ x: 0.985, y: 0.985 }) }, normal: { .opacity(1).scale({ x: 1, y: 1 }) } })
-          .margin({ top: SP_2 })
-          .onClick(() => {
-            this.doLogin();
-          })
+        // G1（加性多层柔影）：外层 `Stack` 承载贴合层 near；按钮保留原 far（offsetY 6 逐字节不变）。
+        Stack() {
+          Button('登录').width('100%').constraintSize({ minHeight: 50 })
+            .fontSize(FS_TITLE).fontWeight(typeOf('type.subhead').weight)
+            .borderRadius(R_XL)
+            .fontColor(this.pal().onAccent)
+            .backgroundColor(this.pal().accent)
+            .linearGradient({
+              angle: 135,
+              colors: [[this.eff().gradientFrom, 0.0], [this.eff().gradientTo, 1.0]],
+            })
+            .shadow({ radius: shadowRadiusOf(this.pal(), 'raised'), color: shadowColorOf(this.pal(), 'raised'), offsetX: 0, offsetY: 6 })
+            .stateStyles({ pressed: { .opacity(0.78).scale({ x: 0.985, y: 0.985 }) }, normal: { .opacity(1).scale({ x: 1, y: 1 }) } })
+            .onClick(() => {
+              this.doLogin();
+            })
+        }
+        .width('100%')
+        .borderRadius(R_XL)
+        .backgroundColor(this.pal().accent)
+        .shadow({ radius: this.contactLayer('raised').radius, color: this.contactLayer('raised').color, offsetX: 0, offsetY: this.contactLayer('raised').offsetY })
+        .margin({ top: SP_2 })
         // 次 CTA：幽灵按钮
         Button('注册（仅服务端允许时）').width('100%').constraintSize({ minHeight: 44 })
           .fontSize(FS_BODY)
@@ -4409,32 +4424,39 @@ struct Index {
         // 唯一的实心圆按钮：发送=纸飞机；停止=同形方块（**不再用红色大块**）
         // ⚠️ `SymbolGlyph` 一旦给了固定 width/height **不会自动把图标居中**（图标会偏上/偏左）——
         //    必须用 `Stack({alignContent: Alignment.Center})` 显式居中；圆形底、阴影、点击态挂在外层 Stack。
-        Stack({ alignContent: Alignment.Center }) {
-          SymbolGlyph(this.runningNow() ? $r('sys.symbol.square_fill') : $r('sys.symbol.paperplane_fill'))
-            .fontSize(typeOf('type.callout').size)
-            .fontColor([this.runningNow() ? this.pal().textSecondary : this.pal().onAccent])
-        }
-        // 视觉 32vp（`SPACE_XXL`；⛔ 无 `control.send` token，见交付缺 token 清单）
-        .width(SPACE_XXL).height(SPACE_XXL)
-        .borderRadius(RADIUS_SHEET)   // = 32/2 ⇒ 正圆
-        // 热区 `responseRegion` 外扩到 44（HIT_TARGET_MIN）——⛔ **不改布局尺寸**（样张 ④ ⑦）
-        .responseRegion({
-          x: -(HIT_TARGET_MIN - SPACE_XXL) / 2,
-          y: -(HIT_TARGET_MIN - SPACE_XXL) / 2,
-          width: HIT_TARGET_MIN,
-          height: HIT_TARGET_MIN,
-        })
-        .backgroundColor(this.runningNow() ? this.pal().surfaceHi : this.pal().accent)
-        .shadow({ radius: this.runningNow() ? 0 : shadowRadiusOf(this.pal(), 'pill'), color: this.runningNow() ? this.pal().transparent : shadowColorOf(this.pal(), 'raised'), offsetX: 0, offsetY: 0 })
-        .stateStyles({ pressed: { .opacity(PRESS_OPACITY).scale({ x: PRESS_SCALE, y: PRESS_SCALE }) }, normal: { .opacity(1).scale({ x: 1, y: 1 }) } })
-        .accessibilityText(this.runningNow() ? '停止' : '发送')
-        .onClick(() => {
-          if (this.runningNow()) {
-            this.store?.cancel();
-          } else {
-            this.sendDraft();
+        // G1（加性多层柔影）：外层 `Stack` 承载贴合层 near（仅"发送态"有影；"停止态"按钮无影 ⇒ near 归零）。
+        Stack() {
+          Stack({ alignContent: Alignment.Center }) {
+            SymbolGlyph(this.runningNow() ? $r('sys.symbol.square_fill') : $r('sys.symbol.paperplane_fill'))
+              .fontSize(typeOf('type.callout').size)
+              .fontColor([this.runningNow() ? this.pal().textSecondary : this.pal().onAccent])
           }
-        })
+          // 视觉 32vp（`SPACE_XXL`；⛔ 无 `control.send` token，见交付缺 token 清单）
+          .width(SPACE_XXL).height(SPACE_XXL)
+          .borderRadius(RADIUS_SHEET)   // = 32/2 ⇒ 正圆
+          // 热区 `responseRegion` 外扩到 44（HIT_TARGET_MIN）——⛔ **不改布局尺寸**（样张 ④ ⑦）
+          .responseRegion({
+            x: -(HIT_TARGET_MIN - SPACE_XXL) / 2,
+            y: -(HIT_TARGET_MIN - SPACE_XXL) / 2,
+            width: HIT_TARGET_MIN,
+            height: HIT_TARGET_MIN,
+          })
+          .backgroundColor(this.runningNow() ? this.pal().surfaceHi : this.pal().accent)
+          .shadow({ radius: this.runningNow() ? 0 : shadowRadiusOf(this.pal(), 'pill'), color: this.runningNow() ? this.pal().transparent : shadowColorOf(this.pal(), 'raised'), offsetX: 0, offsetY: 0 })
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY).scale({ x: PRESS_SCALE, y: PRESS_SCALE }) }, normal: { .opacity(1).scale({ x: 1, y: 1 }) } })
+          .accessibilityText(this.runningNow() ? '停止' : '发送')
+          .onClick(() => {
+            if (this.runningNow()) {
+              this.store?.cancel();
+            } else {
+              this.sendDraft();
+            }
+          })
+        }
+        .width(SPACE_XXL).height(SPACE_XXL)
+        .borderRadius(RADIUS_SHEET)
+        .backgroundColor(this.runningNow() ? this.pal().surfaceHi : this.pal().accent)
+        .shadow({ radius: this.runningNow() ? 0 : this.contactLayer('pill').radius, color: this.runningNow() ? this.pal().transparent : this.contactLayer('pill').color, offsetX: 0, offsetY: this.runningNow() ? 0 : this.contactLayer('pill').offsetY })
       }
       .width('100%')
       .constraintSize({ minHeight: 56 })
@@ -4762,6 +4784,18 @@ struct Index {
   /** 视觉效果 token（玻璃/光晕/渐变/层级阴影）—— 由当前色板派生，换主题即换效果。 */
   private eff(): Effects {
     return effectsOf(this.pal());
+  }
+
+  /**
+   * G1「多层柔影」的**贴合层（near）** —— `shadowLayersOf(p, tier)[0]`（浅色 = `elev1`/大面 `elev2`
+   * 小半径接触影；深色 = 透明/radius 0 ⇒ 不渲染）。
+   *
+   * 用法（**加性**迁移，⛔ 不丢既有语义）：把浮起面的**原单层 `.shadow()`（far）原样保留**在面容器上，
+   * 另用一个**同 box 的背板**承载本层 ⇒ 浅色多一层"落在纸面上"的接触感；深色零变化。
+   * ⛔ far 的色/半径/偏移（含 `offsetX`）一律留在调用点原表达式 ⇒ **深色逐字节不变**。
+   */
+  private contactLayer(tier: string): ShadowLayer {
+    return shadowLayersOf(this.pal(), tier)[0];
   }
 
   /**
