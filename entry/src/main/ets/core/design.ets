@@ -586,15 +586,19 @@ export function contrastAudit(theme: string): ContrastResult[] {
 }
 
 /**
- * **已知台账**：历史遗留、当前无生产调用点或需一次设计决策才可修的达标缺口。
+ * **已知台账**：历史遗留、当前**无生产调用点**或需一次设计决策才可修的达标缺口。
  * 格式 `theme|fg|bg`。⛔ 条目**不许删**（删 = 放宽阈值）；新增"未知缺口"会红。
- * 出处：`docs/DESIGN-SYSTEM.md §11.3`（主按钮白字压在品牌紫上 = 4.35，需用户拍板）。
+ *
+ * 实测（2026-10-11，本文件 `contrastAudit` 逐主题跑）：**只有 dark 一条**
+ * （`onAccent` = 纯白压在品牌紫 `accent` = 4.346，差 0.154）。
+ * 出处：`docs/DESIGN-SYSTEM.md §11.3`（唯一杠杆是品牌主色，需用户拍板；主按钮真实底是渐变，
+ * 最亮端 `accentSoft` 上白字只有 2.09 ⇒ 压暗 accent 治不了根）。
+ * ⚠️ aurora / nebula 的 `onAccent` 是**深色字**（压亮底），实测 9.937 / 6.951 ⇒ **达标**，
+ * 故**不**入台账（列进来就等于白送一个容忍位）。
  */
 export function knownContrastLedger(): string[] {
   return [
     'dark|onAccent|accent',
-    'aurora|onAccent|accent',
-    'nebula|onAccent|accent',
   ];
 }
 
