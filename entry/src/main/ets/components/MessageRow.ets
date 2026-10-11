@@ -27,6 +27,9 @@ import { LiveTailView } from './LiveTailView';
 import { ThinkingLine } from './ThinkingLine';
 import { ToolPill, statusColorOf } from './ToolVisual';
 import { isInFlight, renderKind, statusChip } from '../core/toolstatus';
+import {
+  MSG_BLOCK_WINDOW, MSG_BLOCK_SENTINEL_H, visibleBlocks, hiddenBlockCount, widenBlocks,
+} from '../core/rowsview';
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
 import { SubAgentTree } from './SubAgentTree';
 import { flattenSubAgents } from '../core/subagent';
@@ -184,6 +187,21 @@ export struct MessageRowView {
    */
   @State entered: boolean = false;
 
+  /**
+   * **行内块窗口**：本行只渲染末尾 `blockLimit` 个迭代块，更早的折叠成**一行恒定高哨兵**
+   * （可见即自动放宽一批）。判据/常量/纯函数在 `core/rowsview.ets`（有判别力单测）。
+   *
+   * 为什么必须有：`LazyForEach` 只做**行级**虚拟化，**行内不虚拟化** ⇒ 一行 = 一个 ListItem
+   * 里的 N 个块**全部实例化**。真实服务端实测单行最多 **340 块**（稳定 fixture 108 块），
+   * 按真机实测 5.7 节点/块折算 ≈1938 节点，超单行预算 600 的 3.2×（`docs/PERF-BUDGET.md §3①`）。
+   *
+   * ⚠️ 关于 `@Reusable`：本组件是复用条目，`blockLimit` 会**跨行残留**。这是**安全**的 ——
+   *    它只在 `MSG_BLOCK_WINDOW` 基础上单调增长、且 `widenBlocks` 封顶到 n，
+   *    残留只会让另一些行"少折叠几块"（**绝不会多折叠**，即**不可能少渲染内容**）。
+   *    故不引入 `aboutToReuse` 复位（少一处状态契约、少一份风险）。
+   */
+  @State blockLimit: number = MSG_BLOCK_WINDOW;
+
   private pal(): Palette {
     return paletteOf(this.theme);
   }
@@ -310,6 +328,37 @@ export struct MessageRowView {
    */
   private itersFor(): HistoryIteration[] {
     return this.mergedBlocks();
+  }
+
+  /**
+   * 该行此刻**真正交给 `ForEach`** 的块（= `itersFor()` 的末尾 `blockLimit` 块）。
+   *
+   * ⛔ 与 `itersFor()` 分开是**刻意的**：`itersFor()` 必须保持"全部块"的语义 ——
+   *   `compactionMap()`（压缩锚点）与"隐藏块数"都基于**全量**，若在这里裁剪会让
+   *   压缩点定位错位、且丢失"还有 N 块"的判据（= 静默丢内容，用户规则不允许）。
+   */
+  private shownIters(): HistoryIteration[] {
+    return visibleBlocks(this.itersFor(), this.blockLimit);
+  }
+
+  /** 被折叠（隐藏）的块数 —— `> 0` 时必须渲染哨兵行（可见提示，不许静默丢内容）。 */
+  private hiddenBlocks(): number {
+    return hiddenBlockCount(this.itersFor().length, this.blockLimit);
+  }
+
+  /**
+   * 哨兵可见 ⇒ 放宽一批。
+   *
+   * ⛔ **绝不做"点击展开"**（用户 2026-10-10 明确禁止）：本行与上方「更早区域」分隔条
+   *   （`regionsBefore`）**同构** —— 可见性即触发。也**绝不逐块 +1**（那会每跨一次阈值就
+   *   重建该行）；一次放开 `MSG_BLOCK_BATCH`。
+   */
+  private widen(): void {
+    const n: number = this.itersFor().length;
+    const next: number = widenBlocks(this.blockLimit, n);
+    if (next !== this.blockLimit) {
+      this.blockLimit = next;
+    }
   }
 
   /** 压缩锚点缓存（按 `row.rev` 失效）—— 见 `compactionMap()`。 */
@@ -477,7 +526,30 @@ export struct MessageRowView {
       // ⛔ key 必须含 `live` 标记：在飞块可能与某个**已提交迭代同号**（服务端把
       //   在飞迭代记进 iteration_history 的场景 —— 见 core/render.ets.inFlightBlock），
       //   只按 `row.id#iteration` 会撞 key ⇒ ArkUI 复用错位（渲染错乱）。
-      ForEach(this.itersFor(), (it: HistoryIteration) => {
+      // ── 行内块窗口的**哨兵行**（更早的块被折叠）──────────────────────────────────
+      // 与上方「更早区域」分隔条（`regionsBefore`）**同构**：
+      //   · **恒定行高**（`MSG_BLOCK_SENTINEL_H`）⇒ 三态不改布局、不抖、滚动条长度不失真
+      //     （同一门手艺见上面 `REGION_ROW_H` 的注释）
+      //   · 只有 `hidden > 0` 才产出节点（其余行**零开销**、零视觉变化）
+      //   · 文案显示**还有多少块** ⇒ 满足"块数封顶必须有可见提示，不许静默丢内容"
+      //   · ⛔ **可见即自动放宽**，绝不做"点击展开/折叠"（用户 2026-10-10 明确禁止；
+      //     同上方 `autoLoadRegions` 的纪律）。一次放开 `MSG_BLOCK_BATCH` 块。
+      if (this.hiddenBlocks() > 0) {
+        Row({ space: 6 }) {
+          SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(12).fontColor([this.pal().textMuted])
+          Text(`更早的 ${this.hiddenBlocks()} 个迭代块`).fontSize(11).fontColor(this.pal().textMuted)
+        }
+        .width('100%')
+        .height(MSG_BLOCK_SENTINEL_H)
+        .justifyContent(FlexAlign.Center)
+        .margin({ top: BUBBLE.iterGap })
+        .onVisibleAreaChange([0.0, 0.5], (isVisible: boolean) => {
+          if (isVisible) {
+            this.widen();
+          }
+        })
+      }
+      ForEach(this.shownIters(), (it: HistoryIteration) => {
         this.IterationBlock(it)
         // ── 该迭代**之后**的压缩点（迭代之间、与迭代同级内联）──────────────────────
         //    web `TurnBody.tsx:225-228`：`compactions` 就挂在 IterationBlock 内部末尾。
