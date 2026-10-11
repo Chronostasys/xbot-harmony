@@ -160,6 +160,13 @@ export const MOTION_SPLASH_MARK_VP: number = SP_8 * 5;
  */
 export const MOTION_SHEET_SLIDE_VP: number = 260;
 
+/**
+ * **in-app toast**（小浮条）的滑入位移（vp）= `MOTION_SHEET_SLIDE_VP / 4` = **65**。
+ * 依据：toast 不是面板 —— 位移取面板档的 1/4 ⇒ 读作"轻轻浮起"，不是"抽屉拉出"。
+ * （同样**不是**动画时长 ⇒ 不进 `allowedDurations()`。）
+ */
+export const MOTION_TOAST_SLIDE_VP: number = MOTION_SHEET_SLIDE_VP / 4;
+
 /** 数值区间校验（纯函数）：`lo <= x <= hi`。 */
 export function inRange(x: number, lo: number, hi: number): boolean {
   return typeof x === 'number' && x === x && x >= lo && x <= hi;

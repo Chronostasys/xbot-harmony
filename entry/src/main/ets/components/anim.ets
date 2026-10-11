@@ -16,7 +16,7 @@
 import curves from '@ohos.curves';
 import {
   MOTION_FAST_MS, MOTION_BASE_MS, MOTION_MSG_IN_MS, MOTION_SLOW_MS,
-  MOTION_SHEET_SLIDE_VP,
+  MOTION_SHEET_SLIDE_VP, MOTION_TOAST_SLIDE_VP,
   springBezier, springParams,
 } from '../core/motion';
 import { ORB_BREATH_MS } from '../core/orb';
@@ -149,6 +149,21 @@ function sheetCurve(): Curve {
  */
 export function sheetTransition(): TransitionEffect {
   return TransitionEffect.translate({ y: MOTION_SHEET_SLIDE_VP })
+    .animation({ duration: MOTION_BASE_MS, curve: sheetCurve() })
+    .combine(TransitionEffect.OPACITY.animation({ duration: MOTION_FAST_MS }));
+}
+
+/**
+ * **in-app toast**（自绘小浮条）的出入场 —— 与 `sheetTransition()` **同族**（自下而上 + 淡入），
+ * 但位移取**小档** `MOTION_TOAST_SLIDE_VP`（= 面板档 / 4）。
+ *
+ * ⛔ 时长/曲线/位移**全部来自底座**（`core/motion.ets` + `sheetCurve()`）—— 本函数是新造的**位移语义**
+ *    不是新时长/新曲线；`tools/tests/motion_uniform.test.ts` 的规则 F 会抓"位移字面量"。
+ * ⚠️ 用 `.transition()`（而非 `.opacity(三元)`）：静息态 = 组件自身属性 = **可见** ⇒ fail-safe
+ *    （门禁 ⑨ 的正向形态；`tools/lint/anim-opacity-gate.sh`）。
+ */
+export function toastTransition(): TransitionEffect {
+  return TransitionEffect.translate({ y: MOTION_TOAST_SLIDE_VP })
     .animation({ duration: MOTION_BASE_MS, curve: sheetCurve() })
     .combine(TransitionEffect.OPACITY.animation({ duration: MOTION_FAST_MS }));
 }
