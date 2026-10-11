@@ -212,3 +212,111 @@ export function webErrorDetail(info: string, code: number): string {
   const c: number = typeof code === 'number' && isFinite(code) && code !== 0 ? code : 0;
   return c !== 0 ? `错误码 ${c}` : '';
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ④ 能力面板：加载 / 空 / 失败三态（`components/PluginsSheet.ets`）
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// 派单背景（真问题）：入口接通前，`openPlugins()` 是"关抽屉 → `await` 拉 RPC → 再显示面板"，
+// 慢网下**用户看不到任何反馈**；且数据层把 RPC 错误**吞成空目录**
+// （`core/store.ets:loadPluginCatalog` catch ⇒ `new PluginCatalog()`）⇒ 面板**无法区分"空"与"失败"**。
+// 本节的判据让面板能如实三分（web 权威：`settings/SettingsPlugins.tsx` 的 loading / error / empty 三分支）。
+//
+// ⛔ 与 ArkWeb 承载面（③）同纪律：状态行**恒静态**（一行字 + 语义色），**不是 spinner**
+//    —— `REDESIGN.md §4.1`「同一时刻只允许一个在飞动效 = 光球」。
+
+/** 有数据/无状态行。 */
+export const PANEL_STATE_NONE: string = 'none';
+/** 加载中。 */
+export const PANEL_STATE_LOADING: string = 'loading';
+/** 空（无插件且无视图）。 */
+export const PANEL_STATE_EMPTY: string = 'empty';
+/** 加载失败（可重试）。 */
+export const PANEL_STATE_ERROR: string = 'error';
+
+/** 能力面板的状态行（是否显示 / 文案 / 语义色角色 / 是否给"重试"）。 */
+export class PluginPanelStatus {
+  /** 见 `PANEL_STATE_*`。 */
+  state: string = PANEL_STATE_NONE;
+  show: boolean = false;
+  text: string = '';
+  /** `colorOf` 合法角色（本模块**只产出** textMuted / dangerText 两者）。 */
+  colorRole: string = 'textMuted';
+  canRetry: boolean = false;
+
+  constructor(state: string, show: boolean, text: string, colorRole: string, canRetry: boolean) {
+    this.state = state;
+    this.show = show;
+    this.text = text;
+    this.colorRole = colorRole;
+    this.canRetry = canRetry;
+  }
+}
+
+/** 加载中文案（**静态一行字**，不是 spinner）。 */
+export function pluginPanelLoadingText(): string {
+  return '正在加载插件目录…';
+}
+
+/**
+ * 失败文案：`插件目录加载失败：<可读原因>`。
+ * ⚠️ `error` 必须由调用方先经 `core/rpc.ets:readableRpcError` **可读化**（本函数不解析原始 JSON/英文栈，
+ *    避免把原始报文糊到用户脸上）。空串 ⇒ 只留前缀（不产出 `：` 悬空）。
+ */
+export function pluginPanelErrorText(error: string): string {
+  const e: string = isPresent(error) ? error.trim() : '';
+  return e.length > 0 ? `插件目录加载失败：${e}` : '插件目录加载失败';
+}
+
+/**
+ * 空态文案 + 导向（与目录空态 `pluginCatalogEmptyNotice` **同语义**，但补一条"去哪装"）。
+ * web 权威：`settings.plugins.none` 的"没有任何插件"语义（原生不抄英文 key —— 无 i18n 文案表）。
+ */
+export function pluginPanelEmptyText(): string {
+  return '还没有可用插件。可在「完整 Web UI」里安装，或请管理员在服务端启用插件系统。';
+}
+
+/**
+ * 面板状态行（**判据与渲染同源**的唯一出口；`components/PluginsSheet.ets` 只消费它）。
+ *
+ * 优先级（**失败 > 加载 > 空 > 有数据**）：
+ *   · `errorText` 非空 ⇒ `dangerText` + **可重试**（即使 `loading` 仍真：失败就是失败）；
+ *   · `loading`       ⇒ `textMuted`（静态一行字），**不可重试**（正在重试中，别给第二个按钮）；
+ *   · 无插件且无视图   ⇒ 空态引导（`textMuted`）；
+ *   · 有数据           ⇒ 不显示状态行（`state = none`）。
+ *
+ * @param loading     是否正在拉目录（`openPlugins`/`retry` 期间为真）。
+ * @param pluginCount 目录里的插件数（`items.length`）。
+ * @param groupCount  视图分组数（`groups.length`）—— 空态判据必须**同时**看这两者（有视图无插件也算有数据）。
+ * @param errorText   **已可读化**的错误串（空 = 无错）。
+ */
+export function pluginPanelStatus(
+  loading: boolean, pluginCount: number, groupCount: number, errorText: string,
+): PluginPanelStatus {
+  const err: string = isPresent(errorText) ? errorText.trim() : '';
+  if (err.length > 0) {
+    return new PluginPanelStatus(PANEL_STATE_ERROR, true, pluginPanelErrorText(err), 'dangerText', true);
+  }
+  if (loading === true) {
+    return new PluginPanelStatus(PANEL_STATE_LOADING, true, pluginPanelLoadingText(), 'textMuted', false);
+  }
+  const p: number = typeof pluginCount === 'number' && isFinite(pluginCount) && pluginCount > 0 ? pluginCount : 0;
+  const g: number = typeof groupCount === 'number' && isFinite(groupCount) && groupCount > 0 ? groupCount : 0;
+  if (p === 0 && g === 0) {
+    return new PluginPanelStatus(PANEL_STATE_EMPTY, true, pluginPanelEmptyText(), 'textMuted', false);
+  }
+  return new PluginPanelStatus(PANEL_STATE_NONE, false, '', 'textMuted', false);
+}
+
+/**
+ * 插件行的**元信息行**（`v<版本> · <state>`；两者都无 ⇒ 空串，调用方不画）。
+ * `state` 复用 `pluginStateBadge` 的判据（`active` 不显示 —— 成功要安静，同 `PluginHost` 卡片）。
+ */
+export function pluginMetaText(version: string, state: string): string {
+  const v: string = isPresent(version) ? version.trim() : '';
+  const parts: string[] = [];
+  if (v.length > 0) { parts.push(`v${v}`); }
+  const badge: PluginBadge = pluginStateBadge(state);
+  if (badge.show) { parts.push(badge.text); }
+  return parts.join(' · ');
+}

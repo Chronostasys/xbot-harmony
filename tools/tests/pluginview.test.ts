@@ -18,6 +18,8 @@ import {
   pluginCatalogEmptyNotice, pluginCatalogSummaryText, pluginViewBadge, pluginStateBadge,
   pluginViewCountText, webErrorDetail, webStatusOf, widgetDegradeDetail, widgetDeltaRole, widgetLabel,
   widgetPercent,
+  PANEL_STATE_EMPTY, PANEL_STATE_ERROR, PANEL_STATE_LOADING, PANEL_STATE_NONE,
+  pluginPanelEmptyText, pluginPanelErrorText, pluginPanelStatus, pluginMetaText,
 } from '../../entry/src/main/ets/core/pluginview';
 
 let pass = 0, fail = 0;
@@ -125,6 +127,74 @@ eq('★D2 info 去空白', webErrorDetail('  oops  ', 0), 'oops');
     }
   }
   ok('★E 绝不产出状态标记/点色当正文', noDotColors);
+}
+
+// ── ★F 能力面板三态（加载 / 空 / 失败）＋行元信息（`components/PluginsSheet.ets` 的判据源）──
+// 背景：旧实现"关抽屉 → await RPC → 才显示面板"（慢网零反馈），且数据层把错误吞成空目录
+//       ⇒ 面板分不清"空"与"失败"。此处钉住三态选择与可重试性。
+{
+  // 加载中：显示 / textMuted / **不可重试**（静态一行字，不是 spinner）
+  const loading = pluginPanelStatus(true, 0, 0, '');
+  eq('★F 加载中：显示', loading.show, true);
+  eq('★F 加载中：state=loading', loading.state, PANEL_STATE_LOADING);
+  eq('★F 加载中：textMuted', loading.colorRole, 'textMuted');
+  eq('★F 加载中：不可重试', loading.canRetry, false);
+  eq('★F 加载中：文案非空', loading.text.length > 0, true);
+
+  // 失败：dangerText + **可重试** + 带上可读原因（调用方已 readableRpcError）
+  const err = pluginPanelStatus(false, 0, 0, '连接超时');
+  eq('★F 失败：显示', err.show, true);
+  eq('★F 失败：state=error', err.state, PANEL_STATE_ERROR);
+  eq('★F 失败：dangerText', err.colorRole, 'dangerText');
+  eq('★F 失败：可重试', err.canRetry, true);
+  eq('★F 失败：文案含可读原因', err.text, '插件目录加载失败：连接超时');
+  eq('★F 失败：空/空白原因 ⇒ 不留悬空冒号', pluginPanelErrorText('   '), '插件目录加载失败');
+  eq('★F 失败：去首尾空白', pluginPanelErrorText('  x  '), '插件目录加载失败：x');
+
+  // 失败优先于加载（正在重试中又失败 ⇒ 显示失败，不给"两个按钮"的歧义）
+  eq('★F 失败 > 加载（优先级）', pluginPanelStatus(true, 0, 0, 'boom').state, PANEL_STATE_ERROR);
+
+  // 空：仅当 items 与 groups **都**空；不可重试（空不是错误）
+  const empty = pluginPanelStatus(false, 0, 0, '');
+  eq('★F 空：显示', empty.show, true);
+  eq('★F 空：state=empty', empty.state, PANEL_STATE_EMPTY);
+  eq('★F 空：不可重试（不是错误）', empty.canRetry, false);
+  eq('★F 空：有引导文案', empty.text.length > 0, true);
+  eq('★F 空：文案 = pluginPanelEmptyText', empty.text, pluginPanelEmptyText());
+
+  // 有数据 ⇒ 无状态行
+  const ready = pluginPanelStatus(false, 3, 0, '');
+  eq('★F 有插件：state=none', ready.state, PANEL_STATE_NONE);
+  eq('★F 有插件：不显示状态行', ready.show, false);
+  // groups 参与空态判据（有视图无插件也算有数据）
+  eq('★F 有视图无插件：不算空', pluginPanelStatus(false, 0, 2, '').state, PANEL_STATE_NONE);
+  // 负/NaN 计数不得被当成有数据
+  eq('★F 负计数 ⇒ 空', pluginPanelStatus(false, -1, 0, '').state, PANEL_STATE_EMPTY);
+  eq('★F NaN 计数 ⇒ 空', pluginPanelStatus(false, NaN as unknown as number, 0, '').state, PANEL_STATE_EMPTY);
+
+  // 行元信息：`v<版本>` + 非 active 状态（active 要安静，不显示）
+  eq('★F 元信息：版本 + 非 active', pluginMetaText('1.2.0', 'disabled'), 'v1.2.0 · disabled');
+  eq('★F 元信息：仅版本（active 不显示）', pluginMetaText('1.0.0', 'active'), 'v1.0.0');
+  eq('★F 元信息：仅状态', pluginMetaText('', 'disabled'), 'disabled');
+  eq('★F 元信息：空白版本 + active ⇒ 空串（调用方不画）', pluginMetaText('   ', 'active'), '');
+
+  // 角色合法性（★E 同款防线：非法 role ⇒ 运行时 colorOf 静默 transparent）
+  const produced = [loading.colorRole, err.colorRole, empty.colorRole, ready.colorRole];
+  const allowed = ['textSecondary', 'textMuted', 'dangerText', 'accentSoft', 'successText', 'warn'];
+  let clean = true;
+  for (let i = 0; i < produced.length; i++) {
+    if (allowed.indexOf(produced[i]) < 0) { clean = false; }
+  }
+  ok('★F 三态产出的 colorRole 全在合法集合', clean);
+  // ⛔ 反向钉死：状态"标记/点色"绝不能当正文色。
+  let noDot = true;
+  for (let i = 0; i < produced.length; i++) {
+    const r: string = produced[i];
+    if (r === 'statusWaiting' || r === 'statusRunning' || r === 'statusIdle' || r === 'statusError') {
+      noDot = false;
+    }
+  }
+  ok('★F 绝不产出状态标记/点色当正文', noDot);
 }
 
 console.log(`\npluginview.test.ts: ${pass} passed, ${fail} failed`);

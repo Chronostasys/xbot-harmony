@@ -57,7 +57,7 @@ import {
   pathGroupTooltip, SESSION_CATEGORIES, SessionGroup, sessionCategoryLabel,
 } from '../core/sessiongroup';
 import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msgindex';
-import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem } from '../core/pluginhost';
+import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, WebPluginListWire, buildPluginCatalog } from '../core/pluginhost';
 import {
   ATTACH_DONE, ATTACH_FAILED, ATTACH_UPLOADING, AttachItem, MAX_ATTACH, appendRef, attachChipText,
   attachmentRef, baseName, doneKeys, doneNames, doneRefs, doneSizes, hasRef, humanSize, mimeOf,
@@ -93,7 +93,6 @@ import {
   AskUserPrompt,
   ChatRow,
   HistoryIteration,
-  PluginPanelInfo,
   QueueItem,
   SearchHit,
   SessionItem,
@@ -126,7 +125,7 @@ import { SelfCheckSheet } from '../components/SelfCheckSheet';
 import { SessSheet, SearchHitsSheet, ContextSheet } from '../components/MenuSheets';
 import { AskUserSheet } from '../components/AskUserSheet';
 import { animBase, sheetTransition } from '../components/anim';
-import { rpc } from '../core/rpc';
+import { readableRpcError, rpc, RPC_WEB_PLUGIN_LIST } from '../core/rpc';
 import { TodoPayloadRow, removeTodoAt, renameTodoAt, todoPayloadRows, toggleTodoAt } from '../core/todos';
 import { WebSubAgentProgress } from '../core/chattypes';
 import { subAgentsFingerprint } from '../core/render';
@@ -562,7 +561,11 @@ struct Index {
   @State askBusy: boolean = false;
 
   // ── 插件 / ArkWeb 面板 ────────────────────────────────────────────────────
-  @State plugins: PluginPanelInfo[] = [];
+  /** 能力面板的插件行（`PluginCatalogItem` ⇒ 行才画得出 description/version/state 层次）。 */
+  @State plugins: PluginCatalogItem[] = [];
+  /** 能力面板三态（判据在 `core/pluginview.ets:pluginPanelStatus`）：加载中 / 已可读化的失败原因。 */
+  @State pluginPanelLoading: boolean = false;
+  @State pluginPanelError: string = '';
   @State panelUrl: string = '';
   /** 原生「插件目录 + 宿主页」（components/PluginHost）的全屏浮层与数据。 */
   @State showPluginHost: boolean = false;
@@ -2574,16 +2577,54 @@ struct Index {
 
   // ── 插件面板 ──────────────────────────────────────────────────────────────
 
+  /**
+   * 打开能力面板（`components/PluginsSheet` 的注入点）。
+   *
+   * ⭐ **三态（本波）**：先**立刻**显示面板 + 加载态，再拉目录 —— 旧实现是
+   *   "关抽屉 → `await` 拉 RPC → 才显示"，慢网下用户**看不到任何反馈**（以为没反应）。
+   *   失败**不吞**（旧 `store.listPlugins()` 把错误吞成空目录 ⇒ 面板分不清空/失败）。
+   */
   private async openPlugins(): Promise<void> {
     // 浮层互斥：能力面板由抽屉进入 ⇒ 先收抽屉（同一时刻只允许一个半屏/全屏浮层；同 `openPanels`）
     this.showDrawer = false;
-    const store: ChatStore | null = this.store;
-    if (store !== null) {
-      this.plugins = await store.listPlugins();
-    }
+    this.pluginPanelError = '';
+    this.pluginPanelLoading = true;
     this.anim(() => {
       this.showPlugins = true;
     });
+    await this.loadPluginCatalog();
+  }
+
+  /**
+   * 拉插件目录 → 投给能力面板（**不吞错**：失败 ⇒ 可读化后交面板显示 + 可重试）。
+   *
+   * 为什么在页面直接发 RPC 而不用 `store.listPlugins()`：后者 `catch` 后返回**空目录**
+   * （`core/store.ets:loadPluginCatalog`）⇒ 面板无法区分"没有插件"与"加载失败"。
+   * 页面直接调的写法与同文件既有能力（`set_goal`/`set_todos` 等）一致。
+   */
+  private async loadPluginCatalog(): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      this.pluginPanelLoading = false;
+      this.pluginPanelError = '尚未连接服务端';
+      return;
+    }
+    this.pluginPanelLoading = true;
+    try {
+      const data: WebPluginListWire = await rpc<WebPluginListWire>(store.http, RPC_WEB_PLUGIN_LIST);
+      const catalog: PluginCatalog = buildPluginCatalog(data, this.localeId(), store.http.baseUrl);
+      this.plugins = catalog.items;
+      this.pluginItems = catalog.items;
+      this.pluginGroups = catalog.groups;
+      this.pluginPanelError = '';
+    } catch (e) {
+      this.plugins = [];
+      this.pluginItems = [];
+      this.pluginGroups = [];
+      this.pluginPanelError = readableRpcError((e as Error).message);
+    } finally {
+      this.pluginPanelLoading = false;
+    }
   }
 
   /**
@@ -2779,6 +2820,9 @@ struct Index {
           PluginsSheet({
             theme: this.themeName,
             plugins: this.plugins,
+            groupCount: this.pluginGroups.length,
+            loading: this.pluginPanelLoading,
+            error: this.pluginPanelError,
             onOpenPluginHost: () => {
               this.openPluginHost();
             },
@@ -2786,9 +2830,13 @@ struct Index {
               this.showPlugins = false;
               this.panelUrl = this.serverUrl;
             },
-            onOpenPlugin: (p: PluginPanelInfo) => {
+            onOpenPlugin: (p: PluginCatalogItem) => {
               this.showPlugins = false;
               this.panelUrl = p.url;
+            },
+            onRetry: () => {
+              // 重试拉目录（失败态里那颗「重试」按钮）——判据/三态由 `loadPluginCatalog` 统一驱动
+              this.loadPluginCatalog();
             },
             onClose: () => {
               this.showPlugins = false;
