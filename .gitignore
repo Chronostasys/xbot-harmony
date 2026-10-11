@@ -16,7 +16,8 @@
 /.clang-format
 
 # 本地预览器实验产物（DevEco 内部流水线需要的目录形状）
-/.preview/
+**/.preview/
+.shots/
 
 # 调研产物（本地产出，不进仓库）
 /.research/
