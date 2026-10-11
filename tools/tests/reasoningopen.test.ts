@@ -13,12 +13,14 @@ declare const process: { exit: (c: number) => void };
 
 import {
   getReasoningOpen,
+  liveIterationNo,
   reasoningKey,
   reasoningOpenSize,
   REASONING_OPEN_MAX,
   resetReasoningOpenState,
   setReasoningOpen,
 } from '../../entry/src/main/ets/core/reasoningopen';
+import { HistoryIteration } from '../../entry/src/main/ets/core/types';
 
 let pass = 0, fail = 0;
 function eq(name: string, got: unknown, want: unknown): void {
@@ -80,6 +82,21 @@ eq('r1 被淘汰（最久未用）', getReasoningOpen('r1'), undefined);
 resetReasoningOpenState();
 eq('reset 后 size=0', reasoningOpenSize(), 0);
 ok('reset 后无残留', getReasoningOpen('r0') === undefined && getReasoningOpen('again') === undefined);
+
+// ═══ ⑥ live 侧迭代号（`reasoningKey` 的 live 输入；live↔committed 同键的关键）════════════
+// mutation：改成恒取「最大号」或恒 0 ⇒ 必红。
+function it(n: number, live?: boolean): HistoryIteration {
+  const o: HistoryIteration = { iteration: n };
+  if (live === true) o.live = true;
+  return o;
+}
+eq('无迭代 ⇒ 0', liveIterationNo([]), 0);
+eq('有在飞块 ⇒ 取它的号', liveIterationNo([it(1), it(2), it(3, true)]), 3);
+eq('在飞块不在末尾也取它', liveIterationNo([it(2, true), it(3)]), 2);
+eq('无在飞块 ⇒ 回落最大号', liveIterationNo([it(3), it(5), it(4)]), 5);
+eq('单块无 live ⇒ 该号', liveIterationNo([it(7)]), 7);
+// 同键契约：live 侧号 + committed 侧同 (turnID, iteration) ⇒ 同一 key（否则 commit 后读不到）
+eq('live/committed 同键', reasoningKey(42, liveIterationNo([it(1), it(2, true)])), reasoningKey(42, 2));
 
 console.log(fail === 0 ? `✅ reasoningopen: ${pass} passed` : `❌ reasoningopen: ${fail} failed / ${pass} passed`);
 process.exit(fail === 0 ? 0 : 1);

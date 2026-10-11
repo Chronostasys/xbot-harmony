@@ -22,6 +22,8 @@
 /** 展开态最大条目数（web `MAX_ENTRIES`）。 */
 export const REASONING_OPEN_MAX: number = 300;
 
+import { HistoryIteration } from './types';
+
 /** key → 是否展开（Map 迭代序 = LRU 序：末尾最新）。 */
 const openByKey: Map<string, boolean> = new Map<string, boolean>();
 
@@ -72,4 +74,30 @@ export function reasoningOpenSize(): number {
 /** 测试用：清空（模块级单例，跨用例必须隔离）。 */
 export function resetReasoningOpenState(): void {
   openByKey.clear();
+}
+
+/**
+ * 取一组迭代里**在飞迭代**的迭代号（live 侧构造 `reasoningKey()` 的输入）。
+ *
+ * 数据源 = 行上被 `core/render.ets` 标了 `live: true` 的那块（`render.ets:178/183`
+ * 的 `iteration: r.lastIter`）⇒ 与渲染**同源**（不另立判据）。
+ * 无在飞块（如刚起头/已 commit）⇒ 回落已完成块**最大号**（与本仓 `inFlightBlock`
+ * 的号语义一致）；空数组 ⇒ 0。
+ *
+ * ⚠️ live 与 committed 两侧必须各取到**同一个** (turnID, iteration)，否则 commit 后
+ *   读不到之前写下的展开态（= 思考块又自动收起）。
+ */
+export function liveIterationNo(iterations: HistoryIteration[]): number {
+  for (let i = iterations.length - 1; i >= 0; i--) {
+    if (iterations[i].live === true) {
+      return iterations[i].iteration;
+    }
+  }
+  let max: number = 0;
+  for (let i = 0; i < iterations.length; i++) {
+    if (iterations[i].iteration > max) {
+      max = iterations[i].iteration;
+    }
+  }
+  return max;
 }
