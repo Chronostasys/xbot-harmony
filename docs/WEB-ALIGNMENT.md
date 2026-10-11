@@ -608,3 +608,18 @@ web：`reasoningCount = reasoningStreaming ? rw.visibleChars : length`，且**�
 ① 陈旧 `pending` 不得覆盖新的 `running`/`done`（rank 终态优先）；
 ② `generating` 不得回落「执行中」（缺字数 ⇒ 「生成中…」）；
 ③ `pending` 不得被私改判成「执行中」（重新引入本表 #1 已废止的写法 ⇒ 必须红）。
+
+---
+
+### 16.1 批次 23（2026-10-11）：**视觉改为设计系统驱动** + 三条新分歧
+
+| # | 分歧点 | web 行为 | 原生行为 | 理由（含依据） | 批次 |
+|---|---|---|---|---|---|
+| 6 | **视觉是否逐像素对齐 web** | web 是视觉基准 | **视觉改为设计系统驱动**（`core/design.ets` + `docs/REDESIGN.md` + `docs/mockups/` 样张），**不再逐像素对齐** | 用户 2026-10-11 明确指令：「目前这些问题不是只调整样式就做好的，我希望你能进行大的重构重新设计」+「这样才能超过苹果」⇒ **功能行为仍以 web 为权威（判据来源不变），视觉以设计系统为权威**（web 是"功能基准"而非"视觉上限"） | 23（用户指令） |
+| 7 | 同键合并里 `generating` 的位置 | `dedupTools` 把 `generating` **整体排除**在 rank 比较之外（`progressStore.ts:351-354`：直接 `push`、不登记去重键） | **rank 单调推进**：`error/done=4 > running=3 > generating=2 > pending=1 > 未知=0`（`core/streammerge.ets`） | 本仓是**跨帧累积**合并（web 是逐帧快照 ⇒ 靠"不登记键"天然保护），只能在 rank 里**等价表达**"后到的陈旧 `pending` 不得盖掉正在生成参数的同一调用"。曾把 `generating` 排 `0`（**低于** `pending`=1）⇒ 多工具批次同时生成时整批被翻回「排队」（用户 2026-10-11 亲报）。断言：`tools/tests/streammerge.test.ts`（3 条，含"不许过度保护"反向守卫） | 23 |
+| 8 | 同屏**在飞动效**的数量 | web 允许多处并存（pill 扫光 / 呼吸 / 打字机…） | **同一时刻只允许一个在飞动效 = 光球（`AssistantOrb`）**；其余只允许**一次性过渡**，且必须走 `components/anim.ets` / `core/motion.ets` | 用户要求「极简、苹果那种科技感、干净」⇒**克制本身是设计语言的一部分**；"整机在跑"只由光球表达（`docs/DESIGN-SYSTEM.md §8`）。已加机器门禁（"单在飞动效" lint，接入 `tools/gate.sh`） | 23 |
+| 9 | 长词的换行策略 | `wrap-anywhere`（CSS `overflow-wrap: anywhere`） | `BREAK_ALL` + "不撑破气泡"的妥协 | ArkUI **无** `anywhere` 等价物；优先保证"不溢出"，代价是极端长词会劈词。**待设计系统定稿后一次性处理**（已记录于 `docs/REDESIGN-INPUT-BUBBLE.md`） | 23 |
+
+**批次 23 的登记原则补充**：视觉分歧**不需要**逐像素理由，但必须满足两条 ——
+① 每个数值能在 **`core/design.ets`** 里找到对应 token（唯一数值来源，禁组件字面量）；
+② 由 **`docs/mockups/` 样张 + 设计单测**钉住（样张与实现不一致 ⇒ 红）。
