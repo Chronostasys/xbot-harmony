@@ -43,11 +43,20 @@ const PANEL_W: number = 320;
 const PANEL_MAX_H: number = 420;
 /** 按钮常态不透明度（web `opacity-40`；展开/激活时回到 1）。 */
 const BTN_IDLE_ALPHA: number = 0.4;
-/** accent 底纹不透明度（web `bg-accent/10`）。 */
+/** accent 底纹不透明度（web `bg-accent/10`）—— 展开态与按压态共用同一档底纹。 */
 const ACCENT_TINT: number = 0.1;
-/** 按钮底/描边的不透明度（web `bg-bg-secondary/80` + `border-border/50`）。 */
+/**
+ * 按钮静息底纹不透明度（web `bg-bg-secondary/80`）。
+ *
+ * ⛔ **本按钮刻意没有边框**（web `MessageUserNav.tsx:157` 有 `border border-border/50`）——
+ *    真机像素取证（深色主题 1320×2848，密度 3.0）：
+ *      · 背景亮度 11 ／ 底纹亮度 12（Δ1，**肉眼不可见**）；
+ *      · 描边亮度 16~17（Δ5~6）——**"突兀的方框"100% 来自这条 1px 描边**（比底纹强 5 倍）。
+ *    ⇒ 去掉描边即根除"遗留的 box"观感；底纹（Δ1）与 `backdropBlur` 保留，只为在内容
+ *     滚到按钮底下时保住图标的可读性（web 用同一层磨砂，去掉反而会与滚动内容打架）。
+ *    强调全部收敛到**瞬时态**：`open` / `pressed` ⇒ accent 底纹 + 满不透明度（见 build）。
+ */
 const BTN_BG_ALPHA: number = 0.8;
-const BTN_BORDER_ALPHA: number = 0.5;
 /** 面板内边距（web `p-1.5` = 6px）。 */
 const PANEL_PAD: number = 6;
 /** 条目内边距（web `px-2 py-1.5` = 8 / 6）。 */
@@ -176,13 +185,25 @@ export struct MessageNav {
       // web `flex items-center justify-center` ⇒ Stack 用 alignContent（Stack 无 justifyContent）
       .alignContent(Alignment.Center)
       .borderRadius(R_MD)                 // web `rounded-md`
+      // ⛔ **无边框**（web `:157` 有 `border-border/50`，此处刻意去掉）：真机像素取证证明
+      //    方框观感 100% 来自那条 1px 描边（描边 Δ5~6 vs 底纹 Δ1）—— 消息流是"无边框 +
+      //    背景层次"的语言，这个控件必须同语言（用户口令：极简 / 苹果感）。详见常量注释。
       .backgroundColor(this.open
         ? withAlpha(this.pal().accent, ACCENT_TINT)          // web `bg-accent/10`
         : withAlpha(this.pal().surface, BTN_BG_ALPHA))        // web `bg-bg-secondary/80`
-      .backdropBlur(this.eff().glassBlur)                    // web `backdrop-blur`
-      .border({ width: 1, color: withAlpha(this.pal().border, BTN_BORDER_ALPHA) })
+      .backdropBlur(this.eff().glassBlur)                    // web `backdrop-blur`（内容滚到按钮底下时的可读性）
       .opacity(this.open ? 1 : BTN_IDLE_ALPHA)               // web `opacity-40` → 激活 100%
       .animation(animFast())                                 // web `transition-all`
+      // 强调只在**瞬时态**：按压 = web hover 的 `bg-accent/10` + 满不透明度。
+      // ⛔ 绝不写 `normal` 分支 —— `normal` 会**接管** opacity/backgroundColor，
+      //    把上面那条动态 `open` 值钉死（同款坑已在 `ThinkingLine.ets` 踩过并修掉，
+      //    见 docs/ARKTS-GOTCHAS.md §「stateStyles.normal 会接管被覆盖的属性」）。
+      .stateStyles({
+        pressed: {
+          .backgroundColor(withAlpha(this.pal().accent, ACCENT_TINT))
+          .opacity(1)
+        },
+      })
       .onClick(() => {
         this.open = !this.open;
       })

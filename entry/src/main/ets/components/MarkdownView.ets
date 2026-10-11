@@ -292,7 +292,13 @@ export struct MarkdownView {
         .fontSize(13)
         .fontColor(codeFgOf(this.mdTheme))
         .width('100%')
-        .padding(10)
+        // 四周内边距 = SP_3(12)：web `MarkdownRenderer.tsx:223` `<pre className="p-3 pt-7 …">`
+        // 的 `p-3`（=12）。原为 10 ⇒ 代码比它上方的**语言标签**（本文件语言条 `left: SP_3` = 12）
+        // 左移 2vp，真机走查读成"首行贴左"（语言/代码两条左基准线不齐）。web 里
+        // `<span className="absolute left-3 …">`（`:214`）与 `<pre className="p-3 …">` 同为 12
+        // ⇒ 两者本就该齐平。上下同理取 12（web 的 `pt-7` 是"标签浮在块内"的补偿；原生端语言条
+        // 是独立一行、不需要那份补偿，只用 p-3 的均匀 12）。
+        .padding(SP_3)
         .textAlign(TextAlign.Start)
         // 行数上限只防极端（1000 行）；是否**词内折行**由上面的 wordBreak 决定。
         // 关闭换行时按 Clip 裁切（与 Web 端代码块不换行的表现一致；不做横向 Scroll 以免宽度/高度约束引入新的不确定性）。
