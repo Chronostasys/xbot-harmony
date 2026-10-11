@@ -3,11 +3,38 @@
 > 目的：让 UI 改造**有判据**，而不是凭感觉堆样式。
 > 本轮（2026-10）用户否决过一版"到处描边 + 多色混用"的界面，本文是重做后沉淀的纪律。
 
+---
+
+> ## ⚠️ 状态声明（2026-10-11 起，**先读这段**）
+>
+> **本文已并入 [`docs/REDESIGN.md`](./REDESIGN.md)（设计语言宪法）。**
+> **冲突时一律以宪法为准**；本文降级为**历史实现说明 + 指向宪法的索引**。
+>
+> **本文仍然保留、且仍然是权威的只有三类**（⛔ 不要删，删了会断掉其它文档/门禁的引用）：
+> 1. **§4 ArkUI 可用手段** —— 已用 SDK d.ts 核实的**事实清单**（不是规则，宪法未复述）；
+> 2. **§7 光球 / §8 在飞视觉语言 / §9 `Surfaces` / §10 空与失败 / §11 `accentDeep` 取证** ——
+>    **实现细节与取证记录**（宪法 §3.2/§4.3/§5/§6.2 引用本文的同一处）；
+>    ⚠️ **§8 仍被机器门禁与 `docs/ARKTS-GOTCHAS.md` 直接引用**
+>    （`tools/lint/inflight-single-source.sh:4`、`tools/tests/inflight_language.test.ts:6`、
+>    `docs/ARKTS-GOTCHAS.md:825`、`docs/WEB-ALIGNMENT.md:622`）⇒ **保留，但不再新增规则**；
+> 3. **§6 与 webui 对齐** 的**指针**（正文见 `docs/WEB-PARITY.md`）。
+>
+> **新增/修改任何设计规则 ⇒ 改宪法（`docs/REDESIGN.md`）+ 令牌层（`core/design.ets`）**，
+> 不要再往本文加规则（否则又是"同一信息两处判据"）。
+
+---
+
 ## 0. 一句话
+
+> ⚠️ **已被 `REDESIGN.md §0/§1` 取代**（"深空仪表盘"是深色单主题时代的定位；宪法定位是 **porcelain 白色主题 + 分层语义面**）。以下原句仅作历史。
 
 **底色与主色同色相（紫）、靠亮度阶梯与留白分层、颜色只留给"进行中/失败"、图标一律用系统矢量符号。**
 
 ## 1. 三层来源
+
+> ⚠️ **已被 `REDESIGN.md §11` + `core/design.ets` 取代**。新的三层是：
+> ① `core/tokens.ets`（原始刻度）② **`core/design.ets`（语义令牌：尺度/层级/材质/动效/交互）**
+> ③ `core/theme.ets`（色板/效果/派生面）。下表是**旧**的三层，仅作历史。
 
 | 层 | 文件 | 内容 |
 |---|---|---|
@@ -16,6 +43,9 @@
 | 3. 使用 | `pages/Index.ets`、`components/*.ets` | 一律 `this.pal()` / `this.eff()` 取色，**禁止颜色字面量** |
 
 ## 2. 硬性纪律（违反即回归）
+
+> ⚠️ **规则部分已被 `REDESIGN.md §2/§3` + `core/design.ets` 取代**（圆角/间距/字阶/材质的分层与不变量）。
+> 本文的 §2.1「禁颜色字面量」、§2.3「border ≠ surfaceHi」等**实现级纪律仍然有效**（宪法同向、未重复）；其余按宪法。
 
 1. **禁颜色字面量**：页面/组件里只能 `pal()` / `eff()`。
    自检：`grep -rnoE "#[0-9a-fA-F]{3,8}\b" entry/src/main/ets/pages entry/src/main/ets/components | wc -l` 应为 **0**。
@@ -47,6 +77,10 @@
 
 ## 3. 常用尺度（`core/tokens.ets`）
 
+> ⚠️ **已被 `REDESIGN.md §1/§2` + `core/design.ets` 取代**：宪法给的是**语义档**
+> （`type.*` / `space.*` / `radius.*` / `surface.*`），直接消费 `core/design.ets`；
+> 本节只是 `tokens.ets` 的**原始数值**，作为 scale 的出处保留。
+
 ```
 圆角  R_SM=4  R_MD=6  R_LG=8  R_XL=12  R_2XL=16
 间距  SP_1..SP_8 = 4,8,12,16,20,24,28,32
@@ -73,6 +107,10 @@
 
 ## 5. 自检清单（改 UI 后逐条跑）
 
+> ⚠️ **已被 `REDESIGN.md §8`（可验证）+ `core/design.ets` 的不变量取代**：
+> 现在的判据是 `bash tools/gate.sh`（真门禁）+ `bash tools/tests/run-one.sh design`（168 断言）。
+> 下面的手工清单仍可用于**截图前**的快速自查（与门禁同向、不冲突）。
+
 ```bash
 source ~/ohos-cli/env.sh; cd ~/src/xbot-harmony
 # 1) 无颜色字面量（应为 0）
@@ -89,6 +127,9 @@ bash tools/tests/run.sh && bash tools/lint/render-path.sh && bash tools/typechec
 > （鸿蒙 `sys.symbol.more` 实际是四宫格，语义不符）。详见 `docs/WEB-PARITY.md` §4。
 
 ## 6. 与 webui 的功能/设置对齐
+
+> ⚠️ **指针仍有效**：功能面对齐见 `docs/WEB-PARITY.md`；**视觉面**的对齐规则已改由
+> `REDESIGN.md §10` + `docs/WEB-ALIGNMENT.md §16` 管理（**视觉不再逐像素对齐 web**）。
 
 见 **`docs/WEB-PARITY.md`**（共享设置键映射、强调色/MD主题/星标的落地与守护测试、
 刻意不做的项及其理由、启动健壮性与会话池的根因记录）。

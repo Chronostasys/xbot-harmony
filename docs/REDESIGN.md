@@ -2,6 +2,10 @@
 
 > **地位**：本文件是 xbot-harmony 的**视觉宪法**。任何 UI 改动先读它；与它冲突的既有实现，
 > 视为"待迁移"而非"另一套正确"。
+> **⚠️ 唯一权威**：旧文 [`docs/DESIGN-SYSTEM.md`](./DESIGN-SYSTEM.md)（"深空仪表盘"）**已降级为
+> 历史实现说明 + 本文的索引**；**与本文冲突时，一律以本文为准**。
+> （该旧文仅保留 SDK 事实清单 §4、光球/在飞/`Surfaces`/空失败/`accentDeep` 的实现取证 §7–§11，
+> 以及被门禁与 `ARKTS-GOTCHAS` 直接引用的 **§8 锚点**，且**不再新增规则**。）
 > **可执行部分**：`core/design.ets`（语义令牌层）+ `tools/tests/design.test.ts`（123 条断言）。
 > **可执行附录**：`docs/mockups/`（静态样张，浏览器直接打开）。
 > **权威基准**：功能面仍以 web（`/Users/bobli/src/xbot/web`）为准；**视觉不再逐像素对齐 web**
