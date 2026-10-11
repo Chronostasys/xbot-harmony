@@ -3,6 +3,7 @@ declare const process: { exit: (c: number) => void };
 
 import {
   advanceVisible, catchUpTicks, clipRunes, isCJK, isTyping, runeCount, toRunes, TICK_MS,
+  CJK_SLOW_ADVANCE_MAX, CJK_SLOW_GAP_MAX,
 } from '../../entry/src/main/ets/core/typewriter';
 
 let pass = 0, fail = 0;
@@ -36,8 +37,19 @@ eq('gap=9 前进 3（gap/3）', advanceVisible(0, 9, false), 3);
 eq('gap=10 前进 3（取整）', advanceVisible(0, 10, false), 3);
 eq('gap=2 至少前进 1', advanceVisible(0, 2, false), 1);
 eq('不会超过目标', advanceVisible(8, 9, false), 9);
-eq('CJK 拍：半速', advanceVisible(0, 9, true), 1);
-eq('CJK 拍不会超过目标', advanceVisible(8, 9, true), 9);
+// ── CJK 半速门限（对齐 web `useTypewriter.ts:98-113`）：**仅近追平**才隔拍跳过，跳过 = 0 ──
+eq('门限常量 = web（advance<=3 && gap<=20）', [CJK_SLOW_ADVANCE_MAX, CJK_SLOW_GAP_MAX], [3, 20]);
+// ⛔ 本波修的缺陷：旧实现在**任意 gap** 都半速、且跳过时前进 gap/6 ⇒ (0,300,true) 得 25。
+eq('大 gap 全速（不再无脑半速）', advanceVisible(0, 300, true), 100);
+eq('大 gap 全速 ≠ 旧实现的 25', advanceVisible(0, 300, true) !== 25, true);
+eq('gap=30 > 20 ⇒ 不跳，全速 gap/3', advanceVisible(0, 30, true), 10);
+eq('gap=21 > 20 ⇒ 不跳', advanceVisible(0, 21, true), 7);
+eq('gap=20 但 advance=6 > 3 ⇒ 不跳', advanceVisible(0, 20, true), 6);
+eq('近追平才跳：gap=9 ⇒ 本拍前进 0', advanceVisible(0, 9, true), 0);
+eq('近追平才跳：gap=6 ⇒ 本拍前进 0', advanceVisible(0, 6, true), 0);
+eq('跳过的拍原样返回（含小 gap）', advanceVisible(8, 9, true), 8);
+eq('非跳过拍正常前进（gap=9）', advanceVisible(0, 9, false), 3);
+eq('已追平时跳过拍返回 target', advanceVisible(9, 9, true), 9);
 
 eq('是否还在打字', isTyping(1, 2), true);
 eq('已追平', isTyping(2, 2), false);

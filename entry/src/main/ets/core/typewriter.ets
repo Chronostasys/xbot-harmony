@@ -61,27 +61,40 @@ export function clipRunes(text: string, n: number): string {
   return out;
 }
 
+/** CJK 半速的"近追平"门限：基础步伐 ≤ 此值（web `useTypewriter.ts:106` `advance <= 3`）。 */
+export const CJK_SLOW_ADVANCE_MAX: number = 3;
+/** CJK 半速的"近追平"门限：剩余 gap ≤ 此值（web `useTypewriter.ts:106` `gap <= 20`）。 */
+export const CJK_SLOW_GAP_MAX: number = 20;
+
 /**
  * 一拍之后应该显示多少个码点。
  *
+ * ⛔ **CJK 半速门限收在本函数内部**（对齐 web `useTypewriter.ts:98-113`，唯一判据）——
+ *   调用方**不得**自行决定"任意 gap 都隔拍跳过"。web 权威：
+ *     `if (nextIsCJK && advance <= 3 && gap <= 20) { flip; if (flip) return visible }`
+ *   ⇒ 只有**近追平**窗口（落后很少）才做半速；落后很多时全速追赶（否则大段中文要等
+ *   两倍拍数才出完）。
+ *
+ * ⛔ **跳过 = 前进 0**（不是"走一半"）。旧实现跳过时前进 `gap/6`（≥1），与 web 不符
+ *   —— 大 gap 下反而比全速还快/乱，且 `advanceVisible(0,300,true)` 会得到 25（web 语义
+ *   下门限不成立 ⇒ 应为 100）。
+ *
  * @param visible 当前可见码点数
  * @param target  目标（已收到的全部码点数）
- * @param cjkSkip true = 本拍因"CJK 半速"而跳过（前进 0 或不推进）
- * @returns 新的可见码点数（不会超过 target）
+ * @param cjkSkip 调用方观测到：**下一枚码点是 CJK** 且 **本拍处于"隔拍"相位**（前进拍）
+ * @returns 新的可见码点数（不会超过 target；跳过的拍原样返回 `visible`）
  */
 export function advanceVisible(visible: number, target: number, cjkSkip: boolean): number {
   if (visible >= target) {
     return target;
   }
   const gap: number = target - visible;
-  if (cjkSkip) {
-    // CJK 半速：这一拍最多只走"基础步伐的一半"（四舍五入到至少 1，避免中文卡住不动）
-    const half: number = Math.max(1, Math.floor(gap / 3 / 2));
-    const next: number = visible + half;
-    return next > target ? target : next;
+  const advance: number = Math.max(1, Math.floor(gap / 3));
+  // CJK 半速：**仅近追平**才隔拍跳过；跳过 = 本拍前进 0（web 同款）。
+  if (cjkSkip && advance <= CJK_SLOW_ADVANCE_MAX && gap <= CJK_SLOW_GAP_MAX) {
+    return visible;
   }
-  const step: number = Math.max(1, Math.floor(gap / 3));
-  const next: number = visible + step;
+  const next: number = visible + advance;
   return next > target ? target : next;
 }
 
