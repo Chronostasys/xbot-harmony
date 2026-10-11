@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>样张 1 · 聊天流（现状 vs 新设计）</title>
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   样张 1：聊天流 —— 左「现状」（按 REDESIGN-INPUT 实测的缺陷态）／右「新设计」
+   所有数值都对应 core/design.ets 的 token（旁注 mono 小字）。
+   静态样张：无 JS 动画（铁律：同一时刻只有一个在飞动效 = 光球；此处仅静态标注）。
+   ───────────────────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+:root{
+  /* porcelain（白色主题）语义色 —— core/theme.ets porcelainPalette() */
+  --canvas:#FFFFFF; --card:#FFFFFF; --raised:#F6F6F7; --active:#EDEDEF; --sunken:#F2F2F2;
+  --tp:#1D1D1F; --ts:#6E6E73; --tm:#A2A2A7; --f3:#C7C7CC;
+  --accent:#0071E3; --accentSoft:#0066CC; --accentText:#0057B8; --accentDeep:#E8F1FD;
+  --danger:#B42318; --success:#166534; --warn:#B26A00;
+  --hairline:#DFDFE1; --border:#ECECEE; --borderStrong:#D8D8DC;
+  /* 尺度 —— core/design.ets */
+  --sp-hair:2px; --sp-xxs:4px; --sp-xs:8px; --sp-sm:12px; --sp-md:16px; --sp-lg:20px; --sp-xl:24px; --sp-xxl:32px;
+  --r-chip:6px; --r-pill:8px; --r-card:12px; --r-sheet:16px;
+}
+body{
+  margin:0; padding:var(--sp-xl);
+  background:#EEF1F5;
+  font-family:-apple-system,"SF Pro Text","Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif;
+  color:var(--tp); -webkit-font-smoothing:antialiased;
+}
+.page-head{max-width:960px;margin:0 auto var(--sp-lg)}
+.page-head h1{font-size:21px;font-weight:600;letter-spacing:-.2px;margin:0 0 6px}
+.page-head p{font-size:14px;color:var(--ts);line-height:1.5;margin:0}
+.legend{font-size:12px;color:var(--ts);margin-top:var(--sp-xs)}
+.legend code{background:#fff;border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-size:11px}
+.cols{display:flex;gap:var(--sp-xl);max-width:960px;margin:0 auto;align-items:flex-start;flex-wrap:wrap}
+.col{flex:1 1 380px;min-width:360px}
+.col > h2{font-size:13px;font-weight:600;text-transform:none;color:var(--ts);margin:0 0 var(--sp-xs);letter-spacing:.2px}
+.phone{width:100%;background:var(--canvas);border-radius:var(--r-sheet);padding:var(--sp-md) 0 40px;
+  box-shadow:0 1px 3px rgba(0,0,0,.10),0 12px 32px rgba(29,29,31,.10);overflow:hidden;
+  border:1px solid var(--hairline)}
+.phone.dark{background:#0B0B0E;--canvas:#0B0B0E;--card:#0E0E14;--raised:#14141C;--active:#1D1D28;--sunken:#0B0B0F;
+  --tp:#EDEDF2;--ts:#9A9AAB;--tm:#63636F;--f3:#4F4F4F;--accent:#7C5CFF;--accentSoft:#B9A7FF;
+  --danger:#FF7B7B;--success:#86EFC4;--warn:#E8B44A;--hairline:#20202B;--border:#20202B;--borderStrong:#2E2E3C;
+  border-color:#20202B;box-shadow:0 12px 32px rgba(0,0,0,.5)}
+.phone-inner{padding:0 var(--sp-md)}
+.tok{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9px;color:var(--tm);
+  background:transparent;white-space:nowrap;padding-left:4px;opacity:.9}
+.anno{font-family:ui-monospace,Menlo,monospace;font-size:9px;color:var(--accentSoft);
+  border:1px dashed currentColor;border-radius:4px;padding:0 3px;margin-left:5px;opacity:.75}
+/* ── 用户气泡 ─────────────────────────────── */
+.row{display:flex;padding:6px 4px}
+.row.user{justify-content:flex-end}
+.bubble{max-width:85%;padding:8px 14px;font-size:15px;line-height:1.55;
+  border-radius:16px 16px 4px 16px;background:rgba(0,113,227,.15);color:var(--tp)}
+.phone.dark .bubble{background:rgba(124,92,255,.22);color:#EDEDF2}
+/* 现状（缺陷态）：不透明 accent 渐变盖住透底 + onAccent 文字 + BREAK_ALL 劈词 */
+.bubble.bad{background:linear-gradient(135deg,#7C5CFF,#B9A7FF);color:#FFFFFF;border-radius:16px 16px 2px 16px}
+.wrapbad{word-break:break-all}
+.errline{font-size:9px;color:#B42318;margin:4px 0 0}
+/* ── 助手正文 ─────────────────────────────── */
+.msg{padding:6px 4px;font-size:15px;line-height:1.55;color:var(--tp)}
+.msg h3{font-size:17px;font-weight:600;line-height:1.3;margin:16px 0 8px;letter-spacing:0}
+.msg h4{font-size:15px;font-weight:600;line-height:1.3;margin:12px 0 8px}
+.msg p{margin:0 0 8px}
+.msg ul{margin:0 0 8px;padding-left:16px}
+.msg li{margin:0 0 4px;line-height:1.55}
+.msg code.inl{font-family:ui-monospace,Menlo,monospace;font-size:13px;background:var(--sunken);
+  border-radius:6px;padding:0 6px;color:var(--accentText)}
+/* ── 代码块（surface.well = sunken） ───────── */
+.codeblock{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;margin:8px 0}
+.codestrip{display:flex;align-items:center;justify-content:space-between;padding:4px 12px;
+  background:var(--raised);border-bottom:1px solid var(--hairline);font-size:11px;color:var(--ts)}
+.codestrip .act{color:var(--accentSoft);font-size:11px}
+.codescroll{overflow-x:auto;background:var(--sunken);padding:12px;font-family:ui-monospace,Menlo,monospace;
+  font-size:13px;line-height:1.5;white-space:pre;color:var(--tp)}
+.k{color:#9B2393}.s{color:#0B7285}.c{color:var(--tm)}.f{color:#1C00CF}.n{color:#1C00CF}
+.phone.dark .k{color:#C792EA}.phone.dark .s{color:#A5D6A7}.phone.dark .f,.phone.dark .n{color:#82AAFF}.phone.dark .c{color:#63636F}
+/* ── 思考行 ───────────────────────────────── */
+.think{display:flex;align-items:center;gap:4px;width:fit-content;padding:2px 4px;border-radius:8px;
+  font-size:12px;color:var(--tm);line-height:1.35}
+.think.live{color:var(--accentSoft)}
+.orb{width:20px;height:20px;border-radius:50%;flex:0 0 20px;
+  background:radial-gradient(circle at 50% 50%, var(--accentSoft) 0%, rgba(0,0,0,0) 68%);
+  box-shadow:0 0 0 1px rgba(0,0,0,.06) inset}
+.phone.dark .orb{box-shadow:none}
+.thinkbody{margin-top:4px;padding-left:10px;border-left:2px solid var(--hairline);font-size:12px;
+  color:var(--tm);opacity:.75;line-height:1.5}
+/* ── 工具 pill（六档） ─────────────────────── */
+.pillrow{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:5px 8px;border-radius:var(--r-pill);
+  background:var(--raised);font-size:12px;line-height:1.4;color:var(--tp);max-width:240px;margin:3px}
+.pill.sel{background:var(--active)}
+.pill .slot{width:14px;height:14px;flex:0 0 14px;display:inline-flex;align-items:center;justify-content:center;font-size:11px}
+.pill .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;font-size:13px;line-height:1.4}
+.pill .chip{font-size:10px;font-weight:500;line-height:1.2;padding:2px 4px;border-radius:var(--r-chip);
+  background:var(--sunken);color:var(--ts)}
+.pill .chip.err{color:var(--danger)}
+.mk-done{color:var(--success)}.mk-run{color:var(--accentSoft)}.mk-pend{color:var(--tm)}
+.mk-err{color:var(--danger)}.mk-kill{color:var(--tm)}
+.spin{width:11px;height:11px;border-radius:50%;border:1.5px solid currentColor;border-top-color:transparent}
+.badge-n{display:inline-flex;align-items:center;padding:5px 8px;border-radius:var(--r-pill);
+  background:var(--raised);font-size:11px;color:var(--ts);margin:3px}
+.badge-n.bad{background:var(--active);color:var(--tm);border:1px solid var(--border)}
+/* ── 目标横幅 ─────────────────────────────── */
+.goal{display:flex;align-items:center;gap:8px;margin:8px 6px;padding:6px 12px;border-radius:var(--r-card);
+  background:var(--card);border:1px solid rgba(0,113,227,.30);font-size:12px;line-height:1.35}
+.phone.dark .goal{border-color:rgba(124,92,255,.30)}
+.goal .txt{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tp)}
+.goal .badgev{font-size:10px;font-weight:500;padding:2px 6px;border-radius:var(--r-chip);
+  background:var(--sunken);color:var(--accentText)}
+.goal .bad{font-size:9px;color:var(--danger)}
+/* ── 待办条 ───────────────────────────────── */
+.todo{border-top:1px solid var(--hairline);border-bottom:1px solid var(--hairline);
+  margin:8px 0;padding:6px 8px}
+.todo .hd{display:flex;align-items:center;gap:8px;height:28px;font-size:12px;color:var(--tp)}
+.bar{width:48px;height:6px;border-radius:3px;background:var(--sunken);overflow:hidden}
+.bar i{display:block;height:100%;width:60%;background:var(--accent)}
+.todo ul{list-style:none;margin:4px 0 0;padding:0;font-size:12px}
+.todo li{display:flex;gap:8px;align-items:center;margin:2px 0;line-height:1.4}
+.todo li.done{color:var(--tm);text-decoration:line-through}
+.todo li.doing{font-weight:500}
+.ic-done{color:var(--success)}.ic-doing{color:var(--accentSoft)}.ic-pend{color:var(--tm)}
+/* ── 图例 ─────────────────────────────────── */
+.note{font-size:11px;color:var(--ts);margin:8px 0 0;line-height:1.6}
+.note b{color:var(--tp)}
+.hr{height:1px;background:var(--hairline);margin:16px 0}
+</style>
+</head>
+<body>
+<div class="page-head">
+  <h1>样张 1 · 聊天流 —— 现状 vs 新设计</h1>
+  <p>左：按 <code>REDESIGN-INPUT-{BUBBLE,PILL,MARKDOWN}.md</code> 实测到的**缺陷态**复现（不透明 accent 渐变盖掉透底、文字误用 onAccent、<code>BREAK_ALL</code> 劈词、chip 与选中 pill 同色消失、待办/目标条判据散落）。右：按 <code>docs/REDESIGN.md</code> 的新设计。</p>
+  <div class="legend">虚线框标 = 该处使用的 token 名（全部可在 <code>core/design.ets</code> 找到）。静态样张：无动画；「在飞」仅以光球静态标注。</div>
+</div>
+
+<div class="cols">
+
+  <!-- ══════════════ 现状 ══════════════ -->
+  <div class="col">
+    <h2>现状（缺陷态复现）</h2>
+    <div class="phone">
+      <div class="phone-inner">
+        <div class="row user">
+          <div class="bubble bad wrapbad">帮我看看这个 https://example.com/a/very/long/unbreakable/token/that/pierces/the/bubble</div>
+        </div>
+        <div class="errline">↑ 气泡底＝不透明 accent 渐变（web 无此物）；文字却用 onAccent；BREAK_ALL 劈词</div>
+
+        <div class="msg">
+          <p>先看 <code class="inl">parseMarkdownCached</code> 的命中率。</p>
+        </div>
+
+        <div class="think">✳ 思考 128 字</div>
+        <div class="errline">↑ 与块首光球同屏 = 两个在飞指示（用户报「两个 spinner」）</div>
+
+        <div class="pillrow">
+          <span class="pill sel"><span class="slot mk-pend">◌</span><span class="nm">read_file</span><span class="chip">排队</span></span>
+          <span class="pill"><span class="slot mk-run"><span class="spin"></span></span><span class="nm">grep</span><span class="chip">执行中</span></span>
+        </div>
+        <div class="errline">↑ 选中 pill 底 = surfaceHi；chip 底 = 也 surfaceHi ⇒ chip 与 pill 同色、「消失」</div>
+
+        <div class="codeblock">
+          <div class="codestrip"><span>typescript</span><span class="act">复制</span></div>
+          <div class="codescroll" style="max-height:52px">const hit = cache.get(key)   // 每拍新前缀 ⇒ 全 miss
+const doc = parse(src)        // 单块 583KB 进一个 Text()</div>
+        </div>
+        <div class="errline">↑ 代码块未接 core/highlight.ets（无高亮）；不换行模式 = 静默裁剪丢数据</div>
+
+        <div class="goal">
+          <span>🎯</span><span class="txt">把首页重构完成并把所有散落值收进 token</span>
+          <span class="badgev">进行中</span><span class="bad">描边 0.5（自造第二判据）</span>
+        </div>
+        <div class="todo">
+          <div class="hd"><span>▾</span><div class="bar"><i></i></div><span>3/5</span><span>收敛表面层级</span></div>
+          <ul>
+            <li class="done"><span class="ic-done">✓</span>抽 core/design.ets</li>
+            <li class="doing"><span class="ic-doing">◐</span>迁移 tool pill</li>
+            <li><span class="ic-pend">○</span>迁移 Markdown 面</li>
+          </ul>
+        </div>
+        <div class="errline">↑ 目标条视觉判据散在 5 个本地 const；待办条底色/图标各写一份</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ 新设计 ══════════════ -->
+  <div class="col">
+    <h2>新设计（porcelain 白色主题）</h2>
+    <div class="phone">
+      <div class="phone-inner">
+
+        <!-- 用户气泡：accent@15% 透底 + textPrimary + 「有面」语义 -->
+        <div class="row user">
+          <div class="bubble">帮我把这些散落值收进 design token<span class="anno">surface/bubble accent@15%</span></div>
+        </div>
+        <div class="note">气泡 <b>有面</b>（右对齐 + 右下小角）＝ 用户；助手 <b>无面</b> —— 这条对比是<b>显式规则</b>，不是"恰好有色"。文字用 <code>type.body</code> 15fp + <code>textPrimary</code>（⛔ 不再用 onAccent）。圆角 <code>RADIUS_BUBBLE</code>=16 / 尾巴 <code>RADIUS_BUBBLE_TAIL</code>=4。</div>
+
+        <!-- 助手正文：无面 + Markdown 尺度 -->
+        <div class="msg">
+          <h3>表面层级修复<span class="anno">type.headline 17/600/1.30</span></h3>
+          <p>根因：pill/cchip/浮层共用同一组面。<span class="anno">type.body 15/1.55</span></p>
+          <ul>
+            <li>chip 恒为<b>内嵌凹槽</b> <code class="inl">surface.chip</code> → <code class="inl">sunken</code></li>
+            <li>选中只改 pill 自己一层 <code class="inl">surface.pillSelected</code></li>
+            <li>嵌套面逐主题断言互不同色<span class="anno">nestingPairsDistinct()</span></li>
+          </ul>
+        </div>
+
+        <!-- 代码块：surface.well + 高亮 + 横向滚动 -->
+        <div class="codeblock">
+          <div class="codestrip"><span>typescript</span><span class="act">复制</span></div>
+          <div class="codescroll"><span class="c">// surface.well = sunken；高亮复用 core/highlight.ets（Prism4j）</span>
+<span class="k">const</span> <span class="f">pill</span> = <span class="f">surfaceFillOf</span>(pal, <span class="s">'surface.chip'</span>);
+<span class="k">const</span> <span class="f">ratio</span> = <span class="f">contrastRatio</span>(<span class="f">chipText</span>, <span class="f">pill</span>);</div>
+        </div>
+        <div class="note">代码块＝<code>surface.well</code>(sunken) + <code>hairline</code> 边 + <code>RADIUS_CARD</code>12；⛔ 不换行模式改<b>横向滚动</b>（不再静默裁剪）。等价文本 <code>MD_CODE_SIZE</code>=13 / 行高 1.5。</div>
+
+        <!-- 思考行：静态 + 光球为前导（唯一在飞） -->
+        <div class="think live"><span class="orb"></span><span>思考 128 字</span><span class="anno">type.caption 12；静态，只改色 accentSoft</span></div>
+        <div class="thinkbody">光球是<b>唯一</b>在飞动效（<code>motion.breath</code>，owner=orb）；思考行恒静态 —— ⛔ 不呼吸、不脉冲。</div>
+
+        <!-- 工具 pill 六档 -->
+        <div class="pillrow">
+          <span class="pill"><span class="slot mk-pend">◌</span><span class="nm">read_file</span><span class="chip">排队</span></span>
+          <span class="pill"><span class="slot mk-run"><span class="spin"></span></span><span class="nm">grep</span><span class="chip">生成中 12 字</span></span>
+          <span class="pill"><span class="slot mk-run"><span class="spin"></span></span><span class="nm">bash</span><span class="chip">执行中 1.2s</span></span>
+          <span class="pill sel"><span class="slot mk-done">✓</span><span class="nm">write_file</span><span class="anno">surface.pillSelected</span></span>
+          <span class="pill"><span class="slot mk-err">✕</span><span class="nm">test</span><span class="chip err">失败 exit 1</span></span>
+          <span class="pill"><span class="slot mk-kill">−</span><span class="nm">browser</span><span class="chip">已终止</span></span>
+          <span class="badge-n">+3</span>
+        </div>
+        <div class="note">六档：<code>done</code> 无 chip（成功要安静）／<code>running</code>·<code>generating</code> 原生 spinner ／<code>pending</code> <b>静态</b>虚线圆（裁决：移除符号呼吸）／<code>error</code> 红名+实心叉 ／<code>killed</code> 减号。<code>pending</code> chip 底=<code>sunken</code> ⇒ 永不与 pill 同色。<code>+N</code> = pill 的 compact 变体。marker 槽恒 14vp。</div>
+
+        <!-- 目标横幅 -->
+        <div class="goal">
+          <span style="color:var(--accentSoft)">◎</span>
+          <span class="txt">把首页重构完成并把所有散落值收进 token</span>
+          <span class="badgev">进行中</span>
+          <span style="color:var(--ts)">✎</span><span style="color:var(--ts)">✕</span>
+        </div>
+        <div class="note">底 <code>surface.card</code>（单一来源）／进行中描边 <code>accent@30%</code>、完成 <code>success@30%</code>（各自一套，⛔ 无"浅色×0.5"）／徽标 <code>surface.chip</code>+<code>type.micro</code>。可点区 ≥<code>HIT_TARGET_MIN</code>44。</div>
+
+        <!-- 待办条 -->
+        <div class="todo">
+          <div class="hd"><span>▾</span><div class="bar"><i></i></div><span>3/5</span><span>收敛表面层级</span></div>
+          <ul>
+            <li class="done"><span class="ic-done">✓</span>抽 core/design.ets</li>
+            <li class="doing"><span class="ic-doing">◐</span>迁移 tool pill</li>
+            <li><span class="ic-pend">○</span>迁移 Markdown 面</li>
+          </ul>
+        </div>
+        <div class="note">进度条 48×6 <code>RADIUS_CHIP</code>；状态图标 done→<code>success</code> / doing→<code>accent</code> / pending→<code>muted</code>；<code>total===0</code> ⇒ 整个面板不存在。</div>
+
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="cols" style="margin-top:24px">
+  <div class="col" style="flex:1 1 100%">
+    <h2>深色同构（dark）</h2>
+    <div class="phone dark" style="max-width:520px">
+      <div class="phone-inner">
+        <div class="row user"><div class="bubble">同一套语义令牌，深色自动成立<span class="anno">isLightPalette 分支</span></div></div>
+        <div class="msg"><p>深色里「升」= 更亮（canvas &lt; card &lt; raised &lt; active）；浅色里白面无法再亮 ⇒ 「浮起」用<b>发丝 + 柔影</b>，<b>往里嵌</b>用更深的填充。</p></div>
+        <div class="think live"><span class="orb"></span><span>思考 128 字</span></div>
+        <div class="pillrow">
+          <span class="pill"><span class="slot mk-run"><span class="spin"></span></span><span class="nm">grep</span><span class="chip">执行中</span></span>
+          <span class="pill sel"><span class="slot mk-done">✓</span><span class="nm">write_file</span></span>
+          <span class="pill"><span class="slot mk-err">✕</span><span class="nm">test</span><span class="chip err">失败</span></span>
+        </div>
+        <div class="codeblock"><div class="codestrip"><span>go</span><span class="act">复制</span></div>
+          <div class="codescroll"><span class="k">func</span> <span class="f">main</span>() { <span class="f">run</span>(<span class="s">"design"</span>) }</div></div>
+      </div>
+    </div>
+    <div class="note"><b>同一份组件代码</b>在两套主题下都成立 —— 判据是 <code>isLightPalette(色板)</code>（按 appBg 亮度），⛔ 绝不按主题名硬判。</div>
+  </div>
+</div>
+
+</body>
+</html>

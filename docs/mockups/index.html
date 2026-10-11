@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xbot-harmony 重新设计 · 静态样张</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:32px 24px;background:#EEF1F5;color:#1D1D1F;
+  font-family:-apple-system,"SF Pro Text","PingFang SC",sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:840px;margin:0 auto}
+h1{font-size:28px;font-weight:600;letter-spacing:-.4px;margin:0 0 8px}
+.lede{font-size:15px;line-height:1.55;color:#6E6E73;margin:0 0 24px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+a.card{display:block;background:#fff;border:1px solid #DFDFE1;border-radius:12px;padding:16px;text-decoration:none;
+  color:inherit;box-shadow:0 1px 2px rgba(29,29,31,.06),0 8px 24px rgba(29,29,31,.07);transition:box-shadow .18s}
+a.card:hover{box-shadow:0 1px 2px rgba(29,29,31,.08),0 12px 32px rgba(29,29,31,.14)}
+a.card .n{font-size:11px;color:#A2A2A7;font-family:ui-monospace,Menlo,monospace}
+a.card .t{font-size:17px;font-weight:600;margin:4px 0 6px;letter-spacing:-.2px}
+a.card .d{font-size:13px;line-height:1.5;color:#6E6E73}
+.hr{height:1px;background:#DFDFE1;margin:24px 0}
+.meta{font-size:12px;color:#6E6E73;line-height:1.7}
+code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:#F2F2F2;border-radius:4px;padding:1px 5px}
+.badge{display:inline-block;font-size:10px;font-weight:500;padding:2px 6px;border-radius:6px;background:#F2F2F2;color:#6E6E73}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>重新设计 · 静态样张</h1>
+  <p class="lede">用户「不是只调整样式，要做大的重构重新设计」的设计裁决用样张。<b>每个数值旁注对应的 token 名</b>，
+  全部可在 <code>core/design.ets</code> 找到。纯静态、内嵌 CSS、无外部依赖 —— 直接双击打开即可。</p>
+
+  <div class="grid">
+    <a class="card" href="chat-flow.html">
+      <div class="n">样张 1</div>
+      <div class="t">聊天流（现状 vs 新设计）</div>
+      <div class="d">用户气泡 / 助手正文（标题·列表·行内码）/ 高亮代码块 / 工具 pill 六档 + 折叠 / 思考行 / 待办条 / 目标横幅；含深色同构。</div>
+    </a>
+    <a class="card" href="white-theme.html">
+      <div class="n">样张 2</div>
+      <div class="t">白色主题三级层次</div>
+      <div class="d">底色-表面-浮层三级的立体方式（浅色最容易糊）+ 文字三级 + hairline；附 WCAG 实测表。</div>
+    </a>
+    <a class="card" href="brand-splash.html">
+      <div class="n">样张 3</div>
+      <div class="t">开屏 + logo</div>
+      <div class="d">浅/深两套底的开屏（白主题不靠发光）、安全区标注（313 / 410）、降级链、对比度数值。</div>
+    </a>
+    <a class="card" href="interaction.html">
+      <div class="n">样张 4</div>
+      <div class="t">关键交互态</div>
+      <div class="d">Composer（静息/聚焦/按压）/ 浮层 / 工具浮层 / 失败重试 / 空态 / 加载光球 / 命中区 44。</div>
+    </a>
+  </div>
+
+  <div class="hr"></div>
+  <div class="meta">
+    <p><b>配套文档</b>：<code>docs/REDESIGN.md</code>（设计语言宪法）· <code>docs/REDESIGN-STRUCTURE.md</code>（骨架重构 + 令牌迁移计划）·
+    <code>core/design.ets</code>（语义令牌层）· <code>tools/tests/design.test.ts</code>（123 断言 + mutation 自证）。</p>
+    <p><b>铁律</b>：同一时刻只有一个"在飞动效" = 光球（样张中仅静态标注，无 JS 动画）。</p>
+    <p><span class="badge">静态样张</span> 无 JS、无 CDN、无外链字体 —— 数值即规范。</p>
+  </div>
+</div>
+</body>
+</html>

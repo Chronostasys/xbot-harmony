@@ -100,6 +100,9 @@ import { PluginHost } from '../components/PluginHost';
 import { GoalBanner } from '../components/GoalBanner';
 import { TodoPanel } from '../components/TodoPanel';
 import { StatusSheet } from '../components/StatusSheet';
+import { QueueSheet } from '../components/QueueSheet';
+import { PluginsSheet } from '../components/PluginsSheet';
+import { SelfCheckSheet } from '../components/SelfCheckSheet';
 import { sheetTransition } from '../components/anim';
 import { rpc } from '../core/rpc';
 import { TodoPayloadRow, removeTodoAt, renameTodoAt, todoPayloadRows, toggleTodoAt } from '../core/todos';
@@ -2456,7 +2459,26 @@ struct Index {
           }.width('100%').height('100%').onClick(() => {
             this.showQueue = false;
           })
-          this.QueueSheet()
+          // 待发队列（P2 抽出：components/QueueSheet.ets）——store 动作走回调，flag 留页面。
+          QueueSheet({
+            theme: this.themeName,
+            queue: this.queue,
+            onClear: () => {
+              this.store?.clearQueue();
+            },
+            onMove: (id: string, delta: number) => {
+              this.store?.moveQueued(id, delta);
+            },
+            onInterject: (id: string, full: string) => {
+              this.store?.interjectQueued(id, full);
+            },
+            onCancel: (id: string) => {
+              this.store?.cancelQueued(id);
+            },
+            onClose: () => {
+              this.showQueue = false;
+            },
+          })
         }.width('100%').height('100%')
       }
       // 插件面板选择
@@ -2467,7 +2489,25 @@ struct Index {
           }.width('100%').height('100%').onClick(() => {
             this.showPlugins = false;
           })
-          this.PluginsSheet()
+          // 能力面板（P2 抽出：components/PluginsSheet.ets）——panelUrl/showPlugins 留页面。
+          PluginsSheet({
+            theme: this.themeName,
+            plugins: this.plugins,
+            onOpenPluginHost: () => {
+              this.openPluginHost();
+            },
+            onOpenWebUi: () => {
+              this.showPlugins = false;
+              this.panelUrl = this.serverUrl;
+            },
+            onOpenPlugin: (p: PluginPanelInfo) => {
+              this.showPlugins = false;
+              this.panelUrl = p.url;
+            },
+            onClose: () => {
+              this.showPlugins = false;
+            },
+          })
         }.width('100%').height('100%')
       }
       // AskUser（服务端权威：有 pending 就弹）
@@ -2482,7 +2522,18 @@ struct Index {
           }.width('100%').height('100%').onClick(() => {
             this.showSelfCheck = false;
           })
-          this.SelfCheckSheet()
+          // 渲染自检（P2 抽出：components/SelfCheckSheet.ets）——取证文本在页面合成。
+          SelfCheckSheet({
+            theme: this.themeName,
+            geoRunning: this.geoRunning,
+            auditText: this.auditText(),
+            onCollect: () => {
+              this.collectAllGeometry();
+            },
+            onClose: () => {
+              this.showSelfCheck = false;
+            },
+          })
         }.width('100%').height('100%')
       }
       // 会话状态（todos / goal / 用量 / cwd）
@@ -5877,230 +5928,6 @@ struct Index {
   private modelSelectable(e: LlmModelEntry): boolean {
     return selectable(e);
   }
-
-  @Builder
-  SelfCheckSheet() {
-    Column() {
-      Row() {
-        Text('渲染自检').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
-        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
-.onClick(() => {
-          this.showSelfCheck = false;
-        })
-      }.width('100%')
-
-      Button(this.geoRunning ? '采集中…' : '采集各页版面几何（数值，无需网络）')
-        .width('100%').constraintSize({ minHeight: 40 }).backgroundColor(this.pal().accentSoft)
-        .onClick(() => {
-          this.collectAllGeometry();
-        })
-      Text('下方这一段可【长按复制】后直接粘贴给对方 —— 不必截图（零网络也能取证）')
-        .fontSize(11).fontColor(this.pal().warn).width('100%')
-      Text(this.auditText())
-        .fontSize(11).fontColor(this.pal().successText).fontFamily('monospace')
-        .width('100%').padding(8)
-        .backgroundColor(this.pal().surfaceAlt).borderRadius(8)
-        .copyOption(CopyOptions.LocalDevice)
-
-      Scroll() {
-        Column({ space: 10 }) {
-          Column({ space: 6 }) {
-            Text('A 纯文本（自动换行）').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
-            MarkdownView({ text: '这是一段用于自检的普通中文文本，应当自动换行并且左右不溢出。' })
-          }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
-          .border({ width: 1, color: this.pal().border })
-
-          Column({ space: 6 }) {
-            Text('B 行内样式（粗/斜/删除/行内码/链接）').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
-            MarkdownView({ text: '这里有 **粗体**、*斜体*、~~删除线~~、`inlineCode()` 与 [一个链接](https://example.com)。' })
-          }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
-          .border({ width: 1, color: this.pal().border })
-
-          Column({ space: 6 }) {
-            Text('C 标题 + 列表').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
-            MarkdownView({ text: '## 二级标题\n- 列表项一\n- 列表项二\n\n1. 有序一\n2. 有序二' })
-          }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
-          .border({ width: 1, color: this.pal().border })
-
-          Column({ space: 6 }) {
-            Text('D 代码块（含超长行）').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
-            MarkdownView({ text: '```ts\nconst veryLongVariableName: string = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";\n```' })
-          }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
-          .border({ width: 1, color: this.pal().border })
-
-          Column({ space: 6 }) {
-            Text('E 表格').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
-            MarkdownView({ text: '| 列一 | 列二 |\n| --- | --- |\n| 值一 | 值二 |\n| 更长的值 | 另一个值 |' })
-          }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
-          .border({ width: 1, color: this.pal().border })
-
-          Column({ space: 6 }) {
-            Text('F 工具 pill 行（Flex 换行）').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
-            Flex({ wrap: FlexWrap.Wrap }) {
-              ForEach(['已完成 Read', '已完成 Shell', '运行中 Grep', '已完成 Edit', '失败 Fetch'], (t: string) => {
-                Text(t).fontSize(12).fontColor(this.pal().successText)
-                  .padding({ left: 8, right: 8, top: 5, bottom: 5 })
-                  .margin(3).backgroundColor(this.pal().surfaceAlt).borderRadius(6)
-                  .border({ width: 1, color: this.pal().border })
-              }, (t: string) => t)
-            }.width('100%')
-          }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
-          .border({ width: 1, color: this.pal().border })
-
-          Column({ space: 6 }) {
-            Text('G 长 URL（不可断词）').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
-            Text('https://xbot.pivotlang.tech/api/files/download?key=uploads%2F4%2Faaef9711-1349-420d-97ea-94e70e2401e7.jpg&inline=1')
-              .fontSize(12).fontColor(this.pal().accentSoft).width('100%')
-          }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
-          .border({ width: 1, color: this.pal().border })
-
-          Column({ space: 6 }) {
-            Text('H 顶栏内联布局').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
-            Row() {
-              SymbolGlyph($r('sys.symbol.line_3_horizontal')).fontSize(20).fontColor([this.pal().textPrimary]).padding(10)
-              Text('标题文本').fontSize(15).fontColor(this.pal().textPrimary).layoutWeight(1)
-              SymbolGlyph($r('sys.symbol.square_grid_2x2')).fontSize(20).fontColor([this.pal().textPrimary]).padding(10)
-              SymbolGlyph($r('sys.symbol.gearshape')).fontSize(20).fontColor([this.pal().textPrimary]).padding(10)
-            }.width('100%').backgroundColor(this.pal().surfaceAlt)
-          }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
-          .border({ width: 1, color: this.pal().border })
-        }
-        .width('100%')
-        .padding(10)
-      }
-      .layoutWeight(1)
-      .width('100%')
-    }
-    .width('94%').height('86%')
-    .padding(12)
-    .backgroundColor(this.pal().appBg)
-    .borderRadius(12)
-    .border({ width: 1, color: this.pal().borderStrong })
-  }
-
-  @Builder
-  QueueSheet() {
-    Column({ space: 8 }) {
-      Row() {
-        Text(`待发队列 (${this.queue.length})`).fontSize(16).fontWeight(FontWeight.Bold)
-          .fontColor(this.pal().textPrimary).layoutWeight(1)
-        Text('清空').fontSize(12).fontColor(this.pal().dangerText).padding({ left: 8, right: 8, top: 6, bottom: 6 })
-          .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            // 无 clear 端点（web 同款）：遍历逐个 cancel。
-            this.store?.clearQueue();
-          })
-        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
-.onClick(() => {
-          this.showQueue = false;
-        })
-      }.width('100%')
-
-      List() {
-        ForEach(this.queue, (q: QueueItem) => {
-          ListItem() {
-            Row({ space: 6 }) {
-              Text(q.content !== undefined && q.content.length > 0
-                ? q.content
-                : (q.text !== undefined ? q.text : ''))
-                .fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1).maxLines(3)
-                .wordBreak(WordBreak.BREAK_ALL)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-              Text('↑').fontSize(14).fontColor(this.pal().accentSoft).padding(6).onClick(() => {
-                const id: string = q.msg_id !== undefined ? q.msg_id : (q.id !== undefined ? q.id : '');
-                this.store?.moveQueued(id, -1);
-              })
-              Text('↓').fontSize(14).fontColor(this.pal().accentSoft).padding(6).onClick(() => {
-                const id: string = q.msg_id !== undefined ? q.msg_id : (q.id !== undefined ? q.id : '');
-                this.store?.moveQueued(id, 1);
-              })
-              // ⚡ 插队：must use the FULL content（server `preview` 截断到 ~80 runes ⇒ 会丢内容）
-              Text('插队').fontSize(12).fontColor(this.pal().warn).padding(6).onClick(() => {
-                const id: string = q.msg_id !== undefined ? q.msg_id : (q.id !== undefined ? q.id : '');
-                const full: string = q.content !== undefined && q.content.length > 0
-                  ? q.content
-                  : (q.text !== undefined ? q.text : '');
-                this.store?.interjectQueued(id, full);
-              })
-              SymbolGlyph($r('sys.symbol.xmark')).fontSize(15).fontColor([this.pal().dangerText]).padding(6).onClick(() => {
-                const id: string = q.msg_id !== undefined ? q.msg_id : (q.id !== undefined ? q.id : '');
-                this.store?.cancelQueued(id);
-              })
-            }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(8)
-          }
-        }, (q: QueueItem) => `${q.msg_id}#${q.content}#${q.text}`)
-      }
-      .height(300).width('100%')
-    }
-    .width('92%').padding(16).backgroundColor(this.pal().appBg)
-    .borderRadius(12).border({ width: 1, color: this.pal().border })
-  }
-
-  // ── 弹层：插件面板 ────────────────────────────────────────────────────────
-
-  @Builder
-  PluginsSheet() {
-    Column({ space: 8 }) {
-      Row() {
-        Text('能力面板').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
-        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
-.onClick(() => {
-          this.showPlugins = false;
-        })
-      }.width('100%')
-
-      Text('原生渲染聊天主链路；下列能力由 ArkWeb 承载（与 Web 版同源、能力一致）：')
-        .fontSize(11).fontColor(this.pal().textSecondary).width('100%')
-
-      List() {
-        // 原生插件目录（components/PluginHost）：列出所有插件/视图贡献点，点开在宿主页运行
-        ListItem() {
-          Row() {
-            Text('插件目录（原生）').fontSize(14).fontColor(this.pal().textPrimary).layoutWeight(1)
-            Text('打开').fontSize(12).fontColor(this.pal().accentSoft)
-          }
-          .width('100%').padding(12).backgroundColor(this.pal().surfaceAlt).borderRadius(8)
-          .onClick(() => {
-            this.openPluginHost();
-          })
-        }
-        // 完整 Web UI（插件 / GenUI / 终端 / 编辑器都在里面）
-        ListItem() {
-          Row() {
-            Text('完整 Web UI').fontSize(14).fontColor(this.pal().textPrimary).layoutWeight(1)
-            Text('打开').fontSize(12).fontColor(this.pal().accentSoft)
-          }
-          .width('100%').padding(12).backgroundColor(this.pal().surfaceAlt).borderRadius(8)
-          .onClick(() => {
-            this.showPlugins = false;
-            this.panelUrl = this.serverUrl;
-          })
-        }
-        ForEach(this.plugins, (p: PluginPanelInfo) => {
-          ListItem() {
-            Row() {
-              Column() {
-                Text(p.name).fontSize(14).fontColor(this.pal().textPrimary)
-                Text(p.url).fontSize(10).fontColor(this.pal().textMuted).maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-              }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-              Text('打开').fontSize(12).fontColor(this.pal().accentSoft)
-            }
-            .width('100%').padding(12).backgroundColor(this.pal().surfaceAlt).borderRadius(8)
-            .onClick(() => {
-              this.showPlugins = false;
-              this.panelUrl = p.url;
-            })
-          }
-        }, (p: PluginPanelInfo) => `${p.id}#${p.url}`)
-      }
-      .height(320).width('100%')
-    }
-    .width('92%').padding(16).backgroundColor(this.pal().appBg)
-    .borderRadius(12).border({ width: 1, color: this.pal().border })
-  }
-
-  // ── 弹层：AskUser ────────────────────────────────────────────────────────
 
   @Builder
   AskUserSheet() {
