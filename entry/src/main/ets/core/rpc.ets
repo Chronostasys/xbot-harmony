@@ -906,3 +906,76 @@ export function readableRpcError(message: string): string {
   }
   return m;
 }
+
+// ── 插件：配置读写 / 启停 / 重载（插件设置分区用；逐条核对服务端 `rpc_table.go`）──────
+
+/**
+ * 本组 method 名**集中在此**（与 `ToolEnabledParams` 等既有 params 类同址，本仓约定）。
+ *
+ * ⚠️ 未登记进 `RpcMethod.ALL`：`tools/tests/rpc.test.ts` 的 `NAMED` 是**硬编码清单**
+ *    （该文件不在本波改动面）⇒ 登记会让它红。与 `core/settings.ets` 的
+ *    `RPC_GET_STORAGE_CONFIG` / `RPC_SET_STORAGE_CONFIG` 等（同样**不在** `ALL` 里）
+ *    是**同一现状**；待其归属线把 NAMED 补上后再一并登记。
+ */
+
+/** `plugin_config`（`rpc1`）`{id}` → `{plugins:[{id,name,title,runtime,enabled,properties,values}]}`。
+ *  `rpc_table.go:2370-2453`；web `components/settings/SettingsPlugins.tsx:74-75`。 */
+export const RPC_PLUGIN_CONFIG: string = 'plugin_config';
+/** `plugin_config_set`（`rpc1`）`{id,key,value}` → void（服务端按 schema 校验 key 与类型）。
+ *  `rpc_table.go:2458-2515`；web `SettingsPlugins.tsx:510-513`。 */
+export const RPC_PLUGIN_CONFIG_SET: string = 'plugin_config_set';
+/** `plugin_set_enabled`（`rpc1`）`{id,enabled}` → `{status:"ok"}`（持久化 + 广播热启停）。
+ *  `rpc_table.go:2213-2233`；web `plugins/manager/PluginManagerPanel.tsx:101`。 */
+export const RPC_PLUGIN_SET_ENABLED: string = 'plugin_set_enabled';
+/** `plugin_reload`（`rpc1`）`{id}` → `{status:"ok"}`。`rpc_table.go:2099-2133`。 */
+export const RPC_PLUGIN_RELOAD: string = 'plugin_reload';
+
+/** `plugin_config` 的 params（`id` 省略/空串 ⇒ 返回**全部**带配置声明的插件）。 */
+export class PluginConfigParams {
+  id: string = '';
+
+  constructor(id: string) {
+    this.id = id;
+  }
+}
+
+/**
+ * `plugin_config_set` 的 params。
+ *
+ * ⚠️ `value` 的类型**随 schema 而变**：boolean/number/string/select/image ⇒ 标量；
+ *    multiselect ⇒ `string[]`。故用**联合类型**（ArkTS 支持联合；纯 TS 亦合法）。
+ * ⛔ 服务端 `value` 是 `json.RawMessage`，且对 `boolean`/`number` **强校验类型**
+ *    （`rpc_table.go:2489-2498`）⇒ 必须发**真 JSON 标量**（`true`/`3`），
+ *    **不得**发字符串 `"true"`（会被判 `expected boolean` 而拒）。
+ */
+export class PluginConfigSetParams {
+  id: string = '';
+  key: string = '';
+  value: boolean | number | string | string[] = '';
+
+  constructor(id: string, key: string, value: boolean | number | string | string[]) {
+    this.id = id;
+    this.key = key;
+    this.value = value;
+  }
+}
+
+/** `plugin_set_enabled` 的 params（`rpc_table.go:2213-2215`）。 */
+export class PluginSetEnabledParams {
+  id: string = '';
+  enabled: boolean = false;
+
+  constructor(id: string, enabled: boolean) {
+    this.id = id;
+    this.enabled = enabled;
+  }
+}
+
+/** `plugin_reload` 的 params（`rpc_table.go:2099-2101`）。 */
+export class PluginReloadParams {
+  id: string = '';
+
+  constructor(id: string) {
+    this.id = id;
+  }
+}
