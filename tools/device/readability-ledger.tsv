@@ -1,0 +1,41 @@
+# tools/device/readability-ledger.tsv —— 「可读性」真机采样**台账**（一次性协议的可复查台账）
+#
+# 为什么要台账 + 为什么按**选择器**而不是硬编码像素：
+#   · 令牌层矩阵（tokens-ux 已证）只保证"角色对"达标；**渲染后**还可能被不透明度、
+#     混合、玻璃/壁纸底、字号缩放、动画中间态二次削弱（本仓已出过 MessageRow 那单）。
+#     ⇒ 需要"取真实像素"的判据。
+#   · 硬编码框位会被布局/分辨率/主题改动打成假红假绿 ⇒ 台账记**节点选择器**：
+#     跑的时候 `uitest dumpLayout` 取该节点的真实 bounds，再在截图里量那个框。
+#
+# 列（TAB 分隔）：
+#   id           唯一名（报告里用它，改了就改报告）
+#   surface      面：settings|drawer|sheet|chat|empty|error
+#   state        态（该面进入方式，给人工准备用）
+#   selector     节点选择器：`text=<精确/前缀文本>` 或 `id=<xbot-*>`
+#   role_pair    该处**应当**由哪个色板角色对承担（`前景/底`）—— 离线判据据此核阈值
+#   min_ratio    期望最低对比度（**只能取自下方阶梯**，⛔ 不许自造）
+#   font_class   字号档：body|large|weak —— 决定 min_ratio 取哪一档
+#
+# 阈值阶梯（与 docs/DESIGN-SYSTEM.md §12 及 tools/tests/theme_contrast.test.ts 同源，⛔ 不许放宽）：
+#   body=4.5（正文级）  large=3.0（大字/可点文字）  weak=2.0（最弱说明档）
+id	surface	state	selector	role_pair	min_ratio	font_class
+CH-01	chat	任意会话含正文	text=这张表读出来两件事	textPrimary/surface	4.5	body
+CH-02	chat	含 GFM 表格	text=机型	textPrimary/surface	4.5	body
+CH-03	chat	含引用块	text=>	textSecondary/surface	4.5	body
+CH-04	chat	含代码块	text=复制	textMuted/surfaceAlt	2.0	weak
+CH-05	chat	含工具 pill	text=Shell	statusRunning/surface	3.0	large
+CH-06	chat	含思考块	text=思考	textMuted/surface	2.0	weak
+CH-07	chat	任意会话	text=发消息…	textMuted/surface	2.0	weak
+DR-01	drawer	打开抽屉	text=会话	textPrimary/surface	4.5	body
+DR-02	drawer	打开抽屉	text=项目	textSecondary/surface	4.5	body
+DR-03	drawer	打开抽屉	text=今天	textMuted/surface	2.0	weak
+ST-01	settings	外观面板	text=主题	textPrimary/surface	4.5	body
+ST-02	settings	外观面板	text=极简白	textPrimary/surface	4.5	body
+ST-03	settings	任意面板	text=保存	accentText/surface	4.5	body
+SH-01	sheet	MenuSheets 打开	text=复制	textPrimary/surface	4.5	body
+SH-02	sheet	StatusSheet 打开	text=进程	textPrimary/surface	4.5	body
+SH-03	sheet	QueueSheet 打开	text=排队	textSecondary/surface	4.5	body
+SH-04	sheet	AskUserSheet 打开	text=提交	onAccent/accent	4.5	body
+SH-05	sheet	SelfCheckSheet 打开	text=自检	textPrimary/surface	4.5	body
+EM-01	empty	无消息空态	text=发消息…	textMuted/surface	2.0	weak
+ER-01	error	模型失败态	text=模型调用失败	textPrimary/surface	4.5	body
