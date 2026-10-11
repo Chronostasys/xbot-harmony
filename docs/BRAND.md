@@ -315,11 +315,15 @@ bash tools/brand/gen.sh --proofs /tmp/xbot-brand-proofs
 以下两处**必须动配置**才能生效 ⇒ 本波**不改**，只给精确补丁（改哪行 / 为什么必须 / 影响 / 回滚）。
 **§12.2 的 API 形状已核实、资源已就位**（只差一行配置）；§12.1 无需卸载重装，是**优先推荐**项。
 
-### 12.1 开屏底色跟随**应用**主题（消「冷启动跳色」，§4.2 / §10 #2）
+### 12.1 开屏底色跟随**应用**主题（消「冷启动跳色」，§4.2 / §10 #2）—— ✅ **已落地**（2026-10-11）
 
 **现状**：`module.json5` 未声明 `startWindow` profile ⇒ 系统默认 `FOLLOW_SYSTEM`；开屏底色的深浅只跟系统，
 不跟用户在应用内选的主题 ⇒ 「系统浅 + 应用选深（或反之）」时开屏 → 首帧**跳一帧色**。
-**补丁**（两处）：
+**补丁**（两处）—— ✅ **两处均已落地**：`module.json5:20` 已加 `"startWindow": "$profile:startWindow"`；
+`entry/src/main/resources/base/profile/startWindow.json` 已新建（内容同下）。
+**页面侧配合**（应用内开屏 T1）：`pages/Index.ets` 的 `aboutToAppear` **同步**读回缓存主题
+（`readCachedTheme`）初始化 `themeName`，且 `SplashOverlay` 传 `canvasFollowApp: true`
+⇒ T1 底色 = 首帧画布同色（零跳色）。
 
 ```diff
 # ① entry/src/main/module.json5 —— abilities[0] 内新增一行（保留既有 startWindowIcon/Background）

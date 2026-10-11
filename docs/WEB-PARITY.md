@@ -580,7 +580,7 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 | **StagingTray interject/clear** | `core/store.ets:1043 clearQueue`/`:1079 interjectQueued` + `Index.ets:2560/2565` + `components/QueueSheet.ets` | ✅ **已接线**（§11.7 #4 已过时） |
 | **web_widgets/plugin_widgets 不静默丢** | `core/panels.ets:182+` + `core/widgetsview.ets:25-26` + `core/store.ets:119` | ✅ **已接线**（§11.7 #3 已过时） |
 | **LLM import/export_subscriptions** | `core/llmcfg.ets:96+` + `components/SettingsLlm.ets:597/608`（`RPC_IMPORT/EXPORT_SUBSCRIPTIONS:67-68`） | ✅ **已接线**（§11.3 原记 🟡，已更正） |
-| 开屏 | `147b412`；`core/splash.ets` + `components/SplashOverlay.ets` | 🟡 落码中 |
+| 开屏 | `147b412`；`core/splash.ets` + `components/SplashOverlay.ets` + `pages/Index.ets`（接线）| ✅ **已接线**（迟滞闸门：快启动不开屏、慢加载才播动画；§12.1 FOLLOW_APPLICATION 落地；T2 = `animEaseOut()`） |
 
 #### 11.11.2 剩余候选（逐项：web → 原生 → 分档 → 可感度 → 优先级）
 

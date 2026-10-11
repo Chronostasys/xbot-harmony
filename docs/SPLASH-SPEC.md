@@ -146,6 +146,21 @@ function curveHasOvershoot(css: string): boolean;            // 解析 cubic-bez
 
 **用户中途交互**：T1/T2 期间发生点/滑 ⇒ 上层立即置 `contentReady = true` 并**跳表**到 `T3`（`elapsedMs` 不再影响结果）——即"用户不想等"。该跳变**只允许一次**（不允许回退到 T1/T2）。
 
+#### 4.2b `shouldStartSplash(launchKind, elapsedMs, contentReady)` —— **迟滞闸门**（"要不要展示"）
+
+`elapsedMs` 自**应用启动**起算；**只在迟滞到点评估一次**。用户口径「尽可能快；加载慢才播动画」：
+
+| `launchKind` | `elapsedMs` | `contentReady` | 结果 | 场景 |
+|---|---|---|---|---|
+| `warm` | 任意 | 任意 | **`false`** | 热启动 ⇒ 不开屏 |
+| `cold` | `< 迟滞(150)` | 任意 | **`false`** | 观察窗内（**快启动若在此就绪 ⇒ 永远不展示**） |
+| `cold` | `≥ 迟滞(150)` | `true` | **`false`** | 迟滞内已就绪 ⇒ **从 T0 直接过渡到主界面，开屏不出现** |
+| `cold` | `≥ 迟滞(150)` | `false` | **`true`** | 加载慢 ⇒ 展示，并**完整播完**（入场 → T2） |
+
+> ⚠️ **两个闸门语义不同、不可互换**：`shouldStartSplash` 答"**要不要展示**"（迟滞闸门）；
+> `shouldShowSplash` 答"**一旦展示了，这一帧还在不在**"（`minDwell` 下限 + 内容就绪 + 超时兜底）。
+> 机器判据 = `tools/tests/splash.test.ts ★Db`（mutation：把 `shouldStartSplash` 改成恒 `true` ⇒ 必红）。
+
 ### 4.3 `splashCanvasOf(theme, followApplication, systemDark)` 真值表
 
 | `followApplication` | `theme` | `systemDark` | 结果 | 说明 |
@@ -187,9 +202,9 @@ function curveHasOvershoot(css: string): boolean;            // 解析 cubic-bez
 `curveHasOvershoot(css)` 由 CSS 的**两个 y 控制点**实解析（任一 `y > 1` ⇒ 有超调），不是硬编码布尔
 ⇒ 把 T2 改回 spring，`tools/tests/splash.test.ts` ★E **必红**（mutation 已自证）。
 
-> ⚠️ **T2 曲线 TODO：待 `animEaseOut()`**。`EASE_OUT_CSS` 是"已定义、此前无消费者"的 token；
-> `orb-ux` 正在 `components/anim.ets` 把它收成具名工厂 `animEaseOut()`。工厂就绪前，组件侧
-> **暂**用 `animSlow()`（spring），就绪后**只改一行**（`SplashOverlay.onPhaseChange` 的 `animateTo`）。
+> ✅ **T2 曲线已就绪**（`animEaseOut()` 工厂，`components/anim.ets:103` =
+> `{ duration: MOTION_SLOW_MS, curve: EASE_OUT_CSS }`）。`SplashOverlay.onPhaseChange` 的
+> `animateTo` 已改用 `animEaseOut()`（不再是 `animSlow()`），T2 **零超调**。
 > ⛔ 组件侧**不得**自造曲线、**不得** import `@ohos.curves`（唯一出口 = `components/anim.ets`）。
 
 ---
@@ -290,28 +305,34 @@ function curveHasOvershoot(css: string): boolean;            // 解析 cubic-bez
 
 ---
 
-## 10. 落码 diff 建议（⛔ 本波**不执行**；照 `docs/BRAND.md §12` 格式）
+## 10. 落码（✅ 组件 + 页面接线**均已落地**；照 `docs/BRAND.md §12` 格式）
 
-### ① 新增开屏组件（唯一新文件；T1/T2 的载体）
+### ① 开屏组件（`components/SplashOverlay.ets`，已落地）
 
 ```
-+ entry/src/main/ets/components/SplashOverlay.ets      （新建；@Component + @Prop，⛔ 不可用带参 @Builder）
-    · props: theme / reduceMotion / contentReady / onDone
+✅ entry/src/main/ets/components/SplashOverlay.ets   （真 @Component + @Prop；⛔ 未用带参 @Builder）
+    · props: phase(@Prop @Watch) / theme / reduceMotion / canvasFollowApp / systemDark / onDone / onSkip
     · build(): 品牌底（splashCanvasOf 的结果）+ 标记（$media:start_icon 或 brand_mark_outline）
-    · 动效：animBase() 入场 + animSlow() 让位（组件/页面调 components/anim.ets；⛔ 不 import @ohos.curves）
-    · 判据：splashPhaseAt / shouldShowSplash（纯函数放 core/splash.ets，可脱机单测）
+    · 动效：T1 = animBase() 入场；T2 = animEaseOut() 让位（**无超调**；⛔ 不 import @ohos.curves）
+    · 判据：splashPhaseAt / splashMarkLevelOf / splashCanvasOf（纯函数在 core/splash.ets，可脱机单测）
 ```
-（⚠️ 新建组件的**孤儿风险**：它必须被 `pages/Index.ets` 引用，否则 ArkTS 不编译它 ⇒ 门禁"绿"是假绿，见 `docs/ARKTS-GOTCHAS.md` 批次 13。**接线归 `sidebar-ux`**。）
 
-### ② 页面接线（`pages/Index.ets` —— **归 `sidebar-ux`，本波不碰**）
+### ② 页面接线（`pages/Index.ets`，已落地）
 
 ```
-~ pages/Index.ets  根部 Stack 内、LoadingView 之前：
-+   if (this.showSplash) { SplashOverlay({ theme: this.themeName, reduceMotion: this.reduceMotion,
-+     contentReady: this.bootstrapReady, onDone: () => { this.showSplash = false; } }) }
-    · showSplash 初值 = shouldShowSplash('cold', 0, false, cfg)
-    · 记录 splashT0 = Date.now()；aboutToAppear 里 setTimeout 按 splashPhaseAt 推进（⛔ 只用 animBase/animSlow 的时长）
+✅ pages/Index.ets
+    · @State showSplash:boolean = false;  @State splashPhase:string = SPLASH_T1
+    · booted 加 @Watch('onBootedChanged')（首帧内容就绪 ⇒ 重新评估）
+    · aboutToAppear → startSplash() —— **迟滞**定时器（SPLASH_HYSTERESIS_MS）到点，按
+      shouldStartSplash(cold, 迟滞, booted) 判定"要不要展示"：就绪在迟滞内 ⇒ **不展示**；
+      否则置 showSplash=true + 记录 splashT0，再装 minDwell / timeout 两枚表
+    · 撤下：shouldShowSplash(cold, now-splashT0, booted) 为假 ⇒ beginExitSplash（T2 让位 → T3 交棒）
+    · ⛔ SplashOverlay 是**根 Stack 的末子节点**（ArkUI Stack **后入子的在上层** ⇒ 才会叠在内容之上；
+      "LoadingView 之前"的首子节点会盖在内容**下面**看不到）
+    · EntryAbility 侧配合：页面 aboutToAppear **同步**读回缓存主题（readCachedTheme）⇒ themeName 与
+      系统开屏/应用色板同源（§12.1 零跳色）
 ```
+（⚠️ **孤儿风险**：ArkTS 不检查无消费者的组件文件（`docs/ARKTS-GOTCHAS.md` 批次13）—— 本组件**已接线**进 `pages/Index.ets`，进编译图。）
 
 ### ③ `EntryAbility.ets` 的 error 分支（**最小改动**，§2 T0 兜底）
 
@@ -343,7 +364,8 @@ function curveHasOvershoot(css: string): boolean;            // 解析 cubic-bez
 | ④ | **开屏曲线的"另一个可能"** | `sheetTransition()`（`anim.ets:114-117`）用了 `Curve.Friction`（**底座外**的 ArkUI 内置曲线）⇒ 若开屏误用它，就是"第二套曲线" | ✅ 已记账（不在本波域）；⛔ 开屏**必须**用 §4.5 的两条曲线（spring 入场 / ease-out 让位） |
 | ⑤ | **T3 光球的"首个会话在流式"判据不在本规格** | 该判据属状态机（`row.isLive` / `busy`），已有唯一源 | ✅ 组件消费既有判据，**不新增** |
 | ⑥ | **标记的展示尺寸无 token** | `spaceRoles()` 只到 `xxl=32`；开屏标记盒（居中大标记）的边长**没有**语义档 ⇒ 若各写各的，就是散落字面量（本仓禁） | ✅ **裁决：采纳** `5 × SPACE_XXL(32) = 160pt`；⚠️ 待提升为底座尺寸档 |
-| ⑦ | **`EASE_OUT_CSS` 无工厂**（本波新发现） | token 已定义（`core/tokens.ets:56`）但**无消费者/无工厂** ⇒ 组件无法消费"无超调缓出"（`@ohos.curves` 只许在 `components/anim.ets` import） | ⏳ `orb-ux` 正在收成 `animEaseOut()`；就绪前 T2 暂用 `animSlow()`（见 §4.5 的 TODO） |
+| ⑦ | **`EASE_OUT_CSS` 无工厂**（本波新发现） | token 已定义（`core/tokens.ets:56`）但**无消费者/无工厂** ⇒ 组件无法消费"无超调缓出"（`@ohos.curves` 只许在 `components/anim.ets` import） | ✅ **已收口**：`orb-ux` 已把 `EASE_OUT_CSS` 收成具名工厂 `animEaseOut()`（`components/anim.ets:103`）；`SplashOverlay` T2 已改用它（见 §4.5） |
+| ⑧ | **"快启动不该开屏"的闸门缺失**（接线时新发现） | `shouldShowSplash` 在 `cold` + `t=0` 即 `true` ⇒ 只要一挂载就开屏，**快启动也被拖 minDwell+** —— 与用户口径「尽可能快；加载慢才播动画」相反 | ✅ **已补**：新增迟滞常量 `SPLASH_HYSTERESIS_MS(150)` + 纯函数 `shouldStartSplash(cold, elapsed, contentReady)`（`core/splash.ets`）：内容在迟滞**内**就绪 ⇒ **压根不展示**（T0 直接过渡）；迟滞已过仍未就绪才展示并完整播完 |
 
 ---
 
