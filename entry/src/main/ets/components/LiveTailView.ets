@@ -32,7 +32,7 @@ import { LlmErrorNotice } from './LlmErrorNotice';
 import { isSyntheticToolName } from '../core/synthhints';
 import { looksLikeLlmError } from '../core/llmerror';
 import { reasoningKey } from '../core/reasoningopen';
-import { isLiveStatus, renderKind, statusChip } from '../core/toolstatus';
+import { isLiveStatus, isToolInProgress, renderKind, statusChip } from '../core/toolstatus';
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
 
 /** 单工具浮层宽度（对齐 web 浮层 430px；手机端收窄）。 */
@@ -146,6 +146,24 @@ return isLiveStatus(this.kind(t));
   }
 
   /**
+   * 「有工具在飞」—— **含 `pending`**（web `isToolInProgress`，`statusVisual.ts:20-22`）。
+   *
+   * ⛔ **只服务思考领读**（`thinkingIsPrimary` 的 `!hasToolInProgress`）：web 认为"哪怕工具还在
+   *    排队，机器也已在干活" ⇒ 不该把眼睛引到「思考 N 字」。**不改 `live()`**（那是个 pill 的
+   *    扫光/光球判据，`pending` 必须安静 —— 见 `core/toolstatus.ets:statusColorRole` 的 ⛔）。
+   *    2026-10-11 修（WEB-PARITY §12-C）：此前用 `hasLiveTool()`（= `isLiveStatus`，不含 pending）
+   *    ⇒ pending 窗口的领读身份与 web **相反**。
+   */
+  private hasToolInProgress(): boolean {
+    for (let i = 0; i < this.tools.length; i++) {
+      if (isToolInProgress(this.kind(this.tools[i]))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * 此刻**主高亮源**是不是 `思考 N 字` 行。
    *
    * 判据对齐 web 的 `reasoningInProgress`（`LiveIteration.tsx:186`）：
@@ -154,7 +172,7 @@ return isLiveStatus(this.kind(t));
    * 只有这种"机器只在想、还没开始写"的窗口，眼睛才该落在思考行的字数上；其余时刻光球领读。
    */
   private thinkingIsPrimary(): boolean {
-    return !this.hasLiveTool() && this.reasoning.length > 0 && this.text.length === 0;
+    return !this.hasToolInProgress() && this.reasoning.length > 0 && this.text.length === 0;
   }
 
   /**

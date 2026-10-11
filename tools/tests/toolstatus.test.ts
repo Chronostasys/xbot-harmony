@@ -14,7 +14,7 @@ declare const process: { exit: (c: number) => void };
 import {
   ST_DONE, ST_ERROR, ST_GENERATING, ST_KILLED, ST_PENDING, ST_RUNNING,
   ROLE_ACCENT, ROLE_DANGER, ROLE_MUTED, ROLE_SUCCESS,
-  isInFlight, isLiveStatus, renderKind, statusChip, statusColorRole, toolStatusKind,
+  isInFlight, isLiveStatus, isToolInProgress, renderKind, statusChip, statusColorRole, toolStatusKind,
 } from '../../entry/src/main/ets/core/toolstatus';
 
 let pass = 0, fail = 0;
@@ -104,6 +104,16 @@ eq('base：pending 不在飞', isLiveStatus(ST_PENDING), false);
 eq('live pending 在飞（扫光）', isInFlight(ST_PENDING, true), true);
 eq('committed pending 不在飞', isInFlight(ST_PENDING, false), false);
 eq('live done 不在飞（终态）', isInFlight(ST_DONE, true), false);
+
+// ── C（§12-C）：`isToolInProgress`（web `isToolInProgress`）**含 pending**，与 isLiveStatus 区分 ──
+eq('C：isToolInProgress 含 running', isToolInProgress(ST_RUNNING), true);
+eq('C：isToolInProgress 含 generating', isToolInProgress(ST_GENERATING), true);
+eq('C：isToolInProgress **含 pending**（web 语义；思考领读用）', isToolInProgress(ST_PENDING), true);
+eq('C：isToolInProgress 不含 done', isToolInProgress(ST_DONE), false);
+eq('C：isToolInProgress 不含 killed', isToolInProgress(ST_KILLED), false);
+// ⛔ 反面板：两者**必须**在 pending 上分叉（合并即回归"文案说排队、形态说在飞"）
+eq('C：pending 上 isLiveStatus=false 而 isToolInProgress=true（有意分叉）',
+  `${isLiveStatus(ST_PENDING)}/${isToolInProgress(ST_PENDING)}`, 'false/true');
 
 // ── 互不同档（"没区别"/"当成"类 bug 的总闸）─────────────────────────────────
 eq('done ≠ running', toolStatusKind('done', 0) !== toolStatusKind('running', undefined), true);

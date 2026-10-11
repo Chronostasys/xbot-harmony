@@ -101,6 +101,19 @@ export function isLiveStatus(kind: string): boolean {
 }
 
 /**
+ * 「工具在飞」—— web `isToolInProgress`（`statusVisual.ts:20-22`）：**含 `pending`**。
+ *
+ * ⛔ **与 `isLiveStatus` 不同、也不得合并**：`isLiveStatus` 是本仓"在飞视觉（扫光/光球）"的
+ *    判据（`pending` 必须**安静** —— 排队档语义，见 `statusColorRole` 的 ⛔ 注）；
+ *    本函数只服务**思考领读**那一条（web `reasoningInProgress` 的 `!hasToolInProgress`）：
+ *    web 认为"哪怕工具还在排队，机器也已经在干活了" ⇒ 不该把眼睛引到「思考 N 字」上。
+ *    合并二者会让"文案说排队、颜色/形态说在飞"的打脸组合回归。
+ */
+export function isToolInProgress(kind: string): boolean {
+  return kind === ST_RUNNING || kind === ST_GENERATING || kind === ST_PENDING;
+}
+
+/**
  * 是否**加扫光/光球**（在飞视觉）—— 判据只此一处，**这是 `live` 唯一的作用**。
  *
  * web `LiveIteration`/`FoldedToolGroup.tsx:288`（`executing || tool.streaming === true`）：
