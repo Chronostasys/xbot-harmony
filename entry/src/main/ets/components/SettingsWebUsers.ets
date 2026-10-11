@@ -40,6 +40,15 @@ export struct SettingsWebUsers {
   @State private newUsername: string = '';
   @State private creating: boolean = false;
   @State private deleting: string = '';
+  /**
+   * 待确认删除的用户名（空 = 未处于确认态）—— **二次确认**，对齐 web
+   * `SettingsWebUsers.tsx:81` 的 `window.confirm(t('settings.webUsers.deleteConfirm'))`。
+   *
+   * ⛔ 删除账号是**不可逆**操作（web 面板同样先确认）；旧实现点一下即发 `delete_web_user`。
+   *    用「先武装、再确认」的两次点击（与 `SettingsAccount.ets` 的 `confirming` 同款）
+   *    代替原生没有的 `window.confirm`。
+   */
+  @State private confirmDelete: string = '';
   /** ⚠️ 一次性明文密码 —— 只在内存，绝不持久化。 */
   @State private created: OneTimePw | undefined = undefined;
 
@@ -99,11 +108,13 @@ export struct SettingsWebUsers {
     try {
       await rpc<void>(this.http, RPC_DELETE_WEB_USER, new UsernameParams(username));
       this.error = '';
+      this.confirmDelete = '';
       await this.refresh();
     } catch (e) {
       this.error = readableRpcError((e as Error).message);
     } finally {
       this.deleting = '';
+      this.confirmDelete = '';
     }
   }
 
@@ -201,15 +212,24 @@ export struct SettingsWebUsers {
                 .alignItems(HorizontalAlign.Start)
                 .layoutWeight(1)
 
-                Text(this.deleting === u.username ? '…' : '删除')
+                Text(this.deleting === u.username ? '…'
+                  : (this.confirmDelete === u.username ? '确认删除？' : '删除'))
                   .fontSize(FS_CAPTION)
                   .fontColor(this.pal().dangerText)
                   .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
                   .borderRadius(R_LG)
-                  .border({ width: 1, color: this.pal().borderStrong })
+                  // 确认态用**危险底**强化（同一「武装」视觉，避免误触）
+                  .backgroundColor(this.confirmDelete === u.username ? this.pal().dangerBg : this.pal().transparent)
+                  .border({ width: 1, color: this.confirmDelete === u.username ? this.pal().dangerText : this.pal().borderStrong })
                   .opacity(this.deleting.length === 0 ? 1 : 0.5)
                   .onClick(() => {
-                    void this.remove(u.username);
+                    // 二次确认：第一下只**武装**，第二下（同一行）才真删；点别的行则改武装到该行。
+                    if (this.confirmDelete === u.username) {
+                      this.confirmDelete = '';
+                      void this.remove(u.username);
+                    } else if (this.deleting.length === 0) {
+                      this.confirmDelete = u.username;
+                    }
                   })
               }
               .width('100%')
