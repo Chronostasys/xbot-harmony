@@ -32,6 +32,7 @@ module.exports = {
     publish: noop,
     cancel: noop,
     cancelAll: noop,
+    cancelGroup: noop,
     setBadgeNumber: noop,
     // ── @ohos.app.ability.wantAgent ──
     OperationType: { UNKNOWN_TYPE: 0, START_ABILITY: 1, START_ABILITIES: 2, START_SERVICE: 3, SEND_COMMON_EVENT: 4 },

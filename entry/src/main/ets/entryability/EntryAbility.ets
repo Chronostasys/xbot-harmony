@@ -3,11 +3,13 @@ import { KeyboardAvoidMode, UIContext, window } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import {
+  PENDING_ACTION_KEY,
   PENDING_CHAT_KEY,
   PENDING_CHAT_SEQ_KEY,
   endTurnKeepAlive,
   ensureEnabled,
   initSlots,
+  notifyActionFromParam,
   reconcileOnForeground,
   setAppForeground,
 } from '../core/notify';
@@ -117,8 +119,11 @@ export default class EntryAbility extends UIAbility {
    * （`pendingOpenChatSeq`）保证"同一个会话被点第二次"也能被页面察觉
    * （只改同一个字符串值时，StorageProp 不产生新变更）。
    *
-   * ⚠️ 页面消费后应把 `pendingOpenChatId` 清空（`AppStorage.delete`），
-   *    否则冷启动不会重复消费，但"返回页面"可能再次触发。
+   * 本轮新增：**动作按钮**的 `notify_action`（`core/notify.ets` 的 `PENDING_ACTION_KEY`）——
+   * 通知按钮的 WantAgent 用 `START_ABILITY + parameters{chat_id, notify_action}`（见 `publishTurn`），
+   * 这里用**白名单**（`notifyActionFromParam`）解析后写入 AppStorage，供页面执行对应能力。
+   *
+   * ⚠️ 页面消费后应把 `pendingOpenChatId` / `pendingNotifyAction` 清空（`AppStorage.delete`）。
    */
   private captureOpenChat(want: Want): void {
     try {
@@ -133,7 +138,12 @@ export default class EntryAbility extends UIAbility {
       const chatId: string = raw as string;
       AppStorage.setOrCreate<string>(PENDING_CHAT_KEY, chatId);
       AppStorage.setOrCreate<number>(PENDING_CHAT_SEQ_KEY, Date.now());
-      hilog.info(DOMAIN, TAG, 'notification wants chat: %{public}s', chatId);
+      // 动作按钮：连带把白名单动作 id 交给页面（非法/缺失 ⇒ 空串，不写）
+      const action: string = notifyActionFromParam(params['notify_action']);
+      if (action.length > 0) {
+        AppStorage.setOrCreate<string>(PENDING_ACTION_KEY, action);
+      }
+      hilog.info(DOMAIN, TAG, 'notification wants chat: %{public}s action: %{public}s', chatId, action);
     } catch (e) {
       const err: BusinessError = e as BusinessError;
       hilog.warn(DOMAIN, TAG, 'captureOpenChat skipped: %{public}s', err.message);

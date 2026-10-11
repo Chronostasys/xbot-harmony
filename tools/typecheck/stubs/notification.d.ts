@@ -88,6 +88,7 @@ declare module '@ohos.notificationManager' {
     function publish(request: NotificationRequest): Promise<void>;
     function cancel(id: number, label?: string): Promise<void>;
     function cancelAll(): Promise<void>;
+    function cancelGroup(groupName: string): Promise<void>;
     function setBadgeNumber(badgeNumber: number): Promise<void>;
   }
   export default notificationManager;

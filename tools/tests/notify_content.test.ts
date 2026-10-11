@@ -19,6 +19,7 @@ import {
   MULTILINE_MAX_LINE_BYTES,
   NOTIFY_KIND_ASK,
   NOTIFY_KIND_TURN_DONE,
+  NOTIFY_MORE_HINT,
   NOTIFY_SHAPE_BASIC,
   NOTIFY_SHAPE_MULTILINE,
   bodyLines,
@@ -111,7 +112,9 @@ eq('规划: 折叠摘要与展开正文是**两份**内容（摘要≠全文）'
 
 const segA = 'A'.repeat(40), segB = 'B'.repeat(40), segC = 'C'.repeat(40), segD = 'D'.repeat(40);
 const pMulti = notifyBodyPlan(NOTIFY_KIND_ASK, `${segA}\n${segB}\n${segC}\n${segD}`);
-eq('规划: 多段长问题（>120 字）⇒ multiline、取前 3 段', pMulti.lines, [segA, segB, `${segC}…`]);
+eq('规划: 多段长问题（>120 字）⇒ multiline、取前 3 段、末段 = 退化提示',
+  pMulti.lines, [segA, segB, `${segC}${NOTIFY_MORE_HINT}`]);
+eq('规划: 多段长问题 ⇒ degraded（有内容被丢）', pMulti.degraded, true);
 eq('规划: 多段长问题的折叠摘要 = 压平 + 截到 120 + …',
   `${pMulti.preview.length}/${pMulti.preview.endsWith('…')}`, '121/true');
 eq('规划: 多段但总长 ≤120 ⇒ 仍是 basic（形态看总长，与段数无关）',
