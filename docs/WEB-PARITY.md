@@ -932,7 +932,7 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 | **语言可写**（web 有 3 语言 select + 清除缓存） | ❌ 只读 | 需先建 **i18n 文案表**（本仓 UI 文案硬编码中文）⇒ 大重构，未排期 |
 | **UI 外壳模式**（web 三档 auto/desktop/mobile） | ❌ 键在、**零消费** | 原生单手机布局 ⇒ N/A；键**保留**（删了会让 web 侧设置丢） |
 | **布局 tab**（web VSCode 式面板） | ❌ 无 | 平台差异 N/A |
-| **`glassOpacity`/`wallpaperOpacity`/`glassBlur`（插件值）** | ⚠️ 原生**未消费** | 已裁决"原生应当消费"，落点 `effectsOf`（`core/theme.ets` = brand-impl）⇒ 排期（记录于 §2.9） |
+| **`glassOpacity`/`wallpaperOpacity`/`glassBlur`（插件值）** | ✅ **已具备消费能力**（`ae3a448`）· **待接线** | 落点已就绪：`core/theme.ets` 的 `setAmbience(v\|null)`（**覆盖式**：`null` = 未设置 ⇒ 逐字节走现状；非空 ⇒ 覆盖 glass alpha 与 `e.glassBlur`；clamp 内建）。⚠️ **值无客户端抵达路径**：`xbot.ambience` **无 `web`**（纯后端插件）⇒ 服务端 `serverapp/rpc_table.go:2293-2296`（`if e.Manifest.Web == nil \|\| Entry == "" { continue }`）**整条跳过** ⇒ 客户端收不到。⇒ **今日无调用点**（⛔ 不是死代码：一旦有客户端插件供这三个键，一处调用即生效）。**`wallpaperOpacity` 亦原生 N/A**（web 独有，`grep -rn wallpaper entry/src/main/ets/` 为空） |
 | **`KEY_UI_MODE` 之外的 web 独有键**（`leftSidebarWidth`/`layout:*`/`panel-layout*`/`recent-workdirs`） | ➖ 不映射 | 桌面布局概念，原生 N/A；`localKey` 原样透传 ⇒ 零丢键（§17.5-5） |
 | **notice 档分场景时长**（web 成功 5000 / 失败 4000 vs 原生单档 2560） | ⏸ **已换手** | 交 `chat-surface-ux`（本轮我连卡 3 轮；取证与补丁见交付记录，`web ToolRender.tsx:508/514`） |
 

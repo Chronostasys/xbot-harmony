@@ -846,6 +846,9 @@ export class AmbienceValues {
  */
 let currentAmbience: AmbienceValues | null = null;
 /**
+ * **为什么今天没有调用点**（⛔ 不是死代码，别当死代码删）：`xbot.ambience` **无 `web` 面**（纯后端插件）
+ *   ⇒ 服务端 `serverapp/rpc_table.go:2293-2296` 把它**整条跳过** ⇒ 这三个值**到不了客户端**
+ *   ⇒ 无处可接（记档见 `docs/WEB-PARITY.md` 的 §2.9 表）。**一旦有客户端插件供这三个键，一处调用即生效。**
  * **唯一写入口**（覆盖式）：`null` ⇒ 复位（回到现状）；否则 **clamp**（按插件 schema 实测范围：
  * `glassOpacity 0~1`、`wallpaperOpacity 0~1`、`glassBlur 0~24`，见 `core/settingsplugins.ets:802-803`）。
  * ⚠️ 写后**清记忆化** ⇒ 下次 `effectsOf` 用新值重建（无需全字段拷贝 ⇒ 最小改动）。
