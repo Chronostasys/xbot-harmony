@@ -31,6 +31,7 @@ const PENDING: string[] = [
   'Index.ets(7): 归 chat-surface-ux 在途 ⇒ 未收编',
   'MessageRow.ets(5): 归 chat-surface-ux 在途 ⇒ 未收编',
   'Index.ets 的 22 档(3): 归其所有 ⇒ ICON_XL 的 22 侧未收编',
+  '光学白名单 11/15/52: 已登记进 opticalValues()（理由见该函数注释；⛔ 只许缩短）',
 ];
 if (repo.length > 0) {
   const count = (rel: string, needle: string): number => {
@@ -55,9 +56,14 @@ if (repo.length > 0) {
     ok(`★① ${WANT[i][0].split('/').pop()} 走 ${WANT[i][1]}（实得 ${n}）`, n >= 1);
   }
   ok(`★① 零扫描判红：收编命中合计 ${total}（> 0）`, total > 0);
-  // ★② **反向**：文字站点**不得**被误改成图标档（本轮实测踩过）
-  ok('★② MarkdownView 仍保留文字档 fontSize(12)（未被误改）', count('entry/src/main/ets/components/MarkdownView.ets', 'fontSize(12)') >= 1);
-  ok('★② ToolPopover 仍保留 4 处文字档 fontSize(12)', count('entry/src/main/ets/components/ToolPopover.ets', 'fontSize(12)') >= 4);
+  // ★② **反向不变量**：文字站点**不得**被误换成**图标档**（本轮实测踩过）。
+  // ⚠️ 不硬编码"文字档必须仍是 fontSize(12)" —— 文字档**归文字档体系**、会被别线正常演进
+  //    （实测：`MarkdownView` 的文字站点已被 `chat-surface-ux` 改成别的文字档 ⇒ 硬编码会假红）。
+  //    真正的反向不变量 = **该文件的 `ICON_SM` 命中数 == 判类时的图标数**（多出来 ⇒ 必是文字站点被误换）。
+  ok('★② MarkdownView 的 ICON_SM 恰 1 处（判类时只有 1 个图标站点 ⇒ 多出即误换）',
+    count('entry/src/main/ets/components/MarkdownView.ets', 'fontSize(ICON_SM)') === 1);
+  ok('★② ToolPopover 的 ICON_SM 恰 1 处（判类时只有 1 个图标站点 ⇒ 其 4 处文字站点未被动）',
+    count('entry/src/main/ets/components/ToolPopover.ets', 'fontSize(ICON_SM)') === 1);
   // ★③ ICON_XL 已定义且**有消费**（⛔ 不留零消费常量）
   ok('★③ design.ets 定义 ICON_XL = 20', count('entry/src/main/ets/core/design.ets', 'export const ICON_XL: number = 20;') === 1);
   ok('★③ 且被 SelfCheckSheet 的 3 处消费', count('entry/src/main/ets/components/SelfCheckSheet.ets', 'fontSize(ICON_XL)') === 3);

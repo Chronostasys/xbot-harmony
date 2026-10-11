@@ -484,9 +484,17 @@ export const INSET_PILL_X: number = SPACE_XS;
  * 取 8 会让每枚 pill 长到 30vp（+25%），密集工具行会明显变散。
  */
 export const INSET_PILL_Y: number = 5;
-/** 光学档白名单（**非** 4 网格；只有它们可以不是 4 的倍数）。 */
+/**
+ * 光学档白名单（**非** 4 网格；只有它们可以不是 4 的倍数）。
+ *
+ * ⚠️ 2026-10-11 追加 `11 / 15 / 52`（图标尺寸收编专项，**逐站点判类**后**有意不收编**者）：
+ *   · `11` —— 微型图标/角标的**光学**字号（并入 `ICON_SM(12)` 会 +1 使密集行变散；保持不动）；
+ *   · `15` —— 与相邻 16 档**视差 1** 的图标位（`QueueSheet` 的队列徽标；真机看视觉盒后才定）；
+ *   · `52` —— 极少数**大号**图标位（`Index` 的 52）；并入 `ICON_XL(20)` 会**显著改尺寸** ⇒ 不动。
+ *   ⇒ 三者都是"**光学/特例**"而非"漏收编"，登记在此**只为门禁可判**（⛔ 本表**只许缩短**）。
+ */
 export function opticalValues(): number[] {
-  return [SPACE_HAIR, INSET_PILL_Y, INSET_GOAL_X, INSET_GOAL_Y];
+  return [SPACE_HAIR, INSET_PILL_Y, INSET_GOAL_X, INSET_GOAL_Y, 11, 15, 52];
 }
 /** 状态标记槽边长（**恒定** ⇒ 所有 pill 图标/名字左对齐的前提）。 */
 export const MARKER_SLOT: number = 14;
