@@ -114,14 +114,29 @@ def walk(n):
 walk(lay)
 
 def find(sel):
-    """选择器 → 节点。⛔ 歧义**不许静默取第一个**：命中多个**不同框** ⇒ 报歧义（SAMPLE_INVALID）。
+    """选择器 → 节点。⛔ 歧义**不许静默取第一个**（除下面显式的「可重复」形式）。
 
-    为什么（2026-10-11 离线 dry-run 实测）：`text=` 是**前缀**匹配 ⇒ `text=思考` 会命中聊天面的
-    `思考中…` 占位、`text=排队` 会命中输入框旁的「排队」按钮 —— 都不是台账想量的那个元素。
-    静默取第一个 = 拿**别的元素**的数当结论（假绿/假红的温床）。
+    为什么（2026-10-11 离线 dry-run + 真机实测）：
+      · `text=` 是**前缀**匹配 ⇒ `text=思考` 会命中聊天面的 `思考中…` 占位、`text=排队` 会命中
+        输入框旁的「排队」按钮 —— 都不是台账想量的那个元素。静默取第一个 = 拿**别的元素**的数当结论。
+      · 真机又暴露第二种：`text=模型调用失败` 在同一会话里**有多张一模一样的失败卡片** ⇒
+        命中 3 个不同 bounds ⇒ 判 `SAMPLE_INVALID`。但**它们是同一类元素**（同 type + 同尺寸），
+        量的其实是同一件事 ⇒ 这时「歧义」是假阳性。
+
+    ⇒ 两种形式，语义**显式写在选择器里**：
+      · `text=` / `id=`   —— 唯一匹配；命中 >1 个不同 bounds ⇒ 报歧义（SAMPLE_INVALID）。
+      · `text~=`          —— **可重复**：允许多个，但**必须同 type 且同 (宽,高)**（⇒ 同一类元素），
+                             取**最上面**那条；形状不一致 ⇒ 仍报歧义（那是**不同的东西**，不许混）。
     """
     cands=[]
-    if sel.startswith('text='):
+    repeatable=False
+    if sel.startswith('text~='):
+        repeatable=True
+        q=sel[6:]
+        cands=[n for n in nodes if n['text']==q and n['box'][2]>n['box'][0] and n['box'][3]>n['box'][1]]
+        if not cands:
+            cands=[n for n in nodes if n['text'].startswith(q) and n['box'][2]>n['box'][0] and n['box'][3]>n['box'][1]]
+    elif sel.startswith('text='):
         q=sel[5:]
         cands=[n for n in nodes if n['text']==q and n['box'][2]>n['box'][0] and n['box'][3]>n['box'][1]]
         if not cands:
@@ -132,6 +147,13 @@ def find(sel):
     else:
         return None, []
     boxes=set(n['box'] for n in cands)
+    if repeatable:
+        shapes=set((n['type'], n['box'][2]-n['box'][0], n['box'][3]-n['box'][1]) for n in cands)
+        if len(shapes) > 1:
+            return None, sorted(boxes)[:4]      # 形状不一致 ⇒ 是不同的元素 ⇒ 仍歧义
+        if not cands:
+            return None, []
+        return sorted(cands, key=lambda n: n['box'][1])[0], []
     if len(boxes) > 1:
         return None, sorted(boxes)[:4]
     if len(cands)==0:

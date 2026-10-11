@@ -11,7 +11,11 @@
 #   id           唯一名（报告里用它，改了就改报告）
 #   surface      面：settings|drawer|sheet|chat|empty|error
 #   state        态（该面进入方式，给人工准备用）
-#   selector     节点选择器：`text=<精确/前缀文本>` 或 `id=<xbot-*>`
+#   selector     节点选择器（**两种形式，语义显式写在选择器里**）：
+#                  · `text=<精确/前缀文本>` / `id=<xbot-*>` —— **唯一匹配**；命中 >1 个不同 bounds ⇒ 报歧义
+#                    （`SAMPLE_INVALID`，⛔ 不静默取第一个）。
+#                  · `text~=<精确/前缀文本>` —— **可重复**：允许多个，但**必须同 type 且同 (宽,高)**
+#                    （⇒ 同一类元素），取**最上面**那条；形状不一致仍报歧义（那是**不同的东西**）。
 #   role_pair    该处**应当**由哪个色板角色对承担（`前景/底`）—— 离线判据据此核阈值
 #   min_ratio    期望最低对比度（**只能取自下方阶梯**，⛔ 不许自造）
 #   font_class   字号档：body|large|weak —— 决定 min_ratio 取哪一档
@@ -38,4 +42,16 @@ SH-03	sheet	QueueSheet 打开	text=排队	textSecondary/surface	4.5	body
 SH-04	sheet	AskUserSheet 打开	text=提交	onAccent/accent	4.5	body
 SH-05	sheet	SelfCheckSheet 打开	text=自检	textPrimary/surface	4.5	body
 EM-01	empty	无消息空态	id=xbot-composer	textMuted/surface	2.0	weak
-ER-01	error	模型失败态	text=模型调用失败	textPrimary/surface	4.5	body
+ER-01	error	模型失败态	text~=模型调用失败	textPrimary/surface	4.5	body
+# ── 选择器语义备注 ─────────────────────────────────────────────────────────────
+# `ER-01` 用 `text~=`（而不是 `text=`）的理由（2026-10-11 真机实测，⛔ 不是"取首条"糊过去）：
+#   同一会话里**可以有多张完全相同的失败卡片** —— `外发read` 实测命中 3 个不同 bounds
+#   `[(88,1359,973,1406), (88,1795,973,1842), (88,2230,973,2277)]` ⇒ `text=` 会报歧义。
+#   而这 3 个是**同一类元素**（type 全 `Text`、尺寸全 `885x47`）⇒ 量其中**任意一条**都是同一件事
+#   ⇒ 用 `text~=` 显式声明"可重复、取最上一条"是**语义正确**的，不是绕过守卫。
+#   ⚠️ 若形状不一致（例如把 `排队` 这种"sheet 行 + 输入框按钮"混在一起）⇒ `text~=` **仍报歧义**
+#      （那条判据没被削弱）。
+#
+# `SH-*`（sheet 面）行**待 sheet 打开后按当次真实布局收窄**：本轮无 sheet 的 dump ⇒ 无法预先给出
+#   唯一选择器（例：`SH-03 排队` 会同时命中**输入框旁的「排队」按钮**，形状不同 ⇒ 必须换成
+#   sheet 内独有文本或 `id=`）。⛔ 收窄时**只改选择器，不许动 min_ratio**。
