@@ -14,7 +14,7 @@
 import { Palette, paletteOf, Surfaces, surfacesOf } from '../core/theme';
 import { R_LG, R_MD, R_SM, R_XL, SP_1, SP_2, SP_3, FS_BODY, FS_CAPTION } from '../core/tokens';
 import {
-  PRESS_OPACITY, RADIUS_CHIP, SPACE_HAIR, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP, hairlineOf, insetHairlineOf, surfaceFillOf, typeOf, MARKER_GLYPH, ICON_SM } from '../core/design';
+  PRESS_OPACITY, RADIUS_CHIP, SPACE_HAIR, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP, hairlineOf, insetHairlineOf, surfaceFillOf, typeOf, MARKER_GLYPH, ICON_SM, colorOf } from '../core/design';
 import { ToolProgress } from '../core/types';
 import { renderKind } from '../core/toolstatus';
 import { AnsiSpan, ansiBgOf, ansiFgOf, ansiPaletteOf, ansiSpansIfAny, hasAnsi } from '../core/ansi';
@@ -238,7 +238,10 @@ export struct ToolPopoverCard {
       Text(label).fontSize(typeOf(TYPE_CHIP).size).fontColor(this.pal().textMuted).layoutWeight(1)
       SymbolGlyph($r('sys.symbol.rectangle_on_rectangle'))
         .fontSize(MARKER_GLYPH)
-        .fontColor([this.pal().textMuted])
+        // ⛔ **图标可见度**（2026-10-11 审计）：原为 `textMuted`（**文本向最弱档**，porcelain 压 chip
+        //    只 2.27:1 < 非文本门槛 3:1）⇒ 改走**图标专用出口** `iconMuted`（浅=textSecondary ≥3:1 /
+        //    深=textMuted 逐字节，`design.ets:iconMutedOf`）。语义也更准：这是**图标**不是文本。
+        .fontColor([colorOf(this.pal(), 'iconMuted')])
         .padding({ left: SP_1, right: SP_1, top: SPACE_HAIR, bottom: SPACE_HAIR })
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
@@ -447,7 +450,8 @@ export struct ToolPopoverCard {
   DiffFileCard(f: DiffFile) {
     Column({ space: 0 }) {
       Row({ space: SP_1 }) {
-        SymbolGlyph($r('sys.symbol.doc_text')).fontSize(ICON_SM).fontColor([this.pal().textMuted])
+        // ⛔ **图标可见度**：同上 —— `textMuted` → `iconMuted`（图标专用档，≥3:1）。
+        SymbolGlyph($r('sys.symbol.doc_text')).fontSize(ICON_SM).fontColor([colorOf(this.pal(), 'iconMuted')])
         Text(f.path.length > 0 ? f.path : '（未命名文件）')
           .fontSize(typeOf(TYPE_CHIP).size).fontFamily('monospace').fontColor(this.pal().textSecondary)
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
@@ -489,7 +493,10 @@ export struct ToolPopoverCard {
       .scrollable(ScrollDirection.Free)
       .scrollBar(BarState.Auto)
       .width('100%')
-      .constraintSize({ maxHeight: BODY_MAX_H })
+      // ⛔ 同 `CodeBlock`：**含横向的 `ScrollDirection.Free`** 必须把超宽内容**裁在块内**
+      // （长行/长 JSON/长路径 ⇒ 否则撑宽父级 ⇒ "字超出屏幕"）。
+      .clip(true)
+      .constraintSize({ maxHeight: BODY_MAX_H, maxWidth: '100%' })
     }
     .width('100%').alignItems(HorizontalAlign.Start)
   }
