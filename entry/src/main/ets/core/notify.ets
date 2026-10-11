@@ -1305,6 +1305,10 @@ let keepAliveRequestId: number = -1;
 export function beginTurnKeepAlive(): boolean {
   try {
     if (keepAliveRequestId >= 0) {
+      // ⭐ 早退**也必须打点**（2026-10-11 实测教训）：否则"hilog 里没有成功日志"永远有
+      //    **两种**解释 —— ①根本没调用；②已激活而早退 ⇒ "窗的开/关"**永远不可确证**。
+      console.info('xbot notify: keep-alive 已激活（早退，requestId=' + keepAliveRequestId
+        + '），本次不重复申请');
       return true;
     }
     const info: backgroundTaskManager.DelaySuspendInfo =
