@@ -75,13 +75,18 @@ export struct ToolPill {
           SymbolGlyph($r('sys.symbol.minus_circle'))
             .fontSize(13).fontColor([coreStatusColorOf(this.kind, this.theme)])
         } else if (markerShape(this.kind) === SHAPE_RING) {
-          // 排队态：静态虚线圆 → 加一记**符号缩放呼吸**（Apple 式）。**纯附加**（原先无动效），
-          // 不触碰"执行中/生成中"的 `LoadingProgress`（真机已定稿：执行中必须是**会动的原生
-          // 指示器**，静态字符被用户明确否掉 ⇒ 不拿可能静默的符号动效去替换它）。
-          // ⚠️ 本波不动（批次22 定稿；要动先问）。
+          // 排队态：**静态**虚线空心圆（形态档 `SHAPE_RING`）。
+          // ⛔ 批次23 裁决：**删除**原先的循环符号效果 `ScaleSymbolEffect`（用户重做指令
+          //   「极简、苹果科技感、干净」+ `docs/DESIGN-SYSTEM.md §8.1` 节奏契约 —— 在飞组的
+          //   呼吸/脉冲必须是**主呼吸刻度的整数分数或倍数**，而系统符号动效自带节奏 ⇒ 不在刻度上
+          //   = 私造时长；且 §8.2「同一时刻只允许一个主高亮源」——挂在语义最安静的档会造成
+          //   "排队比执行中更抓眼"的**层级倒置**）。
+          // ⚠️ 不触碰"执行中/生成中"的 `LoadingProgress`（真机已定稿：执行中必须是**会动的原生
+          //   指示器**，静态字符被用户明确否掉 ⇒ 不拿可能静默的符号动效去替换它）。
+          // ⚠️ 静态标记的**最终形态**归 `design-lead` 的设计系统（`docs/REDESIGN-INPUT-PILL.md §C3`）；
+          //   有机器门禁守护：`tools/lint/inflight-single-source.sh`（A 类循环动效准白名单）。
           SymbolGlyph($r('sys.symbol.circle_dashed'))
             .fontSize(12).fontColor([coreStatusColorOf(this.kind, this.theme)])
-            .symbolEffect(new ScaleSymbolEffect(EffectScope.WHOLE, EffectDirection.UP), true)
         } else {
           // 运行/生成中（SHAPE_SPINNER）：**会动的**原生指示器（静态字符是 TUI 观感，用户明确否掉）
           LoadingProgress().width(13).height(13).color(coreStatusColorOf(this.kind, this.theme))
