@@ -106,6 +106,10 @@ else
   le "mergeToolRuns 耗时比 340/24（线性度）" "$(val mergeToolRuns_time_ratio_340_24)" 60 "x"
   le "流式增长 120 拍总耗时"             "$(val streamingGrowth_120ticks_ms)" 300 "ms/120ticks"
   le "motion springBezier+springParams"  "$(val motion_springBezier_us)"  1      "us/call"
+  # 行内块窗口（TOP1 护栏）：**确定性计数** ⇒ 阈值可以设成硬值（= 判据本身）
+  le "行内块窗口：340 块行渲染块数"       "$(val blocks_rendered_340)"     24     "blocks"
+  ge "行内块窗口：340 块行隐藏块数"       "$(val hidden_blocks_340)"       1      "blocks"
+  le "行内块窗口：340 块行估算节点"       "$(val est_nodes_340_windowed)"  600    "nodes"
   # 缓存：重复解析同一文本**必须**全命中（防"重构把缓存拆了"）
   le "mdCache 重复解析未命中数"          "$(val mdCache_repeat_misses)"   1      "miss/1000"
   ge "mdCache 重复解析命中数"            "$(val mdCache_repeat_hits)"     999    "hits/1000"

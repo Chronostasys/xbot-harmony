@@ -24,6 +24,10 @@ import {
 } from '../../entry/src/main/ets/core/streammerge';
 import { parseMarkdown, parseMarkdownCached, parseInline, mdCacheStats } from '../../entry/src/main/ets/core/markdown';
 import { springBezier, springParams } from '../../entry/src/main/ets/core/motion';
+import {
+  visibleBlocks as rvVisibleBlocks, hiddenBlockCount as rvHiddenBlockCount,
+  estimatedNodes as rvEstimatedNodes, MSG_BLOCK_WINDOW, MSG_ROW_NODE_BUDGET,
+} from '../../entry/src/main/ets/core/rowsview';
 import { ChatStore } from '../../entry/src/main/ets/core/store';
 import { ChatRow, HistoryIteration, HistoryMessage, ToolProgress } from '../../entry/src/main/ets/core/types';
 
@@ -165,6 +169,13 @@ metric('streamingGrowth_120ticks_ms', Number(process.hrtime.bigint() - t0) / 1e6
 
 // ── 6. 动效底座的纯数值部分（组件侧每条曲线还会多一次 new）─────────────────────
 metric('motion_springBezier_us', benchUs(() => { springBezier(); springParams(); }, 20000), 'us/call');
+
+// ── 7. 行内块窗口（TOP1 的护栏：块数/估算节点必须在上限内）────────────────────
+//    这三条是**确定性计数**（不是墙钟）⇒ 可以把阈值设成硬值：窗口被拆/上限被取消 ⇒ 立刻红。
+metric('blocks_rendered_340', rvVisibleBlocks(blocksWorst, MSG_BLOCK_WINDOW).length, 'blocks');
+metric('hidden_blocks_340', rvHiddenBlockCount(N_BLOCKS_WORST, MSG_BLOCK_WINDOW), 'blocks');
+metric('est_nodes_340_windowed', rvEstimatedNodes(N_BLOCKS_WORST, MSG_BLOCK_WINDOW), 'nodes');
+metric('row_node_budget', MSG_ROW_NODE_BUDGET, 'nodes');
 
 console.log(`\n（共 ${out.length} 条 METRIC；基准口径 = min-of-N，详见 docs/PERF-BUDGET.md）`);
 process.exit(0);
