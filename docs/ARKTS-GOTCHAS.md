@@ -684,3 +684,48 @@ Usage of standard library is restricted (arkts-limited-stdlib)
   ```
 - **正确做法（破增量假绿）**：① `touch -c <确实存在的文件>`（`-c` 不创建）；② 或改一个**确实存在**的无关文件（如 `pages/Index.ets`）触发重编；③ 或 `hvigorw clean` / 删 `entry/build` 全量重编。
 - **排障纪律**：看到"别人的文件红了"，**先 `ls -la` 那个文件、再看 `git status` 是否 `??`**，分清「提交坏了」与「本地被污染」。**在扩展名决定模块解析顺序的工程里，一个凭空造出的 0 字节同名文件就能顶掉真模块**。
+
+## 批次 18：**基类成员名黑名单远比"那 12 个"长** —— 凡 `CommonMethod` 的属性方法名都不能当组件成员名（2026-10-11，接线时暴露）
+
+- **现象**（把 `components/GoalBanner.ets` **第一次**接进页面时，ArkTS **首次**检查它）：
+  ```
+  10505001 Property 'borderColor' in type 'GoalBanner' is not assignable to the same property
+           in base type 'CustomComponent'.
+           Type '() => string' is not assignable to type
+           '(value: ResourceColor | EdgeColors | LocalizedEdgeColors) => CommonAttribute'
+  ```
+  根因：私有方法 `borderColor(): string` 与 `CustomComponent`（经 `CommonMethod`）的**同名属性方法**冲突。此前本仓只把
+  `size/width/height/position/offset/scale/rotate/opacity/visibility/clip/zIndex/id/key/enabled` 与 `on*` 列为黑名单
+  —— **`borderColor` 不在其中**，于是被当成"安全名字"用了很久。
+- **正确规则（比记忆黑名单强）**：**凡是 `CommonMethod`/`CommonAttribute` 上存在的属性方法名，都不能用作自定义组件的成员名**。黑名单不是 12 个特例，而是一个**可计算的集合**。
+- **可复现的检查法**（接线波用的正是它，一次改完即绿）：
+  1. 从 SDK 的 `component/common.d.ts` 抽出 `CommonMethod`/`CommonAttribute` 的**全部成员名** → 集合 A；
+  2. 取目标组件的**全部成员名** → 集合 B；
+  3. `A ∩ B` 非空 ⇒ 逐个改名。
+  本次实测：三个待接线组件里**唯一撞名就是 `borderColor`**（`SubAgentTree`/`TodoPanel` 零同类错误）⇒ 用集合求交比"凭记忆"可靠得多。
+- **为什么现在才炸**：`GoalBanner` 此前是**孤儿**（无消费者 ⇒ 不参与编译 ⇒ 假绿），接线那一刻才被检查。**同一次编译还一并暴露了批次 19**。
+
+## 批次 19：`$r('sys.symbol.*')` 是**编译期校验**的资源名 —— 必须核实存在，不能凭记忆写（2026-10-11）
+
+- **现象**（与批次 18 同一次编译）：
+  ```
+  10903329 Unknown resource name 'sys.symbol.circle_badge_checkmark'   At File: components/GoalBanner.ets:110
+  ```
+  "想当然"式命名（web 用 lucide `Target`，就顺手编一个 `*_badge_*` 之类）只在**编译期**才炸，且错误信息不回显你本该用哪个。
+- **正确做法**：候选名必须先对 **SDK 符号表**核实存在。权威文件：
+  ```
+  ~/ohos-cli/command-line-tools/sdk/default/openharmony/toolchains/id_defined.json
+  ```
+  可一次抽出全部合法资源名做集合，逐个核验。本次核实结果：`dart_target` ✅（选中，语义最贴 lucide `Target`）、
+  `scope` ✅、`circle_on_circle` ✅、`record_circle` ✅、**`circle_badge_checkmark` ❌ 不存在**。
+- **连带纪律**：**不要自造「lucide 图标名 → `sys.symbol`」的映射**。web 的图标名（`git-branch`/`git-commit-horizontal`/`server`…）与
+  HarmonyOS 符号**不是一一对应** ⇒ 要么查表映射到**已核实存在**的符号，要么**明确降级**为通用图标
+  （web `plugin-runtime/pluginIcons.ts:76` 未知即回落 `Puzzle`；原生回落通用方块，见 `components/PluginHost.ets`）。
+
+## 批次 20：多线共用一个工作树时，**改完必须立刻提交**（2026-10-11，一次真实的工作量丢失）
+
+- **事故**：接线波在 `pages/Index.ets` 里加了 **179 行**（尚未提交）时，**另一条线的一次 `git commit`**（它自己走了 pathspec，但提交前对 `Index.ets` 做过整文件操作）导致接线波那 179 行**被整文件还原抹掉**；`stash` 为空、`reflog` 里没有它的提交 ⇒ **只能全部重打**。
+- **纪律**（已写进所有波的派发约束）：
+  1. **一条线的改动一旦通过门禁就立刻提交**，不要攒着等"这一波全部做完再说"；
+  2. 提交**必须严格 pathspec**，提交前 `git diff --cached --name-only` 逐条核对；
+  3. 同一文件**同时只允许一条线在改**（编排时按文件冲突矩阵分波）。
