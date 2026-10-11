@@ -363,7 +363,6 @@ struct Index {
    *   （切会话/刷新列表不丢；杀进程后重置）。语义与 web 一致，仅持久化范围不同。
    */
   @State collapsedGroups: string[] = [];
-  @State showSettings: boolean = false;
   @State showQueue: boolean = false;
   @State showPlugins: boolean = false;
   @State showSelfCheck: boolean = false;
@@ -431,10 +430,8 @@ struct Index {
   @State fsDir: string = '/';
 
   // ── P9 设置（服务端权威：/api/settings；与 web 共用同一份偏好）──
-  // ⚠️ 名字必须与**已有的** SettingsSheet（插件/旧设置弹层）区分开，否则 ArkTS 报重复标识符。
-  @State showPrefs: boolean = false;
   /**
-   * 「工具 / 模型 / 智能体」设置分区面板（`components/SettingsPanel`）的**全屏**浮层开关。
+   * 设置面（`components/SettingsPanel`，全屏）的**唯一**浮层开关。
    * ⚠️ 它**不进** `core/overlays.OverlayState`（那是给别人用的封闭枚举）—— 由 `onBackPress`
    *    在既有浮层栈之前优先关闭（见该方法），语义与"最上层浮层"一致。
    */
@@ -941,13 +938,15 @@ struct Index {
   private overlayState(): OverlayState {
     return {
       drawer: this.showDrawer,
-      settings: this.showSettings,
+      // ⚠️ `settings` / `prefs` 是 `core/overlays.OverlayState` 的**既有字段**（该类型是给别人用的
+      //    封闭契约）⇒ 两个旧设置浮层已删，这里恒 `false`（返回键链路上对应分支不再可达）。
+      settings: false,
+      prefs: false,
       queue: this.showQueue,
       plugins: this.showPlugins,
       selfCheck: this.showSelfCheck,
       status: this.showStatus,
       model: this.showModel,
-      prefs: this.showPrefs,
       panels: this.showPanels,
       sessMenu: this.sessMenuId.length > 0,
       searchHits: this.showSearchHits,
@@ -995,13 +994,11 @@ struct Index {
       case 'searchHits': this.showSearchHits = false; break;
       case 'sessMenu': this.sessMenuId = ''; this.sessConfirmDelete = ''; break;
       case 'panels': this.showPanels = false; break;
-      case 'prefs': this.showPrefs = false; break;
       case 'model': this.showModel = false; break;
       case 'status': this.showStatus = false; break;
       case 'selfCheck': this.showSelfCheck = false; break;
       case 'plugins': this.showPlugins = false; break;
       case 'queue': this.showQueue = false; break;
-      case 'settings': this.showSettings = false; break;
       case 'drawer': this.closeDrawer(); break;
       default: break;
     }
@@ -1245,11 +1242,11 @@ struct Index {
       parts.push(`# 会话抽屉\n${this.collectGeometry()}`);
       this.showDrawer = false;
       this.anim(() => {
-            this.showSettings = true;
+            this.showSettingsPanel = true;
           });
       await this.wait(700);
       parts.push(`# 设置\n${this.collectGeometry()}`);
-      this.showSettings = false;
+      this.showSettingsPanel = false;
       this.showQueue = true;
       await this.wait(700);
       parts.push(`# 队列\n${this.collectGeometry()}`);
@@ -1265,7 +1262,7 @@ struct Index {
       this.geoText = `采集失败: ${errText(e as Object)}`;
     } finally {
       this.showDrawer = false;
-      this.showSettings = false;
+      this.showSettingsPanel = false;
       this.showQueue = false;
       this.showPlugins = false;
       this.geoRunning = false;
@@ -1374,7 +1371,7 @@ struct Index {
       this.showDrawer = false;
       // 设置
       this.anim(() => {
-            this.showSettings = true;
+            this.showSettingsPanel = true;
           });
       await this.wait(900);
       try {
@@ -1383,7 +1380,7 @@ struct Index {
         done.push(`03-settings=FAILED:${errText(e as Object)}`);
       }
       geo.push(`--- 03-settings ---\n${this.collectGeometry()}`);
-      this.showSettings = false;
+      this.showSettingsPanel = false;
       // 渲染自检
       this.showSelfCheck = true;
       await this.wait(1200);
@@ -2474,17 +2471,6 @@ struct Index {
         }
         .width('100%').height('100%')
       }
-      // 设置（backdrop：点空白收起，与 web dialog 一致）
-      if (this.showSettings) {
-        Stack() {
-          Row() {
-            Blank()
-          }.width('100%').height('100%').onClick(() => {
-            this.showSettings = false;
-          })
-          this.SettingsSheet()
-        }.width('100%').height('100%')
-      }
       // 队列
       if (this.showQueue) {
         Stack() {
@@ -2622,15 +2608,6 @@ struct Index {
             this.showModel = false;
           })
           this.ModelSheet()
-        }.width('100%').height('100%')
-      }
-      // 偏好设置（字号 / 换行 / 思考默认 / 快捷键）
-      if (this.showPrefs) {
-        Column() {
-          Blank().layoutWeight(1).width('100%').onClick(() => {
-            this.showPrefs = false;
-          })
-          this.PrefsSheet()
         }.width('100%').height('100%')
       }
       // 面板（定时任务 / 后台任务 / 子代理 / Runner）
@@ -4175,34 +4152,11 @@ struct Index {
     }
   }
 
-  private async openPrefs(): Promise<void> {
-    // 浮层互斥：偏好设置面板由抽屉进入 ⇒ **先收抽屉**（否则两个浮层叠加，顶部既没被压暗也没被盖住）
-    this.showDrawer = false;
-    this.anim(() => {
-            this.showPrefs = true;
-          });
-    // 顺手刷新系统通知授权状态（开关反映系统真值；不本地另记）
-    this.refreshNotifyState().catch(() => {
-    });
-    const store: ChatStore | null = this.store;
-    if (store === null) {
-      return;
-    }
-    try {
-      await store.loadSettings();
-    } catch (e) {
-      this.toast(`读取设置失败: ${errText(e as Object)}`);
-    }
-  }
-
   /**
-   * 打开设置面板（`components/SettingsPanel`，全屏）—— **用户报的「两个设置面板」收敛点**。
+   * 打开设置面板（`components/SettingsPanel`，全屏）—— 设置入口的**唯一实现**。
    *
-   * ⚠️ 现状（本波**只做入口收敛**，暂不删旧 `PrefsSheet`/`SettingsSheet`）：
-   *   这两个旧 `@Builder` 仍被 `core/sheets.ets` 的 flag 表 + `tools/tests/sheets.test.ts`
-   *   的**源码级断言**钉住（测试在本波 ⛔ 不可改的 `tools/**` 内）⇒ 由 `settings-ux` 同步
-   *   移除表中的 `prefs`/`settings` 两行后再删这两个 builder。**在此之前它们不可达**
-   *   （两个入口都改走本方法），用户侧只剩**一个**设置面板。
+   * 两个入口（抽屉底部「设置」行 / 右上角 ⚙）**曾并存**（用户报「为什么有两个设置按钮」）；
+   * 顶栏 ⚙ 已删（`c673d26`），现仅抽屉底部成组行可进入 —— 本方法为它服务。
    */
   private async openSettingsPanel(): Promise<void> {
     // 浮层互斥：由抽屉进入时**先收抽屉**（否则两个浮层叠加，顶部既没被压暗也没被盖住）
@@ -4955,216 +4909,6 @@ struct Index {
     return COPY_RAW;
   }
 
-  /** 偏好设置面板（本地偏好 + 服务端偏好；与 web 共用同一份键）。 */
-  @Builder
-  PrefsSheet() {
-    Column({ space: 10 }) {
-      Row() {
-        Text('设置').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
-        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
-          .onClick(() => {
-            // P0（用户报「点 X 无反应」）：本面板的渲染 flag 是 `showPrefs`（见 `build()`
-            // 的 `if (this.showPrefs)`），此前误写成别的面板的 `showSettings` ⇒ 点 X 关不掉。
-            this.showPrefs = false;
-          })
-      }.width('100%')
-
-      // 聊天界面：原生 / 内嵌 ArkWeb（用户要求可切换；ArkWeb 内也有"切回原生"按钮）
-      Row({ space: 8 }) {
-        Text('聊天界面').fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
-        Text(this.useWebUI ? '内嵌网页' : '原生')
-          .fontSize(12).fontColor(this.pal().onAccent)
-          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-          .backgroundColor(this.pal().accent).borderRadius(8)
-          .onClick(() => {
-            this.setSurface(!this.useWebUI);
-            this.buzz();
-          })
-      }.width('100%')
-
-      // 主题（5 套：深色/浅色/极光/星云/极简白）—— 用 ALL_THEMES 驱动，不再手写列表
-      Text(settingLabel(KEY_APP_THEME))
-        .fontSize(12).fontColor(this.pal().textSecondary).width('100%')
-      Row({ space: 6 }) {
-        ForEach(ALL_THEMES, (t: string) => {
-          Text(themeLabel(t))
-            .fontSize(12)
-            .fontColor(this.themeName === t ? this.pal().onAccent : this.pal().textSecondary)
-            .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-            .backgroundColor(this.themeName === t ? this.pal().accent : this.pal().surface)
-            .borderRadius(8)
-            .onClick(() => {
-              this.themeName = t;
-              this.setSetting(KEY_APP_THEME, t);
-              // 系统表面跟随（setColorMode + 状态栏前景）+ 写本地缓存（内部一处完成，幂等）
-              this.syncSystemTheme();
-              this.buzz();
-            })
-        }, (t: string) => `th-${t}`)
-      }.width('100%')
-
-      // 字号
-      Text(`${settingLabel(KEY_FONT_SCALE)}：${fontScaleLabel(this.fontScale())}`)
-        .fontSize(12).fontColor(this.pal().textSecondary).width('100%')
-      Row({ space: 6 }) {
-        ForEach(fontScalePresets(), (n: number) => {
-          Text(fontScaleLabel(n))
-            .fontSize(12)
-            .fontColor(Math.abs(this.fontScale() - n) < 0.01 ? this.pal().onAccent : this.pal().textSecondary)
-            .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-            .backgroundColor(Math.abs(this.fontScale() - n) < 0.01 ? this.pal().accent : this.pal().surface)
-            .borderRadius(8)
-            .onClick(() => {
-              this.setSetting(KEY_FONT_SCALE, `${n}`);
-            })
-        }, (n: number) => `fs-${n}`)
-      }.width('100%')
-
-      // 代码换行
-      Row({ space: 8 }) {
-        Text(settingLabel(KEY_CODE_WRAP)).fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
-        Text(this.wrapCode() ? '开' : '关')
-          .fontSize(12).fontColor(this.pal().onAccent).padding({ left: 12, right: 12, top: 6, bottom: 6 })
-          .backgroundColor(this.wrapCode() ? this.pal().success : this.pal().borderStrong).borderRadius(8)
-          .onClick(() => {
-            this.setSetting(KEY_CODE_WRAP, this.wrapCode() ? '0' : '1');
-          })
-      }.width('100%')
-
-      // 思考默认展开
-      Row({ space: 8 }) {
-        Text(settingLabel(KEY_REASONING_DEFAULT)).fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
-        Text(this.reasoningDefault() ? '开' : '关')
-          .fontSize(12).fontColor(this.pal().onAccent).padding({ left: 12, right: 12, top: 6, bottom: 6 })
-          .backgroundColor(this.reasoningDefault() ? this.pal().success : this.pal().borderStrong).borderRadius(8)
-          .onClick(() => {
-            this.setSetting(KEY_REASONING_DEFAULT, this.reasoningDefault() ? '0' : '1');
-          })
-      }.width('100%')
-
-      // 思考光球动效（旗舰在飞指示；键 = core/settings.KEY_ORB，端到端投到 LiveTailView.orb）
-      Row({ space: 8 }) {
-        Text(settingLabel(KEY_ORB)).fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
-        Toggle({ type: ToggleType.Switch, isOn: this.orbOn() })
-          .onChange((on: boolean) => {
-            this.setSetting(KEY_ORB, on ? '1' : '0');
-          })
-      }.width('100%')
-
-      // 通知提醒（开关反映**系统授权状态**；应用不能自行开关系统通知，只能申请/提示）
-      Row({ space: 8 }) {
-        Text('通知提醒').fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
-        Toggle({ type: ToggleType.Switch, isOn: this.notifyOn })
-          .onChange((on: boolean) => {
-            this.applyNotifyToggle(on);
-          })
-      }.width('100%')
-
-      // 发送快捷键
-      Row({ space: 8 }) {
-        Text(settingLabel(KEY_SEND_KEY)).fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
-        Text(sendKeyLabel(this.sendKeyMode()))
-          // 底色是中性面 `surfaceHi` ⇒ 必须用中性文字色 `textPrimary`（`onAccent` 是"主按钮
-          // 上的文字"，与 surfaceHi 四套主题对比度均 <1.25，全场不达标；见对比度台账 A）
-          .fontSize(12).fontColor(this.pal().textPrimary).padding({ left: 12, right: 12, top: 6, bottom: 6 })
-          .backgroundColor(this.pal().surfaceHi).borderRadius(8)
-          .onClick(() => {
-            const next: string = this.sendKeyMode() === SEND_KEY_MOD_ENTER ? 'enter' : SEND_KEY_MOD_ENTER;
-            this.setSetting(KEY_SEND_KEY, next);
-          })
-      }.width('100%')
-
-      Divider().color(this.pal().surfaceHi)
-
-      // ── 强调色（对齐 web `SettingsAppearance.ACCENT_PRESETS`）─────────────────
-      // 语义：只覆盖 accent 家族，亮度阶梯不变；「跟随主题」= 清空该项（不覆盖）。
-      Row({ space: 8 }) {
-        Text(settingLabel(KEY_ACCENT)).fontSize(12).fontColor(this.pal().textSecondary).layoutWeight(1)
-        Text(this.accentHex().length > 0 ? accentLabel(this.accentHex()) : '跟随主题')
-          .fontSize(12).fontColor(this.pal().textMuted)
-      }.width('100%')
-      Row({ space: SP_2 }) {
-        ForEach(ACCENT_PRESETS, (hex: string) => {
-          Stack({ alignContent: Alignment.Center }) {
-            if (this.accentHex().toUpperCase() === hex) {
-              SymbolGlyph($r('sys.symbol.checkmark')).fontSize(15).fontColor([contrastForeground(hex)])
-            }
-          }
-          .width(34).height(34).borderRadius(17)
-          .backgroundColor(hex)
-          .border({
-            width: this.accentHex().toUpperCase() === hex ? 2 : 1,
-            color: this.accentHex().toUpperCase() === hex ? this.pal().textPrimary : this.eff().glassBorder,
-          })
-          .stateStyles({ pressed: { .opacity(0.7).scale({ x: 0.92, y: 0.92 }) }, normal: { .opacity(1).scale({ x: 1, y: 1 }) } })
-          .onClick(() => {
-            this.setSetting(KEY_ACCENT, hex);
-            this.buzz();
-          })
-        }, (hex: string) => `ac-${hex}`)
-        // 「跟随主题」：清空该项 ⇒ pal() 原样返回主题色板
-        Stack({ alignContent: Alignment.Center }) {
-          SymbolGlyph($r('sys.symbol.arrow_counterclockwise')).fontSize(16).fontColor([this.pal().textSecondary])
-        }
-        .width(34).height(34).borderRadius(17)
-        .backgroundColor(this.pal().surfaceAlt)
-        .border({ width: 1, color: this.eff().glassBorder })
-        .stateStyles({ pressed: { .opacity(0.7).scale({ x: 0.92, y: 0.92 }) }, normal: { .opacity(1).scale({ x: 1, y: 1 }) } })
-        .onClick(() => {
-          this.setSetting(KEY_ACCENT, '');
-          this.buzz();
-        })
-      }.width('100%')
-
-      // ── Markdown 主题（与 web 共享同一组 id，选择会同步到 web）────────────────
-      Row({ space: 8 }) {
-        Text(settingLabel(KEY_MD_THEME)).fontSize(12).fontColor(this.pal().textSecondary).layoutWeight(1)
-        Text(this.mdThemeId())
-          .fontSize(12).fontColor(this.pal().textMuted).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-      }.width('100%')
-      Flex({ wrap: FlexWrap.Wrap }) {
-        ForEach(this.mdThemeChoices(), (id: string) => {
-          Text(mdThemeLabel(id))
-            .fontSize(12)
-            .fontColor(this.mdThemeId() === id ? this.pal().onAccent : this.pal().textSecondary)
-            .padding({ left: SP_3, right: SP_3, top: 6, bottom: 6 })
-            .margin(SP_1)
-            .backgroundColor(this.mdThemeId() === id ? this.pal().accent : this.pal().surfaceAlt)
-            .borderRadius(R_LG)
-            .stateStyles({ pressed: { .opacity(0.7) }, normal: { .opacity(1) } })
-            .onClick(() => {
-              this.setSetting(KEY_MD_THEME, id);
-              this.buzz();
-            })
-        }, (id: string) => `md-${id}`)
-      }.width('100%')
-
-      // ── 语言（i18n）────────────────────────────────────────────────────────
-      // ⚠️ 如实展示：原生端 UI 文案目前是中文（硬编码），抽表是独立重构，见 core/i18n.ets 顶部说明。
-      //    这里**不给可点切换**，避免"点了没反应"的假功能；该项与 web 共享，改 web 会同步过来。
-      Row({ space: 8 }) {
-        Text(settingLabel(KEY_LOCALE)).fontSize(12).fontColor(this.pal().textSecondary).layoutWeight(1)
-        // 只展示语言名（用户可见文案里**不留**任何内部术语/TODO）
-        Text(localeLabel(this.localeId()))
-          .fontSize(12).fontColor(this.pal().textMuted)
-          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-      }.width('100%')
-
-      Row({ space: 8 }) {
-        Text('刷新').fontSize(12).fontColor(this.pal().accentSoft).padding(8).onClick(() => {
-          this.openPrefs();
-        })
-      }.width('100%')
-    }
-    .width('100%').padding(16)
-    .backgroundColor(this.eff().glassBg)
-    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.glassMode() })
-    .borderRadius({ topLeft: R_2XL, topRight: R_2XL })
-    .border({ width: 1, color: this.eff().glassBorder })
-    .alignItems(HorizontalAlign.Start)
-    .transition(sheetTransition())
-  }
-
   /** 面板：四个标签各拉一个端点（定时任务 / 后台任务 / 子代理 / Runner）。 */
   @Builder
   PanelsSheet() {
@@ -5870,99 +5614,6 @@ struct Index {
     .borderWidth({ right: STROKE_HAIRLINE }).borderColor(hairlineOf(this.pal()))
     .shadow({ radius: SPACE_XL, color: this.eff().elev3, offsetX: SPACE_XS, offsetY: 0 })
     .position({ x: 0, y: 0 })
-  }
-
-  // ── 弹层：设置 ────────────────────────────────────────────────────────────
-
-  @Builder
-  SettingsSheet() {
-    Column({ space: 10 }) {
-      Row() {
-        Text('设置').fontSize(17).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
-        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
-.onClick(() => {
-          this.showSettings = false;
-        })
-      }.width('100%')
-
-      // 工具 / 模型 / 智能体（服务端偏好）—— 收编进 components/SettingsPanel（全屏）
-      Button('偏好设置：工具 / 模型 / 智能体').width('100%').constraintSize({ minHeight: 44 })
-        .backgroundColor(this.pal().accent).fontColor(this.pal().onAccent)
-        .onClick(() => {
-          this.showSettings = false;
-          this.showSettingsPanel = true;
-        })
-
-      Text('服务端').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
-      TextInput({ text: this.serverUrl })
-        .onChange((v: string) => {
-          this.serverUrl = v;
-        })
-        .constraintSize({ minHeight: 42 }).backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary)
-
-      Text('用户名').fontSize(12).fontColor(this.pal().textSecondary).width('100%')
-      TextInput({ text: this.username })
-        .onChange((v: string) => {
-          this.username = v;
-        })
-        .constraintSize({ minHeight: 42 }).backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary)
-
-      Row() {
-        Text('显示思考过程').fontSize(14).fontColor(this.pal().textPrimary).layoutWeight(1)
-        Toggle({ type: ToggleType.Switch, isOn: this.reasoningDefault() })
-          .onChange((on: boolean) => {
-            // 单一真值：与 PrefsSheet 的「思考默认展开」同键（KEY_REASONING_DEFAULT），
-            // 不再只改本地 @State（旧实现在这里就地改 showReasoning，不落盘 ⇒ 与设置面板打架）。
-            this.setSetting(KEY_REASONING_DEFAULT, on ? '1' : '0');
-          })
-      }.width('100%')
-
-      Row() {
-        Text('当前会话 ID').fontSize(12).fontColor(this.pal().textSecondary).layoutWeight(1)
-        Text(this.currentChat.length > 0 ? this.currentChat : '-')
-          .fontSize(11).fontColor(this.pal().textMuted).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-          .constraintSize({ maxWidth: 180 })
-      }.width('100%')
-
-      Button('保存服务端/用户名').width('100%').constraintSize({ minHeight: 40 })
-        .backgroundColor(this.pal().accent).fontColor(this.pal().onAccent)
-        .onClick(async () => {
-        const store: ChatStore | null = this.store;
-        this.takeServerUrl();
-        await this.config.save(this.serverUrl, this.username,
-          store !== null ? store.http.exportSessionCookie() : '');
-        this.toast('已保存（换服务端请退出重登）');
-      })
-      Button(this.auditing ? '走查中…' : '① 走查并上传所有页面截图（推荐）').width('100%').constraintSize({ minHeight: 44 })
-        .backgroundColor(this.pal().accent)
-        .onClick(() => {
-          this.showSettings = false;
-          this.runUiAudit();
-        })
-      if (this.auditLog.length > 0) {
-        Text(this.auditLog).fontSize(10).fontColor(this.pal().textSecondary).width('100%').maxLines(4)
-      }
-      Button('渲染自检（排查渲染问题用）').width('100%').constraintSize({ minHeight: 40 })
-        .backgroundColor(this.pal().surfaceHi)
-        .onClick(() => {
-          this.showSettings = false;
-          this.showSelfCheck = true;
-        })
-      Button('打开完整 Web UI（插件/GenUI/终端）').width('100%').constraintSize({ minHeight: 40 })
-        .backgroundColor(this.pal().surfaceHi)
-        .onClick(() => {
-          this.showSettings = false;
-          this.panelUrl = this.serverUrl;
-        })
-      Button('退出登录').width('100%').constraintSize({ minHeight: 40 })
-        .backgroundColor(this.pal().dangerBg)
-        .onClick(() => {
-          this.showSettings = false;
-          this.doLogout();
-        })
-    }
-    .width('92%').padding(16).backgroundColor(this.pal().appBg)
-    .borderRadius(12).border({ width: 1, color: this.pal().border })
   }
 
   // ── 弹层：队列 ────────────────────────────────────────────────────────────
