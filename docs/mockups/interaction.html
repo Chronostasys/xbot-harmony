@@ -76,7 +76,7 @@ h1{font-size:21px;font-weight:600;letter-spacing:-.2px;max-width:960px;margin:0 
     <div class="composer" style="margin-bottom:12px"><span class="ph">发消息…</span><span class="send off">↑</span></div>
     <div class="composer focus" style="margin-bottom:12px"><span class="ph typed">帮我重做设计系统</span><span class="send">↑</span></div>
     <div class="composer"><span class="ph typed">按压态</span><span class="send press">↑</span></div>
-    <div class="note">浮层 <code>surface.input</code> + 聚焦时才描边 <code>accent</code>；发送键 32vp 视觉、热区外扩到 44（<span class="anno">responseRegion ≥44</span>）；按压 <code>opacity .6 + scale .97</code>（仅按钮，文本行不缩放）。</div>
+    <div class="note">浮层 <code>surface.input</code> + 聚焦时才描边 <code>accent</code>；发送键 32vp 视觉、**热区用真实 44 布局盒**（<span class="anno">⛔ `responseRegion` 外扩真机无效</span>）；按压 <code>opacity .6 + scale .97</code>（仅按钮，文本行不缩放）。</div>
   </div>
 
   <div class="card scrim">
@@ -130,7 +130,7 @@ h1{font-size:21px;font-weight:600;letter-spacing:-.2px;max-width:960px;margin:0 
     <div class="hit" style="width:44px;height:44px;display:flex;align-items:center;justify-content:center">✎</div>
     <div style="font-size:12px;color:var(--ts);line-height:1.6">
       视觉 12–32vp 的图标/按钮，命中区一律外扩到 <b>44×44</b>（<code>HIT_TARGET_MIN</code>，Apple HIG）。<br>
-      ⛔ 不改布局位置/视觉尺寸 —— 用 <code>responseRegion</code> 外扩。
+      ⛔ 不改布局位置/视觉尺寸 —— 用**真实 44 布局盒**承载 `onClick`（⛔ `responseRegion` 外扩真机无效）。
     </div>
   </div>
 </div>

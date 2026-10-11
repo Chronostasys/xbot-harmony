@@ -267,7 +267,7 @@ th{background:#33333a;font-weight:600}
     <tr><td>浮层开合</td><td class="anno"><span class="once">一次性过渡</span></td><td>translate+opacity</td><td><span class="tok">DUR_TRANSITION=320ms</span>（<span class="tok">sheetTransition()</span>）</td></tr>
     <tr><td>思考行字数增长 / 打字机</td><td class="anno"><span class="once">流式驱动（内容前进，非装饰循环）</span></td><td>—</td><td>门禁不判此类（<span class="tok">inflight-single-source</span> B 类为警告）</td></tr>
   </table>
-  <div class="anno">命中区：全站最小 <span class="tok">HIT_TARGET_MIN=44vp</span>（本图 pill 视觉高度约 26vp，<b>命中区应由调用方用 <span class="tok">responseRegion</span> 外扩到 44</b> —— ⛔ pill 自身改高会破坏密度）。</div>
+  <div class="anno">命中区：全站最小 <span class="tok">HIT_TARGET_MIN=44vp</span>（本图 pill 视觉高度约 26vp，<b>命中区应由调用方用**真实 44 布局盒**（⛔ 不用 <span class="tok">responseRegion</span> 外扩——真机实测其无效）</b> —— ⛔ pill 自身改高会破坏密度）。</div>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════════════ -->
