@@ -54,7 +54,7 @@ export struct SelfCheckSheet {
       Text(this.auditText)
         .fontSize(fs('type.caption')).fontColor(this.pal().successText).fontFamily('monospace')
         .width('100%').padding(SP_2)
-        .backgroundColor(this.pal().surfaceAlt).borderRadius(R_LG)
+        .backgroundColor(surfaceFillOf(this.pal(), 'surface.raised')).borderRadius(R_LG)
         .copyOption(CopyOptions.LocalDevice)
 
       Scroll() {
@@ -95,7 +95,7 @@ export struct SelfCheckSheet {
               ForEach(['已完成 Read', '已完成 Shell', '运行中 Grep', '已完成 Edit', '失败 Fetch'], (t: string) => {
                 Text(t).fontSize(FS_CAPTION).fontColor(this.pal().successText)
                   .padding({ left: INSET_PILL_X, right: INSET_PILL_X, top: INSET_PILL_Y, bottom: INSET_PILL_Y })
-                  .margin(GAP_PILL).backgroundColor(this.pal().surfaceAlt).borderRadius(RADIUS_CHIP)
+                  .margin(GAP_PILL).backgroundColor(surfaceFillOf(this.pal(), 'surface.raised')).borderRadius(RADIUS_CHIP)
                   .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
               }, (t: string) => t)
             }.width('100%')
@@ -119,7 +119,7 @@ export struct SelfCheckSheet {
                 .fontColor([this.pal().textPrimary]).padding(10)
               SymbolGlyph($r('sys.symbol.gearshape')).fontSize(20)
                 .fontColor([this.pal().textPrimary]).padding(10)
-            }.width('100%').backgroundColor(this.pal().surfaceAlt)
+            }.width('100%').backgroundColor(surfaceFillOf(this.pal(), 'surface.raised'))
           }.width('100%').padding(SP_2).backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD)).borderRadius(R_LG)
           .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
         }

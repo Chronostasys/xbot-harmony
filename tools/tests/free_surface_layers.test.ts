@@ -9,6 +9,10 @@
  *    ① 零扫描防线（扫到文件数 ≥ 下限 / 必含下列已知自由面 / 正样本命中 > 0）；
  *    ② 打印**逐文件命中分布** ⇒ 扫描器坏了先在这里红，而不是误报违规。
  *    （教训 2026-10-11：判据 ≠ 信号；"扫源码"型判据必须先自证扫描器。）
+ *
+ * ⚠️ **台账口径（⛔ 别口算，2026-10-11 我自己先踩过）**：`KNOWN_VIOLATIONS_COUNT` 数的是
+ *    **(文件 × 规则) 条目数**，**不是违规出现次数** —— 一个文件同一规则命中 9 次也只算 1 条。
+ *    （所以"SelfCheckSheet 17 处" ≠ 台账 +17；实测台账 = 7，修完 = 0。）
  */
 export {};
 
@@ -96,13 +100,16 @@ interface Rule { readonly name: string; readonly re: RegExp; readonly fix: strin
 const RULES: Rule[] = [
   { name: 'pal().border 当边框色', re: /\.border\(\{[^}]*pal\(\)\.border\b/g, fix: 'hairlineOf(p)（结构性发丝）' },
   { name: 'pal().surface 直取当底色', re: /\.backgroundColor\(this\.pal\(\)\.surface\)/g, fix: "surfaceFillOf(p, 'surface.card'|'surface.overlay')" },
+  // RUNG_RAISED 中性面（2026-10-11：brand-impl 补了 'surface.raised' ⇒ 两处"抬起但非行/非 pill"
+  // 的面（Progress 轨道 / 就地编辑框底）从 ALLOWED **收回判定**）
+  { name: 'pal().surfaceAlt 直取当底色', re: /\.backgroundColor\(this\.pal\(\)\.surfaceAlt\)/g, fix: "surfaceFillOf(p, 'surface.raised')" },
   // ToolPopover 收敛（2026-10-11 主 agent 裁决）：不再走 surfacesOf 取底色，一律 surfaceFillOf
   { name: 'surfacesOf/surf().sunken 直取当底色', re: /this\.surf\(\)\.sunken/g, fix: "surfaceFillOf(p, 'surface.well')" },
 ];
 
 /** 白名单（每条必须写明**为什么可留**）。键 = `文件|规则名`。 */
 const ALLOWED: string[] = [
-  // `pal().surfaceAlt`/`pal().surfaceHi`：**口径族缺 RUNG_RAISED 中性 role**（已报 brand-impl）⇒ 暂不判。
+  // `pal().surfaceHi`（RUNG_ACTIVE）：仍缺中性 role ⇒ 待 brand-impl；暂不判。
 ];
 
 const violations: string[] = [];
