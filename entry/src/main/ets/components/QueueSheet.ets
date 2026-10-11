@@ -8,6 +8,7 @@
 import { Palette, paletteOf } from '../core/theme';
 import { QueueItem } from '../core/types';
 import { FS_CAPTION, FS_TITLE, R_LG, R_MD, R_XL, SP_2, SP_3, SP_4 } from '../core/tokens';
+import { fs, fw } from './SettingsRows';
 
 @Component
 export struct QueueSheet {
@@ -49,7 +50,7 @@ export struct QueueSheet {
   build() {
     Column({ space: SP_2 }) {
       Row() {
-        Text(`待发队列 (${this.queue.length})`).fontSize(FS_TITLE).fontWeight(FontWeight.Bold)
+        Text(`待发队列 (${this.queue.length})`).fontSize(FS_TITLE).fontWeight(fw('type.headline'))
           .fontColor(this.pal().textPrimary).layoutWeight(1)
         Text('清空').fontSize(FS_CAPTION).fontColor(this.pal().dangerText)
           .padding({ left: SP_2, right: SP_2, top: 6, bottom: 6 })
@@ -70,13 +71,13 @@ export struct QueueSheet {
           ListItem() {
             Row({ space: 6 }) {
               Text(this.textOf(q))
-                .fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1).maxLines(3)
+                .fontSize(fs('type.subhead')).fontColor(this.pal().textPrimary).layoutWeight(1).maxLines(3)
                 .wordBreak(WordBreak.BREAK_ALL)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
-              Text('↑').fontSize(14).fontColor(this.pal().accentSoft).padding(6).onClick(() => {
+              Text('↑').fontSize(fs('type.callout')).fontColor(this.pal().accentSoft).padding(6).onClick(() => {
                 this.onMove(this.idOf(q), -1);
               })
-              Text('↓').fontSize(14).fontColor(this.pal().accentSoft).padding(6).onClick(() => {
+              Text('↓').fontSize(fs('type.callout')).fontColor(this.pal().accentSoft).padding(6).onClick(() => {
                 this.onMove(this.idOf(q), 1);
               })
               // ⚡ 插队：must use the FULL content（server `preview` 截断到 ~80 runes ⇒ 会丢内容）

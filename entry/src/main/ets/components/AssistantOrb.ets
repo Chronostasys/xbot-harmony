@@ -48,7 +48,8 @@
  * ⛔ 为什么用 `Canvas` 而不是 `Shape/Path`：光球 = 两层径向渐变 + N 个动态光点，
  *   逐帧变化的渐变色标无法用声明式 `Shape` 表达；`Canvas` 一次 `clearRect + 重绘` 即可。
  */
-import { Palette, paletteOf, Effects, effectsOf, isLightPalette, surfacesOf, relativeLuminance } from '../core/theme';
+import { Palette, paletteOf, Effects, effectsOf, isLightPalette, relativeLuminance } from '../core/theme';
+import { hairlineOf, inflightHaloOf } from '../core/design';
 import {
   ORB_SPIN_MS, ORB_BREATH_MIN, ORB_BREATH_MAX,
   ORB_OPACITY_MIN, ORB_OPACITY_MAX, ORB_RING_RADIUS,
@@ -503,7 +504,7 @@ export struct AssistantOrb {
     this.paint.clear = pal.transparent;
     if (light) {
       // 白底：中性柔影光晕 + 更饱和的实体色核/环 + 中性发丝细环（"干净"的来源）
-      this.paint.halo = eff.elev2;
+      this.paint.halo = inflightHaloOf(pal);
       this.paint.haloAlpha = ORB_HALO_ALPHA_LIGHT;
       // 亮心必须**在里**（与深色同一读法："亮心 → 主色 → 全透明"）。
       // ⚠️ 不能写死 `inner=accentSoft`：浅色系的 `accentSoft` 相对 `accent` 的明暗**因主题而异**
@@ -516,10 +517,10 @@ export struct AssistantOrb {
       this.paint.ringTool = pal.statusRunning;
       // 细环是"弧/球有多大的**参照系**"，白底上必须真的看得见 ⇒ 用**结构性发丝** `hairline`
       // （浅色系由它压深到 web 基线；`border` 在白底只有 ~1.18，半透明再打对折后基本消失）。
-      this.paint.stroke = surfacesOf(pal).hairline;
+      this.paint.stroke = hairlineOf(pal);
     } else {
       // 深色：既有观感（accent 发光 + accentSoft 环 + glowSoft 细环），逐值不变
-      this.paint.halo = eff.glow;
+      this.paint.halo = inflightHaloOf(pal);
       this.paint.haloAlpha = ORB_HALO_ALPHA;
       this.paint.coreInner = pal.accentSoft;
       this.paint.coreOuter = pal.accent;

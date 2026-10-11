@@ -29,12 +29,12 @@
  *     · 图标   = `v.marker` → `sys.symbol`（core 不能持 `Resource`，映射留本组件**一处**）。
  *   ⇒ 改一个状态只改 `statusvisual` 一处；组件"结构上不可能分叉"。
  */
-import { Palette, paletteOf, isLightPalette, surfacesOf } from '../core/theme';
+import { Palette, paletteOf, isLightPalette } from '../core/theme';
 import { withAlpha } from '../core/bubble';
 import {
   RADIUS_CARD, STROKE_RAIL, STROKE_HAIRLINE, HIT_TARGET_MIN,
   SPACE_HAIR, SPACE_SM, SPACE_XXS, INSET_ROW_X, INSET_ROW_Y,
-  colorOf, surfaceFillOf, SURFACE_CARD,
+  colorOf, surfaceFillOf, SURFACE_CARD, hairlineOf, ICON_MD, ICON_SM,
 } from '../core/design';
 import { fs, lh, fw } from './SettingsRows';
 import { SubAgentRow } from '../core/subagent';
@@ -52,9 +52,9 @@ const CARD_BORDER_ALPHA: number = 0.5;
 const CARD_BG_ALPHA: number = 0.5;
 /** 子行缩进（web `ml-3 pl-3` = 12 + 12）—— 走 4pt 网格语义档 `SPACE_SM`。 */
 const CHILD_INDENT: number = SPACE_SM;
-/** 图标边长（web `size-3.5` / `size-3`）。⚠️ 报备：`core/design.ets` 无"图标尺寸"档。 */
-const ICON_TOP: number = 14;
-const ICON_CHILD: number = 12;
+/** 图标边长（web `size-3.5` / `size-3`）—— 走语义图标档 `ICON_MD` / `ICON_SM`。 */
+const ICON_TOP: number = ICON_MD;
+const ICON_CHILD: number = ICON_SM;
 /** 顶层行间距（web `gap-1.5`）与图标-文字间距。⚠️ 报备：无 6 档（介于 SPACE_XXS(4)/SPACE_XS(8)）。 */
 const ROW_GAP: number = 6;
 const ICON_GAP: number = 6;
@@ -125,7 +125,7 @@ struct SubAgentRowView {
    */
   private cardBorderColor(): string {
     if (isLightPalette(this.pal())) {
-      return surfacesOf(this.pal()).hairline;
+      return hairlineOf(this.pal());
     }
     return withAlpha(this.pal().border, CARD_BORDER_ALPHA);
   }
@@ -178,7 +178,7 @@ struct SubAgentRowView {
           width: { left: STROKE_HAIRLINE, top: 0, right: 0, bottom: 0 },
           // 虚线连接线是**结构性边界** ⇒ 走 `hairline`：深色族 `hairline ≡ border`（**逐字节不变**），
           // 浅色/极简白下自动可见（web 是 `border-l` 默认色，白底同样需看得见）。
-          color: { left: surfacesOf(this.pal()).hairline, top: this.pal().border, right: this.pal().border, bottom: this.pal().border },
+          color: { left: hairlineOf(this.pal()), top: this.pal().border, right: this.pal().border, bottom: this.pal().border },
           style: { left: BorderStyle.Dashed, top: BorderStyle.Solid, right: BorderStyle.Solid, bottom: BorderStyle.Solid },
         }
       // 卡片：左 2px = 状态色，其余 1px = 结构性发丝描边（浅色族自动加固，见 `cardBorderColor`）

@@ -8,6 +8,8 @@
  */
 import { Palette, paletteOf } from '../core/theme';
 import { FS_CAPTION, FS_TITLE, R_LG, R_XL, SP_2, SP_3 } from '../core/tokens';
+import { GAP_PILL, INSET_CARD_X, INSET_PILL_X, INSET_PILL_Y, RADIUS_CHIP } from '../core/design';
+import { fs, fw } from './SettingsRows';
 import { MarkdownView } from './MarkdownView';
 
 @Component
@@ -31,7 +33,7 @@ export struct SelfCheckSheet {
   build() {
     Column() {
       Row() {
-        Text('渲染自检').fontSize(FS_TITLE).fontWeight(FontWeight.Bold)
+        Text('渲染自检').fontSize(FS_TITLE).fontWeight(fw('type.headline'))
           .fontColor(this.pal().textPrimary).layoutWeight(1)
         SymbolGlyph($r('sys.symbol.xmark')).fontSize(17)
           .fontColor([this.pal().textSecondary]).padding(SP_2)
@@ -46,9 +48,9 @@ export struct SelfCheckSheet {
           this.onCollect();
         })
       Text('下方这一段可【长按复制】后直接粘贴给对方 —— 不必截图（零网络也能取证）')
-        .fontSize(11).fontColor(this.pal().warn).width('100%')
+        .fontSize(fs('type.caption')).fontColor(this.pal().warn).width('100%')
       Text(this.auditText)
-        .fontSize(11).fontColor(this.pal().successText).fontFamily('monospace')
+        .fontSize(fs('type.caption')).fontColor(this.pal().successText).fontFamily('monospace')
         .width('100%').padding(SP_2)
         .backgroundColor(this.pal().surfaceAlt).borderRadius(R_LG)
         .copyOption(CopyOptions.LocalDevice)
@@ -90,8 +92,8 @@ export struct SelfCheckSheet {
             Flex({ wrap: FlexWrap.Wrap }) {
               ForEach(['已完成 Read', '已完成 Shell', '运行中 Grep', '已完成 Edit', '失败 Fetch'], (t: string) => {
                 Text(t).fontSize(FS_CAPTION).fontColor(this.pal().successText)
-                  .padding({ left: SP_2, right: SP_2, top: 5, bottom: 5 })
-                  .margin(3).backgroundColor(this.pal().surfaceAlt).borderRadius(6)
+                  .padding({ left: INSET_PILL_X, right: INSET_PILL_X, top: INSET_PILL_Y, bottom: INSET_PILL_Y })
+                  .margin(GAP_PILL).backgroundColor(this.pal().surfaceAlt).borderRadius(RADIUS_CHIP)
                   .border({ width: 1, color: this.pal().border })
               }, (t: string) => t)
             }.width('100%')
@@ -110,7 +112,7 @@ export struct SelfCheckSheet {
             Row() {
               SymbolGlyph($r('sys.symbol.line_3_horizontal')).fontSize(20)
                 .fontColor([this.pal().textPrimary]).padding(10)
-              Text('标题文本').fontSize(15).fontColor(this.pal().textPrimary).layoutWeight(1)
+              Text('标题文本').fontSize(fs('type.body')).fontColor(this.pal().textPrimary).layoutWeight(1)
               SymbolGlyph($r('sys.symbol.square_grid_2x2')).fontSize(20)
                 .fontColor([this.pal().textPrimary]).padding(10)
               SymbolGlyph($r('sys.symbol.gearshape')).fontSize(20)
@@ -120,7 +122,7 @@ export struct SelfCheckSheet {
           .border({ width: 1, color: this.pal().border })
         }
         .width('100%')
-        .padding(10)
+        .padding(INSET_CARD_X)
       }
       .layoutWeight(1)
       .width('100%')

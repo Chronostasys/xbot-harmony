@@ -7,6 +7,7 @@
 import { Palette, paletteOf } from '../core/theme';
 import { PluginPanelInfo } from '../core/types';
 import { FS_CAPTION, FS_TITLE, R_LG, R_XL, SP_2, SP_3, SP_4 } from '../core/tokens';
+import { fs, fw } from './SettingsRows';
 
 @Component
 export struct PluginsSheet {
@@ -33,7 +34,7 @@ export struct PluginsSheet {
   build() {
     Column({ space: SP_2 }) {
       Row() {
-        Text('能力面板').fontSize(FS_TITLE).fontWeight(FontWeight.Bold)
+        Text('能力面板').fontSize(FS_TITLE).fontWeight(fw('type.headline'))
           .fontColor(this.pal().textPrimary).layoutWeight(1)
         SymbolGlyph($r('sys.symbol.xmark')).fontSize(17)
           .fontColor([this.pal().textSecondary]).padding(SP_2)
@@ -43,13 +44,13 @@ export struct PluginsSheet {
       }.width('100%')
 
       Text('原生渲染聊天主链路；下列能力由 ArkWeb 承载（与 Web 版同源、能力一致）：')
-        .fontSize(11).fontColor(this.pal().textSecondary).width('100%')
+        .fontSize(fs('type.caption')).fontColor(this.pal().textSecondary).width('100%')
 
       List() {
         // 原生插件目录（components/PluginHost）：列出所有插件/视图贡献点，点开在宿主页运行
         ListItem() {
           Row() {
-            Text('插件目录（原生）').fontSize(14).fontColor(this.pal().textPrimary).layoutWeight(1)
+            Text('插件目录（原生）').fontSize(fs('type.callout')).fontColor(this.pal().textPrimary).layoutWeight(1)
             Text('打开').fontSize(FS_CAPTION).fontColor(this.pal().accentSoft)
           }
           .width('100%').padding(SP_3).backgroundColor(this.pal().surfaceAlt).borderRadius(R_LG)
@@ -60,7 +61,7 @@ export struct PluginsSheet {
         // 完整 Web UI（插件 / GenUI / 终端 / 编辑器都在里面）
         ListItem() {
           Row() {
-            Text('完整 Web UI').fontSize(14).fontColor(this.pal().textPrimary).layoutWeight(1)
+            Text('完整 Web UI').fontSize(fs('type.callout')).fontColor(this.pal().textPrimary).layoutWeight(1)
             Text('打开').fontSize(FS_CAPTION).fontColor(this.pal().accentSoft)
           }
           .width('100%').padding(SP_3).backgroundColor(this.pal().surfaceAlt).borderRadius(R_LG)
@@ -72,8 +73,8 @@ export struct PluginsSheet {
           ListItem() {
             Row() {
               Column() {
-                Text(p.name).fontSize(14).fontColor(this.pal().textPrimary)
-                Text(p.url).fontSize(10).fontColor(this.pal().textMuted).maxLines(1)
+                Text(p.name).fontSize(fs('type.callout')).fontColor(this.pal().textPrimary)
+                Text(p.url).fontSize(fs('type.micro')).fontColor(this.pal().textMuted).maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
               }.layoutWeight(1).alignItems(HorizontalAlign.Start)
               Text('打开').fontSize(FS_CAPTION).fontColor(this.pal().accentSoft)
