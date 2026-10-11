@@ -4221,7 +4221,7 @@ struct Index {
     //    那会把主题自己的强调色顶掉，整套配色的身份就没了）。
     const base: Palette = paletteOf(this.themeName);
     const a: string = this.accentHex();
-    return a.length === 0 ? base : withAccent(base, a, isDarkThemeName(this.themeName));
+    return a.length === 0 ? base : withAccent(base, a, !isLightPalette(base));
   }
 
   /** 视觉效果 token（玻璃/光晕/渐变/层级阴影）—— 由当前色板派生，换主题即换效果。 */
@@ -4239,7 +4239,8 @@ struct Index {
    * 抽成本地辅助是为了避免 7 个调用点各自展开三元分支。
    */
   private glassMode(): ThemeColorMode {
-    return isDarkThemeName(this.themeName) ? ThemeColorMode.DARK : ThemeColorMode.LIGHT;
+    // ⛔ 深浅走**亮度口径**（`isLightPalette(paletteOf(t))`），不按主题名硬判（本仓铁律）。
+    return isLightPalette(paletteOf(this.themeName)) ? ThemeColorMode.LIGHT : ThemeColorMode.DARK;
   }
 
   /** 上一次已应用到**系统表面**的主题（`''` = 还没应用过）；幂等用，避免重复打系统 API。 */
@@ -4250,7 +4251,7 @@ struct Index {
    *
    * 为什么必须：自绘色板由 `pal()` 负责，但**系统绘制的表面**（系统弹框 / 选择与长按菜单 /
    * 状态栏前景…）只听 `setColorMode` / `setWindowSystemBarProperties`（EntryAbility 冷启动
-   * 已按缓存主题设过一次，这里覆盖运行期切换）。判据用 `isDarkThemeName`（与 `glassMode()`
+   * 已按缓存主题设过一次，这里覆盖运行期切换）。判据走**亮度口径**（`isLightPalette`，与 `glassMode()`
    * **同源**）⇒ 不会出现"状态栏深、玻璃浅"。
    *
    * 幂等：只在主题**真的变化**时打系统 API（`syncFrom` 每帧都会调它，不变即早返回）；
@@ -4263,7 +4264,7 @@ struct Index {
       return;
     }
     this.appliedSystemTheme = t;
-    const dark: boolean = isDarkThemeName(t);
+    const dark: boolean = !isLightPalette(paletteOf(t));   // 亮度口径（铁律），非主题名硬判
     // 本地缓存（冷启动 EntryAbility 读它）：只在主题变化时写一次盘
     this.config.saveTheme(t).catch(() => {
       // 缓存写盘失败不影响切主题
