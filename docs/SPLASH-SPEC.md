@@ -98,11 +98,11 @@ function splashPhaseDurationMs(phase: string, reduceMotion: boolean): number;
 function shouldShowSplash(launchKind: string, elapsedMs: number, contentReady: boolean,
                           userDismissed: boolean = false): boolean;
 
-// ③ T1 底色（与 §6 的 FOLLOW_APPLICATION 衔接；纯函数，不读全局）
-function splashCanvasOf(theme: string, followApplication: boolean, systemDark: boolean): string;
+// ③ T1 底色（**恒定**，方案 (a)「品牌开屏恒深」；纯函数，**无 theme 入参**）
+function splashBrandCanvas(): string;                          // = darkPalette().appBg（= T0 色）
 
-// ④ T1 标记档位（**委托** `core/brand.ets:348 markLevelFor`，不另立判据）
-function splashMarkLevelOf(theme: string, sizeVp: number, monochrome: boolean): string;
+// ④ T1 标记档位（**恒定深色面**；**委托** `core/brand.ets:markLevelFor`，不另立判据）
+function splashBrandMarkLevel(sizeVp: number, monochrome: boolean): string;  // 深色面 ⇒ FULL
 
 // ⑤ 在飞唯一性（铁律的机器判据，见 §9）
 function splashOrbAllowed(phase: string, streaming: boolean): boolean;
@@ -161,29 +161,32 @@ function curveHasOvershoot(css: string): boolean;            // 解析 cubic-bez
 > `shouldShowSplash` 答"**一旦展示了，这一帧还在不在**"（`minDwell` 下限 + 内容就绪 + 超时兜底）。
 > 机器判据 = `tools/tests/splash.test.ts ★Db`（mutation：把 `shouldStartSplash` 改成恒 `true` ⇒ 必红）。
 
-### 4.3 `splashCanvasOf(theme, followApplication, systemDark)` 真值表
+### 4.3 `splashBrandCanvas()` 真值表 —— **恒定**（方案 (a)，2026-10-11 真机缺陷修复）
 
-| `followApplication` | `theme` | `systemDark` | 结果 | 说明 |
-|---|---|---|---|---|
-| `true` | `porcelain` | 任意 | `paletteOf('porcelain').appBg` = `#FFFFFF` | 与首帧画布**逐字节一致** ⇒ **零跳色** |
-| `true` | `dark` | 任意 | `#0B0B0E` | 同上 |
-| `false` | 任意 | `false` | `lightPalette().appBg` = `#F8FAFC` | 现状：跟随**系统**（= `color.json` base 值） |
-| `false` | 任意 | `true` | `darkPalette().appBg` = `#0B0B0E` | 现状：跟随**系统**（= `color.json` dark 值） |
+| 入参 | 结果 | 说明 |
+|---|---|---|
+| （无） | `darkPalette().appBg` = `#0B0B0E` | = T0 系统开屏色（base/dark 两处 `start_window_background`）⇒ **T0→T1 零跳色** |
 
-（`followApplication=true` 需要 §12.1 的配置补丁；`false` 是当前行为。）
+> **为什么不再按主题取画布**：旧 `splashCanvasOf(theme, followApplication=true, systemDark)`
+> = `paletteOf(theme).appBg`，画布绑在可变 `@Prop theme`（← `Index.themeName`，**初值字面量 `'dark'`**，
+> 服务端 settings 到达后才覆盖）上 ⇒ 浅色主题用户在同一段展示期间看到画布由深翻白。
+> 而 T0 系统开屏**恒** `#0B0B0E`（`FOLLOW_APPLICATION` 真机不生效，见 §6 / `BRAND.md §12.1`）
+> ⇒ 取主题色**必然**跳变。⇒ 判据 = **品牌开屏恒深**；T1→T3 由 T2 淡出（`animEaseOut()`，零超调）
+> 过渡到应用主题（渐隐，非硬切）。机器判据 = `tools/tests/splash.test.ts §①`（值恒定 + 无 theme 入参）。
 
-### 4.4 `splashMarkLevelOf(theme, sizeVp, monochrome)` 真值表
+### 4.4 `splashBrandMarkLevel(sizeVp, monochrome)` 真值表 —— 承载面**恒定深色**
 
-**委托** `core/brand.ets:348 markLevelFor(BrandSurface)`（不另立判据）：
+**委托** `core/brand.ets markLevelFor(BrandSurface)`（不另立判据）；承载面 = `splashBrandCanvas()`（深色）：
 
-| `theme` | `sizeVp` | `monochrome` | 结果 | 含义 |
-|---|---|---|---|---|
-| `porcelain` | ≥ 24 | `false` | `SOLID` | 实心品牌 glyph on 中性白（**零发光**） |
-| `dark` | ≥ 24 | `false` | `FULL` | 满幅品牌色 + 反色 glyph |
-| 任意 | ≥ 24 | `true` | `OUTLINE` | 单色轮廓（零填充零发光） |
-| 任意 | `< 24` | 任意 | `WORDMARK` | 几何标记太小 ⇒ 纯文字 |
+| `sizeVp` | `monochrome` | 结果 | 含义 |
+|---|---|---|---|
+| ≥ 24 | `false` | `FULL` | 满幅品牌色 + 反色 glyph（= 预生成的品牌紫 PNG `$r('app.media.start_icon')`） |
+| 任意 | `true` | `OUTLINE` | 单色轮廓（零填充零发光） |
+| `< 24` | 任意 | `WORDMARK` | 几何标记太小 ⇒ 纯文字 |
 
-（实调见 §7。）
+> ⛔ **品牌标记不随主题**（`docs/DESIGN-SYSTEM.md §13.6`）：恒用品牌色、**不做浅色变体**。
+> 此前 porcelain 走 `solid` 档，但 `SplashOverlay` 对 `full`/`solid` 渲染的是**同一张**品牌紫 PNG
+> （`tools/brand/emit.js` 用 `brandAccent()` 生成）⇒ 真机标记**永远紫**（与"走 `brandAccentFor`"的声称不符）。
 
 ### 4.5 曲线语义（**设计系统级约定**）：入场可超调；让位/退出 **不许**超调
 

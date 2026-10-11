@@ -343,9 +343,15 @@ bash tools/brand/gen.sh --proofs /tmp/xbot-brand-proofs
 的深浅只跟系统 ⇒ 「系统浅 + 应用选深（或反之）」时开屏 → 首帧**跳一帧色**。
 **补丁**（两处）：`module.json5:20` 已加 `"startWindow": "$profile:startWindow"`；
 `entry/src/main/resources/base/profile/startWindow.json` 已新建（内容同下）。
-**页面侧配合**（应用内开屏 T1）：`pages/Index.ets` 的 `aboutToAppear` **同步**读回缓存主题
-（`readCachedTheme`）初始化 `themeName`，且 `SplashOverlay` 传 `canvasFollowApp: true`
-⇒ T1 底色 = 首帧画布同色（零跳色）。
+**页面侧配合**（应用内开屏 T1）—— ⚠️ **2026-10-11 改为「品牌开屏恒深」（方案 (a)）**：
+原 `SplashOverlay({ …, canvasFollowApp: true })`（T1 底色 = `paletteOf(theme).appBg`）**已废弃** ——
+真机实证：画布绑在可变的 `themeName`（初值 `'dark'`）上 ⇒ 浅色主题用户在同一段展示期间看到画布由深翻白；
+且 T0 系统开屏恒 `#0B0B0E`（见本节真机结论）⇒ 取主题色**必然**跳变。
+现 T1 画布 = `core/splash.splashBrandCanvas()`（**恒定** = `darkPalette().appBg`，= T0 色 ⇒ **T0→T1 零跳色**），
+`SplashOverlay` **不接 `theme`**（结构性保证"不随主题变化"）；T1→T3 由 T2 淡出（`animEaseOut()`，零超调）
+过渡到应用主题（**渐隐，非硬切**）。品牌标记恒紫（`docs/DESIGN-SYSTEM.md §13.6`）。
+`pages/Index.ets` 的 `aboutToAppear` 仍**同步**读回缓存主题初始化 `themeName`（供**页面首帧**与
+`EntryAbility` 的系统表面，与开屏画布无关）。判据 = `tools/tests/splash.test.ts §①/§②/★H`。
 
 ```diff
 # ① entry/src/main/module.json5 —— abilities[0] 内新增一行（保留既有 startWindowIcon/Background）
