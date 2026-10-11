@@ -105,7 +105,14 @@ ok('③ `11` **不在**阶梯里（本仓自己说它该被 micro 取代）⇒ �
   ladderSizes.indexOf(11) < 0);
 
 // ── §B 枚举：Text/Span 的字面量字号 ───────────────────────────────────────────
-class Site { rel: string = ''; line: number = 0; ty: string = ''; val: number = 0; }
+class Site { rel: string = ''; line: number = 0; ty: string = ''; val: number = 0; arg: string = ''; }
+/**
+ * ⛔ **台账键必须是稳定键，不能含行号**（2026-10-11 血案）：本判据第一版用 `rel :: line :: val`，
+ *    而 `pages/Index.ets` 被别的线改动后**行号整体 +12** ⇒ 台账**同时**报"未登记 2 + 陈旧 2"，
+ *    把一次"无关的行号漂移"渲染成"层级错配"。⇒ 现改为 `rel :: val :: <Text 实参>`（内容锚点），
+ *    并配**多重集**比较（因为 `'xbot'` 那类实参会重复出现两次，集合比较会吞掉一处）。
+ */
+function keyOf(s: Site): string { return `${s.rel} :: ${s.val} :: ${s.arg}`; }
 const srcByRel: Map<string, string> = new Map<string, string>();
 for (const d of ['components', 'pages']) {
   const base: string = pathMod.join(etsRoot, d);
@@ -134,6 +141,7 @@ function textLiteralSizes(m: Map<string, string>): Site[] {
         if (fs !== null) {
           const s: Site = new Site();
           s.rel = rel; s.line = lineOf(src, x.index); s.ty = x[1]; s.val = Number(fs[1]);
+          s.arg = src.substring(j + 1, k).trim().replace(/\s+/g, ' ');
           out.push(s);
         }
       }
@@ -159,53 +167,65 @@ console.log('\n▶ §C A 类判据：Text/Span 不得用字面量字号（必须
  * `KNOWN_OK`：**有据可依**的（每条必须写理由）。
  */
 const KNOWN_OK: string[] = [
-  // 代码条（语言标签 / 「复制」/ 表格标签）：源码里明确写着**对齐 web**
-  // `MarkdownRenderer.tsx:214` 的 `font-mono text-[11px]`，且 `index.css:199` 定色为 muted。
-  // ⛔ 换成本仓 `type.micro`(10) 会**偏离 web 基线** ⇒ 属"有意"而非"层级乱"。
-  'components/MarkdownView.ets :: 410 :: 11',
-  'components/MarkdownView.ets :: 415 :: 11',
-  'components/MarkdownView.ets :: 579 :: 11',
-  // 工具浮层的**代码/终端输出行**：源码写明对齐 web `ToolCallBlock.tsx:98` 的 `text-[12px]`，
-  // 且注释原文："同一浮层里'代码/终端输出'的字号必须一致（原先 11 比 web 小 1 ⇒ 与代码块观感分叉）"
-  // ⇒ **有意**（有出处 + 有同浮层一致性理由），非"层级乱"。
-  'components/ToolPopover.ets :: 320 :: 12',
+  // 代码条（语言标签 / 「复制」/ 表格标签）：源码明确**对齐 web** `MarkdownRenderer.tsx:214`
+  // 的 `font-mono text-[11px]`（`index.css:199` 定色 muted）⇒ 换成本仓 `type.micro`(10) 会**偏离 web 基线**
+  // ⇒ 属"有意"，非"层级乱"。**内容锚点**（⛔ 不含行号）。
+  "components/MarkdownView.ets :: 11 :: b.lang.length > 0 ? b.lang : 'code'",
+  "components/MarkdownView.ets :: 11 :: '复制'",
+  "components/MarkdownView.ets :: 11 :: `表格（${b.header.length} 列 · ${b.rows.length} 行）`",
+  // 工具浮层的**代码/终端输出行**：web `ToolCallBlock.tsx:98` 的 `text-[12px]`，且注释原文
+  // "同一浮层里'代码/终端输出'的字号必须一致" ⇒ **有意**。
+  "components/ToolPopover.ets :: 12 :: ln.length > 0 ? ln : ' '",
   // diff 视图的 `+/-` 标记列：必须与**同一浮层代码行同号(12)** 才能纵向对齐 ⇒ **有意**。
-  'components/ToolPopover.ets :: 405 :: 12',
+  "components/ToolPopover.ets :: 12 :: ln.kind === DIFF_ADD ? '+' : (ln.kind === DIFF_DEL ? '-' : ' ')",
 ];
 /** `PENDING_SPEC`：本线**禁改**的文件（归他人）—— ⛔ 只许缩短。 */
 const PENDING_SPEC: string[] = [
-  // dev 面板（`components/Settings*.ets` 归 tokens-ux）：等宽日志行，10 = 阶梯最小档 micro，但没走档
-  'components/SettingsDeveloper.ets :: 314 :: 10',
-  'components/SettingsDeveloper.ets :: 349 :: 10',
-  'components/SettingsDeveloper.ets :: 353 :: 10',
-  'components/SettingsDeveloper.ets :: 360 :: 10',
-  'components/SettingsDeveloper.ets :: 412 :: 10',
-  // 消息行（归 chat-surface-ux）：11 是**阶梯外**值 ⇒ 建议走 micro(10)
-  'components/MessageRow.ets :: 534 :: 11',
-  'components/MessageRow.ets :: 539 :: 11',
-  'components/MessageRow.ets :: 542 :: 11',
-  'components/MessageRow.ets :: 614 :: 11',
-  'components/MessageRow.ets :: 1049 :: 11',
-  // 登录/空态大字（归 chat-surface-ux）：18 / 34 **阶梯外**（阶梯最高 display=28）
-  'pages/Index.ets :: 3293 :: 18',
-  'pages/Index.ets :: 3339 :: 34',
-  'pages/Index.ets :: 3351 :: 34',
-  // ⚠️ 原 `components/MarkdownView.ets :: 590 :: 12`（表格字段标签）**已在 `f98385a` 后的本轮落地**：
-  //    12 是**阶梯里的 caption 档值**却写成字面量 ⇒ 改为 `typeOf('type.caption').size`（同号 ⇒ 1.0 零视觉变化）。
+  // 消息行（归 chat-surface-ux）：`11` 是**阶梯外**值（`type.micro`=10 的源码注释就写着"替代 10/11 字面量"）
+  "components/MessageRow.ets :: 11 :: '正在加载更多…'",
+  "components/MessageRow.ets :: 11 :: '加载失败 · 重试'",
+  "components/MessageRow.ets :: 11 :: `更早的 ${this.row.regionsBefore} 个区域`",
+  "components/MessageRow.ets :: 11 :: `更早的 ${this.hiddenBlocks()} 个迭代块`",
+  "components/MessageRow.ets :: 11 :: COMPACTED_LABEL",
+  // dev 面板（`components/Settings*.ets` 归 tokens-ux）：等宽日志行，10 是 micro 档值却写死
+  "components/SettingsDeveloper.ets :: 10 :: a.desc",
+  "components/SettingsDeveloper.ets :: 10 :: fmtClock(e.atMs)",
+  "components/SettingsDeveloper.ets :: 10 :: e.name",
+  "components/SettingsDeveloper.ets :: 10 :: previewText(e.payload, 120)",
+  "components/SettingsDeveloper.ets :: 10 :: '录制中'",
+  // 登录/空态大字（归 chat-surface-ux）：18 / 34 **阶梯外**（阶梯最高 display=28）；两次 `'xbot'` 靠**多重集**区分
+  "pages/Index.ets :: 18 :: 'xbot'",
+  "pages/Index.ets :: 34 :: 'xbot'",
+  "pages/Index.ets :: 34 :: 'xbot'",
 ];
 const reg: string[] = KNOWN_OK.concat(PENDING_SPEC);
-const measured: string[] = sites.map((s) => `${s.rel} :: ${s.line} :: ${s.val}`);
-let unreg: string[] = [];
-for (let i = 0; i < measured.length; i++) { if (reg.indexOf(measured[i]) < 0) { unreg.push(measured[i]); } }
-let stale: string[] = [];
-for (let i = 0; i < reg.length; i++) { if (measured.indexOf(reg[i]) < 0) { stale.push(reg[i]); } }
+const measured: string[] = sites.map(keyOf);
+/** **多重集**差集（⛔ 不能用集合：`'xbot'` 那类重复实参会被吞掉一处）。 */
+function multisetDiff(a: string[], b: string[]): string[] {
+  const pool: string[] = b.slice();
+  const out: string[] = [];
+  for (let i = 0; i < a.length; i++) {
+    const at: number = pool.indexOf(a[i]);
+    if (at < 0) { out.push(a[i]); } else { pool.splice(at, 1); }
+  }
+  return out;
+}
+const unreg: string[] = multisetDiff(measured, reg);
+const stale: string[] = multisetDiff(reg, measured);
 ok(`无"未登记的字面量字号"（未登记 ${unreg.length}${unreg.length > 0 ? '：' + unreg.slice(0, 4).join(' / ') : ''}）`, unreg.length === 0);
 ok(`台账**只许缩短**：无"已改好却仍留在表里"（陈旧 ${stale.length}${stale.length > 0 ? '：' + stale.slice(0, 4).join(' / ') : ''}）`, stale.length === 0);
 ok(`全部字面量字号都有归属（KNOWN_OK ${KNOWN_OK.length} + PENDING_SPEC ${PENDING_SPEC.length} = 实测 ${measured.length}）`,
-  KNOWN_OK.length + PENDING_SPEC.length === measured.length);
+  reg.length === measured.length);
 const offLadder: string[] = sites.filter((s) => ladderSizes.indexOf(s.val) < 0).map((s) => `${s.rel}:${s.line}(${s.val})`);
 console.log(`  ⚠ **阶梯外**字号的落点（${offLadder.length} 处，优先级最高）：`);
 for (let i = 0; i < offLadder.length; i++) { console.log(`     · ${offLadder[i]}`); }
+console.log('  逐文件分布：');
+const perFileKeys: Map<string, number> = new Map<string, number>();
+for (let i = 0; i < measured.length; i++) {
+  const rel: string = measured[i].split(' :: ')[0];
+  perFileKeys.set(rel, (perFileKeys.get(rel) || 0) + 1);
+}
+perFileKeys.forEach((v: number, kk: string) => { console.log(`     ${pad(kk, 44)} ${v}`); });
 
 // ── §D mutation ───────────────────────────────────────────────────────────────
 console.log('\n▶ §D mutation 自证（合成源码）');
@@ -226,6 +246,17 @@ console.log('\n▶ §D mutation 自证（合成源码）');
   inj.set('components/Fake.ets', "build() {\n  SymbolGlyph(x)\n    .fontSize(13)\n}\n");
   const got: Site[] = textLiteralSizes(inj);
   ok('边界：`SymbolGlyph` 的字面量字号**不**计入文字层级（属图标尺寸档，另一条线）', got.length === 0);
+}
+
+{
+  // ⛔ mutation：**行号漂移鲁棒性**（本轮红灯的根因）—— 在站点前注入空行 ⇒ 台账仍须匹配
+  const inj: Map<string, string> = new Map<string, string>();
+  inj.set('components/Fake.ets', "\n\n\n\n\n\n\n\n\n\n\n\nbuild() {\n  Text('xbot')\n    .fontSize(34)\n}\n");
+  const got: Site[] = textLiteralSizes(inj);
+  const k: string = got.length === 1 ? keyOf(got[0]) : 'NONE';
+  console.log(`     [drift] 注入 12 空行后键 = ${k}`);
+  ok('mutation：键**不含行号** ⇒ 行号漂移不影响判定（第一版正是这样被别的线改红）',
+    k === "components/Fake.ets :: 34 :: 'xbot'");
 }
 
 console.log('\n▼ 摘要');
