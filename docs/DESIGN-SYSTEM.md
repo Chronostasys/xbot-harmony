@@ -113,8 +113,9 @@
 
 ```bash
 source ~/ohos-cli/env.sh; cd ~/src/xbot-harmony
-# 1) 无颜色字面量（应为 0）
-grep -rnoE "#[0-9a-fA-F]{3,8}\b" entry/src/main/ets/pages entry/src/main/ets/components | wc -l
+# 1) 无颜色字面量（应为 0）—— 用判据脚本，**别用 grep**：
+#    grep 会把注释里"为什么用这个角色/值"的**文档**误报成违规（本仓组件大量这样写，是好实践）
+bash tools/lint/no-color-literals.sh
 # 2) 无 emoji 图标（应为空）
 grep -rnoE "Text\('(✳|📎|➕|✦|✕|☰|⊞|⚙|⋯)'\)" entry/src/main/ets/ | head
 # 3) 三项门禁

@@ -116,6 +116,17 @@ bash "$HERE/lint/criteria-single-source.sh" || true
 echo "===== ⑥b 取色 role 合法性（静态，硬红）====="
 bash "$HERE/lint/color-roles.sh" || fail=1
 
+# ⚠️ 新增（本波）：颜色字面量（设计系统 §5 第 1 条「应为 0」）—— **观察级**，转硬条件见下。
+#    为什么暂不硬：判据实测**只剩 4 处命中、且是同一类结构性合法例外** ——
+#    `win.setWindowSystemBarProperties({ statusBarContentColor: dark ? '#FFFFFF' : '#000000' })`
+#    该 API **只接受色值字符串**（不接资源引用/角色），且已按 `dark` 分叉 ⇒ 写法正确；
+#    按脚本约定在本行/上一行加 `// allow-color-literal: <理由>` 即可 ⇒ 之后把 `|| true` 去掉转硬。
+#    ⛔ 判据**已剥注释**：本仓组件用注释记录"为什么用这个角色/这个值"（**好实践**），
+#       朴素 grep 会把 7 处这种**文档**报成违规（我实测踩过，见 235ce62/f793c42 的教训）；
+#       该脚本自带注释剥离（对字符串内 `//` 免疫）+ 命中行原文 + 零扫描判红 + mutation 自证。
+echo "===== ⑥c 颜色字面量（静态，观察级：待那 4 处合法例外标注后转硬）====="
+bash "$HERE/lint/no-color-literals.sh" || true
+
 # ⚠️ 新增（本波）：性能静态预算（`perf-audit` 交付）。秒级零抖动、**硬红**。
 #    ⛔ 刻意放在**最后一步**：它不读 ArkUI 源码、只做静态预算比对，**不与 ④ 的 ArkTS 真编译争构建锁**，
 #    也不拖慢主流程（实测 ~0s）。产物/耗时照打（便于识别假绿）。
