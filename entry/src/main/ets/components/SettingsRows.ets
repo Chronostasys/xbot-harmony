@@ -806,6 +806,8 @@ export struct SettingsErrorBar {
         }
         .width('100%')
         .constraintSize({ minHeight: HIT_TARGET_MIN })
+        // press 反馈走统一口径（同 `PluginsSheet.ets:114` / 本文件 `:334` 的既有写法）
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
           this.onRetry();
         })
