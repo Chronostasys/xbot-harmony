@@ -37,6 +37,8 @@ import {
   themeLabel, HAIRLINE_TARGET_RATIO, paletteValues,
   contrastRatio, compositeOver, relativeLuminance, parseColorRgba,
 } from '../../entry/src/main/ets/core/theme';
+// 语义令牌层：主按钮字重断言需**解析真值**（`typeOf(role).weight`）而非只认字面量（见下 D 段）。
+import { typeOf } from '../../entry/src/main/ets/core/design';
 
 let pass = 0, fail = 0;
 function eq(name: string, got: unknown, want: unknown): void {
@@ -405,6 +407,20 @@ function countRoleUses(src: string, role: string): number {
       || (after >= '0' && after <= '9') || after === '_';
     if (!isWord) { n++; }
     from = at + needle.length;
+  }
+  // 语义出口等价（2026-10-11）：`wellOf(p)` ≡ `surfacesOf(p).sunken`（`core/design.ets:366`）
+  // ⇒ 数"该角色的**生产消费点**"时两者都算（在途重构把 `.sunken` 换成了 `wellOf(...)`，像素零变化；
+  //    旧实现只数字面 `.sunken` ⇒ 假红）。判据仍是"该角色确有生产消费点"这一**事实**。
+  // ★ 判别力（mutation 必红）：把该处换成别的角色 / 删掉消费点 ⇒ n 掉到 0 ⇒ 上面"非空对"红。
+  if (role === 'sunken') {
+    let from2: number = 0;
+    const alt: string = 'wellOf(';
+    while (true) {
+      const at2: number = src.indexOf(alt, from2);
+      if (at2 < 0) { break; }
+      n++;
+      from2 = at2 + alt.length;
+    }
   }
   return n;
 }
@@ -813,14 +829,25 @@ for (let ti = 0; ti < NEON_THEMES.length; ti++) {
 // 派生源，且被 `theme.test.ts:30` 快照钉死）⇒ **超出本波范围**；且主按钮真实底色是**渐变**
 // （`accent → accentSoft`），最亮端 `#B9A7FF` 上白字仅 **2.09:1** ⇒ 单纯压暗 accent 治不了根。
 // ⇒ 结论：**保留台账 + 上报用户拍板**（要么放行改品牌主色，要么改 CTA 的渐变端色）。
+// 📌 **已知欠账（在跟踪，不是漏判）**：主按钮真实底色是**渐变** `accent → accentSoft`，最亮端
+//    `#B9A7FF` 上白字仅 **2.09:1** ⇒ 单纯压暗 `accent` 治不了根。详见 `docs/ACCENT-CONTRAST.md`
+//    与 `docs/DESIGN-SYSTEM.md §11.3`（`dark|onAccent|accent` 台账**不许删**，属**用户拍板项**）。
 const idxSrc: string = fsMod.readFileSync(
   pathMod.join(repoRoot, 'entry', 'src', 'main', 'ets', 'pages', 'Index.ets'), 'utf-8');
 const loginAt: number = idxSrc.indexOf("Button('登录')");
 ok('D 取证锚点：主按钮 Button(登录) 存在于 Index.ets', loginAt > 0);
 const loginBlock: string = loginAt > 0 ? idxSrc.slice(loginAt, loginAt + 800) : '';
 ok('主按钮字号取 token `FS_TITLE`（不是字面量）', loginBlock.indexOf('.fontSize(FS_TITLE)') >= 0);
-ok('主按钮字重 = `FontWeight.Medium`（500 ≠ bold ⇒ 不构成 WCAG 大字）',
-  loginBlock.indexOf('FontWeight.Medium') >= 0);
+// ⚠️ 2026-10-11 订正（`bce3dcf` 语义令牌迁移）：字重由字面量 `FontWeight.Medium` 换成了
+//    `typeOf('type.subhead').weight`（= `WEIGHT_MEDIUM` = **500**，`core/design.ets:163/206`）
+//    ⇒ **值完全等价、观感零变化**；旧断言只做 `indexOf('FontWeight.Medium')` ⇒ **读不懂 token = 假红**。
+//    改为**解析真值再比**（⛔ 不放宽阈值、⛔ 不删断言）。
+// ★ 判别力（mutation 必红）：把角色换成 `type.headline`(600) / 写回字面量 `FontWeight.Bold` ⇒ 本段红。
+const wM: RegExpMatchArray | null = loginBlock.match(/\.fontWeight\(typeOf\('(type\.[a-zA-Z]+)'\)\.weight\)/);
+const wRole: string = wM === null ? '' : wM[1];
+const wVal: number = wM === null ? -1 : typeOf(wRole).weight;
+ok('主按钮字重走语义 token `typeOf(...).weight`（迁移后形态）', wM !== null);
+ok(`主按钮字重 = 500（实测 ${wVal}；500 ≠ bold ⇒ 不构成 WCAG 大字）`, wVal === 500);
 const tokSrc: string = fsMod.readFileSync(
   pathMod.join(repoRoot, 'entry', 'src', 'main', 'ets', 'core', 'tokens.ets'), 'utf-8');
 const tokM: RegExpMatchArray | null = tokSrc.match(/FS_TITLE:\s*number\s*=\s*(\d+)/);

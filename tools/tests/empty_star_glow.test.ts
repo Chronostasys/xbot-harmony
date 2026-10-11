@@ -73,8 +73,13 @@ hasNot(indexSrc, 'this.emptyStarShadow()', '调用点已改为 radialGradient');
 // ── (c) 尺寸是**有名常量**（token 纪律：禁魔法数）────────────────────────────────
 has(indexSrc, 'const STAR_GLOW_SIZE: number = 150;', 'STAR_GLOW_SIZE 是模块级常量');
 
-// ── (d) 辉光与星形**同步呼吸**（读同一个 pulseOn，非静态贴图）────────────────────
-has(block, '.opacity(this.pulseOn ?', '辉光按 pulseOn 呼吸（与星形同源）');
+// ── (d) 辉光**静态**（⛔ 不呼吸）────────────────────────────────────────────────
+// pin **反向**（2026-10-11）：页面级 `pulseOn` 心跳按动效铁律**已删除**（同一时刻只允许一个
+// "在飞动效" = 光球，见 `core/design.ets §4.1` / `docs/DESIGN-SYSTEM.md §8`）⇒ 空态辉光不再呼吸。
+// ★ 判别力（mutation 必红）：把 `.opacity(1)` 改回 `this.pulseOn`、或加回 `.animation(...)` ⇒ 本段红。
+hasNot(block, 'pulseOn', '空态辉光**不读** pulseOn（静态；唯一在飞动效 = 光球）');
+hasNot(block, '.animation(', '空态辉光**无**内联/循环动效（静态呈现）');
+has(block, '.opacity(1)', '辉光不透明度为常量（静态）');
 
 console.log(`  empty_star_glow: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
