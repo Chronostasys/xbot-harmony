@@ -458,6 +458,8 @@ struct FeishuBindPanel {
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .width('100%')
+          // 2026-10-11 用户报"字超出屏幕"：URL 无空格断点 => 必须 BREAK_ALL，否则顶出屏。
+          .wordBreak(BREAK_ALL)
         Text('也可以在飞书开放平台手动创建应用 →')
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().accentSoft)
@@ -568,6 +570,8 @@ struct FeishuBindPanel {
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().textSecondary)
             .width('100%')
+            // 同上：绑定 URL 亦为不可断长串。
+            .wordBreak(BREAK_ALL)
           Row({ space: SP_2 }) {
             Text(CHANNEL_COPY_LINK)
               .fontSize(FS_CAPTION)
