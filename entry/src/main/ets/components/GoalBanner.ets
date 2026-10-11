@@ -31,17 +31,18 @@
  *    尺度用 `core/tokens.ets`。
  */
 import { isLightPalette, Palette, paletteOf } from '../core/theme';
-import { FS_CAPTION, R_MD, R_SM, SP_1, SP_2, SP_3 } from '../core/tokens';
+import { R_MD, R_SM, SP_1 } from '../core/tokens';
+import { INSET_CHIP_Y, SPACE_XS, TYPE_CHIP, TYPE_GOAL, typeOf } from '../core/design';
 import { withAlpha } from '../core/bubble';
 import { goalDisplay, GoalDisplay, goalEditCommit, goalEditable } from '../core/statusfmt';
 
-/** 卡片内边距（web `px-2.5 py-1.5`）。 */
+/** 卡片内边距（web `px-2.5 py-1.5` = 10/6）。
+ * ⚠️ 语义令牌 `INSET_CARD_X/Y`（12/12）与它**值不等** ⇒ 未替换（见交付"待裁决"清单）。 */
 const PAD_X: number = 10;
 const PAD_Y: number = 6;
-/** 图标字号（web `size-3.5` = 14px）。 */
+/** 图标字号（web `size-3.5` = 14px）。
+ * ⚠️ 无 14 的图标令牌（`type.caption`.size=12 值不等）⇒ 未替换（见"缺 token"清单）。 */
 const ICON: number = 14;
-/** 徽标字号（web `text-[10px]`）。 */
-const BADGE_FS: number = 10;
 /** 进行中目标的强调色描边不透明度（web `border-accent/30`）；浅色底需更实才看得见。 */
 const BORDER_ALPHA_DARK: number = 0.3;
 const BORDER_ALPHA_LIGHT: number = 0.5;
@@ -108,7 +109,7 @@ export struct GoalBanner {
   build() {
     // ⛔ 唯一显示判据：无目标 ⇒ 零节点（web 由父级 `{goal && <GoalBanner/>}` 条件挂载）
     if (this.display().visible) {
-      Row({ space: SP_2 }) {
+      Row({ space: SPACE_XS }) {
         // 图标（web `:78-85`）：已完成 → ✓；进行中 → 目标图标 + 呼吸点（原生用静态小圆点，
         // 见文件头 Pitfalls：不引入定时器，避免在列表行里开常驻动画）
         // ⛔ `sys.symbol.circle_badge_checkmark` **SDK 里不存在**（接线时 `10903329 Unknown
@@ -127,7 +128,7 @@ export struct GoalBanner {
         if (this.editing) {
           // 就地编辑（web 桌面分支 `:91-115`：Enter 保存 / 失焦保存）
           TextInput({ text: this.draft })
-            .fontSize(FS_CAPTION)
+            .fontSize(typeOf(TYPE_GOAL).size)
             .fontColor(this.pal().textPrimary)
             .backgroundColor(this.pal().surfaceAlt)
             .borderRadius(R_SM)
@@ -139,25 +140,25 @@ export struct GoalBanner {
               this.commit();
             })
           Text('保存')
-            .fontSize(FS_CAPTION)
+            .fontSize(typeOf(TYPE_GOAL).size)
             .fontColor(this.pal().accent)
-            .padding({ left: SP_2, right: SP_2, top: 3, bottom: 3 })
+            .padding({ left: SPACE_XS, right: SPACE_XS, top: 3, bottom: 3 })
             .borderRadius(R_SM)
             .backgroundColor(withAlpha(this.pal().accent, BADGE_TINT))
             .onClick(() => {
               this.commit();
             })
           Text('取消')
-            .fontSize(FS_CAPTION)
+            .fontSize(typeOf(TYPE_GOAL).size)
             .fontColor(this.pal().textMuted)
-            .padding({ left: SP_2, right: SP_2, top: 3, bottom: 3 })
+            .padding({ left: SPACE_XS, right: SPACE_XS, top: 3, bottom: 3 })
             .onClick(() => {
               this.cancel();
             })
         } else {
           // 目标文本：单行截断；已完成 ⇒ muted + 删除线（web `:122-128`）
           Text(this.display().objective)
-            .fontSize(FS_CAPTION)
+            .fontSize(typeOf(TYPE_GOAL).size)
             .fontColor(this.display().completed ? this.pal().textMuted : this.pal().textPrimary)
             .decoration(this.display().completed
               ? { type: TextDecorationType.LineThrough, color: this.pal().textMuted }
@@ -177,18 +178,18 @@ export struct GoalBanner {
 
           // 状态徽标（web `:132-142`）
           Text(this.display().badge)
-            .fontSize(BADGE_FS)
+            .fontSize(typeOf(TYPE_CHIP).size)
             .fontWeight(FontWeight.Medium)
             .fontColor(this.display().completed ? this.pal().success : this.pal().accent)
             .backgroundColor(withAlpha(
               this.display().completed ? this.pal().success : this.pal().accent, BADGE_TINT))
             .borderRadius(R_SM)
-            .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+            .padding({ left: 6, right: 6, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
 
           // 编辑入口：**仅进行中**（web `:145-154`）
           if (goalEditable(this.display().completed)) {
             SymbolGlyph($r('sys.symbol.square_and_pencil'))
-              .fontSize(12)
+              .fontSize(typeOf('type.caption').size)
               .fontColor([this.pal().textMuted])
               .onClick(() => {
                 this.draft = this.objective;
@@ -198,7 +199,7 @@ export struct GoalBanner {
 
           // 清除（web `:157-167`；编辑态隐藏）
           SymbolGlyph($r('sys.symbol.xmark'))
-            .fontSize(12)
+            .fontSize(typeOf('type.caption').size)
             .fontColor([this.pal().textMuted])
             .onClick(() => {
               this.onClearGoal();
