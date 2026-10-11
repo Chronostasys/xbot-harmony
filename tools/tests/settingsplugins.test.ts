@@ -366,7 +366,8 @@ const componentPath = pathMod.join(
   eq('★E multiselect ⇒ chips', pluginControlKind(PLUGIN_FIELD_MULTISELECT), 'chips');
   eq('★E number ⇒ text（有范围时组件附带滑条）', pluginControlKind(PLUGIN_FIELD_NUMBER), 'text');
   eq('★E string ⇒ text', pluginControlKind(PLUGIN_FIELD_STRING), 'text');
-  eq('★E image ⇒ static（不可编辑，只读展示）', pluginControlKind(PLUGIN_FIELD_IMAGE), 'static');
+  eq('★E image ⇒ image 档（**不是 static** —— 它有上传值区；2026-10-11 修映射分叉）',
+    pluginControlKind(PLUGIN_FIELD_IMAGE), 'image');
   eq('★E unknown ⇒ static', pluginControlKind(PLUGIN_FIELD_UNKNOWN), 'static');
   eq('★E 未知类型（协议新增）也 ⇒ static（不猜）', pluginControlKind('whatever'), 'static');
   eq('★E 空类型 ⇒ static', pluginControlKind(''), 'static');

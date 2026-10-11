@@ -762,6 +762,8 @@ export const PLUGIN_CTRL_SWITCH: string = 'switch';
 export const PLUGIN_CTRL_CHIPS: string = 'chips';
 /** 控件档角色：文本框（string / number；number 有范围时组件**附带**滑条）。 */
 export const PLUGIN_CTRL_TEXT: string = 'text';
+/** 控件档角色：**图片上传值区**（image：预览 + 选图 + 上传 + 失败可读 + Web UI 兜底）。 */
+export const PLUGIN_CTRL_IMAGE: string = 'image';
 
 /**
  * 字段 ⇒ **控件档**（唯一映射；组件不得自己 if/else 判控件）。
@@ -771,7 +773,10 @@ export const PLUGIN_CTRL_TEXT: string = 'text';
  */
 export function pluginControlKind(kind: string): string {
   if (!isFieldEditable(kind)) {
-    return PLUGIN_CTRL_STATIC;
+    // ⚠️ image 例外：它**不是**"只读"—— 有专门的上传值区（预览/选图/上传/失败可读）。
+    // 2026-10-11 修：此前本表对 image 误返回 `static`（"只读展示"），而组件已渲染可编辑值区
+    // ⇒ **映射表与渲染分叉**。现在 image 单列一档（判据与渲染同源）。
+    return kind === PLUGIN_FIELD_IMAGE ? PLUGIN_CTRL_IMAGE : PLUGIN_CTRL_STATIC;
   }
   if (kind === PLUGIN_FIELD_BOOLEAN) {
     return PLUGIN_CTRL_SWITCH;

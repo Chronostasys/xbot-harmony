@@ -38,7 +38,7 @@ import {
   PluginConfigEntry, PluginConfigGroup, PluginConfigProperty, configValueFingerprint, displayValue,
   filterPluginCatalog, groupBySection, isFieldEditable, listHas, parsePluginConfig,
   pluginEntryFingerprint, pluginFieldHasRange, pluginSliderStep, pluginSliderValue, readValue,
-  PLUGIN_CTRL_CHIPS, PLUGIN_CTRL_TEXT, PLUGIN_INPUT_DECIMAL, PLUGIN_INPUT_SECRET,
+  PLUGIN_CTRL_CHIPS, PLUGIN_CTRL_IMAGE, PLUGIN_CTRL_TEXT, PLUGIN_INPUT_DECIMAL, PLUGIN_INPUT_SECRET,
   pluginControlKind, pluginInputMode,
   PLUGIN_IMG_UPLOADED, pluginFilenameFromUri, pluginImagePreviewUrl, pluginImageValueKind,
   pluginUploadErrorText,
@@ -254,7 +254,7 @@ struct PluginFieldRow {
     Column({ space: SP_1 }) {
       Row({ space: SP_2 }) {
         this.LabelCol()
-        if (!this.editable && this.kind !== PLUGIN_FIELD_IMAGE) {
+        if (this.controlKind() === PLUGIN_CTRL_STATIC) {
           Text('暂不支持编辑')
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().textMuted)
@@ -270,9 +270,9 @@ struct PluginFieldRow {
       .alignItems(VerticalAlign.Center)
 
       // 非编辑类型：只读展示 + 明确说明（**不假装成功**）
-      if (this.kind === PLUGIN_FIELD_IMAGE) {
+      if (this.controlKind() === PLUGIN_CTRL_IMAGE) {
         this.ImageSection()
-      } else if (!this.editable) {
+      } else if (this.controlKind() === PLUGIN_CTRL_STATIC) {
         Text(this.display.length > 0 ? this.display : '—')
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textSecondary)
