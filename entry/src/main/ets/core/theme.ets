@@ -348,13 +348,51 @@ export function porcelainPalette(): Palette {
   return p;
 }
 
-/** 取色板（未知主题回落深色 —— 深色是既有默认）。 */
-export function paletteOf(theme: string): Palette {
+/**
+ * 主题 → Palette / Effects / Surfaces 的**记忆化**（纯缓存：语义零改动）。
+ *
+ * 为什么：`effectsOf` 实测 **2.1–3.3µs/次**、`surfacesOf` **1.7–5.7µs/次**（每次 `new` +
+ * 十几次 `alphaHex` 颜色合成），而 `components/pages` 的 build 路径里有 **17 处**调用点
+ * （`this.eff()` / `surfacesOf(this.pal())`）⇒ 每帧白算几十 µs。`paletteOf` 本身很便宜
+ * （0.01µs），但它**每次都 new** ⇒ 只缓存 `effectsOf` 永远命中不了，故三者一起按输入记忆化。
+ *
+ * ⛔ 三条纪律：
+ *   1. **纯语义不变**：缓存只做"同一输入复用同一结果"；键由输入唯一决定 ⇒ 不可能串味。
+ *   2. **不得跨主题串味**：`paletteOf` 键 = 主题名；`effectsOf`/`surfacesOf` 键 = Palette
+ *      **对象标识** —— 而 Palette 经 `paletteOf` 记忆化后每主题唯一 ⇒ 等价于按主题唯一。
+ *   3. **有界**：手工 `new Palette()` 的调用方（`core/accent.ets`）会产生"一次性键"
+ *      ⇒ 超上限即清空（宁可退化成不缓存，也不让 Map 无界增长）。
+ *
+ * ⛔ 因此：**调用方不得就地修改**取回的 Palette/Effects/Surfaces（全仓已核：无外部改字段；
+ *    需要变体走 `core/accent.ets` 的 `new Palette()` 路径）。
+ */
+const PALETTE_MEMO: Map<string, Palette> = new Map<string, Palette>();
+const EFFECTS_MEMO: Map<Palette, Effects> = new Map<Palette, Effects>();
+const SURFACES_MEMO: Map<Palette, Surfaces> = new Map<Palette, Surfaces>();
+/** 记忆化条目上限（正常只会用到"主题数"量级；上限只防"一次性键"泄漏）。 */
+const MEMO_MAX_ENTRIES: number = 64;
+
+/** 取色板的**构造实现**（未知主题回落深色 —— 深色是既有默认）。 */
+function buildPalette(theme: string): Palette {
   if (theme === THEME_LIGHT) { return lightPalette(); }
   if (theme === THEME_AURORA) { return auroraPalette(); }
   if (theme === THEME_NEBULA) { return nebulaPalette(); }
   if (theme === THEME_PORCELAIN) { return porcelainPalette(); }
   return darkPalette();
+}
+
+/** 取色板（**记忆化**：同一主题只构造一次）。返回**共享对象** —— 调用方不得就地修改。 */
+export function paletteOf(theme: string): Palette {
+  const hit: Palette | undefined = PALETTE_MEMO.get(theme);
+  if (hit !== undefined) {
+    return hit;
+  }
+  const p: Palette = buildPalette(theme);
+  if (PALETTE_MEMO.size >= MEMO_MAX_ENTRIES) {
+    PALETTE_MEMO.clear();
+  }
+  PALETTE_MEMO.set(theme, p);
+  return p;
 }
 
 /** 规范化主题名（未知值回落 dark）。 */
@@ -528,7 +566,7 @@ export class Effects {
  *  ⚠️ 深色主题的四个值（sheen/elev1..3）**逐字节不动**（其他线依赖其观感）；
  *  浅色主题（含 light / porcelain）走柔影分支：低透明 + 中性色相（正文色的极低 alpha），
  *  白底上不再出现"一圈脏影"。 */
-export function effectsOf(p: Palette): Effects {
+function buildEffects(p: Palette): Effects {
   const e: Effects = new Effects();
   const light: boolean = isLightPalette(p);
   e.glassBg = alphaHex(glassBaseOf(p), 0.62);
@@ -551,6 +589,23 @@ export function effectsOf(p: Palette): Effects {
     e.elev2 = alphaHex('#000000', 0.32);
     e.elev3 = alphaHex('#000000', 0.42);
   }
+  return e;
+}
+
+/**
+ * 由色板派生视觉效果 token（**记忆化**：键 = Palette 对象标识 ⇒ 不可能跨主题串味）。
+ * 纯缓存 ⇒ 与 `buildEffects` 逐字段等价（`tools/tests/theme_memo.test.ts` 有等价性断言）。
+ */
+export function effectsOf(p: Palette): Effects {
+  const hit: Effects | undefined = EFFECTS_MEMO.get(p);
+  if (hit !== undefined) {
+    return hit;
+  }
+  const e: Effects = buildEffects(p);
+  if (EFFECTS_MEMO.size >= MEMO_MAX_ENTRIES) {
+    EFFECTS_MEMO.clear();
+  }
+  EFFECTS_MEMO.set(p, e);
   return e;
 }
 
@@ -751,8 +806,8 @@ function hairlineOf(p: Palette): string {
   return deepenToRatio(p.border, [p.appBg, p.surface], HAIRLINE_TARGET_RATIO);
 }
 
-/** 由色板派生「面 / 边界」token（单一口径 —— 换主题即换面）。 */
-export function surfacesOf(p: Palette): Surfaces {
+/** 由色板派生「面 / 边界」token 的**构造实现**（单一口径 —— 换主题即换面）。 */
+function buildSurfaces(p: Palette): Surfaces {
   const s: Surfaces = new Surfaces();
   s.hairline = hairlineOf(p);
   // 下沉内容面：**逐公式等价**于旧的"elev1 阴影色当底色"（同一公式 + 同一合成底 `surface`）
@@ -761,8 +816,38 @@ export function surfacesOf(p: Palette): Surfaces {
   return s;
 }
 
+/** 由色板派生「面 / 边界」token（**记忆化**：键 = Palette 对象标识 ⇒ 无跨主题串味）。 */
+export function surfacesOf(p: Palette): Surfaces {
+  const hit: Surfaces | undefined = SURFACES_MEMO.get(p);
+  if (hit !== undefined) {
+    return hit;
+  }
+  const s: Surfaces = buildSurfaces(p);
+  if (SURFACES_MEMO.size >= MEMO_MAX_ENTRIES) {
+    SURFACES_MEMO.clear();
+  }
+  SURFACES_MEMO.set(p, s);
+  return s;
+}
+
 /** 面 token 是否完整（穷尽性守卫，与 `effectsComplete` 同一纪律）。 */
 export function surfacesComplete(s: Surfaces): boolean {
   if (s.hairline.length === 0 || s.sunken.length === 0 || s.glassBase.length === 0) { return false; }
   return true;
+}
+
+/** 记忆化占用（诊断用；照 `core/markdown.mdCacheStats` 的先例）—— 让"缓存有界"可断言。 */
+export class ThemeMemoStats {
+  palettes: number = 0;
+  effects: number = 0;
+  surfaces: number = 0;
+}
+
+/** 读取记忆化占用（只读；不影响缓存）。 */
+export function themeMemoStats(): ThemeMemoStats {
+  const st: ThemeMemoStats = new ThemeMemoStats();
+  st.palettes = PALETTE_MEMO.size;
+  st.effects = EFFECTS_MEMO.size;
+  st.surfaces = SURFACES_MEMO.size;
+  return st;
 }
