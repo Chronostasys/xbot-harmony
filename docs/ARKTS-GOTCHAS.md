@@ -1047,7 +1047,7 @@ At File: entry/src/main/ets/core/highlight.ets:18:8
 |---|---|---|
 | 强调色 | `withAccent` 全仓仅 **1** 调用点（`Index.ets` 的 `pal()`），而 **40 组件/80 处走 `paletteOf`**（不认识强调色） | 除 Index 内联样式外**全站拿不到强调色**（用户选色看着"没生效"） |
 | 通知 3 开关 | `applyNotifyPrefs` **0 调用点** | 用户关掉通知开关**完全不生效**（死开关） |
-| 思考展开态 | `reasoningopen`（web `reasoningOpenState.ts` 逐字移植）**0 消费方** | "修了 live→commit 自动收起"是**假的**（门禁却全绿） |
+| 思考展开态 | `reasoningopen`（web `reasoningOpenState.ts` 逐字移植）—— **当时** 0 消费方（本行即该假绿的来历） | 当时"修了 live→commit 自动收起"是**假的**（门禁却全绿）。✅ **后续已真接线**（`cba24ad`：`LiveTailView:491` / `MessageRow:725` 造键 + `ThinkingLine:107/153` 读写 store；gate ⑧ 实测 91/91 全消费；`tools/tests/reasoning_wiring.test.ts` **钉调用点计数**） |
 - **形态断言铁律**：源码形态断言必须钉 **调用点计数**（`grep -c` 数量），**别钉"方法体存在"**
   —— 第一版判据就是因此**假绿**。
 - 改这类"判据/偏好/存储"函数前：先 `grep -rn <name>` **数消费点**；0 或 1 ⇒ 先怀疑"没人用"。
