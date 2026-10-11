@@ -1052,6 +1052,78 @@ export function knownContrastLedger(): string[] {
   ];
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// 7b. 「ANSI 终端语义色」**显式例外**（2026-10-11，主 agent 裁决 2）
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * 一条「ANSI 终端语义色」例外：某 role 在**终端/代码块输出**里作**文字**色时，**有意**低于 `AA_TEXT`。
+ *
+ * **为什么是例外而不是收紧**（裁决原文）：这三个 role 的**文字**落点全部在
+ * **ANSI 终端输出**（`core/ansi.ets` 的 `ANSI_COLOR_ROLES` 把 16 槽映射到语义 role，色相 =
+ * red=错误 / green=成功 / cyan=运行 / blue=品牌）；web 权威侧（`noties_prism4j` 渲染）用的也是
+ * **标准 xterm 色板** ⇒ ① 为凑 AA 把终端色压深 = **偏离 web 权威基准**（**parity 优先于局部 AA**）；
+ * ② 把它们整体抬到 `AA_TEXT` 会产出**≈22 格"无落点"的虚构台账**，还会迫使**纯图形**的青/紫弧、
+ * 进度环满足**正文**阈值 —— 那是**造账**，不是修缺陷。
+ * ⇒ 处置 = **登记为例外**（⛔ 不放宽 `AA_TEXT` 本身、⛔ 不把三者接成"文字类"）。
+ *
+ * ⚠️ **边界**（机器判据见 `tools/tests/porcelain_surfacehi_contrast.test.ts §6`）：
+ *   · 本表**只许缩短**（`ansiTerminalExceptions()` 的 role 集合冻结；改 ⇒ 红）；
+ *   · 这三个 role **只许出现在 ANSI/终端 或 图形落点**——任何**非终端**的**直接文字**用法都算**越界**，
+ *     必须登记进 `ansiRoleTextLeaks()`（同样**只许缩短**）。
+ */
+export class AnsiTextException {
+  role: string;
+  ansiSlot: string;
+  terminals: string;
+  sizes: string;
+  ratios: string;
+  constructor(role: string, ansiSlot: string, terminals: string, sizes: string, ratios: string) {
+    this.role = role; this.ansiSlot = ansiSlot; this.terminals = terminals;
+    this.sizes = sizes; this.ratios = ratios;
+  }
+}
+
+/** 例外登记表（⛔ **只许缩短**；role 集合 = {accent, statusError, statusRunning}，改动 ⇒ 判据红）。 */
+export function ansiTerminalExceptions(): AnsiTextException[] {
+  return [
+    new AnsiTextException('accent', 'ANSI 4（蓝）· 12（bright 蓝）',
+      'SyntheticCard.ets:248/260（ANSI 正文 span）· ToolVisual.ets:115（pill 标签 span）',
+      'FS_CAPTION 12 · FS_BODY 14 · type.caption 12',
+      'dark 压 surface 4.43 / surfaceAlt 4.21 / surfaceHi 3.84；' +
+      'porcelain 压 appBg 4.39 / surfaceAlt 4.35 / surfaceHi 4.02 / sunken 4.20'),
+    new AnsiTextException('statusError', 'ANSI 1（红）',
+      'SyntheticCard.ets:248/260（ANSI 正文 span）',
+      'FS_CAPTION 12 · FS_BODY 14',
+      'light 压 surfaceHi 4.25'),
+    new AnsiTextException('statusRunning', 'ANSI 6 / 14（青）',
+      'SyntheticCard.ets:248/260（ANSI 正文 span）',
+      'FS_CAPTION 12 · FS_BODY 14',
+      'light 压 appBg 3.73 / surface 3.90 / surfaceAlt 3.56 / surfaceHi 3.17 / sunken 3.46 / ' +
+      'glassBg/appBg 3.87 / glassBg/surface 3.90；porcelain 压 appBg 4.39 / surfaceAlt 4.35 / ' +
+      'surfaceHi 4.02 / sunken 4.20；dark 压 surfaceHi 4.27'),
+  ];
+}
+
+/**
+ * **越界的直接文字用法**（`role` 作 `.fontColor` 且**既非** ANSI 通道、**也非**图形 widget）。
+ * ⛔ **只许缩短**（新增 ⇒ 判据红）；修法 = 换**文字** role（`accent` → `accentSoft` 就是本仓为
+ * "链接/可点文字"定义的 4.5 档），**属落点侧**（组件），交主 agent 另派线。
+ * 说明（10–12 的 normal 字号**文字**，`accent` 压其宿主面在 porcelain 下不足 4.5）：
+ *   `GoalBanner.ets:132`（'保存' CTA，`type.goal`=caption 12）· `GoalBanner.ets:180`（状态徽标，`TYPE_CHIP`=10）·
+ *   `MessageNav.ets:129`（序号 `type.micro`=10）· `SettingsAbout.ets:358`（'发布说明'，`FS_CAPTION`=12）·
+ *   `TodoPanel.ets:190`（'goal' 徽标，`TYPE_CHIP`=10）。
+ */
+export function ansiRoleTextLeaks(): string[] {
+  return [
+    'components/GoalBanner.ets:132',
+    'components/GoalBanner.ets:180',
+    'components/MessageNav.ets:129',
+    'components/SettingsAbout.ets:358',
+    'components/TodoPanel.ets:190',
+  ];
+}
+
 /** 台账之外的对比度缺口（空数组 = 全绿）。 */
 export class ContrastFailure {
   theme: string;

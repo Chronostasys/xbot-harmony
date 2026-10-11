@@ -22,14 +22,15 @@
  */
 export {};
 
-declare const process: { exit: (c: number) => void };
-declare function require(m: 'fs'): { readFileSync(p: string, e: string): string };
+declare const process: { exit: (c: number) => void; env: Record<string, string | undefined> };
+declare function require(m: 'fs'): { readFileSync(p: string, e: string): string; readdirSync(p: string): string[]; statSync(p: string): { isDirectory(): boolean } };
 declare function require(m: 'path'): { join(...p: string[]): string };
 declare const __dirname: string;
 
 import { paletteOf, ALL_THEMES, contrastRatio, Palette, THEME_PORCELAIN } from '../../entry/src/main/ets/core/theme';
 import {
   colorOf, contrastReqs, contrastAudit, contrastFailures, knownContrastLedger,
+  ansiTerminalExceptions, ansiRoleTextLeaks, AnsiTextException,
   AA_TEXT, AA_NON_TEXT, AA_MUTED, ContrastReq, ContrastResult, ContrastFailure,
 } from '../../entry/src/main/ets/core/design';
 
@@ -228,6 +229,97 @@ ok('形态：role_surface_matrix 把 accentSoft 钉在 AA_TEXT（文字类）', 
 ok('形态：role_surface_matrix 把 warn 钉在 AA_TEXT（文字类）', rsmSrc.indexOf("mk('warn', AA_TEXT,") >= 0);
 ok('反向：role_surface_matrix 里 accentSoft **不再**是 AA_NON_TEXT', rsmSrc.indexOf("mk('accentSoft', AA_NON_TEXT,") < 0);
 ok('反向：role_surface_matrix 里 warn **不再**是 AA_NON_TEXT', rsmSrc.indexOf("mk('warn', AA_NON_TEXT,") < 0);
+
+// ════════════════════════════════════════════════════════════════════════════
+// §6 「ANSI 终端语义色」例外（裁决 2）—— 登记 + 边界 + 零扫描（mutation 锚见 §6.3）
+// ════════════════════════════════════════════════════════════════════════════
+// 裁决：`accent` / `statusError` / `statusRunning` 的**文字**落点在 ANSI **终端输出**，
+//   其色相与 web 权威（`noties_prism4j` / 标准 xterm 色板）一致 ⇒ **登记为例外**，
+//   ⛔ 不放宽 `AA_TEXT` 本身、⛔ 不把三者接成"文字类"。
+// 边界：① 例外清单**只许缩短**；② 这三个 role **只许**出现在 ANSI/终端 或 **图形**落点。
+const EXC: AnsiTextException[] = ansiTerminalExceptions();
+const excRoles: string[] = EXC.map((e: AnsiTextException) => e.role).sort();
+const EXC_EXPECT: string[] = ['accent', 'statusError', 'statusRunning'].sort();
+ok('§6.1 例外 role 集合 = {accent,statusError,statusRunning}（只许缩短 ⇒ 改则红）',
+  JSON.stringify(excRoles) === JSON.stringify(EXC_EXPECT), `got ${JSON.stringify(excRoles)}`);
+for (let i = 0; i < EXC.length; i++) {
+  const e: AnsiTextException = EXC[i];
+  ok(`§6.1 例外 ${e.role} 有 ANSI 槽位证据`, e.ansiSlot.length > 0);
+  ok(`§6.1 例外 ${e.role} 有终端落点 file:line`, e.terminals.length > 0);
+  ok(`§6.1 例外 ${e.role} 有字号证据`, e.sizes.length > 0);
+  ok(`§6.1 例外 ${e.role} 有实算比值证据`, e.ratios.length > 0);
+  // ⛔ 不许接成"文字类"：这三个 role 不得在 contrastReqs() 里以 AA_TEXT 出现
+  let asText = 0;
+  for (let k = 0; k < reqs.length; k++) { if (reqs[k].fg === e.role && reqs[k].min === AA_TEXT) { asText++; } }
+  ok(`§6.1 ⛔ ${e.role} 在 contrastReqs() 里**不以 AA_TEXT 出现**（不许接成文字类）`, asText === 0, `got ${asText}`);
+}
+// 终端是**受认可**的文字通道：`core/ansi.ets` 的槽表必须含这三者（否则例外无据）
+const ansiSrc: string = stripSrc(fsMod.readFileSync(
+  pathMod.join(repoRoot, 'entry', 'src', 'main', 'ets', 'core', 'ansi.ets'), 'utf-8'));
+for (let i = 0; i < EXC_EXPECT.length; i++) {
+  ok(`§6.1 core/ansi.ets 的 ANSI_COLOR_ROLES 含 '${EXC_EXPECT[i]}'（终端是受认可通道）`,
+    ansiSrc.indexOf(`'${EXC_EXPECT[i]}'`) >= 0);
+}
+
+// ── §6.2 边界扫描：这三个 role 的**非终端直接文字用法** ⊆ `ansiRoleTextLeaks()`（只许缩短）──
+const etsRoot: string = pathMod.join(repoRoot, 'entry', 'src', 'main', 'ets');
+function walkEts(dir: string): string[] {
+  const out: string[] = [];
+  const walk = (d: string): void => {
+    let entries: string[] = [];
+    try { entries = fsMod.readdirSync(d); } catch (ee) { return; }
+    for (let i = 0; i < entries.length; i++) {
+      const full: string = pathMod.join(d, entries[i]);
+      let st: { isDirectory(): boolean } | null = null;
+      try { st = fsMod.statSync(full); } catch (ee2) { st = null; }
+      if (st === null) { continue; }
+      if (st.isDirectory()) { walk(full); continue; }
+      if (full.slice(full.length - 4) === '.ets') { out.push(full); }
+    }
+  };
+  walk(dir);
+  return out;
+}
+/** 直接（非 ANSI）的**文字**用法：`.fontColor(` 行引用这三个 role，且最近的前导 widget 是 Text/Span。 */
+function textLeaks(): string[] {
+  const files: string[] = walkEts(pathMod.join(etsRoot, 'components')).concat(walkEts(pathMod.join(etsRoot, 'pages')));
+  const extra: string = process.env.XBOT_SCAN_EXTRA !== undefined ? (process.env.XBOT_SCAN_EXTRA as string) : '';
+  const extras: string[] = extra.length > 0 ? extra.split(':') : [];
+  for (let i = 0; i < extras.length; i++) { if (extras[i].length > 0) { files.push(extras[i]); } }
+  const reRole: RegExp = /pal\(\)\.(accent|statusError|statusRunning)\b|'(accent|statusError|statusRunning)'/;
+  const reWidget: RegExp = /\b(Text|Span|SymbolGlyph|Progress|LoadingProgress)\s*\(/;
+  const out: string[] = [];
+  for (let fi = 0; fi < files.length; fi++) {
+    const f: string = files[fi];
+    let lines: string[] = [];
+    try { lines = fsMod.readFileSync(f, 'utf-8').split('\n'); } catch (ee) { continue; }
+    for (let i = 0; i < lines.length; i++) {
+      const ln: string = lines[i];
+      if (ln.indexOf('.fontColor(') < 0) { continue; }
+      if (!reRole.test(ln)) { continue; }
+      if (ln.indexOf('ansiFgOf') >= 0) { continue; }   // ANSI 通道 = 例外本体，放行
+      let kind: string = 'graphic';
+      for (let j = i; j >= Math.max(0, i - 12); j--) {
+        const m: RegExpMatchArray | null = lines[j].match(reWidget);
+        if (m !== null) { kind = (m[1] === 'Text' || m[1] === 'Span') ? 'text' : 'graphic'; break; }
+      }
+      if (kind !== 'text') { continue; }               // 图形（SymbolGlyph/Progress/图标）不经此处
+      const relPath: string = f.indexOf(etsRoot) === 0 ? f.slice(etsRoot.length + 1) : f;
+      out.push(`${relPath}:${i + 1}`);
+    }
+  }
+  return out.sort();
+}
+const leaks: string[] = textLeaks();
+const KNOWN_LEAKS: string[] = ansiRoleTextLeaks().slice().sort();
+ok('§6.2 零扫描判红：边界扫描确实扫到组件/页面源码（>0 文件）',
+  walkEts(pathMod.join(etsRoot, 'components')).length > 0 && walkEts(pathMod.join(etsRoot, 'pages')).length > 0);
+ok('§6.2 零扫描判红：已知越界清单非空（否则本判据会白绿）', KNOWN_LEAKS.length > 0, `got ${KNOWN_LEAKS.length}`);
+ok('§6.2 非终端直接文字用法 == 已知越界清单（新增 ⇒ 红；修好 ⇒ 红 ⇒ 逼缩清单）',
+  JSON.stringify(leaks) === JSON.stringify(KNOWN_LEAKS),
+  `got ${JSON.stringify(leaks)}`);
+console.log('  · §6.2 已知越界（非终端 accent 文字，⛔ 只许缩短；修法 = 换 accentSoft）:');
+for (let i = 0; i < leaks.length; i++) { console.log(`      ${leaks[i]}`); }
 
 console.log(`\n  porcelain_surfacehi_contrast: ${pass} passed, ${fail} failed`);
 if (fail > 0) { process.exit(1); }

@@ -1167,8 +1167,34 @@ vs 深色黑柔影 **1.0206/1.0122** ⇒ 再次确认"浅色柔影比深色黑�
 | `statusError` | ANSI 终端（槽 1 红）`SyntheticCard.ets:248` | 12/14 | light 压 `surfaceHi` 4.25 |
 | `statusRunning` | ANSI 终端（槽 6/14 青） | 12/14 | light 压 `appBg` 3.73 / `surface` 3.90 / `surfaceAlt` 3.56 / `surfaceHi` 3.17 / `sunken` 3.46 / `glassBg/appBg` 3.87 / `glassBg/surface` 3.90；porcelain 压 `appBg` 4.39 / `surfaceAlt` 4.35 / `surfaceHi` 4.02 / `sunken` 4.20；dark 压 `surfaceHi` 4.27 |
 
-**为什么不在本表把它们整体抬到 4.5**：那会把「该 role × **无落点的面**」也判红（= 造一批没人用的对），
-并迫使**只作图形**的落点（青/紫弧、进度环）也去满足正文阈值。⇒ 修法是**落点侧**：
-换文字 role（如 `warn`/`dangerText`）或改终端色板；**交主 agent 另派线**。
-（若将来决定"终端文本一律按正文档"，再把这些 role 整体收紧 + 台账登记，那是**另一项裁决**。）
+**为什么不把三者整体抬到 4.5**（主 agent 裁决 2，2026-10-11）：那会把「该 role × **无落点的面**」也判红
+（≈22 格虚构台账 = **造账**，不是修缺陷），并迫使**只作图形**的落点（青/紫弧、进度环）满足**正文**阈值；
+且这三个 role 的**文字**落点全在 **ANSI 终端输出**，其色相是 **xterm 语义色**、与 **web 权威
+（`noties_prism4j` / 标准 xterm 色板）一致** ⇒ 为凑 AA 压深 = **偏离 web 权威基准**
+（**parity 优先于局部 AA**）。
+
+### 15.4 「ANSI 终端语义色」**显式例外**（明账；⛔ 不放宽 `AA_TEXT` 本身）
+
+> ⛔ **本例外只覆盖"终端/代码块输出里的文字色"**，**不覆盖任何 UI 铬文本**。
+> 机器实现 = `core/design.ets: ansiTerminalExceptions()`（登记）+ `ansiRoleTextLeaks()`（越界台账）；
+> 判据 = `tools/tests/porcelain_surfacehi_contrast.test.ts §6`（**只许缩短** + 边界扫描 + mutation）。
+
+| role | ANSI 槽 | 文字落点（`file:line`） | 字号 | 实算（低于 4.5 的格）|
+|---|---|---|---|---|
+| `accent` | 4 蓝 / 12 bright 蓝 | `SyntheticCard.ets:248/260`、`ToolVisual.ets:115` | 12 / 14 | dark 压 `surface` 4.43 / `surfaceAlt` 4.21 / `surfaceHi` 3.84；porcelain 压 `appBg` 4.39 / `surfaceAlt` 4.35 / `surfaceHi` 4.02 / `sunken` 4.20 |
+| `statusError` | 1 红 | `SyntheticCard.ets:248/260` | 12 / 14 | light 压 `surfaceHi` 4.25 |
+| `statusRunning` | 6 / 14 青 | `SyntheticCard.ets:248/260` | 12 / 14 | light 压 `appBg` 3.73 / `surface` 3.90 / `surfaceAlt` 3.56 / `surfaceHi` 3.17 / `sunken` 3.46 / `glassBg/appBg` 3.87 / `glassBg/surface` 3.90；porcelain 压 `appBg` 4.39 / `surfaceAlt` 4.35 / `surfaceHi` 4.02 / `sunken` 4.20；dark 压 `surfaceHi` 4.27 |
+
+**边界（机器钉死，防"以后随便用"）**：
+1. `ansiTerminalExceptions()` 的 role 集合**冻结** = `{accent, statusError, statusRunning}`（改 ⇒ 红）；
+2. 这三个 role **不得**在 `contrastReqs()` 里以 `AA_TEXT` 出现（⛔ 不许接成"文字类"，断言直钉）；
+3. `core/ansi.ets: ANSI_COLOR_ROLES` 必须含这三者（"终端是**受认可**的文字通道"，无则例外无据）；
+4. **边界扫描**：`components/**`+`pages/**` 里这三个 role 的**非终端直接文字用法**（`.fontColor` 且最近
+   前导 widget 是 `Text`/`Span`）必须 ⊆ `ansiRoleTextLeaks()`（**只许缩短**）。
+
+**⚠️ 越界台账（→**落点修复清单②**，⛔ 本波未动组件，交主 agent 另派）**：`accent` 有 **5 处**直接当**文字**用的
+UI 铬文本（10–12 的 normal 字号，**非**终端）：`GoalBanner.ets:132`（'保存'）· `GoalBanner.ets:180`（状态徽标）·
+`MessageNav.ets:129`（序号）· `SettingsAbout.ets:358`（'发布说明'）· `TodoPanel.ets:190`（'goal' 徽标）。
+**推荐修法** = 改用 `accentSoft`（本仓为"链接/可点文字"定义的 4.5 档），或改走 `warn`/`dangerText` 等文字 role。
+
 
