@@ -17,7 +17,8 @@
  *   · 外层 `px-1` + `.virt-row py-1.5` ⇒ 水平 4 / 垂直 6。
  */
 import { Palette, paletteOf, Effects, effectsOf } from '../core/theme';
-import { BUBBLE, userBubbleBg } from '../core/bubble';
+import { BUBBLE } from '../core/bubble';
+import { UserBubbleFace, userBubbleFace } from '../core/bubbleview';
 
 @Component
 export struct UserBubbleView {
@@ -31,9 +32,20 @@ export struct UserBubbleView {
     return paletteOf(this.theme);
   }
 
-  /** 视觉效果 token（玻璃/光晕/渐变/层级）—— 由色板派生，跨主题自动一致。 */
+  /** 视觉效果 token（玻璃/光晕/层级）—— 由色板派生，跨主题自动一致。 */
   private eff(): Effects {
     return effectsOf(this.pal());
+  }
+
+  /**
+   * 用户气泡的"面"（**唯一判据**：底色 + 与之配对的文字色）。
+   *
+   * ⛔ 底色**只此一处**：曾经这里 `.backgroundColor(...)` 与 `.linearGradient(...)` 叠了两层
+   *   （后者不透明，盖住前者 ⇒ 屏幕上成饱和 accent 色块，与 web 的 `bg-accent/15` 不符）。
+   *   现收敛到 `core/bubbleview.ets` 的 `userBubbleFace()`，web 权威见该文件头。
+   */
+  private face(): UserBubbleFace {
+    return userBubbleFace(this.pal());
   }
 
   build() {
@@ -41,18 +53,17 @@ export struct UserBubbleView {
       Blank()
       Text(this.text)
         .wordBreak(WordBreak.BREAK_ALL)
-        .fontSize(15).fontColor(this.pal().onAccent)
+        // 文字色 = 与淡色底配对的 textPrimary（web `text-text-primary`）；
+        // ⛔ 不再用 `onAccent`（那是"实心 accent 之上的字"的角色，与 accent@15% 淡底不匹配）。
+        .fontSize(15).fontColor(this.face().textColor)
         .padding({
           left: BUBBLE.userPadX, right: BUBBLE.userPadX,
           top: BUBBLE.userPadY, bottom: BUBBLE.userPadY,
         })
         .constraintSize({ maxWidth: `${BUBBLE.userMaxWidthPct}%` })
-        // 映射表底色（accent @15%）+ 设计系统渐变叠层（accent → accentSoft，135°）
-        .backgroundColor(userBubbleBg(this.pal()))
-        .linearGradient({
-          angle: 135,
-          colors: [[this.eff().gradientFrom, 0.0], [this.eff().gradientTo, 1.0]],
-        })
+        // 底色**唯一来源**：主题 accent @15%（映射表 `core/bubble.ets` / web `bg-accent/15`）。
+        // ⛔ 不再叠渐变：web 气泡没有渐变，叠加会变成 web 之外的第二种底色。
+        .backgroundColor(this.face().bg)
         // `rounded-2xl rounded-br-sm`：四角 16、右下角单独收小（"气泡尾巴"感）
         .borderRadius({
           topLeft: BUBBLE.userRadiusAll, topRight: BUBBLE.userRadiusAll,

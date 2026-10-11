@@ -71,10 +71,15 @@ const tailSrc: string = readSrc('entry/src/main/ets/components/LiveTailView.ets'
 
 check('UserBubble 引用映射表 userPadX/userPadY',
   /padding\(\{[\s\S]*?BUBBLE\.userPadX[\s\S]*?BUBBLE\.userPadY/.test(userSrc), '未用映射表');
-check('UserBubble 引用映射表 maxWidth + radius + 底色',
+check('UserBubble 引用映射表 maxWidth + radius',
   userSrc.includes('BUBBLE.userMaxWidthPct') && userSrc.includes('BUBBLE.userRadiusAll')
-  && userSrc.includes('BUBBLE.userRadiusBR')
-  && userSrc.includes('userBubbleBg('), 'user 气泡未走映射表');
+  && userSrc.includes('BUBBLE.userRadiusBR'), 'user 气泡未走映射表');
+// 底色：2026-10-11 收敛为**唯一来源**（`core/bubbleview.ets` 的 `userBubbleFace()` →
+// `userBubbleBg()`）。组件不再自己叠渐变/自己取底 ⇒ 断言"走唯一判据"而非"组件里出现 userBubbleBg"。
+check('UserBubble 底色走唯一判据（core/bubbleview → userBubbleBg）',
+  userSrc.includes('userBubbleFace(')
+  && readSrc('entry/src/main/ets/core/bubbleview.ets').includes('userBubbleBg('),
+  'user 气泡底色未收敛到唯一来源');
 check('UserBubble 外层 `px-1`/`py-1.5`（assistantPadX/rowPadY）',
   userSrc.includes('BUBBLE.assistantPadX') && userSrc.includes('BUBBLE.rowPadY'), '外层间距未对齐');
 

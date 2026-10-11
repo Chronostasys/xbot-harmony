@@ -172,16 +172,24 @@ ok('默认组合（极简白 + vscode-dark）旧行为确实"近白条压黑块"
   isLightish(paletteOf('porcelain').surfaceAlt) !== isLightish(codeBgOf('vscode-dark', paletteOf('porcelain'))));
 
 // ════════════════════════════════════════════════════════════════════════════
-// §C 用户气泡渐变：`onAccent` 压在 `accent → accentSoft`（135°）上
-//   浅色族必须两端都达正文级 4.5（深色系的 2.09 是既有欠债，见 theme_contrast §G6，只在浅色族断言）
+// §C 用户气泡「面」：`textPrimary` 压在 `accent @15%`（唯一底色）
+//   web 权威 `UserMessage.tsx:272` `bg-accent/15 text-text-primary`。浅色族必须达正文级 4.5。
+//   ⚠️ 2026-10-11 修正：用户气泡**曾是**不透明 `accent→accentSoft` 渐变 + `onAccent`
+//   （已删，见 `core/bubbleview.ets`）⇒ 本块改为断言**真实面**。原两条 `onAccent` 断言
+//   **保留但重贴标签**：它们守护的是**登录主按钮**的渐变（`theme_contrast.test.ts:817`），
+//   与气泡无关 —— 删掉会丢覆盖，故只改归属、不删。
 // ════════════════════════════════════════════════════════════════════════════
-console.log('\n▶ §C 用户气泡渐变（浅色族两端正文级 4.5）');
+console.log('\n▶ §C 用户气泡面（浅色族：textPrimary / accent@15%）');
 for (let ti = 0; ti < LIGHT_FAMILY.length; ti++) {
   const th: string = LIGHT_FAMILY[ti];
   const p: Palette = paletteOf(th);
-  ok(`${th} 气泡渐变起点 onAccent/accent 达标（${contrastRatio(p.onAccent, p.accent).toFixed(2)}）`,
+  const bubbleBg: string = compositeOver(withAlpha(p.accent, 0.15), p.appBg);
+  ok(`${th} 气泡 textPrimary / accent@15% 底达正文级 4.5（${contrastRatio(p.textPrimary, bubbleBg).toFixed(2)}）`,
+    contrastRatio(p.textPrimary, bubbleBg) >= INLINE_TEXT);
+  // 主按钮渐变（accent → accentSoft 上压 onAccent）——不是气泡，但同属浅色族必须可达
+  ok(`${th} 主按钮渐变起点 onAccent/accent 达标（${contrastRatio(p.onAccent, p.accent).toFixed(2)}）`,
     contrastRatio(p.onAccent, p.accent) >= INLINE_TEXT);
-  ok(`${th} 气泡渐变终点 onAccent/accentSoft 达标（${contrastRatio(p.onAccent, p.accentSoft).toFixed(2)}）`,
+  ok(`${th} 主按钮渐变终点 onAccent/accentSoft 达标（${contrastRatio(p.onAccent, p.accentSoft).toFixed(2)}）`,
     contrastRatio(p.onAccent, p.accentSoft) >= INLINE_TEXT);
 }
 
