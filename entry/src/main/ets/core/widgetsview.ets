@@ -41,13 +41,66 @@ export const WIDGETS_VIEW_SUPPORTED: boolean = true;
 export const KIND_BADGE: string = 'badge';
 export const KIND_PROGRESS: string = 'progress';
 export const KIND_METRIC: string = 'metric';
+export const KIND_SPARKLINE: string = 'sparkline';
+export const KIND_TABLE: string = 'table';
 export const KIND_LIST: string = 'list';
 export const KIND_MARKDOWN: string = 'markdown';
-/** 降级档：可见占位 + `reason`（web **有**但我们没实现 / 未知 / code-src 沙箱）。 */
+/** 降级档：可见占位 + `reason`（未知 / code-src 沙箱）。 */
 export const KIND_UNSUPPORTED: string = 'unsupported';
 
-/** 原生**已实现**的声明式组件类型（= web `components.tsx` 的子集）。 */
-export const SUPPORTED_KINDS: string[] = [KIND_BADGE, KIND_PROGRESS, KIND_METRIC, KIND_LIST, KIND_MARKDOWN];
+/**
+ * 原生**已实现**的声明式组件类型（= web `components.tsx:236-259` 的**全部 7 种**）。
+ * ⚠️ 2026-10-11 补齐 `sparkline`/`table` ⇒ 与 web 的 7 种**一一对应**（不再有"web 有而原生没有"的档）。
+ */
+export const SUPPORTED_KINDS: string[] = [
+  KIND_BADGE, KIND_PROGRESS, KIND_METRIC, KIND_SPARKLINE, KIND_TABLE, KIND_LIST, KIND_MARKDOWN,
+];
+
+// ── sparkline / table 的**几何与阈值常量**（逐字对齐 web `components.tsx`，非设计 token）──────
+//
+// ⛔ 这些是**数据可视化几何**（画布坐标系里的偏移），不是 UI 尺寸 token ⇒ 不进 `core/design.ets`。
+//    集中命名以免组件里出现魔法数字（判据与渲染同源：几何全在 core 算好，组件只 `points()`/`.height()`）。
+//
+/** 归一坐标系宽（web `components.tsx:105 const w = 100`）——组件用 `Shape.viewPort` 等比缩放到实宽。 */
+export const SPARK_VIEW_W: number = 100;
+/** 画布高缺省（web `components.tsx:102 num(props.height,48)`）。 */
+export const SPARK_DEFAULT_HEIGHT: number = 48;
+/** 画布高下限 / 上限（web `Math.max(16, Math.min(200, …))`）。 */
+export const SPARK_MIN_HEIGHT: number = 16;
+export const SPARK_MAX_HEIGHT: number = 200;
+/** 折线顶留白（web `height - 4 - …`）。 */
+export const SPARK_LINE_INSET_TOP: number = 4;
+/** 折线值域（web `* (height - 10)`）——与顶留白一起构成 `[4, height-6]` 的绘制带。 */
+export const SPARK_LINE_RANGE: number = 10;
+/** 面积多边形底线（web `${height-2}`）。 */
+export const SPARK_AREA_BASELINE: number = 2;
+/** 柱值域（web `(v/max) * (height - 8)`）。 */
+export const SPARK_BAR_RANGE: number = 8;
+/** 表体最大高的缺省 / 下限（web `Math.max(60, num(props.max_height,260))`）。 */
+export const TABLE_DEFAULT_MAX_HEIGHT: number = 260;
+export const TABLE_MIN_MAX_HEIGHT: number = 60;
+/**
+ * sparkline **空数据**文案（web `components.tsx:106` 渲染一行 `no data`；本仓按中文 UI 落地）。
+ * ⛔ 这是**可见内容**（web 也产出节点）⇒ 不标 `empty`（见 `componentViewOf`）。
+ */
+export const SPARK_EMPTY_LABEL: string = '无数据';
+
+/**
+ * sparkline 画布高（web `components.tsx:102`：`Math.max(16, Math.min(200, num(props.height,48)))`）。
+ * 非有限 / 非数 ⇒ 缺省 48（`asNum` 判据），再夹取到 `[16,200]`。
+ */
+export function sparkHeightOf(raw: Object | undefined): number {
+  const h: number = asNum(raw, SPARK_DEFAULT_HEIGHT);
+  if (h < SPARK_MIN_HEIGHT) { return SPARK_MIN_HEIGHT; }
+  if (h > SPARK_MAX_HEIGHT) { return SPARK_MAX_HEIGHT; }
+  return h;
+}
+
+/** 表体最大高（web `components.tsx:141`：`Math.max(60, num(props.max_height,260))`）。 */
+export function tableMaxHeightOf(raw: Object | undefined): number {
+  const h: number = asNum(raw, TABLE_DEFAULT_MAX_HEIGHT);
+  return h < TABLE_MIN_MAX_HEIGHT ? TABLE_MIN_MAX_HEIGHT : h;
+}
 
 // ── 原始载荷形状（web `types/shared.ts:700-722`）─────────────────────────────────
 export interface RawWidgetSpan {
@@ -103,6 +156,24 @@ export class WidgetItemView {
   tone: string = 'normal';
 }
 
+/** table 组件的一个单元格（web `components.tsx:167-180 renderCell`）。 */
+export class WidgetCellView {
+  /** 显示文本（对象单元取 `text`；原始值走 `String(v)`）。 */
+  text: string = '';
+  /** 语义色档（web `renderCell` 的 `tone`；非对象单元恒 `normal`）。 */
+  tone: string = 'normal';
+  /**
+   * 是否是**徽标**单元（web：`typeof cell === 'object' && cell !== null` ⇒ 带底色的小 chip）。
+   * ⚠️ 原生**不做** web 的单元格点击/`action`（`web_ui_action` RPC 架构性缺，见 `docs/WEB-PARITY.md §XII`）⇒ 只画不点。
+   */
+  badge: boolean = false;
+}
+
+/** table 组件的一行（列数与 `columns` 等长；缺列回落空串，对齐 web `String(cell ?? '')`）。 */
+export class WidgetTableRowView {
+  cells: WidgetCellView[] = [];
+}
+
 /** 一个声明式组件的视图（由 `kind` 决定用哪些字段；未用到的保持缺省）。 */
 export class WidgetComponentView {
   widgetId: string = '';
@@ -126,6 +197,26 @@ export class WidgetComponentView {
   metricLabel: string = '';
   metricValue: string = '';
   metricDelta: string = '';
+  // sparkline
+  /** 柱状图（web `props.type === 'bar'`）；否则折线。 */
+  sparkBar: boolean = false;
+  /** 画布高（vp，已夹取到 `[16,200]`，缺省 48）。 */
+  sparkHeight: number = SPARK_DEFAULT_HEIGHT;
+  /** 无数据（web `data.length === 0` ⇒ 渲染一行 "no data" 文案）。 */
+  sparkEmpty: boolean = false;
+  /** 折线顶点（`SPARK_VIEW_W × sparkHeight` 归一坐标系）。 */
+  sparkPoints: number[][] = [];
+  /** 折线下方的面积多边形顶点（底线 + 折线顶点 + 底线，对齐 web `polygon`）。 */
+  sparkArea: number[][] = [];
+  /** 柱高（vp；下标与数据一一对应）。 */
+  sparkBars: number[] = [];
+  // table
+  /** 列名（web `columns.map(str)`；空 ⇒ **整表不渲染**，见 `tableColumnsOf`）。 */
+  tableColumns: string[] = [];
+  /** 数据行（与 `tableColumns` 同宽）。 */
+  tableRows: WidgetTableRowView[] = [];
+  /** 表体最大高（vp，已夹取到 ≥60，缺省 260）。 */
+  tableMaxHeight: number = TABLE_DEFAULT_MAX_HEIGHT;
   // list
   listTitle: string = '';
   listItems: WidgetItemView[] = [];
@@ -224,16 +315,12 @@ export function isSupportedKind(type: string): boolean {
 }
 
 /**
- * 降级原因（**恒非空**）—— web 有但我们没实现 / 未知类型 / 缺 type。
- * ⛔ 不与"未知类型"混为一谈：`sparkline`/`table` 是 **web 真有的类型**，原因是"原生未实现"。
+ * 降级原因（**恒非空**）。
+ *
+ * ⚠️ **2026-10-11 收口**：`sparkline`/`table` 已落地 ⇒ 此函数**只**覆盖
+ *    「缺 `type`」与「web 也不认识的未知类型」两档，不再有"web 有而原生没有"的档。
  */
 export function degradeReasonForType(type: string): string {
-  if (type === 'sparkline') {
-    return '原生暂未实现 sparkline（web 用 SVG 折线/柱）';
-  }
-  if (type === 'table') {
-    return '原生暂未实现 table（web 用可点表格 + web_ui_action RPC）';
-  }
   if (type.length === 0) {
     return '组件声明缺少 component.type';
   }
@@ -278,6 +365,137 @@ function listItemsOf(props: Record<string, Object> | undefined): WidgetItemView[
     v.value = asStr(it['value'], '');
     v.tone = asStr(it['tone'], 'normal');
     out.push(v);
+  }
+  return out;
+}
+
+// ── sparkline 几何（web `components.tsx:99-137 SparklineWidget`）────────────────────────
+//
+// web 在 `viewBox="0 0 100 height"` 的**归一坐标系**里算点（`w = 100`），再靠
+// `preserveAspectRatio="none"` 拉到实宽。原生对应：`Shape.viewPort({width:100,height:H})`
+// + `Polyline`/`Polygon`（见 `PluginWidgets.ets`）⇒ **这里算的点必须留在 100 宽坐标系**。
+
+/** sparkline 数据序列（web：`Array.isArray(props.data) ? props.data.map(v => num(v,0)) : []`）。 */
+export function sparkDataOf(props: Record<string, Object> | undefined): number[] {
+  const out: number[] = [];
+  if (props === undefined) { return out; }
+  const raw: Object | undefined = props['data'];
+  if (!Array.isArray(raw)) { return out; }
+  const arr: Object[] = raw as Object[];
+  for (let i = 0; i < arr.length; i++) {
+    out.push(asNum(arr[i], 0));   // 非有限/非数 ⇒ 0（web `num(v,0)`）
+  }
+  return out;
+}
+
+/** 数据最大值（web `Math.max(...data, 1)`：**至少 1** ⇒ 除零安全、全 0 序列也有基线）。 */
+export function sparkMaxOf(data: number[]): number {
+  let m: number = 1;
+  for (let i = 0; i < data.length; i++) {
+    const v: number = data[i];
+    if (Number.isFinite(v) && v > m) { m = v; }
+  }
+  return m;
+}
+
+/** 折线顶点（web `components.tsx:107`：`x=(i/(n-1))*w`，`y=height-4-(v/max)*(height-10)`）。 */
+export function sparkLinePoints(data: number[], height: number): number[][] {
+  const pts: number[][] = [];
+  const n: number = data.length;
+  if (n === 0) { return pts; }
+  const max: number = sparkMaxOf(data);
+  // ⚠️ web 对 `n === 1` 会 `(i/(n-1))` 除零 ⇒ `NaN`；原生**显式单点居中**（诚实修正，见测试）。
+  const denom: number = n > 1 ? (n - 1) : 1;
+  for (let i = 0; i < n; i++) {
+    const x: number = n > 1 ? (i / denom) * SPARK_VIEW_W : SPARK_VIEW_W / 2;
+    const y: number = height - SPARK_LINE_INSET_TOP - (data[i] / max) * (height - SPARK_LINE_RANGE);
+    pts.push([x, y]);
+  }
+  return pts;
+}
+
+/** 面积多边形（web `components.tsx:124`：`0,${height-2} ${pts} ${w},${height-2}`）。 */
+export function sparkAreaPoints(linePts: number[][], height: number): number[][] {
+  const out: number[][] = [];
+  if (linePts.length === 0) { return out; }
+  out.push([0, height - SPARK_AREA_BASELINE]);
+  for (let i = 0; i < linePts.length; i++) {
+    out.push(linePts[i]);
+  }
+  out.push([SPARK_VIEW_W, height - SPARK_AREA_BASELINE]);
+  return out;
+}
+
+/** 柱高（vp）。web `components.tsx:117-121`：`h = (v/max) * (height - 8)`（`height` 即画布高）。 */
+export function sparkBarHeights(data: number[], height: number): number[] {
+  const out: number[] = [];
+  const max: number = sparkMaxOf(data);
+  for (let i = 0; i < data.length; i++) {
+    let h: number = (data[i] / max) * (height - SPARK_BAR_RANGE);
+    if (!Number.isFinite(h) || h < 0) { h = 0; }   // 负值/NaN 一律 0（负高会反画，web 也不会）
+    out.push(h);
+  }
+  return out;
+}
+
+// ── table 解析（web `components.tsx:138-180 TableWidget`）──────────────────────────────
+
+/**
+ * 列名（web `components.tsx:139`：`columns.map(c => str(c))` —— **只认字符串**，非字符串 ⇒ 空串）。
+ * 空列 ⇒ 调用方判 `empty`（web `:142 if (columns.length === 0) return null`：**整表不渲染**）。
+ */
+export function tableColumnsOf(props: Record<string, Object> | undefined): string[] {
+  const out: string[] = [];
+  if (props === undefined) { return out; }
+  const raw: Object | undefined = props['columns'];
+  if (!Array.isArray(raw)) { return out; }
+  const arr: Object[] = raw as Object[];
+  for (let i = 0; i < arr.length; i++) {
+    out.push(asStr(arr[i], ''));
+  }
+  return out;
+}
+
+/**
+ * 一个单元格（web `components.tsx:182-197 renderCell`）：
+ *   · 非空**对象** ⇒ 徽标单元（`{text?, tone?}`）；
+ *   · 其余（string/number/bool/null/数组）⇒ 纯文本 `String(cell ?? '')`。
+ * ⚠️ web 的单元格 `action` 点击走 `web_ui_action` RPC —— **原生架构性缺**（同 `code`/`src` 沙箱），
+ *    这里**只取展示字段**，不产生任何交互（诚实：不假装能点）。
+ */
+export function tableCellOf(cell: Object | null | undefined): WidgetCellView {
+  const v: WidgetCellView = new WidgetCellView();
+  if (cell !== undefined && cell !== null && typeof cell === 'object' && !Array.isArray(cell)) {
+    const o: Record<string, Object> = cell as Record<string, Object>;
+    v.badge = true;
+    v.text = asStr(o['text'], '');
+    v.tone = asStr(o['tone'], 'normal');
+    return v;
+  }
+  v.badge = false;
+  v.tone = 'normal';
+  v.text = cell === undefined || cell === null ? '' : String(cell);
+  return v;
+}
+
+/** 数据行（web `:144 rows.map(row => columns.map(c => renderCell(row[c])))`）。 */
+export function tableRowsOf(
+  props: Record<string, Object> | undefined, columns: string[],
+): WidgetTableRowView[] {
+  const out: WidgetTableRowView[] = [];
+  if (props === undefined || columns.length === 0) { return out; }
+  const raw: Object | undefined = props['rows'];
+  if (!Array.isArray(raw)) { return out; }
+  const rows: Object[] = raw as Object[];
+  for (let i = 0; i < rows.length; i++) {
+    const rowRaw: Record<string, Object> | undefined = rows[i] as Record<string, Object> | undefined;
+    const row: WidgetTableRowView = new WidgetTableRowView();
+    for (let c = 0; c < columns.length; c++) {
+      const cell: Object | undefined = (rowRaw === undefined || rowRaw === null)
+        ? undefined : rowRaw[columns[c]];
+      row.cells.push(tableCellOf(cell));
+    }
+    out.push(row);
   }
   return out;
 }
@@ -327,6 +545,24 @@ function componentViewOf(decl: RawWidgetDecl): WidgetComponentView {
     v.metricLabel = props !== undefined ? asStr(props['label'], '') : '';
     v.metricValue = props !== undefined ? asStr(props['value'], '') : '';
     v.metricDelta = props !== undefined ? asStr(props['delta'], '') : '';
+  } else if (type === KIND_SPARKLINE) {
+    const data: number[] = sparkDataOf(props);
+    v.sparkBar = props !== undefined ? asStr(props['type'], '') === 'bar' : false;
+    v.sparkHeight = sparkHeightOf(props !== undefined ? props['height'] : undefined);
+    v.sparkEmpty = data.length === 0;
+    if (!v.sparkEmpty) {
+      v.sparkPoints = sparkLinePoints(data, v.sparkHeight);
+      v.sparkArea = sparkAreaPoints(v.sparkPoints, v.sparkHeight);
+      v.sparkBars = sparkBarHeights(data, v.sparkHeight);
+    }
+    // ⚠️ web `components.tsx:106`：空数据 ⇒ 渲染一行 "no data" 文案（**算可见内容**）。
+    v.empty = false;
+  } else if (type === KIND_TABLE) {
+    v.tableColumns = tableColumnsOf(props);
+    v.tableRows = tableRowsOf(props, v.tableColumns);
+    v.tableMaxHeight = tableMaxHeightOf(props !== undefined ? props['max_height'] : undefined);
+    // web `components.tsx:142`：`columns.length === 0` ⇒ `return null`（整表不渲染）⇒ 标 empty。
+    v.empty = v.tableColumns.length === 0;
   } else if (type === KIND_LIST) {
     v.listTitle = props !== undefined ? asStr(props['title'], '') : '';
     v.listItems = listItemsOf(props);

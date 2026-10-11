@@ -16,7 +16,8 @@
 declare const process: { exit: (c: number) => void };
 
 import {
-  KIND_BADGE, KIND_LIST, KIND_MARKDOWN, KIND_METRIC, KIND_PROGRESS, KIND_UNSUPPORTED,
+  KIND_BADGE, KIND_LIST, KIND_MARKDOWN, KIND_METRIC, KIND_PROGRESS, KIND_SPARKLINE, KIND_TABLE,
+  KIND_UNSUPPORTED,
   SUPPORTED_KINDS, WIDGET_EVENT_PLUGIN, WIDGET_EVENT_WEB,
   WidgetComponentView, WidgetZoneView, WidgetsView,
   degradeReasonForType, isSupportedKind, styleColorRole, toneColorRole, widgetZoneLabel, widgetsView,
@@ -63,7 +64,7 @@ eq('tone success → successText', toneColorRole('success'), 'successText');
 ok('支持 badge/progress/metric/list/markdown', isSupportedKind(KIND_BADGE)
   && isSupportedKind(KIND_PROGRESS) && isSupportedKind(KIND_METRIC)
   && isSupportedKind(KIND_LIST) && isSupportedKind(KIND_MARKDOWN));
-eq('支持集 = 5 种', SUPPORTED_KINDS.length, 5);
+eq('支持集 = 7 种（与 web `components.tsx:236-259` 一一对应）', SUPPORTED_KINDS.length, 7);
 
 // ── zones：span 透传 + 语义色角色 ──────────────────────────────────────────────
 {
@@ -118,18 +119,21 @@ eq('支持集 = 5 种', SUPPORTED_KINDS.length, 5);
   ok('★② reason 含类型名（可诊断）', v.components[0].reason.indexOf('quantum_flux') >= 0);
 }
 {
-  // sparkline/table 是 web **真有**的类型 —— 原因是"原生未实现"，与"未知"区分
+  // ⚠️ 2026-10-11 **收口**：sparkline/table 已**落地**（不再降级）——与 web 的 7 种一一对应。
+  //    （旧断言钉的是"显式降级 + reason 说暂未实现"，那是上一轮的原生缺口状态。）
   const v: WidgetsView = widgetsView(W, JSON.stringify({
     components: [
-      { widget_id: 's', slot: 'panel', component: { type: 'sparkline', props: {} } },
-      { widget_id: 't', slot: 'panel', component: { type: 'table', props: {} } },
+      { widget_id: 's', slot: 'panel', component: { type: 'sparkline', props: { data: [1, 2, 3] } } },
+      { widget_id: 't', slot: 'panel', component: { type: 'table', props: { columns: ['a'], rows: [{ a: '1' }] } } },
     ],
   }));
-  eq('sparkline ⇒ unsupported', v.components[0].kind, KIND_UNSUPPORTED);
-  ok('sparkline ⇒ reason 说"暂未实现"', v.components[0].reason.indexOf('暂未实现') >= 0);
-  ok('table ⇒ reason 说"暂未实现"', v.components[1].reason.indexOf('暂未实现') >= 0);
-  ok('"未实现" ≠ "未知"（措辞区分）', degradeReasonForType('table').indexOf('未知') < 0
-    && degradeReasonForType('zzz').indexOf('未知') >= 0);
+  eq('sparkline ⇒ 已支持（kind === type）', v.components[0].kind, KIND_SPARKLINE);
+  eq('table ⇒ 已支持（kind === type）', v.components[1].kind, KIND_TABLE);
+  ok('收口：两者**不产**降级 reason（走各自渲染分支）',
+    v.components[0].reason.length === 0 && v.components[1].reason.length === 0);
+  ok('收口：isSupportedKind 覆盖两者', isSupportedKind(KIND_SPARKLINE) && isSupportedKind(KIND_TABLE));
+  // "未知类型"措辞**只**用于 web 也不认识的类型（`sparkline`/`table` 已不再是"未实现档"）。
+  ok('未知类型措辞仍为"未知"', degradeReasonForType('zzz').indexOf('未知') >= 0);
 }
 
 // ── ★⑤ code / src ⇒ 显式降级（沙箱 iframe 原生不支持），不当 badge 静默处理 ──────

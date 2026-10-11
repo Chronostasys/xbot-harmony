@@ -27,9 +27,10 @@ import {
   INSET_ROW_X, INSET_ROW_Y, PILL_MAX_W, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, SPACE_HAIR, SPACE_XS,
   STROKE_HAIRLINE, insetHairlineOf } from '../core/design';
 import {
-  KIND_BADGE, KIND_LIST, KIND_MARKDOWN, KIND_METRIC, KIND_PROGRESS,
-  WIDGET_EVENT_WEB, WidgetComponentView, WidgetItemView, WidgetSpanView, WidgetsView,
-  WidgetZoneView, toneColorRole, widgetsView,
+  KIND_BADGE, KIND_LIST, KIND_MARKDOWN, KIND_METRIC, KIND_PROGRESS, KIND_SPARKLINE, KIND_TABLE,
+  SPARK_EMPTY_LABEL, SPARK_VIEW_W,
+  WIDGET_EVENT_WEB, WidgetCellView, WidgetComponentView, WidgetItemView, WidgetSpanView,
+  WidgetsView, WidgetTableRowView, WidgetZoneView, toneColorRole, widgetsView,
 } from '../core/widgetsview';
 import {
   WIDGET_UNSUPPORTED_LABEL, widgetDegradeDetail, widgetDeltaRole, widgetLabel, widgetPercent,
@@ -40,6 +41,15 @@ import { fs, fw, lh } from './SettingsRows';
 const BAR_H: number = 6;
 /** badge 圆点边长（vp）。 */
 const DOT: number = 6;
+/**
+ * sparkline 折线宽（vp；web `components.tsx:128 strokeWidth="2"`）。
+ * ⛔ 与 `core/widgetsview.ets` 的 `SPARK_*` 几何常量同源口径：**纯几何**，不进 design token。
+ */
+const SPARK_STROKE_W: number = 2;
+/** sparkline 面积填充不透明度（web `components.tsx:127 opacity={0.1}`）。 */
+const SPARK_AREA_ALPHA: number = 0.1;
+/** sparkline 柱填充不透明度（web `components.tsx:124 opacity={0.75}`）。 */
+const SPARK_BAR_ALPHA: number = 0.75;
 
 /**
  * 语义色角色 → 实际色。
@@ -236,8 +246,128 @@ struct WidgetComponentCard {
           .fontColor(colorOf(this.pal(), 'textPrimary'))
           .width('100%')
           .textAlign(TextAlign.Start)
+      } else if (this.view.kind === KIND_SPARKLINE) {
+        // web `SparklineWidget`（`components.tsx:99-137`）：SVG 折线（面积半透明填充）或柱状。
+        // ⛔ 配色：web 用插件传的 `props.color`（默认 indigo `#6366f1`）；原生**忽略该任意色**、
+        //    改用语义角色 `accentSoft`（设计系统 §5「零颜色字面量」+ 5 套主题下的可读性）。
+        if (this.view.sparkEmpty) {
+          // web `:106`：空数据 ⇒ 渲染一行 "no data"（**可见内容**，不是降级）
+          Text(SPARK_EMPTY_LABEL)
+            .fontSize(fs('type.micro'))
+            .fontWeight(fw('type.micro'))
+            .lineHeight(lh('type.micro'))
+            .fontColor(colorOf(this.pal(), 'textMuted'))
+            .width('100%')
+            .textAlign(TextAlign.Start)
+        } else if (this.view.sparkBar) {
+          // 柱状（web `:113-123`）：每根柱 = 一列，底对齐
+          Row({ space: SPACE_HAIR }) {
+            ForEach(this.view.sparkBars, (h: number, i: number) => {
+              Column()
+                .layoutWeight(1)
+                .height(h)
+                .backgroundColor(colorOf(this.pal(), 'accentSoft'))
+                .opacity(SPARK_BAR_ALPHA)
+            }, (h: number, i: number) => `bar#${i}#${h}`)
+          }
+          .width('100%')
+          .height(this.view.sparkHeight)
+          .alignItems(VerticalAlign.Bottom)
+        } else {
+          // 折线（web `:124-131`）：面积多边形（0.1 透明）+ 折线。
+          // `viewPort` 把 100 宽的归一坐标系拉伸到实宽（等价 web 的 `preserveAspectRatio="none"`）。
+          Shape() {
+            Polygon()
+              .points(this.view.sparkArea)
+              .fill(colorOf(this.pal(), 'accentSoft'))
+              .fillOpacity(SPARK_AREA_ALPHA)
+            Polyline()
+              .points(this.view.sparkPoints)
+              .stroke(colorOf(this.pal(), 'accentSoft'))
+              .strokeWidth(SPARK_STROKE_W)
+              .fillOpacity(0)
+          }
+          .viewPort({ x: 0, y: 0, width: SPARK_VIEW_W, height: this.view.sparkHeight })
+          .width('100%')
+          .height(this.view.sparkHeight)
+        }
+      } else if (this.view.kind === KIND_TABLE) {
+        // web `TableWidget`（`components.tsx:138-180`）：表头 + 数据行；`max_height` 约束表体（超出滚动）。
+        // ⚠️ 单元格的 `action` 点击（web → `web_ui_action` RPC）原生**架构性缺** ⇒ 这里**只画不点**。
+        Column() {
+          // 表头（web `thead`）：muted 文字 + 底发丝
+          Row() {
+            ForEach(this.view.tableColumns, (col: string, ci: number) => {
+              Text(col)
+                .fontSize(fs('type.micro'))
+                .fontWeight(fw('type.micro'))
+                .lineHeight(lh('type.micro'))
+                .fontColor(colorOf(this.pal(), 'textMuted'))
+                .layoutWeight(1)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+            }, (col: string, ci: number) => `th#${ci}#${col}`)
+          }
+          .width('100%')
+          .padding({
+            left: INSET_CHIP_X, right: INSET_CHIP_X, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y,
+          })
+          .backgroundColor(surfaceFillOf(this.pal(), 'surface.well'))
+          .border({ width: { bottom: STROKE_HAIRLINE }, color: hairlineOf(this.pal()) })
+
+          // 表体（受 `max_height` 约束 ⇒ 超出滚动；web `overflow-auto` + `maxHeight`）
+          Scroll() {
+            Column() {
+              ForEach(this.view.tableRows, (row: WidgetTableRowView, ri: number) => {
+                Row() {
+                  ForEach(row.cells, (cell: WidgetCellView, ci: number) => {
+                    if (cell.badge) {
+                      // web `renderCell` 对象分支：语义色小 chip（tone 文字 + chip 底）
+                      Text(cell.text)
+                        .fontSize(fs('type.micro'))
+                        .fontWeight(fw('type.micro'))
+                        .lineHeight(lh('type.micro'))
+                        .fontColor(widgetRoleColorOf(this.pal(), toneColorRole(cell.tone)))
+                        .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
+                        .borderRadius(RADIUS_CHIP)
+                        .padding({
+                          left: INSET_CHIP_X, right: INSET_CHIP_X, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y,
+                        })
+                        .layoutWeight(1)
+                        .maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    } else {
+                      Text(cell.text)
+                        .fontSize(fs('type.caption'))
+                        .fontWeight(fw('type.caption'))
+                        .lineHeight(lh('type.caption'))
+                        .fontColor(colorOf(this.pal(), 'textPrimary'))
+                        .layoutWeight(1)
+                        .maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    }
+                  }, (cell: WidgetCellView, ci: number) => `td#${ci}#${cell.text}#${cell.tone}`)
+                }
+                .width('100%')
+                .alignItems(VerticalAlign.Center)
+                .padding({
+                  left: INSET_CHIP_X, right: INSET_CHIP_X, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y,
+                })
+                .border({ width: { bottom: STROKE_HAIRLINE }, color: hairlineOf(this.pal()) })
+              }, (row: WidgetTableRowView, ri: number) => `tr#${ri}#${row.cells.length}`)
+            }
+            .width('100%')
+          }
+          .width('100%')
+          .constraintSize({ maxHeight: this.view.tableMaxHeight })
+          .scrollBar(BarState.Off)
+        }
+        .width('100%')
+        .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+        .borderRadius(RADIUS_CHIP)
+        .clip(true)
       } else {
-        // 降级（未知 / web 有但原生未实现 / code-src 沙箱）——**可见占位 + reason**，绝不静默。
+        // 降级（未知类型 / code-src 沙箱）——**可见占位 + reason**，绝不静默。
         // ⛔ 配色纪律：文字一律**文字角色**（`textSecondary`）；"警告"语义由**非文字**的琥珀圆点承担
         //    （`pal().warn` 是"警告文字"角色、已登记且 5 套主题全 ≥3:1）——绝不再拿 `statusWaiting`
         //    （状态标记/点色，浅底仅 1.7–2.1:1）当正文色。

@@ -1113,7 +1113,7 @@ web 的**服务端 RPC 配置面**（LLM/Storage/Channels/WebUsers/About/Agent/T
 | ① | 视图**图标**（lucide 名 → 宿主图标；未知 ⇒ `Puzzle`） | `plugin-runtime/pluginIcons.ts:30-56`（`ICON_MAP` 19 键）、`:61-77`（降级 `Puzzle`） | `components/PluginHost.ets:460 pluginSymbol`（**本轮 14→19/19**）；消费点 `:291`、`:390`、`PluginsSheet.ets:177` | **✅ 已支持（本轮收口）** —— 见 XII.3 |
 | ② | 插件 **API `ctx`**（9 权限：events/commands/rpc/state/ui/plugins/config/files/share） | `plugin-api/context.ts:18-48`、`manifest.ts:13` | 无 | **N/A** —— 运行在宿主页内；§8.6 已**穷举证伪**「web 期望原生桥方法」的假设（web 侧 0 消费 `xbotNative`） |
 | ② | 宿主**全局注入**（`__xbot_session__`/`__xbot_i18n__`/`__xbot_iteration__`/`__xbot_ui__`/`React`） | `usePluginRuntimeHost.ts:373-388`、`iteration-render.tsx:20-28`、`SandboxedUI.tsx:37-41` | 无 | **N/A**（同上；原生无 `window`/React 运行时语义） |
-| ③ | 插件 **widget**：zones（styled spans）+ 声明式组件 | `plugins/PluginWidgetProvider.tsx:41-95`、`WidgetZone.tsx:14-69`、`components.tsx:37-259` | `core/widgetsview.ets:361 widgetsView` + `components/PluginWidgets.ets`；载荷接线 `core/store.ets:121-129` → `pages/Index.ets:1480-1482,3275-3276` → `PluginHost.ets:173-183` | **🟡 半支持**：`badge/progress/metric/list/markdown` 已实现；**`sparkline`/`table` 显式降级**（`widgetsview.ets:230-241`）；`code`/`src` 降级（需 iframe 沙箱） |
+| ③ | 插件 **widget**：zones（styled spans）+ 声明式组件 | `plugins/PluginWidgetProvider.tsx:41-95`、`WidgetZone.tsx:14-69`、`components.tsx:37-259` | `core/widgetsview.ets:361 widgetsView` + `components/PluginWidgets.ets`；载荷接线 `core/store.ets:121-129` → `pages/Index.ets:1480-1482,3275-3276` → `PluginHost.ets:173-183` | **✅ 声明式 7 种齐**（`badge/progress/metric/sparkline/table/list/markdown`，与 web `components.tsx:236-259` **一一对应**）；`code`/`src` 仍降级（需 iframe 沙箱）。⚠️ **2026-10-11 收口 `sparkline`/`table`**（此前显式降级）——见 XII.5 |
 | ③ | widget 的**常驻落点**（`infoBar` 状态条） | `plugins/InfoBar.tsx:15-27`（**常驻**，含 `PluginPanelContainer container="info_bar"` + `WidgetZone zone="infoBar"` + `SWUpdateButton`）· 挂载 `layouts/MobileAppShell.tsx:487` · 另 `git-info/GitStatusPanel.tsx:41` | **无** —— `PluginWidgets` **只被 `PluginHost`（插件目录浮层）消费**（`PluginHost.ets:176`） | **⛔ 缺（最高价值）** —— 正常使用路径下 widget zones **不可见**（只有打开"插件目录"浮层才看得到） |
 | ④ | 插件管理：**启用/禁用** + **重载** | `plugins/manager/PluginManagerPanel.tsx:82-127`（`plugin_reload` / `plugin_set_enabled` + 主动同步前端 runtime） | `components/SettingsPlugins.ets`（`RPC_PLUGIN_RELOAD`/`RPC_PLUGIN_SET_ENABLED`，`core/rpc.ets:1085,1087`）；判据 `core/settingsplugins.ets` | **✅ 已支持**（原生按用户要求收严为"写后回读"，不乐观更新） |
 | ④ | 插件管理：**安装 `.zip`** | `PluginManagerPanel.tsx:129-143` → `installPluginFile`（`components/agent/api.ts:644-649`，`POST /api/plugin/install-file` multipart） | **无**（`SettingsPlugins.ets:19` 明示"本期不呈现"） | **⛔ 缺** —— 需文件选择 + multipart 上传；修点 `components/Settings*.ets`（**域外**） |
@@ -1131,7 +1131,7 @@ web 的**服务端 RPC 配置面**（LLM/Storage/Channels/WebUsers/About/Agent/T
 | **P0** | **widget 常驻落点（`infoBar`）** | **高** —— 现在 widget 在正常使用路径**完全不可见**（插件如 `xbot.git-fancy` 的状态此前一直"推了但没人看"） | 修点在 `pages/Index.ets`（**域外 · `light-fix3` 独占**）⇒ 需编排者协调 | 建议：在 `MobileAppShell` 的等价位（页面主链外侧）注入一个常驻 `PluginWidgets`（`core/widgetsview.ets` + `PluginWidgets.ets` **已就绪**，只差落点 + 载荷透传） |
 | **P1** | `plugin_status` **全量后端插件** | 中高 —— "支持**所有**插件"的直接需求（纯后端插件现无入口） | 新 RPC（`core/rpc.ets`）+ 管理 UI（`Settings*.ets`）—— **均在域外** | 需先把 `plugin_status` 加入 `core/rpc.ets` 常量表 |
 | **P1** | **`.zip` 安装** | 中 —— 自助装插件（web 用户可自助，原生不能） | 文件选择 + multipart 上传；落 `components/SettingsPlugins.ets`（**域外**） | 参考 `installPluginFile` 的端点契约 `POST /api/plugin/install-file` |
-| **P2** | widget **`sparkline`/`table`** | 中低 —— 真插件用得少但存在（`iteration-stats` 类偏 metric） | `core/widgetsview.ets`（**域外**）+ ArkUI 画布渲染 | 现有行为是**显式降级行**（诚实，不静默） |
+| **P2** | widget **`sparkline`/`table`** | 中低 —— 真插件用得少但存在（`iteration-stats` 类偏 metric） | `core/widgetsview.ets` + `components/PluginWidgets.ets` | **✅ 2026-10-11 已落地**（此前是**显式降级行**）——见 XII.5 |
 | **P2** | 插件**图标** 19/19 + 面板/目录**同源** | 中低（视觉一致性） | 低 ⇒ **本轮已落地** | 见 XII.3 |
 
 > **N/A 依据（一句话，⛔ 不许当"遗漏"）**：① 插件运行时/API/宿主全局注入、⑤ 沙箱交互、⑨ 深链 ——
@@ -1160,9 +1160,33 @@ mutation 实测：抽 `search` 分支 → 4 红；换回本地副本 → 3 红�
 
 ### XII.4 一句话结论
 
-**插件面已高度 parity**（目录/宿主页/设置配置表单/启停重载/频道/飞书绑定/声明式 widget 均已落地）；
-**真缺口 4 条** —— ① widget **常驻落点**（P0，阻塞在 `pages/Index.ets` 域外）② `plugin_status` 全量后端插件
-（需新 RPC）③ `.zip` 安装 ④ widget `sparkline`/`table`；另有 **4 条 N/A**（沙箱/桥/行为扩展/深链）
+**插件面已高度 parity**（目录/宿主页/设置配置表单/启停重载/频道/飞书绑定/**声明式 widget 7/7** 均已落地）；
+**真缺口 3 条** —— ① widget **常驻落点**（P0，阻塞在 `pages/Index.ets` 域外）② `plugin_status` 全量后端插件
+（需新 RPC）③ `.zip` 安装；另有 **4 条 N/A**（沙箱/桥/行为扩展/深链）
 与 **1 条 web 侧待补**（视图深链）。**⚠️ 无一条经过真机验证（本波设备禁令）⇒ 均标"待设备验证"。**
+
+### XII.5 收口：声明式 widget `sparkline`/`table`（2026-10-11，目标②④）
+
+> **缺口（真实，非凑数）**：`core/widgetsview.ets` 的 `degradeReasonForType` 曾对 `sparkline`/`table`
+> **特判降级**、`SUPPORTED_KINDS` 只 5 种 ⇒ 与 web `components.tsx:236-259` 的 **7 种**不对齐。
+> **判定**：两者都是 web **真有的用户可见形态**（SVG 折线/柱、可滚动表格），**非占位** ⇒ 落地。
+
+**修法（最小 diff）**：
+- **纯逻辑** `core/widgetsview.ets`：`KIND_SPARKLINE`/`KIND_TABLE` 入支持集；新增
+  `sparkDataOf` / `sparkMaxOf` / `sparkLinePoints` / `sparkAreaPoints` / `sparkBarHeights` / `sparkHeightOf` /
+  `tableColumnsOf` / `tableCellOf` / `tableRowsOf` / `tableMaxHeightOf`（强制/夹取/几何逐字对齐 web）。
+- **渲染** `components/PluginWidgets.ets`：折线 = `Shape.viewPort(100×H)` + `Polygon`(面积 0.1) + `Polyline`(stroke 2)；
+  柱 = `Row` 底对齐；表 = 表头 + `Scroll.constraintSize(maxHeight)`（单元格 tone ⇒ 语义色 chip）。
+
+**有意偏离（诚实记账）**：
+1. 插件任意色 `props.color` **忽略**，统一走语义角色 `accentSoft`（设计系统 §5「零颜色字面量」+ 5 套主题可读）。
+2. `data.length === 1` 时 web 会 `i/(n-1)` **除零 ⇒ NaN**；原生**单点居中**（修正）。
+3. 单元格 `action` 点击（web → `web_ui_action` RPC）**架构性缺** ⇒ **只画不点**（同 `code`/`src` 沙箱阵营）。
+4. 表体 `max_height` 走 `Scroll.constraintSize`（web `overflow-auto` + `maxHeight`）；**shrink-to-fit / 嵌套滚动待设备验证**。
+
+**判据** `tools/tests/widget_sparktable.test.ts`（**85 断言**；零扫描判红 + 形态钉**调用点计数**、⛔ 不钉方法体）
++ 既有 `widgets_view.test.ts` 的陈旧断言同步收口（`SUPPORTED_KINDS` 5→7、sparkline/table 不再降级）。
+mutation 实测：删渲染层 sparkline 分支 → 2 红；把降级特判加回 → 1 红；`SUPPORTED_KINDS` 退回 5 种 → 红。
+**⚠️ 未装机（设备禁令）⇒ 折线/柱/表的**视觉**与 `Shape.viewPort` 缩放**待设备验证**。**
 
 
