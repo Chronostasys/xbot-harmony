@@ -188,6 +188,38 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
   `parseMarkdown` 的每行正则（274K ≈1.65 ms 里的大头）与 `replace(/\s+$/,'')` 手写化，因**风险 > 收益**
   （`\s` 语义含全角空格等，改错=静默渲染差异）**未做**。
 
+### 1.6d 第三轮（✅ 2026-10-11）：指纹记忆化 + `assignKeys` 尾部重编号（O(n²)→O(n)）+ `parseInline` 早退
+
+> ⚠️ **口径**：宿主被多条线并发占用时 `bench_core` 跨 run 可差 3–5×（本轮实测 `streamingGrowth` 1.3–4.9 ms）。
+> 故下表用**同进程交错 A/B**（OLD 复刻 vs NEW 生产，同一进程内交替跑 5 轮取中位）——不受跨 run 负载漂移影响。
+> 判据：`bash tools/tests/run-one.sh stream_perf_equiv`（§7/§8/§9；37 passed）。
+
+| 靶子 | OLD | **NEW** | 倍率 | 手法 |
+|---|---|---|---|---|
+| `blocksSignature` 调用点形态（340 块） | 89.4 µs | **42.1 µs** | **2.12×** | 按**源数组对象恒等**记忆化（`WeakMap`）：稳定侧命中，省一次 O(块数) 拼串 |
+| `streamingGrowth` 120 拍 | 2674 µs | **1815 µs** | **1.47×** | `parseMarkdownCached` 增量路径：`assignKeys` 只对**尾部**重编号（头部 key 上一拍已按同一(内容,下标)写入 ⇒ 逐字不变） |
+| `parseInline`（纯文本，无标记字符） | 0.723 µs | **0.193 µs** | **3.7×** | 廉价前置判据：无 `` ` ! [ * _ ~ `` ⇒ 直接产单 span，跳过 O(len) 分支扫描 |
+
+- **靶子1 三候选结论**（⛔ 以实测为准）：
+  · **(a) 廉价前置短路** ⇒ **不可行**：短路必须发生在**调用者**（`pages/Index.ets` 的
+    `blocksSignature(liveBlocks) !== blocksSignature(blocks)`），而该文件非本线可改域；
+  · **(b) 整数 hash** ⇒ **否决**：现有字符串编码在 `(迭代号, 正文长, 思考长, 工具数)` 元组序列上
+    是**单射**的；`h*31+c` 折叠到 32/53-bit 后**存在碰撞** ⇒ **判别力严格下降**（不满足"判别力不降"）。
+    （注：现有指纹**本就**只编码**长度**、不编码内容 ⇒ 对"仅空白差异"（`"a b"` vs `"ab"`）**早已无法区分**
+    —— 这不是 hash 引入的新问题；但 hash 会新引入"长度元组不同而指纹相同"的碰撞 ⇒ 仍否决。）
+  · **(c) 对象身份记忆化** ⇒ **采用**（2.12×；沿用 `core/render.ets` 的 `liveBlocksMemo` 同款 WeakMap 手法）。
+- **靶子2 `streamingGrowth` 分部件取证**（复刻 `parseMarkdownCached` 打分）：`assignKeys(全体)` 占 **38.4%**（1033µs/120 拍）、
+  `parseMarkdown(尾部)` 32.6%（固有）、`Map.get(增长键)` 16.7%（字符串哈希，固有）、`Map.set` 4.1%。
+  ⇒ 唯一可安全去掉的是 `assignKeys(全体)` ⇒ 改为只重编号尾部（154µs）⇒ −33%（同进程实测 1.47×）。
+- **新增度量**（⛔ 仅新增，**未动任何既有阈值**）：`blocksSignature_callerpat_340_us` · `parseInline_plain_us`。
+  ⚠️ `blocksSignature_340_us` 的 bench **输入改为未缓存内核** `buildBlocksSignature`（导出自 `core/streammerge.ets`）
+  —— 因为 `blocksSignature` 现已按对象恒等记忆化，对**同一数组**重复调用会命中缓存（≈0）；改用内核才能量到**真 build**，
+  且避免 `.slice()` 每轮新数组的 GC 噪声。
+- **行为不变**：判据 `stream_perf_equiv` §7（30 步增长下"增量 key/start == 全量"逐块）、§8（`blocksSignature`
+  == 独立 oracle；换内容必换值）、§9（纯文本单 span；空串仍 `[]`；含标记字符仍走完整解析）。
+  mutation 自证 3 处（`assignKeys` 局部下标 / `blocksSignature` 内核破坏 / `parseInline` 早退恒真 ⇒ 均红）；
+  反向自证：增量路径改回 `assignKeys(blocks,0)` ⇒ **仍全绿**（证明"尾部重编号 ≡ 全量重编号"）。
+
 ### 1.7 TURNDROP 噪声（已修，留基线防回归）
 - 现状（`1cfad7a`）：逐 turn `console.debug` + burst 结束**一条** warn 汇总；`turndropSeen` 去重。
 - 判别测试：`tools/tests/turndrop.test.ts`（5 passed；含 3 段 mutation 说明）。
@@ -308,6 +340,7 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
 | 2026-10-11 | 第 22~24 条（行内块窗口） | 新增 | **不是放宽**：`6ad8477` 落地 TOP1 后**新增**的硬计数判据（渲染块数 ≤24 / 隐藏 ≥1 / 估算节点 ≤600），阈值 = 判据本身（确定性计数，无抖动） | perf 线 |
 | 2026-10-11 | live 行每帧已完成块转换（**新增判据，非门禁阈值**） | — | 目标⑤落地：`core/render.ets` `liveBlocksMemo`（按源数组对象恒等）把 live 行每帧对**未变化**已完成块的转换数 **N → 0**（N=108）。判据 `tools/tests/perf_live_frame.test.ts`（13 passed；mutation ⇒ exit 1）。**不是放宽任何门槛**：`guard.sh`/`bench_core` 的既有指标（含 `blocksSignature_340_us`）一律未动 | perf 线（目标⑤） |
 | 2026-10-11 | `runeCount`/`clipRunes`/`inFlightBlock`（**新增度量，阈值一个没动**） | — | 目标⑤第二轮：`core/typewriter.ets` 的 `runeCount`/`clipRunes` 改**免分配**（−2.3×/−6× @8K）；`core/render.ets` `inFlightBlock` 的已提交键容器 `Array.indexOf`→`Set.has`（大在飞数档 16.2→6.9 µs）。**仅新增** `bench_core` 度量行（`runeCount_8k_us`/`clipRunes_8k_half_us`/`inFlightBlock_K54_us`/`inFlightBlock_K54D64_us`），**未动任何既有阈值**。判据 `tools/tests/stream_perf_equiv.test.ts`（26 passed；3 处 mutation ⇒ exit 1）。详见 §1.6c | perf 线（目标⑤） |
+| 2026-10-11 | `blocksSignature` 记忆化 + `assignKeys` 尾部重编号 + `parseInline` 早退（**新增度量，阈值一个没动**） | — | 目标⑤第三轮：`core/streammerge.ets` `blocksSignature` 按**源数组对象恒等**记忆化（调用点形态 89.4→42.1 µs，2.12×）；`core/markdown.ets` `parseMarkdownCached` 增量路径 `assignKeys` **只重编号尾部**（`streamingGrowth` 2674→1815 µs，1.47×；去掉 O(块数)/拍 的 O(n²) 项）+ `parseInline` 纯文本早退（0.723→0.193 µs，3.7×）。**仅新增** 度量行（`blocksSignature_callerpat_340_us`/`parseInline_plain_us`）；`blocksSignature_340_us` 输入改为**未缓存内核** `buildBlocksSignature`（否则记忆化会让它测到 ≈0）—— **未动任何既有阈值**。判据 `stream_perf_equiv` §7/§8/§9（37 passed；3 mutation ⇒ exit 1；含反向自证"尾部重编号 ≡ 全量重编号"）。详见 §1.6d | perf 线（目标⑤） |
 
 > 规则：任何上调都必须在**本表**写明"为什么不是代码退化"（附 `bench_core.sh` 两遍输出）。
 

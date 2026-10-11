@@ -19,7 +19,7 @@ import { inFlightBlock } from '../../entry/src/main/ets/core/render';
 import {
   completedBlocks, mergeToolRuns, blocksSignature, toolKey,
 } from '../../entry/src/main/ets/core/streammerge';
-import { parseMarkdown, parseMarkdownCached, resetMdCache } from '../../entry/src/main/ets/core/markdown';
+import { parseMarkdown, parseMarkdownCached, parseInline, resetMdCache } from '../../entry/src/main/ets/core/markdown';
 import { HistoryIteration, ToolProgress, ChatRow } from '../../entry/src/main/ets/core/types';
 import { LiveRowView } from '../../entry/src/main/ets/core/derive';
 import { WebToolProgress } from '../../entry/src/main/ets/core/chattypes';
@@ -332,13 +332,141 @@ console.log('\n▶ §5 零样本防线（防止"优化成空操作"的假绿）'
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+console.log('\n▶ §7 assignKeys：增量「只重编号尾部」≡ 全量重编号（多块增长 ⇒ 逐块 key/start 相等）');
+{
+  /** MdBlock 关键字段 → 规范化字符串（含 key 与 start —— 二者都必须与全量解析一致）。 */
+  function mdSig(bs: unknown[]): string {
+    const out: string[] = [];
+    for (let i = 0; i < bs.length; i++) {
+      const b = bs[i] as { key: string; kind: number; text: string; items: string[]; code: string; header: string[]; rows: string[][]; start: number };
+      out.push(`${b.key}|${b.kind}|${b.text}|${b.items.join(',')}|${b.code}|${b.header.join(',')}|${b.rows.map((r) => r.join('/')).join(';')}|${b.start}`);
+    }
+    return out.join('\n');
+  }
+  resetMdCache();
+  let doc = '';
+  let stepOk = true;
+  let keyWidthOk = true;
+  for (let i = 0; i < 30; i++) {
+    doc += `## 标题${i}\n\n第 ${i} 段的正文内容，含 **粗体** 与 \`code\`。\n\n`;
+    const cached = parseMarkdownCached(doc) as unknown as unknown[];
+    const full = parseMarkdown(doc) as unknown as unknown[];
+    if (mdSig(cached) !== mdSig(full)) { stepOk = false; console.log(`    增量 != 全量 @blocks=${full.length}`); }
+    if (cached.length !== full.length) { keyWidthOk = false; }
+  }
+  ok('★7 30 步增长（多块，每步都触发增量尾部重编号）：增量 key/start == 全量（逐块）', stepOk);
+  ok('★7 块数一致（不是"扫了 0 块"的假绿）', keyWidthOk);
+  const grown = parseMarkdownCached(doc) as unknown as { key: string }[];
+  // key 必须含**全局下标**（尾部块的下标不得从 0 重启 ⇒ 否则与头部撞 key）
+  let globalIdx = true;
+  for (let i = 0; i < grown.length; i++) {
+    if (grown[i].key.indexOf(`-${i}`) < 0) { globalIdx = false; }
+  }
+  ok('★7 每块 key 含其**全局下标**（尾部不从 0 重启 ⇒ 不与头部撞 key）', globalIdx && grown.length > 5);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n▶ §8 blocksSignature：记忆化不改变输出（独立 oracle 逐字节比 + 换内容必换值）');
+{
+  /** oracle：与生产同格式，但**独立重写**（不调用被测实现）。 */
+  function oracleSig(bs: HistoryIteration[]): string {
+    let s = `${bs.length}`;
+    for (let i = 0; i < bs.length; i++) {
+      const b = bs[i];
+      s += `|${b.iteration}:${(b.content ?? '').length}:${(b.reasoning ?? '').length}`
+        + `:${b.tools !== undefined ? b.tools.length : 0}`;
+    }
+    return s;
+  }
+  function mk(n: number, extra = ''): HistoryIteration[] {
+    const a: HistoryIteration[] = [];
+    for (let i = 1; i <= n; i++) {
+      a.push({ iteration: i, content: '正文' + i + extra, reasoning: i % 3 === 0 ? 'reason' : '', tools: [], tools_folded: false });
+    }
+    return a;
+  }
+  let eqOk = true;
+  for (const n of [0, 1, 8, 24, 340]) {
+    const bs = mk(n);
+    if (blocksSignature(bs) !== oracleSig(bs)) { eqOk = false; console.log(`    n=${n} 不等`); }
+    // 幂等（记忆化命中路径必须与首次计算同值）
+    if (blocksSignature(bs) !== blocksSignature(bs)) { eqOk = false; }
+  }
+  ok('★8 blocksSignature == oracle（n∈{0,1,8,24,340}；含记忆化命中路径）', eqOk);
+
+  // 同内容、**不同对象** ⇒ 同值（内容派生，不是身份派生）
+  const a1 = mk(24);
+  const a2 = mk(24);
+  eq('★8 同内容不同对象 ⇒ 同签名（被比对方是每帧新数组）', blocksSignature(a1), blocksSignature(a2));
+  // 改一个块的长度 ⇒ 必换值（覆盖"同号权威覆盖"场景）
+  const a3 = mk(24);
+  a3[5].content = a3[5].content + 'X';
+  ok('★8 任一块内容长度变化 ⇒ 签名必变（判别力不降）', blocksSignature(a1) !== blocksSignature(a3));
+  // 换源数组（同一对象反复用不同切片）⇒ 每侧各自按自身内容取值
+  const base = mk(24);
+  const v1 = blocksSignature(base.slice());
+  const v2 = blocksSignature(base.slice());
+  eq('★8 不同数组对象、同内容 ⇒ 等值（记忆化不产生陈旧）', v1, v2);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n▶ §9 parseInline：纯文本早退 ≡ 旧行为（空串仍 []；含标记字符仍走完整解析）');
+{
+  const plainCases: string[] = [
+    '这是一段没有任何行内标记的纯文本正文',
+    'abc',
+    'x y z 1 2 3',
+    '中文，标点。（括号）【方括号】',      // 全角括号不是标记字符
+    'a b  c   d',
+    '中文'.repeat(500),
+  ];
+  let plainOk = true;
+  for (const s of plainCases) {
+    const sp = parseInline(s);
+    if (sp.length !== 1 || sp[0].text !== s || sp[0].bold || sp[0].italic || sp[0].code
+      || sp[0].strike || sp[0].link !== '' || sp[0].image !== '') {
+      plainOk = false; console.log(`     纯文本早退不符: ${JSON.stringify(s).slice(0, 20)}`);
+    }
+  }
+  ok('★9 纯文本（无 ` ! [ * _ ~）⇒ 单个纯 span、全文、无任何标记位', plainOk);
+  eq('★9 空串仍返回 []（早退必须要求 length>0）', parseInline('').length, 0);
+
+  // 含任一标记字符 ⇒ 早退**不触发**，仍走完整解析（结果正确）
+  const markedCases: [string, (s: { bold: boolean; italic: boolean; code: boolean; strike: boolean; link: string; image: string }) => boolean][] = [
+    ['**粗**', (s) => s.bold],
+    ['_斜_', (s) => s.italic],
+    ['`码`', (s) => s.code],
+    ['~~删~~', (s) => s.strike],
+    ['[文](http://x)', (s) => s.link === 'http://x'],
+    ['![图](http://y)', (s) => s.image === 'http://y'],
+  ];
+  let markedOk = true;
+  for (const c of markedCases) {
+    const sp = parseInline(c[0]);
+    if (sp.length !== 1 || !c[1](sp[0])) { markedOk = false; console.log(`     标记解析不符: ${c[0]}`); }
+  }
+  ok('★9 含标记字符 ⇒ 早退不触发、完整解析仍正确（6 类）', markedOk);
+  // 含标记字符但**非合法标记**（如孤立 `!`）⇒ 仍走完整解析，结果仍是单 span（不误判）
+  const lone = parseInline('a!b');
+  ok('★9 孤立 `!`（非合法图片）⇒ 完整解析后仍是单个纯 span', lone.length === 1 && lone[0].text === 'a!b' && lone[0].image === '');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 console.log('\n▶ §6 mutation 自证（由外部脚本注入，改动语义 ⇒ 本文件必红）:');
 console.log('   · `core/typewriter.ets` `runeWidthAt` 改 `return 1`（忽略代理对）');
 console.log('     ⇒ §1 clipRunes/runeCount 与 oracle 不等 ⇒ 红；');
 console.log('   · `core/render.ets` `inFlightBlock` 去掉 `!completedKeys.has(...)` 过滤');
 console.log('     ⇒ §2 「已提交同键被滤掉」红；');
 console.log('   · `core/render.ets` 已提交键改用 `it.tools[j].name`（丢 call_id）');
-console.log('     ⇒ §2 oracle（按 toolKey）不等 ⇒ 红。');
+console.log('     ⇒ §2 oracle（按 toolKey）不等 ⇒ 红；');
+console.log('   · `core/markdown.ets` 增量路径把 `assignKeys(blocks, stable)` 改回 `assignKeys(blocks, 0)`');
+console.log('     ⇒ **不变**（等价）—— 反向自证"尾部重编号 == 全量重编号"；');
+console.log('   · `core/markdown.ets` 把尾部重编号的 `stable` 改成 `0`（即从 0 起re-key 尾部、丢掉头部偏移）');
+console.log('     ⇒ §7「key 含全局下标」/「增量 == 全量」必红；');
+console.log('   · `core/streammerge.ets` `blocksSignature` 内核改 `return \'\'`（记忆化产物被改）');
+console.log('     ⇒ §8 oracle 不等 ⇒ 红；');
+console.log('   · `core/markdown.ets` parseInline 早退条件改成 `!false`（永远早退）');
+console.log('     ⇒ §9 「含标记字符仍正确」红。');
 
 if (fail > 0) { console.log(`\n  stream_perf_equiv: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`\n  stream_perf_equiv: ${pass} passed, 0 failed`);

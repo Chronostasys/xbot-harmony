@@ -269,11 +269,19 @@ export function parseMarkdown(src: string): MdBlock[] {
 
 /**
  * 生成稳定 key（内容派生 + **全局下标**）。
- * ⚠️ 增量拼接后必须对**整体**重编号：尾部解析出来的下标从 0 起，
- * 若只给尾部编号就会与头部撞 key ⇒ ArkUI 复用错位（渲染错乱）。
+ *
+ * ⚠️ 增量拼接后，尾部解析出来的下标从 0 起 ⇒ 必须按**全局下标**重编号，否则与头部撞 key
+ * ⇒ ArkUI 复用错位（渲染错乱）。
+ *
+ * ⛔ `from` 的语义（性能，2026-10-11 round3）：key 是 `(块内容, 下标)` 的**纯函数**
+ *    （`sig` 只由块内容算，`k` 是下标）。增量路径里头部 `0..stable-1` 的块在**上一拍**已按
+ *    **同一 (内容, 下标)** 写过 key ⇒ 跳过它们**逐字不变**（`assignKeys(blocks)` 与
+ *    `assignKeys(blocks, stable)` 的最终状态相同）。`from=0`（默认）即旧行为。
+ *    ⇒ 把"每拍对**全体**块重编号"（O(总块数)，随文档增长 = O(n²)）降为 O(尾部块数)。
+ *    判据：`tools/tests/stream_perf_equiv.test.ts`（尾部重编号 ≡ 全量重编号，逐块 key 相等）。
  */
-function assignKeys(blocks: MdBlock[]): void {
-  for (let k = 0; k < blocks.length; k++) {
+function assignKeys(blocks: MdBlock[], from: number = 0): void {
+  for (let k = from; k < blocks.length; k++) {
     const b: MdBlock = blocks[k];
     const sig: string = `${b.kind}|${b.level}|${b.text.length}|${b.items.length}|${b.code.length}|${b.header.length}|${b.rows.length}`;
     b.key = `md-${sig}-${k}`;
@@ -323,6 +331,16 @@ export function alignOf(aligns: number[], ci: number): number {
 /** 行内解析：粗体 / 斜体 / 行内码 / 删除线 / 链接。 */
 export function parseInline(text: string): MdSpan[] {
   const spans: MdSpan[] = [];
+  // ⛔ 廉价前置判据（**不改语义**，2026-10-11 round3）：文本里若**没有任何行内标记字符**
+  //    （` ! [ * _ ~），则逐字符循环的每个分支都不会命中 ⇒ 唯一产物就是"整段一个纯文本 span"
+  //    （`buf` 累积全文 + 末尾 `pushPlain`）。直接产出该结果、跳过 O(len) 分支扫描。
+  //    空串仍返回 `[]`（旧实现末尾 `pushPlain` 因 `buf.length === 0` 不 push）⇒ 必须 `length > 0`。
+  if (text.length > 0 && !/[`!\[*_~]/.test(text)) {
+    const s: MdSpan = new MdSpan();
+    s.text = text;
+    spans.push(s);
+    return spans;
+  }
   let buf: string = '';
   let i: number = 0;
 
@@ -528,7 +546,10 @@ export function parseMarkdownCached(src: string): MdBlock[] {
       tail[k].start += rewind;
     }
     blocks = mdLastBlocks.slice(0, stable).concat(tail);
-    assignKeys(blocks);
+    // ⛔ 只对**尾部**重编号（`from = stable`）：头部 `0..stable-1` 的块在上一拍已按
+    //    **同一 (内容, 下标)** 写过 key ⇒ 跳过它们**逐字不变**。旧写法 `assignKeys(blocks)`
+    //    每拍对**全体**块重编号 ⇒ O(总块数)/拍（随文档增长 = O(n²)，实测占流式 120 拍的 38%）。
+    assignKeys(blocks, stable);
   } else {
     blocks = parseMarkdown(src);
   }

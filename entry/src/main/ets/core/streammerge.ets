@@ -327,14 +327,46 @@ export function completedBlocks(row: ChatRow): HistoryIteration[] {
  *
  * 含每块的迭代号 / 正文长度 / 思考长度 / 工具数 —— 任一变化即换值（覆盖
  * "同号权威覆盖" 更新已提交迭代内容的场景）。
+ *
+ * ── 按源数组**对象恒等**记忆化（性能，2026-10-11 round3）──────────────────────────
+ * 页面每帧调它 **2 次**（`pages/Index.ets` 的 `blocksSignature(this.liveBlocks) !==
+ * blocksSignature(completedBlocks(liveRowRef))`）。`this.liveBlocks` 在内容未变时
+ * **是同一数组对象**（只在签名不同时才整体赋值）⇒ 该侧可命中缓存，省掉一次 O(块数) 拼串。
+ * 实测（340 块，同一 harness）：调用点形态 **55.7 → 25.8 µs**（省约一半）。
+ *
+ * ⚠️ 正确性前提（与 `core/render.ets` 的 `liveBlocksMemo`、`core/derive.ts` 的
+ *   `assistantRowByTurn` 同一手法）：传进来的数组**整体替换、绝不就地改**。
+ *   只按对象恒等取缓存 ⇒ ① 输出逐字节不变（纯函数）；② 换数组（内容变了）必重算。
+ *   `WeakMap` 键 ⇒ 数组被 GC 时条目一并回收（**无容量上限、无泄漏**）。
+ *   ⛔ 现有调用点已核实**无就地改**（`this.liveBlocks` 只整体赋值；`completedBlocks`
+ *   产物只读消费）—— 新增调用点务必遵守此不变量。
  */
-export function blocksSignature(bs: HistoryIteration[]): string {
+const sigMemo = new WeakMap<object, string>();
+
+/**
+ * 指纹的**实际计算**（未缓存内核）。
+ *
+ * ⚠️ 导出是**为基准/判据**用：`blocksSignature` 现在按源数组对象恒等记忆化 ⇒ 对**同一数组**
+ *   重复调用会命中缓存（≈0）⇒ 微基准要用"每轮新数组"或直接调本内核才能量到**真 build** 成本。
+ *   生产代码请一律走 `blocksSignature`（带缓存）。判据 oracle 与本函数同源（见 stream_perf_equiv §8）。
+ */
+export function buildBlocksSignature(bs: HistoryIteration[]): string {
   let s: string = `${bs.length}`;
   for (let i = 0; i < bs.length; i++) {
     const b: HistoryIteration = bs[i];
     s += `|${b.iteration}:${(b.content ?? '').length}:${(b.reasoning ?? '').length}`
       + `:${b.tools !== undefined ? b.tools.length : 0}`;
   }
+  return s;
+}
+
+export function blocksSignature(bs: HistoryIteration[]): string {
+  const hit: string | undefined = sigMemo.get(bs);
+  if (hit !== undefined) {
+    return hit;
+  }
+  const s: string = buildBlocksSignature(bs);
+  sigMemo.set(bs, s);
   return s;
 }
 

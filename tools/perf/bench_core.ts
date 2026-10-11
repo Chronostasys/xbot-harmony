@@ -20,7 +20,7 @@ declare const process: {
 
 import { paletteOf, effectsOf, surfacesOf, THEME_DARK } from '../../entry/src/main/ets/core/theme';
 import {
-  mergeTools, mergeToolRuns, completedBlocks, blocksSignature,
+  mergeTools, mergeToolRuns, completedBlocks, blocksSignature, buildBlocksSignature,
 } from '../../entry/src/main/ets/core/streammerge';
 import { parseMarkdown, parseMarkdownCached, parseInline, mdCacheStats } from '../../entry/src/main/ets/core/markdown';
 import { runeCount, clipRunes } from '../../entry/src/main/ets/core/typewriter';
@@ -160,10 +160,18 @@ metric('inFlightBlock_K54D64_us', benchUs(() => { inFlightBlock(liveViewK54D64, 
 
 // ── 3. 每帧（每次 build）的 O(块数) 固定开销 ──────────────────────────────────
 metric('completedBlocks_340_us', benchUs(() => { completedBlocks({ iterations: blocksWorst } as ChatRow); }, 2000), 'us/call');
-metric('blocksSignature_340_us', benchUs(() => { blocksSignature(blocksWorst); }, 2000), 'us/call');
+// ⚠️ 2026-10-11 round3：`blocksSignature` 已按**源数组对象恒等**记忆化 ⇒ 传同一数组会命中缓存（≈0）。
+//    为量到**真 build** 成本（口径与历史可比、且无 `.slice()` 的 GC 噪声），这里直接调**未缓存内核**
+//    `buildBlocksSignature`（`core/streammerge.ets`）。调用点形态（含记忆化收益）见下方 callerpat 行。
+metric('blocksSignature_340_us', benchUs(() => { buildBlocksSignature(blocksWorst); }, 2000), 'us/call');
 metric('mergeToolRuns_340_us', benchUs(() => { mergeToolRuns(blocksWorst); }, 2000), 'us/call');
-metric('blocksSignature_24_us', benchUs(() => { blocksSignature(blocksSmall); }, 2000), 'us/call');
+metric('blocksSignature_24_us', benchUs(() => { buildBlocksSignature(blocksSmall); }, 2000), 'us/call');
 metric('mergeToolRuns_24_us', benchUs(() => { mergeToolRuns(blocksSmall); }, 2000), 'us/call');
+// 页面**真实调用点形态**：`blocksSignature(稳定对象) !== blocksSignature(每帧新数组)`（`pages/Index.ets`）
+//   ⇒ 稳定侧命中缓存（省一次 O(块数) 拼串）。这是本波 `blocksSignature` 记忆化的收益口径。
+const sigStable = blocksWorst.slice();
+metric('blocksSignature_callerpat_340_us',
+  benchUs(() => { if (blocksSignature(sigStable) !== blocksSignature(blocksWorst.slice())) { throw 1; } }, 2000), 'us/call');
 
 // 线性度（O(N²) 回归会把这两个比值顶起来）
 const sig340 = blocksSignature(blocksWorst).length;
@@ -197,6 +205,9 @@ const eightK = big.slice(0, 8 * 1024);
 metric('parseMarkdown_8k_us', benchUs(() => { parseMarkdown(eightK); }, 50, 9), 'us/call');
 metric('parseMarkdown_274k_ms', benchUs(() => { parseMarkdown(big); }, 3, 9) / 1000, 'ms/call');
 metric('parseInline_us', benchUs(() => { parseInline('**粗体** 与 `code` 和 https://a.b/' + 'y'.repeat(30)); }, 2000, 9), 'us/call');
+// 纯文本（无行内标记字符）⇒ 命中前置早退（round3 新增）。对照：`parseInline_us` 用的是**含标记**
+// 文本（早退不触发）⇒ 那条**不变**；这条才体现早退收益。
+metric('parseInline_plain_us', benchUs(() => { parseInline('这是一段没有任何行内标记的纯文本正文' + 'x'.repeat(40)); }, 20000, 9), 'us/call');
 
 // 缓存：**同一文本重复解析必须全命中**（防"重构把缓存拆了"）
 const before = mdCacheStats();
