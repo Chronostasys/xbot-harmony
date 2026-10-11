@@ -33,6 +33,7 @@ import { isSyntheticToolName } from '../core/synthhints';
 import { looksLikeLlmError } from '../core/llmerror';
 import { reasoningKey } from '../core/reasoningopen';
 import { isLiveStatus, isToolInProgress, renderKind, statusChip } from '../core/toolstatus';
+import { AnsiSpan, ansiPaletteOf, ansiSpansIfAny } from '../core/ansi';
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
 
 /** 单工具浮层宽度（对齐 web 浮层 430px；手机端收窄）。 */
@@ -220,6 +221,16 @@ return renderKind(t.status, t.exit_code, true);
   /** pill 展示文本（名称/标签，**不含**状态 badge —— 状态由 chip 表达）。 */
   private labelText(t: ToolProgress): string {
     return t.label !== undefined && t.label.length > 0 ? t.label : t.name;
+  }
+
+  /**
+   * live pill 标签的 **ANSI span**（与 committed 侧 `MessageRow.toolLabelSpans()` **同款**：同一
+   * `core/ansi` 入口 + 同一取色函数 ⇒ live/committed 视觉一致）。
+   * ⛔ 无转义 ⇒ 空数组 ⇒ `ToolPill` 走**原纯文本路径**（逐字节不变）。
+   */
+  private toolLabelSpans(t: ToolProgress): AnsiSpan[] {
+    const s: AnsiSpan[] | null = ansiSpansIfAny(this.labelText(t), ansiPaletteOf(this.pal()));
+    return s !== null ? s : [];
   }
 
   aboutToAppear(): void {
@@ -569,6 +580,8 @@ return renderKind(t.status, t.exit_code, true);
                   // ⛔ 组件（@Prop 值变化通道）—— 带参 @Builder 会冻在第一帧（状态永不更新）。
                   ToolPill({
                     label: this.labelText(t),
+                    // live pill 也逐 span 上色（与 committed 侧同款 ⇒ live/committed 视觉一致）
+                    labelSpans: this.toolLabelSpans(t),
                     kind: this.kind(t),
                     chip: this.chip(t),
                     live: this.live(t),
