@@ -188,20 +188,27 @@ export function widgetZoneLabel(name: string): string {
 /**
  * span 的 `style` → 语义色角色（对齐 web `WidgetZone.tsx:14-23` 的 StyleClass→Tailwind 表）。
  * 未知/缺省 ⇒ `normal`（= `textPrimary`），绝不置透明（免得"服务端推了却看不见"）。
+ *
+ * ⛔ `warning` 走 **`warn`（"警告文字"角色）**，**不是** `statusWaiting` —— 后者是
+ *    **状态指示器/点色**（`theme_contrast.test.ts:315-325` 根因 F）：`light.statusWaiting #E6A700`
+ *    压任一浅面只有 1.7–2.12:1，**当正文色读不出**。所有返回值必须是**文字角色**。
  */
 export function styleColorRole(style: string): string {
   if (style === 'dim' || style === 'muted') { return 'textMuted'; }
   if (style === 'accent' || style === 'info') { return 'accentSoft'; }
   if (style === 'success') { return 'successText'; }
-  if (style === 'warning') { return 'statusWaiting'; }
+  if (style === 'warning') { return 'warn'; }   // 文字角色（非 statusWaiting）
   if (style === 'error') { return 'dangerText'; }
   return 'textPrimary';   // normal / 空串 / 未知
 }
 
-/** 组件的 `tone` → 语义色角色（对齐 web `components.tsx:16-24` 的 TONES 文字色）。 */
+/**
+ * 组件的 `tone` → 语义色角色（对齐 web `components.tsx:16-24` 的 TONES 文字色）。
+ * ⛔ 同 `styleColorRole`：`warning` ⇒ **`warn`**（文字角色），不得用 `statusWaiting`（点色）。
+ */
 export function toneColorRole(tone: string): string {
   if (tone === 'success') { return 'successText'; }
-  if (tone === 'warning') { return 'statusWaiting'; }
+  if (tone === 'warning') { return 'warn'; }   // 文字角色（非 statusWaiting）
   if (tone === 'error') { return 'dangerText'; }
   if (tone === 'info' || tone === 'accent') { return 'accentSoft'; }
   if (tone === 'muted') { return 'textMuted'; }
