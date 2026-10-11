@@ -1171,3 +1171,18 @@ this[closeFlagOf('drawer')] = false;   // ⛔ ArkTS 禁动态属性 —— 不�
 - **附带**：同一次还漏了 `import { PENDING_COMMAND_KEY, … } from '../core/command';`
   ⇒ `Cannot find name 'PENDING_COMMAND_KEY'`（这类**忘 import 自有模块**的错，只有 ④ `assembleHap` 抓得到，
   脱机三条 / `lint` / `typecheck` 全绿）。
+
+## 批次 29（2026-10-11，主 agent）：⚠️ **共享工作树里的"提交竞态" —— 别人的 `--only <pathspec>` 会卷走你未提交的改动**
+
+- **症状**：我在 `ToolPopover.ets` 改了一处（`clip(true)` + `maxWidth:'100%'`），**尚未提交**；
+  另一条线（`contrast-ux`）随后 `git commit -o -F - -- <它自己的文件清单>` —— 但它的 pathspec **也包含了
+  同一个 `ToolPopover.ets`** ⇒ 我的两行改动**被它一起提交**了。
+- **表现**：`git show --stat <我的 sha>` 里**看不到**那个文件（我提交时它已无 diff）⇒ 看起来"我的修复丢了"，
+  但工作树/HEAD 核实 `clip(true)` 计数确实 **+1** ⇒ **内容无损、归属错**。
+- **根因**：`git commit --only <pathspec>` 提交的是**该路径的当前工作树内容**（不是"我的那份 diff"）——
+  路径上任何人**未提交**的改动都会被一起带走。
+- **规则**：
+  1. **改完立刻提交**（别让改动在工作树里"悬着"等下一件事做完）；
+  2. 提交前 `git diff --stat -- <你要提交的路径>` 复核"**将要提交的内容 == 我的改动**"；
+  3. ⛔ **不要把不属于你的文件加进 pathspec**（哪怕它"顺手也需要"）；
+  4. 发现被别人卷走 ⇒ **不要 revert**（内容是对的）；在回报里注明"归属错、内容已入库"，并核 `git show HEAD:<file> | grep <符号>` 两侧。
