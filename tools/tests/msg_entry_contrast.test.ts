@@ -37,6 +37,7 @@ import {
   ENTRY_FROM_OPACITY, ENTRY_FROM_DY, ENTRY_REST_OPACITY, BODY_CONTRAST_FLOOR,
   entryAnimates, entryRestOpacity, entryStartOpacity, entryStartDy, withOpacity, bodyReadableAt,
 } from '../../entry/src/main/ets/core/msgentry';
+import { MOTION_MSG_IN_MS, MOTION_SPRING_CSS, springBezier } from '../../entry/src/main/ets/core/motion';
 
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean): void {
@@ -167,6 +168,68 @@ ok('注入后 §D③ 变红（`entered ? 1 : 0` 门控）',
 ok('注入后 §D④ 变红（`@State entered` 复活）', /@State\s+entered\b/.test(stripComments(injected)));
 ok('注入后 §D 判据本体整体判红', rowEntryIsFailSafe(injected) === false);
 ok('未注入的同一副本仍判绿（排除"判据恒红"的假红）', rowEntryIsFailSafe(rowSrc) === true);
+
+// ── §F 入场过渡**参数**与 web `msgIn` 对齐（web 数字作期望值）──────────────────────────
+// 来源（权威）：`/Users/bobli/src/xbot/web/src/index.css:683-714`，原文：
+//   .animate-msg-in > * { animation: msgIn 200ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+//   @keyframes msgIn {
+//     from { opacity: 0; transform: translateY(4px); }
+//     to   { opacity: 1; transform: none; }
+//   }
+// ⇒ 200ms · spring(0.34,1.56,0.64,1) · opacity 0→1 · translateY 4px→0 · **无 `forwards`**（天然 fail-safe）。
+console.log('\n▶ §F 入场过渡参数对齐 web `msgIn`（index.css:683-714）');
+eq('① 时长 = 200ms（web `msgIn 200ms`）', MOTION_MSG_IN_MS, 200);
+{
+  const b = springBezier();
+  eq('② 曲线控制点 = web `cubic-bezier(0.34,1.56,0.64,1)`', [b.x1, b.y1, b.x2, b.y2], [0.34, 1.56, 0.64, 1]);
+  eq('③ 曲线 CSS 文本同源（`tokens.EASE_SPRING_CSS`）', MOTION_SPRING_CSS, 'cubic-bezier(0.34, 1.56, 0.64, 1)');
+}
+const animSrc: string = fsMod.readFileSync(
+  pathMod.join(repoRoot, 'entry', 'src', 'main', 'ets', 'components', 'anim.ets'), 'utf-8');
+const animCode: string = stripComments(animSrc);
+ok('④ `animMsgIn()` 走 `MOTION_MSG_IN_MS` + `springCurve()`（⛔ 不自造时长/曲线字面量）',
+  /function animMsgIn\(\)[\s\S]{0,160}?duration:\s*MOTION_MSG_IN_MS/.test(animCode)
+  && /function animMsgIn\(\)[\s\S]{0,160}?curve:\s*springCurve\(\)/.test(animCode));
+
+/** 抽 `private entryTransition()` 的方法体（花括号到行尾 `\n  }`）。 */
+function transitionBody(src: string): string {
+  const i: number = src.indexOf('private entryTransition');
+  if (i < 0) { return ''; }
+  const j: number = src.indexOf('\n  }', i);
+  return j > i ? src.substring(i, j + 4) : src.substring(i, i + 400);
+}
+/** 判据本体（纯函数；§G 指向"注入版"做 mutation）：组合必须 = web 的两条（opacity ⊕ translateY），
+ *  且两条都走**同一** `animMsgIn()` 工厂（⛔ 不许出现自造 `AnimateParam` 的 `duration:` 字面量）。 */
+function transitionAlignsWeb(src: string): boolean {
+  const t: string = transitionBody(src);
+  return t.indexOf('TransitionEffect.OPACITY') >= 0
+    && t.indexOf('TransitionEffect.translate({ y: entryStartDy() })') >= 0
+    && (t.match(/animMsgIn\(\)/g) || []).length >= 2
+    && t.indexOf('duration:') < 0;
+}
+const transBody: string = transitionBody(rowCode);
+ok('★F0 零扫描判红：抽到 `entryTransition()` 方法体（长度 > 0）', transBody.length > 0);
+ok('⑤ 组合 = `TransitionEffect.OPACITY` ⊕ `translate({y: entryStartDy()})`（web 的 opacity + translateY）',
+  transBody.indexOf('TransitionEffect.OPACITY') >= 0
+  && transBody.indexOf('TransitionEffect.translate({ y: entryStartDy() })') >= 0);
+ok('⑥ 两条过渡共用**同一** `animMsgIn()` 工厂 + 无自造 `duration:` 字面量',
+  (transBody.match(/animMsgIn\(\)/g) || []).length >= 2 && transBody.indexOf('duration:') < 0);
+ok('★★ 判据本体 `transitionAlignsWeb` 对**真实源码**为绿（防"白绿防线"）', transitionAlignsWeb(rowCode) === true);
+
+// ── §G mutation 自证（§F）：过渡参数漂移 / 静息不可见 ⇒ 必红 ─────────────────────────
+console.log('\n▶ §G mutation：过渡自造字面量 / 静息改 0 ⇒ §F / §D 必红');
+{
+  const badLiteral: string = rowCode.split('animMsgIn()').join('{ duration: 300, curve: Curve.Friction }');
+  ok('★G1 mutation：过渡改自造 `AnimateParam` 字面量 ⇒ `transitionAlignsWeb` 必红',
+    transitionAlignsWeb(badLiteral) === false);
+  const badInvisible: string = rowCode.replace('.opacity(entryRestOpacity())', '.opacity(0)');
+  ok('★G2 mutation：静息写成 `.opacity(0)`（不可见）⇒ `rowEntryIsFailSafe` 必红',
+    rowEntryIsFailSafe(badInvisible) === false);
+  const badNoTranslate: string = rowCode.replace(
+    'TransitionEffect.translate({ y: entryStartDy() })', 'TransitionEffect.translate({ y: 0 })');
+  ok('★G3 mutation：`translateY` 起点改成 0（丢 web 的 4px）⇒ `transitionAlignsWeb` 必红',
+    transitionAlignsWeb(badNoTranslate) === false);
+}
 
 // ── 摘要 ─────────────────────────────────────────────────────────────────────
 console.log('\n▼ 摘要');
