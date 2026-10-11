@@ -36,6 +36,8 @@ eq('无 goal', goalText(undefined), '');
 eq('空文本 goal', goalText({ text: '' }), '');
 eq('进行中 goal', goalText({ text: '发布 v1', status: 'active' }), '目标：发布 v1');
 eq('已完成 goal', goalText({ text: '发布 v1', status: 'completed' }), '已完成：发布 v1');
+// ⛔ H6：'done' 是**幽灵值**（服务端 goal 词汇是 active|completed）⇒ 不得当作已完成
+eq('H6：幽灵 done 不算已完成', goalText({ text: '发布 v1', status: 'done' }), '目标：发布 v1');
 
 eq('无模型', modelText(undefined), '');
 eq('模型名', modelText({ model: 'glm-5.3-flash' }), 'glm-5.3-flash');

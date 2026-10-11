@@ -104,7 +104,10 @@ export function goalText(g: GoalInfo | undefined): string {
   if (g === undefined || g.text === undefined || g.text.length === 0) {
     return '';
   }
-  const done: boolean = g.status === 'completed' || g.status === 'done';
+  // ⛔ goal 完成口径**单点**：只认服务端权威值 `'completed'`（`core/chattypes.ts:11`
+  //    `status: "active" | "completed"`；web `GoalBanner.tsx:37` 同）—— 与 `goalDisplay`
+  //    一致。旧版把 `'done'` 也算完成 ⇒ **幽灵值**（服务端从不发）造成同文件两份口径（H6）。
+  const done: boolean = g.status === 'completed';
   return `${done ? '已完成：' : '目标：'}${g.text}`;
 }
 
