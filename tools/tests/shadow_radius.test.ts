@@ -180,14 +180,16 @@ function eq(name: string, got: unknown, want: unknown): void {
       if (n > 0 && !usesMulti) { singleLayerFiles.push(rel); }
     }
     ok('★⑤ 零扫描判红：全站 `.shadow({` 站点 > 0（扫描器与真源相连）', shadowSites > 0, `sites=${shadowSites}`);
-    // ★⑤ 双白名单（G1 后，2026-10-11）：多层消费者 = `SyntheticCard`（card）+ 三处浮层 `overlay`
-    //   （AskUserSheet / MenuSheets / StatusSheet）；单层遗留 = `Lightbox`（其迁移须同步改
-    //   `lightbox.test.ts:91-93` 的 `shadowRadiusOf(` 断言 ⇒ 超出本轮 `shadow_radius.test.ts` 域，**待批**）
-    //   + `Toast`（其迁移的"背板面"会与 `free_surface_unify.test.ts` 的 L1 根面 marker 自证启发式
-    //     ——"取**最后**一个 marker"—— 冲突 ⇒ 同样超出本轮域，**待批**，见报告）
-    //   + `ToolVisual`（发光通道 `glowColorOf`，**非**柔影 ⇒ 不该迁）+ `pages/Index.ets`（见报告，语义不合）。
+    // ★⑤ 双白名单（G1 后，2026-10-11）：多层消费者 = `SyntheticCard`（card）+ 六处浮层 `overlay`
+    //   （AskUserSheet / Lightbox / MenuSheets / StatusSheet / Toast / PluginsSheet / QueueSheet / SelfCheckSheet）；
+    //   单层遗留 = `ToolVisual`（发光通道 `glowColorOf`，**非**柔影 ⇒ 不该迁）
+    //   + `pages/Index.ets`（见报告，语义不合）。
+    //   ⚠️ 迁移进行时 ⇒ 多层白名单**增长**、单层白名单**缩短**；任何变化都逼同步本表（防静默漂移）。
+    //   ✅ 2026-10-11（目标⑤ E1 待批 #1）：`PluginsSheet`/`QueueSheet`/`SelfCheckSheet` 三面板的 L1 根面
+    //      从"裸 `appBg` + 无柔影"迁到 `shadowLayersOf('overlay')` 多层柔影 ⇒ 从"无影站点"变为多层消费者。
     const EXPECT_MULTI: string[] = [
       'components/AskUserSheet.ets', 'components/Lightbox.ets', 'components/MenuSheets.ets',
+      'components/PluginsSheet.ets', 'components/QueueSheet.ets', 'components/SelfCheckSheet.ets',
       'components/StatusSheet.ets', 'components/SyntheticCard.ets', 'components/Toast.ets',
     ];
     const EXPECT_SINGLE: string[] = [

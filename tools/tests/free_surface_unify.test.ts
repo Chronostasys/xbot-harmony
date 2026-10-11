@@ -82,9 +82,9 @@ const SITES: Site[] = [
   { file: 'components/AskUserSheet.ets', level: 'L1', marker: "backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))", expect: 1 },
   { file: 'components/Toast.ets', level: 'L1', marker: "backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))", expect: 1 },
   { file: 'components/Lightbox.ets', level: 'L1', marker: "backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))", expect: 1 },
-  { file: 'components/PluginsSheet.ets', level: 'L1', marker: 'backgroundColor(this.pal().appBg)', expect: 1 },
-  { file: 'components/QueueSheet.ets', level: 'L1', marker: 'backgroundColor(this.pal().appBg)', expect: 1 },
-  { file: 'components/SelfCheckSheet.ets', level: 'L1', marker: 'backgroundColor(this.pal().appBg)', expect: 1 },
+  { file: 'components/PluginsSheet.ets', level: 'L1', marker: "backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))", expect: 1 },
+  { file: 'components/QueueSheet.ets', level: 'L1', marker: "backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))", expect: 1 },
+  { file: 'components/SelfCheckSheet.ets', level: 'L1', marker: "backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))", expect: 1 },
   // ── L2 内嵌卡（面到面轮廓 = structuralRuleOf）────────────────────────────────
   { file: 'components/SettingsRows.ets', level: 'L2', marker: "backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))", expect: 1 },
   { file: 'components/PluginHost.ets', level: 'L2', marker: "backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))", expect: 2 },
@@ -247,19 +247,10 @@ const KNOWN_PENDING: Pending[] = [
     file: 'components/MarkdownView.ets', marker: 'backgroundColor(wellOf(this.pal()))',
     why: '代码块坐在 `wellOf`（凹槽面）上 ⇒ 属 L3 语义，但当前用 `hairlineOf`；well 的边界通道待统一口径（待拍板）。',
   },
-  {
-    file: 'components/PluginsSheet.ets', marker: 'backgroundColor(this.pal().appBg)',
-    why: 'L1 根**面通道** = 裸 `pal().appBg`（未走 `surfaceFillOf`），且**无** `elevationColorOf(ELEV_OVERLAY)`'
-      + ' 柔影 —— 与 MenuSheets/StatusSheet/AskUserSheet 同层级却不同面/影通道 ⇒ 改面 + 加影有观感代价（待拍板）。',
-  },
-  {
-    file: 'components/QueueSheet.ets', marker: 'backgroundColor(this.pal().appBg)',
-    why: '同 PluginsSheet：L1 根面 = `pal().appBg` + 无 `ELEV_OVERLAY` 柔影 ⇒ 待拍板。',
-  },
-  {
-    file: 'components/SelfCheckSheet.ets', marker: 'backgroundColor(this.pal().appBg)',
-    why: '同 PluginsSheet：L1 根面 = `pal().appBg` + 无 `ELEV_OVERLAY` 柔影 ⇒ 待拍板。',
-  },
+  // ✅ 2026-10-11（目标⑤ E1 待批 #1 落定）：`PluginsSheet` / `QueueSheet` / `SelfCheckSheet` 三面板的
+  //    **L1 根面**已迁到 `surfaceFillOf(p,'surface.overlay')` + 两层柔影（`shadowLayersOf(p,'overlay')`）
+  //    ⇒ 与同层级 `StatusSheet`/`AskUserSheet`/`MenuSheets` 同通道 ⇒ 台账**收缩**，三条已删。
+  //    （改回裸 `pal().appBg` ⇒ 本文件 §6「根面无裸 appBg」必红，见下方。）
 ];
 
 let pendingMissing: number = 0;
@@ -273,7 +264,7 @@ for (let i = 0; i < KNOWN_PENDING.length; i++) {
   eq(`⑤ 待批缺口仍在：${pg.file}（${pg.marker.slice(0, 28)}…）`, found, true);
 }
 eq('零扫描防线：待批台账文件全部可读', pendingMissing, 0);
-eq(`⑤ 待批台账条数 = ${KNOWN_PENDING.length}（只许缩短）`, KNOWN_PENDING.length, 7);
+eq(`⑤ 待批台账条数 = ${KNOWN_PENDING.length}（只许缩短）`, KNOWN_PENDING.length, 4);
 
 // ── ④ mutation 自证（扫描器必须有判别力）──────────────────────────────────────
 {
@@ -305,6 +296,48 @@ eq(`⑤ 待批台账条数 = ${KNOWN_PENDING.length}（只许缩短）`, KNOWN_P
   const mutated: string = base.join('\n').replace('color: hairlineOf(this.pal())', 'color: structuralRuleOf(this.pal())');
   const mutFn: string = idx >= 0 ? channelAfter(mutated.split('\n'), idx) : '';
   eq('④ mutation B：注入 structuralRuleOf ⇒ 扫描器报出 structuralRuleOf', mutFn, 'structuralRuleOf');
+}
+
+// ── ⑥ L1 顶层弹层「根面 = surfaceFillOf(p,'surface.overlay')」逐处消费点（⛔ 不得裸 pal().appBg）──
+//  背景（目标⑤ E1 待批 #1，2026-10-11）：`PluginsSheet` / `QueueSheet` / `SelfCheckSheet` 三面板的
+//  L1 根面曾是**裸** `backgroundColor(this.pal().appBg)`（RUNG_CANVAS）+ **无柔影**，与同层级
+//  `StatusSheet`/`AskUserSheet`/`MenuSheets`（现走 `surfaceFillOf(p,'surface.overlay')` + 两层柔影）不一致。
+//  修后 = 同层级同通道（面 = `surface.overlay`；影 = `shadowLayersOf(p,'overlay')` 的两元素两层落法）。
+//  本块把"**消费点计数 + 真值**"钉住：① overlay 面 marker 在（非死码）；② 裸 `pal().appBg` 归零。
+function occurrencesOf(s: string, sub: string): number {
+  let n = 0, i = 0;
+  while ((i = s.indexOf(sub, i)) >= 0) { n++; i += sub.length; }
+  return n;
+}
+const L1_ROOT_FILES: string[] = [
+  'components/PluginsSheet.ets', 'components/QueueSheet.ets', 'components/SelfCheckSheet.ets',
+];
+const OVERLAY_MARKER: string = "backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))";
+const BARE_APPBG_MARKER: string = 'backgroundColor(this.pal().appBg)';
+let l1Overlay: number = 0;
+let l1Bare: number = 0;
+const l1Report: string[] = [];
+for (let i = 0; i < L1_ROOT_FILES.length; i++) {
+  const src: string = linesOf(L1_ROOT_FILES[i]).join('\n');
+  const ov: number = occurrencesOf(src, OVERLAY_MARKER);
+  const ba: number = occurrencesOf(src, BARE_APPBG_MARKER);
+  l1Overlay += ov;
+  l1Bare += ba;
+  l1Report.push(`${L1_ROOT_FILES[i]}  overlay=${ov}  裸appBg=${ba}`);
+  eq(`⑥ ${L1_ROOT_FILES[i]} 根面走 surfaceFillOf('surface.overlay')（≥1 处，逐处计数）`, ov >= 1, true);
+  eq(`⑥ ${L1_ROOT_FILES[i]} 根面**无**裸 pal().appBg（同层级统一）`, ba, 0);
+}
+console.log('  ── ⑥ 三面板 L1 根面（逐处消费点 + 真值）──');
+for (let i = 0; i < l1Report.length; i++) { console.log(`    ${l1Report[i]}`); }
+eq('零扫描判红：三面板 L1 overlay 面消费点合计 > 0', l1Overlay > 0, true);
+eq('⑥ 三面板 L1 裸 appBg 合计 = 0（全部收敛到 overlay 面）', l1Bare, 0);
+{
+  // mutation：把某面板的 overlay 根面改回裸 `pal().appBg` ⇒ "无裸 appBg" 判据必须**必红**。
+  const baseSrc: string = linesOf(L1_ROOT_FILES[0]).join('\n');
+  eq('⑥ mutation 前提：基线该文件确有 overlay 面 marker', occurrencesOf(baseSrc, OVERLAY_MARKER) > 0, true);
+  const mutated: string = baseSrc.replace(OVERLAY_MARKER, BARE_APPBG_MARKER);
+  eq('⑥ mutation：根面改回裸 pal().appBg ⇒ 裸 appBg 计数 > 0（判别力自证，必红）',
+    occurrencesOf(mutated, BARE_APPBG_MARKER) > 0, true);
 }
 
 if (fail > 0) {

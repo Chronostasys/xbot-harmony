@@ -18,14 +18,17 @@
  * ── 视觉语言（2026-10-11，与 `PluginHost` 对齐）──────────────────────────────
  * 「能力面板」是 `PluginHost`（原生插件目录）的**入口载体** ⇒ 用同一套语义令牌：
  *   · 字阶 = 语义排版档 `type.*`（标题 `type.headline` / 行名 `type.callout` / 说明 `type.caption`）；
- *   · 行卡 = `surfaceFillOf(p, SURFACE_CARD)` + **结构性发丝** `hairlineOf(p)` + `RADIUS_CARD`；
+ *   · 根面（L1 顶层弹层）= `surfaceFillOf(p,'surface.overlay')`（浮层语义面，不透明）+ 结构性发丝
+ *     `hairlineOf(p)` + **两层柔影** `shadowLayersOf(p,'overlay')`（浅色 = 贴合 + 环境；深色 = near 透明
+ *     + 该档原值）—— 与同层级 `StatusSheet`/`AskUserSheet`/`MenuSheets` 同通道（web `bg-bg-elevated` = 浮层面）；
+ *   · 行卡 = `surfaceFillOf(p, SURFACE_CARD)` + **面→面轮廓** `structuralRuleOf(p)` + `RADIUS_CARD`；
  *   · 内距 = `INSET_ROW_X/Y`；行间距 = `GAP_ROW_Y`；
  *   · 按压走全站唯一 `PRESS_OPACITY`；行命中区 ≥ `HIT_TARGET_MIN`（`constraintSize`）；
  *   · 关闭按钮热区用 `responseRegion` 外扩（⛔ 不改布局/视觉尺寸）。
  * ⛔ 颜色不写 hex；状态行的色走 `pluginPanelStatus().colorRole`（`core/pluginview.ets` 产出的合法角色）；
  *    浅/深分叉只走 `isLightPalette(paletteOf(theme))`。
  */
-import { Palette, paletteOf } from '../core/theme';
+import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import { PluginCatalogItem } from '../core/pluginhost';
 import { PluginPanelStatus, pluginMetaText, pluginPanelStatus } from '../core/pluginview';
 // 插件图标映射**唯一出口** = `PluginHost` 的 `pluginSymbol`（19/19 覆盖 web `ICON_MAP`）——
@@ -82,6 +85,11 @@ export struct PluginsSheet {
     return pluginPanelStatus(this.loading, this.plugins.length, this.groupCount, this.error);
   }
 
+  /** 本弹层的两层柔影（浅色 = 贴合 + 环境；深色 = 透明 + 原值）—— `core/theme.shadowLayersOf`。 */
+  private sheetLayers(): ShadowLayer[] {
+    return shadowLayersOf(this.pal(), 'overlay');
+  }
+
   /** 一行「跳转入口」（能力面板的两条固定入口：原生目录 / 完整 Web UI）。 */
   @Builder
   EntryRow(label: string, onClick: () => void) {
@@ -102,120 +110,143 @@ export struct PluginsSheet {
   }
 
   build() {
-    Column({ space: SPACE_XS }) {
-      Row() {
-        Text('能力面板').fontSize(fs('type.headline')).fontWeight(fw('type.headline'))
-          .fontColor(this.pal().textPrimary).layoutWeight(1)
-        // ⛔ 关闭 X：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`。
+    // ── 多层柔影（C3 推广，G1）：`shadowLayersOf` 恒返 [near, far] ─────────────────────────
+    // 浅色：near = 贴合影（`elev2` 小半径）、far = 环境影（大半径）⇒ "落在纸面上"；
+    // 深色：near **透明**（零成本、不渲染）、far = 该档原值 ⇒ 净观感**逐字节不变**。
+    // ⛔ ArkUI 每元素只能挂一层 `.shadow()` ⇒ 外层 `Stack` 承载 far（同 `SyntheticCard` 范例）。
+    Stack() {
+      Column({ space: SPACE_XS }) {
         Row() {
-          SymbolGlyph($r('sys.symbol.xmark')).fontSize(ICON_LG)
-            .fontColor([this.pal().textSecondary])
-        }
-        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
-        .justifyContent(FlexAlign.Center)
-        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('关闭')
-        .onClick(() => {
-          this.onClose();
-        })
-      }.width('100%')
-
-      Text('原生渲染聊天主链路；下列能力由 ArkWeb 承载（与 Web 版同源、能力一致）：')
-        .fontSize(fs('type.caption')).fontColor(this.pal().textSecondary).width('100%')
-
-      List() {
-        // 原生插件目录（components/PluginHost）：列出所有插件/视图贡献点，点开在宿主页运行
-        ListItem() {
-          this.EntryRow('插件目录（原生）', (): void => {
-            this.onOpenPluginHost();
-          })
-        }
-        // 完整 Web UI（插件 / GenUI / 终端 / 编辑器都在里面）
-        ListItem() {
-          this.EntryRow('完整 Web UI', (): void => {
-            this.onOpenWebUi();
-          })
-        }
-
-        // ── 三态状态行：加载 / 失败(+重试) / 空 ──────────────────────────────────
-        if (this.status().show) {
-          ListItem() {
-            Column({ space: SPACE_SM }) {
-              Text(this.status().text)
-                .fontSize(fs('type.callout'))
-                .fontWeight(fw('type.callout'))
-                .fontColor(colorOf(this.pal(), this.status().colorRole))
-                .width('100%')
-                // ⛔ **水平溢出**（2026-10-11）：状态行会承载**失败详情/错误原文**（含 URL、路径、
-                //    base64 这类**不可断串**）⇒ 必须允许任意字符处断行，否则一行顶出屏宽。
-                .wordBreak(WordBreak.BREAK_ALL)
-                .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
-              if (this.status().canRetry) {
-                Row() {
-                  Text('重试').fontSize(fs('type.caption')).fontWeight(fw('type.caption'))
-                    .fontColor(this.pal().accentSoft)
-                }
-                .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
-                .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
-                .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))
-                .borderRadius(RADIUS_CARD)
-                .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
-                .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-                .onClick(() => {
-                  this.onRetry();
-                })
-              }
-            }
-            .width('100%')
+          Text('能力面板').fontSize(fs('type.headline')).fontWeight(fw('type.headline'))
+            .fontColor(this.pal().textPrimary).layoutWeight(1)
+          // ⛔ 关闭 X：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`。
+          Row() {
+            SymbolGlyph($r('sys.symbol.xmark')).fontSize(ICON_LG)
+              .fontColor([this.pal().textSecondary])
           }
-        }
+          .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+          .justifyContent(FlexAlign.Center)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .accessibilityText('关闭')
+          .onClick(() => {
+            this.onClose();
+          })
+        }.width('100%')
 
-        // ── 插件行（图标 / 名称 / v版本·state / 描述 / 打开）──────────────────────
-        // ⛔ 三态期间（加载/失败）不画空列表；有数据时才逐行渲染。
-        ForEach(this.plugins, (p: PluginCatalogItem) => {
+        Text('原生渲染聊天主链路；下列能力由 ArkWeb 承载（与 Web 版同源、能力一致）：')
+          .fontSize(fs('type.caption')).fontColor(this.pal().textSecondary).width('100%')
+
+        List() {
+          // 原生插件目录（components/PluginHost）：列出所有插件/视图贡献点，点开在宿主页运行
           ListItem() {
-            Row({ space: SPACE_XS }) {
-              SymbolGlyph(pluginSymbol(p.icon))
-                .fontSize(PLUGIN_ICON)
-                .fontColor([this.pal().accentSoft])
-              Column({ space: SPACE_XS }) {
-                Row({ space: SPACE_XS }) {
-                  Text(p.name).fontSize(fs('type.callout')).fontColor(this.pal().textPrimary)
-                    .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
-                  if (pluginMetaText(p.version, p.state).length > 0) {
-                    Text(pluginMetaText(p.version, p.state))
-                      .fontSize(fs('type.micro')).fontColor(this.pal().textMuted)
-                      // ⚠️ 这一处原为 `flexShrink(0)` —— 但它是**文本**（版本/状态由插件给，可能很长）
-                      // ⇒ 顶宽、把 `Row` 撑爆（全仓 11 处 `flexShrink(0)` 里唯一挂在文本上的）。
-                      // ⇒ 改为**可收缩 + 单行省略**（`p.name` 那侧的 `layoutWeight(1)` 保持不动）。
-                      .flexShrink(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                  }
-                }.width('100%').alignItems(VerticalAlign.Center)
-                if (p.description.length > 0) {
-                  Text(p.description)
-                    .fontSize(fs('type.caption')).fontColor(this.pal().textMuted)
-                    .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
-                }
-              }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-              Text('打开').fontSize(fs('type.caption')).fontColor(this.pal().accentSoft)
-            }
-            .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
-            .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
-            .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))
-            .borderRadius(RADIUS_CARD)
-            .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
-            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-            .margin({ bottom: GAP_ROW_Y })
-            .onClick(() => {
-              this.onOpenPlugin(p);
+            this.EntryRow('插件目录（原生）', (): void => {
+              this.onOpenPluginHost();
             })
           }
-        }, (p: PluginCatalogItem) => `${p.id}#${p.url}`)
-      }
+          // 完整 Web UI（插件 / GenUI / 终端 / 编辑器都在里面）
+          ListItem() {
+            this.EntryRow('完整 Web UI', (): void => {
+              this.onOpenWebUi();
+            })
+          }
+
+          // ── 三态状态行：加载 / 失败(+重试) / 空 ──────────────────────────────────
+          if (this.status().show) {
+            ListItem() {
+              Column({ space: SPACE_SM }) {
+                Text(this.status().text)
+                  .fontSize(fs('type.callout'))
+                  .fontWeight(fw('type.callout'))
+                  .fontColor(colorOf(this.pal(), this.status().colorRole))
+                  .width('100%')
+                  // ⛔ **水平溢出**（2026-10-11）：状态行会承载**失败详情/错误原文**（含 URL、路径、
+                  //    base64 这类**不可断串**）⇒ 必须允许任意字符处断行，否则一行顶出屏宽。
+                  .wordBreak(WordBreak.BREAK_ALL)
+                  .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+                if (this.status().canRetry) {
+                  Row() {
+                    Text('重试').fontSize(fs('type.caption')).fontWeight(fw('type.caption'))
+                      .fontColor(this.pal().accentSoft)
+                  }
+                  .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
+                  .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+                  .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))
+                  .borderRadius(RADIUS_CARD)
+                  .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
+                  .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+                  .onClick(() => {
+                    this.onRetry();
+                  })
+                }
+              }
+              .width('100%')
+            }
+          }
+
+          // ── 插件行（图标 / 名称 / v版本·state / 描述 / 打开）──────────────────────
+          // ⛔ 三态期间（加载/失败）不画空列表；有数据时才逐行渲染。
+          ForEach(this.plugins, (p: PluginCatalogItem) => {
+            ListItem() {
+              Row({ space: SPACE_XS }) {
+                SymbolGlyph(pluginSymbol(p.icon))
+                  .fontSize(PLUGIN_ICON)
+                  .fontColor([this.pal().accentSoft])
+                Column({ space: SPACE_XS }) {
+                  Row({ space: SPACE_XS }) {
+                    Text(p.name).fontSize(fs('type.callout')).fontColor(this.pal().textPrimary)
+                      .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+                    if (pluginMetaText(p.version, p.state).length > 0) {
+                      Text(pluginMetaText(p.version, p.state))
+                        .fontSize(fs('type.micro')).fontColor(this.pal().textMuted)
+                        // ⚠️ 这一处原为 `flexShrink(0)` —— 但它是**文本**（版本/状态由插件给，可能很长）
+                        // ⇒ 顶宽、把 `Row` 撑爆（全仓 11 处 `flexShrink(0)` 里唯一挂在文本上的）。
+                        // ⇒ 改为**可收缩 + 单行省略**（`p.name` 那侧的 `layoutWeight(1)` 保持不动）。
+                        .flexShrink(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                    }
+                  }.width('100%').alignItems(VerticalAlign.Center)
+                  if (p.description.length > 0) {
+                    Text(p.description)
+                      .fontSize(fs('type.caption')).fontColor(this.pal().textMuted)
+                      .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+                  }
+                }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                Text('打开').fontSize(fs('type.caption')).fontColor(this.pal().accentSoft)
+              }
+              .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
+              .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+              .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))
+              .borderRadius(RADIUS_CARD)
+              .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .margin({ bottom: GAP_ROW_Y })
+              .onClick(() => {
+                this.onOpenPlugin(p);
+              })
+            }
+          }, (p: PluginCatalogItem) => `${p.id}#${p.url}`)
+        }
       .height(320).width('100%')
+      }
+      .width('100%').padding(SPACE_MD)
+      .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
+      .borderRadius(RADIUS_SHEET)
+      .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+      // 贴合层（near）：浅色 = `elev2` 小半径贴合影；深色 = 透明（不渲染 ⇒ 净观感不变）。
+      .shadow({
+        radius: this.sheetLayers()[0].radius,
+        color: this.sheetLayers()[0].color,
+        offsetX: 0, offsetY: this.sheetLayers()[0].offsetY,
+      })
     }
-    .width('92%').padding(SPACE_MD).backgroundColor(this.pal().appBg)
-    .borderRadius(RADIUS_SHEET).border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+    // 环境层（far）：浅色 = 大半径环境柔影；深色 = 该档原值（`glow`，逐字节不变）。
+    .width('92%')
+    .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
+    .borderRadius(RADIUS_SHEET)
+    .shadow({
+      radius: this.sheetLayers()[1].radius,
+      color: this.sheetLayers()[1].color,
+      offsetX: 0, offsetY: this.sheetLayers()[1].offsetY,
+    })
     // 开合过渡（E3 统一）：与其它弹层同一条 `sheetTransition()`。
     .transition(sheetTransition())
   }
