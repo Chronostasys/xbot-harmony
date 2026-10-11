@@ -819,3 +819,25 @@ Usage of standard library is restricted (arkts-limited-stdlib)
   1. 只用**严格 pathspec**：`git add -- <确切文件>`（⛔ 不用 `git add -A/./-u`）；
   2. **提交前**核一遍 `git diff --cached --name-only`，必须**恰好**等于你打算提交的文件集；
   3. 已被扫进来 ⇒ `git reset --soft HEAD~1` 拆开重提，⛔ 别用 `--amend` 掩盖（会把别人的改动一起改写）。
+
+## 批次 25：动效 API 分两类 —— **循环/重复** vs **一次性过渡**（2026-10-11，机器门禁 `tools/lint/inflight-single-source.sh`）
+
+- **铁律**（`docs/DESIGN-SYSTEM.md §8`）：**同一时刻只允许一个"在飞动效" = 光球（`AssistantOrb`）**。
+  可"哪些 API 算在飞"以前只靠自觉 ⇒ 直到写成机器判据才有共识：
+
+| 类 | API | 判定 |
+|---|---|---|
+| **A 硬红** | `ScaleSymbolEffect` / `PulseSymbolEffect` / `BounceSymbolEffect` / `VariableColorSymbolEffect`（`isActive=true` 期间**反复播放**）；`AnimateParam.iterations ≠ 1`；`playMode` | 白名单（`components/AssistantOrb.ets` + `components/anim.ets` + `core/motion.ets`）**之外**出现即红 |
+| **B 警告** | 内置连续动画组件 `LoadingProgress(` / `Marquee(`；**内联** `{duration, curve}` 字面量的 `animateTo` / `.animation()` | 需人判断（可能是"操作进度"= 合法）／"魔法时长散落" ⇒ 应收敛走 `anim.ets` |
+| **允许** | 一次性 SymbolEffect 子类（`Appear`/`Disappear`/`Replace`/`Hierarchical`）、`animateTo(animXxx(), …)`、`.animation(animXxx())`、`keyframeAnimateTo` | 一次性过渡 —— 但**必须**走动效底座 `components/anim.ets` |
+
+- **判据设计要点**：⛔ **不要 grep `animateTo`**（一次性过渡也用它）——要按"是否**产生重复**"分类；
+  跳过注释行；API 必须带 `(`（是真调用，不是注释/字符串里提到名字）。
+- **节奏契约（§8.1）**：在飞组里任何呼吸/脉冲/闪烁都必须是主呼吸刻度的**整数分数或倍数**
+  （1× / 1/4 / 1/8）——`ScaleSymbolEffect` 用的是**系统自带节奏** ⇒ 不在刻度上 = "新造了一套时长"。
+- **战绩**：门禁上线即抓到一处**真违规** —— `components/ToolVisual.ets:84` 排队态的 `ScaleSymbolEffect`
+  （系统节奏 + 挂在**语义最安静**的 `muted` 档 ⇒ **视觉层级倒置**：排队比执行中更抓眼）
+  ⇒ 批次23 裁定**删除**（静态标记的最终形态归设计系统 `docs/REDESIGN.md §4.4`）。⚠️ 但 `ToolVisual.ets`
+  运行态的 `LoadingProgress()` **保留**（它 = "工具身份"，用户明确否掉过静态字符）。
+- **豁免**：`tools/lint/inflight-allowlist.txt`，格式 `<相对路径>|<API标签> # <理由>`；
+  **理由必填**（去空白 ≥8 字符，无理由**不生效** = 门禁仍红）。
