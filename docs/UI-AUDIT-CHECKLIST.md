@@ -704,3 +704,67 @@ MarkdownView **无固定数值宽容器** ⇒ **结构性命中 0**。即：**�
 **结论**：**❌=0**（无自造曲线 / 无越权 `@ohos.curves` import / 过渡**零字面量时长**）；6 项 ⚠️ 缝隙（`motion-source` 在跑）：
 `animSpring()` **0 消费者死工厂**（已删，守卫同步收缩）· `MessageRow` 就地构造过渡 · `SplashOverlay` 本地 `withTiming` ·
 `core/splash.ets` 3 个"缺档"其实**底座已有**且注释过期 · 入口曲线两族（**有据**，待 `DESIGN-SYSTEM.md` 明写）· `tokens.D_BASE` 幽灵档（**已清死导入 `9627598`**）。
+
+---
+
+## 目标⑤ 剩余细节审计（2026-10-11 深晚 · `polish-states` 线）—— 五维度真源码走查
+
+> 只读审计 + **低风险实现 3 处**（见下「已实现」）。逐条 `file:line` + 现状 + 为何算缺口 + 修复方向 + 风险 + **能否机器判据**。
+> ⛔ 不动 `pages/Index.ets`（perf4 在途）/ `core/{render,markdown}` 等禁改域 —— 涉及它们的只登记。
+
+### A. 静态态（空态 / 加载 / 错误）
+
+| # | 位置 | 现状 | 为何是缺口 | 修复方向 | 风险 | 机器判据 |
+|---|---|---|---|---|---|---|
+| A1 | `components/QueueSheet.ets:81`（旧） | 队列被「清空」清成 0 条后面板**仍开着** ⇒ 只剩标题「待发队列 (0)」+ 300 高空白 `List` | §10「空态 = 一行小字」家族里**唯一**没有空态分支的弹层；用户点「清空」后读不出"清干净了/本就空" | 补空态分支（`type.callout`+`textMuted`，同 `SearchHitsSheet`/`AskUserSheet`/`StatusSheet`） | 低 | ✅ **已实现 + 钉住**（`polish_states_press.test.ts` A） |
+| A2 | `SettingsAbout.ets:283` vs `SettingsChannels.ets:1006`/`SettingsLlm.ets:1050`/`SettingsPlugins.ets:757`/`SettingsStorage.ets:285`/`SettingsTools.ets:146`/`SettingsWebUsers.ets:186` | 同一句「加载中…」：About 走 `secondaryText()`（**light = textSecondary**），其余 6 处走 `pal().textMuted` | 三主题下次级层级不一致（同一加载行） | 收一个原子（单一色 role） | **中**（色 role 属**对比度域**，已由别线收口 ⇒ ⛔ 本线不碰） | 可（形态+色 role 计数）；但**域外**，登记 |
+| A3 | `SettingsDeveloper.ets:331-334` | 「导出失败：…」内联 `Text(dangerText, FS_CAPTION)` | 全仓错误态口径 = `SettingsErrorBar`；此处不同族 | 视语义决定（动作级瞬时错误，可保留） | 低 | 可（形态）；价值低，登记 |
+| A4 | `pages/Index.ets:6896-6900`（模型列表面板） | `llmCfg === undefined` ⇒ **恒**显示 spinner +「正在读取模型列表…」；**无错误分支** ⇒ 拉失败永久转圈 | "加载中"与"加载失败"不可分（§10 三态缺失） | 加错误分支（需服务端给失败信号） | **禁改域**（Index.ets 归 perf4） | 只登记 |
+| A5 | 空态文案标点不统一 | 弹层空态无句号（`AskUserSheet:137`/`StatusSheet:155`/`SearchHitsSheet:229`）；设置分区空态带句号（`SettingsChannels:1009` 等） | 同一"空"两套标点 | 各自成体系（弹层/分区），可不改 | 低 | 可；价值低，登记 |
+
+### B. 按压 / 焦点反馈（死可点区）
+
+| # | 位置 | 现状 | 为何是缺口 | 修复方向 | 风险 | 机器判据 |
+|---|---|---|---|---|---|---|
+| B1 | `AskUserSheet.ets:127`（旧） | 关闭 X 的 `pressed` 值 = `DISABLED_OPACITY`(0.4) | 0.4 是**禁用态**语义；其它 4 个弹层的 X 都是 `PRESS_OPACITY`(0.6) ⇒ 同一"关闭 X"两档 | 改 `PRESS_OPACITY` | 低 | ✅ **已实现 + 钉住**（判据 C1） |
+| B2 | `SplashOverlay.ets:179`（旧） | 「轻点跳过」`pressed` 写字面量 `0.6` | 与 token 同值的裸魔数（漂移风险） | 改 `PRESS_OPACITY`（零视觉） | 低 | ✅ **已实现 + 钉住**（判据 C2） |
+| B3 | `QueueSheet.ets:58`（旧） | 「清空」命中区只靠 `padding` 撑（≈28~32 < 44） | 低于 Apple HIG；`hit_target_gate` 只抓**显式** height，抓不到 padding 撑高 ⇒ 规则洞 | `constraintSize({minHeight: HIT_TARGET_MIN})`（**零布局变化**） | 低 | ✅ **已实现 + 钉住**（判据 B） |
+| B4 | 全仓 `Text(...).padding(...)` 撑高的可点 pill（≈40+ 处，见 `SettingsRows`/`Settings*`/`GoalBanner`/`ThinkingLine`/`ToolPopover`） | 多处靠 padding 撑高，未显式 ≥44 | 同上规则洞（面广） | 逐处判语义（有的行高已够） | **中**（面广 + 观感） | 只登记（下轮系统性做） |
+| B5 | `TodoPanel.ets:134/204/371`、`MessageNav` 条目等 | 内层可点元素无自身 `stateStyles`，靠**祖先** Row 的 press | ⛔ 本仓既有判据（`interactive_feedback`）**认祖先 press** ⇒ 不算缺口 | — | — | 已覆盖，无需动 |
+| B6 | `components/**` 的 `Interrupt` 等**旁路 toast**（`MarkdownView:442`/`SettingsAbout:238,246` 走系统 `promptAction.showToast`；`Index.ets` 走自绘 `Toast`） | 同一动作（复制）在**不同落点**给不同反馈（系统 toast vs 品牌 toast） | 与 `Toast.ets` 头注"取代系统 toast"的目标分叉；系统 toast 不跟设计系统 | 需把 `onToast` 逐层接到页面（**Index.ets 禁改**）⇒ 本线做不完 | 中 | 只登记（需 Index 接线） |
+
+### C. 层级与节奏（间距/圆角/发丝线/字重/图标）
+
+| # | 位置 | 现状 | 为何是缺口 | 修复方向 | 风险 | 机器判据 |
+|---|---|---|---|---|---|---|
+| C1 | `QueueSheet.ets:56` / `SelfCheckSheet.ets:37` vs `PluginsSheet.ets:107` / `AskUserSheet.ets:110` / `StatusSheet.ets:129` | 弹层标题：两个走 `FS_TITLE`(16)，三个走 `type.headline`(17)；且 `lh/tk` 有的写有的不写 | 同一弹层族标题字阶/修饰不统一 | 统一到 `type.headline` role | **中**（视觉 16→17，需真机看） | 可（形态），但**观感项 ⇒ 留真机线** |
+| C2 | `SyntheticCard.ets:171`(13) / `QueueSheet.ets:122`(15) / `SettingsDeveloper.ets:410`(8) / `PluginHost.ets:292`(18),:391(16) | 图标 `fontSize` 用字面量（不走 `ICON_*` / `MARKER_GLYPH`） | 图标尺寸档不齐 | 逐处判语义后收编 | **中**（改视觉） | 可；⛔ 观感项 ⇒ 留真机线 |
+| C3 | `PluginsSheet.ets:214`(h320) / `QueueSheet.ets:150`(h300) / `MenuSheets.ets:64`(420) / `AskUserSheet.ets:63`(420) / `MessageNav.ets:51`(420) | 面板/列表最大高hand-rolled：300/320/420 | 同族弹层高度无统一档 | 需**新 token**（`core/design.ets` ⛔ 禁改域） | **中** | 只登记（需 design.ets 增 token） |
+| C4 | `SettingsAbout/Account/Developer/Llm` 用 `pal().border`/`pal().surfaceAlt` 直取 | 与新区组件（`hairlineOf`/`surfaceFillOf`）不同族 | 面/边语义 token 未全量收口 | 归 **surface_alias 域**（别线） | — | ⛔ 域外，不碰 |
+
+### D. 过渡（出现过渡 + fail-safe 静息态）
+
+| # | 位置 | 现状 | 结论 |
+|---|---|---|---|
+| D1 | 全仓组件的 `.transition()`/`.transition(sheetTransition())` | 门禁 ⑨（`anim-opacity-gate.sh`）已硬红 A 级 `x?1:0` 形态、警告 B 级 | ✅ 已收口；本波**未新增任何动效**（motion_budget 台账不变） |
+
+### E. 深浅双主题 + porcelain（次级差异）
+
+| # | 位置 | 现状 | 结论 |
+|---|---|---|---|
+| E1 | 角色层对比度 | `theme_contrast` / `role_surface_matrix` / `porcelain_*` 全量收口 | ✅ 已由对比度线收口；本线**只登记 A2/C4**（域外） |
+
+### 本波「已实现」三项（`40c670c`）
+
+1. **A1** `QueueSheet` 空态（补 §10 口径一行小字）；
+2. **B3** `QueueSheet` 「清空」命中区 ≥44（**零布局变化**：同级常有 44 关闭盒）；
+3. **B1+B2** 按压值一致性（`AskUserSheet` X `DISABLED_OPACITY`→`PRESS_OPACITY`；`SplashOverlay` 字面量 `0.6`→`PRESS_OPACITY`）。
+
+判据：`tools/tests/polish_states_press.test.ts`（13 passed；形态断言 + 剥注释 + **零扫描判红** + **5 条 mutation 自证**）。
+⛔ 本波**无观感项**（3 处均零视觉或纯补缺）。
+
+### ⚠️ 只能真机验证（本波**未**装机，别当"已验好看"）
+
+- 队列**空态**出现时机与观感（点「清空」后的一行小字）；「清空」按压/命中手感；
+- 关闭 X 的按压深度（0.4→0.6，弹层间一致性）；
+- **A3/A4/B6/C1/C2/C3/C4** 全部**未做**（原因见各行"修复方向/风险/域"）——其中 C1/C2 属**观感项**、A2/C4 属**对比度/surface_alias 域**、A4/B6 需改 `pages/Index.ets`（禁改域）。
