@@ -603,6 +603,8 @@ web：`reasoningCount = reasoningStreaming ? rw.visibleChars : length`，且**�
 | 3 | 同一迭代内工具**出现顺序** | `dedupTools` 按生命周期分组（streaming→active→completed）⇒ 完成的被排到末尾 | **首现序**（arrival 固定） | 首现序**不随状态重排** ⇒ 流式期列表不"跳位"；web 的分组会重排 | 22 |
 | 4 | pill 的**身份键** | `FoldedToolGroup.tsx:557`：`${name}-${i}` | `turnID:iter:name#call_id`（无 `call_id` 才用同迭代下标兜底） | 同一工具多次调用 / 列表重排时 `name-i` 会串味；`call_id` 是服务端给的稳定身份 | 22（我接线时已把 `LiveTailView` 的 ForEach key 去掉了 `t.status`） |
 | 5 | "状态→文案/色"的实现份数 | 2 份（`statusColorVar` + `singleStatus`） | **1 份**（`core/toolstatus`）+ 渲染层唯一角色映射表 `ToolVisual.statusColorOf` | 用户两次报 bug 的共同根因就是「**同一信息两处判据**」；已加**机器门禁** `tools/lint/criteria-single-source.sh`（规则 B） | 22 |
+| 6 | 代码块**语法高亮配色来源** | 每套 md 主题的 hljs CSS 变量（`web/src/styles/markdown-themes.css`，20+ 变量/套） | **全局语义色板角色**（`core/mdview.codeRoleColor`，与 `ToolPopover.keyColor` **同源**）+ 对**代码底**做**对比度护栏**（不达标 ⇒ 退回该 md 主题代码字色 `codeFgOf`） | ① 全 App 只保留**一套**"语法色"（避免 MarkdownView / ToolPopover 两套打架）；② 23 套 × 20 变量搬进 ArkTS 属**外观**决策，归 `design-lead` 的 `core/design.ets`；③ 护栏保证任意"全局主题 × md 主题"组合都不会"深压深/浅压浅"。**消除条件**：`core/design.ets` 给出 per-md-theme token 色后，只改 `codeRoleColor` 一处即可（判据已隔离在 `core/mdview`，组件零改动）。断言：`tools/tests/mdview_perf.test.ts`（token×主题 全组合护栏）。 | 23 |
+| 7 | **两条明暗轴**（`isLightPalette` × `isLightMdTheme`）仍并存 | 只有一套 CSS 变量体系（`[data-md-theme]` 整体覆盖） | 代码块底/字仍来自 md 主题（`codeBgOf`）⇒ 存量 `codeChromeOnTone`/`codeStripBg`/`codeStripAction` 仍需交叉判断 | **本单无法消除**（不属"功能/性能"口径）：md 主题是**用户可见功能**（与 web 共享 `web:ui:md-theme`），移除 = 功能回归。本单只让**新增路径单轴化**（`codeTokenColor` 用对比度护栏而非第二明暗轴）；存量三分叉的收敛需 `core/design.ets` 先给出"代码面色角色"，归 `design-lead`。 | 23 |
 
 **三条防复发断言（缺一不可）**：
 ① 陈旧 `pending` 不得覆盖新的 `running`/`done`（rank 终态优先）；
