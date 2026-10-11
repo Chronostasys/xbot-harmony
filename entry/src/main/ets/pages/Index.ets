@@ -99,6 +99,8 @@ import { MessageNav } from '../components/MessageNav';
 import { PluginHost } from '../components/PluginHost';
 import { GoalBanner } from '../components/GoalBanner';
 import { TodoPanel } from '../components/TodoPanel';
+import { StatusSheet } from '../components/StatusSheet';
+import { sheetTransition } from '../components/anim';
 import { rpc } from '../core/rpc';
 import { TodoPayloadRow, removeTodoAt, renameTodoAt, todoPayloadRows, toggleTodoAt } from '../core/todos';
 import { WebSubAgentProgress } from '../core/chattypes';
@@ -2491,7 +2493,25 @@ struct Index {
           }.width('100%').height('100%').onClick(() => {
             this.showStatus = false;
           })
-          this.StatusSheet()
+          // 会话状态面板（P1 抽出为组件：`components/StatusSheet.ets`）——判据仍在页面算，
+          // 组件只吃算好的字符串 + 两个回调（弹层开关所有权留在页面，见 core/overlays.topOverlay）。
+          StatusSheet({
+            theme: this.themeName,
+            goalLine: this.goalLine(),
+            usageText: usageText(this.usage),
+            modelName: this.currentModelName(),
+            ctxText: this.ctxText(),
+            cwd: this.cwd,
+            onClose: () => {
+              this.showStatus = false;
+            },
+            onOpenModel: () => {
+              this.anim(() => {
+                this.showModel = true;
+              });
+              this.store?.loadLlmConfig();
+            },
+          })
         }.width('100%').height('100%')
       }
       // 模型 / 上下文上限选择栏
@@ -3762,12 +3782,7 @@ struct Index {
     return n > 0 ? row.iterations[n - 1].iteration : 0;
   }
 
-  /** 面板/弹层的统一出入场：从下滑入 + 淡入（只用 transform/opacity）。 */
-  private sheetTransition(): TransitionEffect {
-    return TransitionEffect.translate({ y: 260 })
-      .animation({ duration: 220, curve: Curve.Friction })
-      .combine(TransitionEffect.OPACITY.animation({ duration: 180 }));
-  }
+  /** 面板/弹层的统一出入场（唯一实现搬去了 `components/anim.ets`：动效只许一个出口）。 */
 
   // ── P11：输入体验 ────────────────────────────────────────────────────────
 
@@ -4894,7 +4909,7 @@ struct Index {
     .borderRadius({ topLeft: R_2XL, topRight: R_2XL })
     .border({ width: 1, color: this.eff().glassBorder })
     .alignItems(HorizontalAlign.Start)
-    .transition(this.sheetTransition())
+    .transition(sheetTransition())
   }
 
   /** 面板：四个标签各拉一个端点（定时任务 / 后台任务 / 子代理 / Runner）。 */
@@ -5006,7 +5021,7 @@ struct Index {
     .borderRadius({ topLeft: R_2XL, topRight: R_2XL })
     .border({ width: 1, color: this.eff().glassBorder })
     .alignItems(HorizontalAlign.Start)
-    .transition(this.sheetTransition())
+    .transition(sheetTransition())
   }
 
   /** 会话操作菜单（贴底；删除需二次确认）。 */
@@ -5033,7 +5048,7 @@ struct Index {
     .border({ width: 1, color: this.eff().glassBorder })
     .padding({ bottom: 10 })
     .alignItems(HorizontalAlign.Start)
-    .transition(this.sheetTransition())
+    .transition(sheetTransition())
   }
 
   /** 会话内消息搜索结果（点一条复制该片段；只覆盖当前会话）。 */
@@ -5069,7 +5084,7 @@ struct Index {
     .border({ width: 1, color: this.eff().glassBorder })
     .padding({ bottom: 10 })
     .alignItems(HorizontalAlign.Start)
-    .transition(this.sheetTransition())
+    .transition(sheetTransition())
   }
 
   /** 菜单里的一项（点击走 `runCtxAction(code)`；@Builder 不能传闭包 ⇒ 用字符串码派发）。 */
@@ -5137,7 +5152,7 @@ struct Index {
     .border({ width: 1, color: this.eff().glassBorder })
     .padding({ bottom: 10 })
     .alignItems(HorizontalAlign.Start)
-    .transition(this.sheetTransition())
+    .transition(sheetTransition())
   }
 
   /** 一行的主体（用户气泡 / 助手块）——由 `LazyForEach` 的 `ListItem` 调用。 */
@@ -5790,7 +5805,7 @@ struct Index {
     }
     .width('92%').padding(16).backgroundColor(this.pal().appBg)
     .borderRadius(12).border({ width: 1, color: this.pal().border })
-    .transition(this.sheetTransition())
+    .transition(sheetTransition())
   }
 
   /** 切模型（带 sub_id；防连点；失败把原因原样告诉用户）。 */
@@ -5861,89 +5876,6 @@ struct Index {
   /** 该模型是否可选（禁用的不给点）。 */
   private modelSelectable(e: LlmModelEntry): boolean {
     return selectable(e);
-  }
-
-  /** 会话状态面板：goal + 用量 / 模型 / 上下文上限 / 工作路径（服务端权威值，不做本地推算；
-   *  排版对齐 web `SessionInfo.tsx` 的 `InfoRow`：标签左、值右，每项仅出现一次）。 */
-  @Builder
-  StatusSheet() {
-    Column({ space: 10 }) {
-      Row() {
-        Text('会话状态').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
-        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
-.onClick(() => {
-          this.showStatus = false;
-        })
-      }.width('100%')
-
-      if (this.goalLine().length > 0) {
-        Text(this.goalLine()).fontSize(13).fontColor(this.pal().warn).width('100%')
-          .wordBreak(WordBreak.BREAK_ALL)
-      }
-      // ⛔ 不再整体渲染 `statusBarText()`：它是「模型 · 用量 · todos · cwd」四段拼接，
-      //    而模型 / 工作路径在下方各有**专属行** ⇒ 同一信息两处（"不干净"）。改为逐项成行。
-      //    排版口径 = web `SessionInfo.tsx` 的 `InfoRow`：**标签左（次级色）、值右（主色）**，
-      //    每项只出现一次 ⇒ 一眼可扫、层级单一。
-      Row() {
-        Text('用量').fontSize(12).fontColor(this.pal().textSecondary)
-        Text(usageText(this.usage).length > 0 ? usageText(this.usage) : '—')
-          .fontSize(12).fontColor(this.pal().textPrimary)
-          .layoutWeight(1).textAlign(TextAlign.End)
-          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-      }.width('100%')
-
-      Row() {
-        Text('模型').fontSize(12).fontColor(this.pal().textSecondary)
-        Text(this.currentModelName())
-          .fontSize(12).fontColor(this.pal().textPrimary)
-          .layoutWeight(1).textAlign(TextAlign.End)
-          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-      }.width('100%')
-
-      if (this.ctxText().length > 0) {
-        Row() {
-          Text('上下文上限').fontSize(12).fontColor(this.pal().textSecondary)
-          Text(this.ctxText())
-            .fontSize(12).fontColor(this.pal().textPrimary)
-            .layoutWeight(1).textAlign(TextAlign.End)
-            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-        }.width('100%')
-      }
-
-      if (this.cwd.length > 0) {
-        Row() {
-          Text('工作路径').fontSize(12).fontColor(this.pal().textSecondary)
-          Text(this.cwd)
-            .fontSize(11).fontColor(this.pal().textPrimary).fontFamily('monospace')
-            .layoutWeight(1).textAlign(TextAlign.End)
-            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-            .copyOption(CopyOptions.LocalDevice)
-        }.width('100%')
-      }
-
-      // 切换入口（模型 / 上下文上限）—— 单独一行，与上面只读信息解耦
-      Row({ space: 8 }) {
-        Text('切换模型 / 上下文上限').fontSize(12).fontColor(this.pal().accentSoft).layoutWeight(1)
-        Text('›').fontSize(14).fontColor(this.pal().accentSoft)
-      }
-      .width('100%').padding(10).backgroundColor(this.pal().surface).borderRadius(8)
-      .stateStyles({ pressed: { .opacity(0.7) }, normal: { .opacity(1) } })
-      .onClick(() => {
-        this.anim(() => {
-            this.showModel = true;
-          });
-        this.store?.loadLlmConfig();
-      })
-
-      // ⛔ 此处**不再**渲染 todo 列表（web 取证：todo 的唯一挂载点是输入框上方的
-      //    `TodoPullOut`，web 的状态/上下文弹层（`ContextBar`）里**没有** todo 列表 ——
-      //    且 `ContextBar` 在 web 已是**死代码**（只有它自己的 .test.tsx 引用））。
-      //    原生此前把全量 todo 放在这个「详情」弹层里 ⇒ 同一信息两处，且正是用户反馈
-      //    「todo 点了才显示太丑」的那一处。todo 现在只由 `TodoPanel`（composer 上方）承载。
-    }
-    .width('92%').padding(16).backgroundColor(this.pal().appBg)
-    .borderRadius(12).border({ width: 1, color: this.pal().border })
-    .transition(this.sheetTransition())
   }
 
   @Builder

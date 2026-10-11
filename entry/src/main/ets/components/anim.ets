@@ -76,3 +76,17 @@ export const MOTION_BEAT_MS: number = D_SLOW * 2;
  * （不会出现"一个还在呼吸、另一个已经定格"的打架）。
  */
 export const MOTION_QUIET_MS: number = MOTION_BREATH_MS / 4;
+
+// ── 面板/弹层出入场（**唯一实现**）─────────────────────────────────────────────
+/**
+ * 面板/弹层的统一出入场：从下滑入 + 淡入（只用 transform/opacity，不触发布局）。
+ *
+ * 原先它是 `pages/Index.ets` 的私有方法（`this.sheetTransition()`）；随 P1（抽 `StatusSheet`）
+ * 搬到这里 —— 动效只能有**一个**出口（见本文件头：`@ohos.curves` 与 UI 侧动效构造只在这一层），
+ * 否则"新的弹层组件"就要复制一份同样的数值（两份时长就开始漂移）。页面与组件一律调它。
+ */
+export function sheetTransition(): TransitionEffect {
+  return TransitionEffect.translate({ y: 260 })
+    .animation({ duration: 220, curve: Curve.Friction })
+    .combine(TransitionEffect.OPACITY.animation({ duration: 180 }));
+}
