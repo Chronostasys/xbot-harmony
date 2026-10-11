@@ -758,6 +758,50 @@ colorOf(p, 'text.pillName')   // ← docs/REDESIGN-INPUT-*.md 与 docs/mockups/*
 > `foreground3`（web `--foreground-3` 对齐）：本仓 **0 生产消费点** ⇒ **预留角色**，已登记
 > `theme_contrast.test.ts:ZERO_USE_ROLES`（⛔ 不删；接线后请纳入 §B 判定）。
 
+### 13.9 L3（内嵌凹槽）的边界通道**二分** —— 含 `AuthImage`/`MarkdownView` 例外（2026-10-12 立规）
+
+> **来源**：E1 待批 #4（`docs/WEB-ALIGNMENT.md §21` 留痕；判据侧登记见 `tools/tests/free_surface_unify.test.ts`
+> 的 `KNOWN_PENDING` 两条：`components/AuthImage.ets` / `components/MarkdownView.ets`）。
+> **问题**：`free_surface_unify.test.ts:8` 把 L3 写成「well/chip → `insetHairlineOf`」，
+> 但 `AuthImage` 图片卡（`surface.chip`）与 `MarkdownView` 代码块（`wellOf`）**都是 L3 却用 `hairlineOf`**
+> ⇒ 是"漏统一"还是"有意"？
+
+**裁定：L3 必须二分。⛔ 无条件套 `insetHairlineOf` 会把 **web 也有的浅色边**删掉。**
+
+| L3 子类 | 判据（**web 逐字**） | 通道 | 已确认成员 |
+|---|---|---|---|
+| **L3-a** 无 web 边依据 | web 侧该块**浅色也无边** | `insetHairlineOf`（深色画 / 浅色 `transparent`） | `ToolPopover` 4 处 well、`PluginHost`/`PluginWidgets` chip（`9990c4b`） |
+| **L3-b** 有 web 边依据 | web 侧该块**浅色也有边** | `hairlineOf`（**两族都画**） | `MarkdownView` 代码块、`AuthImage` 图片卡（下节逐字） |
+
+**L3-b 的逐字依据（web 只读 `/Users/bobli/src/xbot/web`）**
+
+| 本仓站点 | `file:line` | 面（rung） | 边（现状） | web 逐字 |
+|---|---|---|---|---|
+| `MarkdownView` 代码块 | `MarkdownView.ets:523-525` | `wellOf(p)`（`RUNG_SUNKEN`） | `hairlineOf` | `MarkdownRenderer.tsx:204-211` `border: "1px solid var(--md-code-border)"` + `backgroundColor: var(--md-code-bg)`；`index.css:198/302` `--md-code-border: var(--border)` ⇒ 浅 `#e0e0e0`、深 `#3c3c3c` **两族都有边** |
+| `AuthImage` 成功态图片卡 | `AuthImage.ets:88-98` | `surfaceFillOf(p, SURFACE_CHIP)`（`RUNG_SUNKEN`） | `hairlineOf` | 成功态 `MarkdownRenderer.tsx:291` 仅 `rounded object-contain`（**无边**）；**失败态** `:267-269` `border border-border bg-bg-tertiary`（**有边**） |
+| `AuthImage` 失败/兜底态 | `AuthImage.ets:122-141` | 同上 | `hairlineOf` | 同上（web 失败态 `border-border`） |
+
+⚠️ **`hairlineOf` ↔ `insetHairlineOf` 在深色三族（dark/aurora/nebula）逐字节相同**（都 = `surfacesOf(p).hairline`）
+⇒ 上述二分**只在 light / porcelain 有像素差**（L3-b 保留那道线，L3-a 没有）。
+
+**⛔ 不要硬套「内嵌卡」规格**（E1 统一的是 L2）：`AuthImage`/`MarkdownView` 的面阶是 `RUNG_SUNKEN`(4)，
+而内嵌卡是 `RUNG_RAISED`(2)（`surface.card`/`surface.pill`）+ `structuralRuleOf` + `shadowLayersOf` **两层影**
+（对照 `SyntheticCard.ets:301-319`）。硬套 = 同时改**面（色）+ 边（通道）+ 加影**；
+而 web 的 markdown 内嵌容器**一律无影**（`MarkdownRenderer.tsx` 全文无 `shadow`；`index.css:532-594` 的
+`.markdown-body` 段无 `shadow`）⇒ **硬套会错**。
+
+**登记（本轮只立规、不改代码；两条均"需拍板"）**
+
+1. `AuthImage` **加载态**（`AuthImage.ets:107-117`）**无 `.border`** —— 与同组件成功/失败态不一致；
+   深色族 `chip vs 画布 = 1.0005`（`tools/tests/image_boundary_gate.test.ts` §C 实测）⇒ 该态深色下无边界。
+   逃过判据的机制：`image_boundary_gate` 只扫 `Image(`，而加载态是 `LoadingProgress()` + `Text`（非 `Image(`）。
+   ⚠️ **无 web 逐字依据**：web 加载占位 `MarkdownRenderer.tsx:283-287` 只有 `minHeight`（无面、无边）。
+2. `MarkdownView` **引用块**（`MarkdownView.ets:272-277`）面 = `eff().glassBg`（**玻璃族**）；
+   web = `background: var(--md-blockquote-bg)`（`index.css:568` + `:192` ⇒ `--bg-secondary`，即**语义面**而非玻璃）。
+   `§9.3`（`:433-434`）**已记录其底 = `eff().glassBg`**，但那句只判「**不是 `elev*` ⇒ 不迁 `sunken`**」
+   ⇒ **未与 web 的 `--bg-secondary` 对照过**；`docs/REDESIGN-INPUT-MARKDOWN.md:57/105`
+   已判"语义错位"并给出目标角色 `mdQuoteSurface` ⇒ 属**已识别的 redesign 项**（涉 `core/**` 新角色）。
+
 ---
 
 ## §14 浮层/面板的**边界可读性**（含柔影的合成模型 · 2026-10-11 离线实测）
