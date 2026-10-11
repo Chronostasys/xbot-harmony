@@ -24,11 +24,20 @@
  * ⛔ 有界 @State（不把整份 entries 塞进 @State，只存"要渲染的快照"）。
  */
 import { common } from '@kit.AbilityKit';
+import { fileIo } from '@kit.CoreFileKit';
 import { preferences } from '@kit.ArkData';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { Palette, paletteOf } from '../core/theme';
 import { FS_CAPTION, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5 } from '../core/tokens';
 import { SSEE_MAX_BYTES, SSEE_MAX_ENTRIES, SseRecEntry, sseRecorder } from '../core/sserec';
+import { XbotHttp } from '../core/http';
+import {
+  ExportAction, ExportClock, demoRecordsFrom, exportActionFilename, exportActions, exportedSessionFrom,
+  renderExportText, toBenchmarkJsonl,
+} from '../core/export';
+import {
+  RPC_EXPORT_SESSION, RPC_EXPORT_SESSION_JSONL, SessionSelectorParams, readableRpcError, rpc,
+} from '../core/rpc';
 import { SettingsPanelHeader, SettingsToolRow } from './SettingsRows';
 
 /** 本地偏好（**不同步服务端**；对齐 web 的 localStorage 语义）。 */
@@ -86,6 +95,12 @@ export function previewText(s: string, max: number): string {
 @Component
 export struct SettingsDeveloper {
   @Prop theme: string = 'dark';
+  /** HTTP 客户端（由页面经 `SettingsPanel` 注入 `store.http`）—— 导出会话要用它发 RPC。 */
+  http: XbotHttp = new XbotHttp('');
+  /** 当前会话的渠道（`store.channel`）。空 ⇒ 无活动会话 ⇒ 导出按钮禁用。 */
+  @Prop channel: string = '';
+  /** 当前会话 id（`store.currentChatId`）。 */
+  @Prop chatID: string = '';
 
   @State private devEnabled: boolean = false;
   @State private rows: SseRecEntry[] = [];
@@ -99,6 +114,12 @@ export struct SettingsDeveloper {
   @State private recCount: number = 0;
   @State private recBytes: number = 0;
   @State private copyNote: string = '';
+  /** 正在导出的动作 id（空 = 空闲）——用于按钮禁用与文案。 */
+  @State private exportBusy: string = '';
+  /** 导出成功提示（**含落盘绝对路径**，供真机 `hdc file recv` 核对）。 */
+  @State private exportNote: string = '';
+  /** 导出失败原因（可读）。 */
+  @State private exportErr: string = '';
 
   private store: preferences.Preferences | null = null;
   private timer: number = -1;
@@ -207,6 +228,118 @@ export struct SettingsDeveloper {
     }
   }
 
+  /**
+   * 导出当前会话（**唯一入口**；具体形态由 `core/export.exportActions()` 决定）。
+   *
+   * 链路（对齐 web `agent/api.ts:378-582`）：
+   *   ① benchmark ⇒ 专用 RPC `export_session_jsonl` → `toBenchmarkJsonl`；
+   *   ② 其余 ⇒ `export_session` → `exportedSessionFrom` → `renderExportText`（native/multica/turn-iter 分派）。
+   * 落盘 = **应用沙箱可写目录**（`context.filesDir`），并把**绝对路径**回显 —— 便于真机 `hdc file recv` 核对。
+   * ⛔ 失败给可读原因、⛔ 绝不"点了没反应"。
+   */
+  private async exportOne(a: ExportAction): Promise<void> {
+    if (this.exportBusy.length > 0) {
+      return;
+    }
+    if (this.chatID.length === 0) {
+      this.exportErr = '没有打开的会话（先进入一个会话再导出）。';
+      this.exportNote = '';
+      return;
+    }
+    this.exportBusy = a.id;
+    this.exportNote = '';
+    this.exportErr = '';
+    try {
+      const params: SessionSelectorParams = new SessionSelectorParams(this.channel, this.chatID);
+      let text: string;
+      if (a.viaJsonlRpc) {
+        const raw: Object = await rpc<Object>(this.http, RPC_EXPORT_SESSION_JSONL, params);
+        text = toBenchmarkJsonl(demoRecordsFrom(raw));
+      } else {
+        const raw: Object = await rpc<Object>(this.http, RPC_EXPORT_SESSION, params);
+        const clock: ExportClock = new ExportClock(new Date().toISOString(), Date.now());
+        text = renderExportText(a.format, exportedSessionFrom(raw), this.channel, this.chatID,
+          clock.nowIso, clock);
+      }
+      const path: string = this.writeExport(exportActionFilename(a, this.chatID), text);
+      this.exportNote = `已导出 → ${path}`;
+    } catch (e) {
+      this.exportErr = readableRpcError((e as Error).message);
+    } finally {
+      this.exportBusy = '';
+    }
+  }
+
+  /** 把文本写进应用沙箱（`filesDir`）；返回**绝对路径**。⛔ 文件系统错误向外抛（由调用方转可读原因）。 */
+  private writeExport(name: string, text: string): string {
+    const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+    const path: string = `${ctx.filesDir}/${name}`;
+    const f: fileIo.File = fileIo.openSync(path,
+      fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+    try {
+      fileIo.writeSync(f.fd, text);
+    } finally {
+      fileIo.closeSync(f);
+    }
+    return path;
+  }
+
+  @Builder
+  ExportSection() {
+    Column({ space: SP_2 }) {
+      Text('导出会话')
+        .fontSize(FS_CAPTION)
+        .fontColor(this.pal().textPrimary)
+        .width('100%')
+      Text(this.chatID.length > 0 ? `当前会话：${this.channel}:${this.chatID}` : '未打开会话（导出按钮禁用）。')
+        .fontSize(FS_CAPTION)
+        .fontColor(this.pal().textMuted)
+        .width('100%')
+
+      ForEach(exportActions(), (a: ExportAction) => {
+        Row({ space: SP_2 }) {
+          Button(this.exportBusy === a.id ? '导出中…' : a.title)
+            .fontSize(FS_CAPTION)
+            .fontColor(this.chatID.length > 0 ? this.pal().onAccent : this.pal().textMuted)
+            .backgroundColor(this.chatID.length > 0 ? this.pal().accent : this.pal().surfaceAlt)
+            .borderRadius(R_MD)
+            .height(32)
+            .enabled(this.chatID.length > 0 && this.exportBusy.length === 0)
+            .onClick(() => {
+              void this.exportOne(a);
+            })
+          Text(a.desc)
+            .fontSize(10)
+            .fontColor(this.pal().textMuted)
+            .layoutWeight(1)
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+      }, (a: ExportAction) => `exp-${a.id}`)
+
+      if (this.exportNote.length > 0) {
+        Text(this.exportNote)
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().successText)
+          .width('100%')
+      }
+      if (this.exportErr.length > 0) {
+        Text(`导出失败：${this.exportErr}`)
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().dangerText)
+          .width('100%')
+      }
+    }
+    .width('100%')
+    .padding(SP_3)
+    .backgroundColor(this.pal().surface)
+    .borderRadius(R_LG)
+    .border({ width: 1, color: this.pal().border })
+    .alignItems(HorizontalAlign.Start)
+  }
+
   @Builder
   EntryRow(e: SseRecEntry) {
     Row({ space: SP_2 }) {
@@ -253,6 +386,9 @@ export struct SettingsDeveloper {
           this.onToggleDev(next);
         },
       })
+
+      // ── 导出会话（对齐 web `SettingsDeveloper.tsx:42-...`；形态表在 `core/export.exportActions()`）──
+      this.ExportSection()
 
       // ── 连接状态卡（原生增强）──
       Column({ space: SP_1 }) {

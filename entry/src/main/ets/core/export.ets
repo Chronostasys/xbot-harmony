@@ -194,6 +194,89 @@ export function mimeForFormat(format: string): string {
   return 'application/json';
 }
 
+// ── 开发者设置页的导出动作表（**唯一来源**；判据与渲染同源）──────────────────────────
+//
+// 对齐 web：`components/settings/SettingsDeveloper.tsx:42-...` 的三个按钮
+// （Turn+Iter txt / multica jsonl / benchmark jsonl）+ `agent/api.ts:560-566` 的 native(JSON) 默认形态。
+// ⛔ 组件**不得**自己拼文件名 / 自己选 RPC —— 全从本表派生（改一处即全对齐）。
+
+/** turn+iter 文本形态（web `SettingsDeveloper.tsx:84-92` 的 `text/plain` `.txt`）—— **不是** RPC 格式。 */
+export const EXPORT_TURN_ITER: string = 'turn-iter';
+
+/** 一个导出动作（= 设置页的一个按钮）。 */
+export class ExportAction {
+  /** 稳定 id（UI 的 `ForEach` key）。 */
+  id: string = '';
+  /** 格式（传给 `extForFormat` / `exportFilename` / 文本分派）。 */
+  format: string = '';
+  title: string = '';
+  desc: string = '';
+  /** 是否走专用 RPC `export_session_jsonl`（只有 benchmark 是）。 */
+  viaJsonlRpc: boolean = false;
+
+  constructor(id: string, format: string, title: string, desc: string, viaJsonlRpc: boolean) {
+    this.id = id;
+    this.format = format;
+    this.title = title;
+    this.desc = desc;
+    this.viaJsonlRpc = viaJsonlRpc;
+  }
+}
+
+/**
+ * 开发者设置页的导出动作清单（顺序 = 展示顺序）。
+ * 覆盖 web 开发者分区三个按钮 + `downloadSession` 的 native 默认形态 ⇒ **json / jsonl / txt 三态齐**。
+ */
+export function exportActions(): ExportAction[] {
+  return [
+    new ExportAction('json', EXPORT_NATIVE, '导出 JSON',
+      '服务端整包会话（native 形态，与 Web 端 `downloadSession` 默认一致）。', false),
+    new ExportAction('jsonl-multica', EXPORT_MULTICA, '导出 JSONL（Multica）',
+      '逐行 JSON，Multica/训练数据形态。', false),
+    new ExportAction('jsonl-benchmark', EXPORT_BENCHMARK, '导出 JSONL（benchmark）',
+      '逐 turn 记录（走 `export_session_jsonl`）。', true),
+    new ExportAction('txt-turn-iter', EXPORT_TURN_ITER, '导出 TXT（Turn + Iter）',
+      '人类可读的 turn/iter 顺序清单（Web 端同名按钮）。', false),
+  ];
+}
+
+/** 该动作的扩展名（turn+iter ⇒ `txt`；benchmark/multica ⇒ `jsonl`；其余 `json`）。 */
+export function exportActionExt(a: ExportAction): string {
+  if (a.format === EXPORT_TURN_ITER) {
+    return 'txt';
+  }
+  return extForFormat(a.format);
+}
+
+/** 该动作的落盘文件名（**唯一来源**；⛔ 组件不拼名、不含时间戳）。 */
+export function exportActionFilename(a: ExportAction, chatID: string): string {
+  if (a.format === EXPORT_TURN_ITER) {
+    return turnIterFilename(chatID);
+  }
+  return exportFilename(chatID, extForFormat(a.format));
+}
+
+/**
+ * 本地生成导出文本（web `agent/api.ts:394-566` 的分派）。
+ * ⚠️ **benchmark 除外** —— 它由服务端 `export_session_jsonl` 直接给记录，前端只做 `toBenchmarkJsonl` 拼接。
+ */
+export function renderExportText(format: string, session: ExportedSession, channel: string, chatID: string,
+  nowIso: string, clock: ExportClock): string {
+  if (format === EXPORT_MULTICA) {
+    return toMulticaJsonl(session, clock);
+  }
+  if (format === EXPORT_CODEX) {
+    return toCodexJsonl(session);
+  }
+  if (format === EXPORT_OPENAI) {
+    return toOpenAiJson(session);
+  }
+  if (format === EXPORT_TURN_ITER) {
+    return toTurnIterTxt(session, channel, chatID, nowIso);
+  }
+  return toNativeJson(session);
+}
+
 // ── 内部工具 ──────────────────────────────────────────────────────────────────
 
 /** `content` → 文本（web `typeof x === 'string' ? x : JSON.stringify(x)`）。 */
@@ -533,6 +616,201 @@ export function toBenchmarkJsonl(records: DemoRecord[]): string {
     lines.push(JSON.stringify(r));
   }
   return lines.join('\n') + (records.length > 0 ? '\n' : '');
+}
+
+// ── 响应收窄（RPC 原始 Object → 视图模型）──────────────────────────────────────────
+//
+// 为什么需要：RPC 返回裸 JSON；ArkTS 无 `any` ⇒ 必须显式收窄。口径同
+// `core/settingsplugins.parsePluginConfig`：**全容错**（缺失/类型不符 ⇒ 用默认值），
+// ⛔ 不抛、不猜（宁可导出"空消息"，也不因一个脏字段整单失败）。
+// 字段面 = Go `protocol/session_export.go`（`omitempty` ⇒ 可选字段**只在有值时**赋值，
+// 这样 `toNativeJson` 的 `JSON.stringify` 与 web `agent/api.ts:562` 的 `JSON.stringify(data,null,2)` 同形）。
+
+function strOf(o: Object, key: string): string {
+  const v: Object | undefined = field(o, key);
+  return typeof v === 'string' ? v : '';
+}
+
+function numOf(o: Object, key: string): number {
+  const v: Object | undefined = field(o, key);
+  return typeof v === 'number' ? v : 0;
+}
+
+function boolOf(o: Object, key: string): boolean {
+  const v: Object | undefined = field(o, key);
+  return typeof v === 'boolean' ? v : false;
+}
+
+function arrOf(o: Object, key: string): Object[] {
+  const v: Object | undefined = field(o, key);
+  return Array.isArray(v) ? (v as Object[]) : [];
+}
+
+/** 一条消息的收窄（`content` / `tool_calls` **原样透传** —— 见 `ExportedMessage` 注释）。 */
+function messageOf(raw: Object): ExportedMessage {
+  const m: ExportedMessage = new ExportedMessage();
+  m.role = strOf(raw, 'role');
+  const c: Object | undefined = field(raw, 'content');
+  if (c !== undefined) {
+    m.content = c;
+  }
+  const rs: string = strOf(raw, 'reasoning');
+  if (rs.length > 0) {
+    m.reasoning = rs;
+  }
+  const d: string = strOf(raw, 'detail');
+  if (d.length > 0) {
+    m.detail = d;
+  }
+  const tc: Object | undefined = field(raw, 'tool_calls');
+  if (tc !== undefined) {
+    m.tool_calls = tc;
+  }
+  const tcid: string = strOf(raw, 'tool_call_id');
+  if (tcid.length > 0) {
+    m.tool_call_id = tcid;
+  }
+  const nm: string = strOf(raw, 'name');
+  if (nm.length > 0) {
+    m.name = nm;
+  }
+  const ts: string = strOf(raw, 'timestamp');
+  if (ts.length > 0) {
+    m.timestamp = ts;
+  }
+  return m;
+}
+
+/** 一条 append-only history 行的收窄。 */
+function recordOf(raw: Object): ExportedRecord {
+  const r: ExportedRecord = new ExportedRecord();
+  r.history_id = numOf(raw, 'history_id');
+  r.record_type = strOf(raw, 'record_type');
+  if (field(raw, 'target_history_id') !== undefined) {
+    r.target_history_id = numOf(raw, 'target_history_id');
+  }
+  const rd: Object | undefined = field(raw, 'record_data');
+  if (rd !== undefined) {
+    r.record_data = rd;
+  }
+  const role: string = strOf(raw, 'role');
+  if (role.length > 0) {
+    r.role = role;
+  }
+  const content: string = strOf(raw, 'content');
+  if (content.length > 0) {
+    r.content = content;
+  }
+  const tcid: string = strOf(raw, 'tool_call_id');
+  if (tcid.length > 0) {
+    r.tool_call_id = tcid;
+  }
+  const tname: string = strOf(raw, 'tool_name');
+  if (tname.length > 0) {
+    r.tool_name = tname;
+  }
+  const targs: string = strOf(raw, 'tool_arguments');
+  if (targs.length > 0) {
+    r.tool_arguments = targs;
+  }
+  const tc: Object | undefined = field(raw, 'tool_calls');
+  if (tc !== undefined) {
+    r.tool_calls = tc;
+  }
+  const d: string = strOf(raw, 'detail');
+  if (d.length > 0) {
+    r.detail = d;
+  }
+  const rs: string = strOf(raw, 'reasoning');
+  if (rs.length > 0) {
+    r.reasoning = rs;
+  }
+  if (field(raw, 'display_only') !== undefined) {
+    r.display_only = boolOf(raw, 'display_only');
+  }
+  if (field(raw, 'turn_id') !== undefined) {
+    r.turn_id = numOf(raw, 'turn_id');
+  }
+  const ca: string = strOf(raw, 'created_at');
+  if (ca.length > 0) {
+    r.created_at = ca;
+  }
+  return r;
+}
+
+/** `export_session` 的响应 → `ExportedSession`（全容错，⛔ 不抛）。 */
+export function exportedSessionFrom(raw: Object): ExportedSession {
+  const s: ExportedSession = new ExportedSession();
+  s.id = strOf(raw, 'id');
+  const model: string = strOf(raw, 'model');
+  if (model.length > 0) {
+    s.model = model;
+  }
+  const si: string = strOf(raw, 'system_instructions');
+  if (si.length > 0) {
+    s.system_instructions = si;
+  }
+  const msgs: Object[] = arrOf(raw, 'messages');
+  for (let i = 0; i < msgs.length; i++) {
+    s.messages.push(messageOf(msgs[i]));
+  }
+  const recs: Object[] = arrOf(raw, 'records');
+  if (recs.length > 0) {
+    const out: ExportedRecord[] = [];
+    for (let i = 0; i < recs.length; i++) {
+      out.push(recordOf(recs[i]));
+    }
+    s.records = out;
+  }
+  const ca: string = strOf(raw, 'created_at');
+  if (ca.length > 0) {
+    s.created_at = ca;
+  }
+  const ua: string = strOf(raw, 'updated_at');
+  if (ua.length > 0) {
+    s.updated_at = ua;
+  }
+  const it: Object | undefined = field(raw, 'iterations');
+  if (it !== undefined) {
+    s.iterations = it;
+  }
+  return s;
+}
+
+/** `export_session_jsonl` 的响应 `{records}` → `DemoRecord[]`（全容错，⛔ 不抛）。 */
+export function demoRecordsFrom(raw: Object): DemoRecord[] {
+  const recs: Object[] = arrOf(raw, 'records');
+  const out: DemoRecord[] = [];
+  for (let i = 0; i < recs.length; i++) {
+    const o: Object = recs[i];
+    const d: DemoRecord = new DemoRecord();
+    d.uuid = strOf(o, 'uuid');
+    d.question = strOf(o, 'question');
+    d.answer = strOf(o, 'answer');
+    d.domain = strOf(o, 'domain');
+    d.correct = boolOf(o, 'correct');
+    d.judge_applied = boolOf(o, 'judge_applied');
+    const msgs: Object[] = arrOf(o, 'messages');
+    for (let j = 0; j < msgs.length; j++) {
+      const mo: Object = msgs[j];
+      const dm: DemoMessage = new DemoMessage();
+      dm.kind = strOf(mo, 'kind');
+      const parts: Object[] = arrOf(mo, 'parts');
+      for (let k = 0; k < parts.length; k++) {
+        const po: Object = parts[k];
+        const dp: DemoPart = new DemoPart();
+        dp.part_kind = strOf(po, 'part_kind');
+        dp.content = strOf(po, 'content');
+        dp.tool_name = strOf(po, 'tool_name');
+        dp.tool_call_id = strOf(po, 'tool_call_id');
+        dp.args = strOf(po, 'args');
+        dm.parts.push(dp);
+      }
+      d.messages.push(dm);
+    }
+    out.push(d);
+  }
+  return out;
 }
 
 // ── 开发者 turn+iter 文本（web `SettingsDeveloper.tsx:60-92`）：`text/plain` ───────────

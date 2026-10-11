@@ -118,6 +118,10 @@ export struct SettingsPanel {
   @Prop surfaceWeb: boolean = false;
   /** 系统通知授权状态（页面 `notifyOn`）。 */
   @Prop notifyOn: boolean = false;
+  /** 当前会话渠道（页面 `store.channel`）——「开发者 → 导出会话」要用（空 ⇒ 导出按钮禁用）。 */
+  @Prop channel: string = '';
+  /** 当前会话 id（页面 `store.currentChatId`）——同上。 */
+  @Prop chatID: string = '';
   /** 写一项设置（页面 `setSetting`）。 */
   onSetSetting: (key: string, value: string) => void = () => {
   };
@@ -332,8 +336,8 @@ export struct SettingsPanel {
         // 未注入时面板回落中性文案，不会空白。
         SettingsAccount({ http: this.http, theme: this.theme })
       } else if (this.active === SETTINGS_TAB_DEVELOPER) {
-        // 开发者分区：SSE 录制 + 连接状态（不依赖 http —— 纯本地录制器）
-        SettingsDeveloper({ theme: this.theme })
+        // 开发者分区：SSE 录制 + 连接状态 + **导出会话**（导出要 http 与会话选择器 ⇒ 一并透传）
+        SettingsDeveloper({ http: this.http, theme: this.theme, channel: this.channel, chatID: this.chatID })
       } else if (this.active === SETTINGS_TAB_PLUGINS) {
         // 插件分区：配置读写（写后回读）+ 启停 + 重载（对齐 web SettingsPlugins/PluginManagerPanel）
         SettingsPlugins({ http: this.http, theme: this.theme })

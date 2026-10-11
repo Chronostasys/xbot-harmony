@@ -45,6 +45,14 @@ import {
   toOpenAiJson,
   toTurnIterTxt,
   turnIterFilename,
+  EXPORT_TURN_ITER,
+  ExportAction,
+  demoRecordsFrom,
+  exportActionExt,
+  exportActionFilename,
+  exportActions,
+  exportedSessionFrom,
+  renderExportText,
 } from '../../entry/src/main/ets/core/export';
 
 let pass = 0, fail = 0;
@@ -342,6 +350,97 @@ eq('benchmark: 空数组 ⇒ 空串（无换行）', toBenchmarkJsonl([]), '');
   s.messages = [msg('user', 'say "hi"')];
   const out = toTurnIterTxt(s, 'c', 'x', 'T');
   ok('turnIter: 引号原样（复刻 web，不转义）', out.indexOf('content="say "hi""') >= 0, out);
+}
+
+// ═══ 9. 导出动作表 + 命名 + 分派（2026-10-11 目标④ UI 接线）══════════════════════════
+// 判据与渲染同源：设置页的按钮 / 文件名 / RPC 全从 `exportActions()` 派生。
+// ★ 判别力（mutation 必红）：删 `exportActionFilename` 的 turn-iter 分支 ⇒「txt 名」红；
+//   删 `renderExportText` 的 multica 分支 ⇒「分派 multica」红。
+{
+  const acts: ExportAction[] = exportActions();
+  eq('动作数 = 4（native json / multica jsonl / benchmark jsonl / turn-iter txt）', acts.length, 4);
+  eq('  id 稳定且互异', acts.map((a) => a.id).join(','), 'json,jsonl-multica,jsonl-benchmark,txt-turn-iter');
+  eq('  format 覆盖 json/jsonl/txt 三态', acts.map((a) => a.format).join(','),
+    `${EXPORT_NATIVE},${EXPORT_MULTICA},${EXPORT_BENCHMARK},${EXPORT_TURN_ITER}`);
+  eq('  只有 benchmark 走 jsonl RPC', acts.filter((a) => a.viaJsonlRpc).map((a) => a.id).join(','),
+    'jsonl-benchmark');
+
+  eq('扩展名：native ⇒ json', exportActionExt(acts[0]), 'json');
+  eq('扩展名：multica ⇒ jsonl', exportActionExt(acts[1]), 'jsonl');
+  eq('扩展名：benchmark ⇒ jsonl', exportActionExt(acts[2]), 'jsonl');
+  eq('扩展名：turn-iter ⇒ txt', exportActionExt(acts[3]), 'txt');
+
+  eq('文件名：native ⇒ <label>.json', exportActionFilename(acts[0], 'web/abc'), 'web_abc.json');
+  eq('文件名：multica ⇒ <label>.jsonl', exportActionFilename(acts[1], 'web/abc'), 'web_abc.jsonl');
+  eq('文件名：turn-iter ⇒ session-<label>-turn-iter.txt', exportActionFilename(acts[3], 'web/abc'),
+    'session-web_abc-turn-iter.txt');
+  ok('文件名不含时间戳（唯一来源 = chatID）', exportActionFilename(acts[0], 'x').indexOf('20') < 0);
+
+  // 分派：产物必须与"直接调用各形态"逐字相同
+  const s = new ExportedSession();
+  s.id = 's1';
+  s.model = 'm';
+  s.messages = [msg('user', 'hi')];
+  const clock = new ExportClock('2026-01-01T00:00:00.000Z', 0);
+  eq('分派 native = toNativeJson', renderExportText(EXPORT_NATIVE, s, 'ch', 'id', clock.nowIso, clock),
+    toNativeJson(s));
+  eq('分派 multica = toMulticaJsonl', renderExportText(EXPORT_MULTICA, s, 'ch', 'id', clock.nowIso, clock),
+    toMulticaJsonl(s, new ExportClock('2026-01-01T00:00:00.000Z', 0)));
+  eq('分派 codex = toCodexJsonl', renderExportText(EXPORT_CODEX, s, 'ch', 'id', clock.nowIso, clock),
+    toCodexJsonl(s));
+  eq('分派 openai = toOpenAiJson', renderExportText(EXPORT_OPENAI, s, 'ch', 'id', clock.nowIso, clock),
+    toOpenAiJson(s));
+  eq('分派 turn-iter = toTurnIterTxt', renderExportText(EXPORT_TURN_ITER, s, 'ch', 'id', 'T', clock),
+    toTurnIterTxt(s, 'ch', 'id', 'T'));
+  eq('未知 format 回落 native（不抛）', renderExportText('weird', s, 'ch', 'id', 'T', clock), toNativeJson(s));
+}
+
+// ═══ 10. RPC 响应收窄（全容错；脏数据不抛）═══════════════════════════════════════════
+// ★ 判别力（mutation 必红）：删 `exportedSessionFrom` 的 messages 循环 ⇒「消息条数」红。
+{
+  const sessRaw: Record<string, Object> = {
+    id: 'c1',
+    model: 'gpt-x',
+    messages: [
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: [{ type: 'text', text: 'yo' }], tool_calls: [{ id: 't1' }], reasoning: 'r' },
+    ],
+    records: [{ history_id: 7, record_type: 'message', content: 'x', turn_id: 2, role: 'user' }],
+    created_at: '2026-01-01T00:00:00.000Z',
+    junk: 123,
+  };
+  const s2 = exportedSessionFrom(sessRaw);
+  eq('收窄：id', s2.id, 'c1');
+  eq('收窄：model', s2.model, 'gpt-x');
+  eq('收窄：消息条数', s2.messages.length, 2);
+  eq('收窄：数组 content 原样透传', JSON.stringify(s2.messages[1].content), '[{"type":"text","text":"yo"}]');
+  eq('收窄：tool_calls 原样透传', JSON.stringify(s2.messages[1].tool_calls), '[{"id":"t1"}]');
+  eq('收窄：reasoning', s2.messages[1].reasoning, 'r');
+  eq('收窄：records 条数', s2.records === undefined ? -1 : s2.records.length, 1);
+  eq('收窄：record.turn_id', s2.records === undefined ? -1 : s2.records[0].turn_id, 2);
+  ok('未声明字段被丢弃（不污染导出）', JSON.stringify(s2).indexOf('junk') < 0);
+
+  // 脏数据：全容错、不抛（⛔ 不用 `null` 字面量 —— 与 `Record<string, Object>` 的索引签名不兼容）
+  const dirtyIn: Record<string, Object> = {};
+  dirtyIn['id'] = 42;
+  dirtyIn['messages'] = 'nope';
+  const dirty = exportedSessionFrom(dirtyIn);
+  eq('脏数据：非字符串 id ⇒ 空串', dirty.id, '');
+  eq('脏数据：非数组 messages ⇒ 空数组', dirty.messages.length, 0);
+  const noRecs: Record<string, Object> = {};
+  noRecs['records'] = 'nope';
+  eq('脏数据：records 非数组 ⇒ 不设（undefined）', exportedSessionFrom(noRecs).records === undefined, true);
+
+  const recsRaw: Record<string, Object> = {
+    records: [{ uuid: 'u1', question: 'q', answer: 'a', correct: true,
+      messages: [{ kind: 'k', parts: [{ part_kind: 'text', content: 'c' }] }] }],
+    count: 1,
+  };
+  const recs = demoRecordsFrom(recsRaw);
+  eq('benchmark 收窄：条数', recs.length, 1);
+  eq('benchmark 收窄：uuid/correct', `${recs[0].uuid}:${recs[0].correct}`, 'u1:true');
+  eq('benchmark 收窄：嵌套 parts', recs[0].messages[0].parts[0].content, 'c');
+  eq('benchmark 脏数据不抛', demoRecordsFrom({ records: 'x' } as Record<string, Object>).length, 0);
 }
 
 console.log(fail === 0 ? `✅ export: ${pass} passed` : `❌ export: ${fail} failed / ${pass} passed`);
