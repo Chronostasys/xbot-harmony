@@ -1,3 +1,4 @@
+import { asRecord } from './guards';
 // 逐字移植自 xbot web `web/src/components/agent/progressStore.ts`（normalizeWebTool* /
 // normalizeWebSubAgent*）+ `web/src/types/agent.ts`（IterationSnapshot/IterationTool/
 // ToolProgress）+ `web/src/components/agent/api.ts`（HistProgress）（逻辑一比一）。
@@ -62,10 +63,6 @@ export interface ToolProgress {
   summary?: string;
   detail?: string;
   args?: string;
-}
-
-function asRecord(v: unknown): Record<string, unknown> | null {
-  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 }
 
 function normalizeUISurface(raw: unknown): UISurface | undefined {

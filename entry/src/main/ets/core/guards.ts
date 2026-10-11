@@ -64,3 +64,18 @@ export function isPresent<T>(v: T | null | undefined): v is T {
 export function nonEmpty(v: string | null | undefined): boolean {
   return isPresent(v) && v.length > 0;
 }
+
+/**
+ * **对象**守卫 —— `asRecord` 的**唯一出口**（2026-10-11 收敛，QA 抓到"逐字重复"）。
+ *
+ * 收敛前 `core/normalize.ts:45` 与 `core/progress_types.ts:67` 各有一份**表达式逐字相同**的实现
+ * （唯一差别是分号）⇒ 属"语义等价但重复"，两份任一被改都会静默漂移。
+ * 放本模块（叶子、0 import）**无环**：`normalize.ts` 依赖 `chat_types_full`/`chattypes`，
+ * `progress_types.ts` 依赖 `chattypes` ⇒ 二者引入本模块不构成环。
+ *
+ * 语义（**与收敛前逐字一致，未改**）：非 null 对象且非数组 ⇒ 该对象；否则 `null`
+ * （⚠️ 空对象 `{}` 是**合法**结果；数组 / 标量 / null / undefined ⇒ `null`）。
+ */
+export function asRecord(v: unknown): Record<string, unknown> | null {
+  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+}

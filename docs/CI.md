@@ -250,3 +250,21 @@ process.exit(0);
 3. `console.log('...')` 只在**非** `if` 分支里才当锚点。
 4. 已知**成功时完全静默**（只在 `if` 里打印）的 4 个文件待收：
    `queue_ops` / `sse` / `sse_watchdog` / `store_null`。
+
+## 收敛类改动的两个坑（2026-10-11，`nonEmpty` / `asRecord` 收敛时实测）
+
+**① `import` 必须放文件顶部 —— "就地插在删掉的原函数位置"会撞 `arkts-no-misplaced-imports`。**
+收敛"同名函数"时的自然动作是"把本地定义替换成 `import`" —— 如果**就地替换**（import 落在文件中段），
+ArkTS 报 `10605150 … "import" statements after other statements are not allowed
+(arkts-no-misplaced-imports) At File: <your file>:<line>` ⇒ **构建红**（脱机三条全绿也照样红）。
+⇒ **规则**：替换本地定义时，**import 一律加到文件顶部的 import 区**（或按"注释块之后、第一条语句之前"），
+**别**留在原函数位置。（`export.ets` / `streammerge.ets` 本轮就是这么红的。）
+
+**② mutation 方式错会给出"假红/假绿" —— 要么拿到的是编译红、要么根本不动判据。**
+给"定义点计数"类判据做 mutation 时：
+- ⛔ **"就地追加一份同名函数"** ⇒ 若该文件已 `import` 同名符号 ⇒ 报的是**重复标识符编译错**，
+  那是**编译红、不是判据红** ⇒ **不能算"判据有牙"**；
+- ✅ **正解 = 新建一个探针文件**（`core/zz_mut_probe.ets`）放一份同名定义 ⇒ 无重复标识符 ⇒
+  判据的"定义点 == 台账/1"断言**真正变红**（本轮实测 `9 passed / 1 failed`）；
+- ⚠️ **备份必须取"改后"版本**（`cp <改后> /tmp/x.bak`），否则还原会把"改后"的正当改动一起回退。
+

@@ -1,3 +1,4 @@
+import { asRecord } from './guards';
 // 逐字移植自 xbot web `web/src/chat/normalize.ts`（逻辑一比一：同一份规则，不做重写）
 /**
  * ⛔ 迭代历史**不许在客户端截断**（用户 2026-09-21 定稿：「不能有任何 gap，任何 gap 都是
@@ -41,10 +42,6 @@ import {
   type DomainEvent,
   type LiveSnapshot,
 } from './chat_types_full'
-
-function asRecord(v: unknown): Record<string, unknown> | null {
-  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null
-}
 
 function optStr(v: unknown): string | undefined {
   return typeof v === 'string' ? v : undefined
