@@ -841,3 +841,26 @@ Usage of standard library is restricted (arkts-limited-stdlib)
   运行态的 `LoadingProgress()` **保留**（它 = "工具身份"，用户明确否掉过静态字符）。
 - **豁免**：`tools/lint/inflight-allowlist.txt`，格式 `<相对路径>|<API标签> # <理由>`；
   **理由必填**（去空白 ≥8 字符，无理由**不生效** = 门禁仍红）。
+
+## 批次 26：**面板的关闭按钮写错 flag** —— 十几个 `@State` 各自为政的必然结果（2026-10-11，用户亲报「点 X 无反应」）
+
+- **现象**（用户原话）：「侧边栏里的设置打开了**又关不掉**，**点击 x 无反应**」。
+- **根因**：`pages/Index.ets` 里「设置」有**三份**实现、三个 flag（`showPrefs` / `showSettings` /
+  `showSettingsPanel`），而 `PrefsSheet` 的 X 写的是**别的面板**的 flag：
+  ```diff
+  - this.showSettings = false;   // ❌ 关的是「右上角那份」；自己（showPrefs）仍为 true ⇒ 面板不消失
+  + this.showPrefs = false;      // ✅
+  ```
+  旁证：**同一面板的背板点击写对了**（`showPrefs=false`）⇒ 只有 X 那一行错 ⇒ UI 上表现为"点了没反应"，
+  **肉眼与搜索都极难发现**（两个字符串都合法、都能编译、都能通过全部离线测试 ✗）。
+- **机制**：可见性 flag 是**分散的 `@State`**（该文件 15 个），**没有任何一处集中声明**
+  「哪个面板 ↔ 哪个 flag」⇒ 复制粘贴新面板时必错。⇒ 与 §16#5「同一信息两处判据」同类：
+  **一份知识（谁能关我）散在两处实现里**。
+- **纪律（防复发）**：
+  1. 面板 id ↔ 自身 flag 的对应**收成一张表**（`core/sheets.ets` 的 `sheetSpecs()` / `closeFlagOf(id)`），
+     X / 背板 / 返回键**三条关闭路径只准写** `closeFlagOf(id)`；
+  2. 加**机器门禁**：对每个 `@Builder XxxSheet`，断言其 X 的赋值 == `closeFlagOf(id)`
+     （在修复前该断言**必红** ⇒ 有判别力；修复后转绿）；
+  3. 新增面板时，**X / 背板 / 返回键写同一个 flag**，并至少用 `dump` 确认"能关"。
+- **同类隐患**：该文件 `xmark` 共 **9 处** ⇒ 逐一与其所属 `@Builder` 的渲染 flag 对照，
+  ⛔ 不要只修用户报的那一处。
