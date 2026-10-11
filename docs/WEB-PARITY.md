@@ -161,6 +161,60 @@ GenUI（LLM 生成 TSX 需 `sucrase` + `new Function` ⇒ ArkTS 禁动态求值�
   giver 笔记里的"必须带 Origin 否则 unauthorized"未复现；原生 `core/http.ets:238-247` 只带
   `Cookie` 即可，无需改。
 
+### 8.6 桥接面**全量清点**（2026-10-11 只读审计）—— ⛔ **派单前提被证伪：web 侧 0 消费**
+
+> 派单假设：「web 的插件宿主通过 `window.xbotNative`（或类似桥）调用原生能力；只要原生把 web
+> 期望的桥 API 全部实现，插件就能全支持」。本波对该假设做**穷举取证** ⇒ **不成立**（证据如下，可复现）。
+
+**A. web 侧（权威 `web/src`）—— 期望的桥方法 = `0`**
+
+| 搜索 | 命令（`grep -o` 风格 / 剥注释 / 排除 `node_modules`） | 命中 |
+|---|---|---|
+| 原生桥对象 | `grep -rlI "xbotNative" web`（含 `XbotNative`/`xbot_native`，忽略大小写，全文件类型） | **0** |
+| webkit / ohos 桥 | `grep -rnI "window\.webkit\|window\.ohos\|__xbotProbe" web/src web/public` | **0** |
+| `postMessage` | `web/src`（非测试） | 仅 2 处，**与桥无关**：`hooks/usePwaInstall.ts:189,209`（SW `SKIP_WAITING`）；`plugins/SandboxedUI.tsx:308`（**注释**里讨论 iframe 隔离，未实现） |
+| `bridge` | `web/src`（非测试） | 全是 **React 跨树桥**（`workspace/DockviewContainer.tsx`、`lib/chatInputBridge.ts`、`providers/*`），非原生桥 |
+
+⇒ **web 当前完全不调用原生桥**。这不是"遗漏"，是 web 端的既定事实（判据 = 穷举 0 命中，**零命中即结论**）。
+
+**B. web 插件真正依赖的"宿主面"—— 全由 web 自己 / 服务端提供，**原生无需实现**
+
+| 依赖 | 注入/提供方 | 证据 |
+|---|---|---|
+| `window.React` | web 宿主（加载插件 bundle 前注入） | `plugins/*/shared.ts` 头注；全 src **10** 处读数 |
+| `window.__xbot_session__` | web `plugin-runtime/usePluginRuntimeHost.ts:373,387-388` | **6** 处读数（插件取 channel/chatID） |
+| `window.__xbot_i18n__` | web `plugin-runtime/iteration-render.tsx:28` | **5** 处 |
+| `window.__xbot_ui__.SandboxedUI` | web `plugins/SandboxedUI.tsx:37-38` | **2** 处 |
+| `window.__xbot_iteration__` / `window.__xbotChatDiag` | web `plugin-runtime/iteration-render.tsx:25-28` / 调试 | 1 / 3 处 |
+| `ctx.*`（**9 权限门控**） | web `plugin-api/context.ts` + `manifest.ts:13` | `events`/`commands`/`rpc`/`state`/`ui`/`plugins`/`config`/`files`/`share` |
+| RPC 通道 | web 自己的 WS/HTTP（`POST /api/rpc`；`web_ui_action`） | `plugins/api.ts`；`plugin-runtime/index.ts` `host.rpcTransport` |
+| ESM 动态加载 | **服务端静态** `/plugins/<id>/web/<entry>` | `plugin-runtime/loader.ts` `await import(entryUrl)` |
+
+⇒ 原生 ArkWeb 侧只需 `javaScriptAccess(true)` + `domStorageAccess(true)`（`WebSurface.ets:380-381`，**均已开**）；
+其余全由**页面自身运行**。**不存在"原生要补实现"的宿主方法清单。**
+
+**C. 本仓（原生）已实现的桥面 —— 1 个方法，但 web 0 消费**
+
+| 原生实现 | file:line | 状态 |
+|---|---|---|
+| `window.xbotNative.postMessage(json)`（**唯一暴露方法**） | `components/WebSurface.ets:398-402`（`methodList: ['postMessage']`）+ `:48-57` `NativeBridgeProxy` | ✅ 已实现 |
+| 信封协议（`{v,id,type,payload}` + 白名单 11 类 + 上限） | `core/webbridge.ets:36-72`（`BRIDGE_TYPES`） | ✅ 纯逻辑 + 测试 `tools/tests/webbridge.test.ts`（12KB） |
+| 宿主 chrome 动作 `close`/`log`/`ready` | `core/webbridge.ets:255-271` `hostActionFor` | ✅ 已判定（组件执行，`WebSurface.ets:applyHostAction`） |
+| 业务类型 `call`/`notify`/`result`/`event`/`theme`/`resize`/`openExternal` | `core/webbridge.ets:251-253` | ⚠️ **一律 `ignore`**（注释原文："由上层接线"；**目前无上层需要**） |
+| 上层业务回调 `onBridgeMessage` | `components/WebSurface.ets:152`（默认空实现 `() => {}`） | ⚠️ **未接线**（未接线时消息安全丢弃） |
+
+**D. 结论（判断，不是清单复制）**
+
+1. **"web 期望哪些桥方法" = 零条** ⇒ 不存在"把 web 期望的桥 API 全实现"的清单；
+   ⛔ 任何凭想象造出的"方法表"都**不可证伪、必然漂移**（web 无消费方）。
+2. ⇒ **不存在可立即落地的桥方法纯逻辑**：现有 `core/webbridge.ets` 已覆盖协议/白名单/chrome 动作；
+   再加"方法表"= 造契约。故本波**不新增桥代码**（有意为之，非遗漏）。
+3. **"插件全支持"的真瓶颈不是桥**，而是 §8.2 已记的 **URL 语义错位**（能力面板把"模块 URL"
+   当"可导航页面" ⇒ 打开的是裸 `index.js` 源码）+ **页面侧从未接线桥**（web `plugin-runtime` 无 `xbotNative` 调用）。
+4. **正解顺序**：① web 端先定**页面侧桥客户端契约**（`window 'xbot:bridge'` 事件 + `xbotNative.postMessage`） →
+   ② 本仓按该契约在 `WebSurface.ets` 接线 `onBridgeMessage` + 补 `applyHostAction` 的业务分支。
+   ⛔ 在 ① 未定前，原生侧**不应**先造方法。
+
 ## 9. 设置「服务端配置面」parity（2026-10-11 调研，任务3 波2）
 
 web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language）已对齐（§1、任务3 波1）；
