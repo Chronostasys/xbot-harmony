@@ -589,6 +589,9 @@ export struct MarkdownView {
             .flexShrink(0)
           Text(`表格（${b.header.length} 列 · ${b.rows.length} 行）`)
             .fontSize(11).fontColor(this.pal().textSecondary)
+            // 依据：本站点内容是**纯数字标签**（列/行计数，无 URL/长 token），但仍统一走 `BREAK_ALL`
+            // ⇒ 与正文/标题同口径（本文件正文级 Text 一律 BREAK_ALL，除代码块**横滑**那处有意 NORMAL）。
+            .wordBreak(WordBreak.BREAK_ALL)
         }
         .width('100%')
         .alignItems(VerticalAlign.Center)
@@ -603,6 +606,9 @@ export struct MarkdownView {
                   //    ⇒ 绕过排版阶梯。改为走档（同号 ⇒ 1.0 下视觉零变化，但换档/审计都跟着走）。
                   .fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary)
                   .constraintSize({ minWidth: 84 })
+                  // 依据：表头标签来自 markdown 表格首行（用户内容，可能含长 token）⇒ 必须 BREAK_ALL
+                  // （`BREAK_WORD` 对"无空格超长串"无效 —— 与 `Inline` 正文同一条理由，web 亦为 break-words）。
+                  .wordBreak(WordBreak.BREAK_ALL)
                 Text(f.value)
                   .wordBreak(WordBreak.BREAK_ALL)
                   .fontSize(MD_TABLE_SIZE).fontColor(this.pal().textPrimary)

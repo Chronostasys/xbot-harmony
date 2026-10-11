@@ -16,6 +16,12 @@
  *
  * ⚠️ 本文件是**本线（explore / chat-surface）自有命名空间**，与 `contrast-ux` 的全局
  *    `horizontal_overflow_gate` 互不覆盖。⛔ 结尾必须 `process.exit(...)`。
+ *
+ * ⛔ **mutation 写作铁律（本轮实测踩坑）**：同一文件里**同一属性可能出现在多处**（如码块体内
+ *    有两处 `.clip(true)`：Scroll 自身 + 根容器）⇒ `str.replace('.clip(true)','')` **只删第一处**
+ *    ⇒ "删了但判据仍真" ⇒ mutation **假绿**。凡做"抽掉某属性"的 mutation：
+ *    ① 用 `split(x).join('')` **全删**，或；② **精确圈定目标片段**（先 `substring` 取到子串再删）。
+ *    反之，"断言某属性存在"时也要**圈定片段**（否则别处的同名属性会把断言满足成"假有牙"）。
  */
 declare const process: { exit: (c: number) => void };
 declare const require: (m: string) => any;
@@ -101,6 +107,115 @@ ok('★⑤b mutation：抽掉 `maxWidth` ⇒ guarded=false', guarded(broken2) ==
 // ★⑤c mutation：只抽掉 **Scroll 自身链**那处 `clip(true)` ⇒ ★⑥ 必假（证明 ★⑥ 真管 Scroll、不是被根容器满足）
 const scBroken: string = scChain.replace('.clip(true)', '');
 ok('★⑤c mutation：只抽掉 Scroll 自身 clip ⇒ ★⑥ 判假', scChain.indexOf('.clip(true)') >= 0 && scBroken.indexOf('.clip(true)') < 0);
+
+// ── §B 正文级 `Text` 的 `wordBreak` 不得是 `NORMAL`（长 URL / 行内码 / 长 token 会撑破容器）──────
+// 背景：用户截图"正文首段尾部被裁"。web 的 markdown 用 `break-words` 兜底；原生 `Text` 默认
+//   `WordBreak.NORMAL` ⇒ 无空格超长串（`https://a/b/c`、`/Users/x/y`、`a-b-c-d…`）找不到断点 ⇒ 撑宽。
+// ⛔ 唯一允许 `NORMAL` 的是**代码块横滑**那处（横滑设计已裁定：内容在 Scroll 里、不折行）。
+console.log('\n▶ §B 正文级 Text 的 wordBreak（不得 NORMAL，除代码块横滑）');
+function matchPairB(s: string, i: number, o: string, c: string): number {
+  let d = 0;
+  while (i < s.length) {
+    const ch = s.charAt(i);
+    if (ch === o) { d++; } else if (ch === c) { d--; if (d === 0) { return i; } }
+    i += 1;
+  }
+  return -1;
+}
+function chainAfterB(s: string, i: number): string {
+  const WS = ' \t\r\n';
+  while (i < s.length && WS.indexOf(s.charAt(i)) >= 0) { i += 1; }
+  let out = '';
+  while (i < s.length && s.charAt(i) === '.') {
+    const j = s.indexOf('(', i);
+    if (j < 0) { break; }
+    const k = matchPairB(s, j, '(', ')');
+    if (k < 0) { break; }
+    out += s.substring(i, k + 1);
+    i = k + 1;
+    while (i < s.length && WS.indexOf(s.charAt(i)) >= 0) { i += 1; }
+  }
+  return out;
+}
+class TSite { line = 0; arg = ''; chain = ''; }
+/** 枚举 `Text(...)` / `Text() {…}` 站点，取**各自属性链**（块体在链**之前** ⇒ 先配对花括号再取链）。 */
+function textSites(src: string): TSite[] {
+  const out: TSite[] = [];
+  const rx = /\bText\s*\(/g;
+  let m: RegExpExecArray | null = rx.exec(src);
+  while (m !== null) {
+    const j = src.indexOf('(', m.index);
+    const k = matchPairB(src, j, '(', ')');
+    if (k > 0) {
+      const s = new TSite();
+      s.line = (src.substring(0, m.index).match(/\n/g) || []).length + 1;
+      s.arg = src.substring(j + 1, k).trim().replace(/\s+/g, ' ');
+      let p = k + 1;
+      while (p < src.length && ' \t\r\n'.indexOf(src.charAt(p)) >= 0) { p += 1; }
+      if (src.charAt(p) === '{') {
+        const b = matchPairB(src, p, '{', '}');
+        s.chain = b > 0 ? chainAfterB(src, b + 1) : '';
+      } else {
+        s.chain = chainAfterB(src, k + 1);
+      }
+      out.push(s);
+    }
+    m = rx.exec(src);
+  }
+  return out;
+}
+/** **短常量/结构性**站点豁免（无 `wordBreak` 也安全）—— ⛔ 只许缩短，每条附理由。 */
+const NO_WB_EXEMPT: string[] = [
+  "b.ordered ? `${k + 1}.` : '•'",         // 列表标记：定长（`N.`/`•`），无长串
+  "b.lang.length > 0 ? b.lang : 'code'",    // 代码语言标签：短标识符 + 已有 layoutWeight(1) 约束宽度
+  "'复制'",                                  // 固定短常量
+];
+const mvSrc: string = stripComments(raw);
+const ts: TSite[] = textSites(mvSrc);
+console.log(`  Text 站点 ${ts.length} 处`);
+for (let i = 0; i < ts.length; i++) {
+  const hasAll = ts[i].chain.indexOf('WordBreak.BREAK_ALL') >= 0;
+  const hasNorm = ts[i].chain.indexOf('WordBreak.NORMAL') >= 0;
+  const hasAny = ts[i].chain.indexOf('wordBreak(') >= 0;
+  const verdict = hasAll ? 'BREAK_ALL' : (hasNorm ? '**NORMAL**' : (hasAny ? 'BREAK_WORD' : '（无 wordBreak）'));
+  console.log(`    :${ts[i].line} ${verdict}  arg=${ts[i].arg.substring(0, 34)}`);
+}
+ok('★B0 零扫描判红：MarkdownView 的 `Text(` 站点数 > 0', ts.length > 0);
+const normals: TSite[] = ts.filter((s: TSite): boolean => s.chain.indexOf('WordBreak.NORMAL') >= 0);
+ok(`★B1 唯一允许 NORMAL 的是**代码块横滑**那处（实测 NORMAL ${normals.length} 处）`,
+  normals.length === 1 && normals[0].arg === '');
+function unexempted(sites: TSite[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < sites.length; i++) {
+    if (sites[i].chain.indexOf('wordBreak(') >= 0) { continue; }       // 已有 wordBreak（ALL/WORD）
+    if (NO_WB_EXEMPT.indexOf(sites[i].arg) >= 0) { continue; }         // 短常量豁免
+    out.push(sites[i].arg);
+  }
+  return out;
+}
+const unex = unexempted(ts);
+ok(`★B2 无 wordBreak 的站点全部在短常量豁免台账内（未豁免 ${unex.length}）`, unex.length === 0);
+for (let i = 0; i < unex.length; i++) { console.log(`      [未豁免] ${unex[i]}`); }
+
+// ★B3 mutation：合成"正文级 Text 无 wordBreak" ⇒ unexempted 必抓到（判据有牙；⛔ 不是恒真）
+{
+  const inj: TSite[] = textSites("build() {\n  Text(this.url)\n}\n");
+  ok('★B3 mutation：`Text(this.url)` 无 wordBreak ⇒ 被 unexempted 抓到', unexempted(inj).length === 1);
+  const inj2: TSite[] = textSites("build() {\n  Text(this.url).wordBreak(WordBreak.BREAK_ALL)\n}\n");
+  ok('★B3 反向对照：加 `BREAK_ALL` ⇒ 不抓（不是"凡 Text 必红"）', unexempted(inj2).length === 0);
+}
+// ★B4 mutation：合成"正文显式 NORMAL" ⇒ 落入 normals ⇒ ★B1 会红
+{
+  const inj: TSite[] = textSites("build() {\n  Text(this.body)\n    .wordBreak(WordBreak.NORMAL)\n}\n");
+  ok('★B4 mutation：显式 NORMAL 的正文站点落入 normals（★B1 会红）',
+    inj.filter((s: TSite): boolean => s.chain.indexOf('WordBreak.NORMAL') >= 0).length === 1);
+}
+// ★B5 mutation：`Text() { … }` 块体形态也要能取到链（块在链**之前**，漏配对 ⇒ 链恒空 ⇒ 假结论）
+{
+  const inj: TSite[] = textSites("build() {\n  Text() {\n    Span(x)\n  }\n  .wordBreak(WordBreak.NORMAL)\n}\n");
+  ok('★B5 mutation：块体形态 `Text(){…}.wordBreak(NORMAL)` 也能取到链（★B1 不因块而漏）',
+    inj.length === 1 && inj[0].chain.indexOf('WordBreak.NORMAL') >= 0);
+}
 
 console.log(`  markdown_code_overflow: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
