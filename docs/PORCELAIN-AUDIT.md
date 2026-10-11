@@ -131,6 +131,22 @@
 
 ---
 
+## 3b. 🟡 A 类补充：**弱交互图标**用 `textMuted`（本波新发现，2026-10-11 收口）
+
+- **现象**：chevron（展开/收起）、关闭 ✕、拖拽把手等**交互指示图标**此前用 `textMuted`。
+  porcelain 下 `textMuted` 压纯白仅 **2.54:1** —— 它自己的 tier 是 **2.0**（"几乎不该被读到"的**元信息**），
+  但**图标**受 WCAG 2.1 §1.4.11「非文本内容」约束，须 ≥ **3:1** ⇒ 浅色系不达标（且白底上"糊"）。
+- **修法**：新增语义 role **`iconMuted`**（`core/design.ets: iconMutedOf`）——
+  浅色系（`isLightPalette`）⇒ `textSecondary`（porcelain **5.07:1** ✅）；**深色系逐字节不变** ⇒ `textMuted`。
+  ⛔ 只用于**图标**；**文字**仍走 `textMuted`（文字档位是另一项设计决定）。
+- **已接入**（自由文件）：`GoalBanner.ets`（编辑/关闭 ✕）、`StatusSheet.ets`（chevron）、
+  `TodoPanel.ets`（chevron ×2）、`ThinkingLine.ets`（灯泡，非 live 态）、`LlmErrorNotice.ets`（chevron）。
+- **待接入（文件被占）**：`MessageRow.ets` 的"更早的 N 个区域/迭代块"展开 chevron（**chat-surface-ux 在途**）⇒ 只出 spec。
+- **判据**：`tools/tests/porcelain_icon_contrast.test.ts`（纯对比度 + 深色逐字节 + 组件源码形态；
+  mutation：`iconMutedOf` 改回恒 `p.textMuted` ⇒ 红）。
+
+---
+
 ## 4. ④ 对比度实调（porcelain，`contrastRatio()`）
 
 **底**：`appBg #FFFFFF` · `surface #FFFFFF` · `surfaceAlt #F6F6F7` · `surfaceHi #EDEDEF` · `sunken #F2F2F2` · `accentDeep #E8F1FD`

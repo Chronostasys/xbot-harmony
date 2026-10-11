@@ -33,8 +33,7 @@
 import { Palette, paletteOf } from '../core/theme';
 import {
   ELEV_OVERLAY, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, SPACE_HAIR, SPACE_LG, SPACE_SM,
-  SPACE_XS, STROKE_HAIRLINE, elevationColorOf, hairlineOf, surfaceFillOf,
-} from '../core/design';
+  SPACE_XS, STROKE_HAIRLINE, elevationColorOf, hairlineOf, surfaceFillOf, colorOf, } from '../core/design';
 import { fs, fw, lh, tc, tk } from './SettingsRows';
 import { sheetTransition } from './anim';
 
@@ -210,7 +209,7 @@ export struct StatusSheet {
             .layoutWeight(1)
           SymbolGlyph($r('sys.symbol.chevron_right'))
             .fontSize(fs('type.caption'))
-            .fontColor([this.pal().textMuted])
+            .fontColor([colorOf(this.pal(), 'iconMuted')])
         }
         .width('100%')
         .alignItems(VerticalAlign.Center)

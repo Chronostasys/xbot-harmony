@@ -771,6 +771,23 @@ export class ContrastReq {
  * 语义色 → 实际色值（**唯一解析**；支持 `Palette` 字段 + 三个派生面角色）。
  * ⛔ 不在这里写任何 hex。
  */
+/**
+ * **弱但必须可辨的图标**（**非文本**）—— 唯一出口 `colorOf(p, 'iconMuted')`。
+ *
+ * 为什么需要它：`textMuted` 的 tier 是 **2.0**（"几乎不该被读到"的**元信息**），porcelain 下
+ * 它压纯白仅 **2.54:1** —— ⛔ **达不到 WCAG 2.1 §1.4.11 对"UI 组件与状态"要求的 3:1**。
+ * 而 chevron（展开/收起）、关闭 ✕、拖拽把手这类图标是**交互指示**，不是"装饰性元信息"
+ * ⇒ 浅色系必须提档到 ≥ `AA_NON_TEXT`（取最近的一档既有令牌 `textSecondary`，不新造色值）。
+ * **深色系逐字节不变**（= `textMuted`）：深色下 `textMuted` 压深画布对比度充足，无需动。
+ * 判据按 `isLightPalette(p)`（**色板亮度**），⛔ 不按主题名硬判。
+ *
+ * ⚠️ 只用于**图标**（非文本）。**文字**仍走 `textMuted`（其 2.0 tier 是"元信息"的有意选择，
+ *    改文字档位是另一项设计决定 —— 见 `docs/PORCELAIN-AUDIT.md`）。
+ */
+export function iconMutedOf(p: Palette): string {
+  return isLightPalette(p) ? p.textSecondary : p.textMuted;
+}
+
 export function colorOf(p: Palette, role: string): string {
   if (role === 'sunken') { return surfacesOf(p).sunken; }
   if (role === 'hairline') { return surfacesOf(p).hairline; }
@@ -803,6 +820,8 @@ export function colorOf(p: Palette, role: string): string {
   if (role === 'warn') { return p.warn; }
   // 光球细环描边（浅 hairline / 深 glowSoft）—— 第三档细环出口（见 `orbRingStrokeOf`）。
   if (role === 'orbRingStroke') { return orbRingStrokeOf(p); }
+  // 弱但必须可辨的**图标**（浅 = textSecondary ≥3:1 / 深 = textMuted 逐字节）—— 见 `iconMutedOf`。
+  if (role === 'iconMuted') { return iconMutedOf(p); }
   if (role === 'dangerOnFill') { return onFillFgOf(p, p.dangerBg); }
   if (role === 'warnOnFill') { return onFillFgOf(p, p.warnBg); }
   return p.transparent;
@@ -831,6 +850,10 @@ export function contrastReqs(): ContrastReq[] {
     new ContrastReq('textSecondary', 'sunken', AA_TEXT, 'chip / 凹槽内文字'),
     new ContrastReq('textPrimary', 'surfaceHi', AA_TEXT, '选中 pill 名称'),
     new ContrastReq('accentSoft', 'surfaceAlt', AA_NON_TEXT, '在飞标记（非文本）压 pill'),
+    // 弱交互图标（chevron / 关闭 / 把手）—— **非文本** 3:1（WCAG §1.4.11）
+    // 浅色 = textSecondary（≥3:1）/ 深色 = textMuted（逐字节）。见 `iconMutedOf`。
+    new ContrastReq('iconMuted', 'appBg', AA_NON_TEXT, '弱交互图标（chevron/关闭/把手）压画布'),
+    new ContrastReq('iconMuted', 'surface', AA_NON_TEXT, '弱交互图标压卡片'),
     // 危险/警告实心底上的文字（`state.danger.fg` / `state.warn.fg`）—— 见 §4.10
     new ContrastReq('dangerOnFill', 'dangerBg', AA_NON_TEXT, '危险实心底上的文字'),
     new ContrastReq('warnOnFill', 'warnBg', AA_NON_TEXT, '警告实心底上的文字'),

@@ -26,8 +26,7 @@ import { FS_CAPTION, R_MD, R_SM, SP_1, SP_2, SP_3 } from '../core/tokens';
 // 语义令牌（`7841978` §4.7/§4.8/§6）：控件行高 / 进度条 / 清单高 / 菜单宽 / goal 行底纹 / 按压。
 import {
   CONTROL_ROW_H, ICON_MD, ICON_SM, INSET_CHIP_X, INSET_CHIP_Y, LIST_MAX_H, MENU_W, PRESS_OPACITY,
-  PROGRESS_H, PROGRESS_W, RADIUS_CHIP, TYPE_CHIP, goalRowTintOf, typeOf,
-} from '../core/design';
+  PROGRESS_H, PROGRESS_W, RADIUS_CHIP, TYPE_CHIP, goalRowTintOf, typeOf, colorOf, } from '../core/design';
 import { animFast } from './anim';
 import { TodoItem } from '../core/types';
 import {
@@ -321,7 +320,7 @@ export struct TodoPanel {
           Row({ space: SP_2 }) {
             SymbolGlyph($r('sys.symbol.chevron_right'))
               .fontSize(ICON_SM)
-              .fontColor([this.pal().textMuted])
+              .fontColor([colorOf(this.pal(), 'iconMuted')])
               .rotate({ angle: this.expanded ? 90 : 0 })
               .animation(animFast())
             Progress({ value: todoPercent(this.state()), total: 100, type: ProgressType.Linear })
@@ -351,7 +350,7 @@ export struct TodoPanel {
           if (!this.hasGoal) {
             SymbolGlyph($r('sys.symbol.dart_target'))
               .fontSize(ICON_MD)
-              .fontColor([this.pal().textMuted])
+              .fontColor([colorOf(this.pal(), 'iconMuted')])
               .padding(SP_1)
               .onClick(() => {
                 this.onSetGoal();

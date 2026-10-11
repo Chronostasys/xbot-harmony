@@ -34,7 +34,7 @@
  */
 import { paletteOf, surfacesOf } from '../core/theme';
 import { FS_CAPTION, R_LG, SP_1, SP_5 } from '../core/tokens';
-import { PRESS_OPACITY, RADIUS_PILL, SPACE_HAIR, STROKE_RAIL, TEXT_DIM } from '../core/design';
+import { PRESS_OPACITY, RADIUS_PILL, SPACE_HAIR, STROKE_RAIL, TEXT_DIM, colorOf, } from '../core/design';
 import { AssistantOrb, ORB_MODE_THINKING } from './AssistantOrb';
 
 /** 前导光球直径 = 尺度 token `SP_5`（20vp）—— 与 `LiveTailView` 块首的独立光球**同值**。 */
@@ -97,7 +97,7 @@ export struct ThinkingLine {
           // 光球关闭（设置项）⇒ 回落灯泡提示符；committed 迭代恒走这条。
           SymbolGlyph($r('sys.symbol.lightbulb'))
             .fontSize(FS_CAPTION)
-            .fontColor([this.live ? paletteOf(this.theme).accentSoft : paletteOf(this.theme).textMuted])
+            .fontColor([this.live ? paletteOf(this.theme).accentSoft : colorOf(paletteOf(this.theme), 'iconMuted')])
         }
         Text(this.label)
           .fontSize(FS_CAPTION)

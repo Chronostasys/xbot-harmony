@@ -14,7 +14,7 @@ import {
   setAppForeground,
 } from '../core/notify';
 import { readCachedTheme } from '../core/config';
-import { isDarkThemeName } from '../core/theme';
+import { isLightPalette, paletteOf } from '../core/theme';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'xbot';
@@ -31,9 +31,10 @@ export default class EntryAbility extends UIAbility {
     //   见 Index.syncSystemTheme）；读不到（未存过/异常）⇒ 回落深色（保持既有语义）。
     //   **必须同步**（`getPreferencesSync`）：只有同步才能在**首帧之前**定下系统表面，
     //   否则浅色主题用户会先看到一帧深色再翻转（闪色）。
-    //   判据用 `isDarkThemeName`（与页面 glassMode()/色板**同源**）⇒ 不会"状态栏深、玻璃浅"。
+    //   ⛔ 判据必须是**色板亮度**（`isLightPalette(paletteOf(t))`），**不按主题名硬判**
+    //   （`docs/DESIGN-SYSTEM.md §12`/铁律：深浅只走亮度口径 ⇒ 将来"主题名 ↔ appBg 亮度"脱钩也不会错）。
     const cachedTheme: string = readCachedTheme(this.context);
-    this.darkSystem = cachedTheme.length === 0 || isDarkThemeName(cachedTheme);
+    this.darkSystem = cachedTheme.length === 0 || !isLightPalette(paletteOf(cachedTheme));
     this.context.getApplicationContext().setColorMode(this.darkSystem
       ? ConfigurationConstant.ColorMode.COLOR_MODE_DARK
       : ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT);

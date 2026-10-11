@@ -80,7 +80,7 @@ export struct LlmErrorNotice {
           .flexShrink(0)
         SymbolGlyph(this.open ? $r('sys.symbol.chevron_up') : $r('sys.symbol.chevron_down'))
           .fontSize(typeOf(TYPE_CHIP).size)
-          .fontColor([colorOf(this.pal(), 'textMuted')])
+          .fontColor([colorOf(this.pal(), 'iconMuted')])
           .flexShrink(0)
       }
       .width('100%')

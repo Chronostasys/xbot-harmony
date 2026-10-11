@@ -35,8 +35,7 @@ import { R_MD, R_SM, SP_1 } from '../core/tokens';
 // 语义令牌（`7841978`：goal 组 + 图标尺寸档）—— 组件不再自写 PAD/ICON/ALPHA/TINT 魔数。
 import {
   ICON_MD, INSET_CHIP_Y, INSET_GOAL_X, INSET_GOAL_Y, SPACE_XS, TYPE_CHIP, TYPE_GOAL,
-  goalBadgeBgOf, goalBorderOf, typeOf,
-} from '../core/design';
+  goalBadgeBgOf, goalBorderOf, typeOf, colorOf, } from '../core/design';
 import { goalDisplay, GoalDisplay, goalEditCommit, goalEditable } from '../core/statusfmt';
 
 // ── 尺寸/取色一律走语义令牌（`7841978` §4.7/§4.8）─────────────────────────────
@@ -178,7 +177,7 @@ export struct GoalBanner {
           if (goalEditable(this.display().completed)) {
             SymbolGlyph($r('sys.symbol.square_and_pencil'))
               .fontSize(typeOf('type.caption').size)
-              .fontColor([this.pal().textMuted])
+              .fontColor([colorOf(this.pal(), 'iconMuted')])
               .onClick(() => {
                 this.draft = this.objective;
                 this.editing = true;
@@ -188,7 +187,7 @@ export struct GoalBanner {
           // 清除（web `:157-167`；编辑态隐藏）
           SymbolGlyph($r('sys.symbol.xmark'))
             .fontSize(typeOf('type.caption').size)
-            .fontColor([this.pal().textMuted])
+            .fontColor([colorOf(this.pal(), 'iconMuted')])
             .onClick(() => {
               this.onClearGoal();
             })
