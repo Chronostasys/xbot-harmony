@@ -26,7 +26,7 @@ import { channelForChat } from './sessionpick';
 import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
 import { moveOrders } from './sessionops';
 import { RewindReq, RewindTarget, gapTopBefore, rewindTargetDBID } from './msgops';
-import { BgTask, CronJob, RunnerRow, SubAgentRow } from './panels';
+import { BgTask, CronJob, RunnerRow, SubAgentRow, isWidgetEvent } from './panels';
 import { serverKey, toLocalSettings } from './settings';
 import { FsEntry } from './composer';
 import { RPC_WEB_PLUGIN_LIST, rpc } from './rpc';
@@ -115,6 +115,17 @@ export class ChatStore {
   historyLoading: boolean = false;
   /** SSE 连接状态（`idle|connecting|open|reconnecting`）——弱网提示用 */
   connState: string = 'idle';
+  /**
+   * 最近一次插件 widget 事件名与原始载荷（`web_widgets` / `plugin_widgets`）。
+   *
+   * 为什么在 store 里留这一份：widget 载荷**不是** `DomainEvent`（`core/normalize.ts` /
+   * `core/reduce.ts` 都没有 widget 分支）⇒ 若交给状态机只会被**静默丢弃**。这里按
+   * **原始串**留存（不解析、不解释），由页面把它喂给 `components/PluginWidgets`
+   * （判据在 `core/widgetsview.ets` + `core/pluginview.ets`，组件只画）—— 页面据此渲染 PluginWidgets。
+   * 未收到过任何 widget 事件时为空串（组件判 `visible=false` ⇒ 零节点）。
+   */
+  lastWidgetEvent: string = '';
+  lastWidgetContent: string = '';
   /** LLM 配置（订阅/可选模型/上下文上限；`GET /api/llm-config`） */
   llmConfig: LlmConfig | undefined = undefined;
   /** token/上下文用量（拿不到就是 undefined，界面不显示、绝不估算） */
@@ -1205,6 +1216,18 @@ export class ChatStore {
 
   private onSse(event: string, data: string): void {
     if (event === SseEventType.heartbeat) {
+      return;
+    }
+    // ── 插件 widget 载荷：**收下来、早退**（不给状态机，也不解析）──────────────────
+    // ① 为什么必须早退：widget 载荷**不是** `DomainEvent`（`normalize.ts`/`reduce.ts` 都没有
+    //    widget 分支）⇒ 落到下面只会被**静默丢弃**（页面永远不知道有 plugin widget）。
+    // ② 为什么在 `JSON.parse` **之前**：保留**原始串**（**含坏 JSON**）交给消费方
+    //    （`PluginWidgets` 会显式降级成"插件数据无效"），而不是在这里吞掉；且不解析 ⇒ 不可能抛。
+    // ③ 只设字段 + `onUpdate()`（页面据此重渲），**不做任何业务解释**（判据在 core/widgetsview）。
+    if (isWidgetEvent(event)) {
+      this.lastWidgetEvent = event;
+      this.lastWidgetContent = data;
+      this.onUpdate();
       return;
     }
     let raw: Record<string, Object>;
