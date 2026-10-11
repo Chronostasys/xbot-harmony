@@ -29,7 +29,7 @@ import { Palette, paletteOf } from '../core/theme';
 import { PluginCatalogItem } from '../core/pluginhost';
 import { PluginPanelStatus, pluginMetaText, pluginPanelStatus } from '../core/pluginview';
 import {
-  colorOf, GAP_ROW_Y, hairlineOf, surfaceFillOf, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y,
+  colorOf, GAP_ROW_Y, hairlineOf, structuralRuleOf, surfaceFillOf, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y,
   PRESS_OPACITY, RADIUS_CARD, RADIUS_SHEET, SPACE_MD, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD,
 } from '../core/design';
 import { fs, fw } from './SettingsRows';
@@ -110,7 +110,7 @@ export struct PluginsSheet {
     .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
     .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))
     .borderRadius(RADIUS_CARD)
-    .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+    .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
     .margin({ bottom: GAP_ROW_Y })
     .onClick(() => {
@@ -171,7 +171,7 @@ export struct PluginsSheet {
                 .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
                 .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))
                 .borderRadius(RADIUS_CARD)
-                .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+                .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
                 .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                 .onClick(() => {
                   this.onRetry();
@@ -211,7 +211,7 @@ export struct PluginsSheet {
             .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
             .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))
             .borderRadius(RADIUS_CARD)
-            .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+            .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .margin({ bottom: GAP_ROW_Y })
             .onClick(() => {

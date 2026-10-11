@@ -16,7 +16,7 @@ import {
   pluginViewCountText,
 } from '../core/pluginview';
 import {
-  colorOf, hairlineOf, surfaceFillOf,
+  colorOf, hairlineOf, structuralRuleOf, surfaceFillOf,
   GAP_ROW_Y, GAP_SECTION, GUTTER_SCREEN, HIT_TARGET_MIN, INSET_CARD_X, INSET_CARD_Y,
   INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X, INSET_ROW_Y, PRESS_OPACITY, RADIUS_CARD, RADIUS_CHIP,
   RADIUS_PILL, SPACE_HAIR, SPACE_LG, SPACE_XS, STROKE_HAIRLINE,
@@ -354,7 +354,7 @@ struct PluginCardRow {
     })
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))
     .borderRadius(RADIUS_CARD)
-    .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+    .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
     .onClick(() => {
       this.onOpen(this.item.url);
@@ -418,7 +418,7 @@ struct PluginViewRow {
     })
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))
     .borderRadius(RADIUS_CARD)
-    .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+    .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
     .onClick(() => {
       // 直开（同源页面 URL）与"进宿主页"在 core 侧已判好，这里只执行

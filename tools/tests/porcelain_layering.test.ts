@@ -73,6 +73,54 @@ if (repo.length > 0) {
     design.indexOf('isLightPalette(p) ? p.borderStrong : p.border') >= 0);
 }
 
+// ── ★④ E1 推广（2026-10-11 主 agent 裁决"方向①"）：**面→面**卡片轮廓统一到 `structuralRuleOf` ────
+//    语义分工（`docs/DESIGN-SYSTEM.md §13`）：**面→面轮廓** = `structuralRuleOf`（浅色 `borderStrong`，
+//    比面内强一档）/ **面内**（行分隔、药丸） = `hairlineOf`。先例 = `SettingsRows` 的卡片。
+//    逐站点**语境**判过：这 6 处原型均为 `RADIUS_CARD`（独立卡片，直接压面板底）⇒ 面→面；
+//    另有 2 处**有意不动**：`PluginHost` 的 `RADIUS_PILL`（药丸 = 面内控件）、`PluginsSheet` 的
+//    sheet 面板自身（`appBg` 底，不在本项范围）。
+{
+  const fsMod = require('fs');
+  const pathMod = require('path');
+  let repo = '';
+  for (const up of ['../..', '../../..', '../../../..']) {
+    const cand = pathMod.resolve(__dirname, up);
+    if (fsMod.existsSync(pathMod.join(cand, 'entry/src/main/ets/components/PluginHost.ets'))) { repo = cand; break; }
+  }
+  ok('★④ 探测到仓库根（E1 站点扫描）', repo.length > 0);
+  if (repo.length > 0) {
+    const count = (rel: string, needle: string): number => {
+      const src: string = fsMod.readFileSync(pathMod.join(repo, rel), 'utf-8')
+        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');   // ⛔ 先剥注释
+      let n = 0, i = 0;
+      while ((i = src.indexOf(needle, i)) >= 0) { n++; i += needle.length; }
+      return n;
+    };
+    const SITES: string[][] = [
+      ['entry/src/main/ets/components/PluginHost.ets', '2'],
+      ['entry/src/main/ets/components/PluginWidgets.ets', '1'],
+      ['entry/src/main/ets/components/PluginsSheet.ets', '3'],
+    ];
+    const WANT: number[] = [2, 1, 3];
+    let total: number = 0;
+    for (let i = 0; i < SITES.length; i++) {
+      const n: number = count(SITES[i][0], 'structuralRuleOf(this.pal())');
+      total += n;
+      ok(`  · ${SITES[i][0].split('/').pop()}: 卡片轮廓走 structuralRuleOf × ${WANT[i]}（实得 ${n}）`, n === WANT[i]);
+    }
+    ok(`★④ 零扫描判红：合计命中 ${total}（> 0）`, total > 0);
+    // 面内站点**未**被误改（药丸仍 hairline；sheet 面板仍 hairline）
+    ok('  · PluginHost 的 RADIUS_PILL 药丸仍走 hairlineOf（面内控件未误改）',
+      count('entry/src/main/ets/components/PluginHost.ets', 'hairlineOf(this.pal())') >= 1);
+    ok('  · PluginsSheet 的 sheet 面板底仍走 hairlineOf（不在本项范围）',
+      count('entry/src/main/ets/components/PluginsSheet.ets', 'hairlineOf(this.pal())') >= 1);
+    // 自相矛盾的旧注释必须已改写
+    const pw: string = fsMod.readFileSync(pathMod.join(repo, 'entry/src/main/ets/components/PluginWidgets.ets'), 'utf-8');
+    ok('  · PluginWidgets 的旧注释（"靠结构性发丝立边"）已改写为 §13 分工表述',
+      pw.indexOf('面→面**轮廓 = `structuralRuleOf`') >= 0 && pw.indexOf('浅色系靠结构性发丝立边') < 0);
+  }
+}
+
 if (fail > 0) { console.log(`  porcelain_layering: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  porcelain_layering: ${pass} passed, 0 failed`);
 process.exit(0);

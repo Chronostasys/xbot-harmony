@@ -22,7 +22,7 @@
  */
 import { Palette, paletteOf } from '../core/theme';
 import {
-  colorOf, hairlineOf, surfaceFillOf, wellOf,
+  colorOf, hairlineOf, structuralRuleOf, surfaceFillOf, wellOf,
   GAP_ROW_Y, GAP_SECTION, INSET_CARD_X, INSET_CARD_Y, INSET_CHIP_X, INSET_CHIP_Y,
   INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, SPACE_HAIR, SPACE_XS,
   STROKE_HAIRLINE,
@@ -350,8 +350,9 @@ export struct PluginWidgets {
       })
       .backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))
       .borderRadius(RADIUS_CARD)
-      // 浅色系靠结构性发丝立边（`core/design.ets:surfaceRoles` 的 `surface.card` 契约）。
-      .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+      // **面→面**轮廓 = `structuralRuleOf`（浅色 `borderStrong`，比面内强一档）；**面内**行分隔才是
+      // `hairlineOf` —— 分工见 `docs/DESIGN-SYSTEM.md §13`（`SettingsRows` 的卡片为同一先例）。
+      .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
     }
   }
 }
