@@ -753,3 +753,47 @@ Usage of standard library is restricted (arkts-limited-stdlib)
   1. **只对自己改的文件负责** —— 先 `git status --short` 确认改动范围；
   2. 红在别人文件里 ⇒ **把证据（原文 + file:line）交给编排者**，**绝不**去改别人的文件；
   3. 红在自己文件里 ⇒ 必须修，且**改完立刻提交**（树红期间别人跑门禁全是红，会去追不属于自己的鬼）。
+
+## 批次 22：门禁的**另一面** —— 第 ③ 步既会**假红**（并发踩踏）也会**假绿**（漏检 `core/*.ts`）（2026-10-11，实测 + 已修）
+
+第 1 类假绿是"工具不检查"（批次 13/16/17/21），这一批是**同一个脚本的两种反向故障**，都在 `tools/typecheck/check.sh`：
+
+**22.1 假红 = 并发踩踏（共享临时目录）**
+- **现象**：多线并行时第 ③ 步报 `cp: …/tools/typecheck/build/mdtheme.ts: No such file or directory`
+  ⇒ 整轮判红，**与你的代码无关**。
+- **机制**：`BUILD="$HERE/build"` 是**固定目录**；A 的 `rm -rf "$BUILD"` 会删掉 B 刚 `mkdir` 好的目录 ⇒ B 的 `cp` 目标消失。
+  间歇性（谁先谁后决定），**比稳定红更坏** —— 会让人去追不存在的鬼。
+- **修法**：目录**带 PID**（`BUILD="$HERE/build.$$"`）+ `trap 'rm -rf "$BUILD"' EXIT INT TERM HUP`
+  + `tsconfig.json` 的 `include` 改 `./build*/*.ts`（`**` 匹配不到 `build.123` 这种带点目录名）
+  + `.gitignore` 补 `**/build.*`。
+- **验证**：8 路并发 × 2 轮 = **16 次全部 exit=0**，无残留目录。
+
+**22.2 假绿 = 漏检 `core/*.ts`**
+- **现象**：修好并发后立刻暴露 `Cannot find module './chattypes' / './guards'`（TS2307）。
+- **机制**：`core/` 实为 **51 个 `.ets` + 9 个 `.ts`**（`chattypes.ts`/`guards.ts` 等**端口件**），
+  而拷贝循环是 `for f in "$SRC"/*.ets` ⇒ **那 9 个文件从未进入检查程序**；引用它们的 `.ets`
+  在检查目录里连"模块解析"都过不去。**这才是真隐患**：③ 一直在检查一个**不完整的程序**。
+- **修法**：循环同时拷 `.ets` 与 `.ts` ⇒ 覆盖文件数 **51 → 60**。
+- **教训**：门禁宣称的覆盖范围必须**能被数出来**（"51 个文件"这句话本身就该让人追问"core 里到底有几个文件"）。
+
+## 批次 23：`ForEach` 的 key 里**编进会变的状态字段** ⇒ 流式期销毁重建、**把打开中的浮层拆掉**（2026-10-11，审计 + 已加机器门禁）
+
+- **现象（代码级）**：live pill 用 `` `lt-${i}#${t.name}#${t.status}` `` 作 key。流式期同一枚工具
+  会 `pending→running→generating→done`，**每翻一次 key 就变** ⇒ ArkUI 视为"新节点"⇒ **销毁重建**：
+  挂在节点上的 `bindPopup` 浮层被拆、`selected` 复位、长按菜单丢失。
+- **对照 web（权威）**：`FoldedToolGroup.tsx:557` 的 key 是 `${name}-${i}` —— **与状态无关**。
+- **修法**：key 只用**稳定身份**（`lt-${i}#${name}#${call_id}`）。
+  ⚠️ 反向陷阱同样真实：`@Prop` 只在 key 变化时才重估 ⇒ key 过稳会"内容变了界面不动"（批次 11/12）。
+  **正确姿势**：key = 稳定身份；**内容变化走 `@Prop`/`@ObjectLink` 通道**。
+- **已落地机器门禁**：`tools/lint/criteria-single-source.sh` 规则 A（key 生成器含 `.status/.state/.phase/…`
+  ⇒ 命中即警告），带 `--self-test` 与豁免清单，已接入 `tools/gate.sh`。
+
+## 批次 24：多线并行时，**`git add` 会被别人抢**（2026-10-11，真实发生）
+
+- **现象**：`git commit` 之后发现提交里**多了别人的文件**（实例：`components/MarkdownView.ets` +
+  `tools/tests/theme_contrast_light.test.ts` 被另一条线的 `git add` 扫进了我的提交）。
+- **机制**：`git add` 操作的是**共享 index**，两条线同时 `git add` ⇒ 彼此的暂存区互相可见。
+- **纪律（已写入派工模板）**：
+  1. 只用**严格 pathspec**：`git add -- <确切文件>`（⛔ 不用 `git add -A/./-u`）；
+  2. **提交前**核一遍 `git diff --cached --name-only`，必须**恰好**等于你打算提交的文件集；
+  3. 已被扫进来 ⇒ `git reset --soft HEAD~1` 拆开重提，⛔ 别用 `--amend` 掩盖（会把别人的改动一起改写）。
