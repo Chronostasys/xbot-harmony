@@ -25,6 +25,7 @@ const path = require('path');
 const fs = require('fs');
 
 import { splashBrandCanvas, splashExitOpacityAt, SPLASH_EXIT_MS } from '../../entry/src/main/ets/core/splash';
+import { paletteOf } from '../../entry/src/main/ets/core/theme';
 
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean, extra?: string): void {
@@ -79,6 +80,24 @@ const R = (p: string): string => path.join(root, p);
   ok('① 两个 color.json 都能读到 start_window_background（零扫描判红）', baseC.length > 0 && darkC.length > 0);
   eq('① base 的 T0 底色 == T1 品牌画布（逐字节）', baseC, t1);
   eq('① dark 的 T0 底色 == T1 品牌画布（逐字节）', darkC, t1);
+}
+
+// ── ①b **C6：画布**不得跟应用主题**（方向 (b) 品牌开屏恒深）─────────────────────────
+//   失败故事：T1 若跟应用主题 ⇒ 浅色用户看到 T0(恒深 `#0B0B0E`) → T1(白) **硬切**。
+//   ⛔ 契约 = `splashBrandCanvas()` **无入参**且取值**不等于任何浅色主题的画布**（只等于深色档）。
+{
+  const src: string = fs.readFileSync(R('entry/src/main/ets/core/splash.ets'), 'utf8');
+  const sig: string = 'export function splashBrandCanvas(): string {';
+  ok('①b 画布函数**无入参**（结构上不可能跟主题）', src.indexOf(sig) >= 0);
+  const at: number = src.indexOf(sig);
+  const body: string = at >= 0 ? src.substring(at, src.indexOf('}', at)) : '';
+  ok('①b 函数体**不含 `theme`**（⛔ 不得读主题）', body.indexOf('theme') < 0);
+  const canvas: string = splashBrandCanvas().toUpperCase();
+  console.log(`▶ ①b 画布不随主题自证：canvas=${canvas} · porcelain=${paletteOf('porcelain').appBg.toUpperCase()}`
+    + ` · light=${paletteOf('light').appBg.toUpperCase()} · dark=${paletteOf('dark').appBg.toUpperCase()}`);
+  ok('①b **不等于** porcelain 的画布（浅色主题下不翻白）', canvas !== paletteOf('porcelain').appBg.toUpperCase());
+  ok('①b **不等于** light 的画布', canvas !== paletteOf('light').appBg.toUpperCase());
+  eq('①b **等于** dark 的画布（恒深档）', canvas, paletteOf('dark').appBg.toUpperCase());
 }
 
 // ── ② T2 是渐隐（不是硬切）──────────────────────────────────────────────────
