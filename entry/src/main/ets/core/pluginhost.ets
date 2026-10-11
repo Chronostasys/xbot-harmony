@@ -486,6 +486,42 @@ export function viewShortId(viewId: string): string {
   return dot >= 0 && dot < v.length - 1 ? v.substring(dot + 1) : v;
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// 插件图标名解析（与 web `plugin-runtime/pluginIcons.ts` 同规则）—— 纯逻辑，可脱机单测
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// ── web 权威事实（file:line 可查）────────────────────────────────────────────
+//   · `contributes[].icon` 声明的是 **lucide 名**（真实 payload 实测：`git-branch` /
+//     `git-commit-horizontal` / `server`；`xbot.iteration-stats` 干脆不声明）；
+//   · 宿主在 `pluginIcons.ts:61-77` 的 `pluginIcon(name)` 里查 `ICON_MAP`（`:30-56`），
+//     **查表前先 `name.toLowerCase()`**（`:63`），未知名 ⇒ `Puzzle`（通用拼图图标，`:76`）。
+//   · ⇒ 图标名解析是「**大小写不敏感 + 未知降级**」。
+//   原生照抄这条规则（**不自造映射表**）；具体 HarmonyOS `sys.symbol.*` 的选择留在组件
+//   （`core/` 禁 ArkUI 资源，见文件头铁律）—— 本文件只产出**归一化后的 lucide 名**。
+
+/** web `plugin-runtime/pluginIcons.ts:30-56` 的 `ICON_MAP` 键（逐字抄）—— 权威图标名集合。 */
+const PLUGIN_ICON_KEYS: string[] = [
+  'blocks', 'boxes', 'chart', 'code', 'puzzle', 'sparkles', 'wrench', 'message',
+  'files', 'search', 'info', 'tasks', 'terminal', 'activity',
+  'git-branch', 'git-commit-horizontal', 'git', 'server', 'server-cog',
+];
+
+/**
+ * 归一化插件图标名 —— 与 web `pluginIcons.ts:63` **同规则**：去空白 + 小写。
+ *
+ * 为什么必须有：web 查表前 `toLowerCase()`，清单写 `icon:"Server"` 在 web 能命中；
+ * 若原生拿原始串直接比较，**同一清单在原生会掉进降级分支**（显示通用方块）⇒ 视觉割裂。
+ * （这是 2026-10-11 用真实服务器 payload 复核时发现的**真实** parity 缺口。）
+ */
+export function normalizePluginIcon(icon: string): string {
+  return icon !== undefined && icon !== null ? icon.trim().toLowerCase() : '';
+}
+
+/** 是否是 web 已知图标名（未知 ⇒ 组件回落通用符号；对齐 web `pluginIcon` 的 `Puzzle` 降级）。 */
+export function isKnownPluginIcon(icon: string): boolean {
+  return PLUGIN_ICON_KEYS.indexOf(normalizePluginIcon(icon)) >= 0;
+}
+
 /**
  * 把 `web_plugin_list` 的响应构造成**原生目录模型**（纯函数，零依赖 ⇒ 可脱机单测）。
  *
@@ -560,7 +596,9 @@ export function buildPluginCatalog(
       // `view.*` 是 key 但未命中 ⇒ 用短 id 兜底（别把 'view.badge.title' 当标题）
       t.title = resolved === rawTitle && rawTitle.indexOf('view.') === 0
         ? viewShortId(vid) : (resolved.length > 0 ? resolved : viewShortId(vid));
-      t.icon = w.icon !== undefined ? w.icon : '';
+      // 归一化 lucide 名（trim+小写）——与 web `pluginIcons.ts:63` 同规则：清单写 "Server"
+      // 与 "server" 等价；组件据此查 sys.symbol 表（不新造映射）。
+      t.icon = normalizePluginIcon(w.icon !== undefined ? w.icon : '');
       t.entry = normalizePluginEntry(w.entry !== undefined && w.entry.length > 0 ? w.entry : entry);
       t.dynamic = w.dynamic === true;
       t.align = w.align !== undefined ? w.align : '';

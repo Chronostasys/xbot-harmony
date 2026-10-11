@@ -4,6 +4,7 @@ import {
   PluginCatalogItem,
   PluginViewItem,
   PLUGIN_OPEN_DIRECT,
+  normalizePluginIcon,
 } from '../core/pluginhost';
 import { WebSurface } from './WebSurface';
 
@@ -65,23 +66,37 @@ export struct PluginHost {
   /**
    * 插件图标名 → HarmonyOS 符号。
    *
-   * ⚠️ **真实的映射缺口**：清单里的 `icon` 是 **lucide** 名（`git-branch`/`server`/`chart`…，
-   * 见 web `plugin-runtime/pluginIcons.ts`），与 HarmonyOS `sys.symbol.*` **不是一一对应**
-   * ⇒ 这里只覆盖少数语义接近的，其余一律回落通用方块（`square_grid_2x2`）。
-   * 符号名必须写成**字面量**（ArkTS 不允许 `$r('sys.symbol.' + x)` 这种拼装）。
+   * 名字来源：`view.icon` 声明的 **lucide 名**（web `plugin-runtime/pluginIcons.ts:30-56` 的
+   * `ICON_MAP`）—— 先归一化（`normalizePluginIcon`：trim+小写，与 web `:63` 同规则），
+   * 再查本表。HarmonyOS `sys.symbol.*` 与 lucide **不是一一对应**，故只覆盖语义接近的，
+   * 其余一律回落通用方块（`square_grid_2x2`，对应 web 的 `Puzzle` 降级）。
+   * 符号名必须是**字面量**（ArkTS 不允许 `$r('sys.symbol.' + x)` 拼装）。
+   *
+   * 覆盖 vs web `ICON_MAP` 19 键：已映射 14 键；`search`/`info`/`blocks`/`boxes`/`puzzle`
+   * 无**已验证**的 `sys.symbol` 名可用（不猜名 —— 猜错会渲染空白）⇒ 回落通用方块。
    */
   private symbolFor(icon: string): Resource {
-    if (icon === 'server' || icon === 'server-cog') {
+    const k: string = normalizePluginIcon(icon);
+    if (k === 'server' || k === 'server-cog') {
       return $r('sys.symbol.rectangle_on_rectangle');
     }
-    if (icon === 'git-branch' || icon === 'git' || icon === 'git-commit-horizontal') {
+    if (k === 'git-branch' || k === 'git' || k === 'git-commit-horizontal') {
       return $r('sys.symbol.circle_dashed');
     }
-    if (icon === 'chart' || icon === 'activity' || icon === 'sparkline') {
+    if (k === 'chart' || k === 'activity' || k === 'sparkline') {
       return $r('sys.symbol.line_3_horizontal');
     }
-    if (icon === 'tasks' || icon === 'files' || icon === 'code' || icon === 'terminal') {
+    if (k === 'tasks' || k === 'files' || k === 'code' || k === 'terminal') {
       return $r('sys.symbol.doc_text');
+    }
+    if (k === 'message') {
+      return $r('sys.symbol.list_bullet');
+    }
+    if (k === 'sparkles') {
+      return $r('sys.symbol.lightbulb');
+    }
+    if (k === 'wrench') {
+      return $r('sys.symbol.gearshape');
     }
     return $r('sys.symbol.square_grid_2x2');
   }

@@ -139,6 +139,28 @@ bash tools/typecheck/check.sh
 GenUI（LLM 生成 TSX 需 `sucrase` + `new Function` ⇒ ArkTS 禁动态求值）、终端（xterm.js）、
 文件树 / Monaco / Markdown 预览、Dockview 多面板布局 —— 均在"完整 Web UI"里承载。
 
+### 8.5 真实服务器复核（2026-10-11 波1c 后）—— 结论：**目录模型无缺陷，仅图标名差一处**
+
+验证场：`https://xbot.pivotlang.tech`（`plugins.enabled:true`，与本地"插件关闭 ⇒ 目录恒空"对照）。
+真实 `web_plugin_list` 快照存 `tools/tests/plugin_remote_payload.ts`，门禁
+`tools/tests/plugin_remote_parity.test.ts`（把下面每条钉成回归断言）。
+
+| parity 点 | web 取证 | 原生取证 | 结论 |
+|---|---|---|---|
+| **① i18n key 必须查表解析** | `plugin-runtime/i18n.ts:98-106`（`resolvePluginText`）+ 回退链 `:38-62`；消费点 `plugins/manager/PluginManagerPanel.tsx:226`、`plugin-runtime/usePluginViewPanels.ts:60` | `core/pluginhost.ets` `resolvePluginText`/`resolveManifestKey`（回退链逐条同构）；`buildPluginCatalog` 对 `name`/`description`/`title` 都调用 | ✅ **已实现**（giver 怀疑的缺陷**不成立**）。真实 payload 的 `name:"manifest.name"` 解析为 `Git 面板`/`GenUI（display_html）`/… |
+| **② 只列带 web 的插件** | 服务端 `rpc_table.go:2294-2296` 已过滤；web 消费 `web_plugin_list` | 原生只消费 `web_plugin_list`（`core/store.ets:1042`） | ✅ 一致。真实 6 active 里 `xbot.ambience`/`xbot.qq` 无 web ⇒ 不下发 ⇒ 目录只有 4 |
+| **③ module_url 相对 ⇒ 绝对** | `channel/web/web.go:2086-2089` 契约；`module_url` 是 ESM **资源**不是网页 | `absoluteAssetUrl`（拼 `store.http.baseUrl`）；"可打开 URL"恒为 `pluginPanelUrl` = 宿主页根 | ✅ 一致。`module_url` 仅元数据展示，**永不**交给 WebView |
+| **④ 图标名解析** | `plugin-runtime/pluginIcons.ts:61-77`：**查表前 `name.toLowerCase()`**（`:63`），未知 ⇒ `Puzzle`（`:76`） | 原先 `components/PluginHost.ets` 直接串比较（**大小写敏感**） | ⚠️ **真实差异**：web 小写化、原生不小写化 ⇒ 清单写 `"Server"` 在 web 命中、在原生降级。**已修**：新增纯函数 `normalizePluginIcon`/`isKnownPluginIcon`（`core/pluginhost.ets`），目录构建即归一化，组件消费归一化值；映射扩到 web `ICON_MAP` 19 键中的 14 键 |
+
+- **`dynamic` 视图**：web `usePluginViewPanels.ts:54` **过滤掉** `view.dynamic`（无静态入口）；
+  原生目录**保留**并以"按需"徽标标注（`components/PluginHost.ets:183-188`）—— 这是**有意的**差异
+  （目录是"索引"，应让用户看见"存在哪些视图"；诚实标注其不可直开）。
+- **`permissions`/`enabled`/`state`**：web 仅在管理面板呈现（`PluginManagerPanel.tsx:223` 状态点）；
+  原生目录**只读展示** `state`（非 `active` 才标，`:132-142`），`permissions` **不参与门控**（安全）。
+- **RPC 鉴权**：实测该服务器 RPC **不强制** `Origin`/`Referer`（仅需 `xbot_session` Cookie）——
+  giver 笔记里的"必须带 Origin 否则 unauthorized"未复现；原生 `core/http.ets:238-247` 只带
+  `Cookie` 即可，无需改。
+
 ## 9. 设置「服务端配置面」parity（2026-10-11 调研，任务3 波2）
 
 web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language）已对齐（§1、任务3 波1）；
