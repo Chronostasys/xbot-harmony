@@ -50,7 +50,7 @@ const DOT: number = 6;
  *    其余一律走 `colorOf`（唯一解析）。⛔ 本函数**只解析角色**，不参与"该用什么角色"的判据
  *    —— 判据在 `core/widgetsview.ets` + `core/pluginview.ets`（判据与渲染同源）。
  */
-function roleColorOf(p: Palette, role: string): string {
+function widgetRoleColorOf(p: Palette, role: string): string {
   if (role === 'warn') { return p.warn; }
   return colorOf(p, role);
 }
@@ -79,7 +79,7 @@ struct WidgetZoneRow {
             .fontSize(fs('type.caption'))
             .fontWeight(fw('type.caption'))
             .lineHeight(lh('type.caption'))
-            .fontColor(roleColorOf(this.pal(), s.colorRole))
+            .fontColor(widgetRoleColorOf(this.pal(), s.colorRole))
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
         }, (s: WidgetSpanView, i: number) => `${i}#${s.colorRole}`)
@@ -124,13 +124,13 @@ struct WidgetComponentCard {
         Row({ space: SPACE_HAIR }) {
           Row()
             .width(DOT).height(DOT)
-            .backgroundColor(roleColorOf(this.pal(), toneColorRole(this.view.tone)))
+            .backgroundColor(widgetRoleColorOf(this.pal(), toneColorRole(this.view.tone)))
             .borderRadius(DOT / 2)
           Text(this.view.badgeText)
             .fontSize(fs('type.micro'))
             .fontWeight(fw('type.micro'))
             .lineHeight(lh('type.micro'))
-            .fontColor(roleColorOf(this.pal(), toneColorRole(this.view.tone)))
+            .fontColor(widgetRoleColorOf(this.pal(), toneColorRole(this.view.tone)))
         }
         .padding({ left: INSET_CHIP_X, right: INSET_CHIP_X, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
         .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
@@ -178,7 +178,7 @@ struct WidgetComponentCard {
               .fontSize(fs('type.micro'))
               .fontWeight(fw('type.micro'))
               .lineHeight(lh('type.micro'))
-              .fontColor(roleColorOf(this.pal(), widgetDeltaRole(this.view.metricDelta)))
+              .fontColor(widgetRoleColorOf(this.pal(), widgetDeltaRole(this.view.metricDelta)))
           }
         }
         .width('100%')
@@ -218,7 +218,7 @@ struct WidgetComponentCard {
               .fontSize(fs('type.caption'))
               .fontWeight(fw('type.caption'))
               .lineHeight(lh('type.caption'))
-              .fontColor(roleColorOf(this.pal(), toneColorRole(it.tone)))
+              .fontColor(widgetRoleColorOf(this.pal(), toneColorRole(it.tone)))
               .flexShrink(0)
           }
           .width('100%')
@@ -241,7 +241,7 @@ struct WidgetComponentCard {
         Row({ space: SPACE_HAIR }) {
           Row()
             .width(DOT).height(DOT)
-            .backgroundColor(roleColorOf(this.pal(), 'warn'))
+            .backgroundColor(widgetRoleColorOf(this.pal(), 'warn'))
             .borderRadius(DOT / 2)
             .flexShrink(0)
           Text(WIDGET_UNSUPPORTED_LABEL)
