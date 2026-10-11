@@ -60,6 +60,14 @@ export function brandOnAccent(): string {
  *
  * 判据按 `isLightPalette`（色板 `appBg` 亮度），⛔ **不按主题名硬判**。
  * 消费方：`core/splash.splashMarkLevelOf` 的标记色 / 开屏实现 / 样张（本入口是唯一出口）。
+ *
+ * ── 给 `brand-impl` 的**一行切法**（`core/splash.ets` 的 `splashMarkLevelOf`，本波不改该文件）──
+ * 函数签名 `brandAccentFor(p: Palette): string`；该函数内已有 `const p: Palette = paletteOf(theme);`
+ * ⇒ 只需把 `contrastRatio(brandAccent(), surface)` 改成：
+ *   `contrastRatio(brandAccentFor(p), surface)`          // 标记色（同时把 BrandSurface 的对比度按它算）
+ * 若标记**渲染**也要主题化（当前是静态 PNG `$r('app.media.start_icon')`，由 `tools/brand/emit.js`
+ * 用 `brandAccent()` 预生成）⇒ 需为浅色面单独生成一份资源（`splashMarkSvg(brandAccentFor(p), …)`），
+ * 这一层属 `brand-impl` 的资源决策（本入口只保证"取色"唯一、可判）。
  */
 export function brandAccentFor(p: Palette): string {
   return isLightPalette(p) ? p.accent : brandAccent();
