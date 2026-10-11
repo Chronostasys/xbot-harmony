@@ -80,7 +80,7 @@ else
   echo "     超单行预算 600 的 3.2×）。判据见 docs/PERF-BUDGET.md §3 问题①。（警告级，不判红）"
 fi
 
-[ "$MODE" = "--static" ] && { echo; echo "小结：✅ $pass / ❌ $fail（--static）"; [ "$fail" -eq 0 ] || exit 1; exit 0; }
+[ "$MODE" = "--static" ] && { echo; echo "小结：✅ ${pass} / ❌ ${fail}（--static）"; [ "$fail" -eq 0 ] || exit 1; exit 0; }
 
 # ═══ 第二部分：核心微基准（min-of-N，抓结构性退化）═════════════════════════════
 echo

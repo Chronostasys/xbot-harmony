@@ -381,7 +381,7 @@ esac
 
 echo "===== 判据单一性（A/B 警告级 · C 仅报告）====="
 if [ ! -d "$ETS_ROOT" ]; then
-  echo "⚠ 扫描根不存在：$ETS_ROOT（跳过）"
+  echo "⚠ 扫描根不存在：${ETS_ROOT}（跳过）"
   exit 0
 fi
 echo "-- 规则 A：ForEach key 含状态字段 · 规则 B：同文件 ≥2 段状态→颜色/文案映射 --"
