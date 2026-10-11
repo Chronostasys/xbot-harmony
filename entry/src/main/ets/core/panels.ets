@@ -16,6 +16,7 @@
  */
 
 import { ST_ERROR, toolStatusKind } from './toolstatus';
+import { SseEventType } from './types';
 
 export interface CronJob {
   id?: string;
@@ -175,4 +176,113 @@ export function subagentLine(s: SubAgentRow): string {
 /** 面板计数文本（0 也要显示，避免"面板是空的"和"没加载"混淆）。 */
 export function countText(n: number): string {
   return `${n}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 插件 widget 推送（SSE `web_widgets` / `plugin_widgets`）—— **绝不静默丢**
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 原生渲染层目前**没有**消费 zones/components 的组件 ⇒ 明确标"未支持"（不静默）。
+ *
+ * ⛔ 诚实契约：解析函数**照样**把服务端推来的 zones/components 解出来（数据已暴露），
+ *    但这个常量 = false 表示"当前无组件可渲染" ⇒ 渲染层应显示「插件面板暂不支持」
+ *    而不是默默什么都不做。接线方案见交付清单（需 `components/**`，不属本轮可改）。
+ */
+export const WIDGETS_RENDERABLE: boolean = false;
+
+/** 一个 web UI 组件声明（web `types/shared.ts:692-724` 的 WebUIComponentDecl 子集）。 */
+export interface WidgetComponentDecl {
+  id?: string;
+  label?: string;
+  title?: string;
+  type?: string;
+}
+
+/** `web_widgets` / `plugin_widgets` 载荷（web `PluginWidgetProvider.tsx:63-74` 同形）。 */
+interface WidgetPayload {
+  zones?: Record<string, object>;
+  components?: WidgetComponentDecl[];
+  revision?: number;
+}
+
+/**
+ * widget 事件载荷的**显式**解析结果（ok/reason 二选一，绝不静默 return null）。
+ * 与 `normalize.ts` 对未知事件 `default: return null`（静默丢）形成对照 —— 本类
+ * 让"服务端推了插件数据、客户端却看不到"这件事**可观测**。
+ */
+export class WidgetSnapshot {
+  /** 解析是否成功（false 时 `reason` 非空）。 */
+  ok: boolean = false;
+  /** 失败原因（空载荷 / 非 widget 事件 / JSON 不合法 / null）。 */
+  reason: string = '';
+  /** 服务端单调修订号（增量合并用；缺省 -1）。 */
+  revision: number = -1;
+  /** zones 的键（有序；渲染层据此挂载各区域）。 */
+  zoneKeys: string[] = [];
+  /** components 的展示名（label > title > id，按序）。 */
+  componentLabels: string[] = [];
+}
+
+/** 事件名是否属于插件 widget 推送（复用 `core/types.ets:236-237` 的常量，不另造字面量）。 */
+export function isWidgetEvent(event: string): boolean {
+  return event === SseEventType.webWidgets || event === SseEventType.pluginWidgets;
+}
+
+/**
+ * 解析 widget 推送载荷（`content` = JSON `{zones?, components?, revision?}`）。
+ *
+ * 服务端链路：`channel/web/web.go:452 NotifyWidgetsUpdated` → hub 推 `MsgTypeWebWidgets`
+ *   （`protocol/ws.go:27`，`plugin_widgets` 见 `:26`）；web 同款解析在
+ *   `web/src/plugins/PluginWidgetProvider.tsx:63-74`。
+ * 本仓现状：`core/types.ets:236-237` 有事件名常量，但 `store.handleSse` 未分支、
+ *   `normalize.normalizeEvent` 的 `default: return null` ⇒ **静默丢弃**（本次修复目标）。
+ */
+export function parseWidgetsPayload(event: string, content: string): WidgetSnapshot {
+  const snap: WidgetSnapshot = new WidgetSnapshot();
+  if (!isWidgetEvent(event)) {
+    snap.reason = `非 widget 事件: ${event}`;
+    return snap;
+  }
+  if (content.length === 0) {
+    snap.reason = '空载荷';
+    return snap;
+  }
+  let payload: WidgetPayload | null = null;
+  try {
+    payload = JSON.parse(content) as WidgetPayload;
+  } catch (e) {
+    snap.reason = '载荷不是合法 JSON';
+    return snap;
+  }
+  if (payload === null) {
+    snap.reason = '载荷为 null';
+    return snap;
+  }
+  snap.ok = true;
+  const rev: number | undefined = payload.revision;
+  if (rev !== undefined && rev !== null) {
+    snap.revision = rev;
+  }
+  const zones: Record<string, object> | undefined = payload.zones;
+  if (zones !== undefined && zones !== null) {
+    const keys: string[] = Object.keys(zones);
+    keys.sort();
+    snap.zoneKeys = keys;
+  }
+  const comps: WidgetComponentDecl[] | undefined = payload.components;
+  if (comps !== undefined && comps !== null) {
+    const labels: string[] = [];
+    for (let i = 0; i < comps.length; i++) {
+      const c: WidgetComponentDecl = comps[i];
+      const l: string = c.label !== undefined && c.label.length > 0 ? c.label
+        : (c.title !== undefined && c.title.length > 0 ? c.title
+          : (c.id !== undefined ? c.id : ''));
+      if (l.length > 0) {
+        labels.push(l);
+      }
+    }
+    snap.componentLabels = labels;
+  }
+  return snap;
 }
