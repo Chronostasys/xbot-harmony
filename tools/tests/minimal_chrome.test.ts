@@ -26,6 +26,8 @@ declare function require(m: 'path'): { join(...parts: string[]): string };
 declare const __dirname: string;
 
 import { R_MD, SP_2, SP_3 } from '../../entry/src/main/ets/core/tokens';
+import { ALL_THEMES, paletteOf } from '../../entry/src/main/ets/core/theme';
+import { chipBgOf, pillBgOf } from '../../entry/src/main/ets/core/toolvisual';
 
 let pass = 0;
 let fail = 0;
@@ -104,9 +106,30 @@ hasNot(visSrc, '.border(',
 // 工具浮层（web `ToolCallBlock`）：靠 `Surfaces.sunken` 底分层，**无边框**。
 hasNot(popSrc, '.border(',
   '工具浮层无边框（web `ToolCallBlock` 靠 `sunken` 底分层）');
-// 工具 pill 的底分层必须仍在（上面删边框不是把分层也删了）
-has(visSrc, '.backgroundColor(this.selected ? paletteOf(this.theme).surfaceHi : paletteOf(this.theme).surfaceAlt)',
-  '工具 pill 仍靠 surfaceHi/surfaceAlt 分层（去"边框"不等于去"层次"）');
+// ── 工具 pill 底分层 —— **行为断言**（不再匹配组件源码文本）────────────────────────
+// 分层判据已**下沉** `core/toolvisual.ets:pillBgOf/chipBgOf`（`components/ToolVisual.ets:107,117`
+// 只转发）。直接 import 纯函数断**语义**，远强于文本匹配：文本匹配既**脆**（组件改成转发就假红），
+// 又**挡不住真回归**（两个底取同一个值照样能匹配上字符串）。
+{
+  let pillDistinct: boolean = true;   // 选中/非选中 pill 底可辨
+  let chipNotPill: boolean = true;    // chip 底恒 ≠ 同态 pill 底（浮层打开时 chip 不"消失"）
+  for (let i = 0; i < ALL_THEMES.length; i++) {
+    const th: string = ALL_THEMES[i];
+    const pillSel: string = pillBgOf('running', true, th);
+    const pillOff: string = pillBgOf('running', false, th);
+    if (pillSel === pillOff) { pillDistinct = false; }
+    if (chipBgOf('running', true, th) === pillSel || chipBgOf('running', false, th) === pillOff) {
+      chipNotPill = false;
+    }
+  }
+  ok(`工具 pill 选中/非选中底不同（全部 ${ALL_THEMES.length} 套主题，浅/深都判）`, pillDistinct);
+  ok('工具 chip 底恒 ≠ 同态 pill 底（选中浮层打开时 chip 不消失）', chipNotPill);
+}
+// 单一映射（改回"两个都取 surfaceHi"即红）：选中 pill 提亮到 surfaceHi；选中 chip 压到 surfaceAlt
+eq('选中 pill 底 = surfaceHi', pillBgOf('running', true, 'dark'), paletteOf('dark').surfaceHi);
+eq('非选中 pill 底 = surfaceAlt', pillBgOf('running', false, 'dark'), paletteOf('dark').surfaceAlt);
+eq('选中 chip 底 = surfaceAlt（≠ 选中 pill 的 surfaceHi）',
+  chipBgOf('running', true, 'dark'), paletteOf('dark').surfaceAlt);
 
 // ════════════════════════════════════════════════════════════════════════════
 // ③ 代码块内边距 = SP_3(12)（↔ web `MarkdownRenderer.tsx:204-227`）
