@@ -73,8 +73,8 @@ import {
   channelLabel, hiddenRowCount, sessionInChannel, visibleRows, MAX_ROWS_VISIBLE,
 } from '../core/sessionpick';
 import {
-  collapseKey, groupSessionsFromItems, groupTitle, normalizeSessionCategory,
-  pathGroupTooltip, SESSION_CATEGORIES, SessionGroup, sessionCategoryLabel,
+  applyGroupsCollapsed, collapseAllPlan, collapseKey, CollapseAllPlan, groupSessionsFromItems, groupTitle,
+  normalizeSessionCategory, pathGroupTooltip, SESSION_CATEGORIES, SessionGroup, sessionCategoryLabel,
 } from '../core/sessiongroup';
 import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msgindex';
 import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, WebPluginListWire, buildPluginCatalog } from '../core/pluginhost';
@@ -4471,6 +4471,33 @@ struct Index {
     this.collapsedGroups = next;
   }
 
+  /** 当前分类下的**分组键**（web `SessionViewBar` 的 `groupKeys` = `filteredGroups.map(g => g.key)`）。
+   * 复用 `drawerGroups()` ⇒ 与列表渲染**同源**（⛔ 不另起一套分组判据）。 */
+  private drawerGroupKeys(): string[] {
+    const gs: DrawerGroup[] = this.drawerGroups();
+    const out: string[] = [];
+    for (let i = 0; i < gs.length; i++) {
+      out.push(gs[i].key);
+    }
+    return out;
+  }
+
+  /**
+   * 「全部折叠 / 全部展开」的**一体化判据**（`parity-audit` 指认的 0 消费缺口）。
+   * 逐条对齐 web `SessionViewBar.tsx:37-39`：`keys` / `allCollapsed` / 点击目标 `target` 三判据合一，
+   * ⛔ 页面只读它，不得再判一次（否则"图标显示展开、点的却是折叠"必分叉）。
+   */
+  private collapseAllPlanNow(): CollapseAllPlan {
+    return collapseAllPlan(this.sessionCategory(), this.drawerGroupKeys(), this.collapsedGroups);
+  }
+
+  /** 点「全部折叠/展开」：把当前分类**所有分组**整批并入/剔除折叠集（web `setGroupsCollapsed(keys, !allCollapsed)`）。
+   * 折叠态走**既有** `collapsedGroups`（与单组折叠 `toggleGroup` 同一套状态，⛔ 不自造）。 */
+  private applyCollapseAll(): void {
+    const plan: CollapseAllPlan = this.collapseAllPlanNow();
+    this.collapsedGroups = applyGroupsCollapsed(this.collapsedGroups, plan.keys, plan.target);
+  }
+
   /**
    * `sessions` 的 **chat_id → 行** 索引（O(n) 建一次）。
    *
@@ -6486,6 +6513,34 @@ struct Index {
             this.setSessionCategory(c);
           })
         }, (c: string) => `cat-${c}`)
+        // 全部折叠 / 全部展开（web `SessionViewBar.tsx:66-78`）—— 只在有分组时出现（`plan.visible`）。
+        // 判据与动作**同源**（`collapseAllPlan`）：`allCollapsed` 决定图标，点击落 `applyCollapseAll`。
+        // 折叠态走既有 `collapsedGroups`（与单组折叠同一套）⇒ ⛔ 不自造状态、不加动效。
+        if (this.collapseAllPlanNow().visible) {
+          Row() {
+            if (this.collapseAllPlanNow().allCollapsed) {
+              // 全部已折叠 ⇒ 该按钮的动作为「全部展开」（web `ChevronsUpDown`）。
+              SymbolGlyph($r('sys.symbol.chevron_up'))
+                .fontSize(typeOf('type.subhead').size)
+                .fontColor([colorOf(this.pal(), 'iconMuted')])
+            } else {
+              // 否则动作为「全部折叠」（web `ChevronsDownUp`）。
+              SymbolGlyph($r('sys.symbol.chevron_down'))
+                .fontSize(typeOf('type.subhead').size)
+                .fontColor([colorOf(this.pal(), 'iconMuted')])
+            }
+          }
+          // ⛔ 真机实测：`responseRegion` 负偏移外扩**无效** ⇒ 热区靠**真实 ≥44 布局盒**。
+          .width(HIT_TARGET_MIN)
+          .height(HIT_TARGET_MIN)
+          .justifyContent(FlexAlign.Center)
+          .alignItems(VerticalAlign.Center)
+          .borderRadius(RADIUS_CHIP)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            this.applyCollapseAll();
+          })
+        }
       }
       .width('100%')
       .padding(SPACE_HAIR)
