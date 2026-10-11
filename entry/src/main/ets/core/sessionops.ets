@@ -10,6 +10,8 @@
  *   ⚠️ 搜索只在**当前会话**的 tenant 内检索（服务端如此实现，不是全局搜索）。
  */
 
+import { SearchHit } from './types';
+
 export const MOVE_TOP: string = 'top';
 export const MOVE_UP: string = 'up';
 export const MOVE_DOWN: string = 'down';
@@ -103,4 +105,70 @@ export function sessionLabel(label: string, chatId: string): string {
   }
   const parts: string[] = chatId.split('/');
   return parts.length > 0 ? parts[parts.length - 1] : chatId;
+}
+
+// ── 消息搜索（`POST /api/search`）的**请求契约**纯逻辑 ─────────────────────────────
+//
+// 权威 = 服务端（web **没有**会话内消息搜索功能，`grep "/api/search" web/src` 零命中；
+//   web 的"搜索"只是会话列表前端过滤 `SessionList.tsx:215-229` 与文件搜索）。
+//   · 路由：`channel/web/web.go:915` `POST /api/search` → `handleSearchPOST`（`web_rest.go:432-449`）
+//     → `handleSearch`（`web_api.go:1094-1155`）。
+//   · 入参**只认** `{query, limit}`，且解码器 `DisallowUnknownFields()`（`web_rest.go:35`）
+//     ⇒ 多发 `channel`/`chat_id`/`q` 一律 **400**（⛔ 本仓 `store.ets` 曾误发这三个键 ⇒ 按钮恒失败）。
+//   · `limit` 语义（`web_api.go:1108-1113`）：缺省 **20**；显式值需 `1..100`，否则回落 20。
+//   · 返回 `{ok, results?: [{id, role, created_at?, snippet}]}`（`web_api.go:1080-1084/1086-1091`）；
+//     命中按 `ORDER BY id DESC`（最新在前）、大小写不敏感 LIKE、只搜 `user`/`assistant`（`:1135-1142`）。
+
+/** 搜索条数默认值（= 服务端默认 20，`web_api.go:1108`）。 */
+export const SEARCH_LIMIT_DEFAULT: number = 20;
+/** 搜索条数上限（服务端 `1..100`，超界回落默认，`web_api.go:1110-1112`）。 */
+export const SEARCH_LIMIT_MAX: number = 100;
+/** 搜索条数下限（服务端要求 `n > 0`）。 */
+export const SEARCH_LIMIT_MIN: number = 1;
+
+/**
+ * 归一化搜索条数为服务端**可接受**的取值（镜像 `web_api.go:1108-1113`）：
+ * `1..100` 原样；其余（`0`/负数/`>100`/非整数）⇒ 回落 `SEARCH_LIMIT_DEFAULT`。
+ * ⛔ 不夹到边界：服务端是"非法即用默认"，不是"非法即夹到 100"。
+ */
+export function normalizeSearchLimit(limit: number): number {
+  if (!Number.isFinite(limit)) {
+    return SEARCH_LIMIT_DEFAULT;
+  }
+  if (limit < SEARCH_LIMIT_MIN || limit > SEARCH_LIMIT_MAX) {
+    return SEARCH_LIMIT_DEFAULT;
+  }
+  return Math.floor(limit);
+}
+
+/**
+ * `/api/search` 的请求体 —— **只有这两个键**。
+ * ⛔ 服务端 `DisallowUnknownFields`（`web_rest.go:35`）：多一个键就 400。
+ */
+export class SearchBody {
+  query: string = '';
+  limit: number = SEARCH_LIMIT_DEFAULT;
+}
+
+/** 构造 `/api/search` 请求体（字段序 = `query`、`limit`；limit 已归一）。 */
+export function searchBody(q: string, limit: number): SearchBody {
+  const b: SearchBody = new SearchBody();
+  b.query = q;
+  b.limit = normalizeSearchLimit(limit);
+  return b;
+}
+
+/**
+ * 解析 `/api/search` 响应为命中数组（防御 `results` 缺失/`null`/非数组 —— 服务端空结果回 `{ok:true}` 无 `results`）。
+ * ⚠️ 服务端已按 `id DESC` 排序并算好 `snippet`，客户端**不重排、不重算**。
+ */
+export function parseSearchHits(data: Object): SearchHit[] {
+  if (data === undefined || data === null) {
+    return [];
+  }
+  const raw: Object | undefined = (data as Record<string, Object>)['results'];
+  if (raw === undefined || raw === null || !Array.isArray(raw)) {
+    return [];
+  }
+  return (raw as SearchHit[]);
 }

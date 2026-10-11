@@ -24,7 +24,7 @@ import { ChatMessage, ChatMessageRole, EMPTY_PROGRESS_SNAPSHOT, ProgressSnapshot
 import { normalizeWebIteration } from './agent_normalize';
 import { channelForChat } from './sessionpick';
 import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
-import { moveOrders } from './sessionops';
+import { moveOrders, parseSearchHits, searchBody, SEARCH_LIMIT_DEFAULT, SearchBody } from './sessionops';
 import { RewindReq, RewindTarget, gapTopBefore, rewindTargetDBID } from './msgops';
 import { BgTask, CronJob, RunnerRow, SubAgentRow, isWidgetEvent } from './panels';
 import { serverKey, toLocalSettings } from './settings';
@@ -514,14 +514,16 @@ export class ChatStore {
   }
 
   /**
-   * 在当前会话里搜索消息（`POST /api/search` legacy → `GET /api/search?q=`）。
-   * ⚠️ 服务端只检索**当前会话**的 tenant（不是全局搜索）。
+   * 在当前会话里搜索消息（`POST /api/search`；服务端只检索**当前会话**的 tenant）。
+   *
+   * ⛔ 请求体**只能是** `{query, limit}` —— 服务端 `handleSearchPOST`（`web_rest.go:432-449`）
+   * 用 `DisallowUnknownFields()` 解码（`web_rest.go:35`），多发 `channel`/`chat_id`/`q`
+   * 会直接 **400**。（曾经如此 ⇒ 该按钮恒失败。）构造/归一/解析见 `core/sessionops.ets`。
    */
   async searchMessages(q: string): Promise<SearchHit[]> {
-    const body: Record<string, string> = { 'channel': this.channel, 'chat_id': this.currentChatId, 'q': q };
+    const body: SearchBody = searchBody(q, SEARCH_LIMIT_DEFAULT);
     const res: Record<string, Object> = await this.http.postAs<Record<string, Object>>('/api/search', body);
-    const arr: Object | undefined = res['results'];
-    return arrOrEmpty(arr as SearchHit[]);
+    return parseSearchHits(res);
   }
 
   async deleteSession(chatId: string): Promise<void> {
