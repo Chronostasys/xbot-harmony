@@ -41,6 +41,7 @@ import {
   subscriptionFormValid, thinkDbFromDisplay, thinkDisplayFromDb, thinkHint, thinkLabel, THINK_OPTIONS,
   tierDisplayText, tierHint, tierKey, tierLabel, tierPickerEntries, TIERS, TIER_UNSET_TEXT, tierValues,
 } from '../core/settings';
+import { resolveUpdateBody } from '../core/llmcfg';
 import {
   SettingsChipRow, SettingsErrorBar, SettingsPanelHeader, SettingsSubCard, SettingsTextFieldRow,
 } from './SettingsRows';
@@ -302,10 +303,17 @@ export struct SettingsLlm {
     body.api_key = apiKeyForSubmit(this.form.apiKey);
     body.model = this.form.model.trim();
     body.api_type = normalizeApiTypeForSubmit(this.form.provider, this.form.apiType);
+    // ⛔ P0（真数据丢失）：表单**不含** `max_output_tokens`/`thinking_mode`，服务端对这两字段
+    // 是 always-accept（0/'' 会直接落库覆盖真值）⇒ 编辑态必须从既有订阅**继承**这两个字段，
+    // 否则每次从原生保存编辑都会把它们清零。逐字对齐 web `useLLMSettings.ts:219-220` 的
+    // `?? existing?.X ?? 默认` 合并语义（见 core/llmcfg.ets）。
+    const submitBody: SubscriptionBody = editing
+      ? resolveUpdateBody(body, this.subs, this.form.id)
+      : body;
     try {
       if (editing) {
         await rpc<void>(this.http, RpcMethod.updateSubscription,
-          new UpdateSubscriptionParams(this.form.id, body));
+          new UpdateSubscriptionParams(this.form.id, submitBody));
       } else {
         await rpc<void>(this.http, RpcMethod.addSubscription, new AddSubscriptionParams(body));
       }
