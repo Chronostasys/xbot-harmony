@@ -31,7 +31,8 @@ import notificationManager from '@ohos.notificationManager';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import type { common } from '@kit.AbilityKit';
-import { RECONCILE_NONE, RECONCILE_TURN_DONE, ReconcileMark, ReconcileMemo, ReconcileDecision, reconcileDecision, applyDecision, turnKeyOf } from '../core/reconcile';
+import { RECONCILE_NONE, RECONCILE_TURN_DONE, ReconcileMark, ReconcileMemo, ReconcileDecision, reconcileDecision, applyDecision, turnKeyOf, MissedItem, MissedSummary, summarizeMissed } from '../core/reconcile';
+import wantAgent from '@ohos.app.ability.wantAgent';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'XBOTRECON';
@@ -139,7 +140,7 @@ async function fetchMark(base: string, cookie: string): Promise<ReconcileMark | 
     const seq: number = typeof seqRaw === 'number' ? seqRaw as number : 0;
     const chat: Object | undefined = data.chat_id;
     const chatId: string = typeof chat === 'string' ? chat as string : '';
-    return new ReconcileMark(busy, turnKeyOf(chatId, seq), '');
+    return new ReconcileMark(busy, turnKeyOf(chatId, seq), '', chatId, chatId);
   } catch (e) {
     hilog.warn(DOMAIN, TAG, 'fetchMark failed: %{public}s', (e as BusinessError).message);
     return null;
@@ -167,8 +168,16 @@ async function run(ctx: common.Context): Promise<void> {
     return;
   }
   if (d.kind === RECONCILE_TURN_DONE) {
-    // 最小合法发布：去重键 = 回合键（`isAlertOnce` 之外再加一层自有幂等）。
-    await publish(ctx, '回复好了', '上一次回合已完成，点开查看');
+    // ⛔ 文案**唯一来源** = `core/reconcile.summarizeMissed`（不在本层另写一句）。
+    //    本期只喂"刚判出的那一条" ⇒ count=1；多会话聚合的**结构已就位**（加项即可，文案无需改）。
+    const items: MissedItem[] = [new MissedItem(mark.chatLabel, d.turnKey)];
+    const sum: MissedSummary = summarizeMissed(items);
+    // ⛔ `count === 0` ⇒ **不发**（避免"0 条新消息"的空提醒）——这是硬门禁，不是优化。
+    if (sum.count > 0) {
+      await publish(ctx, '新消息', sum.text, mark.chatId);
+    } else {
+      hilog.info(DOMAIN, TAG, 'summary count=0 ⇒ 不发通知');
+    }
   }
   applyDecision(memo, d);
   await saveMemo(ctx, memo); // ⛔ 必须落盘，否则下次唤醒重复打扰
@@ -179,14 +188,35 @@ async function run(ctx: common.Context): Promise<void> {
  * 最小通知发布（**不复制** `core/notify.ets` 的三形态/动作按钮逻辑：后台只发一条可点开的提醒）。
  * ⚠️ 与 `notify.ets` 的 slot 分级不同源 ⇒ 若将来要求"同 slot 语义"，应把公共部分上收，而不是各写一份。
  */
-async function publish(ctx: common.Context, title: string, text: string): Promise<void> {
+async function publish(ctx: common.Context, title: string, text: string, chatId: string): Promise<void> {
   try {
+    // 点进路由：复用既有 `notify_action`/`chat_id` 机制（与 `core/notify.ets` 同参数名）
+    // ⇒ 冷启由 `EntryAbility.captureOpenChat(want)` 接住，直达到该会话。
+    // 为什么带"最后判出的那个 session"：本期只判出一条；多会话聚合时改成"最长未读者"即可（结构已就位）。
+    let agent: Object = {};
+    try {
+      const info: wantAgent.WantAgentInfo = {
+        wants: [{
+          bundleName: ctx.applicationInfo.name,
+          abilityName: 'EntryAbility',
+          parameters: { chat_id: chatId, notify_action: 'open' },
+        }],
+        actionType: wantAgent.OperationType.START_ABILITY,
+        requestCode: 0,
+        wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG],
+      };
+      agent = await wantAgent.getWantAgent(info);
+    } catch (e) {
+      hilog.warn(DOMAIN, TAG, 'wantAgent failed（点开仍会起应用）: %{public}s', (e as BusinessError).message);
+    }
     await notificationManager.publish({
       id: 1001,
+      wantAgent: agent,
       content: {
         notificationContentType: notificationManager.ContentType.NOTIFICATION_CONTENT_BASIC_TEXT,
         normal: { title: title, text: text },
       },
+      isAlertOnce: true,
     });
   } catch (e) {
     hilog.warn(DOMAIN, TAG, 'publish failed: %{public}s', (e as BusinessError).message);

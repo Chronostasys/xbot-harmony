@@ -52,6 +52,24 @@ ok('两路都失败 ⇒ 不装饰并留证据日志', iconSrc.indexOf('不设 sm
 ok('cast 在 ArkTS 侧（request as NotificationRequest）',
   iconSrc.indexOf('as notificationManager.NotificationRequest') >= 0);
 
+// ── #5 接线判据：对账产出 → 聚合通知（真接上消费方，避免门禁 ⑧ 零消费告警）──────────────
+const abilSrc = stripComments(fs.readFileSync(
+  path.join(ROOT, 'entry/src/main/ets/workreconcile/NotifyReconcileAbility.ets'), 'utf-8'));
+const recSrc = stripComments(fs.readFileSync(
+  path.join(ROOT, 'entry/src/main/ets/core/reconcile.ets'), 'utf-8'));
+ok('⛔ summarizeMissed 有真实消费方（否则 ⑧ 零消费=假绿）',
+  abilSrc.indexOf('summarizeMissed(items)') >= 0);
+ok('消费点在 workreconcile 扩展里（不在 core 自消费）',
+  recSrc.indexOf('summarizeMissed(') > 0 && abilSrc.indexOf('summarizeMissed(') >= 0);
+ok('⛔ count==0 ⇒ **不发**通知（硬门禁）', abilSrc.indexOf('sum.count > 0') >= 0);
+ok('else 分支留下证据日志（可判"为什么没发"）', abilSrc.indexOf('summary count=0') >= 0);
+ok('文案唯一来源 = summarizeMissed（本层不另写文案）',
+  abilSrc.indexOf('sum.text') >= 0 && abilSrc.indexOf("'回复好了'") < 0);
+ok('点进路由：wantAgent 带 chat_id', abilSrc.indexOf('chat_id: chatId') >= 0);
+ok('复用既有 notify_action 机制', abilSrc.indexOf("notify_action: 'open'") >= 0);
+ok('wantAgent 失败静默（仍会起应用，不丢通知）', abilSrc.indexOf('wantAgent failed') >= 0);
+ok('⛔ 未新增 setTimeout（性能预算 ⑦ 已满 7/7）', abilSrc.indexOf('setTimeout') < 0);
+
 if (fail > 0) { console.log(`  notify_icon: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  notify_icon: ${pass} passed, 0 failed`);
 process.exit(0);

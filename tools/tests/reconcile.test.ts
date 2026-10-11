@@ -49,54 +49,54 @@ eq('chatId null/undefined 不抛', [turnKeyOf(null as unknown as string, 5), tur
 // ── (c) ASK：新 request_id ⇒ 提醒；同一个只提醒一次 ──────────────────────────────
 function memo0(): ReconcileMemo { return new ReconcileMemo(false, '', ''); }
 const mAsk = memo0();
-const askMark = new ReconcileMark(false, 'c#1', 'req-1');
+const askMark = new ReconcileMark(false, 'c#1', 'req-1', '', '');
 const d1: ReconcileDecision = reconcileDecision(askMark, mAsk);
 eq('新 ask ⇒ ASK', d1.kind, RECONCILE_ASK);
 eq('ASK 带回 request_id（供去重落盘）', d1.askId, 'req-1');
 applyDecision(mAsk, d1);
 eq('⛔ 同一 request_id 再来 ⇒ 不提醒（去重）', reconcileDecision(askMark, mAsk).kind, RECONCILE_NONE);
-eq('不同 request_id ⇒ 再提醒', reconcileDecision(new ReconcileMark(false, 'c#1', 'req-2'), mAsk).kind, RECONCILE_ASK);
+eq('不同 request_id ⇒ 再提醒', reconcileDecision(new ReconcileMark(false, 'c#1', 'req-2', '', ''), mAsk).kind, RECONCILE_ASK);
 
 // ── (d) TURN_DONE：**没见过的已完成回合**才提醒 ────────────────────────────────
 const mSeen = new ReconcileMemo(true, 'c#7', '');
 eq('⛔ 没见过的已完成回合 ⇒ 提醒（后台/被杀期间完成都靠这条）',
-  reconcileDecision(new ReconcileMark(false, 'c#9', ''), mSeen).kind, RECONCILE_TURN_DONE);
+  reconcileDecision(new ReconcileMark(false, 'c#9', '', '', ''), mSeen).kind, RECONCILE_TURN_DONE);
 eq('已见过的回合 ⇒ 不提醒（不重复打扰）',
-  reconcileDecision(new ReconcileMark(false, 'c#7', ''), mSeen).kind, RECONCILE_NONE);
+  reconcileDecision(new ReconcileMark(false, 'c#7', '', '', ''), mSeen).kind, RECONCILE_NONE);
 eq('回合还在跑（busy）⇒ 不提醒（等它跑完）',
-  reconcileDecision(new ReconcileMark(true, 'c#9', ''), mSeen).kind, RECONCILE_NONE);
+  reconcileDecision(new ReconcileMark(true, 'c#9', '', '', ''), mSeen).kind, RECONCILE_NONE);
 eq('还没有任何回合（turnKey 空）⇒ 不提醒',
-  reconcileDecision(new ReconcileMark(false, '', ''), mSeen).kind, RECONCILE_NONE);
+  reconcileDecision(new ReconcileMark(false, '', '', '', ''), mSeen).kind, RECONCILE_NONE);
 
 // ── (e) 冷启动闸：前台从没看过 ⇒ 不判"完成"（防把历史回合当刚完成）───────────────
 eq('⛔ 未立基线 + 已完成 + 没见过 ⇒ NONE（冷启动误报防线）',
-  reconcileDecision(new ReconcileMark(false, 'c#99', ''), memo0()).kind, RECONCILE_NONE);
+  reconcileDecision(new ReconcileMark(false, 'c#99', '', '', ''), memo0()).kind, RECONCILE_NONE);
 eq('但**待答**不受该闸限制（用户要做动作，冷启动也该提醒）',
-  reconcileDecision(new ReconcileMark(false, 'c#99', 'req-x'), memo0()).kind, RECONCILE_ASK);
+  reconcileDecision(new ReconcileMark(false, 'c#99', 'req-x', '', ''), memo0()).kind, RECONCILE_ASK);
 
 // ── (f) 优先级：同一次快照里"新待答"优先于"回合完成"──────────────────────────────
 eq('ASK 优先于 TURN_DONE',
-  reconcileDecision(new ReconcileMark(false, 'c#9', 'req-new'), mSeen).kind, RECONCILE_ASK);
+  reconcileDecision(new ReconcileMark(false, 'c#9', 'req-new', '', ''), mSeen).kind, RECONCILE_ASK);
 
 // ── (g) applyDecision：幂等落盘 ⇒ 第二次不再打扰 ────────────────────────────────
 const m2 = new ReconcileMemo(true, 'c#1', '');
-const dd: ReconcileDecision = reconcileDecision(new ReconcileMark(false, 'c#2', ''), m2);
+const dd: ReconcileDecision = reconcileDecision(new ReconcileMark(false, 'c#2', '', '', ''), m2);
 eq('先判出 TURN_DONE', dd.kind, RECONCILE_TURN_DONE);
 applyDecision(m2, dd);
 eq('落盘后 lastSeenTurnKey 前移到该回合', m2.lastSeenTurnKey, 'c#2');
-eq('再对同一快照 ⇒ NONE（幂等）', reconcileDecision(new ReconcileMark(false, 'c#2', ''), m2).kind, RECONCILE_NONE);
+eq('再对同一快照 ⇒ NONE（幂等）', reconcileDecision(new ReconcileMark(false, 'c#2', '', '', ''), m2).kind, RECONCILE_NONE);
 ok('applyDecision 把备忘标为已立基线', m2.initialized);
 
 // ── (h) markSeen：前台"只记见过"，不产生任何提醒 ────────────────────────────────
 const m3 = new ReconcileMemo(false, '', '');
-markSeen(m3, new ReconcileMark(true, 'c#5', 'req-9'));
+markSeen(m3, new ReconcileMark(true, 'c#5', 'req-9', '', ''));
 ok('markSeen 立基线', m3.initialized);
 eq('markSeen 记下回合键', m3.lastSeenTurnKey, 'c#5');
 eq('markSeen 记下 askId（前台已看到的问句不再由后台重复提醒）', m3.lastAskId, 'req-9');
 eq('markSeen 的回合键生效：该回合完成时不提醒',
-  reconcileDecision(new ReconcileMark(false, 'c#5', ''), m3).kind, RECONCILE_NONE);
+  reconcileDecision(new ReconcileMark(false, 'c#5', '', '', ''), m3).kind, RECONCILE_NONE);
 eq('markSeen 不推进到空回合（不许把已有基线擦掉）', (() => {
-  markSeen(m3, new ReconcileMark(false, '', ''));
+  markSeen(m3, new ReconcileMark(false, '', '', '', ''));
   return m3.lastSeenTurnKey;
 })(), 'c#5');
 

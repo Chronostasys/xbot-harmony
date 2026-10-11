@@ -38,7 +38,13 @@ export class ReconcileMark {
   turnKey: string = '';
   /** 待回答的 `request_id`（空 = 无待答）。 */
   askId: string = '';
-  constructor(busy: boolean, turnKey: string, askId: string) {
+  /** 会话 id（点进路由用；空 = 未知 ⇒ 不设 wantAgent 参数）。 */
+  chatId: string = '';
+  /** 会话显示名（摘要文案用；空 = 不点名）。 */
+  chatLabel: string = '';
+  constructor(busy: boolean, turnKey: string, askId: string, chatId: string, chatLabel: string) {
+    this.chatId = chatId;
+    this.chatLabel = chatLabel;
     this.busy = busy;
     this.turnKey = turnKey;
     this.askId = askId;
