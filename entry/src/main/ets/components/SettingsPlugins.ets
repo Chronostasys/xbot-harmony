@@ -31,7 +31,8 @@ import {
 } from '../core/rpc';
 import {
   ConfigValue, PLUGIN_FIELD_BOOLEAN, PLUGIN_FIELD_IMAGE, PLUGIN_FIELD_MULTISELECT,
-  PLUGIN_FIELD_NUMBER, PLUGIN_FIELD_SELECT, PLUGIN_FIELD_UNKNOWN, PluginConfigCatalog,
+  PLUGIN_FIELD_NUMBER, PLUGIN_FIELD_SELECT, PLUGIN_FIELD_STRING, PLUGIN_FIELD_UNKNOWN,
+  PluginConfigCatalog,
   PluginConfigEntry, PluginConfigGroup, PluginConfigProperty, configValueFingerprint, displayValue,
   groupBySection, isFieldEditable, listHas, parsePluginConfig, pluginEntryFingerprint, readValue,
   submitValue, textInputValue, toggleListValue, validateValue, valueFromText, valueFromSingle,
