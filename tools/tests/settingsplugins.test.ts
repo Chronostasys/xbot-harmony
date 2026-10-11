@@ -409,6 +409,26 @@ const componentPath = pathMod.join(
   ok('★F 输入档经映射表 pluginInputMode', code.indexOf('pluginInputMode(') >= 0);
   ok('★F 控件档经映射表 pluginControlKind', code.indexOf('pluginControlKind(') >= 0);
   ok('★F 不再有 isText() 就地判控件（已并入映射表）', code.indexOf('.isText(') < 0);
+
+  // ── ★H 导入完备性（血泪：这类"用了常量却没 import"我已犯两次 ——
+  //    `pluginImagePreviewUrl`（23637b2）/ `PLUGIN_CTRL_STATIC`（0ac4ff7）——
+  //    只有 ArkTS 编译抓得到 ⇒ 加**机器判据**：用到的常量集合必须 ⊆ 顶部 import 集合。⛔ 零扫描判红。
+  const usedSyms: string[] = [];
+  const symRe = /PLUGIN_(?:CTRL|INPUT|IMG)_[A-Z_]+/g;
+  let sm = symRe.exec(code);
+  while (sm !== null) {
+    if (usedSyms.indexOf(sm[0]) < 0) { usedSyms.push(sm[0]); }
+    sm = symRe.exec(code);
+  }
+  ok('★H 零扫描判红：文件里真的用到了 PLUGIN_CTRL_*/INPUT_*/IMG_* 常量', usedSyms.length > 0);
+  const impRes = /import\s*\{([^}]*)\}\s*from\s*'\.\.\/core\/settingsplugins'/.exec(code);
+  const importedSyms: string[] = impRes === null ? [] : impRes[1].split(',').map((x: string) => x.trim());
+  const missingSyms: string[] = [];
+  for (let i = 0; i < usedSyms.length; i++) {
+    if (importedSyms.indexOf(usedSyms[i]) < 0) { missingSyms.push(usedSyms[i]); }
+  }
+  eq('★H 用到的 PLUGIN_CTRL_*/INPUT_*/IMG_* 全在 import 里（漏导入 ⇒ ArkTS 编译失败）',
+    missingSyms.join(','), '');
 }
 
 // ── G. 插件图片字段：上传契约 / 值分类 / 预览 URL（镜像服务端，2026-10-11）────────
