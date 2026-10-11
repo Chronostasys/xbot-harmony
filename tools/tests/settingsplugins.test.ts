@@ -20,6 +20,7 @@ import {
   normalizeFieldType, parsePluginConfig, readValue, sameValue, setEntryValues,
   shouldShowTab, submitValue, textInputValue, toggleListValue, validateValue, valueFromText,
   valueFromToggle, visibleTabs, fallbackTabId, displayValue,
+  configValueFingerprint, pluginEntryFingerprint,
   PLUGIN_FIELD_BOOLEAN, PLUGIN_FIELD_IMAGE, PLUGIN_FIELD_MULTISELECT, PLUGIN_FIELD_NUMBER,
   PLUGIN_FIELD_SELECT, PLUGIN_FIELD_STRING, PLUGIN_FIELD_UNKNOWN,
   SettingsTabSpec, PluginConfigCatalog, PluginConfigEntry,
@@ -183,6 +184,23 @@ eq('展示：secret 掩码（前2位****）', maskedSecret('abcdefgh'), 'ab****'
 eq('展示：secret 极短值不露长度', maskedSecret('ab'), '****');
 eq('展示：secret 空串仍空', maskedSecret(''), '');
 eq('文本初值：number', textInputValue(pNum, readValue(PLUGIN_FIELD_NUMBER, 3)), '3');
+
+// ── 内容指纹（ArkUI ForEach key 必须随内容变，否则写完重拉后界面停在旧值）────────────
+eq('指纹：boolean', configValueFingerprint(pFlag, valueFromToggle(true)), '1');
+eq('指纹：number', configValueFingerprint(pNum, readValue(PLUGIN_FIELD_NUMBER, 3)), '3');
+eq('指纹：multiselect', configValueFingerprint(pTags, readValue(PLUGIN_FIELD_MULTISELECT, ['t1', 't2'])), 't1,t2');
+eq('指纹：string 带长度前缀（消歧义）',
+  configValueFingerprint(pName, readValue(PLUGIN_FIELD_STRING, 'ab')), '2:ab');
+ok('指纹判别力：值变 ⇒ 指纹变',
+  configValueFingerprint(pNum, readValue(PLUGIN_FIELD_NUMBER, 3))
+    !== configValueFingerprint(pNum, readValue(PLUGIN_FIELD_NUMBER, 4)));
+const fp0 = pluginEntryFingerprint(e2);
+ok('条目指纹含 id + 启用态', fp0.indexOf('p2#0') === 0);
+ok('条目指纹含各字段值', fp0.indexOf('num=3') >= 0 && fp0.indexOf('tags=t1') >= 0);
+const e3: PluginConfigEntry = parsePluginConfig({
+  plugins: [{ id: 'p2', properties: { num: { type: 'number' } }, values: { num: 999 } }],
+} as Object).entries[0];
+ok('条目指纹判别力：值变 ⇒ 指纹变', pluginEntryFingerprint(e2) !== pluginEntryFingerprint(e3));
 
 // section 分组保首次出现顺序
 const groups = groupBySection([

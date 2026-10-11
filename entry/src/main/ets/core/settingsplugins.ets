@@ -563,6 +563,38 @@ export function sameValue(prop: PluginConfigProperty, a: ConfigValue, b: ConfigV
   return a.s === b.s;
 }
 
+/**
+ * 一个字段当前值的**内容指纹**（供 ArkUI `ForEach` 的 key 用）。
+ *
+ * ⛔ 为什么 key 必须带内容：ArkUI 的 `ForEach` **key 不变则复用节点、不重估 `@Prop`**
+ *    （`docs/ARKTS-GOTCHAS.md` §3/§4）—— 后端写成功后我们**重新拉取**配置（值变了但 id/key 没变），
+ *    若 key 只含 id/key，界面会**停在旧值**（"写完看不出变化"）。指纹变化 ⇒ key 变化 ⇒ 该项重建。
+ * ⛔ key 里**不得**出现状态类字段名（`tools/lint/criteria-single-source.sh` 规则 A 会命中）；
+ *    本函数返回的是**值**，与那些名字无关。
+ */
+export function configValueFingerprint(prop: PluginConfigProperty, v: ConfigValue): string {
+  if (prop.kind === PLUGIN_FIELD_BOOLEAN) {
+    return v.b ? '1' : '0';
+  }
+  if (prop.kind === PLUGIN_FIELD_NUMBER) {
+    return `${v.n}`;
+  }
+  if (prop.kind === PLUGIN_FIELD_MULTISELECT) {
+    return v.list.join(',');
+  }
+  return `${v.s.length}:${v.s}`;
+}
+
+/** 一个插件卡片的**内容指纹**（id + 启用态 + 各字段值指纹）—— 供 `ForEach` key 用（同上理由）。 */
+export function pluginEntryFingerprint(e: PluginConfigEntry): string {
+  let fp: string = `${e.id}#${e.isOn ? '1' : '0'}`;
+  for (let i = 0; i < e.properties.length; i++) {
+    const p: PluginConfigProperty = e.properties[i];
+    fp += `#${p.key}=${configValueFingerprint(p, valueOfProp(p, e.values))}`;
+  }
+  return fp;
+}
+
 /** 按 `section` 分组后的一个组（组名空串 = 无分组的头部区）。 */
 export class PluginConfigGroup {
   section: string = '';
