@@ -3016,6 +3016,9 @@ struct Index {
                 settings: this.settings,
                 surfaceWeb: this.useWebUI,
                 notifyOn: this.notifyOn,
+                // 「开发者 → 导出会话」要会话选择器（`{channel, chat_id}`）；空 ⇒ 按钮禁用
+                channel: this.store.channel,
+                chatID: this.store.currentChatId,
                 onClose: () => {
                   this.showSettingsPanel = false;
                 },
@@ -3090,11 +3093,12 @@ struct Index {
       //    只有 `startSplash()` 在**迟滞**（`SPLASH_HYSTERESIS_MS`）到点判定"仍未就绪"才置
       //    `showSplash=true`（快启动 ⇒ 开屏压根不出现，T0 系统开屏直接过渡到主界面）。
       if (this.showSplash) {
+        // ⛔ **不传 `theme`**（2026-10-11 真机缺陷修复，方案 (a)「品牌开屏恒深」）：
+        //    旧实现把画布绑在可变的 `themeName` 上 ⇒ 浅色用户在同一段展示期间看到画布由深翻白，
+        //    且 T0 系统开屏恒深 ⇒ 无论如何都跳变。现 T1 画布/标记**恒定**（`core/splash.splashBrandCanvas`），
+        //    与 T0 同色 ⇒ T0→T1 零跳色；T1→T3 由 T2 淡出过渡（渐隐，非硬切）。
         SplashOverlay({
           phase: this.splashPhase,
-          theme: this.themeName,
-          // §12.1 落地 FOLLOW_APPLICATION：T1 底色跟**应用**主题（= 首帧画布同色 ⇒ 零跳色）。
-          canvasFollowApp: true,
           onDone: () => {
             this.onSplashDone();
           },
@@ -3151,6 +3155,7 @@ struct Index {
         // 与 `fontColor` 无关（ArkUI 没有 gradient-text）⇒ 渐变必须放在**容器**上，文字用纯色前景。
         // 原写法把 Text 的背景刷成紫渐变、且无 borderRadius ⇒ 真机上是"直角紫方块"
         // （见 docs/ARKTS-GOTCHAS.md 批次 14）。此处改为有意的应用徽标（squircle 观感）。
+        //
         // ⛔ 浅色面**不是**彩色渐变牌（`docs/REDESIGN.md §3.4`：白底靠"发丝 + 柔影"立层次，
         //    禁彩色渐变当"牌"）—— porcelain 下 `gradientFrom/To` = `#0071E3→#0066CC`，刷在纯白上
         //    就是"一块蓝渐变牌"，与极简白的气质冲突。⇒ 浅色面改 **中性面（`surface.card` = 白）

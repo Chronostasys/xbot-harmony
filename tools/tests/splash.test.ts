@@ -68,6 +68,30 @@ function eq(name: string, got: unknown, want: unknown): void {
   const g = JSON.stringify(got), w = JSON.stringify(want);
   if (g === w) { pass++; } else { fail++; console.log(`  ✗ ${name}\n      got  ${g}\n      want ${w}`); }
 }
+/**
+ * 剥掉 `//` 与 `/* *\/` 注释 —— 源码形态判据**只看代码**。
+ * ⛔ 教训（本波实测）：直接 `indexOf` 会被**注释里提到的**函数名骗（`splashBrandCanvas()` 出现在头注里
+ *    ⇒ 把组件改成不消费它，判据仍"绿" ⇒ **假绿**）。这正是 `AGENTS.md`「判据 ≠ 信号」那条。
+ */
+function stripComments(src: string): string {
+  let out = '';
+  let i = 0;
+  while (i < src.length) {
+    const c = src.charAt(i);
+    const n = i + 1 < src.length ? src.charAt(i + 1) : '';
+    if (c === '/' && n === '/') {
+      while (i < src.length && src.charAt(i) !== '\n') { i++; }
+    } else if (c === '/' && n === '*') {
+      i += 2;
+      while (i < src.length && !(src.charAt(i) === '*' && i + 1 < src.length && src.charAt(i + 1) === '/')) { i++; }
+      i += 2;
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
 
 // ── ⓪ 常量：**全部由底座派生，零裸数字** ─────────────────────────────────────
 {
@@ -299,15 +323,19 @@ function eq(name: string, got: unknown, want: unknown): void {
   const indexSrc: string = root.length > 0
     ? fs.readFileSync(path.join(root, 'entry/src/main/ets/pages/Index.ets'), 'utf8') : '';
   ok('读到 SplashOverlay.ets / Index.ets 源码', overlay.length > 0 && indexSrc.length > 0);
-  ok('① 组件**不读** this.theme（画布/标记不随主题变化）', overlay.indexOf('this.theme') < 0);
-  ok('① 组件**不接** canvasFollowApp（FOLLOW_APPLICATION 已废弃）', overlay.indexOf('canvasFollowApp') < 0);
-  ok('① 组件**不接** systemDark（不再按系统深浅选基准画布）', overlay.indexOf('systemDark') < 0);
-  ok('② 组件**消费**恒定画布 splashBrandCanvas()', overlay.indexOf('splashBrandCanvas()') >= 0);
-  ok('② 组件**消费**恒定标记 splashBrandMarkLevel(', overlay.indexOf('splashBrandMarkLevel(') >= 0);
+  // ⛔ 只看**代码**（剥注释）—— 否则头注里的 `splashBrandCanvas()` 会让"组件不再消费它"逃过判据（假绿，实测过）。
+  const oc: string = stripComments(overlay);
+  const ic: string = stripComments(indexSrc);
+  // ⛔ 既查**用法**（`this.theme`）也查**声明**（`@Prop theme`）—— 重新接回 theme 的任一形式都必须红。
+  ok('① 组件**不读/不接** theme（无 this.theme 也无 @Prop theme）',
+    oc.indexOf('this.theme') < 0 && oc.indexOf('@Prop theme') < 0);
+  ok('① 组件**不接** canvasFollowApp（FOLLOW_APPLICATION 已废弃）', oc.indexOf('canvasFollowApp') < 0);
+  ok('① 组件**不接** systemDark（不再按系统深浅选基准画布）', oc.indexOf('systemDark') < 0);
+  ok('② 组件**消费**恒定画布 splashBrandCanvas()', oc.indexOf('splashBrandCanvas()') >= 0);
+  ok('② 组件**消费**恒定标记 splashBrandMarkLevel(', oc.indexOf('splashBrandMarkLevel(') >= 0);
   ok('② 组件**不再**用旧的 theme 版判据（splashCanvasOf/splashMarkLevelOf）',
-    overlay.indexOf('splashCanvasOf') < 0 && overlay.indexOf('splashMarkLevelOf') < 0);
-  ok('③ 接线处**不再**传 theme/canvasFollowApp 给 SplashOverlay',
-    indexSrc.indexOf('canvasFollowApp') < 0);
+    oc.indexOf('splashCanvasOf') < 0 && oc.indexOf('splashMarkLevelOf') < 0);
+  ok('③ 接线处**不再**传 canvasFollowApp 给 SplashOverlay', ic.indexOf('canvasFollowApp') < 0);
 }
 
 // ── ★F T0 资源不变量（真机白闪修复；`FOLLOW_APPLICATION` 经真机证实**不生效**）────────

@@ -13,15 +13,15 @@
  * ⛔ 三条纪律：
  *   1. 本文件属 `core/`，会被 `tools/tests/run.sh` 当**纯 TS** 编译
  *      ⇒ **禁止** import ArkUI / `@ohos.*` / `@kit.*`（无 `AnimateParam`/`Curve` 等）。
- *   2. **禁颜色字面量**：色值一律经 `core/theme` 的 `paletteOf/lightPalette/darkPalette`
- *      与 `core/brand` 的 `brandAccent()`；本文件不出现 `#RRGGBB`。
+ *   2. **禁颜色字面量**：色值一律经 `core/theme` 的 `darkPalette()` 与 `core/brand` 的
+ *      `brandAccent()`；本文件不出现 `#RRGGBB`。
  *   3. **禁自造时长**：所有时长都从 `core/motion` + `core/design` 的既有常量**派生**
  *      （下面每个常量都标了来源；零裸数字）。缺档清单见 `docs/SPLASH-SPEC.md §11`。
  *
  * ⛔ "在飞"铁律（`docs/DESIGN-SYSTEM.md §8`）：同一时刻**只允许一个在飞动效 = 光球**。
  *    开屏 T1/T2 是**一次性过渡**，不是"在飞" ⇒ 光球在 T3 才允许启动（`splashOrbAllowed`）。
  */
-import { Palette, paletteOf, lightPalette, darkPalette, isLightPalette } from './theme';
+import { Palette, darkPalette, isLightPalette } from './theme';
 import { MOTION_BASE_MS, MOTION_SLOW_MS, MOTION_FAST_MS } from './motion';
 import { ORB_BREATH_MS } from './orb';
 import { EASE_SPRING_CSS, EASE_OUT_CSS } from './tokens';
@@ -318,32 +318,41 @@ export function shouldStartSplash(launchKind: string, elapsedMs: number, content
 }
 
 /**
- * ③ T1 底色（纯函数，**不读全局**）。
+ * ③ 品牌开屏画布（**恒定**，方案 (a)「品牌开屏恒深」—— 2026-10-11 真机缺陷修复）。
  *
- * `followApplication=true` ⇒ 取**应用主题**的 `appBg`（与首帧画布**逐字节一致** ⇒ **零跳色**；
- * 需 `docs/BRAND.md §12.1` 的 `FOLLOW_APPLICATION` 配置补丁，**待用户拍板**）。
- * `false` ⇒ 取**基准画布**（跟**系统**深浅 —— 即当前 `color.json` base/dark 两个值）。
+ * ── 为什么**不读 theme**（真机证据 2026-10-11，逐帧可查）─────────────────────────
+ *   旧实现 `splashCanvasOf(theme, followApplication=true, …)` = `paletteOf(theme).appBg`，
+ *   而画布绑在 `SplashOverlay` 的 `@Prop theme`（← `pages/Index.ets` 的 `this.themeName`）上 ——
+ *   `themeName` 的**初值是字面量 `'dark'`**（`pages/Index.ets:600`），服务端 settings 到达后才被
+ *   `normalizeTheme` 覆盖（`pages/Index.ets:1392-1394`）⇒ 浅色主题用户在**同一段开屏展示期间**
+ *   看到画布从 `#0B0B0E` 翻成白 —— 且 T0 系统开屏**恒**为 `#0B0B0E`
+ *   （`base`/`dark` 两处 `start_window_background` 同值；`FOLLOW_APPLICATION` 真机不生效，
+ *    见 `docs/BRAND.md §12.1`）⇒ 取主题色**必然**引入跳变（无论起始值如何）。
+ *
+ * ⇒ **判据 = 品牌开屏恒深**：画布 = `darkPalette().appBg`，与 T0 **逐字节同色** ⇒ T0→T1 **零跳色**；
+ *   T1→T3 由既有的 T2 淡出（`animEaseOut()`，零超调）过渡到应用主题（**是渐隐，不是硬切**）。
+ * ⛔ 本函数**无 theme 入参** —— "T1 期间画布不随主题变化"是**结构性保证**（机器判据见
+ *   `tools/tests/splash.test.ts §①`：本函数值恒定 + `SplashOverlay` 源码不含 `this.theme`）。
  */
-export function splashCanvasOf(theme: string, followApplication: boolean, systemDark: boolean): string {
-  if (followApplication) {
-    return paletteOf(theme).appBg;
-  }
-  return systemDark ? darkPalette().appBg : lightPalette().appBg;
+export function splashBrandCanvas(): string {
+  return darkPalette().appBg;
 }
 
 /**
- * ④ T1 标记档位（**委托** `core/brand.ets:markLevelFor`，不另立判据）。
+ * ④ 品牌开屏标记档位（**恒定深色面**，方案 (a)）。
  *
- * 深浅判据用 `isLightPalette(paletteOf(theme))`（按 `appBg` 感知亮度，⛔ **不按主题名硬判**）；
- * 对比度用 `core/brand.ets:contrastRatio(brandAccentFor(p), 承载面)`——`brandAccentFor` 按色板分叉
- * （浅色面 ⇒ 该主题 `accent`，porcelain `#0071E3` 对白 **4.6967**；深色面 ⇒ 仍 `brandAccent()`，语义零改动）。
- * ⇒ porcelain（浅色面）= `solid`（实心品牌色 glyph on 中性白，**零发光**）。
+ * 品牌标记是**品牌资产**：恒用品牌色、⛔ 不随应用主题/强调色变（`docs/DESIGN-SYSTEM.md §13.6`）。
+ * 承载面恒为 `splashBrandCanvas()`（深色）⇒ 走 `markLevelFor` 的**深色臂** ⇒ `full`
+ *   （= 预生成的品牌紫 PNG `$r('app.media.start_icon')`，由 `tools/brand/emit.js` 用
+ *    `brandAccent()` 生成；⛔ **不生成浅色变体** —— §13.6 明令）。
+ * 深浅仍走**亮度口径** `isLightPalette`（⛔ 不按主题名硬判），对比度仍走 `brandAccentFor`，
+ * 与 `markLevelFor(brand.ets)` **同一降级链** —— 唯一变化：承载面**不再来自 theme**。
+ * ⛔ 本函数**无 theme 入参**（同 ③ 的结构性保证）。
  */
-export function splashMarkLevelOf(theme: string, sizeVp: number, monochrome: boolean): string {
-  const p: Palette = paletteOf(theme);
-  const surface: string = p.appBg;
+export function splashBrandMarkLevel(sizeVp: number, monochrome: boolean): string {
+  const p: Palette = darkPalette();
   const s: BrandSurface = new BrandSurface(!isLightPalette(p), monochrome, sizeVp,
-    contrastRatio(brandAccentFor(p), surface));
+    contrastRatio(brandAccentFor(p), p.appBg));
   return markLevelFor(s);
 }
 

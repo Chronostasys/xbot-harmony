@@ -14,9 +14,15 @@
  *      **曲线语义**（`core/splash.splashPhaseCurve` 是唯一判据）：**入场（T1）允许超调**（spring），
  *      **让位/退出（T2）不许超调**（`animEaseOut()` = `EASE_OUT_CSS`，`components/anim.ets:103`，
  *      已就绪）。`@ohos/curves` 只许在 `components/anim.ets` import，组件侧**不能自造曲线**。
- *   3. **颜色零字面量**：唯一入口 `colorOf(p, role)`；底色走 `core/splash.splashCanvasOf`；
- *      标记色走 `core/brand.brandAccent()/brandOnAccent()`（**不走** `colorOf`）；
- *      深浅判据在 `core/splash.splashMarkLevelOf` 内（`isLightPalette`，⛔ 不按主题名硬判）。
+ *   3. **颜色零字面量**：唯一入口 `colorOf(p, role)`；底色走 `core/splash.splashBrandCanvas()`
+ *      （**恒定品牌深色**，= T0 系统开屏色）；标记档位走 `core/splash.splashBrandMarkLevel()`
+ *      （**恒定深色面** ⇒ `full` = 预生成的品牌紫 PNG，由 `core/brand.brandAccent()` 生成，**不走** `colorOf`）；
+ *      深浅判据在 `core/splash.splashBrandMarkLevel` 内（`isLightPalette`，⛔ 不按主题名硬判）。
+ *   3b. **T1 画布与标记恒**不随 `theme`**变化**（真机缺陷修复 2026-10-11，方案 (a)「品牌开屏恒深」）：
+ *      本组件**不接 `theme`** —— 这是"画布不在展示期间翻色"的**结构性保证**（⛔ 不是靠调用方自觉）。
+ *      画布 = `splashBrandCanvas()`（= T0 色 ⇒ T0→T1 **零跳色**）；品牌标记 = 品牌资产、恒紫
+ *      （`docs/DESIGN-SYSTEM.md §13.6`，⛔ 不做浅色变体）；T1→T3 由 T2 **淡出**过渡到应用主题
+ *      （是**渐隐**，不是硬切）。
  *   4. **在飞唯一性**：本组件**不启动光球**（T1/T2 是一次性过渡，不是"在飞"）——
  *      光球只可能在 T3 由页面/LiveTail 启动；判据 = `core/splash.splashOrbAllowed`（本组件不消费它，
  *      因为它恒为 false 直到 T3，而那时本组件已被 `onDone` 移除）。
@@ -24,7 +30,7 @@
  * ⚠️ 新建组件的**孤儿风险**：ArkTS **不检查没有消费者的组件文件**（`docs/ARKTS-GOTCHAS.md` 批次13）
  *    ⇒ 本组件必须在 `pages/Index.ets` 接线后才真正进编译图（接线补丁见交付说明，归 `sidebar-ux`）。
  */
-import { Palette, paletteOf } from '../core/theme';
+import { Palette, darkPalette } from '../core/theme';
 import {
   HIT_TARGET_MIN, RADIUS_CHIP, SPACE_HAIR, SPACE_SM, SPACE_XL, colorOf, typeOf,
 } from '../core/design';
@@ -41,8 +47,8 @@ import {
   SPLASH_T1,
   SPLASH_T2,
   SPLASH_T3,
-  splashCanvasOf,
-  splashMarkLevelOf,
+  splashBrandCanvas,
+  splashBrandMarkLevel,
 } from '../core/splash';
 import { animBase, animEaseOut } from './anim';
 
@@ -60,19 +66,13 @@ function withDelay(p: AnimateParam, delayMs: number): AnimateParam {
 
 @Component
 export struct SplashOverlay {
-  /** 当前阶段（由页面按 `core/splash.splashPhaseAt` 推进后投递）。 */
+  /**
+   * 当前阶段（由页面按 `core/splash.splashPhaseAt` 推进后投递）。
+   * ⛔ 本组件**不接 `theme`**（见文件头纪律 3b）：画布/标记恒不随应用主题变化。
+   */
   @Prop @Watch('onPhaseChange') phase: string = SPLASH_T1;
-  /** 应用主题名（决定底色与标记档位）。 */
-  @Prop theme: string = 'dark';
   /** 无障碍降级：**只降动效、不降可达性**（标记静态可见，停留到 minDwell）。 */
   @Prop reduceMotion: boolean = false;
-  /**
-   * T1 底色是否跟**应用**主题（`docs/BRAND.md §12.1` 的 `FOLLOW_APPLICATION`；**待用户拍板**）。
-   * 默认 `false` = 跟**系统**（现状）—— 此时 T1 底色 = 系统开屏底色 ⇒ **零跳色**（方案 B）。
-   */
-  @Prop canvasFollowApp: boolean = false;
-  /** 系统是否深色（仅 `canvasFollowApp=false` 时用于选基准画布）。 */
-  @Prop systemDark: boolean = true;
   /** 开屏结束（页面据此置 `showSplash=false` 把它移除）。 */
   onDone: () => void = () => {
   };
@@ -94,18 +94,19 @@ export struct SplashOverlay {
    */
   @State private hintOpacity: number = SPLASH_HINT_ENTER_OPACITY;
 
+  /** 开屏承载面色板（**恒定深色** —— 与 `canvasColor()` 同面；⛔ 不读 `theme`）。 */
   private pal(): Palette {
-    return paletteOf(this.theme);
+    return darkPalette();
   }
 
-  /** T1 底色（唯一判据在 core/splash；本组件不自己挑色）。 */
+  /** T1 底色（唯一判据在 core/splash；⛔ 不读 `theme`；= T0 系统开屏色 ⇒ T0→T1 零跳色）。 */
   private canvasColor(): string {
-    return splashCanvasOf(this.theme, this.canvasFollowApp, this.systemDark);
+    return splashBrandCanvas();
   }
 
-  /** 标记档位（唯一判据在 core/brand.markLevelFor，经 core/splash 委托）。 */
+  /** 标记档位（唯一判据在 core/brand.markLevelFor，经 core/splash 委托；⛔ 不读 `theme`）。 */
   private level(): string {
-    return splashMarkLevelOf(this.theme, SPLASH_MARK_BOX_VP, false);
+    return splashBrandMarkLevel(SPLASH_MARK_BOX_VP, false);
   }
 
   aboutToAppear(): void {
@@ -151,8 +152,8 @@ export struct SplashOverlay {
 
   build() {
     Stack({ alignContent: Alignment.Center }) {
-      // ── 品牌底：`canvasColor()` 由 core/splash.splashCanvasOf 判出 ──────────────
-      //    T0（系统开屏）→ T1 底色**同色** ⇒ 冷启动**零跳色**（方案 B；方案 A 见 §12.1）。
+      // ── 品牌底：`canvasColor()` 由 core/splash.splashBrandCanvas 判出 ─────────────
+      //    **恒定** = T0（系统开屏）色 ⇒ T0→T1 **零跳色**（方案 (a)「品牌开屏恒深」；§12.1）。
       Column()
         .width('100%')
         .height('100%')
