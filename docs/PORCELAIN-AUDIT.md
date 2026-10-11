@@ -29,12 +29,20 @@
 1. ✅ **已修**：`core/theme.ets:815` 浅色臂 `e.glow = p.transparent`（E2，`2b1fc5f`，判据=「中心对底 ≥1.5 **且** chroma>0」，浅色旧值 1.383:1/chroma=0 ⇒ 判为"脏灰团"不是"光"）。
    ⇒ **那 6 个直取调用点在浅色下已不再出彩色发光**；宪法 `REDESIGN §3.1`「浅色系一律禁彩色发光」**已满足**。
 2. 🟡 **仍在**：`e.glowSoft = alphaHex(p.textPrimary, 0.10)`（`theme.ets:817`）**浅色臂未改** —— V6 冻结（等真机截图定夺"灰团"是否要调）；它同样零 chroma。
-3. 🔴 **本次复核新发现的真实遗留（归 main agent，需 `pages/Index.ets`）**：
-   `glow` 在 `pages/Index.ets` 有 **4 处被当"投影(shadow)"用**（`theme.ets:813` 注释点名 `:3176/:3191/:3283/:3949`；复核时对应 `:3383`/`:3682` 等）
-   ⇒ 浅色下 `glow = transparent` ⇒ **这些地方变成"无投影"**（不是"彩色脏光"了，但**层次也没了**）。
-   ⇒ 正确修法（`theme.ets` 注释已给）：把**当投影用的**那几处改走 `elevationColorOf(p, …)`（`elev*` 是**正确的**投影档，浅色=中性柔影）；
-   ⛔ **不要**把 `glow` 改回彩色（那是宪法明禁的"白底彩色发光"）。
-   ⇒ 已在 `docs/UI-AUDIT-CHECKLIST.md` 与 goal5-backlog 登记为待办（**需 `pages/Index.ets` 空闲**）。
+3. ✅ **已修（2026-10-11 收口）**：`glow` 在 `pages/Index.ets` 被当**投影(shadow)**用的 **4 处**
+   （登录徽标 ×2 / 登录 CTA / 发送钮；旧行号 `:3176/:3191/:3283/:3949` ⇒ 现 `:3417/:3432/:3524/:4220`）
+   ⇒ 浅色下 `glow = transparent` ⇒ **这些点变成"无投影"**（层次丢失）。
+   - **修法（已落）**：`core/theme.ets: shadowColorOf(p, tier)`（口径 `fdb1054`，调用点 `1e3856f`）
+     —— 深色 = `glow` **逐字节不变**、浅色 = `elev2`/`elev3` **真投影档**（非透明 + chroma 近中性）。
+     ⚠️ **不是** `elevationColorOf`：其深色臂返回 `elev2`（`docs/DESIGN-SYSTEM.md §4.4` 抬升档）⇒ 会**改变深色观感**；
+     `shadowColorOf` 深色臂 = `glow` ⇒ **只有它在深色下等价**（且避开 `theme → design` 反向 import 成环）。
+   - **逐处判语义（⛔ 不批量替换）**：
+     · **(b) 真投影 4 处**（上述）⇒ 改走 `shadowColorOf(p,'raised')`（浅色柔影 / 深色 `glow` 原样）；
+     · **(a) 装饰性光晕 2 处** —— 登录顶光晕（`glowSoft` 径向）/ 空态星形圆光（`glow` 径向）**保持 `radialGradient`**、
+       浅色下**不出**（正是 E2 要它们透明的两处；宪法 §3.1 禁浅色彩色发光）。
+   - **判据**：`tools/tests/porcelain_shadow_sites.test.ts`（21 passed）—— ★ 逐**调用片段**断言"无一处 `.shadow` 引 `glow`"
+     + ≥4 处走 `shadowColorOf(this.pal(),'raised')` + 浅色非透明/深色逐字节；**零扫描判红**；
+     两层 mutation 实测打红（改回 `glow` ⇒ 红；浅色投影改 `transparent` ⇒ 红）。
 
 ---
 

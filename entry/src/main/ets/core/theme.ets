@@ -809,9 +809,10 @@ function buildEffects(p: Palette): Effects {
     // 备选（已实测否掉）：浅色改 `accent@16%` 只有 1.238、`@10%` 1.14，要到 ≥24% 才够 1.5 ⇒ 变"脏彩"。
     // ⇒ **浅色一律不出**（`glow = p.transparent`）；层次由**发丝/白度差/柔影(§13)** 负责 ——
     //   星形图案 + 文案本身已足够表达空态。
-    // ⚠️ 调用点影响（`pages/Index.ets`，**归 main agent**，本波只改 theme 侧口径）：
-    //    `:3176/:3191/:3283/:3949` 把 glow 当**投影**用 ⇒ 浅色下会变成"无投影"（透明的 shadow）。
-    //    若要保留浅色柔影，请把那几处改走 `elevationColorOf(p, …)`（`elev*` 是**正确的**投影档）。
+    // ✅ 调用点已收口（2026-10-11，`1e3856f`）：`pages/Index.ets` 那 4 处（登录徽标 ×2/CTA/发送钮）已改走
+    //    `shadowColorOf(p, tier)`（口径见本文件 `shadowColorOf`）—— 深色 = `glow` 逐字节、浅色 = `elev2/elev3` 柔影。
+    //    ⛔ 装饰性径向光晕（登录顶辉光/空态星形圆光）**保持** `glow = transparent`（E2 本意）。
+    //    判据：`tools/tests/porcelain_shadow_sites.test.ts`。
     e.glow = p.transparent;
     // ⚠️ `glowSoft` **本波不动**（V6 冻结：等用户真机截图定夺"灰团"是否要调）——它同样零 chroma，
     //    若定夺采纳，同法改透明（或并入本判据）。
