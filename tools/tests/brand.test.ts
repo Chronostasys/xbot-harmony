@@ -266,22 +266,50 @@ const ON_ACCENT = brandOnAccent();
   eq('背景幂等', layeredBackgroundSvg(ACCENT), bg);
 }
 
-// ── ⑩ 生成产物一致性（新资源：轮廓 / 分层前景 / 分层背景）────────────────────
+// ── ⑩ 生成产物一致性（降级链 3 资源：entry + AppScope 两侧 + 分层描述符）─────────
 {
   const repo = path.resolve(__dirname, '../../../..');
-  const media = path.join(repo, 'entry/src/main/resources/base/media');
-  const cases: string[][] = [
+  const entryMedia = path.join(repo, 'entry/src/main/resources/base/media');
+  const scopeMedia = path.join(repo, 'AppScope/resources/base/media');
+
+  // entry 侧：全部 3 个降级链资源
+  const entryCases: string[][] = [
     ['brand_mark_outline.svg', outlineMarkSvg(ACCENT)],
     ['brand_foreground.svg', layeredForegroundSvg(ACCENT, ON_ACCENT)],
     ['brand_background.svg', layeredBackgroundSvg(ACCENT)],
   ];
-  for (let i = 0; i < cases.length; i++) {
+  for (let i = 0; i < entryCases.length; i++) {
     try {
-      const got: string = fs.readFileSync(path.join(media, cases[i][0]), 'utf8');
-      eq(`${cases[i][0]} == 生成器输出`, got, cases[i][1]);
+      const got: string = fs.readFileSync(path.join(entryMedia, entryCases[i][0]), 'utf8');
+      eq(`entry/${entryCases[i][0]} == 生成器输出`, got, entryCases[i][1]);
     } catch (e) {
-      ok(`读取 ${cases[i][0]} 失败（应存在）`, false, (e as Error).message);
+      ok(`读取 entry/${entryCases[i][0]} 失败（应存在）`, false, (e as Error).message);
     }
+  }
+
+  // AppScope 侧：分层前景/背景（`layered_image.json` 引用的是 AppScope 的 $media）
+  // —— 与 entry 侧**由同一真源生成、逐字节相同**（两份不一致 = 桌面图标前景/背景打架）。
+  const scopeCases: string[][] = [
+    ['brand_foreground.svg', layeredForegroundSvg(ACCENT, ON_ACCENT)],
+    ['brand_background.svg', layeredBackgroundSvg(ACCENT)],
+  ];
+  for (let i = 0; i < scopeCases.length; i++) {
+    try {
+      const got: string = fs.readFileSync(path.join(scopeMedia, scopeCases[i][0]), 'utf8');
+      eq(`AppScope/${scopeCases[i][0]} == 生成器输出（与 entry 侧同源）`, got, scopeCases[i][1]);
+    } catch (e) {
+      ok(`读取 AppScope/${scopeCases[i][0]} 失败（应存在）`, false, (e as Error).message);
+    }
+  }
+
+  // 分层描述符（静态资源，不被引用时惰性；引用的 $media 名不得与生成器产出一致性脱钩）
+  try {
+    const li: string = fs.readFileSync(path.join(scopeMedia, 'layered_image.json'), 'utf8');
+    ok('layered_image.json 有 "layered-image" 包裹', li.indexOf('"layered-image"') >= 0);
+    ok('layered_image.json 背景指向 $media:brand_background', li.indexOf('$media:brand_background') >= 0);
+    ok('layered_image.json 前景指向 $media:brand_foreground', li.indexOf('$media:brand_foreground') >= 0);
+  } catch (e) {
+    ok('读取 AppScope/.../layered_image.json 失败（应存在）', false, (e as Error).message);
   }
 }
 

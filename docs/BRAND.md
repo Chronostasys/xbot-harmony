@@ -123,13 +123,14 @@ entry/src/main/resources/base/element/color.json   → start_window_background (
 entry/src/main/resources/dark/element/color.json   → start_window_background (#0B0B0E)
 ```
 
-**降级链 / 分层图标资源**（由 `tools/brand/gen.sh` 生成；当前**尚无运行时消费者**，见 §9/§10 —— 待接线/待拍板）：
+**降级链 / 分层图标资源**（由 `tools/brand/gen.sh` 生成；分层图标资源在 **entry 与 AppScope 两侧各一份、逐字节相同**）：
 
 | 资源 | 是什么 | 生成命令 | 消费方 |
 |---|---|---|---|
 | `entry/.../media/brand_mark_outline.svg` | 降级链第 3 档：单色轮廓（零填充零发光，`outlineMarkSvg`） | `bash tools/brand/gen.sh` | 待接线（无障碍/黑白时由 `markLevelFor` 选中） |
-| `entry/.../media/brand_foreground.svg` | 分层图标**前景**：标记缩进 313 安全区（`layeredForegroundSvg`） | 同上 | 分层图标（需改 `app.json5`，§10 #3） |
-| `entry/.../media/brand_background.svg` | 分层图标**背景**：满幅品牌色（`layeredBackgroundSvg`） | 同上 | 同上 |
+| `entry/.../media/brand_foreground.svg` + `AppScope/.../media/brand_foreground.svg` | 分层图标**前景**：标记缩进 313 安全区（`layeredForegroundSvg`），1024×1024 | 同上 | `AppScope/.../media/layered_image.json` → `app.icon`（需改 `app.json5`，§12.2） |
+| `entry/.../media/brand_background.svg` + `AppScope/.../media/brand_background.svg` | 分层图标**背景**：满幅品牌色（`layeredBackgroundSvg`），1024×1024 | 同上 | 同上 |
+| `AppScope/.../media/layered_image.json` | 分层描述符（静态；**未被引用时惰性**） | 手工（不依赖真源） | 同上 |
 
 > ⚠️ `$media:` 按**资源名**解析，与扩展名无关。
 > `$media:app_icon` 在 **AppScope 与 entry 两侧各放一份**（沿用改造前的既有结构）：
@@ -262,7 +263,9 @@ bash tools/brand/gen.sh --proofs /tmp/xbot-brand-proofs
 | 开屏底色**默认跟随系统深浅色** | `startWindow.json` schema：`startWindowColorModeType` default = `FOLLOW_SYSTEM` | ✅ 已核实（本波新增） |
 | 构建会把 `app_icon.svg` 自动转 **512×512 PNG** 打进 HAP，而 `start_icon.svg` 原样保留 | 解包 HAP：`resources/base/media/app_icon.png` + `resources/base/media/start_icon.svg` | ✅ 已核实（本波新增） |
 | **`.svg` 开屏标记在真机开屏窗口能否渲染** | 无法本地复现系统开屏渲染器 | ⚠️ **待真机验收**（本波已改用 PNG 规避） |
-| **HarmonyOS 分层图标（layered icon）落法** | 全 SDK / hvigor 插件内**搜不到** `layered_image` / `layeredImage` 任何约定或 schema（仅 hvigor 有一条资源压缩告警提到「layered launcher icon」） | ⚠️ **待验证**（故采用**单层**图标 —— 保守方案） |
+| **HarmonyOS 分层图标（layered icon）形状** | 官方文档 + 社区实证：`AppScope/.../media/layered_image.json` = `{"layered-image":{"background":"$media:...","foreground":"$media:..."}}`；`app.icon` 指向 `$media:layered_image`（DEV 社区《Detailed Explanation of HarmonyOS App.json5 Configuration》+ 实证贴） | ✅ **已核实**（本地 SDK/hvigor 无 schema，以文档为准）；资源已就位（§5），配置待拍板（§12.2） |
+| **分层图标：AppScope 覆盖 module 同名资源** | 社区实证 ⇒ 两边文件名/图形须一致，或只在 AppScope 配（推荐） | ⚠️ 已记入 §12.2（本仓两侧由同一真源生成、逐字节相同 ⇒ 无冲突） |
+| **分层图标需卸载重装才刷新** | 社区一致结论：桌面图标有系统级缓存 ⇒ 卸载重装会清 App 数据 | ⚠️ **必须用户拍板**（§12.2） |
 | **`startWindowColorModeType: FOLLOW_APPLICATION` 能否消除冷启动跳色** | 机制存在（schema 已核实），但需 `startWindow` profile 接管启动页且与 `EntryAbility.onCreate` 的 `setColorMode` 时序耦合 | ⚠️ **待真机决策**（见 §4.2） |
 
 ### 待真机回退（若主 agent 装机发现图标/开屏仍不显示）
@@ -279,7 +282,7 @@ bash tools/brand/gen.sh --proofs /tmp/xbot-brand-proofs
 |---|---|---|---|
 | 1 | **App 内启动动效（真正的"开屏动画"）** | 系统 `startWindow` 是**静态**的（无法动画）；App 内首帧是 `pages/Index.ets:2605 LoadingView`（转圈 + "xbot"），**`pages/Index.ets` 与 `components/**` 不在本波文件边界** | 批准后新增一个 splash 组件/页面（注意本仓"同一时刻只有一个在飞动效"铁律 `DESIGN-SYSTEM.md §8`） |
 | 2 | **冷启动跳色**（系统浅、应用选深，或反之）| 开屏底色**跟随系统**（`FOLLOW_SYSTEM` 默认，§4.2）；应用色板由 `EntryAbility.onCreate` 的 `setColorMode` 决定 ⇒ 二者不一致时"开屏 → 首帧"跳一帧 | 改用 `startWindow` profile + `FOLLOW_APPLICATION`（要改 `module.json5` ⇒ 配置拍板）；见 §4.2 |
-| 3 | **分层图标（adaptive icon）** | `layered_image` 落法在本地 SDK/hvigor **搜不到**（§9）；且启用需改 `app.json5` 的 `icon` | 查 DevEco 文档 + 配置拍板；**本波已把资源备好**：`brand_foreground.svg`（前景，半径恰 313）+ `brand_background.svg`（背景）+ §6.5 检算 |
+| 3 | **分层图标（adaptive icon）** | **形状已核实**（§9）；启用需改 `AppScope/app.json5` 一行 `icon`（§12.2） | 配置拍板；**资源已就位**：`AppScope/.../brand_foreground.svg`（前景，半径恰 313）+ `brand_background.svg`（背景）+ `layered_image.json`。⚠️ 需卸载重装（清数据） |
 | 4 | **品牌主色 `#7C5CFF` 调整** | 改主色影响全应用（token）与 web 对齐 | **只出建议**：白底族上 `#7C5CFF` vs `#FFFFFF` 对比约 4.3:1，若要做"纯白主题专属 logo"，可评估加深一档（如 `#6A4CF0`）——**但要用户拍板且需同步 `theme.ets`（不在本波边界）** |
 | 5 | **真机开屏/桌面图标截图** | 系统开屏是**亚秒级**、且模拟器为共享资源（拍照需抢时序）| 见交付 ④ 的说明 |
 
@@ -310,6 +313,7 @@ bash tools/brand/gen.sh --proofs /tmp/xbot-brand-proofs
 ## 12. 待用户拍板的**配置面**补丁（纯资源侧已做到天花板 —— 精确 diff）
 
 以下两处**必须动配置**才能生效 ⇒ 本波**不改**，只给精确补丁（改哪行 / 为什么必须 / 影响 / 回滚）。
+**§12.2 的 API 形状已核实、资源已就位**（只差一行配置）；§12.1 无需卸载重装，是**优先推荐**项。
 
 ### 12.1 开屏底色跟随**应用**主题（消「冷启动跳色」，§4.2 / §10 #2）
 
@@ -336,25 +340,45 @@ bash tools/brand/gen.sh --proofs /tmp/xbot-brand-proofs
   跟应用色板（而非系统）的开关（schema 已核实其 enum 含 `FOLLOW_APPLICATION`）。
 - **影响**：开屏底色改由应用 colorMode（`EntryAbility.onCreate` 的 `setColorMode`）决定；profile 一旦生效会
   **接管**开屏图标/背景的整条渲染路径（`startWindowIcon/Background` 两个字段可能被 profile 覆盖）。
+- **是否需要卸载重装**：**不需要**。开屏页配置随安装生效（普通增量安装 `hdc install -r` 即可），
+  它**不是**系统缓存物（与桌面图标不同）。⇒ 这是**可优先推给用户**的那个补丁。
 - **风险（未证）**：`setColorMode` 在 `onCreate` 调用，而开屏可能渲染更早 ⇒ 时序是否让开屏吃到应用色板
-  **未经真机证实**。
-- **回滚**：删 ① 那一行 + 删 ② 的文件即可（无其它副作用）。
+  **未经真机证实**（装后若仍跳色 = 时序问题，非本补丁写错）。
+- **回滚**：删 ① 那一行 + 删 ② 的文件即可（无其它副作用，亦无需卸载重装）。
 
-### 12.2 分层图标（adaptive / layered icon，§6.5 / §9 / §10 #3）
+### 12.2 分层图标（adaptive / layered icon）—— ✅ 形状**已核实** + 资源已就位
 
-**现状**：单层图标（`app_icon.svg` 满幅 + glyph）。**资源本波已备好**（`brand_foreground.svg` 半径恰 313、
-`brand_background.svg` 满幅色底），只差配置。
-**补丁**（形状**未经本地核实**，须先查 DevEco 文档）：
+**现状**：单层图标（`app_icon.svg` 满幅 + glyph）。**分层资源已就位**（见下表），只差 `app.json5` 一行配置。
 
+**官方 / 社区核实的 API 形状**（出处：DEV 社区《Detailed Explanation of HarmonyOS App.json5
+Configuration》+ 多位开发者实证贴；⛔ 本地 SDK/hvigor 内搜不到 schema，故以文档为准）：
+
+- 分层描述符 `AppScope/resources/base/media/layered_image.json`：
+  `{ "layered-image": { "background": "$media:...", "foreground": "$media:..." } }`；
+- `AppScope/app.json5` 的 `app.icon` 指向该描述符（`"$media:layered_image"`）；
+- ⚠️ **实证坑**：AppScope 的资源会**覆盖** module 同名资源 ⇒ 两边文件名/图形必须一致，或**只在 AppScope 配**（推荐）；
+- ⚠️ 前景/背景层建议 **1024×1024**（应用市场审核要求）—— 本仓两层均为 1024 画布 ✅。
+
+**已就位的资源**（全部由 `bash tools/brand/gen.sh` 从 `core/brand.ets` 真源生成；
+**entry 与 AppScope 两侧逐字节相同** —— 由 `tools/tests/brand.test.ts §⑩` 断言，不可能漂移）：
+
+| 文件 | 内容 |
+|---|---|
+| `AppScope/resources/base/media/layered_image.json` | 分层描述符（静态资源；**未被引用时惰性 ⇒ 落地安全**） |
+| `AppScope/.../brand_background.svg`（+ entry 同名一份） | 背景层：满幅品牌色，1024×1024 |
+| `AppScope/.../brand_foreground.svg`（+ entry 同名一份） | 前景层：标记缩进 313 安全区（`scale 0.79459`），1024×1024 |
+
+**补丁**（一行）：
 ```diff
-# AppScope/app.json5 —— app.icon 指向分层资源
+# AppScope/app.json5
 -    "icon": "$media:app_icon",
 +    "icon": "$media:layered_image",
 ```
-- **为什么必须**：分层图标靠 `icon` 指向一个"分层描述"，而非单张前景图；SDK/hvigor 本地**搜不到**
-  `layered_image` 的约定或 schema（§9）⇒ 资源命名/描述文件形状待核实。
-- **影响**：桌面图标渲染路径整体改变；需把前景/背景资源按核实后的命名放到 **AppScope 侧**（当前在 entry 侧）。
-- **回滚**：把 `icon` 改回 `$media:app_icon`。
 
-> ⛔ 两处补丁都**只动配置/资源**，不动任何 ArkTS 逻辑；应用内"首帧品牌标记入场"（§10 #1）另需
-> `pages/Index.ets`（`LoadingView`）接线 —— 那不在本波文件边界。
+- **影响**：桌面图标由"单层满幅"变为"背景层 + 前景层"叠加；系统按自适应蒙版裁切前景。
+- ⛔⛔ **生效代价（社区一致结论）**：桌面图标有**系统级缓存** ⇒ 需 **卸载重装**才能刷新
+  ⇒ **会清掉 App 数据（登录态 / 设置）**。**必须由用户拍板**，⛔ 不要自行触发。
+- **回滚**：`icon` 改回 `$media:app_icon`（同样需卸载重装才回收图标缓存）。
+
+> ⛔ §12.1 / §12.2 两处补丁都**只动配置/资源**，不动任何 ArkTS 逻辑；应用内"首帧品牌标记入场"
+> （§10 #1）另需 `pages/Index.ets`（`LoadingView`）接线 —— 那不在本波文件边界。

@@ -21,6 +21,10 @@ ENTRY_PNG="$ROOT/entry/src/main/resources/base/media/start_icon.png"
 ENTRY_OUTLINE="$ROOT/entry/src/main/resources/base/media/brand_mark_outline.svg"
 ENTRY_FG="$ROOT/entry/src/main/resources/base/media/brand_foreground.svg"
 ENTRY_BG="$ROOT/entry/src/main/resources/base/media/brand_background.svg"
+# 分层图标资源在 **AppScope 侧也放一份**（`AppScope/.../media/layered_image.json` 引用的是 AppScope 的 $media，
+# 与 `app_icon` 的双份同法；两份**由同一真源生成、逐字节相同** ⇒ 不可能漂移）。
+APPSCOPE_FG="$ROOT/AppScope/resources/base/media/brand_foreground.svg"
+APPSCOPE_BG="$ROOT/AppScope/resources/base/media/brand_background.svg"
 
 MODE="write"
 PROOF_DIR=""
@@ -63,6 +67,9 @@ if [ "$MODE" = "write" ]; then
   cp "$WORK/out/brand_mark_outline.svg" "$ENTRY_OUTLINE"
   cp "$WORK/out/brand_foreground.svg" "$ENTRY_FG"
   cp "$WORK/out/brand_background.svg" "$ENTRY_BG"
+  # 分层图标前景/背景：**AppScope 侧再放一份**（layered_image.json 在 AppScope 侧引用 $media）
+  cp "$WORK/out/brand_foreground.svg" "$APPSCOPE_FG"
+  cp "$WORK/out/brand_background.svg" "$APPSCOPE_BG"
   echo "✅ 已生成："
   echo "   $APPSCOPE_SVG"
   echo "   $ENTRY_SVG"
@@ -70,6 +77,8 @@ if [ "$MODE" = "write" ]; then
   echo "   $ENTRY_OUTLINE"
   echo "   $ENTRY_FG"
   echo "   $ENTRY_BG"
+  echo "   $APPSCOPE_FG"
+  echo "   $APPSCOPE_BG"
   if [ -n "$PROOF_DIR" ]; then
     mkdir -p "$PROOF_DIR"
     sips -s format png "$WORK/out/proof_light.svg" --out "$PROOF_DIR/proof_light.png" >/dev/null 2>&1
@@ -80,7 +89,7 @@ else
   # --check：与已提交资源逐字节比对（含 PNG 重生成）
   sips -s format png "$WORK/out/start_icon.svg" --out "$WORK/out/start_icon.png" >/dev/null 2>&1
   fail=0
-  for pair in "$WORK/out/AppScope_app_icon.svg:$APPSCOPE_SVG" "$WORK/out/entry_app_icon.svg:$ENTRY_SVG" "$WORK/out/start_icon.png:$ENTRY_PNG" "$WORK/out/brand_mark_outline.svg:$ENTRY_OUTLINE" "$WORK/out/brand_foreground.svg:$ENTRY_FG" "$WORK/out/brand_background.svg:$ENTRY_BG"; do
+  for pair in "$WORK/out/AppScope_app_icon.svg:$APPSCOPE_SVG" "$WORK/out/entry_app_icon.svg:$ENTRY_SVG" "$WORK/out/start_icon.png:$ENTRY_PNG" "$WORK/out/brand_mark_outline.svg:$ENTRY_OUTLINE" "$WORK/out/brand_foreground.svg:$ENTRY_FG" "$WORK/out/brand_background.svg:$ENTRY_BG" "$WORK/out/brand_foreground.svg:$APPSCOPE_FG" "$WORK/out/brand_background.svg:$APPSCOPE_BG"; do
     gen="${pair%%:*}"; committed="${pair#*:}"
     if [ ! -f "$committed" ]; then echo "❌ 缺失：$committed"; fail=1; continue; fi
     if cmp -s "$gen" "$committed"; then
