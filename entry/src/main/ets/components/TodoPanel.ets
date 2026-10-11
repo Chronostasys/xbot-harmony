@@ -27,8 +27,8 @@ import { withAlpha } from '../core/bubble';
 import { animFast } from './anim';
 import { TodoItem } from '../core/types';
 import {
-  hasTodos, isGoalTodo, TODO_DONE, TODO_DOING, todoCountLabel, todoPercent, todoState, TodoState,
-  todoStatusKind, todoText,
+  hasTodos, isGoalTodo, TODO_DONE, TODO_DOING, todoCountLabel, todoPercent, todoRowKey, todoState,
+  TodoState, todoStatusKind, todoText,
 } from '../core/todos';
 
 /** 收起态行高（web `h-7` = 28px）。 */
@@ -382,11 +382,11 @@ export struct TodoPanel {
                   this.onRemoveTodo(i);
                 },
               })
-              // ⛔ key 含**可变内容**（状态/文本/编辑态/徽标）：ArkUI 的 ForEach「key 不变则
-              //   不重建该项」（ARKTS-GOTCHAS §3）⇒ 勾选/改名后 UI 会卡在旧值。
-            }, (t: TodoItem, i: number) =>
-              `${i}#${todoStatusKind(t.status)}#${todoText(t)}#${this.editingIndex === i ? 'E' : ''}`
-              + `#${isGoalTodo(todoText(t), this.goalText) ? 'G' : ''}`)
+              // ⛔ key 走 `core/todos.ets:todoRowKey`（**唯一真源纯函数**）—— 组件侧不出现裸状态
+              //   字段（判据单一性门禁规则 A 的处方形态）。ArkUI 的 ForEach「key 不变则不重建
+              //   该项」（ARKTS-GOTCHAS §11）⇒ key 必须含可变内容，这条判据连同判别力测试
+              //   一起收敛到 `todoRowKey` 里。
+            }, (t: TodoItem, i: number) => todoRowKey(t, i, this.editingIndex === i, this.goalText))
           }
           .width('100%')
           .alignItems(HorizontalAlign.Start)

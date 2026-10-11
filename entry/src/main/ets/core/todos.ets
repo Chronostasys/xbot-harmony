@@ -219,3 +219,32 @@ export function todoPayloadRows(todos: TodoItem[]): TodoPayloadRow[] {
 export function hasTodos(todos: TodoItem[] | undefined): boolean {
   return todos !== undefined && todos.length > 0;
 }
+
+/**
+ * Todo 行的 `ForEach` key —— **唯一真源纯函数**（与 `core/subagent.ets:rowKeyOf` 同一手法）。
+ *
+ * ⛔ 为什么 key **必须随内容变**（因此**不能**是"纯稳定身份"如 `idx`）：
+ *   ArkUI 的 `ForEach` **不比较内容** —— key 不变就**完全不重建**该项
+ *   （`docs/ARKTS-GOTCHAS.md §11` 原文："为了让内容刷新，行级 key 里带了 `row.rev`"）。
+ *   逐行内容是 `@Prop` 投递的 ⇒ key 不变 ⇒ **勾选 / 改名 / 进入编辑 都不会刷新**（本仓实测）。
+ * ⇒ key = **位置身份 `index`** + **内容指纹**（status / text / 编辑态 / goal 徽标），
+ *    即判据单一性门禁（`tools/lint/criteria-single-source.sh` 规则 A）的处方形态
+ *    "${row.id}#${row.rev}"。key 生成收敛到**本函数**后，组件侧不再出现裸状态字段；
+ *    判别力由 `tools/tests/todos.test.ts` 钉死（任一内容维度变化 ⇒ key 必变）。
+ *
+ * ⚠️ `editing` 必须进 key：进入/退出编辑要重建该行（否则 `TextInput` 与文本不会切换）。
+ * ⚠️ 文本用**全文**（不是长度）：`'ab'→'cd'`（同长异文）也必须换 key，否则文本卡在首帧。
+ */
+export function todoRowKey(
+  t: TodoItem | undefined,
+  index: number,
+  editing: boolean,
+  goalText: string | undefined,
+): string {
+  const kind: string = todoStatusKind(t !== undefined ? t.status : undefined);
+  const text: string = todoText(t);
+  const edit: string = editing ? 'E' : '';
+  const goal: string = isGoalTodo(text, goalText) ? 'G' : '';
+  return `${index}#${kind}#${text}#${edit}#${goal}`;
+}
+

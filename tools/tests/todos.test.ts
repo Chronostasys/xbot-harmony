@@ -16,8 +16,8 @@ declare const process: { exit: (c: number) => void };
 
 import {
   hasTodos, isGoalTodo, isTodoDone, removeTodoAt, renameTodoAt, TodoPayloadRow, TodoState,
-  TODO_DOING, TODO_DONE, TODO_PENDING, todoCountLabel, todoPayloadRows, todoPercent, todoState,
-  todoStatusKind, todoText, toggleTodoAt,
+  TODO_DOING, TODO_DONE, TODO_PENDING, todoCountLabel, todoPayloadRows, todoPercent, todoRowKey,
+  todoState, todoStatusKind, todoText, toggleTodoAt,
 } from '../../entry/src/main/ets/core/todos';
 import { TodoItem } from '../../entry/src/main/ets/core/types';
 
@@ -180,6 +180,31 @@ function td(text: string, status?: string, id?: string): TodoItem {
   eq('载荷 status 已归一', rows.map((r: TodoPayloadRow) => r.status), ['doing', 'pending', 'pending']);
   eq('载荷键只有 text/status（无 id）', Object.keys(rows[0]).sort(), ['status', 'text']);
   eq('空列表 ⇒ 空载荷', todoPayloadRows([]), []);
+}
+
+// ── ⑨ 行 key 唯一真源（判据单一性门禁规则 A 的处方形态；ArkUI ForEach 不比较内容）──
+// ⛔ 判别力：**任一**内容维度变化 ⇒ key 必变（否则 ArkUI 复用旧节点、勾选/改名/进编辑不刷新）。
+{
+  const a: TodoItem = td('买牛奶', 'pending');
+  const base: string = todoRowKey(a, 0, false, '');
+  eq('同输入 ⇒ 同 key（稳定）', todoRowKey(a, 0, false, ''), base);
+  // status 变 ⇒ key 变（勾选必须刷新）
+  ok('status 变 ⇒ key 变', todoRowKey(td('买牛奶', 'done'), 0, false, '') !== base);
+  // 文本变（**同长异文**：'ab'→'cd' 仍须换 key，长度指纹会漏）
+  ok('同长异文 ⇒ key 变', todoRowKey(td('买可乐', 'pending'), 0, false, '') !== base);
+  // 编辑态变 ⇒ key 变（进/出编辑要重建该行）
+  ok('editing 变 ⇒ key 变', todoRowKey(a, 0, true, '') !== base);
+  // goal 徽标变 ⇒ key 变
+  ok('goal 变 ⇒ key 变', todoRowKey(a, 0, false, '买牛奶') !== base);
+  // 位置变 ⇒ key 变（列表内身份 = 位置）
+  ok('index 变 ⇒ key 变', todoRowKey(a, 1, false, '') !== base);
+  // key 必须**含**稳定身份（index）与内容（文本），便于人读/定位
+  ok('key 含 index 前缀', base.indexOf('0#') === 0);
+  ok('key 含文本全文', base.indexOf('买牛奶') >= 0);
+  // 缺 status 的条目按 pending 归一（与 todoStatusKind 同源）
+  eq('缺 status ⇒ 归 pending', todoRowKey({ text: 'x' }, 2, false, ''), todoRowKey(td('x', 'pending'), 2, false, ''));
+  // undefined 条目不抛（外来 JSON 边界）
+  ok('undefined 条目不抛', todoRowKey(undefined, 3, false, '').indexOf('3#pending#') === 0);
 }
 
 console.log(`\ntodos.test: ${pass} passed / ${fail} failed`);
