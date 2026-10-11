@@ -5,7 +5,13 @@
  * 缓存按 src 做（图片内容不可变），上限 24 张 —— 超出按插入顺序淘汰（避免长会话把内存吃满）。
  */
 import image from '@ohos.multimedia.image';
-import { Palette, paletteOf, surfacesOf } from '../core/theme';
+import { Palette, paletteOf } from '../core/theme';
+import {
+  RADIUS_PILL, RADIUS_CHIP, STROKE_HAIRLINE, HIT_TARGET_MIN,
+  SPACE_XXS, SPACE_XS, SPACE_SM, SPACE_HAIR,
+  colorOf, surfaceFillOf, hairlineOf, SURFACE_CHIP,
+} from '../core/design';
+import { fs, lh, fw, tc } from './SettingsRows';
 
 const PM_CACHE: Map<string, image.PixelMap> = new Map<string, image.PixelMap>();
 const PM_ORDER: string[] = [];
@@ -77,40 +83,53 @@ export struct AuthImage {
 
   build() {
     if (this.pm !== undefined) {
+      // 已就绪：图片本体。垫底走语义面 `surface.chip`（内嵌凹槽）—— 透明 PNG / 深色截图在
+      // 纯白画布上几乎没有边界，垫一层次级面才"看得见图"；面/色全部经 `colorOf`/`surfaceFillOf`。
       Image(this.pm)
         .width('100%')
-        .constraintSize({ maxHeight: this.maxHeight })
+        .constraintSize({ maxHeight: this.maxHeight, minHeight: HIT_TARGET_MIN })
         .objectFit(ImageFit.Contain)
-        .borderRadius(8)
-        // 垫底用 **surfaceAlt**（`bg-tertiary` 语义）：透明 PNG / 深色截图在纯白主题底
-        // （appBg，本主题里最浅的画布色）上几乎没有边界，垫一层次级面板色才能"看得见图"。
-        // 深色主题下 surfaceAlt 与 appBg 同为近黑（亮度差 <8%），不改变既有深色观感。
-        .backgroundColor(this.pal().surfaceAlt)
+        .borderRadius(RADIUS_PILL)
+        .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CHIP))
         .onClick(() => {
           this.onOpen(this.src);
         })
     } else if (this.loading) {
-      Row({ space: 6 }) {
-        LoadingProgress().width(14).height(14).color(this.pal().accent)
-        Text('图片加载中…').fontSize(11).fontColor(this.pal().textMuted)
+      // ── 加载态（§F1：空白区域必须有解释）──────────────────────────────────────
+      // 一行骨架 = 系统 spinner + 文案；字号/行高/字色走 `type.caption` 角色（不再各写 11）。
+      Row({ space: SPACE_XS }) {
+        LoadingProgress().width(14).height(14).color(colorOf(this.pal(), 'accent'))
+        Text('图片加载中…')
+          .fontSize(fs('type.caption'))
+          .fontWeight(fw('type.caption'))
+          .lineHeight(lh('type.caption'))
+          .fontColor(tc(this.pal(), 'type.caption'))
       }
-      .padding(8)
-      .backgroundColor(this.pal().surfaceAlt)
-      .borderRadius(6)
+      .padding(SPACE_XS)
+      .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CHIP))
+      .borderRadius(RADIUS_CHIP)
     } else {
-      Row({ space: 6 }) {
-        // 图标走系统符号（项目纪律：禁字符图标；原先的 `▣` 是硬编码 dingbat）。
-        SymbolGlyph($r('sys.symbol.picture')).fontSize(13)
-          .fontColor([this.pal().accentSoft]).flexShrink(0)
-        Text(this.failed ? '图片加载失败（点按重试）' : '查看图片').fontSize(12).fontColor(this.pal().accentSoft)
+      // ── 失败态 / 兜底「查看图片」──────────────────────────────────────────────
+      // 一行小字 + 一枚图标 + **结构性发丝**边界；可点（失败 ⇒ 重试；否则 ⇒ 打开大图）
+      // ⇒ 命中区 ≥ `HIT_TARGET_MIN`（视觉仍小，靠 `minHeight` 达成；不放大图标）。
+      Row({ space: SPACE_XS }) {
+        SymbolGlyph($r('sys.symbol.picture'))
+          .fontSize(13)
+          .fontColor([colorOf(this.pal(), 'accentSoft')])
+          .flexShrink(0)
+        Text(this.failed ? '图片加载失败（点按重试）' : '查看图片')
+          .fontSize(fs('type.caption'))
+          .fontWeight(fw('type.caption'))
+          .lineHeight(lh('type.caption'))
+          .fontColor(colorOf(this.pal(), 'accentSoft'))
       }
-      .padding({ left: 8, right: 8, top: 5, bottom: 5 })
-      .margin({ top: 2, bottom: 2 })
-      .backgroundColor(this.pal().surfaceAlt)
-      .borderRadius(6)
-      // 图片卡描边是**结构性边界**（承载"这是一张可点的图"的信息）⇒ `hairline`
-      // （浅色/极简白下比 `border` 清楚；深色族 `hairline ≡ border` 逐字节零变化）。
-      .border({ width: 1, color: surfacesOf(this.pal()).hairline })
+      .constraintSize({ minHeight: HIT_TARGET_MIN })
+      .padding({ left: SPACE_XS, right: SPACE_XS })
+      .margin({ top: SPACE_HAIR, bottom: SPACE_HAIR })
+      .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CHIP))
+      .borderRadius(RADIUS_CHIP)
+      // 图片卡描边是**结构性边界**（承载"这是一张可点的图"的信息）⇒ `hairlineOf` 唯一出口。
+      .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
       .onClick(() => {
         if (this.failed) {
           this.failed = false;

@@ -28,8 +28,13 @@
  *   —— **禁硬编码 hex / 时长**。
  */
 import { Effects, effectsOf, Palette, paletteOf } from '../core/theme';
-import { R_MD, R_LG, SP_1, SP_2, FS_CAPTION } from '../core/tokens';
+import { SP_1 } from '../core/tokens';
 import { withAlpha } from '../core/bubble';
+import {
+  RADIUS_CHIP, HIT_TARGET_MIN, SPACE_XS, SPACE_XL,
+  colorOf, surfaceFillOf,
+} from '../core/design';
+import { fs, lh, fw } from './SettingsRows';
 import { animFast } from './anim';
 import { NavAnchor, seqLabel, shouldShowNav, userTextOrPlaceholder } from '../core/msgindex';
 
@@ -62,15 +67,10 @@ const ACCENT_TINT: number = 0.1;
  *    强调全部收敛到**瞬时态**：`open` / `pressed` ⇒ accent 底纹 + 满不透明度（见 build）。
  */
 const BTN_BG_ALPHA: number = 0.8;
-/** 面板内边距（web `p-1.5` = 6px）。 */
+/** 面板内边距（web `p-1.5` = 6px）。⚠️ 报备：无 6 档。 */
 const PANEL_PAD: number = 6;
-/** 条目内边距（web `px-2 py-1.5` = 8 / 6）。 */
-const ITEM_PAD_X: number = 8;
+/** 条目纵向内边距（web `py-1.5` = 6）。⚠️ 报备：无 6 档（横向走 `SPACE_XS`，缩进走 `SPACE_XL`）。 */
 const ITEM_PAD_Y: number = 6;
-/** 摘要行的缩进（web `pl-6` = 24px）。 */
-const ITEM_INDENT: number = 24;
-/** 序号/摘要字号（web `text-[10px]`）。 */
-const FS_MICRO: number = 10;
 
 /**
  * 面板里**一个条目**的可观察数据（`@ObjectLink` 目标）。
@@ -121,7 +121,9 @@ struct NavItemView {
     Column() {
       Row({ space: SP_1 + 2 }) {   // web `gap-1.5` = 6px
         Text(this.row.seqText)
-          .fontSize(FS_MICRO)
+          .fontSize(fs('type.micro'))
+          .fontWeight(fw('type.micro'))
+          .lineHeight(lh('type.micro'))
           .fontFamily('monospace')   // web `font-mono`
           // 位置指示（"我在哪"）：当前条目的序号走强调色（其余 muted）—— 只改一处颜色，
           // 不新增任何描边/色块 ⇒ 一眼可辨且不喧哗（web `:194` 恒 muted，此处是**刻意的**
@@ -129,8 +131,10 @@ struct NavItemView {
           .fontColor(this.row.active ? this.pal().accent : this.pal().textMuted)
           .fontWeight(this.row.active ? FontWeight.Medium : FontWeight.Normal)
         Text(userTextOrPlaceholder(this.row.userText))
-          .fontSize(FS_CAPTION)      // web `text-xs`
-          .fontColor(this.pal().textPrimary)
+          .fontSize(fs('type.caption'))      // web `text-xs`
+          .fontWeight(fw('type.caption'))
+          .lineHeight(lh('type.caption'))
+          .fontColor(colorOf(this.pal(), 'textPrimary'))
           .maxLines(2)               // web `line-clamp-2`
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .wordBreak(WordBreak.BREAK_ALL)   // web `break-all`（长 URL 不撑破）
@@ -142,19 +146,22 @@ struct NavItemView {
 
       if (this.row.assistantText.length > 0) {
         Text(this.row.assistantText)
-          .fontSize(FS_MICRO)
-          .fontColor(this.pal().textMuted)
+          .fontSize(fs('type.micro'))
+          .fontWeight(fw('type.micro'))
+          .lineHeight(lh('type.micro'))
+          .fontColor(colorOf(this.pal(), 'textMuted'))
           .maxLines(1)               // web `line-clamp-1`
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .wordBreak(WordBreak.BREAK_ALL)
           .textAlign(TextAlign.Start)
           .width('100%')
-          .padding({ left: ITEM_INDENT })   // web `pl-6`
+          .padding({ left: SPACE_XL })   // web `pl-6` = 24px
       }
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    .padding({ left: ITEM_PAD_X, right: ITEM_PAD_X, top: ITEM_PAD_Y, bottom: ITEM_PAD_Y })
+    .constraintSize({ minHeight: HIT_TARGET_MIN })
+    .padding({ left: SPACE_XS, right: SPACE_XS, top: ITEM_PAD_Y, bottom: ITEM_PAD_Y })
     // 当前项高亮（web `bg-accent/10`）；其余透明
     .backgroundColor(this.row.active ? withAlpha(this.pal().accent, ACCENT_TINT) : this.pal().transparent)
     // 按压反馈：**只写 `pressed`**（⛔ 不写 `normal` —— `normal` 会**接管**被它命名的属性，
@@ -304,7 +311,7 @@ export struct MessageNav {
       .height(BTN)
       // web `flex items-center justify-center` ⇒ Stack 用 alignContent（Stack 无 justifyContent）
       .alignContent(Alignment.Center)
-      .borderRadius(R_MD)                 // web `rounded-md`
+      .borderRadius(RADIUS_CHIP)                 // web `rounded-md` = 6
       // 触控区外扩到 44×44（视觉仍是 32）——手指友好；外扩靠 `responseRegion`，
       // **不改布局位置/视觉尺寸**（负 x/y 表示向外扩）。
       .responseRegion({
@@ -340,8 +347,8 @@ export struct MessageNav {
         placement: Placement.BottomRight,   // 右上角按钮 ⇒ 面板向左下展开
         enableArrow: false,
         mask: false,
-        popupColor: this.pal().surface,     // web `bg-bg-elevated`（= bg-secondary-src）
-        radius: R_MD,
+        popupColor: surfaceFillOf(this.pal(), 'surface.overlay'),  // web `bg-bg-elevated`（= 浮层面）
+        radius: RADIUS_CHIP,
         width: PANEL_W,
         onWillDismiss: (action: DismissPopupAction) => {
           this.open = false;

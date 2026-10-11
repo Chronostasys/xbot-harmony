@@ -30,29 +30,33 @@
  *   ⇒ 改一个状态只改 `statusvisual` 一处；组件"结构上不可能分叉"。
  */
 import { Palette, paletteOf, isLightPalette, surfacesOf } from '../core/theme';
-import { FS_CAPTION, R_LG, SP_1 } from '../core/tokens';
 import { withAlpha } from '../core/bubble';
+import {
+  RADIUS_CARD, STROKE_RAIL, STROKE_HAIRLINE, HIT_TARGET_MIN,
+  SPACE_HAIR, SPACE_SM, SPACE_XXS, INSET_ROW_X, INSET_ROW_Y,
+  colorOf, surfaceFillOf, SURFACE_CARD,
+} from '../core/design';
+import { fs, lh, fw } from './SettingsRows';
 import { SubAgentRow } from '../core/subagent';
 import {
   MARK_CHECK, MARK_CROSS, StatusVisual, roleColorOf, subagentVisual,
 } from '../core/statusvisual';
 
-/** 卡片内边距（web `py-1.5 pl-2.5 pr-2`）。 */
-const CARD_PAD_L: number = 10;
-const CARD_PAD_R: number = 8;
-const CARD_PAD_Y: number = 6;
-/** 卡片描边不透明度（web `border-border/50`）与底色不透明度（web `bg-bg-secondary/50`）。 */
+/**
+ * 卡片描边不透明度（web `border-border/50`）与底色不透明度（web `bg-bg-secondary/50`）。
+ * ⚠️ **保留 50%**（既有深色观感已批准、不回归）；色**源**仍走语义层
+ * （底色 = `surfaceFillOf(p,'surface.card')`，描边 = `pal().border` —— 后者由 `moment_polish`
+ *  契约定死，见交付"被 pin 阻塞项"）。透明只作用于语义色，不是"自己挑一个色"。
+ */
 const CARD_BORDER_ALPHA: number = 0.5;
 const CARD_BG_ALPHA: number = 0.5;
-/** 左侧状态竖条宽度（web `w-[2px]`）。done 态的 accent 透明度 = `StatusVisual.markerAlpha`。 */
-const BAR_W: number = 2;
-/** 子行缩进（web `ml-3 pl-3` = 12 + 12）与图标边长（web `size-3.5`/`size-3`）。 */
-const CHILD_INDENT: number = 12;
+/** 子行缩进（web `ml-3 pl-3` = 12 + 12）—— 走 4pt 网格语义档 `SPACE_SM`。 */
+const CHILD_INDENT: number = SPACE_SM;
+/** 图标边长（web `size-3.5` / `size-3`）。⚠️ 报备：`core/design.ets` 无"图标尺寸"档。 */
 const ICON_TOP: number = 14;
 const ICON_CHILD: number = 12;
-/** 顶层行间距（web `gap-1.5`）。 */
+/** 顶层行间距（web `gap-1.5`）与图标-文字间距。⚠️ 报备：无 6 档（介于 SPACE_XXS(4)/SPACE_XS(8)）。 */
 const ROW_GAP: number = 6;
-/** 图标-文字间距（web `gap-1.5`）。 */
 const ICON_GAP: number = 6;
 
 /**
@@ -136,16 +140,19 @@ struct SubAgentRowView {
         .fontSize(this.isChild() ? ICON_CHILD : ICON_TOP)
         .fontColor([this.iconColor()])
       Text(this.label)
-        .fontSize(FS_CAPTION)                      // web `text-xs`
-        .fontWeight(FontWeight.Medium)             // web `font-medium`
+        .fontSize(fs('type.subhead'))              // 列表标题档（13/500）—— web `text-xs font-medium`
+        .fontWeight(fw('type.subhead'))
+        .lineHeight(lh('type.subhead'))
         // 标签色走唯一真源（running ⇒ accent，其余 ⇒ secondary）—— 不再就地判 `this.kind`
         .fontColor(this.labelColor())
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
       if (this.desc.length > 0) {
         Text(this.desc)
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().textMuted)
+          .fontSize(fs('type.caption'))            // web `text-xs`
+          .fontWeight(fw('type.caption'))
+          .lineHeight(lh('type.caption'))
+          .fontColor(colorOf(this.pal(), 'textMuted'))
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .wordBreak(WordBreak.BREAK_ALL)         // 长参数/长路径不撑破（ARKTS-GOTCHAS §15）
@@ -157,16 +164,18 @@ struct SubAgentRowView {
     // ── 深度 0：卡片（左侧 2px 状态竖条 + 其余 1px 描边；web 是 absolute 竖条 + 1px 全边框，
     //    用**逐边边框**表达等价视觉，少一层节点）──────────────────────────────────────
     .padding(this.isChild()
-      ? { left: CHILD_INDENT, top: 2, bottom: 2 }                    // 子行：只留左缩进
-      : { left: CARD_PAD_L, right: CARD_PAD_R, top: CARD_PAD_Y, bottom: CARD_PAD_Y })
+      ? { left: CHILD_INDENT, top: SPACE_HAIR, bottom: SPACE_HAIR }   // 子行：只留左缩进
+      : { left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
     .margin(this.isChild() ? { left: CHILD_INDENT } : {})
+    // 命中区 ≥ `HIT_TARGET_MIN`（Apple HIG）：卡片行/子行按"可点行"给足高度（openable 时真可点）。
+    .constraintSize({ minHeight: HIT_TARGET_MIN })
     .backgroundColor(this.isChild() ? this.pal().transparent
-      : withAlpha(this.pal().surface, CARD_BG_ALPHA))
-    .borderRadius(this.isChild() ? 0 : R_LG)
+      : withAlpha(surfaceFillOf(this.pal(), SURFACE_CARD), CARD_BG_ALPHA))
+    .borderRadius(this.isChild() ? 0 : RADIUS_CARD)
     .border(this.isChild()
       // 子行：仅左侧 1px **虚线**（web `border-l border-dashed`）
       ? {
-          width: { left: 1, top: 0, right: 0, bottom: 0 },
+          width: { left: STROKE_HAIRLINE, top: 0, right: 0, bottom: 0 },
           // 虚线连接线是**结构性边界** ⇒ 走 `hairline`：深色族 `hairline ≡ border`（**逐字节不变**），
           // 浅色/极简白下自动可见（web 是 `border-l` 默认色，白底同样需看得见）。
           color: { left: surfacesOf(this.pal()).hairline, top: this.pal().border, right: this.pal().border, bottom: this.pal().border },
@@ -174,7 +183,7 @@ struct SubAgentRowView {
         }
       // 卡片：左 2px = 状态色，其余 1px = 结构性发丝描边（浅色族自动加固，见 `cardBorderColor`）
       : {
-          width: { left: BAR_W, top: 1, right: 1, bottom: 1 },
+          width: { left: STROKE_RAIL, top: STROKE_HAIRLINE, right: STROKE_HAIRLINE, bottom: STROKE_HAIRLINE },
           color: {
             left: this.barColor(),
             top: this.cardBorderColor(),
@@ -234,7 +243,7 @@ export struct SubAgentTree {
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
-      .margin({ top: SP_1 })      // 与上一块（迭代正文/工具）拉开 4vp
+      .margin({ top: SPACE_XXS })      // 与上一块（迭代正文/工具）拉开 4vp
     }
   }
 }
