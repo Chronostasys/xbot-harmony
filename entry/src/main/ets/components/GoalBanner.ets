@@ -184,31 +184,35 @@ export struct GoalBanner {
 
           // 编辑入口：**仅进行中**（web `:145-154`）
           if (goalEditable(this.display().completed)) {
-            SymbolGlyph($r('sys.symbol.square_and_pencil'))
-              .fontSize(typeOf('type.caption').size)
-              .fontColor([colorOf(this.pal(), 'iconMuted')])
-              // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = `type.caption`(12) < 44 ⇒ 外扩。
-              //    本行右侧两个图标间距 SPACE_XS(8) ⇒ 44×44 **必重叠** ⇒ 取"互不重叠的最大矩形"：
-              //    pencil 主要向**左**扩（左邻 = 目标文本 `Text`，其 onClick 与 pencil **同一动作** ⇒ 重叠无害）。
-              .responseRegion({ x: -32, y: -16, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
-              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-              .onClick(() => {
-                this.draft = this.objective;
-                this.editing = true;
-              })
+            // ⛔ 命中区：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`；
+            //    图标视觉尺寸不变（仍 `type.caption`=12，盒内居中）。左邻 = 目标文本（可点、**同一动作**）。
+            Row() {
+              SymbolGlyph($r('sys.symbol.square_and_pencil'))
+                .fontSize(typeOf('type.caption').size)
+                .fontColor([colorOf(this.pal(), 'iconMuted')])
+            }
+            .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+            .onClick(() => {
+              this.draft = this.objective;
+              this.editing = true;
+            })
           }
 
           // 清除（web `:157-167`；编辑态隐藏）
-          SymbolGlyph($r('sys.symbol.xmark'))
-            .fontSize(typeOf('type.caption').size)
-            .fontColor([colorOf(this.pal(), 'iconMuted')])
-            // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = 12 < 44 ⇒ 外扩。
-            //    本图标是行尾元素（右肩空）⇒ 主要向**右**扩，避免与左侧 pencil 的命中区重叠。
-            .responseRegion({ x: -8, y: -16, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
-            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-            .onClick(() => {
-              this.onClearGoal();
-            })
+          // ⛔ 命中区：同上 —— 真实 44×44 布局盒承载 `onClick`。`margin.left` 给两枚相邻盒留 8vp 死区
+          //    ⇒ 点「编辑」不会误触「清除」（两者动作相反）。
+          Row() {
+            SymbolGlyph($r('sys.symbol.xmark'))
+              .fontSize(typeOf('type.caption').size)
+              .fontColor([colorOf(this.pal(), 'iconMuted')])
+          }
+          .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
+          .margin({ left: SPACE_XS })
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            this.onClearGoal();
+          })
         }
       }
       .width('100%')

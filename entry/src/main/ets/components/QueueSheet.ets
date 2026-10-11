@@ -62,16 +62,17 @@ export struct QueueSheet {
             // 无 clear 端点（web 同款）：页面遍历逐个 cancel。
             this.onClear();
           })
-        SymbolGlyph($r('sys.symbol.xmark')).fontSize(ICON_LG)
-          .fontColor([this.pal().textSecondary]).padding(SP_2)
-          // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = 图标 16 + 2×`SP_2`(8) = **32 < 44**
-          //    ⇒ `responseRegion` 外扩、⛔ 不改布局/视觉尺寸（`PluginsSheet`/`AskUserSheet` 同款）。
-          //    右邻 = 行尾（无），故只向**右**扩 12 即可到 44，不会抢左侧「清空」的命中区。
-          .responseRegion({ x: 0, y: -6, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            this.onClose();
-          })
+        // ⛔ 关闭 X：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`。
+        Row() {
+          SymbolGlyph($r('sys.symbol.xmark')).fontSize(ICON_LG)
+            .fontColor([this.pal().textSecondary])
+        }
+        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          this.onClose();
+        })
       }.width('100%')
 
       List() {
@@ -82,37 +83,45 @@ export struct QueueSheet {
                 .fontSize(fs('type.subhead')).fontColor(this.pal().textPrimary).layoutWeight(1).maxLines(3)
                 .wordBreak(WordBreak.BREAK_ALL)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
-              // ⛔ 图标一致性：原先直写字形 `'↑'`/`'↓'` 当按钮 = 「图标即文本」的廉价感来源（审计命中）。
-              //    改用本仓既有 symbol（`chevron_up/down` 已在别处使用 ⇒ 命名安全；语义=上/下移一格）。
+              // ⛔ 图标一致性：改用本仓既有 symbol（`chevron_up/down` 已在别处使用 ⇒ 命名安全；语义=上/下移一格）。
               //    ⚠️ `SymbolGlyph` 的取色是**数组形态**（`fontColor([...])`），与 `Text` 的单值形态不同。
-              // ⛔ 命中区：视觉边长 = 14 + 2×6 = 26 < 44 ⇒ 必须外扩（`hit_spacing_gate ①`：`responseRegion`
-              //    的 width/height **必须 ≥ `HIT_TARGET_MIN`**，不允许"部分外扩"）。
-              //    ⚠️ 本行 5 个元素**密集相邻**（间距 6）⇒ 44×44 的两者**必然部分重叠**（重叠区归后绘制者）。
-              //    这是本仓门禁已接受的口径（`hit_spacing_gate ②`：容器内有 `layoutWeight` 元素即豁免）。
-              SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(fs('type.callout')).fontColor([this.pal().accentSoft]).padding(6)
-                .responseRegion({ x: -9, y: -9, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
-                .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-                .onClick(() => {
-                  this.onMove(this.idOf(q), -1);
-                })
-              SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(fs('type.callout')).fontColor([this.pal().accentSoft]).padding(6)
-                .responseRegion({ x: -9, y: -9, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
-                .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-                .onClick(() => {
-                  this.onMove(this.idOf(q), 1);
-                })
+              // ⛔ 命中区：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 每个按钮放进**真实 44×44 布局盒**
+              //    承载 `onClick`（热区 = 布局盒本身）；图标视觉尺寸不变、盒内居中。
+              //    ⚠️ **密集相邻取舍**：本行 5 个元素（文本 + 4 个按钮）间距 6；4×44 + 3×6 = 194vp 仍可容纳
+              //    （文本 `layoutWeight(1)` 吸收余量）⇒ **相邻 44 盒不重叠**（保留 6vp 死区）。代价 = 条目行高
+              //    26→44（`List` 固定 300 ⇒ 可见条目数变少）。这是"可靠 > 视觉密度"的取舍。
+              Row() {
+                SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(fs('type.callout')).fontColor([this.pal().accentSoft])
+              }
+              .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .onClick(() => {
+                this.onMove(this.idOf(q), -1);
+              })
+              Row() {
+                SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(fs('type.callout')).fontColor([this.pal().accentSoft])
+              }
+              .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .onClick(() => {
+                this.onMove(this.idOf(q), 1);
+              })
               // ⚡ 插队：must use the FULL content（server `preview` 截断到 ~80 runes ⇒ 会丢内容）
-              Text('插队').fontSize(FS_CAPTION).fontColor(this.pal().warn).padding(6).onClick(() => {
+              Row() {
+                Text('插队').fontSize(FS_CAPTION).fontColor(this.pal().warn)
+              }
+              .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
+              .onClick(() => {
                 this.onInterject(this.idOf(q), this.textOf(q));
               })
-              SymbolGlyph($r('sys.symbol.xmark')).fontSize(15)
-                .fontColor([this.pal().dangerText]).padding(6)
-                // ⛔ 命中区：视觉边长 = 15 + 2×6 = 27 < 44 ⇒ 外扩（行尾，右肩空 ⇒ 可向左右各扩 6）。
-                .responseRegion({ x: -6, y: -9, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
-                .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-                .onClick(() => {
-                  this.onCancel(this.idOf(q));
-                })
+              Row() {
+                SymbolGlyph($r('sys.symbol.xmark')).fontSize(15).fontColor([this.pal().dangerText])
+              }
+              .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .onClick(() => {
+                this.onCancel(this.idOf(q));
+              })
             }.width('100%').padding(SP_2).backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD)).borderRadius(R_LG)
           }
         }, (q: QueueItem) => `${q.msg_id}#${q.content}#${q.text}`)

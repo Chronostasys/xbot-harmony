@@ -48,12 +48,11 @@ import { sheetTransition } from './anim';
 
 /**
  * X 关闭图标的视觉边长（vp）—— 与 `type.headline` 字号一致。
- * ⚠️ **报备**：`core/design.ets` 无「图标按钮视觉边长」token；命中区靠 `responseRegion`
- * 外扩到 `HIT_TARGET_MIN`，⛔ 不改布局尺寸（`docs/REDESIGN.md` §5）。
+ * ⚠️ **报备**：`core/design.ets` 无「图标按钮视觉边长」token。
+ * ⛔ 热区**不靠** `responseRegion` 负偏移外扩（真机实测（SDK21）**无效**，见 `AGENTS.md` GOTCHAS）
+ *    ⇒ 图标放进**真实 `HIT_TARGET_MIN`×`HIT_TARGET_MIN` 布局盒**、盒内居中、`onClick` 落在该盒。
  */
 const X_GLYPH: number = 17;
-/** 命中区外扩量（视觉 17 → `HIT_TARGET_MIN` 的正方形，居中）。 */
-const X_PAD: number = (HIT_TARGET_MIN - X_GLYPH) / 2;
 /**
  * 问题列表最大高（vp）。
  * ⚠️ **报备**：无 `list.maxHeight` token（仓内 QueueSheet/PluginsSheet 亦为字面量高度）。
@@ -102,7 +101,7 @@ export struct AskUserSheet {
 
   build() {
     Column({ space: SPACE_SM }) {
-      // ── 头部：标题（warn 表达「需要你确认」）+ 关闭 X（`responseRegion` 外扩到 44）──
+      // ── 头部：标题（warn 表达「需要你确认」）+ 关闭 X（**真实 44 布局盒**，非 responseRegion 外扩）──
       Row({ space: SPACE_XS }) {
         Text('xbot 需要你确认')
           .fontSize(fs('type.headline'))
@@ -113,19 +112,19 @@ export struct AskUserSheet {
           .letterSpacing(tk('type.headline'))
           .fontColor(this.pal().warn)
           .layoutWeight(1)
-        SymbolGlyph($r('sys.symbol.xmark'))
-          .fontSize(X_GLYPH)
-          .fontColor([this.pal().textSecondary])
-          .responseRegion({
-            x: -X_PAD,
-            y: -X_PAD,
-            width: HIT_TARGET_MIN,
-            height: HIT_TARGET_MIN,
-          })
-          .stateStyles({ pressed: { .opacity(DISABLED_OPACITY) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            this.onClose();
-          })
+        // ⛔ 关闭 X：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 用**真实 44×44 布局盒**承载 `onClick`
+        //    （热区 = 布局盒本身）；图标**视觉尺寸不变**（17，盒内居中）。
+        Row() {
+          SymbolGlyph($r('sys.symbol.xmark'))
+            .fontSize(X_GLYPH)
+            .fontColor([this.pal().textSecondary])
+        }
+        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center)
+        .stateStyles({ pressed: { .opacity(DISABLED_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          this.onClose();
+        })
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)

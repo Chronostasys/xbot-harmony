@@ -14,9 +14,17 @@
  *      ⇒ 吃掉行内右侧可点元素（图标 / 整行 `onClick`）的点击。浮层/面板内部短列表 ⇒ 显式 `BarState.Off`。
  *
  * ── 判据（硬红 A 类）────────────────────────────────────────────────────────────
- *  A. `components/**` 里**可点 `SymbolGlyph`**：若 `fontSize`（+2×竖直 `padding`，**只取调用片段**解析
- *     真源令牌）< `HIT_TARGET_MIN`，且链上**既无 `responseRegion` 也无 `HIT_TARGET_MIN`** ⇒ 红。
- *     例外（台账 `GLYPH_LEDGER`，**只许缩短**）——目前为空（本波已全部外扩）。
+ *  ⛔ **2026-10-11 真机结论（推翻旧口径）**：`responseRegion` 的**负偏移外扩在真机（SDK21）上不生效**
+ *     （主 agent 装机对照实验：点 X 视觉中心 ✓ / 点框外 11-15px ✗；见 `AGENTS.md` GOTCHAS）。
+ *     ⇒ 本波把 `components/**` 全部改为**真实 44×44 布局盒**（`Row().width(HIT_TARGET_MIN)`
+ *     `.height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)` + `onClick` 落在该盒）。
+ *
+ *  A. **禁用外扩拐杖**：`components/**` 内 **`responseRegion` 数必须 == 台账**（`RR_LEDGER`，**只许缩短**，
+ *     当前为空）。旧写法（把 <44 的自身靠 `responseRegion` 外扩到 44）**设备已证无效** ⇒ **静态禁止**。
+ *     `pages/**` 归 main agent（在途）⇒ 仅**打印上报**、**不判红**。
+ *  A2. `components/**` 里**可点 `SymbolGlyph`**：若 `fontSize`（+2×竖直 `padding`，**只取调用片段**解析
+ *     真源令牌）< `HIT_TARGET_MIN`，且链上**无任何补偿**（`responseRegion` / `HIT_TARGET_MIN` 皆无）⇒ 红。
+ *     例外（台账 `GLYPH_LEDGER`，**只许缩短**）——目前为空。
  *  B. **浮层构件**（文件名匹配 `Sheet|Popover|Overlay|Menu|Lightbox`）里的 `Scroll`/`List`：
  *     链上**必须有显式 `.scrollBar(...)`**（默认 `Auto` 是"静默"的 ⇒ 必须由作者显式表态）。
  *     例外 `SCROLL_LEDGER`：`PluginsSheet`（**他域** plugin-parity 在途，只报不改）。
@@ -217,6 +225,26 @@ function glyphHits(srcByRel: Map<string, string>): Hit[] {
   return out.sort((a: Hit, b: Hit): number => a.key.localeCompare(b.key) || a.line - b.line);
 }
 
+/** A 类（新增）：扫描 `.responseRegion(...)` 调用（**剥注释后**）—— 设备已证负偏移外扩无效 ⇒ 禁用。 */
+function responseRegions(srcByRel: Map<string, string>): Hit[] {
+  const out: Hit[] = [];
+  srcByRel.forEach((raw: string, r: string) => {
+    const src: string = stripComments(raw);
+    const rx: RegExp = /\.responseRegion\s*\(/g;
+    let m: RegExpExecArray | null = rx.exec(src);
+    while (m !== null) {
+      const j: number = src.indexOf('(', m.index);
+      const k: number = matchPair(src, j, '(', ')');
+      if (k > 0) {
+        const line: number = src.slice(0, m.index).split('\n').length;
+        out.push({ key: `${r} :: responseRegion`, line, visual: null });
+      }
+      m = rx.exec(src);
+    }
+  });
+  return out.sort((a: Hit, b: Hit): number => a.key.localeCompare(b.key) || a.line - b.line);
+}
+
 /** B 类：**浮层构件**里的 `Scroll`/`List` 未显式设 `.scrollBar(...)`。 */
 function scrollHits(srcByRel: Map<string, string>): Hit[] {
   const out: Hit[] = [];
@@ -294,6 +322,7 @@ pageSrc.forEach((v: string, k: string): void => { allSrc.set(k, v); });
 
 // 台账（**只许缩短**）
 const GLYPH_LEDGER: string[] = [];       // 本波已把 components 的可点小图标全部外扩 ⇒ 空
+const RR_LEDGER: string[] = [];          // ⛔ 2026-10-11：设备证负偏移外扩无效 ⇒ components 内 `responseRegion` 必须清零
 const SCROLL_LEDGER: string[] = [        // ⛔ 他域（plugin-parity 在途）：只报不改
   'components/PluginsSheet.ets :: List',
 ];
@@ -333,6 +362,22 @@ const pgHits: Hit[] = glyphHits(pageSrc);
 console.log(`  ⚠️ 他域 pages/**（light-fix3 在途，只报不改）：${pgHits.length} 处`);
 pgHits.forEach((h: Hit): void => { console.log(`     ${pad(h.key, 44)} :${h.line}  visual≈${h.visual}`); });
 
+// ── §B2 A 类：`responseRegion` 外扩拐杖（设备已证无效）必须清零 ────────────────────
+console.log('\n▶ §B2 A 类：`components/**` 禁用 `responseRegion`（真机证负偏移外扩无效 ⇒ 改用真实布局盒）');
+const compRR: Hit[] = responseRegions(compSrc);
+const pageRR: Hit[] = responseRegions(pageSrc);
+const allRR: Hit[] = responseRegions(allSrc);
+compRR.forEach((h: Hit): void => { console.log(`  ${pad(h.key, 46)} :${h.line}`); });
+ok('零扫描判红：全仓仍扫到 `responseRegion`（含 pages，证明扫描器有效）', allRR.length > 0);
+ok(`components/** responseRegion 数 == 台账（实测 ${compRR.length} / 登记 ${RR_LEDGER.length}）`, compRR.length === RR_LEDGER.length);
+ok('components 命中集与台账集一一对应（同一集合）', ((): boolean => {
+  const a: string = compRR.map((h: Hit): string => h.key).sort().join('|');
+  const b: string = RR_LEDGER.slice().sort().join('|');
+  return a === b;
+})());
+console.log(`  ⚠️ 他域 pages/**（main agent 在途，只报不改）：${pageRR.length} 处`);
+pageRR.forEach((h: Hit): void => { console.log(`     ${pad(h.key, 44)} :${h.line}`); });
+
 // ── §C B 类：浮层里未显式设滚动条 ──────────────────────────────────────────────
 console.log('\n▶ §C B 类：浮层构件的 Scroll/List 未显式设 `.scrollBar(...)`（默认 Auto 会挡右缘点击）');
 const sHits: Hit[] = scrollHits(compSrc);
@@ -351,26 +396,27 @@ console.log('\n▶ §D ⚠️ 警告级（不判红）：可点小 `Text`（文�
 const tWarns: Hit[] = textWarns(compSrc);
 tWarns.slice(0, 20).forEach((h: Hit): void => { console.log(`  ⚠️ ${pad(h.key, 52)} :${h.line}`); });
 if (tWarns.length > 20) { console.log(`  ⚠️ … 共 ${tWarns.length} 处（仅列出前 20）`); }
-console.log('  （处置建议：高频/破坏性动作优先外扩；⛔ 密集相邻者勿盲目外扩，会与邻座重叠、反而点错）');
+console.log('  （处置建议：高频/破坏性动作优先抬到 ≥44 的真实布局盒；⛔ 密集相邻者勿盲目放大，会与邻座重叠、反而点错）');
 
 // ── §E mutation 自证 ──────────────────────────────────────────────────────────
 console.log('\n▶ §E mutation 自证');
 const stripRR: RegExp = /\.responseRegion\([^)]*\)/;
 {
   // 基线绿
-  ok('基线：components A 类命中 == 台账（=0）', glyphHits(compSrc).length === GLYPH_LEDGER.length);
-  // 注入 1：注掉 SelfCheckSheet（已修）的 responseRegion ⇒ A 必红
+  ok('基线：components responseRegion == 台账（=0）', responseRegions(compSrc).length === RR_LEDGER.length);
+  ok('基线：components A2 类命中 == 台账（=0）', glyphHits(compSrc).length === GLYPH_LEDGER.length);
+  // 注入：给某 components 文件塞一处 `responseRegion`（失效的负偏移外扩）⇒ A 必红
   const inj: Map<string, string> = new Map<string, string>();
   compSrc.forEach((v: string, k: string): void => { inj.set(k, v); });
   const target: string = 'components/SelfCheckSheet.ets';
   const s0: string = inj.get(target) as string;
-  ok('mutation 前置：目标处确有 `responseRegion`', stripRR.test(s0));
-  inj.set(target, s0.replace(stripRR, ''));
-  const got: Hit[] = glyphHits(inj);
-  ok('mutation A：注掉 SelfCheckSheet 的 responseRegion ⇒ 出现未登记命中（必红）', got.length > GLYPH_LEDGER.length);
+  ok('mutation 前置：目标处**无** `responseRegion`（本波已改用真实布局盒）', !stripRR.test(s0));
+  inj.set(target, s0 + '\n// mutation\nXxx().responseRegion({ x: -6, y: -6, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN });\n');
+  ok('mutation A：注入失效外扩 `responseRegion` ⇒ 出现未登记命中（必红）',
+    responseRegions(inj).length > RR_LEDGER.length);
   // 还原 ⇒ 绿
   inj.set(target, s0);
-  ok('mutation A 还原 ⇒ 恢复绿', glyphHits(inj).length === GLYPH_LEDGER.length);
+  ok('mutation A 还原 ⇒ 恢复绿', responseRegions(inj).length === RR_LEDGER.length);
 }
 {
   // 注入 2：注掉 QueueSheet（已修）的 .scrollBar(...) ⇒ B 必红
@@ -386,11 +432,13 @@ const stripRR: RegExp = /\.responseRegion\([^)]*\)/;
   ok('mutation B 还原 ⇒ 恢复绿', scrollHits(inj).length === SCROLL_LEDGER.length);
 }
 ok('真实源码判绿（防"判据恒红"）',
-  glyphHits(compSrc).length === GLYPH_LEDGER.length && scrollHits(compSrc).length === SCROLL_LEDGER.length);
+  responseRegions(compSrc).length === RR_LEDGER.length
+  && glyphHits(compSrc).length === GLYPH_LEDGER.length && scrollHits(compSrc).length === SCROLL_LEDGER.length);
 
 // ── 摘要 ───────────────────────────────────────────────────────────────────────
 console.log('\n▼ 摘要');
-console.log(`  A 类（components 可点小图标）命中 ${gHits.length} / 台账 ${GLYPH_LEDGER.length}；他域 pages ${pgHits.length}`);
+console.log(`  A 类（components responseRegion 外扩拐杖）命中 ${compRR.length} / 台账 ${RR_LEDGER.length}；他域 pages ${pageRR.length}`);
+console.log(`  A2 类（components 可点小图标无补偿）命中 ${gHits.length} / 台账 ${GLYPH_LEDGER.length}；他域 pages ${pgHits.length}`);
 console.log(`  B 类（浮层缺显式 scrollBar）命中 ${sHits.length} / 台账 ${SCROLL_LEDGER.length}`);
 console.log(`  ⚠️ 警告级（可点小 Text）${tWarns.length}`);
 if (fail > 0) { console.log(`\n  hittarget_audit: ${pass} passed, ${fail} failed`); process.exit(1); }

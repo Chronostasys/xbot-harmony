@@ -72,15 +72,6 @@ class NativeBridgeProxy {
 // ── chrome 的几何（vp）——**视觉可小、热区必 ≥44**（`REDESIGN.md §5`）──────────────
 /** chrome 图标视觉字号（vp）。 */
 const CHROME_GLYPH: number = 20;
-/** chrome 图标内距（vp）。 */
-const CHROME_PAD: number = SPACE_XS;
-/** chrome 图标视觉盒（vp）= 字号 + 2×内距。 */
-const CHROME_BOX: number = CHROME_GLYPH + CHROME_PAD * 2;
-/**
- * 热区每侧外扩量（vp）—— 把 `CHROME_BOX` 撑到 `HIT_TARGET_MIN`（44）。
- * ⛔ 外扩靠 `responseRegion`，**不改布局/视觉尺寸**（与 `MessageNav.ets:308-315` 同法）。
- */
-const CHROME_HIT_PAD: number = (HIT_TARGET_MIN - CHROME_BOX) / 2;
 
 /**
  * WebSurface —— **全能力逃生舱**（ArkWeb / `Web` 组件）。
@@ -98,7 +89,7 @@ const CHROME_HIT_PAD: number = (HIT_TARGET_MIN - CHROME_BOX) / 2;
  * ── 视觉重排（2026-10-11，`docs/REDESIGN.md`）────────────────────────────────
  *   · chrome 的"返回/刷新"从**字符**（`‹` / `⟳`）改为**系统符号**
  *     （`chevron_left` / `arrow_clockwise`）—— 字符图标会走 emoji 字形、颜色不可控；
- *   · 图标视觉 20vp，热区靠 `responseRegion` 外扩到 44（⛔ 不改布局/视觉尺寸）；
+ *   · 图标视觉 20vp，热区落在**真实 44×44 布局盒**（⛔ 不用 `responseRegion` 负偏移外扩 —— 真机无效）；
  *   · 承载面加**恒静态**三态条（加载中 / 加载失败 + 重试）：判据在 `core/pluginview.ets`
  *     （`webStatusOf`），⛔ **不是 spinner**（唯一在飞动效 = 光球，见 §4.1）；
  *   · 颜色一律经 `colorOf`；面经 `surfaceFillOf`；边界经 `hairlineOf`（门禁 ⑥c）。
@@ -287,17 +278,15 @@ export struct WebSurface {
         Column() {
           Row() {
             // 返回：系统符号（⛔ 不用 `‹` 字符 —— 会走 emoji 字形/颜色不可控）
-            SymbolGlyph($r('sys.symbol.chevron_left'))
-            .fontSize(CHROME_GLYPH)
-            .fontColor([colorOf(this.pal(), 'accentSoft')])
-            .padding(CHROME_PAD)
-            // 热区外扩到 44（⛔ 不改布局/视觉尺寸）
-            .responseRegion({
-              x: -CHROME_HIT_PAD,
-              y: -CHROME_HIT_PAD,
-              width: HIT_TARGET_MIN,
-              height: HIT_TARGET_MIN,
-            })
+            // ⛔ 关闭/返回：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`；
+            //    图标视觉尺寸不变（仍 `CHROME_GLYPH`，盒内居中）。
+            Row() {
+              SymbolGlyph($r('sys.symbol.chevron_left'))
+                .fontSize(CHROME_GLYPH)
+                .fontColor([colorOf(this.pal(), 'accentSoft')])
+            }
+            .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+            .justifyContent(FlexAlign.Center)
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               this.onClose();
@@ -312,20 +301,18 @@ export struct WebSurface {
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .padding({ left: SPACE_XS })
           // 刷新：系统符号（⛔ 不用 `⟳` 字符）
-          SymbolGlyph($r('sys.symbol.arrow_clockwise'))
-            .fontSize(CHROME_GLYPH)
-            .fontColor([colorOf(this.pal(), 'accentSoft')])
-            .padding(CHROME_PAD)
-            .responseRegion({
-              x: -CHROME_HIT_PAD,
-              y: -CHROME_HIT_PAD,
-              width: HIT_TARGET_MIN,
-              height: HIT_TARGET_MIN,
-            })
-            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-            .onClick(() => {
-              this.refresh();
-            })
+          // ⛔ 刷新：同上 —— 真实 44×44 布局盒承载 `onClick`（`onClick` 落在盒上，不依赖越界扩展）。
+          Row() {
+            SymbolGlyph($r('sys.symbol.arrow_clockwise'))
+              .fontSize(CHROME_GLYPH)
+              .fontColor([colorOf(this.pal(), 'accentSoft')])
+          }
+          .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+          .justifyContent(FlexAlign.Center)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            this.refresh();
+          })
         }
         .width('100%')
         .constraintSize({ minHeight: HIT_TARGET_MIN })

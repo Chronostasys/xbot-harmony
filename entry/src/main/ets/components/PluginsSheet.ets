@@ -39,11 +39,10 @@ import { fs, fw } from './SettingsRows';
 import { sheetTransition } from './anim';
 
 /**
- * 关闭按钮**视觉**边长 ≈ 图标 17 + 2×`SPACE_XS`(8) = 33；热区靠 `responseRegion` 外扩到
- * `HIT_TARGET_MIN`(44) —— ⛔ 不改布局/视觉尺寸（同 `WebSurface` / `MessageNav` 的手艺）。
+ * 关闭 X 的命中盒 —— ⛔ 热区**不靠** `responseRegion` 负偏移外扩（真机实测（SDK21）**无效**，
+ * 见 `AGENTS.md` GOTCHAS）⇒ 图标放进**真实 `HIT_TARGET_MIN`×`HIT_TARGET_MIN` 布局盒**、盒内居中。
+ * 图标视觉尺寸不变（仍 `ICON_LG`=16）。
  */
-const CLOSE_VISUAL: number = 33;
-const CLOSE_HIT_PAD: number = (HIT_TARGET_MIN - CLOSE_VISUAL) / 2;
 /** 插件图标视觉边长（vp）—— 与 `PluginHost` 卡片（18）同档。 */
 const PLUGIN_ICON: number = 18;
 
@@ -107,16 +106,17 @@ export struct PluginsSheet {
       Row() {
         Text('能力面板').fontSize(fs('type.headline')).fontWeight(fw('type.headline'))
           .fontColor(this.pal().textPrimary).layoutWeight(1)
-        SymbolGlyph($r('sys.symbol.xmark')).fontSize(ICON_LG)
-          .fontColor([this.pal().textSecondary]).padding(SPACE_XS)
-          .responseRegion({
-            x: -CLOSE_HIT_PAD, y: -CLOSE_HIT_PAD,
-            width: CLOSE_VISUAL + CLOSE_HIT_PAD * 2, height: CLOSE_VISUAL + CLOSE_HIT_PAD * 2,
-          })
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            this.onClose();
-          })
+        // ⛔ 关闭 X：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`。
+        Row() {
+          SymbolGlyph($r('sys.symbol.xmark')).fontSize(ICON_LG)
+            .fontColor([this.pal().textSecondary])
+        }
+        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          this.onClose();
+        })
       }.width('100%')
 
       Text('原生渲染聊天主链路；下列能力由 ArkWeb 承载（与 Web 版同源、能力一致）：')

@@ -23,9 +23,9 @@
  */
 import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
 import { FS_CAPTION, R_MD, R_SM, SP_1, SP_2, SP_3 } from '../core/tokens';
-// 语义令牌（`7841978` §4.7/§4.8/§6）：控件行高 / 进度条 / 清单高 / 菜单宽 / goal 行底纹 / 按压。
+// 语义令牌（`7841978` §4.7/§4.8/§6）：进度条 / 清单高 / 菜单宽 / goal 行底纹 / 按压。
 import {
-  CONTROL_ROW_H, ELEV_OVERLAY, ICON_MD, ICON_SM, INSET_CHIP_X, INSET_CHIP_Y, LIST_MAX_H, MENU_W,
+  ELEV_OVERLAY, ICON_MD, ICON_SM, INSET_CHIP_X, INSET_CHIP_Y, LIST_MAX_H, MENU_W,
   PRESS_OPACITY, PROGRESS_H, PROGRESS_W, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP,
   elevationColorOf, goalRowTintOf, hairlineOf,
   surfaceFillOf, typeOf, colorOf, HIT_TARGET_MIN, } from '../core/design';
@@ -129,15 +129,17 @@ struct TodoRowView {
   build() {
     Row({ space: SP_2 }) {
       // 状态图标（点击 = 勾选/取消；web `data-testid="todo-status"`）
-      SymbolGlyph(this.iconRes())
-        .fontSize(ICON_MD)
-        .fontColor([this.iconColor()])
-        // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = `ICON_MD`(14) < 44 ⇒ `responseRegion` 外扩。
-        //    本图标是行首元素（左侧无邻座）⇒ 主要向**左**扩（不抢右侧可点标签的命中区）。
-        .responseRegion({ x: -22, y: -11, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
-        .onClick(() => {
-          this.onToggle();
-        })
+      // ⛔ 命中区：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`；
+      //    图标视觉尺寸不变（仍 `ICON_MD`=14，盒内居中）。⚠️ 行首盒 14→44 ⇒ 标签可用宽 -30（`layoutWeight` 吸收）。
+      Row() {
+        SymbolGlyph(this.iconRes())
+          .fontSize(ICON_MD)
+          .fontColor([this.iconColor()])
+      }
+      .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
+      .onClick(() => {
+        this.onToggle();
+      })
 
       if (this.editing) {
         // 就地编辑（web 桌面分支 `:188-210`：Enter 保存 / Esc 取消）
@@ -193,14 +195,16 @@ struct TodoRowView {
 
       // 触屏操作菜单（web 触屏分支只留一个 `⋯`：编辑 / 删除；桌面是三枚 hover 图标）
       if (this.editable) {
-        SymbolGlyph($r('sys.symbol.line_3_horizontal'))
-          .fontSize(ICON_MD)
-          .fontColor([this.pal().textSecondary])
-          // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = 14 < 44 ⇒ 外扩。行尾元素 ⇒ 主要向**右**扩。
-          .responseRegion({ x: -6, y: -11, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
-          .onClick(() => {
-            this.menuOpen = !this.menuOpen;
-          })
+        // ⛔ 命中区：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`。
+        Row() {
+          SymbolGlyph($r('sys.symbol.line_3_horizontal'))
+            .fontSize(ICON_MD)
+            .fontColor([this.pal().textSecondary])
+        }
+        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
+        .onClick(() => {
+          this.menuOpen = !this.menuOpen;
+        })
           .bindPopup(this.menuOpen, {
             builder: this.RowMenu,
             placement: Placement.BottomRight,
@@ -365,21 +369,24 @@ export struct TodoPanel {
 
           // 🎯「设为目标」—— 仅**无 goal** 时（web `TodoPullOut.tsx:113-121`）
           if (!this.hasGoal) {
-            SymbolGlyph($r('sys.symbol.dart_target'))
-              .fontSize(ICON_MD)
-              .fontColor([colorOf(this.pal(), 'iconMuted')])
-              .padding(SP_1)
-              // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = 14 + 2×`SP_1`(4) = 22 < 44 ⇒ 外扩。
-              //    左邻 `Row({space: SP_2})` 间距 8 > 左扩 6 ⇒ 不与左侧「折叠开关」的命中区重叠。
-              .responseRegion({ x: -6, y: -11, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
-              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-              .onClick(() => {
-                this.onSetGoal();
-              })
+            // ⛔ 命中区：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`；
+            //    图标视觉尺寸不变（仍 `ICON_MD`=14，盒内居中）。
+            Row() {
+              SymbolGlyph($r('sys.symbol.dart_target'))
+                .fontSize(ICON_MD)
+                .fontColor([colorOf(this.pal(), 'iconMuted')])
+            }
+            .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+            .onClick(() => {
+              this.onSetGoal();
+            })
           }
         }
         .width('100%')
-        .height(CONTROL_ROW_H)
+        // ⛔ 控制条抬到 `HIT_TARGET_MIN`(44)：内含可点「设为目标」图标，其命中盒 = **自身布局盒**，
+        //    而布局盒受父高约束 ⇒ 父高 <44 时命中区仍会被裁到 28。可靠性 > 视觉密度（原 `CONTROL_ROW_H`=28）。
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
         .padding({ left: SP_3, right: SP_3 })
 
         // ── 展开态：清单 ─────────────────────────────────────────────────────────

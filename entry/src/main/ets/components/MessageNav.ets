@@ -38,13 +38,11 @@ import { fs, lh, fw } from './SettingsRows';
 import { animFast } from './anim';
 import { NavAnchor, seqLabel, shouldShowNav, userTextOrPlaceholder } from '../core/msgindex';
 
-/** 按钮边长（web `size-8` = 32px）。 */
-const BTN: number = 32;
 /**
- * 命中区外扩量（每边）—— 视觉仍是 32（web `size-8`），触控区外扩到 32+2×6 = **44×44**
- * （手指友好，Apple HIG ≥44pt），用 `responseRegion` 外扩而**不改布局位置/视觉尺寸**。
+ * ⛔ 视觉盒边长 = 32（web `size-8`）；**命中区**靠**真实 44×44 外层布局盒**（= `HIT_TARGET_MIN`），
+ *    不再用 `responseRegion` 外扩 —— 真机实测（SDK21）负偏移外扩**无效**（见 `AGENTS.md` GOTCHAS）。
  */
-const HIT_PAD: number = 6;
+const BTN: number = 32;
 /** 图标边长（web `ListTree size-4` = 16px）。 */
 const ICON: number = 16;
 /** 面板宽度（web `w-[min(20rem,calc(100vw-1.5rem))]`；手机取 20rem = 320px）。 */
@@ -300,42 +298,42 @@ export struct MessageNav {
   build() {
     // ⛔ 唯一显示判据（web `:138`）：< 2 个锚点 ⇒ 不产出任何节点（无占位、无空行）。
     if (shouldShowNav(this.anchors.length)) {
+      // ⛔ 命中区 44×44（视觉仍 32）：真机实测 `responseRegion` 负偏移外扩**无效**（见 `AGENTS.md` GOTCHAS）
+      //    ⇒ 用**真实 44×44 外层布局盒**包裹 32 视觉盒；`onClick`/`bindPopup`/静息不透明度落在**外层盒**
+      //    （热区 = 布局盒本身）。图标视觉尺寸不变（仍 `ICON`=16，盒内居中）。
       Stack() {
-        // web 用 lucide `ListTree`（消息目录）；HarmonyOS 无同名符号 ⇒ 取语义最近的
-        // `list_bullet`（列表目录）。**不自造图形**。
-        SymbolGlyph($r('sys.symbol.list_bullet'))
-          .fontSize(ICON)
-          .fontColor([this.open ? this.pal().accent : this.pal().textSecondary])
+        Stack() {
+          // web 用 lucide `ListTree`（消息目录）；HarmonyOS 无同名符号 ⇒ 取语义最近的
+          // `list_bullet`（列表目录）。**不自造图形**。
+          SymbolGlyph($r('sys.symbol.list_bullet'))
+            .fontSize(ICON)
+            .fontColor([this.open ? this.pal().accent : this.pal().textSecondary])
+        }
+        .width(BTN)
+        .height(BTN)
+        // web `flex items-center justify-center` ⇒ Stack 用 alignContent（Stack 无 justifyContent）
+        .alignContent(Alignment.Center)
+        .borderRadius(RADIUS_CHIP)                 // web `rounded-md` = 6
+        // ⛔ **无边框**（web `:157` 有 `border-border/50`，此处刻意去掉）：真机像素取证证明
+        //    方框观感 100% 来自那条 1px 描边（描边 Δ5~6 vs 底纹 Δ1）—— 消息流是"无边框 +
+        //    背景层次"的语言，这个控件必须同语言（用户口令：极简 / 苹果感）。详见常量注释。
+        .backgroundColor(this.open
+          ? withAlpha(this.pal().accent, ACCENT_TINT)          // web `bg-accent/10`
+          : withAlpha(this.pal().surface, BTN_BG_ALPHA))        // web `bg-bg-secondary/80`
+        .backdropBlur(this.eff().glassBlur)                    // web `backdrop-blur`（内容滚到按钮底下时的可读性）
+        .animation(animFast())                                 // web `transition-all`
       }
-      .width(BTN)
-      .height(BTN)
-      // web `flex items-center justify-center` ⇒ Stack 用 alignContent（Stack 无 justifyContent）
+      .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
       .alignContent(Alignment.Center)
-      .borderRadius(RADIUS_CHIP)                 // web `rounded-md` = 6
-      // 触控区外扩到 44×44（视觉仍是 32）——手指友好；外扩靠 `responseRegion`，
-      // **不改布局位置/视觉尺寸**（负 x/y 表示向外扩）。
-      .responseRegion({
-        x: -HIT_PAD,
-        y: -HIT_PAD,
-        width: BTN + HIT_PAD * 2,
-        height: BTN + HIT_PAD * 2,
-      })
-      // ⛔ **无边框**（web `:157` 有 `border-border/50`，此处刻意去掉）：真机像素取证证明
-      //    方框观感 100% 来自那条 1px 描边（描边 Δ5~6 vs 底纹 Δ1）—— 消息流是"无边框 +
-      //    背景层次"的语言，这个控件必须同语言（用户口令：极简 / 苹果感）。详见常量注释。
-      .backgroundColor(this.open
-        ? withAlpha(this.pal().accent, ACCENT_TINT)          // web `bg-accent/10`
-        : withAlpha(this.pal().surface, BTN_BG_ALPHA))        // web `bg-bg-secondary/80`
-      .backdropBlur(this.eff().glassBlur)                    // web `backdrop-blur`（内容滚到按钮底下时的可读性）
-      .opacity(this.open ? 1 : BTN_IDLE_ALPHA)               // web `opacity-40` → 激活 100%
-      .animation(animFast())                                 // web `transition-all`
-      // 强调只在**瞬时态**：按压 = web hover 的 `bg-accent/10` + 满不透明度。
-      // ⛔ 绝不写 `normal` 分支 —— `normal` 会**接管** opacity/backgroundColor，
+      // 静息不透明度移到**外层盒**（`opacity` 向下作用于 32 视觉盒）：web `opacity-40` → 激活 100%。
+      .opacity(this.open ? 1 : BTN_IDLE_ALPHA)
+      .animation(animFast())
+      // 强调只在**瞬时态**：按压 = 满不透明度（原 `bg-accent/10` 底纹改画在 44 盒上会**溢出** 32 视觉盒
+      // ⇒ 只保留「提亮」这一半反馈）。⛔ 绝不写 `normal` 分支 —— `normal` 会**接管** opacity/backgroundColor，
       //    把上面那条动态 `open` 值钉死（同款坑已在 `ThinkingLine.ets` 踩过并修掉，
       //    见 docs/ARKTS-GOTCHAS.md §「stateStyles.normal 会接管被覆盖的属性」）。
       .stateStyles({
         pressed: {
-          .backgroundColor(withAlpha(this.pal().accent, ACCENT_TINT))
           .opacity(1)
         },
       })

@@ -36,16 +36,18 @@ export struct SelfCheckSheet {
       Row() {
         Text('渲染自检').fontSize(FS_TITLE).fontWeight(fw('type.headline'))
           .fontColor(this.pal().textPrimary).layoutWeight(1)
-        SymbolGlyph($r('sys.symbol.xmark')).fontSize(ICON_LG)
-          .fontColor([this.pal().textSecondary]).padding(SP_2)
-          // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = 图标 16 + 2×`SP_2`(8) = **32 < 44**
-          //    ⇒ 靠 `responseRegion` **外扩**热区、⛔ 不改布局/视觉尺寸（`PluginsSheet`/`AskUserSheet` 同款手艺）。
-          //    左邻 = 标题 `Text`（**不可点**）⇒ 只向**左**多扩 6 也不会抢别人的命中区。
-          .responseRegion({ x: -6, y: -6, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            this.onClose();
-          })
+        // ⛔ 关闭 X：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`；
+        //    图标视觉尺寸不变（仍 16，盒内居中）。
+        Row() {
+          SymbolGlyph($r('sys.symbol.xmark')).fontSize(ICON_LG)
+            .fontColor([this.pal().textSecondary])
+        }
+        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          this.onClose();
+        })
       }.width('100%')
 
       // ⛔ 命中区必须 ≥ `HIT_TARGET_MIN`(44, Apple HIG)：原先写死 40 低于阈值（审计命中）。

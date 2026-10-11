@@ -16,10 +16,11 @@
  *     ⇒ **数学上不可能重叠** ⇒ 自动放过（附理由）。
  *
  * ── 实测 ──────────────────────────────────────────────────────────────────────
- * 全仓 `responseRegion` **8 处**（AskUserSheet / MessageNav / PluginsSheet / SplashOverlay /
- * StatusSheet / WebSurface×2 / Index）⇒ **热区尺寸 8/8 ≥44**（全由 `HIT_TARGET_MIN` 派生）；
- * 含 ≥2 处的容器**只有 1 个**（`WebSurface.ets:288` 的 Row），**中间有 `layoutWeight(1)` 的标题**
- * ⇒ **不可能重叠** ⇒ **重叠 0 处**。
+ * 全仓 `responseRegion` **2 处**（均在 `pages/Index.ets`，归 main agent）—— components 侧已于
+ * 2026-10-11 全量改为**真实 44 布局盒**（真机证 `responseRegion` 负偏移外扩**无效**）⇒ 本判据
+ * components 侧已无对象，仅余 pages 的尺寸/重叠可判。
+ * ⚠️ components 侧仍有**大量 `layoutWeight` 容器**（`WebSurface` chrome 行等）——chrome 行两端是两个
+ * 独立 44 盒、中间标题 `layoutWeight(1)` ⇒ **数学上不可能重叠**。
  */
 declare const process: { exit: (c: number) => void };
 declare function require(m: 'fs'): {
@@ -202,8 +203,8 @@ for (let i = 0; i < regions.length; i++) {
 ok('零扫描判红：文件数 > 0', srcByRel.size > 0);
 ok('扫描器有效性：`responseRegion` 处数 > 0', regions.length > 0);
 ok('常量表解析成功（`HIT_TARGET_MIN` 可求值）', evalExpr('HIT_TARGET_MIN', 0) === HIT_TARGET_MIN);
-ok('⚠️ 算术表达式可求值（`CLOSE_VISUAL + CLOSE_HIT_PAD * 2` 这类不是字面量）',
-  !isNaN(evalExpr('CLOSE_VISUAL + CLOSE_HIT_PAD * 2', 0)) || !isNaN(evalExpr('BTN + HIT_PAD * 2', 0)));
+ok('⚠️ 算术表达式可求值（如 `HIT_TARGET_MIN * 2`，不是字面量）',
+  !isNaN(evalExpr('HIT_TARGET_MIN * 2', 0)) && evalExpr('HIT_TARGET_MIN * 2', 0) === HIT_TARGET_MIN * 2);
 
 console.log('\n▶ §B ① 热区尺寸：`responseRegion` 的 width/height 必须 ≥ HIT_TARGET_MIN');
 class Small { rel: string = ''; line: number = 0; why: string = ''; }
@@ -273,10 +274,10 @@ console.log('\n▶ §D mutation 自证（合成源码）');
 }
 {
   const inj: Map<string, string> = new Map<string, string>();
-  inj.set('components/Fake.ets', "build() {\n  X().responseRegion({ x: -4, y: -4, width: CLOSE_VISUAL + CLOSE_HIT_PAD * 2, height: 44 })\n}\n");
-  console.log(`     [eval] CLOSE_VISUAL + CLOSE_HIT_PAD * 2 ⇒ ${evalExpr('CLOSE_VISUAL + CLOSE_HIT_PAD * 2', 0)}`);
+  inj.set('components/Fake.ets', "build() {\n  X().responseRegion({ x: -4, y: -4, width: HIT_TARGET_MIN * 2, height: 44 })\n}\n");
+  console.log(`     [eval] HIT_TARGET_MIN * 2 ⇒ ${evalExpr('HIT_TARGET_MIN * 2', 0)}`);
   ok('mutation：**算术表达式**实参也能被求值判定（不是只看字面量）',
-    tooSmall(inj, KNOWN_OK).length === 0 && evalExpr('CLOSE_VISUAL + CLOSE_HIT_PAD * 2', 0) >= HIT_TARGET_MIN);
+    tooSmall(inj, KNOWN_OK).length === 0 && evalExpr('HIT_TARGET_MIN * 2', 0) >= HIT_TARGET_MIN);
 }
 
 console.log('\n▼ 摘要');

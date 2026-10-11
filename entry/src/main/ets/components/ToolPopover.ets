@@ -236,21 +236,19 @@ export struct ToolPopoverCard {
   SectionHead(label: string, body: string, what: string) {
     Row({ space: SP_1 }) {
       Text(label).fontSize(typeOf(TYPE_CHIP).size).fontColor(this.pal().textMuted).layoutWeight(1)
-      SymbolGlyph($r('sys.symbol.rectangle_on_rectangle'))
-        .fontSize(MARKER_GLYPH)
-        // ⛔ **图标可见度**（2026-10-11 审计）：原为 `textMuted`（**文本向最弱档**，porcelain 压 chip
-        //    只 2.27:1 < 非文本门槛 3:1）⇒ 改走**图标专用出口** `iconMuted`（浅=textSecondary ≥3:1 /
-        //    深=textMuted 逐字节，`design.ets:iconMutedOf`）。语义也更准：这是**图标**不是文本。
-        .fontColor([colorOf(this.pal(), 'iconMuted')])
-        .padding({ left: SP_1, right: SP_1, top: SPACE_HAIR, bottom: SPACE_HAIR })
-        // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 ≈ 图标 13 + 极小 padding ≈ 17-21 < 44
-        //    ⇒ `responseRegion` 外扩、⛔ 不改布局/视觉尺寸。左邻 = 标签 `Text`（`layoutWeight(1)`，**不可点**）
-        //    ⇒ 向左扩不会抢别人的命中区。
-        .responseRegion({ x: -12, y: -13, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
-        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .onClick(() => {
-          this.onCopy(body, what);
-        })
+      // ⛔ 命中区：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`
+      //    （左邻 = 标签 `Text`（`layoutWeight(1)`，**不可点**）⇒ 盒宽 ≥44 不抢他人命中区）；
+      //    图标视觉尺寸不变（仍 `MARKER_GLYPH`，盒内居中）。
+      Row() {
+        SymbolGlyph($r('sys.symbol.rectangle_on_rectangle'))
+          .fontSize(MARKER_GLYPH)
+          .fontColor([colorOf(this.pal(), 'iconMuted')])
+      }
+      .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
+      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+      .onClick(() => {
+        this.onCopy(body, what);
+      })
     }
     .width('100%')
   }

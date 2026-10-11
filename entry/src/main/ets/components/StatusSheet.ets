@@ -39,11 +39,10 @@ import { sheetTransition } from './anim';
 
 /**
  * X 关闭图标的视觉边长（vp，= `type.headline` 字号）。
- * ⚠️ **报备**：无「图标按钮视觉边长」token；命中区靠 `responseRegion` 外扩到 `HIT_TARGET_MIN`。
+ * ⚠️ **报备**：无「图标按钮视觉边长」token。
+ * ⛔ 热区不靠 `responseRegion` 负偏移外扩（真机实测无效）⇒ 真实 44×44 布局盒承载 `onClick`。
  */
 const X_GLYPH: number = 17;
-/** 命中区外扩量（视觉 17 → `HIT_TARGET_MIN` 的正方形，居中）。 */
-const X_PAD: number = (HIT_TARGET_MIN - X_GLYPH) / 2;
 
 /**
  * 一行「标签 + 值」——层级 = 标签次级色 / 值主色（web `SessionInfo.tsx` 的 `InfoRow`）。
@@ -124,7 +123,7 @@ export struct StatusSheet {
 
   build() {
     Column({ space: 0 }) {
-      // ── 头部：标题（`type.headline`）+ 关闭 X（`responseRegion` 外扩到 44）────────
+      // ── 头部：标题（`type.headline`）+ 关闭 X（真实 44 布局盒）────────────────────
       Row({ space: SPACE_XS }) {
         Text('会话状态')
           .fontSize(fs('type.headline'))
@@ -133,19 +132,19 @@ export struct StatusSheet {
           .letterSpacing(tk('type.headline'))
           .fontColor(tc(this.pal(), 'type.headline'))
           .layoutWeight(1)
-        SymbolGlyph($r('sys.symbol.xmark'))
-          .fontSize(X_GLYPH)
-          .fontColor([this.pal().textSecondary])
-          .responseRegion({
-            x: -X_PAD,
-            y: -X_PAD,
-            width: HIT_TARGET_MIN,
-            height: HIT_TARGET_MIN,
-          })
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            this.onClose();
-          })
+        // ⛔ 关闭 X：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`；
+        //    图标视觉尺寸不变（仍 17，盒内居中）。
+        Row() {
+          SymbolGlyph($r('sys.symbol.xmark'))
+            .fontSize(X_GLYPH)
+            .fontColor([this.pal().textSecondary])
+        }
+        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          this.onClose();
+        })
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)

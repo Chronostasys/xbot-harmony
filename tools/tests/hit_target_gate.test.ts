@@ -3,15 +3,15 @@
  *
  * ── 缺陷类 ────────────────────────────────────────────────────────────────────
  * 可点元素的**命中区**小于规范最小值 ⇒ 点不中/误触。规范出处**取仓内真源**，⛔ 不臆造：
- *   · `core/design.ets:757  HIT_TARGET_MIN = 44`（注释："Apple HIG ≥44pt；图标视觉尺寸可更小，
- *     命中区用 `responseRegion` 外扩"）；
- *   · 本仓既有补偿模式：`PluginsSheet` / `SplashOverlay` / `StatusSheet` 的关闭/跳过按钮 ——
- *     **视觉小、热区靠 `responseRegion` 外扩**（⛔ 不改布局/视觉尺寸）。
+ *   · `core/design.ets  HIT_TARGET_MIN = 44`（注释出处：Apple HIG ≥44pt）。
+ *   · ⛔ **2026-10-11 真机结论**：`responseRegion` 的负偏移外扩**在 SDK21 上不生效**（对照实验见
+ *     `AGENTS.md` GOTCHAS）⇒ 可靠做法 = **元素自身布局盒 ≥44**（`width/height/constraintSize` 取
+ *     `HIT_TARGET_MIN`）。`responseRegion` **不再算补偿**（见 `stripResponseRegion`）。
  *
  * ── 判据（A 类硬红）───────────────────────────────────────────────────────────
  * **可点元素（链上有 `onClick`/`bindMenu`/`bindPopup`/`bindSheet`/`gesture`/`onTouch`/`bindTips`）
  * 若显式设了 < `HIT_TARGET_MIN` 的 `height`/`width`/`size`/`constraintSize` 数值，
- * 且链上**没有** `HIT_TARGET_MIN` 也没有 `responseRegion`** ⇒ 红。
+ * 且链上**没有** `HIT_TARGET_MIN`（`responseRegion` 已剥除、不算数）** ⇒ 红。
  * 例外（⛔ 只许缩短）：`PENDING_SPEC` = 本线改不动的（`pages/Index.ets`，归 main agent）。
  *
  * ── 自证（扫描器先被验）──────────────────────────────────────────────────────
@@ -89,6 +89,26 @@ function chainAfter(s: string, i: number): string {
 const CLICK: RegExp = /\.(onClick|bindMenu|bindPopup|bindSheet|bindContextMenu|gesture|onTouch|bindTips)\s*\(/;
 const SIZE: RegExp = /\.(height|width|size|constraintSize)\(\s*([^)]*)\)/g;
 
+/**
+ * 去掉链上所有 `.responseRegion(...)` 调用（**括号配平**）。
+ * ⛔ **2026-10-11**：真机对照实验证明 `responseRegion` 的负偏移外扩**在 SDK21 上不生效**
+ *    （见 `AGENTS.md` GOTCHAS）⇒ 它**不再算补偿**：只有"自身 `HIT_TARGET_MIN`"才是可靠补偿。
+ */
+function stripResponseRegion(ch: string): string {
+  let out: string = ''; let i: number = 0;
+  while (i < ch.length) {
+    const m: number = ch.indexOf('.responseRegion', i);
+    if (m < 0) { out += ch.substring(i); break; }
+    out += ch.substring(i, m);
+    const j: number = ch.indexOf('(', m);
+    if (j < 0) { i = m + 15; continue; }
+    const k: number = matchPair(ch, j, '(', ')');
+    if (k < 0) { i = ch.length; break; }
+    i = k + 1;
+  }
+  return out;
+}
+
 class Clickable {
   rel: string = ''; line: number = 0; name: string = ''; small: string = '';
 }
@@ -104,7 +124,9 @@ function unregisteredHits(srcByRel: Map<string, string>, registered: string[]): 
       const k: number = matchPair(src, j, '(', ')');
       if (k > 0) {
         const ch: string = chainAfter(src, k + 1);
-        if (CLICK.test(ch) && ch.indexOf('HIT_TARGET_MIN') < 0 && ch.indexOf('responseRegion') < 0) {
+        // ⛔ `responseRegion` 不再是补偿 ⇒ 先从链上剥掉它，再看是否有真实 `HIT_TARGET_MIN` 补偿。
+        const chNoRR: string = stripResponseRegion(ch);
+        if (CLICK.test(ch) && chNoRR.indexOf('HIT_TARGET_MIN') < 0) {
           const small: string[] = [];
           SIZE.lastIndex = 0;
           let sm: RegExpExecArray | null = SIZE.exec(ch);

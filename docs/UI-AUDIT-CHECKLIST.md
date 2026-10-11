@@ -302,28 +302,45 @@ md缓存 命中=… 未命中=…（命中率 …%） 占用=…KB 条目=…
 
 ## 2026-10-11 批次：**命中区/热区**审计（目标⑤"交互起来很爽"）
 
-**规范出处（⛔ 取仓内真源，不臆造）**：`core/design.ets:757 HIT_TARGET_MIN = 44`
-（注释："Apple HIG ≥44pt；图标视觉尺寸可更小，命中区用 `responseRegion` 外扩"）。
-本仓既有补偿模式：`PluginsSheet` / `SplashOverlay` / `StatusSheet` 的关闭/跳过按钮 —— **视觉小、热区靠 `responseRegion` 外扩**。
+**规范出处（⛔ 取仓内真源，不臆造）**：`core/design.ets HIT_TARGET_MIN = 44`（注释出处：Apple HIG ≥44pt）。
 
-**判据**：`tools/tests/hit_target_gate.test.ts`（10 passed / 0 failed）——
-**可点元素（链上有 `onClick`/`bindMenu`/`bindPopup`/`bindSheet`/`gesture`/`onTouch`/`bindTips`）
-若显式设了 < `HIT_TARGET_MIN` 的 `height`/`width`/`size`/`constraintSize` 数值，
-且链上既无 `HIT_TARGET_MIN` 也无 `responseRegion`** ⇒ 红。
+⛔ **2026-10-11 真机结论（推翻旧口径）**：`responseRegion` 的**负偏移外扩在真机（SDK21）上不生效**。
+主 agent 装机对照实验（干净 HEAD HAP）：给 `ModelSheet` 关闭 X 加
+`.responseRegion({x:-6,y:-6,width:44,height:44})` ⇒ 点 X **视觉中心**关闭 ✓、点**框外 11-15px**（仍在父 `Row` 内）**不关闭** ✗。
+⇒ **可靠做法 = 让元素自己的布局盒 ≥44**（`Row/Stack().width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)`
+`.justifyContent(FlexAlign.Center)` + `onClick` **落在该盒**），⛔ 不再靠 `responseRegion` 越界外扩。
+本波已把 `components/**` 的 12 处旧写法全部改造（逐条见 `tools/tests/hittarget_audit.test.ts` 的 §B2 输出），
+`SplashOverlay`「轻点跳过」的 `responseRegion` 删除（其**父容器已整栏 `onClick(跳过)`** ⇒ 热区天然 = 整屏，本就不需要）。
+⚠️ 图标**视觉尺寸一律不变**（盒内居中）；`MessageNav` 的 32 视觉盒包在 44 外壳内（按压态底纹因会溢出 32 盒 ⇒ 只保留"提亮"）。
+
+**判据（三条，全离线硬红）**：
+- `tools/tests/hittarget_audit.test.ts`（22 passed / 0 failed）——
+  **A 类**：`components/**` 内 **`responseRegion` 数必须为 0**（`RR_LEDGER` 台账，只许缩短）——
+  **禁用外扩拐杖**（设备已证无效）。`pages/**` 归 main agent ⇒ 仅打印上报不判红。
+  **A2 类**：`components/**` 可点小图标视觉 < 44 且**无任何补偿** ⇒ 红（台账 `GLYPH_LEDGER`，空）。
+  **B 类**：浮层构件内的 `Scroll`/`List` 必须显式 `.scrollBar(...)`（默认 `Auto` 会挡右缘点击）。
+- `tools/tests/hit_target_gate.test.ts`（10 passed / 0 failed）——
+  可点元素若显式设了 < 44 的 `height/width/size/constraintSize` 数值、且链上**没有** `HIT_TARGET_MIN` ⇒ 红。
+  ⛔ `responseRegion` **不再算补偿**（`stripResponseRegion` 先把链上的它剥掉再判）。
+- `tools/tests/hit_spacing_gate.test.ts`（10 passed / 0 failed）—— 热区尺寸 ≥44 且同容器内 ≥2 热区须不重叠。
 ⛔ 阈值**从 `design.ets` 现场解析**（不写死），并断言 **`HIT_TARGET_MIN ≥ 44`** —— 防止"标准被悄悄下调而判据仍绿"。
 
-**规模与命中**：扫 45 文件 / **200 个可点元素** ⇒ A 类命中 **6 处**（**无假阳性**，全低于 44vp）：
+**历史命中（前一批，尺寸类）**：扫 45 文件 / **200 个可点元素** ⇒ A 类命中 **6 处**（全低于 44vp）：
 
 | 处置 | 位置 | 原值 | 改成 |
 |---|---|---|---|
 | ✅ 已修 | `components/SelfCheckSheet.ets:50` | `constraintSize({minHeight: 40})` | `HIT_TARGET_MIN` |
 | ✅ 已修 | `components/SettingsDeveloper.ets:309/447/457` | `.height(32)` ×3 | `constraintSize({minHeight: HIT_TARGET_MIN})` |
-| spec（归 main agent） | `pages/Index.ets:3287` | `minHeight: 42`（「测试连接」） | 建议 `HIT_TARGET_MIN` |
-| spec（归 main agent） | `pages/Index.ets:3466` | `minHeight: 38`（「重试/重新登录」） | 建议 `HIT_TARGET_MIN` |
 
-⚠️ **为什么 `SettingsDeveloper` 的三处不用 `responseRegion`**：它们是 `Row({space: SP_2})` 里的**文字按钮**，
-热区外扩 6vp 会**与兄弟重叠 ⇒ 误触** —— 本仓 `responseRegion` 模式是给**独立图标按钮**的。
-⇒ 文字按钮抬高度、图标按钮外扩热区，两者按场景分派。
+⚠️ **`SettingsDeveloper` 的文字按钮不用 `responseRegion` 抬**：它们是 `Row({space: SP_2})` 里的**文字按钮**，
+外扩会**与兄弟重叠 ⇒ 误触** ⇒ **文字/密集按钮抬高度、独立图标按钮用 44 布局盒**，按场景分派。
+
+**仍待 main agent 处置（`pages/Index.ets`，本线只报不改）**：
+| 位置 | 类型 | 说明 |
+|---|---|---|
+| `pages/Index.ets:3856` | A 类 `responseRegion` | 「回到最新」药丸：`responseRegion({x:-12,y:-12,width:'100%',height:44})` ⇒ 改真实 44 布局盒 |
+| `pages/Index.ets:4213` | A 类 `responseRegion` | 发送/停止圆钮：视觉 32 + `responseRegion` 居中外扩 44 ⇒ 改「44 外壳包 32 视觉」 |
+| `pages/Index.ets` 7 处 | A2 类 | 可点 `SymbolGlyph` 视觉 <44 且无补偿（见 `hittarget_audit` §B 的 pages 打印） |
 
 **扫描器自证教训**：mutation 断言第一版写成 `got.length > PENDING_SPEC.length`（2）——
 而基线带 `PENDING_SPEC` 后未登记命中恒为 **0**、注入后为 **1** ⇒ `1 > 2` 为假 ⇒ **判据自己假红**

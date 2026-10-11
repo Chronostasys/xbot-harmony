@@ -32,7 +32,7 @@
  */
 import { Palette, darkPalette } from '../core/theme';
 import {
-  HIT_TARGET_MIN, RADIUS_CHIP, SPACE_HAIR, SPACE_SM, SPACE_XL, colorOf, typeOf,
+  RADIUS_CHIP, SPACE_HAIR, SPACE_SM, SPACE_XL, colorOf, typeOf,
 } from '../core/design';
 import {
   SPLASH_HINT_DELAY_MS,
@@ -169,7 +169,10 @@ export struct SplashOverlay {
         .scale({ x: this.markScale, y: this.markScale })
         .translate({ y: -this.markLift })
 
-      // ── 跳过提示（视觉小 12–32vp；热区 ≥44 靠 `responseRegion` 外扩 ⇒ ⛔ 不改布局尺寸）──
+      // ── 跳过提示（视觉小 12–32vp）──
+      // ⛔ 这里**不再**给 Text 加 `responseRegion` 外扩：① 真机实测负偏移外扩**无效**；
+      //    ② 本提示的**父容器**（下方 `Column` 与本组件根 `Column`）已整栏 `onClick(跳过)`
+      //       ⇒ 热区天然 = 整屏，Text 自身的 `onClick` 只是"原地兜底"，无需外扩。
       Column() {
         Text('轻点跳过')
           .fontSize(typeOf('type.caption').size)
@@ -178,12 +181,6 @@ export struct SplashOverlay {
           .fontColor(colorOf(this.pal(), 'textMuted'))
           .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_HAIR, bottom: SPACE_HAIR })
           .borderRadius(RADIUS_CHIP)
-          .responseRegion({
-            x: -SPACE_SM,
-            y: -SPACE_HAIR,
-            width: '100%',
-            height: HIT_TARGET_MIN,
-          })
           .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.onSkip();

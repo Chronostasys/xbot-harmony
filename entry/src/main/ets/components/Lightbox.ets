@@ -136,17 +136,18 @@ export struct Lightbox {
       }
       // 按下反馈（统一口径：值取 `PRESS_OPACITY`；与背板/关闭/复位同一常量）。
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-      SymbolGlyph($r('sys.symbol.xmark')).fontSize(ICON_LG)
-        .fontColor([colorOf(this.pal(), 'textSecondary')])
-        .padding(SPACE_XS)
-        // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = 图标 16 + 2×`SPACE_XS`(8) = **32 < 44**
-        //    ⇒ `responseRegion` 外扩、⛔ 不改布局/视觉尺寸（`PluginsSheet`/`AskUserSheet` 同款手艺）。
-        .responseRegion({ x: -6, y: -6, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
-        // 按下反馈（统一口径；与复位/SaveButton 同一常量）。
-        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .onClick(() => {
-          this.onClose();
-        })
+      // ⛔ 关闭 X：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`；
+      //    图标视觉尺寸不变（仍 16，盒内居中）。
+      Row() {
+        SymbolGlyph($r('sys.symbol.xmark')).fontSize(ICON_LG)
+          .fontColor([colorOf(this.pal(), 'textSecondary')])
+      }
+      .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+      .justifyContent(FlexAlign.Center)
+      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+      .onClick(() => {
+        this.onClose();
+      })
     }
     .width('100%')
     .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_XS, bottom: SPACE_XS })
