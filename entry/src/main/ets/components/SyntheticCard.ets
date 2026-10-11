@@ -16,7 +16,7 @@
  *   带参 @Builder 的子树不随参数重建（`docs/ARKTS-GOTCHAS.md §4`）。
  */
 import { ToolProgress } from '../core/types';
-import { Effects, effectsOf, Palette, paletteOf } from '../core/theme';
+import { Effects, effectsOf, Palette, paletteOf, shadowRadiusOf } from '../core/theme';
 import { FS_BODY, FS_CAPTION, R_LG, R_XL, SP_1, SP_2, SP_3 } from '../core/tokens';
 import {
   RADIUS_CHIP, SPACE_HAIR, SURFACE_CHIP, SURFACE_PILL, TYPE_CHIP,
@@ -238,6 +238,6 @@ export struct SyntheticCard {
     .borderRadius(R_XL)
     .border({ width: 1, color: hairlineOf(this.pal()) })
     // 中性柔影（`elev1` 深浅均**中性** ⇒ 白底不出彩色脏影；与 1ae9def/2ba1b67 同口径）
-    .shadow({ radius: 10, color: this.eff().elev1, offsetX: 0, offsetY: 2 })
+    .shadow({ radius: shadowRadiusOf(this.pal(), 'card'), color: this.eff().elev1, offsetX: 0, offsetY: 2 })
   }
 }

@@ -39,7 +39,7 @@
  *
  * ⛔ 会变的内容走真 `@Component` + `@Prop`；颜色只走 `core/design.ets`（零字面量，⑥c 硬红）。
  */
-import { Palette, paletteOf } from '../core/theme';
+import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
 import { SearchHit } from '../core/types';
 import { hitLine, MOVE_DOWN, MOVE_TOP, MOVE_UP } from '../core/sessionops';
 import { linkLabel } from '../core/msgops';
@@ -151,7 +151,7 @@ export struct SessSheet {
     .borderRadius({ topLeft: RADIUS_SHEET, topRight: RADIUS_SHEET })
     .borderWidth({ top: STROKE_HAIRLINE })
     .borderColor(hairlineOf(this.pal()))
-    .shadow({ radius: SPACE_LG, color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 })
+    .shadow({ radius: shadowRadiusOf(this.pal(), 'overlay'), color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 })
     .padding({ bottom: SPACE_XS })
     .alignItems(HorizontalAlign.Start)
     .transition(sheetTransition())
@@ -269,7 +269,7 @@ export struct SearchHitsSheet {
     .borderRadius({ topLeft: RADIUS_SHEET, topRight: RADIUS_SHEET })
     .borderWidth({ top: STROKE_HAIRLINE })
     .borderColor(hairlineOf(this.pal()))
-    .shadow({ radius: SPACE_LG, color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 })
+    .shadow({ radius: shadowRadiusOf(this.pal(), 'overlay'), color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 })
     .padding({ bottom: SPACE_XS })
     .alignItems(HorizontalAlign.Start)
     .transition(sheetTransition())
@@ -381,7 +381,7 @@ export struct ContextSheet {
     .borderRadius({ topLeft: RADIUS_SHEET, topRight: RADIUS_SHEET })
     .borderWidth({ top: STROKE_HAIRLINE })
     .borderColor(hairlineOf(this.pal()))
-    .shadow({ radius: SPACE_LG, color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 })
+    .shadow({ radius: shadowRadiusOf(this.pal(), 'overlay'), color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 })
     .padding({ bottom: SPACE_XS })
     .alignItems(HorizontalAlign.Start)
     .transition(sheetTransition())

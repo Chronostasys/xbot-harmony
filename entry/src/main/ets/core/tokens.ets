@@ -76,5 +76,16 @@ export const EASE_SPRING_P2Y: number = 1;
 export const EASE_SPRING_RESPONSE: number = 0.30;      // 秒（springMotion 第 1 参）
 export const EASE_SPRING_DAMPING: number = 0.65;       // 阻尼比（<1 ⇒ 有回弹）
 export const EASE_SPRING_OVERLAP: number = 0.0;        // 秒（不叠加）
+// ── 投影半径档（B：半径令牌化）─────────────────────────────────────────────────
+// 为什么需要：**浅色柔影需要更大半径 + 更低 alpha**（HIG 的"软影"），而深色靠发光/深影。
+// 此前半径是**调用点字面量**（`shadow({ radius: 26 })`）⇒ 深浅同半径 ⇒ 浅色"没手感"。
+// ⛔ 基础值取**现状字面量的等同值**（保证迁移后**深色逐字节不变**）：
+//    · `CARD` = `SP_5/2` = 10（= `SyntheticCard` 原 `radius: 10`）；
+//    · `OVERLAY` = `SP_5` = 20（= `SPACE_LG`，AskUserMenu/StatusSheet 原用它）。
+export const SHADOW_RADIUS_CARD: number = SP_5 / 2;    // 10 —— 抬升级（卡片/内联）
+export const SHADOW_RADIUS_OVERLAY: number = SP_5;     // 20 —— 浮层级（Sheet / 菜单 / 状态）
+/** 浅色系**半径扩散系数**（>1 ⇒ 浅色柔影更"软"）。⛔ 深色臂不乘（逐字节不变）。 */
+export const LIGHT_SHADOW_DIFFUSION: number = 1.5;
+
 /** 已确认的退化曲线名（不引入 @ohos.curves 时用）。 */
 export const ARKUI_CURVE_SPRING_FALLBACK: string = 'Curve.Friction';

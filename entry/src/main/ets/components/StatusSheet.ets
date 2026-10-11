@@ -30,7 +30,7 @@
  *   `usageText(this.usage)→usageText`、`currentModelName()→modelName`、`ctxText()→ctxText`、
  *   `this.cwd→cwd`；写点 `showStatus=false→onClose`、`showModel=true + store.loadLlmConfig()→onOpenModel`。
  */
-import { Palette, paletteOf } from '../core/theme';
+import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
 import {
   ELEV_OVERLAY, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, SPACE_HAIR, SPACE_LG, SPACE_SM,
   SPACE_XS, STROKE_HAIRLINE, elevationColorOf, hairlineOf, surfaceFillOf, colorOf, } from '../core/design';
@@ -226,7 +226,7 @@ export struct StatusSheet {
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .borderRadius(RADIUS_CARD)
     .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
-    .shadow({ radius: SPACE_LG, color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 })
+    .shadow({ radius: shadowRadiusOf(this.pal(), 'overlay'), color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 })
     .transition(sheetTransition())
   }
 }

@@ -28,6 +28,8 @@
  */
 
 /** 一套语义色板。字段名就是"用途"，不是"颜色"—— 这样浅色主题才可能正确。 */
+import { SHADOW_RADIUS_CARD, SHADOW_RADIUS_OVERLAY, LIGHT_SHADOW_DIFFUSION } from './tokens';
+
 export class Palette {
   /** 最底背景（页面） */
   appBg: string = '';
@@ -851,6 +853,25 @@ export function effectsOf(p: Palette): Effects {
  *
  * @param tier `'overlay'` ⇒ elev3（浮层级）；其余（默认）⇒ elev2（抬升级）
  */
+/**
+ * **投影半径口径**（唯一出口，B）—— 与 `shadowColorOf` 成对：一个给色、一个给半径。
+ *
+ * 洞见：**浅色柔影 = 更大半径 + 更低 alpha**（HIG 的"软影"）；深色柔影 = 更小半径 + 更高 alpha。
+ * 此前半径是**调用点字面量**（深浅同半径）⇒ 浅色"没手感"。⇒ 令牌化 + 浅色**扩散系数**。
+ *
+ * | 主题 | 返回 |
+ * |---|---|
+ * | 深色系 | `SHADOW_RADIUS_*`（**基础档，逐字节不变**） |
+ * | 浅色系 | `round(SHADOW_RADIUS_* × LIGHT_SHADOW_DIFFUSION)`（**更大**） |
+ *
+ * `tier==='overlay'` ⇒ `OVERLAY`（20）；其余 ⇒ `CARD`（10）。
+ * ⛔ 判据按 `isLightPalette(p)`；⛔ 深色臂不乘扩散。
+ */
+export function shadowRadiusOf(p: Palette, tier: string): number {
+  const base: number = tier === 'overlay' ? SHADOW_RADIUS_OVERLAY : SHADOW_RADIUS_CARD;
+  return isLightPalette(p) ? Math.round(base * LIGHT_SHADOW_DIFFUSION) : base;
+}
+
 export function shadowColorOf(p: Palette, tier: string): string {
   const e: Effects = effectsOf(p);
   if (!isLightPalette(p)) {

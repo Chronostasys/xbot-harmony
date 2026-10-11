@@ -32,7 +32,7 @@
  * ⛔ 颜色只走 `core/design.ets`（`colorOf`/`surfaceFillOf`/`hairlineOf`）或 `pal()` 语义字段，
  *    组件内**零颜色字面量**（门禁 ⑥c 硬红）。
  */
-import { Palette, paletteOf } from '../core/theme';
+import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
 import { AskOption, AskQuestion } from '../core/types';
 import {
   DISABLED_OPACITY, ELEV_OVERLAY, HIT_TARGET_MIN, INSET_CARD_X, INSET_ROW_X, INSET_ROW_Y,
@@ -262,6 +262,6 @@ export struct AskUserSheet {
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .borderRadius(RADIUS_CARD)
     .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
-    .shadow({ radius: SPACE_LG, color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 })
+    .shadow({ radius: shadowRadiusOf(this.pal(), 'overlay'), color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 })
   }
 }
