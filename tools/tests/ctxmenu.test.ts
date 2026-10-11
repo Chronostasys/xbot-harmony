@@ -76,9 +76,18 @@ const mrToolCtx: number = countOf(mrSrc, 'onOpenCtx(');
 const ixReply: number = countOf(ixSrc, 'canIterReply:');
 const ixThinking: number = countOf(ixSrc, 'canIterThinking:');
 const ixTools: number = countOf(ixSrc, 'canIterTools:');
+const ixOpenTools: number = countOf(ixSrc, 'onOpenToolsCtx:');
+const ixToolNames: number = countOf(ixSrc, 'toolNames:');
+const ixToolHasText: number = countOf(ixSrc, 'toolHasText:');
+const ixToolsAll: number = countOf(ixSrc, 'toolsAllHasText:');
+const ixCopyTool: number = countOf(ixSrc, 'copy-tool:');
+const ixCopyAllTools: number = countOf(ixSrc, 'copy-all-tools');
+const ixOpenToolsFn: number = countOf(ixSrc, 'openToolsCtx(');
 console.log(`  ctxmenu-scan ${MS}: iterMenuItems(=${msIter} toolsMenuItems(=${msTools} import=${msImport} toolNames=${msToolNames}`);
 console.log(`  ctxmenu-scan ${MR}: onOpenToolsCtx=${mrGroup} onOpenCtx(=${mrToolCtx}`);
-console.log(`  ctxmenu-scan ${IX}: canIterReply:=${ixReply} canIterThinking:=${ixThinking} canIterTools:=${ixTools}`);
+console.log(`  ctxmenu-scan ${IX}: canIter*=${ixReply}/${ixThinking}/${ixTools}`
+  + ` onOpenToolsCtx:=${ixOpenTools} toolNames:=${ixToolNames} toolHasText:=${ixToolHasText}`
+  + ` toolsAllHasText:=${ixToolsAll} copy-tool:=${ixCopyTool} copy-all-tools=${ixCopyAllTools} openToolsCtx(=${ixOpenToolsFn}`);
 ok(`MenuSheets 真 import core/ctxmenu（${msImport} ≥ 1）`, msImport >= 1);
 ok(`MenuSheets 用 iterMenuItems( 渲染（判据与渲染同源，${msIter} ≥ 1）`, msIter >= 1);
 ok(`MenuSheets 用 toolsMenuItems( 渲染工具组菜单（${msTools} ≥ 1）`, msTools >= 1);
@@ -88,8 +97,16 @@ ok(`MessageRow 保留单枚 onOpenCtx（内层优先，${mrToolCtx} ≥ 2：声�
 ok(`Index 投递 canIterReply（${ixReply} ≥ 1）`, ixReply >= 1);
 ok(`Index 投递 canIterThinking（${ixThinking} ≥ 1）`, ixThinking >= 1);
 ok(`Index 投递 canIterTools（${ixTools} ≥ 1）`, ixTools >= 1);
+// ── 工具组：投递（2 个 MessageRow 调用点）+ ContextSheet 3 入参 + 派发 ──────────────
+ok(`Index 投递 onOpenToolsCtx（两处 MessageRow 调用点，${ixOpenTools} ≥ 2）`, ixOpenTools >= 2);
+ok(`Index 定义/调用 openToolsCtx（${ixOpenToolsFn} ≥ 2）`, ixOpenToolsFn >= 2);
+ok(`Index 向 ContextSheet 投递 toolNames/toolHasText/toolsAllHasText（${ixToolNames}/${ixToolHasText}/${ixToolsAll} ≥ 1）`,
+  ixToolNames >= 1 && ixToolHasText >= 1 && ixToolsAll >= 1);
+ok(`Index 派发 copy-tool:（${ixCopyTool} ≥ 1）`, ixCopyTool >= 1);
+ok(`Index 派发 copy-all-tools（${ixCopyAllTools} ≥ 1）`, ixCopyAllTools >= 1);
 ok('零扫描判红：过滤接线调用点合计 > 0',
-  msIter + msImport + msTools + msToolNames + mrGroup + mrToolCtx + ixReply + ixThinking + ixTools > 0);
+  msIter + msImport + msTools + msToolNames + mrGroup + mrToolCtx
+  + ixReply + ixThinking + ixTools + ixOpenTools + ixToolNames + ixCopyTool + ixCopyAllTools > 0);
 
 // ── ①b 纯逻辑：**工具（组）**菜单项集（web `MessageActions.tsx:302-312`）──────────────────
 eq('tools 全有 ⇒ 逐枚(2) + 组级(1)',

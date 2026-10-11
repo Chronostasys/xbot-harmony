@@ -529,6 +529,13 @@ struct Index {
   @State ctxRowId: string = '';
   @State ctxIter: number = 0;
   @State ctxTool: string = '';
+  /**
+   * **工具组**菜单的项集入参（`ctxKind === 'tools'`）—— 在**开菜单那一刻**由 `ctxIteration()`
+   * 派生（判据 = `core/ctxmenu.toolsMenuItems`）；与 `MenuSheets` 的 3 个 `@Prop` 对齐。
+   */
+  @State ctxToolNames: string[] = [];
+  @State ctxToolHasText: boolean[] = [];
+  @State ctxToolsAllHasText: boolean = false;
   @State usage: TokenUsage | undefined = undefined;
   @State cwd: string = '';
   @State todos: TodoItem[] = [];
@@ -3017,6 +3024,10 @@ struct Index {
             canIterReply: this.ctxIterCanReply(),
             canIterThinking: this.ctxIterCanThinking(),
             canIterTools: this.ctxIterCanTools(),
+            // 工具组菜单（`ctxKind === 'tools'`）：逐枚名 + 逐枚"有内容" + 组级拼接是否非空
+            toolNames: this.ctxToolNames,
+            toolHasText: this.ctxToolHasText,
+            toolsAllHasText: this.ctxToolsAllHasText,
             onItem: (code: string) => {
               this.onSheetItem(code);
             },
@@ -5056,8 +5067,42 @@ struct Index {
     });
   }
 
-  private ctxRow(): ChatRow | undefined {
-    for (let i = 0; i < this.rows.length; i++) {
+  /**
+   * 打开**工具组**菜单（`ctxKind === 'tools'`，对齐 web `MessageActions.tsx:302-312`）。
+   * 在开菜单那一刻由 `ctxIteration()` 派生 `names/hasText/allHasText`（判据 =
+   * `core/ctxmenu.toolsMenuItems`，组件内不另写过滤）。
+   */
+  private openToolsCtx(rowId: string, iter: number): void {
+    this.ctxKind = 'tools';
+    this.ctxRowId = rowId;
+    this.ctxIter = iter;
+    this.ctxTool = '';
+    const it: HistoryIteration | undefined = this.ctxIteration();
+    const names: string[] = [];
+    const hasText: boolean[] = [];
+    const all: string[] = [];
+    if (it !== undefined && it.tools !== undefined) {
+      for (let i = 0; i < it.tools.length; i++) {
+        const tw: ToolProgress | undefined = it.tools[i];
+        if (tw === undefined) {
+          continue;
+        }
+        names.push(tw.label !== undefined && tw.label.length > 0 ? tw.label : tw.name);
+        const text: string = toolCopyText(tw.name, tw.args !== undefined ? tw.args : '',
+          tw.detail !== undefined ? tw.detail : '');
+        hasText.push(text.trim().length > 0);
+        all.push(text);
+      }
+    }
+    this.ctxToolNames = names;
+    this.ctxToolHasText = hasText;
+    this.ctxToolsAllHasText = all.join('\n\n').trim().length > 0;
+    this.anim(() => {
+      this.ctxOpen = true;
+    });
+  }
+
+  private ctxRow(): ChatRow | undefined {    for (let i = 0; i < this.rows.length; i++) {
       if (this.rows[i].id === this.ctxRowId) {
         return this.rows[i];
       }
@@ -5250,6 +5295,41 @@ struct Index {
       if (idx >= 0 && idx < ls.length) {
         this.copyText(ls[idx], '链接地址');
       }
+      return;
+    }
+    if (code.indexOf('copy-tool:') === 0) {
+      // 工具组菜单：复制**第 i 枚**工具的文本（逐枚项，web `MessageActions.tsx:304-306`）
+      const it: HistoryIteration | undefined = this.ctxIteration();
+      if (it === undefined || it.tools === undefined) {
+        return;
+      }
+      const idx: number = Number.parseInt(code.substring(10), 10);
+      if (idx >= 0 && idx < it.tools.length) {
+        const tw: ToolProgress | undefined = it.tools[idx];
+        if (tw === undefined) {
+          return;
+        }
+        this.copyText(toolCopyText(tw.name, tw.args !== undefined ? tw.args : '',
+          tw.detail !== undefined ? tw.detail : ''), '工具输出');
+      }
+      return;
+    }
+    if (code === 'copy-all-tools') {
+      // 工具组菜单：复制**全部**工具输出（web `:308-312`）
+      const it: HistoryIteration | undefined = this.ctxIteration();
+      if (it === undefined || it.tools === undefined) {
+        return;
+      }
+      const segs: string[] = [];
+      for (let i = 0; i < it.tools.length; i++) {
+        const tw: ToolProgress | undefined = it.tools[i];
+        if (tw === undefined) {
+          continue;
+        }
+        segs.push(toolCopyText(tw.name, tw.args !== undefined ? tw.args : '',
+          tw.detail !== undefined ? tw.detail : ''));
+      }
+      this.copyText(segs.join('\n\n'), '全部工具输出');
       return;
     }
     if (row === undefined) {
@@ -5510,6 +5590,9 @@ struct Index {
         onOpenCtx: (iter: number, name: string) => {
           this.openCtx(name.length > 0 ? 'tool' : 'iter', row.id, iter, name);
         },
+        onOpenToolsCtx: (iter: number) => {
+          this.openToolsCtx(row.id, iter);
+        },
         onToggleTool: (iter: number, name: string) => {
           this.toggleToolByKey(row, iter, name);
         },
@@ -5569,6 +5652,9 @@ struct Index {
         },
         onOpenCtx: (iter: number, name: string) => {
           this.openCtx(name.length > 0 ? 'tool' : 'iter', this.liveRowRef.id, iter, name);
+        },
+        onOpenToolsCtx: (iter: number) => {
+          this.openToolsCtx(this.liveRowRef.id, iter);
         },
         onToggleTool: (iter: number, name: string) => {
           this.toggleToolByKey(this.liveRowRef, iter, name);
