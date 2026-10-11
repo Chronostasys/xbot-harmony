@@ -31,6 +31,7 @@ import { SyntheticCard } from './SyntheticCard';
 import { LlmErrorNotice } from './LlmErrorNotice';
 import { isSyntheticToolName } from '../core/synthhints';
 import { looksLikeLlmError } from '../core/llmerror';
+import { reasoningKey } from '../core/reasoningopen';
 import { isLiveStatus, renderKind, statusChip } from '../core/toolstatus';
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
 
@@ -78,10 +79,15 @@ export struct LiveTailView {
    * `MessageRowView` 投递（`pages/**` 与 `MessageRow.ets` 本波禁改 ⇒ 端到端投递见移交项）。
    */
   @Prop orb: boolean = true;
+  /**
+   * live 当前**在飞迭代**的归属（`turnID` + 迭代号）—— 与 committed 侧（`MessageRow.row.turnID`
+   * + `it.iteration`）**同构**，供 `reasoningKey()` 构造同一个共享键（live↔committed 展开态互通）。
+   */
+  @Prop turnID: number = 0;
+  @Prop iteration: number = 0;
 
   @State vis: number = 0;
   @State visReason: number = 0;
-  @State reasonOpen: boolean = false;
   /** 当前**浮层**对应的 live pill 下标（-1 = 无）—— 对齐 web：点 pill 弹浮层，不内联展开。 */
   @State popIdx: number = -1;
   /** "+N" 溢出浮层开关。 */
@@ -462,7 +468,7 @@ return renderKind(t.status, t.exit_code, true);
         ThinkingLine({
           label: `思考 ${this.reasonCount()} 字`,
           body: this.shownReason(),
-          open: this.reasonOpen,
+          stateKey: reasoningKey(this.turnID, this.iteration),
           theme: this.theme,
           // 领读身份（只改色、不呼吸）—— 见 `thinkingIsPrimary()`
           live: this.thinkingIsPrimary(),
@@ -473,7 +479,8 @@ return renderKind(t.status, t.exit_code, true);
           paused: this.paused,
           reduceMotion: this.reduceMotion(),
           onToggle: () => {
-            this.reasonOpen = !this.reasonOpen;
+            // 展开态已由 ThinkingLine 自身写共享 store（`core/reasoningopen`）——
+            // 这里只做 live 侧附带动作（打字机计时刷新）。
             this.syncTimer();
           },
         })

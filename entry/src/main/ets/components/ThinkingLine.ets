@@ -35,6 +35,7 @@
 import { paletteOf, surfacesOf } from '../core/theme';
 import { FS_CAPTION, R_LG, SP_1, SP_5 } from '../core/tokens';
 import { PRESS_OPACITY, RADIUS_PILL, SPACE_HAIR, STROKE_RAIL, TEXT_DIM, colorOf, } from '../core/design';
+import { getReasoningOpen, setReasoningOpen } from '../core/reasoningopen';
 import { AssistantOrb, ORB_MODE_THINKING } from './AssistantOrb';
 
 /** 前导光球直径 = 尺度 token `SP_5`（20vp）—— 与 `LiveTailView` 块首的独立光球**同值**。 */
@@ -48,8 +49,21 @@ export struct ThinkingLine {
   @Prop label: string = '';
   /** 展开体文本（live = 打字机裁剪后的前缀；committed = 全量思考）。 */
   @Prop body: string = '';
-  /** 是否展开。 */
-  @Prop open: boolean = false;
+  /**
+   * 展开态共享键（`turnID:iteration`，用 `core/reasoningopen.reasoningKey()` 构造）。
+   *
+   * ⛔ live 与 committed 必须用**同一构造函数**——这是"live 迭代 commit 成历史后
+   *   思考块**不自动收起**"的救活点（对齐 web `ThinkingLine.tsx:49-61` 的 `stateKey`）。
+   */
+  @Prop @Watch('onStateKeyChange') stateKey: string = '';
+  /**
+   * 是否展开 —— **本地 `@State`**（不是 `@Prop`）：初值从共享 store 取，点击写回 store。
+   *
+   * 为什么要本地 `@State`：思考块展开态存于 `core/reasoningopen.ts` 的**模块级单例**，
+   * 而模块级变量**不触发 ArkUI 重绘** ⇒ 只改 store 会"点了没反应"。本地 `@State` 既驱动本次重绘，
+   * 又是 remount 后从 store 恢复的落地值（web 即 `useState` + `setReasoningOpen` 同构）。
+   */
+  @State open: boolean = false;
   @Prop theme: string = 'dark';
   /**
    * **此刻本行是不是主高亮源**（= `LiveTailView.thinkingIsPrimary()`，与光球 `secondary` 同源）。
@@ -74,6 +88,25 @@ export struct ThinkingLine {
   /** 点击开合（状态由调用方持有 —— 同一语义两处共用）。 */
   onToggle: () => void = () => {
   };
+
+  /** remount（live → committed）时从共享 store 恢复展开态 —— 用户展开的块不自动收起。 */
+  aboutToAppear(): void {
+    this.open = this.storedOpen(this.stateKey);
+  }
+
+  /** `stateKey` 变化（如 live 迭代号推进）⇒ 读新 key 的 store 值（web 每迭代一个新组件；原生同实例复用）。 */
+  onStateKeyChange(): void {
+    this.open = this.storedOpen(this.stateKey);
+  }
+
+  /** store 里该 key 的展开态（无记录 ⇒ `false`，即缺省收起）。 */
+  private storedOpen(key: string): boolean {
+    if (key.length === 0) {
+      return false;
+    }
+    const v: boolean | undefined = getReasoningOpen(key);
+    return v !== undefined && v;
+  }
 
   build() {
     Column({ space: 0 }) {
@@ -113,6 +146,12 @@ export struct ThinkingLine {
       .borderRadius(RADIUS_PILL)
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) } })
       .onClick(() => {
+        // 本地 @State 驱动本次重绘（"点一下立刻响应"）；store 承接 remount 后的恢复。
+        const next: boolean = !this.open;
+        this.open = next;
+        if (this.stateKey.length > 0) {
+          setReasoningOpen(this.stateKey, next);
+        }
         this.onToggle();
       })
 

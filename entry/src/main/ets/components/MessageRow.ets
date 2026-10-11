@@ -44,6 +44,7 @@ import { SubAgentTree } from './SubAgentTree';
 import { flattenSubAgents } from '../core/subagent';
 import { SweepBand, sweepBandOf } from '../core/sweep';
 import { animFast, animMsgIn } from './anim';
+import { reasoningKey, liveIterationNo } from '../core/reasoningopen';
 
 /** 压缩摘要正文的最大高度（web `max-h-[40vh] overflow-y-auto`；手机取 ~48% 视口）。 */
 const COMPACT_BODY_MAX_H: number = 420;
@@ -160,7 +161,6 @@ export struct MessageRowView {
   onCopy: (text: string, what: string) => void = (text: string, what: string) => {
   };
 
-  @State openReasonKey: string = '';
   /** 「更早区域」自动加载的三态（对齐 web `RegionsDivider` 的 idle/loading/error）。
    *  ⛔ 触发源是**可见性**（`onVisibleAreaChange` 哨兵语义），**不是点击** ——
    *  用户 2026-10-10 明确禁止「点击加载更多」。 */
@@ -664,6 +664,9 @@ export struct MessageRowView {
         fontScale: this.fontScaleV,
         wrapCode: this.wrapCodeV,
         orb: this.orb,
+        // live 在飞迭代的归属（与 committed 侧同构 ⇒ `reasoningKey(turnID, iteration)` 同键）。
+        turnID: this.row.turnID,
+        iteration: liveIterationNo(this.row.iterations),
         onImage: (src: string) => {
           this.onImage(src);
         },
@@ -703,12 +706,9 @@ export struct MessageRowView {
         ThinkingLine({
           label: `思考 ${runeCount(displayReasoning(it))} 字`,
           body: displayReasoning(it),
-          open: this.openReasonKey === `${this.row.id}-${it.iteration}`,
+          // 与 live 侧同构的共享键（`turnID:iteration`）—— commit 后 remount 仍读到同一展开态。
+          stateKey: reasoningKey(this.row.turnID, it.iteration),
           theme: this.theme,
-          onToggle: () => {
-            const key: string = `${this.row.id}-${it.iteration}`;
-            this.openReasonKey = this.openReasonKey === key ? '' : key;
-          },
         })
       }
 
