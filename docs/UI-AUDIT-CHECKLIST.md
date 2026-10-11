@@ -598,3 +598,17 @@ MarkdownView **无固定数值宽容器** ⇒ **结构性命中 0**。即：**�
 
 **⚠️ diff 正文行（`ToolPopover:412`）现归 `KNOWN_OK`（有意）**：源码注明"不折行（web `whitespace-pre`）：
 长行由 **diff 卡整体横向滚动**承担" ⇒ `wordBreak(NORMAL)` 是**对齐 web 的有意选择**，不是"忘了 `BREAK_ALL`"。
+
+## 溢出兜底：无人认领两文件（2026-10-11）
+
+- `AskUserSheet.ets`（6 处 `Text`）：**逐个判语义** —— 标题 `'xbot 需要你确认'` ⇒ **锁宽**
+  （`constraintSize({maxWidth:'100%'})`，换行会破版）；`q.header` / `labelOf(opt)`（可能是路径/命令）
+  ⇒ `wordBreak(BREAK_ALL)`；`q.question` / `opt.description`（多行正文）⇒ `wordBreak(BREAK_WORD)`；
+  空态小字 ⇒ `BREAK_ALL`。⛔ 一律**不 `maxLines`**（截断=删信息）。
+- `SelfCheckSheet.ets`（15 处 `Text`）：13 处**已有** `.width('100%')` ⇒ 判据把它计作"锁宽兜底"（与
+  `MarkdownView` 的 `constraintSize({maxWidth:'100%'})` 同理）；补 2 处 —— 等宽**审计串** `this.auditText`
+  与 `Flex(wrap)` 里的 pill 标签 ⇒ `wordBreak(BREAK_ALL)`。
+- 判据 `tools/tests/overflow_guard.test.ts`：`MY_FILES` **扩到 7 文件**（先修后纳）；并修一处**盲区**——
+  原先 `Text\(([^()]*)\)` 遇到**参数含嵌套括号**（`Text(this.labelOf(opt))`）会**整节点漏扫** ⇒ 正则放宽到一层嵌套。
+- ⚠️ **已知判据弱点（待收紧）**：属性链窗口取 Text 之后 700 字符 ⇒ 会**吃到下一个 `Text` 的兜底** ⇒
+  对"相邻两节点只有后一个有兜底"的情形**可能假绿**（本轮 mutation 未打红即此因）。⇒ 下轮改成"链式截断到下一个 `Text(` 或行尾"。

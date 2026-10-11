@@ -54,6 +54,8 @@ export struct SelfCheckSheet {
         .fontSize(fs('type.caption')).fontColor(this.pal().warn).width('100%')
       Text(this.auditText)
         .fontSize(fs('type.caption')).fontColor(this.pal().successText).fontFamily('monospace')
+        // 溢出兜底（等宽**审计串**：含路径/命令等不可断内容 ⇒ 可断）
+        .wordBreak(WordBreak.BREAK_ALL)
         .width('100%').padding(SP_2)
         .backgroundColor(surfaceFillOf(this.pal(), 'surface.raised')).borderRadius(R_LG)
         .copyOption(CopyOptions.LocalDevice)
@@ -95,6 +97,8 @@ export struct SelfCheckSheet {
             Flex({ wrap: FlexWrap.Wrap }) {
               ForEach(['已完成 Read', '已完成 Shell', '运行中 Grep', '已完成 Edit', '失败 Fetch'], (t: string) => {
                 Text(t).fontSize(FS_CAPTION).fontColor(this.pal().successText)
+                  // 溢出兜底（pill 标签在 `Flex(wrap)` 里；不可断串也要能折行）
+                  .wordBreak(WordBreak.BREAK_ALL)
                   .padding({ left: INSET_PILL_X, right: INSET_PILL_X, top: INSET_PILL_Y, bottom: INSET_PILL_Y })
                   .margin(GAP_PILL).backgroundColor(surfaceFillOf(this.pal(), 'surface.raised')).borderRadius(RADIUS_CHIP)
                   .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })

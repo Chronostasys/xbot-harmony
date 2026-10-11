@@ -71,6 +71,9 @@ const MY_FILES: string[] = [
   'components/AuthImage.ets',
   'components/Toast.ets',
   'pages/Fallback.ets',
+  // 无人认领的两文件（2026-10-11 本轮收编：先修后纳）
+  'components/AskUserSheet.ets',
+  'components/SelfCheckSheet.ets',
 ];
 
 const root: string = findRoot();
@@ -86,7 +89,7 @@ for (const rel of MY_FILES) {
   const raw: string = stropRaw(p);
   const src: string = stripComments(raw);
   let n = 0;
-  const re = /Text\(([^()]*)\)/g;
+  const re = /Text\(((?:[^()]|\([^()]*\))*)\)/g;   // ⚠️ 允许**一层嵌套括号**（`Text(this.labelOf(opt))` 原先整节点漏扫 = 判据盲区）
   let m: RegExpExecArray | null = re.exec(src);
   while (m !== null) {
     n++;
@@ -97,7 +100,8 @@ for (const rel of MY_FILES) {
     const hasMaxLines: boolean = /\.maxLines\(/.test(after);
     const hasOverflow: boolean = /\.textOverflow\(/.test(after);
     const hasWordBreak: boolean = /\.wordBreak\(/.test(after);
-    const hasMaxW: boolean = /constraintSize\(\s*\{\s*maxWidth/.test(after) || /\.maxWidth\(/.test(after);
+    const hasMaxW: boolean = /constraintSize\(\s*\{\s*maxWidth/.test(after) || /\.maxWidth\(/.test(after)
+      || /\.width\('100%'\)/.test(after);   // e) 锁宽到父级（与 `MarkdownView` 的 `constraintSize({maxWidth:'100%'})` 同理）
     // d) 短字面量（≤8 字、无插值）
     const isShortLit: boolean = /^'[^'${}]{1,8}'$/.test(arg.trim()) || /^"[^"${}]{1,8}"$/.test(arg.trim());
     const covered: boolean = (hasMaxLines && hasOverflow) || hasWordBreak || hasMaxW || isShortLit;
@@ -112,7 +116,7 @@ console.log('▶ 溢出防线扫描（我域 5 文件）：');
 for (const d of dist) { console.log(`    · ${d}`); }
 ok('零扫描判红：扫到 Text 节点 > 0', total > 0);
 if (violations.length === 0) {
-  ok('每个 `Text(...)` 都有"不溢出"兜底（maxLines+textOverflow / wordBreak / maxWidth / 短字面量）', true);
+  ok('每个 `Text(...)` 都有"不溢出"兜底（maxLines+textOverflow / wordBreak / maxWidth / width(100%) / 短字面量）', true);
 } else {
   for (const v of violations) {
     ok(`无溢出兜底：${v} —— 补 \`wordBreak(BREAK_ALL)\`（保信息）或 \`constraintSize({maxWidth})\``, false);

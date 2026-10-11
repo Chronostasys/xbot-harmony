@@ -108,6 +108,8 @@ export struct AskUserSheet {
           .fontSize(fs('type.headline'))
           .fontWeight(fw('type.headline'))
           .lineHeight(lh('type.headline'))
+          // 溢出兜底（短标题、换行破版 ⇒ **锁宽**而非换行）
+          .constraintSize({ maxWidth: '100%' })
           .letterSpacing(tk('type.headline'))
           .fontColor(this.pal().warn)
           .layoutWeight(1)
@@ -134,6 +136,8 @@ export struct AskUserSheet {
           .fontSize(fs('type.callout'))
           .fontWeight(fw('type.callout'))
           .lineHeight(lh('type.callout'))
+          // 溢出兜底（说明性小字；换行不删信息）
+          .wordBreak(WordBreak.BREAK_ALL)
           .fontColor(this.pal().textMuted)
           .width('100%')
       } else {
@@ -147,6 +151,8 @@ export struct AskUserSheet {
                     .fontSize(fs('type.caption'))
                     .fontWeight(fw('type.caption'))
                     .lineHeight(lh('type.caption'))
+                    // 溢出兜底（服务端给的 header 可能是路径/命令等**不可断长串** ⇒ BREAK_ALL）
+                    .wordBreak(WordBreak.BREAK_ALL)
                     .letterSpacing(tk('type.caption'))
                     .fontColor(tc(this.pal(), 'type.caption'))
                     .width('100%')
@@ -156,6 +162,8 @@ export struct AskUserSheet {
                   .fontSize(fs('type.body'))
                   .fontWeight(fw('type.body'))
                   .lineHeight(lh('type.body'))
+                  // 溢出兜底（正文；按词换行即可，⛔ 不 maxLines ⇒ 不删信息）
+                  .wordBreak(WordBreak.BREAK_WORD)
                   .fontColor(tc(this.pal(), 'type.body'))
                   .width('100%')
 
@@ -178,6 +186,8 @@ export struct AskUserSheet {
                         .fontSize(fs('type.subhead'))
                         .fontWeight(fw('type.subhead'))
                         .lineHeight(lh('type.subhead'))
+                        // 溢出兜底（选项标签可能是命令/短 id ⇒ 不可断串也要能换行）
+                        .wordBreak(WordBreak.BREAK_ALL)
                         .fontColor(tc(this.pal(), 'type.subhead'))
                         .width('100%')
                       if (opt.description !== undefined && opt.description.length > 0) {
@@ -185,6 +195,8 @@ export struct AskUserSheet {
                           .fontSize(fs('type.callout'))
                           .fontWeight(fw('type.callout'))
                           .lineHeight(lh('type.callout'))
+                          // 溢出兜底（多行说明；按词换行，⛔ 不截断）
+                          .wordBreak(WordBreak.BREAK_WORD)
                           .fontColor(tc(this.pal(), 'type.callout'))
                           .width('100%')
                       }
