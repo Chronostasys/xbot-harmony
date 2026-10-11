@@ -4,6 +4,7 @@ declare const process: { exit: (c: number) => void };
 import {
   humanTokens, usageText, todoProgress, currentTodo, goalText, modelText,
 } from '../../entry/src/main/ets/core/statusfmt';
+import { todoState } from '../../entry/src/main/ets/core/todos';
 
 let pass = 0, fail = 0;
 function eq(name: string, got: unknown, want: unknown): void {
@@ -29,8 +30,14 @@ eq('空列表', todoProgress([]), '');
 eq('进度', todoProgress([{ status: 'completed' }, { status: 'in_progress' }, { status: 'pending' }]), '1/3');
 eq('全部完成', todoProgress([{ status: 'completed' }, { status: 'completed' }]), '2/2');
 
-eq('当前 todo', currentTodo([{ status: 'completed', text: 'A' }, { status: 'in_progress', text: 'B' }]), 'B');
-eq('无进行中', currentTodo([{ status: 'pending', text: 'C' }]), '');
+// ⛔ H9：currentTodo 与面板**同源**（web useTodos.ts:41 = 第一条非 done，含 pending）
+eq('当前 todo（第一条非 done）', currentTodo([{ status: 'completed', text: 'A' }, { status: 'in_progress', text: 'B' }]), 'B');
+{
+  const h9 = [{ status: 'pending', text: 'A' }, { status: 'doing', text: 'B' }];
+  eq('H9：pending 先于 doing ⇒ 取 A（含 pending）', currentTodo(h9), 'A');
+  eq('H9：currentTodo 与面板同源（恒相等）', currentTodo(h9), todoState(h9).currentText);
+}
+eq('全部完成 ⇒ 空', currentTodo([{ status: 'done', text: 'X' }]), '');
 
 eq('无 goal', goalText(undefined), '');
 eq('空文本 goal', goalText({ text: '' }), '');

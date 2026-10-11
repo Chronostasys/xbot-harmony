@@ -20,7 +20,7 @@
  *    （`objective` / `status`），由接线方从数据源直接取串。
  */
 import { GoalInfo, TodoItem, TokenUsage } from './types';
-import { todoStatusKind, TODO_DONE, TODO_DOING } from './todos';
+import { todoState, todoStatusKind, TODO_DONE } from './todos';
 
 /** 大数缩写：1234 → 1.2k；1234567 → 1.2M。 */
 export function humanTokens(n: number): string {
@@ -74,29 +74,19 @@ export function todoProgress(todos: TodoItem[] | undefined): string {
 }
 
 /**
- * 当前**正在做**的那条 todo（无则返回空串）。
+ * 当前任务的 todo 文本（无则返回空串）—— **与 Todo 面板同源**。
  *
- * ⛔ 语义**只认"进行中"**（`doing`）—— **不**取"第一条未完成"：待办（`pending`）尚未开始，
- *    不是"正在做"。这是原生既定语义，由既有测试 `tools/tests/statusfmt.test.ts:33`
- *    （`currentTodo([{status:'pending',text:'C'}]) === ''`，"无进行中"）钉死。
- *    ⚠️ 与 web `useTodos.ts:41` 的 `currentTask`（第一条非 done，**含 pending**）**不同** ——
- *    原生的 `currentTodo` 只服务状态栏「进行中：xxx」这一处文案，故不取 pending。
+ * ⛔ **单点判据**：直接复用 `core/todos.ets:todoState().currentText`（= 第一条**非 done**，
+ *    **含 pending**）—— 这是 web 权威口径（`useTodos.ts:41` `find(t => t.status !== 'done')`）。
+ *    ⚠️ 历史缺陷（H9）：旧版本函数**只认 `doing`**，而面板的 `todoState().currentText` 取
+ *    "第一条非 done" ⇒ **同一会话两处显示不同**（`[pending A, doing B]` ⇒ 状态栏 'B'、面板 'A'，
+ *    web 两处都是 'A'）。现统一到面板同源，两处恒等。
  *
  * 波7 修的是**词汇**：旧版判 `'in_progress'`（服务端从不发）⇒ **恒返回空串**；
- * 服务端权威词汇是 `'doing'`（`xbot/tools/todo.go:15`）⇒ 改判 `doing`（兼容 `in_progress`）。
+ * 服务端权威词汇是 `'doing'`（`xbot/tools/todo.go:15`）—— 归一交给 `todoStatusKind`（单一口径）。
  */
 export function currentTodo(todos: TodoItem[] | undefined): string {
-  if (todos === undefined) {
-    return '';
-  }
-  for (let i = 0; i < todos.length; i++) {
-    if (todoStatusKind(todos[i].status) === TODO_DOING) {
-      // 显式收窄：带变量下标的元素访问不做类型收窄（content?: string 的同类坑）
-      const t: string | undefined = todos[i].text;
-      return t !== undefined ? t : '';
-    }
-  }
-  return '';
+  return todoState(todos).currentText;
 }
 
 /** goal 一行（纯文字状态前缀，无 emoji —— 设计系统 §2.8；无 goal 返回空串）。 */
