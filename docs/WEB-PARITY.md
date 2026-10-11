@@ -888,3 +888,39 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 - ⚠️ **错误正文判"有意不同"、不改**：本仓走 **RPC 原文**（`readableRpcError`）+ 分区专属文案
   （如 Agent「设置读取失败，开关暂不可用。」），信息量 **大于** web 的固定 `'加载失败'`（`zh-CN.ts:592`）。
 - 守护：`tools/tests/settings_copy_parity.test.ts`（文案常量白名单 + 逐字断言 + 三点版反向断言）。
+
+### 2.13 设置对齐 web —— **现状报告**（2026-10-11 收口，每条附判据名）
+
+> 口径：本节是目标③的**结论汇总**。⛔ 每条尽量挂判据；`docs_claim_evidence` 会校验 `✅` 行声称的判据文件是否存在。
+
+#### A. 已对齐（有 web 权威 / 有判据）
+
+| 面 | 结论 | 判据 |
+|---|---|---|
+| **键名 / 命名空间** | 真共享 8 键双向映射逐字正确；原生独有 8 键落 `web:` 命名空间；web 独有 6 键**不收录且原样透传（零丢键）** | `settings.test.ts`（键表 parity 守卫）、`settings_keys_consumed.test.ts`（每键必须有消费点） |
+| **可选值集合** | accent 6 预设**逐值同序**；md-theme 23 套**逐 id 同序**（含首末锚点）；send-key 2 值 + **默认 `ctrl-enter`** + 历史 `mod-enter` 归一 | `settings_value_sets.test.ts` |
+| **生效路径** | 每个设置键的读取都在 **build/派生方法**里（⛔ 不在 `aboutToAppear`/`onPageShow` 等一次性钩子）⇒ 改了就生效 | `settings_apply_path.test.ts`（**A~E 五种读法全覆盖**） |
+| **错误态可重试** | 三个有 web 权威的分区（About / Agent / Plugins）已接线：`SettingsErrorBar` 加 `canRetry`/`onRetry`，页面注入真回调（含**假重试反面板**：Plugins 必须调 `loadPluginCatalog` 而非 `loadSettings`） | `settings_error_retry.test.ts` |
+| **文案** | `'重试'` ← web `zh-CN.ts:16` **逐字一致**；`'加载中…'` ← web `:232`（统一单省略号，⛔ 不用 `:14` 三点版） | `settings_copy_parity.test.ts` |
+| **主题/强调色/渐变端** | 强调色下沉到唯一取色入口 `paletteOf`（组件全生效）；渐变端护航白字 ≥4.5 | `accent.test.ts`、`theme_contrast.test.ts`、`theme_contrast_matrix.test.ts` |
+
+#### B. 有意不同（附理由 + 出处）
+
+| 项 | 本仓 | web | 理由 |
+|---|---|---|---|
+| `font-scale` / `app-theme` / `orb` / `reasoning-default` | 有（原生独有） | **无** | 平台能力（字号档 / 应用主题 5 套 / 思考光球 / 思考默认展开） |
+| `KEY_SURFACE`（原生 / 内嵌 ArkWeb） | 有 | **无** | 原生独有；⚠️ **首达一次生效**（`surfaceApplied` 闸门，防聊天中被强制换面） |
+| 错误正文 | **RPC 原文** + 分区专属文案 | 固定 `'加载失败'`(`zh-CN.ts:592`) | 本仓信息量更大（见 §2.12） |
+| `SettingsLlm`/`Storage`/`Channels`/`Tools`/`WebUsers` 无重试 | 无重试 | **web 亦无** | 超出 parity 的臆造禁止（见 §2.11） |
+| `notify` 分区 / 通知偏好 | 有（原生独有） | 无 | 系统通知权限是端能力 |
+
+#### C. 仍未对齐 / 未做（含卡点）
+
+| 项 | 状态 | 卡点 / 需谁 |
+|---|---|---|
+| **语言可写**（web 有 3 语言 select + 清除缓存） | ❌ 只读 | 需先建 **i18n 文案表**（本仓 UI 文案硬编码中文）⇒ 大重构，未排期 |
+| **UI 外壳模式**（web 三档 auto/desktop/mobile） | ❌ 键在、**零消费** | 原生单手机布局 ⇒ N/A；键**保留**（删了会让 web 侧设置丢） |
+| **布局 tab**（web VSCode 式面板） | ❌ 无 | 平台差异 N/A |
+| **`glassOpacity`/`wallpaperOpacity`/`glassBlur`（插件值）** | ⚠️ 原生**未消费** | 已裁决"原生应当消费"，落点 `effectsOf`（`core/theme.ets` = brand-impl）⇒ 排期（记录于 §2.9） |
+| **`KEY_UI_MODE` 之外的 web 独有键**（`leftSidebarWidth`/`layout:*`/`panel-layout*`/`recent-workdirs`） | ➖ 不映射 | 桌面布局概念，原生 N/A；`localKey` 原样透传 ⇒ 零丢键（§17.5-5） |
+| **notice 档分场景时长**（web 成功 5000 / 失败 4000 vs 原生单档 2560） | ⏸ **已换手** | 交 `chat-surface-ux`（本轮我连卡 3 轮；取证与补丁见交付记录，`web ToolRender.tsx:508/514`） |
