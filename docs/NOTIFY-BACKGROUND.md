@@ -88,6 +88,13 @@
 - **A 档在线**：`requestSuspendDelay(` 恰 1 处；`endTurnKeepAlive` 在 EntryAbility 有消费点。
 - **防门禁⑧假绿**：`reconcileDecision(`/`summarizeMissed(`/`turnKeyOf(` 在扩展里均有真实消费点。
 - **尊重 DND**：通知面全仓**不出现** `bypassDnd`。
+- **死消费 #1（前台记已见回合）**：`memo.ets` 里 `markSeen(memo,` **恰 1**；`markSeen` 全仓真消费点 **≥1**；
+  `store.ets` 调 `noteForegroundSeen(` **恰 1**；`noteForegroundSeen` 真调端口 `foregroundSeenSink(`；
+  `EntryAbility` 注册 `setForegroundSeenSink(` **恰 1** 且落在 `markForegroundSeen(`。
+- **死消费 #2（登出/清场取消对账）**：`cancelReconcileScheduled` 全仓真调用点 **恰 1**；
+  `EntryAbility` 调 `cancelReconcileScheduled();` **恰 1** + 注册 `setSessionClearedHook(` **恰 1**；
+  `clearAll` 函数体内调 `sessionClearedHook()` **恰 1**；`clearAll` 仍有真实调用方（`store.ets`）。
+- ⛔ 计数类断言一律走 **`readS()`（read + 剥注释）**：否则"把调用注释掉"仍会被算进去（**假绿**，本笔实测踩到并修正）。
 
 **mutation 自证（改坏必红；已实测）**
 
@@ -98,26 +105,67 @@
 | `schedule.ets` 把 `isPersisted: true` → `false` | 'isPersisted 恰 1 处' 红 | ✅ 红 |
 | `reconcile.ets` 改 `RECONCILE_ABILITY` 常量值 | '扩展名同源' 红 | ✅ 红 |
 | `reconcile.ets` 加 `import … from '@ohos.x'` | 'core 无 @ohos import' 红 | ✅ 红 |
-| 上述全部回退（不注入） | 全绿 | ✅ 绿 |
+| `store.ets` 注掉 `noteForegroundSeen(...)` | '前台侧恰 1 处' 红 | ✅ 红 |
+| `memo.ets` 注掉 `markSeen(memo, …)` | 'markSeen 恰 1 处真调用' 红 | ✅ 红 |
+| `notify.ets` 注掉 `clearAll` 里的 `sessionClearedHook()` | 'clearAll 真的调了端口' 红 | ✅ 红 |
+| `EntryAbility` 注掉 `cancelReconcileScheduled();` | '恰 1 调用点' 红 | ✅ 红 |
+| `EntryAbility` 注掉 `setForegroundSeenSink(` 注册 | '注册恰 1 处' 红 | ✅ 红 |
+| 上述全部回退（不注入） | 全绿（40 passed） | ✅ 绿 |
+
+> **判别力边界（诚实）**：本判据是**形态/接线**级。改*语义*（如把 `if (sessionClearedHook !== null)`
+  改成 `if (false)`）**测不出来** —— 调用文本仍在。这类必须靠**真机行为**验收（§6.4）。
 
 ## 6. 诚实台账
 
-### 6.1 已知缺口（本线**只上报，不改** —— 修复点不在本线域内）
+### 6.1 两条「死消费」缺口 —— **已修**（2026-10-11，`6d07587`）
 
-| 缺口 | 证据 | 影响 | 修复点（**越界**） |
-|---|---|---|---|
-| **`markSeen` 全仓 0 消费点** | `core/reconcile.ets:130` 定义；`grep -rn 'markSeen' entry/src` 仅命中定义本身 | ⛔ **前台从不记录"亲眼见过的回合"** ⇒ 备忘里的 `lastSeenTurnKey` 只由扩展自己维护 ⇒ 用户**前台读完再切后台**，首次对账会把**已看过**的回合**误报**成"新消息"（假阳性）。这正是本仓"死消费"血教训（钉"方法体存在"会假绿） | `core/reconcile.ets` / `workreconcile/**` / `pages/Index.ets`（**均不在本线域**）。⇒ 见 §7 越界声明 |
-| **`cancelReconcileScheduled` 全仓 0 调用点** | `workreconcile/schedule.ets:83` 定义；全仓仅定义处 | 登出后后台对账**未取消**（会继续按 15min 唤醒、拉一次 `history`，最坏是"已登出仍排任务"） | `pages/Index.ets`（登出路径）/ 或某 core 登出点 |
+| 缺口 | 后果 | 修法（端口式，`core/` 仍无 `@ohos.arkdata` 依赖） |
+|---|---|---|
+| **`core/reconcile.markSeen` 全仓 0 消费** | 前台从不记录"用户亲眼见过的回合" ⇒ 备忘 `lastSeenTurnKey` 只由扩展自维护 ⇒ 用户**前台读完再切后台**，首次对账把**已看过**的回合**误报**成"新消息"（假阳性） | `core/store.ets`（`applyHistoryMeta`，**唯一**同时握有 `chat_id`+`last_seq` 的既有事件）→ `core/notify.noteForegroundSeen(chatId, lastSeq)`（端口 + 前台闸）→ `EntryAbility` 注册的 sink → `workreconcile/memo.markForegroundSeen` → **`markSeen`** → 落盘 |
+| **`workreconcile/schedule.cancelReconcileScheduled` 全仓 0 调用** | 登出/换账号后后台对账仍带着旧会话空跑（读不到 cookie 只是静默跳过 —— 非设计意图） | `core/notify.clearAll`（本仓"整机清场"**唯一既有出口**；`store.ets` 在 401 时调它）→ 端口 `sessionClearedHook()` → `EntryAbility` 注册 → `cancelReconcileScheduled()` |
 
-> 测试里对这两项打 **`⚠ [known-gap]`** 日志（不判红——真树当前就是 0 消费；修好会自动翻绿），保证"缺口不会被静默"。
+**关键取证（turnKey 必须同源）**：`turnKey = turnKeyOf(chatId, lastSeq)`（`core/reconcile.ets:141`）。
+扩展 `fetchMark` 的取数 = `/api/history` 响应的 `data.chat_id` + `data.last_seq`
+（`workreconcile/NotifyReconcileAbility.ets`）⇒ **前台必须用同一对字段**才对得上；
+`store.applyHistoryMeta(data)` 恰好同时持有二者（`store.ets:705`）。
+⚠️ 备忘用 `last_seq` **不违反**既有的 "绝不写进 `ChatState.lastSeq`"（那是 **per-Run 事件水位**，
+旧 P0 根因）—— 两者是**不同用途**，本笔只喂**对账备忘**。
 
-### 6.2 待设备验证（**未验**，只读核实过）
+### 6.2 仍存缺口：**显式登出未接线**（`pages/Index.ets` 独占 ⇒ 见 §6.3 patch）
+
+`clearAll` 覆盖的是 **401 / 换账号**（`store.ets:322`）；**用户主动点"登出"**（`Index.ets: doLogout`）
+**不经过** `clearAll` ⇒ 那条路径下后台对账不会被取消。最小 patch 见 §6.3。
+
+### 6.3 给持 `pages/Index.ets` 者（`light-fix3`）的最小 patch
+
+> 上下文：`Index.ets:1929 doLogout()`，`await this.config.clearSession();`（`:1939`）之后插 1 行。
+
+```diff
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ 文件头 import 区（现有 `import { … } from '../core/notify';` 之后）
+ import { beginTurnKeepAlive, endTurnKeepAlive, ensureEnabled, notificationsEnabled, PENDING_CHAT_KEY, PENDING_CHAT_SEQ_KEY, PENDING_ACTION_KEY, isKnownNotifyAction, NOTIFY_ACTION_STOP, NOTIFY_ACTION_CONTINUE } from '../core/notify';
++import { cancelReconcileScheduled } from '../workreconcile/schedule';
+@@ private async doLogout()
+     await this.config.clearSession();
++    // 目标①(a)：显式登出**也要**取消后台对账延迟任务（否则它带着旧会话继续空跑；幂等+失败静默）。
++    cancelReconcileScheduled();
+     // 清空多会话池（每个 store 都要关 SSE，否则会留下后台连接）
+     const poolKeys: string[] = Array.from(this.pools.keys());
+```
+
+**为什么不在 `clearAll` 里顺手补**：`clearAll` 只清**通知**，登出**未必**调它（现行为不调）
+⇒ 不能假设"登出 = clearAll"。本 patch 直接调 `cancelReconcileScheduled()`（幂等、内部 try/catch，
+登出页/登录页跳转时执行一次即可）。
+
+### 6.4 待设备验证（**未验**，只读核实过）
 
 | 项 | 为什么只能真机 |
 |---|---|
 | 系统**实际唤醒间隔**是否接近 15min | 受 Doze/省电/内存策略影响，SDK **未承诺**周期 |
 | 扩展进程能否读到前台写入的 `xbot_settings` 仓里的 cookie | 跨进程 `preferences` 可读性未验 |
-| `askId` 后台能否判定 | 本期恒传空串（前台 `askUser` 来自 SSE 事件，后台无该事件；从 `/api/history` 单独推待答**未验证**） |
+| **前台与扩展的 turnKey 真能对上**（`/api/history` 两处 `chat_id`/`last_seq` 同源） | 端点行为，只能真机/联调观察 |
+| `askId` 后台能否判定 | 本期恒传空串（前台 `askUser` 来自 SSE 事件，后台无该事件） |
 | 短时任务**当日配额**（`remainingQuota`）实际值与"每次切后台开窗"的可行性 | 需设备读数（不碰设备，本轮未做） |
 | `onWorkStop` 超时 2 分钟语义 | `@ohos.WorkSchedulerExtensionAbility.d.ts:71` 注释原文，未实机观察 |
 
@@ -125,7 +173,8 @@
 
 | 项 | 说明 |
 |---|---|
-| **改动文件** | 仅 `tools/tests/notify_background.test.ts`（新建）+ `docs/NOTIFY-BACKGROUND.md`（新建）。**未改**任何 `core/*`、`entryability/*`、`module.json5`、`workreconcile/*` |
-| **发现但未修（越界）** | ① `markSeen` 0 消费点（修复点 = `core/reconcile.ets`/`workreconcile`/`pages/Index.ets`，**非本线域**）；② `cancelReconcileScheduled` 0 调用点（同上）。二者**均需另行派单** |
-| **不动设备** | 全程无 `hdc`/`uitest`/`deploy.sh`/装机/`aa start`；需设备项一律记入 §6.2 |
+| **改动文件（本续做笔 `6d07587`）** | `core/notify.ets`、`core/store.ets`、`entryability/EntryAbility.ets`、`workreconcile/NotifyReconcileAbility.ets`、**新增** `workreconcile/memo.ets`、`tools/tests/notify_background.test.ts`。⛔ **未改** `pages/Index.ets`（light-fix3 独占）、`module.json5` |
+| **`core/store.ets` 越域说明** | 前台唯一同源取数点在 `applyHistoryMeta` ⇒ 只加 1 行调用（+1 import）。改动最小、可单独 revert |
+| **交给 `light-fix3` 的 patch** | §6.3（显式登出取消对账），**我未落** |
+| **不动设备** | 全程无 `hdc`/`uitest`/`deploy.sh`/装机/`aa start`；需设备项一律记入 §6.4 |
 | **未 push** | 仅本地 `commit`（严格 pathspec） |
