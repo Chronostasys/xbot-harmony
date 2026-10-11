@@ -325,7 +325,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | **选区工具条**（tiptap 富文本 B/I/链接） | `SelectionToolbar.tsx:48`（`MessageInput.tsx:845`） | ❌ | 见 11.5 证据 ③ |
 | **Synthetic/Interrupt 卡** | `SyntheticToolCard.tsx:393,568` | ❌ | 见 11.5 证据 ④ |
 | **ShellPromoteBar** | `ToolRender.tsx:483` | ❌ | 见 11.5 证据 ⑤ |
-| **AnsiText**（ANSI SGR 终端着色） | `AnsiText.tsx:205`（3 消费点） | ❌ | 见 11.5 证据 ⑥ |
+| **AnsiText**（ANSI SGR 终端着色） | `AnsiText.tsx:205`（3 消费点） | 🟡 | **解析层 + 本仓色板映射已就绪（`core/ansi.ets`），消费点未接线** ⇒ 见 §11.10；11.5 证据 ⑥ **已过期** |
 | 图片灯箱 | `Lightbox.tsx:21,31` | ✅ | `Index.ets:5979` ImageViewer + `core/imgops.ets` |
 | Markdown 渲染 | `MarkdownRenderer.tsx:530` | ✅ | `components/MarkdownView.ets:101` + `core/markdown.ets` |
 | 代码高亮 / CodeView | `CodeView.tsx:30`、`highlight.ts:22` | ✅ | `core/highlight.ets:136`（prism4j） |
@@ -428,7 +428,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 - ③ **选区工具条**：`grep -rniE "bubblemenu|tiptap" .` → **0 命中**。（`MarkdownView.ets` 的 "Selection" 实为 AskUser 选择项，`Index.ets:107 AskSelection`。）
 - ④ **Synthetic/Interrupt 卡**：`grep -rni "synthetic" .` → 仅 `core/agent_normalize.ts:166` 注释；`grep -rniE "interruptcard|打断卡" .` → **0**。
 - ⑤ **ShellPromoteBar**：`grep -rni "promote" .` → **0 命中**。
-- ⑥ **AnsiText**：`grep -rniE "ansi|sgr|\\\\u001b|\\\\x1b" .` → **0**（早前误报的匹配是 `transient`/`humanSize`/`statusGroupKey` 等词）。`ToolPopover.ets:96 classifyLine` 只做行级分类，**不解析 ANSI SGR**。
+- ⑥ **AnsiText**：`grep -rniE "ansi|sgr|\\\\u001b|\\\\x1b" .` → **0**（早前误报的匹配是 `transient`/`humanSize`/`statusGroupKey` 等词）。`ToolPopover.ets:96 classifyLine` 只做行级分类，**不解析 ANSI SGR**。⚠️ **2026-10-11 订正：本结论已过期** —— 并行线在**当日 09:43**（`9ad6c30`）已落地 `core/ansi.ets` 的**解析层**，本波（`10aae43`）又补齐**到本仓色板的映射**（`ANSI_COLOR_ROLES`/`ansiPaletteOf`）；**消费点仍未接线**（见 §11.10）。⚠️ 教训：`grep → 0` 类判据**必须写明取证时刻**，否则会被后续协作立刻推翻。
 - ⑦ **渠道过滤 / 路径选择 / 最近工作目录**：`grep -rniE "channelpicker|availableChannels|渠道选择" .` → 0；`grep -rniE "PathPicker|pickDir|chooseDir" .` → 0；`grep -rniE "recent" .` → 8 命中**全是** `core/config.ets:117 recentServers`（服务器 URL 历史）。
 - ⑧ **分享页 / 会话导出**：`grep -rniE "SharePage|分享页|shareToken|share_link" .` → 0；`grep -rniE "导出|exportSession|systemShare|shareKit" .` → 仅 `core/http.ets:150 exportSessionCookie`（cookie，**非**会话导出）。
 - ⑨ **Channels 设置分区**：`grep -rn "get_channel_config\|set_channel_config\|feishu_bind" core components` → **0 命中**（`core/settings.ets:286 CONFIG_SURFACE_METHODS` 亦未含）。契约见 §9.2.1。
@@ -453,7 +453,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 
 | # | 功能 | 为何先做（一句） | 预估改动面（文件） |
 |---|---|---|---|
-| 1 | **AnsiText**（ANSI 着色） | 工具/终端输出是最高频呈现面，原生现把 shell 输出当纯文本 ⇒ 颜色语义全丢；纯函数、可脱机单测 | 新增 `core/ansi.ets`（纯逻辑）+ `MessageRow.ets`/`ToolPopover.ets` 接色 |
+| 1 | **AnsiText**（ANSI 着色） | 工具/终端输出是最高频呈现面，原生现把 shell 输出当纯文本 ⇒ 颜色语义全丢；纯函数、可脱机单测 | 新增 `core/ansi.ets`（纯逻辑）+ `MessageRow.ets`/`ToolPopover.ets` 接色 |（⚠️ 纯逻辑部分**已由 `10aae43` 交付**；**接色仍未做** ⇒ 见 §11.10）
 | 2 | **消息编辑并重发/回退（rewind）** | 唯一能改写历史错字的操作；原生状态机已具备 rewind 语义，属**接线级**投入 | `core/store.ets`（rewind REST）+ `Index.ets` 长按菜单 + `UserBubble.ets` |
 | 3 | **web_widgets/plugin_widgets 不静默丢** | 已连接的协议数据被**无声丢弃**（用户可见内容到达客户端却消失）⇒ 正确性缺口，S 级 | `core/store.ets onSse` + 一个只读渲染面（`PluginHost.ets` 或状态条） |
 | 4 | **StagingTray interject/clear** | 排队消息高频交互；`interject`（插队）所需 WS interrupt **已存在** | `Index.ets:5795 QueueSheet` + `core/store.ets`（队列操作） |
@@ -493,7 +493,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
   则第二条 **消息编辑/重发/回退（rewind）** 价值更高但须动 `Index.ets`。
 - **必须动 `pages/Index.ets` 才能落地**的：消息编辑/回退、StagingTray 补齐、渠道过滤、
   全部折叠/展开、会话导出入口、Changelog/设置 tab 注入 —— **全部排在 `Index.ets` 释放之后**。
-- **纯逻辑可先行的候补**（不碰 `pages/`）：AnsiText、最近工作目录、命令路由、消息注释。
+- **纯逻辑可先行的候补**（不碰 `pages/`）：AnsiText、最近工作目录、命令路由、消息注释。✅ **2026-10-11：四项均已交付纯逻辑层**（提交 `10aae43` + 前置 `9ad6c30`）—— 但**都还没接进 UI**，见 §11.10。
 - **§10 的两处状态已过时**（本轮复核更正）：`§10` 表把「任务面板」记为未迁，实际已由
   `Index.ets:4716 PanelsSheet` 覆盖；把「会话视图条」记为未迁，实际分类切换已迁（`Index.ets:5196`）。
   另 `§8.3 波1b②` 的「修 `PluginPanelInfo.url` 裸 `.js` 语义」**已完成**（`core/pluginhost.ets:573`）。
@@ -534,3 +534,25 @@ pill 上限 8/前 7+`+N`；`mergeToolRuns` 合并规则（head 可带文本/成�
 导航项数=用户行数；`nearestSeq` 顺序累加口径；usage 陈旧清理（`available=false` 不挂载环）；
 todo 词汇全仓单一口径（`pending|doing|done`）；todo 完成度/百分比；goal 横幅可见性/编辑提交守卫；
 SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清空。
+
+---
+
+### 11.10 波3 交付与销账（2026-10-11）—— **如实区分「已接线 / 逻辑就绪待接线」**
+
+> ⛔ **纪律**：本表**不把"纯逻辑已就绪"记成"已有"**。判据是**用户能否在界面上真的用到**（本仓已有"纯逻辑先行、UI 待接线"的波次习惯，这正是最容易产生假进度的地方）。
+
+| 项 | 原判 | 现判 | 证据 / 余量 |
+|---|---|---|---|
+| AnsiText（ANSI SGR 着色） | ❌ | 🟡 **解析层 + 色板映射就绪；消费点未接线** | `core/ansi.ets`：解析 `9ad6c30`、本仓色板映射 `10aae43`；`ansi.test.ts` 钉 web 字节对齐 |
+| 最近工作目录 | ❌ | 🟡 **纯逻辑就绪；UI 未接线** | `core/recentdirs.ets`（`10aae43`，键/版本/上限 5 逐字对齐 web） |
+| 命令路由 / 深链 | ❌ | 🟡 **仅解析与校验就绪；派发未接线** | `core/command.ets`（`10aae43`）—— 设计上**只解析**，副作用留给页面 |
+| 消息注释 / 高亮 | ❌ | 🟡 **数据面就绪；UI 未接线** | `core/annotations.ets`（`10aae43`），含**两种序列化**（草稿存储 / 出站信封） |
+| 插件面（目录 / widget / 桥 / WebSurface） | 🟡❌ | ✅ **三面进设计系统 + widget 数据面 + 桥 page→native** | `f5e7163` `9bda52d` `910b420` `30069bb` `8b036aa` `5f04360`；另**消掉 `PluginWidgets` 孤儿**（恢复编译期检查，原为假绿） |
+| 逐模型配置 `update_per_model_config` | ❌ | 🟡 **纯逻辑就绪；编辑器接线中** | `7d418a9`；入口唯一性需守（`REDESIGN §5`） |
+| 通知：长文本形态 | ➖ 原生加值 | ✅ `notify.ets` 新增 `long_text`（≤3072B，单段长回复不再被 1024B 硬截断） | 另新建 `docs/NOTIFY.md`；**后台常驻接收平台不给三方**（明账见该文档） |
+| 白主题（porcelain）/ 开屏 | ❌ | 🟡 **样张 + 规格已入档；代码落码中** | `26cd7f7` `0508d2f`；`docs/mockups/{porcelain,splash}.html`、`docs/SPLASH-SPEC.md` |
+
+**本波暴露的两处"过期台账"（已就地订正，见上）**
+1. `§11.5 证据 ⑥`「`grep ansi → 0`」→ **过期**：`core/ansi.ets` 于 **当日 09:43** 被并行线落地，**晚于**本审计（09:35）。
+   ⇒ 审计没错，是**被审计对象在审计后 8 分钟就变了**。**教训：判据必须带取证时刻。**
+2. `§11.9` 的"纯逻辑可先行候补四项"→ **已全部交付**（纯逻辑层）。
