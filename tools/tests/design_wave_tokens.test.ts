@@ -176,8 +176,16 @@ const pathMod = require('path');
 const repoRoot = pathMod.join(__dirname, '..', '..', '..', '..');
 const designSrc: string = fsMod.readFileSync(
   pathMod.join(repoRoot, 'entry', 'src', 'main', 'ets', 'core', 'design.ets'), 'utf-8');
-ok('design.ets 无 #RRGGBB 字面量（新增派生色全经 withAlpha）',
-  !/#[0-9a-fA-F]{6}\b/.test(designSrc));
+// ⚠️ 2026-10-11 修：本扫描此前**不剥注释** ⇒ **连红两次**（作者在注释里记色值 —— 那是本仓
+//    **允许且鼓励**的约定：注释提及 ≠ 代码存在）。剥注释后再判 ⇒ 只抓**真正的代码字面量**。
+const designCode: string = designSrc
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+ok('design.ets（**剥注释后**）无 #RRGGBB 字面量（新增派生色全经 withAlpha）',
+  !/#[0-9a-fA-F]{6}\b/.test(designCode));
+// 判别力自证（防"剥注释把扫描也剥没了"）：注入一行**代码**字面量 ⇒ 必须命中
+ok('  · 判别力：代码里的 #RRGGBB 仍必须被抓到（注入样本 ⇒ 命中）',
+  /#[0-9a-fA-F]{6}\b/.test('const probe: string = "#A2A2A7";'));
 ok('design.ets 不 import @ohos.*（core 纯 TS 铁律）', designSrc.indexOf("from '@ohos") < 0);
 
 if (fail > 0) { console.log(`  design_wave_tokens: ${pass} passed, ${fail} failed`); process.exit(1); }
