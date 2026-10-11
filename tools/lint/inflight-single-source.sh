@@ -106,19 +106,23 @@ is_exempt() { # $1=rel $2=label
 scan() { # $1=标签 $2=ERE $3=级别 $4=建议
   local label="$1" pat="$2" tier="$3" hint="$4"
   local hits
-  hits="$(grep -rnE "$pat" "$SRC" 2>/dev/null || true)"
+  hits="$(grep -rnboE "$pat" "$SRC" 2>/dev/null || true)"   # -b -o ⇒ 拿到**匹配点字节偏移**（给注释判定用）
   [ -z "$hits" ] && return 0
   while IFS= read -r ln || [ -n "$ln" ]; do
     [ -z "$ln" ] && continue
     local f="${ln%%:*}"
     local rest="${ln#*:}"
     local num="${rest%%:*}"
-    local code="${rest#*:}"
-    # 跳过**注释行**（`*`/`//`/`/*` 开头）——注释里的 API 名不是用法
-    local trimmed="${code#"${code%%[![:space:]]*}"}"
-    case "$trimmed" in
-      '*'*|'//'*|'/*'*) continue ;;
-    esac
+    local rest2="${rest#*:}"
+    local off="${rest2%%:*}"     # 匹配点在该文件内的**字节偏移**（由 grep -b -o 给出）
+    local code="${rest2#*:}"     # 匹配片段（-o）
+    # 跳过注释里的命中（本仓明文：注释里记录 API 名是**允许且鼓励**的）。
+    # ⛔ 旧版只跳"行首注释"（`*`/`//`/`/*` 开头）⇒ **行尾注释**与**块注释中间行**里的 API 名
+    #    仍被当用法判红（同类缺陷已在 color-roles.sh / render-path.sh 修过）。
+    # 正解：问"**匹配点本身是否落在注释内**"（状态机，字符串里的 `//` 不剥）。
+    if python3 "$HERE/_match_in_comment.py" "$f" "$off" >/dev/null 2>&1; then
+      continue
+    fi
     local rel="${f#"$SRC"/}"
     if printf '%s' "$rel" | grep -qE "$WL_RE"; then
       continue
@@ -129,7 +133,7 @@ scan() { # $1=标签 $2=ERE $3=级别 $4=建议
       continue
     fi
     if [ "$tier" = "A" ]; then nA=$((nA + 1)); else nB=$((nB + 1)); fi
-    report="${report}  ✗ [${tier}] ${rel}:${num}  ${label}"$'\n'"      ${trimmed}"$'\n'"      建议：${hint}"$'\n'
+    report="${report}  ✗ [${tier}] ${rel}:${num}  ${label}"$'\n'"      ${code}"$'\n'"      建议：${hint}"$'\n'
   done <<< "$hits"
   return 0
 }
