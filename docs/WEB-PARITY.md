@@ -234,6 +234,79 @@ GenUI（LLM 生成 TSX 需 `sucrase` + `new Function` ⇒ ArkTS 禁动态求值�
    ② 本仓按该契约在 `WebSurface.ets` 接线 `onBridgeMessage` + 补 `applyHostAction` 的业务分支。
    ⛔ 在 ① 未定前，原生侧**不应**先造方法。
 
+### 8.7 ArkWeb 早期注入能力：**已真机证实**（2026-10-11）
+
+> 承 §8.6 末尾的悬念：「若原生能在**页面脚本之前**注入 JS，能不能绕过 web 侧的桥客户端契约？」
+> 本波先用**只观测、不实现业务**的探针把"能力"这件事钉死（实现体 = `components/WebSurface.ets:26-35`
+> 的 `PROBE_JS`，注入点 `:409`，观测链路 `:412-421` + `:436-442`）。
+
+**结论（一句话）**：`runJavaScriptOnDocumentStart`（`@since 15`）在本机 **SDK 21 真生效**，
+且注入时刻**早于 `<head>` 存在**；属性式 `javaScriptProxy` 的原生对象在**同一刻**就已就绪。
+⇒ **"原生能在页面第一批脚本之前往页面注入自己的 JS"＝事实**（不是文档推断）。
+
+**A. 真机原文**（`hdc` 取回，tag `XBOTPROBE`，2026-10-11 14:24:45–46）
+
+```
+XBOTPROBE: [XBOT-PROBE] xbotKeys=["xbotNative"]
+ARKWEB-CONSOLE: [CONSOLE:1] "[XBOT-PROBE] xbotKeys=["xbotNative"]", source:  (1)
+XBOTPROBE: probe "{\"t\":1791699885840,\"readyState\":\"loading\",\"hasHead\":false,\"hasBody\":false,\"nativeType\":\"object\",\"xbotKeys\":[\"xbotNative\"]}"
+```
+（第 1 行 = 注入脚本自己的 `console.log`，经 `onConsole` 转发；第 2 行 = 同一句在 ArkWeb 内核
+自身的 console tag 下；第 3 行 = `onPageEnd` 回读 `window.__xbotProbe` 的完整对象。）
+
+**B. 逐条判读**
+
+| 观测 | 判读 | 性质 |
+|---|---|---|
+| `readyState:"loading"` **且** `hasHead:false` **且** `hasBody:false` | 注入发生在 **`<head>` 尚未解析**之时 ⇒ **严格早于页面任何脚本**（含 `<head>` 内联 `<script>`） | ✅ 已证实 |
+| `nativeType:"object"` | 属性式 `javaScriptProxy` 的 `window.xbotNative` 在**文档最早期就已存在** ⇒ `WebSurface.ets:392-396` 那条"先于页面导航"的**此前未验注释成立**，页面脚本无需等 `onPageBegin` | ✅ 已证实 |
+| 同一句同时出现在 `XBOTPROBE` 与 `ARKWEB-CONSOLE` | `.onConsole(...)` 转发链路通（`WebSurface.ets:412-421`） | ✅ 已证实 |
+| `xbotKeys` 里**没有** `__xbotProbe` | ⚠️ **探针自身的伪影，不是注入失败**：`xbotKeys` 与 `window.__xbotProbe=` 写在**同一个对象字面量**里，`keys` 在赋值**之前**求值（`PROBE_JS` 前 4 行）⇒ 它必然只反映"注入前"的全局名。**反证**：`onPageEnd` 回读拿到了完整 `__xbotProbe`（第 3 行）⇒ 注入确实成功 | ✅ 已澄清（避免误判） |
+
+**C. 复现命令（含一条**防假阴性**铁律）**
+
+```bash
+source ~/ohos-cli/env.sh
+T=127.0.0.1:5555
+# ① 装机（本波探针版）
+~/ohos-cli/deploy.sh
+hdc -t $T shell "hilog -r"                       # ② 先清缓冲（否则旧日志混杂）
+# ③ ⛔ 铁律：清完缓冲**必须触发一次真正的导航**（冷启 App，或面板里 ⟳ 刷新/进插件面板）
+#    —— 只清日志不重新导航 ⇒ 0 命中是**假阴性**（本波踩过：同一会话里导航已发生过，不再打印）
+# ④ 抓取：⛔ 不要 `hdc shell hilog` 直接流（**永不返回**，会挂死脚本）
+hdc -t $T shell "hilog -x > /data/local/tmp/h.txt"
+hdc -t $T file recv /data/local/tmp/h.txt /tmp/h.txt
+grep -E "XBOTPROBE|XBOT-PROBE|ARKWEB-CONSOLE" /tmp/h.txt
+```
+**期望输出**：上面 §A 的 3 行（关键字段 `readyState:"loading"` + `hasHead:false` + `nativeType:"object"`）。
+**失败长相**：① 完全无 `XBOTPROBE` ⇒ 没发生导航（先做 ③）或装的是旧 hap；
+② `probe null` ⇒ 注入脚本没跑（`scriptRules` 不匹配 / 该 API 未生效）；③ `probe-read fail` ⇒ controller 未绑定。
+
+**D. 边界与纪律（改这条链路前必读）**
+
+1. ⛔ **`scriptRules: ['*']` = 注入所有 frame / 所有来源**（`WebSurface.ets:409`）。本波只挂一个只读探针，
+   无害；**但若将来注入"真桥"，必须把 `scriptRules` 收窄到可信宿主 origin**
+   —— 本仓已有同一警句：`core/pluginhost.ets:105-111`（跨源 `serverUrl` 回落宿主页，理由正是
+   "`window.xbotNative` 会被注入**所有 frame**，不该注给第三方页面"）。**探针不得被当成先例直接放大成桥。**
+2. ⛔ **`ScriptItem.script` 是静态字符串**（`component/web.d.ts:3558`）⇒ 只能注入**常量脚本**；
+   需要随运行时变化的注入内容 ⇒ 静态脚本里只放"取值函数"，动态值仍走原生桥。
+   （`ScriptItem.urlRegexRules` 是 **API 23**，本工程 21 用不了，只能靠 `scriptRules` 字符串规则。）
+3. ⚠️ `javaScriptOnDocumentStart`（API 11）与本 API 会**互相干扰**（SDK 原文：不建议同用，
+   `component/web.d.ts:7296-7299`）⇒ 本仓**只用** `runJavaScriptOnDocumentStart` 一处，不得再加另一种。
+
+**E. 对目标②（插件全支持）的判断 —— **能力可行 ≠ 该做桥**（详见 §8.6）**
+
+- 本小节**只证"注入可行"**，**不改 §8.6 的结论**：`web/src` 对 `xbotNative` 的期望方法数
+  = **0**（穷举 `grep -rlI "xbotNative" web` ⇒ 0 命中），插件真正依赖的宿主面
+  （`React`/`__xbot_*`/`ctx.*`/RPC/ESM 加载）**全由 web 自身 + 服务端提供**（§8.6-B 表）。
+- ⇒ **"能不能注入"曾被认为是目标②的闸门；现在闸门证伪**：剩下的瓶颈是**web 侧的桥客户端契约**
+  与**插件 URL 深链**（§8.6-D.3），**两者都是 web 仓的活**。原生单方面注入一个"真桥"
+  只会造出**没有消费方**的死代码（不可证伪、必然漂移）。
+- ⇒ **最小实验（若仍要推进）**：不动 `WebSurface` 的业务路径，只在 web 仓加**一行**读探针
+  （`console.log(Object.keys(window).filter(k => /xbot/i.test(k)))`）⇒ 验证"web 能看见原生注入物"；
+  通过后由 web 先定 **`window 'xbot:bridge'` 事件 + `xbotNative.postMessage`** 契约，
+  原生再按契约接线。**顺序反了就是造契约。**
+
 ## 9. 设置「服务端配置面」parity（2026-10-11 调研，任务3 波2）
 
 web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language）已对齐（§1、任务3 波1）；
