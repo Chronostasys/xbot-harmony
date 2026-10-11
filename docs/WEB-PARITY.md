@@ -238,7 +238,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | web 功能 | 入口 file:line | 现状 | 依赖 | 需动哪个文件 |
 |---|---|---|---|---|
 | **SubAgent 进度树** | `components/agent/SubAgentProgressTree.tsx:27` | **未迁（数据已全、零渲染）** ⚠️ | 无 | ✅ 已交付 `core/subagent.ets` + `components/SubAgentTree.ets`；接线 `components/MessageRow.ets` |
-| Todo 拉出面板 | `components/agent/TodoPullOut.tsx:28` | **已交付纯逻辑+组件（待接线）** —— `core/todos.ets` + `components/TodoPanel.ets`（`dae96fe` 之后的波6）；原状态：只有状态**文本** `core/statusfmt.ets:43,57` | 无 | 接线 `pages/Index.ets`（`@Prop` 契约见 `core/todos.ets` 头注释） |
+| Todo 拉出面板 | `components/agent/TodoPullOut.tsx:28` | **已交付并已接线** —— `core/todos.ets` + `components/TodoPanel.ets`（`dae96fe` 之后的波6；由 `pages/Index.ets` 消费）；原状态：只有状态**文本** `core/statusfmt.ets:43,57` | 无 | 接线 `pages/Index.ets`（`@Prop` 契约见 `core/todos.ets` 头注释） |
 | Goal 横幅 | `components/agent/GoalBanner.tsx:30` | 部分（`core/statusfmt.ets:72` 的状态行） | 无 | 新增 `components/GoalBanner.ets` + `Index.ets` |
 | 消息操作菜单（复制变体/编辑/回退） | `components/agent/MessageActions.tsx:31` | 部分（只有长按整条复制 `core/msgops.ets:11`） | 无 | 扩 `core/msgops.ets` + `Index.ets` 长按菜单 |
 | 消息注释/高亮 | `components/agent/MessageAnnotations.tsx:47`、`lib/messageAnnotations.ts:32` | 未迁 | 本地存储 | 新增 `core/msgannot.ets` + 组件 |
