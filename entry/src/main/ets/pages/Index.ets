@@ -6327,6 +6327,11 @@ struct Index {
         onCopy: (text: string, what: string) => {
           this.copyText(text, what);
         },
+        // B6：代码块「复制」反馈落点 = **品牌 toast**（`TOAST_KIND_COPY` ⇒ 文案「已复制」、时长 1200ms，
+        // 与消息级复制**同一落点**/同一句）。⛔ 组件内不再用系统 `promptAction.showToast`。
+        onToast: (msg: string) => {
+          this.toast(msg, TOAST_KIND_COPY);
+        },
         subAgentOpenable: true,
         onOpenSubAgent: (sessionKey: string) => {
           this.openSubAgentSession(sessionKey);
@@ -6388,6 +6393,10 @@ struct Index {
         },
         onCopy: (text: string, what: string) => {
           this.copyText(text, what);
+        },
+        // B6：live 在飞正文里的代码块「复制」—— 落点 = 品牌 toast（同 committed 侧）。
+        onToast: (msg: string) => {
+          this.toast(msg, TOAST_KIND_COPY);
         },
       })
     }

@@ -184,6 +184,9 @@ export struct MessageRowView {
   /** 复制文本（页面对接系统剪贴板；组件不做 IO/系统调用） */
   onCopy: (text: string, what: string) => void = (text: string, what: string) => {
   };
+  /** 复制反馈落地（页面品牌 toast；**透传**给两处 `MarkdownView` 与本组件的 `LiveTailView`）。 */
+  onToast: (msg: string) => void = () => {
+  };
 
   /** 「更早区域」自动加载的三态（对齐 web `RegionsDivider` 的 idle/loading/error）。
    *  ⛔ 触发源是**可见性**（`onVisibleAreaChange` 哨兵语义），**不是点击** ——
@@ -606,6 +609,8 @@ export struct MessageRowView {
             loadImage: (src: string) => {
               return this.loadImage(src);
             },
+            // B6：复制反馈落点**透传**页面品牌 toast（与 live 侧、LiveTailView 同一落点）。
+            onToast: this.onToast,
             fontScale: this.fontScaleV,
             wrapCode: this.wrapCodeV,
             theme: this.themeId(),
@@ -736,6 +741,8 @@ export struct MessageRowView {
         onToolLongPress: (name: string) => {
           this.onOpenCtx(this.row.turnID, name);
         },
+        // B6：live 在飞正文里的代码块复制 —— 落点**透传**页面品牌 toast。
+        onToast: this.onToast,
       })
       // ── live 快照的 SubAgent 进度树（web `LiveIteration.tsx:282`：
       //    `{hasSubAgents && <SubAgentProgressTree nodes={liveSubAgents} />}` ——
@@ -785,6 +792,8 @@ export struct MessageRowView {
             loadImage: (src: string) => {
               return this.loadImage(src);
             },
+            // B6：复制反馈落点**透传**页面品牌 toast（与 row 级、LiveTailView 同一落点）。
+            onToast: this.onToast,
             fontScale: this.fontScaleV,
             wrapCode: this.wrapCodeV,
             theme: this.themeId(),

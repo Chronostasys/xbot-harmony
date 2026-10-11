@@ -1,7 +1,6 @@
 import { AuthImage } from './AuthImage';
 import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
-import { promptAction } from '@kit.ArkUI';
 import { Palette, paletteOf, surfacesOf, Effects, effectsOf, contrastRatio, isLightPalette } from '../core/theme';
 import { codeBgOf, codeFgOf, codeTone, CodeTone, isLightMdTheme, normalizeMdTheme } from '../core/mdtheme';
 import { R_SM, R_MD, R_LG, SP_1, SP_2, SP_3 } from '../core/tokens';
@@ -14,7 +13,7 @@ import {
   // `#13` 视觉裁决（`docs/WEB-ALIGNMENT.md §16.2 #13`）：代码块底 = `surface.well`(sunken)、
   // 圆角 = `RADIUS_CARD`、边 = 结构性发丝 `hairlineOf`。
   PRESS_OPACITY, RADIUS_CARD, colorOf, hairlineOf, wellOf, ICON_SM } from '../core/design';
-import { COPY_FEEDBACK_MS, copyLabel } from '../core/feedback';
+import { copyLabel } from '../core/feedback';
 import {
   MdBlock, MdBlockKind, MdSpan, alignOf, parseInlineCached, parseMarkdownCached,
   TableField, tableRowFields, useTableGrid,
@@ -198,6 +197,18 @@ export struct MarkdownView {
   /** 取图片字节（带鉴权；页面持有 HTTP 客户端） */
   loadImage: (src: string) => Promise<ArrayBuffer> = async (s: string) => {
     return new ArrayBuffer(0);
+  };
+  /**
+   * 复制反馈的**落地回调**（参数 = 已算好的展示文案）—— 由页面注入**品牌 toast**
+   * （`components/Toast.ets`，其头注明言"取代系统 `promptAction.showToast`"）。
+   *
+   * ⛔ 为什么改成注入回调：代码块「复制」此前用系统 `promptAction.showToast`，而页面级复制走自绘
+   *    `Toast` ⇒ **同一动作两种落点**（`polish-audit` B6）。系统 toast **不读** `pal()`/`effectsOf`
+   *    ⇒ 面/字/圆角/位置与设计系统**不同族**。本回调让代码块复制与消息级复制**同一落点**。
+   * ⛔ 回调缺省 = 空实现（同本组件既有 `onImage`/`loadImage` 口径）—— 未接线的宿主（如自检 sheet）
+   *    不会误弹系统 toast；也已**移除**组件内的 `promptAction` 与 `setTimeout`（见 copy 处）。
+   */
+  onToast: (msg: string) => void = () => {
   };
   /** 消息内图片最大高度（vp） */
   imageMaxHeight: number = 340;
@@ -436,10 +447,11 @@ export struct MarkdownView {
               const data: pasteboard.PasteData =
                 pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, b.code);
               pasteboard.getSystemPasteboard().setData(data);
-              // 可见反馈 = **toast**（与消息级复制 `Index.ets:5106` 同一手段/文案 ⇒ 复制反馈全 App 统一）。
-              // ⛔ **不用组件内 `setTimeout`**：性能预算 ⑦ 的 `setTimeout` 调用点**已用满 7**
-              //    （`docs/PERF-BUDGET.md §2-18`）⇒ 本处不再新增常驻定时器。
-              promptAction.showToast({ message: copyLabel('复制', true), duration: COPY_FEEDBACK_MS });
+              // 可见反馈 = **品牌 toast**（落点由页面经 `onToast` 注入 ⇒ 与消息级复制**同一落点**）。
+              // ⛔ 文案**不变**（`copyLabel('复制', true)` = 「已复制」）—— 本单**只改落点**，不改文案。
+              // ⛔ 不再用系统 `promptAction.showToast`（不跟设计系统）；⛔ 不用组件内 `setTimeout`
+              //    （性能预算 ⑦ 的 `setTimeout` 调用点已用满 7，见 `docs/PERF-BUDGET.md §2-18`）。
+              this.onToast(copyLabel('复制', true));
             } catch (e) {
               // 失败：**不撒谎**（不弹「已复制」），只记日志（与既有"失败静默"一致）
               console.error('copy failed');

@@ -79,6 +79,9 @@ export struct LiveTailView {
   };
   onToolLongPress: (name: string) => void = (name: string) => {
   };
+  /** 复制反馈落地（页面品牌 toast；**透传**给内部 `MarkdownView` —— B6 落点统一）。 */
+  onToast: (msg: string) => void = () => {
+  };
   /**
    * 是否渲染旗舰「思考中 / 生成中」光球（`components/AssistantOrb`）。
    *
@@ -562,6 +565,8 @@ return renderKind(t.status, t.exit_code, true);
               text: this.shownText(),
               onImage: this.onImage,
               loadImage: this.loadImage,
+              // B6：复制反馈落点**透传**页面品牌 toast（同 `MessageRow` 的两处 MarkdownView）。
+              onToast: this.onToast,
               fontScale: this.fontScale,
               wrapCode: this.wrapCode,
               theme: this.themeId(),
