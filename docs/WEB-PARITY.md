@@ -935,3 +935,15 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 | **`glassOpacity`/`wallpaperOpacity`/`glassBlur`（插件值）** | ⚠️ 原生**未消费** | 已裁决"原生应当消费"，落点 `effectsOf`（`core/theme.ets` = brand-impl）⇒ 排期（记录于 §2.9） |
 | **`KEY_UI_MODE` 之外的 web 独有键**（`leftSidebarWidth`/`layout:*`/`panel-layout*`/`recent-workdirs`） | ➖ 不映射 | 桌面布局概念，原生 N/A；`localKey` 原样透传 ⇒ 零丢键（§17.5-5） |
 | **notice 档分场景时长**（web 成功 5000 / 失败 4000 vs 原生单档 2560） | ⏸ **已换手** | 交 `chat-surface-ux`（本轮我连卡 3 轮；取证与补丁见交付记录，`web ToolRender.tsx:508/514`） |
+
+### 2.14 `SettingsPanel` 分段 chip 的「非填充分界」—— **已具备，无需改动**（2026-10-11 实测）
+
+- `brand-impl` 报 §15 同类缺口疑似在 `components/SettingsPanel.ets:294`（`surface.chip` 面）。
+- **实测（读真源，不猜）**：
+  · `hairlineOf(p)` = `surfacesOf(p).hairline` —— **不分深浅**（`core/design.ets:371-373`）；
+  · `insetHairlineOf(p)` = 浅色 ⇒ `p.transparent`；深色 ⇒ `surfacesOf(p).hairline`（`:841-843`）；
+  · ⇒ **深色下两者同值**；该 chip 的 `.border` 已用 `hairlineOf`（`SettingsPanel.ets:296-298`）
+    ⇒ **深色已具备非填充分界，无需改动**；浅色下 `hairlineOf` 仍给发丝（⛔ 若改用 `insetHairlineOf`
+    会把浅色变成 `transparent` ⇒ **违反"浅色逐字节不变"**，故**不改**）。
+- **结论**：按"先量后改"的分流第 1 支 ⇒ **不改码**，仅本记档。若后续 §15 的度量口径另有要求，
+  请以"深色净贡献 ≥1.20"的实测为准再议。
