@@ -26,10 +26,10 @@ import { XbotHttp } from '../core/http';
 import { FS_BODY, FS_CAPTION, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5 } from '../core/tokens';
 import {
   AddSubscriptionParams, countModelsForSub, DefaultSubscriptionParams, GetSettingsParams, IdParams,
-  isSubscriptionEnabled, LlmConcurrencyParams, ModelEntryRow, readableRpcError, RemoveModelParams,
-  rpc, RpcMethod, SetModelEnabledParams, SetSettingParams, SETTINGS_NS_CLI, SubscriptionBody,
-  SubscriptionEnabledParams, SubscriptionRow, ThinkingModeParams, UpdateSubscriptionParams,
-  UpsertModelParams,
+  isSubscriptionEnabled, LlmConcurrencyParams, ModelEntryRow, PerModelConfig, readableRpcError,
+  RemoveModelParams, rpc, RpcMethod, SetModelEnabledParams, SetSettingParams, SETTINGS_NS_CLI,
+  SubscriptionBody, SubscriptionEnabledParams, SubscriptionRow, ThinkingModeParams,
+  UpdatePerModelConfigParams, UpdateSubscriptionParams, UpsertModelParams,
 } from '../core/rpc';
 import {
   apiKeyForSubmit, clampConcurrency, concurrencyFrom, concurrencyStep, editSubscriptionForm, fmtTokens,
@@ -48,7 +48,13 @@ import {
   parseSubscriptionsImport, resolveUpdateBody, serializeSubscriptionsDoc, subscriptionsDocCount,
 } from '../core/llmcfg';
 import {
+  CTX_PRESETS, OUT_PRESETS, PerModelForm, perModelApiTypes, perModelConfigFrom, perModelEditReason,
+  perModelFormError, perModelFormFromConfig, perModelFormOf, perModelFormToBody, perModelSubmitAllowed,
+  presetLabel, VISION_DETAILS,
+} from '../core/permodelcfg';
+import {
   SettingsChipRow, SettingsErrorBar, SettingsPanelHeader, SettingsSubCard, SettingsTextFieldRow,
+  SettingsToolRow,
 } from './SettingsRows';
 
 /**
@@ -124,6 +130,21 @@ export struct SettingsLlm {
   @State private modelBusy: string = '';
   /** 订阅搜索词。 */
   @State private subQuery: string = '';
+  /** 正在编辑逐模型配置的模型键（`subId|model`；`''` = 未展开）。 */
+  @State private editModelKey: string = '';
+  /** 逐模型配置**预填成功的凭据**（`perModelSubmitAllowed` 的输入；`false` ⇒ 提交闸门关闭）。 */
+  @State private pmPrefillOk: boolean = false;
+  // ⚠️ 编辑器字段用**原生类型 @State**（ArkUI：对 @State 对象**内部字段**赋值不触发重建，
+  //    必须整体赋值或用 @Observed；这里用标量最稳）。
+  @State private pmMaxContext: number = 0;
+  @State private pmMaxOutput: number = 0;
+  @State private pmApiType: string = '';
+  @State private pmVision: boolean = false;
+  @State private pmVisionDetail: string = '';
+  /** 逐模型配置写入中。 */
+  @State private pmBusy: boolean = false;
+  /** 逐模型配置的本次错误（写入失败 / 不可编辑原因）。 */
+  @State private pmError: string = '';
 
   aboutToAppear(): void {
     void this.load();
@@ -440,6 +461,124 @@ export struct SettingsLlm {
     }
   }
 
+  /**
+   * 打开**逐模型配置**编辑器（web `SettingsLLM.tsx:150-160 saveModel` 的原生对应）。
+   *
+   * ⛔ 防静默覆盖（同类：commit 6fd4570 S-P0 真数据丢失）：`update_per_model_config` 是**整体替换**
+   *    （服务端 `rpc_table.go:905`），**不支持部分更新** ⇒ 拿不到既有值就**不许开编辑器**，
+   *    否则用默认值 0/0/''/false 提交会抹掉用户已配好的 max_context / vision。
+   */
+  private openModelConfig(sub: SubscriptionRow, model: string): void {
+    const reason: string = perModelEditReason(sub, model);
+    if (reason.length > 0) {
+      this.pmError = reason;
+      this.pmPrefillOk = false;
+      this.editModelKey = '';
+      return;
+    }
+    const prefill: PerModelConfig | null = perModelConfigFrom(sub, model);
+    // 闸门：只有预填成功才置开（`perModelSubmitAllowed` 是唯一判据，与提交侧同源）。
+    this.pmPrefillOk = perModelSubmitAllowed(prefill);
+    if (prefill === null || !this.pmPrefillOk) {
+      this.pmError = '无法读取该模型的既有配置，已禁用编辑（避免静默覆盖）。';
+      this.editModelKey = '';
+      return;
+    }
+    this.pmFormToState(perModelFormFromConfig(prefill));
+    this.pmError = '';
+    this.editModelKey = this.modelKey(sub.id, model);
+  }
+
+  /** 表单 → 编辑器标量 state。 */
+  private pmFormToState(form: PerModelForm): void {
+    this.pmMaxContext = form.maxContext;
+    this.pmMaxOutput = form.maxOutput;
+    this.pmApiType = form.apiType;
+    this.pmVision = form.vision;
+    this.pmVisionDetail = form.visionDetail;
+  }
+
+  /** 编辑器标量 state → 表单。 */
+  private pmStateToForm(): PerModelForm {
+    return perModelFormOf(this.pmMaxContext, this.pmMaxOutput, this.pmApiType, this.pmVision, this.pmVisionDetail);
+  }
+
+  private cancelModelConfig(): void {
+    this.editModelKey = '';
+    this.pmError = '';
+    this.pmPrefillOk = false;
+  }
+
+  /** 保存逐模型配置（`update_per_model_config`）。⛔ 闸门关闭时**绝不发 RPC**。 */
+  private async saveModelConfig(sub: SubscriptionRow, model: string): Promise<void> {
+    if (this.pmBusy) {
+      return;
+    }
+    if (!this.pmPrefillOk) {
+      this.pmError = '未取得既有配置，已阻止提交（避免覆盖）。';
+      return;
+    }
+    const form: PerModelForm = this.pmStateToForm();
+    const bad: string = perModelFormError(form, sub.provider);
+    if (bad.length > 0) {
+      this.pmError = bad;
+      return;
+    }
+    this.pmBusy = true;
+    try {
+      await rpc<void>(this.http, RpcMethod.updatePerModelConfig,
+        new UpdatePerModelConfigParams(sub.id, model, perModelFormToBody(form, sub.provider)));
+      this.pmError = '';
+      this.editModelKey = '';
+      this.pmPrefillOk = false;
+    } catch (e) {
+      this.pmError = readableRpcError((e as Error).message);
+    } finally {
+      this.pmBusy = false;
+      await this.load();
+    }
+  }
+
+  /** 正在编辑的订阅（由 `editModelKey` 反查；编辑器是**无参** @Builder ⇒ 只能读 `this`）。 */
+  private editingSub(): SubscriptionRow | undefined {
+    const key: string = this.editModelKey;
+    const cut: number = key.indexOf('|');
+    if (cut <= 0) {
+      return undefined;
+    }
+    const id: string = key.substring(0, cut);
+    for (let i = 0; i < this.subs.length; i++) {
+      if (this.subs[i].id === id) {
+        return this.subs[i];
+      }
+    }
+    return undefined;
+  }
+
+  /** 正在编辑的模型名（`editModelKey` 的右半）。 */
+  private editingModelName(): string {
+    const key: string = this.editModelKey;
+    const cut: number = key.indexOf('|');
+    return cut < 0 ? '' : key.substring(cut + 1);
+  }
+
+  /** 预设数 → 字符串候选（`SettingsChipRow` 的 options 是 string[]）。 */
+  private numOptions(presets: number[]): string[] {
+    const out: string[] = [];
+    for (let i = 0; i < presets.length; i++) {
+      out.push(`${presets[i]}`);
+    }
+    return out;
+  }
+
+  private numLabels(presets: number[]): string[] {
+    const out: string[] = [];
+    for (let i = 0; i < presets.length; i++) {
+      out.push(presetLabel(presets[i]));
+    }
+    return out;
+  }
+
   /** 刷新模型条目（`refresh_model_entries`；web `SettingsLLM.tsx:255`）。 */
   private async refreshModels(): Promise<void> {
     this.loading = true;
@@ -577,6 +716,117 @@ export struct SettingsLlm {
       sig += `${ms[i].model}:${st !== undefined && st !== null ? st : ''};`;
     }
     return sig;
+  }
+
+  /** 正在编辑的订阅可选的 `api_type` 候选（Anthropic ⇒ 空 ⇒ 该行不显示）。 */
+  private editingApiTypes(): string[] {
+    const sub: SubscriptionRow | undefined = this.editingSub();
+    return sub === undefined ? [] : perModelApiTypes(sub.provider);
+  }
+
+  /**
+   * **逐模型配置编辑器**（无参 `@Builder` ⇒ 只读 `this`；⛔ 带参全局 `@Builder` 的子树不重建）。
+   *
+   * 字段与 web `SettingsLLM.tsx:150-160 saveModel` 一一对应：上下文上限 / 输出上限 /
+   * api_type / 视觉 + 视觉细节；预设表来自 `core/permodelcfg`（⛔ 不在此另写一套）。
+   * ⛔ 编辑器**只可能**在预填成功时被挂载（见 `openModelConfig` + 行上的 reason 门控）
+   *    ⇒ 结构上不存在"用默认值提交"的路径。
+   */
+  @Builder
+  ModelConfigEditor() {
+    Column({ space: SP_2 }) {
+      if (this.pmError.length > 0) {
+        SettingsErrorBar({ message: this.pmError, theme: this.theme })
+      }
+      SettingsChipRow({
+        label: '上下文上限',
+        description: '0 = 跟随默认（系统默认 1M）。',
+        value: `${this.pmMaxContext}`,
+        options: this.numOptions(CTX_PRESETS),
+        labels: this.numLabels(CTX_PRESETS),
+        theme: this.theme,
+        onSelect: (v: string) => {
+          this.pmMaxContext = parseInt(v, 10);
+        },
+      })
+      SettingsChipRow({
+        label: '输出上限',
+        description: '0 = 跟随订阅默认。',
+        value: `${this.pmMaxOutput}`,
+        options: this.numOptions(OUT_PRESETS),
+        labels: this.numLabels(OUT_PRESETS),
+        theme: this.theme,
+        onSelect: (v: string) => {
+          this.pmMaxOutput = parseInt(v, 10);
+        },
+      })
+      if (this.editingApiTypes().length > 0) {
+        SettingsChipRow({
+          label: 'API 类型',
+          description: '仅 OpenAI 有意义（Anthropic 无此概念）。',
+          value: this.pmApiType,
+          options: this.editingApiTypes(),
+          labels: this.editingApiTypes(),
+          theme: this.theme,
+          onSelect: (v: string) => {
+            this.pmApiType = v;
+          },
+        })
+      }
+      SettingsToolRow({
+        label: '视觉（多模态输入）',
+        description: '纯手动开关，无模型名白名单；关闭后图片降级为文本占位。',
+        isOn: this.pmVision,
+        mono: false,
+        theme: this.theme,
+        onToggle: (_names: string[], next: boolean) => {
+          this.pmVision = next;
+        },
+      })
+      if (this.pmVision) {
+        SettingsChipRow({
+          label: '视觉细节',
+          description: 'OpenAI image_url.detail（auto = 空）。',
+          value: this.pmVisionDetail,
+          options: VISION_DETAILS,
+          labels: ['auto', 'low', 'high'],
+          theme: this.theme,
+          onSelect: (v: string) => {
+            this.pmVisionDetail = v;
+          },
+        })
+      }
+      Row({ space: SP_2 }) {
+        Text(this.pmBusy ? '保存中…' : '保存')
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().accentSoft)
+          .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+          .backgroundColor(this.pal().surfaceAlt)
+          .borderRadius(R_LG)
+          .border({ width: 1, color: this.pal().borderStrong })
+          .opacity(this.pmBusy ? 0.5 : 1)
+          .onClick(() => {
+            const sub: SubscriptionRow | undefined = this.editingSub();
+            const model: string = this.editingModelName();
+            if (sub !== undefined && model.length > 0) {
+              void this.saveModelConfig(sub, model);
+            }
+          })
+        Text('取消')
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().textSecondary)
+          .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+          .onClick(() => {
+            this.cancelModelConfig();
+          })
+      }
+      .width('100%')
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding(SP_2)
+    .backgroundColor(this.pal().surfaceHi)
+    .borderRadius(R_LG)
   }
 
   build() {
@@ -1126,37 +1376,67 @@ export struct SettingsLlm {
                         .width('100%')
                     } else {
                       ForEach(modelsForSub(this.entries, s.id), (e: ModelEntryRow) => {
-                        Row({ space: SP_2 }) {
-                          Text(modelStatusLabel(e.status))
-                            .fontSize(FS_CAPTION)
-                            .fontColor(isModelDisabled(e.status) ? this.pal().textMuted : this.pal().successText)
-                          Text(e.model)
-                            .fontSize(FS_CAPTION)
-                            .fontFamily('monospace')
-                            .fontColor(isModelDisabled(e.status) ? this.pal().textMuted : this.pal().textPrimary)
-                            .layoutWeight(1)
-                            .maxLines(1)
-                            .textOverflow({ overflow: TextOverflow.Ellipsis })
-                          Text(isModelDisabled(e.status) ? '启用' : '禁用')
-                            .fontSize(FS_CAPTION)
-                            .fontColor(this.pal().accentSoft)
-                            .padding({ left: SP_2, right: SP_2 })
-                            .opacity(this.modelBusy === this.modelKey(s.id, e.model) ? 0.5 : 1)
-                            .onClick(() => {
-                              void this.toggleModel(s.id, e.model, isModelDisabled(e.status));
-                            })
-                          Text('删除')
-                            .fontSize(FS_CAPTION)
-                            .fontColor(this.pal().dangerText)
-                            .padding({ left: SP_2, right: SP_2 })
-                            .opacity(this.modelBusy === this.modelKey(s.id, e.model) ? 0.5 : 1)
-                            .onClick(() => {
-                              void this.removeModelEntry(s.id, e.model);
-                            })
+                        Column({ space: SP_1 }) {
+                          Row({ space: SP_2 }) {
+                            Text(modelStatusLabel(e.status))
+                              .fontSize(FS_CAPTION)
+                              .fontColor(isModelDisabled(e.status) ? this.pal().textMuted : this.pal().successText)
+                            Text(e.model)
+                              .fontSize(FS_CAPTION)
+                              .fontFamily('monospace')
+                              .fontColor(isModelDisabled(e.status) ? this.pal().textMuted : this.pal().textPrimary)
+                              .layoutWeight(1)
+                              .maxLines(1)
+                              .textOverflow({ overflow: TextOverflow.Ellipsis })
+                            Text(isModelDisabled(e.status) ? '启用' : '禁用')
+                              .fontSize(FS_CAPTION)
+                              .fontColor(this.pal().accentSoft)
+                              .padding({ left: SP_2, right: SP_2 })
+                              .opacity(this.modelBusy === this.modelKey(s.id, e.model) ? 0.5 : 1)
+                              .onClick(() => {
+                                void this.toggleModel(s.id, e.model, isModelDisabled(e.status));
+                              })
+                            // 逐模型配置入口（**接在既有模型行上** ⇒ 同屏不给"模型"第二个入口）。
+                            // ⛔ 拿不到既有配置 ⇒ 灰显 + 不可点（原因见下一行说明），绝不"用默认值提交"。
+                            Text('配置')
+                              .fontSize(FS_CAPTION)
+                              .fontColor(perModelEditReason(s, e.model).length > 0
+                                ? this.pal().textMuted : this.pal().accentSoft)
+                              .padding({ left: SP_2, right: SP_2 })
+                              .opacity(perModelEditReason(s, e.model).length > 0 ? 0.45 : 1)
+                              .onClick(() => {
+                                if (perModelEditReason(s, e.model).length === 0) {
+                                  this.openModelConfig(s, e.model);
+                                }
+                              })
+                            Text('删除')
+                              .fontSize(FS_CAPTION)
+                              .fontColor(this.pal().dangerText)
+                              .padding({ left: SP_2, right: SP_2 })
+                              .opacity(this.modelBusy === this.modelKey(s.id, e.model) ? 0.5 : 1)
+                              .onClick(() => {
+                                void this.removeModelEntry(s.id, e.model);
+                              })
+                          }
+                          .width('100%')
+                          .alignItems(VerticalAlign.Center)
+                          .padding({ top: SP_1, bottom: SP_1 })
+
+                          // 不可编辑时的**明确原因**（⛔ 不静默禁用）
+                          if (perModelEditReason(s, e.model).length > 0) {
+                            Text(perModelEditReason(s, e.model))
+                              .fontSize(FS_CAPTION)
+                              .fontColor(this.pal().textMuted)
+                              .width('100%')
+                          }
+
+                          // 行内编辑器（仅该模型；无参 @Builder ⇒ 读 this，随 state 重建）
+                          if (this.editModelKey === this.modelKey(s.id, e.model)) {
+                            this.ModelConfigEditor()
+                          }
                         }
                         .width('100%')
-                        .alignItems(VerticalAlign.Center)
-                        .padding({ top: SP_1, bottom: SP_1 })
+                        .alignItems(HorizontalAlign.Start)
                       }, (e: ModelEntryRow) => `m|${s.id}|${e.model}|${e.status !== undefined ? e.status : ''}`)
                     }
                   }
