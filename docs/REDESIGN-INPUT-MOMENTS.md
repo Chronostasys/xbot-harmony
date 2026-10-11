@@ -51,8 +51,8 @@
 
 | 面 | file:line | 重复形态 | 唯一真值点（应在此判断） |
 |---|---|---|---|
-| SubAgentTree | `:73-82 barColor()`、`:84-92 iconRes()`、`:95-103 iconColor()` | **同一 `kind` 被 3 段独立 if 链各判一次**（颜色 / 图标 / 图标色） | `core/subagent.ets:41-53 subStatusKind()` 只归一了状态档，**"档→视觉"没有唯一真源** |
-| TodoPanel | `:92-100 iconColor()`、`:103-111 iconRes()`、`:146-151`（字色/字重/删除线 3 处内联三元） | 同一 `kind` 被 **5 处**分散判断 | `core/todos.ets:41-50 todoStatusKind()` 同上，**"档→视觉"无真源** |
+| SubAgentTree | `barColor()`、`iconRes()`、`iconColor()`（原 `:73-103`） | ~~同一 `kind` 被 3 段独立 if 链各判一次（颜色 / 图标 / 图标色）~~ **✅ 已收敛 `65ebc78`**：改为只消费 `core/statusvisual.ets:subagentVisual(kind)` | `core/statusvisual.ets`（新增，唯一真源） |
+| TodoPanel | `iconColor()`、`iconRes()`、字色/字重/删除线（原 `:92-151`） | ~~同一 `kind` 被 5 处分散判断~~ **✅ 已收敛 `65ebc78`**：改为只消费 `core/statusvisual.ets:todoVisual(kind)` | `core/statusvisual.ets`（新增，唯一真源） |
 | ThinkingLine | `:97-99`（图标色）与 `:101-103`（文字色） | `live ? accentSoft : textMuted` 表达式**逐字重复两遍** | 无（应抽一个 `leadColor(live)`） |
 | ThinkingLine | `:59 live` / `:66 orbMode` / `:68 orbBeat` | 领读身份由调用方 `LiveTailView.thinkingIsPrimary()`/`orbMode()` 算，**与 `core/streammerge` 的在飞判据是两条链** | 唯一真源在页面侧方法（`LiveTailView.ets`），组件只被动接收 |
 | ContextRing | `:69-71 arcColor()` | 档位→角色→色 只有**这一处**（好）；但**角色语义**在 `core/ctxring.ets:40-43` 与组件注释之间曾**写出两种角色名**（`dangerText` vs `statusError`）——角色这套"语言"本身没有单一台账 | `core/ctxring.ets` + `core/theme.ets`（角色名应只在一处定义） |
@@ -206,3 +206,53 @@ StatusVisual = { icon: Resource, role: 'accent'|'success'|'muted'|'danger', emph
 | `components/TodoPanel.ets` + `core/todos.ets` | 行 `ForEach` key 收敛到唯一真源纯函数 `todoRowKey`（门禁规则 A 命中清零） | 结构性（判据单一性门禁） |
 
 > **已放弃**：`ThinkingLine` 的标题字重调整（纯外观，按新方向不做）。
+
+---
+
+## 6. 本波追加：状态→视觉「唯一真源」收敛（`65ebc78`）
+
+§1.2 的两条（SubAgentTree 3 段 if 链 / TodoPanel 5 处分散判）**已收口**：
+
+- 新增 `core/statusvisual.ets`（纯逻辑、可脱机单测）：
+  - `subagentVisual(kind)` / `todoVisual(kind)` → `StatusVisual`
+    `{ marker, toneRole, iconRole, labelRole, markerAlpha, emphasis, struck }`；
+  - `roleColorOf(role, pal)` = 本族 role→色的**唯一**解析；
+  - 角色词汇**复用** `core/toolstatus` 的 `ROLE_*`（不新造）；只补本族缺的 `ROLE_PRIMARY/SECONDARY`；
+  - 形态档 `MARK_*`（core 不能持 `Resource` ⇒ "档 → `sys.symbol`"留在组件一处）。
+- `components/SubAgentTree.ets` / `components/TodoPanel.ets` **只消费** `StatusVisual`，
+  组件里已无"裸 kind if 链"（断言读源码钉死，回退即红）。
+- 契约 `tools/tests/statusvisual.test.ts`（64 条）；mutation 自证见提交信息。
+
+### 6.1 仍缺的 token（本波**未**动数值 —— 观感不变优先；请 design-lead 定名定值）
+
+> 这些现在是**组件内具名常量**（非散落字面量）；下表中"已有"指 `core/design.ets` 里**同名语义**的 token
+> （⚠️ 值/语义与场景不完全对齐 ⇒ 本波不敢擅自接线，怕改观感）。
+
+| 面 | 现常量（值） | `core/design.ets` 里是否有 | 备注 |
+|---|---|---|---|
+| SubAgentTree | `CARD_PAD_L=10` / `CARD_PAD_R=8` / `CARD_PAD_Y=6` | 部分：`INSET_CARD_X/Y=12`、`SPACE_XS=8`、`GAP_ROW_Y=6` | **无"卡片内边距"语义 token**；web `py-1.5 pl-2.5 pr-2` |
+| SubAgentTree | `CARD_BORDER_ALPHA=0.5` / `CARD_BG_ALPHA=0.5` | ❌ 无 | **缺"卡片描边/底色不透明度"token**（web `border-border/50`、`bg-secondary/50`） |
+| SubAgentTree | `BAR_W=2` | ✅ `STROKE_RAIL=2` | 值同；语义是"状态竖条" ⇒ 建议专属 token |
+| SubAgentTree | `CHILD_INDENT=12` | ✅ `SPACE_SM=12` | **缺"层级步进"语义 token** |
+| SubAgentTree | `ICON_TOP=14` / `ICON_CHILD=12` | 部分：`MARKER_SLOT=14`、`MARKER_GLYPH_DASHED=12` | **缺"树图标尺寸（顶/子两档）"token** |
+| SubAgentTree | `ROW_GAP=6` / `ICON_GAP=6` | ✅ `GAP_ROW_Y=6` | 语义是"树的层间距/图标-文字间距" ⇒ 建议专属 |
+| SubAgentTree | 子行 `padding top/bottom=2` | ✅ `SPACE_HAIR=2` | |
+| 两组件 | `FontWeight.Medium`（doing/标签） | ❌ 无（`WEIGHT_MEDIUM=500` 是数值，非 ArkUI 枚举） | **缺"强调档 → FontWeight"的解析 helper** |
+| TodoPanel | `HEADER_H=28` | ❌ 无 | **缺"控件行高"token**（web `h-7`） |
+| TodoPanel | `BAR_W=48` / `BAR_H=6` | ❌ 无 | **缺"进度条尺寸"token**（web `h-1.5 w-12`） |
+| TodoPanel | `LIST_MAX_H=240` | ❌ 无 | **缺"清单最大高"token**（web `max-h-[240px]`） |
+| TodoPanel | `ICON=14` | ✅ `MARKER_SLOT=14` | |
+| TodoPanel | `GOAL_TINT_DARK=0.07` / `GOAL_TINT_LIGHT=0.14` | ❌ 无 | **缺"目标底纹"token**（含深浅分叉；web `bg-accent/[0.07]`） |
+| TodoPanel | `PRESS_OPACITY=0.7` | ⚠️ **冲突**：`design.PRESS_OPACITY=0.6` | **需裁决**：统一 0.6 还是保留 0.7（改值 = 改观感） |
+| TodoPanel | goal 徽标 `fontSize(9)` | ❌ 无（字阶最小 12） | **缺 micro 字号档**（web goal badge） |
+| TodoPanel | goal 徽标 `padding 6/6/1/1`、行 `padding top/bottom=5` | 部分：`INSET_PILL_Y=5` | |
+| TodoPanel | `⋯` 菜单 `width(120)` | ❌ 无 | **缺"菜单宽度"token** |
+
+### 6.2 待统一（跨族，需 design-lead 拍板）
+
+- **role→色 解析有两份**：`core/toolvisual.statusColorOf`（工具族，`danger→dangerText`）与本波
+  `core/statusvisual.roleColorOf`（子代理/待办族，`danger→statusError`）。语义角色同名、取色不同。
+  本波**未擅自统一**（会改观感 + `toolvisual` 禁改）。⇒ 建议：建**一张角色台账**，
+  两族共用同一个 `roleColorOf(role, pal)`（dossier 见 §2.1）。
+- **`markerShape` 词汇有两套**：`core/toolvisual.SHAPE_*`（勾/叉/减/环/spinner）与本波 `MARK_*`
+  （bulb/勾/叉/圆/虚圆/圈勾）。是否合并成一套"全局形态词汇"由 design-lead 定。
