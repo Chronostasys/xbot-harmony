@@ -3020,9 +3020,7 @@ struct Index {
           .borderRadius(R_MD)
           .stateStyles({ pressed: { .opacity(0.55) }, normal: { .opacity(1) } })
           .onClick(() => {
-            this.anim(() => {
-              this.showSettings = true;
-            });
+            this.openSettingsPanel();
           })
       }
       .width('100%').constraintSize({ minHeight: 56 }).padding({ left: SP_2, right: SP_2 })
@@ -4113,6 +4111,34 @@ struct Index {
             this.showPrefs = true;
           });
     // 顺手刷新系统通知授权状态（开关反映系统真值；不本地另记）
+    this.refreshNotifyState().catch(() => {
+    });
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    try {
+      await store.loadSettings();
+    } catch (e) {
+      this.toast(`读取设置失败: ${errText(e as Object)}`);
+    }
+  }
+
+  /**
+   * 打开设置面板（`components/SettingsPanel`，全屏）—— **用户报的「两个设置面板」收敛点**。
+   *
+   * ⚠️ 本波**只做入口收敛**，暂不删旧 `PrefsSheet`/`SettingsSheet`：这两个旧 `@Builder`
+   *   仍被 `core/sheets.ets` 的 flag 表 + `tools/tests/sheets.test.ts` 的**源码级断言**钉住
+   *   （测试在 ⛔ 本波不可改的 `tools/**` 内）⇒ 需 `settings-ux` 同步移除表中 `prefs`/`settings`
+   *   两行后，这两个 builder 才可删。**在此之前它们不可达**（两个入口都改走本方法）。
+   */
+  private async openSettingsPanel(): Promise<void> {
+    // 浮层互斥：由抽屉进入时**先收抽屉**（否则两个浮层叠加，顶部既没被压暗也没被盖住）
+    this.showDrawer = false;
+    this.anim(() => {
+      this.showSettingsPanel = true;
+    });
+    // 刷新系统通知授权状态（通知分区开关反映系统真值；不本地另记）
     this.refreshNotifyState().catch(() => {
     });
     const store: ChatStore | null = this.store;
