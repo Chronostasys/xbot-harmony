@@ -66,6 +66,8 @@ import {
 import { changedByKeys, identityChanged, needsFullReload, rowKey, rowsFpOf, sameRowIds,
   scopedFingerprint, sessionScopedRowKey, tailRows } from '../core/rowdiff';
 import { BusySignals, busyNow, DRAWER_EMPTY_NO_MATCH, DRAWER_EMPTY_NO_SESSIONS, DRAWER_EMPTY_NONE, drawerEmptyHint, drawerEmptyKind, showsBusyPlaceholder, showsHistorySkeleton, showsJumpToLatest } from '../core/indicators';
+// SSE 终态（服务端明确拒绝 ⇒ 停止无限重连）——页面横幅据它显示**可解释的终态**而非"正在重连"。
+import { SSE_STATE_FAILED } from '../core/sse';
 import { listItemCount, nextFollowBottom } from '../core/listfollow';
 import { OverlayCode, OverlayState, topOverlay } from '../core/overlays';
 import {
@@ -3086,7 +3088,10 @@ struct Index {
       // 空态：没有消息、没有错误、也不在跑 —— 给友好的起步引导（而不是一片黑洞）。
       // 末项 `!showsHistorySkeleton(...)` 保证与骨架屏**互斥**（二者都是 rows===0 布局，
       // 判据重叠时会同时渲染 ⇒ 真机走查见过「星形 + 开始对话 + 4 行灰条」并存）。
-      if (this.rows.length === 0 && this.loadErr.length === 0 && !this.busy
+      // ⚠️「在跑」判据必须与 busy 占位符**同源**（`busyNow(busySignals())`）—— 此前用原始
+      //    `!this.busy`（仅本地事件驱动）⇒ 服务端已 running 但本地事件未到时，空态与占位符
+      //    **都可能不显示**（不变量被破坏，见 `docs/REDESIGN-INPUT-STATES.md §F2`）。
+      if (this.rows.length === 0 && this.loadErr.length === 0 && !busyNow(this.busySignals())
         && !this.loadingMore && this.currentChat.length > 0
         && !showsHistorySkeleton(this.historyLoading, this.rows.length)) {
         Column({ space: SP_3 }) {
@@ -3317,6 +3322,27 @@ struct Index {
           Text('连接断开，正在重连…（恢复后自动补齐消息）')
             .fontSize(11).fontColor(this.pal().warn).layoutWeight(1)
             .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .width('100%').padding({ left: 12, right: 12, top: 6, bottom: 6 })
+        .backgroundColor(this.pal().warnBg)
+      } else if (this.connState === SSE_STATE_FAILED) {
+        // 终态（服务端明确拒绝：404 会话不存在 / 403 无权 / 400 参数…）——
+        // ⛔ 不再显示"正在重连"（它永不成功，是**误导性静默**，见
+        //    `docs/REDESIGN-INPUT-STATES.md §F4`）。给可解释原因 + 明确出口。
+        Row({ space: 6 }) {
+          SymbolGlyph($r('sys.symbol.xmark_circle_fill'))
+            .fontSize(14).fontColor([this.pal().dangerText])
+          Text(`连接被服务端拒绝：${this.sseTerminalReason()}`)
+            .fontSize(11).fontColor(this.pal().dangerText).layoutWeight(1)
+            .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text('重试').fontSize(12).fontColor(this.pal().accentSoft).padding(6)
+            .stateStyles({ pressed: { .opacity(0.7) }, normal: { .opacity(1) } })
+            .onClick(() => {
+              const st: ChatStore | null = this.store;
+              if (st !== null) {
+                st.sse.forceReconnect();
+              }
+            })
         }
         .width('100%').padding({ left: 12, right: 12, top: 6, bottom: 6 })
         .backgroundColor(this.pal().warnBg)
@@ -4321,6 +4347,19 @@ struct Index {
    *   列表占位符用 `this.busy`，两套判据分叉 ⇒ 服务端已 running 但本地 turn_started 未到
    *   时按钮=停止、列表=空。统一到本方法 + `busyNow/showsBusyPlaceholder` 后不变量按构造成立。
    */
+  /**
+   * 终态失败的可解释原因（`SseClient.lastFailureReason`，由 `reasonForStreamStatus` 给出）。
+   * 页面横幅只消费它，**不本地另判**（一个状态、一份判据）。
+   */
+  private sseTerminalReason(): string {
+    const st: ChatStore | null = this.store;
+    if (st === null) {
+      return '连接被拒绝';
+    }
+    const r: string = st.sse.lastFailureReason;
+    return r.length > 0 ? r : '连接被拒绝';
+  }
+
   private busySignals(): BusySignals {
     const store: ChatStore | null = this.store;
     const fresh: boolean = store !== null && Date.now() - store.sessionsFetchedAt <= 20000;
