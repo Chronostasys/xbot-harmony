@@ -349,6 +349,15 @@ export function isFiniteNumber(n: number): boolean {
  * 发错会得到 `expected boolean` 这类英文报错）。
  */
 export function validateValue(prop: PluginConfigProperty, v: ConfigValue): string {
+  // ⛔ image 走"上传后写回 URL"路径（不是文本框编辑）⇒ 必须**先于** `!editable` 判，
+  //    否则上传成功也写不回去（会被 `该类型原生端暂不支持编辑` 挡下）。
+  //    服务端契约：值 = 上传返回的 url（web `SettingsPlugins.tsx:270`），走同一 `plugin_config_set`。
+  if (prop.kind === PLUGIN_FIELD_IMAGE) {
+    if (prop.required && v.s.trim().length === 0) {
+      return '不能为空';
+    }
+    return '';
+  }
   if (!prop.editable) {
     return '该类型原生端暂不支持编辑';
   }
@@ -792,6 +801,201 @@ export function pluginInputMode(kind: string, secret: boolean): string {
     return PLUGIN_INPUT_SECRET;
   }
   return PLUGIN_INPUT_TEXT;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ④ 插件图片字段：上传契约 / 值分类 / 预览 URL（`components/SettingsPlugins.ets` 只消费）
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// 服务端契约（**逐条取证**，⛔ 不改服务端）：
+//   · 路由：`channel/web/web.go:898` `POST /api/plugin-files/upload`（`authMiddleware(postOnly(...))`）；
+//     `:899` `/api/plugin-files/{id}[/{filename}]`（GET 列表/serve、DELETE 删）。
+//   · 请求：**multipart/form-data**，字段 `plugin_id`（`web_files.go:128` `r.FormValue("plugin_id")`）
+//     + `file`（`:134` `r.FormFile("file")`）；**大小无上限**（`:120-123` 注释 + 不包 MaxBytesReader）。
+//   · 响应：`{ok:true,data:{filename,url,size,contentType,modTime}}`（`:179-188` 的 `PluginFileMeta`），
+//     `url = /api/plugin-files/{id}/{filename}`（`:179`）。
+//   · **写回方式**：图片字段的值 = 该 `url`，走**既有** `plugin_config_set`
+//     （web 权威 `web/SettingsPlugins.tsx:270` `await onChange(propKey, json.data.url)`）——
+//     **没有**专门的"图片 set"路由。
+//   · 命名校验：`pluginFileIDRe`/`pluginFileNameRe`（`web_files.go:35-36`）—— 本模块**镜像**它们。
+
+/** 上传端点（相对路径；绝对化由 `XbotHttp` 的 baseUrl 负责）。 */
+export const PLUGIN_UPLOAD_PATH: string = '/api/plugin-files/upload';
+/** 插件文件 URL 前缀（与服务端 `web_files.go:179` 同构）。 */
+export const PLUGIN_FILES_PREFIX: string = '/api/plugin-files/';
+/** multipart 字段名：插件 id（服务端 `web_files.go:128`）。 */
+export const PLUGIN_UPLOAD_FIELD_ID: string = 'plugin_id';
+/** multipart 字段名：文件本体（服务端 `web_files.go:134`）。 */
+export const PLUGIN_UPLOAD_FIELD_FILE: string = 'file';
+
+/** 值分类：空（无图）。 */
+export const PLUGIN_IMG_EMPTY: string = 'empty';
+/** 值分类：内置预设（`preset:*`，随插件分发，不可删）。 */
+export const PLUGIN_IMG_PRESET: string = 'preset';
+/** 值分类：本站上传的插件文件（`/api/plugin-files/...`）。 */
+export const PLUGIN_IMG_UPLOADED: string = 'uploaded';
+/** 值分类：外部 URL 或其它（原样显示，不拼 baseUrl）。 */
+export const PLUGIN_IMG_EXTERNAL: string = 'external';
+
+/** 服务端 `pluginFileIDRe`（`web_files.go:35`）的**客户端镜像**（拒脏 id，避免拿 400）。 */
+const PLUGIN_ID_RE: RegExp = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
+/** 服务端 `pluginFileNameRe`（`web_files.go:36`）的镜像：首字符字母数字 + `.` + 1..10 位扩展。 */
+const PLUGIN_FILE_NAME_RE: RegExp = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,255}\.[a-zA-Z0-9]{1,10}$/;
+
+/** 插件 id 是否通过服务端同款校验（含禁 `..`）。 */
+export function pluginIdIsValid(id: string): boolean {
+  const s: string = isPresent(id) ? id : '';
+  return PLUGIN_ID_RE.test(s) && s.indexOf('..') < 0;
+}
+
+/** 上传文件名是否通过服务端同款校验（含禁 `..`）。 */
+export function pluginUploadFilenameIsValid(name: string): boolean {
+  const s: string = isPresent(name) ? name : '';
+  return PLUGIN_FILE_NAME_RE.test(s) && s.indexOf('..') < 0;
+}
+
+/**
+ * 上传路径（**带 `plugin_id` 走 query**）。
+ *
+ * ⛔ 为什么可以走 query：服务端读的是 **`r.FormValue("plugin_id")`**（`web_files.go:128`），
+ *    而 Go 的 `FormValue` 会**同时**读 URL query 与 POST form（`ParseMultipartForm` 后查 `r.Form`）
+ *    ⇒ query 形态与 web 的 form 形态**服务端等价**。这样能**复用既有** `XbotHttp.uploadBytes`
+ *    （它只发 `file` 一个 part）⇒ **不必改共享的 `core/http.ets`**。
+ * ⚠️ 若将来服务端改用 `r.PostFormValue`，本函数要同步改为"在 form 里多发一个 part"。
+ */
+export function pluginUploadPath(pluginId: string): string {
+  const id: string = isPresent(pluginId) ? pluginId : '';
+  return `${PLUGIN_UPLOAD_PATH}?${PLUGIN_UPLOAD_FIELD_ID}=${id}`;
+}
+
+/** 上传返回的**相对** URL（与服务端 `web_files.go:179` 逐字同构）。 */
+export function pluginFileUrl(pluginId: string, filename: string): string {
+  return `${PLUGIN_FILES_PREFIX}${pluginId}/${filename}`;
+}
+
+/** 图片字段的值 → 分类（驱动"预览 / 可否删 / 兜底"分支）。 */
+export function pluginImageValueKind(value: string): string {
+  const v: string = isPresent(value) ? value.trim() : '';
+  if (v.length === 0) {
+    return PLUGIN_IMG_EMPTY;
+  }
+  if (v.startsWith('preset:')) {
+    return PLUGIN_IMG_PRESET;
+  }
+  if (v.startsWith(PLUGIN_FILES_PREFIX)) {
+    return PLUGIN_IMG_UPLOADED;
+  }
+  return PLUGIN_IMG_EXTERNAL;
+}
+
+/**
+ * 预览用的**绝对** URL：上传值 ⇒ 拼 baseUrl（去尾斜杠）；外部 ⇒ 原样；
+ * preset（随插件分发的样式，非图片 URL）/空 ⇒ **空串**（调用方不画预览，退化为文字）。
+ */
+export function pluginImagePreviewUrl(baseUrl: string, value: string): string {
+  const kind: string = pluginImageValueKind(value);
+  if (kind === PLUGIN_IMG_UPLOADED) {
+    const b: string = isPresent(baseUrl) ? baseUrl.replace(/\/+$/, '') : '';
+    const v: string = isPresent(value) ? value.trim() : '';
+    return `${b}${v}`;
+  }
+  if (kind === PLUGIN_IMG_EXTERNAL) {
+    return isPresent(value) ? value.trim() : '';
+  }
+  return '';
+}
+
+/**
+ * 上传失败文案（HTTP 码 + 原因；与 `core/pluginview.ets:webHttpErrorDetail` 同风格）。
+ * 纯函数 ⇒ 可脱机断言（组件只做"取值 → 交给它"）。
+ */
+export function pluginUploadErrorText(status: number, reason: string): string {
+  const r: string = isPresent(reason) ? reason.trim() : '';
+  const c: number = typeof status === 'number' && isFinite(status) && status !== 0 ? status : 0;
+  if (c !== 0 && r.length > 0) {
+    return `图片上传失败：HTTP ${c} ${r}`;
+  }
+  if (c !== 0) {
+    return `图片上传失败：HTTP ${c}`;
+  }
+  return r.length > 0 ? `图片上传失败：${r}` : '图片上传失败';
+}
+
+/**
+ * 从选中文档 URI 抽文件名（**必须**过 `pluginUploadFilenameIsValid`；否则用 `fallback`）。
+ *
+ * 为什么必须归一：picker 给的 URI 形如 `file://media/Photo/12/IMG_001/IMG_2024.jpg?x=1`
+ * —— 含 query、且原文件名可能不满足服务端正则（首字符 / 扩展名长度）⇒ 直接用会被 400。
+ * `fallback` 由调用方给（含时间戳，保证唯一），例如 `image-1712345.png`。
+ */
+export function pluginFilenameFromUri(uri: string, fallback: string): string {
+  const u: string = isPresent(uri) ? uri.trim() : '';
+  const slash: number = Math.max(u.lastIndexOf('/'), u.lastIndexOf('\\'));
+  let name: string = slash >= 0 ? u.substring(slash + 1) : u;
+  const q: number = name.indexOf('?');
+  if (q >= 0) {
+    name = name.substring(0, q);
+  }
+  const h: number = name.indexOf('#');
+  if (h >= 0) {
+    name = name.substring(0, h);
+  }
+  if (pluginUploadFilenameIsValid(name)) {
+    return name;
+  }
+  return pluginUploadFilenameIsValid(fallback) ? fallback : 'image-1.png';
+}
+
+/**
+ * 上传响应（`XbotHttp.uploadBytes` 已剥掉信封 ⇒ 入参是 `data` 即 `PluginFileMeta` 的 JSON 串）
+ * → 服务端返回的 **url**。⛔ 服务端会**改名**（`web_files.go:141-149`）⇒ **必须**用返回的 url，
+ * 不许客户端自己拼。解析失败/缺 url ⇒ 空串（调用方报错，绝不静默用坏值）。
+ */
+export function pluginUploadUrlFromMeta(metaJson: string): string {
+  try {
+    const raw: string = isPresent(metaJson) ? metaJson : '';
+    if (raw.length === 0) {
+      return '';
+    }
+    const obj: Record<string, string> = JSON.parse(raw) as Record<string, string>;
+    if (obj === null || obj === undefined) {
+      return '';
+    }
+    const url: string = typeof obj.url === 'string' ? obj.url : '';
+    return url.startsWith(PLUGIN_FILES_PREFIX) ? url : '';
+  } catch (e) {
+    return '';
+  }
+}
+
+/**
+ * 从 `XbotHttp` 抛出的错误文案里抽 **HTTP 状态码**（`uploadBytes` 抛的是 `HTTP <code>: <body>`，
+ * 见 `core/http.ets:365`）。抽不到 ⇒ 0（调用方落回"只有原因"的文案）。
+ */
+export function pluginUploadStatusFromMessage(message: string): number {
+  const m: string = isPresent(message) ? message : '';
+  const hit: RegExpExecArray | null = /HTTP\s+(\d{3})/.exec(m);
+  if (hit === null) {
+    return 0;
+  }
+  const n: number = Number.parseInt(hit[1], 10);
+  return isFiniteNumber(n) ? n : 0;
+}
+
+/**
+ * 文件名的 MIME（镜像服务端 `contentTypeFor`，`web_files.go:79-97` 的图片部分）。
+ * 未知扩展 ⇒ `application/octet-stream`（服务端会自动落 `.bin`，但**文件名不安全时才改名**）。
+ */
+export function pluginUploadMime(filename: string): string {
+  const f: string = isPresent(filename) ? filename.toLowerCase() : '';
+  const dot: number = f.lastIndexOf('.');
+  const ext: string = dot >= 0 ? f.substring(dot) : '';
+  if (ext === '.png') { return 'image/png'; }
+  if (ext === '.jpg' || ext === '.jpeg') { return 'image/jpeg'; }
+  if (ext === '.webp') { return 'image/webp'; }
+  if (ext === '.gif') { return 'image/gif'; }
+  if (ext === '.svg') { return 'image/svg+xml'; }
+  return 'application/octet-stream';
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

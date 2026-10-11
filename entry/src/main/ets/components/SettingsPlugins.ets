@@ -23,6 +23,8 @@
  */
 import { Palette, paletteOf } from '../core/theme';
 import { XbotHttp } from '../core/http';
+import { photoAccessHelper } from '@kit.MediaLibraryKit';
+import { fileIo } from '@kit.CoreFileKit';
 import { FS_CAPTION, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5 } from '../core/tokens';
 import {
   PluginConfigParams, PluginConfigSetParams, PluginReloadParams, PluginSetEnabledParams,
@@ -38,6 +40,8 @@ import {
   pluginEntryFingerprint, pluginFieldHasRange, pluginSliderStep, pluginSliderValue, readValue,
   PLUGIN_CTRL_CHIPS, PLUGIN_CTRL_TEXT, PLUGIN_INPUT_DECIMAL, PLUGIN_INPUT_SECRET,
   pluginControlKind, pluginInputMode,
+  PLUGIN_IMG_UPLOADED, pluginFilenameFromUri, pluginImageValueKind, pluginUploadErrorText,
+  pluginUploadMime, pluginUploadPath, pluginUploadStatusFromMessage, pluginUploadUrlFromMeta,
   submitValue, textInputValue, toggleListValue, validateValue, valueFromText, valueFromSingle,
   valueFromToggle, valueOfProp,
 } from '../core/settingsplugins';
@@ -76,6 +80,11 @@ struct PluginFieldRow {
   @Prop minv: number = 0;
   /** number 滑条上界。 */
   @Prop maxv: number = 0;
+  /** image 字段的当前值（驱动预设选中态与「已上传」判断）。 */
+  @Prop imgValue: string = '';
+  /** image 字段：上传中 / 失败文案（空 = 无错）。 */
+  @Prop uploading: boolean = false;
+  @Prop uploadErr: string = '';
 
   onBool: (next: boolean) => void = (next: boolean) => {
   };
@@ -86,6 +95,9 @@ struct PluginFieldRow {
   onText: (text: string) => void = (text: string) => {
   };
   onCommit: () => void = () => {
+  };
+  /** image 字段：选图并上传（父组件实现 picker + 上传 + 写回）。 */
+  onPickImage: () => void = () => {
   };
 
   private pal(): Palette {
@@ -124,6 +136,74 @@ struct PluginFieldRow {
     return pluginSliderStep(this.minv, this.maxv);
   }
 
+  /**
+   * image 字段的值区：预设 + 当前值 + 「选择图片并上传」+ 失败可读 + Web UI 兜底。
+   * 契约/判据全在 `core/settingsplugins.ets` ④（本组件只画 + 发回调）。
+   */
+  @Builder
+  ImageSection() {
+    Column({ space: SP_1 }) {
+      if (this.optValues.length > 0) {
+        Flex({ wrap: FlexWrap.Wrap }) {
+          ForEach(this.optValues, (ov: string, oi: number) => {
+            Text(this.optLabels[oi >= 0 && oi < this.optLabels.length ? oi : 0])
+              .fontSize(FS_CAPTION)
+              .fontColor(this.imgValue === ov ? this.pal().onAccent : this.pal().textSecondary)
+              .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
+              .margin(2)
+              .backgroundColor(this.imgValue === ov ? this.pal().accent : this.pal().surfaceAlt)
+              .borderRadius(R_LG)
+              .border({ width: 1, color: this.imgValue === ov ? this.pal().accent : this.pal().border })
+              .onClick(() => {
+                if (!this.busy && !this.uploading) {
+                  this.onSelect(ov);
+                }
+              })
+          }, (ov: string, oi: number) => `img-opt#${ov}#${oi}`)
+        }
+      }
+      Text(this.imgValue.length > 0 ? this.imgValue : '（未设置图片）')
+        .fontSize(FS_CAPTION)
+        .fontColor(this.pal().textSecondary)
+        .maxLines(2)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .width('100%')
+      Row({ space: SP_2 }) {
+        Text(this.uploading ? '上传中…' : '选择图片并上传')
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().onAccent)
+          .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+          .backgroundColor(this.pal().accent)
+          .borderRadius(R_LG)
+          .opacity(this.uploading ? 0.5 : 1)
+          .onClick(() => {
+            if (!this.uploading && !this.busy) {
+              this.onPickImage();
+            }
+          })
+      }
+      .width('100%')
+      if (pluginImageValueKind(this.imgValue) === PLUGIN_IMG_UPLOADED) {
+        Text('当前值 = 本站上传的图片（/api/plugin-files/…）。')
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().textMuted)
+          .width('100%')
+      }
+      if (this.uploadErr.length > 0) {
+        Text(this.uploadErr)
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().dangerText)
+          .width('100%')
+      }
+      Text('兜底：也可在「完整 Web UI」的设置 → 插件 里设置。')
+        .fontSize(FS_CAPTION)
+        .fontColor(this.pal().textMuted)
+        .width('100%')
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
   @Builder
   LabelCol() {
     Column({ space: 2 }) {
@@ -146,7 +226,7 @@ struct PluginFieldRow {
     Column({ space: SP_1 }) {
       Row({ space: SP_2 }) {
         this.LabelCol()
-        if (!this.editable) {
+        if (!this.editable && this.kind !== PLUGIN_FIELD_IMAGE) {
           Text('暂不支持编辑')
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().textMuted)
@@ -162,7 +242,9 @@ struct PluginFieldRow {
       .alignItems(VerticalAlign.Center)
 
       // 非编辑类型：只读展示 + 明确说明（**不假装成功**）
-      if (!this.editable) {
+      if (this.kind === PLUGIN_FIELD_IMAGE) {
+        this.ImageSection()
+      } else if (!this.editable) {
         Text(this.display.length > 0 ? this.display : '—')
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textSecondary)
@@ -281,6 +363,10 @@ export struct SettingsPlugins {
   @State private notice: string = '';
   /** 在飞的键（`<pid>` 用于启停/重载；`<pid>#<key>` 用于配置写）—— 与 web `busy` 同义。 */
   @State private busy: string = '';
+  /** image 上传中（`pid#key`；空 = 无）。 */
+  @State private uploadBusy: string = '';
+  /** image 上传失败文案（可读；空 = 无错）。 */
+  @State private uploadErr: string = '';
   /** 文本/数字字段的**草稿**（键 = `<pid>#<key>`）—— 输入中途不发 RPC，点「保存」才提交。 */
   @State private drafts: Record<string, string> = {};
   /** 待确认重载的插件 id（二次确认，空 = 未武装）。 */
@@ -374,6 +460,53 @@ export struct SettingsPlugins {
 
   private async setBool(pid: string, p: PluginConfigProperty, on: boolean): Promise<void> {
     await this.writeValue(pid, p, valueFromToggle(on));
+  }
+
+  /**
+   * image 字段：选图 → 读字节 → 上传 → 用**服务端返回的 url** 写回（`plugin_config_set`）。
+   * 契约/判据全在 `core/settingsplugins.ets` ④；失败一律**可读**（HTTP 码 + 原因）。
+   */
+  private async pickAndUpload(pid: string, p: PluginConfigProperty): Promise<void> {
+    const key: string = `${pid}#${p.key}`;
+    if (this.uploadBusy.length > 0) {
+      return;
+    }
+    this.uploadErr = '';
+    try {
+      const picker: photoAccessHelper.PhotoViewPicker = new photoAccessHelper.PhotoViewPicker();
+      const opt: photoAccessHelper.PhotoSelectOptions = new photoAccessHelper.PhotoSelectOptions();
+      opt.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
+      opt.maxSelectNumber = 1;
+      const res: photoAccessHelper.PhotoSelectResult = await picker.select(opt);
+      const uris: string[] = res.photoUris;
+      if (uris === undefined || uris.length === 0) {
+        return; // 用户取消
+      }
+      const uri: string = uris[0];
+      const name: string = pluginFilenameFromUri(uri, `image-${Date.now()}.png`);
+      const f: fileIo.File = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
+      let bytes: ArrayBuffer;
+      try {
+        const st: fileIo.Stat = fileIo.statSync(f.fd);
+        bytes = new ArrayBuffer(st.size);
+        fileIo.readSync(f.fd, bytes);
+      } finally {
+        fileIo.closeSync(f);
+      }
+      this.uploadBusy = key;
+      const metaJson: string = await this.http.uploadBytes(
+        pluginUploadPath(pid), name, bytes, pluginUploadMime(name));
+      const url: string = pluginUploadUrlFromMeta(metaJson);
+      if (url.length === 0) {
+        throw new Error('上传响应缺少 url');
+      }
+      await this.writeValue(pid, p, valueFromText(p, url));
+    } catch (e) {
+      const msg: string = (e as Error).message;
+      this.uploadErr = pluginUploadErrorText(pluginUploadStatusFromMessage(msg), msg);
+    } finally {
+      this.uploadBusy = '';
+    }
   }
 
   private async setSingle(pid: string, p: PluginConfigProperty, value: string): Promise<void> {
@@ -553,6 +686,9 @@ export struct SettingsPlugins {
                         hasRange: pluginFieldHasRange(p),
                         minv: p.min,
                         maxv: p.max,
+                        imgValue: this.backendValue(e.id, p).s,
+                        uploading: this.uploadBusy === `${e.id}#${p.key}`,
+                        uploadErr: this.uploadErr,
                         onBool: (on: boolean) => {
                           void this.setBool(e.id, p, on);
                         },
@@ -567,6 +703,9 @@ export struct SettingsPlugins {
                         },
                         onCommit: () => {
                           void this.commitText(e.id, p);
+                        },
+                        onPickImage: () => {
+                          void this.pickAndUpload(e.id, p);
                         },
                       })
                     }, (p: PluginConfigProperty) => `${this.fieldKey(e.id, p)}#${configValueFingerprint(p, this.backendValue(e.id, p))}#${this.draftOf(e.id, p)}`)

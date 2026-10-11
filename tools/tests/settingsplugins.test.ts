@@ -24,6 +24,9 @@ import {
   normalizeFieldType, parsePluginConfig, readValue, sameValue, setEntryValues,
   pluginSliderStep, pluginSliderValue,
   pluginControlKind, pluginInputMode,
+  PLUGIN_FILES_PREFIX, PLUGIN_IMG_EMPTY, PLUGIN_IMG_EXTERNAL, PLUGIN_IMG_PRESET, PLUGIN_IMG_UPLOADED,
+  pluginFileUrl, pluginFilenameFromUri, pluginIdIsValid, pluginImagePreviewUrl, pluginImageValueKind,
+  pluginUploadErrorText, pluginUploadFilenameIsValid, pluginUploadPath,
   shouldShowTab, submitValue, textInputValue, toggleListValue, validateValue, valueFromText,
   valueFromToggle, visibleTabs, fallbackTabId, displayValue,
   configValueFingerprint, pluginEntryFingerprint, filterPluginCatalog, pluginPropMatches, pluginFieldHasRange,
@@ -170,9 +173,17 @@ unknownPick.s = 'zzz';
 eq('校验：select 未知选项 ⇒ 报错', validateValue(pMode, unknownPick) !== '', true);
 eq('校验：multiselect required 空 ⇒ 报错',
   validateValue(pTags, readValue(PLUGIN_FIELD_MULTISELECT, [])) !== '', true);
-eq('校验：image 不可编辑 ⇒ 明确报错',
-  validateValue(parsePluginConfig({ plugins: [{ id: 'i', properties: { img: { type: 'image' } } }] } as Object)
-    .entries[0].properties[0], readValue(PLUGIN_FIELD_STRING, 'u')) !== '', true);
+// ⚠️ 2026-10-11 语义变更：image 从"不可编辑"升级为"**上传后写回 URL**"
+// （契约见 `core/settingsplugins.ets` ④；web `SettingsPlugins.tsx:270` 同法）⇒ 旧的
+// 「image 不可编辑 ⇒ 明确报错」断言已过期，改为钉**新语义**（非 required ⇒ 放行；required 空 ⇒ 报错）。
+const imgProp = parsePluginConfig({ plugins: [{ id: 'i', properties: { img: { type: 'image' } } }] } as Object)
+  .entries[0].properties[0];
+eq('校验：image 非 required ⇒ 放行（上传后写回 url）', validateValue(imgProp, readValue(PLUGIN_FIELD_STRING, '')), '');
+eq('校验：image 带 url ⇒ 放行',
+  validateValue(imgProp, readValue(PLUGIN_FIELD_STRING, '/api/plugin-files/i/a.png')), '');
+const imgReq = parsePluginConfig({ plugins: [{ id: 'i', properties: { img: { type: 'image', required: true } } }] } as Object)
+  .entries[0].properties[0];
+eq('校验：image required + 空 ⇒ 报错', validateValue(imgReq, readValue(PLUGIN_FIELD_STRING, '')) !== '', true);
 
 const tagsVal: ConfigValue = readValue(PLUGIN_FIELD_MULTISELECT, ['t1']);
 eq('multiselect：listHas', [listHas(tagsVal, 't1'), listHas(tagsVal, 't2')], [true, false]);
@@ -393,6 +404,61 @@ const componentPath = pathMod.join(
   ok('★F 输入档经映射表 pluginInputMode', code.indexOf('pluginInputMode(') >= 0);
   ok('★F 控件档经映射表 pluginControlKind', code.indexOf('pluginControlKind(') >= 0);
   ok('★F 不再有 isText() 就地判控件（已并入映射表）', code.indexOf('.isText(') < 0);
+}
+
+// ── G. 插件图片字段：上传契约 / 值分类 / 预览 URL（镜像服务端，2026-10-11）────────
+// 服务端依据：`channel/web/web_files.go:35-36`（命名正则）/`:128,134`（字段名）/`:179`（URL 形状）。
+{
+  // 路径与字段名（契约钉死）
+  eq('★G 上传路径带 plugin_id（query）', pluginUploadPath('xbot.ambience'),
+    '/api/plugin-files/upload?plugin_id=xbot.ambience');
+  eq('★G 文件 URL 与服务端同构', pluginFileUrl('xbot.ambience', 'wall.png'),
+    '/api/plugin-files/xbot.ambience/wall.png');
+  eq('★G URL 前缀常量', PLUGIN_FILES_PREFIX, '/api/plugin-files/');
+
+  // 命名校验：镜像服务端正则（首字符字母数字 + 扩展 1..10 位；禁 `..`）
+  eq('★G id 合法', pluginIdIsValid('xbot.ambience'), true);
+  eq('★G id 含 .. ⇒ 非法', pluginIdIsValid('../etc'), false);
+  eq('★G id 以 . 开头 ⇒ 非法', pluginIdIsValid('.hidden'), false);
+  eq('★G id 空 ⇒ 非法', pluginIdIsValid(''), false);
+  eq('★G 文件名合法', pluginUploadFilenameIsValid('wall.png'), true);
+  eq('★G 文件名含 .. ⇒ 非法', pluginUploadFilenameIsValid('..png'), false);
+  eq('★G 文件名无扩展 ⇒ 非法', pluginUploadFilenameIsValid('wall'), false);
+  eq('★G 文件名扩展过长(>10) ⇒ 非法', pluginUploadFilenameIsValid('w.abcdefghijk'), false);
+
+  // 值分类
+  eq('★G 空值 ⇒ empty', pluginImageValueKind(''), PLUGIN_IMG_EMPTY);
+  eq('★G 空白值 ⇒ empty', pluginImageValueKind('   '), PLUGIN_IMG_EMPTY);
+  eq('★G preset:* ⇒ preset', pluginImageValueKind('preset:aurora'), PLUGIN_IMG_PRESET);
+  eq('★G 上传 URL ⇒ uploaded', pluginImageValueKind('/api/plugin-files/xbot.ambience/a.png'),
+    PLUGIN_IMG_UPLOADED);
+  eq('★G 外链 ⇒ external', pluginImageValueKind('https://cdn.example/a.png'), PLUGIN_IMG_EXTERNAL);
+
+  // 预览 URL（uploaded ⇒ 拼 base；preset/空 ⇒ 空串；external ⇒ 原样）
+  eq('★G 预览：uploaded 拼 baseUrl（去尾斜杠）',
+    pluginImagePreviewUrl('https://x.dev/', '/api/plugin-files/p/a.png'),
+    'https://x.dev/api/plugin-files/p/a.png');
+  eq('★G 预览：preset ⇒ 空串（非图片 URL）', pluginImagePreviewUrl('https://x.dev', 'preset:aurora'), '');
+  eq('★G 预览：空 ⇒ 空串', pluginImagePreviewUrl('https://x.dev', ''), '');
+  eq('★G 预览：external ⇒ 原样', pluginImagePreviewUrl('https://x.dev', 'https://cdn/a.png'),
+    'https://cdn/a.png');
+
+  // 文件名归一（picker URI 带 query / 非法名 ⇒ 回落）
+  eq('★G 从 URI 抽名（带 query 去掉）',
+    pluginFilenameFromUri('file://media/Photo/12/IMG/IMG_2024.jpg?x=1', 'image-1.png'), 'IMG_2024.jpg');
+  eq('★G URI 名非法（无扩展）⇒ 用回落名',
+    pluginFilenameFromUri('file://media/Photo/12/IMG/nofile', 'image-1.png'), 'image-1.png');
+  eq('★G URI 名含 .. ⇒ 用回落名',
+    pluginFilenameFromUri('file://x/..png', 'image-1.png'), 'image-1.png');
+  eq('★G 回落名也非法 ⇒ 兜底 image-1.png',
+    pluginFilenameFromUri('', 'bad name'), 'image-1.png');
+
+  // 失败文案
+  eq('★G 失败：码+原因', pluginUploadErrorText(413, 'payload too large'),
+    '图片上传失败：HTTP 413 payload too large');
+  eq('★G 失败：仅码', pluginUploadErrorText(500, ''), '图片上传失败：HTTP 500');
+  eq('★G 失败：仅原因', pluginUploadErrorText(0, 'network down'), '图片上传失败：network down');
+  eq('★G 失败：都无 ⇒ 有兜底文案', pluginUploadErrorText(0, '').length > 0, true);
 }
 
 if (fail > 0) { console.log(`  settingsplugins: ${pass} passed, ${fail} failed`); process.exit(1); }
