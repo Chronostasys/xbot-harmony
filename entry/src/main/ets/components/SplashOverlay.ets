@@ -12,7 +12,7 @@
  *   2. **动效只走底座** `components/anim.ets`（T1 = `animBase`、T2 = `animEaseOut` 具名工厂）⇒
  *      ⛔ 无字面量时长、⛔ 无 `Curve.Friction`。
  *      **曲线语义**（`core/splash.splashPhaseCurve` 是唯一判据）：**入场（T1）允许超调**（spring），
- *      **让位/退出（T2）不许超调**（`animEaseOut()` = `EASE_OUT_CSS`，`components/anim.ets:103`，
+ *      **让位/退出（T2）不许超调**（`animEaseOut()` = `EASE_OUT_CSS`，`components/anim.ets:104`，
  *      已就绪）。`@ohos/curves` 只许在 `components/anim.ets` import，组件侧**不能自造曲线**。
  *   3. **颜色零字面量**：唯一入口 `colorOf(p, role)`；底色走 `core/splash.splashBrandCanvas()`
  *      （**恒定品牌深色**，= T0 系统开屏色）；标记**恒 `full`** —— 一枚预生成的品牌紫 PNG
@@ -135,7 +135,7 @@ export struct SplashOverlay {
         return;
       }
       // 让位**不许超调**（`core/splash.splashPhaseCurve(T2) === easeOut`）：走底座具名工厂
-      // `animEaseOut()`（`components/anim.ets:103` = `MOTION_SLOW_MS` + `EASE_OUT_CSS`），**零超调**。
+      // `animEaseOut()`（`components/anim.ets:104` = `MOTION_SLOW_MS` + `EASE_OUT_CSS`），**零超调**。
       // ⛔ 不得在此自造曲线 / import `@ohos/curves`（唯一出口是 components/anim.ets）。
       // 让位 = 淡出 **+ 轻微上移**（`docs/SPLASH-SPEC.md:38` 的"可 + 轻微上移"；纯数值在 core/splash）。
       animateTo(animEaseOut(), () => {

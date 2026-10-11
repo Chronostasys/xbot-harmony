@@ -60,9 +60,9 @@ export function splashPhases(): string[] {
 //    使本模块今日即可编译与单测；同时已把"提升到底座"的清单交调度者转 `orb-ux`
 //    （`core/motion.ets` 现归其所有，本波**不改**）。
 
-/** T1 时长 = `MOTION_BASE_MS`（220ms，`core/motion.ets:36`）⇒ `animBase()`。 */
+/** T1 时长 = `MOTION_BASE_MS`（220ms，`core/motion.ets:38`）⇒ `animBase()`。 */
 export const SPLASH_ENTER_MS: number = MOTION_BASE_MS;
-/** T2 时长 = `MOTION_SLOW_MS`（320ms，`core/motion.ets:43`）⇒ `animSlow()`。 */
+/** T2 时长 = `MOTION_SLOW_MS`（320ms，`core/motion.ets:45`）⇒ `animSlow()`。 */
 export const SPLASH_EXIT_MS: number = MOTION_SLOW_MS;
 /** T1+T2 总时长（默认档）= 540ms。 */
 export const SPLASH_TOTAL_MS: number = SPLASH_ENTER_MS + SPLASH_EXIT_MS;
@@ -107,12 +107,13 @@ export const SPLASH_MARK_SETTLED_OPACITY: number = 1;
 /** 标记静止位缩放（入场终点）。 */
 export const SPLASH_MARK_SETTLED_SCALE: number = 1;
 /**
- * T2 **让位**时标记的**轻微上移**（vp，屏幕坐标取负）= `SPACE_SM` = **8vp**。
+ * T2 **让位**时标记的**轻微上移**（vp，屏幕坐标取负）= `SPACE_SM` = **12vp**。
  *
- * 依据 `docs/SPLASH-SPEC.md:38`：T2 = "标记让位（`opacity 1→0`，**可 + 轻微上移**）"——
+ * 依据 `docs/SPLASH-SPEC.md §4.6`：T2 = "标记让位（`opacity 1→0`，**可 + 轻微上移**）"——
  * 只淡出会读作"整层被抠掉"；给一点**方向性**（向上"交棒"）才像"让位"。
  * 走向 `animEaseOut()`（**无超调**，见 `splashPhaseCurve(T2)===easeOut`）：让位不许"抖一下"。
- * ⛔ 量级刻意极小（8vp ≈ 标记盒 160vp 的 5%）—— 是"气息"，不是位移表演。
+ * ⛔ 量级刻意极小（12vp ≈ 标记盒 160vp 的 7.5%）—— 是"气息"，不是位移表演。
+ * （2026-10-11 订正：此处曾写"8vp / 5%"，与 `SPACE_SM = SP_3 = 12` 不符；规格 §4.6 的 12vp/7.5% 才对。）
  */
 export const SPLASH_MARK_EXIT_LIFT_VP: number = SPACE_SM;
 
@@ -150,7 +151,7 @@ export const SPLASH_MARK_REF_VP: number = SPLASH_MARK_BOX_VP;
 //   ⇒ **约定**：`enter`（进入视野）可用超调；`exit`（离开/移交）一律**无超调缓出**。
 //   本约定把"用哪条曲线"变成**可测数据**（下方纯函数），mutation 可自证（把 T2 改回 spring ⇒ 必红）。
 //
-// ⚠️ 让位曲线的底座 token 已存在（`EASE_OUT_CSS`，`core/tokens.ets:56`，此前"已定义无消费者"）；
+// ⚠️ 让位曲线的底座 token 已存在（`EASE_OUT_CSS`，`core/tokens.ets:68`，此前"已定义无消费者"）；
 //    `orb-ux` 正在把它收成具名工厂 `animEaseOut()`（`components/anim.ets`，**本波不改该文件**）。
 //    ⇒ T2 曲线 **TODO：待 `animEaseOut()` 就绪**（本模块的判据已先行钉死，工厂就绪后组件直接换）。
 
@@ -175,7 +176,7 @@ export function splashPhaseCurve(phase: string): string {
   return SPLASH_CURVE_NONE;
 }
 
-/** 曲线标识 → 底座 CSS token（`core/tokens.ets:54/56`；`''` ⇒ 无曲线）。 */
+/** 曲线标识 → 底座 CSS token（`core/tokens.ets:66/68`；`''` ⇒ 无曲线）。 */
 export function curveCssOf(curve: string): string {
   if (curve === SPLASH_CURVE_SPRING) {
     return EASE_SPRING_CSS;
@@ -435,11 +436,11 @@ export function splashPhaseIsInFlight(phase: string): boolean {
  *
  * ── 口径**全部派生自底座**（⛔ 零自造）───────────────────────────────────────────
  *   · 时长 = `SPLASH_EXIT_MS`（= `MOTION_SLOW_MS` = 320，`core/motion.ets:45`）；
- *   · 曲线 = `EASE_OUT_CSS`（`core/tokens.ets:56` = `cubic-bezier(0,0,0.2,1)`）——
- *     与渲染侧 `components/anim.ets:103 animEaseOut()` **同一 token**（`SplashOverlay.ets:145`）。
+ *   · 曲线 = `EASE_OUT_CSS`（`core/tokens.ets:68` = `cubic-bezier(0,0,0.2,1)`）——
+ *     与渲染侧 `components/anim.ets:104 animEaseOut()` **同一 token**（`SplashOverlay.ets:141`）。
  *
  * ── 观感模型（为什么这几条性质就是"渐隐 / 无硬切 / 无白闪"）──────────────────────
- *   渲染侧把 `overlayOpacity` 绑在**整层** `Stack`（`SplashOverlay.ets:224 .opacity(...)`），
+ *   渲染侧把 `overlayOpacity` 绑在**整层** `Stack`（`SplashOverlay.ets:204 .opacity(...)`），
  *   T2 由 1 → 0 ⇒ 品牌底以**均匀 α** 叠在应用页面上 ⇒ 合成色 = `α·品牌底 + (1-α)·应用底`。
  *     · **值域 [0,1]**（ease-out 无超调 ⇒ α 不越界）⇒ 合成色**永不亮于目的地** ⇒ **无"白闪一帧"**；
  *     · **单调不增** ⇒ 一致地朝目的地走（不来回抖）；

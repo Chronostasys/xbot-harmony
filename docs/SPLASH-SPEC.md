@@ -190,7 +190,7 @@ function curveHasOvershoot(css: string): boolean;            // 解析 cubic-bez
 
 ### 4.5 曲线语义（**设计系统级约定**）：入场可超调；让位/退出 **不许**超调
 
-底座唯一的曲线是 **spring**（`cubic-bezier(0.34,1.56,0.64,1)`，`core/tokens.ets:54`，**带超调**）。
+底座唯一的曲线是 **spring**（`cubic-bezier(0.34,1.56,0.64,1)`，`core/tokens.ets:66`，**带超调**）。
 **超调用在"入场"是对的**（有生气）；用在**"让位/移交"（退出）上是观感错误** —— 元素冲过头再退回来，看着像抖了一下。
 
 ⇒ **约定**：`enter`（进入视野）**允许**超调；`exit`（离开/移交）**一律无超调缓出**。
@@ -198,14 +198,14 @@ function curveHasOvershoot(css: string): boolean;            // 解析 cubic-bez
 
 | 阶段 | 曲线 | 底座来源 | 超调 |
 |---|---|---|---|
-| T1（入场） | `spring` | `core/tokens.ets:54`（`EASE_SPRING_CSS`）→ `animBase()`（`components/anim.ets:53-55`） | **允许**（y1 = 1.56 > 1） |
-| T2（让位） | `easeOut` | `core/tokens.ets:56`（`EASE_OUT_CSS` = `cubic-bezier(0,0,0.2,1)`） | **禁止**（y 全 ≤ 1） |
+| T1（入场） | `spring` | `core/tokens.ets:66`（`EASE_SPRING_CSS`）→ `animBase()`（`components/anim.ets:54-56`） | **允许**（y1 = 1.56 > 1） |
+| T2（让位） | `easeOut` | `core/tokens.ets:68`（`EASE_OUT_CSS` = `cubic-bezier(0,0,0.2,1)`） | **禁止**（y 全 ≤ 1） |
 | T0 / T3 | 无（不由本组件驱动） | — | — |
 
 `curveHasOvershoot(css)` 由 CSS 的**两个 y 控制点**实解析（任一 `y > 1` ⇒ 有超调），不是硬编码布尔
 ⇒ 把 T2 改回 spring，`tools/tests/splash.test.ts` ★E **必红**（mutation 已自证）。
 
-> ✅ **T2 曲线已就绪**（`animEaseOut()` 工厂，`components/anim.ets:103` =
+> ✅ **T2 曲线已就绪**（`animEaseOut()` 工厂，`components/anim.ets:104` =
 > `{ duration: MOTION_SLOW_MS, curve: EASE_OUT_CSS }`）。`SplashOverlay.onPhaseChange` 的
 > `animateTo` 已改用 `animEaseOut()`（不再是 `animSlow()`），T2 **零超调**。
 > ⛔ 组件侧**不得**自造曲线、**不得** import `@ohos.curves`（唯一出口 = `components/anim.ets`）。
@@ -230,9 +230,9 @@ function curveHasOvershoot(css: string): boolean;            // 解析 cubic-bez
 
 ### 4.7 T1→T3 过渡（T2 让位）的**透明度轨迹** —— "渐隐 / 无硬切 / 无白闪"的机器判据
 
-**现状取证**（`file:line`）：T2 = `SplashOverlay.ets:145-149` 的 `animateTo(animEaseOut(), …)`，把**整层**
-`Stack` 的 `.opacity(this.overlayOpacity)`（`:224`）由 `1 → 0`（标记**再乘**自身 `markOpacity→0`
-⇒ 标记比底更快隐去 = "让位"的层次）。曲线 `animEaseOut()`（`components/anim.ets:103`）=
+**现状取证**（`file:line`，2026-10-11 复核订正行号）：T2 = `SplashOverlay.ets:141-145` 的 `animateTo(animEaseOut(), …)`，把**整层**
+`Stack` 的 `.opacity(this.overlayOpacity)`（`:204`）由 `1 → 0`（标记**再乘**自身 `markOpacity→0`
+⇒ 标记比底更快隐去 = "让位"的层次）。曲线 `animEaseOut()`（`components/anim.ets:104`）=
 `MOTION_SLOW_MS`(**320ms**) + `EASE_OUT_CSS`(`cubic-bezier(0,0,0.2,1)`，**零超调**)。
 **中间态 = 灰**（品牌底以**均匀 α** 叠在应用页面上：`α·品牌底 + (1-α)·应用底`）——
 ⛔ **不是"半透明白"**：整层是同一个 α，没有"白色蒙层"这一层。
@@ -449,3 +449,48 @@ function curveHasOvershoot(css: string): boolean;            // 解析 cubic-bez
 | `docs/REDESIGN-INPUT-BRAND.md §4` | 三段过渡（A/B/C）设计输入 + 红线 —— 本规格把它**收敛成可实现的 T0–T3** |
 | `docs/DESIGN-SYSTEM.md §8` | "在飞"铁律（唯一 owner = 光球）—— 本规格 §9 引用 |
 | `docs/mockups/splash.html` | 本规格的**静态样张**（T1/T2/T3 静帧 + 时间轴） |
+
+---
+
+## 14. 2026-10-11 审计复核（目标⑤）—— 发现 / 待裁决 / 引用订正
+
+> 本波只**审计 + 订正引用**，⛔ 未改任何 `.ets` **行为**（规格条文除行号外原样）。
+> 机器判据 = `tools/tests/splash_continuity.test.ts`（★A 品牌停驻窗 / ★B 提示有效可见度 / ★C 生产相位驱动）。
+
+### 14.1 §11 补三条**缺口（待裁决）**
+
+| # | 发现 | 证据（`file:line` + 数值） | 建议 / 状态 |
+|---|---|---|---|
+| ⑨ | **纯模型 `splashPhaseAt` 与生产时间线分叉** | §4.1 的 220/540 真值表在 `entry/` **0 消费点**（`splash_continuity ★C` 打印计数 = 0）：页面用**两道闸门**驱动 —— `Index.ets:839 startSplash()`（迟滞 `SPLASH_HYSTERESIS_MS`=150）→ `:883` 的 `minDwell(400)` 定时器 → `beginExitSplash()`（`:919`，置 T2）→ `:929` 320ms 后置 T3。⇒ 生产 **T1 实际 ≥ 400ms、总 ≈ 720ms**（非 540）。`splashPhaseStartMs` / `splashPhaseDurationMs` / `splashPhases` 同样 0 消费点。 | ⚠️ **待裁决**：(a) 以**闸门**为准（现状，含 180ms 品牌停驻窗，观感更好）⇒ 把 §4.1 标注为"仅测试模型"；或 (b) 按 §4.1 接线（需**同时**给标记加停驻，否则停驻窗归零 = "刚到就散"）。判据 = ★A / ★C。 |
+| ⑩ | **跳过提示"有效可见度"峰值仅 25%** | `SplashOverlay.ets:200` 的 `.opacity(this.hintOpacity)` 嵌在 `:204` 的 `.opacity(this.overlayOpacity)` 内 ⇒ **有效 α = hint × overlay**。§4.6 令 hint 延迟 = `SPLASH_ENTER_MS`(220)、用 `animEaseOut()`(320，`:221`) 淡入；整层退场（`:141`）也在 [220,540] 由 1→0 ⇒ **两窗逐毫秒重合** ⇒ 有效 α = `p·(1−p)`，**峰值 0.25**（★B 实测打印 `0.2500`）。⇒ "轻点跳过"默认档几乎读不出来（反倒 `reduceMotion` 档因即时置 1 更清晰）。 | ⚠️ **待裁决**：让提示淡入在退场**开始前**跑完（hint 淡入取 `MOTION_FAST_MS`=180=停驻窗，或延迟前移到 `minDwell − fade`）⇒ 动 §4.6 已拍板值，**本波不改**。判据 = ★B。 |
+| ⑪ | **"光球交接"铁律的唯一判据 `splashOrbAllowed` 生产 0 消费点** | `core/splash.ets:424` 定义；★C 计数 = 0（仅测试引用）。⇒ §9 铁律当前**只被测试钉住、未被运行时强制**。但 `tools/tests/handoff_motion.test.ts` 的"**揭示式**交接"（光球在覆盖层**背后**渲染）在语义上**允许**光球于 T2 期间已在跑 ⇒ 与 §9"T1/T2 必须未启动"**张力**。 | ⚠️ **待裁决 + 跨域**：要强制 ⇒ 在光球挂载点（`LiveTailView.ets:523` / `ThinkingLine.ets:119`，**归 `light-fix3`**）消费它；若确认以"揭示式交接"为准 ⇒ §9 应改写并删死判据。 |
+
+### 14.2 样张 `docs/mockups/splash.html` **已过时**（待办，不在本波文件边界）
+
+| 处 | 样张写的（旧） | 现行裁决（新） |
+|---|---|---|
+| T2 曲线（样张 §A） | `animSlow()`（spring，**有超调**） | `animEaseOut()`（ease-out，**零超调**，§4.5） |
+| T1 画布（样张 §B/§C） | `splashCanvasOf(theme,…)`（方案 B，跟主题/系统）；整节"深浅对照" | `splashBrandCanvas()`（**恒深** `#0B0B0E`，与 T0 零跳色，§4.3） |
+
+### 14.3 `file:line` 引用订正（2026-10-11 复核；**值不变，仅行号随上游增行漂移**）
+
+上游 `core/motion.ets` / `core/tokens.ets` / `components/anim.ets` 增行 ⇒ §2/§3 台账行号整体偏移。
+本波已**就地订正** §4.5 / §4.7 的**锚点**（`tokens.ets:54→66`、`tokens.ets:56→68`、
+`anim.ets:103→104`、`SplashOverlay.ets:145-149→141-145`、`SplashOverlay.ets:224→204`）；
+其余未逐一就地改（避免误改），映射如下（供下一波清理）：
+
+| 旧引用（§2/§3 台账） | 新引用（2026-10-11 实核） |
+|---|---|
+| `core/motion.ets:31` | `:33`（MOTION_FAST_MS） |
+| `core/motion.ets:36` | `:38`（MOTION_BASE_MS） |
+| `core/motion.ets:38`（MSG_IN 行） | `:40`（MOTION_MSG_IN_MS） |
+| `core/motion.ets:43` | `:45`（MOTION_SLOW_MS） |
+| `core/tokens.ets:46` / `:48` | `:58`（D_FAST）/ `:60`（D_SLOW） |
+| `core/tokens.ets:76-78` | `:88-90`（spring 三参 response/damping/overlap） |
+| `components/anim.ets:48-50 / 53-55 / 58-60 / 63-65 / 72-74` | `:49-51 / :54-56 / :59-61 / :64-66 / :73-75` |
+| `components/anim.ets:96 / :98 / :104` | `:115`（Breath）/ `:117`（Beat）/ `:123`（Quiet） |
+| `components/anim.ets:114-117`（`sheetTransition`） | `:150-153` |
+| `brand.ets:348`（`markLevelFor`） | `:355` |
+
+> ⚠️ 上表"新引用"也**只是本次实核值**，上游再增行仍会漂移 ⇒ ⛔ 判据的**唯一真源是常量本身**（符号名），
+> 行号仅供检索。`tools/tests/*` 一律按**符号名**导入（不按行号）⇒ 行号漂移**不影响门禁**。
