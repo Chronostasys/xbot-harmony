@@ -160,7 +160,7 @@ pages/Index.ets 只消费上面的产物：`if (f = emptyFace(sig)) { StateFace(
    按 `docs/DESIGN-SYSTEM.md §8`「同一时刻只允许一个在飞动效」，骨架/空态应改为**静态**或走
    全局降级开关（`reduceMotion`）。**这是重构必须拍板的点**（§G2）。
 3. **`EmptyNotice` 刻意不加 `export`**（`MessageRow.ets:1004-1007`）：抽离时会触发 lint 的孤儿组件规则 ⇒
-   迁移需同步改 `tools/lint/orphan-components.sh` 的豁免口径。
+   ⛔ **订正（2026-10-11）**：**不必改脚本** —— 该脚本只扫描 `^export struct`，「刻意不加 `export`」的 struct 本来就不在它的判据里；且自 2026-10-11 起判据已改为**文件级可达性**（文件里任一导出有跨文件消费者 ⇒ 整个文件被编译 ⇒ 文件内所有 struct 都被类型检查），详见 `docs/ARKTS-GOTCHAS.md` 批次 16b。**此条已过时。**
 4. **终态文案 vs 自动恢复**：把"终态"和"重连"分开后，终态**不许**再自动重试（否则回到无限重连），
    需要显式"重试"入口 + 不得静默。
 

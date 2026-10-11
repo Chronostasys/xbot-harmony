@@ -157,7 +157,7 @@ components/SettingsRow.ets（新增，替代 SettingsToolRow + 5 处自写行）
 1. **12 个 Settings 文件在多条并行线上被改**（`SettingsPanel.ets` / `SettingsLlm.ets` / `SettingsPlugins.ets`
    当前工作树里有他人在途改动）⇒ 收敛必须**先加 `SettingsRow`、逐个分区替换**，不能一次性重写。
 2. **孤儿组件规则**（`tools/lint/orphan-components.sh`）：`SettingsRows.ets` 的原子靠"跨文件真实实例化"进入
-   依赖图才被真编译。新增 `SettingsRow.ets` 后若旧原子失去消费者，会**不再被编译**（假绿风险）⇒ 需同步清理。
+   依赖图才被真编译（⛔ **2026-10-11 判据已收紧为"文件级可达性"**：文件里**任一**导出有跨文件消费者 ⇒ **整个文件**被编译 ⇒ 文件内所有 struct 都被类型检查；因此"某个原子失去消费者"**不再必然**导致它不被编译，但只要**全文件**都没了跨文件消费者就整体失去检查。见 `docs/ARKTS-GOTCHAS.md` 批次 16b）。新增 `SettingsRow.ets` 后若旧原子失去消费者，会**不再被编译**（假绿风险）⇒ 需同步清理。
 3. **`ForEach` key 里的 6 个状态位**（`SettingsLlm.ets:1171`）：换成行状态模型时，key 必须**同步**改成
    "内容 + armedKey"，否则复用错位（ArkUI 复用错位 = 渲染错乱，见 `docs/ARKTS-GOTCHAS.md`）。
 4. **基类成员名黑名单**：新行组件的 `@Prop` 不得叫 `enabled`（已有此坑，`SettingsRows.ets:13/32-33` 注释）⇒ 用 `isOn`。
