@@ -6,7 +6,7 @@
 # 同样输入 ⇒ 逐字节同样的产物（`sips` 栅格化已实测确定性；见 `--check`）。
 #
 # 用法：
-#   bash tools/brand/gen.sh            # 生成/覆盖资源（app_icon.svg ×2 + start_icon.png）
+#   bash tools/brand/gen.sh            # 生成/覆盖资源（app_icon.svg ×2 + start_icon.png + 轮廓/分层 SVG）
 #   bash tools/brand/gen.sh --check    # 只校验：把生成结果与已提交资源逐字节比对（drift 门禁）
 #   bash tools/brand/gen.sh --proofs DIR   # 另外渲染浅/深两种开屏底色上的标记 proof PNG（人工走查用）
 #
@@ -18,6 +18,9 @@ CORE="$ROOT/entry/src/main/ets/core"
 APPSCOPE_SVG="$ROOT/AppScope/resources/base/media/app_icon.svg"
 ENTRY_SVG="$ROOT/entry/src/main/resources/base/media/app_icon.svg"
 ENTRY_PNG="$ROOT/entry/src/main/resources/base/media/start_icon.png"
+ENTRY_OUTLINE="$ROOT/entry/src/main/resources/base/media/brand_mark_outline.svg"
+ENTRY_FG="$ROOT/entry/src/main/resources/base/media/brand_foreground.svg"
+ENTRY_BG="$ROOT/entry/src/main/resources/base/media/brand_background.svg"
 
 MODE="write"
 PROOF_DIR=""
@@ -56,10 +59,17 @@ if [ "$MODE" = "write" ]; then
   cp "$WORK/out/entry_app_icon.svg" "$ENTRY_SVG"
   # 开屏标记：先出 SVG 中间件，再 sips 栅格化为 512×512 PNG（透明底）
   sips -s format png "$WORK/out/start_icon.svg" --out "$ENTRY_PNG" >/dev/null 2>&1
+  # 降级链 / 分层图标：矢量资源（SVG 原样进 HAP）
+  cp "$WORK/out/brand_mark_outline.svg" "$ENTRY_OUTLINE"
+  cp "$WORK/out/brand_foreground.svg" "$ENTRY_FG"
+  cp "$WORK/out/brand_background.svg" "$ENTRY_BG"
   echo "✅ 已生成："
   echo "   $APPSCOPE_SVG"
   echo "   $ENTRY_SVG"
   echo "   $ENTRY_PNG"
+  echo "   $ENTRY_OUTLINE"
+  echo "   $ENTRY_FG"
+  echo "   $ENTRY_BG"
   if [ -n "$PROOF_DIR" ]; then
     mkdir -p "$PROOF_DIR"
     sips -s format png "$WORK/out/proof_light.svg" --out "$PROOF_DIR/proof_light.png" >/dev/null 2>&1
@@ -70,7 +80,7 @@ else
   # --check：与已提交资源逐字节比对（含 PNG 重生成）
   sips -s format png "$WORK/out/start_icon.svg" --out "$WORK/out/start_icon.png" >/dev/null 2>&1
   fail=0
-  for pair in "$WORK/out/AppScope_app_icon.svg:$APPSCOPE_SVG" "$WORK/out/entry_app_icon.svg:$ENTRY_SVG" "$WORK/out/start_icon.png:$ENTRY_PNG"; do
+  for pair in "$WORK/out/AppScope_app_icon.svg:$APPSCOPE_SVG" "$WORK/out/entry_app_icon.svg:$ENTRY_SVG" "$WORK/out/start_icon.png:$ENTRY_PNG" "$WORK/out/brand_mark_outline.svg:$ENTRY_OUTLINE" "$WORK/out/brand_foreground.svg:$ENTRY_FG" "$WORK/out/brand_background.svg:$ENTRY_BG"; do
     gen="${pair%%:*}"; committed="${pair#*:}"
     if [ ! -f "$committed" ]; then echo "❌ 缺失：$committed"; fail=1; continue; fi
     if cmp -s "$gen" "$committed"; then

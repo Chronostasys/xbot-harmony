@@ -123,6 +123,14 @@ entry/src/main/resources/base/element/color.json   → start_window_background (
 entry/src/main/resources/dark/element/color.json   → start_window_background (#0B0B0E)
 ```
 
+**降级链 / 分层图标资源**（由 `tools/brand/gen.sh` 生成；当前**尚无运行时消费者**，见 §9/§10 —— 待接线/待拍板）：
+
+| 资源 | 是什么 | 生成命令 | 消费方 |
+|---|---|---|---|
+| `entry/.../media/brand_mark_outline.svg` | 降级链第 3 档：单色轮廓（零填充零发光，`outlineMarkSvg`） | `bash tools/brand/gen.sh` | 待接线（无障碍/黑白时由 `markLevelFor` 选中） |
+| `entry/.../media/brand_foreground.svg` | 分层图标**前景**：标记缩进 313 安全区（`layeredForegroundSvg`） | 同上 | 分层图标（需改 `app.json5`，§10 #3） |
+| `entry/.../media/brand_background.svg` | 分层图标**背景**：满幅品牌色（`layeredBackgroundSvg`） | 同上 | 同上 |
+
 > ⚠️ `$media:` 按**资源名**解析，与扩展名无关。
 > `$media:app_icon` 在 **AppScope 与 entry 两侧各放一份**（沿用改造前的既有结构）：
 > 模块级资源覆盖 app 级同名资源，两侧同名**不算冲突**。
@@ -175,7 +183,8 @@ sips -g hasAlpha -g pixelWidth -g pixelHeight /tmp/start_icon.png   # hasAlpha: 
 
 ```bash
 bash tools/brand/gen.sh            # 生成/覆盖：app_icon.svg（AppScope + entry 两份）+ start_icon.png
-bash tools/brand/gen.sh --check    # 只校验：与已提交资源逐字节比对（drift 门禁）
+                                   #   + brand_mark_outline.svg + brand_foreground.svg + brand_background.svg
+bash tools/brand/gen.sh --check    # 只校验：与已提交资源逐字节比对（drift 门禁；含上面全部 6 个产物）
 bash tools/brand/gen.sh --proofs /tmp/xbot-brand-proofs   # 另出浅/深开屏底色的 proof PNG（人工走查）
 ```
 
@@ -198,12 +207,14 @@ bash tools/brand/gen.sh --proofs /tmp/xbot-brand-proofs   # 另出浅/深开屏�
 | 量 | 值 | 判定 |
 |---|---|---|
 | 画布内切圆半径（圆形蒙版可见半径） | `512` | — |
-| 标记最大半径（边中点 + 圆角弧最远点 + 尾巴尖的极值） | `≈ 393.9`（尾巴尖主导） | `< 512` ⇒ **圆形/方形/圆角蒙版都不裁** ✅ |
-| 分层图标前景安全区半径（108dp 里的 66dp ⇒ `33/108×1024`） | `313` | 标记 `393.9 > 313` ⇒ **做分层时前景需缩进** ⚠️（当前是**单层**图标，不依赖它） |
+| 标记最大半径（边中点 + 圆角弧最远点 + 尾巴尖的极值） | `393.9`（尾巴尖主导） | `< 512` ⇒ **圆形/方形/圆角蒙版都不裁** ✅ |
+| 单色轮廓最大半径（= 393.9 + 1/2×描边 28） | `407.9` | `≤ 410`（样张建议最大半径）✅ |
+| 分层图标前景安全区半径（108dp 里的 66dp ⇒ `33/108×1024`） | `313` | 原标记 `393.9 > 313` ⇒ **做分层时前景须缩进**；已由 `layeredForegroundScale()`（`0.7946`）缩到 `313.0` ✅（`brand_foreground.svg`） |
 | 左右边距对称 | `224 == 1024-800` | ✅ |
 
 > 结论：**当前单层图标**对圆形/方形/圆角蒙版都安全（余量 ~118px）。若将来改**分层图标**（见 §9 待验证项），
-> 必须把前景缩进到 313 半径内（`tools/tests/brand.test.ts` 的 `fitsLayeredSafeZone()` 会提醒）。
+> 前景用已生成的 `brand_foreground.svg`（半径恰好 313，`foregroundFitsLayeredSafeZone()` 恒 true）；
+> 未缩进的原始标记 `fitsLayeredSafeZone()` 仍为 false —— 它是"提醒"，不是 bug。
 
 **浅/深两套开屏底色的 proof**（证明"同一标记在浅底与深底都成立"）：
 
@@ -268,9 +279,82 @@ bash tools/brand/gen.sh --proofs /tmp/xbot-brand-proofs
 |---|---|---|---|
 | 1 | **App 内启动动效（真正的"开屏动画"）** | 系统 `startWindow` 是**静态**的（无法动画）；App 内首帧是 `pages/Index.ets:2605 LoadingView`（转圈 + "xbot"），**`pages/Index.ets` 与 `components/**` 不在本波文件边界** | 批准后新增一个 splash 组件/页面（注意本仓"同一时刻只有一个在飞动效"铁律 `DESIGN-SYSTEM.md §8`） |
 | 2 | **冷启动跳色**（系统浅、应用选深，或反之）| 开屏底色**跟随系统**（`FOLLOW_SYSTEM` 默认，§4.2）；应用色板由 `EntryAbility.onCreate` 的 `setColorMode` 决定 ⇒ 二者不一致时"开屏 → 首帧"跳一帧 | 改用 `startWindow` profile + `FOLLOW_APPLICATION`（要改 `module.json5` ⇒ 配置拍板）；见 §4.2 |
-| 3 | **分层图标（adaptive icon）** | `layered_image` 落法在本地 SDK/hvigor **搜不到**（§9）；且启用需改 `app.json5` 的 `icon` | 查 DevEco 文档 + 配置拍板；本波已把前景安全区约束与检算备好（§6.5） |
+| 3 | **分层图标（adaptive icon）** | `layered_image` 落法在本地 SDK/hvigor **搜不到**（§9）；且启用需改 `app.json5` 的 `icon` | 查 DevEco 文档 + 配置拍板；**本波已把资源备好**：`brand_foreground.svg`（前景，半径恰 313）+ `brand_background.svg`（背景）+ §6.5 检算 |
 | 4 | **品牌主色 `#7C5CFF` 调整** | 改主色影响全应用（token）与 web 对齐 | **只出建议**：白底族上 `#7C5CFF` vs `#FFFFFF` 对比约 4.3:1，若要做"纯白主题专属 logo"，可评估加深一档（如 `#6A4CF0`）——**但要用户拍板且需同步 `theme.ets`（不在本波边界）** |
 | 5 | **真机开屏/桌面图标截图** | 系统开屏是**亚秒级**、且模拟器为共享资源（拍照需抢时序）| 见交付 ④ 的说明 |
 
 > 一并以**代码级 + 构建级**证据交付：`core/brand.ets` + `tools/brand/gen.sh`（可重复生成）+
 > `tools/tests/brand.test.ts`（几何/安全区/配色/产物一致的守护）+ 浅/深 proof PNG。
+
+## 11. 降级链（presentation ladder）—— 品牌呈现的**唯一判据**
+
+依据样张 `docs/mockups/brand-splash.html §③` 与 `docs/REDESIGN-INPUT-BRAND.md §3.3/§3.4`。
+四档（信息量从大到小）：**满幅品牌色 → 实心标记 on 中性白 → 单色轮廓 → wordmark**。
+
+判据**全部收敛到 `core/brand.ets: markLevelFor(BrandSurface)`**（纯逻辑、可脱机单测）：
+
+| 上下文（`BrandSurface`） | 结果 | 说明 |
+|---|---|---|
+| 可用边长 > 0 且 < `MARK_MIN_GLYPH_VP`(24vp) | `wordmark` | 几何标记糊成一团 |
+| `monochrome`（无障碍/黑白/低功耗） | `outline` | 零填充零发光 |
+| 已测对比度 < `MARK_GRAPHIC_MIN_RATIO`(3:1) | `outline` | 轮廓线仍可辨 |
+| 深色面 | `full` | 满幅品牌色 + 反色 glyph |
+| 浅色面（白主题） | `solid` | 实心品牌色 glyph on 中性白；**永不** `full` |
+
+各档的资源与生成：`full` → `app_icon.svg`；`solid` → `start_icon.png`；`outline` → `brand_mark_outline.svg`；
+`wordmark` → 纯文字（`Text('xbot')`，非图片资源）。⛔ 白主题一律**不靠发光/渐变**（宪法 §3.1）。
+
+守护：`tools/tests/brand.test.ts` §⑦⑧⑨⑩（对比度口径自洽 / 判据真值表 / 各档 SVG 纪律 / 产物一致），
+`process.exit` 非 0；判据改坏即红（mutation 已自证）。
+
+## 12. 待用户拍板的**配置面**补丁（纯资源侧已做到天花板 —— 精确 diff）
+
+以下两处**必须动配置**才能生效 ⇒ 本波**不改**，只给精确补丁（改哪行 / 为什么必须 / 影响 / 回滚）。
+
+### 12.1 开屏底色跟随**应用**主题（消「冷启动跳色」，§4.2 / §10 #2）
+
+**现状**：`module.json5` 未声明 `startWindow` profile ⇒ 系统默认 `FOLLOW_SYSTEM`；开屏底色的深浅只跟系统，
+不跟用户在应用内选的主题 ⇒ 「系统浅 + 应用选深（或反之）」时开屏 → 首帧**跳一帧色**。
+**补丁**（两处）：
+
+```diff
+# ① entry/src/main/module.json5 —— abilities[0] 内新增一行（保留既有 startWindowIcon/Background）
+         "startWindowIcon": "$media:start_icon",
+         "startWindowBackground": "$color:start_window_background",
++        "startWindow": "$profile:startWindow",
+```
+```json
+// ② 新增 entry/src/main/resources/base/profile/startWindow.json（schema: toolchains/modulecheck/startWindow.json）
+{
+  "startWindowBackgroundColor": "$color:start_window_background",
+  "startWindowAppIcon": "$media:start_icon",
+  "startWindowColorModeType": "FOLLOW_APPLICATION"
+}
+```
+
+- **为什么必须**：`startWindowColorModeType` 只有放在 `startWindow` profile 里才生效；这是**唯一**能让开屏
+  跟应用色板（而非系统）的开关（schema 已核实其 enum 含 `FOLLOW_APPLICATION`）。
+- **影响**：开屏底色改由应用 colorMode（`EntryAbility.onCreate` 的 `setColorMode`）决定；profile 一旦生效会
+  **接管**开屏图标/背景的整条渲染路径（`startWindowIcon/Background` 两个字段可能被 profile 覆盖）。
+- **风险（未证）**：`setColorMode` 在 `onCreate` 调用，而开屏可能渲染更早 ⇒ 时序是否让开屏吃到应用色板
+  **未经真机证实**。
+- **回滚**：删 ① 那一行 + 删 ② 的文件即可（无其它副作用）。
+
+### 12.2 分层图标（adaptive / layered icon，§6.5 / §9 / §10 #3）
+
+**现状**：单层图标（`app_icon.svg` 满幅 + glyph）。**资源本波已备好**（`brand_foreground.svg` 半径恰 313、
+`brand_background.svg` 满幅色底），只差配置。
+**补丁**（形状**未经本地核实**，须先查 DevEco 文档）：
+
+```diff
+# AppScope/app.json5 —— app.icon 指向分层资源
+-    "icon": "$media:app_icon",
++    "icon": "$media:layered_image",
+```
+- **为什么必须**：分层图标靠 `icon` 指向一个"分层描述"，而非单张前景图；SDK/hvigor 本地**搜不到**
+  `layered_image` 的约定或 schema（§9）⇒ 资源命名/描述文件形状待核实。
+- **影响**：桌面图标渲染路径整体改变；需把前景/背景资源按核实后的命名放到 **AppScope 侧**（当前在 entry 侧）。
+- **回滚**：把 `icon` 改回 `$media:app_icon`。
+
+> ⛔ 两处补丁都**只动配置/资源**，不动任何 ArkTS 逻辑；应用内"首帧品牌标记入场"（§10 #1）另需
+> `pages/Index.ets`（`LoadingView`）接线 —— 那不在本波文件边界。

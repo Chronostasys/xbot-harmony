@@ -17,18 +17,38 @@ import {
   APP_ICON_PX,
   BRAND_CANVAS,
   BUBBLE_X0, BUBBLE_X1, BUBBLE_Y0, BUBBLE_Y1,
+  BrandSurface,
   ICON_INSCRIBED_RADIUS,
   LAYERED_SAFE_RADIUS,
+  MARK_GRAPHIC_MIN_RATIO,
+  MARK_LADDER_FULL,
+  MARK_LADDER_OUTLINE,
+  MARK_LADDER_SOLID,
+  MARK_LADDER_WORDMARK,
+  MARK_MIN_GLYPH_VP,
+  OUTLINE_STROKE_W,
   START_ICON_PX,
+  SUGGESTED_MAX_RADIUS,
   TAIL_TIP_ROUND, TAIL_TIP_X, TAIL_TIP_Y,
   appIconSvg,
   brandAccent,
   brandOnAccent,
   bubblePath,
+  contrastRatio,
   fitsInscribedCircle,
   fitsLayeredSafeZone,
+  foregroundFitsLayeredSafeZone,
+  foregroundMarkMaxRadius,
+  layeredBackgroundSvg,
+  layeredForegroundScale,
+  layeredForegroundSvg,
   markBounds,
+  markLadder,
+  markLevelFor,
   markMaxRadius,
+  outlineMarkSvg,
+  outlineMaxRadius,
+  relativeLuminance,
   splashMarkSvg,
   starPath,
 } from '../../entry/src/main/ets/core/brand';
@@ -174,6 +194,94 @@ const ON_ACCENT = brandOnAccent();
     ok('start_icon.png 带 alpha（透明底）', buf[25] === 6, `colorType=${buf[25]}`);
   } catch (e) {
     ok('读取 start_icon.png 失败（应存在）', false, (e as Error).message);
+  }
+}
+
+// ── ⑦ 对比度口径自洽（brand.ets 的纯函数 == 本测试的本地实现）──────────────────
+{
+  ok('relativeLuminance 白 = 1', Math.abs(relativeLuminance('#FFFFFF') - 1) < 1e-9);
+  ok('relativeLuminance 黑 = 0', Math.abs(relativeLuminance('#000000') - 0) < 1e-9);
+
+  const a: string = brandAccent();
+  const lightBg: string = lightPalette().appBg;
+  const darkBg: string = darkPalette().appBg;
+  ok('contrastRatio 与本地实现逐值一致（浅底）',
+    Math.abs(contrastRatio(a, lightBg) - contrast(a, lightBg)) < 1e-9,
+    `${contrastRatio(a, lightBg)} vs ${contrast(a, lightBg)}`);
+  ok('contrastRatio 与本地实现逐值一致（深底）',
+    Math.abs(contrastRatio(a, darkBg) - contrast(a, darkBg)) < 1e-9);
+  ok('8 位 ARGB 取末 6 位（#AARRGGBB）',
+    Math.abs(relativeLuminance('#FF7C5CFF') - relativeLuminance('#7C5CFF')) < 1e-12);
+  ok('非法输入不抛（按黑 0）', relativeLuminance('zzz') === 0);
+}
+
+// ── ⑧ 降级链（markLevelFor）—— 品牌呈现的**唯一判据** ─────────────────────────
+{
+  eq('链顺序 = 满幅→实心→轮廓→wordmark', markLadder(),
+    [MARK_LADDER_FULL, MARK_LADDER_SOLID, MARK_LADDER_OUTLINE, MARK_LADDER_WORDMARK]);
+  eq('深色面 ⇒ 满幅', markLevelFor(new BrandSurface(true, false, 512, 4.43)), MARK_LADDER_FULL);
+  eq('浅色面（白主题）⇒ 实心标记', markLevelFor(new BrandSurface(false, false, 512, 4.20)), MARK_LADDER_SOLID);
+  eq('单色/无障碍 ⇒ 轮廓', markLevelFor(new BrandSurface(false, true, 512, 4.20)), MARK_LADDER_OUTLINE);
+  eq('对比不足（已测 <3）⇒ 轮廓', markLevelFor(new BrandSurface(false, false, 512, 2.5)), MARK_LADDER_OUTLINE);
+  eq('边长过小（<24vp）⇒ wordmark', markLevelFor(new BrandSurface(true, false, 20, 4.43)), MARK_LADDER_WORDMARK);
+  eq('边长未知（0）不降级', markLevelFor(new BrandSurface(false, false, 0, 4.20)), MARK_LADDER_SOLID);
+  eq('对比未测（0）不降级', markLevelFor(new BrandSurface(true, false, 512, 0)), MARK_LADDER_FULL);
+  // ⛔ 白色主题（浅色面）**永不**满幅色块（宪法 §3.1）
+  const lv: string = markLevelFor(new BrandSurface(false, false, 512, 4.20));
+  ok('浅色面绝不返回 full', lv !== MARK_LADDER_FULL, lv);
+  ok('阈值常量 = 24vp / 3:1', MARK_MIN_GLYPH_VP === 24 && MARK_GRAPHIC_MIN_RATIO === 3.0);
+}
+
+// ── ⑨ 降级链资源：单色轮廓 / 分层前景 & 背景 ────────────────────────────────
+{
+  const outline: string = outlineMarkSvg(ACCENT);
+  ok('轮廓：有品牌色描边', outline.indexOf(`stroke="${ACCENT}"`) >= 0);
+  ok('轮廓：零填充（两条 path 各 fill="none"）', (outline.match(/fill="none"/g) || []).length === 2);
+  ok('轮廓：零发光/零渐变（无 url(/filter/Gradient）',
+    outline.indexOf('url(') < 0 && outline.indexOf('<filter') < 0 && outline.indexOf('Gradient') < 0);
+  const oHex: string[] = [];
+  const oMatches: string[] = (outline.match(/#[0-9A-Fa-f]{6}/g) || []);
+  for (let i = 0; i < oMatches.length; i++) { if (oHex.indexOf(oMatches[i]) < 0) { oHex.push(oMatches[i]); } }
+  eq('轮廓只出现一个 token 色（单色）', oHex, [ACCENT]);
+  eq('轮廓幂等', outlineMarkSvg(ACCENT), outline);
+  ok('描边居中 ⇒ 轮廓最大半径 = 几何半径 + 1/2 描边',
+    Math.abs(outlineMaxRadius() - (markMaxRadius() + OUTLINE_STROKE_W / 2)) < 1e-9);
+  ok(`轮廓不超"建议最大半径 ${SUGGESTED_MAX_RADIUS}"（实得 ${outlineMaxRadius().toFixed(1)}）`,
+    outlineMaxRadius() <= SUGGESTED_MAX_RADIUS);
+
+  // 分层前景：把标记缩进 313 安全区（当前几何 393.9 超界 ⇒ 必须缩）
+  ok('分层前景缩放 < 1（标记原本超安全区）', layeredForegroundScale() < 1);
+  ok(`分层前景半径 ≤ 安全区 ${LAYERED_SAFE_RADIUS}（实得 ${foregroundMarkMaxRadius().toFixed(1)}）`,
+    foregroundFitsLayeredSafeZone());
+  ok('分层前景半径 = 缩放 × 几何半径',
+    Math.abs(foregroundMarkMaxRadius() - markMaxRadius() * layeredForegroundScale()) < 1e-9);
+  const fg: string = layeredForegroundSvg(ACCENT, ON_ACCENT);
+  ok('前景：含绕画布中心缩放的分组', fg.indexOf('translate(512 512) scale(') >= 0);
+  ok('前景：气泡 + 星芒两条 path', (fg.match(/<path /g) || []).length === 2);
+  ok('前景：无底色 rect（透明底，底色来自 background 层）', fg.indexOf('<rect') < 0);
+  eq('前景幂等', layeredForegroundSvg(ACCENT, ON_ACCENT), fg);
+  const bg: string = layeredBackgroundSvg(ACCENT);
+  ok('背景：满幅色底 rect', bg.indexOf('<rect x="0" y="0" width="1024" height="1024"') >= 0);
+  eq('背景只出现主色', (bg.match(/#[0-9A-Fa-f]{6}/g) || []), [ACCENT]);
+  eq('背景幂等', layeredBackgroundSvg(ACCENT), bg);
+}
+
+// ── ⑩ 生成产物一致性（新资源：轮廓 / 分层前景 / 分层背景）────────────────────
+{
+  const repo = path.resolve(__dirname, '../../../..');
+  const media = path.join(repo, 'entry/src/main/resources/base/media');
+  const cases: string[][] = [
+    ['brand_mark_outline.svg', outlineMarkSvg(ACCENT)],
+    ['brand_foreground.svg', layeredForegroundSvg(ACCENT, ON_ACCENT)],
+    ['brand_background.svg', layeredBackgroundSvg(ACCENT)],
+  ];
+  for (let i = 0; i < cases.length; i++) {
+    try {
+      const got: string = fs.readFileSync(path.join(media, cases[i][0]), 'utf8');
+      eq(`${cases[i][0]} == 生成器输出`, got, cases[i][1]);
+    } catch (e) {
+      ok(`读取 ${cases[i][0]} 失败（应存在）`, false, (e as Error).message);
+    }
   }
 }
 

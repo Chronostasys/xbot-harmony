@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 1024 1024">
+  <path fill="none" stroke="#7C5CFF" stroke-width="28" stroke-linejoin="round" d="M 372 232 H 652 A 148 148 0 0 1 800 380 V 552 A 148 148 0 0 1 652 700 H 476 L 321.7 826.3 Q 300 844 300 816 L 300 700 H 372 A 148 148 0 0 1 224 552 V 380 A 148 148 0 0 1 372 232 Z"/>
+  <path fill="none" stroke="#7C5CFF" stroke-width="28" stroke-linejoin="round" d="M 512 336 Q 512 466 642 466 Q 512 466 512 596 Q 512 466 382 466 Q 512 466 512 336 Z"/>
+</svg>

@@ -30,6 +30,14 @@ fs.writeFileSync(path.join(outDir, 'entry_app_icon.svg'), icon);
 const splash = brand.splashMarkSvg(accent, onAccent);
 fs.writeFileSync(path.join(outDir, 'start_icon.svg'), splash);
 
+// 2b) 降级链第 3 档：单色轮廓（零填充零发光；无障碍/黑白/低对比时用）
+fs.writeFileSync(path.join(outDir, 'brand_mark_outline.svg'), brand.outlineMarkSvg(accent));
+
+// 2c) 分层图标（adaptive / layered icon）：前景（缩进 313 安全区）+ 背景（满幅色底）
+//     单层图标（当前 app_icon）不经过这里；启用分层需改 app.json5（见 docs/BRAND.md §9 待拍板）。
+fs.writeFileSync(path.join(outDir, 'brand_foreground.svg'), brand.layeredForegroundSvg(accent, onAccent));
+fs.writeFileSync(path.join(outDir, 'brand_background.svg'), brand.layeredBackgroundSvg(accent));
+
 // 3) proof：把标记压在**浅/深两套基准画布**上，人工走查"两种主题都成立"
 function proofSvg(bg) {
   return [
@@ -45,4 +53,4 @@ function proofSvg(bg) {
 fs.writeFileSync(path.join(outDir, 'proof_light.svg'), proofSvg(theme.lightPalette().appBg));
 fs.writeFileSync(path.join(outDir, 'proof_dark.svg'), proofSvg(theme.darkPalette().appBg));
 
-process.stdout.write(`emitter: accent=${accent} onAccent=${onAccent} markRadius=${brand.markMaxRadius().toFixed(1)} circleSafe=${brand.fitsInscribedCircle()} layeredSafe=${brand.fitsLayeredSafeZone()}\n`);
+process.stdout.write(`emitter: accent=${accent} onAccent=${onAccent} markRadius=${brand.markMaxRadius().toFixed(1)} outlineRadius=${brand.outlineMaxRadius().toFixed(1)} circleSafe=${brand.fitsInscribedCircle()} layeredSafe=${brand.fitsLayeredSafeZone()} fgScale=${brand.layeredForegroundScale().toFixed(4)} fgRadius=${brand.foregroundMarkMaxRadius().toFixed(1)} fgLayeredSafe=${brand.foregroundFitsLayeredSafeZone()}\n`);

@@ -256,3 +256,181 @@ export function fitsInscribedCircle(): boolean {
 export function fitsLayeredSafeZone(): boolean {
   return markMaxRadius() <= LAYERED_SAFE_RADIUS;
 }
+
+/**
+ * 建议的标记最大半径（留白后）—— 样张绿圈（`docs/mockups/brand-splash.html §①`）。
+ * 取 `0.8 ×` 圆形蒙版内切半径：小于它 ⇒ 任意蒙版下都有 ~20% 呼吸边，观感不"顶边"。
+ */
+export const SUGGESTED_MAX_RADIUS: number = Math.round(0.8 * ICON_INSCRIBED_RADIUS); // 410
+
+// ── WCAG 对比度（纯函数；降级链与门禁共用同一口径）──────────────────────────────
+
+/**
+ * WCAG 2.1 相对亮度（0..1）。
+ * 接受 `#RRGGBB` 或 8 位 `#AARRGGBB`（取末 6 位；如 `Effects.glowSoft`）；非法值按黑（0）处理，**不抛**。
+ */
+export function relativeLuminance(hex: string): number {
+  const h: string = hex.charAt(0) === '#' ? hex.slice(1) : hex;
+  const six: string = h.length === 8 ? h.slice(2) : h;
+  if (six.length !== 6) { return 0; }
+  const chan: number[] = [
+    parseInt(six.substring(0, 2), 16) / 255,
+    parseInt(six.substring(2, 4), 16) / 255,
+    parseInt(six.substring(4, 6), 16) / 255,
+  ];
+  const lin: number[] = [];
+  for (let i = 0; i < 3; i++) {
+    const v: number = chan[i];
+    lin.push(v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+  }
+  return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+}
+
+/** WCAG 2.1 对比度（≥ 1）。 */
+export function contrastRatio(a: string, b: string): number {
+  const la: number = relativeLuminance(a);
+  const lb: number = relativeLuminance(b);
+  const hi: number = la > lb ? la : lb;
+  const lo: number = la > lb ? lb : la;
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+// ── 降级链（presentation ladder：满幅 → 实心 → 轮廓 → wordmark）────────────────
+// 依据：`docs/mockups/brand-splash.html §③` 与 `docs/REDESIGN-INPUT-BRAND.md §3.3/§3.4`。
+// 本段是**纯逻辑**：给定承载面（深/浅、是否无障碍单色、可用边长、品牌色对比度）⇒ 选一档。
+// 组件层只许问"用哪一档"（`markLevelFor`），**不许**自己写 if/else 决定品牌呈现。
+
+/** 档位标识（字符串常量；组件据此选取资源/渲染方式）。 */
+export const MARK_LADDER_FULL: string = 'full';         // 满幅品牌色 + 反色 glyph（深色面 / 启动器图标）
+export const MARK_LADDER_SOLID: string = 'solid';       // 实心品牌色 glyph on 中性白（浅色面；零发光）
+export const MARK_LADDER_OUTLINE: string = 'outline';   // 单色轮廓（无障碍/黑白/低对比；零填充零发光）
+export const MARK_LADDER_WORDMARK: string = 'wordmark'; // 纯文字 wordmark（几何标记太小）
+
+/** 降级链（信息量从大到小；顺序即优先级）。 */
+export function markLadder(): string[] {
+  return [MARK_LADDER_FULL, MARK_LADDER_SOLID, MARK_LADDER_OUTLINE, MARK_LADDER_WORDMARK];
+}
+
+/** 几何标记可辨识的最小边长（vp）—— 小于它，气泡 + 星芒糊成一团 ⇒ 退到 wordmark。 */
+export const MARK_MIN_GLYPH_VP: number = 24;
+/** 品牌**图形**对承载面的对比度下限（WCAG 2.1 §1.4.11 非文本）。 */
+export const MARK_GRAPHIC_MIN_RATIO: number = 3.0;
+
+/** 承载面上下文（组件填；纯数据，供 `markLevelFor` 判据）。 */
+export class BrandSurface {
+  /** 承载面是否深色。 */
+  dark: boolean = false;
+  /** 无障碍 / 黑白 / 极低功耗 ⇒ 强制单色轮廓。 */
+  monochrome: boolean = false;
+  /** 可用边长（vp）；≤ 0 表示未知（不据此降级）。 */
+  sizeVp: number = 0;
+  /** 品牌色对承载面的实测对比度；≤ 0 表示未测（不据此降级）。 */
+  contrast: number = 0;
+  constructor(dark: boolean, monochrome: boolean, sizeVp: number, contrast: number) {
+    this.dark = dark;
+    this.monochrome = monochrome;
+    this.sizeVp = sizeVp;
+    this.contrast = contrast;
+  }
+}
+
+/**
+ * 选择标记档位（降级链的**唯一判据**）。
+ *
+ * 判据顺序（先强后弱）：
+ *   1. 可用边长过小（> 0 且 < `MARK_MIN_GLYPH_VP`）⇒ `wordmark`（几何标记糊成一团）；
+ *   2. 单色 / 无障碍 ⇒ `outline`（零填充零发光）；
+ *   3. 品牌色对承载面对比度不足（已测且 < 3:1）⇒ `outline`（轮廓线仍可辨）；
+ *   4. 深色面 ⇒ `full`（满幅品牌色 + 反色 glyph）；浅色面 ⇒ `solid`（实心 glyph on 中性白）。
+ *
+ * ⛔ 白色主题（浅色面）**永不**返回 `full`（禁用满幅色块）；呈现一律**不靠发光/渐变**（宪法 §3.1）。
+ */
+export function markLevelFor(s: BrandSurface): string {
+  if (s.sizeVp > 0 && s.sizeVp < MARK_MIN_GLYPH_VP) { return MARK_LADDER_WORDMARK; }
+  if (s.monochrome) { return MARK_LADDER_OUTLINE; }
+  if (s.contrast > 0 && s.contrast < MARK_GRAPHIC_MIN_RATIO) { return MARK_LADDER_OUTLINE; }
+  return s.dark ? MARK_LADDER_FULL : MARK_LADDER_SOLID;
+}
+
+// ── 降级链各档的资源生成（确定性）────────────────────────────────────────────
+
+/** 单色轮廓的描边宽度（1024 画布）—— 居中描边 ⇒ 每侧外扩 1/2。 */
+export const OUTLINE_STROKE_W: number = 28;
+
+/** 轮廓标记的最大半径 = 几何最大半径 + 1/2 描边（居中描边外扩）。 */
+export function outlineMaxRadius(): number {
+  return markMaxRadius() + OUTLINE_STROKE_W / 2;
+}
+
+/**
+ * 单色轮廓标记 SVG（降级链第 3 档）：**零填充、零发光、零渐变**，只有一根 `color` 描边。
+ * 用途：无障碍 / 黑白 / 低功耗 / 品牌色对底色对比不足时（`markLevelFor` 命中 `outline`）。
+ */
+export function outlineMarkSvg(color: string): string {
+  const stroke: string = `fill="none" stroke="${color}" stroke-width="${OUTLINE_STROKE_W}" stroke-linejoin="round"`;
+  return [
+    SVG_HEAD,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${START_ICON_PX}" height="${START_ICON_PX}" viewBox="0 0 ${BRAND_CANVAS} ${BRAND_CANVAS}">`,
+    `  <path ${stroke} d="${bubblePath()}"/>`,
+    `  <path ${stroke} d="${starPath()}"/>`,
+    '</svg>',
+    '',
+  ].join('\n');
+}
+
+// ── 分层图标（adaptive / layered icon）：前景缩进安全区 ────────────────────────
+
+/**
+ * 分层图标前景的**缩放系数**：把标记整体缩到 `LAYERED_SAFE_RADIUS`（≤ 313）以内。
+ * 标记当前最大半径 393.9 > 313 ⇒ 系数 < 1（前景缩进，避免被分层遮罩裁掉尾巴）。
+ * 单层图标（当前形态）不经过这里 —— 它用整幅 393.9（< 内切圆 512，安全）。
+ */
+export function layeredForegroundScale(): number {
+  const m: number = markMaxRadius();
+  return m <= LAYERED_SAFE_RADIUS ? 1 : LAYERED_SAFE_RADIUS / m;
+}
+
+/** 缩放后前景标记的最大半径（≤ `LAYERED_SAFE_RADIUS`）。 */
+export function foregroundMarkMaxRadius(): number {
+  return markMaxRadius() * layeredForegroundScale();
+}
+
+/** 缩放系数格式（最多 6 位小数；整数不带小数点）—— 生成结果逐字节确定。 */
+function scaleStr(v: number): string {
+  return `${Math.round(v * 1000000) / 1000000}`;
+}
+
+/**
+ * 分层图标**前景** SVG：品牌色 glyph 缩进到 313 安全区内（绕画布中心等比缩放）。
+ * 配 `layeredBackgroundSvg()` 的满幅色底使用（分层图标 = 前景 + 背景两层，见 `docs/BRAND.md §9`）。
+ */
+export function layeredForegroundSvg(accent: string, onAccent: string): string {
+  const c: number = BRAND_CANVAS / 2;
+  const s: string = scaleStr(layeredForegroundScale());
+  return [
+    SVG_HEAD,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${APP_ICON_PX}" height="${APP_ICON_PX}" viewBox="0 0 ${BRAND_CANVAS} ${BRAND_CANVAS}">`,
+    `  <g transform="translate(${c} ${c}) scale(${s}) translate(-${c} -${c})">`,
+    `    <path fill="${accent}" d="${bubblePath()}"/>`,
+    `    <path fill="${onAccent}" d="${starPath()}"/>`,
+    '  </g>',
+    '</svg>',
+    '',
+  ].join('\n');
+}
+
+/** 分层图标**背景** SVG：满幅品牌色方块（前景叠在其上；圆角由系统遮罩施加）。 */
+export function layeredBackgroundSvg(accent: string): string {
+  return [
+    SVG_HEAD,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${APP_ICON_PX}" height="${APP_ICON_PX}" viewBox="0 0 ${BRAND_CANVAS} ${BRAND_CANVAS}">`,
+    `  <rect x="0" y="0" width="${BRAND_CANVAS}" height="${BRAND_CANVAS}" fill="${accent}"/>`,
+    '</svg>',
+    '',
+  ].join('\n');
+}
+
+/** 分层图标前景是否落在安全区内（把缩放后半径钉死；生成后应恒为 true）。 */
+export function foregroundFitsLayeredSafeZone(): boolean {
+  return foregroundMarkMaxRadius() <= LAYERED_SAFE_RADIUS + 1e-9;
+}
