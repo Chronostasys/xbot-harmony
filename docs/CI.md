@@ -136,6 +136,13 @@ CI 与本地都会跑。规则只有一条：**`entry/src/main/ets/components|pa
 **假绿**），而**断言输入**照旧要剥注释（否则"注释里提到该名字"会被判违规 ⇒ **假红**）。
 ⇒ 一条判据里这两种读取**可能同时存在**，必须显式分离：**锚点取原文，断言取剥注释版**。
 
+⚠️ **判据形态陷阱：同名不同物**（我 2026-10-11 在 `motion_budget` 自查出来的）：想守"禁循环/常驻动画"时写
+`/iterations/` + `/setInterval\(/` ⇒ **恒红**。真因：本仓 `iterations` 绝大多数是**数据模型字段**
+（`row.iterations.length`、`HistoryIteration`），与**动画参数** `iterations` **同名不同物**；
+`setInterval(` 则是**轮询定时器**（`LiveTailView`/`SettingsChannels`/`SettingsDeveloper`/`Index`），也不是动画。
+⇒ **写判据前先确认"这个词在你扫的那批文件里到底是哪种物"**：拿 2–3 个真实命中**逐条读上下文**，
+不要只看 `grep -c` 的次数。真要守"唯一在飞"就交给专管的 `tools/lint/inflight-single-source.sh`，**别重复管**。
+
 ⚠️ **碰 ArkTS 侧 ⇒ 必须自跑 `assembleHap`**：脱机三条 + `lint` + `typecheck` **都抓不到编译错**
 （它们只把 `core/**` 当纯 TS 编译，不碰 ArkUI 组件与页面）。最新两例见 `docs/ARKTS-GOTCHAS.md` **批次 36**：
 ① **注释里嵌套 `/* … */`** 会提前闭合外层块注释 ⇒ 余下文本变游离代码 ⇒ 报成一串**级联假错**

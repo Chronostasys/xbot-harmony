@@ -161,11 +161,10 @@ export const MOTION_SPLASH_MARK_VP: number = SP_8 * 5;
 export const MOTION_SHEET_SLIDE_VP: number = 260;
 
 /**
- * **in-app toast**（小浮条）的滑入位移（vp）= `MOTION_SHEET_SLIDE_VP / 4` = **65**。
- * 依据：toast 不是面板 —— 位移取面板档的 1/4 ⇒ 读作"轻轻浮起"，不是"抽屉拉出"。
- * （同样**不是**动画时长 ⇒ 不进 `allowedDurations()`。）
+ * ⛔ **未采纳**（见 `components/anim.ets` 同名注释）：popup 类**不是**用 `sheetTransition()` 的
+ * （`TodoPanel`/`MessageNav` 是 `.animation(animFast())`；`ToolPopover`/`ContextRing` 系统绘制）
+ * ⇒ 不新增 `MOTION_POPUP_ENTER_SCALE`（零消费者 = 死常量）。
  */
-export const MOTION_TOAST_SLIDE_VP: number = MOTION_SHEET_SLIDE_VP / 4;
 
 /**
  * 图片 lightbox（全屏浮层）的**入场缩放起点** = **0.96**（`1 → 0.96` 的"收一下再展开"）。

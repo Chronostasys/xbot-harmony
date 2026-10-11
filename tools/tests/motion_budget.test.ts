@@ -129,6 +129,27 @@ ok('③ 无**未登记**的动效面（新开一面必须来登记理由）', un
 //    SettingsDeveloper/Index），也不是动画。⇒ 把它们并进来会得到一条**永远红的假判据**。
 //    "唯一在飞 / 循环动画"已由 `tools/lint/inflight-single-source.sh` 专管 ⇒ **本判据不重复管**。
 
+// ── ④ **具名工厂必须被 ≥1 站点消费**（防"造了工厂没人用"= 死码）────────────────────────
+//    `components/anim.ets` 的每个 `export function <name>Transition(` 都必须被 anim.ets **之外**
+//    的至少一个文件引用（`this.entryTransition` 这类页面/组件自造的不在此列 —— 只查 anim.ets 的导出）。
+{
+  const animRel: string = 'components/anim.ets';
+  const animSrc: string = stripComments(fs.readFileSync(path.join(ETS, animRel), 'utf8'));
+  const names: string[] = [];
+  const re = /export function ([A-Za-z0-9_]*Transition)\(/g;
+  let m: RegExpExecArray | null = re.exec(animSrc);
+  while (m !== null) { names.push(m[1]); m = re.exec(animSrc); }
+  ok('④ 在 anim.ets 里找到 ≥1 个 `*Transition()` 具名工厂（零扫描判红）', names.length > 0);
+  const others: string = files
+    .filter((f: string) => path.relative(ETS, f).split(path.sep).join('/') !== animRel)
+    .map((f: string) => stripComments(fs.readFileSync(f, 'utf8')))
+    .join('\n');
+  for (const n of names) {
+    ok(`④ 工厂 \`${n}()\` 被 anim.ets 之外 ≥1 处消费（⛔ 零消费者 = 死码）`, others.indexOf(n + '(') >= 0);
+  }
+  console.log(`    具名工厂 ${names.length} 个：${names.join(', ')}`);
+}
+
 if (fail > 0) { console.log(`  motion_budget: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  motion_budget: ${pass} passed, 0 failed`);
 process.exit(0);

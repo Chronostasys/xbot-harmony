@@ -16,7 +16,7 @@
 import curves from '@ohos.curves';
 import {
   MOTION_FAST_MS, MOTION_BASE_MS, MOTION_MSG_IN_MS, MOTION_SLOW_MS,
-  MOTION_LIGHTBOX_ENTER_SCALE, MOTION_SHEET_SLIDE_VP, MOTION_TOAST_SLIDE_VP,
+  MOTION_LIGHTBOX_ENTER_SCALE, MOTION_SHEET_SLIDE_VP,
   springBezier, springParams,
 } from '../core/motion';
 import { ORB_BREATH_MS } from '../core/orb';
@@ -163,10 +163,21 @@ export function sheetTransition(): TransitionEffect {
  *    （门禁 ⑨ 的正向形态；`tools/lint/anim-opacity-gate.sh`）。
  */
 export function toastTransition(): TransitionEffect {
-  return TransitionEffect.translate({ y: MOTION_TOAST_SLIDE_VP })
-    .animation({ duration: MOTION_BASE_MS, curve: sheetCurve() })
-    .combine(TransitionEffect.OPACITY.animation({ duration: MOTION_FAST_MS }));
+  // ⛔ **纯淡入**（2026-10-11 动效冗余审计，用户口径"极简/干净"）：toast 是**瞬时提示**、**不来自任何方向**
+  //    ⇒ `translate`/`scale` 是**纯装饰**（无状态含义、无空间含义）。
+  //    web 对照：`web/src/components/agent/Lightbox.tsx`（最接近的浮层）**完全没有入场动画**。
+  return TransitionEffect.OPACITY.animation({ duration: MOTION_FAST_MS });
 }
+
+/**
+ * ⛔ **未采纳**（2026-10-11 动效冗余审计 item 2 复核结论）：原计划给"popup 类"新增 `popupTransition()`
+ * （纯淡入+极小缩放）替代 `sheetTransition()` —— **复核后不成立**：
+ *   · `TodoPanel.ets:336` / `MessageNav.ets:331` 用的是 **`.animation(animFast())`（属性动画）**，
+ *     **不是** `sheetTransition()` ⇒ 没有"从屏底滑入"可删；
+ *   · `ToolPopover` / `ContextRing` 的 `bindPopup` 是**系统绘制**（`.transition(` 计数 = 0）⇒ 改不到。
+ * ⇒ 造一个**零消费者**的工厂只会变成死码（判据 `motion_budget` 会要求"工厂必须被 ≥1 站点消费"）。
+ *   若将来真出现"自绘 popup 从屏底滑入"的错配，再按本注释的思路落。
+ */
 
 /**
  * **图片 lightbox**（全屏浮层）的出入场 —— **轻微缩放 + 淡入**（`scale 0.96 → 1`）。
