@@ -26,7 +26,7 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   **凡需响应更新 ⇒ 真 `@Component` + `@Prop`**；`@Builder` 只用于"参数不变"的静态片段
   （或无参、读 `this` 的片段）。详见 `docs/ARKTS-GOTCHAS.md`。
 - **ArkTS 禁对象字面量作类型标注**（圆角等）—— 用内联 `.borderRadius({...})`。
-- **⛔ 真门禁是 `bash tools/gate.sh`**（离线三条 + **ArkTS 编译**）。脱机三条脚本全绿 **≠** 能编译：
+- **⛔ 真门禁是 `bash tools/gate.sh`**（离线三条 + **ArkTS 编译** + 取色 role + 颜色字面量 + 性能预算 + **⑧未消费 core 模块** + **⑨动画透明度**）。脱机三条脚本全绿 **≠** 能编译：
   `run.sh` 只把 `core/**` 当纯 TS 编译，`lint`/`typecheck` 也不碰 ArkUI 组件与页面 ⇒ 组件/页面的
   ArkTS 严格性与类型错误（如 `Stack` 无 `justifyContent`、调用联合类型、SDK 版本门限）**一个都抓不到**。
   唯一判据是 `hvigorw assembleHap` 打出 `BUILD SUCCESSFUL`。
@@ -53,6 +53,15 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   **真机不生效**；`base`/`dark` 的 `element/color.json` **都是 `#0B0B0E`** ⇒ 系统开屏恒深。
   ⛔ 别把 `base` 改浅（会让系统浅色下的深色主题用户白闪，`18db95a` 修过）⇒ **T1 品牌开屏恒深**
   （`core/splash.ets` 的 `splashBrandCanvas`），靠 T2 渐隐过渡到应用主题（否则浅色用户看到画布中途翻白）。
+- **⛔ 静息态必须 fail-safe —— 可读性不能是动画的函数**（用户亲报「白主题正文看不清」的真根因）：
+  `.opacity(x ? 1 : 0)`（`x` 初值 `false`）+ `onAppear(() => animateTo(..., () => x = true))` 这类写法，
+  一旦动画被打断/`onAppear` 未触发就**永久不可见** —— 实测正文被卡在 **≈13% 不透明度**（对底 1.32:1）。
+  **web 权威恰好相反**：`web/src/index.css:683-714` 的 `@keyframes msgIn` **无 `forwards`** ⇒ 元素自身
+  opacity 仍是 1 ⇒ **动画不跑就停在 1（天然 fail-safe）**；宿主把静息态写反了。同罪第二处：切会话把
+  **整张列表** `.opacity` 置 0.001 再 anim 回 1（`Index.ets`，已修）。⇒ 入场一律用**出现过渡**
+  `.transition(...)`、静息态恒为可见值；门禁 **⑨**（`tools/lint/anim-opacity-gate.sh`）硬红拦 A 级形态、
+  警告 B 级（不透明度由 `animateTo`/`anim` 驱动）；失败方向安全的一次性过渡（初值可见、动画到 0，
+  如开屏退出淡出）登记 `tools/lint/anim-opacity-allowlist.txt` 并写明理由。
 - **ArkUI `CustomComponent` 基类的成员名不能用作组件成员名**：`size`/`width`/`height`/`position`/
   `offset`/`scale`/`rotate`/`opacity`/`visibility`/`clip`/`zIndex`/`id`/`key`（以及 `onClick` 等事件名）。
   写成 `@Prop size: number` 会报 `10505001 Property 'size' in type 'X' is not assignable to the same
