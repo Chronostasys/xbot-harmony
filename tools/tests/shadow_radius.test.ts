@@ -120,6 +120,68 @@ function eq(name: string, got: unknown, want: unknown): void {
       sc.indexOf("shadowLayersOf(this.pal(), 'card')") >= 0);
     const ms: string = fsMod.readFileSync(pathMod.join(repo, 'entry/src/main/ets/components/MenuSheets.ets'), 'utf-8');
     ok("  · sheet 走 'overlay' 档（= 原 SPACE_LG=20 ⇒ 深色不变）", ms.indexOf("shadowRadiusOf(this.pal(), 'overlay')") >= 0);
+
+    // ── ★⑤ 浅色「多层柔影」的**落点台账**（C3 的**真余量**；⛔ 不是否定 C3，是如实记账）──────────
+    // 背景（`docs/DESIGN-SYSTEM.md §18.5 #4` 自认 + 本轮复核）：C3 的多层柔影**只被 1 处消费**
+    //   （`SyntheticCard`）⇒ 其余 `.shadow()` 仍是**单层** ⇒ 浅色的"贴合 + 环境"手感**在别处看不到**。
+    // 仓规「判据必须钉**落点消费**」（已抓到 3 例"函数存在但 0 消费 ⇒ 用户看不到"）⇒ 本台账把余量**钉成可数**：
+    //   · **多层消费文件**（期望**增长** = 迁移在进行）· **单层遗留文件**（期望**缩短** = 迁移完成）。
+    //   两边**都冻结成白名单**：任何变化（迁移 / 新增 / 删站点）都 ⇒ 红 ⇒ 逼同步本表（防静默漂移）。
+    const walkEts = (dir: string): string[] => {
+      const out: string[] = [];
+      const rec = (d: string): void => {
+        let ents: string[] = [];
+        try { ents = fsMod.readdirSync(d); } catch (e) { return; }
+        for (let i = 0; i < ents.length; i++) {
+          const full = pathMod.join(d, ents[i]);
+          let st: any = null;
+          try { st = fsMod.statSync(full); } catch (e2) { st = null; }
+          if (st === null) { continue; }
+          if (st.isDirectory()) { rec(full); continue; }
+          if (full.slice(full.length - 4) === '.ets') { out.push(full); }
+        }
+      };
+      rec(dir);
+      return out;
+    };
+    const etsRoot: string = pathMod.join(repo, 'entry/src/main/ets');
+    let scanFiles: string[] = walkEts(pathMod.join(etsRoot, 'components')).concat(walkEts(pathMod.join(etsRoot, 'pages')));
+    // mutation 注入通道（⛔ 不碰仓内文件）：`XBOT_SCAN_EXTRA=/tmp/x.ets`
+    const env: any = require('process').env;
+    const extra: string = env.XBOT_SCAN_EXTRA !== undefined ? String(env.XBOT_SCAN_EXTRA) : '';
+    if (extra.length > 0) {
+      const xs: string[] = extra.split(':');
+      for (let i = 0; i < xs.length; i++) { if (xs[i].length > 0) { scanFiles.push(xs[i]); } }
+    }
+    ok('★⑤ 零扫描判红：扫到组件/页面源码（>0 文件）', scanFiles.length > 0, `files=${scanFiles.length}`);
+    const multiConsumers: string[] = [];
+    const singleLayerFiles: string[] = [];
+    let shadowSites: number = 0;
+    for (let i = 0; i < scanFiles.length; i++) {
+      const f: string = scanFiles[i];
+      let src: string = '';
+      try { src = fsMod.readFileSync(f, 'utf-8'); } catch (e) { continue; }
+      const rel: string = f.indexOf(etsRoot) === 0 ? f.slice(etsRoot.length + 1) : f;
+      const n: number = (src.match(/\.shadow\(\{/g) || []).length;
+      shadowSites += n;
+      const usesMulti: boolean = src.indexOf('shadowLayersOf(') >= 0;
+      if (n > 0 && usesMulti) { multiConsumers.push(rel); }
+      if (n > 0 && !usesMulti) { singleLayerFiles.push(rel); }
+    }
+    ok('★⑤ 零扫描判红：全站 `.shadow({` 站点 > 0（扫描器与真源相连）', shadowSites > 0, `sites=${shadowSites}`);
+    const EXPECT_MULTI: string[] = ['components/SyntheticCard.ets'];
+    const EXPECT_SINGLE: string[] = [
+      'components/AskUserSheet.ets', 'components/Lightbox.ets', 'components/MenuSheets.ets',
+      'components/StatusSheet.ets', 'components/Toast.ets', 'components/ToolVisual.ets', 'pages/Index.ets',
+    ];
+    console.log(`  · ★⑤ 多层柔影消费文件（期望**增长**）：${JSON.stringify(multiConsumers.slice().sort())}`);
+    console.log(`  · ★⑤ 单层遗留文件（期望**缩短**，${singleLayerFiles.length} 个）：${JSON.stringify(singleLayerFiles.slice().sort())}`);
+    ok('★⑤ 多层柔影消费文件 == 冻结白名单（迁移 ⇒ 同步本表；当前仅 SyntheticCard）',
+      JSON.stringify(multiConsumers.slice().sort()) === JSON.stringify(EXPECT_MULTI),
+      `got ${JSON.stringify(multiConsumers.slice().sort())}`);
+    ok('★⑤ 单层遗留文件 == 冻结白名单（迁移掉一个 ⇒ 从本表删；新增 ⇒ 红）',
+      JSON.stringify(singleLayerFiles.slice().sort()) === JSON.stringify(EXPECT_SINGLE),
+      `got ${JSON.stringify(singleLayerFiles.slice().sort())}`);
   }
 }
 

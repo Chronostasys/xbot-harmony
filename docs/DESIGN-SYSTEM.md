@@ -1077,6 +1077,53 @@ vs 深色黑柔影 **1.0206/1.0122** ⇒ 再次确认"浅色柔影比深色黑�
 4. `shadowLayersOf` 目前**只接 `SyntheticCard`**（浅色卡片的"接触感"最先可见）；其余档位（sheet/浮层）迁移
    不在本波，⛔ 但**函数已非死码**（`shadow_radius.test.ts` 的消费点断言已同步）。
 
+### §18.6 二次复核（2026-10-11）：**C3 已落地，勿重复派单** + 真余量 G1/G2
+
+> **写这一节的原因**：`C3 浅色「光感白」材质再设计` 在**后续批次**里又被当作"未做"提出过一次
+> （任务书引用的"现状"正是 **§18.1 的 C3 前取证表**）⇒ 本节是**反工作留痕**：先把"已落地"钉死，
+> 再列**真正剩下**的两项。
+
+**① 复核（逐项，§18.2/§18.3 的设计均已在 HEAD）**：落地提交 = **`6534857`**（HEAD 祖先 ✓）。
+| 设计项 | 现值（`core/theme.ets:buildEffects` 浅色臂） | 判据 |
+|---|---|---|
+| 玻璃更实 | `glassBg = glassBase@84%`（`:832`） | `light_material` ★③ |
+| 亮边更明确 | `glassBorder = borderStrong@86%`（`:833`） | 同上 |
+| `sheen`（浅色） | `#000000@6%`（`:835`）＝ web 权威 `index.css:652`（浅色 shimmer **就是黑@6%**） | ★③ |
+| `glow`（浅色） | `p.transparent`（`:855`，E2：①<1.5:1 ②chroma=0 ⇒ 不是光） | `porcelain_glow` ★① |
+| 多层柔影 | `shadowLayersOf` 浅色恒 2 层（`near`=elev1 贴合 / `far`=elev2 环境） | `light_material` ★② |
+| **深色逐字节** | `else` 臂 `:861-869` 一字未动（0.62/0.55 · `#FFF@6%` · `#000@32/42%` · `accent@45/22%`） | 4 判据全绿：`light_material` 55/0 · `shadow_radius` 80/0 · `shadow_color` 22/0 · `porcelain_glow` 19/0 |
+
+**三问答复（任务书 ① ② ③）**：
+- **① 层次通道**：浅色**已**用「**发丝 + 白度差 + 柔影**」三分工（§13 立原则、§18 补手感）——`structuralRuleOf`
+  （面→面轮廓，浅=`borderStrong`）、`hairlineOf`（面内发丝，浅=按 web 基线压深）、L2 白度差（`appBg` 淡灰 + 白卡）、
+  `shadowLayersOf`（贴合+环境）。**「微内凹」已裁决不做**（`insetHairlineOf` 浅色 = `transparent`；理由：浅色填充差
+  本就够（light 1.0788 / porcelain 1.0456）⇒ 加线 = 凭空增噪，见 `9990c4b`）。**「微降饱和」不适用**：浅色下
+  `accent` 系本就按面派生（`accentDeep`/`accentSoft`），无"降饱和"通道需求。
+- **② 玻璃档**：**已**按 web 权威重设计（`glass = 磨砂 + 描边`：web `PanelChrome.tsx:106` 内描边 / `.ambience-glass`
+  `index.css:1198-1247`）⇒ 浅色 84% + 86% 亮边，**不再是"中性等价"**。
+- **③ sheen**：**已裁决**——web 权威 `index.css:652` 明确浅色 shimmer **是黑@6%**（浅底"高光"物理上是**暗**的）
+  ⇒ 保留 `#000@6%`；"顶部高光"的语义改由**玻璃亮边**承担（§18.5 #2）。⛔ "白底不该有 sheen"**被 web 证据否掉**。
+
+**② 真余量 G1：多层柔影**落点**只 1 处**（`shadowLayersOf` 消费点 = `SyntheticCard`）
+- 实测：全站 `.shadow({` **17 处**（9 文件）；**多层实现只 1 文件** ⇒ **15 处单层遗留 / 7 文件**
+  （`AskUserSheet` · `Lightbox` · `MenuSheets`×3 · `StatusSheet` · `Toast` · `ToolVisual` · `Index.ets`×6）
+  ⇒ 浅色的"贴合 + 环境"手感**在这些面看不到**（§18.5 #4 自认）。
+- ⛔ **本线不改组件** ⇒ **交主 agent 串行派单**（迁移 = 把单层 `.shadow()` 换成 `shadowLayersOf` 的两元素两层）。
+- ✅ **本线已把余量钉成机器台账**：`tools/tests/shadow_radius.test.ts` **★⑤**（多层消费文件 / 单层遗留文件
+  **双向白名单**，任何变化 ⇒ 红 ⇒ 逼同步；mutation 自证：注入一个单层站点 ⇒ 红）。
+
+**③ 真缺陷 G2：浅色 `glow = 透明` 与 `sweep.ets` 的 `core = glow` **冲突**（跨 token 交互，本轮发现）
+- 实测：`core/sweep.ets:53-54` 浅色 `b.core = e.glow`（**E2 后恒透明**）、`b.fade = e.glowSoft`（`#1A1D1D1F` 可见）
+  ⇒ 浅色扫光带**核心透明、两端有色＝反序退化**；该文件 `:52` 注释仍称 "core=`glow`(16%) 强于 fade=`glowSoft`(10%)"
+  ⇒ **E2 后已陈旧**。
+- ⛔ `core/sweep.ets` **不在本线域** ⇒ **只登记**（`porcelain_glow.test.ts` 的「E2 下游一致性」台账
+  `KNOWN_GLOW_CONSUMER_DEFECTS`，只许缩短）+ **请派单**。
+- **修法（供派单，二选一）**：ⓐ `sweepBandOf` 浅色臂的 `core` 换**独立中性档**（如 `effectsOf(p).elev2`），
+  **⛔ 不复用 `glow`**；ⓑ **显式裁决「白底不做扫光」** ⇒ 整带全透明并把该渲染路径摘除
+  （⛔ 不是"悄悄退化成两端有色"）。
+- ⚠️ **诚实边界**：`glowSoft` 浅色**有真实消费**（`core/sweep.ets:53` 的 fade 端 + `Index.ets:3593` 的辉光渐变）
+  ⇒ 它**不是死通道**；其"是否也改透明"仍按 **V6 冻结**（等用户真机截图）。
+
 
 ---
 

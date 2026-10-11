@@ -19,6 +19,8 @@ declare const __dirname: string;
 export {};
 
 import { paletteOf, effectsOf, isLightPalette, ALL_THEMES, contrastRatio } from '../../entry/src/main/ets/core/theme';
+import { sweepBandOf, SweepBand } from '../../entry/src/main/ets/core/sweep';
+import { orbRingStrokeOf, inflightHaloOf, hairlineOf } from '../../entry/src/main/ets/core/design';
 
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean, extra?: string): void {
@@ -101,6 +103,38 @@ function glowReadsAsLight(glow: string, bg: string): boolean {
     ok('theme.ets: 深色臂 e.glow = accent@45%（**逐字节不变**）', src.indexOf('e.glow = alphaHex(p.accent, 0.45);') >= 0);
     ok('theme.ets: glowSoft 未动（V6 冻结：@10%）', src.indexOf('e.glowSoft = alphaHex(p.textPrimary, 0.10);') >= 0);
   }
+}
+
+// ── E2 的**下游一致性**（本轮复核新增）：浅色 `glow = 透明` ⇒ 任何把它当"**色带主体**"的
+//    消费者都会退化成"**隐形/反序**"。本节把「正确接线的消费者」**钉强断言**，把「已退化的消费者」
+//    **登记成台账**（⛔ 只许缩短：一旦修好，`defect === false` ⇒ 本节红 ⇒ 逼你改成强断言）。
+// 实测缺陷（2026-10-11）：`core/sweep.ets:53-54` 浅色 `core = effectsOf().glow`（**恒透明**）、
+//    `fade = effectsOf().glowSoft`（`textPrimary@10%`，可见）⇒ 浅色扫光带**核心透明、两端有色**
+//    （**反序退化**）；且该文件 `:52` 的注释仍称 "core=`glow`(16%) 强于 fade=`glowSoft`(10%)"（**E2 后已陈旧**）。
+// ⛔ `core/sweep.ets` **不在本线域** ⇒ 本线**只登记 + 钉住**（⛔ 不改它）；修法供派单：
+//    `sweepBandOf` 浅色臂的 `core` 改用**独立中性档**（如 `effectsOf(p).elev2`），**⛔ 不复用 `glow`**；
+//    或**显式裁决「白底不做扫光」**（则整带全透明 + 从渲染路径摘除，而不是"悄悄退化成两端有色"）。
+const KNOWN_GLOW_CONSUMER_DEFECTS: string[] = ['core/sweep.ets'];
+{
+  // ① 正确接线的消费者：浅色下**不得**是透明（否则等于通道消失）
+  const porc = paletteOf('porcelain');
+  const lite = paletteOf('light');
+  ok('下游·orbRingStrokeOf：浅色 = 结构性发丝（**非透明**，真的看得见）',
+    orbRingStrokeOf(porc) === hairlineOf(porc) && orbRingStrokeOf(porc) !== porc.transparent);
+  ok('下游·inflightHaloOf：浅色 = elev2 柔影（**非透明**）',
+    inflightHaloOf(porc) !== porc.transparent && inflightHaloOf(lite) !== lite.transparent);
+  // ② 已退化消费者：登记（只许缩短）
+  let sweepDefect: boolean = false;
+  for (let i = 0; i < ALL_THEMES.length; i++) {
+    const p = paletteOf(ALL_THEMES[i]);
+    if (!isLightPalette(p)) { continue; }
+    const b: SweepBand = sweepBandOf(p);
+    if (b.core === p.transparent) { sweepDefect = true; }
+  }
+  ok('下游·sweepBandOf：浅色 `core` **不得**为透明（否则扫光带反序退化）—— 当前**已登记缺陷**',
+    sweepDefect === true, 'defect 已消失 ⇒ 请从 KNOWN_GLOW_CONSUMER_DEFECTS 移除并改强断言');
+  ok('  · 缺陷台账非空且含 sweep（⛔ 只许缩短；修好 ⇒ 上一行红 ⇒ 逼同步）',
+    KNOWN_GLOW_CONSUMER_DEFECTS.indexOf('core/sweep.ets') >= 0);
 }
 
 if (fail > 0) { console.log(`  porcelain_glow: ${pass} passed, ${fail} failed`); process.exit(1); }
