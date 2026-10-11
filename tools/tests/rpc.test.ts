@@ -33,6 +33,7 @@ import {
   RPC_WEB_PLUGIN_LIST,
   RPC_ADD_SUBSCRIPTION, RPC_UPDATE_SUBSCRIPTION, RPC_REMOVE_SUBSCRIPTION, RPC_UPSERT_MODEL,
   RPC_REMOVE_MODEL, RPC_SET_MODEL_ENABLED, RPC_UPDATE_PER_MODEL_CONFIG, RPC_REFRESH_MODEL_ENTRIES,
+  RPC_EXPORT_SESSION, RPC_EXPORT_SESSION_JSONL, RPC_IMPORT_SESSION, RPC_IMPORT_SESSION_JSONL,
   setToolsEnabled, settingIsTrue, settingValue, SetSettingParams,
   SETTINGS_NS_CLI, SettingWrite, stripScheme, SubscriptionEnabledParams, SubscriptionRow,
   ToolEnabledParams, ToolSettingRow, ToolsEntry, toolsEntryBusyKey, toolsEntryKey, ToolsSettingsData,
@@ -81,6 +82,8 @@ const NAMED: string[] = [
   // 波7 新增（llm 分区：模型 / 订阅 CRUD）—— `rpc_table.go:631-970`
   RPC_ADD_SUBSCRIPTION, RPC_UPDATE_SUBSCRIPTION, RPC_REMOVE_SUBSCRIPTION, RPC_UPSERT_MODEL,
   RPC_REMOVE_MODEL, RPC_SET_MODEL_ENABLED, RPC_UPDATE_PER_MODEL_CONFIG, RPC_REFRESH_MODEL_ENTRIES,
+  // 会话导出 / 导入（web `agent/api.ts:332/386/587`；服务端 `rpc_table.go:1485/1542/1577/1606`）
+  RPC_EXPORT_SESSION, RPC_EXPORT_SESSION_JSONL, RPC_IMPORT_SESSION, RPC_IMPORT_SESSION_JSONL,
 ];
 for (let i = 0; i < NAMED.length; i++) {
   ok(`ALL 登记了 ${NAMED[i]}`, RpcMethod.ALL.indexOf(NAMED[i]) >= 0);

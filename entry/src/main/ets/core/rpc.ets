@@ -22,6 +22,7 @@
  *   · set_default_subscription `{id,chat_id?,channel?}` → void —— `rpc_table.go:2696-2705`
  */
 import { XbotHttp } from './http';
+import { DemoRecord, EXPORT_BENCHMARK } from './export';
 
 // ── 请求构造 ──────────────────────────────────────────────────────────────────
 
@@ -115,6 +116,27 @@ export const RPC_UPDATE_PER_MODEL_CONFIG: string = 'update_per_model_config';
 /** `refresh_model_entries`（无参 `rpc0err`）→ `[]protocol.ModelEntry`。`rpc_table.go:762-769`；web `api.ts:798-800`。 */
 export const RPC_REFRESH_MODEL_ENTRIES: string = 'refresh_model_entries';
 
+// ── 会话导出 / 导入（web `agent/api.ts`；服务端 `rpc_table.go`）──────────────────────
+//
+// ⚠️ "会话导出"在 web 侧**只有 2 个 RPC**（另 2 个导入是其逆操作）——**没有** markdown 专用方法：
+//    · `export_session`       —— 返回整包 `ExportedSession`；native/openai/codex/multica 四种形态
+//                                全由**前端本地**由该回包生成（web `api.ts:394-566`）；
+//    · `export_session_jsonl` —— 返回 `{records, count}`（benchmark，HLE/mint-bench）；
+//    · `import_session` / `import_session_jsonl` —— 上述两者的逆（web `import_session` 调用点 `api.ts:587`）。
+// 参数统一是 `sessionBody(session)` = `{channel, chat_id}`（web `api.ts:663-669`）。
+// 逐字取证：web `api.ts:332-337`（`export_session`）、`:385-388`（`export_session_jsonl`）、
+//   `:585-590`（`import_session`）；服务端字面量 `agent/req_types.go:83-84`、
+//   注册 `serverapp/rpc_table.go:1485`（export）/`:1542`（import）/`:1577`（export_jsonl）/`:1606`（import_jsonl）。
+
+/** `export_session` → `ExportedSession`（web `api.ts:332-337`；服务端 `rpc_table.go:1485`）。 */
+export const RPC_EXPORT_SESSION: string = 'export_session';
+/** `export_session_jsonl` → `{records, count}`（web `api.ts:385-388`；服务端 `rpc_table.go:1577`）。 */
+export const RPC_EXPORT_SESSION_JSONL: string = 'export_session_jsonl';
+/** `import_session` —— `export_session` 的逆（web `api.ts:585-590`；服务端 `rpc_table.go:1542`）。 */
+export const RPC_IMPORT_SESSION: string = 'import_session';
+/** `import_session_jsonl` —— `export_session_jsonl` 的逆（服务端 `rpc_table.go:1606`；web 无调用点）。 */
+export const RPC_IMPORT_SESSION_JSONL: string = 'import_session_jsonl';
+
 /**
  * method 名常量表（静态访问形式：`RpcMethod.getToolsSettings`）。
  *
@@ -144,6 +166,10 @@ export class RpcMethod {
   static readonly setModelEnabled: string = RPC_SET_MODEL_ENABLED;
   static readonly updatePerModelConfig: string = RPC_UPDATE_PER_MODEL_CONFIG;
   static readonly refreshModelEntries: string = RPC_REFRESH_MODEL_ENTRIES;
+  static readonly exportSession: string = RPC_EXPORT_SESSION;
+  static readonly exportSessionJsonl: string = RPC_EXPORT_SESSION_JSONL;
+  static readonly importSession: string = RPC_IMPORT_SESSION;
+  static readonly importSessionJsonl: string = RPC_IMPORT_SESSION_JSONL;
 
   /** 全部 method（顺序 = 展示/文档顺序）。 */
   static readonly ALL: string[] = [
@@ -169,6 +195,10 @@ export class RpcMethod {
     RPC_SET_MODEL_ENABLED,
     RPC_UPDATE_PER_MODEL_CONFIG,
     RPC_REFRESH_MODEL_ENTRIES,
+    RPC_EXPORT_SESSION,
+    RPC_EXPORT_SESSION_JSONL,
+    RPC_IMPORT_SESSION,
+    RPC_IMPORT_SESSION_JSONL,
   ];
 }
 
@@ -210,6 +240,32 @@ export class DefaultSubscriptionParams {
   constructor(id: string) {
     this.id = id;
   }
+}
+
+/**
+ * 会话选择器参数 `{channel, chat_id}` —— 会话导出/导入 4 个 RPC 共用的入参形状。
+ * 逐字对齐 web `agent/api.ts:663-669 sessionBody`：`{ channel: session.channel, chat_id: session.chatID }`。
+ * ⚠️ 键名是 **`chat_id`（下划线）**，不是 `chatID` —— 服务端 `json:"chat_id"`（`rpc_table.go:1489/1546/1580/1609`）。
+ */
+export class SessionSelectorParams {
+  channel: string = '';
+  chat_id: string = '';
+
+  constructor(channel: string, chatID: string) {
+    this.channel = channel;
+    this.chat_id = chatID;
+  }
+}
+
+/**
+ * 会话导出：格式 → RPC 方法（web `api.ts:383-394` 的分派，纯逻辑）。
+ *
+ * 只有 **`benchmark`** 走专用 RPC `export_session_jsonl`；其余（native/openai/codex/multica）
+ * 都取 `export_session` 的整包后**由前端本地**生成（web `api.ts:394-566`）。
+ * ⛔ 没有 markdown 形态 ⇒ 无 `export_session_markdown` 之类方法（见 `docs/WEB-PARITY.md` §11.5 ⑧）。
+ */
+export function exportRpcMethod(format: string): string {
+  return format === EXPORT_BENCHMARK ? RPC_EXPORT_SESSION_JSONL : RPC_EXPORT_SESSION;
 }
 
 /** 设置命名空间常量（web 全程用 `'cli'`；服务端把它落到单操作员的 `cli_user` 行）。 */
@@ -509,6 +565,16 @@ export interface SubscriptionRow {
   active: boolean;
   /** 订阅级启用开关（v40；`omitempty` ⇒ 缺省即 false）。 */
   enabled?: boolean;
+}
+
+/**
+ * `export_session_jsonl` 的 data（web `api.ts:385`）—— benchmark JSONL 的逐条记录。
+ * ⚠️ 只有 `benchmark` 形态走这个 RPC；`export_session` 的返回是整包 `ExportedSession`
+ * （见 `core/export.ets`，本文件不重复声明）。
+ */
+export class ExportSessionJsonlData {
+  records?: DemoRecord[];
+  count?: number;
 }
 
 // ── 纯逻辑：工具归一 + 分组（可脱机单测）────────────────────────────────────────
