@@ -96,6 +96,20 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   工厂，唯一 import `@ohos.curves` 处）。**`core/*.ets` 禁止 import ArkUI/`@ohos.*` 全局类型**
   —— `run.sh` 把它当纯 TS 编译，会 TS2307。
 - **门禁并发安全**：`tools/tests/run.sh` 的产物目录带 PID（`.out.$$`），可多线并发跑互不干扰。
+- **⛔ 推送走 SSH，不要用 HTTPS（本机只挡 HTTPS、不挡 SSH，2026-10-11 实测）**：
+  `git push origin main` 会**每次都干等 75 秒**再失败：`Failed to connect to github.com port 443`。
+  探通道：`ssh -o BatchMode=yes -T git@github.com` ⇒ 认证成功（`Hi <user>!`）。
+  **正确姿势（不改 remote 配置）**：
+  ```bash
+  git push git@github.com:Chronostasys/xbot-harmony.git main:main
+  git ls-remote git@github.com:Chronostasys/xbot-harmony.git refs/heads/main   # 校验远端真实值
+  git update-ref refs/remotes/origin/main <sha>   # 推匿名 URL 不会自动更新 remote-tracking，必须手工同步
+  ```
+  ⚠️ 忘了最后一步，`git log origin/main..HEAD` 会一直显示一堆"待推"（假象）。
+- **⛔ 脱机 harness 会全量编译 `core/**`**：`tools/tests/run.sh`/`run-one.sh` 把 `core/` 当**整体**纯 TS 编译
+  ⇒ **别人一个在途 `core/` 文件不干净，你的 `run-one.sh <任意测试>` 也红**（假红）。
+  看到红**先看错误落在哪个文件、它是不是别人的在途文件**（是 ⇒ 只上报别修）；
+  自证改用**隔离 harness / 隔离 worktree**。**"红了"不等于"你错了"。**
 - **⛔ 动手前先 `git status`（多线并行下的保命动作）**：本仓常有多条线（人或 agent）同时改不同文件
   ⇒ 派单/开工**前**必须先 `git status --short`，**凡出现在在途列表里的文件一律只上报不改**。
   真实事故：主 agent 把 `components/ContextRing.ets` / `ThinkingLine.ets` 派给新线，
