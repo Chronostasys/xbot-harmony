@@ -62,6 +62,16 @@ export const KEY_ORB: string = 'xbot-assistant-orb';
  */
 export const KEY_NOTIFY_ASK: string = 'xbot-notify-ask';
 export const KEY_NOTIFY_TURN_DONE: string = 'xbot-notify-turn-done';
+/**
+ * 原生端新增：**通知里是否展示回复/问题正文**（隐私开关，默认**开**）。
+ *
+ * 为什么需要它：锁屏/通知栏是**公开可见面** —— 回复正文可能含隐私内容。专业 IM 都有
+ * "显示消息预览"开关（如 Signal/微信）。关掉后通知**只留标题**（"需要你的回答 · 会话名"/
+ * "回合已完成 · 会话名"），正文回落成不泄露内容的兜底文案，用户点开 App 才看到内容。
+ *
+ * 归属：与"哪些事件通知"同族（都是"打扰方式"偏好），故放在同一个 `NotifyPrefs` 里。
+ */
+export const KEY_NOTIFY_DETAIL: string = 'xbot-notify-detail';
 
 /** 本地键 → 服务端键（web `userSettings.ts` 的同一张表）。 */
 export function serverKey(localKey: string): string {
@@ -110,6 +120,9 @@ export function serverKey(localKey: string): string {
   if (localKey === KEY_NOTIFY_TURN_DONE) {
     return 'web:ui:notify-turn-done';
   }
+  if (localKey === KEY_NOTIFY_DETAIL) {
+    return 'web:ui:notify-detail';
+  }
   return localKey;
 }
 
@@ -117,7 +130,7 @@ export function serverKey(localKey: string): string {
 export function localKey(srvKey: string): string {
   const table: string[] = [KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE, KEY_SEND_KEY, KEY_CODE_WRAP,
     KEY_UI_MODE, KEY_STARRED, KEY_FONT_SCALE, KEY_REASONING_DEFAULT, KEY_APP_THEME, KEY_SURFACE,
-    KEY_SESSION_CATEGORY, KEY_ORB, KEY_NOTIFY_ASK, KEY_NOTIFY_TURN_DONE];
+    KEY_SESSION_CATEGORY, KEY_ORB, KEY_NOTIFY_ASK, KEY_NOTIFY_TURN_DONE, KEY_NOTIFY_DETAIL];
   for (let i = 0; i < table.length; i++) {
     if (serverKey(table[i]) === srvKey) {
       return table[i];
@@ -270,6 +283,9 @@ export function settingLabel(key: string): string {
   if (key === KEY_NOTIFY_TURN_DONE) {
     return '回合完成时通知';
   }
+  if (key === KEY_NOTIFY_DETAIL) {
+    return '通知显示回复内容';
+  }
   return key;
 }
 
@@ -292,16 +308,19 @@ export function orbEnabled(map: Record<string, string>): boolean {
 export class NotifyPrefs {
   ask: boolean;
   turnDone: boolean;
+  /** 通知里是否展示正文（隐私开关；默认 true）。 */
+  detail: boolean;
 
-  constructor(ask: boolean, turnDone: boolean) {
+  constructor(ask: boolean, turnDone: boolean, detail: boolean = true) {
     this.ask = ask;
     this.turnDone = turnDone;
+    this.detail = detail;
   }
 }
 
-/** 通知偏好的**默认值**（两类都开 ⇒ 与接线前的行为等价）。 */
+/** 通知偏好的**默认值**（两类都开 + 展示正文 ⇒ 与接线前的行为等价）。 */
 export function defaultNotifyPrefs(): NotifyPrefs {
-  return new NotifyPrefs(true, true);
+  return new NotifyPrefs(true, true, true);
 }
 
 /**
@@ -314,6 +333,7 @@ export function notifyPrefsFrom(map: Record<string, string>): NotifyPrefs {
   return new NotifyPrefs(
     parseBool(settingOf(map, KEY_NOTIFY_ASK), true),
     parseBool(settingOf(map, KEY_NOTIFY_TURN_DONE), true),
+    parseBool(settingOf(map, KEY_NOTIFY_DETAIL), true),
   );
 }
 

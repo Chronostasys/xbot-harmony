@@ -739,8 +739,16 @@ export class NotifyBodyPlan {
   }
 }
 
-/** 正文 → 规划（纯函数）：把"截断/摘要/形态/退化"一次算清（`publishTurn` 唯一入口）。 */
-export function notifyBodyPlan(kind: string, detail: string): NotifyBodyPlan {
+/**
+ * 正文 → 规划（纯函数）：把"截断/摘要/形态/退化/隐私"一次算清（`publishTurn` 唯一入口）。
+ *
+ * @param showDetail 是否把正文放进系统可见面（隐私开关，默认 true）。`false` ⇒ **只留标题 +
+ *        兜底文案**（回复/问题正文绝不进锁屏与通知栏），形态回落单行、无多行、无退化。
+ */
+export function notifyBodyPlan(kind: string, detail: string, showDetail: boolean = true): NotifyBodyPlan {
+  if (showDetail !== true) {
+    return new NotifyBodyPlan(NOTIFY_SHAPE_BASIC, defaultNotifyBody(kind), [], false);
+  }
   const d: string = detail !== undefined && detail !== null ? detail.trim() : '';
   const body: string = d.length > 0 ? d : defaultNotifyBody(kind);
   const shape: string = notifyShapeFor(body);
@@ -939,7 +947,8 @@ async function startAbilityAgent(params: Record<string, Object>): Promise<Object
 export async function publishTurn(title: string, text: string, chatId: string): Promise<boolean> {
   try {
     const kind: string = kindFromNotifyTitle(title);
-    const plan: NotifyBodyPlan = notifyBodyPlan(kind, text);
+    // ⭐ 隐私开关（`KEY_NOTIFY_DETAIL`）：关掉时正文不进系统可见面（见 notifyBodyPlan）
+    const plan: NotifyBodyPlan = notifyBodyPlan(kind, text, currentPrefs.detail);
     const safeTitle: string = clampTitle(title);
     const agent: Object = await startAbilityAgent({ 'chat_id': chatId });
     const bodyText: string = plan.preview.length > 0 ? plan.preview : defaultNotifyBody(kind);
