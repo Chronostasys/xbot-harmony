@@ -44,13 +44,28 @@ else
   bad "渲染路径门禁**失败**（渲染路径里出现了裸解析调用）"
 fi
 
-n_pal=$(grep -ro 'this\.pal()' "$ETS/components" "$ETS/pages" 2>/dev/null | wc -l | tr -d ' ')
-n_eff=$(grep -ro 'this\.eff()' "$ETS/components" "$ETS/pages" 2>/dev/null | wc -l | tr -d ' ')
-n_itv=$(grep -ro 'setInterval(' "$ETS/components" "$ETS/pages" 2>/dev/null | wc -l | tr -d ' ')
-n_tmo=$(grep -ro 'setTimeout(' "$ETS/components" "$ETS/pages" 2>/dev/null | wc -l | tr -d ' ')
-n_fe=$(grep -ro 'ForEach(' "$ETS/components" "$ETS/pages" 2>/dev/null | wc -l | tr -d ' ')
-n_anim=$(grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' "$ETS/components" "$ETS/pages" 2>/dev/null | wc -l | tr -d ' ')
-n_raw=$(grep -rn 'parseMarkdown(\|parseInline(' "$ETS/components" "$ETS/pages" "$ETS/entryability" 2>/dev/null | grep -v 'Cached' | wc -l | tr -d ' ')
+# ⚠️ 以下计数一律在**剥掉注释**的副本上做：这些预算数的是**调用点**，而注释里的散文提及
+# （「T2 让位走 animSlow()」「不要直接调 this.pal()」）会被文本 grep 计入 ⇒ **虚增**，
+# 让预算看起来更紧、甚至假红。2026-10-11 实测：某组件 7 处"命中"里**只有 2 处是真调用**。
+# 同手艺见 tools/lint/orphan-components.sh 的 strip_comments_to。
+S_DIR="$(mktemp -d)"
+for part in components pages entryability; do
+  mkdir -p "${S_DIR}/${part}"
+  find "${ETS}/${part}" -maxdepth 1 -name '*.ets' -type f -print0 2>/dev/null |
+    while IFS= read -r -d '' f; do
+      perl -0777 -pe 's{/\*.*?\*/}{}gs; s{(?<!:)//[^\n]*}{}g' "${f}" > "${S_DIR}/${part}/$(basename "${f}")" 2>/dev/null \
+        || cp "${f}" "${S_DIR}/${part}/$(basename "${f}")"
+    done
+done
+SC="${S_DIR}/components"; SP="${S_DIR}/pages"; SE="${S_DIR}/entryability"
+n_pal=$(grep -ro 'this\.pal()' "$SC" "$SP" 2>/dev/null | wc -l | tr -d ' ')
+n_eff=$(grep -ro 'this\.eff()' "$SC" "$SP" 2>/dev/null | wc -l | tr -d ' ')
+n_itv=$(grep -ro 'setInterval(' "$SC" "$SP" 2>/dev/null | wc -l | tr -d ' ')
+n_tmo=$(grep -ro 'setTimeout(' "$SC" "$SP" 2>/dev/null | wc -l | tr -d ' ')
+n_fe=$(grep -ro 'ForEach(' "$SC" "$SP" 2>/dev/null | wc -l | tr -d ' ')
+n_anim=$(grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' "$SC" "$SP" 2>/dev/null | wc -l | tr -d ' ')
+n_raw=$(grep -rn 'parseMarkdown(\|parseInline(' "$SC" "$SP" "$SE" 2>/dev/null | grep -v 'Cached' | wc -l | tr -d ' ')
+rm -rf "${S_DIR}"
 
 # 基线（2026-10-11 实测，见 docs/PERF-BUDGET.md 表 A；余量 40%）
 le "this.pal() 调用点（components+pages）" "$n_pal" 1250 处
