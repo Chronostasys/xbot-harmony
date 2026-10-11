@@ -2708,21 +2708,45 @@ struct Index {
           this.panelUrl = '';
         } })
       }
-      // 全屏：工具 / 模型 / 智能体 设置分区（components/SettingsPanel 的**唯一注入点**；
-      // 它真实实例化 SettingsTools/SettingsLlm/SettingsAgent，消掉孤儿并让三者被真编译覆盖）。
+      // 全屏：设置面（`components/SettingsPanel` 的**唯一注入点**；自带 Header/onClose，
+      // 页面**不再**自绘头部 —— 否则两个头部、内层是死的）。字段/回调名以组件 `@Prop` 为准。
       if (this.showSettingsPanel) {
         Column() {
-          Row() {
-            Text('偏好设置').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
-            SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
-              .onClick(() => {
-                this.showSettingsPanel = false;
-              })
-          }.width('100%').padding({ left: SP_5, right: SP_2, top: SP_3, bottom: SP_1 })
-
           if (this.store !== null) {
             Column() {
-              SettingsPanel({ http: this.store.http, theme: this.themeName })
+              SettingsPanel({
+                http: this.store.http,
+                theme: this.themeName,
+                settings: this.settings,
+                surfaceWeb: this.useWebUI,
+                notifyOn: this.notifyOn,
+                onClose: () => {
+                  this.showSettingsPanel = false;
+                },
+                onSetSetting: (key: string, value: string) => {
+                  void this.setSetting(key, value);
+                },
+                // 主题：置本地 + 落盘 + 系统表面（与旧 PrefsSheet 同一条路径）
+                onSetTheme: (t: string) => {
+                  this.themeName = t;
+                  this.setSetting(KEY_APP_THEME, t);
+                  this.syncSystemTheme();
+                  this.buzz();
+                },
+                onSetSurface: (web: boolean) => {
+                  this.setSurface(web);
+                },
+                onSetNotify: (on: boolean) => {
+                  void this.applyNotifyToggle(on);
+                },
+                onRefresh: () => {
+                  const st: ChatStore | null = this.store;
+                  if (st !== null) {
+                    st.loadSettings().catch(() => {
+                    });
+                  }
+                },
+              })
             }.width('100%').layoutWeight(1)
           } else {
             Text('未连接服务端').fontSize(FS_CAPTION).fontColor(this.pal().textMuted).padding(SP_4)
