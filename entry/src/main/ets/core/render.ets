@@ -16,6 +16,7 @@
 import { ChatRow, HistoryIteration, IterList, ToolProgress } from './types';
 import { WebCompaction, WebIteration, WebSubAgentProgress, WebToolProgress } from './chattypes';
 import type { LiveRowView, Row } from './derive';
+import { mergeTools, toolKey } from './streammerge';
 
 /** WebToolProgress（web 形状）→ 原生 ToolProgress（渲染层形状）。 */
 export function toToolProgress(t: WebToolProgress): ToolProgress {
@@ -153,7 +154,7 @@ export function toHistoryIterations(ws: readonly WebIteration[]): HistoryIterati
  * `effectiveReasoning`：与**任一**已完成迭代的对应字段相同 ⇒ 该内容已被历史块渲染
  * ⇒ 置空，避免同一段文本在历史块与在飞块各渲染一份（双渲染）。
  */
-function inFlightBlock(r: LiveRowView, completed: HistoryIteration[]): HistoryIteration | null {
+export function inFlightBlock(r: LiveRowView, completed: HistoryIteration[]): HistoryIteration | null {
   let content: string = r.content;
   let reasoning: string = r.reasoning;
   for (let i = 0; i < completed.length; i++) {
@@ -165,11 +166,32 @@ function inFlightBlock(r: LiveRowView, completed: HistoryIteration[]): HistoryIt
     }
   }
   const tools: ToolProgress[] = [];
-  for (let i = 0; i < r.activeTools.length; i++) {
-    tools.push(toToolProgress(r.activeTools[i]));
-  }
+  // ── live 工具列表 = web `LiveIteration.tsx:157-179` 的**两步**（此前两步都缺 ⇒ P0「同一工具两行」）──
+  // ① 按 `toolKey` 去重（web `dedupTools`；本仓复用 `streammerge.mergeTools` ⇒ 同一调用只一行）；
+  // ② 滤掉**已提交迭代里**的同名同标签工具（web `completedIterToolKeys`）—— 否则陈旧 active/streaming
+  //    与刚提交的迭代会各渲染一枚 pill（真机上「同一工具两行」，见 WEB-PARITY §12-B）。
+  const live: ToolProgress[] = [];
   for (let i = 0; i < r.streamingTools.length; i++) {
-    tools.push(toToolProgress(r.streamingTools[i]));
+    live.push(toToolProgress(r.streamingTools[i]));
+  }
+  for (let i = 0; i < r.activeTools.length; i++) {
+    live.push(toToolProgress(r.activeTools[i]));
+  }
+  const deduped: ToolProgress[] = mergeTools([], live);
+  const completedKeys: string[] = [];
+  for (let i = 0; i < completed.length; i++) {
+    const it: HistoryIteration = completed[i];
+    if (it.tools === undefined) {
+      continue;
+    }
+    for (let j = 0; j < it.tools.length; j++) {
+      completedKeys.push(toolKey(it.tools[j]));
+    }
+  }
+  for (let i = 0; i < deduped.length; i++) {
+    if (completedKeys.indexOf(toolKey(deduped[i])) < 0) {
+      tools.push(deduped[i]);
+    }
   }
   if (content.length === 0 && reasoning.length === 0 && tools.length === 0) {
     return null;
