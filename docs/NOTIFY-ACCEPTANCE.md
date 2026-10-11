@@ -113,3 +113,92 @@
 - **动作按钮「停止 / 继续」**：需 `pages/Index.ets` 接线补丁落地后**才发射**（见 `docs/NOTIFY.md §7`）；
   未接线前通知**只发「查看」** —— 这是"不发射死键"的纪律，**不是**功能缺失。
 - **后台常驻接收**：平台不提供（明账见 `docs/NOTIFY.md §4`），**不列为验收项**。
+
+---
+
+## 10. 后台化后「还有事件进来吗」—— 根因判定与实验（2026-10-11 只读审计）
+
+> 现象：三轮真机（后台化 15s / 70s / 80s）**都没有通知**；发布侧三道审计下来**不像有 bug**
+> （`publishTurn` / `ensureEnabled` / `createSlots` / `setAppForeground` 都完整，见顶部任务描述）。
+> ⇒ 首要怀疑：**被后台化后 SSE 不再有事件进来** ⇒ `store.notifyOnSse`（`core/store.ets:1372`）**从未被调用**。
+> 本节把"是否还有事件"**做成可判**，并给出路线（⛔ 本节**只判定 + 设计实验**，不改码、不动设备）。
+
+### 10.1 逐条读码/SDK 依据
+
+| # | 事实 | 依据（file:line / SDK 行号） |
+|---|---|---|
+| 1 | **进后台只写一个标志**，**不关 SSE**、不申请保活 | `entryability/EntryAbility.ets:103-105`：`onBackground(){ setAppForeground(false) }` |
+| 2 | SSE 连接**只在切会话 / 停止时**关闭，**没有**面向后台的关闭逻辑 | `core/sse.ets:457` `connect()` / `:489` `close()`；调用点仅 `core/store.ets:554`（切会话）与 `:1251` |
+| 3 | 短时任务**只有两处**开窗：**用户发消息**（`pages/Index.ets:2309`）与**点通知「继续」**（`:932`） | `beginTurnKeepAlive()` 定义 `core/notify.ets:1222`；调用点仅上述两处 |
+| 4 | ⇒ **纯被动轮次**（他人/另一端/cron/subagent 触发）后台**没有任何窗** | 由上一条直接推出（没有第三处调用点；`grep -rn "beginTurnKeepAlive" entry/src` 仅 2 处） |
+| 5 | 短时任务**上限 = 3 分钟**（低电量 **1 分钟**），到期回调**提前约 6 秒** | SDK `@ohos.resourceschedule.backgroundTaskManager.d.ts:272-282`（`actualDelayTime` 注释原文）、`:636`（"invoked 6 seconds before the timeout"） |
+| 6 | 短时任务**不保活进程**，只保证窗内**不被冻结** | `core/notify.ets:1213-1216`（本仓注释）；SDK `:627-637`（Transient Task，免权限） |
+| 7 | **长时任务**（`startBackgroundRunning`）可跨后台，但：需 `ohos.permission.KEEP_BACKGROUND_RUNNING`，且 **`BackgroundMode` 没有任何"聊天/长连"档** | SDK `:699/:734`（签名）、`:1133-1202`（枚举仅 `DATA_TRANSFER/AUDIO_PLAYBACK/AUDIO_RECORDING/LOCATION/BLUETOOTH_INTERACTION/MULTI_DEVICE_CONNECTION/VOIP`）、`:1053` 附近 `@permission` |
+| 8 | 长时任务**也会被挂起**（系统检测到未实际执行对应业务 ⇒ 标记 suspended；挂起后**退后台即被挂起**） | SDK `:1046-1051`（`continuousTaskSuspend` 注释原文："the application will be suspended when switched to the background"） |
+| 9 | 本应用**没有**申请该权限、**没有** `backgroundModes` | `entry/src/main/module.json5:30-34`（只有 `INTERNET` / `GET_NETWORK_INFO` / `VIBRATE`） |
+| 10 | 服务端**无任何系统推送能力**（无 webpush/fcm/apns/厂商通道 SDK） | 只读遍历 `/Users/bobli/src/xbot`（`grep -rliE "webpush\|fcm\|apns\|getui\|jpush\|vapid" --include=*.go` ⇒ **0 命中**） |
+
+### 10.2 明确预测（可判）
+
+- **A. 有窗（先发消息/点继续 ⇒ `beginTurnKeepAlive` 成功）且 ≤3 分钟**：
+  **应当**在后台仍能收到 SSE（心跳 15s 一条 + 回合事件）⇒ 回合结束**应当**出通知。
+- **B. 无窗（直接按 HOME，或被动轮次）**：应用**被冻结** ⇒ JS 定时器与事件回调停摆
+  ⇒ **后台期间不应再有任何 SSE 事件** ⇒ `notifyOnSse` 零调用 ⇒ **必然无通知**（**这不是发布侧 bug**）。
+- **C. 有窗但 >3 分钟（或低电量 >1 分钟）**：窗到期后同 B。
+
+> ⇒ 三轮真机若**都没先发消息**，现象与 B **完全吻合**，即：**根因 = 事件进不来，不是发布侧**。
+
+### 10.3 设备可判实验（**先写好，等设备空**）
+
+⛔ 纪律：先确认**没人在用设备**（多线并行会互相污染）；⛔ 不 `force-stop`；本实验**只需一次后台化**。
+
+```bash
+source ~/ohos-cli/env.sh; T=127.0.0.1:5555
+hdc -t $T shell "hilog -r"                       # ① 清缓冲（防"旧日志当新事件"）
+
+# ② 在设备上：某会话**发一条会长回复的消息**（这一步同时开 3 分钟窗）⇒ **立刻按 HOME**
+#    ⛔ 别关应用、别切会话（会 close SSE）
+
+# ③ 保持 60s（在窗内），然后一次性取回日志
+hdc -t $T shell "hilog -x > /data/local/tmp/h.txt"
+hdc -t $T file recv /data/local/tmp/h.txt /tmp/h.txt
+
+# ④ 判据
+grep -nE "xbot sse|xbot notify|requestSuspendDelay|短时任务|notify" /tmp/h.txt | tail -40
+```
+**判读（对照 §10.2 的预测）**
+
+| 观测 | 结论 |
+|---|---|
+| 后台 60s 内**有** SSE 帧/心跳日志 ⇒ 但**没有** `xbot notify` 相关行 | **事件进来了、发布侧没发** ⇒ **才是发布侧 bug**（转 §10.4） |
+| 后台期间 SSE 日志**完全静止**（最后一条 ≈ 进后台瞬间） | **应用被冻结 ⇒ 事件进不来** ⇒ 根因 = 挂起（走 §10.5 路线） |
+| 完全无 `requestSuspendDelay` 成功日志 | 窗**没开**（没发消息 / 申请失败）⇒ 先复现"发消息"这一步 |
+
+**对照实验（判"窗"的价值）**：把 ② 换成"**不发消息，直接 HOME**"重跑 ⇒ 预测**零 SSE 事件**。
+A/B 结果**不同** ⇒ 证明 3 分钟窗确实是后台存活的唯一来源；**相同** ⇒ 窗也没用（需重估）。
+
+### 10.4 若日志显示"事件进来了但没通知" ⇒ 发布侧排查点（`core/notify.ets` 是本线归属）
+
+按 SSE 事件实际到达顺序查三处（都有 file:line，便于定点）：
+1. `notifyKindForSse(...)` 是否把该事件映射成了"可通知的 kind"（映射表在 `core/notify.ets` 的 kind 段）；
+2. `shouldNotify(appIsForeground(), kind)`（`core/notify.ets:457`）是否因 `appIsForeground()` **错读为 true** 而抑制
+   —— ⚠️ **最可疑的一条**：`AppStorage` 写入失败/读取回落（`appIsForeground()` 的兜底是**返回"前台"**，`core/notify.ets:861`）
+   ⇒ 后台化时若写失败，会**静默抑制所有通知**；
+3. `publishTurn`（`:1031`）返回 false 时的失败日志（授权/slot/内容超限）。
+
+### 10.5 若根因是"挂起，事件进不来" ⇒ 路线与代价（**都是架构选择，等拍板**）
+
+| 路线 | 做法 | 代价 / 风险 |
+|---|---|---|
+| **① 服务端系统推送**（唯一"杀进程也能收"） | 服务端接**华为 Push Kit**（HMS），轮次结束时由**服务端**发；客户端只注册 token | 服务端**当前零推送能力**（§10.1-10）⇒ 要接厂商 SDK + 账号/证书 + token 生命周期；**属 web/server 仓的活**（本任务禁改） |
+| **② 长时任务保活**（客户端可做） | `startBackgroundRunning(ctx, 'dataTransfer', wantAgent)` 保 WS/SSE | 需 `KEEP_BACKGROUND_RUNNING` 权限 + **`BackgroundMode` 无"聊天"档**（§10.1-7）⇒ 只能用 `dataTransfer` 等**语义不符**的档 ⇒ 有**审核/被挂起**风险（§10.1-8）；且要常驻通知栏 |
+| **③ 现状：短时任务窗 + 回前台对账** | 只在"用户刚发消息"开 ≤3min 窗；窗外回前台对齐 | 零平台成本；**被动轮次完全无窗**（§10.1-3/4）⇒ "最专业的通知"达不到 |
+| **④ ①+③ 组合（推荐方向）** | 服务端推送兜底"不依赖进程存活"；窗内走实时 SSE | 成本集中在服务端；但**这是唯一能覆盖"应用被杀/被冻结"的** |
+
+⚠️ **不建议**：把窗申请挂到"SSE 收到 busy 时"—— 应用被冻结后**根本收不到那个事件**，逻辑上自锁（无效）。
+
+### 10.6 本节结论（一句话）
+
+**发布侧不是首要嫌疑**：`onBackground` 不关连接，但**没有任何机制在后台**（除"用户刚发消息"的 ≤3min 短时任务窗）
+**维持 JS/网络活动**；应用被冻结后 SSE 事件**进不来** ⇒ `notifyOnSse` 零调用 ⇒ 无通知。
+⇒ 目标①的**正解是架构选择**（§10.5），不是发布侧打补丁；**先跑 §10.3 把"有没有事件"钉死**再定方向。
