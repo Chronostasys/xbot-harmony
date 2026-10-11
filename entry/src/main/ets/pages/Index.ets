@@ -3039,20 +3039,6 @@ struct Index {
               this.showQueue = true;
             })
         }
-        SymbolGlyph($r('sys.symbol.square_grid_2x2')).fontSize(typeOf('type.title').size).fontColor([this.pal().textPrimary])
-          .padding(SPACE_SM)
-          .borderRadius(RADIUS_CHIP)
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            this.openPlugins();
-          })
-        SymbolGlyph($r('sys.symbol.gearshape')).fontSize(typeOf('type.title').size).fontColor([this.pal().textPrimary])
-          .padding(SPACE_SM)
-          .borderRadius(RADIUS_CHIP)
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            this.openSettingsPanel();
-          })
       }
       .width('100%').constraintSize({ minHeight: 56 }).padding({ left: SP_2, right: SP_2 })
       .backgroundColor(this.pal().appBg)
