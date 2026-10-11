@@ -137,6 +137,12 @@ LC_ALL=C bash "$HERE/perf/guard.sh" --static || fail=1
 perf_dt=$(( $(date +%s) - perf_t0 ))
 echo "（⑦ 耗时 ${perf_dt}s）"
 
+# ⚠️ 新增（波10）：core/ 未消费模块（**警告级**，不影响退出码）。
+#    真实事故：`core/reasoningopen.ts`（web 逐字移植）**零消费方**就被提交，而门禁①②③④全绿
+#    ⇒ "修了 live→commit 自动收起"是**假的**（ArkTS 不检查无消费者的模块文件，同 ⑤ 孤儿组件）。
+echo "===== ⑧ core/ 未消费模块（警告级，不影响退出码）====="
+bash "$HERE/lint/orphan-core.sh" || true
+
 echo
 if [ "$fail" -ne 0 ]; then
   echo "❌ 真门禁**未通过**（见上方红灯）"
