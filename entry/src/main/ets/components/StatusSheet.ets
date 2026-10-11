@@ -14,14 +14,83 @@
  *   · 动效走底座 `./anim` 的 `sheetTransition()`（唯一实现）；颜色只用 `pal()` 语义色（禁 hex）。
  *   · 会变的内容走真 `@Component` + `@Prop`（禁带参 @Builder —— 会冻在首帧）。
  *
+ * ── 按新设计系统重排（2026-10-11 本波）────────────────────────────────────────
+ *   旧实现把字号/内距/圆角全写死（`FS_TITLE`/`FS_CAPTION`、`padding(10)`、`.border(pal().border)`
+ *   装饰性围边、X 的命中区仅 ~33），且用 `pal().appBg` 当浮层底。本版：
+ *     · 面 = `surfaceFillOf(p,'surface.overlay')`（浮层语义面）＋ 结构性发丝 `hairlineOf(p)`
+ *       ＋ 浮层柔影 `elevationColorOf(p, ELEV_OVERLAY)`；⛔ 不再 `pal().border` 围边。
+ *     · 字 = `type.*` 角色（标题 `type.headline` / 行 `type.callout` / 目标 `type.caption`）。
+ *     · 行 = `INSET_ROW_*` + `HIT_TARGET_MIN`（≥44）；层级 = **标签次级色 / 值主色**（同 web
+ *       `SessionInfo.tsx` 的 `InfoRow`）。
+ *     · 关闭：头部 X 走 `onClose`（面板**自己**的关闭入口；见 `core/sheets.ets` flag 所有权表）。
+ *     · 空态：五路输入全空 ⇒ 一行小字（`textMuted`，无填充/无边框/无发光；§10）。
+ *
  * ── 行为等价性（P1 三重证据之一）──────────────────────────────────────────────
  *   入参 = 原 `@Builder` 引用集合逐一对应：`pal()→theme`、`goalLine()→goalLine`、
  *   `usageText(this.usage)→usageText`、`currentModelName()→modelName`、`ctxText()→ctxText`、
  *   `this.cwd→cwd`；写点 `showStatus=false→onClose`、`showModel=true + store.loadLlmConfig()→onOpenModel`。
  */
 import { Palette, paletteOf } from '../core/theme';
-import { FS_CAPTION, FS_TITLE, R_LG, R_XL, SP_2, SP_4 } from '../core/tokens';
+import {
+  ELEV_OVERLAY, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, SPACE_HAIR, SPACE_LG, SPACE_SM,
+  SPACE_XS, STROKE_HAIRLINE, elevationColorOf, hairlineOf, surfaceFillOf,
+} from '../core/design';
+import { fs, fw, lh, tc, tk } from './SettingsRows';
 import { sheetTransition } from './anim';
+
+/**
+ * X 关闭图标的视觉边长（vp，= `type.headline` 字号）。
+ * ⚠️ **报备**：无「图标按钮视觉边长」token；命中区靠 `responseRegion` 外扩到 `HIT_TARGET_MIN`。
+ */
+const X_GLYPH: number = 17;
+/** 命中区外扩量（视觉 17 → `HIT_TARGET_MIN` 的正方形，居中）。 */
+const X_PAD: number = (HIT_TARGET_MIN - X_GLYPH) / 2;
+
+/**
+ * 一行「标签 + 值」——层级 = 标签次级色 / 值主色（web `SessionInfo.tsx` 的 `InfoRow`）。
+ * ⚠️ 不复用 `SettingsValueRow`：那个原子的层级是「标题主色 / 值次级色」，与本面板语义**相反**。
+ */
+@Component
+struct StatusInfoRow {
+  @Prop label: string = '';
+  @Prop value: string = '';
+  /** 值用等宽字（工作路径）。 */
+  @Prop mono: boolean = false;
+  /** 值可长按复制（工作路径）。 */
+  @Prop valueCopyable: boolean = false;
+  @Prop theme: string = 'dark';
+
+  private pal(): Palette {
+    return paletteOf(this.theme);
+  }
+
+  build() {
+    Row({ space: SPACE_XS }) {
+      Text(this.label)
+        .fontSize(fs('type.callout'))
+        .fontWeight(fw('type.callout'))
+        .lineHeight(lh('type.callout'))
+        .fontColor(tc(this.pal(), 'type.callout'))
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+      Text(this.value)
+        .fontSize(fs('type.callout'))
+        .fontWeight(fw('type.body'))
+        .lineHeight(lh('type.callout'))
+        .fontFamily(this.mono ? 'monospace' : '')
+        .fontColor(tc(this.pal(), 'type.body'))
+        .layoutWeight(1)
+        .textAlign(TextAlign.End)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .copyOption(this.valueCopyable ? CopyOptions.LocalDevice : CopyOptions.None)
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Center)
+    .constraintSize({ minHeight: HIT_TARGET_MIN })
+    .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+  }
+}
 
 @Component
 export struct StatusSheet {
@@ -37,7 +106,7 @@ export struct StatusSheet {
   @Prop ctxText: string = '';
   /** 工作路径（空串 = 不显示该行）。 */
   @Prop cwd: string = '';
-  /** 关闭面板（页面置 `showStatus=false`）。 */
+  /** 关闭面板（面板**自己**的关闭入口，头部 X 走它）。 */
   onClose: () => void = () => {
   };
   /** 打开「模型 / 上下文上限」选择栏（页面置 `showModel=true` + 拉 llm-config）。 */
@@ -48,81 +117,117 @@ export struct StatusSheet {
     return paletteOf(this.theme);
   }
 
+  /** 五路输入全空 ⇒ 空态（避免用户看到"点开了但什么都没有"）。 */
+  private isEmpty(): boolean {
+    return this.goalLine.length === 0 && this.usageText.length === 0
+      && this.modelName.length === 0 && this.ctxText.length === 0 && this.cwd.length === 0;
+  }
+
   build() {
-    Column({ space: 10 }) {
-      Row() {
-        Text('会话状态').fontSize(FS_TITLE).fontWeight(FontWeight.Bold)
-          .fontColor(this.pal().textPrimary).layoutWeight(1)
-        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17)
-          .fontColor([this.pal().textSecondary]).padding(SP_2)
+    Column({ space: 0 }) {
+      // ── 头部：标题（`type.headline`）+ 关闭 X（`responseRegion` 外扩到 44）────────
+      Row({ space: SPACE_XS }) {
+        Text('会话状态')
+          .fontSize(fs('type.headline'))
+          .fontWeight(fw('type.headline'))
+          .lineHeight(lh('type.headline'))
+          .letterSpacing(tk('type.headline'))
+          .fontColor(tc(this.pal(), 'type.headline'))
+          .layoutWeight(1)
+        SymbolGlyph($r('sys.symbol.xmark'))
+          .fontSize(X_GLYPH)
+          .fontColor([this.pal().textSecondary])
+          .responseRegion({
+            x: -X_PAD,
+            y: -X_PAD,
+            width: HIT_TARGET_MIN,
+            height: HIT_TARGET_MIN,
+          })
+          .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.onClose();
           })
-      }.width('100%')
-
-      if (this.goalLine.length > 0) {
-        Text(this.goalLine).fontSize(13).fontColor(this.pal().warn).width('100%')
-          .wordBreak(WordBreak.BREAK_ALL)
       }
-      // ⛔ 不整体渲染「模型 · 用量 · todos · cwd」四段拼接串：模型 / 工作路径在下方各有**专属行**
-      //    ⇒ 同一信息两处。排版口径 = web `SessionInfo.tsx` 的 `InfoRow`：标签左（次级色）、
-      //    值右（主色），每项只出现一次。
-      Row() {
-        Text('用量').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary)
-        Text(this.usageText.length > 0 ? this.usageText : '—')
-          .fontSize(FS_CAPTION).fontColor(this.pal().textPrimary)
-          .layoutWeight(1).textAlign(TextAlign.End)
-          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-      }.width('100%')
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+      .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XS, bottom: SPACE_XS })
 
-      Row() {
-        Text('模型').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary)
-        Text(this.modelName)
-          .fontSize(FS_CAPTION).fontColor(this.pal().textPrimary)
-          .layoutWeight(1).textAlign(TextAlign.End)
-          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-      }.width('100%')
+      if (this.isEmpty()) {
+        // ── 空态：一行小字（无填充 / 无边框 / 无发光；docs/DESIGN-SYSTEM.md §10）──────
+        Text('（暂无会话状态）')
+          .fontSize(fs('type.callout'))
+          .fontWeight(fw('type.callout'))
+          .lineHeight(lh('type.callout'))
+          .fontColor(this.pal().textMuted)
+          .width('100%')
+          .padding({ left: INSET_ROW_X, right: INSET_ROW_X, bottom: SPACE_XS })
+      } else {
+        // ── 目标行（页面已算好前缀「目标：/已完成：」）——`type.caption` + warn ────────
+        if (this.goalLine.length > 0) {
+          Text(this.goalLine)
+            .fontSize(fs('type.caption'))
+            .fontWeight(fw('type.caption'))
+            .lineHeight(lh('type.caption'))
+            .fontColor(this.pal().warn)
+            .width('100%')
+            .wordBreak(WordBreak.BREAK_ALL)
+            .padding({ left: INSET_ROW_X, right: INSET_ROW_X, bottom: SPACE_HAIR })
+        }
 
-      if (this.ctxText.length > 0) {
-        Row() {
-          Text('上下文上限').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary)
-          Text(this.ctxText)
-            .fontSize(FS_CAPTION).fontColor(this.pal().textPrimary)
-            .layoutWeight(1).textAlign(TextAlign.End)
-            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-        }.width('100%')
+        // ── 只读信息行（标签次级 / 值主色；每项只出现一次）───────────────────────
+        if (this.usageText.length > 0 || this.modelName.length > 0) {
+          StatusInfoRow({
+            label: '用量',
+            value: this.usageText.length > 0 ? this.usageText : '—',
+            theme: this.theme,
+          })
+        }
+        StatusInfoRow({ label: '模型', value: this.modelName, theme: this.theme })
+        if (this.ctxText.length > 0) {
+          StatusInfoRow({ label: '上下文上限', value: this.ctxText, theme: this.theme })
+        }
+        if (this.cwd.length > 0) {
+          StatusInfoRow({
+            label: '工作路径',
+            value: this.cwd,
+            mono: true,
+            valueCopyable: true,
+            theme: this.theme,
+          })
+        }
+
+        // ── 切换入口（模型 / 上下文上限）——发丝分隔 + 44 命中区的一整行 ───────────────
+        Divider()
+          .strokeWidth(STROKE_HAIRLINE)
+          .color(hairlineOf(this.pal()))
+          .margin({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XS, bottom: SPACE_XS })
+        Row({ space: SPACE_XS }) {
+          Text('切换模型 / 上下文上限')
+            .fontSize(fs('type.subhead'))
+            .fontWeight(fw('type.subhead'))
+            .lineHeight(lh('type.subhead'))
+            .fontColor(this.pal().accentSoft)
+            .layoutWeight(1)
+          SymbolGlyph($r('sys.symbol.chevron_right'))
+            .fontSize(fs('type.caption'))
+            .fontColor([this.pal().textMuted])
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
+        .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          this.onOpenModel();
+        })
       }
-
-      if (this.cwd.length > 0) {
-        Row() {
-          Text('工作路径').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary)
-          Text(this.cwd)
-            .fontSize(11).fontColor(this.pal().textPrimary).fontFamily('monospace')
-            .layoutWeight(1).textAlign(TextAlign.End)
-            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-            .copyOption(CopyOptions.LocalDevice)
-        }.width('100%')
-      }
-
-      // 切换入口（模型 / 上下文上限）—— 单独一行，与上面只读信息解耦
-      Row({ space: SP_2 }) {
-        Text('切换模型 / 上下文上限').fontSize(FS_CAPTION).fontColor(this.pal().accentSoft)
-          .layoutWeight(1)
-        Text('›').fontSize(14).fontColor(this.pal().accentSoft)
-      }
-      .width('100%').padding(10).backgroundColor(this.pal().surface).borderRadius(R_LG)
-      .stateStyles({ pressed: { .opacity(0.7) }, normal: { .opacity(1) } })
-      .onClick(() => {
-        this.onOpenModel();
-      })
-
-      // ⛔ 此处**不**渲染 todo 列表：web 取证——todo 的唯一挂载点是输入框上方的 `TodoPullOut`，
-      //    状态/上下文弹层（`ContextBar`）里没有 todo 列表（且 `ContextBar` 在 web 已是死代码）。
-      //    原生此前把全量 todo 放这里 ⇒ 同一信息两处，正是用户反馈「todo 点了才显示太丑」那处。
-      //    todo 现在只由 `TodoPanel`（composer 上方）承载。
     }
-    .width('92%').padding(SP_4).backgroundColor(this.pal().appBg)
-    .borderRadius(R_XL).border({ width: 1, color: this.pal().border })
+    .width('92%')
+    .padding({ top: SPACE_XS, bottom: SPACE_XS })
+    .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
+    .borderRadius(RADIUS_CARD)
+    .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+    .shadow({ radius: SPACE_LG, color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 })
     .transition(sheetTransition())
   }
 }
