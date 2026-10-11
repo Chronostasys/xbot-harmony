@@ -23,3 +23,4 @@
 
 # 脱机测试的编译产物（run.sh 每次重建；绝不入库。新版目录名带 PID）
 tools/tests/.out*/
+**/build.*

@@ -11,7 +11,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 SRC="$ROOT/entry/src/main/ets/core"
-BUILD="$HERE/build"
+# ⚠️ 目录**带 PID**：多条线可能同时跑门禁（曾实测 A 的 `rm -rf build` 把 B 的 `cp` 目标删掉 ⇒
+# 「cp: .../build/mdtheme.ts: No such file」= **假红**，和假绿一样危险）。
+BUILD="$HERE/build.$$"
 
 # 找 tsc：环境变量 > PATH > 同机 xbot 仓库的 web/node_modules > npx 临时装
 find_tsc() {
@@ -24,10 +26,12 @@ find_tsc() {
 }
 
 TSC_BIN="$(find_tsc)"
+trap 'rm -rf "$BUILD"' EXIT INT TERM HUP
 rm -rf "$BUILD"
 mkdir -p "$BUILD"
-for f in "$SRC"/*.ets; do
-  cp "$f" "$BUILD/$(basename "${f%.ets}").ts"
+for f in "$SRC"/*.ets "$SRC"/*.ts; do
+  [ -e "$f" ] || continue
+  cp "$f" "$BUILD/$(basename "${f%.*}").ts"
 done
 
 echo "tsc: $TSC_BIN"
