@@ -65,8 +65,9 @@ console.log(`     effectsOf.elev2 = ${effectsOf(P).elev2}    effectsOf.glow = ${
 
 // 光球外光晕 = `inflightHaloOf`（`core/design.ets:511`）：浅色 ⇒ elev2、深色 ⇒ glow。
 eq('porcelain 光晕 = 中性柔影 elev2 = #1A1D1D1F（textPrimary@10%）', inflightHaloOf(P), '#1A1D1D1F');
-eq('porcelain 彩色 glow = accent@45% = #730071E3（**光球不用它**）', effectsOf(P).glow, '#730071E3');
-ok('porcelain 光晕 ≠ 彩色 glow（零彩色发光）', inflightHaloOf(P) !== effectsOf(P).glow);
+eq('porcelain glow = 中性柔影 elev3 = #291D1D1F（▲ 浅色禁彩色发光）', effectsOf(P).glow, '#291D1D1F');
+eq('porcelain glowSoft = 中性柔影 elev2 = #1A1D1D1F（▲ 浅色禁彩色发光）', effectsOf(P).glowSoft, '#1A1D1D1F');
+ok('porcelain 光晕 ≠ glow（零彩色发光）', inflightHaloOf(P) !== effectsOf(P).glow);
 eq('colorOf(P,\'inflightHalo\') === inflightHaloOf(P)（取色唯一入口同源）',
   colorOf(P, 'inflightHalo'), inflightHaloOf(P));
 eq('elevationColorOf(P, ELEV_RAISED) === elev2（语义出口同源）',
@@ -80,6 +81,27 @@ for (let i = 0; i < ALL_THEMES.length; i++) {
       inflightHaloOf(p) === effectsOf(p).elev2 && inflightHaloOf(p) !== effectsOf(p).glow);
   } else {
     ok(`${t}: 深色 ⇒ inflightHalo = glow 彩色外发光`, inflightHaloOf(p) === effectsOf(p).glow);
+  }
+}
+// ── B2. `glow` / `glowSoft` 的**深浅分叉**（2026-10-11 ▲：白底禁彩色发光）────────────────────
+// 根因（`docs/PORCELAIN-AUDIT.md` §2）：`core/theme.ets:buildEffects` 里 elev1/2/3、sheen、glassBg
+// 都分了深浅，唯独 `glow`/`glowSoft` 不分 ⇒ 浅色主题下仍是 `accent@45%/22%` 的**彩色发光**，
+// 白底上读成"蓝色脏光晕"（登录页/空态 6 个调用点直取它）。修法 = 一处（`buildEffects`）分叉。
+// 判据：浅色 ⇒ 中性柔影（与 elev3/elev2 同族 = `textPrimary@16%/10%`）；深色 ⇒ 逐字节不变。
+// ★ 判别力（mutation 必红）：把 buildEffects 的浅色分支改回 `accent@45%/22%` ⇒ 本组浅色两条 eq 红。
+for (let i = 0; i < ALL_THEMES.length; i++) {
+  const t: string = ALL_THEMES[i];
+  const p = paletteOf(t);
+  const e = effectsOf(p);
+  const accentUpper: string = p.accent.slice(1).toUpperCase();
+  if (isLightPalette(p)) {
+    eq(`${t}: 浅色 glow = 中性柔影 elev3（非彩色发光）`, e.glow, e.elev3);
+    eq(`${t}: 浅色 glowSoft = 中性柔影 elev2（非彩色发光）`, e.glowSoft, e.elev2);
+    ok(`${t}: 浅色 glow ≠ accent@45%（无色相残留）`, e.glow !== `#73${accentUpper}`);
+    ok(`${t}: 浅色 glowSoft ≠ accent@22%（无色相残留）`, e.glowSoft !== `#38${accentUpper}`);
+  } else {
+    eq(`${t}: 深色 glow = accent@45%（逐字节不变）`, e.glow, `#73${accentUpper}`);
+    eq(`${t}: 深色 glowSoft = accent@22%（逐字节不变）`, e.glowSoft, `#38${accentUpper}`);
   }
 }
 // 静态可辨性事实（porcelain）：颜色维度不可辨 ⇒ 唯一非颜色维度 = 细环强度（样张面 ⑤）

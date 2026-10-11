@@ -572,8 +572,6 @@ function buildEffects(p: Palette): Effects {
   e.glassBg = alphaHex(glassBaseOf(p), 0.62);
   e.glassBorder = alphaHex(p.borderStrong, 0.55);
   e.glassBlur = 18;
-  e.glow = alphaHex(p.accent, 0.45);
-  e.glowSoft = alphaHex(p.accent, 0.22);
   e.gradientFrom = p.accent;
   e.gradientTo = p.accentSoft;
   if (light) {
@@ -583,11 +581,23 @@ function buildEffects(p: Palette): Effects {
     e.elev1 = legacyElev1Of(p);
     e.elev2 = alphaHex(p.textPrimary, 0.10);
     e.elev3 = alphaHex(p.textPrimary, 0.16);
+    // ── 发光：浅底**没有**"加色发光"这回事（加色光压在纯白上物理上不可见）⇒────────────────
+    // 源色 `accent@45%/22%` 在白底上读成**彩色脏光晕**（`docs/PORCELAIN-AUDIT.md` §2 的单一根因：
+    // `glow`/`glowSoft` 此前**不分深浅**，6 个调用点直取其值 ⇒ 登录页/空态出现蓝色光斑）。
+    // ⇒ 浅色落成**中性柔影**，与 `elev3`/`elev2` 同族（`textPrimary@16% / @10%`）：
+    //   · 强弱序保持（glow 强于 glowSoft，与深色 45% > 22% 同向）；
+    //   · 与既有语义出口**同源**：`inflightHaloOf` 的浅色档就是 `elev2`（同一"中性柔影"口径）。
+    // 深色分支**逐字节不变**（见下），单点修复 ⇒ 6 个调用点无需改代码即变干净。
+    e.glow = alphaHex(p.textPrimary, 0.16);
+    e.glowSoft = alphaHex(p.textPrimary, 0.10);
   } else {
     e.sheen = alphaHex('#FFFFFF', 0.06);
     e.elev1 = legacyElev1Of(p);
     e.elev2 = alphaHex('#000000', 0.32);
     e.elev3 = alphaHex('#000000', 0.42);
+    // 深色：彩色 accent 发光 = 观感来源，**逐字节不变**（其他线依赖它）。
+    e.glow = alphaHex(p.accent, 0.45);
+    e.glowSoft = alphaHex(p.accent, 0.22);
   }
   return e;
 }
