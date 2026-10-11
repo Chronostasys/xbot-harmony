@@ -19,7 +19,7 @@ const fs = require('fs');
 // ⛔ 必须标记为**模块**（否则顶层 `pass/fail` 落进全局作用域，与其它脚本测试重名冲突 TS2451）。
 export {};
 
-import { CtxMenuItem, ITER_REPLY, ITER_THINKING, ITER_TOOLS, USER_REWIND, USER_TEXT, iterMenuItems, toolsMenuItems, userMenuItems } from '../../entry/src/main/ets/core/ctxmenu';
+import { CtxMenuItem, ITER_REPLY, ITER_THINKING, ITER_TOOLS, USER_REWIND, USER_TEXT, canRewindWhile, iterMenuItems, toolsMenuItems, userMenuItems } from '../../entry/src/main/ets/core/ctxmenu';
 
 let pass = 0, fail = 0;
 function eq(name: string, got: unknown, want: unknown): void {
@@ -85,6 +85,9 @@ const ixToolsAll: number = countOf(ixSrc, 'toolsAllHasText:');
 const ixCopyTool: number = countOf(ixSrc, 'copy-tool:');
 const ixCopyAllTools: number = countOf(ixSrc, 'copy-all-tools');
 const ixOpenToolsFn: number = countOf(ixSrc, 'openToolsCtx(');
+const ixCanRewind: number = countOf(ixSrc, 'canRewind:');
+const ixCanRewindWhile: number = countOf(ixSrc, 'canRewindWhile(');
+const ixCtxImport: number = countOf(ixSrc, "from '../core/ctxmenu'");
 console.log(`  ctxmenu-scan ${MS}: iterMenuItems(=${msIter} toolsMenuItems(=${msTools} import=${msImport} toolNames=${msToolNames}`);
 console.log(`  ctxmenu-scan ${MR}: onOpenToolsCtx=${mrGroup} onOpenCtx(=${mrToolCtx}`);
 console.log(`  ctxmenu-scan ${IX}: canIter*=${ixReply}/${ixThinking}/${ixTools}`
@@ -108,6 +111,10 @@ ok(`Index 向 ContextSheet 投递 toolNames/toolHasText/toolsAllHasText（${ixTo
   ixToolNames >= 1 && ixToolHasText >= 1 && ixToolsAll >= 1);
 ok(`Index 派发 copy-tool:（${ixCopyTool} ≥ 1）`, ixCopyTool >= 1);
 ok(`Index 派发 copy-all-tools（${ixCopyAllTools} ≥ 1）`, ixCopyAllTools >= 1);
+// ── 用户菜单：并发编辑互斥（web `UserMessage.tsx:38-39`）─────────────────────────────
+ok(`Index 向 ContextSheet 投递 canRewind（${ixCanRewind} ≥ 1）`, ixCanRewind >= 1);
+ok(`Index 真 import core/ctxmenu（${ixCtxImport} ≥ 1）`, ixCtxImport >= 1);
+ok(`Index 用 canRewindWhile( 取互斥判据（${ixCanRewindWhile} ≥ 1：调用）`, ixCanRewindWhile >= 1);
 ok('零扫描判红：过滤接线调用点合计 > 0',
   msIter + msImport + msTools + msToolNames + mrGroup + mrToolCtx
   + ixReply + ixThinking + ixTools + ixOpenTools + ixToolNames + ixCopyTool + ixCopyAllTools > 0);
@@ -140,6 +147,15 @@ eq('label 保序（复制文本 / 编辑并重发）',
 // 派发门（现有机制：`CtxItem` 里 `if (dim) { return; }`）—— 置灰项**不可派发**
 eq('置灰项不可派发（dim=true 的项存在且带 USER_REWIND）',
   userMenuItems(false).filter((m: CtxMenuItem): boolean => m.dim).map((m: CtxMenuItem): string => m.code), [USER_REWIND]);
+
+// ── ①d 纯逻辑：**并发编辑互斥**（web `UserMessage.tsx:38-39` editDisabled =
+//    "another message is being edited" / `:12` "Only one message can be edited at a time"）────
+eq('无人编辑 ⇒ 可编辑', canRewindWhile('', 'r1'), true);
+eq('就是本条在编辑 ⇒ 仍可编辑', canRewindWhile('r1', 'r1'), true);
+eq('**另一条**在编辑 ⇒ 本条不可（互斥）', canRewindWhile('r2', 'r1'), false);
+eq('互斥与行 id 无关（换 id 仍互斥）', canRewindWhile('r2', 'r9'), false);
+eq('互斥 ⇒ 「编辑并重发」置灰（判据串联）', userMenuItems(canRewindWhile('r2', 'r1'))[1].dim, true);
+eq('可编辑 ⇒ 「编辑并重发」不置灰', userMenuItems(canRewindWhile('', 'r1'))[1].dim, false);
 
 console.log(`  ctxmenu: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

@@ -56,6 +56,22 @@ export const USER_TEXT: string = 'user-text';
 export const USER_REWIND: string = 'user-rewind';
 
 /**
+ * **并发编辑互斥** —— 该 user 消息此刻能否「编辑并重发」。
+ *
+ * ⛔ **web 权威**：`UserMessage.tsx:38-39` `editDisabled?: boolean`（**"another message is being
+ *   edited"**）+ `:12` "Only one message can be edited at a time (editingMessageId prop)"。
+ *   ⇒ 判据是**互斥**，不是"这条消息自身能不能"：**有任一其它消息正在编辑 ⇒ 本条置灰**
+ *   （否则两条并发编辑会互相覆盖）。
+ *
+ * @param editingRowId 当前正在编辑的行 id（本仓 = 页面 `rewindEditRowId`；空串 = 无人编辑）
+ * @param thisRowId    本次菜单指向的行 id（本仓 = 页面 `ctxRowId`）
+ * @returns `true` = 可编辑（无人编辑，**或**正在编辑的就是本条）
+ */
+export function canRewindWhile(editingRowId: string, thisRowId: string): boolean {
+  return editingRowId.length === 0 || editingRowId === thisRowId;
+}
+
+/**
  * **用户消息**菜单项集（对齐 web `UserMessage.tsx:315-334`：`编辑并重发` 有 `disabled={editDisabled}`）。
  * ⚠️ 与迭代/工具不同：这里**不隐藏**"编辑并重发"，而是**置灰**——web 也一样（按钮在、灰 0.2），
  * 因为"为什么不能编辑"本身就是信息（`dim` 可见而不可点）。

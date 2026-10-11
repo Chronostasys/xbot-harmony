@@ -52,6 +52,7 @@ import {
 } from '../core/sendmode';
 import { mdCacheStats, MdCacheStats } from '../core/markdown';
 import { blocksSignature, completedBlocks, displayContent, displayReasoning, rowHasInFlightSignal, rowIsEmpty, streamStatsText } from '../core/streammerge';
+import { canRewindWhile } from '../core/ctxmenu';
 import {
   activeChannelLabel, ALL_CHANNEL_ORDER, availableChannels, channelFilterMatches,
   channelLabel, hiddenRowCount, sessionInChannel, visibleRows, MAX_ROWS_VISIBLE,
@@ -3128,6 +3129,9 @@ struct Index {
             canIterReply: this.ctxIterCanReply(),
             canIterThinking: this.ctxIterCanThinking(),
             canIterTools: this.ctxIterCanTools(),
+            // 用户菜单：**并发编辑互斥**（判据 = `core/ctxmenu.canRewindWhile`；web `UserMessage.tsx:38-39`
+            // `editDisabled` = "another message is being edited"）—— 有任一其它消息在编辑 ⇒ 「编辑并重发」置灰。
+            canRewind: canRewindWhile(this.rewindEditRowId, this.ctxRowId),
             // 工具组菜单（`ctxKind === 'tools'`）：逐枚名 + 逐枚"有内容" + 组级拼接是否非空
             toolNames: this.ctxToolNames,
             toolHasText: this.ctxToolHasText,
