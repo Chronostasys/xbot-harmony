@@ -44,7 +44,9 @@ import { WebSurface } from './WebSurface';
  *     `fs/fw/lh/tc`（排版角色 → ArkUI 属性）与 `SettingsGroupHeader`（`type.caption` + 发丝）；
  *   · 层级靠**字号/字重/灰阶/留白**（名字 `type.subhead`、说明 `type.callout`、元信息
  *     `type.caption`/`type.micro`），不再靠"到处描边 + 圆角 10 + 内距 12 手写"；
- *   · 卡片面 = `surfaceFillOf('surface.card')` + **结构性发丝** `hairlineOf` + `RADIUS_CARD`；
+ *   · 卡片面 = `surfaceFillOf('surface.card')` + **结构性轮廓** `structuralRuleOf`（浅色 = `borderStrong`，
+ *     比面内强一档）+ `RADIUS_CARD`；**面内**控件（「打开」药丸 / chip 凹槽）才是 `hairlineOf`
+ *     / `insetHairlineOf`（分工见 `docs/DESIGN-SYSTEM.md §13`，与 `SettingsRows` 卡片同先例）；
  *     徽标 = `surface.chip`（内嵌凹槽）+ `RADIUS_CHIP`；
  *   · 行命中区 ≥ `HIT_TARGET_MIN`（44）；按压走全站唯一 `PRESS_OPACITY`；
  *   · 颜色**一律**经 `colorOf`（禁 `pal().xxx` 直取、禁 hex ⇒ 门禁 ⑥c）。
@@ -433,18 +435,29 @@ struct PluginViewRow {
 }
 
 /**
- * 插件图标名 → `sys.symbol.*`（**文件级函数**：两张卡与目录共用同一张表，避免写两遍）。
+ * 插件图标名 → `sys.symbol.*`（**导出**：目录卡（本文件）与能力面板（`PluginsSheet`）共用同一张表
+ * —— ⛔ 不许各写一份，否则同一插件在两处显示不同图标，且副本会各自腐烂）。
  *
  * 名字来源：`view.icon` 声明的 **lucide 名**（web `plugin-runtime/pluginIcons.ts:30-56` 的
  * `ICON_MAP`）—— 先归一化（`normalizePluginIcon`：trim+小写，与 web `:63` 同规则），再查本表。
- * HarmonyOS `sys.symbol.*` 与 lucide **不是一一对应**，故只覆盖语义接近的，其余一律回落通用方块
- * （`square_grid_2x2`，对应 web 的 `Puzzle` 降级）。符号名必须是**字面量**（ArkTS 不允许
- * `$r('sys.symbol.' + x)` 拼装）。
+ * HarmonyOS `sys.symbol.*` 与 lucide **不是一一对应**，故只覆盖语义接近的；符号名必须是**字面量**
+ * （ArkTS 不允许 `$r('sys.symbol.' + x)` 拼装）。
  *
- * 覆盖 vs web `ICON_MAP` 19 键：已映射 14 键；`search`/`info`/`blocks`/`boxes`/`puzzle`
- * 无**已验证**的 `sys.symbol` 名可用（不猜名 —— 猜错会渲染空白）⇒ 回落通用方块。
+ * 覆盖 vs web `ICON_MAP` **19 键：已 19/19**（2026-10-11 波12 补齐）。
+ * ⛔ **不猜符号名**（猜错 = 运行时静默渲染空白，与"取色 role 写错"同类）⇒ 新增名一律**离线实证**：
+ * 本机 SDK 的权威符号名册
+ * `${SDK}/default/openharmony/previewer/common/resources/entry/resources.txt`
+ * （每行形如 `id:…, '0xF0…' '<name>'`），用 `grep -E "'0x[0-9A-Fa-f]+' '<name>'\$"` 精确命中：
+ *   · `search`  → `magnifyingglass`（`0xF0029`）
+ *   · `info`    → `info_circle`（`0xF0296`）
+ *   · `puzzle`  → `puzzle`（`0xF04A0`）
+ * `blocks`/`boxes` 的 lucide 语义是"方块组"⇒ 取 `square_grid_2x2`（语义等价，非回落）。
+ *
+ * **未知名回落 = `sys.symbol.puzzle`**（波12 改）：web `pluginIcons.ts:76` 的降级图标**就是** `Puzzle`
+ * ⇒ 原生从"通用方块"（`square_grid_2x2`，当年"没有已验证名"的妥协）改为**真 puzzle 符号**，
+ * 与 web 降级视觉同义。判据 `tools/tests/plugin_icons.test.ts`（含符号白名单 = 上表 + SDK 交叉校验）。
  */
-function pluginSymbol(icon: string): Resource {
+export function pluginSymbol(icon: string): Resource {
   const k: string = normalizePluginIcon(icon);
   if (k === 'server' || k === 'server-cog') {
     return $r('sys.symbol.rectangle_on_rectangle');
@@ -467,5 +480,18 @@ function pluginSymbol(icon: string): Resource {
   if (k === 'wrench') {
     return $r('sys.symbol.gearshape');
   }
-  return $r('sys.symbol.square_grid_2x2');
+  if (k === 'search') {
+    return $r('sys.symbol.magnifyingglass');
+  }
+  if (k === 'info') {
+    return $r('sys.symbol.info_circle');
+  }
+  if (k === 'blocks' || k === 'boxes') {
+    return $r('sys.symbol.square_grid_2x2');
+  }
+  if (k === 'puzzle') {
+    return $r('sys.symbol.puzzle');
+  }
+  // 未知名 ⇒ web `pluginIcons.ts:76` 的降级图标就是 `Puzzle`（已实证 `sys.symbol.puzzle` 存在）。
+  return $r('sys.symbol.puzzle');
 }

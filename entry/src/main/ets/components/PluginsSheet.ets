@@ -28,6 +28,9 @@
 import { Palette, paletteOf } from '../core/theme';
 import { PluginCatalogItem } from '../core/pluginhost';
 import { PluginPanelStatus, pluginMetaText, pluginPanelStatus } from '../core/pluginview';
+// 插件图标映射**唯一出口** = `PluginHost` 的 `pluginSymbol`（19/19 覆盖 web `ICON_MAP`）——
+// ⛔ 不在本面板再写一份副本（副本会腐烂 / 各写一份 ⇒ 同一插件两处图标不一致）。
+import { pluginSymbol } from './PluginHost';
 import {
   colorOf, GAP_ROW_Y, hairlineOf, structuralRuleOf, surfaceFillOf, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y,
   PRESS_OPACITY, RADIUS_CARD, RADIUS_SHEET, SPACE_MD, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD, ICON_LG } from '../core/design';
@@ -43,24 +46,6 @@ const CLOSE_VISUAL: number = 33;
 const CLOSE_HIT_PAD: number = (HIT_TARGET_MIN - CLOSE_VISUAL) / 2;
 /** 插件图标视觉边长（vp）—— 与 `PluginHost` 卡片（18）同档。 */
 const PLUGIN_ICON: number = 18;
-
-/**
- * 插件图标名 → 系统符号。
- * ⛔ `sys.symbol.*` **没有**通用「插件」符号 ⇒ 用 `square_grid_2x2`（与 `PluginHost.pluginSymbol` 同款回落）。
- * （`PluginHost` 的 `pluginSymbol` 未导出；此处保持同一张默认符号，避免给本面板引入依赖方向。）
- */
-function pluginSymbolOrGrid(icon: string): Resource {
-  const name: string = icon !== undefined && icon !== null ? icon.trim() : '';
-  if (name.length === 0) {
-    return $r('sys.symbol.square_grid_2x2');
-  }
-  // 只认少量常见名，其余一律回落网格（⛔ 不猜图标语义 —— 猜错比回落更糟）。
-  if (name === 'git' || name === 'terminal' || name === 'chart' || name === 'stats'
-    || name === 'cloud' || name === 'server' || name === 'skill' || name === 'puzzle') {
-    return $r('sys.symbol.square_grid_2x2');
-  }
-  return $r('sys.symbol.square_grid_2x2');
-}
 
 @Component
 export struct PluginsSheet {
@@ -189,7 +174,7 @@ export struct PluginsSheet {
         ForEach(this.plugins, (p: PluginCatalogItem) => {
           ListItem() {
             Row({ space: SPACE_XS }) {
-              SymbolGlyph(pluginSymbolOrGrid(p.icon))
+              SymbolGlyph(pluginSymbol(p.icon))
                 .fontSize(PLUGIN_ICON)
                 .fontColor([this.pal().accentSoft])
               Column({ space: SPACE_XS }) {
