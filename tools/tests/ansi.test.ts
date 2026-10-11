@@ -259,5 +259,20 @@ eq('ansiSpansIfAny: 无转义（tab/中文）⇒ null', ansiSpansIfAny('a\tb 中
   eq('ansiBgOf: 无背景 ⇒ fallback', ansiBgOf(plain, '#fallback'), '#fallback');
 }
 
+// ── MessageRow 消费路径**等价值**：`ansiSpansIfAny(toolLabel, ansiPaletteOf(paletteOf(theme)))` ──
+// （与 `components/MessageRow.toolLabelSpans()` 逐字同一调用：同一入口 + 同一取色函数。）
+{
+  const p: Palette = paletteOf('dark');
+  const pal: string[] = ansiPaletteOf(p);
+  // 无转义的工具标签（绝大多数）⇒ null ⇒ 走原纯文本路径（零多余 Span 节点）
+  eq('MessageRow 路径：普通工具标签 ⇒ null（纯文本快路径）', ansiSpansIfAny('Shell ls -la', pal), null);
+  // 含 SGR 的工具标签 ⇒ 彩色 span，且颜色**来自色板**（非字面量）
+  const spans: AnsiSpan[] | null = ansiSpansIfAny('\x1b[31mfailed\x1b[0m', pal);
+  eq('MessageRow 路径：含 SGR ⇒ 非 null', spans !== null, true);
+  eq('MessageRow 路径：段数 = 1（尾随空复位段被丢弃）', spans !== null ? spans.length : -1, 1);
+  eq('MessageRow 路径：颜色来自色板（statusError）',
+    spans !== null ? spans[0].fg : '', colorOf(p, 'statusError'));
+}
+
 console.log(`  ansi: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

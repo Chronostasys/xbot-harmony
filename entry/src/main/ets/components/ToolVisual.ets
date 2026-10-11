@@ -28,6 +28,8 @@ import {
   MARKER_SPINNER, RADIUS_CHIP, RADIUS_PILL, SPACE_XXS, TYPE_CHIP, typeOf,
 } from '../core/design';
 import { ST_DONE } from '../core/toolstatus';
+import { AnsiSpan, ansiBgOf, ansiFgOf } from '../core/ansi';
+import { paletteOf } from '../core/theme';
 import {
   PILL_MARKER_SLOT, PILL_LIVE_GLOW_RADIUS,
   SHAPE_CHECK, SHAPE_CROSS, SHAPE_MINUS, SHAPE_RING,
@@ -61,6 +63,11 @@ export struct ToolPill {
   /** 是否是当前打开浮层的那一枚（提亮一档）。 */
   @Prop selected: boolean = false;
   @Prop theme: string = 'dark';
+  /**
+   * 标签的 ANSI span（由**调用方**用 `core/ansi` 的 `ansiSpansIfAny(text, ansiPaletteOf(pal))` 算好）。
+   * 空 ⇒ 走原纯文本路径（不引入多余 Span 节点）。
+   */
+  @Prop labelSpans: AnsiSpan[] = [];
 
   build() {
     Flex({ direction: FlexDirection.Row, alignItems: ItemAlign.Center }) {
@@ -98,14 +105,40 @@ export struct ToolPill {
       .width(PILL_MARKER_SLOT).height(PILL_MARKER_SLOT)
       .flexShrink(0)
 
-      Text(this.label)
+      if (this.labelSpans.length > 0) {
+        // ANSI 逐 span 上色（对齐 web `AnsiText.tsx:205` 的消费点；判据与渲染同源 = `core/ansi`）。
+        // ⛔ 颜色零字面量：前景走 `ansiFgOf`（未定色时继承 pill 文本色 `corePillTextColorOf`），
+        //    背景走 `ansiBgOf`（无背景 ⇒ 色板 `transparent`）。
+        Text() {
+          ForEach(this.labelSpans, (sp: AnsiSpan, si: number) => {
+            Span(sp.text)
+              .fontSize(typeOf('type.caption').size)
+              .fontColor(ansiFgOf(sp, corePillTextColorOf(this.kind, this.theme)))
+              .fontWeight(sp.bold ? FontWeight.Bold : FontWeight.Normal)
+              .fontStyle(sp.italic ? FontStyle.Italic : FontStyle.Normal)
+              .decoration({
+                type: sp.strike ? TextDecorationType.LineThrough
+                  : (sp.underline ? TextDecorationType.Underline : TextDecorationType.None),
+                color: ansiFgOf(sp, corePillTextColorOf(this.kind, this.theme)),
+              })
+              .textBackgroundStyle({ color: ansiBgOf(sp, paletteOf(this.theme).transparent) })
+          }, (sp: AnsiSpan, si: number) => `pl${si}`)
+        }
         .fontSize(typeOf('type.caption').size)
-        .fontColor(corePillTextColorOf(this.kind, this.theme))
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .margin({ left: SPACE_XXS })
-        // 名称**可收缩**（长参数截断出省略号），状态标记/chip 不可收缩 ⇒ chip 永不被挤掉
         .flexShrink(1)
+      } else {
+        Text(this.label)
+          .fontSize(typeOf('type.caption').size)
+          .fontColor(corePillTextColorOf(this.kind, this.theme))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .margin({ left: SPACE_XXS })
+          // 名称**可收缩**（长参数截断出省略号），状态标记/chip 不可收缩 ⇒ chip 永不被挤掉
+          .flexShrink(1)
+      }
 
       if (this.chip.length > 0) {
         Text(this.chip)

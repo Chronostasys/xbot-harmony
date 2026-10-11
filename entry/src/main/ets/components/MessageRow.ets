@@ -36,6 +36,7 @@ import { LlmErrorNotice } from './LlmErrorNotice';
 import { isSyntheticToolName } from '../core/synthhints';
 import { looksLikeLlmError } from '../core/llmerror';
 import { isInFlight, renderKind, statusChip } from '../core/toolstatus';
+import { AnsiSpan, ansiPaletteOf, ansiSpansIfAny } from '../core/ansi';
 import {
   MSG_BLOCK_WINDOW, MSG_BLOCK_SENTINEL_H, visibleBlocks, hiddenBlockCount, widenBlocks,
 } from '../core/rowsview';
@@ -232,6 +233,18 @@ export struct MessageRowView {
   /** pill 展示文本（名称/标签，**不含**状态 badge —— 状态由 chip 表达）。 */
   private toolLabelText(t: ToolProgress): string {
     return t.label !== undefined && t.label.length > 0 ? t.label : t.name;
+  }
+
+  /**
+   * 工具 pill 标签的 **ANSI span**（终端输出携带 SGR 颜色码时逐 span 上色，不再泄漏 raw 转义）。
+   *
+   * ⛔ **判据与渲染同源**：`ansiSpansIfAny` = `hasAnsi` + `parseAnsi` 同一纯函数（`core/ansi` 是唯一入口，
+   *   组件**不另写**任何 ANSI 判断）；**颜色零字面量** —— 取色由 `ToolPill` 走 `ansiFgOf`/`ansiBgOf`
+   *   + 色板（`ansiPaletteOf(pal)`），此处只算 span。无转义 ⇒ 空数组 ⇒ pill 走原纯文本路径（零多余节点）。
+   */
+  private toolLabelSpans(t: ToolProgress): AnsiSpan[] {
+    const s: AnsiSpan[] | null = ansiSpansIfAny(this.toolLabelText(t), ansiPaletteOf(this.pal()));
+    return s !== null ? s : [];
   }
 
   /** 视觉 token（玻璃/光晕/渐变/层级）—— 由色板派生，跨主题自动一致。 */
@@ -807,6 +820,8 @@ export struct MessageRowView {
       // + 状态 chip）—— 修"done 与 executing 没区别"（用户 2026-10-10）。
       ToolPill({
         label: this.toolLabelText(t),
+        // ANSI 逐 span 上色（web `AnsiText.tsx:205` 的消费点；`core/ansi` 唯一入口）
+        labelSpans: this.toolLabelSpans(t),
         kind: this.toolKind(t),
         chip: this.toolChip(t),
         live: this.toolLive(t),
