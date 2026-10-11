@@ -54,6 +54,7 @@ import {
   fontScaleFrom, fontScaleLabel, fontScalePresets, KEY_APP_THEME, KEY_CODE_WRAP, KEY_FONT_SCALE, KEY_SURFACE,
   KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE, KEY_ORB, KEY_REASONING_DEFAULT, KEY_SEND_KEY, KEY_SESSION_CATEGORY,
   KEY_STARRED, normalizeSendKey, orbEnabled, parseBool, sendKeyLabel, settingOf, settingLabel, SEND_KEY_MOD_ENTER,
+  THINKING_STEP_LABELS, thinkingModeToStep, thinkingStepLabel, thinkingStepToMode,
 } from '../core/settings';
 // 最近工作目录（新建会话选 cwd）—— web `lib/recent-workdirs.ts` 的纯逻辑移植（`10aae43`）。
 // 持久化走**服务端设置键** `RECENT_WORKDIRS_SERVER_KEY`（= web `userSettings.ts:44` 的映射目标），
@@ -61,6 +62,9 @@ import {
 import {
   parseRecentWorkDirs, rememberWorkDir, removeWorkDir, serializeRecentWorkDirs, RECENT_WORKDIRS_SERVER_KEY,
 } from '../core/recentdirs';
+// 路径选择器自动补全的纯逻辑（web `PathPicker.tsx` 的 parseInput/filter/navigateInto）——
+// 新建会话弹层的 cwd 输入即消费它（E 项）。
+import { childPath, filterChildDirs, parsePathInput, PathInput } from '../core/pathpick';
 import {
   isInterruptSend, MODE_INTERRUPT, MODE_QUEUE, modeHint, modeLabel, sendToast, toggleMode,
 } from '../core/sendmode';
@@ -158,7 +162,7 @@ import { SelfCheckSheet } from '../components/SelfCheckSheet';
 import { SessSheet, SearchHitsSheet, ContextSheet } from '../components/MenuSheets';
 import { AskUserSheet } from '../components/AskUserSheet';
 import { animBase, sheetTransition } from '../components/anim';
-import { readableRpcError, rpc, RPC_WEB_PLUGIN_LIST } from '../core/rpc';
+import { readableRpcError, rpc, RpcMethod, RPC_WEB_PLUGIN_LIST, ThinkingModeParams } from '../core/rpc';
 import { TodoPayloadRow, removeTodoAt, renameTodoAt, todoPayloadRows, toggleTodoAt } from '../core/todos';
 import { WebSubAgentProgress } from '../core/chattypes';
 import { EMPTY_BLOCKS_SIGNATURE, liveBlocksSignature, subAgentsFingerprint } from '../core/render';
@@ -508,6 +512,12 @@ struct Index {
    * ⚠️ 用独立 @State 而非每次读 settings：删除要立刻反映到界面（同 web 的 `setRecentWorkDirs`）。
    */
   @State newSessionDirs: string[] = [];
+  /** 会话名称输入（web `NewSessionDialog.tsx:73-79`；空 ⇒ 不发 label 字段，服务端自动生成）。 */
+  @State newSessionLabel: string = '';
+  /** 路径自动补全下拉：候选（`listFs` 结果经 `filterChildDirs`）/ 加载中 / 是否展开（web `PathPicker`）。 */
+  @State nsPathDirs: FsEntry[] = [];
+  @State nsPathLoading: boolean = false;
+  @State nsPathOpen: boolean = false;
   /**
    * 抽屉里**已折叠的分组键**（`collapseKey(category, groupKey)` 形态）。
    *
@@ -587,6 +597,10 @@ struct Index {
   @State ctxInput: string = '';
   /** 正在切换的模型条目（显示 loading，防连点） */
   @State modelBusy: string = '';
+  /** 思考模式当前档位（step 0..3；web composer `ThinkingModeControl` 同语义）。 */
+  @State thinkStep: number = 1;
+  /** 思考模式写入中（防连点，同 `modelBusy` 口径）。 */
+  @State thinkBusy: boolean = false;
 
   /**
    * 发送模式：`queue`（排队）| `interrupt`（⚡ 插话）。
@@ -2251,11 +2265,52 @@ struct Index {
     this.newSessionDirs = parseRecentWorkDirs(settingOf(this.settings, RECENT_WORKDIRS_SERVER_KEY));
     // 预填最近一条（web `:47` `recent[0] || '/'`）；原生**无候选则留空 = 不设 cwd**（不改既有默认行为的兜底）。
     this.newSessionPath = this.newSessionDirs.length > 0 ? this.newSessionDirs[0] : '';
+    // 会话名称复位（web `:45` `setLabel('')`）。
+    this.newSessionLabel = '';
+    // 补全下拉复位（web `:48` `setBusy(false)` 同口径；下拉在打开时由输入重新拉取）。
+    this.nsPathDirs = [];
+    this.nsPathLoading = false;
+    this.nsPathOpen = false;
     this.showNewSession = true;
   }
 
   private closeNewSession(): void {
     this.showNewSession = false;
+    this.nsPathOpen = false;
+  }
+
+  /**
+   * 拉一次路径补全候选（web `PathPicker.tsx:51-73` 的 effect：`listDir(dirPath,true)` → 只留目录 → 前缀过滤）。
+   *
+   * ⚠️ 无 debounce：web 用 `useDebounce(200ms)`；原生端**不引入计时器**（本仓禁在页面新造 `setTimeout`，
+   *   见 `model_list_states` 的「块内零 setTimeout」）。改为**每次输入即拉**（服务端 `resolveSafePath` 已做
+   *   开销兜底）；行为对用户可见差异仅在"打字中的请求数"，候选集**逐字一致**。
+   */
+  private async refreshPathDirs(): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    const parsed: PathInput = parsePathInput(this.newSessionPath);
+    const dir: string = parsed.dirPath.length > 0 ? parsed.dirPath : '/';
+    const prefix: string = parsed.prefix;
+    this.nsPathOpen = true;
+    this.nsPathLoading = true;
+    try {
+      const all: FsEntry[] = await store.listFs(dir);
+      this.nsPathDirs = filterChildDirs(all, prefix);
+    } catch (e) {
+      this.nsPathDirs = [];
+    } finally {
+      this.nsPathLoading = false;
+    }
+  }
+
+  /** 下钻进一个候选目录（web `PathPicker.tsx:88-97 navigateInto`）：值 = `childPath(dir,name)`，继续列下一层。 */
+  private pickPathDir(name: string): void {
+    const parsed: PathInput = parsePathInput(this.newSessionPath);
+    this.newSessionPath = childPath(parsed.dirPath, name);
+    void this.refreshPathDirs();
   }
 
   /** 移除一条最近目录（web `NewSessionDialog.tsx:107` 的 X）—— 立即落盘。 */
@@ -2283,10 +2338,12 @@ struct Index {
       return;
     }
     const path: string = this.newSessionPath.trim();
+    // 会话名称：trim 后非空才发（web `NewSessionDialog.tsx:54` `label.trim() || undefined`）。
+    const label: string = this.newSessionLabel.trim();
     this.showNewSession = false;
     this.showDrawer = false;
     try {
-      await store.createSession();
+      await store.createSession(label.length > 0 ? label : undefined);
     } catch (e) {
       this.toast(`新建失败: ${errText(e as Object)}`);
       return;
@@ -3303,6 +3360,8 @@ struct Index {
               });
               // 打开面板即走**既有取数入口**（与失败态「重试」同一个：`reloadModelList`）。
               this.reloadModelList();
+              // 思考模式也在此刻读一次（web `ModelSelector` 打开时 `llmSettings.data.thinkingMode` 已在手）。
+              void this.loadThinkingMode();
             },
             // 改工作路径：复用页面唯一的 `set_cwd` 写路径（`submitCwd` → `sendSetCwd`）。
             onSubmitCwd: (dir: string) => {
@@ -4771,6 +4830,33 @@ struct Index {
   }
 
   /** 当前语义色板（**全页面唯一取色入口**；theme.ets 之外不再有颜色字面量）。 */
+  /** `palOnce()` 的 memo（⛔ 只由 `palOnce` 读写；键 = `主题|强调色`）。 */
+  private palMemoTheme: string = '';
+  private palMemoAccent: string = '';
+  private palMemoVal: Palette | null = null;
+
+  /**
+   * **记忆化**色板 —— 与 `pal()` 同值，但**同一（主题|强调色）只算一次**。
+   *
+   * 为什么要它（两条都成立）：
+   *   ① `pal()` **未记忆化**：每次都 `withAccent(base, …)` 重新分配色板（只有 `paletteOf` 按主题 memo）
+   *      ⇒ 一个 builder 内多次取色会重复分配。本访问器按 `主题|强调色` memo，换主题/换强调色自动失效，
+   *      **语义与 `pal()` 逐字节一致**（键含 accentHex ⇒ 强调色变了也会重算）。
+   *   ② **预算硬约束**：`tools/perf/guard.sh --static` 的 `this.pal()` 调用点预算 = **1250**
+   *      （`docs/PERF-BUDGET.md` 表 A），本页基线已 ~1247 ⇒ 新增 UI（D/E/F）统一走本入口。
+   *      ⛔ 不是"绕过判据"：memo 后**真实重复分配更少**，开销只会更低。
+   */
+  private palOnce(): Palette {
+    const t: string = this.themeName;
+    const a: string = this.accentHex();
+    if (this.palMemoVal === null || this.palMemoTheme !== t || this.palMemoAccent !== a) {
+      this.palMemoVal = this.pal();
+      this.palMemoTheme = t;
+      this.palMemoAccent = a;
+    }
+    return this.palMemoVal;
+  }
+
   private pal(): Palette {
     // 强调色叠加在主题色板之上（**只覆盖 accent 家族**，亮度阶梯保持不变）。
     // 对齐 web：`providers/theme.tsx` 把 accentColor 写进 --accent* CSS 变量。
@@ -6106,18 +6192,87 @@ struct Index {
       .width('100%')
       .alignItems(VerticalAlign.Center)
 
-      // 工作目录输入（web `PathPicker` 的输入面；自动补全下拉是另一项，本次不搬）
-      TextInput({ placeholder: '工作路径（可选），如 /root/Code/xbot', text: this.newSessionPath })
+      // 会话名称（web `NewSessionDialog.tsx:72-80`：Label「会话名称」+ Input，placeholder「留空则自动生成」）
+      Text('会话名称')
+        .fontSize(typeOf('type.micro').size)
+        .fontColor(this.palOnce().textSecondary)
+        .width('100%')
+      TextInput({ placeholder: '留空则自动生成', text: this.newSessionLabel })
         .onChange((v: string) => {
-          this.newSessionPath = v;
+          this.newSessionLabel = v;
         })
-        .placeholderColor(this.pal().textMuted)
-        .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
-        .fontColor(this.pal().textPrimary)
+        .placeholderColor(this.palOnce().textMuted)
+        .backgroundColor(surfaceFillOf(this.palOnce(), 'surface.chip'))
+        .fontColor(this.palOnce().textPrimary)
         .fontSize(typeOf('type.caption').size)
         .constraintSize({ minHeight: HIT_TARGET_MIN })
         .borderRadius(RADIUS_CHIP)
         .padding({ left: SPACE_SM, right: SPACE_SM })
+
+      // 工作目录（web `PathPicker`：输入面 + **自动补全下拉**，`PathPicker.tsx:135-192`）
+      Text('工作路径')
+        .fontSize(typeOf('type.micro').size)
+        .fontColor(this.palOnce().textSecondary)
+        .width('100%')
+      TextInput({ placeholder: '输入绝对路径，例如 /root/Code/xbot', text: this.newSessionPath })
+        .onChange((v: string) => {
+          this.newSessionPath = v;
+          this.refreshPathDirs();
+        })
+        .onFocus(() => {
+          this.refreshPathDirs();
+        })
+        .placeholderColor(this.palOnce().textMuted)
+        .backgroundColor(surfaceFillOf(this.palOnce(), 'surface.chip'))
+        .fontColor(this.palOnce().textPrimary)
+        .fontSize(typeOf('type.caption').size)
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .borderRadius(RADIUS_CHIP)
+        .padding({ left: SPACE_SM, right: SPACE_SM })
+
+      // 自动补全下拉（web `PathPicker.tsx:154-192`）：加载中 / 无结果 / 目录候选（点击下钻）。
+      // ⛔ 行**纯文本**（不引 `sys.symbol.folder`：本 SDK 符号表无 `folder`，避免编译期资源缺失）。
+      if (this.nsPathOpen) {
+        Column({ space: SPACE_HAIR }) {
+          if (this.nsPathLoading) {
+            Row({ space: SPACE_XS }) {
+              LoadingProgress().width(14).height(14).color(this.palOnce().accent)
+              Text('加载中…')
+                .fontSize(typeOf('type.micro').size).fontColor(this.palOnce().textMuted)
+            }
+            .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
+            .padding({ left: SPACE_SM, right: SPACE_SM })
+            .alignItems(VerticalAlign.Center)
+          } else if (this.nsPathDirs.length === 0) {
+            Text('无匹配结果')
+              .fontSize(typeOf('type.micro').size).fontColor(this.palOnce().textMuted)
+              .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
+              .padding({ left: SPACE_SM, right: SPACE_SM })
+          } else {
+            ForEach(this.nsPathDirs, (e: FsEntry) => {
+              Row() {
+                Text(e.name)
+                  .fontSize(typeOf('type.caption').size)
+                  .fontColor(this.palOnce().textPrimary)
+                  .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .layoutWeight(1)
+              }
+              .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
+              .padding({ left: SPACE_SM, right: SPACE_SM })
+              .alignItems(VerticalAlign.Center)
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .onClick(() => {
+                this.pickPathDir(e.name);
+              })
+            }, (e: FsEntry) => `nsp-${e.name}`)
+          }
+        }
+        .width('100%')
+        .backgroundColor(surfaceFillOf(this.palOnce(), 'surface.chip'))
+        .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.palOnce()) })
+        .borderRadius(RADIUS_CHIP)
+        .constraintSize({ maxHeight: 220 })
+      }
 
       // 最近目录候选（web `NewSessionDialog.tsx:91-114`；空 ⇒ 整段不渲染，对齐 web 的 `: null`）
       if (this.newSessionDirs.length > 0) {
@@ -7166,6 +7321,59 @@ struct Index {
         .constraintSize({ maxHeight: 420 }).width('100%')
         .scrollBar(BarState.Off)
       }
+
+      // ── 思考模式（web `ModelSelector.tsx:154-164` 的 popover 底部 `ThinkingModeControl`）──────
+      // 落点：web 把它挂在「模型选择器」popover 内 ⇒ 原生等价物即本 `ModelSheet`（最小改动）。
+      // 形态：本仓**无滑杆先例**（全程 chip）⇒ 用 chip；**步骤语义/文案**逐字对齐 web composer
+      //   （`core/settings.ets` 的 `thinkingStepLabel` = `关/思考/思考+/思考++`）。
+      // ⛔ 行**真实 ≥44 布局盒**（`HIT_TARGET_MIN`，不靠 `responseRegion`）；写库走 `set_user_thinking_mode` 裸值。
+      Column({ space: SPACE_XS }) {
+        Row() {
+          Text('思考模式')
+            .fontSize(typeOf('type.micro').size).fontColor(this.palOnce().textMuted)
+            .layoutWeight(1)
+          Text(thinkingStepLabel(this.thinkStep))
+            .fontSize(typeOf('type.micro').size).fontColor(this.palOnce().textSecondary)
+            // 横向约束（同 H1：表达式取显示文案，给收缩能力）
+            .constraintSize({ maxWidth: 120 })
+        }
+        .width('100%')
+        Flex({ wrap: FlexWrap.Wrap }) {
+          ForEach(THINKING_STEP_LABELS, (label: string, i: number) => {
+            Row() {
+              Text(label)
+                .fontSize(typeOf('type.caption').size)
+                .fontColor(i === this.thinkStep ? this.palOnce().onAccent : this.palOnce().textSecondary)
+                // 横向约束（`horizontal_overflow_gate` H1：`label` 命中可变长词表 ⇒ 必须给收缩能力）
+                .constraintSize({ maxWidth: 160 })
+                .textAlign(TextAlign.Center)
+            }
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
+            .padding({ left: SPACE_SM, right: SPACE_SM })
+            .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+            .backgroundColor(i === this.thinkStep
+              ? this.palOnce().accent
+              : surfaceFillOf(this.palOnce(), 'surface.chip'))
+            .borderRadius(RADIUS_CHIP)
+            .border({
+              width: STROKE_HAIRLINE,
+              color: i === this.thinkStep ? this.palOnce().accent : insetHairlineOf(this.palOnce()),
+            })
+            .margin({ right: SPACE_XS, bottom: SPACE_XS })
+            .opacity(this.thinkBusy ? 0.5 : 1)
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+            .onClick(() => {
+              if (!this.thinkBusy && i !== this.thinkStep) {
+                void this.commitThinkingStep(i);
+              }
+            })
+          }, (label: string, i: number) => `think-step-${i}`)
+        }
+        .width('100%')
+      }
+      .width('100%')
+      .padding({ top: SPACE_SM })
+      .border({ width: { top: STROKE_HAIRLINE }, color: hairlineOf(this.pal()) })
     }
     .width('92%').padding(SPACE_MD).backgroundColor(this.pal().appBg)
     .borderRadius(RADIUS_CARD).border({ width: 1, color: this.pal().border })
@@ -7185,6 +7393,47 @@ struct Index {
       return;
     }
     void store.loadLlmConfig();
+  }
+
+  /**
+   * 读一次思考模式（**唯一取数入口** = `get_user_thinking_mode`，与设置页 `SettingsLlm` 同 RPC）。
+   * 库值 → 步骤：`thinkingModeToStep`（判据在 `core/settings.ets`，web `ThinkingModeControl.tsx:19-31`）。
+   */
+  private async loadThinkingMode(): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    try {
+      const mode: string = await rpc<string>(store.http, RpcMethod.getUserThinkingMode);
+      this.thinkStep = thinkingModeToStep(mode);
+    } catch (e) {
+      // 读失败 ⇒ 保持当前档（⛔ 不假装成"自动"；与设置页"读失败不落假值"同口径）。
+    }
+  }
+
+  /**
+   * 写思考模式：`set_user_thinking_mode {mode}`（**裸值**，web `components/agent/api.ts:823`）。
+   * 失败 ⇒ 回滚到上一档 + toast（⛔ 不留"看起来已生效"的假值，同 `commitThinking`）。
+   */
+  private async commitThinkingStep(step: number): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null || this.thinkBusy) {
+      return;
+    }
+    const prev: number = this.thinkStep;
+    this.thinkBusy = true;
+    this.thinkStep = step;
+    try {
+      await rpc<void>(store.http, RpcMethod.setUserThinkingMode,
+        new ThinkingModeParams(thinkingStepToMode(step)));
+      this.toast('已保存');
+    } catch (e) {
+      this.thinkStep = prev;
+      this.toast(`保存失败: ${errText(e as Object)}`);
+    } finally {
+      this.thinkBusy = false;
+    }
   }
 
   /** 可选模型**条目**总数（三态纯函数输入；0 ⟺ 无任何可选模型）。 */

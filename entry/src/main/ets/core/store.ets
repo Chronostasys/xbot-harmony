@@ -393,9 +393,16 @@ export class ChatStore {
     this.onUpdate();
   }
 
-  async createSession(): Promise<void> {
+  /**
+   * 新建会话（web `useSessionStore.ts:1451-1485`）。
+   *
+   * `label` 可选：**空/未给 ⇒ 不发 label 字段**（服务端自动生成，与本改动前的行为逐字节一致）；
+   * 非空 ⇒ 透传（web `NewSessionDialog.tsx:54` 的同口径：`label.trim() || undefined`）。
+   * 判据见 `tools/tests/parity_defer.test.ts`（加性：零参调用仍成立）。
+   */
+  async createSession(label?: string): Promise<void> {
     const created: SessionItem = await this.http.postAs<SessionItem>(
-      '/api/chats/create', new CreateChatReq());
+      '/api/chats/create', new CreateChatReq(label));
     await this.loadSessions();
     // ⚠️ 外来 JSON：字段可能是 null（服务端 nil → null）⇒ 三态判空，否则 `.length` 会炸
     const newId: string | null | undefined = created.chat_id;

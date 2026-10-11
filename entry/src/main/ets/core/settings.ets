@@ -1138,6 +1138,67 @@ export function thinkHint(mode: string): string {
   return '';
 }
 
+// ── composer 思考档的「步骤」映射（web `components/agent/ThinkingModeControl.tsx`）──────────
+//
+// ⚠️ 与上面的 `thinkLabel`（设置页四档名）**是两套不同口径，有意并存**（⛔ 不动 `thinkLabel`）：
+//   · `thinkLabel`：设置页档名 `自动/思考/最大思考/关闭`（钉在 `settings_thinking.test.ts`）；
+//   · 本节：composer 的**步骤**语义 `关/思考/思考+/思考++`（web `settings.thinkingStep*` = `zh-CN.ts:585-588`）。
+// 值域也不同：composer 的 step 1 = **空串 = auto**（服务端归一），设置页用字面 `auto`。
+
+/** composer 四档中文文案（web `settings.thinkingStep*` 的 zh 值，逐字）。下标 = step 0..3。 */
+export const THINKING_STEP_LABELS: string[] = ['关', '思考', '思考+', '思考++'];
+/** 档位数（web `THINKING_STEP_KEYS.length`）。 */
+export const THINKING_STEP_COUNT: number = 4;
+
+/**
+ * 模式值 → 步骤 0..3（逐字对齐 web `ThinkingModeControl.tsx:19-31`）：
+ *   `disabled`→0；`enabled`/`think`→2；`think-max`→3；其余（含 `''`=auto）→1。
+ */
+export function thinkingModeToStep(mode: string): number {
+  const s: string = mode !== undefined && mode !== null ? mode.trim() : '';
+  if (s === THINK_DISABLED) {
+    return 0;
+  }
+  if (s === THINK_DB_ENABLED || s === THINK_THINK) {
+    return 2;
+  }
+  if (s === THINK_THINK_MAX) {
+    return 3;
+  }
+  return 1;
+}
+
+/**
+ * 步骤 → 模式值（逐字对齐 web `ThinkingModeControl.tsx:33-44`）：
+ *   0→`disabled`；2→`think`；3→`think-max`；其余→`''`（**空串 = auto**，交服务端归一）。
+ * ⚠️ 写库用**裸值**（web `components/agent/api.ts:823` `set_user_thinking_mode {mode}` 即裸值）。
+ */
+export function thinkingStepToMode(step: number): string {
+  const s: number = Math.round(step);
+  if (s === 0) {
+    return THINK_DISABLED;
+  }
+  if (s === 2) {
+    return THINK_THINK;
+  }
+  if (s === 3) {
+    return THINK_THINK_MAX;
+  }
+  return '';
+}
+
+/** 步骤 → 本地化显示文案（web `ThinkingModeControl.tsx:47-49`；越界钳到 `0..3`）。 */
+export function thinkingStepLabel(step: number): string {
+  let s: number = Math.round(step);
+  if (s < 0) {
+    s = 0;
+  }
+  if (s >= THINKING_STEP_LABELS.length) {
+    s = THINKING_STEP_LABELS.length - 1;
+  }
+  return THINKING_STEP_LABELS[s];
+}
+
 /**
  * **库内值 → 显示值**（逐字对齐 web `SettingsLLM.tsx:102`）。
  *
