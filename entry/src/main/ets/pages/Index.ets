@@ -6393,7 +6393,11 @@ struct Index {
       Row() {
         Text('模型与上下文').fontSize(typeOf('type.headline').size).fontWeight(typeOf('type.headline').weight).fontColor(this.pal().textPrimary).layoutWeight(1)
         SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(SPACE_XS)
-.onClick(() => {
+          // ⛔ 用户 2026-10-11 报「关闭**不好点到**」：视觉边长 = 17 + 2×`SPACE_XS`(8) = 33 < 44（HIT_TARGET_MIN）。
+          //    靠 `responseRegion` **外扩**热区到 44×44、⛔ **不改布局/视觉尺寸**
+          //    （与 `PluginsSheet`/`AskUserSheet`/`MessageNav` 同一做法；用户直接点 X 关面板，是高频操作）。
+          .responseRegion({ x: -6, y: -6, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
+          .onClick(() => {
           this.showModel = false;
         })
       }.width('100%')
@@ -6475,7 +6479,12 @@ struct Index {
             }, (g: ModelGroup) => `grp-${g.subId}`)
           }.width('100%')
         }
+        // ⛔ 用户 2026-10-11 报「**滚动栏挡住交互**」：默认 `BarState.Auto` 的滚动条**叠在列表右缘**
+        //    并参与命中测试 ⇒ 点行右侧（如「当前」角标那一带）会打到滚动条而非行。
+        //    这里是**面板内的短列表**（≤420 高、外层已有空白区可点关闭）⇒ 关掉滚动条
+        //    （与本仓既有口径一致：`DrawerSheet`/`SettingsPanel:359`/`AskUserSheet`/`PluginHost` 同为 `Off`）。
         .constraintSize({ maxHeight: 420 }).width('100%')
+        .scrollBar(BarState.Off)
       }
     }
     .width('92%').padding(SPACE_MD).backgroundColor(this.pal().appBg)
