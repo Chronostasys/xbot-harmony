@@ -265,9 +265,17 @@ eq('静默窗 == 2×D_SLOW（640ms）', ORB_BREATH_MS / 4, D_SLOW * 2);
 has(orbSrc, 'isLightPalette(pal)', '白/深分叉用 isLightPalette（按 appBg 亮度）');
 hasNot(orbSrc, "=== THEME_LIGHT", '不按主题名硬判（无 === THEME_LIGHT）');
 hasNot(orbSrc, "theme === 'light'", "不按主题名硬判（无 theme === 'light'）");
-has(orbSrc, 'this.paint.halo = eff.glow;', '深色：光晕 = glow（既有观感）');
-has(orbSrc, 'this.paint.halo = eff.elev2;', '浅色：光晕 = 中性柔影 elev2（白底上彩色外发光读作"脏"）');
-has(orbSrc, 'this.paint.stroke = surfacesOf(pal).hairline;', '浅色：细环 = 结构性发丝 hairline（白底上真的看得见）');
+// ⚠️ 订正（2026-10-11）：光晕/细环取色已**上收语义出口**（`core/design.ets`）——
+//    `inflightHaloOf(pal)`（深=glow / 浅=elev2 中性柔影，§7.2）与 `hairlineOf(pal)`。
+//    旧断言钉的是 `eff.glow` / `eff.elev2` / `surfacesOf(pal).hairline` 三个**直接取色**（§12.1
+//    "唯一入口"已收敛）⇒ 已过时，本处随之改为新形态（并反向钉死"不再直接取"）。
+has(orbSrc, 'this.paint.halo = inflightHaloOf(pal);',
+  '光晕走语义出口 inflightHaloOf（深色=glow / 浅色=elev2 中性柔影，一处收口）');
+hasNot(orbSrc, 'this.paint.halo = eff.glow;', '⛔ 不再直接 effectsOf 取 glow（回退即红）');
+hasNot(orbSrc, 'this.paint.halo = eff.elev2;', '⛔ 不再直接 effectsOf 取 elev2');
+has(orbSrc, 'this.paint.stroke = hairlineOf(pal);',
+  '浅色细环走 hairlineOf 唯一出口（结构性发丝，白底上真的看得见）');
+hasNot(orbSrc, 'surfacesOf(pal).hairline', '⛔ 不再直接 surfacesOf 取发丝（走 hairlineOf）');
 // (h4b) 浅色「亮心在里」：不能写死 inner=accentSoft（porcelain 的 accentSoft 比 accent 更暗 ⇒ 会读成暗心）
 has(orbSrc, 'relativeLuminance(pal.accentSoft) >= relativeLuminance(pal.accent)',
   '浅色核渐变按**相对亮度**定"亮心在里"（不自造色值，两 token 都是既有角色）');
