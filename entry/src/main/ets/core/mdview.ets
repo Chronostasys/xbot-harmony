@@ -140,7 +140,8 @@ export class MdInlineStyle {
  * 调色板不传 `theme` 名，而是取几个**代表色**拼键（调用点只拿得到 `Palette`，见 `MarkdownView.sz()` 同款约束）。
  */
 export function mdInlineKey(text: string, pal: Palette, mdTheme: string, baseColor: string): string {
-  return `${mdTheme}|${pal.appBg}|${pal.textPrimary}|${pal.accentSoft}|${pal.surfaceAlt}|${baseColor}|${text}`;
+  return `${mdTheme}|${pal.appBg}|${pal.surfaceAlt}|${pal.textPrimary}|${pal.textSecondary}`
+    + `|${pal.textMuted}|${pal.accent}|${pal.accentSoft}|${pal.accentText}|${baseColor}|${text}`;
 }
 
 /** 行内样式记忆化的统计。 */
