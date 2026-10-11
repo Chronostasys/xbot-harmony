@@ -48,6 +48,9 @@ const TESTS_DIR: string = path.join(ROOT, 'tools', 'tests');
  *  · `ContextBar.test.tsx` —— **web 侧**文件（`WEB-PARITY.md:639` 的"web 出处"列，
  *    指 web `components/agent/ContextBar.tsx`）。本判据只认 `*.test.ts`，这条是双保险。
  */
+// ⚠️ 清扫记档（2026-10-11）：本文件读的是 **`.md` 文档**（不是源码）⇒ 「剥注释」不适用
+//    （`.md` 里没有"注释"这一层，其正文**就是**被断言的对象）。⇒ **有意不套 `stripSrc`**。
+
 const NON_NATIVE_CLAIM: string[] = ['ContextBar.test.tsx'];
 
 // ── 抽取：`✅ 行` 里引用的本仓判据文件名 ─────────────────────────────────────

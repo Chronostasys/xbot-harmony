@@ -9,6 +9,10 @@
  *
  * ⚠️ 结尾必须 `process.exit(...)`：`tools/tests/run.sh` 用 `set -e` 且逐文件 `node`。
  */
+// ⚠️ 清扫记档（2026-10-11，扫源码不剥注释专项）：本文件读的是**生成资产**（`brand_*.svg` / `brand_*.png`
+//    / `layered_image.json` 等**产物**），⛔ **不是源码** ⇒ 「剥注释」在这里不适用（强行剥会破坏
+//    SVG/JSON 的**字节比对**语义）。⇒ **有意不套 `stripSrc`**；判据的"锚点"是**字节相等**，不是文本匹配。
+
 declare const process: { exit: (c: number) => void };
 declare const require: (m: string) => any;
 declare const __dirname: string;
