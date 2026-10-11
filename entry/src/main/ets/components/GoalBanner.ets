@@ -78,8 +78,15 @@ export struct GoalBanner {
     return goalDisplay(this.objective, this.status);
   }
 
-  /** 卡片描边色：已完成走 success，进行中走 accent（web `:69-71`）。 */
-  private borderColor(): string {
+  /**
+   * 卡片描边色：已完成走 success，进行中走 accent（web `:69-71`）。
+   *
+   * ⛔ 方法名**不能叫 `borderColor`**：`CustomComponent` 基类（`CommonMethod`）已有同名
+   *   `borderColor(...)` 属性方法 ⇒ 报 `10505001 Property 'borderColor' in type 'GoalBanner'
+   *   is not assignable to the same property in base type 'CustomComponent'`（与 `AssistantOrb.size`
+   *   同款事故）。**改名**即可（本组件此前是孤儿、从未被 ArkTS 检查，故接线时才暴露）。
+   */
+  private bannerBorderColor(): string {
     const alpha: number = isLightPalette(this.pal()) ? BORDER_ALPHA_LIGHT : BORDER_ALPHA_DARK;
     return withAlpha(this.display().completed ? this.pal().success : this.pal().accent, alpha);
   }
@@ -104,10 +111,14 @@ export struct GoalBanner {
       Row({ space: SP_2 }) {
         // 图标（web `:78-85`）：已完成 → ✓；进行中 → 目标图标 + 呼吸点（原生用静态小圆点，
         // 见文件头 Pitfalls：不引入定时器，避免在列表行里开常驻动画）
+        // ⛔ `sys.symbol.circle_badge_checkmark` **SDK 里不存在**（接线时 `10903329 Unknown
+        //    resource name`）。web 用 lucide `Target`（`GoalBanner.tsx:16`）⇒ 取 HM Symbol 里
+        //    语义/形态最贴近的 `dart_target`（靶心）；备选 `scope`（准星）/`circle_on_circle`
+        //    （同心圆）/`record_circle`（圆+点）。存在性已对 `id_defined.json` 核实。
         Stack() {
           SymbolGlyph(this.display().completed
             ? $r('sys.symbol.checkmark')
-            : $r('sys.symbol.circle_badge_checkmark'))
+            : $r('sys.symbol.dart_target'))
             .fontSize(ICON)
             .fontColor([this.display().completed ? this.pal().success : this.pal().accent])
         }
@@ -199,7 +210,7 @@ export struct GoalBanner {
       .padding({ left: PAD_X, right: PAD_X, top: PAD_Y, bottom: PAD_Y })
       .backgroundColor(this.pal().surface)
       .borderRadius(R_MD)
-      .border({ width: 1, color: this.borderColor() })
+      .border({ width: 1, color: this.bannerBorderColor() })
       .margin({ left: SP_1 + 2, right: SP_1 + 2, bottom: SP_1 })
       .clip(true)
     }

@@ -240,7 +240,15 @@ export struct TodoPanel {
   @Prop todos: TodoItem[] = [];
   /** 当前 goal 文本（用于行尾徽标；空 ⇒ 不标）—— web `TodoPullOut.tsx:24,128`。 */
   @Prop goalText: string = '';
+  /**
+   * 是否已有 goal（web `MessageInput.tsx:730` 的 `hasGoal={!!goal || addingGoal}`）。
+   * 决定折叠行右侧是否出现 🎯「设为目标」按钮（web `TodoPullOut.tsx:113-121`：仅**无 goal** 时）。
+   */
+  @Prop hasGoal: boolean = false;
   @Prop theme: string = 'dark';
+  /** 「设为目标」入口（web `TodoPullOut.tsx:114-121` `onClick={onSetGoal}`）。 */
+  onSetGoal: () => void = () => {
+  };
   /** 勾选/取消（宿主做乐观覆盖 + `set_todos` 持久化）。 */
   onToggleTodo: (index: number) => void = (index: number) => {
   };
@@ -295,35 +303,53 @@ export struct TodoPanel {
     if (hasTodos(this.todos)) {
       Column() {
         // ── 收起态行：箭头 + 进度条 + done/total + 当前任务 ────────────────────────
+        // ⛔ 结构对齐 web `TodoPullOut.tsx:88-121`：折叠开关是**左侧那一个**区域（内层 Row
+        //    带 layoutWeight(1) + onClick），🎯 按钮是它的**兄弟** —— web 注释明确：
+        //    带 onClick 的控件绝不能嵌进另一个 onClick 容器里（点击会同时触发两个动作）。
         Row({ space: SP_2 }) {
-          SymbolGlyph($r('sys.symbol.chevron_right'))
-            .fontSize(12)
-            .fontColor([this.pal().textMuted])
-            .rotate({ angle: this.expanded ? 90 : 0 })
-            .animation(animFast())
-          Progress({ value: todoPercent(this.state()), total: 100, type: ProgressType.Linear })
-            .width(BAR_W)
-            .height(BAR_H)
-            .color(this.pal().accent)
-            .backgroundColor(this.pal().surfaceAlt)
-            .style({ strokeWidth: BAR_H, enableSmoothEffect: true })
-          Text(todoCountLabel(this.state()))
-            .fontSize(FS_CAPTION)
-            .fontColor(this.pal().textSecondary)
-          Text(this.state().currentText.length > 0 ? this.state().currentText : '全部完成')
-            .fontSize(FS_CAPTION)
-            .fontColor(this.state().currentText.length > 0 ? this.pal().textPrimary : this.pal().textMuted)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .layoutWeight(1)
-            .textAlign(TextAlign.Start)
+          Row({ space: SP_2 }) {
+            SymbolGlyph($r('sys.symbol.chevron_right'))
+              .fontSize(12)
+              .fontColor([this.pal().textMuted])
+              .rotate({ angle: this.expanded ? 90 : 0 })
+              .animation(animFast())
+            Progress({ value: todoPercent(this.state()), total: 100, type: ProgressType.Linear })
+              .width(BAR_W)
+              .height(BAR_H)
+              .color(this.pal().accent)
+              .backgroundColor(this.pal().surfaceAlt)
+              .style({ strokeWidth: BAR_H, enableSmoothEffect: true })
+            Text(todoCountLabel(this.state()))
+              .fontSize(FS_CAPTION)
+              .fontColor(this.pal().textSecondary)
+            Text(this.state().currentText.length > 0 ? this.state().currentText : '全部完成')
+              .fontSize(FS_CAPTION)
+              .fontColor(this.state().currentText.length > 0 ? this.pal().textPrimary : this.pal().textMuted)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .layoutWeight(1)
+              .textAlign(TextAlign.Start)
+          }
+          .layoutWeight(1)
+          .height('100%')
+          .onClick(() => {
+            this.expanded = !this.expanded;
+          })
+
+          // 🎯「设为目标」—— 仅**无 goal** 时（web `TodoPullOut.tsx:113-121`）
+          if (!this.hasGoal) {
+            SymbolGlyph($r('sys.symbol.dart_target'))
+              .fontSize(ICON)
+              .fontColor([this.pal().textMuted])
+              .padding(SP_1)
+              .onClick(() => {
+                this.onSetGoal();
+              })
+          }
         }
         .width('100%')
         .height(HEADER_H)
         .padding({ left: SP_3, right: SP_3 })
-        .onClick(() => {
-          this.expanded = !this.expanded;
-        })
 
         // ── 展开态：清单 ─────────────────────────────────────────────────────────
         if (this.expanded) {

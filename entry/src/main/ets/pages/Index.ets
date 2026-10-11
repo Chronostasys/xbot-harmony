@@ -95,6 +95,13 @@ import { ContextRing } from '../components/ContextRing';
 import { SettingsPanel } from '../components/SettingsPanel';
 import { MessageNav } from '../components/MessageNav';
 import { PluginHost } from '../components/PluginHost';
+import { GoalBanner } from '../components/GoalBanner';
+import { TodoPanel } from '../components/TodoPanel';
+import { rpc } from '../core/rpc';
+import { TodoPayloadRow, removeTodoAt, renameTodoAt, todoPayloadRows, toggleTodoAt } from '../core/todos';
+import { WebSubAgentProgress } from '../core/chattypes';
+import { subAgentsFingerprint } from '../core/render';
+import { withAlpha } from '../core/bubble';
 
 /** 一个问题当前选中的答案（用类而非 Map/Record：ArkTS 下最稳，且能整体替换触发重渲染）。 */
 class AskSelection {
@@ -121,6 +128,46 @@ class DrawerGroup {
   tip: string = '';
   /** 组成员（**原始行**，顺序 = 纯逻辑给的顺序）。 */
   items: SessionItem[] = [];
+}
+
+/**
+ * `set_goal` 的 RPC params（web `agent/api.ts:181-186`：`{channel, chat_id, objective}`）。
+ * ⛔ 显式类而非对象字面量（ArkTS `arkts-no-untyped-obj-literals`）。
+ */
+class SetGoalParams {
+  channel: string = '';
+  chat_id: string = '';
+  objective: string = '';
+
+  constructor(channel: string, chatId: string, objective: string) {
+    this.channel = channel;
+    this.chat_id = chatId;
+    this.objective = objective;
+  }
+}
+
+/** `clear_goal` 的 RPC params（web `api.ts:236-241`：`{channel, chat_id}`）。 */
+class ClearGoalParams {
+  channel: string = '';
+  chat_id: string = '';
+
+  constructor(channel: string, chatId: string) {
+    this.channel = channel;
+    this.chat_id = chatId;
+  }
+}
+
+/** `set_todos` 的 RPC params（web `api.ts:194-198`：`{channel, chat_id, todos}`，只发 text+status）。 */
+class SetTodosParams {
+  channel: string = '';
+  chat_id: string = '';
+  todos: TodoPayloadRow[] = [];
+
+  constructor(channel: string, chatId: string, todos: TodoPayloadRow[]) {
+    this.channel = channel;
+    this.chat_id = chatId;
+    this.todos = todos;
+  }
 }
 
 /**
@@ -361,6 +408,28 @@ struct Index {
   @State cwd: string = '';
   @State todos: TodoItem[] = [];
   @State goal: GoalInfo | undefined = undefined;
+  /**
+   * Goal 横幅的**字符串数据源**（web `MessageInput.tsx:694` 的 `goal.objective`/`goal.status`）。
+   *
+   * ⛔ 为什么不复用 `this.goal`（`GoalInfo{text,status}`）：`core/types.ets` 的 `GoalInfo`
+   *   字段名是 `text`，而真实协议是 `{objective,status}`（`core/chattypes.ts:9`）⇒ 读 `.text`
+   *   永远 undefined。这里从**权威的归一化进度快照** `store.liveProgress().goal`（其 `GoalInfo`
+   *   来自 `core/chattypes`，字段名正确）取串 **绕开**两个同名 `GoalInfo` 的命名碰撞。
+   */
+  @State goalObjective: string = '';
+  @State goalStatus: string = '';
+  /**
+   * 「正在添加目标」内联输入（web `MessageInput.tsx:695-726` 的 `addingGoal`）——
+   * 由 `TodoPanel` 的 🎯 按钮打开；输入非空并回车/失焦 ⇒ `set_goal`。
+   */
+  @State addingGoal: boolean = false;
+  /** 添加目标的草稿（web `MessageInput` 的 `goalDraft`）。 */
+  @State goalDraft: string = '';
+  /**
+   * live 行 SubAgent 树的**页面 @State 镜像** —— 与 `liveText`/`liveBlocks` 同款值投递
+   * （行对象就地更新 ⇒ 引用恒定 ⇒ 组件读它不产生值变化 ⇒ 树不刷新）。
+   */
+  @State liveSubAgents: WebSubAgentProgress[] = [];
 
   @State geoText: string = '';
   @State geoRunning: boolean = false;
@@ -970,6 +1039,18 @@ struct Index {
       this.todos = store.todos.slice();
     }
     this.goal = store.goal;
+    // ── Goal 横幅数据源（web `MessageInput.tsx:694` 的 `goal.objective`/`goal.status`）──
+    // ⛔ 必须读**归一化进度快照**的 goal（`core/chattypes.GoalInfo{objective,status}`），
+    //    而不是 `store.goal`（`core/types.GoalInfo{text,status}`，字段名不符协议 ⇒ 永远空）。
+    const g = store.liveProgress().goal;
+    const gObj: string = g !== null && g !== undefined ? g.objective : '';
+    const gSt: string = g !== null && g !== undefined ? g.status : '';
+    if (this.goalObjective !== gObj) {
+      this.goalObjective = gObj;
+    }
+    if (this.goalStatus !== gSt) {
+      this.goalStatus = gSt;
+    }
     this.llmCfg = store.llmConfig;
     if (this.cronTasks !== store.cronTasks) {
       this.cronTasks = store.cronTasks;
@@ -1509,6 +1590,9 @@ struct Index {
     this.cmdItems = [];
     this.fsEntries = [];
     this.ctxOpen = false;
+    // 「添加目标」输入行也随会话清空（否则在 A 会话敲了一半的目标会带到 B 会话）
+    this.addingGoal = false;
+    this.goalDraft = '';
     const target: ChatStore = this.storeFor(chatId);
     // 会话列表是**应用级**数据，但快照存在 store 上：池里刚建的 store 是空的，
     // 若直接切过去，抽屉会没数据、渠道解析也会错（⇒ 404）。这里先补齐。
@@ -1767,6 +1851,74 @@ struct Index {
   /** 当前进行中的 todo（面板顶部显示）。 */
   private currentTodoLine(): string {
     return currentTodo(this.todos);
+  }
+
+  // ── 目标 / 清单的**写操作**（web `AgentPanel.tsx` 的 handleSetGoal/handleClearGoal/
+  //    handleUpdateTodos → `agent/api.ts` 的 set_goal/clear_goal/set_todos RPC）──
+  // ⛔ 一律直发 RPC、不做本地乐观改写：服务端落库后推 progress 事件 ⇒ store.todos /
+  //    快照 goal 刷新（状态以后端为准 —— 与存量 todos 的权威来源同一路径）。
+
+  /** 设置/更新目标（web `setGoal`）。 */
+  private async handleSetGoal(objective: string): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null || objective.length === 0) {
+      return;
+    }
+    try {
+      await rpc<Object>(store.http, 'set_goal',
+        new SetGoalParams(store.channel, store.currentChatId, objective));
+    } catch (e) {
+      this.toast(`设置目标失败: ${errText(e as Object)}`);
+    }
+  }
+
+  /** 清除目标（web `clearGoal`）。 */
+  private async handleClearGoal(): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    try {
+      await rpc<Object>(store.http, 'clear_goal',
+        new ClearGoalParams(store.channel, store.currentChatId));
+    } catch (e) {
+      this.toast(`清除目标失败: ${errText(e as Object)}`);
+    }
+  }
+
+  /** 整表替换 todo 清单（web `updateTodos` —— 勾选/改名/删除都走这一条）。 */
+  private async pushTodos(next: TodoItem[]): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    try {
+      await rpc<Object>(store.http, 'set_todos',
+        new SetTodosParams(store.channel, store.currentChatId, todoPayloadRows(next)));
+    } catch (e) {
+      this.toast(`更新清单失败: ${errText(e as Object)}`);
+    }
+  }
+
+  /** 点开 SubAgent 会话（web `SubAgentProgressTree.openSubAgent` → 打开该 agent 会话）。 */
+  private openSubAgentSession(sessionKey: string): void {
+    if (sessionKey.length === 0) {
+      return;
+    }
+    this.switchSession(sessionKey);
+  }
+
+  /**
+   * 提交「添加目标」内联输入（web `MessageInput.tsx:695-726` 的 Enter / onBlur 分支：
+   * **trim 非空才提交**；随后清空草稿并关闭输入行）。
+   */
+  private commitAddingGoal(): void {
+    const text: string = this.goalDraft.trim();
+    this.addingGoal = false;
+    this.goalDraft = '';
+    if (text.length > 0) {
+      this.handleSetGoal(text);
+    }
   }
 
   private async sendDraft(): Promise<void> {
@@ -2985,6 +3137,75 @@ struct Index {
         .width('100%').padding({ left: 10, right: 4, top: 6 })
       }
 
+      // ── Goal 横幅（web `MessageInput.tsx:694`：`{goal ? <GoalBanner goal={goal} onEdit
+      //    onClear/> : null}` —— 挂在输入胶囊**正上方**）。组件自身以 `goalDisplay().visible`
+      //    短路（无目标 ⇒ 零节点）⇒ 无条件挂载 == web 的条件挂载（同一显示判据）。
+      GoalBanner({
+        objective: this.goalObjective,
+        status: this.goalStatus,
+        theme: this.themeName,
+        onEditGoal: (v: string) => {
+          this.handleSetGoal(v);
+        },
+        onClearGoal: () => {
+          this.handleClearGoal();
+        },
+      })
+
+      // ── 「添加目标」内联输入（web `MessageInput.tsx:695-726` 的 `addingGoal` 分支 ——
+      //    位置在 GoalBanner 与 TodoPullOut **之间**，同一列）。由 TodoPanel 的 🎯 打开。
+      if (this.addingGoal) {
+        Row({ space: SP_2 }) {
+          SymbolGlyph($r('sys.symbol.dart_target')).fontSize(14).fontColor([this.pal().accent])
+          TextInput({ text: this.goalDraft, placeholder: '输入目标…' })
+            .fontSize(FS_CAPTION)
+            .fontColor(this.pal().textPrimary)
+            .placeholderColor(this.pal().textMuted)
+            .backgroundColor(this.pal().transparent)
+            .borderRadius(R_MD)
+            .border({ width: 1, color: withAlpha(this.pal().accent, 0.4) })
+            .layoutWeight(1)
+            .onChange((v: string) => {
+              this.goalDraft = v;
+            })
+            .onSubmit(() => {
+              this.commitAddingGoal();
+            })
+          Text('回车保存')
+            .fontSize(10).fontColor(this.pal().textMuted)
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+        // web：`mx-2 mb-1.5 … rounded-md border border-accent/30 bg-accent/5 px-2.5 py-1.5`
+        .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+        .backgroundColor(withAlpha(this.pal().accent, 0.05))
+        .borderRadius(R_MD)
+        .border({ width: 1, color: withAlpha(this.pal().accent, 0.3) })
+        .margin({ left: SP_2, right: SP_2, bottom: SP_1 + 2 })
+      }
+
+      // ── Todo 拉出面板（web `MessageInput.tsx:728-742`：`{todoState ? <TodoPullOut .../> : null}`
+      //    —— 紧随 GoalBanner 之后、同在输入胶囊上方）。组件自身以 `hasTodos` 短路（空 ⇒ 零节点）。
+      //    `goalText` 用于行尾 goal 徽标；`hasGoal` 决定右侧 🎯「设为目标」（web `:730-741`）。
+      TodoPanel({
+        todos: this.todos,
+        goalText: this.goalObjective,
+        hasGoal: this.goalObjective.length > 0 || this.addingGoal,
+        theme: this.themeName,
+        onSetGoal: () => {
+          this.addingGoal = true;
+        },
+        onToggleTodo: (i: number) => {
+          this.pushTodos(toggleTodoAt(this.todos, i));
+        },
+        onRenameTodo: (i: number, t: string) => {
+          this.pushTodos(renameTodoAt(this.todos, i, t));
+        },
+        onRemoveTodo: (i: number) => {
+          this.pushTodos(removeTodoAt(this.todos, i));
+        },
+      })
+
       // 输入区：**单一面**（附件 / 输入 / 发送共用一条胶囊），靠留白分层，不靠描边。
       Row({ space: SP_1 }) {
         SymbolGlyph($r('sys.symbol.paperclip')).fontSize(22).fontColor([this.pal().textSecondary])
@@ -3913,6 +4134,8 @@ struct Index {
   private sessionsFp: string = '';
   private queueFp: string = '';
   private todosFp: string = '';
+  /** live SubAgent 树指纹（值投递门控 —— 见 `syncLiveTail`）。 */
+  private liveSubAgentsFp: string = '-';
 
   private fingerprintRows(rows: ChatRow[], chatId: string): string {
     return rowsFpOf(rows, chatId);   // 纯函数在 core/rowdiff（带会话身份，有判别测试）
@@ -4021,6 +4244,13 @@ struct Index {
     const blocks: HistoryIteration[] = this.hasLiveRow ? completedBlocks(this.liveRowRef) : [];
     if (blocksSignature(this.liveBlocks) !== blocksSignature(blocks)) {
       this.liveBlocks = blocks;
+    }
+    // live SubAgent 树（值变化通道）—— 用 render 的**同一份**指纹门控（判据与渲染同源）：
+    // 只在树内容真变了才投递新引用（applyRow 每次都会换新数组 ⇒ 不门控会逐帧重建）。
+    const subs: WebSubAgentProgress[] = this.hasLiveRow ? this.liveRowRef.subAgents : [];
+    if (subAgentsFingerprint(subs) !== this.liveSubAgentsFp) {
+      this.liveSubAgentsFp = subAgentsFingerprint(subs);
+      this.liveSubAgents = subs.slice();
     }
   }
 
@@ -4759,6 +4989,10 @@ struct Index {
         onCopy: (text: string, what: string) => {
           this.copyText(text, what);
         },
+        subAgentOpenable: true,
+        onOpenSubAgent: (sessionKey: string) => {
+          this.openSubAgentSession(sessionKey);
+        },
       })
     }
   }
@@ -4786,6 +5020,7 @@ struct Index {
         liveReasoning: this.liveReasoning,
         liveTools: this.liveTools,
         liveBlocks: this.liveBlocks,
+        liveSubAgents: this.liveSubAgents,
         theme: this.themeName,
         mdTheme: this.mdThemeId(),
         fontScaleV: this.fontScale(),
@@ -5412,14 +5647,8 @@ struct Index {
         Text(this.goalLine()).fontSize(13).fontColor(this.pal().warn).width('100%')
           .wordBreak(WordBreak.BREAK_ALL)
       }
-      if (this.currentTodoLine().length > 0) {
-        Text(`进行中：${this.currentTodoLine()}`).fontSize(12).fontColor(this.pal().accentSoft).width('100%')
-          .wordBreak(WordBreak.BREAK_ALL)
-      }
       Text(this.statusBarText().length > 0 ? this.statusBarText() : '（暂无用量/模型信息）')
         .fontSize(12).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_ALL)
-      Text(`todos ${todoProgress(this.todos).length > 0 ? todoProgress(this.todos) : '0/0'}`)
-        .fontSize(12).fontColor(this.pal().textSecondary).width('100%')
       if (this.cwd.length > 0) {
         Text(`cwd: ${this.cwd}`).fontSize(11).fontColor(this.pal().textMuted).width('100%')
           .wordBreak(WordBreak.BREAK_ALL).copyOption(CopyOptions.LocalDevice)
@@ -5443,27 +5672,11 @@ struct Index {
         this.store?.loadLlmConfig();
       })
 
-      if (this.todos.length > 0) {
-        List({ space: 6 }) {
-          ForEach(this.todos, (td: TodoItem, i: number) => {
-            ListItem() {
-              Row({ space: 8 }) {
-                Text(td.status === 'completed' ? '已完成' : (td.status === 'in_progress' ? '进行中' : '待办'))
-                  .fontSize(13).fontColor(td.status === 'completed' ? this.pal().successText : this.pal().textSecondary)
-                Text(td.text !== undefined ? td.text : '')
-                  .fontSize(13)
-                  .fontColor(td.status === 'completed' ? this.pal().textMuted : this.pal().textPrimary)
-                  .layoutWeight(1)
-                  .wordBreak(WordBreak.BREAK_ALL)
-              }
-              .width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(6)
-            }
-          }, (td: TodoItem, i: number) => `${i}#${td.status}#${td.text}`)
-        }
-        .constraintSize({ maxHeight: 380 }).width('100%')
-      } else {
-        Text('（本会话暂无 todos）').fontSize(12).fontColor(this.pal().textMuted).width('100%')
-      }
+      // ⛔ 此处**不再**渲染 todo 列表（web 取证：todo 的唯一挂载点是输入框上方的
+      //    `TodoPullOut`，web 的状态/上下文弹层（`ContextBar`）里**没有** todo 列表 ——
+      //    且 `ContextBar` 在 web 已是**死代码**（只有它自己的 .test.tsx 引用））。
+      //    原生此前把全量 todo 放在这个「详情」弹层里 ⇒ 同一信息两处，且正是用户反馈
+      //    「todo 点了才显示太丑」的那一处。todo 现在只由 `TodoPanel`（composer 上方）承载。
     }
     .width('92%').padding(16).backgroundColor(this.pal().appBg)
     .borderRadius(12).border({ width: 1, color: this.pal().border })

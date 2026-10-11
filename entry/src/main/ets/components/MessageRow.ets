@@ -11,7 +11,7 @@
  *   · 三个 @Builder（Assistant/Iteration/ToolPill）与 7 个 helper 由页面**整块搬入**（原样语义）。
  */
 import { ChatRow, HistoryIteration, ToolProgress } from '../core/types';
-import { WebCompaction } from '../core/chattypes';
+import { WebCompaction, WebSubAgentProgress } from '../core/chattypes';
 import {
   completedBlocks, displayContent, displayReasoning, foldPills, mergeToolRuns, rowIsEmpty,
 } from '../core/streammerge';
@@ -28,6 +28,8 @@ import { ThinkingLine } from './ThinkingLine';
 import { ToolPill } from './ToolVisual';
 import { isLiveStatus, statusChip, toolStatusKind } from '../core/toolstatus';
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
+import { SubAgentTree } from './SubAgentTree';
+import { flattenSubAgents } from '../core/subagent';
 import { animFast, animMsgIn } from './anim';
 
 /** 「更早区域」分隔条行高（vp）—— web `h-7` = 28px。三态**恒定**，避免加载前后布局跳变。 */
@@ -118,7 +120,24 @@ export struct MessageRowView {
    *   快照当 prop 传给 `TurnBody`，而不是让 `TurnBody` 从可变对象里读）。
    */
   @Prop liveBlocks: HistoryIteration[] = [];
+  /**
+   * live 行的 **SubAgent 进度树**（web `LiveIteration.tsx:282`：`{hasSubAgents && <SubAgentProgressTree nodes={liveSubAgents} />}`）。
+   *
+   * ⛔ 与 `liveText`/`liveBlocks` **同款走值投递**：行对象是就地更新的（引用恒定）⇒
+   *   在组件里读 `row.subAgents` 不产生「值变化」⇒ 树的增删/状态变化不会驱动重建
+   *   （docs/ARKTS-GOTCHAS §4）。页面 `syncLiveTail()` 把它镜像进 `@State` 后投递。
+   */
+  @Prop liveSubAgents: WebSubAgentProgress[] = [];
+  /**
+   * 宿主是否提供「点开 SubAgent 会话」能力（决定展平行上 `openable`）。
+   * 对齐 web `SubAgentProgressTree.tsx:65`：`onOpen={openTab ? openSubAgent : undefined}`
+   * —— 无回调时卡片 `disabled`（点了无操作）。
+   */
+  @Prop subAgentOpenable: boolean = false;
   onImage: (src: string) => void = (src: string) => {
+  };
+  /** 点 SubAgent 行 → 宿主切到该 SubAgent 会话（web `openSubAgent`）。 */
+  onOpenSubAgent: (sessionKey: string) => void = (sessionKey: string) => {
   };
   loadImage: (src: string) => Promise<ArrayBuffer> = async (s: string) => {
     return new ArrayBuffer(0);
@@ -565,6 +584,18 @@ export struct MessageRowView {
           this.onOpenCtx(this.row.turnID, name);
         },
       })
+      // ── live 快照的 SubAgent 进度树（web `LiveIteration.tsx:282`：
+      //    `{hasSubAgents && <SubAgentProgressTree nodes={liveSubAgents} />}` ——
+      //    渲染在流式正文**之后**）。内容走 `@Prop liveSubAgents`（值投递，见其声明处）。
+      if (this.liveSubAgents.length > 0) {
+        SubAgentTree({
+          rows: flattenSubAgents(this.liveSubAgents, this.subAgentOpenable),
+          theme: this.theme,
+          onOpen: (k: string) => {
+            this.onOpenSubAgent(k);
+          },
+        })
+      }
     }
     // `.iter-block{margin-top:0.25rem}`（TurnBody）—— 与已完成迭代块之间 4px 间距
     // （映射表 = 唯一 web 对齐来源；iterGap === SP_1 === 4）
@@ -619,6 +650,19 @@ export struct MessageRowView {
           }
         }
         .width('100%')
+      }
+
+      // ── 该迭代 spawn 的 SubAgent 进度树（web `TurnBody.tsx:222-224`：
+      //    `{iter.subAgents && iter.subAgents.length > 0 && <SubAgentProgressTree nodes={iter.subAgents}/>}`
+      //    —— 渲染在迭代组**之后**、与迭代同级）。可见性/展平全在 `core/subagent.ets`（判据与渲染同源）。
+      if (it.subAgents !== undefined && it.subAgents.length > 0) {
+        SubAgentTree({
+          rows: flattenSubAgents(it.subAgents, this.subAgentOpenable),
+          theme: this.theme,
+          onOpen: (k: string) => {
+            this.onOpenSubAgent(k);
+          },
+        })
       }
 
       // ⛔ 工具详情**不再内联**插入（web：点 pill 弹浮层，见 ToolPill 的 bindPopup）——

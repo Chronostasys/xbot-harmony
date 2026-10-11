@@ -86,6 +86,16 @@ function subAgentSig(ws: readonly WebSubAgentProgress[] | undefined): string {
   return parts.join(',');
 }
 
+/**
+ * 公开的 SubAgent 树指纹 —— **同一份判据供页面做值投递门控**（live 行的
+ * `subAgents` 由 `applyRow` 就地替换成新数组 ⇒ 引用每帧都可能变；页面据此
+ * 指纹判定"内容真的变了"才把新值投给 `MessageRowView`，避免逐帧重建 SubAgentTree）。
+ * ⛔ 与 `rowSignature` 的 live 分支**同源**（同一函数）⇒ 判据与渲染不分叉。
+ */
+export function subAgentsFingerprint(ws: readonly WebSubAgentProgress[] | undefined): string {
+  return subAgentSig(ws);
+}
+
 /** WebIteration（web 形状）→ HistoryIteration（渲染层形状）。 */
 export function toHistoryIteration(w: WebIteration): HistoryIteration {
   const tools: ToolProgress[] = [];
