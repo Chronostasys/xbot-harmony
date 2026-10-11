@@ -4,10 +4,12 @@
  * ── 结论（取证，2026-10-11）──────────────────────────────────────────────────────
  *   · **web 权威无任何触觉**：`/Users/bobli/src/xbot/web` 全仓 `vibrate|Vibrat|haptic` **0 命中**
  *     ⇒ 按 parity 与"别到处加"，**不引入新触觉点、不引入新 API**。
- *   · native **已有既有约定**：`pages/Index.ets` 的**单一 helper** `private buzz()`（`:4489-4500`）
- *     —— `vibrator.startVibration({ type:'time', duration: 12 }, …)`，**静默失败**
+ *   · native **已有既有约定**：`pages/Index.ets` 的**单一 helper** `private buzz()`
+ *     —— `vibrator.startVibration({ type:'time', duration: HAPTIC_TAP_MS }, …)`，**静默失败**
  *     （`try/catch` + `.catch(()=>{})`；无马达/无权限也绝不打断流程），由 **6 处**交互复用
- *     （`:2327/:3085/:4475/:4485/:4548/:5425`）。
+ *     （发送/停止 · 主题切换 · `/` 命令选中 · `@` 文件选中 · 星标会话 · 回退重发成功）。
+ *     ⛔ **本文件不写行号**：`Index.ets` 常被并行修改 ⇒ 行号必漂（原头注释的 `:4489-4500` /
+ *     `:2327/...` 已全部失效）。**只钉形态与计数** —— 与 `docs/WEB-ALIGNMENT.md §19` 一致。
  *
  * ── 本判据守什么 ────────────────────────────────────────────────────────────────
  *   ① **唯一入口**：全仓 `startVibration(` 调用点**恰好 1 处**且只在 `pages/Index.ets`
