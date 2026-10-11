@@ -40,6 +40,11 @@ import {
   STROKE_HAIRLINE, SURFACE_COMPOSER, elevationColorOf, hairlineOf, surfaceFillOf,
 } from '../core/design';
 import { fs, fw, lh, tc, tk } from './SettingsRows';
+// 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线/位移；E3 统一）。
+// ⚠️ 语义核对（E3）：本弹层**没有**"必须瞬时出现"的语义 —— 用户要回应的是**内容**（选择 + 提交，
+//    由 `busy` 门控），不是"它出现的速度"；挂载时机仍由页面 `if (askUser !== null)` 决定（判据不入组件）。
+//    ⇒ 与其它弹层同一开合观感（滑入 + 淡入）。
+import { sheetTransition } from './anim';
 
 /**
  * X 关闭图标的视觉边长（vp）—— 与 `type.headline` 字号一致。
@@ -263,5 +268,7 @@ export struct AskUserSheet {
     .borderRadius(RADIUS_CARD)
     .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
     .shadow({ radius: shadowRadiusOf(this.pal(), 'overlay'), color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 })
+    // 开合过渡（E3 统一）：与其它弹层同一条 `sheetTransition()`。
+    .transition(sheetTransition())
   }
 }

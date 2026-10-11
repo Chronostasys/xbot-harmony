@@ -9,6 +9,8 @@ import { Palette, paletteOf } from '../core/theme';
 import { QueueItem } from '../core/types';
 import { FS_CAPTION, FS_TITLE, R_LG, R_MD, R_XL, SP_2, SP_3, SP_4 } from '../core/tokens';
 import { fs, fw } from './SettingsRows';
+// 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线/位移；E3 统一）。
+import { sheetTransition } from './anim';
 
 @Component
 export struct QueueSheet {
@@ -96,5 +98,7 @@ export struct QueueSheet {
     }
     .width('92%').padding(SP_4).backgroundColor(this.pal().appBg)
     .borderRadius(R_XL).border({ width: 1, color: this.pal().border })
+    // 开合过渡（E3 统一）：与其它弹层同一条 `sheetTransition()`。
+    .transition(sheetTransition())
   }
 }

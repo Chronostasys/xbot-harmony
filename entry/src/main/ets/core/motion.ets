@@ -147,6 +147,19 @@ export const MOTION_ENTER_SCALE: number = 0.92;
  */
 export const MOTION_SPLASH_MARK_VP: number = SP_8 * 5;
 
+/**
+ * 面板/弹层**滑入位移**（vp）= **260** —— `components/anim.ets: sheetTransition()` 的
+ * `TransitionEffect.translate({ y })`（进/出场的起始偏移）。
+ *
+ * ⚠️ **设计值**（无既有常量可派生 —— 同 `MOTION_ENTER_SCALE` / `SPLASH_HYSTERESIS_MS` 的处理）；
+ *    它**不是**动画时长 ⇒ **不进** `allowedDurations()`（口径同 `MOTION_MIN_DWELL_MS`）。
+ * 语义：弹层自屏幕下方**滑入**的距离。取整屏高度量级的一小段（≈ 面板自身高度档）——
+ *   过大 ⇒ 读作"从很远处飘来"（拖沓）；过小 ⇒ 读作"原地淡入"（丢失"抽屉"的方向感）。
+ * ⛔ 收进底座**唯一出口**：此前它是 `anim.ets` 里的裸字面量 `y: 260`（E3 审计的"就地字面量"项），
+ *    判据 = `tools/tests/motion_uniform.test.ts`（`translate({ y: <数字> })` 一律判红）。
+ */
+export const MOTION_SHEET_SLIDE_VP: number = 260;
+
 /** 数值区间校验（纯函数）：`lo <= x <= hi`。 */
 export function inRange(x: number, lo: number, hi: number): boolean {
   return typeof x === 'number' && x === x && x >= lo && x <= hi;

@@ -122,6 +122,9 @@ for (const f of files) {
   // D. `.transition(TransitionEffect…)` —— 就地构造过渡
   const d: number = count(src, /\.transition\(\s*TransitionEffect/g);
   if (d > 0) { violations.push(`${r}: .transition(TransitionEffect…) ×${d} —— 须走 anim.ets 工厂`); }
+  // F. `translate({ x|y: <数字字面量> })` —— **位移字面量**（须走底座档常量；E3 落地项 `y: 260` → `MOTION_SHEET_SLIDE_VP`）
+  const tf: number = count(src, /translate\(\{[^}]*[xy]:\s*-?\d/g);
+  if (tf > 0) { dist.push(`${r}: translate({ x|y: <数字> }) ×${tf}`); violations.push(`${r}: translate({ x|y: <数字> }) ×${tf} —— 位移须用底座档常量（如 MOTION_SHEET_SLIDE_VP）`); }
   // 覆盖/分布（自证用）
   const et: number = count(src, /\.transition\(/g);
   if (et > 0) { transitionSites += et; dist.push(`${r}: .transition(...) ×${et}`); }
@@ -158,7 +161,9 @@ for (const f of files) {
   const src: string = stripComments(fs.readFileSync(f, 'utf8'));
   sheetUse += count(src, /sheetTransition\(\)/g);
 }
-ok(`sheetTransition() 被多处复用（≥ 4，实得 ${sheetUse}）`, sheetUse >= 4);
+// 各弹层确实复用同一个 `sheetTransition()`（E3 统一的核心断言；清单收缩 ⇒ 相应收紧）
+// 实得 = 1 处定义 + 各调用点（MenuSheets×3 / StatusSheet / Index×2 / SettingsPanel / PluginsSheet / QueueSheet / AskUserSheet）
+ok(`sheetTransition() 被多处复用（≥ 8，实得 ${sheetUse}）`, sheetUse >= 8);
 
 if (fail > 0) { console.log(`  motion_uniform: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  motion_uniform: ${pass} passed, 0 failed`);

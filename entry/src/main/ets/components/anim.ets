@@ -16,6 +16,7 @@
 import curves from '@ohos.curves';
 import {
   MOTION_FAST_MS, MOTION_BASE_MS, MOTION_MSG_IN_MS, MOTION_SLOW_MS,
+  MOTION_SHEET_SLIDE_VP,
   springBezier, springParams,
 } from '../core/motion';
 import { ORB_BREATH_MS } from '../core/orb';
@@ -142,10 +143,12 @@ function sheetCurve(): Curve {
  *
  * ⚠️ 时长**零行为变更**：`220 ≡ MOTION_BASE_MS`、`180 ≡ MOTION_FAST_MS`（值逐一相等；本波只把
  *    字面量换成基常量，曲线原样走 `sheetCurve()`）。
- * 🔸 仍未 token 化：滑入位移 `y: 260`（`core/design.ets` 无"滑入位移"档 —— 报备，未自造）。
+ * ✅ 滑入位移已 **token 化**（E3）：`y: MOTION_SHEET_SLIDE_VP`（`core/motion.ets` 的档常量）——
+ *    此前是裸字面量 `y: 260`（"就地字面量"项）；判据 = `tools/tests/motion_uniform.test.ts`
+ *    （任何 `translate({ x|y: <数字> })` 一律判红）。
  */
 export function sheetTransition(): TransitionEffect {
-  return TransitionEffect.translate({ y: 260 })
+  return TransitionEffect.translate({ y: MOTION_SHEET_SLIDE_VP })
     .animation({ duration: MOTION_BASE_MS, curve: sheetCurve() })
     .combine(TransitionEffect.OPACITY.animation({ duration: MOTION_FAST_MS }));
 }
