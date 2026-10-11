@@ -36,7 +36,7 @@ import {
   SEND_KEY_ENTER, SEND_KEY_MOD_ENTER,
 } from '../core/settings';
 import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent } from '../core/accent';
-import { MD_THEMES, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';
+import { normalizeMdTheme } from '../core/mdtheme';
 import { localeLabel, normalizeLocale } from '../core/i18n';
 import {
   HIT_TARGET_MIN, SPACE_XS, SPACE_SM, SPACE_LG, STROKE_HAIRLINE, hairlineOf,
@@ -44,6 +44,7 @@ import {
 import {
   SettingsActionRow, SettingsChipRow, SettingsGroupHeader, SettingsToolRow, SettingsValueRow,
 } from './SettingsRows';
+import { SettingsMdThemePicker } from './SettingsMdTheme';
 
 /** 承载方式（`KEY_SURFACE`）的两个取值（与页面 `setSurface` 同源）。 */
 const SURFACE_NATIVE: string = 'native';
@@ -131,21 +132,6 @@ export struct SettingsAppearance {
     }
     return out;
   }
-  private mdOptions(): string[] {
-    const out: string[] = [];
-    for (let i = 0; i < MD_THEMES.length; i++) {
-      out.push(MD_THEMES[i].id);
-    }
-    return out;
-  }
-  private mdLabels(): string[] {
-    const ids: string[] = this.mdOptions();
-    const out: string[] = [];
-    for (let i = 0; i < ids.length; i++) {
-      out.push(mdThemeLabel(ids[i]));
-    }
-    return out;
-  }
 
   build() {
     // 内容长（12 项 + 5 个分组头）⇒ **必须可滚动**，否则超出部分被裁切
@@ -176,15 +162,14 @@ export struct SettingsAppearance {
       })
       this.AccentSwatches()
 
-      SettingsChipRow({
-        label: settingLabel(KEY_MD_THEME),
-        description: '仅作用于 Markdown 代码高亮；与 Web 端共用同一组 id。',
-        value: this.mdThemeId(),
-        options: this.mdOptions(),
-        labels: this.mdLabels(),
+      SettingsMdThemePicker({
         theme: this.theme,
-        onSelect: (v: string) => {
-          this.onSetSetting(KEY_MD_THEME, v);
+        label: settingLabel(KEY_MD_THEME),
+        description: '仅作用于 Markdown 代码高亮；与 Web 端共用同一组 id。19 项按明暗分组，'
+          + '默认展开当前主题那一组。',
+        value: this.mdThemeId(),
+        onSelect: (id: string) => {
+          this.onSetSetting(KEY_MD_THEME, id);
         },
       })
 

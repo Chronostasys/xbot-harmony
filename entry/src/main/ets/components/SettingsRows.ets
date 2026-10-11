@@ -717,6 +717,52 @@ export struct SettingsActionRow {
 }
 
 /**
+ * 一行「单选列表项」（左标签 + 选中打勾）—— 用于**长枚举**的单选（如 Markdown 主题）。
+ *
+ * 为什么不复用 `SettingsChipRow`：chip 只适合 2–5 个选项；19 项平铺成 chip 是一片糊。
+ * 单选项就该是**列表行**（可扫读、可扩展、可预览）。内距/字阶/命中区与 `SettingsToolRow` 同款。
+ */
+@Component
+export struct SettingsRadioRow {
+  @Prop label: string = '';
+  /** ⛔ 不叫 `selected`（避免与 ArkUI 基类成员潜在同名，同 `isOn` 之于 `enabled`）。 */
+  @Prop isSelected: boolean = false;
+  @Prop theme: string = 'dark';
+  onSelect: () => void = () => {
+  };
+
+  private pal(): Palette {
+    return paletteOf(this.theme);
+  }
+
+  build() {
+    Row({ space: SPACE_SM }) {
+      Text(this.label)
+        .fontSize(fs('type.subhead'))
+        .fontWeight(fw('type.subhead'))
+        .lineHeight(lh('type.subhead'))
+        .fontColor(tc(this.pal(), 'type.subhead'))
+        .layoutWeight(1)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+      if (this.isSelected) {
+        SymbolGlyph($r('sys.symbol.checkmark'))
+          .fontSize(fs('type.caption'))
+          .fontColor([this.pal().accent])
+      }
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Center)
+    .constraintSize({ minHeight: HIT_TARGET_MIN })
+    .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+    .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
+    .onClick(() => {
+      this.onSelect();
+    })
+  }
+}
+
+/**
  * 面板内错误条（统一一行红字）。
  *
  * `docs/REDESIGN.md` §5 / §10 有意分歧 ②：失败态 = **一行小字 + 语义色，无填充、无边框、无发光**
