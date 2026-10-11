@@ -25,8 +25,8 @@ import {
 import { MarkdownView } from './MarkdownView';
 import { LiveTailView } from './LiveTailView';
 import { ThinkingLine } from './ThinkingLine';
-import { ToolPill } from './ToolVisual';
-import { isLiveStatus, statusChip, toolStatusKind } from '../core/toolstatus';
+import { ToolPill, statusColorOf } from './ToolVisual';
+import { isLiveStatus, renderKind, statusChip } from '../core/toolstatus';
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
 import { SubAgentTree } from './SubAgentTree';
 import { flattenSubAgents } from '../core/subagent';
@@ -196,12 +196,12 @@ export struct MessageRowView {
 
   /** 工具是否处于"在飞"（运行/生成中）—— 决定发光与扫光。判定收敛在 `core/toolstatus`。 */
   private toolLive(t: ToolProgress): boolean {
-    return isLiveStatus(toolStatusKind(t.status, t.exit_code));
+    return isLiveStatus(this.toolKind(t));
   }
 
-  /** 语义状态档（done/error/running/pending/killed）—— 与 live 块同源判定。 */
+  /** 语义状态档 —— **唯一判据** `core/toolstatus.renderKind`（committed 块 ⇒ live=false）。 */
   private toolKind(t: ToolProgress): string {
-    return toolStatusKind(t.status, t.exit_code);
+    return renderKind(t.status, t.exit_code, false);
   }
 
   /** 状态 chip 文案（空 = 无 chip）。 */
@@ -277,42 +277,9 @@ export struct MessageRowView {
     return `${this.toolKey(this.row.turnID, it.iteration, t.name)}#${cid}`;
   }
 
+  /** 浮层状态点颜色 —— 判据**同源**：走唯一映射 `ToolVisual.statusColorOf`（判据是 `core/toolstatus`）。 */
   private toolColor(t: ToolProgress): string {
-    if (t.status === 'error' || (t.exit_code !== undefined && t.exit_code !== 0)) {
-      return this.pal().dangerText;
-    }
-    if (t.status === 'running' || t.status === 'generating') {
-      return this.pal().accentSoft;
-    }
-    if (t.status === 'pending') {
-      return this.pal().textMuted;
-    }
-    // 成功：**中性色**（几十个绿点是全局最花的配色噪音；颜色只留给"运行中/失败"）
-    return this.pal().textMuted;
-  }
-
-  private toolStatusBadge(t: ToolProgress): string {
-    if (t.status === 'generating') {
-      const n: number = t.gen_chars !== undefined ? t.gen_chars : 0;
-      return n > 0 ? `生成中 ${n} 字` : '生成中…';
-    }
-    if (t.status === 'running') {
-      const ms: number = t.elapsed_ms !== undefined ? t.elapsed_ms : 0;
-      return ms > 0 ? `${(ms / 1000).toFixed(1)}s` : '运行中';
-    }
-    if (t.status === 'error') {
-      return t.exit_code !== undefined && t.exit_code !== 0 ? `失败 exit ${t.exit_code}` : '失败';
-    }
-    if (t.status === 'pending') {
-      return '排队';
-    }
-    return '';
-  }
-
-  private toolLabel(t: ToolProgress): string {
-    const base: string = t.label !== undefined && t.label.length > 0 ? t.label : t.name;
-    const badge: string = this.toolStatusBadge(t);
-    return badge.length > 0 ? `${base} ${badge}` : base;
+    return statusColorOf(this.toolKind(t), this.theme);
   }
 
   /**
@@ -788,7 +755,7 @@ export struct MessageRowView {
   private popVM(): ToolDetailVM {
     const t: ToolProgress | undefined = this.popTool();
     const color: string = t !== undefined ? this.toolColor(t) : this.pal().textMuted;
-    const status: string = t !== undefined ? this.toolStatusBadge(t) : '';
+    const status: string = t !== undefined ? this.toolChip(t) : '';
     return toolDetailVM(t, color, status);
   }
 

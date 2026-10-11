@@ -16,18 +16,24 @@
  */
 import { effectsOf, paletteOf, Palette, isLightPalette } from '../core/theme';
 import { FS_CAPTION, R_LG, R_SM, SP_1, SP_2 } from '../core/tokens';
-import { ST_DONE, ST_ERROR, ST_KILLED, ST_PENDING } from '../core/toolstatus';
+import { ST_DONE, ST_ERROR, ST_KILLED, ST_PENDING, statusColorRole, ROLE_DANGER, ROLE_SUCCESS } from '../core/toolstatus';
 
 /** 在飞 pill 的柔影半径（vp）—— 浅色系用它把"在飞"读作悬浮卡片而非发光体。 */
 const LIVE_SHADOW_RADIUS: number = 12;
 
-/** 状态 → 语义色（**一处定义，两端一致**）。 */
+/** 状态 → 语义色（**全项目唯一**的颜色映射表）。
+ *
+ * ⛔ 判据来自 `core/toolstatus.statusColorRole`（唯一）；本函数只是把 role 按**主题**取色。
+ *    曾有 `pending` 落到最后的 `accentSoft`（"在飞"色）⇒ 排队态的**颜色说在飞、文案说排队**
+ *    （真机物证：虚线空心的点 + accent 蓝 chip + 「排队」三信号打架）。web
+ *    `FoldedToolGroup.tsx:211` 对 pending/killed 用 `--text-muted`（安静），此处对齐。 */
 export function statusColorOf(kind: string, theme: string): string {
   const p: Palette = paletteOf(theme);
-  if (kind === ST_ERROR) { return p.dangerText; }
-  if (kind === ST_DONE) { return p.successText; }
-  if (kind === ST_KILLED) { return p.textMuted; }
-  return p.accentSoft;   // running / generating
+  const role: string = statusColorRole(kind);
+  if (role === ROLE_DANGER) { return p.dangerText; }
+  if (role === ROLE_SUCCESS) { return p.successText; }
+  if (role === 'muted') { return p.textMuted; }
+  return p.accentSoft;   // accent：running / generating（需要注意力）
 }
 
 /** pill 文本色：失败=红（吵闹，是它的语义）；其余=中性前景（成功要安静）。 */

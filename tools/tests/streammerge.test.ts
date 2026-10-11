@@ -12,7 +12,7 @@ declare const process: { exit: (c: number) => void };
 
 import {
   isStreamOnly, hasStructured, liveIterationOf, upsertIteration, mergeTools, toolsFromEvent,
-  applyStreamFrame, applyStructured, displayContent, displayReasoning,
+  applyStreamFrame, applyStructured, displayContent, displayReasoning, mergeToolRuns,
   isIdleAction, isBusyAction, shouldReloadHistory,
 } from '../../entry/src/main/ets/core/streammerge';
 import {
@@ -133,6 +133,60 @@ ok('history_rewound ⇒ 需重载历史', shouldReloadHistory('history_rewound')
 ok('user_msg 不改变忙碌态', !isIdleAction('user_msg') && !isBusyAction('user_msg'));
 ok('空 action 不作判定', !isIdleAction('') && !isBusyAction(''));
 ok('rewound 不等价于忙碌/空闲', !isIdleAction('history_rewound') && !isBusyAction('history_rewound'));
+
+// ── ⑪ 工具去重：**终态优先**（移植 web `dedupTools`，用户 2026-09-14 / 2026-10-11 P0）──
+// ⛔ 症状①「正在执行的工具被标排队」的根因：陈旧快照（仍 running/pending）后写入会把新状态盖掉。
+//    修法 = rank 终态优先（error/done=3 > running=2 > pending=1 > 其它=0）。
+eq('陈旧 running 不覆盖新的 done（后到者不再盲赢）',
+  mergeTools([tool('Shell', 'c1', 'done')], [tool('Shell', 'c1', 'running')])[0].status, 'done');
+eq('新 done 覆盖旧 running（终态胜出）',
+  mergeTools([tool('Shell', 'c1', 'running')], [tool('Shell', 'c1', 'done')])[0].status, 'done');
+eq('陈旧 pending 不覆盖新的 running（"executing 被当成排队"根因）',
+  mergeTools([tool('Shell', 'c1', 'running')], [tool('Shell', 'c1', 'pending')])[0].status, 'running');
+eq('新 running 覆盖旧 pending（排队 → 执行）',
+  mergeTools([tool('Shell', 'c1', 'pending')], [tool('Shell', 'c1', 'running')])[0].status, 'running');
+eq('新旧状态不同键时都保留（不同调用）',
+  mergeTools([tool('A', 'c1', 'done')], [tool('A', 'c2', 'running')]).length, 2);
+// ⛔ 症状③「同一个工具渲染成两行」：generating 的 label 每帧都在流式增长，
+//    若把 label 纳入去重键 ⇒ 同一次调用被追加成多行。修法 = generating 用稳定键（name/call_id）。
+let genTools: ToolProgress[] = [];
+genTools = mergeTools(genTools, [{ name: 'Shell', status: 'generating', label: 'cd' } as ToolProgress]);
+genTools = mergeTools(genTools, [{ name: 'Shell', status: 'generating', label: 'cd /home' } as ToolProgress]);
+genTools = mergeTools(genTools, [{ name: 'Shell', status: 'generating', label: 'cd /home/smith' } as ToolProgress]);
+eq('generating 标签流式增长 ⇒ 只一行', genTools.length, 1);
+eq('generating 行取最新标签', genTools[0].label, 'cd /home/smith');
+// toolsFromEvent(completed, active)：陈旧的 active 不得盖掉 completed 的终态。
+eq('toolsFromEvent：completed(done) 不被陈旧 active(running) 盖',
+  (toolsFromEvent({
+    completed_tools: [tool('Shell', 'c1', 'done')],
+    active_tools: [tool('Shell', 'c1', 'running')],
+  }) || []).map((t: ToolProgress) => t.status), ['done']);
+eq('toolsFromEvent：陈旧 active(pending) 不盖 running',
+  (toolsFromEvent({
+    active_tools: [tool('Shell', 'c1', 'running'), tool('Shell', 'c1', 'pending')],
+  }) || []).map((t: ToolProgress) => t.status), ['running']);
+
+// ── ⑫ 迭代归属：跨迭代合并**保留 head 迭代号**（工具不漂到错误迭代下）──────────────
+// 服务端每个工具自带 `iteration`（`engine_run_tools.go:57`），落在**各自**迭代的 iteration_history。
+// 渲染层的跨迭代合并（mergeToolRuns）把"纯工具"迭代吸收进前一个含工具迭代 ⇒ 必须保留 head 号，
+// 否则同一工具会看起来挂在错误的迭代下（真机：FileCreate 出现在两个相邻迭代）。
+const headIter: HistoryIteration = {
+  iteration: 45, reasoning: 'r', tools: [tool('FileCreate', 'f1', 'done')],
+};
+const memberIter: HistoryIteration = { iteration: 46, tools: [tool('Shell', 's1', 'done')] };
+const mergedIts = mergeToolRuns([headIter, memberIter]);
+eq('跨迭代合并只产出一块', mergedIts.length, 1);
+const mergedHead: HistoryIteration = mergedIts[0];
+eq('保留 head 迭代号（归属不漂移）', mergedHead.iteration, 45);
+const mergedNames: string[] = (mergedHead.tools !== undefined ? mergedHead.tools : [])
+  .map((t: ToolProgress) => t.name);
+eq('合并后工具并集（两个都保留）', mergedNames, ['FileCreate', 'Shell']);
+// 含正文/reasoning 的迭代**不**被吸收 ⇒ 两次真实调用各自成块（不误合并）
+const withReasoning = mergeToolRuns([
+  { iteration: 1, reasoning: 'a', tools: [tool('X', 'x1', 'done')] },
+  { iteration: 2, reasoning: 'b', tools: [tool('X', 'x2', 'done')] },
+]);
+eq('各带 reasoning 的迭代不被合并（两行是两次真实调用）', withReasoning.length, 2);
 
 if (fail > 0) { console.log(`  streammerge: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  streammerge: ${pass} passed, 0 failed`);

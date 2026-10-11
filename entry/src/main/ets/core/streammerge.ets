@@ -19,6 +19,7 @@
  * 本模块是**纯函数**（不依赖 SDK），由 `tools/tests/streammerge.test.ts` 守护。
  */
 import { ChatRow, HistoryIteration, IterList, ProgressEvent, ToolProgress } from './types';
+import { ST_GENERATING } from './toolstatus';
 
 /** 该事件是否"只带流式字段"（与 服务端 isStreamOnlyProgress 同判据，但更宽松：不要求 iteration==0）。 */
 export function isStreamOnly(e: ProgressEvent): boolean {
@@ -91,33 +92,76 @@ export function upsertIteration(row: IterList, iteration: number): HistoryIterat
   return created;
 }
 
-/** 工具去重合并（按 call_id 优先、否则按 name+label）：顺序 = 先 prev 后 next。 */
+/**
+ * 状态优先级：**终态优先**（error/done=3 > running=2 > pending=1 > 其它=0）——
+ * **逐字移植** web `progressStore.dedupTools` 的 `rank`（`progressStore.ts:343-345`）。
+ *
+ * 为什么必须有优先级：同一个工具会同时出现在**陈旧快照**（active_tools，仍是 running）
+ * 与**新快照**（completed_tools，已 done/error）里。旧的"后到者赢"会让陈旧的 running
+ * 赢 ⇒ 工具永远不转绿；反过来也会让陈旧的 pending 盖掉"已在执行"的 running
+ * （用户 2026-09-14「已完成还是渲染成进行中」/ 2026-10-11「executing 被当成排队」的根因）。
+ */
+export function toolRank(status: string | undefined): number {
+  const s: string = status !== undefined ? status : '';
+  if (s === 'error' || s === 'done') { return 3; }
+  if (s === 'running' || s === 'executing') { return 2; }
+  if (s === 'pending') { return 1; }
+  return 0;                       // generating / 未知
+}
+
+/**
+ * 工具的去重键（同一次调用跨帧必须**稳定**）。
+ *
+ * · 有 `call_id` ⇒ 用它（服务端给出的真实调用身份，最精确）；
+ * · 否则 `generating`（工具名已知、**参数仍在流式增长**）⇒ 只用 `name`：
+ *   若把 `label` 纳入键，标签每帧都在变 ⇒ 同一次调用会被追加成**多行**
+ *   （web `progressStore.ts:336` 原文："For generating tools, always use tool.name —
+ *   the label is still streaming"）；
+ * · 其余 ⇒ `name#label`（区分同一迭代里对同一工具的不同参数调用）。
+ *
+ * ⚠️ 与 web 的**唯一差异**（有据）：web 的 `dedupTools` 每次收到的是**当帧快照**，
+ *   故 generating 可以"直接 push、不参与去重"；而本函数是**跨帧累积**（`it.tools`
+ *   随每帧增长，见 `applyStreamFrame`/`applyStructured`）⇒ 若照搬"直接 push"，
+ *   20Hz 流式帧会**每帧多出一行**（与"每个调用只一行"完全相反）。
+ *   故此处对 generating 用**稳定键**就地更新 —— 达到 web "每个调用独立一行"的**同一效果**。
+ */
+export function toolKey(t: ToolProgress): string {
+  if (t.call_id !== undefined && t.call_id.length > 0) { return t.call_id; }
+  if (t.status === ST_GENERATING) { return t.name; }
+  return `${t.name}#${t.label !== undefined ? t.label : ''}`;
+}
+
+/**
+ * 工具去重合并 —— 逐帧累积 `prev ⊕ next`（先 prev 后 next）。
+ *
+ * 语义**对齐 web `progressStore.dedupTools`**：同键时**终态优先**（rank 高者胜）——
+ * 陈旧的 running/pending 绝不覆盖更新的 done/error（`progressStore.ts:334-364`）。
+ * generating 用稳定键（见 `toolKey`）⇒ 标签流式增长只更新同一行，不新增行。
+ */
 export function mergeTools(prev: ToolProgress[] | undefined, next: ToolProgress[] | undefined): ToolProgress[] {
   const out: ToolProgress[] = [];
-  const seen: string[] = [];
+  const indexByKey = new Map<string, number>();
   const take = (list: ToolProgress[] | undefined): void => {
     if (list === undefined) {
       return;
     }
     for (let i = 0; i < list.length; i++) {
       const t: ToolProgress = list[i];
-      const key: string = t.call_id !== undefined && t.call_id.length > 0
-        ? t.call_id : `${t.name}#${t.label !== undefined ? t.label : ''}`;
-      if (seen.indexOf(key) >= 0) {
-        // 已存在 ⇒ 用新的替换（状态会从 running → done）
-        for (let j = 0; j < out.length; j++) {
-          const o: ToolProgress = out[j];
-          const ok: string = o.call_id !== undefined && o.call_id.length > 0
-            ? o.call_id : `${o.name}#${o.label !== undefined ? o.label : ''}`;
-          if (ok === key) {
-            out[j] = t;
-            break;
-          }
-        }
+      const key: string = toolKey(t);
+      const idx: number | undefined = indexByKey.get(key);
+      if (idx === undefined) {
+        indexByKey.set(key, out.length);
+        out.push(t);
         continue;
       }
-      seen.push(key);
-      out.push(t);
+      const old: ToolProgress = out[idx];
+      // 同键：**终态优先**（running 不会被 done/error 覆盖，反之会；pending 不被 running 覆盖）。
+      if (toolRank(t.status) > toolRank(old.status)) {
+        out[idx] = t;
+      } else if (t.status === ST_GENERATING && old.status === ST_GENERATING) {
+        out[idx] = t;               // generating→generating：标签仍在流式增长，取最新
+      }
+      // 否则保留已存在的（更"终态"的那个）
     }
   };
   take(prev);

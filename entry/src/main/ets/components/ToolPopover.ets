@@ -14,6 +14,8 @@
 import { Palette, paletteOf, Surfaces, surfacesOf, Effects, effectsOf } from '../core/theme';
 import { R_LG, R_MD, R_SM, R_XL, SP_1, SP_2, SP_3, FS_BODY, FS_CAPTION } from '../core/tokens';
 import { ToolProgress } from '../core/types';
+import { renderKind } from '../core/toolstatus';
+import { statusColorOf } from './ToolVisual';
 import { fileArgFields, FileArgFields, isFileTool, langFromPath, pathFromLabel } from '../core/toolargs';
 import {
   HlSpan, K_COMMENT, K_DIFF_ADD, K_DIFF_DEL, K_FUNC, K_KEYWORD, K_NUMBER, K_OP, K_PROP,
@@ -502,6 +504,8 @@ function tailLinesOfFile(f: DiffFile, max: number): DiffLine[] {
 export struct ToolOverflowList {
   @Prop tools: ToolProgress[] = [];
   @Prop theme: string = 'dark';
+  /** 这批工具是否来自**在飞块**（LiveTailView）—— 决定 live `pending` 是否按执行中着色。 */
+  @Prop live: boolean = false;
   onCopy: (text: string, what: string) => void = (text: string, what: string) => {
   };
 
@@ -511,14 +515,9 @@ export struct ToolOverflowList {
     return paletteOf(this.theme);
   }
 
+  /** 状态点颜色 —— 判据**同源**：走唯一映射 `ToolVisual.statusColorOf`（判据是 `core/toolstatus.renderKind`）。 */
   private dot(t: ToolProgress): string {
-    if (t.status === 'error' || (t.exit_code !== undefined && t.exit_code !== 0)) {
-      return this.pal().dangerText;
-    }
-    if (t.status === 'running' || t.status === 'generating') {
-      return this.pal().accentSoft;
-    }
-    return this.pal().textMuted;
+    return statusColorOf(renderKind(t.status, t.exit_code, this.live), this.theme);
   }
 
   private vmOf(t: ToolProgress): ToolDetailVM {

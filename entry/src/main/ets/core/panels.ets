@@ -15,6 +15,8 @@
  *    只能返回字符串、用不了 `SymbolGlyph`，故文字是唯一自洽解。
  */
 
+import { ST_ERROR, toolStatusKind } from './toolstatus';
+
 export interface CronJob {
   id?: string;
   message?: string;
@@ -145,7 +147,8 @@ export function bgTaskLine(t: BgTask, nowMs: number): string {
   const cmd: string = t.command !== undefined ? t.command : '';
   const dur: string = durationText(t.started_at, t.finished_at, nowMs);
   const durPart: string = dur.length > 0 ? ` · ${dur}` : '';
-  const exitPart: string = t.status === 'failed' || t.status === 'error'
+  // 错误态判据**同源**（`core/toolstatus`）：`'failed'` 与 `'error'` 都判 ST_ERROR（不再各写一份）。
+  const exitPart: string = toolStatusKind(t.status, undefined) === ST_ERROR
     ? ` · exit ${t.exit_code !== undefined ? t.exit_code : '?'}` : '';
   const id: string = t.id !== undefined ? t.id : '';
   return `${icon} ${cmd}${durPart}${exitPart}（${id}）`;
