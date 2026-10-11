@@ -1329,6 +1329,13 @@ export function beginTurnKeepAlive(): boolean {
           + ' 回合在服务端继续；回前台会由 SSE 强制探活 + history 对账补齐');
       });
     keepAliveRequestId = info.requestId;
+
+    // ⭐ 成功路径**必须留一条日志**（2026-10-11 实测教训）：此前**只有**"到期前 ~6s"与"申请失败"
+    //    两条告警 ⇒ **成功时静默** ⇒ 真机实验里"窗到底开没开"**在 hilog 上无从判断**
+    //    （我 grep 到的 `requestSuspendDelay` 其实是**输入法**的）⇒ 无法把"后台是否冻结"
+    //    归因到"有窗/无窗"。这一行是**唯一**能确证"窗已开"的可观测信号。
+    console.info('xbot notify: 短时任务窗已开（≤3 分钟；requestId=' + info.requestId
+      + '，actualDelayTime=' + info.actualDelayTime + 'ms）');
     return true;
   } catch (e) {
     console.warn(`xbot notify: requestSuspendDelay 失败（忽略）: ${describeError(e as Object)}`);
