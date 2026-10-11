@@ -93,6 +93,7 @@ struct ChannelFieldRow {
           .layoutWeight(1)
         if (this.secret) {
           Text(this.revealed ? '隐藏' : '显示')
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().accentSoft)
             .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
@@ -267,6 +268,7 @@ struct ChannelCard {
       // 保存行（web `:490-498`）
       Row({ space: SP_2 }) {
         Text(saveButtonLabel(this.busy))
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().onAccent)
           .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -430,6 +432,7 @@ struct FeishuBindPanel {
       // 自动配置清单（feishu_app_guide；形状不完整则不渲染）
       if (this.hasGuide) {
         Text(this.presetText)
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().accentSoft)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
@@ -463,6 +466,7 @@ struct FeishuBindPanel {
           // 2026-10-11 用户报"字超出屏幕"：URL 无空格断点 => 必须 BREAK_ALL，否则顶出屏。
           .wordBreak(WordBreak.BREAK_ALL)
         Text('也可以在飞书开放平台手动创建应用 →')
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().accentSoft)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
@@ -479,6 +483,7 @@ struct FeishuBindPanel {
           .width('100%')
         Row({ space: SP_2 }) {
           Text('确认重新生成')
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().onAccent)
             .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -489,6 +494,7 @@ struct FeishuBindPanel {
               this.onConfirmBind();
             })
           Text('取消')
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().textSecondary)
             .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -503,6 +509,7 @@ struct FeishuBindPanel {
       } else {
         Row({ space: SP_2 }) {
           Text(bindButtonLabel(this.binding, this.bindOrNull()))
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().onAccent)
             .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -517,6 +524,7 @@ struct FeishuBindPanel {
             })
           if (showOpenLink(this.bindOrNull(), this.expired) && this.bindUrl.length > 0) {
             Text(CHANNEL_OPEN_LINK)
+              .constraintSize({ minHeight: HIT_TARGET_MIN })
               .fontSize(FS_CAPTION)
               .fontColor(this.pal().textSecondary)
               .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -576,6 +584,7 @@ struct FeishuBindPanel {
             .wordBreak(WordBreak.BREAK_ALL)
           Row({ space: SP_2 }) {
             Text(CHANNEL_COPY_LINK)
+              .constraintSize({ minHeight: HIT_TARGET_MIN })
               .fontSize(FS_CAPTION)
               .fontColor(this.pal().textSecondary)
               .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })

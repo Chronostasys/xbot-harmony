@@ -56,7 +56,7 @@ import {
   SettingsChipRow, SettingsErrorBar, SettingsPanelHeader, SettingsSubCard, SettingsTextFieldRow,
   SettingsToolRow,
 } from './SettingsRows';
-import { PRESS_OPACITY, surfaceFillOf } from '../core/design';
+import { PRESS_OPACITY, surfaceFillOf, HIT_TARGET_MIN } from '../core/design';
 
 /**
  * S12：订阅导出 / 导入的 RPC 方法名 + 参数体。
@@ -799,6 +799,7 @@ export struct SettingsLlm {
       }
       Row({ space: SP_2 }) {
         Text(this.pmBusy ? '保存中…' : '保存')
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().accentSoft)
           .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -815,6 +816,7 @@ export struct SettingsLlm {
             }
           })
         Text('取消')
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textSecondary)
           .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -1013,6 +1015,7 @@ export struct SettingsLlm {
 
           Row({ space: SP_2 }) {
             Text(this.formBusy ? '保存中…' : '保存')
+              .constraintSize({ minHeight: HIT_TARGET_MIN })
               .fontSize(FS_CAPTION)
               .fontColor(this.pal().onAccent)
               .padding({ left: SP_4, right: SP_4, top: SP_2, bottom: SP_2 })
@@ -1024,6 +1027,7 @@ export struct SettingsLlm {
                 void this.submitForm();
               })
             Text('取消')
+              .constraintSize({ minHeight: HIT_TARGET_MIN })
               .fontSize(FS_CAPTION)
               .fontColor(this.pal().textSecondary)
               .padding({ left: SP_4, right: SP_4, top: SP_2, bottom: SP_2 })
@@ -1076,6 +1080,7 @@ export struct SettingsLlm {
               Flex({ wrap: FlexWrap.Wrap }) {
                 ForEach(THINK_OPTIONS, (mode: string) => {
                   Text(thinkLabel(mode))
+                    .constraintSize({ minHeight: HIT_TARGET_MIN })
                     .fontSize(FS_CAPTION)
                     .fontColor(mode === this.thinking ? this.pal().onAccent : this.pal().textSecondary)
                     .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -1112,6 +1117,7 @@ export struct SettingsLlm {
 
                 Row({ space: SP_2 }) {
                   Text('−')
+                    .constraintSize({ minHeight: HIT_TARGET_MIN })
                     .fontSize(FS_BODY)
                     .fontColor(this.pal().textPrimary)
                     .padding({ left: SP_3, right: SP_3, top: SP_1, bottom: SP_1 })
@@ -1133,6 +1139,7 @@ export struct SettingsLlm {
                     .width(36)
                     .textAlign(TextAlign.Center)
                   Text('＋')
+                    .constraintSize({ minHeight: HIT_TARGET_MIN })
                     .fontSize(FS_BODY)
                     .fontColor(this.pal().textPrimary)
                     .padding({ left: SP_3, right: SP_3, top: SP_1, bottom: SP_1 })
@@ -1318,6 +1325,7 @@ export struct SettingsLlm {
                 Row({ space: SP_2 }) {
                   if (!isSystemSubscription(s)) {
                     Text('编辑')
+                      .constraintSize({ minHeight: HIT_TARGET_MIN })
                       .fontSize(FS_CAPTION)
                       .fontColor(this.pal().accentSoft)
                       .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -1331,6 +1339,7 @@ export struct SettingsLlm {
                       })
                   }
                   Text(this.manageSubId === s.id ? '收起模型' : '管理模型')
+                    .constraintSize({ minHeight: HIT_TARGET_MIN })
                     .fontSize(FS_CAPTION)
                     .fontColor(this.pal().textSecondary)
                     .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -1343,6 +1352,7 @@ export struct SettingsLlm {
                     })
                   if (!isSystemSubscription(s)) {
                     Text(this.deleteId === s.id ? '确认删除' : '删除')
+                      .constraintSize({ minHeight: HIT_TARGET_MIN })
                       .fontSize(FS_CAPTION)
                       .fontColor(this.deleteId === s.id ? this.pal().onAccent : this.pal().dangerText)
                       .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -1377,6 +1387,7 @@ export struct SettingsLlm {
                         })
                       if (!isSystemSubscription(s)) {
                         Text('登记')
+                          .constraintSize({ minHeight: HIT_TARGET_MIN })
                           .fontSize(FS_CAPTION)
                           .fontColor(this.pal().accentSoft)
                           .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -1413,6 +1424,7 @@ export struct SettingsLlm {
                               .maxLines(1)
                               .textOverflow({ overflow: TextOverflow.Ellipsis })
                             Text(isModelDisabled(e.status) ? '启用' : '禁用')
+                              .constraintSize({ minHeight: HIT_TARGET_MIN })
                               .fontSize(FS_CAPTION)
                               .fontColor(this.pal().accentSoft)
                               .padding({ left: SP_2, right: SP_2 })
@@ -1424,6 +1436,7 @@ export struct SettingsLlm {
                             // 逐模型配置入口（**接在既有模型行上** ⇒ 同屏不给"模型"第二个入口）。
                             // ⛔ 拿不到既有配置 ⇒ 灰显 + 不可点（原因见下一行说明），绝不"用默认值提交"。
                             Text('配置')
+                              .constraintSize({ minHeight: HIT_TARGET_MIN })
                               .fontSize(FS_CAPTION)
                               .fontColor(perModelEditReason(s, e.model).length > 0
                                 ? this.pal().textMuted : this.pal().accentSoft)
@@ -1436,6 +1449,7 @@ export struct SettingsLlm {
                                 }
                               })
                             Text('删除')
+                              .constraintSize({ minHeight: HIT_TARGET_MIN })
                               .fontSize(FS_CAPTION)
                               .fontColor(this.pal().dangerText)
                               .padding({ left: SP_2, right: SP_2 })

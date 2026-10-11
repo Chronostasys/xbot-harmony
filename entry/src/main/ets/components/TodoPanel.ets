@@ -159,6 +159,7 @@ struct TodoRowView {
           })
       } else {
         Text(this.label)
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(FS_CAPTION)
           // 字色 / 字重 / 删除线全部来自唯一真源（`StatusVisual`），组件不再就地判 `this.kind`
           .fontColor(this.labelColor())
@@ -240,6 +241,7 @@ struct TodoRowView {
   RowMenu() {
     Column() {
       Text('编辑')
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().textPrimary)
         .width('100%')
@@ -250,6 +252,7 @@ struct TodoRowView {
           this.onStartEdit();
         })
       Text('删除')
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().dangerText)
         .width('100%')

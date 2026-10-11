@@ -278,66 +278,19 @@ const files: string[] = [];
 const srcByRel: Map<string, string> = new Map<string, string>();
 for (let i = 0; i < files.length; i++) { srcByRel.set(pathMod.relative(etsRoot, files[i]), fsMod.readFileSync(files[i], 'utf-8')); }
 
-// ── 台账（**只许缩短**；本波基线 = 2026-10-11 全仓实测，见交付报告候选表）──────────
-const PAD_CEILING: number = 57;
+// ── 台账（**只许缩短**；2026-10-12 目标⑤：57 → 5）────────────────────────────────
+//  本波已修 52 处（14 文件，加 `.constraintSize({ minHeight: HIT_TARGET_MIN })`）。
+//  余 5 处**登记待批**（观感风险 / 越界）：
+//   · `MarkdownView.ets :: Text` ×1 —— ⛔ 该文件归别人域（本波禁碰）。
+//   · `SettingsLlm.ets :: Text` ×4 —— 工具栏「刷新模型/导出/导入/新增订阅」：与 `height(34)` 的
+//     TextInput **同一行**；若长到 44 会**高过输入框**（明显改变工具栏视觉密度）⇒ 待批。
+const PAD_CEILING: number = 5;
 const PAD_LEDGER: string[] = [
-  'components/GoalBanner.ets :: Text',
-  'components/Lightbox.ets :: Text',
-  'components/LiveTailView.ets :: Text',
   'components/MarkdownView.ets :: Text',
-  'components/MessageRow.ets :: Text',
-  'components/SettingsAbout.ets :: Text',
-  'components/SettingsAbout.ets :: Text',
-  'components/SettingsAbout.ets :: Text',
-  'components/SettingsAbout.ets :: Text',
-  'components/SettingsAbout.ets :: Text',
-  'components/SettingsAbout.ets :: Text',
-  'components/SettingsAbout.ets :: Text',
-  'components/SettingsAccount.ets :: Text',
-  'components/SettingsAccount.ets :: Text',
-  'components/SettingsAccount.ets :: Text',
-  'components/SettingsAgent.ets :: Text',
-  'components/SettingsChannels.ets :: Text',
-  'components/SettingsChannels.ets :: Text',
-  'components/SettingsChannels.ets :: Text',
-  'components/SettingsChannels.ets :: Text',
-  'components/SettingsChannels.ets :: Text',
-  'components/SettingsChannels.ets :: Text',
-  'components/SettingsChannels.ets :: Text',
-  'components/SettingsChannels.ets :: Text',
-  'components/SettingsChannels.ets :: Text',
   'components/SettingsLlm.ets :: Text',
   'components/SettingsLlm.ets :: Text',
   'components/SettingsLlm.ets :: Text',
   'components/SettingsLlm.ets :: Text',
-  'components/SettingsLlm.ets :: Text',
-  'components/SettingsLlm.ets :: Text',
-  'components/SettingsLlm.ets :: Text',
-  'components/SettingsLlm.ets :: Text',
-  'components/SettingsLlm.ets :: Text',
-  'components/SettingsLlm.ets :: Text',
-  'components/SettingsLlm.ets :: Text',
-  'components/SettingsLlm.ets :: Text',
-  'components/SettingsLlm.ets :: Text',
-  'components/SettingsLlm.ets :: Text',
-  'components/SettingsLlm.ets :: Text',
-  'components/SettingsLlm.ets :: Text',
-  'components/SettingsLlm.ets :: Text',
-  'components/SettingsLlm.ets :: Text',
-  'components/SettingsPlugins.ets :: Text',
-  'components/SettingsPlugins.ets :: Text',
-  'components/SettingsPlugins.ets :: Text',
-  'components/SettingsPlugins.ets :: Text',
-  'components/SettingsPlugins.ets :: Text',
-  'components/SettingsPlugins.ets :: Text',
-  'components/SettingsPlugins.ets :: Text',
-  'components/SettingsStorage.ets :: Text',
-  'components/SettingsWebUsers.ets :: Text',
-  'components/SettingsWebUsers.ets :: Text',
-  'components/SplashOverlay.ets :: Text',
-  'components/TodoPanel.ets :: Text',
-  'components/TodoPanel.ets :: Text',
-  'components/TodoPanel.ets :: Text',
 ];
 
 // ── §A 扫描器自证 ──────────────────────────────────────────────────────────────

@@ -34,7 +34,7 @@
  */
 import { Palette, darkPalette } from '../core/theme';
 import {
-  RADIUS_CHIP, SPACE_HAIR, SPACE_SM, SPACE_XL, colorOf, typeOf, PRESS_OPACITY,
+  RADIUS_CHIP, SPACE_HAIR, SPACE_SM, SPACE_XL, colorOf, typeOf, PRESS_OPACITY, HIT_TARGET_MIN,
 } from '../core/design';
 import {
   SPLASH_HINT_DELAY_MS,
@@ -170,6 +170,7 @@ export struct SplashOverlay {
       //       ⇒ 热区天然 = 整屏，Text 自身的 `onClick` 只是"原地兜底"，无需外扩。
       Column() {
         Text('轻点跳过')
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(typeOf('type.caption').size)
           .fontWeight(typeOf('type.caption').weight)
           .letterSpacing(typeOf('type.caption').tracking)

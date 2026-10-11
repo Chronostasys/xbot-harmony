@@ -1053,3 +1053,38 @@ web `ToolCallBlock.tsx:66-71`（args）/ `:97-99`（output）**两族都有** `b
 **登记待批（未做，⛔ 无 web 逐字依据）**：`AuthImage` **加载态**（`:107-117`）无 `.border`（同组件成功/失败态都有）；
 深色族 `chip vs 画布 = 1.0005` ⇒ 深色下该态**无边界**。逃过判据的机制 = `image_boundary_gate` §B 只扫内联 `Image(`，
 而加载态是 `LoadingProgress()` + `Text`。web 占位（`MarkdownRenderer.tsx:283-287`）只有 `minHeight`、无面无边 ⇒ 按门槛不做。
+
+### 21.10 ⑤ 目标⑤ 交互手感：`hit_target_pad` 台账 57 → 5（2026-10-12）
+
+**本波口径**：`PAD_LEDGER`（`tools/tests/hit_target_pad.test.ts`）是"靠 `padding` 撑高的可点 `Text` 视觉高 < 44"
+的**只许缩短**台账。本波**实修 52 处 / 14 文件**，统一加 `.constraintSize({ minHeight: HIT_TARGET_MIN })`
+（`HIT_TARGET_MIN = 44`，来源 `core/design.ets:806`，Apple HIG）—— 与既有样板（`QueueSheet.ets:77`、
+`SettingsAbout.ets:387`、`SettingsChannels.ets:330`）**同一 token、同一落点**，⛔ 零颜色字面量、零新 `responseRegion`、
+零新动效（`motion_budget` 未动）。
+
+**实修清单（逐文件，`file:line` = 本波新增 `.constraintSize({ minHeight: HIT_TARGET_MIN })` 落点；行号经 grep 复核）**：
+- `GoalBanner.ets:163`（objective 链接）· `Lightbox.ets:119`（复位）· `LiveTailView.ets:443`（`+N` 溢出 chip）
+- `MessageRow.ets:932`（`+N` 溢出 chip）· `SplashOverlay.ets:173`（轻点跳过）· `TodoPanel.ets:162/244/255`（待办 label / 编辑 / 删除）
+- `SettingsAbout.ets:360/405/428/440/514/537/549`（发布说明 + 更新/重启二段确认；既有样板 `:387` 不动）
+- `SettingsAccount.ets:117/129/153` · `SettingsAgent.ets:245` · `SettingsStorage.ets:342` · `SettingsWebUsers.ets:170/220`
+- `SettingsChannels.ets:96/271/435/469/486/497/512/527/587`（既有样板 `:330` 不动）
+- `SettingsPlugins.ets:172/211/344/361/739/809/957`（既有样板 `:923` 不动）
+- `SettingsLlm.ets:802/819/1018/1030/1083/1120/1142/1328/1342/1355/1390/1427/1439/1452`（14 处；⛔ 工具栏 4 处见下"待批"）
+- 导入补 `HIT_TARGET_MIN`：`LiveTailView` / `MessageRow` / `SplashOverlay` / `SettingsLlm` / `SettingsStorage` /
+  `SettingsWebUsers` / `SettingsAgent` / `SettingsAccount`（8 文件；其余文件本就已导入）。
+
+**登记待批（未修，理由）——台账余 5 处**：
+- `MarkdownView.ets:439` ×1 —— ⛔ 该文件归**别人域**（本波禁碰），原样保留在台账。
+- `SettingsLlm.ets:863/875/887/899` ×4（工具栏「刷新模型 / 导出 / 导入 / 新增订阅」）—— 与 `height(34)` 的
+  `TextInput` **同一行**（`.alignItems(VerticalAlign.Center)`）；`constraintSize({minHeight:44})` 会让**药丸高过输入框**
+  ⇒ **明显改变工具栏视觉密度** ⇒ 按"观感风险高 ⇒ 登记待批"处理，**不硬改**。修法待批方向：要么把同行的
+  `TextInput` 也抬到 `CONTROL_INPUT_H`(=44)，要么给工具栏整行 `ROW_MIN_H`，二者都动视觉密度 ⇒ 需拍板。
+
+**判据（本波自证）**：`hit_target_pad` 12 passed/0 failed（命中集 == 台账集，实测 5/5；台账 ceiling 57→5，
+**只许缩短**）；`hittarget_audit` 22/0（警告级可点小 Text 从 57 → 5）；`a11y_icon_button` 11/0；`run.sh` 全量绿；
+`guard.sh --static` 16/0（A 线色板分配 1246 ≤ 1250 · B 线读取 1268 ≤ 1350，**均未因本波上升**）；
+`color-roles.sh` 绿；`typecheck/check.sh` 绿（95 文件）；真门禁 ④ `hvigorw assembleHap` = **`BUILD SUCCESSFUL`**（见交付）。
+
+**⛔ 未断言"达标"**：本波只把**布局盒**抬到 ≥44（静态可判）。**真机点击命中**（尤其 GoalBanner objective /
+`+N` chip / 工具栏药丸）**未上机复验**（设备禁用）⇒ 观感与手感**待真机核**，不得据文档断言"达标"。
+

@@ -160,6 +160,7 @@ export struct GoalBanner {
         } else {
           // 目标文本：单行截断；已完成 ⇒ muted + 删除线（web `:122-128`）
           Text(this.display().objective)
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
             .fontSize(typeOf(TYPE_GOAL).size)
             .fontColor(this.display().completed ? this.pal().textMuted : this.pal().textPrimary)
             .decoration(this.display().completed

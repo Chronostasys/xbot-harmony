@@ -357,6 +357,7 @@ export struct SettingsAbout {
                     .fontColor(this.secondaryText())
                   if (releaseNotesUrl(this.check).length > 0) {
                     Text('发布说明')
+                      .constraintSize({ minHeight: HIT_TARGET_MIN })
                       .fontSize(FS_CAPTION)
                       // ⛔ 目标⑤：这是**链接/可点文字**（FS_CAPTION=12，normal 字号）⇒ 需 AA_TEXT 4.5。
                       //    `accent` 是**非文本/图形** role（3.0）⇒ 压卡片面 `surface` 实算 dark 仅
@@ -401,6 +402,7 @@ export struct SettingsAbout {
                 Row() {
                   Blank()
                   Text(applyButtonLabel(false, this.check !== undefined ? this.check.latest : undefined))
+                    .constraintSize({ minHeight: HIT_TARGET_MIN })
                     .fontSize(FS_CAPTION)
                     .fontColor(this.pal().onAccent)
                     .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -423,6 +425,7 @@ export struct SettingsAbout {
                 Row({ space: SP_2 }) {
                   Blank()
                   Text('取消')
+                    .constraintSize({ minHeight: HIT_TARGET_MIN })
                     .fontSize(FS_CAPTION)
                     .fontColor(this.pal().textPrimary)
                     .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -434,6 +437,7 @@ export struct SettingsAbout {
                       this.cancelApply();
                     })
                   Text('确认更新')
+                    .constraintSize({ minHeight: HIT_TARGET_MIN })
                     .fontSize(FS_CAPTION)
                     .fontColor(this.pal().dangerText)
                     .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -507,6 +511,7 @@ export struct SettingsAbout {
                 Row() {
                   Blank()
                   Text(restartBusy(this.restartState) ? '重启中…' : '重启服务')
+                    .constraintSize({ minHeight: HIT_TARGET_MIN })
                     .fontSize(FS_CAPTION)
                     .fontColor(this.pal().textPrimary)
                     .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -529,6 +534,7 @@ export struct SettingsAbout {
                 Row({ space: SP_2 }) {
                   Blank()
                   Text('取消')
+                    .constraintSize({ minHeight: HIT_TARGET_MIN })
                     .fontSize(FS_CAPTION)
                     .fontColor(this.pal().textPrimary)
                     .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -540,6 +546,7 @@ export struct SettingsAbout {
                       this.cancelRestart();
                     })
                   Text(restartBusy(this.restartState) ? '重启中…' : '确认重启')
+                    .constraintSize({ minHeight: HIT_TARGET_MIN })
                     .fontSize(FS_CAPTION)
                     .fontColor(this.pal().dangerText)
                     .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })

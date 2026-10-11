@@ -19,7 +19,7 @@ import { BUBBLE } from '../core/bubble';
 import { R_MD, R_XL, R_LG, SP_1, SP_2, SP_5, FS_CAPTION } from '../core/tokens';
 import {
   ELEV_OVERLAY, GAP_PILL, INSET_PILL_Y, POPOVER_W_OVERFLOW, PRESS_OPACITY, RADIUS_CARD, RADIUS_PILL,
-  SPACE_HAIR, SPACE_XXS, STROKE_RAIL, elevationColorOf, surfaceFillOf, SURFACE_CHIP,
+  SPACE_HAIR, SPACE_XXS, STROKE_RAIL, elevationColorOf, surfaceFillOf, SURFACE_CHIP, HIT_TARGET_MIN,
 } from '../core/design';
 import { orbBreath } from '../core/orb';
 import { MOTION_BEAT_MS } from './anim';
@@ -440,6 +440,7 @@ return renderKind(t.status, t.exit_code, true);
   @Builder
   OverflowBadge() {
     Text(`+${this.hideN()}`)
+      .constraintSize({ minHeight: HIT_TARGET_MIN })
       .fontSize(FS_CAPTION)
       // 可点（点开溢出全量浮层）⇒ 弱档 `textMuted` 在 porcelain 对 chip 仅 2.27:1 < 3 ⇒ 用达标档 `textSecondary`
       .fontColor(this.pal().textSecondary)

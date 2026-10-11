@@ -29,7 +29,7 @@ import {
   VISION_FORMATS, VISION_FORMAT_AUTO, VISION_FORMAT_JPEG,
 } from '../core/rpc';
 import { SettingsChipRow, SettingsErrorBar, SettingsNumberRow, SettingsPanelHeader, SettingsToolRow } from './SettingsRows';
-import { PRESS_OPACITY } from '../core/design';
+import { PRESS_OPACITY, HIT_TARGET_MIN } from '../core/design';
 
 @Component
 export struct SettingsAgent {
@@ -242,6 +242,7 @@ export struct SettingsAgent {
 
               Row() {
                 Text(this.savingVision ? '保存中…' : '保存')
+                  .constraintSize({ minHeight: HIT_TARGET_MIN })
                   .fontSize(FS_CAPTION)
                   .fontColor(this.pal().onAccent)
                   .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })

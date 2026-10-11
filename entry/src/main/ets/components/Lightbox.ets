@@ -116,6 +116,7 @@ export struct Lightbox {
           // 兜底不溢出（本值恒短如 "250%"，但**判据要求每个 Text 都有兜底**；`BREAK_ALL` 对短串是 no-op）
           .wordBreak(WordBreak.BREAK_ALL)
         Text('复位')
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(typeOf(TYPE_META).size)
           .fontColor(colorOf(this.pal(), 'accentSoft'))
           .padding(SPACE_XS)

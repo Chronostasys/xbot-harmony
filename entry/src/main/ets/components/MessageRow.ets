@@ -22,7 +22,7 @@ import { R_MD, R_XL, R_LG, SP_1, SP_2, SP_3, FS_CAPTION, FS_META } from '../core
 // 语义令牌（`7841978` §4.6/§4.7/§6）：浮层宽 / 分隔条高 / 全圆角 / pill 间距与最大宽 / 按压。
 import {
   ELEV_OVERLAY, GAP_PILL, INSET_PILL_Y, OVERLAY_ROW_H, PILL_MAX_W, POPOVER_W, POPOVER_W_OVERFLOW,
-  PRESS_OPACITY, RADIUS_CARD, RADIUS_FULL, SPACE_HAIR, colorOf, elevationColorOf, surfaceFillOf,
+  PRESS_OPACITY, RADIUS_CARD, RADIUS_FULL, SPACE_HAIR, colorOf, elevationColorOf, surfaceFillOf, HIT_TARGET_MIN,
 } from '../core/design';
 import {
   anchorsAt, COMPACTED_LABEL, compactionAnchors, splitMarker,
@@ -929,6 +929,7 @@ export struct MessageRowView {
   @Builder
   OverflowBadge(it: HistoryIteration) {
     Text(`+${this.hideCount(it)}`)
+      .constraintSize({ minHeight: HIT_TARGET_MIN })
       .fontSize(FS_CAPTION)
       // 可点（点开溢出全量浮层）⇒ 弱档 `textMuted` 压 overlay 仅 2.37:1 < 3 ⇒ 用达标档 `textSecondary`
       .fontColor(this.pal().textSecondary)

@@ -22,7 +22,7 @@ import {
   RPC_DELETE_WEB_USER, RPC_LIST_WEB_USERS, UsernameParams, WebUserRow, webUsersFrom, WebUsersData,
 } from '../core/settings';
 import { SettingsErrorBar, SettingsPanelHeader } from './SettingsRows';
-import { colorOf, PRESS_OPACITY } from '../core/design';
+import { colorOf, PRESS_OPACITY, HIT_TARGET_MIN } from '../core/design';
 
 /** `create_web_user` 的 data（服务端 `map[string]string{"password": ...}`）。 */
 interface CreatedUser {
@@ -167,6 +167,7 @@ export struct SettingsWebUsers {
             this.newUsername = v;
           })
         Text(this.creating ? '创建中…' : '创建')
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().onAccent)
           .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -216,6 +217,7 @@ export struct SettingsWebUsers {
 
                 Text(this.deleting === u.username ? '…'
                   : (this.confirmDelete === u.username ? '确认删除？' : '删除'))
+                  .constraintSize({ minHeight: HIT_TARGET_MIN })
                   .fontSize(FS_CAPTION)
                   .fontColor(this.pal().dangerText)
                   .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })

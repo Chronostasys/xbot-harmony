@@ -169,6 +169,7 @@ struct PluginFieldRow {
         Flex({ wrap: FlexWrap.Wrap }) {
           ForEach(this.optValues, (ov: string, oi: number) => {
             Text(this.optLabels[oi >= 0 && oi < this.optLabels.length ? oi : 0])
+              .constraintSize({ minHeight: HIT_TARGET_MIN })
               .fontSize(FS_CAPTION)
               .fontColor(this.imgValue === ov ? this.pal().onAccent : this.pal().textSecondary)
               .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
@@ -207,6 +208,7 @@ struct PluginFieldRow {
         .width('100%')
       Row({ space: SP_2 }) {
         Text(this.uploading ? '上传中…' : '选择图片并上传')
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().onAccent)
           .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -339,6 +341,7 @@ struct PluginFieldRow {
               this.onText(v);
             })
           Text(this.busy ? '…' : '保存')
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().onAccent)
             .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -355,6 +358,7 @@ struct PluginFieldRow {
         Flex({ wrap: FlexWrap.Wrap }) {
           ForEach(this.optValues, (ov: string, oi: number) => {
             Text(this.optLabels[oi >= 0 && oi < this.optLabels.length ? oi : 0])
+              .constraintSize({ minHeight: HIT_TARGET_MIN })
               .fontSize(FS_CAPTION)
               .fontColor(this.isChipOn(ov) ? this.pal().onAccent : this.pal().textSecondary)
               .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
@@ -732,6 +736,7 @@ export struct SettingsPlugins {
       //    —— web 的安装按钮同样常驻（不随列表空/满出现消失）。
       Row() {
         Text(this.installBusy ? '安装中…' : '安装插件（.zip）')
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(FS_CAPTION)
           .fontColor(this.installBusy ? this.pal().textMuted : this.pal().accentSoft)
           .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
@@ -801,6 +806,7 @@ export struct SettingsPlugins {
                   .layoutWeight(1)
 
                   Text(this.confirmReload === e.id ? '确认重载？' : '重载')
+                    .constraintSize({ minHeight: HIT_TARGET_MIN })
                     .fontSize(FS_CAPTION)
                     .fontColor(this.pal().warn)
                     .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
@@ -948,6 +954,7 @@ export struct SettingsPlugins {
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
               Text(this.confirmReload === e.id ? '确认重载？' : '重载')
+                .constraintSize({ minHeight: HIT_TARGET_MIN })
                 .fontSize(FS_CAPTION)
                 .fontColor(this.pal().warn)
                 .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })

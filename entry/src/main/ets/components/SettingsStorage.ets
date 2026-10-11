@@ -32,7 +32,7 @@ import {
 import {
   SettingsChipRow, SettingsErrorBar, SettingsPanelHeader, SettingsTextFieldRow, SettingsToolRow,
 } from './SettingsRows';
-import { PRESS_OPACITY } from '../core/design';
+import { PRESS_OPACITY, HIT_TARGET_MIN } from '../core/design';
 
 /** 不可变写入（换引用 ⇒ 触发 @State 重建；ArkTS 对对象字面量取值有约束故手抄）。 */
 function withValue(map: Record<string, string>, key: string, value: string): Record<string, string> {
@@ -339,6 +339,7 @@ export struct SettingsStorage {
                   .fontColor(this.pal().successText)
               }
               Text(this.busy ? '保存中…' : '保存')
+                .constraintSize({ minHeight: HIT_TARGET_MIN })
                 .fontSize(FS_CAPTION)
                 .fontColor(this.pal().onAccent)
                 .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
