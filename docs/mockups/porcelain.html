@@ -208,6 +208,45 @@ h1{font-size:21px;font-weight:600;letter-spacing:-.2px;max-width:960px;margin:0 
 .notice .ic{font-size:12px;color:var(--dangerText);flex:0 0 auto}        /* 仅失败档有图标 */
 .notice .tx{font-size:12px;font-weight:400;line-height:1.35;color:var(--tm);flex:1}  /* type.caption · textMuted */
 .notice.fail .tx{color:var(--dangerText)}
+
+/* ── ⑦ 抽屉筛选条 / 渠道 chip ───────────────────────────────────────────────── */
+.fbar{display:flex;gap:8px;padding:8px 16px 4px;flex-wrap:wrap}
+.fchip{font-size:10px;font-weight:500;line-height:1.2;padding:2px 8px;border-radius:6px;
+  background:var(--surfaceAlt);color:var(--ts);border:1px solid var(--hairline)}
+.fchip.on{background:var(--accent);color:var(--onAccent);border-color:var(--accent)}  /* 选中 = 唯一 accent */
+.secttl{font-size:12px;font-weight:400;letter-spacing:.1px;color:var(--ts);padding:8px 16px 2px}
+
+/* ── ⑧ 设置分区补（模型 / 渠道 / 开发者）───────────────────────────────────── */
+.rowline{display:flex;align-items:center;gap:12px;min-height:44px;padding:8px 12px}
+.rowline .k{font-size:13px;font-weight:500;color:var(--tp);flex:1}      /* type.subhead */
+.rowline .v{font-size:14px;font-weight:400;color:var(--ts)}            /* type.callout */
+.rowline .mono{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--tm)}
+.btnp{font-size:13px;font-weight:500;padding:8px 16px;border-radius:12px;background:var(--accent);color:var(--onAccent)}
+.btns{font-size:13px;font-weight:500;padding:8px 16px;border-radius:12px;background:transparent;
+  border:1px solid var(--hairline);color:var(--tp)}                    /* 幽灵按钮 */
+
+/* ── ⑨ 插件目录 / widget ──────────────────────────────────────────────────── */
+.wg{background:var(--surfaceAlt);border:1px solid var(--hairline);border-radius:12px;padding:12px;margin:0 12px 8px}
+.wg .k{font-size:12px;font-weight:400;letter-spacing:.1px;color:var(--ts)}
+.wg .v{font-size:21px;font-weight:600;letter-spacing:-.2px;color:var(--tp);margin-top:2px}
+
+/* ── ⑩ 弹层（AskUser / Status / Queue）────────────────────────────────────── */
+.sheet{background:var(--surface);border:1px solid var(--hairline);border-radius:16px;
+  box-shadow:0 8px 24px var(--elev3);padding:12px;margin:0 12px}
+.sheet .shd{display:flex;align-items:center;justify-content:space-between;padding:0 0 8px}
+.sheet .shd .t{font-size:17px;font-weight:600;line-height:1.3;color:var(--tp)}   /* type.headline */
+.sheet .shd .x{font-size:17px;color:var(--ts)}
+.acts{display:flex;gap:8px;justify-content:flex-end;padding-top:8px}
+
+/* ── ⑪ diff / 折叠组 / 加载态 ─────────────────────────────────────────────── */
+.diff{background:var(--sunken);border:1px solid var(--hairline);border-radius:12px;overflow:hidden;
+  font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.5;margin:4px 12px}
+.diff .dl{padding:2px 12px;color:var(--tp)}
+.diff .dl.add{color:var(--successText)}
+.diff .dl.del{color:var(--dangerText)}
+.spin{width:28px;height:28px;border-radius:50%;border:3px solid var(--border);border-top-color:var(--accent)}
+.centerc{display:flex;flex-direction:column;align-items:center;gap:8px;padding:40px 16px;color:var(--tm);font-size:12px}
+
 </style>
 </head>
 <!-- ⚠️ 2026-10-11 对齐：浅色细环按 DESIGN-SYSTEM §7.2 改用 hairline（#DFDFE1）、alpha 按代码实测改为 .5/.9。
@@ -484,6 +523,247 @@ h1{font-size:21px;font-weight:600;letter-spacing:-.2px;max-width:960px;margin:0 
   </div>
   <p class="note">失败态 = <b>一行小字 + 语义色 + 一枚状态图标</b>，⛔ 无填充、无边框、无发光（<code>docs/REDESIGN.md §5/§10</code> 有意分歧 ②）。
   空态 = 中性 <code>textMuted</code>。行 = <code>Row({space: SP_1})</code>，文字 <code>FS_CAPTION</code> 12，<code>WordBreak.BREAK_WORD</code>。</p>
+</section>
+
+<!-- ═══════════════ ⑦ 抽屉（筛选态 + 渠道 chip + 空态）═══════════════ -->
+<section class="face">
+  <h2>⑦ 抽屉 / 会话列表（筛选态 + 渠道 chip + 空态）—— 审计面 #4</h2>
+  <div class="pair">
+    <div class="phone th-p"><div class="scr">
+      <div class="topbar"><div class="menu">☰</div><div class="hd"><div class="t">会话</div></div></div>
+      <div class="fbar"><span class="fchip on">全部</span><span class="fchip">飞书</span><span class="fchip">Web</span><span class="fchip">CLI</span></div>
+      <div class="body-pad" style="padding-top:4px">
+        <div class="dlist">
+          <div class="drow sel"><span class="rdot"></span><span class="nm">重做设计系统</span><span class="chip">飞书</span></div>
+          <div class="dsep"></div>
+          <div class="drow"><span class="nm">harmony 原生端 parity</span><span class="chip">CLI</span></div>
+        </div>
+      </div>
+      <div class="centerc" style="padding-top:16px">
+        <div style="font-size:28px;font-weight:600;letter-spacing:-.4px;color:var(--tp)">还没有会话</div>
+        <div style="font-size:14px;color:var(--ts)">直接说需求，或点「＋」新建</div>
+      </div>
+    </div><div class="tag">porcelain</div></div>
+    <div class="phone th-d"><div class="scr">
+      <div class="topbar"><div class="menu">☰</div><div class="hd"><div class="t">会话</div></div></div>
+      <div class="fbar"><span class="fchip on">全部</span><span class="fchip">飞书</span><span class="fchip">Web</span><span class="fchip">CLI</span></div>
+      <div class="body-pad" style="padding-top:4px">
+        <div class="dlist">
+          <div class="drow sel"><span class="rdot"></span><span class="nm">重做设计系统</span><span class="chip">飞书</span></div>
+          <div class="dsep"></div>
+          <div class="drow"><span class="nm">harmony 原生端 parity</span><span class="chip">CLI</span></div>
+        </div>
+      </div>
+      <div class="centerc" style="padding-top:16px">
+        <div style="font-size:28px;font-weight:600;letter-spacing:-.4px;color:var(--tp)">还没有会话</div>
+        <div style="font-size:14px;color:var(--ts)">直接说需求，或点「＋」新建</div>
+      </div>
+    </div><div class="tag">dark</div></div>
+  </div>
+  <p class="note">筛选 chip：未选中 = <code>surfaceAlt</code> + <code>hairline</code>；**选中 = 唯一 accent**（底 <code>accent</code> / 字 <code>onAccent</code>）。
+  渠道 chip = <code>surface.chip</code>(<code>sunken</code>) + <code>type.micro</code>。空态 = <code>type.display</code> 28 + <code>type.callout</code> 14(<code>textSecondary</code>)，⛔ 无图标堆叠、无循环动效。</p>
+</section>
+
+<!-- ═══════════════ ⑧ 设置分区补（模型 / 渠道 / 开发者）═══════════════ -->
+<section class="face">
+  <h2>⑧ 设置面板各分区补（模型 / 渠道 / 开发者）—— 审计面 #1</h2>
+  <div class="pair">
+    <div class="phone th-p"><div class="scr">
+      <div class="topbar"><div class="menu">✕</div><div class="hd"><div class="t">偏好设置</div></div></div>
+      <div class="body-pad">
+        <div class="tabs"><div class="tb">外观</div><div class="tb on">模型</div><div class="tb">渠道</div></div>
+        <div style="height:12px"></div>
+        <div class="card">
+          <div class="rowline"><span class="k">默认模型</span><span class="v">sonnet-4.5</span></div>
+          <div class="dsep" style="margin:0 12px"></div>
+          <div class="rowline"><span class="k">思考强度</span><span class="mono">medium</span></div>
+          <div class="dsep" style="margin:0 12px"></div>
+          <div class="rowline"><span class="k">API 地址</span><span class="mono">https://api…/v1</span></div>
+        </div>
+        <div style="height:12px"></div>
+        <div class="card">
+          <div class="swrow"><div><div class="k">SSE 录制</div><div class="d">把流式事件落盘便于排查</div></div></div>
+          <div class="dsep" style="margin:0 12px"></div>
+          <div class="rowline"><span class="k">连接状态</span><span class="v" style="color:var(--successText)">已连接</span></div>
+          <div class="dsep" style="margin:0 12px"></div>
+          <div class="rowline"><span class="k">飞书机器人</span><span class="chip" style="margin-left:auto">已绑定</span></div>
+        </div>
+      </div>
+    </div><div class="tag">porcelain</div></div>
+    <div class="phone th-d"><div class="scr">
+      <div class="topbar"><div class="menu">✕</div><div class="hd"><div class="t">偏好设置</div></div></div>
+      <div class="body-pad">
+        <div class="tabs"><div class="tb">外观</div><div class="tb on">模型</div><div class="tb">渠道</div></div>
+        <div style="height:12px"></div>
+        <div class="card">
+          <div class="rowline"><span class="k">默认模型</span><span class="v">sonnet-4.5</span></div>
+          <div class="dsep" style="margin:0 12px"></div>
+          <div class="rowline"><span class="k">思考强度</span><span class="mono">medium</span></div>
+          <div class="dsep" style="margin:0 12px"></div>
+          <div class="rowline"><span class="k">API 地址</span><span class="mono">https://api…/v1</span></div>
+        </div>
+        <div style="height:12px"></div>
+        <div class="card">
+          <div class="swrow"><div><div class="k">SSE 录制</div><div class="d">把流式事件落盘便于排查</div></div></div>
+          <div class="dsep" style="margin:0 12px"></div>
+          <div class="rowline"><span class="k">连接状态</span><span class="v" style="color:var(--successText)">已连接</span></div>
+          <div class="dsep" style="margin:0 12px"></div>
+          <div class="rowline"><span class="k">飞书机器人</span><span class="chip" style="margin-left:auto">已绑定</span></div>
+        </div>
+      </div>
+    </div><div class="tag">dark</div></div>
+  </div>
+  <p class="note">行 = <code>INSET_ROW</code> 12/8 + 命中区 44；名称 <code>type.subhead</code> 13/500 · 说明 <code>type.callout</code> 14(<code>textSecondary</code>) · 等宽值 <code>type.caption</code> 12(<code>textMuted</code>)。
+  分区切换条选中 = **唯一 accent**；卡片 = <code>surface.card</code> + <code>hairline</code> + <code>RADIUS_CARD</code> 12。</p>
+</section>
+
+<!-- ═══════════════ ⑨ 插件目录 / widget ═══════════════ -->
+<section class="face">
+  <h2>⑨ 插件目录 / widget —— 审计面 #2</h2>
+  <div class="pair">
+    <div class="phone th-p"><div class="scr">
+      <div class="topbar"><div class="menu">✕</div><div class="hd"><div class="t">插件</div></div></div>
+      <div class="body-pad">
+        <div class="slabel">已启用</div>
+        <div class="card">
+          <div class="rowline"><span class="k">weather</span><span class="chip" style="margin-left:auto">运行中</span></div>
+          <div class="dsep" style="margin:0 12px"></div>
+          <div class="rowline"><span class="k">todo-board</span></div>
+        </div>
+        <div style="height:12px"></div>
+        <div class="slabel">目录</div>
+        <div class="card">
+          <div class="rowline"><span class="k">没有声明前端产物的插件</span></div>
+        </div>
+        <div style="height:12px"></div>
+        <div class="slabel">widget</div>
+        <div class="wg"><div class="k">今日用量</div><div class="v">128.4 K</div></div>
+        <div class="wg"><div class="k">活跃会话</div><div class="v">3</div></div>
+      </div>
+    </div><div class="tag">porcelain</div></div>
+    <div class="phone th-d"><div class="scr">
+      <div class="topbar"><div class="menu">✕</div><div class="hd"><div class="t">插件</div></div></div>
+      <div class="body-pad">
+        <div class="slabel">已启用</div>
+        <div class="card">
+          <div class="rowline"><span class="k">weather</span><span class="chip" style="margin-left:auto">运行中</span></div>
+          <div class="dsep" style="margin:0 12px"></div>
+          <div class="rowline"><span class="k">todo-board</span></div>
+        </div>
+        <div style="height:12px"></div>
+        <div class="slabel">目录</div>
+        <div class="card">
+          <div class="rowline"><span class="k">没有声明前端产物的插件</span></div>
+        </div>
+        <div style="height:12px"></div>
+        <div class="slabel">widget</div>
+        <div class="wg"><div class="k">今日用量</div><div class="v">128.4 K</div></div>
+        <div class="wg"><div class="k">活跃会话</div><div class="v">3</div></div>
+      </div>
+    </div><div class="tag">dark</div></div>
+  </div>
+  <p class="note">目录空态 = <code>type.callout</code> + <code>textSecondary</code>（<b>不是错误</b>，服务端未启用插件系统）。widget 底走 <code>surfaceAlt</code> + <code>hairline</code> + <code>RADIUS_CARD</code>；
+  指标值 <code>type.title</code> 21/600(<code>textPrimary</code>)。⛔ 白主题下**零发光**，层次靠填充 + 发丝。</p>
+</section>
+
+<!-- ═══════════════ ⑩ 弹层（AskUser / Status / Queue）═══════════════ -->
+<section class="face">
+  <h2>⑩ 弹层（AskUser 确认 / Status 状态 / Queue 排队）—— 审计面 #3</h2>
+  <div class="pair">
+    <div class="phone th-p"><div class="scr">
+      <div class="topbar"><div class="menu">☰</div><div class="hd"><div class="t">重做设计系统</div></div></div>
+      <div style="padding-top:16px">
+        <div class="sheet">
+          <div class="shd"><span class="t">xbot 需要你确认</span><span class="x">✕</span></div>
+          <div class="rowline"><span class="k">删除会话「harmony parity」？此操作不可撤销。</span></div>
+          <div class="acts"><div class="btns">取消</div><div class="btnp">删除</div></div>
+        </div>
+        <div style="height:12px"></div>
+        <div class="sheet">
+          <div class="shd"><span class="t">状态</span><span class="x">✕</span></div>
+          <div class="rowline"><span class="k">运行中</span><span class="v">2</span></div>
+          <div class="rowline"><span class="k">排队</span><span class="v">1</span></div>
+        </div>
+      </div>
+    </div><div class="tag">porcelain</div></div>
+    <div class="phone th-d"><div class="scr">
+      <div class="topbar"><div class="menu">☰</div><div class="hd"><div class="t">重做设计系统</div></div></div>
+      <div style="padding-top:16px">
+        <div class="sheet">
+          <div class="shd"><span class="t">xbot 需要你确认</span><span class="x">✕</span></div>
+          <div class="rowline"><span class="k">删除会话「harmony parity」？此操作不可撤销。</span></div>
+          <div class="acts"><div class="btns">取消</div><div class="btnp">删除</div></div>
+        </div>
+        <div style="height:12px"></div>
+        <div class="sheet">
+          <div class="shd"><span class="t">状态</span><span class="x">✕</span></div>
+          <div class="rowline"><span class="k">运行中</span><span class="v">2</span></div>
+          <div class="rowline"><span class="k">排队</span><span class="v">1</span></div>
+        </div>
+      </div>
+    </div><div class="tag">dark</div></div>
+  </div>
+  <p class="note">浮层底 <code>surface.overlay</code> + <code>hairline</code> + <code>RADIUS_SHEET</code> 16，阴影走 <b><code>elevationColorOf(p, ELEV_OVERLAY)</code></b>
+  （porcelain = <code>elev3</code> <code>#291D1D1F</code> **中性柔影**，⛔ 非彩色发光）；主按钮 = <code>accent</code>+<code>onAccent</code>（4.70 ✅）、次按钮 = 幽灵（<code>border</code> 描边）。</p>
+</section>
+
+<!-- ═══════════════ ⑪ 聊天流补（diff / 折叠组 / 加载态）═══════════════ -->
+<section class="face">
+  <h2>⑪ 聊天流补（折叠组 / diff / 加载态）—— 审计面 #9·#10·#12</h2>
+  <div class="pair">
+    <div class="phone th-p"><div class="scr">
+      <div class="topbar"><div class="menu">☰</div><div class="hd"><div class="t">重做设计系统</div>
+        <div class="st"><span class="dot"></span><span class="lab">运行中…</span></div></div></div>
+      <div class="flow">
+        <div class="pill"><span class="slot" style="color:var(--tm)">▸</span><span class="tx">3 个工具（折叠组）</span></div>
+      </div>
+      <div class="diff">
+        <div class="dl del">- const bg = p.surfaceHi</div>
+        <div class="dl add">+ const bg = surfaceFillOf(p, 'surface.chip')</div>
+        <div class="dl">&nbsp;&nbsp;.borderRadius(RADIUS_CHIP)</div>
+      </div>
+      <div class="centerc"><div class="spin"></div><div>加载历史…</div></div>
+    </div><div class="tag">porcelain</div></div>
+    <div class="phone th-d"><div class="scr">
+      <div class="topbar"><div class="menu">☰</div><div class="hd"><div class="t">重做设计系统</div>
+        <div class="st"><span class="dot"></span><span class="lab">运行中…</span></div></div></div>
+      <div class="flow">
+        <div class="pill"><span class="slot" style="color:var(--tm)">▸</span><span class="tx">3 个工具（折叠组）</span></div>
+      </div>
+      <div class="diff">
+        <div class="dl del">- const bg = p.surfaceHi</div>
+        <div class="dl add">+ const bg = surfaceFillOf(p, 'surface.chip')</div>
+        <div class="dl">&nbsp;&nbsp;.borderRadius(RADIUS_CHIP)</div>
+      </div>
+      <div class="centerc"><div class="spin"></div><div>加载历史…</div></div>
+    </div><div class="tag">dark</div></div>
+  </div>
+  <p class="note">折叠组 = <code>ToolPill</code> 同款（<code>RADIUS_PILL</code> 8 + <code>surfaceAlt</code>）；diff 块底 = <code>surface.well</code>(<code>sunken</code>) + <code>hairline</code>，
+  增删行 = <code>successText</code>(7.13 ✅) / <code>dangerText</code>(6.57 ✅)。加载态 = <code>border</code> 轨道 + <code>accent</code> 顶弧。</p>
+</section>
+
+<!-- ═══════════════ ⑫ 通知示意（N/A）═══════════════ -->
+<section class="face">
+  <h2>⑫ 通知示意 —— 审计面 #16（<b>N/A</b>：系统绘制，不进 app 画布）</h2>
+  <div class="pair">
+    <div class="phone th-p"><div class="scr">
+      <div style="padding:24px 16px">
+        <div style="font-size:15px;line-height:1.55;color:var(--tp)">系统通知由 <b>系统</b> 绘制（<code>core/notify.ets</code> 只提供文案/图标/动作白名单），
+        底色/前景由系统主题决定 ⇒ <b>porcelain 下不可控，也不需要样张</b>。</div>
+        <div style="margin-top:16px;font-size:12px;color:var(--ts);line-height:1.6">
+          本仓对通知能控的只有：① 文案（含「通知正文隐私开关」）；② 角标；③ 动作按钮。<br>
+          这三者都是**文本/语义**，不涉及 <code>colorOf</code> 角色 ⇒ 审计结论 <b>N/A</b>。
+        </div>
+      </div>
+    </div><div class="tag">porcelain（示意）</div></div>
+    <div class="phone th-d"><div class="scr">
+      <div style="padding:24px 16px">
+        <div style="font-size:15px;line-height:1.55;color:var(--tp)">deep 对照同理：通知外观由系统收口，应用侧无画布可审。</div>
+        <div style="margin-top:16px;font-size:12px;color:var(--ts);line-height:1.6">（仅作版式占位）</div>
+      </div>
+    </div><div class="tag">dark</div></div>
+  </div>
+  <p class="note">审计项 ③④ 对通知**不适用**（无 app 侧渲染色）；审计表记为 <b>N/A</b>（见 <code>docs/PORCELAIN-AUDIT.md §1</code> 面 #16）。</p>
 </section>
 
 <p class="note" style="max-width:960px;margin:24px auto 0">
