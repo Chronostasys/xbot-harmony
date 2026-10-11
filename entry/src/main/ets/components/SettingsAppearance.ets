@@ -356,6 +356,12 @@ export struct SettingsAppearance {
   @Builder
   AccentCustomInput() {
     Column({ space: SPACE_HAIR }) {
+      // web `SettingsAppearance.tsx:164-168` 的 `settings.accentCustom`（同译法「自定义颜色」）
+      Text('自定义颜色')
+        .fontSize(fs('type.caption'))
+        .fontWeight(fw('type.caption'))
+        .fontColor(colorOf(this.pal(), 'textMuted'))
+        .width('100%')
       Row({ space: SPACE_XS }) {
         TextInput({ text: this.hexDraft, placeholder: '#RRGGBB（如 #7C3AED）' })   // allow-color-literal: 占位文案里的**格式示例**，不是取色（唯一取色入口仍是 colorOf）
           .placeholderColor(colorOf(this.pal(), 'textMuted'))

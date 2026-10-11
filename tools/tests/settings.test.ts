@@ -67,6 +67,47 @@ eq('设置项显示名', settingLabel(KEY_FONT_SCALE), '消息字号');
 eq('思考键往返', localKey(serverKey(KEY_REASONING_DEFAULT)), KEY_REASONING_DEFAULT);
 eq('思考键显示名', settingLabel(KEY_REASONING_DEFAULT), '思考默认展开');
 
+// ── 键表 parity 守卫（2026-10-11 设置面审计的机器判据）────────────────────────────
+// 事实（见 docs/WEB-ALIGNMENT.md §17.6）：两端 key 表**并非同源** —— 真共享 8 / 原生独有 8 /
+// web 独有 6。本组把它钉住，防"悄悄加/删键"导致两端偏好漂移或丢键。
+// ★ 判别力（mutation 必红）：把任一共享键的 serverKey 改掉 ⇒ 第 1 组红。
+{
+  const SHARED: string[][] = [
+    [KEY_MD_THEME, 'web:ui:md-theme'],
+    [KEY_ACCENT, 'web:ui:accent'],
+    [KEY_LOCALE, 'web:ui:locale'],
+    [KEY_SEND_KEY, 'web:ui:send-key-mode'],
+    [KEY_CODE_WRAP, 'web:ui:code-word-wrap'],
+    [KEY_UI_MODE, 'web:ui:ui-mode'],
+    [KEY_STARRED, 'web:session:starred'],
+    [KEY_SESSION_CATEGORY, 'web:session:category'],
+  ];
+  let bad: number = 0;
+  for (const p of SHARED) {
+    if (serverKey(p[0]) !== p[1]) { bad++; }
+    if (localKey(p[1]) !== p[0]) { bad++; }
+  }
+  eq(`真共享 ${SHARED.length} 键：本地↔服务端双向映射逐字正确`, bad, 0);
+
+  // 原生独有键：必须有映射（否则跨设备丢），但**不得**被误当成共享键
+  const NATIVE_ONLY: string[] = [KEY_FONT_SCALE, KEY_REASONING_DEFAULT, KEY_APP_THEME, KEY_SURFACE,
+    KEY_ORB, KEY_NOTIFY_ASK, KEY_NOTIFY_TURN_DONE, KEY_NOTIFY_DETAIL];
+  let nativeMapped: number = 0;
+  for (const k of NATIVE_ONLY) {
+    if (serverKey(k).indexOf('web:') === 0) { nativeMapped++; }
+  }
+  eq(`原生独有 ${NATIVE_ONLY.length} 键都映射到 web: 命名空间（跨设备可存）`, nativeMapped, NATIVE_ONLY.length);
+
+  // web 独有的桌面布局键：本仓**不收录** ⇒ `localKey` 原样返回 = 零丢键（见 §17.5-5）
+  const WEB_ONLY: string[] = ['web:ui:left-sidebar-width', 'web:ui:layout-overrides', 'web:ui:layout-order',
+    'web:ui:panel-layout', 'web:ui:panel-layout-v2', 'web:workspace:recent-workdirs'];
+  let passthru: number = 0;
+  for (const k of WEB_ONLY) {
+    if (localKey(k) === k) { passthru++; }
+  }
+  eq(`web 独有 ${WEB_ONLY.length} 键：原样透传（零丢键，⛔ 不收录）`, passthru, WEB_ONLY.length);
+}
+
 if (fail > 0) { console.log(`  settings: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  settings: ${pass} passed, 0 failed`);
 process.exit(0);
