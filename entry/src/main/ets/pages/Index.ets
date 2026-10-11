@@ -59,6 +59,7 @@ import {
 import { changedByKeys, identityChanged, needsFullReload, rowKey, rowsFpOf, sameRowIds,
   scopedFingerprint, sessionScopedRowKey, tailRows } from '../core/rowdiff';
 import { BusySignals, busyNow, showsBusyPlaceholder, showsHistorySkeleton, showsJumpToLatest } from '../core/indicators';
+import { listItemCount, nextFollowBottom } from '../core/listfollow';
 import { OverlayCode, OverlayState, topOverlay } from '../core/overlays';
 import {
   currentTodo, modelText, todoProgress, usageText,
@@ -270,22 +271,21 @@ function mdCacheText(): string {
 }
 
 /**
- * 消息列表的项数 = [可选"加载更早消息"项] + rows + [可选 live 行项] + [可选 busy 指示器项]。
+ * 该 `ScrollSource` 是否来自**用户输入** ——「是否跟随到底部」只允许被它翻转。
  *
- * 必须显式算：`onScrollIndex` 给的是**列表项**下标，而项数不等于 rows.length
- * （头部可能多一项、尾部可能多一项 busy 指示器 / live 行）—— 用错就会误判"在不在底部"。
- * 模块级函数：ArkUI 的 struct 不是普通类，真机上静态成员会解析成 undefined（见 docs/ARKTS-GOTCHAS.md）。
+ * 判据本体在 `core/listfollow.nextFollowBottom`（纯函数，脱机单测：`listfollow.test.ts`）；
+ * 这里是**唯一的 ArkUI 胶水**（把 `ScrollSource` 映射成"是不是用户干的"），因为 core/ 不许
+ * 引用 ArkUI 全局类型（run.sh 把 core/*.ets 当纯 TS 编译）。
+ *
+ * 程序滚动 = `SCROLLER` / `SCROLLER_ANIMATION`（`Scroller` 成员方法：`scrollEdge`/`scrollToIndex`）
+ * 以及内容增删引起的钳位/索引回调 —— **绝不**能置位，否则"用户往上看历史"的意图被一次程序动作
+ * 改写（真机 P0：点工具 pill 触发 store 变更 ⇒ syncFrom 的 scrollEdge(Bottom) 把视角拽到最下方，
+ * 2026-10-11）。`EDGE_EFFECT` = Spring 过卷，是手指拉出来的 ⇒ 算用户输入。
  */
-function listItemCount(hasMore: boolean, loadingMore: boolean, rowsLen: number,
-  busyPlaceholder: boolean, liveRows: number): number {
-  let n: number = rowsLen + liveRows;
-  if (hasMore || loadingMore) {
-    n += 1;
-  }
-  if (busyPlaceholder) {
-    n += 1;
-  }
-  return n;
+function isUserScrollSource(src: ScrollSource): boolean {
+  return src === ScrollSource.DRAG || src === ScrollSource.FLING
+    || src === ScrollSource.EDGE_EFFECT || src === ScrollSource.OTHER_USER_INPUT
+    || src === ScrollSource.SCROLL_BAR || src === ScrollSource.SCROLL_BAR_FLING;
 }
 
 @Entry
@@ -353,12 +353,24 @@ struct Index {
   @State showSelfCheck: boolean = false;
   /** 各页版面几何的**屏幕可见文本**（无需网络：截一张图即可把数值带给我） */
   /**
-   * 用户当前是否停在列表底部。
-   * ⚠️ 自动"跟随到底部"必须由它守卫：流式期间每个事件都会同步一次，若无条件
-   * `scrollEdge(Bottom)`，用户往上滚想看工具/思考详情会被立刻拽回底部 ⇒ 表现为"根本没法用"。
+   * 「是否跟随到底部」—— 它是**用户意图标志**（= web 的 `!userScrolledUp`），**不是位置快照**。
+   *
+   * ⛔ 只由**用户输入**翻转（`onWillScroll` 的 `ScrollSource`，判据见 `isUserScrollSource`）：
+   *   程序滚动 / 内容增删引起的**钳位与索引回调**一律不置位。上一版把它写成"最后可见项 == 末项"
+   *   的**位置快照**，由 `onScrollIndex` 无条件双向赋值 ⇒ live 行在飞⇄折叠、busy 占位符进出、
+   *   行窗口放开会改变项数，ArkUI 重排时的钳位/索引回调会把它**误置 true 并粘住**，之后任意
+   *   一次 store 变更（流式事件、或**点工具 pill** 触发的 `fetchIterationDetail`）就
+   *   `scrollEdge(Bottom)` ⇒ 真机 P0"有时候点击工具 pill 自动把视角跳到最下方"（2026-10-11）。
+   *
    * 与 xbot Web 端既有铁律一致（所有 GotoBottom 调用由 !userScrolledUp 守卫）。
    */
-  @State atBottom: boolean = true;
+  @State followBottom: boolean = true;
+
+  /**
+   * 本帧的滚动是否来自**用户输入**（`onWillScroll` 置位、`onScrollIndex` **一次性消费**）。
+   * 非 @State：只作判据传递，不驱动渲染。
+   */
+  private userScrollFrame: boolean = false;
 
   /** 首屏渲染的行窗口（避免一次性构建几十行；点上方的「显示更早」按批放开） */
   @State rowLimit: number = MAX_ROWS_VISIBLE;
@@ -1035,7 +1047,7 @@ struct Index {
     //    （表现为"切到哪个会话都显示上一个会话的内容"，且 busy 与内容来自不同会话 = 状态混乱）。
     if (identityChanged(this.currentChat, store.currentChatId)) {
       this.currentChat = store.currentChatId;   // ← 身份先定
-      this.atBottom = true;
+      this.followBottom = true;   // 切会话：用户预期"看到最新" ⇒ 意图重置为跟随
       this.rowLimit = MAX_ROWS_VISIBLE;   // 切会话重置行窗口（否则行数会无限累积增长）
       this.rowsFp = '';
       this.sessionsFp = '';
@@ -1058,7 +1070,7 @@ struct Index {
     // ⛔ 底部跟随（真机："看不到任何进度/思考打字机看不到"，2026-10-10）：
     //   live 尾块在**生长**（思考/正文打字机、工具 pill 增加）⇒ 若用户仍在底部，
     //   必须跟着滚到底，否则流式内容掉到视口下方 —— 看上去就是"没有进度、只有收尾才出现"。
-    if (this.atBottom) {
+    if (this.followBottom) {
       this.listScroller.scrollEdge(Edge.Bottom);
     }
     this.busy = store.busy;
@@ -1145,8 +1157,8 @@ struct Index {
       this.askUser = ask;
       this.askSelections = selectionsFor(ask);
     }
-    // 只有用户本来就在底部才跟随；用户往上滚后就不再抢滚动位置（否则"阅读中被打断"）
-    if (this.atBottom) {
+    // 只有用户意图为"跟随"才跟随；用户往上滚后意图被翻掉，就不再抢滚动位置（否则"阅读中被打断"）
+    if (this.followBottom) {
       setTimeout(() => {
         try {
           this.listScroller.scrollEdge(Edge.Bottom);
@@ -2115,6 +2127,17 @@ struct Index {
   }
 
   /**
+   * 列表里**是否存在**「加载更早消息」头项 —— **唯一**判据（渲染它的 `if`、项数 `listItemCount`、
+   * 列表项下标 ⇄ 行下标换算全部读这里，杜绝三处各写一份而漂移）。
+   *
+   * 三个条件缺一不可：还有更早历史要拉（`hasMore`）/ 正在拉（`loadingMore`）/ 行窗口被截断
+   * （`hiddenRowCount > 0`，此时头项显示"下拉到底部自动加载更早消息 · 已到最早"）。
+   */
+  private hasHeadItem(): boolean {
+    return this.hasMore || this.loadingMore || hiddenRowCount(this.rows.length, this.rowLimit) > 0;
+  }
+
+  /**
    * 当前可视锚点序号（1-based；0 = 无）。
    *
    * 把 `onScrollIndex` 给的**列表项**下标换算回**行**下标，再交给 `core/msgindex.nearestSeq`
@@ -2126,8 +2149,7 @@ struct Index {
     const len: number = this.rows.length;
     const liveRows: number = this.hasLiveRow ? 1 : 0;
     const restLen: number = len - liveRows > 0 ? len - liveRows : 0;
-    const head: number = (this.hasMore || this.loadingMore
-      || hiddenRowCount(len, this.rowLimit) > 0) ? 1 : 0;
+    const head: number = this.hasHeadItem() ? 1 : 0;
     const windowStart: number = restLen - this.rowLimit > 0 ? restLen - this.rowLimit : 0;
     let rowStart: number = this.listStart - head + windowStart;
     if (rowStart < 0) {
@@ -2147,8 +2169,8 @@ struct Index {
     if (rowIndex < 0 || rowIndex >= len) {
       return;
     }
-    // 用户主动跳转 ⇒ 解除贴底跟随（否则随后的流式 `scrollEdge(Bottom)` 会把他拉回底部）
-    this.atBottom = false;
+    // 用户主动跳转 ⇒ 关掉跟随（否则随后的流式 `scrollEdge(Bottom)` 会把他拉回底部）
+    this.followBottom = false;
     const needWindow: number = len - rowIndex + MAX_ROWS_VISIBLE;
     if (needWindow > this.rowLimit) {
       this.rowLimit = needWindow;
@@ -2156,8 +2178,7 @@ struct Index {
     }
     const liveRows: number = this.hasLiveRow ? 1 : 0;
     const restLen: number = len - liveRows > 0 ? len - liveRows : 0;
-    const head: number = (this.hasMore || this.loadingMore
-      || hiddenRowCount(len, this.rowLimit) > 0) ? 1 : 0;
+    const head: number = this.hasHeadItem() ? 1 : 0;
     const windowStart: number = restLen - this.rowLimit > 0 ? restLen - this.rowLimit : 0;
     const isLiveTarget: boolean = liveRows === 1 && rowIndex === len - 1;
     const listIndex: number = isLiveTarget
@@ -2956,7 +2977,7 @@ struct Index {
       // 叠在消息区右上角（其自身在 < 2 个锚点时不产出任何节点）。
       Stack({ alignContent: Alignment.TopEnd }) {
       List({ scroller: this.listScroller }) {
-        if (this.hasMore || this.loadingMore || hiddenRowCount(this.rows.length, this.rowLimit) > 0) {
+        if (this.hasHeadItem()) {
           ListItem() {
             Row({ space: 6 }) {
               LoadingProgress().width(14).height(14).color(this.pal().accent)
@@ -3021,15 +3042,26 @@ struct Index {
       .opacity(this.listAlpha)
       // 预构建 4 行：滚动时不必等构建（越小内存越省，越大滚动越顺）
       .cachedCount(4)
-      // 跟踪"用户是否停在底部"：end 是最后一个可见项的下标，等于末项下标即在底部。
-      // 项数 = [可选"加载更早"] + rows + [可选 live 行项] + [可选 busy 指示器]，
-      // 故用 listItemCount() 显式算。
+      // ⛔ 记录的**只有**"这一帧的滚动是不是用户干的"（ScrollSource 由 Scroll 框架给出，
+      //    `SCROLLER`/`SCROLLER_ANIMATION` = 程序滚动与内容钳位 ⇒ 绝不算用户输入）。
+      .onWillScroll((offset: number, state: ScrollState, source: ScrollSource) => {
+        this.userScrollFrame = isUserScrollSource(source);
+      })
+      // 跟踪"是否跟随到底部"：end 是最后一个可见项的下标，等于末项下标即在底部。
+      // 项数 = [可选"加载更早"头项] + rows + [可选 live 行项] + [可选 busy 指示器]，
+      // 故用 listItemCount() 显式算（头项判据与渲染它的 `if` 同源：`hasHeadItem()`）。
       .onScrollIndex((start: number, end: number) => {
         this.listStart = start;   // 用户消息导航据此算当前锚点
+        // ⛔ 跟随开关是**用户意图**，只由**用户输入**翻转：程序滚动 / 内容增删引起的钳位与
+        //    索引回调一律不置位（否则"点工具 pill ⇒ store 变更 ⇒ 拽到最下方"的 P0 复发）。
         const busyPlaceholder: boolean = showsBusyPlaceholder(this.busySignals());
         const liveRows: number = this.hasLiveRow ? 1 : 0;
-        this.atBottom = end >= listItemCount(this.hasMore, this.loadingMore, this.rowDs.count(),
-          busyPlaceholder, liveRows) - 1;
+        const itemCount: number = listItemCount(this.hasHeadItem(), busyPlaceholder,
+          this.rowDs.count(), liveRows);
+        // 一次性消费（避免泄漏到后续程序滚动帧）；判据本体是纯函数（core/listfollow）。
+        const userDriven: boolean = this.userScrollFrame;
+        this.userScrollFrame = false;
+        this.followBottom = nextFollowBottom(this.followBottom, userDriven, end, itemCount);
         // 对齐 web：滚到顶部**自动**拉更早历史（web 用 IntersectionObserver 哨兵，同语义），
         // 不再要求用户先点一下按钮。loadingMore 自锁，避免请求风暴。
         if (start === 0 && !this.loadingMore && this.hasMore) {
@@ -3057,8 +3089,8 @@ struct Index {
       }
       .layoutWeight(1).width('100%')
 
-      // 不在底部时给一个「回到最新」（列表很长时不用一路滑）；贴底不显示
-      if (showsJumpToLatest(this.atBottom, this.rows.length)) {
+      // 关掉跟随时给一个「回到最新」（列表很长时不用一路滑）；跟随中不显示
+      if (showsJumpToLatest(this.followBottom, this.rows.length)) {
         Row() {
           Text('回到最新').fontSize(12).fontColor(this.pal().textPrimary)
             .padding({ left: 12, right: 12, top: 7, bottom: 7 })
@@ -3066,8 +3098,9 @@ struct Index {
             .borderRadius(16)
             .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
             .onClick(() => {
+              // 用户显式要求回到底部 ⇒ 意图置为跟随（与切会话同一语义）
               this.listScroller.scrollEdge(Edge.Bottom);
-              this.atBottom = true;
+              this.followBottom = true;
             })
         }
         .width('100%').justifyContent(FlexAlign.Center)
