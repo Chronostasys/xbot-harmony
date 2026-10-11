@@ -209,6 +209,67 @@ export function curveHasOvershoot(css: string): boolean {
   return y1 > 1 || y2 > 1;
 }
 
+// ── 2c. `cubic-bezier` 的**离线求值**（纯数值；供 T2 让位轨迹判据）──────────────────────
+//
+// ⛔ 为什么在 core 里自己算：`core/` 禁 import 曲线库 / ArkUI 类型（见文件头纪律 1），
+//    但"T1→T3 是不是渐隐"必须**可脱机判**。⇒ 只解析同一个 CSS token（与渲染同源，非新造曲线），
+//    用**二分法**求值（确定性、无 Newton 边界问题）。这不是"新曲线"—— 控制点全来自 `core/tokens.ets`。
+
+/** 三次贝塞尔某一轴在参数 `u` 处的值（端点固定为 0/1）：`3(1-u)²u·a1 + 3(1-u)u²·a2 + u³`。 */
+function bezierAxis(a1: number, a2: number, u: number): number {
+  const m: number = 1 - u;
+  return 3 * m * m * u * a1 + 3 * m * u * u * a2 + u * u * u;
+}
+
+/** 解析 `cubic-bezier(x1,y1,x2,y2)` → `[x1,y1,x2,y2]`；非法 ⇒ 线性 `[0,0,1,1]`（进度 = 时间比例）。 */
+function parseBezier(css: string): number[] {
+  const linear: number[] = [0, 0, 1, 1];
+  const i: number = css.indexOf('cubic-bezier(');
+  if (i < 0) {
+    return linear;
+  }
+  const close: number = css.indexOf(')', i);
+  const inner: string = css.substring(i + 'cubic-bezier('.length, close < 0 ? css.length : close);
+  const parts: string[] = inner.split(',');
+  if (parts.length !== 4) {
+    return linear;
+  }
+  const out: number[] = [];
+  for (let k: number = 0; k < 4; k++) {
+    const v: number = Number.parseFloat(parts[k]);
+    if (Number.isNaN(v)) {
+      return linear;
+    }
+    out.push(v);
+  }
+  return out;
+}
+
+/** 二分迭代次数（24 次 ⇒ 参数误差 < 2⁻²⁴ ≈ 6e-8，远超观感/判据需要；确定性、无自造曲线）。 */
+const SPLASH_BEZIER_SOLVE_ITERS: number = 24;
+
+/**
+ * `cubic-bezier` 的**归一化进度** `y(x)`（`x` = 归一化时间 ∈ `[0,1]`）——
+ * 解析 CSS 控制点 → 二分解 `x(u)=x` → 取 `y(u)`。`x` 越界会被夹到 `[0,1]`。
+ */
+export function curveProgressAt(css: string, x: number): number {
+  const c: number[] = parseBezier(css);
+  const tx: number = !(x > 0) ? 0 : (x > 1 ? 1 : x);
+  let lo: number = 0;
+  let hi: number = 1;
+  let u: number = tx;
+  for (let k: number = 0; k < SPLASH_BEZIER_SOLVE_ITERS; k++) {
+    const xu: number = bezierAxis(c[0], c[2], u);
+    if (xu < tx) {
+      lo = u;
+    } else {
+      hi = u;
+    }
+    u = (lo + hi) / 2;
+  }
+  return bezierAxis(c[1], c[3], u);
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // 3. 判据（纯函数 —— 真值表见 `docs/SPLASH-SPEC.md §4`）
 // ════════════════════════════════════════════════════════════════════════════
@@ -369,4 +430,36 @@ export function splashOrbAllowed(phase: string, streaming: boolean): boolean {
 /** 开屏任一阶段是否**属于**"在飞"（**恒 false** —— 把铁律写成可断言的形式）。 */
 export function splashPhaseIsInFlight(phase: string): boolean {
   return false;
+}
+
+/**
+ * ⑥ T2 **让位的「整层不透明度」轨迹**（纯函数）—— **T1(品牌底) → T3(应用主题) 过渡的机器判据**。
+ *
+ * ── 口径**全部派生自底座**（⛔ 零自造）───────────────────────────────────────────
+ *   · 时长 = `SPLASH_EXIT_MS`（= `MOTION_SLOW_MS` = 320，`core/motion.ets:45`）；
+ *   · 曲线 = `EASE_OUT_CSS`（`core/tokens.ets:56` = `cubic-bezier(0,0,0.2,1)`）——
+ *     与渲染侧 `components/anim.ets:103 animEaseOut()` **同一 token**（`SplashOverlay.ets:145`）。
+ *
+ * ── 观感模型（为什么这几条性质就是"渐隐 / 无硬切 / 无白闪"）──────────────────────
+ *   渲染侧把 `overlayOpacity` 绑在**整层** `Stack`（`SplashOverlay.ets:224 .opacity(...)`），
+ *   T2 由 1 → 0 ⇒ 品牌底以**均匀 α** 叠在应用页面上 ⇒ 合成色 = `α·品牌底 + (1-α)·应用底`。
+ *     · **值域 [0,1]**（ease-out 无超调 ⇒ α 不越界）⇒ 合成色**永不亮于目的地** ⇒ **无"白闪一帧"**；
+ *     · **单调不增** ⇒ 一致地朝目的地走（不来回抖）；
+ *     · **存在中间态**（α ∈ (0,1)）⇒ 是**渐隐**，不是硬切；中间态是**灰**（品牌底⊕应用底），
+ *       ⛔ **不是"半透明白"**（整层是同一 α，没有"白色蒙层"这一层）。
+ *   `reduceMotion` ⇒ 即时 0（T2 收起 ⇒ 硬切）—— 这是"只降动效"的**既有裁决**
+ *   （`docs/SPLASH-SPEC.md §5`），⛔ 不属本条"渐隐"要求的范围。
+ *
+ * ⛔ 组件**不能**消费它来"逐帧设值"（`animateTo` 由 ArkUI 驱动中间帧）—— 本函数是那条动画的
+ *   **离线模型**，供判据/mutation 钉住"形状"。同源靠**同一 token**（时长 + 曲线），非靠调用。
+ */
+export function splashExitOpacityAt(elapsedMsMs: number, reduceMotion: boolean): number {
+  if (reduceMotion) {
+    return 0;
+  }
+  const t: number = sanitizeMs(elapsedMsMs);
+  if (t >= SPLASH_EXIT_MS) {
+    return 0;
+  }
+  return 1 - curveProgressAt(EASE_OUT_CSS, t / SPLASH_EXIT_MS);
 }

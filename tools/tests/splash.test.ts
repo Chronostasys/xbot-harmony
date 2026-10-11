@@ -45,6 +45,8 @@ import {
   shouldStartSplash,
   splashBrandCanvas,
   splashBrandMarkLevel,
+  splashExitOpacityAt,
+  curveProgressAt,
   splashOrbAllowed,
   splashPhaseAt,
   splashPhaseCurve,
@@ -53,7 +55,7 @@ import {
   splashPhaseStartMs,
   splashPhases,
 } from '../../entry/src/main/ets/core/splash';
-import { darkPalette } from '../../entry/src/main/ets/core/theme';
+import { darkPalette, paletteOf } from '../../entry/src/main/ets/core/theme';
 import { EASE_OUT_CSS, EASE_SPRING_CSS } from '../../entry/src/main/ets/core/tokens';
 import { MOTION_BASE_MS, MOTION_FAST_MS, MOTION_SLOW_MS } from '../../entry/src/main/ets/core/motion';
 import { ORB_BREATH_MS } from '../../entry/src/main/ets/core/orb';
@@ -373,6 +375,62 @@ function stripComments(src: string): string {
     pick(darkJson, 'start_window_background').toUpperCase(), darkPalette().appBg.toUpperCase());
   ok('  ⇒ base 不再是浅色 #F8FAFC（深色应用冷启零跳色）',
     pick(baseJson, 'start_window_background').toUpperCase() !== '#F8FAFC');
+}
+
+// ── ★I T1→T3 过渡（T2 让位）的**透明度轨迹** —— "必须是渐隐、无硬切、无白闪"的机器判据 ────────
+//
+// 现状取证（`file:line`）：T2 = `SplashOverlay.ets:145-149` 的 `animateTo(animEaseOut(), …)`，
+//   把**整层** `Stack` 的 `.opacity(this.overlayOpacity)`（`:224`）由 1 → 0（标记**再乘**自身
+//   `markOpacity`→0 ⇒ 标记比底更快隐去 = "让位"的层次）。`animEaseOut()`（`components/anim.ets:103`）
+//   = `MOTION_SLOW_MS`(320ms) + `EASE_OUT_CSS`(`cubic-bezier(0,0,0.2,1)`，零超调)。
+//   中间态 = **灰**（品牌底以均匀 α 叠在应用页面上），⛔ **不是"半透明白"**（没有白色蒙层这一层）。
+//
+// mutation 自证：把 `splashExitOpacityAt` 的曲线换成 `EASE_SPRING_CSS`（超调 y1=1.56）⇒ 值域越界 ⇒ 必红。
+{
+  eq('T2 起始 α = 1（满铺品牌底）', splashExitOpacityAt(0, false), 1);
+  eq('T2 结束 α = 0（让位完成）', splashExitOpacityAt(SPLASH_EXIT_MS, false), 0);
+  eq('t<0 ⇒ 1（防御，不抛）', splashExitOpacityAt(-1, false), 1);
+  eq('t=NaN ⇒ 1（防御，不抛）', splashExitOpacityAt(Number.NaN, false), 1);
+  eq('t>EXIT ⇒ 0', splashExitOpacityAt(SPLASH_EXIT_MS * 10, false), 0);
+  eq('T2 让位时长 = MOTION_SLOW_MS（派生自底座 motion.ets，零裸数字）', SPLASH_EXIT_MS, MOTION_SLOW_MS);
+  // 曲线求值与渲染同一 token（ease-out；⛔ 不是 spring）
+  eq('T2 曲线求值 @x=0.5（ease-out 前快后慢）', curveProgressAt(EASE_OUT_CSS, 0.5) > 0.5, true);
+  ok('ease-out 求值单调（x 越大 y 越大）',
+    curveProgressAt(EASE_OUT_CSS, 0.2) < curveProgressAt(EASE_OUT_CSS, 0.6)
+    && curveProgressAt(EASE_OUT_CSS, 0.6) < curveProgressAt(EASE_OUT_CSS, 0.9));
+
+  let prev: number = 2;
+  let sawMid: boolean = false;
+  let bounded: boolean = true;
+  let mono: boolean = true;
+  for (let i: number = 0; i <= 100; i++) {
+    const v: number = splashExitOpacityAt((SPLASH_EXIT_MS * i) / 100, false);
+    if (!(v >= 0 && v <= 1)) { bounded = false; }
+    if (v > prev + 1e-12) { mono = false; }
+    if (v > 0.02 && v < 0.98) { sawMid = true; }
+    prev = v;
+  }
+  ok('值域 [0,1]（ease-out 无超调 ⇒ α 不越界 ⇒ 合成色永不亮于目的地 ⇒ 无"白闪一帧"）', bounded);
+  ok('区间内单调不增（一致朝目的地走，不来回抖）', mono);
+  ok('存在中间态（α∈(0,1) ⇒ 是渐隐，不是硬切）', sawMid);
+
+  // reduceMotion：T2 收起 ⇒ 即时 0（硬切 = "只降动效"的**既有裁决** `SPLASH-SPEC §5`，非缺陷）
+  eq('reduceMotion ⇒ 即时 0（T2 收起，硬切是既有裁决）', splashExitOpacityAt(0, true), 0);
+
+  // 深色主题：品牌底与应用页面**同色** ⇒ 过渡**无色差 ⇒ 不可见（无感）**
+  eq('深色主题：品牌画布 == 页面画布（过渡无感）', splashBrandCanvas(), paletteOf('dark').appBg);
+
+  // 源码形态：整层不透明度由 T2 的 animEaseOut() 驱动（判据与渲染同源 = 同一 token）
+  let src: string = '';
+  for (const up of ['../..', '../../..', '../../../..']) {
+    const p: string = path.resolve(__dirname, up, 'entry/src/main/ets/components/SplashOverlay.ets');
+    if (fs.existsSync(p)) { src = fs.readFileSync(p, 'utf8'); break; }
+  }
+  ok('读到 SplashOverlay.ets 源码', src.length > 0);
+  ok('T2 让位真用底座具名工厂 animEaseOut()（零超调）',
+    src.indexOf('animateTo(animEaseOut(), () => {') >= 0);
+  ok('整层不透明度真绑定在 overlay 根 Stack 上（.opacity(this.overlayOpacity)）',
+    src.indexOf('.opacity(this.overlayOpacity)') >= 0);
 }
 
 // ── 汇总 ──────────────────────────────────────────────────────────────────

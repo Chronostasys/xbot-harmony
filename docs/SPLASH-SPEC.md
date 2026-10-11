@@ -228,6 +228,33 @@ function curveHasOvershoot(css: string): boolean;            // 解析 cubic-bez
   ⛔ **不给标记加发光**（全场唯一发光体 = 光球，`DESIGN-SYSTEM §8.3`）。
 - 真机判据（连拍前 N 帧）：T1 帧与 T2 帧对比 ⇒ 标记应**更淡且更高约 12vp**；首 ~220ms 内**不应**看到"轻点跳过"。
 
+### 4.7 T1→T3 过渡（T2 让位）的**透明度轨迹** —— "渐隐 / 无硬切 / 无白闪"的机器判据
+
+**现状取证**（`file:line`）：T2 = `SplashOverlay.ets:145-149` 的 `animateTo(animEaseOut(), …)`，把**整层**
+`Stack` 的 `.opacity(this.overlayOpacity)`（`:224`）由 `1 → 0`（标记**再乘**自身 `markOpacity→0`
+⇒ 标记比底更快隐去 = "让位"的层次）。曲线 `animEaseOut()`（`components/anim.ets:103`）=
+`MOTION_SLOW_MS`(**320ms**) + `EASE_OUT_CSS`(`cubic-bezier(0,0,0.2,1)`，**零超调**)。
+**中间态 = 灰**（品牌底以**均匀 α** 叠在应用页面上：`α·品牌底 + (1-α)·应用底`）——
+⛔ **不是"半透明白"**：整层是同一个 α，没有"白色蒙层"这一层。
+
+**纯逻辑判据**：`core/splash.ets` 的 `splashExitOpacityAt(elapsedMs, reduceMotion)`（由
+`SPLASH_EXIT_MS`(=motion) + `EASE_OUT_CSS`(=tokens) **派生**，曲线用 `curveProgressAt` 离线二分求值）：
+
+| 性质 | 断言 | 为什么它等于"无硬切/无白闪" |
+|---|---|---|
+| 端点 | `t≤0 ⇒ 1`、`t≥EXIT ⇒ 0` | 满铺起步、让位收尾 |
+| **值域 [0,1]** | 全程 `0 ≤ α ≤ 1` | 无超调 ⇒ α 不越界 ⇒ 合成色**永不亮于目的地** ⇒ **无"白闪一帧"** |
+| **单调不增** | 采样 101 点非增 | 一致朝目的地走，不来回抖 |
+| **存在中间态** | ∃ t: `α ∈ (0,1)` | 是**渐隐**，不是硬切 |
+| `reduceMotion` | 即时 `0`（T2 收起） | 硬切 = "只降动效"的**既有裁决**（§5），⛔ 不属"渐隐"要求范围 |
+| 深色主题 | `splashBrandCanvas() === paletteOf('dark').appBg` | 品牌底与应用页**同色** ⇒ 过渡无色差 ⇒ **不可见（无感）** |
+
+判据 = `tools/tests/splash.test.ts ★I`；两条 mutation 已自证：曲线换 `EASE_SPRING_CSS`（超调）⇒
+"值域[0,1]"+"单调不增"**必红**；把轨迹退化成阶跃（`t<EXIT?1:0`）⇒ "存在中间态"**必红**。
+
+> 同源机制：判据与渲染**共用同一 token**（时长 `MOTION_SLOW_MS` + 曲线 `EASE_OUT_CSS`），
+> 而非耦合调用（`animateTo` 的中间帧由 ArkUI 驱动，组件不能逐帧设值）。组件侧源码形态也在 ★I 里被钉住。
+
 ## 5. `reduceMotion` 阶段表（**只降动效、不降可达性**）
 
 铁律：`reduceMotion=true` ⇒ **降级的是"动"，不是"反馈"**。⛔ 不许出现"空白屏 / 无任何指示"。
@@ -236,7 +263,7 @@ function curveHasOvershoot(css: string): boolean;            // 解析 cubic-bez
 |---|---|---|---|
 | T0 | 系统静态开屏 | 同左 | 系统负责 |
 | T1 | 标记 `opacity 0→1` + `scale→1`（220ms spring） | **静态**：标记**立即**全亮、**scale=1**，停留到 `minDwellMs` | 标记**可见**（有反馈，非空白） |
-| T2 | 标记 `opacity 1→0`（320ms spring） | **收起为 0ms**（跳切到 T3） | 内容立即出现（不淡入≠不可达） |
+| T2 | **整层** `opacity 1→0`（320ms **ease-out**，零超调；标注记 `opacity 1→0`） | **收起为 0ms**（跳切到 T3） | 内容立即出现（不淡入≠不可达） |
 | T3 | 光球呼吸（2560ms） | 光球**静态一帧**（`reduceMotion` 已是光球既有停表条件，见 `components/AssistantOrb.ets` 头注） | 仍有"在跑"的**静态**线索（状态点/文案） |
 | 时长 | T1+T2=540ms | **总时长 = `minDwellMs`（建议 400ms）** | 品牌**至少**停留 minDwell |
 
