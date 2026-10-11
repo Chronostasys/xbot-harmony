@@ -51,8 +51,10 @@ export class SheetSpec {
 export function sheetSpecs(): SheetSpec[] {
   return [
     new SheetSpec('drawer', 'showDrawer', 'DrawerSheet', '会话抽屉'),
-    new SheetSpec('settings', 'showSettings', 'SettingsSheet', '设置'),
-    new SheetSpec('prefs', 'showPrefs', 'PrefsSheet', '设置'),
+    // ⚠️ 收敛（2026-10-11）：`settings` / `prefs` 两个**旧**设置面板已退休 —— 三入口
+    //    （右上角 ⚙ / 侧边栏 / 面板内按钮）收敛到 `SettingsPanel`（= 下面 `settingsPanel` 一行，
+    //    唯一设置面）。页面里那两个 `@Builder`（`SettingsSheet`/`PrefsSheet`）由 sidebar-ux 删除。
+    //    ⛔ 它们**不再入表** ⇒ 源码扫描不再钉它们（否则"删不掉"）。
     new SheetSpec('model', 'showModel', 'ModelSheet', '模型与上下文'),
     new SheetSpec('panels', 'showPanels', 'PanelsSheet', '面板'),
     new SheetSpec('settingsPanel', 'showSettingsPanel', '', '偏好设置（全屏）'),

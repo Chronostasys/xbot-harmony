@@ -12,11 +12,14 @@
  *      ⇒ 任何"写错 flag"的面板都会让本用例**变红**。
  *
  * ⚠️ **判别力自证（改动下列任一锚点 ⇒ 本测试必红）**：
- *   · 把 `closeFlagOf('prefs')` 的值改回 `'showSettings'`（sheets.ets 的 flag 表）
- *     ⇒ 断言 2 在 `PrefsSheet` 上红（源码写的是 `showPrefs`，与表不符）——这正是历史病灶。
- *   · 把 `Index.ets` 里 `PrefsSheet` 头部 X 的 `showPrefs` 改回 `showSettings`
+ *   · 把 `closeFlagOf('drawer')` 的值改成 `'showModel'`（sheets.ets 的 flag 表）
+ *     ⇒ 断言 2 在 `DrawerSheet` 上红（源码写的是 `showDrawer`，与表不符）——与历史病灶同类。
+ *   · 把 `Index.ets` 里 `DrawerSheet` 头部 X 的 `showDrawer` 改成别的 flag
  *     ⇒ 源码扫描红（同一次历史 bug 的**另一半**）。
  *   · 让两个面板共用同一个 flag ⇒ `sheetsIssues()` 红（"关错人"的结构性前提被破坏）。
+ *
+ * ⚠️ 历史病灶（`PrefsSheet` 的 X 写了 `showSettings`）已随**收敛**退场：那两个旧 `@Builder`
+ *    不再入表（`core/sheets.ets` 注释有说明），故本用例对它们"跳过"而非"钉死"。
  *
  * ⚠️ 结尾必须 `process.exit(...)`（`run.sh` 用 `set -e` 顺序跑，不退出会挂住整个套件）。
  */
@@ -88,12 +91,7 @@ describe('sheets：面板 flag 表自洽（id/flag 唯一、id↔flag 一一对�
 });
 
 describe('sheets：源码里每个浮层 @Builder 的 X 关闭 flag == closeFlagOf(id)', () => {
-  it('PrefsSheet 的 X 关的是自己的 flag（历史病灶·用户报「点 X 无反应」）', () => {
-    expect(closeFlagOf('prefs')).toBe('showPrefs');
-    expect(closeFlagInBody(builderBody('PrefsSheet'))).toBe(closeFlagOf('prefs'));
-  });
-
-  it('全部浮层 @Builder 逐一核对（缺 X 的跳过；有 X 的必须写自己的 flag）', () => {
+  it('全部浮层 @Builder 逐一核对（缺 X / builder 已删 ⇒ 跳过；有 X 的必须写自己的 flag）', () => {
     const all: SheetSpec[] = sheetSpecs();
     for (let i = 0; i < all.length; i++) {
       const s: SheetSpec = all[i];
