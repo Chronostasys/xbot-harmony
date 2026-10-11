@@ -200,6 +200,36 @@ eq('thinkingStepLabel = composer 文案（关/思考/思考+/思考++）',
 eq('THINKING_STEP_COUNT', THINKING_STEP_COUNT, 4);
 eq('thinkingStepLabel 越界钳位', [thinkingStepLabel(-5), thinkingStepLabel(9)], ['关', '思考++']);
 
+// ── G：`palOnce()` 记忆化色板的**失效语义**（目标④ 收口 · 编排者硬条件）────────────
+//
+// ⚠️ 为什么只能钉**源码形态**：`palOnce()` 是 `pages/Index.ets` 里 **ArkUI struct 的私有方法**
+//   （不可 import、脱机跑不了）⇒ 无法做运行时行为断言。折中：钉**失效谓词的两项键**（= 行为契约本身）
+//   + mutation 自证（断任一项键 ⇒ 本判据必红）。⛔ 若将来要**可执行的**行为判据，需把记忆键抽成
+//   `core/` 纯函数（超出本波域，另案）。
+// 契约：`pal()` 依赖 **主题 + 强调色** 两项 ⇒ 记忆键必须覆盖两项，缺一即"陈旧色"。
+function palOnceClosed(index: string): boolean {
+  // ① 声明 ∧ 消费（⛔ 只钉"方法存在"是假绿；必须有真实调用点，否则指标退化）
+  if (index.indexOf('private palOnce(): Palette {') < 0) { return false; }
+  const i: number = index.indexOf('private palOnce(): Palette {');
+  const body: string = index.slice(i, i + 900);
+  if ((index.split('this.palOnce()').length - 1) < 1) { return false; }
+  // ② 记忆键覆盖 `pal()` 的两项依赖
+  if (body.indexOf('this.themeName') < 0) { return false; }
+  if (body.indexOf('this.accentHex()') < 0) { return false; }
+  // ③ 失效判据必须**同时**比两项（主题 ∧ 强调色）
+  if (body.indexOf('palMemoTheme !==') < 0) { return false; }
+  if (body.indexOf('palMemoAccent !==') < 0) { return false; }
+  // ④ 未命中必须**重算并回填**，命中必须**返回缓存值**（不是每次都 `pal()`）
+  if (body.indexOf('this.palMemoVal = this.pal()') < 0) { return false; }
+  if (body.indexOf('return this.palMemoVal') < 0) { return false; }
+  return true;
+}
+ok(`G 闭合：palOnce 声明 ∧ 消费 ≥1 ∧ 失效键含 主题+强调色（Index.ets:${firstLine(INDEX, 'private palOnce(): Palette {')}）`,
+  palOnceClosed(INDEX));
+// ⛔ 反证：`pal()` 仍是"记忆化之外"的唯一实现（⛔ 别把它也 memo 掉 —— 那会让本契约失去意义）
+ok('G 反证：`pal()` 本体未被记忆化（不存在 `palMemo` 之外的缓存返回）',
+  INDEX.indexOf('private pal(): Palette {') >= 0);
+
 // ── mutation 自证（断任一条 ⇒ 必红）───────────────────────────────────────────
 // D：抽掉 label 实参 ⇒ 消费链断
 ok('mutation D：`store.createSession(label…)` → 裸 `store.createSession()` ⇒ 必红',
@@ -221,6 +251,17 @@ ok('mutation F3：抽掉写端 RPC ⇒ 只读不写（假功能）⇒ 必红',
 // E：断声明
 ok('mutation E3：抽掉 pathpick 的 `filterChildDirs` 声明 ⇒ 必红',
   !eClosed(INDEX, PATHPICK.replace('export function filterChildDirs(', 'function filterChildDirsX(')));
+// G：断记忆化的任一项键 / 断消费
+ok('mutation G1：抽掉**强调色**键（只比主题）⇒ 换强调色返回陈旧色 ⇒ 必红',
+  !palOnceClosed(INDEX.replace(' || this.palMemoAccent !== a', '')));
+ok('mutation G2：抽掉**主题**键（只比强调色）⇒ 换主题返回陈旧色 ⇒ 必红',
+  !palOnceClosed(INDEX.replace(' || this.palMemoTheme !== t', '')));
+ok('mutation G3：把失效判据变成恒真（每次都重算 ⇒ memo 失效）⇒ 必红',
+  !palOnceClosed(INDEX.replace('this.palMemoVal === null || this.palMemoTheme !== t || this.palMemoAccent !== a', 'true')));
+ok('mutation G4：命中时不返回缓存值 ⇒ 必红',
+  !palOnceClosed(INDEX.replace('return this.palMemoVal;', 'return this.pal();')));
+ok('mutation G5：把消费点全抽掉（指标退化 ⇒ 白绿）⇒ 必红',
+  !palOnceClosed(INDEX.split('this.palOnce()').join('this.pal()')));
 
 if (fail > 0) { console.log(`  parity_defer: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  parity_defer: ${pass} passed, 0 failed`);

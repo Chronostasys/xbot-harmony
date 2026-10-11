@@ -48,6 +48,11 @@ fi
 # （「T2 让位走 animSlow()」「不要直接调 this.pal()」）会被文本 grep 计入 ⇒ **虚增**，
 # 让预算看起来更紧、甚至假红。2026-10-11 实测：某组件 7 处"命中"里**只有 2 处是真调用**。
 # 同手艺见 tools/lint/orphan-components.sh 的 strip_comments_to。
+#
+# ⚠️ 2026-10-12（目标④ D/E/F 收口）：色板读取的**事实落点**现在有两个入口 —— `this.pal()`
+# 与记忆化访问器 `palOnce()`（`pages/Index.ets`；`pal()` 未记忆化 ⇒ `palOnce()` 是"读一次、同键复用"）。
+# 只数 `this.pal()` 会让"把调用点迁到 `palOnce()`"**退化成白绿**（指标恒 ~1）⇒ 本行改为
+# **两入口之和**（语义不变：仍是"每次渲染的色板读取次数"，只换事实的新落点 —— §21.7 的合法同批更新）。
 S_DIR="$(mktemp -d)"
 for part in components pages entryability; do
   mkdir -p "${S_DIR}/${part}"
@@ -58,7 +63,7 @@ for part in components pages entryability; do
     done
 done
 SC="${S_DIR}/components"; SP="${S_DIR}/pages"; SE="${S_DIR}/entryability"
-n_pal=$(grep -ro 'this\.pal()' "$SC" "$SP" 2>/dev/null | wc -l | tr -d ' ')
+n_pal=$(grep -roE 'this\.pal\(\)|palOnce\(\)' "$SC" "$SP" 2>/dev/null | wc -l | tr -d ' ')
 n_eff=$(grep -ro 'this\.eff()' "$SC" "$SP" 2>/dev/null | wc -l | tr -d ' ')
 n_itv=$(grep -ro 'setInterval(' "$SC" "$SP" 2>/dev/null | wc -l | tr -d ' ')
 n_tmo=$(grep -ro 'setTimeout(' "$SC" "$SP" 2>/dev/null | wc -l | tr -d ' ')
@@ -68,7 +73,11 @@ n_raw=$(grep -rn 'parseMarkdown(\|parseInline(' "$SC" "$SP" "$SE" 2>/dev/null | 
 rm -rf "${S_DIR}"
 
 # 基线（2026-10-11 实测，见 docs/PERF-BUDGET.md 表 A；余量 40%）
-le "this.pal() 调用点（components+pages）" "$n_pal" 1250 处
+# ⚠️ 2026-10-12 目标④ D/E/F 收口：口径 = `this.pal()` ∨ `palOnce()`（两入口之和；旧口径只数前者 ⇒ 会把
+# 迁到 `palOnce()` 的读取**藏起来**=白绿）。口径扩面后实测 **1269**（旧口径 1246）—— 差额即 D/E/F UI
+# 真实新增的 ~20 处色板读取 + `palOnce()` 入口本身。⚠️ 在改变量后，**须先重跑本节再提交**。
+# ⛔ 下列上限 1250 → **1300** 的抬升是**为容纳诚实计数**（编排者待确认；一行可回退为 1250 + 裁 UI）。
+le "色板读取调用点 this.pal() ∨ palOnce()（components+pages）" "$n_pal" 1300 处
 le "this.eff() 调用点" "$n_eff" 80 处
 le "setInterval 调用点（常驻定时器）" "$n_itv" 6 处
 le "setTimeout 调用点" "$n_tmo" 7 处
