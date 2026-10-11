@@ -1,22 +1,39 @@
 /**
- * SettingsPanel —— **设置面唯一容器**（工具 / 模型 / 智能体 三个分区的 tab 聚合）。
+ * SettingsPanel —— **设置面唯一容器**（全部分区 tab 聚合；`docs/REDESIGN.md` 的收敛落点）。
  *
  * 为什么要有它：
  *  1. **单一注入点**：`pages/Index.ets` 是热文件（5000+ 行，多线并行改）。设置面板全部收敛到
- *     这一个组件 ⇒ 入口接线只需一行 `SettingsPanel({ http: store.http, theme: this.theme })`。
+ *     这一个组件 ⇒ 入口接线只需一行 `SettingsPanel({ ... })`。
  *  2. **消孤儿 / 真编译覆盖**：`components/*.ets` 里没有任何其它文件引用的 `export struct`
  *     **不会被编进 ArkTS 依赖图**，它里面的 ArkTS 错误编译期不报（见 `docs/ARKTS-GOTCHAS.md`
- *     批次13、`tools/lint/orphan-components.sh`）。本组件**真实实例化**三个分区面板 ⇒
+ *     批次13、`tools/lint/orphan-components.sh`）。本组件**真实实例化**各分区面板 ⇒
  *     它们被真编译覆盖（不再是"假绿"）。
  *
- * ⛔ 真 `@Component` + `@Prop`；**禁止**带参全局 `@Builder`（参数是调用那一刻的快照，子树不重建）。
+ * ── 收敛（2026-10-11 用户亲报「两个设置面板」）────────────────────────────────
+ *   决议：**唯一实现 = 本组件**；页面内联的 `PrefsSheet`（本地外观）与 `SettingsSheet`
+ *   （服务端/账号）**删除**，入口（右上角 ⚙ / 侧边栏）都指向本组件。
+ *   `PrefsSheet` 的本地外观项已逐条搬到 `components/SettingsAppearance.ets`（本组件的「外观」分区）。
+ *   ⚠️ `pages/Index.ets` 归 `sidebar-ux`：入口收敛、删除两个页面 `@Builder`、把
+ *      `onClose`/`settings`/… 注入**由它接**（见文件尾「注入契约」）。
+ *
+ * ── 关闭（P0 结构性防线）──────────────────────────────────────────────────────
+ *   全屏面板的 **X 与返回都走 `onClose`**（真 `@Component` + `@Prop`，⛔ 不用带参全局 `@Builder`）
+ *   ⇒ 面板**自己拥有**关闭入口，不再依赖"页面在别处画的 X 恰好写了对的 flag"
+ *   （历史 P0：页面 X 写了别的面板的 flag ⇒ 点 X 无反应；`core/sheets.ets` 是同类扫描的判据源）。
+ *
+ * ⛔ 视觉只消费 `core/design.ets` 语义令牌 + `components/SettingsRows.ets` 共享原子（禁字面量）。
  */
 import { Palette, paletteOf } from '../core/theme';
 import { XbotHttp } from '../core/http';
-import { FS_CAPTION, R_LG, R_XL, SP_2, SP_3, SP_5 } from '../core/tokens';
+import {
+  INSET_CARD_X, INSET_CARD_Y, INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, RADIUS_PILL,
+  STROKE_HAIRLINE, HIT_TARGET_MIN, SPACE_XS, SPACE_SM, SPACE_MD, SPACE_LG,
+  hairlineOf, surfaceFillOf,
+} from '../core/design';
 import { SettingsAbout } from './SettingsAbout';
 import { SettingsAccount } from './SettingsAccount';
 import { SettingsAgent } from './SettingsAgent';
+import { SettingsAppearance } from './SettingsAppearance';
 import { SettingsDeveloper } from './SettingsDeveloper';
 import { SettingsLlm } from './SettingsLlm';
 import { SettingsStorage } from './SettingsStorage';
@@ -25,13 +42,14 @@ import { SettingsWebUsers } from './SettingsWebUsers';
 import { SettingsPlugins } from './SettingsPlugins';
 import { SettingsChannels } from './SettingsChannels';
 import { fallbackTabId, SettingsTabSpec, visibleTabs } from '../core/settingsplugins';
-import { SettingsErrorBar, SettingsPanelHeader, SettingsToolRow } from './SettingsRows';
+import { fs, fw, lh, SettingsErrorBar, SettingsPanelHeader, SettingsToolRow, tc, tk } from './SettingsRows';
 import { KEY_NOTIFY_DETAIL, notifyPrefValue, notifyPrefsFrom, settingLabel } from '../core/settings';
 import {
   GetSettingsParams, readableRpcError, rpc, RPC_GET_SETTINGS, RPC_SET_SETTING, SETTINGS_NS_CLI, SetSettingParams,
 } from '../core/rpc';
 
 /** 分区 id（tab 顺序 = 此顺序）。 */
+export const SETTINGS_TAB_APPEARANCE: string = 'appearance';
 export const SETTINGS_TAB_TOOLS: string = 'tools';
 export const SETTINGS_TAB_LLM: string = 'llm';
 export const SETTINGS_TAB_AGENT: string = 'agent';
@@ -61,12 +79,13 @@ export const SETTINGS_TAB_NOTIFY: string = 'notify';
 /**
  * 全部分区规格（**唯一来源**：id + 显示名 + 是否已实现）。
  *
- * ⛔ 判据不在 build() 里散写：`components/SettingsPanel.build` 只消费 `shouldShowTab`
+ * ⛔ 判据不在 build() 里散写：`build` 只消费 `shouldShowTab`
  *    （`core/settingsplugins.ets`，可脱机单测）—— 未实现的分区**一律不出现**，
  *    而不是渲染一个空壳让用户以为"坏了"。
  */
 function settingsTabSpecs(): SettingsTabSpec[] {
   return [
+    new SettingsTabSpec(SETTINGS_TAB_APPEARANCE, '外观', true),
     new SettingsTabSpec(SETTINGS_TAB_TOOLS, '工具', true),
     new SettingsTabSpec(SETTINGS_TAB_LLM, '模型', true),
     new SettingsTabSpec(SETTINGS_TAB_AGENT, '智能体', true),
@@ -86,10 +105,36 @@ export struct SettingsPanel {
   /** HTTP 客户端（由页面注入 `store.http`）。默认空实例只为满足 ArkTS 成员初始化。 */
   http: XbotHttp = new XbotHttp('');
   @Prop theme: string = 'dark';
-  /** 初始分区（可选；默认「工具」）。 */
-  @Prop initialTab: string = SETTINGS_TAB_TOOLS;
+  /** 初始分区（可选；默认「外观」）。 */
+  @Prop initialTab: string = SETTINGS_TAB_APPEARANCE;
 
-  @State private active: string = SETTINGS_TAB_TOOLS;
+  // ── 注入契约（由页面注入；`Index.ets` 侧归 sidebar-ux）────────────────────────
+  /** 关闭面板（页面置 `showSettingsPanel = false`）。**X 与返回都走它。** */
+  onClose: () => void = () => {
+  };
+  /** 服务端设置镜像（页面 `store.settings`）——「外观」分区显示值只从这里派生。 */
+  @Prop settings: Record<string, string> = {};
+  /** 聊天界面是否内嵌网页（页面 `useWebUI`）。 */
+  @Prop surfaceWeb: boolean = false;
+  /** 系统通知授权状态（页面 `notifyOn`）。 */
+  @Prop notifyOn: boolean = false;
+  /** 写一项设置（页面 `setSetting`）。 */
+  onSetSetting: (key: string, value: string) => void = () => {
+  };
+  /** 切换主题（页面：置 `themeName` + 落盘 + `syncSystemTheme`）。 */
+  onSetTheme: (t: string) => void = () => {
+  };
+  /** 切换承载方式（页面 `setSurface`）。 */
+  onSetSurface: (web: boolean) => void = () => {
+  };
+  /** 通知提醒开关（页面 `applyNotifyToggle`）。 */
+  onSetNotify: (on: boolean) => void = () => {
+  };
+  /** 重读设置（页面重拉 `store.loadSettings()`）。 */
+  onRefresh: () => void = () => {
+  };
+
+  @State private active: string = SETTINGS_TAB_APPEARANCE;
 
   aboutToAppear(): void {
     // ⛔ 用**规格门控**回落：`initialTab` 若指向未实现（被隐藏）的分区 ⇒ 落到首个可见分区。
@@ -156,7 +201,7 @@ export struct SettingsPanel {
   /** 通知分区内容（无参 `@Builder` ⇒ 读 `this`，随状态重建）。 */
   @Builder
   NotifySection() {
-    Column({ space: SP_3 }) {
+    Column({ space: SPACE_SM }) {
       SettingsPanelHeader({
         title: '通知',
         subtitle: '控制系统通知的内容与触发（与 Web 端共用同一份服务端偏好）。',
@@ -179,29 +224,66 @@ export struct SettingsPanel {
         })
       }
       .width('100%')
-      .padding(SP_2)
-      .backgroundColor(this.pal().surface)
-      .borderRadius(R_XL)
-      .border({ width: 1, color: this.pal().border })
+      .padding({ left: INSET_CARD_X, right: INSET_CARD_X, top: INSET_CARD_Y, bottom: INSET_CARD_Y })
+      .backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))
+      .borderRadius(RADIUS_CARD)
+      .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
     }
     .width('100%')
     .height('100%')
     .alignItems(HorizontalAlign.Start)
   }
 
-  /** 分区切换条（与各面板的"片"同视觉语言）。5 个分区 ⇒ 横向可滚，避免窄屏挤爆。 */
+  /**
+   * 面板头部（标题 + 关闭 X）。
+   *
+   * ⛔ X 走 `onClose`（面板**自己**的关闭入口）——见 `core/sheets.ets` 的 flag 所有权表。
+   * ⚠️ 收敛后 `pages/Index.ets` **不再**画这层头部（原 `:2707-2714` 由 sidebar-ux 删）。
+   */
+  @Builder
+  Header() {
+    Row() {
+      Text('偏好设置')
+        .fontSize(fs('type.headline'))
+        .fontWeight(fw('type.headline'))
+        .lineHeight(lh('type.headline'))
+        .letterSpacing(tk('type.headline'))
+        .fontColor(tc(this.pal(), 'type.headline'))
+        .layoutWeight(1)
+      SymbolGlyph($r('sys.symbol.xmark'))
+        .fontSize(fs('type.headline'))
+        .fontColor([this.pal().textSecondary])
+        .padding(SPACE_MD)
+        .onClick(() => {
+          this.onClose();
+        })
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Center)
+    .padding({ left: SPACE_LG, right: SPACE_XS, top: SPACE_XS, bottom: SPACE_XS })
+  }
+
+  /** 分区切换条（与各面板的"片"同视觉语言）。分区多 ⇒ 横向可滚，避免窄屏挤爆。 */
   @Builder
   TabBar() {
     Scroll() {
-      Row({ space: SP_2 }) {
+      Row({ space: SPACE_XS }) {
         ForEach(this.tabs(), (t: SettingsTabSpec) => {
           Text(t.label)
-            .fontSize(FS_CAPTION)
-            .fontColor(t.id === this.active ? this.pal().onAccent : this.pal().textSecondary)
-            .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-            .backgroundColor(t.id === this.active ? this.pal().accent : this.pal().surfaceAlt)
-            .borderRadius(R_LG)
-            .border({ width: 1, color: t.id === this.active ? this.pal().accent : this.pal().border })
+            .fontSize(fs('type.caption'))
+            .fontWeight(fw('type.caption'))
+            .lineHeight(lh('type.caption'))
+            .fontColor(t.id === this.active ? this.pal().onAccent : tc(this.pal(), 'type.caption'))
+            .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+            .backgroundColor(t.id === this.active
+              ? this.pal().accent
+              : surfaceFillOf(this.pal(), 'surface.chip'))
+            .borderRadius(RADIUS_PILL)
+            .border({
+              width: STROKE_HAIRLINE,
+              color: t.id === this.active ? this.pal().accent : hairlineOf(this.pal()),
+            })
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
             .onClick(() => {
               this.active = t.id;
               // 通知偏好**按需**拉取（首次进入该分区才发 RPC，避免每次打开设置都打服务端）
@@ -218,11 +300,24 @@ export struct SettingsPanel {
   }
 
   build() {
-    Column({ space: SP_3 }) {
+    Column({ space: SPACE_SM }) {
+      this.Header()
       this.TabBar()
 
       // ⚠️ 各分区面板都 `height('100%')`，用 if/else 只挂一个（避免多份同时发请求）。
-      if (this.active === SETTINGS_TAB_LLM) {
+      if (this.active === SETTINGS_TAB_APPEARANCE) {
+        SettingsAppearance({
+          settings: this.settings,
+          theme: this.theme,
+          surfaceWeb: this.surfaceWeb,
+          notifyOn: this.notifyOn,
+          onSetSetting: this.onSetSetting,
+          onSetTheme: this.onSetTheme,
+          onSetSurface: this.onSetSurface,
+          onSetNotify: this.onSetNotify,
+          onRefresh: this.onRefresh,
+        })
+      } else if (this.active === SETTINGS_TAB_LLM) {
         SettingsLlm({ http: this.http, theme: this.theme })
       } else if (this.active === SETTINGS_TAB_AGENT) {
         SettingsAgent({ http: this.http, theme: this.theme })
@@ -259,6 +354,6 @@ export struct SettingsPanel {
     .width('100%')
     .height('100%')
     .alignItems(HorizontalAlign.Start)
-    .padding({ left: SP_5, right: SP_5, top: SP_3 })
+    .padding({ left: SPACE_LG, right: SPACE_LG, top: SPACE_XS })
   }
 }
