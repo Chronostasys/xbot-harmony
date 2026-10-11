@@ -68,23 +68,41 @@ const ITEM_INDENT: number = 24;
 const FS_MICRO: number = 10;
 
 /**
+ * 面板里**一个条目**的可观察数据（`@ObjectLink` 目标）。
+ *
+ * ⛔ 为什么需要它（本波修的 §12 #18）：`active` 变化若靠 **ForEach key 变化** 驱动重建
+ *   （旧实现：key 含 `A|w`），滚动时 `activeSeq` 每变一次就要**销毁+重建**两项 ⇒ 闪动。
+ *   web `MessageUserNav.tsx:175` 的 key 恒为 `turn.seq`、只切 className。
+ *   ArkUI 的等价机制 = 把会变的字段放进 `@Observed class`、子组件用 `@ObjectLink` 观察
+ *   —— **key 恒定**（身份 = rowIndex#seq）而**内容仍能穿透**（属性变更通知子组件重渲染）。
+ */
+@Observed
+class NavRow {
+  /** 1-based 序号（面板显示 `01`/`02`…）。 */
+  seq: number = 1;
+  /** 该用户消息在行列表中的下标（跳转目标）。 */
+  rowIndex: number = 0;
+  /** 序号文字（`seqLabel(seq)` 预算，避免 build 内重复拼串）。 */
+  seqText: string = '';
+  /** 用户消息全文（显示 2 行截断）。 */
+  userText: string = '';
+  /** 同 turn 首个 assistant 回复（1 行截断；空 ⇒ 不显示该行）。 */
+  assistantText: string = '';
+  /** 是否为"当前可视"条目（高亮 `bg-accent/10`）。**变化不换 key**（@ObjectLink 观测属性即可）。 */
+  active: boolean = false;
+}
+
+/**
  * 面板里的**一个条目**（web `MessageUserNav.tsx:173-204`）。
  *
- * ⛔ 独立 `@Component` + `@Prop`（不是带参 @Builder）：`active` 变化必须驱动重渲染，
- *   否则高亮卡在首帧（ARKTS-GOTCHAS §4）。父级 ForEach 的 key 同时把 `active` 编进去
- *   —— ArkUI 的 ForEach **key 不变则不重建该项**（§3），@Prop 更新依赖父级重新执行 item
- *   builder，故 key 必须随 active 变化（与 `rowdiff.sessionScopedRowKey` 的 rev 同源手法）。
+ * ⛔ 必须是 `@ObjectLink`（不是 `@Prop`）：`@Prop` 对**对象**是深拷贝，且 ForEach 复用节点时
+ *   不重估参数（ARKTS-GOTCHAS §3/§4）—— 旧实现只能用"key 含 active"逼重建（=闪动）。
+ *   `@ObjectLink` 观察 `NavRow` 的属性变更，与 key 解耦 ⇒ **按键稳定 且 高亮正确**。
  */
 @Component
 struct NavItemView {
-  /** 序号文字（`01`/`02`…）。 */
-  @Prop seqLabel: string = '';
-  /** 用户消息全文（显示 2 行截断）。 */
-  @Prop userText: string = '';
-  /** 同 turn 首个 assistant 回复（1 行截断；空 ⇒ 不显示该行）。 */
-  @Prop assistantText: string = '';
-  /** 是否为"当前可视"条目（高亮 `bg-accent/10`）。 */
-  @Prop active: boolean = false;
+  /** 行数据（`@Observed` ⇒ 属性变更驱动本组件重渲染）。 */
+  @ObjectLink row: NavRow;
   @Prop theme: string = 'dark';
   /** 点击 → 页面跳转（并收起面板）。 */
   onPick: () => void = () => {
@@ -97,11 +115,11 @@ struct NavItemView {
   build() {
     Column() {
       Row({ space: SP_1 + 2 }) {   // web `gap-1.5` = 6px
-        Text(this.seqLabel)
+        Text(this.row.seqText)
           .fontSize(FS_MICRO)
           .fontFamily('monospace')   // web `font-mono`
           .fontColor(this.pal().textMuted)
-        Text(userTextOrPlaceholder(this.userText))
+        Text(userTextOrPlaceholder(this.row.userText))
           .fontSize(FS_CAPTION)      // web `text-xs`
           .fontColor(this.pal().textPrimary)
           .maxLines(2)               // web `line-clamp-2`
@@ -113,8 +131,8 @@ struct NavItemView {
       .width('100%')
       .alignItems(VerticalAlign.Top)
 
-      if (this.assistantText.length > 0) {
-        Text(this.assistantText)
+      if (this.row.assistantText.length > 0) {
+        Text(this.row.assistantText)
           .fontSize(FS_MICRO)
           .fontColor(this.pal().textMuted)
           .maxLines(1)               // web `line-clamp-1`
@@ -129,7 +147,7 @@ struct NavItemView {
     .alignItems(HorizontalAlign.Start)
     .padding({ left: ITEM_PAD_X, right: ITEM_PAD_X, top: ITEM_PAD_Y, bottom: ITEM_PAD_Y })
     // 当前项高亮（web `bg-accent/10`）；其余透明
-    .backgroundColor(this.active ? withAlpha(this.pal().accent, ACCENT_TINT) : this.pal().transparent)
+    .backgroundColor(this.row.active ? withAlpha(this.pal().accent, ACCENT_TINT) : this.pal().transparent)
     .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
     .onClick(() => {
       this.onPick();
@@ -149,9 +167,9 @@ export struct MessageNav {
    * 用户消息锚点（由页面用 `core/msgindex.ets:buildAnchors(rows, userAnchorRows(rows))` 生成）。
    * 长度 < 2 ⇒ **不渲染任何节点**。
    */
-  @Prop anchors: NavAnchor[] = [];
+  @Prop @Watch('syncRows') anchors: NavAnchor[] = [];
   /** 当前可视锚点序号（1-based；0 = 无）—— `core/msgindex.ets:nearestSeq`。 */
-  @Prop activeSeq: number = 0;
+  @Prop @Watch('syncRows') activeSeq: number = 0;
   /** 跳转回调：页面收到行下标后 `scrollToIndex` 并解除贴底跟随。 */
   onNavigate: (rowIndex: number) => void = (rowIndex: number) => {
   };
@@ -159,8 +177,46 @@ export struct MessageNav {
 
   /** 面板是否展开（点击切换；点浮层外由 `onWillDismiss` 收起）。 */
   @State open: boolean = false;
+  /**
+   * 面板条目（`@Observed` 行数组）—— `anchors`/`activeSeq` 变化时经 `syncRows()` **就地更新**。
+   *
+   * ⛔ 为什么不在 build 里直接从 `anchors` 派生：`NavItemView` 用 `@ObjectLink` 观察行对象，
+   *    必须有一个**状态容器**承载并**复用同一批对象**（就地改字段 ⇒ 属性变更通知子组件），
+   *    ForEach 的 key 才能与 `active` 解耦（身份 = rowIndex#seq）。
+   */
+  @State rows: NavRow[] = [];
   /** 面板滚动器（展开时把 active 条目滚到中间 —— web `:129-136`）。 */
   private panelScroller: Scroller = new Scroller();
+
+  aboutToAppear(): void {
+    // @Prop 初值不触发 @Watch ⇒ 首帧手动同步一次（否则首次打开面板为空）。
+    this.syncRows();
+  }
+
+  /**
+   * 由 `anchors` + `activeSeq` 同步 `rows`（**就地更新**：按位复用同一 `NavRow` 实例，
+   * 只改字段 ⇒ @ObjectLink 观测到属性变更、ForEach key 不变）。
+   *
+   * ⛔ 不得每次都 `new NavRow()`：对象恒等变 ⇒ @ObjectLink 重绑 + 丢失"就地更新"语义。
+   */
+  private syncRows(): void {
+    const list: NavRow[] = [];
+    for (let i = 0; i < this.anchors.length; i++) {
+      const a: NavAnchor = this.anchors[i];
+      let r: NavRow | undefined = this.rows[i];
+      if (r === undefined || r.rowIndex !== a.rowIndex || r.seq !== a.seq) {
+        r = new NavRow();
+        r.rowIndex = a.rowIndex;
+        r.seq = a.seq;
+        r.seqText = seqLabel(a.seq);
+      }
+      r.userText = a.userText;
+      r.assistantText = a.assistantText;
+      r.active = a.seq === this.activeSeq;   // 属性变更 ⇒ @ObjectLink 子组件重渲染（不换 key）
+      list.push(r);
+    }
+    this.rows = list;
+  }
 
   private pal(): Palette {
     return paletteOf(this.theme);
@@ -226,25 +282,23 @@ export struct MessageNav {
   @Builder
   PanelBody() {
     List({ scroller: this.panelScroller }) {
-      ForEach(this.anchors, (a: NavAnchor) => {
+      ForEach(this.rows, (r: NavRow) => {
         ListItem() {
           NavItemView({
-            seqLabel: seqLabel(a.seq),
-            userText: a.userText,
-            assistantText: a.assistantText,
-            active: a.seq === this.activeSeq,
+            row: r,
             theme: this.theme,
             onPick: () => {
               // 跳转后收起（web `:183-187`）
-              this.onNavigate(a.rowIndex);
+              this.onNavigate(r.rowIndex);
               this.open = false;
             },
           })
         }
       },
-        // ⛔ key 必须含 active：ForEach key 不变 ⇒ 该项不重建 ⇒ @Prop `active` 不更新
-        //   ⇒ 高亮卡在旧位置（ARKTS-GOTCHAS §3）。含 active 后仅"旧/新当前项"两项重建。
-        (a: NavAnchor) => `${a.rowIndex}#${a.seq}#${a.seq === this.activeSeq ? 'A' : 'w'}`)
+        // ⛔ key **恒定**（身份 = 行下标 + 序号），**不含 active**（对齐 web `:175` `key={turn.seq}`）。
+        //   `active` 的变化经 `NavRow`（@Observed）+ 子组件 `@ObjectLink` 穿透 ⇒ 无需换 key
+        //   ⇒ 不再"滚动时销毁重建两项"（旧实现 key 含 `A|w`，是真机闪动源）。
+        (r: NavRow) => `${r.rowIndex}#${r.seq}`)
     }
     .width('100%')
     .constraintSize({ maxHeight: PANEL_MAX_H })   // web `max-h-[60vh]`
