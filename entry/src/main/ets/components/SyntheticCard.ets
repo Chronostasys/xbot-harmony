@@ -16,7 +16,7 @@
  *   带参 @Builder 的子树不随参数重建（`docs/ARKTS-GOTCHAS.md §4`）。
  */
 import { ToolProgress } from '../core/types';
-import { Effects, effectsOf, Palette, paletteOf, shadowRadiusOf } from '../core/theme';
+import { Effects, effectsOf, Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import { AnsiSpan, ansiBgOf, ansiFgOf, ansiPaletteOf, ansiSpansIfAny, hasAnsi } from '../core/ansi';
 import { FS_BODY, FS_CAPTION, R_LG, R_XL, SP_1, SP_2, SP_3 } from '../core/tokens';
 import {
@@ -178,8 +178,18 @@ export struct SyntheticCard {
     }
   }
 
+  /** 本卡的两层柔影（浅色 = 贴合 + 环境；深色 = 透明 + 原值）—— `core/theme.shadowLayersOf`。 */
+  private cardLayers(): ShadowLayer[] {
+    return shadowLayersOf(this.pal(), 'card');
+  }
+
   build() {
-    Column({ space: SP_2 }) {
+    // ── 多层柔影（C3）：`shadowLayersOf` 恒返 [near, far] ──────────────────────────────
+    // 浅色：near = 贴合影（小半径/1vp）、far = 环境影（大半径）⇒ 苹果式"落在纸面上"的层次；
+    // 深色：near **透明**（零成本、不渲染）、far = 该档原值 ⇒ 净观感**逐字节不变**。
+    // ⛔ ArkUI 每元素只能挂一层 `.shadow()`（`common.d.ts:21070`）⇒ 外层 Stack 承载 far。
+    Stack() {
+      Column({ space: SP_2 }) {
       // ── 头部：头像 + 标题 + 徽标行 ────────────────────────────────────────────
       Row({ space: SP_2 }) {
         Stack() {
@@ -291,7 +301,21 @@ export struct SyntheticCard {
     .backgroundColor(surfaceFillOf(this.pal(), SURFACE_PILL))
     .borderRadius(R_XL)
     .border({ width: 1, color: hairlineOf(this.pal()) })
-    // 中性柔影（`elev1` 深浅均**中性** ⇒ 白底不出彩色脏影；与 1ae9def/2ba1b67 同口径）
-    .shadow({ radius: shadowRadiusOf(this.pal(), 'card'), color: this.eff().elev1, offsetX: 0, offsetY: 2 })
+      // 贴合层（near）：浅色 = `elev1` 小半径贴合影（"接触影"）；深色 = 透明（不渲染 ⇒ 净观感不变）
+      .shadow({
+        radius: this.cardLayers()[0].radius,
+        color: this.cardLayers()[0].color,
+        offsetX: 0, offsetY: this.cardLayers()[0].offsetY,
+      })
+    }
+    // 环境层（far）：浅色 = 大半径环境柔影；深色 = 该档原值（`elev1` + 原半径/偏移，逐字节不变）
+    .width('100%')
+    .backgroundColor(surfaceFillOf(this.pal(), SURFACE_PILL))
+    .borderRadius(R_XL)
+    .shadow({
+      radius: this.cardLayers()[1].radius,
+      color: this.cardLayers()[1].color,
+      offsetX: 0, offsetY: this.cardLayers()[1].offsetY,
+    })
   }
 }

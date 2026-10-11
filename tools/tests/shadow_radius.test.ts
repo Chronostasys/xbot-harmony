@@ -108,13 +108,16 @@ function eq(name: string, got: unknown, want: unknown): void {
       && th.indexOf("if (tier === 'panel')") >= 0 && th.indexOf("if (tier === 'drawer')") >= 0);
 
     // ── ★④ 不留"未消费"：新档必须被真实调用点消费 ─────────────────────────────────
-    const consumers: string[] = ['SyntheticCard', 'AskUserSheet', 'MenuSheets', 'StatusSheet'];
+    // ⚠️ C3（2026-10-11）：`SyntheticCard` 改走 `shadowLayersOf(...,'card')`（多层柔影，C3）⇒
+    //    它不再直接调 `shadowRadiusOf`（card 档经 `shadowLayersOf` 内部消费，语义不变）。
+    const consumers: string[] = ['AskUserSheet', 'MenuSheets', 'StatusSheet'];
     for (let i = 0; i < consumers.length; i++) {
       const c: string = fsMod.readFileSync(pathMod.join(repo, `entry/src/main/ets/components/${consumers[i]}.ets`), 'utf-8');
       ok(`消费：${consumers[i]}.ets 用了 shadowRadiusOf`, c.indexOf('shadowRadiusOf(this.pal(),') >= 0);
     }
     const sc: string = fsMod.readFileSync(pathMod.join(repo, 'entry/src/main/ets/components/SyntheticCard.ets'), 'utf-8');
-    ok("  · 且走 'card' 档（= 原字面量 10 ⇒ 深色不变）", sc.indexOf("shadowRadiusOf(this.pal(), 'card')") >= 0);
+    ok("  · SyntheticCard 走 `shadowLayersOf(...,'card')`（C3 多层柔影；card 档 = 原字面量 10 ⇒ 深色不变）",
+      sc.indexOf("shadowLayersOf(this.pal(), 'card')") >= 0);
     const ms: string = fsMod.readFileSync(pathMod.join(repo, 'entry/src/main/ets/components/MenuSheets.ets'), 'utf-8');
     ok("  · sheet 走 'overlay' 档（= 原 SPACE_LG=20 ⇒ 深色不变）", ms.indexOf("shadowRadiusOf(this.pal(), 'overlay')") >= 0);
   }

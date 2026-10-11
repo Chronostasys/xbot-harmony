@@ -29,10 +29,12 @@ function eq(name: string, got: unknown, want: unknown): void {
 }
 
 // ⭐ 改动前录得的期望值（tsc+node 实跑，非自比）
+// ⚠️ C3（2026-10-11）：porcelain 行随浅色玻璃 0.80→0.84 / 0.70→0.86 同步更新
+//    （`#CCFFFFFF→#D6FFFFFF`、`#B3D8D8DC→#DBD8D8DC`）；base/dark 行**逐字节不变**。
 const BEFORE: string[][] = [
   ['base', '#9E0E0E14', '#8C2E2E3C', '18'],
   ['dark', '#9E0E0E14', '#8C2E2E3C', '18'],
-  ['porcelain', '#CCFFFFFF', '#B3D8D8DC', '18'],
+  ['porcelain', '#D6FFFFFF', '#DBD8D8DC', '18'],
 ];
 
 // ── ① `null` ⇒ 现状**逐字节**（用改前期望值比对）────────────────────────────────────

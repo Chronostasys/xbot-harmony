@@ -936,6 +936,83 @@ vs 深色黑柔影 **1.0206/1.0122** ⇒ 再次确认"浅色柔影比深色黑�
 
 ---
 
+## §18 浅色「光感白」材质再设计（C3，2026-10-11）
+
+> **backlog（本波起点）**：`sheen` / `elev` / `glass` 的**浅色档**此前只是**中性等价**（"把深色去色"），
+> 不是**重新设计的手感**。**用户判据**：「一套**特制**的、**原生独享**的应用白色主题」+ 苹果科技感
+> ⇒ 浅色档**不能只是"把深色去色"**。
+> 与 §13 的关系：§13 立了"浅色靠**结构**（发丝/白度差/柔影）分层"的**原则**；本波（C3）在**同一原则**下
+> 补**材质手感**（多层柔影 + 玻璃更实/亮边更明确），⛔ 不引入彩色辉光（§13.7 E2 仍成立）。
+
+### §18.1 取证：浅色档"现状取值 + 怎么从深色派生"（`core/theme.ets:buildEffects`）
+
+| token | 深色（`else` 臂 `:816-824`，**逐字节冻结**） | 浅色（`if (light)` 臂 `:788-813`，C3 前） | 浅色的"派生方式"（= backlog 说的"中性等价"） |
+|---|---|---|---|
+| `glassBg` | `glassBase@62%` | `glassBase@80%`（`:788`） | 同公式**只调高 alpha**（深色透光 ⇒ 浅色磨砂白） |
+| `glassBorder` | `borderStrong@55%` | `borderStrong@70%`（`:789`） | 同公式**只调高 alpha** |
+| `sheen` | `#FFFFFF@6%` | **`#000000@6%`（硬编码字面量，不走调色板）**（`:791`） | 白 → **黑的取反**（"浅底无法再提亮"） |
+| `elev1` | `legacyElev1Of` = `#000@24%`（`:706`） | `legacyElev1Of` = `textPrimary@6%`（`:793`） | 同一公式，深色黑@24% → 浅色**正文色**@6% |
+| `elev2` | `#000000@32%` | `textPrimary@7%`（`:798`，L3 由 @10% 降到 @7%） | 黑@32% → 正文色@7%（**去色 + 大幅降 alpha**） |
+| `elev3` | `#000000@42%` | `textPrimary@16%`（`:799`） | 黑@42% → 正文色@16% |
+| `glow` | `accent@45%` | `p.transparent`（`:810`，E2：浅色不出辉光） | 彩色 → **透明**（短路） |
+| `glowSoft` | `accent@22%` | `textPrimary@10%`（`:813`，V6 冻结） | 彩色 → 中性正文色@10% |
+
+**结论（= backlog 的实证）**：浅色档**每一个都是"深色同公式换基色/调 alpha"** ⇒ 有"正确性"，但没有
+**为白色主题专门设计**的**层次/材质结构**：柔影只有**单层**（一个 `.shadow()`）、玻璃只是"更不透明"。
+
+### §18.2 web 依据（只读 `/Users/bobli/src/xbot/web`）
+
+| 观察 | `file:line` | 一句话 |
+|---|---|---|
+| 浅色 shimmer **是黑**（不是白） | `web/src/index.css:652` `:root { --shimmer-color: rgba(0,0,0,0.06); }` | 浅底"高光"物理上是**暗**的 ⇒ 本仓 `sheen=#000@6%` **与 web 同口径**（⛔ 不改） |
+| 深色 shimmer 才是白 | `web/src/index.css:653` `.dark { --shimmer-color: rgba(255,255,255,0.08); }` | 深/浅 shimmer 基色**相反** = 既有正解 |
+| 浮层/弹窗普遍用**多层 box-shadow**（`shadow-sm/md/lg/xl/2xl`） | `web/src/components/agent/SelectionToolbar.tsx:162`（`shadow-lg shadow-black/10`）· `AskUserPanel.tsx:114`（`shadow-lg shadow-black/[0.04]`）· `FoldedToolGroup.tsx:53`（`shadow-2xl`）· `SyntheticToolCard.tsx:451,576`（`shadow-sm`） | web **靠多层/多档 box-shadow 立层次**，且浅色档是**近乎中性黑**的低 alpha（`black/10`、`black/[0.04]`）⇒ 对标"贴合 + 环境"两档 |
+| 玻璃 = **磨砂 + 描边**（不靠对比） | `web/src/index.css:1198-1247`（`.ambience-glass` 覆盖 `--bg-*`）+ `PanelChrome.tsx:106`（`shadow-[inset_0_-1px_0_0_rgba(255,255,255,0.055)]` 内描边） | 玻璃的"边"是**一条明确的描边**（浅色下即"亮边"），与 §13.2-L4 一致 |
+
+⇒ **苹果式手感的两个抓手**（本波落地）：① **多层柔影**（贴合 + 环境，web 即 `shadow-sm`+`shadow-lg` 的组合）；
+② **玻璃更实 + 亮边更明确**（磨砂白 + 明确描边）。
+
+### §18.3 改前 / 改后数值表（**只动浅色臂**；含影响面）
+
+| # | token / 行为 | 改前（浅色） | 改后（浅色） | 为什么 | 影响面 |
+|---|---|---|---|---|---|
+| 1 | `glassBg`（`:793`） | `glassBase@80%`（`#CCFFFFFF`） | **`@84%`**（`#D6FFFFFF`） | 磨砂白**更像实心材质**（Apple material），不是"半透明灰" | **全站浅色玻璃**：`Index` 浮层/面板 8 处 + `MarkdownView:251` 代码块 + `MenuSheets` 等 |
+| 2 | `glassBorder`（`:794`） | `borderStrong@70%`（`#B3D8D8DC`） | **`@86%`**（`#DBD8D8DC`） | **亮边更明确一档** —— 浅色玻璃靠**描边立边界**（§13.2-L4） | 同上（玻璃的面外边界） |
+| 3 | **多层柔影**（新 `shadowLayersOf`，`:941-1029`） | 每元素**单层** `.shadow()`（浅色卡片只有一层柔影） | **浅色恒 2 层**：`near`（`elev1`，半径 `round(base×0.30)`、offsetY 1）+ `far`（`elev2`，半径 `shadowRadiusOf`、offsetY 4） | 苹果式层次 = **同族两档半径**（贴合 + 环境），不是"一个更大的影" ⇒ 有"落在纸面上"的接触感 | **首接** `components/SyntheticCard.ets`（卡面；外层 `Stack` 承载 `far`）；其余调用点可逐个迁移 |
+| 4 | 深色 `shadowLayersOf` | — | 恒 `[near=**透明**, far=原单层]` | `near` **透明 ⇒ 不渲染**、`far` = 迁移前原值 ⇒ **净观感逐字节不变**，且**视图树不随主题分叉** | 深色/aurora/nebula **零观感变化** |
+| 5 | `sheen`（`:791`） | `#000000@6%` | **保持** | web 权威 `index.css:652`：浅色 shimmer **就是黑@6%**（物理正确）；改白 ⇒ 白底不可见 + 背离 web | — |
+| 6 | `elev1/2/3`（`:793/798/799`） | `textPrimary@6/7/16%` | **保持**（值） | L3 已定"浅色降柔影依赖"，本波**不加重影子**，改用**分层结构**（#3）提手感 | — |
+| 7 | `glow`/`glowSoft` | 透明 / `textPrimary@10%` | **保持** | §13.7 E2（浅色不出辉光）+ V6 冻结 | — |
+
+> ⛔ **深色逐字节不变**：`else` 臂（`:816-824`）一字未动；`shadowLayersOf` 深色臂的 `far` 也 = 原值。
+
+### §18.4 判据与 mutation（`tools/tests/light_material.test.ts`，55 断言）
+
+- **★① 深色逐字节不变**（⛔ **硬编码期望值**，不自比）：深色族 `shadowLayersOf('card')` 必须
+  `[near 透明, far = {color: #3D000000, radius: 10, offsetY: 2}]`。
+- **★② 浅色 = ≥2 层**：浅色族浅色 `shadowLayersOf` 必须 **2 层且都可见**（alpha>0），
+  `near.radius(3) < far.radius(15)`、`near = elev1`、`far = elev2`；大面档走 `elev2/elev3`。
+  **反向**：深色族**可见层数必须 == 1**（加层即回归）。
+- **★③ 玻璃**：浅色 `glassBg=#D6FFFFFF` / `glassBorder=#DBD8D8DC`（硬编码）+ 方向断言（alpha ≥ 新值 > 旧值）；
+  深色/aurora/nebula 玻璃**逐字节**。
+- **★④ 零扫描判红**：`ALL_THEMES` 非空（白绿防线）。
+- **mutation 自证（实测必红）**：① 浅色 `near.color` 改回透明（退回单层）⇒ **6 红**；
+  ② 浅色 `glassBg` 改回 0.80 ⇒ **3 红**。（两处均**还原后复跑 55/0 绿**。）
+
+### §18.5 诚实记账（⛔ 不藏限制）
+
+1. **ArkUI `.shadow()` 每元素只能一层**（SDK `common.d.ts:21070` `shadow(value: ShadowOptions | ShadowStyle)`；
+   同元素连调两次 = 覆盖，不是叠加）⇒ 真正"多层柔影"必须**两个元素**各挂一层
+   ⇒ `shadowLayersOf` 返回**两层**，调用点（`SyntheticCard`）用外层 `Stack` 承载 `far`。
+2. **`sheen` 不改**（方向里写的"sheen 改顶部高光"**被 web 证据否掉**）：web 浅色 shimmer = 黑@6%
+   （`index.css:652`），浅底"高光"物理上是**暗**的 ⇒ "顶部高光"的语义改由 **玻璃亮边（#2）** 承担，更符合材质语言。
+3. **`glowSoft` 仍冻结**（V6）；`glow` 仍透明（E2）。
+4. `shadowLayersOf` 目前**只接 `SyntheticCard`**（浅色卡片的"接触感"最先可见）；其余档位（sheet/浮层）迁移
+   不在本波，⛔ 但**函数已非死码**（`shadow_radius.test.ts` 的消费点断言已同步）。
+
+
+---
+
 ## §18 role × **实际合成底** 的可读性矩阵（2026-10-11）
 
 **为什么需要它**：`theme_contrast` 只覆盖「**role vs 画布**」；而用户亲报的"白主题正文看不清"，

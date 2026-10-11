@@ -589,14 +589,15 @@ for (let ti = 0; ti < ALL_THEMES.length; ti++) {
 eq('dark glassBg 逐字节不变', effectsOf(paletteOf('dark')).glassBg, '#9E0E0E14');
 eq('aurora glassBg 逐字节不变', effectsOf(paletteOf('aurora')).glassBg, '#9E0B1424');
 eq('nebula glassBg 逐字节不变', effectsOf(paletteOf('nebula')).glassBg, '#9E0F0A1E');
-// ⚠️ L4：浅色玻璃不透明度 0.62→0.80（**所有浅色族**：磨砂白更实、边界更明确）⇒ 快照更新。
+// ⚠️ L4→C3：浅色玻璃不透明度 0.62→0.80（L4）→ **0.84**（C3「光感白」再实一档，`DESIGN-SYSTEM §18`）
+//    （**所有浅色族**：磨砂白更像实心材质、边界更明确）⇒ 快照更新。
 //    基色链（`glassBase`）**未动**（light 仍 = surface）。
 //    深色族仍逐字节（见上 dark/aurora/nebula 三条）。
-eq('light glassBg = surface 白 @80%（L4 浅色玻璃更实）', effectsOf(paletteOf('light')).glassBg, '#CCFFFFFF');
+eq('light glassBg = surface 白 @84%（C3 浅色玻璃更实）', effectsOf(paletteOf('light')).glassBg, '#D6FFFFFF');
 // ⚠️ L2 后 porcelain 的 `surface(#FFFFFF) ≠ appBg(#F7F7F8)` ⇒ 历史那条"玻璃基色切换"**不再必要**
 //    （它的存在前提就是"porcelain 玻璃恒等不可见"）⇒ 基色自动回到 `surface` = 纯白（白玻璃压淡灰画布）。
 eq('porcelain 玻璃基色 = surface（L2 后无需切换，白玻璃压淡灰画布）', surfacesOf(paletteOf('porcelain')).glassBase, '#FFFFFF');
-eq('porcelain glassBg = 白 @80%（L4 + L2 基色回 surface）', effectsOf(paletteOf('porcelain')).glassBg, '#CCFFFFFF');
+eq('porcelain glassBg = 白 @84%（C3 + L2 基色回 surface）', effectsOf(paletteOf('porcelain')).glassBg, '#D6FFFFFF');
 // L2 后玻璃 = 白@80% 压**淡灰画布** ⇒ 差异来自"玻璃 vs 画布"（不是"玻璃自身带灰"）
 ok('porcelain 玻璃底与画布有可辨差异（白玻璃压淡灰画布）',
   contrastRatio(compositeOver(effectsOf(paletteOf('porcelain')).glassBg, paletteOf('porcelain').appBg),

@@ -781,12 +781,17 @@ function buildEffects(p: Palette): Effects {
   e.gradientFrom = gradientEndOf(p.accent, p.onAccent);
   e.gradientTo = gradientEndOf(p.accentSoft, p.onAccent);
   if (light) {
-    // ── 浅色玻璃（L4，`docs/DESIGN-SYSTEM.md §13.3`）──────────────────────────────
+    // ── 浅色玻璃（L4 + C3「光感白」再设计，`docs/DESIGN-SYSTEM.md §13.3 / §18`）─────────────
     // 深色玻璃 = **透光**（露出后面的彩色 ⇒ 低不透明度才"活"）；浅色玻璃 = **磨砂白**
     // （透出灰会"脏"）⇒ 不透明度必须**更高**、边界必须**更明确**（靠描边立边界，不靠对比）。
+    // C3（2026-10-11）：浅色玻璃**再实一档**（0.80→0.84，"磨砂白"更像实心材质，不是"半透明灰"）；
+    // **亮边更明确一档**（0.70→0.86 —— 浅色玻璃靠**亮边/描边**立边界，Apple 材质语言，
+    //   ⛔ 不是"加深对比"：白底玻璃的边只能是"更实的一档中性亮边"）。
+    // ⚠️ 影响面：全站浅色玻璃（`glassBg`/`glassBorder` 的 10+ 调用点，如 Index 浮层/MarkdownView 代码块）
+    //   同步更实；对比度台账 `theme_contrast_matrix` 复核达标（玻璃合成底上的四阶文字）。
     // 深色臂逐字节保留原 0.62/0.55（见下 `else`）——本次只改**浅色**档。
-    e.glassBg = alphaHex(glassBaseOf(p), amb === null ? 0.80 : amb.glassOpacity);
-    e.glassBorder = alphaHex(p.borderStrong, amb === null ? 0.70 : amb.glassOpacity);
+    e.glassBg = alphaHex(glassBaseOf(p), amb === null ? 0.84 : amb.glassOpacity);
+    e.glassBorder = alphaHex(p.borderStrong, amb === null ? 0.86 : amb.glassOpacity);
     // 浅底：白高光物理上不可见 ⇒ 换"中性"（无色相偏移）的极淡黑，读作扫光中心。
     e.sheen = alphaHex('#000000', 0.06);
     // 柔影：中性（取正文色相 → 略带主题冷调）+ 低透明；扩散交给调用点的 radius。
@@ -937,6 +942,88 @@ export function shadowColorOf(p: Palette, tier: string): string {
     return e.glow;
   }
   return tier === 'overlay' ? e.elev3 : e.elev2;
+}
+
+/**
+ * **多层柔影**的一层（`shadowLayersOf` 的产物；调用点据此叠 `.shadow()`）。
+ *
+ * ArkUI `.shadow()` **每次只吃一层**（`common.d.ts:21070` `shadow(value: ShadowOptions | ShadowStyle)`
+ * —— 同一元素连调两次是"后者覆盖前者"，不是"叠一层"）⇒ Apple 式**多层柔影**
+ * （`0 1px 2px` 贴合 + `0 8px 24px` 环境）必须由**两个元素**各挂一层实现。
+ */
+export class ShadowLayer {
+  color: string = '';
+  radius: number = 0;
+  offsetY: number = 0;
+}
+
+/**
+ * 浅色**贴合层**半径系数：`round(base × 0.30)`（贴合影"小而紧"）。⛔ 只对浅色生效。
+ */
+const LIGHT_SHADOW_NEAR_SCALE: number = 0.30;
+
+/**
+ * 某档"是不是大面/浮层"（决定浅色贴合/环境两层的取色档：大面走 elev2/elev3，其余走 elev1/elev2）。
+ */
+function isBigSurfaceTier(tier: string): boolean {
+  return tier === 'overlay' || tier === 'hero' || tier === 'panel' || tier === 'drawer';
+}
+
+/**
+ * 影的**垂直偏移**（各档基线；⛔ 每个档的深色值 = 迁移前调用点的**原字面量**）。
+ * `overlay/drawer/panel` 是"四边扩散"（偏移 0）；卡片/抬升/hero 是"向下投影"（偏移 2）。
+ */
+function shadowOffsetBaseOf(tier: string): number {
+  return isBigSurfaceTier(tier) ? 0 : 2;
+}
+
+/**
+ * **多层柔影**（C3「光感白」再设计，`docs/DESIGN-SYSTEM.md §18`）—— 浅色 = **2 层**，深色 = **1 层**。
+ *
+ * 为什么单列：浅色的"苹果感"来自**同族两档半径**（贴合 + 环境），而不是"把深色的影调淡"。
+ * 此前浅色只有一个 `.shadow()` ⇒ 卡片"飘"，没有"落在纸面上的接触感"。
+ *
+ * | 主题 | 返回 | 逐字节契约 |
+ * |---|---|---|
+ * | 浅色系 | `[near(贴合：小半径/小偏移), far(环境：档基础半径×扩散)]` | `near = elev1(±大面 elev2)`、`far = elev2(±大面 elev3)` |
+ * | 深色系 | `[near(透明), far(单层现状)]` | `far = 该档原值`、`near` **透明 ⇒ 不渲染** ⇒ **净观感逐字节不变** |
+ *
+ * ⛔ 判据按 `isLightPalette(p)`（色板亮度），⛔ 不按主题名；⛔ 深色**不增层**（靠 `near` 透明实现，
+ *   ⇒ 调用点的视图树**不随主题分叉**，深色不因"少一层元素"而改变布局）。
+ * ⚠️ 返回**恒 2 元素**（深色第 0 个透明）—— 调用点可无条件取 `[0]`/`[1]`，无需按主题分支。
+ *
+ * @param tier 档名（`card`/`raised`/`pill`/`panel`/`drawer`/`hero`/`overlay`；未知 ⇒ `card`）。
+ */
+export function shadowLayersOf(p: Palette, tier: string): ShadowLayer[] {
+  const e: Effects = effectsOf(p);
+  const base: number = shadowRadiusBaseOf(tier);
+  const out: ShadowLayer[] = [];
+  const near: ShadowLayer = new ShadowLayer();
+  const far: ShadowLayer = new ShadowLayer();
+  if (isLightPalette(p)) {
+    const big: boolean = isBigSurfaceTier(tier);
+    // 贴合层：小半径、1vp 偏移、同族低透明 ⇒ "接触影"（与 far 同色族，不是黑白两块）
+    near.color = big ? e.elev2 : e.elev1;
+    near.radius = Math.max(3, Math.round(base * LIGHT_SHADOW_NEAR_SCALE));
+    near.offsetY = 1;
+    // 环境层：档基础半径（浅色已乘 `LIGHT_SHADOW_DIFFUSION`）⇒ 大扩散、更柔
+    far.color = big ? e.elev3 : e.elev2;
+    far.radius = shadowRadiusOf(p, tier);
+    far.offsetY = big ? 6 : 4;
+  } else {
+    // 深色：不加层（`near` 透明 ⇒ 0 成本），`far` = 该档的**逐字节现状**。
+    near.color = p.transparent;
+    near.radius = 0;
+    near.offsetY = 0;
+    // 与 `core/design.ets:elevationColorOf` 的深色臂同构（大面 ⇒ glow；抬升 ⇒ elev2；其余 ⇒ elev1）。
+    // ⛔ 不 import design.ets（design → theme 单向依赖，反向成环）⇒ 在此内联同构映射。
+    far.color = isBigSurfaceTier(tier) ? e.glow : (tier === 'raised' ? e.elev2 : e.elev1);
+    far.radius = shadowRadiusOf(p, tier);
+    far.offsetY = shadowOffsetBaseOf(tier);
+  }
+  out.push(near);
+  out.push(far);
+  return out;
 }
 
 /** 效果 token 是否完整（穷尽性守卫：颜色非空、glassBlur 为正数）。 */
