@@ -20,7 +20,9 @@ import {
   CTX_PRESETS, OUT_PRESETS, VISION_DETAILS, FOLLOW_DEFAULT_LABEL,
   fmtTokens, presetLabel, normalizeTokens, perModelApiTypes, perModelApiTypeForSubmit,
   perModelVisionDetailForSubmit, perModelFormError, perModelFormOf, perModelSummary,
+  perModelConfigFrom, perModelEditReason, perModelFormFromConfig, perModelSubmitAllowed, perModelFormToBody,
 } from '../../entry/src/main/ets/core/permodelcfg';
+import { PerModelConfig, SubscriptionRow } from '../../entry/src/main/ets/core/rpc';
 
 describe('permodelcfg：token 显示 / 归零', () => {
   it('0（含负）⇒ 「跟随默认」', () => {
@@ -98,6 +100,82 @@ describe('permodelcfg：表单校验与摘要', () => {
     expect(CTX_PRESETS[0]).toBe(0);
     expect(OUT_PRESETS[0]).toBe(0);
     expect(VISION_DETAILS.length).toBe(3);
+  });
+});
+
+describe('permodelcfg：预填判据（★A–★D，防静默覆盖）', () => {
+  // 造一个最小 SubscriptionRow（只填判据关心的字段；其余按类型给中性值）
+  const base = (pmc: Record<string, PerModelConfig> | undefined): SubscriptionRow => {
+    const r: SubscriptionRow = {
+      id: 's1', name: 'n', provider: 'openai', base_url: 'u', api_key: 'abcd****',
+      model: 'gpt-4o', active: true,
+    };
+    r.per_model_configs = pmc;
+    return r;
+  };
+
+  it('★C 整键缺失 ⇒ null（⛔ 绝不是"全零对象"）', () => {
+    const row = base(undefined);
+    const got = perModelConfigFrom(row, 'gpt-4o');
+    expect(got).toBe(null);
+    expect(perModelSubmitAllowed(got)).toBe(false);
+    expect(perModelEditReason(row, 'gpt-4o').length > 0).toBe(true);
+  });
+
+  it('★A 条目缺失（map 在、模型不在）⇒ null（不伪造 0/false）', () => {
+    const row = base({ 'other-model': { max_context: 128000 } });
+    const got = perModelConfigFrom(row, 'gpt-4o');
+    expect(got).toBe(null);
+    expect(perModelSubmitAllowed(got)).toBe(false);
+  });
+
+  it('★B 预填不成功 ⇒ 提交闸门关闭（不产 payload）', () => {
+    expect(perModelSubmitAllowed(null)).toBe(false);
+    const ok = perModelConfigFrom(base({ 'gpt-4o': {} }), 'gpt-4o');
+    expect(perModelSubmitAllowed(ok)).toBe(true);
+  });
+
+  it('★D 字段类型不符 ⇒ null，且不抛', () => {
+    // 运行期形状异常（把 max_context 写成字符串）——⛔ 不许抛、也不许当 0 用
+    const bad: Record<string, PerModelConfig> = {};
+    bad['gpt-4o'] = { max_context: '128000' } as unknown as PerModelConfig;
+    expect(perModelConfigFrom(base(bad), 'gpt-4o')).toBe(null);
+    const bad2: Record<string, PerModelConfig> = {};
+    bad2['gpt-4o'] = { vision: 'yes' } as unknown as PerModelConfig;
+    expect(perModelConfigFrom(base(bad2), 'gpt-4o')).toBe(null);
+  });
+
+  it('条目在、子字段缺省 ⇒ **合法**，按 0/false/\'\' 落位（服务端 omitempty）', () => {
+    const row = base({ 'gpt-4o': { max_context: 128000 } });
+    const got = perModelConfigFrom(row, 'gpt-4o');
+    expect(got !== null).toBe(true);
+    if (got !== null) {
+      expect(got.max_context).toBe(128000);
+      expect(got.max_output_tokens).toBe(0);
+      expect(got.api_type).toBe('');
+      expect(got.vision).toBe(false);
+      expect(got.vision_detail).toBe('');
+    }
+    expect(perModelEditReason(row, 'gpt-4o')).toBe('');
+  });
+
+  it('预填 → 表单 → 提交体（端到端同源）', () => {
+    const row = base({ 'gpt-4o': { max_context: 200000, vision: true, vision_detail: 'high' } });
+    const cfg = perModelConfigFrom(row, 'gpt-4o');
+    expect(cfg !== null).toBe(true);
+    if (cfg !== null) {
+      const form = perModelFormFromConfig(cfg);
+      expect(form.maxContext).toBe(200000);
+      expect(form.vision).toBe(true);
+      expect(form.visionDetail).toBe('high');
+      const body = perModelFormToBody(form, 'openai');
+      expect(body.max_context).toBe(200000);
+      expect(body.max_output_tokens).toBe(0);
+      expect(body.api_type).toBe('chat_completions');
+      expect(body.vision).toBe(true);
+      expect(body.vision_detail).toBe('high');
+      expect(body.enabled).toBe(true);
+    }
   });
 });
 
