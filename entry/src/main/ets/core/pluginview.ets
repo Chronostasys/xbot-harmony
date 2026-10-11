@@ -213,6 +213,26 @@ export function webErrorDetail(info: string, code: number): string {
   return c !== 0 ? `错误码 ${c}` : '';
 }
 
+/**
+ * **HTTP 层**错误（`onHttpErrorReceive`）→ 展示明细。
+ *
+ * 为什么需要它：`onErrorReceive` **只覆盖资源级**失败（DNS/连接/证书）；服务端返回
+ * **4xx/5xx 状态码**（404 插件产物缺失 / 401 会话失效 / 5xx 后端挂）走的是 **HTTP 事件**
+ * ⇒ 此前未接线 ⇒ 承载面显示一个**空壳页面且原生零解释**（白屏感，用户无从判断）。
+ *
+ * 纯函数 ⇒ 可脱机断言（组件只做"取内核值 → 交给它"）。产物形如：
+ *   · `HTTP 404 Not Found`（有状态码 + 原因）；
+ *   · `HTTP 500`（只有状态码）；
+ *   · 原因原样（状态码缺/0 ⇒ 只给原因；都空 ⇒ 空串，调用方落回"加载失败"）。
+ */
+export function webHttpErrorDetail(statusCode: number, reason: string): string {
+  const r: string = isPresent(reason) ? reason.trim() : '';
+  const c: number = typeof statusCode === 'number' && isFinite(statusCode) && statusCode !== 0 ? statusCode : 0;
+  if (c !== 0 && r.length > 0) { return `HTTP ${c} ${r}`; }
+  if (c !== 0) { return `HTTP ${c}`; }
+  return r;
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // ④ 能力面板：加载 / 空 / 失败三态（`components/PluginsSheet.ets`）
 // ══════════════════════════════════════════════════════════════════════════════

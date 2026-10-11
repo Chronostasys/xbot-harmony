@@ -20,6 +20,7 @@ import {
   widgetPercent,
   PANEL_STATE_EMPTY, PANEL_STATE_ERROR, PANEL_STATE_LOADING, PANEL_STATE_NONE,
   pluginPanelEmptyText, pluginPanelErrorText, pluginPanelStatus, pluginMetaText,
+  webHttpErrorDetail,
 } from '../../entry/src/main/ets/core/pluginview';
 
 let pass = 0, fail = 0;
@@ -195,6 +196,23 @@ eq('★D2 info 去空白', webErrorDetail('  oops  ', 0), 'oops');
     }
   }
   ok('★F 绝不产出状态标记/点色当正文', noDot);
+}
+
+// ── ★G HTTP 层错误明细（`WebSurface.onHttpErrorReceive`；补齐 404/401/5xx 的解释）──────
+{
+  eq('★G 状态码 + 原因', webHttpErrorDetail(404, 'Not Found'), 'HTTP 404 Not Found');
+  eq('★G 仅状态码', webHttpErrorDetail(500, ''), 'HTTP 500');
+  eq('★G 状态码 + 空白原因 ⇒ 仅状态码', webHttpErrorDetail(401, '   '), 'HTTP 401');
+  eq('★G 无状态码 + 有原因 ⇒ 原样原因', webHttpErrorDetail(0, 'net::ERR_CONNECTION_REFUSED'),
+    'net::ERR_CONNECTION_REFUSED');
+  eq('★G 都没有 ⇒ 空串（调用方落回「加载失败」）', webHttpErrorDetail(0, ''), '');
+  eq('★G NaN 状态码不产出 "HTTP NaN"', webHttpErrorDetail(NaN, ''), '');
+  // 与 webStatusOf 串起来：error 档 ⇒ 红字 + 可重试（承载面状态条的最终形态）
+  const st = webStatusOf(WEB_PHASE_ERROR, webHttpErrorDetail(404, 'Not Found'));
+  eq('★G 错误条显示 + 文案前缀', st.show, true);
+  eq('★G 文案 = 加载失败：HTTP 404 Not Found', st.text, '加载失败：HTTP 404 Not Found');
+  eq('★G 可重试', st.canRetry, true);
+  eq('★G 色角色 = dangerText', st.colorRole, 'dangerText');
 }
 
 console.log(`\npluginview.test.ts: ${pass} passed, ${fail} failed`);

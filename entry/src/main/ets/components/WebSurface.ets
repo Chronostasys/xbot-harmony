@@ -8,7 +8,7 @@ import {
 } from '../core/webbridge';
 import {
   WEB_PHASE_ERROR, WEB_PHASE_IDLE, WEB_PHASE_LOADING, WEB_PHASE_READY,
-  WebStatus, webErrorDetail, webStatusOf,
+  WebStatus, webErrorDetail, webHttpErrorDetail, webStatusOf,
 } from '../core/pluginview';
 import {
   colorOf, hairlineOf, surfaceFillOf,
@@ -367,6 +367,25 @@ export struct WebSurface {
                 this.refresh();
               })
           }
+          // ⛔ **无 chrome**（全屏承载完整 web UI）时，错误条必须自带**退回原生**出口 ——
+          //    否则坏 URL（404/401/离线且页面无自带返回）会把用户**困在空白 Web 里**，
+          //    错误条上只有「重试」⇒ 只能杀进程。有 chrome 时顶部已有「‹ 返回」，不重复。
+          if (!this.chrome) {
+            Text('返回')
+              .fontSize(fs('type.caption'))
+              .fontWeight(fw('type.caption'))
+              .lineHeight(lh('type.caption'))
+              .fontColor(colorOf(this.pal(), 'textSecondary'))
+              .padding({
+                left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y,
+              })
+              .borderRadius(RADIUS_PILL)
+              .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+              .constraintSize({ minHeight: HIT_TARGET_MIN })
+              .onClick(() => {
+                this.onClose();
+              })
+          }
         }
         .width('100%')
         .alignItems(VerticalAlign.Center)
@@ -459,6 +478,23 @@ export struct WebSurface {
           } catch (e) {
             this.phase = WEB_PHASE_ERROR;
             console.error('web error (无法序列化)');
+          }
+        })
+        .onHttpErrorReceive((event) => {
+          // ⛔ **HTTP 层**错误（404 插件产物缺失 / 401 会话失效 / 5xx）：`onErrorReceive` 只覆盖
+          //    **资源级**失败（DNS/连接/证书）⇒ 状态码错误此前**零处理** ⇒ 空壳页面且原生无解释。
+          //    与 `onErrorReceive` 同一条状态条通道（`webStatusOf` 的 error 档 ⇒ 红字 + 重试）。
+          try {
+            if (event !== undefined && event.response !== undefined) {
+              const code: number = event.response.getResponseCode();
+              const reason: string = event.response.getReasonMessage();
+              this.loadErr = webHttpErrorDetail(code, reason);
+              this.phase = WEB_PHASE_ERROR;
+              console.error(`web http error: ${code} ${reason}`);
+            }
+          } catch (e) {
+            this.phase = WEB_PHASE_ERROR;
+            console.error('web http error (无法序列化)');
           }
         })
         .width('100%')

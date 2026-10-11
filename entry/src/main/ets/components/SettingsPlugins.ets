@@ -35,7 +35,7 @@ import {
   PluginConfigCatalog,
   PluginConfigEntry, PluginConfigGroup, PluginConfigProperty, configValueFingerprint, displayValue,
   filterPluginCatalog, groupBySection, isFieldEditable, listHas, parsePluginConfig,
-  pluginEntryFingerprint, pluginFieldHasRange, readValue,
+  pluginEntryFingerprint, pluginFieldHasRange, pluginSliderStep, pluginSliderValue, readValue,
   submitValue, textInputValue, toggleListValue, validateValue, valueFromText, valueFromSingle,
   valueFromToggle, valueOfProp,
 } from '../core/settingsplugins';
@@ -95,20 +95,14 @@ struct PluginFieldRow {
     return this.kind === PLUGIN_FIELD_STRING || this.kind === PLUGIN_FIELD_NUMBER;
   }
 
-  /** 滑条当前值：草稿解析失败 ⇒ 下界；越界 ⇒ 收敛到边界（与 web `:417-420` 同口径）。 */
+  /** 滑条当前值（判据在 `core/settingsplugins.ets:pluginSliderValue` ⇒ 判据与渲染同源）。 */
   private sliderValue(): number {
-    const n: number = Number.parseFloat(this.s);
-    if (Number.isNaN(n)) { return this.minv; }
-    return Math.min(this.maxv, Math.max(this.minv, n));
+    return pluginSliderValue(this.s, this.minv, this.maxv);
   }
 
-  /** 滑条步长（对齐 web `SettingsPlugins.tsx:449`）：两端皆整数 ⇒ 1，否则按跨度自适应。 */
+  /** 滑条步长（判据同上 `pluginSliderStep`；两端皆整数 ⇒ 1，否则按跨度自适应）。 */
   private sliderStep(): number {
-    const span: number = this.maxv - this.minv;
-    if (Number.isInteger(this.minv) && Number.isInteger(this.maxv)) { return 1; }
-    if (span <= 2) { return 0.01; }
-    if (span <= 20) { return 0.1; }
-    return 1;
+    return pluginSliderStep(this.minv, this.maxv);
   }
 
   @Builder
@@ -189,7 +183,14 @@ struct PluginFieldRow {
         Row({ space: SP_2 }) {
           TextInput({ text: this.s, placeholder: this.placeholder })
             .enabled(!this.busy)
-            .type(this.kind === PLUGIN_FIELD_NUMBER ? InputType.Number
+            // ⛔ number 字段必须用**小数档**：`InputType.Number` 是整数档
+            //    （本机 SDK `ets/component/text_input.d.ts:40-42`："Digit input mode.
+            //      Negative numbers and decimals are not supported."）⇒ 它会把值框里的
+            //    `0.82` 滤成 `082` ⇒ `parseFloat=82` ⇒ 滑条钳到 `max`（真机现象：值框 `082`
+            //    + 滑条跳到最右，**同源同因**）。web 权威用 `type="number" inputMode="decimal"`
+            //    （`SettingsPlugins.tsx:437-438`）；原生等价物 = `InputType.NUMBER_DECIMAL`
+            //    （SDK `:138-150`，API 11+；本模块 compatibleSdkVersion=21 ⇒ 可用）。
+            .type(this.kind === PLUGIN_FIELD_NUMBER ? InputType.NUMBER_DECIMAL
               : (this.secret ? InputType.Password : InputType.Normal))
             .layoutWeight(1)
             .fontSize(FS_CAPTION)

@@ -12,12 +12,14 @@
  *     拒的形态：`plugin_config_set` 对 boolean/number 强校验类型，见 `rpc_table.go:2489-2498`）；
  *   · `shouldShowTab` 改成恒 `true` ⇒ 门控那几条红；
  *   · `parsePluginConfig` 不排序 / 不跳过无 id 条目 ⇒ 对应条目红。
+ *   · `pluginSliderValue` 的"非有限数回落 lo"删掉（改成直接用 n）⇒ ★D「空串/非数 ⇒ 下界」红。
  */
 declare const process: { exit: (c: number) => void };
 
 import {
   ConfigValue, entryOf, groupBySection, isFieldEditable, listHas, maskedSecret,
   normalizeFieldType, parsePluginConfig, readValue, sameValue, setEntryValues,
+  pluginSliderStep, pluginSliderValue,
   shouldShowTab, submitValue, textInputValue, toggleListValue, validateValue, valueFromText,
   valueFromToggle, visibleTabs, fallbackTabId, displayValue,
   configValueFingerprint, pluginEntryFingerprint, filterPluginCatalog, pluginPropMatches, pluginFieldHasRange,
@@ -296,6 +298,33 @@ eq('fallbackTabId：全隐藏 ⇒ 空串', fallbackTabId([new SettingsTabSpec('x
   eq('只有上界 ⇒ 文本框', pluginFieldHasRange(withRange(false, 0, true, 10)), false);
   eq('上下界相等（max==min）⇒ 文本框（跨度为零）', pluginFieldHasRange(withRange(true, 5, true, 5)), false);
   eq('上界小于下界 ⇒ 文本框', pluginFieldHasRange(withRange(true, 10, true, 5)), false);
+}
+
+// ── D. 插件 number 滑条：定位值 / 步长（真机缺陷落修 2026-10-11）────────────────
+// 真机现象：`面板透明度` 值框 `082` + 滑条跳到最右。根因 = 值框用 `InputType.Number`（整数档，
+// SDK 原文 "decimals are not supported"）把服务端默认 `0.82` 滤成 `082` ⇒ `parseFloat("082")=82`
+// ⇒ 钳到 `max`。这两条把"钳制/回落"语义钉死（组件不进 harness ⇒ 判据必须住 core）。
+{
+  // `面板透明度` = glassOpacity：min 0.5 / max 1.0 / default 0.82（真实 schema）
+  eq('★D 0.82 ∈ [0.5,1] ⇒ 原值（不再跳到最右）', pluginSliderValue('0.82', 0.5, 1.0), 0.82);
+  eq('★D 整数档滤成 082 ⇒ 钳到 max（复现真机根因）', pluginSliderValue('082', 0.5, 1.0), 1.0);
+  eq('★D 越下界 ⇒ 钳到下界', pluginSliderValue('0.1', 0.5, 1.0), 0.5);
+  eq('★D 越上界 ⇒ 钳到上界', pluginSliderValue('9', 0.5, 1.0), 1.0);
+  eq('★D 空串 ⇒ 下界（不产出 NaN）', pluginSliderValue('', 0.5, 1.0), 0.5);
+  eq('★D 非数 ⇒ 下界', pluginSliderValue('abc', 0.5, 1.0), 0.5);
+  // `壁纸柔焦` = glassBlur：min 0 / max 24 / default 0（真机那条"正常"的行）
+  eq('★D 壁纸柔焦 0 ⇒ 0（滑条在最左，与值框一致）', pluginSliderValue('0', 0, 24), 0);
+  eq('★D 壁纸柔焦 12 ⇒ 12（中段）', pluginSliderValue('12', 0, 24), 12);
+  // 步长
+  eq('★D 步长：两端整数 ⇒ 1（0..24）', pluginSliderStep(0, 24), 1);
+  eq('★D 步长：小数档 0.5..1 ⇒ 0.01', pluginSliderStep(0.5, 1.0), 0.01);
+  eq('★D 步长恒 > 0（ArkUI Slider 要求）', pluginSliderStep(0.5, 1.0) > 0, true);
+  // 退化范围：不产出 NaN / 不发散
+  eq('★D min>max 退化 ⇒ 钳到 lo', pluginSliderValue('0.8', 1.0, 0.5), 1.0);
+  eq('★D 全 NaN 范围不产出 NaN', Number.isNaN(pluginSliderValue('0.5', NaN, NaN)), false);
+  // 往返：UI 把钳制值写回值框 ⇒ 再喂回滑条必须稳定（不再漂移）
+  const clamped: string = `${pluginSliderValue('082', 0.5, 1.0)}`;
+  eq('★D 钳制值回写后再喂 ⇒ 稳定（幂等）', pluginSliderValue(clamped, 0.5, 1.0), 1.0);
 }
 
 if (fail > 0) { console.log(`  settingsplugins: ${pass} passed, ${fail} failed`); process.exit(1); }

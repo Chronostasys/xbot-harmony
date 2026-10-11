@@ -686,6 +686,47 @@ export function pluginFieldHasRange(p: PluginConfigProperty): boolean {
   return p.hasMin === true && p.hasMax === true && p.max > p.min;
 }
 
+/**
+ * 滑条**定位值**：把草稿文本解析成钳制在 `[min,max]` 的数。
+ *
+ * 逐字对齐 web `SettingsPlugins.tsx:417-420`：
+ *   `const n = Number(draft); const sliderValue = Math.min(max, Math.max(min, Number.isFinite(n) ? n : min))`
+ * （web 用 `Number()`；原生等价物是 `parseFloat` —— 两者对 `"0.82"` 都是 0.82，对 `"082"` 都是 82）。
+ *
+ * ⛔ **这个函数存在就是因为真机缺陷**（2026-10-11）：旧实现把它内联在组件里，而值框用了
+ *    `InputType.Number`（SDK 原文 "decimals are not supported"）⇒ `0.82` 被滤成 `082`
+ *    ⇒ `parseFloat("082") = 82` ⇒ 钳到 `max` ⇒ **滑条跳到最右**（值框 `082` / 滑条在最右，同源同因）。
+ *    抽成纯函数后：① 可脱机测（组件不进 harness）；② 钳制/回落语义单点（判据与渲染同源）。
+ */
+export function pluginSliderValue(text: string, min: number, max: number): number {
+  const lo: number = isFiniteNumber(min) ? min : 0;
+  const hi: number = isFiniteNumber(max) && max > lo ? max : lo;
+  const n: number = Number.parseFloat(isPresent(text) ? text : '');
+  const v: number = isFiniteNumber(n) ? n : lo;
+  return Math.min(hi, Math.max(lo, v));
+}
+
+/**
+ * 滑条**步长**（对齐 web `SettingsPlugins.tsx:449`）：
+ *   两端皆整数 ⇒ `1`；否则按跨度自适应（`≤2` ⇒ 0.01、`≤20` ⇒ 0.1、其余 ⇒ 1）。
+ * ⛔ 必须 > 0（ArkUI `Slider` 的 `step` 为 0 会不生效/异常）。
+ */
+export function pluginSliderStep(min: number, max: number): number {
+  const lo: number = isFiniteNumber(min) ? min : 0;
+  const hi: number = isFiniteNumber(max) ? max : 0;
+  if (Number.isInteger(lo) && Number.isInteger(hi)) {
+    return 1;
+  }
+  const span: number = hi - lo;
+  if (span <= 2) {
+    return 0.01;
+  }
+  if (span <= 20) {
+    return 0.1;
+  }
+  return 1;
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // ③b 搜索过滤（对齐 web `SettingsPlugins.tsx:133-155`）
 // ══════════════════════════════════════════════════════════════════════════════
