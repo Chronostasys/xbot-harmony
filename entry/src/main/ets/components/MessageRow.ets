@@ -44,6 +44,7 @@ import { SubAgentTree } from './SubAgentTree';
 import { flattenSubAgents } from '../core/subagent';
 import { SweepBand, sweepBandOf } from '../core/sweep';
 import { animFast, animMsgIn } from './anim';
+import { entryAnimates, entryStartDy, entryRestOpacity } from '../core/msgentry';
 import { reasoningKey, liveIterationNo } from '../core/reasoningopen';
 
 /** 压缩摘要正文的最大高度（web `max-h-[40vh] overflow-y-auto`；手机取 ~48% 视口）。 */
@@ -175,21 +176,6 @@ export struct MessageRowView {
   /** 当前 "+N" 溢出浮层对应的迭代（`>= 0` ⇒ 打开；对齐 web `OverflowPillsMenu`）。 */
   @State overIter: number = -1;
   /**
-   * 行入场动效的进度位：`false` = 起始态（透明 + 下沉 4px），`true` = 终态。
-   *
-   * 复刻 web `msgIn`（`index.css:705`：`opacity 0→1`、`translateY 4px→0`、200ms spring）。
-   * ⛔ **web 铁律**：入场动效只作用**行内层**（`.animate-msg-in > *`），**绝不改行自身的定位
-   *   transform** —— 虚拟列表用 `translateY(item.start)` 定位行，动效里的 transform 会覆盖它
-   *   ⇒ 行被画到容器原点、压在上一条上（web 2026-09-16 快速滚动抖动重叠的真根因，
-   *   守护见 `web/src/index.test.ts` 的 virt-row 用例）。原生端行定位由 `List`/`ListItem`
-   *   （pages/Index.ets）负责、不用 transform，但纪律同源：动效只挂在**行内容**上
-   *   （即 ListItem 的直接子节点 = 本组件的 `AssistantBlock` 根 Column），不碰外层定位节点。
-   *
-   * 只给 **live 行**播入场（对齐 web `row.id === liveId`）：历史行不播，避免滚动时逐行闪入。
-   */
-  @State entered: boolean = false;
-
-  /**
    * **行内块窗口**：本行只渲染末尾 `blockLimit` 个迭代块，更早的折叠成**一行恒定高哨兵**
    * （可见即自动放宽一批）。判据/常量/纯函数在 `core/rowsview.ets`（有判别力单测）。
    *
@@ -208,11 +194,25 @@ export struct MessageRowView {
     return paletteOf(this.theme);
   }
 
-  aboutToAppear(): void {
-    // 非 live 行直接到终态（不动画，随滚动创建的历史行不闪入）；live 行保持起始态，
-    // 由行根的 `onAppear` 用 `animMsgIn()` 播一次 spring 入场。
-    this.entered = !this.row.isLive;
+  /**
+   * 行**出现过渡**（`TransitionEffect`）—— 入场动效的唯一实现（判据在 `core/msgentry.ets`）。
+   *
+   * ⛔ 静息态 = `entryRestOpacity()`（= 1，行内容自身的 `.opacity()`），过渡只描述"挂载那一下"
+   *   从 `entryStartOpacity()`(=0) / `entryStartDy()`(=4vp) 到静息态的过程。
+   *   过渡不跑 / 被打断 ⇒ 停在静息态（**可读**），不会像旧实现那样停在起始态（不可读）。
+   *   这正是 web `@keyframes msgIn`（无 `forwards`）的语义。
+   */
+  private entryTransition(): TransitionEffect {
+    if (!entryAnimates(this.row.isLive)) {
+      // 历史行（随滚动创建）不播入场：恒等过渡 = 零副作用（旧实现的同款纪律：不逐行闪入）。
+      return TransitionEffect.IDENTITY;
+    }
+    return TransitionEffect.OPACITY.animation(animMsgIn())
+      .combine(TransitionEffect.translate({ y: entryStartDy() }).animation(animMsgIn()));
   }
+
+  // ⛔ 入场动效**没有状态位**（见下方 `entryTransition()` 的长注释）：
+  //   行内容的静息不透明度恒为 `entryRestOpacity()`（= 1），"挂载那一下"的 0→1 由**出现过渡**承载。
 
   /** 工具是否"在飞"（决定发光与扫光）——判据收敛在 `core/toolstatus.isInFlight`（committed ⇒ live=false）。 */
   private toolLive(t: ToolProgress): boolean {
@@ -625,18 +625,29 @@ export struct MessageRowView {
     // （CopyTarget 不渲染可见 UI）。垂直间距来自 `.virt-row py-1.5`（= rowPadY）。
     .padding({ left: BUBBLE.assistantPadX, right: BUBBLE.assistantPadX })
     .margin({ top: BUBBLE.rowPadY, bottom: BUBBLE.rowPadY })
-    // 入场动效（web `msgIn`：opacity 0→1 + translateY 4px→0，200ms spring）—— 只挂在行内容上
-    // （本 Column = ListItem 的直接子节点，等价 web `.animate-msg-in > *`），不动外层定位节点。
-    // 见 `entered` 声明处的铁律说明。`.translate` 是渲染变换、不参与 List 布局，触屏也稳。
-    .opacity(this.entered ? 1 : 0)
-    .translate({ y: this.entered ? 0 : 4 })
-    .onAppear(() => {
-      if (!this.entered) {
-        animateTo(animMsgIn(), () => {
-          this.entered = true;
-        });
-      }
-    })
+    // ── 入场动效（对齐 web `msgIn`：opacity 0→1 + translateY 4px→0，200ms spring）──────
+    // 复刻 web `index.css:683-714`：`.animate-msg-in > *` 用 CSS `@keyframes`，元素**自身**
+    // 的 `opacity` 仍是 1、关键帧**没有** `forwards` ⇒ 动画没跑/被打断，元素停在 1（可读）。
+    // ArkUI 的等价物 = **出现过渡**（`.transition()`）：静息态是组件自己的属性，过渡只是
+    //   "挂载那一下"的装饰。
+    //
+    // ⛔ 为什么**不能**用"状态位 + onAppear"（旧实现，用户实证 2026-10-11 的真根因）：
+    //   旧写法 `.opacity(entered ? 1 : 0)`（`entered` 初始 false）+ `.onAppear` 里 `animateTo`
+    //   把**可读性押在动画上** —— `onAppear` 未触发（挂载时机 / 条件渲染跳过）⇒ `entered`
+    //   永不置 true；后台冻结 / 20Hz 流式重建打断动画 ⇒ 渲染值停在半路。两者都让正文永久
+    //   压在低不透明度上（用户截图：正文最暗 `#D4D4D6` 压 `#F2F2F2` = **1.32:1**（≈正文 @13%），
+    //   同屏其它文字 21:1 正常）。判据/常量在 `core/msgentry.ets`（有判别力单测 + mutation 自证）。
+    //
+    // ⛔ **web 铁律**：入场动效只作用**行内层**（`.animate-msg-in > *`），**绝不改行自身的定位
+    //   transform** —— 虚拟列表用 `translateY(item.start)` 定位行，动效里的 transform 会覆盖它
+    //   ⇒ 行被画到容器原点、压在上一条上（web 2026-09-16 快速滚动抖动重叠的真根因，
+    //   守护见 `web/src/index.test.ts` 的 virt-row 用例）。原生端行定位由 `List`/`ListItem`
+    //   （pages/Index.ets）负责、不用 transform，但纪律同源：动效只挂在**行内容**上
+    //   （即 ListItem 的直接子节点 = 本组件的 `AssistantBlock` 根 Column），不碰外层定位节点。
+    //
+    // 只给 **live 行**播入场（对齐 web `row.id === liveId`）：历史行不播，避免滚动时逐行闪入。
+    .opacity(entryRestOpacity())
+    .transition(this.entryTransition())
     // 长按整条 → 复制（回复 / 含思考 / 含工具 / 原始 Markdown）
     .gesture(LongPressGesture().onAction(() => {
       this.onRowLongPress();

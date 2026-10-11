@@ -1063,14 +1063,25 @@ At File: entry/src/main/ets/core/highlight.ets:18:8
   ⇒ **T1 恒深**（`core/splash.ets` 的 `splashBrandCanvas`，不接 `theme`），与 T0 同色、T0→T1 零跳色，
   之后由 T2 **渐隐**过渡到应用主题（渐隐≠硬切）。
 
-### 33d. **可读性 ≠ 取色**：先量"不透明度"再怀疑调色板（用户亲报"白底看不清"）
+### 33d. **可读性 ≠ 取色**：先量"不透明度"再怀疑调色板（用户亲报"白底看不清"）——**已定案并修复**
 - 症状（用户原话"你看看你这白色看得清吗"）：白/浅色主题下**消息正文几乎看不见**，而同屏标题、UI 框架正常。
-- **量化手法**（比肉眼判更硬，本波新造）：
+- **量化手法**（本波新造，`/tmp/pxhist.py` / `/tmp/pxbox.py` / `/tmp/xocr.sh`，可复用）：
   1. `sips -s format bmp` 转 BMP（⚠️ HarmonyOS 截图给的是 **32bpp、负高度=自上而下**，索引要按 `|h|` 算）；
   2. 全幅**颜色直方图** + **逐带（每 32 行）最暗色** ⇒ 立刻分清"字色"与"面/发丝线色"；
-  3. 若实测字色 = `#E1E1E6`（**B 通道偏高 = 蓝偏**）而 `textPrimary` 是 `#0F172A`（蓝偏）
-     ⇒ **字被按不透明度压淡了**（`α = (L_bg − L_blend)/(L_bg − L_text) ≈ 0.08`），**不是**取色调错
-     （全仓没有任何 role 等于那些灰）。
-- 判据方向：**不透明度/入场动画不得成为可读性的唯一依赖**（本仓 `MessageRow` 的入场淡入
-  `entered = !isLive` + `.opacity(entered?1:0)` + `onAppear` 里 `animateTo` ⇒ 动画被打断/`onAppear` 不再触发
-  就会**永久卡在低不透明度**）。⛔ 修法不许靠"放宽对比度台账阈值"。
+  3. 若实测字色与主题色板对不上（本案例正文 `#D4D4D6` 压 `#F2F2F2` = **1.32:1**），
+     而 `compositeOver(textPrimary@α, 底)` 能反解出 α≈0.13 ⇒ **字被按不透明度压淡了**，不是取色调错。
+  4. ⚠️ **别只看一张截图**：先 OCR 出"淡的到底是哪一块"（本案例：淡的是**表格块**、清晰的是**同一消息的正文块**），
+     再去**同一条消息 / 同一主题**的 settled 现场量一次（案例实测 **21:1** ⇒ 直接排除取色 bug）。
+- **定案根因**（`components/MessageRow.ets` 旧实现）：入场淡入把**静息态**写成 `.opacity(entered ? 1 : 0)`
+  （`entered` 初始 `false`，`aboutToAppear` 里 `entered = !row.isLive`），再靠 `.onAppear` 里
+  `animateTo(...)` 把它拉起来 ⇒ **可读性成了动画的函数**：`onAppear` 未触发 / 动画被后台冻结或
+  20Hz 流式重建打断 ⇒ 正文停在低/零不透明度。web **没有**这个毛病 —— `web/src/index.css:683-714`
+  用 CSS `@keyframes msgIn`（无 `forwards`），元素**自身** `opacity` 仍是 1 ⇒ 动画不跑就停在 1。
+- **修法（可复用纪律）**：ArkUI 里 CSS keyframe 入场的等价物是**出现过渡**（`TransitionEffect`）——
+  静息态 = 组件自身的属性；过渡只是"挂载那一下"的装饰，**不跑也不会把人留在起始态**。
+  ⛔ **凡"用状态位 + `onAppear` 把不透明度从 0 拉起来"的写法，都同罪**（本仓另一处在
+  `pages/Index.ets` 切会话的 `listAlpha = 0.001 → anim(→1)`，整列表可被同一机制留在近 0）。
+- 判据：`core/msgentry.ets`（纯逻辑，静息不透明度恒 1）+ `tools/tests/msg_entry_contrast.test.ts`
+  （5 套主题静息对比度 ≥4.5 + 源码契约 + mutation 自证"注入 `entered 永不置 true` 必红"）。
+  ⛔ 修法不许靠"放宽对比度台账阈值"。
+  ⚠️ 写这类**源码判据**必须**先剥注释** —— 第一版把注释里记录的旧写法当成违规 ⇒ 假红。
