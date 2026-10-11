@@ -17,6 +17,13 @@ import { MD_THEMES, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';
 import { localeLabel, normalizeLocale } from '../core/i18n';
 import { isStarred, parseStarred, serializeStarred, starredFirst, toggleStarred } from '../core/stars';
 import { D_BASE, EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_CAPTION, FS_HERO, FS_TITLE, R_2XL, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5, SP_6, SP_8 } from '../core/tokens';
+// 抽屉重排：尺度/层级/材质一律走语义令牌层（⛔ 不新增字面量；`surfaceFillOf`/`hairlineOf`/
+// `typeOf` 是唯一出口）。色值一律经 `this.pal()`（`surfaceFillOf` 的 role 是**带点**的语义面名）。
+import {
+  GAP_BLOCK, HIT_TARGET_MIN, INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X, INSET_ROW_Y,
+  PRESS_OPACITY, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, SPACE_HAIR, SPACE_LG, SPACE_MD,
+  SPACE_SM, SPACE_XL, SPACE_XS, SPACE_XXS, STROKE_HAIRLINE, hairlineOf, surfaceFillOf, typeOf,
+} from '../core/design';
 import { isUnauthorized, loadErrHint, loadErrTitle, needsRelogin, needsSessionRefresh } from '../core/autherr';
 import {
   canMove, MOVE_DOWN, MOVE_TOP, MOVE_UP, hitLine, sessionLabel, sessionMatches,
@@ -58,7 +65,7 @@ import {
 } from '../core/attach';
 import { changedByKeys, identityChanged, needsFullReload, rowKey, rowsFpOf, sameRowIds,
   scopedFingerprint, sessionScopedRowKey, tailRows } from '../core/rowdiff';
-import { BusySignals, busyNow, showsBusyPlaceholder, showsHistorySkeleton, showsJumpToLatest } from '../core/indicators';
+import { BusySignals, busyNow, DRAWER_EMPTY_NO_MATCH, DRAWER_EMPTY_NO_SESSIONS, DRAWER_EMPTY_NONE, drawerEmptyHint, drawerEmptyKind, showsBusyPlaceholder, showsHistorySkeleton, showsJumpToLatest } from '../core/indicators';
 import { listItemCount, nextFollowBottom } from '../core/listfollow';
 import { OverlayCode, OverlayState, topOverlay } from '../core/overlays';
 import {
@@ -3715,6 +3722,22 @@ struct Index {
     return out;
   }
 
+  /**
+   * 抽屉的空态档位（**唯一判据**，来自 `core/indicators.ets` 的同族函数）。
+   * `total` = 未筛选总数；`filtered` = 搜索词 × 渠道过滤后的数量。
+   */
+  private drawerEmpty(): string {
+    return drawerEmptyKind(this.sessions.length, this.filteredSessions().length);
+  }
+
+  /** 「清除筛选」出口（筛选后为空时给用户可恢复的动作，⛔ 不许静默）。 */
+  private clearSessFilters(): void {
+    this.sessQuery = '';
+    this.activeChannel = '';
+    this.config.saveActiveChannel('').catch(() => {
+    });
+  }
+
   private sessionIds(): string[] {
     const out: string[] = [];
     for (let i = 0; i < this.sessions.length; i++) {
@@ -3863,8 +3886,8 @@ struct Index {
       const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
       const win: window.Window = await window.getLastWindow(ctx);
       await win.setWindowSystemBarProperties({
-        statusBarContentColor: dark ? '#FFFFFF' : '#000000',
-        navigationBarContentColor: dark ? '#FFFFFF' : '#000000',
+        statusBarContentColor: dark ? '#FFFFFF' : '#000000', // allow-color-literal: setWindowSystemBarProperties 只接受色值字符串（不接资源引用），已按 dark 分叉
+        navigationBarContentColor: dark ? '#FFFFFF' : '#000000', // allow-color-literal: 同上（系统栏 API 参数，非 UI 渲染色）
       });
     } catch (e) {
       console.warn(`xbot theme: 状态栏更新失败（已忽略）: ${errText(e as Object)}`);
@@ -4127,10 +4150,11 @@ struct Index {
   /**
    * 打开设置面板（`components/SettingsPanel`，全屏）—— **用户报的「两个设置面板」收敛点**。
    *
-   * ⚠️ 本波**只做入口收敛**，暂不删旧 `PrefsSheet`/`SettingsSheet`：这两个旧 `@Builder`
-   *   仍被 `core/sheets.ets` 的 flag 表 + `tools/tests/sheets.test.ts` 的**源码级断言**钉住
-   *   （测试在 ⛔ 本波不可改的 `tools/**` 内）⇒ 需 `settings-ux` 同步移除表中 `prefs`/`settings`
-   *   两行后，这两个 builder 才可删。**在此之前它们不可达**（两个入口都改走本方法）。
+   * ⚠️ 现状（本波**只做入口收敛**，暂不删旧 `PrefsSheet`/`SettingsSheet`）：
+   *   这两个旧 `@Builder` 仍被 `core/sheets.ets` 的 flag 表 + `tools/tests/sheets.test.ts`
+   *   的**源码级断言**钉住（测试在本波 ⛔ 不可改的 `tools/**` 内）⇒ 由 `settings-ux` 同步
+   *   移除表中的 `prefs`/`settings` 两行后再删这两个 builder。**在此之前它们不可达**
+   *   （两个入口都改走本方法），用户侧只剩**一个**设置面板。
    */
   private async openSettingsPanel(): Promise<void> {
     // 浮层互斥：由抽屉进入时**先收抽屉**（否则两个浮层叠加，顶部既没被压暗也没被盖住）
@@ -5392,74 +5416,126 @@ struct Index {
   @Builder
   DrawerSheet() {
     Column() {
-      Row() {
-        Text('会话').fontSize(17).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
-        Text('＋ 新建').fontSize(12).fontColor(this.pal().onAccent)
-          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-          .backgroundColor(this.pal().accent).borderRadius(14)
-          .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
-          .onClick(() => {
+      // ── 头部（44 命中区 = Apple 导航栏高度）────────────────────────────────
+      // 层级：标题 = 本面板**唯一**「标题级」（`type.headline`）；「新建」= 次要动作文字
+      // （`type.subhead` + accentSoft，⛔ 不用实心色块抢占层级）；关闭 = 44×44 热区。
+      Row({ space: SPACE_XS }) {
+        Text('会话')
+          .fontSize(typeOf('type.headline').size)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.pal().textPrimary)
+          .layoutWeight(1)
+        Row() {
+          Text('＋ 新建')
+            .fontSize(typeOf('type.subhead').size)
+            .fontColor(this.pal().accentSoft)
+        }
+        .height(HIT_TARGET_MIN)
+        .padding({ left: SPACE_XS, right: SPACE_XS })
+        .alignItems(VerticalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
           this.newSession();
         })
-        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
-.onClick(() => {
+        Row() {
+          SymbolGlyph($r('sys.symbol.xmark'))
+            .fontSize(typeOf('type.headline').size)
+            .fontColor([this.pal().textSecondary])
+        }
+        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center)
+        .alignItems(VerticalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
           this.showDrawer = false;
           this.renamingId = '';
         })
       }
-      .width('100%').padding(8)
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+      .padding({ bottom: SPACE_SM })
 
-      // 搜索：本地筛选（即时）+ 「搜索本会话消息」（服务端 /api/search）
-      Row({ space: 6 }) {
+      // ── 搜索：本地筛选（即时）+ 「搜索本会话消息」（服务端 /api/search）──────
+      // 输入面 = 浮层内的行面（`surface.overlayRow`）；命中区 44。
+      Row({ space: SPACE_XS }) {
         TextInput({ placeholder: '筛选会话…', text: this.sessQuery })
           .onChange((v: string) => {
             this.sessQuery = v;
           })
-          .layoutWeight(1).constraintSize({ minHeight: 38 })
-          .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary).fontSize(13)
-          .borderRadius(12).padding({ left: 12, right: 12 })
-        if (this.searchBusy) {
-          LoadingProgress().width(16).height(16).color(this.pal().accent)
-        } else {
-          Text('搜消息').fontSize(12).fontColor(this.pal().accentSoft).padding(6)
-            .onClick(() => {
-              this.runSearch();
-            })
+          .layoutWeight(1)
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
+          .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlayRow'))
+          .fontColor(this.pal().textPrimary)
+          .fontSize(typeOf('type.subhead').size)
+          .borderRadius(RADIUS_CARD)
+          .padding({ left: SPACE_SM, right: SPACE_SM })
+        Row() {
+          if (this.searchBusy) {
+            LoadingProgress().width(SPACE_MD).height(SPACE_MD).color(this.pal().accent)
+          } else {
+            Text('搜消息')
+              .fontSize(typeOf('type.caption').size)
+              .fontColor(this.pal().accentSoft)
+          }
         }
+        .height(HIT_TARGET_MIN)
+        .padding({ left: SPACE_XS, right: SPACE_XS })
+        .justifyContent(FlexAlign.Center)
+        .alignItems(VerticalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          if (!this.searchBusy) {
+            this.runSearch();
+          }
+        })
       }
-      .width('100%').padding({ bottom: 6 })
+      .width('100%').padding({ bottom: SPACE_SM })
 
-      // 分类切换器（web `SessionViewBar.tsx:47-62`）—— 清单**只从** `SESSION_CATEGORIES` 渲染，
-      // 组件里不再列一遍分类（`core/sessiongroup.ets` 的注释要求）。三档 = 项目 / 状态 / 时间。
-      Row({ space: 4 }) {
+      // ── 分类切换器（iOS 分段控件）：下沉轨道（`surface.chip`）+ 选中段浮起 ────
+      // 清单**只从** `SESSION_CATEGORIES` 渲染（组件里不再列一遍分类）。
+      Row({ space: SPACE_HAIR }) {
         ForEach(SESSION_CATEGORIES, (c: string) => {
-          Text(sessionCategoryLabel(c))
-            .fontSize(11)
-            .fontColor(c === this.sessionCategory() ? this.pal().textPrimary : this.pal().textSecondary)
-            .backgroundColor(c === this.sessionCategory() ? this.pal().surfaceHi : this.pal().surfaceAlt)
-            .borderRadius(6)
-            .textAlign(TextAlign.Center)
-            .padding({ top: 5, bottom: 5 })
-            .layoutWeight(1)
-            .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
-            .onClick(() => {
-              this.setSessionCategory(c);
-            })
+          Row() {
+            Text(sessionCategoryLabel(c))
+              .fontSize(typeOf('type.caption').size)
+              .fontWeight(c === this.sessionCategory() ? FontWeight.Medium : FontWeight.Regular)
+              .fontColor(c === this.sessionCategory() ? this.pal().textPrimary : this.pal().textSecondary)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
+          .layoutWeight(1)
+          .height(HIT_TARGET_MIN)
+          .justifyContent(FlexAlign.Center)
+          .alignItems(VerticalAlign.Center)
+          .backgroundColor(c === this.sessionCategory()
+            ? surfaceFillOf(this.pal(), 'surface.card')
+            : this.pal().transparent)
+          .borderRadius(RADIUS_CHIP)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            this.setSessionCategory(c);
+          })
         }, (c: string) => `cat-${c}`)
       }
-      .width('100%').padding({ bottom: 6 })
+      .width('100%')
+      .padding(SPACE_HAIR)
+      .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
+      .borderRadius(RADIUS_PILL)
+      .margin({ bottom: SPACE_SM })
 
-      // 渠道筛选（web `ChannelPicker.tsx`：由会话列表推导渠道，排除内部 agent）。
-      // ⛔ 纯客户端派生，过滤**只作用于列表** —— 绝不动 `channelForChat`（真机事故：
-      //    否则点开非 web 会话报 `session not found`）。
+      // ── 渠道筛选（web `ChannelPicker.tsx`；纯客户端派生，只作用于列表）──────
+      // ⛔ 绝不动 `channelForChat`（真机事故：否则点开非 web 会话报 `session not found`）。
+      // chip 统一**中性**（灰阶 + 凹槽面），选中只提一档填充 —— 不做彩色装饰。
       Flex({ wrap: FlexWrap.Wrap }) {
         Text(activeChannelLabel(this.activeChannel))
-          .fontSize(11)
+          .fontSize(typeOf('type.micro').size)
           .fontColor(this.activeChannel.length === 0 ? this.pal().textPrimary : this.pal().textSecondary)
-          .backgroundColor(this.activeChannel.length === 0 ? this.pal().surfaceHi : this.pal().surfaceAlt)
-          .borderRadius(6).textAlign(TextAlign.Center)
-          .padding({ left: 10, right: 10, top: 5, bottom: 5 }).margin(2)
-          .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+          .backgroundColor(surfaceFillOf(this.pal(),
+            this.activeChannel.length === 0 ? 'surface.pillSelected' : 'surface.chip'))
+          .borderRadius(RADIUS_CHIP).textAlign(TextAlign.Center)
+          .padding({ left: SPACE_XS, right: SPACE_XS, top: SPACE_XS, bottom: SPACE_XS })
+          .margin(SPACE_HAIR)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.activeChannel = '';
             // 切换成功后落盘（对齐 web localStorage；失败不影响本次过滤）
@@ -5468,12 +5544,14 @@ struct Index {
           })
         ForEach(availableChannels(this.sessions), (ch: string) => {
           Text(activeChannelLabel(ch))
-            .fontSize(11)
+            .fontSize(typeOf('type.micro').size)
             .fontColor(this.activeChannel === ch ? this.pal().textPrimary : this.pal().textSecondary)
-            .backgroundColor(this.activeChannel === ch ? this.pal().surfaceHi : this.pal().surfaceAlt)
-            .borderRadius(6).textAlign(TextAlign.Center)
-            .padding({ left: 10, right: 10, top: 5, bottom: 5 }).margin(2)
-            .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+            .backgroundColor(surfaceFillOf(this.pal(),
+              this.activeChannel === ch ? 'surface.pillSelected' : 'surface.chip'))
+            .borderRadius(RADIUS_CHIP).textAlign(TextAlign.Center)
+            .padding({ left: SPACE_XS, right: SPACE_XS, top: SPACE_XS, bottom: SPACE_XS })
+            .margin(SPACE_HAIR)
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               this.activeChannel = ch;
               // 切换成功后落盘（对齐 web localStorage；失败不影响本次过滤）
@@ -5482,167 +5560,254 @@ struct Index {
             })
         }, (ch: string) => `chfilter-${ch}`)
       }
-      .width('100%').padding({ left: 4, right: 4, bottom: 6 })
+      .width('100%').padding({ bottom: SPACE_SM })
 
-      List() {
-        ForEach(this.drawerGroups(), (g: DrawerGroup) => {
-          // 组头（web `SessionGroup.tsx:73-93`）：chevron（展开时旋转 90°）+ 标题 + 计数徽标。
-          // 用户要求"组头不加额外按钮" ⇒ 这里只有文字与计数，点击整行 = 折叠/展开。
-          ListItem() {
-            Row({ space: 6 }) {
-              SymbolGlyph($r('sys.symbol.chevron_right'))
-                .fontSize(12).fontColor([this.pal().textSecondary])
-                .rotate({ angle: this.isGroupCollapsed(this.sessionCategory(), g.key) ? 0 : 90 })
-              // 组头层次：web 用 `text-[10px] font-semibold uppercase tracking-wider`
-              // （`SessionGroup.tsx:78`）—— 中文无大小写，故以**字重**补上半档层次，
-              // 让"分组标题"稳居层级的上一级（此前与行内次级文字同为 regular，读不出层次）。
-              Text(g.title)
-                .fontSize(10).fontWeight(FontWeight.Medium).fontColor(this.pal().textSecondary)
-                .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-              Text(`${g.items.length}`)
-                .fontSize(10).fontColor(this.pal().textMuted)
-                .padding({ left: 6, right: 6, top: 1, bottom: 1 })
-                .backgroundColor(this.pal().surfaceAlt).borderRadius(8)
+      // ── 列表 / 空态 ────────────────────────────────────────────────────────
+      // 空态判据走 `core/indicators.ets`（与骨架/占位同族，⛔ 页面不写第二套 `if`）。
+      if (this.drawerEmpty() !== DRAWER_EMPTY_NONE) {
+        Column({ space: SPACE_SM }) {
+          SymbolGlyph($r('sys.symbol.square_grid_2x2'))
+            .fontSize(typeOf('type.display').size)
+            .fontColor([this.pal().textMuted])
+          Text(drawerEmptyHint(this.drawerEmpty()))
+            .fontSize(typeOf('type.subhead').size)
+            .fontColor(this.pal().textPrimary)
+          if (this.drawerEmpty() === DRAWER_EMPTY_NO_SESSIONS) {
+            Text('新建一个会话，开始对话')
+              .fontSize(typeOf('type.caption').size)
+              .fontColor(this.pal().textSecondary)
+              .textAlign(TextAlign.Center)
+            Row() {
+              Text('＋ 新建会话')
+                .fontSize(typeOf('type.subhead').size)
+                .fontColor(this.pal().onAccent)
             }
-            .width('100%').padding({ left: 4, right: 4, top: 6, bottom: 4 })
-            .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
+            .padding({ left: SPACE_MD, right: SPACE_MD })
+            .justifyContent(FlexAlign.Center)
+            .alignItems(VerticalAlign.Center)
+            .backgroundColor(this.pal().accent)
+            .borderRadius(RADIUS_PILL)
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
-              this.toggleGroup(this.sessionCategory(), g.key);
+              this.newSession();
+            })
+          } else {
+            Row() {
+              Text('清除筛选')
+                .fontSize(typeOf('type.subhead').size)
+                .fontColor(this.pal().accentSoft)
+            }
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
+            .padding({ left: SPACE_MD, right: SPACE_MD })
+            .justifyContent(FlexAlign.Center)
+            .alignItems(VerticalAlign.Center)
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+            .onClick(() => {
+              this.clearSessFilters();
             })
           }
-          // 仅当"末段目录名重名"时补一行完整路径（web 靠 hover tooltip，原生端没有 hover）
-          // ⚠️ 颜色用 `textMuted` 而**不是** `foreground3`：后者是语义上更准的"最弱一档"，
-          //    但另一条线（task5-contrast）有一条"`foreground3` 无生产调用点"的台账断言
-          //    ⇒ 不去撞他们的红线（已列为移交项）。
-          if (g.tip.length > 0) {
+        }
+        .width('100%').layoutWeight(1)
+        .padding({ left: SPACE_MD, right: SPACE_MD })
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+      } else {
+        List() {
+          ForEach(this.drawerGroups(), (g: DrawerGroup) => {
+            // 组头：chevron（展开时旋转 90°）+ 标题 + 计数徽标；点整行 = 折叠/展开。
+            // 层级：组头用 `type.micro` + 半档字重（中文无大小写，以字重补 web `uppercase` 的层次）。
             ListItem() {
-              Text(g.tip)
-                .fontSize(9).fontColor(this.pal().textMuted)
-                .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                .width('100%').padding({ left: 20, bottom: 2 })
+              Row({ space: SPACE_XS }) {
+                SymbolGlyph($r('sys.symbol.chevron_right'))
+                  .fontSize(typeOf('type.micro').size).fontColor([this.pal().textMuted])
+                  .rotate({ angle: this.isGroupCollapsed(this.sessionCategory(), g.key) ? 0 : 90 })
+                Text(g.title)
+                  .fontSize(typeOf('type.micro').size).fontWeight(FontWeight.Medium).fontColor(this.pal().textSecondary)
+                  .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .layoutWeight(1)
+                Text(`${g.items.length}`)
+                  .fontSize(typeOf('type.micro').size).fontColor(this.pal().textMuted)
+                  .padding({ left: SPACE_XS, right: SPACE_XS, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
+                  .backgroundColor(this.pal().surfaceAlt).borderRadius(8)
+              }
+              .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
+              .padding({ left: SPACE_XXS, right: SPACE_XXS })
+              .alignItems(VerticalAlign.Center)
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .onClick(() => {
+                this.toggleGroup(this.sessionCategory(), g.key);
+              })
             }
-          }
-          if (!this.isGroupCollapsed(this.sessionCategory(), g.key)) {
-            ForEach(g.items, (s: SessionItem) => {
+            // 仅当"末段目录名重名"时补一行完整路径（web 靠 hover tooltip，原生端没有 hover）
+            if (g.tip.length > 0) {
               ListItem() {
-            Column({ space: 4 }) {
-              if (this.renamingId === s.chat_id) {
-                Row({ space: 6 }) {
-                  TextInput({ text: this.renameText })
-                    .onChange((v: string) => {
-                      this.renameText = v;
-                    })
-                    .layoutWeight(1).constraintSize({ minHeight: 36 }).backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary)
-                  Text('保存').fontSize(13).fontColor(this.pal().accentSoft).padding(6).onClick(() => {
-                    const store: ChatStore | null = this.store;
-                    if (store !== null && s.chat_id !== undefined) {
-                      store.renameSession(s.chat_id, this.renameText);
-                    }
-                    this.renamingId = '';
-                  })
-                  Text('取消').fontSize(13).fontColor(this.pal().textSecondary).padding(6).onClick(() => {
-                    this.renamingId = '';
-                  })
-                }.width('100%')
-              } else {
-                Row() {
-                  Column() {
-                    Row({ space: 6 }) {
-                      if (s.running === true) {
-                        Circle({ width: 7, height: 7 }).fill(this.pal().success)
-                          .opacity(this.pulseOn ? 1 : 0.35)
-                          .animation({ duration: 600, curve: Curve.EaseInOut })
-                      }
-                      Text(this.tabLabel(s.chat_id))
-                        .fontSize(15)
-                        .fontColor(s.chat_id === this.currentChat ? this.pal().accentText : this.pal().textPrimary)
-                        .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                        .layoutWeight(1)
-                    }.width('100%')
-                    Row({ space: 6 }) {
-                      Text(channelLabel(s.channel !== undefined ? s.channel : 'web'))
-                        .fontSize(9).fontColor(this.pal().accentText)
-                        .padding({ left: 4, right: 4, top: 1, bottom: 1 })
-                        .backgroundColor(this.pal().surfaceHi).borderRadius(4)
-                      // ⛔ 仅当"会话 id 与标题不同"时才补 id：无自定义标题时 `tabLabel` 返回的
-                      //    就是 chat_id ⇒ 两行同串（真机走查见 `web-4` / `Web web-4` 的重复），
-                      //    是"次级文字"里最刺眼的一种脏。有自定义标题时 id 仍保留（用于消歧）。
-                      if (s.chat_id !== this.tabLabel(s.chat_id)) {
-                        Text(s.chat_id)
-                          .fontSize(10).fontColor(this.pal().textMuted)
-                          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                          .layoutWeight(1)
-                      }
-                    }.width('100%')
-                  }
-                  .layoutWeight(1).alignItems(HorizontalAlign.Start)
-
-                  // 星标（收藏）：一点即切，已星标用实心星 + accent 色
-                  SymbolGlyph(this.isStarredChat(s.chat_id)
-                    ? $r('sys.symbol.star_fill') : $r('sys.symbol.star'))
-                    .fontSize(17)
-                    .fontColor([this.isStarredChat(s.chat_id) ? this.pal().accent : this.pal().textMuted])
-                    .padding({ left: 6, right: 2, top: 4, bottom: 4 })
-                    .stateStyles({ pressed: { .opacity(0.5).scale({ x: 0.9, y: 0.9 }) }, normal: { .opacity(1).scale({ x: 1, y: 1 }) } })
-                    .onClick(() => {
-                      this.toggleStarChat(s.chat_id);
-                    })
-                  // 触屏铁律：多个行内操作折叠成「一个 ⋯ + 菜单」，绝不并排常显
-                  // ⚠️ 这里**刻意不用 SymbolGlyph**：鸿蒙符号集里的 `more` 是「四宫格」（与顶栏 ⊞ 面板按钮撞脸、
-                  //    语义完全不对），而 `ellipsis` 只作为消息气泡类图标存在。`⋯`(U+22EF) 没有 emoji 变体，
-                  //    不会像 `✳`/`📎` 那样被渲染成彩色 emoji，是这里最合适的字形。
-                  Text('⋯').fontSize(19).fontColor(this.pal().textSecondary).padding({ left: 6, right: 6, top: 4, bottom: 4 })
-                    .onClick(() => {
-                      this.anim(() => {
-                        this.sessMenuId = s.chat_id;
-                      });
-                      this.sessConfirmDelete = '';
-                    })
-                }.width('100%')
+                Text(g.tip)
+                  .fontSize(typeOf('type.micro').size).fontColor(this.pal().textMuted)
+                  .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .width('100%').padding({ left: SPACE_LG, bottom: SPACE_HAIR })
               }
             }
-            .width('100%').padding(12)
-            .backgroundColor(s.chat_id === this.currentChat ? this.pal().surfaceHi : this.pal().surface)
-            .borderRadius(12)
-            .border({
-              width: { left: 3, top: 1, right: 1, bottom: 1 },
-              color: {
-                left: s.chat_id === this.currentChat ? this.pal().accent : this.pal().border,
-                top: this.pal().border, right: this.pal().border, bottom: this.pal().border,
-              },
-            })
-            .shadow({ radius: 10, color: this.eff().elev1, offsetX: 0, offsetY: 2 })
-            .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
-            .onClick(() => {
-              if (s.chat_id !== undefined && this.renamingId.length === 0) {
-                this.switchSession(s.chat_id);
-              }
-            })
-          }
-            }, (s: SessionItem) => `${s.chat_id}#${s.label}#${s.running}`)
-          }
-        }, (g: DrawerGroup) => `${this.sessionCategory()}#${g.key}`)
-      }
-      .layoutWeight(1).width('100%')
+            if (!this.isGroupCollapsed(this.sessionCategory(), g.key)) {
+              ForEach(g.items, (s: SessionItem) => {
+                ListItem() {
+                  Column() {
+                    // 行体：**扁平行**（无卡片/无描边/无阴影）—— 结构靠发丝线，选中靠一档填充。
+                    // 层级：标题 = `type.body`（最重）；渠道 chip / id = `type.micro`（次级）。
+                    Column({ space: GAP_BLOCK }) {
+                      if (this.renamingId === s.chat_id) {
+                        Row({ space: SPACE_XS }) {
+                          TextInput({ text: this.renameText })
+                            .onChange((v: string) => {
+                              this.renameText = v;
+                            })
+                            .layoutWeight(1).constraintSize({ minHeight: 36 })
+                            .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlayRow'))
+                            .fontColor(this.pal().textPrimary)
+                            .fontSize(typeOf('type.body').size)
+                            .borderRadius(RADIUS_PILL)
+                          Text('保存').fontSize(typeOf('type.subhead').size).fontColor(this.pal().accentSoft).padding(SPACE_XS).onClick(() => {
+                            const store: ChatStore | null = this.store;
+                            if (store !== null && s.chat_id !== undefined) {
+                              store.renameSession(s.chat_id, this.renameText);
+                            }
+                            this.renamingId = '';
+                          })
+                          Text('取消').fontSize(typeOf('type.subhead').size).fontColor(this.pal().textSecondary).padding(SPACE_XS).onClick(() => {
+                            this.renamingId = '';
+                          })
+                        }.width('100%')
+                      } else {
+                        Row({ space: SPACE_XS }) {
+                          Column({ space: SPACE_HAIR }) {
+                            Row({ space: SPACE_XS }) {
+                              if (s.running === true) {
+                                // 运行中 = **静态** 状态点（⛔ 不呼吸：唯一在飞动效 = 光球）。
+                                Circle({ width: SPACE_XS, height: SPACE_XS }).fill(this.pal().success)
+                              }
+                              Text(this.tabLabel(s.chat_id))
+                                .fontSize(typeOf('type.body').size)
+                                .fontColor(s.chat_id === this.currentChat ? this.pal().accentText : this.pal().textPrimary)
+                                .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                                .layoutWeight(1)
+                            }.width('100%').alignItems(VerticalAlign.Center)
+                            Row({ space: SPACE_XS }) {
+                              Text(channelLabel(s.channel !== undefined ? s.channel : 'web'))
+                                .fontSize(typeOf('type.micro').size).fontColor(this.pal().textSecondary)
+                                .padding({ left: INSET_CHIP_X, right: INSET_CHIP_X, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
+                                .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip')).borderRadius(RADIUS_CHIP)
+                              // ⛔ 仅当"会话 id 与标题不同"时才补 id（否则与上一行标题同串）。
+                              if (s.chat_id !== this.tabLabel(s.chat_id)) {
+                                Text(s.chat_id)
+                                  .fontSize(typeOf('type.micro').size).fontColor(this.pal().textMuted)
+                                  .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                                  .layoutWeight(1)
+                              }
+                            }.width('100%')
+                          }
+                          .layoutWeight(1).alignItems(HorizontalAlign.Start)
 
-      Button('设置（字号 / 换行 / 思考）').width('100%').constraintSize({ minHeight: 40 })
-        .backgroundColor(this.pal().surfaceHi).margin({ top: 8 }).onClick(() => {
-          this.openPrefs();
+                          // 星标（收藏）：一点即切，已星标用实心星 + accent 色
+                          SymbolGlyph(this.isStarredChat(s.chat_id)
+                            ? $r('sys.symbol.star_fill') : $r('sys.symbol.star'))
+                            .fontSize(typeOf('type.headline').size)
+                            .fontColor([this.isStarredChat(s.chat_id) ? this.pal().accent : this.pal().textMuted])
+                            .padding(SPACE_XS)
+                            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+                            .onClick(() => {
+                              this.toggleStarChat(s.chat_id);
+                            })
+                          // 触屏铁律：多个行内操作折叠成「一个 ⋯ + 菜单」，绝不并排常显。
+                          Text('⋯').fontSize(typeOf('type.headline').size).fontColor(this.pal().textSecondary).padding(SPACE_XS)
+                            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+                            .onClick(() => {
+                              this.anim(() => {
+                                this.sessMenuId = s.chat_id;
+                              });
+                              this.sessConfirmDelete = '';
+                            })
+                        }.width('100%')
+                      }
+                    }
+                    .width('100%')
+                    .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+                    .backgroundColor(s.chat_id === this.currentChat
+                      ? surfaceFillOf(this.pal(), 'surface.overlayRowHover')
+                      : this.pal().transparent)
+                    .borderRadius(RADIUS_PILL)
+                    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+                    .onClick(() => {
+                      if (s.chat_id !== undefined && this.renamingId.length === 0) {
+                        this.switchSession(s.chat_id);
+                      }
+                    })
+                    // 结构性发丝（⛔ 不是装饰描边）：行与行之间的唯一分隔。
+                    Divider()
+                      .strokeWidth(STROKE_HAIRLINE)
+                      .color(hairlineOf(this.pal()))
+                      .margin({ left: INSET_ROW_X, right: INSET_ROW_X })
+                  }
+                  .width('100%')
+                }
+              }, (s: SessionItem) => `${s.chat_id}#${s.label}#${s.running}`)
+            }
+          }, (g: DrawerGroup) => `${this.sessionCategory()}#${g.key}`)
+        }
+        .layoutWeight(1).width('100%')
+        .scrollBar(BarState.Off)
+      }
+
+      // ── 底部动作（分组行：标签 + chevron，发丝线分隔；命中区 44）─────────────
+      Column() {
+        Divider().strokeWidth(STROKE_HAIRLINE).color(hairlineOf(this.pal())).margin({ top: SPACE_SM })
+        Row() {
+          Text('设置')
+            .fontSize(typeOf('type.subhead').size).fontColor(this.pal().textPrimary).layoutWeight(1)
+          SymbolGlyph($r('sys.symbol.chevron_right'))
+            .fontSize(typeOf('type.caption').size).fontColor([this.pal().textMuted])
+        }
+        .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
+        .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
+        .alignItems(VerticalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          // 设置入口（与右上角 ⚙ 同目的）—— 统一开 `SettingsPanel`（唯一设置面）
+          this.openSettingsPanel();
         })
-      Button('面板（任务 / 子代理 / Runner）').width('100%').constraintSize({ minHeight: 40 })
-        .backgroundColor(this.pal().surfaceHi).margin({ top: 8 }).onClick(() => {
+        Divider().strokeWidth(STROKE_HAIRLINE).color(hairlineOf(this.pal())).margin({ left: INSET_ROW_X, right: INSET_ROW_X })
+        Row() {
+          Text('面板（任务 / 子代理 / Runner）')
+            .fontSize(typeOf('type.subhead').size).fontColor(this.pal().textPrimary).layoutWeight(1)
+          SymbolGlyph($r('sys.symbol.chevron_right'))
+            .fontSize(typeOf('type.caption').size).fontColor([this.pal().textMuted])
+        }
+        .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
+        .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
+        .alignItems(VerticalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
           this.openPanels();
         })
-      Button('退出登录').width('100%').constraintSize({ minHeight: 40 }).backgroundColor(this.pal().surfaceHi).margin({ top: 8 }).onClick(() => {
-        this.doLogout();
-      })
+        Divider().strokeWidth(STROKE_HAIRLINE).color(hairlineOf(this.pal())).margin({ left: INSET_ROW_X, right: INSET_ROW_X })
+        Row() {
+          Text('退出登录')
+            .fontSize(typeOf('type.subhead').size).fontColor(this.pal().dangerText).layoutWeight(1)
+        }
+        .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
+        .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
+        .alignItems(VerticalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          this.doLogout();
+        })
+      }.width('100%')
     }
     .width('82%').height('100%')
     .padding(SP_3)
     .backgroundColor(this.eff().glassBg)
     .backgroundBlurStyle(BlurStyle.Regular, { colorMode: this.glassMode() })
-    .borderWidth({ right: 1 }).borderColor(this.eff().glassBorder)
-    .shadow({ radius: 24, color: this.eff().elev3, offsetX: 8, offsetY: 0 })
+    .borderWidth({ right: STROKE_HAIRLINE }).borderColor(hairlineOf(this.pal()))
+    .shadow({ radius: SPACE_XL, color: this.eff().elev3, offsetX: SPACE_XS, offsetY: 0 })
     .position({ x: 0, y: 0 })
   }
 

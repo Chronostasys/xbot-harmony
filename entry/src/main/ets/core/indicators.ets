@@ -113,3 +113,35 @@ export const BUSY_LABEL_THINKING: string = '思考中…';
 export function busyLabel(phase: string | undefined): string {
   return phase === PHASE_COMPRESSING ? BUSY_LABEL_COMPRESSING : BUSY_LABEL_THINKING;
 }
+
+// ── 会话抽屉（侧边栏）空态判据 ────────────────────────────────────────────────
+//
+// 缺陷（`docs/REDESIGN-INPUT-STATES.md §F1`，2026-10-11）：抽屉的 `List` 直接
+//   `ForEach(this.drawerGroups())`，**没有 `length === 0` 分支** ⇒ 无会话时用户看到
+//   **空白抽屉**，不知道是"没会话"还是"没加载出来"。判据收进本模块（与
+//   `showsHistorySkeleton` / `showsBusyPlaceholder` 同族）⇒ 可脱机单测、单一真源。
+/** 抽屉不空（正常列表）。 */
+export const DRAWER_EMPTY_NONE: string = '';
+/** 一个会话都没有 ⇒ 需要「新建会话」引导动作。 */
+export const DRAWER_EMPTY_NO_SESSIONS: string = 'no-sessions';
+/** 有会话、但当前筛选/渠道把它们全滤掉了 ⇒ 需要「清除筛选」出口。 */
+export const DRAWER_EMPTY_NO_MATCH: string = 'no-match';
+
+/**
+ * 抽屉空态档位（**唯一判据**；⛔ 页面不得另写一套 `if`）。
+ *
+ * @param total    会话总数（`sessions.length`，**未**筛选）
+ * @param filtered 当前搜索词 × 渠道过滤后的会话数（`filteredSessions().length`）
+ */
+export function drawerEmptyKind(total: number, filtered: number): string {
+  if (total === 0) { return DRAWER_EMPTY_NO_SESSIONS; }
+  if (filtered === 0) { return DRAWER_EMPTY_NO_MATCH; }
+  return DRAWER_EMPTY_NONE;
+}
+
+/** 抽屉**空态**文案（单一真源；`title` 主行 + `hint` 副行）。空态无文案 ⇒ 返回空串。 */
+export function drawerEmptyHint(kind: string): string {
+  if (kind === DRAWER_EMPTY_NO_SESSIONS) { return '还没有会话'; }
+  if (kind === DRAWER_EMPTY_NO_MATCH) { return '没有匹配的会话'; }
+  return '';
+}
