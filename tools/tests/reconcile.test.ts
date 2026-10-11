@@ -16,6 +16,7 @@ import {
   RECONCILE_INTERVAL_MS, RECONCILE_WORK_ID, RECONCILE_ABILITY,
   RECONCILE_BACKOFF_FACTOR, RECONCILE_MAX_BACKOFF_STEPS, RECONCILE_GIVE_UP_FAILURES,
   reconcileIntervalMs, reconcileShouldGiveUp, ReconcileOutcome, nextFailureCount,
+  MISSED_MAX_NAMED, MissedItem, MissedSummary, summarizeMissed,
   ReconcileMark, ReconcileMemo, ReconcileDecision,
   reconcileDecision, applyDecision, markSeen, turnKeyOf,
 } from '../../entry/src/main/ets/core/reconcile';
@@ -115,6 +116,28 @@ eq('⛔ 成功 ⇒ 失败数归零（立即回到基准间隔）', nextFailureCo
 eq('失败 ⇒ 失败数 +1', nextFailureCount(2, new ReconcileOutcome(false, false)), 3);
 eq('首次失败（prev<=0）⇒ 1', nextFailureCount(0, new ReconcileOutcome(false, true)), 1);
 eq('负 prev 不产生负值', nextFailureCount(-5, new ReconcileOutcome(false, false)), 1);
+
+// ── (j) 漏通知摘要 summarizeMissed（任务A-⑤；改坏必红）────────────────────────────
+eq('空输入 ⇒ count=0 且 text 空（调用方据此不发通知）', [summarizeMissed([]).count, summarizeMissed([]).text], [0, '']);
+const s1: MissedSummary = summarizeMissed([new MissedItem('A', 'k1')]);
+eq('一条 ⇒ count=1', s1.count, 1);
+eq('点名该会话', s1.named, ['A']);
+eq('正文含条数与会话名', s1.text, '有 1 条新消息（A）');
+const s2: MissedSummary = summarizeMissed([new MissedItem('A', 'k1'), new MissedItem('B', 'k2')]);
+eq('两条不同会话 ⇒ 都点名', s2.named, ['A', 'B']);
+eq('两条 ⇒ 无“等”', s2.text, '有 2 条新消息（A、B）');
+const s3: MissedSummary = summarizeMissed([new MissedItem('A', 'k1'), new MissedItem('B', 'k2'), new MissedItem('C', 'k3')]);
+eq('⛔ 超过上限只点名前 N 个', s3.named.length, MISSED_MAX_NAMED);
+eq('⛔ 其余用“等”收尾', s3.text, '有 3 条新消息（A、B 等）');
+eq('⛔ 同一 turnKey 重复喂入 ⇒ 只算一次（对账可能重复读同一快照）',
+  summarizeMissed([new MissedItem('A', 'k1'), new MissedItem('A', 'k1')]).count, 1);
+eq('同名会话不重复点名（named 去重）',
+  summarizeMissed([new MissedItem('A', 'k1'), new MissedItem('A', 'k2')]).named, ['A']);
+eq('会话名相同但两条 ⇒ 仍计 2 条', summarizeMissed([new MissedItem('A', 'k1'), new MissedItem('A', 'k2')]).count, 2);
+eq('无名字仍计数（宁可少点名不可少计数）',
+  summarizeMissed([new MissedItem('', 'k1'), new MissedItem('', 'k2')]).text, '有 2 条新消息');
+eq('turnKey 为空不参与去重（两条空键 = 两条）',
+  summarizeMissed([new MissedItem('A', ''), new MissedItem('A', '')]).count, 2);
 
 if (fail > 0) {
   console.log(`  reconcile: ${pass} passed, ${fail} failed`);

@@ -209,3 +209,74 @@ export function nextFailureCount(prev: number, outcome: ReconcileOutcome): numbe
   const p: number = prev > 0 ? Math.floor(prev) : 0;
   return outcome.ok ? 0 : p + 1;
 }
+
+// ── 「你不在时有 N 条新消息」摘要（任务A-⑤：漏通知补偿的**可感知**部分）────────────
+/**
+ * 为什么需要：应用被冻结/被杀期间的事件**永久丢失**（服务端零推送，见 §10）。
+ * `workScheduler` 对账只能补"有一条回复好了"，但**专业感**来自把**跨会话**的漏掉项
+ * 汇成**一条**摘要 —— 否则用户会收到一串彼此无关的提醒，反而更吵。
+ *
+ * 本函数是**纯聚合**（不做 I/O、不读备忘）：调用方把"没见过的已完成回合"逐条喂进来。
+ */
+/** 摘要正文里最多**点名**几个会话（其余用"等"收尾）。 */
+export const MISSED_MAX_NAMED: number = 2;
+
+/** 一条漏掉的项（会话显示名 + 回合键，后者用于去重与日志）。 */
+export class MissedItem {
+  chatLabel: string = '';
+  turnKey: string = '';
+  constructor(chatLabel: string, turnKey: string) {
+    this.chatLabel = chatLabel;
+    this.turnKey = turnKey;
+  }
+}
+
+/** 摘要结果（**纯数据**）。`count === 0` ⇒ `text` 为空串、调用方**不要**发通知。 */
+export class MissedSummary {
+  count: number = 0;
+  /** 去重后的会话名（按首次出现顺序，最多 `MISSED_MAX_NAMED` 个）。 */
+  named: string[] = [];
+  /** 直达正文，例：`有 3 条新消息（A、B 等）`。 */
+  text: string = '';
+  constructor(count: number, named: string[], text: string) {
+    this.count = count;
+    this.named = named;
+    this.text = text;
+  }
+}
+
+/**
+ * 汇总漏掉的回合 ⇒ 一条摘要。纯函数：
+ * · 空输入 ⇒ `count=0`（调用方据此**不发**通知，避免"0 条新消息"的空提醒）；
+ * · **按 `turnKey` 去重**（同一条被喂两次只算一次 —— 对账可能重复读到同一快照）；
+ * · 会话名**去重后再点数**（同一会话说两条 ⇒ 文案说"1 个会话有 2 条"而非两个会话名）；
+ * · 无名字的项仍计入 `count`（宁可少点名，不可少计数）。
+ */
+export function summarizeMissed(items: MissedItem[]): MissedSummary {
+  const seenKeys: string[] = [];
+  const named: string[] = [];
+  let count: number = 0;
+  for (let i = 0; i < items.length; i++) {
+    const it: MissedItem = items[i];
+    const k: string = it.turnKey;
+    if (k.length > 0 && seenKeys.indexOf(k) >= 0) {
+      continue; // 同一条重复喂入 ⇒ 只算一次
+    }
+    if (k.length > 0) {
+      seenKeys.push(k);
+    }
+    count++;
+    const label: string = it.chatLabel;
+    if (label.length > 0 && named.indexOf(label) < 0 && named.length < MISSED_MAX_NAMED) {
+      named.push(label);
+    }
+  }
+  let text: string = '';
+  if (count > 0) {
+    const more: string = named.length < count ? ' 等' : '';
+    text = named.length > 0
+      ? `有 ${count} 条新消息（${named.join('、')}${more}）`
+      : `有 ${count} 条新消息`;
+  }
+  return new MissedSummary(count, named, text);
+}
