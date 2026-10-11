@@ -11,6 +11,8 @@ import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl, readCache
 import { webview } from '@kit.ArkWeb';
 import { ChatStore } from '../core/store';
 import { beginTurnKeepAlive, endTurnKeepAlive, ensureEnabled, notificationsEnabled, PENDING_CHAT_KEY, PENDING_CHAT_SEQ_KEY, PENDING_ACTION_KEY, isKnownNotifyAction, NOTIFY_ACTION_STOP, NOTIFY_ACTION_CONTINUE } from '../core/notify';
+// 后台对账（workScheduler 延迟任务）的取消入口（目标①：登出必须停掉它）
+import { cancelReconcileScheduled } from '../workreconcile/schedule';
 import { HAPTIC_TAP_MS } from '../core/haptics';
 // ⚠️ 2026-10-11：`isDarkThemeName` **已从这里移除** —— 本文件 3 处旧用法已全部改走**亮度口径**
 //   （`isLightPalette(paletteOf(theme))`，铁律「禁按主题名硬判」）⇒ 该导入**已无消费者**（死导入）。
@@ -1948,6 +1950,11 @@ struct Index {
       store.sse.close();
     }
     await this.config.clearSession();
+    // 目标①(a)：显式登出**也要**取消后台对账延迟任务 —— 否则它带着旧会话继续被系统唤起空跑
+    // （幂等 + 失败静默，见 `workreconcile/schedule.ets:cancelReconcileScheduled`）。
+    // ⚠️ 不能靠 `core/notify.clearAll` 兜：它只清**通知**，而 `doLogout` 现行为**不调**它
+    //    （401/换账号路径由 `clearAll → sessionClearedHook` 覆盖，显式登出这条没有）。
+    cancelReconcileScheduled();
     // 清空多会话池（每个 store 都要关 SSE，否则会留下后台连接）
     const poolKeys: string[] = Array.from(this.pools.keys());
     for (let i = 0; i < poolKeys.length; i++) {
