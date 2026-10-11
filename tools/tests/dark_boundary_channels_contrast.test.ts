@@ -34,7 +34,7 @@ import {
   parseColorRgba, effectsOf, surfacesOf,
 } from '../../entry/src/main/ets/core/theme';
 import {
-  surfaceFillOf, hairlineOf, elevationColorOf, HAIRLINE_MIN_LIGHT, HAIRLINE_MIN_DARK,
+  surfaceFillOf, hairlineOf, insetHairlineOf, elevationColorOf, HAIRLINE_MIN_LIGHT, HAIRLINE_MIN_DARK,
   ELEV_CARD, ELEV_RAISED, ELEV_OVERLAY,
 } from '../../entry/src/main/ets/core/design';
 
@@ -72,7 +72,9 @@ function pairsOf(p: Palette): Pair[] {
   mk('画布→卡', p.appBg, p.surface, e.elev1, '影elev1', true);
   mk('卡→抬升', p.surface, p.surfaceAlt, e.elev2, '影elev2', true);
   mk('抬升→激活', p.surfaceAlt, p.surfaceHi, e.elev2, '影elev2', true);
-  mk('画布→下沉', p.appBg, s.sunken, '', '（内凹·无影）', false);
+  // ⚠️ 2026-10-11 模型订正 + 落码：`well/chip` 站点已接线**内凹发丝** `insetHairlineOf(p)`
+  //   （深色 = hairline 1.2188 / 浅色 = transparent ⇒ **浅色逐字节不变**）⇒ 不再是空档。
+  mk('画布→下沉', p.appBg, s.sunken, insetHairlineOf(p), '内凹发丝', true);
   mk('画布→玻璃', p.appBg, compositeOver(e.glassBg, p.appBg), e.glassBorder, '玻璃描边', false);
   // ⚠️ 2026-10-11 模型订正：7 处 `bindPopup` 浮层的**实际接线**通道是
   //    `elevationColorOf(p, ELEV_OVERLAY)`（**不是**裸 `e.elev3`）—— `0c0f13f` 已把该档的**深色臂**
@@ -155,7 +157,9 @@ console.log('\n▶ §D 判据 + 受管例外（⛔ 只许缩短）');
 //    ⇒ 本表按"**只许缩短**"从 4 项缩到 **2 项**（缩短的依据 = 实测缺口集合变了，见下面那条 ok 断言）。
 // ⚠️ 2026-10-11 裁定（§F）：`画布→卡` **有已接线的发丝通道**（1.2194 ≥ 发丝门槛 1.20）
 //    ⇒ 不再是缺口，从本表删除（**只许缩短** ✓）。余下唯一缺口 = `画布→下沉`（well/chip，无任何通道）。
-const PENDING_SPEC: string[] = ['画布→下沉'];
+// ✅ 2026-10-11 **清空**：`画布→下沉` 由 `insetHairlineOf`（仅深色画）收敛；
+//    `画布→卡` 已由裁定（发丝算已接线）收敛 ⇒ 深色 4 处缺口**全部清零**。⛔ 只许缩短仍生效。
+const PENDING_SPEC: string[] = [];
 ok(`实测缺口集合 == 登记表（实测 ${gaps.length} / 登记 ${PENDING_SPEC.length}）`,
   gaps.length === PENDING_SPEC.length && gaps.every((a) => PENDING_SPEC.indexOf(a.pair) >= 0));
 function darkBoundaryOk(as: Aud[], exempt: string[]): boolean {
@@ -177,9 +181,17 @@ ok('mutation：零相邻对 ⇒ 判红（空扫描防线）', darkBoundaryOk([],
   ok('mutation：清空例外名单 ⇒ 基线判红（例外受判据管，⛔ 不能随手加）', darkBoundaryOk(inj, []) === false);
 }
 {
-  // 反向 mutation：若把**未接线**的发光也计入 ⇒ 缺口消失（复现我第一版的自欺）
-  const cheat: boolean = auds.some((a) => a.bestWired < SURFACE_DIFF_MIN && a.glowPotential >= SURFACE_DIFF_MIN);
-  ok('mutation：把**未接线**的发光计入 ⇒ 缺口会消失（这就是我第一版犯的错，现已用 wired 语义挡住）', cheat === true);
+  // 反向 mutation（**按新事实改写**：2026-10-11 深色缺口已清零 ⇒ 原"缺口会消失"的前提不复存在）。
+  // 改为**构造**一个"已接线通道全塌、只有未接线发光可用"的伪对 ⇒ 验证 **wired 纪律**仍挡住自欺
+  // （我第一版就是把未接线发光计入 ⇒ 假绿）。
+  const fake: Aud = new Aud();
+  fake.pair = '伪对(只有未接线发光)';
+  fake.fill = 1; fake.edge = 1; fake.bestWired = 1;      // 已接线通道全部塌
+  fake.glowPotential = 1.25;                              // 但"未接线发光"潜力够
+  ok('mutation：伪对（已接线全塌 / 只有未接线发光）⇒ wired 判据仍**判红**（挡住第一版的自欺）',
+    darkBoundaryOk([fake], []) === false);
+  ok('  · 而"把未接线发光计入"的**假判据**会误判绿 ⇒ 所以必须用 wired 语义',
+    Math.max(fake.bestWired, fake.glowPotential) >= SURFACE_DIFF_MIN);
 }
 
 console.log('\n▶ §E 浅色对照（同模型同通道）');

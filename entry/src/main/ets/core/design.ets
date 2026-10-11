@@ -819,6 +819,20 @@ export function iconMutedOf(p: Palette): string {
  * ⛔ 用途边界：**面到面**（卡片/分区的外轮廓）。面**内**的行分隔仍走 `hairlineOf`（⛔ 不混用）。
  * 判据按 `isLightPalette(p)`（色板亮度），⛔ 不按主题名。
  */
+/**
+ * **内凹面（well/chip）的内描边** —— **仅深色画**（2026-10-11，contrast-ux 数据 + 主 agent 裁决）。
+ *
+ * 为什么：深色的 well/chip 底（`RUNG_SUNKEN`）对画布只有 **1.0005**（≈同色）⇒ **没有任何边界通道**；
+ * 但**浅色不该多一道**（light 填充差 1.0788 / porcelain 1.0456 本就够，加线 = 凭空增噪）。
+ * `SurfaceRole.hairline` 是**主题无关 boolean**，表达不了"只深色" ⇒ 用本出口：
+ *   · 深色 ⇒ `surfacesOf(p).hairline`（实测 1.2188 ≥ 1.20 ✅）
+ *   · 浅色 ⇒ `p.transparent`（**不画线** ⇒ 浅色渲染**逐字节不变**）
+ * ⛔ 浅色臂一旦改成非 `transparent`，`dark_boundary_channels_contrast` 的 mutation 会判红。
+ */
+export function insetHairlineOf(p: Palette): string {
+  return isLightPalette(p) ? p.transparent : surfacesOf(p).hairline;
+}
+
 export function structuralRuleOf(p: Palette): string {
   return isLightPalette(p) ? p.borderStrong : p.border;
 }

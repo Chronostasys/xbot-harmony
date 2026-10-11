@@ -14,7 +14,7 @@
 import { Palette, paletteOf, Surfaces, surfacesOf } from '../core/theme';
 import { R_LG, R_MD, R_SM, R_XL, SP_1, SP_2, SP_3, FS_BODY, FS_CAPTION } from '../core/tokens';
 import {
-  PRESS_OPACITY, RADIUS_CHIP, SPACE_HAIR, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP, hairlineOf, surfaceFillOf, typeOf,
+  PRESS_OPACITY, RADIUS_CHIP, SPACE_HAIR, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP, hairlineOf, insetHairlineOf, surfaceFillOf, typeOf,
 } from '../core/design';
 import { ToolProgress } from '../core/types';
 import { renderKind } from '../core/toolstatus';
@@ -356,6 +356,8 @@ export struct ToolPopoverCard {
       .padding({ left: 10, right: 10, top: 6, bottom: 6 })
       .backgroundColor(surfaceFillOf(this.pal(), 'surface.well'))
       .borderRadius(R_MD)
+      // 深色 well 底与画布仅 1.0005（≈同色）⇒ 补**内凹发丝**（浅色返回 transparent ⇒ 逐字节不变）。
+      .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
     }
     .width('100%').alignItems(HorizontalAlign.Start)
   }
@@ -381,6 +383,8 @@ export struct ToolPopoverCard {
       .padding({ left: 10, right: 10, top: 6, bottom: 6 })
       .backgroundColor(surfaceFillOf(this.pal(), 'surface.well'))
       .borderRadius(R_MD)
+      // 深色 well 底与画布仅 1.0005（≈同色）⇒ 补**内凹发丝**（浅色返回 transparent ⇒ 逐字节不变）。
+      .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
     }
     .width('100%').alignItems(HorizontalAlign.Start)
   }
@@ -447,6 +451,7 @@ export struct ToolPopoverCard {
       }
       .width('100%').padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
       .backgroundColor(surfaceFillOf(this.pal(), 'surface.well'))
+      .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
 
       ForEach(tailLinesOfFile(f, MAX_DIFF_LINES), (ln: DiffLine, li: number) => {
         if (ln.kind === DIFF_HUNK) {
@@ -498,6 +503,7 @@ export struct ToolPopoverCard {
             .fontSize(typeOf(TYPE_CHIP).size).fontColor(this.vm.statusColor)
             .padding({ left: SP_1, right: SP_1, top: SPACE_HAIR, bottom: SPACE_HAIR })
             .backgroundColor(surfaceFillOf(this.pal(), 'surface.well')).borderRadius(RADIUS_CHIP)
+            .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
         }
         if (this.vm.elapsedMs > 0) {
           Text(formatElapsed(this.vm.elapsedMs)).fontSize(typeOf(TYPE_CHIP).size).fontColor(this.pal().textMuted)
