@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>样张 4 · 关键交互态（composer / 浮层 / 失败重试 / 空态）</title>
+<style>
+* { box-sizing: border-box; }
+:root{--canvas:#FFFFFF;--card:#FFFFFF;--raised:#F6F6F7;--active:#EDEDEF;--sunken:#F2F2F2;
+  --tp:#1D1D1F;--ts:#6E6E73;--tm:#A2A2A7;--accent:#0071E3;--accentSoft:#0066CC;--accentText:#0057B8;
+  --danger:#B42318;--success:#166534;--hairline:#DFDFE1;--border:#ECECEE;
+  --r-chip:6px;--r-pill:8px;--r-card:12px;--r-sheet:16px}
+body{margin:0;padding:24px;background:#EEF1F5;color:var(--tp);
+  font-family:-apple-system,"SF Pro Text","PingFang SC",sans-serif;-webkit-font-smoothing:antialiased}
+h1{font-size:21px;font-weight:600;letter-spacing:-.2px;max-width:960px;margin:0 auto 6px}
+.sub{font-size:14px;color:var(--ts);line-height:1.5;max-width:960px;margin:0 auto 20px}
+.grid{display:flex;gap:20px;max-width:960px;margin:0 auto;flex-wrap:wrap;align-items:flex-start}
+.card{flex:1 1 280px;background:#fff;border:1px solid var(--hairline);border-radius:var(--r-card);padding:16px;
+  box-shadow:0 1px 2px rgba(29,29,31,.06),0 8px 24px rgba(29,29,31,.07)}
+.card h2{font-size:12px;font-weight:600;margin:0 0 12px;color:var(--ts);letter-spacing:.2px}
+.tok{font-family:ui-monospace,Menlo,monospace;font-size:10px;color:var(--tm)}
+.anno{font-family:ui-monospace,Menlo,monospace;font-size:9px;color:var(--accentSoft);
+  border:1px dashed currentColor;border-radius:4px;padding:0 3px;opacity:.8}
+/* composer */
+.composer{display:flex;align-items:flex-end;gap:8px;padding:8px 12px;background:var(--card);
+  border:1px solid var(--hairline);border-radius:var(--r-card)}
+.composer.focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,113,227,.15)}
+.composer .ph{flex:1;font-size:15px;line-height:1.55;color:var(--tm)}
+.composer .ph.typed{color:var(--tp)}
+.send{width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;
+  align-items:center;justify-content:center;font-size:14px;flex:0 0 32px}
+.send.off{background:var(--raised);color:var(--tm)}
+.send.press{opacity:.6;transform:scale(.97)}
+/* sheet / popover */
+.sheet{background:var(--card);border:1px solid var(--hairline);border-radius:var(--r-sheet);
+  box-shadow:0 -1px 2px rgba(29,29,31,.05),0 16px 40px rgba(29,29,31,.16);overflow:hidden}
+.sheet .hd{display:flex;align-items:center;justify-content:space-between;padding:12px 16px 4px}
+.sheet .hd .t{font-size:17px;font-weight:600}
+.rw{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;font-size:13px;font-weight:500;
+  background:var(--raised);border-radius:var(--r-pill);margin:4px 12px}
+.rw.sel{background:var(--active)}
+.rw .chip{font-size:10px;font-weight:500;padding:2px 4px;border-radius:var(--r-chip);background:var(--sunken);color:var(--ts)}
+.scrim{position:relative}
+.scrim::before{content:"";position:absolute;inset:-16px;background:rgba(29,29,31,.10);border-radius:var(--r-card)}
+/* popover */
+.pop{background:var(--card);border:1px solid var(--hairline);border-radius:var(--r-card);
+  box-shadow:0 8px 24px rgba(29,29,31,.14);padding:12px;font-size:12px;line-height:1.5}
+.pop .ln{display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid var(--hairline)}
+.pop .ln:last-child{border-bottom:0}
+.pop .add{color:var(--success)}.pop .del{color:var(--danger)}
+/* failure */
+.failline{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--tm);padding:4px 0}
+.failline.err{color:var(--danger)}
+.retry{font-size:12px;color:var(--accentSoft);font-weight:500}
+/* empty */
+.empty{display:flex;flex-direction:column;align-items:center;gap:8px;padding:32px 16px;text-align:center}
+.empty .big{font-size:28px;font-weight:600;letter-spacing:-.4px}
+.empty .sm{font-size:14px;color:var(--ts);line-height:1.5}
+/* loading */
+.loadwrap{display:flex;flex-direction:column;align-items:center;gap:8px;padding:28px 16px}
+.orb{width:48px;height:48px;border-radius:50%;
+  background:radial-gradient(circle at 50% 50%, var(--accentSoft) 0%, rgba(0,0,0,0) 68%);
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.05)}
+.note{font-size:11px;color:var(--ts);line-height:1.6;margin:12px 0 0}
+.hit{outline:1px dashed #FF9F0A;outline-offset:2px;border-radius:8px}
+</style>
+</head>
+<body>
+<h1>样张 4 · 关键交互态</h1>
+<p class="sub">统一反馈：命中区 <code>HIT_TARGET_MIN</code>=44 · 按压 <code>PRESS_OPACITY</code>=0.6 · 长按 <code>LONG_PRESS_MS</code>=400 ·
+失败态<b>一行小字</b>（无填充/无边框/无发光）· 加载统一由<b>光球</b>表达（唯一在飞）。</p>
+
+<div class="grid">
+  <div class="card">
+    <h2>① Composer（静息 / 聚焦 / 按压）</h2>
+    <div class="composer" style="margin-bottom:12px"><span class="ph">发消息…</span><span class="send off">↑</span></div>
+    <div class="composer focus" style="margin-bottom:12px"><span class="ph typed">帮我重做设计系统</span><span class="send">↑</span></div>
+    <div class="composer"><span class="ph typed">按压态</span><span class="send press">↑</span></div>
+    <div class="note">浮层 <code>surface.input</code> + 聚焦时才描边 <code>accent</code>；发送键 32vp 视觉、热区外扩到 44（<span class="anno">responseRegion ≥44</span>）；按压 <code>opacity .6 + scale .97</code>（仅按钮，文本行不缩放）。</div>
+  </div>
+
+  <div class="card scrim">
+    <h2>② 浮层（Sheet + 底部 scrim）</h2>
+    <div class="sheet">
+      <div class="hd"><span class="t">偏好设置</span><span style="color:var(--ts)">✕</span></div>
+      <div class="rw sel">深色主题<span class="chip">默认</span></div>
+      <div class="rw">字体大小<span class="chip">大</span></div>
+      <div class="rw">代码换行<span class="chip">开</span></div>
+    </div>
+    <div class="note">浮层底 <code>surface.overlay</code> + 发丝 + <code>elev3</code> 柔影；行 = <code>surface.overlayRow</code>，选中 = <code>surface.overlayRowHover</code>；scrim = <code>eff().elev2</code>（浅色 = 正文色 @10%，不按主题名硬判）。</div>
+  </div>
+
+  <div class="card">
+    <h2>③ 工具浮层（代码 diff）</h2>
+    <div class="pop">
+      <div class="ln"><span>patch.diff</span><span class="tok">surface.overlay</span></div>
+      <div class="ln" style="background:var(--sunken)"><span class="add">+ const s = surfaceFillOf(p, role)</span><span class="tok">well=sunken</span></div>
+      <div class="ln" style="background:var(--sunken)"><span class="del">- const s = p.surfaceHi</span></div>
+    </div>
+    <div class="note">代码/diff 行底 = <code>surface.well</code>（sunken）—— ⛔ 不再把"阴影色 elev1"当块底色（语义错位）。</div>
+  </div>
+</div>
+
+<div class="grid" style="margin-top:20px">
+  <div class="card">
+    <h2>④ 失败 + 重试</h2>
+    <div class="failline"><span>⤬</span><span>LLM 本次没有返回文本内容，可能是模型输出异常或中途结束。</span><span class="retry hit">重试</span></div>
+    <div class="note">失败 = 一行小字 + 中性色 + 一枚图标（无填充/无边框/无发光）—— 刻意偏离 web 的填充红盒（<code>docs/DESIGN-SYSTEM.md §10</code>）。真正"服务端标记的空响应"才用 <code>dangerText</code> + <code>xmark_circle_fill</code>。</div>
+  </div>
+
+  <div class="card">
+    <h2>⑤ 空态</h2>
+    <div class="empty">
+      <div class="big">开始对话</div>
+      <div class="sm">问点什么，或者把代码贴进来让我看。</div>
+    </div>
+    <div class="note">空态用 <code>type.display</code> 28/600（不靠图标堆叠）；⛔ 无循环装饰动效（铁律）。</div>
+  </div>
+
+  <div class="card">
+    <h2>⑥ 加载（光球）</h2>
+    <div class="loadwrap"><div class="orb"></div><div class="tok">motion.breath 2560ms · owner = orb</div></div>
+    <div class="note">加载 = <b>唯一在飞动效</b>（光球）。组件不自造 spinner 作"整机状态"；<code>reduceMotion</code> ⇒ 静态一帧。</div>
+  </div>
+</div>
+
+<div class="card" style="max-width:960px;margin:20px auto 0">
+  <h2>⑦ 命中区（可访问性）</h2>
+  <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">
+    <div class="hit" style="width:44px;height:44px;display:flex;align-items:center;justify-content:center">✎</div>
+    <div style="font-size:12px;color:var(--ts);line-height:1.6">
+      视觉 12–32vp 的图标/按钮，命中区一律外扩到 <b>44×44</b>（<code>HIT_TARGET_MIN</code>，Apple HIG）。<br>
+      ⛔ 不改布局位置/视觉尺寸 —— 用 <code>responseRegion</code> 外扩。
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

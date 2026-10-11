@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>样张 3 · 开屏 + logo（浅/深两套底 · 安全区 · 对比度）</title>
+<style>
+* { box-sizing: border-box; }
+body{margin:0;padding:24px;background:#EEF1F5;color:#1D1D1F;
+  font-family:-apple-system,"SF Pro Text","PingFang SC",sans-serif;-webkit-font-smoothing:antialiased}
+h1{font-size:21px;font-weight:600;letter-spacing:-.2px;max-width:960px;margin:0 auto 6px}
+.sub{font-size:14px;color:#6E6E73;line-height:1.5;max-width:960px;margin:0 auto 20px}
+.grid{display:flex;gap:24px;max-width:960px;margin:0 auto;flex-wrap:wrap;align-items:flex-start}
+.card{flex:1 1 300px;background:#fff;border:1px solid #DFDFE1;border-radius:12px;padding:16px;
+  box-shadow:0 1px 2px rgba(29,29,31,.06),0 8px 24px rgba(29,29,31,.07)}
+.card h2{font-size:13px;font-weight:600;margin:0 0 12px;color:#6E6E73}
+/* 开屏（浅）*/
+.splash{width:100%;aspect-ratio:9/16;max-height:520px;border-radius:16px;overflow:hidden;position:relative;
+  display:flex;align-items:center;justify-content:center;background:#FFFFFF;border:1px solid #DFDFE1}
+.splash.dark{background:#0B0B0E;border-color:#20202B}
+/* 标记：实心品牌 glyph，零发光 */
+.mark{width:120px;height:120px;position:relative}
+.mark .bubble{position:absolute;inset:0;border-radius:50% 50% 50% 12%;background:#7C5CFF}
+.mark .star{position:absolute;right:6px;top:6px;width:30px;height:30px;background:#fff;
+  clip-path:polygon(50% 0,61% 39%,100% 50%,61% 61%,50% 100%,39% 61%,0 50%,39% 39%)}
+.mark.blue .bubble{background:#0071E3}
+.headline{position:absolute;bottom:64px;left:0;right:0;text-align:center;font-size:15px;font-weight:600;letter-spacing:-.2px;color:#1D1D1F}
+.splash.dark .headline{color:#EDEDF2}
+.safe{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+.safe .ring{width:313px;max-width:62%;aspect-ratio:1;border:1px dashed #FF9F0A;border-radius:50%;opacity:.8}
+.safe .ringbig{position:absolute;width:410px;max-width:82%;aspect-ratio:1;border:1px dashed #34C759;border-radius:50%;opacity:.7}
+.tok{font-family:ui-monospace,Menlo,monospace;font-size:10px;color:#A2A2A7}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:11px}
+table{border-collapse:collapse;width:100%;font-size:11px;font-family:ui-monospace,Menlo,monospace;margin-top:8px}
+th,td{text-align:left;padding:4px 6px;border-bottom:1px solid #ECECEE}
+th{color:#6E6E73;font-weight:600}
+.pass{color:#166534;font-weight:600}.fail{color:#B42318;font-weight:600}
+.row3{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px}
+.mini{flex:1 1 120px;border:1px solid #DFDFE1;border-radius:12px;padding:12px;text-align:center;background:#fff}
+.mini .m2{width:56px;height:56px;margin:0 auto 8px}
+.note{font-size:11px;color:#6E6E73;line-height:1.6;max-width:960px;margin:16px auto 0}
+.note b{color:#1D1D1F}
+</style>
+</head>
+<body>
+<h1>样张 3 · 开屏 + logo（白色主题不靠发光；安全区与对比度标注）</h1>
+<p class="sub">依据 <code>docs/REDESIGN-INPUT-BRAND.md</code> 的四条结构性断层：① 开屏色在资源层取不到 token；
+② 开屏跟系统深浅（白主题必跳色）；③ 图标静态单层、尾巴超安全区（实算 393.9 &gt; 313）；
+④ 品牌紫 ≠ porcelain 的 Apple Blue。本设计给出 <code>brand.*</code> / <code>splash.*</code> 语义角色 + 降级链。</p>
+
+<div class="grid">
+  <div class="card">
+    <h2>① 白色主题开屏 —— 实心标记 on 中性白（⛔ 零发光）</h2>
+    <div class="splash">
+      <div class="safe"><div class="ringbig"></div><div class="ring"></div></div>
+      <div class="mark blue"><div class="bubble"></div><div class="star"></div></div>
+      <div class="headline">xbot</div>
+    </div>
+    <div class="note" style="margin:12px 0 0">
+      底 = <code>splash.canvas.light</code>（与首帧画布 <b>逐字节一致</b>，消冷启动跳色）。<br>
+      标记 = <code>brand.primary</code> 实心 glyph（此处示意 Apple Blue，见未决 #4）；<b>零 glow / 零渐变</b>。<br>
+      <span style="color:#FF9F0A">橙色虚圈</span> = 分层图标前景安全区 <b>≤313</b>；<span style="color:#34C759">绿色虚圈</span> = 建议标记最大半径 <b>≤410</b>（0.8×512）。
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>② 深色启动器/开屏 —— 满幅品牌色 + 反色 glyph</h2>
+    <div class="splash dark">
+      <div class="mark"><div class="bubble"></div><div class="star"></div></div>
+      <div class="headline">xbot</div>
+    </div>
+    <div class="note" style="margin:12px 0 0">
+      底 = <code>splash.canvas.dark</code>；标记 = 反色 glyph（<code>brand.onPrimary</code>）压 <code>brand.primary</code>。<br>
+      同一几何真源 <code>core/brand.ets</code>（<code>bubblePath()</code>/<code>starPath()</code>）—— 设计改了只改这里。
+    </div>
+  </div>
+</div>
+
+<div class="grid" style="margin-top:24px">
+  <div class="card" style="flex:1 1 100%">
+    <h2>③ 降级链（从满幅色 → 单色轮廓 → wordmark）</h2>
+    <div class="row3">
+      <div class="mini"><div class="mark m2" style="width:56px;height:56px"><div class="bubble"></div><div class="star"></div></div><div class="tok">1. 满幅品牌色</div></div>
+      <div class="mini"><div class="mark m2 blue" style="background:#fff;width:56px;height:56px"><div class="bubble" style="width:34px;height:34px;left:11px;top:11px"></div><div class="star" style="width:14px;height:14px;right:6px;top:6px"></div></div><div class="tok">2. 实心标记 on 中性白（白主题）</div></div>
+      <div class="mini"><div class="m2" style="width:56px;height:56px;border:2px solid #7C5CFF;border-radius:50% 50% 50% 12%;margin:0 auto 8px"></div><div class="tok">3. 单色轮廓（极端降级/无障碍）</div></div>
+      <div class="mini"><div class="m2" style="font-size:16px;font-weight:600;line-height:56px;color:#1D1D1F">xbot</div><div class="tok">4. 纯文字 wordmark</div></div>
+    </div>
+    <div class="note" style="margin:12px 0 0">⛔ 白色主题下<b>禁用</b>发光/渐变（<code>glowSoft</code> 在白底几乎不可见；CTA 渐变最亮端白字只有 <b>2.09:1</b>）。</div>
+  </div>
+</div>
+
+<div class="grid" style="margin-top:24px">
+  <div class="card" style="flex:1 1 100%">
+    <h2>④ 对比度标注（实测）</h2>
+    <table>
+      <tr><th>组合</th><th>实测</th><th>阈值</th><th>结果</th><th>说明</th></tr>
+      <tr><td>白星 on 品牌紫 #7C5CFF</td><td>4.35</td><td>4.5（文字）</td><td class="fail">✗ 差 0.15</td><td>台账 <code>dark|onAccent|accent</code>；需拍板品牌主色</td></tr>
+      <tr><td>品牌紫 glyph vs 浅底 #F8FAFC</td><td>4.20</td><td>3.0（非文本）</td><td class="pass">✅</td><td>图形阈值（WCAG 1.4.11）</td></tr>
+      <tr><td>品牌紫 glyph vs 深底 #0B0B0E</td><td>4.43</td><td>3.0（非文本）</td><td class="pass">✅</td><td>—</td></tr>
+      <tr><td>Apple Blue #0071E3 vs 白 #FFFFFF</td><td>4.697</td><td>4.5（文字）</td><td class="pass">✅</td><td>porcelain 的 accent（CTA 达标）</td></tr>
+      <tr><td>登录 CTA 白字 on 渐变最亮端 #B9A7FF</td><td>2.09</td><td>4.5</td><td class="fail">✗✗</td><td>⇒ 白色主题必须去掉渐变（改用实心 <code>accent</code>）</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="grid" style="margin-top:24px">
+  <div class="card" style="flex:1 1 100%">
+    <h2>⑤ 开屏 → 主界面：一次性过渡（⛔ 不与"在飞=光球"并存）</h2>
+    <div class="mono" style="line-height:1.8">
+      A. 系统开屏（静态标记 + <code>startWindowBackground</code>）→ 系统决定<br>
+      B. 标记入场：<code>scale 0.92→1</code> + <code>opacity 0→1</code>，<b>一次</b> → <code>motion.enterBlock</code> = 220ms<br>
+      C. 让位主界面：<code>opacity 1→0</code> 上移消隐 → <code>motion.transition</code> = 320ms<br>
+      <b>reduceMotion = true</b> ⇒ 直接静态呈现（§4.3）；⛔ 呼吸/脉冲不属于开屏（那是"在飞"的语言）。
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

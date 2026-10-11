@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>样张 2 · 白色主题三级层次（浅色最容易糊）</title>
+<style>
+* { box-sizing: border-box; }
+:root{
+  --canvas:#FFFFFF; --card:#FFFFFF; --raised:#F6F6F7; --active:#EDEDEF; --sunken:#F2F2F2;
+  --tp:#1D1D1F; --ts:#6E6E73; --tm:#A2A2A7; --f3:#C7C7CC;
+  --accent:#0071E3; --accentSoft:#0066CC; --accentText:#0057B8;
+  --hairline:#DFDFE1; --border:#ECECEE; --borderStrong:#D8D8DC;
+  --sp-xxs:4px; --sp-xs:8px; --sp-sm:12px; --sp-md:16px; --sp-xl:24px;
+  --r-chip:6px; --r-pill:8px; --r-card:12px; --r-sheet:16px;
+}
+body{margin:0;padding:24px;background:#EEF1F5;color:var(--tp);
+  font-family:-apple-system,"SF Pro Text","PingFang SC",sans-serif;-webkit-font-smoothing:antialiased}
+h1{font-size:21px;font-weight:600;letter-spacing:-.2px;margin:0 0 6px;max-width:960px;margin-left:auto;margin-right:auto}
+.sub{font-size:14px;color:var(--ts);line-height:1.5;max-width:960px;margin:0 auto 20px}
+.grid{display:flex;gap:24px;max-width:960px;margin:0 auto;flex-wrap:wrap;align-items:flex-start}
+.card{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);
+  box-shadow:0 1px 2px rgba(29,29,31,.06),0 8px 24px rgba(29,29,31,.07);padding:16px;flex:1 1 380px}
+.card h2{font-size:13px;font-weight:600;margin:0 0 12px;color:var(--ts)}
+.tok{font-family:ui-monospace,Menlo,monospace;font-size:10px;color:var(--tm)}
+.ttl{font-size:15px;font-weight:600;line-height:1.3;margin:0 0 4px}
+.body{font-size:15px;line-height:1.55;margin:0 0 8px}
+.cap{font-size:12px;line-height:1.35;color:var(--ts)}
+.mute{font-size:12px;line-height:1.35;color:var(--tm)}
+.hair{height:1px;background:var(--hairline);margin:12px 0}
+/* 三级层次演示 */
+.stack{border:1px solid var(--hairline);border-radius:var(--r-sheet);overflow:hidden}
+.layer{padding:16px;position:relative}
+.l0{background:var(--canvas)}
+.l1{background:var(--card);border-top:1px solid var(--hairline)}
+.l2{background:var(--card);border-top:1px solid var(--hairline);
+  box-shadow:0 -1px 2px rgba(29,29,31,.05),0 8px 20px rgba(29,29,31,.10);margin:8px;border-radius:var(--r-card);border:1px solid var(--hairline)}
+.rowitem{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;
+  background:var(--raised);border-radius:var(--r-pill);margin:4px 0;font-size:13px;font-weight:500}
+.rowitem.sel{background:var(--active)}
+.chip{display:inline-block;font-size:10px;font-weight:500;padding:2px 4px;border-radius:var(--r-chip);
+  background:var(--sunken);color:var(--ts);margin-left:8px}
+.lab{position:absolute;right:8px;top:8px;font-size:9px;font-family:ui-monospace,Menlo,monospace;color:var(--accentSoft)}
+/* 对比度表 */
+table{border-collapse:collapse;width:100%;font-size:11px;font-family:ui-monospace,Menlo,monospace}
+th,td{text-align:left;padding:4px 6px;border-bottom:1px solid var(--hairline)}
+th{color:var(--ts);font-weight:600}
+.pass{color:#166534;font-weight:600}
+.mono{font-family:ui-monospace,Menlo,monospace}
+.sw{display:inline-block;width:14px;height:14px;border-radius:4px;border:1px solid rgba(0,0,0,.08);vertical-align:-2px;margin-right:6px}
+.note{font-size:11px;color:var(--ts);line-height:1.6;max-width:960px;margin:16px auto 0}
+</style>
+</head>
+<body>
+<h1>样张 2 · 白色主题三级层次（porcelain，原生独享）</h1>
+<p class="sub">浅色主题最容易"糊" —— 因为白面<b>无法再变亮</b>。本设计的答案：层次只用<b>两把尺子</b> ——
+① 表面填充阶梯（canvas → card → raised → active / sunken）② <code>hairline</code> 结构性发丝（压深到 1.3308:1）。
+⛔ 白色主题<b>禁用彩色发光</b>（45% 饱和色晕压纯白 = 脏）。</p>
+
+<div class="grid">
+  <div class="card">
+    <h2>三级表面 + 嵌套（底里有底）</h2>
+    <div class="stack">
+      <div class="layer l0"><span class="lab">surface.canvas = appBg #FFFFFF</span>
+        <div class="body" style="margin-bottom:12px">画布（页面底）</div>
+        <div class="layer l1" style="margin:-16px -16px 0;padding:16px">
+          <span class="lab">surface.card = surface #FFFFFF</span>
+          <div class="cap" style="margin-bottom:8px">卡片：与画布<b>同白</b>，靠 <span class="tok">hairline #DFDFE1 (1.3308:1)</span> + 柔影立边</div>
+          <div class="rowitem">浮层行 <span class="tok">surface.overlayRow = surfaceAlt</span></div>
+          <div class="rowitem sel">选中行 <span class="tok">surface.overlayRowHover = surfaceHi</span></div>
+          <div class="rowitem">工具 pill <span class="chip">排队 chip = sunken</span><span class="tok">surface.chip</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="note" style="margin:12px 0 0">chip 是 pill <b>内部</b>的凹槽（<code>sunken</code>）⇒ 与 pill 的填充<b>结构上不可能同色</b>。选中只改 pill 自己一层 —— 不再"对调"。</div>
+  </div>
+
+  <div class="card">
+    <h2>文字三级 + 分隔（不靠颜色，靠灰阶）</h2>
+    <div class="ttl">主标题 · type.title 21/600</div>
+    <div class="body">正文 · type.body 15/1.55 —— 正文与画布 <span class="mono">16.83:1</span></div>
+    <div class="cap">次要正文 · type.caption 12/1.35 · textSecondary #6E6E73（5.07:1）</div>
+    <div class="mute">元信息 · textMuted #A2A2A7（2.54:1，最弱一档）</div>
+    <div class="hair"></div>
+    <div class="cap">分隔线 = <code>hairline</code>（结构性，承载信息）——⛔ 不是装饰性描边</div>
+    <div class="hair" style="background:var(--border)"></div>
+    <div class="cap">对照：装饰性 <code>border #ECECEE</code>（1.180:1，几乎不可见）—— 只用于非结构场合</div>
+    <div class="note" style="margin:12px 0 0">"干净"= 画布与卡片同白、四阶中性灰文字、零发光。</div>
+  </div>
+</div>
+
+<div class="grid" style="margin-top:24px">
+  <div class="card" style="flex:1 1 100%">
+    <h2>porcelain 语义色 · WCAG 实测（由 <code>core/design.ets: contrastAudit()</code> 复算）</h2>
+    <table>
+      <tr><th>角色</th><th>值</th><th>压在</th><th>实测比值</th><th>阈值</th><th>结果</th></tr>
+      <tr><td><span class="sw" style="background:#1D1D1F"></span>textPrimary</td><td class="mono">#1D1D1F</td><td>画布 #FFFFFF</td><td>16.830</td><td>4.5</td><td class="pass">✅</td></tr>
+      <tr><td><span class="sw" style="background:#6E6E73"></span>textSecondary</td><td class="mono">#6E6E73</td><td>卡片 #FFFFFF</td><td>5.071</td><td>4.5</td><td class="pass">✅</td></tr>
+      <tr><td><span class="sw" style="background:#A2A2A7"></span>textMuted</td><td class="mono">#A2A2A7</td><td>卡片 #FFFFFF</td><td>2.542</td><td>2.0</td><td class="pass">✅</td></tr>
+      <tr><td><span class="sw" style="background:#0071E3"></span>accent（CTA 底）</td><td class="mono">#0071E3</td><td>白字 onAccent</td><td>4.697</td><td>4.5</td><td class="pass">✅</td></tr>
+      <tr><td><span class="sw" style="background:#0066CC"></span>accentSoft（链接）</td><td class="mono">#0066CC</td><td>卡片 #FFFFFF</td><td>5.567</td><td>4.5</td><td class="pass">✅</td></tr>
+      <tr><td><span class="sw" style="background:#0057B8"></span>accentText</td><td class="mono">#0057B8</td><td>卡片 #FFFFFF</td><td>6.873</td><td>4.5</td><td class="pass">✅</td></tr>
+      <tr><td><span class="sw" style="background:#B42318"></span>dangerText</td><td class="mono">#B42318</td><td>卡片 #FFFFFF</td><td>6.574</td><td>4.5</td><td class="pass">✅</td></tr>
+      <tr><td><span class="sw" style="background:#166534"></span>successText</td><td class="mono">#166534</td><td>卡片 #FFFFFF</td><td>7.130</td><td>4.5</td><td class="pass">✅</td></tr>
+      <tr><td><span class="sw" style="background:#F2F2F2"></span>chip 文字 textSecondary</td><td class="mono">#6E6E73</td><td>凹槽 sunken #F2F2F2</td><td>4.530</td><td>4.5</td><td class="pass">✅ 最紧（余量 0.7%）</td></tr>
+      <tr><td><span class="sw" style="background:#DFDFE1"></span>hairline</td><td class="mono">#DFDFE1</td><td>画布 #FFFFFF</td><td>1.3308</td><td>1.3201</td><td class="pass">✅（web 基线口径）</td></tr>
+    </table>
+    <div class="note" style="margin:12px 0 0">唯一已知缺口在 <b>dark</b>：主按钮白字压品牌紫 = 4.346（差 0.154），已入台账 <code>dark|onAccent|accent</code>（⛔ 不许删）。修法需用户拍板品牌主色。—— 见 <code>docs/REDESIGN.md §12 未决 #1</code>。</div>
+  </div>
+</div>
+
+</body>
+</html>
