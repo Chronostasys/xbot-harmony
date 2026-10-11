@@ -51,7 +51,13 @@ const UNCONSUMED: string[] = [
   //                   全 web 搜 `再次点击/再点一次/armed` 只命中无关用途（MessageList 加载哨兵等）⇒
   //                   接本模块 = **主动背离 web + 用户没要求** ⇒ 不接。本文件保留为**纯逻辑 + 测试**
   //                   （它把既有 5 份各自为政的组件内实现收敛成一张表），**不接线**。
-  'recentdirs',    // 待处置（同上）
+  'recentdirs',    // ⏸️ **待 `pages/Index.ets` 接线**（S2 复核，2026-10-11）：自然消费点 =
+  //                   **新建会话的 cwd 选择**（web 权威 `web/src/components/session/NewSessionDialog.tsx:26,38,91-93`
+  //                   —— `loadRecentWorkDirs` 列候选 + `removeRecentWorkDir` 单项删除；写入时机 =
+  //                   `web/src/hooks/useSessionStore.ts:32` `rememberRecentWorkDir`；共享设置键映射
+  //                   `web/src/lib/userSettings.ts:44` → `web:workspace:recent-workdirs`）。
+  //                   ⛔ 原生对应流程在 `pages/Index.ets`（禁改）⇒ **不给孤儿组件、不造消费**；
+  //                   判据早已在树里（`tools/tests/recentdirs.test.ts`，36 断言）。
   'sheets',        // ⚠️ **在途**：plugin-ux 正在接线 ⇒ 接完应从此表删除
 ];
 // ✅ 已收缩：`command` / `ctxmenu` 在本判据首跑后数分钟内被接线 ⇒ 实测 6 → 4（**实测 < 台账**那条
