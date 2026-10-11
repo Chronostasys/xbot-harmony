@@ -151,3 +151,36 @@ XBOT_E2E_BASE=http://127.0.0.1:16000 XBOT_E2E_USER=<u> XBOT_E2E_PASS=<p> tools/t
 全都没执行（真实断言数 44 → 修好后 **145**）。
 
 契约：**每个** `*.test.ts` 结尾都必须 `process.exit(...)`（失败路径 `1`、成功 `0`）。
+
+## 🔬 隔离单测：`tools/tests/run-one.sh`（多线并行时的判定工具）
+
+### 为什么需要它（真问题）
+
+`tools/tests/run.sh` 用 `set -e` **顺序**执行：把**所有** `core/*` 与**所有** `*.test.ts` 一起 `tsc`，
+再逐个 `node`。⇒ **一遇红测试（或别人在途文件的编译错）就整体中止**，后面全部不跑。
+
+在"多条线同改一个工作树"的实况下（本仓常态），后果是：
+**只要别人的在途改动让某个测试红，所有线都拿不到自己的判定** —— 你无法区分
+"我改坏了"与"别人改坏了"。实测踩到：`core/settingsplugins.ets` 的 TS1005、
+`components/AssistantOrb.ets` 的 `Cannot redeclare block-scoped variable 'mode'`。
+
+### 它做什么
+
+把**编译范围缩到"你关心的那几个测试"**：只拷匹配 `<子串>` 的 `*.test.ts` 进临时目录编译并运行。
+`core/*` 仍**全量**编译（它是测试的真实依赖，不是可选），其余编译环境与 `run.sh` **逐项等价**
+（stubs / `sed` 路径改写 / `@kit.*`+`prism4j`+notify mock / 同款 `find_tsc`）。
+
+### 用法
+
+```bash
+bash tools/tests/run-one.sh                 # 无参：列出可用测试名 + 总数（覆盖范围可数）
+bash tools/tests/run-one.sh streammerge     # 只跑文件名含 streammerge 的测试
+bash tools/tests/run-one.sh sse             # 子串匹配 ⇒ 跑 sse / sse_terminal / sse_watchdog …
+```
+
+**退出码**：`0` 全过 · `2` 找不到匹配的测试名（会列出可用清单）· `3` 编译失败
+（打印错误尾部，并提示"这可能是**别人在途文件**的编译错误"——`core/` 是全量编译的）·
+其余 = 测试失败数。
+
+> ⚠️ 临时目录带 PID（`.out-one.$$`）⇒ 多线**并发**跑互不干扰。
+> ⛔ **不改 `run.sh`**（它被多条线共用）；本脚本是**旁路工具**，共享套件的"全绿"仍是最终判据。
