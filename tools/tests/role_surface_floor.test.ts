@@ -15,6 +15,11 @@
  *      那需要运行期才能定值，静态判会产假阳性（实测 `TodoPanel:155` 就属此类）。
  *   例外台账 `KNOWN_OK`（⛔ 只许缩短；每条给理由）。
  *
+ * ── ⭐ **校准口径（铁律，血泪）**──────────────────────────────────────────────
+ * 台账必须**在「已提交树」上校准**（`git worktree add --detach /tmp/x-ck HEAD` 里跑），
+ * **主树只用于开发** —— 主树可能含**别人未提交的修复** ⇒ 按主树校准的台账一到干净树就"未登记"（我踩过：
+ * 4 处违规被主树的在途修复掩盖）。**他域待修项登记为 `PENDING_SPEC`；谁修完谁收缩台账。**
+ *
  * ── 与另两条判据的分工（⛔ 不重复判）────────────────────────────────────────────
  *  · `icon_role_visibility.test.ts`：**A 类**（role 名不在真源表 ⇒ 静默 transparent）+ 图标 role 报告；
  *  · `horizontal_overflow_gate.test.ts`：文字**横向溢出**；
@@ -233,21 +238,38 @@ const KNOWN_OK: string[] = [
   'components/SplashOverlay.ets :: Text::clickable',
   // ── 以下**全在他域** ⇒ 只出 spec（chat-surface-ux / tokens-ux）──
   'components/LiveTailView.ets :: Text::clickable',
-  'components/MessageRow.ets :: Text::clickable',
   'pages/Index.ets :: SymbolGlyph::clickable',
   'pages/Index.ets :: SymbolGlyph::icon',
   'components/MarkdownView.ets :: SymbolGlyph::icon',   // chat-surface-ux（代码块语言标签前的图标）
   'components/SplashOverlay.ets :: Text::clickable',    // splash-ux（「轻点跳过」）
   'pages/Index.ets :: Text::clickable',                 // chat-surface-ux（Index 现被 splash-ux 锁定）
 ];
-const bad: Hit[] = scanBad(srcByRel, KNOWN_OK);
-{
-  const seenK: string[] = [];
-  for (let i = 0; i < bad.length; i++) { if (seenK.indexOf(bad[i].key) < 0) { seenK.push(bad[i].key); } }
-  for (let i = 0; i < seenK.length; i++) { console.log("  ['" + seenK[i] + "'],"); }
+/**
+ * `PENDING_SPEC`：**他域待修**（⛔ 只许缩短；**谁修完谁收缩台账**）。
+ * ⚠️ 键为 `文件 :: 元素::语义位`，同键多处**只登记一条**（豁免是**集合**语义）——
+ *    但**逐条打印**会显示全部命中，别被键的去重骗了。
+ * ⭐ 本表按**已提交树**（`git worktree --detach @ HEAD`）校准；主树可能含别人在途修复。
+ */
+const PENDING_SPEC: string[] = [
+  // `chat-surface-ux`（已路由的 8 条 spec 之一）：`MessageRow` 的 4 处 `SymbolGlyph` 用 `textMuted`
+  // （实测 `MessageRow.ets:541/613/1048/1051`；porcelain 压 chip = 2.27 < 3）
+  // ⇒ 应改用**图标专用** `colorOf(pal,'iconMuted')`（porcelain ≥4.34 ✓）。
+  'components/MessageRow.ets :: SymbolGlyph::icon',
+  // 同文件的可点文本行（实测 `MessageRow.ets:896`）
+  'components/MessageRow.ets :: Text::clickable',
+];
+const bad: Hit[] = scanBad(srcByRel, KNOWN_OK.concat(PENDING_SPEC));
+// ⛔ **逐条打印全部**（第一版只打印**去重后的键** ⇒ 4 处违规只显示 1 行 ⇒ "摘要掩盖真数"，
+//    定位不到是哪 4 处。判据的输出必须**能定位到每一处**。）
+let printed: number = 0;
+for (let i = 0; i < bad.length; i++) {
+  console.log(`  ⚠ ${bad[i].rel}:${bad[i].line}  [${bad[i].kind}]  key=${bad[i].key}`);
+  printed += 1;
 }
 ok(`未登记的违规 = 0（实测未登记 ${bad.length} 处）`, bad.length === 0);
-console.log('  台账 ' + KNOWN_OK.length + ' 条（⛔ 只许缩短）：我域已修 1（GoalBanner:140 取消按钮 ⇒ textSecondary）');
+// ⛔ **白绿防线（针对"摘要掩盖真数"）**：有违规时，打印行数必须 ≥ 违规数，否则本判据自己的输出不可信。
+ok(`打印完整度：违规 ${bad.length} 处，逐条打印 ${printed} 行（必须 ≥ 违规数）`, printed >= bad.length);
+console.log('  台账：KNOWN_OK ' + KNOWN_OK.length + '（已证良性/有意）+ PENDING_SPEC ' + PENDING_SPEC.length + '（他域待修）—— ⛔ 都只许缩短');
 
 console.log('\n▶ §C mutation 自证（合成源码）');
 {
