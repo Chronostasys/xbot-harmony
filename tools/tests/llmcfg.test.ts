@@ -15,6 +15,7 @@ import { SubscriptionBody, SubscriptionRow } from '../../entry/src/main/ets/core
 import {
   applyInheritedSubFields,
   findSubscriptionById,
+  isSystemSubscription,
   resolveUpdateBody,
 } from '../../entry/src/main/ets/core/llmcfg';
 
@@ -88,6 +89,25 @@ describe('S-P0：编辑订阅必须继承 max_output_tokens / thinking_mode', ()
     expect(body.base_url).toBe('https://y');
     expect(body.model).toBe('M');
     expect(body.api_type).toBe('responses');
+  })
+})
+
+describe('S7：is_system 订阅门控（编辑/删除/加模型）', () => {
+  it('is_system=true ⇒ true（隐藏编辑/删除/登记）', () => {
+    const r: SubscriptionRow = row('s', 1, 'think');
+    (r as unknown as { is_system?: boolean }).is_system = true;
+    expect(isSystemSubscription(r)).toBe(true);
+  })
+
+  it('is_system 缺省（omitempty 未下发）⇒ false（普通订阅照常可编辑）', () => {
+    expect(isSystemSubscription(row('s', 1, 'think'))).toBe(false);
+  })
+
+  it('is_system=false 显式 ⇒ false（不得误判为非系统以外的真值）', () => {
+    const r: SubscriptionRow = row('s');
+    (r as unknown as { is_system?: boolean }).is_system = false;
+    // mutation：把判据改成 `r.is_system !== undefined` ⇒ 此处返回 true ⇒ 必红。
+    expect(isSystemSubscription(r)).toBe(false);
   })
 })
 

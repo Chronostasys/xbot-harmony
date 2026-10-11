@@ -41,7 +41,7 @@ import {
   subscriptionFormValid, thinkDbFromDisplay, thinkDisplayFromDb, thinkHint, thinkLabel, THINK_OPTIONS,
   tierDisplayText, tierHint, tierKey, tierLabel, tierPickerEntries, TIERS, TIER_UNSET_TEXT, tierValues,
 } from '../core/settings';
-import { resolveUpdateBody } from '../core/llmcfg';
+import { isSystemSubscription, resolveUpdateBody } from '../core/llmcfg';
 import {
   SettingsChipRow, SettingsErrorBar, SettingsPanelHeader, SettingsSubCard, SettingsTextFieldRow,
 } from './SettingsRows';
@@ -624,12 +624,11 @@ export struct SettingsLlm {
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .width('100%')
-      } else if (this.subs.length === 0 && this.error.length === 0) {
-        Text('还没有任何订阅。')
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().textMuted)
-          .width('100%')
       } else {
+        // ⛔ 模型推理 + 三档模型**无条件渲染**（对齐 web `SettingsLLM.tsx:275-334`：两区块在
+        // 订阅列表**之前**且不受 `subs.length` 门控）。旧实现把整块塞进 `subs.length>0` 的
+        // else ⇒ 无订阅时「思考模式 / 最大并发 / 三档」全部消失（web 仍可见）。订阅空态由
+        // 下方 `visibleSubs().length === 0` 分支承担。
         Scroll() {
           Column({ space: SP_3 }) {
             // ── 模型推理：思考模式 + 最大并发 ──
@@ -881,18 +880,23 @@ export struct SettingsLlm {
                 })
 
                 // ── 操作行：编辑 / 管理模型 / 删除（web `ActionSheet`，`SettingsLLM.tsx:540-548`）──
+                // ⛔ is_system 订阅**隐藏**编辑与删除（对齐 web 的三处 `!detailSub.is_system`
+                // 门控：编辑按钮 / 加模型按钮 / 底部「设为默认+删除」行）；「管理模型」保留
+                //（web 对系统订阅仍显示模型列表与逐模型启停）。
                 Row({ space: SP_2 }) {
-                  Text('编辑')
-                    .fontSize(FS_CAPTION)
-                    .fontColor(this.pal().accentSoft)
-                    .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-                    .backgroundColor(this.pal().surfaceAlt)
-                    .borderRadius(R_LG)
-                    .border({ width: 1, color: this.pal().borderStrong })
-                    .opacity(this.busy === s.id ? 0.5 : 1)
-                    .onClick(() => {
-                      this.openEdit(s);
-                    })
+                  if (!isSystemSubscription(s)) {
+                    Text('编辑')
+                      .fontSize(FS_CAPTION)
+                      .fontColor(this.pal().accentSoft)
+                      .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+                      .backgroundColor(this.pal().surfaceAlt)
+                      .borderRadius(R_LG)
+                      .border({ width: 1, color: this.pal().borderStrong })
+                      .opacity(this.busy === s.id ? 0.5 : 1)
+                      .onClick(() => {
+                        this.openEdit(s);
+                      })
+                  }
                   Text(this.manageSubId === s.id ? '收起模型' : '管理模型')
                     .fontSize(FS_CAPTION)
                     .fontColor(this.pal().textSecondary)
@@ -903,17 +907,19 @@ export struct SettingsLlm {
                     .onClick(() => {
                       this.toggleManage(s.id);
                     })
-                  Text(this.deleteId === s.id ? '确认删除' : '删除')
-                    .fontSize(FS_CAPTION)
-                    .fontColor(this.deleteId === s.id ? this.pal().onAccent : this.pal().dangerText)
-                    .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-                    .backgroundColor(this.deleteId === s.id ? this.pal().statusError : this.pal().surfaceAlt)
-                    .borderRadius(R_LG)
-                    .border({ width: 1, color: this.pal().border })
-                    .opacity(this.busy === s.id ? 0.5 : 1)
-                    .onClick(() => {
-                      void this.doDelete(s.id);
-                    })
+                  if (!isSystemSubscription(s)) {
+                    Text(this.deleteId === s.id ? '确认删除' : '删除')
+                      .fontSize(FS_CAPTION)
+                      .fontColor(this.deleteId === s.id ? this.pal().onAccent : this.pal().dangerText)
+                      .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+                      .backgroundColor(this.deleteId === s.id ? this.pal().statusError : this.pal().surfaceAlt)
+                      .borderRadius(R_LG)
+                      .border({ width: 1, color: this.pal().border })
+                      .opacity(this.busy === s.id ? 0.5 : 1)
+                      .onClick(() => {
+                        void this.doDelete(s.id);
+                      })
+                  }
                 }
                 .width('100%')
                 .alignItems(VerticalAlign.Center)
@@ -934,17 +940,19 @@ export struct SettingsLlm {
                         .onChange((v: string) => {
                           this.modelDraft = v;
                         })
-                      Text('登记')
-                        .fontSize(FS_CAPTION)
-                        .fontColor(this.pal().accentSoft)
-                        .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-                        .backgroundColor(this.pal().surfaceAlt)
-                        .borderRadius(R_LG)
-                        .border({ width: 1, color: this.pal().borderStrong })
-                        .opacity(isValidModelName(this.modelDraft) ? 1 : 0.5)
-                        .onClick(() => {
-                          void this.addModel(s.id);
-                        })
+                      if (!isSystemSubscription(s)) {
+                        Text('登记')
+                          .fontSize(FS_CAPTION)
+                          .fontColor(this.pal().accentSoft)
+                          .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+                          .backgroundColor(this.pal().surfaceAlt)
+                          .borderRadius(R_LG)
+                          .border({ width: 1, color: this.pal().borderStrong })
+                          .opacity(isValidModelName(this.modelDraft) ? 1 : 0.5)
+                          .onClick(() => {
+                            void this.addModel(s.id);
+                          })
+                      }
                     }
                     .width('100%')
                     .alignItems(VerticalAlign.Center)

@@ -70,3 +70,23 @@ export function applyInheritedSubFields(body: SubscriptionBody, existing: Subscr
 export function resolveUpdateBody(body: SubscriptionBody, subs: SubscriptionRow[], id: string): SubscriptionBody {
   return applyInheritedSubFields(body, findSubscriptionById(subs, id));
 }
+
+/**
+ * 订阅行是否**系统内置**（服务端 `is_system`）。
+ *
+ * `core/rpc.ets` 的 `SubscriptionRow` 欠声明该字段（服务端确实下发）⇒ 用元素级加宽读出，
+ * 不越界改 rpc.ets（该文件有主）。
+ */
+export interface SystemFlaggedRow {
+  is_system?: boolean;
+}
+
+/**
+ * is_system 订阅**禁止编辑凭据 / 加模型 / 删除** —— 对齐 web `SettingsLLM.tsx:426/449/483`
+ * 的 `!detailSub.is_system` 三处门控（编辑按钮 / 加模型按钮 / 底部「设为默认+删除」行）。
+ * 启用开关与逐模型启停**不**受此门控（web 亦然）。
+ */
+export function isSystemSubscription(sub: SubscriptionRow): boolean {
+  const r: SystemFlaggedRow = sub as SystemFlaggedRow;
+  return r.is_system === true;
+}
