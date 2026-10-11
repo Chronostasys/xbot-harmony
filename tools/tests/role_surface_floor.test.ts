@@ -181,6 +181,19 @@ function scanBad(m: Map<string, string>, exempt: string[]): Hit[] {
   const out: Hit[] = [];
   m.forEach((raw: string, rel: string) => {
     const src: string = stripComments(raw);
+    // ⛔ **口径 (b) 做进扫描**（不是只写台账/断言）：若该站点压在**恒深品牌画布**上
+    //    （`SplashOverlay` 的根容器 `.backgroundColor(this.canvasColor())`，值来自 `core/splash.splashBrandCanvas()`）
+    //    ⇒ 用**真宿主**算：`textMuted` 在 `#0B0B0E` 上全主题 ≥3 ⇒ **不计命中**。
+    //    （我原先只把它登记进台账 + 加数字断言 ⇒ 扫描仍报它 ⇒ "未登记"永远挡着。口径修正必须**落到扫描**。）
+    const onDarkBrandCanvas: boolean = src.indexOf('splashBrandCanvas') >= 0
+      && src.indexOf('.backgroundColor(this.canvasColor())') >= 0;
+    if (onDarkBrandCanvas) {
+      let allOk2: boolean = true;
+      for (let i = 0; i < ALL_THEMES.length; i++) {
+        if (contrastRatio(colorOf(paletteOf(ALL_THEMES[i]), 'textMuted'), splashBrandCanvas()) < AA_NON_TEXT) { allOk2 = false; }
+      }
+      if (allOk2) { return; }   // 该文件里压在品牌画布上的 textMuted 全部达标 ⇒ 不是违规
+    }
     const rx: RegExp = /\b([A-Z][A-Za-z0-9_]*)\s*\(/g;
     let x: RegExpExecArray | null = rx.exec(src);
     while (x !== null) {
@@ -227,22 +240,12 @@ function scanBad(m: Map<string, string>, exempt: string[]): Hit[] {
 }
 /** 例外台账（⛔ 只许缩短；每条给理由）。 */
 const KNOWN_OK: string[] = [
-  // **状态化弱化（有意）**：目标条的目标文本在**已完成**态用 `textMuted` + 删除线（web `:122-128` 同款）
-  // —— "已完成 ⇒ 退居背景"的设计，且该行**本身不承载操作**（操作在右侧按钮上）。⛔ 不修。
-  'components/GoalBanner.ets :: Text::clickable',
-  // ⛔ **口径修正 (b)：宿主感知** —— `SplashOverlay:174`「轻点跳过」的宿主是
-  //    `splashBrandCanvas()`（**恒深** `#0B0B0E`，不是浅面）⇒ `textMuted` 在其上
-  //    **porcelain 7.73 / light 7.67 / dark 3.32 / aurora 4.99 / nebula 4.90**（全 ≥3）
-  //    ⇒ **不是违规**。（我原先的判据只按"porcelain × 光面"一刀切 ⇒ **口径错**，不是产品错。）
-  //    ✅ 下面 §A2 有一条断言把这份数字**钉住**（若画布变浅会立刻红）。
-  'components/SplashOverlay.ets :: Text::clickable',
-  // ── 以下**全在他域** ⇒ 只出 spec（chat-surface-ux / tokens-ux）──
-  'components/LiveTailView.ets :: Text::clickable',
-  'pages/Index.ets :: SymbolGlyph::clickable',
-  'pages/Index.ets :: SymbolGlyph::icon',
-  'components/MarkdownView.ets :: SymbolGlyph::icon',   // chat-surface-ux（代码块语言标签前的图标）
-  'components/SplashOverlay.ets :: Text::clickable',    // splash-ux（「轻点跳过」）
-  'pages/Index.ets :: Text::clickable',                 // chat-surface-ux（Index 现被 splash-ux 锁定）
+  // ✅ 2026-10-11 **已全部收缩为空**（"谁修谁收缩"）：
+  //   · `chat-surface-ux`（`8591d85`）修掉 7 处：`MessageRow` 图标×4 + 可点×1 · `LiveTailView` ·
+  //     `MarkdownView` · `Index`（SymbolGlyph×2 + Text）—— 全部改走 `iconMuted`/`textSecondary`。
+  //   · `GoalBanner:153`（目标文本**已完成态**的 `textMuted`+删除线）= **三元退化分支** ⇒ 被口径 (a) 覆盖，不再命中。
+  //   · `SplashOverlay:174`（「轻点跳过」压**恒深品牌画布**）= 达标 ⇒ 由 §A2 的**数字断言**守着，不占台账。
+  // ⛔ 本表**只许缩短**；新命中 ⇒ "未登记"必红。
 ];
 /**
  * `PENDING_SPEC`：**他域待修**（⛔ 只许缩短；**谁修完谁收缩台账**）。
@@ -251,12 +254,9 @@ const KNOWN_OK: string[] = [
  * ⭐ 本表按**已提交树**（`git worktree --detach @ HEAD`）校准；主树可能含别人在途修复。
  */
 const PENDING_SPEC: string[] = [
-  // `chat-surface-ux`（已路由的 8 条 spec 之一）：`MessageRow` 的 4 处 `SymbolGlyph` 用 `textMuted`
-  // （实测 `MessageRow.ets:541/613/1048/1051`；porcelain 压 chip = 2.27 < 3）
-  // ⇒ 应改用**图标专用** `colorOf(pal,'iconMuted')`（porcelain ≥4.34 ✓）。
-  'components/MessageRow.ets :: SymbolGlyph::icon',
-  // 同文件的可点文本行（实测 `MessageRow.ets:896`）
-  'components/MessageRow.ets :: Text::clickable',
+  // ✅ 2026-10-11 **已收缩为空**：原先登记的两条 `MessageRow`（`SymbolGlyph::icon` / `Text::clickable`）
+  //    已由 `chat-surface-ux`（`8591d85`）修复 ⇒ 按"谁修谁收缩"删除（留着会被**陈旧断言**判红）。
+  // ⛔ 本表**只许缩短**；他域新命中 ⇒ 登记在此（并注明归属线）。
 ];
 const bad: Hit[] = scanBad(srcByRel, KNOWN_OK.concat(PENDING_SPEC));
 // ⛔ **逐条打印全部**（第一版只打印**去重后的键** ⇒ 4 处违规只显示 1 行 ⇒ "摘要掩盖真数"，
@@ -269,6 +269,21 @@ for (let i = 0; i < bad.length; i++) {
 ok(`未登记的违规 = 0（实测未登记 ${bad.length} 处）`, bad.length === 0);
 // ⛔ **白绿防线（针对"摘要掩盖真数"）**：有违规时，打印行数必须 ≥ 违规数，否则本判据自己的输出不可信。
 ok(`打印完整度：违规 ${bad.length} 处，逐条打印 ${printed} 行（必须 ≥ 违规数）`, printed >= bad.length);
+/**
+ * ⛔ **「谁修谁收缩」必须被强制，不能只靠约定**（2026-10-11 补）：
+ * 台账若挂着**已修好**的条目 ⇒ 本条**必红**（陈旧）。
+ * ⚠️ 我原先只断言了"未登记 == 0"，**没断言"陈旧 == 0"** ⇒ `chat-surface-ux` 修完这 5 处后，
+ *    我的 `PENDING_SPEC` 仍静静留着 ⇒ **没有任何东西逼我收缩**（这正是"台账悄悄腐烂"的入口）。
+ *    ⭐ 校准树 = **已提交树**（`git worktree --detach @ HEAD`），不是主树。
+ */
+const allMeasured: Hit[] = scanBad(srcByRel, []);              // 不过滤 ⇒ 全部实测命中
+const measuredKeys: string[] = [];
+for (let i = 0; i < allMeasured.length; i++) { if (measuredKeys.indexOf(allMeasured[i].key) < 0) { measuredKeys.push(allMeasured[i].key); } }
+const registered: string[] = KNOWN_OK.concat(PENDING_SPEC);
+const stale: string[] = [];
+for (let i = 0; i < registered.length; i++) { if (measuredKeys.indexOf(registered[i]) < 0) { stale.push(registered[i]); } }
+for (let i = 0; i < stale.length; i++) { console.log(`  [stale] ${stale[i]}`); }
+ok(`台账只许缩短：无"已修好却仍留着"的陈旧条目（陈旧 ${stale.length} 条）`, stale.length === 0);
 console.log('  台账：KNOWN_OK ' + KNOWN_OK.length + '（已证良性/有意）+ PENDING_SPEC ' + PENDING_SPEC.length + '（他域待修）—— ⛔ 都只许缩短');
 
 console.log('\n▶ §C mutation 自证（合成源码）');
