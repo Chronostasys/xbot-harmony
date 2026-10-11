@@ -760,7 +760,7 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 | AnsiText（ANSI SGR 着色） | ❌ | ✅ **已接线**（⚠️ **2026-10-11 深晚订正**：原判「消费点未接线」**已过时**） | `core/ansi.ets`：解析 `9ad6c30`、本仓色板映射 `10aae43`；**消费点 `0af6ef3`（SyntheticCard 逐 span）+ `bed4672`（live pill 标签）** ⇒ 5 组件真消费（`MessageRow`/`ToolVisual`/`SyntheticCard`/`LiveTailView`/`ToolPopover`）；判据 `ansi_wiring.test.ts` **13 断言** + `ansi.test.ts` 钉 web 字节对齐 |
 | 最近工作目录 | ❌ | 🟡 **纯逻辑就绪；UI 未接线** | `core/recentdirs.ets`（`10aae43`，键/版本/上限 5 逐字对齐 web） |
 | 命令路由 / 深链 | ❌ | 🟡 **仅解析与校验就绪；派发未接线** | `core/command.ets`（`10aae43`）—— 设计上**只解析**，副作用留给页面 |
-| 消息注释 / 高亮 | ❌ | 🟡 **数据面就绪；UI 未接线** | `core/annotations.ets`（`10aae43`），含**两种序列化**（草稿存储 / 出站信封） |
+| 消息注释 / 高亮 | ❌ | ⛔ **创建侧原生不成立（裁决 A，2026-10-11，有据）；展示侧在修** | `core/annotations.ets`（`10aae43`）。**裁定依据**（`annotations` 线取证）：web 入口唯一依赖**浏览器选区**（`MessageAnnotations.tsx:34-44` `window.getSelection()` + `:111-117` `range.getClientRects()` 定位悬浮按钮），而 ① ArkUI 唯一的跨 `Text` 选区 API `SelectionContainer` **全文件 `@since 26.0.0`** > 本工程 `compatibleSdkVersion 6.0.1(21)` ⇒ **版本门限**（抬 SDK 须用户拍板，⛔ 不抬）；② **无**"取选区包围盒"API；③ 批注入口**不在复制菜单**（`MessageActions.tsx:15` 原文）⇒ 换入口必然**语义分叉**（`quote` 只能整条 vs web"某段摘录"）。**功能并未缺失**：ArkWeb 网页模式（`pages/Index.ets:2938-2955` `useWebUI`）下该 UI **完整可用**。**展示侧**（原生把带批注消息显示成裸 `<response-annotations>` XML）是**真缺陷** ⇒ 已在 `components/UserBubble.ets` 内接线（在飞） |
 | 插件面（目录 / widget / 桥 / WebSurface） | 🟡❌ | ✅ **三面进设计系统 + widget 数据面 + 桥 page→native** | `f5e7163` `9bda52d` `910b420` `30069bb` `8b036aa` `5f04360`；另**消掉 `PluginWidgets` 孤儿**（恢复编译期检查，原为假绿） |
 | 逐模型配置 `update_per_model_config` | ❌ | 🟡 **纯逻辑就绪；编辑器接线中** | `7d418a9`；入口唯一性需守（`REDESIGN §5`） |
 | 通知：长文本形态 | ➖ 原生加值 | ✅ `notify.ets` 新增 `long_text`（≤3072B，单段长回复不再被 1024B 硬截断） | 另新建 `docs/NOTIFY.md`；**后台常驻接收平台不给三方**（明账见该文档） |
