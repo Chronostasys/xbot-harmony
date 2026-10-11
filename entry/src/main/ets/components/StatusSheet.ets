@@ -23,7 +23,15 @@
  *     · 行 = `INSET_ROW_*` + `HIT_TARGET_MIN`（≥44）；层级 = **标签次级色 / 值主色**（同 web
  *       `SessionInfo.tsx` 的 `InfoRow`）。
  *     · 关闭：头部 X 走 `onClose`（面板**自己**的关闭入口；见 `core/sheets.ets` flag 所有权表）。
- *     · 空态：五路输入全空 ⇒ 一行小字（`textMuted`，无填充/无边框/无发光；§10）。
+ *     · 空态：八路输入全空 ⇒ 一行小字（`textMuted`，无填充/无边框/无发光；§10）。
+ *
+ * ── 会话信息补全（2026-10-11 目标④；对齐 web `SessionInfo.tsx`）────────────────────
+ *   补 web 会话信息的缺失字段 + 把「工作路径」升级为**可编辑**（唯一写点，仍回调出页面）：
+ *     · `sessionId`（web `:48`）/ `channel`（`:49`）/ `lastActive`（`:174-176`）新增为 `@Prop`，
+ *       空串 ⇒ 不显示该行（⛔ 不编造、不估算）。
+ *     · 「工作路径」行 `editable`（web `:138-173`）：点值就地改 ⇒ `TextInput` + 确认（真实 ≥44
+ *       布局盒）/ Enter 提交 ⇒ `onSubmitCwd`（页面复用**既有** `set_cwd` 写路径，⛔ 组件不发 RPC）。
+ *     · ⛔ 不加动效；编辑态是组件本地 `@State`（不进 store、不动任何弹层 flag）。
  *
  * ── 行为等价性（P1 三重证据之一）──────────────────────────────────────────────
  *   入参 = 原 `@Builder` 引用集合逐一对应：`pal()→theme`、`goalLine()→goalLine`、
@@ -32,7 +40,8 @@
  */
 import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
 import {
-  PRESS_OPACITY, ELEV_OVERLAY, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, SPACE_HAIR, SPACE_LG, SPACE_SM,
+  PRESS_OPACITY, ELEV_OVERLAY, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, RADIUS_CHIP, SPACE_HAIR,
+  SPACE_LG, SPACE_SM,
   SPACE_XS, STROKE_HAIRLINE, elevationColorOf, hairlineOf, surfaceFillOf, colorOf, } from '../core/design';
 import { fs, fw, lh, tc, tk } from './SettingsRows';
 import { sheetTransition } from './anim';
@@ -47,6 +56,11 @@ const X_GLYPH: number = 17;
 /**
  * 一行「标签 + 值」——层级 = 标签次级色 / 值主色（web `SessionInfo.tsx` 的 `InfoRow`）。
  * ⚠️ 不复用 `SettingsValueRow`：那个原子的层级是「标题主色 / 值次级色」，与本面板语义**相反**。
+ *
+ * `editable`（当前只有「工作路径」用）：值与 web `SessionInfo.tsx:138-173` 的 `<dd>` 等价 ——
+ * 点值进**就地编辑**（单行 `TextInput` + 确认，Enter 提交）⇒ `onSubmitValue`。
+ * ⛔ 编辑态是**本组件本地 `@State`**（不进 store、不改任何弹层开关、**不发 RPC** —— 写路径在页面）。
+ * ⛔ 可点区靠**真实 ≥44 布局盒**承载 `onClick`（`responseRegion` 负偏移外扩真机实测无效）。
  */
 @Component
 struct StatusInfoRow {
@@ -56,10 +70,32 @@ struct StatusInfoRow {
   @Prop mono: boolean = false;
   /** 值可长按复制（工作路径）。 */
   @Prop valueCopyable: boolean = false;
+  /** 值可点开**就地编辑**（仅工作路径；web `:138-173`）。 */
+  @Prop editable: boolean = false;
+  /** 提交编辑后的值（页面复用既有 `set_cwd` 写路径；组件**不发** RPC）。 */
+  onSubmitValue: (v: string) => void = () => {
+  };
   @Prop theme: string = 'dark';
+  /** 编辑态输入草稿（`@State`，纯本地 UI 态）。 */
+  @State private draft: string = '';
+  /** 是否处于编辑态。 */
+  @State private editing: boolean = false;
 
   private pal(): Palette {
     return paletteOf(this.theme);
+  }
+
+  /** 进入编辑态：草稿预填当前值（web `:165-170`）。 */
+  private beginEdit(): void {
+    this.draft = this.value;
+    this.editing = true;
+  }
+
+  /** 提交（Enter 或点确认）：退出编辑态，把去掉首尾空白的值交给页面。 */
+  private commit(): void {
+    const v: string = this.draft.trim();
+    this.editing = false;
+    this.onSubmitValue(v);
   }
 
   build() {
@@ -71,17 +107,71 @@ struct StatusInfoRow {
         .fontColor(tc(this.pal(), 'type.callout'))
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
-      Text(this.value)
-        .fontSize(fs('type.callout'))
-        .fontWeight(fw('type.body'))
-        .lineHeight(lh('type.callout'))
-        .fontFamily(this.mono ? 'monospace' : '')
-        .fontColor(tc(this.pal(), 'type.body'))
+      if (this.editable && this.editing) {
+        // ── 编辑态（web `:139-155`）：单行输入（等宽）+ 确认；Enter 提交 ───────────────
+        TextInput({ text: this.draft, placeholder: '工作路径' })
+          .fontSize(fs('type.callout'))
+          .fontColor(tc(this.pal(), 'type.body'))
+          .placeholderColor(this.pal().textMuted)
+          .fontFamily('monospace')
+          .backgroundColor(surfaceFillOf(this.pal(), 'surface.input'))
+          .borderRadius(RADIUS_CHIP)
+          .layoutWeight(1)
+          .onChange((v: string) => {
+            this.draft = v;
+          })
+          .onSubmit(() => {
+            this.commit();
+          })
+        // 确认（图标-only ⇒ 真实 ≥44 布局盒承载 `onClick` + 读屏文案；⛔ 不用 `responseRegion`）
+        Row() {
+          SymbolGlyph($r('sys.symbol.checkmark'))
+            .fontSize(fs('type.callout'))
+            .fontColor([colorOf(this.pal(), 'iconMuted')])
+        }
+        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('保存工作路径')
+        .onClick(() => {
+          this.commit();
+        })
+      } else if (this.editable) {
+        // ── 显示态（可点进编辑；web `:156-172` 的 `<dd onClick>`）─────────────────────
+        // 值空 ⇒ 显示 `—`（web `<dd>{displayCwd ?? '—'}</dd>`），仍可点进编辑设路径。
+        Row() {
+          Text(this.value.length > 0 ? this.value : '—')
+            .fontSize(fs('type.callout'))
+            .fontWeight(fw('type.body'))
+            .lineHeight(lh('type.callout'))
+            .fontFamily(this.mono ? 'monospace' : '')
+            .fontColor(tc(this.pal(), 'type.body'))
+            .layoutWeight(1)
+            .textAlign(TextAlign.End)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .copyOption(this.valueCopyable ? CopyOptions.LocalDevice : CopyOptions.None)
+        }
         .layoutWeight(1)
-        .textAlign(TextAlign.End)
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .copyOption(this.valueCopyable ? CopyOptions.LocalDevice : CopyOptions.None)
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .alignItems(VerticalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          this.beginEdit();
+        })
+      } else {
+        Text(this.value)
+          .fontSize(fs('type.callout'))
+          .fontWeight(fw('type.body'))
+          .lineHeight(lh('type.callout'))
+          .fontFamily(this.mono ? 'monospace' : '')
+          .fontColor(tc(this.pal(), 'type.body'))
+          .layoutWeight(1)
+          .textAlign(TextAlign.End)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .copyOption(this.valueCopyable ? CopyOptions.LocalDevice : CopyOptions.None)
+      }
     }
     .width('100%')
     .alignItems(VerticalAlign.Center)
@@ -104,21 +194,31 @@ export struct StatusSheet {
   @Prop ctxText: string = '';
   /** 工作路径（空串 = 不显示该行）。 */
   @Prop cwd: string = '';
+  /** 会话 ID（空串 = 不显示该行；web `SessionInfo.tsx:48`）。 */
+  @Prop sessionId: string = '';
+  /** 渠道（空串 = 不显示该行；web `:49`）。 */
+  @Prop channel: string = '';
+  /** 最后活跃（空串 = 不显示该行；web `:174-176` truthy 才显示）。 */
+  @Prop lastActive: string = '';
   /** 关闭面板（面板**自己**的关闭入口，头部 X 走它）。 */
   onClose: () => void = () => {
   };
   /** 打开「模型 / 上下文上限」选择栏（页面置 `showModel=true` + 拉 llm-config）。 */
   onOpenModel: () => void = () => {
   };
+  /** 提交新的工作路径（页面复用既有 `set_cwd` 写路径；组件**不发** RPC）。 */
+  onSubmitCwd: (dir: string) => void = () => {
+  };
 
   private pal(): Palette {
     return paletteOf(this.theme);
   }
 
-  /** 五路输入全空 ⇒ 空态（避免用户看到"点开了但什么都没有"）。 */
+  /** 八路输入全空 ⇒ 空态（避免用户看到"点开了但什么都没有"）。 */
   private isEmpty(): boolean {
     return this.goalLine.length === 0 && this.usageText.length === 0
-      && this.modelName.length === 0 && this.ctxText.length === 0 && this.cwd.length === 0;
+      && this.modelName.length === 0 && this.ctxText.length === 0 && this.cwd.length === 0
+      && this.sessionId.length === 0 && this.channel.length === 0 && this.lastActive.length === 0;
   }
 
   build() {
@@ -172,6 +272,14 @@ export struct StatusSheet {
             .padding({ left: INSET_ROW_X, right: INSET_ROW_X, bottom: SPACE_HAIR })
         }
 
+        // ── 会话标识行（web `SessionInfo.tsx:48-49`：id / channel；空串 = 不显示该行）────
+        if (this.sessionId.length > 0) {
+          StatusInfoRow({ label: '会话 ID', value: this.sessionId, mono: true, theme: this.theme })
+        }
+        if (this.channel.length > 0) {
+          StatusInfoRow({ label: '渠道', value: this.channel, theme: this.theme })
+        }
+
         // ── 只读信息行（标签次级 / 值主色；每项只出现一次）───────────────────────
         if (this.usageText.length > 0 || this.modelName.length > 0) {
           StatusInfoRow({
@@ -184,14 +292,26 @@ export struct StatusSheet {
         if (this.ctxText.length > 0) {
           StatusInfoRow({ label: '上下文上限', value: this.ctxText, theme: this.theme })
         }
-        if (this.cwd.length > 0) {
+
+        // ── 工作路径（**可编辑**：点值就地改，Enter / 确认提交；web `:138-173`）────────────
+        // ⚠️ `sessionId` 在场 ⇒ 即便 `cwd` 为空也保留该行（值显示 `—`），与 web 一致（`activeId`
+        //    在场即渲染 workPath 行）——否则用户在此面板里**无法给无 cwd 的会话设路径**。
+        if (this.sessionId.length > 0 || this.cwd.length > 0) {
           StatusInfoRow({
             label: '工作路径',
             value: this.cwd,
             mono: true,
             valueCopyable: true,
+            editable: true,
+            onSubmitValue: (dir: string) => {
+              this.onSubmitCwd(dir);
+            },
             theme: this.theme,
           })
+        }
+        // ── 最后活跃（web `:174-176`：truthy 才显示）──────────────────────────────
+        if (this.lastActive.length > 0) {
+          StatusInfoRow({ label: '最后活跃', value: this.lastActive, theme: this.theme })
         }
 
         // ── 切换入口（模型 / 上下文上限）——发丝分隔 + 44 命中区的一整行 ───────────────

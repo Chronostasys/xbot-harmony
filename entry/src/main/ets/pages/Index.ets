@@ -2284,13 +2284,65 @@ struct Index {
       return;
     }
     try {
-      await rpc<Object>(store.http, RPC_SET_CWD, new SetCwdParams(store.channel, store.currentChatId, path));
+      await this.sendSetCwd(store, path);
       const next: string[] = rememberWorkDir(this.newSessionDirs, path);
       this.newSessionDirs = next;
       this.persistRecentDirs(next);
     } catch (e) {
       this.toast(`工作目录设置失败: ${errText(e as Object)}`);
     }
+  }
+
+  /**
+   * 发 `set_cwd`（**唯一**工作路径写路径；web `components/agent/api.ts:168-177`）。
+   *
+   * ⛔ 不新造 RPC 名 / 不新造参数类型：只用既有 `RPC_SET_CWD` + `SetCwdParams`（见本文件顶部常量）。
+   * ⛔ `force:true` 不可省：服务端据此原样采纳传入路径（不做推断/转换）。
+   */
+  private async sendSetCwd(store: ChatStore, dir: string): Promise<void> {
+    await rpc<Object>(store.http, RPC_SET_CWD, new SetCwdParams(store.channel, store.currentChatId, dir));
+  }
+
+  /**
+   * 「会话状态」面板里改工作路径 → 提交（web `SessionInfo.tsx:100-120` 的 `applyCwd`）。
+   *
+   * 复用上面的唯一写路径 `sendSetCwd`；成功后拉一次会话状态 ⇒ **服务端权威** `cwd` 回流
+   * （`store.loadStatus` → `store.cwd` → `syncFrom` → `this.cwd`）。⛔ 不本地估算 / 不假装成功。
+   */
+  private async submitCwd(dir: string): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    const path: string = dir.trim();
+    // 空路径 / 未改动 ⇒ 不发请求（与 web `applyCwd` 的早退同口径）。
+    if (path.length === 0 || path === store.cwd) {
+      return;
+    }
+    try {
+      await this.sendSetCwd(store, path);
+      await store.loadStatus();
+    } catch (e) {
+      this.toast(`工作目录设置失败: ${errText(e as Object)}`);
+    }
+  }
+
+  /**
+   * 当前会话的「最后活跃」（`SessionItem.last_active`，`core/types.ets:37`；服务端 RFC3339）。
+   * 取不到 ⇒ 空串 ⇒ 面板**不显示**该行（web `SessionInfo.tsx:174-176` 同口径：truthy 才显示）。
+   */
+  private currentLastActive(): string {
+    const id: string = this.store !== null ? this.store.currentChatId : '';
+    if (id.length === 0) {
+      return '';
+    }
+    for (let i = 0; i < this.sessions.length; i++) {
+      if (this.sessions[i].chat_id === id) {
+        const s: SessionItem = this.sessions[i];
+        return s.last_active !== undefined ? s.last_active : '';
+      }
+    }
+    return '';
   }
 
   private labelOf(chatId: string): string {
@@ -3226,6 +3278,11 @@ struct Index {
             modelName: this.currentModelName(),
             ctxText: this.ctxText(),
             cwd: this.cwd,
+            // 会话信息补全（web `SessionInfo.tsx:48-49/174-176`）：身份字段直接读 store 权威值；
+            // 缺失 ⇒ 空串 ⇒ 组件不显示该行（判据仍留本页，组件不算任何东西）。
+            sessionId: this.store !== null ? this.store.currentChatId : '',
+            channel: this.store !== null ? this.store.channel : '',
+            lastActive: this.currentLastActive(),
             onClose: () => {
               this.showStatus = false;
             },
@@ -3234,6 +3291,10 @@ struct Index {
                 this.showModel = true;
               });
               this.store?.loadLlmConfig();
+            },
+            // 改工作路径：复用页面唯一的 `set_cwd` 写路径（`submitCwd` → `sendSetCwd`）。
+            onSubmitCwd: (dir: string) => {
+              this.submitCwd(dir);
             },
           })
         }.width('100%').height('100%')
