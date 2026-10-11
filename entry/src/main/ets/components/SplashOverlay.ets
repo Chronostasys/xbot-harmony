@@ -9,11 +9,11 @@
  *   1. **真 `@Component` + `@Prop` / `@State`**，标记**直接内联在 `build()` 里**（不抽带参 `@Builder`）——
  *      `docs/ARKTS-GOTCHAS.md` 头号坑：带参 `@Builder` 的参数是"调用那一刻的快照"，子树不随参数重建
  *      ⇒ 会卡在首帧（品牌标记不出现 / 不动）。
- *   2. **动效只走底座** `components/anim.ets`（T1 = `animBase` 工厂）⇒ ⛔ 无字面量时长、⛔ 无 `Curve.Friction`。
+ *   2. **动效只走底座** `components/anim.ets`（T1 = `animBase`、T2 = `animEaseOut` 具名工厂）⇒
+ *      ⛔ 无字面量时长、⛔ 无 `Curve.Friction`。
  *      **曲线语义**（`core/splash.splashPhaseCurve` 是唯一判据）：**入场（T1）允许超调**（spring），
- *      **让位/退出（T2）不许超调**（ease-out）。⚠️ **T2 曲线 TODO：待 `animEaseOut()` 就绪**
- *      （`orb-ux` 正把 `core/tokens.ets:56` 的 `EASE_OUT_CSS` 收成该工厂；本波不能用 spring 之外的
- *      curve —— `@ohos/curves` 只许在 `components/anim.ets` import，组件侧**不能自造曲线**）。
+ *      **让位/退出（T2）不许超调**（`animEaseOut()` = `EASE_OUT_CSS`，`components/anim.ets:103`，
+ *      已就绪）。`@ohos/curves` 只许在 `components/anim.ets` import，组件侧**不能自造曲线**。
  *   3. **颜色零字面量**：唯一入口 `colorOf(p, role)`；底色走 `core/splash.splashCanvasOf`；
  *      标记色走 `core/brand.brandAccent()/brandOnAccent()`（**不走** `colorOf`）；
  *      深浅判据在 `core/splash.splashMarkLevelOf` 内（`isLightPalette`，⛔ 不按主题名硬判）。
@@ -41,7 +41,7 @@ import {
   splashCanvasOf,
   splashMarkLevelOf,
 } from '../core/splash';
-import { animBase, animSlow } from './anim';
+import { animBase, animEaseOut } from './anim';
 
 @Component
 export struct SplashOverlay {
@@ -96,7 +96,7 @@ export struct SplashOverlay {
 
   /**
    * 阶段变化（唯一消费 `core/splash` 的判据）。
-   * T2 ⇒ `animSlow` 工厂（320ms + 全站 spring）淡出让位；
+   * T2 ⇒ `animEaseOut` 工厂（`MOTION_SLOW_MS` + `EASE_OUT_CSS`，**无超调**）淡出让位；
    * T3 ⇒ `onDone()` 交棒（reduceMotion 下无 T2 ⇒ **跳切**，无淡出）。
    */
   private onPhaseChange(): void {
@@ -113,11 +113,10 @@ export struct SplashOverlay {
         this.overlayOpacity = 0;
         return;
       }
-      // ⚠️ TODO（T2 曲线）：让位**不许超调**（`core/splash.splashPhaseCurve(T2) === easeOut`）。
-      //    当前底座工厂尚未就绪（`animEaseOut` 由 orb-ux 建），故**暂**用 `animSlow`（spring，带超调）。
-      //    工厂就绪后**只改这一行**：`animateTo(animEaseOut(), ...)`。
-      //    ⛔ 不得在此自造曲线 / import `@ohos.curves`（唯一出口是 components/anim.ets）。
-      animateTo(animSlow(), () => {
+      // 让位**不许超调**（`core/splash.splashPhaseCurve(T2) === easeOut`）：走底座具名工厂
+      // `animEaseOut()`（`components/anim.ets:103` = `MOTION_SLOW_MS` + `EASE_OUT_CSS`），**零超调**。
+      // ⛔ 不得在此自造曲线 / import `@ohos/curves`（唯一出口是 components/anim.ets）。
+      animateTo(animEaseOut(), () => {
         this.overlayOpacity = 0;
         this.markOpacity = 0;
       });

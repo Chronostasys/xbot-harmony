@@ -26,7 +26,7 @@ import { MOTION_BASE_MS, MOTION_SLOW_MS, MOTION_FAST_MS } from './motion';
 import { ORB_BREATH_MS } from './orb';
 import { EASE_SPRING_CSS, EASE_OUT_CSS } from './tokens';
 import { SPACE_XXL } from './design';
-import { BrandSurface, brandAccent, contrastRatio, markLevelFor } from './brand';
+import { BrandSurface, brandAccentFor, contrastRatio, markLevelFor } from './brand';
 
 // ════════════════════════════════════════════════════════════════════════════
 // 1. 标识（字符串常量 —— 与 `core/brand.ets: MARK_LADDER_*` / `AssistantOrb: ORB_MODE_*` 同法）
@@ -78,6 +78,19 @@ export const SPLASH_MIN_DWELL_MS: number = MOTION_BASE_MS + MOTION_FAST_MS;
  * 的 `MOTION_BREATH_MS` **同值**（UI 侧那个是 core 侧的转发；core 模块引 core 侧真源）。
  */
 export const SPLASH_TIMEOUT_MS: number = ORB_BREATH_MS;
+/**
+ * **迟滞（免开屏窗口）** = `150ms`（**用户拍板 ≈150ms**）。
+ *
+ * ⚠️ **设计值**（无既有常量可派生 —— 同 `MOTION_ENTER_SCALE` 的处理方式；这是"策略阈值"，
+ *   不是"动画时长"，故不进 `allowedDurations()`）。
+ *
+ * 语义（用户口径「尽可能快；加载慢就展示一下动画」）：
+ *   自**应用启动**起算，若内容在**迟滞内**就绪 ⇒ **从 T0 系统开屏直接过渡到主界面，
+ *   本开屏压根不出现**（快启动不因开屏多等一帧）；只有"迟滞已过仍未就绪"才让它出现
+ *   （判定见 `shouldStartSplash`）。⇒ 迟滞是"要不要展示"的闸门；`minDwell` 是"一旦展示
+ *   就保证动效不半截被切"的**下限**（两者语义不同，不可互相替代）。
+ */
+export const SPLASH_HYSTERESIS_MS: number = 150;
 
 // ── 标记动效（**同语义、按元素变体**：标记 vs 光球各自具名，**不强行统一**）─────────
 /**
@@ -264,6 +277,27 @@ export function shouldShowSplash(launchKind: string, elapsedMs: number, contentR
 }
 
 /**
+ * ②b **迟滞闸门：是否应当"让应用内开屏出现"**（自**应用启动**起算的 `elapsedMs`）。
+ *
+ * 与 `shouldShowSplash` 的分工（**用户口径「尽可能快；加载慢才播动画」**）：
+ *   · 本函数答"**要不要展示**" —— 只在**迟滞到点**评估一次；
+ *   · `shouldShowSplash` 答"**一旦展示了，这一帧还在不在**" —— `elapsedMs` 自**展示**起算。
+ *
+ * 真值：非 `cold`（热启动）⇒ `false`；`contentReady`（迟滞内已就绪）⇒ `false`
+ *      ⇒ **从 T0 系统开屏直接过渡到主界面，开屏不出现**；迟滞未到 ⇒ `false`（观察窗内）；
+ *      其余（迟滞已过且仍未就绪）⇒ `true` ⇒ 展示，并**完整播完**。
+ */
+export function shouldStartSplash(launchKind: string, elapsedMs: number, contentReady: boolean): boolean {
+  if (launchKind !== LAUNCH_COLD) {
+    return false;
+  }
+  if (contentReady) {
+    return false;
+  }
+  return sanitizeMs(elapsedMs) >= SPLASH_HYSTERESIS_MS;
+}
+
+/**
  * ③ T1 底色（纯函数，**不读全局**）。
  *
  * `followApplication=true` ⇒ 取**应用主题**的 `appBg`（与首帧画布**逐字节一致** ⇒ **零跳色**；
@@ -281,14 +315,15 @@ export function splashCanvasOf(theme: string, followApplication: boolean, system
  * ④ T1 标记档位（**委托** `core/brand.ets:markLevelFor`，不另立判据）。
  *
  * 深浅判据用 `isLightPalette(paletteOf(theme))`（按 `appBg` 感知亮度，⛔ **不按主题名硬判**）；
- * 对比度用 `core/brand.ets:contrastRatio(brandAccent(), 承载面)`。
+ * 对比度用 `core/brand.ets:contrastRatio(brandAccentFor(p), 承载面)`——`brandAccentFor` 按色板分叉
+ * （浅色面 ⇒ 该主题 `accent`，porcelain `#0071E3` 对白 **4.6967**；深色面 ⇒ 仍 `brandAccent()`，语义零改动）。
  * ⇒ porcelain（浅色面）= `solid`（实心品牌色 glyph on 中性白，**零发光**）。
  */
 export function splashMarkLevelOf(theme: string, sizeVp: number, monochrome: boolean): string {
   const p: Palette = paletteOf(theme);
   const surface: string = p.appBg;
   const s: BrandSurface = new BrandSurface(!isLightPalette(p), monochrome, sizeVp,
-    contrastRatio(brandAccent(), surface));
+    contrastRatio(brandAccentFor(p), surface));
   return markLevelFor(s);
 }
 

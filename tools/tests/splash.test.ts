@@ -14,6 +14,7 @@ import {
   LAUNCH_WARM,
   SPLASH_ENTER_MS,
   SPLASH_EXIT_MS,
+  SPLASH_HYSTERESIS_MS,
   SPLASH_MARK_BOX_MULT,
   SPLASH_MARK_BOX_VP,
   SPLASH_MARK_ENTER_OPACITY,
@@ -34,6 +35,7 @@ import {
   curveCssOf,
   curveHasOvershoot,
   shouldShowSplash,
+  shouldStartSplash,
   splashCanvasOf,
   splashMarkLevelOf,
   splashOrbAllowed,
@@ -152,6 +154,27 @@ function eq(name: string, got: unknown, want: unknown): void {
   eq('内容就绪但 t<minDwell ⇒ 仍显示（品牌不闪）', shouldShowSplash(LAUNCH_COLD, 100, true), true);
   eq('内容就绪且 t>=minDwell ⇒ 撤下', shouldShowSplash(LAUNCH_COLD, 400, true), false);
   eq('内容未就绪且 t>=minDwell ⇒ 继续显示（不闪白）', shouldShowSplash(LAUNCH_COLD, 400, false), true);
+}
+
+// ── ★Db 迟滞闸门（**用户口径「尽可能快；加载慢才播动画」**）─────────────────────
+// 关键判据：**就绪时间 < 迟滞 ⇒ 压根不展示开屏**（T0 系统开屏直接过渡到主界面）。
+// mutation 自证：把 `shouldStartSplash` 改成 `return true` ⇒ 下面第一条必红。
+{
+  eq('SPLASH_HYSTERESIS_MS == 150（用户拍板 ≈150ms）', SPLASH_HYSTERESIS_MS, 150);
+  // ① 迟滞未到 ⇒ 不展示（还在"免开屏"观察窗内）
+  eq('t=0（迟滞未到）⇒ 不展示', shouldStartSplash(LAUNCH_COLD, 0, false), false);
+  eq('t=149（迟滞前 1ms）⇒ 不展示', shouldStartSplash(LAUNCH_COLD, 149, false), false);
+  // ② ★核心：迟滞到点前内容已就绪 ⇒ **不展示**（快启动直接进主界面）
+  eq('就绪时间 < 迟滞（t=100 已就绪）⇒ **不展示开屏**', shouldStartSplash(LAUNCH_COLD, 100, true), false);
+  eq('就绪时间 == 迟滞（t=150 已就绪）⇒ 不展示', shouldStartSplash(LAUNCH_COLD, 150, true), false);
+  // ③ 迟滞到点且仍未就绪 ⇒ 展示（并完整播完；撤下时机另由 shouldShowSplash 兜）
+  eq('t=150 且未就绪 ⇒ 展示', shouldStartSplash(LAUNCH_COLD, 150, false), true);
+  eq('t=500 且未就绪 ⇒ 展示', shouldStartSplash(LAUNCH_COLD, 500, false), true);
+  // ④ 热启动 ⇒ 永不展示（无系统开屏，也不假装有）
+  eq('热启动（迟滞到点、未就绪）⇒ 不展示', shouldStartSplash(LAUNCH_WARM, 500, false), false);
+  eq('热启动（任意 t/内容态）⇒ 不展示', shouldStartSplash(LAUNCH_WARM, 9999, true), false);
+  // ⑤ 两闸门**语义不同、不可互换**：迟滞管"要不要展示"，minDwell 管"展示后不半截被切"
+  ok('迟滞 < minDwell（免开屏窗 ≪ 最短展示）', SPLASH_HYSTERESIS_MS < SPLASH_MIN_DWELL_MS);
 }
 
 // ── ★E 曲线语义：**入场可超调；让位/退出不许超调**（设计系统级约定）─────────────
