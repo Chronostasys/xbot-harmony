@@ -403,7 +403,13 @@ export struct SettingsDeveloper {
             .fontColor(this.pal().textPrimary)
             .layoutWeight(1)
           if (this.devEnabled) {
-            Text('● 录制中')
+            // ⛔ 图标一致性：原先 `Text('● 录制中')` 把**符号当图标**直写在文案里（审计命中）。
+            //    拆成「symbol 点 + 文案」两个兄弟节点（父容器已是 `Row(space: SP_2)` ⇒ 布局不变）。
+            //    用本仓既有 `circle_fill`（别处已在用 ⇒ 命名安全）。
+            SymbolGlyph($r('sys.symbol.circle_fill'))
+              .fontSize(8)
+              .fontColor([this.pal().dangerText])
+            Text('录制中')
               .fontSize(10)
               .fontColor(this.pal().dangerText)
           }

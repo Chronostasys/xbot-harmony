@@ -359,3 +359,35 @@ MarkdownView **无固定数值宽容器** ⇒ **结构性命中 0**。即：**�
    ⑤ 头部**长会话名** ⑥ 抽屉会话行（长标题）⑦ 设置面板（tab + 行 + 开关）⑧ 各 sheet 标题/按钮
 3. 判读纪律：**框与图同系**（同一次 `snapshot_display` + `dumpLayout`）；⛔ 单点像素不作判据；
    发现不达标 ⇒ 出 spec（保留条目），⛔ **不调阈值迁就**。
+
+---
+
+## 2026-10-11 批次：**图标资产与符号一致性**审计
+
+**缺陷类（"廉价感"来源）**：① `SymbolGlyph`/`Image` 取色不走唯一口径（字面量 ⇒ 换主题不跟）；
+② **直写符号/emoji 当图标**（`Text('↑')` / `Text('● 录制中')`）—— 图标即文本，字形随字体漂移、不参与取色/尺寸 token。
+
+**判据**：`tools/tests/icon_consistency_gate.test.ts`（10 passed / 0 failed）
+- **A（硬）**：`SymbolGlyph`/`Image` 链上 `.fontColor(...)` **不得含颜色字面量**；
+- **B（硬）**：`Text(<字符串字面量>)` 的**首字符是符号/emoji** ⇒ 视为"图标即文本" ⇒ 红；
+  例外台账 `KNOWN_OK`（⛔ 只许缩短）；
+- **C（报告，不判红）**：图标**尺寸**清单（是否收编成 token 由设计侧定）。
+- mutation（**合成源码**，⛔ 不真注入——真注入 `Text('✨')` 会破坏编译）：SymbolGlyph 用字面量色 ⇒ A 红；
+  `Text('✨')`/`Text('↑')` ⇒ B 红；**反向对照**：纯文案（符号不在首位）不命中。
+
+**实测**：SymbolGlyph **77** / Image **4**；**A 命中 0**（取色口径干净）；**B 命中 3 → 已全部修掉**：
+
+| 位置 | 原写法 | 改成 |
+|---|---|---|
+| `components/QueueSheet.ets:81` | `Text('↑')` **可点按钮** | `SymbolGlyph($r('sys.symbol.chevron_up'))` |
+| `components/QueueSheet.ets:84` | `Text('↓')` **可点按钮** | `SymbolGlyph($r('sys.symbol.chevron_down'))` |
+| `components/SettingsDeveloper.ets:406` | `Text('● 录制中')` 状态点 | `SymbolGlyph($r('sys.symbol.circle_fill'))` + `Text('录制中')`（拆两兄弟节点，父容器本是 `Row(space:SP_2)` ⇒ 布局不变） |
+
+⚠️ 三处都换成本仓**既有** symbol 名（别处已在用 ⇒ 命名安全）；`SymbolGlyph` 取色是**数组形态**（`fontColor([...])`），与 `Text` 的单值形态不同。
+**C 报告**：图标尺寸现为字面量（`12×7` / `17×8` / `13×7` / `20×3` / `15×1` …），也有走 token 的（`ICON_MD` / `MARKER_GLYPH` / `X_GLYPH` / `FS_CAPTION`）⇒ **档位不统一**，建议设计侧收编（**只出报告，不判红**）。
+
+**⛔ 明确不算违规的（免得后人重复判定）**：markdown **列表符/任务框**（`MarkdownView` 的 `'•'`、`liChecked` 勾选字形 —— markdown 语义要求的文本项目符）；
+`ToolPopover.classifyLine()` 的 `'✗'/'✓'/'✅'`（在**检测工具输出文本**，我们不绘制它们）；日志/诊断里的 `⇒`；说明文案里的 `→`（不在首位）；密码掩码 `'••••••••'`。
+
+**⚠️ 判据的已知边界（显式记录，不藏）**：B 按"**首字符是符号**"识别 ⇒ 若某条**正文**恰以符号开头（`'→ 说明'`），会被判红
+⇒ 属**设计内**：走台账登记（写明"这是正文不是图标"），而**不放宽规则**（规则一宽就抓不到真图标）。已写成断言。

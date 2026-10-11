@@ -78,10 +78,13 @@ export struct QueueSheet {
                 .fontSize(fs('type.subhead')).fontColor(this.pal().textPrimary).layoutWeight(1).maxLines(3)
                 .wordBreak(WordBreak.BREAK_ALL)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
-              Text('↑').fontSize(fs('type.callout')).fontColor(this.pal().accentSoft).padding(6).onClick(() => {
+              // ⛔ 图标一致性：原先直写字形 `'↑'`/`'↓'` 当按钮 = 「图标即文本」的廉价感来源（审计命中）。
+              //    改用本仓既有 symbol（`chevron_up/down` 已在别处使用 ⇒ 命名安全；语义=上/下移一格）。
+              //    ⚠️ `SymbolGlyph` 的取色是**数组形态**（`fontColor([...])`），与 `Text` 的单值形态不同。
+              SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(fs('type.callout')).fontColor([this.pal().accentSoft]).padding(6).onClick(() => {
                 this.onMove(this.idOf(q), -1);
               })
-              Text('↓').fontSize(fs('type.callout')).fontColor(this.pal().accentSoft).padding(6).onClick(() => {
+              SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(fs('type.callout')).fontColor([this.pal().accentSoft]).padding(6).onClick(() => {
                 this.onMove(this.idOf(q), 1);
               })
               // ⚡ 插队：must use the FULL content（server `preview` 截断到 ~80 runes ⇒ 会丢内容）
