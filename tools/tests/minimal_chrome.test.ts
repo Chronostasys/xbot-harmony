@@ -125,11 +125,12 @@ hasNot(popSrc, '.border(',
   ok(`工具 pill 选中/非选中底不同（全部 ${ALL_THEMES.length} 套主题，浅/深都判）`, pillDistinct);
   ok('工具 chip 底恒 ≠ 同态 pill 底（选中浮层打开时 chip 不消失）', chipNotPill);
 }
-// 单一映射（改回"两个都取 surfaceHi"即红）：选中 pill 提亮到 surfaceHi；选中 chip 压到 surfaceAlt
+// 单一映射（改回"两个都取 surfaceHi"即红）：选中 pill 提亮到 surfaceHi
 eq('选中 pill 底 = surfaceHi', pillBgOf('running', true, 'dark'), paletteOf('dark').surfaceHi);
 eq('非选中 pill 底 = surfaceAlt', pillBgOf('running', false, 'dark'), paletteOf('dark').surfaceAlt);
-eq('选中 chip 底 = surfaceAlt（≠ 选中 pill 的 surfaceHi）',
-  chipBgOf('running', true, 'dark'), paletteOf('dark').surfaceAlt);
+// chip 唯一语义（裁决 6199396 / REDESIGN §7.2）：恒 = surface.chip(sunken)，**不随选中变化**。
+// ⚠️ 旧断言"选中 chip = surfaceAlt"是本次废止的**对调补丁** ⇒ 同步为"恒定性"（不再是 surfaceAlt）。
+eq('chip 底恒（不随选中变化）', chipBgOf('running', true, 'dark'), chipBgOf('running', false, 'dark'));
 
 // ════════════════════════════════════════════════════════════════════════════
 // ③ 代码块内边距 = SP_3(12)（↔ web `MarkdownRenderer.tsx:204-227`）
