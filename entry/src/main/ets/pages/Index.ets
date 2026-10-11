@@ -2447,11 +2447,13 @@ struct Index {
     this.buzz();
     try {
       let interrupted: boolean = false;
+      console.info('xbot send: 进入发送路径（await 前）');
       if (keys.length > 0) {
         interrupted = await store.send(content, keys, names, sizes, interrupt);
       } else {
         interrupted = await store.send(content, undefined, undefined, undefined, interrupt);
       }
+      console.info('xbot send: await 已 resolve');
       this.failedSend = '';
       const note: string = sendToast(interrupted, busyBefore);
       if (note.length > 0) {
@@ -2462,6 +2464,7 @@ struct Index {
       this.keepAliveTurn = true;
       beginTurnKeepAlive();
     } catch (e) {
+      console.info('xbot send: 发送失败/异常（' + errText(e as Object) + '）');
       // 失败：草稿与附件都还给用户（store 已回滚那条乐观行，界面不会留幽灵消息）
       this.draft = text;
       this.attachments = keep;
