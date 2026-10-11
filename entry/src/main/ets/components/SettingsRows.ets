@@ -1,24 +1,71 @@
 /**
- * SettingsRows —— 设置面**共用的行/卡原子组件**（工具 / 模型 / 智能体 三个面板同一套视觉与交互）。
+ * SettingsRows —— 设置面**共用的行/卡原子组件**（全部 `Settings*` 面板同一套视觉与交互）。
  *
  * 为什么单独成文件：
- *  1. **一致性优先**：三个面板的"标题+说明+控件"行必须长得完全一样；集中一处 ⇒ 改一次全生效。
+ *  1. **一致性优先**：所有面板的"标题+说明+控件"行必须长得完全一样；集中一处 ⇒ 改一次全生效。
  *  2. **消孤儿**：`components/*.ets` 里**没有任何其它文件引用**的 `export struct` 不会被编进
  *     ArkTS 依赖图（⇒ 它的 ArkTS 错误**编译期不报**，见 `docs/ARKTS-GOTCHAS.md` 批次13 /
  *     `tools/lint/orphan-components.sh`）。这些原子组件由各面板**跨文件真实实例化**，
  *     因此进入依赖图、被真编译覆盖。
+ *
+ * ── 视觉重排（2026-10-11，`docs/REDESIGN.md` §7.6 设置行规范）─────────────────
+ *   旧实现把行内距/字号写死为 `SP_2`/`FS_BODY`/`FS_CAPTION` 等**原始刻度**；本版改为消费
+ *   `core/design.ets` 的**语义令牌**：
+ *     · 行内距 = `INSET_ROW_X/Y`（12/8）；卡片内距 = `INSET_CARD_X/Y`（12/12）；
+ *     · 行高/命中区 ≥ `HIT_TARGET_MIN`（44，Apple HIG）；
+ *     · 字号/字重/行高/字距/文字色**整套**取 `type.*` 角色（`type.subhead` 标题、
+ *       `type.callout` 说明、`type.caption` 分组头、`type.micro` 徽标）——不再各写 13/12/10；
+ *     · 卡片边界 = **结构性发丝** `hairlineOf(p)`（⛔ 不是装饰性 `pal().border`）；
+ *     · 卡片面 = `surfaceFillOf(p,'surface.card')`；圆角 = `RADIUS_CARD`/`RADIUS_PILL`/`RADIUS_CHIP`。
+ *   ⚠️ 仍未 token 化的量已在文件内**显式报备**（见 `INPUT_W` 注释与交付清单）。
  *
  * ⛔ 都是真 `@Component` + `@Prop`，**不用带参全局 `@Builder`**（参数是调用时刻的快照
  *    ⇒ 子树不随数据重建）。
  * ⛔ `@Prop` **不能叫 `enabled`**（ArkUI `CustomComponent` 基类成员，会判 10505001）⇒ 统一 `isOn`。
  */
 import { Palette, paletteOf } from '../core/theme';
-import { FS_BODY, FS_CAPTION, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_6 } from '../core/tokens';
+import { SP_1 } from '../core/tokens';
+import {
+  INSET_CARD_X, INSET_CARD_Y, INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X, INSET_ROW_Y,
+  RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, STROKE_HAIRLINE, HIT_TARGET_MIN, SURFACE_COMPOSER,
+  SPACE_HAIR, SPACE_XS, SPACE_SM, SPACE_MD, SPACE_XL,
+  typeOf, colorOf, hairlineOf, surfaceFillOf,
+} from '../core/design';
 import { displayApiKey, providerLine, stripScheme } from '../core/rpc';
 
-/** MCP 组头高度（vp）——组头与成员行的节奏差。 */
-const HEAD_H: number = 44;
-/** 数字输入框宽度（vp）——给足 5 位数（8192 / 4194304 的 MB 形态）不挤。 */
+// ── 排版令牌 → ArkUI 属性（**唯一映射**；组件只读角色名，不写数值）──────────────
+// `core/design.ets` 只存数字（400/500/600），字重→`FontWeight` 的映射是 **UI 层职责**（本处）。
+/** 角色字号（fp）。 */
+export function fs(name: string): number {
+  return typeOf(name).size;
+}
+/** 角色行高（vp，= 字号 × 倍数）。 */
+export function lh(name: string): number {
+  const t = typeOf(name);
+  return t.size * t.lineHeight;
+}
+/**
+ * 角色字重 → 可直接喂 `.fontWeight()` 的值。
+ *
+ * ⚠️ 本 SDK（API 21）的 `FontWeight` 枚举**只有** Lighter/Normal/Regular/Medium/Bold/Bolder
+ *   —— **没有 SemiBold**（设计令牌的 600 档）。故这里**原样传数字**（ArkUI `fontWeight`
+ *   接受 `number`，100–900 语义与 HIG 一致），而不是硬映射成 `Bold`(700) 抬重。
+ *   （已核：`FontWeight.SemiBold` 在 `CompileArkTS` 被判 `10505001`。）
+ */
+export function fw(name: string): number {
+  return typeOf(name).weight;
+}
+/** 角色语义文字色（经 `colorOf` 解析 `Palette` 角色名 —— `colorRole` 恒为 `textPrimary`/`textSecondary`，均在 `colorOf` 白名单内）。 */
+export function tc(p: Palette, name: string): string {
+  return colorOf(p, typeOf(name).colorRole);
+}
+/** 角色字距（vp）。 */
+export function tk(name: string): number {
+  return typeOf(name).tracking;
+}
+
+/** 数字输入框宽度（vp）——给足 5 位数（8192 / 4194304 的 MB 形态）不挤。
+ *  ⚠️ **报备**：`core/design.ets` 尚无 `control.input.width.num`；待 design-lead 增后迁移。 */
 const INPUT_W: number = 96;
 
 /**
@@ -48,24 +95,31 @@ export struct SettingsToolRow {
   }
 
   build() {
-    Row({ space: SP_3 }) {
+    Row({ space: SPACE_SM }) {
       Toggle({ type: ToggleType.Switch, isOn: this.isOn })
         .enabled(!this.busy)
+        .opacity(this.busy ? 0.5 : 1)
         .onChange((isOn: boolean) => {
           this.onToggle(this.names, isOn);
         })
-      Column({ space: 2 }) {
+      Column({ space: SPACE_HAIR }) {
         Text(this.label)
-          .fontSize(FS_BODY)
+          .fontSize(fs('type.subhead'))
+          .fontWeight(fw('type.subhead'))
+          .lineHeight(lh('type.subhead'))
+          .letterSpacing(tk('type.subhead'))
           .fontFamily(this.mono ? 'monospace' : '')
-          .fontColor(this.pal().textPrimary)
+          .fontColor(tc(this.pal(), 'type.subhead'))
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
         if (this.description.length > 0) {
           Text(this.description)
-            .fontSize(FS_CAPTION)
-            .fontColor(this.pal().textMuted)
+            .fontSize(fs('type.callout'))
+            .fontWeight(fw('type.callout'))
+            .lineHeight(lh('type.callout'))
+            .letterSpacing(tk('type.callout'))
+            .fontColor(tc(this.pal(), 'type.callout'))
             .maxLines(2)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .width('100%')
@@ -75,12 +129,13 @@ export struct SettingsToolRow {
       .layoutWeight(1)
     }
     .width('100%')
-    .alignItems(VerticalAlign.Top)
+    .alignItems(VerticalAlign.Center)
+    .constraintSize({ minHeight: HIT_TARGET_MIN })
     .padding({
-      left: this.indented ? SP_6 : 0,
-      right: SP_2,
-      top: SP_2,
-      bottom: SP_2,
+      left: this.indented ? SPACE_XL : 0,
+      right: INSET_ROW_X,
+      top: INSET_ROW_Y,
+      bottom: INSET_ROW_Y,
     })
   }
 }
@@ -102,32 +157,37 @@ export struct SettingsMcpHead {
   }
 
   build() {
-    Row({ space: SP_3 }) {
+    Row({ space: SPACE_SM }) {
       Toggle({ type: ToggleType.Switch, isOn: this.allEnabled })
         .enabled(!this.busy)
+        .opacity(this.busy ? 0.5 : 1)
         .onChange((isOn: boolean) => {
           this.onToggle(this.names, isOn);
         })
-      Column({ space: 2 }) {
+      Column({ space: SPACE_HAIR }) {
         Text(this.server)
-          .fontSize(FS_BODY)
+          .fontSize(fs('type.subhead'))
+          .fontWeight(fw('type.subhead'))
+          .lineHeight(lh('type.subhead'))
           .fontFamily('monospace')
-          .fontColor(this.pal().textPrimary)
+          .fontColor(tc(this.pal(), 'type.subhead'))
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
         Text(`${this.count} 个工具`)
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().textMuted)
+          .fontSize(fs('type.caption'))
+          .fontWeight(fw('type.caption'))
+          .lineHeight(lh('type.caption'))
+          .fontColor(tc(this.pal(), 'type.caption'))
           .width('100%')
       }
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
     }
     .width('100%')
-    .height(HEAD_H)
+    .constraintSize({ minHeight: HIT_TARGET_MIN })
     .alignItems(VerticalAlign.Center)
-    .padding({ right: SP_2 })
+    .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
   }
 }
 
@@ -151,18 +211,22 @@ export struct SettingsNumberRow {
   }
 
   build() {
-    Row({ space: SP_3 }) {
-      Column({ space: 2 }) {
+    Row({ space: SPACE_SM }) {
+      Column({ space: SPACE_HAIR }) {
         Text(this.label)
-          .fontSize(FS_BODY)
-          .fontColor(this.pal().textPrimary)
+          .fontSize(fs('type.subhead'))
+          .fontWeight(fw('type.subhead'))
+          .lineHeight(lh('type.subhead'))
+          .fontColor(tc(this.pal(), 'type.subhead'))
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
         if (this.description.length > 0) {
           Text(this.description)
-            .fontSize(FS_CAPTION)
-            .fontColor(this.pal().textMuted)
+            .fontSize(fs('type.callout'))
+            .fontWeight(fw('type.callout'))
+            .lineHeight(lh('type.callout'))
+            .fontColor(tc(this.pal(), 'type.callout'))
             .maxLines(2)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .width('100%')
@@ -176,27 +240,28 @@ export struct SettingsNumberRow {
           .type(InputType.Number)
           .enabled(!this.busy)
           .width(INPUT_W)
-          .fontSize(FS_BODY)
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
+          .fontSize(fs('type.body'))
           .fontColor(this.pal().textPrimary)
           .placeholderColor(this.pal().textMuted)
-          .backgroundColor(this.pal().surfaceAlt)
-          .borderRadius(R_LG)
-          .border({ width: 1, color: this.pal().border })
-          .padding({ left: SP_2, right: SP_2 })
+          .backgroundColor(surfaceFillOf(this.pal(), SURFACE_COMPOSER))
+          .borderRadius(RADIUS_PILL)
+          .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+          .padding({ left: SPACE_XS, right: SPACE_XS })
           .onChange((v: string) => {
             this.onInput(v);
           })
         if (this.suffix.length > 0) {
           Text(this.suffix)
-            .fontSize(FS_CAPTION)
-            .fontColor(this.pal().textMuted)
+            .fontSize(fs('type.caption'))
+            .fontColor(tc(this.pal(), 'type.caption'))
         }
       }
       .alignItems(VerticalAlign.Center)
     }
     .width('100%')
     .alignItems(VerticalAlign.Top)
-    .padding({ right: SP_2, top: SP_2, bottom: SP_2 })
+    .padding({ right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
   }
 }
 
@@ -239,27 +304,33 @@ export struct SettingsChipRow {
   }
 
   build() {
-    Column({ space: SP_2 }) {
+    Column({ space: SPACE_HAIR }) {
       Text(this.label)
-        .fontSize(FS_BODY)
-        .fontColor(this.pal().textPrimary)
+        .fontSize(fs('type.subhead'))
+        .fontWeight(fw('type.subhead'))
+        .lineHeight(lh('type.subhead'))
+        .fontColor(tc(this.pal(), 'type.subhead'))
         .width('100%')
       if (this.description.length > 0) {
         Text(this.description)
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().textMuted)
+          .fontSize(fs('type.callout'))
+          .fontWeight(fw('type.callout'))
+          .lineHeight(lh('type.callout'))
+          .fontColor(tc(this.pal(), 'type.callout'))
           .width('100%')
       }
       Flex({ wrap: FlexWrap.Wrap }) {
         ForEach(this.chips(), (opt: string) => {
           Text(this.labelOf(opt))
-            .fontSize(FS_CAPTION)
+            .fontSize(fs('type.caption'))
+            .fontWeight(fw('type.caption'))
             .fontColor(opt === this.value ? this.pal().onAccent : this.pal().textSecondary)
-            .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+            .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
             .backgroundColor(opt === this.value ? this.pal().accent : this.pal().surfaceAlt)
-            .borderRadius(R_LG)
-            .border({ width: 1, color: opt === this.value ? this.pal().accent : this.pal().border })
-            .margin({ right: SP_2, bottom: SP_2 })
+            .borderRadius(RADIUS_PILL)
+            .border({ width: STROKE_HAIRLINE, color: opt === this.value ? this.pal().accent : hairlineOf(this.pal()) })
+            .margin({ right: SPACE_XS, bottom: SPACE_XS })
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
             .opacity(this.busy ? 0.5 : 1)
             .onClick(() => {
               if (!this.busy) {
@@ -272,7 +343,7 @@ export struct SettingsChipRow {
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    .padding({ right: SP_2, top: SP_2, bottom: SP_2 })
+    .padding({ right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
   }
 }
 
@@ -295,35 +366,40 @@ export struct SettingsTextFieldRow {
   }
 
   build() {
-    Column({ space: SP_1 }) {
+    Column({ space: SPACE_HAIR }) {
       Text(this.label)
-        .fontSize(FS_BODY)
-        .fontColor(this.pal().textPrimary)
+        .fontSize(fs('type.subhead'))
+        .fontWeight(fw('type.subhead'))
+        .lineHeight(lh('type.subhead'))
+        .fontColor(tc(this.pal(), 'type.subhead'))
         .width('100%')
       if (this.description.length > 0) {
         Text(this.description)
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().textMuted)
+          .fontSize(fs('type.callout'))
+          .fontWeight(fw('type.callout'))
+          .lineHeight(lh('type.callout'))
+          .fontColor(tc(this.pal(), 'type.callout'))
           .width('100%')
       }
       TextInput({ text: this.value, placeholder: this.placeholder })
         .type(this.password ? InputType.Password : InputType.Normal)
         .enabled(!this.busy)
         .width('100%')
-        .fontSize(FS_BODY)
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .fontSize(fs('type.body'))
         .fontColor(this.pal().textPrimary)
         .placeholderColor(this.pal().textMuted)
-        .backgroundColor(this.pal().surfaceAlt)
-        .borderRadius(R_LG)
-        .border({ width: 1, color: this.pal().border })
-        .padding({ left: SP_2, right: SP_2 })
+        .backgroundColor(surfaceFillOf(this.pal(), 'surface.input'))
+        .borderRadius(RADIUS_PILL)
+        .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+        .padding({ left: SPACE_XS, right: SPACE_XS })
         .onChange((v: string) => {
           this.onInput(v);
         })
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    .padding({ right: SP_2, top: SP_2, bottom: SP_2 })
+    .padding({ right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
   }
 }
 
@@ -352,28 +428,33 @@ export struct SettingsSubCard {
   }
 
   build() {
-    Column({ space: SP_2 }) {
+    Column({ space: SPACE_XS }) {
       // 第一行：名称 + 默认徽标 + 启用开关
-      Row({ space: SP_2 }) {
-        Column({ space: 2 }) {
-          Row({ space: SP_2 }) {
+      Row({ space: SPACE_XS }) {
+        Column({ space: SPACE_HAIR }) {
+          Row({ space: SPACE_XS }) {
             Text(this.name.length > 0 ? this.name : this.subId)
-              .fontSize(FS_BODY)
-              .fontColor(this.pal().textPrimary)
+              .fontSize(fs('type.subhead'))
+              .fontWeight(fw('type.subhead'))
+              .lineHeight(lh('type.subhead'))
+              .fontColor(tc(this.pal(), 'type.subhead'))
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
             if (this.isDefault) {
               Text('默认')
-                .fontSize(FS_CAPTION)
+                .fontSize(fs('type.micro'))
+                .fontWeight(fw('type.micro'))
                 .fontColor(this.pal().accentText)
-                .padding({ left: SP_2, right: SP_2, top: 1, bottom: 1 })
+                .padding({ left: INSET_CHIP_X, right: INSET_CHIP_X, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
                 .backgroundColor(this.pal().accentDeep)
-                .borderRadius(R_LG)
+                .borderRadius(RADIUS_CHIP)
             }
           }
           Text(`${providerLine(this.provider, '')} · ${stripScheme(this.baseUrl)}`)
-            .fontSize(FS_CAPTION)
-            .fontColor(this.pal().textMuted)
+            .fontSize(fs('type.caption'))
+            .fontWeight(fw('type.caption'))
+            .lineHeight(lh('type.caption'))
+            .fontColor(tc(this.pal(), 'type.caption'))
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .width('100%')
@@ -383,6 +464,7 @@ export struct SettingsSubCard {
 
         Toggle({ type: ToggleType.Switch, isOn: this.isOn })
           .enabled(!this.busy)
+          .opacity(this.busy ? 0.5 : 1)
           .onChange((isOn: boolean) => {
             this.onToggle(this.subId, isOn);
           })
@@ -391,28 +473,36 @@ export struct SettingsSubCard {
       .alignItems(VerticalAlign.Top)
 
       // 第二行：模型 + 模型数
-      Row({ space: SP_2 }) {
+      Row({ space: SPACE_XS }) {
         Text(this.model.length > 0 ? this.model : '未指定默认模型')
-          .fontSize(FS_CAPTION)
+          .fontSize(fs('type.caption'))
+          .fontWeight(fw('type.caption'))
+          .lineHeight(lh('type.caption'))
           .fontColor(this.pal().textSecondary)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .layoutWeight(1)
         Text(`${this.modelCount} 个模型`)
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().textMuted)
+          .fontSize(fs('type.caption'))
+          .fontWeight(fw('type.caption'))
+          .lineHeight(lh('type.caption'))
+          .fontColor(tc(this.pal(), 'type.caption'))
       }
       .width('100%')
 
       // 第三行：掩码密钥（只读）+ 设默认
-      Row({ space: SP_2 }) {
-        Column({ space: 2 }) {
+      Row({ space: SPACE_XS }) {
+        Column({ space: SPACE_HAIR }) {
           Text('API Key（服务端掩码，只读）')
-            .fontSize(FS_CAPTION)
-            .fontColor(this.pal().textMuted)
+            .fontSize(fs('type.caption'))
+            .fontWeight(fw('type.caption'))
+            .lineHeight(lh('type.caption'))
+            .fontColor(tc(this.pal(), 'type.caption'))
             .width('100%')
           Text(displayApiKey(this.apiKey))
-            .fontSize(FS_CAPTION)
+            .fontSize(fs('type.caption'))
+            .fontWeight(fw('type.caption'))
+            .lineHeight(lh('type.caption'))
             .fontFamily('monospace')
             .fontColor(this.pal().textSecondary)
             .maxLines(1)
@@ -424,11 +514,13 @@ export struct SettingsSubCard {
 
         if (!this.isDefault) {
           Text('设为默认')
-            .fontSize(FS_CAPTION)
+            .fontSize(fs('type.caption'))
+            .fontWeight(fw('type.caption'))
             .fontColor(this.pal().accentSoft)
-            .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-            .borderRadius(R_LG)
-            .border({ width: 1, color: this.pal().borderStrong })
+            .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+            .borderRadius(RADIUS_PILL)
+            .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
             .opacity(this.busy ? 0.5 : 1)
             .onClick(() => {
               if (!this.busy) {
@@ -438,18 +530,18 @@ export struct SettingsSubCard {
         }
       }
       .width('100%')
-      .alignItems(VerticalAlign.Bottom)
+      .alignItems(VerticalAlign.Center)
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    .padding(SP_4)
-    .backgroundColor(this.pal().surface)
-    .borderRadius(R_XL)
-    .border({ width: 1, color: this.pal().border })
+    .padding({ left: INSET_CARD_X, right: INSET_CARD_X, top: INSET_CARD_Y, bottom: INSET_CARD_Y })
+    .backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))
+    .borderRadius(RADIUS_CARD)
+    .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
   }
 }
 
-/** 面板顶部「标题 + 副标题」——三个面板统一用它，保证版式一致。 */
+/** 面板顶部「标题 + 副标题」——所有面板统一用它，保证版式一致。 */
 @Component
 export struct SettingsPanelHeader {
   @Prop title: string = '';
@@ -461,15 +553,20 @@ export struct SettingsPanelHeader {
   }
 
   build() {
-    Column({ space: SP_1 }) {
+    Column({ space: SPACE_HAIR }) {
       Text(this.title)
-        .fontSize(FS_BODY)
-        .fontColor(this.pal().textPrimary)
+        .fontSize(fs('type.headline'))
+        .fontWeight(fw('type.headline'))
+        .lineHeight(lh('type.headline'))
+        .letterSpacing(tk('type.headline'))
+        .fontColor(tc(this.pal(), 'type.headline'))
         .width('100%')
       if (this.subtitle.length > 0) {
         Text(this.subtitle)
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().textMuted)
+          .fontSize(fs('type.callout'))
+          .fontWeight(fw('type.callout'))
+          .lineHeight(lh('type.callout'))
+          .fontColor(tc(this.pal(), 'type.callout'))
           .width('100%')
       }
     }
@@ -478,7 +575,153 @@ export struct SettingsPanelHeader {
   }
 }
 
-/** 面板内错误条（统一一行红字 + 底卡），三处复用。 */
+/**
+ * 分区标题 —— **层级 + 结构性发丝**（`docs/REDESIGN.md` §7.6：分组头 `type.caption`，
+ * 分组**靠发丝**而不是描边立边界）。
+ *
+ * ⛔ 这里用的是**结构性**发丝（`hairlineOf`），不是装饰性 `pal().border`。
+ */
+@Component
+export struct SettingsGroupHeader {
+  @Prop title: string = '';
+  @Prop theme: string = 'dark';
+
+  private pal(): Palette {
+    return paletteOf(this.theme);
+  }
+
+  build() {
+    Column({ space: SPACE_XS }) {
+      Text(this.title)
+        .fontSize(fs('type.caption'))
+        .fontWeight(fw('type.caption'))
+        .lineHeight(lh('type.caption'))
+        .letterSpacing(tk('type.caption'))
+        .fontColor(tc(this.pal(), 'type.caption'))
+        .width('100%')
+      Divider()
+        .strokeWidth(STROKE_HAIRLINE)
+        .color(hairlineOf(this.pal()))
+        .width('100%')
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding({ top: SPACE_MD, bottom: SPACE_XS })
+  }
+}
+
+/**
+ * 一行「标题 + **只读值**」（例：语言 / 当前强调色名）—— 无控件的展示行。
+ * 与 `SettingsToolRow` 同一套内距/字阶/命中区，只是右槽是文字而非控件。
+ */
+@Component
+export struct SettingsValueRow {
+  @Prop label: string = '';
+  @Prop value: string = '';
+  @Prop description: string = '';
+  @Prop theme: string = 'dark';
+
+  private pal(): Palette {
+    return paletteOf(this.theme);
+  }
+
+  build() {
+    Row({ space: SPACE_SM }) {
+      Column({ space: SPACE_HAIR }) {
+        Text(this.label)
+          .fontSize(fs('type.subhead'))
+          .fontWeight(fw('type.subhead'))
+          .lineHeight(lh('type.subhead'))
+          .fontColor(tc(this.pal(), 'type.subhead'))
+          .width('100%')
+        if (this.description.length > 0) {
+          Text(this.description)
+            .fontSize(fs('type.callout'))
+            .fontColor(tc(this.pal(), 'type.callout'))
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+        }
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+
+      Text(this.value)
+        .fontSize(fs('type.caption'))
+        .fontWeight(fw('type.caption'))
+        .lineHeight(lh('type.caption'))
+        .fontColor(this.pal().textMuted)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Center)
+    .constraintSize({ minHeight: HIT_TARGET_MIN })
+    .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+  }
+}
+
+/** 一行「标题 + 可点动作」（例：重新读取设置）。命中区 ≥44。 */
+@Component
+export struct SettingsActionRow {
+  @Prop label: string = '';
+  @Prop action: string = '';
+  @Prop description: string = '';
+  @Prop busy: boolean = false;
+  @Prop theme: string = 'dark';
+  onAction: () => void = () => {
+  };
+
+  private pal(): Palette {
+    return paletteOf(this.theme);
+  }
+
+  build() {
+    Row({ space: SPACE_SM }) {
+      Column({ space: SPACE_HAIR }) {
+        Text(this.label)
+          .fontSize(fs('type.subhead'))
+          .fontWeight(fw('type.subhead'))
+          .lineHeight(lh('type.subhead'))
+          .fontColor(tc(this.pal(), 'type.subhead'))
+          .width('100%')
+        if (this.description.length > 0) {
+          Text(this.description)
+            .fontSize(fs('type.callout'))
+            .fontColor(tc(this.pal(), 'type.callout'))
+            .width('100%')
+        }
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+
+      Text(this.action)
+        .fontSize(fs('type.caption'))
+        .fontWeight(fw('type.caption'))
+        .fontColor(this.pal().accentSoft)
+        .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+        .borderRadius(RADIUS_PILL)
+        .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+        .opacity(this.busy ? 0.5 : 1)
+        .onClick(() => {
+          if (!this.busy) {
+            this.onAction();
+          }
+        })
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Center)
+    .constraintSize({ minHeight: HIT_TARGET_MIN })
+    .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+  }
+}
+
+/**
+ * 面板内错误条（统一一行红字）。
+ *
+ * `docs/REDESIGN.md` §5 / §10 有意分歧 ②：失败态 = **一行小字 + 语义色，无填充、无边框、无发光**
+ * ⇒ 旧实现的红底卡（`backgroundColor(surfaceAlt)` + 圆角）**删除**。
+ */
 @Component
 export struct SettingsErrorBar {
   @Prop message: string = '';
@@ -490,11 +733,11 @@ export struct SettingsErrorBar {
 
   build() {
     Text(this.message)
-      .fontSize(FS_CAPTION)
+      .fontSize(fs('type.caption'))
+      .fontWeight(fw('type.caption'))
+      .lineHeight(lh('type.caption'))
       .fontColor(this.pal().dangerText)
       .width('100%')
-      .padding(SP_3)
-      .backgroundColor(this.pal().surfaceAlt)
-      .borderRadius(R_MD)
+      .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
   }
 }
