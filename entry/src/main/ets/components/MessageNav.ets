@@ -35,6 +35,11 @@ import { NavAnchor, seqLabel, shouldShowNav, userTextOrPlaceholder } from '../co
 
 /** 按钮边长（web `size-8` = 32px）。 */
 const BTN: number = 32;
+/**
+ * 命中区外扩量（每边）—— 视觉仍是 32（web `size-8`），触控区外扩到 32+2×6 = **44×44**
+ * （手指友好，Apple HIG ≥44pt），用 `responseRegion` 外扩而**不改布局位置/视觉尺寸**。
+ */
+const HIT_PAD: number = 6;
 /** 图标边长（web `ListTree size-4` = 16px）。 */
 const ICON: number = 16;
 /** 面板宽度（web `w-[min(20rem,calc(100vw-1.5rem))]`；手机取 20rem = 320px）。 */
@@ -118,7 +123,11 @@ struct NavItemView {
         Text(this.row.seqText)
           .fontSize(FS_MICRO)
           .fontFamily('monospace')   // web `font-mono`
-          .fontColor(this.pal().textMuted)
+          // 位置指示（"我在哪"）：当前条目的序号走强调色（其余 muted）—— 只改一处颜色，
+          // 不新增任何描边/色块 ⇒ 一眼可辨且不喧哗（web `:194` 恒 muted，此处是**刻意的**
+          // 触屏增强：原生无 hover，仅靠 `bg-accent/10` 底纹在浅色主题下过淡）。
+          .fontColor(this.row.active ? this.pal().accent : this.pal().textMuted)
+          .fontWeight(this.row.active ? FontWeight.Medium : FontWeight.Normal)
         Text(userTextOrPlaceholder(this.row.userText))
           .fontSize(FS_CAPTION)      // web `text-xs`
           .fontColor(this.pal().textPrimary)
@@ -148,7 +157,10 @@ struct NavItemView {
     .padding({ left: ITEM_PAD_X, right: ITEM_PAD_X, top: ITEM_PAD_Y, bottom: ITEM_PAD_Y })
     // 当前项高亮（web `bg-accent/10`）；其余透明
     .backgroundColor(this.row.active ? withAlpha(this.pal().accent, ACCENT_TINT) : this.pal().transparent)
-    .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+    // 按压反馈：**只写 `pressed`**（⛔ 不写 `normal` —— `normal` 会**接管**被它命名的属性，
+    // 本仓 `ThinkingLine` 踩过；此条目虽暂无动态 opacity，但留着 `normal` 是同一坑的隐患）。
+    // 全站统一手法（DESIGN-SYSTEM §4）：按压 = opacity（触屏行不加 scale，避免整行抖动）。
+    .stateStyles({ pressed: { .opacity(0.7) } })
     .onClick(() => {
       this.onPick();
     })
@@ -185,6 +197,11 @@ export struct MessageNav {
    *    ForEach 的 key 才能与 `active` 解耦（身份 = rowIndex#seq）。
    */
   @State rows: NavRow[] = [];
+  /**
+   * 当前高亮行的下标（`activeSeq - 1`；-1 = 无）。
+   * 仅供快路径 `applyActive()` O(1) 翻转用 —— 见 `syncRows` 的性能注释。
+   */
+  private activeIdx: number = -1;
   /** 面板滚动器（展开时把 active 条目滚到中间 —— web `:129-136`）。 */
   private panelScroller: Scroller = new Scroller();
 
@@ -200,6 +217,17 @@ export struct MessageNav {
    * ⛔ 不得每次都 `new NavRow()`：对象恒等变 ⇒ @ObjectLink 重绑 + 丢失"就地更新"语义。
    */
   private syncRows(): void {
+    // ⛔ **快路径（性能）**：`anchors` 结构没变（身份/文本逐位相同）⇒ **只翻高亮**，
+    //    绝不重赋 `this.rows`。滚动期页面每帧都会传新的 `anchors`/`activeSeq`
+    //    （@Prop 触发本 @Watch）；若每次都重建数组，`ForEach` 会被迫对全部 n 项重跑 key 函数
+    //    （n = 锚点数 = 用户消息数）。实际只有"那一两个" `active` 会变 ⇒ 就地改字段
+    //    （`@ObjectLink` 通知子组件）即可，不必惊动列表本身。
+    //    代价：`sameStructure()` 仍是 O(n) 比较（无版本号可依赖，只能逐位比），但省掉了
+    //    **O(n) 数组重建 + `ForEach` 全量重跑**（离线微基准：n=800 锚点时 0.49ms → 0.026ms）。
+    if (this.sameStructure()) {
+      this.applyActive();
+      return;
+    }
     const list: NavRow[] = [];
     for (let i = 0; i < this.anchors.length; i++) {
       const a: NavAnchor = this.anchors[i];
@@ -216,6 +244,42 @@ export struct MessageNav {
       list.push(r);
     }
     this.rows = list;
+    this.activeIdx = this.activeSeq - 1;   // 记录高亮下标，供快路径 O(1) 翻转
+  }
+
+  /** `anchors` 与现有 `rows` 是否**结构一致**（同长 + 逐位 rowIndex/seq/文本相同）。 */
+  private sameStructure(): boolean {
+    if (this.anchors.length !== this.rows.length) {
+      return false;
+    }
+    for (let i = 0; i < this.anchors.length; i++) {
+      const a: NavAnchor = this.anchors[i];
+      const r: NavRow = this.rows[i];
+      if (r.rowIndex !== a.rowIndex || r.seq !== a.seq
+        || r.userText !== a.userText || r.assistantText !== a.assistantText) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * 只更新"当前高亮"（**O(1)**）：`rows[i].seq === i + 1`（`buildAnchors` 保序、1-based）
+   * ⇒ `activeSeq` 对应下标恒为 `activeSeq - 1`，无需扫全表。改 `NavRow.active`（`@Observed`）
+   * 即通知对应 `NavItemView`（`@ObjectLink`）重渲染 —— **不重赋 `rows`、不换 key**。
+   */
+  private applyActive(): void {
+    const next: number = this.activeSeq - 1;
+    if (next === this.activeIdx) {
+      return;
+    }
+    if (this.activeIdx >= 0 && this.activeIdx < this.rows.length) {
+      this.rows[this.activeIdx].active = false;
+    }
+    if (next >= 0 && next < this.rows.length) {
+      this.rows[next].active = true;
+    }
+    this.activeIdx = next;
   }
 
   private pal(): Palette {
@@ -241,6 +305,14 @@ export struct MessageNav {
       // web `flex items-center justify-center` ⇒ Stack 用 alignContent（Stack 无 justifyContent）
       .alignContent(Alignment.Center)
       .borderRadius(R_MD)                 // web `rounded-md`
+      // 触控区外扩到 44×44（视觉仍是 32）——手指友好；外扩靠 `responseRegion`，
+      // **不改布局位置/视觉尺寸**（负 x/y 表示向外扩）。
+      .responseRegion({
+        x: -HIT_PAD,
+        y: -HIT_PAD,
+        width: BTN + HIT_PAD * 2,
+        height: BTN + HIT_PAD * 2,
+      })
       // ⛔ **无边框**（web `:157` 有 `border-border/50`，此处刻意去掉）：真机像素取证证明
       //    方框观感 100% 来自那条 1px 描边（描边 Δ5~6 vs 底纹 Δ1）—— 消息流是"无边框 +
       //    背景层次"的语言，这个控件必须同语言（用户口令：极简 / 苹果感）。详见常量注释。
