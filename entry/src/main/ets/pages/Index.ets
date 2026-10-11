@@ -2575,11 +2575,15 @@ struct Index {
   // ── 插件面板 ──────────────────────────────────────────────────────────────
 
   private async openPlugins(): Promise<void> {
+    // 浮层互斥：能力面板由抽屉进入 ⇒ 先收抽屉（同一时刻只允许一个半屏/全屏浮层；同 `openPanels`）
+    this.showDrawer = false;
     const store: ChatStore | null = this.store;
     if (store !== null) {
       this.plugins = await store.listPlugins();
     }
-    this.showPlugins = true;
+    this.anim(() => {
+      this.showPlugins = true;
+    });
   }
 
   /**
@@ -5878,6 +5882,22 @@ struct Index {
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
           this.openPanels();
+        })
+        Divider().strokeWidth(STROKE_HAIRLINE).color(hairlineOf(this.pal())).margin({ left: INSET_ROW_X, right: INSET_ROW_X })
+        Row() {
+          Text('能力面板（插件 / Web UI）')
+            .fontSize(typeOf('type.subhead').size).fontColor(this.pal().textPrimary).layoutWeight(1)
+          SymbolGlyph($r('sys.symbol.chevron_right'))
+            .fontSize(typeOf('type.caption').size).fontColor([this.pal().textMuted])
+        }
+        .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
+        .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
+        .alignItems(VerticalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          // 能力面板（原生插件目录 + 宿主页 + 完整 Web UI）——此前**无任何 UI 入口**
+          // （`showPlugins` 只被调试自检 `collectGeometry` 置位）⇒ 用户打不开；本行是唯一真入口。
+          this.openPlugins();
         })
         Divider().strokeWidth(STROKE_HAIRLINE).color(hairlineOf(this.pal())).margin({ left: INSET_ROW_X, right: INSET_ROW_X })
         Row() {
