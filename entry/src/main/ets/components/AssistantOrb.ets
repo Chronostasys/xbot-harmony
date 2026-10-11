@@ -48,10 +48,11 @@
  * ⛔ 为什么用 `Canvas` 而不是 `Shape/Path`：光球 = 两层径向渐变 + N 个动态光点，
  *   逐帧变化的渐变色标无法用声明式 `Shape` 表达；`Canvas` 一次 `clearRect + 重绘` 即可。
  */
-import { Palette, paletteOf, Effects, effectsOf, isLightPalette } from '../core/theme';
+import { Palette, paletteOf, Effects, effectsOf, isLightPalette, surfacesOf, relativeLuminance } from '../core/theme';
 import {
   ORB_SPIN_MS, ORB_BREATH_MIN, ORB_BREATH_MAX,
   ORB_OPACITY_MIN, ORB_OPACITY_MAX, ORB_RING_RADIUS,
+  ORB_FPS_MAIN, ORB_FPS_SECONDARY, ORB_FPS_IDLE, orbTargetFps,
   OrbParticle, orbRadius, orbOpacity, orbParticles, orbWave,
 } from '../core/orb';
 import { animBase, MOTION_BREATH_MS, MOTION_QUIET_MS } from './anim';
@@ -61,13 +62,9 @@ import { activityVitality, vitalityGain } from '../core/motion';
 const ORB_DEFAULT_SIZE: number = 22;
 /** 粒子数（环上光点）。9 枚在 22vp 下不糊、不空。 */
 const ORB_PARTICLE_COUNT: number = 9;
-/**
- * 重绘帧率（**可调性能参数**）：默认 30fps。惰性/低端机可降到 24；高端可升 60。
- * ⚠️ Canvas 是**全量重绘**（clearRect 后重画一切）—— 帧率是这里唯一的成本旋钮。
- */
-const ORB_FPS: number = 30;
-/** idle 降帧：呼吸幅度已压到 1/4、粒子冻结 ⇒ 12fps 已足够平滑，且"静止也是设计"。 */
-const ORB_IDLE_FPS: number = 12;
+// 帧率策略集中在 `core/orb.ets:orbTargetFps`（"态 × 可见性"的**纯函数**：主态恒 `ORB_FPS_MAIN`、
+// 让位态 `ORB_FPS_SECONDARY`、静默态 `ORB_FPS_IDLE`、不可见 = 停表）。本组件**不复制第二份帧率**，
+// 逐帧用 `orbTargetFps(mode, visible)` 取目标值（见 `draw()`）。
 /** 核半径比例（相对半尺寸）—— 呼吸在此基准上浮动。 */
 const ORB_CORE_SCALE: number = 0.62;
 /** 态过渡收敛时长 = 主呼吸/8 = 320ms（= `core/tokens.D_SLOW`，与全站过渡同刻度）。 */
@@ -157,23 +154,23 @@ export class OrbState {
   ring: number = 1;
   /** 环色是否转 `pal().statusRunning`（工具在飞）。 */
   ringTool: boolean = false;
-  /** 目标帧率（idle 降帧）。 */
-  fps: number = ORB_FPS;
 
-  constructor(amp: number, halo: number, spin: number, ring: number, ringTool: boolean, fps: number) {
+  constructor(amp: number, halo: number, spin: number, ring: number, ringTool: boolean) {
     this.amp = amp;
     this.halo = halo;
     this.spin = spin;
     this.ring = ring;
     this.ringTool = ringTool;
-    this.fps = fps;
   }
 }
 
-const ST_THINKING: OrbState = new OrbState(1, 1, 1, 1, false, ORB_FPS);
-const ST_TOOL: OrbState = new OrbState(ORB_TOOL_AMP, 1, ORB_TOOL_SPIN_GAIN, ORB_TOOL_RING_GAIN, true, ORB_FPS);
-const ST_IDLE: OrbState = new OrbState(ORB_IDLE_AMP, ORB_IDLE_HALO, 0, 1, false, ORB_IDLE_FPS);
-const ST_SECONDARY: OrbState = new OrbState(ORB_SECONDARY_AMP, ORB_SECONDARY_HALO, ORB_SECONDARY_SPIN, 1, false, ORB_FPS);
+// ⚠️ 帧率**不在** `OrbState` 里：它是"态 × 可见性"的纯策略，且必须与 `core/orb.ets` 的
+//    `orbTargetFps` **同源**（避免"两处各写一份帧率"）。组件每帧用 `orbTargetFps(mode, visible)`
+//    取目标帧率（见 `draw()`）。
+const ST_THINKING: OrbState = new OrbState(1, 1, 1, 1, false);
+const ST_TOOL: OrbState = new OrbState(ORB_TOOL_AMP, 1, ORB_TOOL_SPIN_GAIN, ORB_TOOL_RING_GAIN, true);
+const ST_IDLE: OrbState = new OrbState(ORB_IDLE_AMP, ORB_IDLE_HALO, 0, 1, false);
+const ST_SECONDARY: OrbState = new OrbState(ORB_SECONDARY_AMP, ORB_SECONDARY_HALO, ORB_SECONDARY_SPIN, 1, false);
 
 /** 态名 → 视觉参数（未知态回落 `thinking`；返回**共享常量**，无分配）。 */
 export function orbStateOf(mode: string): OrbState {
@@ -281,6 +278,16 @@ export struct AssistantOrb {
   /** 当前定时器间隔（ms）—— 用于"态变 ⇒ 帧率变"时只在**确实需要**时重启。 */
   private intervalMs: number = 0;
   private ready: boolean = false;
+  /**
+   * 组件是否**可见**（`onVisibleAreaChange` 维护）。
+   *
+   * 为什么需要它：光球挂在消息列表的行里；一旦这一行**滚出屏幕**，30fps 的全量重绘就是
+   * 纯浪费（用户看不到任何东西）。默认 `true` ⇒ **不改变任何既有行为**；只有真的收到
+   * "完全滚出"事件才停表（回来立即恢复）。
+   * ⛔ 用普通字段（不用 `@State`）：它不参与 build() 的可见内容，只影响"要不要跑定时器"
+   *   ⇒ 进 `@State` 反而会引入无谓的重建。
+   */
+  private visible: boolean = true;
 
   // ── 绘制缓存（⛔ 逐帧路径只读，不解析、不分配）──────────────────────────────
   private paint: OrbPaint = new OrbPaint();
@@ -300,8 +307,8 @@ export struct AssistantOrb {
   private ringCur: number = 1;
   /** 环色交叉淡出：0 = 基准色，1 = 工具色。 */
   private colorMix: number = 0;
-  /** 当前生效帧率（态变时用于重设定时器）。 */
-  private fpsCur: number = ORB_FPS;
+  /** 当前生效帧率（态/可见性变化时用于重设定时器）。初值 = 主态（与既有行为一致）。 */
+  private fpsCur: number = ORB_FPS_MAIN;
   /**
    * 公转相位累加器（ms）。
    * ⛔ **必须累加，不能用 `now * spinCur`**：增益缓动（1→2.2）时，"绝对时刻 × 缓动增益"
@@ -386,12 +393,12 @@ export struct AssistantOrb {
     return this.settled ? ORB_SETTLE_ALPHA : 1;
   }
 
-  /** 是否应当持续重绘（后台/停用/降级 ⇒ 一律不跑）。 */
+  /** 是否应当持续重绘（后台/停用/降级/**不可见** ⇒ 一律不跑）。 */
   private shouldRun(): boolean {
-    return this.ready && this.active && !this.paused && !this.reduceMotion;
+    return this.ready && this.active && !this.paused && !this.reduceMotion && this.visible;
   }
 
-  /** 依据 `active`/`paused`/`reduceMotion` 起停定时器；停时补画一帧静息态（绝不留旧帧）。 */
+  /** 依据 `active`/`paused`/`reduceMotion`/**可见性** 起停定时器；停时补画一帧静息态（绝不留旧帧）。 */
   private syncLoop(): void {
     if (!this.ready) {
       return;
@@ -402,12 +409,36 @@ export struct AssistantOrb {
       }
     } else {
       this.stopTimer();
-      this.draw();
+      // 不可见时**不补画**：那一帧画给谁也看不见（省一次全量重绘）；重新可见时定时器会
+      // 立刻重启（首拍 ≤ 一帧间隔），观感无差异。
+      if (this.visible) {
+        this.draw();
+      }
     }
   }
 
+  /**
+   * 可见性变化（`onVisibleAreaChange`）——"滚出屏幕 ⇒ 停表"。
+   *
+   * ⛔ 必须能**恢复**（批次曾出过"动效卡住不恢复"）：这里只是把 `visible` 写进去再走一遍
+   *   `syncLoop()` ⇒ 重新可见时立刻重启定时器；且 `visible` 默认 `true`，
+   *   **即使本回调一次都不触发，行为也与改动前完全一致**（不会出现"再也动不起来"）。
+   */
+  private onVisibility(isVisible: boolean): void {
+    if (isVisible === this.visible) {
+      return;
+    }
+    this.visible = isVisible;
+    if (isVisible) {
+      // 长时间停表后，把"上一帧时刻"归零 ⇒ 首帧的 `dt` 不会是一个巨大的墙钟差
+      // （缓动本身有 `min(1, ...)` 上限，这里只是让首帧更干净）。
+      this.lastFrameAt = Date.now();
+    }
+    this.syncLoop();
+  }
+
   private intervalFor(fps: number): number {
-    return Math.max(8, Math.round(1000 / (fps > 0 ? fps : ORB_FPS)));
+    return Math.max(8, Math.round(1000 / (fps > 0 ? fps : ORB_FPS_MAIN)));
   }
 
   private startTimer(ms: number): void {
@@ -462,11 +493,18 @@ export struct AssistantOrb {
       // 白底：中性柔影光晕 + 更饱和的实体色核/环 + 中性发丝细环（"干净"的来源）
       this.paint.halo = eff.elev2;
       this.paint.haloAlpha = ORB_HALO_ALPHA_LIGHT;
-      this.paint.coreInner = pal.accentSoft;
-      this.paint.coreOuter = pal.accent;
+      // 亮心必须**在里**（与深色同一读法："亮心 → 主色 → 全透明"）。
+      // ⚠️ 不能写死 `inner=accentSoft`：浅色系的 `accentSoft` 相对 `accent` 的明暗**因主题而异**
+      //    （porcelain 更暗、light 更亮）⇒ 按**相对亮度**取亮的那一个作亮心，否则 porcelain 的
+      //    "发光核"会读成暗心（跟深色观感相反）。两个都是既有 token，不自造色值。
+      const softBrighter: boolean = relativeLuminance(pal.accentSoft) >= relativeLuminance(pal.accent);
+      this.paint.coreInner = softBrighter ? pal.accentSoft : pal.accent;
+      this.paint.coreOuter = softBrighter ? pal.accent : pal.accentSoft;
       this.paint.ring = pal.accent;
       this.paint.ringTool = pal.statusRunning;
-      this.paint.stroke = pal.border;
+      // 细环是"弧/球有多大的**参照系**"，白底上必须真的看得见 ⇒ 用**结构性发丝** `hairline`
+      // （浅色系由它压深到 web 基线；`border` 在白底只有 ~1.18，半透明再打对折后基本消失）。
+      this.paint.stroke = surfacesOf(pal).hairline;
     } else {
       // 深色：既有观感（accent 发光 + accentSoft 环 + glowSoft 细环），逐值不变
       this.paint.halo = eff.glow;
@@ -494,11 +532,12 @@ export struct AssistantOrb {
       this.lastBeat = this.orbBeat;
       this.lastBeatAt = now;
     }
-    const st: OrbState = orbStateOf(this.effectiveMode(now));
+    const mode: string = this.effectiveMode(now);
+    const st: OrbState = orbStateOf(mode);
     // 缓动：按**实际帧间隔**收敛（30fps 与 idle 的 12fps 拥有同一段墙钟收敛时间）
     let dt: number = now - this.lastFrameAt;
     if (!(dt > 0)) {
-      dt = 1000 / ORB_FPS;
+      dt = 1000 / ORB_FPS_MAIN;
     }
     this.lastFrameAt = now;
     const k: number = Math.min(1, dt / ORB_EASE_MS);
@@ -524,9 +563,12 @@ export struct AssistantOrb {
     const vSpin: number = vitalityGain(this.vitalCur, ORB_VITAL_SPIN_SPAN);
     const vHalo: number = vitalityGain(this.vitalCur, ORB_VITAL_HALO_SPAN);
 
-    if (st.fps !== this.fpsCur) {
-      this.fpsCur = st.fps;
-      this.retuneTimer(st.fps);
+    // 目标帧率 = "有效态 × 可见性"的**纯策略**（`core/orb.ets:orbTargetFps`）——
+    // 主态恒 30（丝滑），让位态 18，静默态 12，不可见 0（但那时定时器已停，这里仍取 0 只作守卫）。
+    const wantFps: number = orbTargetFps(mode, this.visible);
+    if (wantFps !== this.fpsCur) {
+      this.fpsCur = wantFps;
+      this.retuneTimer(wantFps);
     }
 
     const s: number = this.orbSize > 0 ? this.orbSize : ORB_DEFAULT_SIZE;
@@ -638,6 +680,12 @@ export struct AssistantOrb {
         this.lastFrameAt = Date.now();
         this.draw();
         this.syncLoop();
+      })
+      // 可见性：滚出屏幕 ⇒ 停表（不可见的东西不该烧电）；回来 ⇒ 立即恢复。
+      // 判据用 `[0.0, 1.0]` 两个阈值 ⇒ 事件在"完全不可见(0)"与"完全可见(1)"两处触发；
+      // `isVisible=false` 只在 ratio 归零时给出（`visible` 默认 true ⇒ 不触发即等于改动前行为）。
+      .onVisibleAreaChange([0.0, 1.0], (isVisible: boolean, ratio: number) => {
+        this.onVisibility(isVisible);
       })
   }
 }

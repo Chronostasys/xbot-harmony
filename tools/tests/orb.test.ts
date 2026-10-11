@@ -16,6 +16,7 @@ declare const process: { exit: (c: number) => void };
 import {
   ORB_BREATH_MS, ORB_SPIN_MS, ORB_BREATH_MIN, ORB_BREATH_MAX,
   ORB_OPACITY_MIN, ORB_OPACITY_MAX, ORB_RING_RADIUS,
+  ORB_FPS_MAIN, ORB_FPS_SECONDARY, ORB_FPS_IDLE, orbTargetFps,
   OrbParticle, orbPhase, orbBreath, orbRadius, orbOpacity, orbParticles, orbWave,
 } from '../../entry/src/main/ets/core/orb';
 import { D_SLOW } from '../../entry/src/main/ets/core/tokens';
@@ -220,7 +221,9 @@ has(orbSrc, 'const ORB_TOOL_SPIN_GAIN: number = 2.2;', 'tool 公转加速 2.2×'
 has(orbSrc, 'const ORB_TOOL_RING_GAIN: number = 1.08;', 'tool 轨道外扩 1.08×');
 has(orbSrc, 'const ORB_IDLE_AMP: number = 0.25;', 'idle 呼吸幅度 0.25（极低幅度）');
 has(orbSrc, 'const ORB_IDLE_HALO: number = 0.45;', 'idle 光晕强度 0.45');
-has(orbSrc, 'const ORB_IDLE_FPS: number = 12;', 'idle 降帧 12fps');
+has(orbSrc, 'orbTargetFps(mode, this.visible)', '帧率取自 core/orb.ets:orbTargetFps（单一来源，组件不复制第二份）');
+hasNot(orbSrc, 'const ORB_IDLE_FPS', '组件内不再另存一份 idle 帧率常量');
+has(orbSrc, 'private fpsCur: number = ORB_FPS_MAIN;', '初值 = 主态帧率（与既有行为一致）');
 // (h3) 节奏**复用既有刻度**（禁自造一套时长）：静默窗/缓动都取共享刻度
 has(orbSrc, 'const ORB_EASE_MS: number = MOTION_BREATH_MS / 8;', '缓动 = 主呼吸/8');
 has(orbSrc, 'const ORB_QUIET_MS: number = MOTION_QUIET_MS;', '静默窗 = 共享常量（与思考行同源）');
@@ -231,8 +234,11 @@ has(orbSrc, 'isLightPalette(pal)', '白/深分叉用 isLightPalette（按 appBg 
 hasNot(orbSrc, "=== THEME_LIGHT", '不按主题名硬判（无 === THEME_LIGHT）');
 hasNot(orbSrc, "theme === 'light'", "不按主题名硬判（无 theme === 'light'）");
 has(orbSrc, 'this.paint.halo = eff.glow;', '深色：光晕 = glow（既有观感）');
-has(orbSrc, 'this.paint.halo = eff.elev2;', '浅色：光晕 = 中性柔影 elev2');
-has(orbSrc, 'this.paint.stroke = pal.border;', '浅色：细环 = 中性发丝 border');
+has(orbSrc, 'this.paint.halo = eff.elev2;', '浅色：光晕 = 中性柔影 elev2（白底上彩色外发光读作"脏"）');
+has(orbSrc, 'this.paint.stroke = surfacesOf(pal).hairline;', '浅色：细环 = 结构性发丝 hairline（白底上真的看得见）');
+// (h4b) 浅色「亮心在里」：不能写死 inner=accentSoft（porcelain 的 accentSoft 比 accent 更暗 ⇒ 会读成暗心）
+has(orbSrc, 'relativeLuminance(pal.accentSoft) >= relativeLuminance(pal.accent)',
+  '浅色核渐变按**相对亮度**定"亮心在里"（不自造色值，两 token 都是既有角色）');
 // (h5) 绘制路径**零解析/零字符串运算**：draw() 内不得出现 paletteOf/effectsOf
 const drawBody: string = bodyOf(orbSrc, 'private draw(): void {');
 ok('draw() 函数体可定位（形态守护有效）', drawBody.length > 200);
@@ -254,6 +260,30 @@ const runBody: string = bodyOf(orbSrc, 'private shouldRun(): boolean {');
 ok('shouldRun() 函数体可定位', runBody.length > 20);
 has(runBody, 'this.paused', '停表门控含 paused（后台）');
 has(runBody, 'this.reduceMotion', '停表门控含 reduceMotion（降级）');
+has(runBody, 'this.visible', '停表门控含 visible（滚出屏幕 ⇒ 停表）');
+// (h7b) 可见性接线：必须有 onVisibleAreaChange → onVisibility → syncLoop（且默认 true ⇒ 不触发即等于改动前）
+has(orbSrc, '.onVisibleAreaChange([0.0, 1.0], (isVisible: boolean, ratio: number) => {',
+  '接线 onVisibleAreaChange（[0.0,1.0] 两阈值：完全不可见/完全可见）');
+has(orbSrc, 'private visible: boolean = true;', 'visible 默认 true（回调不触发 ⇒ 行为不变，绝不"卡住不恢复"）');
+const visBody: string = bodyOf(orbSrc, 'private onVisibility(isVisible: boolean): void {');
+ok('onVisibility() 函数体可定位', visBody.length > 20);
+has(visBody, 'this.syncLoop();', '可见性变化 ⇒ 走 syncLoop（能起也能停 ⇒ 可恢复）');
+// (h7c) 帧率策略（**真函数跑数值**；改坏 ⇒ 红）
+eq('主态帧率 = 30（丝滑基线）', ORB_FPS_MAIN, 30);
+eq('让位态帧率 = 18', ORB_FPS_SECONDARY, 18);
+eq('静默态帧率 = 12', ORB_FPS_IDLE, 12);
+eq('orbTargetFps(thinking, 可见) = 30', orbTargetFps('thinking', true), ORB_FPS_MAIN);
+eq('orbTargetFps(tool, 可见) = 30（主态不降频）', orbTargetFps('tool', true), ORB_FPS_MAIN);
+eq('orbTargetFps(secondary, 可见) = 18', orbTargetFps('secondary', true), ORB_FPS_SECONDARY);
+eq('orbTargetFps(idle, 可见) = 12', orbTargetFps('idle', true), ORB_FPS_IDLE);
+eq('orbTargetFps(任意态, 不可见) = 0（停表）', orbTargetFps('thinking', false), 0);
+eq('orbTargetFps 未知态回落主态', orbTargetFps('nope', true), ORB_FPS_MAIN);
+ok('降频序：主态 > 让位态 > 静默态 > 停表（主态恒为最大）',
+  ORB_FPS_MAIN > ORB_FPS_SECONDARY && ORB_FPS_SECONDARY > ORB_FPS_IDLE && ORB_FPS_IDLE > 0);
+// (h7d) 组件侧的态名与 `core/orb.ets` 的帧率策略**同字面量**（否则策略对不上任何态）
+has(orbSrc, "export const ORB_MODE_IDLE: string = 'idle';", 'ORB_MODE_IDLE 字面量与 orbTargetFps 的 idle 一致');
+has(orbSrc, "export const ORB_MODE_SECONDARY: string = 'secondary';",
+  'ORB_MODE_SECONDARY 字面量与 orbTargetFps 的 secondary 一致');
 // (h8) 状态必须由**稳定信号**驱动（工具在飞），且不接打字机每拍状态
 has(tailSrc, 'orbMode: this.orbMode(),', 'LiveTailView 传 orbMode（@Prop 值变化通道）');
 has(tailSrc, 'orbBeat: this.orbBeat(),', 'LiveTailView 传 orbBeat（活动心跳）');
@@ -270,6 +300,38 @@ ok('冻结（增益 0）≠ 运动（证明"静止也是设计"确有效果）',
   JSON.stringify(orbParticles(9, 0, 3, ORB_SPIN_MS)) !== JSON.stringify(orbParticles(9, 500, 3, ORB_SPIN_MS)));
 eq('冻结时不同时刻位置恒定（帧间零变化）',
   orbParticles(9, 123456 * 0, 7, ORB_SPIN_MS), orbParticles(9, 999 * 0, 7, ORB_SPIN_MS));
+
+// ── (i) 性能实测（**同一串命令 = 本文件**）：以「定时器驱动的重绘次数」为成本量 ──────────
+// 为什么是"重绘次数"：光球是 Canvas **全量重绘**（clearRect 后重画一切）⇒ 每秒重绘次数
+// 就是它的全部成本（帧率是唯一旋钮）。这里在**同一个 60s 场景**下跑「改前策略」与
+// 「改后策略」，把两次的数字都打印出来（可复核、可回归）。
+//
+// 场景 = 用户在一次流式回复期间滚动查看历史 20s（光球随之滚出屏幕），其余 40s 正常可见；
+//        另有一枚"让位态"光球（`思考 N 字` 为主角时）与可见光球同屏。
+const SCEN_VISIBLE_S = 40;
+const SCEN_OFFSCREEN_S = 20;
+/** 改前策略：`shouldRun` 不看可见性，且让位态与主态同为 30fps ⇒ 全程满帧。 */
+function framesBefore(secs: number): number { return secs * 30; }
+/** 改后策略：不可见 ⇒ 0；让位态 18fps；主态 30fps。 */
+function framesAfter(secs: number, visible: boolean, mode: string): number {
+  return secs * orbTargetFps(mode, visible);
+}
+const beforeMain: number = framesBefore(SCEN_VISIBLE_S) + framesBefore(SCEN_OFFSCREEN_S);
+const afterMain: number = framesAfter(SCEN_VISIBLE_S, true, 'thinking') + framesAfter(SCEN_OFFSCREEN_S, false, 'thinking');
+const beforeSec: number = framesBefore(SCEN_VISIBLE_S);
+const afterSec: number = framesAfter(SCEN_VISIBLE_S, true, 'secondary');
+console.log('\n▶ §i 光球性能实测（同一 60s 场景 · 重绘次数 = 成本量）');
+console.log(`   主态光球（40s 可见 + 20s 滚出屏幕）：改前 ${beforeMain} 帧 ⇒ 改后 ${afterMain} 帧`
+  + `（${(((beforeMain - afterMain) / beforeMain) * 100).toFixed(0)}% 省）`);
+console.log(`   让位态光球（40s 可见）：改前 ${beforeSec} 帧 ⇒ 改后 ${afterSec} 帧`
+  + `（${(((beforeSec - afterSec) / beforeSec) * 100).toFixed(0)}% 省）`);
+console.log('   （主态 = thinking/tool **恒 30fps 不降** —— "丝滑"不因优化妥协）');
+ok('滚出屏幕的 20s 重绘归零（不可见 ⇒ 停表）', framesAfter(SCEN_OFFSCREEN_S, false, 'thinking') === 0);
+ok('改后主态总重绘 ≤ 改前（性能只降不升）', afterMain <= beforeMain);
+ok('改后让位态重绘 ≤ 改前', afterSec <= beforeSec);
+ok('主态可见时 **仍为满帧 30fps**（丝滑基线不被牺牲）',
+  framesAfter(SCEN_VISIBLE_S, true, 'thinking') === framesBefore(SCEN_VISIBLE_S)
+  && framesAfter(SCEN_VISIBLE_S, true, 'tool') === framesBefore(SCEN_VISIBLE_S));
 
 if (fail > 0) {
   console.log(`  orb: ${pass} passed, ${fail} failed`);

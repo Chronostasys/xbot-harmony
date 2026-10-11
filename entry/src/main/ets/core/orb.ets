@@ -142,3 +142,55 @@ export function orbWave(t: number, phase: number, seed: number): number {
   const c: number = Math.sin(2 * Math.PI * 3 * u + s * 2.3);
   return (a + 0.6 * b + 0.4 * c) / 2.0;
 }
+
+// ── 帧率策略（**纯策略**：可脱机单测、可变异自证）──────────────────────────────
+/**
+ * 主态（思考 / 工具在飞）帧率 = 30fps。
+ *
+ * ⛔ 纪律："**丝滑**"是用户的硬要求 ⇒ **主态永不降频**。降频只允许发生在
+ *    "看不见"（滚出屏幕）或"不是主角"（`secondary`）的时候。
+ */
+export const ORB_FPS_MAIN: number = 30;
+/**
+ * 让位态（`secondary`）帧率 = 18fps。
+ *
+ * 为什么可以降：让位态的呼吸/公转**都已减半**（慢动作）⇒ 18fps 对慢动作已足够平滑；
+ * 而它"退到背景"的定位决定了它不是眼睛的焦点（此刻主高亮源是别处，见 DESIGN-SYSTEM §8.2）。
+ */
+export const ORB_FPS_SECONDARY: number = 18;
+/** 静默态（`idle`）帧率 = 12fps（呼吸幅度 0.25、粒子冻结 ⇒ "静止也是设计"）。 */
+export const ORB_FPS_IDLE: number = 12;
+
+/** 让位态名（与 `components/AssistantOrb.ets` 的 `ORB_MODE_SECONDARY` **同字面量**；测试断言两者一致）。 */
+const MODE_SECONDARY: string = 'secondary';
+/** 静默态名（同上，与 `ORB_MODE_IDLE` 同字面量）。 */
+const MODE_IDLE: string = 'idle';
+
+/**
+ * 光球的目标帧率（**纯策略**；`0` = 不该跑 / 停表）。
+ *
+ * 为什么单独成一层：Canvas 是**全量重绘**（`clearRect` 后重画一切）⇒ 帧率是唯一的成本旋钮。
+ * 把"该跑多快"收敛成一个可脱机断言的纯函数 ⇒ 性能策略有判据、可变异自证，而不是散在
+ * 组件里的魔数（改坏 ⇒ `tools/tests/orb.test.ts` 红）。
+ *
+ * 策略：
+ *   · `visible === false`（完全滚出屏幕）⇒ **0**（停表；回来立即恢复）—— 不可见的不该烧电；
+ *   · `idle` ⇒ 12fps；`secondary` ⇒ 18fps（都不是主角/不是在动）；
+ *   · `thinking` / `tool`（主态）⇒ **30fps 恒定**（"丝滑"不因任何优化而妥协）。
+ *
+ * ⚠️ `active=false` / `paused=true`（后台）/ `reduceMotion=true` 的"停表"仍由组件侧
+ *    `shouldRun()` 决定 —— 那三者的语义是"**不画**"，不只是"降频"。
+ */
+export function orbTargetFps(mode: string, visible: boolean): number {
+  if (!visible) {
+    return 0;
+  }
+  if (mode === MODE_IDLE) {
+    return ORB_FPS_IDLE;
+  }
+  if (mode === MODE_SECONDARY) {
+    return ORB_FPS_SECONDARY;
+  }
+  return ORB_FPS_MAIN;
+}
+

@@ -99,7 +99,7 @@ has(tailSrc, 'live: this.thinkingIsPrimary(),', '思考行的领读身份由同�
 hasNot(tailSrc, 'emphasis: this.breathAmp,', '⛔ 思考行不再接呼吸权重（动效唯一属于光球）');
 // 让位态在光球侧真实存在（三处：常量/状态/查表）
 has(orbSrc, "export const ORB_MODE_SECONDARY: string = 'secondary';", '光球有 secondary 态常量');
-has(orbSrc, 'const ST_SECONDARY: OrbState = new OrbState(ORB_SECONDARY_AMP, ORB_SECONDARY_HALO, ORB_SECONDARY_SPIN, 1, false, ORB_FPS);',
+has(orbSrc, 'const ST_SECONDARY: OrbState = new OrbState(ORB_SECONDARY_AMP, ORB_SECONDARY_HALO, ORB_SECONDARY_SPIN, 1, false);',
   'secondary 态参数：呼吸/光晕/公转都减半（"在位但不领读"）');
 has(orbSrc, 'if (mode === ORB_MODE_SECONDARY) {', 'orbStateOf 认 secondary');
 
@@ -126,8 +126,8 @@ has(tailSrc, 'reduceMotion: this.reduceMotion(),', '开关 ①：光球（停表
 hasNot(tailSrc, 'MOTION_BREATH_MS', '思考行呼吸已移除 ⇒ LiveTailView 不再引用主呼吸刻度（无第二处脉动）');
 has(tailSrc, 'this.caretAlpha = this.reduceMotion() ? 1 : 0.35 + 0.65 * orbBreath(now, MOTION_BEAT_MS);',
   '开关 ②：打字机光标（降级 ⇒ 常亮不呼吸）');
-has(orbSrc, 'this.ready && this.active && !this.paused && !this.reduceMotion;',
-  '光球 shouldRun() 含 reduceMotion');
+has(orbSrc, 'this.ready && this.active && !this.paused && !this.reduceMotion && this.visible;',
+  '光球 shouldRun() 含 reduceMotion（另含 visible：不可见 ⇒ 停表）');
 // 降级来源的真实性：API 21 拿不到系统值（@since 23）—— 断言注释/理由留在代码里，防止被"顺手接上"
 has(tailSrc, '@since 23', '降级来源不可用的理由（@since 23）写在接线点旁');
 
