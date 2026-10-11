@@ -21,19 +21,19 @@
  */
 import { GoalInfo, TodoItem, TokenUsage } from './types';
 import { todoState, todoStatusKind, TODO_DONE } from './todos';
+import { ctxPercentText, ctxTokensAsK } from './ctxring';
 
-/** 大数缩写：1234 → 1.2k；1234567 → 1.2M。 */
+/**
+ * 大数缩写 —— **委托 `core/ctxring.ets:ctxTokensAsK`**（web `ContextRing.tsx:12-16`
+ * `formatTokensAsK` 的唯一移植件）。
+ *
+ * ⛔ 2026-10-11（WEB-PARITY §12-L）**统一口径**：本函数不再自带"第二套"格式化 ——
+ *    旧实现是小写 `k` + `1.2M` 档，而 web **只有大写 `K`**（`formatTokensAsK(1234567)==='1234.6K'`、
+ *    `(999)==='1K'`、`(0)==='0K'`）⇒ 同一个 token 数在环里显示 `50K`、在状态栏显示 `50.0k` 的
+ *    双重口径被消除（"同一数字只留一套格式化"）。
+ */
 export function humanTokens(n: number): string {
-  if (n <= 0) {
-    return '0';
-  }
-  if (n < 1000) {
-    return `${n}`;
-  }
-  if (n < 1000 * 1000) {
-    return `${(n / 1000).toFixed(n < 100000 ? 1 : 0)}k`;
-  }
-  return `${(n / (1000 * 1000)).toFixed(1)}M`;
+  return ctxTokensAsK(n);
 }
 
 /**
@@ -50,9 +50,12 @@ export function usageText(u: TokenUsage | undefined): string {
     return '';
   }
   const pct: number = u.usage_percent !== undefined
-    ? Math.round(u.usage_percent * 10) / 10
-    : Math.round(used * 1000 / max) / 10;
-  return `${humanTokens(used)}/${humanTokens(max)} ${pct}%`;
+    ? u.usage_percent
+    : used * 100 / max;
+  // ⛔ 2026-10-11（§12-M）：百分比**复用环的同一取整函数** `ctxPercentText`
+  //    （web `ContextRing.tsx:18-20` `formatUsagePercent` 的移植件）—— 旧实现自带 1 位取整
+  //    ⇒ 同一个百分比在环里 `80.444`、在状态栏 `80.4` 的两套口径被消除。
+  return `${humanTokens(used)}/${humanTokens(max)} ${ctxPercentText(pct)}%`;
 }
 
 /**

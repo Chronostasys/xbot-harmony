@@ -12,18 +12,20 @@ function eq(name: string, got: unknown, want: unknown): void {
   if (g === w) { pass++; } else { fail++; console.log(`  ✗ ${name}\n      got  ${g}\n      want ${w}`); }
 }
 
-eq('小数字', humanTokens(0), '0');
-eq('三位数', humanTokens(999), '999');
-eq('千级保留一位', humanTokens(1234), '1.2k');
-eq('万级取整', humanTokens(123456), '123k');
-eq('百万级', humanTokens(1234567), '1.2M');
+// ⚠️ 2026-10-11（§12-L）口径统一：humanTokens 委托 ctxTokensAsK（web `formatTokensAsK`）
+// ⇒ 这些期望值按 web 权威更新（大写 K、无 M 档、无 `.0`）：999→1K、1234567→1234.6K。
+eq('小数字（web：0 ⇒ 0K）', humanTokens(0), '0K');
+eq('三位数（web：999 ⇒ 1K）', humanTokens(999), '1K');
+eq('千级保留一位', humanTokens(1234), '1.2K');
+eq('万级（web：一位小数）', humanTokens(123456), '123.5K');
+eq('百万级（web 无 M 档 ⇒ 1234.6K）', humanTokens(1234567), '1234.6K');
 
 // usageText：**绝不在拿不到真实值时估算** ⇒ available=false / 无 max 一律空串
 eq('无 usage', usageText(undefined), '');
 eq('available=false 不显示', usageText({ available: false, prompt_tokens: 100, max_context_tokens: 1000 }), '');
 eq('无 max 不显示', usageText({ available: true, prompt_tokens: 100 }), '');
-eq('正常用量', usageText({ available: true, prompt_tokens: 12300, max_context_tokens: 1000000, usage_percent: 1.23 }), '12.3k/1.0M 1.2%');
-eq('无 usage_percent 时按真实值算', usageText({ available: true, prompt_tokens: 500000, max_context_tokens: 1000000 }), '500k/1.0M 50%');
+eq('正常用量（§12-L/M 后：大写 K + 无 M 档 + 环的取整口径）', usageText({ available: true, prompt_tokens: 12300, max_context_tokens: 1000000, usage_percent: 1.23 }), '12.3K/1000K 1.23%');
+eq('无 usage_percent 时按真实值算', usageText({ available: true, prompt_tokens: 500000, max_context_tokens: 1000000 }), '500K/1000K 50%');
 
 eq('无 todos', todoProgress(undefined), '');
 eq('空列表', todoProgress([]), '');
