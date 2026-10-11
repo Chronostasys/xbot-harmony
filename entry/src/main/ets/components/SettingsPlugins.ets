@@ -24,7 +24,8 @@
 import { Palette, paletteOf } from '../core/theme';
 import { XbotHttp } from '../core/http';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
-import { fileIo } from '@kit.CoreFileKit';
+import { fileIo, picker } from '@kit.CoreFileKit';
+import { common } from '@kit.AbilityKit';
 import { FS_CAPTION, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5 } from '../core/tokens';
 import {
   PluginConfigParams, PluginConfigSetParams, PluginReloadParams, PluginSetEnabledParams,
@@ -46,6 +47,9 @@ import {
   pluginUploadMime, pluginUploadPath, pluginUploadStatusFromMessage, pluginUploadUrlFromMeta,
   submitValue, textInputValue, toggleListValue, validateValue, valueFromText, valueFromSingle,
   valueFromToggle, valueOfProp,
+  PLUGIN_INSTALL_MAX_BYTES, PLUGIN_INSTALL_MIME, PLUGIN_INSTALL_PATH,
+  PluginInstallResult, parsePluginInstallResult, pluginInstallErrorText,
+  pluginInstallFilenameFromUri, pluginInstallSizeOk, pluginInstallSuccessText,
 } from '../core/settingsplugins';
 import { PRESS_OPACITY, CONTROL_INPUT_H, colorOf, hairlineOf } from '../core/design';
 import { SettingsErrorBar, SettingsPanelHeader } from './SettingsRows';
@@ -414,6 +418,10 @@ export struct SettingsPlugins {
    * 过滤**只**走核心纯函数 `filterPluginCatalog`（判据与渲染同源，⛔ 组件不写 `includes`）。
    */
   @State private query: string = '';
+  /** 安装包（`.zip`）上传中 —— 与 web `installing` 同义。 */
+  @State private installBusy: boolean = false;
+  /** 安装失败文案（**已可读化**；空 = 无错）。 */
+  @State private installErr: string = '';
 
   aboutToAppear(): void {
     void this.load();
@@ -612,6 +620,68 @@ export struct SettingsPlugins {
     }
   }
 
+  /**
+   * 安装插件（`.zip`）：选文件 → 读字节 → 上传 → 解析 → **刷新**。
+   * 契约/判据全在 `core/settingsplugins.ets` ⑤（web 权威 + 服务端 file:line 逐条核对）。
+   *
+   * `POST /api/plugin/install-file`（`channel/web/web.go:971`），multipart 字段名 `file`
+   * （`web_api.go:587`）—— 与 `XbotHttp.uploadBytes` 的硬编码一致 ⇒ **直接复用**该上传器
+   * （信封也已由它剥好，`core/http.ets:380-385`）。
+   * ⚠️ 该端点**管理员限定**（`web_api.go:577-580`）⇒ 非管理员拿 403，文案已给"需要管理员权限"。
+   */
+  private async installZip(): Promise<void> {
+    if (this.installBusy) {
+      return;
+    }
+    this.installErr = '';
+    this.notice = '';
+    try {
+      const ctx: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const opt: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+      opt.maxSelectNumber = 1;
+      // 只列 zip（d.ts 契约：`'描述|.后缀'`，见 `@ohos.file.picker.d.ts:432-451`）。
+      opt.fileSuffixFilters = ['插件包 (.zip)|.zip'];
+      const docPicker: picker.DocumentViewPicker = new picker.DocumentViewPicker(ctx);
+      const uris: string[] = await docPicker.select(opt);
+      if (uris === undefined || uris.length === 0) {
+        return; // 用户取消
+      }
+      const uri: string = uris[0];
+      const name: string = pluginInstallFilenameFromUri(uri, `plugin-${Date.now()}.zip`);
+      const f: fileIo.File = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
+      let bytes: ArrayBuffer;
+      let size: number = 0;
+      try {
+        const st: fileIo.Stat = fileIo.statSync(f.fd);
+        size = st.size;
+        bytes = new ArrayBuffer(size);
+        fileIo.readSync(f.fd, bytes);
+      } finally {
+        fileIo.closeSync(f);
+      }
+      // 客户端**先判上限**（服务端 `32 << 20`，`web_api.go:582`）—— 别把整包传完才被 400 拒。
+      if (!pluginInstallSizeOk(size)) {
+        this.installErr = pluginInstallErrorText(400,
+          `文件大小 ${size} 字节超出上限 ${PLUGIN_INSTALL_MAX_BYTES}`);
+        return;
+      }
+      this.installBusy = true;
+      const metaJson: string = await this.http.uploadBytes(
+        PLUGIN_INSTALL_PATH, name, bytes, PLUGIN_INSTALL_MIME);
+      const res: PluginInstallResult = parsePluginInstallResult(metaJson);
+      if (!res.ok()) {
+        throw new Error('安装响应缺少 id');
+      }
+      await this.load();
+      this.notice = pluginInstallSuccessText(res.id);
+    } catch (e) {
+      const msg: string = (e as Error).message;
+      this.installErr = pluginInstallErrorText(pluginUploadStatusFromMessage(msg), msg);
+    } finally {
+      this.installBusy = false;
+    }
+  }
+
   build() {
     Column({ space: SP_3 }) {
       SettingsPanelHeader({
@@ -627,6 +697,30 @@ export struct SettingsPlugins {
         Text(this.notice)
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().successText)
+          .width('100%')
+      }
+
+      // ── 安装插件（`.zip`）—— 对齐 web `PluginManagerPanel.tsx:150-172` 的"安装"按钮 ────────
+      // ⛔ 放在三态分支**之前**：目录为空（还没有任何插件）时也**必须**能装第一个插件
+      //    —— web 的安装按钮同样常驻（不随列表空/满出现消失）。
+      Row() {
+        Text(this.installBusy ? '安装中…' : '安装插件（.zip）')
+          .fontSize(FS_CAPTION)
+          .fontColor(this.installBusy ? this.pal().textMuted : this.pal().accentSoft)
+          .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
+          .backgroundColor(this.pal().surfaceAlt)
+          .borderRadius(R_LG)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            void this.installZip();
+          })
+      }
+      .width('100%')
+
+      if (this.installErr.length > 0) {
+        Text(this.installErr)
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().dangerText)
           .width('100%')
       }
 

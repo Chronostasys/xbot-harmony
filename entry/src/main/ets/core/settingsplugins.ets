@@ -1055,3 +1055,145 @@ export function filterPluginCatalog(cat: PluginConfigCatalog, query: string): Pl
   }
   return out;
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ⑤ 插件安装（`.zip` 上传 `POST /api/plugin/install-file`）—— `components/SettingsPlugins.ets` 只消费
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// 权威基准 = **服务端**（只读核实 `/Users/bobli/src/xbot`，file:line 可查），web 侧调用点对齐：
+//   · web 调用点：`web/src/plugins/manager/PluginManagerPanel.tsx:129-143 onPickZip`
+//     （`<input type="file" accept=".zip">`）→ `web/src/components/agent/api.ts:644-649 installPluginFile`
+//     → `postAPI('/api/plugin/install-file', form)`（`FormData`，无 `Content-Type` 手写 ⇒ 浏览器补 boundary）。
+//   · 路由：`channel/web/web.go:971`
+//     `mux.HandleFunc("/api/plugin/install-file", wc.authenticatedPOST(wc.handlePluginInstallFile))`
+//     ⇒ **POST** + **cookie 鉴权**（与本仓 `XbotHttp` 既有语义一致 ⇒ 直用 `uploadBytes`）。
+//   · 处理器 `channel/web/web_api.go:563-625`（逐条证据）：
+//       – RPC 未配置 ⇒ **503** `{ok:false,error:"RPC handler not configured"}`（`:564-567`）；
+//       – 无 senderID ⇒ **401** `unauthorized`（`:573-576`）；
+//       – **管理员限定** **403** `admin required`（`:577-580`；注释原文：`rpcCall` 用
+//         `RPCIdentity{SenderID:"web_admin"}` **绕过 RPC 层鉴权** ⇒ 管理员检查**只在此处**）；
+//       – multipart 上限 `r.ParseMultipartForm(32 << 20)`（`:582`）= **32 MiB**（超限 Go 侧报错 ⇒ **400**）；
+//       – **文件字段名 `file`**（`:587` `r.FormFile("file")`）—— 与 `XbotHttp.uploadBytes`
+//         （`core/http.ets:332` 硬编码 `name="file"`）**一致** ⇒ 可直接复用，无需新增上传器；
+//       – 落临时文件（`:594-606`）→ RPC `plugin_install_file{zip_path}`（`:614-616`）→ 成功 **200** `{ok:true,id,dir}`（`:621-625`）；
+//         RPC 失败（zip 内缺 `plugin.json` / 清单非法）⇒ **500** + RPC 错误原文（`:617-619`）。
+//   · 信封：`channel/web/web_auth.go:511-535 writeJSON` 包成 `{ok,data,error}`（成功时 `data` = 去掉
+//     `ok`/`error` 的 payload）⇒ `XbotHttp.uploadBytes` **已剥信封**（`core/http.ets:380-385`）
+//     ⇒ 其返回值就是 `{"id":…,"dir":…}` 的 JSON 串。
+//   · zip 形态：`plugin.json` 在**根**或**单层目录内**（`web_api.go:558-560`，由解压侧判定）—— 客户端不解释。
+//   · **文件名服务端不看**（`web_api.go:608` `_ = header // filename is informational`）⇒ 本节的
+//     "文件名"判据只用于**挡明显选错的**与日志可读性，⛔ 不是安全边界。
+// ⛔ 本机**无设备** ⇒ 全节为纯逻辑 + 契约核对；"上传是否真成功"标**待设备验证**。
+
+/** 安装端点（`channel/web/web.go:971`）。 */
+export const PLUGIN_INSTALL_PATH: string = '/api/plugin/install-file';
+/** multipart 文件字段名（`web_api.go:587`）—— 与 `XbotHttp.uploadBytes` 的硬编码一致。 */
+export const PLUGIN_INSTALL_FIELD_FILE: string = 'file';
+/** 服务端 multipart 上限（`web_api.go:582` 的 `32 << 20`）—— 客户端**先判**，别传完才被拒。 */
+export const PLUGIN_INSTALL_MAX_BYTES: number = 32 * 1024 * 1024;
+/** 安装包 MIME（zip）。 */
+export const PLUGIN_INSTALL_MIME: string = 'application/zip';
+
+/** 是否 `.zip`（**提示性预检**：服务端不看文件名 ⇒ 这里只挡明显选错的）。 */
+export function pluginInstallFilenameIsValid(name: string): boolean {
+  const n: string = isPresent(name) ? name.trim().toLowerCase() : '';
+  return n.length > 4 && n.substring(n.length - 4) === '.zip';
+}
+
+/**
+ * 文件字节数是否在上限内（`0 < bytes <= PLUGIN_INSTALL_MAX_BYTES`）。
+ * 非有限 / 负数 / 0 / 超限 ⇒ false（宁可本地先报错，也不把坏值发给服务端）。
+ */
+export function pluginInstallSizeOk(bytes: number): boolean {
+  return typeof bytes === 'number' && isFinite(bytes) && bytes > 0 && bytes <= PLUGIN_INSTALL_MAX_BYTES;
+}
+
+/**
+ * 选中的文档 URI → multipart **filename**。
+ * ⛔ 服务端**不看**文件名（`web_api.go:608`）⇒ 这里只保证：① 去掉 query/hash（picker URI 常带 `?x=1`）
+ * ② 以 `.zip` 结尾（服务端日志/排查可读）。抽不出合法名 ⇒ 用调用方给的 `fallback`（含时间戳），
+ * 再不行 ⇒ 固定 `plugin.zip`。
+ */
+export function pluginInstallFilenameFromUri(uri: string, fallback: string): string {
+  const u: string = isPresent(uri) ? uri.trim() : '';
+  const slash: number = Math.max(u.lastIndexOf('/'), u.lastIndexOf('\\'));
+  let name: string = slash >= 0 ? u.substring(slash + 1) : u;
+  const q: number = name.indexOf('?');
+  if (q >= 0) { name = name.substring(0, q); }
+  const h: number = name.indexOf('#');
+  if (h >= 0) { name = name.substring(0, h); }
+  if (pluginInstallFilenameIsValid(name)) { return name; }
+  const fb: string = isPresent(fallback) ? fallback.trim() : '';
+  return pluginInstallFilenameIsValid(fb) ? fb : 'plugin.zip';
+}
+
+/** 安装结果（`ok` 以**服务端返回的插件 id** 为准 —— 有 id 才算装上）。 */
+export class PluginInstallResult {
+  id: string = '';
+  dir: string = '';
+  constructor(id: string, dir: string) {
+    this.id = id;
+    this.dir = dir;
+  }
+
+  /** 服务端是否确认安装成功。 */
+  ok(): boolean {
+    return this.id.length > 0;
+  }
+}
+
+/**
+ * 解析安装响应（`XbotHttp.uploadBytes` 已剥信封 ⇒ 入参即 `data` 的 JSON 串）。
+ * 全容错：空串 / 坏 JSON / `null` / 缺 `id` ⇒ `PluginInstallResult('','')`
+ * （调用方据此报错，⛔ 绝不静默当成功）。
+ */
+export function parsePluginInstallResult(metaJson: string): PluginInstallResult {
+  try {
+    const raw: string = isPresent(metaJson) ? metaJson : '';
+    if (raw.length === 0) {
+      return new PluginInstallResult('', '');
+    }
+    const obj: Record<string, string> = JSON.parse(raw) as Record<string, string>;
+    if (obj === null || obj === undefined) {
+      return new PluginInstallResult('', '');
+    }
+    const id: string = typeof obj.id === 'string' ? obj.id.trim() : '';
+    const dir: string = typeof obj.dir === 'string' ? obj.dir.trim() : '';
+    return new PluginInstallResult(id, dir);
+  } catch (e) {
+    return new PluginInstallResult('', '');
+  }
+}
+
+/** 安装成功提示（含插件 id）。 */
+export function pluginInstallSuccessText(id: string): string {
+  const i: string = isPresent(id) ? id.trim() : '';
+  return i.length > 0 ? `已安装插件 ${i}（已按服务端值刷新）` : '插件已安装（已按服务端值刷新）';
+}
+
+/**
+ * 安装失败文案（可读）。HTTP 码语义**逐条对齐 `web_api.go` 的真实分支**（⛔ 不凭空加码）：
+ *   · 401 `:573-576` 未登录/会话失效；403 `:577-580` 非管理员；400 `:582-591` multipart 非法 /
+ *     缺 `file` 字段 / 超 32 MiB；500 `:594-619` 临时文件或 RPC `plugin_install_file` 失败
+ *     （zip 内缺 `plugin.json` / 清单非法）；503 `:564-567` RPC 未配置（服务端未启用插件系统）。
+ */
+export function pluginInstallErrorText(status: number, reason: string): string {
+  const r: string = isPresent(reason) ? reason.trim() : '';
+  const c: number = typeof status === 'number' && isFinite(status) && status !== 0 ? status : 0;
+  let hint: string = '';
+  if (c === 401) {
+    hint = '未登录或会话已失效';
+  } else if (c === 403) {
+    hint = '需要管理员权限（插件安装会执行插件代码）';
+  } else if (c === 400) {
+    hint = '上传被拒（multipart 非法 / 缺 file 字段 / 超过 32 MiB）';
+  } else if (c === 500) {
+    hint = '服务端安装失败（zip 内缺 plugin.json 或清单非法）';
+  } else if (c === 503) {
+    hint = '服务端未启用插件系统';
+  }
+  const head: string = '插件安装失败';
+  if (hint.length > 0 && r.length > 0) { return `${head}：${hint}（${r}）`; }
+  if (hint.length > 0) { return `${head}：${hint}`; }
+  return r.length > 0 ? `${head}：${r}` : head;
+}
