@@ -556,3 +556,82 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 1. `§11.5 证据 ⑥`「`grep ansi → 0`」→ **过期**：`core/ansi.ets` 于 **当日 09:43** 被并行线落地，**晚于**本审计（09:35）。
    ⇒ 审计没错，是**被审计对象在审计后 8 分钟就变了**。**教训：判据必须带取证时刻。**
 2. `§11.9` 的"纯逻辑可先行候补四项"→ **已全部交付**（纯逻辑层）。
+
+### 11.11 波4 候选盘点（2026-10-11 第二遍）—— 只读审计
+
+> **目的**：`§11.9` 的"纯逻辑可先行候补"已被本波消耗完（四项纯逻辑 + 前置 + 逐模型配置 + 插件面 + 通知 + 开屏），
+> 需要**下一批可派清单**。本节重过 `§11` 的**剩余项**（`§11.5` ❌ 全 12 条 + `§11.7` Top10 未结项 + `§11.2/§11.3` 的 🟡）。
+> **依赖分档**：**A** = 纯逻辑可先行（不碰 `pages/`、不改 `core/` 契约）｜**B** = 需 `pages/Index.ets` 接线｜
+> **C** = 需改 `core/` 契约（跨线）｜**D** = 需服务端（REST/RPC 能力）。可复合（如 `A+B`）。
+> **可感度**：高（用户每天用）/ 中 / 低（边角）。⛔ 本轮**只读**，未改任何代码/测试；file:line 均在本轮工作树实测。
+
+#### 11.11.1 ⛔ 已被本波消耗（**别重复派单**）
+
+| 项 | 消耗证据 | 现判 |
+|---|---|---|
+| 四项纯逻辑（AnsiText 色板映射 / 最近目录 / 命令深链 / 消息注释） | `10aae43`（+ 前置 `9ad6c30`）；`core/{ansi,recentdirs,command,annotations}.ets` | 🟡 逻辑就绪，**UI 未接线** |
+| **消息编辑并重发/回退（rewind）纯逻辑** | `core/msgops.ets:307-372`（`RewindReq`/`RewindTarget`/`rewindTargetDBID`）+ `core/store.ets:1086-1104`（`rewindTo` REST）+ `tools/tests/msgops_rewind.test.ts` | 🟡 **逻辑（含 REST）就绪，UI 未接线** ⇒ ⛔ **不算"缺失"** |
+| 逐模型配置 `update_per_model_config` | `7d418a9` `22c3f01` `c16d96a`；`core/permodelcfg.ets` | 🟡 逻辑就绪（编辑器接线中） |
+| 通知长文本 + 通知设置分区（含正文隐私开关） | `bb0e1e3`；`core/notify.ets` `long_text`；`SettingsPanel` tab `notify` | ✅ 已接线 |
+| 插件三面 + JS 桥 + widget 数据面 + 设置分区 | `f5e7163` 等；`components/{PluginHost,SettingsPlugins}.ets`（`SettingsPanel` 已 import，tab `plugins`） | ✅ 已接线 |
+| **SSE REC / Developer 模式** | `core/sserec.ets`（对齐 `useSSERecorder.ts:30`/`useDeveloperMode.ts:1`）+ `components/SettingsDeveloper.ets`（tab `developer`） | ✅ **已接线** |
+| **Channels 设置分区** | `core/channelscfg.ets` + `components/SettingsChannels.ets`（tab `channels`） | ✅ **已接线**（§11.3 原记 ❌，已过时） |
+| **渠道过滤 ChannelPicker** | `core/sessionpick.ets:128 availableChannels`/`:192 sessionInChannel` + `Index.ets:348 activeChannel`/`:5412` UI | ✅ **已接线**（§11.7 #5 原记"只差 UI"，已过时） |
+| **StagingTray interject/clear** | `core/store.ets:1043 clearQueue`/`:1079 interjectQueued` + `Index.ets:2560/2565` + `components/QueueSheet.ets` | ✅ **已接线**（§11.7 #4 已过时） |
+| **web_widgets/plugin_widgets 不静默丢** | `core/panels.ets:182+` + `core/widgetsview.ets:25-26` + `core/store.ets:119` | ✅ **已接线**（§11.7 #3 已过时） |
+| **LLM import/export_subscriptions** | `core/llmcfg.ets:96+` + `components/SettingsLlm.ets:597/608`（`RPC_IMPORT/EXPORT_SUBSCRIPTIONS:67-68`） | ✅ **已接线**（§11.3 原记 🟡，已更正） |
+| 开屏 | `147b412`；`core/splash.ets` + `components/SplashOverlay.ets` | 🟡 落码中 |
+
+#### 11.11.2 剩余候选（逐项：web → 原生 → 分档 → 可感度 → 优先级）
+
+| # | 功能 | web 权威 `file:line` | 原生现状 `file:line` | 分档 | 可感度 | 优先级 |
+|---|---|---|---|---|---|---|
+| 1 | **AnsiText 接色** | `AnsiText.tsx:205`（3 消费点） | `core/ansi.ets` 就绪；`components/MessageRow.ets`/`ToolPopover.ets` **未接** | **B**（只在 `components/`，**非热文件**） | 高 | **P1** |
+| 2 | **rewind 入口** | `UserMessage.tsx:31,114,149`；`AgentPanel.tsx:929` | `store.rewindTo`(`store.ets:1086`) 就绪；**无长按菜单** | **B** | 高 | **P1** |
+| 3 | **会话导出（markdown/jsonl）** | `SettingsDeveloper.tsx:60` + `agent/api.ts:332` | 无（仅 `core/http.ets:150 exportSessionCookie`，是 cookie 非会话导出） | **A+B** | 中 | **P2** |
+| 4 | PathPicker / cwd 选择 | `PathPicker.tsx:36` + `recent-workdirs.ts:12` | `core/recentdirs.ets` 就绪；无选择器（`Index.ets:1787 newSession()` 直建） | **B** | 中 | P2 |
+| 5 | 命令深链**入口** | `commandRouter.ts:61,136` | `core/command.ets` 就绪；`EntryAbility.ets:123 captureOpenChat` 仅 chatId | **B**（+可能 C） | 中 | P2 |
+| 6 | SessionViewBar「全部折叠/展开」 | `SessionViewBar.tsx:34` | 分类切换 ✅；批量切换 **grep 0 命中** | **B** | 中 | P3（XS） |
+| 7 | NewSessionDialog（渠道 + cwd + label） | `NewSessionDialog.tsx:34` | `Index.ets:1787` 直接 `createSession()`（默认渠道/无 cwd/无 label） | **B**(+C) | 中 | P3 |
+| 8 | SessionInfo（cwd 可编辑 / 消息数 / 最后活跃） | `sidebar/SessionInfo.tsx:40` | `Index` 的 `StatusSheet`；缺这 3 项 | **B** | 中 | P3 |
+| 9 | Synthetic / Interrupt 卡 | `SyntheticToolCard.tsx:393,568` | **0**（仅 `core/agent_normalize.ts:166` 注释） | **A**(先定 web 语义) + **B** | 中 | P3 |
+| 10 | ShellPromoteBar | `ToolRender.tsx:483` | 后端 promote-to-background RPC **已有**（`core/chattypes.ts:55`）；**UI 0** | **C**(核 RPC 契约) + **B** | 中低 | P4 |
+| 11 | 设置 General「清缓存」 | `SettingsGeneral.tsx:32` | **grep 0 命中** | **B** | 低 | P4 |
+| 12 | 设置 Appearance「UI_MODE」外壳切换 | `SettingsAppearance.tsx:54` | `ui_mode` 已到状态机（`core/render.ets:31`）但**无 UI 消费**（死字段） | **B**(+C) | 低 | P4 |
+| 13 | 分享页（token 只读） | `SharePage.tsx:33` | **0 命中** | **A+B+D**(REST token) | 中低 | P4 |
+| 14 | FoldedToolGroup 组内分组标头 | `FoldedToolGroup.tsx:716` | 有跨迭代合并/`+N`；**缺组内按 kind 分组标头** | **B** | 低 | P4 |
+| 15 | InfoBar（插件状态条） | `InfoBar.tsx:15` | 仅 `core/widgetsview.ets:182` 的名称映射，**无状态条组件** | **B** | 低 | P4 |
+| 16 | 选区工具条（tiptap B/I/链接） | `SelectionToolbar.tsx:48` | **0 命中** | **B** | 低 | **存疑**（tiptap 不适用，见 §3） |
+| 17 | Ambience 壁纸/主题 | `AmbienceRoot.tsx:40` | **0**（仅 `core/pluginhost.ets:240` 注释） | **B** | 低 | ⛔ **不建议迁**（§11.7） |
+
+> **A 档（纯逻辑可先行）已近枯竭**：上表唯一还剩的 A 档 = **#3 会话导出**（序列化纯逻辑）与 **#9 卡数据面**（待先定 web 语义）。
+> 其余全部是 **B**（等 `pages/Index.ets` 释放）或 **C/D**。⇒ 下一波的调度瓶颈从"纯逻辑池"转为"**`Index.ets` 释放时机**"。
+
+#### 11.11.3 专项核实：rewind 是否已有纯逻辑？—— **是（不是缺失）**
+
+- **纯逻辑**：`core/msgops.ets:307-372` —— `RewindReq`（`POST /api/history/rewind` 请求体，字段逐字对齐服务端
+  `channel/web/web_api.go:266-270`）、`RewindTarget`、`rewindTargetDBID(rows, target)`（逐字对齐 web
+  `web/src/components/agent/rewind.ts:33 resolveUserMessageDBID`：`turnID>0` 精确匹配 / `turnID=0` 反向扫取**最新**同内容）。
+- **REST 层**：`core/store.ets:1086-1104` `rewindTo(historyId, editedContent)`（含"`<=0` 直接拒绝 —— 服务端亦 400"）。
+- **判别力测试**：`tools/tests/msgops_rewind.test.ts`（3.3KB，含重复内容/缺 dbID/请求体字段防 `DisallowUnknownFields`）。
+- ⇒ **结论**：rewind 属 **🟡 逻辑就绪待接线**（缺的只是 `UserBubble.ets` 的编辑态 + `Index.ets` 长按菜单入口），
+  **不计入"缺失"**；派单应写成"**接线**"而非"实现"。（本条同时订正 `§11.5 ①` 与 `§11.7 #2` 的旧判"仅无 UI/接线级"。）
+
+#### 11.11.4 结论：**若只能再派 3 条线**（按 用户可感度 × 依赖解除难度）
+
+1. **AnsiText 接色**（分档 B，但**不碰 `Index.ets`** —— 只改 `components/MessageRow.ets`/`ToolPopover.ets`）
+   —— 可感度**最高**（工具/shell 输出是最高频呈现面），逻辑已就绪，且**能绕开当前被占用的热文件** ⇒ 最易解除。
+2. **rewind 入口接线**（分档 B）—— 可感度**高**（唯一能改写历史错字的操作），**REST + 纯逻辑已全就绪**，
+   剩的是 `UserBubble` 编辑态 + `Index.ets` 长按菜单（接线级）；是 `§11.7 #2` 的兑现。
+3. **会话导出 markdown/jsonl**（分档 **A+B**）—— 可感度**中高**（手机端分享/上报常用），
+   且**纯逻辑可先行（A）**、不占热文件；是 Top10 #9 且填补 §11.5 ⑧ 的一半（另一半分享页需服务端）。
+
+> 备选（若调度只认"纯逻辑、零 `Index.ets` 依赖"）：**#3 会话导出** + **#9 卡数据面**（需先拍 web 语义）——
+> 但前者仍需 B 档入口才可见，后者价值中；**当前真正的高可感项都卡在 `Index.ets` 上**。
+
+#### 11.11.5 明账
+
+- 本节**只读**，未改任何代码/测试；行号基于本轮工作树，`Index.ets`/`components/*` 正被多线并发改 ⇒ **以锚点文本为准**。
+- 本轮**更正 5 处过期旧判**（均已在上表就地标注）：`§11.3` Channels ❌→✅、`§11.3` LLM import/export 🟡→✅、
+  `§11.7 #3/#4/#5` ❌/🟡→✅、`§11.5 ①`/`§11.7 #2` rewind（已具纯逻辑）。
+- ⛔ 仍未接线的高可感项 = **AnsiText 接色** + **rewind 入口**（两者均**逻辑就绪**，**只差 UI**）。
