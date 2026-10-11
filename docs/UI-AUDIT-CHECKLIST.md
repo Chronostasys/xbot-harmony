@@ -694,11 +694,11 @@ MarkdownView **无固定数值宽容器** ⇒ **结构性命中 0**。即：**�
 残留 5 项 ⚠️（修复线 `porcelain-fix` 在跑，域限 `core/theme.ets`）：
 | # | 项 | 证据（实算） | 状态 |
 |---|---|---|---|
-| ⚠️-1 | `warn`/`success`/`statusWaiting` 作**小号正文** < AA 4.5 | `warn #B26A00`=**4.238**（对 `appBg` 3.959）· `success #1E8E3E`=**4.205**；**porcelain 专属**（light 主题 7.09/5.48）。真实落点 13 处（`AskUserSheet:113`/`MessageRow:563`/`QueueSheet:111`/`SelfCheckSheet:60`/`SettingsAbout:445,552,461,568`/`SettingsChannels:476,556,562,1053`/`Index.ets:3942,4053,4196`） | 修复中 |
-| ⚠️-2 | `glassBaseOf` 的「同色回退」**已失效**（porcelain `appBg #F7F7F8` ≠ `surface #FFFFFF`）⇒ 玻璃底合成后对画布仅 **1.06**（≈不可见）；`:685-689` 注释已过期 | `core/theme.ets:691-694` | 修复中 |
-| ⚠️-3 | `textSecondary`/`accent` 落 `surfaceHi` = **4.337/4.017 < 4.5**，`contrastReqs()` **未覆盖**该底 | `core/design.ets:898-925` | ⛔ 待 `design.ets` 释放后派 |
-| ⚠️-4 | `colorOf` **未暴露** 6 角色（`foreground3`/`accentHover`/`accentSoftFade`/`bubbleUser`/`borderStrong`/`success`）⇒ 绕过取色 role 门禁（只能 `pal()` 直取） | `core/design.ets:853-892` | 同上 |
-| ⚠️-5 | `foreground3` **0 消费点**（疑似死角色） | 仅 `core/theme.ets` | 修复中（登记或接线） |
+| ⚠️-1 | `warn`/`success`/`statusWaiting` 作**小号正文** < AA 4.5 | `warn #B26A00`=**4.238**（对 `appBg` 3.959）· `success #1E8E3E`=**4.205**；**porcelain 专属**（light 主题 7.09/5.48）。真实落点 13 处（`AskUserSheet:113`/`MessageRow:563`/`QueueSheet:111`/`SelfCheckSheet:60`/`SettingsAbout:445,552,461,568`/`SettingsChannels:476,556,562,1053`/`Index.ets:3942,4053,4196`） | ✅ **已修 `ae2c9e0`**：porcelain 压深（保色相）⇒ `warn #9C5900` **4.238→5.465** / `success #1B7A34` **4.205→5.412**（最紧的 `surfaceHi` 面也 ≥4.674）；新增 `theme_contrast §J`（六面族全 ≥4.5 + 零扫描判红 + **mutation 必红**：回填旧值 ⇒ 18 红） |
+| ⚠️-2 | `glassBaseOf` 的「同色回退」**已失效**（porcelain `appBg #F7F7F8` ≠ `surface #FFFFFF`）⇒ 玻璃底合成后对画布仅 **1.06**（≈不可见）；`:685-689` 注释已过期 | `core/theme.ets:691-694` | ✅ **已修 `ae2c9e0`**，但**否掉了审计的处方**（有数字）：处方"浅色一律 `surfaceAlt` 打底"会让 porcelain 玻璃 **1.0616→1.0088**，**跌破 `theme_contrast §E5` 地板 1.02** ⇒ 反而更不可见。**改为显式阈值守卫**（`surface` 对画布 ≥ `GLASS_BASE_MIN_RATIO`(1.02) 就用它）⇒ porcelain/light 都回 `surface`、≈**零像素变化**、深色臂逐字节不变；新增 `§E5b`（合成两枚退化浅色板，含"`surface≈appBg` 但不等"这种**旧 `==` 判据会漏判**的情形）+ **mutation 必红** |
+| ⚠️-3 | `textSecondary`/`accent` 落 `surfaceHi` = **4.337/4.017 < 4.5**，`contrastReqs()` **未覆盖**该底 | `core/design.ets:898-925` | 🚀 **已派 `design-matrix`**（域 `core/design.ets`）：须先**查实是否真有落点**（有 ⇒ 改调用点/换底；无 ⇒ 补进 `contrastReqs()` 作护栏），两条路都要 `file:line` + 实算比值 |
+| ⚠️-4 | `colorOf` **未暴露** 6 角色（`foreground3`/`accentHover`/`accentSoftFade`/`bubbleUser`/`borderStrong`/`success`）⇒ 绕过取色 role 门禁（只能 `pal()` 直取） | `core/design.ets:853-892` | 🚀 **同上**（接进 `colorOf` 后 ⑥b 合法集合派生变大 ⇒ 须复跑取色 role 门禁确认仍绿；⚠️ `accentHover`/`accentSoftFade` 是交互/渐变端色，**不造判定对**） |
+| ⚠️-5 | `foreground3` **0 消费点**（疑似死角色） | 仅 `core/theme.ets` | ✅ **已登记为预留角色 `ae2c9e0`**（⛔ **不删**：它是 web `--foreground-3` **四阶契约**的对齐角色，删了破 `paletteValues` 穷尽性/四阶阶梯/parity）；已在 `ZERO_USE_ROLES` **机械核实 0 引用** |
 
 ### B. 动效「单一来源」审计（`motion-audit`）
 **结论**：**❌=0**（无自造曲线 / 无越权 `@ohos.curves` import / 过渡**零字面量时长**）；6 项 ⚠️ 缝隙（`motion-source` 在跑）：
