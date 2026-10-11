@@ -1094,3 +1094,75 @@ web 的**服务端 RPC 配置面**（LLM/Storage/Channels/WebUsers/About/Agent/T
 `session-collapsed-groups`/`unread`/`active-channel`（本地渲染态，不跨端）·
 `update-reminder`（无 SW）。
 
+
+## §XII 插件面功能差集（波12 · 目标②「跟 web 一样支持所有原生插件」· 2026-10-11）
+
+> **仅本节为本轮（波12）新增**（⛔ 未改任何既有段落；§8 / §11.3 的既有结论不重复审计）。
+> **做法**：web 侧只读取证（`/Users/bobli/src/xbot/web/src/plugin-runtime/*`、`plugins/*`、
+> `plugin-api/*`、`components/settings/Settings{Plugins,Channels}.tsx`、`components/session/ChannelPicker.tsx`）；
+> 原生侧读 `components/{PluginHost,PluginWidgets,PluginsSheet,SettingsPlugins,SettingsChannels}.ets` +
+> `core/{pluginhost,pluginview,widgetsview,settingsplugins}.ets`。
+> ⚠️ **本轮未装机**（设备禁令）⇒「渲染是否可见」以代码/判据为准；凡需真机的行标注**待设备验证**。
+
+### XII.1 逐面判定（8 类面，web file:line ↔ 原生落点）
+
+| # | 面 | web 证据 | 原生落点 | 判定 |
+|---|---|---|---|---|
+| ① | 插件**发现/加载**（ESM 动态 `import` + 热重载 + 内置静态视图） | `plugin-runtime/usePluginRuntimeHost.ts:216-320,58-117`；`PluginView.tsx:78-184` | 无（由**权威宿主页** `components/WebSurface.ets` 承载） | **N/A（架构性）** —— §8.2/§8.6 已立论：插件产物是**同页 ESM**（顶层读 `window.React`/`__xbot_*`）⇒ 只有 web 本体跑得起来 |
+| ① | 视图**枚举 / 容器分组 / i18n 标题** | `plugin-runtime/usePluginViewPanels.ts:41-78`；`i18n.ts:98-106` | `core/pluginhost.ets:535 buildPluginCatalog` + `:297/:324 containerLabel/containerRank`；渲染 `components/PluginHost.ets:140-168` | **✅ 已支持**（§8.5 真实 payload 复核过：i18n key 解析、只列带 web 的插件、相对 URL→绝对） |
+| ① | 视图**图标**（lucide 名 → 宿主图标；未知 ⇒ `Puzzle`） | `plugin-runtime/pluginIcons.ts:30-56`（`ICON_MAP` 19 键）、`:61-77`（降级 `Puzzle`） | `components/PluginHost.ets:460 pluginSymbol`（**本轮 14→19/19**）；消费点 `:291`、`:390`、`PluginsSheet.ets:177` | **✅ 已支持（本轮收口）** —— 见 XII.3 |
+| ② | 插件 **API `ctx`**（9 权限：events/commands/rpc/state/ui/plugins/config/files/share） | `plugin-api/context.ts:18-48`、`manifest.ts:13` | 无 | **N/A** —— 运行在宿主页内；§8.6 已**穷举证伪**「web 期望原生桥方法」的假设（web 侧 0 消费 `xbotNative`） |
+| ② | 宿主**全局注入**（`__xbot_session__`/`__xbot_i18n__`/`__xbot_iteration__`/`__xbot_ui__`/`React`） | `usePluginRuntimeHost.ts:373-388`、`iteration-render.tsx:20-28`、`SandboxedUI.tsx:37-41` | 无 | **N/A**（同上；原生无 `window`/React 运行时语义） |
+| ③ | 插件 **widget**：zones（styled spans）+ 声明式组件 | `plugins/PluginWidgetProvider.tsx:41-95`、`WidgetZone.tsx:14-69`、`components.tsx:37-259` | `core/widgetsview.ets:361 widgetsView` + `components/PluginWidgets.ets`；载荷接线 `core/store.ets:121-129` → `pages/Index.ets:1480-1482,3275-3276` → `PluginHost.ets:173-183` | **🟡 半支持**：`badge/progress/metric/list/markdown` 已实现；**`sparkline`/`table` 显式降级**（`widgetsview.ets:230-241`）；`code`/`src` 降级（需 iframe 沙箱） |
+| ③ | widget 的**常驻落点**（`infoBar` 状态条） | `plugins/InfoBar.tsx:15-27`（**常驻**，含 `PluginPanelContainer container="info_bar"` + `WidgetZone zone="infoBar"` + `SWUpdateButton`）· 挂载 `layouts/MobileAppShell.tsx:487` · 另 `git-info/GitStatusPanel.tsx:41` | **无** —— `PluginWidgets` **只被 `PluginHost`（插件目录浮层）消费**（`PluginHost.ets:176`） | **⛔ 缺（最高价值）** —— 正常使用路径下 widget zones **不可见**（只有打开"插件目录"浮层才看得到） |
+| ④ | 插件管理：**启用/禁用** + **重载** | `plugins/manager/PluginManagerPanel.tsx:82-127`（`plugin_reload` / `plugin_set_enabled` + 主动同步前端 runtime） | `components/SettingsPlugins.ets`（`RPC_PLUGIN_RELOAD`/`RPC_PLUGIN_SET_ENABLED`，`core/rpc.ets:1085,1087`）；判据 `core/settingsplugins.ets` | **✅ 已支持**（原生按用户要求收严为"写后回读"，不乐观更新） |
+| ④ | 插件管理：**安装 `.zip`** | `PluginManagerPanel.tsx:129-143` → `installPluginFile`（`components/agent/api.ts:644-649`，`POST /api/plugin/install-file` multipart） | **无**（`SettingsPlugins.ets:19` 明示"本期不呈现"） | **⛔ 缺** —— 需文件选择 + multipart 上传；修点 `components/Settings*.ets`（**域外**） |
+| ④ | **后端插件全量**视图（含**无 web 产物**者） | `PluginManagerPanel.tsx:52-76`（`plugin_status {rescan:true}` → script/grpc 运行时插件全貌） | **无** —— 原生只消费 `web_plugin_list`（`core/store.ets:1042`） | **⛔ 缺** —— 用户**看不到/管不了**纯后端插件；需新 RPC（`core/rpc.ets`，**域外**） |
+| ⑤ | **组件面板**（按 slot 过滤 + `web_ui_action` 交互 + 沙箱） | `plugins/PluginComponentPanel.tsx:24-97`、`plugins/api.ts:16-47` | `core/widgetsview.ets` + `PluginWidgets.ets`（声明式已覆盖） | **🟡 半支持** —— 交互（`web_ui_action`）与 `code`/`src` 沙箱**架构性缺**（同 ① N/A 阵营） |
+| ⑥ | 设置页**插件配置表单**（schema 驱动 + 搜索 + section + 7 控件 + 图片上传） | `components/settings/SettingsPlugins.tsx:60-196,485-666,221-354` | `components/SettingsPlugins.ets` + `core/settingsplugins.ets`（`plugin_config`/`plugin_config_set`；控件/校验/掩码/滑条/分组的判据全在 core） | **✅ 已支持**（含 `image` 上传，`core/settingsplugins.ets:834-1000`） |
+| ⑦ | **频道**（内置 + 插件渠道；飞书一键绑定） | `settings/SettingsChannels.tsx:118-531`、`session/ChannelPicker.tsx:53-64` | `components/SettingsChannels.ets`（`FeishuBindPanel:345`、`feishu_app_guide`/`feishu_bind_start`/`feishu_bind_status`） | **✅ 已支持**（§11.3 上一批已订正"Channels 实际已实现"） |
+| ⑧ | 其它贡献点（`messageRenderer`/`shareRenderer`/`toolbar`/`contextMenu`/`command`+`keybinding`/`setting`/`theme`/`ambience`/`eventHandler`） | `plugin-api/manifest.ts:112-122` | 无（`buildPluginCatalog` **只取 `kind:'view'`**，`core/pluginhost.ets:530,580`） | **N/A** —— 宿主**行为**扩展，无等价承载面（§8.3 亦已登记 `ui_mode`/`ui_surface` 为死字段） |
+| ⑨ | **深链**到某个插件视图 | web **无**（仅应用内 `ctx.ui.openViewTab`）；`ui.ts:91-115` | 原生最多打开宿主页根（`core/pluginhost.ets:118 pluginPanelUrl`） | **N/A（web 侧缺）** —— §8.6 已记为"web 仓的活" |
+
+### XII.2 差距清单 + 优先级（价值 × 成本）
+
+| 优先级 | 差距 | 价值 | 成本 / 阻塞 | 备注 |
+|---|---|---|---|---|
+| **P0** | **widget 常驻落点（`infoBar`）** | **高** —— 现在 widget 在正常使用路径**完全不可见**（插件如 `xbot.git-fancy` 的状态此前一直"推了但没人看"） | 修点在 `pages/Index.ets`（**域外 · `light-fix3` 独占**）⇒ 需编排者协调 | 建议：在 `MobileAppShell` 的等价位（页面主链外侧）注入一个常驻 `PluginWidgets`（`core/widgetsview.ets` + `PluginWidgets.ets` **已就绪**，只差落点 + 载荷透传） |
+| **P1** | `plugin_status` **全量后端插件** | 中高 —— "支持**所有**插件"的直接需求（纯后端插件现无入口） | 新 RPC（`core/rpc.ets`）+ 管理 UI（`Settings*.ets`）—— **均在域外** | 需先把 `plugin_status` 加入 `core/rpc.ets` 常量表 |
+| **P1** | **`.zip` 安装** | 中 —— 自助装插件（web 用户可自助，原生不能） | 文件选择 + multipart 上传；落 `components/SettingsPlugins.ets`（**域外**） | 参考 `installPluginFile` 的端点契约 `POST /api/plugin/install-file` |
+| **P2** | widget **`sparkline`/`table`** | 中低 —— 真插件用得少但存在（`iteration-stats` 类偏 metric） | `core/widgetsview.ets`（**域外**）+ ArkUI 画布渲染 | 现有行为是**显式降级行**（诚实，不静默） |
+| **P2** | 插件**图标** 19/19 + 面板/目录**同源** | 中低（视觉一致性） | 低 ⇒ **本轮已落地** | 见 XII.3 |
+
+> **N/A 依据（一句话，⛔ 不许当"遗漏"）**：① 插件运行时/API/宿主全局注入、⑤ 沙箱交互、⑨ 深链 ——
+> 均**架构性或跨仓**：插件产物是**同页 ESM**，唯一合法承载面是权威宿主页（§8.2/§8.6）；
+> ⑧ 其它贡献点是**宿主行为**扩展，无等价承载面。**这 4 条不是"没做"，是"原生不该做/做不了"。**
+
+### XII.3 本轮**落地**（波12，最小 diff）
+
+**缺口**（真实缺陷，非凑数）：
+1. `components/PluginsSheet.ets` 原 `pluginSymbolOrGrid`：**三条 return 全是 `square_grid_2x2`**（死分支）
+   ⇒ 能力面板里**每个插件同一个图标**，且与目录（`PluginHost`）的逐插件图标**不一致**。
+2. `pluginSymbol` 只覆盖 web `ICON_MAP` **14/19**；`search`/`info`/`puzzle` 回落方块。
+
+**修法**：`pluginSymbol` 提升为**唯一出口**（`PluginHost.ets:460` **导出**，删掉面板副本），
+补齐 3 键（`search`→`magnifyingglass` / `info`→`info_circle` / `puzzle`→`puzzle`，**逐个离线实证**：
+本机 SDK 权威符号名册 `…/previewer/common/resources/entry/resources.txt` 的 `'0xF0…' '<name>'` 行），
+并把**未知名回落**从 `square_grid_2x2` 改为 `sys.symbol.puzzle` —— 与 web `pluginIcons.ts:76` 的
+`Puzzle` 降级**同义**。commit `bb9efe9`。
+
+**判据** `tools/tests/plugin_icons.test.ts`（**96 断言**，零扫描判红 + **4 条 mutation 实测**）：
+① 唯一出口（导出 + 消费点计数 ≥1 + 旧副本计数 = **0**）；
+② 覆盖 19/19（**剥注释后**按字面量，防注释假绿）+ 与真源 `isKnownPluginIcon` 双向一致；
+③ **符号名实证**（三份插件组件里每个 `sys.symbol.X` 的 `X` 必须实名册可查 —— 防"符号名写错 ⇒ 运行时静默空白"）；
+⑥ **深色逐字节不变**证据（5 套主题实测 `structuralRuleOf(深) === hairlineOf(深)`）。
+mutation 实测：抽 `search` 分支 → 4 红；换回本地副本 → 3 红；注释回退 → 1 红；删 `puzzle` 分支 → 2 红。
+
+### XII.4 一句话结论
+
+**插件面已高度 parity**（目录/宿主页/设置配置表单/启停重载/频道/飞书绑定/声明式 widget 均已落地）；
+**真缺口 4 条** —— ① widget **常驻落点**（P0，阻塞在 `pages/Index.ets` 域外）② `plugin_status` 全量后端插件
+（需新 RPC）③ `.zip` 安装 ④ widget `sparkline`/`table`；另有 **4 条 N/A**（沙箱/桥/行为扩展/深链）
+与 **1 条 web 侧待补**（视图深链）。**⚠️ 无一条经过真机验证（本波设备禁令）⇒ 均标"待设备验证"。**
+
+
