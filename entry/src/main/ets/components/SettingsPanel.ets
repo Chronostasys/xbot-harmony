@@ -45,7 +45,7 @@ import { fallbackTabId, SettingsTabSpec, visibleTabs } from '../core/settingsplu
 import { fs, fw, lh, SettingsErrorBar, SettingsPanelHeader, SettingsToolRow, tc, tk } from './SettingsRows';
 // 面板**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不在本文件自造时长/曲线；E3 统一）。
 import { sheetTransition } from './anim';
-import { KEY_NOTIFY_DETAIL, notifyPrefValue, notifyPrefsFrom, settingLabel } from '../core/settings';
+import { KEY_NOTIFY_ASK, KEY_NOTIFY_DETAIL, KEY_NOTIFY_TURN_DONE, NotifyPrefs, notifyPrefValue, notifyPrefsFrom, settingLabel } from '../core/settings';
 import {
   GetSettingsParams, readableRpcError, rpc, RPC_GET_SETTINGS, RPC_SET_SETTING, SETTINGS_NS_CLI, SetSettingParams,
 } from '../core/rpc';
@@ -168,7 +168,17 @@ export struct SettingsPanel {
   // ⛔ 判据与渲染同源：显示值来自 `core/settings.ets` 的 `notifyPrefsFrom`（**不在组件里**
   //    另写一份"默认是否开"）；写入走既有 `set_setting` 路径，成功后**回读**（以后端为准）。
 
-  /** 是否展示通知正文（`KEY_NOTIFY_DETAIL`）。 */
+  /**
+   * 三个通知偏好开关的**服务端权威**显示值。
+   *
+   * ⛔ 波11 差集补齐：此前本分区**只**暴露 `KEY_NOTIFY_DETAIL`（正文隐私），而
+   *    `KEY_NOTIFY_ASK` / `KEY_NOTIFY_TURN_DONE` **有键、有消费、无 UI** —— 用户
+   *    关不掉"收到提问时通知 / 回合完成时通知"（默认两类都开）。这三个键的**消费链**
+   *    早已存在（`notifyPrefsFrom` → `applyNotifyPrefs` → `notifyPrefEnabled` →
+   *    `store.notifyOnSse`），缺的只是**写入入口**。三个开关走同一条 `set_setting`。
+   */
+  @State private notifyAskOn: boolean = true;
+  @State private notifyTurnDoneOn: boolean = true;
   @State private notifyDetailOn: boolean = true;
   /** 是否已从服务端读过（按需拉取的守卫）。 */
   @State private notifyLoaded: boolean = false;
@@ -182,7 +192,10 @@ export struct SettingsPanel {
       const settings: Record<string, string> = await rpc<Record<string, string>>(
         this.http, RPC_GET_SETTINGS, new GetSettingsParams(SETTINGS_NS_CLI));
       const map: Record<string, string> = settings !== undefined && settings !== null ? settings : {};
-      this.notifyDetailOn = notifyPrefsFrom(map).detail;
+      const prefs: NotifyPrefs = notifyPrefsFrom(map);
+      this.notifyAskOn = prefs.ask;
+      this.notifyTurnDoneOn = prefs.turnDone;
+      this.notifyDetailOn = prefs.detail;
       this.notifyErr = '';
       this.notifyLoaded = true;
     } catch (e) {
@@ -194,15 +207,15 @@ export struct SettingsPanel {
     }
   }
 
-  /** 写通知正文开关：`set_setting` ⇒ **回读**（绝不本地乐观改后假装成功）。 */
-  private async setNotifyDetail(next: boolean): Promise<void> {
+  /** 写一个通知偏好开关：`set_setting` ⇒ **回读**（绝不本地乐观改后假装成功）。 */
+  private async setNotifyPref(key: string, next: boolean): Promise<void> {
     if (this.notifyBusy) {
       return;
     }
     this.notifyBusy = true;
     try {
       await rpc<void>(this.http, RPC_SET_SETTING,
-        new SetSettingParams(SETTINGS_NS_CLI, KEY_NOTIFY_DETAIL, notifyPrefValue(next)));
+        new SetSettingParams(SETTINGS_NS_CLI, key, notifyPrefValue(next)));
       this.notifyBusy = false;
       await this.loadNotifyPrefs();
     } catch (e) {
@@ -223,7 +236,33 @@ export struct SettingsPanel {
       if (this.notifyErr.length > 0) {
         SettingsErrorBar({ message: this.notifyErr, theme: this.theme })
       }
-      Column({ space: 0 }) {
+      // 与其它分区同款：根 Column 吃剩余高度，卡片进可滚容器（内容超长时可滚到底部）。
+      Scroll() {
+        Column({ space: 0 }) {
+        SettingsToolRow({
+          label: settingLabel(KEY_NOTIFY_ASK),
+          description: '智能体向你提问、等你回答时发系统通知。',
+          isOn: this.notifyAskOn,
+          busy: this.notifyBusy || !this.notifyLoaded,
+          mono: false,
+          theme: this.theme,
+          names: [KEY_NOTIFY_ASK],
+          onToggle: (_names: string[], next: boolean) => {
+            void this.setNotifyPref(KEY_NOTIFY_ASK, next);
+          },
+        })
+        SettingsToolRow({
+          label: settingLabel(KEY_NOTIFY_TURN_DONE),
+          description: '一轮回复结束时发系统通知（同一回合去重，不重复打扰）。',
+          isOn: this.notifyTurnDoneOn,
+          busy: this.notifyBusy || !this.notifyLoaded,
+          mono: false,
+          theme: this.theme,
+          names: [KEY_NOTIFY_TURN_DONE],
+          onToggle: (_names: string[], next: boolean) => {
+            void this.setNotifyPref(KEY_NOTIFY_TURN_DONE, next);
+          },
+        })
         SettingsToolRow({
           label: settingLabel(KEY_NOTIFY_DETAIL),
           description: '关闭后系统通知只提示「有回复/在等你」，不展示回复正文。',
@@ -231,8 +270,9 @@ export struct SettingsPanel {
           busy: this.notifyBusy || !this.notifyLoaded,
           mono: false,
           theme: this.theme,
+          names: [KEY_NOTIFY_DETAIL],
           onToggle: (_names: string[], next: boolean) => {
-            void this.setNotifyDetail(next);
+            void this.setNotifyPref(KEY_NOTIFY_DETAIL, next);
           },
         })
       }
@@ -241,9 +281,14 @@ export struct SettingsPanel {
       .backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))
       .borderRadius(RADIUS_CARD)
       .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .scrollBar(BarState.Auto)
+      .align(Alignment.Top)
     }
     .width('100%')
-    .height('100%')
+    .layoutWeight(1)
     .alignItems(HorizontalAlign.Start)
   }
 

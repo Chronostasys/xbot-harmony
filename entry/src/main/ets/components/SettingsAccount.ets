@@ -171,7 +171,7 @@ export struct SettingsAccount {
       Blank()
     }
     .width('100%')
-    .height('100%')
+    .layoutWeight(1)
     .alignItems(HorizontalAlign.Start)
     .padding({ left: SP_5, right: SP_5, top: SP_4, bottom: SP_4 })
   }

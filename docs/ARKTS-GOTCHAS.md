@@ -132,6 +132,15 @@ Column() { this.Inline(b.text) }
 **判定口径**：只有**页面根 / 定高容器**（如 `Column().height('100%')` 挂在页面根、被 `layoutWeight`
 分配的容器）里用 `height('100%')` 才是安全的。写之前先问："这个父容器的高度是确定的吗？"
 
+> **同族实例（2026-10-11 用户亲报「设置里很多窗口超过高度范围且滚动不下去」）**：设置分区面板
+> （`components/Settings*.ets`）是 `SettingsPanel` 根 `Column` 里 **Header / TabBar 的兄弟**，
+> 却把根容器写成 `height('100%')` ⇒ 拿到的是**父容器全高**（不是"剩余高度"）⇒ 面板被下推、
+> 底部溢出屏幕 ⇒ 面板内 `Scroll` 视口底边落在屏外，最底一屏（≈ Header+TabBar 高）**永远看不到**。
+> **正解 = 吃剩余高度 `layoutWeight(1)`**（对齐 web `flex-1 min-h-0`，以及 `Index.ets` 用
+> `Column().layoutWeight(1)` 包裹 `PluginHost` 的同款做法）。机器判据 = `tools/tests/vertical_scroll_height.test.ts`。
+> ⚠️ 姊妹形态：**裸 `Column` + `constraintSize({ maxHeight })` 只能"裁切"、不会滚** ——
+> 要可滚必须用 `Scroll`/`List` 承载（实例：`TodoPanel` 的待办清单，对齐 web `max-h-[240px] overflow-y-auto`）。
+
 ## 13. 自动"跟随到底部"必须由「用户是否在底部」门控
 
 **现象**：流式输出时用户往上滚想读工具/思考详情，界面**立刻把他拽回底部** —— 感知为"根本没法用"。

@@ -376,7 +376,10 @@ export struct TodoPanel {
 
         // ── 展开态：清单 ─────────────────────────────────────────────────────────
         if (this.expanded) {
-          Column() {
+          // ⛔ 可滚容器（web `TodoPullOut.tsx:126` = `max-h-[240px] overflow-y-auto`）：裸 `Column` +
+          //    `constraintSize(maxHeight)` 只能**裁切** ⇒ 超出的待办滚不下去（真机缺陷同族）。
+          Scroll() {
+            Column() {
             ForEach(this.todos, (t: TodoItem, i: number) => {
               TodoRowView({
                 label: todoText(t),
@@ -413,9 +416,12 @@ export struct TodoPanel {
           }
           .width('100%')
           .alignItems(HorizontalAlign.Start)
-          .constraintSize({ maxHeight: LIST_MAX_H })
           .padding({ left: SP_2, right: SP_2, top: 6, bottom: 6 })
           .border({ width: { top: STROKE_HAIRLINE }, color: hairlineOf(this.pal()) })
+          }
+          .width('100%')
+          .constraintSize({ maxHeight: LIST_MAX_H })
+          .scrollBar(BarState.Auto)
         }
       }
       .width('100%')
