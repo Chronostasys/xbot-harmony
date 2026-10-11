@@ -22,7 +22,7 @@ import {
   RPC_DELETE_WEB_USER, RPC_LIST_WEB_USERS, UsernameParams, WebUserRow, webUsersFrom, WebUsersData,
 } from '../core/settings';
 import { SettingsErrorBar, SettingsPanelHeader } from './SettingsRows';
-import { PRESS_OPACITY } from '../core/design';
+import { colorOf, PRESS_OPACITY } from '../core/design';
 
 /** `create_web_user` 的 data（服务端 `map[string]string{"password": ...}`）。 */
 interface CreatedUser {
@@ -257,9 +257,10 @@ export struct SettingsWebUsers {
       Row({ space: SP_2 }) {
         SymbolGlyph($r('sys.symbol.info_circle'))
           .fontSize(FS_CAPTION)
-          // ⛔ 图标**不许**直取 `textMuted`（porcelain 2.54:1 < 图标地板 3:1；判据 `role_surface_floor` 硬红）
-          // ⇒ 走专为图标设计的 `iconMuted`（porcelain 最低 4.34 ✓）。
-          .fontColor([this.pal().iconMuted])
+          // ⛔ 图标**不许**直取 `textMuted`（porcelain 2.17–2.54 < 图标地板 3:1；判据 `role_surface_floor` §B 硬红）
+          // ⇒ 走**图标专用计算型 role** `iconMuted`（浅色 = `textSecondary` 5.07 ✓；深色 = `textMuted` 逐字节）。
+          // ⚠️ `iconMuted` **不是** `Palette` 字段（`pal().iconMuted` 会 ArkTS 硬红 10505001）——唯一出口是 `colorOf`。
+          .fontColor([colorOf(this.pal(), 'iconMuted')])
         Text('删除账号不会强制登出已有会话（Cookie 保持有效直到过期）。移除访问 = 删除账号。')
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
