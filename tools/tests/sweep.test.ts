@@ -49,7 +49,8 @@ for (const t of LIGHT_THEMES) {
   eq(`${t}: 浅色 fade = glowSoft（textPrimary@10%）`, b.fade, e.glowSoft);
   eq(`${t}: 浅色 sheen = effects.sheen（中性）`, b.sheen, e.sheen);
   // 同口径交叉验证：浅色 glow === elev3（均 textPrimary@16%）、glowSoft === elev2（均 textPrimary@10%）
-  eq(`${t}: glow 与 elev3 同口径（textPrimary@16%）`, e.glow, e.elev3);
+  // ⚠️ E2：浅色 `glow` 改为**透明**（不出辉光）⇒ 与 elev3 的"同口径"不再成立。
+  eq(`${t}: 浅色 glow = 透明（不出辉光，E2）`, e.glow, p.transparent);
   // ⚠️ L3：elev2 @10%→@7%（分层交给 L2 白度差）⇒ 两者**不再同值**；改为"强弱序"不变量。
   eq(`${t}: 浅色柔影强弱序 elev2 < glowSoft`,
     parseInt(e.elev2.slice(1,3),16) < parseInt(e.glowSoft.slice(1,3),16), true);

@@ -173,10 +173,19 @@ export function darken(hex: string, t: number): string {
 export function contrastForeground(hex: string): string {
   const rgb: number[] | null = parseHex(hex);
   if (rgb === null) { return '#FFFFFF'; }
-  // 感知亮度（ITU-R BT.601）
-  const lum: number = (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000;
-  return lum > 150 ? '#0B0B0E' : '#FFFFFF';
+  // ⛔ **不再用 BT.601 的 `lum > 150` 二值阈值**（2026-10-11 实测：它**不保证 AA** —— 强调色叠加后
+  //    `onAccent` 压 `accent` 有 **15 组**只有 **3.5–3.9**，例 `porcelain + #3388BB = 3.90`：
+  //    因 BT.601 亮度与实际对比度非线性，阈值附近会选错候选）。
+  // ⇒ 改为**在"深/浅两候选"中取对比度更高者**：口径 = WCAG 相对亮度（由 `contrastRatio` 实现，
+  //    与全仓对比度判据**同源**），数学上**必然是两候选里的最优解**，且随 accent **连续**、无阈值跳变。
+  // ⚠️ 候选与旧实现**同值**（`#0B0B0E` / `#FFFFFF`）⇒ 不是新造色值；只改"怎么选"。
+  return contrastRatio(hex, FOREGROUND_CANDIDATE_DARK) >= contrastRatio(hex, '#FFFFFF')
+    ? FOREGROUND_CANDIDATE_DARK
+    : '#FFFFFF';
 }
+
+/** 前景候选（深/浅）——与旧 `contrastForeground` 的返回值**同值**，仅显式具名。 */
+const FOREGROUND_CANDIDATE_DARK: string = '#0B0B0E';
 
 /**
  * 把强调色套到色板上：**只覆盖 accent 家族**，其余角色原样返回。
@@ -778,14 +787,19 @@ function buildEffects(p: Palette): Effects {
     //    ⇒ 光球在纯白上的外光晕同步变淡（@10%→@7%）；契约已按新值更新（`orb_porcelain_motion.test.ts`）。
     e.elev2 = alphaHex(p.textPrimary, 0.07);
     e.elev3 = alphaHex(p.textPrimary, 0.16);
-    // ── 发光：浅底**没有**"加色发光"这回事（加色光压在纯白上物理上不可见）⇒────────────────
-    // 源色 `accent@45%/22%` 在白底上读成**彩色脏光晕**（`docs/PORCELAIN-AUDIT.md` §2 的单一根因：
-    // `glow`/`glowSoft` 此前**不分深浅**，6 个调用点直取其值 ⇒ 登录页/空态出现蓝色光斑）。
-    // ⇒ 浅色落成**中性柔影**，与 `elev3`/`elev2` 同族（`textPrimary@16% / @10%`）：
-    //   · 强弱序保持（glow 强于 glowSoft，与深色 45% > 22% 同向）；
-    //   · 与既有语义出口**同源**：`inflightHaloOf` 的浅色档就是 `elev2`（同一"中性柔影"口径）。
-    // 深色分支**逐字节不变**（见下），单点修复 ⇒ 6 个调用点无需改代码即变干净。
-    e.glow = alphaHex(p.textPrimary, 0.16);
+    // ── 发光（E2，2026-10-11）：浅色系**不出辉光** ⇒ `glow` 透明（短路）────────────────────
+    // 判据（「辉光能不能被读成光」）= **① 中心对底 ≥1.5:1 且 ② 含色彩语义（chroma > 0）**。
+    // 实测：浅色旧值 `textPrimary@16%` 合成后对底 **1.383:1（porcelain）/1.394（light）**、**chroma = 0**
+    // ⇒ **两条都不满足** ⇒ 不是"光"，是"脏灰团"（深色 = `accent` 紫 1.771、chroma > 0 ✅）。
+    // 备选（已实测否掉）：浅色改 `accent@16%` 只有 1.238、`@10%` 1.14，要到 ≥24% 才够 1.5 ⇒ 变"脏彩"。
+    // ⇒ **浅色一律不出**（`glow = p.transparent`）；层次由**发丝/白度差/柔影(§13)** 负责 ——
+    //   星形图案 + 文案本身已足够表达空态。
+    // ⚠️ 调用点影响（`pages/Index.ets`，**归 main agent**，本波只改 theme 侧口径）：
+    //    `:3176/:3191/:3283/:3949` 把 glow 当**投影**用 ⇒ 浅色下会变成"无投影"（透明的 shadow）。
+    //    若要保留浅色柔影，请把那几处改走 `elevationColorOf(p, …)`（`elev*` 是**正确的**投影档）。
+    e.glow = p.transparent;
+    // ⚠️ `glowSoft` **本波不动**（V6 冻结：等用户真机截图定夺"灰团"是否要调）——它同样零 chroma，
+    //    若定夺采纳，同法改透明（或并入本判据）。
     e.glowSoft = alphaHex(p.textPrimary, 0.10);
   } else {
     // 深色玻璃：**逐字节不变**（原公共段的值搬进本臂，浅色臂另给档 —— 见上 L4 注释）。

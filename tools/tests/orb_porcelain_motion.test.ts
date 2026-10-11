@@ -70,7 +70,9 @@ console.log(`     effectsOf.elev2 = ${effectsOf(P).elev2}    effectsOf.glow = ${
 // 光球外光晕 = `inflightHaloOf`（`core/design.ets:511`）：浅色 ⇒ elev2、深色 ⇒ glow。
 // ⚠️ L3：elev2 @10%→@7%（浅色柔影更克制，分层交给 L2 白度差）⇒ 浅色光球外光晕同步变淡。
 eq('porcelain 光晕 = 中性柔影 elev2 = #121D1D1F（textPrimary@7%）', inflightHaloOf(P), '#121D1D1F');
-eq('porcelain glow = 中性柔影 elev3 = #291D1D1F（▲ 浅色禁彩色发光）', effectsOf(P).glow, '#291D1D1F');
+// ⚠️ E2（2026-10-11）：浅色**不出辉光** ⇒ `glow` 透明（判据：<1.5:1 且零 chroma = 脏灰团）。
+//    深色仍为 `accent@45%`（逐字节，见下）。
+eq('porcelain glow = 透明（▲ 浅色不出辉光，E2）', effectsOf(P).glow, paletteOf('porcelain').transparent);
 // `glowSoft` 本身**未动**（仍 @10%）；L3 只把 `elev2` 降到 @7% ⇒ 两者不再是同一个值（见下方排序不变量）。
 eq('porcelain glowSoft = 中性柔影 #1A1D1D1F（textPrimary@10%，▲ 浅色禁彩色发光）', effectsOf(P).glowSoft, '#1A1D1D1F');
 ok('porcelain 光晕 ≠ glow（零彩色发光）', inflightHaloOf(P) !== effectsOf(P).glow);
@@ -101,12 +103,13 @@ for (let i = 0; i < ALL_THEMES.length; i++) {
   const e = effectsOf(p);
   const accentUpper: string = p.accent.slice(1).toUpperCase();
   if (isLightPalette(p)) {
-    eq(`${t}: 浅色 glow = 中性柔影 elev3（非彩色发光）`, e.glow, e.elev3);
-    // L3 后 `elev2(@7%) < glowSoft(@10%) <= glow === elev3(@16%)`：仍是**秩序**（同族中性、更强档更大）
-    ok(`${t}: 浅色柔影**强弱序** elev2 < glowSoft <= glow === elev3`,
-      parseAlpha(e.elev2) < parseAlpha(e.glowSoft) && parseAlpha(e.glowSoft) <= parseAlpha(e.glow)
-        && e.glow === e.elev3);
-    ok(`${t}: 浅色 glow ≠ accent@45%（无色相残留）`, e.glow !== `#73${accentUpper}`);
+    // E2：浅色 `glow` = **透明**（不出辉光）。判据见 `docs/DESIGN-SYSTEM.md` 的 effects 表：
+    // 辉光要被读成"光"须 ①中心对底 ≥1.5:1 且 ②chroma > 0 —— 浅色旧值两条都不满足。
+    eq(`${t}: 浅色 glow = 透明（不出辉光，E2）`, e.glow, p.transparent);
+    // L3：`elev2(@7%) < glowSoft(@10%)` 仍是**强弱序**（同族中性、更强档更大）
+    ok(`${t}: 浅色柔影**强弱序** elev2 < glowSoft`,
+      parseAlpha(e.elev2) < parseAlpha(e.glowSoft));
+    ok(`${t}: 浅色 glow 不含 accent 色相（透明 ≠ accent@45%）`, e.glow !== `#73${accentUpper}`);
     ok(`${t}: 浅色 glowSoft ≠ accent@22%（无色相残留）`, e.glowSoft !== `#38${accentUpper}`);
   } else {
     eq(`${t}: 深色 glow = accent@45%（逐字节不变）`, e.glow, `#73${accentUpper}`);
