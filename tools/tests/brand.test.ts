@@ -287,6 +287,13 @@ const ON_ACCENT = brandOnAccent();
   ok('前景：气泡 + 星芒两条 path', (fg.match(/<path /g) || []).length === 2);
   ok('前景：无底色 rect（透明底，底色来自 background 层）', fg.indexOf('<rect') < 0);
   eq('前景幂等', layeredForegroundSvg(ACCENT, ON_ACCENT), fg);
+  // ⛔ 分层可见性硬判据（真机事故回填）：前景气泡**不得**与背景层同色 ——
+  // 背景层是满幅 `accent`；前景气泡若也取 `accent` ⇒ 桌面上气泡隐形，只剩星芒（品牌标记丢失）。
+  const fgFills: string[] = fg.match(/fill="[^"]*"/g) || [];
+  eq('前景恰好两个色（气泡 + 星芒）', fgFills.length, 2);
+  eq('前景气泡 = 反色（与 appIconSvg glyph 层一致）', fgFills[0], `fill="${ON_ACCENT}"`);
+  eq('前景星芒 = 主色', fgFills[1], `fill="${ACCENT}"`);
+  ok('前景气泡色 ≠ 背景层色（否则桌面图标上气泡隐形）', fgFills[0] !== `fill="${ACCENT}"`);
   const bg: string = layeredBackgroundSvg(ACCENT);
   ok('背景：满幅色底 rect', bg.indexOf('<rect x="0" y="0" width="1024" height="1024"') >= 0);
   eq('背景只出现主色', (bg.match(/#[0-9A-Fa-f]{6}/g) || []), [ACCENT]);

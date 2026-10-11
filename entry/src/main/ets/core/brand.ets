@@ -430,8 +430,12 @@ function scaleStr(v: number): string {
 }
 
 /**
- * 分层图标**前景** SVG：品牌色 glyph 缩进到 313 安全区内（绕画布中心等比缩放）。
+ * 分层图标**前景** SVG：glyph 缩进到 313 安全区内（绕画布中心等比缩放）。
  * 配 `layeredBackgroundSvg()` 的满幅色底使用（分层图标 = 前景 + 背景两层，见 `docs/BRAND.md §9`）。
+ *
+ * ⛔ **气泡必须取反色 `onAccent`，不能取 `accent`**：背景层是满幅 `accent`，前景气泡若同为
+ * `accent` ⇒ 桌面上**气泡与底同色、完全隐形**（真机事故：图标只剩「紫方 + 白星芒」，品牌标记丢失）。
+ * 取色与 `appIconSvg()` 的 glyph 层**逐字一致**（底 `accent` / 气泡 `onAccent` / 星芒 `accent`）。
  */
 export function layeredForegroundSvg(accent: string, onAccent: string): string {
   const c: number = BRAND_CANVAS / 2;
@@ -440,8 +444,8 @@ export function layeredForegroundSvg(accent: string, onAccent: string): string {
     SVG_HEAD,
     `<svg xmlns="http://www.w3.org/2000/svg" width="${APP_ICON_PX}" height="${APP_ICON_PX}" viewBox="0 0 ${BRAND_CANVAS} ${BRAND_CANVAS}">`,
     `  <g transform="translate(${c} ${c}) scale(${s}) translate(-${c} -${c})">`,
-    `    <path fill="${accent}" d="${bubblePath()}"/>`,
-    `    <path fill="${onAccent}" d="${starPath()}"/>`,
+    `    <path fill="${onAccent}" d="${bubblePath()}"/>`,
+    `    <path fill="${accent}" d="${starPath()}"/>`,
     '  </g>',
     '</svg>',
     '',
