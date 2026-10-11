@@ -12,8 +12,8 @@
  *    之后每次发通知只是 `request.smallIcon = memo`（`core/notify.ets` 的装饰钩子）。
  * 3. **失败静默回落**：svg 解不出 ⇒ 退 `start_icon.png`；两者都不可用 ⇒ `memo` 保持 `null`
  *    ⇒ 装饰器什么都不做 ⇒ 通知回落**系统默认图标**。⛔ 任何情况下不得抛（发通知是主链路的旁路）。
- * 4. ⚠️ **`brand_mark_outline.svg` 能否被 `createImageSource` 吃，未经真机验证**：
- *    故写了 PNG 回退；两者都没成功时 `hilog` 会留一行证据（真机可据此判"到底解出来没有"）。
+ * 4. ✅ 主选 = **PNG 位图**（`brand_mark_128.png`，SDK 推荐 128×128，`createImageSource` 吃位图无争议）；
+ * ⚠️ 兜底 = SVG（`brand_mark_outline.svg`，**能否被解出仍无证据**）。两者都失败 ⇒ 不装饰 + 留 hilog 证据。
  */
 import { image } from '@kit.ImageKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -52,10 +52,16 @@ export async function installNotifyIcon(ctx: common.Context): Promise<void> {
     return;
   }
   tried = true;
-  memo = await decodeMedia(ctx, $r('app.media.brand_mark_outline'));
+  // ⛔ 顺序：**PNG 优先 → SVG 备选**（2026-10-11 授权翻转，理由三条）：
+  //   ① `createImageSource` 能否吃 SVG **无任何证据**（不该把无证据的形态放关键路径）；
+  //   ② SDK 对通知图标**明确推荐 128×128 位图**（`notificationRequest.d.ts:303-310`）；
+  //   ③ 状态栏小尺寸下矢量收益 ≈ 0。
+  //    资产来源链：`core/brand.ets` → `tools/brand/gen.sh` → `start_icon.png`(512) → 128×128 ⇒
+  //    `brand_mark_128.png`（128×128、透明底、品牌紫 `#7C5CFF` + 白星芒；见 `docs/BRAND.md §6.4.1`）。
+  memo = await decodeMedia(ctx, $r('app.media.brand_mark_128'));
   if (memo === null) {
-    hilog.info(DOMAIN, TAG, 'svg 解不出 ⇒ 回退 start_icon.png');
-    memo = await decodeMedia(ctx, $r('app.media.start_icon'));
+    hilog.info(DOMAIN, TAG, 'PNG(brand_mark_128) 解不出 ⇒ 回退 brand_mark_outline.svg（无证据形态，仅兜底）');
+    memo = await decodeMedia(ctx, $r('app.media.brand_mark_outline'));
   }
   if (memo === null) {
     // ⛔ 两个都不行 ⇒ **不装饰**（回落系统默认图标）。真机据此行判"到底解出来没有"。

@@ -46,8 +46,9 @@ ok('⛔ 装饰器回调体内**不含**解码（否则每次发通知都解码�
 ok('回调只做赋值 req.smallIcon = memo', cbBody.indexOf('req.smallIcon = memo;') >= 0);
 
 // ③ 回退链 + 静默
-ok('svg 先试（brand_mark_outline）', iconSrc.indexOf("$r('app.media.brand_mark_outline')") >= 0);
-ok('PNG 回退（start_icon）', iconSrc.indexOf("$r('app.media.start_icon')") >= 0);
+ok('⛔ 主选 = PNG 位图（brand_mark_128；SDK 推荐 128×128）', iconSrc.indexOf("$r('app.media.brand_mark_128')") >= 0);
+ok('⛔ PNG 必须在 SVG **之前**（翻转后的期望顺序）', (() => { const a = iconSrc.indexOf("$r('app.media.brand_mark_128')"); const b = iconSrc.indexOf("$r('app.media.brand_mark_outline')"); return a >= 0 && b >= 0 && a < b; })());
+ok('SVG 作为兜底仍在位', iconSrc.indexOf("$r('app.media.brand_mark_outline')") >= 0);
 ok('两路都失败 ⇒ 不装饰并留证据日志', iconSrc.indexOf('不设 smallIcon') >= 0);
 ok('cast 在 ArkTS 侧（request as NotificationRequest）',
   iconSrc.indexOf('as notificationManager.NotificationRequest') >= 0);
