@@ -1120,6 +1120,7 @@ export struct SettingsLlm {
                     .border({ width: 1, color: this.pal().borderStrong })
                     .opacity(this.inferenceBusy || this.concurrency <= LLM_CONCURRENCY_MIN ? 0.4 : 1)
                     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+                    .accessibilityText('减少并发数')
                     .onClick(() => {
                       if (!this.inferenceBusy && this.concurrency > LLM_CONCURRENCY_MIN) {
                         void this.commitConcurrency(concurrencyStep(this.concurrency, -1));
@@ -1140,6 +1141,7 @@ export struct SettingsLlm {
                     .border({ width: 1, color: this.pal().borderStrong })
                     .opacity(this.inferenceBusy || this.concurrency >= LLM_CONCURRENCY_MAX ? 0.4 : 1)
                     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+                    .accessibilityText('增加并发数')
                     .onClick(() => {
                       if (!this.inferenceBusy && this.concurrency < LLM_CONCURRENCY_MAX) {
                         void this.commitConcurrency(concurrencyStep(this.concurrency, 1));

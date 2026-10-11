@@ -128,6 +128,7 @@ export struct AskUserSheet {
         //    `SelfCheckSheet` 的关闭 X 同款）。此前误用 `DISABLED_OPACITY`(0.4，= **禁用态**语义)
         //    当按压值 ⇒ 本弹层 X 的按压比其它弹层深一档（不一致）。
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('关闭')
         .onClick(() => {
           this.onClose();
         })

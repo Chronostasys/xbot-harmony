@@ -3498,6 +3498,7 @@ struct Index {
           Row() {
             Text('插件').fontSize(typeOf('type.headline').size).fontWeight(typeOf('type.headline').weight).fontColor(this.pal().textPrimary).layoutWeight(1)
             SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(SPACE_XS)
+              .accessibilityText('关闭')
               .onClick(() => {
                 this.showPluginHost = false;
                 this.pluginPageUrl = '';
@@ -3800,6 +3801,7 @@ struct Index {
           .padding(SPACE_SM)
           .borderRadius(RADIUS_CHIP)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .accessibilityText('打开侧栏')
           .onClick(() => {
             this.openDrawer();
           })
@@ -4217,6 +4219,7 @@ struct Index {
                   Row().width(6).height(6).borderRadius(6 / 2).backgroundColor(this.pal().successText)
                 }
                 SymbolGlyph($r('sys.symbol.xmark')).fontSize(11).fontColor([colorOf(this.pal(), 'iconMuted')])
+                  .accessibilityText('关闭标签页')
                   .onClick(() => {
                     this.closeTab(cid);
                   })
@@ -4344,12 +4347,14 @@ struct Index {
         SymbolGlyph($r('sys.symbol.paperclip')).fontSize(22).fontColor([this.pal().textSecondary])
           .padding({ left: SP_3, right: SP_1, top: SP_2, bottom: SP_2 })
           .stateStyles({ pressed: { .opacity(0.5) }, normal: { .opacity(1) } })
+          .accessibilityText('添加附件')
           .onClick(() => {
             this.pickFiles();
           })
         SymbolGlyph($r('sys.symbol.picture')).fontSize(22).fontColor([this.pal().textSecondary])
           .padding({ left: SP_1, right: SP_1, top: SP_2, bottom: SP_2 })
           .stateStyles({ pressed: { .opacity(0.5) }, normal: { .opacity(1) } })
+          .accessibilityText('添加图片')
           .onClick(() => {
             this.pickImages();
           })
@@ -4422,6 +4427,7 @@ struct Index {
         .backgroundColor(this.runningNow() ? this.pal().surfaceHi : this.pal().accent)
         .shadow({ radius: this.runningNow() ? 0 : shadowRadiusOf(this.pal(), 'pill'), color: this.runningNow() ? this.pal().transparent : shadowColorOf(this.pal(), 'raised'), offsetX: 0, offsetY: 0 })
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY).scale({ x: PRESS_SCALE, y: PRESS_SCALE }) }, normal: { .opacity(1).scale({ x: 1, y: 1 }) } })
+        .accessibilityText(this.runningNow() ? '停止' : '发送')
         .onClick(() => {
           if (this.runningNow()) {
             this.store?.cancel();
@@ -6058,6 +6064,7 @@ struct Index {
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('关闭')
         .onClick(() => {
           this.closeNewSession();
         })
@@ -6111,6 +6118,7 @@ struct Index {
               .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
               .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
               .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .accessibilityText('删除')
               .onClick(() => {
                 this.removeRecentDir(path);
               })
@@ -6179,6 +6187,7 @@ struct Index {
           this.refreshPanel();
         })
         SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(SPACE_XS)
+        .accessibilityText('关闭')
 .onClick(() => {
           this.showPanels = false;
         })
@@ -6209,7 +6218,7 @@ struct Index {
                   Text(cronLine(job)).fontSize(typeOf('type.caption').size).fontColor(this.pal().textPrimary).layoutWeight(1)
                     .maxLines(2).wordBreak(WordBreak.BREAK_ALL)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  SymbolGlyph($r('sys.symbol.xmark')).fontSize(13).fontColor([this.pal().dangerText]).padding(6).onClick(() => {
+                  SymbolGlyph($r('sys.symbol.xmark')).fontSize(13).fontColor([this.pal().dangerText]).padding(6).accessibilityText('删除').onClick(() => {
                     this.removeCron(job.id !== undefined ? job.id : '');
                   })
                 }.width('100%').padding(SPACE_XS).backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
@@ -6525,6 +6534,7 @@ struct Index {
         .justifyContent(FlexAlign.Center)
         .alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('关闭')
         .onClick(() => {
           this.showDrawer = false;
           this.renamingId = '';
@@ -6849,6 +6859,7 @@ struct Index {
                             .fontColor([this.isStarredChat(s.chat_id) ? this.pal().accent : this.pal().textSecondary])
                             .padding(SPACE_XS)
                             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+                            .accessibilityText(this.isStarredChat(s.chat_id) ? '取消标星' : '标星')
                             .onClick(() => {
                               this.toggleStarChat(s.chat_id);
                             })
@@ -6862,6 +6873,7 @@ struct Index {
                             .fontColor(s.chat_id === this.currentChat ? this.pal().textPrimary : this.pal().textSecondary)
                             .padding(SPACE_XS)
                             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+                            .accessibilityText('更多操作')
                             .onClick(() => {
                               this.anim(() => {
                                 this.sessMenuId = s.chat_id;
@@ -7002,6 +7014,7 @@ struct Index {
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center)
         .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+        .accessibilityText('关闭')
         .onClick(() => {
           this.showModel = false;
         })

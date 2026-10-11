@@ -324,6 +324,7 @@ export struct SettingsAppearance {
           color: this.accentHex().toUpperCase() === hex ? this.pal().textPrimary : hairlineOf(this.pal()),
         })
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('强调色 ' + hex)
         .onClick(() => {
           this.onSetSetting(KEY_ACCENT, hex);
         })
@@ -340,6 +341,7 @@ export struct SettingsAppearance {
       .backgroundColor(this.pal().surfaceAlt)
       .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+      .accessibilityText('跟随主题')
       .onClick(() => {
         this.onSetSetting(KEY_ACCENT, '');
       })

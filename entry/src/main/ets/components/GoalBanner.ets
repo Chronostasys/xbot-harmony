@@ -206,6 +206,7 @@ export struct GoalBanner {
             }
             .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+            .accessibilityText('编辑目标')
             .onClick(() => {
               this.draft = this.objective;
               this.editing = true;
@@ -223,6 +224,7 @@ export struct GoalBanner {
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
           .margin({ left: SPACE_XS })
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .accessibilityText('清除目标')
           .onClick(() => {
             this.onClearGoal();
           })

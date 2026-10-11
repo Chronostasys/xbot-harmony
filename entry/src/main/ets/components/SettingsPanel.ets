@@ -316,6 +316,7 @@ export struct SettingsPanel {
         .fontColor([this.pal().textSecondary])
         .padding(SPACE_MD)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('关闭')
         .onClick(() => {
           this.onClose();
         })

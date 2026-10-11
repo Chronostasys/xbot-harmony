@@ -288,6 +288,7 @@ export struct WebSurface {
             .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
             .justifyContent(FlexAlign.Center)
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+            .accessibilityText('返回')
             .onClick(() => {
               this.onClose();
             })
@@ -310,6 +311,7 @@ export struct WebSurface {
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .accessibilityText('刷新')
           .onClick(() => {
             this.refresh();
           })

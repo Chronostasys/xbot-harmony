@@ -114,6 +114,7 @@ export struct PluginsSheet {
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('关闭')
         .onClick(() => {
           this.onClose();
         })

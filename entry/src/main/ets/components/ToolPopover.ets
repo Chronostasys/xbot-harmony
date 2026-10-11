@@ -246,6 +246,7 @@ export struct ToolPopoverCard {
       }
       .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+      .accessibilityText('复制')
       .onClick(() => {
         this.onCopy(body, what);
       })

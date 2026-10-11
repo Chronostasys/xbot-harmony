@@ -137,6 +137,7 @@ struct TodoRowView {
           .fontColor([this.iconColor()])
       }
       .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
+      .accessibilityText(this.struck() ? '标记未完成' : '标记完成')
       .onClick(() => {
         this.onToggle();
       })
@@ -207,6 +208,7 @@ struct TodoRowView {
             .fontColor([this.pal().textSecondary])
         }
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
+        .accessibilityText('更多操作')
         .onClick(() => {
           this.menuOpen = !this.menuOpen;
         })
@@ -383,6 +385,7 @@ export struct TodoPanel {
             }
             .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+            .accessibilityText('设为目标')
             .onClick(() => {
               this.onSetGoal();
             })

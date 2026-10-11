@@ -73,6 +73,7 @@ export struct QueueSheet {
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('关闭')
         .onClick(() => {
           this.onClose();
         })
@@ -112,6 +113,7 @@ export struct QueueSheet {
               }
               .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
               .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .accessibilityText('上移')
               .onClick(() => {
                 this.onMove(this.idOf(q), -1);
               })
@@ -120,6 +122,7 @@ export struct QueueSheet {
               }
               .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
               .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .accessibilityText('下移')
               .onClick(() => {
                 this.onMove(this.idOf(q), 1);
               })
@@ -137,6 +140,7 @@ export struct QueueSheet {
               }
               .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
               .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .accessibilityText('取消排队')
               .onClick(() => {
                 this.onCancel(this.idOf(q));
               })

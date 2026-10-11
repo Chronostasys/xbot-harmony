@@ -347,6 +347,7 @@ export struct MessageNav {
           .opacity(1)
         },
       })
+      .accessibilityText('消息目录')
       .onClick(() => {
         this.open = !this.open;
       })
