@@ -189,6 +189,32 @@ bash tools/brand/gen.sh --check    # 只校验：与已提交资源逐字节比�
 bash tools/brand/gen.sh --proofs /tmp/xbot-brand-proofs   # 另出浅/深开屏底色的 proof PNG（人工走查）
 ```
 
+#### 6.4.1 通知小图标用的 **128×128 PNG 变体**（`brand_mark_128.png`）
+
+**为什么**：`NotificationRequest.smallIcon?: image.PixelMap` 要的是**解码后的位图**，且 SDK 对图标推荐
+**128×128**；`workreconcile/icons.ets`（orb-ux）此前**优先**解 `brand_mark_outline.svg`，而
+"`createImageSource` 能不能吃 SVG"**未经任何验证** ⇒ 需要一份**保证可解码**、尺寸合规的 PNG 变体。
+
+**资产**：`entry/src/main/resources/base/media/brand_mark_128.png`（**128×128、透明底、品牌紫
+`#7C5CFF` 气泡 + 白星芒**；实测不透明像素 3744/3938 ≈ 95% 为品牌紫，与 `start_icon.png` 同形）。
+
+**再生成（可复现，一行）**：
+```bash
+sips -z 128 128 entry/src/main/resources/base/media/start_icon.png \
+     --out entry/src/main/resources/base/media/brand_mark_128.png
+# 核验：尺寸 + 紫色仍在（纯 stdlib 探针）
+sips -g pixelWidth -g pixelHeight entry/src/main/resources/base/media/brand_mark_128.png
+python3 tools/brand/png_probe.py entry/src/main/resources/base/media/brand_mark_128.png --bbox-nontransparent
+```
+- **来源链**：`core/brand.ets`（几何/配色）→ `tools/brand/gen.sh` → `start_icon.png`（512×512）
+  → `sips -z 128 128` → `brand_mark_128.png`。⇒ 任一环改了就**重跑这条**（`start_icon.png` 变了，本变体也得重出）。
+- ⛔ **不改既有 SVG**（`brand_mark_outline.svg` / `brand_foreground.svg` / `brand_background.svg`）：
+  它们是 §6.4 的产物与规格，本变体是**派生物**。
+- ⚠️ **尚未并入 `tools/brand/gen.sh`**（该脚本归品牌资产维护者）⇒ 目前靠上面这条命令手工复现；
+  若并入，`gen.sh --check` 的 drift 门禁应把它一并纳入。
+- **消费方优先级（结论）**：`icons.ets` 应**优先 PNG**（保证可解码 + 尺寸合规）、**SVG 降为备选/增强** ——
+  理由见回报（SVG 解码路径**无证据**，不该在关键路径上）。
+
 - **可重复性**：生成器只从 `core/brand.ets`（+ `theme.ets` 取 token）产出；`sips` 栅格化已实测**确定性**
   （同输入两次跑出的 PNG `shasum` 完全一致）⇒ `--check` 三次全部"一致"。
 - **改样式**：改 `core/brand.ets` 的常量（如 `STAR_R` / `TAIL_TIP_ROUND`）→ 跑 gen.sh → 跑
