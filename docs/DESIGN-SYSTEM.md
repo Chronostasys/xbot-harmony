@@ -606,6 +606,18 @@ colorOf(p, 'text.pillName')   // ← docs/REDESIGN-INPUT-*.md 与 docs/mockups/*
 
 ### 13.2 四处落点（面 / `file:line` / 改前 → 改后 / 判据）
 
+> ✅ **L2/L3/L4 已落地**（2026-10-11，`core/theme.ets` 由 tokens-ux 交出后）。**实测改前→改后**：
+> · **L2**：porcelain `appBg #FFFFFF → #F7F7F8`；`contrastRatio(surface, appBg)` **1.0000 → 1.0706**（≥1.03 ✓）；
+>   `hairline` 由 `border` 按 `HAIRLINE_TARGET_RATIO` **派生**⇒自动压深 `#DFDFE1 → #D8D8DA`（**1.3294 ≥ 1.3201**，
+>   结构边界**未被削弱** —— 这是 L2 安全的证据）；四阶文字全部复核达标（`theme_contrast` 617/0）。
+> · **L3**：浅色 `elev2` `textPrimary@10% → @7%`（`#1A1D1D1F → #121D1D1F`）；**副作用已知并接受**：
+>   `elev2` 同时是浅色 `inflightHaloOf`（光球外光晕）与「`glowSoft` 的同族参照」⇒ 契约改为**强弱序**
+>   `elev2(@7%) < glowSoft(@10%) ≤ glow === elev3(@16%)`（原"同值"断言按新值更新）。
+> · **L4**：浅色 `glassBg @62% → @80%`（`#9E… → #CC…`）、`glassBorder @55% → @70%`；**深色臂逐字节不变**
+>   （原公共段的值搬进 `else` 臂，`dark/aurora/nebula` 三条快照未动）。
+> · **L2 的连锁（正确）**：porcelain `surface≠appBg` 后，历史那条"玻璃基色切换为 `surfaceAlt`"**不再必要**
+>   ⇒ `glassBase` 自动回到 `surface`（纯白玻璃压淡灰画布 = 更清楚）。
+
 | # | 面 | 落点 | 改前（浅色实测） | 改后（浅色目标） | 判据（可量化） |
 |---|---|---|---|---|---|
 | L1 | **面-to-面的结构性分隔**（卡片轮廓 / 分区边界） | `components/SettingsRows.ets:540` 等卡片边界（本波已落 **`structuralRuleOf`**，见 §13.4） | `hairline` = `#DFDFE1`，对画布 **1.3308:1** | `borderStrong` = `#D8D8DC`，对画布 **≈1.45:1** ⇒ 卡片轮廓在纯白上"看得见" | 分隔色对相邻底的对比 ≥ **1.32**（`HAIRLINE_TARGET_RATIO`，web 基线）且**卡轮廓 > 内行分隔**（层级差 ≥ 一个档） |

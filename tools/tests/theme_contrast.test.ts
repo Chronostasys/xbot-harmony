@@ -532,11 +532,14 @@ for (let i = 0; i < LIGHT_FAMILY.length; i++) {
 // 旧值的实测（把这些数字钉住 ⇒ 若哪天有人"顺手"把 border 调亮，本段立刻红）
 eq('light 旧 border 可见度（1.1783，弱于 web 基线）',
   contrastRatio(paletteOf('light').border, paletteOf('light').appBg).toFixed(4), '1.1783');
-eq('porcelain 旧 border 可见度（1.1798，弱于 web 基线）',
-  contrastRatio(paletteOf('porcelain').border, paletteOf('porcelain').appBg).toFixed(4), '1.1798');
+// ⚠️ 快照随 L2 更新（appBg #FFFFFF→#F7F7F8 ⇒ 分母变灰、比值下降；border 本身**没动**）
+eq('porcelain 旧 border 可见度（1.1020，弱于 web 基线）',
+  contrastRatio(paletteOf('porcelain').border, paletteOf('porcelain').appBg).toFixed(4), '1.1020');
 // 浅色系 hairline 的**快照**（推导结果必须可见、可复核；换了推导规则就会红）
 eq('light hairline 快照', surfacesOf(paletteOf('light')).hairline, '#D5DBE2');
-eq('porcelain hairline 快照（中性无色相偏移）', surfacesOf(paletteOf('porcelain')).hairline, '#DFDFE1');
+// ⚠️ 快照随 L2 更新：`hairline` 由 `border` 按 `HAIRLINE_TARGET_RATIO` **派生**（分母变灰 ⇒ 自动压深一档），
+//    实测仍 **1.3294 ≥ 1.3201** ⇒ 结构性边界**没有被削弱**（这是 L2 安全的证据）。
+eq('porcelain hairline 快照（中性无色相偏移）', surfacesOf(paletteOf('porcelain')).hairline, '#D8D8DA');
 
 // ── E4 `sunken`：与"旧的 elev1 当底色"**逐字节等价** ─────────────────────────
 // 等价性构造在 `theme.ets` 里（共用 `legacyElev1Of`）；这里独立复算一遍：
@@ -586,11 +589,18 @@ for (let ti = 0; ti < ALL_THEMES.length; ti++) {
 eq('dark glassBg 逐字节不变', effectsOf(paletteOf('dark')).glassBg, '#9E0E0E14');
 eq('aurora glassBg 逐字节不变', effectsOf(paletteOf('aurora')).glassBg, '#9E0B1424');
 eq('nebula glassBg 逐字节不变', effectsOf(paletteOf('nebula')).glassBg, '#9E0F0A1E');
-eq('light glassBg 逐字节不变（surface≠appBg ⇒ 无需切换）', effectsOf(paletteOf('light')).glassBg, '#9EFFFFFF');
-eq('porcelain 玻璃基色切换为次级面 surfaceAlt', surfacesOf(paletteOf('porcelain')).glassBase, '#F6F6F7');
-eq('porcelain glassBg 由恒白变为次级面', effectsOf(paletteOf('porcelain')).glassBg, '#9EF6F6F7');
-ok('porcelain 玻璃底不再恒等（1.0000 → 真有差异）',
-  contrastRatio(compositeOver(effectsOf(paletteOf('porcelain')).glassBg, '#FFFFFF'), '#FFFFFF') > 1.0);
+// ⚠️ L4：浅色玻璃不透明度 0.62→0.80（**所有浅色族**：磨砂白更实、边界更明确）⇒ 快照更新。
+//    基色链（`glassBase`）**未动**（light 仍 = surface）。
+//    深色族仍逐字节（见上 dark/aurora/nebula 三条）。
+eq('light glassBg = surface 白 @80%（L4 浅色玻璃更实）', effectsOf(paletteOf('light')).glassBg, '#CCFFFFFF');
+// ⚠️ L2 后 porcelain 的 `surface(#FFFFFF) ≠ appBg(#F7F7F8)` ⇒ 历史那条"玻璃基色切换"**不再必要**
+//    （它的存在前提就是"porcelain 玻璃恒等不可见"）⇒ 基色自动回到 `surface` = 纯白（白玻璃压淡灰画布）。
+eq('porcelain 玻璃基色 = surface（L2 后无需切换，白玻璃压淡灰画布）', surfacesOf(paletteOf('porcelain')).glassBase, '#FFFFFF');
+eq('porcelain glassBg = 白 @80%（L4 + L2 基色回 surface）', effectsOf(paletteOf('porcelain')).glassBg, '#CCFFFFFF');
+// L2 后玻璃 = 白@80% 压**淡灰画布** ⇒ 差异来自"玻璃 vs 画布"（不是"玻璃自身带灰"）
+ok('porcelain 玻璃底与画布有可辨差异（白玻璃压淡灰画布）',
+  contrastRatio(compositeOver(effectsOf(paletteOf('porcelain')).glassBg, paletteOf('porcelain').appBg),
+    paletteOf('porcelain').appBg) > 1.0);
 
 // ════════════════════════════════════════════════════════════════════════════
 // §F 文字层级与余量不变量（波5h：`porcelain.textMuted` 数值决策的守护）

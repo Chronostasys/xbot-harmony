@@ -146,8 +146,10 @@ ok('porcelain 次级文字升档有效（textSecondary ≠ textMuted）',
   palPorcelain.textSecondary !== palPorcelain.textMuted);
 ok('dark 次级文字保持 muted（本就是浅字压深底）',
   isLightPalette(palDark) === false);
-ok('porcelain 卡片面与画布同色（靠发丝/柔影分层 ⇒ 面板不得依赖灰底对比）',
-  palPorcelain.surface === palPorcelain.appBg);
+// ⚠️ L2 反转了这条：现在**故意**让 surface(白) ≠ appBg(极淡灰) —— 白卡浮淡灰是浅色专属的
+//    **白度差**分层（DESIGN-SYSTEM §13.3）；发丝/柔影仍保留（不是二选一）。
+ok('porcelain 卡片面与画布有**白度差**（L2：白卡浮淡灰 ⇒ 不靠发丝也立得住）',
+  palPorcelain.surface !== palPorcelain.appBg);
 ok('porcelain 有可见发丝边框（面板 card 的 border 非透明）',
   palPorcelain.border !== palPorcelain.transparent);
 

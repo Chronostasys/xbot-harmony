@@ -43,8 +43,8 @@ import {
   curveHasOvershoot,
   shouldShowSplash,
   shouldStartSplash,
-  splashCanvasOf,
-  splashMarkLevelOf,
+  splashBrandCanvas,
+  splashBrandMarkLevel,
   splashOrbAllowed,
   splashPhaseAt,
   splashPhaseCurve,
@@ -53,11 +53,11 @@ import {
   splashPhaseStartMs,
   splashPhases,
 } from '../../entry/src/main/ets/core/splash';
-import { darkPalette, lightPalette, paletteOf } from '../../entry/src/main/ets/core/theme';
+import { darkPalette } from '../../entry/src/main/ets/core/theme';
 import { EASE_OUT_CSS, EASE_SPRING_CSS } from '../../entry/src/main/ets/core/tokens';
 import { MOTION_BASE_MS, MOTION_FAST_MS, MOTION_SLOW_MS } from '../../entry/src/main/ets/core/motion';
 import { ORB_BREATH_MS } from '../../entry/src/main/ets/core/orb';
-import { MARK_LADDER_FULL, MARK_LADDER_OUTLINE, MARK_LADDER_SOLID, MARK_LADDER_WORDMARK, brandAccent, contrastRatio } from '../../entry/src/main/ets/core/brand';
+import { MARK_LADDER_FULL, MARK_LADDER_OUTLINE, MARK_LADDER_WORDMARK, brandAccent, contrastRatio } from '../../entry/src/main/ets/core/brand';
 import { SPACE_SM, SPACE_XXL } from '../../entry/src/main/ets/core/design';
 
 let pass = 0, fail = 0;
@@ -204,28 +204,36 @@ function eq(name: string, got: unknown, want: unknown): void {
   ok('T2（让位）**禁止**超调', !curveHasOvershoot(curveCssOf(splashPhaseCurve(SPLASH_T2))));
 }
 
-// ── ① 底色判据（与 docs/BRAND.md §12.1 的 FOLLOW_APPLICATION 衔接）───────────
+// ── ① 品牌开屏画布（**恒定** —— 方案 (a)「品牌开屏恒深」；2026-10-11 真机缺陷修复）─────────
+//
+// 真机缺陷（8528fdc，逐帧）：浅色主题冷启时画布在同一段展示期间从深(`#0B0B0E`)翻白。
+// 根因：旧 `splashCanvasOf(theme, followApplication=true, …) = paletteOf(theme).appBg`，
+//   而画布绑在可变的 `@Prop theme`（← `Index.themeName`，初值字面量 `'dark'`）上；服务端 settings
+//   到达后置 porcelain ⇒ 画布翻白。且 T0 系统开屏**恒**为 `#0B0B0E`（base/dark 两处 color.json 同值）
+//   ⇒ 取主题色**必然**跳变。⇒ **判据 = 品牌开屏恒深**：画布 = `darkPalette().appBg`。
+//
+// mutation 自证：把 `splashBrandCanvas` 改成 `lightPalette().appBg`（或引入 theme）⇒ 下面第 2 条必红。
 {
-  eq('A: porcelain 跟应用 ⇒ #FFFFFF', splashCanvasOf('porcelain', true, false), paletteOf('porcelain').appBg);
-  eq('A: porcelain 跟应用 ⇒ 与首帧画布逐字节一致（零跳色）', splashCanvasOf('porcelain', true, false), '#FFFFFF');
-  eq('A: dark 跟应用 ⇒ #0B0B0E', splashCanvasOf('dark', true, false), darkPalette().appBg);
-  eq('A: 跟应用时**忽略**系统深浅', splashCanvasOf('porcelain', true, true), splashCanvasOf('porcelain', true, false));
-  eq('B: 跟系统浅 ⇒ lightPalette().appBg', splashCanvasOf('porcelain', false, false), lightPalette().appBg);
-  eq('  = #F8FAFC', splashCanvasOf('porcelain', false, false), '#F8FAFC');
-  eq('B: 跟系统深 ⇒ darkPalette().appBg', splashCanvasOf('dark', false, true), darkPalette().appBg);
-  eq('B: 跟系统时**忽略**主题名', splashCanvasOf('porcelain', false, true), splashCanvasOf('dark', false, true));
+  eq('A: 品牌开屏画布 = darkPalette().appBg', splashBrandCanvas(), darkPalette().appBg);
+  eq('A: = #0B0B0E（= T0 系统开屏色 ⇒ T0→T1 零跳色）', splashBrandCanvas(), '#0B0B0E');
+  // ⛔ 不随 theme 变化：签名无 theme 入参（结构性保证）—— 反复取值恒同
+  ok('A: 画布与 theme 无关（多次取值恒同值）',
+    splashBrandCanvas() === splashBrandCanvas() && splashBrandCanvas() === darkPalette().appBg);
 }
 
-// ── ② 标记档位（委托 core/brand.markLevelFor；porcelain = solid，零发光）──────
+// ── ② 品牌开屏标记档位（**恒定深色面** —— 方案 (a)；委托 core/brand.markLevelFor）────────────
+//
+// 品牌标记是**品牌资产**：恒紫、⛔ 不做浅色变体（`docs/DESIGN-SYSTEM.md §13.6`）——
+//   此前 porcelain 走 `solid` 档，但 `SplashOverlay` 对 `full`/`solid` **渲染同一张**预生成品牌紫 PNG
+//   （`tools/brand/emit.js` 用 `brandAccent()` 生成）⇒ 真机标记**永远紫**（与调用方声称不符）。
+//   现承载面恒为 `splashBrandCanvas()`（深色）⇒ 恒 `full` ⇒ 与渲染的紫色 PNG 一致。
 {
-  eq('porcelain 白主题 ⇒ SOLID', splashMarkLevelOf('porcelain', SPLASH_MARK_REF_VP, false), MARK_LADDER_SOLID);
-  eq('dark ⇒ FULL', splashMarkLevelOf('dark', SPLASH_MARK_REF_VP, false), MARK_LADDER_FULL);
-  eq('单色/无障碍 ⇒ OUTLINE', splashMarkLevelOf('porcelain', SPLASH_MARK_REF_VP, true), MARK_LADDER_OUTLINE);
-  eq('边长过小 ⇒ WORDMARK', splashMarkLevelOf('porcelain', 20, false), MARK_LADDER_WORDMARK);
-  // 与 brand.ets 的实调口径一致（porcelain 标记色 = brandAccent()，对比度 ≥ 非文本 3:1）
-  const c: number = contrastRatio(brandAccent(), '#FFFFFF');
-  ok(`porcelain 标记对比度 ≥ 3:1（非文本；实得 ${c.toFixed(4)}）`, c >= 3.0);
-  ok('  且如实记录 < 4.5.1 文本阈值（已知未决项）', c < 4.5);
+  eq('品牌开屏标记 ⇒ FULL（深色面 ⇒ 预生成的品牌紫 PNG）', splashBrandMarkLevel(SPLASH_MARK_REF_VP, false), MARK_LADDER_FULL);
+  eq('单色/无障碍 ⇒ OUTLINE（零填充零发光）', splashBrandMarkLevel(SPLASH_MARK_REF_VP, true), MARK_LADDER_OUTLINE);
+  eq('边长过小 ⇒ WORDMARK', splashBrandMarkLevel(20, false), MARK_LADDER_WORDMARK);
+  // 标记可见性：品牌标记色对**品牌画布**的对比度（WCAG 非文本 ≥ 3:1）
+  const c: number = contrastRatio(brandAccent(), splashBrandCanvas());
+  ok(`品牌标记对品牌画布对比度 ≥ 3:1（非文本；实得 ${c.toFixed(4)}）`, c >= 3.0);
 }
 
 // ── ★G 观感打磨：T2 让位"轻微上移" + 跳过提示"延迟淡入"（SPEC:38 / 顺序与层次）──────────
@@ -267,6 +275,39 @@ function eq(name: string, got: unknown, want: unknown): void {
   // ⛔ 组件不得自造曲线：不许 import @ohos/curves（注释里**提到**它是允许的 ⇒ 只查 import 语句）
   ok('组件**不** import @ohos/curves（曲线唯一出口 = components/anim.ets）',
     overlaySrc.indexOf("from '@ohos/curves'") < 0);
+}
+
+// ── ★H 「T1 画布/标记不随 theme 变化」的**结构性保证**（真机缺陷修复，方案 (a)）──────────────
+//
+// 真机缺陷（8528fdc）：画布绑在可变的 `@Prop theme` 上 ⇒ 浅色用户在同一段展示期间看到画布翻白。
+// 修法**不是**"调用方记得别改 theme"，而是**本组件根本不接 theme** ⇒ 结构上不可能翻色。
+// 判据分两处：① 组件**不出现** `this.theme`/`canvasFollowApp`/`systemDark`；
+//            ② 组件**必须消费**恒定的 `splashBrandCanvas()` / `splashBrandMarkLevel(...)`；
+//            ③ 接线处（`pages/Index.ets`）**不再传** `theme`/`canvasFollowApp`。
+//
+// mutation 自证：在 `SplashOverlay.ets` 里加回 `theme: string = 'dark'` + `paletteOf(this.theme)` ⇒ 必红。
+{
+  const root: string = (() => {
+    for (const up of ['../..', '../../..', '../../../..']) {
+      const p: string = path.resolve(__dirname, up);
+      if (fs.existsSync(path.join(p, 'entry/src/main/ets/components/SplashOverlay.ets'))) { return p; }
+    }
+    return '';
+  })();
+  const overlay: string = root.length > 0
+    ? fs.readFileSync(path.join(root, 'entry/src/main/ets/components/SplashOverlay.ets'), 'utf8') : '';
+  const indexSrc: string = root.length > 0
+    ? fs.readFileSync(path.join(root, 'entry/src/main/ets/pages/Index.ets'), 'utf8') : '';
+  ok('读到 SplashOverlay.ets / Index.ets 源码', overlay.length > 0 && indexSrc.length > 0);
+  ok('① 组件**不读** this.theme（画布/标记不随主题变化）', overlay.indexOf('this.theme') < 0);
+  ok('① 组件**不接** canvasFollowApp（FOLLOW_APPLICATION 已废弃）', overlay.indexOf('canvasFollowApp') < 0);
+  ok('① 组件**不接** systemDark（不再按系统深浅选基准画布）', overlay.indexOf('systemDark') < 0);
+  ok('② 组件**消费**恒定画布 splashBrandCanvas()', overlay.indexOf('splashBrandCanvas()') >= 0);
+  ok('② 组件**消费**恒定标记 splashBrandMarkLevel(', overlay.indexOf('splashBrandMarkLevel(') >= 0);
+  ok('② 组件**不再**用旧的 theme 版判据（splashCanvasOf/splashMarkLevelOf）',
+    overlay.indexOf('splashCanvasOf') < 0 && overlay.indexOf('splashMarkLevelOf') < 0);
+  ok('③ 接线处**不再**传 theme/canvasFollowApp 给 SplashOverlay',
+    indexSrc.indexOf('canvasFollowApp') < 0);
 }
 
 // ── ★F T0 资源不变量（真机白闪修复；`FOLLOW_APPLICATION` 经真机证实**不生效**）────────

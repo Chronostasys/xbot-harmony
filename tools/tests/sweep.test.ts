@@ -50,7 +50,9 @@ for (const t of LIGHT_THEMES) {
   eq(`${t}: 浅色 sheen = effects.sheen（中性）`, b.sheen, e.sheen);
   // 同口径交叉验证：浅色 glow === elev3（均 textPrimary@16%）、glowSoft === elev2（均 textPrimary@10%）
   eq(`${t}: glow 与 elev3 同口径（textPrimary@16%）`, e.glow, e.elev3);
-  eq(`${t}: glowSoft 与 elev2 同口径（textPrimary@10%）`, e.glowSoft, e.elev2);
+  // ⚠️ L3：elev2 @10%→@7%（分层交给 L2 白度差）⇒ 两者**不再同值**；改为"强弱序"不变量。
+  eq(`${t}: 浅色柔影强弱序 elev2 < glowSoft`,
+    parseInt(e.elev2.slice(1,3),16) < parseInt(e.glowSoft.slice(1,3),16), true);
   // 判别力核心：浅色**绝不**再用 accent 色（mutation：改回 accentSoft ⇒ 必红）
   eq(`${t}: 浅色 core ≠ accentSoft（无彩色）`, b.core !== p.accentSoft, true);
   eq(`${t}: 浅色 fade ≠ accentSoftFade（无彩色）`, b.fade !== p.accentSoftFade, true);

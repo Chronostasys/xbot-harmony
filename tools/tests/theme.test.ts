@@ -69,7 +69,8 @@ const pp = porcelainPalette();
 eq('porcelain 完整', paletteComplete(pp), true);
 eq('porcelain 取值表覆盖全部字段', paletteValues(pp).length, Object.keys(pp).length);
 eq('porcelain 字段数 = dark', Object.keys(pp).length, Object.keys(d).length);
-eq('porcelain 画布纯白', pp.appBg, '#FFFFFF');
+// ⚠️ L2：画布由"纯白"改"极淡灰"（白卡浮淡灰 = 浅色专属白度差分层，见 DESIGN-SYSTEM §13.3）。
+eq('porcelain 画布 = 极淡灰（L2 白度差）', pp.appBg, '#F7F7F8');
 eq('porcelain 强调色 = Apple Blue', pp.accent, '#0071E3');
 // 纪律：不得有 slate/紫残留（accent 与用户气泡都不能是紫）
 eq('porcelain 无紫残留(bubbleUser)', pp.bubbleUser, '#0071E3');

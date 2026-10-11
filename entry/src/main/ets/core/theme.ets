@@ -434,7 +434,11 @@ export function nebulaPalette(): Palette {
  */
 export function porcelainPalette(): Palette {
   const p: Palette = new Palette();
-  p.appBg = '#FFFFFF';        // 纯白画布
+  // 画布 = **极淡灰**（不是纯白）：让"白卡"浮在淡灰上 = 浅色专属的**白度差**分层（L2，
+  // 见 `docs/DESIGN-SYSTEM.md §13.3`）。纯白画布上"白卡 + 发丝"两档面无白度差 ⇒ 层次只能靠描边。
+  // ⚠️ 改了它 ⇒ `hairline`（`surfacesOf` 按 `HAIRLINE_TARGET_RATIO` **派生**）自动重算 ✓；
+  //    四阶文字/链接对比度全部复核达标（见 `tools/tests/theme_contrast.test.ts`）。
+  p.appBg = '#F7F7F8';        // 极淡灰画布（白卡浮于其上）
   p.surface = '#FFFFFF';      // 卡片浮在画布上（靠发丝 + 柔影分层，非灰底）
   p.surfaceAlt = '#F6F6F7';   // 次级面（pill / 菜单行）
   p.surfaceHi = '#EDEDEF';    // 悬停 / 选中
@@ -543,7 +547,10 @@ export function paletteOf(theme: string): Palette {
   }
   let p: Palette = buildPalette(theme);
   if (APP_ACCENT.length > 0) {
-    p = withAccent(p, APP_ACCENT, isDarkThemeName(theme));
+    // ⛔ 深浅必须走**亮度口径**（`isLightPalette(p)`），**不按主题名硬判**（本仓铁律）。
+    //    此处 `p` 已是 `Palette`（下一行才叠加 accent）⇒ 直接判它；
+    //    ⛔ 不可写 `isLightPalette(paletteOf(theme))`（会递归进本函数）。
+    p = withAccent(p, APP_ACCENT, !isLightPalette(p));
   }
   if (PALETTE_MEMO.size >= MEMO_MAX_ENTRIES) {
     PALETTE_MEMO.clear();
@@ -750,18 +757,26 @@ function gradientEndOf(color: string, onAccent: string): string {
 function buildEffects(p: Palette): Effects {
   const e: Effects = new Effects();
   const light: boolean = isLightPalette(p);
-  e.glassBg = alphaHex(glassBaseOf(p), 0.62);
-  e.glassBorder = alphaHex(p.borderStrong, 0.55);
   e.glassBlur = 18;
   // 渐变端色走**对比度护航**（真按钮底色是渐变，不是纯 accent —— 见 `gradientEndOf`）
   e.gradientFrom = gradientEndOf(p.accent, p.onAccent);
   e.gradientTo = gradientEndOf(p.accentSoft, p.onAccent);
   if (light) {
+    // ── 浅色玻璃（L4，`docs/DESIGN-SYSTEM.md §13.3`）──────────────────────────────
+    // 深色玻璃 = **透光**（露出后面的彩色 ⇒ 低不透明度才"活"）；浅色玻璃 = **磨砂白**
+    // （透出灰会"脏"）⇒ 不透明度必须**更高**、边界必须**更明确**（靠描边立边界，不靠对比）。
+    // 深色臂逐字节保留原 0.62/0.55（见下 `else`）——本次只改**浅色**档。
+    e.glassBg = alphaHex(glassBaseOf(p), 0.80);
+    e.glassBorder = alphaHex(p.borderStrong, 0.70);
     // 浅底：白高光物理上不可见 ⇒ 换"中性"（无色相偏移）的极淡黑，读作扫光中心。
     e.sheen = alphaHex('#000000', 0.06);
     // 柔影：中性（取正文色相 → 略带主题冷调）+ 低透明；扩散交给调用点的 radius。
     e.elev1 = legacyElev1Of(p);
-    e.elev2 = alphaHex(p.textPrimary, 0.10);
+    // ⚠️ `elev2` 由 @10% 降到 @7%（L3）：浅色下**分层交给"白度差"**（L2：`appBg` 淡灰 + 白卡），
+    //    柔影退为"贴边暗示"⇒ 影更克制、结构更清楚（⛔ 不是"深色去掉发光"，是**重组**分层手段）。
+    //    ⚠️ 副作用（已知并接受）：`elev2` 同时是浅色 `inflightHaloOf`（光球外光晕）与 `glowSoft`
+    //    ⇒ 光球在纯白上的外光晕同步变淡（@10%→@7%）；契约已按新值更新（`orb_porcelain_motion.test.ts`）。
+    e.elev2 = alphaHex(p.textPrimary, 0.07);
     e.elev3 = alphaHex(p.textPrimary, 0.16);
     // ── 发光：浅底**没有**"加色发光"这回事（加色光压在纯白上物理上不可见）⇒────────────────
     // 源色 `accent@45%/22%` 在白底上读成**彩色脏光晕**（`docs/PORCELAIN-AUDIT.md` §2 的单一根因：
@@ -773,6 +788,9 @@ function buildEffects(p: Palette): Effects {
     e.glow = alphaHex(p.textPrimary, 0.16);
     e.glowSoft = alphaHex(p.textPrimary, 0.10);
   } else {
+    // 深色玻璃：**逐字节不变**（原公共段的值搬进本臂，浅色臂另给档 —— 见上 L4 注释）。
+    e.glassBg = alphaHex(glassBaseOf(p), 0.62);
+    e.glassBorder = alphaHex(p.borderStrong, 0.55);
     e.sheen = alphaHex('#FFFFFF', 0.06);
     e.elev1 = legacyElev1Of(p);
     e.elev2 = alphaHex('#000000', 0.32);
