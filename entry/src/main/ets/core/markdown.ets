@@ -38,6 +38,18 @@ export class MdBlock {
   text: string = '';
   /** 列表项（已含各自的行内标记） */
   items: string[] = [];
+  /**
+   * 与 `items` 一一对应的**逐项嵌套级别**（0 = 顶层）。
+   * ⚠️ 不能用 `level`（它只记首项）：`- A` / `  - A1` 这类嵌套列表此前所有项共用首项缩进
+   *   ⇒ 嵌套被拍平（web 会真正缩进嵌套子列表）。修见 `parseMarkdown` 列表分支。
+   */
+  itemLevels: number[] = [];
+  /**
+   * 与 `items` 一一对应的**任务列表勾选态**（`-1` = 非任务项；`0` = `[ ]`；`1` = `[x]`）。
+   * web 走 remark-gfm ⇒ `- [ ]`/`- [x]` 渲染成 checkbox（`MarkdownRenderer.tsx:31` 的 remarkGfm）；
+   * 原生此前把 `[ ]` 当**字面文本**上屏（缺失）。修见 `parseMarkdown` 列表分支。
+   */
+  itemChecked: number[] = [];
   /** 代码围栏语言 */
   lang: string = '';
   /** 代码正文 */
@@ -75,6 +87,8 @@ export function parseMarkdown(src: string): MdBlock[] {
   let i: number = 0;
   let para: string[] = [];
   let paraStart: number = 0;
+  /** 下一段行是否**另起一行**（上一行硬换行 ⇒ true）。软换行 ⇒ 折成空格（对齐 web/CommonMark）。 */
+  let pendingHard: boolean = false;
 
   const flushPara = (): void => {
     if (para.length === 0) {
@@ -86,6 +100,7 @@ export function parseMarkdown(src: string): MdBlock[] {
     b.start = lineOff[paraStart];
     blocks.push(b);
     para = [];
+    pendingHard = false;
   };
 
   while (i < lines.length) {
@@ -197,7 +212,21 @@ export function parseMarkdown(src: string): MdBlock[] {
         if (m === null) {
           break;
         }
-        b.items.push(m[3]);
+        // 任务列表项（GFM）：`[ ]`/`[x]`/`[X]` 前缀 ⇒ 记勾选态并从正文剥掉前缀。
+        // web 走 remark-gfm（`MarkdownRenderer.tsx:31`）渲染成 checkbox；原生此前当字面文本上屏。
+        let text: string = m[3];
+        let checked: number = -1;
+        if (text.length >= 3 && text.charAt(0) === '[' && text.charAt(2) === ']') {
+          const c: string = text.charAt(1);
+          if (c === ' ' || c === 'x' || c === 'X') {
+            checked = (c === 'x' || c === 'X') ? 1 : 0;
+            text = text.substring(3).replace(/^\s+/, '');
+          }
+        }
+        b.items.push(text);
+        // 逐项嵌套级别（按缩进宽度 / 2）——不再只用首项级别（否则嵌套被拍平）。
+        b.itemLevels.push(Math.floor(m[1].length / 2));
+        b.itemChecked.push(checked);
         i++;
       }
       blocks.push(b);
@@ -207,7 +236,23 @@ export function parseMarkdown(src: string): MdBlock[] {
     if (para.length === 0) {
       paraStart = i;
     }
-    para.push(line.trim());
+    // ── 软换行 / 硬换行（对齐 web/CommonMark）────────────────────────────────
+    // 段内换行默认是**软换行**（折成空格）；仅当上一行行尾有 **2+ 空格** 或 **反斜杠**
+    // 才是硬换行（保留换行）。此前一律 `para.push(line.trim())` + `join('\n')` ⇒
+    // 每个软换行都被当硬换行上屏（web 会折成空格）—— 这是"段落在手机上被切得比 web 碎"的成因。
+    const trimmed: string = line.trim();
+    const endsBackslash: boolean = trimmed.length > 1 && trimmed.endsWith('\\')
+      && !trimmed.endsWith('\\\\');
+    const body: string = endsBackslash ? trimmed.substring(0, trimmed.length - 1) : trimmed;
+    if (para.length === 0) {
+      para.push(body);
+    } else if (pendingHard) {
+      para.push(body);
+    } else {
+      para[para.length - 1] = para[para.length - 1] + ' ' + body;
+    }
+    // 本行是否硬换行：行尾 2+ 空格（看**原始**行，因为 `line` 已 strip 尾部空白）或反斜杠。
+    pendingHard = /\s{2,}$/.test(lines[i]) || endsBackslash;
     i++;
   }
   flushPara();

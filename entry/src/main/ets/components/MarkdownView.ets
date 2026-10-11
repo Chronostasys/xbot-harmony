@@ -136,7 +136,9 @@ function computeInlineStyles(text: string, pal: Palette, mdTheme: string, baseCo
       st.bg = tone.inlineBg;
     } else if (sp.link.length > 0) {
       st.text = sp.text;
-      st.color = pal.accentSoft;
+      // 链接色 = **app 层** `accent`（web `index.css:188/292 --md-link: var(--accent)`）。
+      // 此前用 `accentSoft`（偏浅）—— 与 web 的 app 级链接 token 不一致，对齐之。
+      st.color = pal.accent;
       st.underline = true;
       // 可点击目标：组件据它给该 Span 挂 `onClick`（旧实现没有 ⇒ 链接点不开，P0#1）。
       st.link = sp.link;
@@ -254,15 +256,28 @@ export struct MarkdownView {
       Column({ space: MD_LIST_ITEM_GAP }) {
         ForEach(b.items, (item: string, k: number) => {
           Row({ space: 6 }) {
-            Text(b.ordered ? `${k + 1}.` : '•')
-              .fontSize(typeOf('type.callout').size)
-              .fontColor(this.pal().textSecondary)
-              .margin({ top: SPACE_HAIR })
+            if (this.liChecked(b, k) >= 0) {
+              // 任务列表（GFM）：勾选态用符号（**系统符号，禁 emoji/字符图标**）。
+              // 对齐 web remark-gfm 的 checkbox；此前 `[ ]`/`[x]` 被当字面文本上屏（缺失）。
+              SymbolGlyph(this.liChecked(b, k) === 1
+                ? $r('sys.symbol.checkmark_circle_fill') : $r('sys.symbol.circle'))
+                .fontSize(typeOf('type.callout').size)
+                .fontColor([this.liChecked(b, k) === 1 ? this.pal().successText : this.pal().textMuted])
+                .margin({ top: SPACE_HAIR })
+                .flexShrink(0)
+            } else {
+              Text(b.ordered ? `${k + 1}.` : '•')
+                .fontSize(typeOf('type.callout').size)
+                .fontColor(this.pal().textSecondary)
+                .margin({ top: SPACE_HAIR })
+                .flexShrink(0)
+            }
             this.Inline(item, this.pal().textPrimary)
           }
           .width('100%')
           .alignItems(VerticalAlign.Top)
-          .padding({ left: b.level * MD_LIST_INDENT })
+          // 逐项嵌套级别（不再用 `b.level` 首项级别 ⇒ 嵌套子列表真正缩进，对齐 web）
+          .padding({ left: this.liLevel(b, k) * MD_LIST_INDENT })
         }, (item: string, k: number) => `${b.key}-li${k}`)
       }
       .width('100%')
@@ -568,5 +583,15 @@ export struct MarkdownView {
       }
     }
     return hs[hs.length - 1].size;
+  }
+
+  /** 列表项 k 的嵌套级别（数组长度兜底 ⇒ 老数据/异常不越界）。 */
+  private liLevel(b: MdBlock, k: number): number {
+    return k < b.itemLevels.length ? b.itemLevels[k] : b.level;
+  }
+
+  /** 列表项 k 的勾选态（`-1` = 非任务项）。 */
+  private liChecked(b: MdBlock, k: number): number {
+    return k < b.itemChecked.length ? b.itemChecked[k] : -1;
   }
 }

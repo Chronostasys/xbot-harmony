@@ -56,6 +56,26 @@ eq('未闭合 ** 不吞文本', parseInline('a ** b').map((x) => x.text).join(''
 eq('围栏内不解析 markdown', parseMarkdown('```\n# t\n**b**\n```')[0].code, '# t\n**b**');
 eq('空输入', parseMarkdown('').length, 0);
 
+// ── 保真度对齐 web：任务列表 / 嵌套逐项缩进 / 软硬换行（本波新增）─────────────────
+// 任务列表（GFM）：`[ ]`/`[x]`/`[X]` ⇒ itemChecked；正文剥掉前缀（web remark-gfm）。
+const tl = parseMarkdown('- [ ] 待办\n- [x] 已完成\n- [X] 大写\n- 普通');
+eq('任务列表勾选态', tl[0].itemChecked, [0, 1, 1, -1]);
+eq('任务列表正文剥前缀', tl[0].items, ['待办', '已完成', '大写', '普通']);
+const tlBad = parseMarkdown('- [z] x');
+eq('非法任务标记 ⇒ 非任务', [tlBad[0].itemChecked, tlBad[0].items], [[-1], ['[z] x']]);
+
+// 嵌套列表：**逐项**级别（此前只用首项级别 ⇒ 嵌套被拍平）
+const nested = parseMarkdown('- A\n  - A1\n    - A2\n- B');
+eq('嵌套逐项级别', nested[0].itemLevels, [0, 1, 2, 0]);
+eq('嵌套项文本', nested[0].items, ['A', 'A1', 'A2', 'B']);
+
+// 软换行 ⇒ 折成空格；硬换行（行尾 2+ 空格 / 反斜杠）⇒ 保留换行（对齐 web/CommonMark）
+eq('软换行折成空格', parseMarkdown('第一行\n第二行')[0].text, '第一行 第二行');
+eq('硬换行（2 空格）保留', parseMarkdown('第一行  \n第二行')[0].text, '第一行\n第二行');
+eq('硬换行（反斜杠）保留且去反斜杠', parseMarkdown('第一行\\\n第二行')[0].text, '第一行\n第二行');
+eq('单行段落不变', parseMarkdown('就一行')[0].text, '就一行');
+eq('软换行不跨块（空行仍分段）', parseMarkdown('a\n\nb').length, 2);
+
 console.log(`markdown.test: ${pass} passed, ${fail} failed`);
 if (fail > 0) {
   throw new Error('markdown 解析器测试失败');
