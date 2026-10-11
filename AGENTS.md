@@ -62,6 +62,22 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   `.transition(...)`、静息态恒为可见值；门禁 **⑨**（`tools/lint/anim-opacity-gate.sh`）硬红拦 A 级形态、
   警告 B 级（不透明度由 `animateTo`/`anim` 驱动）；失败方向安全的一次性过渡（初值可见、动画到 0，
   如开屏退出淡出）登记 `tools/lint/anim-opacity-allowlist.txt` 并写明理由。
+- **⛔ `LazyForEach` + 「最小通知键」⇒ 已存在行永不更新**（本轮两起事故的同一根因，我各踩一次）：
+  `LazyForEach(ds, …)` 的 item builder **只在新建时执行**；此后父级 `@State` 变化**不会**重新投递 `@Prop`。
+  若数据源按 `id#rev` 之类的键做最小通知（`ChatRowDataSource.applyRows`），**主题变更不改变任何键 ⇒ 零通知
+  ⇒ 已存在行永远用创建那一刻的快照** ⇒ 真机症状「切浅色后**历史**消息仍白字/live 正常」、「（过去迭代的）tool
+  永远显示排队」。⇒ **凡"会变的值"要么让行自己订阅（`AppStorage`+`@StorageProp`），要么在变更路径显式发通知**；
+  ⛔ 别靠 ForEach 重投 `@Prop`。细节见 `docs/ARKTS-GOTCHAS.md`。
+- **⛔ 服务端 `active_tools` 整批先标 `pending`**（`agent/engine_run_tools.go:49-64`，到 goroutine 启动才翻
+  `running`），且这些条目会**残留进后续帧**；服务端**明确要求前端按 `iteration` 过滤**
+  （`agent/engine_wire.go:2436-2445` 原文 "the frontend cannot filter it"）⇒ 渲染 live 工具列表时**必须**照
+  web `LiveIteration.toolDeriv` 的 `t.iteration > maxCompletedIter` 滤陈旧项（本仓落点 `core/render.ets:isCurrentIterTool`）。
+- **⛔ `onWillScroll` 里**不要**写「这一帧不是用户滚动就清位」**：流式期间**每帧都有程序滚动**
+  （`scrollEdge(Bottom)`）⇒ 清位会**吃掉**用户刚置的滚动意图 ⇒ 用户**滚不动**（被反复拽回底部）。
+  一律走 `core/listfollow.markUserScrollFrame`（**只置位、不清位**；清位只在 `onScrollIndex` 一次性消费）。
+- **⛔ 共享工作树里禁 `rm -rf`、禁一切 git 写命令**（只许 `git add <确切文件>` / `git commit -o -F - -- <确切文件>`）：
+  本轮一条线用 `rm -rf "$(dirname "$(dirname "$D")")"` 拼路径，**误删整个 `tools/tests/`（251 文件）**。
+  临时产物只 `rm -f <字面绝对路径>`；⛔ 永不 `dirname` 拼删除路径、永不 `checkout -- .`/`git clean`/`restore -R`。
 - **ArkUI `CustomComponent` 基类的成员名不能用作组件成员名**：`size`/`width`/`height`/`position`/
   `offset`/`scale`/`rotate`/`opacity`/`visibility`/`clip`/`zIndex`/`id`/`key`（以及 `onClick` 等事件名）。
   写成 `@Prop size: number` 会报 `10505001 Property 'size' in type 'X' is not assignable to the same
