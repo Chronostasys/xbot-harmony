@@ -1210,3 +1210,65 @@ this[closeFlagOf('drawer')] = false;   // ⛔ ArkTS 禁动态属性 —— 不�
   2. 要还原**只列你确切知道的文件**：`git checkout -- <file1> <file2>`；
   3. 还原前 `git status --short` 确认**这些文件只属于你**；
   4. ⛔ 与其"先改后 checkout 还原"，不如**改前就 `cp` 一份带时间戳的快照**（本波已定的纪律）。
+
+## 批次 37：「**值只在创建时取一次、之后永不更新**」缺陷类 —— 全仓审计 + 机器判据（2026-10-11，用户亲报「浅色主题下历史消息正文仍是白色」）
+
+### 37.1 事故与根因（一个**类**，不是一个 bug）
+- **现象**：切到浅色主题，**历史消息正文仍是白色**（不可读）；而**正在流式的 live 行**正常。
+- **根因链**（`pages/Index.ets`）：
+  1. 历史行由 `LazyForEach(this.rowDs, …)` 渲染（`:3722`），行的主题靠 `ChatRowBody(row)` 里的
+     `MessageRowView({ theme: this.themeName })`（`:5743`）**投递**；
+  2. `ChatRowDataSource.applyRows()`（`:6595`）只按 **`id#rev`** 键发**最小变更通知**
+     （`changedByKeys(keys, next)`）；
+  3. 切主题**不改变任何行键**（`rev`、`id`、`chatId` 都不动）⇒ `changed` 为空 ⇒ **一条通知都不发**
+     ⇒ `LazyForEach` 不重建已存在行 ⇒ 行的 `@Prop theme` **冻在创建那一刻的 `'dark'`**。
+  4. live 行在 `LazyForEach` **之外**、由**无参** `@Builder LiveRowBody()` 直读页面 `@State`
+     （`:3739/3741`）⇒ 随主题重算 ⇒ 正常。**这就是"为什么只有历史行白、live 行不白"的完整解释。**
+- **缺陷类定义**：**值只在创建时取一次，之后永不更新**。四个出口（本判据逐条覆盖）：
+  「**一次性求值**」（构造/字段初值）· 「**快照投递**」（带参 `@Builder` / `@Prop` 只吃首帧）·
+  「**缓存键漏维度**」（换主题命中旧值）· 「**列表项不重建**」（key/通知键不含该维度 ⇒ 不重投 `@Prop`）。
+
+### 37.2 区分规则（⛔ 别一刀切误报）
+| 形态 | 判定 | 理由 |
+|---|---|---|
+| **无参** `@Builder`（成员）读 `this` | ✅ **安全** | 它是父组件渲染树的一部分，父 `@State` 变 ⇒ 重建（本仓 live 行的正解） |
+| **带参** `@Builder`（成员/全局） | ⚠️ **危险**当参数是"会变内容" | 参数 = **调用那刻的快照**；参数引用不变 ⇒ 子树不重建（批次 11/12） |
+| **文件级/全局** 带参 `@Builder` | ⛔ **最危险** | 连 `this` 都没有 ⇒ 参数即唯一数据源 ⇒ 必冻结（本仓现状 **0 个**，已钉成不变量） |
+| 真 `@Component` + `@Prop` | ✅ 安全（**除非**它是 `ForEach/LazyForEach` 的 item） | 普通子组件随父重建会重投 `@Prop`；**列表项**则按 key 复用 ⇒ 不一定重投 |
+| 字段初值 `= this.pal()` / `paletteOf(...)` | ⛔ **危险** | 字段初值只在**构造那一次**执行 ⇒ 换主题永久陈旧。正解 = `private pal(): Palette { return paletteOf(this.theme); }`（**方法**，每次 build 重算） |
+| 箭头字段 `= () => paletteOf(...)` | ✅ 安全 | 调用时才求值（本判据的字段规则显式豁免） |
+| 记忆化缓存的键 | ⚠️ 须含**主题代表维度** | 正确先例 = `core/mdview.ets:147 mdInlineKey`（键含 palette 代表色 + md 主题 + baseColor）；`core/theme.ets` 的 `PALETTE_MEMO` 键 = `${theme}\|${APP_ACCENT}` |
+
+### 37.3 全仓审计结论（本判据首跑）
+- **① 真缺陷（1 处，且不在本判据的硬红集里）**：
+  `pages/Index.ets` 的历史行主题投递（`37.1` 根因）—— 属 `light-fix3` 在途域，**只上报不改**。
+- **② 安全（抽查确认）**：
+  · 全部 40+ 组件的 `pal()` 都是**方法**（`private pal(): Palette { return paletteOf(this.theme); }`）⇒ 每次 build 重算，**无字段初值取色**（R1 实测 0 命中）；
+  · `paletteOf`/`paletteMemo`/`effectsMemo` 均**按主题（+强调色）键控**；`mdInlineKey` 已含主题维度；
+  · `@StorageProp` 读取键 `pendingOpenChatId/Seq`、`pendingNotifyAction`、`pendingCommandUri/Seq` 与
+    `core/notify.ets`/`core/command.ets` 的写入常量**逐字一致**（R2 实测无孤儿）。
+- **③ 不确定 / 信息级（需人确认，**未**进硬红以免误报）**：
+  · `@StorageProp('safeTopVp'/'safeBottomVp')`（`Index.ets:683-684`）**零写入方** ⇒ 恒 0。
+    注释称"由 EntryAbility 写入"，实为**自相矛盾**（沉浸式已 `setWindowLayoutFullScreen(false)` ⇒ 安全区交系统
+    ⇒ 恒 0 是当前正确值）。已登记进判据的 `STORAGE_ORPHAN_ALLOW` 台账（**只许缩短**），待处置。
+  · **`ForEach/LazyForEach` 的 item 子组件投递 `theme:`**（W2 实测 **21 处**，如
+    `SubAgentTree.ets:232`、`LiveTailView.ets:572/578`、`MessageRow.ets:595/776`、`MarkdownView.ets:292`、
+    `PluginWidgets.ets:340` …）。**这是同一个缺陷类的更广形态**：item 的 key 若不含主题维度，
+    换主题时该项的 `@Prop theme` 也不重估。**是否真坏取决于 ArkUI 对"普通 `ForEach`（非 `LazyForEach`）"是否
+    在父重建时重跑 item 生成器** —— 本仓文档（批次 23）口径是"`@Prop` 只在 key 变化时才重估"，
+    但**未在真机上逐点证伪** ⇒ 列为**不确定**，⛔ 不硬红（宁缺毋滥）。
+  · W1（带参 `@Builder` 体里读 `this` 状态，8 处）、W3（`.opacity(x?1:0/0.001)` 32 处）同为**警告级**。
+
+### 37.4 机器判据 = `tools/tests/staleness_audit.test.ts`
+- **硬红**：R1 字段初值一次性取色 · R2 `@StorageProp/@StorageLink` 读取键必须有同名写入方（含**只许缩短**的
+  台账，两个方向都拦）· R3 缓存键含主题维度（`mdInlineKey` **行为断言** + `paletteMemo`/`PALETTE_MEMO` 键控）·
+  R4 文件级带参 `@Builder` 数 == 0。
+- **警告级（打印不判红）**：W1/W2/W3 上列三形态，附 `file:line` 供人复核。
+- **纪律落实**：先**剥注释**再判（保留换行、`://` 不截断）；只取**声明片段**（字段声明正则，不"取整行第一个引号"）；
+  **零扫描判红**（扫到的文件/条目数为 0 ⇒ 红）；**判别力自证**（每个检测器带"必红样本 + 合法样本"夹具）。
+- **mutation 自证（实测，2026-10-11）**：向 `components/SubAgentTree.ets` 同时注入
+  `private pal0 = paletteOf('dark');`（R1）+ `@StorageProp('zzzProbeKey')`（R2）+ 一个全局带参 `@Builder`（R4）
+  ⇒ `R1…== 0（实测 1）` / `R2…实测孤儿 1` / `R4…== 0（实测 1）` 三条**同时红**（25 passed / 3 failed）；
+  还原备份 ⇒ **28 passed / 0 failed**（绿）。
+- **教训**：判据要**钉"值变化通道"这一抽象**，而不是逐个 bug 打补丁 —— 本轮四个出口（一次性求值 / 快照 /
+  缓存键 / 列表项）是同一个病因的四种表现，一次钉住三处、第四处（列表项）留作警告并写明"为什么不敢硬红"。
