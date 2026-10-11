@@ -229,23 +229,28 @@ function curveHasOvershoot(css: string): boolean;            // 解析 cubic-bez
 
 **根因**：开屏底色**跟随系统**（§1），而应用色板由 `EntryAbility.onCreate` 的 `setColorMode` 决定（`EntryAbility.ets:37`）⇒「系统浅 + 应用选深」（或反之）时"开屏 → 首帧"**跳一帧色**。
 
-**方案 A（根治，需用户拍板）**：`docs/BRAND.md §12.1` 的配置补丁 —— 启用 `startWindow` profile + `startWindowColorModeType: FOLLOW_APPLICATION`（+ `module.json5` 一行）。⇒ 开屏底色 = `paletteOf(应用主题).appBg` ⇒ **零跳色**。⚠️ 不需要卸载重装（见 §12.1）。
+**方案 A（`FOLLOW_APPLICATION`）—— ⚠️ 真机证实不生效（2026-10-11）**：`docs/BRAND.md §12.1` 的配置补丁
+（`startWindow` profile + `startWindowColorModeType: FOLLOW_APPLICATION`）**已落地**，但真机实测：系统浅色 +
+应用深色时 T0 **仍是** `#F8FAFC` ⇒ 没跟随应用主题。**根因**：T0 由系统在**应用代码之前**绘制，而应用色模式
+只能由运行时 `setColorMode` 设定（SDK 还要求它在 loadContent **之后**调用）⇒ 生成 T0 时拿不到。
+**已真机证实**：补一次"按文档时机"的 `setColorMode` 也**无效**；**只有改 base 资源取值才生效**。
 
-**方案 B（降级，无需配置）**：**固定底色**（现状 `color.json`）**+ T1 首帧用同色**。即
-`splashCanvasOf(theme, followApplication=false, systemDark)` = 系统深浅对应的 `#F8FAFC`/`#0B0B0E`，
-并让 T1 overlay 的底色**就是这个值**（而不是应用主题色）。
+**方案 B（实际采用的修法）**：让 **base** 的 `start_window_background` = 应用**默认主题**（dark）的画布色
+`#0B0B0E`（`entry/src/main/resources/base/element/color.json`）。⇒ 系统浅色下 T0 也取 `#0B0B0E`
+（不再白闪）。机器判据 = `tools/tests/splash.test.ts ★F`（base/dark 两值都必须 == `darkPalette().appBg`）。
 
-**两种方案的观感差异**：
+**观感差异（真机实测后的真实矩阵）**：
 
-| 场景 | 方案 A（FOLLOW_APPLICATION） | 方案 B（固定底色 + T1 同色） |
+| 场景 | 改前（base `#F8FAFC`） | 改后（base `#0B0B0E`） |
 |---|---|---|
-| 系统浅 + 应用选 `porcelain`(#FFFFFF) | 开屏 `#FFFFFF` ⇒ **零跳色** | 开屏 `#F8FAFC` → 首帧 `#FFFFFF`（ΔRGB `(7,5,3)`，近白、几不可辨） |
-| 系统深 + 应用选 `porcelain` | 开屏 `#FFFFFF` ⇒ **零跳色** | 开屏 `#0B0B0E` → 首帧 `#FFFFFF`（ΔRGB `~244`，**明显闪一下黑**）✗ |
-| 系统深 + 应用选 `dark` | `#0B0B0E` ⇒ 零 | `#0B0B0E` ⇒ 零 |
-| 系统浅 + 应用选 `dark` | `#0B0B0E` ⇒ 零 | `#F8FAFC` → `#0B0B0E`（明显闪白）✗ |
+| 系统浅 + 应用 `dark`（默认） | 开屏 `#F8FAFC` → 首帧 `#0B0B0E`（**白闪 0.24–0.5s**）✗ | 开屏 `#0B0B0E` ⇒ **零跳色** ✓ |
+| 系统深 + 应用 `dark` | `#0B0B0E` ⇒ 零 ✓ | `#0B0B0E` ⇒ 零 ✓ |
+| 系统浅 + 应用 `light`/`porcelain` | `#F8FAFC` ⇒ 零/近零 ✓ | `#0B0B0E` → 首帧浅色（**黑闪 0.24–0.5s**）✗ ← **代价** |
+| 系统深 + 应用 `light`/`porcelain` | `#0B0B0E` → 首帧浅色（黑闪）✗ | 同左 ✗ |
 
-> **结论**：方案 B 只在"系统深浅 == 应用深浅"时零跳色；**跨深浅必闪**。它**只是止血**（把用户点名的 porcelain 在系统浅下做到几乎无感），
-> 真正的零跳色只有方案 A。两者**可叠加**（先上 B 的 T1 同色，再等 A 拍板）。⛔ 方案 A 的配置改动**不由本波执行**（见 §12.1）。
+> **结论（如实）**：`FOLLOW_APPLICATION` 在真机上**做不到**"T0 精确跟随应用主题"。退而求其次，把 base 固定为
+> **默认主题 dark** 的画布色 ⇒ **默认（深色）用户在任何系统深浅下零跳色**；**浅色主题用户会反方向黑闪一次**
+> （≈0.24–0.5s，系统开屏停留时长）——**这是本次修复的代价**，取舍依据：本应用默认主题是 dark、设计系统以深色玻璃为主。
 
 ---
 

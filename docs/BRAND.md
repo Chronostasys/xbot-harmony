@@ -315,11 +315,33 @@ bash tools/brand/gen.sh --proofs /tmp/xbot-brand-proofs
 以下两处**必须动配置**才能生效 ⇒ 本波**不改**，只给精确补丁（改哪行 / 为什么必须 / 影响 / 回滚）。
 **§12.2 的 API 形状已核实、资源已就位**（只差一行配置）；§12.1 无需卸载重装，是**优先推荐**项。
 
-### 12.1 开屏底色跟随**应用**主题（消「冷启动跳色」，§4.2 / §10 #2）—— ✅ **已落地**（2026-10-11）
+### 12.1 开屏底色跟随**应用**主题（消「冷启动跳色」，§4.2 / §10 #2）—— ⚠️ **已真机证实 `FOLLOW_APPLICATION` 不生效**；改用 base 资源取值（2026-10-11）
 
-**现状**：`module.json5` 未声明 `startWindow` profile ⇒ 系统默认 `FOLLOW_SYSTEM`；开屏底色的深浅只跟系统，
-不跟用户在应用内选的主题 ⇒ 「系统浅 + 应用选深（或反之）」时开屏 → 首帧**跳一帧色**。
-**补丁**（两处）—— ✅ **两处均已落地**：`module.json5:20` 已加 `"startWindow": "$profile:startWindow"`；
+> **真机结论（2026-10-11，实测）**：`startWindowColorModeType: FOLLOW_APPLICATION` **没能**让 T0 跟随应用主题
+> —— 系统浅色 + 应用深色时，T0 仍是 `base` 的 `#F8FAFC`（白闪）。**根因**：T0 系统开屏由**系统**在
+> **应用代码运行之前**绘制；而"应用色模式"只能由运行时 `ApplicationContext.setColorMode` 设定，且 SDK
+> 文档明确要求它"**在窗口已创建 + 页面已 loadContent 之后**"调用（`ApplicationContext.d.ts` 的
+> `setColorMode` NOTE）⇒ 生成 T0 时根本拿不到应用色模式 ⇒ `FOLLOW_APPLICATION` 回退成系统深浅。
+> **实测证据**：(i) 补一次"按文档时机"的 `setColorMode`（`onWindowStageCreate` 的 loadContent 回调里）
+> 后，冷启 #1/#2 的 T0 **仍是 `#F8FAFC`**；(ii) 只把 `base` 的 `start_window_background` 改成 `#0B0B0E`
+> ⇒ T0 **立刻变 `#0B0B0E`**（=资源被采用、且 base 决定系统浅色下的取值）。
+> ⇒ **真判据是 base 资源值，不是 profile 的 colorModeType**。
+>
+> **已落地的修复（(c) 最小代价替代）**：`entry/src/main/resources/base/element/color.json` 的
+> `start_window_background` 由 `#F8FAFC` 改为 **`#0B0B0E`**（= 应用**默认主题 dark** 的画布色）。
+> profile（`FOLLOW_APPLICATION`）保留 —— 它在**支持的平台**上是"更好"的机制（会精确跟随应用主题），
+> 在此平台退化为"跟随系统"，而此时 base 已是深色 ⇒ **最坏也只是深色**。
+>
+> **谁闪、闪多久（如实记账）**：
+> - **应用主题=dark（本应用默认，绝大多数）**：T0 = `#0B0B0E` = 首帧画布 ⇒ **零跳色**（不管系统深浅）。
+> - **应用主题=light/porcelain**：T0 现在 = `#0B0B0E`（深）→ 首帧浅色 ⇒ **反方向闪一次黑**（≈0.24–0.5s，
+>   即系统开屏的停留时长）。**这是这次修复的代价**——把"深色用户白闪"换成"浅色用户黑闪"；
+>   因为本应用**默认主题是 dark**、且设计系统以深色玻璃为主，选择"默认用户零闪"。
+> - 真机判据：连拍冷启前两帧，底色应为 **`#0B0B0E`**（不再是 `#F8FAFC`）。
+
+**历史（已被上条取代）**：`module.json5` 未声明 `startWindow` profile ⇒ 系统默认 `FOLLOW_SYSTEM`；开屏底色
+的深浅只跟系统 ⇒ 「系统浅 + 应用选深（或反之）」时开屏 → 首帧**跳一帧色**。
+**补丁**（两处）：`module.json5:20` 已加 `"startWindow": "$profile:startWindow"`；
 `entry/src/main/resources/base/profile/startWindow.json` 已新建（内容同下）。
 **页面侧配合**（应用内开屏 T1）：`pages/Index.ets` 的 `aboutToAppear` **同步**读回缓存主题
 （`readCachedTheme`）初始化 `themeName`，且 `SplashOverlay` 传 `canvasFollowApp: true`
@@ -346,9 +368,10 @@ bash tools/brand/gen.sh --proofs /tmp/xbot-brand-proofs
   **接管**开屏图标/背景的整条渲染路径（`startWindowIcon/Background` 两个字段可能被 profile 覆盖）。
 - **是否需要卸载重装**：**不需要**。开屏页配置随安装生效（普通增量安装 `hdc install -r` 即可），
   它**不是**系统缓存物（与桌面图标不同）。⇒ 这是**可优先推给用户**的那个补丁。
-- **风险（未证）**：`setColorMode` 在 `onCreate` 调用，而开屏可能渲染更早 ⇒ 时序是否让开屏吃到应用色板
-  **未经真机证实**（装后若仍跳色 = 时序问题，非本补丁写错）。
-- **回滚**：删 ① 那一行 + 删 ② 的文件即可（无其它副作用，亦无需卸载重装）。
+- ~~**风险（未证）**~~ ⇒ ⚠️ **已真机证实为真问题**（见本节开头"真机结论"）：`FOLLOW_APPLICATION` **不生效**，
+  T0 不跟应用主题。真正生效的是 **base 资源取值**。
+- **回滚**：删 ① 那一行 + 删 ② 的文件即可（无其它副作用，亦无需卸载重装）。若要回到旧观感，
+  把 `base/element/color.json` 的 `start_window_background` 改回 `#F8FAFC` 即可（但深色用户会白闪）。
 
 ### 12.2 分层图标（adaptive / layered icon）—— ✅ 形状**已核实** + 资源已就位
 

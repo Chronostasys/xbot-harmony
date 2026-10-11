@@ -8,6 +8,10 @@
  * ⚠️ 结尾必须 `process.exit(...)`：`tools/tests/run.sh` 用 `set -e` 且逐文件 `node`。
  */
 declare const process: { exit: (c: number) => void };
+declare const require: (m: string) => any;
+declare const __dirname: string;
+const path = require('path');
+const fs = require('fs');
 
 import {
   LAUNCH_COLD,
@@ -219,6 +223,43 @@ function eq(name: string, got: unknown, want: unknown): void {
   const c: number = contrastRatio(brandAccent(), '#FFFFFF');
   ok(`porcelain 标记对比度 ≥ 3:1（非文本；实得 ${c.toFixed(4)}）`, c >= 3.0);
   ok('  且如实记录 < 4.5.1 文本阈值（已知未决项）', c < 4.5);
+}
+
+// ── ★F T0 资源不变量（真机白闪修复；`FOLLOW_APPLICATION` 经真机证实**不生效**）────────
+//
+// 背景（真机证据，2026-10-11）：系统浅色 + 应用深色时，T0 系统开屏底色取的是 **base**
+// 的 `start_window_background`（`#F8FAFC`）⇒ 白闪一帧再进深色主界面。
+// `startWindowColorModeType: FOLLOW_APPLICATION` 在真机上**没有**让 T0 跟随应用主题
+// （T0 由**系统**在应用代码运行**之前**绘制；运行时 `setColorMode` 改不动它）⇒ 只能让
+// **base** 取与应用**默认主题**（dark）一致的画布色，才能让默认用户零跳色。
+//
+// mutation 自证：把 `base/element/color.json` 改回 `#F8FAFC` ⇒ 本条必红。
+{
+  // `run.sh`/`run-one.sh` 把测试编到 `<repo>/tools/tests/.out-*/` 下（层级随 harness 变化），
+  // ⇒ 从 `__dirname` 向上探测到真正含 `entry/src/...` 的那层（⛔ 不硬编码层级）。
+  let repo: string = '';
+  for (const up of ['../..', '../../..', '../../../..']) {
+    const p: string = path.resolve(__dirname, up);
+    if (fs.existsSync(path.join(p, 'entry/src/main/resources/base/element/color.json'))) {
+      repo = p;
+      break;
+    }
+  }
+  ok('探测到仓库根（用于读资源）', repo.length > 0, `__dirname=${__dirname}`);
+  const baseJson: any = JSON.parse(fs.readFileSync(
+    path.join(repo, 'entry/src/main/resources/base/element/color.json'), 'utf8'));
+  const darkJson: any = JSON.parse(fs.readFileSync(
+    path.join(repo, 'entry/src/main/resources/dark/element/color.json'), 'utf8'));
+  const pick = (j: any, name: string): string => {
+    for (const c of j.color) { if (c.name === name) { return c.value; } }
+    return '';
+  };
+  eq('base 的 start_window_background == 应用默认主题(dark)画布色（T0 不白闪）',
+    pick(baseJson, 'start_window_background').toUpperCase(), darkPalette().appBg.toUpperCase());
+  eq('dark 的 start_window_background 同值（两分支一致 ⇒ FOLLOW_SYSTEM 也不闪）',
+    pick(darkJson, 'start_window_background').toUpperCase(), darkPalette().appBg.toUpperCase());
+  ok('  ⇒ base 不再是浅色 #F8FAFC（深色应用冷启零跳色）',
+    pick(baseJson, 'start_window_background').toUpperCase() !== '#F8FAFC');
 }
 
 // ── 汇总 ──────────────────────────────────────────────────────────────────
