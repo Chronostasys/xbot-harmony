@@ -198,7 +198,11 @@ export struct PluginsSheet {
                     .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
                   if (pluginMetaText(p.version, p.state).length > 0) {
                     Text(pluginMetaText(p.version, p.state))
-                      .fontSize(fs('type.micro')).fontColor(this.pal().textMuted).flexShrink(0)
+                      .fontSize(fs('type.micro')).fontColor(this.pal().textMuted)
+                      // ⚠️ 这一处原为 `flexShrink(0)` —— 但它是**文本**（版本/状态由插件给，可能很长）
+                      // ⇒ 顶宽、把 `Row` 撑爆（全仓 11 处 `flexShrink(0)` 里唯一挂在文本上的）。
+                      // ⇒ 改为**可收缩 + 单行省略**（`p.name` 那侧的 `layoutWeight(1)` 保持不动）。
+                      .flexShrink(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                   }
                 }.width('100%').alignItems(VerticalAlign.Center)
                 if (p.description.length > 0) {
