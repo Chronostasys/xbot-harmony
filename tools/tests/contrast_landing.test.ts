@@ -151,9 +151,16 @@ ok('L3 ✓ 「取消」文字仍保留 `textSecondary`（弱化观感未变）',
 {
   const lines: string[] = l4.split('\n');
   let fgLine: number = -1;
+  // 形态锚：主按钮的"停止态前景"行。2026-10-12 起该行的条件由 `runningNow()` 改名成
+  // `composerShowStop()`（web `MessageInput.tsx:687` 同源语义：**有内容 ⇒ 发送**，
+  // busy 且无内容才是停止）⇒ 锚点同时接受新旧名（⛔ 不放松其它约束：widget 仍必须是
+  // SymbolGlyph、色仍必须是 textSecondary）。
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].indexOf('.fontColor([') >= 0 && lines[i].indexOf('this.pal().textSecondary') >= 0
-      && lines[i].indexOf('runningNow()') >= 0) { fgLine = i; break; }
+      && (lines[i].indexOf('runningNow()') >= 0 || lines[i].indexOf('composerShowStop()') >= 0)) {
+      fgLine = i;
+      break;
+    }
   }
   ok('零扫描判红：L4 找到发送/停止键的 fontColor 行', fgLine >= 0);
   let kind: string = 'none';
@@ -166,9 +173,11 @@ ok('L3 ✓ 「取消」文字仍保留 `textSecondary`（弱化观感未变）',
   ok('L4 反向断言：该前景不是 Text/Span（若改成文字 ⇒ 本判据红 ⇒ 逼回图标或改修法）',
     kind !== 'Text' && kind !== 'Span');
   // 同一 Stack 的底 = surfaceHi（未改），且图标色 = textSecondary（未改）—— 记录"无需改"的现状
+  // （2026-10-12：条件名 `runningNow()` → `composerShowStop()`；底色/前景色**一字未动**）
   const stackTail: string = lines.slice(fgLine, fgLine + 20).join('\n');
-  ok('L4 现状保留：图标 `textSecondary` 压 `runningNow() ? surfaceHi`（本轮**有意不动**）',
-    stackTail.indexOf('this.runningNow() ? this.pal().surfaceHi : this.pal().accent') >= 0);
+  ok('L4 现状保留：图标 `textSecondary` 压 `composerShowStop() ? surfaceHi`（本轮**有意不动**）',
+    stackTail.indexOf('this.composerShowStop() ? this.pal().surfaceHi : this.pal().accent') >= 0
+      || stackTail.indexOf('this.runningNow() ? this.pal().surfaceHi : this.pal().accent') >= 0);
 }
 // 5.2 实算：porcelain textSecondary × surfaceHi ≥ AA_NON_TEXT(3.0) ⇒ 图标确实达标
 {

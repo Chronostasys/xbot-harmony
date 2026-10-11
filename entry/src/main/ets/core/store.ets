@@ -1184,8 +1184,39 @@ export class ChatStore {
     return key;
   }
 
+  /** `cancel` 请求在飞（web `useChatMessages.ts:101` `cancelling`）⇒ 停止按钮**转圈**。 */
+  cancelling: boolean = false;
+
+  /**
+   * 取消当前回合 —— **逐字移植 web**（`useChatMessages.ts:870-884` + `AgentPanel.tsx:191-197`）：
+   *   ① 置 `cancelling=true`（按钮转圈；web `MessageInput.tsx:938` `(cancelling && !canSend && busy)`）；
+   *   ② 发取消请求；
+   *   ③ **成功后立即乐观进 idle** —— web 原文：*"Optimistically mark the session as idle so the
+   *      UI exits busy immediately — don't wait for the SSE session(idle) event"*
+   *      （用户要求同款手感：*"点了 cancel，应该 spin 一下，请求成功立刻进入 idle"*）；
+   *   ④ 无论成败都复位 `cancelling`（失败 ⇒ **保持 busy**，界面不假装已停）。
+   *
+   * 乐观 idle **复用状态机已有的两类事件**（⛔ 不新造状态机语义、不绕过 `reduce`）：
+   *   · `session_running(false)`：清权威闸门 + 把仍 live 的 turn 定格（`reduce.ts:512-530`）；
+   *   · `session(busy=false)`：清 coarse busy（`reduce.ts:1220-1229`）。
+   *   ⛔ 顺序不可反：`session` 的 idle 分支在 `sessionRunning` 仍为 true 时是 **no-op**（`:1226`）。
+   */
   async cancel(): Promise<void> {
-    await this.http.post('/api/cancel', new SessionReq(this.channel, this.currentChatId));
+    if (this.cancelling) {
+      return;
+    }
+    this.cancelling = true;
+    this.onUpdate();
+    try {
+      await this.http.post('/api/cancel', new SessionReq(this.channel, this.currentChatId));
+      this.pushEvents([
+        { type: 'session_running', running: false },
+        { type: 'session', busy: false },
+      ]);
+    } finally {
+      this.cancelling = false;
+      this.onUpdate();
+    }
   }
 
   // ── AskUser ────────────────────────────────────────────────────────────────

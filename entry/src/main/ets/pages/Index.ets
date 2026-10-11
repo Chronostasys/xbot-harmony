@@ -4535,42 +4535,43 @@ struct Index {
               this.toast(modeHint(this.sendMode));
             })
         }
-        // 唯一的实心圆按钮：发送=纸飞机；停止=同形方块（**不再用红色大块**）
+        // 唯一的主按钮 —— 语义**逐字对齐 web** `MessageInput.tsx:686-687/935-939`：
+        //   · 有内容（`composerCanSend`）⇒ **发送**（busy 时按 `sendMode` = 插队/排队）；
+        //   · busy 且无内容 ⇒ **停止**；停止请求在飞 ⇒ **转圈**（`LoadingProgress`）。
+        //   ⇒ 用户要求「busy 时输入了文字 ⇒ 按钮自动变插队/排队」= web 同一规则（此前原生缺）。
         // ⚠️ `SymbolGlyph` 一旦给了固定 width/height **不会自动把图标居中**（图标会偏上/偏左）——
-        //    必须用 `Stack({alignContent: Alignment.Center})` 显式居中；圆形底、阴影、点击态挂在外层 Stack。
-        // G1（加性多层柔影）：外层 `Stack` 承载贴合层 near（仅"发送态"有影；"停止态"按钮无影 ⇒ near 归零）。
+        //    必须用 `Stack({alignContent: Alignment.Center})` 显式居中；圆形底、阴影、点击态挂在内层。
+        // ⛔ 热区：真机实测 `responseRegion` 的负偏移外扩**不生效**（AGENTS.md GOTCHA）⇒ 用**真实
+        //    44×44 布局盒**承载点击（盒**透明**、32 圆居中 ⇒ 观感不变、命中区真的 ≥44）。
         Stack() {
           Stack({ alignContent: Alignment.Center }) {
-            SymbolGlyph(this.runningNow() ? $r('sys.symbol.square_fill') : $r('sys.symbol.paperplane_fill'))
-              .fontSize(typeOf('type.callout').size)
-              .fontColor([this.runningNow() ? this.pal().textSecondary : this.pal().onAccent])
+            if (this.composerCancelling()) {
+              LoadingProgress()
+                .width(typeOf('type.callout').size)
+                .height(typeOf('type.callout').size)
+                .color(this.pal().textSecondary)
+            } else {
+              SymbolGlyph(this.composerShowStop() ? $r('sys.symbol.square_fill') : $r('sys.symbol.paperplane_fill'))
+                .fontSize(typeOf('type.callout').size)
+                .fontColor([this.composerShowStop() ? this.pal().textSecondary : this.pal().onAccent])
+            }
           }
           // 视觉 32vp（`SPACE_XXL`；⛔ 无 `control.send` token，见交付缺 token 清单）
           .width(SPACE_XXL).height(SPACE_XXL)
           .borderRadius(RADIUS_SHEET)   // = 32/2 ⇒ 正圆
-          // 热区 `responseRegion` 外扩到 44（HIT_TARGET_MIN）——⛔ **不改布局尺寸**（样张 ④ ⑦）
-          .responseRegion({
-            x: -(HIT_TARGET_MIN - SPACE_XXL) / 2,
-            y: -(HIT_TARGET_MIN - SPACE_XXL) / 2,
-            width: HIT_TARGET_MIN,
-            height: HIT_TARGET_MIN,
-          })
-          .backgroundColor(this.runningNow() ? this.pal().surfaceHi : this.pal().accent)
-          .shadow({ radius: this.runningNow() ? 0 : shadowRadiusOf(this.pal(), 'pill'), color: this.runningNow() ? this.pal().transparent : shadowColorOf(this.pal(), 'raised'), offsetX: 0, offsetY: 0 })
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY).scale({ x: PRESS_SCALE, y: PRESS_SCALE }) }, normal: { .opacity(1).scale({ x: 1, y: 1 }) } })
-          .accessibilityText(this.runningNow() ? '停止' : '发送')
-          .onClick(() => {
-            if (this.runningNow()) {
-              this.store?.cancel();
-            } else {
-              this.sendDraft();
-            }
-          })
+          .backgroundColor(this.composerShowStop() ? this.pal().surfaceHi : this.pal().accent)
+          .shadow({ radius: this.composerShowStop() ? 0 : shadowRadiusOf(this.pal(), 'pill'), color: this.composerShowStop() ? this.pal().transparent : shadowColorOf(this.pal(), 'raised'), offsetX: 0, offsetY: 0 })
         }
-        .width(SPACE_XXL).height(SPACE_XXL)
-        .borderRadius(RADIUS_SHEET)
-        .backgroundColor(this.runningNow() ? this.pal().surfaceHi : this.pal().accent)
-        .shadow({ radius: this.runningNow() ? 0 : this.contactLayer('pill').radius, color: this.runningNow() ? this.pal().transparent : this.contactLayer('pill').color, offsetX: 0, offsetY: this.runningNow() ? 0 : this.contactLayer('pill').offsetY })
+        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY).scale({ x: PRESS_SCALE, y: PRESS_SCALE }) }, normal: { .opacity(1).scale({ x: 1, y: 1 }) } })
+        .accessibilityText(this.composerShowStop() ? '停止' : '发送')
+        .onClick(() => {
+          if (this.composerShowStop()) {
+            this.cancelTurn();
+          } else {
+            this.sendDraft();
+          }
+        })
       }
       .width('100%')
       .constraintSize({ minHeight: 56 })
@@ -5555,6 +5556,41 @@ struct Index {
     // ⛔ 与 web 同式：`currentSession.running || progressSnapshot.streaming || busyFallback(activeTurn!==null)`
     //   —— 只要本地还有"在飞的 live 迭代/行"就一定在跑；否则 SSE 抖动会让占位符一闪一没。
     return busyNow(this.busySignals());
+  }
+
+  // ── 主按钮语义（**逐字移植 web** `MessageInput.tsx:686-687/935-939`）────────────────
+  //  web 原文：`canSend = hasContent || pendingUploads || annotations`；
+  //            `sendDisabled = submitting || (canSend ? … : busy ? cancelling : true)`。
+  //  ⇒ **busy 时只要用户输入了内容，主按钮就是「发送」**（按 `sendMode` 插队/排队），
+  //    只有 **busy 且无内容** 时才是「停止」；停止请求在飞时按钮**转圈**。
+  //  用户要求（2026-10-12）：*"用户如果在 busy 的时候输入了文字，那么 cancel 按钮应该自动
+  //    变成插队或者排队按钮"* —— 与 web 同一语义，此前原生缺这一步（永远只显示停止）。
+
+  /** 主按钮当前是否"可发送"（有正文或待发附件）—— web `canSend` 的原生对应。 */
+  private composerCanSend(): boolean {
+    return this.draft.trim().length > 0 || pendingCount(this.attachments) > 0;
+  }
+
+  /** 主按钮是否显示**停止**（= busy 且不可发送）；其余情况显示**发送**。 */
+  private composerShowStop(): boolean {
+    return !this.composerCanSend() && this.runningNow();
+  }
+
+  /** 停止按钮是否**转圈**（web `:938` `cancelling && !canSend && busy`）。 */
+  private composerCancelling(): boolean {
+    const st: ChatStore | null = this.store;
+    return this.composerShowStop() && st !== null && st.cancelling;
+  }
+
+  /** 点「停止」= web `MessageInput.onCancel` ⇒ `chat.cancel()`；失败给可读提示（web 同款 toast）。 */
+  private cancelTurn(): void {
+    const st: ChatStore | null = this.store;
+    if (st === null) {
+      return;
+    }
+    st.cancel().catch(() => {
+      this.toast('取消失败，请重试');
+    });
   }
 
   /**
