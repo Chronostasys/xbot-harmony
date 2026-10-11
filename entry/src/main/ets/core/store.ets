@@ -25,7 +25,7 @@ import { normalizeWebIteration } from './agent_normalize';
 import { channelForChat } from './sessionpick';
 import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
 import { moveOrders } from './sessionops';
-import { RewindReq, RewindTarget, rewindTargetDBID } from './msgops';
+import { RewindReq, RewindTarget, gapTopBefore, rewindTargetDBID } from './msgops';
 import { BgTask, CronJob, RunnerRow, SubAgentRow } from './panels';
 import { serverKey, toLocalSettings } from './settings';
 import { FsEntry } from './composer';
@@ -710,18 +710,14 @@ export class ChatStore {
     if (row.regionsBefore <= 0) {
       return;
     }
-    let minIter: number = -1;
-    for (let i = 0; i < row.iterations.length; i++) {
-      const n: number = row.iterations[i].iteration;
-      if (minIter < 0 || n < minIter) {
-        minIter = n;
-      }
-    }
-    if (minIter < 0) {
+    // ⛔ 取段游标 = 洞的上边界（有洞时），否则最小迭代号（web `AssistantMessage.tsx:104-117`）。
+    //    旧实现恒取 minIter ⇒ 有洞时请求到已持有的段、**洞永远填不上**。
+    const before: number = gapTopBefore(row.iterations);
+    if (before <= 0) {
       return;
     }
     const data: RegionsData = await this.http.postAs<RegionsData>('/api/regions', new RegionsReq(
-      this.channel, this.currentChatId, row.turnID, minIter, 100));
+      this.channel, this.currentChatId, row.turnID, before, 100));
     const older: HistoryIteration[] = arrOrEmpty(data.iterations);
     // 段边界去重后经 `iterations_loaded` 交给状态机 —— reduce 做 union 合并（同号权威
     // 覆盖、轻字段永不覆盖完整数据），与 web `iterations_loaded` 同一语义。

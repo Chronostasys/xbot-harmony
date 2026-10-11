@@ -8,6 +8,7 @@
  */
 
 import { ChatMessage } from './chattypes';
+import { HistoryIteration } from './types';
 
 export const COPY_REPLY: string = 'reply';
 export const COPY_THINKING: string = 'thinking';
@@ -170,6 +171,39 @@ export function linkLabel(url: string): string {
   }
   const stripped: string = s.replace('https://', '').replace('http://', '').replace('mailto:', '');
   return stripped.length > 48 ? `${stripped.substring(0, 45)}…` : stripped;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 区域窗口取段游标（regions）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `before_iteration` 取段游标（逐字对齐 web `AssistantMessage.tsx:104-117`）：
+ *   `beforeIteration = gapTop ?? windowFirstIteration`
+ *
+ * · **有洞**（`iterations[i] > iterations[i-1] + 1`，例如 `[1..40] ∪ [52..90]`）⇒ 取**洞的上边界**
+ *   （`52`）—— 否则请求到已持有的段、**洞永远填不上**；
+ * · **无洞** ⇒ 取**最小迭代号**（继续往前取更早一段）。
+ * 先排序去重（输入顺序不保证）。返回 0 = 无迭代（调用方短路）。
+ */
+export function gapTopBefore(iters: HistoryIteration[]): number {
+  const nums: number[] = [];
+  for (let i = 0; i < iters.length; i++) {
+    const n: number = iters[i].iteration;
+    if (nums.indexOf(n) < 0) {
+      nums.push(n);
+    }
+  }
+  if (nums.length === 0) {
+    return 0;
+  }
+  nums.sort((a: number, b: number): number => a - b);
+  for (let i = 1; i < nums.length; i++) {
+    if (nums[i] > nums[i - 1] + 1) {
+      return nums[i];   // 洞的上边界（最早缺失段的右端）
+    }
+  }
+  return nums[0];       // 无洞 ⇒ 最小迭代号
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
