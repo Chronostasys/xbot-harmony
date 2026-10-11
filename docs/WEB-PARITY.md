@@ -650,7 +650,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 
 | # | 功能 | 为何先做（一句） | 预估改动面（文件） |
 |---|---|---|---|
-| 1 | **AnsiText**（ANSI 着色） | 工具/终端输出是最高频呈现面，原生现把 shell 输出当纯文本 ⇒ 颜色语义全丢；纯函数、可脱机单测 | 新增 `core/ansi.ets`（纯逻辑）+ `MessageRow.ets`/`ToolPopover.ets` 接色 |（⚠️ 纯逻辑部分**已由 `10aae43` 交付**；**接色仍未做** ⇒ 见 §11.10）
+| 1 | **AnsiText**（ANSI 着色） | 工具/终端输出是最高频呈现面，原生现把 shell 输出当纯文本 ⇒ 颜色语义全丢；纯函数、可脱机单测 | **✅ 已接线**（`core/ansi.ets` `9ad6c30` + 本仓色板映射 `10aae43`；消费点 `0af6ef3` `bed4672` —— 5 组件：`MessageRow`/`ToolVisual`/`SyntheticCard`/`LiveTailView`/`ToolPopover`；判据 `tools/tests/ansi_wiring.test.ts` **13 断言**）。⚠️ **原注「接色仍未做」已过时**（订正于 §11.10 的同一处）
 | 2 | **消息编辑并重发/回退（rewind）** | 唯一能改写历史错字的操作；原生状态机已具备 rewind 语义，属**接线级**投入 | `core/store.ets`（rewind REST）+ `Index.ets` 长按菜单 + `UserBubble.ets` |
 | 3 | **web_widgets/plugin_widgets 不静默丢** | 已连接的协议数据被**无声丢弃**（用户可见内容到达客户端却消失）⇒ 正确性缺口，S 级 | `core/store.ets onSse` + 一个只读渲染面（`PluginHost.ets` 或状态条） |
 | 4 | **StagingTray interject/clear** | 排队消息高频交互；`interject`（插队）所需 WS interrupt **已存在** | `Index.ets:5795 QueueSheet` + `core/store.ets`（队列操作） |
@@ -754,7 +754,7 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 
 | 项 | 原判 | 现判 | 证据 / 余量 |
 |---|---|---|---|
-| AnsiText（ANSI SGR 着色） | ❌ | 🟡 **解析层 + 色板映射就绪；消费点未接线** | `core/ansi.ets`：解析 `9ad6c30`、本仓色板映射 `10aae43`；`ansi.test.ts` 钉 web 字节对齐 |
+| AnsiText（ANSI SGR 着色） | ❌ | ✅ **已接线**（⚠️ **2026-10-11 深晚订正**：原判「消费点未接线」**已过时**） | `core/ansi.ets`：解析 `9ad6c30`、本仓色板映射 `10aae43`；**消费点 `0af6ef3`（SyntheticCard 逐 span）+ `bed4672`（live pill 标签）** ⇒ 5 组件真消费（`MessageRow`/`ToolVisual`/`SyntheticCard`/`LiveTailView`/`ToolPopover`）；判据 `ansi_wiring.test.ts` **13 断言** + `ansi.test.ts` 钉 web 字节对齐 |
 | 最近工作目录 | ❌ | 🟡 **纯逻辑就绪；UI 未接线** | `core/recentdirs.ets`（`10aae43`，键/版本/上限 5 逐字对齐 web） |
 | 命令路由 / 深链 | ❌ | 🟡 **仅解析与校验就绪；派发未接线** | `core/command.ets`（`10aae43`）—— 设计上**只解析**，副作用留给页面 |
 | 消息注释 / 高亮 | ❌ | 🟡 **数据面就绪；UI 未接线** | `core/annotations.ets`（`10aae43`），含**两种序列化**（草稿存储 / 出站信封） |
