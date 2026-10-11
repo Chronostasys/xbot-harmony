@@ -844,3 +844,13 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 - **判据**：改插件 `glassOpacity` ⇒ 原生玻璃面板像素变（真机逐点量像素，方法见 §17.7 的像素量法）；
   纯逻辑测试 = `effectsOf` 在给定覆盖下逐值断言 + mutation。
 - **归属**：`core/theme.ets` 现归 **brand-impl**（在落浅色专属参数）⇒ **排期由主 agent 串行处理**。
+
+### 2.10 `KEY_SURFACE`（承载方式 原生 / 内嵌 ArkWeb）—— **有意"首达一次"，改了需重进页面**
+
+- 取值 `'native' | 'web'`（`components/SettingsAppearance.ets:51-52`）；写入口 `pages/Index.ets:4808`，读入口 `:1419`。
+- ⚠️ **生效时机 = 下次进入页面**（不是立即）：`Index.ets:1419` 由 `surfaceApplied` **一次性闸门**保护，
+  注释明写「**只在设置首次到达时套用一次，之后尊重用户本次切换**」。
+- **这是有意设计**（防"聊天进行中"被强制换面 ⇒ 丢上下文）。⛔ 不是 bug，别报障。
+- 守护：`tools/tests/settings_apply_path.test.ts`（断言设置键的读取不在 `aboutToAppear`/`onPageShow`
+  等一次性钩子里；`KEY_SURFACE` 在白名单内并注明本理由）。
+- web 侧**无此键**（原生独有）⇒ 不涉及 parity 对齐。
