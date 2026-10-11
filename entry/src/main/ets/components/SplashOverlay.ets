@@ -30,9 +30,12 @@ import {
 } from '../core/design';
 import { MARK_LADDER_OUTLINE, MARK_LADDER_WORDMARK } from '../core/brand';
 import {
+  SPLASH_HINT_DELAY_MS,
+  SPLASH_HINT_ENTER_OPACITY,
   SPLASH_MARK_BOX_VP,
   SPLASH_MARK_ENTER_OPACITY,
   SPLASH_MARK_ENTER_SCALE,
+  SPLASH_MARK_EXIT_LIFT_VP,
   SPLASH_MARK_SETTLED_OPACITY,
   SPLASH_MARK_SETTLED_SCALE,
   SPLASH_T1,
@@ -42,6 +45,18 @@ import {
   splashMarkLevelOf,
 } from '../core/splash';
 import { animBase, animEaseOut } from './anim';
+
+/**
+ * 给底座工厂返回的 `AnimateParam` 补一个 `delay`（`AnimateParam.delay`，`common.d.ts`）。
+ *
+ * ⛔ 曲线**仍由底座工厂给**（本函数**不构造任何 curve**，只补一个延迟字段）：
+ *    `components/anim.ets` 不在本波文件边界，故不加"带 delay 的工厂变体"。
+ *    用途：跳过提示**延迟淡入**（先把纯品牌给足，提示再淡入）。
+ */
+function withDelay(p: AnimateParam, delayMs: number): AnimateParam {
+  p.delay = delayMs;
+  return p;
+}
 
 @Component
 export struct SplashOverlay {
@@ -71,6 +86,13 @@ export struct SplashOverlay {
   @State private markOpacity: number = SPLASH_MARK_ENTER_OPACITY;
   /** 标记缩放（T1 入场：0.92→1，**一次**）。 */
   @State private markScale: number = SPLASH_MARK_ENTER_SCALE;
+  /** 标记**让位上移量**（T2：0 → `SPLASH_MARK_EXIT_LIFT_VP`，屏幕向上为负）。 */
+  @State private markLift: number = 0;
+  /**
+   * 跳过提示不透明度（**延迟**淡入：先给纯品牌，`SPLASH_HINT_DELAY_MS` 后才淡入）。
+   * ⛔ 原来它从首帧就满不透明 ⇒ 第一眼是"轻点跳过"、品牌反而后到（顺序反 + 廉价）。
+   */
+  @State private hintOpacity: number = SPLASH_HINT_ENTER_OPACITY;
 
   private pal(): Palette {
     return paletteOf(this.theme);
@@ -91,6 +113,8 @@ export struct SplashOverlay {
       // ⛔ 只降动效、不降可达性：标记**立即**到静止位（静态一帧）——不许退化成空白。
       this.markOpacity = SPLASH_MARK_SETTLED_OPACITY;
       this.markScale = SPLASH_MARK_SETTLED_SCALE;
+      // 提示也**立即**可见（延迟淡入属于"动效"，降级时去掉；但"可跳过"这条线索必须还在）。
+      this.hintOpacity = SPLASH_MARK_SETTLED_OPACITY;
     }
   }
 
@@ -116,9 +140,11 @@ export struct SplashOverlay {
       // 让位**不许超调**（`core/splash.splashPhaseCurve(T2) === easeOut`）：走底座具名工厂
       // `animEaseOut()`（`components/anim.ets:103` = `MOTION_SLOW_MS` + `EASE_OUT_CSS`），**零超调**。
       // ⛔ 不得在此自造曲线 / import `@ohos/curves`（唯一出口是 components/anim.ets）。
+      // 让位 = 淡出 **+ 轻微上移**（`docs/SPLASH-SPEC.md:38` 的"可 + 轻微上移"；纯数值在 core/splash）。
       animateTo(animEaseOut(), () => {
         this.overlayOpacity = 0;
         this.markOpacity = 0;
+        this.markLift = SPLASH_MARK_EXIT_LIFT_VP;
       });
     }
   }
@@ -141,6 +167,7 @@ export struct SplashOverlay {
           .fontColor(colorOf(this.pal(), 'textPrimary'))
           .opacity(this.markOpacity)
           .scale({ x: this.markScale, y: this.markScale })
+          .translate({ y: -this.markLift })
       } else if (this.level() === MARK_LADDER_OUTLINE) {
         Image($r('app.media.brand_mark_outline'))
           .width(SPLASH_MARK_BOX_VP)
@@ -148,6 +175,7 @@ export struct SplashOverlay {
           .objectFit(ImageFit.Contain)
           .opacity(this.markOpacity)
           .scale({ x: this.markScale, y: this.markScale })
+          .translate({ y: -this.markLift })
       } else {
         // `full` / `solid`：同一枚**自带颜色**的开屏标记（紫气泡 + 反色星芒，透明底）
         // —— 见 `docs/BRAND.md §4.1`（深浅底上都可读，故**不**做两版）。
@@ -157,6 +185,7 @@ export struct SplashOverlay {
           .objectFit(ImageFit.Contain)
           .opacity(this.markOpacity)
           .scale({ x: this.markScale, y: this.markScale })
+          .translate({ y: -this.markLift })
       }
 
       // ── 跳过提示（视觉小 12–32vp；热区 ≥44 靠 `responseRegion` 外扩 ⇒ ⛔ 不改布局尺寸）──
@@ -185,6 +214,9 @@ export struct SplashOverlay {
       .justifyContent(FlexAlign.End)
       .alignItems(HorizontalAlign.Center)
       .hitTestBehavior(HitTestMode.Transparent)
+      // 提示的"登场"：延迟淡入（见 `hintOpacity` 与 onAppear）——⛔ 覆盖在**整栏**上，
+      // 不用 `.opacity` 压内层 Text（那会和它的 `stateStyles` 按压不透明度打架）。
+      .opacity(this.hintOpacity)
     }
     .width('100%')
     .height('100%')
@@ -196,9 +228,17 @@ export struct SplashOverlay {
     // T1 入场：**一次**（`animBase` 工厂 220ms + 全站 spring；⛔ 无字面量时长）。
     .onAppear(() => {
       if (!this.reduceMotion) {
+        // ① 标记入场：**一次**（`animBase` 工厂 220ms + 全站 spring；⛔ 无字面量时长）。
         animateTo(animBase(), () => {
           this.markOpacity = SPLASH_MARK_SETTLED_OPACITY;
           this.markScale = SPLASH_MARK_SETTLED_SCALE;
+        });
+        // ② 跳过提示**随后**淡入：先把纯品牌给足 `SPLASH_HINT_DELAY_MS`，提示再淡入
+        //    （⛔ 否则第①帧是"轻点跳过"、品牌反而后到 → 顺序反 + 廉价）。
+        //    延迟走 `AnimateParam.delay`（`common.d.ts` 的 AnimateParam 字段）——**曲线仍来自
+        //    底座工厂**（`animEaseOut`，无超调）；本仓无 delay 先例，故此处显式注释来源。
+        animateTo(withDelay(animEaseOut(), SPLASH_HINT_DELAY_MS), () => {
+          this.hintOpacity = SPLASH_MARK_SETTLED_OPACITY;
         });
       }
     })

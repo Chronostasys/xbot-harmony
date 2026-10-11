@@ -18,8 +18,11 @@ import {
   LAUNCH_WARM,
   SPLASH_ENTER_MS,
   SPLASH_EXIT_MS,
+  SPLASH_HINT_DELAY_MS,
+  SPLASH_HINT_ENTER_OPACITY,
   SPLASH_HYSTERESIS_MS,
   SPLASH_MARK_BOX_MULT,
+  SPLASH_MARK_EXIT_LIFT_VP,
   SPLASH_MARK_BOX_VP,
   SPLASH_MARK_ENTER_OPACITY,
   SPLASH_MARK_ENTER_SCALE,
@@ -55,7 +58,7 @@ import { EASE_OUT_CSS, EASE_SPRING_CSS } from '../../entry/src/main/ets/core/tok
 import { MOTION_BASE_MS, MOTION_FAST_MS, MOTION_SLOW_MS } from '../../entry/src/main/ets/core/motion';
 import { ORB_BREATH_MS } from '../../entry/src/main/ets/core/orb';
 import { MARK_LADDER_FULL, MARK_LADDER_OUTLINE, MARK_LADDER_SOLID, MARK_LADDER_WORDMARK, brandAccent, contrastRatio } from '../../entry/src/main/ets/core/brand';
-import { SPACE_XXL } from '../../entry/src/main/ets/core/design';
+import { SPACE_SM, SPACE_XXL } from '../../entry/src/main/ets/core/design';
 
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean, extra?: string): void {
@@ -223,6 +226,47 @@ function eq(name: string, got: unknown, want: unknown): void {
   const c: number = contrastRatio(brandAccent(), '#FFFFFF');
   ok(`porcelain 标记对比度 ≥ 3:1（非文本；实得 ${c.toFixed(4)}）`, c >= 3.0);
   ok('  且如实记录 < 4.5.1 文本阈值（已知未决项）', c < 4.5);
+}
+
+// ── ★G 观感打磨：T2 让位"轻微上移" + 跳过提示"延迟淡入"（SPEC:38 / 顺序与层次）──────────
+//
+// 两条都是"能跑≠好看"的观感修补，判据分两层：
+//   ① 纯数值（core/splash.ets 的常量）—— 真函数断言；
+//   ② 组件**源码形态**（组件层不进离线 harness，故按本仓先例读真实源码，见 orb.test.ts §2）
+//      —— 钉住"T2 真用了上移量""提示真被延迟淡入绑定"，改坏即红。
+{
+  // ① 纯值
+  eq('T2 上移量 == SPACE_SM（由底座尺寸档派生，零裸数字）', SPLASH_MARK_EXIT_LIFT_VP, SPACE_SM);
+  ok('  ⇒ 上移量 > 0（让位有方向感，不是"整层被抠掉"）', SPLASH_MARK_EXIT_LIFT_VP > 0);
+  ok(`  ⇒ 上移量是小档（SPACE_SM=${SPACE_SM} < 标记盒 ${SPLASH_MARK_BOX_VP} 的 1/10 ⇒ 是"气息"不是位移表演）`,
+    SPLASH_MARK_EXIT_LIFT_VP < SPLASH_MARK_BOX_VP / 10);
+  eq('提示延迟 == SPLASH_ENTER_MS（标记入场结束才提示）', SPLASH_HINT_DELAY_MS, SPLASH_ENTER_MS);
+  ok('  ⇒ 提示延迟 > 0（先给纯品牌，⛔ 不再首帧满不透明）', SPLASH_HINT_DELAY_MS > 0);
+  eq('提示起始不透明度 = 0', SPLASH_HINT_ENTER_OPACITY, 0);
+
+  // ② 组件源码形态（读真实源码）
+  let overlaySrc: string = '';
+  for (const up of ['../..', '../../..', '../../../..']) {
+    const p: string = path.resolve(__dirname, up, 'entry/src/main/ets/components/SplashOverlay.ets');
+    if (fs.existsSync(p)) {
+      overlaySrc = fs.readFileSync(p, 'utf8');
+      break;
+    }
+  }
+  ok('读到 SplashOverlay.ets 源码', overlaySrc.length > 0);
+  ok('T2 让位真用了上移量（markLift = SPLASH_MARK_EXIT_LIFT_VP）',
+    overlaySrc.indexOf('this.markLift = SPLASH_MARK_EXIT_LIFT_VP') >= 0);
+  ok('标记真绑定了上移（.translate({ y: -this.markLift })）',
+    overlaySrc.indexOf('.translate({ y: -this.markLift })') >= 0);
+  ok('提示栏真绑定延迟淡入（.opacity(this.hintOpacity)）',
+    overlaySrc.indexOf('.opacity(this.hintOpacity)') >= 0);
+  ok('提示的延迟**来自底座工厂 + delay**（withDelay(animEaseOut(), SPLASH_HINT_DELAY_MS)）',
+    overlaySrc.indexOf('withDelay(animEaseOut(), SPLASH_HINT_DELAY_MS)') >= 0);
+  ok('提示起始不透明度取自 core/splash（hintOpacity = SPLASH_HINT_ENTER_OPACITY）',
+    overlaySrc.indexOf('SPLASH_HINT_ENTER_OPACITY') >= 0);
+  // ⛔ 组件不得自造曲线：不许 import @ohos/curves（注释里**提到**它是允许的 ⇒ 只查 import 语句）
+  ok('组件**不** import @ohos/curves（曲线唯一出口 = components/anim.ets）',
+    overlaySrc.indexOf("from '@ohos/curves'") < 0);
 }
 
 // ── ★F T0 资源不变量（真机白闪修复；`FOLLOW_APPLICATION` 经真机证实**不生效**）────────

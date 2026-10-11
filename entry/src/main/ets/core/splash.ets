@@ -25,7 +25,7 @@ import { Palette, paletteOf, lightPalette, darkPalette, isLightPalette } from '.
 import { MOTION_BASE_MS, MOTION_SLOW_MS, MOTION_FAST_MS } from './motion';
 import { ORB_BREATH_MS } from './orb';
 import { EASE_SPRING_CSS, EASE_OUT_CSS } from './tokens';
-import { SPACE_XXL } from './design';
+import { SPACE_SM, SPACE_XXL } from './design';
 import { BrandSurface, brandAccentFor, contrastRatio, markLevelFor } from './brand';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -106,6 +106,26 @@ export const SPLASH_MARK_ENTER_OPACITY: number = 0;
 export const SPLASH_MARK_SETTLED_OPACITY: number = 1;
 /** 标记静止位缩放（入场终点）。 */
 export const SPLASH_MARK_SETTLED_SCALE: number = 1;
+/**
+ * T2 **让位**时标记的**轻微上移**（vp，屏幕坐标取负）= `SPACE_SM` = **8vp**。
+ *
+ * 依据 `docs/SPLASH-SPEC.md:38`：T2 = "标记让位（`opacity 1→0`，**可 + 轻微上移**）"——
+ * 只淡出会读作"整层被抠掉"；给一点**方向性**（向上"交棒"）才像"让位"。
+ * 走向 `animEaseOut()`（**无超调**，见 `splashPhaseCurve(T2)===easeOut`）：让位不许"抖一下"。
+ * ⛔ 量级刻意极小（8vp ≈ 标记盒 160vp 的 5%）—— 是"气息"，不是位移表演。
+ */
+export const SPLASH_MARK_EXIT_LIFT_VP: number = SPACE_SM;
+
+/**
+ * **跳过提示**延迟淡入的起点（ms）= `SPLASH_ENTER_MS`（= 220，标记入场结束）。
+ *
+ * 为什么需要：提示原先从**首帧**就满不透明度 ⇒ 第一眼看到的是"轻点跳过"、**品牌反而后到**
+ * （标记 `opacity 0→1` 才入场）⇒ 顺序反了、也廉价。改为：先把**纯品牌**给足（入场时长），
+ * 提示再**淡入**。⛔ 语义是"提示不抢品牌"，不是"提示出现得越晚越好"（太长会显得交互没反馈）。
+ */
+export const SPLASH_HINT_DELAY_MS: number = MOTION_BASE_MS;
+/** 跳过提示的**起始**不透明度（延迟窗内保持 0 ⇒ 不可见）。 */
+export const SPLASH_HINT_ENTER_OPACITY: number = 0;
 
 // ── 标记展示尺寸 ─────────────────────────────────────────────────────────────
 /** 标记盒相对 `space.xxl` 的倍数（**布局档**，非动效时长）。 */

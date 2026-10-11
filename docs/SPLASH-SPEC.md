@@ -209,6 +209,22 @@ function curveHasOvershoot(css: string): boolean;            // 解析 cubic-bez
 
 ---
 
+### 4.6 观感细节（"能跑≠好看"）—— T2 上移 + 提示延迟淡入
+
+补两处"看得出来的廉价感"（判据 = `tools/tests/splash.test.ts ★G`，含组件**源码形态**守卫）：
+
+| 细节 | 改前（廉价） | 改后 | 纯数值（`core/splash.ets`） |
+|---|---|---|---|
+| **T2 让位** | 只把整层 `opacity` 淡到 0 ⇒ 读作"整层被抠掉"，没有方向 | 淡出 **+ 标记轻微上移**（`translate({y: -this.markLift})`）⇒ 有"向上交棒"的气息 | `SPLASH_MARK_EXIT_LIFT_VP = SPACE_SM` = **12vp**（= 标记盒 160vp 的 7.5% ⇒ 是"气息"不是位移表演） |
+| **跳过提示** | 从**首帧**就满不透明度 ⇒ 第一眼是"轻点跳过"、**品牌反而后到**（顺序反 + 廉价） | 先给**纯品牌** `SPLASH_ENTER_MS`(220)，提示再**淡入**（`AnimateParam.delay` + `animEaseOut()`） | `SPLASH_HINT_DELAY_MS = MOTION_BASE_MS`, `SPLASH_HINT_ENTER_OPACITY = 0` |
+
+- ⛔ **不许新增曲线/时长**：上移走 `animEaseOut()`（**无超调**，符合 `splashPhaseCurve(T2)===easeOut`）；
+  提示淡入的**曲线**也来自底座工厂，只补了一个 `delay` 字段（`components/anim.ets` 不在本波文件边界，
+  故不加"带 delay 的工厂变体"；组件内 `withDelay()` 只改 `delay`，**不构造 curve**）。
+- ⛔ **不引入第二个"在飞"**：两者都是**一次性过渡**，`iterations=1`（`tools/lint/inflight-single-source.sh` 守护）；
+  ⛔ **不给标记加发光**（全场唯一发光体 = 光球，`DESIGN-SYSTEM §8.3`）。
+- 真机判据（连拍前 N 帧）：T1 帧与 T2 帧对比 ⇒ 标记应**更淡且更高约 12vp**；首 ~220ms 内**不应**看到"轻点跳过"。
+
 ## 5. `reduceMotion` 阶段表（**只降动效、不降可达性**）
 
 铁律：`reduceMotion=true` ⇒ **降级的是"动"，不是"反馈"**。⛔ 不许出现"空白屏 / 无任何指示"。
