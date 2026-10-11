@@ -40,6 +40,25 @@ eq('style normal → textPrimary', styleColorRole('normal'), 'textPrimary');
 eq('style dim → textMuted', styleColorRole('dim'), 'textMuted');
 eq('style error → dangerText', styleColorRole('error'), 'dangerText');
 eq('style 未知 → textPrimary（不透明）', styleColorRole('zzz'), 'textPrimary');
+// ⛔ 铁律：这两个映射**只能**产出**文字角色** —— 绝不产 `statusWaiting`/`statusRunning` 等
+//    状态**标记/点色**（浅底仅 1.7–2.1:1，当正文读不出；`theme_contrast` 根因 F）。
+{
+  const styles: string[] = ['normal', 'dim', 'accent', 'success', 'warning', 'error', 'info', 'muted', 'zzz', ''];
+  const tones: string[] = ['normal', 'success', 'warning', 'error', 'info', 'accent', 'muted', 'zzz', ''];
+  let clean = true;
+  for (let i = 0; i < styles.length; i++) {
+    const r: string = styleColorRole(styles[i]);
+    if (r === 'statusWaiting' || r === 'statusRunning' || r === 'statusIdle'
+      || r === 'statusError' || r === 'dangerBg' || r === 'successBg' || r === 'warnBg') { clean = false; }
+  }
+  for (let i = 0; i < tones.length; i++) {
+    const r: string = toneColorRole(tones[i]);
+    if (r === 'statusWaiting' || r === 'statusRunning' || r === 'statusIdle'
+      || r === 'statusError' || r === 'dangerBg' || r === 'successBg' || r === 'warnBg') { clean = false; }
+  }
+  ok('★ warning/全部档 ⇒ 只产文字角色（无状态标记色）', clean);
+}
+eq('warning 档 = warn（文字角色）', [styleColorRole('warning'), toneColorRole('warning')], ['warn', 'warn']);
 eq('tone success → successText', toneColorRole('success'), 'successText');
 ok('支持 badge/progress/metric/list/markdown', isSupportedKind(KIND_BADGE)
   && isSupportedKind(KIND_PROGRESS) && isSupportedKind(KIND_METRIC)
@@ -58,7 +77,7 @@ eq('支持集 = 5 种', SUPPORTED_KINDS.length, 5);
   eq('zone 名', z.name, 'infoBar');
   eq('zone 显示名', z.label, '信息条');
   eq('span 文本', z.spans.map((s) => s.text), ['main', 'Δ3']);
-  eq('span 色角色（accent/warning）', z.spans.map((s) => s.colorRole), ['accentSoft', 'statusWaiting']);
+  eq('span 色角色（accent/warning）', z.spans.map((s) => s.colorRole), ['accentSoft', 'warn']);
   eq('有内容 ⇒ visible', v.visible, true);
 }
 
