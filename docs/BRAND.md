@@ -8,6 +8,9 @@
 
 **一枚满幅强调色方块 + 白色对话气泡 + 同色四角星芒**——极简两色，无渐变、无描边、无阴影。
 
+> ⭐ **改图标/开屏前先看 §6.4**：几何/配色的**唯一真源是 `core/brand.ets`**，资源由
+> `tools/brand/gen.sh` **生成**（可重复、可 `--check` 校验）；**不要**手改 `app_icon.svg` / `start_icon.png`。
+
 ## 1. 标记语义
 
 | 元素 | 语义 | 说明 |
@@ -30,8 +33,13 @@
 | 气泡外框 | `x 224..800, y 232..700` | 左右各留 ~22% 边距 |
 | 气泡圆角 | `r = 148` | ≈ 气泡高（468）的 31.6% —— squircle 观感 |
 | 气泡尾巴 | 底边向左延至 `x=476`，尖点 `(300, 844)` | 左下，高 ≈ 144 |
+| 尾巴尖倒圆 | `r = 28`（`TAIL_TIP_ROUND`）| 锐角硬拐 → 柔性收尾（`Q` 切角）；**改它一个常量即可** |
 | 星芒中心 | `(512, 466)` = 气泡主体中心 | 必须与气泡主体同心 |
-| 星芒半径 | `120`（四个尖点各距中心 120，控制点全在中心） | 直径 ≈ 气泡高的 51%（本地栅格化实测尖点落在 ±120） |
+| 星芒半径 | `130`（四个尖点各距中心 130，控制点全在中心） | 直径 ≈ 气泡高的 55%（本地栅格化实测尖点落在 ±130） |
+
+> ⚠️ **这些数字不再手写在文档里当"真源"** —— 唯一真源是 `core/brand.ets` 的常量
+> （`BUBBLE_*` / `TAIL_*` / `STAR_*`），本表是它的**镜像**。改样式请改代码常量，再跑生成脚本
+> （见 §6.4），**不要**手改资源文件。
 
 **缩放/再绘制规则**：任何尺寸都从 1024 画布**等比**缩放（几何是比例驱动，不是像素驱动）。
 新增尺寸不要手改坐标，改 viewBox 宽度即可。
@@ -160,23 +168,60 @@ sips -g hasAlpha -g pixelWidth -g pixelHeight /tmp/start_icon.png   # hasAlpha: 
 - `app_icon` 保持 SVG 源（工具链会转 PNG）；**同一资源名不能同时存在 `.svg` 与 `.png`**
   ——实测报 `Resource 'start_icon' conflict`（`CompileResource` 失败），故 `start_icon.svg` 必须移除。
 
-### 6.4 再生成（比例驱动）
+### 6.4 再生成（**唯一真源在代码里**，禁止手改资源）
 
-标记是**比例驱动的几何**，改样式只需改 §2 的坐标，再等比缩放：
+标记是**比例驱动的几何**，全部收敛到 `entry/src/main/ets/core/brand.ets`（常量 + `bubblePath()` /
+`starPath()` / `appIconSvg()` / `splashMarkSvg()`）。资源**由脚本生成**，不要手改：
 
-- **开屏标记（现为 PNG）**：先用下面这份 512 画布源重画，再 `sips -s format png <src.svg> --out start_icon.png`：
+```bash
+bash tools/brand/gen.sh            # 生成/覆盖：app_icon.svg（AppScope + entry 两份）+ start_icon.png
+bash tools/brand/gen.sh --check    # 只校验：与已提交资源逐字节比对（drift 门禁）
+bash tools/brand/gen.sh --proofs /tmp/xbot-brand-proofs   # 另出浅/深开屏底色的 proof PNG（人工走查）
+```
 
-  ```svg
-  <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-    <path fill="#7C5CFF" d="M 186 116 H 326 A 74 74 0 0 1 400 190 V 276 A 74 74 0 0 1 326 350
-      H 238 L 150 422 L 150 350 H 186 A 74 74 0 0 1 112 276 V 190 A 74 74 0 0 1 186 116 Z"/>
-    <path fill="#FFFFFF" d="M 256 173 Q 256 233 316 233 Q 256 233 256 293 Q 256 233 196 233
-      Q 256 233 256 173 Z"/>
-  </svg>
-  ```
+- **可重复性**：生成器只从 `core/brand.ets`（+ `theme.ets` 取 token）产出；`sips` 栅格化已实测**确定性**
+  （同输入两次跑出的 PNG `shasum` 完全一致）⇒ `--check` 三次全部"一致"。
+- **改样式**：改 `core/brand.ets` 的常量（如 `STAR_R` / `TAIL_TIP_ROUND`）→ 跑 gen.sh → 跑
+  `tools/tests/brand.test.ts`（几何/安全区/配色/产物一致的守护）。
+- **改主色**：品牌主色 = `darkPalette().accent`（`brand.ets:brandAccent()`），**不是**在 SVG 里替换字符串
+  —— 因为 `brand.ets` 直接 import token，色值天然同源。
+- ⛔ `app_icon` 的 `.svg` 与 `start_icon` 的 `.png` **不能同名共存**（实测 `Resource conflict`），故启动器图标
+  保持 SVG 源、开屏标记以 PNG 交付（见 §6.3）。
 
-- **启动器图标（保持 SVG 源）**：直接改 `app_icon.svg` 的几何；换主色把 `#7C5CFF` 全量替换为新
-  `accent` 值；换尺寸只改 `<svg width height viewBox>` 的第二/三位，**不要**改 path 坐标。
+## 6.5 蒙版安全区（不被圆形/方形/圆角裁坏）+ 浅/深 proof
+
+**问题**：启动器图标会被系统按 squircle / 圆形等蒙版裁切；分层图标（adaptive icon）还会把前景限制在
+一个**安全区圆**内。若标记超出安全区，真机上就会被裁掉一角（而本地看源文件完全正常）。
+
+**检算**（`core/brand.ets` 的纯函数 + `tools/tests/brand.test.ts` 的断言，可复现）：
+
+| 量 | 值 | 判定 |
+|---|---|---|
+| 画布内切圆半径（圆形蒙版可见半径） | `512` | — |
+| 标记最大半径（边中点 + 圆角弧最远点 + 尾巴尖的极值） | `≈ 393.9`（尾巴尖主导） | `< 512` ⇒ **圆形/方形/圆角蒙版都不裁** ✅ |
+| 分层图标前景安全区半径（108dp 里的 66dp ⇒ `33/108×1024`） | `313` | 标记 `393.9 > 313` ⇒ **做分层时前景需缩进** ⚠️（当前是**单层**图标，不依赖它） |
+| 左右边距对称 | `224 == 1024-800` | ✅ |
+
+> 结论：**当前单层图标**对圆形/方形/圆角蒙版都安全（余量 ~118px）。若将来改**分层图标**（见 §9 待验证项），
+> 必须把前景缩进到 313 半径内（`tools/tests/brand.test.ts` 的 `fitsLayeredSafeZone()` 会提醒）。
+
+**浅/深两套开屏底色的 proof**（证明"同一标记在浅底与深底都成立"）：
+
+```bash
+bash tools/brand/gen.sh --proofs /tmp/xbot-brand-proofs
+# 产出 proof_light.png（底 #F8FAFC = lightPalette().appBg）与 proof_dark.png（底 #0B0B0E = darkPalette().appBg）
+```
+
+实测（逐像素）：浅底四角 `(248,250,252)`、深底四角 `(11,11,14)`，两者标记中心均为白星 `(255,255,255)`、
+气泡均为 `#7C5CFF` ⇒ **同一个标记在纯白/近白/近黑底上都可读**，无需为深浅各做一版标记。
+
+**对比度实测**（`tools/tests/brand.test.ts`）：
+
+| 组合 | 比值 | 阈值 | 判定 |
+|---|---|---|---|
+| 主色 `#7C5CFF` vs 浅底 `#F8FAFC` | `4.20:1` | ≥ 3:1（非文本图形） | ✅ |
+| 主色 `#7C5CFF` vs 深底 `#0B0B0E` | `4.43:1` | ≥ 3:1 | ✅ |
+| 白星 `#FFFFFF` vs 主色 `#7C5CFF` | `4.35:1` | ≥ 3:1 | ✅（**不到** AA 正文 4.5:1 —— 但星芒是图形不是文字） |
 
 ## 7. 启动器裁切 vs 开屏标记（为什么两者不同）
 
@@ -216,3 +261,16 @@ sips -g hasAlpha -g pixelWidth -g pixelHeight /tmp/start_icon.png   # hasAlpha: 
 2. 若桌面要求分层图标：需在 `AppScope/resources/base/media/` 增加
    `foreground.*` + `background.*` 与 `layered_image.json`，并把 `app.json5` 的 `icon`
    指向 `$media:layered_image` —— **该 API 形状未经本地核实，必须先查 DevEco 文档再动**。
+
+## 10. 需要用户拍板 / 尚未做的项（2026-10-11 品牌波）
+
+| # | 项 | 为什么没做 | 需要什么 |
+|---|---|---|---|
+| 1 | **App 内启动动效（真正的"开屏动画"）** | 系统 `startWindow` 是**静态**的（无法动画）；App 内首帧是 `pages/Index.ets:2605 LoadingView`（转圈 + "xbot"），**`pages/Index.ets` 与 `components/**` 不在本波文件边界** | 批准后新增一个 splash 组件/页面（注意本仓"同一时刻只有一个在飞动效"铁律 `DESIGN-SYSTEM.md §8`） |
+| 2 | **冷启动跳色**（系统浅、应用选深，或反之）| 开屏底色**跟随系统**（`FOLLOW_SYSTEM` 默认，§4.2）；应用色板由 `EntryAbility.onCreate` 的 `setColorMode` 决定 ⇒ 二者不一致时"开屏 → 首帧"跳一帧 | 改用 `startWindow` profile + `FOLLOW_APPLICATION`（要改 `module.json5` ⇒ 配置拍板）；见 §4.2 |
+| 3 | **分层图标（adaptive icon）** | `layered_image` 落法在本地 SDK/hvigor **搜不到**（§9）；且启用需改 `app.json5` 的 `icon` | 查 DevEco 文档 + 配置拍板；本波已把前景安全区约束与检算备好（§6.5） |
+| 4 | **品牌主色 `#7C5CFF` 调整** | 改主色影响全应用（token）与 web 对齐 | **只出建议**：白底族上 `#7C5CFF` vs `#FFFFFF` 对比约 4.3:1，若要做"纯白主题专属 logo"，可评估加深一档（如 `#6A4CF0`）——**但要用户拍板且需同步 `theme.ets`（不在本波边界）** |
+| 5 | **真机开屏/桌面图标截图** | 系统开屏是**亚秒级**、且模拟器为共享资源（拍照需抢时序）| 见交付 ④ 的说明 |
+
+> 一并以**代码级 + 构建级**证据交付：`core/brand.ets` + `tools/brand/gen.sh`（可重复生成）+
+> `tools/tests/brand.test.ts`（几何/安全区/配色/产物一致的守护）+ 浅/深 proof PNG。
