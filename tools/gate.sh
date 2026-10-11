@@ -52,6 +52,12 @@ build_once() {
   hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-daemon >"$LOG" 2>&1
 }
 
+# ⛔ 强制**真实**编译（否则门禁本身就是假绿制造机）。
+#    hvigor 增量在"无变更"时只打 `BUILD SUCCESSFUL in 1 s 145 ms`（本仓 2026-10-11 实测）
+#    —— 那一步**没有做 ArkTS 类型检查**，等于把 ④ 变成了空转。`touch -c` 只改 mtime
+#    （不加 `-c` 会把已删除的文件复活成 0 字节幽灵），强制 entry 编译图整体重编。
+touch -c "$ROOT/entry/src/main/ets/pages/Index.ets" 2>/dev/null || true
+
 ok=0
 build_once && ok=1
 if [ "$ok" -eq 0 ] && grep -qE "Read buffer from input error|input error" "$LOG"; then

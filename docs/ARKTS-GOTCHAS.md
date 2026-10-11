@@ -729,3 +729,27 @@ Usage of standard library is restricted (arkts-limited-stdlib)
   1. **一条线的改动一旦通过门禁就立刻提交**，不要攒着等"这一波全部做完再说"；
   2. 提交**必须严格 pathspec**，提交前 `git diff --cached --name-only` 逐条核对；
   3. 同一文件**同时只允许一条线在改**（编排时按文件冲突矩阵分波）。
+
+## 批次 21：`tools/gate.sh` 的第 ④ 步会**增量空转** ⇒ 门禁自己就是假绿制造机（2026-10-11，实测 + 已修）
+
+- **现象**：`bash tools/gate.sh` 打出 `> hvigor BUILD SUCCESSFUL in 1 s 145 ms` 并宣告
+  `✅ 真门禁全绿（离线三条 + ArkTS 编译）` —— 但**那一步根本没做 ArkTS 类型检查**
+  （hvigor 增量发现"无变更"就空转）。同一时段另一条线改完代码时打的是 `14 s 915 ms`（真编译）。
+  ⇒ **判据不能只看"绿"，必须看 ④ 的耗时量级**（十几秒 = 真，1 秒 = 空转）。
+- **危害**：本仓第 1 类假绿（"唯一判据是 `assembleHap`"）被**工具自身**破坏 ——
+  一个 1 秒级的 `BUILD SUCCESSFUL` 会把真实的 ArkTS 类型错误静默放过，而且**看起来比真编译还干净**。
+- **修法（已落地 `tools/gate.sh`）**：第 ④ 步之前执行
+  `touch -c "$ROOT/entry/src/main/ets/pages/Index.ets"`。
+  只改 mtime ⇒ 强制 entry 编译图整体重编 ⇒ 每次门禁都是**真编译**。
+  ⛔ 必须带 `-c`：裸 `touch` 对**已删除**的文件会创建 0 字节幽灵（见批次 17）。
+- **验证（强化后第一次运行就立功）**：当场抓出真红 ——
+  ```
+  ❌ ArkTS 编译失败：Argument of type '{…label,body,open,theme,live,emphasis,onToggle}' is not
+     assignable to parameter of type '{…orb?, orbMode?, orbBeat?, paused?, reduceMotion?}'
+  ✗ 思考行只有 live 时才做极弱强调，否则恒为 1   （inflight_language: 37 passed / 1 failed）
+  ```
+- **连带纪律（多头并行时的"树红"分发判据）**：红线落在**别人正在改的文件**里是**正常**的
+  （批次 20 的前半面）。此时：
+  1. **只对自己改的文件负责** —— 先 `git status --short` 确认改动范围；
+  2. 红在别人文件里 ⇒ **把证据（原文 + file:line）交给编排者**，**绝不**去改别人的文件；
+  3. 红在自己文件里 ⇒ 必须修，且**改完立刻提交**（树红期间别人跑门禁全是红，会去追不属于自己的鬼）。
