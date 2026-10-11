@@ -93,8 +93,18 @@ has(tailSrc, '} else if (this.orb) {',
 }
 
 // ── (5) 降级 / 后台语义不退化：光球仍由 paused + reduceMotion 停表 ────────────────
-has(orbSrc, 'this.ready && this.active && !this.paused && !this.reduceMotion;',
-  '光球 shouldRun() 仍含 paused + reduceMotion（语义未退化）');
+// ⛔ **断言订正（2026-10-11）**：`302da8f` 把"**不可见 ⇒ 停表**"**并入** `shouldRun()` 的门控
+//    （`… && !this.reduceMotion && this.visible`）；旧断言只认"**去掉 visible** 的精确串"
+//    ⇒ 过时（**不是实现退化**：`paused` / `reduceMotion` 两项语义都还在，见下方逐子句断言）。
+//    改成**逐子句**断言 ⇒ 任何一项语义被摘掉都会红（比单一精确串**更强**，且不惧排版变化）。
+const stopGuard: string = orbSrc.slice(orbSrc.indexOf('private shouldRun(): boolean {'));
+const stopGuardBody: string = stopGuard.slice(0, stopGuard.indexOf('}'));
+ok('shouldRun() 门控可定位', stopGuardBody.length > 10);
+const stopClauses: string[] = ['this.ready', 'this.active', '!this.paused', '!this.reduceMotion', 'this.visible'];
+for (let i = 0; i < stopClauses.length; i++) {
+  const clause: string = stopClauses[i];
+  ok(`shouldRun() 仍含 ${clause}（语义未退化）`, stopGuardBody.indexOf(clause) >= 0);
+}
 has(tailSrc, 'reduceMotion: this.reduceMotion(),',
   '降级唯一来源仍投给光球');
 
