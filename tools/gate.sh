@@ -107,6 +107,15 @@ bash "$HERE/lint/orphan-components.sh" || true
 echo "===== ⑥ 判据单一性（警告级，不影响退出码）====="
 bash "$HERE/lint/criteria-single-source.sh" || true
 
+# ⛔ 新增（2026-10-11 审计令牌层钓出）：取色 role 合法性 —— **硬红**。
+#    为什么必须硬：`core/design.ets: colorOf(p, role)` 对**未知 role 静默 `return p.transparent`**
+#    ⇒ 把散文记号（`'text.pillName'`/`'status.danger'`，`docs/REDESIGN-INPUT-*.md` 与样张里满地都是）
+#      当 API 用 ⇒ **编译零警告、运行时文字/图标不可见**、其它测试全抓不到。
+#    为什么现在就能硬：落地时实测**已扫到 32 处取色调用、全部合法**（无存量欠账）。
+#    脚本自带"零扫描判红"防白绿；mutation 自证：注入 `colorOf(p,'text.pillName')` 必红。
+echo "===== ⑥b 取色 role 合法性（静态，硬红）====="
+bash "$HERE/lint/color-roles.sh" || fail=1
+
 # ⚠️ 新增（本波）：性能静态预算（`perf-audit` 交付）。秒级零抖动、**硬红**。
 #    ⛔ 刻意放在**最后一步**：它不读 ArkUI 源码、只做静态预算比对，**不与 ④ 的 ArkTS 真编译争构建锁**，
 #    也不拖慢主流程（实测 ~0s）。产物/耗时照打（便于识别假绿）。
@@ -121,4 +130,4 @@ if [ "$fail" -ne 0 ]; then
   echo "❌ 真门禁**未通过**（见上方红灯）"
   exit 1
 fi
-echo "✅ 真门禁全绿（离线三条 + 在飞单一来源 + ArkTS 编译 + 性能预算）"
+echo "✅ 真门禁全绿（离线三条 + 在飞单一来源 + ArkTS 编译 + 取色 role + 性能预算）"
