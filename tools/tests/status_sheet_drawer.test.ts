@@ -39,6 +39,11 @@ const pathMod = require('path');
 const repoRoot = pathMod.join(__dirname, '..', '..', '..', '..');
 const indexSrc: string = fsMod.readFileSync(
   pathMod.join(repoRoot, 'entry', 'src', 'main', 'ets', 'pages', 'Index.ets'), 'utf-8');
+// ⚠️ 2026-10-11（P1 拆分后）：`StatusSheet` 已从 `pages/Index.ets` 抽为
+//    `components/StatusSheet.ets`（判据留页面、组件只吃 `@Prop` 字符串 + 回调，
+//    见 `docs/INDEX-SPLIT-PLAN.md` §5）⇒ 状态弹层的结构断言改读**组件源码**。
+const statusSrc: string = fsMod.readFileSync(
+  pathMod.join(repoRoot, 'entry', 'src', 'main', 'ets', 'components', 'StatusSheet.ets'), 'utf-8');
 
 /** 从锚点 A 到锚点 B 之间的源码片段（找不到返回空串）。 */
 function between(src: string, a: string, b: string): string {
@@ -49,15 +54,21 @@ function between(src: string, a: string, b: string): string {
 }
 
 // ── 靶子3：会话状态弹层（标签左 / 值右，每项仅一次）──────────────────────────────
-const sheet: string = between(indexSrc, 'StatusSheet() {', '.transition(this.sheetTransition())');
+// ⚠️ 旧锚点 `between(indexSrc, 'StatusSheet() {', '.transition(this.sheetTransition())')` 已失效：
+//    P1 后 `StatusSheet` 不在 `Index.ets`（且页面过渡改调 `sheetTransition()`，不再有 `this.`）
+//    ⇒ 旧期望（"这段源码在页面里"）不再是契约；契约改为"组件渲染逐项行 + 页面喂权威用量值"。
+const sheet: string = statusSrc;
 ok('StatusSheet 可定位', sheet.length > 200);
-hasNot(sheet, 'this.statusBarText()',
+hasNot(sheet, 'statusBarText',
   '弹层不再整体渲染 statusBarText()（其含 model/cwd ⇒ 与下方专属行重复）');
 has(sheet, "Text('用量')", '用量成行（标签左）');
 has(sheet, "Text('模型')", '模型成行（标签左）');
 has(sheet, "Text('工作路径')", '工作路径成行（标签左）');
 has(sheet, 'textAlign(TextAlign.End)', '值右对齐（web InfoRow 口径：标签左、值右）');
-has(sheet, 'usageText(this.usage)', '用量取服务端权威值（usageText），不本地推算');
+// 权威用量值契约（拆分后）＝ 组件接收 `@Prop usageText` ⊕ 页面把 `usageText(this.usage)` 喂进去。
+// 两处合起来 ⇔ 旧的 `has(sheet, 'usageText(this.usage)')`（当时在同一段源码里）。
+has(sheet, '@Prop usageText', '组件用量走 @Prop usageText（判据不入组件）');
+has(indexSrc, 'usageText: usageText(this.usage)', '页面喂入服务端权威用量值（usageText），不本地推算');
 
 // ── 靶子4a：组头层次（web 是 font-semibold；中文以字重补半档）────────────────────
 const grpHead: string = between(indexSrc, 'Text(g.title)', 'backgroundColor(this.pal().surfaceAlt).borderRadius(8)');
