@@ -300,6 +300,10 @@ export struct SettingsAbout {
                   .fontSize(FS_BODY)
                   .fontColor(this.pal().onAccent)
                   .fontFamily('monospace')
+                  // H1：版本号是**值语义**、在 `Row({space:SP_2})` 内且此前**无收缩手**
+                  // ⇒ 长版本串（含 commit/构建号）会顶宽；补单行省略。
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
                   .padding({ left: SP_2, right: SP_2, top: 1, bottom: 1 })
                   .backgroundColor(this.pal().accent)
                   .borderRadius(R_MD)

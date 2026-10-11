@@ -312,6 +312,8 @@ export struct SettingsPanel {
     .width('100%')
     .scrollable(ScrollDirection.Horizontal)
     .scrollBar(BarState.Off)
+    // H0（contrast-ux 硬红）：横向 Scroll 必须自裁剪 ⇒ 内容不溢出容器边界。
+    .clip(true)
   }
 
   build() {
