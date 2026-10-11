@@ -61,7 +61,7 @@ import { changedByKeys, identityChanged, needsFullReload, rowKey, rowsFpOf, same
 import { BusySignals, busyNow, showsBusyPlaceholder, showsHistorySkeleton, showsJumpToLatest } from '../core/indicators';
 import { OverlayCode, OverlayState, topOverlay } from '../core/overlays';
 import {
-  currentTodo, goalText, modelText, todoProgress, usageText,
+  currentTodo, modelText, todoProgress, usageText,
 } from '../core/statusfmt';
 import { ctxHasUsage, ctxLabel, ctxPercent } from '../core/ctxring';
 import {
@@ -77,7 +77,6 @@ import {
   AskQuestion,
   AskUserPrompt,
   ChatRow,
-  GoalInfo,
   HistoryIteration,
   PluginPanelInfo,
   QueueItem,
@@ -437,14 +436,15 @@ struct Index {
   @State usage: TokenUsage | undefined = undefined;
   @State cwd: string = '';
   @State todos: TodoItem[] = [];
-  @State goal: GoalInfo | undefined = undefined;
   /**
    * Goal 横幅的**字符串数据源**（web `MessageInput.tsx:694` 的 `goal.objective`/`goal.status`）。
    *
-   * ⛔ 为什么不复用 `this.goal`（`GoalInfo{text,status}`）：`core/types.ets` 的 `GoalInfo`
-   *   字段名是 `text`，而真实协议是 `{objective,status}`（`core/chattypes.ts:9`）⇒ 读 `.text`
-   *   永远 undefined。这里从**权威的归一化进度快照** `store.liveProgress().goal`（其 `GoalInfo`
-   *   来自 `core/chattypes`，字段名正确）取串 **绕开**两个同名 `GoalInfo` 的命名碰撞。
+   * ⛔ **单一口径**（`docs/WEB-ALIGNMENT.md §13.3`：同一状态只能有一处判据）：状态栏
+   *   `goalLine()` 与「详情」gating 都读这里 —— 曾经它们读 `store.goal`
+   *   （`core/types.ets` 的 `GoalInfo{text,status}`，字段名不符协议 `{objective,status}`，
+   *   且 `store.ets` 无赋值点）⇒ `goalLine()` **恒空** ⇒ 只有 goal、没有 todo 的会话
+   *   「详情」入口消失。现从**权威的归一化进度快照** `store.liveProgress().goal`（字段名正确）
+   *   取串，绕开两个同名 `GoalInfo` 的命名碰撞。
    */
   @State goalObjective: string = '';
   @State goalStatus: string = '';
@@ -1068,7 +1068,6 @@ struct Index {
       this.todosFp = todosFp;
       this.todos = store.todos.slice();
     }
-    this.goal = store.goal;
     // ── Goal 横幅数据源（web `MessageInput.tsx:694` 的 `goal.objective`/`goal.status`）──
     // ⛔ 必须读**归一化进度快照**的 goal（`core/chattypes.GoalInfo{objective,status}`），
     //    而不是 `store.goal`（`core/types.GoalInfo{text,status}`，字段名不符协议 ⇒ 永远空）。
@@ -1875,7 +1874,10 @@ struct Index {
   }
 
   private goalLine(): string {
-    return goalText(this.goal);
+    if (this.goalObjective.length === 0) {
+      return '';
+    }
+    return `${this.goalStatus === 'completed' ? '已完成：' : '目标：'}${this.goalObjective}`;
   }
 
   /** 当前进行中的 todo（面板顶部显示）。 */
