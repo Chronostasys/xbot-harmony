@@ -202,3 +202,90 @@ A/B 结果**不同** ⇒ 证明 3 分钟窗确实是后台存活的唯一来源�
 **发布侧不是首要嫌疑**：`onBackground` 不关连接，但**没有任何机制在后台**（除"用户刚发消息"的 ≤3min 短时任务窗）
 **维持 JS/网络活动**；应用被冻结后 SSE 事件**进不来** ⇒ `notifyOnSse` 零调用 ⇒ 无通知。
 ⇒ 目标①的**正解是架构选择**（§10.5），不是发布侧打补丁；**先跑 §10.3 把"有没有事件"钉死**再定方向。
+
+---
+
+## 11. 本波新增能力（2026-10-11）—— 验收面补全
+
+> 纪律同前：**不碰设备**（设备是多线共用的），本节只给**操作步骤 / 预期 / 判据 / 失败最可能原因**。
+> 每条都给出**代码位置**与**已有判据**（可先离线复核，再上设备）。
+
+### 11.1 品牌小图标（`a193a67`）
+
+- **它解决什么**：`NotificationRequest.smallIcon` **默认留空 ⇒ 通知显示系统默认应用图标**
+  （SDK `api/notification/notificationRequest.d.ts:300-310` 原文）。现在换成品牌资产。
+- **① 步骤**：发一条会出通知的消息（或用 §8 的 30 秒验收）⇒ **HOME** ⇒ 看通知栏该条通知的**左侧小图**。
+- **② 预期**：小图 = **品牌描边标记**（`brand_mark_outline.svg`）；若 svg 解不出 ⇒ 自动退 **`start_icon.png`**。
+- **③ 判据**：
+  - 源码形态：`tools/tests/notify_icon.test.ts`（**14/23 条**）—— core 侧只有**不透明装饰钩子**
+    `setNotifyDecorator`（`core/notify.ets`），**全仓唯一** `image.createImageSource(` 在
+    `workreconcile/icons.ets`，且**装饰器回调体内不含解码**（防每次 publish 解码）；
+  - 真机：`hilog -x | grep XBOTICON` ⇒ 应出现 **`品牌小图标已就绪并注册装饰器`**。
+- **④ 失败最可能原因**：
+  1. **`brand_mark_outline.svg` 不被 `createImageSource` 支持**（**本波未验**）⇒ 日志会打
+     `svg 解不出 ⇒ 回退 start_icon.png`；若两路都失败 ⇒ `两路资产都解码失败 ⇒ 不设 smallIcon（回落系统默认图标）`
+     —— **此时不是 bug，是降级**（要真品牌图标则需新导一份 **128×128 PNG**，SDK 推荐尺寸）；
+  2. 通知**本身没发出来**（那是 §10 的链路问题，与本条无关）。
+
+### 11.2 漏通知**聚合通知** + 点进路由（`a900919`）
+
+- **它解决什么**：被冻结/被杀期间事件永久丢失 ⇒ 由 `workScheduler` 对账补发；文案**跨会话汇成一条**，
+  而不是一串彼此无关的提醒。
+- **① 步骤**：杀进程 → 让某个会话产生一轮回复（前台或另一客户端触发）→ 等后台对账唤醒（**不保证准时**）。
+- **② 预期**：**一条**通知，正文形如 `有 1 条新消息（<会话名>）`（多会话 = `有 3 条新消息（A、B 等）`）。
+- **③ 判据**（均已离线可跑）：
+  - 文案唯一来源 = `core/reconcile.summarizeMissed`（`tools/tests/reconcile.test.ts`，**53/0**；
+    含 `count==0 ⇒ text 空`、**最多点名 `MISSED_MAX_NAMED=2` 个 + "等" 收尾**、按 `turnKey` 去重）；
+  - 真接线：`tools/tests/notify_icon.test.ts` 断言 **`summarizeMissed` 有真实消费方**（防门禁 ⑧ 零消费假绿）、
+    **`sum.count > 0` 才发**、else 留 `summary count=0` 证据、**不再有硬编码文案**；
+  - 点进路由：`wantAgent` 带 `parameters{chat_id, notify_action:'open'}` ⇒ 冷启由
+    `EntryAbility.captureOpenChat(want)` 直达该会话（复用既有机制）。
+- **④ 失败最可能原因**：**系统没唤醒**（`workScheduler` 不保证准时，见 §10.1-5/6）；或对账 HTTP 失败
+  （`hilog` 打 `history http <code>` / `no snapshot`）⇒ 按 `reconcileIntervalMs` 退避；
+  连续失败 5 次 ⇒ **放弃排任务**（`RECONCILE_GIVE_UP_FAILURES`）。
+
+### 11.3 按会话分组（`cf7a486`）
+
+- **它解决什么**：原先 `groupName` 是**全局一个组** ⇒ 所有会话堆一簇。现在 **`每会话一组`**。
+- **① 步骤**：在**两个不同会话**各产生一条通知 ⇒ 拉通知栏。
+- **② 预期**：**两簇**（各自可折叠），同一会话的多条（`turn_done` + `ask`）在**同一簇**里。
+- **③ 判据**：`tools/tests/notify_group.test.ts`（**16/0**）—— 异 chatId 必异组 / 同 chatId 幂等 /
+  `groupName: notifyGroupOf(chatId)` **恰 1 处** / `groupName: NOTIFY_GROUP_NAME` **恰 0 处** /
+  **`cancelGroup(NOTIFY_GROUP_NAME)` 恰 0 处**；SDK 依据 `notificationRequest.d.ts:331-340`
+  （同组名归一组、**202 字节**上限、**无** `groupSummary` 字段 ⇒ 不需要另发摘要通知）。
+- **④ 失败最可能原因**：若清场失效（登出后通知残留）⇒ 有人把 `clearAll` 改回了 `cancelGroup(全局名)`
+  —— **per-chat 分组后它匹配不到任何通知（静默失效）**，这正是本笔同修掉的连带缺陷，判据第 3 条守着它。
+
+---
+
+## 12. 主组实验「一次跑完」清单（任何人持设备都能跑）
+
+> 脚本：`/tmp/xbot-notify-main.sh`（原子 6 步 + `trap` 清理）。
+> 目的：判定**开了 3 分钟短时任务窗之后**，后台 60s 内 SSE 到底还进不进来（§10.2 的三种判读）。
+
+**前置条件（缺一不可）**
+
+| # | 前置 | 怎么确认 |
+|---|---|---|
+| 1 | **独占设备** | 没有别的线在用（并行会互相污染 —— 已被真实废掉过一次数据） |
+| 2 | 服务端可达 + 已登录 | `curl -s -o /dev/null -w '%{http_code}' https://xbot.pivotlang.tech/api/auth/config` ⇒ 非 `000`；pref 里有 `session_cookie` |
+| 3 | **一次性会话**建好 | 脚本自己 `POST /api/chats/create`；⚠️ 建完 **App 抽屉需刷新**才能看到 |
+| 4 | **抽屉 dump 里 label 已知** | 先点开抽屉 → `uitest dumpLayout` → `python3 /tmp/xbot-notify-sel.py chat <json> '<名字>'` **预演一次**（一步，避免现场卡住） |
+| 5 | 无需还原主题/会话 | 脚本只建/删**自己的**会话；不改主题、不 `force-stop` 用户会话 |
+| 6 | 收尾自动 | `trap EXIT` ⇒ 删会话 + 把应用拉回前台 |
+
+```bash
+bash /tmp/xbot-notify-main.sh                       # composer 坐标自动取（选择器）
+DRAWER_X=.. DRAWER_Y=.. CHAT_X=.. CHAT_Y=.. bash /tmp/xbot-notify-main.sh
+```
+产物：`/tmp/xbot-notify-main/{hilog.txt, notif.jpeg, verdict.txt}`。
+判读三选一：`PUBLISH_BUG`（有 SSE 无 notify）· `FROZEN`（SSE 全静）· `SAMPLE_INVALID`（窗没开/坐标没定）。
+⛔ 选择器**绝不盲点**：匹配不上即 `ABORT` 并打印取坐标命令。
+
+---
+
+## 13. 记档：**不做**的项
+
+| 项 | 决定 | 理由 |
+|---|---|---|
+| **锁屏隐私双档**（锁屏只显示"新消息"、通知中心显示全文） | **不做** | ① **web 无对应设置项**（对齐基准里不存在该语义，自造就是分叉）；② 现有 `currentPrefs.detail` 已经提供"**正文开关**"这一档，用户可自行选择"只显示标题"；③ 平台层未提供"锁屏/通知中心分别设内容"的独立字段（如需，得再查 SDK）⇒ 收益低、语义来源缺。**若将来用户明确要求，再作为独立需求评估。** |
