@@ -202,3 +202,29 @@ tsc 层失败**单独归类为「编译失败」**并打印错误尾部（点名
 | （旧）逐个顺序、首红即停 | `bash tools/tests/run.sh` | 全部测试 | `set -e` ⇒ **首红中止** |
 
 > ⚠️ 临时目录带 PID（`.out-all.$$`）⇒ 并发安全。`run-all.sh` **不改** `run.sh` 的既有行为。
+
+## ⛔ 插断言时最容易踩的坑：**汇总 log 被包进 `if (fail > 0) { … }`**
+
+**症状**（2026-10-11 实锤，`tokens-ux` 卡 3 轮）：给某个 `tools/tests/*.test.ts` 末尾加断言后，
+**改前 / 改后 / mutation 后三次都是同一个 passed 数**（例如恒 `29 passed`）——看起来像"插入没生效"，
+其实是**断言落进了死区**。
+
+**根因**：本仓**大量**测试（实测 **99 个文件**）的末尾长这样：
+```ts
+if (fail > 0) { console.log(`  <name>: ${pass} passed, ${fail} failed`); process.exit(1); }
+console.log(`  <name>: ${pass} passed, 0 failed`);   // ← 有的有、有的没有
+process.exit(0);
+```
+⇒ 那个**带计数的 `console.log` 在失败分支之内**。谁拿它当"末尾前"锚点插断言，断言就落在
+`fail === 0` **永不执行**的分支里 ⇒ 计数不动。
+
+**破法（二分自证，30 秒）**：先插一条 `eq('probe', 1, 1)` ——
+- 插在 `if (fail > 0)` **之前** ⇒ 计数 **+1** ✓（正确锚点）；
+- 插在那一行 `console.log` **之前**（= `{` 之后） ⇒ 计数**不动** ⇒ 死区坐实。
+
+**纪律**：
+1. 新写测试：汇总**无条件打印** + `process.exit(fail > 0 ? 1 : 0)`（**别**把 log 包进 `if`）；
+2. 加断言时**先 `grep -n "if (fail > 0)" <file>`**，把断言插在它**之前**；
+3. `console.log('...')` 只在**非** `if` 分支里才当锚点。
+4. 已知**成功时完全静默**（只在 `if` 里打印）的 4 个文件待收：
+   `queue_ops` / `sse` / `sse_watchdog` / `store_null`。
