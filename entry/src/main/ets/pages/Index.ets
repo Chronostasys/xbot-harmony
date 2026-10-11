@@ -181,6 +181,17 @@ class SetTodosParams {
 const MAX_ITER_VISIBLE: number = 16;
 
 /**
+ * 空态星形**圆形辉光**的直径（vp）。
+ *
+ * 为什么是"圆光"而不是 `.shadow`：`.shadow` 按**字形包围盒**渲染 —— 深色底上星形外面是
+ * 一圈"圆角方盒"而非圆光（真机截图取证：亮区 x 恒为 556..763 的矩形）。改用径向渐变
+ * （`radialGradient`，与登录页顶部光晕同一手段，见 `docs/DESIGN-SYSTEM.md §4`）裁成圆：
+ * 中心 accent 辉光、边缘透明 ⇒ 是圆不是盒，且不随字形包围盒变形。
+ * 尺寸取星形字号 52 的 ~2.7×（150）：足够铺开柔和过渡，又不至于把空态撑得太空。
+ */
+const STAR_GLOW_SIZE: number = 150;
+
+/**
  * 诊断开关：登录后**自动**走查并上传所有页面截图。
  *
  * 为什么需要它：用户反馈"渲染错乱、完全用不了"时，可能**连 ⚙ 都点不到** ⇒
@@ -2805,13 +2816,24 @@ struct Index {
         && !this.loadingMore && this.currentChat.length > 0
         && !showsHistorySkeleton(this.historyLoading, this.rows.length)) {
         Column({ space: SP_3 }) {
-          SymbolGlyph($r('sys.symbol.star_fill')).fontSize(52).fontColor([this.pal().accent])
-            // 阴影只给深色系（accent 外发光有意义）；浅色系（含极简白）**不加** ——
-            // `.shadow` 按**字形包围盒**渲染，白底上会读成"多余的白盒+软阴影"（真机走查）。
-            // 判据用 `isLightPalette`（按 appBg 感知亮度，新增主题自动成立），不按主题名硬判。
-            .shadow(this.emptyStarShadow())
-            .opacity(this.pulseOn ? 1 : 0.5)
-            .animation({ duration: 1400, curve: Curve.EaseInOut })
+          // ⛔ 星形不再用 `.shadow`：它按**字形包围盒**渲染 ⇒ 深色底上星形外面是一圈
+          //    "圆角方盒"而不是圆光（浅色系返回无阴影只是躲开了白盒，深色一直漏着）。
+          //    改用**真·圆光**：径向渐变（`radialGradient`，与登录页顶部光晕同一手段，
+          //    `docs/DESIGN-SYSTEM.md §4` 已列）裁成圆，中心 accent 辉光、边缘透明。
+          //    光源与星形**同步呼吸**（共用 `pulseOn`）⇒ 读作"活的"，而不是静态贴图。
+          Stack({ alignContent: Alignment.Center }) {
+            Column()
+              .width(STAR_GLOW_SIZE).height(STAR_GLOW_SIZE).borderRadius(STAR_GLOW_SIZE / 2)
+              .radialGradient({
+                center: ['50%', '50%'],
+                radius: STAR_GLOW_SIZE / 2,
+                colors: [[this.eff().glow, 0.0], [this.pal().transparent, 1.0]],
+              })
+              .opacity(this.pulseOn ? 1 : 0.4)
+              .animation({ duration: 1400, curve: Curve.EaseInOut })
+            SymbolGlyph($r('sys.symbol.star_fill')).fontSize(52).fontColor([this.pal().accent])
+          }
+          .width(STAR_GLOW_SIZE).height(STAR_GLOW_SIZE)
           Text('开始对话').fontSize(FS_HERO).fontWeight(FontWeight.Medium)
             .fontColor(this.pal().textPrimary)
           Text('直接说需求；也可以用 / 选命令、@ 提文件、加附件')
@@ -3526,20 +3548,6 @@ struct Index {
   /** 视觉效果 token（玻璃/光晕/渐变/层级阴影）—— 由当前色板派生，换主题即换效果。 */
   private eff(): Effects {
     return effectsOf(this.pal());
-  }
-
-  /**
-   * 空态星形的阴影：**深色系**保留既有 accent 外发光；**浅色系**（含极简白）返回"无阴影"。
-   *
-   * 为什么：`.shadow` 是按**字形包围盒**渲染的 —— 在白底上，那圈软阴影会被读成
-   * "多了一张没人要的白盒卡片"而不是有意为之（真机走查）。判据用 `isLightPalette`
-   * （按 `appBg` 感知亮度，新增主题自动成立），**不按主题名硬判**。
-   */
-  private emptyStarShadow(): ShadowOptions {
-    if (isLightPalette(this.pal())) {
-      return { radius: 0, color: this.pal().transparent, offsetX: 0, offsetY: 0 };
-    }
-    return { radius: 24, color: this.eff().glow, offsetX: 0, offsetY: 0 };
   }
 
   /**
@@ -5211,8 +5219,11 @@ struct Index {
               SymbolGlyph($r('sys.symbol.chevron_right'))
                 .fontSize(12).fontColor([this.pal().textSecondary])
                 .rotate({ angle: this.isGroupCollapsed(this.sessionCategory(), g.key) ? 0 : 90 })
+              // 组头层次：web 用 `text-[10px] font-semibold uppercase tracking-wider`
+              // （`SessionGroup.tsx:78`）—— 中文无大小写，故以**字重**补上半档层次，
+              // 让"分组标题"稳居层级的上一级（此前与行内次级文字同为 regular，读不出层次）。
               Text(g.title)
-                .fontSize(10).fontColor(this.pal().textSecondary)
+                .fontSize(10).fontWeight(FontWeight.Medium).fontColor(this.pal().textSecondary)
                 .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
               Text(`${g.items.length}`)
                 .fontSize(10).fontColor(this.pal().textMuted)
@@ -5279,10 +5290,15 @@ struct Index {
                         .fontSize(9).fontColor(this.pal().accentText)
                         .padding({ left: 4, right: 4, top: 1, bottom: 1 })
                         .backgroundColor(this.pal().surfaceHi).borderRadius(4)
-                      Text(s.chat_id)
-                        .fontSize(10).fontColor(this.pal().textMuted)
-                        .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                        .layoutWeight(1)
+                      // ⛔ 仅当"会话 id 与标题不同"时才补 id：无自定义标题时 `tabLabel` 返回的
+                      //    就是 chat_id ⇒ 两行同串（真机走查见 `web-4` / `Web web-4` 的重复），
+                      //    是"次级文字"里最刺眼的一种脏。有自定义标题时 id 仍保留（用于消歧）。
+                      if (s.chat_id !== this.tabLabel(s.chat_id)) {
+                        Text(s.chat_id)
+                          .fontSize(10).fontColor(this.pal().textMuted)
+                          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                          .layoutWeight(1)
+                      }
                     }.width('100%')
                   }
                   .layoutWeight(1).alignItems(HorizontalAlign.Start)
@@ -5631,7 +5647,8 @@ struct Index {
     return selectable(e);
   }
 
-  /** 会话状态面板：goal + todos 全量 + 用量 + cwd（服务端权威值，不做本地推算）。 */
+  /** 会话状态面板：goal + 用量 / 模型 / 上下文上限 / 工作路径（服务端权威值，不做本地推算；
+   *  排版对齐 web `SessionInfo.tsx` 的 `InfoRow`：标签左、值右，每项仅出现一次）。 */
   @Builder
   StatusSheet() {
     Column({ space: 10 }) {
@@ -5647,24 +5664,54 @@ struct Index {
         Text(this.goalLine()).fontSize(13).fontColor(this.pal().warn).width('100%')
           .wordBreak(WordBreak.BREAK_ALL)
       }
-      Text(this.statusBarText().length > 0 ? this.statusBarText() : '（暂无用量/模型信息）')
-        .fontSize(12).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_ALL)
-      if (this.cwd.length > 0) {
-        Text(`cwd: ${this.cwd}`).fontSize(11).fontColor(this.pal().textMuted).width('100%')
-          .wordBreak(WordBreak.BREAK_ALL).copyOption(CopyOptions.LocalDevice)
+      // ⛔ 不再整体渲染 `statusBarText()`：它是「模型 · 用量 · todos · cwd」四段拼接，
+      //    而模型 / 工作路径在下方各有**专属行** ⇒ 同一信息两处（"不干净"）。改为逐项成行。
+      //    排版口径 = web `SessionInfo.tsx` 的 `InfoRow`：**标签左（次级色）、值右（主色）**，
+      //    每项只出现一次 ⇒ 一眼可扫、层级单一。
+      Row() {
+        Text('用量').fontSize(12).fontColor(this.pal().textSecondary)
+        Text(usageText(this.usage).length > 0 ? usageText(this.usage) : '—')
+          .fontSize(12).fontColor(this.pal().textPrimary)
+          .layoutWeight(1).textAlign(TextAlign.End)
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+      }.width('100%')
+
+      Row() {
+        Text('模型').fontSize(12).fontColor(this.pal().textSecondary)
+        Text(this.currentModelName())
+          .fontSize(12).fontColor(this.pal().textPrimary)
+          .layoutWeight(1).textAlign(TextAlign.End)
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+      }.width('100%')
+
+      if (this.ctxText().length > 0) {
+        Row() {
+          Text('上下文上限').fontSize(12).fontColor(this.pal().textSecondary)
+          Text(this.ctxText())
+            .fontSize(12).fontColor(this.pal().textPrimary)
+            .layoutWeight(1).textAlign(TextAlign.End)
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        }.width('100%')
       }
 
-      // 模型 / 上下文上限（下一步：切换）
-      Row({ space: 8 }) {
-        Text(`模型：${this.currentModelName()}`)
-          .fontSize(12).fontColor(this.pal().textPrimary).layoutWeight(1)
-          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-        if (this.ctxText().length > 0) {
-          Text(`上下文 ${this.ctxText()}`).fontSize(11).fontColor(this.pal().textSecondary)
-        }
-        Text('切换 ›').fontSize(12).fontColor(this.pal().accentSoft).padding({ left: 6, right: 6 })
+      if (this.cwd.length > 0) {
+        Row() {
+          Text('工作路径').fontSize(12).fontColor(this.pal().textSecondary)
+          Text(this.cwd)
+            .fontSize(11).fontColor(this.pal().textPrimary).fontFamily('monospace')
+            .layoutWeight(1).textAlign(TextAlign.End)
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+            .copyOption(CopyOptions.LocalDevice)
+        }.width('100%')
       }
-      .width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(6)
+
+      // 切换入口（模型 / 上下文上限）—— 单独一行，与上面只读信息解耦
+      Row({ space: 8 }) {
+        Text('切换模型 / 上下文上限').fontSize(12).fontColor(this.pal().accentSoft).layoutWeight(1)
+        Text('›').fontSize(14).fontColor(this.pal().accentSoft)
+      }
+      .width('100%').padding(10).backgroundColor(this.pal().surface).borderRadius(8)
+      .stateStyles({ pressed: { .opacity(0.7) }, normal: { .opacity(1) } })
       .onClick(() => {
         this.anim(() => {
             this.showModel = true;
