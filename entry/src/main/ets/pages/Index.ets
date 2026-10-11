@@ -21,8 +21,8 @@ import { D_BASE, EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_CAPTION,
 // `typeOf` 是唯一出口）。色值一律经 `this.pal()`（`surfaceFillOf` 的 role 是**带点**的语义面名）。
 import {
   GAP_BLOCK, HIT_TARGET_MIN, INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X, INSET_ROW_Y,
-  PRESS_OPACITY, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, SPACE_HAIR, SPACE_LG, SPACE_MD,
-  SPACE_SM, SPACE_XL, SPACE_XS, SPACE_XXS, STROKE_HAIRLINE, hairlineOf, surfaceFillOf, typeOf,
+  PRESS_OPACITY, PRESS_SCALE, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, RADIUS_SHEET, SPACE_HAIR, SPACE_LG, SPACE_MD,
+  SPACE_SM, SPACE_XL, SPACE_XS, SPACE_XXL, SPACE_XXS, STROKE_HAIRLINE, hairlineOf, surfaceFillOf, typeOf,
 } from '../core/design';
 import { isUnauthorized, loadErrHint, loadErrTitle, needsRelogin, needsSessionRefresh } from '../core/autherr';
 import {
@@ -3004,10 +3004,10 @@ struct Index {
     Column() {
       // 顶栏：玻璃材质 + 底部细描边（磨砂顶栏是"干净/未来感"的关键一笔）
       Row() {
-        SymbolGlyph($r('sys.symbol.line_3_horizontal')).fontSize(22).fontColor([this.pal().textPrimary])
-          .padding(10)
-          .borderRadius(R_MD)
-          .stateStyles({ pressed: { .opacity(0.55) }, normal: { .opacity(1) } })
+        SymbolGlyph($r('sys.symbol.line_3_horizontal')).fontSize(typeOf('type.title').size).fontColor([this.pal().textPrimary])
+          .padding(SPACE_SM)
+          .borderRadius(RADIUS_CHIP)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.openDrawer();
           })
@@ -3018,11 +3018,9 @@ struct Index {
           Row({ space: SP_1 }) {
             Circle({ width: 6, height: 6 })
               .fill(this.busy ? this.pal().accent : this.pal().textMuted)
-              .shadow({ radius: this.busy ? 6 : 0, color: this.eff().glow, offsetX: 0, offsetY: 0 })
-              .opacity(this.busy ? (this.pulseOn ? 1 : 0.4) : 1)
-              .animation({ duration: 1200, curve: Curve.EaseInOut })
+            // ⛔ 状态点不再呼吸（第二处"在飞"）——唯一在飞动效 = 光球；状态只由**颜色**表达。
             Text(this.busy ? '运行中…' : '空闲')
-              .fontSize(FS_CAPTION).fontColor(this.busy ? this.pal().accentSoft : this.pal().textMuted)
+              .fontSize(typeOf('type.caption').size).fontColor(this.busy ? this.pal().accentSoft : this.pal().textMuted)
           }
         }
         .layoutWeight(1)
@@ -3041,24 +3039,25 @@ struct Index {
               this.showQueue = true;
             })
         }
-        SymbolGlyph($r('sys.symbol.square_grid_2x2')).fontSize(22).fontColor([this.pal().textPrimary])
-          .padding(10)
-          .borderRadius(R_MD)
-          .stateStyles({ pressed: { .opacity(0.55) }, normal: { .opacity(1) } })
+        SymbolGlyph($r('sys.symbol.square_grid_2x2')).fontSize(typeOf('type.title').size).fontColor([this.pal().textPrimary])
+          .padding(SPACE_SM)
+          .borderRadius(RADIUS_CHIP)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.openPlugins();
           })
-        SymbolGlyph($r('sys.symbol.gearshape')).fontSize(22).fontColor([this.pal().textPrimary])
-          .padding(10)
-          .borderRadius(R_MD)
-          .stateStyles({ pressed: { .opacity(0.55) }, normal: { .opacity(1) } })
+        SymbolGlyph($r('sys.symbol.gearshape')).fontSize(typeOf('type.title').size).fontColor([this.pal().textPrimary])
+          .padding(SPACE_SM)
+          .borderRadius(RADIUS_CHIP)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.openSettingsPanel();
           })
       }
       .width('100%').constraintSize({ minHeight: 56 }).padding({ left: SP_2, right: SP_2 })
       .backgroundColor(this.pal().appBg)
-      .borderWidth({ bottom: 1 }).borderColor(this.pal().border)
+      // 极简顶栏：分隔靠**结构性发丝**（⛔ 不是装饰描边），不靠 box 边框
+      .borderWidth({ bottom: STROKE_HAIRLINE }).borderColor(hairlineOf(this.pal()))
       .id('xbot-header')
 
       // 加载失败且列表为空 ⇒ 明确提示 + 重试（网络/代理故障时界面必须自解释）
@@ -3578,7 +3577,7 @@ struct Index {
           .layoutWeight(1).constraintSize({ minHeight: 40, maxHeight: 150 })
           .backgroundColor(this.pal().transparent).fontColor(this.pal().textPrimary)
           .placeholderColor(this.pal().textMuted)
-          .fontSize(FS_TITLE)
+          .fontSize(typeOf('type.body').size)
           .borderRadius(0).padding({ left: 0, right: 0 })
           .onSubmit(() => {
             if (enterSends(this.sendKeyMode())) {
@@ -3596,19 +3595,27 @@ struct Index {
               this.toast(modeHint(this.sendMode));
             })
         }
-        // 唯一的实心圆按钮：发送=紫光纸飞机；停止=同形方块（**不再用红色大块**）
+        // 唯一的实心圆按钮：发送=纸飞机；停止=同形方块（**不再用红色大块**）
         // ⚠️ `SymbolGlyph` 一旦给了固定 width/height **不会自动把图标居中**（图标会偏上/偏左）——
         //    必须用 `Stack({alignContent: Alignment.Center})` 显式居中；圆形底、阴影、点击态挂在外层 Stack。
         Stack({ alignContent: Alignment.Center }) {
           SymbolGlyph(this.runningNow() ? $r('sys.symbol.square_fill') : $r('sys.symbol.paperplane_fill'))
-            .fontSize(this.runningNow() ? 14 : 20)
+            .fontSize(typeOf('type.callout').size)
             .fontColor([this.runningNow() ? this.pal().textSecondary : this.pal().onAccent])
         }
-        .width(40).height(40)
-        .borderRadius(20)
+        // 视觉 32vp（`SPACE_XXL`；⛔ 无 `control.send` token，见交付缺 token 清单）
+        .width(SPACE_XXL).height(SPACE_XXL)
+        .borderRadius(RADIUS_SHEET)   // = 32/2 ⇒ 正圆
+        // 热区 `responseRegion` 外扩到 44（HIT_TARGET_MIN）——⛔ **不改布局尺寸**（样张 ④ ⑦）
+        .responseRegion({
+          x: -(HIT_TARGET_MIN - SPACE_XXL) / 2,
+          y: -(HIT_TARGET_MIN - SPACE_XXL) / 2,
+          width: HIT_TARGET_MIN,
+          height: HIT_TARGET_MIN,
+        })
         .backgroundColor(this.runningNow() ? this.pal().surfaceHi : this.pal().accent)
         .shadow({ radius: this.runningNow() ? 0 : 14, color: this.runningNow() ? this.pal().transparent : this.eff().glow, offsetX: 0, offsetY: 0 })
-        .stateStyles({ pressed: { .opacity(0.7).scale({ x: 0.94, y: 0.94 }) }, normal: { .opacity(1).scale({ x: 1, y: 1 }) } })
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY).scale({ x: PRESS_SCALE, y: PRESS_SCALE }) }, normal: { .opacity(1).scale({ x: 1, y: 1 }) } })
         .onClick(() => {
           if (this.runningNow()) {
             this.store?.cancel();
@@ -3620,9 +3627,14 @@ struct Index {
       .width('100%')
       .constraintSize({ minHeight: 56 })
       .padding({ left: SP_1, right: SP_1 })
-      .backgroundColor(this.pal().surfaceAlt)
-      .borderRadius(this.composerFocused ? 24 : 22)
-      .border({ width: 1, color: this.composerFocused ? this.pal().accent : this.pal().border })
+      // 输入面 = 语义面 `surface.input`；**静息 = 结构性发丝**（浅色系靠它立边），
+      // **聚焦才描边 `accent`**（⛔ 静息不描 accent）。圆角 = `RADIUS_CARD`（对齐样张 ①）。
+      .backgroundColor(surfaceFillOf(this.pal(), 'surface.input'))
+      .borderRadius(RADIUS_CARD)
+      .border({
+        width: STROKE_HAIRLINE,
+        color: this.composerFocused ? this.pal().accent : hairlineOf(this.pal()),
+      })
       .margin({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
       .id('xbot-composer')
     }
