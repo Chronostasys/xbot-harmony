@@ -512,3 +512,12 @@ MarkdownView **无固定数值宽容器** ⇒ **结构性命中 0**。即：**�
 **真机清单（设备归 `orb-ux`）**：porcelain 下逐屏看"**层级是否一眼可辨**、**同级是否整齐**"：
 设置面板（tab / 行标题 / 行说明）· 抽屉（分组标题 vs 会话行）· 消息（正文 vs 元信息 vs 工具名）·
 各 sheet（标题 vs 行）· 空态（display vs caption）—— 重点看**同一屏里同一层级的文本是否同档**。
+
+## 滚动边界（2026-10-11 记档）
+
+- **4 个面板 `List`（`pages/Index.ets:5617/5636/5652/5674`：bg 任务 / subagents / runners / cron）刻意不设 `edgeEffect`** ——
+  裁决：**不做**。理由：web 的面板是 **DOM 容器**，`overscroll-behavior` **默认也不回弹** ⇒ 现状 **≈ web parity**；
+  统一成 `EdgeEffect.Spring` 属**口味**，不是对齐。（主消息列表**已**是 `EdgeEffect.Spring`，见 `:3733` —— 那里与
+  web 的浏览器原生 overscroll 同向。）
+- ⏳ 待查（他域 = chat-surface-ux）：**代码块横向边界**（`MarkdownView` 的横向 `Scroll`）有无 `edgeEffect`、
+  与外层纵向列表手势是否竞争。
