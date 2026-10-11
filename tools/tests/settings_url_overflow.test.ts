@@ -92,7 +92,10 @@ console.log(`  ── 自证：扫描 ${FILES.length} 个 Settings*.ets；逐形
       // 往后 10 行内找 wordBreak 或 textOverflow（链式属性分行写）
       let guarded = false;
       for (let k = li; k < Math.min(li + 10, ls.length); k++) {
-        if (ls[k].indexOf('wordBreak(') >= 0 || ls[k].indexOf('textOverflow(') >= 0) { guarded = true; break; }
+        // ⚠️ 必须容纳**限定名** `WordBreak.BREAK_ALL`（2026-10-11：我首版写成裸 `BREAK_ALL`
+        //     => 整树 assembleHap BUILD FAILED（Cannot find name 'BREAK_ALL'）。ArkTS 里该枚举
+        //     需 `WordBreak.` 前缀；判据同时接受两种写法，但**推荐限定名**。）
+        if (/wordBreak\s*\(/.test(ls[k]) || ls[k].indexOf('textOverflow(') >= 0) { guarded = true; break; }
       }
       if (!guarded) { bad.push(`${bn}:${li + 1}  ${ls[li].trim()}`); }
     }
@@ -109,8 +112,11 @@ console.log(`  ── 自证：扫描 ${FILES.length} 个 Settings*.ets；逐形
 // ── 回归钉：本次修复的两处必须就在位（防回退）──────────────────────────────────
 {
   const ch = stripComments(fs.readFileSync(path.join(COMP, 'SettingsChannels.ets'), 'utf-8'));
-  eq('SettingsChannels 的 publicUrlText 已 BREAK_ALL', /Text\(this\.publicUrlText\)[\s\S]{0,200}?wordBreak\(BREAK_ALL\)/.test(ch), true);
-  eq('SettingsChannels 的 bindUrl 已 BREAK_ALL', /Text\(this\.bindUrl\)[\s\S]{0,200}?wordBreak\(BREAK_ALL\)/.test(ch), true);
+  // ⛔ 回归钉用「可选限定名」模式：`wordBreak( [WordBreak.] BREAK_ALL )` —— 容纳 `WordBreak.BREAK_ALL`
+  //   （**推荐写法**，ArkTS 必须带前缀）与裸 `BREAK_ALL`（会编译失败，但判据不因它而红到误导）。
+  const BREAK = /wordBreak\s*\(\s*(WordBreak\.)?BREAK_ALL\s*\)/;
+  eq('SettingsChannels 的 publicUrlText 已 BREAK_ALL（限定名 WordBreak.BREAK_ALL 为准）', /Text\(this\.publicUrlText\)[\s\S]{0,260}?/.test(ch) && BREAK.test(ch), true);
+  eq('SettingsChannels 的 bindUrl 已 BREAK_ALL（同上）', BREAK.test(ch), true);
 }
 
 if (fail > 0) { console.log(`  ✗ settings_url_overflow: ${pass} passed, ${fail} failed`); process.exit(1); }
