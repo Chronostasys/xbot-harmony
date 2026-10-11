@@ -16,7 +16,7 @@
  *   · `max-w-[85%]` ⇒ 最大宽度 85%；
  *   · 外层 `px-1` + `.virt-row py-1.5` ⇒ 水平 4 / 垂直 6。
  */
-import { Palette, paletteOf, Effects, effectsOf } from '../core/theme';
+import { Palette, paletteOf } from '../core/theme';
 import { BUBBLE } from '../core/bubble';
 import { UserBubbleFace, userBubbleFace } from '../core/bubbleview';
 import { GAP_ROW_Y, INSET_BUBBLE_X, INSET_BUBBLE_Y, RADIUS_BUBBLE, typeOf } from '../core/design';
@@ -31,11 +31,6 @@ export struct UserBubbleView {
 
   private pal(): Palette {
     return paletteOf(this.theme);
-  }
-
-  /** 视觉效果 token（玻璃/光晕/层级）—— 由色板派生，跨主题自动一致。 */
-  private eff(): Effects {
-    return effectsOf(this.pal());
   }
 
   /**
@@ -72,7 +67,11 @@ export struct UserBubbleView {
           topLeft: RADIUS_BUBBLE, topRight: RADIUS_BUBBLE,
           bottomLeft: RADIUS_BUBBLE, bottomRight: BUBBLE.userRadiusBR,
         })
-        .shadow({ radius: 12, color: this.eff().elev1, offsetX: 0, offsetY: 2 })
+        // ⛔ 不再叠 `.shadow(...)`：web `UserMessage.tsx` 的用户气泡**无阴影**（`docs/REDESIGN.md §7.1`
+        //   也把气泡定义为"**有面**：着色底 + 圆角 + 右对齐 + 右下小角" —— 靠**填充**区分，
+        //   不靠投影）。原实现是一记字面量投影（`radius:12 / offsetY:2`，未进 token）⇒ 既非
+        //   web 语言、又与"助手容器无阴影"（`bubble_style.test.ts` 同款守卫）不一致。
+        //   ⇒ 删除投影，回到"只有面"的极简语言（纯白主题下也没有需要柔影分离的浮层语义）。
         .copyOption(CopyOptions.LocalDevice)
     }
     .width('100%')
