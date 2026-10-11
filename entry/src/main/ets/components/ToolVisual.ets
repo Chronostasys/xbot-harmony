@@ -24,9 +24,11 @@
  *    排队态的符号缩放呼吸是批次22 已定稿的**纯附加**，本波不动（要动先问）。
  */
 import { R_LG, R_SM, FS_CAPTION, SP_1, SP_2 } from '../core/tokens';
-import { ST_DONE, ST_ERROR, ST_KILLED, ST_PENDING } from '../core/toolstatus';
+import { ST_DONE } from '../core/toolstatus';
 import {
-  PILL_MARKER_SLOT, PILL_LIVE_GLOW_RADIUS, chipBgOf, glowColorOf, pillBgOf,
+  PILL_MARKER_SLOT, PILL_LIVE_GLOW_RADIUS,
+  SHAPE_CHECK, SHAPE_CROSS, SHAPE_MINUS, SHAPE_RING,
+  chipBgOf, glowColorOf, markerShape, pillBgOf,
   pillTextColorOf as corePillTextColorOf, statusColorOf as coreStatusColorOf,
 } from '../core/toolvisual';
 
@@ -62,17 +64,17 @@ export struct ToolPill {
       // ── 状态标记：**恒定 14px 槽、不可收缩** ────────────────────────────────
       // 恒定槽宽是"所有 pill 的图标/名字左对齐"的前提（web 实测要求）。
       Stack() {
-        if (this.kind === ST_DONE) {
+        if (markerShape(this.kind) === SHAPE_CHECK) {
           // 成功：**描边绿勾**（安静，不喧哗）
           SymbolGlyph($r('sys.symbol.checkmark_circle'))
             .fontSize(13).fontColor([coreStatusColorOf(this.kind, this.theme)])
-        } else if (this.kind === ST_ERROR) {
+        } else if (markerShape(this.kind) === SHAPE_CROSS) {
           SymbolGlyph($r('sys.symbol.xmark_circle_fill'))
             .fontSize(13).fontColor([coreStatusColorOf(this.kind, this.theme)])
-        } else if (this.kind === ST_KILLED) {
+        } else if (markerShape(this.kind) === SHAPE_MINUS) {
           SymbolGlyph($r('sys.symbol.minus_circle'))
             .fontSize(13).fontColor([coreStatusColorOf(this.kind, this.theme)])
-        } else if (this.kind === ST_PENDING) {
+        } else if (markerShape(this.kind) === SHAPE_RING) {
           // 排队态：静态虚线圆 → 加一记**符号缩放呼吸**（Apple 式）。**纯附加**（原先无动效），
           // 不触碰"执行中/生成中"的 `LoadingProgress`（真机已定稿：执行中必须是**会动的原生
           // 指示器**，静态字符被用户明确否掉 ⇒ 不拿可能静默的符号动效去替换它）。
@@ -81,7 +83,7 @@ export struct ToolPill {
             .fontSize(12).fontColor([coreStatusColorOf(this.kind, this.theme)])
             .symbolEffect(new ScaleSymbolEffect(EffectScope.WHOLE, EffectDirection.UP), true)
         } else {
-          // 运行/生成中：**会动的**原生指示器（静态字符是 TUI 观感，用户明确否掉）
+          // 运行/生成中（SHAPE_SPINNER）：**会动的**原生指示器（静态字符是 TUI 观感，用户明确否掉）
           LoadingProgress().width(13).height(13).color(coreStatusColorOf(this.kind, this.theme))
         }
       }
