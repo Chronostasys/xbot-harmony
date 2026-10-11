@@ -14,8 +14,7 @@
 import { Palette, paletteOf, Surfaces, surfacesOf } from '../core/theme';
 import { R_LG, R_MD, R_SM, R_XL, SP_1, SP_2, SP_3, FS_BODY, FS_CAPTION } from '../core/tokens';
 import {
-  PRESS_OPACITY, RADIUS_CHIP, SPACE_HAIR, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP, hairlineOf, insetHairlineOf, surfaceFillOf, typeOf,
-} from '../core/design';
+  PRESS_OPACITY, RADIUS_CHIP, SPACE_HAIR, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP, hairlineOf, insetHairlineOf, surfaceFillOf, typeOf, MARKER_GLYPH } from '../core/design';
 import { ToolProgress } from '../core/types';
 import { renderKind } from '../core/toolstatus';
 import { AnsiSpan, ansiBgOf, ansiFgOf, ansiPaletteOf, ansiSpansIfAny, hasAnsi } from '../core/ansi';
@@ -238,7 +237,7 @@ export struct ToolPopoverCard {
     Row({ space: SP_1 }) {
       Text(label).fontSize(typeOf(TYPE_CHIP).size).fontColor(this.pal().textMuted).layoutWeight(1)
       SymbolGlyph($r('sys.symbol.rectangle_on_rectangle'))
-        .fontSize(13)
+        .fontSize(MARKER_GLYPH)
         .fontColor([this.pal().textMuted])
         .padding({ left: SP_1, right: SP_1, top: SPACE_HAIR, bottom: SPACE_HAIR })
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })

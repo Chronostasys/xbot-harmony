@@ -21,8 +21,7 @@ import { AnsiSpan, ansiBgOf, ansiFgOf, ansiPaletteOf, ansiSpansIfAny, hasAnsi } 
 import { FS_BODY, FS_CAPTION, R_LG, R_XL, SP_1, SP_2, SP_3 } from '../core/tokens';
 import {
   RADIUS_CHIP, SPACE_HAIR, SURFACE_CHIP, SURFACE_PILL, TYPE_CHIP,
-  colorOf, hairlineOf, surfaceFillOf, typeOf,
-} from '../core/design';
+  colorOf, hairlineOf, surfaceFillOf, typeOf, MARKER_GLYPH } from '../core/design';
 import {
   FORM_BG_TASK, FORM_GENERIC, FORM_INTERRUPT, FORM_SUBAGENT, SyntheticHints,
   formatDuration, parseSyntheticHints, syntheticBodyOf, syntheticContinuityOf, syntheticForm,
@@ -171,11 +170,11 @@ export struct SyntheticCard {
     if (this.form() === FORM_BG_TASK) {
       SymbolGlyph($r('sys.symbol.doc_text')).fontSize(13).fontColor([this.kindColor()])
     } else if (this.form() === FORM_SUBAGENT) {
-      SymbolGlyph($r('sys.symbol.dart_target')).fontSize(13).fontColor([this.kindColor()])
+      SymbolGlyph($r('sys.symbol.dart_target')).fontSize(MARKER_GLYPH).fontColor([this.kindColor()])
     } else if (this.form() === FORM_INTERRUPT) {
-      SymbolGlyph($r('sys.symbol.paperplane_fill')).fontSize(13).fontColor([this.kindColor()])
+      SymbolGlyph($r('sys.symbol.paperplane_fill')).fontSize(MARKER_GLYPH).fontColor([this.kindColor()])
     } else {
-      SymbolGlyph($r('sys.symbol.rectangle_on_rectangle')).fontSize(13).fontColor([this.kindColor()])
+      SymbolGlyph($r('sys.symbol.rectangle_on_rectangle')).fontSize(MARKER_GLYPH).fontColor([this.kindColor()])
     }
   }
 

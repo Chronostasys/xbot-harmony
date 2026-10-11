@@ -10,8 +10,7 @@ import {
   PRESS_OPACITY,
   RADIUS_PILL, RADIUS_CHIP, STROKE_HAIRLINE, HIT_TARGET_MIN,
   SPACE_XXS, SPACE_XS, SPACE_SM, SPACE_HAIR,
-  colorOf, surfaceFillOf, hairlineOf, SURFACE_CHIP,
-} from '../core/design';
+  colorOf, surfaceFillOf, hairlineOf, SURFACE_CHIP, MARKER_GLYPH } from '../core/design';
 import { fs, lh, fw, tc } from './SettingsRows';
 
 const PM_CACHE: Map<string, image.PixelMap> = new Map<string, image.PixelMap>();
@@ -117,7 +116,7 @@ export struct AuthImage {
       // ⇒ 命中区 ≥ `HIT_TARGET_MIN`（视觉仍小，靠 `minHeight` 达成；不放大图标）。
       Row({ space: SPACE_XS }) {
         SymbolGlyph($r('sys.symbol.picture'))
-          .fontSize(13)
+          .fontSize(MARKER_GLYPH)
           .fontColor([colorOf(this.pal(), 'accentSoft')])
           .flexShrink(0)
         Text(this.failed ? '图片加载失败（点按重试）' : '查看图片')
