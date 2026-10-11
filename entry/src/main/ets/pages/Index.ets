@@ -66,7 +66,7 @@ import {
 } from '../core/attach';
 import { changedByKeys, identityChanged, needsFullReload, rowKey, rowsFpOf, sameRowIds,
   scopedFingerprint, sessionScopedRowKey, tailRows } from '../core/rowdiff';
-import { BusySignals, busyNow, DRAWER_EMPTY_NO_MATCH, DRAWER_EMPTY_NO_SESSIONS, DRAWER_EMPTY_NONE, drawerEmptyHint, drawerEmptyKind, showsBusyPlaceholder, showsHistorySkeleton, showsJumpToLatest } from '../core/indicators';
+import { BusySignals, busyLabel, busyNow, DRAWER_EMPTY_NO_MATCH, DRAWER_EMPTY_NO_SESSIONS, DRAWER_EMPTY_NONE, drawerEmptyHint, drawerEmptyKind, showsBusyPlaceholder, showsHistorySkeleton, showsJumpToLatest } from '../core/indicators';
 // SSE 终态（服务端明确拒绝 ⇒ 停止无限重连）——页面横幅据它显示**可解释的终态**而非"正在重连"。
 import { SSE_STATE_FAILED } from '../core/sse';
 // 插件 widget 数据面（页面半边）：SSE 事件名 + 载荷（判据在 `core/widgetsview.ets`）
@@ -3570,8 +3570,11 @@ struct Index {
           ListItem() {
             Row({ space: 8 }) {
               LoadingProgress().width(16).height(16).color(this.pal().accent)
-              // i18n（对齐 web `t('agent.thinking')`）：字符串来自资源，不硬编码
-              Text($r('app.string.thinking_placeholder')).fontSize(typeOf('type.subhead').size).fontColor(this.pal().textSecondary)
+              // ⛔ 文案**唯一真源** = `core/indicators.ets:busyLabel(phase)`（§12-E 修复）：
+              //    压缩期（`phase === 'compressing'`）⇒「正在压缩上下文…」，否则「思考中…」。
+              //    此前写死资源串 ⇒ **`busyLabel` 零生产消费者**（门禁 ⑧ 警告）且压缩期文案与 web 分叉
+              //    （web `MessageList.tsx:1679-1686` 按 phase 二选一）。
+              Text(busyLabel(this.store !== null ? this.store.liveProgress().phase : undefined)).fontSize(typeOf('type.subhead').size).fontColor(this.pal().textSecondary)
             }.padding({ left: 14, top: SPACE_XS, bottom: SPACE_XS })
           }
         }

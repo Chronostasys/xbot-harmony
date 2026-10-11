@@ -9,6 +9,9 @@
  * （mutation：把 busyLabel 实现改成 `return BUSY_LABEL_THINKING;` ⇒ 第 3 条红）。
  */
 declare const process: { exit: (c: number) => void };
+declare function require(m: 'fs'): { readFileSync(p: string, e: string): string };
+declare function require(m: 'path'): { join(...parts: string[]): string };
+declare const __dirname: string;
 
 import {
   BUSY_LABEL_COMPRESSING, BUSY_LABEL_THINKING, PHASE_COMPRESSING, busyLabel,
@@ -42,6 +45,38 @@ eq("'done' ⇒ 思考中…", busyLabel('done'), BUSY_LABEL_THINKING);
 // 大小写/前缀不得误命中（服务端词汇是精确小写，客户端不模糊匹配）
 ok("'Compressing' 不误判为压缩期", busyLabel('Compressing') === BUSY_LABEL_THINKING);
 ok("'compressing ' 不误判为压缩期", busyLabel('compressing ') === BUSY_LABEL_THINKING);
+
+// ── 生产消费点（源码形态）──────────────────────────────────────────────────────
+// ⛔ 判据≠信号：**剥注释**后按**调用点**计数；**零扫描判红**（消费点为 0 即红 —— 那正是
+//    本缺陷的原状：`busyLabel` 只有测试消费、零生产消费者，门禁 ⑧ 警告）。
+// 背景：`busyLabel` 曾是"纯逻辑已就绪、UI 未接线"（§12-E）；本轮 R1 把页面占位行接上。
+{
+  const fsMod = require('fs');
+  const pathMod = require('path');
+  const repoRoot = pathMod.join(__dirname, '..', '..', '..', '..');
+  const pagePath = pathMod.join(repoRoot, 'entry', 'src', 'main', 'ets', 'pages', 'Index.ets');
+  const raw: string = fsMod.readFileSync(pagePath, 'utf-8');
+  const noBlock: string = raw.replace(/\/\*[\s\S]*?\*\//g, '');
+  const lines: string[] = noBlock.split('\n');
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const ln: string = lines[i];
+    const idx: number = ln.indexOf('//');
+    out.push(idx >= 0 && (idx === 0 || ln.charAt(idx - 1) !== ':') ? ln.substring(0, idx) : ln);
+  }
+  const code: string = out.join('\n');
+  const re = new RegExp('busyLabel\\(', 'g');
+  let n = 0;
+  let m = re.exec(code);
+  while (m !== null) { n++; m = re.exec(code); }
+  ok('零扫描判红：pages/Index.ets 有 busyLabel( 的**生产调用点**', n > 0);
+  eq('生产调用点 ≥1（门禁 ⑧：busyLabel 不再是"仅测试消费"）', n >= 1, true);
+  ok('pages/Index.ets 确实 import 了 core/indicators 的 busyLabel',
+    code.indexOf('busyLabel') >= 0 && code.indexOf("from '../core/indicators'") >= 0);
+  // 反面板：占位行不得再写死资源串（否则等于回到"零消费"）
+  ok('占位行不再用写死的 $r(app.string.thinking_placeholder)',
+    code.indexOf("$r('app.string.thinking_placeholder')") < 0);
+}
 
 if (fail > 0) { console.log(`  busy_label: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  busy_label: ${pass} passed, 0 failed`);
