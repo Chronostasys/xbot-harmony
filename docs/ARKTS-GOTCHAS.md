@@ -1334,3 +1334,54 @@ this[closeFlagOf('drawer')] = false;   // ⛔ ArkTS 禁动态属性 —— 不�
 （`` `${s.chat_id}#${s.label}#${s.running}` `` / `` `${this.sessionCategory()}#${g.key}` ``）；
 重复键的真实来源是**同一会话在列表里出现两次**（数据面）⇒ 修 `drawerGroups()` 的 `chat_id` 全局去重。
 且该"应用级错误"**不是**白屏成因（`307616e` 带同一错误也能正常渲染，A/B 已证）。
+
+### 批次 41（2026-10-12，编排者本人逐条实测 · P0 列表项超宽 + web 手感谢移植 + 真机排查法）
+
+**① ⛔ `hdc install -r` 报 `install bundle successfully` ≠ 设备换上新代码。**
+本轮我被它骗了整整一轮：HAP 字节里明明有我的新字符串
+（`grep -c "xbot-handfeel" entry/build/default/outputs/default/entry-default-signed.hap` = **2**），
+设备 hilog 里却 **0** 行 ⇒ 结论"没生效"。**正确姿势**：装机后**显式**
+`hdc -t $T shell "aa force-stop <bundle>"` + `aa start -a EntryAbility -b <bundle>`，
+再**双向自证**：① HAP 字节 grep 我的字面量（确认**产物里有**）；② 设备
+`hilog -x | grep <字面量>`（确认**进程里跑的是它**）。缺任一 ⇒ 判据无效。
+
+**② ⛔ `uitest dumpLayout` 不暴露 `accessibilityText`。**
+给主按钮写的 `.accessibilityText('停止'/'发送')` 在该 dump 里既不在 `description`
+也不在 `text`（实测 `description =` 空、`text =` 空，只有 `type=SymbolGlyph`/`bounds`）。
+⇒ **凡"按钮身份"要机器判，只能用可观测物**：**底色**（本例：停止态 `surfaceHi`、
+发送态 `accent`）、**尺寸/坐标**、或可见文本。别用 a11y 文案做判据。
+
+**③ ⛔ `hilog` 轮转极快 ⇒ 跨 turn 采集必须"轮转免疫"。**
+本 app 每帧都写 `[SYNC]/[DS]`，缓冲几分钟就翻页：我上一轮留下的打点，下一轮开头
+`hilog -x | grep` **一条都没有**（计数 0）。⇒ 要跨事件边界取数，别指望"事后读缓冲"，
+用**后台循环抓取并落盘**（`while …; do hdc … "hilog -x" | grep -o <marker> >> /tmp/x.raw; sleep 3; done`
+再 `sort -u`）。⚠️ `hdc shell hilog`（不带 `-x`）是**打一份就退出**，不是跟随流。
+
+**④ 判断"插件面板打不开"前，先分清**客户端**与**后端**。**
+本机 `~/.xbot/config.json` 里 `plugins: {"enabled": false}` ⇒ 服务端 `PluginManager()==nil`
+⇒ RPC `web_plugin_list` 回 `{"ok":false,"error":{"code":"internal_error",
+"message":"plugin system not available"}}`（`serverapp/rpc_table.go:2016` 等 5 处同一守卫）
+⇒ **任何客户端（web 也一样）都拿不到插件目录**。⇒ 报"插件面板看不到"必须先打这条 RPC，
+否则会把后端开关问题误判成客户端缺陷（并与"客户端已有 `服务端未启用插件系统` 空态文案"打架）。
+⚠️ **不要为了验证而重启 :8082** —— 那是编排会话自己的服务端（重启会掐断自己）。
+
+**⑤ 测试的"源码形态锚"：改了被钉的**条件名**⇒ 必须**同时**同步**每一处**锚，且
+**先拿到判据输出再写提交信息**。**
+`tools/tests/contrast_landing.test.ts` §5 L4 按文本读 `pages/Index.ets` 钉主按钮：
+锚 1 = 含 `.fontColor([`+`this.pal().textSecondary`+**条件名**的行；锚 2 = 其后 20 行内
+必须出现 `… ? this.pal().surfaceHi : this.pal().accent`。我把条件名由 `runningNow()`
+改成 `composerShowStop()`（web `MessageInput.tsx:687` 同源语义）⇒ **零扫描判红**（防线按设计工作）。
+我只同步了**锚 1** 就提交、并在信息里写了"判据绿"，**实跑是 `35 passed, 1 failed`** ⇒ 信息不实
+（已在同批第二次锚补丁里如实更正）。**规则**：凡改动会碰某测试的形态锚 ⇒ ① 先 `grep` 出它**全部**锚点；
+② 改完**先跑**该判据；③ 提交信息里的结论必须**引用刚拿到的输出**。
+
+**⑥ `responseRegion` 负偏移外扩在真机**无效**（二次实证）⇒ 命中区要靠**真实布局盒**。**
+本轮把 composer 主按钮由"32 圆 + `responseRegion` 外扩到 44"改成
+**44×44 透明盒（圆在其中居中）+ `onClick` 落在盒上**；真机 `dumpLayout` 量到该节点
+**48×47** ⇒ 热区真的存在（观感不变）。判据只能看到"属性存在"，**必须装机量几何**。
+
+**⑦ 真机"向上滚是否被拽回底部"的**有效**观测物。**
+`dumpLayout` 在长列表里报出的文本节点集合 **不随视口变化**（我 3 次 `uiInput swipe` 后
+顶部/底部可见文本逐字节相同）⇒ **不能**用它判"有没有被拉回底部"。
+可用观测物：**「回到最新」按钮是否出现**（`showsJumpToLatest`）／`onScrollIndex` 的消费日志／
+列表 `scrollOffset`（若能取到）。⇒ 本条的机器判据**待补**（⛔ 不得据 `dumpLayout` 下结论）。

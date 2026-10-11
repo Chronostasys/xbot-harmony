@@ -1088,3 +1088,41 @@ web `ToolCallBlock.tsx:66-71`（args）/ `:97-99`（output）**两族都有** `b
 **⛔ 未断言"达标"**：本波只把**布局盒**抬到 ≥44（静态可判）。**真机点击命中**（尤其 GoalBanner objective /
 `+N` chip / 工具栏药丸）**未上机复验**（设备禁用）⇒ 观感与手感**待真机核**，不得据文档断言"达标"。
 
+
+### 21.11 手感谢移植：**cancel 语义**（`a2a1460`，2026-10-12，用户点名第 2 条）
+
+**用户要求（原话）**：*"用户点了 cancel，那么应该 cancel 按钮 spin 一下，请求成功立刻进入 idle"*；
+*"用户如果在 busy 的时候输入了文字，那么 cancel 按钮应该自动变成插队或者排队按钮"*。
+
+**web 权威（逐字）**：
+| web | 行 | 语义 |
+|---|---|---|
+| `hooks/useChatMessages.ts` | 870-884 | `cancelling` 状态：`setCancelling(true)` ⇒ 发请求 ⇒ 成功 `setCancelling(false); onCancelSuccess?.()`；失败 `toast('cancel failed')` |
+| `workspace/panels/AgentPanel.tsx` | 191-197 | `onCancelSuccess` ⇒ `store.setStatus(selector,'idle')`，注释原文 *"Optimistically mark the session as idle so the UI exits busy immediately — **don't wait for the SSE session(idle) event**"* |
+| `components/agent/MessageInput.tsx` | 686-687 | `canSend = hasContent \|\| pendingUploads \|\| annotations`；`sendDisabled = submitting \|\| (canSend ? … : busy ? cancelling : true)` ⇒ **busy 且有内容 ⇒ 主按钮就是「发送」**（`interrupt` 模式 = 插队/排队） |
+| 同上 | 935-939 | `(submitting \|\| (cancelling && !canSend && busy))` ⇒ 渲染 `<Loader2 animate-spin/>`（**转圈**） |
+
+**原生此前缺口**：`store.cancel()` 只发 `POST /api/cancel`（无 `cancelling`、**无乐观 idle**）；
+composer 主按钮恒为 `runningNow() ? 停止 : 发送` ⇒ busy 时输入文字仍是停止键（与 web 分叉）。
+
+**本仓落点**：
+- `core/store.ets`：新增 `cancelling`；`cancel()` = 置位 ⇒ `POST /api/cancel` ⇒ 成功**复用状态机既有
+  两类事件**做乐观 idle（`session_running(false)` 清权威闸门并定格 live turn `core/reduce.ts:512-530`，
+  再 `session(busy=false)` 清 coarse busy `:1220-1229`；⛔ 顺序不可反 —— `:1226` 在 `sessionRunning`
+  仍为 true 时是 **no-op**）⇒ 复位 `cancelling`。⛔ **未新造状态机语义、未绕过 `reduce`**。
+- `pages/Index.ets`：新增 `composerCanSend/composerShowStop/composerCancelling/cancelTurn`；
+  主按钮 = 有内容 ⇒ **发送**（busy 时 `sendDraft` 走 `isInterruptSend` = 插队/排队）· busy 且无内容
+  ⇒ **停止** · 取消在飞 ⇒ `LoadingProgress` **转圈**；顺带按"真机 `responseRegion` 外扩无效"的实测
+  改用**真实 44×44 布局盒**（真机量到 48×47）。
+- `tools/tests/contrast_landing.test.ts` §5 L4 的**两处**源码形态锚同步为
+  `runningNow() || composerShowStop()`（意图与反向断言一字未松）。
+
+**未做（明确记账）**：
+- **iter 末无 tool ⇒ 立刻 idle**：服务端 `agent/engine_run.go:1071` 明确 `"stop" + no_tool_calls →
+  final text response, return`（并在 `:1221` 附近对末次纯文本迭代补 `snapshotCompletedIteration`）
+  ⇒ turn **立刻**结束、随即下发 `text_final` + session idle；客户端既有路径
+  （`text_final` ⇒ commit ⇒ `activeTurn=null`；`session idle` ⇒ 刷新会话树 ⇒ `sessionRunning=false`）
+  与该语义一致 ⇒ **尚无客户端缺陷证据**，⛔ 不据猜改状态机；**待补真机实验**（在**另一个**会话里
+  驱动一轮、量 `busy→idle` 的墙钟延迟）。
+- **流式中向上滚不回拉**：`core/listfollow` 的"只置位不清位"接线已在；但本轮**未能**用
+  `dumpLayout` 观测视口（见 `ARKTS-GOTCHAS.md` 批次 41 ⑦）⇒ **判据待补**，不得据现有数据下结论。
