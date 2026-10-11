@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>样张 5 · porcelain（原生独享白主题）· 关键面逐色核验 · 深色对照</title>
+<!--
+  ═══════════════════════════════════════════════════════════════════════════════
+  样张 5 · porcelain（原生独享白主题）—— 只出样张，不碰任何 ArkTS 代码。
+
+  色值纪律（本仓铁律的延伸：颜色只有唯一出口）：
+    每一个色值都**逐个**取自 core/design.ets 的 colorOf(paletteOf('porcelain'), role)
+    （role 无点号、camelCase；未知 role 会静默 → transparent）与 core/theme.ets 的
+    surfacesOf / effectsOf 派生面。下面 CSS 变量后都标了**角色名**；
+    凡 ArkUI 用 8 位 ARGB（#AARRGGBB）的，CSS 写成 rgba() 并标注原值（注意字节序不同）。
+
+    深色对照列同理取自 colorOf(paletteOf('dark'), role)。
+
+  尺度纪律：字号/字重/行高/字距取 core/design.ets 的 typeRoles()；间距取 spaceRoles()
+    与 INSET_*；圆角取 radiusRoles() —— 注释里都标了来源。
+
+  ⛔ 本样张里**唯一非 app token** 的值只有"样张纸张"本身（页外背景 #EEF1F5 与手机外框阴影 rgba(29,29,31,..)）——
+    与其它 docs/mockups/*.html 的纸张约定一致，**不在 app 画布内**。app 画布内每个可见色都标了角色名。
+
+  来源速查（本样张用到）：
+    type.display 28/600/1.2/-0.4 · type.title 21/600/1.25/-0.2 · type.headline 17/600/1.3/0
+    type.body 15/400/1.55/0 · type.callout 14/400/1.5/0 · type.subhead 13/500/1.4/0
+    type.caption 12/400/1.35/+0.1 · type.micro 10/500/1.2/+0.2
+    space.hair 2 xxs 4 xs 8 sm 12 md 16 lg 20 xl 24 xxl 32
+    INSET_CARD 12/12 · INSET_ROW 12/8 · INSET_CHIP 4/2 · GUTTER_SCREEN 16
+    INSET_BUBBLE 14/8 · GAP_ROW_Y 6 · RADIUS_CHIP 6 PILL 8 CARD 12 SHEET 16 BUBBLE 16
+    STROKE_RAIL 2 · HIT_TARGET_MIN 44 · MD_CODE_SIZE 13 · MD_CODE_LEADING 1.5
+    INSET_PILL 8/5 · MARKER_SLOT 14 · MARKER_GLYPH 13 · MARKER_GLYPH_DASHED 12 · MARKER_SPINNER 13
+  ═══════════════════════════════════════════════════════════════════════════════
+-->
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:24px;background:#EEF1F5;color:#1D1D1F;
+  font-family:-apple-system,"SF Pro Text","PingFang SC",sans-serif;-webkit-font-smoothing:antialiased}
+h1{font-size:21px;font-weight:600;letter-spacing:-.2px;max-width:960px;margin:0 auto 6px}
+.sub{font-size:14px;color:#6E6E73;line-height:1.5;max-width:960px;margin:0 auto 20px}
+.legend{max-width:960px;margin:0 auto 24px;background:#fff;border:1px solid #DFDFE1;border-radius:12px;padding:12px 16px}
+.legend h2{font-size:12px;font-weight:600;color:#6E6E73;margin:0 0 8px;letter-spacing:.2px}
+.legend table{border-collapse:collapse;width:100%;font-size:11px;font-family:ui-monospace,Menlo,monospace}
+.legend th,.legend td{text-align:left;padding:3px 6px;border-bottom:1px solid #ECECEE}
+.legend th{color:#6E6E73}
+.legend .sw{display:inline-block;width:12px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,.10);vertical-align:-2px;margin-right:6px}
+.face{max-width:960px;margin:0 auto 28px}
+.face h2{font-size:13px;font-weight:600;color:#6E6E73;margin:0 0 10px;letter-spacing:.2px}
+.pair{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+.note{font-size:11px;color:#6E6E73;line-height:1.6;max-width:960px;margin:12px 0 0}
+.note b{color:#1D1D1F}
+.note code{font-family:ui-monospace,Menlo,monospace;font-size:10px}
+
+/* ── 手机画布：393×852 pt（模拟器 xbot_phone 的逻辑尺寸；vp 与 pt 在此 1:1）───────── */
+.phone{width:393px;height:852px;border-radius:44px;overflow:hidden;position:relative;flex:0 0 auto;
+  box-shadow:0 2px 6px rgba(29,29,31,.10),0 18px 44px rgba(29,29,31,.16)}
+.tag{position:absolute;left:12px;bottom:8px;z-index:9;font-family:ui-monospace,Menlo,monospace;
+  font-size:9px;padding:2px 6px;border-radius:6px;background:rgba(0,0,0,.55);color:#fff;opacity:.85}
+
+/* ── 主题变量：porcelain（逐值取自 colorOf(paletteOf('porcelain'), role)）──────────── */
+.th-p{
+  --appBg:#FFFFFF;          /* appBg */
+  --surface:#FFFFFF;        /* surface */
+  --surfaceAlt:#F6F6F7;     /* surfaceAlt */
+  --surfaceHi:#EDEDEF;      /* surfaceHi */
+  --sunken:#F2F2F2;         /* sunken（派生面） */
+  --hairline:#DFDFE1;       /* hairline（派生面；对 appBg 实测 1.3308:1） */
+  --border:#ECECEE;         /* border */
+  --tp:#1D1D1F;             /* textPrimary */
+  --ts:#6E6E73;             /* textSecondary */
+  --tm:#A2A2A7;             /* textMuted */
+  --accent:#0071E3;         /* accent */
+  --accentSoft:#0066CC;     /* accentSoft */
+  --accentText:#0057B8;     /* accentText */
+  --accentDeep:#E8F1FD;     /* accentDeep */
+  --onAccent:#FFFFFF;       /* onAccent */
+  --dangerText:#B42318;     /* dangerText */
+  --successText:#166534;    /* successText */
+  --success:#1E8E3E;        /* pal().success（会话运行点） */
+  --statusRunning:#0071E3;  /* statusRunning */
+  --statusIdle:#8E8E93;     /* statusIdle */
+  /* glassBg = #9EF6F6F7（surfaceAlt@62%）→ 压 appBg 合成 #F9F9FA（compositeOver 实测） */
+  --glassBg:rgba(246,246,247,.62);
+  --glassComposite:#F9F9FA;
+  --glassBorder:rgba(216,216,220,.55);  /* glassBorder #8CD8D8DC（borderStrong@55%） */
+  /* inflightHalo = elev2 = #1A1D1D1F（textPrimary@10% 中性柔影；浅色系不用彩色 glow） */
+  --halo:rgba(29,29,31,.102);
+  --userBubble:rgba(0,113,227,.15);     /* userBubbleBg = accent @15%（core/bubble.ets） */
+}
+/* ── 主题变量：dark（对照；取自 colorOf(paletteOf('dark'), role)）──────────────────── */
+.th-d{
+  --appBg:#0B0B0E;          /* appBg */
+  --surface:#0E0E14;        /* surface */
+  --surfaceAlt:#14141C;     /* surfaceAlt */
+  --surfaceHi:#1D1D28;      /* surfaceHi */
+  --sunken:#0B0B0F;         /* sunken（派生面） */
+  --hairline:#20202B;       /* hairline（≡ border） */
+  --border:#20202B;         /* border */
+  --tp:#EDEDF2;             /* textPrimary */
+  --ts:#9A9AAB;             /* textSecondary */
+  --tm:#63636F;             /* textMuted */
+  --accent:#7C5CFF;         /* accent */
+  --accentSoft:#B9A7FF;     /* accentSoft */
+  --accentText:#C9BCFF;     /* accentText */
+  --accentDeep:#2A1F5C;     /* accentDeep */
+  --onAccent:#FFFFFF;       /* onAccent */
+  --dangerText:#FF7B7B;     /* dangerText */
+  --successText:#86EFC4;    /* successText */
+  --success:#3DD68C;        /* pal().success */
+  --statusRunning:#3388BB;  /* statusRunning */
+  --statusIdle:#858585;     /* statusIdle */
+  --glassBg:rgba(14,14,20,.62);         /* glassBg #9E0E0E14（surface@62%）→ 合成 #0D0D12 */
+  --glassComposite:#0D0D12;
+  --glassBorder:rgba(46,46,60,.55);     /* glassBorder #8C2E2E3C */
+  --halo:rgba(124,92,255,.451);         /* inflightHalo = glow #737C5CFF（accent@45%） */
+  --userBubble:rgba(124,92,255,.15);    /* userBubbleBg = accent @15% */
+}
+
+/* ── 屏幕容器 ───────────────────────────────────────────────────────────────── */
+.scr{width:100%;height:100%;background:var(--appBg);color:var(--tp);display:flex;flex-direction:column;overflow:hidden}
+/* 玻璃顶栏：glassBg 压 appBg + 底部结构性发丝（hairline） */
+.topbar{display:flex;align-items:center;gap:8px;padding:14px 16px 12px;
+  background:var(--glassComposite);border-bottom:1px solid var(--hairline)}
+.menu{font-size:21px;line-height:1;color:var(--tp);padding:12px;border-radius:6px}   /* type.title 21 · SPACE_SM 12 · RADIUS_CHIP 6 */
+.hd{display:flex;flex-direction:column;gap:2px;min-width:0}
+.hd .t{font-size:16px;font-weight:500;line-height:1.3;color:var(--tp);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 顶栏标题在代码里用 FS_TITLE(16)/Medium；页面标题用 type.title 21 —— 这里按顶栏现实现 */
+.hd .st{display:flex;align-items:center;gap:4px}
+.hd .st .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}   /* busy ⇒ pal().accent */
+.hd .st .lab{font-size:12px;font-weight:400;line-height:1.35;letter-spacing:.1px;color:var(--accentSoft)} /* type.caption */
+
+.body-pad{padding:12px 16px}   /* INSET_ROW 12 / GUTTER_SCREEN 16 */
+
+/* ── ② 抽屉/会话列表：扁平行（RADIUS_PILL 8）+ 中性 chip + 发丝分隔 ─────────────── */
+.dlist{display:flex;flex-direction:column}
+.drow{display:flex;align-items:center;gap:8px;min-height:44px;padding:8px 12px;border-radius:8px}
+.drow.sel{background:var(--surfaceHi)}                     /* 选中一档 = surface.pillSelected(surfaceHi) */
+.drow .nm{font-size:13px;font-weight:500;line-height:1.4;color:var(--tp);flex:1;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}          /* type.subhead 13/500 */
+.drow .mt{font-size:10px;font-weight:500;letter-spacing:.2px;color:var(--tm)}  /* type.micro 10/500 */
+.dsep{height:1px;background:var(--hairline);margin:0 12px}   /* 结构性发丝 */
+.chip{font-size:10px;font-weight:500;line-height:1.2;letter-spacing:.2px;padding:2px 4px;border-radius:6px;
+  background:var(--sunken);color:var(--ts)}                  /* surface.chip = sunken · RADIUS_CHIP 6 · INSET_CHIP 4/2 */
+.rdot{width:8px;height:8px;border-radius:50%;background:var(--success);flex:0 0 auto}   /* pal().success */
+
+/* ── ③ 设置：分区切换条（唯一 accent）+ 发丝分区 + 单选列表 ───────────────────── */
+.tabs{display:flex;gap:8px;overflow:hidden}                   /* SPACE_XS 8 */
+.tabs .tb{font-size:12px;font-weight:400;line-height:1.35;letter-spacing:.1px;
+  padding:8px 12px;border-radius:8px;min-height:44px;display:flex;align-items:center;
+  color:var(--ts);background:var(--sunken);border:1px solid var(--hairline)}   /* 未选中 = surface.chip + hairline */
+.tabs .tb.on{color:var(--onAccent);background:var(--accent);border-color:var(--accent)}  /* 选中 = 唯一 accent */
+.slabel{font-size:12px;font-weight:400;letter-spacing:.1px;color:var(--ts);padding:0 12px 6px}
+.card{background:var(--surface);border:1px solid var(--hairline);border-radius:12px;overflow:hidden}  /* RADIUS_CARD 12 */
+.grp{display:flex;align-items:center;gap:8px;min-height:44px;padding:8px 12px}
+.grp .car{font-size:12px;color:var(--ts)}
+.grp .gl{font-size:12px;font-weight:400;letter-spacing:.1px;color:var(--ts)}
+.grp .cnt{font-size:10px;font-weight:500;padding:2px 8px;border-radius:6px;background:var(--surfaceAlt);color:var(--tm)}
+.rrow{display:flex;align-items:center;gap:12px;min-height:44px;padding:8px 12px}
+.rrow .rl{font-size:13px;font-weight:500;line-height:1.4;color:var(--tp);flex:1}    /* type.subhead */
+.rrow .ck{font-size:12px;color:var(--accent)}                                       /* 打勾 = 唯一 accent */
+.swrow{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:10px 12px 8px}
+.swrow .k{font-size:13px;font-weight:500;line-height:1.4;color:var(--tp)}
+.swrow .d{font-size:14px;font-weight:400;line-height:1.5;color:var(--ts);margin-top:2px}  /* type.callout */
+
+/* ── ④ 聊天流 ───────────────────────────────────────────────────────────────── */
+.flow{display:flex;flex-direction:column;padding:6px 4px}      /* GAP_ROW_Y 行带 6 */
+.ubub{margin-left:auto;max-width:85%;padding:8px 14px;
+  border-radius:16px 16px 16px 2px;                            /* RADIUS_BUBBLE 16 · 右下尾角 = BUBBLE.userRadiusBR 2 */
+  background:var(--userBubble);color:var(--tp);font-size:15px;line-height:1.55}  /* type.body 15/1.55 */
+.abub{font-size:15px;line-height:1.55;color:var(--tp);padding:0 12px}   /* 助手正文：画布上无气泡 */
+.think{display:flex;align-items:center;gap:8px;padding:2px 2px;border-radius:8px}   /* RADIUS_PILL */
+.think .bulb{font-size:12px;color:var(--tm)}
+.think .lb{font-size:12px;font-weight:400;letter-spacing:.1px;color:var(--accentSoft)}  /* live ⇒ accentSoft */
+.think .body{margin-top:4px;padding-left:10px;border-left:2px solid var(--hairline);   /* STROKE_RAIL 2 = hairline */
+  font-size:12px;line-height:1.35;color:var(--tm);opacity:.75}                          /* TEXT_DIM 0.75 */
+.pill{display:inline-flex;align-items:center;gap:4px;padding:5px 8px;border-radius:8px;   /* INSET_PILL 8/5 · RADIUS_PILL 8 */
+  background:var(--surfaceAlt);margin:3px 0;max-width:100%}                               /* pillBgOf = surfaceAlt */
+.pill.sel{background:var(--surfaceHi)}
+.pill .slot{width:14px;height:14px;display:flex;align-items:center;justify-content:center;flex:0 0 auto} /* MARKER_SLOT 14 */
+.pill .tx{font-size:12px;color:var(--tp);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}   /* type.caption */
+.pill .pc{font-size:10px;font-weight:500;padding:2px 4px;border-radius:6px;background:var(--sunken);margin-left:4px}
+.pill.live{box-shadow:0 0 12px var(--halo)}                     /* PILL_LIVE_GLOW_RADIUS 12 · glow=elev2(浅)/glow(深) */
+.c-code{margin:4px 12px;background:var(--sunken);border:1px solid var(--hairline);border-radius:12px;overflow:hidden}
+.c-code .strip{display:flex;justify-content:space-between;padding:8px 12px 4px;border-bottom:1px solid var(--hairline)}
+.c-code .strip .lang,.c-code .strip .cp{font-size:12px;font-weight:400;letter-spacing:.1px;color:var(--tm)}
+.c-code pre{margin:0;padding:12px;font-family:ui-monospace,Menlo,monospace;font-size:13px;line-height:1.5;color:var(--tp)}
+
+/* ── ⑤ 光球 ─────────────────────────────────────────────────────────────────── */
+.orbrow{display:flex;gap:32px;justify-content:center;padding:28px 16px}
+.orbwrap{display:flex;flex-direction:column;align-items:center;gap:10px}
+.orb{width:88px;height:88px;border-radius:50%;position:relative;display:flex;align-items:center;justify-content:center}
+/* 核：浅色系 = 更饱和的实体色 pal().accent；深色系 = accentSoft→accent */
+.orb .core{width:52px;height:52px;border-radius:50%;
+  background:radial-gradient(circle, var(--accent) 0%, var(--accent) 46%, rgba(0,0,0,0) 72%)}
+/* 轨道环：浅色 = pal().accent；深色 = pal().accentSoft */
+.orb .ring{position:absolute;inset:8px;border-radius:50%;border:1px solid var(--accent);opacity:.38}
+/* 细环（仪器环）：浅色 = pal().border；深色 = eff().glowSoft。tool 态**强度**变亮（ORB_TOOL_STROKE_SPAN=0.8） */
+.orb .thin{position:absolute;inset:2px;border-radius:50%;border:1px solid var(--border)}
+.th-p .orb .thin{opacity:.55}
+.th-p .orb.tool .thin{opacity:1}                                /* tool ⇒ 细环变亮（颜色维度不变） */
+.th-d .orb .thin{border-color:var(--accentSoft);opacity:.22}    /* glowSoft = accent@22% */
+.th-d .orb.tool .thin{opacity:1}
+.orb .tok{font-family:ui-monospace,Menlo,monospace;font-size:10px;color:var(--tm);text-align:center}
+
+/* ── ⑥ 空态 / 失败态（EmptyNotice）──────────────────────────────────────────── */
+.notice{display:flex;align-items:flex-start;gap:4px;padding:8px 12px}   /* SP_1 4 */
+.notice .ic{font-size:12px;color:var(--dangerText);flex:0 0 auto}        /* 仅失败档有图标 */
+.notice .tx{font-size:12px;font-weight:400;line-height:1.35;color:var(--tm);flex:1}  /* type.caption · textMuted */
+.notice.fail .tx{color:var(--dangerText)}
+</style>
+</head>
+<body>
+<h1>样张 5 · porcelain（原生独享白主题）—— 关键面逐色核验 · 深色对照</h1>
+<p class="sub">每一列色值**逐个**取自 <code>core/design.ets</code> 的 <code>colorOf(paletteOf('porcelain'), role)</code>
+（变量注释即角色名）。左 = porcelain，右 = dark（同结构对照，验证「深浅都成立」）。画布 <b>393×852 pt</b>（模拟器 xbot_phone 逻辑尺寸）。
+⛔ 白主题<b>零彩色发光</b>：光晕/柔影一律走中性 <code>elev2</code>（<code>textPrimary@10%</code>）。</p>
+
+<div class="legend">
+  <h2>porcelain 角色 → 值（逐条取自 core/design.ets · 深色对照列同源）</h2>
+  <table>
+    <tr><th>角色</th><th>porcelain</th><th>dark</th><th>说明</th></tr>
+    <tr><td>appBg</td><td><span class="sw" style="background:#FFFFFF"></span>#FFFFFF</td><td>#0B0B0E</td><td>画布</td></tr>
+    <tr><td>surface</td><td><span class="sw" style="background:#FFFFFF"></span>#FFFFFF</td><td>#0E0E14</td><td>卡片（与画布同白 ⇒ 靠发丝+柔影）</td></tr>
+    <tr><td>surfaceAlt</td><td><span class="sw" style="background:#F6F6F7"></span>#F6F6F7</td><td>#14141C</td><td>pill / 浮层行</td></tr>
+    <tr><td>surfaceHi</td><td><span class="sw" style="background:#EDEDEF"></span>#EDEDEF</td><td>#1D1D28</td><td>选中 / 悬停</td></tr>
+    <tr><td>sunken</td><td><span class="sw" style="background:#F2F2F2"></span>#F2F2F2</td><td>#0B0B0F</td><td>chip / 代码块（surface.well）</td></tr>
+    <tr><td>hairline</td><td><span class="sw" style="background:#DFDFE1"></span>#DFDFE1</td><td>#20202B</td><td>结构性发丝（对画布 1.3308:1）</td></tr>
+    <tr><td>border</td><td><span class="sw" style="background:#ECECEE"></span>#ECECEE</td><td>#20202B</td><td>装饰性描边（1.180:1）</td></tr>
+    <tr><td>textPrimary</td><td><span class="sw" style="background:#1D1D1F"></span>#1D1D1F</td><td>#EDEDF2</td><td>正文</td></tr>
+    <tr><td>textSecondary</td><td><span class="sw" style="background:#6E6E73"></span>#6E6E73</td><td>#9A9AAB</td><td>次要正文</td></tr>
+    <tr><td>textMuted</td><td><span class="sw" style="background:#A2A2A7"></span>#A2A2A7</td><td>#63636F</td><td>元信息（最弱一档）</td></tr>
+    <tr><td>accent</td><td><span class="sw" style="background:#0071E3"></span>#0071E3</td><td>#7C5CFF</td><td>Apple Blue · 唯一强调色</td></tr>
+    <tr><td>accentSoft</td><td><span class="sw" style="background:#0066CC"></span>#0066CC</td><td>#B9A7FF</td><td>链接 / 在飞标记</td></tr>
+    <tr><td>accentText</td><td><span class="sw" style="background:#0057B8"></span>#0057B8</td><td>#C9BCFF</td><td>强调文字</td></tr>
+    <tr><td>onAccent</td><td><span class="sw" style="background:#FFFFFF"></span>#FFFFFF</td><td>#FFFFFF</td><td>实心 accent 之上的字</td></tr>
+    <tr><td>statusRunning</td><td><span class="sw" style="background:#0071E3"></span>#0071E3</td><td>#3388BB</td><td>⚠️ 与 accent **同值** ⇒ 颜色维度不可辨（见面 ⑤）</td></tr>
+    <tr><td>dangerText</td><td><span class="sw" style="background:#B42318"></span>#B42318</td><td>#FF7B7B</td><td>失败</td></tr>
+    <tr><td>successText</td><td><span class="sw" style="background:#166534"></span>#166534</td><td>#86EFC4</td><td>完成</td></tr>
+  </table>
+</div>
+
+<!-- ═══════════════ ① 顶栏 ═══════════════ -->
+<section class="face">
+  <h2>① 顶栏 —— ☰ + 标题 + <code>● 运行中…</code>（⛔ 不放 ⚙/⊞：重复入口已删）</h2>
+  <div class="pair">
+    <div class="phone th-p"><div class="scr">
+      <div class="topbar">
+        <div class="menu">☰</div>
+        <div class="hd"><div class="t">xbot</div>
+          <div class="st"><span class="dot"></span><span class="lab">运行中…</span></div></div>
+      </div>
+      <div class="body-pad" style="color:var(--tm);font-size:12px">（聊天流见面 ④）</div>
+    </div><div class="tag">porcelain · glassBg 压画布 = #F9F9FA</div></div>
+    <div class="phone th-d"><div class="scr">
+      <div class="topbar">
+        <div class="menu">☰</div>
+        <div class="hd"><div class="t">xbot</div>
+          <div class="st"><span class="dot"></span><span class="lab">运行中…</span></div></div>
+      </div>
+      <div class="body-pad" style="color:var(--tm);font-size:12px">（deep 对照）</div>
+    </div><div class="tag">dark · glassBg 压画布 = #0D0D12</div></div>
+  </div>
+  <p class="note">顶栏 = 玻璃材质（<code>glassBg</code> 压 <code>appBg</code>）+ 底部 <b>结构性发丝</b> <code>hairline</code>。
+  标题 <code>FS_TITLE</code> 16/Medium；状态行 = <code>6×6</code> 状态点（busy ⇒ <code>accent</code>，空闲 ⇒ <code>textMuted</code>）+
+  <code>type.caption</code> 12（busy ⇒ <code>accentSoft</code>）。⛔ 状态点<b>不呼吸</b>（唯一在飞 = 光球）。</p>
+</section>
+
+<!-- ═══════════════ ② 抽屉 / 会话列表 ═══════════════ -->
+<section class="face">
+  <h2>② 抽屉 / 会话列表 —— 扁平行（<code>RADIUS_PILL</code> 8）+ 中性 chip + 发丝分隔 + 字号阶梯</h2>
+  <div class="pair">
+    <div class="phone th-p"><div class="scr">
+      <div class="topbar"><div class="menu">☰</div><div class="hd"><div class="t">会话</div></div></div>
+      <div class="body-pad" style="padding-top:12px">
+        <div class="dlist">
+          <div class="drow sel"><span class="rdot"></span><span class="nm">重做设计系统</span><span class="chip">运行</span></div>
+          <div class="dsep"></div>
+          <div class="drow"><span class="nm">harmony 原生端 parity</span><span class="mt">昨天</span></div>
+          <div class="dsep"></div>
+          <div class="drow"><span class="nm">通知点进来要打开会话</span><span class="mt">3 天前</span></div>
+        </div>
+      </div>
+    </div><div class="tag">porcelain</div></div>
+    <div class="phone th-d"><div class="scr">
+      <div class="topbar"><div class="menu">☰</div><div class="hd"><div class="t">会话</div></div></div>
+      <div class="body-pad" style="padding-top:12px">
+        <div class="dlist">
+          <div class="drow sel"><span class="rdot"></span><span class="nm">重做设计系统</span><span class="chip">运行</span></div>
+          <div class="dsep"></div>
+          <div class="drow"><span class="nm">harmony 原生端 parity</span><span class="mt">昨天</span></div>
+          <div class="dsep"></div>
+          <div class="drow"><span class="nm">通知点进来要打开会话</span><span class="mt">3 天前</span></div>
+        </div>
+      </div>
+    </div><div class="tag">dark</div></div>
+  </div>
+  <p class="note">行 = <b>扁平</b>（<code>RADIUS_PILL</code> 8，内距 <code>INSET_ROW</code> 12/8，命中区 ≥<code>HIT_TARGET_MIN</code> 44）；
+  选中一档填充 = <code>surface.pillSelected</code>（<code>surfaceHi</code>）；分隔 = <b>结构性发丝</b> <code>hairline</code>（⛔ 非装饰性 <code>border</code>）。
+  名称 <code>type.subhead</code> 13/500 · 时间 <code>type.micro</code> 10 · chip 底 <code>surface.chip</code>=<code>sunken</code> · 运行点 <code>pal().success</code>。
+  ⛔ 旧"卡片 + 左色条 + 阴影"已废（用户亲报"侧边栏丑"）。</p>
+</section>
+
+<!-- ═══════════════ ③ 设置面板 ═══════════════ -->
+<section class="face">
+  <h2>③ 设置面板 —— 分区切换条（唯一 accent）+ 发丝分区 + Markdown 主题单选列表</h2>
+  <div class="pair">
+    <div class="phone th-p"><div class="scr">
+      <div class="topbar"><div class="menu">✕</div><div class="hd"><div class="t">偏好设置</div></div></div>
+      <div class="body-pad">
+        <div class="tabs">
+          <div class="tb on">外观</div><div class="tb">工具</div><div class="tb">模型</div>
+        </div>
+        <div style="height:12px"></div>
+        <div class="slabel">外观</div>
+        <div class="card">
+          <div class="swrow"><div><div class="k">主题</div><div class="d">极简白（原生独享）</div></div>
+            <div class="chip" style="align-self:center">极简白</div></div>
+          <div class="dsep" style="margin:0 12px"></div>
+          <div class="swrow"><div><div class="k">Markdown 主题</div><div class="d">代码高亮配色</div></div></div>
+        </div>
+        <div style="height:12px"></div>
+        <div class="card">
+          <div class="grp"><span class="car">▸</span><span class="gl">深色</span><span class="cnt">11</span></div>
+          <div class="dsep" style="margin:0 12px"></div>
+          <div class="rrow"><span class="rl">GitHub Dark</span><span class="ck">✓</span></div>
+          <div class="rrow"><span class="rl">One Dark</span></div>
+          <div class="grp"><span class="car">▾</span><span class="gl">浅色</span><span class="cnt">8</span></div>
+          <div class="dsep" style="margin:0 12px"></div>
+          <div class="rrow"><span class="rl">GitHub Light</span></div>
+        </div>
+      </div>
+    </div><div class="tag">porcelain</div></div>
+    <div class="phone th-d"><div class="scr">
+      <div class="topbar"><div class="menu">✕</div><div class="hd"><div class="t">偏好设置</div></div></div>
+      <div class="body-pad">
+        <div class="tabs">
+          <div class="tb on">外观</div><div class="tb">工具</div><div class="tb">模型</div>
+        </div>
+        <div style="height:12px"></div>
+        <div class="slabel">外观</div>
+        <div class="card">
+          <div class="swrow"><div><div class="k">主题</div><div class="d">极简白（原生独享）</div></div>
+            <div class="chip" style="align-self:center">极简白</div></div>
+          <div class="dsep" style="margin:0 12px"></div>
+          <div class="swrow"><div><div class="k">Markdown 主题</div><div class="d">代码高亮配色</div></div></div>
+        </div>
+        <div style="height:12px"></div>
+        <div class="card">
+          <div class="grp"><span class="car">▸</span><span class="gl">深色</span><span class="cnt">11</span></div>
+          <div class="dsep" style="margin:0 12px"></div>
+          <div class="rrow"><span class="rl">GitHub Dark</span><span class="ck">✓</span></div>
+          <div class="rrow"><span class="rl">One Dark</span></div>
+          <div class="grp"><span class="car">▾</span><span class="gl">浅色</span><span class="cnt">8</span></div>
+          <div class="dsep" style="margin:0 12px"></div>
+          <div class="rrow"><span class="rl">GitHub Light</span></div>
+        </div>
+      </div>
+    </div><div class="tag">dark</div></div>
+  </div>
+  <p class="note">分区切换条：选中 = <b>唯一 accent</b>（底 <code>accent</code> + 字 <code>onAccent</code>），未选中 = <code>surface.chip</code>+<code>hairline</code>；
+  文案 <code>type.caption</code> 12，内距 <code>INSET_ROW</code>，命中区 44。卡片 = <code>surface.card</code>+<code>hairline</code>+<code>RADIUS_CARD</code> 12。
+  单选行打勾 = <b>唯一 accent</b>（<code>SettingsRadioRow</code>）；组头计数 chip = <code>surfaceAlt</code>+<code>type.micro</code>。
+  ⛔ 19 项 Markdown 主题<b>按明暗分组 + 折叠 + 单选列表</b>，不是 chip 平铺（19 chip 糊成一片 = "像垃圾"的根因）。</p>
+</section>
+
+<!-- ═══════════════ ④ 聊天流 ═══════════════ -->
+<section class="face">
+  <h2>④ 聊天流 —— 用户气泡 / 助手正文 / 思考行 / 工具 pill 两态 / 代码块（<code>surface.well</code>+<code>RADIUS_CARD</code>）</h2>
+  <div class="pair">
+    <div class="phone th-p"><div class="scr">
+      <div class="topbar"><div class="menu">☰</div><div class="hd"><div class="t">重做设计系统</div>
+        <div class="st"><span class="dot"></span><span class="lab">运行中…</span></div></div></div>
+      <div class="flow">
+        <div class="ubub">把 pill 和 chip 的层级拆开</div>
+        <div class="abub">好，我把「面」按深度分层编号。</div>
+        <div class="think"><span class="bulb">💡</span><span class="lb">思考 128 字</span></div>
+        <div class="body-pad" style="padding:0 12px 6px">
+          <div class="pill"><span class="slot" style="color:var(--successText)">✓</span>
+            <span class="tx">read_file</span></div><br>
+          <div class="pill live"><span class="slot" style="color:var(--accentSoft)">◌</span>
+            <span class="tx">grep design.ets</span><span class="pc" style="color:var(--accentSoft)">执行中</span></div><br>
+          <div class="pill"><span class="slot" style="color:var(--tm)">◌</span>
+            <span class="tx">run_tests</span><span class="pc" style="color:var(--tm)">排队</span></div>
+        </div>
+        <div class="c-code">
+          <div class="strip"><span class="lang">typescript</span><span class="cp">复制</span></div>
+          <pre>surfaceFillOf(p, 'surface.chip')</pre>
+        </div>
+      </div>
+    </div><div class="tag">porcelain · 零彩色发光（在飞柔影 = elev2 中性）</div></div>
+    <div class="phone th-d"><div class="scr">
+      <div class="topbar"><div class="menu">☰</div><div class="hd"><div class="t">重做设计系统</div>
+        <div class="st"><span class="dot"></span><span class="lab">运行中…</span></div></div></div>
+      <div class="flow">
+        <div class="ubub">把 pill 和 chip 的层级拆开</div>
+        <div class="abub">好，我把「面」按深度分层编号。</div>
+        <div class="think"><span class="bulb">💡</span><span class="lb">思考 128 字</span></div>
+        <div class="body-pad" style="padding:0 12px 6px">
+          <div class="pill"><span class="slot" style="color:var(--successText)">✓</span>
+            <span class="tx">read_file</span></div><br>
+          <div class="pill live"><span class="slot" style="color:var(--accentSoft)">◌</span>
+            <span class="tx">grep design.ets</span><span class="pc" style="color:var(--accentSoft)">执行中</span></div><br>
+          <div class="pill"><span class="slot" style="color:var(--tm)">◌</span>
+            <span class="tx">run_tests</span><span class="pc" style="color:var(--tm)">排队</span></div>
+        </div>
+        <div class="c-code">
+          <div class="strip"><span class="lang">typescript</span><span class="cp">复制</span></div>
+          <pre>surfaceFillOf(p, 'surface.chip')</pre>
+        </div>
+      </div>
+    </div><div class="tag">dark</div></div>
+  </div>
+  <p class="note">用户气泡 = <code>accent@15%</code> 底 + <code>textPrimary</code> 字（<code>type.body</code> 15/1.55，<code>RADIUS_BUBBLE</code> 16，右下尾角 2，内距 <code>INSET_BUBBLE</code> 14/8，
+  <b>无渐变/无阴影</b>）；助手正文 = 画布上的纯正文（无气泡）。思考行 = 灯泡 + <code>type.caption</code>（live ⇒ <code>accentSoft</code>）+ 展开体左栅栏 <code>STROKE_RAIL</code> 2（色 = <code>hairline</code>）
+  + <code>TEXT_DIM</code> 0.75。工具 pill：底 <code>surfaceAlt</code>（选中 <code>surfaceHi</code>）、chip 底恒 <code>surface.chip</code>=<code>sunken</code>、
+  状态色 <code>done=successText</code> / <code>running=accentSoft</code> / <code>pending=textMuted</code>，在飞柔影 radius 12（浅 = <code>elev2</code> 中性 / 深 = <code>glow</code>）。
+  代码块 = <code>surface.well</code>(<code>sunken</code>) + <code>RADIUS_CARD</code> 12 + <code>hairline</code> 边 + 等宽 <code>MD_CODE_SIZE</code> 13 / <code>MD_CODE_LEADING</code> 1.5。</p>
+</section>
+
+<!-- ═══════════════ ⑤ 光球（在飞）═══════════════ -->
+<section class="face">
+  <h2>⑤ 光球（在飞）—— porcelain 的「工具在跑」静态线索：颜色维度不可辨，靠<b>细环 alpha</b></h2>
+  <div class="pair">
+    <div class="phone th-p"><div class="scr">
+      <div class="orbrow">
+        <div class="orbwrap"><div class="orb"><div class="thin"></div><div class="ring"></div><div class="core"></div></div>
+          <div class="tok">thinking<br>细环 = border @.55</div></div>
+        <div class="orbwrap"><div class="orb tool"><div class="thin"></div><div class="ring"></div><div class="core"></div></div>
+          <div class="tok">tool<br>细环 = border @1.0</div></div>
+      </div>
+      <div class="body-pad" style="font-size:11px;color:var(--tm);line-height:1.6">
+        两态<b>环色相同</b>（<code>statusRunning ≡ accent = #0071E3</code>）⇒ 静帧只能靠<b>细环强度</b>分辨。
+        细环颜色 = <code>pal().border #ECECEE</code>，tool 态强度 +<code>ORB_TOOL_STROKE_SPAN</code> 0.8（<b>颜色维度不变</b>）。
+        光晕 = <code>elev2</code>（<code>textPrimary@10%</code> 中性柔影，⛔ 零彩色发光）。
+      </div>
+    </div><div class="tag">porcelain</div></div>
+    <div class="phone th-d"><div class="scr">
+      <div class="orbrow">
+        <div class="orbwrap"><div class="orb"><div class="thin"></div><div class="ring"></div><div class="core"></div></div>
+          <div class="tok">thinking<br>细环 = glowSoft @.22</div></div>
+        <div class="orbwrap"><div class="orb tool"><div class="thin"></div><div class="ring"></div><div class="core"></div></div>
+          <div class="tok">tool<br>细环 = glowSoft @1.0</div></div>
+      </div>
+      <div class="body-pad" style="font-size:11px;color:var(--ts);line-height:1.6">
+        深色系天然可辨：环色 thinking=<code>accentSoft</code> vs tool=<code>statusRunning #3388BB</code>（<b>不同色</b>）。
+        光晕 = <code>glow</code>（<code>accent@45%</code> 彩色外发光）。
+      </div>
+    </div><div class="tag">dark</div></div>
+  </div>
+  <p class="note">依据 <code>docs/WEB-ALIGNMENT.md §16.2 #16</code>：porcelain 下 <code>statusRunning</code> 与 <code>accent</code> <b>同为 #0071E3</b> ⇒
+  「工具在跑」在颜色维度静帧不可辨，只能用<b>颜色之外</b>的静态维度（细环强度）补足「一眼可辨」。⛔ 不是第二在飞动效（细环本就在既有循环里画）。</p>
+</section>
+
+<!-- ═══════════════ ⑥ 空态 / 失败态 ═══════════════ -->
+<section class="face">
+  <h2>⑥ 空态 / 失败态（<code>EmptyNotice</code>）—— 一行小字 + 中性色 + 一枚图标（无填充/无边框/无发光）</h2>
+  <div class="pair">
+    <div class="phone th-p"><div class="scr">
+      <div class="topbar"><div class="menu">☰</div><div class="hd"><div class="t">重做设计系统</div></div></div>
+      <div style="padding-top:24px">
+        <div class="notice"><span class="tx">助手本次没有产出内容（回合已结束）。</span></div>
+        <div class="notice fail"><span class="ic">⊗</span><span class="tx">LLM 本次没有返回文本内容，可能是模型输出异常或中途结束。</span></div>
+      </div>
+      <div style="flex:1"></div>
+      <div class="body-pad" style="font-size:11px;color:var(--tm);line-height:1.6">
+        空态 = <code>type.caption</code> 12 + <code>textMuted</code>；失败态 = 升一档色 <code>dangerText</code> + <code>xmark_circle_fill</code> 图标。
+        ⛔ 无填充红盒（刻意偏离 web）；行首 <code>SP_1</code> 4 间距。
+      </div>
+    </div><div class="tag">porcelain</div></div>
+    <div class="phone th-d"><div class="scr">
+      <div class="topbar"><div class="menu">☰</div><div class="hd"><div class="t">重做设计系统</div></div></div>
+      <div style="padding-top:24px">
+        <div class="notice"><span class="tx">助手本次没有产出内容（回合已结束）。</span></div>
+        <div class="notice fail"><span class="ic">⊗</span><span class="tx">LLM 本次没有返回文本内容，可能是模型输出异常或中途结束。</span></div>
+      </div>
+      <div style="flex:1"></div>
+      <div class="body-pad" style="font-size:11px;color:var(--ts);line-height:1.6">
+        （deep 对照）
+      </div>
+    </div><div class="tag">dark</div></div>
+  </div>
+  <p class="note">失败态 = <b>一行小字 + 语义色 + 一枚状态图标</b>，⛔ 无填充、无边框、无发光（<code>docs/REDESIGN.md §5/§10</code> 有意分歧 ②）。
+  空态 = 中性 <code>textMuted</code>。行 = <code>Row({space: SP_1})</code>，文字 <code>FS_CAPTION</code> 12，<code>WordBreak.BREAK_WORD</code>。</p>
+</section>
+
+<p class="note" style="max-width:960px;margin:24px auto 0">
+  <b>核验提示</b>：本样张的每个 CSS 变量注释 = 角色名；对照 <code>core/design.ets</code> 的 <code>colorOf()</code> 合法 role 表逐个比对即可。
+  深色列用于确认「同一套结构在深色下也成立」；porcelain 列是用户点名的核心诉求 —— 层次<b>只靠</b>发丝（1.3308:1）+ 灰阶 + 字重，<b>零彩色发光</b>。
+</p>
+</body>
+</html>
