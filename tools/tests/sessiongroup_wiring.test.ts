@@ -55,10 +55,27 @@ function row(chatId: string, workDir: string, status: string, lastActive: string
   return r as SessionItem;
 }
 
-const T0 = '2026-10-11T00:30:00+08:00';   // 今天
-const T1 = '2026-10-10T10:00:00+08:00';   // 昨天（相对 2026-10-11）
-const T2 = '2026-10-11T01:00:00+08:00';   // 今天（比 T0 晚 ⇒ createdAt 排序用）
-const T9 = '2020-01-01T00:00:00+08:00';   // 更早
+/**
+ * ⚠️ 时间戳必须**相对当前本地日期**算（⛔ 不许硬编码具体日期）。
+ * 分桶口径（`core/sessiongroup.ets:259-276`）= `>= 今天 0 点 ⇒ today` / `>= 昨天 0 点 ⇒ yesterday` / 否则 `earlier`。
+ * 硬编码日期会在**跨过 00:00 后**把"今天"变成"昨天" ⇒ 本文件 (A4) 断言**恒红**
+ * （2026-10-12 00:01 实测踩到：`T0 = 2026-10-11T00:30` 已属"昨天"）。
+ */
+function isoLocal(d: Date): string {
+  const p = (n: number): string => (n < 10 ? '0' + n : String(n));
+  const offMin: number = -d.getTimezoneOffset();
+  const sign: string = offMin >= 0 ? '+' : '-';
+  const a: number = Math.abs(offMin);
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T`
+    + `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+    + `${sign}${p(Math.floor(a / 60))}:${p(a % 60)}`;
+}
+const _NOW = new Date();
+const _Y = _NOW.getFullYear(), _M = _NOW.getMonth(), _D = _NOW.getDate();
+const T0 = isoLocal(new Date(_Y, _M, _D, 0, 30, 0));       // 今天 00:30
+const T2 = isoLocal(new Date(_Y, _M, _D, 1, 0, 0));        // 今天 01:00（比 T0 晚 ⇒ createdAt 排序用）
+const T1 = isoLocal(new Date(_Y, _M, _D - 1, 10, 0, 0));   // 昨天 10:00
+const T9 = '2020-01-01T00:00:00+08:00';                    // 更早（绝对足够远 ⇒ 无需相对化）
 
 // ── (A1) sessionRowToGroup：字段直传 + 缺失回落 ────────────────────────────────
 const g1 = sessionRowToGroup({
