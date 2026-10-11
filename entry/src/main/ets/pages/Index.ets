@@ -3319,7 +3319,7 @@ struct Index {
       .backgroundColor(this.eff().glassBg)
       .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.glassMode() })
       .border({ width: 1, color: this.eff().glassBorder })
-      .shadow({ radius: 28, color: this.eff().elev3, offsetX: 0, offsetY: 12 })
+      .shadow({ radius: shadowRadiusOf(this.pal(), 'panel'), color: this.eff().elev3, offsetX: 0, offsetY: 12 })
       .margin({ left: SP_4, right: SP_4 })
       .id('xbot-login')
     }
@@ -6006,7 +6006,7 @@ struct Index {
     .backgroundColor(this.eff().glassBg)
     .backgroundBlurStyle(BlurStyle.Regular, { colorMode: this.glassMode() })
     .borderWidth({ right: STROKE_HAIRLINE }).borderColor(hairlineOf(this.pal()))
-    .shadow({ radius: SPACE_XL, color: this.eff().elev3, offsetX: SPACE_XS, offsetY: 0 })
+    .shadow({ radius: shadowRadiusOf(this.pal(), 'drawer'), color: this.eff().elev3, offsetX: SPACE_XS, offsetY: 0 })
     .position({ x: 0, y: 0 })
   }
 
