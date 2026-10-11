@@ -6,32 +6,34 @@
  *      · 文案     → `statusChip(kind, exitCode, genChars)`
  *      · 是否错误 → `kind === ST_ERROR`
  *      · 语义色   → `statusColorRole(kind)`（渲染层再映射成主题色）
- *      · 是否在飞（扫光/呼吸）→ `isLiveStatus(kind)`
+ *      · 是否在飞（扫光/光球）→ `isInFlight(kind, live)`
  *      · 形态（实心/空心/虚线/勾/叉/转圈）→ 由 `kind` 直接分支（`components/ToolVisual.ets`）
  *    **任何组合都不允许出现「文案说排队、颜色/形态说在飞」这种打脸**
  *    （用户 2026-10-11 截文物证：虚线空心的点 + accent 蓝 chip + 「排队」三信号互相矛盾）。
  *
- * ── 权威表（`docs/WEB-ALIGNMENT.md §13.3` 的既有裁决，**不是**本波新拍；原注释写反了，已改回）──
+ * ── 权威表（`live` 只影响「是否在飞」，**绝不影响文案/档位/颜色**）──
  *
  * | 块         | raw status                        | 文案                                   | 是否在飞 |
  * |------------|-----------------------------------|----------------------------------------|----------|
- * | **live**   | `pending`                         | **执行中**（⚠️ **不是**「排队」）       | 是       |
+ * | **live**   | `pending`                         | **排队**                               | **是**   |
  * | **live**   | `generating`                      | `生成中 N 字` / 缺字数 ⇒ `生成中…`     | 是       |
  * | **live**   | `running`/`executing`             | 执行中                                 | 是       |
  * | **live**   | `error` / exit≠0                  | `失败 exit N` / `失败`                 | 否       |
  * | **live**   | `killed`/`aborted`/`cancelled`    | `已终止`                               | 否       |
  * | **committed** | 严格按服务端终态               | `done`⇒无 chip；`error`⇒失败；`killed`⇒已终止；`pending`⇒排队 | 仅 running/generating |
  *
- * 依据（服务端源码 + 真机）：`agent/engine_run_tools.go:49-64` 把**整批**工具先建为
- * `ToolPending`，随后**每条工具的 goroutine 启动时**才翻 `ToolRunning`（`:150`）——
- * 于是 **live 块里正在执行的工具经常仍是 `pending``（尚未翻档）。若直接映射成「排队」，
- * 用户会以为"还没开始"（用户 2026-10-10 实测：FileReplace 已 done、Shell 正 executing，
- * 两枚都显示「排队」）。live 块里的工具**都是本迭代已派发的（在飞）** ⇒ live 块的
- * `pending` 一律按**执行中**渲染。⇒ **`live?` 必须是判据的显式输入**（见 `renderKind`）。
- *
- * ⚠️ **经批准的有意分歧（divergence）**：web `FoldedToolGroup.tsx:200-210` 把 pending 映射成
- *    `Queued`（排队）—— 这**不适用于本仓的 live 块**（真机 + 服务端源码依据；见上）。
- *    committed 块仍与 web 一致（历史里的 pending 极罕见，语义保守按「排队」）。
+ * ── 历史沿革（**别再改回去**）──
+ * ⛔ **「live 块的 pending ⇒ 执行中」这一"私有改判"已废止**（曾被 `docs/WEB-ALIGNMENT.md §13.3`
+ *    依据"服务端整批先建 pending、goroutine 启动才翻 running"提出过，**但用户自己否决并回退过**）：
+ *    `components/LiveTailView.ets:171-177` 现行注释即其墓志铭 ——「⛔ 不做任何"私有改判"（**曾试过
+ *    把 pending 当执行中，已回退**）……`pending` 就是真的排队，私自改判会让"排队"这一档消失，
+ *    反而失真（**用户 2026-10-10 明确要求「以后端数据为准」**）」。
+ *    ⇒ **常驻要求：状态一律以后端为准**。客服 10-11 报的两条症状恰好是"丢了后端真相"的**两个方向**：
+ *      ① executing 显示排队 = **陈旧 `pending` 快照盖掉新的 `running`/`done`** ⇒ 由 `mergeTools`
+ *         的 **rank 终态优先**修（`core/streammerge.ets`）；
+ *      ② generating 显示执行中 = **generating 被并进 running 档** ⇒ 由本文件的 **`ST_GENERATING`
+ *         独立档** 修。
+ *    **两条真因都已修复 ⇒ 无需（也**不许**）再用"私改判"打创可贴**（那会抹掉「排队」这一档）。
  *
  * ⛔ `generating` 必须自成一档 —— 它**任何情况下都不得显示「执行中」**（用户原话第 2 半）。
  * ⛔ 一律按 **raw status** 分支（不看把 pending/generating 也算 running 的粗判据）。
@@ -51,7 +53,7 @@ export const ROLE_MUTED: string = 'muted';     // 排队 / 终止（安静）
 export const ROLE_ACCENT: string = 'accent';   // 执行中 / 生成中（需要注意力）
 
 /**
- * raw status（+ 退出码）⇒ **原始语义档**（不看 live/committed）。
+ * raw status（+ 退出码）⇒ **语义状态档**（唯一判据）。
  *
  * 退出码非 0 ⇒ 即便 status 还是 'running'（流式阶段常见）也判定为失败 —— 与 web
  * `singleStatus` 一致（宁可早报错，也不要"绿点里藏着失败"）。
@@ -75,32 +77,44 @@ export function toolStatusKind(status: string | undefined, exitCode: number | un
 }
 
 /**
- * **渲染档** —— 唯一判据（把 `live` 显式纳入）。
+ * **渲染档** —— raw status(+exit) ⇒ 语义档。
  *
- * ⛔ 唯一冲突点（§13.3 裁决）：**live 块**里的 `pending` ⇒ 按 **执行中(`ST_RUNNING`)** 渲染
- *   （服务端已把整批工具派发，只是 goroutine 未翻档 —— 见文件头依据）。committed 块不变。
- *
- * 之后所有派生（文案/颜色/在飞/形态）都只读**本函数返回的 kind** ⇒ 结构上不可能再分叉。
- *
- * @param live 该 pill 是否渲染在**在飞块**（LiveTailView）里。committed/历史块传 `false`。
+ * ⛔ **档位一律以后端 `status` 为准**：本函数**不因 `live` 改判**（历史上曾把 live 块的
+ *    `pending` 私改判为「执行中」，**已废止** —— 见文件头「历史沿革」）。
+ *    `live` 形参**保留**（渲染上下文；调用点/门控断言签名稳定），但**不参与档位判定**；
+ *    「在飞」的 live 语义单独由 `isInFlight(kind, live)` 承担。
  */
 export function renderKind(status: string | undefined, exitCode: number | undefined,
   live: boolean): string {
-  const kind: string = toolStatusKind(status, exitCode);
-  if (live && kind === ST_PENDING) { return ST_RUNNING; }
-  return kind;
+  // `live` 形参保留（渲染上下文；调用点/门控断言签名稳定）——**不参与档位判定**（后端为准）。
+  return toolStatusKind(status, exitCode);
 }
 
 /**
- * 是否"在飞"（运行/生成中）—— 决定加不加扫光/发光与脉动点。
+ * 是否**语义上在飞**（运行/生成中）—— 不看 live/committed。
  *
  * ⚠️ generating 与 running **都是**在飞（web 二者都带 sweep 动效与分类色），
  *   只是**文案不同**（「生成中…」vs「执行中」）。
- * ⚠️ 传**渲染档**（`renderKind` 的产物）：live 块的 pending 已被归并成 running ⇒ 在飞；
- *   committed 的 pending 仍是 pending ⇒ 不在飞。
  */
 export function isLiveStatus(kind: string): boolean {
   return kind === ST_RUNNING || kind === ST_GENERATING;
+}
+
+/**
+ * 是否**加扫光/光球**（在飞视觉）—— 判据只此一处，**这是 `live` 唯一的作用**。
+ *
+ * web `LiveIteration`/`FoldedToolGroup.tsx:288`（`executing || tool.streaming === true`）：
+ * live 块里的工具**都未完成、仍在流式** ⇒ live 块的**非终态**（`pending` 也算）都在飞；
+ * committed 块只有 `running`/`generating` 在飞（历史的 `pending` 极罕见且已定格 ⇒ 安静）。
+ *
+ * ⛔ 本函数**只影响"是否在飞"**（扫光/光球），**绝不改变文案/档位/颜色**——
+ *    否则又会滑向「文案说排队、形态说在飞」的打脸组合。
+ *
+ * @param live 该 pill 是否渲染在**在飞块**（LiveTailView）里。
+ */
+export function isInFlight(kind: string, live: boolean): boolean {
+  if (kind === ST_DONE || kind === ST_ERROR || kind === ST_KILLED) { return false; }
+  return isLiveStatus(kind) || live;
 }
 
 /**
@@ -110,6 +124,8 @@ export function isLiveStatus(kind: string): boolean {
  * web `FoldedToolGroup.tsx:211`（statusFg）：failed→destructive；killed/pending→text-muted；
  * 其余（running/generating）→ 分类色（本仓用 accent）。done **成功要安静** ⇒ 用 success
  * （只在图标/描边层出现，名称仍中性色）。
+ *
+ * ⛔ `pending` ⇒ **muted**（安静），**绝不是 accent**（曾落到 accent ⇒ 颜色说在飞、文案说排队）。
  */
 export function statusColorRole(kind: string): string {
   if (kind === ST_ERROR) { return ROLE_DANGER; }
@@ -122,14 +138,18 @@ export function statusColorRole(kind: string): string {
 /**
  * 状态 chip 文案（**空串 = 不显示 chip**）—— **全项目唯一**的"状态→文案"纯函数。
  *
- * 传**渲染档**（`renderKind`）。六档逐条对齐**权威表**（见文件头）：
- *   · live pending → 已被 renderKind 归并成 running ⇒「执行中」；
+ * 六档逐条对齐**权威表**（见文件头）：
+ *   · `pending` ⇒「排队」（live 与 committed **都是** —— 后端为准，不得私改判）；
  *   · generating 带已生成字数；**缺字数/为 0 ⇒「生成中…」**，**绝不回落「执行中」**；
+ *   · running 可带**时长**（原生增强，web 没有）：`elapsedMs>0` ⇒「执行中 1.2s」；
+ *     **该参数只影响 running**（generating/error/… 一律不受它影响）；
  *   · error 带退出码「失败 exit N」；
  *   · done 无 chip（成功要安静）。
+ *
+ * ⚠️ **向后兼容**：`elapsedMs` 可选，**3 参调用 = 旧行为**（`running` ⇒「执行中」，不带时长）。
  */
 export function statusChip(kind: string, exitCode: number | undefined,
-  genChars: number | undefined): string {
+  genChars: number | undefined, elapsedMs?: number): string {
   if (kind === ST_ERROR) {
     return exitCode !== undefined && exitCode !== 0 ? `失败 exit ${exitCode}` : '失败';
   }
@@ -139,6 +159,12 @@ export function statusChip(kind: string, exitCode: number | undefined,
     const n: number = genChars !== undefined ? genChars : 0;
     return n > 0 ? `生成中 ${n} 字` : '生成中…';
   }
-  if (kind === ST_RUNNING) { return '执行中'; }
+  if (kind === ST_RUNNING) {
+    // 时长是**原生增强**（web 无）；只在 running 档生效，**绝不泄漏到 generating**。
+    if (elapsedMs !== undefined && elapsedMs > 0) {
+      return `执行中 ${(elapsedMs / 1000).toFixed(1)}s`;
+    }
+    return '执行中';
+  }
   return '';
 }

@@ -26,7 +26,7 @@ import { MarkdownView } from './MarkdownView';
 import { LiveTailView } from './LiveTailView';
 import { ThinkingLine } from './ThinkingLine';
 import { ToolPill, statusColorOf } from './ToolVisual';
-import { isLiveStatus, renderKind, statusChip } from '../core/toolstatus';
+import { isInFlight, renderKind, statusChip } from '../core/toolstatus';
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
 import { SubAgentTree } from './SubAgentTree';
 import { flattenSubAgents } from '../core/subagent';
@@ -194,9 +194,9 @@ export struct MessageRowView {
     this.entered = !this.row.isLive;
   }
 
-  /** 工具是否处于"在飞"（运行/生成中）—— 决定发光与扫光。判定收敛在 `core/toolstatus`。 */
+  /** 工具是否"在飞"（决定发光与扫光）——判据收敛在 `core/toolstatus.isInFlight`（committed ⇒ live=false）。 */
   private toolLive(t: ToolProgress): boolean {
-    return isLiveStatus(this.toolKind(t));
+    return isInFlight(this.toolKind(t), false);
   }
 
   /** 语义状态档 —— **唯一判据** `core/toolstatus.renderKind`（committed 块 ⇒ live=false）。 */
@@ -204,9 +204,9 @@ export struct MessageRowView {
     return renderKind(t.status, t.exit_code, false);
   }
 
-  /** 状态 chip 文案（空 = 无 chip）。 */
+  /** 状态 chip 文案（空 = 无 chip；running 带时长 —— 原生增强）。 */
   private toolChip(t: ToolProgress): string {
-    return statusChip(this.toolKind(t), t.exit_code, t.gen_chars);
+    return statusChip(this.toolKind(t), t.exit_code, t.gen_chars, t.elapsed_ms);
   }
 
   /** pill 展示文本（名称/标签，**不含**状态 badge —— 状态由 chip 表达）。 */
