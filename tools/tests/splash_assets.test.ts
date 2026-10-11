@@ -161,9 +161,16 @@ function stripComments(src: string): string {
   ok('brand_mark_outline.svg 仍是**活资产**（消费者 = 通知小图标 icons.ets）',
     icons.indexOf("$r('app.media.brand_mark_outline')") >= 0
     && exists('entry/src/main/resources/base/media/brand_mark_outline.svg'));
-  // 通知小图标：解 svg → 回退 png（两路资产都必须在）
-  ok('通知小图标首选 $r(\'app.media.brand_mark_outline\')', icons.indexOf("$r('app.media.brand_mark_outline')") >= 0);
-  ok('通知小图标回退 $r(\'app.media.start_icon\')', icons.indexOf("$r('app.media.start_icon')") >= 0);
+  // 通知小图标：128×128 PNG 优先 → SVG 描边标记回退（两路资产都必须存在）。
+  // ⚠️ 2026-10-11 更新：链路已由 `outline.svg → start_icon.png` **翻转为** `brand_mark_128 → brand_mark_outline`
+  //    （SDK 对通知小图标推荐 128×128，且 512 的 start_icon 会偏大）⇒ 本判据随真源同步（⛔ 不钉旧顺序）。
+  ok('通知小图标**首选** $r(\'app.media.brand_mark_128\')（128×128 PNG 档）',
+    icons.indexOf("$r('app.media.brand_mark_128')") >= 0);
+  ok('通知小图标**回退** $r(\'app.media.brand_mark_outline\')（SVG 描边标记）',
+    icons.indexOf("$r('app.media.brand_mark_outline')") >= 0);
+  ok('两路通知资产都真有文件',
+    exists('entry/src/main/resources/base/media/brand_mark_128.png')
+    && exists('entry/src/main/resources/base/media/brand_mark_outline.svg'));
   // ⛔ 计数前**剥注释**：该文件头注里就写着 `image.createImageSource(`（文档），朴素计数会得到 2 ⇒ 假红。
   let code: string = '';
   let ci: number = 0;
