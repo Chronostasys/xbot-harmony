@@ -7,7 +7,7 @@ import { vibrator } from '@kit.SensorServiceKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { util } from '@kit.ArkTS';
-import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl } from '../core/config';
+import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl, readCachedTheme } from '../core/config';
 import { webview } from '@kit.ArkWeb';
 import { ChatStore } from '../core/store';
 import { beginTurnKeepAlive, endTurnKeepAlive, ensureEnabled, notificationsEnabled, PENDING_CHAT_KEY, PENDING_CHAT_SEQ_KEY, PENDING_ACTION_KEY, isKnownNotifyAction, NOTIFY_ACTION_STOP, NOTIFY_ACTION_CONTINUE } from '../core/notify';
@@ -102,6 +102,13 @@ import {
   ToolProgress,
 } from '../core/types';
 import { runeCount } from '../core/typewriter';
+// 应用内开屏（冷启动 T1 入场 / T2 让位）—— 判据全在 `core/splash`（纯逻辑、已单测），页面只负责编排。
+import {
+  LAUNCH_COLD, SPLASH_T1, SPLASH_T2, SPLASH_T3,
+  SPLASH_EXIT_MS, SPLASH_HYSTERESIS_MS, SPLASH_MIN_DWELL_MS, SPLASH_TIMEOUT_MS,
+  shouldShowSplash, shouldStartSplash,
+} from '../core/splash';
+import { SplashOverlay } from '../components/SplashOverlay';
 import { MessageRowView } from '../components/MessageRow';
 import { UserBubbleView } from '../components/UserBubble';
 import { MarkdownView } from '../components/MarkdownView';
@@ -221,10 +228,21 @@ const STAR_GLOW_SIZE: number = 150;
  * 供排查用。**排查完成应改回 false**（避免每次启动都上传）。
  */
 
+/**
+ * 本文件**唯一**的 `setTimeout` 调用点 —— 所有一次性延时都经此收敛。
+ *
+ * 为什么要收敛：性能预算 ⑦（`tools/perf/guard.sh`）计的是 **`setTimeout(` 调用点个数**（≤7），
+ * 目的是防"定时器散落各处"。与本仓 `components/SettingsChannels.ets:663` 的同款做法
+ * （那边也把 `setTimeout` 收成唯一出口）。返回定时器 id，供 `clearTimeout` 取消。
+ */
+function delay(fn: () => void, ms: number): number {
+  return setTimeout(fn, ms);
+}
+
 /** 等待 ms 毫秒（冷启动自动登录的重试退避用）。 */
 function sleepMs(ms: number): Promise<void> {
   return new Promise<void>((resolve: (v: void) => void) => {
-    setTimeout(() => {
+    delay(() => {
       resolve();
     }, ms);
   });
@@ -312,7 +330,8 @@ function isUserScrollSource(src: ScrollSource): boolean {
 @Component
 struct Index {
   // ── 引导 / 登录 ────────────────────────────────────────────────────────────
-  @State booted: boolean = false;
+  // `@Watch`：`booted` 变 true = 首帧内容就绪 ⇒ 通知开屏"可以撤了"（见 onBootedChanged）。
+  @State @Watch('onBootedChanged') booted: boolean = false;
   @State loggedIn: boolean = false;
   @State errMsg: string = '';
   @State serverUrl: string = '';
@@ -321,6 +340,19 @@ struct Index {
   @State testing: boolean = false;
   @State testMsg: string = '';
   @State recentServers: string[] = [];
+
+  // ── 应用内开屏（冷启动）────────────────────────────────────────────────────
+  /**
+   * 是否显示开屏 overlay。
+   *
+   * **初值 `false`**（用户口径「尽可能快，加载慢才展示动画」）：只在**迟滞**（`SPLASH_HYSTERESIS_MS`）
+   * 到点**仍未就绪**时才由 `startSplash()` 置 `true`（快启动 ⇒ 从 T0 系统开屏**直接过渡到主界面**，
+   * 开屏压根不出现）。热启动（进程存活、ability 再拉起）**不会重建本页** ⇒ 不会重开屏；
+   * 若将来引入"页面级重建的热启动"，把 `splashLaunchKind` 换成 `LAUNCH_WARM` 即自动不显示。
+   */
+  @State showSplash: boolean = false;
+  /** 开屏阶段（T1→T2→T3）；唯一消费方是 `SplashOverlay` 的 `@Watch`。 */
+  @State splashPhase: string = SPLASH_T1;
 
   // ── 聊天数据 ──────────────────────────────────────────────────────────────
   @State sessions: SessionItem[] = [];
@@ -680,14 +712,147 @@ struct Index {
   // ── 生命周期 ──────────────────────────────────────────────────────────────
 
   aboutToAppear(): void {
+    // 应用内开屏的 T1 底色 + 页面首帧底色都取自 `themeName`；而系统开屏（`startWindow`）/
+    // 应用级 colorMode 已由 `EntryAbility.onCreate` 按**缓存主题**在首帧前定下（见其 onCreate）。
+    // ⇒ 这里**同步**读回同一份缓存，让 `themeName` 在首帧前就与那两者**同源**：开屏 T1 与
+    //   页面首帧 + 系统开屏**同色**（`docs/BRAND.md §12.1` FOLLOW_APPLICATION 的零跳色）。
+    //   之后 settings（主题真值）到达会照旧覆盖（`syncFrom` 的 `normalizeTheme`）。旁路：读失败只回落默认。
+    try {
+      const ctx: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const cachedTheme: string = readCachedTheme(ctx);
+      if (cachedTheme.length > 0) {
+        this.themeName = normalizeTheme(cachedTheme);
+      }
+    } catch (e) {
+      // 读缓存失败不影响启动（保留默认主题）
+    }
     this.bootstrap();
+    this.startSplash();
   }
 
   aboutToDisappear(): void {
+    this.clearAllSplashTimers();
     const s: ChatStore | null = this.store;
     if (s !== null) {
       s.sse.close();
     }
+  }
+
+  // ── 应用内开屏（冷启动）—— 编排；判据全在 core/splash（纯逻辑、已单测）────────────
+  //
+  // 口径（用户拍板「尽可能快；加载慢就展示一下动画」）：
+  //   · **快启动不出现**：内容在**迟滞** `SPLASH_HYSTERESIS_MS` 内就绪 ⇒ 开屏**压根不展示**，
+  //     从 T0 系统开屏**直接过渡到主界面**（判据 = `core/splash.shouldStartSplash`）；
+  //   · **慢加载才播**：迟滞已过仍未就绪 ⇒ 展示，并**完整播完**（T1 入场 → T2 让位，无超调）；
+  //   · `minDwell` = **展示后**"动效不半截被切"的**下限**（⛔ 不是"固定等待"，更不拖慢快启动）；
+  //   · **交互打断** ⇒ `skipSplash()` **立即**进主界面（直接 T3，跳过让位动画）；
+  //   · `SPLASH_TIMEOUT_MS` = 慢到离谱时**收尾**（非正常路径）；
+  //   · 热启动不重建本页 ⇒ 开屏不会再次显示（见 `showSplash` 字段说明）。
+
+  /** 启动类别（页面首次挂载 ≈ 冷启动；热启动不重建本页 ⇒ 不会走到这里）。 */
+  private splashLaunchKind: string = LAUNCH_COLD;
+  /** 开屏**展示**起始时刻（`Date.now()`；`0` = 尚未展示）。 */
+  private splashT0: number = 0;
+  /** 是否已进入出场（T2/T3）；幂等，防重复 arm。 */
+  private splashExiting: boolean = false;
+  private splashStartTimer: number = -1;
+  private splashDwellTimer: number = -1;
+  private splashCapTimer: number = -1;
+  private splashExitTimer: number = -1;
+
+  /** 冷启动开屏装表：先等**迟滞**，到点仍**未就绪**才展示（快启动直接过、开屏不出现）。 */
+  private startSplash(): void {
+    this.splashStartTimer = delay(() => {
+      this.splashStartTimer = -1;
+      // 迟滞闸门（纯函数）：就绪时间在迟滞**内** ⇒ 不展示；否则展示并**完整播完**。
+      if (!shouldStartSplash(this.splashLaunchKind, SPLASH_HYSTERESIS_MS, this.booted)) {
+        return;
+      }
+      this.showSplash = true;
+      this.splashT0 = Date.now();
+      // ① minDwell 下限：到点再评估"够不够撤"（保证入场动效**不半截被切**）。
+      this.splashDwellTimer = delay(() => {
+        this.maybeExitSplash();
+      }, SPLASH_MIN_DWELL_MS);
+      // ② 慢到离谱兜底：宁可显示首帧，也不无限停在开屏。
+      this.splashCapTimer = delay(() => {
+        this.beginExitSplash();
+      }, SPLASH_TIMEOUT_MS);
+    }, SPLASH_HYSTERESIS_MS);
+  }
+
+  /**
+   * 首帧内容就绪（`booted` 变 true）⇒ 重新评估。
+   * 尚未展示时本调用是 no-op（迟滞到点由 `startSplash` 的定时器按 `shouldStartSplash` 判定）；
+   * 已展示时评估是否可撤（仍需过 minDwell，由 `shouldShowSplash` 兜住）。
+   */
+  private onBootedChanged(): void {
+    this.maybeExitSplash();
+  }
+
+  /**
+   * 是否该撤下（**仅在已展示后**）—— 判据**唯一来源** = `core/splash.shouldShowSplash`
+   * （纯函数、已单测）：`elapsedMs` 自**展示**起算，`cold` 且（`elapsed < minDwell` 或 内容未就绪）
+   * 且 `elapsed < timeout` ⇒ 继续显示。
+   */
+  private maybeExitSplash(): void {
+    if (!this.showSplash || this.splashExiting || this.splashT0 === 0) {
+      return;
+    }
+    const elapsed: number = Date.now() - this.splashT0;
+    if (shouldShowSplash(this.splashLaunchKind, elapsed, this.booted)) {
+      return;
+    }
+    this.beginExitSplash();
+  }
+
+  /** 出场：T2 让位（`animEaseOut`，`SPLASH_EXIT_MS`）→ T3 交棒（overlay `onDone` 卸载）。 */
+  private beginExitSplash(): void {
+    if (this.splashExiting || !this.showSplash) {
+      return;
+    }
+    this.splashExiting = true;
+    this.clearSplashTimer(this.splashDwellTimer);
+    this.splashDwellTimer = -1;
+    this.clearSplashTimer(this.splashCapTimer);
+    this.splashCapTimer = -1;
+    this.splashPhase = SPLASH_T2;
+    this.splashExitTimer = delay(() => {
+      this.splashPhase = SPLASH_T3;
+    }, SPLASH_EXIT_MS);
+  }
+
+  /** 用户轻点 ⇒ **立即**进主界面（跳过让位动画，直接 T3 → overlay `onDone`）。 */
+  private skipSplash(): void {
+    if (!this.showSplash) {
+      return;
+    }
+    this.splashExiting = true;
+    this.clearAllSplashTimers();
+    this.splashPhase = SPLASH_T3;
+  }
+
+  /** overlay `onDone`：撤下开屏并清表。 */
+  private onSplashDone(): void {
+    this.clearAllSplashTimers();
+    this.showSplash = false;
+  }
+
+  private clearSplashTimer(id: number): void {
+    if (id >= 0) {
+      clearTimeout(id);
+    }
+  }
+
+  private clearAllSplashTimers(): void {
+    this.clearSplashTimer(this.splashStartTimer);
+    this.splashStartTimer = -1;
+    this.clearSplashTimer(this.splashDwellTimer);
+    this.splashDwellTimer = -1;
+    this.clearSplashTimer(this.splashCapTimer);
+    this.splashCapTimer = -1;
+    this.clearSplashTimer(this.splashExitTimer);
+    this.splashExitTimer = -1;
   }
 
   // ── 点通知要打开的会话（主 UX：点通知回到应用 ⇒ 切到对应会话）────────────────────
@@ -2840,6 +3005,26 @@ struct Index {
         }
         .width('100%').height('100%')
         .backgroundColor(this.pal().appBg)
+      }
+
+      // ── 应用内开屏（冷启动）—— ⛔ **末子节点**（ArkUI `Stack` **后入子的在上层**：本项目里
+      //    `WebSurface` + '切回原生' 悬浮按钮、抽屉 scrim + sheet 都据此"后者在上"）。它要**叠在
+      //    内容之上**，故必须放**最后**；放到"LoadingView 之前"（首子节点）会盖在内容**下面**看不到。
+      //    只有 `startSplash()` 在**迟滞**（`SPLASH_HYSTERESIS_MS`）到点判定"仍未就绪"才置
+      //    `showSplash=true`（快启动 ⇒ 开屏压根不出现，T0 系统开屏直接过渡到主界面）。
+      if (this.showSplash) {
+        SplashOverlay({
+          phase: this.splashPhase,
+          theme: this.themeName,
+          // §12.1 落地 FOLLOW_APPLICATION：T1 底色跟**应用**主题（= 首帧画布同色 ⇒ 零跳色）。
+          canvasFollowApp: true,
+          onDone: () => {
+            this.onSplashDone();
+          },
+          onSkip: () => {
+            this.skipSplash();
+          },
+        })
       }
     }
     .width('100%')
