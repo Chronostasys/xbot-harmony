@@ -31,6 +31,15 @@
       { "name": "ohos.permission.INTERNET" },
       { "name": "ohos.permission.GET_NETWORK_INFO" },
       { "name": "ohos.permission.VIBRATE" }
+    ],
+    "extensionAbilities": [
+      {
+        "name": "NotifyReconcileAbility",
+        "srcEntry": "./ets/workreconcile/NotifyReconcileAbility.ets",
+        "description": "延迟任务（workScheduler）：后台对账，补发“回复好了”通知",
+        "type": "workScheduler",
+        "exported": false
+      }
     ]
   }
 }

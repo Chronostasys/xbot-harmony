@@ -14,6 +14,7 @@ import {
   setAppForeground,
 } from '../core/notify';
 import { readCachedTheme } from '../core/config';
+import { ensureReconcileScheduled } from '../workreconcile/schedule';
 import { isLightPalette, paletteOf } from '../core/theme';
 
 const DOMAIN: number = 0x0000;
@@ -43,6 +44,9 @@ export default class EntryAbility extends UIAbility {
     initSlots();
     setAppForeground(true);
     this.captureOpenChat(want);
+    // 后台对账（延迟任务）：把 NotifyReconcileAbility 排进队列（幂等）。
+    // ⛔ 旁路：失败只记日志（见 workreconcile/schedule.ets）；不改通知主链路的任何语义。
+    ensureReconcileScheduled(this.context);
     hilog.info(DOMAIN, TAG, 'EntryAbility onCreate');
   }
 

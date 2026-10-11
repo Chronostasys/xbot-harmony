@@ -58,6 +58,40 @@
 | **免打扰（DND）** | `NotificationSlot.bypassDnd`（默认 false） | ⛔ **刻意不设** —— 尊重系统免打扰（不绕过） |
 | **大图 / 实况窗（LiveView）** | `NotificationPictureContent`（`notificationContent.d.ts:196-221`）；`NOTIFICATION_CONTENT_SYSTEM_LIVE_VIEW`（`:1171-1179`，"三方不能直接创建"） | ➖ **不适用**：聊天提醒无合适大图；LiveView 三方受限 |
 
+## 3.9 后台对账（`workScheduler` 延迟任务）—— 客户端上限方案（2026-10-11 落地）
+
+判决见 `docs/NOTIFY-ACCEPTANCE.md §10`：后台被冻结 ⇒ SSE 进不来 ⇒ 既有链路必然无通知。
+服务端推送（唯一能覆盖"被杀"）在**服务端仓**（本仓做不到）⇒ 客户端做到上限 = **"极其轻量的后台任务定期对账"**。
+
+**部件**（全部新增，⛔ 未改 `core/notify.ets` 任何导出）
+
+| 部件 | 文件 | 职责 |
+|---|---|---|
+| 纯判定 | `core/reconcile.ets` | `reconcileDecision(mark, memo)` → `none/turn_done/ask`；`applyDecision`/`markSeen`/`turnKeyOf` |
+| 执行体 | `workreconcile/NotifyReconcileAbility.ets` | `WorkSchedulerExtensionAbility`：读备忘 → 只读 `/api/history` → 判定 → 发布 → 落盘 |
+| 注册 | `workreconcile/schedule.ets` | `ensureReconcileScheduled(ctx)`（幂等，`isRepeat+isPersisted`） |
+| 声明 | `entry/src/main/module.json5` | `extensionAbilities[].type = "workScheduler"`（**无需权限**，也不加常驻通知栏） |
+| 接线 | `entryability/EntryAbility.ets` `onCreate` | 一行 `ensureReconcileScheduled(this.context)`（旁路，失败只记日志） |
+
+**判据（"见过没见过"优先于"忙不忙"）**：`turnKey = chatId#last_seq`；前台每次观测 ⇒ `markSeen`；
+对账时**存在已完成且 `turnKey !== lastSeenTurnKey`** ⇒ 提醒。这条同时覆盖"冻结期完成"与"被杀期完成"
+（用"忙→不忙"边沿会**漏掉被杀那条**）。冷启动闸：前台没看过（`initialized=false`）⇒ 不判完成，防误报。
+`askId` 新值优先，且**有待答时本次判定只围绕它**（否则同一快照会重复报 `turn_done` —— 该缺陷由测试抓出并修复）。
+
+**覆盖表（诚实）**
+
+| 情形 | 现有机制是否覆盖 |
+|---|---|
+| 前台 | ✅ `notifyOnSse` 实时 |
+| 后台 ≤3 分钟（且**刚发过消息**） | ✅ 短时任务窗内 SSE 仍活 |
+| 后台 ≤3 分钟（**被动轮次**） | ❌ SSE 已被冻结（无窗） |
+| 冻结 / 被杀 | ⚠️ **仅**能靠本扩展在系统唤醒时**补发**（迟到 15min 量级，且**不保证**被唤醒） |
+| 待答（ask） | ⚠️ 后台**本期判不出**（`askId` 恒空：待答来自 SSE 事件；从 `/api/history` 单推**未验证**） |
+| **不接受任何延迟** | ❌ 必须服务端推送（**本仓做不到**） |
+
+**需要真机验证（未验证项）**：实际唤醒间隔是否接近 15min；扩展进程能否读到前台写的 cookie；
+`askId` 后台判定；`onWorkStop` 超时 2 分钟语义。
+
 ## 4. 后台「极轻量接收」：可行 vs 不可行（明账，逐条带证据）
 
 | 路径 | 判定 | 证据（file:line） |
