@@ -521,3 +521,36 @@ MarkdownView **无固定数值宽容器** ⇒ **结构性命中 0**。即：**�
   web 的浏览器原生 overscroll 同向。）
 - ⏳ 待查（他域 = chat-surface-ux）：**代码块横向边界**（`MarkdownView` 的横向 `Scroll`）有无 `edgeEffect`、
   与外层纵向列表手势是否竞争。
+
+---
+
+## 2026-10-11 批次：**水平溢出**（用户亲报"不要让字超过屏幕范围!"）
+
+**证据（用户截图，深色 + 一条 Markdown 回答）**：① 正文首段尾部被裁在右缘；② 代码块里"代码 + 右对齐注解"的行末被裁；
+③ 底部状态行 cwd 被裁。**推断同源**：**代码块的固有宽度 > 屏宽且容器不限宽/不裁剪** ⇒ 把整条消息列撑宽。
+
+**判据**：`tools/tests/horizontal_overflow_gate.test.ts`（9 passed / 0 failed）
+- **H1（硬）**：`Row` 内**可变长内容**的 `Text` 必须能收缩（`layoutWeight`/`flexShrink`/`constraintSize` 三选一）。
+- **H2（硬）**：`maxLines(N)` 必须配 `textOverflow`（**已由 `text_truncation_gate` 覆盖**，本文件不重复判）。
+- **H3（硬）**：**可能含不可断长串**（URL / 绝对路径 / cwd / 错误原文 / 命令参数）必须 `wordBreak(BREAK_ALL)` 或 `textOverflow`。
+- ⛔ **纯短常量（`'保存'`/`'−'`/`'搜邮件'`）一律不报**（无变长 ⇒ 不制造噪声）；mutation 含该反向对照。
+
+**实测 27 处**，分三类（⛔ 三张表都**只许缩短**）：
+| 组 | 处数 | 说明 |
+|---|---|---|
+| `KNOWN_OK`（已证良性） | 1 | `ToolPopover` diff 的 **`+/-` 标记列**：内容宽度**固定**（±/空格三态），且**必须**无 `layoutWeight`（要定宽才能与代码列对齐）⇒ 不可能顶出屏 |
+| `PENDING_SPEC`（**他域**） | 17 | `components/Settings*.ets` ⇒ **tokens-ux**；`pages/Index.ets` ⇒ **chat-surface-ux** |
+| `PENDING_FIX`（**本域待办**） | 9 | 插件卡片标题/胶囊/徽标（`PluginHost`/`PluginWidgets`，**插件提供任意长**）· 目标条徽标 · 选择项标签 · 状态行 · 子代理树/合成卡/思考行标签 · diff 正文行 |
+
+**本轮落地（2 处，均在 `components/**` = 我域）**
+| 位置 | 改动 | 为什么 |
+|---|---|---|
+| `components/PluginHost.ets:228` | `+ constraintSize({maxWidth: PILL_MAX_W})` `+ wordBreak(BREAK_ALL)` | 内容由**插件**提供（任意长，可能含 URL/路径等**不可断串**）⇒ 否则把宿主行**顶出屏宽** |
+| `components/PluginsSheet.ets:158` | `+ wordBreak(BREAK_ALL)` | 状态行承载**失败详情/错误原文**（URL/路径/base64）⇒ `wordBreak(NORMAL)` 找不到断点 |
+
+**⚠️ 顺带核实（结论对 `chat-surface-ux` 有用）**：`MarkdownView` 的代码块**已有**横向 `Scroll(.scrollable(Horizontal).width('100%'))`
+与块体 `.width('100%')`；**但** `.clip(true)` 挂在**表格**块上、**不在代码块上**，且 `width('100%')` 在**父级无确定宽**时等于不限宽
+⇒ 这正是截图里"撑宽整列"的形态。⇒ 本轮**未落地**（`MarkdownView` 在途，归 chat-surface-ux）；诊断已按口径建好，等它改完我复跑。
+
+**真机协议（设备归 `orb-ux`）**：porcelain + dark 各一遍，用**同一条回答**（含长 cwd/代码块注解）+ **长 URL** + **长 cwd 路径** + **超长英文词** ⇒ 逐面截图，
+判据：**内容右边界不得超过安全区**（⛔ 单点像素不作判据）。

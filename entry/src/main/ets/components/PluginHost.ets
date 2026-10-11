@@ -19,7 +19,7 @@ import {
   colorOf, hairlineOf, structuralRuleOf, surfaceFillOf,
   GAP_ROW_Y, GAP_SECTION, GUTTER_SCREEN, HIT_TARGET_MIN, INSET_CARD_X, INSET_CARD_Y,
   INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X, INSET_ROW_Y, PRESS_OPACITY, RADIUS_CARD, RADIUS_CHIP,
-  RADIUS_PILL, SPACE_HAIR, SPACE_LG, SPACE_XS, STROKE_HAIRLINE, insetHairlineOf } from '../core/design';
+  RADIUS_PILL, PILL_MAX_W, SPACE_HAIR, SPACE_LG, SPACE_XS, STROKE_HAIRLINE, insetHairlineOf } from '../core/design';
 import { fs, fw, lh, SettingsGroupHeader, tc } from './SettingsRows';
 import { WIDGET_EVENT_WEB } from '../core/widgetsview';
 import { PluginWidgets } from './PluginWidgets';
@@ -230,6 +230,11 @@ struct PluginBadgeChip {
       .fontWeight(fw('type.micro'))
       .lineHeight(lh('type.micro'))
       .fontColor(colorOf(this.pal(), this.role))
+      // ⛔ **水平溢出**（2026-10-11 用户亲报"字超出屏幕"）：内容来自**插件**（任意长，可能含
+      //    URL/路径等**不可断串**）⇒ ① 加宽上限（chip 档 = `PILL_MAX_W`）② 允许在任意字符处断行。
+      //    否则 chip 会把宿主行**顶出屏宽**。
+      .constraintSize({ maxWidth: PILL_MAX_W })
+      .wordBreak(WordBreak.BREAK_ALL)
       .padding({
         left: INSET_CHIP_X, right: INSET_CHIP_X, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y,
       })

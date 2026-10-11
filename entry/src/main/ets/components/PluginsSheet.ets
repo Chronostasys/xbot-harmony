@@ -160,6 +160,9 @@ export struct PluginsSheet {
                 .fontWeight(fw('type.callout'))
                 .fontColor(colorOf(this.pal(), this.status().colorRole))
                 .width('100%')
+                // ⛔ **水平溢出**（2026-10-11）：状态行会承载**失败详情/错误原文**（含 URL、路径、
+                //    base64 这类**不可断串**）⇒ 必须允许任意字符处断行，否则一行顶出屏宽。
+                .wordBreak(WordBreak.BREAK_ALL)
                 .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
               if (this.status().canRetry) {
                 Row() {
