@@ -6,8 +6,12 @@
  *   ⛔ 不引 store / http / 任何业务模块（兜底页自己再失败就越兜越糟）；
  *   ⛔ 不画复杂 UI、不加动效（连开屏那层都不需要 —— 此时**没有**可交棒的内容）。
  *
- * 颜色/字号**全走 token**（`colorOf(darkPalette(), …)` + `typeOf('type.*')`）⇒ ⛔ 无颜色字面量、
- * ⛔ 无裸字号。主题固定用**默认深色**（兜底态拿不到用户主题，且系统色板此时可能不可信）。
+ * 颜色/字号**全走 token**：色用 `colorOf(darkPalette(), …)`，字型用 `docs/DESIGN-SYSTEM.md §12` 字型表里的
+ * **合法 role**（本文件只用 `type.title` / `type.body` / `type.caption` 三档）。
+ * ⛔ 不要在注释里写"调用形态"的占位记号（散文记号本身可以写，但**别**包成函数调用形状）——
+ *    门禁 ⑥b 的扫描器**不剥注释**，会把这种写法当成真调用判红（本文件已被它抓过两次）。
+ *    ⇒ 描述 role 时只写裸记号（如 字型表的 `type.title` 一档），⛔ 不写"函数名 + 引号"的组合。
+ * ⇒ ⛔ 无颜色字面量、⛔ 无裸字号。主题固定用**默认深色**（兜底态拿不到用户主题，且系统色板此时可能不可信）。
  */
 import { darkPalette } from '../core/theme';
 import { SPACE_MD, SPACE_SM, SPACE_XL, colorOf, typeOf } from '../core/design';
