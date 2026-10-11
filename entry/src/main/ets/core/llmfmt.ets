@@ -142,3 +142,87 @@ export function parseContext(input: string): number {
   const v: number = Math.round(n * mult);
   return v > 0 ? v : 0;
 }
+
+// ── 模型列表面板的**三态**（口径同 `core/pluginview.ets:pluginPanelStatus`；2026-10-11 目标⑤ A4）──
+// 旧缺陷（`polish-audit` 登记）：面板在 `llmCfg === undefined` 时**恒**显示 spinner +「正在读取模型列表…」
+//   ⇒ 拉失败（后端不可用/超时/报错）**永久转圈**，用户读不出"是慢还是坏了"。三态 = 加载中 /
+//   加载失败(+重试) / 已加载但空。⛔ 失败态**来自既有取数路径的真结果**（`store.loadLlmConfig` 的
+//   `llmConfigState`/`llmConfigError`），⛔ 不是 `setTimeout` 猜的超时。
+
+/** 加载中（含"从未拉过"的 idle —— 面板一打开即触发拉取）。 */
+export const MODEL_PANEL_LOADING: string = 'loading';
+/** 已加载但无任何可选模型（空）。 */
+export const MODEL_PANEL_EMPTY: string = 'empty';
+/** 加载失败（可重试）。 */
+export const MODEL_PANEL_ERROR: string = 'error';
+/** 有可选模型（画分组列表，不画状态行）。 */
+export const MODEL_PANEL_LIST: string = 'list';
+
+/** 模型列表面板的状态行（是否显示 / 文案 / 语义色角色 / 是否给"重试"）。 */
+export class ModelPanelStatus {
+  /** 见 `MODEL_PANEL_*`。 */
+  state: string = MODEL_PANEL_LIST;
+  show: boolean = false;
+  text: string = '';
+  /** `colorOf` 合法角色（本模块**只产出** textMuted / dangerText 两者）。 */
+  colorRole: string = 'textMuted';
+  canRetry: boolean = false;
+
+  constructor(state: string, show: boolean, text: string, colorRole: string, canRetry: boolean) {
+    this.state = state;
+    this.show = show;
+    this.text = text;
+    this.colorRole = colorRole;
+    this.canRetry = canRetry;
+  }
+}
+
+/** 加载中文案（**静态一行字**，与 `pluginPanelLoadingText` 同口径）。 */
+export function modelPanelLoadingText(): string {
+  return '正在读取模型列表…';
+}
+
+/**
+ * 失败文案：`模型列表加载失败：<可读原因>`。
+ * ⚠️ `error` 必须由调用方先经 `core/rpc.ets:readableRpcError` **可读化**（本函数不解析原始 JSON/英文栈）。
+ * 空串 ⇒ 只留前缀（不产出 `：` 悬空）。
+ */
+export function modelPanelErrorText(error: string): string {
+  const e: string = typeof error === 'string' ? error.trim() : '';
+  return e.length > 0 ? `模型列表加载失败：${e}` : '模型列表加载失败';
+}
+
+/** 空态文案 + 导向（**保留既有口径**：没有可选模型时去哪加订阅）。 */
+export function modelPanelEmptyText(): string {
+  return '（没有可选模型：请在设置里添加订阅）';
+}
+
+/**
+ * 模型列表面板的三态（**判据与渲染同源**的唯一出口；`pages/Index.ets` 只消费它）。
+ *
+ * 优先级（**失败 > 加载 > 空 > 列表**）：
+ *   · `errorText` 非空 ⇒ `dangerText` + **可重试**（失败就是失败）；
+ *   · `fetchState` ≠ `ready`（idle/loading）⇒ `textMuted`，**不可重试**（正在拉，别给第二个按钮）；
+ *   · `ready` 且 `entryCount` = 0 ⇒ 空态引导（`textMuted`）；
+ *   · 有模型 ⇒ 不显示状态行（`state = list`）。
+ *
+ * @param fetchState `store.llmConfigState`（`idle|loading|ready|error`）。
+ * @param entryCount 可选模型条目数（`modelGroups()` 里的总条数；服务端返回 null/空 ⇒ 0）。
+ * @param errorText  **已可读化**的失败原因（空 = 无错）。
+ */
+export function modelPanelStatus(fetchState: string, entryCount: number, errorText: string): ModelPanelStatus {
+  const err: string = typeof errorText === 'string' ? errorText.trim() : '';
+  if (err.length > 0) {
+    return new ModelPanelStatus(MODEL_PANEL_ERROR, true, modelPanelErrorText(err), 'dangerText', true);
+  }
+  const st: string = typeof fetchState === 'string' ? fetchState : '';
+  if (st !== 'ready') {
+    // idle（从未拉过）/ loading（正在拉）都读作"加载中"。
+    return new ModelPanelStatus(MODEL_PANEL_LOADING, true, modelPanelLoadingText(), 'textMuted', false);
+  }
+  const n: number = typeof entryCount === 'number' && Number.isFinite(entryCount) && entryCount > 0 ? entryCount : 0;
+  if (n === 0) {
+    return new ModelPanelStatus(MODEL_PANEL_EMPTY, true, modelPanelEmptyText(), 'textMuted', false);
+  }
+  return new ModelPanelStatus(MODEL_PANEL_LIST, false, '', 'textMuted', false);
+}

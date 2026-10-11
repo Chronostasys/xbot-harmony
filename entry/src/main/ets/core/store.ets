@@ -30,7 +30,7 @@ import { BgTask, CronJob, RunnerRow, SubAgentRow, isWidgetEvent } from './panels
 import { serverKey, toLocalSettings, KEY_ACCENT } from './settings';
 import { setAppAccent } from './theme';
 import { FsEntry } from './composer';
-import { RPC_WEB_PLUGIN_LIST, rpc } from './rpc';
+import { RPC_WEB_PLUGIN_LIST, readableRpcError, rpc } from './rpc';
 import {
   PluginCatalog,
   WebPluginListWire,
@@ -131,6 +131,14 @@ export class ChatStore {
   lastWidgetContent: string = '';
   /** LLM 配置（订阅/可选模型/上下文上限；`GET /api/llm-config`） */
   llmConfig: LlmConfig | undefined = undefined;
+  /**
+   * LLM 配置拉取的**三态**（`idle|loading|ready|error`）—— 模型列表面板据此区分
+   * 「加载中」/「加载失败(+重试)」/「已加载但空」。⛔ 旧实现把失败**静默**吞掉 ⇒ 面板只能
+   * 永远显示"加载中"（**永久转圈**，用户读不出"是慢还是坏了"）。口径与 `core/llmfmt.ets:modelPanelStatus` 同源。
+   */
+  llmConfigState: string = 'idle';
+  /** 最近一次 LLM 配置拉取的**失败原因**（已可读化；空 = 无错）—— 供模型列表面板的失败态显示。 */
+  llmConfigError: string = '';
   /** token/上下文用量（拿不到就是 undefined，界面不显示、绝不估算） */
   usage: TokenUsage | undefined = undefined;
   /** 工作目录 */
@@ -939,15 +947,27 @@ export class ChatStore {
    * 只读；切换见 `setModel` / `setMaxContext`。
    */
   async loadLlmConfig(): Promise<void> {
+    // 三态：先落"加载中"（面板立刻能读"正在读"，不是空白），再按**真结果**落 `ready`/`error`。
+    // ⛔ 旧实现把失败**静默**吞掉（下方 catch 空体）⇒ 模型列表面板只能永远显示"加载中"、
+    //    **永久转圈**。这里把既有取数路径的**真结果**暴露给面板（`llmConfigState`/`llmConfigError`）。
+    this.llmConfigState = 'loading';
+    this.llmConfigError = '';
+    this.onUpdate();
     try {
       const cfg: LlmConfig = await this.http.getAs<LlmConfig>('/api/llm-config');
       // ⚠️ `/api/llm-config` 无可用配置时服务端 **data 整块为 null**（实测）⇒ `getAs` 返回 null。
       //   必须归一成 undefined（"拿不到"），否则 `llmConfig=null` 会让下游
       //   `llmConfig.model_entries` 抛 "Cannot read property 'model_entries' of null"。
+      //   ⚠️ 但这是**成功**（服务端给了"无配置"的权威答复）⇒ `ready`（面板显示**空态引导**），
+      //      ⛔ **不是** `error`（那专指请求真的失败）。
       this.llmConfig = isPresent(cfg) ? cfg : undefined;
+      this.llmConfigState = 'ready';
       this.onUpdate();
     } catch (e) {
-      // 选择栏非关键路径：失败不打断主链路
+      // 选择栏非关键路径：失败不打断主链路，但**记下真结果**（失败态 + 可读原因）供模型列表面板显示。
+      this.llmConfigState = 'error';
+      this.llmConfigError = readableRpcError((e as Error).message);
+      this.onUpdate();
     }
   }
 

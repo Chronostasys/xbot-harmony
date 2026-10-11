@@ -725,7 +725,7 @@ MarkdownView **无固定数值宽容器** ⇒ **结构性命中 0**。即：**�
 | A1 | `components/QueueSheet.ets:81`（旧） | 队列被「清空」清成 0 条后面板**仍开着** ⇒ 只剩标题「待发队列 (0)」+ 300 高空白 `List` | §10「空态 = 一行小字」家族里**唯一**没有空态分支的弹层；用户点「清空」后读不出"清干净了/本就空" | 补空态分支（`type.callout`+`textMuted`，同 `SearchHitsSheet`/`AskUserSheet`/`StatusSheet`） | 低 | ✅ **已实现 + 钉住**（`polish_states_press.test.ts` A） |
 | A2 | `SettingsAbout.ets:283` vs `SettingsChannels.ets:1006`/`SettingsLlm.ets:1050`/`SettingsPlugins.ets:757`/`SettingsStorage.ets:285`/`SettingsTools.ets:146`/`SettingsWebUsers.ets:186` | 同一句「加载中…」：About 走 `secondaryText()`（**light = textSecondary**），其余 6 处走 `pal().textMuted` | 三主题下次级层级不一致（同一加载行） | 收一个原子（单一色 role） | **中**（色 role 属**对比度域**，已由别线收口 ⇒ ⛔ 本线不碰） | 可（形态+色 role 计数）；但**域外**，登记 |
 | A3 | `SettingsDeveloper.ets:331-334` | 「导出失败：…」内联 `Text(dangerText, FS_CAPTION)` | 全仓错误态口径 = `SettingsErrorBar`；此处不同族 | 视语义决定（动作级瞬时错误，可保留） | 低 | 可（形态）；价值低，登记 |
-| A4 | `pages/Index.ets:6896-6900`（模型列表面板） | `llmCfg === undefined` ⇒ **恒**显示 spinner +「正在读取模型列表…」；**无错误分支** ⇒ 拉失败永久转圈 | "加载中"与"加载失败"不可分（§10 三态缺失） | 加错误分支（需服务端给失败信号） | **禁改域**（Index.ets 归 perf4） | 只登记 |
+| A4 | `pages/Index.ets`（模型列表面板，原 `:6896-6900`） | `llmCfg === undefined` ⇒ **恒**显示 spinner +「正在读取模型列表…」；**无错误分支** ⇒ 拉失败永久转圈 | "加载中"与"加载失败"不可分（§10 三态缺失） | 三态（加载/失败+重试/空）落到 `core/llmfmt.ets:modelPanelStatus`；失败来自**既有取数路径** `store.loadLlmConfig` 的真结果（`llmConfigState`/`llmConfigError`，非 `setTimeout` 猜超时） | 低 | ✅ **已实现 + 钉住**（`tools/tests/model_list_states.test.ts`） |
 | A5 | 空态文案标点不统一 | 弹层空态无句号（`AskUserSheet:137`/`StatusSheet:155`/`SearchHitsSheet:229`）；设置分区空态带句号（`SettingsChannels:1009` 等） | 同一"空"两套标点 | 各自成体系（弹层/分区），可不改 | 低 | 可；价值低，登记 |
 
 ### B. 按压 / 焦点反馈（死可点区）
@@ -737,7 +737,7 @@ MarkdownView **无固定数值宽容器** ⇒ **结构性命中 0**。即：**�
 | B3 | `QueueSheet.ets:58`（旧） | 「清空」命中区只靠 `padding` 撑（≈28~32 < 44） | 低于 Apple HIG；`hit_target_gate` 只抓**显式** height，抓不到 padding 撑高 ⇒ 规则洞 | `constraintSize({minHeight: HIT_TARGET_MIN})`（**零布局变化**） | 低 | ✅ **已实现 + 钉住**（判据 B） |
 | B4 | 全仓 `Text(...).padding(...)` 撑高的可点 pill（≈40+ 处，见 `SettingsRows`/`Settings*`/`GoalBanner`/`ThinkingLine`/`ToolPopover`） | 多处靠 padding 撑高，未显式 ≥44 | 同上规则洞（面广） | 逐处判语义（有的行高已够） | **中**（面广 + 观感） | 只登记（下轮系统性做） |
 | B5 | `TodoPanel.ets:134/204/371`、`MessageNav` 条目等 | 内层可点元素无自身 `stateStyles`，靠**祖先** Row 的 press | ⛔ 本仓既有判据（`interactive_feedback`）**认祖先 press** ⇒ 不算缺口 | — | — | 已覆盖，无需动 |
-| B6 | `components/**` 的 `Interrupt` 等**旁路 toast**（`MarkdownView:442`/`SettingsAbout:238,246` 走系统 `promptAction.showToast`；`Index.ets` 走自绘 `Toast`） | 同一动作（复制）在**不同落点**给不同反馈（系统 toast vs 品牌 toast） | 与 `Toast.ets` 头注"取代系统 toast"的目标分叉；系统 toast 不跟设计系统 | 需把 `onToast` 逐层接到页面（**Index.ets 禁改**）⇒ 本线做不完 | 中 | 只登记（需 Index 接线） |
+| B6 | `components/**` 的 `Interrupt` 等**旁路 toast**（`MarkdownView.ets:442`/`SettingsAbout.ets:238,246` 走系统 `promptAction.showToast`；`Index.ets` 走自绘 `Toast`） | 同一动作（复制）在**不同落点**给不同反馈（系统 toast vs 品牌 toast） | 与 `Toast.ets` 头注"取代系统 toast"的目标分叉；系统 toast 不跟设计系统 | `Index.ets` **已释放**；但 `MarkdownView` 的调用方是 `components/MessageRow.ets`（`:601`/`:780`）与 `components/LiveTailView.ets`（`:561`）⇒ 仍需这**两个域外组件**透传 `@Prop onToast`（`Index.ets` 经 `MessageRowView` 注入）⇒ **需先回报再动**；`components/SettingsAbout.ets` 那一处单独登记（`design-matrix` 在改） | 中 | 只登记（域外组件透传，需先回报） |
 
 ### C. 层级与节奏（间距/圆角/发丝线/字重/图标）
 
@@ -773,4 +773,6 @@ MarkdownView **无固定数值宽容器** ⇒ **结构性命中 0**。即：**�
 
 - 队列**空态**出现时机与观感（点「清空」后的一行小字）；「清空」按压/命中手感；
 - 关闭 X 的按压深度（0.4→0.6，弹层间一致性）；
-- **A3/A4/B6/C1/C2/C3/C4** 全部**未做**（原因见各行"修复方向/风险/域"）——其中 C1/C2 属**观感项**、A2/C4 属**对比度/surface_alias 域**、A4/B6 需改 `pages/Index.ets`（禁改域）。
+- **A4 已落地**（`tools/tests/model_list_states.test.ts`，三态 + 失败来自既有取数路径；⛔ 观感真机待验）；
+- **A3/B6/C1/C2/C3/C4** 仍**未做**（原因见各行"修复方向/风险/域"）——其中 C1/C2 属**观感项**、A2/C4 属**对比度/surface_alias 域**；
+- B6 已从"Index 禁改"**解阻**：`Index.ets` 已释放，剩 **`components/MessageRow.ets` + `components/LiveTailView.ets` 透传 `@Prop onToast`**（域外 ⇒ 需先回报再动）。

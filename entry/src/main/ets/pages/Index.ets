@@ -100,7 +100,8 @@ import {
 import { ctxHasUsage, ctxLabel, ctxPercent } from '../core/ctxring';
 import {
   contextPresets, contextText, currentModelText, groupModels, LlmConfig, LlmModelEntry, ModelGroup,
-  modelLabel, parseContext, selectable,
+  MODEL_PANEL_EMPTY, MODEL_PANEL_ERROR, MODEL_PANEL_LOADING, ModelPanelStatus, modelLabel,
+  modelPanelStatus, parseContext, selectable,
 } from '../core/llmfmt';
 import {
   AskAnswerInput, COPY_RAW, COPY_REPLY, COPY_THINKING, COPY_TOOLS, CopyParts, composeCopy, linkLabel,
@@ -576,6 +577,13 @@ struct Index {
   /** LLM 选择栏（订阅/模型/上下文上限；服务端权威值） */
   @State showModel: boolean = false;
   @State llmCfg: LlmConfig | undefined = undefined;
+  /**
+   * 模型列表**三态**（加载中 / 加载失败 / 已加载但空）—— 镜像 `store.llmConfigState`/`llmConfigError`
+   * 的**真结果**（由 `syncFromStore` 同步）。判据/渲染同源：`core/llmfmt.ets:modelPanelStatus`。
+   * ⛔ 旧实现只判 `llmCfg === undefined` ⇒ 拉失败**永久转圈**。
+   */
+  @State llmCfgState: string = 'idle';
+  @State llmCfgError: string = '';
   @State ctxInput: string = '';
   /** 正在切换的模型条目（显示 loading，防连点） */
   @State modelBusy: string = '';
@@ -1597,6 +1605,9 @@ struct Index {
       this.goalStatus = gSt;
     }
     this.llmCfg = store.llmConfig;
+    // 模型列表三态：镜像既有取数路径（`store.loadLlmConfig`）的**真结果**（`llmConfigState`/`llmConfigError`）。
+    this.llmCfgState = store.llmConfigState;
+    this.llmCfgError = store.llmConfigError;
     if (this.cronTasks !== store.cronTasks) {
       this.cronTasks = store.cronTasks;
     }
@@ -3290,7 +3301,8 @@ struct Index {
               this.anim(() => {
                 this.showModel = true;
               });
-              this.store?.loadLlmConfig();
+              // 打开面板即走**既有取数入口**（与失败态「重试」同一个：`reloadModelList`）。
+              this.reloadModelList();
             },
             // 改工作路径：复用页面唯一的 `set_cwd` 写路径（`submitCwd` → `sendSetCwd`）。
             onSubmitCwd: (dir: string) => {
@@ -7025,14 +7037,42 @@ struct Index {
           })
       }.width('100%')
 
-      // 模型列表（按订阅分组）
-      if (this.llmCfg === undefined) {
+      // 模型列表（按订阅分组）—— **三态**：加载中 / 加载失败(+重试) / 已加载但空。
+      // 判据与渲染同源：`core/llmfmt.ets:modelPanelStatus`（只消费它，⛔ 不在页面另算一套）。
+      // ⛔ 旧实现只判 `llmCfg === undefined` ⇒ **恒**转圈（后端不可用/超时/报错时**永久转圈**，
+      //    用户读不出"是慢还是坏了"）。失败态来自既有取数路径的真结果（`reloadModelList`→`store.loadLlmConfig`）。
+      if (this.modelPanelStatusNow().state === MODEL_PANEL_ERROR) {
+        Column({ space: SPACE_XS }) {
+          Text(this.modelPanelStatusNow().text)
+            .fontSize(typeOf('type.caption').size).fontColor(colorOf(this.pal(), 'dangerText'))
+            .width('100%')
+            // 失败详情可能含 URL / 不可断串 ⇒ 必须允许任意字符处断行（同 `PluginsSheet` 状态行）。
+            .wordBreak(WordBreak.BREAK_ALL)
+          // 错误态标准样式 = 一行语义色小字 + 「重试」（同 `SettingsErrorBar` / `PluginsSheet`）。
+          // 重试走**既有取数入口**（`reloadModelList` → `store.loadLlmConfig`）；真实 ≥44 布局盒。
+          Row() {
+            Text('重试').fontSize(typeOf('type.caption').size).fontColor(colorOf(this.pal(), 'accentSoft'))
+          }
+          .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            this.reloadModelList();
+          })
+        }.width('100%').padding(10)
+      } else if (this.modelPanelStatusNow().state === MODEL_PANEL_LOADING) {
         Row({ space: 8 }) {
           LoadingProgress().width(16).height(16).color(this.pal().accent)
-          Text('正在读取模型列表…').fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary)
+          Text(this.modelPanelStatusNow().text)
+            .fontSize(typeOf('type.caption').size).fontColor(colorOf(this.pal(), this.modelPanelStatusNow().colorRole))
+            // 横向约束（H1：Row 内动态文本无布局约束会顶出屏宽）+ 任意处断行（H3）。
+            .layoutWeight(1)
+            .wordBreak(WordBreak.BREAK_ALL)
         }.padding(10)
-      } else if (this.modelGroups().length === 0) {
-        Text('（没有可选模型：请在设置里添加订阅）').fontSize(typeOf('type.caption').size).fontColor(this.pal().textMuted)
+      } else if (this.modelPanelStatusNow().state === MODEL_PANEL_EMPTY) {
+        Text(this.modelPanelStatusNow().text)
+          .fontSize(typeOf('type.caption').size).fontColor(colorOf(this.pal(), this.modelPanelStatusNow().colorRole))
+          .width('100%')
+          .wordBreak(WordBreak.BREAK_ALL)
       } else {
         Scroll() {
           Column({ space: 8 }) {
@@ -7074,6 +7114,36 @@ struct Index {
     .width('92%').padding(SPACE_MD).backgroundColor(this.pal().appBg)
     .borderRadius(RADIUS_CARD).border({ width: 1, color: this.pal().border })
     .transition(sheetTransition())
+  }
+
+  /**
+   * 拉模型列表 —— **唯一取数入口** = `store.loadLlmConfig()`（三态由它写 `llmConfigState`/`llmConfigError`）。
+   * 打开面板与失败态「重试」都经此（⛔ 不自造第二套 RPC / 状态）。
+   * store 未连接 ⇒ 直接落**失败态**（可重试），⛔ 不静默留一个转不完的圈。
+   */
+  private reloadModelList(): void {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      this.llmCfgState = 'error';
+      this.llmCfgError = '尚未连接服务端';
+      return;
+    }
+    void store.loadLlmConfig();
+  }
+
+  /** 可选模型**条目**总数（三态纯函数输入；0 ⟺ 无任何可选模型）。 */
+  private modelEntryCount(): number {
+    const gs: ModelGroup[] = this.modelGroups();
+    let n: number = 0;
+    for (let i = 0; i < gs.length; i++) {
+      n += gs[i].entries.length;
+    }
+    return n;
+  }
+
+  /** 模型列表面板三态（**判据与渲染同源**：`core/llmfmt.ets:modelPanelStatus`；⛔ 不在页面另算一套）。 */
+  private modelPanelStatusNow(): ModelPanelStatus {
+    return modelPanelStatus(this.llmCfgState, this.modelEntryCount(), this.llmCfgError);
   }
 
   /** 切模型（带 sub_id；防连点；失败把原因原样告诉用户）。 */
