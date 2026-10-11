@@ -24,7 +24,7 @@ import { Palette, paletteOf } from '../core/theme';
 import {
   colorOf, hairlineOf, structuralRuleOf, surfaceFillOf, wellOf,
   GAP_ROW_Y, GAP_SECTION, INSET_CARD_X, INSET_CARD_Y, INSET_CHIP_X, INSET_CHIP_Y,
-  INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, SPACE_HAIR, SPACE_XS,
+  INSET_ROW_X, INSET_ROW_Y, PILL_MAX_W, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, SPACE_HAIR, SPACE_XS,
   STROKE_HAIRLINE, insetHairlineOf } from '../core/design';
 import {
   KIND_BADGE, KIND_LIST, KIND_MARKDOWN, KIND_METRIC, KIND_PROGRESS,
