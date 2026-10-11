@@ -103,6 +103,16 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   （模拟器地域校验需要），macOS 自带 bash 3.2 在 UTF-8 locale 下把 `$s（` 的 `（` 就读进变量名 ⇒
   `unbound variable`（`set -u` 下直接挂）。**症状**：脚本单独跑正常、经过 `source ~/ohos-cli/env.sh`
   就报错（`LC_CTYPE=C` 时不复现）。**规则**：含中文的字符串里一律写 **`${var}`**，别写 `$var`。
+- **⛔ 编译结果落地前，不许写"真编译通过"、不许提交**（我在 2026-10-11 亲手犯过）：我把
+  `hvigorw assembleHap` **丢到后台任务**，然后在提交信息里写"真 ArkTS 编译通过"就提交了 —— 结果那次编译
+  **FAILED**（`10505001 Property 'iconMuted' does not exist on type 'Palette'`），**HEAD 直接坏**。
+  两条推论：① **唯一判据是编译输出里的 `BUILD SUCCESSFUL`**（"我起了编译" ≠ "编译通过"）；
+  ② 判据**要贴在提交信息里就必须先拿到它的输出**，否则改写成"待编译验证"。我随后用一笔纠正提交（`54ef97f`）修好。
+- **⛔ `iconMuted` 是\*\*计算型 role\*\*，不是 `Palette` 字段**：`pal().iconMuted` ⇒ ArkTS 硬红
+  `10505001 Property 'iconMuted' does not exist`。唯一出口是 `colorOf(p, 'iconMuted')`
+  （实现 `core/design.ets:816 iconMutedOf`：**浅 = `textSecondary` ≥3:1 / 深 = `textMuted` 逐字节**）。
+  ⇒ 凡「图标弱色」一律**走 `colorOf`**（范例 `GoalBanner.ets:192/208`、`LlmErrorNotice.ets:83`）；
+  拿不准某 role 是不是 `Palette` 字段时，先 `grep` `colorOf` 实现里的 `if (role === '…')` 分支。
 - **取色 role 写错 = 运行时静默不可见** ⛔（2026-10-11 我在审计令牌层时钓出）：
   `core/design.ets: colorOf(p, role)` 末尾是 `return p.transparent` ⇒ 写**不在真源角色表里**的名字
   （典型：`docs/REDESIGN-INPUT-*.md` 与 `docs/mockups/*.html` 里的**散文记号** `'text.pillName'`/
