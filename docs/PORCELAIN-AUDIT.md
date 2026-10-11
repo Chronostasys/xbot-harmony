@@ -72,6 +72,15 @@
 (b) 把 6 个调用点改成 `inflightHaloOf(p)` / `elevationColorOf(p, …)`；
 (c) 登录页/空态按宪法 §3.1 换掉"靠发光立住"的表达（实心/负形/描边）。
 
+> **✅ 已修（2026-10-11 ▲，用户拍板采纳 (a)）**：`core/theme.ets:buildEffects()` 的**浅色分支**新增
+> `glow = textPrimary@16%`（= `elev3`）、`glowSoft = textPrimary@10%`（= `elev2`）——**中性柔影**，
+> 与 `elev3/elev2` 同族、强弱序保持（16% > 10% 同深色 45% > 22% 同向），并与既有出口
+> `inflightHaloOf` 的浅色档（`elev2`）同源。**深色分支逐字节不变**（`accent@45%/22%` 仍是观感来源）。
+> ⇒ 本表 6 个调用点（`:2824` 顶部辉光 / `:2846` 徽标 / `:2851`+`:2942` 外发光 / `:3097` 空态圆光）
+> **未改一行代码**即变干净（`Index.ets` 正被 `brand-impl` 用于开屏接线，故不动它）。
+> 门禁：`tools/tests/orb_porcelain_motion.test.ts` 新增 B2 组（浅色 ⇒ 中性柔影 / 深色 ⇒ 逐字节），
+> mutation（浅色分支改回 accent@45%/22%）= 20 passed / 10 failed。
+
 ---
 
 ## 3. ❌ / 🟡 明细（逐处 `file:line`）
