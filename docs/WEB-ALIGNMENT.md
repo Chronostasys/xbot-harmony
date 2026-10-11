@@ -978,5 +978,18 @@ web 全仓（505 个 `src` 文件）`vibrat|haptic`（宽松 `-i`）**0 命中**
 `hittarget` 跑了 **22 分钟零产出**（工作树干净、无 hvigor/tsc 进程）⇒ 判定卡死（非逻辑错）⇒ `interrupt` + **重派收紧版**（明确"⛔ 不要反复全仓扫描；**若一小时定不下口径就停手回报**；分阶段交付"）⇒ 收紧版 6.5 分钟出货。
 ⇒ **派单纪律**：给"先摸底再决定口径"的探索任务**必须写时间盒 + 明确的停手条件 + 分阶段交付**，否则可能空转。
 
+### 21.7 ⭐ 改"调用点"前必须**枚举全部守卫**（守卫网比文档宽；`0b2ce59`）
+- **事实**：G1（浮层柔影迁移）任务书只点了 `shadow_radius.test.ts` ★⑤。实际**必须同批更新**的守卫有 **6 处**：
+  `shadow_radius` ★⑤（双向白名单）· 同文件 ★④（`consumers` 计数）· `sheets2_visual ③`（浮层柔影走哪个函数）·
+  `free_surface_unify ④-B`（**启发式**：取"最后一个根面 marker" ⇒ 包一层 Stack 后指向背板 ⇒ 假红）·
+  `lightbox ②`（硬断言组件内 `shadowRadiusOf(` ∧ `elevationColorOf(`）· `text_truncation_gate ④`（mutation 样本**逐字符硬编码缩进** ⇒ 缩进 +2 即失效）。
+- **教训**：**判据的"脆性"往往不在断言本身，而在它的"提取方式"**（取最后一个 marker / 硬编码缩进 / 硬编码行号 / 硬编码调用片段）。
+  改调用点前先 `grep -rn` 该函数名/该文件名的**全部**判据，再决定"同批更新"还是"先立规格"。
+- ⛔ **别把这类守卫更新当"越界"**：它不是"改判据放水"，而是"**钉同一事实的守卫随事实移动**"。判断标准：
+  **判据的语义（钉什么事实）不变、只换"事实的新落点/新写法"** ⇒ 合法同批；**语义变了** ⇒ 必须回报编排者。
+- **推论**：`shadowLayersOf` 迁移的合法范围只含"**浮起的自由面**"；发光通道（`ToolVisual` 的 `glowColorOf`）、
+  玻璃质感、语义色边界（`GoalBanner` 的 `goalBorderOf`）、品牌瓦片、带 `offsetX`（`ShadowLayer` 无该字段）的面
+  ⇒ **都不属此通道**，硬迁会丢语义/丢偏移。
+
 ### 21.6 排队（未完成）
 a11y 扫描线（全仓图标-only 按钮统一 `accessibilityText`）· ④ 高冲突项 D/E/F（`NewSessionDialog` 残余 / `PathPicker` 自动补全 / `ThinkingModeControl` 入 composer，**均须动 `Index.ets`**）· `core/rpc.ets` 补 `get_session_subscription`（订阅行）· B6 系统 toast → 品牌 toast（`MarkdownView` 经 `MessageRow`/`LiveTailView` 透传）· 开屏真机连拍 · 通知真机复验（卡服务端未配 LLM）。
