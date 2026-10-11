@@ -227,6 +227,44 @@ for (let i = 0; i < measured.length; i++) {
 }
 perFileKeys.forEach((v: number, kk: string) => { console.log(`     ${pad(kk, 44)} ${v}`); });
 
+// ── §C2 裁定钉住（2026-10-11 指挥者裁决）：MarkdownView 的代码条/表格标签**保持紧凑**
+//    ⇒ 这三个站点**不得**改走 `sz()`（`sz()` 会乘 `fontScale`）。
+//    理由（裁决原文）：代码块/表格标签**有意不随字号档放大** —— 它们是"结构性附属说明"，
+//    跟着正文一起放大只会挤占代码/表格的可读宽度。⇒ **不是缺陷**，别再当 spec 挂着。
+console.log('\n▶ §C2 裁定钉住：代码条/表格标签**不得**改走 `sz()`（有意保持紧凑）');
+const TIGHT_SITES: string[] = [
+  "components/MarkdownView.ets :: 11 :: b.lang.length > 0 ? b.lang : 'code'",
+  "components/MarkdownView.ets :: 11 :: '复制'",
+  "components/MarkdownView.ets :: 11 :: `表格（${b.header.length} 列 · ${b.rows.length} 行）`",
+];
+{
+  const offenders: string[] = [];
+  srcByRel.forEach((raw: string, rel: string) => {
+    if (rel !== 'components/MarkdownView.ets') { return; }
+    const src: string = stripComments(raw);
+    const rx: RegExp = /\b(Text)\s*\(/g;
+    let x: RegExpExecArray | null = rx.exec(src);
+    while (x !== null) {
+      const j: number = src.indexOf('(', x.index);
+      const k: number = matchPair(src, j);
+      if (k > 0) {
+        const ch: string = chainAfter(src, k + 1);
+        if (ch.indexOf('sz(') >= 0) {
+          const arg: string = src.substring(j + 1, k).trim().replace(/\s+/g, ' ');
+          const kk: string = `components/MarkdownView.ets :: ${arg}`;
+          // 只关心那三个紧凑站点是否"被改走 sz()"
+          for (let q = 0; q < TIGHT_SITES.length; q++) {
+            if (TIGHT_SITES[q].indexOf(arg) >= 0) { offenders.push(kk); }
+          }
+        }
+      }
+      x = rx.exec(src);
+    }
+  });
+  for (let i = 0; i < offenders.length; i++) { console.log(`     ⚠ 被改走 sz()：${offenders[i]}`); }
+  ok('裁定：MarkdownView 代码条/表格标签**不得**改走 `sz()`（有意紧凑，⛔ 不是缺陷）', offenders.length === 0);
+}
+
 // ── §D mutation ───────────────────────────────────────────────────────────────
 console.log('\n▶ §D mutation 自证（合成源码）');
 {
