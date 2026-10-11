@@ -141,6 +141,60 @@ export function ansiPaletteOf(p: Palette): string[] {
 }
 
 /**
+ * **渲染层的启用判据**：文本是否含"需要转义渲染"的内容（ESC 或裸 `\r`）。
+ *
+ * ⛔ 这是「判据与渲染同源」的**唯一出口** —— `parseAnsi` 的快路径（无 ESC 且无 `\r` ⇒
+ *   单段不复制的原样 span）**直接调用本函数**，渲染层也用本函数决定"走 span 还是走纯文本"。
+ *   两边**逐字同源** ⇒ 不可能出现"组件走了 span 分支、parseAnsi 却给了单段原样"（或反之）
+ *   这种判据分叉。（本仓铁律：同一个纯函数既判又渲。）
+ *
+ * 为什么把裸 `\r` 也算进来（而非只认 `\x1b[`）：`\r` 是**进度条**的核心语义（同行后写覆盖
+ *   前写，如 `10%\r20%\r100%`），它与颜色码无关却同样需要解析 —— web 的快路径判据也是
+ *   `!includes('\x1b') && !includes('\r')`（`AnsiText.tsx:100-101`）。⇒ 只认 `\x1b` 会让
+ *   纯 `\r` 的进度输出在原生端**漏掉**覆盖折叠（与 web 分叉）。
+ *
+ * ⚠️ 纯文本（无 ESC、无 `\r`）一律 `false` ⇒ 调用方走**纯文本快路径**，不引入任何多余节点。
+ */
+export function hasAnsi(text: string): boolean {
+  return text.indexOf('\x1b') >= 0 || text.indexOf('\r') >= 0;
+}
+
+/**
+ * **渲染计划**（判据 + 数据**同一个纯函数**）：无转义 ⇒ `null`（调用方走纯文本快路径）；
+ * 有转义 ⇒ 解析出的 span 列表（16 色已按 `palette` 映射到本仓语义出口，逐段带样式）。
+ *
+ * 渲染层只调这一个函数即可同时拿到"要不要渲染"与"渲染成什么"：
+ *   `const spans = ansiSpansIfAny(text, ansiPaletteOf(this.pal()))`
+ *   `if (spans === null) { <纯文本> } else { <逐 span 上色> }`
+ * 这样"判"与"渲"不可能分叉（判据来自 `hasAnsi`，数据来自同一 `parseAnsi`）。
+ *
+ * @param text    待渲染文本（含或含 `\r`/ESC）。
+ * @param palette `ansiPaletteOf(paletteOf(theme))` —— 本仓色板映射后的 16 色。
+ */
+export function ansiSpansIfAny(text: string, palette: string[]): AnsiSpan[] | null {
+  if (!hasAnsi(text)) { return null; }
+  return parseAnsi(text, true, palette);
+}
+
+/**
+ * 渲染层取色的**唯一出口 —— 前景**：把 span 的 raw `fg`/`bg` + `inverse` 解析成最终前景色。
+ * ⛔ `inverse`（SGR 7）**只在此 swap 恰好一次** —— 解析层从不 swap（见文件头"等价改写"），
+ *    渲染层**必须**经由本函数取色、**绝不**自行 swap（重复 swap = 观感错）。
+ * @param sp   `parseAnsi` 产出的 span（`fg`/`bg` 为**原始值**）。
+ * @param base 无显式前景（且非反色）时继承的底色（渲染层的语义行色）。
+ */
+export function ansiFgOf(sp: AnsiSpan, base: string): string {
+  const f: string = sp.inverse ? sp.bg : sp.fg;
+  return f !== '' ? f : base;
+}
+
+/** 同上，**背景**：反色后无背景时返回 `fallback`（渲染层传 `p.transparent`）。 */
+export function ansiBgOf(sp: AnsiSpan, fallback: string): string {
+  const b: string = sp.inverse ? sp.fg : sp.bg;
+  return b !== '' ? b : fallback;
+}
+
+/**
  * 256 色（0-255）→ 具体颜色串。
  *  0-15   ⇒ 取 `palette`（主题相关）；
  *  16-231 ⇒ xterm 6×6×6 立方；
@@ -199,7 +253,7 @@ export function parseAnsi(text: string, dark: boolean, palette?: string[]): Ansi
   const pal: string[] = palette !== undefined ? palette
     : (dark ? ANSI_DARK_PALETTE : ANSI_LIGHT_PALETTE);
   // 快路径需**同时**无 ESC 且无 `\r`：纯 `\r` 重写（无颜色码的进度条）也要走 \r 处理。
-  if (text.indexOf('\x1b') < 0 && text.indexOf('\r') < 0) {
+  if (!hasAnsi(text)) {
     const only: AnsiSpan = new AnsiSpan();
     only.text = text;
     return [only];

@@ -12,8 +12,8 @@
 declare const process: { exit: (c: number) => void };
 
 import {
-  AnsiSpan, ANSI_DARK_PALETTE, ANSI_LIGHT_PALETTE, ANSI_COLOR_ROLES, ansiPaletteOf,
-  color256, incompleteTail, parseAnsi,
+  AnsiSpan, ANSI_DARK_PALETTE, ANSI_LIGHT_PALETTE, ANSI_COLOR_ROLES, ansiBgOf, ansiFgOf,
+  ansiPaletteOf, ansiSpansIfAny, color256, hasAnsi, incompleteTail, parseAnsi,
 } from '../../entry/src/main/ets/core/ansi';
 import { paletteOf, ALL_THEMES, Palette } from '../../entry/src/main/ets/core/theme';
 import { colorOf } from '../../entry/src/main/ets/core/design';
@@ -223,6 +223,40 @@ eq('映射表长度 = 16', ANSI_COLOR_ROLES.length, 16);
   const yellow = colorOf(p, 'statusWaiting');
   const blue = colorOf(p, 'accent');
   eq('四族语义色两两不同', new Set([red, green, yellow, blue]).size, 4);
+}
+
+// ── 渲染层「启用判据 + 数据同源」（AnsiText 接色接线）────────────────────────────
+// 判据 `hasAnsi` 必须与 `parseAnsi` 快路径**逐字同源**（无 ESC 且无 `\r` ⇒ 纯文本）。
+eq('hasAnsi: 纯文本 ⇒ false', hasAnsi('hello world'), false);
+eq('hasAnsi: 含 SGR ⇒ true', hasAnsi('\x1b[31merror\x1b[0m'), true);
+eq('hasAnsi: 裸 \\r（进度条）⇒ true', hasAnsi('10%\r20%'), true);
+eq('hasAnsi: 中文纯文本 ⇒ false', hasAnsi('一切正常，没有颜色'), false);
+
+// 无转义 ⇒ `ansiSpansIfAny` 返回 null ⇒ 渲染层走纯文本快路径（**不引入多余节点**）。
+eq('ansiSpansIfAny: 无转义 ⇒ null（纯文本快路径）', ansiSpansIfAny('plain text', L), null);
+eq('ansiSpansIfAny: 无转义（tab/中文）⇒ null', ansiSpansIfAny('a\tb 中文', L), null);
+// 有转义 ⇒ 出 span，且颜色**来自色板映射**（非字面量）。
+{
+  const p: Palette = paletteOf('dark');
+  const spans: AnsiSpan[] | null = ansiSpansIfAny('\x1b[31mred\x1b[0m tail', ansiPaletteOf(p));
+  eq('ansiSpansIfAny: 有转义 ⇒ 非 null 且切两段', spans !== null ? spans.length : -1, 2);
+  eq('ansiSpansIfAny: 颜色来自色板（statusError）',
+    spans !== null ? spans[0].fg : '', colorOf(p, 'statusError'));
+  eq('ansiSpansIfAny: 复位段无前景色（继承底色）', spans !== null ? spans[1].fg : 'x', '');
+  eq('ansiSpansIfAny: 有转义但解析空（\\x1b[）⇒ 空 span', ansiSpansIfAny('\x1b[', ansiPaletteOf(p)), []);
+}
+
+// 反色 swap **恰好一次** —— 渲染层唯一取色出口 `ansiFgOf`/`ansiBgOf`（解析层从不 swap）。
+{
+  const inv: AnsiSpan = new AnsiSpan();
+  inv.text = 'x'; inv.fg = '#cf222e'; inv.bg = '#0550ae'; inv.inverse = true;
+  eq('ansiFgOf: inverse ⇒ 前景取 raw bg', ansiFgOf(inv, '#base'), '#0550ae');
+  eq('ansiBgOf: inverse ⇒ 背景取 raw fg', ansiBgOf(inv, '#fallback'), '#cf222e');
+  const plain: AnsiSpan = new AnsiSpan();
+  plain.text = 'y'; plain.fg = '#cf222e';
+  eq('ansiFgOf: 非反色 ⇒ 取 raw fg', ansiFgOf(plain, '#base'), '#cf222e');
+  eq('ansiFgOf: 无前景 ⇒ 继承 base', ansiFgOf(new AnsiSpan(), '#base'), '#base');
+  eq('ansiBgOf: 无背景 ⇒ fallback', ansiBgOf(plain, '#fallback'), '#fallback');
 }
 
 console.log(`  ansi: ${pass} passed, ${fail} failed`);

@@ -16,6 +16,7 @@ import { R_LG, R_MD, R_SM, R_XL, SP_1, SP_2, SP_3, FS_BODY, FS_CAPTION } from '.
 import { PRESS_OPACITY, RADIUS_CHIP, SPACE_HAIR, TYPE_CHIP, typeOf } from '../core/design';
 import { ToolProgress } from '../core/types';
 import { renderKind } from '../core/toolstatus';
+import { AnsiSpan, ansiBgOf, ansiFgOf, ansiPaletteOf, ansiSpansIfAny, hasAnsi } from '../core/ansi';
 import { statusColorOf } from './ToolVisual';
 import { fileArgFields, FileArgFields, isFileTool, langFromPath, pathFromLabel } from '../core/toolargs';
 import {
@@ -206,6 +207,29 @@ export struct ToolPopoverCard {
     return this.pal().textSecondary;
   }
 
+  /** 本仓 16 色 ANSI 映射（按 theme 记忆化 —— 同一输出块里对每行各建一次 16 元数组是浪费）。 */
+  private ansiTheme: string = '';
+  private ansiPal: string[] = [];
+
+  private ansiColors(): string[] {
+    if (this.ansiTheme !== this.theme) {
+      this.ansiTheme = this.theme;
+      this.ansiPal = ansiPaletteOf(this.pal());
+    }
+    return this.ansiPal;
+  }
+
+  /** 文本的 ANSI span 列表（判据与渲染同源：`ansiSpansIfAny` = `hasAnsi` + `parseAnsi` 同一纯函数）。 */
+  private ansiSpans(text: string): AnsiSpan[] {
+    const s: AnsiSpan[] | null = ansiSpansIfAny(text, this.ansiColors());
+    return s !== null ? s : [];
+  }
+
+  /** 无背景时的兜底（ArkUI `textBackgroundStyle` 需一个合法色值；透明 = 视觉无背景）。 */
+  private ansiBgFallback(): string {
+    return this.pal().transparent;
+  }
+
   /** 段头：小标签 + 右侧复制按钮（图标化，不用文字撑宽）。 */
   @Builder
   SectionHead(label: string, body: string, what: string) {
@@ -246,19 +270,55 @@ export struct ToolPopoverCard {
     .copyOption(CopyOptions.LocalDevice)
   }
 
-  /** 一行**终端输出**（非代码）：按语义行着色。终端换行无意义 ⇒ 同样不折行。 */
+  /**
+   * 一行**终端输出**（非代码）：按语义行着色。终端换行无意义 ⇒ 同样不折行。
+   *
+   * ✅ **ANSI 接色**（web `AnsiText.tsx:205`，消费点 `ToolCallBlock.tsx:101` /
+   *    `ToolRender.tsx:438` / `FoldedToolGroup.tsx:387`）：含转义（ESC 或裸 `\r`）时走
+   *    `core/ansi.ets` 的解析 + `ansiPaletteOf(this.pal())` 取色，**逐 span 上色**。
+   *    ⛔ **判据与渲染同源**：`hasAnsi` / `ansiSpansIfAny` 就是 `parseAnsi` 快路径用的同一个纯函数
+   *    —— 组件**不另写**任何 ANSI 判断；**颜色零字面量**，全走色板映射（`ansiFgOf`/`ansiBgOf`）。
+   *    ⛔ 无转义 ⇒ `hasAnsi` 为假 ⇒ 走**原纯文本路径**（不引入任何多余 Span 节点）。
+   *    ⚠️ `dim`（SGR 2 / web `opacity:.65`）**未接**：ArkUI `Span` 无逐段不透明度，跳过而非伪造。
+   */
   @Builder
   PlainLine(ln: string, li: number) {
-    Text(ln.length > 0 ? ln : ' ')
+    if (hasAnsi(ln)) {
+      // 有转义：逐 span 上色。底色 = 语义行色（span 未给前景色时继承它）。
+      Text() {
+        ForEach(this.ansiSpans(ln), (sp: AnsiSpan, si: number) => {
+          Span(sp.text)
+            .fontColor(ansiFgOf(sp, this.lineColor(classifyLine(ln))))
+            .fontWeight(sp.bold ? FontWeight.Bold : FontWeight.Normal)
+            .fontStyle(sp.italic ? FontStyle.Italic : FontStyle.Normal)
+            .decoration({
+              type: sp.strike ? TextDecorationType.LineThrough
+                : (sp.underline ? TextDecorationType.Underline : TextDecorationType.None),
+              color: ansiFgOf(sp, this.lineColor(classifyLine(ln))),
+            })
+            .textBackgroundStyle({ color: ansiBgOf(sp, this.ansiBgFallback()) })
+        }, (sp: AnsiSpan, si: number) => `a${li}_${si}`)
+      }
       .wordBreak(WordBreak.NORMAL)
-      // 等宽 12（web `ToolCallBlock.tsx:98` 输出块 `text-[12px]`）——与代码行同号，
-      // 同一浮层里"代码/终端输出"的字号必须一致（原先 11 比 web 小 1 ⇒ 与代码块观感分叉）。
       .fontSize(12)
       .fontFamily('monospace')
+      // 整行底色（span 无显式前景时可见）；有背景的 span 由 `textBackgroundStyle` 覆盖其底色。
       .fontColor(this.lineColor(classifyLine(ln)))
       .maxLines(1)
       .textAlign(TextAlign.Start)
       .copyOption(CopyOptions.LocalDevice)
+    } else {
+      Text(ln.length > 0 ? ln : ' ')
+        .wordBreak(WordBreak.NORMAL)
+        // 等宽 12（web `ToolCallBlock.tsx:98` 输出块 `text-[12px]`）——与代码行同号，
+        // 同一浮层里"代码/终端输出"的字号必须一致（原先 11 比 web 小 1 ⇒ 与代码块观感分叉）。
+        .fontSize(12)
+        .fontFamily('monospace')
+        .fontColor(this.lineColor(classifyLine(ln)))
+        .maxLines(1)
+        .textAlign(TextAlign.Start)
+        .copyOption(CopyOptions.LocalDevice)
+    }
   }
 
   /**
@@ -435,11 +495,34 @@ export struct ToolPopoverCard {
       .width('100%')
 
       if (this.vm.summary.length > 0 && this.vm.summary !== this.vm.detail) {
-        Text(this.vm.summary)
+        // 摘要取自命令输出**首行** ⇒ 可能携带 SGR 颜色码（web `FoldedToolGroup.tsx:387`
+        // 同样用 `AnsiText` 渲染它，注释明写"vitest/ls 等"输出带颜色码）。判据/渲染同源同上。
+        if (hasAnsi(this.vm.summary)) {
+          Text() {
+            ForEach(this.ansiSpans(this.vm.summary), (sp: AnsiSpan, si: number) => {
+              Span(sp.text)
+                .fontColor(ansiFgOf(sp, this.pal().textSecondary))
+                .fontWeight(sp.bold ? FontWeight.Bold : FontWeight.Normal)
+                .fontStyle(sp.italic ? FontStyle.Italic : FontStyle.Normal)
+                .decoration({
+                  type: sp.strike ? TextDecorationType.LineThrough
+                    : (sp.underline ? TextDecorationType.Underline : TextDecorationType.None),
+                  color: ansiFgOf(sp, this.pal().textSecondary),
+                })
+                .textBackgroundStyle({ color: ansiBgOf(sp, this.ansiBgFallback()) })
+            }, (sp: AnsiSpan, si: number) => `sm${si}`)
+          }
           .wordBreak(WordBreak.BREAK_WORD)
           .fontSize(FS_CAPTION).fontColor(this.pal().textSecondary)
           .width('100%')
           .copyOption(CopyOptions.LocalDevice)
+        } else {
+          Text(this.vm.summary)
+            .wordBreak(WordBreak.BREAK_WORD)
+            .fontSize(FS_CAPTION).fontColor(this.pal().textSecondary)
+            .width('100%')
+            .copyOption(CopyOptions.LocalDevice)
+        }
       }
 
       // 改动优先（web 的 FileCreate/FileReplace 走 diff 卡）；再给内容/参数/输出兜底
