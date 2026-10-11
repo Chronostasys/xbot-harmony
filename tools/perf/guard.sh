@@ -60,6 +60,16 @@ le "setTimeout 调用点" "$n_tmo" 7 处
 le "anim*() 调用点（每次调用新建曲线对象）" "$n_anim" 20 处
 le "ForEach 处数" "$n_fe" 107 处
 le "core 外裸 parseMarkdown/parseInline 调用点" "$n_raw" 0 处
+
+# anim.ets：曲线**记忆化守卫**必须在位。
+# ⚠️ 为什么不是"数构造点"：`curves.cubicBezierCurve` 原本也只在 `springCurve()` 里 1 处，
+#    问题在于它被 14 处调用点**反复调用** ⇒ 数调用点抓不到。能抓到的是"记忆化守卫还在不在"：
+#    守卫被删（改回直接 return）⇒ 每次都新建原生 ICurve ⇒ 这两条立刻红。
+n_bez_memo=$(grep -c 'if (springCurveMemo === undefined)' "$ETS/components/anim.ets" 2>/dev/null || echo 0)
+n_spr_memo=$(grep -c 'if (springMotionMemo === undefined)' "$ETS/components/anim.ets" 2>/dev/null || echo 0)
+ok_gate() { [ "${1:-0}" -ge 1 ] && ok "$2" || bad "$2"; }
+ok_gate "$n_bez_memo" "anim.ets：spring 曲线记忆化守卫在位（springCurveMemo）"
+ok_gate "$n_spr_memo" "anim.ets：物理弹簧记忆化守卫在位（springMotionMemo）"
 echo "     （参考：ForEach 处数仅作规模指示，不是质量判据）"
 
 # 结构性事实（落地前**只报告**，不判红）：行内块级窗口是否已落地

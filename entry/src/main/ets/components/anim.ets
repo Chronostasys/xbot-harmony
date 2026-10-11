@@ -25,9 +25,23 @@ import { D_SLOW } from '../core/tokens';
  * 精确复刻 web 的 spring 回弹曲线（`cubic-bezier(0.34,1.56,0.64,1)`）。
  * 用于需要**给定 duration** 的过渡（hover/状态切换/入场）。
  */
+/**
+ * 记忆化的 spring 曲线。
+ *
+ * 为什么：`curves.cubicBezierCurve(...)` 是**原生对象构造**，而 `animFast/Base/Slow/MsgIn`
+ * 共 14 处调用点都在 build / 点击路径里 ⇒ 每次调用新建一条曲线是实测到的热点。
+ * 曲线参数是**常量**（`springBezier()` 无入参）⇒ 全局只需要一条。
+ *
+ * ⛔ 只缓存 `ICurve`（原生对象）；`AnimateParam` 仍是便宜的 2 字段字面量 —— 不去共享那个
+ *    可能被框架内部注解/复用的对象（保守做法，收益已全部拿到）。
+ */
+let springCurveMemo: ICurve | undefined = undefined;
 function springCurve(): ICurve {
-  const b = springBezier();
-  return curves.cubicBezierCurve(b.x1, b.y1, b.x2, b.y2);
+  if (springCurveMemo === undefined) {
+    const b = springBezier();
+    springCurveMemo = curves.cubicBezierCurve(b.x1, b.y1, b.x2, b.y2);
+  }
+  return springCurveMemo;
 }
 
 /** 快速过渡（180ms，hover/状态切换）—— 对齐 web `.transition-spring`。 */
@@ -56,8 +70,20 @@ export function animSlow(): AnimateParam {
  * 只给 `curves.springMotion(...)`。参数取自 `core/motion.ets`（response/damping/overlap）。
  */
 export function animSpring(): AnimateParam {
-  const s = springParams();
-  return { curve: curves.springMotion(s.response, s.dampingFraction, s.overlapDuration) };
+  return { curve: springMotionCurve() };
+}
+
+/**
+ * 记忆化的物理弹簧曲线（参数取自 `core/motion.ets` 的 `springParams()`，**常量** ⇒ 全局一条）。
+ * 同 `springCurve()`：`curves.springMotion(...)` 是原生对象构造，不该每次调用重造。
+ */
+let springMotionMemo: ICurve | undefined = undefined;
+function springMotionCurve(): ICurve {
+  if (springMotionMemo === undefined) {
+    const s = springParams();
+    springMotionMemo = curves.springMotion(s.response, s.dampingFraction, s.overlapDuration);
+  }
+  return springMotionMemo;
 }
 
 // ── 「在飞」呼吸刻度（**整组唯一心跳**；波5e 共享语言，契约见 `docs/DESIGN-SYSTEM.md §8`）──
