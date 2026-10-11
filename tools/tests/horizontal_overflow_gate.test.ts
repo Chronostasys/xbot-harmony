@@ -74,6 +74,14 @@ function matchPair(s: string, i: number, op: string, cl: string): number {
 const WS: string = ' \t\r\n';
 function chainAfter(s: string, i: number): Array<string[]> {
   while (i < s.length && WS.indexOf(s.charAt(i)) >= 0) { i += 1; }
+  // ⛔ **必须跳过 `{...}` 块**：`Scroll() { ... }.width('100%')` 的属性链在**块之后**。
+  //    漏了这一步 ⇒ `Scroll` 的链恒为空 ⇒ "无宽度约束"的**假结论**（我本轮又踩了这个坑）。
+  //    （`Text(...).attr` 是直接跟链，所以 H1/H3 一直没事，只有块容器类才暴露。）
+  if (i < s.length && s.charAt(i) === '{') {
+    const bk: number = matchPair(s, i, '{', '}');
+    i = bk < 0 ? s.length : bk + 1;
+  }
+  while (i < s.length && WS.indexOf(s.charAt(i)) >= 0) { i += 1; }
   const out: Array<string[]> = [];
   while (i < s.length && s.charAt(i) === '.') {
     const j: number = s.indexOf('(', i);
@@ -180,6 +188,103 @@ perFile.forEach((v: number[], kk: string) => { console.log(`  ${pad(kk, 42)} H1=
 ok('零扫描判红：文件数 > 0', srcByRel.size > 0);
 ok('扫描器有效性：至少命中一类（否则是词表/解析失效）', sites.length > 0);
 
+console.log('\n▶ §A2 H0（硬）：`Scroll` 必须有宽度约束，且**自身或其最近祖先块容器**有 `clip(true)`');
+/**
+ * ⛔ 为什么这条是硬红（用户亲报证据）：`Scroll` 若**没有宽度约束**（或祖先无 `clip`）⇒
+ *    横向滚动区会**按内容撑宽父级** ⇒ 整条消息列超出屏宽 ⇒ 正文首行尾部与代码块末行**都被裁在右缘**。
+ *    ⚠️ `.width('100%')` 只有在**父级有确定宽**时才成其为约束 —— 故「祖先 `clip(true)`」是第二道保险。
+ */
+class Sc { rel: string = ''; line: number = 0; dir: string = ''; widthExpr: string = ''; ancestorClip: boolean = false; clipSelf: boolean = false; }
+function scanScrolls(m: Map<string, string>): Sc[] {
+  const out: Sc[] = [];
+  m.forEach((raw: string, rel: string) => {
+    const src: string = stripComments(raw);
+    const rx: RegExp = /\bScroll\s*\(/g;
+    let x: RegExpExecArray | null = rx.exec(src);
+    while (x !== null) {
+      const j: number = src.indexOf('(', x.index);
+      const k: number = matchPair(src, j, '(', ')');
+      if (k > 0) {
+        const ch: Array<string[]> = chainAfter(src, k + 1);
+        const sc: Sc = new Sc();
+        sc.rel = rel; sc.line = lineOf(src, x.index);
+        let dir: string = ''; let w: string = '';
+        for (let i = 0; i < ch.length; i++) {
+          if (ch[i][0] === 'scrollable') { dir = ch[i][1]; }
+          if (ch[i][0] === 'width') { w = ch[i][1]; }
+          if (ch[i][0] === 'constraintSize') { w = w.length > 0 ? w : ch[i][1]; }
+          if (ch[i][0] === 'clip') { sc.clipSelf = true; }
+        }
+        sc.dir = dir.indexOf('Horizontal') >= 0 ? '横向' : '纵向/未指定';
+        sc.widthExpr = w;
+        // 最近祖先块容器：找包含该 Scroll 的 `Name(...) { ... }`，取其链查 clip
+        const pre: string = src.substring(0, x.index);
+        const rxC: RegExp = /\b(Column|Row|Stack|Flex)\s*\(/g;
+        let c: RegExpExecArray | null = rxC.exec(pre);
+        let lastOpen: number = -1;
+        while (c !== null) {
+          const cj: number = pre.indexOf('(', c.index);
+          const ck: number = matchPair(pre, cj, '(', ')');
+          if (ck > 0) {
+            const bs: number = pre.indexOf('{', ck + 1);
+            if (bs > 0) {
+              const be: number = matchPair(pre, bs, '{', '}');
+              if (be < 0) { lastOpen = be < 0 ? bs + 1 : be; }
+            }
+          }
+          c = rxC.exec(pre);
+        }
+        // 简化：取**紧邻上方最近**的 `.clip(true)`（同文件、Scroll 之前 800 字符内）
+        const near: string = src.substring(Math.max(0, x.index - 800), x.index);
+        sc.ancestorClip = near.indexOf('.clip(true)') >= 0;
+        out.push(sc);
+      }
+      x = rx.exec(src);
+    }
+  });
+  return out;
+}
+const scrolls: Sc[] = scanScrolls(srcByRel);
+console.log(`  全仓 Scroll ${scrolls.length} 处`);
+/**
+ * ⚠️ 分级（按证据精确化，⛔ 不一律判红）：
+ *  · **横向** Scroll 才能**按内容撑宽父级**（截图里那处就是它）⇒ **硬红**：必须 width/maxWidth **且** 有 clip。
+ *  · **纵向** Scroll 撑宽风险低得多（内容宽度通常受父级约束）⇒ 只**要求宽度约束**；缺 `clip` 记为
+ *    **警告 + 台账**（⛔ 不硬红 —— 否则 19 处里绝大多数是纵向的，会把噪声当缺陷）。
+ */
+let scBad: Sc[] = [];
+let scWarn: Sc[] = [];
+for (let i = 0; i < scrolls.length; i++) {
+  const z = scrolls[i];
+  // ⚠️ 必须接受**任意百分比**：`'94%'` 同样是宽度约束（第一版只认 `'100%'` ⇒ 把 SelfCheckSheet 误判成"无约束"）。
+  const hasW: boolean = z.widthExpr.indexOf('%') >= 0 || z.widthExpr.indexOf('maxWidth') >= 0;
+  const clipped: boolean = z.clipSelf || z.ancestorClip;
+  const horiz: boolean = z.dir === '横向';
+  const verdict: string = (hasW && (!horiz || clipped)) ? '✓' : (!hasW ? '✗ 硬红（无宽度约束）' : '⚠ 警告');
+  console.log(`  ${pad(z.rel, 30)}:${pad(String(z.line), 5)} ${pad(z.dir, 8)} width=${pad(z.widthExpr.substring(0, 22), 24)} clip(自身|祖先)=${z.clipSelf}|${z.ancestorClip} ⇒ ${verdict}`);
+  if (!hasW) { scBad.push(z); }                                   // 任何 Scroll 都必须有宽度约束（硬）
+  else if (horiz && !clipped) { scBad.push(z); }                   // 横向还必须裁
+  else if (!horiz && !clipped) { scWarn.push(z); }                 // 纵向缺裁 ⇒ 警告
+}
+/**
+ * `H0_PENDING_SPEC`：横向 `Scroll` 缺容器 `clip` 的**已登记**条目（⛔ 只许缩短）。
+ * 三处**全在他域** ⇒ 归 `chat-surface-ux`：`MarkdownView`(代码块) / `Index` / `SettingsPanel`。
+ * ⛔ 键**只用文件名**（不含行号 —— 行号会被别线改动漂掉，我前面已被这个坑过一次）。
+ */
+const H0_PENDING_SPEC: string[] = [
+  'components/MarkdownView.ets',   // 代码块外层 Scroll（截图证据指向的就是它）
+  'components/SettingsPanel.ets',
+  'pages/Index.ets',
+];
+const h0BadFiles: string[] = scBad.map((z) => z.rel);
+ok(`H0（硬）：横向 Scroll 缺容器 clip 的**已登记**集合 == 实测集合（实测 ${h0BadFiles.length} / 登记 ${H0_PENDING_SPEC.length}）`,
+  h0BadFiles.length === H0_PENDING_SPEC.length
+  && h0BadFiles.every((f) => H0_PENDING_SPEC.indexOf(f) >= 0)
+  && H0_PENDING_SPEC.every((f) => h0BadFiles.indexOf(f) >= 0));
+console.log(`  纵向 Scroll 缺 \`clip\`（**警告级**，已登记台账）: ${scWarn.length} 处`);
+console.log('  ⛔ 提示：`.wordBreak` 必须写**限定名** WordBreak.BREAK_ALL —— 裸写 BREAK_ALL **不是全局名**，');
+console.log('     曾让整树编译红（SettingsChannels.ets:462/574，已由 ff1f371 救火）。');
+
 console.log('\n▶ §B 逐处清单（按归属分组）');
 for (let i = 0; i < sites.length; i++) {
   const s = sites[i];
@@ -189,10 +294,10 @@ for (let i = 0; i < sites.length; i++) {
 console.log('\n▶ §C 台账（⛔ 只许缩短；键 = 内容锚点，不含行号）');
 /** `KNOWN_OK`：有据可依的（⛔ 只许缩短）。 */
 const KNOWN_OK: string[] = [
-  // **已证良性**：diff 视图的**行号列**与 **`+/-` 标记列** —— 内容宽度**固定**
-  // （行号是数字、标记只有 ±/空格三态），且它们**必须**无 `layoutWeight`（要按固定列宽才能与代码列纵向对齐）。
-  // ⛔ 词表靠 `.text`/`marker` 命中它们属**过报**，不可能顶出屏。
+  // **已证良性**：diff 视图的 `+/-` 标记列 —— 内容宽度**固定**（±/空格三态），且**必须**无
+  // `layoutWeight`（要按固定列宽才能与代码列纵向对齐）⇒ 不可能顶出屏（词表靠 `.marker` 命中属过报）。
   'components/ToolPopover.ets :: H1 :: ANCHOR:splitHunk(ln.text).marker',
+  // （H0 的台账见 §A2 的 `H0_PENDING_SPEC`；⛔ 不混进本表的 measured 多重集）
 ];
 /** `PENDING_SPEC`：本线**禁改**的文件（归他人）—— ⛔ 只许缩短。 */
 const PENDING_SPEC: string[] = [

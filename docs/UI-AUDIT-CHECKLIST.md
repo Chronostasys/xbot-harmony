@@ -554,3 +554,25 @@ MarkdownView **无固定数值宽容器** ⇒ **结构性命中 0**。即：**�
 
 **真机协议（设备归 `orb-ux`）**：porcelain + dark 各一遍，用**同一条回答**（含长 cwd/代码块注解）+ **长 URL** + **长 cwd 路径** + **超长英文词** ⇒ 逐面截图，
 判据：**内容右边界不得超过安全区**（⛔ 单点像素不作判据）。
+
+### 补：**H0（硬）** —— `Scroll` 的宽度约束 + 容器 `clip`（用户截图指向的那条）
+
+**为什么（证据）**：`Scroll` 若**没有宽度约束**（或祖先无 `clip`）⇒ 横向滚动区会**按内容撑宽父级**
+⇒ 整条消息列超出屏宽 ⇒ **正文首行尾部与代码块末行都被裁在右缘**（正是用户截图）。
+
+**分级（⛔ 按证据精确化，不一律判红）**：
+- **横向** `Scroll`（`.scrollable(ScrollDirection.Horizontal)`）**才能**按内容撑宽父级 ⇒ **硬红**：必须 `width('100%'|任意 %)`/`constraintSize(maxWidth…)` **且** 自身或最近祖先块容器有 `clip(true)`；
+- **纵向** `Scroll` 撑宽风险低得多（内容宽度通常受父级约束）⇒ 只**要求宽度约束**；缺 `clip` 记 **警告 + 台账**。
+
+**实测（全仓 `Scroll` 22 处）**：**全部 22 处都有宽度约束** ✓（20×`'100%'` + 1×`'94%'`）；
+**横向 3 处缺容器 `clip`** ⇒ **H0 硬红命中 3 处，全在他域**：
+| 位置 | 归属 |
+|---|---|
+| `components/MarkdownView.ets:456`（**代码块外层 Scroll，截图证据指向的就是它**） | chat-surface-ux |
+| `components/SettingsPanel.ets:283` | tokens-ux |
+| `pages/Index.ets:3941` | chat-surface-ux |
+
+**纵向缺 `clip` 15 处** ⇒ 警告级，已登记（⛔ 只许缩短）。
+
+**⛔ 写法提示（曾让整树编译红）**：`.wordBreak` 必须写**限定名** `WordBreak.BREAK_ALL` ——
+裸写 `BREAK_ALL` **不是全局名**（`SettingsChannels.ets:462/574` 曾因此让整树 `Cannot find name 'BREAK_ALL'`，已由 `ff1f371` 救火）。
