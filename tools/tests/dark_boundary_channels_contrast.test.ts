@@ -34,7 +34,8 @@ import {
   parseColorRgba, effectsOf, surfacesOf,
 } from '../../entry/src/main/ets/core/theme';
 import {
-  surfaceFillOf, hairlineOf, elevationColorOf, ELEV_CARD, ELEV_RAISED, ELEV_OVERLAY,
+  surfaceFillOf, hairlineOf, elevationColorOf, HAIRLINE_MIN_LIGHT, HAIRLINE_MIN_DARK,
+  ELEV_CARD, ELEV_RAISED, ELEV_OVERLAY,
 } from '../../entry/src/main/ets/core/design';
 
 let pass = 0, fail = 0;
@@ -56,31 +57,37 @@ function pad(s: string, n: number): string { return (s + ' '.repeat(n)).slice(0,
 /** 一条相邻对（下→上）；`edge` = **实际接线**的边缘通道色（空 = 无边缘通道）。 */
 class Pair {
   name: string = ''; lower: string = ''; upper: string = ''; edge: string = ''; edgeLabel: string = '';
+  /** 该对是否**已接线发丝通道**（= 组件侧确实画了 `hairlineOf`；见文件末 §F 的裁定与取证）。 */
+  hairWired: boolean = false;
 }
 function pairsOf(p: Palette): Pair[] {
   const out: Pair[] = [];
   const e = effectsOf(p);
   const s = surfacesOf(p);
-  const mk = (name: string, lower: string, upper: string, edge: string, edgeLabel: string): void => {
-    const x: Pair = new Pair(); x.name = name; x.lower = lower; x.upper = upper; x.edge = edge; x.edgeLabel = edgeLabel; out.push(x);
+  const mk = (name: string, lower: string, upper: string, edge: string, edgeLabel: string, hairWired: boolean): void => {
+    const x: Pair = new Pair(); x.name = name; x.lower = lower; x.upper = upper; x.edge = edge; x.edgeLabel = edgeLabel; x.hairWired = hairWired; out.push(x);
   };
-  mk('画布→卡', p.appBg, p.surface, e.elev1, '影elev1');
-  mk('卡→抬升', p.surface, p.surfaceAlt, e.elev2, '影elev2');
-  mk('抬升→激活', p.surfaceAlt, p.surfaceHi, e.elev2, '影elev2');
-  mk('画布→下沉', p.appBg, s.sunken, '', '（内凹·无影）');
-  mk('画布→玻璃', p.appBg, compositeOver(e.glassBg, p.appBg), e.glassBorder, '玻璃描边');
+  // 末列 = **发丝通道是否接线**（裁定见 §F）：`surface.card` 有 `hairline=true`，且**用 `surface.card`
+  // 填充的 5 个组件全都画了 `hairlineOf`** ⇒ 卡这一对**有**发丝通道；`sunken`（well/chip）**无**。
+  mk('画布→卡', p.appBg, p.surface, e.elev1, '影elev1', true);
+  mk('卡→抬升', p.surface, p.surfaceAlt, e.elev2, '影elev2', true);
+  mk('抬升→激活', p.surfaceAlt, p.surfaceHi, e.elev2, '影elev2', true);
+  mk('画布→下沉', p.appBg, s.sunken, '', '（内凹·无影）', false);
+  mk('画布→玻璃', p.appBg, compositeOver(e.glassBg, p.appBg), e.glassBorder, '玻璃描边', false);
   // ⚠️ 2026-10-11 模型订正：7 处 `bindPopup` 浮层的**实际接线**通道是
   //    `elevationColorOf(p, ELEV_OVERLAY)`（**不是**裸 `e.elev3`）—— `0c0f13f` 已把该档的**深色臂**
   //    从 `elev3`（`#000@42%` 黑影，净影仅 1.0122）改为 **`glow`（`accent@45%` 彩色发光）**。
   //    ⇒ 按"**只计已接线通道**"纪律，这两对的 edge 必须走该出口（否则模型落后于代码 = 假缺口）。
-  mk('卡→浮层', p.surface, surfaceFillOf(p, 'surface.overlay'), elevationColorOf(p, ELEV_OVERLAY), '影·浮层档');
-  mk('画布→浮层', p.appBg, surfaceFillOf(p, 'surface.overlay'), elevationColorOf(p, ELEV_OVERLAY), '影·浮层档');
+  mk('卡→浮层', p.surface, surfaceFillOf(p, 'surface.overlay'), elevationColorOf(p, ELEV_OVERLAY), '影·浮层档', true);
+  mk('画布→浮层', p.appBg, surfaceFillOf(p, 'surface.overlay'), elevationColorOf(p, ELEV_OVERLAY), '影·浮层档', true);
   return out;
 }
 
 class Aud {
   pair: string = ''; edgeLabel: string = '';
   fill: number = 0; edge: number = 0; glowPotential: number = 0; hairRef: number = 0;
+  /** 发丝**作为通道**：仅当 `hairWired` 时参与判定，且按**发丝自己的门槛**（浅 1.3201 / 深 1.20）。 */
+  hairOk: boolean = false; hairFloor: number = 0;
   bestWired: number = 0; winner: string = '';
 }
 function audit(p: Palette, x: Pair): Aud {
@@ -90,9 +97,12 @@ function audit(p: Palette, x: Pair): Aud {
   a.fill = contrastRatio(x.upper, x.lower);
   a.edge = x.edge.length === 0 ? 1 : contrastRatio(compositeOver(scaleAlpha(x.edge, 0.5), x.lower), x.lower);
   a.glowPotential = contrastRatio(compositeOver(scaleAlpha(e.glow, 0.5), x.lower), x.lower);  // ⛔ 未接线，仅报潜力
-  a.hairRef = contrastRatio(hairlineOf(p), x.lower);                                          // ⛔ 浮层不接线，仅参考
+  a.hairRef = contrastRatio(hairlineOf(p), x.lower);
+  a.hairFloor = isLightPalette(p) ? HAIRLINE_MIN_LIGHT : HAIRLINE_MIN_DARK;
+  a.hairOk = x.hairWired && a.hairRef >= a.hairFloor;   // ⛔ 按发丝**自己的**标准（比面差严）
   a.bestWired = Math.max(a.fill, a.edge);
   a.winner = a.bestWired === a.fill ? '填充' : a.edgeLabel;
+  if (a.hairOk) { a.bestWired = Math.max(a.bestWired, a.hairFloor); a.winner = '发丝'; }
   return a;
 }
 
@@ -127,7 +137,7 @@ ok('深色的**发光通道潜力远够**（≥1.20）⇒ 缺口是"没接线"�
   Math.min(...auds.map((a) => a.glowPotential)) >= 1.2);
 ok('深色达标的对里，最强已接线通道 ∈ {填充, 玻璃描边, 影·浮层档(发光)}（黑影一条都没赢）',
   auds.filter((a) => a.bestWired >= SURFACE_DIFF_MIN)
-    .every((a) => a.winner === '填充' || a.winner === '玻璃描边' || a.winner === '影·浮层档'));
+    .every((a) => a.winner === '填充' || a.winner === '玻璃描边' || a.winner === '影·浮层档' || a.winner === '发丝'));
 
 console.log('\n▶ §C 缺口表（**已接线**通道全部 <1.03 ⇒ 该层级对没有可靠边界）');
 const gaps: Aud[] = auds.filter((a) => a.bestWired < SURFACE_DIFF_MIN);
@@ -143,7 +153,9 @@ console.log('\n▶ §D 判据 + 受管例外（⛔ 只许缩短）');
 //    新缺口出现 ⇒ 实测**大于**本表 ⇒ 也必红。两种方向都拦得住（"只许缩短"的真正实现）。
 // ⚠️ 2026-10-11 复跑：`0c0f13f`（深色 `ELEV_OVERLAY` 改走发光通道）已修掉 **卡→浮层 / 画布→浮层**
 //    ⇒ 本表按"**只许缩短**"从 4 项缩到 **2 项**（缩短的依据 = 实测缺口集合变了，见下面那条 ok 断言）。
-const PENDING_SPEC: string[] = ['画布→卡', '画布→下沉'];
+// ⚠️ 2026-10-11 裁定（§F）：`画布→卡` **有已接线的发丝通道**（1.2194 ≥ 发丝门槛 1.20）
+//    ⇒ 不再是缺口，从本表删除（**只许缩短** ✓）。余下唯一缺口 = `画布→下沉`（well/chip，无任何通道）。
+const PENDING_SPEC: string[] = ['画布→下沉'];
 ok(`实测缺口集合 == 登记表（实测 ${gaps.length} / 登记 ${PENDING_SPEC.length}）`,
   gaps.length === PENDING_SPEC.length && gaps.every((a) => PENDING_SPEC.indexOf(a.pair) >= 0));
 function darkBoundaryOk(as: Aud[], exempt: string[]): boolean {
@@ -186,6 +198,39 @@ ok('同层级(overlay)比对：修复后**深色浮层档（发光）强于浅�
 console.log(`    浅色浮层影 ${lOverlay.map(a=>a.edge.toFixed(4)).join('/')} vs 深色浮层影 ${dOverlay.map(a=>a.edge.toFixed(4)).join('/')}`);
 ok('浅色的**浮层**没有缺口（白度差 + 柔影至少一条够）',
   audsL.filter((a) => a.pair.indexOf('浮层') >= 0).every((a) => a.bestWired >= SURFACE_DIFF_MIN));
+
+console.log('\n▶ §F 裁定与数据：发丝算不算通道 + 浅色 well/chip 该不该加内凹发丝');
+// ── A. 发丝裁定（机制见下方 ok 断言）──────────────────────────────────────────
+// 判据：`surfaceHairlineOf` 在生产代码里 **0 消费方**（9 处全在 tools/）⇒ **声明≠接线**；
+//       但**组件侧确实画了** —— 用 `surface.card` 填充的 5 个组件（SubAgentTree/SettingsPanel/
+//       PluginHost/PluginWidgets/SettingsRows）**全都**调了 `hairlineOf(pal)` ⇒ **通道是渲染事实**。
+//       ⇒ 裁定：**算**（按"只计已接线通道"= 只看是否真的画出来，不看哪个 API 触发的）。
+ok('裁定 A：`画布→卡` 的发丝通道已接线 ⇒ 1.0217 的填充差由发丝（≥1.20）接管 ⇒ 不再是缺口',
+  auds[0].hairOk === true && auds[0].bestWired >= SURFACE_DIFF_MIN);
+// ── B. 浅色 well/chip（画布→下沉）数据 ────────────────────────────────────────
+console.log('  ' + pad('主题', 11) + pad('画布→下沉(填充)', 18) + pad('下沉发丝vs画布', 16) + pad('下沉发丝vs下沉', 16) + '发丝自己的门槛');
+for (let i = 0; i < ALL_THEMES.length; i++) {
+  const p: Palette = paletteOf(ALL_THEMES[i]);
+  const s2 = surfacesOf(p);
+  const h: string = hairlineOf(p);
+  const floor: number = isLightPalette(p) ? HAIRLINE_MIN_LIGHT : HAIRLINE_MIN_DARK;
+  console.log('  ' + pad(ALL_THEMES[i], 11)
+    + pad(contrastRatio(s2.sunken, p.appBg).toFixed(4), 18)
+    + pad(contrastRatio(h, p.appBg).toFixed(4), 16)
+    + pad(contrastRatio(h, s2.sunken).toFixed(4), 16) + floor.toFixed(4));
+}
+{
+  const pL2: Palette = paletteOf('porcelain');
+  const pD2: Palette = paletteOf('dark');
+  const wellsLight: number = contrastRatio(surfacesOf(pL2).sunken, pL2.appBg);
+  const wellsDark: number = contrastRatio(surfacesOf(pD2).sunken, pD2.appBg);
+  console.log(`  浅色 well/chip 当前边界 = ${wellsLight.toFixed(4)}（porcelain）；深色 = ${wellsDark.toFixed(4)}（dark）`);
+  console.log(`  若加内凹发丝：浅色会得到 ${contrastRatio(hairlineOf(pL2), surfacesOf(pL2).sunken).toFixed(4)}（发丝 vs 下沉）—— **浅色本来就有 ${wellsLight.toFixed(4)}**，加了是**锦上添花**不是补缺`);
+}
+ok('裁定 B 的数据依据：**浅色 well/chip 本来就分得开**（≥1.03）⇒ 内凹发丝对浅色是"增色"，对深色才是"补缺"',
+  contrastRatio(surfacesOf(paletteOf('porcelain')).sunken, paletteOf('porcelain').appBg) >= SURFACE_DIFF_MIN);
+ok('深色 well/chip 确实分不开（<1.03，且无任何已接线通道）⇒ 唯一残余缺口',
+  contrastRatio(surfacesOf(paletteOf('dark')).sunken, paletteOf('dark').appBg) < SURFACE_DIFF_MIN);
 
 console.log('\n▼ 摘要');
 console.log(`  阈值 SURFACE_DIFF_MIN = ${SURFACE_DIFF_MIN}（出处 DESIGN-SYSTEM §13.3；先例 palette_accent_rule.test.ts:55）`);
