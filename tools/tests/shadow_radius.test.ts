@@ -22,12 +22,13 @@ import {
 } from '../../entry/src/main/ets/core/theme';
 import {
   SHADOW_RADIUS_CARD, SHADOW_RADIUS_OVERLAY, SHADOW_RADIUS_HERO,
-  SHADOW_RADIUS_RAISED, SHADOW_RADIUS_PILL, LIGHT_SHADOW_DIFFUSION,
+  SHADOW_RADIUS_RAISED, SHADOW_RADIUS_PILL, SHADOW_RADIUS_PANEL,
+  SHADOW_RADIUS_DRAWER, LIGHT_SHADOW_DIFFUSION,
 } from '../../entry/src/main/ets/core/tokens';
 
 /** 档名 → 基础值（供逐档遍历）。 */
-const TIERS: string[] = ['card', 'overlay', 'hero', 'raised', 'pill'];
-const BASE: number[] = [SHADOW_RADIUS_CARD, SHADOW_RADIUS_OVERLAY, SHADOW_RADIUS_HERO, SHADOW_RADIUS_RAISED, SHADOW_RADIUS_PILL];
+const TIERS: string[] = ['card', 'overlay', 'hero', 'raised', 'pill', 'panel', 'drawer'];
+const BASE: number[] = [SHADOW_RADIUS_CARD, SHADOW_RADIUS_OVERLAY, SHADOW_RADIUS_HERO, SHADOW_RADIUS_RAISED, SHADOW_RADIUS_PILL, SHADOW_RADIUS_PANEL, SHADOW_RADIUS_DRAWER];
 
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean, extra?: string): void {
@@ -45,6 +46,8 @@ function eq(name: string, got: unknown, want: unknown): void {
   eq('档值快照：HERO = 26（= 登录徽标投影原字面量）', SHADOW_RADIUS_HERO, 26);
   eq('档值快照：RAISED = 18（= 登录 CTA 原字面量）', SHADOW_RADIUS_RAISED, 18);
   eq('档值快照：PILL = 14（= 发送钮原字面量）', SHADOW_RADIUS_PILL, 14);
+  eq('档值快照：PANEL = 28（= 登录玻璃卡原字面量）', SHADOW_RADIUS_PANEL, 28);
+  eq('档值快照：DRAWER = 24（= 抽屉 SPACE_XL 原值）', SHADOW_RADIUS_DRAWER, 24);
   ok('扩散系数 > 1（浅色更大半径）', LIGHT_SHADOW_DIFFUSION > 1);
   for (let i = 0; i < ALL_THEMES.length; i++) {
     const t: string = ALL_THEMES[i];
@@ -99,9 +102,10 @@ function eq(name: string, got: unknown, want: unknown): void {
       tk.indexOf('SHADOW_RADIUS_CARD') >= 0 && tk.indexOf('SHADOW_RADIUS_OVERLAY') >= 0
       && tk.indexOf('SHADOW_RADIUS_HERO') >= 0 && tk.indexOf('SHADOW_RADIUS_RAISED') >= 0
       && tk.indexOf('SHADOW_RADIUS_PILL') >= 0 && tk.indexOf('LIGHT_SHADOW_DIFFUSION') >= 0);
-    ok('theme.ets: 分派覆盖 hero/raised/pill（非死代码，测试即消费）',
+    ok('theme.ets: 分派覆盖 hero/raised/pill/panel/drawer（非死代码，测试即消费）',
       th.indexOf("if (tier === 'hero')") >= 0 && th.indexOf("if (tier === 'raised')") >= 0
-      && th.indexOf("if (tier === 'pill')") >= 0);
+      && th.indexOf("if (tier === 'pill')") >= 0
+      && th.indexOf("if (tier === 'panel')") >= 0 && th.indexOf("if (tier === 'drawer')") >= 0);
 
     // ── ★④ 不留"未消费"：新档必须被真实调用点消费 ─────────────────────────────────
     const consumers: string[] = ['SyntheticCard', 'AskUserSheet', 'MenuSheets', 'StatusSheet'];

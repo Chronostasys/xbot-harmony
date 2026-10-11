@@ -88,6 +88,8 @@ export const SHADOW_RADIUS_OVERLAY: number = SP_5;     // 20 —— 浮层级（
 export const SHADOW_RADIUS_HERO: number = 26;          // 26 —— 主视觉（登录徽标投影）
 export const SHADOW_RADIUS_RAISED: number = 18;        // 18 —— 抬升按钮（登录 CTA）
 export const SHADOW_RADIUS_PILL: number = 14;          // 14 —— 药丸控件（发送钮）
+export const SHADOW_RADIUS_PANEL: number = 28;         // 28 —— 大玻璃卡（登录卡投影）
+export const SHADOW_RADIUS_DRAWER: number = 24;        // 24 —— 侧边抽屉（= SPACE_XL）
 /** 浅色系**半径扩散系数**（>1 ⇒ 浅色柔影更"软"）。⛔ 深色臂不乘（逐字节不变）。 */
 export const LIGHT_SHADOW_DIFFUSION: number = 1.5;
 

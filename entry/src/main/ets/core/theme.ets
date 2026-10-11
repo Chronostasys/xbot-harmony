@@ -30,7 +30,8 @@
 /** 一套语义色板。字段名就是"用途"，不是"颜色"—— 这样浅色主题才可能正确。 */
 import {
   SHADOW_RADIUS_CARD, SHADOW_RADIUS_OVERLAY, SHADOW_RADIUS_HERO,
-  SHADOW_RADIUS_RAISED, SHADOW_RADIUS_PILL, LIGHT_SHADOW_DIFFUSION,
+  SHADOW_RADIUS_RAISED, SHADOW_RADIUS_PILL, SHADOW_RADIUS_PANEL,
+  SHADOW_RADIUS_DRAWER, LIGHT_SHADOW_DIFFUSION,
 } from './tokens';
 
 export class Palette {
@@ -867,7 +868,7 @@ export function effectsOf(p: Palette): Effects {
  * | 深色系 | `SHADOW_RADIUS_*`（**基础档，逐字节不变**） |
  * | 浅色系 | `round(SHADOW_RADIUS_* × LIGHT_SHADOW_DIFFUSION)`（**更大**） |
  *
- * 档名 → 基础：`hero`26 / `raised`18 / `overlay`20 / `pill`14 / 其余 `card`10。
+ * 档名 → 基础：`panel`28 / `hero`26 / `drawer`24 / `overlay`20 / `raised`18 / `pill`14 / 其余 `card`10。
  * ⛔ 判据按 `isLightPalette(p)`；⛔ 深色臂不乘扩散。
  */
 export function shadowRadiusOf(p: Palette, tier: string): number {
@@ -880,6 +881,8 @@ function shadowRadiusBaseOf(tier: string): number {
   if (tier === 'hero') { return SHADOW_RADIUS_HERO; }        // 26
   if (tier === 'raised') { return SHADOW_RADIUS_RAISED; }    // 18
   if (tier === 'pill') { return SHADOW_RADIUS_PILL; }        // 14
+  if (tier === 'panel') { return SHADOW_RADIUS_PANEL; }      // 28
+  if (tier === 'drawer') { return SHADOW_RADIUS_DRAWER; }    // 24
   if (tier === 'overlay') { return SHADOW_RADIUS_OVERLAY; }  // 20
   return SHADOW_RADIUS_CARD;                                 // 10（默认）
 }
