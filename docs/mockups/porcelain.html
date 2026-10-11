@@ -195,10 +195,10 @@ h1{font-size:21px;font-weight:600;letter-spacing:-.2px;max-width:960px;margin:0 
   background:radial-gradient(circle, var(--accent) 0%, var(--accent) 46%, rgba(0,0,0,0) 72%)}
 /* 轨道环：浅色 = pal().accent；深色 = pal().accentSoft */
 .orb .ring{position:absolute;inset:8px;border-radius:50%;border:1px solid var(--accent);opacity:.38}
-/* 细环（仪器环）：浅色 = pal().border；深色 = eff().glowSoft。tool 态**强度**变亮（ORB_TOOL_STROKE_SPAN=0.8） */
-.orb .thin{position:absolute;inset:2px;border-radius:50%;border:1px solid var(--border)}
-.th-p .orb .thin{opacity:.55}
-.th-p .orb.tool .thin{opacity:1}                                /* tool ⇒ 细环变亮（颜色维度不变） */
+/* 细环（仪器环）：浅色 = pal().hairline（DESIGN-SYSTEM §7.2）；深色 = eff().glowSoft。tool 态**强度**变亮（ORB_TOOL_STROKE_SPAN=0.8） */
+.orb .thin{position:absolute;inset:2px;border-radius:50%;border:1px solid var(--hairline)}
+.th-p .orb .thin{opacity:.5}
+.th-p .orb.tool .thin{opacity:.9}                                /* tool ⇒ 细环变亮（颜色维度不变） */
 .th-d .orb .thin{border-color:var(--accentSoft);opacity:.22}    /* glowSoft = accent@22% */
 .th-d .orb.tool .thin{opacity:1}
 .orb .tok{font-family:ui-monospace,Menlo,monospace;font-size:10px;color:var(--tm);text-align:center}
@@ -210,6 +210,8 @@ h1{font-size:21px;font-weight:600;letter-spacing:-.2px;max-width:960px;margin:0 
 .notice.fail .tx{color:var(--dangerText)}
 </style>
 </head>
+<!-- ⚠️ 2026-10-11 对齐：浅色细环按 DESIGN-SYSTEM §7.2 改用 hairline（#DFDFE1）、alpha 按代码实测改为 .5/.9。
+     深色侧细环的 alpha（.22 / 1.0）本次**未**对齐复核 —— 以代码为准，待专项核对。 -->
 <body>
 <h1>样张 5 · porcelain（原生独享白主题）—— 关键面逐色核验 · 深色对照</h1>
 <p class="sub">每一列色值**逐个**取自 <code>core/design.ets</code> 的 <code>colorOf(paletteOf('porcelain'), role)</code>
@@ -425,13 +427,13 @@ h1{font-size:21px;font-weight:600;letter-spacing:-.2px;max-width:960px;margin:0 
     <div class="phone th-p"><div class="scr">
       <div class="orbrow">
         <div class="orbwrap"><div class="orb"><div class="thin"></div><div class="ring"></div><div class="core"></div></div>
-          <div class="tok">thinking<br>细环 = border @.55</div></div>
+          <div class="tok">thinking<br>细环 = hairline @.5</div></div>
         <div class="orbwrap"><div class="orb tool"><div class="thin"></div><div class="ring"></div><div class="core"></div></div>
-          <div class="tok">tool<br>细环 = border @1.0</div></div>
+          <div class="tok">tool<br>细环 = hairline @.9</div></div>
       </div>
       <div class="body-pad" style="font-size:11px;color:var(--tm);line-height:1.6">
         两态<b>环色相同</b>（<code>statusRunning ≡ accent = #0071E3</code>）⇒ 静帧只能靠<b>细环强度</b>分辨。
-        细环颜色 = <code>pal().border #ECECEE</code>，tool 态强度 +<code>ORB_TOOL_STROKE_SPAN</code> 0.8（<b>颜色维度不变</b>）。
+        细环颜色 = <code>pal().hairline #DFDFE1</code>（<code>DESIGN-SYSTEM §7.2</code>「浅色细环 = <code>surfacesOf().hairline</code>」），tool 态强度 .5 → .9（<code>ORB_TOOL_STROKE_SPAN</code> 0.8）（<b>颜色维度不变</b>）。
         光晕 = <code>elev2</code>（<code>textPrimary@10%</code> 中性柔影，⛔ 零彩色发光）。
       </div>
     </div><div class="tag">porcelain</div></div>
