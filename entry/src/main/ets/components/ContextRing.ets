@@ -103,11 +103,13 @@ export struct ContextRing {
     })
   }
 
-  /** 明细浮层（web tooltip 文案；等宽字体对齐 web `font-mono`）。 */
+  /** 明细浮层（web tooltip 文案；等宽字体对齐 web `ContextRing.tsx:79` 的 `className="font-mono"`）。
+   *  文案是 `<pct>% · <used> / <available>` 这种**数字/单位**串 —— 等宽让数字位对齐、读起来不跳。 */
   @Builder
   DetailPop() {
     Text(this.label)
       .fontSize(FS_CAPTION)
+      .fontFamily('monospace')
       .fontColor(this.pal().textPrimary)
       .width('100%')
       .padding({ left: SP_3, right: SP_3, top: SP_1, bottom: SP_1 })

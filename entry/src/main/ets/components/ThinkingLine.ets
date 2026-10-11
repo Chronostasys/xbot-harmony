@@ -60,10 +60,14 @@ export struct ThinkingLine {
           .textOverflow({ overflow: TextOverflow.Ellipsis })
       }
       // 主高亮时：按共享呼吸刻度做**极弱**强调（0.72→1.0），不是第二个发光体
+      // ⛔ 静息态**不写** `stateStyles.normal.opacity`：`normal` 会接管该属性 ⇒ **盖掉**上一行的
+      //    动态 opacity ⇒ `思考 N 字` 的呼吸强调恒为 1（"假绿"：inflight_language 只校验这行源码
+      //    存在，看不见它被 normal 覆盖）。web 的按钮静息态**无** opacity 规则（`ThinkingLine.tsx:63`
+      //    只有 hover/active 的过渡）⇒ 原生端静息态交还给上面那条动态值，只有按压态覆盖。
       .opacity(this.live ? 0.72 + 0.28 * this.emphasis : 1)
       .padding({ left: SP_1, right: SP_1, top: 2, bottom: 2 })
       .borderRadius(R_LG)
-      .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
+      .stateStyles({ pressed: { .opacity(0.6) } })
       .onClick(() => {
         this.onToggle();
       })
@@ -75,7 +79,11 @@ export struct ThinkingLine {
           .opacity(0.75)
           .width('100%')
           .wordBreak(WordBreak.BREAK_WORD)
-          .padding({ left: SP_2, top: 2, bottom: 2 })
+          // 对齐 web `ThinkingLine.tsx:72`：展开体 = `mt-1`(4) 上间距 + `pl-2.5`(10) 左缩进。
+          // 原为「无上间距 + 左 8 + 上下各 2」⇒ 与头部贴死、缩进比 web 浅 2vp、且多出一份
+          // 与 web 无关的垂直内边距（web 展开体只有左缩进，无内边距）。
+          .margin({ top: SP_1 })
+          .padding({ left: 10, right: 0, top: 0, bottom: 0 })
           // 左栅栏是**结构性边界**（承载"这是思考展开体"的信息）⇒ 走 `hairline`
           // （浅色/极简白下比 `border` 明显更清楚；深色族 `hairline ≡ border` 逐字节零变化）。
           .border({ width: { left: 2 }, color: surfacesOf(paletteOf(this.theme)).hairline })

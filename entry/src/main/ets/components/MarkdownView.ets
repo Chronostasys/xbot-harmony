@@ -2,7 +2,7 @@ import { AuthImage } from './AuthImage';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { Palette, paletteOf, surfacesOf, Effects, effectsOf } from '../core/theme';
 import { codeBgOf, codeFgOf, codeTone, CodeTone, normalizeMdTheme } from '../core/mdtheme';
-import { R_SM, R_LG, SP_1, SP_2, SP_3 } from '../core/tokens';
+import { R_SM, R_MD, R_LG, SP_1, SP_2, SP_3 } from '../core/tokens';
 import {
   MdBlock, MdBlockKind, MdSpan, parseInlineCached, parseMarkdownCached,
   TableField, tableRowFields, useTableGrid,
@@ -54,14 +54,26 @@ export class MdInlineStyle {
   bg: string = '';
 }
 
-export function inlineStyles(text: string, pal: Palette, mdTheme: string): MdInlineStyle[] {
+/**
+ * 行内片段的**预计算样式**。
+ *
+ * 为什么在 TS 侧算好：ArkUI 的 `Text` 只接受 Span 类子组件，在 `Text(){ForEach(){ if/else }}`
+ * 里做条件渲染不保证支持 —— 这正是"渲染错乱"的典型来源。改成一维 ForEach + 纯属性赋值，
+ * 分支逻辑全部提前算完。
+ *
+ * `baseColor` = **普通文字**（非行内码 / 非链接）的前景色，默认 `pal.textPrimary`。
+ * 引用块传 `pal.textSecondary` —— 对齐 web `index.css:190 --md-blockquote-text: var(--text-secondary)`
+ * 与 `:567`（引用块整体弱一档），使引用在层次上**弱于正文**（原先引用文字与正文同色 ⇒ 层次塌陷，
+ * 引用只剩一条 3px 竖条在表达"这是引用"）。行内码 / 链接的颜色由各自分支覆盖，不受它影响。
+ */
+export function inlineStyles(text: string, pal: Palette, mdTheme: string, baseColor?: string): MdInlineStyle[] {
   const spans: MdSpan[] = parseInlineCached(text);
   const out: MdInlineStyle[] = [];
   const tone: CodeTone = codeTone(mdTheme);
   for (let i = 0; i < spans.length; i++) {
     const sp: MdSpan = spans[i];
     const st: MdInlineStyle = new MdInlineStyle();
-    st.color = pal.textPrimary;
+    st.color = baseColor !== undefined ? baseColor : pal.textPrimary;
     st.bg = pal.transparent;
     if (sp.code) {
       st.text = ` ${sp.text} `;
@@ -147,21 +159,31 @@ export struct MarkdownView {
       // 分隔线用**结构性发丝**（`Surfaces.hairline`）；原先误用 `surfaceHi`（那是"悬停/选中底色"，
       // 语义是 L3 填充不是分隔）⇒ 主题一变分隔线就与底色打架，且深浅下都不"安静"。
       // 深色族 `hairline ≡ border` 逐字节零变化；浅色/极简白下比 `border` 清楚（承载"分段"信息）。
-      Divider().color(surfacesOf(this.pal()).hairline).strokeWidth(1).margin({ top: 6, bottom: 6 })
+      Divider().color(surfacesOf(this.pal()).hairline).strokeWidth(1)
+        // web `index.css:583` `hr { margin: 1em 0 }`（正文 14px ⇒ 上下各 14）。
+        // ArkUI 的 `Column({space:6})` **不做 margin 折叠**（web 会折叠）⇒ 这里取 SP_2(8)，
+        // 合计 8+6=14 ≈ web 的 1em；原为 6 ⇒ 分隔线上下过挤、读作"粘连"。
+        .margin({ top: SP_2, bottom: SP_2 })
     } else if (b.kind === MdBlockKind.Quote) {
       // ⚠️ 左侧竖条必须用**边框**，绝不能用 `Divider().vertical(true).height('100%')`：
       // 父容器高度由内容决定时，子元素的百分比高度没有参照（循环测量）⇒ 竖条塌成 0 高、
       // 引用块失去唯一视觉标识。边框宽度是固定值、随容器自身高度拉伸，不存在百分比依赖。
       // 见 docs/ARKTS-GOTCHAS.md 第 12 条。同类：任何"内容定高"的父容器里都不要放百分比高度子元素。
       Column() {
-        this.Inline(b.text)
+        // 引用正文走 textSecondary（web `index.css:190/567`）—— 层次**弱于正文**，
+        // 让 3px accent 竖条成为唯一的"强调"，而不是引用块里外都是同一档字色。
+        this.Inline(b.text, this.pal().textSecondary)
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
-      .padding({ left: 11, right: SP_2, top: SP_2, bottom: SP_2 })
+      // 对齐 web `index.css:566` `padding: 0 0.75em`（左右 12，上下 0）；原生端给上下各 SP_1(4)
+      // 留一点呼吸（web 靠 margin 折叠、原生 Column 不折叠）⇒ 原 SP_2(8)+8 过厚、玻璃块显得笨重。
+      .padding({ left: 11, right: SP_3, top: SP_1, bottom: SP_1 })
       // 引用块：左侧 3px accent 竖条 + 半透明玻璃底（竖条必须用 border，见上）
       .backgroundColor(this.eff().glassBg)
-      .borderRadius(R_LG)
+      // 圆角对齐 web `index.css:569` `border-radius: 0 4px 4px 0`：**只有右侧**两角圆角，
+      // 左侧贴 3px 竖条保持方角（原为四角 8vp ⇒ 竖条两端"翘"出圆角，读作描边而非结构边界）。
+      .borderRadius({ topRight: R_SM, bottomRight: R_SM })
       .border({ width: { left: 3, top: 0, right: 0, bottom: 0 }, color: this.pal().accent })
     } else if (b.kind === MdBlockKind.List) {
       Column({ space: 3 }) {
@@ -171,7 +193,7 @@ export struct MarkdownView {
               .fontSize(14)
               .fontColor(this.pal().textSecondary)
               .margin({ top: 2 })
-            this.Inline(item)
+            this.Inline(item, this.pal().textPrimary)
           }
           .width('100%')
           .alignItems(VerticalAlign.Top)
@@ -183,7 +205,7 @@ export struct MarkdownView {
     } else if (b.kind === MdBlockKind.Table) {
       this.TableBlock(b)
     } else {
-      this.Inline(b.text)
+      this.Inline(b.text, this.pal().textPrimary)
       // 图片：xbot 的图片引用是 cookie 鉴权端点（ArkUI Image(url) 不带 cookie）
       // ⇒ 由页面取字节，AuthImage 负责解码/显示/缓存；点按交给查看器。
       ForEach(imagesIn(b.text), (src: string, k: number) => {
@@ -198,11 +220,12 @@ export struct MarkdownView {
     }
   }
 
-  /** 段落/引用/列表项的行内渲染（零条件分支：样式全部预计算）。 */
+  /** 段落/引用/列表项的行内渲染（零条件分支：样式全部预计算）。
+   *  `baseColor` 透传给 `inlineStyles`（引用传 textSecondary，其余传 textPrimary）。 */
   @Builder
-  Inline(text: string) {
+  Inline(text: string, baseColor: string) {
     Text() {
-      ForEach(inlineStyles(text, this.pal(), this.mdTheme), (s: MdInlineStyle) => {
+      ForEach(inlineStyles(text, this.pal(), this.mdTheme, baseColor), (s: MdInlineStyle) => {
         Span(s.text)
           .fontSize(this.sz(s.size))
           .fontColor(s.color)
@@ -234,9 +257,13 @@ export struct MarkdownView {
   CodeBlock(b: MdBlock) {
     Column() {
       Row() {
+        // 语言标签：对齐 web `MarkdownRenderer.tsx:214`（`font-mono text-[11px]`）+
+        // `index.css:199 --md-code-lang-text: var(--text-muted)`。原为 textSecondary 且非等宽
+        // ⇒ 标签比"语言名"该有的分量更抢眼，且与代码区的等宽字不同族。
         Text(b.lang.length > 0 ? b.lang : 'code')
           .fontSize(11)
-          .fontColor(this.pal().textSecondary)
+          .fontFamily('monospace')
+          .fontColor(this.pal().textMuted)
           .layoutWeight(1)
         Text('复制')
           .fontSize(11)
@@ -255,7 +282,7 @@ export struct MarkdownView {
       .width('100%')
       .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_1 })
       .backgroundColor(this.pal().surfaceAlt)
-      .borderRadius({ topLeft: R_LG, topRight: R_LG })
+      .borderRadius({ topLeft: R_MD, topRight: R_MD })
       // 顶部细条（语言标签条）与代码区之间一条玻璃分隔线
       .border({ width: { bottom: 1 }, color: this.eff().glassBorder })
 
@@ -276,8 +303,10 @@ export struct MarkdownView {
     // 代码块：**用所选 Markdown 主题的代码底/字**（与 web markdown-themes 同源；
     // 不跟随会退化成"23 套主题长得一模一样"的假功能）。圆角与描边保持全局语言。
     .backgroundColor(codeBgOf(this.mdTheme, this.pal()))
-    .borderRadius(R_LG)
+    .borderRadius(R_MD)
     .border({ width: 1, color: this.eff().glassBorder })
+    // 代码块用 6vp 圆角（web `MarkdownRenderer.tsx:206` `rounded-md` = 6px）——与 web 的
+    // 内容块（代码/参数/工具卡）同一档；原先 8vp（R_LG）与"卡片 12vp"之间没有层级依据。
     .margin({ top: SP_1, bottom: SP_1 })
   }
 

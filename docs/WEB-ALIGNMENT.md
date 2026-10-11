@@ -519,3 +519,44 @@ executing，两枚都显示「排队」）。live 块里的工具**都是本迭�
   因玻璃材质当前锁 DARK，冷启动走 dark 限定符 ⇒ **无白闪割裂**。
 
 
+
+## 15. 第八批（波5k，2026-10-11）：消息流「骨肉」观感对齐（思考行/正文/上下文环/工具浮层）
+
+> 范围：`components/{ThinkingLine,MarkdownView,ContextRing,ToolPopover}.ets`（只这 4 个文件）。
+> 原则：**每个数值都有 web 权威基准的 file:line**（不是"看着顺眼"）；层次靠留白/亮度，颜色一律 token。
+> 契约：`tools/tests/msgflow_visual.test.ts`（29 条，逐条钉住具体数值/字面量；回退即红，已跑 mutation 自证）。
+
+### 15.1 逐条差异表（web 基准 → 原生）
+
+| 组件 | 项 | web 基准 | 原生旧值 | 原生新值 | 依据 |
+|---|---|---|---|---|---|
+| ThinkingLine | 展开体上间距 | `mt-1` = 4 | 无（`padding top 2`） | `margin top SP_1(4)` | `ThinkingLine.tsx:72` |
+| ThinkingLine | 展开体左缩进 | `pl-2.5` = 10 | `SP_2` = 8 | `10` | `ThinkingLine.tsx:72` |
+| ThinkingLine | 静息态 opacity | 无（`:63` 只有 hover/active 过渡） | `stateStyles.normal.opacity = 1`（**盖掉**动态强调） | 去掉 `normal`，仅 `pressed` | `ThinkingLine.tsx:63` |
+| MarkdownView | 代码块圆角 | `rounded-md` = 6 | `R_LG` = 8 | `R_MD` = 6 | `MarkdownRenderer.tsx:206` |
+| MarkdownView | 语言标签 | `font-mono text-[11px]` + `--md-code-lang-text`(=muted) | 非等宽 + `textSecondary` | 等宽 + `textMuted` | `MarkdownRenderer.tsx:214`、`index.css:199` |
+| MarkdownView | 引用块内边距 | `padding: 0 0.75em` | 左 11/右 8/上 8/下 8 + 四角 8 | 左 11/右 12/上 4/下 4 + **仅右两角 4** | `index.css:566,569` |
+| MarkdownView | 引用块字色 | `--md-blockquote-text` = text-secondary | `textPrimary`（与正文同） | `textSecondary` | `index.css:190,567` |
+| MarkdownView | 分隔线外边距 | `hr { margin: 1em 0 }`（≈14） | 6/6 | `SP_2`(8)+Column space 6 ≈ 14 | `index.css:583` |
+| ContextRing | 浮层文案字体 | `font-mono` | 默认 | `monospace` | `ContextRing.tsx:79` |
+| ToolPopover | 代码/输出行字号 | `text-[12px]`（ArgsView/输出块） | 11 | 12 | `ToolCallBlock.tsx:66,98` |
+| ToolPopover | 代码/输出块内边距 | `px-2.5 py-1.5`（10/6） | `SP_2` 四周 8 | 左右 10 / 上下 6 | `ToolCallBlock.tsx:66,98` |
+
+**故意不改（非遗漏，有理由）**：
+- **表格表头底**：web `index.css:582` `th { background: var(--bg-secondary) }` = `surface`；原生卡片底即
+  `surface` ⇒ 照搬会**同色不可见**。保留 `surfaceAlt`（可见且安静，符合"层次靠亮度"）。
+- **正文字号 15 / 标题阶梯**：`FS_BODY`=14 是 web `text-sm`，但原生正文用 15（设计系统既有决定）；
+  标题阶梯 20/18/16/15 已按 web `h1..h4` 的 `1.4/1.25/1.1/1em` 换算，不改。
+- **标题外边距**：web 的 `1em` 依赖 CSS **margin 折叠**；原生 `Column({space:6})` **不折叠** ⇒ 逐值搬运会
+  放大间距，故只做"分隔线 6→8"这类不依赖折叠的修正。
+
+### 15.2 ⚠️ 顺带发现（**不属本波范围，转交接线波**）
+
+`GoalBanner.ets` 被 `pages/Index.ets`（接线波的未提交改动）接入消费后，ArkTS **才开始类型检查它**，
+一次性暴露两处**早已存在**的编译错误（此前因"孤儿组件不被检查"而假绿，见 `docs/ARKTS-GOTCHAS.md`）：
+
+1. `private borderColor()` —— 与 `CustomComponent` 基类成员**同名**（`10505001`）⇒ 改名（如 `bannerColor`）；
+2. `$r('sys.symbol.circle_badge_checkmark')` —— **SDK 无此符号**（`id_defined.json` 只有
+   `arrow_down_circle_badge_checkmark` / `circle_circle_badge_checkmark_shield_filled`）⇒ 换已存在符号。
+
+⇒ 这两条让 `bash tools/gate.sh` 的第 ④ 步当前为红；修好前任何人的 ArkTS 编译都不过。

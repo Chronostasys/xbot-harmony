@@ -242,7 +242,7 @@ export struct ToolPopoverCard {
         Span(sp.text).fontColor(this.keyColor(sp.key))
       }, (sp: HlSpan, si: number) => `s${li}_${si}`)
     }
-    .fontSize(11)
+    .fontSize(12)
     .fontFamily('monospace')
     .wordBreak(WordBreak.NORMAL)
     .maxLines(1)
@@ -255,7 +255,9 @@ export struct ToolPopoverCard {
   PlainLine(ln: string, li: number) {
     Text(ln.length > 0 ? ln : ' ')
       .wordBreak(WordBreak.NORMAL)
-      .fontSize(11)
+      // 等宽 12（web `ToolCallBlock.tsx:98` 输出块 `text-[12px]`）——与代码行同号，
+      // 同一浮层里"代码/终端输出"的字号必须一致（原先 11 比 web 小 1 ⇒ 与代码块观感分叉）。
+      .fontSize(12)
       .fontFamily('monospace')
       .fontColor(this.lineColor(classifyLine(ln)))
       .maxLines(1)
@@ -284,7 +286,8 @@ export struct ToolPopoverCard {
       .scrollBar(BarState.Auto)
       .width('100%')
       .constraintSize({ maxHeight: BODY_MAX_H })
-      .padding(SP_2)
+      // 内边距对齐 web `ToolCallBlock.tsx:66`（JSON 参数块 `px-2.5 py-1.5` = 左右 10 / 上下 6）
+      .padding({ left: 10, right: 10, top: 6, bottom: 6 })
       .backgroundColor(this.surf().sunken)
       .borderRadius(R_MD)
     }
@@ -307,7 +310,8 @@ export struct ToolPopoverCard {
       .scrollBar(BarState.Auto)
       .width('100%')
       .constraintSize({ maxHeight: BODY_MAX_H })
-      .padding(SP_2)
+      // 内边距对齐 web `ToolCallBlock.tsx:98`（终端输出块 `px-2.5 py-1.5` = 左右 10 / 上下 6）
+      .padding({ left: 10, right: 10, top: 6, bottom: 6 })
       .backgroundColor(this.surf().sunken)
       .borderRadius(R_MD)
     }
