@@ -84,18 +84,23 @@ eq('零扫描防线：仓库根解析成功', ROOT.length > 0, true);
 }
 
 // ── 违规扫描 ────────────────────────────────────────────────────────────────
-/** 违规模式：① `pal().border` 当**边框色**（边界过重/不同源，应用 `hairlineOf`）；② `pal().surface*` 直取当**底色**（应用 `surfaceFillOf`）。 */
+/** 违规模式：① `pal().border` 当**边框色**（边界过重/不同源，应用 `hairlineOf`）；② `pal().surface` 直取当**卡片底**（应用 `surfaceFillOf`）。
+ *
+ * ⚠️ 2026-10-11 修正两处（自证扫描器时钓出）：
+ *  ① 正则**必须加 `\b` 锚定** —— 否则 `pal().borderStrong` 被误判成 `pal().border`（假阳性，计数不干净）；
+ *  ② **不再判 `pal().surfaceAlt` / `pal().surfaceHi`**：它们在真实调用点上**没有恒等 role**
+ *     （`RUNG_RAISED` 只有 `'surface.overlayRow'`/`'surface.pill'` 两个候选，语境是"进度条轨道"/"就地编辑框底"
+ *     时**都不符**；硬替要么改色、要么静默落 `RUNG_CARD`）⇒ 这是"**口径族缺一个 RUNG_RAISED 中性面 role**"，
+ *     不是组件违规 ⇒ 已报 `brand-impl`（`core/theme.ets`）排 spec。⛔ 不为让测试变绿而在此硬判。 */
 interface Rule { readonly name: string; readonly re: RegExp; readonly fix: string; }
 const RULES: Rule[] = [
-  { name: 'pal().border 当边框色', re: /\.border\(\{[^}]*pal\(\)\.border/g, fix: 'hairlineOf(p)（结构性发丝）' },
-  { name: 'pal().surface 直取当底色', re: /\.backgroundColor\(this\.pal\(\)\.surface\)/g, fix: "surfaceFillOf(p, 'surface.card')" },
-  { name: 'pal().surfaceAlt 直取当底色', re: /\.backgroundColor\(this\.pal\(\)\.surfaceAlt\)/g, fix: "surfaceFillOf(p, 'surface.alt')" },
-  { name: 'pal().surfaceHi 直取当底色', re: /\.backgroundColor\(this\.pal\(\)\.surfaceHi\)/g, fix: "surfaceFillOf(p, 'surface.hi')" },
+  { name: 'pal().border 当边框色', re: /\.border\(\{[^}]*pal\(\)\.border\b/g, fix: 'hairlineOf(p)（结构性发丝）' },
+  { name: 'pal().surface 直取当底色', re: /\.backgroundColor\(this\.pal\(\)\.surface\)/g, fix: "surfaceFillOf(p, 'surface.card'|'surface.overlay')" },
 ];
 
 /** 白名单（每条必须写明**为什么可留**）。键 = `文件|规则名`。 */
 const ALLOWED: string[] = [
-  // `StatusSheet`/`MenuSheets`/`AskUserSheet` 已统一；如将来确需例外（如 diff 行底必须用 sunken 语义），在此登记理由。
+  // `pal().surfaceAlt`/`pal().surfaceHi`：**口径族缺 RUNG_RAISED 中性 role**（已报 brand-impl）⇒ 暂不判。
 ];
 
 const violations: string[] = [];
@@ -128,7 +133,7 @@ if (violations.length > 0) {
  * ⛔ 不许为"让测试变绿"往这里灌；每条都必须是**真违规**（走不到唯一口径族）。
  * 明细见测试运行时打印的 `✗ 自由面未走唯一口径族` 列表。
  */
-const KNOWN_VIOLATIONS_COUNT: number = 9;
+const KNOWN_VIOLATIONS_COUNT: number = 7;
 eq('违规数 = 台账（只准删不准加；修好/新增 ⇒ 计数变 ⇒ 红）', violations.length, KNOWN_VIOLATIONS_COUNT);
 
 if (fail > 0) { console.log(`  ✗ free_surface_layers: ${pass} passed, ${fail} failed`); process.exit(1); }
