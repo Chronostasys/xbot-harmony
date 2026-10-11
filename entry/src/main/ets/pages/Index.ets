@@ -88,6 +88,7 @@ import {
   linksIn, mergeAskAnswers, PendingEdit, resolveOpenable, RewindTarget, toolArgsOnly, toolCopyText,
   toolResultOnly,
 } from '../core/msgops';
+import { PendingSeq } from '../core/pendingedit';
 import {
   AskOption,
   AskQuestion,
@@ -704,6 +705,12 @@ struct Index {
 
   /** todos 的乐观覆盖层（web `usePendingEdit.ts:57-95`）：本地勾选/改名不被更旧的快照盖掉。 */
   private pendingTodos: PendingEdit = new PendingEdit();
+  /**
+   * todos 乐观覆盖的**提交闸门**（web `usePendingEdit.ts` 的单调序号语义；判据/实现见
+   * `core/pendingedit.ets` —— 本字段即该移植件的**真实消费点**）。
+   * `begin()` 发号 → RPC 成功 `acceptSeq(seq)` 记账 → 失败 `discard()` 作废更旧提交。
+   */
+  private pendingSeq: PendingSeq = new PendingSeq();
 
   private store: ChatStore | null = null;
   /** 合并同步用：待同步的 store 与"已排帧"标志（见 scheduleSync） */
@@ -2220,14 +2227,17 @@ struct Index {
       return;
     }
     // 乐观覆盖（web `usePendingEdit`）：立即本地生效 + 记 pending，挡住在途的**更旧**快照。
+    const seq: number = this.pendingSeq.begin(); // ① 提交序号（乱序防护）
     this.pendingTodos.commit(todosFpOf(next));
     this.todos = next;
     this.todosFp = todosFpOf(next);
     try {
       await rpc<Object>(store.http, 'set_todos',
         new SetTodosParams(store.channel, store.currentChatId, todoPayloadRows(next)));
+      this.pendingSeq.acceptSeq(seq); // ② RPC 成功 ⇒ 本次提交记账（更旧的提交不得回写）
     } catch (e) {
       // 失败：放弃本地覆盖，下一次同步回落到服务端权威值
+      this.pendingSeq.discard(); // ③ 放弃覆盖（把 applied 推到 issued ⇒ 更旧提交作废）
       this.pendingTodos.discard();
       this.toast(`更新清单失败: ${errText(e as Object)}`);
     }

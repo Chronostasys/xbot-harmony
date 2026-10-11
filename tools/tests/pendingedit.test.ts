@@ -14,11 +14,18 @@
  *   · `goalEqual` null 分支写反                ⇒ 「null vs null 相等 / null vs 有值不等」红。
  */
 declare const process: { exit: (c: number) => void };
+declare function require(m: 'fs'): { readFileSync(p: string, e: string): string };
+declare function require(m: 'path'): { join(...parts: string[]): string };
+declare const __dirname: string;
 
 import {
   PendingSeq, goalEqual, pendingConverged, pendingShown, todosListEqual,
 } from '../../entry/src/main/ets/core/pendingedit';
 import { GoalInfo, TodoItem } from '../../entry/src/main/ets/core/types';
+
+const fsMod = require('fs');
+const pathMod = require('path');
+const repoRoot = pathMod.join(__dirname, '..', '..', '..', '..');
 
 let pass = 0, fail = 0;
 function eq(name: string, got: unknown, want: unknown): void {
@@ -104,6 +111,40 @@ function ok(name: string, cond: boolean): void {
   // pendingShown
   eq('★C 有覆盖 ⇒ 显示覆盖值（用户立刻看到自己的编辑）', pendingShown(true, 'NEW', 'OLD'), 'NEW');
   eq('★C 无覆盖 ⇒ 显示服务端快照', pendingShown(false, 'NEW', 'OLD'), 'OLD');
+}
+
+// ── D. 消费点（源码形态）：`pages/Index.ets` 的 goal/todos 路径必须**真的挂上**三个钩子 ─────
+// ⛔ 判据≠信号：**剥注释**后按**调用点**计数（不钉"方法体存在"）；零扫描判红。
+// 背景：门禁 ⑧ 会判"core/ 模块零跨文件消费者" —— 本组就是那条的正面判据（有消费者 + 挂对了）。
+{
+  const pagePath = pathMod.join(repoRoot, 'entry', 'src', 'main', 'ets', 'pages', 'Index.ets');
+  const pageSrc: string = fsMod.readFileSync(pagePath, 'utf-8');
+  const noBlock: string = pageSrc.replace(/\/\*[\s\S]*?\*\//g, '');
+  const lines: string[] = noBlock.split('\n');
+  const codeLines: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const ln: string = lines[i];
+    const idx: number = ln.indexOf('//');
+    codeLines.push(idx >= 0 && (idx === 0 || ln.charAt(idx - 1) !== ':') ? ln.substring(0, idx) : ln);
+  }
+  const pageCode: string = codeLines.join('\n');
+  const countCalls = (name: string): number => {
+    const re = new RegExp(`pendingSeq\\.${name}\\(`, 'g');
+    let n = 0;
+    let m = re.exec(pageCode);
+    while (m !== null) { n++; m = re.exec(pageCode); }
+    return n;
+  };
+  const beginCalls: number = countCalls('begin');
+  const acceptCalls: number = countCalls('acceptSeq');
+  const discardCalls: number = countCalls('discard');
+  ok('★D 零扫描判红：三个挂钩都得有调用点（不然是"接了个空壳"）',
+    beginCalls > 0 && acceptCalls > 0 && discardCalls > 0);
+  eq('★D begin() 有调用点', beginCalls >= 1, true);
+  eq('★D acceptSeq() 有调用点（RPC 成功后记账）', acceptCalls >= 1, true);
+  eq('★D discard() 有调用点（失败放弃覆盖）', discardCalls >= 1, true);
+  ok('★D 页面确实 import 了 ../core/pendingedit（跨文件真实消费）',
+    pageCode.indexOf("from '../core/pendingedit'") >= 0);
 }
 
 if (fail > 0) { console.log(`  pendingedit: ${pass} passed, ${fail} failed`); process.exit(1); }
