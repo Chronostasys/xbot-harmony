@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>03 · 工具与状态（静态样张）— xbot-harmony</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   xbot-harmony · 03-tool-states.html —— **纯静态**样张（内嵌 CSS / 无外部依赖 / 无 JS）
+   所有数值 = **令牌层真值**（core/design.ets + core/theme.ets），逐处标注 token 名。
+   ⛔ 本文件不含任何动画；"在飞"动效只属于光球（本图之外）。
+   生成方式：`core/design.ets` / `core/theme.ets` / `core/toolvisual.ets` 的纯函数在 Node 里
+   跑出真值后内联（见交付说明），**没有任何手改的色值**。
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 排版/尺度（core/design.ets）──────────────────────────────────────────
+   type.micro    = size 10 / w500 / lh1.20 / track 0.2 / color textSecondary
+   type.subhead  = size 13 / w500 / lh1.40 / track 0     / color textPrimary
+   type.caption  = size 12 / w400 / lh1.35 / track 0.1   / color textSecondary
+   type.body     = size 15 / w400 / lh1.55 / track 0     / color textPrimary
+   type.headline = size 17 / w600 / lh1.30 / track 0     / color textPrimary
+   RADIUS_PILL=8  RADIUS_CHIP=6  RADIUS_CARD=12  RADIUS_SHEET=16
+   INSET_CHIP_X=4 INSET_CHIP_Y=2 GUTTER_SCREEN=16 GAP_BLOCK=4  ──────────── */
+:root{
+  --space-hair:2px; --space-xxs:4px; --space-xs:8px; --space-sm:12px; --space-md:16px; --space-lg:20px;
+  --r-chip:6px; --r-pill:8px; --r-card:12px; --r-sheet:16px;
+  --pill-marker-slot:14px;            /* core/toolvisual.PILL_MARKER_SLOT（⛔ design.ets 无此 token）*/
+  --press-opacity:0.6;                /* design.PRESS_OPACITY */
+  --hit-min:44px;                     /* design.HIT_TARGET_MIN */
+}
+*{box-sizing:border-box}
+body{margin:0;padding:var(--space-md);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif;background:#2a2a2e;color:#e8e8ea}
+h1{font-size:20px;margin:0 0 6px}
+h2{font-size:16px;margin:28px 0 8px;font-weight:600}
+h3{font-size:13px;margin:18px 0 6px;font-weight:600;color:#b9b9c0}
+.why{max-width:1000px;background:#35353b;border-left:3px solid #8f73ff;padding:12px 14px;border-radius:8px;line-height:1.65;font-size:13px}
+.why b{color:#fff}
+.muted{color:#9a9aab;font-size:12px;line-height:1.6}
+.tok{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:#8fd6c0;background:#1f1f24;border:1px solid #33333b;border-radius:4px;padding:0 4px;white-space:nowrap}
+.miss{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#ffb4a2;background:#3a2320;border:1px solid #6b3a33;border-radius:4px;padding:0 4px;white-space:nowrap}
+.board{border:1px solid #44444c;border-radius:var(--r-card);padding:14px;margin:10px 0}
+.board > .head{display:flex;align-items:baseline;gap:10px;margin-bottom:10px}
+.board > .head .t{font-size:14px;font-weight:600}
+.row{display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+.grayrow{filter:grayscale(1)}
+.graylabel{font-size:11px;color:#9a9aab;margin-top:6px}
+
+/* ── 主题作用域（core/theme.ets 的 paletteOf + core/design.ets 的 surfaceFillOf）── */
+.t-dark{background:#0B0B0E;color:#EDEDF2;
+  --canvas:#0B0B0E; --card:#0E0E14; --overlay:#0E0E14; --overlayRow:#14141C; --overlayRowHover:#1D1D28;
+  --pill:#14141C; --pillSelected:#1D1D28; --chip:#0B0B0F; --well:#0B0B0F; --hairline:#20202B;
+  --textPrimary:#EDEDF2; --textSecondary:#9A9AAB; --textMuted:#63636F;
+  --accent:#7C5CFF; --accentSoft:#B9A7FF; --successText:#86EFC4; --dangerText:#FF7B7B; --warn:#E8B44A; }
+.t-light{background:#F8FAFC;color:#0F172A;
+  --canvas:#F8FAFC; --card:#FFFFFF; --overlay:#FFFFFF; --overlayRow:#F1F5F9; --overlayRowHover:#E2E8F0;
+  --pill:#F1F5F9; --pillSelected:#E2E8F0; --chip:#F1F1F2; --well:#F1F1F2; --hairline:#D5DBE2;
+  --textPrimary:#0F172A; --textSecondary:#475569; --textMuted:#94A3B8;
+  --accent:#6D28D9; --accentSoft:#1D4ED8; --successText:#065F46; --dangerText:#B91C1C; --warn:#92400E; }
+.t-porcelain{background:#FFFFFF;color:#1D1D1F;
+  --canvas:#FFFFFF; --card:#FFFFFF; --overlay:#FFFFFF; --overlayRow:#F6F6F7; --overlayRowHover:#EDEDEF;
+  --pill:#F6F6F7; --pillSelected:#EDEDEF; --chip:#F2F2F2; --well:#F2F2F2; --hairline:#DFDFE1;
+  --textPrimary:#1D1D1F; --textSecondary:#6E6E73; --textMuted:#A2A2A7;
+  --accent:#0071E3; --accentSoft:#0066CC; --successText:#166534; --dangerText:#B42318; --warn:#B26A00; }
+
+/* ── 工具 pill（结构照 components/ToolVisual.ets；⛔ 无动效）──────────────── */
+.pill{display:inline-flex;align-items:center;gap:var(--space-xxs);
+  /* pill 内距：左右=SP_2(8) [tokens]；上下=5 ⛔ 硬编码，design.ets 无 INSET_PILL ⇒ 缺 token */
+  padding:5px var(--space-xs); border-radius:var(--r-pill); background:var(--pill);
+  border:1px solid transparent; max-width:300px; }
+.pill.selected{background:var(--pillSelected)}
+.marker{width:var(--pill-marker-slot);height:var(--pill-marker-slot);flex:0 0 var(--pill-marker-slot);display:inline-flex;align-items:center;justify-content:center}
+.name{font-size:13px;font-weight:500;line-height:1.4;letter-spacing:0;color:var(--textPrimary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px}
+.chip{font-size:10px;font-weight:500;line-height:1.2;letter-spacing:0.2px;color:var(--chipFg);
+  background:var(--chip);border-radius:var(--r-chip);padding:2px var(--space-xxs);white-space:nowrap;flex:0 0 auto}
+/* 在飞：静态语言 = 名称/标记用状态色 + 柔影（⛔ 图上不播放任何动画） */
+.inflight{box-shadow:0 0 12px rgba(124,92,255,.45)}   /* dark：design 无"在飞柔影"token（⛔ 缺）*/
+.note{font-size:11px;color:#9a9aab;margin-top:4px}
+.anno{font-size:11px;line-height:1.5;margin-top:6px}
+.anno .no{color:#8fd6c0}      /* 无动效 */
+.anno .once{color:#ffd479}    /* 一次性过渡（anim.ets）*/
+.anno .orb{color:#b9a7ff}     /* 在飞=光球 */
+table{border-collapse:collapse;font-size:12px;margin-top:8px}
+th,td{border:1px solid #4a4a52;padding:4px 8px;text-align:left;vertical-align:top}
+th{background:#33333a;font-weight:600}
+.legend{font-size:12px;line-height:1.7}
+.legend s{color:#9a9aab}
+</style>
+</head>
+<body>
+
+<h1>03 · 工具与状态（静态样张）</h1>
+<div class="why">
+  <b>这张图在证明什么</b><br>
+  · 工具一行只用<b>一个语义档</b>驱动四列（<b>形态 / 名称 / 状态色 / chip 文案</b>）—— 六档（排队·生成中·执行中·失败·已终止·完成）互不打架；<br>
+  · <b>抹掉颜色（灰阶）后仍能区分六档</b> —— 这是"色盲可用"的可视化（对应门禁 <span class="tok">tools/tests/tool_legibility.test.ts</span>）；<br>
+  · pill / chip / 浮层是<b>三个不同层级</b>的"面"（<span class="tok">surface.pill</span> · <span class="tok">surface.chip</span> · <span class="tok">surface.overlay</span>）—— 浅色/纯白主题下也能看出<b>层次</b>（chip 恒为"内嵌凹槽"）；<br>
+  · <b>全图零动效</b>：唯一的"在飞"动效 = 光球（本图之外）；其余最多是<b>一次性过渡</b>（走 <span class="tok">anim.ets</span>）—— 克制与否，一眼可判；<br>
+  · 所有数值均为<b>令牌层真值</b>（旁注 token 名）；令牌层<b>没有</b>的，标 <span class="miss">缺 token</span>，<b>没有临时编值</b>。
+</div>
+<p class="muted">图例：<span class="anno"><span class="no">无动效</span> / <span class="once">一次性过渡 anim.ets</span> / <span class="orb">在飞 = 光球（唯一）</span></span></p>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2>1 · 工具 pill：六档 × 深 / 浅（+ 纯白主题），并排展示"灰阶下的可辨性"</h2>
+<p class="muted">
+  pill 底 = <span class="tok">surface</span>（design.ets）；圆角 <span class="tok">RADIUS_PILL=8</span>；
+  名称 <span class="tok">type.subhead</span>（13/500）；chip <span class="tok">type.micro</span>（10/500，圆角 <span class="tok">RADIUS_CHIP=6</span>，内距 <span class="tok">INSET_CHIP_X=4/INSET_CHIP_Y=2</span>）；
+  状态标记槽 <span class="tok">PILL_MARKER_SLOT=14</span>（⛔ 现住在 <span class="tok">core/toolvisual.ets</span>，design.ets 未收编 ⇒ 见"缺 token"）。
+  chip 文案来自 <span class="tok">toolstatus.statusChip</span>：完成=**无 chip**（安静）、失败=「失败 exit N」。
+</p>
+
+<!-- ── dark ── -->
+<div class="board t-dark">
+  <div class="head"><span class="t">深色（dark）</span><span class="muted">appBg #0B0B0E · pill <span class="tok">surface.pill</span> #14141C · chip <span class="tok">surface.chip</span> #0B0B0F</span></div>
+  <div class="row">
+    <!-- 排队 -->
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#63636F" stroke-width="1.6" stroke-dasharray="2 2"/></svg></span><span class="name">Shell · cd /home/smith &amp;&amp; …</span><span class="chip" style="--chipFg:#63636F">排队</span></span>
+    <!-- 生成中 -->
+    <span class="pill inflight"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#B9A7FF" stroke-width="2" stroke-dasharray="20 12"/></svg></span><span class="name">FileCreate · scan_dims.py</span><span class="chip" style="--chipFg:#B9A7FF">生成中…</span></span>
+    <!-- 执行中 -->
+    <span class="pill inflight"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#B9A7FF" stroke-width="2" stroke-dasharray="20 12"/></svg></span><span class="name">Shell · pytest -q</span><span class="chip" style="--chipFg:#B9A7FF">执行中 1.2s</span></span>
+    <!-- 失败 -->
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6.4" fill="#FF7B7B"/><path d="M4.6 4.6l4.8 4.8M9.4 4.6l-4.8 4.8" stroke="#0B0B0E" stroke-width="1.7" stroke-linecap="round"/></svg></span><span class="name" style="color:#FF7B7B">Shell · npm run build</span><span class="chip" style="--chipFg:#FF7B7B">失败 exit 1</span></span>
+    <!-- 已终止 -->
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#63636F" stroke-width="1.6"/><path d="M4.4 7h5.2" stroke="#63636F" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="name">Grep · TODO</span><span class="chip" style="--chipFg:#63636F">已终止</span></span>
+    <!-- 完成（安静：无 chip） -->
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.4" fill="none" stroke="#86EFC4" stroke-width="1.6"/><path d="M4.6 7.2l1.8 1.8 3.2-3.6" fill="none" stroke="#86EFC4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="name">Read · core/toolstatus.ets</span></span>
+  </div>
+  <div class="grayrow row" style="margin-top:12px">
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#63636F" stroke-width="1.6" stroke-dasharray="2 2"/></svg></span><span class="name">Shell · …</span><span class="chip" style="--chipFg:#63636F">排队</span></span>
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#B9A7FF" stroke-width="2" stroke-dasharray="20 12"/></svg></span><span class="name">FileCreate · …</span><span class="chip" style="--chipFg:#B9A7FF">生成中…</span></span>
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#B9A7FF" stroke-width="2" stroke-dasharray="20 12"/></svg></span><span class="name">Shell · pytest</span><span class="chip" style="--chipFg:#B9A7FF">执行中</span></span>
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6.4" fill="#FF7B7B"/><path d="M4.6 4.6l4.8 4.8M9.4 4.6l-4.8 4.8" stroke="#0B0B0E" stroke-width="1.7" stroke-linecap="round"/></svg></span><span class="name">Shell · build</span><span class="chip" style="--chipFg:#FF7B7B">失败 exit 1</span></span>
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#63636F" stroke-width="1.6"/><path d="M4.4 7h5.2" stroke="#63636F" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="name">Grep</span><span class="chip" style="--chipFg:#63636F">已终止</span></span>
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.4" fill="none" stroke="#86EFC4" stroke-width="1.6"/><path d="M4.6 7.2l1.8 1.8 3.2-3.6" fill="none" stroke="#86EFC4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="name">Read</span></span>
+  </div>
+  <div class="graylabel">↑ <b>灰阶（filter:grayscale(1)</b>，静态 CSS 滤镜，非动画）：仅靠<b>形态</b>（虚线圆 / 弧 / 实心叉 / 减号 / 勾）+<b>文案</b>仍可区分六档 ⇒ 不依赖颜色。失败档还叠加了<b>名称变红</b>（第三维）。</div>
+  <div class="anno"><span class="no">无动效</span>：本行每枚 pill 全部静态（含"执行中/生成中"的弧 —— 真机上它是系统 <span class="tok">LoadingProgress</span>，属"工具身份"，<b>不是</b>"整机在跑"，见 §4）。</div>
+</div>
+
+<!-- ── light ── -->
+<div class="board t-light">
+  <div class="head"><span class="t">浅色（light）</span><span class="muted">appBg #F8FAFC · pill <span class="tok">surface.pill</span> #F1F5F9 · chip <span class="tok">surface.chip</span> #F1F1F2</span></div>
+  <div class="row">
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#94A3B8" stroke-width="1.6" stroke-dasharray="2 2"/></svg></span><span class="name">Shell · cd /home/smith &amp;&amp; …</span><span class="chip" style="--chipFg:#94A3B8">排队</span></span>
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#1D4ED8" stroke-width="2" stroke-dasharray="20 12"/></svg></span><span class="name">FileCreate · scan_dims.py</span><span class="chip" style="--chipFg:#1D4ED8">生成中…</span></span>
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#1D4ED8" stroke-width="2" stroke-dasharray="20 12"/></svg></span><span class="name">Shell · pytest -q</span><span class="chip" style="--chipFg:#1D4ED8">执行中 1.2s</span></span>
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6.4" fill="#B91C1C"/><path d="M4.6 4.6l4.8 4.8M9.4 4.6l-4.8 4.8" stroke="#FFFFFF" stroke-width="1.7" stroke-linecap="round"/></svg></span><span class="name" style="color:#B91C1C">Shell · npm run build</span><span class="chip" style="--chipFg:#B91C1C">失败 exit 1</span></span>
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#94A3B8" stroke-width="1.6"/><path d="M4.4 7h5.2" stroke="#94A3B8" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="name">Grep · TODO</span><span class="chip" style="--chipFg:#94A3B8">已终止</span></span>
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.4" fill="none" stroke="#065F46" stroke-width="1.6"/><path d="M4.6 7.2l1.8 1.8 3.2-3.6" fill="none" stroke="#065F46" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="name">Read · core/toolstatus.ets</span></span>
+  </div>
+  <div class="grayrow row" style="margin-top:12px">
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#94A3B8" stroke-width="1.6" stroke-dasharray="2 2"/></svg></span><span class="name">Shell · …</span><span class="chip" style="--chipFg:#94A3B8">排队</span></span>
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#1D4ED8" stroke-width="2" stroke-dasharray="20 12"/></svg></span><span class="name">FileCreate · …</span><span class="chip" style="--chipFg:#1D4ED8">生成中…</span></span>
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#1D4ED8" stroke-width="2" stroke-dasharray="20 12"/></svg></span><span class="name">Shell · pytest</span><span class="chip" style="--chipFg:#1D4ED8">执行中</span></span>
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6.4" fill="#B91C1C"/><path d="M4.6 4.6l4.8 4.8M9.4 4.6l-4.8 4.8" stroke="#FFFFFF" stroke-width="1.7" stroke-linecap="round"/></svg></span><span class="name">Shell · build</span><span class="chip" style="--chipFg:#B91C1C">失败 exit 1</span></span>
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#94A3B8" stroke-width="1.6"/><path d="M4.4 7h5.2" stroke="#94A3B8" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="name">Grep</span><span class="chip" style="--chipFg:#94A3B8">已终止</span></span>
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.4" fill="none" stroke="#065F46" stroke-width="1.6"/><path d="M4.6 7.2l1.8 1.8 3.2-3.6" fill="none" stroke="#065F46" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="name">Read</span></span>
+  </div>
+  <div class="graylabel">↑ 灰阶：浅色下"排队/已终止"的灰（<span class="tok">textMuted</span>）与"执行中"的蓝在灰阶后<b>趋于接近</b> ⇒ 靠<b>形态</b>（虚线圆 vs 弧）与<b>文案</b>兜底（这正是可辨性门禁 ② 的判据）。</div>
+</div>
+
+<!-- ── porcelain（原生独享白色主题）── -->
+<div class="board t-porcelain">
+  <div class="head"><span class="t">极简白（porcelain，原生独享）</span><span class="muted">appBg #FFFFFF · pill <span class="tok">surface.pill</span> #F6F6F7 · chip <span class="tok">surface.chip</span> #F2F2F2</span></div>
+  <div class="row">
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#A2A2A7" stroke-width="1.6" stroke-dasharray="2 2"/></svg></span><span class="name">Shell · cd /home/smith &amp;&amp; …</span><span class="chip" style="--chipFg:#A2A2A7">排队</span></span>
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#0066CC" stroke-width="2" stroke-dasharray="20 12"/></svg></span><span class="name">FileCreate · scan_dims.py</span><span class="chip" style="--chipFg:#0066CC">生成中…</span></span>
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#0066CC" stroke-width="2" stroke-dasharray="20 12"/></svg></span><span class="name">Shell · pytest -q</span><span class="chip" style="--chipFg:#0066CC">执行中</span></span>
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6.4" fill="#B42318"/><path d="M4.6 4.6l4.8 4.8M9.4 4.6l-4.8 4.8" stroke="#FFFFFF" stroke-width="1.7" stroke-linecap="round"/></svg></span><span class="name" style="color:#B42318">Shell · npm run build</span><span class="chip" style="--chipFg:#B42318">失败 exit 1</span></span>
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#A2A2A7" stroke-width="1.6"/><path d="M4.4 7h5.2" stroke="#A2A2A7" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="name">Grep · TODO</span><span class="chip" style="--chipFg:#A2A2A7">已终止</span></span>
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.4" fill="none" stroke="#166534" stroke-width="1.6"/><path d="M4.6 7.2l1.8 1.8 3.2-3.6" fill="none" stroke="#166534" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="name">Read · core/toolstatus.ets</span></span>
+  </div>
+  <div class="anno"><span class="miss">缺 token</span> pure-white 下 pill <span class="tok">surface.pill</span>(#F6F6F7) 与 chip <span class="tok">surface.chip</span>(#F2F2F2) 只差 2 级灰度 ⇒ 请 design-lead 给"纯白主题的层级下限"（建议 chip 改用 <span class="tok">surfacesOf().sunken</span> 或给一条发丝）。</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2>2 · 三种态：未选中 / 选中 / 「+N」折叠 —— 并露出三层"面"</h2>
+<p class="muted">选中只改 <b>pill 自己的一层</b>（<span class="tok">surface.pill → surface.pillSelected</span>）；chip 恒为 <b>内嵌凹槽</b>（<span class="tok">surface.chip = sunken</span>），因此<b>结构上不可能与 pill 同色</b>（旧实现"选中时对调"是补丁，已被设计系统取代）。</p>
+<div class="board t-dark">
+  <div class="head"><span class="t">深色</span></div>
+  <div class="row">
+    <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.4" fill="none" stroke="#86EFC4" stroke-width="1.6"/><path d="M4.6 7.2l1.8 1.8 3.2-3.6" fill="none" stroke="#86EFC4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="name">Read</span></span>
+    <span class="pill selected"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.4" fill="none" stroke="#86EFC4" stroke-width="1.6"/><path d="M4.6 7.2l1.8 1.8 3.2-3.6" fill="none" stroke="#86EFC4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="name">Read（选中：浮层打开的那一枚）</span></span>
+    <span class="pillextra" style="display:inline-flex;align-items:center;gap:4px">
+      <span class="pill"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.4" fill="none" stroke="#86EFC4" stroke-width="1.6"/><path d="M4.6 7.2l1.8 1.8 3.2-3.6" fill="none" stroke="#86EFC4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="name">…前 7 枚</span></span>
+      <span class="chip" style="--chipFg:#9A9AAB;font-size:12px;padding:4px 8px">+3</span>
+    </span>
+  </div>
+  <div class="anno"><span class="no">无动效</span>：选中态是<b>静态换层</b>；浮层开合是<b>一次性过渡</b><span class="once">（<span class="tok">anim.ets</span> · <span class="tok">DUR_TRANSITION=320ms</span> spring）</span>，不是循环。</div>
+</div>
+<div class="board t-light">
+  <div class="head"><span class="t">浅色 · 三层"面"对照</span></div>
+  <table>
+    <tr><th>层</th><th>语义 token</th><th>浅色值</th><th>深色值</th><th>纯白值</th></tr>
+    <tr><td>浮层底</td><td><span class="tok">surface.overlay</span> (+ elev3 阴影)</td><td>#FFFFFF</td><td>#0E0E14</td><td>#FFFFFF</td></tr>
+    <tr><td>浮层行 / 悬停</td><td><span class="tok">surface.overlayRow / overlayRowHover</span></td><td>#F1F5F9 / #E2E8F0</td><td>#14141C / #1D1D28</td><td>#F6F6F7 / #EDEDEF</td></tr>
+    <tr><td>pill 底</td><td><span class="tok">surface.pill / pillSelected</span></td><td>#F1F5F9 / #E2E8F0</td><td>#14141C / #1D1D28</td><td>#F6F6F7 / #EDEDEF</td></tr>
+    <tr><td><b>chip 底</b></td><td><span class="tok">surface.chip</span>（恒=凹槽）</td><td>#F1F1F2</td><td>#0B0B0F</td><td>#F2F2F2</td></tr>
+    <tr><td>代码/终端块底</td><td><span class="tok">surface.well</span></td><td>#F1F1F2</td><td>#0B0B0F</td><td>#F2F2F2</td></tr>
+    <tr><td>结构性发丝</td><td><span class="tok">hairlineOf()</span></td><td>#D5DBE2</td><td>#20202B</td><td>#DFDFE1</td></tr>
+  </table>
+  <div class="anno"><span class="miss">缺 token</span> ① 浮层阴影只有注释里的 "elev3"（<span class="tok">effectsOf().elev3</span> 在 theme.ets 有值，但 design.ets 未导出为语义 token）；② chip 内距/圆角有 token，但 <b>pill 自身内距（上下 5）</b> 无 token。</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2>3 · 思考行 / 待办拉条 / 目标横幅（各 2–3 态）</h2>
+<div class="board t-dark">
+  <div class="head"><span class="t">深色</span></div>
+  <h3>思考行 <span class="muted">type.caption（12/400/textSecondary）</span></h3>
+  <div class="row">
+    <span class="pill" style="background:transparent;border-color:#2A2A34"><span class="marker"><svg width="13" height="13" viewBox="0 0 13 13"><path d="M6.5 1.4a3.6 3.6 0 100 7.2c1.2 0 2.2-.6 2.8-1.5l2.1.9-1.3-2A3.6 3.6 0 006.5 1.4z" fill="none" stroke="#9A9AAB" stroke-width="1.3"/></svg></span><span class="name" style="color:#9A9AAB;font-size:12px;font-weight:400">思考 4 529 字</span></span>
+    <span class="pill" style="background:transparent;border-color:#8F73FF"><span class="marker"><svg width="13" height="13" viewBox="0 0 13 13"><path d="M6.5 1.4a3.6 3.6 0 100 7.2c1.2 0 2.2-.6 2.8-1.5l2.1.9-1.3-2A3.6 3.6 0 006.5 1.4z" fill="none" stroke="#B9A7FF" stroke-width="1.3"/></svg></span><span class="name" style="color:#B9A7FF;font-size:12px;font-weight:400">思考 147 字</span><span class="chip" style="--chipFg:#B9A7FF">主高亮（让位光球）</span></span>
+  </div>
+  <div class="anno"><span class="no">无动效</span>（展开/收起是<b>一次性过渡</b><span class="once"> anim.ets</span>；<b>数字增长</b>由流式驱动，非循环动效）。<span class="miss">缺 token</span> 思考行的"主高亮"色用 <span class="tok">accentSoft</span> 是约定，但 design.ets 无 <span class="tok">text.thinkingPrimary</span> 类 token。</div>
+
+  <h3>待办拉条 <span class="muted">2/3 完成 · 进行中 · 已失败</span></h3>
+  <div class="row">
+    <span class="pill" style="border-color:#2A2A34"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#B9A7FF" stroke-width="1.6"/></svg></span><span class="name">待办 2/3 · 正在写测试</span><span class="chip" style="--chipFg:#B9A7FF">进行中</span></span>
+    <span class="pill" style="border-color:#2A2A34"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.4" fill="none" stroke="#86EFC4" stroke-width="1.6"/><path d="M4.6 7.2l1.8 1.8 3.2-3.6" fill="none" stroke="#86EFC4" stroke-width="1.6"/></svg></span><span class="name">待办 3/3 · 全部完成</span><span class="chip" style="--chipFg:#86EFC4">完成</span></span>
+    <span class="pill" style="border-color:#FF7B7B"><span class="marker"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6.4" fill="#FF7B7B"/><path d="M4.6 4.6l4.8 4.8M9.4 4.6l-4.8 4.8" stroke="#0B0B0E" stroke-width="1.7" stroke-linecap="round"/></svg></span><span class="name">待办 1/3 · 构建失败</span><span class="chip" style="--chipFg:#FF7B7B">失败</span></span>
+  </div>
+  <div class="anno"><span class="miss">缺 token</span> 待办拉条**整个属于未收编**：无 <span class="tok">surface.todoRail</span> / <span class="tok">type.todo</span> / 进度轨色 token；上图暂借用 pill/chip 的角色，请 design-lead 定名。</div>
+
+  <h3>目标横幅 <span class="muted">进行中 / 完成 / 已清除</span></h3>
+  <div class="row">
+    <div class="pill" style="display:block;border-radius:12px;padding:10px 12px;min-width:280px">
+      <div style="font-size:13px;font-weight:500;color:#EDEDF2">目标 · 对齐 web 的工具状态语义</div>
+      <div style="font-size:12px;color:#9A9AAB;margin-top:2px">进行中 · 2/4 子项 <span class="chip" style="--chipFg:#B9A7FF;margin-left:6px">进行中</span></div>
+    </div>
+    <div class="pill" style="display:block;border-radius:12px;padding:10px 12px;min-width:280px">
+      <div style="font-size:13px;font-weight:500;color:#EDEDF2">目标 · 发布稳定版给验收</div>
+      <div style="font-size:12px;color:#9A9AAB;margin-top:2px">完成 <span class="chip" style="--chipFg:#86EFC4;margin-left:6px">完成</span></div>
+    </div>
+    <div class="pill" style="display:block;border-radius:12px;padding:10px 12px;min-width:280px;opacity:.55">
+      <div style="font-size:13px;font-weight:500;color:#9A9AAB">（目标已清除 —— 该行不渲染）</div>
+      <div style="font-size:12px;color:#63636F;margin-top:2px">清除是<b>状态</b>，不是失败</div>
+    </div>
+  </div>
+  <div class="anno"><span class="no">无动效</span>：目标横幅"进行中"<b>刻意不加</b>呼吸点（<span class="tok">docs/DESIGN-SYSTEM.md §8</span>：循环/呼吸归光球独占）。<span class="miss">缺 token</span> 无 <span class="tok">surface.goal</span> / <span class="tok">type.goalTitle</span>；圆角借 <span class="tok">RADIUS_CARD=12</span>。</div>
+</div>
+
+<div class="board t-light">
+  <div class="head"><span class="t">浅色（同三块，验层次不糊）</span></div>
+  <div class="row">
+    <span class="pill" style="background:transparent;border-color:#CBD5E1"><span class="name" style="color:#475569;font-size:12px;font-weight:400">思考 147 字（主高亮）</span></span>
+    <span class="pill" style="border-color:#CBD5E1"><span class="name">待办 2/3 · 正在写测试</span><span class="chip" style="--chipFg:#1D4ED8">进行中</span></span>
+    <span class="pill" style="border-color:#CBD5E1"><span class="name">待办 3/3 · 全部完成</span><span class="chip" style="--chipFg:#065F46">完成</span></span>
+    <span class="pill" style="border-color:#CBD5E1"><span class="name">待办 1/3 · 构建失败</span><span class="chip" style="--chipFg:#B91C1C">失败</span></span>
+    <div class="pill" style="display:block;border-radius:12px;padding:10px 12px;min-width:260px">
+      <div style="font-size:13px;font-weight:500;color:#0F172A">目标 · 发布稳定版给验收</div>
+      <div style="font-size:12px;color:#475569;margin-top:2px">进行中 <span class="chip" style="--chipFg:#1D4ED8;margin-left:6px">进行中</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2>4 · 动效标注：全图哪里"会动"（克制与否的证据）</h2>
+<div class="board">
+  <table>
+    <tr><th>元素</th><th>有无动效</th><th>属于哪一类</th><th>依据 / token</th></tr>
+    <tr><td>工具 pill（六档全部）</td><td class="anno"><span class="no">形态/底色/文案 = 无动效</span></td><td>—</td><td><span class="tok">surface.pill/chip</span> · <span class="tok">type.micro</span></td></tr>
+    <tr><td>执行中/生成中的 <b>状态标记</b></td><td class="anno"><span class="once">系统指示器（自绘，非我们加的）</span></td><td>"工具身份"，<b>不是</b>"整机在跑"</td><td><span class="tok">docs/DESIGN-SYSTEM.md §8.3</span>；<span class="tok">LoadingProgress</span></td></tr>
+    <tr><td>排队态标记</td><td class="anno"><span class="no">静态虚线圆</span></td><td>批次23 裁决：<b>已删除</b>原循环符号效果</td><td><span class="tok">tools/lint/inflight-single-source.sh</span>（A 类=0）</td></tr>
+    <tr><td><b>光球</b>（本图之外）</td><td class="anno"><span class="orb">在飞 = 唯一循环动效</span></td><td><span class="tok">motion.breath</span>(2560ms) / <span class="tok">motion.beat</span>(640ms)</td><td><span class="tok">design.INFLIGHT_OWNER_ORB</span></td></tr>
+    <tr><td>按压反馈</td><td class="anno"><span class="once">一次性过渡</span></td><td>opacity <span class="tok">PRESS_OPACITY=0.6</span> + scale <span class="tok">PRESS_SCALE=0.97</span></td><td><span class="tok">DUR_PRESS=180ms</span> spring（<span class="tok">anim.ets</span>）</td></tr>
+    <tr><td>行/块入场</td><td class="anno"><span class="once">一次性过渡</span></td><td>opacity+translateY</td><td><span class="tok">DUR_ENTER_ROW=200ms</span> / <span class="tok">DUR_ENTER_BLOCK</span></td></tr>
+    <tr><td>浮层开合</td><td class="anno"><span class="once">一次性过渡</span></td><td>translate+opacity</td><td><span class="tok">DUR_TRANSITION=320ms</span>（<span class="tok">sheetTransition()</span>）</td></tr>
+    <tr><td>思考行字数增长 / 打字机</td><td class="anno"><span class="once">流式驱动（内容前进，非装饰循环）</span></td><td>—</td><td>门禁不判此类（<span class="tok">inflight-single-source</span> B 类为警告）</td></tr>
+  </table>
+  <div class="anno">命中区：全站最小 <span class="tok">HIT_TARGET_MIN=44vp</span>（本图 pill 视觉高度约 26vp，<b>命中区应由调用方用 <span class="tok">responseRegion</span> 外扩到 44</b> —— ⛔ pill 自身改高会破坏密度）。</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2>5 · 令牌缺项清单（请 design-lead 补；本图处已标 <span class="miss">缺 token</span>）</h2>
+<div class="board">
+<table>
+  <tr><th>#</th><th>缺什么</th><th>现状（本仓真实取值）</th><th>建议</th></tr>
+  <tr><td>1</td><td><b>在飞"静态表达"</b> token（表面层级提升 / 柔影档）</td><td><span class="tok">core/toolvisual.glowColorOf</span>：深色走 <span class="tok">effectsOf().glow</span>(accent@45%)、浅色走 <span class="tok">elev2</span> —— 逻辑在 core，但**不是语义 token**</td><td>给 <span class="tok">inflight.pill.surface</span> / <span class="tok">inflight.pill.shadow</span>（⛔ 不含动画）</td></tr>
+  <tr><td>2</td><td><b>pill 自身内距</b></td><td>上下 5 / 左右 8（<span class="tok">components/ToolVisual.ets</span> 硬编码）</td><td><span class="tok">INSET_PILL_X/Y</span>（并给出 <span class="tok">HIT_TARGET_MIN</span> 的外扩策略）</td></tr>
+  <tr><td>3</td><td><b>状态标记槽 / glyph 尺寸</b></td><td><span class="tok">PILL_MARKER_SLOT=14</span>（住 core/toolvisual）；glyph 硬编码 13/12</td><td>收编 <span class="tok">MARKER_SLOT</span> / <span class="tok">marker.glyph</span> 档</td></tr>
+  <tr><td>4</td><td><b>浮层阴影</b></td><td>注释提到 "elev3"，但无导出 token</td><td><span class="tok">ELEVATION_OVERLAY</span></td></tr>
+  <tr><td>5</td><td><b>思考行 / 待办拉条 / 目标横幅</b> 的表面+排版</td><td>三者**均无**专属 token（上图借 pill/chip/<span class="tok">RADIUS_CARD</span> 拼出）</td><td><span class="tok">surface.todoRail / surface.goal / type.thinking / type.todo</span>…</td></tr>
+  <tr><td>6</td><td><b>纯白主题（porcelain）的层级下限</b></td><td>pill #F6F6F7 vs chip #F2F2F2 只差 2 级</td><td>给"纯白下最小可辨层级差"或对 chip 加发丝</td></tr>
+  <tr><td>7</td><td><b>chip 与 pill 的层级归属冲突</b>（⚠️ 迁移项）</td><td>design.ets 已定 <span class="tok">surface.chip = sunken</span>（恒）；但 <span class="tok">core/toolvisual.chipBgOf</span> 仍是旧的"选中对调"补丁</td><td>裁决后我把 <span class="tok">toolvisual</span> 迁到 <span class="tok">surfaceFillOf(p,'surface.chip')</span>（同一处、可测）</td></tr>
+</table>
+</div>
+
+</body>
+</html>
