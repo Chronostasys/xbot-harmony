@@ -123,6 +123,39 @@ ok('③ 承载文件有静默失败契约（try + catch + .catch）',
 // ④ 入口确实在用
 ok(`④ 唯一入口确实被复用（this.buzz() ≥ 1，实得 ${indexBuzzCalls}）`, indexBuzzCalls >= 1);
 
+// ── ⑤ `buzz()` 的**源码形态**（E4 落地件 1/2）──────────────────────────────────────
+//   ① **死代码已删**：函数体内**不得**再出现 `settingOf(`（原实现读 `KEY_CODE_WRAP`=「代码换行」开关，
+//      分支体只有注释 ⇒ 死 if + 误导"受开关控制"）；
+//   ② **时长走具名常量** `HAPTIC_TAP_MS`（`core/haptics.ets`）—— ⛔ 不再裸写 `duration: 12`；
+//      且该常量**必须有真消费者**（就是这里），否则会撞 B4 的 `orphan_core_module`。
+{
+  const idxRaw: string = fs.readFileSync(path.join(root, 'entry/src/main/ets/pages/Index.ets'), 'utf8');
+  const idxCode: string = stripComments(idxRaw);
+  // 定位 `private buzz(): void { … }` 的函数体（括号配对；⛔ 不用"下一行"猜）
+  const sig: number = idxCode.indexOf('private buzz(): void {');
+  let body: string = '';
+  if (sig >= 0) {
+    const open: number = idxCode.indexOf('{', sig);
+    let depth = 0;
+    for (let i: number = open; i < idxCode.length; i++) {
+      const ch: string = idxCode.charAt(i);
+      if (ch === '{') { depth++; }
+      else if (ch === '}') { depth--; if (depth === 0) { body = idxCode.substring(open, i + 1); break; } }
+    }
+  }
+  ok('⑤ 定位到 `buzz()` 函数体（⛔ 零扫描判红）', body.length > 0);
+  ok('⑤ ① 函数体内**无** `settingOf(`（死 if 已删）', body.indexOf('settingOf(') < 0);
+  ok('⑤ ② 时长走具名常量 `duration: HAPTIC_TAP_MS`', body.indexOf('duration: HAPTIC_TAP_MS') >= 0);
+  ok('⑤ ② ⛔ 不再有裸时长 `duration: <数字>`', !/duration:\s*\d/.test(body));
+  ok('⑤ ② 常量真源存在且被 Index 消费（无孤儿）',
+    fs.existsSync(path.join(root, 'entry/src/main/ets/core/haptics.ets'))
+    && idxCode.indexOf("from '../core/haptics'") >= 0
+    && idxCode.indexOf('HAPTIC_TAP_MS') >= 0);
+  ok('⑤ ③ 「恒开」语义写进注释（读**原文**，非剥注释版）', idxRaw.indexOf('恒开') >= 0);
+  ok('⑤ ⛔ 全文不再出现「代码换行」键被误用于触觉（`KEY_CODE_WRAP` 不在 buzz 体附近）',
+    body.indexOf('KEY_CODE_WRAP') < 0);
+}
+
 if (fail > 0) { console.log(`  haptics: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  haptics: ${pass} passed, 0 failed`);
 process.exit(0);

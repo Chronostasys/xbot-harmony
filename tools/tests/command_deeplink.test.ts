@@ -159,6 +159,59 @@ function stripComments(src: string): string {
   ok('③ 全链旁路保护（try/catch ⇒ 深链异常绝不影响启动）', oc.indexOf('captureCommandUri skipped') >= 0);
 }
 
+// ── ★④ 页面**消费侧**源码形态（S1 落地：`pages/Index.ets`）────────────────────────
+//   分层：`EntryAbility` **只投递**（上面的 ③）；页面 `consumePendingCommand()` **只消费**。
+//   ⛔ 两层都走同一道闸门 `commandDispatchable`（防 AppStorage 被别处塞非白名单值）。
+{
+  let root: string = '';
+  for (const up of ['../..', '../../..', '../../../..']) {
+    const p: string = path.resolve(__dirname, up);
+    if (fs.existsSync(path.join(p, 'entry/src/main/ets/pages/Index.ets'))) { root = p; break; }
+  }
+  ok('读到 pages/Index.ets', root.length > 0);
+  const oc: string = stripComments(fs.readFileSync(path.join(root, 'entry/src/main/ets/pages/Index.ets'), 'utf8'));
+  ok('扫到源码（非空）—— 零扫描判红', oc.length > 0);
+
+  const consumeCalls: number = (oc.match(/this\.consumePendingCommand\(\)/g) || []).length;
+  console.log(`▶ 页面消费侧扫描：Index.ets（剥注释后 ${oc.length} 字符）`
+    + ` · consumePendingCommand() 调用 ${consumeCalls} 次`
+    + ` · requestFocus ${(oc.match(/focusControl\.requestFocus\(/g) || []).length} 次`
+    + ` · textOverflow ${(oc.match(/textOverflow\(\{ overflow: TextOverflow\.Ellipsis \}\)/g) || []).length} 次`);
+
+  ok('④ 消费入口 `consumePendingCommand(): void` 存在',
+    oc.indexOf('private consumePendingCommand(): void') >= 0);
+  ok('④ 两条通路都接（`@Watch` 热启动 + bootstrap 冷启动 ⇒ 调用点 ≥ 2）', consumeCalls >= 2);
+  ok('④ 页面侧也走闸门：`parseCommandUri` + `commandDispatchable`',
+    oc.indexOf('parseCommandUri(') >= 0 && oc.indexOf('commandDispatchable(') >= 0);
+  ok('④ 消费后清空（`AppStorage.delete(PENDING_COMMAND_KEY)`）—— 防"返回页面"重复触发',
+    oc.indexOf('AppStorage.delete(PENDING_COMMAND_KEY)') >= 0);
+  ok('④ `@StorageProp` 三件齐（键/序号/@Watch 回调）',
+    oc.indexOf("@StorageProp('pendingCommandUri') @Watch('onPendingCommandChanged')") >= 0
+    && oc.indexOf("@StorageProp('pendingCommandSeq') @Watch('onPendingCommandChanged')") >= 0
+    && oc.indexOf('private onPendingCommandChanged(): void') >= 0);
+  // 四条命令各有落点
+  for (const [id, what] of [['COMMAND_SETTINGS_OPEN', '开设置面'], ['COMMAND_SESSION_NEW', '新建会话'],
+    ['COMMAND_SIDEBAR_TOGGLE', '抽屉取反'], ['COMMAND_INPUT_FOCUS', '聚焦 composer']] as [string, string][]) {
+    ok(`④ ${what}（${id}）有落点`, oc.indexOf(`action.id === ${id}`) >= 0);
+  }
+  // input.focus 两端：id + requestFocus
+  ok('④ `input.focus`：composer `TextArea` 挂了 `.id(COMPOSER_INPUT_ID)`',
+    oc.indexOf('.id(COMPOSER_INPUT_ID)') >= 0);
+  ok('④ `input.focus`：`focusControl.requestFocus(COMPOSER_INPUT_ID)`（`@kit.ArkUI`）',
+    oc.indexOf('focusControl.requestFocus(COMPOSER_INPUT_ID)') >= 0 && oc.indexOf('focusControl') >= 0);
+  // settings 分区：白名单映射 + 真源常量（⛔ 不新造 tab 字符串）
+  ok('④ `settings.open` 分区走白名单 `settingsTabFrom(...)`',
+    oc.indexOf('settingsTabFrom(commandArg(action, \'section\'))') >= 0);
+  ok('④ 分区白名单取自 `SettingsPanel` 的 `SETTINGS_TAB_*` **导出**（⛔ 不硬写字符串）',
+    oc.indexOf('SETTINGS_TAB_APPEARANCE') >= 0 && oc.indexOf("from '../components/SettingsPanel'") >= 0);
+  ok('④ 面板确实消费初始分区（`initialTab: this.settingsInitialTab`）',
+    oc.indexOf('initialTab: this.settingsInitialTab') >= 0);
+  // item 5（contrast-ux 的两条 spec）
+  ok('⑤ 命中区：两处按钮 minHeight 走 `HIT_TARGET_MIN`（⛔ 不再 42/38 裸数）',
+    oc.indexOf('minHeight: HIT_TARGET_MIN') >= 0
+    && !/minHeight: (42|38)\b/.test(oc));
+}
+
 if (fail > 0) { console.log(`  command_deeplink: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  command_deeplink: ${pass} passed, 0 failed`);
 process.exit(0);

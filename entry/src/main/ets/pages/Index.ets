@@ -11,6 +11,7 @@ import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl, readCache
 import { webview } from '@kit.ArkWeb';
 import { ChatStore } from '../core/store';
 import { beginTurnKeepAlive, endTurnKeepAlive, ensureEnabled, notificationsEnabled, PENDING_CHAT_KEY, PENDING_CHAT_SEQ_KEY, PENDING_ACTION_KEY, isKnownNotifyAction, NOTIFY_ACTION_STOP, NOTIFY_ACTION_CONTINUE } from '../core/notify';
+import { HAPTIC_TAP_MS } from '../core/haptics';
 import { ALL_THEMES, normalizeTheme, Palette, paletteOf, themeLabel, Effects, effectsOf, isDarkThemeName, isLightPalette, shadowColorOf, shadowRadiusOf } from '../core/theme';
 import { brandAccentFor } from '../core/brand';
 import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, withAccent } from '../core/accent';
@@ -120,7 +121,11 @@ import { UserBubbleView } from '../components/UserBubble';
 import { MarkdownView } from '../components/MarkdownView';
 import { WebSurface } from '../components/WebSurface';
 import { ContextRing } from '../components/ContextRing';
-import { SettingsPanel } from '../components/SettingsPanel';
+import { SettingsPanel, SETTINGS_TAB_ACCOUNT, SETTINGS_TAB_AGENT, SETTINGS_TAB_APPEARANCE, SETTINGS_TAB_ABOUT, SETTINGS_TAB_CHANNELS, SETTINGS_TAB_DEVELOPER, SETTINGS_TAB_LLM, SETTINGS_TAB_NOTIFY, SETTINGS_TAB_PLUGINS, SETTINGS_TAB_STORAGE, SETTINGS_TAB_TOOLS, SETTINGS_TAB_WEBUSERS } from '../components/SettingsPanel';
+import {
+  COMMAND_INPUT_FOCUS, COMMAND_SESSION_NEW, COMMAND_SETTINGS_OPEN, COMMAND_SIDEBAR_TOGGLE,
+  CommandAction, PENDING_COMMAND_KEY, PENDING_COMMAND_SEQ_KEY, commandArg, commandDispatchable, parseCommandUri,
+} from '../core/command';
 import { MessageNav } from '../components/MessageNav';
 import { PluginHost } from '../components/PluginHost';
 import { GoalBanner } from '../components/GoalBanner';
@@ -243,6 +248,36 @@ const STAR_GLOW_SIZE: number = 150;
  */
 function delay(fn: () => void, ms: number): number {
   return setTimeout(fn, ms);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 深链命令的页面落点（S1）—— 纯映射部分
+// ════════════════════════════════════════════════════════════════════════════
+
+/** composer 输入框的**焦点 id**（`input.focus` 命令靠它定位；⛔ 别在多处硬写这个字符串）。 */
+export const COMPOSER_INPUT_ID: string = 'composer-input';
+
+/**
+ * 设置分区**白名单** —— 真源 = `components/SettingsPanel.ets` 的 `SETTINGS_TAB_*` **导出**
+ * （⛔ 不在此新造字符串；web 的 `settings.open?section=llm` 用的就是同一批小写名）。
+ */
+const SETTINGS_TABS: string[] = [
+  SETTINGS_TAB_APPEARANCE, SETTINGS_TAB_TOOLS, SETTINGS_TAB_LLM, SETTINGS_TAB_AGENT,
+  SETTINGS_TAB_STORAGE, SETTINGS_TAB_WEBUSERS, SETTINGS_TAB_ABOUT, SETTINGS_TAB_ACCOUNT,
+  SETTINGS_TAB_DEVELOPER, SETTINGS_TAB_PLUGINS, SETTINGS_TAB_CHANNELS, SETTINGS_TAB_NOTIFY,
+];
+
+/**
+ * `settings.open?section=<x>` → 设置面分区。
+ * 未知 / 缺省 ⇒ `SETTINGS_TAB_APPEARANCE`（**默认首档**；⛔ 不把未知值硬塞进面板 —— 那会打开一个空面板）。
+ */
+function settingsTabFrom(section: string): string {
+  for (let i: number = 0; i < SETTINGS_TABS.length; i++) {
+    if (SETTINGS_TABS[i] === section) {
+      return section;
+    }
+  }
+  return SETTINGS_TAB_APPEARANCE;
 }
 
 /** 等待 ms 毫秒（冷启动自动登录的重试退避用）。 */
@@ -645,6 +680,16 @@ struct Index {
   @StorageProp('pendingOpenChatSeq') @Watch('onPendingChatChanged') pendingChatSeq: number = 0;
   /** 通知**动作按钮**带来的动作 id（EntryAbility 从 `want.parameters.notify_action` 白名单解析后写入）。 */
   @StorageProp('pendingNotifyAction') @Watch('onPendingActionChanged') pendingAction: string = '';
+  /**
+   * 深链命令（S1）。键**逐字**与 `core/command.ets` 的 `PENDING_COMMAND_KEY`/`PENDING_COMMAND_SEQ_KEY` 一致
+   * （与上面两个通知键同款：`@StorageProp` 只吃字面量 ⇒ 靠注释锁同源 + 单测钉常量值）。
+   */
+  @StorageProp('pendingCommandUri') @Watch('onPendingCommandChanged') pendingCommandUri: string = '';
+  /** 序号（同一条命令被再发一次时值不变，靠它察觉变化）。 */
+  @StorageProp('pendingCommandSeq') @Watch('onPendingCommandChanged') pendingCommandSeq: number = 0;
+
+  /** 设置面**初始分区**（深链 `settings.open?section=<x>` 指定；面板用 `initialTab` 消费）。 */
+  @State settingsInitialTab: string = SETTINGS_TAB_APPEARANCE;
 
   // ── live turn 的整条 assistant 消息（同气泡：已完成迭代 + 在飞块）──
   // ⚠️ 为什么**非懒**渲染（LazyForEach 之外、@State 直驱）：虚拟列表条目在真机上
@@ -918,6 +963,61 @@ struct Index {
     this.consumePendingAction();
   }
 
+  /** `@StorageProp` 变更回调（**热启动路**）：深链命令 → 页面动作。 */
+  private onPendingCommandChanged(): void {
+    this.consumePendingCommand();
+  }
+
+  /**
+   * 消费「深链命令」—— `core/command.ets` 的**唯一页面落点**（S1）。
+   *
+   * 分层：`EntryAbility.captureCommandUri` **只投递**（并负责"形状非法/未注册 ⇒ hilog 报错"），
+   * 页面**只消费**。这里再走一次 `commandDispatchable` 闸门（= `null` 守卫 ∧ 形状 ∧ **已注册**）——
+   * 防"AppStorage 被别的路径塞进非白名单值"（与 `consumePendingAction` 再判 `isKnownNotifyAction` 同款）。
+   *
+   * 冷/热两条路都要覆盖（与 `openPendingChat` 同款）：热启动靠 `@Watch`；**冷启动**时
+   * `EntryAbility.onCreate` 写值可能早于本页挂载 ⇒ `@Watch` 不触发 ⇒ `bootstrap()` 完成后主动读一次。
+   * 消费后 `AppStorage.delete(PENDING_COMMAND_KEY)`，防"返回页面"重复触发。
+   *
+   * 命令集合（真源 = `core/command.ets: registeredCommands()`，逐条对应 web `AppShell.tsx:118-152`）：
+   *   `settings.open`（可带 `?section=`）· `session.new` · `sidebar.toggle` · `input.focus`。
+   */
+  private consumePendingCommand(): void {
+    const uriV: string | undefined = AppStorage.get<string>(PENDING_COMMAND_KEY);
+    const uri: string = uriV !== undefined ? uriV : '';
+    if (uri.length === 0) {
+      return;
+    }
+    try {
+      AppStorage.delete(PENDING_COMMAND_KEY);
+    } catch (e) {
+    }
+    const action: CommandAction | null = parseCommandUri(uri);
+    if (action === null || !commandDispatchable(action)) {
+      return;   // 闸门不过 ⇒ 页面不执行任何动作（EntryAbility 已就"未注册/形状非法"报过错）
+    }
+    if (action.id === COMMAND_SETTINGS_OPEN) {
+      // ⚠️ 面板的 `initialTab` 是 `@Prop`（`@State active` 只在构造时取初值）⇒ 面板**已打开时**
+      //    再发同一条命令不会切档（可接受：先关再开即可；⛔ 不为此改 SettingsPanel —— 那是 tokens-ux 域）。
+      this.settingsInitialTab = settingsTabFrom(commandArg(action, 'section'));
+      this.showSettingsPanel = true;
+      return;
+    }
+    if (action.id === COMMAND_SESSION_NEW) {
+      void this.newSession();
+      return;
+    }
+    if (action.id === COMMAND_SIDEBAR_TOGGLE) {
+      this.showDrawer = !this.showDrawer;
+      return;
+    }
+    if (action.id === COMMAND_INPUT_FOCUS) {
+      // 聚焦 composer（`focusControl` 从 `@kit.ArkUI` 取；id 挂在下面的 TextArea 上）
+      focusControl.requestFocus(COMPOSER_INPUT_ID);
+      return;
+    }
+  }
+
   /**
    * 消费「通知动作按钮」——把动作 id 派发到**既有**状态机入口（⛔ 不在页面就地判）。
    *
@@ -1074,6 +1174,8 @@ struct Index {
         this.openPendingChat();
         // 通知**动作按钮**同款冷启动路：onCreate 写值可能早于挂载 ⇒ @Watch 不触发 ⇒ 这里补读一次
         this.consumePendingAction();
+        // 深链命令同款冷启动路（`EntryAbility.onCreate` 写值早于挂载 ⇒ @Watch 不触发）
+        this.consumePendingCommand();
       } else if (!this.authExpiredHandled) {
         // 网络/服务端问题：**保留凭证**（下次冷启动仍会自动登录），并给出可读原因
         this.loggedIn = false;
@@ -3056,6 +3158,8 @@ struct Index {
                 http: this.store.http,
                 theme: this.themeName,
                 settings: this.settings,
+                // 深链 `settings.open?section=<x>` 指定的初始分区（缺省 = 外观档）
+                initialTab: this.settingsInitialTab,
                 surfaceWeb: this.useWebUI,
                 notifyOn: this.notifyOn,
                 // 「开发者 → 导出会话」要会话选择器（`{channel, chat_id}`）；空 ⇒ 按钮禁用
@@ -3285,7 +3389,7 @@ struct Index {
         }
 
         Button(this.testing ? '测试中…' : '测试连接')
-          .width('100%').constraintSize({ minHeight: 42 })
+          .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(FS_BODY)
           .fontColor(this.pal().textSecondary)
           .backgroundColor(this.pal().transparent)
@@ -3462,9 +3566,10 @@ struct Index {
             .maxLines(4).textOverflow({ overflow: TextOverflow.Ellipsis })
           Text(loadErrHint(this.loadErr))
             .fontSize(typeOf('type.caption').size).fontColor(this.pal().textMuted).maxLines(3)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
           // 判据与标题同一处：401 给「重新登录」，其余给「重试」
           Button(needsRelogin(this.loadErr) ? '重新登录' : (needsSessionRefresh(this.loadErr) ? '刷新会话列表' : '重试'))
-            .constraintSize({ minHeight: 38 }).backgroundColor(this.pal().accent).onClick(() => {
+            .constraintSize({ minHeight: HIT_TARGET_MIN }).backgroundColor(this.pal().accent).onClick(() => {
               if (needsRelogin(this.loadErr)) {
                 this.handleAuthExpired();
               } else if (needsSessionRefresh(this.loadErr)) {
@@ -3845,6 +3950,7 @@ struct Index {
                 .fontSize(typeOf('type.caption').size)
                 .fontColor(it.status === ATTACH_FAILED ? this.pal().dangerText : this.pal().accentSoft)
                 .layoutWeight(1).maxLines(1).wordBreak(WordBreak.BREAK_ALL)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
               Text(it.status === ATTACH_FAILED ? '重试' : '移除')
                 .fontSize(typeOf('type.caption').size)
                 .fontColor(it.status === ATTACH_FAILED ? this.pal().warn : this.pal().dangerText)
@@ -3951,6 +4057,8 @@ struct Index {
             this.pickImages();
           })
         TextArea({ placeholder: '发消息…', text: this.draft })
+          // 深链 `input.focus` 的落点（`focusControl.requestFocus(COMPOSER_INPUT_ID)`）
+          .id(COMPOSER_INPUT_ID)
           .onChange((v: string) => {
             this.draft = v;
             this.refreshCompletion(v);
@@ -4485,13 +4593,19 @@ struct Index {
     this.buzz();
   }
 
-  /** 短震动反馈（无马达/无权限时静默 —— 不打断任何流程）。 */
+  /**
+   * 短震动反馈（**恒开**；无马达/无权限时**静默** —— 不打断任何流程）。
+   *
+   * ⚠️ 2026-10-11 删死码：原实现这里有一段
+   * `if (!parseBool(settingOf(this.settings, <代码换行开关>), true)) { …分支体只有注释… }`
+   * —— **读错了键**（`KEY_CODE_WRAP` 是「代码换行」，与触觉无关）且**分支体只有注释** ⇒
+   * 死代码 + 误导（看着像"受开关控制"，实际恒开）。现直接写明"恒开"。
+   * 依据：手感反馈是"世界第一流畅"的一部分 ⇒ 有意恒开（web 权威零触觉 ⇒ 本仓不新增触觉点，
+   * 只保留这一处既有约定；判据 = `tools/tests/haptics.test.ts`）。
+   */
   private buzz(): void {
-    if (!parseBool(settingOf(this.settings, KEY_CODE_WRAP), true)) {
-      // 复用不了别的开关，这里保持始终开启：手感反馈是"世界第一流畅"的一部分
-    }
     try {
-      vibrator.startVibration({ type: 'time', duration: 12 }, { id: 0, usage: 'unknown' })
+      vibrator.startVibration({ type: 'time', duration: HAPTIC_TAP_MS }, { id: 0, usage: 'unknown' })
         .catch(() => {
         });
     } catch (e) {
@@ -5485,6 +5599,7 @@ struct Index {
                 Row({ space: 6 }) {
                   Text(cronLine(job)).fontSize(typeOf('type.caption').size).fontColor(this.pal().textPrimary).layoutWeight(1)
                     .maxLines(2).wordBreak(WordBreak.BREAK_ALL)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
                   SymbolGlyph($r('sys.symbol.xmark')).fontSize(13).fontColor([this.pal().dangerText]).padding(6).onClick(() => {
                     this.removeCron(job.id !== undefined ? job.id : '');
                   })
@@ -5503,6 +5618,7 @@ struct Index {
                 Text(bgTaskLine(t, this.nowMs())).fontSize(typeOf('type.caption').size).fontColor(this.pal().textPrimary)
                   .width('100%').padding(SPACE_XS).backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
                   .maxLines(3).wordBreak(WordBreak.BREAK_ALL)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
                   .copyOption(CopyOptions.LocalDevice)
               }
             }, (t: BgTask, i: number) => `bg-${t.id}#${t.status}#${i}`)
@@ -5519,6 +5635,7 @@ struct Index {
                   .fontColor(a.running === true ? this.pal().successText : this.pal().textSecondary)
                   .width('100%').padding(SPACE_XS).backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
                   .maxLines(2).wordBreak(WordBreak.BREAK_ALL)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
                   .onClick(() => {
                     this.showPanels = false;
                     if (a.chat_id !== undefined) {
@@ -5540,6 +5657,7 @@ struct Index {
                   .fontColor(r.online === true ? this.pal().successText : this.pal().textSecondary)
                   .width('100%').padding(SPACE_XS).backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
                   .maxLines(2).wordBreak(WordBreak.BREAK_ALL)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
               }
             }, (r: RunnerRow, i: number) => `run-${r.name}#${r.online}#${i}`)
           }.constraintSize({ maxHeight: 420 }).width('100%')
