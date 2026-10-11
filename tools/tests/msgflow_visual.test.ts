@@ -132,6 +132,28 @@ eq('代码/输出块内边距出现 2 次（CodeBlock + OutBlock）',
 hasNot(popSrc, '.constraintSize({ maxHeight: BODY_MAX_H })\n      .padding(SP_2)',
   '旧的"SP_2 四周等距"写法已移除（回退即红）');
 
+// ── (⑤) `PlainLine`：`classifyLine` 必须**按行只算一次**（纯函数，禁按 span 重复求值）─────────
+// 为什么：`classifyLine(ln)` 的返回值只依赖 `ln`；旧写法在 ANSI 分支里按 **span 数**重复取色
+// （`.fontColor` 与 `.decoration.color` 各一次）⇒ 单行 `2×spanCount+1` 次 `toLowerCase` + 最多 8 次 `indexOf`。
+// 改为「调用方按行算一次 ⇒ 传参 `fg`」后全文件恒 **1** 次。
+// ⛔ 计数必须**剥注释**（本仓 GOTCHA：注释里出现 `classifyLine(` 会虚增计数 ⇒ 假红）。
+// ⛔ 也不能用 `@Builder` 内局部量：ArkUI 的 `@Builder` 体顶层只允许 UI 语法，`const` 会报
+//    `10905209 Only UI component syntax can be written here`（2026-10-11 真编译实测）。
+function stripComments(s: string): string {
+  return s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+}
+const popCode: string = stripComments(popSrc);
+const plAt: number = popCode.indexOf('PlainLine(ln: string, li: number, fg: string) {');
+const plEnd: number = plAt < 0 ? -1 : popCode.indexOf('\n  }', plAt);
+const plBody: string = (plAt < 0 || plEnd < 0) ? '' : popCode.substring(plAt, plEnd);
+ok('PlainLine builder 可定位（形态守护有效）', plBody.length > 200);
+eq('⛔ 全文件 `classifyLine(ln)` 调用点 = 1（按 span 重复即红；mutation：还原 ⇒ 4 处）',
+  popCode.split('classifyLine(ln)').length - 1, 1);
+has(popCode, 'this.PlainLine(ln, li, this.lineColor(classifyLine(ln)))',
+  '调用方按行算一次并传入 `fg`（表达式传参，非 builder 内局部量）');
+eq('⛔ PlainLine 体内**不再**自行调用 `classifyLine(`（回退即红）',
+  plBody.split('classifyLine(').length - 1, 0);
+
 if (fail > 0) {
   console.log(`  msgflow_visual: ${pass} passed, ${fail} failed`);
   process.exit(1);

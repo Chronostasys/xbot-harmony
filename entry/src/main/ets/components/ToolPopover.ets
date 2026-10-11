@@ -282,19 +282,27 @@ export struct ToolPopoverCard {
    *    ⚠️ `dim`（SGR 2 / web `opacity:.65`）**未接**：ArkUI `Span` 无逐段不透明度，跳过而非伪造。
    */
   @Builder
-  PlainLine(ln: string, li: number) {
+  PlainLine(ln: string, li: number, fg: string) {
+    // ⛔ 行色由**调用方按行算一次**后传入（`fg`）。为什么不用 builder 内局部量：ArkUI 的
+    //    `@Builder` 体顶层**只允许 UI 组件语法**，`const` 会报
+    //    `10905209 Only UI component syntax can be written here`（本波真编译实测）。
+    //    为什么旧写法要改：ANSI 分支里 `this.lineColor(classifyLine(ln))` 按 **span 数**重复求值
+    //    （`.fontColor` 与 `.decoration.color` 各一次）⇒ 单行 `2×spanCount+1` 次
+    //    `classifyLine`（`toLowerCase` + 最多 8 次 `indexOf`）。改为传参后全文件恒 **1** 次/行，
+    //    观感**零变化**（同一次 build 内 `ln` 不变 ⇒ 纯函数结果不变）。
+    //    判据：`tools/tests/msgflow_visual.test.ts`（全文件 `classifyLine(` 只允许 1 处）+ mutation 自证。
     if (hasAnsi(ln)) {
       // 有转义：逐 span 上色。底色 = 语义行色（span 未给前景色时继承它）。
       Text() {
         ForEach(this.ansiSpans(ln), (sp: AnsiSpan, si: number) => {
           Span(sp.text)
-            .fontColor(ansiFgOf(sp, this.lineColor(classifyLine(ln))))
+            .fontColor(ansiFgOf(sp, fg))
             .fontWeight(sp.bold ? FontWeight.Bold : FontWeight.Normal)
             .fontStyle(sp.italic ? FontStyle.Italic : FontStyle.Normal)
             .decoration({
               type: sp.strike ? TextDecorationType.LineThrough
                 : (sp.underline ? TextDecorationType.Underline : TextDecorationType.None),
-              color: ansiFgOf(sp, this.lineColor(classifyLine(ln))),
+              color: ansiFgOf(sp, fg),
             })
             .textBackgroundStyle({ color: ansiBgOf(sp, this.ansiBgFallback()) })
         }, (sp: AnsiSpan, si: number) => `a${li}_${si}`)
@@ -303,7 +311,7 @@ export struct ToolPopoverCard {
       .fontSize(12)
       .fontFamily('monospace')
       // 整行底色（span 无显式前景时可见）；有背景的 span 由 `textBackgroundStyle` 覆盖其底色。
-      .fontColor(this.lineColor(classifyLine(ln)))
+      .fontColor(fg)
       .maxLines(1)
       .textAlign(TextAlign.Start)
       .copyOption(CopyOptions.LocalDevice)
@@ -314,7 +322,7 @@ export struct ToolPopoverCard {
         // 同一浮层里"代码/终端输出"的字号必须一致（原先 11 比 web 小 1 ⇒ 与代码块观感分叉）。
         .fontSize(12)
         .fontFamily('monospace')
-        .fontColor(this.lineColor(classifyLine(ln)))
+        .fontColor(fg)
         .maxLines(1)
         .textAlign(TextAlign.Start)
         .copyOption(CopyOptions.LocalDevice)
@@ -358,7 +366,8 @@ export struct ToolPopoverCard {
       Scroll() {
         Column({ space: 1 }) {
           ForEach(tailLines(body, MAX_LINES), (ln: string, li: number) => {
-            this.PlainLine(ln, li)
+            // 行色按**行**算一次后传入（见 `PlainLine` 头注释：builder 内不能声明局部量）
+            this.PlainLine(ln, li, this.lineColor(classifyLine(ln)))
           }, (ln: string, li: number) => `o${li}`)
         }
         .width('100%').alignItems(HorizontalAlign.Start)
