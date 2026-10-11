@@ -105,16 +105,14 @@ function glowReadsAsLight(glow: string, bg: string): boolean {
   }
 }
 
-// ── E2 的**下游一致性**（本轮复核新增）：浅色 `glow = 透明` ⇒ 任何把它当"**色带主体**"的
-//    消费者都会退化成"**隐形/反序**"。本节把「正确接线的消费者」**钉强断言**，把「已退化的消费者」
-//    **登记成台账**（⛔ 只许缩短：一旦修好，`defect === false` ⇒ 本节红 ⇒ 逼你改成强断言）。
-// 实测缺陷（2026-10-11）：`core/sweep.ets:53-54` 浅色 `core = effectsOf().glow`（**恒透明**）、
-//    `fade = effectsOf().glowSoft`（`textPrimary@10%`，可见）⇒ 浅色扫光带**核心透明、两端有色**
-//    （**反序退化**）；且该文件 `:52` 的注释仍称 "core=`glow`(16%) 强于 fade=`glowSoft`(10%)"（**E2 后已陈旧**）。
-// ⛔ `core/sweep.ets` **不在本线域** ⇒ 本线**只登记 + 钉住**（⛔ 不改它）；修法供派单：
-//    `sweepBandOf` 浅色臂的 `core` 改用**独立中性档**（如 `effectsOf(p).elev2`），**⛔ 不复用 `glow`**；
-//    或**显式裁决「白底不做扫光」**（则整带全透明 + 从渲染路径摘除，而不是"悄悄退化成两端有色"）。
-const KNOWN_GLOW_CONSUMER_DEFECTS: string[] = ['core/sweep.ets'];
+// ── E2 的**下游一致性**：浅色 `glow = 透明` ⇒ 任何把它当"**色带主体**"的消费者都会退化成
+//    "**隐形/反序**"。本节把「正确接线的消费者」**钉强断言**，把「已退化的消费者」登记成台账。
+// 实测缺陷（2026-10-11，**已在本轮 G2 修复**）：`core/sweep.ets` 浅色 `core = effectsOf().glow`（**恒透明**）、
+//    `fade = effectsOf().glowSoft`（可见）⇒ 浅色扫光带**核心透明、两端有色**（**反序退化**）。修法 = 浅色
+//    `core` 改走**可见中性档** `effectsOf().elev3`（`textPrimary@16%`，= E2 前 `glow` **同值**，且
+//    `@16%` > fade `@10%` ⇒ **中心强于两端**）⇒ 真值/形态断言落在 `tools/tests/sweep.test.ts`。
+// ⇒ 台账随之**收缩为空**（⛔ 只许缩短）。
+const KNOWN_GLOW_CONSUMER_DEFECTS: string[] = [];
 {
   // ① 正确接线的消费者：浅色下**不得**是透明（否则等于通道消失）
   const porc = paletteOf('porcelain');
@@ -123,7 +121,7 @@ const KNOWN_GLOW_CONSUMER_DEFECTS: string[] = ['core/sweep.ets'];
     orbRingStrokeOf(porc) === hairlineOf(porc) && orbRingStrokeOf(porc) !== porc.transparent);
   ok('下游·inflightHaloOf：浅色 = elev2 柔影（**非透明**）',
     inflightHaloOf(porc) !== porc.transparent && inflightHaloOf(lite) !== lite.transparent);
-  // ② 已退化消费者：登记（只许缩短）
+  // ② sweep 已修复（G2）⇒ 由"台账登记"改为**强断言**：浅色 `core` 必须**非透明**
   let sweepDefect: boolean = false;
   for (let i = 0; i < ALL_THEMES.length; i++) {
     const p = paletteOf(ALL_THEMES[i]);
@@ -131,10 +129,10 @@ const KNOWN_GLOW_CONSUMER_DEFECTS: string[] = ['core/sweep.ets'];
     const b: SweepBand = sweepBandOf(p);
     if (b.core === p.transparent) { sweepDefect = true; }
   }
-  ok('下游·sweepBandOf：浅色 `core` **不得**为透明（否则扫光带反序退化）—— 当前**已登记缺陷**',
-    sweepDefect === true, 'defect 已消失 ⇒ 请从 KNOWN_GLOW_CONSUMER_DEFECTS 移除并改强断言');
-  ok('  · 缺陷台账非空且含 sweep（⛔ 只许缩短；修好 ⇒ 上一行红 ⇒ 逼同步）',
-    KNOWN_GLOW_CONSUMER_DEFECTS.indexOf('core/sweep.ets') >= 0);
+  ok('下游·sweepBandOf：浅色 `core` **非透明**（扫光带不再反序退化）',
+    sweepDefect === false, 'core 又变透明 ⇒ 退化回归');
+  ok('  · 缺陷台账已清空（修好即收缩，⛔ 只许缩短；再登记缺陷须同步本节）',
+    KNOWN_GLOW_CONSUMER_DEFECTS.length === 0);
 }
 
 if (fail > 0) { console.log(`  porcelain_glow: ${pass} passed, ${fail} failed`); process.exit(1); }

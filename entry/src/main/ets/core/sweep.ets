@@ -9,9 +9,11 @@
  *
  * 本模块把"该用哪三色"收敛成一个纯函数 `sweepBandOf(p)`（判据与渲染同源：渲染层只调它）：
  *   · **深色** ⇒ **逐字节 = 原值**（`Palette.accentSoftFade` / `Palette.accentSoft` / `Effects.sheen`）；
- *   · **浅色** ⇒ 落**中性**，与 `Effects.glow`（= `textPrimary@16%`）/ `Effects.glowSoft`（= `textPrimary@10%`）
- *     **同口径** —— 加色光压在纯白上物理不可见，中性柔影才是正确读法：
- *       `glowSoft`（淡出端）→ `glow`（色带主体）→ `sheen`（黑色微高光）。
+ *   · **浅色** ⇒ 落**中性**（加色光压在纯白上物理不可见，中性柔影才是正确读法）：
+ *       `glowSoft`（淡出端 `textPrimary@10%`）→ `elev3`（色带主体 `textPrimary@16%`）→ `sheen`（黑色微高光）。
+ *     ⛔ 主体**不能**再取 `Effects.glow`：E2 已把浅色 `glow` 短路成 `transparent`（`core/theme.ets:855`）
+ *       ⇒ 带子会退化成"中心透明、两端有色"（**反序**）。`elev3` 与 E2 前的 `glow` **同值**（`textPrimary@16%`）
+ *       ⇒ 恢复原设计观感，且 `@16%` > 淡出端 `@10%` ⇒ **中心强于两端**（强度序不变）。
  *
  * ⛔ **零色字面量**：全部取 `Palette` 字段 / `effectsOf` 派生口，颜色一律来自语义出口。
  * ⛔ **判据用 `isLightPalette`**（按 `appBg` 感知亮度），**不按主题名硬判**（新色板/改 appBg 自动成立）。
@@ -48,10 +50,14 @@ export function sweepBandOf(p: Palette): SweepBand {
   const e: Effects = effectsOf(p);
   const b: SweepBand = new SweepBand();
   if (isLightPalette(p)) {
-    // 浅色：落中性（同 `Effects.glow/glowSoft` 口径 —— textPrimary 的极低 alpha）。
-    // 强弱序保持（core=`glow`(16%) 强于 fade=`glowSoft`(10%)，与深色 core 强于 fade 同向）。
+    // 浅色：落中性柔影（`textPrimary` 的极低 alpha）——
+    // ⛔ 主体**不能**取 `e.glow`：E2（`core/theme.ets:855`）已把浅色 `glow` 短路成 `transparent`
+    //   ⇒ 带子退化成"中心透明、两端有色"（**反序**）。改用仍在的**中性柔影档** `e.elev3`
+    //   （`textPrimary@16%`，与 E2 前 `glow` **同值** ⇒ 恢复原设计观感），且 16% > 淡出端 10%
+    //   ⇒ **中心强于两端**（强度序与深色同向）。
+    //   ⚠️ 不用 `e.elev2`（`@7%` < 淡出端 `@10%` ⇒ 中心反而弱于两端，仍是反序）。
     b.fade = e.glowSoft;
-    b.core = e.glow;
+    b.core = e.elev3;
     b.sheen = e.sheen;
   } else {
     // 深色：**逐字节不变**（彩色 accent 扫光 = 观感来源，其他线依赖它）。
