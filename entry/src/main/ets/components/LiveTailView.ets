@@ -27,6 +27,8 @@ import { MarkdownView } from './MarkdownView';
 import { ThinkingLine } from './ThinkingLine';
 import { AssistantOrb, ORB_MODE_THINKING, ORB_MODE_TOOL, ORB_MODE_SECONDARY } from './AssistantOrb';
 import { ToolPill, statusColorOf } from './ToolVisual';
+import { SyntheticCard } from './SyntheticCard';
+import { isSyntheticToolName } from '../core/synthhints';
 import { isLiveStatus, renderKind, statusChip } from '../core/toolstatus';
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
 
@@ -332,14 +334,32 @@ return renderKind(t.status, t.exit_code, true);
 
   // ── 工具 pill 折叠 / 浮层（对齐 web `MergedPills` + `LazyPillPopover`）──────────
 
+  /** 假工具（注入型通知）—— 摘出 pill 行，改渲染为卡片（判据在 `core/synthhints`）。 */
+  private synthList(): ToolProgress[] {
+    const out: ToolProgress[] = [];
+    for (let i = 0; i < this.tools.length; i++) {
+      if (isSyntheticToolName(this.tools[i].name)) { out.push(this.tools[i]); }
+    }
+    return out;
+  }
+
+  /** 真工具（非假工具）—— pill 折叠只作用于它们。 */
+  private realList(): ToolProgress[] {
+    const out: ToolProgress[] = [];
+    for (let i = 0; i < this.tools.length; i++) {
+      if (!isSyntheticToolName(this.tools[i].name)) { out.push(this.tools[i]); }
+    }
+    return out;
+  }
+
   /** 直出的 pill（≤8 全量；>8 前 7 枚）。 */
   private shownList(): ToolProgress[] {
-    return foldPills(this.tools).shown;
+    return foldPills(this.realList()).shown;
   }
 
   /** `+N` 的 N（收起枚数）。 */
   private hideN(): number {
-    return foldPills(this.tools).hideCount;
+    return foldPills(this.realList()).hideCount;
   }
 
   /** 当前浮层对应的工具（按下标从 shown 里取 —— 与 pill 的下标一致）。 */
@@ -396,7 +416,7 @@ return renderKind(t.status, t.exit_code, true);
   @Builder
   OverflowPopBody() {
     ToolOverflowList({
-      tools: foldPills(this.tools).hidden,
+      tools: foldPills(this.realList()).hidden,
       theme: this.theme,
       live: true,
     })
@@ -502,52 +522,58 @@ return renderKind(t.status, t.exit_code, true);
       }
       if (this.tools.length > 0) {
         Column({ space: SPACE_XXS }) {
-          // 同一迭代内：**每工具一枚 pill**；>8 枚时前 7 枚 + "+N"（对齐 web `MergedPills`）。
-          Flex({ wrap: FlexWrap.Wrap }) {
-            ForEach(this.shownList(), (t: ToolProgress, i: number) => {
-              Stack() {
-                // 与 committed 块**共用同一套 pill 视觉**（状态标记 + 名称 + 状态 chip）。
-                // ⛔ 组件（@Prop 值变化通道）—— 带参 @Builder 会冻在第一帧（状态永不更新）。
-                ToolPill({
-                  label: this.labelText(t),
-                  kind: this.kind(t),
-                  chip: this.chip(t),
-                  live: this.live(t),
-                  selected: this.popIdx === i,
-                  theme: this.theme,
+          // ── 假工具（注入型通知）⇒ 卡片（在飞时尤其可能是 `user_interrupt`）─────────
+          ForEach(this.synthList(), (t: ToolProgress) => {
+            SyntheticCard({ tool: t, theme: this.theme })
+          }, (t: ToolProgress) => `lt-syn#${t.name}#${t.call_id !== undefined ? t.call_id : ''}`)
+          // ── 真工具：每工具一枚 pill；>8 枚时前 7 枚 + "+N"（对齐 web `MergedPills`）──
+          if (this.shownList().length > 0 || this.hideN() > 0) {
+            Flex({ wrap: FlexWrap.Wrap }) {
+              ForEach(this.shownList(), (t: ToolProgress, i: number) => {
+                Stack() {
+                  // 与 committed 块**共用同一套 pill 视觉**（状态标记 + 名称 + 状态 chip）。
+                  // ⛔ 组件（@Prop 值变化通道）—— 带参 @Builder 会冻在第一帧（状态永不更新）。
+                  ToolPill({
+                    label: this.labelText(t),
+                    kind: this.kind(t),
+                    chip: this.chip(t),
+                    live: this.live(t),
+                    selected: this.popIdx === i,
+                    theme: this.theme,
+                  })
+                }
+                // 硬约束宽度：生成中的 label 是**流式参数**（可能几百字符），
+                // 不给上限就会撑得比屏幕还长（真机铁证）
+                .constraintSize({ maxWidth: 240 })
+                .margin(GAP_PILL)
+                .clip(true)
+                .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+                .onClick(() => {
+                  // 点 pill **弹浮层**（对齐 web），再点同枚 = 关闭。
+                  this.popIdx = this.popIdx === i ? -1 : i;
                 })
+                .bindPopup(this.popIdx === i, {
+                  builder: this.ToolPopBody,
+                  placement: Placement.Bottom,
+                  enableArrow: false,
+                  mask: false,
+                  popupColor: this.pal().surface,
+                  radius: R_XL,
+                  width: POPOVER_W_OVERFLOW,
+                  onWillDismiss: (action: DismissPopupAction) => {
+                    this.popIdx = -1;
+                  },
+                })
+                .gesture(LongPressGesture().onAction(() => {
+                  this.onToolLongPress(t.name);
+                }))
+              }, (t: ToolProgress, i: number) => `lt-${i}#${t.name}#${t.call_id !== undefined ? t.call_id : ''}`)
+              if (this.hideN() > 0) {
+                this.OverflowBadge()
               }
-              // 硬约束宽度：生成中的 label 是**流式参数**（可能几百字符），
-              // 不给上限就会撑得比屏幕还长（真机铁证）
-              .constraintSize({ maxWidth: 240 })
-              .margin(GAP_PILL)
-              .clip(true)
-              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-              .onClick(() => {
-                // 点 pill **弹浮层**（对齐 web），再点同枚 = 关闭。
-                this.popIdx = this.popIdx === i ? -1 : i;
-              })
-              .bindPopup(this.popIdx === i, {
-                builder: this.ToolPopBody,
-                placement: Placement.Bottom,
-                enableArrow: false,
-                mask: false,
-                popupColor: this.pal().surface,
-                radius: R_XL,
-                width: POPOVER_W_OVERFLOW,
-                onWillDismiss: (action: DismissPopupAction) => {
-                  this.popIdx = -1;
-                },
-              })
-              .gesture(LongPressGesture().onAction(() => {
-                this.onToolLongPress(t.name);
-              }))
-            }, (t: ToolProgress, i: number) => `lt-${i}#${t.name}#${t.call_id !== undefined ? t.call_id : ''}`)
-            if (this.hideN() > 0) {
-              this.OverflowBadge()
             }
+            .width('100%')
           }
-          .width('100%')
         }
         .width('100%')
       }

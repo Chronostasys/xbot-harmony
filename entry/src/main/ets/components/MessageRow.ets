@@ -31,6 +31,8 @@ import { MarkdownView } from './MarkdownView';
 import { LiveTailView } from './LiveTailView';
 import { ThinkingLine } from './ThinkingLine';
 import { ToolPill, statusColorOf } from './ToolVisual';
+import { SyntheticCard } from './SyntheticCard';
+import { isSyntheticToolName } from '../core/synthhints';
 import { isInFlight, renderKind, statusChip } from '../core/toolstatus';
 import {
   MSG_BLOCK_WINDOW, MSG_BLOCK_SENTINEL_H, visibleBlocks, hiddenBlockCount, widenBlocks,
@@ -428,19 +430,52 @@ export struct MessageRowView {
     });
   }
 
+  /**
+   * 假工具（注入型通知 —— `bg_task`/`subagent`/`interrupt` 等）从 pill 行**摘出**，
+   * 改渲染为卡片（对齐 web `ToolRender.tsx:136`（interrupt）/`:154-155`（其余假工具））。
+   * 判据 `isSyntheticToolName` 在 `core/synthhints.ets`（判据与渲染同源）。
+   */
+  private synthToolsOf(it: HistoryIteration): ToolProgress[] {
+    const all: ToolProgress[] = it.tools !== undefined ? it.tools : [];
+    const out: ToolProgress[] = [];
+    for (let i = 0; i < all.length; i++) {
+      if (isSyntheticToolName(all[i].name)) { out.push(all[i]); }
+    }
+    return out;
+  }
+
+  /** 真工具（非假工具）—— pill 折叠/`+N` 只作用于它们（假工具已走卡片）。 */
+  private realToolsOf(it: HistoryIteration): ToolProgress[] {
+    const all: ToolProgress[] = it.tools !== undefined ? it.tools : [];
+    const out: ToolProgress[] = [];
+    for (let i = 0; i < all.length; i++) {
+      if (!isSyntheticToolName(all[i].name)) { out.push(all[i]); }
+    }
+    return out;
+  }
+
+  /**
+   * 工具在 `it.tools` 里的**原始下标**（pill 唯一键的兜底：某工具 `call_id` 缺失时用下标）。
+   * ⛔ 必须用原始下标（不是过滤后的下标）—— 否则 `popTool()`（按原始下标查）与渲染的
+   *    pill 键不一致 ⇒ 点 pill 打不开浮层。`indexOf` 对对象引用成立（过滤保留引用）。
+   */
+  private origIndex(it: HistoryIteration, t: ToolProgress): number {
+    return it.tools !== undefined ? it.tools.indexOf(t) : -1;
+  }
+
   /** 同一迭代内**直出**的 pill（≤8 全量；>8 前 7 枚）—— 对齐 web `MergedPills`。 */
   private shownPills(it: HistoryIteration): ToolProgress[] {
-    return foldPills(it.tools !== undefined ? it.tools : []).shown;
+    return foldPills(this.realToolsOf(it)).shown;
   }
 
   /** 同一迭代内被收进 `+N` 的 pill（>8 时 = 第 8 枚起）。 */
   private hiddenPills(it: HistoryIteration): ToolProgress[] {
-    return foldPills(it.tools !== undefined ? it.tools : []).hidden;
+    return foldPills(this.realToolsOf(it)).hidden;
   }
 
   /** `+N` 的 N（收起枚数）。 */
   private hideCount(it: HistoryIteration): number {
-    return foldPills(it.tools !== undefined ? it.tools : []).hideCount;
+    return foldPills(this.realToolsOf(it)).hideCount;
   }
 
   /** 在飞内容是否非空（@Prop 直驱 —— 与页面 `syncLiveTail` 的派生同源）。 */
@@ -688,17 +723,31 @@ export struct MessageRowView {
       }
 
       if (it.tools !== undefined && it.tools.length > 0) {
-        // 同一迭代内：**每工具一枚 pill**，全部塞进一个 flex-wrap 行；>8 枚时前 7 枚 + "+N"
-        // （逐字对齐 web `FoldedToolGroup.tsx:541-574` 的 `MergedPills`）。
-        Flex({ wrap: FlexWrap.Wrap }) {
-          ForEach(this.shownPills(it), (t: ToolProgress, ti: number) => {
-            this.ToolPillItem(it, t, ti)
-          }, (t: ToolProgress, ti: number) => `${this.toolKey(this.row.turnID, it.iteration, t.name)}#${t.call_id !== undefined ? t.call_id : ''}#${ti}`)
-          if (this.hideCount(it) > 0) {
-            this.OverflowBadge(it)
+        // ── 假工具（注入型通知：bg_task/subagent/interrupt…）⇒ 渲染为**卡片** ──────────
+        // 对齐 web `ToolRender.tsx:136`（interrupt）/`:154-155`（其余假工具）：注入事件
+        // 渲染成"看得懂的系统卡"，而不是一枚看不懂的 pill。判据 = `isSyntheticToolName`。
+        ForEach(this.synthToolsOf(it), (t: ToolProgress) => {
+          SyntheticCard({
+            tool: t,
+            theme: this.theme,
+            onCopy: (text: string, what: string) => {
+              this.onCopy(text, what);
+            },
+          })
+        }, (t: ToolProgress) => `syn#${this.toolKey(this.row.turnID, it.iteration, t.name)}#${t.call_id !== undefined ? t.call_id : ''}`)
+        // ── 真工具：**每工具一枚 pill**，塞进一个 flex-wrap 行；>8 枚时前 7 枚 + "+N" ──
+        // （逐字对齐 web `FoldedToolGroup.tsx:541-574` 的 `MergedPills`；假工具已摘出）。
+        if (this.shownPills(it).length > 0 || this.hideCount(it) > 0) {
+          Flex({ wrap: FlexWrap.Wrap }) {
+            ForEach(this.shownPills(it), (t: ToolProgress, ti: number) => {
+              this.ToolPillItem(it, t, this.origIndex(it, t))
+            }, (t: ToolProgress, ti: number) => `${this.toolKey(this.row.turnID, it.iteration, t.name)}#${t.call_id !== undefined ? t.call_id : ''}#${this.origIndex(it, t)}`)
+            if (this.hideCount(it) > 0) {
+              this.OverflowBadge(it)
+            }
           }
+          .width('100%')
         }
-        .width('100%')
       }
 
       // ── 该迭代 spawn 的 SubAgent 进度树（web `TurnBody.tsx:222-224`：
