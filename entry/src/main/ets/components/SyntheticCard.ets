@@ -21,7 +21,7 @@ import { AnsiSpan, ansiBgOf, ansiFgOf, ansiPaletteOf, ansiSpansIfAny, hasAnsi } 
 import { FS_BODY, FS_CAPTION, R_LG, R_XL, SP_1, SP_2, SP_3 } from '../core/tokens';
 import {
   RADIUS_CHIP, SPACE_HAIR, SURFACE_CHIP, SURFACE_PILL, TYPE_CHIP,
-  colorOf, hairlineOf, surfaceFillOf, typeOf, MARKER_GLYPH } from '../core/design';
+  colorOf, hairlineOf, structuralRuleOf, STROKE_HAIRLINE, surfaceFillOf, typeOf, MARKER_GLYPH } from '../core/design';
 import {
   FORM_BG_TASK, FORM_GENERIC, FORM_INTERRUPT, FORM_SUBAGENT, SyntheticHints,
   formatDuration, parseSyntheticHints, syntheticBodyOf, syntheticContinuityOf, syntheticForm,
@@ -300,7 +300,7 @@ export struct SyntheticCard {
     // 卡片面 = 浮起面（`surface.pill`）+ 结构性发丝边界（浅色系"浮起"的承载）
     .backgroundColor(surfaceFillOf(this.pal(), SURFACE_PILL))
     .borderRadius(R_XL)
-    .border({ width: 1, color: hairlineOf(this.pal()) })
+    .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
       // 贴合层（near）：浅色 = `elev1` 小半径贴合影（"接触影"）；深色 = 透明（不渲染 ⇒ 净观感不变）
       .shadow({
         radius: this.cardLayers()[0].radius,

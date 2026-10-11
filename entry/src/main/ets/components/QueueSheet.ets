@@ -7,7 +7,7 @@
  */
 import { Palette, paletteOf } from '../core/theme';
 import { QueueItem } from '../core/types';
-import { PRESS_OPACITY, STROKE_HAIRLINE, SURFACE_CARD, hairlineOf, surfaceFillOf, ICON_LG, HIT_TARGET_MIN } from '../core/design';
+import { PRESS_OPACITY, STROKE_HAIRLINE, SURFACE_CARD, hairlineOf, structuralRuleOf, surfaceFillOf, ICON_LG, HIT_TARGET_MIN } from '../core/design';
 import { FS_CAPTION, FS_TITLE, R_LG, R_MD, R_XL, SP_2, SP_3, SP_4 } from '../core/tokens';
 import { fs, fw, lh } from './SettingsRows';
 // 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线/位移；E3 统一）。
@@ -145,6 +145,9 @@ export struct QueueSheet {
                 this.onCancel(this.idOf(q));
               })
             }.width('100%').padding(SP_2).backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD)).borderRadius(R_LG)
+            // **面→面**轮廓 = `structuralRuleOf`（此前**裸面**：只靠填充差，porcelain 下几乎读不出层次）——
+            // 与 `PluginsSheet` 的行卡同层级 ⇒ 同通道（`docs/DESIGN-SYSTEM.md §13.5`）。
+            .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
           }
         }, (q: QueueItem) => `${q.msg_id}#${q.content}#${q.text}`)
       }

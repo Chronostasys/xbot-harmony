@@ -28,7 +28,7 @@ import { XbotHttp } from '../core/http';
 import {
   PRESS_OPACITY,   INSET_CARD_X, INSET_CARD_Y, INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, RADIUS_PILL,
   STROKE_HAIRLINE, HIT_TARGET_MIN, SPACE_XS, SPACE_SM, SPACE_MD, SPACE_LG,
-  hairlineOf, surfaceFillOf,
+  hairlineOf, structuralRuleOf, surfaceFillOf,
 } from '../core/design';
 import { SettingsAbout } from './SettingsAbout';
 import { SettingsAccount } from './SettingsAccount';
@@ -283,7 +283,9 @@ export struct SettingsPanel {
       .padding({ left: INSET_CARD_X, right: INSET_CARD_X, top: INSET_CARD_Y, bottom: INSET_CARD_Y })
       .backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))
       .borderRadius(RADIUS_CARD)
-      .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+      // **面→面**轮廓走 `structuralRuleOf`（浅色 = `borderStrong`，比面内强一档；深色 = `border` 逐字节）；
+      // 与本面板内的其它卡（`SettingsRows`）同层级 ⇒ 同通道（`docs/DESIGN-SYSTEM.md §13.5`）。
+      .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
       }
       .width('100%')
       .layoutWeight(1)

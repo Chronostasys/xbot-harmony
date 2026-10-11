@@ -27,7 +27,7 @@ import { FS_CAPTION, R_MD, R_SM, SP_1, SP_2, SP_3 } from '../core/tokens';
 import {
   ELEV_OVERLAY, ICON_MD, ICON_SM, INSET_CHIP_X, INSET_CHIP_Y, LIST_MAX_H, MENU_W,
   PRESS_OPACITY, PROGRESS_H, PROGRESS_W, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP,
-  elevationColorOf, goalRowTintOf, hairlineOf,
+  elevationColorOf, goalRowTintOf, hairlineOf, structuralRuleOf,
   surfaceFillOf, typeOf, colorOf, HIT_TARGET_MIN, } from '../core/design';
 import { animFast } from './anim';
 import { TodoItem } from '../core/types';
@@ -451,7 +451,9 @@ export struct TodoPanel {
       .alignItems(HorizontalAlign.Start)
       .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))
       .borderRadius(R_MD)
-      .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+      // **面→面**轮廓 = `structuralRuleOf`（浅色 `borderStrong`，比面内强一档；深色 `border` 逐字节）——
+      // 与 `SettingsRows`/`PluginHost` 的卡片同层级 ⇒ 同通道（`docs/DESIGN-SYSTEM.md §13.5`）。
+      .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
       .clip(true)
     }
   }
