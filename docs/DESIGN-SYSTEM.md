@@ -894,3 +894,22 @@ vs 深色黑柔影 **1.0206/1.0122** ⇒ 再次确认"浅色柔影比深色黑�
 
 **已钉住**：`tools/tests/type_role_gate.test.ts §C2` —— 断言这三个站点**不得**被改走 `sz()`
 （若后人"顺手统一"就会红，并把这条裁决原文回放出来）。⛔ 别再当 spec 挂着。
+
+### §17 附：**口径修正（2026-10-11，代修 3 条 spec 时发现）**
+
+代修 `SettingsDeveloper:302` / `SettingsLlm:1420` / `SplashOverlay:174` 三条 spec 时，**逐条核实语义位后发现三条都不是真违规**
+—— 是**判据口径不对**（按主 agent 的指示：口径与真实语义位不符 ⇒ **修判据，不回退代码**）。
+
+**(a) 禁用/降级态弱化不算违规。**
+`textMuted` 出现在**三元表达式的退化分支**（`cond ? A : textMuted`）时，语义是"**不可用/降级时灰显**"，
+且那时**不可点** ⇒ 禁用态的可视性要求低于可交互态 ⇒ **有意弱化**，不算违规。实测两处：
+- `SettingsDeveloper.ets:302`：`chatID.length > 0 ? onAccent : textMuted`（压在它自己的 `surfaceAlt` 上）；
+- `SettingsLlm.ets:1420`：`perModelEditReason(...).length > 0 ? textMuted : accentSoft`
+  —— 源码注释原文："拿不到既有配置 ⇒ **灰显 + 不可点**"。
+⇒ 判据已改为：**三元分支里的 `textMuted` 不计**（仅在**无条件取色**时才算候选）。
+
+**(b) 必须按「实际宿主底」判，⛔ 不能按"porcelain × 光面"一刀切。**
+`SplashOverlay.ets:174`「轻点跳过」的宿主是 **`splashBrandCanvas()` = 恒深 `#0B0B0E`**（不是浅面）⇒
+`textMuted` 在其上：**porcelain 7.73 · light 7.67 · dark 3.32 · aurora 4.99 · nebula 4.90**（**全 ≥ 3**）
+⇒ **达标，不是违规**。⇒ 判据已加 **宿主感知**（对该站点用真宿主色），并把这份数字**钉成断言**（画布若变浅会立刻红）。
+⚠️ 原先的红是**判据口径错**，不是产品错 —— 这正是"判据 ≠ 信号"的又一例。

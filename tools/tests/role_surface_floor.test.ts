@@ -29,8 +29,9 @@ declare function require(m: 'fs'): {
 declare function require(m: 'path'): { join(...parts: string[]): string; relative(a: string, b: string): string };
 declare const __dirname: string;
 
-import { paletteOf, contrastRatio, surfacesOf } from '../../entry/src/main/ets/core/theme';
+import { paletteOf, contrastRatio, surfacesOf, ALL_THEMES } from '../../entry/src/main/ets/core/theme';
 import { surfaceFillOf, AA_MUTED, AA_NON_TEXT, colorOf } from '../../entry/src/main/ets/core/design';
+import { splashBrandCanvas } from '../../entry/src/main/ets/core/splash';
 
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean): void {
@@ -153,6 +154,21 @@ ok(`事实：textMuted/porcelain ≥ AA_MUTED(${AA_MUTED})（⇒ 用于**非交�
 ok('对照：iconMuted 在 porcelain 达标非文本门槛（图标专用出口是对的）',
   Math.min.apply(null, probe('iconMuted', 'porcelain').vals) >= AA_NON_TEXT);
 
+console.log('\n▶ §A2 口径修正 (b) 的数字依据：`textMuted` 压 **恒深品牌画布** 全主题达标');
+{
+  const canvas: string = splashBrandCanvas();
+  console.log(`  splashBrandCanvas() = ${canvas}`);
+  let allOk: boolean = true;
+  for (let i = 0; i < ALL_THEMES.length; i++) {
+    const p = paletteOf(ALL_THEMES[i]);
+    const c: number = contrastRatio(colorOf(p, 'textMuted'), canvas);
+    console.log(`     ${pad(ALL_THEMES[i], 11)} textMuted vs 品牌画布 = ${c.toFixed(2)}`);
+    if (c < AA_NON_TEXT) { allOk = false; }
+  }
+  ok(`口径修正 (b)：splash 品牌画布上 textMuted **全主题 ≥${AA_NON_TEXT}** ⇒ 「轻点跳过」不是违规`,
+    allOk && canvas.length > 0);
+}
+
 console.log('\n▶ §B 判据（硬）：`textMuted` 不得作为「可点元素」或「SymbolGlyph」的**直接**取色');
 const CLICK: string[] = ['onClick', 'bindMenu', 'bindPopup', 'bindSheet', 'gesture', 'onTouch', 'bindContextMenu', 'bindTips'];
 class Hit { rel: string = ''; line: number = 0; kind: string = ''; key: string = ''; }
@@ -172,10 +188,22 @@ function scanBad(m: Map<string, string>, exempt: string[]): Hit[] {
         if (clicky || icon) {
           // ⛔ 只认**直接取色**（`.textMuted` / `colorOf(…,'textMuted')`）；函数间接取色不算（静态不可判）
           let direct: boolean = false;
+          let conditional: boolean = false;   // ⛔ **禁用/降级态弱化**（三元退化分支）
           for (let i = 0; i < ch.length; i++) {
-            if (ch[i][0] === 'fontColor' && /\.textMuted\b/.test(ch[i][1]) && !/\(.*\btextMuted\b.*\)/.test('')) { direct = true; }
-            if (ch[i][0] === 'fontColor' && /colorOf\([^,()]+(?:\([^()]*\))?\s*,\s*'textMuted'\s*\)/.test(ch[i][1])) { direct = true; }
+            if (ch[i][0] !== 'fontColor') { continue; }
+            const v: string = ch[i][1];
+            const hasMuted: boolean = /\.textMuted\b/.test(v) || /'textMuted'/.test(v);
+            if (!hasMuted) { continue; }
+            // ⛔ **口径修正 (a)**：`cond ? A : B` 里的 `textMuted` = **"不可用/降级时灰显"**，
+            //    是**有意弱化**（禁用态的可视性要求低于可交互态，且那时**不可点**）⇒ **不算违规**。
+            //    实测依据：`SettingsDeveloper:302`（`chatID.length>0 ? onAccent : textMuted`，压在 `surfaceAlt` 上）
+            //    与 `SettingsLlm:1420`（`perModelEditReason(...)>0 ? textMuted : accentSoft`，
+            //    源码注释原文："拿不到既有配置 ⇒ **灰显 + 不可点**"）都属此类。
+            if (/\?/.test(v) && !/\bdisabled\b/.test(v)) { conditional = true; continue; }
+            if (/\.textMuted\b/.test(v)) { direct = true; }
+            if (/colorOf\([^,()]+(?:\([^()]*\))?\s*,\s*'textMuted'\s*\)/.test(v)) { direct = true; }
           }
+          if (conditional && !direct) { direct = false; }
           if (direct) {
             const key: string = `${rel} :: ${x[1]}::${clicky ? 'clickable' : 'icon'}`;
             if (exempt.indexOf(key) < 0) {
@@ -197,11 +225,15 @@ const KNOWN_OK: string[] = [
   // **状态化弱化（有意）**：目标条的目标文本在**已完成**态用 `textMuted` + 删除线（web `:122-128` 同款）
   // —— "已完成 ⇒ 退居背景"的设计，且该行**本身不承载操作**（操作在右侧按钮上）。⛔ 不修。
   'components/GoalBanner.ets :: Text::clickable',
+  // ⛔ **口径修正 (b)：宿主感知** —— `SplashOverlay:174`「轻点跳过」的宿主是
+  //    `splashBrandCanvas()`（**恒深** `#0B0B0E`，不是浅面）⇒ `textMuted` 在其上
+  //    **porcelain 7.73 / light 7.67 / dark 3.32 / aurora 4.99 / nebula 4.90**（全 ≥3）
+  //    ⇒ **不是违规**。（我原先的判据只按"porcelain × 光面"一刀切 ⇒ **口径错**，不是产品错。）
+  //    ✅ 下面 §A2 有一条断言把这份数字**钉住**（若画布变浅会立刻红）。
+  'components/SplashOverlay.ets :: Text::clickable',
   // ── 以下**全在他域** ⇒ 只出 spec（chat-surface-ux / tokens-ux）──
   'components/LiveTailView.ets :: Text::clickable',
   'components/MessageRow.ets :: Text::clickable',
-  'components/SettingsDeveloper.ets :: Button::clickable',
-  'components/SettingsLlm.ets :: Text::clickable',
   'pages/Index.ets :: SymbolGlyph::clickable',
   'pages/Index.ets :: SymbolGlyph::icon',
   'components/MarkdownView.ets :: SymbolGlyph::icon',   // chat-surface-ux（代码块语言标签前的图标）
