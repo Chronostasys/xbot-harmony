@@ -68,6 +68,13 @@ if (repo.length > 0) {
   ok('★③ design.ets 定义 ICON_XL = 20', count('entry/src/main/ets/core/design.ets', 'export const ICON_XL: number = 20;') === 1);
   ok('★③ 且被 SelfCheckSheet 的 3 处消费', count('entry/src/main/ets/components/SelfCheckSheet.ets', 'fontSize(ICON_XL)') === 3);
   ok(`★④ 台账登记未收编项（${PENDING.length} 条，各带理由；⛔ 只许缩短）`, PENDING.length > 0);
+  // ★⑤ §15「画布→下沉」的 **chip** 面：复用 `insetHairlineOf`（深色画 / 浅色 transparent）
+  //    原文口径（`docs/DESIGN-SYSTEM.md §15 附`）：dark 1.0005 无通道 ⇒ "该加，但只该对深色加"。
+  const a: number = count('entry/src/main/ets/components/PluginHost.ets', 'insetHairlineOf(this.pal())');
+  const b: number = count('entry/src/main/ets/components/PluginWidgets.ets', 'insetHairlineOf(this.pal())');
+  ok(`★⑤ §15 chip：PluginHost 走内凹发丝（实得 ${a} ≥1）`, a >= 1);
+  ok(`★⑤ §15 chip：PluginWidgets 的 2 处 chip 走内凹发丝（实得 ${b}）`, b === 2);
+  ok(`★⑤ §15 chip：零扫描判红（合计 ${a + b} > 0）`, a + b > 0);
 }
 if (fail > 0) { console.log(`  icon_size_tokens: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  icon_size_tokens: ${pass} passed, 0 failed`);

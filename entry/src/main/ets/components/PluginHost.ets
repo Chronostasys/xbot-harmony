@@ -19,8 +19,7 @@ import {
   colorOf, hairlineOf, structuralRuleOf, surfaceFillOf,
   GAP_ROW_Y, GAP_SECTION, GUTTER_SCREEN, HIT_TARGET_MIN, INSET_CARD_X, INSET_CARD_Y,
   INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X, INSET_ROW_Y, PRESS_OPACITY, RADIUS_CARD, RADIUS_CHIP,
-  RADIUS_PILL, SPACE_HAIR, SPACE_LG, SPACE_XS, STROKE_HAIRLINE,
-} from '../core/design';
+  RADIUS_PILL, SPACE_HAIR, SPACE_LG, SPACE_XS, STROKE_HAIRLINE, insetHairlineOf } from '../core/design';
 import { fs, fw, lh, SettingsGroupHeader, tc } from './SettingsRows';
 import { WIDGET_EVENT_WEB } from '../core/widgetsview';
 import { PluginWidgets } from './PluginWidgets';
@@ -236,6 +235,7 @@ struct PluginBadgeChip {
       })
       .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
       .borderRadius(RADIUS_CHIP)
+  .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
   }
 }
 

@@ -25,8 +25,7 @@ import {
   colorOf, hairlineOf, structuralRuleOf, surfaceFillOf, wellOf,
   GAP_ROW_Y, GAP_SECTION, INSET_CARD_X, INSET_CARD_Y, INSET_CHIP_X, INSET_CHIP_Y,
   INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, SPACE_HAIR, SPACE_XS,
-  STROKE_HAIRLINE,
-} from '../core/design';
+  STROKE_HAIRLINE, insetHairlineOf } from '../core/design';
 import {
   KIND_BADGE, KIND_LIST, KIND_MARKDOWN, KIND_METRIC, KIND_PROGRESS,
   WIDGET_EVENT_WEB, WidgetComponentView, WidgetItemView, WidgetSpanView, WidgetsView,
@@ -135,6 +134,7 @@ struct WidgetComponentCard {
         .padding({ left: INSET_CHIP_X, right: INSET_CHIP_X, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
         .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
         .borderRadius(RADIUS_CHIP)
+      .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
       } else if (this.view.kind === KIND_PROGRESS) {
         // web `ProgressWidget`：label + 条 + 百分比
         if (this.view.progressLabel.length > 0) {
@@ -275,6 +275,7 @@ struct WidgetComponentCard {
     .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
     .borderRadius(RADIUS_PILL)
+  .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
   }
 }
 
