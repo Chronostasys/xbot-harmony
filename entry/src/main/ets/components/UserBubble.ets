@@ -19,6 +19,7 @@
 import { Palette, paletteOf, Effects, effectsOf } from '../core/theme';
 import { BUBBLE } from '../core/bubble';
 import { UserBubbleFace, userBubbleFace } from '../core/bubbleview';
+import { GAP_ROW_Y, INSET_BUBBLE_X, INSET_BUBBLE_Y, RADIUS_BUBBLE, typeOf } from '../core/design';
 
 @Component
 export struct UserBubbleView {
@@ -53,30 +54,33 @@ export struct UserBubbleView {
       Blank()
       Text(this.text)
         .wordBreak(WordBreak.BREAK_ALL)
-        // 文字色 = 与淡色底配对的 textPrimary（web `text-text-primary`）；
+        // 字号走语义层 `type.body`（15fp）；文字色 = 与淡色底配对的 `textPrimary`（web `text-text-primary`）。
         // ⛔ 不再用 `onAccent`（那是"实心 accent 之上的字"的角色，与 accent@15% 淡底不匹配）。
-        .fontSize(15).fontColor(this.face().textColor)
+        .fontSize(typeOf('type.body').size).fontColor(this.face().textColor)
+        // 内距 = 语义令牌 `INSET_BUBBLE_X/Y`（14/8，**值 ==** 原映射表 `px-3.5 py-2`）⇒ 等值迁移。
         .padding({
-          left: BUBBLE.userPadX, right: BUBBLE.userPadX,
-          top: BUBBLE.userPadY, bottom: BUBBLE.userPadY,
+          left: INSET_BUBBLE_X, right: INSET_BUBBLE_X,
+          top: INSET_BUBBLE_Y, bottom: INSET_BUBBLE_Y,
         })
         .constraintSize({ maxWidth: `${BUBBLE.userMaxWidthPct}%` })
         // 底色**唯一来源**：主题 accent @15%（映射表 `core/bubble.ets` / web `bg-accent/15`）。
         // ⛔ 不再叠渐变：web 气泡没有渐变，叠加会变成 web 之外的第二种底色。
         .backgroundColor(this.face().bg)
-        // `rounded-2xl rounded-br-sm`：四角 16、右下角单独收小（"气泡尾巴"感）
+        // 四角 16 = 语义令牌 `RADIUS_BUBBLE`（等值）；右下角单独收小 —— 原 `BUBBLE.userRadiusBR`=2，
+        // 令牌 `RADIUS_BUBBLE_TAIL`=4 **值不等** ⇒ 保留原值，见交付的"待裁决"清单。
         .borderRadius({
-          topLeft: BUBBLE.userRadiusAll, topRight: BUBBLE.userRadiusAll,
-          bottomLeft: BUBBLE.userRadiusAll, bottomRight: BUBBLE.userRadiusBR,
+          topLeft: RADIUS_BUBBLE, topRight: RADIUS_BUBBLE,
+          bottomLeft: RADIUS_BUBBLE, bottomRight: BUBBLE.userRadiusBR,
         })
         .shadow({ radius: 12, color: this.eff().elev1, offsetX: 0, offsetY: 2 })
         .copyOption(CopyOptions.LocalDevice)
     }
     .width('100%')
-    // 外层 `px-1` + `.virt-row py-1.5`（与助手行同一条带）
+    // 外层 `px-1` + `.virt-row py-1.5`（与助手行同一条带）；垂直间距 = 语义令牌 `GAP_ROW_Y`
+    // （6，**值 ==** 原 `BUBBLE.rowPadY`）⇒ 等值迁移。
     .padding({
       left: BUBBLE.assistantPadX, right: BUBBLE.assistantPadX,
-      top: BUBBLE.rowPadY, bottom: BUBBLE.rowPadY,
+      top: GAP_ROW_Y, bottom: GAP_ROW_Y,
     })
     .gesture(LongPressGesture().onAction(() => {
       this.onLongPress();

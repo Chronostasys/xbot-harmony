@@ -69,19 +69,22 @@ const userSrc: string = readSrc('entry/src/main/ets/components/UserBubble.ets');
 const rowSrc: string = readSrc('entry/src/main/ets/components/MessageRow.ets');
 const tailSrc: string = readSrc('entry/src/main/ets/components/LiveTailView.ets');
 
-check('UserBubble 引用映射表 userPadX/userPadY',
-  /padding\(\{[\s\S]*?BUBBLE\.userPadX[\s\S]*?BUBBLE\.userPadY/.test(userSrc), '未用映射表');
-check('UserBubble 引用映射表 maxWidth + radius',
-  userSrc.includes('BUBBLE.userMaxWidthPct') && userSrc.includes('BUBBLE.userRadiusAll')
-  && userSrc.includes('BUBBLE.userRadiusBR'), 'user 气泡未走映射表');
+// 内距/圆角/行带间距：2026-10-11 迁移到**语义令牌层** `core/design.ets`（等值迁移，
+// 值 == 原映射表 `px-3.5 py-2` / `rounded-2xl` / `py-1.5`）⇒ 组件不再直接引用这些 BUBBLE 字段。
+// 等值性由 `tools/tests/token_migration.test.ts` 逐行断言（本文件只守"接线形态"）。
+check('UserBubble 内距走语义令牌 INSET_BUBBLE_X/Y',
+  userSrc.includes('INSET_BUBBLE_X') && userSrc.includes('INSET_BUBBLE_Y'), '内距未走令牌');
+check('UserBubble 四角圆角走 RADIUS_BUBBLE', userSrc.includes('RADIUS_BUBBLE'), '圆角未走令牌');
+check('UserBubble 行带间距走 GAP_ROW_Y', userSrc.includes('GAP_ROW_Y'), '行带间距未走令牌');
+check('UserBubble 仍走映射表 maxWidth / 右下角 / 助手外框',
+  userSrc.includes('BUBBLE.userMaxWidthPct') && userSrc.includes('BUBBLE.userRadiusBR')
+  && userSrc.includes('BUBBLE.assistantPadX'), 'user 气泡映射表字段缺失');
 // 底色：2026-10-11 收敛为**唯一来源**（`core/bubbleview.ets` 的 `userBubbleFace()` →
 // `userBubbleBg()`）。组件不再自己叠渐变/自己取底 ⇒ 断言"走唯一判据"而非"组件里出现 userBubbleBg"。
 check('UserBubble 底色走唯一判据（core/bubbleview → userBubbleBg）',
   userSrc.includes('userBubbleFace(')
   && readSrc('entry/src/main/ets/core/bubbleview.ets').includes('userBubbleBg('),
   'user 气泡底色未收敛到唯一来源');
-check('UserBubble 外层 `px-1`/`py-1.5`（assistantPadX/rowPadY）',
-  userSrc.includes('BUBBLE.assistantPadX') && userSrc.includes('BUBBLE.rowPadY'), '外层间距未对齐');
 
 // 助手容器：web `AssistantMessage` = `px-1`，**无** chrome。断言 AssistantBlock 的容器
 // 不再有 backgroundColor/border/shadow/borderRadius（只允许 padding/margin）。
