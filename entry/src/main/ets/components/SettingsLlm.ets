@@ -25,17 +25,25 @@ import { Palette, paletteOf } from '../core/theme';
 import { XbotHttp } from '../core/http';
 import { FS_BODY, FS_CAPTION, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5 } from '../core/tokens';
 import {
-  countModelsForSub, DefaultSubscriptionParams, GetSettingsParams, isSubscriptionEnabled,
-  LlmConcurrencyParams, ModelEntryRow, readableRpcError, rpc, RpcMethod, SetSettingParams,
-  SETTINGS_NS_CLI, SubscriptionEnabledParams, SubscriptionRow, ThinkingModeParams,
+  AddSubscriptionParams, countModelsForSub, DefaultSubscriptionParams, GetSettingsParams, IdParams,
+  isSubscriptionEnabled, LlmConcurrencyParams, ModelEntryRow, readableRpcError, RemoveModelParams,
+  rpc, RpcMethod, SetModelEnabledParams, SetSettingParams, SETTINGS_NS_CLI, SubscriptionBody,
+  SubscriptionEnabledParams, SubscriptionRow, ThinkingModeParams, UpdateSubscriptionParams,
+  UpsertModelParams,
 } from '../core/rpc';
 import {
-  clampConcurrency, concurrencyFrom, concurrencyStep, formatTierValue, isTierEntryCurrent,
-  LLM_CONCURRENCY_MAX, LLM_CONCURRENCY_MIN, thinkDbFromDisplay, thinkDisplayFromDb, thinkHint,
-  thinkLabel, THINK_OPTIONS, tierDisplayText, tierHint, tierKey, tierLabel, tierPickerEntries,
-  TIERS, TIER_UNSET_TEXT, tierValues,
+  apiKeyForSubmit, clampConcurrency, concurrencyFrom, concurrencyStep, editSubscriptionForm, fmtTokens,
+  formatTierValue, filterSubscriptions, isModelDisabled, isValidModelName, isTierEntryCurrent,
+  LLM_API_TYPE_LABELS, LLM_API_TYPES, LLM_CONCURRENCY_MAX, LLM_CONCURRENCY_MIN, LLM_PROVIDER_IDS,
+  LLM_PROVIDER_LABELS, LLM_PROVIDER_OPENAI, llmProviderUrl, modelStatusLabel, modelsForSub,
+  newSubscriptionForm,
+  normalizeApiTypeForSubmit, normalizeModelName, subscriptionFormError, SubscriptionForm,
+  subscriptionFormValid, thinkDbFromDisplay, thinkDisplayFromDb, thinkHint, thinkLabel, THINK_OPTIONS,
+  tierDisplayText, tierHint, tierKey, tierLabel, tierPickerEntries, TIERS, TIER_UNSET_TEXT, tierValues,
 } from '../core/settings';
-import { SettingsErrorBar, SettingsPanelHeader, SettingsSubCard } from './SettingsRows';
+import {
+  SettingsChipRow, SettingsErrorBar, SettingsPanelHeader, SettingsSubCard, SettingsTextFieldRow,
+} from './SettingsRows';
 
 @Component
 export struct SettingsLlm {
@@ -63,6 +71,24 @@ export struct SettingsLlm {
   @State private concurrency: number = 5;
   /** 推理设置写入中。 */
   @State private inferenceBusy: boolean = false;
+  /** 新增/编辑订阅表单是否展开。 */
+  @State private formOpen: boolean = false;
+  /** 表单当前值（新增/编辑共用；详见 `core/settings.ets` 的 `SubscriptionForm`）。 */
+  @State private form: SubscriptionForm = new SubscriptionForm();
+  /** true = 编辑既有订阅；false = 新增。 */
+  @State private formEditing: boolean = false;
+  /** 表单提交中。 */
+  @State private formBusy: boolean = false;
+  /** 待确认删除的订阅 id（`''` = 无）。 */
+  @State private deleteId: string = '';
+  /** 正在管理模型的订阅 id（`''` = 未展开）。 */
+  @State private manageSubId: string = '';
+  /** 新模型名输入草稿。 */
+  @State private modelDraft: string = '';
+  /** 正在操作的模型键（`subId|model`；用于禁用态）。 */
+  @State private modelBusy: string = '';
+  /** 订阅搜索词。 */
+  @State private subQuery: string = '';
 
   aboutToAppear(): void {
     void this.load();
@@ -224,6 +250,195 @@ export struct SettingsLlm {
     }
   }
 
+  // ── 订阅 CRUD（新增 / 编辑 / 删除）────────────────────────────────────────────
+  //
+  // 逐条对齐 web：表单默认与校验见 `core/settings.ets` 顶部注释；提交构造见
+  // `SubFormModal`（`llm-console.tsx:481-486`）→ `addSubscription`/`updateSubscription`
+  // （`useLLMSettings.ts:171-234`）。⛔ 编辑态 api_key 若仍是掩码 ⇒ 归空串交服务端保留真值。
+
+  private cloneForm(v: SubscriptionForm): SubscriptionForm {
+    const f: SubscriptionForm = new SubscriptionForm();
+    f.id = v.id;
+    f.name = v.name;
+    f.provider = v.provider;
+    f.baseUrl = v.baseUrl;
+    f.apiKey = v.apiKey;
+    f.model = v.model;
+    f.apiType = v.apiType;
+    return f;
+  }
+
+  /** 打开「新增订阅」表单（web `SettingsLLM.tsx:267`）。 */
+  private openAdd(): void {
+    this.form = newSubscriptionForm();
+    this.formEditing = false;
+    this.formOpen = true;
+    this.error = '';
+  }
+
+  /** 打开「编辑订阅」表单（web `SettingsLLM.tsx:427-430`）。 */
+  private openEdit(s: SubscriptionRow): void {
+    this.form = editSubscriptionForm(s);
+    this.formEditing = true;
+    this.formOpen = true;
+    this.error = '';
+  }
+
+  /** 提交表单：`add_subscription` / `update_subscription`。 */
+  private async submitForm(): Promise<void> {
+    if (this.formBusy) {
+      return;
+    }
+    const editing: boolean = this.formEditing;
+    if (!subscriptionFormValid(this.form, editing)) {
+      this.error = subscriptionFormError(this.form, editing);
+      return;
+    }
+    this.formBusy = true;
+    const body: SubscriptionBody = new SubscriptionBody();
+    body.name = this.form.name.trim();
+    body.provider = this.form.provider;
+    body.base_url = this.form.baseUrl.trim();
+    body.api_key = apiKeyForSubmit(this.form.apiKey);
+    body.model = this.form.model.trim();
+    body.api_type = normalizeApiTypeForSubmit(this.form.provider, this.form.apiType);
+    try {
+      if (editing) {
+        await rpc<void>(this.http, RpcMethod.updateSubscription,
+          new UpdateSubscriptionParams(this.form.id, body));
+      } else {
+        await rpc<void>(this.http, RpcMethod.addSubscription, new AddSubscriptionParams(body));
+      }
+      this.error = '';
+      this.formOpen = false;
+      this.deleteId = '';
+    } catch (e) {
+      this.error = readableRpcError((e as Error).message);
+    } finally {
+      this.formBusy = false;
+      await this.load();
+    }
+  }
+
+  /** 删除订阅（web `SettingsLLM.tsx:137-141`；先弹确认）。 */
+  private async doDelete(subId: string): Promise<void> {
+    if (this.deleteId !== subId) {
+      this.deleteId = subId;
+      return;
+    }
+    this.busy = subId;
+    try {
+      await rpc<void>(this.http, RpcMethod.removeSubscription, new IdParams(subId));
+      this.error = '';
+      this.deleteId = '';
+      if (this.manageSubId === subId) {
+        this.manageSubId = '';
+      }
+    } catch (e) {
+      this.error = readableRpcError((e as Error).message);
+    } finally {
+      this.busy = '';
+      await this.load();
+    }
+  }
+
+  // ── 模型 CRUD（新增 / 启停 / 删除）───────────────────────────────────────────
+  //
+  // 逐条对齐 web：`AddModelModal`（`llm-console.tsx:298-321`）→ `upsertModel`；
+  // `toggleModel`（`SettingsLLM.tsx:142-145`）→ `setModelEnabled`；
+  // `removeModelById`（`SettingsLLM.tsx:146-149`）→ `removeModel`。
+
+  private modelKey(subId: string, model: string): string {
+    return `${subId}|${model}`;
+  }
+
+  private async addModel(subId: string): Promise<void> {
+    const name: string = normalizeModelName(this.modelDraft);
+    if (!isValidModelName(name)) {
+      this.error = '请输入模型名';
+      return;
+    }
+    this.modelBusy = this.modelKey(subId, name);
+    try {
+      await rpc<void>(this.http, RpcMethod.upsertModel, new UpsertModelParams(subId, name, 0, 0, ''));
+      this.error = '';
+      this.modelDraft = '';
+    } catch (e) {
+      this.error = readableRpcError((e as Error).message);
+    } finally {
+      this.modelBusy = '';
+      await this.load();
+    }
+  }
+
+  private async toggleModel(subId: string, model: string, enabled: boolean): Promise<void> {
+    this.modelBusy = this.modelKey(subId, model);
+    try {
+      await rpc<void>(this.http, RpcMethod.setModelEnabled,
+        new SetModelEnabledParams(subId, model, enabled));
+      this.error = '';
+    } catch (e) {
+      this.error = readableRpcError((e as Error).message);
+    } finally {
+      this.modelBusy = '';
+      await this.load();
+    }
+  }
+
+  private async removeModelEntry(subId: string, model: string): Promise<void> {
+    this.modelBusy = this.modelKey(subId, model);
+    try {
+      await rpc<void>(this.http, RpcMethod.removeModel, new RemoveModelParams(subId, model));
+      this.error = '';
+    } catch (e) {
+      this.error = readableRpcError((e as Error).message);
+    } finally {
+      this.modelBusy = '';
+      await this.load();
+    }
+  }
+
+  /** 刷新模型条目（`refresh_model_entries`；web `SettingsLLM.tsx:255`）。 */
+  private async refreshModels(): Promise<void> {
+    this.loading = true;
+    try {
+      const entries: ModelEntryRow[] = await rpc<ModelEntryRow[]>(this.http, RpcMethod.refreshModelEntries);
+      this.entries = entries !== undefined && entries !== null ? entries : [];
+      this.error = '';
+    } catch (e) {
+      this.error = readableRpcError((e as Error).message);
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  /** 展开/收起某订阅的模型管理（`''` = 收起）。 */
+  private toggleManage(subId: string): void {
+    this.manageSubId = this.manageSubId === subId ? '' : subId;
+    this.modelDraft = '';
+  }
+
+  private visibleSubs(): SubscriptionRow[] {
+    return filterSubscriptions(this.subs, this.entries, this.subQuery);
+  }
+
+  /**
+   * 某订阅下模型状态的「签名」——供 `ForEach` key 用。
+   *
+   * ⛔ 为什么必须进 key：ArkUI `ForEach` 对**未变 key** 的项**不重建**（复用旧子树）。
+   * 模型启停只改 `entries`（数组引用变了），条目 key 若不含状态 ⇒ 复用旧子树 ⇒ **状态药丸不刷新**。
+   * 把每模型的状态拼进 key，状态一变 key 就变 ⇒ 强制重建。
+   */
+  private subModelSig(subId: string): string {
+    const ms: ModelEntryRow[] = modelsForSub(this.entries, subId);
+    let sig: string = '';
+    for (let i = 0; i < ms.length; i++) {
+      const st: string | undefined = ms[i].status;
+      sig += `${ms[i].model}:${st !== undefined && st !== null ? st : ''};`;
+    }
+    return sig;
+  }
+
   build() {
     Column({ space: SP_3 }) {
       SettingsPanelHeader({
@@ -232,8 +447,168 @@ export struct SettingsLlm {
         theme: this.theme,
       })
 
+      // ── 工具栏：搜索 / 刷新模型 / 新增订阅（web `SettingsLLM.tsx:254-271`）──────
+      Row({ space: SP_2 }) {
+        TextInput({ text: this.subQuery, placeholder: '搜索订阅 / 模型' })
+          .layoutWeight(1)
+          .height(34)
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().textPrimary)
+          .placeholderColor(this.pal().textMuted)
+          .backgroundColor(this.pal().surfaceAlt)
+          .borderRadius(R_LG)
+          .border({ width: 1, color: this.pal().border })
+          .onChange((v: string) => {
+            this.subQuery = v;
+          })
+        Text('刷新模型')
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().textSecondary)
+          .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+          .backgroundColor(this.pal().surfaceAlt)
+          .borderRadius(R_LG)
+          .border({ width: 1, color: this.pal().border })
+          .onClick(() => {
+            void this.refreshModels();
+          })
+        Text('新增订阅')
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().accentSoft)
+          .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+          .backgroundColor(this.pal().surfaceAlt)
+          .borderRadius(R_LG)
+          .border({ width: 1, color: this.pal().borderStrong })
+          .onClick(() => {
+            this.openAdd();
+          })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
       if (this.error.length > 0) {
         SettingsErrorBar({ message: this.error, theme: this.theme })
+      }
+
+      // ── 新增 / 编辑订阅表单（web `SubFormModal`，`llm-console.tsx:403-494`）────────
+      if (this.formOpen) {
+        Column({ space: SP_1 }) {
+          Text(this.formEditing ? '编辑订阅' : '新增订阅')
+            .fontSize(FS_BODY)
+            .fontColor(this.pal().textPrimary)
+            .width('100%')
+          Text('协议、Base URL、凭据与默认模型；编辑时凭据留空或保持掩码则不改动。')
+            .fontSize(FS_CAPTION)
+            .fontColor(this.pal().textMuted)
+            .width('100%')
+
+          SettingsChipRow({
+            label: '协议',
+            description: '仅支持 OpenAI / Anthropic（其它值按 OpenAI 处理）。',
+            value: this.form.provider,
+            options: LLM_PROVIDER_IDS,
+            labels: LLM_PROVIDER_LABELS,
+            busy: this.formBusy,
+            theme: this.theme,
+            onSelect: (v: string) => {
+              const f: SubscriptionForm = this.cloneForm(this.form);
+              f.provider = v;
+              f.baseUrl = llmProviderUrl(v);   // 切协议 ⇒ base_url 重置为该协议默认（web :421-424）
+              this.form = f;
+            },
+          })
+
+          if (this.form.provider === LLM_PROVIDER_OPENAI) {
+            SettingsChipRow({
+              label: 'API 类型',
+              description: 'OpenAI 专用：Chat Completions（默认）或 Responses。',
+              value: this.form.apiType,
+              options: LLM_API_TYPES,
+              labels: LLM_API_TYPE_LABELS,
+              busy: this.formBusy,
+              theme: this.theme,
+              onSelect: (v: string) => {
+                const f: SubscriptionForm = this.cloneForm(this.form);
+                f.apiType = v;
+                this.form = f;
+              },
+            })
+          }
+
+          SettingsTextFieldRow({
+            label: '名称', description: '', value: this.form.name, placeholder: '如 My OpenAI',
+            password: false, busy: this.formBusy, theme: this.theme,
+            onInput: (v: string) => {
+              const f: SubscriptionForm = this.cloneForm(this.form);
+              f.name = v;
+              this.form = f;
+            },
+          })
+          SettingsTextFieldRow({
+            label: 'Base URL', description: '', value: this.form.baseUrl, placeholder: 'https://…',
+            password: false, busy: this.formBusy, theme: this.theme,
+            onInput: (v: string) => {
+              const f: SubscriptionForm = this.cloneForm(this.form);
+              f.baseUrl = v;
+              this.form = f;
+            },
+          })
+          SettingsTextFieldRow({
+            label: 'API Key',
+            description: this.formEditing ? '留空或保持掩码则保留原凭据（服务端不覆盖）' : '新增订阅必填',
+            value: this.form.apiKey, placeholder: this.formEditing ? '保持掩码则不修改' : 'sk-…',
+            password: true, busy: this.formBusy, theme: this.theme,
+            onInput: (v: string) => {
+              const f: SubscriptionForm = this.cloneForm(this.form);
+              f.apiKey = v;
+              this.form = f;
+            },
+          })
+          SettingsTextFieldRow({
+            label: '默认模型', description: '', value: this.form.model, placeholder: 'model-name',
+            password: false, busy: this.formBusy, theme: this.theme,
+            onInput: (v: string) => {
+              const f: SubscriptionForm = this.cloneForm(this.form);
+              f.model = v;
+              this.form = f;
+            },
+          })
+
+          if (!subscriptionFormValid(this.form, this.formEditing)) {
+            Text(subscriptionFormError(this.form, this.formEditing))
+              .fontSize(FS_CAPTION)
+              .fontColor(this.pal().warn)
+              .width('100%')
+          }
+
+          Row({ space: SP_2 }) {
+            Text(this.formBusy ? '保存中…' : '保存')
+              .fontSize(FS_CAPTION)
+              .fontColor(this.pal().onAccent)
+              .padding({ left: SP_4, right: SP_4, top: SP_2, bottom: SP_2 })
+              .backgroundColor(this.pal().accent)
+              .borderRadius(R_LG)
+              .opacity(this.formBusy || !subscriptionFormValid(this.form, this.formEditing) ? 0.5 : 1)
+              .onClick(() => {
+                void this.submitForm();
+              })
+            Text('取消')
+              .fontSize(FS_CAPTION)
+              .fontColor(this.pal().textSecondary)
+              .padding({ left: SP_4, right: SP_4, top: SP_2, bottom: SP_2 })
+              .backgroundColor(this.pal().surfaceAlt)
+              .borderRadius(R_LG)
+              .border({ width: 1, color: this.pal().border })
+              .onClick(() => {
+                this.formOpen = false;
+              })
+          }
+          .width('100%')
+        }
+        .width('100%')
+        .padding(SP_4)
+        .backgroundColor(this.pal().surface)
+        .borderRadius(R_XL)
+        .border({ width: 1, color: this.pal().border })
       }
 
       if (this.loading) {
@@ -469,27 +844,153 @@ export struct SettingsLlm {
             .borderRadius(R_XL)
             .border({ width: 1, color: this.pal().border })
 
-            ForEach(this.subs, (s: SubscriptionRow) => {
-              SettingsSubCard({
-                subId: s.id,
-                name: s.name,
-                provider: s.provider,
-                baseUrl: s.base_url,
-                model: s.model,
-                apiKey: s.api_key,
-                isOn: isSubscriptionEnabled(s),
-                isDefault: s.active === true,
-                modelCount: countModelsForSub(this.entries, s.id),
-                busy: this.busy === s.id,
-                theme: this.theme,
-                onToggle: (subId: string, next: boolean) => {
-                  void this.toggleEnabled(subId, next);
-                },
-                onSetDefault: (subId: string) => {
-                  void this.setDefault(subId);
-                },
-              })
-            }, (s: SubscriptionRow) => `sub|${s.id}|${s.active === true ? 'd' : '-'}|${s.enabled === true ? 'on' : 'off'}`)
+            if (this.visibleSubs().length === 0) {
+              Text(this.subQuery.length > 0 ? '没有匹配的订阅' : '还没有任何订阅。')
+                .fontSize(FS_CAPTION)
+                .fontColor(this.pal().textMuted)
+                .width('100%')
+            }
+            ForEach(this.visibleSubs(), (s: SubscriptionRow) => {
+              Column({ space: SP_2 }) {
+                SettingsSubCard({
+                  subId: s.id,
+                  name: s.name,
+                  provider: s.provider,
+                  baseUrl: s.base_url,
+                  model: s.model,
+                  apiKey: s.api_key,
+                  isOn: isSubscriptionEnabled(s),
+                  isDefault: s.active === true,
+                  modelCount: countModelsForSub(this.entries, s.id),
+                  busy: this.busy === s.id,
+                  theme: this.theme,
+                  onToggle: (subId: string, next: boolean) => {
+                    void this.toggleEnabled(subId, next);
+                  },
+                  onSetDefault: (subId: string) => {
+                    void this.setDefault(subId);
+                  },
+                })
+
+                // ── 操作行：编辑 / 管理模型 / 删除（web `ActionSheet`，`SettingsLLM.tsx:540-548`）──
+                Row({ space: SP_2 }) {
+                  Text('编辑')
+                    .fontSize(FS_CAPTION)
+                    .fontColor(this.pal().accentSoft)
+                    .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+                    .backgroundColor(this.pal().surfaceAlt)
+                    .borderRadius(R_LG)
+                    .border({ width: 1, color: this.pal().borderStrong })
+                    .opacity(this.busy === s.id ? 0.5 : 1)
+                    .onClick(() => {
+                      this.openEdit(s);
+                    })
+                  Text(this.manageSubId === s.id ? '收起模型' : '管理模型')
+                    .fontSize(FS_CAPTION)
+                    .fontColor(this.pal().textSecondary)
+                    .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+                    .backgroundColor(this.pal().surfaceAlt)
+                    .borderRadius(R_LG)
+                    .border({ width: 1, color: this.pal().border })
+                    .onClick(() => {
+                      this.toggleManage(s.id);
+                    })
+                  Text(this.deleteId === s.id ? '确认删除' : '删除')
+                    .fontSize(FS_CAPTION)
+                    .fontColor(this.deleteId === s.id ? this.pal().onAccent : this.pal().dangerText)
+                    .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+                    .backgroundColor(this.deleteId === s.id ? this.pal().statusError : this.pal().surfaceAlt)
+                    .borderRadius(R_LG)
+                    .border({ width: 1, color: this.pal().border })
+                    .opacity(this.busy === s.id ? 0.5 : 1)
+                    .onClick(() => {
+                      void this.doDelete(s.id);
+                    })
+                }
+                .width('100%')
+                .alignItems(VerticalAlign.Center)
+
+                // ── 模型管理（展开态）：登记 / 启停 / 删除（web `detailModels`，`SettingsLLM.tsx:455-482`）──
+                if (this.manageSubId === s.id) {
+                  Column({ space: SP_2 }) {
+                    Row({ space: SP_2 }) {
+                      TextInput({ text: this.modelDraft, placeholder: '模型名，如 gpt-5.2-turbo' })
+                        .layoutWeight(1)
+                        .height(34)
+                        .fontSize(FS_CAPTION)
+                        .fontColor(this.pal().textPrimary)
+                        .placeholderColor(this.pal().textMuted)
+                        .backgroundColor(this.pal().surfaceAlt)
+                        .borderRadius(R_LG)
+                        .border({ width: 1, color: this.pal().border })
+                        .onChange((v: string) => {
+                          this.modelDraft = v;
+                        })
+                      Text('登记')
+                        .fontSize(FS_CAPTION)
+                        .fontColor(this.pal().accentSoft)
+                        .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+                        .backgroundColor(this.pal().surfaceAlt)
+                        .borderRadius(R_LG)
+                        .border({ width: 1, color: this.pal().borderStrong })
+                        .opacity(isValidModelName(this.modelDraft) ? 1 : 0.5)
+                        .onClick(() => {
+                          void this.addModel(s.id);
+                        })
+                    }
+                    .width('100%')
+                    .alignItems(VerticalAlign.Center)
+
+                    if (modelsForSub(this.entries, s.id).length === 0) {
+                      Text('该订阅下还没有模型，先「刷新模型」或手动登记。')
+                        .fontSize(FS_CAPTION)
+                        .fontColor(this.pal().textMuted)
+                        .width('100%')
+                    } else {
+                      ForEach(modelsForSub(this.entries, s.id), (e: ModelEntryRow) => {
+                        Row({ space: SP_2 }) {
+                          Text(modelStatusLabel(e.status))
+                            .fontSize(FS_CAPTION)
+                            .fontColor(isModelDisabled(e.status) ? this.pal().textMuted : this.pal().successText)
+                          Text(e.model)
+                            .fontSize(FS_CAPTION)
+                            .fontFamily('monospace')
+                            .fontColor(isModelDisabled(e.status) ? this.pal().textMuted : this.pal().textPrimary)
+                            .layoutWeight(1)
+                            .maxLines(1)
+                            .textOverflow({ overflow: TextOverflow.Ellipsis })
+                          Text(isModelDisabled(e.status) ? '启用' : '禁用')
+                            .fontSize(FS_CAPTION)
+                            .fontColor(this.pal().accentSoft)
+                            .padding({ left: SP_2, right: SP_2 })
+                            .opacity(this.modelBusy === this.modelKey(s.id, e.model) ? 0.5 : 1)
+                            .onClick(() => {
+                              void this.toggleModel(s.id, e.model, isModelDisabled(e.status));
+                            })
+                          Text('删除')
+                            .fontSize(FS_CAPTION)
+                            .fontColor(this.pal().dangerText)
+                            .padding({ left: SP_2, right: SP_2 })
+                            .opacity(this.modelBusy === this.modelKey(s.id, e.model) ? 0.5 : 1)
+                            .onClick(() => {
+                              void this.removeModelEntry(s.id, e.model);
+                            })
+                        }
+                        .width('100%')
+                        .alignItems(VerticalAlign.Center)
+                        .padding({ top: SP_1, bottom: SP_1 })
+                      }, (e: ModelEntryRow) => `m|${s.id}|${e.model}|${e.status !== undefined ? e.status : ''}`)
+                    }
+                  }
+                  .width('100%')
+                  .padding(SP_3)
+                  .backgroundColor(this.pal().surfaceAlt)
+                  .borderRadius(R_LG)
+                  .border({ width: 1, color: this.pal().border })
+                }
+              }
+              .width('100%')
+            }, (s: SubscriptionRow) => `sub|${s.id}|${s.active === true ? 'd' : '-'}|${s.enabled === true ? 'on' : 'off'}|${this.manageSubId === s.id ? 'M' : '-'}|${this.deleteId === s.id ? 'D' : '-'}|${this.busy === s.id ? 'B' : '-'}|${this.subModelSig(s.id)}`)
           }
           .width('100%')
         }

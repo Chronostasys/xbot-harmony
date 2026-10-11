@@ -1128,6 +1128,288 @@ export function concurrencyStep(current: number, delta: number): number {
   return clampConcurrency(base + delta);
 }
 
+// ── llm 分区：模型 / 订阅 CRUD 的表单与校验（波7）───────────────────────────────
+//
+// 契约（逐条对齐 web `SettingsLLM.tsx` + `llm-console.tsx` 的 SubFormModal）：
+//   · 协议仅 openai / anthropic（`llm-console.tsx:24-27`）——后端 `createClient` 只有
+//     `case "anthropic"` + `default`（OpenAI），其它字符串一律走 OpenAI（`llm-console.tsx:6-9`）。
+//   · OpenAI 的 api_type 仅 `chat_completions`（默认）/ `responses`；anthropic 无此概念
+//     （`llm-console.tsx:29-32`，提交时非 openai 置 `''`，`:485`）。
+//   · 表单默认：provider=openai、base_url=`https://api.openai.com/v1`、api_type=chat_completions
+//     （新增态，`llm-console.tsx:411-418`）。
+//   · 切换 provider ⇒ base_url 重置为该 provider 的默认 URL（`llm-console.tsx:421-424`）。
+//   · 校验：`name 非空 && base_url 非空 && （编辑 || api_key 非空）`（`llm-console.tsx:425-426`）。
+//   · 提交：name/base_url/api_key/model 全 **trim**；api_type = openai ? (api||chat_completions) : ''
+//     （`llm-console.tsx:481-486`）。
+//   · 掩码 key：编辑态输入框回填的是服务端掩码（`abcd****`），提交时**掩码→空串**交服务端保留真值
+//     （`useLLMSettings.ts:213` `isMaskedAPIKey(sub.api_key) ? '' : sub.api_key`；判据 `api.ts:854-856`
+//     `key.includes('****')`）。服务端也只接受非空且不以 `****` 结尾的 key（`rpc_table.go:2667-2670`）。
+
+export const LLM_PROVIDER_OPENAI: string = 'openai';
+export const LLM_PROVIDER_ANTHROPIC: string = 'anthropic';
+/** provider 取值域（顺序 = web `LLM_PROVIDERS` 展示顺序）。 */
+export const LLM_PROVIDER_IDS: string[] = [LLM_PROVIDER_OPENAI, LLM_PROVIDER_ANTHROPIC];
+/** 显示名（与 `LLM_PROVIDER_IDS` 一一对应）。 */
+export const LLM_PROVIDER_LABELS: string[] = ['OpenAI', 'Anthropic'];
+/** 各 provider 的默认 base_url（与 `LLM_PROVIDER_IDS` 一一对应）。 */
+export const LLM_PROVIDER_URLS: string[] = ['https://api.openai.com/v1', 'https://api.anthropic.com'];
+/** 新增表单的默认 base_url（= openai 的默认 URL）。 */
+export const LLM_DEFAULT_BASE_URL: string = 'https://api.openai.com/v1';
+
+/** provider 显示名（未知值原样透传——后端本来就把非标准值当 OpenAI）。 */
+export function llmProviderLabel(provider: string): string {
+  const p: string = provider !== undefined && provider !== null ? provider : '';
+  for (let i = 0; i < LLM_PROVIDER_IDS.length; i++) {
+    if (LLM_PROVIDER_IDS[i] === p) {
+      return LLM_PROVIDER_LABELS[i];
+    }
+  }
+  return p.length > 0 ? p : 'OpenAI';
+}
+
+/** provider 的默认 base_url（未知值回落后端 OpenAI 默认，与 `providerMeta` 同义）。 */
+export function llmProviderUrl(provider: string): string {
+  for (let i = 0; i < LLM_PROVIDER_IDS.length; i++) {
+    if (LLM_PROVIDER_IDS[i] === provider) {
+      return LLM_PROVIDER_URLS[i];
+    }
+  }
+  return LLM_DEFAULT_BASE_URL;
+}
+
+/** OpenAI 的 api_type 取值（顺序 = web `API_TYPES`）。 */
+export const LLM_API_TYPES: string[] = ['chat_completions', 'responses'];
+export const LLM_API_TYPE_LABELS: string[] = ['Chat Completions', 'Responses'];
+export const API_TYPE_CHAT_COMPLETIONS: string = 'chat_completions';
+export const API_TYPE_RESPONSES: string = 'responses';
+
+/**
+ * 提交时的 api_type 归一（web `llm-console.tsx:485`）：
+ *   · openai ⇒ `api||'chat_completions'`（空兜底默认）
+ *   · 非 openai ⇒ `''`（anthropic 无此概念，传值会被服务端当默认忽略）
+ */
+export function normalizeApiTypeForSubmit(provider: string, apiType: string): string {
+  if (provider !== LLM_PROVIDER_OPENAI) {
+    return '';
+  }
+  const a: string = apiType !== undefined && apiType !== null ? apiType.trim() : '';
+  return a.length > 0 ? a : API_TYPE_CHAT_COMPLETIONS;
+}
+
+/** 掩码 key 判定（web `isMaskedAPIKey`：含 `****`）。 */
+export function isMaskedApiKey(key: string | undefined): boolean {
+  const s: string = key !== undefined && key !== null ? key : '';
+  return s.indexOf('****') >= 0;
+}
+
+/**
+ * 提交时的 api_key（web `useLLMSettings.ts:213`）：**掩码→空串**（服务端据此保留真值）。
+ * 非掩码（用户在输入框敲了真 key）⇒ trim 后原样提交。
+ */
+export function apiKeyForSubmit(input: string | undefined): string {
+  const s: string = input !== undefined && input !== null ? input.trim() : '';
+  return isMaskedApiKey(s) ? '' : s;
+}
+
+/**
+ * 订阅表单模型（新增 / 编辑共用；字段对齐 web `SubFormModal` 的 `form`）。
+ *
+ * ⚠️ 不叫 `id`/`name` 之外的基类成员名；`apiKey` 在编辑态回填掩码（显示用），
+ *    提交时走 `apiKeyForSubmit` 归一（伪真值绝不上传）。
+ */
+export class SubscriptionForm {
+  /** 编辑态的订阅 id；新增态为空串。 */
+  id: string = '';
+  name: string = '';
+  provider: string = LLM_PROVIDER_OPENAI;
+  baseUrl: string = LLM_DEFAULT_BASE_URL;
+  apiKey: string = '';
+  model: string = '';
+  apiType: string = API_TYPE_CHAT_COMPLETIONS;
+}
+
+/** 新增表单初值（web `SubFormModal` 新增态默认，`llm-console.tsx:411-418`）。 */
+export function newSubscriptionForm(): SubscriptionForm {
+  const f: SubscriptionForm = new SubscriptionForm();
+  f.provider = LLM_PROVIDER_OPENAI;
+  f.baseUrl = LLM_DEFAULT_BASE_URL;
+  f.apiType = API_TYPE_CHAT_COMPLETIONS;
+  return f;
+}
+
+/** 编辑表单初值（从既有订阅行填充；apiKey 回填掩码供显示，提交时归空）。 */
+export function editSubscriptionForm(sub: SubscriptionRow): SubscriptionForm {
+  const f: SubscriptionForm = new SubscriptionForm();
+  f.id = sub.id;
+  f.name = sub.name;
+  f.provider = sub.provider;
+  f.baseUrl = sub.base_url;
+  f.apiKey = sub.api_key;
+  f.model = sub.model;
+  f.apiType = sub.api_type !== undefined && sub.api_type !== null && sub.api_type.length > 0
+    ? sub.api_type : API_TYPE_CHAT_COMPLETIONS;
+  return f;
+}
+
+/**
+ * 表单是否可提交（web `SubFormModal`：`llm-console.tsx:425-426`）。
+ * `editing=true` 时 api_key 可空（编辑不去动凭据）。
+ */
+export function subscriptionFormValid(f: SubscriptionForm, editing: boolean): boolean {
+  const name: string = f.name !== undefined && f.name !== null ? f.name.trim() : '';
+  const url: string = f.baseUrl !== undefined && f.baseUrl !== null ? f.baseUrl.trim() : '';
+  if (name.length === 0 || url.length === 0) {
+    return false;
+  }
+  if (editing) {
+    return true;
+  }
+  const key: string = f.apiKey !== undefined && f.apiKey !== null ? f.apiKey.trim() : '';
+  return key.length > 0;
+}
+
+/** 校验失败原因（供按钮禁用时的提示；顺序 = web 的隐式优先级）。 */
+export function subscriptionFormError(f: SubscriptionForm, editing: boolean): string {
+  const name: string = f.name !== undefined && f.name !== null ? f.name.trim() : '';
+  if (name.length === 0) {
+    return '请填写订阅名称';
+  }
+  const url: string = f.baseUrl !== undefined && f.baseUrl !== null ? f.baseUrl.trim() : '';
+  if (url.length === 0) {
+    return '请填写 Base URL';
+  }
+  if (!editing) {
+    const key: string = f.apiKey !== undefined && f.apiKey !== null ? f.apiKey.trim() : '';
+    if (key.length === 0) {
+      return '新增订阅必须填写 API Key';
+    }
+  }
+  return '';
+}
+
+// ── 模型条目（`list_all_model_entries` 的元素）展示辅助 ──────────────────────────
+
+export const MODEL_STATUS_NORMAL: string = 'normal';
+export const MODEL_STATUS_OFFLINE: string = 'offline';
+export const MODEL_STATUS_DISABLED: string = 'disabled';
+
+/** 模型是否被禁用（web `llm-console.tsx:364` / `SettingsLLM.tsx:349`）。 */
+export function isModelDisabled(status: string | undefined): boolean {
+  return status === MODEL_STATUS_DISABLED;
+}
+
+/** 模型状态显示名（未知值原样透传）。 */
+export function modelStatusLabel(status: string | undefined): string {
+  if (status === MODEL_STATUS_NORMAL) {
+    return '可用';
+  }
+  if (status === MODEL_STATUS_OFFLINE) {
+    return '离线';
+  }
+  if (status === MODEL_STATUS_DISABLED) {
+    return '已禁用';
+  }
+  return status !== undefined && status !== null && status.length > 0 ? status : '未知';
+}
+
+/**
+ * token 数短形态（web `fmtTokens`，`llm-console.tsx:39-44`）：
+ * `0/负` ⇒ 「跟随默认」；`>=1M` ⇒ `nM`（非整数保留 1 位）；`>=1K` ⇒ `nK`；否则原值。
+ */
+export function fmtTokens(n: number | undefined): string {
+  const v: number = n !== undefined && n !== null ? n : 0;
+  if (v <= 0) {
+    return '跟随默认';
+  }
+  if (v >= 1000000) {
+    return v % 1000000 === 0 ? `${v / 1000000}M` : `${Math.round(v / 100000) / 10}M`;
+  }
+  if (v >= 1000) {
+    return v % 1000 === 0 ? `${v / 1000}K` : `${Math.round(v / 1000)}K`;
+  }
+  return `${v}`;
+}
+
+/** 某订阅下的模型条目（`sub_id` 匹配）。 */
+export function modelsForSub(entries: ModelEntryRow[], subId: string): ModelEntryRow[] {
+  const out: ModelEntryRow[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].sub_id === subId) {
+      out.push(entries[i]);
+    }
+  }
+  return out;
+}
+
+/**
+ * 订阅搜索过滤（逐字对齐 web `SettingsLLM.tsx:108-113`）：
+ * 空查询 ⇒ 全通过；命中 name/provider（大小写不敏感）或**任一模型名**包含查询。
+ */
+export function filterSubscriptions(subs: SubscriptionRow[], entries: ModelEntryRow[], query: string): SubscriptionRow[] {
+  const q: string = query !== undefined && query !== null ? query.trim().toLowerCase() : '';
+  if (q.length === 0) {
+    return subs;
+  }
+  const out: SubscriptionRow[] = [];
+  for (let i = 0; i < subs.length; i++) {
+    const s: SubscriptionRow = subs[i];
+    const name: string = s.name !== undefined && s.name !== null ? s.name.toLowerCase() : '';
+    const prov: string = s.provider !== undefined && s.provider !== null ? s.provider.toLowerCase() : '';
+    if (name.indexOf(q) >= 0 || prov.indexOf(q) >= 0) {
+      out.push(s);
+      continue;
+    }
+    let hit: boolean = false;
+    for (let j = 0; j < entries.length; j++) {
+      const e: ModelEntryRow = entries[j];
+      if (e.sub_id === s.id) {
+        const m: string = e.model !== undefined && e.model !== null ? e.model.toLowerCase() : '';
+        if (m.indexOf(q) >= 0) {
+          hit = true;
+          break;
+        }
+      }
+    }
+    if (hit) {
+      out.push(s);
+    }
+  }
+  return out;
+}
+
+/** 新模型名归一（trim；服务端按原样登记，客户端先 trim，web `llm-console.tsx:308`）。 */
+export function normalizeModelName(raw: string | undefined): string {
+  const s: string = raw !== undefined && raw !== null ? raw : '';
+  return s.trim();
+}
+
+/** 新模型名是否可提交（非空即可 —— 服务端无额外字符约束，别自造规则）。 */
+export function isValidModelName(raw: string | undefined): boolean {
+  return normalizeModelName(raw).length > 0;
+}
+
+/**
+ * 订阅卡副标题（web `SettingsLLM.tsx:366-368`）：`base_url(去协议) + [' · responses']`。
+ * 只有 openai 且 api_type=responses 才追加。
+ */
+export function subCardSubtitle(baseUrl: string, provider: string, apiType: string): string {
+  const bare: string = stripSchemeLocal(baseUrl);
+  return provider === LLM_PROVIDER_OPENAI && apiType === API_TYPE_RESPONSES ? `${bare} · responses` : bare;
+}
+
+/** 本地去协议前缀（本文件保持零跨模块依赖，不 import rpc 的 `stripScheme`）。 */
+function stripSchemeLocal(url: string): string {
+  const s: string = url !== undefined && url !== null ? url : '';
+  if (s.indexOf('https://') === 0) {
+    return s.substring(8);
+  }
+  if (s.indexOf('http://') === 0) {
+    return s.substring(7);
+  }
+  return s;
+}
+
+
 
 
 

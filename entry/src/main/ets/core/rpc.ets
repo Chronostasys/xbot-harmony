@@ -78,6 +78,43 @@ export const RPC_GET_USER_THINKING_MODE: string = 'get_user_thinking_mode';
 /** `set_user_thinking_mode`（`rpc1void`）`{mode:string}` → void。`rpc_table.go:691-695`。 */
 export const RPC_SET_USER_THINKING_MODE: string = 'set_user_thinking_mode';
 
+// ── llm 分区的「模型 / 订阅」增删改（波7；逐个核对服务端 rpc_table.go，非猜测）──────
+//
+// ⚠️ **这 8 个方法在服务端全部存在**（`rpc_table.go:839-970` 订阅 CRUD + `:653-651` 模型 CRUD
+//    + `:762-769` 刷新）——此前"缺 10+ RPC"的结论**是原生缺常量与 UI，不是服务端没有**。
+//    调用点（web）：`web/src/components/agent/api.ts:684-800`；逻辑编排 `useLLMSettings.ts:171-382`。
+//    **全部 no-admin**（直接 `rpc1void` 注册，没有 `requireAdmin` 包裹）。
+//
+// 参数契约（逐字取自服务端 params struct 的 json tag）：
+//   · `add_subscription`    `{sub:{id,name,provider,base_url,api_key,model,active,max_output_tokens,thinking_mode,api_type,per_model_configs}}`
+//                            —— `rpc_table.go:839-852`；web `api.ts:696-709` 固定发 `id:''`。
+//   · `update_subscription` `{id, sub:{name,provider,base_url,api_key,model,active,max_output_tokens,thinking_mode,api_type,per_model_configs}}`
+//                            —— `rpc_table.go:2605-2618`。⛔ 服务端**逐字段选择性接受**（`:2644-2670`）：
+//                            name/provider/base_url 掩码值会被忽略、api_key 掩码不覆盖真值 ⇒ **掩码回填是安全的**。
+//   · `remove_subscription` `{id}` → void —— `rpc_table.go:927-951`。
+//   · `upsert_model`        `{sub_id,model,max_context,max_output,api_type,thinking_mode}` → void —— `rpc_table.go:653-669`。
+//   · `remove_model`        `{sub_id,model}` → void —— `rpc_table.go:639-651`。
+//   · `set_model_enabled`   `{sub_id,model,enabled}` → void —— `rpc_table.go:631-637`。
+//   · `update_per_model_config` `{id,model,config:{max_output_tokens,max_context,api_type,enabled,vision,vision_detail}}`
+//                            —— `rpc_table.go:885-926`；`protocol/events.go:348-362`。
+//   · `refresh_model_entries`（无参）→ `[]protocol.ModelEntry` —— `rpc_table.go:762-769`。
+/** `add_subscription`（`rpc1void`）→ void。`rpc_table.go:839-883`；web `api.ts:696-709`。 */
+export const RPC_ADD_SUBSCRIPTION: string = 'add_subscription';
+/** `update_subscription`（`rpc1void`）→ void。`rpc_table.go:884,2605-2694`；web `api.ts:727-740`。 */
+export const RPC_UPDATE_SUBSCRIPTION: string = 'update_subscription';
+/** `remove_subscription`（`rpc1void`）`{id}` → void。`rpc_table.go:927-951`；web `api.ts:743-745`。 */
+export const RPC_REMOVE_SUBSCRIPTION: string = 'remove_subscription';
+/** `upsert_model`（`rpc1void`）→ void（登记/更新订阅下的一条模型）。`rpc_table.go:653-669`；web `api.ts:773-781`。 */
+export const RPC_UPSERT_MODEL: string = 'upsert_model';
+/** `remove_model`（`rpc1void`）`{sub_id,model}` → void（永久删模型）。`rpc_table.go:639-651`；web `api.ts:769-771`。 */
+export const RPC_REMOVE_MODEL: string = 'remove_model';
+/** `set_model_enabled`（`rpc1void`）`{sub_id,model,enabled}` → void。`rpc_table.go:631-637`；web `api.ts:765-767`。 */
+export const RPC_SET_MODEL_ENABLED: string = 'set_model_enabled';
+/** `update_per_model_config`（`rpc1void`）`{id,model,config}` → void。`rpc_table.go:885-926`；web `api.ts:761-763`。 */
+export const RPC_UPDATE_PER_MODEL_CONFIG: string = 'update_per_model_config';
+/** `refresh_model_entries`（无参 `rpc0err`）→ `[]protocol.ModelEntry`。`rpc_table.go:762-769`；web `api.ts:798-800`。 */
+export const RPC_REFRESH_MODEL_ENTRIES: string = 'refresh_model_entries';
+
 /**
  * method 名常量表（静态访问形式：`RpcMethod.getToolsSettings`）。
  *
@@ -99,6 +136,14 @@ export class RpcMethod {
   static readonly setLlmConcurrency: string = RPC_SET_LLM_CONCURRENCY;
   static readonly getUserThinkingMode: string = RPC_GET_USER_THINKING_MODE;
   static readonly setUserThinkingMode: string = RPC_SET_USER_THINKING_MODE;
+  static readonly addSubscription: string = RPC_ADD_SUBSCRIPTION;
+  static readonly updateSubscription: string = RPC_UPDATE_SUBSCRIPTION;
+  static readonly removeSubscription: string = RPC_REMOVE_SUBSCRIPTION;
+  static readonly upsertModel: string = RPC_UPSERT_MODEL;
+  static readonly removeModel: string = RPC_REMOVE_MODEL;
+  static readonly setModelEnabled: string = RPC_SET_MODEL_ENABLED;
+  static readonly updatePerModelConfig: string = RPC_UPDATE_PER_MODEL_CONFIG;
+  static readonly refreshModelEntries: string = RPC_REFRESH_MODEL_ENTRIES;
 
   /** 全部 method（顺序 = 展示/文档顺序）。 */
   static readonly ALL: string[] = [
@@ -116,6 +161,14 @@ export class RpcMethod {
     RPC_SET_LLM_CONCURRENCY,
     RPC_GET_USER_THINKING_MODE,
     RPC_SET_USER_THINKING_MODE,
+    RPC_ADD_SUBSCRIPTION,
+    RPC_UPDATE_SUBSCRIPTION,
+    RPC_REMOVE_SUBSCRIPTION,
+    RPC_UPSERT_MODEL,
+    RPC_REMOVE_MODEL,
+    RPC_SET_MODEL_ENABLED,
+    RPC_UPDATE_PER_MODEL_CONFIG,
+    RPC_REFRESH_MODEL_ENTRIES,
   ];
 }
 
@@ -220,6 +273,141 @@ export class ThinkingModeParams {
 
   constructor(mode: string) {
     this.mode = mode;
+  }
+}
+
+/**
+ * 订阅的「请求体子结构」（`add_subscription` / `update_subscription` 的 `sub` 字段）。
+ *
+ * 字段集合逐字取自服务端 `rpc_table.go:840-852 / 2607-2617`（两层 struct 的 json tag）。
+ * web `api.ts:696-709 / 727-740` 两个调用点都发这一组字段（add 固定 `id:''`）。
+ *
+ * ⚠️ ArkTS 禁无类型对象字面量 ⇒ 这个子结构也必须是**具名类**（不能写 `{...}`）。
+ */
+export class SubscriptionBody {
+  id: string = '';
+  name: string = '';
+  provider: string = '';
+  base_url: string = '';
+  /**
+   * ⛔ **掩码即安全**：编辑态服务端回的是掩码（`abcd****`）——服务端只接受
+   * 非空且不以 `****` 结尾的 key（`rpc_table.go:2667-2670`）⇒ 原样回传**不会**弄坏真凭据。
+   * 但"新增"必须传真 key（服务端不加校验，空 key 会存成一条无凭据的坏订阅，调用时才报错）。
+   */
+  api_key: string = '';
+  model: string = '';
+  active: boolean = false;
+  max_output_tokens: number = 0;
+  thinking_mode: string = '';
+  /** "chat_completions"（默认）| "responses" —— 仅 openai 有意义。 */
+  api_type: string = '';
+}
+
+/** `add_subscription` 的 params（服务端 `rpc_table.go:839-852`）。 */
+export class AddSubscriptionParams {
+  sub: SubscriptionBody = new SubscriptionBody();
+
+  constructor(sub: SubscriptionBody) {
+    this.sub = sub;
+  }
+}
+
+/** `update_subscription` 的 params（服务端 `rpc_table.go:2605-2618`）。 */
+export class UpdateSubscriptionParams {
+  id: string = '';
+  sub: SubscriptionBody = new SubscriptionBody();
+
+  constructor(id: string, sub: SubscriptionBody) {
+    this.id = id;
+    this.sub = sub;
+  }
+}
+
+/** `remove_subscription` 的 params（服务端 `rpc_table.go:927-929`）。 */
+export class IdParams {
+  id: string = '';
+
+  constructor(id: string) {
+    this.id = id;
+  }
+}
+
+/**
+ * `upsert_model` 的 params（服务端 `rpc_table.go:653-660`）。
+ *
+ * web 的"登记新模型"入口只传 `(sub_id, model, 0, 0, '')`（`api.ts:773-781`）——
+ * 即其余字段填零值交给服务端默认。
+ */
+export class UpsertModelParams {
+  sub_id: string = '';
+  model: string = '';
+  max_context: number = 0;
+  max_output: number = 0;
+  api_type: string = '';
+  thinking_mode: string = '';
+
+  constructor(subId: string, model: string, maxContext: number, maxOutput: number, apiType: string) {
+    this.sub_id = subId;
+    this.model = model;
+    this.max_context = maxContext;
+    this.max_output = maxOutput;
+    this.api_type = apiType;
+  }
+}
+
+/** `remove_model` 的 params（服务端 `rpc_table.go:639-642`）。 */
+export class RemoveModelParams {
+  sub_id: string = '';
+  model: string = '';
+
+  constructor(subId: string, model: string) {
+    this.sub_id = subId;
+    this.model = model;
+  }
+}
+
+/** `set_model_enabled` 的 params（服务端 `rpc_table.go:631-635`）。 */
+export class SetModelEnabledParams {
+  sub_id: string = '';
+  model: string = '';
+  enabled: boolean = false;
+
+  constructor(subId: string, model: string, enabled: boolean) {
+    this.sub_id = subId;
+    this.model = model;
+    this.enabled = enabled;
+  }
+}
+
+/** `update_per_model_config` 的 `config` 子结构（`protocol/events.go:348-362`）。 */
+export class PerModelConfigBody {
+  max_output_tokens: number = 0;
+  max_context: number = 0;
+  api_type: string = '';
+  /** 写路径由 `set_model_enabled` 管理；这里恒 true（对齐 web `saveModel` 的 `enabled: true`）。 */
+  enabled: boolean = true;
+  vision: boolean = false;
+  vision_detail: string = '';
+
+  constructor(maxContext: number, maxOutput: number, apiType: string, vision: boolean, visionDetail: string) {
+    this.max_context = maxContext;
+    this.max_output_tokens = maxOutput;
+    this.api_type = apiType;
+    this.vision = vision;
+    this.vision_detail = visionDetail;
+  }
+}
+
+/** `update_per_model_config` 的 params（服务端 `rpc_table.go:885-889`）。 */
+export class UpdatePerModelConfigParams {
+  id: string = '';
+  model: string = '';
+  config: PerModelConfigBody = new PerModelConfigBody(0, 0, '', false, '');
+
+  constructor(id: string, model: string, config: PerModelConfigBody) {
+    this.id = id;
+    this.model = model;
+    this.config = config;
   }
 }
 
