@@ -58,12 +58,12 @@ T0 发生在此之前（系统画），**不在**本时间线内 ⇒ `splashPhas
 | `animBase()` | 220ms + spring | `components/anim.ets:53-55` | **T1 入场** |
 | `animMsgIn()` | 200ms + spring | `components/anim.ets:58-60` | 备用 |
 | `animSlow()` | 320ms + spring | `components/anim.ets:63-65` | **T2 让位** |
-| `animSpring()` | 物理弹簧（duration 无意义） | `components/anim.ets:72-74`（← `tokens.ets:76-78`） | T1 的另一可选档 |
+| ~~`animSpring()`~~ | **已删**（2026-10-11：物理弹簧死工厂，全仓 0 消费者） | — | — |
 | spring 曲线 | `cubic-bezier(0.34,1.56,0.64,1)` | `core/tokens.ets:54`（`EASE_SPRING_CSS`） | **T1/T2 唯一曲线** |
-| spring 三参 | `response 0.30s / damping 0.65 / overlap 0` | `core/tokens.ets:76-78` | `animSpring()` 用 |
+| spring 三参 | `response 0.30s / damping 0.65 / overlap 0` | `core/tokens.ets:76-78` | 已无生产消费者（`animSpring()` 已删） |
 | `sheetTransition()` 曲线 | `Curve.Friction` + 220/180 | `components/anim.ets:114-117` | ⚠️ **不用**（它是面板出入场，且用了底座外的 `Curve.Friction`） |
 
-> ⛔ **T1/T2 只允许用上表里的 `animBase()` / `animSlow()`**（或 `animSpring()`）；⛔ 不得新造时长。
+> ⛔ **T1/T2 只允许用上表里的 `animBase()` / `animSlow()`**；⛔ 不得新造时长。
 > ⛔ **开屏是"一次性过渡"，不是"在飞"**（`docs/REDESIGN-INPUT-BRAND.md:136`）⇒ 不得循环/常驻呼吸。
 
 ---

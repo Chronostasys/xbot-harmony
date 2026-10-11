@@ -21,7 +21,7 @@
  *
  * ── 与既有底座的关系（复用，不另起一套）───────────────────────────────────────
  *   · 动效时长/曲线：引用 `core/motion.ets`（`MOTION_*`）——**不新造时长**。
- *   · 在飞心跳：主呼吸 = `MOTION_BREATH_MS`（= 8×D_SLOW）；本文件只声明**归属**（唯一 owner = 光球）。
+ *   · 在飞心跳：主呼吸 = `MOTION_BREATH_MS`（真源 = `core/orb.ORB_BREATH_MS` = 8×D_SLOW）；本文件只声明**归属**（唯一 owner = 光球）。
  *   · 色值：一律经 `paletteOf/effectsOf/surfacesOf` 取，绝不写 hex。
  */
 
@@ -33,8 +33,11 @@ import {
   R_SM, R_MD, R_LG, R_XL, R_2XL,
   SP_1, SP_2, SP_3, SP_4, SP_5, SP_6, SP_8,
   FS_CAPTION, FS_BODY, FS_TITLE, FS_HERO,
+  D_SLOW,
 } from './tokens';
 import { MOTION_FAST_MS, MOTION_BASE_MS, MOTION_MSG_IN_MS, MOTION_SLOW_MS } from './motion';
+// 在飞心跳真源（与 `components/anim.ets:MOTION_BREATH_MS` **同源**；`core/orb.ets` 只 import tokens ⇒ 不成环）。
+import { ORB_BREATH_MS } from './orb';
 import { withAlpha } from './bubble';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -725,10 +728,11 @@ export function allowedDurations(): number[] {
   return [MOTION_FAST_MS, MOTION_MSG_IN_MS, MOTION_BASE_MS, MOTION_SLOW_MS, 640, 1280, 2560];
 }
 
-/** 主呼吸刻度（ms）= 8×D_SLOW —— 与 `components/anim.ets:MOTION_BREATH_MS` 同值。 */
-export const MOTION_BREATH_MS: number = MOTION_SLOW_MS * 8;
-/** 细节拍 = 主呼吸的 1/4。 */
-export const MOTION_BEAT_MS: number = MOTION_BREATH_MS / 4;
+/** 主呼吸刻度（ms）= `core/orb.ORB_BREATH_MS`（= `D_SLOW × 8`）—— 与 `components/anim.ets:MOTION_BREATH_MS`
+ *  **同源**（同一底座表达式，非"巧合同值"；2026-10-11 收敛，原先此处独立写 `MOTION_SLOW_MS × 8`）。 */
+export const MOTION_BREATH_MS: number = ORB_BREATH_MS;
+/** 细节拍 = `D_SLOW × 2`（= 640）—— 与 `components/anim.ets:MOTION_BEAT_MS` **同源**（同一底座表达式）。 */
+export const MOTION_BEAT_MS: number = D_SLOW * 2;
 
 /**
  * 动效角色表。

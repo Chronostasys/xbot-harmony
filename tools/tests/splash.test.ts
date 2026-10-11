@@ -297,8 +297,9 @@ function stripComments(src: string): string {
     overlaySrc.indexOf('.translate({ y: -this.markLift })') >= 0);
   ok('提示栏真绑定延迟淡入（.opacity(this.hintOpacity)）',
     overlaySrc.indexOf('.opacity(this.hintOpacity)') >= 0);
-  ok('提示的延迟/时长**来自底座工厂 + 时序字段**（withTiming(animEaseOut(), SPLASH_HINT_DELAY_MS, SPLASH_HINT_FADE_MS)）',
-    overlaySrc.indexOf('withTiming(animEaseOut(), SPLASH_HINT_DELAY_MS, SPLASH_HINT_FADE_MS)') >= 0);
+  ok('提示的延迟/时长**来自底座工厂**（animateTo(animEaseOutDelayed(SPLASH_HINT_DELAY_MS, SPLASH_HINT_FADE_MS)，组件无本地 withTiming）',
+    overlaySrc.indexOf('animateTo(animEaseOutDelayed(SPLASH_HINT_DELAY_MS, SPLASH_HINT_FADE_MS)') >= 0
+      && overlaySrc.indexOf('function withTiming') < 0);
   ok('提示起始不透明度取自 core/splash（hintOpacity = SPLASH_HINT_ENTER_OPACITY）',
     overlaySrc.indexOf('SPLASH_HINT_ENTER_OPACITY') >= 0);
   // ⛔ 组件不得自造曲线：不许 import @ohos/curves（注释里**提到**它是允许的 ⇒ 只查 import 语句）

@@ -8,16 +8,15 @@
  *
  * 图标/SDK 依据：
  *   · `curves.cubicBezierCurve(x1,y1,x2,y2): ICurve` —— `api/@ohos.curves.d.ts:268`
- *     （x∈[0,1]，y 任意；用于精确复刻 web 的 `cubic-bezier(0.34,1.56,0.64,1)` 回弹曲线）；
- *   · `curves.springMotion(response,dampingFraction,overlapDuration): ICurve` —— `:371`
- *     （**物理弹簧**：duration 参数失效，时长由参数决定 —— `common.d.ts:3416`）；
+ *     （x∈[0,1]，y 任意；用于精确复刻 web 的 `cubic-bezier(0.34,1.56,0.64,1)` 回弹曲线）。
+ *     ⚠️ 2026-10-11：`curves.springMotion(...)` 曾用于 `animSpring()`（**0 消费者**死工厂）—— **已删**。
  *   · `AnimateParam.curve?: Curve | string | ICurve` —— `component/common.d.ts`（declare interface AnimateParam）。
  */
 import curves from '@ohos.curves';
 import {
   MOTION_FAST_MS, MOTION_BASE_MS, MOTION_MSG_IN_MS, MOTION_SLOW_MS,
   MOTION_LIGHTBOX_ENTER_SCALE, MOTION_SHEET_SLIDE_VP,
-  springBezier, springParams,
+  springBezier,
 } from '../core/motion';
 import { ORB_BREATH_MS } from '../core/orb';
 import { D_SLOW, EASE_OUT_CSS } from '../core/tokens';
@@ -65,27 +64,12 @@ export function animSlow(): AnimateParam {
   return { duration: MOTION_SLOW_MS, curve: springCurve() };
 }
 
-/**
- * **物理弹簧**（"苹果手感"的核心）：时长为物理量，`duration` 无意义
- * （`common.d.ts:3416` 明确 springMotion 时 duration 失效）⇒ 这里**不设 duration**，
- * 只给 `curves.springMotion(...)`。参数取自 `core/motion.ets`（response/damping/overlap）。
- */
-export function animSpring(): AnimateParam {
-  return { curve: springMotionCurve() };
-}
-
-/**
- * 记忆化的物理弹簧曲线（参数取自 `core/motion.ets` 的 `springParams()`，**常量** ⇒ 全局一条）。
- * 同 `springCurve()`：`curves.springMotion(...)` 是原生对象构造，不该每次调用重造。
- */
-let springMotionMemo: ICurve | undefined = undefined;
-function springMotionCurve(): ICurve {
-  if (springMotionMemo === undefined) {
-    const s = springParams();
-    springMotionMemo = curves.springMotion(s.response, s.dampingFraction, s.overlapDuration);
-  }
-  return springMotionMemo;
-}
+// ⛔ **已删死码**（2026-10-11 动效「单一来源」收敛）：此前的 `animSpring()`（物理弹簧，
+//    `curves.springMotion`）及其记忆化曲线 `springMotionCurve()` / `springMotionMemo` —— **全仓 0 消费者**：
+//    所有入场都走上面的 `cubicBezierCurve(springBezier())`（`springCurve()`），`springMotion` **从未被消费**。
+//    ⇒ 删除（动效"只许减"；死工厂不得以"苹果味核心"的名义留着）。
+//    ⚠️ `core/motion.ets` 的 `springParams()` / `SpringParams` 仍在（`tools/tests/motion.test.ts` 覆盖其
+//    物理合法性），但**本文件**不再消费它（唯一的消费链随本工厂一并移除）。
 
 /**
  * **无超调缓出**（`cubic-bezier(0, 0, 0.2, 1)`）—— 用于**退场 / 让位**（如开屏 T2「标记移交首页」）。
@@ -103,6 +87,21 @@ function springMotionCurve(): ICurve {
  */
 export function animEaseOut(): AnimateParam {
   return { duration: MOTION_SLOW_MS, curve: EASE_OUT_CSS };
+}
+
+/**
+ * `animEaseOut()` 的**带延迟 / 显式时长**变体 —— 用于"先给足 X，再于 Y 内淡入"这类**时序**场景
+ * （当前唯一消费者：开屏跳过提示的延迟淡入，`components/SplashOverlay.ets`）。
+ *
+ * ⛔ 曲线仍 = `EASE_OUT_CSS`（**无超调**，与 T2 让位同族）；本函数**不新造数值** ——
+ *    `delayMs`/`durationMs` 由调用方从底座派生常量传入（如 `core/splash` 的
+ *    `SPLASH_HINT_DELAY_MS`/`SPLASH_HINT_FADE_MS`，其真源是
+ *    `core/motion.MOTION_BASE_MS`/`MOTION_FAST_MS`）。
+ * 为什么收进底座：原先它是 `SplashOverlay.ets` 的私有 `withTiming()`（**就地**改
+ *    `AnimateParam` 的时序字段）—— 动效构造只能有**一个**出口（见本文件头铁律），故上移为具名工厂。
+ */
+export function animEaseOutDelayed(delayMs: number, durationMs: number): AnimateParam {
+  return { duration: durationMs, curve: EASE_OUT_CSS, delay: delayMs };
 }
 
 // ── 「在飞」呼吸刻度（**整组唯一心跳**；波5e 共享语言，契约见 `docs/DESIGN-SYSTEM.md §8`）──

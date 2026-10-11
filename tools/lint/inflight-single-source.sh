@@ -23,7 +23,7 @@
 #     故列警告，由人确认。⛔ 本门禁**不**把它们当 A 类，避免"把所有加载 spinner 都判红"的假阳性。
 #   · B2 **一次性过渡未走底座**：`animateTo({...})` / `.animation({...})` 的**内联字面量**，
 #     或直接构造 `TransitionEffect.*` —— 应改用 `components/anim.ets` 的
-#     `animFast()/animBase()/animMsgIn()/animSlow()/animSpring()/sheetTransition()`（一处定义、
+#     `animFast()/animBase()/animMsgIn()/animSlow()/animEaseOut()/animEaseOutDelayed()/sheetTransition()`（一处定义、
 #     换主题/调刻度只改一处）。`anim.ets` 本身（底座）在准白名单内。
 #
 # 【白名单】=`components/AssistantOrb.ets`（光球本体）+ 底座 `components/anim.ets` + `core/motion.ets`。
@@ -66,7 +66,7 @@ CHECKS=(
   'iterations>1@iterations[[:space:]]*:[[:space:]]*(-1|[0-9]{2,}|[2-9]|Infinity|0)@A@去掉 repetitions（一次性过渡不需要循环：AnimateParam.iterations 保持默认 1）'
   'playMode@playMode[[:space:]]*:@A@去掉 playMode（重复播放）；一次性过渡不需要它'
   '内置连续动画组件@(LoadingProgress|Marquee)[[:space:]]*\(@B1@确认它表示"操作进度"而非装饰性在飞动效；若是后者 ⇒ 删除/改为静态；若确属进度 ⇒ 登记豁免（附理由）'
-  '内联过渡(非底座)@(\.animation[[:space:]]*\([[:space:]]*\{|animateTo[[:space:]]*\([[:space:]]*\{|TransitionEffect\.)@B2@改用 components/anim.ets 的 animFast()/animBase()/animMsgIn()/animSlow()/animSpring()/sheetTransition()'
+  '内联过渡(非底座)@(\.animation[[:space:]]*\([[:space:]]*\{|animateTo[[:space:]]*\([[:space:]]*\{|TransitionEffect\.)@B2@改用 components/anim.ets 的 animFast()/animBase()/animMsgIn()/animSlow()/animEaseOut()/animEaseOutDelayed()/sheetTransition()'
 )
 
 # ── 豁免表解析：贴合的条目 + "无效豁免"（无理由/理由过短）────────────────────────

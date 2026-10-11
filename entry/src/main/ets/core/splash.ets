@@ -23,8 +23,10 @@
  *    （光球若在流式，可在覆盖层**背后**先跑，由 T2 淡出**揭示**）—— 见 `docs/SPLASH-SPEC.md §9`。
  */
 import { darkPalette } from './theme';
-import { MOTION_BASE_MS, MOTION_SLOW_MS, MOTION_FAST_MS } from './motion';
-import { ORB_BREATH_MS } from './orb';
+import {
+  MOTION_BASE_MS, MOTION_SLOW_MS, MOTION_FAST_MS,
+  MOTION_MIN_DWELL_MS, MOTION_SPLASH_TIMEOUT_MS, MOTION_ENTER_SCALE,
+} from './motion';
 import { EASE_SPRING_CSS, EASE_OUT_CSS } from './tokens';
 import { SPACE_SM, SPACE_XXL } from './design';
 import { MARK_LADDER_FULL } from './brand';
@@ -56,10 +58,12 @@ export function splashPhases(): string[] {
 // 2. 时间常量 —— **全部由底座派生，零裸数字**（缺档见 `docs/SPLASH-SPEC.md §11`）
 // ════════════════════════════════════════════════════════════════════════════
 //
-// ⚠️ 交付说明：`SPLASH_MIN_DWELL_MS` / `SPLASH_TIMEOUT_MS` / `SPLASH_MARK_BOX_VP` 三个是
-//    **缺档**（底座没有同名常量）。此处以"底座常量的**派生表达式**"落地（无裸数字），
-//    使本模块今日即可编译与单测；同时已把"提升到底座"的清单交调度者转 `orb-ux`
-//    （`core/motion.ets` 现归其所有，本波**不改**）。
+// ⚠️ 收敛说明（2026-10-11 动效「单一来源」）：`SPLASH_MIN_DWELL_MS` / `SPLASH_TIMEOUT_MS`
+//    / `SPLASH_MARK_ENTER_SCALE` 已改为**引用底座真源**（`core/motion.ets` 的
+//    `MOTION_MIN_DWELL_MS` / `MOTION_SPLASH_TIMEOUT_MS` / `MOTION_ENTER_SCALE`）——
+//    本地名保留**只为兼容既有调用点**（`pages/Index.ets` / `SplashOverlay.ets`），⛔ 不再复制数值
+//    （此前 3 处注释称"底座无此常量"，已过期；底座早已提升）。
+//    `SPLASH_MARK_BOX_VP` 仍是底座**派生式**（`SPACE_XXL × SPLASH_MARK_BOX_MULT`）。
 
 /** T1 时长 = `MOTION_BASE_MS`（220ms，`core/motion.ets:38`）⇒ `animBase()`。 */
 export const SPLASH_ENTER_MS: number = MOTION_BASE_MS;
@@ -68,17 +72,17 @@ export const SPLASH_EXIT_MS: number = MOTION_SLOW_MS;
 /** T1+T2 总时长（默认档）= 540ms。 */
 export const SPLASH_TOTAL_MS: number = SPLASH_ENTER_MS + SPLASH_EXIT_MS;
 /**
- * **最短停留**（品牌不许"一闪而过"）= `MOTION_BASE_MS + MOTION_FAST_MS` = 220+180 = 400ms。
- * 缺档①：底座无此常量（建议 `orb-ux` 提升为 `MOTION_MIN_DWELL_MS`）。
+ * **最短停留**（品牌不许"一闪而过"）= `MOTION_MIN_DWELL_MS` = 400ms。
+ * ⛔ 真源 = `core/motion.ets:MOTION_MIN_DWELL_MS`（= `MOTION_BASE_MS + MOTION_FAST_MS`）；
+ *    本名是**别名**（仅为兼容 `pages/Index.ets` / 测试的既有调用点），⛔ 不再复制数值。
  */
-export const SPLASH_MIN_DWELL_MS: number = MOTION_BASE_MS + MOTION_FAST_MS;
+export const SPLASH_MIN_DWELL_MS: number = MOTION_MIN_DWELL_MS;
 /**
- * **超时兜底**（宁可显示首帧，也不无限停在开屏）= `MOTION_BREATH_MS` = 2560ms。
- * 缺档②：底座无此常量（建议提升为 `MOTION_SPLASH_TIMEOUT_MS`）。
- * 取值来源：`ORB_BREATH_MS`（`core/orb.ets:26` = `D_SLOW*8`）—— 与 `components/anim.ets:96`
- * 的 `MOTION_BREATH_MS` **同值**（UI 侧那个是 core 侧的转发；core 模块引 core 侧真源）。
+ * **超时兜底**（宁可显示首帧，也不无限停在开屏）= `MOTION_SPLASH_TIMEOUT_MS` = 2560ms。
+ * ⛔ 真源 = `core/motion.ets:MOTION_SPLASH_TIMEOUT_MS`（= `ORB_BREATH_MS`，在飞主呼吸 1×）；
+ *    本名是**别名**，⛔ 不再复制数值。
  */
-export const SPLASH_TIMEOUT_MS: number = ORB_BREATH_MS;
+export const SPLASH_TIMEOUT_MS: number = MOTION_SPLASH_TIMEOUT_MS;
 /**
  * **迟滞（免开屏窗口）** = `150ms`（**用户拍板 ≈150ms**）。
  *
@@ -95,12 +99,12 @@ export const SPLASH_HYSTERESIS_MS: number = 150;
 
 // ── 标记动效（**同语义、按元素变体**：标记 vs 光球各自具名，**不强行统一**）─────────
 /**
- * 开屏**标记**的入场起始缩放 = `0.92`（设计输入 `docs/REDESIGN-INPUT-BRAND.md:145`）。
+ * 开屏**标记**的入场起始缩放 = `MOTION_ENTER_SCALE` = `0.92`（设计输入 `docs/REDESIGN-INPUT-BRAND.md:145`）。
  * ⚠️ 与光球专属的 `ORB_ENTER_SCALE = 0.86`（`components/AssistantOrb.ets:94`）是**两个**具名常量：
  *    裁决（本波）= **不强行统一**（强行合并会把"开屏标记"与"光球"的动效参数人为耦合）。
- *    缺档③：底座暂无 `MOTION_ENTER_SCALE`（建议 `orb-ux` 提升并保留两值）。
+ * ⛔ 真源 = `core/motion.ets:MOTION_ENTER_SCALE`；本名是**别名**（仅为兼容既有调用点），⛔ 不再复制数值。
  */
-export const SPLASH_MARK_ENTER_SCALE: number = 0.92;
+export const SPLASH_MARK_ENTER_SCALE: number = MOTION_ENTER_SCALE;
 /** 标记入场起始不透明度。 */
 export const SPLASH_MARK_ENTER_OPACITY: number = 0;
 /** 标记静止位不透明度（入场终点 / reduceMotion 下的即时值）。 */

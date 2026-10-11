@@ -51,22 +51,11 @@ import {
   SPLASH_T3,
   splashBrandCanvas,
 } from '../core/splash';
-import { animBase, animEaseOut } from './anim';
+import { animBase, animEaseOut, animEaseOutDelayed } from './anim';
 
-/**
- * 给底座工厂返回的 `AnimateParam` 补 `delay` + `duration`（`AnimateParam` 两字段，`common.d.ts`）。
- *
- * ⛔ 曲线**仍由底座工厂给**（本函数**不构造任何 curve**，只改两个**时序字段**）：
- *    `components/anim.ets` 不在本波文件边界，故不加"带 delay/时长的工厂变体"。
- *    用途：跳过提示**延迟淡入** —— 先把纯品牌给足（`SPLASH_HINT_DELAY_MS`），再于
- *    `SPLASH_HINT_FADE_MS` 内淡入，**恰好**在整层退场开始（`SPLASH_MIN_DWELL_MS`）前跑完
- *    （见 `core/splash.SPLASH_HINT_FADE_MS` 与 `docs/SPLASH-SPEC.md §15 F2`）。
- */
-function withTiming(p: AnimateParam, delayMs: number, durationMs: number): AnimateParam {
-  p.delay = delayMs;
-  p.duration = durationMs;
-  return p;
-}
+// ⛔ 原先此处有私有的 `withTiming(p, delayMs, durationMs)`（就地改 `AnimateParam` 时序字段）——
+//    2026-10-11 动效「单一来源」收敛：已上移为底座具名工厂 `animEaseOutDelayed(delayMs, durationMs)`
+//    （`components/anim.ets`）。动效构造只许有一个出口（本文件头纪律 2）。
 
 @Component
 export struct SplashOverlay {
@@ -222,9 +211,9 @@ export struct SplashOverlay {
         //    ⚠️ 必须**在整层退场开始前跑完**（`delay + fade ≤ SPLASH_MIN_DWELL_MS`）：提示的不透明度
         //    嵌在整层里 ⇒ 有效 α = hint × overlay；若淡入跨过退场点，提示**永远到不了满显**
         //    （旧值 [220,540] 的**生产**有效峰值仅 0.8808）⇒ 见 `docs/SPLASH-SPEC.md §15 F2`。
-        //    延迟/时长走 `AnimateParam` 两字段（`common.d.ts`）——**曲线仍来自底座工厂**
-        //    （`animEaseOut`，无超调）；本仓无 delay 先例，故此处显式注释来源。
-        animateTo(withTiming(animEaseOut(), SPLASH_HINT_DELAY_MS, SPLASH_HINT_FADE_MS), () => {
+        //    延迟/时长走底座具名工厂 `animEaseOutDelayed(delayMs, durationMs)`（`components/anim.ets`）
+        //    ——曲线仍 = `EASE_OUT_CSS`（无超调）；两个时序值取自 `core/splash`（其真源是 `MOTION_*`）。
+        animateTo(animEaseOutDelayed(SPLASH_HINT_DELAY_MS, SPLASH_HINT_FADE_MS), () => {
           this.hintOpacity = SPLASH_MARK_SETTLED_OPACITY;
         });
       }

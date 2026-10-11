@@ -538,7 +538,7 @@ web：`reasoningCount = reasoningStreaming ? rw.visibleChars : length`，且**�
 
 - 新增 `core/motion.ets`（**纯数值/纯函数**，可脱机单测）+ `components/anim.ets`（唯一 import
   `@ohos.curves` 处）。复刻 web 统一 spring `cubic-bezier(0.34,1.56,0.64,1)`：`animFast()=180ms`、
-  `animBase()=220ms`、`animMsgIn()=200ms`、`animSlow()=320ms`、`animSpring()`（物理弹簧，**不设 duration**）。
+  `animBase()=220ms`、`animMsgIn()=200ms`、`animSlow()=320ms`、`animEaseOut()`（无超调缓出）。
 - ⚠️ 铁律：`core/` 会被 `tools/tests/run.sh` 当**纯 TS** 编译 ⇒ **`core/*.ets` 禁止 import ArkUI 全局类型**。
 
 ### 14.4 品牌资源

@@ -134,7 +134,7 @@
 
 - ⛔ **同一时刻只允许一个"在飞动效" = 光球**（`docs/DESIGN-SYSTEM.md §8.2`，`components/anim.ets:63-78`）。
 - **开屏动效属于"一次性过渡"，不是"在飞"** ⇒ 它**不得**与光球并发、**不得**做成循环/常驻呼吸。
-- **必须走动效底座** `components/anim.ets`（全仓唯一 `@ohos.curves` 出口）；⛔ **不新造时长/曲线**（现有：`animFast` 180ms / `animBase` 220ms / `animMsgIn` 200ms / `animSlow` 320ms / `animSpring` 物理弹簧）。
+- **必须走动效底座** `components/anim.ets`（全仓唯一 `@ohos.curves` 出口）；⛔ **不新造时长/曲线**（现有：`animFast` 180ms / `animBase` 220ms / `animMsgIn` 200ms / `animSlow` 320ms / `animEaseOut` 无超调缓出）。
 - ⛔ **不得让启动变慢**：过渡只在**首帧之后**、且**不阻塞** `bootstrap()`（`pages/Index.ets:722`）。
 
 ### 4.2 建议方案（三段，全部为一次性）
@@ -142,7 +142,7 @@
 | 阶段 | 内容 | 时长/曲线 | 依据 |
 |---|---|---|---|
 | A. 系统开屏（不可控） | 静态标记 + `startWindowBackground` | 系统决定 | `module.json5:18-19` |
-| B. 品牌标记入场 | 标记 `scale 0.92→1` + `opacity 0→1`，**一次** | `animBase()`（220ms，spring `cubic-bezier(0.34,1.56,0.64,1)`）或 `animSpring()` | `components/anim.ets:39,58` |
+| B. 品牌标记入场 | 标记 `scale 0.92→1` + `opacity 0→1`，**一次** | `animBase()`（220ms，spring `cubic-bezier(0.34,1.56,0.64,1)`） | `components/anim.ets` |
 | C. 让位主界面 | 标记 `opacity 1→0` / 上移消隐，交棒首帧内容 | `animSlow()`（320ms）或与 B 合并 | `components/anim.ets:49` |
 
 ### 4.3 **何时必须不做动效**（硬兜底）
