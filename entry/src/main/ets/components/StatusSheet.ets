@@ -38,11 +38,11 @@
  *   `usageText(this.usage)→usageText`、`currentModelName()→modelName`、`ctxText()→ctxText`、
  *   `this.cwd→cwd`；写点 `showStatus=false→onClose`、`showModel=true + store.loadLlmConfig()→onOpenModel`。
  */
-import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
+import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import {
-  PRESS_OPACITY, ELEV_OVERLAY, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, RADIUS_CHIP, SPACE_HAIR,
+  PRESS_OPACITY, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, RADIUS_CHIP, SPACE_HAIR,
   SPACE_LG, SPACE_SM,
-  SPACE_XS, STROKE_HAIRLINE, elevationColorOf, hairlineOf, surfaceFillOf, colorOf, } from '../core/design';
+  SPACE_XS, STROKE_HAIRLINE, hairlineOf, surfaceFillOf, colorOf, } from '../core/design';
 import { fs, fw, lh, tc, tk } from './SettingsRows';
 import { sheetTransition } from './anim';
 
@@ -221,132 +221,157 @@ export struct StatusSheet {
       && this.sessionId.length === 0 && this.channel.length === 0 && this.lastActive.length === 0;
   }
 
+  /** 本弹层的两层柔影（浅色 = 贴合 + 环境；深色 = 透明 + 原值）—— `core/theme.shadowLayersOf`。 */
+  private sheetLayers(): ShadowLayer[] {
+    return shadowLayersOf(this.pal(), 'overlay');
+  }
+
   build() {
-    Column({ space: 0 }) {
-      // ── 头部：标题（`type.headline`）+ 关闭 X（真实 44 布局盒）────────────────────
-      Row({ space: SPACE_XS }) {
-        Text('会话状态')
-          .fontSize(fs('type.headline'))
-          .fontWeight(fw('type.headline'))
-          .lineHeight(lh('type.headline'))
-          .letterSpacing(tk('type.headline'))
-          .fontColor(tc(this.pal(), 'type.headline'))
-          .layoutWeight(1)
-        // ⛔ 关闭 X：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`；
-        //    图标视觉尺寸不变（仍 17，盒内居中）。
-        Row() {
-          SymbolGlyph($r('sys.symbol.xmark'))
-            .fontSize(X_GLYPH)
-            .fontColor([this.pal().textSecondary])
-        }
-        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
-        .justifyContent(FlexAlign.Center)
-        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('关闭')
-        .onClick(() => {
-          this.onClose();
-        })
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
-      .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XS, bottom: SPACE_XS })
-
-      if (this.isEmpty()) {
-        // ── 空态：一行小字（无填充 / 无边框 / 无发光；docs/DESIGN-SYSTEM.md §10）──────
-        Text('（暂无会话状态）')
-          .fontSize(fs('type.callout'))
-          .fontWeight(fw('type.callout'))
-          .lineHeight(lh('type.callout'))
-          .fontColor(this.pal().textMuted)
-          .width('100%')
-          .padding({ left: INSET_ROW_X, right: INSET_ROW_X, bottom: SPACE_XS })
-      } else {
-        // ── 目标行（页面已算好前缀「目标：/已完成：」）——`type.caption` + warn ────────
-        if (this.goalLine.length > 0) {
-          Text(this.goalLine)
-            .fontSize(fs('type.caption'))
-            .fontWeight(fw('type.caption'))
-            .lineHeight(lh('type.caption'))
-            .fontColor(this.pal().warn)
-            .width('100%')
-            .wordBreak(WordBreak.BREAK_ALL)
-            .padding({ left: INSET_ROW_X, right: INSET_ROW_X, bottom: SPACE_HAIR })
-        }
-
-        // ── 会话标识行（web `SessionInfo.tsx:48-49`：id / channel；空串 = 不显示该行）────
-        if (this.sessionId.length > 0) {
-          StatusInfoRow({ label: '会话 ID', value: this.sessionId, mono: true, theme: this.theme })
-        }
-        if (this.channel.length > 0) {
-          StatusInfoRow({ label: '渠道', value: this.channel, theme: this.theme })
-        }
-
-        // ── 只读信息行（标签次级 / 值主色；每项只出现一次）───────────────────────
-        if (this.usageText.length > 0 || this.modelName.length > 0) {
-          StatusInfoRow({
-            label: '用量',
-            value: this.usageText.length > 0 ? this.usageText : '—',
-            theme: this.theme,
-          })
-        }
-        StatusInfoRow({ label: '模型', value: this.modelName, theme: this.theme })
-        if (this.ctxText.length > 0) {
-          StatusInfoRow({ label: '上下文上限', value: this.ctxText, theme: this.theme })
-        }
-
-        // ── 工作路径（**可编辑**：点值就地改，Enter / 确认提交；web `:138-173`）────────────
-        // ⚠️ `sessionId` 在场 ⇒ 即便 `cwd` 为空也保留该行（值显示 `—`），与 web 一致（`activeId`
-        //    在场即渲染 workPath 行）——否则用户在此面板里**无法给无 cwd 的会话设路径**。
-        if (this.sessionId.length > 0 || this.cwd.length > 0) {
-          StatusInfoRow({
-            label: '工作路径',
-            value: this.cwd,
-            mono: true,
-            valueCopyable: true,
-            editable: true,
-            onSubmitValue: (dir: string) => {
-              this.onSubmitCwd(dir);
-            },
-            theme: this.theme,
-          })
-        }
-        // ── 最后活跃（web `:174-176`：truthy 才显示）──────────────────────────────
-        if (this.lastActive.length > 0) {
-          StatusInfoRow({ label: '最后活跃', value: this.lastActive, theme: this.theme })
-        }
-
-        // ── 切换入口（模型 / 上下文上限）——发丝分隔 + 44 命中区的一整行 ───────────────
-        Divider()
-          .strokeWidth(STROKE_HAIRLINE)
-          .color(hairlineOf(this.pal()))
-          .margin({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XS, bottom: SPACE_XS })
+    // ── 多层柔影（C3 推广，G1）：`shadowLayersOf` 恒返 [near, far] ─────────────────────────
+    // 浅色：near = 贴合影（`elev2` 小半径）、far = 环境影（大半径）⇒ "落在纸面上"；
+    // 深色：near **透明**（零成本、不渲染）、far = 该档原值 ⇒ 净观感**逐字节不变**。
+    // ⛔ ArkUI 每元素只能挂一层 `.shadow()` ⇒ 外层 `Stack` 承载 far（同 `SyntheticCard` 范例）。
+    Stack() {
+      Column({ space: 0 }) {
+        // ── 头部：标题（`type.headline`）+ 关闭 X（真实 44 布局盒）────────────────────
         Row({ space: SPACE_XS }) {
-          Text('切换模型 / 上下文上限')
-            .fontSize(fs('type.subhead'))
-            .fontWeight(fw('type.subhead'))
-            .lineHeight(lh('type.subhead'))
-            .fontColor(this.pal().accentSoft)
+          Text('会话状态')
+            .fontSize(fs('type.headline'))
+            .fontWeight(fw('type.headline'))
+            .lineHeight(lh('type.headline'))
+            .letterSpacing(tk('type.headline'))
+            .fontColor(tc(this.pal(), 'type.headline'))
             .layoutWeight(1)
-          SymbolGlyph($r('sys.symbol.chevron_right'))
-            .fontSize(fs('type.caption'))
-            .fontColor([colorOf(this.pal(), 'iconMuted')])
+          // ⛔ 关闭 X：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`；
+          //    图标视觉尺寸不变（仍 17，盒内居中）。
+          Row() {
+            SymbolGlyph($r('sys.symbol.xmark'))
+              .fontSize(X_GLYPH)
+              .fontColor([this.pal().textSecondary])
+          }
+          .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+          .justifyContent(FlexAlign.Center)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .accessibilityText('关闭')
+          .onClick(() => {
+            this.onClose();
+          })
         }
         .width('100%')
         .alignItems(VerticalAlign.Center)
-        .constraintSize({ minHeight: HIT_TARGET_MIN })
-        .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
-        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .onClick(() => {
-          this.onOpenModel();
-        })
+        .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XS, bottom: SPACE_XS })
+
+        if (this.isEmpty()) {
+          // ── 空态：一行小字（无填充 / 无边框 / 无发光；docs/DESIGN-SYSTEM.md §10）──────
+          Text('（暂无会话状态）')
+            .fontSize(fs('type.callout'))
+            .fontWeight(fw('type.callout'))
+            .lineHeight(lh('type.callout'))
+            .fontColor(this.pal().textMuted)
+            .width('100%')
+            .padding({ left: INSET_ROW_X, right: INSET_ROW_X, bottom: SPACE_XS })
+        } else {
+          // ── 目标行（页面已算好前缀「目标：/已完成：」）——`type.caption` + warn ────────
+          if (this.goalLine.length > 0) {
+            Text(this.goalLine)
+              .fontSize(fs('type.caption'))
+              .fontWeight(fw('type.caption'))
+              .lineHeight(lh('type.caption'))
+              .fontColor(this.pal().warn)
+              .width('100%')
+              .wordBreak(WordBreak.BREAK_ALL)
+              .padding({ left: INSET_ROW_X, right: INSET_ROW_X, bottom: SPACE_HAIR })
+          }
+
+          // ── 会话标识行（web `SessionInfo.tsx:48-49`：id / channel；空串 = 不显示该行）────
+          if (this.sessionId.length > 0) {
+            StatusInfoRow({ label: '会话 ID', value: this.sessionId, mono: true, theme: this.theme })
+          }
+          if (this.channel.length > 0) {
+            StatusInfoRow({ label: '渠道', value: this.channel, theme: this.theme })
+          }
+
+          // ── 只读信息行（标签次级 / 值主色；每项只出现一次）───────────────────────
+          if (this.usageText.length > 0 || this.modelName.length > 0) {
+            StatusInfoRow({
+              label: '用量',
+              value: this.usageText.length > 0 ? this.usageText : '—',
+              theme: this.theme,
+            })
+          }
+          StatusInfoRow({ label: '模型', value: this.modelName, theme: this.theme })
+          if (this.ctxText.length > 0) {
+            StatusInfoRow({ label: '上下文上限', value: this.ctxText, theme: this.theme })
+          }
+
+          // ── 工作路径（**可编辑**：点值就地改，Enter / 确认提交；web `:138-173`）────────────
+          // ⚠️ `sessionId` 在场 ⇒ 即便 `cwd` 为空也保留该行（值显示 `—`），与 web 一致（`activeId`
+          //    在场即渲染 workPath 行）——否则用户在此面板里**无法给无 cwd 的会话设路径**。
+          if (this.sessionId.length > 0 || this.cwd.length > 0) {
+            StatusInfoRow({
+              label: '工作路径',
+              value: this.cwd,
+              mono: true,
+              valueCopyable: true,
+              editable: true,
+              onSubmitValue: (dir: string) => {
+                this.onSubmitCwd(dir);
+              },
+              theme: this.theme,
+            })
+          }
+          // ── 最后活跃（web `:174-176`：truthy 才显示）──────────────────────────────
+          if (this.lastActive.length > 0) {
+            StatusInfoRow({ label: '最后活跃', value: this.lastActive, theme: this.theme })
+          }
+
+          // ── 切换入口（模型 / 上下文上限）——发丝分隔 + 44 命中区的一整行 ───────────────
+          Divider()
+            .strokeWidth(STROKE_HAIRLINE)
+            .color(hairlineOf(this.pal()))
+            .margin({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XS, bottom: SPACE_XS })
+          Row({ space: SPACE_XS }) {
+            Text('切换模型 / 上下文上限')
+              .fontSize(fs('type.subhead'))
+              .fontWeight(fw('type.subhead'))
+              .lineHeight(lh('type.subhead'))
+              .fontColor(this.pal().accentSoft)
+              .layoutWeight(1)
+            SymbolGlyph($r('sys.symbol.chevron_right'))
+              .fontSize(fs('type.caption'))
+              .fontColor([colorOf(this.pal(), 'iconMuted')])
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Center)
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
+          .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            this.onOpenModel();
+          })
+        }
       }
+      .width('100%')
+      .padding({ top: SPACE_XS, bottom: SPACE_XS })
+      .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
+      .borderRadius(RADIUS_CARD)
+      .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+      // 贴合层（near）：浅色 = `elev2` 小半径贴合影；深色 = 透明（不渲染 ⇒ 净观感不变）。
+      .shadow({
+        radius: this.sheetLayers()[0].radius,
+        color: this.sheetLayers()[0].color,
+        offsetX: 0, offsetY: this.sheetLayers()[0].offsetY,
+      })
     }
+    // 环境层（far）：浅色 = 大半径环境柔影；深色 = 该档原值（`elev3`/`glow`，逐字节不变）。
     .width('92%')
-    .padding({ top: SPACE_XS, bottom: SPACE_XS })
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .borderRadius(RADIUS_CARD)
-    .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
-    .shadow({ radius: shadowRadiusOf(this.pal(), 'overlay'), color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 })
+    .shadow({
+      radius: this.sheetLayers()[1].radius,
+      color: this.sheetLayers()[1].color,
+      offsetX: 0, offsetY: this.sheetLayers()[1].offsetY,
+    })
     .transition(sheetTransition())
   }
 }

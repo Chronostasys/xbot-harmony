@@ -260,7 +260,7 @@ ok('真实源码判绿（防"判据恒红"）', unregisteredHits(realSrc).length
   const ms: string = 'components/MenuSheets.ets';
   const msSrc: string = inj.get(ms) as string;
   const mutated: string = msSrc.replace(
-    `.maxLines(3)\n                // ⛔ \`maxLines\` 必须配 \`textOverflow\`：不配 = 默认 \`Clip\` ⇒ 第 4 行起**静默消失**\n                //    （连 \`…\` 都没有，用户不知道还有内容）。搜素命中行是**动态长文本**，正是这类。\n                .textOverflow({ overflow: TextOverflow.Ellipsis })\n`,
+    `.maxLines(3)\n                  // ⛔ \`maxLines\` 必须配 \`textOverflow\`：不配 = 默认 \`Clip\` ⇒ 第 4 行起**静默消失**\n                  //    （连 \`…\` 都没有，用户不知道还有内容）。搜素命中行是**动态长文本**，正是这类。\n                  .textOverflow({ overflow: TextOverflow.Ellipsis })\n`,
     `.maxLines(3)\n`);
   inj.set(ms, mutated);
   ok('mutation：拿掉 MenuSheets 的 textOverflow ⇒ A 类必红', unregisteredHits(inj).length > 0);

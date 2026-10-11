@@ -166,7 +166,9 @@ for (let i = 0; i < codes.length; i++) {
   has(src, 'hairlineOf(this.pal())', `${n}: 结构边界走 hairlineOf(p)`);
   has(src, 'STROKE_HAIRLINE', `${n}: 发丝宽度走 STROKE_HAIRLINE`);
   has(src, "surfaceFillOf(this.pal(), 'surface.overlay')", `${n}: 面板面 = surface.overlay`);
-  has(src, 'elevationColorOf(this.pal(), ELEV_OVERLAY)', `${n}: 浮层柔影走 elevationColorOf(ELEV_OVERLAY)`);
+  // G1（2026-10-11）：浮层柔影从 `elevationColorOf(ELEV_OVERLAY)` 单层升级为 `shadowLayersOf(p,'overlay')`
+  //   多层柔影（浅色贴合+环境；浅色 far 仍 = 原 `elev3`、深色 far 仍 = 原 `glow` ⇒ 深色逐字节不变）。
+  has(src, 'shadowLayersOf(', `${n}: 浮层柔影走 shadowLayersOf（G1 多层柔影）`);
   // 命中区
   has(src, 'HIT_TARGET_MIN', `${n}: 命中区走 HIT_TARGET_MIN（≥44）`);
   // 关闭路径：面板自带 onClose

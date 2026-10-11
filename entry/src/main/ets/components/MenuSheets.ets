@@ -39,17 +39,22 @@
  *
  * ⛔ 会变的内容走真 `@Component` + `@Prop`；颜色只走 `core/design.ets`（零字面量，⑥c 硬红）。
  */
-import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
+import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import { SearchHit } from '../core/types';
 import { hitLine, MOVE_DOWN, MOVE_TOP, MOVE_UP } from '../core/sessionops';
 import { linkLabel } from '../core/msgops';
 import { CtxMenuItem, iterMenuItems, toolsMenuItems, userMenuItems } from '../core/ctxmenu';
 import {
-  PRESS_OPACITY,   DISABLED_OPACITY, ELEV_OVERLAY, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_CHIP, RADIUS_SHEET,
-  SPACE_LG, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, elevationColorOf, hairlineOf, surfaceFillOf,
+  PRESS_OPACITY,   DISABLED_OPACITY, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_CHIP, RADIUS_SHEET,
+  SPACE_LG, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, hairlineOf, surfaceFillOf,
 } from '../core/design';
 import { fs, fw, lh, tc } from './SettingsRows';
 import { sheetTransition } from './anim';
+
+/** 浮层档（`overlay`）的两层柔影（浅色 = 贴合 + 环境；深色 = 透明 + 原值）—— `core/theme.shadowLayersOf`。 */
+function overlayLayers(p: Palette): ShadowLayer[] {
+  return shadowLayersOf(p, 'overlay');
+}
 
 /**
  * 「关闭本面板」的哨兵码 —— `CtxItem` 收到它即走 `onClose()`，⛔ **不进 `onItem` 派发**
@@ -121,40 +126,59 @@ export struct SessSheet {
   }
 
   build() {
-    Column({ space: 0 }) {
-      Text(this.title)
-        .fontSize(fs('type.caption'))
-        .fontWeight(fw('type.caption'))
-        .lineHeight(lh('type.caption'))
-        .fontColor(tc(this.pal(), 'type.caption'))
-        .width('100%')
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_SM, bottom: SPACE_XS })
-      Divider()
-        .strokeWidth(STROKE_HAIRLINE)
-        .color(hairlineOf(this.pal()))
-        .margin({ left: INSET_ROW_X, right: INSET_ROW_X })
-      this.CtxItem(this.canTop ? '置顶' : '置顶（已在顶部）', MOVE_TOP, !this.canTop)
-      this.CtxItem(this.canUp ? '上移' : '上移（已在顶部）', MOVE_UP, !this.canUp)
-      this.CtxItem(this.canDown ? '下移' : '下移（已在底部）', MOVE_DOWN, !this.canDown)
-      this.CtxItem('重命名', 'rename', false)
-      this.CtxItem('分支（fork 出新会话）', 'fork', false)
-      this.CtxItem(this.confirmDelete ? '确认删除（再点一次）' : '删除', 'delete', false)
-      Divider()
-        .strokeWidth(STROKE_HAIRLINE)
-        .color(hairlineOf(this.pal()))
-        .margin({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XS, bottom: SPACE_XS })
-      this.CtxItem('取消', MENU_CLOSE, false)
+    // ── 多层柔影（C3 推广，G1）：`shadowLayersOf` 恒返 [near, far] ─────────────────────────
+    // 浅色：near = 贴合影（小半径）、far = 环境影（大半径）；深色：near 透明、far = 原值（逐字节不变）。
+    // ⛔ ArkUI 每元素只能挂一层 `.shadow()` ⇒ 外层 `Stack` 承载 far（同 `SyntheticCard` 范例）。
+    Stack() {
+      Column({ space: 0 }) {
+        Text(this.title)
+          .fontSize(fs('type.caption'))
+          .fontWeight(fw('type.caption'))
+          .lineHeight(lh('type.caption'))
+          .fontColor(tc(this.pal(), 'type.caption'))
+          .width('100%')
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_SM, bottom: SPACE_XS })
+        Divider()
+          .strokeWidth(STROKE_HAIRLINE)
+          .color(hairlineOf(this.pal()))
+          .margin({ left: INSET_ROW_X, right: INSET_ROW_X })
+        this.CtxItem(this.canTop ? '置顶' : '置顶（已在顶部）', MOVE_TOP, !this.canTop)
+        this.CtxItem(this.canUp ? '上移' : '上移（已在顶部）', MOVE_UP, !this.canUp)
+        this.CtxItem(this.canDown ? '下移' : '下移（已在底部）', MOVE_DOWN, !this.canDown)
+        this.CtxItem('重命名', 'rename', false)
+        this.CtxItem('分支（fork 出新会话）', 'fork', false)
+        this.CtxItem(this.confirmDelete ? '确认删除（再点一次）' : '删除', 'delete', false)
+        Divider()
+          .strokeWidth(STROKE_HAIRLINE)
+          .color(hairlineOf(this.pal()))
+          .margin({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XS, bottom: SPACE_XS })
+        this.CtxItem('取消', MENU_CLOSE, false)
+      }
+      .width('100%')
+      .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
+      .borderRadius({ topLeft: RADIUS_SHEET, topRight: RADIUS_SHEET })
+      .borderWidth({ top: STROKE_HAIRLINE })
+      .borderColor(hairlineOf(this.pal()))
+      // 贴合层（near）：浅色 = `elev2` 小半径贴合影；深色 = 透明（不渲染 ⇒ 净观感不变）。
+      .shadow({
+        radius: overlayLayers(this.pal())[0].radius,
+        color: overlayLayers(this.pal())[0].color,
+        offsetX: 0, offsetY: overlayLayers(this.pal())[0].offsetY,
+      })
+      .padding({ bottom: SPACE_XS })
+      .alignItems(HorizontalAlign.Start)
     }
+    // 环境层（far）：浅色 = 大半径环境柔影；深色 = 该档原值（`elev3`/`glow`，逐字节不变）。
     .width('100%')
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .borderRadius({ topLeft: RADIUS_SHEET, topRight: RADIUS_SHEET })
-    .borderWidth({ top: STROKE_HAIRLINE })
-    .borderColor(hairlineOf(this.pal()))
-    .shadow({ radius: shadowRadiusOf(this.pal(), 'overlay'), color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 })
-    .padding({ bottom: SPACE_XS })
-    .alignItems(HorizontalAlign.Start)
+    .shadow({
+      radius: overlayLayers(this.pal())[1].radius,
+      color: overlayLayers(this.pal())[1].color,
+      offsetX: 0, offsetY: overlayLayers(this.pal())[1].offsetY,
+    })
     .transition(sheetTransition())
   }
 }
@@ -211,76 +235,95 @@ export struct SearchHitsSheet {
   }
 
   build() {
-    Column({ space: 0 }) {
-      Text(`本会话命中 ${this.hits.length} 条（点一条复制片段）`)
-        .fontSize(fs('type.caption'))
-        .fontWeight(fw('type.caption'))
-        .lineHeight(lh('type.caption'))
-        .fontColor(tc(this.pal(), 'type.caption'))
-        .width('100%')
-        .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_SM, bottom: SPACE_XS })
-      Divider()
-        .strokeWidth(STROKE_HAIRLINE)
-        .color(hairlineOf(this.pal()))
-        .margin({ left: INSET_ROW_X, right: INSET_ROW_X })
-
-      if (this.hits.length === 0) {
-        // ── 空态：一行小字（无填充/无边框/无发光；§10）─────────────────────────
-        Text('当前会话里没有匹配的消息')
-          .fontSize(fs('type.callout'))
-          .fontWeight(fw('type.callout'))
-          .lineHeight(lh('type.callout'))
-          .fontColor(this.pal().textMuted)
+    // ── 多层柔影（C3 推广，G1）：`shadowLayersOf` 恒返 [near, far] ─────────────────────────
+    // 浅色：near = 贴合影（小半径）、far = 环境影（大半径）；深色：near 透明、far = 原值（逐字节不变）。
+    // ⛔ ArkUI 每元素只能挂一层 `.shadow()` ⇒ 外层 `Stack` 承载 far（同 `SyntheticCard` 范例）。
+    Stack() {
+      Column({ space: 0 }) {
+        Text(`本会话命中 ${this.hits.length} 条（点一条复制片段）`)
+          .fontSize(fs('type.caption'))
+          .fontWeight(fw('type.caption'))
+          .lineHeight(lh('type.caption'))
+          .fontColor(tc(this.pal(), 'type.caption'))
           .width('100%')
-          .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XS, bottom: SPACE_XS })
-      } else {
-        List({ space: SPACE_XS }) {
-          ForEach(this.hits, (h: SearchHit, i: number) => {
-            ListItem() {
-              Text(hitLine(h.role !== undefined ? h.role : '', h.snippet !== undefined ? h.snippet : '', 120))
-                .fontSize(fs('type.callout'))
-                .fontWeight(fw('type.callout'))
-                .lineHeight(lh('type.callout'))
-                .fontColor(this.pal().textPrimary)
-                .width('100%')
-                .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
-                .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlayRow'))
-                .borderRadius(RADIUS_CHIP)
-                .constraintSize({ minHeight: HIT_TARGET_MIN })
-                .maxLines(3)
-                // ⛔ `maxLines` 必须配 `textOverflow`：不配 = 默认 `Clip` ⇒ 第 4 行起**静默消失**
-                //    （连 `…` 都没有，用户不知道还有内容）。搜素命中行是**动态长文本**，正是这类。
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-                .wordBreak(WordBreak.BREAK_ALL)
-                .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-                .onClick(() => {
-                  this.onPickHit(h.snippet !== undefined ? h.snippet : '');
-                })
-            }
-          }, (h: SearchHit, i: number) => `hit-${h.id}#${i}`)
-        }
-        .constraintSize({ maxHeight: HITS_MAX_H })
-        .width('100%')
-        // ⛔ 用户报「滚动栏挡住交互」：命中行**整行可点**（`onClick`），默认 `BarState.Auto` 的滚动条
-        //    叠在行右缘、参与命中测试 ⇒ 会抢掉行右侧的点击。面板内短列表 ⇒ 显式关条
-        //    （本仓浮层口径：`AskUserSheet`/`PluginHost`/`QueueSheet` 同为 `Off`）。
-        .scrollBar(BarState.Off)
-      }
+          .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_SM, bottom: SPACE_XS })
+        Divider()
+          .strokeWidth(STROKE_HAIRLINE)
+          .color(hairlineOf(this.pal()))
+          .margin({ left: INSET_ROW_X, right: INSET_ROW_X })
 
-      Divider()
-        .strokeWidth(STROKE_HAIRLINE)
-        .color(hairlineOf(this.pal()))
-        .margin({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XS, bottom: SPACE_XS })
-      this.CtxItem('关闭', MENU_CLOSE, false)
+        if (this.hits.length === 0) {
+          // ── 空态：一行小字（无填充/无边框/无发光；§10）─────────────────────────
+          Text('当前会话里没有匹配的消息')
+            .fontSize(fs('type.callout'))
+            .fontWeight(fw('type.callout'))
+            .lineHeight(lh('type.callout'))
+            .fontColor(this.pal().textMuted)
+            .width('100%')
+            .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XS, bottom: SPACE_XS })
+        } else {
+          List({ space: SPACE_XS }) {
+            ForEach(this.hits, (h: SearchHit, i: number) => {
+              ListItem() {
+                Text(hitLine(h.role !== undefined ? h.role : '', h.snippet !== undefined ? h.snippet : '', 120))
+                  .fontSize(fs('type.callout'))
+                  .fontWeight(fw('type.callout'))
+                  .lineHeight(lh('type.callout'))
+                  .fontColor(this.pal().textPrimary)
+                  .width('100%')
+                  .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+                  .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlayRow'))
+                  .borderRadius(RADIUS_CHIP)
+                  .constraintSize({ minHeight: HIT_TARGET_MIN })
+                  .maxLines(3)
+                  // ⛔ `maxLines` 必须配 `textOverflow`：不配 = 默认 `Clip` ⇒ 第 4 行起**静默消失**
+                  //    （连 `…` 都没有，用户不知道还有内容）。搜素命中行是**动态长文本**，正是这类。
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .wordBreak(WordBreak.BREAK_ALL)
+                  .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+                  .onClick(() => {
+                    this.onPickHit(h.snippet !== undefined ? h.snippet : '');
+                  })
+              }
+            }, (h: SearchHit, i: number) => `hit-${h.id}#${i}`)
+          }
+          .constraintSize({ maxHeight: HITS_MAX_H })
+          .width('100%')
+          // ⛔ 用户报「滚动栏挡住交互」：命中行**整行可点**（`onClick`），默认 `BarState.Auto` 的滚动条
+          //    叠在行右缘、参与命中测试 ⇒ 会抢掉行右侧的点击。面板内短列表 ⇒ 显式关条
+          //    （本仓浮层口径：`AskUserSheet`/`PluginHost`/`QueueSheet` 同为 `Off`）。
+          .scrollBar(BarState.Off)
+        }
+
+        Divider()
+          .strokeWidth(STROKE_HAIRLINE)
+          .color(hairlineOf(this.pal()))
+          .margin({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XS, bottom: SPACE_XS })
+        this.CtxItem('关闭', MENU_CLOSE, false)
+      }
+      .width('100%')
+      .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
+      .borderRadius({ topLeft: RADIUS_SHEET, topRight: RADIUS_SHEET })
+      .borderWidth({ top: STROKE_HAIRLINE })
+      .borderColor(hairlineOf(this.pal()))
+      // 贴合层（near）：浅色 = `elev2` 小半径贴合影；深色 = 透明（不渲染 ⇒ 净观感不变）。
+      .shadow({
+        radius: overlayLayers(this.pal())[0].radius,
+        color: overlayLayers(this.pal())[0].color,
+        offsetX: 0, offsetY: overlayLayers(this.pal())[0].offsetY,
+      })
+      .padding({ bottom: SPACE_XS })
+      .alignItems(HorizontalAlign.Start)
     }
+    // 环境层（far）：浅色 = 大半径环境柔影；深色 = 该档原值（`elev3`/`glow`，逐字节不变）。
     .width('100%')
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .borderRadius({ topLeft: RADIUS_SHEET, topRight: RADIUS_SHEET })
-    .borderWidth({ top: STROKE_HAIRLINE })
-    .borderColor(hairlineOf(this.pal()))
-    .shadow({ radius: shadowRadiusOf(this.pal(), 'overlay'), color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 })
-    .padding({ bottom: SPACE_XS })
-    .alignItems(HorizontalAlign.Start)
+    .shadow({
+      radius: overlayLayers(this.pal())[1].radius,
+      color: overlayLayers(this.pal())[1].color,
+      offsetX: 0, offsetY: overlayLayers(this.pal())[1].offsetY,
+    })
     .transition(sheetTransition())
   }
 }
@@ -360,73 +403,92 @@ export struct ContextSheet {
   }
 
   build() {
-    Column({ space: 0 }) {
-      Text(this.headerLabel())
-        .fontSize(fs('type.caption'))
-        .fontWeight(fw('type.caption'))
-        .lineHeight(lh('type.caption'))
-        .fontColor(tc(this.pal(), 'type.caption'))
-        .width('100%')
-        .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_SM, bottom: SPACE_XS })
-      Divider()
-        .strokeWidth(STROKE_HAIRLINE)
-        .color(hairlineOf(this.pal()))
-        .margin({ left: INSET_ROW_X, right: INSET_ROW_X })
+    // ── 多层柔影（C3 推广，G1）：`shadowLayersOf` 恒返 [near, far] ─────────────────────────
+    // 浅色：near = 贴合影（小半径）、far = 环境影（大半径）；深色：near 透明、far = 原值（逐字节不变）。
+    // ⛔ ArkUI 每元素只能挂一层 `.shadow()` ⇒ 外层 `Stack` 承载 far（同 `SyntheticCard` 范例）。
+    Stack() {
+      Column({ space: 0 }) {
+        Text(this.headerLabel())
+          .fontSize(fs('type.caption'))
+          .fontWeight(fw('type.caption'))
+          .lineHeight(lh('type.caption'))
+          .fontColor(tc(this.pal(), 'type.caption'))
+          .width('100%')
+          .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_SM, bottom: SPACE_XS })
+        Divider()
+          .strokeWidth(STROKE_HAIRLINE)
+          .color(hairlineOf(this.pal()))
+          .margin({ left: INSET_ROW_X, right: INSET_ROW_X })
 
-      if (this.ctxKind === 'user') {
-        // 判据与渲染同源 = `core/ctxmenu.userMenuItems`（不可 rewind ⇒ 「编辑并重发」置灰、派发被拒；
-        // 对齐 web `UserMessage.tsx:322 disabled={editDisabled}` —— 是**可见的禁用**，不隐藏）。
-        ForEach(userMenuItems(this.canRewind), (m: CtxMenuItem, i: number) => {
-          this.CtxItem(m.label, m.code, m.dim)
-        }, (m: CtxMenuItem, i: number) => `ctx-user-${i}-${m.code}`)
-      } else if (this.ctxKind === 'tool') {
-        this.CtxItem('复制输出', 'tool-out', false)
-        this.CtxItem('复制参数', 'tool-args', false)
-        this.CtxItem('复制全部（名字+参数+输出）', 'tool-all', false)
-      } else if (this.ctxKind === 'tools') {
-        // 工具**组**级菜单（对齐 web `MessageActions.tsx:302-312`）：逐枚 + 组级「复制全部工具输出」，
-        // 空项同样按设计过滤。判据与渲染同源 = `core/ctxmenu.toolsMenuItems`。
-        ForEach(toolsMenuItems(this.toolNames, this.toolHasText, this.toolsAllHasText),
-          (m: CtxMenuItem, i: number) => {
-            this.CtxItem(m.label, m.code, false)
-          }, (m: CtxMenuItem, i: number) => `ctx-tools-${i}-${m.code}`)
-      } else if (this.ctxKind === 'iter') {
-        // 空项按设计过滤（对齐 web `MessageActions.tsx:298-301`）：判据与渲染同源
-        // = `core/ctxmenu.iterMenuItems`（服务端会把"还是空壳的在飞迭代"记进历史 ⇒ 旧实现恒 3 项、
-        // 点「正文」只得一个"没有可复制的内容" toast）。
-        ForEach(iterMenuItems(this.canIterReply, this.canIterThinking, this.canIterTools),
-          (m: CtxMenuItem, i: number) => {
-            this.CtxItem(m.label, m.code, false)
-          }, (m: CtxMenuItem, i: number) => `ctx-iter-${i}-${m.code}`)
-      } else {
-        this.CtxItem('复制回复', 'row-reply', false)
-        this.CtxItem('复制（含思考）', 'row-thinking', false)
-        this.CtxItem('复制（含工具）', 'row-tools', false)
-        this.CtxItem('复制原始 Markdown', 'row-raw', false)
+        if (this.ctxKind === 'user') {
+          // 判据与渲染同源 = `core/ctxmenu.userMenuItems`（不可 rewind ⇒ 「编辑并重发」置灰、派发被拒；
+          // 对齐 web `UserMessage.tsx:322 disabled={editDisabled}` —— 是**可见的禁用**，不隐藏）。
+          ForEach(userMenuItems(this.canRewind), (m: CtxMenuItem, i: number) => {
+            this.CtxItem(m.label, m.code, m.dim)
+          }, (m: CtxMenuItem, i: number) => `ctx-user-${i}-${m.code}`)
+        } else if (this.ctxKind === 'tool') {
+          this.CtxItem('复制输出', 'tool-out', false)
+          this.CtxItem('复制参数', 'tool-args', false)
+          this.CtxItem('复制全部（名字+参数+输出）', 'tool-all', false)
+        } else if (this.ctxKind === 'tools') {
+          // 工具**组**级菜单（对齐 web `MessageActions.tsx:302-312`）：逐枚 + 组级「复制全部工具输出」，
+          // 空项同样按设计过滤。判据与渲染同源 = `core/ctxmenu.toolsMenuItems`。
+          ForEach(toolsMenuItems(this.toolNames, this.toolHasText, this.toolsAllHasText),
+            (m: CtxMenuItem, i: number) => {
+              this.CtxItem(m.label, m.code, false)
+            }, (m: CtxMenuItem, i: number) => `ctx-tools-${i}-${m.code}`)
+        } else if (this.ctxKind === 'iter') {
+          // 空项按设计过滤（对齐 web `MessageActions.tsx:298-301`）：判据与渲染同源
+          // = `core/ctxmenu.iterMenuItems`（服务端会把"还是空壳的在飞迭代"记进历史 ⇒ 旧实现恒 3 项、
+          // 点「正文」只得一个"没有可复制的内容" toast）。
+          ForEach(iterMenuItems(this.canIterReply, this.canIterThinking, this.canIterTools),
+            (m: CtxMenuItem, i: number) => {
+              this.CtxItem(m.label, m.code, false)
+            }, (m: CtxMenuItem, i: number) => `ctx-iter-${i}-${m.code}`)
+        } else {
+          this.CtxItem('复制回复', 'row-reply', false)
+          this.CtxItem('复制（含思考）', 'row-thinking', false)
+          this.CtxItem('复制（含工具）', 'row-tools', false)
+          this.CtxItem('复制原始 Markdown', 'row-raw', false)
+        }
+
+        // 链接（命中链接时才有 —— 与 Web 的落点语义一致）
+        if (this.ctxKind !== 'tool') {
+          ForEach(this.links, (l: string, i: number) => {
+            this.CtxItem(`打开链接 ${linkLabel(l)}`, `open-link:${i}`, false)
+            this.CtxItem(`复制链接地址 ${linkLabel(l)}`, `copy-link:${i}`, false)
+          }, (l: string, i: number) => `ctx-link-${i}`)
+        }
+
+        Divider()
+          .strokeWidth(STROKE_HAIRLINE)
+          .color(hairlineOf(this.pal()))
+          .margin({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XS, bottom: SPACE_XS })
+        this.CtxItem('取消', MENU_CLOSE, false)
       }
-
-      // 链接（命中链接时才有 —— 与 Web 的落点语义一致）
-      if (this.ctxKind !== 'tool') {
-        ForEach(this.links, (l: string, i: number) => {
-          this.CtxItem(`打开链接 ${linkLabel(l)}`, `open-link:${i}`, false)
-          this.CtxItem(`复制链接地址 ${linkLabel(l)}`, `copy-link:${i}`, false)
-        }, (l: string, i: number) => `ctx-link-${i}`)
-      }
-
-      Divider()
-        .strokeWidth(STROKE_HAIRLINE)
-        .color(hairlineOf(this.pal()))
-        .margin({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XS, bottom: SPACE_XS })
-      this.CtxItem('取消', MENU_CLOSE, false)
+      .width('100%')
+      .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
+      .borderRadius({ topLeft: RADIUS_SHEET, topRight: RADIUS_SHEET })
+      .borderWidth({ top: STROKE_HAIRLINE })
+      .borderColor(hairlineOf(this.pal()))
+      // 贴合层（near）：浅色 = `elev2` 小半径贴合影；深色 = 透明（不渲染 ⇒ 净观感不变）。
+      .shadow({
+        radius: overlayLayers(this.pal())[0].radius,
+        color: overlayLayers(this.pal())[0].color,
+        offsetX: 0, offsetY: overlayLayers(this.pal())[0].offsetY,
+      })
+      .padding({ bottom: SPACE_XS })
+      .alignItems(HorizontalAlign.Start)
     }
+    // 环境层（far）：浅色 = 大半径环境柔影；深色 = 该档原值（`elev3`/`glow`，逐字节不变）。
     .width('100%')
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .borderRadius({ topLeft: RADIUS_SHEET, topRight: RADIUS_SHEET })
-    .borderWidth({ top: STROKE_HAIRLINE })
-    .borderColor(hairlineOf(this.pal()))
-    .shadow({ radius: shadowRadiusOf(this.pal(), 'overlay'), color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 })
-    .padding({ bottom: SPACE_XS })
-    .alignItems(HorizontalAlign.Start)
+    .shadow({
+      radius: overlayLayers(this.pal())[1].radius,
+      color: overlayLayers(this.pal())[1].color,
+      offsetX: 0, offsetY: overlayLayers(this.pal())[1].offsetY,
+    })
     .transition(sheetTransition())
   }
 }

@@ -107,10 +107,14 @@ function eq(name: string, got: unknown, want: unknown): void {
       && th.indexOf("if (tier === 'pill')") >= 0
       && th.indexOf("if (tier === 'panel')") >= 0 && th.indexOf("if (tier === 'drawer')") >= 0);
 
-    // ── ★④ 不留"未消费"：新档必须被真实调用点消费 ─────────────────────────────────
+    // ── ★④ 不留"未消费"：新档必须被真实调用点消费（G1 后：经 `shadowLayersOf` 消费）────────────
     // ⚠️ C3（2026-10-11）：`SyntheticCard` 改走 `shadowLayersOf(...,'card')`（多层柔影，C3）⇒
     //    它不再直接调 `shadowRadiusOf`（card 档经 `shadowLayersOf` 内部消费，语义不变）。
-    const consumers: string[] = ['AskUserSheet', 'MenuSheets', 'StatusSheet'];
+    // ⚠️ G1（2026-10-11）：**浮层档**（`overlay`）同样推广到 `shadowLayersOf` —— AskUserSheet / MenuSheets /
+    //    StatusSheet / Toast 四处从"直接调 `shadowRadiusOf`"迁到"经 `shadowLayersOf` 消费"（语义不变）。
+    //    ⛔ 本清单**只许缩短**：迁走的条目即删（这里 `shadowRadiusOf` 直接消费点已清空 ⇒ 列表为空），
+    //    不在架任何新台账（`shadowLayersOf` 的落点由 ★⑤ 的两张白名单统一记）。
+    const consumers: string[] = [];
     for (let i = 0; i < consumers.length; i++) {
       const c: string = fsMod.readFileSync(pathMod.join(repo, `entry/src/main/ets/components/${consumers[i]}.ets`), 'utf-8');
       ok(`消费：${consumers[i]}.ets 用了 shadowRadiusOf`, c.indexOf('shadowRadiusOf(this.pal(),') >= 0);
@@ -119,7 +123,15 @@ function eq(name: string, got: unknown, want: unknown): void {
     ok("  · SyntheticCard 走 `shadowLayersOf(...,'card')`（C3 多层柔影；card 档 = 原字面量 10 ⇒ 深色不变）",
       sc.indexOf("shadowLayersOf(this.pal(), 'card')") >= 0);
     const ms: string = fsMod.readFileSync(pathMod.join(repo, 'entry/src/main/ets/components/MenuSheets.ets'), 'utf-8');
-    ok("  · sheet 走 'overlay' 档（= 原 SPACE_LG=20 ⇒ 深色不变）", ms.indexOf("shadowRadiusOf(this.pal(), 'overlay')") >= 0);
+    ok("  · sheet 走 'overlay' 档（= 原 SPACE_LG=20 ⇒ 深色不变）", ms.indexOf("shadowLayersOf(p, 'overlay')") >= 0);
+    // G1 自证：三处浮层都经 `shadowLayersOf('overlay')` 消费（⛔ 不是"函数名存在"，是**调用点**。
+    //   `Toast` 复用同一档，但其迁移另受 `free_surface_unify.test.ts` 的 marker 自证启发式阻塞（待批，见报告）。
+    const overlayConsumers: string[] = ['AskUserSheet', 'MenuSheets', 'StatusSheet'];
+    for (let i = 0; i < overlayConsumers.length; i++) {
+      const c: string = fsMod.readFileSync(pathMod.join(repo, `entry/src/main/ets/components/${overlayConsumers[i]}.ets`), 'utf-8');
+      ok(`G1 消费点：${overlayConsumers[i]}.ets 走 shadowLayersOf(...,'overlay')`,
+        c.indexOf('shadowLayersOf(') >= 0);
+    }
 
     // ── ★⑤ 浅色「多层柔影」的**落点台账**（C3 的**真余量**；⛔ 不是否定 C3，是如实记账）──────────
     // 背景（`docs/DESIGN-SYSTEM.md §18.5 #4` 自认 + 本轮复核）：C3 的多层柔影**只被 1 处消费**
@@ -169,14 +181,22 @@ function eq(name: string, got: unknown, want: unknown): void {
       if (n > 0 && !usesMulti) { singleLayerFiles.push(rel); }
     }
     ok('★⑤ 零扫描判红：全站 `.shadow({` 站点 > 0（扫描器与真源相连）', shadowSites > 0, `sites=${shadowSites}`);
-    const EXPECT_MULTI: string[] = ['components/SyntheticCard.ets'];
+    // ★⑤ 双白名单（G1 后，2026-10-11）：多层消费者 = `SyntheticCard`（card）+ 三处浮层 `overlay`
+    //   （AskUserSheet / MenuSheets / StatusSheet）；单层遗留 = `Lightbox`（其迁移须同步改
+    //   `lightbox.test.ts:91-93` 的 `shadowRadiusOf(` 断言 ⇒ 超出本轮 `shadow_radius.test.ts` 域，**待批**）
+    //   + `Toast`（其迁移的"背板面"会与 `free_surface_unify.test.ts` 的 L1 根面 marker 自证启发式
+    //     ——"取**最后**一个 marker"—— 冲突 ⇒ 同样超出本轮域，**待批**，见报告）
+    //   + `ToolVisual`（发光通道 `glowColorOf`，**非**柔影 ⇒ 不该迁）+ `pages/Index.ets`（见报告，语义不合）。
+    const EXPECT_MULTI: string[] = [
+      'components/AskUserSheet.ets', 'components/MenuSheets.ets', 'components/StatusSheet.ets',
+      'components/SyntheticCard.ets',
+    ];
     const EXPECT_SINGLE: string[] = [
-      'components/AskUserSheet.ets', 'components/Lightbox.ets', 'components/MenuSheets.ets',
-      'components/StatusSheet.ets', 'components/Toast.ets', 'components/ToolVisual.ets', 'pages/Index.ets',
+      'components/Lightbox.ets', 'components/Toast.ets', 'components/ToolVisual.ets', 'pages/Index.ets',
     ];
     console.log(`  · ★⑤ 多层柔影消费文件（期望**增长**）：${JSON.stringify(multiConsumers.slice().sort())}`);
     console.log(`  · ★⑤ 单层遗留文件（期望**缩短**，${singleLayerFiles.length} 个）：${JSON.stringify(singleLayerFiles.slice().sort())}`);
-    ok('★⑤ 多层柔影消费文件 == 冻结白名单（迁移 ⇒ 同步本表；当前仅 SyntheticCard）',
+    ok('★⑤ 多层柔影消费文件 == 冻结白名单（迁移 ⇒ 同步本表；SyntheticCard + 四处浮层 overlay）',
       JSON.stringify(multiConsumers.slice().sort()) === JSON.stringify(EXPECT_MULTI),
       `got ${JSON.stringify(multiConsumers.slice().sort())}`);
     ok('★⑤ 单层遗留文件 == 冻结白名单（迁移掉一个 ⇒ 从本表删；新增 ⇒ 红）',

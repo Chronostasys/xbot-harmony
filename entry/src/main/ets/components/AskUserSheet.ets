@@ -35,12 +35,12 @@
  * ⛔ 颜色只走 `core/design.ets`（`colorOf`/`surfaceFillOf`/`hairlineOf`）或 `pal()` 语义字段，
  *    组件内**零颜色字面量**（门禁 ⑥c 硬红）。
  */
-import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
+import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import { AskOption, AskQuestion } from '../core/types';
 import {
-  PRESS_OPACITY,   DISABLED_OPACITY, ELEV_OVERLAY, HIT_TARGET_MIN, INSET_CARD_X, INSET_ROW_X, INSET_ROW_Y,
+  PRESS_OPACITY,   DISABLED_OPACITY, HIT_TARGET_MIN, INSET_CARD_X, INSET_ROW_X, INSET_ROW_Y,
   MARKER_SLOT, RADIUS_CARD, RADIUS_PILL, SPACE_HAIR, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XS,
-  STROKE_HAIRLINE, SURFACE_COMPOSER, elevationColorOf, hairlineOf, surfaceFillOf,
+  STROKE_HAIRLINE, SURFACE_COMPOSER, hairlineOf, surfaceFillOf,
 } from '../core/design';
 import { fs, fw, lh, tc, tk } from './SettingsRows';
 // 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线/位移；E3 统一）。
@@ -102,198 +102,223 @@ export struct AskUserSheet {
     return opt.label !== undefined ? opt.label : '';
   }
 
+  /** 本弹层的两层柔影（浅色 = 贴合 + 环境；深色 = 透明 + 原值）—— `core/theme.shadowLayersOf`。 */
+  private sheetLayers(): ShadowLayer[] {
+    return shadowLayersOf(this.pal(), 'overlay');
+  }
+
   build() {
-    Column({ space: SPACE_SM }) {
-      // ── 头部：标题（warn 表达「需要你确认」）+ 关闭 X（**真实 44 布局盒**，非 responseRegion 外扩）──
-      Row({ space: SPACE_XS }) {
-        Text('xbot 需要你确认')
-          .fontSize(fs('type.headline'))
-          .fontWeight(fw('type.headline'))
-          .lineHeight(lh('type.headline'))
-          // 溢出兜底（短标题、换行破版 ⇒ **锁宽**而非换行）
-          .constraintSize({ maxWidth: '100%' })
-          .letterSpacing(tk('type.headline'))
-          .fontColor(this.pal().warn)
-          .layoutWeight(1)
-        // ⛔ 关闭 X：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 用**真实 44×44 布局盒**承载 `onClick`
-        //    （热区 = 布局盒本身）；图标**视觉尺寸不变**（17，盒内居中）。
-        Row() {
-          SymbolGlyph($r('sys.symbol.xmark'))
-            .fontSize(X_GLYPH)
-            .fontColor([this.pal().textSecondary])
-        }
-        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
-        .justifyContent(FlexAlign.Center)
-        // ⛔ 按压反馈值 = 全站唯一 `PRESS_OPACITY`(0.6)（与 `StatusSheet`/`PluginsSheet`/`QueueSheet`/
-        //    `SelfCheckSheet` 的关闭 X 同款）。此前误用 `DISABLED_OPACITY`(0.4，= **禁用态**语义)
-        //    当按压值 ⇒ 本弹层 X 的按压比其它弹层深一档（不一致）。
-        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('关闭')
-        .onClick(() => {
-          this.onClose();
-        })
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
-
-      // ── 空态：一行小字（无填充 / 无边框 / 无发光；docs/DESIGN-SYSTEM.md §10）──────
-      if (this.questions.length === 0) {
-        Text('（没有待确认的问题）')
-          .fontSize(fs('type.callout'))
-          .fontWeight(fw('type.callout'))
-          .lineHeight(lh('type.callout'))
-          // 溢出兜底（说明性小字；换行不删信息）
-          .wordBreak(WordBreak.BREAK_ALL)
-          .fontColor(this.pal().textMuted)
-          .width('100%')
-      } else {
-        List({ space: SPACE_SM }) {
-          ForEach(this.questions, (q: AskQuestion, qi: number) => {
-            ListItem() {
-              Column({ space: SPACE_XS }) {
-                // 组头（`q.header`）：`type.caption`（次级），与设置面的分组头同档
-                if (q.header !== undefined && q.header.length > 0) {
-                  Text(q.header)
-                    .fontSize(fs('type.caption'))
-                    .fontWeight(fw('type.caption'))
-                    .lineHeight(lh('type.caption'))
-                    // 溢出兜底（服务端给的 header 可能是路径/命令等**不可断长串** ⇒ BREAK_ALL）
-                    .wordBreak(WordBreak.BREAK_ALL)
-                    .letterSpacing(tk('type.caption'))
-                    .fontColor(tc(this.pal(), 'type.caption'))
-                    .width('100%')
-                }
-                // 问题正文：`type.body`（正文档，最重）
-                Text(q.question !== undefined ? q.question : '')
-                  .fontSize(fs('type.body'))
-                  .fontWeight(fw('type.body'))
-                  .lineHeight(lh('type.body'))
-                  // 溢出兜底（正文；按词换行即可，⛔ 不 maxLines ⇒ 不删信息）
-                  .wordBreak(WordBreak.BREAK_WORD)
-                  .fontColor(tc(this.pal(), 'type.body'))
-                  .width('100%')
-
-                // 选项行：选中 = 面提升一档 + 一枚勾（⛔ 不再是「已选/未选」纯文本）
-                ForEach(q.options !== undefined ? q.options : [], (opt: AskOption, oi: number) => {
-                  Row({ space: SPACE_XS }) {
-                    // 选中标记槽（恒定 `MARKER_SLOT` ⇒ 所有选项左对齐）
-                    Stack({ alignContent: Alignment.Center }) {
-                      if (this.isSelected(this.qidOf(q, qi), this.labelOf(opt))) {
-                        SymbolGlyph($r('sys.symbol.checkmark'))
-                          .fontSize(fs('type.subhead'))
-                          .fontColor([this.pal().accentText])
-                      }
-                    }
-                    .width(MARKER_SLOT)
-                    .height(MARKER_SLOT)
-
-                    Column({ space: SPACE_HAIR }) {
-                      Text(this.labelOf(opt))
-                        .fontSize(fs('type.subhead'))
-                        .fontWeight(fw('type.subhead'))
-                        .lineHeight(lh('type.subhead'))
-                        // 溢出兜底（选项标签可能是命令/短 id ⇒ 不可断串也要能换行）
-                        .wordBreak(WordBreak.BREAK_ALL)
-                        .fontColor(tc(this.pal(), 'type.subhead'))
-                        .width('100%')
-                      if (opt.description !== undefined && opt.description.length > 0) {
-                        Text(opt.description)
-                          .fontSize(fs('type.callout'))
-                          .fontWeight(fw('type.callout'))
-                          .lineHeight(lh('type.callout'))
-                          // 溢出兜底（多行说明；按词换行，⛔ 不截断）
-                          .wordBreak(WordBreak.BREAK_WORD)
-                          .fontColor(tc(this.pal(), 'type.callout'))
-                          .width('100%')
-                      }
-                    }
-                    .alignItems(HorizontalAlign.Start)
-                    .layoutWeight(1)
-                  }
-                  .width('100%')
-                  .alignItems(VerticalAlign.Center)
-                  .constraintSize({ minHeight: HIT_TARGET_MIN })
-                  .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
-                  .backgroundColor(surfaceFillOf(this.pal(),
-                    // 选中 = 面**提升一档**：未选中与浮层面齐平（RUNG_CARD = `surface.overlay`）⇒ 选中 = RUNG_RAISED。
-                    // ⛔ 不用 RUNG_ACTIVE（`surface.overlayRowHover` = `surfaceHi`）：本行 `description`
-                    // 是 `type.callout` ⇒ **textSecondary**，porcelain 下压 `surfaceHi` 仅 **4.337 < AA 4.5**
-                    // （文字 role，14）。整族（`surface.active` / `surface.pillSelected` / `surface.overlayRowHover`）
-                    // 同 rung 同色 ⇒ 换到 RUNG_RAISED 是唯一既**保留「面提升一档」**又达标的档位
-                    // （porcelain `textSecondary × surface.overlayRow` = 4.696 ✓、× `surface.overlay` = 5.071 ✓）。
-                    // 判据：`tools/tests/surface_alias.test.ts`（别名家族**派生** + 落点形态 + mutation）。
-                    this.isSelected(this.qidOf(q, qi), this.labelOf(opt))
-                      ? 'surface.overlayRow'
-                      : 'surface.overlay'))
-                  .borderRadius(RADIUS_PILL)
-                  .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-                  .onClick(() => {
-                    this.onToggleOption(this.qidOf(q, qi), this.labelOf(opt), q.multi_select === true);
-                  })
-                }, (opt: AskOption, oi: number) => `o-${qi}-${oi}`)
-
-                // 「其他（自己填）」：输入面 = `surface.input` + 发丝（与设置面输入行同款）
-                if (q.allow_other === true) {
-                  TextInput({ placeholder: '其他（自己填）' })
-                    .onChange((v: string) => {
-                      this.setOther(this.qidOf(q, qi), v);
-                    })
-                    .constraintSize({ minHeight: HIT_TARGET_MIN })
-                    .fontSize(fs('type.body'))
-                    .fontColor(tc(this.pal(), 'type.body'))
-                    .placeholderColor(this.pal().textMuted)
-                    .backgroundColor(surfaceFillOf(this.pal(), SURFACE_COMPOSER))
-                    .borderRadius(RADIUS_PILL)
-                    .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
-                    .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
-                }
-              }
-              .width('100%')
-              .alignItems(HorizontalAlign.Start)
-            }
-          }, (q: AskQuestion, qi: number) => this.qidOf(q, qi))
+    // ── 多层柔影（C3 推广，G1）：`shadowLayersOf` 恒返 [near, far] ─────────────────────────
+    // 浅色：near = 贴合影（`elev2` 小半径）、far = 环境影（大半径）⇒ "落在纸面上"；
+    // 深色：near **透明**（零成本、不渲染）、far = 该档原值 ⇒ 净观感**逐字节不变**。
+    // ⛔ ArkUI 每元素只能挂一层 `.shadow()` ⇒ 外层 `Stack` 承载 far（同 `SyntheticCard` 范例）。
+    Stack() {
+      Column({ space: SPACE_SM }) {
+        // ── 头部：标题（warn 表达「需要你确认」）+ 关闭 X（**真实 44 布局盒**，非 responseRegion 外扩）──
+        Row({ space: SPACE_XS }) {
+          Text('xbot 需要你确认')
+            .fontSize(fs('type.headline'))
+            .fontWeight(fw('type.headline'))
+            .lineHeight(lh('type.headline'))
+            // 溢出兜底（短标题、换行破版 ⇒ **锁宽**而非换行）
+            .constraintSize({ maxWidth: '100%' })
+            .letterSpacing(tk('type.headline'))
+            .fontColor(this.pal().warn)
+            .layoutWeight(1)
+          // ⛔ 关闭 X：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 用**真实 44×44 布局盒**承载 `onClick`
+          //    （热区 = 布局盒本身）；图标**视觉尺寸不变**（17，盒内居中）。
+          Row() {
+            SymbolGlyph($r('sys.symbol.xmark'))
+              .fontSize(X_GLYPH)
+              .fontColor([this.pal().textSecondary])
+          }
+          .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+          .justifyContent(FlexAlign.Center)
+          // ⛔ 按压反馈值 = 全站唯一 `PRESS_OPACITY`(0.6)（与 `StatusSheet`/`PluginsSheet`/`QueueSheet`/
+          //    `SelfCheckSheet` 的关闭 X 同款）。此前误用 `DISABLED_OPACITY`(0.4，= **禁用态**语义)
+          //    当按压值 ⇒ 本弹层 X 的按压比其它弹层深一档（不一致）。
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .accessibilityText('关闭')
+          .onClick(() => {
+            this.onClose();
+          })
         }
         .width('100%')
-        .constraintSize({ maxHeight: LIST_MAX_H })
-        .scrollBar(BarState.Off)
-      }
+        .alignItems(VerticalAlign.Center)
 
-      // ── 底部动作：取消（应答 cancelled）/ 提交（应答 answers）—— 命中区 ≥44 ──────
-      Row({ space: SPACE_XS }) {
-        Button('取消')
-          .layoutWeight(1)
-          .constraintSize({ minHeight: HIT_TARGET_MIN })
-          .fontSize(fs('type.subhead'))
-          .fontWeight(fw('type.subhead'))
-          .fontColor(tc(this.pal(), 'type.subhead'))
-          .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlayRow'))
-          .borderRadius(RADIUS_PILL)
-          .onClick(() => {
-            this.onSubmit(true);
-          })
-        Button(this.busy ? '提交中…' : '提交')
-          .layoutWeight(1)
-          .constraintSize({ minHeight: HIT_TARGET_MIN })
-          .fontSize(fs('type.subhead'))
-          .fontWeight(fw('type.subhead'))
-          .fontColor(this.pal().onAccent)
-          .backgroundColor(this.pal().accent)
-          .borderRadius(RADIUS_PILL)
-          .opacity(this.busy ? DISABLED_OPACITY : 1)
-          .onClick(() => {
-            if (!this.busy) {
-              this.onSubmit(false);
-            }
-          })
+        // ── 空态：一行小字（无填充 / 无边框 / 无发光；docs/DESIGN-SYSTEM.md §10）──────
+        if (this.questions.length === 0) {
+          Text('（没有待确认的问题）')
+            .fontSize(fs('type.callout'))
+            .fontWeight(fw('type.callout'))
+            .lineHeight(lh('type.callout'))
+            // 溢出兜底（说明性小字；换行不删信息）
+            .wordBreak(WordBreak.BREAK_ALL)
+            .fontColor(this.pal().textMuted)
+            .width('100%')
+        } else {
+          List({ space: SPACE_SM }) {
+            ForEach(this.questions, (q: AskQuestion, qi: number) => {
+              ListItem() {
+                Column({ space: SPACE_XS }) {
+                  // 组头（`q.header`）：`type.caption`（次级），与设置面的分组头同档
+                  if (q.header !== undefined && q.header.length > 0) {
+                    Text(q.header)
+                      .fontSize(fs('type.caption'))
+                      .fontWeight(fw('type.caption'))
+                      .lineHeight(lh('type.caption'))
+                      // 溢出兜底（服务端给的 header 可能是路径/命令等**不可断长串** ⇒ BREAK_ALL）
+                      .wordBreak(WordBreak.BREAK_ALL)
+                      .letterSpacing(tk('type.caption'))
+                      .fontColor(tc(this.pal(), 'type.caption'))
+                      .width('100%')
+                  }
+                  // 问题正文：`type.body`（正文档，最重）
+                  Text(q.question !== undefined ? q.question : '')
+                    .fontSize(fs('type.body'))
+                    .fontWeight(fw('type.body'))
+                    .lineHeight(lh('type.body'))
+                    // 溢出兜底（正文；按词换行即可，⛔ 不 maxLines ⇒ 不删信息）
+                    .wordBreak(WordBreak.BREAK_WORD)
+                    .fontColor(tc(this.pal(), 'type.body'))
+                    .width('100%')
+
+                  // 选项行：选中 = 面提升一档 + 一枚勾（⛔ 不再是「已选/未选」纯文本）
+                  ForEach(q.options !== undefined ? q.options : [], (opt: AskOption, oi: number) => {
+                    Row({ space: SPACE_XS }) {
+                      // 选中标记槽（恒定 `MARKER_SLOT` ⇒ 所有选项左对齐）
+                      Stack({ alignContent: Alignment.Center }) {
+                        if (this.isSelected(this.qidOf(q, qi), this.labelOf(opt))) {
+                          SymbolGlyph($r('sys.symbol.checkmark'))
+                            .fontSize(fs('type.subhead'))
+                            .fontColor([this.pal().accentText])
+                        }
+                      }
+                      .width(MARKER_SLOT)
+                      .height(MARKER_SLOT)
+
+                      Column({ space: SPACE_HAIR }) {
+                        Text(this.labelOf(opt))
+                          .fontSize(fs('type.subhead'))
+                          .fontWeight(fw('type.subhead'))
+                          .lineHeight(lh('type.subhead'))
+                          // 溢出兜底（选项标签可能是命令/短 id ⇒ 不可断串也要能换行）
+                          .wordBreak(WordBreak.BREAK_ALL)
+                          .fontColor(tc(this.pal(), 'type.subhead'))
+                          .width('100%')
+                        if (opt.description !== undefined && opt.description.length > 0) {
+                          Text(opt.description)
+                            .fontSize(fs('type.callout'))
+                            .fontWeight(fw('type.callout'))
+                            .lineHeight(lh('type.callout'))
+                            // 溢出兜底（多行说明；按词换行，⛔ 不截断）
+                            .wordBreak(WordBreak.BREAK_WORD)
+                            .fontColor(tc(this.pal(), 'type.callout'))
+                            .width('100%')
+                        }
+                      }
+                      .alignItems(HorizontalAlign.Start)
+                      .layoutWeight(1)
+                    }
+                    .width('100%')
+                    .alignItems(VerticalAlign.Center)
+                    .constraintSize({ minHeight: HIT_TARGET_MIN })
+                    .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+                    .backgroundColor(surfaceFillOf(this.pal(),
+                      // 选中 = 面**提升一档**：未选中与浮层面齐平（RUNG_CARD = `surface.overlay`）⇒ 选中 = RUNG_RAISED。
+                      // ⛔ 不用 RUNG_ACTIVE（`surface.overlayRowHover` = `surfaceHi`）：本行 `description`
+                      // 是 `type.callout` ⇒ **textSecondary**，porcelain 下压 `surfaceHi` 仅 **4.337 < AA 4.5**
+                      // （文字 role，14）。整族（`surface.active` / `surface.pillSelected` / `surface.overlayRowHover`）
+                      // 同 rung 同色 ⇒ 换到 RUNG_RAISED 是唯一既**保留「面提升一档」**又达标的档位
+                      // （porcelain `textSecondary × surface.overlayRow` = 4.696 ✓、× `surface.overlay` = 5.071 ✓）。
+                      // 判据：`tools/tests/surface_alias.test.ts`（别名家族**派生** + 落点形态 + mutation）。
+                      this.isSelected(this.qidOf(q, qi), this.labelOf(opt))
+                        ? 'surface.overlayRow'
+                        : 'surface.overlay'))
+                    .borderRadius(RADIUS_PILL)
+                    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+                    .onClick(() => {
+                      this.onToggleOption(this.qidOf(q, qi), this.labelOf(opt), q.multi_select === true);
+                    })
+                  }, (opt: AskOption, oi: number) => `o-${qi}-${oi}`)
+
+                  // 「其他（自己填）」：输入面 = `surface.input` + 发丝（与设置面输入行同款）
+                  if (q.allow_other === true) {
+                    TextInput({ placeholder: '其他（自己填）' })
+                      .onChange((v: string) => {
+                        this.setOther(this.qidOf(q, qi), v);
+                      })
+                      .constraintSize({ minHeight: HIT_TARGET_MIN })
+                      .fontSize(fs('type.body'))
+                      .fontColor(tc(this.pal(), 'type.body'))
+                      .placeholderColor(this.pal().textMuted)
+                      .backgroundColor(surfaceFillOf(this.pal(), SURFACE_COMPOSER))
+                      .borderRadius(RADIUS_PILL)
+                      .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+                      .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
+                  }
+                }
+                .width('100%')
+                .alignItems(HorizontalAlign.Start)
+              }
+            }, (q: AskQuestion, qi: number) => this.qidOf(q, qi))
+          }
+          .width('100%')
+          .constraintSize({ maxHeight: LIST_MAX_H })
+          .scrollBar(BarState.Off)
+        }
+
+        // ── 底部动作：取消（应答 cancelled）/ 提交（应答 answers）—— 命中区 ≥44 ──────
+        Row({ space: SPACE_XS }) {
+          Button('取消')
+            .layoutWeight(1)
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
+            .fontSize(fs('type.subhead'))
+            .fontWeight(fw('type.subhead'))
+            .fontColor(tc(this.pal(), 'type.subhead'))
+            .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlayRow'))
+            .borderRadius(RADIUS_PILL)
+            .onClick(() => {
+              this.onSubmit(true);
+            })
+          Button(this.busy ? '提交中…' : '提交')
+            .layoutWeight(1)
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
+            .fontSize(fs('type.subhead'))
+            .fontWeight(fw('type.subhead'))
+            .fontColor(this.pal().onAccent)
+            .backgroundColor(this.pal().accent)
+            .borderRadius(RADIUS_PILL)
+            .opacity(this.busy ? DISABLED_OPACITY : 1)
+            .onClick(() => {
+              if (!this.busy) {
+                this.onSubmit(false);
+              }
+            })
+        }
+        .width('100%')
       }
       .width('100%')
+      .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_SM, bottom: SPACE_SM })
+      .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
+      .borderRadius(RADIUS_CARD)
+      .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+      // 贴合层（near）：浅色 = `elev2` 小半径贴合影；深色 = 透明（不渲染 ⇒ 净观感不变）。
+      .shadow({
+        radius: this.sheetLayers()[0].radius,
+        color: this.sheetLayers()[0].color,
+        offsetX: 0, offsetY: this.sheetLayers()[0].offsetY,
+      })
     }
+    // 环境层（far）：浅色 = 大半径环境柔影；深色 = 该档原值（`elev3`/`glow`，逐字节不变）。
     .width('94%')
-    .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_SM, bottom: SPACE_SM })
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .borderRadius(RADIUS_CARD)
-    .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
-    .shadow({ radius: shadowRadiusOf(this.pal(), 'overlay'), color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 })
+    .shadow({
+      radius: this.sheetLayers()[1].radius,
+      color: this.sheetLayers()[1].color,
+      offsetX: 0, offsetY: this.sheetLayers()[1].offsetY,
+    })
     // 开合过渡（E3 统一）：与其它弹层同一条 `sheetTransition()`。
     .transition(sheetTransition())
   }
