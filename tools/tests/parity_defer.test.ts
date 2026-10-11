@@ -230,6 +230,26 @@ ok(`G 闭合：palOnce 声明 ∧ 消费 ≥1 ∧ 失效键含 主题+强调色�
 ok('G 反证：`pal()` 本体未被记忆化（不存在 `palMemo` 之外的缓存返回）',
   INDEX.indexOf('private pal(): Palette {') >= 0);
 
+// ── G2：perf 指标**不得退化/合并**（防"改了尺子就把刻度放宽"· 编排者裁决）────────────
+//
+// 契约（`tools/perf/guard.sh`）：**拆两条，⛔ 不许合并** ——
+//   · A 线 = `this.pal()` 直读（未 memo ⇒ **真分配次数**，成本线，上限 **1250 只许减**）；
+//   · B 线 = `this.pal()` ∨ `this.palOnce()`（**限定名**，排除声明行；含缓存命中 ⇒ 松界 1350，非成本线）。
+// ⛔ 若两者被并成一个数、或 B 线用**非限定名**（含 `private palOnce(` 声明行）、或 A 线上限被抬高 ⇒ 本判据必红。
+const GUARD = stripComments(readSrc('tools/perf/guard.sh'));
+function guardMetricOk(g: string): boolean {
+  // A 线：只数 this.pal()
+  if (g.indexOf("n_pal=$(grep -ro 'this\\.pal()'") < 0) { return false; }
+  // B 线：数**限定名** this.palOnce()（`|this\.palOnce\(\)` 紧跟 A 的 pattern ⇒ 排除声明行）
+  if (g.indexOf("n_pal_all=$(grep -roE 'this\\.pal\\(\\)|this\\.palOnce\\(\\)'") < 0) { return false; }
+  // 两条上限各自独立（A = 成本线 1250 只许减；B = 松界 1350）
+  if (g.indexOf('"$n_pal" 1250') < 0) { return false; }
+  if (g.indexOf('"$n_pal_all" 1350') < 0) { return false; }
+  return true;
+}
+ok(`G2 闭合：guard.sh 拆 A/B 两条（A=成本线 1250 / B=读取总量 1350；词源 guard.sh:${firstLine(GUARD, 'n_pal_all=')}）`,
+  guardMetricOk(GUARD));
+
 // ── mutation 自证（断任一条 ⇒ 必红）───────────────────────────────────────────
 // D：抽掉 label 实参 ⇒ 消费链断
 ok('mutation D：`store.createSession(label…)` → 裸 `store.createSession()` ⇒ 必红',
@@ -262,6 +282,13 @@ ok('mutation G4：命中时不返回缓存值 ⇒ 必红',
   !palOnceClosed(INDEX.replace('return this.palMemoVal;', 'return this.pal();')));
 ok('mutation G5：把消费点全抽掉（指标退化 ⇒ 白绿）⇒ 必红',
   !palOnceClosed(INDEX.split('this.palOnce()').join('this.pal()')));
+// G2：指标不许退化/合并
+ok('mutation G2a：抽掉 B 线（只剩 A 线 ⇒ 迁到 palOnce 的读取不可见）⇒ 必红',
+  !guardMetricOk(GUARD.replace("n_pal_all=$(grep -roE 'this\\.pal\\(\\)|this\\.palOnce\\(\\)'", 'n_pal_all=0 # ')));
+ok('mutation G2b：B 线改用**非限定名** `palOnce()`（含 `private palOnce(` 声明行 ⇒ 虚增）⇒ 必红',
+  !guardMetricOk(GUARD.replace('this\\.pal\\(\\)|this\\.palOnce\\(\\)', 'this\\.pal\\(\\)|palOnce\\(\\)')));
+ok('mutation G2c：把 A 线（成本线）上限抬到 1300 ⇒ 必红（⛔ 成本线只许减）',
+  !guardMetricOk(GUARD.replace('"$n_pal" 1250', '"$n_pal" 1300')));
 
 if (fail > 0) { console.log(`  parity_defer: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  parity_defer: ${pass} passed, 0 failed`);

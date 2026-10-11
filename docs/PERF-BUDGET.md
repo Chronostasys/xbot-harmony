@@ -108,7 +108,8 @@ TARGET=127.0.0.1:5555 bash tools/perf/render_scale.sh
 ### 1.6 分配热点（"每帧对象构造数"）—— ⚠️ **2026-10-11 订正：三项"无记忆化"已落地**
 
 ```bash
-grep -roE 'this\.pal\(\)|palOnce\(\)' entry/src/main/ets/components entry/src/main/ets/pages | wc -l   # 1269（⚠️ 2026-10-12 新口径；旧口径只数 this.pal()` = 1246 ⇒ 白绿，见 §1.7）
+grep -ro 'this\.pal()'  entry/src/main/ets/components entry/src/main/ets/pages | wc -l   # A 线 = 1246（成本线：未 memo 的真分配，上限 1250）
+grep -roE 'this\.pal\(\)|this\.palOnce\(\)' entry/src/main/ets/components entry/src/main/ets/pages | wc -l  # B 线 = 1268（读取总量，含缓存命中，松界 1350；口径见 §1.7）
 grep -ro 'this.eff()'  entry/src/main/ets/components entry/src/main/ets/pages | wc -l   # 35
 grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components,pages} | wc -l  # 13
 ```
@@ -121,7 +122,8 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
 | `effectsOf()` | 2.1–3.3 µs（比 pal 贵 ~250×） | **0.028 µs/次**（**快 ~100×**） | ✅ **已记忆化** `EFFECTS_MEMO`（`:634`）— `0c0b2e3` |
 | `surfacesOf()` | 1.7–5.7 µs | **0.008 µs/次** | ✅ **已记忆化** `SURFACES_MEMO`（`:855`）— `0c0b2e3` |
 | `anim*()` 每次新建 `ICurve` | "未记忆化" | **已记忆化**（`springCurveMemo` / `springMotionMemo`） | ✅ `components/anim.ets:38,80` — `e60d1f6` |
-| 色板读取调用点（`this.pal()` ∨ `palOnce()`） | 891 | **1269**（上限 1300，✅；口径见 §1.7） | — |
+| A 线·色板**分配**次数 `this.pal()`（未 memo，成本线） | 891 | **1246**（上限 1250，✅；⛔ 只许减） | — |
+| B 线·色板**读取**总量 `this.pal()` ∨ `this.palOnce()` | — | **1268**（松界 1350，✅；含缓存命中，非成本线） | — |
 | `this.eff()` 调用点 | 57 | **35**（上限 80，✅） | — |
 | `anim*()` 调用点 | 14 | **13**（上限 20，✅） | — |
 | 常驻定时器 | `setInterval` 4 / `setTimeout` 5 | **5 / 7**（上限 6 / 7，✅ 顶格） | ⚠️ `setTimeout` **已用满 7**（见 §2 第 18 条） |
@@ -153,11 +155,14 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
 - **新 UI 一律走 `palOnce()`，不要直接 `this.pal()`**（省重复分配，且不抬高下面的调用点计数）。
 - ⛔ **不许**把 `pal()` 本体也记忆化 —— 本契约的意义正是"`pal()` 是唯一未记忆化的构造点，`palOnce()` 在它外面兜缓存"。
 
-**守卫口径变更**（`tools/perf/guard.sh`）：`this.pal()` **∨** `palOnce()` 之和（语义不变 = "每次渲染的色板读取次数"，只换事实的新落点）。
+**守卫口径：拆两条**（`tools/perf/guard.sh`；⛔ 不许合并成一个数 —— 两者成本**差一个量级**）
 
-- ⚠️ **实测 1269 处 > 旧上限 1250**（2026-10-12）：D/E/F UI 真实新增 ~20 处色板读取。
-  旧口径只数 `this.pal()` ⇒ 会把它们**藏起来**（= 本次口径修正要暴露的"白绿"）。
-- ⇒ **上限已由 1250 抬到 1300**（容纳诚实计数；⛔ **待编排者确认**；要回退 1250 须同时裁 UI）。
+- **A 线（成本线，只许减）** = `this.pal()` 直读。`pal()` **未记忆化**（每次 `withAccent` **重新分配**调色板）
+  ⇒ 计"每帧真分配次数"。**上限 1250 不变**，现状 **1246**。
+- **B 线（读取总量，松界/防失控）** = `this.pal()` ∨ `this.palOnce()`（**限定名** `this\.palOnce\(\)`，
+  排除 `private palOnce(` 声明行）。含**缓存命中**（几乎免费）⇒ **不是成本线**；意义 = "读取点别无限膨胀"
+  + "防把读取全迁到 `palOnce` ⇒ A 线退化成白绿"。上限 **1350**，现状 **1268**。
+- ⛔ **合并成一个数会稀释真成本线**（新增廉价 `palOnce()` 会吃掉"贵读取"的预算空间）。
 
 ### 1.6b live 行「每帧工作量」—— ✅ **2026-10-11 落地：按源数组记忆化**
 
@@ -310,7 +315,8 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
 | 12 | `effectsOf` / `surfacesOf` | ≤ 12 / 20 µs | 微基准 | 调色板构造回归 |
 | 13 | `paletteOf` | ≤ 0.5 µs | 微基准 | 同上 |
 | 14 | `流式增长 120 拍` | ≤ 300 ms | 微基准 | 流式重解析回归 |
-| 15 | 色板读取调用点（`this.pal()` ∨ `palOnce()`） | ≤ **1300** 处（本波由 1250 抬升，⛔ 待编排者确认） | 静态（硬） | "每帧多算几百次调色板"；口径见 §1.7 |
+| 15a | **A 线**：色板**分配**次数 `this.pal()`（未 memo） | ≤ **1250** 处（⛔ 成本线，只许减；现状 1246） | 静态（硬） | "每帧多算几百次调色板" |
+| 15b | **B 线**：色板**读取**总量 `this.pal()` ∨ `this.palOnce()` | ≤ **1350** 处（松界/防失控；现状 1268） | 静态 | 读取点无限膨胀（口径见 §1.7） |
 | 16 | `this.eff()` 调用点 | ≤ 80 处 | 静态 | 同上（eff 比 pal 贵 250×） |
 | 17 | `setInterval` 调用点 | ≤ **6** 处 | 静态（硬） | **又加一个常驻定时器** |
 | 18 | `setTimeout` 调用点 | ≤ 7 处 | 静态 | 同上 |
