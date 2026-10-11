@@ -6686,10 +6686,14 @@ struct Index {
                           .layoutWeight(1).alignItems(HorizontalAlign.Start)
 
                           // 星标（收藏）：一点即切，已星标用实心星 + accent 色
+                          // ⚠️ 未收藏支取 `textSecondary`（⛔ 非 `iconMuted`）：本行底在"当前会话"时 =
+                          // `surface.overlayRowHover`(= RUNG_ACTIVE = `surfaceHi`)；dark 下 `iconMuted`(=`textMuted`)
+                          // 压 `surfaceHi` 仅 **2.8164 < 3.0**（图标地板），`textSecondary` 五主题 ≥4.33 ✓
+                          // （浅色族 `iconMuted` 本就 = `textSecondary` ⇒ 零变化）。判据 `tools/tests/star_contrast.test.ts`。
                           SymbolGlyph(this.isStarredChat(s.chat_id)
                             ? $r('sys.symbol.star_fill') : $r('sys.symbol.star'))
                             .fontSize(typeOf('type.headline').size)
-                            .fontColor([this.isStarredChat(s.chat_id) ? this.pal().accent : colorOf(this.pal(), 'iconMuted')])
+                            .fontColor([this.isStarredChat(s.chat_id) ? this.pal().accent : this.pal().textSecondary])
                             .padding(SPACE_XS)
                             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                             .onClick(() => {
