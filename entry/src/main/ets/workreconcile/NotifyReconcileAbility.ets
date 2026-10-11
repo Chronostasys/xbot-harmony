@@ -32,6 +32,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import type { common } from '@kit.AbilityKit';
 import { RECONCILE_NONE, RECONCILE_TURN_DONE, ReconcileMark, ReconcileMemo, ReconcileDecision, reconcileDecision, applyDecision, turnKeyOf, MissedItem, MissedSummary, summarizeMissed } from '../core/reconcile';
+import { loadMemo, saveMemo } from './memo';
 import wantAgent from '@ohos.app.ability.wantAgent';
 
 const DOMAIN: number = 0x0000;
@@ -42,11 +43,6 @@ const STORE_NAME: string = 'xbot_settings';
 const KEY_SERVER: string = 'server_url';
 const KEY_COOKIE: string = 'session_cookie';
 const KEY_USER: string = 'username';
-/** 对账备忘自成一仓（与前台设置解耦，避免互相覆盖）。 */
-const MEMO_STORE: string = 'xbot_reconcile';
-const M_INIT: string = 'initialized';
-const M_TURN: string = 'last_seen_turn';
-const M_ASK: string = 'last_ask_id';
 
 /** 只读连接信息（显式 class：ArkTS 禁对象字面量作类型/无类型字面量）。 */
 class ConnInfo {
@@ -73,34 +69,6 @@ async function readConn(ctx: common.Context): Promise<ConnInfo> {
   } catch (e) {
     hilog.warn(DOMAIN, TAG, 'readConn failed: %{public}s', (e as BusinessError).message);
     return new ConnInfo('', '', '');
-  }
-}
-
-async function loadMemo(ctx: common.Context): Promise<ReconcileMemo> {
-  const memoOpts: preferences.Options = { name: MEMO_STORE };
-  try {
-    const s: preferences.Preferences = await preferences.getPreferences(ctx, memoOpts);
-    return new ReconcileMemo(
-      s.getSync(M_INIT, false) === true,
-      String(s.getSync(M_TURN, '')),
-      String(s.getSync(M_ASK, '')),
-    );
-  } catch (e) {
-    hilog.warn(DOMAIN, TAG, 'loadMemo failed: %{public}s', (e as BusinessError).message);
-    return new ReconcileMemo(false, '', '');
-  }
-}
-
-async function saveMemo(ctx: common.Context, m: ReconcileMemo): Promise<void> {
-  const memoOpts: preferences.Options = { name: MEMO_STORE };
-  try {
-    const s: preferences.Preferences = await preferences.getPreferences(ctx, memoOpts);
-    s.putSync(M_INIT, m.initialized);
-    s.putSync(M_TURN, m.lastSeenTurnKey);
-    s.putSync(M_ASK, m.lastAskId);
-    await s.flush();
-  } catch (e) {
-    hilog.warn(DOMAIN, TAG, 'saveMemo failed: %{public}s', (e as BusinessError).message);
   }
 }
 

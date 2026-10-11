@@ -16,6 +16,11 @@
  *   ③ schedule.ets 把 `isPersisted: true` 改 `false`        ⇒ 'isPersisted 恰 1 处' 红
  *   ④ reconcile.ets 改 `RECONCILE_ABILITY` 常量值            ⇒ '扩展名与常量同源' 红
  *   ⑤ reconcile.ets 加 `import … from '@ohos.x'`            ⇒ 'core 无 @ohos import' 红
+ *   ⑥ store.ets 注掉 `noteForegroundSeen(...)`              ⇒ '前台侧恰 1 处调用' 红（死消费 #1）
+ *   ⑦ memo.ets 注掉 `markSeen(memo, …)`                     ⇒ 'markSeen 恰 1 处真调用' 红（死消费 #1）
+ *   ⑧ notify.ets 注掉 `clearAll` 里的 `sessionClearedHook()` ⇒ 'clearAll 真的调了端口' 红（死消费 #2）
+ *   ⑨ EntryAbility 注掉 `cancelReconcileScheduled();`        ⇒ 'cancelReconcileScheduled 恰 1 调用点' 红（死消费 #2）
+ *   ⑩ EntryAbility 注掉 `setForegroundSeenSink(` 注册        ⇒ '注册恰 1 处' 红
  *
  * ⚠️ 结尾必须 `process.exit(...)`（run.sh 用 `set -e` 顺序跑；不退出会挂住整个套件）。
  */
@@ -49,6 +54,10 @@ const ROOT: string = (process.env.XBOT_BG_ROOT !== undefined && process.env.XBOT
 function read(rel: string): string {
   const p = path.join(ROOT, rel);
   return fs.readFileSync(p, 'utf-8'); // ⛔ 读不到 ⇒ 直接抛（红），不做静默兜底
+}
+/** `read` + 剥注释 —— ⛔ 计数类断言**必须**用它：否则"把调用注释掉"仍会被算进去（假绿）。 */
+function readS(rel: string): string {
+  return stripComments(read(rel));
 }
 /** 剥注释（`/* *\/` 与 `//`）——避免"注释里提到函数名"被当成调用点（本仓踩过假报）。 */
 function stripComments(s: string): string {
@@ -157,21 +166,47 @@ eq('⛔ 通知面**全仓不设** bypassDnd（尊重系统免打扰）',
 // ── 已知缺口（诚实台账，非硬断言；修好它会自动翻绿）─────────────────────────
 // markSeen = "前台亲眼见过的回合"的**唯一记录点**。它若全仓 0 消费 ⇒ 备忘里的
 // lastSeenTurnKey 只由扩展自己维护 ⇒ 用户前台读完再切后台，首次对账把**已看过的**回合
-// 误报成"新消息"。修复点（core/reconcile.ets / workreconcile/** / pages/Index.ets）
-// **不在本线域内** ⇒ 此处只打印，不判红。详见 docs/NOTIFY-BACKGROUND.md §6。
-// 计数里包含**定义本身**（`export function markSeen(`）⇒ 减 1 才是"消费点"。
-const markSeenConsumers = grepTree('entry/src/main/ets', 'markSeen(') - 1;
-if (markSeenConsumers <= 0) {
-  console.log('  ⚠ [known-gap] markSeen 仍 0 消费点（前台基线未接线）⇒ 详见 docs/NOTIFY-BACKGROUND.md §6');
-} else {
-  console.log(`  ✅ markSeen 已有 ${markSeenConsumers} 个消费点（前台基线已接线）`);
-}
-const cancelScheduleConsumers = grepTree('entry/src/main/ets', 'cancelReconcileScheduled(') - 1; // 减定义本身
-if (cancelScheduleConsumers <= 0) {
-  console.log('  ⚠ [known-gap] cancelReconcileScheduled 仍 0 调用点（登出未取消后台对账）⇒ 见 §6');
-} else {
-  console.log(`  ✅ cancelReconcileScheduled 已有 ${cancelScheduleConsumers} 个调用点`);
-}
+// ── (I) 死消费修复 #1：`markSeen` 必须接到**前台**（2026-10-11）─────────────────
+// 背景：此前 `markSeen` 全仓 0 消费 ⇒ 备忘的 `lastSeenTurnKey` 只由**后台扩展**维护
+// ⇒ 用户前台读完再切后台，首次对账把**已看过**的回合误报成"新消息"（假阳性）。
+// 修法：`core/store.ets`（前台，`/api/history` 回来后）→ `core/notify.noteForegroundSeen`
+// → 端口 → `workreconcile/memo.markForegroundSeen` → **`markSeen`**。
+// ⛔ 钉**调用点计数**：只断言"函数存在"会**假绿**（本仓血教训）。
+eq('`markSeen(` 在 workreconcile/memo.ets 里**恰 1 处真调用**（喂 ReconcileMark）',
+  countStr(readS('entry/src/main/ets/workreconcile/memo.ets'), 'markSeen(memo,'), 1);
+// 全仓计数（含定义）− 定义(1) = 真消费点，必须 ≥1。
+ok('⛔ `markSeen` 全仓有 ≥1 个真消费点（>1 定义）', grepTree('entry/src/main/ets', 'markSeen(') - 1 >= 1);
+eq('前台侧：store.ets 调用 `noteForegroundSeen(` **恰 1 处**',
+  countStr(readS('entry/src/main/ets/core/store.ets'), 'noteForegroundSeen('), 1);
+eq('core 侧：`noteForegroundSeen` 定义恰 1 处',
+  countStr(notify, 'noteForegroundSeen('), 1);
+eq('core 侧：`noteForegroundSeen` 真的调了端口 `foregroundSeenSink(`（非空壳）',
+  countStr(notify, 'foregroundSeenSink('), 1);
+eq('接线：EntryAbility 注册 `setForegroundSeenSink(` **恰 1 处**',
+  countStr(entry, 'setForegroundSeenSink('), 1);
+eq('接线：EntryAbility 的 sink 落到 `markForegroundSeen(`（把 last_seq 交给落盘）',
+  countStr(entry, 'markForegroundSeen('), 1);
+ok('落盘层与扩展**同源取数**（`turnKeyOf` + `/api/history` 的 `last_seq`）',
+  countStr(readS('entry/src/main/ets/workreconcile/memo.ets'), 'turnKeyOf(') >= 1
+  && countStr(readS('entry/src/main/ets/core/store.ets'), 'data.last_seq') >= 1);
+
+// ── (J) 死消费修复 #2：`cancelReconcileScheduled` 必须接**登出/清场**（2026-10-11）──
+// 背景：此前全仓 0 调用 ⇒ 登出后后台对账仍带着旧会话空跑（读不到 cookie 只是静默跳过）。
+// 修法：`core/notify.clearAll`（"整机清场"既有出口，`store.ets` 在 401 时调它）
+// → 端口 `sessionClearedHook()` → `workreconcile/schedule.cancelReconcileScheduled`。
+eq('⛔ `cancelReconcileScheduled` 全仓有 **恰 1** 个真调用点（合计 2 − 定义 1）',
+  grepTree('entry/src/main/ets', 'cancelReconcileScheduled(') - 1, 1);
+eq('接线：EntryAbility 在清场钩子里调 `cancelReconcileScheduled();` **恰 1 处**',
+  countStr(entry, 'cancelReconcileScheduled();'), 1);
+eq('接线：EntryAbility 注册 `setSessionClearedHook(` **恰 1 处**',
+  countStr(entry, 'setSessionClearedHook('), 1);
+eq('core 侧：`clearAll` 真的调了端口 `sessionClearedHook()`（非空壳）',
+  countStr(notify, 'sessionClearedHook()'), 1);
+ok('端口调用落在 `clearAll` 函数体内（不是别处）',
+  countStr(between(notify, 'export async function clearAll(', 'export async function clearForChat('),
+    'sessionClearedHook()') === 1);
+eq('清场出口 `clearAll` 仍有真实调用方（store.ets）',
+  countStr(readS('entry/src/main/ets/core/store.ets'), 'clearAll('), 1);
 
 if (fail > 0) { console.log(`  notify_background: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  notify_background: ${pass} passed, 0 failed`);

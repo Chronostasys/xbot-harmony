@@ -1106,6 +1106,55 @@ export function setNotifyDecorator(fn: NotifyDecorator): void {
   notifyDecorator = fn;
 }
 
+// ── 端口：会话清场 / 前台"已见回合"（ArkTS 侧注入；保持 core 无 `@ohos.arkdata` 依赖）──────
+//
+// 为什么用端口而不是直接调：`workreconcile/**`（对账的持久化与调度）要 import
+// `@kit.ArkData` / `@ohos.resourceschedule.workScheduler`，而本文件被 `run.sh` 当**纯 TS**
+// 编译并在 node 里真跑（只有 notificationManager / wantAgent / backgroundTaskManager 三个 stub）
+// ⇒ 本层**不能** import 它们。端口是**唯一**既能让前台触发落盘、又不破坏分层的写法
+// （先例：`setNotifyDecorator` ← `workreconcile/icons.ets`）。
+
+/** 端口：会话清场（登出/换账号/401）时由 ArkTS 侧执行"取消后台对账"等收尾。 */
+export type SessionClearedHook = () => void;
+/** 端口：前台"用户已看到某会话第 N 回合"的落盘实现（ArkTS 侧写对账备忘）。 */
+export type ForegroundSeenSink = (chatId: string, lastSeq: number) => void;
+
+let sessionClearedHook: SessionClearedHook | null = null;
+let foregroundSeenSink: ForegroundSeenSink | null = null;
+
+/** 注册清场钩子（幂等；`entryability/EntryAbility.ets` 启动时调一次）。 */
+export function setSessionClearedHook(fn: SessionClearedHook): void {
+  sessionClearedHook = fn;
+}
+
+/** 注册"前台已见回合"的落盘端口（幂等；`entryability/EntryAbility.ets` 启动时调一次）。 */
+export function setForegroundSeenSink(fn: ForegroundSeenSink): void {
+  foregroundSeenSink = fn;
+}
+
+/**
+ * 前台观测到"用户已看到**某会话的第 N 回合**" ⇒ 交给落盘端口（对账备忘）。
+ *
+ * ⛔ 两道闸：① 只在**前台**记（后台由扩展自己维护备忘，前台不该越俎代庖）；
+ *   ② 端口未注册（脱机单测 / 未启动）⇒ 静默 no-op（旁路，绝不影响主链路）。
+ *
+ * @param chatId  当前会话 id（空 ⇒ 不记）
+ * @param lastSeq 服务端 `/api/history` 的 `last_seq`（⇒ 与扩展 `fetchMark` 的取数同源）
+ */
+export function noteForegroundSeen(chatId: string, lastSeq: number): void {
+  if (!appIsForeground()) {
+    return;
+  }
+  if (foregroundSeenSink === null) {
+    return;
+  }
+  try {
+    foregroundSeenSink(chatId, lastSeq);
+  } catch (e) {
+    // 旁路：落盘失败最多"备忘没更新"（回落到修复前的行为），绝不影响聊天
+  }
+}
+
 export async function publishTurn(title: string, text: string, chatId: string): Promise<boolean> {
   try {
     const kind: string = kindFromNotifyTitle(title);
@@ -1238,6 +1287,17 @@ export async function clearAll(): Promise<boolean> {
   unread.clear();
   lastNotifiedChatId = '';
   await syncBadge();
+  // 会话清场（登出/换账号/401）⇒ 交给 ArkTS 侧收尾（当前 = **取消后台对账**延迟任务）。
+  // 为什么挂在这里：`clearAll` 是本仓"整机清场"的**唯一既有出口**（`store.ets` 在 401 时调它）；
+  // 不挂的话后台对账会**带着旧会话继续跑**（读不到 cookie 只是静默跳过 —— 那不是设计意图）。
+  // 旁路：钩子自己吞异常（见 EntryAbility 注册处）。
+  if (sessionClearedHook !== null) {
+    try {
+      sessionClearedHook();
+    } catch (e) {
+      // 旁路：清场钩子失败不影响通知清理本身
+    }
+  }
   return ok;
 }
 

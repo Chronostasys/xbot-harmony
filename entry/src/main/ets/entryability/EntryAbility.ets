@@ -10,8 +10,11 @@ import {
   ensureEnabled,
   initSlots,
   notifyActionFromParam,
+  noteForegroundSeen,
   reconcileOnForeground,
   setAppForeground,
+  setForegroundSeenSink,
+  setSessionClearedHook,
 } from '../core/notify';
 import {
   CommandAction,
@@ -24,7 +27,8 @@ import {
   registeredCommands,
 } from '../core/command';
 import { readCachedTheme } from '../core/config';
-import { ensureReconcileScheduled } from '../workreconcile/schedule';
+import { ensureReconcileScheduled, cancelReconcileScheduled } from '../workreconcile/schedule';
+import { markForegroundSeen } from '../workreconcile/memo';
 import { installNotifyIcon } from '../workreconcile/icons';
 import { isLightPalette, paletteOf } from '../core/theme';
 
@@ -70,6 +74,19 @@ export default class EntryAbility extends UIAbility {
     installNotifyIcon(this.context).catch(() => {
     });
     ensureReconcileScheduled(this.context);
+    // 死消费修复的两个端口（2026-10-11）——**都在本处注册**，都在 `core/notify.ets` 里被触发：
+    //   ① `setForegroundSeenSink`：前台"用户已看到某会话第 N 回合" ⇒ 写对账备忘
+    //      （⇒ `core/reconcile.markSeen` 不再 0 消费；否则后台对账会把**已看过**的回合误报成新消息）；
+    //   ② `setSessionClearedHook`：会话清场（登出/401）⇒ 取消后台对账延迟任务
+    //      （⇒ `cancelReconcileScheduled` 不再 0 调用；否则登出后对账仍带着旧会话空跑）。
+    // ⛔ 两者都是**旁路**：任何异常只静默（通知/对账失败最多"没提醒"）。
+    setForegroundSeenSink((chatId: string, lastSeq: number) => {
+      markForegroundSeen(this.context, chatId, lastSeq).catch(() => {
+      });
+    });
+    setSessionClearedHook(() => {
+      cancelReconcileScheduled();
+    });
     hilog.info(DOMAIN, TAG, 'EntryAbility onCreate');
   }
 

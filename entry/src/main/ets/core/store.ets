@@ -47,6 +47,7 @@ import {
   notifyBody,
   notifyKindForSse,
   notifyTitle,
+  noteForegroundSeen,
   publishTurn,
   shouldNotify,
   withinDedupeWindow,
@@ -716,6 +717,17 @@ export class ChatStore {
     // （表现：SSE 事件完全不渲染、思考中消失后永远空白）。web 的 lastSeq 属于
     // activeTurn、turn_started 重置、从不从 history 设置。SSE 回放游标由
     // SseClient 的 lastEventId 单独负责。
+    //
+    // ── 但对账备忘**要用**它（2026-10-11 死消费修复）─────────────────────────────
+    // 上面那条"绝不写进 ChatState"**不适用于**对账备忘：备忘只跟"后台扩展的 turnKey"比对，
+    // 而扩展 `fetchMark` 用的就是 `/api/history` 的 `chat_id` + `last_seq` —— **同一字段**，
+    // ⇒ 两处 turnKey 必然一致。前台**看到**了这个会话的最新回合 ⇒ 记下"已见"
+    // ⇒ 后台对账不会把用户**已看过**的回合误报成"新消息"。
+    // 旁路：`noteForegroundSeen` 自带前台闸 + 落盘端口（见 `core/notify.ets`）。
+    const seenSeq: number | null | undefined = data.last_seq;
+    if (seenSeq !== undefined && seenSeq !== null) {
+      noteForegroundSeen(this.currentChatId, seenSeq);
+    }
   }
 
   /** 历史消息 → web `ChatMessage[]`（`historyToReplaced` 的输入形状）。 */
