@@ -3351,6 +3351,9 @@ struct Index {
             sessionId: this.store !== null ? this.store.currentChatId : '',
             channel: this.store !== null ? this.store.channel : '',
             lastActive: this.currentLastActive(),
+            // 订阅（web `SessionInfo.tsx:191-193` 的「订阅」行）：直接读 store 权威值（`get_session_subscription`
+            // 的产物，`store.loadSessionSubscription` 落库）；空串 ⇒ 组件不显示该行（判据仍留 store/组件）。
+            subscription: this.store !== null ? this.store.sessionSubscription : '',
             onClose: () => {
               this.showStatus = false;
             },

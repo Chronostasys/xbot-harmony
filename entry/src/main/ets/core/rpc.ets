@@ -116,6 +116,52 @@ export const RPC_UPDATE_PER_MODEL_CONFIG: string = 'update_per_model_config';
 /** `refresh_model_entries`（无参 `rpc0err`）→ `[]protocol.ModelEntry`。`rpc_table.go:762-769`；web `api.ts:798-800`。 */
 export const RPC_REFRESH_MODEL_ENTRIES: string = 'refresh_model_entries';
 
+// ── 会话级订阅查询（web `components/sidebar/SessionInfo.tsx` 的「订阅」行）─────────────
+//
+// ⚠️ **未登记进 `RpcMethod.ALL`**：`tools/tests/rpc.test.ts` 的 `NAMED` 是**硬编码清单**且断言
+//    `ALL.length === NAMED.length` ⇒ 登记会让它红（与 `RPC_PLUGIN_CONFIG`/`RPC_GET_STORAGE_CONFIG`
+//    等既有现状**同因**）。待 rpc.test.ts 归属线一并登记后再补。
+//
+// 契约（逐字核对服务端 `rpc_table.go:817-835`）：
+//   · params `{chat_id, channel}`；⚠️ `channel` 缺省**回落 `"cli"`**（`rpc_table.go:820-822`）
+//     ⇒ **web 会话必须显式传 `"web"`**，否则读到**错的租户行**（同一空格坑见
+//     `docs/WEB-PARITY.md:371` 的 `set_default_subscription`）。
+//   · 返回 `{subscription_id?, model?}`（两字段都可能缺；无租户行时回 `{}`）。
+//   · 调用点 web `agent/api.ts:803`（`fetchSessionSubscription` `:270-275`，
+//     params 走 `sessionBody` `:663-669`）；渲染方 `SessionInfo.tsx:57-80,191-193`。
+/** `get_session_subscription`（`rpc1`）`{chat_id, channel}` → `{subscription_id?, model?}`。
+ *  `rpc_table.go:817-835`；web `agent/api.ts:803`。 */
+export const RPC_GET_SESSION_SUBSCRIPTION: string = 'get_session_subscription';
+
+/**
+ * `get_session_subscription` 的回包（服务端 `map[string]string`；两字段都可能缺）。
+ *
+ * ⚠️ 服务端**无租户行、且 LLMFactory 缓存里也没该会话**时回 `map[string]string{}`（空 map）
+ *   ⇒ `subscription_id`/`model` **双双 undefined**。渲染侧必须按"空 ⇒ 不显示该行"处理
+ *    （web `SessionInfo.tsx:191` 的 `subscription !== '—'`）。
+ */
+export interface SessionSubscription {
+  subscription_id?: string;
+  /** ⚠️ 与 `subscription_id` 可能**只有其一**（`rpc_table.go:826` 租户行分支 / `:831` 缓存回退分支）。 */
+  model?: string;
+}
+
+/**
+ * 取「订阅」显示串（纯逻辑，可脱机单测）。
+ *
+ * 逐字对齐 web `SessionInfo.tsx:80` 的 `sub?.subscription_id || sub?.subscription || '—'`：
+ * 空串 / 缺字段 ⇒ `''`（调用方据此**不显示该行**，⛔ 不编造、不显示占位 `—`）。
+ * ⚠️ 只读 `subscription_id`：`sub.subscription` 是 web 对**不在类型里的旧字段**的防御性回退，
+ *    服务端 `rpc_table.go:826` 只发 `subscription_id` ⇒ 原生**不引入该无源回退**。
+ */
+export function sessionSubscriptionId(sub: SessionSubscription | undefined): string {
+  if (sub === undefined || sub === null) {
+    return '';
+  }
+  const id: string | undefined = sub.subscription_id;
+  return id !== undefined && id !== null ? id : '';
+}
+
 // ── 会话导出 / 导入（web `agent/api.ts`；服务端 `rpc_table.go`）──────────────────────
 //
 // ⚠️ "会话导出"在 web 侧**只有 2 个 RPC**（另 2 个导入是其逆操作）——**没有** markdown 专用方法：

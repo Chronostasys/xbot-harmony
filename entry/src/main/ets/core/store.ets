@@ -30,7 +30,7 @@ import { BgTask, CronJob, RunnerRow, SubAgentRow, isWidgetEvent } from './panels
 import { serverKey, toLocalSettings, KEY_ACCENT } from './settings';
 import { setAppAccent } from './theme';
 import { FsEntry } from './composer';
-import { RPC_WEB_PLUGIN_LIST, readableRpcError, rpc } from './rpc';
+import { RPC_GET_SESSION_SUBSCRIPTION, RPC_WEB_PLUGIN_LIST, SessionSelectorParams, SessionSubscription, readableRpcError, rpc, sessionSubscriptionId } from './rpc';
 import {
   PluginCatalog,
   WebPluginListWire,
@@ -139,6 +139,18 @@ export class ChatStore {
   llmConfigState: string = 'idle';
   /** 最近一次 LLM 配置拉取的**失败原因**（已可读化；空 = 无错）—— 供模型列表面板的失败态显示。 */
   llmConfigError: string = '';
+  /**
+   * 当前会话的**订阅显示串**（`get_session_subscription` → `subscription_id`；空串 = 无/未取到）。
+   * §会话信息面板据此显示「订阅」行；空串 ⇒ **不显示该行**（web `SessionInfo.tsx:191` 同口径）。
+   */
+  sessionSubscription: string = '';
+  /**
+   * 订阅查询的**三态**（`idle|loading|ready|error`）—— 与 `llmConfigState` 同口径。
+   * ⛔ 现仅面板可读；失败态/加载态由 `sessionSubState`/`sessionSubError` 承载（非静默吞）。
+   */
+  sessionSubState: string = 'idle';
+  /** 最近一次订阅查询的**失败原因**（已可读化；空 = 无错）。 */
+  sessionSubError: string = '';
   /** token/上下文用量（拿不到就是 undefined，界面不显示、绝不估算） */
   usage: TokenUsage | undefined = undefined;
   /** 工作目录 */
@@ -651,6 +663,10 @@ export class ChatStore {
     this.loadStatus().catch(() => {
       // 状态非关键路径
     });
+    // 会话级订阅（`get_session_subscription`）：与 loadStatus 同档触发（打开会话 + 回合结束）。
+    this.loadSessionSubscription().catch(() => {
+      // 订阅查询非关键路径
+    });
     this.subscribe();
   }
 
@@ -974,6 +990,36 @@ export class ChatStore {
       // 选择栏非关键路径：失败不打断主链路，但**记下真结果**（失败态 + 可读原因）供模型列表面板显示。
       this.llmConfigState = 'error';
       this.llmConfigError = readableRpcError((e as Error).message);
+      this.onUpdate();
+    }
+  }
+
+  /**
+   * 拉当前会话的**订阅**（`get_session_subscription` → `{subscription_id?, model?}`）。
+   *
+   * 三态与 `loadLlmConfig` **同模式**（`loading` → `ready`/`error` + `readableRpcError`）；
+   * ⛔ 不新造超时 / `setTimeout`（沿用 `rpc()` 既有网络语义）。
+   * ⛔ **channel 必须显式传本会话渠道**：服务端缺省回落 `"cli"`（`rpc_table.go:820-822`）
+   *    ⇒ 不传会读到**错的租户行**（同类坑见 `docs/WEB-PARITY.md:371`）。
+   */
+  async loadSessionSubscription(): Promise<void> {
+    if (this.currentChatId.length === 0) {
+      return;
+    }
+    this.sessionSubState = 'loading';
+    this.sessionSubError = '';
+    this.onUpdate();
+    try {
+      const sub: SessionSubscription = await rpc<SessionSubscription>(
+        this.http, RPC_GET_SESSION_SUBSCRIPTION,
+        new SessionSelectorParams(this.channel, this.currentChatId));
+      this.sessionSubscription = sessionSubscriptionId(sub);
+      this.sessionSubState = 'ready';
+      this.onUpdate();
+    } catch (e) {
+      // 非关键路径：失败不打断主链路，但**记下真结果**（面板据此可显示失败态/可读原因）。
+      this.sessionSubState = 'error';
+      this.sessionSubError = readableRpcError((e as Error).message);
       this.onUpdate();
     }
   }
@@ -1403,6 +1449,9 @@ export class ChatStore {
       } else if (action === 'idle' || action === 'agent-idle') {
         this.loadStatus().catch(() => {
           // 状态非关键路径
+        });
+        this.loadSessionSubscription().catch(() => {
+          // 订阅查询非关键路径
         });
         this.loadSessions().catch(() => {
           // 对账失败不影响主链路

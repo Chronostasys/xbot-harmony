@@ -200,6 +200,8 @@ export struct StatusSheet {
   @Prop channel: string = '';
   /** 最后活跃（空串 = 不显示该行；web `:174-176` truthy 才显示）。 */
   @Prop lastActive: string = '';
+  /** 订阅串（空串 = 不显示该行；web `SessionInfo.tsx:191-193` 的 `subscription !== '—'` 口径）。 */
+  @Prop subscription: string = '';
   /** 关闭面板（面板**自己**的关闭入口，头部 X 走它）。 */
   onClose: () => void = () => {
   };
@@ -218,7 +220,8 @@ export struct StatusSheet {
   private isEmpty(): boolean {
     return this.goalLine.length === 0 && this.usageText.length === 0
       && this.modelName.length === 0 && this.ctxText.length === 0 && this.cwd.length === 0
-      && this.sessionId.length === 0 && this.channel.length === 0 && this.lastActive.length === 0;
+      && this.sessionId.length === 0 && this.channel.length === 0 && this.lastActive.length === 0
+      && this.subscription.length === 0;
   }
 
   /** 本弹层的两层柔影（浅色 = 贴合 + 环境；深色 = 透明 + 原值）—— `core/theme.shadowLayersOf`。 */
@@ -300,6 +303,15 @@ export struct StatusSheet {
             })
           }
           StatusInfoRow({ label: '模型', value: this.modelName, theme: this.theme })
+          // ── 订阅（web `SessionInfo.tsx:191-193` 的「订阅」行；空串 ⇒ 不显示该行）──────────
+          // 标签 = web 硬编码 `"Subscription"`（原生按本仓中文面板惯例取「订阅」）；
+          // 值走 mono（同 web `<InfoRow ... mono />`）；空串 ⇒ 不显示（同 web `!== '—'` 口径）。
+          // ⚠️ web 源码把此行（连同 `Tokens`/`Context`）额外门在 `focusedSession?.channel === 'agent'`；
+          //   本仓**既有**「用量 / 上下文上限」两行已按"值非空即显示"落地（web 那两行同样 agent-only）
+          //   ⇒ 本行沿用**同一**原生惯例（否则原生会话恒为 `web` 渠道 ⇒ 该行**永不显示**=死行）。
+          if (this.subscription.length > 0) {
+            StatusInfoRow({ label: '订阅', value: this.subscription, mono: true, theme: this.theme })
+          }
           if (this.ctxText.length > 0) {
             StatusInfoRow({ label: '上下文上限', value: this.ctxText, theme: this.theme })
           }
