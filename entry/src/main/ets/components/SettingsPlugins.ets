@@ -34,10 +34,12 @@ import {
   PLUGIN_FIELD_NUMBER, PLUGIN_FIELD_SELECT, PLUGIN_FIELD_STRING, PLUGIN_FIELD_UNKNOWN,
   PluginConfigCatalog,
   PluginConfigEntry, PluginConfigGroup, PluginConfigProperty, configValueFingerprint, displayValue,
-  groupBySection, isFieldEditable, listHas, parsePluginConfig, pluginEntryFingerprint, readValue,
+  filterPluginCatalog, groupBySection, isFieldEditable, listHas, parsePluginConfig,
+  pluginEntryFingerprint, pluginFieldHasRange, readValue,
   submitValue, textInputValue, toggleListValue, validateValue, valueFromText, valueFromSingle,
   valueFromToggle, valueOfProp,
 } from '../core/settingsplugins';
+import { CONTROL_INPUT_H, colorOf, hairlineOf } from '../core/design';
 import { SettingsErrorBar, SettingsPanelHeader } from './SettingsRows';
 
 /** 单字段的行高/内边距常量（与各设置面板同视觉语言）。 */
@@ -66,6 +68,12 @@ struct PluginFieldRow {
   @Prop optLabels: string[] = [];
   /** 非编辑类型（image/unknown）的只读展示。 */
   @Prop display: string = '';
+  /** number 字段是否声明了有效范围（`min < max`）⇒ 用**滑条**（web `SettingsPlugins.tsx:410-415`）。 */
+  @Prop hasRange: boolean = false;
+  /** number 滑条下界（`hasRange=false` 时无意义）。 */
+  @Prop minv: number = 0;
+  /** number 滑条上界。 */
+  @Prop maxv: number = 0;
 
   onBool: (next: boolean) => void = (next: boolean) => {
   };
@@ -85,6 +93,22 @@ struct PluginFieldRow {
   /** 该字段是否用文本框（string/number）。 */
   private isText(): boolean {
     return this.kind === PLUGIN_FIELD_STRING || this.kind === PLUGIN_FIELD_NUMBER;
+  }
+
+  /** 滑条当前值：草稿解析失败 ⇒ 下界；越界 ⇒ 收敛到边界（与 web `:417-420` 同口径）。 */
+  private sliderValue(): number {
+    const n: number = Number.parseFloat(this.s);
+    if (Number.isNaN(n)) { return this.minv; }
+    return Math.min(this.maxv, Math.max(this.minv, n));
+  }
+
+  /** 滑条步长（对齐 web `SettingsPlugins.tsx:449`）：两端皆整数 ⇒ 1，否则按跨度自适应。 */
+  private sliderStep(): number {
+    const span: number = this.maxv - this.minv;
+    if (Number.isInteger(this.minv) && Number.isInteger(this.maxv)) { return 1; }
+    if (span <= 2) { return 0.01; }
+    if (span <= 20) { return 0.1; }
+    return 1;
   }
 
   @Builder
@@ -136,6 +160,32 @@ struct PluginFieldRow {
           .fontColor(this.pal().textMuted)
           .width('100%')
       } else if (this.isText()) {
+        if (this.kind === PLUGIN_FIELD_NUMBER && this.hasRange) {
+          // 声明了有效范围 ⇒ 滑条（对齐 web `SettingsPlugins.tsx:464-477`）；
+          // 拖动**只**更新草稿，松手/点击才提交（⛔ 不逐帧写服务端）。
+          Row({ space: SP_2 }) {
+            Text(`${this.minv}`)
+              .fontSize(FS_CAPTION)
+              .fontColor(this.pal().textMuted)
+            Slider({ value: this.sliderValue(), min: this.minv, max: this.maxv, step: this.sliderStep() })
+              .enabled(!this.busy)
+              .layoutWeight(1)
+              .selectedColor(colorOf(this.pal(), 'accent'))
+              .trackColor(colorOf(this.pal(), 'surfaceAlt'))
+              .blockColor(colorOf(this.pal(), 'accent'))
+              .onChange((value: number, mode: SliderChangeMode) => {
+                this.onText(`${value}`);
+                if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) {
+                  this.onCommit();
+                }
+              })
+            Text(`${this.maxv}`)
+              .fontSize(FS_CAPTION)
+              .fontColor(this.pal().textMuted)
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Center)
+        }
         Row({ space: SP_2 }) {
           TextInput({ text: this.s, placeholder: this.placeholder })
             .enabled(!this.busy)
@@ -219,6 +269,11 @@ export struct SettingsPlugins {
   @State private drafts: Record<string, string> = {};
   /** 待确认重载的插件 id（二次确认，空 = 未武装）。 */
   @State private confirmReload: string = '';
+  /**
+   * 搜索串（对齐 web `SettingsPlugins.tsx:160-169` 的搜索框）。
+   * 过滤**只**走核心纯函数 `filterPluginCatalog`（判据与渲染同源，⛔ 组件不写 `includes`）。
+   */
+  @State private query: string = '';
 
   aboutToAppear(): void {
     void this.load();
@@ -258,6 +313,11 @@ export struct SettingsPlugins {
 
   private groupsOf(e: PluginConfigEntry): PluginConfigGroup[] {
     return groupBySection(e.properties);
+  }
+
+  /** 搜索过滤后的目录（**唯一判据** = `core/settingsplugins.filterPluginCatalog`）。 */
+  private filtered(): PluginConfigCatalog {
+    return filterPluginCatalog(this.catalog, this.query);
   }
 
   /** 拉取（**唯一真值来源**）—— 写入成功后也走它（写后回读，后端为准）。 */
@@ -388,9 +448,28 @@ export struct SettingsPlugins {
           .fontColor(this.pal().textMuted)
           .width('100%')
       } else {
+        // ── 搜索框（对齐 web `SettingsPlugins.tsx:160-169`；过滤判据 = core `filterPluginCatalog`）──
+        TextInput({ text: this.query, placeholder: '搜索配置项（key / 名称 / 说明）' })
+          .placeholderColor(colorOf(this.pal(), 'textMuted'))
+          .fontColor(colorOf(this.pal(), 'textPrimary'))
+          .backgroundColor(colorOf(this.pal(), 'surfaceAlt'))
+          .border({ width: 1, color: hairlineOf(this.pal()) })
+          .borderRadius(R_LG)
+          .constraintSize({ minHeight: CONTROL_INPUT_H })
+          .width('100%')
+          .onChange((v: string) => {
+            this.query = v;
+          })
+
         Scroll() {
           Column({ space: SP_3 }) {
-            ForEach(this.catalog.entries, (e: PluginConfigEntry) => {
+            if (this.filtered().entries.length === 0) {
+              Text('没有匹配的配置项。')
+                .fontSize(FS_CAPTION)
+                .fontColor(colorOf(this.pal(), 'textMuted'))
+                .width('100%')
+            } else {
+              ForEach(this.filtered().entries, (e: PluginConfigEntry) => {
               Column({ space: SP_2 }) {
                 // 插件头：名称 + runtime + 启停 + 重载
                 Row({ space: SP_2 }) {
@@ -455,6 +534,9 @@ export struct SettingsPlugins {
                         optValues: this.optValuesOf(p),
                         optLabels: this.optLabelsOf(p),
                         display: displayValue(p, this.backendValue(e.id, p)),
+                        hasRange: pluginFieldHasRange(p),
+                        minv: p.min,
+                        maxv: p.max,
                         onBool: (on: boolean) => {
                           void this.setBool(e.id, p, on);
                         },
@@ -484,6 +566,7 @@ export struct SettingsPlugins {
               .borderRadius(R_XL)
               .border({ width: 1, color: this.pal().border })
             }, (e: PluginConfigEntry) => pluginEntryFingerprint(e))
+            }
           }
           .width('100%')
         }

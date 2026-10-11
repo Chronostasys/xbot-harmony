@@ -67,6 +67,20 @@ export function normalizeAccent(v: string | undefined): string {
   return toHex(rgb[0], rgb[1], rgb[2]);
 }
 
+/**
+ * 规范化成 `#RRGGBB`；**非法返回 `null`**（对齐 web `SettingsAppearance.tsx:43-52` 的 `normalizeHex`）。
+ *
+ * 为什么与 `normalizeAccent` 并存：`normalizeAccent` 是"读服务端值"的**回落**口径（垃圾值 ⇒ 主题色），
+ * 而**自定义 hex 输入框**需要区分"用户还没输完"与"输错了" ⇒ 非法必须是 `null`（UI 据此显示错误、**不写**服务端）。
+ * 判据与渲染同源：输入框的合法性判定**只**调本函数，⛔ 不在组件里另写一份正则。
+ */
+export function normalizeAccentOrNull(v: string | undefined): string | null {
+  if (v === undefined) { return null; }
+  const rgb: number[] | null = parseHex(v);
+  if (rgb === null) { return null; }
+  return toHex(rgb[0], rgb[1], rgb[2]);
+}
+
 /** 变亮（向白插值，t∈[0,1]）—— 对齐 web `lighten(color, 0.12)`。 */
 export function lighten(hex: string, t: number): string {
   const rgb: number[] | null = parseHex(hex);

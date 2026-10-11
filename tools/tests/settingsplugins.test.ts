@@ -20,10 +20,10 @@ import {
   normalizeFieldType, parsePluginConfig, readValue, sameValue, setEntryValues,
   shouldShowTab, submitValue, textInputValue, toggleListValue, validateValue, valueFromText,
   valueFromToggle, visibleTabs, fallbackTabId, displayValue,
-  configValueFingerprint, pluginEntryFingerprint,
+  configValueFingerprint, pluginEntryFingerprint, filterPluginCatalog, pluginPropMatches, pluginFieldHasRange,
   PLUGIN_FIELD_BOOLEAN, PLUGIN_FIELD_IMAGE, PLUGIN_FIELD_MULTISELECT, PLUGIN_FIELD_NUMBER,
   PLUGIN_FIELD_SELECT, PLUGIN_FIELD_STRING, PLUGIN_FIELD_UNKNOWN,
-  SettingsTabSpec, PluginConfigCatalog, PluginConfigEntry,
+  SettingsTabSpec, PluginConfigCatalog, PluginConfigEntry, PluginConfigProperty,
 } from '../../entry/src/main/ets/core/settingsplugins';
 
 let pass = 0, fail = 0;
@@ -231,6 +231,72 @@ eq('fallbackTabId：active 已被隐藏 ⇒ 回落首个可见',
   fallbackTabId(SPECS, 'channels'), 'tools');
 eq('fallbackTabId：active 可见 ⇒ 原样', fallbackTabId(SPECS, 'plugins'), 'plugins');
 eq('fallbackTabId：全隐藏 ⇒ 空串', fallbackTabId([new SettingsTabSpec('x', 'x', false)], 'x'), '');
+
+// ══ D. 插件搜索过滤（对齐 web `SettingsPlugins.tsx:133-155`）════════════════════
+// 判别力（mutation 必红）：
+//   · filterPluginCatalog 空串分支改成"照样过滤" ⇒ 「空串原样返回」红（且引用不等）；
+//   · 丢掉"0 命中插件"那条 `continue` 删掉 ⇒ 「不命中的插件整块消失」红。
+{
+  const mk = (key: string, label: string, desc: string): PluginConfigProperty => {
+    const p = new PluginConfigProperty();
+    p.key = key;
+    p.label = label;
+    p.description = desc;
+    return p;
+  };
+  const mkEntry = (id: string, props: PluginConfigProperty[]): PluginConfigEntry => {
+    const e = new PluginConfigEntry();
+    e.id = id;
+    e.name = id;
+    e.properties = props;
+    return e;
+  };
+  const cat = new PluginConfigCatalog();
+  cat.entries = [
+    mkEntry('a', [mk('api_key', 'API Key', '访问密钥'), mk('timeout', '超时', '秒')]),
+    mkEntry('b', [mk('region', '区域', 'OSS region')]),
+  ];
+
+  eq('pluginPropMatches：命中 key', pluginPropMatches(mk('api_key', 'Key', 'd'), 'api_'), true);
+  eq('pluginPropMatches：命中 label（大小写不敏感）', pluginPropMatches(mk('k', 'API Key', 'd'), 'api key'), true);
+  eq('pluginPropMatches：命中 description', pluginPropMatches(mk('k', 'L', 'OSS region'), 'oss'), true);
+  eq('pluginPropMatches：空查询恒命中', pluginPropMatches(mk('k', 'L', 'D'), '   '), true);
+  eq('pluginPropMatches：不命中', pluginPropMatches(mk('api_key', 'API Key', 'dd'), 'zzz'), false);
+
+  eq('空串 ⇒ 原样返回**同一**目录（引用相等，不复制）', filterPluginCatalog(cat, '  ') === cat, true);
+
+  const f1 = filterPluginCatalog(cat, 'api');
+  eq('命中 ⇒ 只保留命中的字段', f1.entries.length, 1);
+  eq('  ⇒ 命中插件 id', f1.entries[0].id, 'a');
+  eq('  ⇒ 只留命中字段', f1.entries[0].properties.map((p) => p.key), ['api_key']);
+
+  const f2 = filterPluginCatalog(cat, 'oss');
+  eq('另一查询只命中另一个插件', f2.entries.map((e) => e.id), ['b']);
+
+  const f3 = filterPluginCatalog(cat, 'zzz');
+  eq('零命中 ⇒ 空目录（插件整块消失）', f3.entries.length, 0);
+  ok('零命中不是 undefined', f3.entries !== undefined);
+}
+
+// ══ E. number 字段是否用滑条（对齐 web `SettingsPlugins.tsx:410-415` 的 hasRange）══
+// 判别力（mutation 必红）：把 pluginFieldHasRange 改成只看 hasMin ⇒ 「只有下界 ⇒ 文本框」红。
+{
+  const withRange = (hasMin: boolean, min: number, hasMax: boolean, max: number): PluginConfigProperty => {
+    const p = new PluginConfigProperty();
+    p.key = 'k';
+    p.kind = PLUGIN_FIELD_NUMBER;
+    p.hasMin = hasMin;
+    p.min = min;
+    p.hasMax = hasMax;
+    p.max = max;
+    return p;
+  };
+  eq('上下界都有且 min<max ⇒ 滑条', pluginFieldHasRange(withRange(true, 0, true, 10)), true);
+  eq('只有下界 ⇒ 文本框', pluginFieldHasRange(withRange(true, 0, false, 0)), false);
+  eq('只有上界 ⇒ 文本框', pluginFieldHasRange(withRange(false, 0, true, 10)), false);
+  eq('上下界相等（max==min）⇒ 文本框（跨度为零）', pluginFieldHasRange(withRange(true, 5, true, 5)), false);
+  eq('上界小于下界 ⇒ 文本框', pluginFieldHasRange(withRange(true, 10, true, 5)), false);
+}
 
 if (fail > 0) { console.log(`  settingsplugins: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  settingsplugins: ${pass} passed, 0 failed`);

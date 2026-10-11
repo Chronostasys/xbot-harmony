@@ -713,7 +713,7 @@ thinking（4 档）、tier（3 档）、provider（2）、api_type（2）、CTX/
 | 语言 | 语言 select(3) + **清除缓存** | 语言**只读**，无清除缓存 | ❌ 缺"可写 + 清缓存" |
 | 智能体 | 自我压缩 + vision×4（+保存） | 同（5 键） | ✅ |
 | 工具 | 工具开关 + MCP 组开关 | 同（`get_tools_settings` / `set_tool_enabled`） | ✅ |
-| 模型 / LLM | thinking + 并发 + tier×3 + **订阅 CRUD + 导入导出 + 按模型配置** | thinking + 并发 + tier×3 + 订阅启停/默认 + 新增/编辑 + 模型管理 + 导入导出订阅 | ⚠️ 接近，但**按模型配置 UI 完整度**不及 web 控制台 |
+| 模型 / LLM | thinking + 并发 + tier×3 + **订阅 CRUD + 导入导出 + 按模型配置** | thinking + 并发 + tier×3 + 订阅启停/默认 + 新增/编辑 + 模型管理 + 导入导出订阅 + **按模型配置（context/output/api_type/vision+detail）** | ✅（**2026-10-11 复核订正**：原标 ⚠️「完整度不及 web」是**误判** —— `components/SettingsLlm.ets:735-784` 的 `ModelConfigEditor` 已逐字段覆盖 web `llm-console.tsx` 的五项，预设表同源 `core/permodelcfg`） |
 | 消息渠道 | web 渠道 + 插件渠道 + 飞书绑定 | schema 驱动（飞书绑定有） | ⚠️ 渠道集较小 |
 | 存储 | schema 驱动（static/oss…） | 同 | ✅ |
 | 账号 | 用户名 + 退出 | 同 | ✅ |
@@ -738,7 +738,9 @@ thinking（4 档）、tier（3 档）、provider（2）、api_type（2）、CTX/
 | 1 | **自定义 hex 强调色输入框** | ⚠️ | `components/SettingsAppearance.ets`（强调色段 `:157-163` + `AccentSwatches` `:298-338`）；逻辑已在 `core/accent.ets:normalizeAccent` | **否** | 输入 `#RRGGBB`/`#RGB` ⇒ 即时落 `KEY_ACCENT`；非法 ⇒ 回退并显错（web `SettingsAppearance.tsx:166-195` 同语义）。判别力：`accent.test.ts` 补 normalize 用例 + 组件源码形态断言（mutation：去掉校验 ⇒ 红） |
 | 2 | **开发者「导出会话」按钮组**（openai / codex / benchmark） | ⚠️ | `components/SettingsDeveloper.ets` + 需 `http`/回调注入 | **是**（该组件**当前不注入 `http`**，须页面补传）⇒ **等释放** | 产物 == `core/export.ets:toCodexJsonl/toMulticaJsonl/toBenchmarkJsonl`；判别力：`export.test.ts`（已有）+ 源码形态断言 |
 | 3 | **语言可写 + 清除缓存** | ❌ | `components/SettingsAppearance.ets` + 需 i18n 真正切换（`core/i18n.ets` **只做读取**，UI 文案硬编码中文） | 否（但依赖大重构） | ⛔ **不建议现在做**（见 §17.5-1） |
-| 4 | **LLM 按模型配置 UI 补全** | ⚠️ | `components/SettingsLlm.ets`（按模型编辑器 `:735+`；逻辑在 `core/permodelcfg.ets`，**已齐**） | 否 | 与 web `llm-console.tsx` 的 `CTX_PRESETS/OUT_PRESETS/API_TYPES/vision_detail` 逐项对齐；判别力：`permodelcfg` 已有测试 + 新增 UI 形态断言 |
+| 4 | ~~LLM 按模型配置 UI 补全~~ | ✅ **无需做（误判订正）** | `components/SettingsLlm.ets:735-784` 的 `ModelConfigEditor` **已**覆盖 context/output/api_type/vision+vision_detail；预设表同源 `core/permodelcfg.ets`（`CTX_PRESETS`/`OUT_PRESETS`/`LLM_API_TYPES`/`VISION_DETAILS`） | 否 | 已有 `permodelcfg` 判别力测试；本轮**复核后剔除**（原 ⚠️ 系审计误读） |
+| 4b | **插件搜索框**（本轮新增项，替代原 #4 的位置） | ⚠️→✅ | `core/settingsplugins.ets:filterPluginCatalog` / `pluginPropMatches` + `components/SettingsPlugins.ets` | 否 | 见 §17.7 |
+| 4c | **插件 number 滑条**（声明 min/max 时） | ⚠️→✅ | `core/settingsplugins.ets:pluginFieldHasRange` + `components/SettingsPlugins.ets` 的 `Slider` | 否 | 见 §17.7 |
 | 5 | **插件控件类型补全**（number 滑条 / image 上传） | ⚠️ | `components/SettingsPlugins.ets` + `core/settingsplugins.ets`（`isFieldEditable` 现把 `image` 判**禁编辑** `:70-74`） | 否 | 与 web `SettingsPlugins.tsx:582-700` 的 `prop.type` 分支对齐；判别力：`settingsplugins` 已有测试（补 image/number 用例 + mutation） |
 | 6 | **渠道集对齐**（web 渠道 + 插件渠道） | ⚠️ | 数据驱动（`get_channel_config` 返回值）⇒ 多在**服务端/插件**面 | 否 | 以服务端返回为准；本仓仅需确认渲染不丢渠道 |
 | 7 | **并发默认显示**（web 0 / 本仓 5） | ⚠️ | `core/settings.ets:1178-1214`（**已是有意差异**） | 否 | **只登记**（§17.5-3），不改代码 |
@@ -790,3 +792,22 @@ thinking（4 档）、tier（3 档）、provider（2）、api_type（2）、CTX/
 ⇒ **安全性已核**：web `syncAndMigrateSettings()`（`userSettings.ts:67-113`）只回写 `REVERSE_MAP` 内的键，
 原生写进的 `web:ui:<原生独有>` **不会**污染 web 的 localStorage；原生 `localKey()` 对未收录键原样返回 ⇒ **双向零丢键**。
 （本轮已按此表订正 `WEB-PARITY.md` 的措辞。）
+
+### 17.7 本轮**已落地**（不碰 `pages/Index.ets` 的三项）
+
+| # | 项 | 改了哪 | 判据（判别力 + mutation） |
+|---|---|---|---|
+| **A** | **自定义 hex 强调色**（web `SettingsAppearance.tsx:166-195` 有，本仓缺） | 判据：`core/accent.ets:normalizeAccentOrNull`（非法 ⇒ `null`，与读路径的 `normalizeAccent` 回落口径**并存但语义不同**）；UI：`components/SettingsAppearance.ets` 的 `AccentCustomInput()`（回车或「应用」提交，非法 ⇒ 红框 + 错误文案且**不写**服务端） | `tools/tests/accent.test.ts` 新增 11 条；mutation = 把非法也回落 `DEFAULT_ACCENT` ⇒ **4 条 `null` 断言红**（46 passed/4 failed）；还原 50 passed/0 failed |
+| **B** | **插件搜索框**（web `SettingsPlugins.tsx:133-169` 有，本仓缺；且 core 无纯逻辑） | 判据：`core/settingsplugins.ets:pluginPropMatches` + `filterPluginCatalog`（命中 key/label/description；**丢掉 0 命中插件**；空串 ⇒ **原样返回同一目录**）；UI：`components/SettingsPlugins.ets` 顶部 `TextInput` + 「无匹配」空态 | `tools/tests/settingsplugins.test.ts` 新增 12 条；mutation①（删空串早返回）⇒ 1 红；mutation②（删"丢 0 命中"）⇒ 3 红；还原 97 passed/0 failed |
+| **C** | **插件 number 滑条**（web `SettingsPlugins.tsx:410-477`：声明 `min`/`max` 时用 `Slider`） | 判据：`core/settingsplugins.ets:pluginFieldHasRange`（`hasMin && hasMax && max > min`）；UI：`components/SettingsPlugins.ets` 的 `PluginFieldRow` 在该条件下渲染 `Slider`（拖动只更新草稿，**`SliderChangeMode.End`/`Click` 才提交**），步长同 web 口径 | `settingsplugins.test.ts` 新增 5 条；mutation（改成只看 `hasMin`）⇒ **3 红**；还原 97 passed/0 failed |
+
+**零颜色字面量 / role 合法**：三项新代码全部走 `colorOf(p, role)`（role ∈ 真源）与 `hairlineOf(p)`；
+`color-literals` 门禁唯一命中是**占位文案里的格式示例** `'#RRGGBB（如 #7C3AED）'` ⇒ 按 linter 头注明的机制用
+**内联豁免 + 理由**（`// allow-color-literal: …不是取色`），⛔ 未放宽整条规则。
+
+**真门禁**：`bash tools/gate.sh` ⇒ `✅ 共 150 个测试文件，0 个失败` · `✅ ④ ArkTS 编译 BUILD SUCCESSFUL in 6 s 530 ms`
+· `✅ 真门禁全绿（离线三条 + 在飞单一来源 + ArkTS 编译 + 取色 role + 颜色字面量 + 性能预算）`。
+
+**「碰 Index.ets」的项（不在本轮，供调度者排队）**：仅 **#2 开发者「导出会话」按钮组** ——
+`components/SettingsDeveloper.ets` **当前不注入 `http`**，需页面补传（`pages/Index.ets:2936-2968` 的 `SettingsPanel(...)` 调用处）；
+判据：产物 == `core/export.ets:toCodexJsonl/toMulticaJsonl/toBenchmarkJsonl`，配 `tools/tests/export.test.ts`（已存在）。

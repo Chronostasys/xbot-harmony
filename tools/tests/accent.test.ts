@@ -10,7 +10,7 @@ declare const process: { exit: (c: number) => void };
 
 import {
   ACCENT_PRESETS, DEFAULT_ACCENT, accentLabel, contrastForeground, darken, lighten,
-  normalizeAccent, parseHex, withAccent,
+  normalizeAccent, normalizeAccentOrNull, parseHex, withAccent,
 } from '../../entry/src/main/ets/core/accent';
 import { darkPalette, lightPalette, paletteValues } from '../../entry/src/main/ets/core/theme';
 
@@ -92,6 +92,23 @@ eq('朱红配白字', ad.onAccent, '#FFFFFF');
 // 用默认色时，accent 家族应与主题原值一致（不引入回归）
 const same = withAccent(dark, '#7C5CFF', true);
 eq('用主题本色 ⇒ accent 不变', same.accent, dark.accent);
+
+// ── 自定义 hex 输入框的**合法性判据**（2026-10-11，目标③ 清单 #1）──────────────
+// 语义对齐 web `SettingsAppearance.tsx:43-52` 的 `normalizeHex`：非法 ⇒ null（UI 据此报错且**不提交**）。
+// ★ 判别力（mutation 必红）：把 normalizeAccentOrNull 改成"非法也回落 DEFAULT_ACCENT"
+//   ⇒ 下面 4 条 `null` 全部变成 '#3388BB' ⇒ 红。
+eq('自定义 hex：6 位合法', normalizeAccentOrNull('#7C3AED'), '#7C3AED');
+eq('自定义 hex：3 位展开（#abc ⇒ #AABBCC）', normalizeAccentOrNull('#abc'), '#AABBCC');
+eq('自定义 hex：无 # 也认（7c3aed）', normalizeAccentOrNull('7c3aed'), '#7C3AED');
+eq('自定义 hex：小写归一为大写', normalizeAccentOrNull('#7c3aed'), '#7C3AED');
+eq('自定义 hex：空串 ⇒ null', normalizeAccentOrNull(''), null);
+eq('自定义 hex：undefined ⇒ null', normalizeAccentOrNull(undefined), null);
+eq('自定义 hex：非法字符 ⇒ null', normalizeAccentOrNull('#zzzzzz'), null);
+eq('自定义 hex：长度不对 ⇒ null（#12345）', normalizeAccentOrNull('#12345'), null);
+eq('自定义 hex：带空格容忍（ trim ）', normalizeAccentOrNull('  #7C3AED  '), '#7C3AED');
+// 与"读服务端值"的回落口径**并存但语义不同**（读路径遇垃圾值回落主题色，输入路径必须报错）
+eq('读路径口径不变：非法 ⇒ 回落 DEFAULT_ACCENT', normalizeAccent('#zzzzzz'), DEFAULT_ACCENT);
+eq('两条口径对合法值一致', normalizeAccentOrNull('#abc'), normalizeAccent('#abc'));
 
 console.log(`accent: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

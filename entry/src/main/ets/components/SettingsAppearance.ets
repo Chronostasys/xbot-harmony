@@ -35,14 +35,15 @@ import {
   normalizeSendKey, orbEnabled, parseBool, sendKeyLabel, settingLabel, settingOf,
   SEND_KEY_ENTER, SEND_KEY_MOD_ENTER,
 } from '../core/settings';
-import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent } from '../core/accent';
+import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, normalizeAccentOrNull } from '../core/accent';
 import { mdThemePickerDescription, normalizeMdTheme } from '../core/mdtheme';
 import { localeLabel, normalizeLocale } from '../core/i18n';
 import {
-  HIT_TARGET_MIN, SPACE_XS, SPACE_SM, SPACE_LG, STROKE_HAIRLINE, hairlineOf,
+  CONTROL_INPUT_H, HIT_TARGET_MIN, RADIUS_CHIP, SPACE_HAIR, SPACE_SM, SPACE_XS, SPACE_LG,
+  STROKE_HAIRLINE, colorOf, hairlineOf,
 } from '../core/design';
 import {
-  SettingsActionRow, SettingsChipRow, SettingsGroupHeader, SettingsToolRow, SettingsValueRow,
+  fs, fw, lh, SettingsActionRow, SettingsChipRow, SettingsGroupHeader, SettingsToolRow, SettingsValueRow, tc,
 } from './SettingsRows';
 import { SettingsMdThemePicker } from './SettingsMdTheme';
 
@@ -76,6 +77,14 @@ export struct SettingsAppearance {
   /** 重新读取设置（页面重拉 `store.loadSettings()`）。 */
   onRefresh: () => void = () => {
   };
+
+  /**
+   * 自定义强调色输入框的**草稿**（本地 `@State` ⇒ 输错不写服务端，可回退）。
+   * 初值留空 = "未编辑"（此时显示值仍由 `settings` 派生，判据同源）。
+   */
+  @State private hexDraft: string = '';
+  /** 草稿是否非法（`normalizeAccentOrNull` 返回 null）⇒ 显示错误、**不**提交。 */
+  @State private hexErr: boolean = false;
 
   private pal(): Palette {
     return paletteOf(this.theme);
@@ -161,6 +170,7 @@ export struct SettingsAppearance {
         theme: this.theme,
       })
       this.AccentSwatches()
+      this.AccentCustomInput()
 
       SettingsMdThemePicker({
         theme: this.theme,
@@ -334,5 +344,73 @@ export struct SettingsAppearance {
     }
     .width('100%')
     .padding({ left: SPACE_SM, right: SPACE_SM, bottom: SPACE_XS })
+  }
+
+  /**
+   * **自定义强调色**输入框（对齐 web `SettingsAppearance.tsx:166-195` 的 accent hex input）。
+   *
+   * 判据与渲染**同源**：合法性**只**由 `core/accent.ets:normalizeAccentOrNull` 判定
+   * （⛔ 组件里不写第二份正则）；非法 ⇒ 显示错误且**不写**服务端（web 是 blur 回退，此处同义）。
+   * 提交时机 = **回车** 或点「应用」—— ⛔ 不做逐字符提交（那会按字写服务端）。
+   */
+  @Builder
+  AccentCustomInput() {
+    Column({ space: SPACE_HAIR }) {
+      Row({ space: SPACE_XS }) {
+        TextInput({ text: this.hexDraft, placeholder: '#RRGGBB（如 #7C3AED）' })   // allow-color-literal: 占位文案里的**格式示例**，不是取色（唯一取色入口仍是 colorOf）
+          .placeholderColor(colorOf(this.pal(), 'textMuted'))
+          .fontColor(colorOf(this.pal(), 'textPrimary'))
+          .backgroundColor(colorOf(this.pal(), 'surfaceAlt'))
+          .border({
+            width: STROKE_HAIRLINE,
+            color: this.hexErr ? colorOf(this.pal(), 'dangerText') : hairlineOf(this.pal()),
+          })
+          .borderRadius(RADIUS_CHIP)
+          .constraintSize({ minHeight: CONTROL_INPUT_H })
+          .layoutWeight(1)
+          .onChange((v: string) => {
+            this.hexDraft = v;
+            this.hexErr = false;
+          })
+          .onSubmit(() => {
+            this.commitHex();
+          })
+        Text('应用')
+          .fontSize(fs('type.subhead'))
+          .fontWeight(fw('type.subhead'))
+          .fontColor(colorOf(this.pal(), 'onAccent'))
+          .backgroundColor(colorOf(this.pal(), 'accent'))
+          .borderRadius(RADIUS_CHIP)
+          .padding({ left: SPACE_SM, right: SPACE_SM })
+          .constraintSize({ minHeight: CONTROL_INPUT_H, minWidth: HIT_TARGET_MIN })
+          .textAlign(TextAlign.Center)
+          .onClick(() => {
+            this.commitHex();
+          })
+      }
+      .width('100%')
+
+      if (this.hexErr) {
+        Text('颜色无效：支持 #RGB / #RRGGBB（可省略 #）')
+          .fontSize(fs('type.caption'))
+          .fontWeight(fw('type.caption'))
+          .lineHeight(lh('type.caption'))
+          .fontColor(colorOf(this.pal(), 'dangerText'))
+          .width('100%')
+      }
+    }
+    .width('100%')
+    .padding({ left: SPACE_SM, right: SPACE_SM, bottom: SPACE_XS })
+  }
+
+  /** 提交自定义 hex：合法 ⇒ 规范化后落 `KEY_ACCENT`；非法 ⇒ 只置错误位，**不写**。 */
+  private commitHex(): void {
+    const norm: string | null = normalizeAccentOrNull(this.hexDraft);
+    if (norm === null) {
+      this.hexErr = true;
+      return;
+    }
+    this.hexErr = false;
+    this.onSetSetting(KEY_ACCENT, norm);
   }
 }

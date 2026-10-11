@@ -676,3 +676,59 @@ export function fallbackTabId(all: SettingsTabSpec[], active: string): string {
   }
   return vis.length > 0 ? vis[0].id : '';
 }
+
+/**
+ * 该 number 字段是否该用**滑条**（对齐 web `SettingsPlugins.tsx:410-415` 的 `hasRange`）：
+ * 声明了 `min` **且**声明了 `max` **且** `max > min` ⇒ 用滑条；否则用文本框。
+ * ⛔ 判据与渲染同源（组件**不得**自己写这段判断）。
+ */
+export function pluginFieldHasRange(p: PluginConfigProperty): boolean {
+  return p.hasMin === true && p.hasMax === true && p.max > p.min;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ③b 搜索过滤（对齐 web `SettingsPlugins.tsx:133-155`）
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// 为什么要有它：web 插件分区顶部有搜索框（按 `key`/`label`/`description` 大小写不敏感过滤，
+// 并**丢掉过滤后一个字段都不剩的插件**）；本仓此前没有 ⇒ 插件一多只能滚动找。
+// ⛔ 判据与渲染同源：过滤**只**在这里实现，组件不得自己写 `includes`。
+
+/** 查询串是否命中一个字段（`key` / `label` / `description`，均大小写不敏感）。空串 ⇒ 全命中。 */export function pluginPropMatches(p: PluginConfigProperty, query: string): boolean {
+  const q: string = query.trim().toLowerCase();
+  if (q.length === 0) { return true; }
+  return p.key.toLowerCase().indexOf(q) >= 0
+    || p.label.toLowerCase().indexOf(q) >= 0
+    || p.description.toLowerCase().indexOf(q) >= 0;
+}
+
+/**
+ * 按查询串过滤整个插件目录（web `SettingsPlugins.tsx:133-155` 同语义）：
+ * 每个插件只保留**命中的字段**；过滤后**一个字段都不剩的插件整块丢掉**。
+ * 空串 ⇒ **原样返回同一目录**（不复制 ⇒ 引用相等，UI 无谓重渲染）。
+ */
+export function filterPluginCatalog(cat: PluginConfigCatalog, query: string): PluginConfigCatalog {
+  const q: string = query.trim().toLowerCase();
+  if (q.length === 0) {
+    return cat;
+  }
+  const out: PluginConfigCatalog = new PluginConfigCatalog();
+  for (let i = 0; i < cat.entries.length; i++) {
+    const e: PluginConfigEntry = cat.entries[i];
+    const kept: PluginConfigProperty[] = [];
+    for (let j = 0; j < e.properties.length; j++) {
+      if (pluginPropMatches(e.properties[j], q)) { kept.push(e.properties[j]); }
+    }
+    if (kept.length === 0) { continue; }
+    const ne: PluginConfigEntry = new PluginConfigEntry();
+    ne.id = e.id;
+    ne.name = e.name;
+    ne.title = e.title;
+    ne.runtime = e.runtime;
+    ne.isOn = e.isOn;
+    ne.properties = kept;
+    ne.values = e.values;
+    out.entries.push(ne);
+  }
+  return out;
+}
