@@ -34,7 +34,7 @@ import {
   parseColorRgba, effectsOf, surfacesOf,
 } from '../../entry/src/main/ets/core/theme';
 import {
-  surfaceFillOf, hairlineOf, ELEV_CARD, ELEV_RAISED, ELEV_OVERLAY,
+  surfaceFillOf, hairlineOf, elevationColorOf, ELEV_CARD, ELEV_RAISED, ELEV_OVERLAY,
 } from '../../entry/src/main/ets/core/design';
 
 let pass = 0, fail = 0;
@@ -69,8 +69,12 @@ function pairsOf(p: Palette): Pair[] {
   mk('抬升→激活', p.surfaceAlt, p.surfaceHi, e.elev2, '影elev2');
   mk('画布→下沉', p.appBg, s.sunken, '', '（内凹·无影）');
   mk('画布→玻璃', p.appBg, compositeOver(e.glassBg, p.appBg), e.glassBorder, '玻璃描边');
-  mk('卡→浮层', p.surface, surfaceFillOf(p, 'surface.overlay'), e.elev3, '影elev3');
-  mk('画布→浮层', p.appBg, surfaceFillOf(p, 'surface.overlay'), e.elev3, '影elev3');
+  // ⚠️ 2026-10-11 模型订正：7 处 `bindPopup` 浮层的**实际接线**通道是
+  //    `elevationColorOf(p, ELEV_OVERLAY)`（**不是**裸 `e.elev3`）—— `0c0f13f` 已把该档的**深色臂**
+  //    从 `elev3`（`#000@42%` 黑影，净影仅 1.0122）改为 **`glow`（`accent@45%` 彩色发光）**。
+  //    ⇒ 按"**只计已接线通道**"纪律，这两对的 edge 必须走该出口（否则模型落后于代码 = 假缺口）。
+  mk('卡→浮层', p.surface, surfaceFillOf(p, 'surface.overlay'), elevationColorOf(p, ELEV_OVERLAY), '影·浮层档');
+  mk('画布→浮层', p.appBg, surfaceFillOf(p, 'surface.overlay'), elevationColorOf(p, ELEV_OVERLAY), '影·浮层档');
   return out;
 }
 
@@ -115,12 +119,15 @@ for (let i = 0; i < auds.length; i++) { byWinner.set(auds[i].winner, (byWinner.g
 const ws: string[] = []; byWinner.forEach((v, k) => ws.push(`${k}×${v}`));
 console.log(`  已接线通道里最强的一条：${ws.join(' · ')}`);
 console.log(`  净影范围 ${Math.min(...auds.map(a=>a.edge)).toFixed(4)}–${Math.max(...auds.map(a=>a.edge)).toFixed(4)}；净填充范围 ${Math.min(...auds.map(a=>a.fill)).toFixed(4)}–${Math.max(...auds.map(a=>a.fill)).toFixed(4)}`);
-ok('深色的**影**几乎完全失效（黑影压近黑底 ⇒ 除空档外净影恒 <1.03）',
-  auds.filter((a) => a.edgeLabel.indexOf('影') === 0).every((a) => a.edge < SURFACE_DIFF_MIN));
+ok('深色的**黑影档**（elev1/elev2）仍然完全失效（黑压近黑底 ⇒ 净影 <1.03）',
+  auds.filter((a) => a.edgeLabel === '影elev1' || a.edgeLabel === '影elev2').every((a) => a.edge < SURFACE_DIFF_MIN));
+ok('深色**浮层档**改走发光后已达标（`0c0f13f`）：净 1.2545–1.2725 ≥ 1.03',
+  auds.filter((a) => a.edgeLabel === '影·浮层档').every((a) => a.edge >= SURFACE_DIFF_MIN));
 ok('深色的**发光通道潜力远够**（≥1.20）⇒ 缺口是"没接线"，不是"没有手段"',
   Math.min(...auds.map((a) => a.glowPotential)) >= 1.2);
-ok('深色达标的对里，分界**只**靠「填充白度差」或「玻璃描边」（影一条都没赢）',
-  auds.filter((a) => a.bestWired >= SURFACE_DIFF_MIN).every((a) => a.winner === '填充' || a.winner === '玻璃描边'));
+ok('深色达标的对里，最强已接线通道 ∈ {填充, 玻璃描边, 影·浮层档(发光)}（黑影一条都没赢）',
+  auds.filter((a) => a.bestWired >= SURFACE_DIFF_MIN)
+    .every((a) => a.winner === '填充' || a.winner === '玻璃描边' || a.winner === '影·浮层档'));
 
 console.log('\n▶ §C 缺口表（**已接线**通道全部 <1.03 ⇒ 该层级对没有可靠边界）');
 const gaps: Aud[] = auds.filter((a) => a.bestWired < SURFACE_DIFF_MIN);
@@ -132,7 +139,13 @@ if (gaps.length === 0) { console.log('  （无缺口）'); }
 
 console.log('\n▶ §D 判据 + 受管例外（⛔ 只许缩短）');
 /** **缺口登记表**（spec 归 `brand-impl`：`core/theme.ets` / `core/design.ets`）。 */
-const PENDING_SPEC: string[] = gaps.map((a) => a.pair);
+// ⛔ **硬编码**（不是从实测推导）—— 这样"缺口被修好"会让实测集合**小于**本表 ⇒ 必红 ⇒ 逼我把表缩短；
+//    新缺口出现 ⇒ 实测**大于**本表 ⇒ 也必红。两种方向都拦得住（"只许缩短"的真正实现）。
+// ⚠️ 2026-10-11 复跑：`0c0f13f`（深色 `ELEV_OVERLAY` 改走发光通道）已修掉 **卡→浮层 / 画布→浮层**
+//    ⇒ 本表按"**只许缩短**"从 4 项缩到 **2 项**（缩短的依据 = 实测缺口集合变了，见下面那条 ok 断言）。
+const PENDING_SPEC: string[] = ['画布→卡', '画布→下沉'];
+ok(`实测缺口集合 == 登记表（实测 ${gaps.length} / 登记 ${PENDING_SPEC.length}）`,
+  gaps.length === PENDING_SPEC.length && gaps.every((a) => PENDING_SPEC.indexOf(a.pair) >= 0));
 function darkBoundaryOk(as: Aud[], exempt: string[]): boolean {
   if (as.length === 0) { return false; }
   for (let i = 0; i < as.length; i++) {
@@ -166,8 +179,10 @@ console.log(`  浅色 缺口：${audsL.filter((a)=>a.bestWired<SURFACE_DIFF_MIN)
 // 深色恒为黑柔影（@24/32/42%）但压在近黑底上 ⇒ **只有 overlay 档两者可比**。
 const lOverlay: Aud[] = audsL.filter((a) => a.pair.indexOf('浮层') >= 0);
 const dOverlay: Aud[] = auds.filter((a) => a.pair.indexOf('浮层') >= 0);
-ok('同层级(overlay)比对：**浅色柔影净贡献 > 深色黑柔影净贡献**（浅 16% 中性影 vs 深 42% 黑影压近黑底）',
-  Math.min(...lOverlay.map((a) => a.edge)) > Math.max(...dOverlay.map((a) => a.edge)));
+// ⚠️ 复跑订正：`0c0f13f` 之前深色浮层是黑柔影（1.0206/1.0122 < 浅色 1.18）⇒ **那时**浅色更强；
+//    改走发光后深色浮层档 = `accent@45%` 净 **1.2545–1.2725** ⇒ **现在深色反而更强**。
+ok('同层级(overlay)比对：修复后**深色浮层档（发光）强于浅色柔影**（1.2545+ vs 1.1806）',
+  Math.min(...dOverlay.map((a) => a.edge)) > Math.max(...lOverlay.map((a) => a.edge)));
 console.log(`    浅色浮层影 ${lOverlay.map(a=>a.edge.toFixed(4)).join('/')} vs 深色浮层影 ${dOverlay.map(a=>a.edge.toFixed(4)).join('/')}`);
 ok('浅色的**浮层**没有缺口（白度差 + 柔影至少一条够）',
   audsL.filter((a) => a.pair.indexOf('浮层') >= 0).every((a) => a.bestWired >= SURFACE_DIFF_MIN));
