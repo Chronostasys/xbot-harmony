@@ -1448,3 +1448,53 @@ ArkUI **自管开合**（点锚点开/关、点外部收、**点菜单项自动�
 **④ `aa start` 后的**第一次**点击可能被吞（抽屉没开）。**
 全新冷启后 `104 224` 点一次不开、第二次才开（无任何报错）⇒ 打开动作要写成**幂等重试**：
 `for i in 1..5: dump 查独有标记 → 未开则再点一次 + 设备侧 sleep 2`。⛔ 别"点一次就断定入口坏了"。
+
+## 批次 44（2026-10-12，编排者本人实测）：**改容器层级时"外层行当内层容器"⇒ 括号失配**；判据区间把我自己的注释卷进来；**符号字形的真源是符号字体**
+
+**① 把"外层 Row"误当"内层字段容器"改 ⇒ 多出一个 `}` ⇒ ArkTS 报错行号**不是**失配处。**
+我要给抽屉搜索框加行内放大镜 + 清空键 ⇒ 把一个 `TextInput` 替换成 `Row{ 图标 + TextInput + 清空键 }`
++ 该 Row 的 modifier 链。但我替换的锚点**恰好是外层搜索行**（`Row({ space: SPACE_XS }) {` 里第一个子节点
+是 `TextInput`）⇒ 我新写的 `}` 提前关掉了**外层行**，原本属于外层的「搜消息」按钮被甩到行外 ⇒
+真实报错是：
+```
+Error Message: Unexpected token (Note that you need plugins to import files that are not JavaScript)
+arkts-no-implicit-return-types  At Index.ets:7397:6
+arkts-no-any-unknown            At Index.ets:7397:12
+```
+`7397` 是 `@Builder DrawerSheet()` 的**收尾 modifier 链**（`.width('88%')…`），**不是**我改的那 30 行
+⇒ 极易误导（看起来像"页面末尾坏了"）。**处置**：回到 `@Builder` 起点，把改动区的缩进逐层对齐重排
+（外层行 → 内层容器 → 同级按钮），再编译。**规律**：`Unexpected token` + 属性链被当成"函数/any"
+= **括号配平被破坏**（编辑器不会告诉你哪一层多了一个 `}`）。
+
+**② 判据区间**把"我自己的注释"卷进来 ⇒ **真源就红**（假红）；同一个标记名在别处也有 ⇒ **假绿**。**
+本批两处实锤：
+- 我在清空键**上方**写了注释「…（⛔ 不用 `responseRegion` 外扩）」，而判据写成
+  `hasNot(between(src,'TextInput({ placeholder: \'筛选会话…\'','搜消息'), 'responseRegion')` —— 区间起点在
+  **注释之前** ⇒ 注释里的 `responseRegion` 被当成违规 ⇒ **真源 1 failed**（假红）。
+  ⇒ 修法：区间起点放到**注释之后**（我改用 `if (this.sessQuery.length > 0) {`，该串全仓唯一）。
+- 同批：`sys.symbol.xmark_circle_fill` 在页面**另有一处**用途（`:4263`）⇒ 若用全局 `has(indexSrc, …)`
+  就**假绿**（删掉搜索框的清空键也照样绿）⇒ 判据必须**限定区间**（`between(…, '搜消息')`）。
+**铁律重申**（本仓已有）：形态/缺席断言**只在剥注释后的代码上做**，且**先数标记名全仓出现次数**。
+
+**③ 想用某个 `sys.symbol.*` ⇒ 先去**符号字体**里查它存在与否，别猜名字（猜错 = 编译通过、运行时空白）。**
+`sys.symbol.*` 的真源 = 系统/previewer 的符号字体
+`~/ohos-cli/command-line-tools/sdk/default/openharmony/previewer/common/bin/fonts/HMSymbolVF.ttf`
+（**字形名 = 符号名**）。本机**没有 fontTools** ⇒ 手解 `post` 表 v2.0 即可（约 25 行）：
+读表目录（`header 12B` + 每表 16B 记录）→ 找 `post` → `version==0x20000` → `numGlyphs`(off+32)
+→ `glyphNameIndex[numGlyphs]`(off+34 起) → 之后是 Pascal 串表；`index<258` 是标准 Mac 名，否则
+`names[index-258]`。本批实测：字体共 **5563** 字形，chevron 家族只有
+`chevron_up/down/left/right/left_2/up_2/down_2_circle/compact_up/compact_down…`
+⇒ ⛔ **没有** `chevrons_up_down`/`chevrons_down_up` 这类**双箭头单字形**。
+⇒ 需要 web `ChevronsUpDown`/`ChevronsDownUp`（"全部展开/折叠"）的语义时，用**两个已存在符号叠成**
+`Column({ space: SPACE_HAIR }) { chevron_up; chevron_down }`（⇕）与 `{ chevron_down; chevron_up }`（⇵）。
+**为什么必须换掉单箭头**：同排渠道筛选的**下拉触发器**用的就是 `chevron_down` ⇒ 单箭头折叠键与它
+**同形**（都读作"下拉"）⇒ 真机上会被当成"第二个筛选下拉"（歧义），web 权威也是双箭头。
+
+**④ `hit_target_gate` 的 `PENDING_SPEC` 现为 `[]` ⇒ `pages/Index.ets` 也**在管**（页面上"显式 <44 尺寸 +
+可点"直接红；`responseRegion` **不算补偿**）。**推论：44vp 的可点行（如抽屉分组头）**不许压小** ——
+想让"组头 → 本组首行"的视觉空带变小，只能改**对齐**：把 44 盒里的内容 `Center` 改 `Bottom`
+⇒ 空带从"组头下方"挪到"组的**上方**"（正好成为组间分隔）。真机量测：127px(≈37.5vp) → 21vp。
+
+**⑤ 列表行高预算**：行高 = 尾部动作键的 **44vp 真实热区盒** + 上下内边距。用 `INSET_ROW_Y`(8) ⇒ 60vp
+（比 Apple 44pt 单行列表高 **39%**）；收紧到 `SPACE_XXS`(4) ⇒ **52vp**（同屏多 ~15% 行）。⛔ 别动
+`INSET_ROW_Y` 令牌值本身（被 `sheets2_visual`/`hittarget_audit` pin 住）—— 改**这一处的用法**即可。

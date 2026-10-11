@@ -133,5 +133,35 @@ hasNot(indexSrc, 'chfilter-', '⛔ 旧渠道 chips 行已删（两条并列筛�
 has(indexSrc, 'this.activeChannel.length === 0 ? \'surface.pillSelected\' : \'surface.chip\'',
   '触发器保留「选中全部 = 凹槽面」的既有面口径（⛔ 未新造面名）');
 
+// ── 靶子4d：分组头节奏 · 行密度 · 搜索框（2026-10-12 目标③ 第三批）─────────────────
+// ① 分组头**底对齐**：44vp 可点盒（硬约束，`hit_target_gate` 的 PENDING_SPEC 已清空 ⇒ 页面也在管）
+//    装 ~12vp 文字，**居中**会在组头**下方**也留 ~13vp ⇒ 真机量测「组头文字 → 本组首行文字」
+//    = 127px ≈ **37.5vp** 的空带（看起来像布局断了）。底对齐把这半边空气挪到**组的上方**
+//    （= 组与组之间的分隔，正是需要的）⇒ 组头紧贴本组首个会话行（21vp）。
+const grpRow: string = between(indexSrc, 'Text(`${g.items.length}`)', 'this.toggleGroup(');
+ok('分组头行块可定位（零扫描判红）', grpRow.length > 40);
+has(grpRow, '.alignItems(VerticalAlign.Bottom)', '分组头内容底对齐（空气归组间、组头紧贴本组行）');
+hasNot(grpRow, '.alignItems(VerticalAlign.Center)', '⛔ 分组头不再垂直居中（空带会留在组头下方）');
+
+// ② 会话行密度：行高 = 尾部 `⋯` 的 44vp 真实热区盒 + 上下 `SPACE_XXS`(4) ⇒ **52vp**。
+//    原用 `INSET_ROW_Y`(8) ⇒ 60vp（比 Apple 44pt 单行列表高 39%）。判据钉**精确内边距串**。
+has(indexSrc, '.padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XXS, bottom: SPACE_XXS })',
+  '会话行垂直内边距走 SPACE_XXS ⇒ 行高 52vp（贴 iOS 列表节奏）');
+
+// ③ 搜索框：行内**放大镜**（提示"这是搜索"）+ **条件清空键**（Apple `UISearchBar` 的 clear 同为
+//    条件出现）。清空键必须是**真实 44 布局盒**（⛔ `responseRegion` 外扩真机已证无效）+ 有 a11y 文案。
+//    ⚠️ 区间限定：`xmark_circle_fill` 在页面另有一处用途 ⇒ 不许用全局 `has`（会假绿）。
+//    ⚠️ 区间起点取 `if (this.sessQuery.length > 0) {`（= **注释之后**）：若起点取 TextInput，会把我写在
+//    清空键上方的注释（里面**就写着** `responseRegion` 字样）卷进区间 ⇒ `hasNot` **假红**
+//    （本仓既有教训：形态/缺席断言必须只在**剥注释后的代码**上做）。
+const sbox: string = between(indexSrc, 'if (this.sessQuery.length > 0) {', '搜消息');
+ok('搜索框清空键块可定位（零扫描判红）', sbox.length > 100);
+has(between(indexSrc, 'SymbolGlyph($r(\'sys.symbol.magnifyingglass\'))', '搜消息'),
+  "TextInput({ placeholder: '筛选会话…'", '放大镜在搜索框**之前**（同块内、视觉上"在框里"）');
+has(sbox, 'sys.symbol.xmark_circle_fill', '非空时出现清空键（条件渲染）');
+has(sbox, 'HIT_TARGET_MIN', '清空键是真实 ≥44 布局盒（⛔ 不用 responseRegion 外扩）');
+has(sbox, "accessibilityText('清空筛选')", '清空键有 a11y 文案（图标-only 控件的既有约定）');
+hasNot(sbox, 'responseRegion', '⛔ 清空键不靠 responseRegion 外扩热区（真机无效）');
+
 console.log(`  status_sheet_drawer: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

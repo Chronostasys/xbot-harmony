@@ -32,7 +32,7 @@ import { EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_BOOT_WORDMARK, F
 // 抽屉重排：尺度/层级/材质一律走语义令牌层（⛔ 不新增字面量；`surfaceFillOf`/`hairlineOf`/
 // `typeOf` 是唯一出口）。色值一律经 `this.pal()`（`surfaceFillOf` 的 role 是**带点**的语义面名）。
 import {
-  GAP_BLOCK, HIT_TARGET_MIN, ICON_MD, INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X, INSET_ROW_Y,
+  GAP_BLOCK, HIT_TARGET_MIN, ICON_MD, ICON_SM, INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X,
   PRESS_OPACITY, PRESS_SCALE, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, RADIUS_SHEET, SPACE_HAIR, SPACE_LG, SPACE_MD,
   SPACE_SM, SPACE_XL, SPACE_XS, SPACE_XXL, SPACE_XXS, STROKE_HAIRLINE, colorOf, hairlineOf,
   insetHairlineOf, surfaceFillOf, typeOf,
@@ -6491,7 +6491,7 @@ struct Index {
   PanelsSheet() {
     Column({ space: 8 }) {
       Row() {
-        Text('面板').fontSize(typeOf('type.headline').size).fontWeight(typeOf('type.headline').weight).fontColor(this.pal().textPrimary).layoutWeight(1)
+        Text('运行面板').fontSize(typeOf('type.headline').size).fontWeight(typeOf('type.headline').weight).fontColor(this.pal().textPrimary).layoutWeight(1)
         if (this.panelBusy) {
           LoadingProgress().width(16).height(16).color(this.pal().accent)
         }
@@ -6919,18 +6919,45 @@ struct Index {
 
       // ── 搜索：本地筛选（即时）+ 「搜索本会话消息」（服务端 /api/search）──────
       // 输入面 = 浮层内的行面（`surface.overlayRow`）；命中区 44。
+      // 2026-10-12（对标 Apple 搜索框）：原裸 `TextInput` 无任何提示"这是搜索"⇒ 加**行内放大镜**
+      // （`magnifyingglass`）+ **清空键**（`xmark_circle_fill`，仅非空时出现；Apple `UISearchBar`
+      // 的 clear 同为条件出现）。容器改成 `Row` 承载图标 ⇒ `TextInput` 自身透明、去内边距。
       Row({ space: SPACE_XS }) {
-        TextInput({ placeholder: '筛选会话…', text: this.sessQuery })
-          .onChange((v: string) => {
-            this.sessQuery = v;
-          })
-          .layoutWeight(1)
-          .constraintSize({ minHeight: HIT_TARGET_MIN })
-          .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlayRow'))
-          .fontColor(this.pal().textPrimary)
-          .fontSize(typeOf('type.subhead').size)
-          .borderRadius(RADIUS_CARD)
-          .padding({ left: SPACE_SM, right: SPACE_SM })
+        // 输入面（**内层容器**）：承载放大镜 + 透明 `TextInput`（+ 条件清空键）⇒ 图标真正"在框里"。
+        Row({ space: SPACE_XS }) {
+          SymbolGlyph($r('sys.symbol.magnifyingglass'))
+            .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
+            .margin({ left: SPACE_SM })
+          TextInput({ placeholder: '筛选会话…', text: this.sessQuery })
+            .onChange((v: string) => {
+              this.sessQuery = v;
+            })
+            .layoutWeight(1)
+            .backgroundColor(this.pal().transparent)
+            .fontColor(this.pal().textPrimary)
+            .fontSize(typeOf('type.subhead').size)
+            .padding({ left: 0, right: 0 })
+          // 清空键：仅非空时渲染（零噪音）；**真实 44×44 布局盒**（⛔ 不用 responseRegion 外扩）。
+          if (this.sessQuery.length > 0) {
+            Row() {
+              SymbolGlyph($r('sys.symbol.xmark_circle_fill'))
+                .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
+            }
+            .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+            .justifyContent(FlexAlign.Center)
+            .alignItems(VerticalAlign.Center)
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+            .accessibilityText('清空筛选')
+            .onClick(() => {
+              this.sessQuery = '';
+            })
+          }
+        }
+        .layoutWeight(1)
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlayRow'))
+        .borderRadius(RADIUS_CARD)
+        .alignItems(VerticalAlign.Center)
         Row() {
           if (this.searchBusy) {
             LoadingProgress().width(SPACE_MD).height(SPACE_MD).color(this.pal().accent)
@@ -7001,15 +7028,26 @@ struct Index {
         if (this.collapseAllPlanNow().visible) {
           Row() {
             if (this.collapseAllPlanNow().allCollapsed) {
-              // 全部已折叠 ⇒ 该按钮的动作为「全部展开」（web `ChevronsUpDown`）。
-              SymbolGlyph($r('sys.symbol.chevron_up'))
-                .fontSize(typeOf('type.subhead').size)
-                .fontColor([colorOf(this.pal(), 'iconMuted')])
+              // 全部已折叠 ⇒ 动作为「全部展开」= web `ChevronsUpDown`（⇕，两箭头**朝外**）。
+              // ⚠️ 2026-10-12 修正（本行原为**单个** `chevron_up`）：与同排渠道触发器上的
+              //    `chevron_down` **同形**（都读作"下拉"）⇒ 歧义（用户以为这是第二个筛选下拉）。
+              //    ⛔ HarmonyOS 符号字体**没有** `chevrons_up_down` 单字形 —— 已用最小 `post`
+              //    表解析器枚举 `previewer/.../fonts/HMSymbolVF.ttf`（5563 字形）确认；
+              //    ⇒ 用两个**已存在**的符号叠成 ⇕/⇵，语义与 web 逐字同构。
+              Column({ space: SPACE_HAIR }) {
+                SymbolGlyph($r('sys.symbol.chevron_up'))
+                  .fontSize(ICON_SM).fontColor([colorOf(this.pal(), 'iconMuted')])
+                SymbolGlyph($r('sys.symbol.chevron_down'))
+                  .fontSize(ICON_SM).fontColor([colorOf(this.pal(), 'iconMuted')])
+              }
             } else {
-              // 否则动作为「全部折叠」（web `ChevronsDownUp`）。
-              SymbolGlyph($r('sys.symbol.chevron_down'))
-                .fontSize(typeOf('type.subhead').size)
-                .fontColor([colorOf(this.pal(), 'iconMuted')])
+              // 否则动作为「全部折叠」= web `ChevronsDownUp`（⇵，两箭头**朝内**）。
+              Column({ space: SPACE_HAIR }) {
+                SymbolGlyph($r('sys.symbol.chevron_down'))
+                  .fontSize(ICON_SM).fontColor([colorOf(this.pal(), 'iconMuted')])
+                SymbolGlyph($r('sys.symbol.chevron_up'))
+                  .fontSize(ICON_SM).fontColor([colorOf(this.pal(), 'iconMuted')])
+              }
             }
           }
           // ⛔ 真机实测：`responseRegion` 负偏移外扩**无效** ⇒ 热区靠**真实 ≥44 布局盒**。
@@ -7137,7 +7175,12 @@ struct Index {
               }
               .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
               .padding({ left: SPACE_XXS, right: SPACE_XXS })
-              .alignItems(VerticalAlign.Center)
+              // ⚠️ **底对齐**（2026-10-12，原为 `Center`）：组头是**可点行**（≥44 热区是硬约束，
+              //    `hit_target_gate` 的 `PENDING_SPEC` 已清空 ⇒ `pages/Index.ets` 也在管），
+              //    44 盒装 12vp 文字时**居中**会在组头**下方**也留 ~13vp ⇒ 真机量测"组头文字→本组首行
+              //    文字"= **127px ≈ 37.5vp** 的空带（看起来像布局断了）。底对齐把这半边空气挪到
+              //    **组的上方**（= 组与组之间的分隔，正是需要的），组头紧贴本组行 ⇒ 21vp。
+              .alignItems(VerticalAlign.Bottom)
               .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
                 this.toggleGroup(this.sessionCategory(), g.key);
@@ -7243,7 +7286,11 @@ struct Index {
                       }
                     }
                     .width('100%')
-                    .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+                    // 行高预算（2026-10-12）：行体内容 = 尾部 `⋯` 的 **44vp 真实热区盒**
+                    // （⛔ 不可小于 `HIT_TARGET_MIN`，`responseRegion` 外扩真机无效），上下再各加
+                    // `SPACE_XXS`(4) ⇒ 行高 **52vp**。原用 `INSET_ROW_Y`(8) ⇒ 60vp，比 Apple 44pt
+                    // 单行列表高 39%；收紧后同屏多约 15% 行数，更贴 iOS 列表节奏（真机量测过）。
+                    .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XXS, bottom: SPACE_XXS })
                     .backgroundColor(s.chat_id === this.currentChat
                       ? surfaceFillOf(this.pal(), 'surface.overlayRowHover')
                       : this.pal().transparent)
@@ -7274,6 +7321,9 @@ struct Index {
       Column() {
         Divider().strokeWidth(STROKE_HAIRLINE).color(hairlineOf(this.pal())).margin({ top: SPACE_SM })
         Row() {
+          SymbolGlyph($r('sys.symbol.gearshape'))
+            .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
+            .margin({ right: SPACE_SM })
           Text('设置')
             .fontSize(typeOf('type.subhead').size).fontColor(this.pal().textPrimary).layoutWeight(1)
           SymbolGlyph($r('sys.symbol.chevron_right'))
@@ -7289,7 +7339,12 @@ struct Index {
         })
         Divider().strokeWidth(STROKE_HAIRLINE).color(hairlineOf(this.pal())).margin({ left: INSET_ROW_X, right: INSET_ROW_X })
         Row() {
-          Text('面板（任务 / 子代理 / Runner）')
+          SymbolGlyph($r('sys.symbol.list_bullet'))
+            .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
+            .margin({ right: SPACE_SM })
+          // 文案技术化（2026-10-12）：原 `面板（任务 / 子代理 / Runner）` 是**内部术语堆叠**
+          // 且漏了「定时任务」这一档；改**动词短语 + 单名**，全量枚举移入 a11y 文案。
+          Text('运行面板')
             .fontSize(typeOf('type.subhead').size).fontColor(this.pal().textPrimary).layoutWeight(1)
           SymbolGlyph($r('sys.symbol.chevron_right'))
             .fontSize(typeOf('type.caption').size).fontColor([colorOf(this.pal(), 'iconMuted')])
@@ -7297,13 +7352,17 @@ struct Index {
         .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
         .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
         .alignItems(VerticalAlign.Center)
+        .accessibilityText('运行面板：定时任务、后台任务、子代理、Runner')
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
           this.openPanels();
         })
         Divider().strokeWidth(STROKE_HAIRLINE).color(hairlineOf(this.pal())).margin({ left: INSET_ROW_X, right: INSET_ROW_X })
         Row() {
-          Text('能力面板（插件 / Web UI）')
+          SymbolGlyph($r('sys.symbol.puzzle'))
+            .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
+            .margin({ right: SPACE_SM })
+          Text('插件与 Web UI')
             .fontSize(typeOf('type.subhead').size).fontColor(this.pal().textPrimary).layoutWeight(1)
           SymbolGlyph($r('sys.symbol.chevron_right'))
             .fontSize(typeOf('type.caption').size).fontColor([colorOf(this.pal(), 'iconMuted')])
@@ -7311,13 +7370,17 @@ struct Index {
         .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
         .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
         .alignItems(VerticalAlign.Center)
+        .accessibilityText('插件与 Web UI：插件目录、宿主页、完整 Web UI')
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
           // 能力面板（原生插件目录 + 宿主页 + 完整 Web UI）——此前**无任何 UI 入口**
           // （`showPlugins` 只被调试自检 `collectGeometry` 置位）⇒ 用户打不开；本行是唯一真入口。
           this.openPlugins();
         })
-        Divider().strokeWidth(STROKE_HAIRLINE).color(hairlineOf(this.pal())).margin({ left: INSET_ROW_X, right: INSET_ROW_X })
+        // 破坏性动作**独立成组**（Apple：不可逆动作与导航项之间留出视觉间隔）——
+        // 上边距把「插件与 Web UI」的尾部发丝与该分隔线拉开一个 `SPACE_MD` 的空带。
+        Divider().strokeWidth(STROKE_HAIRLINE).color(hairlineOf(this.pal()))
+          .margin({ top: SPACE_MD, left: INSET_ROW_X, right: INSET_ROW_X })
         Row() {
           Text('退出登录')
             .fontSize(typeOf('type.subhead').size).fontColor(this.pal().dangerText).layoutWeight(1)

@@ -1202,3 +1202,55 @@ session uses background highlight."*；`:332-347 relativeTime` 给出五档文�
 **未做（明确记账，下一批）**：③ footer 文案技术化（`面板（任务 / 子代理 / Runner）`）；
 ④ 分组头 44vp 偏高（它是可点行 ⇒ 受 `hit_target_gate` ≥44 约束，⛔ 不能简单压小）；
 ⑤ 行高 61vp 若嫌空旷需评估（`INSET_ROW_Y=8` 被 `hittarget_audit.test.ts:74` 与 `sheets2_visual.test.ts:143` pin 住，改要先同步判据）。
+
+### 21.14 目标③（侧栏重设计 · 第三批）：footer 去术语 · 分组头节奏 · 行密度 · 搜索框观感（2026-10-12）
+
+**① footer 文案技术化 + 层级**（原：`设置` / `面板（任务 / 子代理 / Runner）` / `能力面板（插件 / Web UI）` / `退出登录`）
+- 括号里那串是**内部术语堆叠**，且 `面板（任务 / 子代理 / Runner）` 还**漏了「定时任务」**这一档（该面板有 4 个 tab）。
+- 改：**行首图标 + 单名短语**（对齐 Apple 设置列表的"图标 + 标签"节奏），全量枚举移入 **a11y 文案**：
+  `⚙ 设置` / `☰ 运行面板`（a11y：运行面板：定时任务、后台任务、子代理、Runner）/ `🧩 插件与 Web UI`
+  （a11y：插件目录、宿主页、完整 Web UI）/ `退出登录`（红）。
+- **破坏性动作独立成组**：`退出登录` 上方加 `SPACE_MD` 空带（Apple：不可逆动作与导航项之间留视觉间隔）。
+- 同一出口名：面板浮层标题 `面板` → **`运行面板`**（与 footer 一致）。
+- 图标一律用**本仓已验证存在**的符号（`gearshape`/`list_bullet`/`puzzle`），色走 `colorOf(pal,'iconMuted')`。
+- 无判据钉 footer 文案 ⇒ 本批**未新增** footer 判据（形态风险低、文案常改）；⚠️ 后续若要钉，请钉"图标 + a11y 枚举"而非文案字面量。
+
+**② 分组头节奏（真机量测驱动）**：分组头是**可点行**（点=折叠该组）⇒ `hit_target_gate` 的
+`PENDING_SPEC` 已清空 ⇒ **页面上 ≥44vp 是硬约束、不能压小**。原 `alignItems(Center)` 让 44 盒里的
+12vp 文字上下各留 ~13vp ⇒ 实测「组头文字 → 本组首行文字」= **127px ≈ 37.5vp** 空带（看起来像布局断了）。
+改 **`VerticalAlign.Bottom`** ⇒ 空带挪到**组的上方**（成为组间分隔）⇒ **21vp**，组头紧贴本组行。
+
+**③ 会话行密度**：行高 = 尾部 `⋯` 的 44vp 真实热区盒 + 上下内边距。原 `INSET_ROW_Y`(8) ⇒ **60vp**
+（比 Apple 44pt 单行列表高 39%）⇒ 改 `SPACE_XXS`(4) ⇒ **52vp**（同屏多 ~15% 行）。
+⛔ `INSET_ROW_Y` 令牌值不动（被 `sheets2_visual.test.ts:143` / `hittarget_audit.test.ts:74` pin）；
+`pages/Index.ets` 里该令牌已**无其它用法** ⇒ 从导入移除。
+
+**④ 搜索框（对标 `UISearchBar`）**：原裸 `TextInput` 无任何"这是搜索"的提示 ⇒
+外层行内嵌**容器 Row**：`magnifyingglass`（行内、`iconMuted`）+ 透明 `TextInput` + **条件清空键**
+（`xmark_circle_fill`，仅非空时渲染；真实 **44×44** 盒 + `accessibilityText('清空筛选')`）。
+真机验证：输入 `harmony` ⇒ 清空键出现且列表即时过滤 ✓（`dumpLayout` 里 `TextInput` 的文本节点
+= `[155,367]-[916,502]`）。
+
+**⑤ 折叠键改双箭头（歧义修复，非风格）**：B-2c 我用**单个** `chevron_up`/`chevron_down`，而**同一排**
+渠道筛选的**下拉触发器**用的也是 `chevron_down` ⇒ 两个同形"下拉"并排 ⇒ 用户会以为这是第二个筛选下拉。
+web 权威（`SessionViewBar.tsx:66-78`）= `ChevronsUpDown`（⇕，全部展开）/ `ChevronsDownUp`（⇵，全部折叠）。
+⛔ HarmonyOS 符号字体**无双箭头单字形**（已枚举 `HMSymbolVF.ttf` 5563 字形确认，方法见
+`ARKTS-GOTCHAS.md` 批次 44③）⇒ 用 `Column({ space: SPACE_HAIR })` **叠两个已存在符号**成 ⇕/⇵，
+语义与 web 逐字同构。
+
+**判据（判别力已自证）**：
+- `tools/tests/collapse_all_wiring.test.ts` 新增 **(B2d)**：折叠键区间内 `chevron_up`/`chevron_down`
+  **各 ≥2**（双箭头组合）+ 由 `Column(` 叠成。自证：把展开支回退成单箭头 ⇒ `chevron_down` 计数 2→1 ⇒ **红**。
+- `tools/tests/status_sheet_drawer.test.ts` 新增 **靶子4d**：分组头底对齐（区间内 `Bottom` 在、`Center` 不在）·
+  会话行**精确内边距串** `top: SPACE_XXS, bottom: SPACE_XXS` · 搜索框放大镜在 TextInput **之前** ·
+  清空键三连（`xmark_circle_fill` + `HIT_TARGET_MIN` + a11y 文案 + 无 `responseRegion`）。
+  自证：回退 `Center`/`INSET_ROW_Y` ⇒ 三条中两条 **红**。
+  ⚠️ 两处**假红/假绿**已修：区间起点原用 `TextInput` 会把我**自己的注释**（含 `responseRegion` 字样）
+  卷进来 ⇒ 真源假红；`xmark_circle_fill` 页面另有用途 ⇒ 必须限定区间（详见 `ARKTS-GOTCHAS.md` 批次 44②）。
+
+**自证**：`status_sheet_drawer` 34/0 · `collapse_all_wiring` 48/0 · 全量 `✅ 纯逻辑测试通过` ·
+**`bash tools/gate.sh` 全绿（9 步，含 ArkTS 编译）** · 真机截图 4 张逐项确认（footer 图标/分组空带/行密度/放大镜+清空键）。
+
+**未做（明确记账，下一批）**：⑥ `搜消息` 的 affordance（现为独立 `accentSoft` 文字按钮，与"本地筛选"
+语义不同 ⇒ 考虑改成带边框的次级按钮或图标+文字）；⑦ 新建会话弹层观感；⑧ 其它面板（设置/队列/能力面板）
+的排版与 footer 同源清理；⑨ 会话行 `⋯` 菜单的层级与图标（现为文字列表）。

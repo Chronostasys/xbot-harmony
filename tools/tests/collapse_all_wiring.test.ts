@@ -152,6 +152,20 @@ has(pageSrc, 'if (this.collapseAllPlanNow().visible) {', '② 按钮可见性走
 has(pageSrc, 'if (this.collapseAllPlanNow().allCollapsed) {', '② 图标分支走 plan.allCollapsed');
 has(btnSrc, 'sys.symbol.chevron_up', '② 「全部展开」分支用系统符号（同 chevron 族）');
 has(btnSrc, 'sys.symbol.chevron_down', '② 「全部折叠」分支用系统符号（同 chevron 族）');
+// (B2d) ⚠️ 2026-10-12 修正：图标必须是**双箭头组合**（⇕ 展开 / ⇵ 折叠），⛔ 不能退回**单个** chevron。
+//   原因（真机观察 + 同排对比）：工具栏里渠道筛选的**下拉触发器**用的就是 `chevron_down`，若折叠键也用
+//   单个 chevron ⇒ 同一排出现**两个同形"下拉"** ⇒ 用户以为这是第二个筛选下拉（歧义）。
+//   ⛔ HarmonyOS 符号字体**没有** `chevrons_up_down` 这类双箭头**单字形** —— 已用最小 `post` 表解析器
+//   枚举 `previewer/common/bin/fonts/HMSymbolVF.ttf`（5563 字形）确认；⇒ 用两个**已存在**的符号叠成
+//   ⇕/⇵，语义与 web `SessionViewBar.tsx` 的 `ChevronsUpDown`/`ChevronsDownUp` 逐字同构。
+//   判据钉**计数**：两个分支各含 up+down ⇒ 总数各 ≥2；若退回单箭头 ⇒ 各 1 ⇒ 红。
+const countOf = (s: string, n: string): number => s.split(n).length - 1;
+{
+  const up: number = countOf(btnSrc, 'sys.symbol.chevron_up');
+  const dn: number = countOf(btnSrc, 'sys.symbol.chevron_down');
+  ok(`② 图标是双箭头组合（chevron_up ×${up}、chevron_down ×${dn}，各 ≥2）`, up >= 2 && dn >= 2);
+  ok('② 双箭头由 `Column` 叠成（⛔ 不是单 SymbolGlyph 单字形）', btnSrc.indexOf('Column(') >= 0);
+}
 // 点击链：`.onClick(() => { this.applyCollapseAll(); })`
 has(btnSrc, '.onClick(', '② 按钮有点击处理器');
 has(btnSrc, 'this.applyCollapseAll();', '② 点击链到 applyCollapseAll');
