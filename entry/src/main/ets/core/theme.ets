@@ -177,6 +177,36 @@ export function lightPalette(): Palette {
 }
 
 /**
+ * ── 霓虹深色系的 `accentDeep`：`#04473a`(aurora) / `#4a1998`(nebula)（2026-10-11 波 C）──────
+ * 背景：这两套的 `accentDeep` 原是"accent 压暗一档"（aurora `#0f8b73` L=0.198 /
+ * nebula `#6d28d9` L=0.098），却被当**徽标/标签底**承载三处**真实**生产文字：
+ *   · `textPrimary` —— `pages/Index.ets`「回到最新」pill（12fp，阈值 4.5）
+ *   · `accentText`  —— `components/SettingsRows.ets`「默认」徽标 + `components/ToolPopover.ets` hunk 标记（阈值 4.5）
+ *   · `textMuted`   —— `components/ToolPopover.ets` hunk 尾注（10fp，阈值 2.0）
+ * 现值实测：aurora `textMuted` **1.07** / `accentText` 3.09 / `textPrimary` 3.33；
+ *           nebula `textMuted` **1.77** / `accentText` 3.85 —— 三处都读不出来（对比度台账根因 C）。
+ *
+ * 取值口径（**两条约束一起解**，与 porcelain.textMuted 那次同法；阈值一个都没放宽）：
+ *  · 约束 ①（不许更亮 = 可读性）：三条真实落点全部达标，且**最紧的一条**要留出与门禁 §F2 同
+ *    刻度的**绝对余量 0.15** ⇒ 最紧 = `textMuted ≥ 2.15` ⇒ 亮度上界 `L ≤ 0.0740`(aurora) / `0.0718`(nebula)。
+ *  · 约束 ②（不许更暗 = 填充仍可辨）：`accentDeep` 是**填充**，压过头会从卡片上消失。地板取
+ *    **dark 主题已批准的徽标底**（`#2A1F5C` 压 dark.surfaceAlt `#14141C` = **1.2638**，WCAG 对比度）
+ *    —— "不差于已批准观感"，不是新造尺度 ⇒ 亮度下界 `L ≥ 0.0284`(aurora) / `0.0229`(nebula)。
+ *  · 窗口 = aurora `[0.0284, 0.0740]` / nebula `[0.0229, 0.0718]`；取**余量归一化最优的中点**：
+ *      aurora `#04473a`（L=0.0484）：`textMuted` 2.710(+25%)、`accentText` 7.795、`textPrimary` 8.400、
+ *                                    对 `surfaceAlt` 1.5817 / 对 `surface` 1.7263（均 ≥ 地板 1.2638）
+ *      nebula `#4a1998`（L=0.0442）：`textMuted` 2.782(+29%)、`accentText` 6.039、`textPrimary` 9.082、
+ *                                    对 `surfaceAlt` 1.6333 / 对 `surface` 1.7401
+ *  ⚠️ 色相**不变**：取值 = 把原值在线性空间整体压深到目标亮度（三通道同比 ⇒ 保色相）。
+ *  ⛔ 唯一改不掉的：`onAccent|accentDeep`（`#04150f`/`#150a2b` 是**深色字**，角色定义是"压在**实心**
+ *    accent 上"）——它要 `accentDeep` **够亮**（L ≥ 0.20）才达标，与约束 ①**直接冲突** ⇒ **窗口为空，
+ *    压暗无解**。该组合当前**无生产调用点**（唯一曾用它的一处已改用 `accentText`，见 `Index.ets`
+ *    选中会话标签），台账保留当**回归护栏**；真要修在**消费者侧**（别把 `onAccent` 压在 accentDeep 上）。
+ *  ⚠️ 本改动是**叶子**：`accentDeep` 不喂 `Effects`/`Surfaces`/`hairline`/`sunken` 任何派生
+ *    ⇒ 这两套主题其余 27 个角色**逐字节不变**（门禁 §H4 逐值断言）。
+ */
+
+/**
  * 极光（xbot-aurora）：极夜底 + 青绿主色。
  * 关键色值**逐字**采用 `.research/design-system.md` 的 xbot-aurora 表（源表为小写 hex，故此处保持小写）。
  * 映射：bg-primary→appBg · bg-secondary→surface · bg-tertiary→surfaceAlt ·
@@ -197,7 +227,7 @@ export function auroraPalette(): Palette {
   p.accentHover = '#45e2c4';  // --accent-hover
   p.accentSoft = '#63e6c8';   // --md-link
   p.accentSoftFade = '#0063e6c8'; // accentSoft 的全透明版（流光两端）
-  p.accentDeep = '#0f8b73';   // 派生（accent 压暗，徽标底）
+  p.accentDeep = '#04473a';   // 派生（accent 压暗到可读 —— 取值口径见上方「霓虹深色系的 accentDeep」）
   p.accentText = '#7ff0d6';   // 派生（accent 提亮文字）
   p.onAccent = '#04150f';     // --accent-fg
   p.bubbleUser = '#1f9e88';   // 派生（accent 系的用户气泡底）
@@ -236,7 +266,7 @@ export function nebulaPalette(): Palette {
   p.accentHover = '#b9a1ff';  // --accent-hover
   p.accentSoft = '#d68bff';   // --md-link
   p.accentSoftFade = '#00d68bff'; // accentSoft 的全透明版
-  p.accentDeep = '#6d28d9';   // 派生（accent 压暗）
+  p.accentDeep = '#4a1998';   // 派生（accent 压暗到可读 —— 取值口径见 aurora 上方同节）
   p.accentText = '#c4b5fd';   // 派生（accent 提亮文字）
   p.onAccent = '#150a2b';     // --accent-fg
   p.bubbleUser = '#8b5cf6';   // 派生（accent 系的用户气泡底）

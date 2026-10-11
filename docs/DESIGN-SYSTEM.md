@@ -373,3 +373,62 @@ web 浅色 `src/index.css:160 --border: #e0e0e0` 压在 `:153 --bg-primary: #fff
    `.backgroundColor(` / `.border(` / `.shadow(` / `.blur(` / `isLightPalette` / `animateTo(` / `setInterval(`；
    基类成员名黑名单逐名校验。
 
+## 11. 霓虹深色系的 `accentDeep` 与「主按钮白字」取证（波 C/D，2026-10-11）
+
+> 来源：`tools/tests/theme_contrast.test.ts` 的**对比度台账**（根因 C / 根因 D）。
+> 本波把 aurora/nebula 的 `accentDeep` 压暗到可读（消 5 条台账）；主按钮（根因 D）经取证后
+> **本波不改**（理由见 §11.3）。门禁：同一文件新增 **§G**（取值守护 + D 取证守卫，已回退证红）。
+
+### 11.1 为什么要改：`accentDeep` 是**填充**，上面压着**真实**生产文字
+
+`accentDeep`（"强调色的深色形态"，徽标/标签底）在霓虹深色主题里承载三处**有据可查**的落点：
+
+| 落点 | 前景（阈值） | 旧实测 aurora | 旧实测 nebula |
+|---|---|---|---|
+| `pages/Index.ets`「回到最新」pill（12fp） | `textPrimary`（4.5） | **3.33** ✗ | 5.79 ✓ |
+| `SettingsRows.ets`「默认」徽标 / `ToolPopover.ets` hunk 标记 | `accentText`（4.5） | **3.09** ✗ | **3.85** ✗ |
+| `ToolPopover.ets` hunk 尾注（10fp） | `textMuted`（2.0） | **1.07** ✗ | **1.77** ✗ |
+
+### 11.2 取值口径（两条约束一起解，阈值一个都没放宽）
+
+| 约束 | 内容 | aurora | nebula |
+|---|---|---|---|
+| ① 可读性（不许更亮） | 三条落点全达标，**最紧的一条**留绝对余量 0.15（与门禁 §F2 同刻度）⇒ `textMuted ≥ 2.15` | 亮度上界 `L ≤ 0.0740` | `L ≤ 0.0718` |
+| ② 填充仍可辨（不许更暗） | 地板 = **dark 已批准徽标底** `#2A1F5C` 压 `#14141C` = **1.2638**（WCAG） | 亮度下界 `L ≥ 0.0284` | `L ≥ 0.0229` |
+| 取值 | 窗口内**余量归一化最优的中点** | **`#04473a`**（L=0.0484） | **`#4a1998`**（L=0.0442） |
+
+| 主题 | 新 `accentDeep` | `textMuted` | `accentText` | `textPrimary` | 对 `surface` / `surfaceAlt` |
+|---|---|---|---|---|---|
+| aurora | `#04473a`（旧 `#0f8b73`） | 1.07 → **2.71** | 3.09 → **7.80** | 3.33 → **8.40** | 1.726 / 1.582 |
+| nebula | `#4a1998`（旧 `#6d28d9`） | 1.77 → **2.78** | 3.85 → **6.04** | 5.79 → **9.08** | 1.740 / 1.633 |
+
+色相不变（= 原值在线性空间**同比压深**）；`accentDeep` 是**叶子**（不喂 `Effects`/`Surfaces`/`hairline`/
+`sunken` 任何派生）⇒ 两套主题**其余 28 个角色逐字节不变**（门禁 §G4）。台账 **14 → 9 项**
+（消 5：aurora `accentText`/`textMuted`/`textPrimary` + nebula `accentText`/`textMuted`）。
+
+**残余（不是没修，是解不存在）**：`onAccent|accentDeep` —— aurora `#04150f` / nebula `#150a2b` 是
+**深色字**（角色定义 = "压在**实心** accent 上"），要求 `accentDeep` 够**亮**（L ≥ 0.20）；而浅色字要求
+它够**暗**（L ≤ 0.083）⇒ **亮度窗口无交集，压暗无解**。该组合当前**无生产调用点**（唯一曾用它的一处
+已改用 `accentText`），台账保留当**回归护栏**；真要修在**消费者侧**。
+
+### 11.3 主按钮「白字 `#FFFFFF` 叠 `#7C5CFF`」= 4.35:1 —— 取证结论：**本波不改**（且不放宽阈值）
+
+- **换算（不是机械按 4.5）**：主按钮 `Button('登录')`（`pages/Index.ets`）= `.fontSize(FS_TITLE)` = **16fp**
+  + `FontWeight.Medium` = **500**。WCAG 2.1 SC 1.4.3 的"大字"例外 = **≥18.66px 且 bold（≥700）**，
+  或 **≥24px 常规** ⇒ **16px + 500 两条都不满足 ⇒ 不是大字 ⇒ 阈值仍是 4.5** ⇒ 4.35 确实不达标
+  （用户把字号调到最大档 1.3 也只有 20.8px、且仍非 bold）。
+- ⇒ **台账条目保留**，且门禁 §G6 **断言它不许被删**（= 不许拿"大字"当借口放宽阈值）。
+- **为什么不动色**：唯一杠杆是品牌主色 `#7C5CFF`（`accent` 家族 / `accentDeep` / `glow` / `gradientFrom`
+  的派生源，且被 `tools/tests/theme.test.ts:30` 快照钉死）⇒ 改它 = 改品牌，需用户拍板；
+  且主按钮**真实底色是渐变**（`accent → accentSoft`），最亮端 `#B9A7FF` 上白字只有 **2.09:1**
+  —— 比 4.35 更差、连"大字"的 3:1 都过不了 ⇒ **"把 accent 压暗 3%"治不了根**。
+- **移交**：需要一次设计决策（改品牌主色 / 改 CTA 渐变的端色或字色 / 把 `theme.test.ts` 纳入 pathspec）。
+
+### 11.4 纪律（违反即回归）
+
+1. aurora/nebula 的 `accentDeep` 对三条真实落点必须达标且留 0.15 余量（§G1），并**严格强于旧值**（§G3）。
+2. 徽标底必须仍可辨（对 `surface`/`surfaceAlt` ≥ 1.2638，且亮于该主题 `surfaceHi`）
+   —— ⛔ 不许为了可读性把它一路压到全黑（§G2 会红）。
+3. 两套主题**其余角色逐字节不变**（§G4）；`accentDeep` 若将来被接进任何派生，§G4 立刻红。
+4. `dark|onAccent|accent` 台账条目**不许删**（§G6）—— 删 = 放宽阈值。
+

@@ -34,7 +34,7 @@ declare const __dirname: string;
 
 import {
   Palette, Effects, Surfaces, ALL_THEMES, paletteOf, effectsOf, surfacesOf, surfacesComplete,
-  themeLabel, HAIRLINE_TARGET_RATIO,
+  themeLabel, HAIRLINE_TARGET_RATIO, paletteValues,
   contrastRatio, compositeOver, relativeLuminance, parseColorRgba,
 } from '../../entry/src/main/ets/core/theme';
 
@@ -281,17 +281,24 @@ const LEDGER: string[] = [
   // 最小改动建议：选中态文字改 `accentText`（该角色就是为"强调色浅底上的文字"定义的）。
   'light|onAccent|accentDeep',
   'porcelain|onAccent|accentDeep',
-  // ── 根因 C：`accentDeep` 当 hunk/徽标底时，与 accentText / textMuted / textPrimary 的组合
-  // 在**霓虹主题**不达标（accentDeep 是"主色压暗一档"，仍偏亮/偏灰）。
-  // 证据：ToolPopover.ets:345+354（accentText）、ToolPopover.ets:348+354（textMuted）、
-  //       Index.ets:2559+2561（textPrimary）、Index.ets:2687+2699（onAccent）。
-  // 最小改动建议：霓虹主题的 `accentDeep` 单独压暗（它现在是 accent 系派生，没跟底色一起校准）。
-  'aurora|accentText|accentDeep',
-  'aurora|textMuted|accentDeep',
-  'aurora|textPrimary|accentDeep',
+  // ── 根因 C（**部分已修**：2026-10-11 波 C，`accentDeep` 压暗）────────────────────────────
+  // 证据：ToolPopover.ets HunkRow（accentText + textMuted 同压 accentDeep）、
+  //       Index.ets 选中会话标签（accentText）/「回到最新」pill（textPrimary）。
+  // 已修：aurora `accentDeep` `#0f8b73`→`#04473a`、nebula `#6d28d9`→`#4a1998`
+  //      （取值口径 = 两条约束一起解，见 `core/theme.ets` 的「霓虹深色系的 accentDeep」注释）。
+  //      aurora 的 `accentText`(3.09→7.80) / `textMuted`(1.07→2.71) / `textPrimary`(3.33→8.40)、
+  //      nebula 的 `accentText`(3.85→6.04) / `textMuted`(1.77→2.78) ⇒ 全部达标。
+  // ⛔ 这 5 条**不许加回台账**：它们现在由门禁 §H1/H3 直接断言（比台账强 —— 台账只保证"不新增"，
+  //    §H 保证"确实达标、留有余量、且严格强于旧值"）。重新登记 = 承认重新引入可读性缺陷。
+  // ── 根因 C 的**残余**：`onAccent|accentDeep` —— 压暗**无解**（不是没修，是解不存在）──────
+  // `onAccent`（aurora `#04150f` / nebula `#150a2b`）是**深色字**（角色定义 = "压在**实心** accent 上"），
+  // 它要求 `accentDeep` **够亮**（L ≥ 0.20 才 4.5）；而 `accentText`/`textMuted` 这些**浅色字**
+  // 要求 `accentDeep` **够暗**（L ≤ 0.083）。两者的亮度窗口**无交集** ⇒ 任何单一 `accentDeep` 都
+  // 不可能同时满足 ⇒ 这是**语义误用**（把 onAccent 压在 accentDeep 上），只能改**消费者侧**。
+  // 事实：该组合当前**无生产调用点** —— 唯一曾用它的一处（Index.ets 选中会话标签）已改用 `accentText`
+  // （见该处注释「见对比度台账 B」）。保留判定 = **回归护栏**（若哪天有人再这么接，本台账会兜住）。
+  // ⚠️ 压暗后其数值进一步下降（4.43→1.76 / 2.66→1.70），但**无生产调用点 ⇒ 零像素影响**。
   'aurora|onAccent|accentDeep',
-  'nebula|accentText|accentDeep',
-  'nebula|textMuted|accentDeep',
   'nebula|onAccent|accentDeep',
   // ── 根因 D：dark 主题主按钮上的白字（#FFFFFF / #7C5CFF）只有 4.35，**略低于** AA 4.5 ────
   // 证据：Index.ets:2293/4674/5231。最小改动建议：accent 压暗一档（如 #6B4AE6）或按钮字色用 #F5F5FF。
@@ -647,7 +654,174 @@ eq('porcelain textSecondary 未动', POR.textSecondary, '#6E6E73');
 eq('porcelain foreground3 未动', POR.foreground3, '#C7C7CC');
 
 // ════════════════════════════════════════════════════════════════════════════
-// §G 报告（给设计决策看的真数据 —— 永远打印，不只在失败时）
+// §G 霓虹深色系 `accentDeep` 的取值守护（波 C：aurora #04473a / nebula #4a1998）
+//
+// 与 §F 同一纪律：一条改动被验收，必须同时钉住 ①「不许退回」②「不许以另一种塌陷为代价」。
+// 本波把 aurora/nebula 的 `accentDeep` 压暗，消掉 5 条台账（accentText / textMuted / textPrimary）；
+// 代价侧的冲突约束是「填充仍须可辨」—— 压过头徽标就从卡片上消失了（徽标底是**填充**）。
+// ⛔ 阈值一个都没放宽（T_BODY 仍 4.5、T_MUTED 仍 2.0）；下面全是**新增的更强断言**。
+// ════════════════════════════════════════════════════════════════════════════
+console.log('\n▶ §G 霓虹深色系 accentDeep（aurora #04473a / nebula #4a1998）');
+
+/** 改动前的旧值（用于"严格更强"证明，与 §E3 同法）。 */
+const NEON_DEEP: Record<string, string> = { aurora: '#0f8b73', nebula: '#6d28d9' };
+const NEON_THEMES: string[] = ['aurora', 'nebula'];
+/** `accentDeep` 上**有真实生产调用点**的三条前景（证据见 §C 根因 C 与 `FILL_PAIRS`）。 */
+const NEON_FG: Tier[] = [
+  { fg: 'accentText', tier: T_BODY },
+  { fg: 'textPrimary', tier: T_BODY },
+  { fg: 'textMuted', tier: T_MUTED },
+];
+
+// ── G0 扫描表（**冻结的取证快照**：本次实际评估过的候选值 × 5 个判定面）────────────────────
+// 选值口径 = 两条约束一起解、取余量归一化最优的中点（见 §G1/§G2 与 `core/theme.ets` 的注释）。
+const NEON_SCAN: Record<string, string[]> = {
+  aurora: ['#0f8b73', '#065848', '#065546', '#04473a', '#054F40', '#044C3E'],
+  nebula: ['#6d28d9', '#6022C1', '#5D21BB', '#4a1998', '#561EAE', '#531CA8'],
+};
+function gpad(s: string, n: number): string {
+  let o: string = s;
+  while (o.length < n) { o += ' '; }
+  return o;
+}
+console.log('   ' + gpad('候选 accentDeep', 17) + gpad('onAccent', 10) + gpad('accentText', 11)
+  + gpad('textPrimary', 12) + gpad('textMuted', 10) + gpad('vs surface', 11) + 'vs surfaceAlt');
+for (let ti = 0; ti < NEON_THEMES.length; ti++) {
+  const th: string = NEON_THEMES[ti];
+  const p: Palette = paletteOf(th);
+  console.log(`   ── ${th}（旧值 ${NEON_DEEP[th]}；选用 ${p.accentDeep}）──`);
+  const cands: string[] = NEON_SCAN[th];
+  for (let i = 0; i < cands.length; i++) {
+    const c: string = cands[i];
+    const mark: string = c === p.accentDeep ? '  ← 选用' : (c === NEON_DEEP[th] ? '  （原值）' : '');
+    console.log('   ' + gpad(c, 17) + gpad(contrastRatio(p.onAccent, c).toFixed(2), 10)
+      + gpad(contrastRatio(p.accentText, c).toFixed(2), 11) + gpad(contrastRatio(p.textPrimary, c).toFixed(2), 12)
+      + gpad(contrastRatio(p.textMuted, c).toFixed(3), 10) + gpad(contrastRatio(c, p.surface).toFixed(3), 11)
+      + contrastRatio(c, p.surfaceAlt).toFixed(3) + mark);
+  }
+}
+console.log('   （栏位 = 压在 accentDeep 上的 4 个前景 + 填充对卡面/次级面的可辨度；'
+  + '阈值：onAccent 4.5(护栏) · accentText 4.5 · textPrimary 4.5 · textMuted 2.0；填充地板 1.2638）');
+
+// ── G1 三条真实落点全部达标，且每一条都留出**绝对余量 0.15**（与 §F2 同刻度，不贴线）──────
+for (let ti = 0; ti < NEON_THEMES.length; ti++) {
+  const th: string = NEON_THEMES[ti];
+  const p: Palette = paletteOf(th);
+  for (let i = 0; i < NEON_FG.length; i++) {
+    const f: string = NEON_FG[i].fg;
+    const fgHex: string = roleHex(p, f);
+    const r: number = contrastRatio(fgHex, p.accentDeep);
+    const need: number = NEON_FG[i].tier + 0.15;
+    ok(`${th} ${f} 压 accentDeep 达标且留余量（${r.toFixed(3)} >= ${need.toFixed(2)}；`
+      + `${fgHex} on ${p.accentDeep}）`, r >= need);
+  }
+}
+
+// ── G2 填充仍可辨：地板 = **dark 主题已批准的徽标底**的可见度（不是新造尺度）──────────────
+// dark 的 `accentDeep #2A1F5C` 是既有的、用户验收过的"深色徽标底"⇒ 拿它对 dark.surfaceAlt 的
+// 实测可见度当地板（"不差于已批准观感"）。若无此下界，约束 ① 单边最优会一路压到全黑。
+const DARK_P: Palette = paletteOf('dark');
+const FILL_FLOOR: number = contrastRatio(DARK_P.accentDeep, DARK_P.surfaceAlt);
+eq('填充可辨地板 = dark 已批准徽标底（#2A1F5C 压 #14141C）', FILL_FLOOR.toFixed(4), '1.2638');
+for (let ti = 0; ti < NEON_THEMES.length; ti++) {
+  const th: string = NEON_THEMES[ti];
+  const p: Palette = paletteOf(th);
+  ok(`${th} 徽标底对 surface 仍可辨（${contrastRatio(p.accentDeep, p.surface).toFixed(4)} >= ${FILL_FLOOR.toFixed(4)}）`,
+    contrastRatio(p.accentDeep, p.surface) >= FILL_FLOOR);
+  ok(`${th} 徽标底对 surfaceAlt 仍可辨（${contrastRatio(p.accentDeep, p.surfaceAlt).toFixed(4)} >= ${FILL_FLOOR.toFixed(4)}）`,
+    contrastRatio(p.accentDeep, p.surfaceAlt) >= FILL_FLOOR);
+  ok(`${th} 徽标底仍比 surfaceHi 亮（层级不倒挂）`,
+    relativeLuminance(p.accentDeep) > relativeLuminance(p.surfaceHi));
+}
+
+// ── G3 严格强于旧值（证明"压暗"真的修了东西，不是空转）────────────────────────────────
+for (let ti = 0; ti < NEON_THEMES.length; ti++) {
+  const th: string = NEON_THEMES[ti];
+  const p: Palette = paletteOf(th);
+  const oldHex: string = NEON_DEEP[th];
+  for (let i = 0; i < NEON_FG.length; i++) {
+    const f: string = NEON_FG[i].fg;
+    const fgHex: string = roleHex(p, f);
+    ok(`${th} ${f} 对 accentDeep 严格强于旧值（${contrastRatio(fgHex, p.accentDeep).toFixed(3)}`
+      + ` > ${contrastRatio(fgHex, oldHex).toFixed(3)}；旧 ${oldHex}）`,
+      contrastRatio(fgHex, p.accentDeep) > contrastRatio(fgHex, oldHex));
+  }
+}
+
+// ── G4 零回归（Δ=0）：两套主题**其余 28 个角色逐字节不变** ────────────────────────────────
+// 为什么必须断言：本波唯一改动面是 `accentDeep`，而它是**叶子**（不喂 Effects/Surfaces/hairline/
+// sunken 任何派生）⇒ 其余角色必须逐字节相同。若哪天有人把 accentDeep 接进派生，本段立刻红。
+const NEON_OTHER: Record<string, string> = {
+  aurora: '#070c16,#0b1424,#111d31,#17253c,#d7e6f5,#9fb6cc,#6b8399,#47586b,'
+    + '#34d3b4,#45e2c4,#63e6c8,#0063e6c8,#7ff0d6,#04150f,#1f9e88,#1d2f47,#2b4368,'
+    + '#34d399,#a7f3d0,#fbbf24,#16233a,#7f1d1d,#f87171,#34d3b4,#fbbf24,#6b8399,#f87171,#00000000',
+  nebula: '#08060f,#0f0a1e,#171030,#221642,#ece4ff,#b9a8d9,#8577ad,#5b5077,'
+    + '#a78bfa,#b9a1ff,#d68bff,#00d68bff,#c4b5fd,#150a2b,#8b5cf6,#2c1f4d,#3f2d6b,'
+    + '#34d399,#a7f3d0,#fbbf24,#1a1029,#7f1d1d,#f87171,#a78bfa,#fbbf24,#8577ad,#f87171,#00000000',
+};
+for (let ti = 0; ti < NEON_THEMES.length; ti++) {
+  const th: string = NEON_THEMES[ti];
+  const vals: string[] = paletteValues(paletteOf(th));
+  eq(`${th} paletteValues 字段数 = 29`, vals.length, 29);
+  // `accentDeep` 在 `paletteValues()` 里的下标 = 12 ⇒ 剔除它，其余必须逐字节不变
+  const got: string[] = [];
+  for (let i = 0; i < vals.length; i++) { if (i !== 12) { got.push(vals[i]); } }
+  eq(`${th} 其余 ${got.length} 个角色逐字节不变（Δ=0）`, got.join(','), NEON_OTHER[th]);
+}
+// 浅色系与 dark 完全未动（本波不该碰）
+eq('dark accentDeep 未动', DARK_P.accentDeep, '#2A1F5C');
+eq('light accentDeep 未动', paletteOf('light').accentDeep, '#EDE9FE');
+eq('porcelain accentDeep 未动', paletteOf('porcelain').accentDeep, '#E8F1FD');
+
+// ── G5 新值快照 + 色相未变（取值 = 原值在线性空间同比压深 ⇒ 通道大小关系必须保持）──────────
+eq('aurora accentDeep = #04473a', paletteOf('aurora').accentDeep, '#04473a');
+eq('nebula accentDeep = #4a1998', paletteOf('nebula').accentDeep, '#4a1998');
+for (let ti = 0; ti < NEON_THEMES.length; ti++) {
+  const th: string = NEON_THEMES[ti];
+  const now: number[] = parseColorRgba(paletteOf(th).accentDeep);
+  const oldC: number[] = parseColorRgba(NEON_DEEP[th]);
+  let mono: boolean = true;
+  for (let c = 0; c < 3; c++) { if (now[c] > oldC[c]) { mono = false; } }
+  ok(`${th} 新值三通道均不高于旧值（只是压深，不是换色）`, mono);
+  ok(`${th} 新值保持旧值的通道大小关系（同色相族）`,
+    (now[0] > now[1]) === (oldC[0] > oldC[1]) && (now[1] > now[2]) === (oldC[1] > oldC[2])
+    && (now[0] > now[2]) === (oldC[0] > oldC[2]));
+}
+
+// ── G6 D 取证：dark 主按钮「白字 #FFFFFF 叠 #7C5CFF」为什么**本波不改**（且**不放宽阈值**）────
+// WCAG 2.1 SC 1.4.3 的"大字"例外 = **≥18.66px 且 bold(≥700)**，或 **≥24px 常规**。
+// 实测主按钮（`pages/Index.ets` 的 `Button('登录')`）= `.fontSize(FS_TITLE)`(=16) + `FontWeight.Medium`(=500)
+// ⇒ **不是大字**（16 < 18.66，且 500 ≠ bold）⇒ 阈值**仍是 4.5** ⇒ 4.35 确实不达标 ⇒ 台账条目**必须留**。
+// 为什么不动色：唯一杠杆是品牌主色 `#7C5CFF`（`accent` 家族 / `accentDeep` / `glow` / `gradient` 的
+// 派生源，且被 `theme.test.ts:30` 快照钉死）⇒ **超出本波范围**；且主按钮真实底色是**渐变**
+// （`accent → accentSoft`），最亮端 `#B9A7FF` 上白字仅 **2.09:1** ⇒ 单纯压暗 accent 治不了根。
+// ⇒ 结论：**保留台账 + 上报用户拍板**（要么放行改品牌主色，要么改 CTA 的渐变端色）。
+const idxSrc: string = fsMod.readFileSync(
+  pathMod.join(repoRoot, 'entry', 'src', 'main', 'ets', 'pages', 'Index.ets'), 'utf-8');
+const loginAt: number = idxSrc.indexOf("Button('登录')");
+ok('D 取证锚点：主按钮 Button(登录) 存在于 Index.ets', loginAt > 0);
+const loginBlock: string = loginAt > 0 ? idxSrc.slice(loginAt, loginAt + 800) : '';
+ok('主按钮字号取 token `FS_TITLE`（不是字面量）', loginBlock.indexOf('.fontSize(FS_TITLE)') >= 0);
+ok('主按钮字重 = `FontWeight.Medium`（500 ≠ bold ⇒ 不构成 WCAG 大字）',
+  loginBlock.indexOf('FontWeight.Medium') >= 0);
+const tokSrc: string = fsMod.readFileSync(
+  pathMod.join(repoRoot, 'entry', 'src', 'main', 'ets', 'core', 'tokens.ets'), 'utf-8');
+const tokM: RegExpMatchArray | null = tokSrc.match(/FS_TITLE:\s*number\s*=\s*(\d+)/);
+const fsTitle: number = tokM === null ? -1 : parseInt(tokM[1], 10);
+ok(`FS_TITLE = ${fsTitle} < 18.66（大字阈之一：≥18.66 且 bold）`, fsTitle > 0 && fsTitle < 18.66);
+ok(`FS_TITLE = ${fsTitle} < 24（大字阈之二：≥24 常规）`, fsTitle > 0 && fsTitle < 24);
+ok('dark 主按钮实测 4.35 < 4.5（模特对数值未变，缺口真实存在）',
+  Math.abs(contrastRatio(DARK_P.onAccent, DARK_P.accent) - 4.3461) < 0.01);
+ok('dark|onAccent|accent **仍在台账**（⛔ 不许放宽阈值/不许删条目）',
+  ledgerSet['dark|onAccent|accent'] === true);
+ok('主按钮真实底色是渐变（accent→accentSoft）⇒ 最坏面比模特对更差（2.09:1）',
+  loginBlock.indexOf('.linearGradient(') >= 0 && loginBlock.indexOf('gradientFrom') >= 0
+  && loginBlock.indexOf('gradientTo') >= 0);
+eq('渐变最亮端 #B9A7FF 上白字实测（大字阈 3:1 也过不了）',
+  contrastRatio('#FFFFFF', paletteOf('dark').accentSoft).toFixed(2), '2.09');
+
+// ════════════════════════════════════════════════════════════════════════════
+// §H 报告（给设计决策看的真数据 —— 永远打印，不只在失败时）
 // ════════════════════════════════════════════════════════════════════════════
 function pad(s: string, n: number): string {
   let out: string = s;
