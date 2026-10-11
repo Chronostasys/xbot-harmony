@@ -63,3 +63,10 @@ has(src, 'aboutToAppear(): void {', '首帧同步（@Prop 初值不触发 @Watch
 if (fail > 0) { console.log(`  msgnav_key: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  msgnav_key: ${pass} passed, 0 failed`);
 process.exit(0);
+
+// ⛔ `export {}` 让本文件成为 **module**（而不是 script）⇒ 上面所有顶层 `declare const process/
+//    __dirname`、`let pass/fail`、`function ok/has/...` 全部收进**模块作用域**，不再落进
+//    `run.sh` 编同一个 TS 程序时的**全局作用域**（否则会与 `one_inflight_motion.test.ts` 等
+//    兄弟测试的顶层 `process`/`pass`/`fail` 相撞 ⇒ TS2451/TS2393，污染整轮测试基建）。
+//    本文件无 `import`（只用 `require('fs'|'path')`）⇒ 必须显式 `export` 才会成为 module。
+export {};
