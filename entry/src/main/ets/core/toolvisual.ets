@@ -19,6 +19,7 @@ import {
   ROLE_DANGER, ROLE_MUTED, ROLE_SUCCESS, ST_DONE, ST_ERROR, ST_KILLED, ST_PENDING,
   statusColorRole,
 } from './toolstatus';
+import { surfaceFillOf } from './design';
 
 /** 在飞 pill 的柔影半径（vp）—— 浅色系用它把"在飞"读作悬浮卡片而非发光体。 */
 export const PILL_LIVE_GLOW_RADIUS: number = 12;
@@ -105,15 +106,22 @@ export function pillBgOf(kind: string, selected: boolean, theme: string): string
 }
 
 /**
- * chip 底色 —— **必须与该 pill 的底色互不相同**。
+ * chip 底色 —— **令牌唯一语义**：`surface.chip`（= 内嵌凹槽 `sunken`），**恒定**。
  *
- * ⛔ 历史缺陷：chip 底色曾恒为 `surfaceHi`，而**选中** pill 的底色也是 `surfaceHi`
- *    ⇒ chip 与 pill 同色 ⇒ 浮层打开时 chip「消失」（只剩彩色文字）。
- *    修法：选中态用 `surfaceAlt`（与 `surfaceHi` 互异，且在所有主题里方向仍可辨）。
+ * ⛔ 语义由设计系统**裁决**（`docs/REDESIGN.md §7.2` / `core/design.ets:320`）：
+ *    「chip 的唯一语义 = `surface.chip`（= 内嵌凹槽 sunken），**不随选中变化**」。
+ *    理由：chip 是 pill **内部**的下沉面，与"pill 是否被选中"是**正交**的两件事。
+ *
+ * ⛔ 历史缺陷（本函数曾是对调补丁）：chip 底曾恒 `surfaceHi`，与**选中** pill 同色 ⇒
+ *    浮层打开时 chip「消失」（只剩彩色文字）；当时的修法是"选中态把 chip 改用 `surfaceAlt`"——
+ *    但那是**第二套判据**（本仓 `WEB-ALIGNMENT §16#5` 病根）。现按裁决**删除对调**，
+ *    一律走 `surfaceFillOf(p, 'surface.chip')`（一处、可测、与 `design.ets` 同源）。
+ *
+ * ⚠️ `kind` / `selected` 形参**保留**：仅为调用点与既有测试的签名兼容（`components/ToolVisual.ets`
+ *    与 `tools/tests/*` 按三参调用）；**语义上不再使用** —— chip 底由"令牌 + 主题"唯一决定。
  */
 export function chipBgOf(kind: string, selected: boolean, theme: string): string {
-  const p: Palette = paletteMemo(theme);
-  return selected ? p.surfaceAlt : p.surfaceHi;
+  return surfaceFillOf(paletteMemo(theme), 'surface.chip');
 }
 
 /**
