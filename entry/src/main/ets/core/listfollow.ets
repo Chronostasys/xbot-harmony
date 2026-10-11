@@ -59,3 +59,44 @@ export function listItemCount(headItem: boolean, busyPlaceholder: boolean, rowsL
   }
   return n;
 }
+
+/** 用户就地操作（展开/折叠工具详情等）之后，抑制"程序滚到底"的时间窗（毫秒）。 */
+export const FOLLOW_SUPPRESS_MS: number = 1200;
+
+/**
+ * 是否应当执行**程序滚动到底**（纯函数，可脱机单测）。
+ *
+ * 为什么需要它（真机 P0，2026-10-11 用户报"点最后一个迭代里的工具就自动滚到最下方"）：
+ * `pages/Index.ets:syncFrom()` 此前是**任何 store 变化 + `followBottom` 为真**就
+ * `scrollEdge(Edge.Bottom)`。而 `followBottom` 只是"用户**愿意**跟随新内容"的意图，
+ * 它无法区分"尾部真的长出了新内容"与"用户在原地展开了一张卡片" —— 后者会命中同一条件：
+ * 点工具 pill ⇒ 异步拉取迭代明细 ⇒ store 变更（行 `rev` 自增）⇒ 面板**无条件**滚到底
+ * ⇒ 展开后更高的卡片把内容顶起，用户刚点的那颗 pill 被顶出视口（"我自己点一下，视角却被抢走"）。
+ *
+ * ⛔ 判据（三条**同时**成立才允许程序滚动）：
+ *  ① `followBottom`：用户意图是跟随（往上滚过就为 false，见 `nextFollowBottom`）；
+ *  ② `contentGrew`：本帧**尾部内容**真的变了（行指纹变化 ⇒ 流式新增/行增删）；
+ *     —— 纯 UI 状态变更（展开、折叠、选中、浮层开关）不得移动视口；
+ *  ③ 不在**用户就地操作抑制窗**内（`nowMs >= suppressUntilMs`，左闭右开）：
+ *     用户刚点了展开/折叠，这一次内容变化是他自己造成的 ⇒ 不许抢滚动位置。
+ *
+ * @param followBottom 当前"是否跟随"意图（`nextFollowBottom` 的输出）
+ * @param contentGrew 本帧尾部内容是否变化（行指纹 `!==` 上一帧）
+ * @param nowMs 当前时刻（`Date.now()`）
+ * @param suppressUntilMs 抑制窗结束时刻（0 = 无抑制）
+ */
+export function shouldAutoScroll(followBottom: boolean, contentGrew: boolean,
+  nowMs: number, suppressUntilMs: number): boolean {
+  if (!followBottom) {
+    return false;
+  }
+  if (!contentGrew) {
+    return false;
+  }
+  return nowMs >= suppressUntilMs;
+}
+
+/** 就地操作抑制窗的结束时刻（纯算术，供页面直接赋值）。 */
+export function followSuppressUntil(nowMs: number, windowMs: number): number {
+  return nowMs + windowMs;
+}

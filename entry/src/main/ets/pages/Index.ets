@@ -72,7 +72,7 @@ import { SSE_STATE_FAILED } from '../core/sse';
 import { WIDGET_EVENT_WEB } from '../core/widgetsview';
 // 插件桥 page→native 的消息类型（协议权威 = `core/webbridge.ets`）
 import { BridgeMessage } from '../core/webbridge';
-import { listItemCount, nextFollowBottom } from '../core/listfollow';
+import { listItemCount, nextFollowBottom, shouldAutoScroll, followSuppressUntil, FOLLOW_SUPPRESS_MS } from '../core/listfollow';
 import { OverlayCode, OverlayState, topOverlay } from '../core/overlays';
 import {
   currentTodo, modelText, todoProgress, usageText,
@@ -416,6 +416,20 @@ struct Index {
    * 与 xbot Web 端既有铁律一致（所有 GotoBottom 调用由 !userScrolledUp 守卫）。
    */
   @State followBottom: boolean = true;
+
+  /**
+   * 「程序滚到底」的**就地操作抑制窗**结束时刻（毫秒；0 = 无抑制）。
+   *
+   * ⛔ 为什么还需要它（真机 P0，2026-10-11 用户报"点击最后一个迭代里的工具会自动滚到最下方"）：
+   *   `followBottom` 只表达"用户**愿意**跟随新内容"，**无法区分**"尾部真的长出新内容"与
+   *   "用户在原地展开了一张卡片" —— 后者同样会改行指纹（`rev` 自增）：点工具 pill ⇒
+   *   `toggleTool` ⇒ 异步 `fetchIterationDetail` ⇒ store 变更 ⇒ 若无条件 `scrollEdge(Bottom)`，
+   *   展开后更高的卡片会把用户刚点的那颗 pill **顶出视口**（"我点一下，视角被抢走"）。
+   *   ⇒ 用户**自己发起**的就地内容变化（展开/折叠工具详情），在 `FOLLOW_SUPPRESS_MS` 窗内
+   *   **不许**程序滚动（流式新增不受影响：它不经过这里）。
+   *   判据本体在 `core/listfollow.shouldAutoScroll`（纯函数，脱机单测 + mutation 自证）。
+   */
+  private followSuppressUntilMs: number = 0;
 
   /**
    * 本帧的滚动是否来自**用户输入**（`onWillScroll` 置位、`onScrollIndex` **一次性消费**）。
@@ -1295,7 +1309,8 @@ struct Index {
       this.sessions = store.sessions.slice();
     }
     const rowsFp: string = this.fingerprintRows(store.rows, store.currentChatId);
-    if (rowsFp !== this.rowsFp) {
+    const contentGrew: boolean = rowsFp !== this.rowsFp;
+    if (contentGrew) {
       this.rowsFp = rowsFp;
       this.rows = store.rows.slice();
       // live 行整条（已完成迭代 + 末尾在飞块）在 syncRowDs 里抽出为非懒尾项
@@ -1304,7 +1319,11 @@ struct Index {
     // ⛔ 底部跟随（真机："看不到任何进度/思考打字机看不到"，2026-10-10）：
     //   live 尾块在**生长**（思考/正文打字机、工具 pill 增加）⇒ 若用户仍在底部，
     //   必须跟着滚到底，否则流式内容掉到视口下方 —— 看上去就是"没有进度、只有收尾才出现"。
-    if (this.followBottom) {
+    //   ⛔ 但**只有"尾部内容真的变了"且"不是用户就地操作的后果"**才滚（真机 P0，2026-10-11：
+    //      用户"点击最后一个迭代里的工具就自动滚到最下方" —— 点 pill ⇒ toggleTool ⇒
+    //      fetchIterationDetail ⇒ store 变更 ⇒ 旧代码无条件 scrollEdge 把刚点的 pill 顶出视口）。
+    //      判据本体是纯函数 `core/listfollow.shouldAutoScroll`（脱机单测 + mutation 自证）。
+    if (shouldAutoScroll(this.followBottom, contentGrew, Date.now(), this.followSuppressUntilMs)) {
       this.listScroller.scrollEdge(Edge.Bottom);
     }
     this.busy = store.busy;
@@ -1397,8 +1416,9 @@ struct Index {
       this.askUser = ask;
       this.askSelections = selectionsFor(ask);
     }
-    // 只有用户意图为"跟随"才跟随；用户往上滚后意图被翻掉，就不再抢滚动位置（否则"阅读中被打断"）
-    if (this.followBottom) {
+    // 只有用户意图为"跟随"**且尾部内容真的变了**才跟随；用户往上滚后意图被翻掉就不再抢滚动位置
+    // （否则"阅读中被打断"）；用户就地展开/折叠（抑制窗内）也不抢（真机 P0，2026-10-11）。
+    if (shouldAutoScroll(this.followBottom, contentGrew, Date.now(), this.followSuppressUntilMs)) {
       setTimeout(() => {
         try {
           this.listScroller.scrollEdge(Edge.Bottom);
@@ -2457,6 +2477,10 @@ struct Index {
 
   private async toggleTool(row: ChatRow, it: HistoryIteration, t: ToolProgress): Promise<void> {
     const key: string = this.toolKey(row.turnID, it.iteration, t.name);
+    // ⛔ 用户**就地**展开/折叠工具详情：此后这次内容变化是**用户自己**造成的 ⇒ 开抑制窗，
+    //    窗内不许程序滚到底（否则展开后更高的卡片会把他刚点的那颗 pill 顶出视口）。
+    //    进/出都置位：收起时内容变矮同样不该移动视口。判据见 `core/listfollow.shouldAutoScroll`。
+    this.followSuppressUntilMs = followSuppressUntil(Date.now(), FOLLOW_SUPPRESS_MS);
     if (this.openToolKey === key) {
       this.openToolKey = '';
       return;

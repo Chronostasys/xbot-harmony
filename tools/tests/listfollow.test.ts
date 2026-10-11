@@ -9,7 +9,7 @@
 declare const process: { exit: (c: number) => void };
 
 import { describe, expect, it, summary } from './vitest_shim';
-import { listItemCount, nextFollowBottom } from '../../entry/src/main/ets/core/listfollow';
+import { listItemCount, nextFollowBottom, shouldAutoScroll, followSuppressUntil, FOLLOW_SUPPRESS_MS } from '../../entry/src/main/ets/core/listfollow';
 
 let pass = 0;
 let fail = 0;
@@ -87,6 +87,44 @@ describe('listItemCount：头项判据必须与渲染它的 if 同源（⑤）',
     eq('旧公式 = 12（少算 1）', nOldBuggy, 12);
     eq('end=11 在真判据下**不是**贴底 ⇒ 不跟随', nextFollowBottom(false, true, 11, nTrue), false);
     eq('end=11 在旧判据下被误判贴底 ⇒ 会跟随（P0 成因）', nextFollowBottom(false, true, 11, nOldBuggy), true);
+  });
+});
+
+describe('shouldAutoScroll：程序滚到底的三条闸门（真机 P0：点工具 pill 被拽到最下方）', () => {
+  // ④ 正常流式：跟随 + 内容增长 + 无抑制 ⇒ **必须**滚（不能为了修 bug 把"跟随"弄没）
+  it('④ 流式新增（三条都满足）⇒ 滚', () => {
+    eq('无抑制窗（0）', shouldAutoScroll(true, true, 1000, 0), true);
+    eq('抑制窗已过', shouldAutoScroll(true, true, 2000, 1500), true);
+  });
+
+  // ① 用户已往上滚（意图 false）⇒ 任何情况都不许抢滚动位置
+  it('① 用户已往上滚 ⇒ 不滚（即使内容在长）', () => {
+    eq('', shouldAutoScroll(false, true, 1000, 0), false);
+  });
+
+  // ② 纯 UI 状态变更（行指纹未变：选中/浮层/位置快照类）⇒ 不滚
+  it('② 内容没变（纯 UI 状态变更）⇒ 不滚', () => {
+    eq('', shouldAutoScroll(true, false, 1000, 0), false);
+  });
+
+  // ③ ⭐ 本次 P0 的判据：用户自己点开工具 ⇒ 这一帧内容确实变了（rev 自增）、followBottom 也是 true，
+  //    但**变化是他造成的** ⇒ 抑制窗内不许滚（否则展开后更高的卡片把他刚点的 pill 顶出视口）。
+  it('③ 用户就地展开工具后的抑制窗内 ⇒ 不滚（P0 修复判据）', () => {
+    const t0: number = 1000;
+    const until: number = followSuppressUntil(t0, FOLLOW_SUPPRESS_MS);
+    eq('窗口 = now + FOLLOW_SUPPRESS_MS', until, t0 + FOLLOW_SUPPRESS_MS);
+    eq('刚点下（t=now）', shouldAutoScroll(true, true, t0, until), false);
+    eq('窗口内（t=until-1）', shouldAutoScroll(true, true, until - 1, until), false);
+    eq('左闭右开：t=until 恢复跟随', shouldAutoScroll(true, true, until, until), true);
+  });
+
+  // 反例（旧实现的等价式）：只看 followBottom ⇒ 在"点 pill"这一帧判成"滚" ⇒ 正是 P0
+  it('反例：旧实现（只看 followBottom）在同一帧判成"滚"', () => {
+    const followBottom: boolean = true;
+    const oldImplRolls: boolean = followBottom;                      // 旧代码：if (this.followBottom)
+    const newImplRolls: boolean = shouldAutoScroll(true, true, 1000, followSuppressUntil(1000, FOLLOW_SUPPRESS_MS));
+    eq('旧实现 = 滚（P0 行为）', oldImplRolls, true);
+    eq('新判据 = 不滚（修复行为）', newImplRolls, false);
   });
 });
 
