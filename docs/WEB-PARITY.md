@@ -259,7 +259,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | 任务面板 | `components/sidebar/TasksPanel.tsx:26` | 未迁 | RPC | 待定（需服务端能力确认） |
 | 会话信息面板 | `components/sidebar/SessionInfo.tsx` | 部分（`Index` 的 `StatusSheet`） | — | — |
 | Dockview 多面板布局 | `workspace/DockviewContainer.tsx:1` | 未迁 | — | ⛔ **架构不适用** ⇒ ArkWeb |
-| 设置 About | `components/settings/SettingsAbout.tsx:92` | 未迁 | 版本号 | 新增 `components/SettingsAbout.ets` + `SettingsPanel.ets`（**S**） |
+| 设置 About | `components/settings/SettingsAbout.tsx:92` | 已迁 | 版本号 + 更新 + 重启 | `components/SettingsAbout.ets` + `core/aboutops.ets`（含 `apply_update`/`restart_server` 两步确认 + 40s 轮询，**S**）；PWA 安装诊断未迁（原生无 PWA 概念） |
 | 设置 General | `components/settings/SettingsGeneral.tsx:32` | 部分（`Index` 的 `PrefsSheet`） | — | — |
 | 设置 Layout | `components/settings/SettingsLayout.tsx:39` | 未迁 | 本地偏好 | **存疑**（原生是否有「面板布局」概念） |
 | 设置 Developer | `components/settings/SettingsDeveloper.tsx:20` | 未迁 | — | 新增组件（**S**） |
@@ -399,7 +399,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | ├ **Developer**（SSE REC + 导出） | `settings/SettingsDeveloper.tsx:20` | ❌ | 见 11.5 证据 ⑩ |
 | ├ Layout（slot 配置） | `settings/SettingsLayout.tsx:39` | ⚪ | Dockview 专属 |
 | ├ Plugins（配置表单 + 图标上传） | `settings/SettingsPlugins.tsx:60` | 🟡 | `components/PluginHost.ets` 只读目录；缺 `plugin_config_set` |
-| └ About（版本 + 只读 update） | `settings/SettingsAbout.tsx:92` | ✅ | `components/SettingsAbout.ets`（刻意子集） |
+| └ About（版本 + update + **应用内更新/重启**） | `settings/SettingsAbout.tsx:92` | ✅ | `components/SettingsAbout.ets` + `core/aboutops.ets`（apply_update/restart_server 两步确认 + 40s 轮询；release notes 外链可点） |
 | 插件目录 + 宿主页运行时 | `plugin-runtime/loader.ts` | ✅ | `components/PluginHost.ets` + `core/pluginhost.ets:573`（裸 `.js` 语义**已修**） |
 | 插件管理面板（启停/配置） | `plugins/manager/PluginManagerPanel.tsx` | 🟡 | 原生只读目录 |
 | **web_widgets / plugin_widgets 事件** | `plugins/PluginWidgetProvider.tsx:51` | ❌ **静默丢** | `core/types.ets:236-237` 仅两个常量，`core/store.ets onSse` 无消费（§8.3 波3） |
