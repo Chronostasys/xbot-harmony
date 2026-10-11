@@ -41,6 +41,13 @@ import {
   RUNG_CANVAS, RUNG_CARD, RUNG_RAISED, RUNG_ACTIVE, RUNG_SUNKEN,
   motionRoles, MotionRole, allowedDurations, MOTION_BREATH_MS, MOTION_BEAT_MS,
   INFLIGHT_OWNER_ORB, DUR_PRESS,
+  INSET_PILL_X, INSET_PILL_Y, MARKER_SLOT, MARKER_GLYPH, MARKER_GLYPH_DASHED, MARKER_SPINNER,
+  PILL_MAX_W, opticalValues,
+  ELEV_CARD, ELEV_RAISED, ELEV_OVERLAY, elevationColorOf, elevationLevelOf,
+  MIN_LEVEL_DELTA, HAIRLINE_ASSIST_BELOW, levelDeltaIssue, chipNeedsHairline,
+  SURFACE_THINKING, SURFACE_TODO, SURFACE_TODO_ACTIVE, SURFACE_GOAL, SURFACE_GOAL_BADGE, SURFACE_COMPOSER,
+  TYPE_THINKING, TYPE_TODO, TYPE_GOAL, TYPE_PILL_NAME, TYPE_CHIP,
+  INFLIGHT_PILL_SURFACE, INFLIGHT_PILL_GLOW_RADIUS, INFLIGHT_OWNER_PILL, inflightPillShadowOf,
 } from '../../entry/src/main/ets/core/design';
 import { paletteOf, ALL_THEMES, contrastRatio, THEME_DARK, THEME_LIGHT, THEME_PORCELAIN } from '../../entry/src/main/ets/core/theme';
 import { designIssues, contrastAudit, contrastFailures, nestingPairsDistinct, ladderDirectionOk, themeOk, colorOf, knownContrastLedger, AA_TEXT, AA_NON_TEXT, AA_MUTED, PRESS_OPACITY, PRESS_SCALE, HIT_TARGET_MIN, LONG_PRESS_MS } from '../../entry/src/main/ets/core/design';
@@ -253,6 +260,60 @@ const radiusLiterals = countMatches(
   pathMod.join(etsDir, 'components'), /borderRadius\(\s*\d+\s*\)/g)
   + countMatches(pathMod.join(etsDir, 'pages'), /borderRadius\(\s*\d+\s*\)/g);
 ok(`圆角字面量 ${radiusLiterals} ≤ 棘轮上限 ${RADIUS_LITERAL_MAX}（只减不增）`, radiusLiterals <= RADIUS_LITERAL_MAX);
+
+// ════════════════════════════════════════════════════════════════════════════
+// K. 工具/状态面 7 条缺口的收编断言（2026-10-11，来自 docs/mockups/03-tool-states.html）
+// ════════════════════════════════════════════════════════════════════════════
+// 1) 在飞"静态表达"（⛔ 不含动画）
+eq('在飞 pill 面 = 提升一档（pillSelected）', INFLIGHT_PILL_SURFACE, 'surface.pillSelected');
+eq('在飞柔影半径 12', INFLIGHT_PILL_GLOW_RADIUS, 12);
+ok('在飞工具面不拥有任何在飞动效（owner 只是标记，不是 motion owner）',
+  INFLIGHT_OWNER_PILL === 'pill' && motionRoles().filter((m: MotionRole) => m.owner === INFLIGHT_OWNER_PILL).length === 0);
+for (const t of ALL_THEMES) {
+  const p = paletteOf(t);
+  ok(`[${t}] 在飞柔影可解析（静态色）`, inflightPillShadowOf(p).length > 0);
+}
+// 2) pill 自身内距 + 命中区外扩策略
+eq('INSET_PILL_X = 8', INSET_PILL_X, 8);
+eq('INSET_PILL_Y = 5（光学档）', INSET_PILL_Y, 5);
+ok('光学档白名单含 5 且 5 不是 4 的倍数', opticalValues().indexOf(5) >= 0 && 5 % 4 !== 0);
+ok('pill 视觉高度 < 命中区 44（须由调用方 responseRegion 外扩）',
+  (MARKER_SLOT + 2 * INSET_PILL_Y) < HIT_TARGET_MIN);
+// 3) 标记槽 / glyph 尺寸
+eq('MARKER_SLOT = 14', MARKER_SLOT, 14);
+eq('MARKER_GLYPH = 13', MARKER_GLYPH, 13);
+eq('MARKER_GLYPH_DASHED = 12', MARKER_GLYPH_DASHED, 12);
+eq('MARKER_SPINNER = 13', MARKER_SPINNER, 13);
+eq('PILL_MAX_W = 240', PILL_MAX_W, 240);
+// 4) 浮层阴影（语义出口，不再直接 effectsOf）
+eq('阴影档名', [ELEV_CARD, ELEV_RAISED, ELEV_OVERLAY], ['elev1', 'elev2', 'elev3']);
+eq('浮层面 ⇒ overlay 阴影档', elevationLevelOf('surface.overlay'), ELEV_OVERLAY);
+eq('卡片面 ⇒ card 阴影档', elevationLevelOf('surface.card'), ELEV_CARD);
+for (const t of ALL_THEMES) {
+  const p = paletteOf(t);
+  eq(`[${t}] elev1/2/3 均可解析`, [ELEV_CARD, ELEV_RAISED, ELEV_OVERLAY]
+    .every((lv: string) => elevationColorOf(p, lv).length > 0), true);
+}
+// 5) 思考行 / 待办 / 目标条 的别名**必须**指向规范面/规范排版档（单一来源不破）
+const canonicalSurfaceNames = surfaceRoles().map((s: SurfaceRole) => s.name);
+const canonicalTypeNames = ty.map((t: TypeRole) => t.name);
+for (const a of [SURFACE_THINKING, SURFACE_TODO, SURFACE_TODO_ACTIVE, SURFACE_GOAL, SURFACE_GOAL_BADGE, SURFACE_COMPOSER]) {
+  ok(`面别名 ${a} ∈ 规范面`, canonicalSurfaceNames.indexOf(a) >= 0);
+}
+for (const a of [TYPE_THINKING, TYPE_TODO, TYPE_GOAL, TYPE_PILL_NAME, TYPE_CHIP]) {
+  ok(`排版别名 ${a} ∈ 规范档`, canonicalTypeNames.indexOf(a) >= 0);
+}
+// 6) 纯白主题的层级下限（最小可辨差 + 何时补发丝）
+eq('MIN_LEVEL_DELTA = 1.025', MIN_LEVEL_DELTA, 1.025);
+eq('HAIRLINE_ASSIST_BELOW = 1.05', HAIRLINE_ASSIST_BELOW, 1.05);
+ok('porcelain 的 pill↔chip 落在"需补发丝"区（1.037 < 1.05）', chipNeedsHairline(paletteOf(THEME_PORCELAIN)));
+ok('light 的 pill↔chip 层级差达标', levelDeltaIssue(paletteOf(THEME_LIGHT), 'surface.pill', 'surface.chip') === '');
+// 7) chip 唯一语义裁决：**恒 = 内嵌凹槽**，不随选中变化（消灭"选中对调"补丁）
+for (const t of ALL_THEMES) {
+  const p = paletteOf(t);
+  eq(`[${t}] chip 与选中无关（恒 sunken）`,
+    surfaceFillOf(p, 'surface.chip') === wellOf(p), true);
+}
 
 if (fail > 0) { console.log(`  design: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  design: ${pass} passed, 0 failed`);

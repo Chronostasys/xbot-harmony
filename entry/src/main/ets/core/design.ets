@@ -375,6 +375,127 @@ export function isLightSurface(p: Palette): boolean {
   return isLightPalette(p);
 }
 
+// ── 4.1 纯白主题的**最小可辨层级差**（浅色最容易糊的量化防线）───────────────
+//
+// 问题（工具状态线实测）：porcelain 里 `surface.pill` 与 `surface.chip`
+// 只差 **2 级灰度**（对比度 1.037）—— "底里有底"在白底上几乎读不出层次。
+// 判据：任一可嵌套面之间的对比度必须 ≥ `MIN_LEVEL_DELTA`；低于 `HAIRLINE_ASSIST_BELOW`
+// 时该面**必须补一条结构性发丝**（`hairlineOf`）来立边界。
+/** 可嵌套面之间的**最小可辨对比度**（实测：dark 1.073 / light 1.030 / porcelain 1.037）。 */
+export const MIN_LEVEL_DELTA: number = 1.025;
+/** 低于它就"必须补发丝"（porcelain 1.037 ⇒ 落在补发丝区）。 */
+export const HAIRLINE_ASSIST_BELOW: number = 1.05;
+
+/** 某对"可嵌套面"是否层次不足（返回 '' = 足够，否则返回成因）。 */
+export function levelDeltaIssue(p: Palette, a: string, b: string): string {
+  const r: number = contrastRatio(surfaceFillOf(p, a), surfaceFillOf(p, b));
+  if (r < MIN_LEVEL_DELTA) { return `${a} vs ${b} = ${r.toFixed(4)} < ${MIN_LEVEL_DELTA}`; }
+  return '';
+}
+
+/** 该主题下 chip 是否需要**补发丝**（层次差 < HAIRLINE_ASSIST_BELOW）。 */
+export function chipNeedsHairline(p: Palette): boolean {
+  return contrastRatio(surfaceFillOf(p, 'surface.pill'),
+    surfaceFillOf(p, 'surface.chip')) < HAIRLINE_ASSIST_BELOW;
+}
+
+// ── 4.2 组件专属语义面（**别名**，指向 §3 的规范层级 ⇒ 单一来源不破）──────────
+//
+// 目的：让组件说"给我 surface.goal 的填充"，而不是自己挑 surface/surfaceAlt。
+// 每个别名**必须**指向 `surfaceRoles()` 里的一个规范面（测试断言）。
+/** 思考行展开体（无填充，靠左栅栏 + 发丝）。 */
+export const SURFACE_THINKING: string = 'surface.canvas';
+/** 待办拉条（一行 + 可展开清单；无整块填充，靠上下发丝）。 */
+export const SURFACE_TODO: string = 'surface.canvas';
+/** 待办行的"进行中"底纹（内嵌凹槽）。 */
+export const SURFACE_TODO_ACTIVE: string = 'surface.chip';
+/** 目标横幅（辅助条，浮在输入框上方）。 */
+export const SURFACE_GOAL: string = 'surface.card';
+/** 目标徽标底。 */
+export const SURFACE_GOAL_BADGE: string = 'surface.chip';
+/** 编辑器/composer 输入面。 */
+export const SURFACE_COMPOSER: string = 'surface.input';
+
+// ── 4.3 组件专属排版档（**别名**，指向 §1 的排版阶梯）──────────────────────
+/** 思考行 / 元信息。 */
+export const TYPE_THINKING: string = 'type.caption';
+/** 待办条文本 / 目标条文本（辅助条 ≤ 正文）。 */
+export const TYPE_TODO: string = 'type.caption';
+export const TYPE_GOAL: string = 'type.caption';
+/** 工具名 / 设置行标题。 */
+export const TYPE_PILL_NAME: string = 'type.subhead';
+/** chip / 徽标。 */
+export const TYPE_CHIP: string = 'type.micro';
+
+// ── 4.4 阴影 / 层级（语义出口；⛔ 组件不得直接 effectsOf().elev1/2/3）─────────
+/** 阴影语义档（映射到 `Effects` 的 elev1/2/3）。 */
+export const ELEV_CARD: string = 'elev1';
+export const ELEV_RAISED: string = 'elev2';
+export const ELEV_OVERLAY: string = 'elev3';
+
+/** 阴影语义档 → 实际色（唯一出口）。 */
+export function elevationColorOf(p: Palette, level: string): string {
+  const e = effectsOf(p);
+  if (level === ELEV_OVERLAY) { return e.elev3; }
+  if (level === ELEV_RAISED) { return e.elev2; }
+  return e.elev1;
+}
+
+/** 语义面 → 应使用的阴影档（`surface.overlay` ⇒ overlay；卡片 ⇒ card）。 */
+export function elevationLevelOf(role: string): string {
+  if (role === 'surface.overlay') { return ELEV_OVERLAY; }
+  if (role === 'surface.card' || role === 'surface.input') { return ELEV_CARD; }
+  return ELEV_RAISED;
+}
+
+// ── 4.5 形状/间距的"组件专属档"（把 pill/marker 的字面量收编）────────────────
+/** 工具 pill 水平内距（= space.xs）。 */
+export const INSET_PILL_X: number = SPACE_XS;
+/**
+ * 工具 pill 垂直内距 = **5**（**光学档**，非 4 网格）。
+ * 为什么不是 8：marker 槽 14 + 2×5 = **24vp** 的胶囊高度是"密而清楚"的关键；
+ * 取 8 会让每枚 pill 长到 30vp（+25%），密集工具行会明显变散。
+ */
+export const INSET_PILL_Y: number = 5;
+/** 光学档白名单（**非** 4 网格；只有它们可以不是 4 的倍数）。 */
+export function opticalValues(): number[] {
+  return [SPACE_HAIR, INSET_PILL_Y];
+}
+/** 状态标记槽边长（**恒定** ⇒ 所有 pill 图标/名字左对齐的前提）。 */
+export const MARKER_SLOT: number = 14;
+/** 标记 glyph 字号（勾/叉/减号）。 */
+export const MARKER_GLYPH: number = 13;
+/** 虚线圆（排队）字号（比实体 glyph 小 1 ⇒ 视觉重量相当）。 */
+export const MARKER_GLYPH_DASHED: number = 12;
+/** spinner 边长（= glyph 尺寸，占满槽）。 */
+export const MARKER_SPINNER: number = 13;
+/** pill 外边距（工具行内）。 */
+export const GAP_PILL: number = SPACE_XXS - 1; // 3（光学档，密集行）
+/** pill 最大宽度（超出即截断出省略号）。 */
+export const PILL_MAX_W: number = 240;
+
+// ── 4.6 "在飞"的**静态**表达（⛔ 不含任何动画）──────────────────────────────
+//
+// 铁律（§5）：同一时刻只有一个"在飞动效" = 光球。工具的"在飞"只允许**静态**维度：
+// 状态色 + 系统 spinner（工具身份）+ **表面层级提升** + 柔影。
+// 本组只导出"静态"取值，任何 `motion.*` 都不得出现在这里（测试断言 owner 不含工具面）。
+/** 在飞 pill 的表面（= **提升一档**到 `surface.pillSelected`）。 */
+export const INFLIGHT_PILL_SURFACE: string = 'surface.pillSelected';
+/** 在飞柔影半径（vp）。 */
+export const INFLIGHT_PILL_GLOW_RADIUS: number = 12;
+/** 在飞工具面的 owner（仅用于断言"工具面**不拥有**任何在飞动效"）。 */
+export const INFLIGHT_OWNER_PILL: string = 'pill';
+
+/**
+ * 在飞柔影色 —— **唯一的主题分叉点**（**静态**色，非动画）。
+ * 深色系：`effectsOf().glow`（accent@45% 的彩色外发光 = "在飞"的高级感来源）；
+ * 浅色系：`effectsOf().elev2`（中性柔影）—— 45% 饱和色晕压白卡边上会读成"脏"。
+ * 判据按 `isLightPalette`（色板亮度），⛔ 不按主题名。
+ */
+export function inflightPillShadowOf(p: Palette): string {
+  return isLightSurface(p) ? effectsOf(p).elev2 : effectsOf(p).glow;
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // 5. 动效 —— 时长/曲线全部引用既有底座；**只声明归属**（谁是"在飞"）
 // ════════════════════════════════════════════════════════════════════════════
@@ -690,12 +811,32 @@ export function designIssues(): DesignIssue[] {
 
   // 空间
   const sp: SpaceRole[] = spaceRoles();
+  const optical: number[] = opticalValues();
   for (let i = 0; i < sp.length; i++) {
-    if (sp[i].name !== 'space.hair' && sp[i].vp % 4 !== 0) {
+    if (optical.indexOf(sp[i].vp) < 0 && sp[i].vp % 4 !== 0) {
       out.push(new DesignIssue('space.grid', `${sp[i].name}=${sp[i].vp} 不是 4 的倍数`));
     }
     if (i > 0 && sp[i].vp <= sp[i - 1].vp) {
       out.push(new DesignIssue('space.monotonic', `${sp[i].name} 未严格递增`));
+    }
+  }
+
+  // 别名有效性（组件专属面/排版档必须指向 §3/§1 的规范档 —— 单一来源不破）
+  {
+    const canonicalSurfaces: string[] = surfaceRoles().map((s: SurfaceRole) => s.name);
+    const aliases: string[] = [SURFACE_THINKING, SURFACE_TODO, SURFACE_TODO_ACTIVE,
+      SURFACE_GOAL, SURFACE_GOAL_BADGE, SURFACE_COMPOSER];
+    for (let i = 0; i < aliases.length; i++) {
+      if (canonicalSurfaces.indexOf(aliases[i]) < 0) {
+        out.push(new DesignIssue('alias.surface', `${aliases[i]} 不是规范面`));
+      }
+    }
+    const canonicalTypes: string[] = typeRoles().map((t: TypeRole) => t.name);
+    const typeAliases: string[] = [TYPE_THINKING, TYPE_TODO, TYPE_GOAL, TYPE_PILL_NAME, TYPE_CHIP];
+    for (let i = 0; i < typeAliases.length; i++) {
+      if (canonicalTypes.indexOf(typeAliases[i]) < 0) {
+        out.push(new DesignIssue('alias.type', `${typeAliases[i]} 不是规范排版档`));
+      }
     }
   }
 
@@ -764,6 +905,20 @@ export function designIssues(): DesignIssue[] {
     const hl: string = hairlineIssue(p);
     if (hl.length > 0) {
       out.push(new DesignIssue('surface.hairline', `${ALL_THEMES[t]} ${hl}`));
+    }
+    // 可嵌套面的**最小可辨层级差**（浅色/纯白最容易糊的量化防线）
+    const nestingPairs: string[][] = [
+      ['surface.pill', 'surface.chip'],
+      ['surface.pillSelected', 'surface.chip'],
+      ['surface.overlay', 'surface.overlayRow'],
+      ['surface.overlayRow', 'surface.overlayRowHover'],
+    ];
+    for (let i = 0; i < nestingPairs.length; i++) {
+      const n = nestingPairs[i];
+      const issue: string = levelDeltaIssue(p, n[0], n[1]);
+      if (issue.length > 0) {
+        out.push(new DesignIssue('surface.levelDelta', `${ALL_THEMES[t]} ${issue}`));
+      }
     }
     const fails: ContrastFailure[] = contrastFailures(ALL_THEMES[t]);
     for (let i = 0; i < fails.length; i++) {
