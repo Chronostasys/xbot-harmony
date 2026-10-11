@@ -12,7 +12,9 @@ import {
   ACCENT_PRESETS, DEFAULT_ACCENT, accentLabel, contrastForeground, darken, lighten,
   normalizeAccent, normalizeAccentOrNull, parseHex, withAccent,
 } from '../../entry/src/main/ets/core/accent';
-import { darkPalette, lightPalette, paletteValues } from '../../entry/src/main/ets/core/theme';
+import {
+  Palette, darkPalette, lightPalette, paletteOf, paletteValues, normalizeAccent as themeNormalizeAccent, setAppAccent,
+} from '../../entry/src/main/ets/core/theme';
 
 let pass = 0, fail = 0;
 function eq(name: string, got: unknown, want: unknown): void {
@@ -109,6 +111,41 @@ eq('自定义 hex：带空格容忍（ trim ）', normalizeAccentOrNull('  #7C3A
 // 与"读服务端值"的回落口径**并存但语义不同**（读路径遇垃圾值回落主题色，输入路径必须报错）
 eq('读路径口径不变：非法 ⇒ 回落 DEFAULT_ACCENT', normalizeAccent('#zzzzzz'), DEFAULT_ACCENT);
 eq('两条口径对合法值一致', normalizeAccentOrNull('#abc'), normalizeAccent('#abc'));
+
+// ── 应用级强调色覆盖（2026-10-11 真机实证「强调色全局空操作」的修复）────────────────
+// 语义：未显式设置 ⇒ `paletteOf` 返回主题本色；设置了 ⇒ **任何**调 `paletteOf(theme)` 的组件
+// （设置面板自身也走它）都拿到叠加后的色板。
+// ★ 判别力（mutation 必红）：把 `paletteOf` 里的 `withAccent(...)` 调用删掉 ⇒ 下面「覆盖生效」全红。
+{
+  setAppAccent('');
+  const DARK_BASE: Palette = paletteOf('dark');
+  eq('未设置覆盖 ⇒ dark.accent = 主题本色 #7C5CFF', paletteOf('dark').accent, '#7C5CFF');
+  eq('未设置覆盖 ⇒ light.accent = 主题本色 #6D28D9', paletteOf('light').accent, '#6D28D9');
+
+  setAppAccent('#059669');
+  eq('设置后 ⇒ **经 paletteOf** 拿到叠加（dark）', paletteOf('dark').accent, '#059669');
+  eq('设置后 ⇒ 所有主题一致叠加（light）', paletteOf('light').accent, '#059669');
+  eq('设置后 ⇒ 所有主题一致叠加（porcelain）', paletteOf('porcelain').accent, '#059669');
+  eq('设置后 ⇒ accentHover 随覆盖（不再是主题值）', paletteOf('dark').accentHover, lighten('#059669', 0.12));
+  eq('设置后 ⇒ bubbleUser 随覆盖（dark = darken .18）', paletteOf('dark').bubbleUser, darken('#059669', 0.18));
+  eq('设置后 ⇒ **非 accent 角色不动**（surface）', paletteOf('dark').surface, '#0E0E14');
+  eq('设置后 ⇒ **非 accent 角色不动**（textPrimary）', paletteOf('dark').textPrimary, '#EDEDF2');
+  eq('设置后 ⇒ **非 accent 角色不动**（dangerText）', paletteOf('dark').dangerText, '#FF7B7B');
+  eq('设置后 ⇒ 与手工 withAccent 逐字一致',
+    paletteOf('dark').accentSoft, withAccent(DARK_BASE, '#059669', true).accentSoft);
+  // 记忆化：同一 (主题, 强调色) 必须复用同一对象（派生 memo 依赖对象标识）
+  eq('记忆化：同键复用同一对象', paletteOf('dark') === paletteOf('dark'), true);
+  const before: Palette = paletteOf('dark');
+  setAppAccent('');
+  eq('记忆化：覆盖变化 ⇒ 换对象（不串味）', paletteOf('dark') !== before, true);
+
+  eq('清空覆盖 ⇒ 回到主题本色', paletteOf('dark').accent, '#7C5CFF');
+  eq('清空覆盖 ⇒ light 也回到本色', paletteOf('light').accent, '#6D28D9');
+  // 垃圾值：与 Index 的 `accentHex()` 同口径（回落 DEFAULT_ACCENT，视为"显式设置"）
+  setAppAccent('zzz');
+  eq('垃圾值 ⇒ 回落 DEFAULT_ACCENT（与 Index.accentHex 同口径）', paletteOf('dark').accent, DEFAULT_ACCENT);
+  setAppAccent('');
+}
 
 console.log(`accent: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

@@ -38,12 +38,22 @@
 
 ## 2. 本轮新增的对齐实现
 
-### 2.1 强调色 `core/accent.ets`
+### 2.1 强调色
 - 语义：`withAccent(palette, hex, isDark)` **只覆盖 accent 家族**（accent/accentHover/accentSoft/accentSoftFade/accentDeep/accentText/onAccent/bubbleUser），
   底/面/文字/边框**逐值不动** ⇒ 换色不会破坏已建立的亮度阶梯。
 - hover 方向对齐 web：**深色系变亮 0.12 / 浅色系变暗 0.1**；`onAccent` 走对比前景（BT.601 亮度 >150 用深色字）。
 - ⚠️ **未设置 ⇒ 不覆盖**（返回主题本色）。历史坑：曾回落 web 的 `DEFAULT_ACCENT_COLOR #3388BB`，把主题紫色顶掉，整套配色身份丢失。
-- 守护：`tools/tests/accent.test.ts`（39 例，含"底色不变""accent ≠ onAccent""预设逐值与 web 一致"）。
+- **⛔ 2026-10-11 真机实证的"全局空操作"修复**：叠加此前**只**发生在 `pages/Index.ets` 的 `pal()`，
+  而 40 个组件共 80 处取色走 `paletteOf(this.theme)` ⇒ **组件（含设置面板自身）拿不到覆盖**
+  （真机：标签写 `湖蓝`、同屏按钮像素 = `#7B5CF6`＝主题紫）。
+  修法 = **把叠加下沉到唯一取色入口 `paletteOf`**：
+  · `withAccent`/`normalizeAccent`/`parseHex`/`lighten`/`darken`/`contrastForeground`/`DEFAULT_ACCENT`
+    **迁到 `core/theme.ets`**（避免 theme↔accent 循环），`core/accent.ets` **原样再导出**（既有 import 不变）；
+  · `core/theme.ets` 新增应用级覆盖 `setAppAccent(hex)`/`appAccentHex()`，`paletteOf` 缓存键 = `主题|强调色`；
+  · **唯一写入点** = `core/store.ets` 的 `loadSettings`/`saveSettings`（`syncAppAccent`）—— 组件不得写。
+  ⇒ 未设置＝跟随主题；显式设置（含自定义 hex）＝**全站（组件也是）生效**。
+- 守护：`tools/tests/accent.test.ts`（66 例，含"底色不变""accent ≠ onAccent""预设逐值与 web 一致"
+  + **"覆盖经 `paletteOf` 全主题生效 / 非 accent 角色不动 / 记忆化不串味"**）。
 
 ### 2.2 Markdown 主题 `core/mdtheme.ets`
 - 23 套主题的 **id 与顺序与 web `MARKDOWN_THEMES` 逐字一致**（id 不一致会导致"web 选了 monokai、客户端显示未知"）。

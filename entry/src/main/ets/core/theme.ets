@@ -101,6 +101,125 @@ export const THEME_PORCELAIN: string = 'porcelain';
 /** 全部内置主题（测试用；顺序 = 展示顺序）。 */
 export const ALL_THEMES: string[] = [THEME_DARK, THEME_LIGHT, THEME_AURORA, THEME_NEBULA, THEME_PORCELAIN];
 
+// ════════════════════════════════════════════════════════════════════════════
+// 强调色叠加（2026-10-11 从 `core/accent.ets` **下沉**到本文件）
+//
+// 为什么下沉：强调色必须在**唯一取色入口** `paletteOf` 上生效（否则 40 个组件共 80 处
+// `paletteOf(this.theme)` 拿不到覆盖 —— 真机实证的「标签写湖蓝、按钮仍紫」）。
+// 而 `accent.ets` import 本文件（不能反向 import）⇒ 这段数学必须住在本文件。
+// `core/accent.ets` 仍**原样再导出**这些名字（既有 import 全部不变）。
+// ════════════════════════════════════════════════════════════════════════════
+
+/** web `types/theme.ts` 的 `DEFAULT_ACCENT_COLOR`。 */
+export const DEFAULT_ACCENT: string = '#3388BB';
+
+function accentHexDigit(n: number): string {
+  const d: string = '0123456789ABCDEF';
+  let v: number = Math.round(n);
+  if (v < 0) { v = 0; }
+  if (v > 255) { v = 255; }
+  return `${d.charAt(Math.floor(v / 16))}${d.charAt(v % 16)}`;
+}
+
+/** 解析 `#rgb` / `#rrggbb` / 无 `#` ⇒ `{r,g,b}`；非法返回 null。 */
+export function parseHex(input: string): number[] | null {
+  let h: string = input.trim();
+  if (h.length === 0) { return null; }
+  if (h.charAt(0) === '#') { h = h.slice(1); }
+  if (h.length === 3) {
+    h = `${h.charAt(0)}${h.charAt(0)}${h.charAt(1)}${h.charAt(1)}${h.charAt(2)}${h.charAt(2)}`;
+  }
+  if (h.length !== 6) { return null; }
+  const digits: string = '0123456789abcdefABCDEF';
+  for (let i = 0; i < 6; i++) {
+    if (digits.indexOf(h.charAt(i)) < 0) { return null; }
+  }
+  return [
+    parseInt(h.substring(0, 2), 16),
+    parseInt(h.substring(2, 4), 16),
+    parseInt(h.substring(4, 6), 16),
+  ];
+}
+
+function toHexTriple(r: number, g: number, b: number): string {
+  return `#${accentHexDigit(r)}${accentHexDigit(g)}${accentHexDigit(b)}`;
+}
+
+/** 规范化成 `#RRGGBB`；非法回落 `DEFAULT_ACCENT`（对齐 web 的 normalizeHex + 回落）。 */
+export function normalizeAccent(v: string | undefined): string {
+  if (v === undefined) { return DEFAULT_ACCENT; }
+  const rgb: number[] | null = parseHex(v);
+  if (rgb === null) { return DEFAULT_ACCENT; }
+  return toHexTriple(rgb[0], rgb[1], rgb[2]);
+}
+
+/** 变亮（向白插值，t∈[0,1]）—— 对齐 web `lighten(color, 0.12)`。 */
+export function lighten(hex: string, t: number): string {
+  const rgb: number[] | null = parseHex(hex);
+  if (rgb === null) { return hex; }
+  const k: number = t < 0 ? 0 : (t > 1 ? 1 : t);
+  return toHexTriple(rgb[0] + (255 - rgb[0]) * k, rgb[1] + (255 - rgb[1]) * k, rgb[2] + (255 - rgb[2]) * k);
+}
+
+/** 变暗（向黑插值，t∈[0,1]）—— 对齐 web `darken(color, 0.1)`。 */
+export function darken(hex: string, t: number): string {
+  const rgb: number[] | null = parseHex(hex);
+  if (rgb === null) { return hex; }
+  const k: number = t < 0 ? 0 : (t > 1 ? 1 : t);
+  return toHexTriple(rgb[0] * (1 - k), rgb[1] * (1 - k), rgb[2] * (1 - k));
+}
+
+/** 对比前景色（黑或白）—— 对齐 web `contrastForeground`（用的相对亮度阈值）。 */
+export function contrastForeground(hex: string): string {
+  const rgb: number[] | null = parseHex(hex);
+  if (rgb === null) { return '#FFFFFF'; }
+  // 感知亮度（ITU-R BT.601）
+  const lum: number = (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000;
+  return lum > 150 ? '#0B0B0E' : '#FFFFFF';
+}
+
+/**
+ * 把强调色套到色板上：**只覆盖 accent 家族**，其余角色原样返回。
+ *
+ * @param p   主题色板（`buildPalette` 的产物）
+ * @param hex 强调色（会先 `normalizeAccent`）
+ * @param isDark 深色系主题（决定 hover 是变亮还是变暗，对齐 web）
+ */
+export function withAccent(p: Palette, hex: string, isDark: boolean): Palette {
+  const a: string = normalizeAccent(hex);
+  const next: Palette = new Palette();
+  next.appBg = p.appBg;
+  next.surface = p.surface;
+  next.surfaceAlt = p.surfaceAlt;
+  next.surfaceHi = p.surfaceHi;
+  next.textPrimary = p.textPrimary;
+  next.textSecondary = p.textSecondary;
+  next.textMuted = p.textMuted;
+  next.foreground3 = p.foreground3;
+  next.accent = a;
+  next.accentHover = isDark ? lighten(a, 0.12) : darken(a, 0.1);
+  next.accentSoft = isDark ? lighten(a, 0.45) : darken(a, 0.18);
+  next.accentSoftFade = `#00${a.slice(1)}`;
+  next.accentDeep = isDark ? darken(a, 0.62) : lighten(a, 0.78);
+  next.accentText = isDark ? lighten(a, 0.6) : darken(a, 0.22);
+  next.onAccent = contrastForeground(a);
+  next.bubbleUser = isDark ? darken(a, 0.18) : a;
+  next.border = p.border;
+  next.borderStrong = p.borderStrong;
+  next.success = p.success;
+  next.successText = p.successText;
+  next.warn = p.warn;
+  next.warnBg = p.warnBg;
+  next.dangerBg = p.dangerBg;
+  next.dangerText = p.dangerText;
+  next.statusRunning = p.statusRunning;
+  next.statusWaiting = p.statusWaiting;
+  next.statusIdle = p.statusIdle;
+  next.statusError = p.statusError;
+  next.transparent = p.transparent;
+  return next;
+}
+
 /** 深空仪表盘（dark）：**单一紫色系** + 每级约 8% 的真实亮度阶梯。
  *  设计纪律：底色与主色同色相（紫），不再 navy 底配紫主色；
  *  accentSoft 走紫（原先的浅蓝 #93C5FD 是蓝紫打架的根源）；
@@ -372,6 +491,37 @@ const SURFACES_MEMO: Map<Palette, Surfaces> = new Map<Palette, Surfaces>();
 /** 记忆化条目上限（正常只会用到"主题数"量级；上限只防"一次性键"泄漏）。 */
 const MEMO_MAX_ENTRIES: number = 64;
 
+/**
+ * **应用级强调色覆盖**（`''` = 不覆盖 ⇒ 各主题用自己的强调色）。
+ *
+ * 为什么必须有它（2026-10-11 真机实证的**全局空操作**）：
+ *   强调色叠加此前只发生在 `pages/Index.ets` 的 `pal()` 里（`withAccent(base, a, isDark)`），
+ *   而**所有 40 个组件**共 80 处取色走的是 `paletteOf(this.theme)` —— 它不认识强调色
+ *   ⇒ 真机上「设置面板标签写 `湖蓝`，但同一屏的按钮/chip 仍是主题紫」。
+ * 现在把"叠加"下沉到 `paletteOf`（**唯一取色入口**）⇒ 任何组件、任何调用点自动一致。
+ *
+ * ⛔ 纪律：只有 `core/store.ets` 的 settings 落点会写它（`setAppAccent`），组件不得写。
+ */
+let APP_ACCENT: string = '';
+
+/** 当前应用级强调色（`''` = 不覆盖）。 */
+export function appAccentHex(): string {
+  return APP_ACCENT;
+}
+
+/**
+ * 设置应用级强调色（`''` = 取消覆盖 ⇒ 回到各主题本色）。
+ * 变更即清色板缓存（缓存键含强调色，见 `paletteOf`）。
+ */
+export function setAppAccent(hex: string): void {
+  const next: string = hex !== undefined && hex !== null ? hex.trim() : '';
+  if (next === APP_ACCENT) {
+    return;
+  }
+  APP_ACCENT = next;
+  PALETTE_MEMO.clear();
+}
+
 /** 取色板的**构造实现**（未知主题回落深色 —— 深色是既有默认）。 */
 function buildPalette(theme: string): Palette {
   if (theme === THEME_LIGHT) { return lightPalette(); }
@@ -381,17 +531,24 @@ function buildPalette(theme: string): Palette {
   return darkPalette();
 }
 
-/** 取色板（**记忆化**：同一主题只构造一次）。返回**共享对象** —— 调用方不得就地修改。 */
+/** 取色板（**记忆化**：同一 (主题, 强调色) 只构造一次）。返回**共享对象** —— 调用方不得就地修改。
+ *
+ *  ⚠️ 缓存键 = `主题|强调色`（2026-10-11）：强调色覆盖后返回的是**新对象**，
+ *     `EFFECTS_MEMO`/`SURFACES_MEMO` 以 Palette 对象为键 ⇒ 自动跟着算，不会串味。 */
 export function paletteOf(theme: string): Palette {
-  const hit: Palette | undefined = PALETTE_MEMO.get(theme);
+  const key: string = `${theme}|${APP_ACCENT}`;
+  const hit: Palette | undefined = PALETTE_MEMO.get(key);
   if (hit !== undefined) {
     return hit;
   }
-  const p: Palette = buildPalette(theme);
+  let p: Palette = buildPalette(theme);
+  if (APP_ACCENT.length > 0) {
+    p = withAccent(p, APP_ACCENT, isDarkThemeName(theme));
+  }
   if (PALETTE_MEMO.size >= MEMO_MAX_ENTRIES) {
     PALETTE_MEMO.clear();
   }
-  PALETTE_MEMO.set(theme, p);
+  PALETTE_MEMO.set(key, p);
   return p;
 }
 

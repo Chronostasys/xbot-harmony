@@ -27,7 +27,8 @@ import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, U
 import { moveOrders, parseSearchHits, searchBody, SEARCH_LIMIT_DEFAULT, SearchBody, chatSwitchPath, chatSwitchChannel, ChatSwitchResult, parseChatSwitch } from './sessionops';
 import { RewindReq, RewindTarget, gapTopBefore, rewindTargetDBID } from './msgops';
 import { BgTask, CronJob, RunnerRow, SubAgentRow, isWidgetEvent } from './panels';
-import { serverKey, toLocalSettings } from './settings';
+import { serverKey, toLocalSettings, KEY_ACCENT } from './settings';
+import { setAppAccent } from './theme';
 import { FsEntry } from './composer';
 import { RPC_WEB_PLUGIN_LIST, rpc } from './rpc';
 import {
@@ -417,7 +418,22 @@ export class ChatStore {
     // 服务端 nil map → JSON null；只判 undefined 会把 null 交下去（toLocalSettings(null) 崩）。
     const map: Record<string, string> = isPresent(srv) ? srv as Record<string, string> : {};
     this.settings = toLocalSettings(map);
+    this.syncAppAccent();
     this.onUpdate();
+  }
+
+  /**
+   * 把 settings 里的强调色同步给 `core/theme` 的**应用级覆盖**。
+   *
+   * 为什么在这里（2026-10-11 真机实证「强调色全局空操作」的修复）：
+   *   `paletteOf(theme)` 是**唯一取色入口**，40 个组件共 80 处都走它；而"强调色叠加"此前只发生在
+   *   `pages/Index.ets` 的 `pal()` 里 ⇒ 组件（含设置面板自身）拿不到 ⇒ 标签写 `湖蓝`、按钮仍是主题紫。
+   *   现在覆盖值随 settings 落到 `core/theme`，`paletteOf` 据此自动叠加 ⇒ **全站一致**。
+   * ⛔ 组件不得直接调 `setAppAccent`（唯一写入点 = 这里）。
+   */
+  private syncAppAccent(): void {
+    const v: string | undefined = this.settings[KEY_ACCENT];
+    setAppAccent(v !== undefined ? v : '');
   }
 
   /** 保存若干设置项（本地键 → 服务端键后批量写；本地缓存同步更新，界面立即生效）。 */
@@ -429,6 +445,7 @@ export class ChatStore {
       srv[serverKey(k)] = pairs[k];
       this.settings[k] = pairs[k];
     }
+    this.syncAppAccent();
     const body: SettingsReq = new SettingsReq(srv);
     await this.http.post('/api/settings', body);
     this.onUpdate();
