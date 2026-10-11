@@ -31,8 +31,13 @@ import {
   notifyTitle,
   shouldNotify,
   withinDedupeWindow,
+  applyNotifyPrefs,
 } from '../../entry/src/main/ets/core/notify';
 import type { DomainEvent } from '../../entry/src/main/ets/core/chat_types_full';
+
+declare function require(m: 'fs'): { readFileSync(p: string, e: string): string };
+declare function require(m: 'path'): { join(...parts: string[]): string };
+declare const __dirname: string;
 
 let pass = 0, fail = 0;
 function eq(name: string, got: unknown, want: unknown): void {
@@ -194,6 +199,31 @@ function decide(appForeground: boolean, event: string, sessionAction: string, ev
 eq('组合：后台 + phase_done ⇒ 发', decide(false, 'progress_structured', '', phaseDone()), true);
 eq('组合：前台 + phase_done ⇒ 不发', decide(true, 'progress_structured', '', phaseDone()), false);
 eq('组合：后台 + session busy ⇒ 不发', decide(false, 'session', 'busy', null), false);
+
+// ── 偏好**接线**（2026-10-11 同批审计：与「强调色」同一类缺陷）────────────────────────
+// 事实：`shouldNotify`（`notify.ets:458`）与出通知正文的 `notifyBodyPlan(..., currentPrefs.detail)`
+// （`:1035`）**只读模块级 `currentPrefs`**；而它唯一的写入口 `applyNotifyPrefs` 交付时写着
+// "由页面调用（本文件不碰 UI）" —— **那个接线从未发生**（全仓 0 调用）⇒ 恒为"三类全开"＝死开关。
+// ★ 判别力（mutation 必红）：把 `core/store.ets` 里的 `applyNotifyPrefs(this.settings)` 删掉
+//   ⇒ 第 1 条「已接线」红（行为面那几条仍绿，因为本测试自己会调写入口 —— 这正是要"源码形态 + 行为"两条一起判）。
+{
+  const storeSrc: string = require('fs').readFileSync(
+    require('path').join(__dirname, '..', '..', '..', '..', 'entry/src/main/ets/core/store.ets'), 'utf-8');
+  // ⛔ 必须判**调用点**（不是方法体）：只看方法体的话，把 `this.syncNotifyPrefs()` 从
+  //    `loadSettings`/`saveSettings` 里删掉仍会绿（mutation 假绿 —— 我第一版就踩了）。
+  const calls: number = storeSrc.split('this.syncNotifyPrefs()').length - 1;
+  eq('core/store.ets 的两个 settings 落点都调用 syncNotifyPrefs（load + save）', calls, 2);
+  eq('  且该写入口真的落到 applyNotifyPrefs', storeSrc.indexOf('applyNotifyPrefs(this.settings)') >= 0, true);
+
+  applyNotifyPrefs({ 'xbot-notify-ask': '0' });
+  eq('关掉「收到提问时通知」⇒ 后台 ask 不发', shouldNotify(false, NOTIFY_KIND_ASK), false);
+  eq('  同一次设置不影响 turnDone', shouldNotify(false, NOTIFY_KIND_TURN_DONE), true);
+  applyNotifyPrefs({ 'xbot-notify-turn-done': '0' });
+  eq('关掉「回合完成时通知」⇒ 后台 turnDone 不发', shouldNotify(false, NOTIFY_KIND_TURN_DONE), false);
+  applyNotifyPrefs({});
+  eq('复位 ⇒ 两类都恢复（缺失即开，与接线前等价）',
+    shouldNotify(false, NOTIFY_KIND_ASK) && shouldNotify(false, NOTIFY_KIND_TURN_DONE), true);
+}
 
 if (fail > 0) { console.log(`  notify: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  notify: ${pass} passed, 0 failed`);

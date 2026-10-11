@@ -41,6 +41,7 @@ import {
   NOTIFY_KIND_TURN_DONE,
   TURN_DONE_DEDUPE_MS,
   appIsForeground,
+  applyNotifyPrefs,
   clearAll,
   clearForChat,
   notifyBody,
@@ -419,6 +420,7 @@ export class ChatStore {
     const map: Record<string, string> = isPresent(srv) ? srv as Record<string, string> : {};
     this.settings = toLocalSettings(map);
     this.syncAppAccent();
+    this.syncNotifyPrefs();
     this.onUpdate();
   }
 
@@ -436,6 +438,21 @@ export class ChatStore {
     setAppAccent(v !== undefined ? v : '');
   }
 
+  /**
+   * 把 settings 里的通知偏好同步给 `core/notify` 的**模块级缓存**（`applyNotifyPrefs`）。
+   *
+   * 为什么必须有它（2026-10-11 同批审计钓出，**与强调色同一类缺陷**）：
+   *   `core/notify.ets` 的 `shouldNotify`（`:458`）与出通知正文的 `notifyBodyPlan(..., currentPrefs.detail)`
+   *   （`:1035`）**都只读模块级 `currentPrefs`**；而它唯一的写入入口 `applyNotifyPrefs` 交付时写着
+   *   "由页面在设置加载/变更时调用（**本文件不碰 UI**）" —— **那个接线从未发生**（全仓 0 调用）
+   *   ⇒ `currentPrefs` 恒为 `notifyPrefsFrom({})` ＝**三类开关全开**，用户在设置里关掉
+   *   「收到提问时通知 / 回合完成时通知 / 通知显示回复内容」**全都不生效**（死开关）。
+   *   现在改在**settings 唯一落点**（本方法，与 `syncAppAccent` 同址）下沉 ⇒ 无需页面记得调。
+   */
+  private syncNotifyPrefs(): void {
+    applyNotifyPrefs(this.settings);
+  }
+
   /** 保存若干设置项（本地键 → 服务端键后批量写；本地缓存同步更新，界面立即生效）。 */
   async saveSettings(pairs: Record<string, string>): Promise<void> {
     const srv: Record<string, string> = {};
@@ -446,6 +463,7 @@ export class ChatStore {
       this.settings[k] = pairs[k];
     }
     this.syncAppAccent();
+    this.syncNotifyPrefs();
     const body: SettingsReq = new SettingsReq(srv);
     await this.http.post('/api/settings', body);
     this.onUpdate();
