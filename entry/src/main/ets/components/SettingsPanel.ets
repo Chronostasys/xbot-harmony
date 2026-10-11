@@ -43,6 +43,8 @@ import { SettingsPlugins } from './SettingsPlugins';
 import { SettingsChannels } from './SettingsChannels';
 import { fallbackTabId, SettingsTabSpec, visibleTabs } from '../core/settingsplugins';
 import { fs, fw, lh, SettingsErrorBar, SettingsPanelHeader, SettingsToolRow, tc, tk } from './SettingsRows';
+// 面板**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不在本文件自造时长/曲线；E3 统一）。
+import { sheetTransition } from './anim';
 import { KEY_NOTIFY_DETAIL, notifyPrefValue, notifyPrefsFrom, settingLabel } from '../core/settings';
 import {
   GetSettingsParams, readableRpcError, rpc, RPC_GET_SETTINGS, RPC_SET_SETTING, SETTINGS_NS_CLI, SetSettingParams,
@@ -359,5 +361,7 @@ export struct SettingsPanel {
     .height('100%')
     .alignItems(HorizontalAlign.Start)
     .padding({ left: SPACE_LG, right: SPACE_LG, top: SPACE_XS })
+    // 开合过渡（E3 统一）：与其它弹层同一条 `sheetTransition()`（滑入 + 淡入，只用 transform/opacity）。
+    .transition(sheetTransition())
   }
 }

@@ -33,6 +33,8 @@ import {
   PRESS_OPACITY, RADIUS_CARD, RADIUS_SHEET, SPACE_MD, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD,
 } from '../core/design';
 import { fs, fw } from './SettingsRows';
+// 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线；E3 统一）。
+import { sheetTransition } from './anim';
 
 /**
  * 关闭按钮**视觉**边长 ≈ 图标 17 + 2×`SPACE_XS`(8) = 33；热区靠 `responseRegion` 外扩到
@@ -221,5 +223,7 @@ export struct PluginsSheet {
     }
     .width('92%').padding(SPACE_MD).backgroundColor(this.pal().appBg)
     .borderRadius(RADIUS_SHEET).border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+    // 开合过渡（E3 统一）：与其它弹层同一条 `sheetTransition()`。
+    .transition(sheetTransition())
   }
 }
