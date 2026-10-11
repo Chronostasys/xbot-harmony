@@ -564,6 +564,7 @@ export const ICON_SM: number = 12;
 export const ICON_MD: number = 14;
 /** 大图标（触屏命中区内的操作图标；web `h-4 w-4` = 16）。 */
 export const ICON_LG: number = 16;
+export const ICON_XL: number = 20;   // 大图标档（原 22 与 20 的图标站点并入 ⇒ 见 tools/tests/icon_size_tokens.test.ts 台账）
 
 // ── 控件尺寸（设置行 / 输入 / chip）──────────────────────────────────────────
 /** 输入控件高度 = 最小命中区 44（数值与 §6 `HIT_TARGET_MIN` 同源，测试钉同值以免分叉）。 */

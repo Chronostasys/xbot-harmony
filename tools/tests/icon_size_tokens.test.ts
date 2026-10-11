@@ -1,0 +1,68 @@
+/**
+ * 图标尺寸**档常量**判据（2026-10-11，主 agent 批准的表）。
+ *
+ * 背景：`ICON_SM(12)` 等**已有档被绕过**（组件里写死字面量）。本批判类收编 **9 处**（宿主 = `SymbolGlyph`
+ * /`Image` ⇒ 图标；宿主 = `Text` ⇒ **文字，入台账**）。⚠️ **文字站点逐值为文字字号，⛔ 不许换成图标档**
+ * （本轮我自己踩到一次：正则全替会把 `MarkdownView:592`/`ToolPopover:266,312,324,406` 的文字档换掉 ⇒ 已按行号精确替换并加了 ★② 反向断言）。
+ *
+ * ⚠️ 21 个图标站点里 **12 个在禁改文件**（`Index.ets` 7 / `MessageRow` 5）⇒ 台账登记、只许缩短。
+ * ⚠️ 结尾必须 `process.exit(...)`。
+ */
+declare const process: { exit: (c: number) => void };
+declare const require: (m: string) => any;
+declare const __dirname: string;
+export {};
+
+let pass = 0, fail = 0;
+function ok(name: string, cond: boolean, extra?: string): void {
+  if (cond) { pass++; } else { fail++; console.log(`  ✗ ${name}${extra !== undefined ? `\n      ${extra}` : ''}`); }
+}
+const fsMod = require('fs');
+const pathMod = require('path');
+let repo = '';
+for (const up of ['../..', '../../..', '../../../..']) {
+  const c = pathMod.resolve(__dirname, up);
+  if (fsMod.existsSync(pathMod.join(c, 'entry/src/main/ets/components'))) { repo = c; break; }
+}
+ok('探测到仓库根', repo.length > 0);
+
+/** **未收编台账**（⛔ 只许缩短；每条须有理由）。 */
+const PENDING: string[] = [
+  'Index.ets(7): 归 chat-surface-ux 在途 ⇒ 未收编',
+  'MessageRow.ets(5): 归 chat-surface-ux 在途 ⇒ 未收编',
+  'Index.ets 的 22 档(3): 归其所有 ⇒ ICON_XL 的 22 侧未收编',
+];
+if (repo.length > 0) {
+  const count = (rel: string, needle: string): number => {
+    const src: string = fsMod.readFileSync(pathMod.join(repo, rel), 'utf-8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    let n = 0, i = 0;
+    while ((i = src.indexOf(needle, i)) >= 0) { n++; i += needle.length; }
+    return n;
+  };
+  // ★① 收编分布（零扫描判红：合计 > 0）
+  const WANT: string[][] = [
+    ['entry/src/main/ets/components/Lightbox.ets', 'fontSize(ICON_LG)'],
+    ['entry/src/main/ets/components/MarkdownView.ets', 'fontSize(ICON_SM)'],
+    ['entry/src/main/ets/components/PluginsSheet.ets', 'fontSize(ICON_LG)'],
+    ['entry/src/main/ets/components/QueueSheet.ets', 'fontSize(ICON_LG)'],
+    ['entry/src/main/ets/components/ToolPopover.ets', 'fontSize(ICON_SM)'],
+    ['entry/src/main/ets/components/SelfCheckSheet.ets', 'fontSize(ICON_XL)'],
+  ];
+  let total = 0;
+  for (let i = 0; i < WANT.length; i++) {
+    const n: number = count(WANT[i][0], WANT[i][1]); total += n;
+    ok(`★① ${WANT[i][0].split('/').pop()} 走 ${WANT[i][1]}（实得 ${n}）`, n >= 1);
+  }
+  ok(`★① 零扫描判红：收编命中合计 ${total}（> 0）`, total > 0);
+  // ★② **反向**：文字站点**不得**被误改成图标档（本轮实测踩过）
+  ok('★② MarkdownView 仍保留文字档 fontSize(12)（未被误改）', count('entry/src/main/ets/components/MarkdownView.ets', 'fontSize(12)') >= 1);
+  ok('★② ToolPopover 仍保留 4 处文字档 fontSize(12)', count('entry/src/main/ets/components/ToolPopover.ets', 'fontSize(12)') >= 4);
+  // ★③ ICON_XL 已定义且**有消费**（⛔ 不留零消费常量）
+  ok('★③ design.ets 定义 ICON_XL = 20', count('entry/src/main/ets/core/design.ets', 'export const ICON_XL: number = 20;') === 1);
+  ok('★③ 且被 SelfCheckSheet 的 3 处消费', count('entry/src/main/ets/components/SelfCheckSheet.ets', 'fontSize(ICON_XL)') === 3);
+  ok(`★④ 台账登记未收编项（${PENDING.length} 条，各带理由；⛔ 只许缩短）`, PENDING.length > 0);
+}
+if (fail > 0) { console.log(`  icon_size_tokens: ${pass} passed, ${fail} failed`); process.exit(1); }
+console.log(`  icon_size_tokens: ${pass} passed, 0 failed`);
+process.exit(0);

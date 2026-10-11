@@ -9,8 +9,7 @@
 import { Palette, paletteOf } from '../core/theme';
 import { FS_CAPTION, FS_TITLE, R_LG, R_XL, SP_2, SP_3 } from '../core/tokens';
 import {
-  HIT_TARGET_MIN, PRESS_OPACITY, GAP_PILL, INSET_CARD_X, INSET_PILL_X, INSET_PILL_Y, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, hairlineOf, surfaceFillOf,
-} from '../core/design';
+  HIT_TARGET_MIN, PRESS_OPACITY, GAP_PILL, INSET_CARD_X, INSET_PILL_X, INSET_PILL_Y, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, hairlineOf, surfaceFillOf, ICON_XL, ICON_LG } from '../core/design';
 import { fs, fw } from './SettingsRows';
 import { MarkdownView } from './MarkdownView';
 
@@ -37,7 +36,7 @@ export struct SelfCheckSheet {
       Row() {
         Text('渲染自检').fontSize(FS_TITLE).fontWeight(fw('type.headline'))
           .fontColor(this.pal().textPrimary).layoutWeight(1)
-        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17)
+        SymbolGlyph($r('sys.symbol.xmark')).fontSize(ICON_LG)
           .fontColor([this.pal().textSecondary]).padding(SP_2)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
@@ -114,12 +113,12 @@ export struct SelfCheckSheet {
           Column({ space: 6 }) {
             Text('H 顶栏内联布局').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%')
             Row() {
-              SymbolGlyph($r('sys.symbol.line_3_horizontal')).fontSize(20)
+              SymbolGlyph($r('sys.symbol.line_3_horizontal')).fontSize(ICON_XL)
                 .fontColor([this.pal().textPrimary]).padding(10)
               Text('标题文本').fontSize(fs('type.body')).fontColor(this.pal().textPrimary).layoutWeight(1)
-              SymbolGlyph($r('sys.symbol.square_grid_2x2')).fontSize(20)
+              SymbolGlyph($r('sys.symbol.square_grid_2x2')).fontSize(ICON_XL)
                 .fontColor([this.pal().textPrimary]).padding(10)
-              SymbolGlyph($r('sys.symbol.gearshape')).fontSize(20)
+              SymbolGlyph($r('sys.symbol.gearshape')).fontSize(ICON_XL)
                 .fontColor([this.pal().textPrimary]).padding(10)
             }.width('100%').backgroundColor(surfaceFillOf(this.pal(), 'surface.raised'))
           }.width('100%').padding(SP_2).backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD)).borderRadius(R_LG)

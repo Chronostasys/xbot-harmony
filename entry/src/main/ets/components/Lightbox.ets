@@ -29,8 +29,7 @@ import image from '@ohos.multimedia.image';
 import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
 import {
   ELEV_OVERLAY, PRESS_OPACITY, RADIUS_CARD, SPACE_SM, SPACE_XS, STROKE_HAIRLINE,
-  colorOf, elevationColorOf, hairlineOf, surfaceFillOf, typeOf,
-} from '../core/design';
+  colorOf, elevationColorOf, hairlineOf, surfaceFillOf, typeOf, ICON_LG } from '../core/design';
 import {
   clampOffset, clampScale, isZoomed, nextZoom, panLimit, scaleText, shouldDismissBySwipe,
 } from '../core/imgops';
@@ -135,7 +134,7 @@ export struct Lightbox {
       }
       // 按下反馈（统一口径：值取 `PRESS_OPACITY`；与背板/关闭/复位同一常量）。
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-      SymbolGlyph($r('sys.symbol.xmark')).fontSize(17)
+      SymbolGlyph($r('sys.symbol.xmark')).fontSize(ICON_LG)
         .fontColor([colorOf(this.pal(), 'textSecondary')])
         .padding(SPACE_XS)
         // 按下反馈（统一口径；与复位/SaveButton 同一常量）。

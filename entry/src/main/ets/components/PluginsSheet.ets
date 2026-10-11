@@ -30,8 +30,7 @@ import { PluginCatalogItem } from '../core/pluginhost';
 import { PluginPanelStatus, pluginMetaText, pluginPanelStatus } from '../core/pluginview';
 import {
   colorOf, GAP_ROW_Y, hairlineOf, structuralRuleOf, surfaceFillOf, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y,
-  PRESS_OPACITY, RADIUS_CARD, RADIUS_SHEET, SPACE_MD, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD,
-} from '../core/design';
+  PRESS_OPACITY, RADIUS_CARD, RADIUS_SHEET, SPACE_MD, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD, ICON_LG } from '../core/design';
 import { fs, fw } from './SettingsRows';
 // 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线；E3 统一）。
 import { sheetTransition } from './anim';
@@ -123,7 +122,7 @@ export struct PluginsSheet {
       Row() {
         Text('能力面板').fontSize(fs('type.headline')).fontWeight(fw('type.headline'))
           .fontColor(this.pal().textPrimary).layoutWeight(1)
-        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17)
+        SymbolGlyph($r('sys.symbol.xmark')).fontSize(ICON_LG)
           .fontColor([this.pal().textSecondary]).padding(SPACE_XS)
           .responseRegion({
             x: -CLOSE_HIT_PAD, y: -CLOSE_HIT_PAD,

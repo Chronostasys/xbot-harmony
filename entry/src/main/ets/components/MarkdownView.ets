@@ -13,8 +13,7 @@ import {
   MD_TABLE_CELL_Y, MD_TABLE_SIZE, MdHeading, mdHeadings, typeOf, SPACE_HAIR,
   // `#13` 视觉裁决（`docs/WEB-ALIGNMENT.md §16.2 #13`）：代码块底 = `surface.well`(sunken)、
   // 圆角 = `RADIUS_CARD`、边 = 结构性发丝 `hairlineOf`。
-  PRESS_OPACITY, RADIUS_CARD, hairlineOf, wellOf,
-} from '../core/design';
+  PRESS_OPACITY, RADIUS_CARD, hairlineOf, wellOf, ICON_SM } from '../core/design';
 import { COPY_FEEDBACK_MS, copyLabel } from '../core/feedback';
 import {
   MdBlock, MdBlockKind, MdSpan, alignOf, parseInlineCached, parseMarkdownCached,
@@ -575,7 +574,7 @@ export struct MarkdownView {
           // 图标走系统符号（项目纪律：禁 emoji/字符图标；`square_grid_2x2` 语义 = 网格/表格，
           // 已在仓内其它处使用过，符号名已核实存在于 sys.symbol 资源）。
           SymbolGlyph($r('sys.symbol.square_grid_2x2'))
-            .fontSize(12).fontColor([this.pal().textSecondary])
+            .fontSize(ICON_SM).fontColor([this.pal().textSecondary])
             .flexShrink(0)
           Text(`表格（${b.header.length} 列 · ${b.rows.length} 行）`)
             .fontSize(11).fontColor(this.pal().textSecondary)
