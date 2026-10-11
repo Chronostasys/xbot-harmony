@@ -30,6 +30,13 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   `run.sh` 只把 `core/**` 当纯 TS 编译，`lint`/`typecheck` 也不碰 ArkUI 组件与页面 ⇒ 组件/页面的
   ArkTS 严格性与类型错误（如 `Stack` 无 `justifyContent`、调用联合类型、SDK 版本门限）**一个都抓不到**。
   唯一判据是 `hvigorw assembleHap` 打出 `BUILD SUCCESSFUL`。
+  **推论（2026-10-11 我连踩两次，实测）**：**新增/修改的判据脚本必须先在"门禁同环境"自证** ——
+  ① 先 `source ~/ohos-cli/env.sh` 再跑（否则 `${var}`+全角括号那条 GOTCHA、以及 UTF-8 locale
+  相关的行为**不复现**：我新写的 ⑥b 单独跑绿、进门禁必挂 `unbound variable` ⇒ 直接红给全部并行线）；
+  ② 跑一次**真门禁**确认它在门禁里真绿（别只看单独跑）；
+  ③ 做 **mutation 自证**：注入一个"必红样本"⇒ 必须红、同副本不注入 ⇒ 必须绿；
+  ④ 抓取规则要**只取调用片段**（`grep -o`），别"取整行第一个引号"（我把 `Text('保存').fontSize(
+  typeOf('type.subhead')…)` 误判成 `typeOf('保存')` ⇒ 假红）；⑤ 扫到 0 处要**判红**（白绿防线）。
 - **ArkUI `CustomComponent` 基类的成员名不能用作组件成员名**：`size`/`width`/`height`/`position`/
   `offset`/`scale`/`rotate`/`opacity`/`visibility`/`clip`/`zIndex`/`id`/`key`（以及 `onClick` 等事件名）。
   写成 `@Prop size: number` 会报 `10505001 Property 'size' in type 'X' is not assignable to the same
