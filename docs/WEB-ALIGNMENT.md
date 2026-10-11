@@ -454,36 +454,44 @@ web：`reasoningCount = reasoningStreaming ? rw.visibleChars : length`，且**�
 同时补 **`lastReasoning` 兜底**（`core/integrate.ts`）：`reasoningStreamContent || lastReasoning || ''`，
 与 web `LiveIteration` 逐字一致 —— 只取流式字段时，结构化快照携带的 reasoning 会整段丢失。
 
-### 13.3 live 工具状态：**`live?` 必须是显式输入**（真机实测 + 服务端源码依据）
+### 13.3 live 工具状态：**一律以后端 `status` 为准**（⛔ 本节曾裁决"live pending⇒执行中"，已废止）
 
-> ⛔ **本节是权威裁决，任何"只看 raw status"的实现都是回归。**
-> 批次 22 真事故：`core/toolstatus.ets:12-19` 曾把本节裁决**反向**写进注释
-> （"一律按 raw status 分支 …否则排队/生成中都会显示执行中"）⇒ 用户 2026-10-11 再次报
-> 「**executing 的 tool 被当成排队**」，**与本条 10-10 的那次报告一字不差**。
+> ⛔ **历史与教训（批次 22 记档，别再犯）**
+> 本节最初裁决「live 块的 `pending` 一律按**执行中**渲染」，依据是服务端 `engine_run_tools.go:49-64`
+> 把**整批**工具先建为 `ToolPending`、各 goroutine 启动时才翻 `ToolRunning`（`:150`）。
+> **该裁决已被回退，不要重新引入**，理由三条：
+> 1. **用户常驻要求 = 「状态一律以后端为准」**（本项目硬约束）。私改判违背它；
+> 2. **它治的是症、不是因**：用户 10-10 / 10-11 两次看到的"executing 却显示排队"，**真因是
+>    `mergeTools` 缺状态优先级（rank）** —— 陈旧的 `active_tools` 快照（仍是 `pending`）**盖掉了**
+>    更新的 `running`/`done`。把 `pending` 私改判成"执行中"只是**掩盖**了这个排序缺陷；
+> 3. **代价是丢掉一整档语义**：`pending` 就是真的排队（工具有并行有串行）⇒ 私改判让「排队」档
+>    整个消失，反而失真（`components/LiveTailView.ets:171-177` 的注释即为此回退的记录）。
+>
+> **正确做法**：`pending` 在 **live 与 committed 两块都是「排队」**；用户报的两个方向各由一处修复解决 ——
+> ① "executing 显示排队" ⇒ **rank 终态优先**（`core/streammerge.ets` 的 `toolRank`，web 权威
+> `progressStore.ts:339-364`）；② "generating 显示执行中" ⇒ **`generating` 独立档**、缺字数回落
+> 「生成中…」（`core/toolstatus.ets`）。
 
-**依据**：服务端 `engine_run_tools.go:49-64` 把**整批**工具先建为 `ToolPending`，随后**每条工具的
-goroutine 启动时**才翻 `ToolRunning`（`:150`）⇒ **live 块里正在执行的工具经常仍是 `pending`**。
+**唯一判据**（`core/toolstatus.ets`，全项目只此一处；`live` 只影响"是否在飞"，**绝不影响文案/档位/颜色**）：
 
-**权威表**（一个纯函数产出「文案 / 是否在飞(形态)」，`live` 与 `raw` 同为入参）：
-
-| 块 | raw status | 文案 | 在飞（扫光/空心点形态） |
+| raw status | 文案 | 色角色 | 在飞（扫光/光球） |
 |---|---|---|---|
-| **live** | `pending` | **执行中**（⚠️ **不是**「排队」） | 是 |
-| **live** | `generating` | **`生成中 N 字`**；字数缺失/0 ⇒ **`生成中…`** | 是 |
-| **live** | `running` | 执行中（可带时长） | 是 |
-| **live** | `error` / `exit≠0` | 失败 exit N / 失败 | 否 |
-| **live** | `killed`/`aborted`/`cancelled` | 已终止 | 否 |
-| **committed** | 严格按服务端终态 | `done` ⇒ **无 chip**（安静）；其余同左表 | 仅 `running`/`generating` |
+| `pending` | **排队** | `muted` | `live` 块内：**是**（对齐 web `streaming:true` 语义）；committed：否 |
+| `generating` | **`生成中 N 字`** / 缺字数 ⇒ **`生成中…`**（⛔ 绝不「执行中」） | `accent` | 是 |
+| `running` | 执行中（可带时长） | `accent` | 是 |
+| `error` / `failed`（同义档）/ `exit≠0` | 失败 exit N / 失败 | `danger` | 否 |
+| `killed`/`aborted`/`cancelled` | 已终止 | `muted` | 否 |
+| `done`（committed） | **无 chip**（安静） | `success` | 否 |
 
-**要点**
-1. **`generating` 在任何块都不得显示「执行中」**（用户原话另一半）。
-2. **committed 块不受本节放宽影响**：终态才是它的语义。
-3. **与 web 的差异是"经批准的分歧"，不是笔误**：web `FoldedToolGroup.tsx:211` 对 `pending` 一律
-   输出 `Queued`；我们**只在 live 块**把它渲染为"执行中"，因为服务端状态**落后于事实**（上引源码）。
-   web 靠 `streaming:true` 的扫光表达"在飞"，我们两端都给（文案 + 形态）。
-4. **同一状态只能有四处判据里的"一处"**：`pill` / `浮层` / `live 行` / 溢出列表项**必须**共用
-   同一纯函数与同一映射表（状态→颜色亦然）。批次 22 审计实测：原生曾把状态→颜色写了 **4 份**、
-   浮层自带第二套 `badge()/color()`，其中 `killed` 在 live 浮层被画成**绿色**。
+**同一状态只能有"一处"判据**：`pill` / `浮层` / `live 行` / 溢出列表项**必须**共用同一纯函数与同一
+映射表（状态→颜色亦然）。批次 22 审计实测：原生曾把状态→颜色写了 **4 份**、浮层自带第二套
+`badge()/color()`，其中 `killed` 在 live 浮层被画成**绿色**；`MessageRow.toolLabel`、
+`LiveTailView.label()` 都是死代码。
+
+**三条闸门断言（防复发，缺一不可）**：
+① 陈旧 `pending` 不得覆盖新的 `running`/`done`（rank）；
+② `generating` 不得回落「执行中」；
+③ `pending` 不得被私改判成「执行中」（即重新引入本节已废止的写法 ⇒ 必须红）。
 
 ### 13.4 浮层：FileCreate 内容按语言高亮 + 代码块横向滚动
 

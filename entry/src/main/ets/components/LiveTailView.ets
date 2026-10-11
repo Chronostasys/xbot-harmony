@@ -22,8 +22,8 @@ import { MOTION_BEAT_MS } from './anim';
 import { MarkdownView } from './MarkdownView';
 import { ThinkingLine } from './ThinkingLine';
 import { AssistantOrb, ORB_MODE_THINKING, ORB_MODE_TOOL, ORB_MODE_SECONDARY } from './AssistantOrb';
-import { ToolPill } from './ToolVisual';
-import { isLiveStatus, statusChip, toolStatusKind } from '../core/toolstatus';
+import { ToolPill, statusColorOf } from './ToolVisual';
+import { isLiveStatus, renderKind, statusChip } from '../core/toolstatus';
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
 
 /** 单工具浮层宽度（对齐 web 浮层 430px；手机端收窄）。 */
@@ -99,7 +99,7 @@ export struct LiveTailView {
 
   /** 工具是否处于"在飞"（运行/生成中）—— 决定发光。判定收敛在 `core/toolstatus`。 */
   private live(t: ToolProgress): boolean {
-    return isLiveStatus(toolStatusKind(t.status, t.exit_code));
+return isLiveStatus(this.kind(t));
   }
 
   /**
@@ -177,7 +177,7 @@ export struct LiveTailView {
    *   「以后端数据为准」）。
    */
   private kind(t: ToolProgress): string {
-    return toolStatusKind(t.status, t.exit_code);
+return renderKind(t.status, t.exit_code, true);
   }
 
   /** 状态 chip 文案（空 = 无 chip）。 */
@@ -315,43 +315,15 @@ export struct LiveTailView {
     return clipRunes(this.reasoning, this.visReason);
   }
 
-  /** 工具状态角标（generating 带字数 / running 带时长 / error 带 exit）。 */
-  private badge(t: ToolProgress): string {
-    if (t.status === 'generating') {
-      const n: number = t.gen_chars !== undefined ? t.gen_chars : 0;
-      return n > 0 ? `生成中 ${n} 字` : '生成中…';
-    }
-    if (t.status === 'running') {
-      const ms: number = t.elapsed_ms !== undefined ? t.elapsed_ms : 0;
-      return ms > 0 ? `${(ms / 1000).toFixed(1)}s` : '运行中';
-    }
-    if (t.status === 'error') {
-      return t.exit_code !== undefined && t.exit_code !== 0 ? `失败 exit ${t.exit_code}` : '失败';
-    }
-    if (t.status === 'pending') {
-      return '排队';
-    }
-    return '';
-  }
-
+  /**
+   * 工具状态色 —— **唯一配色表**在 `components/ToolVisual.ets:statusColorOf`（语义角色 → 主题色）。
+   *
+   * ⛔ 本组件**不再**自带第二套"状态→颜色"判据（批次22 审计：全项目曾有 **4 份**实现，
+   *   其中 `killed` 在 live 浮层被画成**绿色**）。状态→文案同理 —— 一律走 `core/toolstatus`
+   *   的 `statusChip`（见 `chip()`）；本文件原先的 `badge()`/`label()` 已删。
+   */
   private color(t: ToolProgress): string {
-    if (t.status === 'error' || (t.exit_code !== undefined && t.exit_code !== 0)) {
-      return this.pal().dangerText;
-    }
-    if (t.status === 'running' || t.status === 'generating') {
-      return this.pal().accentSoft;
-    }
-    if (t.status === 'pending') {
-      return this.pal().textMuted;
-    }
-    // 成功：语义色浅形态（降低饱和）
-    return this.pal().successText;
-  }
-
-  private label(t: ToolProgress): string {
-    const base: string = t.label !== undefined && t.label.length > 0 ? t.label : t.name;
-    const b: string = this.badge(t);
-    return b.length > 0 ? `${base} ${b}` : base;
+    return statusColorOf(this.kind(t), this.theme);
   }
 
   // ── 工具 pill 折叠 / 浮层（对齐 web `MergedPills` + `LazyPillPopover`）──────────
@@ -375,7 +347,7 @@ export struct LiveTailView {
   private popVM(): ToolDetailVM {
     const t: ToolProgress | undefined = this.popTool();
     const c: string = t !== undefined ? this.color(t) : this.pal().textMuted;
-    const b: string = t !== undefined ? this.badge(t) : '';
+    const b: string = t !== undefined ? this.chip(t) : '';
     return toolDetailVM(t, c, b);
   }
 
@@ -422,6 +394,7 @@ export struct LiveTailView {
     ToolOverflowList({
       tools: foldPills(this.tools).hidden,
       theme: this.theme,
+      live: true,
     })
   }
 
@@ -565,7 +538,7 @@ export struct LiveTailView {
               .gesture(LongPressGesture().onAction(() => {
                 this.onToolLongPress(t.name);
               }))
-            }, (t: ToolProgress, i: number) => `lt-${i}#${t.name}#${t.status}`)
+            }, (t: ToolProgress, i: number) => `lt-${i}#${t.name}#${t.call_id !== undefined ? t.call_id : ''}`)
             if (this.hideN() > 0) {
               this.OverflowBadge()
             }
