@@ -16,6 +16,10 @@ declare const process: { exit: (c: number) => void };
 import {
   ORB_BREATH_MS, ORB_SPIN_MS, ORB_BREATH_MIN, ORB_BREATH_MAX,
   ORB_OPACITY_MIN, ORB_OPACITY_MAX, ORB_RING_RADIUS,
+  ORB_PARTICLE_BAND_MIN, ORB_PARTICLE_BAND_MAX,
+  ORB_PARTICLE_SIZE_MIN, ORB_PARTICLE_SIZE_MAX,
+  ORB_PARTICLE_ALPHA_MIN, ORB_PARTICLE_ALPHA_MAX, ORB_PARTICLE_ANGLE_JITTER,
+  ORB_CORE_SOLID_STOP, ORB_CORE_MID_STOP, ORB_HALO_DECAY_STOP,
   ORB_FPS_MAIN, ORB_FPS_THINKING, ORB_FPS_SECONDARY, ORB_FPS_IDLE, orbTargetFps,
   OrbParticle, orbPhase, orbBreath, orbRadius, orbOpacity, orbParticles, orbWave,
 } from '../../entry/src/main/ets/core/orb';
@@ -52,6 +56,22 @@ ok('呼吸最小比例 < 1（会收缩）', ORB_BREATH_MIN < 1);
 ok('呼吸最大比例 > 1（会涨出，有活感）', ORB_BREATH_MAX > 1);
 ok('透明度上下限合法', ORB_OPACITY_MIN >= 0 && ORB_OPACITY_MAX <= 1 && ORB_OPACITY_MIN < ORB_OPACITY_MAX);
 ok('粒子环基准半径 ∈ (0,1)', ORB_RING_RADIUS > 0 && ORB_RING_RADIUS < 1);
+
+// ── (a2) 粒子「精度」量程 + 绘制几何停靠点（**收窄/收敛的量化判据**；放宽即红）────────────
+// 判别力自证：把尺寸量程改回 `0.6 + 1.6*h`（3.67×） ⇒ '尺寸量程比 ≤ 2.5' 红；
+//            把透明度量程改回 `0.25 + 0.75*h`（4×） ⇒ '透明度量程比 ≤ 2.5' 红；
+//            把核主色停靠点 0.68 改回 0.55 并与 SOLID 拉平 ⇒ '停靠点有序' 红。
+ok('粒子径向带 ∈ (0,1) 且 MIN<MAX',
+  ORB_PARTICLE_BAND_MIN > 0 && ORB_PARTICLE_BAND_MAX < 1 && ORB_PARTICLE_BAND_MIN < ORB_PARTICLE_BAND_MAX);
+ok('粒子尺寸量程 > 0 且 MIN<MAX', ORB_PARTICLE_SIZE_MIN > 0 && ORB_PARTICLE_SIZE_MIN < ORB_PARTICLE_SIZE_MAX);
+ok('尺寸量程比 ≤ 2.5（克制：不收窄会红）', ORB_PARTICLE_SIZE_MAX / ORB_PARTICLE_SIZE_MIN <= 2.5);
+ok('透明度量程比 ≤ 2.5（克制：原 4× 会红）', ORB_PARTICLE_ALPHA_MAX / ORB_PARTICLE_ALPHA_MIN <= 2.5);
+ok('透明度 ∈ (0,1]', ORB_PARTICLE_ALPHA_MIN > 0 && ORB_PARTICLE_ALPHA_MAX <= 1);
+ok('角偏移 ∈ (0, 0.1]（打破完全均匀，但不散）',
+  ORB_PARTICLE_ANGLE_JITTER > 0 && ORB_PARTICLE_ANGLE_JITTER <= 0.1);
+ok('核渐变停靠点有序 0 < SOLID < MID < 1',
+  ORB_CORE_SOLID_STOP > 0 && ORB_CORE_SOLID_STOP < ORB_CORE_MID_STOP && ORB_CORE_MID_STOP < 1);
+ok('光晕衰减停靠点 ∈ (0,1)（边缘留白 ⇒ 干净）', ORB_HALO_DECAY_STOP > 0 && ORB_HALO_DECAY_STOP < 1);
 
 // ── (b) orbPhase：归一化 + 边界 + 回绕 ───────────────────────────────────────
 eq('orbPhase(0) = 0', orbPhase(0, P), 0);
@@ -128,6 +148,18 @@ ok('粒子落单位圆内（x²+y² ∈ [0.5,1]）', (() => {
 ok('粒子 r>0 且 a ∈ [0,1]', (() => {
   for (const p of ps) {
     if (!(p.r > 0) || p.a < -EPS || p.a > 1 + EPS) { console.log('      breach r=' + p.r + ' a=' + p.a); return false; }
+  }
+  return true;
+})());
+// 收窄后的量程必须**真的生效**（不只是常量声明对；粒子实际落点也要在带内/量程内）。
+ok('粒子实际落在新尺寸/透明度量程内', (() => {
+  for (const p of ps) {
+    if (p.r < ORB_PARTICLE_SIZE_MIN - EPS || p.r > ORB_PARTICLE_SIZE_MAX + EPS) {
+      console.log('      size breach r=' + p.r); return false;
+    }
+    if (p.a < ORB_PARTICLE_ALPHA_MIN - EPS || p.a > ORB_PARTICLE_ALPHA_MAX + EPS) {
+      console.log('      alpha breach a=' + p.a); return false;
+    }
   }
   return true;
 })());
@@ -246,6 +278,13 @@ hasNot(drawBody, 'paletteOf(', 'draw() 内不调 paletteOf（每帧零对象/字
 hasNot(drawBody, 'effectsOf(', 'draw() 内不调 effectsOf');
 has(orbSrc, 'if (this.paintDirty) {', '绘制色在 theme 变化时预解析（OrbPaint 缓存）');
 has(orbSrc, 'private buildPaint(): void {', '预解析入口存在');
+// (h5b) 绘制几何**收敛到命名停靠点**（不再有 0.55 魔数）；tool 细环"变亮"线索在位
+has(orbSrc, 'core.addColorStop(ORB_CORE_SOLID_STOP, paint.coreInner);', '核实心平台用命名停靠点（旧 0.55 魔数已收敛）');
+has(orbSrc, 'core.addColorStop(ORB_CORE_MID_STOP, paint.coreOuter);', '核主色停靠点用命名常量');
+has(orbSrc, 'halo.addColorStop(ORB_HALO_DECAY_STOP, paint.clear);', '光晕衰减停靠点用命名常量（画布边缘留白）');
+hasNot(orbSrc, 'addColorStop(0.55', 'draw() 内不再有 0.55 魔数');
+has(orbSrc, 'const ORB_TOOL_STROKE_SPAN: number = 0.8;', 'tool 细环增益常量在位（静态可辨补充线索）');
+has(orbSrc, '1 + ORB_TOOL_STROKE_SPAN * this.colorMix', 'tool 细环增益由**已缓动**的 colorMix 驱动（换态不硬切）');
 // (h6) ArkTS 基类成员名黑名单（10505001）：不得用这些名字做组件成员
 const banned: string[] = ['size', 'width', 'height', 'position', 'offset', 'scale', 'rotate',
   'opacity', 'visibility', 'clip', 'zIndex', 'id', 'key', 'enabled'];

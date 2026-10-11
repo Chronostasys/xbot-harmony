@@ -36,8 +36,46 @@ export const ORB_BREATH_MAX: number = 1.06;
 export const ORB_OPACITY_MIN: number = 0.55;
 /** 呼吸透明度上限。 */
 export const ORB_OPACITY_MAX: number = 1.0;
-/** 粒子环基准半径（单位圆比例；粒子在 [0.72,0.98] 上抖动，见 `orbParticles`）。 */
+/** 粒子环基准半径（单位圆比例；粒子落 `[ORB_PARTICLE_BAND_MIN, ORB_PARTICLE_BAND_MAX]`，见 `orbParticles`）。 */
 export const ORB_RING_RADIUS: number = 0.9;
+
+// ── 粒子环的「精度」量程（**收窄** ⇒ 读作"一圈**精确**的光点"，而非"随机噪点"）───────────
+// 背景：用户口令「比 Siri 好看 / 极简 / 干净」。20vp 下，粒子的**抖动量程**决定它读作
+// "精密的一圈光"还是"一团随机糊点"。原来 size 量程 0.6–2.2（**3.67×**）、alpha 量程
+// 0.25–1.0（**4×**）⇒ 最小最暗的粒子几乎"脏点"。收窄到 ~2× 后，每枚都"亮着"、只是有
+// 前后层次 —— 这是"克制与精度"的量化落点（门禁 `tools/tests/orb.test.ts` 钉住比值上限）。
+/** 粒子径向带内缘（单位圆比例）。 */
+export const ORB_PARTICLE_BAND_MIN: number = 0.78;
+/** 粒子径向带外缘（单位圆比例）—— 环是**有宽度的带**，不是一条细线。 */
+export const ORB_PARTICLE_BAND_MAX: number = 0.96;
+/** 粒子尺寸因子下限（相对基准）。 */
+export const ORB_PARTICLE_SIZE_MIN: number = 0.85;
+/** 粒子尺寸因子上限（原 2.2 ⇒ 3.67× 量程；收窄到 1.75 ⇒ ~2.06×）。 */
+export const ORB_PARTICLE_SIZE_MAX: number = 1.75;
+/** 粒子透明度下限（原 0.25 ⇒ 过暗读作"脏"；提到 0.45）。 */
+export const ORB_PARTICLE_ALPHA_MIN: number = 0.45;
+/** 粒子透明度上限。 */
+export const ORB_PARTICLE_ALPHA_MAX: number = 1.0;
+/** 角偏移量：极小 ⇒ 打破"完全均匀"的机械感，但保持"精确的一圈"（原 0.15 偏散）。 */
+export const ORB_PARTICLE_ANGLE_JITTER: number = 0.08;
+
+// ── 绘制几何（渐变停靠点；**单一来源**，组件不再自带魔数；可脱机断言）────────────────
+/**
+ * 光核渐变的**实心亮心占比**：`0 → 该比例` 保持亮心色，之后才混向主色。
+ * 为什么：原来 `亮心@0 → 主色@0.55` 是**从圆心立即**开始混色 ⇒ 20vp 下读作"一团糊光"；
+ * 给亮心一小段"实心平台"⇒ 读作"**一颗有体积的实心核** + 一圈柔光晕"（更精确、更像珠子）。
+ */
+export const ORB_CORE_SOLID_STOP: number = 0.28;
+/**
+ * 光核渐变的**主色停靠点**：`实心平台 → 该比例` 由亮心混到主色，之后向全透明衰减。
+ * 由旧 0.55 提到 0.68 ⇒ 外缘"尾巴"更短 ⇒ 核的边界更**锐利/收敛**（不是糊开一片）。
+ */
+export const ORB_CORE_MID_STOP: number = 0.68;
+/**
+ * 外光晕的衰减停靠点（< 1）：光晕在**画布边缘之前**就归零 ⇒ 留出干净的透明留白，
+ * 不与邻接内容（文字/气泡）糊在一起（"干净"的关键；原实现光晕一直顶到画布边）。
+ */
+export const ORB_HALO_DECAY_STOP: number = 0.82;
 
 /** 环绕光点（单位圆坐标 x/y ∈ [-1,1]；r = 尺寸因子；a = 透明度 [0,1]）。 */
 export class OrbParticle {
@@ -116,13 +154,14 @@ export function orbParticles(count: number, t: number, seed: number, turnMs: num
     const hA: number = hash01(seed * 7.1 + i * 1.7);
     const hR: number = hash01(seed * 3.3 + i * 2.9);
     const hS: number = hash01(seed * 5.7 + i * 4.1);
-    const angle: number = (i / n + spin + hA * 0.15) * 2 * Math.PI;
-    const radius: number = 0.72 + 0.26 * hR;
+    const angle: number = (i / n + spin + hA * ORB_PARTICLE_ANGLE_JITTER) * 2 * Math.PI;
+    const radius: number =
+      ORB_PARTICLE_BAND_MIN + (ORB_PARTICLE_BAND_MAX - ORB_PARTICLE_BAND_MIN) * hR;
     out.push(new OrbParticle(
       Math.cos(angle) * radius,
       Math.sin(angle) * radius,
-      0.6 + 1.6 * hS,
-      0.25 + 0.75 * hA,
+      ORB_PARTICLE_SIZE_MIN + (ORB_PARTICLE_SIZE_MAX - ORB_PARTICLE_SIZE_MIN) * hS,
+      ORB_PARTICLE_ALPHA_MIN + (ORB_PARTICLE_ALPHA_MAX - ORB_PARTICLE_ALPHA_MIN) * hA,
     ));
   }
   return out;

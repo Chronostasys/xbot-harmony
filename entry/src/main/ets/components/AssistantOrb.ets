@@ -52,6 +52,7 @@ import { Palette, paletteOf, Effects, effectsOf, isLightPalette, surfacesOf, rel
 import {
   ORB_SPIN_MS, ORB_BREATH_MIN, ORB_BREATH_MAX,
   ORB_OPACITY_MIN, ORB_OPACITY_MAX, ORB_RING_RADIUS,
+  ORB_CORE_SOLID_STOP, ORB_CORE_MID_STOP, ORB_HALO_DECAY_STOP,
   ORB_FPS_MAIN, ORB_FPS_SECONDARY, ORB_FPS_IDLE, orbTargetFps,
   OrbParticle, orbRadius, orbOpacity, orbParticles, orbWave,
 } from '../core/orb';
@@ -78,6 +79,17 @@ const ORB_QUIET_MS: number = MOTION_QUIET_MS;
 const ORB_HALO_ALPHA: number = 0.9;
 /** 外光晕不透明度（浅色系：中性柔影已很淡，再收一点避免白底发灰雾）。 */
 const ORB_HALO_ALPHA_LIGHT: number = 0.7;
+/**
+ * `tool` 态：细环（"仪器环"）的强度增益（0 = 不变）。
+ *
+ * 为什么需要它：**porcelain/light 主题下 `statusRunning` 与 `accent` 同为 `#0071E3`**
+ * （`core/theme.ets:343` / `:170`）⇒ `tool` 与 `thinking` 的**环色相同**，"工具在跑"只剩
+ * "公转快 2.2×"这一个**动态**线索 —— **静帧下不可辨**（违反"一眼可辨"）。
+ * 这里让细环在 `tool` 态**变亮**（一个**静态**、与颜色无关的维度）作为补充线索，
+ * 且强度由已缓动的 `colorMix` 驱动 ⇒ 换态不硬切（见 `draw()`）。
+ * ⛔ 不是新造动效：细环本身在既有 30/20fps 循环里画，只是"画得更亮"。
+ */
+const ORB_TOOL_STROKE_SPAN: number = 0.8;
 /** 进场起始缩放（弹簧放大到 1）—— 与 `anim.ets` 的 spring 曲线配合。 */
 const ORB_ENTER_SCALE: number = 0.86;
 
@@ -589,9 +601,11 @@ export struct AssistantOrb {
 
     ctx.clearRect(0, 0, s, s);
 
-    // ① 外发光：半透明光晕 → 全透明 的径向渐变（存在感来源；深浅色取值不同，见 buildPaint）
+    // ① 外发光：半透明光晕 → 全透明 的径向渐变（存在感来源；深浅色取值不同，见 buildPaint）。
+    //    衰减停靠点 `ORB_HALO_DECAY_STOP` < 1：光晕在画布边缘**之前**就归零 ⇒ 留干净留白。
     const halo: CanvasGradient = ctx.createRadialGradient(c, c, 0, c, c, c);
     halo.addColorStop(0, paint.halo);
+    halo.addColorStop(ORB_HALO_DECAY_STOP, paint.clear);
     halo.addColorStop(1, paint.clear);
     ctx.globalAlpha = op * paint.haloAlpha * this.haloCur * vHalo;
     ctx.fillStyle = halo;
@@ -600,10 +614,11 @@ export struct AssistantOrb {
     ctx.closePath();
     ctx.fill();
 
-    // ② 发光核：亮心 → 主色 → 全透明 的径向渐变。
+    // ② 发光核：实心亮心（平台）→ 主色 → 全透明（停靠点见 core/orb.ets，单一来源）。
     const core: CanvasGradient = ctx.createRadialGradient(c, c, 0, c, c, coreR);
     core.addColorStop(0, paint.coreInner);
-    core.addColorStop(0.55, paint.coreOuter);
+    core.addColorStop(ORB_CORE_SOLID_STOP, paint.coreInner);
+    core.addColorStop(ORB_CORE_MID_STOP, paint.coreOuter);
     core.addColorStop(1, paint.clear);
     ctx.globalAlpha = op;
     ctx.fillStyle = core;
@@ -629,7 +644,9 @@ export struct AssistantOrb {
     }
 
     // ④ 细环描边：极弱的一圈，给出"仪器感/科技感"（几乎不可见但存在）。
-    ctx.globalAlpha = op * 0.5;
+    //    `tool` 态下**变亮**（`ORB_TOOL_STROKE_SPAN` × 已缓动的 `colorMix`）—— 一个**静态**、
+    //    与颜色无关的"工具在跑"线索（porcelain/light 下 tool 与 thinking 环**同色**，见常量注释）。
+    ctx.globalAlpha = op * 0.5 * (1 + ORB_TOOL_STROKE_SPAN * this.colorMix);
     ctx.strokeStyle = paint.stroke;
     ctx.lineWidth = Math.max(1, unit * 0.6);
     ctx.beginPath();
