@@ -115,12 +115,19 @@
 ## 5. 资源落点与引用链（自洽，无断链）
 
 ```
-AppScope/app.json5            app.icon            → $media:app_icon   → AppScope/resources/base/media/app_icon.svg
-AppScope/resources/base/media/app_icon.svg
-entry/src/main/module.json5   ability.icon        → $media:app_icon   → entry/src/main/resources/base/media/app_icon.svg
-                              ability.startWindowIcon → $media:start_icon → entry/src/main/resources/base/media/start_icon.png
-entry/src/main/resources/base/element/color.json   → start_window_background (#F8FAFC)
+AppScope/app.json5            app.icon              → $media:layered_image → AppScope/resources/base/media/layered_image.json
+entry/src/main/module.json5   ability.icon          → $media:layered_image → 同上（分层图标；资源由同真源生成，
+                                                                              entry/AppScope 两侧逐字节相同）
+                              ability.startWindowIcon → $media:start_icon   → entry/src/main/resources/base/media/start_icon.png
+                              ability.startWindow     → $profile:startWindow → entry/src/main/resources/base/profile/startWindow.json
+entry/src/main/resources/base/element/color.json   → start_window_background (#0B0B0E)
 entry/src/main/resources/dark/element/color.json   → start_window_background (#0B0B0E)
+
+> ⚠️ **2026-10-11 更新（原表述已过时）**：`app.json5` / `module.json5` 的 `icon` 早已**不是** `$media:app_icon`
+> 而是 **`$media:layered_image`**（§12.2 补丁**已落地**）；`base/element/color.json` 的
+> `start_window_background` 也已由 `#F8FAFC` 改为 **`#0B0B0E`**（§12.1 的"最小代价替代"）。
+> `app_icon.svg` 仍**保留两份**（§6.3：工具链栅格化需要它，且是分层图标的回退形态）。
+> 机器判据 = `tools/tests/splash_assets.test.ts`（资产存在性/命名 + 全链路引用）——改坏任一处即红。
 ```
 
 **降级链 / 分层图标资源**（由 `tools/brand/gen.sh` 生成；分层图标资源在 **entry 与 AppScope 两侧各一份、逐字节相同**）：
@@ -128,13 +135,31 @@ entry/src/main/resources/dark/element/color.json   → start_window_background (
 | 资源 | 是什么 | 生成命令 | 消费方 |
 |---|---|---|---|
 | `entry/.../media/brand_mark_outline.svg` | 降级链第 3 档：单色轮廓（零填充零发光，`outlineMarkSvg`） | `bash tools/brand/gen.sh` | 待接线（无障碍/黑白时由 `markLevelFor` 选中） |
-| `entry/.../media/brand_foreground.svg` + `AppScope/.../media/brand_foreground.svg` | 分层图标**前景**：标记缩进 313 安全区（`layeredForegroundSvg`），1024×1024 | 同上 | `AppScope/.../media/layered_image.json` → `app.icon`（需改 `app.json5`，§12.2） |
+| `entry/.../media/brand_foreground.svg` + `AppScope/.../media/brand_foreground.svg` | 分层图标**前景**：标记缩进 313 安全区（`layeredForegroundSvg`），1024×1024 | 同上 | `AppScope/.../media/layered_image.json` → `app.icon`（§12.2 **已落地**） |
 | `entry/.../media/brand_background.svg` + `AppScope/.../media/brand_background.svg` | 分层图标**背景**：满幅品牌色（`layeredBackgroundSvg`），1024×1024 | 同上 | 同上 |
-| `AppScope/.../media/layered_image.json` | 分层描述符（静态；**未被引用时惰性**） | 手工（不依赖真源） | 同上 |
+| `AppScope/.../media/layered_image.json` | 分层描述符（静态）—— **已被 `app.json5` 引用**（§12.2 已落地，不再是"惰性"） | 手工（不依赖真源） | `app.json5` 的 `app.icon` + `module.json5` 的 `ability.icon` |
 
 > ⚠️ `$media:` 按**资源名**解析，与扩展名无关。
 > `$media:app_icon` 在 **AppScope 与 entry 两侧各放一份**（沿用改造前的既有结构）：
 > 模块级资源覆盖 app 级同名资源，两侧同名**不算冲突**。
+
+### 5.1 每个资产**谁在用**（⛔ 删资产前先查这张表 —— 别把"低消费"当"死资产"）
+
+| 资产 | 消费者 | 备注 |
+|---|---|---|
+| `app_icon.svg`（AppScope + entry） | **无 ArkTS 消费者**（`app.json5`/`module.json5` 的 `icon` 现指 `layered_image`） | ⛔ **保留**：工具链栅格化需要它（§6.3），也是分层图标的回退形态 |
+| `layered_image.json`（AppScope） | `AppScope/app.json5` 的 `app.icon` + `entry/.../module.json5` 的 `ability.icon` | 两层 = `brand_foreground` / `brand_background` |
+| `brand_foreground.svg` / `brand_background.svg`（两侧各一份） | `layered_image.json` | 桌面分层图标（前景缩进 313 安全区） |
+| `start_icon.png` | `module.json5 startWindowIcon`（T0）+ `profile/startWindow.json` + `SplashOverlay.ets`（T1 标记） | 512×512 透明底品牌紫标记（⚠️ **不参与**通知小图标 —— 见下） |
+| `brand_mark_128.png` | `workreconcile/icons.ets`（通知小图标**首选**，§6.4.1） | 由 `start_icon.png` 纯缩放 ⇒ 同形同色 |
+| `brand_mark_outline.svg` | **仅** `workreconcile/icons.ets`（通知小图标**回退**：128 PNG 解不出时用） | ⛔ **不是死资产**：开屏自 2026-10-11 起**恒 `full`**（`OUTLINE`/`WORDMARK` 分支永不可达 ⇒ 已删；`docs/SPLASH-SPEC.md §10 ①`） |
+
+> 优先级以 `workreconcile/icons.ets`（**唯一解码点**）为准：当前链路 = `brand_mark_128` → `brand_mark_outline`
+> （2026-10-11 由 `outline.svg → start_icon.png` **翻转**而来：SDK 对通知小图标推荐 128×128，512 的 `start_icon` 偏大）。
+> ⇒ 改动该顺序时**同步**更新 `tools/tests/splash_assets.test.ts`（它钉的是"两路资产存在 + 由 icons.ets 消费"，
+> ⛔ 不钉死具体顺序以免与真源漂移）。
+> 机器判据 = `tools/tests/splash_assets.test.ts`（存在性/命名/引用链 + "`SplashOverlay` **不再**引用 `brand_mark_outline`" +
+> "该资产仍被 `icons.ets` 消费"）。
 
 ## 6. 图标：SVG 图元清单 / 打包行为 / 再生成
 
@@ -274,11 +299,16 @@ bash tools/brand/gen.sh --proofs /tmp/xbot-brand-proofs
 
 ## 8. 与白色主题（`porcelain`）的关系
 
-- `porcelain` 的 `appBg = #FFFFFF`（纯白，`core/theme.ets:273`）。开屏浅色变体取的是**基准浅画布** `#F8FAFC`
-  （`lightPalette().appBg`），而非 porcelain 的纯白——因为开屏要覆盖「所有浅色系主题」，不能偏向某一套。
-- 二者差异（`#F8FAFC` vs `#FFFFFF`）为极浅的近白差；在 porcelain 下是**可接受的一帧近白**，
-  换取 `light` 主题下「开屏 = 首屏」的零跳色。
-- 开屏标记自带颜色，在纯白/近白/近黑底上都可读，无需为 porcelain 另做一版。
+> ⚠️ **2026-10-11 更新：本节已被 §12.1 的「品牌开屏恒深」（方案 (a)）取代。**
+> 开屏**不再**取"浅色变体"——T1 画布恒为 `darkPalette().appBg`（= T0 色 ⇒ T0→T1 零跳色），
+> 见 §12.1 与 `docs/SPLASH-SPEC.md §4.3`。下面保留作**历史决策留痕**。
+
+- （历史）开屏浅色变体曾取**基准浅画布** `lightPalette().appBg = #F8FAFC`（而非 porcelain 的画布），
+  因为开屏要覆盖「所有浅色系主题」，不能偏向某一套。
+- ⛔ **`porcelain` 的画布现值 = `#F7F7F8`**（极淡灰；`porcelainPalette()`，2026-10-11 L2「白度差」
+  改造后由 `#FFFFFF` 改来）—— 文档里若仍写 `appBg = #FFFFFF` 即为**过时**。
+- 开屏标记自带颜色，在纯白/近白/近黑底上都可读，无需为 porcelain 另做一版
+  （= §13.6「品牌标记不随主题」，也是方案 (a) 的依据之一）。
 
 ## 9. SDK 约定与「待验证 / 待真机决策」清单
 
