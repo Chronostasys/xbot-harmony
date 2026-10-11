@@ -114,18 +114,29 @@ def walk(n):
 walk(lay)
 
 def find(sel):
+    """选择器 → 节点。⛔ 歧义**不许静默取第一个**：命中多个**不同框** ⇒ 报歧义（SAMPLE_INVALID）。
+
+    为什么（2026-10-11 离线 dry-run 实测）：`text=` 是**前缀**匹配 ⇒ `text=思考` 会命中聊天面的
+    `思考中…` 占位、`text=排队` 会命中输入框旁的「排队」按钮 —— 都不是台账想量的那个元素。
+    静默取第一个 = 拿**别的元素**的数当结论（假绿/假红的温床）。
+    """
+    cands=[]
     if sel.startswith('text='):
         q=sel[5:]
-        exact=[n for n in nodes if n['text']==q and n['box'][2]>n['box'][0] and n['box'][3]>n['box'][1]]
-        if exact: return exact[0]
-        pref=[n for n in nodes if n['text'].startswith(q) and n['box'][2]>n['box'][0] and n['box'][3]>n['box'][1]]
-        return pref[0] if pref else None
-    if sel.startswith('id='):
+        cands=[n for n in nodes if n['text']==q and n['box'][2]>n['box'][0] and n['box'][3]>n['box'][1]]
+        if not cands:
+            cands=[n for n in nodes if n['text'].startswith(q) and n['box'][2]>n['box'][0] and n['box'][3]>n['box'][1]]
+    elif sel.startswith('id='):
         q=sel[3:]
-        for n in nodes:
-            if n['id']==q or n['acc']==q: return n
-        return None
-    return None
+        cands=[n for n in nodes if n['id']==q or n['acc']==q]
+    else:
+        return None, []
+    boxes=set(n['box'] for n in cands)
+    if len(boxes) > 1:
+        return None, sorted(boxes)[:4]
+    if len(cands)==0:
+        return None, []
+    return cands[0], []
 
 # ── 2) 截图 → BMP（无 PIL；⚠️ HarmonyOS 截图 32bpp、负高度=自上而下）──────────
 bmp='/tmp/_rds.bmp'
@@ -155,7 +166,11 @@ def contrast(a,b):
 results=[]; n_miss=0; n_invalid=0; n_fail=0; n_pass=0
 for r in rows:
     rid,surface,state,sel,rolepair,minr,fclass = r
-    node=find(sel)
+    node, amb = find(sel)
+    if amb:
+        n_invalid+=1
+        results.append((rid,surface,'SAMPLE_INVALID','selector 歧义：命中 %d 个不同节点 %s ⇒ 写更精确的选择器或按面收窄'%(len(amb),amb),'','','',''))
+        continue
     if node is None:
         n_miss+=1
         results.append((rid,surface,'SAMPLE_INVALID','selector 未命中: '+sel,'','','',''))
