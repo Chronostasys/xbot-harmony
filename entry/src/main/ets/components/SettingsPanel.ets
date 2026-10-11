@@ -309,7 +309,9 @@ export struct SettingsPanel {
         }, (t: SettingsTabSpec) => `tab|${t.id}`)
       }
     }
+    }
     .width('100%')
+    .clip(true)
     .scrollable(ScrollDirection.Horizontal)
     .scrollBar(BarState.Off)
   }
