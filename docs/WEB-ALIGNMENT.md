@@ -895,3 +895,45 @@ web 全仓（505 个 `src` 文件）`vibrat|haptic`（宽松 `-i`）**0 命中**
   把两处 `select` 换成 `toggle`（**同档位**、存在性判据会漏）⇒ ⑥「select×2」/「toggle×2」**计数**必红。
 - ⚠️ **"爽不爽 / 时长合不合适"仍只能真机验证**：模拟器/平板无马达（见 19.2），离线与模拟器均不可判。
 
+---
+
+## 20. 批次 26 / 27（2026-10-11）：**目标⑤ 对比度系统性收口 + 触觉接线 + ⭐a11y**
+
+`origin/main = ed1e9a1`。gate66（19 笔）与 gate67（3 笔）**连续全绿**（ArkTS `BUILD SUCCESSFUL` · 离线 0 失败 · 在飞动效 A 0 / B 3 · 性能护栏 15/0 · 取色 role 绿）。
+
+### 20.1 阈值口径：**绑字号，不绑 role 名**（`02a662a`）
+三处阈值曾不一致（`contrastReqs()`=4.5 / `CANVAS_ROLES`=3.0 / `role_surface_matrix`=4.5）⇒ 校正为
+**「有 normal 字号（<18.66px）文字落点 ⇒ 4.5；只有非文本/图形落点 ⇒ 3.0；仅 `textMuted` ⇒ 2.0」**。
+`textSecondary`/`accentSoft`/`dangerText`/`successText`/`warn`/`dangerOnFill`/`warnOnFill` **收紧到 4.5**（有落点字号证据），台账 **-2**（`accent` 校正为非文本后那两条**陈旧** ⇒ 「只减不增」纪律）。
+
+### 20.2 ANSI 终端语义色 = **显式例外**（`420d7c9`）
+`accent`/`statusError`/`statusRunning` 作**终端文本**时 <4.5（如 light `statusRunning` 压 `appBg` **3.73**）。
+⛔ **不整体抬到 4.5**：① 终端色相须与 web 权威（`noties_prism4j`/标准 xterm）一致 ⇒ **parity 优先于局部 AA**；
+② 会造 **≈22 格"无落点"虚构台账**，并迫使**纯图形**弧/环满足正文阈值。⇒ 登记为**显式例外**（`ansiTerminalExceptions()`，逐 role 记 ANSI 槽位/落点 `file:line`/字号/实算）+ **边界机器判据**（例外集合冻结、不得接成文字类、非终端文字用法清单**只许缩短**）+ 2 组 mutation。
+
+### 20.3 落点共修 **13 处**（三批）
+| 批次 | 落点 | 修法 |
+|---|---|---|
+| `8fbe8d2` | `LiveTailView` / `MessageRow` / `SettingsLlm` 的 `textSecondary × surfaceHi`（4.337） | **换底**（`surface.raised`/`surface.card`；五主题 ≥4.5）。⚠️ L4（`Index.ets` 发送键）经复核是 **`SymbolGlyph` 图标** ⇒ 3.0 达标 ⇒ **不改**（"清单可能错"的自证） |
+| `e1428a2` | `GoalBanner:132/180` · `MessageNav:129` · `SettingsAbout:358` · `TodoPanel:190` 的 `accent` 当**铬文本** | 改走**文字 role**（`accentText` 4 处 / `accentSoft` 1 处）。⚠️ 真宿主面是**派生面**（`accent@15%` over `surface` 等）而非清单写的 `surfaceHi`；且落点 4 的缺口在 **dark**（4.426）非 porcelain |
+| `3f3e7d1` | `Index.ets:6626`「取消」/`6687`「⋯」/`AskUserSheet:202`（**被语义别名掩盖**） | A/B **只换"当前会话支"的 fg**（⛔ 不换底 —— 换底会把"当前会话"的强调削掉）；C **整条梯子下移一档** |
+
+### 20.4 结构性防线：**别名 = 同一 rung**（`60acad4`）
+`'surface.overlayRowHover'`/`'surface.pillSelected'`/`'surface.active'` **都 = `RUNG_ACTIVE` = `surfaceHi`** ⇒
+上批的落点排查**只搜字面量、漏了别名**（`3f3e7d1` 才补修）。⇒ 新增 `surfaceAliasesOf(name)`（**从 `surfaceRoles()` 派生**，⛔ 不硬编面名）+ §7 家族判据（家族冻结 + 每成员逐主题 ≡ `p.surfaceHi`）。
+`surface.active` 因换底**失去唯一消费者** ⇒ 裁决 **保留**（`RUNG_ACTIVE` 的"中性恒等入口"；web 侧仅 3 档面阶梯、无 active 命名 ⇒ 原生侧的收敛入口，非 parity 缺口）+ 登记。
+
+### 20.5 触觉：**早已实现**，本批为"事件→档位"升级（`e6efd85` + `4647eb6`）
+⚠️ 我（编排者）曾**凭假定**派"给项目加触觉"，前提为假 ⇒ 补档 **§19**。本批落地：纯映射 `hapticFor(event)`（阶段 1）+ `Index.ets` 的 `buzz(event)` 接线 **6 落点**（阶段 2）。
+⛔ 架构不变：**唯一** `startVibration(` 仍在 `Index.ets`、`components/**` **零**（刻意设计）、**零新权限**。
+判据 ⑥ 钉"6 落点各传事件名"的**计数**（mutation B 用**同档位换事件名**证明判别力）。⚠️ **手感只能真机验证**。
+
+### 20.6 ⭐ 星标 a11y（`cbaec08` 裁决 + `ed1e9a1` 落地）
+`iconMuted`（深色族取 `textMuted`）压 `surfaceHi`：**仅 dark 2.8164 < 3.0**（⚠️ 早前"三深色主题都不足"的说法是**跨主题错配** —— 拿 dark 的 `textMuted` 去压 aurora/nebula 的 `surfaceHi`；正取为 aurora 3.902 / nebula 4.154 ⇒ 达标）。
+裁决 **(b) 落点侧**（(a) 改 role 被否：爆炸半径 ≈25 落点 × 3 主题 ≈75 处变亮；且分支判据是 `isLightPalette`（**色板亮度**，⛔ 不许按主题名硬判）⇒ 无法只修 dark）。
+落地：未收藏支 `iconMuted → textSecondary`（dark 2.8164 → **6.0258**；浅色族本来就 ≡ ⇒ 零变化）。
+⚠️ 台账 `dark|iconMuted|surfaceHi` **长期保留** —— 它是「**role × 面**能力缺口」，落点换 fg **不会**使它陈旧。
+
+### 20.7 排队（未完成）
+开屏真机连拍（需卡 180ms 窗，工具不可用）· 通知真机复验（卡服务端未配 LLM）· 目标⑤ 持续迭代（`polish-audit`/`perf4` 在飞）。
+
