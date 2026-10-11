@@ -14,8 +14,12 @@ ROOT="$(cd "$HERE/.." && pwd)"
 
 fail=0
 
-echo "===== ① 纯逻辑测试 ====="
-bash "$HERE/tests/run.sh" || fail=1
+echo "===== ① 纯逻辑测试（聚合 · 跑完全部再判定）====="
+# ⚠️ 用 run-all.sh（**不早退**：跑完全部测试再汇总"共 N 个，M 个失败"+ 失败明细），
+#    替代原先的 run.sh（`set -e` ⇒ 第一个红就中止，多线协作时所有人都拿不到全貌）。
+#    判据**不变**：任一测试红或编译失败 ⇒ 这里仍 `|| fail=1` ⇒ 步①判红。
+#    `run.sh` 保留不动（其既有外部行为与调用方不受影响）。
+bash "$HERE/tests/run-all.sh" || fail=1
 
 echo "===== ② 渲染路径门禁 ====="
 bash "$HERE/lint/render-path.sh" || fail=1
