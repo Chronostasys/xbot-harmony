@@ -137,6 +137,8 @@ export struct ThinkingLine {
           .fontColor(this.live ? paletteOf(this.theme).accentSoft : paletteOf(this.theme).textMuted)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
+          // ⛔ **水平溢出**：与左侧图标同一 Row，标签长度不可控 ⇒ 必须能收缩（否则顶出屏宽）。
+          .layoutWeight(1)
       }
       // ⛔ 本行**静态**（不写任何随时间的 `.opacity()`）：同一时刻只有一个"在飞"动效 = 光球。
       //    仅以颜色（`accentSoft`）表达"此刻它在领读"，不引入第二个脉动源。

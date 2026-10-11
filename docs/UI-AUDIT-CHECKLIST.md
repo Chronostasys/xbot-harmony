@@ -576,3 +576,25 @@ MarkdownView **无固定数值宽容器** ⇒ **结构性命中 0**。即：**�
 
 **⛔ 写法提示（曾让整树编译红）**：`.wordBreak` 必须写**限定名** `WordBreak.BREAK_ALL` ——
 裸写 `BREAK_ALL` **不是全局名**（`SettingsChannels.ets:462/574` 曾因此让整树 `Cannot find name 'BREAK_ALL'`，已由 `ff1f371` 救火）。
+
+### 补：**本域 `PENDING_FIX` 落地 4 处**（H1/H3）
+
+| 位置 | 类别 | 改动 | 为什么 |
+|---|---|---|---|
+| `components/PluginWidgets.ets:128` | H1 | `+ constraintSize({maxWidth: PILL_MAX_W})` | 徽标文本由**插件**提供（任意长）⇒ 否则把所在 `Row` 顶出屏宽 |
+| `components/GoalBanner.ets:172` | H1 | `+ constraintSize({maxWidth: PILL_MAX_W})` | 徽标文案长度不可控（模型生成） |
+| `components/ThinkingLine.ets:135` | H1 | `+ layoutWeight(1)` | 与左侧图标同一 `Row`，标签长度不可控 ⇒ 必须能收缩 |
+| `components/ToolPopover.ets:412` | H1 | `+ layoutWeight(1)` | 与行号列/标记列同一 `Row` ⇒ 正文取余下宽度，否则长行把整个 diff `Row` 顶出屏宽 |
+
+⇒ `PENDING_FIX` **10 → 6**（⛔ 只许缩短；4 处已修自动变"陈旧"被拦下，这正是该机制在起作用）。
+**剩余 6 处**：`AskUserSheet:177` · `PluginHost:393` · `PluginWidgets:77` · `StatusSheet:68` · `SubAgentTree:142` · `SyntheticCard:193`
+（`SyntheticCard` 的等宽块已裁定归 **brand-impl**，避免撞车 ⇒ 该文件我只登记不动）。
+
+**⚠️ 顺带改进判据（结构性消假阳性，而不是堆台账豁免）**：新增 **祖先感知** —— 若 `Text` 与最近的 `Row` 之间
+**已有容器**具备收缩能力（`layoutWeight`/`flexShrink`/`constraintSize`），则该 `Text` 自身不必再设。
+实测把命中从 26 降到 21，**其中 6 处是我原规则的假阳性**。
+（⚠️ 同时发现：`PENDING_FIX` 里那 6 处正是此类 —— 它们靠"祖先已收缩"就已经安全；
+待下一轮把祖先感知再收紧后即可继续缩短，⛔ 不靠台账堆豁免。）
+
+**⚠️ diff 正文行（`ToolPopover:412`）现归 `KNOWN_OK`（有意）**：源码注明"不折行（web `whitespace-pre`）：
+长行由 **diff 卡整体横向滚动**承担" ⇒ `wordBreak(NORMAL)` 是**对齐 web 的有意选择**，不是"忘了 `BREAK_ALL`"。

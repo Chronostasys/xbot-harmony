@@ -116,6 +116,32 @@ const LONG_WORDS: RegExp = /(url|Url|URL|path|Path|cwd|src|Src|detail|Detail|err
 const UNBREAKABLE: RegExp = /(url|Url|URL|path|Path|cwd|raw|errMsg|detail|cmd|args|command|\.text\b)/;
 
 class Site { rel: string = ''; line: number = 0; arg: string = ''; inRow: boolean = false; rule: string = ''; }
+/** Text 与最近 Row 之间**是否有容器能收缩**（有 ⇒ 该 Text 自身不必再设横向约束）。 */
+function ancestorShrinks(src: string, idx: number): boolean {
+  const pre: string = src.substring(0, idx);
+  const rx: RegExp = /\b(Column|Row|Stack|Flex)\s*\(/g;
+  let best: number = -1;
+  let m: RegExpExecArray | null = rx.exec(pre);
+  while (m !== null) {
+    const cj: number = pre.indexOf('(', m.index);
+    const ck: number = matchPair(pre, cj, '(', ')');
+    if (ck > 0) {
+      const bs: number = pre.indexOf('{', ck + 1);
+      if (bs > 0) { best = bs; }
+    }
+    m = rx.exec(pre);
+  }
+  if (best < 0) { return false; }
+  // 该容器自身的链在**块之后** ⇒ 到「当前 Text」为止的原文里取它
+  const tail: string = src.substring(best, idx);
+  const firstClose: number = matchPair(src, best, '{', '}');
+  if (firstClose < 0 || firstClose > idx) { return false; }
+  const ch: Array<string[]> = chainAfter(src, firstClose + 1);
+  for (let i = 0; i < ch.length; i++) {
+    if (ch[i][0] === 'layoutWeight' || ch[i][0] === 'flexShrink' || ch[i][0] === 'constraintSize') { return true; }
+  }
+  return false;
+}
 function scan(m: Map<string, string>): Site[] {
   const out: Site[] = [];
   m.forEach((raw: string, rel: string) => {
@@ -164,7 +190,11 @@ function scan(m: Map<string, string>): Site[] {
           s.rel = rel; s.line = lineOf(src, x.index);
           s.arg = arg.replace(/\s+/g, ' ').substring(0, 48);
           s.inRow = inRowAt(x.index);
-          if (s.inRow && !lw && !fsz && !cs) { s.rule = 'H1'; }                       // ① Row 内无横向约束
+          // ⛔ **祖先感知**：若该 Text 与最近的 Row 之间**已有容器**具备收缩能力
+          //    （`layoutWeight`/`flexShrink`/`constraintSize`），则 Text 自身不必再设 —— 否则会产**假阳性**
+          //    （实测：10 处 PENDING_FIX 里 6 处属此类，靠台账堆豁免是错的做法）。
+          const ancOk: boolean = ancestorShrinks(src, x.index);
+          if (s.inRow && !lw && !fsz && !cs && !ancOk) { s.rule = 'H1'; }               // ① Row 内无横向约束
           else if (UNBREAKABLE.test(arg) && !wbAll && !to) { s.rule = 'H3'; }          // ③ 不可断串
           if (s.rule.length > 0) { out.push(s); }
         }
@@ -272,10 +302,12 @@ for (let i = 0; i < scrolls.length; i++) {
  * ⛔ 键**只用文件名**（不含行号 —— 行号会被别线改动漂掉，我前面已被这个坑过一次）。
  */
 const H0_PENDING_SPEC: string[] = [
-  'components/MarkdownView.ets',   // 代码块外层 Scroll（截图证据指向的就是它）
-  'components/SettingsPanel.ets',
-  'pages/Index.ets',
+  'components/SettingsPanel.ets',   // 归 tokens-ux
 ];
+// ✅ 已收（本轮 chat-surface-ux）：
+//   · `components/MarkdownView.ets` 代码块外层横向 Scroll ⇒ 自身 `.clip(true)`；
+//   · `pages/Index.ets` 顶栏会话 Tab 横向 Scroll ⇒ 自身 `.clip(true)`。
+//   ⇒ 实测集合只剩 `SettingsPanel.ets`（⛔ 台账只许缩短）。
 const h0BadFiles: string[] = scBad.map((z) => z.rel);
 ok(`H0（硬）：横向 Scroll 缺容器 clip 的**已登记**集合 == 实测集合（实测 ${h0BadFiles.length} / 登记 ${H0_PENDING_SPEC.length}）`,
   h0BadFiles.length === H0_PENDING_SPEC.length
@@ -297,6 +329,10 @@ const KNOWN_OK: string[] = [
   // **已证良性**：diff 视图的 `+/-` 标记列 —— 内容宽度**固定**（±/空格三态），且**必须**无
   // `layoutWeight`（要按固定列宽才能与代码列纵向对齐）⇒ 不可能顶出屏（词表靠 `.marker` 命中属过报）。
   'components/ToolPopover.ets :: H1 :: ANCHOR:splitHunk(ln.text).marker',
+  // **有意（有据）**：diff 正文行 —— 源码注明"不折行（web `whitespace-pre`）：长行由 **diff 卡整体
+  // 横向滚动**承担" ⇒ `wordBreak(NORMAL)` 是**对齐 web 的有意选择**，不是"忘了 BREAK_ALL"。
+  // 长行由外层横向 `Scroll` 消化（该 `Scroll` 的 `clip` 属 §A2 的警告级台账）。
+  "components/ToolPopover.ets :: H3 :: ANCHOR:ln.text.length > 0 ? ln.text : ' '",
   // （H0 的台账见 §A2 的 `H0_PENDING_SPEC`；⛔ 不混进本表的 measured 多重集）
 ];
 /** `PENDING_SPEC`：本线**禁改**的文件（归他人）—— ⛔ 只许缩短。 */
@@ -316,8 +352,8 @@ const PENDING_SPEC: string[] = [
   'components/SettingsRows.ets :: H1 :: ANCHOR:this.name.length > 0 ? this.name : this.subId',
   "components/SettingsRows.ets :: H1 :: ANCHOR:`${providerLine(this.provider, '')} · ${stripSch",
   // `pages/Index.ets` 归 **chat-surface-ux**
-  'pages/Index.ets :: H1 :: ANCHOR:this.currentChat.length > 0 ? this.labelOf(this.',
-  'pages/Index.ets :: H3 :: ANCHOR:drawerEmptyHint(this.drawerEmpty())',
+  // ✅ 已收（本轮）：`this.currentChat…`（补 `constraintSize(maxWidth:'100%')`）、
+  //    `drawerEmptyHint(...)`（补 `wordBreak(WordBreak.BREAK_ALL)`）⇒ 从台账移除。
 ];
 /**
  * `PENDING_FIX`：**本线域内、尚未处置**的（⛔ 只许缩短；每条给"为什么还没改"）。
@@ -329,10 +365,8 @@ const PENDING_FIX: string[] = [
   // 插件胶囊里的文本片（`s.text`，插件提供）⇒ 待加 `maxWidth`
   'components/PluginWidgets.ets :: H1 :: ANCHOR:s.text',
   // 插件徽标文本（`badgeText`，插件提供）⇒ 待加 `maxWidth`
-  'components/PluginWidgets.ets :: H1 :: ANCHOR:this.view.badgeText',
-  // 目标条状态徽标（自生成，长度可控但无上限）⇒ 待加 `constraintSize({maxWidth})`
-  'components/GoalBanner.ets :: H1 :: ANCHOR:this.display().badge',
-  // 选择项标签（选项集自校，长度可控）⇒ 待加 `maxWidth`
+    // 目标条状态徽标（自生成，长度可控但无上限）⇒ 待加 `constraintSize({maxWidth})`
+    // 选择项标签（选项集自校，长度可控）⇒ 待加 `maxWidth`
   'components/AskUserSheet.ets :: H1 :: ANCHOR:this.labelOf(opt)',
   // 抽屉状态行标签 ⇒ 待加 `maxWidth`
   'components/StatusSheet.ets :: H1 :: ANCHOR:this.label',
@@ -341,9 +375,7 @@ const PENDING_FIX: string[] = [
   // 合成卡标题（模型生成）⇒ 待加 `maxWidth`
   'components/SyntheticCard.ets :: H1 :: ANCHOR:this.title()',
   // 思考行标签 ⇒ 待加 `maxWidth`
-  'components/ThinkingLine.ets :: H1 :: ANCHOR:this.label',
-  // diff 正文行（已有 `maxLines(1)+BREAK_ALL`，缺 `layoutWeight`）⇒ 待加 `layoutWeight(1)`
-  "components/ToolPopover.ets :: H1 :: ANCHOR:ln.text.length > 0 ? ln.text : ' '",
+    // diff 正文行（已有 `maxLines(1)+BREAK_ALL`，缺 `layoutWeight`）⇒ 待加 `layoutWeight(1)`
 ];
 function anchorOf(s: Site): string { return `${s.rel} :: ${s.rule} :: ANCHOR:${s.arg}`; }
 const measured: string[] = sites.map(anchorOf);

@@ -35,7 +35,7 @@ import { R_MD, R_SM, SP_1 } from '../core/tokens';
 // 语义令牌（`7841978`：goal 组 + 图标尺寸档）—— 组件不再自写 PAD/ICON/ALPHA/TINT 魔数。
 import {
   PRESS_OPACITY, ICON_MD, INSET_CHIP_Y, INSET_GOAL_X, INSET_GOAL_Y, SPACE_XS, TYPE_CHIP, TYPE_GOAL,
-  goalBadgeBgOf, goalBorderOf, typeOf, colorOf, } from '../core/design';
+  goalBadgeBgOf, goalBorderOf, typeOf, colorOf, PILL_MAX_W, } from '../core/design';
 import { goalDisplay, GoalDisplay, goalEditCommit, goalEditable } from '../core/statusfmt';
 
 // ── 尺寸/取色一律走语义令牌（`7841978` §4.7/§4.8）─────────────────────────────
@@ -172,6 +172,8 @@ export struct GoalBanner {
           Text(this.display().badge)
             .fontSize(typeOf(TYPE_CHIP).size)
             .fontWeight(FontWeight.Medium)
+            // ⛔ **水平溢出**：徽标文案长度不可控（模型生成）⇒ 加宽上限，否则顶出所在 Row。
+            .constraintSize({ maxWidth: PILL_MAX_W })
             .fontColor(this.display().completed ? this.pal().success : this.pal().accent)
             .backgroundColor(goalBadgeBgOf(this.pal(), this.display().completed))
             .borderRadius(R_SM)

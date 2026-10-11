@@ -414,6 +414,9 @@ export struct ToolPopoverCard {
         // ⛔ 不折行（web `whitespace-pre`）：长行由 diff 卡整体横向滚动承担
         .wordBreak(WordBreak.NORMAL)
         .maxLines(1)
+        // ⛔ **水平溢出**：与行号列/标记列同一 Row ⇒ 正文必须能收缩（`layoutWeight(1)` 取余下宽度），
+        //    否则长行把**整个 diff Row 顶出屏宽**（横向滚动区若未裁剪更会撑宽父级）。
+        .layoutWeight(1)
         .fontColor(ln.kind === DIFF_ADD ? this.pal().successText
           : (ln.kind === DIFF_DEL ? this.pal().dangerText : this.pal().textSecondary))
         .copyOption(CopyOptions.LocalDevice)

@@ -130,6 +130,9 @@ struct WidgetComponentCard {
             .fontWeight(fw('type.micro'))
             .lineHeight(lh('type.micro'))
             .fontColor(widgetRoleColorOf(this.pal(), toneColorRole(this.view.tone)))
+            // ⛔ **水平溢出**（2026-10-11 用户亲报"字超出屏幕"）：徽标文本由**插件**提供（任意长）
+            //    ⇒ 必须有宽上限，否则把所在 Row **顶出屏宽**。chip 档 = `PILL_MAX_W`。
+            .constraintSize({ maxWidth: PILL_MAX_W })
         }
         .padding({ left: INSET_CHIP_X, right: INSET_CHIP_X, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
         .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
