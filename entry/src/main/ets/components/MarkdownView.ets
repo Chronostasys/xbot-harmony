@@ -470,6 +470,9 @@ export struct MarkdownView {
         .scrollable(ScrollDirection.Horizontal)
         .scrollBar(BarState.Auto)
         .width('100%')
+        // ⛔ H0 硬红（contrast-ux 复核 + 用户截图证据）：横向滚动区**自身必须 `clip`**，
+        //    否则内容按最长行撑宽父级 ⇒ 整条消息列超出视口（`.width('100%')` 只在父级有确定宽时才是约束）。
+        .clip(true)
         .align(Alignment.TopStart)
       } else {
         Text() {

@@ -1086,6 +1086,7 @@ struct CompactionDividerRow {
         }
         .scrollBar(BarState.Auto)
         .width('100%')
+        .clip(true)
         .constraintSize({ maxHeight: COMPACT_BODY_MAX_H })
         .padding(SP_3)
         .backgroundColor(this.pal().surfaceAlt)

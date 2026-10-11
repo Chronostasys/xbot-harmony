@@ -80,12 +80,27 @@ ok('★③ 两者**同时**在位（guarded）', guarded(body));
 ok('★④ 换行模式仍走 `WordBreak.BREAK_ALL`（⛔ 不是靠裁剪）', body.indexOf('WordBreak.BREAK_ALL') >= 0);
 ok('★④ 非换行模式仍有 `ScrollDirection.Horizontal`（⛔ 不是靠裁剪）', body.indexOf('ScrollDirection.Horizontal') >= 0);
 
-// ★⑤ mutation：抽掉 clip(true) ⇒ guarded 必假（判据有判别力）
-const broken: string = body.replace('.clip(true)', '');
-ok('★⑤ mutation：抽掉 `clip(true)` ⇒ guarded=false（判据有判别力）', guarded(broken) === false);
+// ★⑥ **外层横向 `Scroll` 自身**必须有 `clip(true)`（H0 硬红；contrast-ux 复核指出上轮只给根容器加了、
+//     Scroll 本身没有 ⇒ 内容仍可能按最长行撑宽父级）。点名断言：**Scroll 自己的属性链**上有 `.clip(true)`
+//     （⛔ 必须只取 Scroll 的链 —— 根容器那处 `clip(true)` 在它**之后**，直接用 `indexOf(clip, scIdx)`
+//      会被根容器那处满足 ⇒ 判据"假有牙"；本轮实测踩到）。
+const scIdx: number = body.indexOf('.scrollable(ScrollDirection.Horizontal)');
+const scEnd: number = scIdx >= 0 ? body.indexOf('} else', scIdx) : -1;
+const scChain: string = scIdx >= 0 ? (scEnd > scIdx ? body.substring(scIdx, scEnd) : body.substring(scIdx)) : '';
+ok('★⑥ 抽到代码块外层横向 Scroll 的自身属性链', scChain.length > 0);
+ok('★⑥ 该链上有 `.clip(true)`（Scroll 自裁）', scChain.indexOf('.clip(true)') >= 0);
+
+// ★⑤ mutation：抽掉码块体里**全部** `clip(true)` ⇒ guarded 必假（判据有判别力）
+//   ⚠️ 必须 `split/join` 全删：现在码块体有**两处** `clip(true)`（Scroll 自身 + 根容器），
+//      `replace` 只删第一处 ⇒ 旧写法会"删了但判据仍真"（本轮实测踩到）。
+const broken: string = body.split('.clip(true)').join('');
+ok('★⑤ mutation：抽掉全部 `clip(true)` ⇒ guarded=false（判据有判别力）', guarded(broken) === false);
 // ★⑤b mutation：抽掉 maxWidth ⇒ guarded 必假
 const broken2: string = body.replace("constraintSize({ maxWidth: '100%' })", '');
 ok('★⑤b mutation：抽掉 `maxWidth` ⇒ guarded=false', guarded(broken2) === false);
+// ★⑤c mutation：只抽掉 **Scroll 自身链**那处 `clip(true)` ⇒ ★⑥ 必假（证明 ★⑥ 真管 Scroll、不是被根容器满足）
+const scBroken: string = scChain.replace('.clip(true)', '');
+ok('★⑤c mutation：只抽掉 Scroll 自身 clip ⇒ ★⑥ 判假', scChain.indexOf('.clip(true)') >= 0 && scBroken.indexOf('.clip(true)') < 0);
 
 console.log(`  markdown_code_overflow: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

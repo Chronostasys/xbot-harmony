@@ -3553,6 +3553,8 @@ struct Index {
           Text(this.currentChat.length > 0 ? this.labelOf(this.currentChat) : 'xbot')
             .fontSize(FS_TITLE).fontWeight(typeOf('type.subhead').weight)
             .fontColor(this.pal().textPrimary).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+            // ⛔ H1：`Row` 内可变长标题必须有横向约束（否则长会话名顶出屏；父 Column 已有 layoutWeight(1)）
+            .constraintSize({ maxWidth: '100%' })
           Row({ space: SP_1 }) {
             // ⚠️ 不用 `Circle().fill()`：其声明在本 SDK 标 @since 26（工程 pin 21）⇒
             //    改用通用属性画同形圆点（观感等价）。
@@ -3970,6 +3972,8 @@ struct Index {
         }
         .scrollable(ScrollDirection.Horizontal)
         .width('100%').padding({ left: 10, right: 10, top: 6 })
+        // ⛔ H0：横向滚动区自身 `clip(true)`（否则内容撑宽父级 ⇒ 溢出屏）
+        .clip(true)
       }
 
       // 附件 chips：每条独立状态（⏳ 上传中 / 📎 已就绪 / ⚠ 失败可重试），✕ 移除
@@ -6074,6 +6078,8 @@ struct Index {
           Text(drawerEmptyHint(this.drawerEmpty()))
             .fontSize(typeOf('type.subhead').size)
             .fontColor(this.pal().textPrimary)
+            // ⛔ H3：提示文案可能含不可断长串（路径/命令）⇒ 词内断行（⛔ 必须**限定名** WordBreak.BREAK_ALL）
+            .wordBreak(WordBreak.BREAK_ALL)
           if (this.drawerEmpty() === DRAWER_EMPTY_NO_SESSIONS) {
             Text('新建一个会话，开始对话')
               .fontSize(typeOf('type.caption').size)
