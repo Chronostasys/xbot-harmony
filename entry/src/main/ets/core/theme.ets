@@ -773,6 +773,10 @@ function buildEffects(p: Palette): Effects {
   const e: Effects = new Effects();
   const light: boolean = isLightPalette(p);
   e.glassBlur = 18;
+  // （覆盖见下方：`glassBlur` 与玻璃 alpha 同处尾部处理）
+  // ── 环境（插件）值**覆盖**（`null` ⇒ 全部不动 ⇒ 逐字节现状）─────────────────────────
+  const amb: AmbienceValues | null = currentAmbience;
+  e.glassBlur = amb === null ? 18 : amb.glassBlur;   // 覆盖式：值直用（⛔ 无单位换算，对齐 web）
   // 渐变端色走**对比度护航**（真按钮底色是渐变，不是纯 accent —— 见 `gradientEndOf`）
   e.gradientFrom = gradientEndOf(p.accent, p.onAccent);
   e.gradientTo = gradientEndOf(p.accentSoft, p.onAccent);
@@ -781,8 +785,8 @@ function buildEffects(p: Palette): Effects {
     // 深色玻璃 = **透光**（露出后面的彩色 ⇒ 低不透明度才"活"）；浅色玻璃 = **磨砂白**
     // （透出灰会"脏"）⇒ 不透明度必须**更高**、边界必须**更明确**（靠描边立边界，不靠对比）。
     // 深色臂逐字节保留原 0.62/0.55（见下 `else`）——本次只改**浅色**档。
-    e.glassBg = alphaHex(glassBaseOf(p), 0.80);
-    e.glassBorder = alphaHex(p.borderStrong, 0.70);
+    e.glassBg = alphaHex(glassBaseOf(p), amb === null ? 0.80 : amb.glassOpacity);
+    e.glassBorder = alphaHex(p.borderStrong, amb === null ? 0.70 : amb.glassOpacity);
     // 浅底：白高光物理上不可见 ⇒ 换"中性"（无色相偏移）的极淡黑，读作扫光中心。
     e.sheen = alphaHex('#000000', 0.06);
     // 柔影：中性（取正文色相 → 略带主题冷调）+ 低透明；扩散交给调用点的 radius。
@@ -809,8 +813,8 @@ function buildEffects(p: Palette): Effects {
     e.glowSoft = alphaHex(p.textPrimary, 0.10);
   } else {
     // 深色玻璃：**逐字节不变**（原公共段的值搬进本臂，浅色臂另给档 —— 见上 L4 注释）。
-    e.glassBg = alphaHex(glassBaseOf(p), 0.62);
-    e.glassBorder = alphaHex(p.borderStrong, 0.55);
+    e.glassBg = alphaHex(glassBaseOf(p), amb === null ? 0.62 : amb.glassOpacity);
+    e.glassBorder = alphaHex(p.borderStrong, amb === null ? 0.55 : amb.glassOpacity);
     e.sheen = alphaHex('#FFFFFF', 0.06);
     e.elev1 = legacyElev1Of(p);
     e.elev2 = alphaHex('#000000', 0.32);
@@ -826,6 +830,43 @@ function buildEffects(p: Palette): Effects {
  * 由色板派生视觉效果 token（**记忆化**：键 = Palette 对象标识 ⇒ 不可能跨主题串味）。
  * 纯缓存 ⇒ 与 `buildEffects` 逐字段等价（`tools/tests/theme_memo.test.ts` 有等价性断言）。
  */
+/**
+ * **环境（插件）值** —— 对齐 web `plugins/xbot-ambience/index.ts:42-44` + `plugin-api/ambience.ts:41`。
+ * `wallpaperOpacity` **原生不消费**（原生无壁纸渲染；见 `docs/WEB-PARITY.md`「原生 N/A（web 独有）」），
+ * 保留在契约里以对齐 web。
+ */
+export class AmbienceValues {
+  glassOpacity: number = 0;
+  wallpaperOpacity: number = 1;
+  glassBlur: number = 0;
+}
+/**
+ * **未设置 = `null` ⇒ 完全走现状**（⛔ 不用 web 的 0.82/1/0 当缺省 —— 那会让"相乘"口径下缺省即变；
+ * 覆盖式 + `null` 天然**逐字节不变**）。
+ */
+let currentAmbience: AmbienceValues | null = null;
+/**
+ * **唯一写入口**（覆盖式）：`null` ⇒ 复位（回到现状）；否则 **clamp**（按插件 schema 实测范围：
+ * `glassOpacity 0~1`、`wallpaperOpacity 0~1`、`glassBlur 0~24`，见 `core/settingsplugins.ets:802-803`）。
+ * ⚠️ 写后**清记忆化** ⇒ 下次 `effectsOf` 用新值重建（无需全字段拷贝 ⇒ 最小改动）。
+ */
+export function setAmbience(v: AmbienceValues | null): void {
+  if (v === null) {
+    currentAmbience = null;
+  } else {
+    const n: AmbienceValues = new AmbienceValues();
+    n.glassOpacity = Math.min(1, Math.max(0, v.glassOpacity));
+    n.wallpaperOpacity = Math.min(1, Math.max(0, v.wallpaperOpacity));
+    n.glassBlur = Math.min(24, Math.max(0, v.glassBlur));
+    currentAmbience = n;
+  }
+  EFFECTS_MEMO.clear();
+}
+/** 只读探针（判据/调试用；⛔ 组件不得据此分支）。 */
+export function ambienceOf(): AmbienceValues | null {
+  return currentAmbience;
+}
+
 export function effectsOf(p: Palette): Effects {
   const hit: Effects | undefined = EFFECTS_MEMO.get(p);
   if (hit !== undefined) {
