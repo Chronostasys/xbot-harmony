@@ -30,7 +30,7 @@ import { BgTask, CronJob, RunnerRow, SubAgentRow, isWidgetEvent } from './panels
 import { serverKey, toLocalSettings, KEY_ACCENT } from './settings';
 import { setAppAccent } from './theme';
 import { FsEntry } from './composer';
-import { RPC_GET_SESSION_SUBSCRIPTION, RPC_WEB_PLUGIN_LIST, SessionSelectorParams, SessionSubscription, readableRpcError, rpc, sessionSubscriptionId } from './rpc';
+import { RPC_GET_SESSION_SUBSCRIPTION, RPC_LIST_ALL_MODEL_ENTRIES, RPC_WEB_PLUGIN_LIST, SessionSelectorParams, SessionSubscription, readableRpcError, rpc, sessionSubscriptionId } from './rpc';
 import {
   PluginCatalog,
   WebPluginListWire,
@@ -74,7 +74,7 @@ import {
   SessionReq,
   SettingsReq,
 } from './reqbody';
-import { LlmConfig } from './llmfmt';
+import { LlmConfig, LlmConfigEntries, LlmModelEntry } from './llmfmt';
 import {
   AskQuestion,
   AskUserPrompt,
@@ -977,13 +977,17 @@ export class ChatStore {
     this.llmConfigError = '';
     this.onUpdate();
     try {
-      const cfg: LlmConfig = await this.http.getAs<LlmConfig>('/api/llm-config');
-      // ⚠️ `/api/llm-config` 无可用配置时服务端 **data 整块为 null**（实测）⇒ `getAs` 返回 null。
-      //   必须归一成 undefined（"拿不到"），否则 `llmConfig=null` 会让下游
-      //   `llmConfig.model_entries` 抛 "Cannot read property 'model_entries' of null"。
-      //   ⚠️ 但这是**成功**（服务端给了"无配置"的权威答复）⇒ `ready`（面板显示**空态引导**），
-      //      ⛔ **不是** `error`（那专指请求真的失败）。
-      this.llmConfig = isPresent(cfg) ? cfg : undefined;
+      // ⛔ **为什么不再用 `GET /api/llm-config`**（2026-10-12 实测根因）：服务端
+      //   `channel/web/web.go:918` 把该路由注册为 `authenticatedPOST(...)`（**只收 POST**）
+      //   ⇒ **GET 恒 405**（实测 0.4ms 返回 `405 method not allowed`）⇒ 模型列**永远拉不到**；
+      //   旧版还把这失败**静默吞掉** ⇒ 模型面板**永久转圈**（用户实报）。
+      //   web 取模型列表从来不走走那条 REST（`useLLMSettings.ts:10`：All RPC calls go through
+      //   `WSConnection.rpc` → `POST /api/rpc`）⇒ 与 web 同源的正确入口 = RPC `list_all_model_entries`。
+      // ⚠️ `rpc()` 已解开信封并返回 `data`；服务端 `rpc0err` 在无条目时回 **null**
+      //   ⇒ 归一成"空数组"（`arrOrEmpty`），但仍是**成功** ⇒ `ready`（面板显示**空态引导**），
+      //   ⛔ **不是** `error`（那专指请求真的失败）。
+      const entries: LlmModelEntry[] = await rpc<LlmModelEntry[]>(this.http, RPC_LIST_ALL_MODEL_ENTRIES);
+      this.llmConfig = new LlmConfigEntries(arrOrEmpty(entries));
       this.llmConfigState = 'ready';
       this.onUpdate();
     } catch (e) {

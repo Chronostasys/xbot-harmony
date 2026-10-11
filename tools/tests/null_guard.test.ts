@@ -92,21 +92,26 @@ async function main(): Promise<void> {
       `subagents=${store.subagents.length}`);
   }
 
-  // ── 用例 6：`/api/llm-config` 无配置时服务端 `data` 整块为 null ⇒ 必须回落到 undefined ──
+  // ── 用例 6：RPC `list_all_model_entries` 回 `null`（无条目）⇒ 必须归一成"空数组"且不崩 ──
+  //     ⚠️ 2026-10-12 事实移动：取数入口从 `GET /api/llm-config`（服务端 POST-only ⇒ **恒 405**）
+  //        改为 RPC `list_all_model_entries`（`rpc()` 内部走 `http.post`）⇒ 本例改桩 `post`。
   {
     const store = new ChatStore('http://127.0.0.1:9');
     const httpAny = store.http as unknown as {
-      getAs: (path: string) => Promise<object>;
+      post: (path: string, body: object) => Promise<string>;
     };
-    httpAny.getAs = (_path: string): Promise<object> => Promise.resolve(null as unknown as object);
+    httpAny.post = (_path: string, _body: object): Promise<string> => Promise.resolve('null');
     let threw: string = '';
     try {
       await store.loadLlmConfig();
     } catch (e) {
       threw = (e as Error).message;
     }
-    ok('llm-config data=null 不崩且回落 undefined',
-      threw === '' && store.llmConfig === undefined, `threw=${threw} llmConfig=${String(store.llmConfig)}`);
+    const n: number = store.llmConfig !== undefined && store.llmConfig.model_entries !== undefined
+      ? store.llmConfig.model_entries.length : -1;
+    ok('list_all_model_entries data=null 不崩、归一为空数组且落 ready',
+      threw === '' && n === 0 && store.llmConfigState === 'ready',
+      `threw=${threw} entries=${n} state=${store.llmConfigState}`);
   }
 
   // ── 用例 7..：守卫原语自身的语义（null 与 undefined 一律当"空"）──

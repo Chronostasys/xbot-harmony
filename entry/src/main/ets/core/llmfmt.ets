@@ -34,9 +34,29 @@ export interface LlmConfig {
   thinking_mode?: string;
 }
 
+/**
+ * 由 **RPC** `list_all_model_entries` 的结果构造选择栏配置（web `agent/api.ts:794-795` 同源）。
+ *
+ * ⛔ **为什么不再取 `GET /api/llm-config`**：服务端 `channel/web/web.go:918` 把它注册为
+ *   `authenticatedPOST(...)`（**只收 POST**）⇒ **GET 恒 405**（2026-10-12 实测 0.4ms 返回
+ *   `405 method not allowed`）⇒ 模型列**永远拉不到**；旧版还把这失败**静默吞掉** ⇒ **永久转圈**。
+ *   web 取模型列表从来不走走那条 REST（`useLLMSettings.ts:10`：All RPC calls go through
+ *   `WSConnection.rpc` → `POST /api/rpc`）⇒ 本类承载的正是"与 web 同源"的那条路径的产物。
+ *
+ * `model` / `max_context` 等字段由别的来源提供（本类**只承载模型条目**，其余保持缺省 ⇒ 下游按
+ * "没拿到"处理，⛔ 不编造）。
+ */
+export class LlmConfigEntries implements LlmConfig {
+  ok: boolean = true;
+  model_entries: LlmModelEntry[] = [];
+
+  constructor(entries: LlmModelEntry[] | undefined) {
+    this.model_entries = entries !== undefined && entries !== null ? entries : [];
+  }
+}
+
 /** 订阅分组（同名合并；顺序 = 首次出现顺序，**不打乱服务端给的顺序**）。 */
-export class ModelGroup {
-  name: string = '';
+export class ModelGroup {  name: string = '';
   subId: string = '';
   entries: LlmModelEntry[] = [];
 }

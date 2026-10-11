@@ -116,6 +116,15 @@ export const RPC_UPDATE_PER_MODEL_CONFIG: string = 'update_per_model_config';
 /** `refresh_model_entries`（无参 `rpc0err`）→ `[]protocol.ModelEntry`。`rpc_table.go:762-769`；web `api.ts:798-800`。 */
 export const RPC_REFRESH_MODEL_ENTRIES: string = 'refresh_model_entries';
 
+// ⛔ 2026-10-12 修「模型面板永久转圈」时：`list_all_model_entries` 的常量**早已定义在上方常量表**
+//   （`RPC_LIST_ALL_MODEL_ENTRIES`，:63，且已登记进 `RpcMethod.ALL`）⇒ ⛔ 别在此处再定义一份
+//   （会 `TS2451 Cannot redeclare`）。取模型列表**必须走 RPC `list_all_model_entries`**，
+//   理由：服务端 `channel/web/web.go:918` 把 `/api/llm-config` 注册为 **`authenticatedPOST(...)`
+//   （只收 POST）** ⇒ `GET` **恒 405**（实测 0.4ms `method not allowed`）⇒ 旧实现的
+//   `http.getAs('/api/llm-config')` **永远拉不到模型列**（旧版还静默吞错 ⇒ **永久转圈**）。
+//   web 侧同样从不走那条 REST（`useLLMSettings.ts:10`：All RPC calls go through `WSConnection.rpc`
+//   → `POST /api/rpc`）⇒ RPC 才是"与 web 同源"的入口。**
+
 // ── 会话级订阅查询（web `components/sidebar/SessionInfo.tsx` 的「订阅」行）─────────────
 //
 // ⚠️ **未登记进 `RpcMethod.ALL`**：`tools/tests/rpc.test.ts` 的 `NAMED` 是**硬编码清单**且断言
