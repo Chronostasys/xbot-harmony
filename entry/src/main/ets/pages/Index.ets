@@ -3013,6 +3013,10 @@ struct Index {
             theme: this.themeName,
             ctxKind: this.ctxKind,
             links: this.ctxLinks(),
+            // 迭代菜单的**空项过滤**（判据 = `core/ctxmenu.iterMenuItems`，对齐 web）
+            canIterReply: this.ctxIterCanReply(),
+            canIterThinking: this.ctxIterCanThinking(),
+            canIterTools: this.ctxIterCanTools(),
             onItem: (code: string) => {
               this.onSheetItem(code);
             },
@@ -5078,8 +5082,26 @@ struct Index {
   }
 
   /** 一个迭代的内容分段（正文/思考/工具/原文）。 */
-  private partsForIteration(it: HistoryIteration): CopyParts {
-    const p: CopyParts = new CopyParts();
+  /**
+   * 「迭代」长按菜单三项的**可用性**（判据与渲染同源 = `core/ctxmenu.iterMenuItems` 的空项过滤，
+   * 对齐 web `MessageActions.tsx:298-301`）。三项皆空 ⇒ 菜单只剩「取消」。
+   */
+  private ctxIterCanReply(): boolean {
+    const it: HistoryIteration | undefined = this.ctxIteration();
+    return it !== undefined && displayContent(it).length > 0;
+  }
+
+  private ctxIterCanThinking(): boolean {
+    const it: HistoryIteration | undefined = this.ctxIteration();
+    return it !== undefined && displayReasoning(it).length > 0;
+  }
+
+  private ctxIterCanTools(): boolean {
+    const it: HistoryIteration | undefined = this.ctxIteration();
+    return it !== undefined && it.tools !== undefined && it.tools.length > 0;
+  }
+
+  private partsForIteration(it: HistoryIteration): CopyParts {    const p: CopyParts = new CopyParts();
     p.reply = displayContent(it);
     p.thinking = displayReasoning(it);
     p.raw = it.content !== undefined ? it.content : '';

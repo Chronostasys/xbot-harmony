@@ -43,6 +43,7 @@ import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
 import { SearchHit } from '../core/types';
 import { hitLine, MOVE_DOWN, MOVE_TOP, MOVE_UP } from '../core/sessionops';
 import { linkLabel } from '../core/msgops';
+import { CtxMenuItem, iterMenuItems } from '../core/ctxmenu';
 import {
   PRESS_OPACITY,   DISABLED_OPACITY, ELEV_OVERLAY, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_CHIP, RADIUS_SHEET,
   SPACE_LG, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, elevationColorOf, hairlineOf, surfaceFillOf,
@@ -285,6 +286,13 @@ export struct ContextSheet {
   @Prop ctxKind: string = '';
   /** 目标里的链接（页面 `ctxLinks()` 的产物，已截断 ≤3）。 */
   @Prop links: string[] = [];
+  /**
+   * 迭代菜单的**空项过滤**开关（判据 = `core/ctxmenu.iterMenuItems`，对齐 web
+   * `MessageActions.tsx:298-301`）。**缺省 `true`（向后兼容：不投递时行为不变）。**
+   */
+  @Prop canIterReply: boolean = true;
+  @Prop canIterThinking: boolean = true;
+  @Prop canIterTools: boolean = true;
   /** 菜单项点击（页面 `onSheetItem(code)` —— 派发留页面）。 */
   onItem: (code: string) => void = () => {
   };
@@ -353,9 +361,13 @@ export struct ContextSheet {
         this.CtxItem('复制参数', 'tool-args', false)
         this.CtxItem('复制全部（名字+参数+输出）', 'tool-all', false)
       } else if (this.ctxKind === 'iter') {
-        this.CtxItem('复制该迭代正文', 'iter-reply', false)
-        this.CtxItem('复制该迭代（含思考）', 'iter-thinking', false)
-        this.CtxItem('复制该迭代（含工具）', 'iter-tools', false)
+        // 空项按设计过滤（对齐 web `MessageActions.tsx:298-301`）：判据与渲染同源
+        // = `core/ctxmenu.iterMenuItems`（服务端会把"还是空壳的在飞迭代"记进历史 ⇒ 旧实现恒 3 项、
+        // 点「正文」只得一个"没有可复制的内容" toast）。
+        ForEach(iterMenuItems(this.canIterReply, this.canIterThinking, this.canIterTools),
+          (m: CtxMenuItem, i: number) => {
+            this.CtxItem(m.label, m.code, false)
+          }, (m: CtxMenuItem, i: number) => `ctx-iter-${i}-${m.code}`)
       } else {
         this.CtxItem('复制回复', 'row-reply', false)
         this.CtxItem('复制（含思考）', 'row-thinking', false)
