@@ -30,6 +30,18 @@ const BAR_H: number = 6;
 /** badge 圆点边长（vp）。 */
 const DOT: number = 6;
 
+/**
+ * 语义色角色 → 实际色。
+ * ⛔ `warn`（"警告**文字**"角色，`theme_contrast.test.ts:127,450` 已登记、5 套主题全 ≥3:1）不在
+ *    `core/design.ets:colorOf` 的解析表里 ⇒ 这里补一条（用的就是 `pal().warn`，**不新增颜色**）。
+ *    其余一律走 `colorOf`（唯一解析）。⛔ 本函数**只解析角色**，不参与"该用什么角色"的判据
+ *    —— 判据在 `core/widgetsview.ets`（判据与渲染同源）。
+ */
+function roleColorOf(p: Palette, role: string): string {
+  if (role === 'warn') { return p.warn; }
+  return colorOf(p, role);
+}
+
 /** 一个分区（zone）：显示名 + 其 styled spans 横向流（web `WidgetZone`）。 */
 @Component
 struct WidgetZoneRow {
@@ -50,7 +62,7 @@ struct WidgetZoneRow {
         ForEach(this.zone.spans, (s: WidgetSpanView, i: number) => {
           Text(s.text)
             .fontSize(typeOf('type.caption').size)
-            .fontColor(colorOf(this.pal(), s.colorRole))
+            .fontColor(roleColorOf(this.pal(), s.colorRole))
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
         }, (s: WidgetSpanView, i: number) => `${i}#${s.colorRole}`)
@@ -94,12 +106,12 @@ struct WidgetComponentCard {
         Row({ space: SPACE_HAIR }) {
           Row()
             .width(DOT).height(DOT)
-            .backgroundColor(colorOf(this.pal(), toneColorRole(this.view.tone)))
+            .backgroundColor(roleColorOf(this.pal(), toneColorRole(this.view.tone)))
             .borderRadius(DOT / 2)
           Text(this.view.badgeText)
             .fontSize(typeOf('type.micro').size)
             .fontWeight(FontWeight.Medium)
-            .fontColor(colorOf(this.pal(), toneColorRole(this.view.tone)))
+            .fontColor(roleColorOf(this.pal(), toneColorRole(this.view.tone)))
         }
         .padding({ left: INSET_CHIP_X, right: INSET_CHIP_X, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
         .backgroundColor(wellOf(this.pal()))
@@ -141,7 +153,7 @@ struct WidgetComponentCard {
             Text(this.view.metricDelta)
               .fontSize(typeOf('type.micro').size)
               .fontColor(this.deltaRole() === 'textPrimary' ? this.pal().textMuted
-                : colorOf(this.pal(), this.deltaRole()))
+                : roleColorOf(this.pal(), this.deltaRole()))
           }
         }
         .width('100%')
@@ -175,7 +187,7 @@ struct WidgetComponentCard {
             Text(it.value)
               .fontSize(typeOf('type.caption').size)
               .fontWeight(FontWeight.Medium)
-              .fontColor(colorOf(this.pal(), toneColorRole(it.tone)))
+              .fontColor(roleColorOf(this.pal(), toneColorRole(it.tone)))
               .flexShrink(0)
           }
           .width('100%')
@@ -190,11 +202,19 @@ struct WidgetComponentCard {
           .textAlign(TextAlign.Start)
       } else {
         // 降级（未知 / web 有但原生未实现 / code-src 沙箱）——**可见占位 + reason**，绝不静默。
+        // ⛔ 配色纪律：文字一律**文字角色**（`textSecondary`）；"警告"语义由**非文字**的琥珀圆点承担
+        //    （`pal().warn` 是"警告文字"角色、已登记且 5 套主题全 ≥3:1）——绝不再拿 `statusWaiting`
+        //    （状态标记/点色，浅底仅 1.7–2.1:1）当正文色。
         Row({ space: SPACE_HAIR }) {
+          Row()
+            .width(DOT).height(DOT)
+            .backgroundColor(this.pal().warn)
+            .borderRadius(DOT / 2)
+            .flexShrink(0)
           Text('暂不支持')
             .fontSize(typeOf('type.micro').size)
             .fontWeight(FontWeight.Medium)
-            .fontColor(this.pal().statusWaiting)
+            .fontColor(this.pal().textSecondary)
             .flexShrink(0)
           Text(this.view.kind.length > 0 && this.view.reason.length === 0
             ? this.view.kind : `${this.view.kind}${this.view.reason.length > 0 ? ' · ' + this.view.reason : ''}`)
