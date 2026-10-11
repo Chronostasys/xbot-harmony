@@ -55,7 +55,8 @@ has(ringSrc, '弧 = `high ? pal().statusError : pal().accent`',
   '文件头注释与代码同角色（订正 `dangerText` 混淆）');
 // 按压纪律：静息态不写 normal.opacity（同 ThinkingLine / SubAgentTree；`normal` 会接管属性、
 // 盖掉动态值 —— 本仓已踩过的隐患）
-has(ringSrc, '.stateStyles({ pressed: { .opacity(0.75) } })', '按压唯一覆盖 opacity');
+has(ringSrc, '.stateStyles({ pressed: { .opacity(PRESS_OPACITY) } })', '按压唯一覆盖 opacity（走全站唯一刻度 PRESS_OPACITY=0.6）');
+hasNot(ringSrc, '.opacity(0.75)', '⛔ 不再用散落的 0.75 字面量（`7841978` 统一到 `PRESS_OPACITY`）');
 hasNot(ringSrc, 'normal: { .opacity(1) }', '⛔ 静息态不写 normal.opacity');
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -65,10 +66,11 @@ hasNot(ringSrc, 'normal: { .opacity(1) }', '⛔ 静息态不写 normal.opacity')
 // ⇒ 层级整块读不出（porcelain 的口径正是"靠发丝线 + 柔影分层"）。
 has(treeSrc, 'private cardBorderColor(): string {', '卡片描边收敛到一个判据（cardBorderColor）');
 has(treeSrc, 'if (isLightPalette(this.pal())) {', '浅色判据按**色板亮度**（不按主题名硬判）');
-has(treeSrc, 'return surfacesOf(this.pal()).hairline;', '浅色族走结构性发丝 hairline');
+has(treeSrc, 'return hairlineOf(this.pal());', '浅色族走结构性发丝 hairline（唯一语义出口 `hairlineOf`）');
+hasNot(treeSrc, 'surfacesOf(this.pal()).hairline', '⛔ 不再直取 `surfacesOf().hairline`（`7841978` 起收敛到 `hairlineOf` 出口）');
 has(treeSrc, 'return withAlpha(this.pal().border, CARD_BORDER_ALPHA);', '深色族保留 border@50%（逐字节不变）');
 // 子行虚线连接线：结构性边界 ⇒ hairline（深色族 hairline ≡ border，浅色族自动可见）
-has(treeSrc, 'color: { left: surfacesOf(this.pal()).hairline,',
+has(treeSrc, 'color: { left: hairlineOf(this.pal()),',
   '子行虚线走 hairline（深色族逐字节不变 / 浅色族可见）');
 ok('卡片三边（top/right/bottom）都走 cardBorderColor()',
   treeSrc.split('this.cardBorderColor()').length - 1 === 3);
