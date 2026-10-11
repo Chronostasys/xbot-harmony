@@ -302,7 +302,11 @@ for (let i = 0; i < scrolls.length; i++) {
  * ⛔ 键**只用文件名**（不含行号 —— 行号会被别线改动漂掉，我前面已被这个坑过一次）。
  */
 const H0_PENDING_SPEC: string[] = [
-  'components/SettingsPanel.ets',   // 归 tokens-ux
+  // ✅ 全部三条**已收**（横向 Scroll 均已补 `clip(true)`）：
+  //   · `components/MarkdownView.ets` 代码块外层（chat-surface-ux，`6df2456`）
+  //   · `pages/Index.ets` 顶栏会话 Tab 横向 Scroll（chat-surface-ux，`6df2456`）
+  //   · `components/SettingsPanel.ets:283`（tokens-ux）
+  //   ⇒ 实测集合为空（⛔ 台账只许缩短；再出现横向 Scroll 缺 clip **立刻会被上面那条断言抓住**）
 ];
 // ✅ 已收（本轮 chat-surface-ux）：
 //   · `components/MarkdownView.ets` 代码块外层横向 Scroll ⇒ 自身 `.clip(true)`；
@@ -348,7 +352,6 @@ const PENDING_SPEC: string[] = [
   'components/SettingsRows.ets :: H1 :: ANCHOR:this.label',
   'components/SettingsRows.ets :: H1 :: ANCHOR:this.label',
   'components/SettingsRows.ets :: H1 :: ANCHOR:this.label',
-  'components/SettingsRows.ets :: H1 :: ANCHOR:this.suffix',
   'components/SettingsRows.ets :: H1 :: ANCHOR:this.name.length > 0 ? this.name : this.subId',
   "components/SettingsRows.ets :: H1 :: ANCHOR:`${providerLine(this.provider, '')} · ${stripSch",
   // `pages/Index.ets` 归 **chat-surface-ux**
@@ -387,6 +390,12 @@ function multisetDiff(a: string[], b: string[]): string[] {
   }
   return out;
 }
+/**
+ * ⛔ **机制（谁修谁删，否则必红）**：`PENDING_SPEC` / `PENDING_FIX` / `H0_PENDING_SPEC` 都是**受管台账** ——
+ *   谁把某个已登记站点**修好**（或它的命中条件消失，如祖先获得了收缩能力），**谁就必须在同一批把该条删掉**；
+ *   否则下面的「实测集合 == 登记集合」断言会把它判成**陈旧**而红。
+ *   三条表都**只许缩短**（新命中 ⇒ 未登记 ⇒ 也红）⇒ 两个方向都拦得住，台账不会悄悄腐烂。
+ */
 const ALL_REG: string[] = KNOWN_OK.concat(PENDING_SPEC).concat(PENDING_FIX);
 const unreg: string[] = multisetDiff(measured, ALL_REG);
 const stale: string[] = multisetDiff(ALL_REG, measured);
