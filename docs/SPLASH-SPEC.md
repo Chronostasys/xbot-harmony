@@ -35,7 +35,7 @@ T0 发生在此之前（系统画），**不在**本时间线内 ⇒ `splashPhas
 |---|---|---|---|---|---|---|
 | **T0** | 系统开屏：`startWindowIcon` 居中压在 `startWindowBackground` 上（静态） | 进程冷启动 | 应用首帧就绪（`loadContent` 回调成功 `EntryAbility.ets:53-58`） | 系统决定（亚秒级，不可控） | 无（静态） | `loadContent` 失败 ⇒ 只有日志 `EntryAbility.ets:54-57`；**建议补 error 分支**（§10 diff ②） |
 | **T1** | 应用内开屏：**品牌底 + 标记入场**（`opacity 0→1` + `scale→1`），**一次** | `elapsedMs == 0` 且 `shouldShowSplash()==true` | `elapsedMs ≥ T1 时长` 或**用户交互**（点/滑）或 `elapsedMs ≥ SPLASH_TIMEOUT_MS` | `MOTION_BASE_MS = 220`（`core/motion.ets:36`）⇒ `animBase()`（`components/anim.ets:53-55`） | spring `cubic-bezier(0.34,1.56,0.64,1)`（`core/tokens.ets:54`；`anim.ets:39-45` 的 `springCurve()`） | `reduceMotion` ⇒ 静态呈现（§5）；超时 ⇒ 直接进 T3 |
-| **T2** | 标记**让位**（`opacity 1→0`，可 + 轻微上移）+ 首页内容淡入 | `elapsedMs ≥ T1 时长` | `elapsedMs ≥ T1+T2 时长` 或用户交互 | `MOTION_SLOW_MS = 320`（`core/motion.ets:43`）⇒ `animSlow()`（`components/anim.ets:63-65`） | 同上 spring（`anim.ets:63-65`） | 同 T1（可整体跳过 ⇒ 立即 T3） |
+| **T2** | **整层**让位（`opacity 1→0`，标记再乘自身 `markOpacity→0` + 轻微上移）+ 首页内容淡入 | `elapsedMs ≥ T1 时长` | `elapsedMs ≥ T1+T2 时长` 或用户交互 | `MOTION_SLOW_MS = 320`（`core/motion.ets:43`）⇒ `animEaseOut()`（`components/anim.ets:103`，**滑入位移见 `MOTION_SHEET_SLIDE_VP`**） | **`easeOut`（零超调）** —— ⛔ 不是 spring（`anim.ets:103`；判据 `splashPhaseCurve(T2)===easeOut`） | 同 T1（可整体跳过 ⇒ 立即 T3） |
 | **T3** | 交棒首页；**光球接管**（仅当首个会话在流式） | `elapsedMs ≥ T1+T2` 且 `shouldShowSplash()==false` 且首个会话 `running/isLive` | 回合结束（光球按自身状态机降为 `idle`，`components/AssistantOrb.ets` 头注的三态表） | 呼吸 `MOTION_BREATH_MS = 2560`（`components/anim.ets:96` ← `core/orb.ets:26`） | 光球自持节拍（`core/orb.ets`）；**入场**用 `animBase()`（`anim.ets:53`） | 无在飞会话 ⇒ T3 只是"首页静态"（**不启动光球**，见 §9） |
 
 **总时长（默认档）**：`T1 + T2 = 220 + 320 = 540ms`。
@@ -362,10 +362,14 @@ function curveHasOvershoot(css: string): boolean;            // 解析 cubic-bez
 
 ```
 ✅ entry/src/main/ets/components/SplashOverlay.ets   （真 @Component + @Prop；⛔ 未用带参 @Builder）
-    · props: phase(@Prop @Watch) / theme / reduceMotion / canvasFollowApp / systemDark / onDone / onSkip
-    · build(): 品牌底（splashCanvasOf 的结果）+ 标记（$media:start_icon 或 brand_mark_outline）
+    · props: phase(@Prop @Watch) / reduceMotion / onDone / onSkip
+      ⚠️ 2026-10-11 更新：`theme` / `canvasFollowApp` / `systemDark` **已删**（方案 (a)「品牌开屏恒深」
+      ⇒ 画布/标记**不随主题变化**是**结构性保证**；见 §4.3/§4.4 与 `docs/BRAND.md §12.1`）
+    · 画布 = `splashBrandCanvas()`（**恒定深色** = T0 色）；标记档位 = `splashBrandMarkLevel(...)`
+      （恒定深色面 ⇒ `FULL` ⇒ `$media:start_icon`；`brand_mark_outline` 是降级链 OUTLINE 档，**待无障碍接线**）
     · 动效：T1 = animBase() 入场；T2 = animEaseOut() 让位（**无超调**；⛔ 不 import @ohos.curves）
-    · 判据：splashPhaseAt / splashMarkLevelOf / splashCanvasOf（纯函数在 core/splash.ets，可脱机单测）
+    · 判据：splashPhaseAt / splashBrandMarkLevel / splashBrandCanvas / splashExitOpacityAt
+      （纯函数在 core/splash.ets，可脱机单测）
 ```
 
 ### ② 页面接线（`pages/Index.ets`，已落地）
