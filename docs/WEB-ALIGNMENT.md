@@ -590,3 +590,21 @@ web：`reasoningCount = reasoningStreaming ? rw.visibleChars : length`，且**�
    `arrow_down_circle_badge_checkmark` / `circle_circle_badge_checkmark_shield_filled`）⇒ 换已存在符号。
 
 ⇒ 这两条让 `bash tools/gate.sh` 的第 ④ 步当前为红；修好前任何人的 ArkTS 编译都不过。
+
+## 16. 与 web 的**有意分歧登记表**（2026-10-11 批次22 起；新增分歧必须在此登记 + 写理由 + 留断言）
+
+> 原则：**web 仍是权威基准**。允许有分歧，但必须能说清"为什么我们这里更对/更保守"，
+> 并留下**能证伪的断言**；说不清的分歧 = bug（不是"设计选择"）。
+
+| # | 分歧点 | web 行为 | 原生行为 | 理由（含依据） | 批次 |
+|---|---|---|---|---|---|
+| 1 | live 块的 `pending` 工具文案 | `FoldedToolGroup.tsx:211`：`pending` ⇒ `Queued` | **也是「排队」**（`core/toolstatus.ets:157`） | ⛔ 曾反向做过一版"live pending ⇒ 执行中"，因**违背用户常驻要求「状态一律以后端为准」**、且会让「排队」这一档**整个消失**（失真）而**废止**。用户两次报的毛病真因是 **rank 缺失**（陈旧快照盖新状态）与 **`generating` 被并进 running 档**，与该 `pending` 无关。 | 22（§13.3 已改写） |
+| 2 | `exit≠0` 但 status 仍 `running` | `singleStatus` 只看 `status==='error'` ⇒ 显示 Running | **提前判失败**（红 + `失败 exit N`） | 宁可早报错，也不要"绿点里藏着失败"（`core/toolstatus.ets:68` 已注明） | 22 |
+| 3 | 同一迭代内工具**出现顺序** | `dedupTools` 按生命周期分组（streaming→active→completed）⇒ 完成的被排到末尾 | **首现序**（arrival 固定） | 首现序**不随状态重排** ⇒ 流式期列表不"跳位"；web 的分组会重排 | 22 |
+| 4 | pill 的**身份键** | `FoldedToolGroup.tsx:557`：`${name}-${i}` | `turnID:iter:name#call_id`（无 `call_id` 才用同迭代下标兜底） | 同一工具多次调用 / 列表重排时 `name-i` 会串味；`call_id` 是服务端给的稳定身份 | 22（我接线时已把 `LiveTailView` 的 ForEach key 去掉了 `t.status`） |
+| 5 | "状态→文案/色"的实现份数 | 2 份（`statusColorVar` + `singleStatus`） | **1 份**（`core/toolstatus`）+ 渲染层唯一角色映射表 `ToolVisual.statusColorOf` | 用户两次报 bug 的共同根因就是「**同一信息两处判据**」；已加**机器门禁** `tools/lint/criteria-single-source.sh`（规则 B） | 22 |
+
+**三条防复发断言（缺一不可）**：
+① 陈旧 `pending` 不得覆盖新的 `running`/`done`（rank 终态优先）；
+② `generating` 不得回落「执行中」（缺字数 ⇒ 「生成中…」）；
+③ `pending` 不得被私改判成「执行中」（重新引入本表 #1 已废止的写法 ⇒ 必须红）。
