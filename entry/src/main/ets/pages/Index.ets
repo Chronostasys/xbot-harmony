@@ -68,6 +68,10 @@ import { changedByKeys, identityChanged, needsFullReload, rowKey, rowsFpOf, same
 import { BusySignals, busyNow, DRAWER_EMPTY_NO_MATCH, DRAWER_EMPTY_NO_SESSIONS, DRAWER_EMPTY_NONE, drawerEmptyHint, drawerEmptyKind, showsBusyPlaceholder, showsHistorySkeleton, showsJumpToLatest } from '../core/indicators';
 // SSE 终态（服务端明确拒绝 ⇒ 停止无限重连）——页面横幅据它显示**可解释的终态**而非"正在重连"。
 import { SSE_STATE_FAILED } from '../core/sse';
+// 插件 widget 数据面（页面半边）：SSE 事件名 + 载荷（判据在 `core/widgetsview.ets`）
+import { WIDGET_EVENT_WEB } from '../core/widgetsview';
+// 插件桥 page→native 的消息类型（协议权威 = `core/webbridge.ets`）
+import { BridgeMessage } from '../core/webbridge';
 import { listItemCount, nextFollowBottom } from '../core/listfollow';
 import { OverlayCode, OverlayState, topOverlay } from '../core/overlays';
 import {
@@ -520,6 +524,11 @@ struct Index {
   @State pluginGroups: PluginCatalogGroup[] = [];
   /** 插件宿主页 URL（**与页面级 `panelUrl` 分离** ⇒ 不会同时挂载两个 WebSurface）。 */
   @State pluginPageUrl: string = '';
+  // ── 插件 widget 数据面（页面半边；`store` 半边在 `core/store.ets` 的 lastWidgetEvent/Content）──
+  /** 当前 widget 事件名（SSE 载荷产出；空 ⇒ 回落 `WIDGET_EVENT_WEB`）。 */
+  @State widgetEvent: string = WIDGET_EVENT_WEB;
+  /** 当前 widget 载荷（空 ⇒ `PluginHost` 内零节点，目录视觉不变）。 */
+  @State widgetContent: string = '';
 
   // ── 图片查看 ──────────────────────────────────────────────────────────────
   @State imagePixel: image.PixelMap | null = null;
@@ -1088,6 +1097,12 @@ struct Index {
     }
     this.busy = store.busy;
     this.connState = store.connState;
+    // 插件 widget 数据面：把 store 收到的最新 SSE widget 载荷投影到页面（载荷未变则不触发重渲染）。
+    // 判据（事件名/载荷）全在 `core/`（`store` 的 onSse 早退 + `core/widgetsview` 解析）。
+    if (store.lastWidgetContent !== this.widgetContent) {
+      this.widgetEvent = store.lastWidgetEvent.length > 0 ? store.lastWidgetEvent : WIDGET_EVENT_WEB;
+      this.widgetContent = store.lastWidgetContent;
+    }
     this.syncPulse(store.busy);
     // 备1 短时任务（旁路，幂等）：回合结束（busy 落）⇒ 结束短时任务。
     // 只在本回合确实申请过时调一次（避免每帧 syncFrom 都触发无谓的 end 调用）。
@@ -2332,6 +2347,18 @@ struct Index {
   }
 
   /**
+   * 插件桥 page→native 的业务消息（事件名 `xbot:bridge`，信封为 JSON 字符串）。
+   *
+   * ⛔ 只**记录**：`close`/`log`/`ready` 已在 `components/WebSurface` 内闭环（判据
+   *    `core/webbridge.hostActionFor`）；未实现的 host 能力（call/notify 的 capability、
+   *    `openExternal`、`resize`）**只记录、绝不回假 result**（回执是页面对
+   *    `window.xbotNative.postMessage(信封串)` 的**同步返回值**，编造 = 对插件撒谎）。
+   */
+  private handleBridgeMessage(m: BridgeMessage): void {
+    console.log(`[bridge] ${m.type} ${m.id} len=${m.payload.length}`);
+  }
+
+  /**
    * 打开**原生插件目录 + 宿主页**（`components/PluginHost` 的唯一注入点）。
    * 目录数据 = `store.loadPluginCatalog()`（服务端 `web_plugin_list` 元数据，零猜测）。
    * 宿主页 URL 用**独立的** `pluginPageUrl`（与页面级 `panelUrl` 分离）。
@@ -2432,7 +2459,9 @@ struct Index {
       } else if (this.useWebUI && this.webUiUrl.length > 0) {
         // ArkWeb 承载完整 web UI（设置里可切换；右下角按钮一键切回原生）
         Stack() {
-          WebSurface({ url: this.webUiUrl, theme: this.themeName, chrome: false, onClose: () => {
+          WebSurface({ url: this.webUiUrl, theme: this.themeName, chrome: false, onBridgeMessage: (m: BridgeMessage) => {
+            this.handleBridgeMessage(m);
+          }, onClose: () => {
           } })
           Text('切回原生')
             .fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary)
@@ -2680,7 +2709,9 @@ struct Index {
       }
       // ArkWeb 逃生舱（插件 UI / GenUI / 终端 / 编辑器 / 完整 Web UI）
       if (this.panelUrl.length > 0) {
-        WebSurface({ url: this.panelUrl, theme: this.themeName, onClose: () => {
+        WebSurface({ url: this.panelUrl, theme: this.themeName, onBridgeMessage: (m: BridgeMessage) => {
+          this.handleBridgeMessage(m);
+        }, onClose: () => {
           this.panelUrl = '';
         } })
       }
@@ -2749,6 +2780,8 @@ struct Index {
               groups: this.pluginGroups,
               theme: this.themeName,
               panelUrl: this.pluginPageUrl,
+              widgetContent: this.widgetContent,
+              widgetEvent: this.widgetEvent,
               onOpen: (url: string) => {
                 this.pluginPageUrl = url;
               },
