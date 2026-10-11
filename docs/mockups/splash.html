@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>样张 6 · 开屏动效（T0→T1→T2→T3）· 静帧 + 时间轴 · 深浅对照</title>
+<!--
+  ═══════════════════════════════════════════════════════════════════════════════
+  样张 6 · 开屏（splash）—— 只出样张，不碰任何 ArkTS/资源/配置。
+
+  规格真源：docs/SPLASH-SPEC.md（阶段模型 + 纯函数判据 + 时长台账）。
+  色值纪律（同 docs/mockups/porcelain.html）：每个色值标**角色名**，取自
+    core/design.ets: colorOf(paletteOf(theme), role) / surfacesOf / effectsOf（实调，非手抄）。
+  时长纪律：每个时长标 **file:line**，全部实调自 core/motion.ets + components/anim.ets + core/orb.ets。
+
+  画布：1320×2848 px（模拟器 xbot_phone 分辨率）@ density 3.0 ⇒ **440×949.33 pt**
+        （1 CSS px = 1 vp ⇒ 下面所有 token 值可 1:1 读）。显示按 0.65 缩放（440→286）。
+  ⛔ 唯一非 app token 的值 = ① 样张纸张（页外背景 #EEF1F5、手机外框阴影）；② **时间轴的 T0 段**是"系统开屏"的**示意图**（斜纹 #C7C7CC/#B9B9BF/#3A3A3C），
+     它不代表任何 app 画布色（T0 由系统绘制）。除此以外，app 画布内每个可见色都标了角色名。
+  ═══════════════════════════════════════════════════════════════════════════════
+-->
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:24px;background:#EEF1F5;color:#1D1D1F;
+  font-family:-apple-system,"SF Pro Text","PingFang SC",sans-serif;-webkit-font-smoothing:antialiased}
+h1{font-size:21px;font-weight:600;letter-spacing:-.2px;max-width:1000px;margin:0 auto 6px}
+.sub{font-size:14px;color:#6E6E73;line-height:1.55;max-width:1000px;margin:0 auto 20px}
+.face{max-width:1000px;margin:0 auto 28px}
+.face h2{font-size:13px;font-weight:600;color:#6E6E73;margin:0 0 10px;letter-spacing:.2px}
+.note{font-size:11px;color:#6E6E73;line-height:1.65;max-width:1000px;margin:12px 0 0}
+.note b{color:#1D1D1F}
+.note code,.mono{font-family:ui-monospace,Menlo,monospace;font-size:10px}
+.row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+
+/* ── 手机画布 1320×2848 px @3.0 ⇒ 440×949.33 pt；显示缩放 0.65 ─────────────────── */
+.slot{width:286px;height:617px;flex:0 0 auto;position:relative}
+.phone{width:440px;height:949.33px;transform:scale(.65);transform-origin:top left;position:absolute;top:0;left:0;
+  border-radius:44px;overflow:hidden;box-shadow:0 2px 6px rgba(29,29,31,.10),0 18px 44px rgba(29,29,31,.16)}
+.cap{font-size:11px;color:#6E6E73;line-height:1.5;margin:6px 0 0;width:286px}
+.cap b{color:#1D1D1F}
+
+/* ---- 主题变量（PORCELAIN —— 取自 colorOf(paletteOf('porcelain'), role)）---- */
+.th-p{--appBg:#FFFFFF;--surface:#FFFFFF;--surfaceAlt:#F6F6F7;--surfaceHi:#EDEDEF;--sunken:#F2F2F2;
+  --hairline:#DFDFE1;--border:#ECECEE;--tp:#1D1D1F;--ts:#6E6E73;--tm:#A2A2A7;
+  --accent:#0071E3;--accentSoft:#0066CC;--accentText:#0057B8;--onAccent:#FFFFFF;
+  --successText:#166534;--dangerText:#B42318;--statusIdle:#8E8E93;
+  --glassComposite:#F9F9FA;            /* glassBg #9EF6F6F7 压 appBg（compositeOver 实测） */
+  --userBubble:rgba(0,113,227,.15);    /* userBubbleBg = accent@15% */
+  --halo:rgba(29,29,31,.102);          /* inflightHalo = elev2 #1A1D1D1F */
+  --splashCanvasLight:#F8FAFC}         /* lightPalette().appBg（方案B：跟系统浅色）*/
+/* ---- 主题变量（DARK 对照）---- */
+.th-d{--appBg:#0B0B0E;--surface:#0E0E14;--surfaceAlt:#14141C;--surfaceHi:#1D1D28;--sunken:#0B0B0F;
+  --hairline:#20202B;--border:#20202B;--tp:#EDEDF2;--ts:#9A9AAB;--tm:#63636F;
+  --accent:#7C5CFF;--accentSoft:#B9A7FF;--accentText:#C9BCFF;--onAccent:#FFFFFF;
+  --successText:#86EFC4;--dangerText:#FF7B7B;--statusIdle:#858585;
+  --glassComposite:#0D0D12;--userBubble:rgba(124,92,255,.15);--halo:rgba(124,92,255,.451);
+  --splashCanvasDark:#0B0B0E}
+
+/* ---- 品牌标记（不随主题变：brandAccent / brandOnAccent）---- */
+.mark{width:160px;height:160px;position:relative}   /* 160 = 5 × space.xxl(32)；见 SPLASH-SPEC §11 缺档⑥ */
+.mark .bubble{position:absolute;inset:0;background:#7C5CFF;   /* brandAccent()（← darkPalette().accent）*/
+  border-radius:50% 50% 50% 12%;transform:scale(.56)}          /* 复刻 bubblePath() 的 224..800 / 232..844 比例 */
+.mark .star{position:absolute;left:50%;top:42%;width:44px;height:44px;transform:translate(-50%,-50%);
+  background:#FFFFFF;                                           /* brandOnAccent() */
+  clip-path:polygon(50% 0,61% 39%,100% 50%,61% 61%,50% 100%,39% 61%,0 50%,39% 39%)}
+
+/* ---- 屏幕容器 ---- */
+.scr{width:100%;height:100%;background:var(--appBg);color:var(--tp);display:flex;flex-direction:column;overflow:hidden;position:relative}
+.center{flex:1;display:flex;align-items:center;justify-content:center}
+.wordmark{font-size:28px;font-weight:600;letter-spacing:-.4px;color:#1D1D1F}  /* type.display 28/600/-0.4 */
+
+/* ---- T3：首页顶栏 + 聊天流（同 porcelain.html 约定）---- */
+.topbar{display:flex;align-items:center;gap:8px;padding:14px 16px 12px;background:var(--glassComposite);
+  border-bottom:1px solid var(--hairline)}
+.menu{font-size:21px;line-height:1;color:var(--tp);padding:12px;border-radius:6px}
+.hd{display:flex;flex-direction:column;gap:2px}
+.hd .t{font-size:16px;font-weight:500;line-height:1.3;color:var(--tp)}
+.hd .st{display:flex;align-items:center;gap:4px}
+.hd .st .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.hd .st .lab{font-size:12px;letter-spacing:.1px;color:var(--accentSoft)}
+.flow{padding:6px 4px;display:flex;flex-direction:column}
+.ubub{margin-left:auto;max-width:85%;padding:8px 14px;border-radius:16px 16px 16px 2px;
+  background:var(--userBubble);color:var(--tp);font-size:15px;line-height:1.55}
+.abub{font-size:15px;line-height:1.55;color:var(--tp);padding:0 12px}
+.think{display:flex;align-items:center;gap:8px;padding:2px 2px;border-radius:8px}
+.think .bulb{font-size:12px;color:var(--tm)}
+.think .lb{font-size:12px;letter-spacing:.1px;color:var(--accentSoft)}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:5px 8px;border-radius:8px;background:var(--surfaceAlt);margin:3px 0}
+.pill .slot{width:14px;height:14px;display:flex;align-items:center;justify-content:center}
+.pill .tx{font-size:12px;color:var(--tp)}
+.pill .pc{font-size:10px;font-weight:500;padding:2px 4px;border-radius:6px;background:var(--sunken);margin-left:4px}
+/* 光球（T3 唯一在飞）：porcelain 用中性柔影 elev2，零彩色发光 */
+.orb{width:64px;height:64px;border-radius:50%;position:relative;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 18px var(--halo)}
+.orb .core{width:38px;height:38px;border-radius:50%;background:radial-gradient(circle,var(--accent) 0%,var(--accent) 46%,rgba(0,0,0,0) 72%)}
+.orb .ring{position:absolute;inset:6px;border-radius:50%;border:1px solid var(--accent);opacity:.38}
+.orb .thin{position:absolute;inset:1px;border-radius:50%;border:1px solid var(--border)}
+.th-p .orb .thin{opacity:1}         /* T3 = tool 态：细环变亮（颜色维度不可辨，见 §16.2 #16）*/
+
+/* ---- 时间轴 ---- */
+.tl{max-width:1000px;margin:0 auto 8px;background:#fff;border:1px solid #DFDFE1;border-radius:12px;padding:16px}
+.tl h3{font-size:12px;font-weight:600;color:#6E6E73;margin:0 0 10px;letter-spacing:.2px}
+.bar{display:flex;align-items:stretch;height:38px;margin:0 0 6px;font-size:11px;color:#fff;overflow:hidden;border-radius:8px}
+.seg{display:flex;align-items:center;justify-content:center;text-align:center;padding:0 6px;line-height:1.25}
+.s-t0{background:repeating-linear-gradient(45deg,#C7C7CC,#C7C7CC 6px,#B9B9BF 6px,#B9B9BF 12px);color:#3A3A3C;width:120px}
+.s-t1{background:#7C5CFF;width:220px}          /* 220ms */
+.s-t2{background:#6E6E73;width:320px}          /* 320ms */
+.s-t3{background:#0071E3;flex:1}
+.s-t1r{background:#7C5CFF;width:400px}         /* reduceMotion: static 400ms */
+.s-t3r{background:#0071E3;flex:1}
+.axis{display:flex;font-size:10px;color:#6E6E73;font-family:ui-monospace,Menlo,monospace}
+.axis span{display:inline-block}
+.legend{font-size:11px;color:#6E6E73;line-height:1.7;margin-top:10px}
+.legend code{font-family:ui-monospace,Menlo,monospace;font-size:10px}
+table{border-collapse:collapse;width:100%;font-size:11px;font-family:ui-monospace,Menlo,monospace}
+th,td{text-align:left;padding:4px 6px;border-bottom:1px solid #ECECEE;vertical-align:top}
+th{color:#6E6E73;font-weight:600}
+.pass{color:#166534;font-weight:600}.fail{color:#B42318;font-weight:600}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,.10);vertical-align:-2px;margin-right:6px}
+</style>
+</head>
+<body>
+<h1>样张 6 · 开屏动效 —— T0 系统 → T1 品牌标记 → T2 让位 → T3 光球接管</h1>
+<p class="sub">规格真源 <code>docs/SPLASH-SPEC.md</code>。画布 <b>1320×2848 px</b>（模拟器 xbot_phone）@ density 3.0 ⇒ <b>440×949.33 pt</b>（1 CSS px = 1 vp）。
+时长/easing <b>全部实调</b>自 <code>core/motion.ets</code> / <code>components/anim.ets</code> / <code>core/orb.ets</code>（见时间轴与 §D 表）；⛔ 无自造时长。
+⛔ 铁律：**T1/T2 是"一次性过渡"，不是"在飞"** ⇒ 光球在 T3 才启动（§F）。</p>
+
+<!-- ═════════ A. 时间轴 ═════════ -->
+<section class="face">
+  <h2>A. 时间轴（横轴按时长成比例；1 ms ≈ 1 px）—— 标 easing 与 `file:line`</h2>
+  <div class="tl">
+    <h3>默认档（reduceMotion = false）</h3>
+    <div class="bar">
+      <div class="seg s-t0">T0 系统开屏<br>（静态 · 系统决定）</div>
+      <div class="seg s-t1">T1 标记入场 220ms</div>
+      <div class="seg s-t2">T2 让位 320ms</div>
+      <div class="seg s-t3">T3 光球接管（呼吸 2560ms · 仅当首个会话在流式）</div>
+    </div>
+    <div class="axis">
+      <span style="width:120px">t=0 系统</span><span style="width:220px">+220</span><span style="width:320px">+540</span><span>→ ∞</span>
+    </div>
+    <div class="legend">
+      · <b>T1</b> = <code>animBase()</code>（<code>components/anim.ets:53-55</code>，220ms ← <code>core/motion.ets:36</code>）· 曲线 = spring
+        <code>cubic-bezier(0.34,1.56,0.64,1)</code>（<code>core/tokens.ets:54</code>）。标记 <code>opacity 0→1</code> + <code>scale→1</code>，<b>一次</b>。<br>
+      · <b>T2</b> = <code>animSlow()</code>（<code>components/anim.ets:63-65</code>，320ms ← <code>core/motion.ets:43</code>）· 同一条 spring 曲线。标记 <code>opacity 1→0</code>，首页内容淡入。<br>
+      · <b>T3</b> = 光球自持节拍，呼吸 <code>MOTION_BREATH_MS = 2560</code>（<code>components/anim.ets:96</code> ← <code>core/orb.ets:26</code>）。<br>
+      · 总时长（默认）= <b>220 + 320 = 540ms</b>；<code>minDwell = 400ms</code>（= <code>MOTION_BASE_MS + MOTION_FAST_MS</code>，见 §D 缺档①）。
+    </div>
+  </div>
+  <div class="tl">
+    <h3>无障碍降级（reduceMotion = true）—— <b>只降动效，不降可达性</b></h3>
+    <div class="bar">
+      <div class="seg s-t0">T0 系统开屏<br>（静态）</div>
+      <div class="seg s-t1r">T1 <b>静态</b>标记（无 transform/opacity 动效）400ms</div>
+      <div class="seg s-t3r">T3（T2 收起为 0ms ⇒ 跳切；光球静态一帧）</div>
+    </div>
+    <div class="axis"><span style="width:120px">t=0</span><span style="width:400px">+400</span><span>→ ∞</span></div>
+    <div class="legend">⛔ 不许把 T1 **跳过**（跳过 = 品牌零曝光 + 白闪）。降级只把 <b>动</b> 去掉，标记仍**可见**、仍有**最短停留</b>（<code>minDwell=400ms</code>）。
+      光球的停表条件本就含 <code>reduceMotion</code>（<code>components/AssistantOrb.ets</code> 头注）⇒ T3 静态一帧，仍靠状态点/文案给"在跑"线索。</div>
+  </div>
+</section>
+
+<!-- ═════════ B. T1/T2/T3 静帧（porcelain）═════════ -->
+<section class="face">
+  <h2>B. T1 / T2 / T3 静帧（porcelain 白主题；画布 440×949 pt = 1320×2848 px @3.0）</h2>
+  <div class="row">
+
+    <!-- T1 -->
+    <div>
+      <div class="slot th-p"><div class="phone th-p"><div class="scr" style="background:var(--splashCanvasLight)">
+        <div class="center"><div class="mark"><div class="bubble"></div><div class="star"></div></div></div>
+      </div></div></div>
+      <div class="cap"><b>T1 · 标记入场</b>（<code>t∈[0,220)</code>）<br>
+        底 = <code>splashCanvasOf(porcelain, followApplication=false, systemDark=false)</code> = <code>lightPalette().appBg</code> <b>#F8FAFC</b>（方案B）。
+        标记 = <code>SOLID</code>（<code>markLevelFor</code> 实调 ⇒ <b>solid</b>）：<code>brandAccent() #7C5CFF</code> 气泡 + <code>brandOnAccent() #FFFFFF</code> 星芒，<b>零发光</b>。
+        标记盒 160pt = 5×<code>space.xxl</code>(32)。⛔ 光球此时**未启动**。</div>
+    </div>
+
+    <!-- T2 -->
+    <div>
+      <div class="slot th-p"><div class="phone th-p"><div class="scr" style="background:var(--splashCanvasLight)">
+        <div style="flex:1;position:relative">
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:.35">
+            <div class="mark"><div class="bubble"></div><div class="star"></div></div>
+          </div>
+          <div class="topbar" style="opacity:.55"><div class="menu">☰</div>
+            <div class="hd"><div class="t">重做设计系统</div><div class="st"><span class="dot"></span><span class="lab">运行中…</span></div></div></div>
+        </div>
+      </div></div></div>
+      <div class="cap"><b>T2 · 让位</b>（<code>t∈[220,540)</code>）<br>
+        标记 <code>opacity 1→0</code>（此处取中途 ~.35），首页内容淡入（~.55）。时长 320ms = <code>animSlow()</code>。
+        ⛔ 仍无第二个"在飞"。</div>
+    </div>
+
+    <!-- T3 -->
+    <div>
+      <div class="slot th-p"><div class="phone th-p"><div class="scr">
+        <div class="topbar"><div class="menu">☰</div>
+          <div class="hd"><div class="t">重做设计系统</div><div class="st"><span class="dot"></span><span class="lab">运行中…</span></div></div></div>
+        <div class="flow">
+          <div class="ubub">把 pill 和 chip 的层级拆开</div>
+          <div class="abub">好，我把「面」按深度分层编号。</div>
+          <div class="think"><span class="bulb">💡</span><span class="lb">思考 128 字</span></div>
+          <div style="padding:0 12px 6px">
+            <div class="pill"><span class="slot" style="color:var(--successText)">✓</span><span class="tx">read_file</span></div>
+          </div>
+          <div style="display:flex;justify-content:center;padding:18px"><div class="orb"><div class="thin"></div><div class="ring"></div><div class="core"></div></div></div>
+        </div>
+      </div></div></div>
+      <div class="cap"><b>T3 · 光球接管</b>（<code>t≥540</code>）<br>
+        **仅当首个会话在流式**才启动光球（否则只是静态首页）。此时**才**允许"在飞"。
+        porcelain 下光晕 = <code>elev2</code>（<code>--halo</code> 中性柔影，⛔ 零彩色发光）；细环 = <code>border #ECECEE</code>（tool 态强度↑）。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════ C. T1 深浅对照 ═════════ -->
+<section class="face">
+  <h2>C. T1 深浅两套（对照）—— 底色跟**系统**（方案B）时的实际样子</h2>
+  <div class="row">
+    <div>
+      <div class="slot"><div class="phone th-p"><div class="scr" style="background:var(--splashCanvasLight)">
+        <div class="center"><div class="mark"><div class="bubble"></div><div class="star"></div></div></div>
+      </div></div></div>
+      <div class="cap">系统<b>浅</b>色 ⇒ <code>lightPalette().appBg</code> <b>#F8FAFC</b>（<code>color.json</code> base 值）</div>
+    </div>
+    <div>
+      <div class="slot"><div class="phone th-d"><div class="scr" style="background:var(--splashCanvasDark)">
+        <div class="center"><div class="mark"><div class="bubble"></div><div class="star"></div></div></div>
+      </div></div></div>
+      <div class="cap">系统<b>深</b>色 ⇒ <code>darkPalette().appBg</code> <b>#0B0B0E</b>（<code>color.json</code> dark 值）</div>
+    </div>
+  </div>
+  <p class="note"><b>跳色</b>（<code>docs/BRAND.md §12.1</code>）：方案B 只在"系统深浅 == 应用深浅"时零跳色；<b>跨深浅必闪</b>
+    （系统深 + 应用选 porcelain ⇒ 开屏 #0B0B0E → 首帧 #FFFFFF，ΔRGB ~244）。根治 = <b>方案A</b>（<code>FOLLOW_APPLICATION</code>，开屏跟应用主题 ⇒ 零跳色；**不需卸载重装**）。
+    ⚠️ 方案A 是**待用户拍板**的配置项（不在本波执行）。两方案**可叠加**（先上 B 的 T1 同色，再等 A）。</p>
+</section>
+
+<!-- ═════════ D. 阶段表 ═════════ -->
+<section class="face">
+  <h2>D. 阶段表（进入 / 退出 / 时长 / easing / 兜底）</h2>
+  <div class="tl">
+    <table>
+      <tr><th>阶段</th><th>进入</th><th>退出</th><th>时长（file:line）</th><th>easing（file:line）</th><th>兜底</th></tr>
+      <tr><td><b>T0</b> 系统开屏</td><td>进程冷启动</td><td>应用首帧就绪（<code>EntryAbility.ets:53-58</code>）</td>
+        <td>系统决定（不可控）</td><td>无（静态）</td><td><code>loadContent</code> 失败只记日志（<code>:54-57</code>）⇒ 建议补 error 分支</td></tr>
+      <tr><td><b>T1</b> 标记入场</td><td><code>elapsed=0</code> 且 <code>shouldShowSplash==true</code></td>
+        <td><code>elapsed≥220</code> / 用户交互 / 超时</td>
+        <td><b>220</b> = <code>MOTION_BASE_MS</code>（<code>core/motion.ets:36</code>）⇒ <code>animBase()</code>（<code>anim.ets:53-55</code>）</td>
+        <td>spring <code>cubic-bezier(.34,1.56,.64,1)</code>（<code>tokens.ets:54</code>）</td>
+        <td><code>reduceMotion</code> ⇒ 静态（§5 表）</td></tr>
+      <tr><td><b>T2</b> 让位</td><td><code>elapsed≥220</code></td><td><code>elapsed≥540</code> / 用户交互</td>
+        <td><b>320</b> = <code>MOTION_SLOW_MS</code>（<code>core/motion.ets:43</code>）⇒ <code>animSlow()</code>（<code>anim.ets:63-65</code>）</td>
+        <td>同上</td><td>可整体跳过 ⇒ 立即 T3</td></tr>
+      <tr><td><b>T3</b> 光球接管</td><td><code>elapsed≥540</code> 且 首个会话在流式</td><td>回合结束（光球降 <code>idle</code>）</td>
+        <td>呼吸 <b>2560</b> = <code>MOTION_BREATH_MS</code>（<code>anim.ets:96</code> ← <code>core/orb.ets:26</code>）</td>
+        <td>光球自持节拍；入场 <code>animBase()</code></td><td>无在飞会话 ⇒ 不启动光球（静态首页）</td></tr>
+    </table>
+    <div class="legend">
+      <b>缺档</b>（未自造，只上报）：① <code>minDwellMs</code> 底座无 ⇒ 建议 <code>220+180=400</code>；② <code>timeoutMs</code> 底座无 ⇒ 建议 <code>MOTION_BREATH_MS=2560</code>；
+      ③ 入场 <code>scale</code> 起点有两个值（设计输入 <code>0.92</code> vs <code>AssistantOrb.ets:94</code> 的 <code>0.86</code>）⇒ 需拍板；⑥ 标记盒尺寸无 token ⇒ 本样张取 <code>5×space.xxl=160</code>（见 <code>SPLASH-SPEC §11</code>）。
+    </div>
+  </div>
+</section>
+
+<!-- ═════════ E. role → 值（实调）═════════ -->
+<section class="face">
+  <h2>E. 用到的色值（逐个取自 <code>colorOf(paletteOf(theme), role)</code>，实调）</h2>
+  <div class="tl">
+    <table>
+      <tr><th>角色 / 来源</th><th>porcelain</th><th>dark</th><th>用在哪</th></tr>
+      <tr><td>brandAccent()（<code>brand.ets:43</code>）</td><td><span class="sw" style="background:#7C5CFF"></span>#7C5CFF</td><td><span class="sw" style="background:#7C5CFF"></span>#7C5CFF</td><td>标记气泡（T1/T2/T3）</td></tr>
+      <tr><td>brandOnAccent()（<code>brand.ets:48</code>）</td><td><span class="sw" style="background:#FFFFFF"></span>#FFFFFF</td><td><span class="sw" style="background:#FFFFFF"></span>#FFFFFF</td><td>星芒</td></tr>
+      <tr><td>T1 底（方案B·系统浅）= <code>lightPalette().appBg</code></td><td colspan="2"><span class="sw" style="background:#F8FAFC"></span>#F8FAFC</td><td>T1 canvas（浅）</td></tr>
+      <tr><td>T1 底（方案B·系统深）= <code>darkPalette().appBg</code></td><td colspan="2"><span class="sw" style="background:#0B0B0E"></span>#0B0B0E</td><td>T1 canvas（深）</td></tr>
+      <tr><td>appBg</td><td><span class="sw" style="background:#FFFFFF"></span>#FFFFFF</td><td>#0B0B0E</td><td>画布 / T1 底（方案A）</td></tr>
+      <tr><td>glassBg → 压 appBg</td><td><span class="sw" style="background:#F9F9FA"></span>#F9F9FA</td><td>#0D0D12</td><td>T3 顶栏</td></tr>
+      <tr><td>hairline</td><td><span class="sw" style="background:#DFDFE1"></span>#DFDFE1</td><td>#20202B</td><td>T3 结构发丝 / 光球细环</td></tr>
+      <tr><td>accent</td><td><span class="sw" style="background:#0071E3"></span>#0071E3</td><td>#7C5CFF</td><td>T3 状态点 / 光球核</td></tr>
+      <tr><td>accentSoft</td><td><span class="sw" style="background:#0066CC"></span>#0066CC</td><td>#B9A7FF</td><td>T3 「运行中…」</td></tr>
+      <tr><td>successText</td><td><span class="sw" style="background:#166534"></span>#166534</td><td>#86EFC4</td><td>T3 pill done</td></tr>
+      <tr><td>userBubbleBg = accent@15%</td><td><span class="sw" style="background:#0071E3"></span>rgba(0,113,227,.15)</td><td>rgba(124,92,255,.15)</td><td>T3 用户气泡</td></tr>
+      <tr><td>inflightHalo = elev2（浅）/ glow（深）</td><td><span class="sw" style="background:#1D1D1F"></span>#1A1D1D1F</td><td>#737C5CFF</td><td>T3 光球光晕</td></tr>
+    </table>
+    <div class="legend">⛔ 品牌标记（气泡/星芒）**不随主题变**：真源是 <code>brandAccent()/brandOnAccent()</code>（<code>core/brand.ets:43/48</code>），**不走 `colorOf`**。
+      ⚠️ porcelain 的界面强调色是 <code>accent #0071E3</code>（Apple Blue），而标记是品牌紫 <code>#7C5CFF</code> —— 这是已知断层（<code>docs/BRAND.md §2.4</code>），**需拍板**。</div>
+  </div>
+</section>
+
+<!-- ═════════ F. 在飞唯一性 + porcelain 对比度实调 ═════════ -->
+<section class="face">
+  <h2>F. 在飞唯一性（铁律）+ porcelain 标记对比度（实调）</h2>
+  <div class="tl">
+    <table>
+      <tr><th>检查</th><th>结论</th><th>依据</th></tr>
+      <tr><td>T1/T2 期间光球</td><td><b>必须未启动</b>（<code>active=false</code> 或不实例化）</td>
+        <td><code>docs/DESIGN-SYSTEM.md §8</code> / <code>docs/REDESIGN-INPUT-BRAND.md:136</code></td></tr>
+      <tr><td>T3 才允许"在飞"</td><td>且仅当首个会话在流式</td><td><code>core/design.ets:655-660</code>（唯一 owner = orb）</td></tr>
+      <tr><td>违反会怎么红</td><td>① 循环/重复动效 ⇒ <code>tools/lint/inflight-single-source.sh</code> <b>A 类硬红</b>（gate ③b）；
+        ② 新增在飞角色 ⇒ <code>tools/tests/design.test.ts</code> 的 <code>motion.inflightOwner</code> 断言红</td>
+        <td><code>tools/lint/inflight-single-source.sh:11-18</code> · <code>core/design.ets:701-710</code></td></tr>
+      <tr><td><code>splashMarkLevelOf('porcelain', 512, false)</code></td><td><b>solid</b>（实调）</td><td><code>brand.ets:348 markLevelFor</code></td></tr>
+      <tr><td><code>contrastRatio(brandAccent, porcelain.appBg #FFFFFF)</code></td><td><b>4.3461</b> — 非文本 <b>3:1 达标</b> ✅ ｜ 文本 <b>4.5 未达</b> ✗</td><td><code>brand.ets:290</code> 实调</td></tr>
+      <tr><td><code>contrastRatio(brandAccent, light.appBg #F8FAFC)</code></td><td>4.1539</td><td>同上</td></tr>
+      <tr><td><code>contrastRatio(porcelain.accent #0071E3, #FFFFFF)</code></td><td><b>4.6967</b> ✅（若标记改用 Apple Blue）</td><td>同上</td></tr>
+    </table>
+    <div class="legend">标记是**图形**（气泡+星芒）⇒ 按 WCAG 2.1 §1.4.11 **非文本 3:1** 判 ⇒ <code>4.3461 ≥ 3</code> 达标；但 <code>4.3461 < 4.5</code> ⇒
+      若标记**含文字**（<code>WORDMARK</code> 档）则**不达标**。⛔ 本规格不改品牌色值；「白主题用紫还是用蓝」= 待拍板 ①。</div>
+  </div>
+</section>
+
+</body>
+</html>

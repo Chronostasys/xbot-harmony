@@ -1,0 +1,329 @@
+# SPLASH-SPEC.md —— 开屏（splash）阶段模型与判据（唯一真源规格）
+
+> **范围**：本文件只定义**开屏的动效/阶段/判据**；资源与降级链见 `docs/BRAND.md`。
+> **状态**：这是**规格**（可实现），不是实现。⛔ 本波**未改任何 `.ets`/`.ts`/`.json5`/`resources/**`**；
+> 需要落码处只给**精确 diff 建议**（§10）。⛔ 本文件不 commit（由调度者统一提交）。
+> **纪律**：所有时长/easing 一律从底板**实调**并标 `file:line`；**不得自造**。缺档见 §11。
+
+---
+
+## 0. 一句话
+
+冷启动的**经历时间线**有四段：**T0 系统开屏（静态，系统画）→ T1 应用内开屏（品牌底 + 标记）→ T2 标记让位 / 首页内容淡入 → T3 光球接管（仅当首个会话在流式）**。
+本仓现状：**T0 有、T1/T2/T3 全无** ⇒ 用户从"系统开屏"直接跳到"首页首帧"，中间没有任何品牌过渡。
+
+---
+
+## 1. 现状（逐条 file:line，作为 T0 的输入）
+
+| 事实 | 证据 | 结论 |
+|---|---|---|
+| 系统开屏由 `module.json5` 的 `startWindowIcon/startWindowBackground` **静态**给出 | `entry/src/main/module.json5:18-19` | T0 **不可动画**（系统画，亚秒级） |
+| 底色**跟随系统深浅**（非应用主题） | `docs/BRAND.md §4.2`（SDK `startWindow.json` schema：`startWindowColorModeType` default = `FOLLOW_SYSTEM`） | 冷启动**跳色**根因（§6） |
+| `EntryAbility` 只 `loadContent('pages/Index')` + 设系统栏 | `entry/src/main/ets/entryability/EntryAbility.ets:53`、`:70`、`:80` | **无任何应用内开屏实现** |
+| 应用主题在 `onCreate` 由 `setColorMode` 决定（读本地缓存） | `EntryAbility.ets:37`（`readCachedTheme` @`:35`） | T1 底色可**取应用主题**（§6） |
+| 页面首帧是 `LoadingView`（`LoadingProgress` + `Text('xbot')`），**与品牌无关** | `pages/Index.ets`（`LoadingView`） | 它就是 T1/T2 要**取代**的那个"无关首帧" |
+
+---
+
+## 2. 阶段模型（T0–T3）
+
+**时钟定义**：`elapsedMs` = 自**应用内开屏挂载**（页面 `aboutToAppear`/首帧）起算的毫秒数，`elapsedMs = 0` 即 T1 起点。
+T0 发生在此之前（系统画），**不在**本时间线内 ⇒ `splashPhaseAt()` 的取值域是 `{T1, T2, T3}`（T0 由 `shouldShowSplash`/系统决定，见 §4）。
+
+| 阶段 | 语义 | 进入条件 | 退出条件 | 时长（file:line） | easing（file:line） | 失败/超时兜底 |
+|---|---|---|---|---|---|---|
+| **T0** | 系统开屏：`startWindowIcon` 居中压在 `startWindowBackground` 上（静态） | 进程冷启动 | 应用首帧就绪（`loadContent` 回调成功 `EntryAbility.ets:53-58`） | 系统决定（亚秒级，不可控） | 无（静态） | `loadContent` 失败 ⇒ 只有日志 `EntryAbility.ets:54-57`；**建议补 error 分支**（§10 diff ②） |
+| **T1** | 应用内开屏：**品牌底 + 标记入场**（`opacity 0→1` + `scale→1`），**一次** | `elapsedMs == 0` 且 `shouldShowSplash()==true` | `elapsedMs ≥ T1 时长` 或**用户交互**（点/滑）或 `elapsedMs ≥ SPLASH_TIMEOUT_MS` | `MOTION_BASE_MS = 220`（`core/motion.ets:36`）⇒ `animBase()`（`components/anim.ets:53-55`） | spring `cubic-bezier(0.34,1.56,0.64,1)`（`core/tokens.ets:54`；`anim.ets:39-45` 的 `springCurve()`） | `reduceMotion` ⇒ 静态呈现（§5）；超时 ⇒ 直接进 T3 |
+| **T2** | 标记**让位**（`opacity 1→0`，可 + 轻微上移）+ 首页内容淡入 | `elapsedMs ≥ T1 时长` | `elapsedMs ≥ T1+T2 时长` 或用户交互 | `MOTION_SLOW_MS = 320`（`core/motion.ets:43`）⇒ `animSlow()`（`components/anim.ets:63-65`） | 同上 spring（`anim.ets:63-65`） | 同 T1（可整体跳过 ⇒ 立即 T3） |
+| **T3** | 交棒首页；**光球接管**（仅当首个会话在流式） | `elapsedMs ≥ T1+T2` 且 `shouldShowSplash()==false` 且首个会话 `running/isLive` | 回合结束（光球按自身状态机降为 `idle`，`components/AssistantOrb.ets` 头注的三态表） | 呼吸 `MOTION_BREATH_MS = 2560`（`components/anim.ets:96` ← `core/orb.ets:26`） | 光球自持节拍（`core/orb.ets`）；**入场**用 `animBase()`（`anim.ets:53`） | 无在飞会话 ⇒ T3 只是"首页静态"（**不启动光球**，见 §9） |
+
+**总时长（默认档）**：`T1 + T2 = 220 + 320 = 540ms`。
+**最短停留（minDwell）**：见 §11 缺档 ①——**底座没有该常量**，建议取 `MOTION_BASE_MS + MOTION_FAST_MS = 400ms`（由两个底板常量**相加**得出，非自造）。
+
+---
+
+## 3. 时长 / easing 台账（全部**实调**自底板，`file:line`）
+
+| 常量 / 工厂 | 值 | 定义处 `file:line` | 本规格用途 |
+|---|---|---|---|
+| `MOTION_FAST_MS` | `180` | `core/motion.ets:31`（← `core/tokens.ets:46` `D_FAST`） | minDwell 组成项 |
+| `MOTION_MSG_IN_MS` | `200` | `core/motion.ets:38` | （备用：单行入场） |
+| `MOTION_BASE_MS` | `220` | `core/motion.ets:36` | **T1 时长** |
+| `MOTION_SLOW_MS` | `320` | `core/motion.ets:43`（← `tokens.ets:48` `D_SLOW`） | **T2 时长** |
+| `MOTION_BREATH_MS` | `2560` | `components/anim.ets:96` ← `core/orb.ets:26`（`D_SLOW*8`） | **T3 光球呼吸** / 建议超时档 |
+| `MOTION_BEAT_MS` | `640` | `components/anim.ets:98`（`D_SLOW*2`） | （在飞细节拍，T3 才用） |
+| `MOTION_QUIET_MS` | `640` | `components/anim.ets:104`（`MOTION_BREATH_MS/4`） | （静默判定，T3 才用） |
+| `animFast()` | 180ms + spring | `components/anim.ets:48-50` | 备用 |
+| `animBase()` | 220ms + spring | `components/anim.ets:53-55` | **T1 入场** |
+| `animMsgIn()` | 200ms + spring | `components/anim.ets:58-60` | 备用 |
+| `animSlow()` | 320ms + spring | `components/anim.ets:63-65` | **T2 让位** |
+| `animSpring()` | 物理弹簧（duration 无意义） | `components/anim.ets:72-74`（← `tokens.ets:76-78`） | T1 的另一可选档 |
+| spring 曲线 | `cubic-bezier(0.34,1.56,0.64,1)` | `core/tokens.ets:54`（`EASE_SPRING_CSS`） | **T1/T2 唯一曲线** |
+| spring 三参 | `response 0.30s / damping 0.65 / overlap 0` | `core/tokens.ets:76-78` | `animSpring()` 用 |
+| `sheetTransition()` 曲线 | `Curve.Friction` + 220/180 | `components/anim.ets:114-117` | ⚠️ **不用**（它是面板出入场，且用了底座外的 `Curve.Friction`） |
+
+> ⛔ **T1/T2 只允许用上表里的 `animBase()` / `animSlow()`**（或 `animSpring()`）；⛔ 不得新造时长。
+> ⛔ **开屏是"一次性过渡"，不是"在飞"**（`docs/REDESIGN-INPUT-BRAND.md:136`）⇒ 不得循环/常驻呼吸。
+
+---
+
+## 4. 判据（纯函数：签名 + 真值表；**不写实现**）
+
+四种类型（全部可脱机单测，放 `core/splash.ets` 之类；⛔ 本波不落码）：
+
+```
+type SplashPhase = 'T1' | 'T2' | 'T3';
+type LaunchKind  = 'cold' | 'warm';
+
+class SplashCfg {
+  reduceMotion: boolean;   // 无障碍降级开关
+  enterMs: number;         // = MOTION_BASE_MS (220)
+  exitMs: number;          // = MOTION_SLOW_MS (320)
+  minDwellMs: number;      // 见 §11 缺档①（建议 400 = 220+180）
+  timeoutMs: number;       // 见 §11 缺档②（建议 2560 = MOTION_BREATH_MS）
+}
+
+// ① 阶段推进（elapsedMs 自 T1 挂载起算；T0 不在取值域）
+function splashPhaseAt(elapsedMs: number, cfg: SplashCfg): SplashPhase;
+
+// ② 开屏是否仍应可见（overlay 的显隐判据）
+function shouldShowSplash(launchKind: LaunchKind, elapsedMs: number, contentReady: boolean, cfg: SplashCfg): boolean;
+
+// ③ T1 底色（与 §6 的 FOLLOW_APPLICATION 衔接；纯函数，不读全局）
+function splashCanvasOf(theme: string, followApplication: boolean, systemDark: boolean): string;
+
+// ④ T1 标记档位（**委托** `core/brand.ets:markLevelFor`，不另立判据）
+function splashMarkLevelOf(theme: string, sizeVp: number, monochrome: boolean): string;
+```
+
+### 4.1 `splashPhaseAt(elapsedMs, cfg)` 真值表
+
+`reduceMotion = false`（默认档；`enterMs=220`，`exitMs=320`）：
+
+| `elapsedMs` | 结果 | 边界语义 |
+|---|---|---|
+| `< 0` / `NaN` | `T1` | 视为 0（防御，不抛） |
+| `[0, 220)` | `T1` | `0` ⇒ T1（**不是** T0） |
+| `[220, 540)` | `T2` | `220` 恰好 ⇒ T2（**左闭右开**） |
+| `[540, ∞)` | `T3` | `540` 恰好 ⇒ T3 |
+
+`reduceMotion = true`（**只降动效、不降可达性**）：T2 **收起为 0**，T1 静态保留到 minDwell（§5）。
+
+| `elapsedMs` | 结果 |
+|---|---|
+| `< minDwellMs`（建议 400） | `T1`（**静态**，无 transform/opacity 动效） |
+| `≥ minDwellMs` | `T3`（**跳切**，无淡出） |
+
+### 4.2 `shouldShowSplash(launchKind, elapsedMs, contentReady, cfg)` 真值表
+
+判据：`launchKind == 'cold'` **且**（`elapsedMs < minDwellMs` **或** `!contentReady`）**且** `elapsedMs < timeoutMs` ⇒ `true`。
+
+| `launchKind` | `elapsedMs` | `contentReady` | 结果 | 场景 |
+|---|---|---|---|---|
+| `warm` | 任意 | 任意 | **`false`** | 热启动（进程活着、ability 再拉起）⇒ **不进 T1**（无系统开屏，也不该假装有） |
+| `cold` | `< minDwell` | `false`/`true` | `true` | 保证品牌**至少停留** minDwell（避免"一闪而过"） |
+| `cold` | `[minDwell, timeout)` | `false` | `true` | 内容未就绪 ⇒ 继续显示（**不闪白**） |
+| `cold` | `[minDwell, timeout)` | `true` | **`false`** | 内容已就绪且过了最短停留 ⇒ 撤下 |
+| `cold` | `≥ timeoutMs` | 任意 | **`false`** | **超时兜底**：宁可显示首帧，也不无限停在开屏 |
+
+**用户中途交互**：T1/T2 期间发生点/滑 ⇒ 上层立即置 `contentReady = true` 并**跳表**到 `T3`（`elapsedMs` 不再影响结果）——即"用户不想等"。该跳变**只允许一次**（不允许回退到 T1/T2）。
+
+### 4.3 `splashCanvasOf(theme, followApplication, systemDark)` 真值表
+
+| `followApplication` | `theme` | `systemDark` | 结果 | 说明 |
+|---|---|---|---|---|
+| `true` | `porcelain` | 任意 | `paletteOf('porcelain').appBg` = `#FFFFFF` | 与首帧画布**逐字节一致** ⇒ **零跳色** |
+| `true` | `dark` | 任意 | `#0B0B0E` | 同上 |
+| `false` | 任意 | `false` | `lightPalette().appBg` = `#F8FAFC` | 现状：跟随**系统**（= `color.json` base 值） |
+| `false` | 任意 | `true` | `darkPalette().appBg` = `#0B0B0E` | 现状：跟随**系统**（= `color.json` dark 值） |
+
+（`followApplication=true` 需要 §12.1 的配置补丁；`false` 是当前行为。）
+
+### 4.4 `splashMarkLevelOf(theme, sizeVp, monochrome)` 真值表
+
+**委托** `core/brand.ets:348 markLevelFor(BrandSurface)`（不另立判据）：
+
+| `theme` | `sizeVp` | `monochrome` | 结果 | 含义 |
+|---|---|---|---|---|
+| `porcelain` | ≥ 24 | `false` | `SOLID` | 实心品牌 glyph on 中性白（**零发光**） |
+| `dark` | ≥ 24 | `false` | `FULL` | 满幅品牌色 + 反色 glyph |
+| 任意 | ≥ 24 | `true` | `OUTLINE` | 单色轮廓（零填充零发光） |
+| 任意 | `< 24` | 任意 | `WORDMARK` | 几何标记太小 ⇒ 纯文字 |
+
+（实调见 §7。）
+
+---
+
+## 5. `reduceMotion` 阶段表（**只降动效、不降可达性**）
+
+铁律：`reduceMotion=true` ⇒ **降级的是"动"，不是"反馈"**。⛔ 不许出现"空白屏 / 无任何指示"。
+
+| 阶段 | 默认档 | `reduceMotion=true` | 可达性保证 |
+|---|---|---|---|
+| T0 | 系统静态开屏 | 同左 | 系统负责 |
+| T1 | 标记 `opacity 0→1` + `scale→1`（220ms spring） | **静态**：标记**立即**全亮、**scale=1**，停留到 `minDwellMs` | 标记**可见**（有反馈，非空白） |
+| T2 | 标记 `opacity 1→0`（320ms spring） | **收起为 0ms**（跳切到 T3） | 内容立即出现（不淡入≠不可达） |
+| T3 | 光球呼吸（2560ms） | 光球**静态一帧**（`reduceMotion` 已是光球既有停表条件，见 `components/AssistantOrb.ets` 头注） | 仍有"在跑"的**静态**线索（状态点/文案） |
+| 时长 | T1+T2=540ms | **总时长 = `minDwellMs`（建议 400ms）** | 品牌**至少**停留 minDwell |
+
+> ⚠️ `reduceMotion` **不得**把 T1 变成"直接跳过"——跳过 = 品牌零曝光 + 首帧无过渡（白闪）。**必须**保留静态标记与最短停留。
+
+---
+
+## 6. 冷启动跳色（与 `docs/BRAND.md §12.1` 衔接）
+
+**根因**：开屏底色**跟随系统**（§1），而应用色板由 `EntryAbility.onCreate` 的 `setColorMode` 决定（`EntryAbility.ets:37`）⇒「系统浅 + 应用选深」（或反之）时"开屏 → 首帧"**跳一帧色**。
+
+**方案 A（根治，需用户拍板）**：`docs/BRAND.md §12.1` 的配置补丁 —— 启用 `startWindow` profile + `startWindowColorModeType: FOLLOW_APPLICATION`（+ `module.json5` 一行）。⇒ 开屏底色 = `paletteOf(应用主题).appBg` ⇒ **零跳色**。⚠️ 不需要卸载重装（见 §12.1）。
+
+**方案 B（降级，无需配置）**：**固定底色**（现状 `color.json`）**+ T1 首帧用同色**。即
+`splashCanvasOf(theme, followApplication=false, systemDark)` = 系统深浅对应的 `#F8FAFC`/`#0B0B0E`，
+并让 T1 overlay 的底色**就是这个值**（而不是应用主题色）。
+
+**两种方案的观感差异**：
+
+| 场景 | 方案 A（FOLLOW_APPLICATION） | 方案 B（固定底色 + T1 同色） |
+|---|---|---|
+| 系统浅 + 应用选 `porcelain`(#FFFFFF) | 开屏 `#FFFFFF` ⇒ **零跳色** | 开屏 `#F8FAFC` → 首帧 `#FFFFFF`（ΔRGB `(7,5,3)`，近白、几不可辨） |
+| 系统深 + 应用选 `porcelain` | 开屏 `#FFFFFF` ⇒ **零跳色** | 开屏 `#0B0B0E` → 首帧 `#FFFFFF`（ΔRGB `~244`，**明显闪一下黑**）✗ |
+| 系统深 + 应用选 `dark` | `#0B0B0E` ⇒ 零 | `#0B0B0E` ⇒ 零 |
+| 系统浅 + 应用选 `dark` | `#0B0B0E` ⇒ 零 | `#F8FAFC` → `#0B0B0E`（明显闪白）✗ |
+
+> **结论**：方案 B 只在"系统深浅 == 应用深浅"时零跳色；**跨深浅必闪**。它**只是止血**（把用户点名的 porcelain 在系统浅下做到几乎无感），
+> 真正的零跳色只有方案 A。两者**可叠加**（先上 B 的 T1 同色，再等 A 拍板）。⛔ 方案 A 的配置改动**不由本波执行**（见 §12.1）。
+
+---
+
+## 7. porcelain（白主题）在开屏下的表现（**实调**）
+
+实调方式：把 `core/brand.ets` + `core/theme.ets` 当纯 TS 编译后 `node` **直调**（与门禁同源，非手抄）。
+
+| 量 | 实调结果 | 出处 |
+|---|---|---|
+| `splashMarkLevelOf('porcelain', 512, false)` | **`SOLID`** | `brand.ets:348 markLevelFor` + `BrandSurface(浅色面)` |
+| `splashMarkLevelOf('dark', 512, false)` | `FULL` | 同上 |
+| `brandAccent()` | `#7C5CFF` | `brand.ets:43`（← `darkPalette().accent`） |
+| `brandOnAccent()` | `#FFFFFF` | `brand.ets:48` |
+| `contrastRatio(brandAccent, porcelain.appBg #FFFFFF)` | **`4.3461`** | `brand.ets:290 contrastRatio` |
+| `contrastRatio(brandAccent, light.appBg #F8FAFC)` | `4.1539` | 同上 |
+| `contrastRatio(brandAccent, dark.appBg #0B0B0E)` | `4.5224` | 同上 |
+| `contrastRatio(brandOnAccent, brandAccent)` | `4.3461` | 同上 |
+| `contrastRatio(porcelain.accent #0071E3, #FFFFFF)` | `4.6967` | 同上 |
+
+**WCAG 判定（诚实版）**：
+- 标记是**图形**（气泡 + 星芒），按 WCAG 2.1 §1.4.11 **非文本 3:1** ⇒ `4.3461 ≥ 3` **达标** ✅。
+- 但 **4.3461 < 4.5**（AA 正文阈值）⇒ 若标记**含文字**（`WORDMARK` 档 / logo 文字版），**不达标** ✗。
+- ⚠️ **白主题"标记用紫"是已知未决项**：porcelain 的界面强调色是 **Apple Blue `#0071E3`**（对白 `4.6967` ✅ 达标），
+  而 `brandAccent()` 是**品牌紫 `#7C5CFF`**（对白 `4.3461`）——二者**不是同一个色**（`docs/BRAND.md §2.4` 断层④）。
+  ⇒ **标记档位（SOLID）由 `markLadder()` 判出，但"用紫还是用蓝"必须用户拍板**（§12 待拍板 ①）。
+  ⛔ 本规格**不改**品牌色值；两条路线的**实调对比度**都已给出（紫 `4.3461` / 蓝 `4.6967`）。
+- `SOLID` 档**零发光**（`markLadder` 语义 + 宪法 §3.1：白主题禁彩色发光/渐变）。
+
+---
+
+## 8. 与"标记资源"的接口（不重复造）
+
+| 档位 | 资源 / 渲染 | 出处 |
+|---|---|---|
+| `FULL` | `$media:app_icon`（满幅）/ `splashMarkSvg()` 生成的 `start_icon.png` | `brand.ets:147/163`、`docs/BRAND.md §5` |
+| `SOLID` | 实心品牌色 glyph（**T1 用**；同 `splashMarkSvg()` 的透明底 PNG） | `brand.ets:163` |
+| `OUTLINE` | `$media:brand_mark_outline`（`.svg`，零填充零发光） | `docs/BRAND.md §5` |
+| `WORDMARK` | 纯文字（`Text('xbot')`），非图片资源 | `docs/BRAND.md §11` |
+
+⛔ 开屏**不新增**资源，只用既有真源产物（避免第二份 logo）。
+
+---
+
+## 9. 动效唯一性约束（项目铁律）—— T1/T2 期间光球**未启动**
+
+**铁律**：同一时刻**只允许一个"在飞动效" = 光球**（`docs/DESIGN-SYSTEM.md §8`；`core/design.ets:655-657`）。
+
+- **T1/T2 期间：光球必须处于"未挂载 / 未启动"状态**（`active=false` 或不实例化）。T1 的入场是**一次性过渡**，**不是**在飞；
+  开屏**不得**做成循环/常驻呼吸（`docs/REDESIGN-INPUT-BRAND.md:136`）。
+- **T3 才允许光球启动**（且仅当首个会话在流式）。
+- **若违反：门禁会这样红**
+  1. `tools/lint/inflight-single-source.sh`（**gate ③b，A 类硬红**）：源码里出现循环/重复动效（`AnimateParam.iterations ≠ 1` 或 `playMode`，如给标记加"呼吸"）⇒ **A 类命中 ⇒ `tools/gate.sh` 判红**（脚本头 `:11-18` 定义 A 类）。
+  2. `core/design.ets` 的 `motionRoles()`（`:701-710`）把在飞角色**限定**为 `motion.breath` / `motion.beat`，且 `owner` 必须 = `INFLIGHT_OWNER_ORB`（`:660`）；
+     `designIssues()` 断言 owner **唯一**（`:655-657`）⇒ **新增第二个在飞角色** ⇒ `tools/tests/design.test.ts` 红。
+  3. `tools/tests/one_inflight_motion.test.ts` / `in_flight_signal.test.ts` / `inflight_language.test.ts` 为同族守卫。
+- ⇒ **T1/T2 的正确写法**：`animateTo(animBase())` / `.animation(animSlow())` **一次性**，且 `iterations=1`（默认）。
+
+---
+
+## 10. 落码 diff 建议（⛔ 本波**不执行**；照 `docs/BRAND.md §12` 格式）
+
+### ① 新增开屏组件（唯一新文件；T1/T2 的载体）
+
+```
++ entry/src/main/ets/components/SplashOverlay.ets      （新建；@Component + @Prop，⛔ 不可用带参 @Builder）
+    · props: theme / reduceMotion / contentReady / onDone
+    · build(): 品牌底（splashCanvasOf 的结果）+ 标记（$media:start_icon 或 brand_mark_outline）
+    · 动效：animBase() 入场 + animSlow() 让位（组件/页面调 components/anim.ets；⛔ 不 import @ohos.curves）
+    · 判据：splashPhaseAt / shouldShowSplash（纯函数放 core/splash.ets，可脱机单测）
+```
+（⚠️ 新建组件的**孤儿风险**：它必须被 `pages/Index.ets` 引用，否则 ArkTS 不编译它 ⇒ 门禁"绿"是假绿，见 `docs/ARKTS-GOTCHAS.md` 批次 13。**接线归 `sidebar-ux`**。）
+
+### ② 页面接线（`pages/Index.ets` —— **归 `sidebar-ux`，本波不碰**）
+
+```
+~ pages/Index.ets  根部 Stack 内、LoadingView 之前：
++   if (this.showSplash) { SplashOverlay({ theme: this.themeName, reduceMotion: this.reduceMotion,
++     contentReady: this.bootstrapReady, onDone: () => { this.showSplash = false; } }) }
+    · showSplash 初值 = shouldShowSplash('cold', 0, false, cfg)
+    · 记录 splashT0 = Date.now()；aboutToAppear 里 setTimeout 按 splashPhaseAt 推进（⛔ 只用 animBase/animSlow 的时长）
+```
+
+### ③ `EntryAbility.ets` 的 error 分支（**最小改动**，§2 T0 兜底）
+
+```
+~ entry/src/main/ets/entryability/EntryAbility.ets:53-57
+    windowStage.loadContent('pages/Index', (err: BusinessError) => {
+      if (err.code !== 0) {
+        hilog.error(DOMAIN, TAG, 'loadContent failed: %{public}s', JSON.stringify(err));
+-        return;
++        // 兜底：loadContent 失败时**至少**让系统开屏/一帧可读提示存在，而不是停在空白。
++        // ⛔ 具体形态待拍板（见 §12 待拍板 ③）；本行只是"不要静默 return"。
++        return;
+      }
+```
+（⚠️ 已核 `EntryAbility.ets` **无在途改动**；`pages/Index.ets` **有在途** ⇒ 该文件的接线不归本波。）
+
+---
+
+## 11. 缺档 / 矛盾（本规格**不新造**，只上报）
+
+| # | 缺档 / 矛盾 | 说明 | 建议（**由底板常量推导**，非自造） |
+|---|---|---|---|
+| ① | **`SPLASH_MIN_DWELL_MS` 不存在** | 底座只有 `MOTION_*`（动画时长），没有"**最短停留策略**"常量 ⇒ 若直接用 `T1+T2=540`，品牌在"内容秒就绪"时可能一闪而过 | 取 `MOTION_BASE_MS + MOTION_FAST_MS = 220 + 180 = 400ms`（两个底板常量相加） |
+| ② | **`SPLASH_TIMEOUT_MS` 不存在** | 没有"冷启动超时"档位；不设 ⇒ 慢网时无限停在开屏 | 取 `MOTION_BREATH_MS = 2560ms`（= 在飞主呼吸刻度 1×，`anim.ets:96`） |
+| ③ | **入场 scale 起点有两个不同值** | 设计输入 `docs/REDESIGN-INPUT-BRAND.md:145` 写 `scale 0.92→1`；而 `components/AssistantOrb.ets:94` 的 `ORB_ENTER_SCALE = 0.86` ⇒ **同语义两值**（本仓铁律：同一语义两处值 = 第二判据） | 在底座位**新增一个** `MOTION_ENTER_SCALE`（或统一到 `ORB_ENTER_SCALE`）；**取哪个值需拍板**（§12 待拍板 ④） |
+| ④ | **开屏曲线的"另一个可能"** | `sheetTransition()`（`anim.ets:114-117`）用了 `Curve.Friction`（**底座外**的 ArkUI 内置曲线）⇒ 若开屏误用它，就是"第二套曲线" | ⛔ 开屏**必须**用 spring（`animBase/animSlow`）；不引入 `Curve.Friction` |
+| ⑤ | **T3 光球的"首个会话在流式"判据不在本规格** | 该判据属状态机（`row.isLive` / `busy`），已有唯一源 | 组件消费既有判据，**不新增** |
+| ⑥ | **标记的展示尺寸无 token** | `spaceRoles()` 只到 `xxl=32`；开屏标记盒（居中大标记）的边长**没有**语义档 ⇒ 若各写各的，就是散落字面量（本仓禁） | 取 `5 × SPACE_XXL(32) = 160pt`（由底板常量**倍数**得出）；**建议**并入底座位专用档，需拍板 |
+
+---
+
+## 12. 需要用户拍板的点（一条一条）
+
+1. **白主题标记用"品牌紫"还是"Apple 蓝"？**（`SOLID` 档的颜色）
+   实调：紫 `#7C5CFF` 对白 **4.3461**（≥3 非文本 ✅，<4.5 文本 ✗）；蓝 `#0071E3` 对白 **4.6967**（两者皆 ✅）。
+   ⚠️ 选蓝 ⇒ 与 porcelain 界面强调色统一，但**改动品牌主色**会牵连图标/深色主题/与 web 对齐（`docs/BRAND.md §2.4`）。
+2. **是否采用方案 A（`FOLLOW_APPLICATION`）消除冷启动跳色？**（`docs/BRAND.md §12.1` 的精确 diff；**不需卸载重装**）
+   不采用 ⇒ 只能上方案 B（固定底色 + T1 同色），**跨深浅必闪**（§6 表）。两方案**可叠加**。
+3. **T1/T2 是否真的要做（引入应用内开屏）？** 现状无它也能跑（系统开屏 → 首页）。
+   做了才有"品牌过渡"，但要新增组件 + 接 `pages/Index.ets`（`sidebar-ux` 领土）。
+4. **`minDwellMs` / `timeoutMs` 是否按 §11 的建议值（400 / 2560）？** 或另定。
+5. **入场 scale 起点**（§11 ③：0.92 还是 0.86，或统一一个底座常量）？
+6. **交互打断的语义**（§4.2）：T1/T2 期间用户点击 ⇒ **立即进 T3**，对吗？（还是"忽略点击、走完过渡"？）
+
+---
+
+## 13. 与既有文档的关系
+
+| 文档 | 关系 |
+|---|---|
+| `docs/BRAND.md §4.2 / §11 / §12.1` | 开屏底色 SDK 证据 / 降级链 / `FOLLOW_APPLICATION` 补丁 —— 本规格**引用不重复** |
+| `docs/REDESIGN-INPUT-BRAND.md §4` | 三段过渡（A/B/C）设计输入 + 红线 —— 本规格把它**收敛成可实现的 T0–T3** |
+| `docs/DESIGN-SYSTEM.md §8` | "在飞"铁律（唯一 owner = 光球）—— 本规格 §9 引用 |
+| `docs/mockups/splash.html` | 本规格的**静态样张**（T1/T2/T3 静帧 + 时间轴） |
