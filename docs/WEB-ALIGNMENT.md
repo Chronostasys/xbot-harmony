@@ -1026,3 +1026,30 @@ a11y 扫描线（全仓图标-only 按钮统一 `accessibilityText`）· ④ 高
 **⛔ 编排者本人的操作事故（记下来，别再犯）**：我曾在**一个 gate 还在跑时**把它的 worktree
 `git worktree remove` 掉再重建 ⇒ 那份日志里的红（含"ArkTS 编译失败"）**全是假红**（编译中途丢文件）。
 ⇒ **纪律**：跑门禁必须**串行**、用**独立路径**；判定红/绿前先确认"这份日志没被别的操作打断"。
+
+### 21.9 ⑤ E1 待批 #4 裁决：`AuthImage`/`MarkdownView` 的 rung/边通道 = **有意，不改**（`7794ff2` 立规）
+
+**结论（编排者拍板，依据 = 子代理 `rungspec` 的阶段 1 规格）**：
+- **rung 差异 ≠ 缺陷**：`surface.chip`（图片卡）/ `surface.well`（代码块）= **RUNG_SUNKEN(4)「内嵌凹槽」**（`core/design.ets:350-351` 定义即如此），
+  E1 统一的"内嵌卡"= **RUNG_RAISED(2)**。硬套 = 同时改面 + 改边通道 + **加两层影**，
+  而 **web 的 markdown 内嵌容器一律无影**（`MarkdownRenderer.tsx` 全文无 `shadow`；`index.css:532-594` 无）⇒ **硬套会错**。
+- **边通道保留 `hairlineOf`（浅深两族都画）= 与 web 一致**：web 代码块 `border: 1px solid var(--md-code-border)`，
+  其中 `--md-code-border: var(--border)` **浅深两族都有定义**（`index.css:197/198` + `:301/302`；浅 `--border:#e0e0e0`）。
+  ⛔ 换 `insetHairlineOf` 会**删掉 web 也有的浅色边** ⇒ 违"对齐 web"。
+  规格落 `docs/DESIGN-SYSTEM.md §13.9`（L3 边界通道**二分**：L3-a 默认 `insetHairlineOf` / L3-b "web 浅色也有边"用 `hairlineOf`）。
+
+**⚠️ 已知有意偏差（登记，⛔ 别再当新发现）—— `ToolPopover` 浅色无发丝**：
+web `ToolCallBlock.tsx:66-71`（args）/ `:97-99`（output）**两族都有** `border: 1px solid var(--border)`；
+本仓 `ToolPopover.ets` 4 处 well/chip 用 `insetHairlineOf`（浅色 = `transparent`）。
+**这是 `9990c4b` 的明文裁决**：深色 well/chip 对画布仅 **1.0005**（无通道 ⇒ 该加，加后 1.2188 ≥ 1.20 ✅）；
+而 light **1.0788** / porcelain **1.0456** 本就够 ⇒ 加 = 凭空多一道线 = **增噪** ⇒ 浅色不加。
+（同一裁决解释了为何 `MarkdownView` 代码块**不换** `insetHairlineOf`。若将来要"浅色也画"，须**同时**重新校准这两组对比度数字。）
+
+**⚠️ 判据盲区（已实测，留档）**：`free_surface_unify` 的 `KNOWN_PENDING` 只钉**面行** ⇒
+**抓不到"换边通道"**（如 `hairlineOf` ↔ `insetHairlineOf`）⇒ 将来真改通道时**必须额外新增"钉通道"断言**，
+否则会无声漂移。另：`panels2_visual:100`（`has(imgSrc,'hairlineOf(this.pal())')`）与 `msgflow_visual:81`
+（逐字符钉 `wellOf(this.pal())` + `RADIUS_CARD`）分别是 AuthImage / MarkdownView 的通道/面锚点（改则必红）。
+
+**登记待批（未做，⛔ 无 web 逐字依据）**：`AuthImage` **加载态**（`:107-117`）无 `.border`（同组件成功/失败态都有）；
+深色族 `chip vs 画布 = 1.0005` ⇒ 深色下该态**无边界**。逃过判据的机制 = `image_boundary_gate` §B 只扫内联 `Image(`，
+而加载态是 `LoadingProgress()` + `Text`。web 占位（`MarkdownRenderer.tsx:283-287`）只有 `minHeight`、无面无边 ⇒ 按门槛不做。
