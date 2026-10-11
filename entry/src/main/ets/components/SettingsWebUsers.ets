@@ -257,7 +257,9 @@ export struct SettingsWebUsers {
       Row({ space: SP_2 }) {
         SymbolGlyph($r('sys.symbol.info_circle'))
           .fontSize(FS_CAPTION)
-          .fontColor([this.pal().textMuted])
+          // ⛔ 图标**不许**直取 `textMuted`（porcelain 2.54:1 < 图标地板 3:1；判据 `role_surface_floor` 硬红）
+          // ⇒ 走专为图标设计的 `iconMuted`（porcelain 最低 4.34 ✓）。
+          .fontColor([this.pal().iconMuted])
         Text('删除账号不会强制登出已有会话（Cookie 保持有效直到过期）。移除访问 = 删除账号。')
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
