@@ -175,7 +175,20 @@ bash tools/lint/color-roles.sh
 | 光晕不透明度 | 0.9 | 0.7 |
 | 核亮心 / 主色 | `accentSoft` / `accent` | `accentSoft` / `accent`（更饱和的**实体**色） |
 | 粒子环 | `accentSoft` | `accent` |
-| 细环描边 | `eff().glowSoft` | `pal().border`（中性发丝） |
+| 细环描边 | `eff().glowSoft` | `surfacesOf().hairline`（结构性发丝；⛔ 不是 `border`——白底 `border` 只有 ~1.18，半透明再打对折后基本消失） |
+
+**`tool` 态的"静态可辨"补充线索（2026-10-11 波）**：porcelain/light 下 `statusRunning` 与 `accent`
+**同为 `#0071E3`**（`core/theme.ets:343` / `:170`）⇒ `tool` 与 `thinking` 的环**色相同**，"工具在飞"
+只剩"公转快 2.2×"这一个**动态**线索，**静帧下不可辨**（违反 §8.2「一眼可辨」）。故细环在 `tool` 态
+**变亮**：`alpha = op * 0.5 * (1 + ORB_TOOL_STROKE_SPAN * colorMix)`（`components/AssistantOrb.ets`），
+`ORB_TOOL_STROKE_SPAN = 0.8`，且由**已缓动的 `colorMix`** 驱动 ⇒ 换态不硬切；细环本就跑在既有
+30/20fps 循环里 ⇒ **不是新造动效**。
+
+**光核/光晕的绘制几何（2026-10-11 波，收敛为 `core/orb.ets` 命名常量、可脱机断言）**：
+核渐变 = `亮心@0 → 亮心@ORB_CORE_SOLID_STOP(0.28) → 主色@ORB_CORE_MID_STOP(0.68) → 透明@1`
+（实心平台 ⇒ 读作"一颗有体积的实心核"，而非"从圆心立即糊开的一团光"）；
+外光晕 = `halo@0 → 透明@ORB_HALO_DECAY_STOP(0.82) → 透明@1`
+（衰减到 0 的停靠点 < 1 ⇒ 光晕在**画布边缘之前**归零，留干净留白、不与邻接内容糊）。
 
 **白底为什么不能沿用 glow**：45% 饱和色晕压在纯白上会糊成一片灰蓝，读作"脏"，与"干净"相反；
 白底要的是"实心色核 + 中性柔影 + 中性发丝"。
@@ -259,7 +272,7 @@ bash tools/lint/color-roles.sh
 ### 8.5 白色主题一致
 
 在飞组**只用** `isLightPalette(paletteOf(theme))` 分叉（**不按主题名硬判**）：
-- 光球：浅色 ⇒ `eff().elev2` 中性柔影 + 实体色核/环 + `pal().border` 发丝（§7.2）；
+- 光球：浅色 ⇒ `eff().elev2` 中性柔影 + 实体色核/环 + `surfacesOf().hairline` 发丝（§7.2）；
 - 光标：**已去掉彩色外发光**（原 `eff().glow` 在白底会读成"脏"，且是第二个发光体）⇒ 白底自动成立；
 - `思考 N 字` 强调：`accentSoft`（porcelain #0066CC，白底可读）—— 纯前景色，无发光、无灰雾。
 
