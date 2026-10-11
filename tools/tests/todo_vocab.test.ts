@@ -40,14 +40,14 @@ function td(text: string, status: string): TodoItem {
   eq('未知状态不算 done', todoProgress([td('a', 'weird'), td('b', 'done')]), '1/2');
 }
 
-// ── ② 当前任务：**只认"进行中"**（doing）—— 原生既定语义 ──
+// ── ② 当前任务：与面板同源 = 第一条**非 done**（含 pending）—— 对齐 web useTodos.ts:41 ──
 {
   eq('doing 即当前任务', currentTodo([td('a', 'done'), td('b', 'doing')]), 'b');
-  // ⛔ 原生**刻意**与 web 不同：web `useTodos.ts:41` 的 currentTask 取"第一条非 done"（含 pending），
-  //    原生只服务状态栏「进行中：xxx」⇒ **pending 不算当前任务**。
-  //    该语义由既有测试 `tools/tests/statusfmt.test.ts:33`（"无进行中"）钉死。
-  eq('pending 不算当前任务（与 web 刻意不同）', currentTodo([td('a', 'done'), td('b', 'pending')]), '');
-  eq('只有 pending ⇒ 空串', currentTodo([td('C', 'pending')]), '');
+  // ⛔ H9（2026-10-11）：原生旧版 currentTodo **只认 doing**，与面板 `todoState().currentText`
+  //    （第一条非 done）分歧 ⇒ **同一会话两处显示不同**。现统一为 web 权威口径：
+  //    `find(t => t.status !== 'done')`（**含 pending**）—— 与 statusfmt.test.ts 的 H9 断言同源。
+  eq('pending 也是当前任务（对齐 web）', currentTodo([td('a', 'done'), td('b', 'pending')]), 'b');
+  eq('只有 pending ⇒ 取它', currentTodo([td('C', 'pending')]), 'C');
   eq('全完成 ⇒ 空串', currentTodo([td('a', 'done'), td('b', 'done')]), '');
   eq('空列表 ⇒ 空串', currentTodo([]), '');
   eq('undefined ⇒ 空串', currentTodo(undefined), '');
@@ -56,8 +56,8 @@ function td(text: string, status: string): TodoItem {
   eq('doing 是服务端真实值（旧实现漏判）', currentTodo([td('a', 'doing')]), 'a');
   // 文本缺失 ⇒ 空串（不返回 undefined）
   eq('文本缺失 ⇒ 空串', currentTodo([{ status: 'doing' }]), '');
-  // 未知状态既不是 done 也不是 doing ⇒ 不算"进行中"
-  eq('未知状态不算进行中', currentTodo([td('a', 'weird')]), '');
+  // 未知状态被归一为 pending（非 done）⇒ 算"第一条非 done"（旧版只认 doing 时为 ''）
+  eq('未知状态归一为 pending ⇒ 算当前任务', currentTodo([td('a', 'weird')]), 'a');
 }
 
 console.log(`\ntodo_vocab.test: ${pass} passed / ${fail} failed`);
