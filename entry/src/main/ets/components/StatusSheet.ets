@@ -32,7 +32,7 @@
  */
 import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
 import {
-  ELEV_OVERLAY, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, SPACE_HAIR, SPACE_LG, SPACE_SM,
+  PRESS_OPACITY, ELEV_OVERLAY, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, SPACE_HAIR, SPACE_LG, SPACE_SM,
   SPACE_XS, STROKE_HAIRLINE, elevationColorOf, hairlineOf, surfaceFillOf, colorOf, } from '../core/design';
 import { fs, fw, lh, tc, tk } from './SettingsRows';
 import { sheetTransition } from './anim';
@@ -142,7 +142,7 @@ export struct StatusSheet {
             width: HIT_TARGET_MIN,
             height: HIT_TARGET_MIN,
           })
-          .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.onClose();
           })
@@ -215,7 +215,7 @@ export struct StatusSheet {
         .alignItems(VerticalAlign.Center)
         .constraintSize({ minHeight: HIT_TARGET_MIN })
         .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
-        .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
           this.onOpenModel();
         })

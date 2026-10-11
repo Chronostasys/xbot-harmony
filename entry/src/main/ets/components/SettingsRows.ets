@@ -26,7 +26,7 @@
 import { Palette, paletteOf } from '../core/theme';
 import { SP_1 } from '../core/tokens';
 import {
-  INSET_CARD_X, INSET_CARD_Y, INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X, INSET_ROW_Y,
+  PRESS_OPACITY, INSET_CARD_X, INSET_CARD_Y, INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X, INSET_ROW_Y,
   RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, STROKE_HAIRLINE, HIT_TARGET_MIN, SURFACE_COMPOSER,
   SPACE_HAIR, SPACE_XS, SPACE_SM, SPACE_MD, SPACE_XL,
   typeOf, colorOf, hairlineOf, surfaceFillOf, structuralRuleOf, } from '../core/design';
@@ -756,7 +756,7 @@ export struct SettingsRadioRow {
     .alignItems(VerticalAlign.Center)
     .constraintSize({ minHeight: HIT_TARGET_MIN })
     .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
-    .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
+    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
     .onClick(() => {
       this.onSelect();
     })

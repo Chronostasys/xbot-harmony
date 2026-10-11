@@ -20,7 +20,7 @@
 import { Palette, paletteOf } from '../core/theme';
 import { CodeTone, codeTone, MD_THEMES, MdThemeItem, mdThemeLabel, mdThemeMode } from '../core/mdtheme';
 import {
-  HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_CHIP, SPACE_HAIR, SPACE_SM, SPACE_XS,
+  PRESS_OPACITY, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_CHIP, SPACE_HAIR, SPACE_SM, SPACE_XS,
   SPACE_XL, STROKE_HAIRLINE, hairlineOf,
 } from '../core/design';
 import { fs, fw, lh, SettingsRadioRow, tc } from './SettingsRows';
@@ -103,7 +103,7 @@ export struct SettingsMdThemeGroup {
       .alignItems(VerticalAlign.Center)
       .constraintSize({ minHeight: HIT_TARGET_MIN })
       .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
-      .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
+      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
       .onClick(() => {
         this.onToggle();
       })

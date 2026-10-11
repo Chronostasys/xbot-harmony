@@ -34,7 +34,7 @@ import { Palette, paletteOf } from '../core/theme';
 import { R_MD, R_SM, SP_1 } from '../core/tokens';
 // 语义令牌（`7841978`：goal 组 + 图标尺寸档）—— 组件不再自写 PAD/ICON/ALPHA/TINT 魔数。
 import {
-  ICON_MD, INSET_CHIP_Y, INSET_GOAL_X, INSET_GOAL_Y, SPACE_XS, TYPE_CHIP, TYPE_GOAL,
+  PRESS_OPACITY, ICON_MD, INSET_CHIP_Y, INSET_GOAL_X, INSET_GOAL_Y, SPACE_XS, TYPE_CHIP, TYPE_GOAL,
   goalBadgeBgOf, goalBorderOf, typeOf, colorOf, } from '../core/design';
 import { goalDisplay, GoalDisplay, goalEditCommit, goalEditable } from '../core/statusfmt';
 
@@ -133,6 +133,7 @@ export struct GoalBanner {
             .padding({ left: SPACE_XS, right: SPACE_XS, top: 3, bottom: 3 })
             .borderRadius(R_SM)
             .backgroundColor(goalBadgeBgOf(this.pal(), false))
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               this.commit();
             })
@@ -140,6 +141,7 @@ export struct GoalBanner {
             .fontSize(typeOf(TYPE_GOAL).size)
             .fontColor(this.pal().textMuted)
             .padding({ left: SPACE_XS, right: SPACE_XS, top: 3, bottom: 3 })
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               this.cancel();
             })
@@ -156,6 +158,8 @@ export struct GoalBanner {
             .wordBreak(WordBreak.BREAK_ALL)
             .layoutWeight(1)
             .textAlign(TextAlign.Start)
+            // press 反馈（统一口径 `PRESS_OPACITY`）——目标文本可点进编辑，此前**无任何按压回应**
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               // 已完成 ⇒ 不可编辑（web `:120`）
               if (goalEditable(this.display().completed)) {
@@ -178,6 +182,7 @@ export struct GoalBanner {
             SymbolGlyph($r('sys.symbol.square_and_pencil'))
               .fontSize(typeOf('type.caption').size)
               .fontColor([colorOf(this.pal(), 'iconMuted')])
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
                 this.draft = this.objective;
                 this.editing = true;
@@ -188,6 +193,7 @@ export struct GoalBanner {
           SymbolGlyph($r('sys.symbol.xmark'))
             .fontSize(typeOf('type.caption').size)
             .fontColor([colorOf(this.pal(), 'iconMuted')])
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               this.onClearGoal();
             })

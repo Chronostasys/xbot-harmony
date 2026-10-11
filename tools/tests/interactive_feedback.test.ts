@@ -147,5 +147,48 @@ function orgExemptList(): string {
   return out.join('|');
 }
 
+// ── ⑥ **press 口径统一（全 `components/**`）**：凡 `.stateStyles({ pressed: { .opacity(X) } })`
+//    ⇒ X 必须来自**同一常量出口** `PRESS_OPACITY`（0.6）；字面量 / 异值 ⇒ 红，除非**明示豁免（附理由）**。
+//    · `.backgroundColor(...)` 型 pressed（行悬停高亮）是**另一种正当形态**，本判据只覆盖 opacity 型。
+//    · 自证：打印逐文件 pressed 值分布 + **零扫描判红**。
+const PRESS_VALUE_EXEMPT: Map<string, string> = new Map<string, string>([
+  ['SubAgentTree.ets', '大卡片有意柔压 0.75（moment_polish.test.ts:78 钉死）'],
+  ['AskUserSheet.ets', 'DISABLED_OPACITY —— 禁用档 ≠ 按压档'],
+  ['SplashOverlay.ets', 'splash-ux 在跑（0.6 字面量）⇒ 只上报'],
+  ['QueueSheet.ets', '另一线在途（0.6 字面量）⇒ 只上报'],
+]);
+{
+  const comps: string[] = fs.readdirSync(CDIR).filter((n: string): boolean => n.endsWith('.ets')).sort();
+  let pressedTotal = 0, fromConst = 0, exemptP = 0, unhandled = 0, bgForm = 0;
+  const dist: string[] = [];
+  for (let i = 0; i < comps.length; i++) {
+    const f: string = comps[i];
+    const src: string = stripComments(fs.readFileSync(path.join(CDIR, f), 'utf8'));
+    const vals: string[] = [];
+    const re: RegExp = /pressed:\s*\{\s*\.opacity\(([^)]*)\)/g;
+    let m: RegExpExecArray | null = re.exec(src);
+    while (m !== null) { vals.push(m[1].trim()); m = re.exec(src); }
+    const bgN: number = countAll(src, /pressed:\s*\{\s*\.backgroundColor\(/g);
+    bgForm += bgN;
+    if (vals.length === 0 && bgN === 0) { continue; }
+    pressedTotal += vals.length;
+    dist.push(`  ⑥   ${f}: ${vals.length > 0 ? vals.join(',') : '(bg-only)'}`
+      + `${bgN > 0 ? ' +bg×' + bgN : ''}`);
+    for (let k = 0; k < vals.length; k++) {
+      const v: string = vals[k];
+      if (v === 'PRESS_OPACITY') { fromConst++; }
+      else if (PRESS_VALUE_EXEMPT.has(f)) { exemptP++; }
+      else { unhandled++; }
+      ok(`${f}：pressed.opacity(${v}) 取自 PRESS_OPACITY 或明示豁免`,
+        v === 'PRESS_OPACITY' || PRESS_VALUE_EXEMPT.has(f));
+    }
+  }
+  console.log('  ⑥ press 口径（全 components/**，pressed 块分布）：');
+  for (let i = 0; i < dist.length; i++) { console.log(dist[i]); }
+  ok('⑥ 零扫描判红：全仓 pressed-opacity 数 > 0', pressedTotal > 0);
+  console.log(`  ⑥ SUMMARY files=${comps.length} pressedOpacity=${pressedTotal}`
+    + ` fromConst=${fromConst} exempt=${exemptP} unhandled=${unhandled} bgOnlyBlocks=${bgForm}`);
+}
+
 console.log(`  interactive_feedback: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

@@ -31,7 +31,7 @@ import { Effects, effectsOf, Palette, paletteOf } from '../core/theme';
 import { SP_1 } from '../core/tokens';
 import { withAlpha } from '../core/bubble';
 import {
-  RADIUS_CHIP, HIT_TARGET_MIN, SPACE_XS, SPACE_XL,
+  PRESS_OPACITY, RADIUS_CHIP, HIT_TARGET_MIN, SPACE_XS, SPACE_XL,
   colorOf, surfaceFillOf,
 } from '../core/design';
 import { fs, lh, fw } from './SettingsRows';
@@ -167,7 +167,7 @@ struct NavItemView {
     // 按压反馈：**只写 `pressed`**（⛔ 不写 `normal` —— `normal` 会**接管**被它命名的属性，
     // 本仓 `ThinkingLine` 踩过；此条目虽暂无动态 opacity，但留着 `normal` 是同一坑的隐患）。
     // 全站统一手法（DESIGN-SYSTEM §4）：按压 = opacity（触屏行不加 scale，避免整行抖动）。
-    .stateStyles({ pressed: { .opacity(0.7) } })
+    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) } })
     .onClick(() => {
       this.onPick();
     })
