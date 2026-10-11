@@ -82,8 +82,12 @@ function stripComments(src: string): string {
 
   ok('① 出入场走具名工厂 `.transition(lightboxTransition())`（时长/曲线/缩放起点来自底座）',
     oc.indexOf('.transition(lightboxTransition())') >= 0);
-  ok('① ⛔ **无** `.opacity(`（静息可见性不由动画函数决定；门禁 ⑨ A1 的正向形态）',
-    oc.indexOf('.opacity(') < 0);
+  // ⛔ 精确判"静息态 = 隐藏"的**形态**（`.opacity(<含 ? 的三元>)`），而不是"禁止出现 `.opacity(`"——
+  //    后者会把 `interactive_feedback` 要求的**按压反馈** `.opacity(PRESS_OPACITY)` 也误判（实测踩到）。
+  ok('① ⛔ **无** `.opacity(<三元>)`（静息可见性不由动画函数决定；门禁 ⑨ A1 的正向形态）',
+    !/\.opacity\([^)]*\?/.test(oc));
+  ok('①-2 按压反馈按统一口径（`.opacity(PRESS_OPACITY)`，⛔ 不写死数值）',
+    oc.indexOf('pressed: { .opacity(PRESS_OPACITY) }') >= 0);
   ok('② 面/发丝/柔影全走唯一口径（surfaceFillOf / hairlineOf / shadowRadiusOf + elevationColorOf）',
     oc.indexOf('surfaceFillOf(') >= 0 && oc.indexOf('hairlineOf(') >= 0
     && oc.indexOf('shadowRadiusOf(') >= 0 && oc.indexOf('elevationColorOf(') >= 0);

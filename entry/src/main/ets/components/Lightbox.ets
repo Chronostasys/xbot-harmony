@@ -28,7 +28,7 @@
 import image from '@ohos.multimedia.image';
 import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
 import {
-  ELEV_OVERLAY, RADIUS_CARD, SPACE_SM, SPACE_XS, STROKE_HAIRLINE,
+  ELEV_OVERLAY, PRESS_OPACITY, RADIUS_CARD, SPACE_SM, SPACE_XS, STROKE_HAIRLINE,
   colorOf, elevationColorOf, hairlineOf, surfaceFillOf, typeOf,
 } from '../core/design';
 import {
@@ -113,22 +113,33 @@ export struct Lightbox {
           .fontSize(typeOf(TYPE_META).size)
           .fontColor(colorOf(this.pal(), 'accentSoft'))
           .padding(SPACE_XS)
+          // 按下反馈（统一口径：值取 `PRESS_OPACITY`；判据 = `interactive_feedback` ⑤/⑥/⑦）。
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.resetView();
           })
       }
       // 保存到相册：走系统安全组件（SaveButton）—— 用户授权后才有写权限 ⇒ 不申请相册写权限、不静默失败。
-      SaveButton({ icon: SaveIconStyle.FULL_FILLED, text: SaveDescription.SAVE_IMAGE, buttonType: ButtonType.Capsule })
-        .onClick((event: ClickEvent, result: SaveButtonOnClickResult) => {
-          if (result === SaveButtonOnClickResult.SUCCESS) {
-            this.onSave();
-          } else {
-            this.onToast('需要授权才能保存到相册');
-          }
-        })
+      // ⚠️ `SaveButton` 是**系统安全组件**：`SaveButtonAttribute` **不支持** `stateStyles`/`opacity`
+      //    （实测编译红 `Property 'stateStyles' does not exist on type 'SaveButtonAttribute'`）
+      //    ⇒ 按下反馈只能由**祖先容器**给（正是 `interactive_feedback` ⑦ 的"祖先覆盖"通道）。
+      Row() {
+        SaveButton({ icon: SaveIconStyle.FULL_FILLED, text: SaveDescription.SAVE_IMAGE, buttonType: ButtonType.Capsule })
+          .onClick((event: ClickEvent, result: SaveButtonOnClickResult) => {
+            if (result === SaveButtonOnClickResult.SUCCESS) {
+              this.onSave();
+            } else {
+              this.onToast('需要授权才能保存到相册');
+            }
+          })
+      }
+      // 按下反馈（统一口径：值取 `PRESS_OPACITY`；与背板/关闭/复位同一常量）。
+      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
       SymbolGlyph($r('sys.symbol.xmark')).fontSize(17)
         .fontColor([colorOf(this.pal(), 'textSecondary')])
         .padding(SPACE_XS)
+        // 按下反馈（统一口径；与复位/SaveButton 同一常量）。
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
           this.onClose();
         })
@@ -234,6 +245,8 @@ export struct Lightbox {
         .width('100%')
         .height('100%')
         .backgroundColor(surfaceFillOf(this.pal(), 'surface.canvas'))
+        // 按下反馈（"点任意处关闭"要**看得见**才算给到确认；与关闭/复位同一常量口径）。
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
           this.onClose();
         })
@@ -247,9 +260,11 @@ export struct Lightbox {
       .height('100%')
       .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_SM, bottom: SPACE_SM })
       .translate({ y: this.dragY })
-      .onClick(() => {
-        // 吃掉点击（不冒泡到背板）—— 语义 = web `stopPropagation`。
-      })
+      // ⛔ 用 **`HitTestMode.Block`** 表达 `stopPropagation`（挡住背板的命中测试）——**不是**可点元素：
+      //    原先写 `onClick(() => {})` 会被 `interactive_feedback` ⑦ 当成"自定义可点元素却无 press"，
+      //    而给它加 press 又会让**每次点图片（缩放/拖动）都整层闪一下**（错反馈）。
+      //    Block = "自己参与命中、挡住其后的兄弟" ⇒ 语义精确、且不引入假 affordance。
+      .hitTestBehavior(HitTestMode.Block)
     }
     .width('100%')
     .height('100%')
