@@ -717,15 +717,15 @@ thinking（4 档）、tier（3 档）、provider（2）、api_type（2）、CTX/
 | 消息渠道 | web 渠道 + 插件渠道 + 飞书绑定 | schema 驱动（飞书绑定有） | ⚠️ 渠道集较小 |
 | 存储 | schema 驱动（static/oss…） | 同 | ✅ |
 | 账号 | 用户名 + 退出 | 退出（两步确认） | ⚠️ **2026-10-11 复核订正**：**用户名恒不显示**（G1 —— `SettingsPanel.ets:395` 未把 `username` 传给 `SettingsAccount`，且该组件无此成员 ⇒ 恒回落「当前登录账号」；`Index.ets:408` 有 `@State username` 却没透传）|
-| Web 账号 | 建/列/删（一次性密码） | 同 | ✅ |
-| 开发者 | 录制开关 + **导出 Turn/benchmark/openai/codex** | 录制开关 + 复制/清空 + **连接状态卡** + 导出 native/Turn/Multica/benchmark | ⚠️ **缺 openai / codex 两个导出按钮**（⚠️ **2026-10-11 复核订正**：原文"缺导出按钮·未接线"**已过时** —— `Index.ets:3235` 已注入 `http/channel/chatID`、4 个导出动作**已接线可点**；真实缺口 = `exportActions()` 未列 `toOpenAiJson`/`toCodexJsonl`（实现已在，见 G2/G3）） |
+| Web 账号 | 建/列/删（一次性密码）+ **invite-only 说明行** | 建/列/删（一次性密码 + 两步确认）+ **invite-only 说明行**（`SettingsWebUsers.ets`，G6）| ✅ |
+| 开发者 | 录制开关 + **导出 Turn/benchmark/openai/codex** | 录制开关 + 复制/清空 + **连接状态卡** + 导出 native/OpenAI/Codex/Multica/benchmark/Turn-iter（**6 项**）| ✅（**2026-10-11 G2/G3 落地**：`core/export.ets` 的 `exportActions()` 已列 `toOpenAiJson`/`toCodexJsonl` ⇒ **6 项全接线可点**，`SettingsDeveloper.ets` 的 `ExportSection()` 用 `ForEach(exportActions())` **自动渲染**；判据 `tools/tests/export.test.ts` §9 钉「动作集 + 每项 format → 存在的实现」）|
 | 布局 | slot 选择 + 重置（VSCode 式面板布局） | **无** | ❌（**N/A**：原生单布局，无 dock 概念） |
 | 插件 | 搜索 + 配置字段（number 滑条 / multiselect / image 上传） | 配置字段（Toggle/Text/Chip；**image 禁编辑**）+ 启停 + 重载 | ⚠️ 控件类型较少 |
 | 关于 | 版本 + 更新 + 重启 + **PWA 安装** | 版本/提交/构建/渠道/运行时/托管 + 更新 + 重启 | ✅（PWA **N/A**） |
 | 通知 | **无此 Tab** | **通知 Tab（正文隐私开关）** | ➕ 本仓独有 |
 
-**计数（分区级）**：**✅ 7**（交互·智能体·工具·存储·账号·Web账号·关于）·
-**⚠️ 5**（外观·LLM·渠道·开发者·插件）· **❌ 2**（语言·布局；布局 **N/A**）·
+**计数（分区级）**：**✅ 8**（交互·智能体·工具·存储·账号·Web账号·开发者·关于）·
+**⚠️ 4**（外观·LLM·渠道·插件）· **❌ 2**（语言·布局；布局 **N/A**）·
 **➕ 9**（原生独有，**保留**：应用主题 5 套含「极简白」/ 字号 / 思考默认展开 / 思考光球 / 聊天界面 /
 通知 Tab / 通知提醒 / 开发者连接卡 / 重新读取设置）。
 

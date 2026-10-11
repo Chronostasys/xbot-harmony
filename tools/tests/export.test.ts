@@ -352,47 +352,75 @@ eq('benchmark: 空数组 ⇒ 空串（无换行）', toBenchmarkJsonl([]), '');
   ok('turnIter: 引号原样（复刻 web，不转义）', out.indexOf('content="say "hi""') >= 0, out);
 }
 
-// ═══ 9. 导出动作表 + 命名 + 分派（2026-10-11 目标④ UI 接线）══════════════════════════
+// ═══ 9. 导出动作表 + 命名 + 分派（2026-10-11 目标④ UI 接线；G2/G3 补 openai/codex）═════
 // 判据与渲染同源：设置页的按钮 / 文件名 / RPC 全从 `exportActions()` 派生。
-// ★ 判别力（mutation 必红）：删 `exportActionFilename` 的 turn-iter 分支 ⇒「txt 名」红；
-//   删 `renderExportText` 的 multica 分支 ⇒「分派 multica」红。
+// ★ 判别力（mutation 必红）：
+//   ① 删 openai/codex 任一新项 ⇒「动作数」「id 序列」「含新项」「格式→实现」全红
+//      （**零扫描判红**：动作数/id 序列是硬编码期望 ⇒ 空表或漏项都必红）；
+//   ② 把某项 `format` 改成一个**不存在的实现名**（如 `'openaiX'`）⇒ `renderExportText` 回落 native，
+//      与该形态的**直接实现**产物不再逐字相同 ⇒「格式→实现」红（防"列了但没实现"）。
 {
   const acts: ExportAction[] = exportActions();
-  eq('动作数 = 4（native json / multica jsonl / benchmark jsonl / turn-iter txt）', acts.length, 4);
-  eq('  id 稳定且互异', acts.map((a) => a.id).join(','), 'json,jsonl-multica,jsonl-benchmark,txt-turn-iter');
-  eq('  format 覆盖 json/jsonl/txt 三态', acts.map((a) => a.format).join(','),
-    `${EXPORT_NATIVE},${EXPORT_MULTICA},${EXPORT_BENCHMARK},${EXPORT_TURN_ITER}`);
+  // 零扫描防线：动作数 + id 序列均为硬编码期望（空表/漏项/多项都必红）。
+  eq('动作数 = 6（native+openai json / multica+benchmark+codex jsonl / turn-iter txt）', acts.length, 6);
+  eq('  id 稳定且互异（含 openai/codex）', acts.map((a) => a.id).join(','),
+    'json,json-openai,jsonl-multica,jsonl-benchmark,jsonl-codex,txt-turn-iter');
+  eq('  format 覆盖 5 种形态 + turn-iter', acts.map((a) => a.format).join(','),
+    `${EXPORT_NATIVE},${EXPORT_OPENAI},${EXPORT_MULTICA},${EXPORT_BENCHMARK},${EXPORT_CODEX},${EXPORT_TURN_ITER}`);
+  // G2/G3：必须**显式**含 openai / codex（存在性断言 ⇒ 单独删任一项也必红）
+  ok('含 openai 导出动作（G2）', acts.some((a) => a.format === EXPORT_OPENAI));
+  ok('含 codex 导出动作（G3）', acts.some((a) => a.format === EXPORT_CODEX));
   eq('  只有 benchmark 走 jsonl RPC', acts.filter((a) => a.viaJsonlRpc).map((a) => a.id).join(','),
     'jsonl-benchmark');
 
-  eq('扩展名：native ⇒ json', exportActionExt(acts[0]), 'json');
-  eq('扩展名：multica ⇒ jsonl', exportActionExt(acts[1]), 'jsonl');
-  eq('扩展名：benchmark ⇒ jsonl', exportActionExt(acts[2]), 'jsonl');
-  eq('扩展名：turn-iter ⇒ txt', exportActionExt(acts[3]), 'txt');
+  // 按 id 取（不靠下标 ⇒ 顺序调整不假红）；找不到 ⇒ format 非法 ⇒ 下游断言必红
+  const byId = (id: string): ExportAction => {
+    const found = acts.filter((a) => a.id === id);
+    return found.length === 1 ? found[0] : new ExportAction('', 'MISSING', '', '', false);
+  };
+  eq('扩展名：native ⇒ json', exportActionExt(byId('json')), 'json');
+  eq('扩展名：openai ⇒ json', exportActionExt(byId('json-openai')), 'json');
+  eq('扩展名：multica ⇒ jsonl', exportActionExt(byId('jsonl-multica')), 'jsonl');
+  eq('扩展名：benchmark ⇒ jsonl', exportActionExt(byId('jsonl-benchmark')), 'jsonl');
+  eq('扩展名：codex ⇒ jsonl', exportActionExt(byId('jsonl-codex')), 'jsonl');
+  eq('扩展名：turn-iter ⇒ txt', exportActionExt(byId('txt-turn-iter')), 'txt');
 
-  eq('文件名：native ⇒ <label>.json', exportActionFilename(acts[0], 'web/abc'), 'web_abc.json');
-  eq('文件名：multica ⇒ <label>.jsonl', exportActionFilename(acts[1], 'web/abc'), 'web_abc.jsonl');
-  eq('文件名：turn-iter ⇒ session-<label>-turn-iter.txt', exportActionFilename(acts[3], 'web/abc'),
+  eq('文件名：native ⇒ <label>.json', exportActionFilename(byId('json'), 'web/abc'), 'web_abc.json');
+  eq('文件名：openai ⇒ <label>.json', exportActionFilename(byId('json-openai'), 'web/abc'), 'web_abc.json');
+  eq('文件名：codex ⇒ <label>.jsonl', exportActionFilename(byId('jsonl-codex'), 'web/abc'), 'web_abc.jsonl');
+  eq('文件名：turn-iter ⇒ session-<label>-turn-iter.txt', exportActionFilename(byId('txt-turn-iter'), 'web/abc'),
     'session-web_abc-turn-iter.txt');
-  ok('文件名不含时间戳（唯一来源 = chatID）', exportActionFilename(acts[0], 'x').indexOf('20') < 0);
+  ok('文件名不含时间戳（唯一来源 = chatID）', exportActionFilename(byId('json'), 'x').indexOf('20') < 0);
 
-  // 分派：产物必须与"直接调用各形态"逐字相同
+  // ★ 核心：每个动作的 `format` 必须路由到一个**真实存在**的实现
+  //   （产物 = 该形态「直接实现」的逐字产物；若 format 不存在 ⇒ 回落 native ⇒ 不等 ⇒ 红）。
   const s = new ExportedSession();
   s.id = 's1';
   s.model = 'm';
   s.messages = [msg('user', 'hi')];
-  const clock = new ExportClock('2026-01-01T00:00:00.000Z', 0);
-  eq('分派 native = toNativeJson', renderExportText(EXPORT_NATIVE, s, 'ch', 'id', clock.nowIso, clock),
-    toNativeJson(s));
-  eq('分派 multica = toMulticaJsonl', renderExportText(EXPORT_MULTICA, s, 'ch', 'id', clock.nowIso, clock),
-    toMulticaJsonl(s, new ExportClock('2026-01-01T00:00:00.000Z', 0)));
-  eq('分派 codex = toCodexJsonl', renderExportText(EXPORT_CODEX, s, 'ch', 'id', clock.nowIso, clock),
-    toCodexJsonl(s));
-  eq('分派 openai = toOpenAiJson', renderExportText(EXPORT_OPENAI, s, 'ch', 'id', clock.nowIso, clock),
-    toOpenAiJson(s));
-  eq('分派 turn-iter = toTurnIterTxt', renderExportText(EXPORT_TURN_ITER, s, 'ch', 'id', 'T', clock),
-    toTurnIterTxt(s, 'ch', 'id', 'T'));
-  eq('未知 format 回落 native（不抛）', renderExportText('weird', s, 'ch', 'id', 'T', clock), toNativeJson(s));
+  const nowIso = '2026-01-01T00:00:00.000Z';
+  // ⚠️ multica 用注入 clock；每次调用必须给**全新同初值** clock（内部 seq 有状态 ⇒ 复用会漂）
+  const mkClock = (): ExportClock => new ExportClock(nowIso, 0);
+  const direct: Record<string, string> = {};
+  direct[EXPORT_NATIVE] = toNativeJson(s);
+  direct[EXPORT_OPENAI] = toOpenAiJson(s);
+  direct[EXPORT_CODEX] = toCodexJsonl(s);
+  direct[EXPORT_MULTICA] = toMulticaJsonl(s, mkClock());
+  direct[EXPORT_TURN_ITER] = toTurnIterTxt(s, 'ch', 'id', nowIso);
+  for (const a of acts) {
+    if (a.viaJsonlRpc) {
+      continue; // benchmark：记录来自服务端 `export_session_jsonl`，不经 `renderExportText`
+    }
+    eq(`动作 ${a.id} 的 format 指向存在的实现（未回落 native）`,
+      renderExportText(a.format, s, 'ch', 'id', nowIso, mkClock()), direct[a.format]);
+  }
+  // 判别力反证：不存在的 format ⇒ 回落 native（≠ 直接实现）——证明上一条能抓"列了但没实现"
+  ok('不存在的 format 回落 native（反证）',
+    renderExportText('openai-not-implemented', s, 'ch', 'id', nowIso, mkClock()) === toNativeJson(s));
+  ok('不存在的 format 产物 ≠ openai 直接实现（反证）',
+    renderExportText('openai-not-implemented', s, 'ch', 'id', nowIso, mkClock()) !== toOpenAiJson(s));
+
+  eq('未知 format 回落 native（不抛）', renderExportText('weird', s, 'ch', 'id', 'T', mkClock()), toNativeJson(s));
 }
 
 // ═══ 10. RPC 响应收窄（全容错；脏数据不抛）═══════════════════════════════════════════

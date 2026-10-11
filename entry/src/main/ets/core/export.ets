@@ -225,17 +225,26 @@ export class ExportAction {
 }
 
 /**
- * 开发者设置页的导出动作清单（顺序 = 展示顺序）。
- * 覆盖 web 开发者分区三个按钮 + `downloadSession` 的 native 默认形态 ⇒ **json / jsonl / txt 三态齐**。
+ * 开发者设置页的导出动作清单（顺序 = 展示顺序，按扩展名分组：json → jsonl → txt）。
+ * 覆盖 web 开发者分区**全部**按钮 + `downloadSession` 的 **5 种形态**：
+ *   · json：native（默认形态，`api.ts:560-566`）+ openai（`api.ts:396-422`，G2）；
+ *   · jsonl：multica（`api.ts:464-558`）+ benchmark（`api.ts:383-391`）+ codex（`api.ts:424-462`，G3）；
+ *   · txt：turn+iter（`SettingsDeveloper.tsx:60-92`）。
+ * ⛔ 每一项的 `format` **必须**能被 `renderExportText` 分派到一个**真实存在**的实现函数
+ *    （openai→`toOpenAiJson`、codex→`toCodexJsonl`；否则回落 native ⇒ "列了但没实现"）。
  */
 export function exportActions(): ExportAction[] {
   return [
     new ExportAction('json', EXPORT_NATIVE, '导出 JSON',
       '服务端整包会话（native 形态，与 Web 端 `downloadSession` 默认一致）。', false),
+    new ExportAction('json-openai', EXPORT_OPENAI, '导出 JSON（OpenAI）',
+      'OpenAI Chat Completions 请求体（`{model, messages:[...]}`）。', false),
     new ExportAction('jsonl-multica', EXPORT_MULTICA, '导出 JSONL（Multica）',
       '逐行 JSON，Multica/训练数据形态。', false),
     new ExportAction('jsonl-benchmark', EXPORT_BENCHMARK, '导出 JSONL（benchmark）',
       '逐 turn 记录（走 `export_session_jsonl`）。', true),
+    new ExportAction('jsonl-codex', EXPORT_CODEX, '导出 JSONL（Codex）',
+      'Codex CLI 会话 JSONL（每行一条消息，Codex 会话格式）。', false),
     new ExportAction('txt-turn-iter', EXPORT_TURN_ITER, '导出 TXT（Turn + Iter）',
       '人类可读的 turn/iter 顺序清单（Web 端同名按钮）。', false),
   ];

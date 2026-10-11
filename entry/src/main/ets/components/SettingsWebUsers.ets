@@ -251,6 +251,20 @@ export struct SettingsWebUsers {
         .scrollBar(BarState.Auto)
         .align(Alignment.Top)
       }
+
+      // Invite-only 说明（对齐 web `SettingsWebUsers.tsx:182-186` 的 `inviteOnlyNote`）——
+      // **纯信息、无交互**：删除账号不强制登出已有会话（Cookie 在有效期内仍有效）；移出访问 = 删除账号。
+      Row({ space: SP_2 }) {
+        SymbolGlyph($r('sys.symbol.info_circle'))
+          .fontSize(FS_CAPTION)
+          .fontColor([this.pal().textMuted])
+        Text('删除账号不会强制登出已有会话（Cookie 保持有效直到过期）。移除访问 = 删除账号。')
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().textMuted)
+          .layoutWeight(1)
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Top)
     }
     .width('100%')
     .layoutWeight(1)
