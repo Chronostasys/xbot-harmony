@@ -20,6 +20,15 @@ declare function require(m: 'fs'): { readFileSync(p: string, e: string): string 
 declare function require(m: 'path'): { join(...parts: string[]): string };
 declare const __dirname: string;
 
+/**
+ * **剥注释**（本仓约定：注释里记代码片段/色值是**允许且鼓励**的 ⇒ 判据扫源码前**必须**先剥）。
+ * ⚠️ 保留换行 ⇒ 行号不漂移。
+ */
+function stripSrc(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, (m: string) => m.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (m: string, p: string) => p + ' '.repeat(m.length - p.length));
+}
+
 // 让本文件成为**模块**（否则顶层 `pass/fail/ok/…` 落进全局作用域，与其它同类测试文件冲突：
 // TS6200/TS2393）。有 import 的测试天然是模块；本文件只用 `require`，故显式 `export {}`。
 export {};
@@ -55,7 +64,11 @@ function emptyStateBlock(src: string): string {
   return end < 0 ? '' : src.substring(start, end);
 }
 
-const block: string = emptyStateBlock(indexSrc);
+// ⚠️ 新形态（本轮实测）：本文件的**抽取锚点本身就是注释**（`emptyStateBlock` 用 '// ⛔ 星形不再用' 定位）
+//    ⇒ ⛔ 不能先把整份源码剥注释（锚点会消失 ⇒ 抽取断裂，实测 6 红）。分工：
+//    **锚点用原文 `indexSrc`** / **断言输入用剥过的 `stripSrc(...)`**（两件事分离）。
+const block: string = stripSrc(emptyStateBlock(indexSrc));
+const indexCode: string = stripSrc(indexSrc);   // 整文件级断言用这个
 
 // ── (a) 星形辉光必须是**径向渐变的圆**，不是 `.shadow` 的方盒 ────────────────────
 ok('空态块可定位（星形 → xbot-empty-state）', block.length > 100);
@@ -67,7 +80,7 @@ has(block, "colors: [[this.eff().glow, 0.0], [this.pal().transparent, 1.0]]",
 hasNot(block, '.shadow(', '空态星形不再有 .shadow（方盒的根因）');
 
 // ── (b) 旧实现必须被**删除**（不是留着不用）────────────────────────────────────
-hasNot(indexSrc, 'private emptyStarShadow', 'emptyStarShadow() 已删（不留死代码）');
+hasNot(indexCode, 'private emptyStarShadow', 'emptyStarShadow() 已删（不留死代码）');
 hasNot(indexSrc, 'this.emptyStarShadow()', '调用点已改为 radialGradient');
 
 // ── (c) 尺寸是**有名常量**（token 纪律：禁魔法数）────────────────────────────────
@@ -81,5 +94,17 @@ hasNot(block, 'pulseOn', '空态辉光**不读** pulseOn（静态；唯一在飞
 hasNot(block, '.animation(', '空态辉光**无**内联/循环动效（静态呈现）');
 has(block, '.opacity(1)', '辉光不透明度为常量（静态）');
 
+// ── 剥注释的**判别力自证** ──────────────────────────────────────────────────────
+{
+  ok('判别力：**注释里**的禁串被剥掉（不误红）',
+    stripSrc('// .fontColor([this.pal().textMuted])').indexOf('.fontColor(') < 0);
+  ok('判别力：**代码里**的同一串仍在（不误绿）',
+    stripSrc('const a = 1; .fontColor([this.pal().textMuted])').indexOf('.fontColor(') >= 0);
+  ok('判别力：剥注释**保留换行**（行号不漂移）',
+    stripSrc('a\n// x\nb').split('\n').length === 3);
+}
+
 console.log(`  empty_star_glow: ${pass} passed, ${fail} failed`);
+
+
 process.exit(fail === 0 ? 0 : 1);
