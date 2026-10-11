@@ -520,7 +520,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | 会话菜单（置顶/上移/下移/改名/分支/删除） | `SessionItem.tsx:276-316` | ✅ | `Index.ets:4828` SessSheet + `:3483 runSessAction` + `core/sessionops.ets:23` |
 | 会话排序（星标→sort_order→时间） | `lib/session-grouping.ts` | ✅ | `core/sessiongroup.ets:601-609` + `core/stars.ets starredFirst` |
 | 空状态 | `SessionEmptyState.tsx:16` | ✅ | `Index.ets:2827-2843` |
-| 会话搜索（本地筛选 + 服务端搜消息） | `SessionSearch.tsx:36` | ✅ | `Index.ets:5174`（筛选）/`:4113 runSearch`/`:4855 SearchHitsSheet` |
+| 会话搜索（本地筛选 + 服务端搜消息） | `SessionSearch.tsx:36` | 🟡 **切会话已修、服务端搜索恒空** | `Index.ets:5174`（筛选）/`:4113 runSearch`/`:4855 SearchHitsSheet`；`bf9dc78` 真机证实 active session 跟随；**服务端 `/api/search` 恒空** ⇒ 见 11.5 证据 ⑧-bis |
 | 新建会话对话框（渠道 + cwd + label） | `NewSessionDialog.tsx:34` | 🟡 | 原生**无对话框**：`Index.ets:1663 newSession()` 直接 `createSession()`（默认渠道/无 cwd/无 label） |
 | 渠道选择/过滤（列表按渠道过滤） | `ChannelPicker.tsx:73` | 🟡 | 徽标 ✅（`core/sessionpick.ets:34`）；**过滤 ❌** 见 11.5 证据 ⑦ |
 | 路径选择 cwd（输入 + 最近目录） | `PathPicker.tsx:36` | ❌ | 见 11.5 证据 ⑦ |
@@ -593,6 +593,22 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
     ⛔ **web 无 markdown 导出**（`grep -rniE "text/markdown|\\.md['\"]"` 在 `web/src` **零导出命中**；服务端 RPC 表亦仅 `export_session`/`export_session_jsonl`，`serverapp/rpc_table.go:1539/1577`）。
     **文件名口径**（`api.ts:570-572`）：`<label>.<ext>`，`label=(chatID||'session').replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,60)` —— **不含时间戳**（时间戳仅 SSE 录制器 `sse-dump-<ts>.ev` 用）。
   - **本仓落地（2026-10-11）**：纯逻辑**已交付 `a7e6ffc`** —— `core/export.ets`（native/openai=json、codex/multica/benchmark=jsonl、turn+iter=txt 全形态 + `ExportClock` 注入时间/id）+ `tools/tests/export.test.ts`（78 断言）；**UI 入口未接线**（需 `core/rpc.ets` 补 `export_session`/`export_session_jsonl` RPC 常量 + `Index.ets` 接会话菜单/设置面）。
+- ⑧-bis **「搜消息」真机复验（2026-10-11，设备 `127.0.0.1:5555`，装 `adc8f81`，含 `bf9dc78`）**：
+  - **结论①：切会话通知服务端 —— ✅ 生效（真机证实）**。App 的服务端是**远端** `https://xbot.pivotlang.tech`
+    （设备 prefs `.../haps/entry/preferences/xbot_settings` 的 `server_url`；本机 `xbot-cli serve` **不是**它的后端，本机 `/api/history` 404）。
+    用该 prefs 里的 `session_cookie` 直连远端 `POST /api/history {}`（**空 session ⇒ 服务端回落用 active session**）读"服务端认定的当前会话"，与 App 顶栏对照：
+      · App 顶栏 `Agent-astute-coral` ⇒ 远端 active = `cli:/home/smith/src/xbot:Agent-astute-coral`（一致）
+      · 在 App 内切到 `checkout` 会话 ⇒ 远端 active **同步**变 `cli:/home/smith/src/xbot:checkout`（一致）
+    ⇒ **原生切会话确实发出了 `/api/chats/{id}/switch`、且服务端 `userCurrentSession` 跟随**。
+  - **结论②：端到端「搜出结果」仍不成立，且根因在服务端（非本修复）**。绕开 App、直接 curl 该远端 `POST /api/search`，
+    对**任何** query（`的`/`a`/`the`/`session`，以及 active 会话里**确实存在**的 `feedbackInfo`(assistant)/`合回去`(user)）
+    一律回 `{"ok":true,"data":{},"error":null}` ⇒ **服务端搜索恒返回空**。
+    · 与 App 无关：信封 `data` 被 `core/http.ets:sendJson` 正确解包（`/api/history` 同款信封能正常取到内容）。
+    · 疑似 v71「每会话一个 DB」后 `handleSearch`（`channel/web/web_api.go:1094`）仍查主库 `session_messages`（本机同架构主库该表 `count=0`，行在 `~/.xbot/sessions/**`）。
+    ⇒ 该行**不宜标 ✅**；需服务端排查（本仓无法修）。
+  - **复验方法（可重跑）**：读设备 `xbot_settings` 的 `session_cookie` → `curl -b "$CK" -X POST <server>/api/history -d '{}'` 取 active session；
+    在 App 内切一次会话后再取一次，即可判"是否跟随"。
+
 - ⑨ **Channels 设置分区**：`grep -rn "get_channel_config\|set_channel_config\|feishu_bind" core components` → **0 命中**（`core/settings.ets:286 CONFIG_SURFACE_METHODS` 亦未含）。契约见 §9.2.1。
 - ⑩ **Developer 模式 / SSE 录制**：`grep -rniE "useDeveloperMode|sseRec|录制|recorder" core components pages` → **0 命中**。
 - ⑪ **Ambience**：`grep -rln "ambience\|wallpaper" .` → 仅 `core/pluginhost.ets:240` 的**注释**；无 `core/ambience.ets`、无组件。
