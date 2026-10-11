@@ -20,7 +20,7 @@ import { D_BASE, EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_CAPTION,
 // 抽屉重排：尺度/层级/材质一律走语义令牌层（⛔ 不新增字面量；`surfaceFillOf`/`hairlineOf`/
 // `typeOf` 是唯一出口）。色值一律经 `this.pal()`（`surfaceFillOf` 的 role 是**带点**的语义面名）。
 import {
-  GAP_BLOCK, HIT_TARGET_MIN, INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X, INSET_ROW_Y,
+  GAP_BLOCK, HIT_TARGET_MIN, ICON_MD, INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X, INSET_ROW_Y,
   PRESS_OPACITY, PRESS_SCALE, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, RADIUS_SHEET, SPACE_HAIR, SPACE_LG, SPACE_MD,
   SPACE_SM, SPACE_XL, SPACE_XS, SPACE_XXL, SPACE_XXS, STROKE_HAIRLINE, hairlineOf, surfaceFillOf, typeOf,
 } from '../core/design';
@@ -621,7 +621,6 @@ struct Index {
    * 为什么用 opacity 而不是 layout 属性：触屏设备上 layout 动画（height/width）会掉帧，
    * 这是项目里已定稿的规矩（Web 端同款）。
    */
-  @State pulseOn: boolean = true;
   private pulseTimer: number = -1;
   // ── P12 查看器：缩放/平移（夹取逻辑在 core/imgops.ets，已单测）──
   @State imgScale: number = 1;
@@ -1013,7 +1012,6 @@ struct Index {
   private syncPulse(busy: boolean): void {
     if (busy && !this.appPaused && this.pulseTimer < 0) {
       this.pulseTimer = setInterval(() => {
-        this.pulseOn = !this.pulseOn;
         // 同一拍顺手推进流光位置（避免为装饰再开一个定时器）
         this.sweepX = this.sweepX >= 300 ? -80 : this.sweepX + 110;
       }, 600);
@@ -1022,7 +1020,6 @@ struct Index {
     if (!busy && this.pulseTimer >= 0) {
       clearInterval(this.pulseTimer);
       this.pulseTimer = -1;
-      this.pulseOn = true;
     }
   }
 
@@ -2438,11 +2435,11 @@ struct Index {
           WebSurface({ url: this.webUiUrl, theme: this.themeName, chrome: false, onClose: () => {
           } })
           Text('切回原生')
-            .fontSize(11).fontColor(this.pal().textSecondary)
+            .fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary)
             .padding({ left: 10, right: 10, top: 5, bottom: 5 })
             .backgroundColor(this.pal().surfaceAlt)
-            .borderRadius(8)
-            .margin({ left: 8, top: 8 })
+            .borderRadius(RADIUS_PILL)
+            .margin({ left: SPACE_XS, top: SPACE_XS })
             .onClick(() => {
               this.setSurface(false);
             })
@@ -2738,8 +2735,8 @@ struct Index {
       if (this.showPluginHost) {
         Column() {
           Row() {
-            Text('插件').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
-            SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
+            Text('插件').fontSize(typeOf('type.headline').size).fontWeight(typeOf('type.headline').weight).fontColor(this.pal().textPrimary).layoutWeight(1)
+            SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(SPACE_XS)
               .onClick(() => {
                 this.showPluginHost = false;
                 this.pluginPageUrl = '';
@@ -2776,7 +2773,7 @@ struct Index {
   LoadingView() {
     Column() {
       LoadingProgress().width(48).height(48).color(this.pal().accent)
-      Text('xbot').fontSize(18).fontColor(this.pal().textPrimary).margin({ top: 12 })
+      Text('xbot').fontSize(18).fontColor(this.pal().textPrimary).margin({ top: SPACE_SM })
     }.width('100%').height('100%').justifyContent(FlexAlign.Center)
   }
 
@@ -2807,7 +2804,7 @@ struct Index {
         // 原写法把 Text 的背景刷成紫渐变、且无 borderRadius ⇒ 真机上是"直角紫方块"
         // （见 docs/ARKTS-GOTCHAS.md 批次 14）。此处改为有意的应用徽标（squircle 观感）。
         Column() {
-          Text('xbot').fontSize(34).fontWeight(FontWeight.Bold)
+          Text('xbot').fontSize(34).fontWeight(typeOf('type.headline').weight)
             .fontColor(this.pal().onAccent)
             .letterSpacing(0.5)
         }
@@ -2901,7 +2898,7 @@ struct Index {
 
         // 主 CTA：渐变 + 光晕
         Button('登录').width('100%').constraintSize({ minHeight: 50 })
-          .fontSize(FS_TITLE).fontWeight(FontWeight.Medium)
+          .fontSize(FS_TITLE).fontWeight(typeOf('type.subhead').weight)
           .borderRadius(R_XL)
           .fontColor(this.pal().onAccent)
           .backgroundColor(this.pal().accent)
@@ -2957,12 +2954,12 @@ struct Index {
   @Builder
   RewindEditBar() {
     Row({ space: SP_2 }) {
-      SymbolGlyph($r('sys.symbol.square_and_pencil')).fontSize(14).fontColor([this.pal().warn])
+      SymbolGlyph($r('sys.symbol.square_and_pencil')).fontSize(ICON_MD).fontColor([this.pal().warn])
       Text('编辑并重发：将回退此消息及其后的回复')
         .fontSize(FS_CAPTION).fontColor(this.pal().warn).layoutWeight(1)
         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
       Text('取消').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary)
-        .padding({ left: SP_2, right: SP_2, top: 4, bottom: 4 })
+        .padding({ left: SP_2, right: SP_2, top: SPACE_XXS, bottom: SPACE_XXS })
         .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
         .onClick(() => {
           this.cancelRewindEdit();
@@ -2981,7 +2978,7 @@ struct Index {
     Column() {
       // 顶栏：玻璃材质 + 底部细描边（磨砂顶栏是"干净/未来感"的关键一笔）
       Row() {
-        SymbolGlyph($r('sys.symbol.line_3_horizontal')).fontSize(typeOf('type.title').size).fontColor([this.pal().textPrimary])
+        SymbolGlyph($r('sys.symbol.line_3_horizontal')).fontSize(22).fontColor([this.pal().textPrimary])
           .padding(SPACE_SM)
           .borderRadius(RADIUS_CHIP)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
@@ -2990,7 +2987,7 @@ struct Index {
           })
         Column({ space: 2 }) {
           Text(this.currentChat.length > 0 ? this.labelOf(this.currentChat) : 'xbot')
-            .fontSize(FS_TITLE).fontWeight(FontWeight.Medium)
+            .fontSize(FS_TITLE).fontWeight(typeOf('type.subhead').weight)
             .fontColor(this.pal().textPrimary).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
           Row({ space: SP_1 }) {
             Circle({ width: 6, height: 6 })
@@ -3026,11 +3023,11 @@ struct Index {
       // 加载失败且列表为空 ⇒ 明确提示 + 重试（网络/代理故障时界面必须自解释）
       if (this.rows.length === 0 && this.loadErr.length > 0) {
         Column({ space: 8 }) {
-          Text(loadErrTitle(this.loadErr)).fontSize(14).fontColor(this.pal().dangerText)
-          Text(this.loadErr).fontSize(12).fontColor(this.pal().textSecondary)
+          Text(loadErrTitle(this.loadErr)).fontSize(typeOf('type.callout').size).fontColor(this.pal().dangerText)
+          Text(this.loadErr).fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary)
             .maxLines(4).textOverflow({ overflow: TextOverflow.Ellipsis })
           Text(loadErrHint(this.loadErr))
-            .fontSize(11).fontColor(this.pal().textMuted).maxLines(3)
+            .fontSize(typeOf('type.caption').size).fontColor(this.pal().textMuted).maxLines(3)
           // 判据与标题同一处：401 给「重新登录」，其余给「重试」
           Button(needsRelogin(this.loadErr) ? '重新登录' : (needsSessionRefresh(this.loadErr) ? '刷新会话列表' : '重试'))
             .constraintSize({ minHeight: 38 }).backgroundColor(this.pal().accent).onClick(() => {
@@ -3043,8 +3040,8 @@ struct Index {
               }
             })
         }
-        .width('100%').padding(16).alignItems(HorizontalAlign.Start)
-        .backgroundColor(this.pal().surfaceAlt).borderRadius(10).margin({ left: 12, right: 12, top: 12 })
+        .width('100%').padding(SPACE_MD).alignItems(HorizontalAlign.Start)
+        .backgroundColor(this.pal().surfaceAlt).borderRadius(10).margin({ left: SPACE_SM, right: SPACE_SM, top: SPACE_SM })
       }
 
       // 空态：没有消息、没有错误、也不在跑 —— 给友好的起步引导（而不是一片黑洞）。
@@ -3061,7 +3058,7 @@ struct Index {
           //    "圆角方盒"而不是圆光（浅色系返回无阴影只是躲开了白盒，深色一直漏着）。
           //    改用**真·圆光**：径向渐变（`radialGradient`，与登录页顶部光晕同一手段，
           //    `docs/DESIGN-SYSTEM.md §4` 已列）裁成圆，中心 accent 辉光、边缘透明。
-          //    光源与星形**同步呼吸**（共用 `pulseOn`）⇒ 读作"活的"，而不是静态贴图。
+          //    ⛔ 静态（不再呼吸：唯一"在飞动效" = 光球；页面级心跳已随 §4.1/§4.3 移除）。
           Stack({ alignContent: Alignment.Center }) {
             Column()
               .width(STAR_GLOW_SIZE).height(STAR_GLOW_SIZE).borderRadius(STAR_GLOW_SIZE / 2)
@@ -3070,12 +3067,12 @@ struct Index {
                 radius: STAR_GLOW_SIZE / 2,
                 colors: [[this.eff().glow, 0.0], [this.pal().transparent, 1.0]],
               })
-              .opacity(this.pulseOn ? 1 : 0.4)
-              .animation({ duration: 1400, curve: Curve.EaseInOut })
+              // ⛔ 静态：唯一"在飞动效" = 光球（§4.1）——空态插图**不呼吸**
+              .opacity(1)
             SymbolGlyph($r('sys.symbol.star_fill')).fontSize(52).fontColor([this.pal().accent])
           }
           .width(STAR_GLOW_SIZE).height(STAR_GLOW_SIZE)
-          Text('开始对话').fontSize(FS_HERO).fontWeight(FontWeight.Medium)
+          Text('开始对话').fontSize(FS_HERO).fontWeight(typeOf('type.subhead').weight)
             .fontColor(this.pal().textPrimary)
           Text('直接说需求；也可以用 / 选命令、@ 提文件、加附件')
             .fontSize(FS_CAPTION).fontColor(this.pal().textMuted).textAlign(TextAlign.Center)
@@ -3098,13 +3095,11 @@ struct Index {
                   .backgroundColor(this.pal().surfaceHi).borderRadius(5)
                 Row().width(i % 2 === 0 ? '46%' : '64%').height(10)
                   .backgroundColor(this.pal().surfaceHi).borderRadius(5)
-                  .opacity(this.pulseOn ? 0.85 : 0.45)
-                  .animation({ duration: 900, curve: Curve.EaseInOut })
               }.layoutWeight(1).alignItems(HorizontalAlign.Start)
             }.width('100%')
           }, (i: number) => `sk-${i}`)
         }
-        .width('100%').layoutWeight(1).padding({ left: 4, right: 4, top: 12 })
+        .width('100%').layoutWeight(1).padding({ left: SPACE_XXS, right: SPACE_XXS, top: SPACE_SM })
         .id('xbot-skeleton')
       }
 
@@ -3167,14 +3162,12 @@ struct Index {
             Row({ space: 8 }) {
               LoadingProgress().width(16).height(16).color(this.pal().accent)
               // i18n（对齐 web `t('agent.thinking')`）：字符串来自资源，不硬编码
-              Text($r('app.string.thinking_placeholder')).fontSize(13).fontColor(this.pal().textSecondary)
-                .opacity(this.pulseOn ? 1 : 0.45)
-                .animation({ duration: 600, curve: Curve.EaseInOut })
-            }.padding({ left: 14, top: 8, bottom: 8 })
+              Text($r('app.string.thinking_placeholder')).fontSize(typeOf('type.subhead').size).fontColor(this.pal().textSecondary)
+            }.padding({ left: 14, top: SPACE_XS, bottom: SPACE_XS })
           }
         }
       }
-      .width('100%').height('100%').edgeEffect(EdgeEffect.Spring).padding({ left: 8, right: 8 })
+      .width('100%').height('100%').edgeEffect(EdgeEffect.Spring).padding({ left: SPACE_XS, right: SPACE_XS })
       .opacity(this.listAlpha)
       // 预构建 4 行：滚动时不必等构建（越小内存越省，越大滚动越顺）
       .cachedCount(4)
@@ -3228,10 +3221,10 @@ struct Index {
       // 关掉跟随时给一个「回到最新」（列表很长时不用一路滑）；跟随中不显示
       if (showsJumpToLatest(this.followBottom, this.rows.length)) {
         Row() {
-          Text('回到最新').fontSize(12).fontColor(this.pal().textPrimary)
-            .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+          Text('回到最新').fontSize(typeOf('type.caption').size).fontColor(this.pal().textPrimary)
+            .padding({ left: SPACE_SM, right: SPACE_SM, top: 7, bottom: 7 })
             .backgroundColor(this.pal().accentDeep)
-            .borderRadius(16)
+            .borderRadius(RADIUS_SHEET)
             .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
             .onClick(() => {
               // 用户显式要求回到底部 ⇒ 意图置为跟随（与切会话同一语义）
@@ -3240,7 +3233,7 @@ struct Index {
             })
         }
         .width('100%').justifyContent(FlexAlign.Center)
-        .padding({ top: 2, bottom: 2 })
+        .padding({ top: SPACE_HAIR, bottom: SPACE_HAIR })
       }
 
       // 状态栏：上下文用量环 + 模型 · token 用量 · todos · goal（点开看全部；全部来自服务端权威值）
@@ -3260,14 +3253,14 @@ struct Index {
           //    layoutWeight(1) + 垂直 padding 补齐热区（≈ 改造前的整行可点面积）。
           Row({ space: 10 }) {
             Text(this.statusBarText())
-              .fontSize(11).fontColor(this.pal().textSecondary).layoutWeight(1)
+              .fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary).layoutWeight(1)
               .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
             if (this.todoCount() > 0 || this.goalLine().length > 0) {
-              Text('详情').fontSize(11).fontColor(this.pal().accentSoft).padding({ left: 6, right: 6 })
+              Text('详情').fontSize(typeOf('type.caption').size).fontColor(this.pal().accentSoft).padding({ left: 6, right: 6 })
             }
           }
           .layoutWeight(1)
-          .padding({ top: 4, bottom: 2 })
+          .padding({ top: SPACE_XXS, bottom: SPACE_HAIR })
           .onClick(() => {
             this.anim(() => {
               this.showStatus = true;
@@ -3282,10 +3275,10 @@ struct Index {
         Row({ space: 6 }) {
           LoadingProgress().width(14).height(14).color(this.pal().warn)
           Text('连接断开，正在重连…（恢复后自动补齐消息）')
-            .fontSize(11).fontColor(this.pal().warn).layoutWeight(1)
+            .fontSize(typeOf('type.caption').size).fontColor(this.pal().warn).layoutWeight(1)
             .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         }
-        .width('100%').padding({ left: 12, right: 12, top: 6, bottom: 6 })
+        .width('100%').padding({ left: SPACE_SM, right: SPACE_SM, top: 6, bottom: 6 })
         .backgroundColor(this.pal().warnBg)
       } else if (this.connState === SSE_STATE_FAILED) {
         // 终态（服务端明确拒绝：404 会话不存在 / 403 无权 / 400 参数…）——
@@ -3293,11 +3286,11 @@ struct Index {
         //    `docs/REDESIGN-INPUT-STATES.md §F4`）。给可解释原因 + 明确出口。
         Row({ space: 6 }) {
           SymbolGlyph($r('sys.symbol.xmark_circle_fill'))
-            .fontSize(14).fontColor([this.pal().dangerText])
+            .fontSize(typeOf('type.callout').size).fontColor([this.pal().dangerText])
           Text(`连接被服务端拒绝：${this.sseTerminalReason()}`)
-            .fontSize(11).fontColor(this.pal().dangerText).layoutWeight(1)
+            .fontSize(typeOf('type.caption').size).fontColor(this.pal().dangerText).layoutWeight(1)
             .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
-          Text('重试').fontSize(12).fontColor(this.pal().accentSoft).padding(6)
+          Text('重试').fontSize(typeOf('type.caption').size).fontColor(this.pal().accentSoft).padding(6)
             .stateStyles({ pressed: { .opacity(0.7) }, normal: { .opacity(1) } })
             .onClick(() => {
               const st: ChatStore | null = this.store;
@@ -3306,15 +3299,15 @@ struct Index {
               }
             })
         }
-        .width('100%').padding({ left: 12, right: 12, top: 6, bottom: 6 })
+        .width('100%').padding({ left: SPACE_SM, right: SPACE_SM, top: 6, bottom: 6 })
         .backgroundColor(this.pal().warnBg)
       }
 
       // 上次发送失败 ⇒ 一键重试（不必重新打字）
       if (this.failedSend.length > 0) {
         Row({ space: 8 }) {
-          Text('上次发送失败').fontSize(12).fontColor(this.pal().dangerText).layoutWeight(1)
-          Text('重试').fontSize(12).fontColor(this.pal().warn).padding(6)
+          Text('上次发送失败').fontSize(typeOf('type.caption').size).fontColor(this.pal().dangerText).layoutWeight(1)
+          Text('重试').fontSize(typeOf('type.caption').size).fontColor(this.pal().warn).padding(6)
             .stateStyles({ pressed: { .opacity(0.7) }, normal: { .opacity(1) } })
             .onClick(() => {
               const t: string = this.failedSend;
@@ -3322,12 +3315,12 @@ struct Index {
               this.draft = t;
               this.sendDraft();
             })
-          Text('丢弃').fontSize(12).fontColor(this.pal().textSecondary).padding(6)
+          Text('丢弃').fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary).padding(6)
             .onClick(() => {
               this.failedSend = '';
             })
         }
-        .width('100%').padding({ left: 10, right: 6, top: 6, bottom: 2 })
+        .width('100%').padding({ left: 10, right: 6, top: 6, bottom: SPACE_HAIR })
       }
 
       // 输入补全（/ 命令 或 @ 文件）
@@ -3336,13 +3329,13 @@ struct Index {
           if (this.cmdItems.length > 0) {
             ForEach(this.cmdItems.slice(0, 6), (c: CommandItem) => {
               Row({ space: 8 }) {
-                Text(c.name).fontSize(13).fontColor(this.pal().accentText).constraintSize({ maxWidth: 150 })
+                Text(c.name).fontSize(typeOf('type.subhead').size).fontColor(this.pal().accentText).constraintSize({ maxWidth: 150 })
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                Text(c.desc).fontSize(11).fontColor(this.pal().textMuted).layoutWeight(1)
+                Text(c.desc).fontSize(typeOf('type.caption').size).fontColor(this.pal().textMuted).layoutWeight(1)
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
               }
               .width('100%').padding({ left: 10, right: 10, top: 7, bottom: 7 })
-              .backgroundColor(this.pal().surface).borderRadius(6)
+              .backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
               .onClick(() => {
                 this.pickCommand(c.name);
               })
@@ -3351,23 +3344,23 @@ struct Index {
           if (this.fsEntries.length > 0) {
             ForEach(this.fsEntries.slice(0, 8), (e: FsEntry) => {
               Row({ space: 8 }) {
-                Text(e.isDir ? '目录' : '文件').fontSize(12)
-                Text(e.name).fontSize(13).fontColor(this.pal().textPrimary).layoutWeight(1)
+                Text(e.isDir ? '目录' : '文件').fontSize(typeOf('type.caption').size)
+                Text(e.name).fontSize(typeOf('type.subhead').size).fontColor(this.pal().textPrimary).layoutWeight(1)
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                Text(this.fsDir).fontSize(10).fontColor(this.pal().textMuted)
+                Text(this.fsDir).fontSize(typeOf('type.micro').size).fontColor(this.pal().textMuted)
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                   .constraintSize({ maxWidth: 120 })
               }
               .width('100%').padding({ left: 10, right: 10, top: 7, bottom: 7 })
-              .backgroundColor(this.pal().surface).borderRadius(6)
+              .backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
               .onClick(() => {
                 this.pickFile(e);
               })
             }, (e: FsEntry) => `fe-${e.name}#${e.isDir}`)
           }
         }
-        .width('100%').padding({ left: 8, right: 8, bottom: 4 })
-        .backgroundColor(this.pal().appBg).borderRadius(8)
+        .width('100%').padding({ left: SPACE_XS, right: SPACE_XS, bottom: SPACE_XXS })
+        .backgroundColor(this.pal().appBg).borderRadius(RADIUS_PILL)
         .border({ width: 1, color: this.pal().border })
       }
 
@@ -3377,7 +3370,7 @@ struct Index {
           Row({ space: 6 }) {
             ForEach(this.poolOrder, (cid: string) => {
               Row({ space: 4 }) {
-                Text(this.tabLabel(cid)).fontSize(11)
+                Text(this.tabLabel(cid)).fontSize(typeOf('type.caption').size)
                   // 选中态底色是**浅填充** `accentDeep`（浅色系 = 强调色 lighten(0.78)）⇒ 字色必须用
                   // `accentText`（角色定义即"强调色浅底上的文字"）；`onAccent` 是为**实心** accent 底
                   // 设计的白字，压在浅填充上浅色主题仅 1.1x（见对比度台账 B）
@@ -3392,9 +3385,9 @@ struct Index {
                     this.closeTab(cid);
                   })
               }
-              .padding({ left: 8, right: 6, top: 4, bottom: 4 })
+              .padding({ left: SPACE_XS, right: 6, top: SPACE_XXS, bottom: SPACE_XXS })
               .backgroundColor(cid === this.currentChat ? this.pal().accentDeep : this.pal().surfaceAlt)
-              .borderRadius(6)
+              .borderRadius(RADIUS_CHIP)
               .onClick(() => {
                 if (cid !== this.currentChat) {
                   this.switchSession(cid);
@@ -3413,11 +3406,11 @@ struct Index {
           ForEach(this.attachments, (it: AttachItem, i: number) => {
             Row({ space: 6 }) {
               Text(attachChipText(it))
-                .fontSize(12)
+                .fontSize(typeOf('type.caption').size)
                 .fontColor(it.status === ATTACH_FAILED ? this.pal().dangerText : this.pal().accentSoft)
                 .layoutWeight(1).maxLines(1).wordBreak(WordBreak.BREAK_ALL)
               Text(it.status === ATTACH_FAILED ? '重试' : '移除')
-                .fontSize(12)
+                .fontSize(typeOf('type.caption').size)
                 .fontColor(it.status === ATTACH_FAILED ? this.pal().warn : this.pal().dangerText)
                 .padding(6)
                 .onClick(() => {
@@ -3430,7 +3423,7 @@ struct Index {
             }.width('100%')
           }, (it: AttachItem, i: number) => `${it.uid}#${it.status}`)
         }
-        .width('100%').padding({ left: 10, right: 4, top: 6 })
+        .width('100%').padding({ left: 10, right: SPACE_XXS, top: 6 })
       }
 
       // ── Goal 横幅（web `MessageInput.tsx:694`：`{goal ? <GoalBanner goal={goal} onEdit
@@ -3452,7 +3445,7 @@ struct Index {
       //    位置在 GoalBanner 与 TodoPullOut **之间**，同一列）。由 TodoPanel 的 🎯 打开。
       if (this.addingGoal) {
         Row({ space: SP_2 }) {
-          SymbolGlyph($r('sys.symbol.dart_target')).fontSize(14).fontColor([this.pal().accent])
+          SymbolGlyph($r('sys.symbol.dart_target')).fontSize(ICON_MD).fontColor([this.pal().accent])
           TextInput({ text: this.goalDraft, placeholder: '输入目标…' })
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().textPrimary)
@@ -3468,7 +3461,7 @@ struct Index {
               this.commitAddingGoal();
             })
           Text('回车保存')
-            .fontSize(10).fontColor(this.pal().textMuted)
+            .fontSize(typeOf('type.micro').size).fontColor(this.pal().textMuted)
         }
         .width('100%')
         .alignItems(VerticalAlign.Center)
@@ -4914,14 +4907,14 @@ struct Index {
   PanelsSheet() {
     Column({ space: 8 }) {
       Row() {
-        Text('面板').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
+        Text('面板').fontSize(typeOf('type.headline').size).fontWeight(typeOf('type.headline').weight).fontColor(this.pal().textPrimary).layoutWeight(1)
         if (this.panelBusy) {
           LoadingProgress().width(16).height(16).color(this.pal().accent)
         }
-        Text('刷新').fontSize(12).fontColor(this.pal().accentSoft).padding(8).onClick(() => {
+        Text('刷新').fontSize(typeOf('type.caption').size).fontColor(this.pal().accentSoft).padding(SPACE_XS).onClick(() => {
           this.refreshPanel();
         })
-        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
+        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(SPACE_XS)
 .onClick(() => {
           this.showPanels = false;
         })
@@ -4930,11 +4923,11 @@ struct Index {
       Row({ space: 6 }) {
         ForEach(this.panelTabs(), (tab: string) => {
           Text(this.panelTabLabel(tab))
-            .fontSize(12)
+            .fontSize(typeOf('type.caption').size)
             .fontColor(this.panelTab === tab ? this.pal().onAccent : this.pal().textSecondary)
             .padding({ left: 10, right: 10, top: 6, bottom: 6 })
             .backgroundColor(this.panelTab === tab ? this.pal().accent : this.pal().surface)
-            .borderRadius(8)
+            .borderRadius(RADIUS_PILL)
             .onClick(() => {
               this.switchPanelTab(tab);
             })
@@ -4943,31 +4936,31 @@ struct Index {
 
       if (this.panelTab === 'cron') {
         if (this.cronTasks.length === 0) {
-          Text('（本会话暂无定时任务）').fontSize(12).fontColor(this.pal().textMuted).width('100%')
+          Text('（本会话暂无定时任务）').fontSize(typeOf('type.caption').size).fontColor(this.pal().textMuted).width('100%')
         } else {
           List({ space: 6 }) {
             ForEach(this.cronTasks, (job: CronJob, i: number) => {
               ListItem() {
                 Row({ space: 6 }) {
-                  Text(cronLine(job)).fontSize(12).fontColor(this.pal().textPrimary).layoutWeight(1)
+                  Text(cronLine(job)).fontSize(typeOf('type.caption').size).fontColor(this.pal().textPrimary).layoutWeight(1)
                     .maxLines(2).wordBreak(WordBreak.BREAK_ALL)
                   SymbolGlyph($r('sys.symbol.xmark')).fontSize(13).fontColor([this.pal().dangerText]).padding(6).onClick(() => {
                     this.removeCron(job.id !== undefined ? job.id : '');
                   })
-                }.width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(6)
+                }.width('100%').padding(SPACE_XS).backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
               }
             }, (job: CronJob, i: number) => `cron-${job.id}#${i}`)
           }.constraintSize({ maxHeight: 420 }).width('100%')
         }
       } else if (this.panelTab === 'tasks') {
         if (this.bgTasks.length === 0) {
-          Text('（本会话暂无后台任务）').fontSize(12).fontColor(this.pal().textMuted).width('100%')
+          Text('（本会话暂无后台任务）').fontSize(typeOf('type.caption').size).fontColor(this.pal().textMuted).width('100%')
         } else {
           List({ space: 6 }) {
             ForEach(this.bgTasks, (t: BgTask, i: number) => {
               ListItem() {
-                Text(bgTaskLine(t, this.nowMs())).fontSize(12).fontColor(this.pal().textPrimary)
-                  .width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(6)
+                Text(bgTaskLine(t, this.nowMs())).fontSize(typeOf('type.caption').size).fontColor(this.pal().textPrimary)
+                  .width('100%').padding(SPACE_XS).backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
                   .maxLines(3).wordBreak(WordBreak.BREAK_ALL)
                   .copyOption(CopyOptions.LocalDevice)
               }
@@ -4976,14 +4969,14 @@ struct Index {
         }
       } else if (this.panelTab === 'subs') {
         if (this.subagents.length === 0) {
-          Text('（暂无子代理会话）').fontSize(12).fontColor(this.pal().textMuted).width('100%')
+          Text('（暂无子代理会话）').fontSize(typeOf('type.caption').size).fontColor(this.pal().textMuted).width('100%')
         } else {
           List({ space: 6 }) {
             ForEach(this.subagents, (a: SubAgentRow, i: number) => {
               ListItem() {
-                Text(subagentLine(a)).fontSize(12)
+                Text(subagentLine(a)).fontSize(typeOf('type.caption').size)
                   .fontColor(a.running === true ? this.pal().successText : this.pal().textSecondary)
-                  .width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(6)
+                  .width('100%').padding(SPACE_XS).backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
                   .maxLines(2).wordBreak(WordBreak.BREAK_ALL)
                   .onClick(() => {
                     this.showPanels = false;
@@ -4997,14 +4990,14 @@ struct Index {
         }
       } else {
         if (this.runners.length === 0) {
-          Text('（没有受管机器；Runner 由 xbot.ssh-runner 插件纳管）').fontSize(12).fontColor(this.pal().textMuted).width('100%')
+          Text('（没有受管机器；Runner 由 xbot.ssh-runner 插件纳管）').fontSize(typeOf('type.caption').size).fontColor(this.pal().textMuted).width('100%')
         } else {
           List({ space: 6 }) {
             ForEach(this.runners, (r: RunnerRow, i: number) => {
               ListItem() {
-                Text(runnerLine(r)).fontSize(12)
+                Text(runnerLine(r)).fontSize(typeOf('type.caption').size)
                   .fontColor(r.online === true ? this.pal().successText : this.pal().textSecondary)
-                  .width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(6)
+                  .width('100%').padding(SPACE_XS).backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
                   .maxLines(2).wordBreak(WordBreak.BREAK_ALL)
               }
             }, (r: RunnerRow, i: number) => `run-${r.name}#${r.online}#${i}`)
@@ -5012,7 +5005,7 @@ struct Index {
         }
       }
     }
-    .width('100%').padding(16)
+    .width('100%').padding(SPACE_MD)
     .backgroundColor(this.eff().glassBg)
     .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.glassMode() })
     .borderRadius({ topLeft: R_2XL, topRight: R_2XL })
@@ -5227,7 +5220,7 @@ struct Index {
       Row({ space: SPACE_XS }) {
         Text('会话')
           .fontSize(typeOf('type.headline').size)
-          .fontWeight(FontWeight.Bold)
+          .fontWeight(typeOf('type.headline').weight)
           .fontColor(this.pal().textPrimary)
           .layoutWeight(1)
         Row() {
@@ -5428,13 +5421,13 @@ struct Index {
                   .fontSize(typeOf('type.micro').size).fontColor([this.pal().textMuted])
                   .rotate({ angle: this.isGroupCollapsed(this.sessionCategory(), g.key) ? 0 : 90 })
                 Text(g.title)
-                  .fontSize(typeOf('type.micro').size).fontWeight(FontWeight.Medium).fontColor(this.pal().textSecondary)
+                  .fontSize(typeOf('type.micro').size).fontWeight(typeOf('type.subhead').weight).fontColor(this.pal().textSecondary)
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                   .layoutWeight(1)
                 Text(`${g.items.length}`)
                   .fontSize(typeOf('type.micro').size).fontColor(this.pal().textMuted)
                   .padding({ left: SPACE_XS, right: SPACE_XS, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
-                  .backgroundColor(this.pal().surfaceAlt).borderRadius(8)
+                  .backgroundColor(this.pal().surfaceAlt).borderRadius(RADIUS_PILL)
               }
               .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
               .padding({ left: SPACE_XXS, right: SPACE_XXS })
@@ -5636,26 +5629,26 @@ struct Index {
   ModelSheet() {
     Column({ space: 10 }) {
       Row() {
-        Text('模型与上下文').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
-        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
+        Text('模型与上下文').fontSize(typeOf('type.headline').size).fontWeight(typeOf('type.headline').weight).fontColor(this.pal().textPrimary).layoutWeight(1)
+        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(SPACE_XS)
 .onClick(() => {
           this.showModel = false;
         })
       }.width('100%')
 
       Text(`当前：${this.currentModelName()}`)
-        .fontSize(12).fontColor(this.pal().successText).width('100%')
+        .fontSize(typeOf('type.caption').size).fontColor(this.pal().successText).width('100%')
         .wordBreak(WordBreak.BREAK_ALL)
 
       // 上下文上限
       Text(`上下文上限：${this.ctxText().length > 0 ? this.ctxText() : '未设置'}`)
-        .fontSize(12).fontColor(this.pal().textSecondary).width('100%')
+        .fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary).width('100%')
       Row({ space: 6 }) {
         ForEach(this.ctxPresets(), (p: number, i: number) => {
           Text(this.ctxPresetText(p))
-            .fontSize(12).fontColor(this.pal().accentSoft)
+            .fontSize(typeOf('type.caption').size).fontColor(this.pal().accentSoft)
             .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-            .backgroundColor(this.pal().surface).borderRadius(6)
+            .backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
             .border({ width: 1, color: this.pal().border })
             .onClick(() => {
               this.applyMaxContext(p);
@@ -5669,9 +5662,9 @@ struct Index {
             this.ctxInput = v;
           })
           .layoutWeight(1).constraintSize({ minHeight: 36 })
-          .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary).fontSize(12)
-        Text('应用').fontSize(12).fontColor(this.pal().onAccent).padding({ left: 12, right: 12, top: 8, bottom: 8 })
-          .backgroundColor(this.pal().accent).borderRadius(6)
+          .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary).fontSize(typeOf('type.caption').size)
+        Text('应用').fontSize(typeOf('type.caption').size).fontColor(this.pal().onAccent).padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_XS, bottom: SPACE_XS })
+          .backgroundColor(this.pal().accent).borderRadius(RADIUS_CHIP)
           .onClick(() => {
             const n: number = parseContext(this.ctxInput);
             if (n <= 0) {
@@ -5686,28 +5679,28 @@ struct Index {
       if (this.llmCfg === undefined) {
         Row({ space: 8 }) {
           LoadingProgress().width(16).height(16).color(this.pal().accent)
-          Text('正在读取模型列表…').fontSize(12).fontColor(this.pal().textSecondary)
+          Text('正在读取模型列表…').fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary)
         }.padding(10)
       } else if (this.modelGroups().length === 0) {
-        Text('（没有可选模型：请在设置里添加订阅）').fontSize(12).fontColor(this.pal().textMuted)
+        Text('（没有可选模型：请在设置里添加订阅）').fontSize(typeOf('type.caption').size).fontColor(this.pal().textMuted)
       } else {
         Scroll() {
           Column({ space: 8 }) {
             ForEach(this.modelGroups(), (g: ModelGroup) => {
               Column({ space: 4 }) {
-                Text(g.name).fontSize(11).fontColor(this.pal().textMuted).width('100%')
+                Text(g.name).fontSize(typeOf('type.caption').size).fontColor(this.pal().textMuted).width('100%')
                 ForEach(g.entries, (e: LlmModelEntry, i: number) => {
                   Row({ space: 8 }) {
-                    Text(this.labelOfModel(e)).fontSize(13)
+                    Text(this.labelOfModel(e)).fontSize(typeOf('type.subhead').size)
                       .fontColor(this.modelSelectable(e) ? this.pal().textPrimary : this.pal().textMuted)
                       .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                     if (this.modelBusy === `${g.subId}#${e.model}`) {
                       LoadingProgress().width(14).height(14).color(this.pal().accent)
                     } else if (e.model === this.currentModelName()) {
-                      Text('当前').fontSize(11).fontColor(this.pal().successText)
+                      Text('当前').fontSize(typeOf('type.caption').size).fontColor(this.pal().successText)
                     }
                   }
-                  .width('100%').padding(8).backgroundColor(this.pal().surface).borderRadius(6)
+                  .width('100%').padding(SPACE_XS).backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
                   .onClick(() => {
                     if (!this.modelSelectable(e)) {
                       this.toast('该模型已禁用');
@@ -5723,8 +5716,8 @@ struct Index {
         .constraintSize({ maxHeight: 420 }).width('100%')
       }
     }
-    .width('92%').padding(16).backgroundColor(this.pal().appBg)
-    .borderRadius(12).border({ width: 1, color: this.pal().border })
+    .width('92%').padding(SPACE_MD).backgroundColor(this.pal().appBg)
+    .borderRadius(RADIUS_CARD).border({ width: 1, color: this.pal().border })
     .transition(sheetTransition())
   }
 
@@ -5804,10 +5797,10 @@ struct Index {
   ImageViewer() {
     Column() {
       Row({ space: 8 }) {
-        Text('图片').fontSize(15).fontColor(this.pal().textPrimary).layoutWeight(1)
+        Text('图片').fontSize(typeOf('type.body').size).fontColor(this.pal().textPrimary).layoutWeight(1)
         if (isZoomed(this.imgScale)) {
-          Text(scaleText(this.imgScale)).fontSize(12).fontColor(this.pal().textSecondary)
-          Text('复位').fontSize(12).fontColor(this.pal().accentSoft).padding(6).onClick(() => {
+          Text(scaleText(this.imgScale)).fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary)
+          Text('复位').fontSize(typeOf('type.caption').size).fontColor(this.pal().accentSoft).padding(6).onClick(() => {
             this.imgScale = 1;
             this.imgTransX = 0;
             this.imgTransY = 0;
@@ -5831,7 +5824,7 @@ struct Index {
       if (this.imageBusy) {
         Column() {
           LoadingProgress().width(32).height(32).color(this.pal().accent)
-          Text('加载图片…').fontSize(12).fontColor(this.pal().textSecondary).margin({ top: 8 })
+          Text('加载图片…').fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary).margin({ top: SPACE_XS })
         }.layoutWeight(1).justifyContent(FlexAlign.Center)
       } else if (this.imagePixel !== null) {
         Stack() {
@@ -5888,8 +5881,8 @@ struct Index {
         })
       }
     }
-    .width('94%').height('80%').padding(12)
-    .backgroundColor(this.pal().appBg).borderRadius(12).border({ width: 1, color: this.pal().border })
+    .width('94%').height('80%').padding(SPACE_SM)
+    .backgroundColor(this.pal().appBg).borderRadius(RADIUS_CARD).border({ width: 1, color: this.pal().border })
   }
 }
 
