@@ -59,22 +59,31 @@ function roleHex(p: Palette, name: string): string {
  * **实际合成底**（关键：先合成成不透明色，再算对比度）。
  * ⛔ 这里每一行都必须有生产落点（见 `where`），不造"没人用的对"。
  */
-interface Face { readonly name: string; readonly where: string; }
+interface Face { readonly name: string; readonly where: string; readonly decorative: boolean; }
+/**
+ * **实际合成底**（关键：先合成成不透明色，再算对比度）。
+ *
+ * ⚠️ `decorative` = **装饰底**（辉光/阴影/扫光）：它们是**内容背后的光晕/柔影**，
+ *    语义上**不承载元信息文字**（文字坐在 `surface` 上，光晕只是它后面的一层）
+ *    ⇒ 主 agent 2026-10-11 裁决：**装饰底不进 `textMuted`(2.0) 的可读性面表**
+ *    （实测它们把 `textMuted` 压到 1.61–1.99，属"判了没有生产落点的对"）。
+ *    ⛔ 但 `textPrimary`(4.5)/`textSecondary`(3.0) 仍**照判**（若有人在光晕上写字，必须被抓住）。
+ */
 const FACES: Face[] = [
-  { name: 'appBg', where: '画布' },
-  { name: 'surface', where: '卡片/面板' },
-  { name: 'surfaceAlt', where: '次级面/输入框' },
-  { name: 'surfaceHi', where: '高亮面/选中 chip' },
-  { name: 'glass/appBg', where: '玻璃浮层压在画布上（Effects.glassBg 合成）' },
-  { name: 'glass/surface', where: '玻璃浮层压在卡片上' },
-  { name: 'glow/appBg', where: '辉光中心压在画布上（Index 顶部辉光 / 空态星形圆光）' },
-  { name: 'glowSoft/appBg', where: '弱辉光中心压在画布上（620² 顶部辉光）' },
-  { name: 'glow/surface', where: '辉光压在卡片上（CTA/发送键光晕）' },
-  { name: 'glowSoft/surface', where: '弱辉光压在卡片上' },
-  { name: 'elev2/appBg', where: '阴影 token 当底（ToolPopover 一族）' },
-  { name: 'elev3/appBg', where: '最重阴影 token 当底' },
-  { name: 'sheen/surface', where: '扫光扫过后的卡片面' },
-  { name: 'sunken', where: '代码块 / 终端块 / diff 行底（surfacesOf.sunken）' },
+  { name: 'appBg', where: '画布', decorative: false },
+  { name: 'surface', where: '卡片/面板', decorative: false },
+  { name: 'surfaceAlt', where: '次级面/输入框', decorative: false },
+  { name: 'surfaceHi', where: '高亮面/选中 chip', decorative: false },
+  { name: 'glass/appBg', where: '玻璃浮层压在画布上（Effects.glassBg 合成）', decorative: false },
+  { name: 'glass/surface', where: '玻璃浮层压在卡片上', decorative: false },
+  { name: 'glow/appBg', where: '辉光中心压在画布上（Index 顶部辉光 / 空态星形圆光）', decorative: true },
+  { name: 'glowSoft/appBg', where: '弱辉光中心压在画布上（620² 顶部辉光）', decorative: true },
+  { name: 'glow/surface', where: '辉光压在卡片上（CTA/发送键光晕）', decorative: true },
+  { name: 'glowSoft/surface', where: '弱辉光压在卡片上', decorative: true },
+  { name: 'elev2/appBg', where: '阴影 token 当底（ToolPopover 一族）', decorative: true },
+  { name: 'elev3/appBg', where: '最重阴影 token 当底', decorative: true },
+  { name: 'sheen/surface', where: '扫光扫过后的卡片面', decorative: true },
+  { name: 'sunken', where: '代码块 / 终端块 / diff 行底（surfacesOf.sunken）', decorative: false },
 ];
 
 /** 一套主题的合成底表。 */
@@ -135,6 +144,9 @@ for (let ti = 0; ti < ALL_THEMES.length; ti++) {
       const r: number = contrastRatio(fgHex, bgHex);
       judged++;
       if (r < worstRatio) { worstRatio = r; worstName = `${theme} ${ROLES[ri].fg} on ${FACES[fi].name}`; }
+      // 裁决（2026-10-11）：装饰底（光晕/阴影/扫光）不承载元信息 ⇒ 不与 `textMuted` 组对判定
+      //（若真有人在光晕上写元信息，那是调用点错误 ⇒ 由生产接线自证（§D 类）去抓，不在这里放宽）
+      if (FACES[fi].decorative && ROLES[ri].fg === 'textMuted') { continue; }
       if (r < ROLES[ri].tier) {
         badMatrix.push(`${theme}|${ROLES[ri].fg}|${FACES[fi].name}|${r.toFixed(4)}`);
       }
@@ -145,13 +157,14 @@ ok(`矩阵规模足够（判了 ${judged} 组，下限 ${ALL_THEMES.length * ROL
   judged === ALL_THEMES.length * ROLES.length * FACES.length);
 console.log(`  · 矩阵 ${judged} 组，最差 = ${worstName} @ ${worstRatio.toFixed(4)}`);
 
-// ⚠️ **实测不达标台账**（2026-10-11）：清一色是 `textMuted`（元信息，阈值 2.0）压在
+// ✅ 裁决后本组**零台账**：装饰底不再与 `textMuted` 组对（见 FACES 的 `decorative` 注释）。
+// 历史：收窄前这里有 8 条 `textMuted`（元信息，阈值 2.0）压在
 //    `glow*` / `elev3` 合成底上（1.61–1.99）。判断：这些底是**装饰性光晕/阴影**，
 //    其**中心**本就不承载元信息正文（光晕在内容**背后**，文字坐在 `surface` 上）
 //    ⇒ 属"**该收窄面表**"而非真缺陷 —— 但按纪律**先记账、由主 agent 裁决**（⛔ 不放宽阈值）。
 //    另：`textPrimary`（正文，4.5）/`textSecondary`（3.0）在本矩阵下**全部达标**（含 light/porcelain）
 //    ⇒ 用户报的"正文 ≈1.2:1"**不是**「role vs 合成底」这条路（详见交付回报）。
-const KNOWN_BAD_MATRIX_COUNT: number = 8;
+const KNOWN_BAD_MATRIX_COUNT: number = 0;
 console.log(`  · role×合成底 台账（${badMatrix.length} 条，全是 textMuted×装饰底）:`);
 for (let i = 0; i < badMatrix.length; i++) { console.log(`      ${badMatrix[i]}`); }
 eq('台账计数 = 实测不达标数（只准删不准加；修好/收窄面表 ⇒ 计数变 ⇒ 红）',
