@@ -93,6 +93,29 @@ if (fsMod.existsSync(PNG128)) {
   }
 }
 
+// ── ★⑤ 并入 `tools/brand/gen.sh`：一条命令可复现全链（含漂移门禁 + 核验）──────────────
+{
+  const genPath: string = pathMod.join(repo, 'tools/brand/gen.sh');
+  ok('★⑤ 找到 gen.sh', fsMod.existsSync(genPath));
+  if (fsMod.existsSync(genPath)) {
+    const gen: string = fsMod.readFileSync(genPath, 'utf-8');
+    /** 计数式扫描：**零命中要判红**（白绿防线 —— 改了变量名/删了步骤都不能"静默通过"）。 */
+    const scan = (name: string, needle: string, min: number): void => {
+      let n: number = 0, i: number = 0;
+      while ((i = gen.indexOf(needle, i)) >= 0) { n++; i += needle.length; }
+      ok(`★⑤ gen.sh 含「${name}」×≥${min}（实得 ${n}）`, n >= min);
+    };
+    scan('变量 ENTRY_PNG128', 'ENTRY_PNG128=', 1);
+    scan('生成步骤 sips -z 128 128', 'sips -z 128 128', 2);   // write 一次 + check 一次
+    scan('尺寸/色型核验 channels=4', 'channels=4', 1);
+    scan('check 漂移比对纳入该资源', 'brand_mark_128.png:$ENTRY_PNG128', 1);
+    // ⚠️ 我早前的回归：`theme.ets` 加了 `import from './tokens'` 而 gen.sh 只拷 brand/theme
+    //    ⇒ tsc 解析失败 ⇒ 脚本**静默 rc≠0**。这条把它钉住（改回"只拷两个"就会红）。
+    scan('拷 tokens.ets（theme 的依赖）', 'cp "$CORE/tokens.ets"', 1);
+    ok('  · tsc 输入含 tokens.ts', gen.indexOf('"$WORK/tokens.ts"') >= 0);
+  }
+}
+
 if (fail > 0) { console.log(`  notify_icon_asset: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  notify_icon_asset: ${pass} passed, 0 failed`);
 process.exit(0);

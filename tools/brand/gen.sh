@@ -18,6 +18,9 @@ CORE="$ROOT/entry/src/main/ets/core"
 APPSCOPE_SVG="$ROOT/AppScope/resources/base/media/app_icon.svg"
 ENTRY_SVG="$ROOT/entry/src/main/resources/base/media/app_icon.svg"
 ENTRY_PNG="$ROOT/entry/src/main/resources/base/media/start_icon.png"
+# 128×128 派生变体（**通知小图标**用；`NotificationRequest.smallIcon` 收 PixelMap，SDK 对图标推荐 128×128）
+# —— 见 `docs/BRAND.md §6.4.1`。由 512 的 `start_icon.png` 纯缩放（同形同色）。
+ENTRY_PNG128="$ROOT/entry/src/main/resources/base/media/brand_mark_128.png"
 ENTRY_OUTLINE="$ROOT/entry/src/main/resources/base/media/brand_mark_outline.svg"
 ENTRY_FG="$ROOT/entry/src/main/resources/base/media/brand_foreground.svg"
 ENTRY_BG="$ROOT/entry/src/main/resources/base/media/brand_background.svg"
@@ -50,8 +53,11 @@ trap 'rm -rf "$WORK"' EXIT
 # core/*.ets 当纯 TS 编译（与 tools/tests/run.sh 同法）：两者都无 @ohos 依赖
 cp "$CORE/brand.ets" "$WORK/brand.ts"
 cp "$CORE/theme.ets" "$WORK/theme.ts"
+# ⚠️ `theme.ets` 现在会 `import ... from './tokens'`（`shadowRadiusOf` 的半径档）⇒ 必须一并拷进工作区，
+#    否则 tsc 解析不到 `./tokens` ⇒ 本脚本静默失败（rc≠0 且无输出）。
+cp "$CORE/tokens.ets" "$WORK/tokens.ts"
 mkdir -p "$WORK/js"
-$TSC_BIN "$WORK/brand.ts" "$WORK/theme.ts" --module commonjs --target ES2021 --strict \
+$TSC_BIN "$WORK/brand.ts" "$WORK/theme.ts" "$WORK/tokens.ts" --module commonjs --target ES2021 --strict \
   --skipLibCheck --outDir "$WORK/js" >/dev/null
 
 # 生成器（node）：从编译产物取几何/配色 ⇒ 写 SVG；PNG 由 sips 栅格化
@@ -63,6 +69,17 @@ if [ "$MODE" = "write" ]; then
   cp "$WORK/out/entry_app_icon.svg" "$ENTRY_SVG"
   # 开屏标记：先出 SVG 中间件，再 sips 栅格化为 512×512 PNG（透明底）
   sips -s format png "$WORK/out/start_icon.svg" --out "$ENTRY_PNG" >/dev/null 2>&1
+  # 128×128 派生变体（通知小图标）：从刚生成的 512 纯缩放 ⇒ 同形同色（品牌紫 + 白星芒）
+  sips -z 128 128 "$ENTRY_PNG" --out "$ENTRY_PNG128" >/dev/null 2>&1
+  # 核验（尺寸 + 色型）：sips 读尺寸、`png_probe.py`（纯 stdlib）读通道数
+  vw="$(sips -g pixelWidth "$ENTRY_PNG128" 2>/dev/null | tail -1 | tr -dc '0-9')"
+  vh="$(sips -g pixelHeight "$ENTRY_PNG128" 2>/dev/null | tail -1 | tr -dc '0-9')"
+  vch="$(python3 "$HERE/png_probe.py" "$ENTRY_PNG128" 2>/dev/null | head -1 | grep -o 'channels=[0-9]' | tr -dc '0-9')"
+  if [ "$vw" != "128" ] || [ "$vh" != "128" ] || [ "$vch" != "4" ]; then
+    echo "❌ brand_mark_128.png 核验失败：${vw}x${vh} channels=${vch}（期望 128x128 channels=4）"
+    exit 1
+  fi
+  echo "   ✅ brand_mark_128.png 核验：128x128 channels=4"
   # 降级链 / 分层图标：矢量资源（SVG 原样进 HAP）
   cp "$WORK/out/brand_mark_outline.svg" "$ENTRY_OUTLINE"
   cp "$WORK/out/brand_foreground.svg" "$ENTRY_FG"
@@ -88,8 +105,10 @@ if [ "$MODE" = "write" ]; then
 else
   # --check：与已提交资源逐字节比对（含 PNG 重生成）
   sips -s format png "$WORK/out/start_icon.svg" --out "$WORK/out/start_icon.png" >/dev/null 2>&1
+  # 128 派生变体也重生成一份（drift 门禁纳入它 ⇒ 改尺寸/换源都会红）
+  sips -z 128 128 "$WORK/out/start_icon.png" --out "$WORK/out/brand_mark_128.png" >/dev/null 2>&1
   fail=0
-  for pair in "$WORK/out/AppScope_app_icon.svg:$APPSCOPE_SVG" "$WORK/out/entry_app_icon.svg:$ENTRY_SVG" "$WORK/out/start_icon.png:$ENTRY_PNG" "$WORK/out/brand_mark_outline.svg:$ENTRY_OUTLINE" "$WORK/out/brand_foreground.svg:$ENTRY_FG" "$WORK/out/brand_background.svg:$ENTRY_BG" "$WORK/out/brand_foreground.svg:$APPSCOPE_FG" "$WORK/out/brand_background.svg:$APPSCOPE_BG"; do
+  for pair in "$WORK/out/AppScope_app_icon.svg:$APPSCOPE_SVG" "$WORK/out/entry_app_icon.svg:$ENTRY_SVG" "$WORK/out/start_icon.png:$ENTRY_PNG" "$WORK/out/brand_mark_128.png:$ENTRY_PNG128" "$WORK/out/brand_mark_outline.svg:$ENTRY_OUTLINE" "$WORK/out/brand_foreground.svg:$ENTRY_FG" "$WORK/out/brand_background.svg:$ENTRY_BG" "$WORK/out/brand_foreground.svg:$APPSCOPE_FG" "$WORK/out/brand_background.svg:$APPSCOPE_BG"; do
     gen="${pair%%:*}"; committed="${pair#*:}"
     if [ ! -f "$committed" ]; then echo "❌ 缺失：$committed"; fail=1; continue; fi
     if cmp -s "$gen" "$committed"; then
