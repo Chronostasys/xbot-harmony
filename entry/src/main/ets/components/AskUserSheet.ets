@@ -35,7 +35,7 @@
 import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
 import { AskOption, AskQuestion } from '../core/types';
 import {
-  DISABLED_OPACITY, ELEV_OVERLAY, HIT_TARGET_MIN, INSET_CARD_X, INSET_ROW_X, INSET_ROW_Y,
+  PRESS_OPACITY,   DISABLED_OPACITY, ELEV_OVERLAY, HIT_TARGET_MIN, INSET_CARD_X, INSET_ROW_X, INSET_ROW_Y,
   MARKER_SLOT, RADIUS_CARD, RADIUS_PILL, SPACE_HAIR, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XS,
   STROKE_HAIRLINE, SURFACE_COMPOSER, elevationColorOf, hairlineOf, surfaceFillOf,
 } from '../core/design';
@@ -201,6 +201,7 @@ export struct AskUserSheet {
                       ? 'surface.overlayRowHover'
                       : 'surface.overlayRow'))
                   .borderRadius(RADIUS_PILL)
+                  .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                   .onClick(() => {
                     this.onToggleOption(this.qidOf(q, qi), this.labelOf(opt), q.multi_select === true);
                   })

@@ -29,6 +29,7 @@ import {
   VISION_FORMATS, VISION_FORMAT_AUTO, VISION_FORMAT_JPEG,
 } from '../core/rpc';
 import { SettingsChipRow, SettingsErrorBar, SettingsNumberRow, SettingsPanelHeader, SettingsToolRow } from './SettingsRows';
+import { PRESS_OPACITY } from '../core/design';
 
 @Component
 export struct SettingsAgent {
@@ -242,6 +243,7 @@ export struct SettingsAgent {
                   .backgroundColor(this.pal().accent)
                   .borderRadius(R_LG)
                   .opacity(this.visionDirty && !this.savingVision ? 1 : 0.4)
+                  .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                   .onClick(() => {
                     void this.saveVision();
                   })

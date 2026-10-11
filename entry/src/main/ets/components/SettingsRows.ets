@@ -331,6 +331,7 @@ export struct SettingsChipRow {
             .margin({ right: SPACE_XS, bottom: SPACE_XS })
             .constraintSize({ minHeight: HIT_TARGET_MIN })
             .opacity(this.busy ? 0.5 : 1)
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               if (!this.busy) {
                 this.onSelect(opt);
@@ -521,6 +522,7 @@ export struct SettingsSubCard {
             .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
             .constraintSize({ minHeight: HIT_TARGET_MIN })
             .opacity(this.busy ? 0.5 : 1)
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               if (!this.busy) {
                 this.onSetDefault(this.subId);
@@ -704,6 +706,7 @@ export struct SettingsActionRow {
         .borderRadius(RADIUS_PILL)
         .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
         .opacity(this.busy ? 0.5 : 1)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
           if (!this.busy) {
             this.onAction();

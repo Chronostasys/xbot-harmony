@@ -129,6 +129,7 @@ export struct PluginsSheet {
             x: -CLOSE_HIT_PAD, y: -CLOSE_HIT_PAD,
             width: CLOSE_VISUAL + CLOSE_HIT_PAD * 2, height: CLOSE_VISUAL + CLOSE_HIT_PAD * 2,
           })
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.onClose();
           })

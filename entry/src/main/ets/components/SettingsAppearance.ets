@@ -39,7 +39,7 @@ import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, norma
 import { mdThemePickerDescription, normalizeMdTheme } from '../core/mdtheme';
 import { localeLabel, normalizeLocale } from '../core/i18n';
 import {
-  CONTROL_INPUT_H, HIT_TARGET_MIN, RADIUS_CHIP, SPACE_HAIR, SPACE_SM, SPACE_XS, SPACE_LG,
+  PRESS_OPACITY,   CONTROL_INPUT_H, HIT_TARGET_MIN, RADIUS_CHIP, SPACE_HAIR, SPACE_SM, SPACE_XS, SPACE_LG,
   STROKE_HAIRLINE, colorOf, hairlineOf,
 } from '../core/design';
 import {
@@ -323,6 +323,7 @@ export struct SettingsAppearance {
           width: this.accentHex().toUpperCase() === hex ? 2 : STROKE_HAIRLINE,
           color: this.accentHex().toUpperCase() === hex ? this.pal().textPrimary : hairlineOf(this.pal()),
         })
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
           this.onSetSetting(KEY_ACCENT, hex);
         })
@@ -338,6 +339,7 @@ export struct SettingsAppearance {
       .borderRadius(HIT_TARGET_MIN / 2)
       .backgroundColor(this.pal().surfaceAlt)
       .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
       .onClick(() => {
         this.onSetSetting(KEY_ACCENT, '');
       })
@@ -390,6 +392,7 @@ export struct SettingsAppearance {
           .padding({ left: SPACE_SM, right: SPACE_SM })
           .constraintSize({ minHeight: CONTROL_INPUT_H, minWidth: HIT_TARGET_MIN })
           .textAlign(TextAlign.Center)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.commitHex();
           })

@@ -156,7 +156,7 @@ const PRESS_VALUE_EXEMPT: Map<string, string> = new Map<string, string>([
   ['AskUserSheet.ets', 'DISABLED_OPACITY —— 禁用档 ≠ 按压档'],
   ['SplashOverlay.ets', 'splash-ux 在跑（0.6 字面量）⇒ 只上报'],
   ['QueueSheet.ets', '另一线在途（0.6 字面量）⇒ 只上报'],
-  ['MessageNav.ets', '导航条目**有意**更轻的按压 0.7（msgnav_polish.test.ts:54 钉死 + :53 钉"只写 pressed"）'],
+  ['MessageNav.ets', '导航条目有意更轻的按压 0.7（msgnav_polish.test.ts:54 钉死）'],
 ]);
 {
   const comps: string[] = fs.readdirSync(CDIR).filter((n: string): boolean => n.endsWith('.ets')).sort();
@@ -189,6 +189,56 @@ const PRESS_VALUE_EXEMPT: Map<string, string> = new Map<string, string>([
   ok('⑥ 零扫描判红：全仓 pressed-opacity 数 > 0', pressedTotal > 0);
   console.log(`  ⑥ SUMMARY files=${comps.length} pressedOpacity=${pressedTotal}`
     + ` fromConst=${fromConst} exempt=${exemptP} unhandled=${unhandled} bgOnlyBlocks=${bgForm}`);
+}
+
+// ── ⑦ **press 覆盖（全 `components/**`）**：凡**自定义可点元素**（`onClick` 的根不是原生控件
+//    `Button/Toggle/Checkbox/Radio/Select/TextInput`，也不是 `Span`——`Span` 不能有 `stateStyles`）
+//    必须在**同一条修饰链**上有 `stateStyles` 的 press 反馈，或该文件在 `CLICK_EXEMPT`（附理由）。
+//    · **只取 onclick 调用片段**（沿链回溯到根）、**剥注释**、**零扫描判红**。
+const CLICK_EXEMPT: Map<string, string> = new Map<string, string>([
+  ['MessageRow.ets', 'contrast-ux 在跑（正文可读性）'],
+  ['QueueSheet.ets', '另一线在途'],
+  ['SelfCheckSheet.ets', '另一线在途'],
+  ['TodoPanel.ets', '另一线在途'],
+]);
+{
+  const comps: string[] = fs.readdirSync(CDIR).filter((n: string): boolean => n.endsWith('.ets')).sort();
+  const ROOT: RegExp = /^\s*([A-Z][A-Za-z0-9_.]*)\s*\(/;
+  const NATIVE: RegExp = /^(Button|Toggle|Checkbox|Radio|Select|TextInput|Span)$/;
+  let custom = 0, withPress = 0, miss = 0;
+  const dist: string[] = [];
+  for (let i = 0; i < comps.length; i++) {
+    const f: string = comps[i];
+    const lines: string[] = stripComments(fs.readFileSync(path.join(CDIR, f), 'utf8')).split('\n');
+    let c = 0, w = 0, m = 0;
+    for (let k = 0; k < lines.length; k++) {
+      if (!/^\s*\.onClick\(/.test(lines[k])) { continue; }
+      let j = k - 1;
+      let root = '?';
+      let hasSS = false;
+      while (j >= 0) {
+        if (ROOT.test(lines[j])) { root = (lines[j].match(ROOT) as RegExpMatchArray)[1]; break; }
+        if (/\.stateStyles\(/.test(lines[j])) { hasSS = true; }
+        j--;
+      }
+      if (NATIVE.test(root)) { continue; }
+      c++;
+      if (hasSS) { w++; } else { m++; }
+    }
+    custom += c; withPress += w; miss += m;
+    if (m > 0) {
+      dist.push(`  ⑦   ${f}: custom=${c} withPress=${w} missing=${m}  => ${CLICK_EXEMPT.get(f)}`);
+    }
+    // 每个"缺 press"的自定义可点元素都必须有豁免
+    ok(`${f}：自定义可点元素或有 press、或明示豁免（custom=${c} missing=${m}）`,
+      m === 0 || CLICK_EXEMPT.has(f));
+  }
+  console.log('  ⑦ press 覆盖（全 components/**，仅列尚有缺口的文件）：');
+  if (dist.length === 0) { console.log('  ⑦   （无缺口）'); }
+  for (let i = 0; i < dist.length; i++) { console.log(dist[i]); }
+  ok('⑦ 零扫描判红：全仓自定义可点元素数 > 0', custom > 0);
+  console.log(`  ⑦ SUMMARY files=${comps.length} customClickables=${custom}`
+    + ` withPress=${withPress} missing=${miss} exemptFiles=${CLICK_EXEMPT.size}`);
 }
 
 console.log(`  interactive_feedback: ${pass} passed, ${fail} failed`);

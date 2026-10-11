@@ -56,6 +56,7 @@ import {
   SettingsChipRow, SettingsErrorBar, SettingsPanelHeader, SettingsSubCard, SettingsTextFieldRow,
   SettingsToolRow,
 } from './SettingsRows';
+import { PRESS_OPACITY } from '../core/design';
 
 /**
  * S12：订阅导出 / 导入的 RPC 方法名 + 参数体。
@@ -805,6 +806,7 @@ export struct SettingsLlm {
           .borderRadius(R_LG)
           .border({ width: 1, color: this.pal().borderStrong })
           .opacity(this.pmBusy ? 0.5 : 1)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             const sub: SubscriptionRow | undefined = this.editingSub();
             const model: string = this.editingModelName();
@@ -816,6 +818,7 @@ export struct SettingsLlm {
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textSecondary)
           .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.cancelModelConfig();
           })
@@ -858,6 +861,7 @@ export struct SettingsLlm {
           .backgroundColor(this.pal().surfaceAlt)
           .borderRadius(R_LG)
           .border({ width: 1, color: this.pal().border })
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             void this.refreshModels();
           })
@@ -870,6 +874,7 @@ export struct SettingsLlm {
           .borderRadius(R_LG)
           .border({ width: 1, color: this.pal().border })
           .opacity(this.ioBusy ? 0.5 : 1)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             void this.exportSubscriptions();
           })
@@ -881,6 +886,7 @@ export struct SettingsLlm {
           .borderRadius(R_LG)
           .border({ width: 1, color: this.pal().border })
           .opacity(this.ioBusy ? 0.5 : 1)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             void this.importSubscriptions();
           })
@@ -891,6 +897,7 @@ export struct SettingsLlm {
           .backgroundColor(this.pal().surfaceAlt)
           .borderRadius(R_LG)
           .border({ width: 1, color: this.pal().borderStrong })
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.openAdd();
           })
@@ -1008,6 +1015,7 @@ export struct SettingsLlm {
               .backgroundColor(this.pal().accent)
               .borderRadius(R_LG)
               .opacity(this.formBusy || !subscriptionFormValid(this.form, this.formEditing) ? 0.5 : 1)
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
                 void this.submitForm();
               })
@@ -1018,6 +1026,7 @@ export struct SettingsLlm {
               .backgroundColor(this.pal().surfaceAlt)
               .borderRadius(R_LG)
               .border({ width: 1, color: this.pal().border })
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
                 this.formOpen = false;
               })
@@ -1071,6 +1080,7 @@ export struct SettingsLlm {
                     .border({ width: 1, color: mode === this.thinking ? this.pal().accent : this.pal().border })
                     .margin({ right: SP_2, bottom: SP_2 })
                     .opacity(this.inferenceBusy ? 0.5 : 1)
+                    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                     .onClick(() => {
                       if (!this.inferenceBusy && mode !== this.thinking) {
                         void this.commitThinking(mode);
@@ -1105,6 +1115,7 @@ export struct SettingsLlm {
                     .borderRadius(R_LG)
                     .border({ width: 1, color: this.pal().borderStrong })
                     .opacity(this.inferenceBusy || this.concurrency <= LLM_CONCURRENCY_MIN ? 0.4 : 1)
+                    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                     .onClick(() => {
                       if (!this.inferenceBusy && this.concurrency > LLM_CONCURRENCY_MIN) {
                         void this.commitConcurrency(concurrencyStep(this.concurrency, -1));
@@ -1124,6 +1135,7 @@ export struct SettingsLlm {
                     .borderRadius(R_LG)
                     .border({ width: 1, color: this.pal().borderStrong })
                     .opacity(this.inferenceBusy || this.concurrency >= LLM_CONCURRENCY_MAX ? 0.4 : 1)
+                    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                     .onClick(() => {
                       if (!this.inferenceBusy && this.concurrency < LLM_CONCURRENCY_MAX) {
                         void this.commitConcurrency(concurrencyStep(this.concurrency, 1));
@@ -1181,6 +1193,7 @@ export struct SettingsLlm {
                   }
                   .width('100%')
                   .alignItems(VerticalAlign.Top)
+                  .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                   .onClick(() => {
                     this.pickTier = this.pickTier === tier ? '' : tier;
                     this.tierQuery = '';
@@ -1240,6 +1253,7 @@ export struct SettingsLlm {
                           .alignItems(VerticalAlign.Center)
                           .padding({ top: SP_1, bottom: SP_1 })
                           .opacity(this.tierBusy ? 0.5 : 1)
+                          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                           .onClick(() => {
                             void this.setTierValue(tier, e.sub_id !== undefined ? e.sub_id : '', e.model);
                           })
@@ -1305,6 +1319,7 @@ export struct SettingsLlm {
                       .borderRadius(R_LG)
                       .border({ width: 1, color: this.pal().borderStrong })
                       .opacity(this.busy === s.id ? 0.5 : 1)
+                      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                       .onClick(() => {
                         this.openEdit(s);
                       })
@@ -1316,6 +1331,7 @@ export struct SettingsLlm {
                     .backgroundColor(this.pal().surfaceAlt)
                     .borderRadius(R_LG)
                     .border({ width: 1, color: this.pal().border })
+                    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                     .onClick(() => {
                       this.toggleManage(s.id);
                     })
@@ -1328,6 +1344,7 @@ export struct SettingsLlm {
                       .borderRadius(R_LG)
                       .border({ width: 1, color: this.pal().border })
                       .opacity(this.busy === s.id ? 0.5 : 1)
+                      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                       .onClick(() => {
                         void this.doDelete(s.id);
                       })
@@ -1361,6 +1378,7 @@ export struct SettingsLlm {
                           .borderRadius(R_LG)
                           .border({ width: 1, color: this.pal().borderStrong })
                           .opacity(isValidModelName(this.modelDraft) ? 1 : 0.5)
+                          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                           .onClick(() => {
                             void this.addModel(s.id);
                           })
@@ -1393,6 +1411,7 @@ export struct SettingsLlm {
                               .fontColor(this.pal().accentSoft)
                               .padding({ left: SP_2, right: SP_2 })
                               .opacity(this.modelBusy === this.modelKey(s.id, e.model) ? 0.5 : 1)
+                              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                               .onClick(() => {
                                 void this.toggleModel(s.id, e.model, isModelDisabled(e.status));
                               })
@@ -1404,6 +1423,7 @@ export struct SettingsLlm {
                                 ? this.pal().textMuted : this.pal().accentSoft)
                               .padding({ left: SP_2, right: SP_2 })
                               .opacity(perModelEditReason(s, e.model).length > 0 ? 0.45 : 1)
+                              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                               .onClick(() => {
                                 if (perModelEditReason(s, e.model).length === 0) {
                                   this.openModelConfig(s, e.model);
@@ -1414,6 +1434,7 @@ export struct SettingsLlm {
                               .fontColor(this.pal().dangerText)
                               .padding({ left: SP_2, right: SP_2 })
                               .opacity(this.modelBusy === this.modelKey(s.id, e.model) ? 0.5 : 1)
+                              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                               .onClick(() => {
                                 void this.removeModelEntry(s.id, e.model);
                               })

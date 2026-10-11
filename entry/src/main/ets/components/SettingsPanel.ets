@@ -26,7 +26,7 @@
 import { Palette, paletteOf } from '../core/theme';
 import { XbotHttp } from '../core/http';
 import {
-  INSET_CARD_X, INSET_CARD_Y, INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, RADIUS_PILL,
+  PRESS_OPACITY,   INSET_CARD_X, INSET_CARD_Y, INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, RADIUS_PILL,
   STROKE_HAIRLINE, HIT_TARGET_MIN, SPACE_XS, SPACE_SM, SPACE_MD, SPACE_LG,
   hairlineOf, surfaceFillOf,
 } from '../core/design';
@@ -260,6 +260,7 @@ export struct SettingsPanel {
         .fontSize(fs('type.headline'))
         .fontColor([this.pal().textSecondary])
         .padding(SPACE_MD)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
           this.onClose();
         })
@@ -290,6 +291,7 @@ export struct SettingsPanel {
               color: t.id === this.active ? this.pal().accent : hairlineOf(this.pal()),
             })
             .constraintSize({ minHeight: HIT_TARGET_MIN })
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               this.active = t.id;
               // 通知偏好**按需**拉取（首次进入该分区才发 RPC，避免每次打开设置都打服务端）

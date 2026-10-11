@@ -24,6 +24,7 @@ import { XbotHttp } from '../core/http';
 import { FS_BODY, FS_CAPTION, R_LG, R_MD, R_XL, SP_2, SP_3, SP_4, SP_5 } from '../core/tokens';
 import { accountDisplayName } from '../core/settings';
 import { SettingsPanelHeader } from './SettingsRows';
+import { PRESS_OPACITY } from '../core/design';
 
 @Component
 export struct SettingsAccount {
@@ -119,6 +120,7 @@ export struct SettingsAccount {
                 .backgroundColor(this.pal().surfaceAlt)
                 .borderRadius(R_LG)
                 .border({ width: 1, color: this.pal().borderStrong })
+                .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                 .onClick(() => {
                   this.confirming = false;
                 })
@@ -130,6 +132,7 @@ export struct SettingsAccount {
                 .borderRadius(R_LG)
                 .border({ width: 1, color: this.pal().borderStrong })
                 .opacity(this.busy ? 0.5 : 1)
+                .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                 .onClick(() => {
                   void this.doLogout();
                 })
@@ -151,6 +154,7 @@ export struct SettingsAccount {
               .backgroundColor(this.pal().surfaceAlt)
               .borderRadius(R_LG)
               .border({ width: 1, color: this.pal().borderStrong })
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
                 this.confirming = true;
               })

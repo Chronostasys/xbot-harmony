@@ -22,6 +22,7 @@ import {
   RPC_DELETE_WEB_USER, RPC_LIST_WEB_USERS, UsernameParams, WebUserRow, webUsersFrom, WebUsersData,
 } from '../core/settings';
 import { SettingsErrorBar, SettingsPanelHeader } from './SettingsRows';
+import { PRESS_OPACITY } from '../core/design';
 
 /** `create_web_user` 的 data（服务端 `map[string]string{"password": ...}`）。 */
 interface CreatedUser {
@@ -172,6 +173,7 @@ export struct SettingsWebUsers {
           .backgroundColor(this.pal().accent)
           .borderRadius(R_LG)
           .opacity(isValidUsername(this.newUsername) && !this.creating ? 1 : 0.4)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             void this.createUser();
           })
@@ -222,6 +224,7 @@ export struct SettingsWebUsers {
                   .backgroundColor(this.confirmDelete === u.username ? this.pal().dangerBg : this.pal().transparent)
                   .border({ width: 1, color: this.confirmDelete === u.username ? this.pal().dangerText : this.pal().borderStrong })
                   .opacity(this.deleting.length === 0 ? 1 : 0.5)
+                  .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                   .onClick(() => {
                     // 二次确认：第一下只**武装**，第二下（同一行）才真删；点别的行则改武装到该行。
                     if (this.confirmDelete === u.username) {

@@ -57,6 +57,7 @@ import {
   restartShowConfirm, restartSucceeded, restartSucceededText, RPC_APPLY_UPDATE, RPC_RESTART_SERVER,
 } from '../core/aboutops';
 import { SettingsErrorBar, SettingsPanelHeader } from './SettingsRows';
+import { PRESS_OPACITY } from '../core/design';
 
 @Component
 export struct SettingsAbout {
@@ -347,6 +348,7 @@ export struct SettingsAbout {
                       .fontSize(FS_CAPTION)
                       .fontColor(this.pal().accent)
                       .decoration({ type: TextDecorationType.Underline, color: this.pal().accent })
+                      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                       .onClick(() => {
                         void this.openReleaseNotes();
                       })
@@ -368,6 +370,7 @@ export struct SettingsAbout {
                   .border({ width: 1, color: this.pal().borderStrong })
                   .opacity(this.checking ? 0.5 : 1)
                   .enabled(!this.checking)
+                  .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                   .onClick(() => {
                     void this.checkUpdate();
                   })
@@ -384,6 +387,7 @@ export struct SettingsAbout {
                     .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
                     .backgroundColor(this.pal().accent)
                     .borderRadius(R_LG)
+                    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                     .onClick(() => {
                       this.confirmApply();
                     })
@@ -406,6 +410,7 @@ export struct SettingsAbout {
                     .backgroundColor(this.pal().surfaceAlt)
                     .borderRadius(R_LG)
                     .border({ width: 1, color: this.pal().borderStrong })
+                    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                     .onClick(() => {
                       this.cancelApply();
                     })
@@ -416,6 +421,7 @@ export struct SettingsAbout {
                     .backgroundColor(this.pal().surfaceAlt)
                     .borderRadius(R_LG)
                     .border({ width: 1, color: this.pal().dangerText })
+                    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                     .onClick(() => {
                       void this.doApply();
                     })
@@ -490,6 +496,7 @@ export struct SettingsAbout {
                     .border({ width: 1, color: this.pal().borderStrong })
                     .opacity(restartBusy(this.restartState) ? 0.5 : 1)
                     .enabled(!restartBusy(this.restartState))
+                    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                     .onClick(() => {
                       this.confirmRestart();
                     })
@@ -509,6 +516,7 @@ export struct SettingsAbout {
                     .backgroundColor(this.pal().surfaceAlt)
                     .borderRadius(R_LG)
                     .border({ width: 1, color: this.pal().borderStrong })
+                    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                     .onClick(() => {
                       this.cancelRestart();
                     })
@@ -520,6 +528,7 @@ export struct SettingsAbout {
                     .borderRadius(R_LG)
                     .border({ width: 1, color: this.pal().dangerText })
                     .enabled(!restartBusy(this.restartState))
+                    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                     .onClick(() => {
                       void this.doRestart();
                     })

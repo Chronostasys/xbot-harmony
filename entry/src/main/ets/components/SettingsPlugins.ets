@@ -47,7 +47,7 @@ import {
   submitValue, textInputValue, toggleListValue, validateValue, valueFromText, valueFromSingle,
   valueFromToggle, valueOfProp,
 } from '../core/settingsplugins';
-import { CONTROL_INPUT_H, colorOf, hairlineOf } from '../core/design';
+import { PRESS_OPACITY, CONTROL_INPUT_H, colorOf, hairlineOf } from '../core/design';
 import { SettingsErrorBar, SettingsPanelHeader } from './SettingsRows';
 import { AuthImage } from './AuthImage';
 
@@ -169,6 +169,7 @@ struct PluginFieldRow {
               .backgroundColor(this.imgValue === ov ? this.pal().accent : this.pal().surfaceAlt)
               .borderRadius(R_LG)
               .border({ width: 1, color: this.imgValue === ov ? this.pal().accent : this.pal().border })
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
                 if (!this.busy && !this.uploading) {
                   this.onSelect(ov);
@@ -205,6 +206,7 @@ struct PluginFieldRow {
           .backgroundColor(this.pal().accent)
           .borderRadius(R_LG)
           .opacity(this.uploading ? 0.5 : 1)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             if (!this.uploading && !this.busy) {
               this.onPickImage();
@@ -336,6 +338,7 @@ struct PluginFieldRow {
             .backgroundColor(this.pal().accent)
             .borderRadius(R_LG)
             .opacity(this.busy ? 0.5 : 1)
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               this.onCommit();
             })
@@ -352,6 +355,7 @@ struct PluginFieldRow {
               .backgroundColor(this.isChipOn(ov) ? this.pal().accent : this.pal().surfaceAlt)
               .borderRadius(R_LG)
               .border({ width: 1, color: this.isChipOn(ov) ? this.pal().accent : this.pal().border })
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
                 if (this.kind === PLUGIN_FIELD_SELECT) {
                   this.onSelect(ov);
@@ -676,6 +680,7 @@ export struct SettingsPlugins {
                     .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
                     .backgroundColor(this.confirmReload === e.id ? this.pal().warnBg : this.pal().transparent)
                     .borderRadius(R_LG)
+                    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                     .onClick(() => {
                       if (this.confirmReload === e.id) {
                         void this.reload(e.id);

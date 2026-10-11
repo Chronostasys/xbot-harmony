@@ -52,6 +52,7 @@ import {
   BIND_STATE_WAITING, BIND_STATE_DONE, FeishuBind, FeishuGuide, ChannelField,
 } from '../core/channelscfg';
 import { SettingsErrorBar, SettingsPanelHeader } from './SettingsRows';
+import { PRESS_OPACITY } from '../core/design';
 
 /** 「即时反馈」时长（已保存徽标 / 复制提示**共用**）——web `SettingsChannels.tsx:243` 为 2000ms。 */
 const FLASH_MS: number = 2500;
@@ -95,6 +96,7 @@ struct ChannelFieldRow {
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().accentSoft)
             .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               this.onReveal();
             })
@@ -271,6 +273,7 @@ struct ChannelCard {
           .backgroundColor(this.pal().accent)
           .borderRadius(R_LG)
           .opacity(canSave(this.dirty, this.busy, this.validation) ? 1 : 0.4)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             if (canSave(this.dirty, this.busy, this.validation)) {
               this.onSave();
@@ -321,6 +324,7 @@ struct GuideListRow {
         Text('复制全部')
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().accentSoft)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.onCopy(this.items.join('\n'));
           })
@@ -426,6 +430,7 @@ struct FeishuBindPanel {
         Text(this.presetText)
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().accentSoft)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.showPreset = !this.showPreset;
           })
@@ -456,6 +461,7 @@ struct FeishuBindPanel {
         Text('也可以在飞书开放平台手动创建应用 →')
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().accentSoft)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.onOpen(this.guideCreateUrl);
           })
@@ -474,6 +480,7 @@ struct FeishuBindPanel {
             .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
             .backgroundColor(this.pal().accent)
             .borderRadius(R_LG)
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               this.onConfirmBind();
             })
@@ -483,6 +490,7 @@ struct FeishuBindPanel {
             .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
             .backgroundColor(this.pal().surfaceAlt)
             .borderRadius(R_LG)
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               this.onCancelBind();
             })
@@ -497,6 +505,7 @@ struct FeishuBindPanel {
             .backgroundColor(this.pal().accent)
             .borderRadius(R_LG)
             .opacity(this.binding ? 0.5 : 1)
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               if (!this.binding) {
                 this.onStartBind();
@@ -509,6 +518,7 @@ struct FeishuBindPanel {
               .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
               .backgroundColor(this.pal().surfaceAlt)
               .borderRadius(R_LG)
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
                 this.onOpen(this.bindUrl);
               })
@@ -565,6 +575,7 @@ struct FeishuBindPanel {
               .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
               .backgroundColor(this.pal().surfaceAlt)
               .borderRadius(R_LG)
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
                 this.onCopy(this.bindUrl);
               })

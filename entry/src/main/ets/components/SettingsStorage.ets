@@ -32,6 +32,7 @@ import {
 import {
   SettingsChipRow, SettingsErrorBar, SettingsPanelHeader, SettingsTextFieldRow, SettingsToolRow,
 } from './SettingsRows';
+import { PRESS_OPACITY } from '../core/design';
 
 /** 不可变写入（换引用 ⇒ 触发 @State 重建；ArkTS 对对象字面量取值有约束故手抄）。 */
 function withValue(map: Record<string, string>, key: string, value: string): Record<string, string> {
@@ -344,6 +345,7 @@ export struct SettingsStorage {
                 .backgroundColor(this.pal().accent)
                 .borderRadius(R_LG)
                 .opacity(this.dirty() && !this.busy ? 1 : 0.4)
+                .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                 .onClick(() => {
                   void this.save();
                 })

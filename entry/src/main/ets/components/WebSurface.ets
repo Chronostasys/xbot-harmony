@@ -11,7 +11,7 @@ import {
   WebStatus, webErrorDetail, webHttpErrorDetail, webStatusOf,
 } from '../core/pluginview';
 import {
-  colorOf, hairlineOf, surfaceFillOf,
+  PRESS_OPACITY,   colorOf, hairlineOf, surfaceFillOf,
   HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_PILL, SPACE_XS, STROKE_HAIRLINE,
 } from '../core/design';
 import { fs, fw, lh } from './SettingsRows';
@@ -298,6 +298,7 @@ export struct WebSurface {
               width: HIT_TARGET_MIN,
               height: HIT_TARGET_MIN,
             })
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               this.onClose();
             })
@@ -321,6 +322,7 @@ export struct WebSurface {
               width: HIT_TARGET_MIN,
               height: HIT_TARGET_MIN,
             })
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               this.refresh();
             })
@@ -363,6 +365,7 @@ export struct WebSurface {
               .borderRadius(RADIUS_PILL)
               .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
               .constraintSize({ minHeight: HIT_TARGET_MIN })
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
                 this.refresh();
               })
@@ -382,6 +385,7 @@ export struct WebSurface {
               .borderRadius(RADIUS_PILL)
               .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
               .constraintSize({ minHeight: HIT_TARGET_MIN })
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
                 this.onClose();
               })
