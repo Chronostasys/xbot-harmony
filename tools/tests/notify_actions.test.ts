@@ -120,11 +120,15 @@ const acts = notifyActionsFor(NOTIFY_KIND_ASK);
 eq('动作: ask 至少一枚按钮', acts.length >= 1, true);
 eq('动作: 按钮数 ≤ SDK 上限 2', acts.length <= NOTIFY_MAX_ACTIONS, true);
 eq('动作: 第一枚是「查看」且 id=open（**端到端可用**的那个）',
-  `${acts[0].id}/${acts[0].title}`, `${NOTIFY_ACTION_OPEN}/查看`);
+  `${acts[0].id}/${acts[0].title}`, `${NOTIFY_ACTION_OPEN}/去回答`);
 eq('动作: 实例确实被构造（NotifyAction）', acts[0] instanceof NotifyAction, true);
-eq('动作: turn_done 也给「查看」', notifyActionsFor(NOTIFY_KIND_TURN_DONE)[0].id, NOTIFY_ACTION_OPEN);
+eq('动作: turn_done 发「继续」（= continue ⇒ 页面 store.send(/continue)）', notifyActionsFor(NOTIFY_KIND_TURN_DONE)[0].id, NOTIFY_ACTION_CONTINUE);
 
 eq('动作标题: open ⇒ 查看', notifyActionTitle(NOTIFY_ACTION_OPEN), '查看');
+eq('⛔ ask 档不得发 continue（防误触发「接着干」）',
+  notifyActionsFor(NOTIFY_KIND_ASK)[0].id === NOTIFY_ACTION_CONTINUE, false);
+eq('⛔ turn_done 档不得发 open（本体点击已覆盖「查看」）',
+  notifyActionsFor(NOTIFY_KIND_TURN_DONE)[0].id === NOTIFY_ACTION_OPEN, false);
 eq('动作标题: stop ⇒ 停止', notifyActionTitle(NOTIFY_ACTION_STOP), '停止');
 eq('动作标题: continue ⇒ 继续', notifyActionTitle(NOTIFY_ACTION_CONTINUE), '继续');
 eq('动作标题: 未知 ⇒ 回落「查看」', notifyActionTitle('zzz'), '查看');

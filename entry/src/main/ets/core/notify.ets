@@ -353,9 +353,16 @@ export class NotifyAction {
  * 一旦页面接线，把这里改成 `push(new NotifyAction(NOTIFY_ACTION_STOP, '停止'))` 即可（一行）。
  */
 export function notifyActionsFor(kind: string): NotifyAction[] {
-  // kind 目前不影响按钮集合（两类都只给「查看」）；保留入参以便将来按档位分化。
-  const id: string = kind === NOTIFY_KIND_ASK ? NOTIFY_KIND_ASK : NOTIFY_KIND_TURN_DONE;
-  return [new NotifyAction(NOTIFY_ACTION_OPEN, id.length > 0 ? '查看' : '查看')];
+  // **按档位发射真实可用的按钮**（手机上限 2 枚，`notification/notificationRequest.d.ts:291-298`）。
+  // 「查看」不再占按钮位 —— 点通知**本体**已走同一条 `START_ABILITY + parameters` 直达链路。
+  // ⛔ 纪律：只发射「今天真能执行」的动作。两个 id 都已在页面侧接线
+  //    （`pages/Index.ets` 的 `consumePendingAction` → `store.cancel()` / `store.send('/continue')`，`de25ae1`）：
+  //    · `ask_user`  = 智能体在等回答 ⇒ 按钮「去回答」= 直达会话（`open`）
+  //    · `turn_done` = 回合结束       ⇒ 按钮「继续」  = 让智能体接着干（`continue`）
+  if (kind === NOTIFY_KIND_ASK) {
+    return [new NotifyAction(NOTIFY_ACTION_OPEN, '去回答')];
+  }
+  return [new NotifyAction(NOTIFY_ACTION_CONTINUE, '继续')];
 }
 
 /** 动作 id → 按钮标题（展示文案的**单一真值**）。 */
