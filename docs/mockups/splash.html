@@ -269,7 +269,8 @@ th{color:#6E6E73;font-weight:600}
   <div class="tl">
     <table>
       <tr><th>角色 / 来源</th><th>porcelain</th><th>dark</th><th>用在哪</th></tr>
-      <tr><td>brandAccent()（<code>brand.ets:43</code>）</td><td><span class="sw" style="background:#7C5CFF"></span>#7C5CFF</td><td><span class="sw" style="background:#7C5CFF"></span>#7C5CFF</td><td>标记气泡（T1/T2/T3）</td></tr>
+      <tr><td>brandAccent()（<code>brand.ets:43</code>）</td><td><span class="sw" style="background:#7C5CFF"></span>#7C5CFF</td><td><span class="sw" style="background:#7C5CFF"></span>#7C5CFF</td><td>标记气泡（**深色面** T1/T2/T3）</td></tr>
+      <tr><td><b>brandAccentFor(palette)</b>（<code>brand.ets</code>，2026-10-11 ①）</td><td><span class="sw" style="background:#0071E3"></span><b>#0071E3</b>（= 该主题 accent）</td><td>#7C5CFF（深色 ⇒ 同 brandAccent）</td><td>标记气泡（**浅色面**，含 porcelain）</td></tr>
       <tr><td>brandOnAccent()（<code>brand.ets:48</code>）</td><td><span class="sw" style="background:#FFFFFF"></span>#FFFFFF</td><td><span class="sw" style="background:#FFFFFF"></span>#FFFFFF</td><td>星芒</td></tr>
       <tr><td>T1 底（方案B·系统浅）= <code>lightPalette().appBg</code></td><td colspan="2"><span class="sw" style="background:#F8FAFC"></span>#F8FAFC</td><td>T1 canvas（浅）</td></tr>
       <tr><td>T1 底（方案B·系统深）= <code>darkPalette().appBg</code></td><td colspan="2"><span class="sw" style="background:#0B0B0E"></span>#0B0B0E</td><td>T1 canvas（深）</td></tr>
@@ -302,10 +303,11 @@ th{color:#6E6E73;font-weight:600}
       <tr><td><code>splashMarkLevelOf('porcelain', 512, false)</code></td><td><b>solid</b>（实调）</td><td><code>brand.ets:348 markLevelFor</code></td></tr>
       <tr><td><code>contrastRatio(brandAccent, porcelain.appBg #FFFFFF)</code></td><td><b>4.3461</b> — 非文本 <b>3:1 达标</b> ✅ ｜ 文本 <b>4.5 未达</b> ✗</td><td><code>brand.ets:290</code> 实调</td></tr>
       <tr><td><code>contrastRatio(brandAccent, light.appBg #F8FAFC)</code></td><td>4.1539</td><td>同上</td></tr>
-      <tr><td><code>contrastRatio(porcelain.accent #0071E3, #FFFFFF)</code></td><td><b>4.6967</b> ✅（若标记改用 Apple Blue）</td><td>同上</td></tr>
+      <tr><td><code>contrastRatio(brandAccentFor(porcelain) #0071E3, #FFFFFF)</code></td><td><b>4.6967</b> ✅ <b>（2026-10-11 ① 已决策：白主题标记改用该主题 accent）</b></td><td>同上</td></tr>
     </table>
     <div class="legend">标记是**图形**（气泡+星芒）⇒ 按 WCAG 2.1 §1.4.11 **非文本 3:1** 判 ⇒ <code>4.3461 ≥ 3</code> 达标；但 <code>4.3461 < 4.5</code> ⇒
-      若标记**含文字**（<code>WORDMARK</code> 档）则**不达标**。⛔ 本规格不改品牌色值；「白主题用紫还是用蓝」= 待拍板 ①。</div>
+      若标记**含文字**（<code>WORDMARK</code> 档）则**不达标**。<b>① 已决策（2026-10-11）</b>：浅色面改用该主题自身 <code>accent</code>（porcelain = Apple Blue <b>#0071E3</b>，对白 <b>4.6967</b> 达标）；
+      ⛔ 深色品牌主色 <code>#7C5CFF</code> <b>不动</b>（<code>brandAccent()</code> 语义零改动）。入口 = <code>brandAccentFor(palette)</code>（<code>core/brand.ets</code>，按 <code>isLightPalette</code> 判，不按主题名）。</div>
   </div>
 </section>
 

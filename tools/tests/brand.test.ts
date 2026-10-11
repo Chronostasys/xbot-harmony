@@ -32,7 +32,9 @@ import {
   TAIL_TIP_ROUND, TAIL_TIP_X, TAIL_TIP_Y,
   appIconSvg,
   brandAccent,
+  brandAccentFor,
   brandOnAccent,
+  brandOnAccentFor,
   bubblePath,
   contrastRatio,
   fitsInscribedCircle,
@@ -52,7 +54,7 @@ import {
   splashMarkSvg,
   starPath,
 } from '../../entry/src/main/ets/core/brand';
-import { darkPalette, lightPalette } from '../../entry/src/main/ets/core/theme';
+import { darkPalette, lightPalette, porcelainPalette, isLightPalette } from '../../entry/src/main/ets/core/theme';
 
 const path = require('path');
 const fs = require('fs');
@@ -213,6 +215,31 @@ const ON_ACCENT = brandOnAccent();
   ok('8 位 ARGB 取末 6 位（#AARRGGBB）',
     Math.abs(relativeLuminance('#FF7C5CFF') - relativeLuminance('#7C5CFF')) < 1e-12);
   ok('非法输入不抛（按黑 0）', relativeLuminance('zzz') === 0);
+}
+
+// ── ⑦b 主题感知品牌色 `brandAccentFor`（2026-10-11 ①：白主题标记改用自己的 accent）─────
+// 动机：`brandAccent()` = #7C5CFF 对纯白仅 4.35 < AA 文本线 4.5（mark 是"非文本"，但白主题
+// 开屏/标记是"第一眼"面，且 porcelain 界面主色本就是 Apple Blue）⇒ 浅色面改用该主题的 accent。
+// ⛔ 深色品牌主色 #7C5CFF 不动（brandAccent() 语义零改动，逐字节）。
+{
+  const dp = darkPalette();
+  const pp = porcelainPalette();
+  const lp = lightPalette();
+  eq('dark ⇒ brandAccentFor = brandAccent() = #7C5CFF（深色语义不动）', brandAccentFor(dp), '#7C5CFF');
+  eq('porcelain ⇒ brandAccentFor = 该主题 accent #0071E3（Apple Blue）', brandAccentFor(pp), '#0071E3');
+  eq('porcelain ⇒ brandOnAccentFor = onAccent #FFFFFF', brandOnAccentFor(pp), '#FFFFFF');
+  ok('porcelain 标记色对纯白 >= AA 文本线 4.5（旧 #7C5CFF 仅 4.35）',
+    contrastRatio(brandAccentFor(pp), '#FFFFFF') >= 4.5,
+    `got ${contrastRatio(brandAccentFor(pp), '#FFFFFF').toFixed(4)}`);
+  ok('porcelain 标记色严格优于旧品牌紫（对白）',
+    contrastRatio(brandAccentFor(pp), '#FFFFFF') > contrastRatio(brandAccent(), '#FFFFFF'));
+  ok('light 主题 ⇒ 用该主题 accent，对自身画布 >= 4.5',
+    brandAccentFor(lp) === lp.accent && contrastRatio(brandAccentFor(lp), lp.appBg) >= 4.5);
+  ok('brandAccent() 语义零改动（对白仍 4.3461）',
+    Math.abs(contrastRatio(brandAccent(), '#FFFFFF') - 4.3461) < 0.001);
+  // 判据按色板亮度（不按主题名）：aurora/nebula 是深色面 ⇒ 仍走 brandAccent()
+  ok('浅色判据 = isLightPalette（porcelain/light 为真，dark 为假）',
+    isLightPalette(pp) && isLightPalette(lp) && !isLightPalette(dp));
 }
 
 // ── ⑧ 降级链（markLevelFor）—— 品牌呈现的**唯一判据** ─────────────────────────

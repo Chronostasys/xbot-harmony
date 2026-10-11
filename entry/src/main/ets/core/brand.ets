@@ -14,7 +14,7 @@
  * 坐标系：一切几何以 **1024×1024 画布**表达（比例驱动，非像素驱动）；任何尺寸都从它等比缩放
  * （`docs/BRAND.md §2`）。改样式只改这里的常量，别去改生成的资源。
  */
-import { darkPalette } from './theme';
+import { Palette, darkPalette, isLightPalette } from './theme';
 
 // ── 尺寸常量 ──────────────────────────────────────────────────────────────────
 
@@ -47,6 +47,27 @@ export function brandAccent(): string {
 /** 标记反色 —— 与 `darkPalette().onAccent` **逐字一致**。 */
 export function brandOnAccent(): string {
   return darkPalette().onAccent;
+}
+
+/**
+ * 按**色板**取品牌标记色（开屏 / 标记的**主题感知**入口；2026-10-11 ①）。
+ *
+ * 为什么需要它：`brandAccent()`（= `darkPalette().accent` = `#7C5CFF`）对**纯白底**实测仅 **4.35**，
+ * 低于 WCAG AA 文本线 4.5（`docs/mockups/splash.html` 的实调）—— 而白主题下开屏/标记正是
+ * 用户"第一眼"看到的东西。⛔ 深色品牌主色 `#7C5CFF` **不动**（不牵连图标 / 深色 / web 对齐）。
+ * ⇒ 浅色面（`isLightPalette`）改用**该主题自己的** `accent`：porcelain = Apple Blue **`#0071E3`**
+ * （对白 **4.70** 达标，且与白主题界面同色系）、light = `#6D28D9`（对白 7.10）。
+ *
+ * 判据按 `isLightPalette`（色板 `appBg` 亮度），⛔ **不按主题名硬判**。
+ * 消费方：`core/splash.splashMarkLevelOf` 的标记色 / 开屏实现 / 样张（本入口是唯一出口）。
+ */
+export function brandAccentFor(p: Palette): string {
+  return isLightPalette(p) ? p.accent : brandAccent();
+}
+
+/** 按色板取标记**反色**（星芒）—— 与 `brandAccentFor` **成对**（浅色面用该主题的 `onAccent`）。 */
+export function brandOnAccentFor(p: Palette): string {
+  return isLightPalette(p) ? p.onAccent : brandOnAccent();
 }
 
 // ── 几何常量（1024 画布）──────────────────────────────────────────────────────
