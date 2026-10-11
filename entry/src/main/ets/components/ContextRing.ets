@@ -25,8 +25,9 @@
  *   `ToolVisual` / `LiveTailView` 的 pill 浮层同一套写法）。
  *
  * ⛔ 颜色一律走 `core/theme.ets` 的 `pal()` 语义色，**绝不硬编码 `#RRGGBB`**：
- *   弧 = `high ? pal().dangerText : pal().accent`（web `text-status-error` / `text-accent`，
- *   `ContextRing.tsx:70-73`）；轨道 = `Surfaces.hairline`（web 轨道是 `currentColor`@0.22，
+ *   弧 = `high ? pal().statusError : pal().accent`（web `text-status-error` / `text-accent`，
+ *   `ContextRing.tsx:70-73`）—— ⚠️ 是 **`statusError`**（web `--status-error`）这个**状态机**角色，
+ *   **不是** `dangerText`（那是"危险按钮文字"角色，两者取值也不同）；轨道 = `Surfaces.hairline`（web 轨道是 `currentColor`@0.22，
  *   而 `textMuted`@22% 合成后 ≈ 发丝边框色 —— 数值最接近的主题角色，见 `core/theme.ets` 的
  *   dark `textMuted #63636F`@22% ≈ `border #20202B`）。⚠️ 轨道是"弧占多少"的**参照系**，
  *   浅色/极简白下若用 `border` 会淡到读不出占比 ⇒ 必须有足够的可见度（走结构性发丝 `hairline`）。
@@ -85,7 +86,10 @@ export struct ContextRing {
     //   且离线门禁（run.sh/lint/typecheck，只编译 core/）抓不到 ⇒ 唯一真门禁是 hvigorw assembleHap）。
     .alignContent(Alignment.Center)
     .borderRadius(R_MD)                       // web `rounded-md`
-    .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+    // ⛔ 静息态**不写** `normal`：`normal` 会接管属性、盖掉动态值；本仓 ThinkingLine / MessageNav
+    //    都已按此纪律删掉静息态 `normal` 覆盖（同款隐患）。这里同样只留 `pressed`
+    //    （web 静息态亦无 opacity 规则，默认即 1）。
+    .stateStyles({ pressed: { .opacity(0.75) } })
     .onClick(() => {
       this.detailOpen = !this.detailOpen;
     })

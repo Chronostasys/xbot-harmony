@@ -21,7 +21,7 @@
  *   则不重建该项，key 不含内容会让状态图标/描述卡在首帧（ARKTS-GOTCHAS §3）。
  * ⛔ 颜色只用 `pal()` 语义色；尺度只用 `core/tokens.ets`。**禁硬编码 hex / 时长**。
  */
-import { Palette, paletteOf } from '../core/theme';
+import { Palette, paletteOf, isLightPalette, surfacesOf } from '../core/theme';
 import { FS_CAPTION, R_LG, SP_1 } from '../core/tokens';
 import { withAlpha } from '../core/bubble';
 import {
@@ -91,6 +91,22 @@ struct SubAgentRowView {
     return $r('sys.symbol.lightbulb');
   }
 
+  /**
+   * 卡片 1px 描边色（跨主题**结构性边界**）。
+   *
+   * web 是 `border-border/50`（`SubAgentProgressTree.tsx:108`）—— 深色族**逐字节保留** `border@50%`
+   * （已批准的深色观感不动）；浅色族（light / **porcelain 纯白**）改用 `Surfaces.hairline`
+   * （`core/theme.ets` 按 `HAIRLINE_TARGET_RATIO` 压深）：白底上 `border@50%` ≈ **不可见**，
+   * 卡片的"层级"就整块读不出来（porcelain 的设计口径正是"靠发丝线 + 柔影分层，不靠灰底"）。
+   * 判据按**色板亮度**（`isLightPalette`），**不按主题名硬判**。
+   */
+  private cardBorderColor(): string {
+    if (isLightPalette(this.pal())) {
+      return surfacesOf(this.pal()).hairline;
+    }
+    return withAlpha(this.pal().border, CARD_BORDER_ALPHA);
+  }
+
   /** 图标色：只有 running 与 error 用强调/危险色，其余 muted（web `:127-135`）。 */
   private iconColor(): string {
     if (this.kind === SUB_ERROR) {
@@ -142,20 +158,24 @@ struct SubAgentRowView {
       // 子行：仅左侧 1px **虚线**（web `border-l border-dashed`）
       ? {
           width: { left: 1, top: 0, right: 0, bottom: 0 },
-          color: { left: this.pal().border, top: this.pal().border, right: this.pal().border, bottom: this.pal().border },
+          // 虚线连接线是**结构性边界** ⇒ 走 `hairline`：深色族 `hairline ≡ border`（**逐字节不变**），
+          // 浅色/极简白下自动可见（web 是 `border-l` 默认色，白底同样需看得见）。
+          color: { left: surfacesOf(this.pal()).hairline, top: this.pal().border, right: this.pal().border, bottom: this.pal().border },
           style: { left: BorderStyle.Dashed, top: BorderStyle.Solid, right: BorderStyle.Solid, bottom: BorderStyle.Solid },
         }
-      // 卡片：左 2px = 状态色，其余 1px = 发丝边框
+      // 卡片：左 2px = 状态色，其余 1px = 结构性发丝描边（浅色族自动加固，见 `cardBorderColor`）
       : {
           width: { left: BAR_W, top: 1, right: 1, bottom: 1 },
           color: {
             left: this.barColor(),
-            top: withAlpha(this.pal().border, CARD_BORDER_ALPHA),
-            right: withAlpha(this.pal().border, CARD_BORDER_ALPHA),
-            bottom: withAlpha(this.pal().border, CARD_BORDER_ALPHA),
+            top: this.cardBorderColor(),
+            right: this.cardBorderColor(),
+            bottom: this.cardBorderColor(),
           },
         })
-    .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+    // ⛔ 静息态**不写** `normal`（`normal` 会接管属性、盖掉动态值）——与 ThinkingLine / ContextRing
+    //    同一「按压纪律」：只写 `pressed`（web 静息态无 opacity 规则，默认即 1）。
+    .stateStyles({ pressed: { .opacity(0.75) } })
     .onClick(() => {
       // 不可点（无 sessionKey / 无宿主回调）⇒ 点击无操作（web `disabled`）
       if (this.openable) {
