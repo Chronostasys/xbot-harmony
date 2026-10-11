@@ -72,29 +72,46 @@ T0 发生在此之前（系统画），**不在**本时间线内 ⇒ `splashPhas
 
 四种类型（全部可脱机单测，放 `core/splash.ets` 之类；⛔ 本波不落码）：
 
-```
-type SplashPhase = 'T1' | 'T2' | 'T3';
-type LaunchKind  = 'cold' | 'warm';
+**已落地**（本波）：`entry/src/main/ets/core/splash.ets`（纯逻辑）+ `tools/tests/splash.test.ts`（89 断言）+
+`entry/src/main/ets/components/SplashOverlay.ets`（真 `@Component`）。下面是**实现即契约**的签名。
 
-class SplashCfg {
-  reduceMotion: boolean;   // 无障碍降级开关
-  enterMs: number;         // = MOTION_BASE_MS (220)
-  exitMs: number;          // = MOTION_SLOW_MS (320)
-  minDwellMs: number;      // 见 §11 缺档①（建议 400 = 220+180）
-  timeoutMs: number;       // 见 §11 缺档②（建议 2560 = MOTION_BREATH_MS）
-}
+```
+// 标识（字符串常量，沿用本仓惯例；不用 union 字面量类型）
+SPLASH_T0 | SPLASH_T1 | SPLASH_T2 | SPLASH_T3          // 阶段
+LAUNCH_COLD | LAUNCH_WARM                              // 启动类型
+
+// 时长（**全部由底座派生，零裸数字**；见 §3 台账与 §11 缺档）
+SPLASH_ENTER_MS   = MOTION_BASE_MS                 // 220
+SPLASH_EXIT_MS    = MOTION_SLOW_MS                 // 320
+SPLASH_TOTAL_MS   = ENTER + EXIT                   // 540
+SPLASH_MIN_DWELL_MS = MOTION_BASE_MS + MOTION_FAST_MS   // 400
+SPLASH_TIMEOUT_MS = ORB_BREATH_MS                  // 2560
+SPLASH_MARK_ENTER_SCALE = 0.92                     // 标记专属（缺档③ 裁决：不强行统一）
+SPLASH_MARK_BOX_VP = SPACE_XXL * 5                 // 160
 
 // ① 阶段推进（elapsedMs 自 T1 挂载起算；T0 不在取值域）
-function splashPhaseAt(elapsedMs: number, cfg: SplashCfg): SplashPhase;
+function splashPhaseAt(elapsedMs: number, reduceMotion: boolean, userDismissed: boolean = false): string;
+function splashPhaseStartMs(phase: string, reduceMotion: boolean): number;
+function splashPhaseDurationMs(phase: string, reduceMotion: boolean): number;
 
 // ② 开屏是否仍应可见（overlay 的显隐判据）
-function shouldShowSplash(launchKind: LaunchKind, elapsedMs: number, contentReady: boolean, cfg: SplashCfg): boolean;
+function shouldShowSplash(launchKind: string, elapsedMs: number, contentReady: boolean,
+                          userDismissed: boolean = false): boolean;
 
 // ③ T1 底色（与 §6 的 FOLLOW_APPLICATION 衔接；纯函数，不读全局）
 function splashCanvasOf(theme: string, followApplication: boolean, systemDark: boolean): string;
 
-// ④ T1 标记档位（**委托** `core/brand.ets:markLevelFor`，不另立判据）
+// ④ T1 标记档位（**委托** `core/brand.ets:348 markLevelFor`，不另立判据）
 function splashMarkLevelOf(theme: string, sizeVp: number, monochrome: boolean): string;
+
+// ⑤ 在飞唯一性（铁律的机器判据，见 §9）
+function splashOrbAllowed(phase: string, streaming: boolean): boolean;
+function splashPhaseIsInFlight(phase: string): boolean;      // 恒 false
+
+// ⑥ 曲线（§4.5 —— 入场可超调；让位/退出**不许**超调）
+function splashPhaseCurve(phase: string): string;            // 'spring' | 'easeOut' | ''
+function curveCssOf(curve: string): string;                  // → EASE_SPRING_CSS / EASE_OUT_CSS
+function curveHasOvershoot(css: string): boolean;            // 解析 cubic-bezier 的两个 y
 ```
 
 ### 4.1 `splashPhaseAt(elapsedMs, cfg)` 真值表
@@ -152,6 +169,28 @@ function splashMarkLevelOf(theme: string, sizeVp: number, monochrome: boolean): 
 | 任意 | `< 24` | 任意 | `WORDMARK` | 几何标记太小 ⇒ 纯文字 |
 
 （实调见 §7。）
+
+### 4.5 曲线语义（**设计系统级约定**）：入场可超调；让位/退出 **不许**超调
+
+底座唯一的曲线是 **spring**（`cubic-bezier(0.34,1.56,0.64,1)`，`core/tokens.ets:54`，**带超调**）。
+**超调用在"入场"是对的**（有生气）；用在**"让位/移交"（退出）上是观感错误** —— 元素冲过头再退回来，看着像抖了一下。
+
+⇒ **约定**：`enter`（进入视野）**允许**超调；`exit`（离开/移交）**一律无超调缓出**。
+这条已写成**可测数据**（`core/splash.ets: splashPhaseCurve / curveCssOf / curveHasOvershoot`）：
+
+| 阶段 | 曲线 | 底座来源 | 超调 |
+|---|---|---|---|
+| T1（入场） | `spring` | `core/tokens.ets:54`（`EASE_SPRING_CSS`）→ `animBase()`（`components/anim.ets:53-55`） | **允许**（y1 = 1.56 > 1） |
+| T2（让位） | `easeOut` | `core/tokens.ets:56`（`EASE_OUT_CSS` = `cubic-bezier(0,0,0.2,1)`） | **禁止**（y 全 ≤ 1） |
+| T0 / T3 | 无（不由本组件驱动） | — | — |
+
+`curveHasOvershoot(css)` 由 CSS 的**两个 y 控制点**实解析（任一 `y > 1` ⇒ 有超调），不是硬编码布尔
+⇒ 把 T2 改回 spring，`tools/tests/splash.test.ts` ★E **必红**（mutation 已自证）。
+
+> ⚠️ **T2 曲线 TODO：待 `animEaseOut()`**。`EASE_OUT_CSS` 是"已定义、此前无消费者"的 token；
+> `orb-ux` 正在 `components/anim.ets` 把它收成具名工厂 `animEaseOut()`。工厂就绪前，组件侧
+> **暂**用 `animSlow()`（spring），就绪后**只改一行**（`SplashOverlay.onPhaseChange` 的 `animateTo`）。
+> ⛔ 组件侧**不得**自造曲线、**不得** import `@ohos.curves`（唯一出口 = `components/anim.ets`）。
 
 ---
 
@@ -293,18 +332,25 @@ function splashMarkLevelOf(theme: string, sizeVp: number, monochrome: boolean): 
 
 ## 11. 缺档 / 矛盾（本规格**不新造**，只上报）
 
-| # | 缺档 / 矛盾 | 说明 | 建议（**由底板常量推导**，非自造） |
+**本波裁决结果（调度者 2026-10-11）**：① ② ⑥ **采纳建议值**（⛔ 落地时必须**作为底座常量新增**，
+不许把数字散落在组件里）；③ **不强行统一**（保留两个具名常量，见下）；④ 已记账；⑤ 不新增。
+
+| # | 缺档 / 矛盾 | 说明 | 状态 / 建议（**由底板常量推导**，非自造） |
 |---|---|---|---|
-| ① | **`SPLASH_MIN_DWELL_MS` 不存在** | 底座只有 `MOTION_*`（动画时长），没有"**最短停留策略**"常量 ⇒ 若直接用 `T1+T2=540`，品牌在"内容秒就绪"时可能一闪而过 | 取 `MOTION_BASE_MS + MOTION_FAST_MS = 220 + 180 = 400ms`（两个底板常量相加） |
-| ② | **`SPLASH_TIMEOUT_MS` 不存在** | 没有"冷启动超时"档位；不设 ⇒ 慢网时无限停在开屏 | 取 `MOTION_BREATH_MS = 2560ms`（= 在飞主呼吸刻度 1×，`anim.ets:96`） |
-| ③ | **入场 scale 起点有两个不同值** | 设计输入 `docs/REDESIGN-INPUT-BRAND.md:145` 写 `scale 0.92→1`；而 `components/AssistantOrb.ets:94` 的 `ORB_ENTER_SCALE = 0.86` ⇒ **同语义两值**（本仓铁律：同一语义两处值 = 第二判据） | 在底座位**新增一个** `MOTION_ENTER_SCALE`（或统一到 `ORB_ENTER_SCALE`）；**取哪个值需拍板**（§12 待拍板 ④） |
-| ④ | **开屏曲线的"另一个可能"** | `sheetTransition()`（`anim.ets:114-117`）用了 `Curve.Friction`（**底座外**的 ArkUI 内置曲线）⇒ 若开屏误用它，就是"第二套曲线" | ⛔ 开屏**必须**用 spring（`animBase/animSlow`）；不引入 `Curve.Friction` |
-| ⑤ | **T3 光球的"首个会话在流式"判据不在本规格** | 该判据属状态机（`row.isLive` / `busy`），已有唯一源 | 组件消费既有判据，**不新增** |
-| ⑥ | **标记的展示尺寸无 token** | `spaceRoles()` 只到 `xxl=32`；开屏标记盒（居中大标记）的边长**没有**语义档 ⇒ 若各写各的，就是散落字面量（本仓禁） | 取 `5 × SPACE_XXL(32) = 160pt`（由底板常量**倍数**得出）；**建议**并入底座位专用档，需拍板 |
+| ① | **`SPLASH_MIN_DWELL_MS` 不存在** | 底座只有 `MOTION_*`（动画时长），没有"**最短停留策略**"常量 ⇒ 若直接用 `T1+T2=540`，品牌在"内容秒就绪"时可能一闪而过 | ✅ **裁决：采纳** `MOTION_BASE_MS + MOTION_FAST_MS = 400ms`；⚠️ 待 `orb-ux` 提升为底座常量（现由 `core/splash.ets` 以派生表达式先行落地，**零裸数字**） |
+| ② | **`SPLASH_TIMEOUT_MS` 不存在** | 没有"冷启动超时"档位；不设 ⇒ 慢网时无限停在开屏 | ✅ **裁决：采纳** `ORB_BREATH_MS = 2560ms`（= 在飞主呼吸刻度 1×）；同上待提升 |
+| ③ | **入场 scale 起点有两个不同值** | 设计输入 `docs/REDESIGN-INPUT-BRAND.md:145` 写 `scale 0.92→1`；而 `components/AssistantOrb.ets:94` 的 `ORB_ENTER_SCALE = 0.86` | ✅ **裁决：不强行统一** —— 二者**同语义、按元素变体**：**标记**用 `0.92`（`SPLASH_MARK_ENTER_SCALE`，建议提升为底座 `MOTION_ENTER_SCALE`），**光球**用 `0.86`（`ORB_ENTER_SCALE`，光球专属，已具名）。理由：强行合并会人为耦合两者的调参 |
+| ④ | **开屏曲线的"另一个可能"** | `sheetTransition()`（`anim.ets:114-117`）用了 `Curve.Friction`（**底座外**的 ArkUI 内置曲线）⇒ 若开屏误用它，就是"第二套曲线" | ✅ 已记账（不在本波域）；⛔ 开屏**必须**用 §4.5 的两条曲线（spring 入场 / ease-out 让位） |
+| ⑤ | **T3 光球的"首个会话在流式"判据不在本规格** | 该判据属状态机（`row.isLive` / `busy`），已有唯一源 | ✅ 组件消费既有判据，**不新增** |
+| ⑥ | **标记的展示尺寸无 token** | `spaceRoles()` 只到 `xxl=32`；开屏标记盒（居中大标记）的边长**没有**语义档 ⇒ 若各写各的，就是散落字面量（本仓禁） | ✅ **裁决：采纳** `5 × SPACE_XXL(32) = 160pt`；⚠️ 待提升为底座尺寸档 |
+| ⑦ | **`EASE_OUT_CSS` 无工厂**（本波新发现） | token 已定义（`core/tokens.ets:56`）但**无消费者/无工厂** ⇒ 组件无法消费"无超调缓出"（`@ohos.curves` 只许在 `components/anim.ets` import） | ⏳ `orb-ux` 正在收成 `animEaseOut()`；就绪前 T2 暂用 `animSlow()`（见 §4.5 的 TODO） |
 
 ---
 
 ## 12. 需要用户拍板的点（一条一条）
+
+> **已被裁决销账**：#4（minDwell/timeout 取值）与 #5（入场 scale）—— 见 §11 的"本波裁决结果"。
+> 仍待拍板的只剩下面 4 条。
 
 1. **白主题标记用"品牌紫"还是"Apple 蓝"？**（`SOLID` 档的颜色）
    实调：紫 `#7C5CFF` 对白 **4.3461**（≥3 非文本 ✅，<4.5 文本 ✗）；蓝 `#0071E3` 对白 **4.6967**（两者皆 ✅）。
@@ -312,10 +358,9 @@ function splashMarkLevelOf(theme: string, sizeVp: number, monochrome: boolean): 
 2. **是否采用方案 A（`FOLLOW_APPLICATION`）消除冷启动跳色？**（`docs/BRAND.md §12.1` 的精确 diff；**不需卸载重装**）
    不采用 ⇒ 只能上方案 B（固定底色 + T1 同色），**跨深浅必闪**（§6 表）。两方案**可叠加**。
 3. **T1/T2 是否真的要做（引入应用内开屏）？** 现状无它也能跑（系统开屏 → 首页）。
-   做了才有"品牌过渡"，但要新增组件 + 接 `pages/Index.ets`（`sidebar-ux` 领土）。
-4. **`minDwellMs` / `timeoutMs` 是否按 §11 的建议值（400 / 2560）？** 或另定。
-5. **入场 scale 起点**（§11 ③：0.92 还是 0.86，或统一一个底座常量）？
-6. **交互打断的语义**（§4.2）：T1/T2 期间用户点击 ⇒ **立即进 T3**，对吗？（还是"忽略点击、走完过渡"？）
+   做了才有"品牌过渡"；组件已实现（`components/SplashOverlay.ets`），但**接线归 `sidebar-ux`**（见交付的接线补丁）。
+4. **交互打断的语义**（§4.2，已实现为"立即 T3"）：T1/T2 期间用户点击 ⇒ **立即进 T3**（`splashPhaseAt(..., userDismissed=true)`），对吗？
+   （另一选项：忽略点击、走完过渡。当前实现 = 前者。）
 
 ---
 
