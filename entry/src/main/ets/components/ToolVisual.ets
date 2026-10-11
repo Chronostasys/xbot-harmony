@@ -8,58 +8,39 @@
  *   永远显示「排队」，done/executing 都不更新 —— 用户 2026-10-10「tool done 和 tool
  *   executing 没区别」的真正根因）。
  *
- * 状态语义（判定/文案）在 `core/toolstatus.ets`（纯函数，可脱机单测）；本文件只管画。
- * **状态一律以后端为准**（有些工具并行、有些串行 ⇒ `pending` 就是真的排队，不许私自改判）。
+ * 分工（本波收敛）：
+ *   · **判据**（raw status ⇒ 语义档）在 `core/toolstatus.ets`（唯一，纯函数）；
+ *   · **视觉映射**（语义档 ⇒ 颜色/底色/柔影）在 `core/toolvisual.ets`（纯函数，**可脱机单测**）；
+ *   · 本文件**只管画** —— 不再自持任何颜色映射（此前 `statusColorOf/pillTextColorOf/
+ *     liveShadowColorOf` 三个私有实现散在这里，无法单测）。
+ *
+ * 状态一律以后端为准（`pending` 就是排队，不许私自改判）。
  *
  * 布局用 `Flex(NoWrap)` + `flexShrink`（与 web `inline-flex` 同构）：名称可收缩、状态标记与
  * chip 不可收缩 ⇒ 「执行中」chip 永不被长参数挤掉。
- */
-import { effectsOf, paletteOf, Palette, isLightPalette } from '../core/theme';
-import { FS_CAPTION, R_LG, R_SM, SP_1, SP_2 } from '../core/tokens';
-import { ST_DONE, ST_ERROR, ST_KILLED, ST_PENDING, statusColorRole, ROLE_DANGER, ROLE_SUCCESS } from '../core/toolstatus';
-
-/** 在飞 pill 的柔影半径（vp）—— 浅色系用它把"在飞"读作悬浮卡片而非发光体。 */
-const LIVE_SHADOW_RADIUS: number = 12;
-
-/** 状态 → 语义色（**全项目唯一**的颜色映射表）。
  *
- * ⛔ 判据来自 `core/toolstatus.statusColorRole`（唯一）；本函数只是把 role 按**主题**取色。
- *    曾有 `pending` 落到最后的 `accentSoft`（"在飞"色）⇒ 排队态的**颜色说在飞、文案说排队**
- *    （真机物证：虚线空心的点 + accent 蓝 chip + 「排队」三信号打架）。web
- *    `FoldedToolGroup.tsx:211` 对 pending/killed 用 `--text-muted`（安静），此处对齐。 */
-export function statusColorOf(kind: string, theme: string): string {
-  const p: Palette = paletteOf(theme);
-  const role: string = statusColorRole(kind);
-  if (role === ROLE_DANGER) { return p.dangerText; }
-  if (role === ROLE_SUCCESS) { return p.successText; }
-  if (role === 'muted') { return p.textMuted; }
-  return p.accentSoft;   // accent：running / generating（需要注意力）
-}
-
-/** pill 文本色：失败=红（吵闹，是它的语义）；其余=中性前景（成功要安静）。 */
-export function pillTextColorOf(kind: string, theme: string): string {
-  return kind === ST_ERROR ? paletteOf(theme).dangerText : paletteOf(theme).textPrimary;
-}
+ * ⛔ 本文件**不新增任何动效**：同一时刻只允许一个在飞动效（= 光球，`docs/DESIGN-SYSTEM.md §8`）；
+ *    pill 的"在飞"只用**静态**语言（状态色 + 柔影；扫光由调用方提供）。
+ *    排队态的符号缩放呼吸是批次22 已定稿的**纯附加**，本波不动（要动先问）。
+ */
+import { R_LG, R_SM, FS_CAPTION, SP_1, SP_2 } from '../core/tokens';
+import { ST_DONE, ST_ERROR, ST_KILLED, ST_PENDING } from '../core/toolstatus';
+import {
+  PILL_MARKER_SLOT, PILL_LIVE_GLOW_RADIUS, chipBgOf, glowColorOf, pillBgOf,
+  pillTextColorOf as corePillTextColorOf, statusColorOf as coreStatusColorOf,
+} from '../core/toolvisual';
 
 /**
- * 在飞 pill 的阴影色（**唯一的主题分叉点**）。
- *
- * 为什么不一律用 `eff().glow`：`glow` = accent@45% 的**彩色外发光** —— 在深色底上它是
- * "在飞"的高级感来源；但在**白色主题**（`porcelain` / `light`）上，45% 饱和色晕压在白卡
- * 边上会读成"脏"，正是用户要的"干净"的反面。
- * `effectsOf` 的**浅色分支**已经备好中性柔影档（`elev1/2/3` = 正文色相 @6/10/16%），
- * 这里直接复用（不在组件里自造色值 —— `core/theme.ets` 是本波禁改面）。
- *
- * ⚠️ 深色系（dark/aurora/nebula）走 `glow`，**逐字节不变**（其它线依赖其观感）。
- * 判据用 `isLightPalette`（按 `appBg` 感知亮度，对新增色板/强调色覆盖都成立 —— 见其注释），
- * 不用主题名硬判。
+ * 状态 → 语义色 —— **兼容旧导入点**（`components/MessageRow.ets` / `components/ToolPopover.ets`
+ * 从本文件取 `statusColorOf`）。实现已迁到 `core/toolvisual.ets`（可单测），此处只转发。
  */
-function liveShadowColorOf(theme: string, live: boolean): string {
-  const p: Palette = paletteOf(theme);
-  if (!live) {
-    return p.transparent;
-  }
-  return isLightPalette(p) ? effectsOf(p).elev2 : effectsOf(p).glow;
+export function statusColorOf(kind: string, theme: string): string {
+  return coreStatusColorOf(kind, theme);
+}
+
+/** pill 文本色（转发 `core/toolvisual`；保留导出以免破坏既有导入点）。 */
+export function pillTextColorOf(kind: string, theme: string): string {
+  return corePillTextColorOf(kind, theme);
 }
 
 @Component
@@ -70,7 +51,7 @@ export struct ToolPill {
   @Prop kind: string = ST_DONE;
   /** 状态 chip 文案（空 = 不渲染 —— 成功态安静）。 */
   @Prop chip: string = '';
-  /** 是否"在飞"（运行/生成中）—— 决定扫光/发光。 */
+  /** 是否"在飞"（运行/生成中）—— 决定扫光/柔影（**由调用方用 `isInFlight` 判好**）。 */
   @Prop live: boolean = false;
   /** 是否是当前打开浮层的那一枚（提亮一档）。 */
   @Prop selected: boolean = false;
@@ -84,36 +65,32 @@ export struct ToolPill {
         if (this.kind === ST_DONE) {
           // 成功：**描边绿勾**（安静，不喧哗）
           SymbolGlyph($r('sys.symbol.checkmark_circle'))
-            .fontSize(13).fontColor([statusColorOf(this.kind, this.theme)])
+            .fontSize(13).fontColor([coreStatusColorOf(this.kind, this.theme)])
         } else if (this.kind === ST_ERROR) {
           SymbolGlyph($r('sys.symbol.xmark_circle_fill'))
-            .fontSize(13).fontColor([statusColorOf(this.kind, this.theme)])
+            .fontSize(13).fontColor([coreStatusColorOf(this.kind, this.theme)])
         } else if (this.kind === ST_KILLED) {
           SymbolGlyph($r('sys.symbol.minus_circle'))
-            .fontSize(13).fontColor([statusColorOf(this.kind, this.theme)])
+            .fontSize(13).fontColor([coreStatusColorOf(this.kind, this.theme)])
         } else if (this.kind === ST_PENDING) {
           // 排队态：静态虚线圆 → 加一记**符号缩放呼吸**（Apple 式）。**纯附加**（原先无动效），
           // 不触碰"执行中/生成中"的 `LoadingProgress`（真机已定稿：执行中必须是**会动的原生
           // 指示器**，静态字符被用户明确否掉 ⇒ 不拿可能静默的符号动效去替换它）。
-          // 依据（d.ts）：`symbolEffect(symbolEffect, isActive?)` —— symbolglyph.d.ts:761；
-          //   `ScaleSymbolEffect(scope?, direction?)` —— :324；枚举 `EffectScope`/`EffectDirection`
-          //   —— :197/:163。
-          // ⚠️ 待验证：真机是否**循环**呼吸（d.ts 只保证"激活缩放动效"；SDK 符号配置里该动效是
-          //   一记 spring 弹跳）。若不循环 ⇒ 等价一次性弹入，无副作用、不影响正确性。
+          // ⚠️ 本波不动（批次22 定稿；要动先问）。
           SymbolGlyph($r('sys.symbol.circle_dashed'))
-            .fontSize(12).fontColor([statusColorOf(this.kind, this.theme)])
+            .fontSize(12).fontColor([coreStatusColorOf(this.kind, this.theme)])
             .symbolEffect(new ScaleSymbolEffect(EffectScope.WHOLE, EffectDirection.UP), true)
         } else {
           // 运行/生成中：**会动的**原生指示器（静态字符是 TUI 观感，用户明确否掉）
-          LoadingProgress().width(13).height(13).color(statusColorOf(this.kind, this.theme))
+          LoadingProgress().width(13).height(13).color(coreStatusColorOf(this.kind, this.theme))
         }
       }
-      .width(14).height(14)
+      .width(PILL_MARKER_SLOT).height(PILL_MARKER_SLOT)
       .flexShrink(0)
 
       Text(this.label)
         .fontSize(FS_CAPTION)
-        .fontColor(pillTextColorOf(this.kind, this.theme))
+        .fontColor(corePillTextColorOf(this.kind, this.theme))
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .margin({ left: SP_1 })
@@ -123,9 +100,10 @@ export struct ToolPill {
       if (this.chip.length > 0) {
         Text(this.chip)
           .fontSize(10)
-          .fontColor(statusColorOf(this.kind, this.theme))
+          .fontColor(coreStatusColorOf(this.kind, this.theme))
+          // ⛔ chip 底色**恒 ≠ pill 底色**（否则选中 pill 上 chip"消失"）—— 见 `core/toolvisual.chipBgOf`
+          .backgroundColor(chipBgOf(this.kind, this.selected, this.theme))
           .padding({ left: SP_1, right: SP_1, top: 1, bottom: 1 })
-          .backgroundColor(paletteOf(this.theme).surfaceHi)
           .borderRadius(R_SM)
           .margin({ left: SP_1 })
           .maxLines(1)
@@ -134,12 +112,12 @@ export struct ToolPill {
       }
     }
     .padding({ left: SP_2, right: SP_2, top: 5, bottom: 5 })
-    .backgroundColor(this.selected ? paletteOf(this.theme).surfaceHi : paletteOf(this.theme).surfaceAlt)
+    .backgroundColor(pillBgOf(this.kind, this.selected, this.theme))
     .borderRadius(R_LG)
     .clip(true)
     .shadow({
-      radius: this.live ? LIVE_SHADOW_RADIUS : 0,
-      color: liveShadowColorOf(this.theme, this.live),
+      radius: this.live ? PILL_LIVE_GLOW_RADIUS : 0,
+      color: glowColorOf(this.kind, this.live, this.theme),
       offsetX: 0, offsetY: 0,
     })
   }
