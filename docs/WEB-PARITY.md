@@ -396,8 +396,9 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 - 共用原子在 `components/SettingsRows.ets`（`SettingsToolRow`/`SettingsMcpHead`/`SettingsSubCard`/
   `SettingsNumberRow`/`SettingsChipRow`/`SettingsPanelHeader`/`SettingsErrorBar`）——
   **三个面板跨文件真实引用**它们 ⇒ 进依赖图、被 ArkTS 真编译覆盖（不是孤儿）。
-- **唯一待接线**：`components/SettingsPanel.ets`（三面板 tab 聚合，**唯一注入点**）。
-  `pages/Index.ets` 注入一行即可：`SettingsPanel({ http: store.http, theme: this.theme })`。
+- ✅ **已接线（2026-10-11 深晚订正：原「唯一待接线」已过时）**：`components/SettingsPanel.ets`（三面板 tab 聚合，**唯一注入点**）——
+  实测它已聚合 `SettingsTools`/`SettingsLlm`/`SettingsAgent`/`SettingsDeveloper`/`SettingsChannels`/`SettingsPlugins` 等，
+  且 `pages/Index.ets` 早已注入（`http`/`theme`/`settings`/`initialTab`/`surfaceWeb`/`notifyOn`/`channel`/`chatID`/`username` 等）。
 
 ⚠️ 这些面板若都塞进 `pages/Index.ets`（5200 行、**热文件**）会锁死并行度 ⇒ 应各自独立成
 `components/Settings*.ets`，`Index.ets` 只做入口注入。
@@ -464,8 +465,10 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 - 已本波交付的 `SubAgentTree` + `core/subagent.ets` 属**数据已就绪、只差接线**的最高性价比项。
 
 **进度更新（2026-10-11 波6）**：
-- ✅ **已交付（纯逻辑 + 组件，待接线）**：`Todo 拉出面板` —— `core/todos.ets`（状态归一 /
+- ✅ **已交付且已接线**：`Todo 拉出面板` —— `core/todos.ets`（状态归一 /
   `TodoState` 统计 / toggle·rename·remove / goal 判定 / `set_todos` 载荷）+ `components/TodoPanel.ets`。
+  ⚠️ **2026-10-11 深晚订正**：原注「待接线」**已过时** —— 实测 `core/todos.ets` 有**真消费**
+  （`components/TodoPanel.ets` + `pages/Index.ets`）。
 - 🔴 **本波发现的原生 bug（未修，不在我的文件范围）**：`core/statusfmt.ets:50` 用
   `status === 'completed'`、`:62` 用 `status === 'in_progress'` 判 todo 状态，**而服务端权威词汇是
   `"pending" | "doing" | "done"`**（`xbot/tools/todo.go:15`、`xbot/protocol/events.go:19`；
@@ -552,7 +555,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | 登录页 | `pages/LoginPage.tsx:18` | ✅ | `Index.ets:2557 LoginView` |
 | 注册页 | `pages/RegisterPage.tsx:26` | ✅ | `Index.ets:1438 store.http.register` |
 | **分享页**（token 只读分享） | `pages/SharePage.tsx:33` | ❌ | 见 11.5 证据 ⑧ |
-| **会话导出**（`json`/`jsonl`/`txt`；⛔ **无 markdown**） | `SettingsDeveloper.tsx:60-92`、`agent/api.ts:378-582` | 🟡 **纯逻辑已交付** | `core/export.ets`（`a7e6ffc`，全形态 + 78 断言）；**UI 入口未接线**（见 11.5 证据 ⑧） |
+| **会话导出**（`json`/`jsonl`/`txt`**+ openai/codex**；⛔ **无 markdown**） | `SettingsDeveloper.tsx:60-92`、`agent/api.ts:378-582` | ✅ **已接线**（⚠️ **2026-10-11 深晚订正**：原注「UI 入口未接线」**已过时**） | `core/export.ets`（全形态 + 断言）；**UI 入口已在 `components/SettingsDeveloper.ets`**（`ForEach(exportActions(), …)` 渲染 6 个动作；`settings-gaps` `c87b5b6` 补齐 openai/codex 两项） |
 
 ### 11.3 C 域：设置全分区 / 插件体系 / 其它
 
@@ -611,7 +614,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
     mime 分别 `application/json`（前两者）/ `application/x-jsonlines`（后三者）；另加开发者 **turn+iter**=`txt`（`text/plain`，`SettingsDeveloper.tsx:60-92`）。
     ⛔ **web 无 markdown 导出**（`grep -rniE "text/markdown|\\.md['\"]"` 在 `web/src` **零导出命中**；服务端 RPC 表亦仅 `export_session`/`export_session_jsonl`，`serverapp/rpc_table.go:1539/1577`）。
     **文件名口径**（`api.ts:570-572`）：`<label>.<ext>`，`label=(chatID||'session').replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,60)` —— **不含时间戳**（时间戳仅 SSE 录制器 `sse-dump-<ts>.ev` 用）。
-  - **本仓落地（2026-10-11）**：纯逻辑**已交付 `a7e6ffc`** —— `core/export.ets`（native/openai=json、codex/multica/benchmark=jsonl、turn+iter=txt 全形态 + `ExportClock` 注入时间/id）+ `tools/tests/export.test.ts`（78 断言）；**UI 入口未接线**（需 `core/rpc.ets` 补 `export_session`/`export_session_jsonl` RPC 常量 + `Index.ets` 接会话菜单/设置面）。
+  - **本仓落地（2026-10-11）**：`core/export.ets`（native/openai=json、codex/multica/benchmark=jsonl、turn+iter=txt 全形态 + `ExportClock` 注入时间/id）+ `tools/tests/export.test.ts`；⚠️ **2026-10-11 深晚订正**：原注「UI 入口未接线」**已过时** —— 实测 `components/SettingsDeveloper.ets` 已 `ForEach(exportActions(), …)` 渲染（RPC 常量 `export_session`/`export_session_jsonl` 亦已在 `core/rpc.ets`）。
 - ⑧-bis **「搜消息」真机复验（2026-10-11，设备 `127.0.0.1:5555`，装 `adc8f81`，含 `bf9dc78`）**：
   - **结论①：切会话通知服务端 —— ✅ 生效（真机证实）**。App 的服务端是**远端** `https://xbot.pivotlang.tech`
     （设备 prefs `.../haps/entry/preferences/xbot_settings` 的 `server_url`；本机 `xbot-cli serve` **不是**它的后端，本机 `/api/history` 404）。
@@ -799,7 +802,7 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 |---|---|---|---|---|---|---|
 | 1 | **AnsiText 接色** | `AnsiText.tsx:205`（3 消费点） | `core/ansi.ets` 就绪；`components/MessageRow.ets`/`ToolPopover.ets` **未接** | **B**（只在 `components/`，**非热文件**） | 高 | **P1** |
 | 2 | **rewind 入口** | `UserMessage.tsx:31,114,149`；`AgentPanel.tsx:929` | `store.rewindTo`(`store.ets:1086`) 就绪；**无长按菜单** | **B** | 高 | **P1** |
-| 3 | **会话导出（`json`/`jsonl`/`txt`；⛔ 无 markdown）** | `SettingsDeveloper.tsx:60-92`（turn+iter=txt）+ `agent/api.ts:378-582`（native/openai=json、codex/multica/benchmark=jsonl） | **纯逻辑已交付 `a7e6ffc`**（`core/export.ets`，78 断言）；**UI 入口未接线**（需 `core/rpc.ets` 补 `export_session`/`export_session_jsonl` + `Index.ets` 接菜单/设置） | **A✅ + B** | 中 | **P2** |
+| 3 | **会话导出（`json`/`jsonl`/`txt`；⛔ 无 markdown）** | `SettingsDeveloper.tsx:60-92`（turn+iter=txt）+ `agent/api.ts:378-582`（native/openai=json、codex/multica/benchmark=jsonl） | ✅ **已接线**（`core/export.ets` + `components/SettingsDeveloper.ets` 的 `ForEach(exportActions(), …)`；⚠️ 原注「UI 入口未接线」已过时，`settings-gaps` `c87b5b6` 又补齐 openai/codex） | **A✅ + B** | 中 | **P2 → 已闭环** |
 | 4 | PathPicker / cwd 选择 | `PathPicker.tsx:36` + `recent-workdirs.ts:12` | `core/recentdirs.ets` 就绪；无选择器（`Index.ets:1787 newSession()` 直建） | **B** | 中 | P2 |
 | 5 | 命令深链**入口** | `commandRouter.ts:61,136` | `core/command.ets` 就绪；`EntryAbility.ets:123 captureOpenChat` 仅 chatId | **B**（+可能 C） | 中 | P2 |
 | 6 | SessionViewBar「全部折叠/展开」 | `SessionViewBar.tsx:34` | 分类切换 ✅；批量切换 **grep 0 命中** | **B** | 中 | P3（XS） |
