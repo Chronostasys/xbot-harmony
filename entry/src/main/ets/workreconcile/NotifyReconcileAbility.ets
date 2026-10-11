@@ -193,7 +193,14 @@ async function publish(ctx: common.Context, title: string, text: string, chatId:
     // 点进路由：复用既有 `notify_action`/`chat_id` 机制（与 `core/notify.ets` 同参数名）
     // ⇒ 冷启由 `EntryAbility.captureOpenChat(want)` 接住，直达到该会话。
     // 为什么带"最后判出的那个 session"：本期只判出一条；多会话聚合时改成"最长未读者"即可（结构已就位）。
-    let agent: Object = {};
+    // ⛔ ArkTS 禁**无显式类型的对象字面量**（arkts-no-untyped-obj-literals）：
+    //    这里曾写 `let agent: Object = {}` ⇒ 编译红（10605038，:196）。
+    //    修法 = 不用占位字面量：请求体先建成**显式类型**，再条件赋值可选字段。
+    // ⚠️ SDK 里 `WantAgent` 就是 `object` 的别名（`@ohos.app.ability.wantAgent.d.ts:475`：
+    //    `export type WantAgent = object;`），且 default import 下**不解析为类型名**
+    //    （写成 `wantAgent.WantAgent` 会报"no exported member named 'WantAgent'"）。
+    //    ⇒ 这里直接用 `Object | null`，语义与 SDK 别名一致。
+    let agent: Object | null = null;
     try {
       const info: wantAgent.WantAgentInfo = {
         wants: [{
@@ -209,15 +216,18 @@ async function publish(ctx: common.Context, title: string, text: string, chatId:
     } catch (e) {
       hilog.warn(DOMAIN, TAG, 'wantAgent failed（点开仍会起应用）: %{public}s', (e as BusinessError).message);
     }
-    await notificationManager.publish({
+    const request: notificationManager.NotificationRequest = {
       id: 1001,
-      wantAgent: agent,
       content: {
         notificationContentType: notificationManager.ContentType.NOTIFICATION_CONTENT_BASIC_TEXT,
         normal: { title: title, text: text },
       },
       isAlertOnce: true,
-    });
+    };
+    if (agent !== null) {
+      request.wantAgent = agent;
+    }
+    await notificationManager.publish(request);
   } catch (e) {
     hilog.warn(DOMAIN, TAG, 'publish failed: %{public}s', (e as BusinessError).message);
   }
