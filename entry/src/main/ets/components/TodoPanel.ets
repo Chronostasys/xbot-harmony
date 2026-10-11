@@ -26,7 +26,8 @@ import { FS_CAPTION, R_MD, R_SM, SP_1, SP_2, SP_3 } from '../core/tokens';
 // 语义令牌（`7841978` §4.7/§4.8/§6）：控件行高 / 进度条 / 清单高 / 菜单宽 / goal 行底纹 / 按压。
 import {
   CONTROL_ROW_H, ICON_MD, ICON_SM, INSET_CHIP_X, INSET_CHIP_Y, LIST_MAX_H, MENU_W, PRESS_OPACITY,
-  PROGRESS_H, PROGRESS_W, RADIUS_CHIP, TYPE_CHIP, goalRowTintOf, typeOf, colorOf, } from '../core/design';
+  PROGRESS_H, PROGRESS_W, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP, goalRowTintOf, hairlineOf,
+  surfaceFillOf, typeOf, colorOf, } from '../core/design';
 import { animFast } from './anim';
 import { TodoItem } from '../core/types';
 import {
@@ -407,14 +408,14 @@ export struct TodoPanel {
           .alignItems(HorizontalAlign.Start)
           .constraintSize({ maxHeight: LIST_MAX_H })
           .padding({ left: SP_2, right: SP_2, top: 6, bottom: 6 })
-          .border({ width: { top: 1 }, color: this.pal().border })
+          .border({ width: { top: STROKE_HAIRLINE }, color: hairlineOf(this.pal()) })
         }
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
-      .backgroundColor(this.pal().surface)
+      .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))
       .borderRadius(R_MD)
-      .border({ width: 1, color: this.pal().border })
+      .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
       .clip(true)
     }
   }

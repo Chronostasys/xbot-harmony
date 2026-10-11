@@ -13,7 +13,9 @@
  */
 import { Palette, paletteOf, Surfaces, surfacesOf } from '../core/theme';
 import { R_LG, R_MD, R_SM, R_XL, SP_1, SP_2, SP_3, FS_BODY, FS_CAPTION } from '../core/tokens';
-import { PRESS_OPACITY, RADIUS_CHIP, SPACE_HAIR, TYPE_CHIP, typeOf } from '../core/design';
+import {
+  PRESS_OPACITY, RADIUS_CHIP, SPACE_HAIR, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP, hairlineOf, surfaceFillOf, typeOf,
+} from '../core/design';
 import { ToolProgress } from '../core/types';
 import { renderKind } from '../core/toolstatus';
 import { AnsiSpan, ansiBgOf, ansiFgOf, ansiPaletteOf, ansiSpansIfAny, hasAnsi } from '../core/ansi';
@@ -352,7 +354,7 @@ export struct ToolPopoverCard {
       .constraintSize({ maxHeight: BODY_MAX_H })
       // 内边距对齐 web `ToolCallBlock.tsx:66`（JSON 参数块 `px-2.5 py-1.5` = 左右 10 / 上下 6）
       .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-      .backgroundColor(this.surf().sunken)
+      .backgroundColor(surfaceFillOf(this.pal(), 'surface.well'))
       .borderRadius(R_MD)
     }
     .width('100%').alignItems(HorizontalAlign.Start)
@@ -377,7 +379,7 @@ export struct ToolPopoverCard {
       .constraintSize({ maxHeight: BODY_MAX_H })
       // 内边距对齐 web `ToolCallBlock.tsx:98`（终端输出块 `px-2.5 py-1.5` = 左右 10 / 上下 6）
       .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-      .backgroundColor(this.surf().sunken)
+      .backgroundColor(surfaceFillOf(this.pal(), 'surface.well'))
       .borderRadius(R_MD)
     }
     .width('100%').alignItems(HorizontalAlign.Start)
@@ -410,7 +412,7 @@ export struct ToolPopoverCard {
           : (ln.kind === DIFF_DEL ? this.pal().dangerText : this.pal().textSecondary))
         .copyOption(CopyOptions.LocalDevice)
     }
-    .backgroundColor(ln.kind === DIFF_ADD ? this.surf().sunken
+    .backgroundColor(ln.kind === DIFF_ADD ? surfaceFillOf(this.pal(), 'surface.well')
       : (ln.kind === DIFF_DEL ? this.pal().warnBg : this.pal().transparent))
   }
 
@@ -444,7 +446,7 @@ export struct ToolPopoverCard {
         Text(`−${f.dels}`).fontSize(typeOf(TYPE_CHIP).size).fontColor(this.pal().dangerText)
       }
       .width('100%').padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
-      .backgroundColor(this.surf().sunken)
+      .backgroundColor(surfaceFillOf(this.pal(), 'surface.well'))
 
       ForEach(tailLinesOfFile(f, MAX_DIFF_LINES), (ln: DiffLine, li: number) => {
         if (ln.kind === DIFF_HUNK) {
@@ -457,7 +459,7 @@ export struct ToolPopoverCard {
     .width('100%').alignItems(HorizontalAlign.Start)
     .borderRadius(R_MD)
     .clip(true)
-    .backgroundColor(this.pal().surface)
+    .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))
   }
 
   /** diff 卡集合（可能多文件）。 */
@@ -495,7 +497,7 @@ export struct ToolPopoverCard {
           Text(this.vm.status)
             .fontSize(typeOf(TYPE_CHIP).size).fontColor(this.vm.statusColor)
             .padding({ left: SP_1, right: SP_1, top: SPACE_HAIR, bottom: SPACE_HAIR })
-            .backgroundColor(this.surf().sunken).borderRadius(RADIUS_CHIP)
+            .backgroundColor(surfaceFillOf(this.pal(), 'surface.well')).borderRadius(RADIUS_CHIP)
         }
         if (this.vm.elapsedMs > 0) {
           Text(formatElapsed(this.vm.elapsedMs)).fontSize(typeOf(TYPE_CHIP).size).fontColor(this.pal().textMuted)

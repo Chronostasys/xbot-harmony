@@ -96,6 +96,8 @@ interface Rule { readonly name: string; readonly re: RegExp; readonly fix: strin
 const RULES: Rule[] = [
   { name: 'pal().border 当边框色', re: /\.border\(\{[^}]*pal\(\)\.border\b/g, fix: 'hairlineOf(p)（结构性发丝）' },
   { name: 'pal().surface 直取当底色', re: /\.backgroundColor\(this\.pal\(\)\.surface\)/g, fix: "surfaceFillOf(p, 'surface.card'|'surface.overlay')" },
+  // ToolPopover 收敛（2026-10-11 主 agent 裁决）：不再走 surfacesOf 取底色，一律 surfaceFillOf
+  { name: 'surfacesOf/surf().sunken 直取当底色', re: /this\.surf\(\)\.sunken/g, fix: "surfaceFillOf(p, 'surface.well')" },
 ];
 
 /** 白名单（每条必须写明**为什么可留**）。键 = `文件|规则名`。 */
@@ -133,7 +135,7 @@ if (violations.length > 0) {
  * ⛔ 不许为"让测试变绿"往这里灌；每条都必须是**真违规**（走不到唯一口径族）。
  * 明细见测试运行时打印的 `✗ 自由面未走唯一口径族` 列表。
  */
-const KNOWN_VIOLATIONS_COUNT: number = 7;
+const KNOWN_VIOLATIONS_COUNT: number = 0;
 eq('违规数 = 台账（只准删不准加；修好/新增 ⇒ 计数变 ⇒ 红）', violations.length, KNOWN_VIOLATIONS_COUNT);
 
 if (fail > 0) { console.log(`  ✗ free_surface_layers: ${pass} passed, ${fail} failed`); process.exit(1); }

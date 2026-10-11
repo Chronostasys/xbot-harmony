@@ -7,6 +7,7 @@
  */
 import { Palette, paletteOf } from '../core/theme';
 import { QueueItem } from '../core/types';
+import { STROKE_HAIRLINE, SURFACE_CARD, hairlineOf, surfaceFillOf } from '../core/design';
 import { FS_CAPTION, FS_TITLE, R_LG, R_MD, R_XL, SP_2, SP_3, SP_4 } from '../core/tokens';
 import { fs, fw } from './SettingsRows';
 // 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线/位移；E3 统一）。
@@ -90,14 +91,14 @@ export struct QueueSheet {
                 .fontColor([this.pal().dangerText]).padding(6).onClick(() => {
                   this.onCancel(this.idOf(q));
                 })
-            }.width('100%').padding(SP_2).backgroundColor(this.pal().surface).borderRadius(R_LG)
+            }.width('100%').padding(SP_2).backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD)).borderRadius(R_LG)
           }
         }, (q: QueueItem) => `${q.msg_id}#${q.content}#${q.text}`)
       }
       .height(300).width('100%')
     }
     .width('92%').padding(SP_4).backgroundColor(this.pal().appBg)
-    .borderRadius(R_XL).border({ width: 1, color: this.pal().border })
+    .borderRadius(R_XL).border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
     // 开合过渡（E3 统一）：与其它弹层同一条 `sheetTransition()`。
     .transition(sheetTransition())
   }
