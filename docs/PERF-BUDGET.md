@@ -156,6 +156,9 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
 | 19 | `anim*()` 调用点 | ≤ 20 处 | 静态 | 每次新建曲线对象 |
 | 20 | `ForEach` 处数 | ≤ 107 处 | 静态（规模指示） | 列表规模失控 |
 | 21 | core 外裸 `parseMarkdown/parseInline` | **= 0** | 静态（硬） | 渲染路径里做解析（已有 lint） |
+| 22 | 行内块窗口：340 块行**渲染**块数 | **≤ 24** | 静态计数（硬） | **窗口被拆/上限被取消**（TOP1 回归） |
+| 23 | 行内块窗口：340 块行隐藏块数 | **≥ 1** | 静态计数（硬） | 哨兵提示被删（= 静默丢内容的先兆） |
+| 24 | 行内块窗口：340 块行估算节点 | ≤ 600 | 静态计数（硬） | `MSG_BLOCK_WINDOW` 被调大失控 |
 
 **门禁怎么自动发现退化**：
 - `bash tools/perf/guard.sh` —— 21 条逐条打 ✅/❌，任一条 ❌ ⇒ **退出码 1**。
@@ -166,7 +169,17 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
 
 ## 3. 最该优先修的 3 个性能问题（**先别改，交派单**）
 
-### ① 单行迭代块**无上限** ⇒ 一行 340 块全部进渲染
+### ① 单行迭代块**无上限** ⇒ 一行 340 块全部进渲染 —— ✅ **已修（`6ad8477`）**
+> **落地记录**：`core/rowsview.ets`（`visibleBlocks`/`hiddenBlockCount`/`widenBlocks`/`MSG_BLOCK_WINDOW=24`
+> ＋`estimatedNodes`）+ `components/MessageRow.ets`（`@State blockLimit` / `shownIters()` /
+> `hiddenBlocks()` / `widen()` / **恒定高哨兵行**，`onVisibleAreaChange([0,0.5])` 可见即放宽）。
+> 效果（确定性计数，已进护栏）：340 块行 ⇒ 渲染 **24** 块、隐藏 **316** 块（有可见哨兵
+> 「更早的 316 个迭代块」）、估算节点 **1938 → 143**（−93%）。
+> 护栏：`guard.sh` 第 22~24 条（硬计数）；测试 `tools/tests/rowsview.test.ts`（28 passed，
+> mutation 6 failed）与 `row_block_scale.test.ts`（16 passed，**已自动转硬**）。
+> **残余**：`live` 行**不裁**（流式期 `liveBlocks` 每事件整体替换，窗口滑动会与 `atBottom`
+> 自动跟随打架 ⇒ 风险大于收益；长 turn 在 `text_final` 变 committed 后被窗口覆盖）。
+
 - **file:line**：`components/MessageRow.ets:344`（`itersFor()` = `mergeToolRuns(completedBlocks(row))`，
   注释明说"渲染全部迭代"，原 16 块上限已删）/ `:513`（`ForEach(this.itersFor(), …)`）。
 - **预估收益**：单行 340 块 → 24 块 ⇒ 估算节点 **1938 → 143**（**−93%**）；
@@ -226,6 +239,7 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
 | 日期 | 指标 | 旧 → 新 | 理由 | 谁 |
 |---|---|---|---|---|
 | 2026-10-11 | 全部（首次建立） | — | 用**跨多次 run 的实测最大值 × ~3** 起阈值；sub-µs 指标跨 run 可差 10× ⇒ 只做数量级护栏 | perf 线 |
+| 2026-10-11 | 第 22~24 条（行内块窗口） | 新增 | **不是放宽**：`6ad8477` 落地 TOP1 后**新增**的硬计数判据（渲染块数 ≤24 / 隐藏 ≥1 / 估算节点 ≤600），阈值 = 判据本身（确定性计数，无抖动） | perf 线 |
 
 > 规则：任何上调都必须在**本表**写明"为什么不是代码退化"（附 `bench_core.sh` 两遍输出）。
 
