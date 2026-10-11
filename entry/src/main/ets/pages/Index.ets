@@ -78,7 +78,7 @@ import { SSE_STATE_FAILED } from '../core/sse';
 import { WIDGET_EVENT_WEB } from '../core/widgetsview';
 // 插件桥 page→native 的消息类型（协议权威 = `core/webbridge.ets`）
 import { BridgeMessage } from '../core/webbridge';
-import { listItemCount, nextFollowBottom, shouldAutoScroll, followSuppressUntil, FOLLOW_SUPPRESS_MS } from '../core/listfollow';
+import { listItemCount, nextFollowBottom, shouldAutoScroll, followSuppressUntil, FOLLOW_SUPPRESS_MS, markUserScrollFrame } from '../core/listfollow';
 import { OverlayCode, OverlayState, topOverlay } from '../core/overlays';
 import {
   currentTodo, modelText, todoProgress, usageText,
@@ -371,6 +371,20 @@ function mdCacheText(): string {
  * 以及内容增删引起的钳位/索引回调 —— **绝不**能置位，否则"用户往上看历史"的意图被一次程序动作
  * 改写（真机 P0：点工具 pill 触发 store 变更 ⇒ syncFrom 的 scrollEdge(Bottom) 把视角拽到最下方，
  * 2026-10-11）。`EDGE_EFFECT` = Spring 过卷，是手指拉出来的 ⇒ 算用户输入。
+ */
+// ── 用户滚动意图标志（`onWillScroll` → `onScrollIndex` 一次性消费）────────────
+/**
+ * 「用户滚动意图」标志的推进 —— **只置位、不清位**（`core/listfollow.markUserScrollFrame` 的包装）。
+ *
+ * ⛔ 为什么不能"这一帧是程序滚动就清位"（上一版写法，真机缺陷）：
+ *    流式期间**每帧都有程序滚动**（`shouldAutoScroll` 命中 ⇒ `scrollEdge(Edge.Bottom)`，
+ *    打字机/工具 pill 每 ~50ms 长大一次）。用户手指上滑的序列是：
+ *      ① `onWillScroll(DRAG/FLING)` → 置位；
+ *      ② **在 `onScrollIndex` 之前**，一次流式自动滚动到达 ⇒ `onWillScroll(SCROLLER)`
+ *         → 清位（**吃掉用户意图**）；
+ *      ③ `onScrollIndex` 消费 ⇒ `userDriven=false` ⇒ `followBottom` 恒为 true
+ *         ⇒ 自动滚动继续把视角拽回底部 ⇒ 用户**根本滚不动**（用户 2026-10-11 亲报）。
+ *    清位只发生在 `onScrollIndex` 消费时（`nextFollowBottom` 之后立即复位）。
  */
 function isUserScrollSource(src: ScrollSource): boolean {
   return src === ScrollSource.DRAG || src === ScrollSource.FLING
@@ -3761,7 +3775,11 @@ struct Index {
       // ⛔ 记录的**只有**"这一帧的滚动是不是用户干的"（ScrollSource 由 Scroll 框架给出，
       //    `SCROLLER`/`SCROLLER_ANIMATION` = 程序滚动与内容钳位 ⇒ 绝不算用户输入）。
       .onWillScroll((offset: number, state: ScrollState, source: ScrollSource) => {
-        this.userScrollFrame = isUserScrollSource(source);
+        // ⛔ **只置位、不清位**（见 `isUserScrollSource` 上方注释与 `core/listfollow.markUserScrollFrame`）：
+        //    流式期间每帧都有程序滚动（`scrollEdge(Bottom)`）⇒ 在此清位会把用户刚置的意图
+        //    在 `onScrollIndex` 消费前吃掉 ⇒ 用户"滚不动"（用户 2026-10-11 亲报）。
+        //    清位由 `onScrollIndex` 一次性消费。
+        this.userScrollFrame = markUserScrollFrame(this.userScrollFrame, isUserScrollSource(source));
       })
       // 跟踪"是否跟随到底部"：end 是最后一个可见项的下标，等于末项下标即在底部。
       // 项数 = [可选"加载更早"头项] + rows + [可选 live 行项] + [可选 busy 指示器]，

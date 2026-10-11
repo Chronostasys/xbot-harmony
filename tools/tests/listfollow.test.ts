@@ -9,7 +9,7 @@
 declare const process: { exit: (c: number) => void };
 
 import { describe, expect, it, summary } from './vitest_shim';
-import { listItemCount, nextFollowBottom, shouldAutoScroll, followSuppressUntil, FOLLOW_SUPPRESS_MS } from '../../entry/src/main/ets/core/listfollow';
+import { listItemCount, nextFollowBottom, shouldAutoScroll, followSuppressUntil, FOLLOW_SUPPRESS_MS, markUserScrollFrame } from '../../entry/src/main/ets/core/listfollow';
 
 let pass = 0;
 let fail = 0;
@@ -125,6 +125,47 @@ describe('shouldAutoScroll：程序滚到底的三条闸门（真机 P0：点工
     const newImplRolls: boolean = shouldAutoScroll(true, true, 1000, followSuppressUntil(1000, FOLLOW_SUPPRESS_MS));
     eq('旧实现 = 滚（P0 行为）', oldImplRolls, true);
     eq('新判据 = 不滚（修复行为）', newImplRolls, false);
+  });
+});
+
+// ── ⛔ 用户滚动意图标志：**只置位、不清位**（用户 2026-10-11 亲报「流式时滚不动」）──────
+// 流式期间每帧都有程序滚动（`shouldAutoScroll` 命中 ⇒ `scrollEdge(Edge.Bottom)`，
+// 打字机/工具 pill 每 ~50ms 长大一次）。用户上滑的帧序：
+//   ① onWillScroll(DRAG) → 置位；② **onScrollIndex 之前**来一次流式程序滚动
+//   → 旧写法在此清位 ⇒ ③ onScrollIndex 读到 userDriven=false ⇒ followBottom 恒 true
+//   ⇒ 自动滚动继续把视角拽回底部 ⇒ 用户根本滚不动。
+describe('markUserScrollFrame（只置位、不清位）', () => {
+  it('★ 用户帧 ⇒ 置位；程序帧 ⇒ **不清位**', () => {
+    eq('用户帧：false → true', markUserScrollFrame(false, true), true);
+    eq('程序帧**不得**清掉用户刚置的位（核心修复）', markUserScrollFrame(true, false), true);
+    eq('程序帧且无在途意图 ⇒ 仍 false', markUserScrollFrame(false, false), false);
+  });
+
+  it('★ 连来 N 个程序帧也吞不掉用户意图（用户上滑不会被拽回底部）', () => {
+    let pending: boolean = markUserScrollFrame(false, true);   // 用户 DRAG
+    for (let i = 0; i < 100; i++) {
+      pending = markUserScrollFrame(pending, false);           // 流式自动滚动帧 ×100
+    }
+    eq('100 个程序帧后仍为 true（等 onScrollIndex 消费）', pending, true);
+  });
+
+  it('★ 与 nextFollowBottom 串联：用户上滑 ⇒ followBottom 真的翻掉', () => {
+    // 帧序：用户上滑 → 流式程序帧 → onScrollIndex（end < 末项）
+    let pending: boolean = markUserScrollFrame(false, true);
+    pending = markUserScrollFrame(pending, false);              // 旧写法在这里归零 ⇒ 修复点
+    const userDriven: boolean = pending;
+    pending = false;                                            // onScrollIndex 一次性消费
+    const next: boolean = nextFollowBottom(true, userDriven, 3, 10);
+    eq('userDriven 被保住 ⇒ followBottom 翻成 false', next, false);
+    eq('标志已复位（不泄漏到后续程序帧）', pending, false);
+  });
+
+  it('反例：旧实现（无条件赋值）在同一帧序下丢意图（P0 行为）', () => {
+    let old: boolean = false;
+    old = true;                                                 // ① onWillScroll(DRAG)
+    old = false;                                                // ② onWillScroll(SCROLLER) —— 旧写法无条件赋值
+    eq('旧实现：userDriven=false（意图被吃掉）', old, false);
+    eq('旧实现：followBottom 保持 true ⇒ 被拽回底部', nextFollowBottom(true, old, 3, 10), true);
   });
 });
 

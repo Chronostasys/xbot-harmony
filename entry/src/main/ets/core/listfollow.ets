@@ -38,6 +38,29 @@ export function nextFollowBottom(prev: boolean, userDriven: boolean, endIndex: n
 }
 
 /**
+ * `onWillScroll` 一帧之后，「用户滚动意图」标志的新值 —— **只置位、不清位**。
+ *
+ * ⛔ 为什么不能"这一帧不是用户滚动就清位"（真机缺陷，用户 2026-10-11 亲报
+ *    「streaming 的时候也要允许用户正常滚动」）：
+ *    流式期间**每帧都有程序滚动**（`shouldAutoScroll` 命中 ⇒ `scrollEdge(Edge.Bottom)`，
+ *    打字机/工具 pill 每 ~50ms 长大一次）。用户手指上滑的帧序是：
+ *      ① `onWillScroll(DRAG/FLING)` → 本函数收到 `thisFrameIsUser=true` → 置位；
+ *      ② **在 `onScrollIndex` 消费之前**，一次流式自动滚动到达 ⇒ `onWillScroll(SCROLLER)`
+ *         → 若此处清位 ⇒ **用户意图被吃掉**；
+ *      ③ `onScrollIndex` 消费到 `userDriven=false` ⇒ `followBottom` 恒 `true`
+ *         ⇒ 自动滚动继续把视角拽回底部 ⇒ 用户**根本滚不动**。
+ *    清位只发生在 `onScrollIndex` 消费时（见页面：`nextFollowBottom` 之后立即复位）。
+ *
+ * 不变量（判别力测试钉死）：
+ *  ① `thisFrameIsUser=false` ⇒ 恒等于 `pending`（**绝不清位**）；
+ *  ② `thisFrameIsUser=true`  ⇒ 恒为 `true`；
+ *  ③ 置位后即使来一万个程序帧，标志仍为 `true`（等待 `onScrollIndex` 消费）。
+ */
+export function markUserScrollFrame(pending: boolean, thisFrameIsUser: boolean): boolean {
+  return pending || thisFrameIsUser;
+}
+
+/**
  * 消息列表的**列表项**总数 = [可选"加载更早"头项] + rows + [可选 live 行项] + [可选 busy 指示器项]。
  *
  * `onScrollIndex` 给的是**列表项**下标，而项数 ≠ rows.length ⇒ 必须显式算，用错就会误判贴底。
