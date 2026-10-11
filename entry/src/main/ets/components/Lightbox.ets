@@ -29,7 +29,7 @@ import image from '@ohos.multimedia.image';
 import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
 import {
   ELEV_OVERLAY, PRESS_OPACITY, RADIUS_CARD, SPACE_SM, SPACE_XS, STROKE_HAIRLINE,
-  colorOf, elevationColorOf, hairlineOf, surfaceFillOf, typeOf, ICON_LG } from '../core/design';
+  colorOf, elevationColorOf, hairlineOf, surfaceFillOf, typeOf, ICON_LG, HIT_TARGET_MIN } from '../core/design';
 import {
   clampOffset, clampScale, isZoomed, nextZoom, panLimit, scaleText, shouldDismissBySwipe,
 } from '../core/imgops';
@@ -139,6 +139,9 @@ export struct Lightbox {
       SymbolGlyph($r('sys.symbol.xmark')).fontSize(ICON_LG)
         .fontColor([colorOf(this.pal(), 'textSecondary')])
         .padding(SPACE_XS)
+        // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = 图标 16 + 2×`SPACE_XS`(8) = **32 < 44**
+        //    ⇒ `responseRegion` 外扩、⛔ 不改布局/视觉尺寸（`PluginsSheet`/`AskUserSheet` 同款手艺）。
+        .responseRegion({ x: -6, y: -6, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
         // 按下反馈（统一口径；与复位/SaveButton 同一常量）。
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {

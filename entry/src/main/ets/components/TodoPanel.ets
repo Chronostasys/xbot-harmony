@@ -28,7 +28,7 @@ import {
   CONTROL_ROW_H, ELEV_OVERLAY, ICON_MD, ICON_SM, INSET_CHIP_X, INSET_CHIP_Y, LIST_MAX_H, MENU_W,
   PRESS_OPACITY, PROGRESS_H, PROGRESS_W, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP,
   elevationColorOf, goalRowTintOf, hairlineOf,
-  surfaceFillOf, typeOf, colorOf, } from '../core/design';
+  surfaceFillOf, typeOf, colorOf, HIT_TARGET_MIN, } from '../core/design';
 import { animFast } from './anim';
 import { TodoItem } from '../core/types';
 import {
@@ -132,6 +132,9 @@ struct TodoRowView {
       SymbolGlyph(this.iconRes())
         .fontSize(ICON_MD)
         .fontColor([this.iconColor()])
+        // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = `ICON_MD`(14) < 44 ⇒ `responseRegion` 外扩。
+        //    本图标是行首元素（左侧无邻座）⇒ 主要向**左**扩（不抢右侧可点标签的命中区）。
+        .responseRegion({ x: -22, y: -11, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
         .onClick(() => {
           this.onToggle();
         })
@@ -193,6 +196,8 @@ struct TodoRowView {
         SymbolGlyph($r('sys.symbol.line_3_horizontal'))
           .fontSize(ICON_MD)
           .fontColor([this.pal().textSecondary])
+          // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = 14 < 44 ⇒ 外扩。行尾元素 ⇒ 主要向**右**扩。
+          .responseRegion({ x: -6, y: -11, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
           .onClick(() => {
             this.menuOpen = !this.menuOpen;
           })
@@ -364,6 +369,9 @@ export struct TodoPanel {
               .fontSize(ICON_MD)
               .fontColor([colorOf(this.pal(), 'iconMuted')])
               .padding(SP_1)
+              // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = 14 + 2×`SP_1`(4) = 22 < 44 ⇒ 外扩。
+              //    左邻 `Row({space: SP_2})` 间距 8 > 左扩 6 ⇒ 不与左侧「折叠开关」的命中区重叠。
+              .responseRegion({ x: -6, y: -11, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
               .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
                 this.onSetGoal();

@@ -7,7 +7,7 @@
  */
 import { Palette, paletteOf } from '../core/theme';
 import { QueueItem } from '../core/types';
-import { PRESS_OPACITY, STROKE_HAIRLINE, SURFACE_CARD, hairlineOf, surfaceFillOf, ICON_LG } from '../core/design';
+import { PRESS_OPACITY, STROKE_HAIRLINE, SURFACE_CARD, hairlineOf, surfaceFillOf, ICON_LG, HIT_TARGET_MIN } from '../core/design';
 import { FS_CAPTION, FS_TITLE, R_LG, R_MD, R_XL, SP_2, SP_3, SP_4 } from '../core/tokens';
 import { fs, fw } from './SettingsRows';
 // 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线/位移；E3 统一）。
@@ -64,6 +64,10 @@ export struct QueueSheet {
           })
         SymbolGlyph($r('sys.symbol.xmark')).fontSize(ICON_LG)
           .fontColor([this.pal().textSecondary]).padding(SP_2)
+          // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = 图标 16 + 2×`SP_2`(8) = **32 < 44**
+          //    ⇒ `responseRegion` 外扩、⛔ 不改布局/视觉尺寸（`PluginsSheet`/`AskUserSheet` 同款）。
+          //    右邻 = 行尾（无），故只向**右**扩 12 即可到 44，不会抢左侧「清空」的命中区。
+          .responseRegion({ x: 0, y: -6, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.onClose();
@@ -81,18 +85,32 @@ export struct QueueSheet {
               // ⛔ 图标一致性：原先直写字形 `'↑'`/`'↓'` 当按钮 = 「图标即文本」的廉价感来源（审计命中）。
               //    改用本仓既有 symbol（`chevron_up/down` 已在别处使用 ⇒ 命名安全；语义=上/下移一格）。
               //    ⚠️ `SymbolGlyph` 的取色是**数组形态**（`fontColor([...])`），与 `Text` 的单值形态不同。
-              SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(fs('type.callout')).fontColor([this.pal().accentSoft]).padding(6).onClick(() => {
-                this.onMove(this.idOf(q), -1);
-              })
-              SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(fs('type.callout')).fontColor([this.pal().accentSoft]).padding(6).onClick(() => {
-                this.onMove(this.idOf(q), 1);
-              })
+              // ⛔ 命中区：视觉边长 = 14 + 2×6 = 26 < 44 ⇒ 必须外扩（`hit_spacing_gate ①`：`responseRegion`
+              //    的 width/height **必须 ≥ `HIT_TARGET_MIN`**，不允许"部分外扩"）。
+              //    ⚠️ 本行 5 个元素**密集相邻**（间距 6）⇒ 44×44 的两者**必然部分重叠**（重叠区归后绘制者）。
+              //    这是本仓门禁已接受的口径（`hit_spacing_gate ②`：容器内有 `layoutWeight` 元素即豁免）。
+              SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(fs('type.callout')).fontColor([this.pal().accentSoft]).padding(6)
+                .responseRegion({ x: -9, y: -9, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
+                .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+                .onClick(() => {
+                  this.onMove(this.idOf(q), -1);
+                })
+              SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(fs('type.callout')).fontColor([this.pal().accentSoft]).padding(6)
+                .responseRegion({ x: -9, y: -9, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
+                .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+                .onClick(() => {
+                  this.onMove(this.idOf(q), 1);
+                })
               // ⚡ 插队：must use the FULL content（server `preview` 截断到 ~80 runes ⇒ 会丢内容）
               Text('插队').fontSize(FS_CAPTION).fontColor(this.pal().warn).padding(6).onClick(() => {
                 this.onInterject(this.idOf(q), this.textOf(q));
               })
               SymbolGlyph($r('sys.symbol.xmark')).fontSize(15)
-                .fontColor([this.pal().dangerText]).padding(6).onClick(() => {
+                .fontColor([this.pal().dangerText]).padding(6)
+                // ⛔ 命中区：视觉边长 = 15 + 2×6 = 27 < 44 ⇒ 外扩（行尾，右肩空 ⇒ 可向左右各扩 6）。
+                .responseRegion({ x: -6, y: -9, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
+                .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+                .onClick(() => {
                   this.onCancel(this.idOf(q));
                 })
             }.width('100%').padding(SP_2).backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD)).borderRadius(R_LG)
@@ -100,6 +118,9 @@ export struct QueueSheet {
         }, (q: QueueItem) => `${q.msg_id}#${q.content}#${q.text}`)
       }
       .height(300).width('100%')
+      // ⛔ 用户报「滚动栏挡住交互」：**行内右侧就是可点图标**（上/下移、取消）⇒ 默认 `BarState.Auto`
+      //    的滚动条叠在最右缘、参与命中测试 ⇒ 会抢掉右侧图标的点击。面板内短列表 ⇒ 显式关条。
+      .scrollBar(BarState.Off)
     }
     .width('92%').padding(SP_4).backgroundColor(this.pal().appBg)
     .borderRadius(R_XL).border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })

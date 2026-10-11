@@ -14,7 +14,7 @@
 import { Palette, paletteOf, Surfaces, surfacesOf } from '../core/theme';
 import { R_LG, R_MD, R_SM, R_XL, SP_1, SP_2, SP_3, FS_BODY, FS_CAPTION } from '../core/tokens';
 import {
-  PRESS_OPACITY, RADIUS_CHIP, SPACE_HAIR, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP, hairlineOf, insetHairlineOf, surfaceFillOf, typeOf, MARKER_GLYPH, ICON_SM, colorOf } from '../core/design';
+  PRESS_OPACITY, RADIUS_CHIP, SPACE_HAIR, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP, hairlineOf, insetHairlineOf, surfaceFillOf, typeOf, MARKER_GLYPH, ICON_SM, colorOf, HIT_TARGET_MIN } from '../core/design';
 import { ToolProgress } from '../core/types';
 import { renderKind } from '../core/toolstatus';
 import { AnsiSpan, ansiBgOf, ansiFgOf, ansiPaletteOf, ansiSpansIfAny, hasAnsi } from '../core/ansi';
@@ -243,6 +243,10 @@ export struct ToolPopoverCard {
         //    深=textMuted 逐字节，`design.ets:iconMutedOf`）。语义也更准：这是**图标**不是文本。
         .fontColor([colorOf(this.pal(), 'iconMuted')])
         .padding({ left: SP_1, right: SP_1, top: SPACE_HAIR, bottom: SPACE_HAIR })
+        // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 ≈ 图标 13 + 极小 padding ≈ 17-21 < 44
+        //    ⇒ `responseRegion` 外扩、⛔ 不改布局/视觉尺寸。左邻 = 标签 `Text`（`layoutWeight(1)`，**不可点**）
+        //    ⇒ 向左扩不会抢别人的命中区。
+        .responseRegion({ x: -12, y: -13, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
           this.onCopy(body, what);

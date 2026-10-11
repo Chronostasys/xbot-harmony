@@ -35,7 +35,7 @@ import { R_MD, R_SM, SP_1 } from '../core/tokens';
 // 语义令牌（`7841978`：goal 组 + 图标尺寸档）—— 组件不再自写 PAD/ICON/ALPHA/TINT 魔数。
 import {
   PRESS_OPACITY, ICON_MD, INSET_CHIP_Y, INSET_GOAL_X, INSET_GOAL_Y, SPACE_XS, TYPE_CHIP, TYPE_GOAL,
-  goalBadgeBgOf, goalBorderOf, typeOf, colorOf, PILL_MAX_W, } from '../core/design';
+  goalBadgeBgOf, goalBorderOf, typeOf, colorOf, PILL_MAX_W, HIT_TARGET_MIN, } from '../core/design';
 import { goalDisplay, GoalDisplay, goalEditCommit, goalEditable } from '../core/statusfmt';
 
 // ── 尺寸/取色一律走语义令牌（`7841978` §4.7/§4.8）─────────────────────────────
@@ -187,6 +187,10 @@ export struct GoalBanner {
             SymbolGlyph($r('sys.symbol.square_and_pencil'))
               .fontSize(typeOf('type.caption').size)
               .fontColor([colorOf(this.pal(), 'iconMuted')])
+              // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = `type.caption`(12) < 44 ⇒ 外扩。
+              //    本行右侧两个图标间距 SPACE_XS(8) ⇒ 44×44 **必重叠** ⇒ 取"互不重叠的最大矩形"：
+              //    pencil 主要向**左**扩（左邻 = 目标文本 `Text`，其 onClick 与 pencil **同一动作** ⇒ 重叠无害）。
+              .responseRegion({ x: -32, y: -16, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
               .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
                 this.draft = this.objective;
@@ -198,6 +202,9 @@ export struct GoalBanner {
           SymbolGlyph($r('sys.symbol.xmark'))
             .fontSize(typeOf('type.caption').size)
             .fontColor([colorOf(this.pal(), 'iconMuted')])
+            // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = 12 < 44 ⇒ 外扩。
+            //    本图标是行尾元素（右肩空）⇒ 主要向**右**扩，避免与左侧 pencil 的命中区重叠。
+            .responseRegion({ x: -8, y: -16, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               this.onClearGoal();

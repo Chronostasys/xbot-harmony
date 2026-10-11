@@ -38,6 +38,10 @@ export struct SelfCheckSheet {
           .fontColor(this.pal().textPrimary).layoutWeight(1)
         SymbolGlyph($r('sys.symbol.xmark')).fontSize(ICON_LG)
           .fontColor([this.pal().textSecondary]).padding(SP_2)
+          // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = 图标 16 + 2×`SP_2`(8) = **32 < 44**
+          //    ⇒ 靠 `responseRegion` **外扩**热区、⛔ 不改布局/视觉尺寸（`PluginsSheet`/`AskUserSheet` 同款手艺）。
+          //    左邻 = 标题 `Text`（**不可点**）⇒ 只向**左**多扩 6 也不会抢别人的命中区。
+          .responseRegion({ x: -6, y: -6, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.onClose();
@@ -133,6 +137,10 @@ export struct SelfCheckSheet {
       }
       .layoutWeight(1)
       .width('100%')
+      // ⛔ 用户报「滚动栏挡住交互」：默认 `BarState.Auto` 的滚动条**叠在内容右缘并参与命中测试**。
+      //    这里是**面板内部的短列表** ⇒ 显式关掉（本仓浮层口径：`AskUserSheet`/`PluginHost` 同款）。
+      //    （`BarState.Off` 只关视觉条，**不关滚动**。）
+      .scrollBar(BarState.Off)
     }
     .width('94%').height('86%')
     .padding(SP_3)

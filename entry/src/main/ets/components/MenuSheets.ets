@@ -261,6 +261,10 @@ export struct SearchHitsSheet {
         }
         .constraintSize({ maxHeight: HITS_MAX_H })
         .width('100%')
+        // ⛔ 用户报「滚动栏挡住交互」：命中行**整行可点**（`onClick`），默认 `BarState.Auto` 的滚动条
+        //    叠在行右缘、参与命中测试 ⇒ 会抢掉行右侧的点击。面板内短列表 ⇒ 显式关条
+        //    （本仓浮层口径：`AskUserSheet`/`PluginHost`/`QueueSheet` 同为 `Off`）。
+        .scrollBar(BarState.Off)
       }
 
       Divider()
