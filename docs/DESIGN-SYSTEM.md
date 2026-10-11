@@ -964,6 +964,11 @@ vs 深色黑柔影 **1.0206/1.0122** ⇒ 再次确认"浅色柔影比深色黑�
 | `textSecondary` × pill | 4.70 | 4.5 | +0.20 |
 | `onAccent` × accent（porcelain） | 4.70 | 4.5 | +0.20 |
 
+**⛔ 硬性提醒（改动前必读）**：`textSecondary × 凹槽 chip / 行底 well` 的余量只有 **+0.03**
+⇒ **任何人改「chip/well 面的填充」或「textSecondary 的字号/字重」之前，必须先跑
+`bash tools/tests/run-one.sh role_surface_matrix`** —— 这两类改动最容易把该格推过门槛，
+而它**肉眼看不出来**（4.53 → 4.4x 只差一点点，但已低于正文门槛）。
+
 **不达标 1 格**：`dark | onAccent | accent` = **4.35 < 4.5** —— ⛔ **不是新缺口**，是**继承既有台账的既知条目**
 （出处 `tools/tests/theme_contrast.test.ts:314` §G6「不许删」：它建模的是**纯色** accent，真主按钮渲的是**渐变**、
 端色由 `gradientEndOf()` 护航到 ≥4.5）⇒ 本判据 `KNOWN_TIGHT` 登记它（⛔ 只许缩短）。
