@@ -152,3 +152,60 @@ export const RECONCILE_WORK_ID: number = 1001;
 
 /** 延迟任务在 `module.json5` 里注册的扩展名（须与 `extensionAbilities[].name` 逐字一致）。 */
 export const RECONCILE_ABILITY: string = 'NotifyReconcileAbility';
+
+// ── 周期 / 退避 / 放弃（**纯策略**，可脱机单测、可变异自证）────────────────────────
+/**
+ * 退避倍数：连续失败后**成倍**拉长间隔（15 → 30 → 60 …）。
+ * 为什么需要：对账失败几乎都是"网络不可用 / 服务端 5xx / cookie 失效"这类**持续性**原因，
+ * 按原间隔反复唤醒只会白烧电，而对结果毫无帮助。
+ */
+export const RECONCILE_BACKOFF_FACTOR: number = 2;
+/** 退避步数上限（超过就不再继续拉长，避免间隔无限膨胀到"再也不跑"）。 */
+export const RECONCILE_MAX_BACKOFF_STEPS: number = 3;
+/**
+ * 连续失败到该次数 ⇒ **放弃注册**（不再排任务）。
+ * 为什么不用"无限退避"：持续失败通常意味着**用户已登出 / 会话失效**，此时后台任务
+ * 唯一的作用就是耗电。放弃后由**前台重新登录/启动**再 `ensureReconcileScheduled` 拉起。
+ */
+export const RECONCILE_GIVE_UP_FAILURES: number = 5;
+
+/**
+ * 由"连续失败次数"给出**下次的重复间隔**（ms）。纯函数：
+ * `failures<=0` ⇒ 基准 15min；每失败一次 ×2，最多拉长 `RECONCILE_MAX_BACKOFF_STEPS` 步。
+ */
+export function reconcileIntervalMs(failures: number): number {
+  const f: number = failures > 0 ? Math.floor(failures) : 0;
+  const steps: number = f < RECONCILE_MAX_BACKOFF_STEPS ? f : RECONCILE_MAX_BACKOFF_STEPS;
+  let ms: number = RECONCILE_INTERVAL_MS;
+  for (let i = 0; i < steps; i++) {
+    ms = ms * RECONCILE_BACKOFF_FACTOR;
+  }
+  return ms;
+}
+
+/** 连续失败是否已达"放弃"阈值（纯判定；`schedule` 据此停止排任务）。 */
+export function reconcileShouldGiveUp(failures: number): boolean {
+  const f: number = failures > 0 ? Math.floor(failures) : 0;
+  return f >= RECONCILE_GIVE_UP_FAILURES;
+}
+
+/** 一次对账的**结果**（供 `schedule` 侧累计失败次数）。 */
+export class ReconcileOutcome {
+  /** 本次是否成功拿到快照（HTTP/解析都算）。 */
+  ok: boolean = false;
+  /** 是否已发出通知（仅观测用）。 */
+  notified: boolean = false;
+  constructor(ok: boolean, notified: boolean) {
+    this.ok = ok;
+    this.notified = notified;
+  }
+}
+
+/**
+ * 由"上次连续失败数 + 本次结果"给出**新的连续失败数**（纯函数）。
+ * 成功 ⇒ 归零（立即回到基准间隔）；失败 ⇒ +1。
+ */
+export function nextFailureCount(prev: number, outcome: ReconcileOutcome): number {
+  const p: number = prev > 0 ? Math.floor(prev) : 0;
+  return outcome.ok ? 0 : p + 1;
+}

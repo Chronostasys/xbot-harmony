@@ -14,6 +14,8 @@ declare const process: { exit: (c: number) => void };
 import {
   RECONCILE_NONE, RECONCILE_TURN_DONE, RECONCILE_ASK,
   RECONCILE_INTERVAL_MS, RECONCILE_WORK_ID, RECONCILE_ABILITY,
+  RECONCILE_BACKOFF_FACTOR, RECONCILE_MAX_BACKOFF_STEPS, RECONCILE_GIVE_UP_FAILURES,
+  reconcileIntervalMs, reconcileShouldGiveUp, ReconcileOutcome, nextFailureCount,
   ReconcileMark, ReconcileMemo, ReconcileDecision,
   reconcileDecision, applyDecision, markSeen, turnKeyOf,
 } from '../../entry/src/main/ets/core/reconcile';
@@ -96,6 +98,23 @@ eq('markSeen 不推进到空回合（不许把已有基线擦掉）', (() => {
   markSeen(m3, new ReconcileMark(false, '', ''));
   return m3.lastSeenTurnKey;
 })(), 'c#5');
+
+// ── (i) 周期 / 退避 / 放弃（纯策略；改坏必红）────────────────────────────────────
+eq('无失败 ⇒ 基准 15min', reconcileIntervalMs(0), 900000);
+eq('负数按 0 处理（不产生负间隔）', reconcileIntervalMs(-3), 900000);
+eq('失败 1 次 ⇒ ×2', reconcileIntervalMs(1), 900000 * RECONCILE_BACKOFF_FACTOR);
+eq('失败 2 次 ⇒ ×4', reconcileIntervalMs(2), 900000 * 4);
+eq('⛔ 退避封顶（步数上限 ' + RECONCILE_MAX_BACKOFF_STEPS + ' ⇒ 不再无限拉长）',
+  reconcileIntervalMs(99), 900000 * 8);
+ok('间隔对失败次数**单调不减**', reconcileIntervalMs(0) <= reconcileIntervalMs(1)
+  && reconcileIntervalMs(1) <= reconcileIntervalMs(3));
+ok('⛔ 未达阈值不放弃（否则后台对账会被静默关掉）',
+  !reconcileShouldGiveUp(RECONCILE_GIVE_UP_FAILURES - 1));
+ok('达阈值 ⇒ 放弃', reconcileShouldGiveUp(RECONCILE_GIVE_UP_FAILURES));
+eq('⛔ 成功 ⇒ 失败数归零（立即回到基准间隔）', nextFailureCount(4, new ReconcileOutcome(true, false)), 0);
+eq('失败 ⇒ 失败数 +1', nextFailureCount(2, new ReconcileOutcome(false, false)), 3);
+eq('首次失败（prev<=0）⇒ 1', nextFailureCount(0, new ReconcileOutcome(false, true)), 1);
+eq('负 prev 不产生负值', nextFailureCount(-5, new ReconcileOutcome(false, false)), 1);
 
 if (fail > 0) {
   console.log(`  reconcile: ${pass} passed, ${fail} failed`);
