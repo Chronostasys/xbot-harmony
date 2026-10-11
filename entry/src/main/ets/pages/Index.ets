@@ -6,6 +6,7 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { vibrator } from '@kit.SensorServiceKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { BusinessError } from '@kit.BasicServicesKit';
+import { KeyCode } from '@kit.InputKit';
 import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl, readCachedTheme } from '../core/config';
 import { webview } from '@kit.ArkWeb';
@@ -38,8 +39,8 @@ import {
   BgTask, bgTaskLine, CronJob, cronLine, RunnerRow, runnerLine, SubAgentRow, subagentLine,
 } from '../core/panels';
 import {
-  activeToken, applyCommand, applyMention, CommandItem, enterSends, FsEntry, joinPath, matchCommands,
-  matchFiles, parentDir,
+  activeToken, applyCommand, applyMention, clampSel, CMD_ROWS, CommandItem, completionKeyAction, enterSends,
+  FS_ROWS, FsEntry, joinPath, matchCommands, matchFiles, parentDir, selNext, selPrev,
 } from '../core/composer';
 import {
   clampOffset, clampScale, isZoomed, nextZoom, panLimit, saveImageName, scaleText,
@@ -550,6 +551,8 @@ struct Index {
   @State fsEntries: FsEntry[] = [];
   /** 当前列目录（继续下钻用） */
   @State fsDir: string = '/';
+  /** 候选浮层的**选中索引**（0 基；`↓`/`↑` 环绕推进，接受键取它）。对齐 web `useCompletion.ts:157`。 */
+  @State cmdSel: number = 0;
 
   // ── P9 设置（服务端权威：/api/settings；与 web 共用同一份偏好）──
   /**
@@ -3949,11 +3952,11 @@ struct Index {
         .width('100%').padding({ left: 10, right: 6, top: 6, bottom: SPACE_HAIR })
       }
 
-      // 输入补全（/ 命令 或 @ 文件）
-      if (this.cmdToken.length > 0 && (this.cmdItems.length > 0 || this.fsEntries.length > 0)) {
+      // 输入补全（/ 命令 或 @ 文件）—— 候选浮层（选中态 + 键盘导航，对齐 web CompletionPopup.tsx）
+      if (this.completionOpen()) {
         Column({ space: 2 }) {
           if (this.cmdItems.length > 0) {
-            ForEach(this.cmdItems.slice(0, 6), (c: CommandItem) => {
+            ForEach(this.cmdItems.slice(0, CMD_ROWS), (c: CommandItem, i: number) => {
               Row({ space: 8 }) {
                 Text(c.name).fontSize(typeOf('type.subhead').size).fontColor(this.pal().accentText).constraintSize({ maxWidth: 150 })
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -3961,14 +3964,16 @@ struct Index {
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
               }
               .width('100%').padding({ left: 10, right: 10, top: 7, bottom: 7 })
-              .backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
+              .backgroundColor(i === this.cmdSel ? colorOf(this.pal(), 'accentDeep') : this.pal().surface)
+              .borderRadius(RADIUS_CHIP)
               .onClick(() => {
+                this.cmdSel = i;
                 this.pickCommand(c.name);
               })
             }, (c: CommandItem) => `cc-${c.name}`)
           }
-          if (this.fsEntries.length > 0) {
-            ForEach(this.fsEntries.slice(0, 8), (e: FsEntry) => {
+          if (this.fsMatches().length > 0) {
+            ForEach(this.fsMatches().slice(0, FS_ROWS), (e: FsEntry, i: number) => {
               Row({ space: 8 }) {
                 Text(e.isDir ? '目录' : '文件').fontSize(typeOf('type.caption').size)
                 Text(e.name).fontSize(typeOf('type.subhead').size).fontColor(this.pal().textPrimary).layoutWeight(1)
@@ -3978,8 +3983,10 @@ struct Index {
                   .constraintSize({ maxWidth: 120 })
               }
               .width('100%').padding({ left: 10, right: 10, top: 7, bottom: 7 })
-              .backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
+              .backgroundColor(i === this.cmdSel ? colorOf(this.pal(), 'accentDeep') : this.pal().surface)
+              .borderRadius(RADIUS_CHIP)
               .onClick(() => {
+                this.cmdSel = i;
                 this.pickFile(e);
               })
             }, (e: FsEntry) => `fe-${e.name}#${e.isDir}`)
@@ -4152,6 +4159,10 @@ struct Index {
             this.scheduleDraftSave(v);
           })
           .enterKeyType(enterSends(this.sendKeyMode()) ? EnterKeyType.Send : EnterKeyType.NEW_LINE)
+          // 补全浮层的键盘导航（↑↓ / Tab / Esc）—— 只在浮层打开时消费，不影响正常输入。
+          .onKeyEvent((e: KeyEvent) => {
+            this.onComposerKey(e);
+          })
           .onPaste((value: string, event: PasteEvent) => {
             this.pasteImage();
           })
@@ -4167,6 +4178,11 @@ struct Index {
           .fontSize(typeOf('type.body').size)
           .borderRadius(0).padding({ left: 0, right: 0 })
           .onSubmit(() => {
+            // `@` 文件浮层打开时回车 = 接受选中候选（web `useCompletion.ts:383`）；否则按发送键模式发送。
+            if (this.completionOpen() && completionKeyAction('Enter', this.fsActive(), false) === 'accept') {
+              this.acceptCompletion();
+              return;
+            }
             if (enterSends(this.sendKeyMode())) {
               this.sendDraft();
             }
@@ -4627,13 +4643,14 @@ struct Index {
     return out;
   }
 
-  /** 输入变化时刷新补全（`/` 命令优先，其次 `@` 文件）。 */
+  /** 输入变化时刷新补全（`/` 命令优先，其次 `@` 文件）；候选集合一变就把选中索引复位（web `:270`）。 */
   private refreshCompletion(text: string): void {
     const slash: string = activeToken(text, '/');
     if (slash.length > 0) {
       this.cmdToken = slash;
       this.cmdItems = matchCommands(this.commands(), slash);
       this.fsEntries = [];
+      this.cmdSel = 0;
       return;
     }
     const at: string = activeToken(text, '@');
@@ -4644,11 +4661,13 @@ struct Index {
       // `@a/b` ⇒ 列 `/a/b` 的上一层；`@name` ⇒ 列上次用过的那一层
       const dir: string = q.indexOf('/') > 0 || q.indexOf('/') === 0 ? parentDir(q) : this.fsDir;
       this.loadFs(dir);
+      this.cmdSel = 0;
       return;
     }
     this.cmdToken = '';
     this.cmdItems = [];
     this.fsEntries = [];
+    this.cmdSel = 0;
   }
 
   private async loadFs(dir: string): Promise<void> {
@@ -4669,6 +4688,111 @@ struct Index {
     this.draft = applyCommand(this.draft, this.cmdToken, name);
     this.refreshCompletion(this.draft);
     this.buzz();
+  }
+
+  // ── 补全浮层的选中态 / 键盘导航（纯语义全在 `core/composer.ets`，这里只做接线）──────────
+
+  /** `@` 文件候选 = 服务器原始条目 **经前缀过滤**（`matchFiles`，对齐 web `useCompletion.ts:295-302`）。 */
+  private fsMatches(): FsEntry[] {
+    if (this.cmdToken.length === 0 || this.cmdToken.charAt(0) !== '@') {
+      return [];
+    }
+    return matchFiles(this.fsEntries, this.cmdToken);
+  }
+
+  /** 浮层当前可见/可选的候选数（命令与文件互斥；各自受行数上限约束）。 */
+  private completionCount(): number {
+    if (this.cmdItems.length > 0) {
+      return Math.min(this.cmdItems.length, CMD_ROWS);
+    }
+    const f: FsEntry[] = this.fsMatches();
+    return Math.min(f.length, FS_ROWS);
+  }
+
+  /** 补全浮层当前是否打开。 */
+  private completionOpen(): boolean {
+    return this.cmdToken.length > 0 && (this.cmdItems.length > 0 || this.fsMatches().length > 0);
+  }
+
+  /** 当前补全的是文件（`@`）而非命令（`/`）。 */
+  private fsActive(): boolean {
+    return this.cmdItems.length === 0 && this.fsMatches().length > 0;
+  }
+
+  /** 接受当前选中候选（键盘 Tab/回车 或点击都汇到此处）。索引先夹回合法范围（空候选即返回）。 */
+  private acceptCompletion(): void {
+    const n: number = this.completionCount();
+    if (n <= 0) {
+      return;
+    }
+    const i: number = clampSel(this.cmdSel, n);
+    if (this.cmdItems.length > 0) {
+      this.pickCommand(this.cmdItems[i].name);
+    } else {
+      this.pickFile(this.fsMatches()[i]);
+    }
+  }
+
+  /** 关闭补全浮层（Escape）。 */
+  private closeCompletion(): void {
+    this.cmdToken = '';
+    this.cmdItems = [];
+    this.fsEntries = [];
+    this.cmdSel = 0;
+  }
+
+  /** 把 `KeyEvent.keyCode` 归一成 web 口径的键名（未识别 ⇒ 空串）。 */
+  private completionKeyName(code: number): string {
+    if (code === KeyCode.KEYCODE_DPAD_DOWN) {
+      return 'ArrowDown';
+    }
+    if (code === KeyCode.KEYCODE_DPAD_UP) {
+      return 'ArrowUp';
+    }
+    if (code === KeyCode.KEYCODE_TAB) {
+      return 'Tab';
+    }
+    if (code === KeyCode.KEYCODE_ENTER || code === KeyCode.KEYCODE_NUMPAD_ENTER) {
+      return 'Enter';
+    }
+    if (code === KeyCode.KEYCODE_ESCAPE) {
+      return 'Escape';
+    }
+    return '';
+  }
+
+  /**
+   * 输入框按键 → 补全导航（对齐 web `useCompletion.ts:369-397` handleKeyDown）。
+   *
+   * ⚠️ 只在浮层打开时消费；不认识的键**不** `stopPropagation` ⇒ 正常输入/换行不受影响。
+   * ⚠️ 手机软键盘不产生方向键/Tab ⇒ 此路径主要服务**外接键盘 + 无障碍**（手感待真机验证）。
+   * ⚠️ `Enter` 不在这里处理（走 `onSubmit`，见下）——避免与发送/换行打架。
+   */
+  private onComposerKey(e: KeyEvent): void {
+    if (e.type !== KeyType.Down) {
+      return;
+    }
+    if (!this.completionOpen()) {
+      return;
+    }
+    const key: string = this.completionKeyName(e.keyCode);
+    if (key.length === 0) {
+      return;
+    }
+    const act: string = completionKeyAction(key, this.fsActive(), false);
+    if (act === 'next') {
+      this.cmdSel = selNext(this.cmdSel, this.completionCount());
+      e.stopPropagation();
+    } else if (act === 'prev') {
+      this.cmdSel = selPrev(this.cmdSel, this.completionCount());
+      e.stopPropagation();
+    } else if (act === 'accept') {
+      this.acceptCompletion();
+      e.stopPropagation();
+    } else if (act === 'close') {
+      this.closeCompletion();
+      e.stopPropagation();
+    }
   }
 
   /** 选中一条文件候选（目录继续下钻，文件补完整）。 */
@@ -6407,12 +6531,19 @@ struct Index {
     Column({ space: 10 }) {
       Row() {
         Text('模型与上下文').fontSize(typeOf('type.headline').size).fontWeight(typeOf('type.headline').weight).fontColor(this.pal().textPrimary).layoutWeight(1)
-        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(SPACE_XS)
-          // ⛔ 用户 2026-10-11 报「关闭**不好点到**」：视觉边长 = 17 + 2×`SPACE_XS`(8) = 33 < 44（HIT_TARGET_MIN）。
-          //    靠 `responseRegion` **外扩**热区到 44×44、⛔ **不改布局/视觉尺寸**
-          //    （与 `PluginsSheet`/`AskUserSheet`/`MessageNav` 同一做法；用户直接点 X 关面板，是高频操作）。
-          .responseRegion({ x: -6, y: -6, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
-          .onClick(() => {
+        // ⛔ 用户 2026-10-11 报「关闭**不好点到**」。**真机装机实测（08:35）结论**：
+        //    ① 点 X **视觉中心** ⇒ 关闭 ✓；② 点它**框外 11px（上方）/ 15px（左侧，仍在父 Row 内）**
+        //       ⇒ **不关闭** ✗ ⇒ **`responseRegion` 的负偏移外扩在真机（SDK21）上不生效**
+        //       （此前那版就是靠它外扩到 44 —— 等于没修）。
+        //    ⇒ 改用**真实 44×44 布局盒**（`HIT_TARGET_MIN`）承载 `onClick`：热区 = 布局盒本身，
+        //      不依赖 `responseRegion` 的越界扩展；图标**视觉尺寸不变**（仍 17，盒内居中）。
+        Row() {
+          SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary])
+        }
+        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center)
+        .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+        .onClick(() => {
           this.showModel = false;
         })
       }.width('100%')
