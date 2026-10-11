@@ -265,3 +265,35 @@ md缓存 命中=… 未命中=…（命中率 …%） 占用=…KB 条目=…
    正确节奏：**一次点击 → 一次截图 → 再决定下一步**（原子、状态可追溯）。
 4. 点按注入通道 `uitest uiInput click x y` 与 `uinput -T -c x y` **都可用**（点输入框即弹键盘，一次实验即可验）。
    两条通道都"无效"时 ⇒ **先怀疑判据（dump），再怀疑 App**。
+
+---
+
+## 2026-10-11 批次：**文字裁切/溢出**审计（"所有细节都做好"类）
+
+**缺陷类**：文案被裁成 `…`、长串不换行撑破布局、`maxLines` 截掉关键信息 —— 用户可感的粗糙。
+本批钉的是**最容易静默发生**的一种：**`.maxLines(N)` 却不配 `.textOverflow(...)`**
+（ArkUI 默认 `TextOverflow.Clip` ⇒ 超出部分**直接消失、连 `…` 都没有**，用户不知道还有内容）。
+
+**判据**：`tools/tests/text_truncation_gate.test.ts`（9 passed / 0 failed）——
+**凡带 `.maxLines(` 的 `Text` 必须同时带 `.textOverflow(`**，除非属下列三类之一（各有出处）：
+- `KNOWN_OK`（已确认安全，逐条理由）：**代码/diff 视图**（`ToolPopover` 的 `ln…` 两处 ——
+  该视图**横向滚动**，加 `…` 反而**语义错误**；纵向 `maxLines` 只是护栏）；
+- **结构性豁免·空白**：`Text(){}` 容器 / `Text(' ')` 占位 ⇒ **没有可裁的内容**（按性质放过，会打印条数）；
+- `PENDING_SPEC`：`pages/Index.ets` 六处（`loadErrHint` / `attachChipText` / `cronLine` / `bgTaskLine` /
+  `subagentLine` / `runnerLine`）—— **归 main agent**，本线只出 spec。
+⛔ 两张表**只许缩短**：断言"实测集合 == 两表之并"⇒ 新命中必红、已修好也必须同步缩短。
+
+**扫描器自证的教训（值得单独记）**：第一版**遇 `{` 就停** ⇒ `Text() { ... }.maxLines(1)` 的属性链
+在**花括号块之后**读不到 ⇒ `maxLines` 计数**假 0**，差点据此得出"全仓没问题"的**假结论**。
+⇒ 现先跳过配平的 `{...}` 块再读链，并有专门断言「`maxLines` 总数 > 0」守住这个 bug 不复发。
+（同批还踩了第二个：**键不一致** —— `rel` 用全路径、台账用短路径 ⇒ 全判"未登记"。）
+
+**本批落地（2 处，均在 `components/**`）**
+| 位置 | 改动 | 为什么 |
+|---|---|---|
+| `components/MenuSheets.ets:250` | `+ .textOverflow({overflow: Ellipsis})` | 搜索命中行 `.maxLines(3)+BREAK_ALL`，**动态长文本**；原为第 4 行起静默消失 |
+| `components/SettingsDeveloper.ets:354` | `+ .textOverflow({overflow: Ellipsis})` | 事件名 `.maxLines(1)`，**动态**；原为静默截断无提示 |
+
+**真机清单（⛔ 本轮不占设备，留待通知后跑）**：① 极长会话名（抽屉/头部）② 极长工具输出（pill label / 浮层）
+③ 极长 URL（消息内链接）④ 错误详情（`LlmErrorNotice` 展开 + `Index.ets` 的 `loadErrHint`）——
+逐个看：**截得有没有提示**（`…`）、**有没有撑破布局**。

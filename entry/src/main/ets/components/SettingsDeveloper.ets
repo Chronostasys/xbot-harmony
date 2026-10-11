@@ -352,6 +352,8 @@ export struct SettingsDeveloper {
         .fontFamily('monospace')
         .fontColor(e.kind === 'lifecycle' ? this.pal().accentSoft : this.pal().textSecondary)
         .maxLines(1)
+        // ⛔ `maxLines` 必须配 `textOverflow`（否则默认 `Clip` ⇒ 事件名被**静默截断**无提示）。
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
       Text(previewText(e.payload, 120))
         .fontSize(10)
         .fontFamily('monospace')
