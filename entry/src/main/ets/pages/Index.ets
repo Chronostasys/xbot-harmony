@@ -11,7 +11,7 @@ import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl, readCache
 import { webview } from '@kit.ArkWeb';
 import { ChatStore } from '../core/store';
 import { beginTurnKeepAlive, endTurnKeepAlive, ensureEnabled, notificationsEnabled, PENDING_CHAT_KEY, PENDING_CHAT_SEQ_KEY, PENDING_ACTION_KEY, isKnownNotifyAction, NOTIFY_ACTION_STOP, NOTIFY_ACTION_CONTINUE } from '../core/notify';
-import { ALL_THEMES, normalizeTheme, Palette, paletteOf, themeLabel, Effects, effectsOf, isDarkThemeName, isLightPalette } from '../core/theme';
+import { ALL_THEMES, normalizeTheme, Palette, paletteOf, themeLabel, Effects, effectsOf, isDarkThemeName, isLightPalette, shadowColorOf } from '../core/theme';
 import { brandAccentFor } from '../core/brand';
 import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, withAccent } from '../core/accent';
 import { MD_THEMES, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';
@@ -3173,7 +3173,7 @@ struct Index {
           .borderRadius(30)
           .backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))
           .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
-          .shadow({ radius: 26, color: this.eff().glow, offsetX: 0, offsetY: 10 })
+          .shadow({ radius: 26, color: shadowColorOf(this.pal(), 'raised'), offsetX: 0, offsetY: 10 })
           .justifyContent(FlexAlign.Center)
         } else {
           Column() {
@@ -3188,7 +3188,7 @@ struct Index {
             colors: [[this.eff().gradientFrom, 0.0], [this.eff().gradientTo, 1.0]],
           })
           .border({ width: 1, color: this.eff().glassBorder })
-          .shadow({ radius: 26, color: this.eff().glow, offsetX: 0, offsetY: 10 })
+          .shadow({ radius: 26, color: shadowColorOf(this.pal(), 'raised'), offsetX: 0, offsetY: 10 })
           .justifyContent(FlexAlign.Center)
         }
         Text('连接你的 xbot 服务端 · 原生鸿蒙客户端')
@@ -3280,7 +3280,7 @@ struct Index {
             angle: 135,
             colors: [[this.eff().gradientFrom, 0.0], [this.eff().gradientTo, 1.0]],
           })
-          .shadow({ radius: 18, color: this.eff().glow, offsetX: 0, offsetY: 6 })
+          .shadow({ radius: 18, color: shadowColorOf(this.pal(), 'raised'), offsetX: 0, offsetY: 6 })
           .stateStyles({ pressed: { .opacity(0.78).scale({ x: 0.985, y: 0.985 }) }, normal: { .opacity(1).scale({ x: 1, y: 1 }) } })
           .margin({ top: SP_2 })
           .onClick(() => {
@@ -3946,7 +3946,7 @@ struct Index {
           height: HIT_TARGET_MIN,
         })
         .backgroundColor(this.runningNow() ? this.pal().surfaceHi : this.pal().accent)
-        .shadow({ radius: this.runningNow() ? 0 : 14, color: this.runningNow() ? this.pal().transparent : this.eff().glow, offsetX: 0, offsetY: 0 })
+        .shadow({ radius: this.runningNow() ? 0 : 14, color: this.runningNow() ? this.pal().transparent : shadowColorOf(this.pal(), 'raised'), offsetX: 0, offsetY: 0 })
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY).scale({ x: PRESS_SCALE, y: PRESS_SCALE }) }, normal: { .opacity(1).scale({ x: 1, y: 1 }) } })
         .onClick(() => {
           if (this.runningNow()) {
