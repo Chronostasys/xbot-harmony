@@ -3053,6 +3053,16 @@ struct Index {
                 onClose: () => {
                   this.showSettingsPanel = false;
                 },
+                // 「设置分区加载失败 ⇒ 重试」—— ⛔ 按分区粒度：插件分区重拉**插件目录**，
+                //    接 `loadSettings()` 会变成假重试（这正是判据 `settings_error_retry` 钉住的红线）。
+                onRetrySettings: (): void => {
+                  if (this.store !== null) {
+                    void this.store.loadSettings();
+                  }
+                },
+                onRetryPluginCatalog: (): void => {
+                  void this.loadPluginCatalog();
+                },
                 onSetSetting: (key: string, value: string) => {
                   void this.setSetting(key, value);
                 },

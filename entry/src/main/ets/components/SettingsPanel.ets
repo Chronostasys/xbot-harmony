@@ -124,6 +124,13 @@ export struct SettingsPanel {
   @Prop channel: string = '';
   /** 当前会话 id（页面 `store.currentChatId`）——同上。 */
   @Prop chatID: string = '';
+
+  /** 「设置加载失败 ⇒ 重试」回调（由页面注入；⛔ 必须真的重发请求，不许只改状态位）。
+   *  `onRetrySettings` 供 关于/智能体（重拉 `/api/settings`）；`onRetryPluginCatalog` 供 插件（重拉插件目录）。 */
+  // ⚠️ ArkTS：`@Prop` 不能用于**函数类型**变量（`10905363`）⇒ 回调用普通成员，
+  //    由父组件在构造时注入（回调无需响应式更新）。
+  onRetrySettings: () => void = () => {};
+  onRetryPluginCatalog: () => void = () => {};
   /** 写一项设置（页面 `setSetting`）。 */
   onSetSetting: (key: string, value: string) => void = () => {
   };
@@ -328,13 +335,13 @@ export struct SettingsPanel {
       } else if (this.active === SETTINGS_TAB_LLM) {
         SettingsLlm({ http: this.http, theme: this.theme })
       } else if (this.active === SETTINGS_TAB_AGENT) {
-        SettingsAgent({ http: this.http, theme: this.theme })
+        SettingsAgent({ http: this.http, theme: this.theme, canRetry: true, onRetry: this.onRetrySettings })
       } else if (this.active === SETTINGS_TAB_STORAGE) {
         SettingsStorage({ http: this.http, theme: this.theme })
       } else if (this.active === SETTINGS_TAB_WEBUSERS) {
         SettingsWebUsers({ http: this.http, theme: this.theme })
       } else if (this.active === SETTINGS_TAB_ABOUT) {
-        SettingsAbout({ http: this.http, theme: this.theme })
+        SettingsAbout({ http: this.http, theme: this.theme, canRetry: true, onRetry: this.onRetrySettings })
       } else if (this.active === SETTINGS_TAB_ACCOUNT) {
         // ⚠️ 用户名需页面侧注入（服务端无 /api/auth/me，见 SettingsAccount 头注）；
         // 未注入时面板回落中性文案，不会空白。
@@ -344,7 +351,7 @@ export struct SettingsPanel {
         SettingsDeveloper({ http: this.http, theme: this.theme, channel: this.channel, chatID: this.chatID })
       } else if (this.active === SETTINGS_TAB_PLUGINS) {
         // 插件分区：配置读写（写后回读）+ 启停 + 重载（对齐 web SettingsPlugins/PluginManagerPanel）
-        SettingsPlugins({ http: this.http, theme: this.theme })
+        SettingsPlugins({ http: this.http, theme: this.theme, canRetry: true, onRetry: this.onRetryPluginCatalog })
       } else if (this.active === SETTINGS_TAB_CHANNELS) {
         // 渠道分区：消息渠道配置（飞书等）—— 逐条移植 web `SettingsChannels.tsx`
         SettingsChannels({ http: this.http, theme: this.theme })

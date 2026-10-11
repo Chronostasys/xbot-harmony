@@ -1122,3 +1122,14 @@ this[closeFlagOf('drawer')] = false;   // ⛔ ArkTS 禁动态属性 —— 不�
   `iteration_history` ⇒ 不做过滤就会恒出「复制该迭代正文」等项、点了只得"没有可复制的内容"。
   ⚠️ 用**过滤**而非 `dim` 置灰：web 就是**不产出**该项；`dim` 留给"已在顶部/底部"这类**必须可见**的解释性禁用。
 - **文档/审计口径**：讲"长按菜单"时必须先注明走的是哪条路 —— 只有**自绘**那条能谈外观与项集对齐。
+
+## 批次 35：`@Prop` 不能用于**函数类型**变量（我本人踩，2026-10-11）
+
+- 症状：给子组件写 `@Prop onRetry: () => void = () => {};` ⇒
+  `10905363 The V1 decorator '@Prop' cannot be applied to a Function-type variable 'onRetry'.(From Api Version 23)`
+  （编译期报，**脱机三条/`lint`/`typecheck` 一个都抓不到** ⇒ 只有 ④ `assembleHap` 抓得到。）
+- 正解：**回调用普通（无装饰器）成员** —— 父组件在**构造时注入**即可；回调**不需要响应式更新**，
+  所以 `@Prop` 的语义本来也不适用。同理 `@Link`/`@ObjectLink` 也不该用在函数类型上。
+- 附带（同一次踩出）：`this.store` 这类**可空成员**在回调里要显式 `if (this.store !== null)`，
+  否则 `10605999 Object is possibly 'null'`。
+- 纪律：凡"给子组件加回调" ⇒ 直接用普通成员；改完 **必跑 ④**（这正是"碰 ArkTS 侧必须自跑 `assembleHap`"的价值）。
