@@ -111,6 +111,7 @@ export struct QueueSheet {
                 Text('插队').fontSize(FS_CAPTION).fontColor(this.pal().warn)
               }
               .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
                 this.onInterject(this.idOf(q), this.textOf(q));
               })

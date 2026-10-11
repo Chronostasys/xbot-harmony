@@ -95,7 +95,9 @@ eq('零扫描防线：仓库根解析成功', ROOT.length > 0, true);
 interface InsetLedger { readonly file: string; readonly lines: number; }
 const KNOWN_INSET_LEDGER: InsetLedger[] = [
   { file: 'ToolPopover.ets', lines: 2 },
-  { file: 'QueueSheet.ets', lines: 5 },
+  // ⚠️ 2026-10-11 收紧（只准删不准加）：`QueueSheet` 的行内 4 个小按钮改用**真实 44 布局盒**
+  //    （去 `responseRegion` 时同时删掉了 `.padding(6)`）⇒ 内距字面量 5 → 1（仅剩「清空」那行的半档）。
+  { file: 'QueueSheet.ets', lines: 1 },
   { file: 'TodoPanel.ets', lines: 1 },
   { file: 'SelfCheckSheet.ets', lines: 3 },
 ];
@@ -153,9 +155,9 @@ eq('自由面圆角必须走档常量（零 borderRadius(<数字>) 字面量）'
     for (let i = 0; i < bad.length; i++) { console.log(`      ${bad[i]}`); }
   }
   eq('每个文件的内距字面量行数 = 台账（只准删不准加）', bad.length, 0);
-  eq(`内距字面量总行数 = 台账合计 11：实测 ${insetLines}`, insetLines, 11);
+  eq(`内距字面量总行数 = 台账合计 7：实测 ${insetLines}`, insetLines, 7);
 }
 
 if (fail > 0) { console.log(`  ✗ free_surface_tokens: ${pass} passed, ${fail} failed`); process.exit(1); }
-console.log(`  ✅ free_surface_tokens: ${pass} passed, 0 failed（10 个自由面；圆角字面量 0；内距台账 11 行）`);
+console.log(`  ✅ free_surface_tokens: ${pass} passed, 0 failed（10 个自由面；圆角字面量 0；内距台账 7 行）`);
 process.exit(0);
