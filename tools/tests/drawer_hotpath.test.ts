@@ -19,6 +19,17 @@ declare const require: (m: string) => any;
 declare const __dirname: string;
 export {};
 
+/**
+ * **剥注释**（本仓约定：注释里记代码片段/色值是**允许且鼓励**的 ⇒ 判据扫源码前**必须**先剥，
+ * 否则两个方向都会错：禁串被注释提及 ⇒ **假红**；要求串只在注释里出现 ⇒ **假绿**）。
+ * ⚠️ 保留换行（不压行）⇒ 行号不漂移（本仓已入库 GOTCHA）。
+ */
+function stripSrc(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, (m: string) => m.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (m: string, p: string) => p + ' '.repeat(m.length - p.length));
+}
+
+
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean, extra?: string): void {
   if (cond) { pass++; } else { fail++; console.log(`  ✗ ${name}${extra !== undefined ? `\n      ${extra}` : ''}`); }
@@ -33,7 +44,7 @@ for (const up of ['../..', '../../..', '../../../..']) {
 ok('探测到仓库根', repo.length > 0);
 
 if (repo.length > 0) {
-  const src: string = fsMod.readFileSync(pathMod.join(repo, 'entry/src/main/ets/pages/Index.ets'), 'utf-8');
+  const src: string = stripSrc(fsMod.readFileSync(pathMod.join(repo, 'entry/src/main/ets/pages/Index.ets'), 'utf-8'));
   const body = (name: string): string => {
     const i: number = src.indexOf(`private ${name}(`);
     return i < 0 ? '' : src.substring(i, src.indexOf('\n  }', i));
@@ -69,6 +80,16 @@ if (repo.length > 0) {
   // ── ★⑤ 调用点计数（静态）：全文件 `this.sessionById(` 调用点 = 0（方法已删）──────────
   ok('★⑤ 全文件 `this.sessionById(` 调用点 = 0（死代码已删，只剩注释）',
     (src.match(/this\.sessionById\(/g) || []).length === 0);
+}
+
+// ── 剥注释的**判别力自证**（防"剥注释把扫描也剥没了"这类白绿）────────────────────────
+{
+  ok('判别力：**注释里**的禁串被剥掉（不误红）',
+    stripSrc('// .fontColor([this.pal().textMuted])').indexOf('.fontColor(') < 0);
+  ok('判别力：**代码里**的同一串仍在（不误绿）',
+    stripSrc('const a = 1; .fontColor([this.pal().textMuted])').indexOf('.fontColor(') >= 0);
+  ok('判别力：剥注释**保留换行**（行号不漂移）',
+    stripSrc('a\n// x\nb').split('\n').length === 3);
 }
 
 if (fail > 0) { console.log(`  drawer_hotpath: ${pass} passed, ${fail} failed`); process.exit(1); }
