@@ -43,7 +43,7 @@ import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
 import { SearchHit } from '../core/types';
 import { hitLine, MOVE_DOWN, MOVE_TOP, MOVE_UP } from '../core/sessionops';
 import { linkLabel } from '../core/msgops';
-import { CtxMenuItem, iterMenuItems } from '../core/ctxmenu';
+import { CtxMenuItem, iterMenuItems, toolsMenuItems } from '../core/ctxmenu';
 import {
   PRESS_OPACITY,   DISABLED_OPACITY, ELEV_OVERLAY, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_CHIP, RADIUS_SHEET,
   SPACE_LG, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, elevationColorOf, hairlineOf, surfaceFillOf,
@@ -248,6 +248,9 @@ export struct SearchHitsSheet {
                 .borderRadius(RADIUS_CHIP)
                 .constraintSize({ minHeight: HIT_TARGET_MIN })
                 .maxLines(3)
+                // ⛔ `maxLines` 必须配 `textOverflow`：不配 = 默认 `Clip` ⇒ 第 4 行起**静默消失**
+                //    （连 `…` 都没有，用户不知道还有内容）。搜素命中行是**动态长文本**，正是这类。
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .wordBreak(WordBreak.BREAK_ALL)
                 .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                 .onClick(() => {
@@ -293,6 +296,13 @@ export struct ContextSheet {
   @Prop canIterReply: boolean = true;
   @Prop canIterThinking: boolean = true;
   @Prop canIterTools: boolean = true;
+  /**
+   * **工具（组）**菜单（`ctxKind === 'tools'`，对齐 web `MessageActions.tsx:302-312`）：
+   * 逐枚工具名 + 逐枚"可复制文本非空"标记 + 组级拼接是否非空。判据 = `core/ctxmenu.toolsMenuItems`。
+   */
+  @Prop toolNames: string[] = [];
+  @Prop toolHasText: boolean[] = [];
+  @Prop toolsAllHasText: boolean = false;
   /** 菜单项点击（页面 `onSheetItem(code)` —— 派发留页面）。 */
   onItem: (code: string) => void = () => {
   };
@@ -360,6 +370,13 @@ export struct ContextSheet {
         this.CtxItem('复制输出', 'tool-out', false)
         this.CtxItem('复制参数', 'tool-args', false)
         this.CtxItem('复制全部（名字+参数+输出）', 'tool-all', false)
+      } else if (this.ctxKind === 'tools') {
+        // 工具**组**级菜单（对齐 web `MessageActions.tsx:302-312`）：逐枚 + 组级「复制全部工具输出」，
+        // 空项同样按设计过滤。判据与渲染同源 = `core/ctxmenu.toolsMenuItems`。
+        ForEach(toolsMenuItems(this.toolNames, this.toolHasText, this.toolsAllHasText),
+          (m: CtxMenuItem, i: number) => {
+            this.CtxItem(m.label, m.code, false)
+          }, (m: CtxMenuItem, i: number) => `ctx-tools-${i}-${m.code}`)
       } else if (this.ctxKind === 'iter') {
         // 空项按设计过滤（对齐 web `MessageActions.tsx:298-301`）：判据与渲染同源
         // = `core/ctxmenu.iterMenuItems`（服务端会把"还是空壳的在飞迭代"记进历史 ⇒ 旧实现恒 3 项、

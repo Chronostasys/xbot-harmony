@@ -21,6 +21,10 @@ export const ITER_REPLY: string = 'iter-reply';
 export const ITER_THINKING: string = 'iter-thinking';
 export const ITER_TOOLS: string = 'iter-tools';
 
+/** **工具（组）**菜单项 code：逐枚 `copy-tool:<下标>`；组级「复制全部工具输出」。 */
+export const TOOL_ITEM_PREFIX: string = 'copy-tool:';
+export const TOOL_ALL: string = 'copy-all-tools';
+
 /** 一个菜单项（code + 展示文案）。 */
 export class CtxMenuItem {
   code: string = '';
@@ -46,5 +50,25 @@ export function iterMenuItems(canReply: boolean, canThinking: boolean, canTools:
   if (canReply) { out.push(item(ITER_REPLY, '复制该迭代正文')); }
   if (canThinking) { out.push(item(ITER_THINKING, '复制该迭代（含思考）')); }
   if (canTools) { out.push(item(ITER_TOOLS, '复制该迭代（含工具）')); }
+  return out;
+}
+
+/**
+ * **工具（组）**菜单项集（对齐 web `MessageActions.tsx:302-312`）：
+ * 逐枚工具一项（该枚**可复制文本非空**才给 —— web `toolCopyText(tl,'output')` 非空才 push）
+ * + 组级「复制全部工具输出」（拼出的 `all` 非空才给）。空项按设计过滤（同 `iterMenuItems`）。
+ *
+ * @param names        逐枚工具名（用于 label `复制 <name>`）
+ * @param hasText      逐枚「可复制文本非空」标记（长度可与 `names` 不等，缺位按 `false`）
+ * @param allHasText   组级拼接是否非空（⇒ 给「复制全部工具输出」）
+ * @returns 保序：逐枚（按下标）→ 组级；皆空 ⇒ **空数组**（菜单只剩取消）。
+ */
+export function toolsMenuItems(names: string[], hasText: boolean[], allHasText: boolean): CtxMenuItem[] {
+  const out: CtxMenuItem[] = [];
+  for (let i = 0; i < names.length; i++) {
+    const has: boolean = i < hasText.length ? hasText[i] : false;
+    if (has) { out.push(item(`${TOOL_ITEM_PREFIX}${i}`, `复制 ${names[i]}`)); }
+  }
+  if (allHasText) { out.push(item(TOOL_ALL, '复制全部工具输出')); }
   return out;
 }

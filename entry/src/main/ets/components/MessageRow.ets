@@ -155,6 +155,12 @@ export struct MessageRowView {
   };
   onOpenCtx: (iter: number, toolName: string) => void = (iter: number, toolName: string) => {
   };
+  /**
+   * **工具组**长按（在 pill 行的**非 pill 区域**命中 ⇒ 弹"整个工具组"的菜单；单枚 pill 的
+   * `LongPressGesture` 是**内层**、优先拦截 ⇒ 不会双触发）。判据/项集 = `core/ctxmenu.toolsMenuItems`。
+   */
+  onOpenToolsCtx: (iter: number) => void = (iter: number) => {
+  };
   onToggleTool: (iter: number, toolName: string) => void = (iter: number, toolName: string) => {
   };
   onRowLongPress: () => void = () => {
@@ -786,6 +792,11 @@ export struct MessageRowView {
             }
           }
           .width('100%')
+          // 组级长按（**手势分层**：内层单枚 pill 的 `LongPressGesture` 先命中并消费 ⇒
+          // 只有落在 pill **间隙**的长按才到这里 ⇒ 弹"工具组"菜单，绝不双触发。
+          .gesture(LongPressGesture().onAction(() => {
+            this.onOpenToolsCtx(it.iteration);
+          }))
         }
       }
 

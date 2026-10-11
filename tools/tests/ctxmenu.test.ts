@@ -19,7 +19,7 @@ const fs = require('fs');
 // ⛔ 必须标记为**模块**（否则顶层 `pass/fail` 落进全局作用域，与其它脚本测试重名冲突 TS2451）。
 export {};
 
-import { CtxMenuItem, ITER_REPLY, ITER_THINKING, ITER_TOOLS, iterMenuItems } from '../../entry/src/main/ets/core/ctxmenu';
+import { CtxMenuItem, ITER_REPLY, ITER_THINKING, ITER_TOOLS, iterMenuItems, toolsMenuItems } from '../../entry/src/main/ets/core/ctxmenu';
 
 let pass = 0, fail = 0;
 function eq(name: string, got: unknown, want: unknown): void {
@@ -62,22 +62,50 @@ function countOf(src: string, needle: string): number {
 }
 const MS: string = 'entry/src/main/ets/components/MenuSheets.ets';
 const IX: string = 'entry/src/main/ets/pages/Index.ets';
+const MR: string = 'entry/src/main/ets/components/MessageRow.ets';
 const msSrc: string = stripComments(fs.readFileSync(path.join(REPO, MS), 'utf8'));
 const ixSrc: string = stripComments(fs.readFileSync(path.join(REPO, IX), 'utf8'));
-console.log(`  ctxmenu-scan files: ${MS}, ${IX}`);
+const mrSrc: string = stripComments(fs.readFileSync(path.join(REPO, MR), 'utf8'));
+console.log(`  ctxmenu-scan files: ${MS}, ${IX}, ${MR}`);
 const msIter: number = countOf(msSrc, 'iterMenuItems(');
 const msImport: number = countOf(msSrc, "from '../core/ctxmenu'");
+const msTools: number = countOf(msSrc, 'toolsMenuItems(');
+const msToolNames: number = countOf(msSrc, 'toolNames');
+const mrGroup: number = countOf(mrSrc, 'onOpenToolsCtx');
+const mrToolCtx: number = countOf(mrSrc, 'onOpenCtx(');
 const ixReply: number = countOf(ixSrc, 'canIterReply:');
 const ixThinking: number = countOf(ixSrc, 'canIterThinking:');
 const ixTools: number = countOf(ixSrc, 'canIterTools:');
-console.log(`  ctxmenu-scan ${MS}: iterMenuItems(=${msIter} import=${msImport}`);
+console.log(`  ctxmenu-scan ${MS}: iterMenuItems(=${msIter} toolsMenuItems(=${msTools} import=${msImport} toolNames=${msToolNames}`);
+console.log(`  ctxmenu-scan ${MR}: onOpenToolsCtx=${mrGroup} onOpenCtx(=${mrToolCtx}`);
 console.log(`  ctxmenu-scan ${IX}: canIterReply:=${ixReply} canIterThinking:=${ixThinking} canIterTools:=${ixTools}`);
 ok(`MenuSheets 真 import core/ctxmenu（${msImport} ≥ 1）`, msImport >= 1);
 ok(`MenuSheets 用 iterMenuItems( 渲染（判据与渲染同源，${msIter} ≥ 1）`, msIter >= 1);
+ok(`MenuSheets 用 toolsMenuItems( 渲染工具组菜单（${msTools} ≥ 1）`, msTools >= 1);
+ok(`MenuSheets 有工具组项集入参 toolNames（${msToolNames} ≥ 1）`, msToolNames >= 1);
+ok(`MessageRow 有组级回调 onOpenToolsCtx（${mrGroup} ≥ 1）`, mrGroup >= 1);
+ok(`MessageRow 保留单枚 onOpenCtx（内层优先，${mrToolCtx} ≥ 2：声明 + 调用）`, mrToolCtx >= 2);
 ok(`Index 投递 canIterReply（${ixReply} ≥ 1）`, ixReply >= 1);
 ok(`Index 投递 canIterThinking（${ixThinking} ≥ 1）`, ixThinking >= 1);
 ok(`Index 投递 canIterTools（${ixTools} ≥ 1）`, ixTools >= 1);
-ok('零扫描判红：过滤接线调用点合计 > 0', msIter + msImport + ixReply + ixThinking + ixTools > 0);
+ok('零扫描判红：过滤接线调用点合计 > 0',
+  msIter + msImport + msTools + msToolNames + mrGroup + mrToolCtx + ixReply + ixThinking + ixTools > 0);
+
+// ── ①b 纯逻辑：**工具（组）**菜单项集（web `MessageActions.tsx:302-312`）──────────────────
+eq('tools 全有 ⇒ 逐枚(2) + 组级(1)',
+  codes(toolsMenuItems(['Shell', 'Read'], [true, true], true)),
+  ['copy-tool:0', 'copy-tool:1', 'copy-all-tools']);
+eq('tools 全空 ⇒ **空**（反面板）', codes(toolsMenuItems(['Shell', 'Read'], [false, false], false)), []);
+eq('tools 仅首枚有文本 ⇒ 1 项（组级无）',
+  codes(toolsMenuItems(['Shell', 'Read'], [true, false], false)), ['copy-tool:0']);
+eq('tools 无逐枚但有组级 ⇒ 仅组级',
+  codes(toolsMenuItems([], [], true)), ['copy-all-tools']);
+eq('tools hasText 缺位 ⇒ 按 false（不越界）', codes(toolsMenuItems(['A', 'B'], [true], false)), ['copy-tool:0']);
+{
+  const m: CtxMenuItem[] = toolsMenuItems(['Shell'], [true], true);
+  eq('tools 逐枚 label 含工具名', m[0].label.indexOf('Shell') >= 0, true);
+  eq('tools 组级 label 非空', m[1].label.length > 0, true);
+}
 
 console.log(`  ctxmenu: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
