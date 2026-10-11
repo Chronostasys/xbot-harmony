@@ -98,5 +98,27 @@ eq('单块无 live ⇒ 该号', liveIterationNo([it(7)]), 7);
 // 同键契约：live 侧号 + committed 侧同 (turnID, iteration) ⇒ 同一 key（否则 commit 后读不到）
 eq('live/committed 同键', reasoningKey(42, liveIterationNo([it(1), it(2, true)])), reasoningKey(42, 2));
 
+// ═══ ⑦ K 的**端到端往返**（web: live↔committed 共用 `reasoningKey`）══════════════════════
+// 缺陷：展开 live 思考 → 等迭代 commit ⇒ 回 false（视觉突收）。
+// 契约：live 侧**写下**的展开态，committed 侧用**同一 key** 必能**读回**（否则就是没收起）。
+{
+  resetReasoningOpenState();
+  const turnID: number = 42;
+  // ① live：`row.iterations` 含在飞块（`core/render.ets:342` 的 `liveIterations(r)`），块号 = 2
+  const liveIters: HistoryIteration[] = [it(0), it(1), it(2, true)];
+  const liveKey: string = reasoningKey(turnID, liveIterationNo(liveIters));
+  setReasoningOpen(liveKey, true);        // 用户展开 live 思考
+  // ② commit：同一逻辑迭代以「已完成块」形态出现（iteration 仍 = 2）
+  const committedKey: string = reasoningKey(turnID, 2);
+  eq('K: commit 后读同一 key ⇒ 仍展开（不自动收起）', getReasoningOpen(committedKey), true);
+  eq('K: live 键 == committed 键', liveKey, committedKey);
+  // 收起的反向：live 收起 ⇒ commit 后仍收起（不凭空展开）
+  resetReasoningOpenState();
+  setReasoningOpen(reasoningKey(turnID, liveIterationNo(liveIters)), false);
+  eq('K: live 收起 ⇒ commit 后仍收起', getReasoningOpen(reasoningKey(turnID, 2)), false);
+  // 不同 turnID ⇒ 不同 key（跨回合不串味）
+  eq('K: 跨 turnID 不串味', getReasoningOpen(reasoningKey(43, 2)), undefined);
+}
+
 console.log(fail === 0 ? `✅ reasoningopen: ${pass} passed` : `❌ reasoningopen: ${fail} failed / ${pass} passed`);
 process.exit(fail === 0 ? 0 : 1);
