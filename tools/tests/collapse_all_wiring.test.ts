@@ -174,6 +174,19 @@ hasNot(btnSrc, '.transition(', '② 按钮不加入场动效（transition）');
 // 视觉走既有 token/role（⛔ 零颜色字面量；计算型 role iconMuted 只能走 colorOf）
 has(btnSrc, "colorOf(this.pal(), 'iconMuted')", '② 图标色走 colorOf(计算型 role)，非 Palette 字段');
 
+// (B2c) a11y 约定：**图标-only、无可见文案**的可点控件**必须**有 `accessibilityText`（读屏可读）。
+//   文案**动态跟随** `allCollapsed`，逐字对齐 web `SessionViewBar.tsx:39` + `i18n/zh-CN.ts:108-109`。
+//   ⛔ 视觉不变（仍无可见 `Text`）。
+has(btnSrc, '.accessibilityText(', '④ 图标-only 按钮有 accessibilityText（a11y 约定）');
+has(btnSrc, "'全部折叠'", '④ 文案字面量「全部折叠」在按钮区间');
+has(btnSrc, "'全部展开'", '④ 文案字面量「全部展开」在按钮区间');
+// 动态映射：全折叠 ⇒ 动作为「全部展开」（与 web `allCollapsed ? expandAllGroups : collapseAllGroups` 同序）
+has(btnSrc, "allCollapsed ? '全部展开' : '全部折叠'", '④ 文案随 allCollapsed 动态切换（与 web 同序）');
+// ⚠️ 先把 a11y token 换名再查可见 `Text(`：`accessibilityText(` **本身含子串 `Text(`**
+//    ⇒ 直接 `hasNot('Text(')` 会**假红**（与"注释被当代码"同类的自伤，实测踩到）。
+const btnVisual = btnSrc.split('accessibilityText').join('a11yLabel');
+hasNot(btnVisual, 'Text(', '④ 视觉不变：按钮内无可见文案');
+
 // (B3) 折叠态读写走**同一套既有状态**（⛔ 不自造状态）
 eq('③ @State collapsedGroups 声明唯一',
   lineNumbersOf(pageSrc, '@State collapsedGroups: string[] = [];').length, 1);

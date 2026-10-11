@@ -6535,6 +6535,10 @@ struct Index {
           .height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center)
           .alignItems(VerticalAlign.Center)
+          // a11y：**图标-only、无可见文案** ⇒ 必须给读屏文案（对齐 web `SessionViewBar.tsx:39`
+          // 的 `aria-label`/`title`；文案逐字对齐 web `i18n/zh-CN.ts:108-109`）。动态跟随
+          // `allCollapsed`（全折叠 ⇒ "全部展开"）。约定见 `docs/DESIGN-SYSTEM.md`（由 design-matrix 落）。
+          .accessibilityText(this.collapseAllPlanNow().allCollapsed ? '全部展开' : '全部折叠')
           .borderRadius(RADIUS_CHIP)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
