@@ -694,6 +694,20 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
   `Index.ets:4716 PanelsSheet` 覆盖；把「会话视图条」记为未迁，实际分类切换已迁（`Index.ets:5196`）。
   另 `§8.3 波1b②` 的「修 `PluginPanelInfo.url` 裸 `.js` 语义」**已完成**（`core/pluginhost.ets:573`）。
 
+### 12.x 记档：`core/dangerconfirm.ets` **有意零消费**（2026-10-11 S3-a 裁决）
+
+`core/dangerconfirm.ets`（危险操作「两段式确认」状态机 + 语义色角色）**不接线** —— 理由经只读取证：
+**web 没有"两步确认"这个模式**，其破坏性动作一律是**单击直执行 + busy/错误提示**：
+- 退出登录：`web/src/components/settings/SettingsDialog.tsx:66-99`（单击 `await logout()`，无 confirm）；
+- 恢复默认面板布局：`web/src/components/settings/SettingsLayout.tsx:43-56`（单击清 `localStorage` + POST `user_settings`，只有 `resetting`/`resetErr`）；
+- 全 web 搜 `再次点击`/`再点一次`/`click again`/`armed` **只命中无关用途**（`MessageList.tsx:571 loadMoreArmedRef` 加载哨兵、`PanelLayout.tsx:427` 占位面板语义）。
+
+⇒ 接它 = **主动背离 web + 用户没要求**（正是本仓反复防的"自造 parity"）。本模块保留为
+**纯逻辑 + 判据**（把既有 5 份各自为政的组件内实现收敛成一张表：`SettingsAccount:42` / `SettingsLlm:118` /
+`SettingsPlugins:221` / `SettingsWebUsers:51` / `SettingsAbout:394`），并在
+`tools/tests/orphan_core_module.test.ts` 的 `UNCONSUMED` 台账里**显式登记"有意零消费"**。
+⛔ 若将来用户点名要"两步确认"，再按 S3-b 接线（届时重开）。
+
 ## 12. live 呈现面 **语义分歧审计**（2026-10-11 波9 · 只审不改）
 
 > 沿用户亲报的两个 bug 的**三类失败模式**做审计：①同一状态被**两处判据**解释；②按**位置/键不稳定**合并；
@@ -710,7 +724,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | D | 陈旧/权威 | ✅ **已修（前波）**：`core/msgops.ets:189-207 gapTopBefore` 现**有洞检测**（排序后找首个 `nums[i] > nums[i-1]+1` ⇒ 返回洞上边界），`core/store.ets:796` 已用它当 `before` | `AssistantMessage.tsx:105-116`；`useRegionWindow.ts` | ~~区域取段游标无洞检测~~ | — | **P1** | ✅ 已完成 —— 此行仅供追溯 |
 | E | 同一状态两处判据 | `core/integrate.ts:385`；`core/reduce.ts:781`；`pages/Index.ets:2929` | `MessageList.tsx:1679-1686`；`AssistantMessage.tsx:158-163` | `phase==='compressing'` **无任何 UI 消费者** ⇒ 压缩期原生恒显示「思考中…」，web 显示「正在压缩上下文…」 | `grep -rn "compressing" entry/src/main/ets` → 仅注释；`showsBusyPlaceholder` 不看 phase | **P1** | 占位/`LiveTailView` 接 `liveProgress().phase`（web 同款） |
 | F | 陈旧快照覆盖新状态 | `pages/Index.ets:1050`；`store.ets:904` | `usePendingEdit.ts:57-95`；`AgentPanel.tsx:691-692` | goal/todos **无乐观覆盖层**：用户勾选/改名后若一条旧 progress 快照先到，UI 回退旧清单（web 有 begin/commit/discard+序号防乱序） | 造 `snapshot=OLD` → `commit(NEW)` → 再喂 `OLD`：web 保 NEW；原生无该函数 | **P1** | `core/` 加 `usePendingEdit` 等价纯逻辑，Index 用覆盖值渲染 |
-| G | 同一信息两处口径 | `pages/Index.ets:2200-2201` | `AskUserPanel.tsx:37,69,84` | AskUser 答案键/拼接口径不同：web 用**下标** `String(i)`、多选 `、`；原生用 `q.id`(缺省 `q{i}`)、多选 `, `、并塞 `；other` | 键集合：web `{"0":…}` vs 原生 `{"<q.id>":…}`；分隔符 `、` vs `, ` | **P1** | ⚠️ 先核 `agent` 端 `AskUserResponse.Answers` 的匹配语义（服务端单答兜底 key 竟是 `"1"`），再对齐 |
+| G | 同一信息两处口径 | ✅ **已修（前波）**：键/连接符/优先级由 `core/msgops.ets:235 mergeAskAnswers` 保证（`String(i)` + `MULTI_JOIN='、'` + other>labels），`pages/Index.ets:2594` 已接线；`selectionsFor:286` 的 `q.id`/`q{i}` 是 **UI 内部句柄、不进 `answers`**，不构成缺陷 | `AskUserPanel.tsx:37,69,84` | ~~答案键/拼接口径不同~~ | — | **P1** | ✅ 已完成（2026-10-11 复核：**接线 spec 不再需要**；服务端 `protocol/ws.go:85` 契约 = index，且 `web_inbound.go:447-453` 只做 `Q<键>: <值>` 回显 ⇒ 无服务端脆弱点） |
 | H | 同一信息两处口径 | `pages/Index.ets:1052,1858-1860,3012,5663`；`core/statusfmt.ets`(goalText 读 `g.text`) | `MessageInput.tsx:694,730`；`GoalBanner.tsx:30` | 同一 goal 两源：状态栏/`StatusSheet` 读 `store.goal`(`.text`，**全仓无赋值点** ⇒ 恒空)，横幅读 `liveProgress().goal`(`.objective`) ⇒ 「详情」入口在只有 goal 无 todo 时**消失** | `goalText({text:'x'})===''` 而横幅正常显示 | **P1** | `goalLine/StatusSheet` 改读 `objective`；`详情` gating 同源（该缺陷已在 `statusfmt.ets` 头注记录、未修） |
 | I | 键不稳定 | `components/LiveTailView.ets:568` | `FoldedToolGroup.tsx:557` | live pill 的 `ForEach` key 含 `t.status`（`lt-${i}#${name}#${status}`）⇒ 状态每翻一次 key 变、销毁重建（打开中的浮层被拆、selected 复位）；web key 与状态无关 | 仅把某枚 status `running→done` ⇒ 原生 key 变、web 不变 | **P1** | key 去掉 `status`（用 `call_id` 或 `name-i`） |
 | J | 顺序/不变量 | `core/indicators.ets:56-58`；`core/streammerge.ets:394-397` | `MessageList.tsx:640-650` | 迭代边界空隙**多画一个「思考中…」**：web 用 `!tailIsLiveRow` 抑制（否则与上方「思考 N 字」自相矛盾），原生缺该项 | `showsBusyPlaceholder({tailShowsIndicator:false,localBusy:true,rowsLength:5})` 原生 `true`、web `false` | **P1** | ✅ **裁决：保持原生行为（有意的原生差异）** —— 原生代码注释记录了**用户点名要求显示**该占位（用户明确要求优先于 web 对齐；与"executing 显示排队"同理：用户常驻要求优先）。⛔ **不要**为对齐 web 改掉它。 |

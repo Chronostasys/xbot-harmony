@@ -16,6 +16,17 @@
  *
  * ⚠️ 迁移的两个面板**都没有超时**（武装态一直留到取消/执行）⇒ 调用方传 `DANGER_NO_EXPIRY`
  *    保持语义不变；`ttlMs > 0` 的过期路径由本模块提供并被单测覆盖（供将来显式启用）。
+ *
+ * ⛔ **有意零消费（S3-a 裁决，2026-10-11）**：本模块**当前不接线**。理由经只读取证 ——
+ *    **web 没有"两步确认"这个模式**，其破坏性动作一律是**单击直执行 + busy/错误提示**：
+ *      · 退出登录 `web/src/components/settings/SettingsDialog.tsx:66-99`（单击 `await logout()`，无 confirm）；
+ *      · 恢复默认面板布局 `web/src/components/settings/SettingsLayout.tsx:43-56`（单击清 `localStorage`
+ *        + POST `user_settings`，只有 `resetting`/`resetErr`）；
+ *      · 全 web 搜 `再次点击`/`再点一次`/`click again`/`armed` **只命中无关用途**
+ *        （`MessageList.tsx:571 loadMoreArmedRef` 加载哨兵、`PanelLayout.tsx:427` 占位面板语义）。
+ *    ⇒ 接它 = **主动背离 web + 用户没要求**。保留本模块的价值 = 把既有 **5 份各自为政**的组件内实现
+ *      收敛成**一张表 + 一个纯函数**（判据可脱机测）；已在 `tools/tests/orphan_core_module.test.ts`
+ *      的 `UNCONSUMED` 台账**显式登记"有意零消费"**。⛔ 若将来用户点名要两步确认，再开 S3-b 接线。
  */
 
 import { Palette, contrastRatio } from './theme';

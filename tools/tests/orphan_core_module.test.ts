@@ -44,7 +44,13 @@ ok('探测到仓库根', repo.length > 0);
  */
 const UNCONSUMED: string[] = [
   'annotations',   // 待处置：接线 或 写明理由（实测基线）
-  'dangerconfirm', // 待处置（同上）
+  'dangerconfirm', // ✅ **有意零消费**（S3-a 裁决，2026-10-11）：**web 无"两步确认"模式** ——
+  //                   web 的破坏性动作都是【单击直执行 + busy/错误提示】：
+  //                   · 退出登录 `web/src/components/settings/SettingsDialog.tsx:66-99`（单击 `logout()`）
+  //                   · 恢复默认面板布局 `web/src/components/settings/SettingsLayout.tsx:43-56`（单击清 localStorage + POST user_settings）
+  //                   全 web 搜 `再次点击/再点一次/armed` 只命中无关用途（MessageList 加载哨兵等）⇒
+  //                   接本模块 = **主动背离 web + 用户没要求** ⇒ 不接。本文件保留为**纯逻辑 + 测试**
+  //                   （它把既有 5 份各自为政的组件内实现收敛成一张表），**不接线**。
   'recentdirs',    // 待处置（同上）
   'sheets',        // ⚠️ **在途**：plugin-ux 正在接线 ⇒ 接完应从此表删除
 ];
