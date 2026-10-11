@@ -52,6 +52,26 @@ if (repo.length > 0) {
   ok(`★③ ToolPopover 等宽块分布（实得 ${mono} ≥1；零扫描判红）`, mono >= 1);
   ok(`★③ 其中 maxLines 受控（实得 ${count(tp, '.maxLines(')} ≥1）`, count(tp, '.maxLines(') >= 1);
 }
+// ── ★④ 系统卡（`SyntheticCard`）：其**等宽块**必须**折行** `WordBreak.BREAK_ALL` ──────────────
+// 裁决（主 agent 2026-10-11）：工具输出 = **块内横滑**（保持）；系统卡 = **折行** ——
+// 理由：系统卡是"告知性"内容（任务名/命令/路径），**不该靠横滑才能读全**；且 `BREAK_WORD`
+// 对 **URL/长英文串仍会溢出** ⇒ 会撞用户报的"字超出屏幕"。
+{
+  const sc: string = strip(fsMod.readFileSync(pathMod.join(COMP, 'SyntheticCard.ets'), 'utf-8'));
+  let monoAll: number = 0, monoWord: number = 0;
+  const L: string[] = sc.split('\n');
+  for (let i = 0; i < L.length; i++) {
+    if (L[i].indexOf('wordBreak(WordBreak.') >= 0) {
+      const near: string = L.slice(Math.max(0, i - 6), i + 3).join('\n');
+      if (near.indexOf('monospace') >= 0) {
+        if (L[i].indexOf('WordBreak.BREAK_ALL') >= 0) { monoAll++; } else { monoWord++; }
+      }
+    }
+  }
+  ok(`★④ SyntheticCard 的等宽块走 BREAK_ALL（实得 ${monoAll} ≥1）`, monoAll >= 1);
+  ok(`★④ 且**无**等宽块仍用 BREAK_WORD（实得 ${monoWord} 应为 0）`, monoWord === 0);
+}
+
 if (fail > 0) { console.log(`  output_overflow: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  output_overflow: ${pass} passed, 0 failed`);
 process.exit(0);

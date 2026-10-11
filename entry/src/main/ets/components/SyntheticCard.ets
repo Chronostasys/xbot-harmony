@@ -251,7 +251,7 @@ export struct SyntheticCard {
           .fontFamily(this.form() === FORM_BG_TASK ? 'monospace' : 'sans-serif')
           .fontColor(this.bodyColor())
           .width('100%')
-          .wordBreak(WordBreak.BREAK_WORD)
+          .wordBreak(WordBreak.BREAK_ALL)
           .textAlign(TextAlign.Start)
           .copyOption(CopyOptions.LocalDevice)
         } else {
@@ -260,7 +260,7 @@ export struct SyntheticCard {
             .fontFamily(this.form() === FORM_BG_TASK ? 'monospace' : 'sans-serif')
             .fontColor(this.form() === FORM_BG_TASK ? this.pal().textSecondary : this.pal().textPrimary)
             .width('100%')
-            .wordBreak(WordBreak.BREAK_WORD)
+            .wordBreak(WordBreak.BREAK_ALL)
             .textAlign(TextAlign.Start)
             .copyOption(CopyOptions.LocalDevice)
         }
@@ -278,7 +278,7 @@ export struct SyntheticCard {
           .fontFamily('monospace')
           .fontColor(this.pal().dangerText)
           .width('100%')
-          .wordBreak(WordBreak.BREAK_WORD)
+          .wordBreak(WordBreak.BREAK_ALL)
           .padding(SP_2)
           .backgroundColor(this.pal().dangerBg)
           .borderRadius(R_LG)
