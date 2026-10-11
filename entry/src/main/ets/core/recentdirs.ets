@@ -32,6 +32,11 @@ export const RECENT_WORKDIRS_KEY: string = 'xbot:recent-workdirs:v1';
  * 走 `store.saveSettings`/`store.settings`（服务端通道）⇒ 必须用**服务端键**才与 web 共读一份。
  * ⚠️ 原生 `core/settings.ets` 未收录该键 ⇒ `serverKey()/localKey()` 对它**原样透传**（§17.5-5 零丢键）
  *    ⇒ 用它读写即命中 web 写的同一格。
+ *
+ * ⛔ **决策留痕（main agent 裁决，2026-10-11）**：**不要**再给 `core/settings.ets` 加
+ *    `xbot:recent-workdirs:v1 → web:workspace:recent-workdirs` 的映射。理由：① 无收益（透传已等价命中）；
+ *    ② 会多出一处需要长期守住的一致性（且 `settings.test.ts` 现把该键列为"web 独有键、原样透传"）。
+ *    改动方=本常量 + 宿主（`pages/Index.ets` 的 `NewSessionSheet`）。
  */
 export const RECENT_WORKDIRS_SERVER_KEY: string = 'web:workspace:recent-workdirs';
 /** 存储格式版本（web 写死 1；不匹配即拒）。 */

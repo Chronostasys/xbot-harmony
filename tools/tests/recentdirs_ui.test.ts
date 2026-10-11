@@ -14,6 +14,16 @@
  *
  * ⚠️ 先剥注释（本仓 GOTCHA：注释里就会写这些函数名，不剥会**假绿**）。
  * ⚠️ 结尾必须 `process.exit(...)`（`run.sh` 逐文件 `node`）。
+ *
+ * ── ⛔ 有意"未做"的项（防下一个人/agent 当疏漏顺手修掉）────────────────────────────
+ *   · **新建会话弹层（`Index.ets` 的 `NewSessionSheet`）有意未加入场动效**：
+ *     本仓动效台账规则是「**只许减不许增**」（`tools/tests/motion_budget.test.ts`；
+ *     `pages/Index.ets` 台账 = **3**）。给该弹层加 `.transition(sheetTransition())` 会让
+ *     Index.ets 动效数 **3→4 ⇒ 破门禁（`motion_budget` 必红）**。
+ *     ⇒ **要加它，必须先登记 `motion_budget` 台账并说明"它讲哪条状态/空间关系"（届时由 main agent 拍板）**。
+ *     ⛔ **现状别加**（这是**有意的**，不是遗漏）。
+ *   · 持久化**有意用服务端键** `web:workspace:recent-workdirs`（见 `core/recentdirs.ets` 的
+ *     `RECENT_WORKDIRS_SERVER_KEY` 及其注释）：两端共读一份；⛔ **不要**再给 `settings.ets` 加映射。
  */
 declare const process: { exit: (c: number) => void };
 declare const require: (m: string) => any;
