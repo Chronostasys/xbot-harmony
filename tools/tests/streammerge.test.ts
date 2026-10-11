@@ -166,6 +166,32 @@ eq('toolsFromEvent：陈旧 active(pending) 不盖 running',
     active_tools: [tool('Shell', 'c1', 'running'), tool('Shell', 'c1', 'pending')],
   }) || []).map((t: ToolProgress) => t.status), ['running']);
 
+// ── ⑪b 症状④「有时所有工具都在排队」（**用户 2026-10-11 亲报**）─────────────────────
+// 根因：rank 表曾把 `generating` 排在 0（**低于** `pending`=1）⇒ 多工具批次同时"生成中"时，
+// 任何带 `pending` 的快照都会把整批**翻回「排队」**。
+// web 权威把 generating **整体排除在比较之外**（`progressStore.ts:351-354`：
+// `if (tool.status === 'generating') { result.push(tool); continue }`）⇒ 后到的 pending 永远盖不掉它。
+// 本仓跨帧累积合并，只能在 rank 里等价表达 ⇒ 断言：同一 call_id 上 pending 不得覆盖 generating。
+let genVsPending: ToolProgress[] = [];
+genVsPending = mergeTools(genVsPending, [tool('Shell', 'c1', 'generating')]);
+genVsPending = mergeTools(genVsPending, [tool('Shell', 'c1', 'pending')]);
+eq('陈旧 pending 不得把 generating 翻回「排队」',
+  genVsPending.map((t: ToolProgress) => t.status), ['generating']);
+// 反向守卫：修法**不能过度保护** —— 真进入执行时 running 必须覆盖 generating。
+let genVsRunning: ToolProgress[] = [];
+genVsRunning = mergeTools(genVsRunning, [tool('Shell', 'c1', 'generating')]);
+genVsRunning = mergeTools(genVsRunning, [tool('Shell', 'c1', 'running')]);
+eq('running 仍必须覆盖 generating（不过度保护）',
+  genVsRunning.map((t: ToolProgress) => t.status), ['running']);
+// 单调推进全链：pending → generating → running → done 每一步都必须是"更能说明进展"的赢。
+const chain: string[] = [];
+let chainTools: ToolProgress[] = [];
+for (const st of ['pending', 'generating', 'running', 'done']) {
+  chainTools = mergeTools(chainTools, [tool('Shell', 'cx', st)]);
+  chain.push(chainTools[0].status as string);
+}
+eq('同键状态单调推进（迟到者只能更终态）', chain, ['pending', 'generating', 'running', 'done']);
+
 // ── ⑫ 迭代归属：跨迭代合并**保留 head 迭代号**（工具不漂到错误迭代下）──────────────
 // 服务端每个工具自带 `iteration`（`engine_run_tools.go:57`），落在**各自**迭代的 iteration_history。
 // 渲染层的跨迭代合并（mergeToolRuns）把"纯工具"迭代吸收进前一个含工具迭代 ⇒ 必须保留 head 号，
