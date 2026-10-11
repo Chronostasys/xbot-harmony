@@ -262,6 +262,12 @@ function delay(fn: () => void, ms: number): number {
 export const COMPOSER_INPUT_ID: string = 'composer-input';
 
 /**
+ * 深链 `input.focus` 的**挂载后延迟**（ms）—— 让首帧先布局，`COMPOSER_INPUT_ID` 的 TextArea
+ * 挂上了再聚焦。见 `dispatchCommand` 的 `COMMAND_INPUT_FOCUS` 分支（冷启动路径早于 `build()`）。
+ */
+export const FOCUS_AFTER_MOUNT_MS: number = 16;
+
+/**
  * 设置分区**白名单** —— 真源 = `components/SettingsPanel.ets` 的 `SETTINGS_TAB_*` **导出**
  * （⛔ 不在此新造字符串；web 的 `settings.open?section=llm` 用的就是同一批小写名）。
  */
@@ -1019,7 +1025,13 @@ struct Index {
     }
     if (action.id === COMMAND_INPUT_FOCUS) {
       // 聚焦 composer（`focusControl` 从 `@kit.ArkUI` 取；id 挂在下面的 TextArea 上）
-      focusControl.requestFocus(COMPOSER_INPUT_ID);
+      // ⛔ **必须延后一拍**：本分支会被冷启动的 `consumePendingCommand()` 在 `bootstrap()`
+      //    （= `aboutToAppear`，早于 `build()`）里调到 —— 那时 `COMPOSER_INPUT_ID` 的 TextArea
+      //    **尚未挂载** ⇒ 同步 `requestFocus` **静默失败**（冷启动深链 `input.focus` 聚焦不了）。
+      //    复用页面**唯一**定时器出口 `delay()`（性能预算 7/7 已满 ⇒ ⛔ 不新增 `setTimeout` 调用点）。
+      delay((): void => {
+        focusControl.requestFocus(COMPOSER_INPUT_ID);
+      }, FOCUS_AFTER_MOUNT_MS);
       return;
     }
   }
