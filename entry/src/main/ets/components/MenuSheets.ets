@@ -43,7 +43,7 @@ import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
 import { SearchHit } from '../core/types';
 import { hitLine, MOVE_DOWN, MOVE_TOP, MOVE_UP } from '../core/sessionops';
 import { linkLabel } from '../core/msgops';
-import { CtxMenuItem, iterMenuItems, toolsMenuItems } from '../core/ctxmenu';
+import { CtxMenuItem, iterMenuItems, toolsMenuItems, userMenuItems } from '../core/ctxmenu';
 import {
   PRESS_OPACITY,   DISABLED_OPACITY, ELEV_OVERLAY, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_CHIP, RADIUS_SHEET,
   SPACE_LG, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, elevationColorOf, hairlineOf, surfaceFillOf,
@@ -303,6 +303,12 @@ export struct ContextSheet {
   @Prop toolNames: string[] = [];
   @Prop toolHasText: boolean[] = [];
   @Prop toolsAllHasText: boolean = false;
+  /**
+   * 该 user 消息此刻**是否可 rewind**（`ctxKind === 'user'`）—— 判据 = `core/ctxmenu.userMenuItems`
+   * （不可 ⇒ 「编辑并重发」**置灰**，对齐 web `UserMessage.tsx:322 disabled={editDisabled}`）。
+   * **缺省 `true`（向后兼容：不投递时行为不变）。**
+   */
+  @Prop canRewind: boolean = true;
   /** 菜单项点击（页面 `onSheetItem(code)` —— 派发留页面）。 */
   onItem: (code: string) => void = () => {
   };
@@ -364,8 +370,11 @@ export struct ContextSheet {
         .margin({ left: INSET_ROW_X, right: INSET_ROW_X })
 
       if (this.ctxKind === 'user') {
-        this.CtxItem('复制文本', 'user-text', false)
-        this.CtxItem('编辑并重发', 'user-rewind', false)
+        // 判据与渲染同源 = `core/ctxmenu.userMenuItems`（不可 rewind ⇒ 「编辑并重发」置灰、派发被拒；
+        // 对齐 web `UserMessage.tsx:322 disabled={editDisabled}` —— 是**可见的禁用**，不隐藏）。
+        ForEach(userMenuItems(this.canRewind), (m: CtxMenuItem, i: number) => {
+          this.CtxItem(m.label, m.code, m.dim)
+        }, (m: CtxMenuItem, i: number) => `ctx-user-${i}-${m.code}`)
       } else if (this.ctxKind === 'tool') {
         this.CtxItem('复制输出', 'tool-out', false)
         this.CtxItem('复制参数', 'tool-args', false)

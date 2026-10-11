@@ -19,7 +19,7 @@ const fs = require('fs');
 // ⛔ 必须标记为**模块**（否则顶层 `pass/fail` 落进全局作用域，与其它脚本测试重名冲突 TS2451）。
 export {};
 
-import { CtxMenuItem, ITER_REPLY, ITER_THINKING, ITER_TOOLS, iterMenuItems, toolsMenuItems } from '../../entry/src/main/ets/core/ctxmenu';
+import { CtxMenuItem, ITER_REPLY, ITER_THINKING, ITER_TOOLS, USER_REWIND, USER_TEXT, iterMenuItems, toolsMenuItems, userMenuItems } from '../../entry/src/main/ets/core/ctxmenu';
 
 let pass = 0, fail = 0;
 function eq(name: string, got: unknown, want: unknown): void {
@@ -70,6 +70,8 @@ console.log(`  ctxmenu-scan files: ${MS}, ${IX}, ${MR}`);
 const msIter: number = countOf(msSrc, 'iterMenuItems(');
 const msImport: number = countOf(msSrc, "from '../core/ctxmenu'");
 const msTools: number = countOf(msSrc, 'toolsMenuItems(');
+const msUser: number = countOf(msSrc, 'userMenuItems(');
+const msCanRewind: number = countOf(msSrc, 'canRewind');
 const msToolNames: number = countOf(msSrc, 'toolNames');
 const mrGroup: number = countOf(mrSrc, 'onOpenToolsCtx');
 const mrToolCtx: number = countOf(mrSrc, 'onOpenCtx(');
@@ -91,6 +93,8 @@ console.log(`  ctxmenu-scan ${IX}: canIter*=${ixReply}/${ixThinking}/${ixTools}`
 ok(`MenuSheets 真 import core/ctxmenu（${msImport} ≥ 1）`, msImport >= 1);
 ok(`MenuSheets 用 iterMenuItems( 渲染（判据与渲染同源，${msIter} ≥ 1）`, msIter >= 1);
 ok(`MenuSheets 用 toolsMenuItems( 渲染工具组菜单（${msTools} ≥ 1）`, msTools >= 1);
+ok(`MenuSheets 用 userMenuItems( 渲染用户菜单（含 rewind 置灰，${msUser} ≥ 1）`, msUser >= 1);
+ok(`MenuSheets 有 canRewind 入参（${msCanRewind} ≥ 2：@Prop 声明 + 调用）`, msCanRewind >= 2);
 ok(`MenuSheets 有工具组项集入参 toolNames（${msToolNames} ≥ 1）`, msToolNames >= 1);
 ok(`MessageRow 有组级回调 onOpenToolsCtx（${mrGroup} ≥ 1）`, mrGroup >= 1);
 ok(`MessageRow 保留单枚 onOpenCtx（内层优先，${mrToolCtx} ≥ 2：声明 + 调用）`, mrToolCtx >= 2);
@@ -123,6 +127,19 @@ eq('tools hasText 缺位 ⇒ 按 false（不越界）', codes(toolsMenuItems(['A
   eq('tools 逐枚 label 含工具名', m[0].label.indexOf('Shell') >= 0, true);
   eq('tools 组级 label 非空', m[1].label.length > 0, true);
 }
+
+// ── ①c 纯逻辑：**用户消息**菜单（`user-rewind` 的禁用态，web `UserMessage.tsx:322`）────────
+eq('userMenuItems(true) ⇒ 两项，均不置灰',
+  userMenuItems(true).map((m: CtxMenuItem): string => `${m.code}:${m.dim}`), [`${USER_TEXT}:false`, `${USER_REWIND}:false`]);
+eq('userMenuItems(false) ⇒ 「编辑并重发」**置灰**（不隐藏）',
+  userMenuItems(false).map((m: CtxMenuItem): string => `${m.code}:${m.dim}`), [`${USER_TEXT}:false`, `${USER_REWIND}:true`]);
+eq('「复制文本」恒不置灰（复制永远可用）', userMenuItems(false)[0].dim, false);
+eq('项数恒 2（禁用不改项集，只改 dim）', userMenuItems(false).length, 2);
+eq('label 保序（复制文本 / 编辑并重发）',
+  userMenuItems(true).map((m: CtxMenuItem): string => m.label), ['复制文本', '编辑并重发']);
+// 派发门（现有机制：`CtxItem` 里 `if (dim) { return; }`）—— 置灰项**不可派发**
+eq('置灰项不可派发（dim=true 的项存在且带 USER_REWIND）',
+  userMenuItems(false).filter((m: CtxMenuItem): boolean => m.dim).map((m: CtxMenuItem): string => m.code), [USER_REWIND]);
 
 console.log(`  ctxmenu: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

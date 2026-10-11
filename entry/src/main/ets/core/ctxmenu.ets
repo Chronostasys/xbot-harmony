@@ -25,10 +25,15 @@ export const ITER_TOOLS: string = 'iter-tools';
 export const TOOL_ITEM_PREFIX: string = 'copy-tool:';
 export const TOOL_ALL: string = 'copy-all-tools';
 
-/** 一个菜单项（code + 展示文案）。 */
+/** 一个菜单项（code + 展示文案 + 置灰位）。 */
 export class CtxMenuItem {
   code: string = '';
   label: string = '';
+  /**
+   * **置灰（不可点）** —— 复用 `MenuSheets.CtxItem` 的现成 `dim` 机制（`if (dim) { return; }`
+   * ⇒ 派发被拒）；用于"这项此刻不适用但仍需**可见**以解释原因"的场合。
+   */
+  dim: boolean = false;
 }
 
 function item(code: string, label: string): CtxMenuItem {
@@ -36,6 +41,31 @@ function item(code: string, label: string): CtxMenuItem {
   m.code = code;
   m.label = label;
   return m;
+}
+
+function itemDim(code: string, label: string, dim: boolean): CtxMenuItem {
+  const m: CtxMenuItem = new CtxMenuItem();
+  m.code = code;
+  m.label = label;
+  m.dim = dim;
+  return m;
+}
+
+/** 用户消息菜单项 code（与页面 `runCtxAction` 的分派码一致）。 */
+export const USER_TEXT: string = 'user-text';
+export const USER_REWIND: string = 'user-rewind';
+
+/**
+ * **用户消息**菜单项集（对齐 web `UserMessage.tsx:315-334`：`编辑并重发` 有 `disabled={editDisabled}`）。
+ * ⚠️ 与迭代/工具不同：这里**不隐藏**"编辑并重发"，而是**置灰**——web 也一样（按钮在、灰 0.2），
+ * 因为"为什么不能编辑"本身就是信息（`dim` 可见而不可点）。
+ * @param canRewind 该 user 消息此刻是否可 rewind（页面判定后投递）
+ */
+export function userMenuItems(canRewind: boolean): CtxMenuItem[] {
+  const out: CtxMenuItem[] = [];
+  out.push(item(USER_TEXT, '复制文本'));
+  out.push(itemDim(USER_REWIND, '编辑并重发', !canRewind));
+  return out;
 }
 
 /**
