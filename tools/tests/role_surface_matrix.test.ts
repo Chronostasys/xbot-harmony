@@ -79,8 +79,11 @@ function roles(): RoleSpec[] {
     mk('successText', AA_TEXT, '成功文字', (t) => colorOf(paletteOf(t), 'successText')),
     mk('textMuted', AA_MUTED, '最弱元信息', (t) => colorOf(paletteOf(t), 'textMuted')),
     mk('iconMuted', AA_NON_TEXT, '弱图标', (t) => colorOf(paletteOf(t), 'iconMuted')),
-    mk('accentSoft', AA_NON_TEXT, '柔强调(图标/点)', (t) => colorOf(paletteOf(t), 'accentSoft')),
-    mk('warn', AA_NON_TEXT, '警告图标/文字', (t) => colorOf(paletteOf(t), 'warn')),
+    // ⚠️ 档位 = **字号档**（2026-10-11 校正，同 `theme_contrast.test.ts` 的 CANVAS_ROLES 口径）：
+    //   `accentSoft` / `warn` 有 normal 字号（10–12）的**文字**落点 ⇒ 4.5；
+    //   只有**非文本**落点（图标/点色）才留 `AA_NON_TEXT`(3.0)。
+    mk('accentSoft', AA_TEXT, '柔强调(链接/可点文字)', (t) => colorOf(paletteOf(t), 'accentSoft')),
+    mk('warn', AA_TEXT, '警告图标/文字', (t) => colorOf(paletteOf(t), 'warn')),
     mk('onAccent', AA_TEXT, '强调实心上的字', (t) => colorOf(paletteOf(t), 'onAccent')),
     mk('dangerOnFill', AA_TEXT, '危险实心上的字', (t) => colorOf(paletteOf(t), 'dangerOnFill')),
     mk('warnOnFill', AA_TEXT, '警告实心上的字', (t) => colorOf(paletteOf(t), 'warnOnFill')),

@@ -1119,3 +1119,56 @@ vs 深色黑柔影 **1.0206/1.0122** ⇒ 再次确认"浅色柔影比深色黑�
 
 **⚠️ 本判据不硬红**：颜色对的缺口属**主题层**（`core/theme.ets` = `brand-impl`），本文件只把矩阵与缺口**如实列清**；
 硬红仍由 `theme_contrast` 的既批准台账承担。本文件的断言只做"矩阵非空 / 无解析失败 / 覆盖健全 / 台账只许缩短 / mutation"。
+
+---
+
+## 15. 对比度阈值 = **字号档**（2026-10-11 校正）
+
+> 问题（裁决 1）：同一个 role 在仓内被判成不同阈值 —— `textSecondary` 在 `contrastReqs()` 是 **4.5**、
+> 在 `theme_contrast.test.ts` 的 `CANVAS_ROLES` 是 **3.0**、在 `role_surface_matrix` 是 **4.5**。
+> 裁决方向：WCAG 的 4.5/3.0 分界**本质是字号**，所以**档位该跟"该 role 的消费落点用多大字号"绑**。
+
+### 15.1 规则（唯一判据）
+
+| 档 | 常量 | WCAG | 判什么 |
+|---|---|---|---|
+| **4.5** | `AA_TEXT` | §1.4.3 normal text | 有 **normal 字号（< 18.66px，或非 bold）的文字落点**的 role |
+| **3.0** | `AA_NON_TEXT` | §1.4.11 非文本（= §1.4.3 large text 同值） | **只有非文本/图形落点**（图标/描边/点/弧/环）的 role |
+| **2.0** | `AA_MUTED` | （仓内**有意**低于 AA） | 仅 `textMuted`：**非交互元信息**（时间戳/占位） |
+
+- **large text**（≥18.66px **bold** 或 ≥24px）在本仓**不构成第三条**：排版阶梯（`core/design.ets: typeRoles()`）
+  里只有 `type.display`(28) / `type.title`(21 **bold**) 达 large ⇒ **没有任何 role 只出现在 large 档**
+  ⇒ 判据退化成"**有 normal 文字落点 ⇒ 4.5**，否则 3.0"。
+- ⛔ `AA_MUTED` **不外扩**：它只给 `textMuted`（元信息不是"正文"）。
+
+### 15.2 校正结果（逐 role 落点字号取证）
+
+| role | 落点字号（`file:line`） | 校正后档 | 三个判据是否一致 |
+|---|---|---|---|
+| `textPrimary` | 15 / 17 / 21 / 28 | 4.5 | ✅（本来就一致）|
+| `textSecondary` | 12 `LiveTailView.ets:439`/`SettingsLlm.ets:817`、10 `type.micro`、14 `type.callout` | **4.5** | ✅ 三处一致（`theme_contrast` 由 3.0 **收紧**到 4.5）|
+| `accentSoft` | 12 `Index.ets:3891` '详情' / '重试' / '打开' | **4.5** | ✅（`theme_contrast`/`role_surface_matrix` 由 3.0 **收紧**）|
+| `dangerText` | 12 `Index.ets:3618`、14 `Index.ets:3753` | **4.5** | ✅（`theme_contrast` 由 3.0 **收紧**）|
+| `successText` | 10 `ToolPopover.ets:460`、12 `Index.ets:6803` | **4.5** | ✅（同上；与 §J 的 porcelain ≥4.5 断言同口径）|
+| `warn` | 11 `MessageRow.ets:563`、12 `QueueSheet.ets:111` | **4.5** | ✅（`theme_contrast`/`role_surface_matrix` 由 3.0 **收紧**）|
+| `dangerOnFill` / `warnOnFill` | 实心底上的**文字** | **4.5**（原误用 3.0） | ✅（与 `role_surface_matrix` 原有 4.5 对齐）|
+| `accent` | **图形**（弧/环/点/图标） | 3.0 | ⚠️ **跨类**（见 §15.3）|
+| `statusError` / `statusRunning` | **图形**（弧/环） | 3.0 | ⚠️ **跨类**（见 §15.3）|
+| `iconMuted` | **非文本**（图标） | 3.0 | ✅ |
+| `textMuted` | 元信息 | 2.0 | ✅ |
+
+### 15.3 跨类 role：`accent` / `statusError` / `statusRunning`（**落点修复清单**，⛔ 未动组件）
+
+三者在本表里建模的是**图形**落点，但它们**另有 normal 字号（10–14）的**文字**落点**（跨类把图形 role 当文字用）：
+
+| role | 文字落点 | 字号 | 实算（不达标面）|
+|---|---|---|---|
+| `accent` | ANSI 终端文本 `SyntheticCard.ets:248/260`、`ToolVisual.ets:115`；`MessageNav.ets:121-129` 序号 | 12/14；10 | dark 压 `surface` 4.43 / `surfaceAlt` 4.21 / `surfaceHi` 3.84；porcelain 压 `appBg` 4.39 / `surfaceAlt` 4.35 / `surfaceHi` 4.02 / `sunken` 4.20 |
+| `statusError` | ANSI 终端（槽 1 红）`SyntheticCard.ets:248` | 12/14 | light 压 `surfaceHi` 4.25 |
+| `statusRunning` | ANSI 终端（槽 6/14 青） | 12/14 | light 压 `appBg` 3.73 / `surface` 3.90 / `surfaceAlt` 3.56 / `surfaceHi` 3.17 / `sunken` 3.46 / `glassBg/appBg` 3.87 / `glassBg/surface` 3.90；porcelain 压 `appBg` 4.39 / `surfaceAlt` 4.35 / `surfaceHi` 4.02 / `sunken` 4.20；dark 压 `surfaceHi` 4.27 |
+
+**为什么不在本表把它们整体抬到 4.5**：那会把「该 role × **无落点的面**」也判红（= 造一批没人用的对），
+并迫使**只作图形**的落点（青/紫弧、进度环）也去满足正文阈值。⇒ 修法是**落点侧**：
+换文字 role（如 `warn`/`dangerText`）或改终端色板；**交主 agent 另派线**。
+（若将来决定"终端文本一律按正文档"，再把这些 role 整体收紧 + 台账登记，那是**另一项裁决**。）
+

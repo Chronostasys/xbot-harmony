@@ -117,16 +117,34 @@ const T_BODY: number = 4.5;
 const T_SECOND: number = 3.0;
 const T_MUTED: number = 2.0;
 
-/** 画布面上的文字角色（**语义上一定成立**的关系：这些角色存在的意义就是"被读"）。 */
+/**
+ * 画布面上的文字角色（**语义上一定成立**的关系：这些角色存在的意义就是"被读"）。
+ *
+ * ⚠️ **阈值档位 = 字号档**（2026-10-11 校正，依据 WCAG 2.1 §1.4.3：normal text 4.5 /
+ * large text 3.0，large = ≥18.66px **bold** 或 ≥24px；非文本 3.0 见 §1.4.11）：
+ *   · 本仓排版阶梯（`core/design.ets: typeRoles()`）里**只有** `type.display`(28) 与
+ *     `type.title`(21 bold) 达 large ⇒ **没有任何 role 只出现在 large 档**；
+ *   · 因此本表的档位只由"该 role 有无 **normal 字号（10–17）的文字落点**"决定 ——
+ *     有 ⇒ `T_BODY`(4.5)；**只有非文本/图形落点** ⇒ `T_SECOND`(3.0)。
+ *   · 逐 role 的落点字号取证见各条注释。
+ */
 const CANVAS_ROLES: Tier[] = [
-  { fg: 'textPrimary', tier: T_BODY },
-  { fg: 'textSecondary', tier: T_SECOND },
-  { fg: 'textMuted', tier: T_MUTED },
+  { fg: 'textPrimary', tier: T_BODY },          // 正文 15 / 标题 17–28
+  // 12（`FS_CAPTION`：OverflowBadge「+N」`LiveTailView.ets:439`、`MessageRow.ets:922`、
+  //     `SettingsLlm.ets:817`「取消」）/ 10（`type.micro`）/ 14（`type.callout`）—— normal ⇒ 4.5
+  { fg: 'textSecondary', tier: T_BODY },
+  { fg: 'textMuted', tier: T_MUTED },           // 元信息专用档（见 `AA_MUTED` 注释）
+  { fg: 'accentSoft', tier: T_BODY },           // 链接、可点文字（38 处；12 如 `Index.ets:3891` '详情'）
+  { fg: 'dangerText', tier: T_BODY },           // 失败文字 12–14（`Index.ets:3618` FS_CAPTION）
+  { fg: 'successText', tier: T_BODY },          // 成功文字 10–12（`ToolPopover.ets:460` TYPE_CHIP）
+  { fg: 'warn', tier: T_BODY },                 // 警告文字 11–12（`MessageRow.ets:563` FS_META）
+  // ⛔ `accent` / `statusError` / `statusRunning` **留 3.0（非文本类）**：它们在**本表**里建模的是
+  //    图形落点（弧/环/点/图标/Progress）—— 非文本 ⇒ §1.4.11 的 3:1。⚠️ 但三者**还各有
+  //    normal 字号（10–14）的**文字**落点（ANSI 终端文本 `SyntheticCard.ets:248/260`、
+  //    `ToolVisual.ets:115`、`MessageNav.ets:121-129`），那是**跨类把图形 role 当文字用** ⇒
+  //    属**落点侧**缺陷（修法 = 换文字 role 或改终端色板），**已列"落点修复清单"**，
+  //    ⛔ 不在本表把它们整体抬到 4.5（那会把「该 role × 无落点的面」也判红 = 造一批没人用的对）。
   { fg: 'accent', tier: T_SECOND },            // ContextRing 弧色 / Circle.fill 等图形
-  { fg: 'accentSoft', tier: T_SECOND },        // 链接、可点文字（38 处）
-  { fg: 'dangerText', tier: T_SECOND },
-  { fg: 'successText', tier: T_SECOND },
-  { fg: 'warn', tier: T_SECOND },
   { fg: 'statusError', tier: T_SECOND },       // ContextRing.ets:69 用量环弧色
   { fg: 'statusRunning', tier: T_SECOND },     // AssistantOrb.ets:365 工具在飞环色
   // ⛔ `statusWaiting` **不在**本判定表（2026-10-11 订正）：它是**状态指示器/点色**
@@ -276,6 +294,12 @@ for (let i = 0; i < BOUNDARY_PAIRS.length; i++) {
 // ⚠️ 往台账里加一行 = 承认"新引入了一处读不出来的文字"，PR 里是显式可见的。
 // ════════════════════════════════════════════════════════════════════════════
 const LEDGER: string[] = [
+  // ── 目标⑤（2026-10-11 阈值字号校正后**新暴露**）────────────────────────────────────
+  // `textSecondary` 档位由 3.0 校正到 4.5（它有 10–14 的 normal 字号落点，见 CANVAS_ROLES 注释）
+  // ⇒ porcelain 的 `surfaceHi` 面暴露为 4.34:1。落点 = `LiveTailView.ets:442+445` /
+  // `MessageRow.ets:925+928`（`OverflowBadge`「+N」FS_CAPTION=12）、`SettingsLlm.ets:819+831`（「取消」12）。
+  // ⚠️ 修法跨域（压深全站浅色次要文字 / 改落点面）⇒ 由主 agent 另派线修，修完**必须删本行**。
+  'porcelain|textSecondary|surfaceHi',
   // ── 根因 A：`onAccent`（定义是"主按钮上的文字"）被用在**中性面** surfaceHi 上 ──────────
   // 证据：pages/Index.ets:3942-3943（同一 Text：fontColor(onAccent) + backgroundColor(surfaceHi)
   // = sendKeyLabel 发送键标签）。浅色系/霓虹主题的 surfaceHi 与 onAccent **明暗相反** ⇒ 几乎不可见。

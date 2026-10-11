@@ -778,11 +778,26 @@ export const DISABLED_OPACITY: number = 0.4;
 // 7. 对比度门禁（WCAG 2.1）—— 把"可访问性"变成可断言
 // ════════════════════════════════════════════════════════════════════════════
 
-/** 正文/关键 CTA 的 AA 阈值。 */
+/**
+ * **normal text（正文/小号文字）** 的 AA 阈值（WCAG 2.1 §1.4.3）。
+ *
+ * ⚠️ **档位 = 字号档，不是 role 名档**（2026-10-11 校正）：
+ *   · normal text（< 18.66px，或非 bold） ⇒ **4.5**
+ *   · large text（≥ 18.66px **bold** 或 ≥ 24px） ⇒ 3.0
+ *   · 本仓排版阶梯（`: typeRoles()`）里**只有** `type.display`(28) / `type.title`(21 bold) 达 large
+ *     ⇒ **没有任何 role 只出现在 large 档** ⇒ 判据只用两档：**有 normal 字号文字落点 ⇒ 本常量**；
+ *     **只有非文本/图形落点 ⇒ `AA_NON_TEXT`**。
+ */
 export const AA_TEXT: number = 4.5;
-/** 非文本（图标/描边/状态点）阈值（WCAG 2.1 §1.4.11）。 */
+/**
+ * **非文本**（图标 / 描边 / 状态点 / 弧 / 环）阈值（WCAG 2.1 §1.4.11）。
+ * ⚠️ 同 §1.4.3 的 large-text 档（= 3.0）**同值**，但语义不同：本常量判"**不是文字**的东西"。
+ */
 export const AA_NON_TEXT: number = 3.0;
-/** "几乎不该被读到"的最弱一档（`textMuted`）阈值 —— 与既有 `theme_contrast.test.ts` 同口径。 */
+/**
+ * "几乎不该被读到"的最弱一档（`textMuted`）阈值 —— 与既有 `theme_contrast.test.ts` 同口径。
+ * ⚠️ 这是**有意**低于 §1.4.3 的档（元信息不是"正文"）；⛔ 只许 `textMuted` 用，别外扩。
+ */
 export const AA_MUTED: number = 2.0;
 
 /** 一条对比度要求：前景角色 / 背景角色 / 阈值 / 说明。 */
@@ -931,21 +946,27 @@ export function contrastReqs(): ContrastReq[] {
     // ── 目标⑤（2026-10-11）：把 `surfaceHi` 也纳入 `textSecondary` / `accent` 的底 ─────────────
     // 背景：`surfaceHi`（= `surface.active` / `surface.pillSelected` / `surface.overlayRowHover`，
     //   RUNG_ACTIVE）此前**只**作为 `textPrimary` 的底进矩阵 ⇒ 选中 pill / 高亮行 / 悬停行上的
-    //   **次要文字**与**强调色图形**没有判定（`porcelain-audit` ⚠️-3，实测 `file:line` 见新判据
+    //   **次要文字**与**强调色图形**没有判定（`porcelain-audit` ⚠️-3，实测 `file:line` 见
     //   `tools/tests/porcelain_surfacehi_contrast.test.ts` 的 §3）。
-    // 判定口径（⛔ 不统一调色、⛔ 不放宽阈值）：与同列表里 `textSecondary` / `textPrimary` 一致取
-    //   `AA_TEXT`(4.5)。实算 porcelain 这两格不达标 ⇒ 按仓内「**台账只减不增**」纪律登记到
-    //   `knownContrastLedger()`（修好 ⇒ 断言变 ⇒ 红 ⇒ 逼同步删台账）。
+    // 档位按 **role 类别**（= 字号档，见 `AA_TEXT` 注释）：
+    //   · `textSecondary` 是**文字** role（10–14 落点）⇒ `AA_TEXT`(4.5)；porcelain 4.337 不达标
+    //     ⇒ 按「台账只减不增」登记（修法跨域，交主 agent 另派线；见 `knownContrastLedger`）。
+    //   · `accent` 是**非文本/图形** role（弧/环/点/图标）⇒ `AA_NON_TEXT`(3.0)（各主题均达标）。
+    //     ⚠️ 它**另有** normal 字号**文字**落点（ANSI 终端 / MessageNav 序号）—— 那是**跨类误用**，
+    //     属**落点侧**缺陷，已列"落点修复清单"（⛔ 不靠把该 role 整体抬到 4.5 来兜）。
     new ContrastReq('textSecondary', 'surfaceHi', AA_TEXT, '选中/高亮面上的次要文字（porcelain 4.337，见台账）'),
-    new ContrastReq('accent', 'surfaceHi', AA_TEXT, '强调色图形/文字压选中面（porcelain 4.017 / dark 3.839，见台账）'),
+    new ContrastReq('accent', 'surfaceHi', AA_NON_TEXT, '强调色图形（弧/环/图标）压选中面（非文本）'),
     new ContrastReq('accentSoft', 'surfaceAlt', AA_NON_TEXT, '在飞标记（非文本）压 pill'),
     // 弱交互图标（chevron / 关闭 / 把手）—— **非文本** 3:1（WCAG §1.4.11）
     // 浅色 = textSecondary（≥3:1）/ 深色 = textMuted（逐字节）。见 `iconMutedOf`。
     new ContrastReq('iconMuted', 'appBg', AA_NON_TEXT, '弱交互图标（chevron/关闭/把手）压画布'),
     new ContrastReq('iconMuted', 'surface', AA_NON_TEXT, '弱交互图标压卡片'),
-    // 危险/警告实心底上的文字（`state.danger.fg` / `state.warn.fg`）—— 见 §4.10
-    new ContrastReq('dangerOnFill', 'dangerBg', AA_NON_TEXT, '危险实心底上的文字'),
-    new ContrastReq('warnOnFill', 'warnBg', AA_NON_TEXT, '警告实心底上的文字'),
+    // 警告文字（**文字** role：11–12 落点 ⇒ `AA_TEXT`；与 `theme_contrast` §J 的 porcelain ≥4.5 同口径）
+    new ContrastReq('warn', 'surface', AA_TEXT, '警告文字（连接断开/降级提示）'),
+    // 危险/警告**实心底上的文字**（`state.danger.fg` / `state.warn.fg`）—— 见 §4.10
+    // ⚠️ 是**文字**（不是非文本）⇒ 档位 = `AA_TEXT`（2026-10-11 校正：原误用 `AA_NON_TEXT`）
+    new ContrastReq('dangerOnFill', 'dangerBg', AA_TEXT, '危险实心底上的文字'),
+    new ContrastReq('warnOnFill', 'warnBg', AA_TEXT, '警告实心底上的文字'),
   ];
 }
 
@@ -1007,27 +1028,27 @@ export function contrastAudit(theme: string): ContrastResult[] {
  *     最亮端 `accentSoft` 上白字只有 2.09 ⇒ 压暗 accent 治不了根）。
  *     ⚠️ aurora / nebula 的 `onAccent` 是**深色字**（压亮底），实测 9.937 / 6.951 ⇒ **达标**，
  *     故**不**入台账（列进来就等于白送一个容忍位）。
- *   · **目标⑤（2026-10-11）`surfaceHi` 三格**（本波把 `surfaceHi` 纳入 `textSecondary`/`accent` 的底
- *     后**新暴露**的**实测缺口**，逐格给`file:line`落点证据见
+ *   · **目标⑤（2026-10-11）`surfaceHi` 格**（把 `surfaceHi` 纳入 `textSecondary` 的底后
+ *     **新暴露**的**实测缺口**，落点 `file:line` 见
  *     `tools/tests/porcelain_surfacehi_contrast.test.ts` §3）：
  *       - `porcelain|textSecondary|surfaceHi` = **4.337** < 4.5
  *         （落点：`LiveTailView.ets:442+445` 与 `MessageRow.ets:925+928` 的 `OverflowBadge`「+N」、
- *          `SettingsLlm.ets:819+831` 的「取消」—— 均为 `FS_CAPTION` 小号文字坐在 `surfaceHi` 面上）
- *       - `porcelain|accent|surfaceHi` = **4.017** < 4.5（**无生产落点**，仅为护栏）
- *       - `dark|accent|surfaceHi` = **3.839** < 4.5（**无生产落点**，仅为护栏）
- *     **为什么入台账而非就地修**：这两格在 porcelain 的达标修法**二选一**——① 压深
- *     `textSecondary`/`accent`（牵动**全站**浅色次要文字 / 品牌蓝 ⇒ 跨主题、影响面大）；
- *     ② 改落点的**面**（`LiveTailView`/`SettingsLlm`/`MessageRow`/`Index` 组件侧，其中
- *     `MessageRow.ets` / `Index.ets` 本波被其他线持有）⇒ **均超出本线域**，按仓内纪律
- *     **显式登记 + 交由主 agent 裁决**（⛔ 不静默留缺口、⛔ 不放宽阈值）。
- *     ⚠️ 本波**不允许**为了变绿而删这两行 —— 删 = 承认重新引入不可读的选中面文字。
+ *          `SettingsLlm.ets:819+831` 的「取消」—— 均为 `FS_CAPTION`(12) 小号**文字**坐在 `surfaceHi` 面上）
+ *     **为什么入台账而非就地修**：porcelain 的达标修法**二选一**——① 压深 `textSecondary`
+ *     （牵动**全站**浅色次要文字 ⇒ 跨主题、影响面大）；② 改落点的**面**（`LiveTailView`/
+ *     `SettingsLlm`/`MessageRow`/`Index` 组件侧，其中 `MessageRow.ets`/`Index.ets` 本波被其他线持有）
+ *     ⇒ **均超出本线域**，按仓内纪律**显式登记 + 交由主 agent 裁决**（⛔ 不静默留缺口、⛔ 不放宽阈值）。
+ *     ⚠️ 本行**不许**为了变绿而删 —— 删 = 承认重新引入不可读的选中面小号文字。
+ *   · **已收缩（2026-10-11 同日，档位校正）**：先前的 `porcelain|accent|surfaceHi` / `dark|accent|surfaceHi`
+ *     两条已**删除**。理由：`accent` 是**非文本/图形** role（弧/环/点/图标），按 **role 类别**（= 字号档，
+ *     见 `AA_TEXT` 注释）该格应取 `AA_NON_TEXT`(3.0) ⇒ porcelain 4.017 / dark 3.839 **均达标**
+ *     ⇒ 台账条目**变陈旧**，按「只减不增」纪律收缩。⛔ 这**不是放宽阈值**，是**校正到与 role 类别相符**
+ *     （`accent` 唯一的 normal 字号**文字**落点是**跨类误用**，属落点侧缺陷，已列"落点修复清单"）。
  */
 export function knownContrastLedger(): string[] {
   return [
     'dark|onAccent|accent',
     'porcelain|textSecondary|surfaceHi',
-    'porcelain|accent|surfaceHi',
-    'dark|accent|surfaceHi',
   ];
 }
 
