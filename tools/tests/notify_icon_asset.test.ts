@@ -84,12 +84,13 @@ if (fsMod.existsSync(PNG128)) {
     const stripped: string = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
     ok('  · 解码链里有保证可解码的 PNG（`$r(\'app.media.start_icon\')` 或新变体）',
       stripped.indexOf("app.media.start_icon") >= 0 || stripped.indexOf("app.media.brand_mark_128") >= 0);
-    // ⚠️ 当前顺序 = SVG 先（`brand_mark_outline` 在 `start_icon` 之前出现）。**结论是应翻转**，
-    //    但该文件是 orb-ux 的在途域 ⇒ 我只记录、不改（已上报主 agent 路由）。
+    // ✅ **顺序由 `orb-ux` 的 `e7e323c` 定为 PNG 优先**（本线结论被采纳）：
+    //    理由 —— ① SVG 能否被 `createImageSource` 吃**无证据**；② SDK 对图标**推荐 128×128 位图**；
+    //    ③ 通知小图在状态栏渲染尺寸很小 ⇒ 小尺寸上的矢量清晰度**收益 ≈ 0**。
+    const iPng: number = stripped.indexOf('app.media.brand_mark_128');
     const iSvg: number = stripped.indexOf('app.media.brand_mark_outline');
-    const iPng: number = stripped.indexOf('app.media.start_icon');
-    ok('  · ⚠️ 记录现状：SVG 先于 PNG（与"PNG 优先"结论不一致 ⇒ 已上报，待 orb-ux 翻转）',
-      iSvg >= 0 && iPng >= 0 && iSvg < iPng);
+    ok('  · ✅ PNG 优先：`brand_mark_128.png` 出现在 `brand_mark_outline.svg` **之前**（orb-ux e7e323c）',
+      iPng >= 0 && iSvg >= 0 && iPng < iSvg);
   }
 }
 
