@@ -448,10 +448,11 @@ console.log(`      · §8 星标落点现状：${starMuted ? '仍用 iconMuted�
 //   · `src/plugins/git-fancy/index.tsx:248` / `:415`、`commit.tsx:60`  `text-xs text-text-muted`
 //   token 定义：`src/index.css:163`（浅 `--text-muted:#999999`）/ `:269`（深 `#6b6b6b`）
 //             + `:397` `--color-text-muted: var(--text-muted)` ⇒ 原生对应 role = **`textMuted`**。
-// ⇒ 本仓「加载中…」**必须走 `textMuted`**（⛔ 不因主题变档）；唯一偏离 = `SettingsAbout.ets`（用 `secondaryText()`，
-//   浅色族变 `textSecondary` ⇒ 三主题次级层级不一致）—— 已登记，交主 agent 派线收敛。
+// ⇒ 本仓「加载中…」**必须走 `textMuted`**（⛔ 不因主题变档）。
+// ✅ **2026-10-11 已清零**：唯一偏离 `SettingsAbout.ets`（曾用 `secondaryText()` ⇒ 浅色族变
+//   `textSecondary`）已按 web 口径改用 `this.pal().textMuted` ⇒ 8 处全部一致。
 // 形态判据（源码扫；⛔ 不硬编行号，按 `Settings*.ets` 全扫 + 文案锚）：
-const KNOWN_LOADING_LEVEL_EXCEPTIONS: string[] = ['components/SettingsAbout.ets'];
+const KNOWN_LOADING_LEVEL_EXCEPTIONS: string[] = [];   // ⛔ 只许为空；若再出现偏离 ⇒ 显式登记（勿静默）
 function settingsFiles(): string[] {
   const dir: string = pathMod.join(etsRoot, 'components');
   const all: string[] = [];
@@ -466,10 +467,14 @@ function scanLoadingLevels(): string[] {   // 返回 `文件|fontColor 实参 ro
   // ⚠️ 定向正则：`this.pal().textMuted` / `this.secondaryText()` / `colorOf(...)`
   //    （⛔ 不能用 `.fontColor\(([^)]*)\)` —— 会被 `this.pal()` 的内层 `)` 截断）
   const re: RegExp = /\.fontColor\(\s*\[?\s*(this\.pal\(\)\.[A-Za-z0-9_]+|this\.[A-Za-z0-9_]+\(\)|colorOf\([^\]]*\))/;
+  // ⚠️ 窗口要**够宽**（元素链里可插注释 ⇒ 实测 `.fontColor` 可离文案 5–6 行），
+  //   且**遇到下一个 widget 就停**（防跨元素误取）。
+  const reNextWidget: RegExp = /^\s*(Text|Span|SymbolGlyph|Button|Column|Row|Image|Stack)\s*\(/;
   const hit = (lines: string[], i: number): string => {
-    for (let j = i; j <= Math.min(lines.length - 1, i + 4); j++) {
+    for (let j = i + 1; j <= Math.min(lines.length - 1, i + 10); j++) {
       const m: RegExpMatchArray | null = lines[j].match(re);
       if (m !== null) { return m[1].trim(); }
+      if (reNextWidget.test(lines[j])) { return ''; }
     }
     return '';
   };

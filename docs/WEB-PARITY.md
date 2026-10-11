@@ -546,7 +546,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | 渠道选择/过滤（列表按渠道过滤） | `ChannelPicker.tsx:73` | ✅ **已接线**（⚠️ **2026-10-11 目标④订正**：原注「过滤 ❌」**已过时**） | 纯逻辑 `core/sessionpick.ets:128 availableChannels`/`:192 sessionInChannel`/`:207 activeChannelLabel`；页面 `Index.ets:485 activeChannel`（持久化 `:1215`）/`:4399` 过滤判定/`:6502-6532` UI（「全部」+ 逐渠道 chip）。⚠️ 11.5 证据 ⑦ 的两条（渠道过滤 / 最近目录）**均已过期** |
 | 路径选择 cwd（输入 + 最近目录） | `PathPicker.tsx:36` | ✅ **已接线**（⚠️ **2026-10-11 目标④订正**：原注 ❌ **已过时**） | `pages/Index.ets:5969` 工作路径 TextInput + `:5982-6025` 最近目录候选（点选填入 / 删除）；纯逻辑 `core/recentdirs.ets`。**仍缺**：`PathPicker` 的**自动补全下拉**（web 边打字边给候选，见 §XI.3 尾注） |
 | 会话视图条（+「全部折叠/展开」） | `SessionViewBar.tsx:34` | 🟡 | 分类切换 ✅ `Index.ets:5196`；**「全部折叠/展开」仍 ❌**（⚠️ 2026-10-11 复核：纯逻辑 `core/sessiongroup.ets:770 collapseAllPlan` **已存在但全仓 0 UI 消费** ⇒ 用户不可达；单组折叠 `Index.ets:4446 isGroupCollapsed`/`:4457 toggleGroup` 已有） |
-| 会话信息面板（cwd 可编辑/消息数/最后活跃） | `components/sidebar/SessionInfo.tsx:40` | 🟡 | `components/StatusSheet.ets:94`（`Index.ets:3222` 接线）；现含 **cwd 行**（`:106` / `Index.ets:3228`）+ goal/用量/模型/上限；**缺** cwd **编辑** / 消息数 / 最后活跃（2026-10-11 复核：StatusSheet 无这三项） |
+| 会话信息面板（cwd 可编辑 / 最后活跃 / 会话ID / 渠道） | `components/sidebar/SessionInfo.tsx:40` | ✅ **已落地**（2026-10-11 `statusinfo` `995f830`） | `components/StatusSheet.ets`（`Index.ets` 接线）；现含 **会话ID / 渠道 / 最后活跃 / cwd 行（可编辑）** + goal/用量/模型/上限。⚠️ **「消息数」非 web 渲染字段**（`SessionInfo.tsx:122-208` 无它，仅陈旧 docblock `:4`）⇒ **从来不是缺口**；3 处已裁定偏差见 §11.12.3 |
 | 任务面板（cron + 后台任务 + runner） | `components/sidebar/TasksPanel.tsx:26` | ✅ | `Index.ets:4716 PanelsSheet` + `core/panels.ets` |
 | 文件树 / 文件搜索 | `sidebar/FileExplorer.tsx:34` / `FileSearch.tsx:26` | ⚪ | fs RPC + 编辑器 ⇒ ArkWeb（`WebSurface.ets:54`） |
 | 终端列表 | `sidebar/TerminalList.tsx:35` | ⚪ | xterm.js ⇒ ArkWeb |
@@ -820,7 +820,7 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 | 5 | 命令深链**入口** | `commandRouter.ts:61,136` | ✅ **已闭环**（⚠️ 2026-10-11 目标④订正：原注「仅 chatId」**已过时**）—— `core/command.ets` + `EntryAbility.ets:28,68,153` + `Index.ets:147,1059` | — | — | ✅ **已完成** |
 | 6 | SessionViewBar「全部折叠/展开」 | `SessionViewBar.tsx:34` | 分类切换 ✅；批量切换 **grep 0 命中** | **B** | 中 | P3（XS） |
 | 7 | NewSessionDialog（渠道 + cwd + label） | `NewSessionDialog.tsx:34` | 🟡 **部分已落**（⚠️ 2026-10-11 目标④订正）：`Index.ets:5944 NewSessionSheet` 已含工作目录 + 最近目录候选 ⇒ **仅** label（会话名）+ 渠道 chip 缺 | **B**(+C) | 中 | P3 |
-| 8 | SessionInfo（cwd 可编辑 / 消息数 / 最后活跃） | `sidebar/SessionInfo.tsx:40` | `Index` 的 `StatusSheet`；缺这 3 项 | **B** | 中 | P3 |
+| 8 | SessionInfo（cwd 可编辑 / 最后活跃 / 会话ID / 渠道） | `sidebar/SessionInfo.tsx:40` | ✅ **已接线**（2026-10-11 `statusinfo` `995f830`）—— `Index` 的 `StatusSheet`；⚠️「**消息数**」**非 web 渲染字段**（仅陈旧 docblock）⇒ 非缺口；3 处已裁定偏差见 §11.12.3 | — | — | ✅ **已完成** |
 | 9 | Synthetic / Interrupt 卡 | `SyntheticToolCard.tsx:393,568` | ✅ **已接线**（⚠️ 2026-10-11 目标④订正：原注「**0**」**已过时**）—— `components/SyntheticCard.ets:36` + `MessageRow.ets:801` + `LiveTailView.ets:589` | — | — | ✅ **已完成** |
 | 10 | ShellPromoteBar | `ToolRender.tsx:483` | 后端 promote-to-background RPC **已有**（`core/chattypes.ts:55`）；**UI 0** | **C**(核 RPC 契约) + **B** | 中低 | P4 |
 | 11 | 设置 General「清缓存」 | `SettingsGeneral.tsx:32` | **grep 0 命中** | **B** | 低 | P4 |
@@ -888,7 +888,7 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 |---|---|---|---|---|---|---|
 | 1 | **会话视图条「全部折叠 / 全部展开」** | `SessionViewBar.tsx:34-79` | 纯逻辑**已存在但 0 UI 消费**：`core/sessiongroup.ets:770 collapseAllPlan`（全仓仅 core 内 3 处定义，无页面/组件调用）；单组折叠已有 `Index.ets:4446 isGroupCollapsed`/`:4457 toggleGroup` | **XS** | **高**：`pages/Index.ets` | ✅ 可（钉 `collapseAllPlan` 调用点计数 ≥1 + mutation） |
 | 2 | **折叠工具组「组内按 kind 分组标头」** | `FoldedToolGroup.tsx:716` | 有跨迭代合并 + `+N` 溢出；**无 kind 分组标头**（`grep kindGroup/groupLabel/组标头` → 0） | S–M | 中：`components/{MessageRow,LiveTailView}.ets` | ✅ 可（钉分组判据函数调用点） |
-| 3 | **会话信息面板补全**（cwd **可编辑** / 最后活跃 / 会话ID / 渠道；⚠️ 「**消息数**」**非 web 渲染字段** —— `SessionInfo.tsx:122-208` 渲染里**没有**它，仅 docblock `:4` 提及） | `sidebar/SessionInfo.tsx:40` | `components/StatusSheet.ets:94`（cwd **只读** `:106` + goal/用量/模型/上限）；**无**以上各项 | S–M | **高**（⚠️ **2026-10-11 目标④订正**：`StatusSheet` 是**纯展示组件**（只吃 page 已算好的 props；文件头 `:8-15` 明文「**不许 import store**」）。全仓**无 store 单例** —— 只有 `Index.ets:1292` 构造、池 `Index.ets:870`）⇒ 补字段**必须同时**改 `pages/Index.ets:3222` 调用点 ⇒ 原判「单文件」**不成立**） | ✅ 可（钉 prop + 调用点计数） |
+| 3 | **会话信息面板补全**（cwd **可编辑** / 最后活跃 / 会话ID / 渠道）✅ **已落地（2026-10-11 `statusinfo` `995f830`）**；⚠️ 「**消息数**」**非 web 渲染字段** —— `SessionInfo.tsx:122-208` 渲染里**没有**它，仅 docblock `:4` 提及 ⇒ **从来不是缺口**；3 处已裁定偏差见 **§11.12.3** | `sidebar/SessionInfo.tsx:40` | `components/StatusSheet.ets`（`Index.ets` 接线） | — | ✅ 已清 | ✅ 已落地 |
 | 4 | **PathPicker 自动补全下拉**（边打字边给候选） | `PathPicker.tsx:36` | `Index.ets:5969` 输入面 + `:5982-6025` 最近目录候选**已有**；**无**自动补全 | S–M | **高**：`pages/Index.ets` | ✅ 可 |
 | 5 | **NewSessionDialog 残余**（label 会话名 + 渠道 chip） | `NewSessionDialog.tsx:34,58-88` | `Index.ets:5944 NewSessionSheet`（工作目录 + 最近目录 + 取消/创建**已有**）；**无** label / 渠道 | S | **高**：`pages/Index.ets` | ✅ 可 |
 | 6 | **ThinkingModeControl 置于 composer** | `ThinkingModeControl.tsx:68`（`MessageInput.tsx` 内） | 四档逻辑在 **设置页** `components/SettingsLlm.ets:1060`；composer 内**无**档位控件 | S–M | **高**：`pages/Index.ets`（composer） | ✅ 可 |
@@ -920,7 +920,7 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 |---|---|---|---|---|
 | A | **会话视图条「全部折叠/展开」** | 单文件低冲突（`core/sessiongroup.ets` 已就绪 ⇒ 只需页面加按钮） | ⚠️ **高**（`Index.ets`） | 纯逻辑 ✅ + 只差 UI 接线 |
 | B | **折叠工具组 kind 分组标头** | 低冲突（`components/{MessageRow,LiveTailView}.ets`，但需先定 web 分组口径） | 中 | 需先定 web 语义 |
-| C | **会话信息面板补全（最后活跃 / cwd 编辑 / 会话ID / 渠道；「消息数」非 web 字段）** | ⚠️ **高**（**2026-10-11 目标④订正**：**非「单文件」** —— `StatusSheet` 纯展示、数据须经 page props ⇒ 必碰 `pages/Index.ets:3222`；数据面**已具备**于 `store`） | ⚠️ **高** | 数据面已具备（`store.channel`/`currentChatId`/`sessions[].lastActive`）；只差 page 接线 + cwd 写回调 |
+| C | **会话信息面板补全** ✅ **已落地（2026-10-11 `statusinfo` `995f830`）**（最后活跃 / cwd 编辑 / 会话ID / 渠道；「消息数」非 web 字段）；3 处已裁定偏差见 **§11.12.3** | — | ✅ 已清 | ✅ 已落地 |
 | D | **NewSessionDialog 残余（label/渠道 chip）** | 高冲突 | ⚠️ **高**（`Index.ets` `NewSessionSheet`） | 输入面已就绪，只差两字段 |
 | E | **PathPicker 自动补全下拉** | 高冲突 | ⚠️ **高**（`Index.ets` composer） | 输入面已就绪 |
 | F | **ThinkingModeControl 移入 composer** | 高冲突 | ⚠️ **高**（`Index.ets` composer） | 四档逻辑已在 `SettingsLlm`，需搬到 composer |
@@ -932,6 +932,22 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 - ⚠️ **2026-10-11 目标④订正**：原判「单文件、不碰 `Index.ets`」的 **C 已不成立** —— `StatusSheet` 是纯展示组件（数据全靠 `pages/Index.ets:3222` 的 props，无 store 单例）⇒ 补字段**必动 `Index.ets`**（与 A/D/E/F 同档）。仍属低冲突的只剩 **B**（若只改 `components/`，但需先定 web 分组口径）。
 - **必须动 `Index.ets`**（高冲突，建议串行排在 `perf4` 释放后）：A / D / E / F / G。
 - **依赖服务端**：H。
+
+#### 11.12.3 目标④ 会话信息面板：**3 处已裁定偏差**（登记留痕，2026-10-11 · 主 agent 裁决）
+
+> ✅ **前提**：`statusinfo`（commit `995f830`）已落地 —— 会话信息面板补齐 **会话ID / 渠道 / 最后活跃 /
+> cwd 可编辑**（`SessionInfo.tsx:40` 的 4 项）。⇒ §11.12.1 #3 与 §11.12.2 C **已清空**。
+> ⚠️ **「消息数」不是 web 渲染字段**（`SessionInfo.tsx:122-208` 渲染里**没有**它，仅陈旧 docblock `:4` 提及）
+> ⇒ 它**从来不是缺口**，本文件已把相关措辞订正（见 §11.12.1 #3 / 本节）。
+
+| # | 偏差 | 事实（`file:line`） | 裁决（谁裁的 / 为什么 / 要动什么才能改） |
+|---|---|---|---|
+| a | **Escape 取消编辑无原生对应** | web `sidebar/SessionInfo.tsx:145-148` 靠 **Escape** 取消编辑；触屏无该键；ArkUI `TextInput` 无可靠逃逸入口（`onKeyEvent` 只对**物理键盘**有意义） | **接受现状**（主 agent 2026-10-11 裁决）：原生退出编辑 = **Enter 提交** / **关闭面板**（草稿随之丢弃）。⛔ 不为此新增"取消"按钮（超出改动点）；将来若要补，属 **UI 决策**（需先定"取消"按钮的位次/样式），非 parity 遗漏 |
+| b | **「订阅」行未补** | web `SessionInfo.tsx:194`（**仅 `channel === 'agent'`** 渲染）数据来自 `get_agent_session_dump_by_full_key` / `fetchSessionSubscription`（`api.ts:270`）；原生 **`core/rpc.ets` 无对应封装** ⇒ **数据面缺** | **暂不做**（主 agent 2026-10-11 裁决，⛔ 不编造）：要做得**先在 `core/rpc.ets` 补** `get_session_subscription` 常量/helper（服务端契约 + 数据面）⇒ 记为**待派项**（依赖服务端契约确认） |
+| c | **cwd 行可见性微差** | web：只要有 `activeId` 就渲染 workPath 行；原生：`cwd` 空 ⇒ **整行不显示**（`StatusSheet` 既有契约）；`statusinfo` 加的条件是 `sessionId.length>0 \|\| cwd.length>0` | **接受**（主 agent 2026-10-11 裁决）：已**逼近** web（有会话就显示、无 cwd 显示 `—` 且可编辑）；逐字对齐须改既有 `@Prop cwd` 契约 ⇒ **不值当** |
+
+**判据（可机器判）**：⚠️ 三条**均无**形状判据可钉（a 是交互缺失、b 是数据面缺、c 是条件松紧）⇒ 本表即**唯一留痕**；
+若将来 b 被派单，判据 = 「`core/rpc.ets` 含 `get_session_subscription` 常量 + 消费点计数 ≥1 + mutation」。
 
 ### 2.9 spec（待排期，主 agent 已裁决「原生应当消费」）——插件玻璃/壁纸/柔焦值未下沉
 

@@ -5,15 +5,16 @@
  * ⑨（`tools/lint/anim-opacity-gate.sh`）管的是**静息态**被写成隐藏（**无界** ⇒ 永久看不清，已修）。
  * 本文件管**动画进行中的帧**（**有界**：最长 220ms）。问法：**是否存在某一帧 < 阈值**。
  *
- * ── 全仓过渡清单（`file:line` + 属性；由 grep 枚举，见 §A 数据）───────────────────
- *  ① `anim.ets:150 sheetTransition()` = `translate(y:260, 220ms) ⊕ OPACITY(180ms)`
- *     —— 用在 8 处：`QueueSheet:104` / `SettingsPanel:367` / `PluginsSheet:228` /
- *        `MenuSheets:157,276,388` / `StatusSheet:230` / `AskUserSheet:273` / `Index.ets:5443,6166`
- *  ② `anim.ets:165 toastTransition()` = `translate(y:65, 220ms) ⊕ OPACITY(180ms)` —— `Toast.ets:75`
- *  ③ `MessageRow.ets:654 .transition(this.entryTransition())` = `OPACITY ⊕ translate(y:4)`，`animMsgIn()` 200ms
- *  ④ `SplashOverlay.ets:141/213/221` `animateTo(animEaseOut()/animBase())` → `markOpacity` / `markScale`
- *     / `markLift` / `hintOpacity` / `overlayOpacity`
- *  ⑤ `AssistantOrb.ets:397/699` `animateTo(animBase())`（仅入场 scale/alpha，非文字层）
+ * ── 全仓过渡清单（**内容锚，⛔ 不写行号** —— 行号会漂：本仓 `haptics.test.ts` 已因行号硬编码全失效）──
+ *  ① `anim.ets` 的 `sheetTransition()` = `translate(y:260, 220ms) ⊕ OPACITY(180ms)`
+ *     —— 用在**面板/弹层容器**（grep 枚举，逐文件；⛔ 不记总数/行号）：
+ *        `QueueSheet` · `SettingsPanel` · `PluginsSheet` · `MenuSheets`（3 处列表格）·
+ *        `StatusSheet` · `AskUserSheet` · `Index.ets`（2 处浮层）
+ *  ② `anim.ets` 的 `toastTransition()` = `translate(y:65, 220ms) ⊕ OPACITY(180ms)` —— `Toast.ets`（浮条容器）
+ *  ③ `MessageRow.ets` 的 `this.entryTransition()` = `OPACITY ⊕ translate(y:4)`，`animMsgIn()` 200ms
+ *  ④ `SplashOverlay.ets` 的 `animateTo(animEaseOut()/animBase()/animEaseOutDelayed())` →
+ *     `markOpacity` / `markScale` / `markLift` / `hintOpacity` / `overlayOpacity`
+ *  ⑤ `AssistantOrb.ets` 的 `animateTo(animBase())`（仅入场 scale/alpha，非文字层）
  *
  * ── 最坏帧模型（显式写出，⛔ 不藏假设）──────────────────────────────────────────
  *  · `.transition(TransitionEffect.OPACITY…)` 作用在**整个人层**上 ⇒ 该层以 α 合成到底上
@@ -67,13 +68,13 @@ const TRS: Tr[] = [];
 function tr(id: string, where: string, props: string, ms: number, content: boolean, reason: string): void {
   const x: Tr = new Tr(); x.id = id; x.where = where; x.props = props; x.ms = ms; x.content = content; x.reason = reason; TRS.push(x);
 }
-tr('T1 sheetTransition', 'anim.ets:150 → 8 处（QueueSheet:104 · SettingsPanel:367 · PluginsSheet:228 · MenuSheets:157/276/388 · StatusSheet:230 · AskUserSheet:273 · Index.ets:5443/6166）',
+tr('T1 sheetTransition', 'anim.ets 的 sheetTransition() → 面板/弹层容器（QueueSheet · SettingsPanel · PluginsSheet · MenuSheets×3 · StatusSheet · AskUserSheet · Index.ets×2；⛔ 内容锚不记行号）',
   'translate(y:260) 220ms ⊕ OPACITY 180ms', 220, false, '整层面板**到达中**（用户尚未开始阅读）+ 有界 220ms + 静息态可读');
-tr('T2 toastTransition', 'anim.ets:165 → Toast.ets:75', 'translate(y:65) 220ms ⊕ OPACITY 180ms', 220, false, '同上（小浮条到达中）+ 有界');
-tr('T3 entryTransition', 'MessageRow.ets:654（this.entryTransition()）', 'OPACITY ⊕ translate(y:4) 200ms', 200, false, '行入场；**有界 200ms**，且静息态恒 = entryRestOpacity()=1（fail-safe，⑨ 已钉）');
-tr('T4 splash overlay', 'SplashOverlay.ets:221（overlayOpacity）', 'OPACITY（整屏让位）', 320, false, '开屏**退出**让位：此层本就在消失，内容在它身后');
-tr('T5 splash hint', 'SplashOverlay.ets:213/221（hintOpacity + hintLift）', 'OPACITY + translate', 320, false, '提示文字**淡入到位**后常驻；有界且静息可读');
-tr('T6 orb enter', 'AssistantOrb.ets:397/699', 'alpha + scale（非文字层）', 220, false, '光球是图形，不承载文字');
+tr('T2 toastTransition', 'anim.ets 的 toastTransition() → Toast.ets（浮条容器）', 'translate(y:65) 220ms ⊕ OPACITY 180ms', 220, false, '同上（小浮条到达中）+ 有界');
+tr('T3 entryTransition', 'MessageRow.ets 的 this.entryTransition()', 'OPACITY ⊕ translate(y:4) 200ms', 200, false, '行入场；**有界 200ms**，且静息态恒 = entryRestOpacity()=1（fail-safe，⑨ 已钉）');
+tr('T4 splash overlay', 'SplashOverlay.ets 的 overlayOpacity（animateTo(animEaseOut())）', 'OPACITY（整屏让位）', 320, false, '开屏**退出**让位：此层本就在消失，内容在它身后');
+tr('T5 splash hint', 'SplashOverlay.ets 的 hintOpacity + hintLift（animateTo(animEaseOutDelayed())）', 'OPACITY + translate', 320, false, '提示文字**淡入到位**后常驻；有界且静息可读');
+tr('T6 orb enter', 'AssistantOrb.ets 的 animateTo(animBase())（入场 scale/alpha）', 'alpha + scale（非文字层）', 220, false, '光球是图形，不承载文字');
 
 console.log('\n▶ §A 全仓过渡清单（grep 枚举：`.transition(` 15 处 + `animateTo` 21 处，逐条归并）');
 console.log('  ' + pad('id', 20) + pad('属性', 34) + pad('时长', 6) + '归属/判定');

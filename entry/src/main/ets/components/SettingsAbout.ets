@@ -280,7 +280,10 @@ export struct SettingsAbout {
       if (this.loading) {
         Text('加载中…')
           .fontSize(FS_CAPTION)
-          .fontColor(this.secondaryText())
+          // web 口径：同句一律 `text-text-muted`（`SharePage.tsx:111` / `ssh-runner:1565`/`:1759` /
+          // `git-fancy:248`/`:415`、`commit.tsx:60`；token `index.css:163/269`）⇒ 原生 = `textMuted`。
+          // ⛔ 此前走 `secondaryText()`（浅色族变 `textSecondary`）⇒ 与其余 7 处「加载中…」及 web 均不一致。
+          .fontColor(this.pal().textMuted)
           .width('100%')
       } else if (this.info === undefined) {
         Text(this.error.length > 0 ? '版本信息读取失败。' : '服务端未返回版本信息。')
