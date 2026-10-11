@@ -14,8 +14,22 @@
 import { http } from '@kit.NetworkKit';
 import { util } from '@kit.ArkTS';
 import { BusinessError } from '@kit.BasicServicesKit';
+// SSE 录制器（纯逻辑；开关**默认关**，关闭时 push 立即返回 ⇒ 零额外开销）。
+// 生产端在这里埋点，消费端是 components/SettingsDeveloper（同一 ES module 单例）。
+import { sseRecorder, SSEE_EV_ERROR, SSEE_EV_OPEN, SSEE_EV_RECONNECT, SSEE_EV_STATE } from './sserec';
 
 export type SseListener = (event: string, data: string) => void;
+
+/**
+ * 本客户端**强制**使用的 HTTP 协议（原生增强的诊断字段）。
+ *
+ * 取值依据：`openStream` 里 `usingProtocol: http.HttpProtocol.HTTP1_1` —— 这是「新建会话后一直在
+ * 连接中」的**根因修复**（系统默认协商 HTTP/3，流式写回调在复用连接上 ~1s 崩
+ * `errCode:2300023 / CURLE_WRITE_ERROR`）。⚠️ SDK 21 的 `requestInStream` **不返回**
+ * `ConnectionExtraInfo.networkProtocolName`（那是 `@since 24`）⇒ 面板只能显示**请求协议**
+ * 这个已知量（不是从响应里读回来的实测值，故字段名 `httpVer` 但语义 = "请求协议"）。
+ */
+export const SSE_REQUEST_PROTOCOL: string = 'HTTP/1.1';
 
 // ── 强制探活的**判定层**（纯函数，无 `@ohos.*` 依赖 ⇒ 可脱机单测）──────────────
 //
@@ -312,6 +326,11 @@ export class SseClient {
       return;
     }
     this.state = next;
+    // 录制埋点（原生增强）：状态快照 + （开关打开时）记一条生命周期事件。
+    sseRecorder.status.state = next;
+    if (sseRecorder.isEnabled()) {
+      sseRecorder.push(SSEE_EV_STATE, next, Date.now());
+    }
     this.onState(next);
   }
 
@@ -452,6 +471,15 @@ export class SseClient {
     this.lastForceReconnectAt = 0;
     this.attemptAt = 0;
     this.lastFailureReason = '';
+    // 录制状态：新订阅 ⇒ 状态快照归零（协议/计数/错误码；`httpVer` 是"请求协议"已知量）
+    sseRecorder.status.httpVer = SSE_REQUEST_PROTOCOL;
+    sseRecorder.status.attemptCount = 0;
+    sseRecorder.status.reconnectCount = 0;
+    sseRecorder.status.frameCount = 0;
+    sseRecorder.status.connectedAtMs = 0;
+    sseRecorder.status.lastFrameAtMs = 0;
+    sseRecorder.status.lastErrCode = 0;
+    sseRecorder.status.lastRespCode = 0;
     // 自主看门狗：只要订阅着就周期巡检（半开连接 / 尝试挂死 / 计时器丢失三种卡死态）
     this.armWatchdog();
     this.setState('connecting');
@@ -487,12 +515,23 @@ export class SseClient {
     // 本次尝试的开始时刻（看门狗据此判"尝试挂死"：TCP 被中间设备接受却永不转发时，
     // connectTimeout 已过、readTimeout:0 永不超时 ⇒ 只有这里能救）
     this.attemptAt = Date.now();
+    // 录制状态：本次是一次连接尝试（面板显示"已尝试 N 次"）
+    sseRecorder.status.attemptCount += 1;
     // 续传游标由**纯函数**拼（`buildStreamUrl`）⇒ 脱机测试能直接钉死"带/不带 last_event_id"
     const url: string = buildStreamUrl(this.baseUrl, this.chatId, this.channel, this.lastEventId);
+    if (sseRecorder.isEnabled()) {
+      // url 只含 chat_id/channel/last_event_id（无凭据；Cookie 在 header 里，不进这个 url）——原样记
+      sseRecorder.push(SSEE_EV_OPEN, url, Date.now());
+    }
 
     req.on('dataReceive', (chunk: ArrayBuffer) => {
       // 最后一帧（含心跳）到达时刻 —— 强制探活的静默判据（只记录时刻，不改解析语义）
-      this.lastFrameAt = Date.now();
+      const now: number = Date.now();
+      this.lastFrameAt = now;
+      sseRecorder.status.lastFrameAtMs = now;
+      if (sseRecorder.status.connectedAtMs === 0) {
+        sseRecorder.status.connectedAtMs = now; // 首次收到帧 = 连上了
+      }
       // 收到第一帧即视为已连上（心跳也算）
       this.setState('open');
       this.retry = 0;
@@ -527,6 +566,14 @@ export class SseClient {
       // SDK 的 2300016，且无收益）。
       usingProtocol: http.HttpProtocol.HTTP1_1,
     }, (err: BusinessError, code: number) => {
+      // 录制状态：留下本次尝试的**错误码 / 响应码**（原生增强，排障核心 —— 对应 hilog 里
+      // 的 `errCode:2300023, RespCode:200`；面板一眼可见，不必再抓日志）
+      const errCode: number = err !== undefined && err !== null ? err.code : 0;
+      sseRecorder.status.lastErrCode = errCode;
+      sseRecorder.status.lastRespCode = code;
+      if (sseRecorder.isEnabled()) {
+        sseRecorder.push(SSEE_EV_ERROR, `code=${code} errCode=${errCode}`, Date.now());
+      }
       // ① 会话失效：交给页面退回登录（重连只会一直 401）
       if (code === 401) {
         this.stopped = true;
@@ -570,6 +617,11 @@ export class SseClient {
   private scheduleReconnect(): void {
     if (this.stopped) {
       return;
+    }
+    // 录制状态：进入重连（面板显示"重连 N 次" —— 弱网/半开连接的直接证据）
+    sseRecorder.status.reconnectCount += 1;
+    if (sseRecorder.isEnabled()) {
+      sseRecorder.push(SSEE_EV_RECONNECT, `retry=${Math.min(this.retry + 1, 6)}`, Date.now());
     }
     this.setState('reconnecting');
     if (this.req !== null) {
@@ -628,6 +680,11 @@ export class SseClient {
     }
     if (data.length === 0) {
       return; // 纯注释/心跳保活块
+    }
+    // 录制埋点：一帧真实事件（`data` 已在 push 内部脱敏 —— 安全红线）
+    if (sseRecorder.isEnabled()) {
+      sseRecorder.status.frameCount += 1;
+      sseRecorder.push(event, data, Date.now());
     }
     const cb: SseListener | null = this.listener;
     if (cb !== null) {

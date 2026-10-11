@@ -17,6 +17,7 @@ import { FS_CAPTION, R_LG, SP_2, SP_3, SP_5 } from '../core/tokens';
 import { SettingsAbout } from './SettingsAbout';
 import { SettingsAccount } from './SettingsAccount';
 import { SettingsAgent } from './SettingsAgent';
+import { SettingsDeveloper } from './SettingsDeveloper';
 import { SettingsLlm } from './SettingsLlm';
 import { SettingsStorage } from './SettingsStorage';
 import { SettingsTools } from './SettingsTools';
@@ -30,6 +31,8 @@ export const SETTINGS_TAB_STORAGE: string = 'storage';
 export const SETTINGS_TAB_WEBUSERS: string = 'webusers';
 export const SETTINGS_TAB_ABOUT: string = 'about';
 export const SETTINGS_TAB_ACCOUNT: string = 'account';
+/** 开发者分区（SSE 录制 + 连接状态；原生新增，对齐 web `SettingsDeveloper.tsx`）。 */
+export const SETTINGS_TAB_DEVELOPER: string = 'developer';
 
 /** tab 定义（id + 显示名）——用数组而非 Map，保持 ArkTS 友好与顺序稳定。 */
 class SettingsTab {
@@ -52,6 +55,7 @@ function settingsTabs(): SettingsTab[] {
     new SettingsTab(SETTINGS_TAB_WEBUSERS, 'Web 账号'),
     new SettingsTab(SETTINGS_TAB_ABOUT, '关于'),
     new SettingsTab(SETTINGS_TAB_ACCOUNT, '账号'),
+    new SettingsTab(SETTINGS_TAB_DEVELOPER, '开发者'),
   ];
 }
 
@@ -122,6 +126,9 @@ export struct SettingsPanel {
         // ⚠️ 用户名需页面侧注入（服务端无 /api/auth/me，见 SettingsAccount 头注）；
         // 未注入时面板回落中性文案，不会空白。
         SettingsAccount({ http: this.http, theme: this.theme })
+      } else if (this.active === SETTINGS_TAB_DEVELOPER) {
+        // 开发者分区：SSE 录制 + 连接状态（不依赖 http —— 纯本地录制器）
+        SettingsDeveloper({ theme: this.theme })
       } else {
         SettingsTools({ http: this.http, theme: this.theme })
       }
