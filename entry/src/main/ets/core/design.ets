@@ -10,7 +10,8 @@
  *   ③ 落地取值  `core/theme.ets`    —— 色板/效果/派生面（唯一颜色来源，**本文件只读不改**）
  *
  * ⛔ 纪律（违反即回归）：
- *   1. 本文件**只读** `theme/tokens/motion`，**不改**任何既有 token（`theme.ets` 有主）。
+ *   1. 本文件**只读** `theme/tokens/motion`（+ `bubble.ets` 的 `withAlpha` = 全站唯一 alpha
+ *      合成器，用于 goal 等半透明派生色），**不改**任何既有 token（`theme.ets` 有主）。
  *   2. 本文件属 `core/` ⇒ 被 `tools/tests/run.sh` 当**纯 TS** 编译
  *      ⇒ **禁止** import ArkUI/`@ohos.*`（`Curve`/`Color`/`FontWeight` 一律不进）。
  *      字重只存数字（400/500/600），由 UI 层映射成 `FontWeight`。
@@ -34,6 +35,7 @@ import {
   FS_CAPTION, FS_BODY, FS_TITLE, FS_HERO,
 } from './tokens';
 import { MOTION_FAST_MS, MOTION_BASE_MS, MOTION_MSG_IN_MS, MOTION_SLOW_MS } from './motion';
+import { withAlpha } from './bubble';
 
 // ════════════════════════════════════════════════════════════════════════════
 // 1. 空间 —— 4pt 基础网格（+ 一档 2 的"光学半档"，只用于图标-文字对齐）
@@ -416,6 +418,15 @@ export const SURFACE_GOAL_BADGE: string = 'surface.chip';
 /** 编辑器/composer 输入面。 */
 export const SURFACE_COMPOSER: string = 'surface.input';
 
+// ── 4.2b 规范面的**常量名**（`surfaceFillOf` 的 role 字面量本就合法；补常量让组件能"引用常量"
+//          而非"硬写字符串"—— `tools/lint/color-roles.sh` 明示"写常量是推荐姿势"）──────────
+/** 工具 pill（普通）面。 */
+export const SURFACE_PILL: string = 'surface.pill';
+/** chip = 内嵌凹槽面（恒 ≠ pill）。 */
+export const SURFACE_CHIP: string = 'surface.chip';
+/** 卡片面。 */
+export const SURFACE_CARD: string = 'surface.card';
+
 // ── 4.3 组件专属排版档（**别名**，指向 §1 的排版阶梯）──────────────────────
 /** 思考行 / 元信息。 */
 export const TYPE_THINKING: string = 'type.caption';
@@ -459,7 +470,7 @@ export const INSET_PILL_X: number = SPACE_XS;
 export const INSET_PILL_Y: number = 5;
 /** 光学档白名单（**非** 4 网格；只有它们可以不是 4 的倍数）。 */
 export function opticalValues(): number[] {
-  return [SPACE_HAIR, INSET_PILL_Y];
+  return [SPACE_HAIR, INSET_PILL_Y, INSET_GOAL_X, INSET_GOAL_Y];
 }
 /** 状态标记槽边长（**恒定** ⇒ 所有 pill 图标/名字左对齐的前提）。 */
 export const MARKER_SLOT: number = 14;
@@ -487,13 +498,154 @@ export const INFLIGHT_PILL_GLOW_RADIUS: number = 12;
 export const INFLIGHT_OWNER_PILL: string = 'pill';
 
 /**
- * 在飞柔影色 —— **唯一的主题分叉点**（**静态**色，非动画）。
+ * 在飞光晕/柔影色 —— **唯一的主题分叉点**（**静态**色，非动画）。
  * 深色系：`effectsOf().glow`（accent@45% 的彩色外发光 = "在飞"的高级感来源）；
  * 浅色系：`effectsOf().elev2`（中性柔影）—— 45% 饱和色晕压白卡边上会读成"脏"。
  * 判据按 `isLightPalette`（色板亮度），⛔ 不按主题名。
+ *
+ * 消费方：工具 pill 的在飞柔影 + **光球（AssistantOrb）的外光晕** —— 二者本是**同一语义**
+ *   （`docs/DESIGN-SYSTEM.md §7.2` 的表：深色 `glow` / 浅色 `elev2`）⇒ 收成**一个**出口，
+ *   不再由组件各自 `effectsOf` + `isLightPalette` 分叉（orb-ux 申请的 `inflight.halo` 即此；
+ *   经 `colorOf(p, INFLIGHT_HALO)` 统一到取色唯一入口）。
  */
-export function inflightPillShadowOf(p: Palette): string {
+export function inflightHaloOf(p: Palette): string {
   return isLightSurface(p) ? effectsOf(p).elev2 : effectsOf(p).glow;
+}
+
+/** 在飞 pill 柔影色 —— 与 `inflightHaloOf` **同源**（保留旧名以免断链，语义见其上注释）。 */
+export function inflightPillShadowOf(p: Palette): string {
+  return inflightHaloOf(p);
+}
+
+/** `colorOf` 的 role：在飞光晕（= `inflightHaloOf`，深色 glow / 浅色 elev2）。 */
+export const INFLIGHT_HALO: string = 'inflightHalo';
+
+// ════════════════════════════════════════════════════════════════════════════
+// 4.7 组件专属尺寸档（图标 / 控件 / 面板 / 浮层）—— 收编三线交回的"魔数无 token"
+// ════════════════════════════════════════════════════════════════════════════
+//
+// 来源：`chat-surface-ux` / `settings-ux` 交付时**诚实交回**的清单 —— 组件里的魔数常量没有
+// 对应语义 token，而 `core/design.ets` 由 design-lead 独占 ⇒ 它们不能自己加、只好回退到魔数。
+// 本组把那些魔数收成**语义档**（唯一数值来源），组件改引用常量即可（不再各写 12/14/28/240…）。
+
+// ── 图标边长阶梯（symbol/glyph 的视觉边长；与字阶解耦）─────────────────────────
+/** 小图标（列表行尾操作、紧凑标签）。 */
+export const ICON_SM: number = 12;
+/** 中图标（目标条/待办状态图标；web `size-3.5` = 14）。 */
+export const ICON_MD: number = 14;
+/** 大图标（触屏命中区内的操作图标；web `h-4 w-4` = 16）。 */
+export const ICON_LG: number = 16;
+
+// ── 控件尺寸（设置行 / 输入 / chip）──────────────────────────────────────────
+/** 输入控件高度 = 最小命中区 44（数值与 §6 `HIT_TARGET_MIN` 同源，测试钉同值以免分叉）。 */
+export const CONTROL_INPUT_H: number = 44;
+/** 数字输入框宽度（给足 5 位数不挤）。 */
+export const CONTROL_INPUT_W_NUM: number = 96;
+/** 可选 chip（分段/选项）水平内距 = space.sm。 */
+export const CONTROL_CHIP_PAD_X: number = SPACE_SM;
+/** 可选 chip（分段/选项）垂直内距 = space.xs。 */
+export const CONTROL_CHIP_PAD_Y: number = SPACE_XS;
+/** 控件行（设置/列表行）最小高度 = 最小命中区 44（与 §6 `HIT_TARGET_MIN` 同源）。 */
+export const ROW_MIN_H: number = 44;
+/** 行内（标签-说明）间隙 = 光学半档（视觉紧凑）。 */
+export const ROW_GAP: number = SPACE_HAIR;
+/** 缩进行左缩进 = space.xl（设置页"子项"）。 */
+export const ROW_INDENT: number = SPACE_XL;
+
+// ── 面板 / 浮层尺寸────────────────────────────────────────────────────────────
+/** 面板收起态行高（web `h-7` = 28）。 */
+export const CONTROL_ROW_H: number = 28;
+/** 进度条宽度（web `w-12` = 48）。 */
+export const PROGRESS_W: number = 48;
+/** 进度条高度（web `h-1.5` = 6）。 */
+export const PROGRESS_H: number = 6;
+/** 可展开清单最大高度（web `max-h-[240px]`）。 */
+export const LIST_MAX_H: number = 240;
+/** 行内操作菜单宽度（触屏 popup）。 */
+export const MENU_W: number = 120;
+/** 工具组浮层宽度（web `POPOVER_CLASS` 430px；手机端收窄到 340vp）。 */
+export const POPOVER_W: number = 340;
+/** "+N" 溢出浮层宽度。 */
+export const POPOVER_W_OVERFLOW: number = 320;
+/** "更早区域"分隔条行高（web `h-7` = 28；三态恒定以免布局跳变）。 */
+export const OVERLAY_ROW_H: number = 28;
+
+// ════════════════════════════════════════════════════════════════════════════
+// 4.8 目标辅助条（GoalBanner / TodoPanel 的 goal 视觉）—— 唯一取色/尺度出口
+// ════════════════════════════════════════════════════════════════════════════
+//
+// 为什么收进令牌层：GoalBanner/TodoPanel 各自写了 PAD/ALPHA/TINT 常量，且**就地** `isLightPalette`
+// 分叉（"浅色×0.5"这种暗规则散在组件里、不可测）。收成"语义出口函数"后：
+//   · 浅/深分叉只在**一处**（`isLightSurface`），组件不再自行判主题；
+//   · 每个 alpha 都在此成表、可被测试钉住。
+
+/** 目标条水平内距（web `px-2.5` = 10，光学档；取 12 会把辅助条撑宽）。 */
+export const INSET_GOAL_X: number = 10;
+/** 目标条垂直内距（web `py-1.5` = 6）。 */
+export const INSET_GOAL_Y: number = 6;
+
+/** 进行中目标描边的不透明度（深色系，web `border-accent/30`）。 */
+export const GOAL_BORDER_ALPHA_DARK: number = 0.3;
+/** 进行中目标描边的不透明度（浅色系：白底需更实才看得见）。 */
+export const GOAL_BORDER_ALPHA_LIGHT: number = 0.5;
+/** 目标徽标底纹不透明度（web `bg-accent/15`）。 */
+export const GOAL_BADGE_TINT: number = 0.15;
+/** goal 行底纹不透明度（深色系，web `bg-accent/[0.07]`）。 */
+export const GOAL_ROW_TINT_DARK: number = 0.07;
+/** goal 行底纹不透明度（浅色系：白底 7% 不可见 ⇒ 14%）。 */
+export const GOAL_ROW_TINT_LIGHT: number = 0.14;
+
+/**
+ * 目标卡片描边色（**唯一出口**）：已完成走 `success`、进行中走 `accent`；
+ * 浅/深分叉在此判（`isLightSurface`，⛔ 不按主题名）——组件不再自己 `withAlpha` 挑 alpha。
+ */
+export function goalBorderOf(p: Palette, completed: boolean): string {
+  const alpha: number = isLightSurface(p) ? GOAL_BORDER_ALPHA_LIGHT : GOAL_BORDER_ALPHA_DARK;
+  return withAlpha(completed ? p.success : p.accent, alpha);
+}
+
+/** 目标状态徽标底纹色（唯一出口）：已完成 `success` / 进行中 `accent` @15%。 */
+export function goalBadgeBgOf(p: Palette, completed: boolean): string {
+  return withAlpha(completed ? p.success : p.accent, GOAL_BADGE_TINT);
+}
+
+/** goal 行底纹色（唯一出口）：`accent` @浅 14% / 深 7%。 */
+export function goalRowTintOf(p: Palette): string {
+  const alpha: number = isLightSurface(p) ? GOAL_ROW_TINT_LIGHT : GOAL_ROW_TINT_DARK;
+  return withAlpha(p.accent, alpha);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 4.9 弱化正文 / 全圆 —— 收编 ThinkingLine / MessageRow 的两个魔数
+// ════════════════════════════════════════════════════════════════════════════
+/** 弱化正文不透明度（思考展开体：弱于正文，但仍可读）。 */
+export const TEXT_DIM: number = 0.75;
+/** 全圆角（胶囊/圆头）——足够大即得"胶囊"形状（web `rounded-full`）。 */
+export const RADIUS_FULL: number = 999;
+
+// ════════════════════════════════════════════════════════════════════════════
+// 4.10 危险态（实心底上的文字）—— 收编 `core/dangerconfirm.ets:110` 报备的缺角色
+// ════════════════════════════════════════════════════════════════════════════
+//
+// 报备来源：现有色板**没有**"危险实心底上的文字"角色 —— `pal.onAccent` 在 aurora / nebula 是
+// **深色**（其 accent 是亮青/亮紫），压在深红 `dangerBg` 上读不出。本层补上该角色
+// （唯一口径），此后 `core/design.ets` 是唯一判据，组件/状态机（`dangerconfirm`）不再各挑一份。
+/** 危险实心底（`Palette.dangerBg`）—— `state.danger.bg`。 */
+export const COLOR_DANGER_BG: string = 'dangerBg';
+/** 警告实心底（`Palette.warnBg`）—— `state.warn.bg`。 */
+export const COLOR_WARN_BG: string = 'warnBg';
+/** 危险实心底上的文字 —— `state.danger.fg`。 */
+export const COLOR_DANGER_ON_FILL: string = 'dangerOnFill';
+/** 警告实心底上的文字 —— `state.warn.fg`。 */
+export const COLOR_WARN_ON_FILL: string = 'warnOnFill';
+
+/**
+ * 实心底上的文字色（唯一口径）：优先 `onAccent`，不足 `AA_NON_TEXT` 则退 `textPrimary`。
+ * （`textPrimary` 在全部 5 主题上都与 dangerBg/warnBg 达标，由单测按主题复核。）
+ */
+export function onFillFgOf(p: Palette, fill: string): string {
+  if (contrastRatio(p.onAccent, fill) >= AA_NON_TEXT) { return p.onAccent; }
+  return p.textPrimary;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -629,6 +781,12 @@ export function colorOf(p: Palette, role: string): string {
   if (role === 'statusIdle') { return p.statusIdle; }
   if (role === 'statusWaiting') { return p.statusWaiting; }
   if (role === 'border') { return p.border; }
+  // ── 波：补齐的角色（在飞光晕 / 危险态实心底及其文字）──────────────────────────
+  if (role === 'inflightHalo') { return inflightHaloOf(p); }
+  if (role === 'dangerBg') { return p.dangerBg; }
+  if (role === 'warnBg') { return p.warnBg; }
+  if (role === 'dangerOnFill') { return onFillFgOf(p, p.dangerBg); }
+  if (role === 'warnOnFill') { return onFillFgOf(p, p.warnBg); }
   return p.transparent;
 }
 
@@ -655,6 +813,9 @@ export function contrastReqs(): ContrastReq[] {
     new ContrastReq('textSecondary', 'sunken', AA_TEXT, 'chip / 凹槽内文字'),
     new ContrastReq('textPrimary', 'surfaceHi', AA_TEXT, '选中 pill 名称'),
     new ContrastReq('accentSoft', 'surfaceAlt', AA_NON_TEXT, '在飞标记（非文本）压 pill'),
+    // 危险/警告实心底上的文字（`state.danger.fg` / `state.warn.fg`）—— 见 §4.10
+    new ContrastReq('dangerOnFill', 'dangerBg', AA_NON_TEXT, '危险实心底上的文字'),
+    new ContrastReq('warnOnFill', 'warnBg', AA_NON_TEXT, '警告实心底上的文字'),
   ];
 }
 
