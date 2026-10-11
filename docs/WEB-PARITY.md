@@ -132,9 +132,11 @@ bash tools/typecheck/check.sh
 | `ui_mode` / `ui_libs` | **零渲染消费**（死字段） | `core/render.ets`、`core/types.ets` |
 | `ui_surface` | 原生**不落点** | 同上 |
 | `WebSurface`（ArkWeb 逃生舱） | **已存在可用**；**协议层 + 原生端 JS 桥已落地**（2026-10-11 波1a），**页面侧待接线** | `components/WebSurface.ets`（`.javaScriptProxy` 注入 `window.xbotNative.postMessage`）；协议层 `core/webbridge.ets`（信封/解析/编码/白名单，可脱机单测 `tools/tests/webbridge.test.ts`） |
-| **插件面板打开的是"裸 ESM .js"** | ⛔ 能力面板点某插件 → ArkWeb 显示 **`index.js` 源码** | `core/store.ets` 的 `PluginPanelInfo.url = module_url ?? ${base}/plugins/<id>/web/<entry>`；`pages/Index.ets` 消费 |
+| **插件面板打开的是"裸 ESM .js"** | ✅ **已修**（`74a9141`，2026-10-11）：`PluginPanelInfo.url` 语义已改为**权威宿主页**（`.js/.mjs`/`/plugins/*/web/*` 一律回落 `originOf(baseUrl)`），ESM 地址只作元数据留在 `PluginHostInfo.moduleUrl`；守护测试 `tools/tests/pluginpanel.test.ts`（121 断言） | `core/pluginhost.ets`（`pluginPanelUrl`/`isPluginModuleAsset`/`:573 item.url = pluginPanelUrl(...)`）；消费点 `PluginHost.ets:98`、`pages/Index.ets:2698/2948`、`PluginsSheet.ets:124` 全为宿主页 |
 
-> 结论：真问题不是"缺 WebSurface"，而是 **URL 语义错位**（把"模块 URL"当"可导航页面"）+ **无桥**。
+> 结论：**真瓶颈不是"缺 WebSurface"，也不是 URL 语义**（后者已由 `74a9141` 修好，且有守护测试）。
+> 真正的两个缺口是：① **页面侧从未接线桥**（web `plugin-runtime` 零 `xbotNative` 调用）；
+> ② **web 无"插件 URL 深链"** ⇒ 原生最多打开宿主页根，**精确落到某个插件视图只能靠 web 侧新增 URL/参数深链**（web 仓的活）。
 
 ### 8.3 落地方案（分波）
 
@@ -223,8 +225,11 @@ GenUI（LLM 生成 TSX 需 `sucrase` + `new Function` ⇒ ArkTS 禁动态求值�
    ⛔ 任何凭想象造出的"方法表"都**不可证伪、必然漂移**（web 无消费方）。
 2. ⇒ **不存在可立即落地的桥方法纯逻辑**：现有 `core/webbridge.ets` 已覆盖协议/白名单/chrome 动作；
    再加"方法表"= 造契约。故本波**不新增桥代码**（有意为之，非遗漏）。
-3. **"插件全支持"的真瓶颈不是桥**，而是 §8.2 已记的 **URL 语义错位**（能力面板把"模块 URL"
-   当"可导航页面" ⇒ 打开的是裸 `index.js` 源码）+ **页面侧从未接线桥**（web `plugin-runtime` 无 `xbotNative` 调用）。
+3. **"插件全支持"的真瓶颈不是桥，也不是 URL 语义**：URL 语义错位**已在 `74a9141` 修好**
+   （`PluginPanelInfo.url` 恒为权威宿主页 + 守护测试 `pluginpanel.test.ts` 121 断言）。
+   剩下两个真缺口是：① **页面侧从未接线桥**（web `plugin-runtime` 无 `xbotNative` 调用）；
+   ② **web 无插件 URL 深链**（打开某插件视图只能走应用内 `ctx.ui.openViewTab`）⇒ 原生**最多**打开宿主页根，
+   要精确落到某插件**需 web 侧新增 URL/参数深链**（web 仓的活，原生做不了）。
 4. **正解顺序**：① web 端先定**页面侧桥客户端契约**（`window 'xbot:bridge'` 事件 + `xbotNative.postMessage`） →
    ② 本仓按该契约在 `WebSurface.ets` 接线 `onBridgeMessage` + 补 `applyHostAction` 的业务分支。
    ⛔ 在 ① 未定前，原生侧**不应**先造方法。
