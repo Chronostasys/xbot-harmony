@@ -193,9 +193,13 @@ for (let i = 0; i < codes.length; i++) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// ④ AskUserSheet 专属：空态 / 命中区外扩 / 选中标记 / 输入面
+// ④ AskUserSheet 专属：空态 / 命中区（**真实 44 布局盒**）/ 选中标记 / 输入面
 // ════════════════════════════════════════════════════════════════════════════
-has(askCode, 'responseRegion({', 'AskUserSheet: 关闭 X 用 responseRegion 外扩命中区（不改布局尺寸）');
+// ⛔ 2026-10-11 **按真机事实改写**（旧断言钉 `responseRegion(` 外扩 —— 该做法已被主 agent 装机对照实验
+//    推翻：点 X 视觉中心 ✓ / 点框外 11–15px ✗）。新口径 = 关闭 X 的**自身布局盒 ≥ HIT_TARGET_MIN(44)**。
+//    ⛔ 不是放宽：仍钉住"命中区 ≥44"这一意图，并反向禁止旧拐杖。
+has(askCode, '.width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)', 'AskUserSheet: 关闭 X 命中区 = 真实 HIT_TARGET_MIN(44) 布局盒');
+hasNot(askCode, 'responseRegion', 'AskUserSheet: ⛔ 不用 responseRegion 外扩（真机实测负偏移外扩无效）');
 has(askCode, '没有待确认的问题', 'AskUserSheet: questions 为空 ⇒ 一行小字空态');
 hasNot(askCode, "'已选'", 'AskUserSheet: ⛔ 不再用「已选」纯文本（改勾图标）');
 hasNot(askCode, "'未选'", 'AskUserSheet: ⛔ 不再用「未选」纯文本');
@@ -204,9 +208,11 @@ has(askCode, 'SURFACE_COMPOSER', 'AskUserSheet: 「其他」输入面走 SURFACE
 has(askCode, 'RADIUS_CARD', 'AskUserSheet: 面板圆角走 RADIUS_CARD');
 
 // ════════════════════════════════════════════════════════════════════════════
-// ⑤ StatusSheet 专属：空态 / 命中区外扩 / 层级（标签次级 / 值主色）
+// ⑤ StatusSheet 专属：空态 / 命中区（**真实 44 布局盒**）/ 层级（标签次级 / 值主色）
 // ════════════════════════════════════════════════════════════════════════════
-has(statusCode, 'responseRegion({', 'StatusSheet: 关闭 X 用 responseRegion 外扩命中区');
+// ⛔ 2026-10-11 **按真机事实改写**（同 ④：旧 `responseRegion` 外扩已证无效）。
+has(statusCode, '.width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)', 'StatusSheet: 关闭 X 命中区 = 真实 HIT_TARGET_MIN(44) 布局盒');
+hasNot(statusCode, 'responseRegion', 'StatusSheet: ⛔ 不用 responseRegion 外扩（真机实测负偏移外扩无效）');
 has(statusCode, '暂无会话状态', 'StatusSheet: 五路输入全空 ⇒ 一行小字空态');
 has(statusCode, "'type.callout'", 'StatusSheet: 行标签走 type.callout（次级色）');
 has(statusCode, 'sys.symbol.chevron_right', 'StatusSheet: 切换入口是「行 + chevron」（非实心色块）');

@@ -102,11 +102,18 @@ has(navSrc, '.backgroundColor(withAlpha(this.pal().accent, ACCENT_TINT))',
 //    opacity，故不踩坑），全局 hasNot 会误伤它。
 has(navSrc, '.stateStyles({\n        pressed: {\n          .backgroundColor(withAlpha(this.pal().accent, ACCENT_TINT))\n          .opacity(1)\n        },\n      })',
   '⛔ 导航按钮的 stateStyles **只含 pressed**（无 normal）—— 否则展开高亮/静息低亮被钉死（假绿）');
-// 去边框**不得顺手缩热区**（命令「保持可点」）：32×32 不变（web `size-8`）
+// 去边框**不得顺手缩热区**（命令「保持可点」）：视觉盒 32×32（web `size-8`）、命中盒 44（真实布局盒）。
+// ⚠️ 2026-10-11 **按真机事实改写**（旧断言 `.width(BTN)\n      .height(BTN)` 钉的是"单盒 + responseRegion
+//    外扩"的旧结构；`f5d4003` 已改成 **44 命中盒外包 32 视觉盒** ⇒ 缩进/层级都变了）。
+//    ⛔ 不是放宽：仍钉住"视觉盒 = BTN(32)"与"热区 ≥44"两个**意图**，只是换成新结构里可静态验证的形态。
 has(navSrc, 'const BTN: number = 32;',
-  '按钮仍 32×32（web `size-8`）—— 去边框不缩热区');
-has(navSrc, '.width(BTN)\n      .height(BTN)',
-  '宽高仍走 BTN 常量（热区不被顺手改小）');
+  '视觉盒仍 32×32（web `size-8`）—— 去边框不缩视觉尺寸');
+has(navSrc, '.width(BTN)',
+  '视觉盒宽走 BTN 常量（视觉尺寸不被顺手改）');
+has(navSrc, '.height(BTN)',
+  '视觉盒高走 BTN 常量');
+has(navSrc, '.width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)',
+  '命中盒 = 真实 HIT_TARGET_MIN(44)（⛔ 非 responseRegion 外扩 —— 真机已证其无效）');
 
 // ════════════════════════════════════════════════════════════════════════════
 // ② 同类审计：消息流里的控件**不得**有 1px 全边框（工具胶囊 / 工具浮层）

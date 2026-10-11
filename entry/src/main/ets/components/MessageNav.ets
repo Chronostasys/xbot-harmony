@@ -321,19 +321,24 @@ export struct MessageNav {
           ? withAlpha(this.pal().accent, ACCENT_TINT)          // web `bg-accent/10`
           : withAlpha(this.pal().surface, BTN_BG_ALPHA))        // web `bg-bg-secondary/80`
         .backdropBlur(this.eff().glassBlur)                    // web `backdrop-blur`（内容滚到按钮底下时的可读性）
-        .animation(animFast())                                 // web `transition-all`
       }
       .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
       .alignContent(Alignment.Center)
-      // 静息不透明度移到**外层盒**（`opacity` 向下作用于 32 视觉盒）：web `opacity-40` → 激活 100%。
+      .borderRadius(RADIUS_CHIP)                 // 按压 accent 底纹随圆角（与 32 视觉盒同半径）
+      // 静息不透明度放**外层盒**（`opacity` 向下作用于 32 视觉盒）：web `opacity-40` → 激活 100%。
+      // 唯一一处 `.animation()`（动效预算 == 1，见 tools/tests/motion_budget.test.ts 台账）：
+      //   它同时覆盖本盒的 `opacity`（idle 40% ↔ 激活 100%）。视觉盒的 `backgroundColor` 随 `open`
+      //   变化**不单独**动画（动效只许减，不为一次"很轻的底纹切换"再开一个站点 ⇒ 与 web `transition-all`
+      //   的可见部分一致：两者的 `open` 切换都由这条 opacity 过渡主导，底纹硬切被掩盖）。
       .opacity(this.open ? 1 : BTN_IDLE_ALPHA)
       .animation(animFast())
-      // 强调只在**瞬时态**：按压 = 满不透明度（原 `bg-accent/10` 底纹改画在 44 盒上会**溢出** 32 视觉盒
-      // ⇒ 只保留「提亮」这一半反馈）。⛔ 绝不写 `normal` 分支 —— `normal` 会**接管** opacity/backgroundColor，
+      // 强调只在**瞬时态**：按压 = web hover 的 `bg-accent/10` 底纹 + 满不透明度。
+      // ⛔ **不写** `normal` 分支 —— `normal` 会**接管** opacity/backgroundColor，
       //    把上面那条动态 `open` 值钉死（同款坑已在 `ThinkingLine.ets` 踩过并修掉，
       //    见 docs/ARKTS-GOTCHAS.md §「stateStyles.normal 会接管被覆盖的属性」）。
       .stateStyles({
         pressed: {
+          .backgroundColor(withAlpha(this.pal().accent, ACCENT_TINT))
           .opacity(1)
         },
       })

@@ -289,7 +289,7 @@ for (const t of ALL_THEMES) {
 eq('INSET_PILL_X = 8', INSET_PILL_X, 8);
 eq('INSET_PILL_Y = 5（光学档）', INSET_PILL_Y, 5);
 ok('光学档白名单含 5 且 5 不是 4 的倍数', opticalValues().indexOf(5) >= 0 && 5 % 4 !== 0);
-ok('pill 视觉高度 < 命中区 44（须由调用方 responseRegion 外扩）',
+ok('pill 视觉高度 < 命中区 44（须由调用方用**真实 ≥44 布局盒**承载 `onClick`；⛔ 不用 `responseRegion` 外扩 —— 真机实测其无效）',
   (MARKER_SLOT + 2 * INSET_PILL_Y) < HIT_TARGET_MIN);
 // 3) 标记槽 / glyph 尺寸
 eq('MARKER_SLOT = 14', MARKER_SLOT, 14);
