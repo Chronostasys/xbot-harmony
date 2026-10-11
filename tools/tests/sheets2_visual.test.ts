@@ -233,6 +233,21 @@ has(menuCode, 'constraintSize({ minHeight: HIT_TARGET_MIN })', 'MenuSheets: 菜�
 has(menuCode, 'RADIUS_SHEET', 'MenuSheets: 底部 sheet 圆角走 RADIUS_SHEET（只收上两角）');
 has(menuCode, 'borderWidth({ top: STROKE_HAIRLINE })', 'MenuSheets: 边界 = 上边一条结构性发丝');
 
+// ════════════════════════════════════════════════════════════════════════════
+// ⑦ 会话操作菜单（SessSheet）菜单项 = **图标 + 文字**；破坏性项走 `dangerText`（2026-10-12 本波）
+//    ⛔ 字形名逐个经字体真源（`HMSymbolVF.ttf` 的 `post` 表）核对，不许凭空造名；
+//    ⛔ 弱图标色必须走 `colorOf(p,'iconMuted')`（`iconMuted` **不是** `Palette` 字段）。
+// ════════════════════════════════════════════════════════════════════════════
+has(menuCode, 'SymbolGlyph(this.iconOf(code))', 'MenuSheets: 菜单项渲染图标（iconOf 按动作码映射）');
+has(menuCode, 'private iconOf(code: string): Resource {', 'MenuSheets: 有 iconOf 映射（$r 只能字面量 ⇒ 用 switch 而非拼串）');
+has(menuCode, "return $r('sys.symbol.trash');", 'MenuSheets: 删除动作 → trash 字形');
+has(menuCode, 'return this.starred ? $r(\'sys.symbol.star_fill\') : $r(\'sys.symbol.star\');',
+  'MenuSheets: 标星随状态切 star/star_fill');
+has(menuCode, 'private dangerOf(code: string): boolean {', 'MenuSheets: 破坏性动作有 dangerOf 判据');
+has(menuCode, "colorOf(this.pal(), 'dangerText')", 'MenuSheets: 破坏性项（删除）走 dangerText 红');
+has(menuCode, "colorOf(this.pal(), 'iconMuted')", 'MenuSheets: 图标弱色走 colorOf iconMuted（⛔ 非 Palette 字段）');
+has(menuCode, '.fontSize(ICON_MD)', 'MenuSheets: 图标尺寸走 ICON_MD token（零字面量）');
+
 if (fail > 0) {
   console.log(`  sheets2_visual: ${pass} passed, ${fail} failed`);
   process.exit(1);

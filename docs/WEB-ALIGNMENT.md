@@ -1290,3 +1290,30 @@ N 个药丸堆叠、chrome 噪点大；web 侧本就是纯列表）⇒ **一个�
 **未做（记账）**：⑧ 会话行 `⋯` 菜单（`components/MenuSheets.ets` 的 `CtxItem`，现为纯文字列表 ⇒
 考虑图标 + 破坏性项红色分组）；⑨ 其余面板（设置 `SettingsPanel.ets` / 队列 `QueueSheet.ets` /
 能力面板 `PluginsSheet.ets`）的排版与 footer 同源清理。
+
+### 21.16 目标③（第五批·⑧）：会话行 `⋯` 菜单 —— 纯文字列表 → **图标 + 破坏性项红字**（2026-10-12）
+
+**现状/问题**：`components/MenuSheets.ets` 的 `SessSheet`（会话行 `⋯` / 长按菜单）原为**纯文字行**
+（`CtxItem(label, code, dim)` 只渲一个 `Text`）—— 8 项一字排开、无视觉分组，破坏性项「删除」与
+「重命名 / 分支」同色同权 ⇒ **误触代价不对等**（Apple 反例：破坏性动作必须显式区分）。
+
+**改法**（对齐 iOS 上下文菜单的 **图标 + 文字** 双列 + 语义色）：
+- `CtxItem` 渲 `SymbolGlyph(this.iconOf(code))`（`ICON_MD`，与 `type.callout` 同号）+ `Text`。
+- **图标按动作码映射**（`$r` 只能字面量 ⇒ `iconOf` 用 `if` 分支）：置顶 `arrow_up_to_line` ·
+  上移 `arrow_up` · 下移 `arrow_down` · 标星随态 `star`/`star_fill` · 重命名 `square_and_pencil` ·
+  分支 `split` · 删除 `trash` · 取消 `xmark`（**字形名逐个经字体真源 `post` 表核对**，⛔ 不凭空造名）。
+- **破坏性项**（`dangerOf(code) === code === 'delete'`）⇒ 图标与文字一律 `colorOf(p,'dangerText')` 红；
+  其余文字 `textPrimary`、图标 `colorOf(p,'iconMuted')` 弱色。`dim` 项仍 `DISABLED_OPACITY` + 不派发。
+- 分组沿用既有发丝（删除与「取消」之间一条），无结构改动。
+
+**判据（判别力已自证）**：`tools/tests/sheets2_visual.test.ts` 新增 7 条（读 `MenuSheets.ets` **真源**
++ 剥注释）：菜单项含 `SymbolGlyph(this.iconOf(code))` / 有 `iconOf` 方法 / 删除 → `trash` /
+标星随态切 `star(_fill)` / 有 `dangerOf` / 破坏性走 `colorOf(...,'dangerText')` / 图标弱色走
+`colorOf(...,'iconMuted')` / 图标尺寸走 `ICON_MD` token。**自证**：注入"删除改 `textPrimary`" ⇒ **1 红**；
+注入"去掉图标" ⇒ **2 红**。
+
+**真机确认**：`⋯` → 菜单显示 `⤒置顶（已在顶部）`·`↑上移（已在顶部）`（dim 灰）·`↓下移`·`★取消标星`·
+`✎重命名`·`⑂分支（fork 出新会话）`·`🗑删除`（**红**）· 发丝 · `✕取消`；图标列与文字列**逐像素对齐**。
+
+**未做（记账）**：另两个 sheet 的 `CtxItem`（`SearchHitsSheet` 仅「关闭」/ `ContextSheet` 消息复制类
+动作）仍是纯文字 —— 图标化留待 ⑨「面板同源清理」一并做（消息复制类需另找字形）。

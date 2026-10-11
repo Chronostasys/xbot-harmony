@@ -45,8 +45,8 @@ import { hitLine, MOVE_DOWN, MOVE_TOP, MOVE_UP } from '../core/sessionops';
 import { linkLabel } from '../core/msgops';
 import { CtxMenuItem, iterMenuItems, toolsMenuItems, userMenuItems } from '../core/ctxmenu';
 import {
-  PRESS_OPACITY,   DISABLED_OPACITY, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_CHIP, RADIUS_SHEET,
-  SPACE_LG, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, hairlineOf, surfaceFillOf,
+  PRESS_OPACITY,   DISABLED_OPACITY, HIT_TARGET_MIN, ICON_MD, INSET_ROW_X, INSET_ROW_Y, RADIUS_CHIP, RADIUS_SHEET,
+  SPACE_LG, SPACE_SM, SPACE_XS, SPACE_XXS, STROKE_HAIRLINE, colorOf, hairlineOf, surfaceFillOf,
 } from '../core/design';
 import { fs, fw, lh, tc } from './SettingsRows';
 import { sheetTransition } from './anim';
@@ -94,17 +94,59 @@ export struct SessSheet {
   }
 
   /**
+   * 菜单项图标（**按动作码映射**，`$r` 只能写字面量 ⇒ 用 switch 而非拼串）。
+   * 字形名**逐个经字体真源核对**（`HMSymbolVF.ttf` 的 `post` 表）：置顶 `arrow_up_to_line`、
+   * 上移 `arrow_up`、下移 `arrow_down`、标星 `star`/`star_fill`、重命名 `square_and_pencil`、
+   * 分支 `split`、删除 `trash`、取消 `xmark`。
+   */
+  private iconOf(code: string): Resource {
+    if (code === MOVE_TOP) {
+      return $r('sys.symbol.arrow_up_to_line');
+    }
+    if (code === MOVE_UP) {
+      return $r('sys.symbol.arrow_up');
+    }
+    if (code === MOVE_DOWN) {
+      return $r('sys.symbol.arrow_down');
+    }
+    if (code === 'star') {
+      return this.starred ? $r('sys.symbol.star_fill') : $r('sys.symbol.star');
+    }
+    if (code === 'rename') {
+      return $r('sys.symbol.square_and_pencil');
+    }
+    if (code === 'fork') {
+      return $r('sys.symbol.split');
+    }
+    if (code === 'delete') {
+      return $r('sys.symbol.trash');
+    }
+    return $r('sys.symbol.xmark');
+  }
+
+  /** 破坏性动作（「删除 / 确认删除」）⇒ 图标与文字一律 `dangerText` 红（Apple 口径）。 */
+  private dangerOf(code: string): boolean {
+    return code === 'delete';
+  }
+
+  /**
    * 菜单里的一项（**各 struct 自持的带参 @Builder** —— 见文件头；⛔ 不要改成 `@Component`）。
    * `dim = true` ⇒ 当前不可点（如已在顶部的「置顶」）：`DISABLED_OPACITY` + 不派发。
+   *
+   * 排版（对标 iOS 上下文菜单）：`图标 + 文字`，图标 20vp 定宽列（无图标也占位以对齐文字基线）。
+   * 破坏性项（删除）走 `dangerText`；其余文字 `textPrimary`、图标 `iconMuted`（弱色，走 `colorOf`）。
    */
   @Builder
   CtxItem(label: string, code: string, dim: boolean) {
-    Row() {
+    Row({ space: SPACE_SM }) {
+      SymbolGlyph(this.iconOf(code))
+        .fontSize(ICON_MD)
+        .fontColor([this.dangerOf(code) ? colorOf(this.pal(), 'dangerText') : colorOf(this.pal(), 'iconMuted')])
       Text(label)
         .fontSize(fs('type.callout'))
         .fontWeight(fw('type.callout'))
         .lineHeight(lh('type.callout'))
-        .fontColor(this.pal().textPrimary)
+        .fontColor(this.dangerOf(code) ? colorOf(this.pal(), 'dangerText') : this.pal().textPrimary)
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .layoutWeight(1)

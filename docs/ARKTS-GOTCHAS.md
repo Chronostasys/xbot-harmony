@@ -1535,3 +1535,26 @@ arkts-no-any-unknown            At Index.ets:7397:12
 "最近目录"整段不渲染）⇒ ② 编译装机截图 ⇒ ③ **立刻回退**，并用 `grep -c SCRATCH <file>` = 0 +
 `git diff --stat` 只有自己**双重自证**已回退（本批两处临时态均已回退并自证）。
 ⚠️ 该法只能验**静态观感**；交互行为（点击/输入）仍须等注入恢复后再验。
+
+## 批次 46（2026-10-12，编排者本人实测）：**符号字形名的唯一真源 = 字体 `post` 表的名字数组**（⛔ 别只取"字形映射到的名字"）；`$r` 只能写字面量 ⇒ 按码 `switch`
+
+**① 查 `sys.symbol.*` 名字要查 `post` 表的\*\*名字数组\*\*，不能查"编号→名字"映射后再取集合。**
+字体 `~/ohos-cli/command-line-tools/sdk/default/openharmony/previewer/common/bin/fonts/HMSymbolVF.ttf`
+（`post` v2.0，**5563 个名字**）。我第一次写成"遍历 glyph 索引 → 通过
+`idx[g]` 反查名字 → 收成集合"，得到的集合**缺 `star` / `xmark` / `arrow_up` 等**（这些名字在
+名字数组里，但其 glyph 槽位不在我遍历到的范围）⇒ **误判"字体里没有 `star`"**（而全仓都在用
+`sys.symbol.star`）。**正确**：直接遍历**名字数组**（`names[]`）判断即可；只有要"某 glyph 对应哪个名字"
+时才需要 `idx`。判别式：`star` / `xmark` / `trash` / `split` / `arrow_up_to_line` 均应命中。
+
+**② `$r('sys.symbol.*')` 的参数**必须是**字面量**（编译期取资源）⇒ 不能拼串
+（`$r('sys.symbol.' + name)` 非法）。要把"动作码 → 图标"映射，用**本 struct 的私有方法 + `switch`/`if`**
+（每个分支一个字面量 `$r`），在 `@Builder` 里调 `this.iconOf(code)`（本仓落点
+`components/MenuSheets.ets: SessSheet.iconOf`）。
+
+**③ 菜单项图标/文字色**：弱图标 = `colorOf(p,'iconMuted')`（⛔ `iconMuted` **不是** `Palette` 字段，
+硬写 `p.iconMuted` ⇒ `10505001`）；破坏性项 = `colorOf(p,'dangerText')`（真源角色，见
+`docs/DESIGN-SYSTEM.md §12`）。两者都**不能**用 `pal().<field>` 直取。
+
+**④ 图标尺寸行内一致性**：同 `fontSize` 的 `SymbolGlyph` 在本字体下**advance 宽度一致**（实测 7 种
+字形文字列 x 起点逐像素对齐）⇒ 无需显式定宽列；但要**先截图核对**再依赖该结论。
+菜单项图标尺寸取 `ICON_MD`（= `type.callout` 字号，iOS 图标:文字 ≈ 1:1）。
