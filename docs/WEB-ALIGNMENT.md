@@ -968,6 +968,10 @@ web 全仓（505 个 `src` 文件）`vibrat|haptic`（宽松 `-i`）**0 命中**
 - **判据脆性 → 假红**：§9 的 `.fontColor` 提取窗口原为 4 行，加注释后偏离 5–6 行 ⇒ **假红**。已改为**10 行窗口 + 遇下一个 widget 即停**（防跨元素误取）。⇒ **加注释也会弄红判据**，改窗口而非改断言。
 - **白名单清零**：`KNOWN_LOADING_LEVEL_EXCEPTIONS` 从 `['components/SettingsAbout.ets']` → **`[]`**（加载文案统一 `this.pal().textMuted`，**web 口径**：6 处 web 落点一律 `text-text-muted`）。
 - **a11y 约定新立**（`13c8d94`，全仓首例）：**图标-only / 无可见文案的可点控件必须有 `.accessibilityText(...)`**（动态跟随状态；文案对齐 web i18n）。样板 = `Index.ets` 全部折叠/展开按钮（`:6541`）。
+  - **系统性落地（`b193e5c`）**：全仓扫描（前向解析 `onClick` 链，非 grep 猜）⇒ **图标-only 可点控件 39 处**（36 `SymbolGlyph` 形态 + 3 单符号 `Text` 字形 `−/＋/⋯`），本轮**实修 37 处**（文案含中文、对齐 web i18n；⛔ 零可见变化 —— 只加读屏属性，不参与布局/绘制）。
+  - **判据** `tools/tests/a11y_icon_button.test.ts`（11 断言）：形态 ∧ **全局计数 == 台账长** ∧ 零扫描判红 ∧ mutation（删一处 / 填空串 ⇒ 必红）。台账 `A11Y_LEDGER` = **`[]`（ceiling 0，只许缩短）** ⇒ **今后新增任何图标-only 控件却不给读屏文案 ⇒ 必红**（最强形式护栏）。
+  - ⚠️ **不判红的例外**：可点 `Image` 卡（如 `AuthImage.ets`）—— 图片节点**自带**可访问性语义，硬加 `accessibilityText` 反而**覆盖**它 ⇒ 不改。
+  - ⚠️ **待真机**：`accessibilityText` 的**实际播报**（读屏器是否朗读、**随状态变化的文案能否重投**）未经真机验证 —— 本仓有 `@Builder`/`LazyForEach` **参数快照不重建**的经典坑 ⇒ 变体项（发送/停止、标星/取消、勾选/取消…）须真机核一次。
 - **③ 全折/全展接线**（`d0027a8`）：`core/sessiongroup.ets:770 collapseAllPlan` 曾是**唯一"纯逻辑已就绪、0 UI 消费"**的功能缺口（本仓最危险的缺陷类：用户点不到）。现消费于 `Index.ets:4491`。⛔ 语义与 web `SessionViewBar.tsx:34-79` **逐条一致**，`core/sessiongroup.ets` **未改一行**。
 
 ### 21.5 卡死处置经验（编排者本人）
