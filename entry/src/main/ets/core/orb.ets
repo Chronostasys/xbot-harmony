@@ -113,11 +113,33 @@ export function orbPhase(t: number, periodMs: number): number {
 }
 
 /**
- * 呼吸值（弦波光滑）∈ `[0,1]`：`0.5 - 0.5*cos(2π·phase)`。
- * `orbBreath(0)=0`；`orbBreath(period/2)=1`；周期 = `periodMs`；在 `[0, period/2]` 上**单调不减**。
+ * 呼吸的**非对称比**：一个周期里"吸气（涨）"占的比例（其余为"呼气（收）"）。
+ *
+ * 为什么不是 0.5（= 对称正弦）：`0.5 - 0.5*cos(2πp)` 的升/降**完全镜像且等时** ⇒ 读作
+ * **节拍器/呼吸机**（可预测 = 机械感），而不是"活物"。真实呼吸（与人眼觉得"自然"的
+ * 缓动）都是**不对称**的：**快吸、慢呼**（`0.4 / 0.6`）⇒ 峰值来得果断、回落绵长，
+ * 一眼读作"有肺、有惯性"。这是"比 Siri 好看"里**最廉价可得的**一档提升：
+ * 只改**波形形状**，不动周期（`ORB_BREATH_MS` 仍是 8×D_SLOW）、不动幅度（MIN/MAX 不变）
+ * ⇒ 刻度契约（`docs/DESIGN-SYSTEM.md §8.1`）不受影响。
+ *
+ * ⛔ 纪律：`0 < ORB_BREATH_INHALE < 1`（两端都留时长，否则退化成"锯齿/阶跃"）。
+ * 判据见 `tools/tests/orb.test.ts`（峰值时刻 = `inhale × period`，且两段各自单调）。
+ */
+export const ORB_BREATH_INHALE: number = 0.4;
+
+/**
+ * 呼吸值 ∈ `[0,1]`（**快吸慢呼的非对称波形**，`smoothstep` 光滑两端）。
+ *
+ *   · `orbBreath(0) = 0`；`orbBreath(inhale × periodMs) = 1`；周期 = `periodMs`；
+ *   · `[0, inhale×P]` **单调不减**、`[inhale×P, P]` **单调不增**；
+ *   · 峰值/谷值处导数为 0（`smoothstep`）⇒ 无折角（不"顿"）。
  */
 export function orbBreath(t: number, periodMs: number): number {
-  return 0.5 - 0.5 * Math.cos(orbPhase(t, periodMs) * 2 * Math.PI);
+  const p: number = orbPhase(t, periodMs);
+  const u: number = p < ORB_BREATH_INHALE
+    ? p / ORB_BREATH_INHALE
+    : 1 - (p - ORB_BREATH_INHALE) / (1 - ORB_BREATH_INHALE);
+  return u * u * (3 - 2 * u);
 }
 
 /**
@@ -139,17 +161,43 @@ export function orbOpacity(t: number, periodMs: number, minO: number, maxO: numb
 }
 
 /**
+ * 公转角速度的**周期缓动深度**（`0` = 匀速）。判据：`0 < c < 1`（见下方 `orbSpinWarp`）。
+ *
+ * 为什么需要它：`spin = orbPhase(t, turnMs)` 是**线性**推进 ⇒ 粒子环**永恒匀速**旋转。
+ * 匀速圆周是"机械/廉价"的头号特征（像 loading 圈）；真轨道/真惯性**在一个周期内会快慢交替**。
+ * 这里让角速度在一个公转周期内按 `1 ± c` 起伏（c=0.35 ⇒ `0.65× ~ 1.35×`），
+ * 环读作"**转得起来、且有余势**"，而不是"被电机带着转"。
+ *
+ * ⛔ 纪律：**只改"相位 → 角度"的映射形状**，不改周期（`ORB_SPIN_MS` 不变）、不新增时长刻度
+ *   ⇒ `orbParticles(t + turnMs) === orbParticles(t)`（周期性）与"tool 加速 = 用更短周期跑
+ *   同一函数"的等价关系**都仍然成立**（测试逐条钉住）。
+ */
+export const ORB_SPIN_EASE: number = 0.35;
+
+/**
+ * 把 `[0,1)` 的相位映射成**非匀速但周期不变**的角参数：
+ * `g(s) = s - c/(2π)·sin(2π s)`。
+ *
+ * 性质（测试钉住）：`g(0)=0`、`g(1)=1` ⇒ 对相位取模后**周期不变**；
+ * `g'(s) = 1 - c·cos(2π s) ∈ [1-c, 1+c]` ⇒ `c < 1` 时**严格单调**（角度永不倒退）。
+ */
+function orbSpinWarp(phase: number): number {
+  return phase - (ORB_SPIN_EASE / (2 * Math.PI)) * Math.sin(2 * Math.PI * phase);
+}
+
+/**
  * 粒子环（单位圆）：`count` 枚光点，绕原点公转。
  *
- *   · 公转：角位置随 `orbPhase(t, turnMs)` 线性推进 ⇒ 周期 = `turnMs`；
- *   · 抖动：用 `hash01(seed, i)` 给每枚错开半径 `[0.72,0.98]`、尺寸因子 `[0.6,2.2]`、
- *     透明度 `[0.25,1.0]` 与角偏移（`seed` 相同 ⇒ 每帧结果一致，可复现）；
+ *   · 公转：角参数 = `orbSpinWarp(orbPhase(t, turnMs))`（**非匀速**，见 `ORB_SPIN_EASE`）；
+ *     仍是 `t` 的周期函数、周期 = `turnMs`；
+ *   · 抖动：用 `hash01(seed, i)` 给每枚错开半径、尺寸因子、透明度与角偏移
+ *     （`seed` 相同 ⇒ 每帧结果一致，可复现）；
  *   · `count<=0` ⇒ 空数组（不抛）。
  */
 export function orbParticles(count: number, t: number, seed: number, turnMs: number): OrbParticle[] {
   const n: number = count > 0 ? Math.floor(count) : 0;
   const out: OrbParticle[] = [];
-  const spin: number = orbPhase(t, turnMs);
+  const spin: number = orbSpinWarp(orbPhase(t, turnMs));
   for (let i = 0; i < n; i++) {
     const hA: number = hash01(seed * 7.1 + i * 1.7);
     const hR: number = hash01(seed * 3.3 + i * 2.9);
@@ -222,6 +270,8 @@ const MODE_SECONDARY: string = 'secondary';
 const MODE_IDLE: string = 'idle';
 /** 思考态名（同上，与 `components/AssistantOrb.ets` 的 `ORB_MODE_THINKING` 同字面量）。 */
 const MODE_THINKING: string = 'thinking';
+/** 工具在飞态名（同上，与 `ORB_MODE_TOOL` 同字面量）。 */
+const MODE_TOOL: string = 'tool';
 
 /**
  * 光球的目标帧率（**纯策略**；`0` = 不该跑 / 停表）。
@@ -255,5 +305,42 @@ export function orbTargetFps(mode: string, visible: boolean): number {
     return ORB_FPS_THINKING;
   }
   return ORB_FPS_MAIN;
+}
+
+/**
+ * **有效态**（纯函数）—— 把"调用方给的态"与"静默自判"折算成**真正生效的态**。
+ *
+ * 为什么必须是一个**纯函数**而不是组件里的一串 `if`：优先级一旦散在 `build`/`draw` 路径里，
+ * 就会出现"某一路径漏判 ⇒ 该态**永远不可达**"的静默缺陷（本仓真实发生过：`secondary`
+ * 在 `orbTargetFps`/`orbStateOf` 里都有分支，但组件侧的折算把它整条吞掉 ⇒ 让位态从未生效，
+ * 见下方 `⛔ 事故`）。收成纯函数后，"优先级"有**唯一的判据**、可脱机断言、可变异自证。
+ *
+ * 优先级（高 → 低）：**tool > idle（显式）> idle（静默自判）> secondary > thinking**
+ *   · `tool`（有工具在飞）：最高 —— 工具在跑时不谈"静默"，也不让位；
+ *   · `idle`（显式）：调用方说没人了 ⇒ 静默（"静止也是设计"）；
+ *   · `quiet === true`（心跳停摆超过静默窗）：**任何非 tool 态都降为 idle**；
+ *   · `secondary`（让位）：机器仍在动，但**这次不是它领读** ⇒ 保留"让位"参数（呼吸/光晕/
+ *     公转减半 + 18fps），**不**被折成 thinking；
+ *   · 其余（含未知/空/`thinking`）⇒ `thinking`（宁可满幅，不静默降级）。
+ *
+ * ⛔ 事故（2026-10-11 审计）：旧组件实现只认 `tool`/`idle` 两个显式态，其余一律回落
+ *   `quiet ? idle : thinking` ⇒ **`secondary` 不可达**（`LiveTailView` 传了也让位不了），
+ *   而 `core/orb.ets` 里 `ORB_FPS_SECONDARY(18)` 与 `ST_SECONDARY` 两处参数**白写**：
+ *   光球在"该让位"时仍满幅呼吸 ⇒ 与 `思考 N 字` 争主高亮（正是用户报的"两个 spinner"同源问题）。
+ */
+export function orbEffectiveMode(orbMode: string, quiet: boolean): string {
+  if (orbMode === MODE_TOOL) {
+    return MODE_TOOL;
+  }
+  if (orbMode === MODE_IDLE) {
+    return MODE_IDLE;
+  }
+  if (quiet) {
+    return MODE_IDLE;
+  }
+  if (orbMode === MODE_SECONDARY) {
+    return MODE_SECONDARY;
+  }
+  return MODE_THINKING;
 }
 

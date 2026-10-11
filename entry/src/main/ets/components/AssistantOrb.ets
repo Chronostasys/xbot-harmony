@@ -5,18 +5,27 @@
  * 视觉语言：**一枚会呼吸的发光核 + 一圈缓慢公转的光点**（halo → core → particles），
  * 并按**运行态**切换"动效语义"（下表）—— 不是一套循环用到黑。
  *
- * ── 三态状态机（本波核心；契约见 `docs/DESIGN-SYSTEM.md §7`）────────────────────
+ * ── 四态状态机（本波核心；契约见 `docs/DESIGN-SYSTEM.md §7`）────────────────────
  *   | 态 | 呼吸/能量 | 公转相位 | 轨道 | 环色 | 帧率 | 读作 |
  *   |---|---|---|---|---|---|---|
  *   | `thinking` | 1.0（既有观感） | 1.0× | 1.0× | accentSoft | 30 | 在思考 / 在写 |
  *   | `tool`     | 0.9 | **2.2×** | **1.08×** | **statusRunning** | 30 | 工具在飞（一眼可辨） |
+ *   | `secondary`| **0.5** | **0.5×** | 1.0× | accentSoft | **18** | 让位（别处才是主角） |
  *   | `idle`     | **0.25** | **0.0（冻结）** | 1.0× | accentSoft | **12** | 静默（**静止也是设计**） |
+ *
+ *   ⚠️ 帧率列**以 `core/orb.ets` 的 `ORB_FPS_*` 为准**：`tool` 30 / `thinking` 30 /
+ *      `secondary` 18 / `idle` 12。`thinking` 走 `orbTargetFps` 回落**主态 30**（`thinking`
+ *      不在降频分支里 —— 降频只给"让位/静默"两档）。本表曾误写 `thinking=20`（那是
+ *      `secondary` 之前的旧值），2026-10-11 审计一并订正。
  *
  *   · 态由 `@Prop orbMode` 给出（调用方从状态机派生）；`idle` 还可由光球**自己**判定：
  *     `@Prop orbBeat`（活动心跳）超过 `ORB_QUIET_MS` 未再前进 ⇒ 转入 idle。
  *     ⚠️ **为什么"静默判定"必须在组件内**：父组件（`LiveTailView`）在流式期以 ≤20Hz 重建，
  *     任何"带时间的状态"放在父层都会抖（打字机每拍追平/落后）；光球本来就有 30fps 循环，
  *     由它自己数时间最省、最稳（父层不需要任何定时器/新状态）。
+ *   · ⛔ **优先级的唯一判据** = `core/orb.ets:orbEffectiveMode(orbMode, quiet)` 纯函数
+ *     （`tool > idle(显式) > idle(静默) > secondary > thinking`）。组件**不得**自己再写一份
+ *     `if` 链：旧实现漏判 `secondary` ⇒ 让位态**从未生效**（与"两个高亮源打架"同源）。
  *   · 态之间**不硬切**：全部参数按**实际帧间隔**缓动到目标（`ORB_EASE_MS` = 呼吸周期/8
  *     = 320ms = `core/tokens.D_SLOW`，与全站过渡同刻度），环色用**双色交叉淡出**
  *     ⇒ 换态无跳变（Apple 式），且即便 `orbMode` 高频翻转也被缓动吸收。
@@ -54,7 +63,7 @@ import {
   ORB_SPIN_MS, ORB_BREATH_MIN, ORB_BREATH_MAX,
   ORB_OPACITY_MIN, ORB_OPACITY_MAX, ORB_RING_RADIUS,
   ORB_CORE_SOLID_STOP, ORB_CORE_MID_STOP, ORB_HALO_DECAY_STOP,
-  ORB_FPS_MAIN, ORB_FPS_SECONDARY, ORB_FPS_IDLE, orbTargetFps,
+  ORB_FPS_MAIN, ORB_FPS_SECONDARY, ORB_FPS_IDLE, orbTargetFps, orbEffectiveMode,
   OrbParticle, orbRadius, orbOpacity, orbParticles, orbWave,
 } from '../core/orb';
 import { animBase, MOTION_BREATH_MS, MOTION_QUIET_MS } from './anim';
@@ -483,17 +492,16 @@ export struct AssistantOrb {
   }
 
   /**
-   * 有效态（`tool` 最高优先：工具在飞时不谈"静默"；`idle` 可由心跳停摆自判）。
-   * 纯判断，无分配。
+   * 有效态（**判定全部在 `core/orb.ets:orbEffectiveMode` 纯函数里**，本方法只是喂两个采样量）。
+   *
+   * ⛔ 为什么不再在组件里写 `if` 链：旧实现只认 `tool`/`idle`，其余回落
+   *   `quiet ? idle : thinking` ⇒ **`secondary`（让位）不可达** —— `LiveTailView` 传了也让不了位，
+   *   光球在该退居背景时仍满幅呼吸，与 `思考 N 字` 争主高亮。判定上收纯函数后：
+   *   优先级有唯一判据、可脱机单测、可变异自证（见 `tools/tests/orb.test.ts`）。
+   * 纯判断，无分配（纯函数返回共享常量字符串）。
    */
   private effectiveMode(now: number): string {
-    if (this.orbMode === ORB_MODE_TOOL) {
-      return ORB_MODE_TOOL;
-    }
-    if (this.orbMode === ORB_MODE_IDLE) {
-      return ORB_MODE_IDLE;
-    }
-    return (now - this.lastBeatAt) > ORB_QUIET_MS ? ORB_MODE_IDLE : ORB_MODE_THINKING;
+    return orbEffectiveMode(this.orbMode, (now - this.lastBeatAt) > ORB_QUIET_MS);
   }
 
   /** 预解析绘制色（只在 `theme` 变化时跑一次）。 */

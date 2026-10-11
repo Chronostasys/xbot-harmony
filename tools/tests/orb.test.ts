@@ -21,6 +21,7 @@ import {
   ORB_PARTICLE_ALPHA_MIN, ORB_PARTICLE_ALPHA_MAX, ORB_PARTICLE_ANGLE_JITTER,
   ORB_CORE_SOLID_STOP, ORB_CORE_MID_STOP, ORB_HALO_DECAY_STOP,
   ORB_FPS_MAIN, ORB_FPS_THINKING, ORB_FPS_SECONDARY, ORB_FPS_IDLE, orbTargetFps,
+  ORB_BREATH_INHALE, ORB_SPIN_EASE, orbEffectiveMode,
   OrbParticle, orbPhase, orbBreath, orbRadius, orbOpacity, orbParticles, orbWave,
 } from '../../entry/src/main/ets/core/orb';
 import { D_SLOW } from '../../entry/src/main/ets/core/tokens';
@@ -88,9 +89,20 @@ ok('orbPhase(period<=0) 不抛且落 [0,1)', (() => {
   return Number.isFinite(v) && v >= 0 && v < 1;
 })());
 
-// ── (c) orbBreath：值域 [0,1] + 三点 + 单调 + 周期 ────────────────────────────
+// ── (c) orbBreath：值域 [0,1] + **快吸慢呼非对称** + 两段单调 + 周期 ──────────────
+// 本波（2026-10-11）把"对称正弦"换成**非对称 smoothstep**（吸气 40% / 呼气 60%）。
+// 判据随之从"峰值在中点"改为"峰值在 `ORB_BREATH_INHALE × P`"，并**新增**非对称性的判别力断言
+// （mutation：把 `ORB_BREATH_INHALE` 改回 0.5 ⇒ `峰值不在中点` 立即红）。
+const PEAK = ORB_BREATH_INHALE * P;
 approx('orbBreath(0)=0', orbBreath(0, P), 0, EPS);
-approx('orbBreath(P/2)=1', orbBreath(P / 2, P), 1, EPS);
+approx('orbBreath(inhale×P)=1', orbBreath(PEAK, P), 1, EPS);
+ok('⛔ 非对称：吸气占比 ∈ (0, 0.5)（= 快吸慢呼；改回 0.5 即红）',
+  ORB_BREATH_INHALE > 0 && ORB_BREATH_INHALE < 0.5);
+ok('⛔ 峰值**不在**中点（对称正弦的特征；改回 cos 即红）', Math.abs(PEAK - P / 2) > P * 0.05);
+ok('中点处已过峰（值 < 1 且 > 0.9 ⇒ 确在"呼气"段）', (() => {
+  const v = orbBreath(P / 2, P);
+  return v < 1 - EPS && v > 0.9;
+})());
 ok('orbBreath 值域 ⊆ [0,1]', (() => {
   for (let t = -3 * P; t <= 3 * P; t += P / 17) {
     const v = orbBreath(t, P);
@@ -98,21 +110,31 @@ ok('orbBreath 值域 ⊆ [0,1]', (() => {
   }
   return true;
 })());
-ok('orbBreath 在 [0,P/2] 单调不减', (() => {
+ok('orbBreath 在 [0, PEAK] 单调不减', (() => {
   let prev = orbBreath(0, P);
-  for (let t = 0; t <= P / 2; t += P / 64) {
+  for (let t = 0; t <= PEAK; t += P / 64) {
     const v = orbBreath(t, P);
     if (v < prev - 1e-12) { console.log('      dip t=' + t + ' v=' + v + ' prev=' + prev); return false; }
     prev = v;
   }
   return true;
 })());
+ok('orbBreath 在 [PEAK, P] 单调不增（升/降各自单调 ⇒ 只一个峰）', (() => {
+  let prev = orbBreath(PEAK, P);
+  for (let t = PEAK; t <= P; t += P / 64) {
+    const v = orbBreath(t, P);
+    if (v > prev + 1e-12) { console.log('      bump t=' + t + ' v=' + v + ' prev=' + prev); return false; }
+    prev = v;
+  }
+  return true;
+})());
+ok('吸气段时长 < 呼气段时长（非对称方向 = 快吸慢呼）', ORB_BREATH_INHALE < 1 - ORB_BREATH_INHALE);
 approx('orbBreath 周期为 P', orbBreath(777 + P, P), orbBreath(777, P), EPS);
 
 // ── (d) orbRadius / orbOpacity：端点 + 值域 + 退化 ───────────────────────────
 const baseR = 6.82;
 approx('orbRadius(t=0) = baseR*min', orbRadius(0, baseR, P, ORB_BREATH_MIN, ORB_BREATH_MAX), baseR * ORB_BREATH_MIN, EPS);
-approx('orbRadius(t=P/2) = baseR*max', orbRadius(P / 2, baseR, P, ORB_BREATH_MIN, ORB_BREATH_MAX), baseR * ORB_BREATH_MAX, EPS);
+approx('orbRadius(t=PEAK) = baseR*max', orbRadius(PEAK, baseR, P, ORB_BREATH_MIN, ORB_BREATH_MAX), baseR * ORB_BREATH_MAX, EPS);
 eq('orbRadius(baseR<=0) = 0（不产生负半径）', orbRadius(123, 0, P, ORB_BREATH_MIN, ORB_BREATH_MAX), 0);
 ok('orbRadius 值域 ⊆ [base*min, base*max]', (() => {
   const lo = baseR * ORB_BREATH_MIN;
@@ -124,7 +146,7 @@ ok('orbRadius 值域 ⊆ [base*min, base*max]', (() => {
   return true;
 })());
 approx('orbOpacity(t=0) = minO', orbOpacity(0, P, ORB_OPACITY_MIN, ORB_OPACITY_MAX), ORB_OPACITY_MIN, EPS);
-approx('orbOpacity(t=P/2) = maxO', orbOpacity(P / 2, P, ORB_OPACITY_MIN, ORB_OPACITY_MAX), ORB_OPACITY_MAX, EPS);
+approx('orbOpacity(t=PEAK) = maxO', orbOpacity(PEAK, P, ORB_OPACITY_MIN, ORB_OPACITY_MAX), ORB_OPACITY_MAX, EPS);
 ok('orbOpacity 值域 ⊆ [min,max]', (() => {
   for (let t = -2 * P; t <= 2 * P; t += P / 19) {
     const v = orbOpacity(t, P, ORB_OPACITY_MIN, ORB_OPACITY_MAX);
@@ -177,7 +199,57 @@ ok('大 t 不产生 NaN', (() => {
   return true;
 })());
 
-// ── (f) orbWave：值域 [-1,1] + 周期 1 + 确定性 ───────────────────────────────
+// ── (e2) 公转**非匀速**缓动（`ORB_SPIN_EASE`）：周期不变但角速度起伏 ─────────────
+// 判别力：把 `ORB_SPIN_EASE` 改回 0（= 旧匀速）⇒ `角速度非恒定` 立即红；
+//        把它改成 ≥1 ⇒ `严格单调` 红（角度会倒退）。
+ok('⛔ ORB_SPIN_EASE ∈ (0,1)（=0 退回匀速；≥1 角速度会为负 ⇒ 倒退）',
+  ORB_SPIN_EASE > 0 && ORB_SPIN_EASE < 1);
+/** 采样相邻等距时刻的**角位移增量**（用首个粒子的极角差近似角速度）。 */
+function angleDelta(t: number, dt: number): number {
+  const a: OrbParticle = orbParticles(1, t, 3, ORB_SPIN_MS)[0];
+  const b: OrbParticle = orbParticles(1, t + dt, 3, ORB_SPIN_MS)[0];
+  return Math.atan2(b.y, b.x) - Math.atan2(a.y, a.x);
+}
+ok('⛔ 角速度**非恒定**（快慢交替；改回匀速即红）', (() => {
+  const q = ORB_SPIN_MS / 4;
+  const d1 = Math.abs(angleDelta(0, q));
+  const d2 = Math.abs(angleDelta(ORB_SPIN_MS / 2, q));
+  return Math.abs(d1 - d2) > 1e-4;
+})());
+ok('⛔ 角位移**永不倒退**（严格单调 ⇒ 环不抖动/不反向）', (() => {
+  const dt = ORB_SPIN_MS / 512;
+  let prev = 0;
+  for (let i = 0; i < 512; i++) {
+    const a: OrbParticle = orbParticles(1, i * dt, 3, ORB_SPIN_MS)[0];
+    const ang = Math.atan2(a.y, a.x);
+    // 极角应随 t 单调推进（允许 2π 回绕 ⇒ 用非负增量判断）
+    let d = ang - prev;
+    while (d < -Math.PI) { d += 2 * Math.PI; }
+    while (d > Math.PI) { d -= 2 * Math.PI; }
+    if (d < -EPS) { console.log('      back-step at i=' + i + ' d=' + d); return false; }
+    prev = ang;
+  }
+  return true;
+})());
+eq('缓动后**周期仍为 turnMs**（相位取模 + g(0)=0/g(1)=1）',
+  orbParticles(N, 1000 + ORB_SPIN_MS, 3, ORB_SPIN_MS), orbParticles(N, 1000, 3, ORB_SPIN_MS));
+eq('缓动不破坏「tool 加速 = 更短周期跑同一函数」的等价关系',
+  orbParticles(N, 1000 * 2.2, 3, ORB_SPIN_MS), orbParticles(N, 1000, 3, ORB_SPIN_MS / 2.2));
+
+// ── (e3) 有效态优先级 `orbEffectiveMode`（纯函数；唯一判据）─────────────────────
+// 判别力：把 secondary 分支删掉（退回旧组件里的 `quiet ? idle : thinking`）⇒ 前两条红。
+eq('tool 最高优先（即便静默）', orbEffectiveMode('tool', true), 'tool');
+eq('显式 idle 生效（即便未静默）', orbEffectiveMode('idle', false), 'idle');
+eq('⛔ secondary **可达**（核心修复：旧实现把它折成 thinking）', orbEffectiveMode('secondary', false), 'secondary');
+eq('secondary 静默时降为 idle（机器确实没动了）', orbEffectiveMode('secondary', true), 'idle');
+eq('thinking 未静默 = thinking', orbEffectiveMode('thinking', false), 'thinking');
+eq('thinking 静默 = idle（心跳停摆自判）', orbEffectiveMode('thinking', true), 'idle');
+eq('未知/空态回落 thinking（不静默降级）', orbEffectiveMode('nope', false), 'thinking');
+eq('未知态但静默 ⇒ 仍可降为 idle', orbEffectiveMode('nope', true), 'idle');
+ok('⛔ secondary 的帧率确实不同于 thinking（否则"让位"无性能含义）',
+  orbTargetFps(orbEffectiveMode('secondary', false), true) !== orbTargetFps(orbEffectiveMode('thinking', false), true));
+
+
 ok('orbWave 值域 ⊆ [-1,1]', (() => {
   for (let t = -2; t <= 2; t += 1 / 97) {
     const v = orbWave(t, 0.3, 5);

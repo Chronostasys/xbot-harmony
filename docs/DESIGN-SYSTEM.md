@@ -137,20 +137,47 @@ bash tools/lint/color-roles.sh
 见 **`docs/WEB-PARITY.md`**（共享设置键映射、强调色/MD主题/星标的落地与守护测试、
 刻意不做的项及其理由、启动健壮性与会话池的根因记录）。
 
-## 7. 思路光球（`AssistantOrb`）—— 旗舰「思考中 / 工具中 / 静默」指示器
+## 7. 思路光球（`AssistantOrb`）—— 旗舰「思考中 / 工具中 / 让位 / 静默」指示器
 
 > 用户口令：「极简、苹果那种科技感、干净、交互起来很爽」「比苹果官方做的 Siri 还好看」，
 > 且**原生独享的白色主题（`porcelain`）下同样成立**。
 > 实现分层：`core/orb.ets`（纯数学，可脱机单测）+ `components/AssistantOrb.ets`（取色/画布/状态机）。
 > 挂载点：`components/LiveTailView.ets` 在飞块的**首位**（= web `LiveIteration` 的 `ShimmerThinking` 槽位）。
 
-### 7.1 三态状态机（态 → 视觉 → 驱动 `@Prop` → 降级）
+### 7.1 四态状态机（态 → 视觉 → 驱动 `@Prop` → 降级）
 
 | 态 | 呼吸/能量 | 公转相位 | 轨道 | 环色 | 帧率 | 驱动 | 读作 |
 |---|---|---|---|---|---|---|---|
 | `thinking` | 1.0（既有观感） | 1.0× | 1.0× | `accentSoft` | 30 | `orbMode`（调用方给） | 在思考 / 在写 |
 | `tool` | 0.9 | **2.2×** | **1.08×** | `statusRunning` | 30 | `orbMode`（任一工具在飞） | 工具在飞 |
+| `secondary` | **0.5** | **0.5×** | 1.0× | `accentSoft` | **18** | `orbMode`（`thinkingIsPrimary()`） | **让位**（别处才是主角） |
 | `idle` | **0.25** | **0（冻结）** | 1.0× | `accentSoft` | **12** | `orbMode` 或**心跳停摆自判** | 静默（静止也是设计） |
+
+⚠️ 帧率列**以 `core/orb.ets` 的 `ORB_FPS_*` 为准**（`tool`/`thinking` = 30、`secondary` = 18、`idle` = 12）。
+本表曾误写 `thinking = 20`（那是 `secondary` 引入前的旧值），2026-10-11 审计一并订正。
+
+⛔ **优先级的唯一判据 = `core/orb.ets:orbEffectiveMode(orbMode, quiet)`（纯函数）**：
+`tool > idle(显式) > idle(静默自判) > secondary > thinking`。组件侧**不得**自己再写一份 `if` 链 ——
+**2026-10-11 事故**：旧组件实现只认 `tool`/`idle` 两档、其余回落 `quiet ? idle : thinking` ⇒
+**`secondary` 永久不可达**（`LiveTailView.ets:129` 传了也白传），而 `orbTargetFps` 的 18fps 分支与
+`ST_SECONDARY` 两处参数**全部白写**：光球在"该让位"时仍满幅呼吸 ⇒ 与 `思考 N 字` **争主高亮**
+（与 §8.2 同一个病根）。上收纯函数后该优先级有唯一判据、可脱机单测、可变异自证。
+
+### 7.1.1 波形塑形（2026-10-11 波，"比 Siri 好看"的量化落点）
+
+两处**只改形状、不改刻度**的提升（周期/幅度/token 全不动 ⇒ 不新造节奏体系）：
+
+1. **呼吸非对称（快吸慢呼）** —— `core/orb.ets:ORB_BREATH_INHALE = 0.4`。
+   `0.5 - 0.5·cos(2πp)` 的升/降**镜像等时** ⇒ 读作**节拍器/呼吸机**（可预测 = 机械感）。
+   改为 `smoothstep` 非对称波：**吸气占 0.4 周期、呼气占 0.6** ⇒ 峰值来得果断、回落绵长，
+   一眼读作"有肺、有惯性"。峰值时刻 = `ORB_BREATH_INHALE × ORB_BREATH_MS`。
+2. **公转非匀速（有余势）** —— `core/orb.ets:ORB_SPIN_EASE = 0.35`。
+   线性相位 ⇒ 粒子环**永恒匀速**（loading 圈 = 廉价头号特征）。改走
+   `g(s) = s − c/(2π)·sin(2πs)`（`g(0)=0, g(1)=1, g'∈[1−c,1+c]`）⇒ 一个公转周期内角速度
+   在 `0.65× ~ 1.35×` 起伏。**周期不变**（`orbParticles(t+turnMs) ≡ orbParticles(t)`）、
+   **只快不退**（`c<1` ⇒ 严格单调），且"`tool` 加速 = 用更短周期跑同一函数"的等价关系仍成立。
+
+纪律：`0 < ORB_BREATH_INHALE < 0.5`、`0 < ORB_SPIN_EASE < 1`（**改回 0.5 / 0 即红**，`orb.test.ts` 逐条守护）。
 
 - **`idle` 自判**：`orbBeat`（正文+思考的码点长度和）超过 `ORB_QUIET_MS`（= 呼吸周期/4 = 640ms = 2×`D_SLOW`）
   未再前进 ⇒ 转入 `idle`。**为什么放在组件内**：父组件（`LiveTailView`）流式期以 ≤20Hz 重建，
@@ -195,7 +222,7 @@ bash tools/lint/color-roles.sh
 
 ### 7.3 性能纪律（流式期每帧都在跑）
 
-1. 帧率：thinking/tool 30fps、idle 12fps（呼吸是慢动作；60fps 无肉眼收益却双倍功耗）。帧率随态走，只在**目标变化**时重启定时器。
+1. 帧率：`tool`/`thinking` 30fps、`secondary` 18fps、`idle` 12fps（呼吸是慢动作；60fps 无肉眼收益却双倍功耗）。帧率随态走，只在**目标变化**时重启定时器；**不可见（滚出屏幕）⇒ 0（停表）**。
 2. ⛔ **绘制路径零解析、零字符串运算**：`paletteOf/effectsOf`（每次都会新建 ~31 个字符串 + 9 次
    `alphaHex` 字符串运算）**只在 `theme` 变化时**预解析进私有 `OrbPaint`，逐帧只读字段。
    往 `draw()` 里加代码前先自查：**不得**出现 `paletteOf(` / `effectsOf(`（由 `tools/tests/orb.test.ts` 守护）。
@@ -210,7 +237,7 @@ bash tools/lint/color-roles.sh
 
 `tools/tests/orb.test.ts` 两部分：
 1. `core/orb.ets` 纯数学（值域/单调性/周期性/边界/确定性）—— 真函数跑数值；
-2. 本组件的**源码形态契约**（三态表数值、`isLightPalette` 判据、`draw()` 零解析、基类成员名黑名单、
+2. 本组件的**源码形态契约**（四态表数值、`isLightPalette` 判据、`draw()` 零解析、基类成员名黑名单、
    停表门控含 `paused`+`reduceMotion`、`LiveTailView` 传参不接打字机每拍状态）——
    因为组件层**不进离线 harness**（`run.sh` 只把 `core/**` 当纯 TS 编译），故按本仓既有先例
    （`tools/tests/live_tail_delivery.test.ts`）读**真实源码**做断言；改坏任一条即红。
