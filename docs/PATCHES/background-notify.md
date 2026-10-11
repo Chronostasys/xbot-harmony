@@ -29,7 +29,7 @@ B 档（长时任务）能延长保活，但代价是**一条用户可见的常�
 
 | 路径 | 状态 | 说明 |
 |---|---|---|
-| **Push Kit**（App 死也能实时推） | **未验证 / 本 SDK 不可用** | 本机 SDK **没有** `@ohos.push.d.ts` / `@kit.PushKit.d.ts`（实测 `ls`）。要走厂商推送需 AGC 账号 + 服务端接入 ⇒ **超出"先不动服务端"** |
+| **Push Kit**（App 死也能实时推） | **SDK 有；本工程不可用** | ⚠️ **更正（2026-10-11）**：本机 SDK **含** Push Kit —— `default/hms/ets/kits/@kit.PushKit.d.ts` + `default/hms/ets/api/@hms.core.push.*`（旧文只 grep 了 `default/openharmony/ets/api/` 子树 ⇒ 误判"不含"）。但 Push 必须 ① AGC 侧配置应用 + ② **服务端经华为推送通道下发**（本工程"⛔ 不许改服务端"）⇒ 现状**用不了**；这与"SDK 缺件"是两回事 |
 | 常驻前台 Service（`ServiceExtensionAbility` 常驻） | **平台不开放给三方** | 与既有 `core/notify.ets` 顶注一致：三方拿不到常驻后台能力 |
 
 ### 各档 SDK 依据（file:line）
@@ -37,7 +37,7 @@ B 档（长时任务）能延长保活，但代价是**一条用户可见的常�
 - **A**：`requestSuspendDelay(reason, callback): DelaySuspendInfo`（`@ohos.resourceschedule.backgroundTaskManager.d.ts:650`，since 9）；回调在到期前约 **6 秒**（`:635-636`）；`DelaySuspendInfo.actualDelayTime`（`:263-282`）；当日剩余配额 `TransientTaskInfo.remainingQuota`（`:290-298`，since 20）。
 - **B**：`startBackgroundRunning(context, bgMode, wantAgent): Promise<void>`（`:734`，since 9）；**`@permission ohos.permission.KEEP_BACKGROUND_RUNNING`**（`:708`）；**`@throws 201 - Permission denied`**（`:718`）；成功后 *"there will be a notification message without prompt tone"*（`:702` ⇒ 常驻通知）；`BackgroundMode.DATA_TRANSFER = 1`（`:1133`）且 *"not for more than 10 minutes … will be canceled"*（`:1116-1133`）；`stopBackgroundRunning(context)`（`:940`）。
 - **C**：`workScheduler.startWork(work: WorkInfo): void`（`@ohos.resourceschedule.workScheduler.d.ts:210`，since 9，`@stagemodelonly`）；`WorkInfo{bundleName, abilityName, repeatCycleTime?, isRepeat?, …}`（`:38-192`）；扩展 `WorkSchedulerExtensionAbility.onWorkStart(work)`（`@ohos.WorkSchedulerExtensionAbility.d.ts:47`，since 9）。
-- **D**：`ls ~/ohos-cli/command-line-tools/sdk/default/openharmony/ets/api/ | grep -i push` ⇒ 无（本 SDK 不含 Push Kit）。
+- **D**：`ls ~/ohos-cli/command-line-tools/sdk/default/hms/ets/kits/ | grep -i push` ⇒ **`@kit.PushKit.d.ts`**；`ls .../default/hms/ets/api/ | grep -i push` ⇒ `@hms.core.push.pushService.d.ts`、`@hms.core.push.PushExtensionAbility.d.ts`、`@hms.core.push.RemoteNotificationExtensionAbility.d.ts` 等。⇒ **本机 SDK 含 Push Kit**（`@since 4.1.0(11)`；`PushExtensionAbility` 明确 "available only to system apps"，但 `pushService.receiveMessage` / `RemoteNotificationExtensionAbility` 面向三方推送）。**不可用的是本工程**（未接 AGC + ⛔ 不改服务端），不是 SDK 缺件。（更正 2026-10-11：旧文只 grep 了 `openharmony/ets/api/` 子树。）
 
 ---
 
@@ -295,5 +295,5 @@ export default class NotifyWorkScheduler extends WorkSchedulerExtensionAbility {
 |---|---|---|
 | 真机验证 A 档（切后台 3 min 内收通知） | **未做** | 设备在跑用户会话，⛔ 不碰（只读 `dump` 已确认） |
 | B / C 档 patch | **未落地** | 需用户同意（改 `module.json5` 权限面）+ 你的 patch 落地指令 |
-| Push 推送 | **不可用** | 本机 SDK 不含 `@ohos.push`/`@kit.PushKit`；需 AGC + 服务端接入 |
+| Push 推送 | **现状不可用** | ⚠️ **更正**：本机 SDK **含** Push Kit（`default/hms/ets/`，见上）；不可用的是本工程（未接 AGC + ⛔ 不改服务端），**不是** SDK 缺件 |
 | `hidumper` 看瞬态/长时任务状态的具体 SA 号 | **未核实** | 不敢凭记忆给命令 ⇒ 只给已核实的 `bm dump` / `hilog` / 可见判据 |
