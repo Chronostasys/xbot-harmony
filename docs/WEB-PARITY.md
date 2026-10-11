@@ -888,7 +888,7 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 |---|---|---|---|---|---|---|
 | 1 | **会话视图条「全部折叠 / 全部展开」** | `SessionViewBar.tsx:34-79` | 纯逻辑**已存在但 0 UI 消费**：`core/sessiongroup.ets:770 collapseAllPlan`（全仓仅 core 内 3 处定义，无页面/组件调用）；单组折叠已有 `Index.ets:4446 isGroupCollapsed`/`:4457 toggleGroup` | **XS** | **高**：`pages/Index.ets` | ✅ 可（钉 `collapseAllPlan` 调用点计数 ≥1 + mutation） |
 | 2 | **折叠工具组「组内按 kind 分组标头」** | `FoldedToolGroup.tsx:716` | 有跨迭代合并 + `+N` 溢出；**无 kind 分组标头**（`grep kindGroup/groupLabel/组标头` → 0） | S–M | 中：`components/{MessageRow,LiveTailView}.ets` | ✅ 可（钉分组判据函数调用点） |
-| 3 | **会话信息面板补全**（cwd **可编辑** / 消息数 / 最后活跃） | `sidebar/SessionInfo.tsx:40` | `components/StatusSheet.ets:94`（cwd **只读** `:106` + goal/用量/模型/上限）；**无**这三项 | S–M | 中：`components/StatusSheet.ets`（独立组件，低冲突） | ✅ 可 |
+| 3 | **会话信息面板补全**（cwd **可编辑** / 最后活跃 / 会话ID / 渠道；⚠️ 「**消息数**」**非 web 渲染字段** —— `SessionInfo.tsx:122-208` 渲染里**没有**它，仅 docblock `:4` 提及） | `sidebar/SessionInfo.tsx:40` | `components/StatusSheet.ets:94`（cwd **只读** `:106` + goal/用量/模型/上限）；**无**以上各项 | S–M | **高**（⚠️ **2026-10-11 目标④订正**：`StatusSheet` 是**纯展示组件**（只吃 page 已算好的 props；文件头 `:8-15` 明文「**不许 import store**」）。全仓**无 store 单例** —— 只有 `Index.ets:1292` 构造、池 `Index.ets:870`）⇒ 补字段**必须同时**改 `pages/Index.ets:3222` 调用点 ⇒ 原判「单文件」**不成立**） | ✅ 可（钉 prop + 调用点计数） |
 | 4 | **PathPicker 自动补全下拉**（边打字边给候选） | `PathPicker.tsx:36` | `Index.ets:5969` 输入面 + `:5982-6025` 最近目录候选**已有**；**无**自动补全 | S–M | **高**：`pages/Index.ets` | ✅ 可 |
 | 5 | **NewSessionDialog 残余**（label 会话名 + 渠道 chip） | `NewSessionDialog.tsx:34,58-88` | `Index.ets:5944 NewSessionSheet`（工作目录 + 最近目录 + 取消/创建**已有**）；**无** label / 渠道 | S | **高**：`pages/Index.ets` | ✅ 可 |
 | 6 | **ThinkingModeControl 置于 composer** | `ThinkingModeControl.tsx:68`（`MessageInput.tsx` 内） | 四档逻辑在 **设置页** `components/SettingsLlm.ets:1060`；composer 内**无**档位控件 | S–M | **高**：`pages/Index.ets`（composer） | ✅ 可 |
@@ -920,7 +920,7 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 |---|---|---|---|---|
 | A | **会话视图条「全部折叠/展开」** | 单文件低冲突（`core/sessiongroup.ets` 已就绪 ⇒ 只需页面加按钮） | ⚠️ **高**（`Index.ets`） | 纯逻辑 ✅ + 只差 UI 接线 |
 | B | **折叠工具组 kind 分组标头** | 低冲突（`components/{MessageRow,LiveTailView}.ets`，但需先定 web 分组口径） | 中 | 需先定 web 语义 |
-| C | **会话信息面板补全（消息数/最后活跃/cwd 编辑）** | **单文件低冲突**（`components/StatusSheet.ets` 独立组件） | **低** | 需补数据面（消息数/最后活跃来源） |
+| C | **会话信息面板补全（最后活跃 / cwd 编辑 / 会话ID / 渠道；「消息数」非 web 字段）** | ⚠️ **高**（**2026-10-11 目标④订正**：**非「单文件」** —— `StatusSheet` 纯展示、数据须经 page props ⇒ 必碰 `pages/Index.ets:3222`；数据面**已具备**于 `store`） | ⚠️ **高** | 数据面已具备（`store.channel`/`currentChatId`/`sessions[].lastActive`）；只差 page 接线 + cwd 写回调 |
 | D | **NewSessionDialog 残余（label/渠道 chip）** | 高冲突 | ⚠️ **高**（`Index.ets` `NewSessionSheet`） | 输入面已就绪，只差两字段 |
 | E | **PathPicker 自动补全下拉** | 高冲突 | ⚠️ **高**（`Index.ets` composer） | 输入面已就绪 |
 | F | **ThinkingModeControl 移入 composer** | 高冲突 | ⚠️ **高**（`Index.ets` composer） | 四档逻辑已在 `SettingsLlm`，需搬到 composer |
@@ -929,7 +929,7 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 
 **给调度的建议**：
 - **纯逻辑已就绪、只差接线**（最高性价比、可立即派）：**A**（`collapseAllPlan`）—— 但它是**唯一**一个"逻辑在、0 消费"的功能缺口（其余"逻辑就绪项"本轮已核**全部接线**）。
-- **单文件、不碰 `Index.ets`** 的低冲突项：**C**（`StatusSheet.ets` 独立组件）；**B** 若只改 `components/` 亦然（但需先定 web 分组口径）。
+- ⚠️ **2026-10-11 目标④订正**：原判「单文件、不碰 `Index.ets`」的 **C 已不成立** —— `StatusSheet` 是纯展示组件（数据全靠 `pages/Index.ets:3222` 的 props，无 store 单例）⇒ 补字段**必动 `Index.ets`**（与 A/D/E/F 同档）。仍属低冲突的只剩 **B**（若只改 `components/`，但需先定 web 分组口径）。
 - **必须动 `Index.ets`**（高冲突，建议串行排在 `perf4` 释放后）：A / D / E / F / G。
 - **依赖服务端**：H。
 
