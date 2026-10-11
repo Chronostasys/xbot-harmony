@@ -442,7 +442,11 @@ return renderKind(t.status, t.exit_code, true);
       .fontColor(this.pal().textSecondary)
       .padding({ left: SP_2, right: SP_2, top: INSET_PILL_Y, bottom: INSET_PILL_Y })
       .margin(GAP_PILL)
-      .backgroundColor(this.overOpen ? this.pal().surfaceHi : surfaceFillOf(this.pal(), SURFACE_CHIP))
+      // 展开态底 = `surface.raised`（RUNG_RAISED）—— ⛔ 原为 `pal().surfaceHi`（RUNG_ACTIVE）：
+      // porcelain 下 `textSecondary` 压它仅 **4.337 < AA 4.5**（文字 role，FS_CAPTION=12）。
+      // `surface.raised` porcelain = **4.696 ✓**（light/dark/aurora/nebula 均达标）。
+      // 语义 = 比常态 `surface.chip`(sunken) **抬升一档**；⛔ 不再用 `surfaceHi`（porcelain 不达标）。
+      .backgroundColor(this.overOpen ? surfaceFillOf(this.pal(), 'surface.raised') : surfaceFillOf(this.pal(), SURFACE_CHIP))
       .borderRadius(RADIUS_PILL)
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
       .onClick(() => {

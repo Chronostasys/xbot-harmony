@@ -828,7 +828,11 @@ export struct SettingsLlm {
     .width('100%')
     .alignItems(HorizontalAlign.Start)
     .padding(SP_2)
-    .backgroundColor(surfaceFillOf(this.pal(), 'surface.active'))
+    // ⛔ 原为 `surface.active`(= `pal().surfaceHi`)：porcelain 下 `textSecondary`（「取消」）
+    // 压它仅 **4.337 < AA 4.5**（文字 role，FS_CAPTION=12）。
+    // → `surface.raised`(= `pal().surfaceAlt`，RUNG_RAISED)：porcelain **4.696 ✓**（各主题均达标）。
+    // 语义：本编辑器即 `design.ets` 所注的「就地编辑框底」⇒ `surface.raised` 是**更贴语义**的角色。
+    .backgroundColor(surfaceFillOf(this.pal(), 'surface.raised'))
     .borderRadius(R_LG)
   }
 
