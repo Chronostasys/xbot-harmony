@@ -219,11 +219,22 @@ function curveHasOvershoot(css: string): boolean;            // 解析 cubic-bez
 | 细节 | 改前（廉价） | 改后 | 纯数值（`core/splash.ets`） |
 |---|---|---|---|
 | **T2 让位** | 只把整层 `opacity` 淡到 0 ⇒ 读作"整层被抠掉"，没有方向 | 淡出 **+ 标记轻微上移**（`translate({y: -this.markLift})`）⇒ 有"向上交棒"的气息 | `SPLASH_MARK_EXIT_LIFT_VP = SPACE_SM` = **12vp**（= 标记盒 160vp 的 7.5% ⇒ 是"气息"不是位移表演） |
-| **跳过提示** | 从**首帧**就满不透明度 ⇒ 第一眼是"轻点跳过"、**品牌反而后到**（顺序反 + 廉价） | 先给**纯品牌** `SPLASH_ENTER_MS`(220)，提示再**淡入**（`AnimateParam.delay` + `animEaseOut()`） | `SPLASH_HINT_DELAY_MS = MOTION_BASE_MS`, `SPLASH_HINT_ENTER_OPACITY = 0` |
+| **跳过提示** | 从**首帧**就满不透明度 ⇒ 第一眼是"轻点跳过"、**品牌反而后到**（顺序反 + 廉价） | 先给**纯品牌** `SPLASH_ENTER_MS`(220)，提示再于 `SPLASH_HINT_FADE_MS`(180) 内**淡入**（`AnimateParam.delay` + 覆盖 `duration` 的 `animEaseOut()`） | `SPLASH_HINT_DELAY_MS = MOTION_BASE_MS`(220)、`SPLASH_HINT_FADE_MS = MOTION_FAST_MS`(180)、`SPLASH_HINT_ENTER_OPACITY = 0` |
 
 - ⛔ **不许新增曲线/时长**：上移走 `animEaseOut()`（**无超调**，符合 `splashPhaseCurve(T2)===easeOut`）；
-  提示淡入的**曲线**也来自底座工厂，只补了一个 `delay` 字段（`components/anim.ets` 不在本波文件边界，
-  故不加"带 delay 的工厂变体"；组件内 `withDelay()` 只改 `delay`，**不构造 curve**）。
+  提示淡入的**曲线**也来自底座工厂，只补 `delay` + `duration` 两个**时序字段**
+  （`components/anim.ets` 不在本波文件边界，故不加"带 delay/时长的工厂变体"；组件内 `withTiming()`
+  只改这两个字段，**不构造 curve**）。
+- ⚠️ **2026-10-11 订正（§15 F2 修复 —— 提示"有效可见度"必须能被读出）**：
+  提示的不透明度**嵌在整层内**（`SplashOverlay.ets`：`.opacity(hintOpacity)` ⊂ `.opacity(overlayOpacity)`）
+  ⇒ 用户看到的**有效 α = hintOpacity × overlayOpacity**（⛔ 不是单层 opacity）。而整层退场**最早**由
+  `SPLASH_MIN_DWELL_MS`(400) 触发（**生产**锚点 = 两道闸门，见 §4.1 / §15 F1）。
+  ⇒ 提示淡入窗 `[delay, delay+fade]` **必须收进 `[0, SPLASH_MIN_DWELL_MS)`**：旧值 `[220, 540]` 跨过退场点
+  ⇒ 提示**永远到不了满显**（**生产**有效 α 峰值仅 **0.8808**）。现取 `delay(220) + fade(180) = 400`
+  ⇒ 恰在退场开始前跑完 ⇒ 有效 α 峰值 **1**（此后随整层一起淡出，物理正确）。
+  ⛔ 不改 `MOTION_BASE_MS`/`MOTION_SLOW_MS`（T1/T2 时长）与弹簧/缓出曲线；⛔ 不把提示 opacity 从整层摘出。
+  判据 = `tools/tests/splash_continuity.test.ts ★B`（含旧值 mutation 必红）。
+  ⚠️ 审计 §14.1 ⑩ 的 "峰值 0.25" 是把退场锚在 `SPLASH_ENTER_MS`(220)（§4.1 **纯模型**）算的 —— 与**生产**不符。
 - ⛔ **不引入第二个"在飞"**：两者都是**一次性过渡**，`iterations=1`（`tools/lint/inflight-single-source.sh` 守护）；
   ⛔ **不给标记加发光**（全场唯一发光体 = 光球，`DESIGN-SYSTEM §8.3`）。
 - 真机判据（连拍前 N 帧）：T1 帧与 T2 帧对比 ⇒ 标记应**更淡且更高约 12vp**；首 ~220ms 内**不应**看到"轻点跳过"。
@@ -340,19 +351,33 @@ function curveHasOvershoot(css: string): boolean;            // 解析 cubic-bez
 
 ---
 
-## 9. 动效唯一性约束（项目铁律）—— T1/T2 期间光球**未启动**
+## 9. 动效交接（**揭示式**）—— T1/T2 期间光球**可以**已在跑（2026-10-11 §15 F3 裁决）
 
-**铁律**：同一时刻**只允许一个"在飞动效" = 光球**（`docs/DESIGN-SYSTEM.md §8`；`core/design.ets:655-657`）。
+> **替代**旧条文「T1/T2 期间光球必须处于未挂载/未启动状态」。旧条文既**未被运行时强制**、又与**既有事实**冲突
+> ⇒ §15 F3 裁决**改写本节**，并**删除**其机器判据 `splashOrbAllowed`（详见下）。
 
-- **T1/T2 期间：光球必须处于"未挂载 / 未启动"状态**（`active=false` 或不实例化）。T1 的入场是**一次性过渡**，**不是**在飞；
-  开屏**不得**做成循环/常驻呼吸（`docs/REDESIGN-INPUT-BRAND.md:136`）。
-- **T3 才允许光球启动**（且仅当首个会话在流式）。
-- **若违反：门禁会这样红**
-  1. `tools/lint/inflight-single-source.sh`（**gate ③b，A 类硬红**）：源码里出现循环/重复动效（`AnimateParam.iterations ≠ 1` 或 `playMode`，如给标记加"呼吸"）⇒ **A 类命中 ⇒ `tools/gate.sh` 判红**（脚本头 `:11-18` 定义 A 类）。
-  2. `core/design.ets` 的 `motionRoles()`（`:701-710`）把在飞角色**限定**为 `motion.breath` / `motion.beat`，且 `owner` 必须 = `INFLIGHT_OWNER_ORB`（`:660`）；
-     `designIssues()` 断言 owner **唯一**（`:655-657`）⇒ **新增第二个在飞角色** ⇒ `tools/tests/design.test.ts` 红。
-  3. `tools/tests/one_inflight_motion.test.ts` / `in_flight_signal.test.ts` / `inflight_language.test.ts` 为同族守卫。
-- ⇒ **T1/T2 的正确写法**：`animateTo(animBase())` / `.animation(animSlow())` **一次性**，且 `iterations=1`（默认）。
+**为什么旧条文废止**：旧 §9 把「T1/T2 光球不得启动」写成机器判据 `core/splash.ets:splashOrbAllowed`，
+但该符号在 `entry/`(**生产**)**0 消费点**（仅被测试引用）；而**实际实现**是**揭示式交接** ——
+光球若在流式，**早已在覆盖层背后渲染**（它挂在消息流/领读行里，与开屏无关），T2 的整层淡出只是把它**揭示**出来。
+⇒ 为一条「未接线且与既有事实冲突」的铁律去改渲染时机，风险 > 收益（会让光球在 T2 期间**消失**再出现 = 闪烁）
+⇒ **废止**：判决见 §15 F3，判据见 `tools/tests/handoff_motion.test.ts`。
+
+**新条文（揭示式交接）—— 三条不变量**（唯一真源 = `tools/tests/handoff_motion.test.ts` ★①②③）：
+
+| 不变量 | 内容 | 判据 |
+|---|---|---|
+| **退隐非飞走** | 标记让位只有 `opacity 1→0` + 极小上移（`SPLASH_MARK_EXIT_LIFT_VP`=12vp ≤ 标记盒 160vp 的 10%）—— **不是**"飞向光球" | `handoff_motion ★①` |
+| **不重播光球** | 开屏**不携带任何光球状态**（`SplashOverlay` 不引用 `AssistantOrb`/`orbMode`）⇒ 淡出**不可能**让光球二次入场/重置；光球入场只由**挂载**（`onAppear`）触发 | `handoff_motion ★②` |
+| **退场 ≥ 入场** | 退场淡出 320ms ≥ 光球入场 220ms ⇒ 任何"淡出中途才挂载光球"的场景，其入场都在覆盖层背后跑完，不露头半截 | `handoff_motion ★③` |
+
+**与"在飞唯一性"（`docs/DESIGN-SYSTEM.md §8`）不冲突**：在飞 owner 仍是**光球唯一**；
+开屏 T1/T2 **本身**是**一次性过渡**（`iterations=1`，非在飞，`splashPhaseIsInFlight` 恒 `false`）——
+光球在 T2 期间"已在跑"是**光球自己的**在飞，不是**第二个**在飞源。`tools/lint/inflight-single-source.sh`
+（gate ③b，A 类硬红）与 `core/design.ets` 的 `motionRoles()`/`designIssues()`（owner 唯一）**照旧守护**：
+⛔ 给**标记**加"呼吸/循环"仍然会红（那才是真的第二在飞）。
+
+**⛔ `splashOrbAllowed` 已删除**（§15 F3）：不留"看似铁律、实则 0 消费"的死判据。
+`tools/tests/splash_continuity.test.ts ★C` 有一条"本符号不得复活"的守卫。
 
 ---
 
@@ -461,9 +486,9 @@ function curveHasOvershoot(css: string): boolean;            // 解析 cubic-bez
 
 | # | 发现 | 证据（`file:line` + 数值） | 建议 / 状态 |
 |---|---|---|---|
-| ⑨ | **纯模型 `splashPhaseAt` 与生产时间线分叉** | §4.1 的 220/540 真值表在 `entry/` **0 消费点**（`splash_continuity ★C` 打印计数 = 0）：页面用**两道闸门**驱动 —— `Index.ets:839 startSplash()`（迟滞 `SPLASH_HYSTERESIS_MS`=150）→ `:883` 的 `minDwell(400)` 定时器 → `beginExitSplash()`（`:919`，置 T2）→ `:929` 320ms 后置 T3。⇒ 生产 **T1 实际 ≥ 400ms、总 ≈ 720ms**（非 540）。`splashPhaseStartMs` / `splashPhaseDurationMs` / `splashPhases` 同样 0 消费点。 | ⚠️ **待裁决**：(a) 以**闸门**为准（现状，含 180ms 品牌停驻窗，观感更好）⇒ 把 §4.1 标注为"仅测试模型"；或 (b) 按 §4.1 接线（需**同时**给标记加停驻，否则停驻窗归零 = "刚到就散"）。判据 = ★A / ★C。 |
-| ⑩ | **跳过提示"有效可见度"峰值仅 25%** | `SplashOverlay.ets:200` 的 `.opacity(this.hintOpacity)` 嵌在 `:204` 的 `.opacity(this.overlayOpacity)` 内 ⇒ **有效 α = hint × overlay**。§4.6 令 hint 延迟 = `SPLASH_ENTER_MS`(220)、用 `animEaseOut()`(320，`:221`) 淡入；整层退场（`:141`）也在 [220,540] 由 1→0 ⇒ **两窗逐毫秒重合** ⇒ 有效 α = `p·(1−p)`，**峰值 0.25**（★B 实测打印 `0.2500`）。⇒ "轻点跳过"默认档几乎读不出来（反倒 `reduceMotion` 档因即时置 1 更清晰）。 | ⚠️ **待裁决**：让提示淡入在退场**开始前**跑完（hint 淡入取 `MOTION_FAST_MS`=180=停驻窗，或延迟前移到 `minDwell − fade`）⇒ 动 §4.6 已拍板值，**本波不改**。判据 = ★B。 |
-| ⑪ | **"光球交接"铁律的唯一判据 `splashOrbAllowed` 生产 0 消费点** | `core/splash.ets:424` 定义；★C 计数 = 0（仅测试引用）。⇒ §9 铁律当前**只被测试钉住、未被运行时强制**。但 `tools/tests/handoff_motion.test.ts` 的"**揭示式**交接"（光球在覆盖层**背后**渲染）在语义上**允许**光球于 T2 期间已在跑 ⇒ 与 §9"T1/T2 必须未启动"**张力**。 | ⚠️ **待裁决 + 跨域**：要强制 ⇒ 在光球挂载点（`LiveTailView.ets:523` / `ThinkingLine.ets:119`，**归 `light-fix3`**）消费它；若确认以"揭示式交接"为准 ⇒ §9 应改写并删死判据。 |
+| ⑨ | **纯模型 `splashPhaseAt` 与生产时间线分叉** | §4.1 的 220/540 真值表在 `entry/` **0 消费点**（`splash_continuity ★C` 打印计数 = 0）：页面用**两道闸门**驱动 —— `Index.ets:839 startSplash()`（迟滞 `SPLASH_HYSTERESIS_MS`=150）→ `:883` 的 `minDwell(400)` 定时器 → `beginExitSplash()`（`:919`，置 T2）→ `:929` 320ms 后置 T3。⇒ 生产 **T1 实际 ≥ 400ms、总 ≈ 720ms**（非 540）。`splashPhaseStartMs` / `splashPhaseDurationMs` / `splashPhases` 同样 0 消费点。 | ✅ **已裁决（§15 F1）**：(a) 以**闸门**为准（现状，含 180ms 品牌停驻窗）⇒ §4.1 标注为"**仅测试模型**"，⛔ 不按它接线（按 §4.1 接线会**吃掉 180ms 品牌停驻窗** ⇒ ★A 归零 = 等价改规格 + 观感回归风险）。判据 = ★A / ★C。 |
+| ⑩ | **跳过提示"有效可见度"峰值仅 25%** | `SplashOverlay.ets:200` 的 `.opacity(this.hintOpacity)` 嵌在 `:204` 的 `.opacity(this.overlayOpacity)` 内 ⇒ **有效 α = hint × overlay**。§4.6 令 hint 延迟 = `SPLASH_ENTER_MS`(220)、用 `animEaseOut()`(320，`:221`) 淡入；整层退场（`:141`）也在 [220,540] 由 1→0 ⇒ **两窗逐毫秒重合** ⇒ 有效 α = `p·(1−p)`，**峰值 0.25**（★B 实测打印 `0.2500`）。⇒ "轻点跳过"默认档几乎读不出来（反倒 `reduceMotion` 档因即时置 1 更清晰）。 | ✅ **已裁决（§15 F2，已落地）**：让提示淡入在退场**开始前**跑完 —— 取 `SPLASH_HINT_FADE_MS = MOTION_FAST_MS`(180)，窗 `[220,400]`（`delay+fade = minDwell`）⇒ 生产有效 α 峰值 **0.8808 → 1**。⚠️ **订正**：本行"峰值 0.25"是**纯模型**（退场锚在 `ENTER`=220）的结论；**生产**退场锚在 `minDwell`(400) ⇒ 旧实现真实峰值 **0.8808**（仍 <1 = 提示从未在退场前满显）。判据 = ★B（旧值 mutation 必红）。 |
+| ⑪ | **"光球交接"铁律的唯一判据 `splashOrbAllowed` 生产 0 消费点** | `core/splash.ets:424` 定义；★C 计数 = 0（仅测试引用）。⇒ §9 铁律当前**只被测试钉住、未被运行时强制**。但 `tools/tests/handoff_motion.test.ts` 的"**揭示式**交接"（光球在覆盖层**背后**渲染）在语义上**允许**光球于 T2 期间已在跑 ⇒ 与 §9"T1/T2 必须未启动"**张力**。 | ✅ **已裁决（§15 F3，已落地）**：以"**揭示式交接**"为准 ⇒ §9 **已改写**、`splashOrbAllowed` **已删除**（`★C` 有"不得复活"守卫）；⛔ **不动** `LiveTailView`/`ThinkingLine` 的光球挂载时机（风险 > 收益）。 |
 
 ### 14.2 样张 `docs/mockups/splash.html` **已过时**（待办，不在本波文件边界）
 

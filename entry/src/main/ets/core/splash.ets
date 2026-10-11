@@ -19,7 +19,8 @@
  *      （下面每个常量都标了来源；零裸数字）。缺档清单见 `docs/SPLASH-SPEC.md §11`。
  *
  * ⛔ "在飞"铁律（`docs/DESIGN-SYSTEM.md §8`）：同一时刻**只允许一个在飞动效 = 光球**。
- *    开屏 T1/T2 是**一次性过渡**，不是"在飞" ⇒ 光球在 T3 才允许启动（`splashOrbAllowed`）。
+ *    开屏 T1/T2 是**一次性过渡**，不是"在飞"；光球与开屏是**揭示式交接**
+ *    （光球若在流式，可在覆盖层**背后**先跑，由 T2 淡出**揭示**）—— 见 `docs/SPLASH-SPEC.md §9`。
  */
 import { darkPalette } from './theme';
 import { MOTION_BASE_MS, MOTION_SLOW_MS, MOTION_FAST_MS } from './motion';
@@ -125,6 +126,23 @@ export const SPLASH_MARK_EXIT_LIFT_VP: number = SPACE_SM;
  * 提示再**淡入**。⛔ 语义是"提示不抢品牌"，不是"提示出现得越晚越好"（太长会显得交互没反馈）。
  */
 export const SPLASH_HINT_DELAY_MS: number = MOTION_BASE_MS;
+/**
+ * **跳过提示**淡入的**时长**（ms）= `MOTION_FAST_MS`（180）= 品牌**停驻窗**长度
+ * （`SPLASH_MIN_DWELL_MS − SPLASH_HINT_DELAY_MS` = 400 − 220 = 180）。
+ *
+ * ── 为什么必须收进停驻窗（缺陷修复，`docs/SPLASH-SPEC.md §15 F2`）──────────────────
+ *   渲染侧提示的不透明度**嵌在整层里**（`SplashOverlay.ets`：`.opacity(hintOpacity)` ⊂
+ *   `.opacity(overlayOpacity)`）⇒ 用户真正看到的**有效 α = hintOpacity × overlayOpacity**。
+ *   而整层退场**最早**由 `SPLASH_MIN_DWELL_MS`(400) 触发（生产锚点 = 两道闸门，见 §4.1/F1）
+ *   ⇒ 若提示淡入窗 `[delay, delay+fade]` 跨过 400，提示就**永远到不了满显**（整层已在退场）：
+ *     旧值 `delay=220 + fade=320` ⇒ 窗 `[220,540]`，**生产**有效 α 峰值仅 **0.8808**（永 < 1）。
+ *   ⇒ 修法：把淡入**收进 `[0, SPLASH_MIN_DWELL_MS)` 内** —— `delay(220) + fade(180) = 400`
+ *     ⇒ 提示恰在**退场开始的那一刻**达到满显（有效 α 峰值 = **1**），此后随整层一起淡出
+ *     （物理正确：整层退场必须连提示一起淡）。
+ *   ⛔ 不改 `MOTION_BASE_MS`/`MOTION_SLOW_MS`（T1/T2 时长）与弹簧/缓出曲线；⛔ 不把提示的
+ *      opacity 从整层摘出。180 = `MOTION_FAST_MS`（底座唯一"快速"档），**零自造时长**。
+ */
+export const SPLASH_HINT_FADE_MS: number = MOTION_FAST_MS;
 /** 跳过提示的**起始**不透明度（延迟窗内保持 0 ⇒ 不可见）。 */
 export const SPLASH_HINT_ENTER_OPACITY: number = 0;
 
@@ -416,15 +434,12 @@ export function splashBrandMarkLevel(): string {
   return MARK_LADDER_FULL;
 }
 
-/**
- * ⑤ **「光球可启动」判据** —— 本仓铁律"同一时刻只允许一个在飞动效 = 光球"的**机器判据**。
- *
- * 开屏 T1/T2 是**一次性过渡**（不是"在飞"）⇒ 光球**不得**启动；
- * 只有进 **T3** 且首个会话在流式，才允许。⛔ 组件不得自行放宽这条判据。
- */
-export function splashOrbAllowed(phase: string, streaming: boolean): boolean {
-  return phase === SPLASH_T3 && streaming;
-}
+// ⑤ **已废止**（2026-10-11 §15 F3 裁决）：曾经的 `splashOrbAllowed(phase, streaming)`
+//    （"T1/T2 光球不得启动"铁律的机器判据）在生产 **0 消费点**（只被测试引用），且与**实际实现**冲突
+//    —— 实际是**揭示式交接**（光球若在流式，已在覆盖层**背后**渲染，由 T2 淡出揭示）。
+//    ⇒ **删除**（⛔ 不留"看似铁律、实则 0 消费"的死判据）。交接不变量改由
+//    `tools/tests/handoff_motion.test.ts`（退隐非飞走 / 不重播光球 / 退场 ≥ 入场）守护；
+//    `tools/tests/splash_continuity.test.ts` ★C 有一条"本符号不得复活"的守卫。
 
 /** 开屏任一阶段是否**属于**"在飞"（**恒 false** —— 把铁律写成可断言的形式）。 */
 export function splashPhaseIsInFlight(phase: string): boolean {

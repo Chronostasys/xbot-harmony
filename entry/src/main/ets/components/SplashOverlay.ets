@@ -23,9 +23,11 @@
  *      画布 = `splashBrandCanvas()`（= T0 色 ⇒ T0→T1 **零跳色**）；品牌标记 = 品牌资产、恒紫
  *      （`docs/DESIGN-SYSTEM.md §13.6`，⛔ 不做浅色变体）；T1→T3 由 T2 **淡出**过渡到应用主题
  *      （是**渐隐**，不是硬切）。
- *   4. **在飞唯一性**：本组件**不启动光球**（T1/T2 是一次性过渡，不是"在飞"）——
- *      光球只可能在 T3 由页面/LiveTail 启动；判据 = `core/splash.splashOrbAllowed`（本组件不消费它，
- *      因为它恒为 false 直到 T3，而那时本组件已被 `onDone` 移除）。
+ *   4. **动效交接（揭示式）**：本组件**不启动、也不引用光球**（T1/T2 是一次性过渡，不是"在飞"）——
+ *      光球若在流式，已在**覆盖层背后**渲染（挂在消息流/领读行），T2 的整层淡出只是把它**揭示**出来；
+ *      不变量（退隐非飞走 / 不重播光球 / 退场 ≥ 入场）见 `docs/SPLASH-SPEC.md §9` +
+ *      `tools/tests/handoff_motion.test.ts`。⛔ 旧的 `splashOrbAllowed` 判据**已删除**
+ *      （0 消费点的死判据，见 §15 F3）。
  *
  * ⚠️ 新建组件的**孤儿风险**：ArkTS **不检查没有消费者的组件文件**（`docs/ARKTS-GOTCHAS.md` 批次13）
  *    ⇒ 本组件必须在 `pages/Index.ets` 接线后才真正进编译图（接线补丁见交付说明，归 `sidebar-ux`）。
@@ -37,6 +39,7 @@ import {
 import {
   SPLASH_HINT_DELAY_MS,
   SPLASH_HINT_ENTER_OPACITY,
+  SPLASH_HINT_FADE_MS,
   SPLASH_MARK_BOX_VP,
   SPLASH_MARK_ENTER_OPACITY,
   SPLASH_MARK_ENTER_SCALE,
@@ -51,14 +54,17 @@ import {
 import { animBase, animEaseOut } from './anim';
 
 /**
- * 给底座工厂返回的 `AnimateParam` 补一个 `delay`（`AnimateParam.delay`，`common.d.ts`）。
+ * 给底座工厂返回的 `AnimateParam` 补 `delay` + `duration`（`AnimateParam` 两字段，`common.d.ts`）。
  *
- * ⛔ 曲线**仍由底座工厂给**（本函数**不构造任何 curve**，只补一个延迟字段）：
- *    `components/anim.ets` 不在本波文件边界，故不加"带 delay 的工厂变体"。
- *    用途：跳过提示**延迟淡入**（先把纯品牌给足，提示再淡入）。
+ * ⛔ 曲线**仍由底座工厂给**（本函数**不构造任何 curve**，只改两个**时序字段**）：
+ *    `components/anim.ets` 不在本波文件边界，故不加"带 delay/时长的工厂变体"。
+ *    用途：跳过提示**延迟淡入** —— 先把纯品牌给足（`SPLASH_HINT_DELAY_MS`），再于
+ *    `SPLASH_HINT_FADE_MS` 内淡入，**恰好**在整层退场开始（`SPLASH_MIN_DWELL_MS`）前跑完
+ *    （见 `core/splash.SPLASH_HINT_FADE_MS` 与 `docs/SPLASH-SPEC.md §15 F2`）。
  */
-function withDelay(p: AnimateParam, delayMs: number): AnimateParam {
+function withTiming(p: AnimateParam, delayMs: number, durationMs: number): AnimateParam {
   p.delay = delayMs;
+  p.duration = durationMs;
   return p;
 }
 
@@ -211,11 +217,14 @@ export struct SplashOverlay {
           this.markOpacity = SPLASH_MARK_SETTLED_OPACITY;
           this.markScale = SPLASH_MARK_SETTLED_SCALE;
         });
-        // ② 跳过提示**随后**淡入：先把纯品牌给足 `SPLASH_HINT_DELAY_MS`，提示再淡入
-        //    （⛔ 否则第①帧是"轻点跳过"、品牌反而后到 → 顺序反 + 廉价）。
-        //    延迟走 `AnimateParam.delay`（`common.d.ts` 的 AnimateParam 字段）——**曲线仍来自
-        //    底座工厂**（`animEaseOut`，无超调）；本仓无 delay 先例，故此处显式注释来源。
-        animateTo(withDelay(animEaseOut(), SPLASH_HINT_DELAY_MS), () => {
+        // ② 跳过提示**随后**淡入：先把纯品牌给足 `SPLASH_HINT_DELAY_MS`，提示再于
+        //    `SPLASH_HINT_FADE_MS` 内淡入（⛔ 否则第①帧是"轻点跳过"、品牌反而后到 → 顺序反 + 廉价）。
+        //    ⚠️ 必须**在整层退场开始前跑完**（`delay + fade ≤ SPLASH_MIN_DWELL_MS`）：提示的不透明度
+        //    嵌在整层里 ⇒ 有效 α = hint × overlay；若淡入跨过退场点，提示**永远到不了满显**
+        //    （旧值 [220,540] 的**生产**有效峰值仅 0.8808）⇒ 见 `docs/SPLASH-SPEC.md §15 F2`。
+        //    延迟/时长走 `AnimateParam` 两字段（`common.d.ts`）——**曲线仍来自底座工厂**
+        //    （`animEaseOut`，无超调）；本仓无 delay 先例，故此处显式注释来源。
+        animateTo(withTiming(animEaseOut(), SPLASH_HINT_DELAY_MS, SPLASH_HINT_FADE_MS), () => {
           this.hintOpacity = SPLASH_MARK_SETTLED_OPACITY;
         });
       }

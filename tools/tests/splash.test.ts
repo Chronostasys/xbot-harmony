@@ -20,6 +20,7 @@ import {
   SPLASH_EXIT_MS,
   SPLASH_HINT_DELAY_MS,
   SPLASH_HINT_ENTER_OPACITY,
+  SPLASH_HINT_FADE_MS,
   SPLASH_HYSTERESIS_MS,
   SPLASH_MARK_BOX_MULT,
   SPLASH_MARK_EXIT_LIFT_VP,
@@ -47,7 +48,6 @@ import {
   splashBrandMarkLevel,
   splashExitOpacityAt,
   curveProgressAt,
-  splashOrbAllowed,
   splashPhaseAt,
   splashPhaseCurve,
   splashPhaseDurationMs,
@@ -148,22 +148,18 @@ function stripComments(src: string): string {
   eq('reduceMotion T2 起点 = T3 起点（T2 无独立区间）', splashPhaseStartMs(SPLASH_T2, true), SPLASH_MIN_DWELL_MS);
 }
 
-// ── ★C 动效唯一性（铁律）：T1/T2 期间"光球可启动"**必须为 false** ─────────────
+// ── ★C 动效交接 = **揭示式**（2026-10-11 §15 F3 裁决，替代旧"T1/T2 光球不得启动"铁律）──────────
+// 旧铁律的机器判据 `splashOrbAllowed` 在生产 **0 消费点**、且与**实际实现**冲突 —— 实际是"揭示式交接"
+//   （光球若在流式，已在覆盖层**背后**渲染，由 T2 淡出揭示）⇒ 已**删除**（§15 F3）。
+//   交接不变量改由 `tools/tests/handoff_motion.test.ts`（退隐非飞走 / 不重播光球 / 退场 ≥ 入场）守护。
+// 这里只保留仍然成立的**结构事实**：开屏各阶段**本身**不属于"在飞"（一次性过渡 ⇒ 不构成第二在飞源）。
 {
-  eq('T0 + 流式中 ⇒ 光球**不可**启动', splashOrbAllowed(SPLASH_T0, true), false);
-  eq('T1 + 流式中 ⇒ 光球**不可**启动', splashOrbAllowed(SPLASH_T1, true), false);
-  eq('T2 + 流式中 ⇒ 光球**不可**启动', splashOrbAllowed(SPLASH_T2, true), false);
-  eq('T3 + 非流式 ⇒ 光球**不**启动（无在飞）', splashOrbAllowed(SPLASH_T3, false), false);
-  eq('T3 + 流式中 ⇒ 光球**才**启动', splashOrbAllowed(SPLASH_T3, true), true);
-  // 阶段本身**永不**属于"在飞"（开屏是一次性过渡）
   for (let i = 0; i < splashPhases().length; i++) {
-    eq(`${splashPhases()[i]} 不属于"在飞"`, splashPhaseIsInFlight(splashPhases()[i]), false);
+    eq(`${splashPhases()[i]} 不属于"在飞"（开屏是一次性过渡）`,
+      splashPhaseIsInFlight(splashPhases()[i]), false);
   }
-  // 交叉：T1/T2 期间 overlay 仍在显示（shouldShowSplash=true）而光球不可启动 ⇒ 结构上不可能并发
-  ok('T1 期间 overlay 在 + 光球不可启动（不并发）',
-    shouldShowSplash(LAUNCH_COLD, 100, false) === true && splashOrbAllowed(splashPhaseAt(100, false), true) === false);
-  ok('T2 期间 overlay 在 + 光球不可启动（不并发）',
-    shouldShowSplash(LAUNCH_COLD, 300, false) === true && splashOrbAllowed(splashPhaseAt(300, false), true) === false);
+  ok('开屏是一次性过渡（`splashPhaseIsInFlight` 恒 false ⇒ 不构成第二在飞源）',
+    splashPhaseIsInFlight(SPLASH_T1) === false && splashPhaseIsInFlight(SPLASH_T2) === false);
 }
 
 // ── ★D 超时兜底（2560ms）+ 用户交互打断（立即 T3）────────────────────────────
@@ -279,6 +275,10 @@ function stripComments(src: string): string {
     SPLASH_MARK_EXIT_LIFT_VP < SPLASH_MARK_BOX_VP / 10);
   eq('提示延迟 == SPLASH_ENTER_MS（标记入场结束才提示）', SPLASH_HINT_DELAY_MS, SPLASH_ENTER_MS);
   ok('  ⇒ 提示延迟 > 0（先给纯品牌，⛔ 不再首帧满不透明）', SPLASH_HINT_DELAY_MS > 0);
+  // §15 F2：提示淡入必须**在整层退场开始前跑完**（否则"有效 α=hint×overlay"永到不了满显）
+  eq('提示淡入时长 == MOTION_FAST_MS（底座"快速"档，零自造）', SPLASH_HINT_FADE_MS, MOTION_FAST_MS);
+  ok('  ⇒ 提示淡入在整层退场开始前跑完（delay + fade ≤ 停驻下限）',
+    SPLASH_HINT_DELAY_MS + SPLASH_HINT_FADE_MS <= SPLASH_MIN_DWELL_MS);
   eq('提示起始不透明度 = 0', SPLASH_HINT_ENTER_OPACITY, 0);
 
   // ② 组件源码形态（读真实源码）
@@ -297,8 +297,8 @@ function stripComments(src: string): string {
     overlaySrc.indexOf('.translate({ y: -this.markLift })') >= 0);
   ok('提示栏真绑定延迟淡入（.opacity(this.hintOpacity)）',
     overlaySrc.indexOf('.opacity(this.hintOpacity)') >= 0);
-  ok('提示的延迟**来自底座工厂 + delay**（withDelay(animEaseOut(), SPLASH_HINT_DELAY_MS)）',
-    overlaySrc.indexOf('withDelay(animEaseOut(), SPLASH_HINT_DELAY_MS)') >= 0);
+  ok('提示的延迟/时长**来自底座工厂 + 时序字段**（withTiming(animEaseOut(), SPLASH_HINT_DELAY_MS, SPLASH_HINT_FADE_MS)）',
+    overlaySrc.indexOf('withTiming(animEaseOut(), SPLASH_HINT_DELAY_MS, SPLASH_HINT_FADE_MS)') >= 0);
   ok('提示起始不透明度取自 core/splash（hintOpacity = SPLASH_HINT_ENTER_OPACITY）',
     overlaySrc.indexOf('SPLASH_HINT_ENTER_OPACITY') >= 0);
   // ⛔ 组件不得自造曲线：不许 import @ohos/curves（注释里**提到**它是允许的 ⇒ 只查 import 语句）
