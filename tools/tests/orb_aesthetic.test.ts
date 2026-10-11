@@ -145,6 +145,52 @@ function ok(name: string, cond: boolean, extra?: string): void {
   ok('  · 静默档 ≤ 一半主档（"静止也是设计"）', ORB_FPS_IDLE <= ORB_FPS_MAIN / 2 + 1);
 }
 
+// ── ★④ D3「让位/静默」的**视觉强度上限**（"不抢注意力"的可判化；⛔ 不重复 ★③ 的帧率）──────
+// 取证（`AssistantOrb.ets:154-162` 的具名常量）：让位 `SECONDARY_AMP=0.5 / HALO=0.55 / SPIN=0.5`、
+// 静默 `IDLE_AMP=0.25 / SPIN=0`；主态（thinking）幅度/光晕/自转均 = 1.0（锚点）。
+// ⚠️ 阈值 = **实测基线 + 余量**（⛔ 不为好看调）。
+{
+  const fsMod = require('fs');
+  const pathMod = require('path');
+  let repo = '';
+  for (const up of ['../..', '../../..', '../../../..']) {
+    const cand = pathMod.resolve(__dirname, up);
+    if (fsMod.existsSync(pathMod.join(cand, 'entry/src/main/ets/components/AssistantOrb.ets'))) { repo = cand; break; }
+  }
+  ok('★④ 找到 AssistantOrb.ets（态乘子是组件内 const ⇒ 只能按源码形态取）', repo.length > 0);
+  if (repo.length > 0) {
+    const src: string = fsMod.readFileSync(pathMod.join(repo, 'entry/src/main/ets/components/AssistantOrb.ets'), 'utf-8');
+    const num = (name: string): number => {
+      const m = src.match(new RegExp(`const ${name}: number = ([0-9.]+);`));
+      return m === null ? -1 : Number(m[1]);
+    };
+    const secAmp: number = num('ORB_SECONDARY_AMP');
+    const idleAmp: number = num('ORB_IDLE_AMP');
+    const secHalo: number = num('ORB_SECONDARY_HALO');
+    const secSpin: number = num('ORB_SECONDARY_SPIN');
+    ok(`  · 三个乘子可解析（sec ${secAmp} / idle ${idleAmp} / halo ${secHalo} / spin ${secSpin}）`,
+      secAmp > 0 && idleAmp > 0 && secHalo > 0 && secSpin > 0);
+    ok(`★④ 让位幅度 ≤ 0.6（基线 0.5 + 余量；实得 ${secAmp}）⇒ 别处才是主角`, secAmp <= 0.6);
+    ok(`  · 静默幅度 ≤ 0.35 且 **< 让位**（基线 0.25；实得 ${idleAmp}）⇒ 只剩一丝"还活着"`,
+      idleAmp <= 0.35 && idleAmp < secAmp);
+    ok(`  · 让位光晕 ≤ 0.7（基线 0.55；实得 ${secHalo}）⇒ 光晕也退让`, secHalo <= 0.7);
+    ok(`  · 让位自转 ≤ 0.6（基线 0.5；实得 ${secSpin}）⇒ 转得慢`, secSpin <= 0.6);
+    // 静默：自转**冻结**（`new OrbState(…, 0, …)` 的第三个实参）
+    const stIdle = src.match(/new OrbState\(ORB_IDLE_AMP, [^,]+,\s*([0-9.]+),/);
+    ok('  · 静默态自转 = 0（冻结 ⇒ "静止也是设计"）',
+      stIdle !== null && Number(stIdle[1]) === 0, `got ${stIdle === null ? 'n/a' : stIdle[1]}`);
+
+    // ★⑤ 注意力色**只保留给"工具在飞"**：`ringTool=true` 的态恰一个（tool）；让位/静默必须是 false
+    const toolTrue: number = (src.match(/new OrbState\([^)]*,\s*true\)/g) || []).length;
+    ok(`★⑤ ringTool=true 的态**恰 1 个**（` + '`statusRunning` 是"一眼可辨"的注意力色，只服务工具在飞' + `；实得 ${toolTrue}）`,
+      toolTrue === 1);
+    const secLine = src.match(/new OrbState\(ORB_SECONDARY_AMP[^)]*\)/);
+    const idleLine = src.match(/new OrbState\(ORB_IDLE_AMP[^)]*\)/);
+    ok('  · 让位态 ringTool = false（不抢注意力色）', secLine !== null && secLine[0].indexOf('true') < 0);
+    ok('  · 静默态 ringTool = false', idleLine !== null && idleLine[0].indexOf('true') < 0);
+  }
+}
+
 if (fail > 0) { console.log(`  orb_aesthetic: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  orb_aesthetic: ${pass} passed, 0 failed`);
 process.exit(0);
