@@ -52,7 +52,7 @@ import {
   BIND_STATE_WAITING, BIND_STATE_DONE, FeishuBind, FeishuGuide, ChannelField,
 } from '../core/channelscfg';
 import { SettingsErrorBar, SettingsPanelHeader } from './SettingsRows';
-import { PRESS_OPACITY } from '../core/design';
+import { PRESS_OPACITY, HIT_TARGET_MIN } from '../core/design';
 
 /** 「即时反馈」时长（已保存徽标 / 复制提示**共用**）——web `SettingsChannels.tsx:243` 为 2000ms。 */
 const FLASH_MS: number = 2500;
@@ -324,6 +324,8 @@ struct GuideListRow {
         Text('复制全部')
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().accentSoft)
+          // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44, Apple HIG)：原先无竖直内距（视觉高≈16）⇒ 低于阈值。
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.onCopy(this.items.join('\n'));

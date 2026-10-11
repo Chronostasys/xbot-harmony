@@ -57,7 +57,7 @@ import {
   restartShowConfirm, restartSucceeded, restartSucceededText, RPC_APPLY_UPDATE, RPC_RESTART_SERVER,
 } from '../core/aboutops';
 import { SettingsErrorBar, SettingsPanelHeader } from './SettingsRows';
-import { PRESS_OPACITY } from '../core/design';
+import { PRESS_OPACITY, HIT_TARGET_MIN } from '../core/design';
 
 @Component
 export struct SettingsAbout {
@@ -379,6 +379,8 @@ export struct SettingsAbout {
                   .fontSize(FS_CAPTION)
                   .fontColor(this.pal().textPrimary)
                   .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+                  // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44, Apple HIG)：原先只靠 padding 撑高（≈32）⇒ 低于阈值。
+                  .constraintSize({ minHeight: HIT_TARGET_MIN })
                   .backgroundColor(this.pal().surfaceAlt)
                   .borderRadius(R_LG)
                   .border({ width: 1, color: this.pal().borderStrong })

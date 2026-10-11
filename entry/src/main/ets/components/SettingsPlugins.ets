@@ -54,7 +54,7 @@ import {
   PluginStatusEntry, PluginStatusList, parsePluginStatus, pluginStatusIsActive,
   pluginStatusMetaText, pluginStatusSummaryText,
 } from '../core/settingsplugins';
-import { PRESS_OPACITY, CONTROL_INPUT_H, colorOf, hairlineOf } from '../core/design';
+import { PRESS_OPACITY, CONTROL_INPUT_H, colorOf, hairlineOf, HIT_TARGET_MIN } from '../core/design';
 import { SettingsErrorBar, SettingsPanelHeader } from './SettingsRows';
 import { AuthImage } from './AuthImage';
 
@@ -913,6 +913,8 @@ export struct SettingsPlugins {
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().accentSoft)
             .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
+            // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44, Apple HIG)：原先只靠 padding 撑高（≈24）⇒ 低于阈值。
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               void this.loadBackend();

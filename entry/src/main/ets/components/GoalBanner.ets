@@ -136,6 +136,8 @@ export struct GoalBanner {
             //    逐主题实算 porcelain 5.60 / dark 9.63 / light 7.01 / aurora 10.19 / nebula 8.55（全 ≥4.5）。
             .fontColor(this.pal().accentText)
             .padding({ left: SPACE_XS, right: SPACE_XS, top: 3, bottom: 3 })
+            // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44, Apple HIG)：原先只靠 padding 撑高（≈22）⇒ 低于阈值。
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
             .borderRadius(R_SM)
             .backgroundColor(goalBadgeBgOf(this.pal(), false))
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
@@ -149,6 +151,8 @@ export struct GoalBanner {
             //    那是给**非交互元信息**的）⇒ 可点 UI 必须用 `textSecondary`（porcelain 4.74 ✓）。
             .fontColor(this.pal().textSecondary)
             .padding({ left: SPACE_XS, right: SPACE_XS, top: 3, bottom: 3 })
+            // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44, Apple HIG)：原先只靠 padding 撑高（≈22）⇒ 低于阈值。
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               this.cancel();

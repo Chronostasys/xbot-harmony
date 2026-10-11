@@ -712,6 +712,9 @@ export struct SettingsActionRow {
         .fontWeight(fw('type.caption'))
         .fontColor(this.pal().accentSoft)
         .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+        // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44, Apple HIG)：原先只靠 padding 撑高（≈32）⇒ 低于阈值。
+        //    本行**已**声明 `constraintSize({ minHeight: HIT_TARGET_MIN })`（见 build 末尾）⇒ 抬到 44 不改变行高。
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
         .borderRadius(RADIUS_PILL)
         .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
         .opacity(this.busy ? 0.5 : 1)
