@@ -2,10 +2,13 @@
  * subagent.ets —— 「SubAgent 进度树」的**纯逻辑**：状态归档 + 可见性过滤 + 树 → 扁平行。
  *
  * 权威基准（web）：`web/src/components/agent/SubAgentProgressTree.tsx`
- *   · `:68-70`  顶层**只渲染 running / pending**（已完成的 SubAgent 已由 FoldedToolGroup
- *               的工具调用行展示 ⇒ 再渲染一次就是重复；`runningNodes.length === 0 ⇒ null`）
- *   · `:80-82`  状态归档：`running` = running|active|pending；`done` = done|completed；
- *               `errored` = error|failed；其余归"其它"（图标走 muted）
+ *   · `:56`     顶层（**根**）**只渲染 running / pending**（`active` **不算**根可见 —— 见 `:80`；
+ *               已完成的 SubAgent 已由 FoldedToolGroup 的工具调用行展示 ⇒ 再渲染一次就是重复；
+ *               `runningNodes.length === 0 ⇒ null`）
+ *   · `:80`     卡片内判 running = running|active|pending（**含 active**）—— 与根过滤**不同口径**：
+ *               `active` 从 `running` 变来时 web **根节点消失**（`:56` 只认 running/pending），
+ *               仅"卡片内图标/配色"才把它当 running。
+ *   · `:81-82`  状态归档：`done` = done|completed；`errored` = error|failed；其余归"其它"（图标走 muted）
  *   · `:95-99`  左侧 2px 竖条配色：errored → `--destructive`（= `--status-error`，
  *               web `index.css:231`）；done → `accent` @30%；否则 → `accent`
  *   · `:127-135` 状态图标：running → Sparkles(accent)；done → Check(text-muted)；
@@ -49,13 +52,29 @@ export function subStatusKind(status: string | null | undefined): string {
   return SUB_OTHER;
 }
 
-/** 是否"在飞"（web `:80`）—— 决定图标用 accent 还是 muted。 */
+/**
+ * 是否**卡片内**"在飞"（web `:80`）—— 决定图标用 accent 还是 muted。
+ * ⚠️ 含 `active`。**不要**拿它当根可见判据（根过滤用 `isRootVisible`，见下）。
+ */
 export function isLiveSubAgent(status: string | null | undefined): boolean {
   return subStatusKind(status) === SUB_RUNNING;
 }
 
 /**
- * 顶层可见节点（web `:68-70`）：**只保留 running/pending**。
+ * **根**（顶层）可见判据（web `:56`）：**只** `running` / `pending`。
+ * ⛔ 与 `isLiveSubAgent`/`subStatusKind` **不同**：`active` **不**算根可见 ——
+ *    web 根 filter 逐字是 `n.status === 'running' || n.status === 'pending'`；
+ *    `active` 只在**卡片内**算 running（web `:80` 的 `running` 变量）。
+ *    这是有意的"两条判据"：状态从 running→active 时 web 根节点消失、卡片（若仍在别处渲染）
+ *    图标仍算在飞。合并二者会重现"根节点闪烁/重排"分歧。
+ */
+export function isRootVisible(status: string | null | undefined): boolean {
+  const s: string = isPresent(status) ? status : '';
+  return s === SUB_RUNNING || s === 'pending';
+}
+
+/**
+ * 顶层可见节点（web `:56`）：**只保留 running/pending**。
  * 已完成的 SubAgent 由工具调用行承担展示 ⇒ 这里再画就是重复。
  *
  * ⚠️ 入参放宽到 `| null`：服务端 `sub_agents` 是 SSE 直接下发的数组字段，
@@ -70,7 +89,7 @@ export function visibleRoots(
   for (let i = 0; i < src.length; i++) {
     // 数组**成员**同样可能为 null（JSON `[null]`）——成员访问前必须三态。
     const n: WebSubAgentProgress | null | undefined = src[i];
-    if (isPresent(n) && isLiveSubAgent(n.status)) {
+    if (isPresent(n) && isRootVisible(n.status)) {
       out.push(n);
     }
   }

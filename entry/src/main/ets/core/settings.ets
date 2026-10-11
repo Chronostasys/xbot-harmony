@@ -49,6 +49,20 @@ export const KEY_SESSION_CATEGORY: string = 'xbot:session-category';
  */
 export const KEY_ORB: string = 'xbot-assistant-orb';
 
+/**
+ * 原生端新增：**哪个事件值得发系统通知**（两个独立开关）。
+ *
+ * 为什么按事件拆：`ask_user`（智能体在等你回答）与 `turn_done`（回合结束）的**打扰成本**
+ * 完全不同 —— 前者必须叫醒你，后者多数时候看一眼即可。合一个开关会逼用户"要么全开要么全关"。
+ * 默认**都开**（与接线前的行为等价：两类都发）；只有明确的假值才关（口径同 `orbEnabled`）。
+ *
+ * ⚠️ **总开关不在设置表里**：应用无权自行开关系统通知 ⇒ 总开关 = 系统授权真值，由
+ *    `core/notify.ets` 的 `notificationsEnabled()`（`isNotificationEnabled`）提供，
+ *    UI 侧既有的「通知提醒」开关就是它。这里只管"系统开着时，哪类事件才打扰"。
+ */
+export const KEY_NOTIFY_ASK: string = 'xbot-notify-ask';
+export const KEY_NOTIFY_TURN_DONE: string = 'xbot-notify-turn-done';
+
 /** 本地键 → 服务端键（web `userSettings.ts` 的同一张表）。 */
 export function serverKey(localKey: string): string {
   if (localKey === KEY_MD_THEME) {
@@ -90,6 +104,12 @@ export function serverKey(localKey: string): string {
   if (localKey === KEY_ORB) {
     return 'web:ui:assistant-orb';
   }
+  if (localKey === KEY_NOTIFY_ASK) {
+    return 'web:ui:notify-ask';
+  }
+  if (localKey === KEY_NOTIFY_TURN_DONE) {
+    return 'web:ui:notify-turn-done';
+  }
   return localKey;
 }
 
@@ -97,7 +117,7 @@ export function serverKey(localKey: string): string {
 export function localKey(srvKey: string): string {
   const table: string[] = [KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE, KEY_SEND_KEY, KEY_CODE_WRAP,
     KEY_UI_MODE, KEY_STARRED, KEY_FONT_SCALE, KEY_REASONING_DEFAULT, KEY_APP_THEME, KEY_SURFACE,
-    KEY_SESSION_CATEGORY, KEY_ORB];
+    KEY_SESSION_CATEGORY, KEY_ORB, KEY_NOTIFY_ASK, KEY_NOTIFY_TURN_DONE];
   for (let i = 0; i < table.length; i++) {
     if (serverKey(table[i]) === srvKey) {
       return table[i];
@@ -244,6 +264,12 @@ export function settingLabel(key: string): string {
   if (key === KEY_ORB) {
     return '思考光球动效';
   }
+  if (key === KEY_NOTIFY_ASK) {
+    return '收到提问时通知';
+  }
+  if (key === KEY_NOTIFY_TURN_DONE) {
+    return '回合完成时通知';
+  }
   return key;
 }
 
@@ -255,6 +281,45 @@ export function settingLabel(key: string): string {
  */
 export function orbEnabled(map: Record<string, string>): boolean {
   return parseBool(settingOf(map, KEY_ORB), true);
+}
+
+/**
+ * 通知偏好（纯值对象）：**哪些事件该发系统通知**。
+ *
+ * 与通知档位（`ask_user` / `turn_done`）的映射见 `core/notify.ets` 的 `notifyPrefEnabled`
+ * （档位字面量住在 notify.ets —— 这里刻意不引入，避免 settings → notify 的反向依赖）。
+ */
+export class NotifyPrefs {
+  ask: boolean;
+  turnDone: boolean;
+
+  constructor(ask: boolean, turnDone: boolean) {
+    this.ask = ask;
+    this.turnDone = turnDone;
+  }
+}
+
+/** 通知偏好的**默认值**（两类都开 ⇒ 与接线前的行为等价）。 */
+export function defaultNotifyPrefs(): NotifyPrefs {
+  return new NotifyPrefs(true, true);
+}
+
+/**
+ * 从设置表解析通知偏好（**纯函数 + 迁移**）：
+ *   · 键缺失 / 空白 / 非法 ⇒ 回落 `true`（"缺失即开"，口径同 `orbEnabled`）；
+ *   · 历史值（`1/true/on/yes` 与 `0/false/off/no`）由 `parseBool` 统一归一 —— 无论是旧版
+ *     写下的值还是 web 侧未来写入的未知串，都不会因"不认识"而**静默关掉**提醒。
+ */
+export function notifyPrefsFrom(map: Record<string, string>): NotifyPrefs {
+  return new NotifyPrefs(
+    parseBool(settingOf(map, KEY_NOTIFY_ASK), true),
+    parseBool(settingOf(map, KEY_NOTIFY_TURN_DONE), true),
+  );
+}
+
+/** 单个偏好键的写入值（UI 接线用：`setSetting(KEY_NOTIFY_*，notifyPrefValue(on))`）。 */
+export function notifyPrefValue(on: boolean): string {
+  return on ? '1' : '0';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

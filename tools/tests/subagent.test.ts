@@ -2,19 +2,20 @@
  * SubAgent 进度树纯逻辑测试 —— 状态归档 / 可见性过滤 / 树展平 / ForEach key 契约。
  *
  * 权威基准（web）：`web/src/components/agent/SubAgentProgressTree.tsx`
- *   · `:68-70` 顶层只渲染 running/pending
- *   · `:80-82` 状态归档（running|active|pending / done|completed / error|failed）
+ *   · `:56`    顶层（根）只渲染 running/pending（`active` **不**算根可见）
+ *   · `:80`    卡片内 running = running|active|pending
+ *   · `:81-82` 状态归档（done|completed / error|failed）
  *   · `:95-99` 竖条配色分档；`:138-146` 标签；`:154-167` 子节点不过滤
  *
- * ⚠️ 判别力自证（提交信息）：三处 mutation 分别必红 ——
+ * ⚠️ 判别力自证（提交信息）：四处 mutation 分别必红 ——
  *   ① `visibleRoots` 去掉状态过滤；② `subStatusKind` 的兜底从 OTHER 改成 RUNNING；
- *   ③ `rowKeyOf` 去掉 kind/desc 指纹。
+ *   ③ `rowKeyOf` 用 `desc.length` 代替 desc 全文；④ 根过滤把 `active` 也放行。
  */
 declare const process: { exit: (c: number) => void };
 
 import {
-  flattenSubAgents, hasVisibleSubAgents, isLiveSubAgent, subAgentLabel, SubAgentRow,
-  SUB_DONE, SUB_ERROR, SUB_OTHER, SUB_RUNNING, subStatusKind, visibleRoots,
+  flattenSubAgents, hasVisibleSubAgents, isLiveSubAgent, isRootVisible, subAgentLabel,
+  SubAgentRow, SUB_DONE, SUB_ERROR, SUB_OTHER, SUB_RUNNING, subStatusKind, visibleRoots,
 } from '../../entry/src/main/ets/core/subagent';
 import { WebSubAgentProgress } from '../../entry/src/main/ets/core/chattypes';
 
@@ -54,16 +55,29 @@ function node(role: string, status: string, instance?: string, desc?: string,
   eq('大小写敏感（Running ≠ running）', subStatusKind('Running'), SUB_OTHER);
 }
 
-// ── ② 在飞判定 ──
+// ── ② 在飞判定（卡片级：含 active）──
 {
   ok('running 在飞', isLiveSubAgent('running'));
   ok('pending 在飞', isLiveSubAgent('pending'));
+  ok('active 卡片内在飞', isLiveSubAgent('active'));
   ok('done 不在飞', !isLiveSubAgent('done'));
   ok('error 不在飞', !isLiveSubAgent('error'));
   ok('未知不在飞', !isLiveSubAgent('zzz'));
 }
 
-// ── ③ 顶层可见性过滤（web :68-70：只留 running/pending）──
+// ── ②′ 根可见判据（web :56：只 running/pending；active **不**算根可见）H5 ──
+{
+  ok('running 根可见', isRootVisible('running'));
+  ok('pending 根可见', isRootVisible('pending'));
+  // ⛔ active 不是根可见：从 running→active 时根节点必须消失（否则与 web 的闪烁/重排分歧）
+  ok('active ⇒ 根不可见', !isRootVisible('active'));
+  ok('done 根不可见', !isRootVisible('done'));
+  ok('error 根不可见', !isRootVisible('error'));
+  ok('未知根不可见', !isRootVisible('zzz'));
+  ok('空值根不可见', !isRootVisible(undefined));
+}
+
+// ── ③ 顶层可见性过滤（web :56：只留 running/pending）──
 {
   const nodes: WebSubAgentProgress[] = [
     node('explore', 'running'),
@@ -74,6 +88,8 @@ function node(role: string, status: string, instance?: string, desc?: string,
   ];
   eq('只留 running/pending（保序）', visibleRoots(nodes).map((n: WebSubAgentProgress) => n.role),
     ['explore', 'qa']);
+  // ⛔ H5：active 也**不**留在根（web :56 只认 running/pending）
+  eq('active ⇒ 根节点消失（H5）', visibleRoots([node('a', 'active')]).length, 0);
   eq('全 done/error ⇒ 空', visibleRoots([node('a', 'done'), node('b', 'error')]), []);
   eq('undefined ⇒ 空', visibleRoots(undefined), []);
   eq('空数组 ⇒ 空', visibleRoots([]), []);

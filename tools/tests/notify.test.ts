@@ -81,10 +81,10 @@ eq('标题会话名只有空白 ⇒ 只留主标题', notifyTitle(NOTIFY_KIND_TU
 eq('正文用细节', notifyBody(NOTIFY_KIND_ASK, '今天几号？'), '今天几号？');
 eq('正文无细节 + 待回答 ⇒ 默认文案', notifyBody(NOTIFY_KIND_ASK, ''), '智能体在等待你的输入');
 eq('正文无细节 + 回合结束 ⇒ 默认文案', notifyBody(NOTIFY_KIND_TURN_DONE, '  '), '本轮回复已完成');
-eq('正文超长截断（120 + 省略号）',
-  notifyBody(NOTIFY_KIND_ASK, 'x'.repeat(200)).length, 121);
-eq('正文截断保留前 120 字符',
-  notifyBody(NOTIFY_KIND_ASK, 'x'.repeat(200)), `${'x'.repeat(120)}…`);
+// ⚠️ 契约变更（专业级通知）：`notifyBody` **不再**按 120 字截断 —— 截断/摘要/形态下沉到
+//    `notifyBodyPlan`（长正文升级为多行，见 tools/tests/notify_content.test.ts）。这里只断言"全文透传"。
+eq('正文全文透传（不在这一层截断）',
+  notifyBody(NOTIFY_KIND_ASK, 'x'.repeat(200)), 'x'.repeat(200));
 
 // ── 通知 id 派生：哈希与 id（波3：多会话提醒并存，不再互相覆盖）──────────────
 

@@ -35,9 +35,28 @@ declare module '@ohos.notificationManager' {
       text: string;
       additionalText?: string;
     }
+    /** 多行正文（SDK `notification/notificationContent.d.ts:146-175`；lines ≤ 3 行）。 */
+    export interface NotificationMultiLineContent extends NotificationBasicContent {
+      briefText: string;
+      longTitle: string;
+      lines: Array<string>;
+    }
+    /** 通知动作按钮（SDK `notification/notificationActionButton.d.ts:30-66`）。 */
+    export interface NotificationActionButton {
+      title: string;
+      wantAgent: Object;
+      extras?: Record<string, Object>;
+    }
     export interface NotificationContent {
       notificationContentType?: ContentType;
       normal?: NotificationBasicContent;
+      multiLine?: NotificationMultiLineContent;
+      longText?: NotificationLongTextContent;
+    }
+    export interface NotificationLongTextContent extends NotificationBasicContent {
+      longText: string;
+      briefText: string;
+      expandedTitle: string;
     }
     export interface NotificationSlot {
       notificationType?: SlotType;
@@ -54,6 +73,7 @@ declare module '@ohos.notificationManager' {
       tapDismissed?: boolean;
       autoDeletedTime?: number;
       wantAgent?: Object;
+      actionButtons?: Array<NotificationActionButton>;
       isAlertOnce?: boolean;
       badgeNumber?: number;
       label?: string;

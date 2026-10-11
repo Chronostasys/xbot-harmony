@@ -28,6 +28,7 @@ import type { common } from '@kit.AbilityKit';
 import type { BusinessError } from '@kit.BasicServicesKit';
 import type { DomainEvent } from './chat_types_full';
 import { describeError } from './http';
+import { NotifyPrefs, notifyPrefsFrom } from './settings';
 
 // ── 常量（协议/契约值，调用点共用）──────────────────────────────────────────
 
@@ -37,6 +38,16 @@ export const NOTIFY_KIND_NONE: string = '';
 export const NOTIFY_KIND_ASK: string = 'ask_user';
 /** 通知档位：回合结束。 */
 export const NOTIFY_KIND_TURN_DONE: string = 'turn_done';
+
+/**
+ * 标题前缀（**契约值**）：`notifyTitle` 产出、`kindFromNotifyTitle` 反解 —— 二者共用同一对字面量。
+ *
+ * 为什么要反解：调用点（`core/store.ets` 的 `notifyOnSse`）只把 `notifyTitle(...)` 的**结果**传进
+ * `publishTurn`，档位本身没跟随 ⇒ `publishTurn` 必须能从标题**确定地**还原档位（决定 slot /
+ * 动作按钮 / 多行形态）。用同一对常量产出与解析，杜绝"改了一处忘了另一处"。
+ */
+export const NOTIFY_TITLE_HEAD_ASK: string = '需要你的回答';
+export const NOTIFY_TITLE_HEAD_TURN_DONE: string = '回合已完成';
 
 /** `AppStorage` 键：应用是否在前台（由 EntryAbility 的 onForeground/onBackground 维护）。 */
 export const APP_FOREGROUND_KEY: string = 'appForeground';
@@ -228,8 +239,30 @@ const BUNDLE_NAME: string = 'com.chronostasys.xbot';
 const ABILITY_NAME: string = 'EntryAbility';
 /** 短时任务 reason（系统侧可见，写清楚用途）。 */
 const KEEP_ALIVE_REASON: string = 'xbot 回合进行中';
-/** 通知正文上限（系统 3072 字节，这里按字符截断；够用且可测）。 */
-const MAX_BODY_CHARS: number = 120;
+
+// ── 「专业级」正文形态（纯常量 + 纯判据；全部有 SDK 依据，见各条注释）──────────────
+//
+// 背景：系统通知的正文分三种形态（`notification/notificationContent.d.ts`）：
+//   · BASIC_TEXT（`normal`）：折叠态只显示一行 title + text；
+//   · MULTILINE（`multiLine`）：展开后按 `lines` 显示**最多 3 行**；
+//   · LONG_TEXT（`longText`）：展开后显示一整段长文本。
+// 我们只在前两者之间选：MULTILINE 更贴合"回合回复"的**结构化多行**语义，且 3 行 × 1024 字节
+// 的容量远大于任何一次回复摘要 ⇒ **在容量内绝不需要 `…` 截断**（见 notifyShapeFor）。
+
+/** 折叠态正文（`normal.text`）字数：**超过**它就把正文升级为多行形态（见 `notifyShapeFor`）。 */
+export const COLLAPSED_MAX_CHARS: number = 120;
+
+/**
+ * 多行形态最多行数。依据（SDK）：`NotificationMultiLineContent.lines` ——
+ * "supports up to three lines"（`notification/notificationContent.d.ts:167-174`）。
+ */
+export const MULTILINE_MAX_LINES: number = 3;
+
+/**
+ * 多行形态**每行字节**上界。依据（SDK）：每行 "size does not exceed 1024 bytes"
+ * （`notification/notificationContent.d.ts:168`）。留 24 字节余量以容纳多字节字符本位的口径差。
+ */
+export const MULTILINE_MAX_LINE_BYTES: number = 1000;
 
 /**
  * 同一回合的多个"结束"信号（`phase_done` 与 `session idle` 会先后到达）只提醒一次。
@@ -240,17 +273,65 @@ export const TURN_DONE_DEDUPE_MS: number = 10000;
 
 // ── 纯判定（可脱机单测；无 SDK 依赖）────────────────────────────────────────
 
+// ── 通知偏好（哪些事件才打扰）：模块级缓存 + 纯判据 ────────────────────────────
+//
+// 偏好来自设置表（`core/settings.ets` 的 `KEY_NOTIFY_ASK` / `KEY_NOTIFY_TURN_DONE`），由页面在
+// 设置加载/变更时调 `applyNotifyPrefs(settings)` 投进来（**接线清单**在交付里给，本文件不碰 UI）。
+// 缓存在模块级而不是每次都读设置表：`shouldNotify` 在 SSE 热路径上被调用，读设置表要走
+// `AppStorage`/RPC，代价不必要；缓存的更新点是**离散**的（用户改开关时）。
+//
+// 默认 = `notifyPrefsFrom({})`（两类都开）⇒ 未接线/脱机单测时与"接线前"逐字等价，不会少发。
+
+/** 当前通知偏好（模块级单例；默认两类都开）。 */
+let currentPrefs: NotifyPrefs = notifyPrefsFrom({});
+
 /**
- * 判定"这个事件该不该发通知"（**纯函数**，与调用点同源）。
+ * 用设置表刷新偏好（UI 接线点：设置加载后 / 任一通知开关变更后调用）。
+ * 纯逻辑在 `settings.notifyPrefsFrom`，这里只做缓存 + 返回真值（便于页面/测试断言）。
+ */
+export function applyNotifyPrefs(settings: Record<string, string>): NotifyPrefs {
+  currentPrefs = notifyPrefsFrom(settings !== undefined && settings !== null ? settings : {});
+  return currentPrefs;
+}
+
+/** 当前偏好（只读快照；测试用）。 */
+export function notifyPrefsSnapshot(): NotifyPrefs {
+  return currentPrefs;
+}
+
+/** 档位 × 偏好 → 该类事件是否被允许（纯函数）。 */
+export function notifyPrefEnabled(prefs: NotifyPrefs, evKind: string): boolean {
+  if (evKind === NOTIFY_KIND_ASK) {
+    return prefs.ask;
+  }
+  if (evKind === NOTIFY_KIND_TURN_DONE) {
+    return prefs.turnDone;
+  }
+  return false;
+}
+
+/**
+ * 判定"这个事件该不该发通知"（**在给定偏好下**的纯判据；与调用点同源）。
  *
  * @param appForeground 应用是否在前台（前台 ⇒ 用户正看着 ⇒ 不发）
  * @param evKind        `notifyKindForSse(...)` 给出的档位
+ * @param prefs         哪个档位才打扰（`notifyPrefEnabled`）
  */
-export function shouldNotify(appForeground: boolean, evKind: string): boolean {
+export function shouldNotifyWithPrefs(appForeground: boolean, evKind: string, prefs: NotifyPrefs): boolean {
   if (appForeground) {
     return false;
   }
-  return evKind === NOTIFY_KIND_ASK || evKind === NOTIFY_KIND_TURN_DONE;
+  return notifyPrefEnabled(prefs, evKind);
+}
+
+/**
+ * 判定"这个事件该不该发通知"（**线上入口**，调用点 `store.notifyOnSse` 用它）。
+ *
+ * = 前台抑制 + 当前偏好。偏好取自模块级缓存（见 `applyNotifyPrefs`）——
+ * 未接线时缓存是默认值（两类都开）⇒ 行为与接线前**逐字相同**。
+ */
+export function shouldNotify(appForeground: boolean, evKind: string): boolean {
+  return shouldNotifyWithPrefs(appForeground, evKind, currentPrefs);
 }
 
 /** `session` 事件里代表"会话空闲"的 action（与 store 既有判定同一份字面量）。 */
@@ -295,18 +376,203 @@ export function withinDedupeWindow(nowMs: number, lastAtMs: number, windowMs: nu
 
 /** 通知标题（纯函数）：带上会话名，便于多会话下分辨。 */
 export function notifyTitle(kind: string, label: string): string {
-  const head: string = kind === NOTIFY_KIND_ASK ? '需要你的回答' : '回合已完成';
+  const head: string = kind === NOTIFY_KIND_ASK ? NOTIFY_TITLE_HEAD_ASK : NOTIFY_TITLE_HEAD_TURN_DONE;
   const l: string = label !== undefined && label !== null ? label.trim() : '';
   return l.length > 0 ? `${head} · ${l}` : head;
 }
 
-/** 通知正文（纯函数）：优先用细节（问题原文等），过长截断。 */
+/**
+ * 标题 → 档位（纯函数，`notifyTitle` 的**逆**）。
+ *
+ * 未知标题 → `turn_done`（保守：不因看不出档位就把它当"最高价值"去弹横幅/响铃）；
+ * 但要**先判 ask**（ask 头与 turn_done 头互不为前缀，顺序其实无关，这里写死更清楚）。
+ */
+export function kindFromNotifyTitle(title: string): string {
+  const t: string = title !== undefined && title !== null ? title : '';
+  return t.startsWith(NOTIFY_TITLE_HEAD_ASK) ? NOTIFY_KIND_ASK : NOTIFY_KIND_TURN_DONE;
+}
+
+/**
+ * 通知正文（纯函数）：优先用细节（问题原文等）；无细节回落默认文案。
+ *
+ * ⚠️ **这里不再按字数截断**（旧版到 120 字砍断）—— 截断/形态是**下游** `notifyBodyPlan` 的职责：
+ *    长正文会升级为多行形态（`lines`）而**保留全文**，只有真的塞不进 3 行时才在**最后一行**省略。
+ *    若在这里先砍到 120 字，多行形态永远看不到超过 120 字的内容（多行就成了摆设）。
+ */
 export function notifyBody(kind: string, detail: string): string {
   const d: string = detail !== undefined && detail !== null ? detail.trim() : '';
   if (d.length > 0) {
-    return d.length > MAX_BODY_CHARS ? `${d.substring(0, MAX_BODY_CHARS)}…` : d;
+    return d;
   }
   return kind === NOTIFY_KIND_ASK ? '智能体在等待你的输入' : '本轮回复已完成';
+}
+
+/** 默认正文（纯函数）：无细节时的兜底文案（`notifyBody` 与形态规划共用）。 */
+export function defaultNotifyBody(kind: string): string {
+  return kind === NOTIFY_KIND_ASK ? '智能体在等待你的输入' : '本轮回复已完成';
+}
+
+/** 文本的 UTF-8 字节数（纯函数）。系统上限都以**字节**计（title 1024 / text 3072 / 行 1024）。 */
+export function utf8Bytes(text: string): number {
+  const s: string = text !== undefined && text !== null ? text : '';
+  let n: number = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c: number = s.charCodeAt(i);
+    if (c < 0x80) {
+      n += 1;
+    } else if (c < 0x800) {
+      n += 2;
+    } else if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s.length) {
+      // 代理对（emoji 等）：一个码点 4 字节，且跳过低位代理
+      n += 4;
+      i += 1;
+    } else {
+      n += 3;
+    }
+  }
+  return n;
+}
+
+/**
+ * 按**字节**截断（纯函数；不切开码点，截断则补 `…`）。
+ * 用于真塞不下的兜底（长正文 > 3 行的总容量），正常路径不触发（见 `bodyLines`）。
+ */
+export function truncateToBytes(text: string, maxBytes: number): string {
+  const s: string = text !== undefined && text !== null ? text : '';
+  if (maxBytes <= 0) {
+    return '';
+  }
+  if (utf8Bytes(s) <= maxBytes) {
+    return s;
+  }
+  // 逐 UTF-16 单元累积，遇到"再加这个单元就超字节"时停下；若停在前导代理上则回退一格（不劈开 emoji）
+  let used: number = 0;
+  let end: number = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c: number = s.charCodeAt(i);
+    let add: number = 1;
+    if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s.length) {
+      add = 4;
+    } else if (c >= 0x80 && c < 0x800) {
+      add = 2;
+    } else if (c >= 0x800) {
+      add = 3;
+    }
+    if (used + add > maxBytes) {
+      break;
+    }
+    used += add;
+    end = i + 1;
+    if (add === 4) {
+      i += 1;
+      end = i + 1;
+    }
+  }
+  return `${s.substring(0, end)}…`;
+}
+
+/**
+ * 折叠态正文摘要（纯函数）：把换行/连续空白压成单空格 → 截到 `maxChars`（够长才补 `…`）。
+ * 用在 `normal.text` / `briefText`（系统只在折叠态渲染它们，越干净越好）。
+ */
+export function summarizeBody(text: string, maxChars: number): string {
+  const s: string = text !== undefined && text !== null ? text : '';
+  const collapsed: string = s.replace(/\s+/g, ' ').trim();
+  if (maxChars <= 0) {
+    return '';
+  }
+  if (collapsed.length <= maxChars) {
+    return collapsed;
+  }
+  return `${collapsed.substring(0, maxChars)}…`;
+}
+
+/**
+ * 正文 → 多行形态的 `lines`（纯函数）。
+ *
+ * 规则（**最大程度保结构、不轻言截断**）：
+ *   · 先按**换行**切段（空段丢弃、逐段压空白并 trim）—— 保留用户自己的行结构；
+ *   · 段数 **≤ maxLines** ⇒ 原样保留（**每个长段作为独立一行，不做任何 `…` 截断**，只要单段 ≤ 字节容量）；
+ *   · 段数 > maxLines ⇒ 只取**前 maxLines 段**，末段补 `…`（此时确实是"系统只显示 3 行"的硬上限）；
+ *   · 单段字节超过 `maxLineBytes` 时才按字节截断（此时才出现 `…`）。
+ * ⇒ 常见长回复（单段/三段以内，≤1000 字节/段）**全程无 `…`**（正是"长回复不被截断"）。
+ *
+ * ⚠️ "单段长正文"正是最典型的 `turn_done` 场景（一段自然语言回复）⇒ 它走第一分支、零截断。
+ */
+export function bodyLines(text: string, maxLines: number, maxLineBytes: number): string[] {
+  const s: string = text !== undefined && text !== null ? text : '';
+  const raw: string[] = s.split('\n');
+  const segs: string[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const t: string = raw[i].replace(/\s+/g, ' ').trim();
+    if (t.length > 0) {
+      segs.push(t);
+    }
+  }
+  if (segs.length === 0) {
+    return [];
+  }
+  const limit: number = maxLines > 0 ? maxLines : 1;
+  const out: string[] = [];
+  for (let i = 0; i < segs.length && out.length < limit; i++) {
+    out.push(truncateToBytes(segs[i], maxLineBytes));
+  }
+  if (segs.length > limit && out.length > 0) {
+    const last: string = out[out.length - 1];
+    if (!last.endsWith('…')) {
+      out[out.length - 1] = `${last}…`;
+    }
+  }
+  return out;
+}
+
+/**
+ * 正文形态（纯函数）：**给定正文 → 期望形态**（可以只喂**长度**）。
+ *
+ *   · 空串 / `≤ COLLAPSED_MAX_CHARS` 字 ⇒ `'basic'`（折叠态一行足够，不折腾多行）；
+ *   · 更长 ⇒ `'multiline'`（展开为多行，容量 3 × 1000 字节 ⇒ 常见长回复零截断）。
+ *
+ * ⚠️ 判据用**字符数**（不是字节）：因为 `COLLAPSED_MAX_CHARS` 是"折叠一行的可读性阈值"，
+ *    与字节容量无关（字节容量在多行形态里由 `bodyLines` 单独把关）。
+ */
+export function notifyShapeFor(bodyText: string): string {
+  const s: string = bodyText !== undefined && bodyText !== null ? bodyText : '';
+  return s.length > COLLAPSED_MAX_CHARS ? NOTIFY_SHAPE_MULTILINE : NOTIFY_SHAPE_BASIC;
+}
+
+/** 形态标签（**不可达 SDK 的纯值**）：单行。 */
+export const NOTIFY_SHAPE_BASIC: string = 'basic';
+/** 形态标签：多行。 */
+export const NOTIFY_SHAPE_MULTILINE: string = 'multiline';
+
+/**
+ * 正文规划（纯值对象）：`publishTurn` 据此拼 SDK content，脱机可断言。
+ *   · `shape`：`NOTIFY_SHAPE_BASIC` / `NOTIFY_SHAPE_MULTILINE`
+ *   · `preview`：折叠态正文（`normal.text` / `briefText`）
+ *   · `lines`：多行形态的行数组（basic 形态为空）
+ */
+export class NotifyBodyPlan {
+  shape: string;
+  preview: string;
+  lines: string[];
+
+  constructor(shape: string, preview: string, lines: string[]) {
+    this.shape = shape;
+    this.preview = preview;
+    this.lines = lines;
+  }
+}
+
+/** 正文 → 规划（纯函数）：把"截断/摘要/形态"三件事一次算清（`publishTurn` 唯一入口）。 */
+export function notifyBodyPlan(kind: string, detail: string): NotifyBodyPlan {
+  const d: string = detail !== undefined && detail !== null ? detail.trim() : '';
+  const body: string = d.length > 0 ? d : defaultNotifyBody(kind);
+  const shape: string = notifyShapeFor(body);
+  if (shape === NOTIFY_SHAPE_MULTILINE) {
+    const lines: string[] = bodyLines(body, MULTILINE_MAX_LINES, MULTILINE_MAX_LINE_BYTES);
+    return new NotifyBodyPlan(shape, summarizeBody(body, COLLAPSED_MAX_CHARS), lines);
+  }
+  return new NotifyBodyPlan(NOTIFY_SHAPE_BASIC, summarizeBody(body, COLLAPSED_MAX_CHARS), []);
 }
 
 // ── 前台标志（AppStorage 唯一真值；脱机读不到时保守取"前台"）─────────────────
@@ -334,31 +600,80 @@ export function appIsForeground(): boolean {
   }
 }
 
+// ── slot 档位（**纯判据**：档位 → 该用哪种 slot；SDK 枚举在边界处才出现）──────────
+//
+// 为什么按档位换 slot：系统里**每种 slot 类型有固定的 SlotLevel**，而 SlotLevel 决定
+// "状态栏图标 / 横幅 / 响铃"（`@ohos.notificationManager.d.ts:1198-1236`）：
+//   · SOCIAL_COMMUNICATION → LEVEL_HIGH（图标 + **横幅** + **响铃**，:1060-1068）；
+//   · CONTENT_INFORMATION  → LEVEL_MIN （**无图标、无横幅、无响铃**，:1078-1086）。
+// ⇒ `ask_user`（智能体在等你，必须叫醒你）用 SOCIAL_COMMUNICATION；`turn_done`（回合结束，
+//    多数时候"看一眼即可"）用 CONTENT_INFORMATION（**静默**，仍在通知中心 + 角标可查）。
+// ⚠️ **不绕过免打扰**：`NotificationSlot.bypassDnd` 我们**一律不设**（默认 false，尊重系统免打扰）。
+// ⚠️ SlotLevel 是**只读**（`readonly enabled`）且 `addSlot` 只有"按类型"一种签名
+//    （`@ohos.notificationManager.d.ts:294-318`，无 `addSlot(slot)` 重载）⇒ 只能"换类型"来换级别。
+
+/** slot 标签（不可达 SDK 的纯值）：社交沟通（LEVEL_HIGH = 横幅 + 响铃）。 */
+export const NOTIFY_SLOT_SOCIAL: string = 'social';
+/** slot 标签：内容资讯（LEVEL_MIN = 静默，仅在通知中心/角标可见）。 */
+export const NOTIFY_SLOT_CONTENT: string = 'content';
+
+/** 档位 → slot 标签（纯函数；SDK 枚举映射见 `slotTypeOf`）。 */
+export function slotTagFor(kind: string): string {
+  return kind === NOTIFY_KIND_ASK ? NOTIFY_SLOT_SOCIAL : NOTIFY_SLOT_CONTENT;
+}
+
+/** slot 标签 → SDK 枚举（**唯一**把纯标签翻成 SDK 值的地方）。 */
+function slotTypeOf(tag: string): notificationManager.SlotType {
+  return tag === NOTIFY_SLOT_SOCIAL
+    ? notificationManager.SlotType.SOCIAL_COMMUNICATION
+    : notificationManager.SlotType.CONTENT_INFORMATION;
+}
+
 // ── SDK 封装（全部 try/catch + 返回 boolean；失败绝不外抛）───────────────────
 
 /**
- * 建槽（幂等）：已有 `SOCIAL_COMMUNICATION` 槽就直接返回，否则新建。
- * 用 `getSlots()` 先查而不是无脑 `addSlot()` ——"同一类型只能建一个"，重复建
- * 在部分版本上会报错；我们要求**幂等**。
+ * 建槽（幂等）：确保**本应用用到的两种** slot 都存在。
+ *   ① SOCIAL_COMMUNICATION（`ask_user`，LEVEL_HIGH）；② CONTENT_INFORMATION（`turn_done`，LEVEL_MIN）。
+ * 用 `getSlots()` 先查而不是无脑 `addSlot()`——"同一类型只能建一个"，重复建在部分版本上会报错。
+ * 查询失败不阻断（继续尝试 `addSlot`；系统在 publish 时也会自动补建，见 SDK addSlot 注释）。
  */
 export async function initSlots(): Promise<boolean> {
+  const want: notificationManager.SlotType[] = [
+    notificationManager.SlotType.SOCIAL_COMMUNICATION,
+    notificationManager.SlotType.CONTENT_INFORMATION,
+  ];
+  let existing: notificationManager.SlotType[] = [];
   try {
     const slots: notificationManager.NotificationSlot[] = await notificationManager.getSlots();
     for (let i = 0; i < slots.length; i++) {
-      if (slots[i].notificationType === notificationManager.SlotType.SOCIAL_COMMUNICATION) {
-        return true;
+      const t: notificationManager.SlotType | undefined = slots[i].notificationType;
+      if (t !== undefined) {
+        existing.push(t);
       }
     }
   } catch (e) {
-    // 查询失败不阻断：继续尝试 addSlot（下面还会兜一次）
+    // 查询失败不阻断：下面对每个缺的 slot 仍会尝试 addSlot
   }
-  try {
-    await notificationManager.addSlot(notificationManager.SlotType.SOCIAL_COMMUNICATION);
-    return true;
-  } catch (e) {
-    console.warn(`xbot notify: addSlot 失败（忽略）: ${describeError(e as Object)}`);
-    return false;
+  let ok: boolean = true;
+  for (let i = 0; i < want.length; i++) {
+    let has: boolean = false;
+    for (let j = 0; j < existing.length; j++) {
+      if (existing[j] === want[i]) {
+        has = true;
+        break;
+      }
+    }
+    if (has) {
+      continue;
+    }
+    try {
+      await notificationManager.addSlot(want[i]);
+    } catch (e) {
+      console.warn(`xbot notify: addSlot(${want[i]}) 失败（忽略）: ${describeError(e as Object)}`);
+      ok = false;
+    }
   }
+  return ok;
 }
 
 /**
@@ -396,11 +711,23 @@ export async function notificationsEnabled(): Promise<boolean> {
 }
 
 /**
- * 发一条通知（回合结束 / 待回答）。点击 → 拉起本应用并带 `parameters.chat_id`
- * （EntryAbility.onNewWant 接收）。
+ * 发一条通知（待回答 / 回合结束）。点击**通知本体**或**动作按钮**都会拉起本应用并带
+ * `parameters.chat_id`（EntryAbility.onCreate/onNewWant 接收 → `pendingOpenChatId`）。
+ *
+ * 「专业级」体现在四处（都不破坏既有链路）：
+ *   ① **动作按钮**：常驻一枚「打开会话」（与通知本体**共用同一个 WantAgent** ⇒ 同一套
+ *      `pendingOpenChatId` 直达链路，不另造一套）；KIND 由标题反解（见 `kindFromNotifyTitle`）；
+ *   ② **长正文不截断**：正文形态由 `notifyBodyPlan` 决定 —— 长正文升级为多行（`lines`），
+ *      折叠态给一段摘要（`normal.text` / `briefText`）；
+ *   ③ **档位化 slot**：`ask_user` → SOCIAL_COMMUNICATION（横幅+响铃），`turn_done` →
+ *      CONTENT_INFORMATION（静默）—— 让"需要回答"比"回合完成"更醒目；
+ *   ④ **按会话分组 + 替换**：`groupName` 归一组、`id` 按会话派生 ⇒ 同会话更新、异会话并存。
+ * ⚠️ 全程 try/catch：通知是旁路，失败最多"没提醒"，绝不让聊天崩。
  */
 export async function publishTurn(title: string, text: string, chatId: string): Promise<boolean> {
   try {
+    const kind: string = kindFromNotifyTitle(title);
+    const plan: NotifyBodyPlan = notifyBodyPlan(kind, text);
     const params: Record<string, Object> = { 'chat_id': chatId };
     const info: wantAgent.WantAgentInfo = {
       wants: [
@@ -415,22 +742,45 @@ export async function publishTurn(title: string, text: string, chatId: string): 
       actionFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG],
     };
     const agent: Object = await wantAgent.getWantAgent(info);
+    const bodyText: string = plan.preview.length > 0 ? plan.preview : defaultNotifyBody(kind);
     const content: notificationManager.NotificationContent = {
-      notificationContentType: notificationManager.ContentType.NOTIFICATION_CONTENT_BASIC_TEXT,
-      normal: { title: title, text: text },
+      notificationContentType: plan.shape === NOTIFY_SHAPE_MULTILINE
+        ? notificationManager.ContentType.NOTIFICATION_CONTENT_MULTILINE
+        : notificationManager.ContentType.NOTIFICATION_CONTENT_BASIC_TEXT,
+      normal: { title: title, text: bodyText },
+    };
+    if (plan.shape === NOTIFY_SHAPE_MULTILINE) {
+      const lines: string[] = plan.lines.length > 0 ? plan.lines : [bodyText];
+      // ⚠️ `NotificationMultiLineContent` **继承** `NotificationBasicContent` ⇒ `title`/`text`
+      //    也是必填（SDK `notification/notificationContent.d.ts:146-175`）：折叠态就渲染它们。
+      content.multiLine = {
+        title: title,
+        text: bodyText,
+        lines: lines,
+        longTitle: title,
+        briefText: bodyText,
+      };
+    }
+    const action: notificationManager.NotificationActionButton = {
+      title: '打开会话',
+      // 与通知本体同源：点按钮也带 `chat_id` ⇒ 同一条 `pendingOpenChatId` 直达链路
+      wantAgent: agent,
     };
     const request: notificationManager.NotificationRequest = {
       // ⭐ 按会话派生 id：同会话**更新**那一条，不同会话**并存**（见 notificationIdFor 的碰撞取舍）
       id: notificationIdFor(chatId),
       content: content,
       wantAgent: agent,
-      notificationSlotType: notificationManager.SlotType.SOCIAL_COMMUNICATION,
+      actionButtons: [action],
+      // ⭐ 档位化 slot：ask = 横幅+响铃（更醒目），turn_done = 静默（见 slotTagFor 的 SDK 依据）
+      notificationSlotType: slotTypeOf(slotTagFor(kind)),
       // 同一应用的所有聊天提醒归一组 ⇒ 系统可折叠展示（SDK since 8 支持）
       groupName: NOTIFY_GROUP_NAME,
       autoDeletedTime: Date.now() + AUTO_DELETE_MS,
       tapDismissed: true,
-      // 同一 id 的更新不重复响铃（phase_done 与 session idle 会各来一次）
-      isAlertOnce: true,
+      // 同一 id 的更新是否重复响铃：turn_done 去重（phase_done 与 session idle 会各来一次），
+      // ask_user 允许重响（新问题就该再提醒一次；若用固定 id 覆盖更新也仍会提示）。
+      isAlertOnce: kind !== NOTIFY_KIND_ASK,
     };
     await notificationManager.publish(request);
     // 记账：该会话现在有未读提醒（按会话去重）⇒ 角标与通知同步重算
