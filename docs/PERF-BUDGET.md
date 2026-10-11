@@ -270,3 +270,69 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
 2. `guard.sh` 全量（含 core 编译，约 1–2 分钟）作为**合并前自检**（不进 gate，避免与 ArkTS 真编译争锁）。
 3. 阈值当前**偏松**（抓数量级）。若你希望更早发现 20% 级退化，可加"与上次 run 的比值"对比
    （需落一份历史 baseline 文件 —— 会引入"基线漂移"治理成本，建议重构稳定后再启用）。
+
+---
+
+## 7. 已排除的嫌疑人（**否定结论** · 判据在仓内，可复跑）
+
+> 为什么单列：`appfreeze THREAD_BLOCK_6S`（2026-10-11 11:36:28，主线程 6s 无响应）取证时，
+> `rowSignature` / `applyRow` / `rebuildRows` 一度是头号嫌疑（采样快照里有它的帧）。
+> **实测否掉了** —— 记在这里，省下一个人再去改它（改它只增风险）。
+
+**链路与量级**（`pushEvents store.ets:211 → rebuildRows :230 → deriveRows derive.ts:269 → applyRow render.ets:321`）
+
+| 每次 SSE 事件做什么 | 与什么成正比 |
+|---|---|
+| 事件批逐个 `reduce` | 批大小 |
+| `deriveRows(state)` 全量重派生 + `sortedTurns` | turn 数 T（+ T log T 排序） |
+| 逐行 `rowSignature`（**O(1)**：`.length` 聚合 + `subAgentSig`） | 行数 R |
+| 逐行 `applyRow` —— **早退**（`render.ets:323`）⇒ 仅**变化行**才拷 iterations/subAgents | 变化行数 |
+
+**实测**（`tools/tests/row_signature_cost.test.ts`，消费生产 `deriveRows`/`applyRow`，复刻 `rebuildRows` 循环）：
+`T4/R4 → T64/R64` 五档，**一条 live 流式事件的变化行数恒为 `1,1,1,1,1`**（不随 R 增长）；
+重复同内容帧 **0**。
+⇒ **O(R) 签名比较 + O(1) 行拷贝**（早退 + `deriveRows` 的对象恒等 memo）。
+
+**mutation 自证**：拿掉 `applyRow` 早退 ⇒ 变化行数 = `R+1`（`5,9,17,33,65`）⇒ 判据必红；还原 ⇒ 绿。
+
+⛔ 结论：**`rowSignature` 这条链不是 6s 的主因**（它"热"但不"贵"）。
+6s 拥堵的实际落点见下一节（`drawerGroups` 的 O(n²)）—— 修那里。
+
+> 6s 主因的取证（另派单）：`faultlog/appfreeze-...xbot-*.log` 的 4 个主线程快照里，
+> **3/4 停在 ArkUI build 阶段**（`FlushVsync → FlushDirtyNodeUpdate → … → drawerGroups
+> → sessionById`），而 `Index.ets:4066 sessionById()` 是**线性扫描 `this.sessions`**、
+> `drawerGroups()`（`:4086`）组内逐项调用它 ⇒ **O(n²)**，且每帧再付一次
+> `starredIds()`=`parseStarred(...)`（JSON 解析）。`/api/session-tree` 实测
+> `next_offset: 675` ⇒ n≈**675** ⇒ 单次 `drawerGroups()` ≈45 万次比较。
+> ⚠️ 该文件是 `pages/Index.ets`（指挥者域）⇒ 只给配方，不在本线改。
+
+---
+
+## 7. 真机动态指标采集（方法 + 判读，2026-10-11）
+
+> 为什么需要这一章：`tools/perf/guard.sh --static` 是**静态**预算（调用点数/曲线/role），
+> `render_scale.sh` 是**节点规模**代理，`bench_core.sh` 是**离线纯逻辑**。三者都量不到
+> "**真机滚动卡不卡 / 冷启多慢 / 内存涨不涨**" ⇒ 本章固化那三把**只读**的尺子。
+
+### 7.1 一览（命令 → 口径 → 判读）
+
+| 脚本 | 确切命令 | 量什么 | 判读 |
+|---|---|---|---|
+| `tools/perf/scroll_fps.sh` | `TARGET=127.0.0.1:5555 bash tools/perf/scroll_fps.sh 8` | 设备自带 `SP_daemon` 采 **FPS / jitters / 屏幕刷新率**（`-f`） | app FPS 应贴近屏幕刷新率；**jitters 应 ≈0**；出现个位数 FPS = 主线程被长任务阻塞 |
+| 同上（内存/CPU） | `... scroll_fps.sh 5 --memory` | 进程内存 + 总内存（`-r`）+ 进程 CPU load（`-c`） | 滚动前后内存**不应单调上涨**（泄漏）；CPU load 应随滚动结束回落 |
+| 同上（代滚） | `... scroll_fps.sh 8 --drive` | 脚本用 `uitest uiInput swipe` **代滚** ⚠️ 会动屏幕 | 同人工滚判读；⛔ 先确认没人在验收 |
+| `tools/perf/coldstart.sh` | `TARGET=127.0.0.1:5555 bash tools/perf/coldstart.sh 60` | **被动**监听 hilog：`EntryAbility onCreate`(t1) → `loadContent succeeded`(t2) | `t2 − t1` = **启动骨架耗时**（不含首帧绘制，见 §1 局限）；只量**自然发生**的冷启 ⇒ 脚本**绝不** force-stop/重装 |
+| `tools/perf/render_scale.sh` | `TARGET=127.0.0.1:5555 bash tools/perf/render_scale.sh` | `uitest dumpLayout` 的**布局节点数** | 配合 §1.5 的阈值看静息规模；只读（不点/不滑/不切） |
+
+⛔ **三脚本共同纪律**：默认**被动、只读**；采集窗口内**不并发**别的设备操作（否则数字里混进别人的界面）；
+⛔ 不为了好看调阈值 —— 它们只**输出数字**，不做判断（阈值在 `guard.sh` 与本章 §2/§5）。
+
+### 7.2 抽屉分组基线订正 —— ⚠️ **旧值已因 `be32606` 失效**
+
+- **旧基线（作废）**：`drawerGroups()` 对**每个分组项**调一次 `sessionById`（**线性扫描**）⇒ 复杂度 **O(n²)**；
+  另每帧调 `starredIds()` = `parseStarred(settingOf(...))` **两次**（两次 JSON 解析）、重名消歧 **O(g²)**。
+  ⇒ 会话数 n 大时抽屉每帧重建**超线性**变慢（faultlog 里的 **6s 主线程阻塞**嫌疑点）。
+- **订正后（`be32606`）**：`sessionIndex()` O(n) 建一次 `chat_id→行` 索引 + 索引回查 O(1)（合计 **O(n+g)**）；
+  `starred` **每帧一次**；消歧改 `titleCount` 计数 **O(g)**。**行为逐字不变**（判据 `tools/tests/drawer_hotpath.test.ts`，14 断言）。
+- ⛔ **任何"抽屉耗时随 n² 增长"的旧观测/旧阈值一律作废**；复测请用 §7.1 的 `scroll_fps.sh`，
+  在**同一 n** 下对比"开抽屉 + 滚动"的 FPS/jitters（设备排队中，首轮实测待补）。

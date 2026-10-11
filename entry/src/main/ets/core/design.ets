@@ -315,6 +315,11 @@ export function surfaceRoles(): SurfaceRole[] {
     new SurfaceRole('surface.canvas', RUNG_CANVAS, false),
     new SurfaceRole('surface.card', RUNG_CARD, true),           // 卡片：浅色系靠发丝立边
     new SurfaceRole('surface.overlay', RUNG_CARD, true),        // 浮层/Sheet 面板（+ elev3 阴影）
+    // **中性**"抬起但非行/非 pill"的面（2026-10-11，tokens-ux spec）：
+    // 用于 `core/todo/Progress` 的**轨道底**与"**就地编辑框底**"—— 它们需要 RUNG_RAISED 的**抬升级**
+    // 但既不是行（`overlayRow`）也不是 pill（`surface.pill`）⇒ 借用任一都是**错语义**，硬替又会改色。
+    // ⛔ 取值 = `p.surfaceAlt`（与现状调用点**逐字节等价**，深色渲染不变）。
+    new SurfaceRole('surface.raised', RUNG_RAISED, false),
     new SurfaceRole('surface.overlayRow', RUNG_RAISED, false),
     new SurfaceRole('surface.overlayRowHover', RUNG_ACTIVE, false),
     new SurfaceRole('surface.pill', RUNG_RAISED, false),        // 工具 pill（普通）
