@@ -9,7 +9,7 @@
  *   1. **真 `@Component` + `@Prop` / `@State`**，标记**直接内联在 `build()` 里**（不抽带参 `@Builder`）——
  *      `docs/ARKTS-GOTCHAS.md` 头号坑：带参 `@Builder` 的参数是"调用那一刻的快照"，子树不随参数重建
  *      ⇒ 会卡在首帧（品牌标记不出现 / 不动）。
- *   2. **动效只走底座** `components/anim.ets`（T1 = `animBase()`）⇒ ⛔ 无字面量时长、⛔ 无 `Curve.Friction`。
+ *   2. **动效只走底座** `components/anim.ets`（T1 = `animBase` 工厂）⇒ ⛔ 无字面量时长、⛔ 无 `Curve.Friction`。
  *      **曲线语义**（`core/splash.splashPhaseCurve` 是唯一判据）：**入场（T1）允许超调**（spring），
  *      **让位/退出（T2）不许超调**（ease-out）。⚠️ **T2 曲线 TODO：待 `animEaseOut()` 就绪**
  *      （`orb-ux` 正把 `core/tokens.ets:56` 的 `EASE_OUT_CSS` 收成该工厂；本波不能用 spring 之外的
@@ -65,7 +65,7 @@ export struct SplashOverlay {
   onSkip: () => void = () => {
   };
 
-  /** 整层不透明度（T2 让位 ⇒ `animSlow()` 淡出，揭示首页首帧）。 */
+  /** 整层不透明度（T2 让位 ⇒ `animSlow` 工厂淡出，揭示首页首帧）。 */
   @State private overlayOpacity: number = 1;
   /** 标记不透明度（T1 入场：0→1，**一次**）。 */
   @State private markOpacity: number = SPLASH_MARK_ENTER_OPACITY;
@@ -96,7 +96,7 @@ export struct SplashOverlay {
 
   /**
    * 阶段变化（唯一消费 `core/splash` 的判据）。
-   * T2 ⇒ `animSlow()`（320ms + 全站 spring）淡出让位；
+   * T2 ⇒ `animSlow` 工厂（320ms + 全站 spring）淡出让位；
    * T3 ⇒ `onDone()` 交棒（reduceMotion 下无 T2 ⇒ **跳切**，无淡出）。
    */
   private onPhaseChange(): void {
@@ -114,7 +114,7 @@ export struct SplashOverlay {
         return;
       }
       // ⚠️ TODO（T2 曲线）：让位**不许超调**（`core/splash.splashPhaseCurve(T2) === easeOut`）。
-      //    当前底座工厂尚未就绪（`animEaseOut()` 由 orb-ux 建），故**暂**用 `animSlow()`（spring，带超调）。
+      //    当前底座工厂尚未就绪（`animEaseOut` 由 orb-ux 建），故**暂**用 `animSlow`（spring，带超调）。
       //    工厂就绪后**只改这一行**：`animateTo(animEaseOut(), ...)`。
       //    ⛔ 不得在此自造曲线 / import `@ohos.curves`（唯一出口是 components/anim.ets）。
       animateTo(animSlow(), () => {
@@ -194,7 +194,7 @@ export struct SplashOverlay {
     .onClick(() => {
       this.onSkip();
     })
-    // T1 入场：**一次**（`animBase()` 220ms + 全站 spring；⛔ 无字面量时长）。
+    // T1 入场：**一次**（`animBase` 工厂 220ms + 全站 spring；⛔ 无字面量时长）。
     .onAppear(() => {
       if (!this.reduceMotion) {
         animateTo(animBase(), () => {
