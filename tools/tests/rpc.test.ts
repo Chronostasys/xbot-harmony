@@ -18,6 +18,7 @@ import {
   AGENT_KEY_ALLOW_SELF_COMPACT, AGENT_KEY_VISION_JPEG_QUALITY, AGENT_KEY_VISION_MAX_IMAGE_BYTES,
   AGENT_KEY_VISION_MAX_IMAGE_EDGE_PX, AGENT_KEY_VISION_OUTPUT_FORMAT, AGENT_SETTING_KEYS,
   boolSettingValue, buildToolsView, buildVisionWrites, BYTES_PER_MB, bytesToMbInput, clampSettingInt,
+  settingIntOrDefaultOrSkip, mbToBytesOrDefaultOrSkip,
   countModelsForSub,
   DefaultSubscriptionParams, defaultSubscriptionId, displayApiKey,
   EmptyParams, ENTRY_MCP_HEAD, flattenToolsView, GetSettingsParams, isSubscriptionEnabled,
@@ -244,8 +245,26 @@ const w2 = buildVisionWrites('', '', '', '');
 eq('视觉写入值（全空 ⇒ 默认）', w2.map((w: SettingWrite) => w.value),
   ['1024', '4194304', 'auto', '85']);
 const w3 = buildVisionWrites('100', '99', 'jpeg', '10');
-eq('视觉写入值（越界 ⇒ 默认，格式仍生效）', w3.map((w: SettingWrite) => w.value),
-  ['1024', '4194304', 'jpeg', '85']);
+// ⛔ 本波订正（web 权威 `SettingsAgent.tsx:172-190`）：**非空但越界 ⇒ 该键不写**（保留后端旧值），
+//    只有**空输入**才落默认。旧断言（越界 ⇒ 回默认**并写回**）会把本地默认值覆盖到服务端 ⇒
+//    违背用户常驻要求「状态一律以后端为准」，故按 web 语义更正。
+eq('视觉写入值（越界 ⇒ 跳过该键，格式仍生效）', w3.map((w: SettingWrite) => w.value), ['jpeg']);
+eq('越界 ⇒ 只剩恒写的 output_format', w3.map((w: SettingWrite) => w.key), ['vision_output_format']);
+// 单键越界：只跳该键，其余照写（顺序仍是 edge → bytes → format → quality）
+eq('仅 edge 越界 ⇒ 其余照写', buildVisionWrites('99999', '2', 'jpeg', '70').map((w: SettingWrite) => w.key),
+  ['vision_max_image_bytes', 'vision_output_format', 'vision_jpeg_quality']);
+// 空 ⇒ 默认（与 web 的 else 分支一致；不跳过）
+eq('空 ⇒ 默认（不跳过）', buildVisionWrites('', '', '', '').map((w: SettingWrite) => w.value),
+  ['1024', '4194304', 'auto', '85']);
+// 写回路径的 skip 助手（唯一判据）
+eq('skip 助手：空 ⇒ 默认', settingIntOrDefaultOrSkip('', 256, 8192, 1024), 1024);
+eq('skip 助手：越界（小/大/非数字）⇒ null',
+  [settingIntOrDefaultOrSkip('255', 256, 8192, 1024), settingIntOrDefaultOrSkip('8193', 256, 8192, 1024),
+    settingIntOrDefaultOrSkip('abc', 256, 8192, 1024)], [null, null, null]);
+eq('skip 助手：合法 ⇒ 原值', settingIntOrDefaultOrSkip('2048', 256, 8192, 1024), 2048);
+eq('skip 助手 MB：空 ⇒ 4MB', mbToBytesOrDefaultOrSkip(''), '4194304');
+eq('skip 助手 MB：越界 ⇒ null', [mbToBytesOrDefaultOrSkip('21'), mbToBytesOrDefaultOrSkip('0')], [null, null]);
+eq('skip 助手 MB：合法 ⇒ 字节', mbToBytesOrDefaultOrSkip('2'), '2097152');
 eq('SettingWrite 键集', Object.keys(JSON.parse(JSON.stringify(new SettingWrite('k', 'v'))) as object).sort(),
   ['key', 'value']);
 
