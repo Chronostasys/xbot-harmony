@@ -118,7 +118,7 @@ import { PluginsSheet } from '../components/PluginsSheet';
 import { SelfCheckSheet } from '../components/SelfCheckSheet';
 import { SessSheet, SearchHitsSheet, ContextSheet } from '../components/MenuSheets';
 import { AskUserSheet } from '../components/AskUserSheet';
-import { sheetTransition } from '../components/anim';
+import { animBase, sheetTransition } from '../components/anim';
 import { rpc } from '../core/rpc';
 import { TodoPayloadRow, removeTodoAt, renameTodoAt, todoPayloadRows, toggleTodoAt } from '../core/todos';
 import { WebSubAgentProgress } from '../core/chattypes';
@@ -756,7 +756,7 @@ struct Index {
     // 兜底：即使本地存储不可用，也必须能进登录页（否则永远停在 Loading，无从排查）
     let saved: AppConfig = new AppConfig();
     try {
-      const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      const ctx: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
       saved = await this.config.init(ctx);
     } catch (e) {
       this.errMsg = `[本地存储不可用] ${errText(e)}（可继续手填地址登录）`;
@@ -3023,8 +3023,10 @@ struct Index {
             .fontSize(FS_TITLE).fontWeight(typeOf('type.subhead').weight)
             .fontColor(this.pal().textPrimary).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
           Row({ space: SP_1 }) {
-            Circle({ width: 6, height: 6 })
-              .fill(this.busy ? this.pal().accent : this.pal().textMuted)
+            // ⚠️ 不用 `Circle().fill()`：其声明在本 SDK 标 @since 26（工程 pin 21）⇒
+            //    改用通用属性画同形圆点（观感等价）。
+            Row().width(6).height(6).borderRadius(6 / 2)
+              .backgroundColor(this.busy ? this.pal().accent : this.pal().textMuted)
             // ⛔ 状态点不再呼吸（第二处"在飞"）——唯一在飞动效 = 光球；状态只由**颜色**表达。
             Text(this.busy ? '运行中…' : '空闲')
               .fontSize(typeOf('type.caption').size).fontColor(this.busy ? this.pal().accentSoft : this.pal().textMuted)
@@ -3122,7 +3124,7 @@ struct Index {
         Column({ space: 10 }) {
           ForEach([0, 1, 2, 3], (i: number) => {
             Row({ space: 8 }) {
-              Circle({ width: 26, height: 26 }).fill(this.pal().surfaceHi)
+              Row().width(26).height(26).borderRadius(26 / 2).backgroundColor(this.pal().surfaceHi)
               Column({ space: 6 }) {
                 Row().width(i % 2 === 0 ? '72%' : '54%').height(10)
                   .backgroundColor(this.pal().surfaceHi).borderRadius(5)
@@ -3411,7 +3413,7 @@ struct Index {
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                   .constraintSize({ maxWidth: 90 })
                 if (this.tabRunning(cid)) {
-                  Circle({ width: 6, height: 6 }).fill(this.pal().successText)
+                  Row().width(6).height(6).borderRadius(6 / 2).backgroundColor(this.pal().successText)
                 }
                 SymbolGlyph($r('sys.symbol.xmark')).fontSize(11).fontColor([this.pal().textMuted])
                   .onClick(() => {
@@ -3926,7 +3928,7 @@ struct Index {
       // 缓存写盘失败不影响切主题
     });
     try {
-      const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      const ctx: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
       ctx.getApplicationContext().setColorMode(dark
         ? ConfigurationConstant.ColorMode.COLOR_MODE_DARK
         : ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT);
@@ -3934,7 +3936,7 @@ struct Index {
       console.warn(`xbot theme: setColorMode 失败（已忽略）: ${errText(e as Object)}`);
     }
     try {
-      const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      const ctx: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const win: window.Window = await window.getLastWindow(ctx);
       await win.setWindowSystemBarProperties({
         statusBarContentColor: dark ? '#FFFFFF' : '#000000', // allow-color-literal: setWindowSystemBarProperties 只接受色值字符串（不接资源引用），已按 dark 分叉
@@ -3965,7 +3967,9 @@ struct Index {
 
   /** 统一的"轻动效"入口（时长/曲线只有一处，避免每个面板各自为政）。 */
   private anim(run: () => void): void {
-    animateTo({ duration: 220, curve: Curve.Friction }, run);
+    // 动效**统一走底座**（`components/anim.ets` 的 `AnimateParam` 工厂 = 唯一 import
+    // `@ohos.curves` 处）；且用 `UIContext.animateTo`（全局 `animateTo` 自 API 18 deprecated）。
+    this.getUIContext().animateTo(animBase(), run);
   }
 
   /** 最近一个迭代号（流式光标只挂在最后一个迭代上）。 */
@@ -4160,7 +4164,7 @@ struct Index {
    */
   private async applyNotifyToggle(on: boolean): Promise<void> {
     try {
-      const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      const ctx: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
       if (on) {
         await ensureEnabled(ctx);
         this.notifyOn = await notificationsEnabled();
@@ -5514,7 +5518,7 @@ struct Index {
                             Row({ space: SPACE_XS }) {
                               if (s.running === true) {
                                 // 运行中 = **静态** 状态点（⛔ 不呼吸：唯一在飞动效 = 光球）。
-                                Circle({ width: SPACE_XS, height: SPACE_XS }).fill(this.pal().success)
+                                Row().width(SPACE_XS).height(SPACE_XS).borderRadius(SPACE_XS / 2).backgroundColor(this.pal().success)
                               }
                               Text(this.tabLabel(s.chat_id))
                                 .fontSize(typeOf('type.body').size)
