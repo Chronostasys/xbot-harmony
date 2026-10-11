@@ -76,6 +76,31 @@ le "anim*() 调用点（每次调用新建曲线对象）" "$n_anim" 20 处
 le "ForEach 处数" "$n_fe" 107 处
 le "core 外裸 parseMarkdown/parseInline 调用点" "$n_raw" 0 处
 
+# ── 后台对账「极轻量」守卫（用户点名："注册一个极其轻量的任务"）────────────────────
+# 数的是**常量值**（不是调用点）⇒ 用 bash 算术求值（表达式形如 `15 * 60 * 1000`）。
+# ⛔ 零扫描判红：取不到表达式 ⇒ bad（防"常量被改名/删除后守卫静默放行"）。
+REC_SRC="${ETS}/core/reconcile.ets"
+rec_num() { # $1 = 常量名 → 打印其算术值；取不到打印空
+  local e
+  e=$(grep -oE "export const $1: number = [^;]+;" "$REC_SRC" 2>/dev/null | head -1 | sed 's/.*= //; s/;$//')
+  [ -n "$e" ] || return 0
+  # 只允许 数字/空白/*/+/-（防注入；也防它被改成函数调用）
+  case "$e" in *[!0-9\ \*\+\-]*) return 0 ;; esac
+  echo $(( e )) 2>/dev/null || true
+}
+rec_iv=$(rec_num RECONCILE_INTERVAL_MS)
+rec_steps=$(rec_num RECONCILE_MAX_BACKOFF_STEPS)
+rec_give=$(rec_num RECONCILE_GIVE_UP_FAILURES)
+if [ -z "$rec_iv" ] || [ -z "$rec_steps" ] || [ -z "$rec_give" ]; then
+  bad "后台对账常量取不到（RECONCILE_INTERVAL_MS / MAX_BACKOFF_STEPS / GIVE_UP_FAILURES —— 改名或删除即判红）"
+else
+  ge "后台对账基准唤醒间隔（≥15min ⇒ 每日常态唤醒 ≤96 次）" "$rec_iv" 900000 ms
+  le "后台对账退避步数上限（⇒ 最长间隔 ≤2^n×基准）" "$rec_steps" 5 步
+  ge "后台对账退避步数下限（=0 会让"封顶"判据失效）" "$rec_steps" 1 步
+  le "后台对账放弃阈值（≤10 ⇒ 失败后确实会停，不无限耗电）" "$rec_give" 10 次
+  ge "后台对账放弃阈值下限（≥1）" "$rec_give" 1 次
+fi
+
 # anim.ets：曲线**记忆化守卫**必须在位。
 # ⚠️ 为什么不是"数构造点"：`curves.cubicBezierCurve` 原本也只在 `springCurve()` 里 1 处，
 #    问题在于它被 14 处调用点**反复调用** ⇒ 数调用点抓不到。能抓到的是"记忆化守卫还在不在"：
