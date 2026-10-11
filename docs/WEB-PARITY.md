@@ -497,3 +497,40 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 - **§10 的两处状态已过时**（本轮复核更正）：`§10` 表把「任务面板」记为未迁，实际已由
   `Index.ets:4716 PanelsSheet` 覆盖；把「会话视图条」记为未迁，实际分类切换已迁（`Index.ets:5196`）。
   另 `§8.3 波1b②` 的「修 `PluginPanelInfo.url` 裸 `.js` 语义」**已完成**（`core/pluginhost.ets:573`）。
+
+## 12. live 呈现面 **语义分歧审计**（2026-10-11 波9 · 只审不改）
+
+> 沿用户亲报的两个 bug 的**三类失败模式**做审计：①同一状态被**两处判据**解释；②按**位置/键不稳定**合并；
+> ③**陈旧快照覆盖新状态**。方法：**web 为权威判据**，逐条给 两侧 file:line + 可证伪复现 + 严重度。
+> **不重复**已知在修项（`core/{streammerge,toolstatus}` 的 rank/generating/去重键；`LiveTailView`+`ThinkingLine` 的两处动效）。
+> 严重度：**P0** 用户可见且误导 ｜ **P1** 视觉/语义不一致 ｜ **P2** 边角/结构。
+> ⚠️ 本轮为**只读**审计，未改任何产品代码。
+
+| # | 模式 | 原生 file:line | web file:line | 分歧点 | 可证伪复现 | 严重度 | 修复方向 |
+|---|---|---|---|---|---|---|---|
+| A | 同一状态两处判据 | `LiveTailView.ets:319-335`(badge)/`:337-349`(color)/`:375-380`(popVM) | `FoldedToolGroup.tsx:157` + `:194-214` | live 工具**浮层**用自带 raw-status 的 `badge()/color()`，而 pill 用 canonical `statusChip`/`statusColorOf` ⇒ 同一工具两处结论相反 | `color('killed')===successText`(绿) 而 `statusColorOf(ST_KILLED)===textMuted`；`badge(running)==='1.2s'` 而 `statusChip(ST_RUNNING)==='执行中'` | **P0** | popVM 改调 `statusChip(kind,…)`+`statusColorOf`；删 `badge/color/label`（`label()` 无消费者） |
+| B | 按键/位置合并 | `core/render.ets:167-173` | `LiveIteration.tsx:157-179` | live 工具列表 = `activeTools ++ streamingTools`，**未按 toolKey 去重、未剔除已完成迭代里的同名工具**（web 两步都做）⇒ 「同一工具两行」在 live 面复现 | 某工具同时在 `activeTools`(陈旧) 与 `iterationHistory` ⇒ 原生渲染 2 枚 pill，web 1 枚 | **P0** | 复用 `streammerge.toolKey/mergeTools`，并滤掉 `completedIterToolKeys` |
+| C | 同一状态两处判据 | `core/toolstatus.ets:56-58`；`LiveTailView.ets:125-144` | `statusVisual.ts:20-22`；`LiveIteration.tsx:180,186`；`FoldedToolGroup.tsx:157-158` | **`pending` 的「在飞」归属相反**：web `isToolInProgress` 含 `pending`，原生 `isLiveStatus` 不含 ⇒ 思考领读/光球模式与折叠组在 pending 窗口与 web 相反 | 全工具 pending + reasoning>0 + text==='' ⇒ 原生 `thinkingIsPrimary()===true`，web `reasoningInProgress===false` | **P1** | 给「思考领读/组观感」单独一个含 pending 的判据（与 web 同源） |
+| D | 陈旧/权威 | `core/store.ets:709-724` | `AssistantMessage.tsx:104-117`；`useRegionWindow.ts` | 区域取段游标**无洞检测**：原生恒取本 turn 最小迭代号，web 取「洞上边界(`gapTop`)」 | `iterations=[1..40]∪[52..90]` ⇒ web 请求 `before=52`、原生 `before=1`（拿到空段，洞永不闭合） | **P1** | `loadEarlierRegions` 增洞检测取上边界，并把 `gapTop` 透传/驱动自动追赶 |
+| E | 同一状态两处判据 | `core/integrate.ts:385`；`core/reduce.ts:781`；`pages/Index.ets:2929` | `MessageList.tsx:1679-1686`；`AssistantMessage.tsx:158-163` | `phase==='compressing'` **无任何 UI 消费者** ⇒ 压缩期原生恒显示「思考中…」，web 显示「正在压缩上下文…」 | `grep -rn "compressing" entry/src/main/ets` → 仅注释；`showsBusyPlaceholder` 不看 phase | **P1** | 占位/`LiveTailView` 接 `liveProgress().phase`（web 同款） |
+| F | 陈旧快照覆盖新状态 | `pages/Index.ets:1050`；`store.ets:904` | `usePendingEdit.ts:57-95`；`AgentPanel.tsx:691-692` | goal/todos **无乐观覆盖层**：用户勾选/改名后若一条旧 progress 快照先到，UI 回退旧清单（web 有 begin/commit/discard+序号防乱序） | 造 `snapshot=OLD` → `commit(NEW)` → 再喂 `OLD`：web 保 NEW；原生无该函数 | **P1** | `core/` 加 `usePendingEdit` 等价纯逻辑，Index 用覆盖值渲染 |
+| G | 同一信息两处口径 | `pages/Index.ets:2200-2201` | `AskUserPanel.tsx:37,69,84` | AskUser 答案键/拼接口径不同：web 用**下标** `String(i)`、多选 `、`；原生用 `q.id`(缺省 `q{i}`)、多选 `, `、并塞 `；other` | 键集合：web `{"0":…}` vs 原生 `{"<q.id>":…}`；分隔符 `、` vs `, ` | **P1** | ⚠️ 先核 `agent` 端 `AskUserResponse.Answers` 的匹配语义（服务端单答兜底 key 竟是 `"1"`），再对齐 |
+| H | 同一信息两处口径 | `pages/Index.ets:1052,1858-1860,3012,5663`；`core/statusfmt.ets`(goalText 读 `g.text`) | `MessageInput.tsx:694,730`；`GoalBanner.tsx:30` | 同一 goal 两源：状态栏/`StatusSheet` 读 `store.goal`(`.text`，**全仓无赋值点** ⇒ 恒空)，横幅读 `liveProgress().goal`(`.objective`) ⇒ 「详情」入口在只有 goal 无 todo 时**消失** | `goalText({text:'x'})===''` 而横幅正常显示 | **P1** | `goalLine/StatusSheet` 改读 `objective`；`详情` gating 同源（该缺陷已在 `statusfmt.ets` 头注记录、未修） |
+| I | 键不稳定 | `components/LiveTailView.ets:568` | `FoldedToolGroup.tsx:557` | live pill 的 `ForEach` key 含 `t.status`（`lt-${i}#${name}#${status}`）⇒ 状态每翻一次 key 变、销毁重建（打开中的浮层被拆、selected 复位）；web key 与状态无关 | 仅把某枚 status `running→done` ⇒ 原生 key 变、web 不变 | **P1** | key 去掉 `status`（用 `call_id` 或 `name-i`） |
+| J | 顺序/不变量 | `core/indicators.ets:56-58`；`core/streammerge.ets:394-397` | `MessageList.tsx:640-650` | 迭代边界空隙**多画一个「思考中…」**：web 用 `!tailIsLiveRow` 抑制（否则与上方「思考 N 字」自相矛盾），原生缺该项 | `showsBusyPlaceholder({tailShowsIndicator:false,localBusy:true,rowsLength:5})` 原生 `true`、web `false` | **P1** | ⚠️ **需仲裁**：原生注释称用户 2026-10-10 点名要求显示 ⇒ 与 web 判据相反，二者定一 |
+| K | 状态迁移丢失 | `components/LiveTailView.ets:76,466-479`；`MessageRow.ets:591-596` | `ThinkingLine.tsx:32,49-51`；`IterationHistory.tsx:56-59` | 「思考展开态」commit 时不迁移：web 让 live↔committed 共用 `reasoningKey(turnID,iteration)`；原生 live 是无键局部 `@State`、committed 另一套键 | 展开 live 思考 → 等迭代 commit → 展开态回 `false` | **P1** | 页面持一份 `turnID:iteration → open` 共享键，live/committed 共用 |
+| L | 同一信息两处口径 | `core/ctxring.ets:113-123`(K) vs `core/statusfmt.ets:26-37`(k/`.0`) | `ContextRing.tsx:12-16` | 同一 token 数两套格式：环=`50K`（大写、整千无小数），状态条=`50.0k`（小写、<100000 留 `.0`）；web 两处都是大写 K | `ctxTokensAsK(50000)==='50K'` vs `humanTokens(50000)==='50.0k'` | **P2** | 状态栏统一改走 `ctxTokensAsK`（同一数字只留一套格式化） |
+| M | 同一信息两处口径 | `core/ctxring.ets:99-106` vs `core/statusfmt.ets:52-55` | `ContextRing.tsx:18-20` | 同一百分比两套算法+兜底分叉：环 3 位无兜底，状态条 1 位且缺 percent 用 used/max 兜底 | `p=80.444`→环 `"80.444"`、状态条 `"80.4"` | **P2** | 共用同一取整函数与「缺 percent 不显示」策略（web 环语义为准） |
+| N | 陈旧/复位 | `components/MessageRow.ets:162`(行内 `@State regionStatus`)/`:368-378` | `useRegionWindow.ts:29,64,130` | 区域加载**失败无计数**（web `MAX_AUTO_REGION_FAILURES=2` 保守停）；且 `regionStatus` 是行内持久 `@State`，行被复用时不按 `turnID` 复位 | 行复用 + `status='error'` → 新 turn 仍显示「加载失败·重试」；弱网无限自动重试 | **P2** | 加 `regionFailStreak`（≥2 只手动重试）+ `onAppear`/key 按 `turnID` 复位 |
+| O | 同一信息两处口径 | `core/subagent.ets:38-50,65-78` | `SubAgentProgressTree.tsx:56,68` | SubAgent 树**根过滤**含 `active`（原生 `SUB_RUNNING=running\|active\|pending`），web 根只 `running\|pending`（`active` 仅用于卡片图标） | `visibleRoots([{status:'active'}]).length`：原生 1、web 0 | **P2** | 根过滤收窄到 `running\|pending`（`active` 只进 `subStatusKind`） |
+| P | 同一文件两口径 | `core/statusfmt.ets:107`(认 `done`) vs `:151`(只认 `completed`) | `GoalBanner.tsx:37` | goal「已完成」在**同一文件内两份口径**（`goalText` 接受幽灵值 `done`，`goalDisplay` 只认 `completed`） | `goalText({status:'done'})` 非空 而 `goalDisplay('…','done').completed===false` | **P2** | 删 `goalText` 的 `'done'` 分支（或整体改用 `goalDisplay`） |
+| Q | 同一信息两处口径 | `core/statusfmt.ets:88-100`(只认 `doing`) vs `core/todos.ets`(`todoState.currentIndex` 含 pending) | `useTodos.ts:41` | 「当前任务」两套判据：状态栏 `currentTodo` 只取 `doing`，`TodoPanel` 取第一条**非 done**（含 pending） | `todos=[{pending:'A'},{doing:'B'}]` ⇒ `currentTodo`='B'、面板='A'（web 亦'A'） | **P2** | `currentTodo` 复用 `todoState().currentText`（与面板同源） |
+| R | 键不稳定 | `components/MessageNav.ets:245-247`；`core/subagent.ets:124-126` | `MessageUserNav.tsx:175`；`SubAgentProgressTree.tsx:63` | ArkUI 适配手法：`ForEach` key 编入 `active`/内容指纹（web key 恒定）⇒ activeSeq/描述变化即重建。**平台被迫**（key 不变则不重估 `@Prop`） | 滚动改 `activeSeq` ⇒ 两项重建；`desc` 同长异文 ⇒ key 不变（可能不刷新） | **P2** | 有据差异，不改行为；如需减闪动改 `@Observed/@ObjectLink`。SubAgent 的 `desc.length` 建议改全文/哈希 |
+| S | 文档过期 | `docs/WEB-ALIGNMENT.md:457-464` | `core/toolstatus.ets:17-19` | 文档 13.3 写「live pending 一律按执行中渲染」，已被 `toolstatus.ets`（pending 必须「排队」）推翻 ⇒ 两处必有一份过期 | 直接比读两处文本 | **P2** | 拍板后订正该段（本轮只读未改） |
+
+**确认无分歧（防假阴性）**：done 的 chip/形态（两边都安静、描边绿勾）；pending 的 pill 色（两边都 `text-muted`）；
+pill 上限 8/前 7+`+N`；`mergeToolRuns` 合并规则（head 可带文本/成员须 tool-only/保 head 迭代号/顺序=首现序/`tools_folded` 聚合）；
+「是否可点」恒可点；形态 if 链各只有一处；busy 单一入口（`indicators.busyNow` 被 composer 与占位共用）；
+导航项数=用户行数；`nearestSeq` 顺序累加口径；usage 陈旧清理（`available=false` 不挂载环）；
+todo 词汇全仓单一口径（`pending|doing|done`）；todo 完成度/百分比；goal 横幅可见性/编辑提交守卫；
+SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清空。
