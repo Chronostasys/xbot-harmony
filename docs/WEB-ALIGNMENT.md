@@ -625,3 +625,36 @@ web：`reasoningCount = reasoningStreaming ? rw.visibleChars : length`，且**�
 **批次 23 的登记原则补充**：视觉分歧**不需要**逐像素理由，但必须满足两条 ——
 ① 每个数值能在 **`core/design.ets`** 里找到对应 token（唯一数值来源，禁组件字面量）；
 ② 由 **`docs/mockups/` 样张 + 设计单测**钉住（样张与实现不一致 ⇒ 红）。
+
+---
+
+### 16.2 批次 24（2026-10-11）：**用户真机亲报后的"可见 UI"第一波** —— 抽屉/设置/Markdown/光球
+
+**起因（verbatim）**：用户在我交付"设计系统地基"后亲报 ——
+> 「我们现在两个设置面板，侧边栏丑的要死，右上角那个设置感觉像是垃圾一样太丑了，侧边栏里的设置打开了又关不掉，点击 x 无反应。排版布局和设计你是几乎一点没改，这能叫超越苹果吗」
+
+⇒ **我的定性：认账**。那一轮做的是地基（令牌层/宪法/样张/门禁），**界面布局一行没动**，所以用户看不出区别。
+⇒ **本批 = 第一波"可见 UI"施工**，全部按 `docs/REDESIGN.md` + `core/design.ets` 落地，**新增的视觉分歧逐条登记如下**。
+
+| # | 分歧点 | web 行为 | 原生行为 | 理由（含依据） | 批次 |
+|---|---|---|---|---|---|
+| 10 | **抽屉（会话列表）形态** | 卡片 + 1px 描边（含 3px accent 左色条）+ 阴影 | **扁平行**：`RADIUS_PILL` + 选中一档填充 + `hairlineOf()` 分隔 + `type.*` 字号阶梯 + 命中区 44 | 用户亲报"侧边栏丑的要死"；"卡片式装饰"正是"丑"的根因（宪法：层级靠字重/内距/发丝，不靠描边阴影） | 24 |
+| 11 | **设置入口数量** | 单面板 | 原为三份（抽屉 `PrefsSheet` / 右上 ⚙ `SettingsSheet` / 偏好设置 `SettingsPanel`）⇒ **收敛为唯一 `components/SettingsPanel`**（11 分区 + 共享原子） | 用户亲报"两个设置面板…右上角那个像垃圾"；同一切面两份实现=第二判据（本仓铁律） | 24 |
+| 12 | **Markdown 主题枚举的呈现** | 下拉/列表 | **按亮/暗分组（`MdThemeItem.mode`）+ 折叠 + 组内单选列表行 + 当前主题预览**（19 项）；⛔ 不是 chip 平铺 | 用户提供的真机截图里 **19 个 chip 糊成一片**是"像垃圾"最直观来源 ⇒ 这是**长枚举结构问题**，不是样式问题 | 24（形态已裁决，落地中） |
+| 13 | **代码块底 / 圆角** | `codeBgOf()` 底 + `R_MD`(6)（`msgflow_visual.test.ts:79` 已钉住 web 值） | **`surface.well`(sunken) + `RADIUS_CARD`(12) + 发丝 + 横向滚动** | 依批次 23 #6「视觉以设计系统为权威」；⚠️ 与该测试期望值冲突 ⇒ **需同步该断言**（chat-surface 已如实上报，未擅自改测试） | 24（**待落地**） |
+| 14 | **用户气泡尾角半径** | 无此值 | `RADIUS_BUBBLE_TAIL = 4`（**统一** `BUBBLE.userRadiusBR=2` 与 `RADIUS_BUBBLE_TAIL=4` 两个值） | 同一语义两处值 = 第二判据；4 落在 4 网格上、语义为"小圆角" | 24 |
+| 15 | **按压不透明度** | `.6` | `PRESS_OPACITY = 0.6`（`TodoPanel` 历史值 `0.7` 归一到 0.6） | 样张 `docs/mockups/interaction.html` 明文 0.6；历史值无依据 | 24 |
+| 16 | **光球在纯白主题下"工具在跑"的线索** | 无光球 | 细环**变亮**（**静态 alpha**，由既有已缓动的 `colorMix` 驱动 ⇒ 不是第二在飞动效） | `porcelain/light` 下 `statusRunning` 与 `accent` **同为 `#0071E3`** ⇒ 颜色维度静帧不可辨；`DESIGN-SYSTEM §8.2` 要求"一眼可辨"，只能用**颜色之外**的静态维度 | 24 |
+| 17 | **光球光晕/柔影不经 `colorOf`** | 无 | 走 `effectsOf()` 的 `glow`(深色) / `elev2`(浅色) | `docs/DESIGN-SYSTEM.md §12.1` 的入口表已列此项；`tokens-ux` 正在评估是否加 `inflight.halo` 语义 role 以统一入口 | 24 |
+
+**本批引入的机器门禁（防复发，已接入 `tools/gate.sh`）**：
+- **⑥b 取色 role 合法性（硬红）**：`colorOf(p, role)` 对未知 role **静默 `p.transparent`** ⇒ 用"散文记号"（`text.pillName`/`status.danger`）会**编译零警告、运行时文字不可见**（真树实测 62 处全合法）。
+- **⑥c 颜色字面量（硬红，真树 0 处）**：`tools/lint/no-color-literals.sh`（**剥注释** + 命中打原文 + 带理由内联豁免 + 零扫描判红 + mutation 自证）。⚠️ 朴素 `grep` 会把组件注释里"为什么用这个角色/值"的**文档**误报成违规（实测 7 处假报）。
+- 见 `docs/DESIGN-SYSTEM.md §12` 与 `docs/ARKTS-GOTCHAS.md` 批次 26/27。
+
+**本批遗留（明账，未完成即未完成）**：
+1. **#13 的测试同步**（代码块圆角从 web 的 `R_MD` 改到设计系统值）——需改 `msgflow_visual.test.ts` 期望值 + 写理由；
+2. **批次 23 #9 遗留的"长词换行策略"**（`BREAK_ALL` 妥协）——设计系统已定稿 ⇒ 应在本批一次性裁决；
+3. **品牌主色对比度**：`onAccent` vs `accent` = **4.3461 < 4.5 AA 正文**（`docs/BRAND.md`）⇒ **待用户拍板**（未擅自改品牌色）；
+4. **配置面两补丁**（开屏 `FOLLOW_APPLICATION`、分层图标）⇒ **待用户拍板**，精确 diff 见 `docs/BRAND.md §12`；
+5. **`pages/Index.ets` 内联可见面第二轮**（`ChatView`/`ChatRowBody`/`LiveRowBody`/`CtxItem`/`LoadingView`/`LoginView`/`ImageViewer`/`RewindEditBar`/`ModelSheet`/`PanelsSheet`）+ 未认领组件（`SubAgentTree`/`MessageNav`/`AuthImage`/`PluginWidgets` 接线）——见 `docs/…`（作战计划另存）。
