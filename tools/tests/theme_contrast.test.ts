@@ -127,15 +127,13 @@ const CANVAS_ROLES: Tier[] = [
   { fg: 'warn', tier: T_SECOND },
   { fg: 'statusError', tier: T_SECOND },       // ContextRing.ets:69 用量环弧色
   { fg: 'statusRunning', tier: T_SECOND },     // AssistantOrb.ets:365 工具在飞环色
-  // `statusWaiting`：**插件 widget 的 "warning" 语气文字**（2026-10-11 接线）
-  // ── 调用点（实测 1 次，**合法**，非工具状态私改判）────────────────────────────
-  //   `components/PluginWidgets.ets:197` `.fontColor(this.pal().statusWaiting)`
-  //   —— 降级占位「暂不支持」的短标签（10fp）。色角色由 **`core/widgetsview.ets`
-  //   的 `styleColorRole()` / `toneColorRole()`** 决定（对齐 web `WidgetZone.tsx:14-23` /
-  //   `components.tsx:16-24` 的 `warning` 档），**不是**工具状态机。
-  //   ⇒ 它属于「插件 widget 语气」这条**独立语义轴**，与 `core/toolvisual.statusColorOf`
-  //     （工具状态唯一表）不冲突 ⇒ **不构成**「状态以后端 status 为准」的回归。
-  { fg: 'statusWaiting', tier: T_SECOND },
+  // ⛔ `statusWaiting` **不在**本判定表（2026-10-11 订正）：它是**状态指示器/点色**
+  //    （web `--status-waiting` 是**点色**，不是文字色），当正文色在浅底只有 1.7–2.12:1
+  //    （连非文本 3:1 都不到）。它曾因 `components/PluginWidgets.ets` 误用（`.fontColor`）
+  //    而被短暂纳入本表判定；该误用已改走**文字角色 `warn`**
+  //    （`core/widgetsview.ets` 的 `styleColorRole/toneColorRole` 的 `warning` 档 ⇒ `warn`）
+  //    ⇒ `statusWaiting` 回到「**无生产调用点**」（见下方 `ZERO_USE_ROLES`）。
+  //    ⛔ 别再把它加回本表；也别为了让台账变绿而重新引入该用法（那会把读不出的琥珀色带回来）。
 ];
 
 /** 画布面（`appBg`..`surfaceHi` 都是**不透明**面；`glassBg` 是半透明 ⇒ 必须先合成）。
@@ -312,25 +310,16 @@ const LEDGER: string[] = [
   // ── 根因 D：dark 主题主按钮上的白字（#FFFFFF / #7C5CFF）只有 4.35，**略低于** AA 4.5 ────
   // 证据：Index.ets:2293/4674/5231。最小改动建议：accent 压暗一档（如 #6B4AE6）或按钮字色用 #F5F5FF。
   'dark|onAccent|accent',
-  // ── 根因 F（**新登记 2026-10-11**）：`statusWaiting` 被**当文字用**，而它是"状态指示器"角色 ──
-  // 背景：`statusWaiting` 从「声明无生产调用点」转入 §B 判定（调用点 = `PluginWidgets.ets:197`
-  //       `.fontColor(pal().statusWaiting)`，降级占位「暂不支持」10fp 标签；角色由
-  //       `core/widgetsview.ets:styleColorRole/toneColorRole` 的 `warning` 档给出）。
-  // **调用点合法**（属"插件 widget 语气"独立语义轴，不是工具状态私改判），但**角色选错**：
-  //   `statusWaiting` 的角色定义 = **状态指示器**（web `--status-waiting` 是点色），
-  //   而同族的 **`warn`（= "警告文字"角色）在 5 套主题 × 全部面都 ≥3.0**（实测）。
-  //   `light.statusWaiting #E6A700` 压在任一白/浅面上只有 **1.72–2.12** ⇒ 连非文本 3:1 都不到。
-  // ⇒ **推荐修法（不在本测试边界内，已报归属线）**：`core/widgetsview.ets` 的
-  //   `styleColorRole`/`toneColorRole` 把 `warning` 档从 `statusWaiting` 改为 **`warn`**（一行 ×2）。
-  //   ⛔ 修好后请**删掉下面 7 条**并把 `statusWaiting` 移回 `ZERO_USE_ROLES`（若届时已无调用点）。
-  // ⚠️ 本 7 条是**显式承认的既有欠债**（此前被"无调用点"声明掩盖 ⇒ 门禁看不见）；不是新引入回归。
-  'light|statusWaiting|appBg',
-  'light|statusWaiting|surface',
-  'light|statusWaiting|surfaceAlt',
-  'light|statusWaiting|surfaceHi',
-  'light|statusWaiting|glassBg/appBg',
-  'light|statusWaiting|glassBg/surface',
-  'light|statusWaiting|sunken',
+  // ── 根因 F（**已修**：2026-10-11 widgets 接线波）────────────────────────────────────
+  // `statusWaiting` 曾被 `components/PluginWidgets.ets` **当正文色**用（降级占位「暂不支持」
+  // 标签的 `.fontColor(pal().statusWaiting)`）；角色由 `core/widgetsview.ets` 的
+  // `styleColorRole/toneColorRole` 的 `warning` 档给出。但它是**状态指示器/点色**
+  // （web `--status-waiting` 是点色），`light.statusWaiting #E6A700` 压任一浅面仅 1.72–2.12:1
+  // ⇒ 连非文本 3:1 都不到。
+  // 已改走**文字角色 `warn`**（"警告文字"角色，5 套主题 × 全部面 ≥3.0；本表 `{fg:'warn'}` 已覆盖）
+  // ⇒ 该角色的生产调用点归零、`statusWaiting` 回到 `ZERO_USE_ROLES`（见下）；**本处不留台账**。
+  // ⛔ 回归护栏：`tools/tests/widgets_view.test.ts` 断言 `styleColorRole/toneColorRole` **绝不**
+  //    产出 `statusWaiting` 这类标记/点色（把它改回去即红）。
   // ── 根因 E（**已修**：2026-10-11 波5h）──────────────────────────────────────────────
   // porcelain 的 `textMuted` 曾是 Apple tertiaryLabel `#AEAEB2`：压 surfaceHi(#EDEDEF) 1.89、
   // 压 accentDeep(#E8F1FD) 1.94、压 sunken(#F2F2F2) 1.98 —— 三处都 < 2.0（"更弱的一档"糊掉）。
@@ -447,7 +436,7 @@ ok(`源码扫描到 pages/+components/ 的 .ets（${scanFiles.length} 个文件�
  *  （`pages/`+`components/`）⇒ 从 PENDING 移入本表。 */
 const JUDGED_ROLES: string[] = [
   'textPrimary', 'textSecondary', 'textMuted', 'accent', 'accentSoft',
-  'dangerText', 'successText', 'warn', 'statusError', 'statusRunning', 'statusWaiting',
+  'dangerText', 'successText', 'warn', 'statusError', 'statusRunning',
   'onAccent', 'accentText', 'appBg', 'surface', 'surfaceAlt', 'surfaceHi',
   'accentDeep', 'warnBg',
   'hairline', 'sunken',
@@ -459,7 +448,7 @@ for (let i = 0; i < JUDGED_ROLES.length; i++) {
 
 /** 声明"无生产调用点 ⇒ 不判定"的角色（本段机械核实它们真的是 0 次引用）。
  *  ⛔ 一旦有人开始用它们，本段会红 —— 那时请把它们纳入 §B 并给出阈值，别只改这里。 */
-const ZERO_USE_ROLES: string[] = ['foreground3', 'accentHover', 'bubbleUser', 'statusIdle'];
+const ZERO_USE_ROLES: string[] = ['foreground3', 'accentHover', 'bubbleUser', 'statusIdle', 'statusWaiting'];
 for (let i = 0; i < ZERO_USE_ROLES.length; i++) {
   const r: string = ZERO_USE_ROLES[i];
   ok(`${r} 声明"无生产调用点"（实测 ${roleUses[r]} 次）`, roleUses[r] === 0);
