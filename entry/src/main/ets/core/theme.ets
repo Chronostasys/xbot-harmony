@@ -833,6 +833,32 @@ export function effectsOf(p: Palette): Effects {
   return e;
 }
 
+/**
+ * **投影口径**（唯一出口）—— 给"把 `glow` 当投影用"的调用点用（2026-10-11，A 项）。
+ *
+ * 背景：`eff().glow` 的语义是**发光**，浅色系已按 E2 定为"**不出辉光**"（= 透明，见 §13.7）。
+ * 但有几处把它当**投影/阴影**用（`shadow({color: eff().glow})`）⇒ 浅色下变成"**没有投影**"。
+ * 投影与发光是**两件事**：投影该走 `elev*`（真正的中性柔影档）。
+ *
+ * | 主题 | 返回 | 语义 |
+ * |---|---|---|
+ * | 深色系 | `effectsOf(p).glow`（**逐字节不变**） | 深色"彩色发光 = 观感来源"，当投影用即既有观感 |
+ * | 浅色系 | `tier==='overlay' ? elev3 : elev2` | 真投影档（中性柔影；非透明、chroma 近中性） |
+ *
+ * ⛔ 只在**浅色臂**分叉（深色逐字节）；判据按 `isLightPalette(p)`（色板亮度），⛔ 不按主题名。
+ * ⚠️ 本函数**不能**调 `core/design.ets` 的 `elevationColorOf`（design → theme 是单向依赖，反向会成环）
+ *    ⇒ 直接读 `effectsOf`（同一真源）。
+ *
+ * @param tier `'overlay'` ⇒ elev3（浮层级）；其余（默认）⇒ elev2（抬升级）
+ */
+export function shadowColorOf(p: Palette, tier: string): string {
+  const e: Effects = effectsOf(p);
+  if (!isLightPalette(p)) {
+    return e.glow;
+  }
+  return tier === 'overlay' ? e.elev3 : e.elev2;
+}
+
 /** 效果 token 是否完整（穷尽性守卫：颜色非空、glassBlur 为正数）。 */
 export function effectsComplete(e: Effects): boolean {
   if (e.glassBg.length === 0 || e.glassBorder.length === 0) { return false; }
