@@ -96,16 +96,35 @@ for (const rel of MY_FILES) {
     total++;
     const arg: string = m[1];
     // 属性链 = 该 Text(...) 之后到分号/换行前的连续 `.xxx(` 段（朴素取到下一个 `Text(` 或 `;`）
-    const after: string = src.substring(m.index, Math.min(src.length, m.index + 700));
+    // ⛔ **(A) 链式截断**（2026-10-11 收紧）：窗口 = 从该 `Text(` 之后起，**到最近的**：
+    //    ① 下一个 `Text(` / `SymbolGlyph(`（节点边界）② 或链尾（首个"非 `.` 起始"的非空、非注释行）。
+    //    旧实现取**固定 700 字符** ⇒ 会**吃到下一个节点的兜底** ⇒ 假绿（我上轮自报的弱点）。
+    const after0: number = m.index + m[0].length;
+    const nText: number = src.indexOf('Text(', after0);
+    const nSym: number = src.indexOf('SymbolGlyph(', after0);
+    let limit: number = src.length;
+    if (nText >= 0) { limit = Math.min(limit, nText); }
+    if (nSym >= 0) { limit = Math.min(limit, nSym); }
+    const tailLines: string[] = src.substring(after0, limit).split('\n');
+    let acc: number = after0;
+    for (let li: number = 0; li < tailLines.length; li++) {
+      const body: string = tailLines[li].split('//')[0].trim();
+      if (body.length === 0) { acc += tailLines[li].length + 1; continue; }   // 空行/纯注释行 ⇒ 链继续
+      if (body.charAt(0) === '.') { acc += tailLines[li].length + 1; continue; }  // 链元素
+      break;                                                                 // 边界：链到此为止
+    }
+    const after: string = src.substring(m.index, Math.min(acc, limit));
     const hasMaxLines: boolean = /\.maxLines\(/.test(after);
     const hasOverflow: boolean = /\.textOverflow\(/.test(after);
     const hasWordBreak: boolean = /\.wordBreak\(/.test(after);
     const hasMaxW: boolean = /constraintSize\(\s*\{\s*maxWidth/.test(after) || /\.maxWidth\(/.test(after)
-      || /\.width\('100%'\)/.test(after);   // e) 锁宽到父级（与 `MarkdownView` 的 `constraintSize({maxWidth:'100%'})` 同理）
+      ;   // ⛔ 2026-10-11 收紧：**不再接受 `width('100%')`** —— 它只把**盒宽**锁到父级，
+          //    长不可断串照样**溢出盒外**（主 agent 与我一致：不解决文本溢出）⇒ 必须用 `wordBreak`。
     // d) 短字面量（≤8 字、无插值）
     const isShortLit: boolean = /^'[^'${}]{1,8}'$/.test(arg.trim()) || /^"[^"${}]{1,8}"$/.test(arg.trim());
     const covered: boolean = (hasMaxLines && hasOverflow) || hasWordBreak || hasMaxW || isShortLit;
     if (!covered) { violations.push(`${rel}:${lineAt(src, m.index)}`); }
+    console.log(`    · ${rel}:${lineAt(src, m.index)} 窗口 [${m.index}..${Math.min(acc, limit)}] ${covered ? 'OK' : '缺兜底'}`);
     m = re.exec(src);
   }
   dist.push(`${rel}: Text ×${n}`);

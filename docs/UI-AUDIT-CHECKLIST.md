@@ -610,5 +610,7 @@ MarkdownView **无固定数值宽容器** ⇒ **结构性命中 0**。即：**�
   与 `Flex(wrap)` 里的 pill 标签 ⇒ `wordBreak(BREAK_ALL)`。
 - 判据 `tools/tests/overflow_guard.test.ts`：`MY_FILES` **扩到 7 文件**（先修后纳）；并修一处**盲区**——
   原先 `Text\(([^()]*)\)` 遇到**参数含嵌套括号**（`Text(this.labelOf(opt))`）会**整节点漏扫** ⇒ 正则放宽到一层嵌套。
-- ⚠️ **已知判据弱点（待收紧）**：属性链窗口取 Text 之后 700 字符 ⇒ 会**吃到下一个 `Text` 的兜底** ⇒
+- ✅ **已收紧（2026-10-11）**：属性链窗口改为 **(A) 链式截断**（截到下一个 `Text(`/`SymbolGlyph(` 或链尾），
+  并**剔除 `width('100%')`**（只锁盒宽、不解决文本溢出）⇒ 两条 mutation（`AskUserSheet` 的 `q.header`、
+  `SelfCheckSheet` 的 `auditText`）**均能打红**。原弱点留档如下：旧窗口取 Text 之后 700 字符 ⇒ 会**吃到下一个 `Text` 的兜底** ⇒
   对"相邻两节点只有后一个有兜底"的情形**可能假绿**（本轮 mutation 未打红即此因）。⇒ 下轮改成"链式截断到下一个 `Text(` 或行尾"。

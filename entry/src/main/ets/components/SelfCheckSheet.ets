@@ -51,7 +51,7 @@ export struct SelfCheckSheet {
           this.onCollect();
         })
       Text('下方这一段可【长按复制】后直接粘贴给对方 —— 不必截图（零网络也能取证）')
-        .fontSize(fs('type.caption')).fontColor(this.pal().warn).width('100%')
+        .fontSize(fs('type.caption')).fontColor(this.pal().warn).width('100%').wordBreak(WordBreak.BREAK_WORD)
       Text(this.auditText)
         .fontSize(fs('type.caption')).fontColor(this.pal().successText).fontFamily('monospace')
         // 溢出兜底（等宽**审计串**：含路径/命令等不可断内容 ⇒ 可断）
@@ -63,25 +63,25 @@ export struct SelfCheckSheet {
       Scroll() {
         Column({ space: 10 }) {
           Column({ space: 6 }) {
-            Text('A 纯文本（自动换行）').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%')
+            Text('A 纯文本（自动换行）').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_WORD)
             MarkdownView({ text: '这是一段用于自检的普通中文文本，应当自动换行并且左右不溢出。' })
           }.width('100%').padding(SP_2).backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD)).borderRadius(R_LG)
           .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
 
           Column({ space: 6 }) {
-            Text('B 行内样式（粗/斜/删除/行内码/链接）').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%')
+            Text('B 行内样式（粗/斜/删除/行内码/链接）').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_WORD)
             MarkdownView({ text: '这里有 **粗体**、*斜体*、~~删除线~~、`inlineCode()` 与 [一个链接](https://example.com)。' })
           }.width('100%').padding(SP_2).backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD)).borderRadius(R_LG)
           .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
 
           Column({ space: 6 }) {
-            Text('C 标题 + 列表').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%')
+            Text('C 标题 + 列表').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_WORD)
             MarkdownView({ text: '## 二级标题\n- 列表项一\n- 列表项二\n\n1. 有序一\n2. 有序二' })
           }.width('100%').padding(SP_2).backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD)).borderRadius(R_LG)
           .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
 
           Column({ space: 6 }) {
-            Text('D 代码块（含超长行）').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%')
+            Text('D 代码块（含超长行）').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_WORD)
             MarkdownView({ text: '```ts\nconst veryLongVariableName: string = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";\n```' })
           }.width('100%').padding(SP_2).backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD)).borderRadius(R_LG)
           .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
@@ -93,7 +93,7 @@ export struct SelfCheckSheet {
           .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
 
           Column({ space: 6 }) {
-            Text('F 工具 pill 行（Flex 换行）').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%')
+            Text('F 工具 pill 行（Flex 换行）').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_WORD)
             Flex({ wrap: FlexWrap.Wrap }) {
               ForEach(['已完成 Read', '已完成 Shell', '运行中 Grep', '已完成 Edit', '失败 Fetch'], (t: string) => {
                 Text(t).fontSize(FS_CAPTION).fontColor(this.pal().successText)
@@ -108,7 +108,7 @@ export struct SelfCheckSheet {
           .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
 
           Column({ space: 6 }) {
-            Text('G 长 URL（不可断词）').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%')
+            Text('G 长 URL（不可断词）').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_WORD)
             Text('https://xbot.pivotlang.tech/api/files/download?key=uploads%2F4%2Faaef9711-1349-420d-97ea-94e70e2401e7.jpg&inline=1')
               .fontSize(FS_CAPTION).fontColor(this.pal().accentSoft).width('100%')
           }.width('100%').padding(SP_2).backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD)).borderRadius(R_LG)
