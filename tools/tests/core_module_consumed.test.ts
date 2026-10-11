@@ -67,6 +67,9 @@ function collectAll(dir: string, out: string[]): void {
     const e = es[i];
     const p: string = path.join(dir, e.name);
     if (e.isDirectory()) {
+      // ⚠️ 必须跳过**点目录**（`.out-one.*` / `.out-all.*` = run-one/run.sh 的**临时产物**，
+      //    扫描期间会被清掉 ⇒ ENOENT 崩；本波实测）。也跳过产物/依赖目录。
+      if (e.name.charAt(0) === '.') { continue; }
       if (e.name === 'build' || e.name === 'oh_modules' || e.name === 'node_modules') { continue; }
       collectAll(p, out);
     } else if (e.name.endsWith('.ets') || (e.name.endsWith('.ts') && !e.name.endsWith('.d.ts'))) {
@@ -76,12 +79,23 @@ function collectAll(dir: string, out: string[]): void {
 }
 const ALL: string[] = [];
 if (ETS_DIR.length > 0) { collectAll(ETS_DIR, ALL); }
+// ⚠️ **消费者池必须含 `tools/tests/**`**（2026-10-11 修正的系统性假阳性根因）：
+//    "只被测试消费"≠ 应用侧死代码 ⇒ 测试也是消费方。此前池里只有 `entry/src/main/ets/**`
+//    ⇒ `REASONING_OPEN_MAX` / `reasoningOpenSize` / `resetReasoningOpenState` 被误报为"零消费"。
+const TESTS_DIR: string = path.join(ROOT, 'tools', 'tests');
+const TEST_CONSUMERS: string[] = [];
+if (ROOT.length > 0 && fs.existsSync(TESTS_DIR)) { collectAll(TESTS_DIR, TEST_CONSUMERS); }
+for (let i = 0; i < TEST_CONSUMERS.length; i++) { ALL.push(TEST_CONSUMERS[i]); }
 
 /**
  * **台账**：允许"有意零消费"的导出符号（⛔ 只许缩短；每条必须给理由）。
  * 目前为空 —— 若扫出真·零消费，先报调度者（死代码线索），**不**往这里塞。
  */
-const DELIBERATE_ZERO_USE: string[] = [];
+const DELIBERATE_ZERO_USE: string[] = [
+  // `IterationLike`（`core/reasoningopen.ts`）：**类型出口**，无人 import 但结构化类型下调用方
+  // 无需 import 即可满足形状 ⇒ **无法据"无 import"证死** ⇒ 保留导出、⛔ 不在类型出口动刀。
+  'IterationLike',
+];
 
 // ── SELFCHECK（自证断言数随新增而变；防"插进死区"）───────────────────────────
 eq('SELFCHECK-1（证明本文件在跑）', 1, 1);
@@ -90,7 +104,7 @@ eq('SELFCHECK-2（证明计数在增）', 2, 2);
 // ── 零扫描防线 ──────────────────────────────────────────────────────────────
 eq('零扫描防线：仓库根解析成功', ROOT.length > 0, true);
 eq('零扫描防线：扫到 ≥10 个 core/*.ts', CORE_TS.length >= 10, true);
-eq('零扫描防线：消费者池 ≥100 个源文件', ALL.length >= 100, true);
+eq('零扫描防线：消费者池 ≥100 个源文件（含 tools/tests/**）', ALL.length >= 150, true);
 
 /** 抽导出符号名（function/const/class/interface/enum）。 */
 function exportsOf(src: string): string[] {
@@ -144,7 +158,7 @@ if (zero.length > 0) {
 //    本判据用"符号名在其它文件的词边界出现"做消费代理 ⇒ 对**只在自身模块内使用**、
 //    或**经别名/包装导出**、或**仅为测试而导出**的符号会**误报**（19 条里应含不少这类）。
 //    ⇒ 下一步（下轮）：逐条 triage ⇒ 真·死代码报调度者；有意/假阳性进 DELIBERATE_ZERO_USE 附理由。
-const KNOWN_ZERO_USE_COUNT: number = 19;
+const KNOWN_ZERO_USE_COUNT: number = 11;
 eq(`零消费导出数 = 台账（首版基线；⛔ 只准删不准加）实测 ${zero.length}`, zero.length, KNOWN_ZERO_USE_COUNT);
 
 if (fail > 0) { console.log(`  ✗ core_module_consumed: ${pass} passed, ${fail} failed`); process.exit(1); }
