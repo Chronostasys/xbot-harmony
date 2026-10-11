@@ -143,6 +143,12 @@ echo "（⑦ 耗时 ${perf_dt}s）"
 echo "===== ⑧ core/ 未消费模块（警告级，不影响退出码）====="
 bash "$HERE/lint/orphan-core.sh" || true
 
+# ⚠️ 新增（波10）：**「可读性不得是动画的函数」**（用户亲报"白主题正文看不清"的根因类）。
+#    A 级（静息态被写成隐藏：`.opacity(x ? 1 : 0)`）⇒ **硬红**；B 级（不透明度由动画驱动）⇒ 警告。
+#    事故与 web 权威对照见 `tools/lint/anim-opacity-gate.sh` 头注释 / `docs/ARKTS-GOTCHAS.md` 批次 33d。
+echo "===== ⑨ 可读性不得是动画的函数（A 硬红 / B 警告）====="
+bash "$HERE/lint/anim-opacity-gate.sh" || fail=1
+
 echo
 if [ "$fail" -ne 0 ]; then
   echo "❌ 真门禁**未通过**（见上方红灯）"
