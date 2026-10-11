@@ -12,7 +12,7 @@
  */
 declare const process: { exit: (c: number) => void };
 
-import { inFlightBlock } from '../../entry/src/main/ets/core/render';
+import { inFlightBlock, isCurrentIterTool } from '../../entry/src/main/ets/core/render';
 import { HistoryIteration, ToolProgress } from '../../entry/src/main/ets/core/types';
 import { LiveRowView } from '../../entry/src/main/ets/core/derive';
 import { WebToolProgress } from '../../entry/src/main/ets/core/chattypes';
@@ -94,6 +94,49 @@ function hist(iter: number, tools: ToolProgress[]): HistoryIteration {
 {
   const r: LiveRowView = lv([], [], 1);
   eq('★④ 空 live ⇒ null（不产空壳）', inFlightBlock(r, []), null);
+}
+
+// ── ⑤ 迭代过滤（web `toolDeriv`：`t.iteration > maxCompletedIter`）──────────────
+// ⛔ 用户 2026-10-11 亲报：「所有 tool 都渲染为排队 / **executing 的 tool 被渲染成排队**」。
+//    根因：服务端整批派发时把 `active_tools` **全部先标 `pending`**
+//    （`agent/engine_run_tools.go:49-64`，到 goroutine 启动才翻 `running`）；
+//    这些条目会残留进后续帧 ⇒ 缺迭代过滤时，**过去迭代的 pending 工具永久渲染在最新在飞块**。
+//    web 用 `t.iteration > maxCompletedIter` 滤掉它们；服务端亦点名此步必须由前端承担
+//    （`agent/engine_wire.go:2436-2445`）。
+{
+  const done: HistoryIteration = hist(2, [
+    { name: 'run_shell', label: 'run_shell', status: 'done', call_id: 'old' } as unknown as ToolProgress,
+  ]);
+  // 陈旧项：属**已提交**的迭代 2，且状态是服务端整批先标的 `pending`。
+  const stale: WebToolProgress = tw('Write', 'pending', 'stale-1');
+  (stale as unknown as { iteration?: number }).iteration = 2;
+  // 当前项：属**未提交**的迭代 3，正在执行。
+  const cur: WebToolProgress = tw('Read', 'running', 'cur-1');
+  (cur as unknown as { iteration?: number }).iteration = 3;
+  const r: LiveRowView = lv([stale, cur], [], 3);
+  const block: HistoryIteration | null = inFlightBlock(r, [done]);
+  ok('★⑤ 有产物（当前工具还在）', block !== null);
+  if (block !== null) {
+    const bt: ToolProgress[] = block.tools === undefined ? [] : block.tools;
+    const ids: string[] = bt.map((t: ToolProgress) => t.call_id === undefined ? '' : t.call_id);
+    eq('★⑤ 陈旧 pending（迭代 2 < maxCompleted 2）**被滤掉**', ids.indexOf('stale-1') < 0, true);
+    eq('★⑤ 当前 executing（迭代 3）保留 —— 不会被渲染成「排队」', ids.indexOf('cur-1') >= 0, true);
+    eq('★⑤ 总数 = 1（不是「所有 tool 都排队」）', bt.length, 1);
+  }
+  // 纯函数面：`isCurrentIterTool` 的边界（无 iteration ⇒ 视为当前，与 web 的 `undefined` 分支一致）。
+  eq('★⑤ isCurrentIterTool(无 iteration) == true', isCurrentIterTool(tw('X', 'pending', 'k'), 2), true);
+  eq('★⑤ isCurrentIterTool(iteration <= 已提交) == false', isCurrentIterTool(stale, 2), false);
+  eq('★⑤ isCurrentIterTool(iteration > 已提交) == true', isCurrentIterTool(cur, 2), true);
+}
+
+// ── ⑥ 零样本防线：工具全被滤掉 ⇒ 只靠正文，且**绝不**产出「全是排队」的假象 ──────
+{
+  const done: HistoryIteration = hist(5, []);
+  const onlyStale: WebToolProgress = tw('Bash', 'pending', 's');
+  (onlyStale as unknown as { iteration?: number }).iteration = 5;
+  const r: LiveRowView = lv([onlyStale], [], 5);
+  // 无正文/思考 + 工具被滤光 ⇒ null（不渲染仅含陈旧 pending 的空壳）。
+  eq('★⑥ 只剩陈旧 pending ⇒ null（不产「排队」空壳）', inFlightBlock(r, [done]), null);
 }
 
 if (fail > 0) { console.log(`  render_inflight: ${pass} passed, ${fail} failed`); process.exit(1); }

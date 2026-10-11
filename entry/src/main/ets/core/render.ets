@@ -39,7 +39,25 @@ export function toToolProgress(t: WebToolProgress): ToolProgress {
   return out;
 }
 
-/** WebToolProgress[] → ToolProgress[]（页面 live 尾块的工具列表用）。 */
+/**
+ * 该工具是否属于「当前（**未提交**）迭代」—— web `LiveIteration.tsx` `toolDeriv` **逐字**：
+ *   `t.iteration === undefined || t.iteration === null || t.iteration > maxCompletedIter`
+ * （`null` 分支由 `normalizeWebTool` 统一收敛成 `undefined`，故此处只需判 `undefined`。）
+ *
+ * ⛔ 缺这一步 ⇒ 陈旧 `pending`/`generating` 工具永久渲染在最新在飞块
+ *    （服务端整批先标 `pending`：`agent/engine_run_tools.go:49-64`；
+ *     服务端点名此过滤必须由前端承担：`agent/engine_wire.go:2436-2445`）。
+ *    用户亲报症状：「所有 tool 都渲染为排队 / executing 的 tool 被渲染成排队」。
+ */
+export function isCurrentIterTool(t: WebToolProgress, maxCompletedIter: number): boolean {
+  const it: number | undefined = t.iteration;
+  if (it === undefined) {
+    return true;
+  }
+  return it > maxCompletedIter;
+}
+
+/** `WebToolProgress[]` → `ToolProgress[]`（页面 live 尾块的工具列表用）。 */
 export function toNativeTools(ws: readonly WebToolProgress[]): ToolProgress[] {
   const out: ToolProgress[] = [];
   for (let i = 0; i < ws.length; i++) {
@@ -166,16 +184,39 @@ export function inFlightBlock(r: LiveRowView, completed: HistoryIteration[]): Hi
     }
   }
   const tools: ToolProgress[] = [];
-  // ── live 工具列表 = web `LiveIteration.tsx:157-179` 的**两步**（此前两步都缺 ⇒ P0「同一工具两行」）──
-  // ① 按 `toolKey` 去重（web `dedupTools`；本仓复用 `streammerge.mergeTools` ⇒ 同一调用只一行）；
-  // ② 滤掉**已提交迭代里**的同名同标签工具（web `completedIterToolKeys`）—— 否则陈旧 active/streaming
+  // ── live 工具列表 = web `LiveIteration.tsx` `toolDeriv` 的**三步**（本仓曾缺第 ① 步）──
+  // ① **按 `iteration` 滤掉陈旧工具**（web 逐字：`t.iteration > maxCompletedIter`）；
+  // ② 按 `toolKey` 去重（web `dedupTools`；本仓复用 `streammerge.mergeTools` ⇒ 同一调用只一行）；
+  // ③ 滤掉**已提交迭代里**的同名同标签工具（web `completedIterToolKeys`）—— 否则陈旧 active/streaming
   //    与刚提交的迭代会各渲染一枚 pill（真机上「同一工具两行」，见 WEB-PARITY §12-B）。
+  //
+  // ⛔ 为什么第 ① 步**必须**有（用户 2026-10-11 亲报「所有 tool 都渲染为排队 / executing 的 tool
+  //    被渲染成排队」的根因）：
+  //    · 服务端在整批派发工具时把 `active_tools` **全部先标 `pending`**
+  //      （`agent/engine_run_tools.go:49-64`），到各自 goroutine 启动才翻 `running`（`:150`）；
+  //    · 这些工具会经 `updateStreamState` 合并 / catchup 重放 / `get_active_progress`
+  //      快照**残留在后续帧里**——服务端自己在 `agent/engine_wire.go:2436-2445` 写明：
+  //      「每个工具必须盖当前迭代号……**否则前端无法把它从当前在飞迭代的渲染里滤掉**」
+  //      （原文：the frontend cannot filter it from the current iteration's live rendering）。
+  //    ⇒ 缺第 ① 步时，**过去迭代的 `pending` 工具永久渲染在最新在飞块**，看起来就是
+  //      「所有 tool 都在排队」，且把真正在执行的 tool 挤成同一档。
+  //    判据与渲染同源：过滤逻辑收敛在 `isCurrentIterTool`（导出的纯函数，可脱机断言）。
+  let maxCompletedIter: number = -1;
+  for (let i = 0; i < completed.length; i++) {
+    if (completed[i].iteration > maxCompletedIter) {
+      maxCompletedIter = completed[i].iteration;
+    }
+  }
   const live: ToolProgress[] = [];
   for (let i = 0; i < r.streamingTools.length; i++) {
-    live.push(toToolProgress(r.streamingTools[i]));
+    if (isCurrentIterTool(r.streamingTools[i], maxCompletedIter)) {
+      live.push(toToolProgress(r.streamingTools[i]));
+    }
   }
   for (let i = 0; i < r.activeTools.length; i++) {
-    live.push(toToolProgress(r.activeTools[i]));
+    if (isCurrentIterTool(r.activeTools[i], maxCompletedIter)) {
+      live.push(toToolProgress(r.activeTools[i]));
+    }
   }
   const deduped: ToolProgress[] = mergeTools([], live);
   const completedKeys: string[] = [];
