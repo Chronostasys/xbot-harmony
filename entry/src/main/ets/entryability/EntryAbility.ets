@@ -13,6 +13,16 @@ import {
   reconcileOnForeground,
   setAppForeground,
 } from '../core/notify';
+import {
+  CommandAction,
+  PENDING_COMMAND_KEY,
+  PENDING_COMMAND_SEQ_KEY,
+  commandActionValid,
+  commandRegistered,
+  isCommandUri,
+  parseCommandUri,
+  registeredCommands,
+} from '../core/command';
 import { readCachedTheme } from '../core/config';
 import { ensureReconcileScheduled } from '../workreconcile/schedule';
 import { installNotifyIcon } from '../workreconcile/icons';
@@ -51,6 +61,8 @@ export default class EntryAbility extends UIAbility {
     initSlots();
     setAppForeground(true);
     this.captureOpenChat(want);
+    // 深链命令（`xbot://<command>?…`）——`core/command.ets` 的**生产消费点**（冷启动）。
+    this.captureCommandUri(want);
     // 后台对账（延迟任务）：把 NotifyReconcileAbility 排进队列（幂等）。
     // ⛔ 旁路：失败只记日志（见 workreconcile/schedule.ets）；不改通知主链路的任何语义。
     // 品牌小图标（通知 smallIcon）：启动时解一次并注册装饰器。
@@ -116,6 +128,49 @@ export default class EntryAbility extends UIAbility {
    */
   onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     this.captureOpenChat(want);
+    // 深链命令（ability 已在运行时走这里；与冷启动同一条通路）。
+    this.captureCommandUri(want);
+  }
+
+  /**
+   * **深链命令**（`xbot://settings.open?section=llm` 等）—— `core/command.ets` 的**唯一生产消费点**。
+   *
+   * ── 语义逐条对齐 web（`web/src/lib/commandRouter.ts`）────────────────────────────
+   *   · `parseUri` 支持三种等价写法（`xbot://` / `xbot:` / `/command/`）：本端 `parseCommandUri` 同源；
+   *   · **未注册命令 ⇒ 明确报错**（web `execute()` `:88-92` 直接 `throw` "拼错命令名应该立刻暴露"）：
+   *     本端把这条落成 `hilog.error` + **不派发**（深链来自**外部** App ⇒ ⛔ 不崩，也 ⛔ 不静默吞）；
+   *   · 命令集合 = `registeredCommands()`（逐条对应 web `layouts/AppShell.tsx:118-152` 的 4 条）。
+   *
+   * ⛔ `want.uri` 不是命令（如 `https://…`）⇒ **原样放过**（那是系统/浏览器的事，本方法不接管）。
+   */
+  private captureCommandUri(want: Want): void {
+    try {
+      const uri: string = want.uri !== undefined && want.uri !== null ? want.uri : '';
+      if (uri.length === 0) {
+        return;                        // 没有 uri ⇒ 不是深链
+      }
+      if (!isCommandUri(uri)) {
+        return;                        // 有 uri 但不是命令 URI（普通链接）⇒ 不接管
+      }
+      const action: CommandAction | null = parseCommandUri(uri);
+      if (!commandActionValid(action)) {
+        hilog.error(DOMAIN, TAG, 'deep-link 命令形状非法（id 缺命名空间/非法字符）: %{public}s', uri);
+        return;
+      }
+      const id: string = action !== null ? action.id : '';
+      if (!commandRegistered(id)) {
+        hilog.error(DOMAIN, TAG, 'deep-link 命令**未注册**: %{public}s（已注册: %{public}s）',
+          id, registeredCommands().join(' | '));
+        return;
+      }
+      // 合法 ⇒ **只投递**（页面 bootstrap 消费后 `AppStorage.delete`）——同 `PENDING_CHAT_KEY` 的分工。
+      AppStorage.setOrCreate<string>(PENDING_COMMAND_KEY, uri);
+      AppStorage.setOrCreate<number>(PENDING_COMMAND_SEQ_KEY, Date.now());
+      hilog.info(DOMAIN, TAG, 'deep-link 命令已投递: %{public}s', uri);
+    } catch (e) {
+      const err: BusinessError = e as BusinessError;
+      hilog.warn(DOMAIN, TAG, 'captureCommandUri skipped: %{public}s', err.message);
+    }
   }
 
   /**

@@ -127,3 +127,55 @@ export function commandArg(action: CommandAction, key: string): string {
   const v: string | undefined = action.args[key];
   return v === undefined ? '' : v;
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// 已注册命令（**白名单**）+ 待消费键 —— 深链的**唯一闸门**
+// ════════════════════════════════════════════════════════════════════════════
+//
+// 逐条对应 web `layouts/AppShell.tsx:118-152` 的 `commands.registerAll([...])`（4 条）。
+// ⛔ **形状合法 ≠ 已注册**：web `CommandRouter.execute()` 对未注册命令**抛错**
+//    （`lib/commandRouter.ts:88-92`："拼错命令名应该立刻暴露，不静默"）。原生把这条语义落在
+//    `EntryAbility` 的深链分支：**未注册 ⇒ `hilog.error` + 不派发**（⛔ 不静默；深链来自外部 ⇒ ⛔ 不崩）。
+
+/** 打开设置（可选 `?section=<分类>`）。 */
+export const COMMAND_SETTINGS_OPEN: string = 'settings.open';
+/** 折叠/展开侧栏。 */
+export const COMMAND_SIDEBAR_TOGGLE: string = 'sidebar.toggle';
+/** 新建会话。 */
+export const COMMAND_SESSION_NEW: string = 'session.new';
+/** 聚焦输入框。 */
+export const COMMAND_INPUT_FOCUS: string = 'input.focus';
+
+/** 已注册命令 id（**唯一真源**；顺序 = web 注册顺序）。 */
+export function registeredCommands(): string[] {
+  return [COMMAND_SETTINGS_OPEN, COMMAND_SIDEBAR_TOGGLE, COMMAND_SESSION_NEW, COMMAND_INPUT_FOCUS];
+}
+
+/**
+ * id 是否**已注册**（web `CommandRouter.has()` 的等价物）。
+ * ⛔ 与 `commandIdValid`（**形状**）分工：形状合法也可能**未注册** ⇒ 派发方必须报错，⛔ 不静默吞。
+ */
+export function commandRegistered(id: string): boolean {
+  const all: string[] = registeredCommands();
+  for (let i: number = 0; i < all.length; i++) {
+    if (all[i] === id) { return true; }
+  }
+  return false;
+}
+
+/**
+ * **可派发？** = `null` 守卫 + 形状合法（`commandIdValid`）+ **已注册**（`commandRegistered`）。
+ * 这是深链 / 命令面板的**唯一闸门**（⛔ 调用方不得自行放宽某一条）。
+ */
+export function commandDispatchable(action: CommandAction | null): boolean {
+  if (action === null) { return false; }
+  return commandIdValid(action.id) && commandRegistered(action.id);
+}
+
+/**
+ * 深链命令的**待消费键**（AppStorage；页面 bootstrap 消费后 `delete`，与 `core/notify.ets` 的
+ * `PENDING_CHAT_KEY` 同款——"EntryAbility 只投递、页面只消费"）。
+ */
+export const PENDING_COMMAND_KEY: string = 'pendingCommandUri';
+/** 待消费**序号**（防"返回页面"重复触发；与 `PENDING_CHAT_SEQ_KEY` 同款）。 */
+export const PENDING_COMMAND_SEQ_KEY: string = 'pendingCommandSeq';
