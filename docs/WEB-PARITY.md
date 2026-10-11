@@ -517,7 +517,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | SubAgent 进度树 | `SubAgentProgressTree.tsx:27` | ✅ | `components/SubAgentTree.ets:177`（`MessageRow.ets:591,659`） |
 | StagingTray（排队消息暂存） | `StagingTray.tsx:314`（`AgentPanel.tsx:1094`） | 🟡 | `Index.ets:5795` QueueSheet；**缺** interject(插队)/clear/拖拽重排 |
 | 消息导航（用户消息跳转） | `MessageUserNav.tsx:60` | ✅ | `components/MessageNav.ets:147`（`Index.ets:2964`） |
-| MessageInput + 补全（`/`、`@`） | `MessageInput.tsx:173`、`CompletionPopup.tsx:21` | ✅ | `Index.ets:2725,3059` + `core/composer.ets:28-131` |
+| MessageInput + 补全（`/`、`@`） | `MessageInput.tsx:173`、`CompletionPopup.tsx:21` | ✅ | `core/composer.ets`（`activeToken`/`matchCommands`/`matchFiles`/`applyCommand`/`applyMention`/`selNext`/`selPrev`/`completionKeyAction`）+ `Index.ets` 输入区浮层（`3955`）/ `refreshCompletion`（`4634`）/ TextArea `onKeyEvent`（`4163`）；选中态 `cmdSel` + ↑↓/Tab/Esc + `@` 文件回车接受 |
 | 输入附件（文件/图片/粘贴） | `MessageInput.tsx:198-332` | ✅ | `Index.ets:1692-1802` + `core/attach.ets` |
 | ModelSelector | `ModelSelector.tsx:28` | ✅ | `Index.ets:5477` ModelSheet |
 | ThinkingModeControl（composer 内档位） | `ThinkingModeControl.tsx:68` | 🟡 | 四档逻辑在 `components/SettingsLlm.ets`（**设置页**，非 composer） |
@@ -963,7 +963,7 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 
 | web 模块 | web 落点 | 原生现状 | 原生落点/缺 | 用户可见价值 | 建议 |
 |---|---|---|---|---|---|
-| **@ 提及 / 斜杠命令的候选补全** | `components/agent/CompletionPopup.tsx:1`（"floating candidate list above the message input"）+ `hooks/useCompletion.ts:137,343`（`trigger = '/' or '@'`，↑↓ 导航） | **无** | 缺候选列表；原生的 `/` 只在 `core/attach.ets:12` 做**附件路径解析**（不是命令补全） | **中–高**（@提及/命令**发现性**：用户不知道有哪些命令可用） | **做**（成本低：输入框挂 `bindPopup` + 复用 `core/attach.ets` 的 token 解析；纯逻辑部分可单测） |
+| **@ 提及 / 斜杠命令的候选补全** | `components/agent/CompletionPopup.tsx:1`（"floating candidate list above the message input"）+ `hooks/useCompletion.ts:137,343`（`trigger = '/' or '@'`，↑↓ 导航） | ✅ **已实现**（原判"无"**已过时**：P11 `181a6a6` 已落地 `core/composer.ets` 纯逻辑 + `Index.ets` 浮层；本波补齐两处缺口） | 缺口（本波已修）：① `matchFiles` 曾"存在且被测"但**页面零调用** ⇒ `@` 补全不按前缀过滤（现经 `Index.ets:fsMatches()` 真消费）；② 无选中态/键盘导航（现补 `cmdSel` + `selNext/selPrev/completionKeyAction` + `onKeyEvent`/`onSubmit`） | **中–高**（@提及/命令**发现性**：用户不知道有哪些命令可用） | **已做**（判据 `tools/tests/completion.test.ts`，4 个 mutation 自证） |
 
 ### B. ✅ 可**结项**（本轮把台账里"待核/存疑"按功能复核后结掉）
 
@@ -984,7 +984,7 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 
 | # | 项 | 价值 | 成本 | 归属 |
 |---|---|---|---|---|
-| 1 | **@ 提及 / 命令候选补全**（A） | 中–高 | 低–中 | 输入框侧（`components/**`）+ 纯逻辑单测 |
+| 1 | **@ 提及 / 命令候选补全**（A） | 中–高 | 低–中 | **本波已做**：`core/composer.ets` + `Index.ets` 输入区；判据 `tools/tests/completion.test.ts` |
 | 2 | 路径选择 cwd（§427） | 中 | 中（需 `pages/Index.ets`） | 已登记，待排 |
 | 3 | 消息注释/高亮（§418） | 中 | 中–高 | 已登记，待排 |
 

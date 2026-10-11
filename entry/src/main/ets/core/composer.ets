@@ -85,6 +85,18 @@ export function applyCommand(text: string, token: string, name: string): string 
 }
 
 /**
+ * `@a/b` 的**过滤前缀** = 最后一个 `/` 之后的部分（web `useCompletion.ts:283-287` 的 `filterText`）。
+ *
+ * 为什么必须只取最后一段：`/api/fs/list` 返回的是**当前目录内**的相对名（如 `b.md`）——
+ * 拿整个 `@a/b` 去做前缀匹配**永远命中不到**（条目名里没有 `a/` 前缀）⇒ 子目录下钻后补全会**全空**。
+ */
+export function mentionFilter(token: string): string {
+  const body: string = token.length > 0 ? token.substring(1) : '';
+  const slash: number = body.lastIndexOf('/');
+  return slash >= 0 ? body.substring(slash + 1) : body;
+}
+
+/**
  * 文件候选。
  *
  * 逐字对齐 web `useCompletion.ts:295-302`：`name.toLowerCase().startsWith(filterText.toLowerCase())`
@@ -94,7 +106,7 @@ export function applyCommand(text: string, token: string, name: string): string 
  * 无目录优先，`web_fs.go:189`）—— 这是本文件既有的 UX 选择，保留并在测试里钉住。
  */
 export function matchFiles(entries: FsEntry[], token: string): FsEntry[] {
-  const q: string = token.length > 0 ? token.substring(1).toLowerCase() : '';
+  const q: string = mentionFilter(token).toLowerCase();
   const dirs: FsEntry[] = [];
   const files: FsEntry[] = [];
   for (let i = 0; i < entries.length; i++) {
@@ -157,4 +169,76 @@ export function enterSends(mode: string): boolean {
 /** 输入框高度上限（行数）—— 超过就内部滚动，绝不把消息区挤没。 */
 export function maxComposerLines(): number {
   return 6;
+}
+
+// ── 候选浮层的**选中态 / 键盘导航**（对齐 web `useCompletion.ts:369-397` handleKeyDown）──────
+//
+// 为什么单列：手机上软键盘没有方向键/Tab ⇒ 键盘导航是**外接键盘 + 无障碍**的补充路径；
+// 但"选中索引在边界不越界"是**可脱机判定**的纯数值语义，必须与渲染同源（判据见
+// `tools/tests/completion.test.ts`）。
+
+/** 命令浮层最多渲染的行数（选中索引只在这之内环绕 ⇒ 不会选中"看不见的一行"）。 */
+export const CMD_ROWS: number = 6;
+/** 文件浮层最多渲染的行数（同上）。 */
+export const FS_ROWS: number = 8;
+
+/** 把选中索引夹回 `[0, count-1]`（空候选 ⇒ 0）。候选列表变化后必须调用。 */
+export function clampSel(sel: number, count: number): number {
+  if (count <= 0) {
+    return 0;
+  }
+  if (sel < 0) {
+    return 0;
+  }
+  if (sel >= count) {
+    return count - 1;
+  }
+  return sel;
+}
+
+/** ↓：循环前进（末尾回 0）。逐字对齐 web `useCompletion.ts:375` 的 `(i + 1) % len`。 */
+export function selNext(sel: number, count: number): number {
+  if (count <= 0) {
+    return 0;
+  }
+  return (clampSel(sel, count) + 1) % count;
+}
+
+/** ↑：循环后退（0 回末尾）。逐字对齐 web `useCompletion.ts:380` 的 `(i - 1 + len) % len`。 */
+export function selPrev(sel: number, count: number): number {
+  if (count <= 0) {
+    return 0;
+  }
+  return (clampSel(sel, count) - 1 + count) % count;
+}
+
+/**
+ * 键盘动作 → 语义（web `useCompletion.ts:369-397` 的判定部分）。
+ *
+ * 返回 `'next' | 'prev' | 'accept' | 'close' | ''`（`''` = 不消费，交回输入框）。
+ * - `ArrowDown`/`ArrowUp` ⇒ 循环导航；
+ * - `Tab` ⇒ 接受（命令 / 文件皆可）；
+ * - `Enter` ⇒ **仅文件**接受（web `:383`），且 `shift` 时不接受（shift+Enter = 换行）；
+ * - `Escape` ⇒ 关闭浮层。
+ *
+ * ⚠️ **一处刻意偏离**：web 的 Enter 还要求 `!ctrl && !meta`；本仓 Enter 走 `TextArea.onSubmit`
+ * （拿不到修饰键）⇒ 只判 `shift`。手机上不存在 ctrl/meta+Enter，语义等价。
+ */
+export function completionKeyAction(key: string, isFile: boolean, shift: boolean): string {
+  if (key === 'ArrowDown') {
+    return 'next';
+  }
+  if (key === 'ArrowUp') {
+    return 'prev';
+  }
+  if (key === 'Tab') {
+    return 'accept';
+  }
+  if (key === 'Enter' && isFile && !shift) {
+    return 'accept';
+  }
+  if (key === 'Escape') {
+    return 'close';
+  }
+  return '';
 }
