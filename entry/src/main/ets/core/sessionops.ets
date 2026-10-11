@@ -10,7 +10,7 @@
  *   ⚠️ 搜索只在**当前会话**的 tenant 内检索（服务端如此实现，不是全局搜索）。
  */
 
-import { SearchHit } from './types';
+import { SearchHit, TodoItem } from './types';
 
 export const MOVE_TOP: string = 'top';
 export const MOVE_UP: string = 'up';
@@ -171,4 +171,56 @@ export function parseSearchHits(data: Object): SearchHit[] {
     return [];
   }
   return (raw as SearchHit[]);
+}
+
+// ── 会话切换（`POST /api/chats/{chatID}/switch`）的**请求/响应契约**纯逻辑 ─────────────
+//
+// 权威 = 服务端：路由 `web.go:946` → `handleChatSwitchPOST`（`web_rest.go:706-720`）
+//   → `handleChatSwitch`（`web_api.go:1459-1504`）。
+//   · 语义：把 `wc.userCurrentSession[senderID]` 设为 `{channel, chatID}` —— 这是服务端
+//     **"当前会话"的唯一写入点**。读它的地方（`GetCurrentSession`，`web_api.go:1666-1672`）：
+//       `handleSearch` `:1120`（搜消息）、会话树 `:1443`、上下文用量 `:78`、终端 `web_pty.go:557`、
+//       WS 缺省路由/cancel `web.go:1686/1701/1801/1859/1922`、inbound 路由 `web_inbound.go:116`、
+//       SSE `web_sse.go:208`；缺省回落 `{Channel:"web", ChatID:senderID}`（伪会话）。
+//     ⛔ 原生切会话若不发本请求 ⇒ 服务端仍指向上一次（web/别人）设的会话 ⇒ **搜消息查错会话**（真机复现）。
+//   · 入参：`channel` 走 **body** `{channel}`（`handleChatSwitchPOST` 把它转成 query；缺省 `web`，
+//     `web_api.go:1475-1478`）。⛔ 直接在 URL 上发 `?channel=` 会被 `handleChatSwitchPOST` 用 body
+//     **重建** query 覆盖掉（`web_rest.go:713-717`）⇒ 客户端**必须**把 channel 放 body。
+//   · 非 web 通道仅**管理员**可切（`web_api.go:1481-1484`）；本仓 web 登录恒为管理员（`:1670`），
+//     故非 web 会话（飞书等）也能切。
+//   · 返回 `{ok, chat_id, channel, todos}`（`web_api.go:1503`）——`todos` 供切会话即刻恢复 TODO 列表。
+
+/** `/api/chats/{chatID}/switch` 的路径（chatID **URL-encode**，杜绝裸拼路径注入）。 */
+export function chatSwitchPath(chatID: string): string {
+  return `/api/chats/${encodeURIComponent(chatID)}/switch`;
+}
+
+/** 切会话用的 channel（空串 ⇒ `web`，镜像服务端缺省 `web_api.go:1475-1478`）。 */
+export function chatSwitchChannel(channel: string): string {
+  return channel.length > 0 ? channel : 'web';
+}
+
+/** `switch` 响应（服务端 `web_api.go:1503` `{ok, chat_id, channel, todos}`）。 */
+export class ChatSwitchResult {
+  ok: boolean = false;
+  chatID: string = '';
+  channel: string = '';
+  todos: TodoItem[] = [];
+}
+
+/** 解析 `switch` 响应（防御字段缺失/类型不符；`todos` 非数组 ⇒ `[]`）。 */
+export function parseChatSwitch(data: Object): ChatSwitchResult {
+  const out: ChatSwitchResult = new ChatSwitchResult();
+  if (data === undefined || data === null) {
+    return out;
+  }
+  const o: Record<string, Object> = data as Record<string, Object>;
+  out.ok = o['ok'] === true;
+  const cid: Object | undefined = o['chat_id'];
+  out.chatID = typeof cid === 'string' ? (cid as string) : '';
+  const ch: Object | undefined = o['channel'];
+  out.channel = typeof ch === 'string' ? (ch as string) : '';
+  const todos: Object | undefined = o['todos'];
+  out.todos = Array.isArray(todos) ? (todos as TodoItem[]) : [];
+  return out;
 }

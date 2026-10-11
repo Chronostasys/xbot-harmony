@@ -24,7 +24,7 @@ import { ChatMessage, ChatMessageRole, EMPTY_PROGRESS_SNAPSHOT, ProgressSnapshot
 import { normalizeWebIteration } from './agent_normalize';
 import { channelForChat } from './sessionpick';
 import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
-import { moveOrders, parseSearchHits, searchBody, SEARCH_LIMIT_DEFAULT, SearchBody } from './sessionops';
+import { moveOrders, parseSearchHits, searchBody, SEARCH_LIMIT_DEFAULT, SearchBody, chatSwitchPath, chatSwitchChannel, ChatSwitchResult, parseChatSwitch } from './sessionops';
 import { RewindReq, RewindTarget, gapTopBefore, rewindTargetDBID } from './msgops';
 import { BgTask, CronJob, RunnerRow, SubAgentRow, isWidgetEvent } from './panels';
 import { serverKey, toLocalSettings } from './settings';
@@ -559,6 +559,20 @@ export class ChatStore {
     }
     this.channel = channelForChat(this.sessions, chatId);
     this.currentChatId = chatId;
+    // ⛔ 通知服务端"当前会话"（`POST /api/chats/{chatID}/switch`）—— **fire-and-forget**。
+    //   服务端的 active session（`userCurrentSession[senderID]`）是 `handleSearch`（搜消息，`:1120`）、
+    //   会话树（`:1443`）、终端（`web_pty.go:557`）、WS 缺省路由/cancel 的**唯一**输入；
+    //   不发 ⇒ 服务端仍指向上一次（web/别人）设的会话 ⇒ 搜消息查错会话（真机：`CI` 0 命中）。
+    //   ⛔ 失败**绝不影响**切会话主流程（与下方 `loadStatus` 同款吞异常）。
+    this.notifyServerSwitch(chatId).then((res: ChatSwitchResult) => {
+      // 切会话即刻恢复 TODO —— 仅当**仍是当前会话**时套用（用户已切走 ⇒ 丢弃，避免串台）。
+      if (this.currentChatId === chatId && res.todos.length > 0) {
+        this.todos = res.todos;
+        this.onUpdate();
+      }
+    }).catch(() => {
+      // 非关键路径：服务端 active session 下次切会话再补；不弹错、不阻塞
+    });
     // 通知（波3）：用户**正在看这个会话** ⇒ 它的提醒已被"读到"，**只**清它（其余会话的提醒保留）。
     // 失败/不存在都在 notify.clearForChat 内部吞掉（1600007 = 本来就没有 ⇒ 视为成功）。
     clearForChat(chatId);
@@ -587,6 +601,20 @@ export class ChatStore {
       // 状态非关键路径
     });
     this.subscribe();
+  }
+
+  /**
+   * 通知服务端"当前会话"（`POST /api/chats/{chatID}/switch`，body `{channel}`）。
+   *
+   * 服务端把它记为 active session（`userCurrentSession[senderID]`）——`handleSearch`/会话树/
+   * 终端/WS 缺省路由都读它。⛔ 路径必须 URL-encode chatID（`chatSwitchPath`）；
+   * `channel` 缺省 `web`（`chatSwitchChannel`）。**调用方负责吞异常**（fire-and-forget）。
+   */
+  private async notifyServerSwitch(chatId: string): Promise<ChatSwitchResult> {
+    const path: string = chatSwitchPath(chatId);
+    const body: ChannelReq = new ChannelReq(chatSwitchChannel(this.channel));
+    const raw: Object = await this.http.postAs<Object>(path, body);
+    return parseChatSwitch(raw);
   }
 
   // ── 历史（含上拉分页） ─────────────────────────────────────────────────────
