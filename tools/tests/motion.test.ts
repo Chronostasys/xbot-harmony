@@ -25,7 +25,7 @@ import { allowedDurations } from '../../entry/src/main/ets/core/design';
 
 // 旧 token 常量（theme_tokens.test.ts 也引用）；此处校验"新模块与旧常量同源不漂移"。
 import {
-  D_FAST, D_SLOW, SP_8,
+  D_FAST, D_SLOW, SP_8, EASE_OUT_CSS,
   EASE_SPRING_CSS, EASE_SPRING_P1X, EASE_SPRING_P1Y, EASE_SPRING_P2X, EASE_SPRING_P2Y,
   EASE_SPRING_RESPONSE, EASE_SPRING_DAMPING, EASE_SPRING_OVERLAP,
 } from '../../entry/src/main/ets/core/tokens';
@@ -115,6 +115,36 @@ hasSrc('export const MOTION_SPLASH_MARK_VP: number = SP_8 * 5;',
 hasSrc('export const MOTION_ENTER_SCALE: number = 0.92;', 'MOTION_ENTER_SCALE 设计值常量在位');
 hasNotSrc('MOTION_MIN_DWELL_MS: number = 400', '⛔ MIN_DWELL 无裸 400 字面量');
 hasNotSrc('MOTION_SPLASH_MARK_VP: number = 160', '⛔ MARK_VP 无裸 160 字面量');
+
+// ── (f) 开屏 T2「让位」工厂 `animEaseOut()`（`components/anim.ets`）──────────────────────
+// 契约（用户口径）：**入场可超调，让位/退出不许超调** ⇒ `animEaseOut()` 必须是"无超调缓出"，
+// 且其 duration/curve **取自 tokens 常量、不写字面量**（否则 token 一改，工厂不跟 ⇒ 观感漂移）。
+// 为什么读**真实源码**而非 import：`components/**` 不进本 harness（`run.sh` 只把 `core/**` 当纯 TS
+// 编译），且 `anim.ets` import `@ohos/curves`（Node 不可解析）⇒ 组件层一律用**形态断言**
+// （先例：`tools/tests/inflight_language.test.ts:55` 同法读 `components/anim.ets`）。
+const animSrc: string = require('fs').readFileSync(
+  require('path').join(__dirname, '..', '..', '..', '..', 'entry', 'src', 'main', 'ets',
+    'components', 'anim.ets'),
+  'utf-8');
+// 取**调用片段**（只截函数体，剥掉上方文档注释 —— 注释里也写着常量名，不能当"消费者"证据）。
+const mEase = animSrc.match(/export function animEaseOut\(\): AnimateParam \{[\s\S]*?\n\}/);
+ok('animEaseOut() 工厂在位（开屏 T2 的具名出口）', mEase !== null);
+const easeBody: string = mEase === null ? '' : mEase[0];
+ok('animEaseOut 的 curve 取自 tokens.EASE_OUT_CSS（不写字面量）',
+  easeBody.indexOf('curve: EASE_OUT_CSS') >= 0);
+ok('animEaseOut 的 duration 取自派生常量 MOTION_SLOW_MS（不写字面量）',
+  easeBody.indexOf('duration: MOTION_SLOW_MS') >= 0);
+ok('⛔ animEaseOut 不含 spring（让位必须无超调；mutation：改成 springCurve() ⇒ 必红）',
+  easeBody.indexOf('spring') < 0 && easeBody.indexOf('EASE_SPRING_CSS') < 0);
+ok('⛔ animEaseOut 不含裸 bezier 字面量（mutation：写死 \'cubic-bezier(...)\' ⇒ 必红）',
+  easeBody.indexOf('cubic-bezier') < 0);
+ok('anim.ets 从 core/tokens 引入 EASE_OUT_CSS（消费链路在位，非巧合相等）',
+  /import\s*\{[^}]*EASE_OUT_CSS[^}]*\}\s*from\s*'\.\.\/core\/tokens'/.test(animSrc));
+// token 侧语义（值断言）：T2 让位曲线必须**无超调**（两个控制点 y 全 ≤ 1）。
+const easePts: number[] = EASE_OUT_CSS.replace(/^cubic-bezier\(|\)$/g, '')
+  .split(',').map((s) => Number(s.trim()));
+ok(`EASE_OUT_CSS 无超调（y ≤ 1）—— T2 让位口径 [${easePts.join(', ')}]`,
+  easePts.length === 4 && easePts[1] <= 1 && easePts[3] <= 1);
 
 if (fail > 0) { console.log(`  motion: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  motion: ${pass} passed, 0 failed`);
