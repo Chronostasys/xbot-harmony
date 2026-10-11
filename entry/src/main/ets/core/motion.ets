@@ -179,11 +179,83 @@ export function inRange(x: number, lo: number, hi: number): boolean {
   return typeof x === 'number' && x === x && x >= lo && x <= hi;
 }
 
+// ── 「苹果式」物理规格（2026-10-12 目标⑤◆）—— 把"回弹 / 收尾 / 时长"变成**可断言的物理量** ────
+// 为什么落在这一层：本文件是动效**唯一真源**；规格若只写在文档里，下一次调数值就会**静默失效**
+// （本仓"死消费 / 判据盲区"血债）。⇒ 物理不变量必须由 `motionIssues()` **机器断言**。
+// 依据 = **公开的物理直觉**（二阶阻尼振子的峰值超调公式 / 人对位移·淡入的时长感知），
+// ⛔ 未复制任何专有资源：
+//   · 峰值超调 `overshoot = exp(-π·ζ/√(1-ζ²))`（ζ = 阻尼比）⇒ ζ 越接近 1 越"干净"；ζ=1 临界阻尼无回弹；
+//   · 入场要**有生气但克制**：超调 ∈ (0, 15%] ⇒ ζ ≳ 0.52（当前曲线实测 ≈ 9.7% ⇒ 等效 ζ ≈ 0.60）；
+//   · 曲线**末端不得再起浪**（`y2 ≤ 1`）—— 收尾"冲过头再退回来"读作抖（同 `animEaseOut` 一族的口径）；
+//   · 单次过渡 **> ~600ms 读作拖沓**（几百 ms 内完成的位移/淡入才读作"即时"）。
+/** 入场/过渡贝塞尔的**峰值超调上界**（无量纲）：≤ 15% ⇒ ζ ≳ 0.52 ——「有回弹但干净」。 */
+export const MOTION_OVERSHOOT_MAX: number = 0.15;
+/** 单次过渡/入场的**时长上界**（ms）：> 600 读作拖沓（同步动画的感知阈值远小于此）。 */
+export const MOTION_DURATION_MAX_MS: number = 600;
+
+/** 三次贝塞尔 `y(t)`（纯数值；控制点 (x1,y1)/(x2,y2)、端点 (0,0)/(1,1) 的 y 分量）。 */
+export function bezierY(y1: number, y2: number, t: number): number {
+  const u: number = 1 - t;
+  return 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t;
+}
+
+/**
+ * 贝塞尔的**峰值超调**（`max y − 1`，下界夹 0）—— 纯采样、纯函数、可脱机单测。
+ * 把"回弹有多冲"变成**可比较的数**（当前曲线实测 ≈ 0.0970 ⇒ 等效 ζ ≈ 0.60）。
+ * ⚠️ 只在自检/单测里调用（**不在每帧路径**上）；1001 次采样是 O(1) 级开销。
+ */
+export function peakOvershoot(y1: number, y2: number): number {
+  let peak: number = 0;
+  for (let i = 0; i <= 1000; i++) {
+    const y: number = bezierY(y1, y2, i / 1000);
+    if (y > peak) { peak = y; }
+  }
+  const over: number = peak - 1;
+  return over > 0 ? over : 0;
+}
+
+/** `springBezier()` 的峰值超调（= `peakOvershoot(b.y1, b.y2)`）。 */
+export function springPeakOvershoot(): number {
+  const b: BezierPoints = springBezier();
+  return peakOvershoot(b.y1, b.y2);
+}
+
+/**
+ * 超调 → **等效阻尼比 ζ**（`overshoot = exp(-π·ζ/√(1-ζ²))` 的解析反解）。
+ * 用途：把曲线读成物理量（当前 ≈ 0.595 ⇒ "略带回弹、收得住"），供规格文档/单测复算。
+ * 推导：`ln(1/overshoot) = π·ζ/√(1-ζ²)` ⇒ 令 `k = ln(1/overshoot)/π` ⇒ `ζ = k/√(1+k²)`。
+ * `overshoot ≤ 0` ⇒ 返回 1（临界阻尼，无回弹）。
+ */
+export function dampingFromOvershoot(overshoot: number): number {
+  if (!(overshoot > 0)) { return 1; }
+  const k: number = Math.log(1 / overshoot) / Math.PI; // = ζ/√(1-ζ²)
+  const k2: number = k * k;
+  return Math.sqrt(k2 / (1 + k2));
+}
+
+/**
+ * **曲线侧的物理判定**（参数化纯函数）—— 给自检/单测逐项判"是否物理上说得通"；空数组 = 合格。
+ * ⛔ 刻意**参数化**（而非直接读模块常量）：判据必须能**注入坏样本自证判别力**（mutation）——
+ *    `bezierIssues(0.34, 3.0, 0.64, 1.0, MOTION_OVERSHOOT_MAX)` 必非空。
+ */
+export function bezierIssues(x1: number, y1: number, x2: number, y2: number, overshootMax: number): MotionIssue[] {
+  const out: MotionIssue[] = [];
+  if (!inRange(x1, 0, 1)) { out.push(new MotionIssue('bezier.x1', '需 ∈ [0,1]')); }
+  if (!inRange(x2, 0, 1)) { out.push(new MotionIssue('bezier.x2', '需 ∈ [0,1]')); }
+  if (!(y1 > 1)) { out.push(new MotionIssue('bezier.y1', '需 > 1（入场须有 spring 回弹）')); }
+  if (!(y1 <= 2)) { out.push(new MotionIssue('bezier.y1', '需 ≤ 2（回弹有界 ⇒ 不是乱弹）')); }
+  if (!(y2 <= 1)) { out.push(new MotionIssue('bezier.y2', '需 ≤ 1（末端不得再起浪 ⇒ 干净收尾）')); }
+  if (!(peakOvershoot(y1, y2) <= overshootMax)) { out.push(new MotionIssue('bezier.overshoot', '峰值超调超上界')); }
+  return out;
+}
+
 /**
  * 自检（纯函数）：返回所有不合法项；空数组 ⇒ 参数自洽。
- * 判据（与 web 口径/物理意义一致）：
- *   · 时长严格递增且为正；
+ * 判据（与 web 口径 / **物理意义**一致）：
+ *   · 时长严格递增且为正，且单次过渡 ≤ `MOTION_DURATION_MAX_MS`；
+ *   · 行入场（msgIn）不快于块入场（base）—— 更小的对象用更短的时长；
  *   · 贝塞尔 x∈[0,1]（SDK 只接受 [0,1]，超界会被夹到 0/1 —— `@ohos.curves.d.ts:256-260`）；
+ *   · 贝塞尔**物理规格**（回弹有界 / 末端不起浪 / 峰值超调 ≤ `MOTION_OVERSHOOT_MAX`）—— 见 `bezierIssues`；
  *   · spring response>0、0<damping<1（有回弹）、overlap≥0。
  */
 export function motionIssues(): MotionIssue[] {
@@ -191,9 +263,11 @@ export function motionIssues(): MotionIssue[] {
   if (!(MOTION_FAST_MS > 0)) { out.push(new MotionIssue('MOTION_FAST_MS', '需 > 0')); }
   if (!(MOTION_BASE_MS > MOTION_FAST_MS)) { out.push(new MotionIssue('MOTION_BASE_MS', '需 > fast')); }
   if (!(MOTION_SLOW_MS > MOTION_BASE_MS)) { out.push(new MotionIssue('MOTION_SLOW_MS', '需 > base')); }
-  const b = springBezier();
-  if (!inRange(b.x1, 0, 1)) { out.push(new MotionIssue('bezier.x1', '需 ∈ [0,1]')); }
-  if (!inRange(b.x2, 0, 1)) { out.push(new MotionIssue('bezier.x2', '需 ∈ [0,1]')); }
+  if (!(MOTION_SLOW_MS <= MOTION_DURATION_MAX_MS)) { out.push(new MotionIssue('MOTION_SLOW_MS', '单次过渡需 ≤ 时长上界（更久读作拖沓）')); }
+  if (!(MOTION_MSG_IN_MS <= MOTION_BASE_MS)) { out.push(new MotionIssue('MOTION_MSG_IN_MS', '行入场应 ≤ 块入场（更小的对象用更短的时长）')); }
+  const b: BezierPoints = springBezier();
+  const bi: MotionIssue[] = bezierIssues(b.x1, b.y1, b.x2, b.y2, MOTION_OVERSHOOT_MAX);
+  for (let i = 0; i < bi.length; i++) { out.push(bi[i]); }
   const s = springParams();
   if (!(s.response > 0)) { out.push(new MotionIssue('spring.response', '需 > 0')); }
   if (!(s.dampingFraction > 0 && s.dampingFraction < 1)) { out.push(new MotionIssue('spring.dampingFraction', '需 ∈ (0,1) 才有回弹')); }
