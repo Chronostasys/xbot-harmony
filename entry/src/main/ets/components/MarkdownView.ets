@@ -4,6 +4,12 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { Palette, paletteOf, surfacesOf, Effects, effectsOf, contrastRatio, isLightPalette } from '../core/theme';
 import { codeBgOf, codeFgOf, codeTone, CodeTone, isLightMdTheme, normalizeMdTheme } from '../core/mdtheme';
 import { R_SM, R_MD, R_LG, SP_1, SP_2, SP_3 } from '../core/tokens';
+// 排版节奏（本波「布局/层级」重做的主战场）：行高此前**全文一处都没有**（`docs/REDESIGN.md §1.2`）
+// ⇒ ArkUI 默认行高偏紧、"呼吸"完全不可控。这里把尺度全部取自 `core/design.ets` 的 `MD_*` 组。
+import {
+  MD_BLOCK_GAP, MD_BODY_LEADING, MD_CODE_LEADING, MD_HEADING_GAP_BOTTOM, MD_HEADING_GAP_TOP,
+  MD_HEADING_LEADING, MdHeading, mdHeadings, typeOf,
+} from '../core/design';
 import {
   MdBlock, MdBlockKind, MdSpan, parseInlineCached, parseMarkdownCached,
   TableField, tableRowFields, useTableGrid,
@@ -179,7 +185,9 @@ export struct MarkdownView {
   imageMaxHeight: number = 340;
 
   build() {
-    Column({ space: 6 }) {
+    // 块级节奏 = `MD_BLOCK_GAP`(8)（`core/design.ets`；旧凹口值 6）。web 靠 margin 折叠、原生
+    // `Column.space` 不折叠 ⇒ 8 是与下方各块自身 margin 相加后最接近 `MarkdownRenderer` 的节奏。
+    Column({ space: MD_BLOCK_GAP }) {
       // 走缓存：流式期间整行会反复重建，没缓存就要反复解析几百 KB（见 core/markdown.ets 注释）
       ForEach(parseMarkdownCached(this.text), (b: MdBlock, idx: number) => {
         this.Block(b, idx)
@@ -202,7 +210,10 @@ export struct MarkdownView {
       }
       .width('100%')
       .wordBreak(WordBreak.BREAK_ALL)
-      .margin({ top: b.level <= 2 ? 8 : 4, bottom: 2 })
+      // 标题行高显式（web `index.css:540 line-height:1.3`）；旧实现无 `.lineHeight`。
+      .lineHeight(this.sz(this.headingSize(b.level)) * MD_HEADING_LEADING)
+      // 标题上/下外边距进 token（`MD_HEADING_GAP_TOP/BOTTOM`；旧凹口值 `top:8|4 / bottom:2`）。
+      .margin({ top: MD_HEADING_GAP_TOP, bottom: MD_HEADING_GAP_BOTTOM })
     } else if (b.kind === MdBlockKind.Code) {
       this.CodeBlock(b)
     } else if (b.kind === MdBlockKind.Divider) {
@@ -304,6 +315,9 @@ export struct MarkdownView {
     }
     .width('100%')
     .textAlign(TextAlign.Start)
+    // 正文字行高显式（`MD_BODY_LEADING`=1.55 × `type.body` 15fp）——本仓此前正文**无一处**
+    // `.lineHeight()`（`docs/REDESIGN.md §1.2`），行高由 ArkUI 默认值接管、不可控。
+    .lineHeight(this.sz(typeOf('type.body').size) * MD_BODY_LEADING)
     // 不可断超长 token（URL/代码/base64）在 ArkUI 里默认不在词内折行 ⇒ 横向撑破容器；
     // 与 xbot Web 端已定稿的教训同源（break-words 不够，必须 wrap-anywhere）。
     .wordBreak(WordBreak.BREAK_ALL)
@@ -417,6 +431,8 @@ export struct MarkdownView {
           .wordBreak(WordBreak.NORMAL)
           .fontFamily('monospace')
           .fontSize(13)
+          // 代码行高显式（`MD_CODE_LEADING`=1.5；等宽字需更紧但仍要可读）——旧实现无 `.lineHeight`。
+          .lineHeight(13 * MD_CODE_LEADING)
           .padding(SP_3)
           .textAlign(TextAlign.Start)
         }
@@ -536,16 +552,17 @@ export struct MarkdownView {
     .margin({ top: SP_1, bottom: SP_1 })
   }
 
+  /**
+   * 标题字号（h1..h4）—— 取自**唯一尺度源** `core/design.ets:mdHeadings()`（24/20/17/15），
+   * 不再用组件私有凹口值（旧 `20/18/16/15`）。h4 == 正文（web `1em` 原义）。
+   */
   private headingSize(level: number): number {
-    if (level <= 1) {
-      return 20;
+    const hs: MdHeading[] = mdHeadings();
+    for (let i = 0; i < hs.length; i++) {
+      if (hs[i].level === level) {
+        return hs[i].size;
+      }
     }
-    if (level === 2) {
-      return 18;
-    }
-    if (level === 3) {
-      return 16;
-    }
-    return 15;
+    return hs[hs.length - 1].size;
   }
 }
