@@ -26,7 +26,7 @@ import { D_BASE, EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_BOOT_WOR
 import {
   GAP_BLOCK, HIT_TARGET_MIN, ICON_MD, INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X, INSET_ROW_Y,
   PRESS_OPACITY, PRESS_SCALE, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, RADIUS_SHEET, SPACE_HAIR, SPACE_LG, SPACE_MD,
-  SPACE_SM, SPACE_XL, SPACE_XS, SPACE_XXL, SPACE_XXS, STROKE_HAIRLINE, hairlineOf, surfaceFillOf, typeOf,
+  SPACE_SM, SPACE_XL, SPACE_XS, SPACE_XXL, SPACE_XXS, STROKE_HAIRLINE, hairlineOf, insetHairlineOf, surfaceFillOf, typeOf,
 } from '../core/design';
 import { isUnauthorized, loadErrHint, loadErrTitle, needsRelogin, needsSessionRefresh } from '../core/autherr';
 import {
@@ -1003,6 +1003,7 @@ struct Index {
     try {
       AppStorage.delete(PENDING_COMMAND_KEY);
     } catch (e) {
+      // 有意吞：键不存在时 `delete` 会抛；此处只想确保"消费掉"待处理命令，无键即无事可做。
     }
     const action: CommandAction | null = parseCommandUri(uri);
     if (action === null || !commandDispatchable(action)) {
@@ -1055,6 +1056,7 @@ struct Index {
     try {
       AppStorage.delete(PENDING_ACTION_KEY);
     } catch (e) {
+      // 有意吞：同 PENDING_COMMAND_KEY —— 键不存在即无需清理（防注入的白名单校验在下方）。
     }
     if (!isKnownNotifyAction(action)) {
       return;   // 白名单外：不执行任何能力（防注入）
@@ -1068,6 +1070,7 @@ struct Index {
         this.keepAliveTurn = true;
         beginTurnKeepAlive();
       }).catch(() => {
+        // 有意吞：通知栏"继续"的 keepAlive 是**旁路**（失败只记日志）；发送结果由 store 状态/列表体现 ⇒ 不重复提示。
       });
       return;
     }
@@ -3222,6 +3225,7 @@ struct Index {
                   const st: ChatStore | null = this.store;
                   if (st !== null) {
                     st.loadSettings().catch(() => {
+                      // 有意吞：下拉刷新拉设置失败时保留旧值（下次进设置会再拉），⛔ 不打断下拉手势。
                     });
                   }
                 },
@@ -3790,6 +3794,9 @@ struct Index {
             .padding({ left: SPACE_SM, right: SPACE_SM, top: 7, bottom: 7 })
             .backgroundColor(this.pal().accentDeep)
             .borderRadius(RADIUS_SHEET)
+            // 热区 ≥ `HIT_TARGET_MIN`(44)：视觉小药丸，靠 `responseRegion` **外扩**、⛔ 不改布局/视觉尺寸
+            // （与 `SplashOverlay`「轻点跳过」/`MessageNav` 同法；全局小字按钮口径统一到这一处）。
+            .responseRegion({ x: -SPACE_SM, y: -SPACE_SM, width: '100%', height: HIT_TARGET_MIN })
             .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
             .onClick(() => {
               // 用户显式要求回到底部 ⇒ 意图置为跟随（与切会话同一语义）
@@ -4336,6 +4343,7 @@ struct Index {
     this.sessQuery = '';
     this.activeChannel = '';
     this.config.saveActiveChannel('').catch(() => {
+      // 有意吞：清筛选时持久化渠道偏好失败不影响当前视图（内存态 sessQuery/activeChannel 已清）。
     });
   }
 
@@ -4631,6 +4639,7 @@ struct Index {
     try {
       vibrator.startVibration({ type: 'time', duration: HAPTIC_TAP_MS }, { id: 0, usage: 'unknown' })
         .catch(() => {
+          // 有意吞：无振动器件（平板/模拟器）—— 触觉反馈可选，失败不影响任何交互语义。
         });
     } catch (e) {
       // 无振动器件：忽略
@@ -6007,6 +6016,8 @@ struct Index {
       .width('100%')
       .padding(SPACE_HAIR)
       .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
+      // §15：chip 面补**内凹发丝**（深色才有值、浅色 transparent ⇒ 浅色逐字节不变）
+      .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
       .borderRadius(RADIUS_PILL)
       .margin({ bottom: SPACE_SM })
 
@@ -6019,6 +6030,8 @@ struct Index {
           .fontColor(this.activeChannel.length === 0 ? this.pal().textPrimary : this.pal().textSecondary)
           .backgroundColor(surfaceFillOf(this.pal(),
             this.activeChannel.length === 0 ? 'surface.pillSelected' : 'surface.chip'))
+          // §15：**只给 chip 支**补内凹发丝；选中态（pillSelected）保持无边框。
+          .border({ width: STROKE_HAIRLINE, color: this.activeChannel.length === 0 ? this.pal().transparent : insetHairlineOf(this.pal()) })
           .borderRadius(RADIUS_CHIP).textAlign(TextAlign.Center)
           .padding({ left: SPACE_XS, right: SPACE_XS, top: SPACE_XS, bottom: SPACE_XS })
           .margin(SPACE_HAIR)
@@ -6035,6 +6048,8 @@ struct Index {
             .fontColor(this.activeChannel === ch ? this.pal().textPrimary : this.pal().textSecondary)
             .backgroundColor(surfaceFillOf(this.pal(),
               this.activeChannel === ch ? 'surface.pillSelected' : 'surface.chip'))
+            // §15：**只给 chip 支**补内凹发丝；选中态保持无边框。
+            .border({ width: STROKE_HAIRLINE, color: this.activeChannel === ch ? this.pal().transparent : insetHairlineOf(this.pal()) })
             .borderRadius(RADIUS_CHIP).textAlign(TextAlign.Center)
             .padding({ left: SPACE_XS, right: SPACE_XS, top: SPACE_XS, bottom: SPACE_XS })
             .margin(SPACE_HAIR)
@@ -6183,6 +6198,8 @@ struct Index {
                                 .fontSize(typeOf('type.micro').size).fontColor(this.pal().textSecondary)
                                 .padding({ left: INSET_CHIP_X, right: INSET_CHIP_X, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
                                 .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip')).borderRadius(RADIUS_CHIP)
+                                // §15：chip 面补内凹发丝（深色才有值、浅色 transparent）
+                                .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
                               // ⛔ 仅当"会话 id 与标题不同"时才补 id（否则与上一行标题同串）。
                               if (s.chat_id !== this.tabLabel(s.chat_id)) {
                                 Text(s.chat_id)

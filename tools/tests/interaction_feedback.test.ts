@@ -57,25 +57,17 @@ function lineAt(src: string, idx: number): number {
  * （`catch(e) {}` / `.catch(() => {})` / `.catch((e) => {})`，块内只有空白）。
  */
 const SWALLOW_BUDGET: Map<string, number> = new Map<string, number>([
-  ['pages/Index.ets', 37],                 // ⚠️ chat-surface-ux 域（只出 spec）
-  ['components/MarkdownView.ets', 2],      // ⚠️ chat-surface-ux 域（只出 spec）
-  ['components/SettingsDeveloper.ets', 1], // ⚠️ tokens-ux 域（只出 spec）
-  ['components/WebSurface.ets', 1],        // ⚠️ chat-surface-ux 域（只出 spec）
+  // ✅ 本轮修正（2026-10-11）：实测值 —— 原上界 37/2/1/1 是首次清点的**粗估**，实际远低。
+  // 缩到实况（⛔ 只许缩短）：修好或本就没有空 catch 的文件从表里删（新增未登记 ⇒ 红）。
+  ['pages/Index.ets', 3],
 ]);
 
 /**
  * **已出 spec、待他域修**的"无说明吞异常"（⛔ 台账**只许缩短**：修好一处就必须删一条 ⇒ 改回即红）。
- * 逐条已核对：都在**别人的域**（`chat-surface-ux` / `tokens-ux`）⇒ 本线只出 spec、不动码。
+ * ✅ **本轮已清空**（2026-10-11）：`splash-ux` 报的 7 处已逐条补"有意吞 + 为什么"（块内注释 ⇒ 不再算空块）：
+ *   `components/MarkdownView.ets:368` + `pages/Index.ets:1005/1057/1070/3224/4338/4633`。
  */
-const PENDING_SPEC: string[] = [
-  'components/MarkdownView.ets:368',
-  'pages/Index.ets:1005',
-  'pages/Index.ets:1057',
-  'pages/Index.ets:1070',
-  'pages/Index.ets:3224',
-  'pages/Index.ets:4338',
-  'pages/Index.ets:4633',
-];
+const PENDING_SPEC: string[] = [];
 
 const root: string = findRoot();
 ok('探测到仓库根', root.length > 0);

@@ -366,6 +366,8 @@ export struct MarkdownView {
     try {
       const ctx: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
       ctx.startAbility({ action: 'ohos.want.action.viewData', uri: abs }).catch(() => {
+        // 有意吞：`startAbility` 异步失败无处可提示（打开链接由系统选择器接管，用户已见系统 UI）；
+        // 此处失败不改变页面状态 ⇒ 只吞。（同步异常由外层 try 记 `console.error`。）
       });
     } catch (e) {
       console.error('open link failed');
@@ -484,6 +486,12 @@ export struct MarkdownView {
       }
     }
     .width('100%')
+    // ⛔ 横向溢出护栏（2026-10-11 用户截图：代码块长行把**整条消息列**撑出视口右缘）：
+    //    Scroll 模式下内层 Text 的固有宽度 = 最长行宽 ⇒ 若容器不设上界/不裁剪，**父级**会被顶宽。
+    //    `constraintSize({maxWidth:'100%'})` 把宽度锁死在父级（不参与"被内容反推"），`clip(true)`
+    //    保证任何残余超宽只在块内被裁（横向滚动由内层 Scroll 负责）⇒ 绝不溢出。
+    .constraintSize({ maxWidth: '100%' })
+    .clip(true)
     // 代码块底 = `surface.well`(sunken)（`#13` 视觉裁决：视觉以设计系统为权威，不再跟随 md 主题底；
     // md 主题降级为"语法色覆盖项"，见 `docs/REDESIGN.md §7.9`）。圆角 = `RADIUS_CARD`、边 = 发丝。
     .backgroundColor(wellOf(this.pal()))
