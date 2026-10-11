@@ -1,4 +1,5 @@
 import { AuthImage } from './AuthImage';
+import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { Palette, paletteOf, surfacesOf, Effects, effectsOf, contrastRatio, isLightPalette } from '../core/theme';
 import { codeBgOf, codeFgOf, codeTone, CodeTone, isLightMdTheme, normalizeMdTheme } from '../core/mdtheme';
@@ -7,6 +8,24 @@ import {
   MdBlock, MdBlockKind, MdSpan, parseInlineCached, parseMarkdownCached,
   TableField, tableRowFields, useTableGrid,
 } from '../core/markdown';
+// 渲染**判据**全在 core/mdview（纯逻辑、可脱机单测）：链接目标 / 溢出策略 / 代码 token 色 / 行内样式记忆化。
+import {
+  MdInlineStyle, MdInlineMemo, MdInlineMemoStats, mdInlineKey, codeOverflow, MdOverflow, codeTokenColor,
+} from '../core/mdview';
+import { HlSpan, highlightCode } from '../core/highlight';
+import { resolveOpenable } from '../core/msgops';
+
+/**
+ * 行内样式的**模块级记忆化容器**（P1#5）。
+ * 组件会被反复重建（流式期每拍），但"同一文本 + 同一主题"的样式是常量 ⇒ 只算一次。
+ * 统计口径可经 `mdInlineStyleStats()` 读取（本文件导出，供自检/测试读取源码形态）。
+ */
+const mdInlineMemo: MdInlineMemo = new MdInlineMemo();
+
+/** 行内样式记忆化统计（自检/测试用；与 `core/mdview.MdInlineMemo.stats()` 同源）。 */
+export function mdInlineStyleStats(): MdInlineMemoStats {
+  return mdInlineMemo.stats();
+}
 
 /**
  * MarkdownView —— 把 Markdown 渲染成原生 ArkUI（零 WebView）。
@@ -61,25 +80,9 @@ function inlineCodeFg(pal: Palette, tone: CodeTone): string {
 }
 
 /**
- * 行内片段的**预计算样式**。
- *
- * 为什么在 TS 侧算好：ArkUI 的 `Text` 只接受 Span 类子组件，在 `Text(){ForEach(){ if/else }}`
- * 里做条件渲染不保证支持 —— 这正是"渲染错乱"的典型来源。改成一维 ForEach + 纯属性赋值，
- * 分支逻辑全部提前算完。
+ * 行内片段的**预计算样式** —— 类与"按文本记忆化"容器在 `core/mdview.ets`（纯逻辑，可脱机单测）。
+ * 本文件只保留"读取当前色板 → 产出样式数组"这一步（色彩是 UI 侧职责）。
  */
-export class MdInlineStyle {
-  text: string = '';
-  size: number = 15;
-  /** 由调用方按当前色板赋值（类字段默认值不能依赖主题） */
-  color: string = '';
-  bold: boolean = false;
-  italic: boolean = false;
-  strike: boolean = false;
-  underline: boolean = false;
-  mono: boolean = false;
-  /** 背景（由调用方按当前色板赋值；空 = 无背景） */
-  bg: string = '';
-}
 
 /**
  * 行内片段的**预计算样式**。
@@ -94,6 +97,17 @@ export class MdInlineStyle {
  * 引用只剩一条 3px 竖条在表达"这是引用"）。行内码 / 链接的颜色由各自分支覆盖，不受它影响。
  */
 export function inlineStyles(text: string, pal: Palette, mdTheme: string, baseColor?: string): MdInlineStyle[] {
+  // ── 按文本记忆化（P1#5）───────────────────────────────────────────────────
+  // 为什么：此函数此前**每次 build** 对全部行内文本重算（`MdInlineStyle[]` + `codeTone()` +
+  // `contrastRatio` 数学），完全不进缓存 ⇒ 96KB 文档实测**单帧 960 次**。流式期组件反复重建
+  // ⇒ 这份开销每次都白付。键含**主题 + 调色板**（`mdInlineKey`）⇒ 换主题/换强调色不会命中旧色。
+  const bc: string = baseColor !== undefined ? baseColor : '';
+  return mdInlineMemo.getOrCompute(mdInlineKey(text, pal, mdTheme, bc),
+    () => computeInlineStyles(text, pal, mdTheme, baseColor));
+}
+
+/** `inlineStyles` 的实际计算（只在缓存未命中时执行）。 */
+function computeInlineStyles(text: string, pal: Palette, mdTheme: string, baseColor?: string): MdInlineStyle[] {
   const spans: MdSpan[] = parseInlineCached(text);
   const out: MdInlineStyle[] = [];
   const tone: CodeTone = codeTone(mdTheme);
@@ -114,6 +128,8 @@ export function inlineStyles(text: string, pal: Palette, mdTheme: string, baseCo
       st.text = sp.text;
       st.color = pal.accentSoft;
       st.underline = true;
+      // 可点击目标：组件据它给该 Span 挂 `onClick`（旧实现没有 ⇒ 链接点不开，P0#1）。
+      st.link = sp.link;
     } else {
       st.text = sp.text;
       st.bold = sp.bold;
@@ -136,6 +152,12 @@ export struct MarkdownView {
   @Prop theme: string = 'dark';
   /** Markdown 主题 id（与 web 共享 `web:ui:md-theme`；只影响代码块/行内码配色）。 */
   @Prop mdTheme: string = 'vscode-dark';
+  /**
+   * 链接相对地址的解析基准（服务端地址）。空 = 只放行绝对地址（`http/https/mailto`）。
+   * 对齐 web 的浏览器行为：相对链接按**同源**解析（`MarkdownRenderer.tsx:311-321` 是真 `<a href>`）。
+   * 原生端由页面把服务端地址透传进来（未透传时相对链接会被白名单拒绝 —— 宁可拒绝也不猜地址）。
+   */
+  @Prop linkBase: string = '';
 
   /** 当前语义色板（深浅两套，换主题只换取值） */
   private pal(): Palette {
@@ -267,6 +289,17 @@ export struct MarkdownView {
               : (s.underline ? TextDecorationType.Underline : TextDecorationType.None),
             color: s.color,
           })
+          // ── 链接可点击（P0#1）──────────────────────────────────────────────
+          // 旧实现把链接渲染成"带下划线的彩色 Span"却**没有任何 onClick** ⇒ 链接根本点不开。
+          // web 权威是渲染真 `<a target="_blank" href>`（`MarkdownRenderer.tsx:311-321`）；
+          // 原生对应"交给系统按 viewData 打开"（与页面 `Index.ets:4543 openUrl` 同一手段）。
+          // ⛔ Span 只支持 onClick/onHover 两个通用事件（SDK `span.d.ts:108-110`）。
+          // 非链接 span 也挂 onClick，但内部判空为 no-op（ArkUI 无法在属性链里条件省略）。
+          .onClick(() => {
+            if (s.link.length > 0) {
+              this.openLink(s.link);
+            }
+          })
       }, (s: MdInlineStyle, i: number) => `sp-${i}-${s.text.length}`)
     }
     .width('100%')
@@ -279,6 +312,30 @@ export struct MarkdownView {
   /** 统一字号缩放入口（所有正文/标题/代码都经这里，避免漏改一处导致大小不一致）。 */
   private sz(n: number): number {
     return n * this.fontScale;
+  }
+
+  /**
+   * 打开消息里的链接（P0#1）—— "点击后发生什么"：交给**系统按 viewData 打开**（浏览器/邮件客户端）。
+   *
+   * - 协议白名单复用 `core/msgops.resolveOpenable`（http/https/mailto，相对地址按 `linkBase` 解析）；
+   * - 与页面 `pages/Index.ets:4543 openUrl` 同一手段（`startAbility({action:'ohos.want.action.viewData'})`）；
+   * - 白名单拒绝（`javascript:`/`data:`/未知相对地址）⇒ **什么都不做**（不打开、不猜测）。
+   *
+   * ⚠️ 做成组件内自足实现（而非新增调用方回调）：避免为接线去改 `MessageRow/LiveTailView/Index`
+   *   三个**并行 agent 正在改**的文件（冲突风险）；`linkBase` 已留作页面透传入口。
+   */
+  private openLink(href: string): void {
+    const abs: string = resolveOpenable(href, this.linkBase);
+    if (abs.length === 0) {
+      return;
+    }
+    try {
+      const ctx: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      ctx.startAbility({ action: 'ohos.want.action.viewData', uri: abs }).catch(() => {
+      });
+    } catch (e) {
+      console.error('open link failed');
+    }
   }
 
   /**
@@ -342,24 +399,44 @@ export struct MarkdownView {
       // 顶部细条（语言标签条）与代码区之间一条玻璃分隔线
       .border({ width: { bottom: 1 }, color: this.eff().glassBorder })
 
-      Text(b.code)
-        .wordBreak(this.wrapCode ? WordBreak.BREAK_ALL : WordBreak.NORMAL)
+      // ── 代码区：Prism4j 高亮 + 溢出策略 ──────────────────────────────────────
+      // 溢出（P0#2）：换行模式 ⇒ 词内折行；不换行模式 ⇒ **横向滚动**。
+      // ⛔ 旧的 `maxLines(1000) + TextOverflow.Clip` 会**静默裁掉**超长行（丢数据）；
+      //    web 权威 = `overflow-x-auto whitespace-pre`（`MarkdownRenderer.tsx:226`）。
+      // 高亮（P0#3）：复用既有引擎（`core/highlight.ets`，Prism4j）+ `ToolPopover` 同一份
+      //    语义色映射（`codeTokenColor`，对代码底做对比度护栏）⇒ 全 App 只有一套"代码"长相。
+      // 四周内边距 = SP_3(12)：web `MarkdownRenderer.tsx:223` `<pre className="p-3 pt-7 …">` 的 `p-3`。
+      if (codeOverflow(this.wrapCode) === MdOverflow.Scroll) {
+        // 不换行：外层横向滚动；内层 Text **不设 width('100%')**（宽度 = 最长行宽 ⇒ 溢出即横滑）。
+        Scroll() {
+          Text() {
+            ForEach(highlightCode(b.code, b.lang), (sp: HlSpan, si: number) => {
+              Span(sp.text).fontColor(codeTokenColor(sp.key, this.pal(), this.mdTheme))
+            }, (sp: HlSpan, si: number) => `hl-${b.key}-${si}-${sp.text.length}`)
+          }
+          .wordBreak(WordBreak.NORMAL)
+          .fontFamily('monospace')
+          .fontSize(13)
+          .padding(SP_3)
+          .textAlign(TextAlign.Start)
+        }
+        .scrollable(ScrollDirection.Horizontal)
+        .scrollBar(BarState.Auto)
+        .width('100%')
+        .align(Alignment.TopStart)
+      } else {
+        Text() {
+          ForEach(highlightCode(b.code, b.lang), (sp: HlSpan, si: number) => {
+            Span(sp.text).fontColor(codeTokenColor(sp.key, this.pal(), this.mdTheme))
+          }, (sp: HlSpan, si: number) => `hl-${b.key}-${si}-${sp.text.length}`)
+        }
+        .wordBreak(WordBreak.BREAK_ALL)
         .fontFamily('monospace')
         .fontSize(13)
-        .fontColor(codeFgOf(this.mdTheme))
         .width('100%')
-        // 四周内边距 = SP_3(12)：web `MarkdownRenderer.tsx:223` `<pre className="p-3 pt-7 …">`
-        // 的 `p-3`（=12）。原为 10 ⇒ 代码比它上方的**语言标签**（本文件语言条 `left: SP_3` = 12）
-        // 左移 2vp，真机走查读成"首行贴左"（语言/代码两条左基准线不齐）。web 里
-        // `<span className="absolute left-3 …">`（`:214`）与 `<pre className="p-3 …">` 同为 12
-        // ⇒ 两者本就该齐平。上下同理取 12（web 的 `pt-7` 是"标签浮在块内"的补偿；原生端语言条
-        // 是独立一行、不需要那份补偿，只用 p-3 的均匀 12）。
         .padding(SP_3)
         .textAlign(TextAlign.Start)
-        // 行数上限只防极端（1000 行）；是否**词内折行**由上面的 wordBreak 决定。
-        // 关闭换行时按 Clip 裁切（与 Web 端代码块不换行的表现一致；不做横向 Scroll 以免宽度/高度约束引入新的不确定性）。
-        .maxLines(1000)
-        .textOverflow({ overflow: TextOverflow.Clip })
+      }
     }
     .width('100%')
     // 代码块：**用所选 Markdown 主题的代码底/字**（与 web markdown-themes 同源；
