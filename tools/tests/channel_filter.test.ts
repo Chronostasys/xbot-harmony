@@ -10,7 +10,7 @@ declare const process: { exit: (c: number) => void };
 
 import {
   availableChannels, channelFilterMatches, activeChannelLabel,
-  ALL_CHANNEL_ORDER, INTERNAL_CHANNEL,
+  ALL_CHANNEL_ORDER, INTERNAL_CHANNEL, sessionInChannel,
 } from '../../entry/src/main/ets/core/sessionpick';
 import { SessionItem } from '../../entry/src/main/ets/core/types';
 
@@ -64,6 +64,44 @@ eq('未知渠道原样显示', activeChannelLabel('telegram'), 'telegram');
 // ⑧ 常量锁死（顺序表是排序依据）
 eq('ALL_CHANNEL_ORDER', ALL_CHANNEL_ORDER, ['web', 'cli', 'feishu', 'qq', 'napcat']);
 eq('INTERNAL_CHANNEL = agent', INTERNAL_CHANNEL, 'agent');
+
+// ⑨ ★「会话属于哪个渠道」= channel ∪ parent_channel ∪ children.parent_channel
+//    （web SessionSidebar.tsx:99-106）—— 只比自身 channel 会漏父子渠道 ⇒ 筛选出空列表。
+function sess(o: Record<string, unknown>): SessionItem {
+  return o as unknown as SessionItem;
+}
+
+// ① 有父渠道的子会话（自身 channel='agent'）出现在**父渠道**筛选结果里
+eq('① 子会话归到父渠道（feishu）',
+  sessionInChannel(sess({ chat_id: 'ag', channel: 'agent', parent_channel: 'feishu' }), 'feishu'), true);
+// …但自身不是 feishu 会话 ⇒ 选别的渠道不出现
+eq('① 子会话不归无关渠道',
+  sessionInChannel(sess({ chat_id: 'ag', channel: 'agent', parent_channel: 'feishu' }), 'web'), false);
+
+// ② children.parentChannel 链（递归，不只看直接子）
+{
+  const main: SessionItem = sess({
+    chat_id: 'main', channel: 'web',
+    children: [
+      { chat_id: 'c1', channel: 'agent', parent_channel: 'web' },
+      { chat_id: 'c2', channel: 'agent', parent_channel: 'feishu',
+        children: [{ chat_id: 'c2g', channel: 'agent', parent_channel: 'qq' }] },
+    ],
+  });
+  eq('② 直接子命中 feishu', sessionInChannel(main, 'feishu'), true);
+  eq('② ★ 孙子的 parent_channel（qq）也命中', sessionInChannel(main, 'qq'), true);
+  eq('② 自身渠道 web 命中', sessionInChannel(main, 'web'), true);
+}
+
+// ③ 不相关渠道仍被排除（防止"越修越宽"）
+eq('③ 无关渠道被排除（自身 web）',
+  sessionInChannel(sess({ chat_id: 'x', channel: 'web' }), 'feishu'), false);
+eq('③ 无 children 的会话只认自身/父渠道',
+  sessionInChannel(sess({ chat_id: 'y', channel: 'cli', parent_channel: 'web' }), 'feishu'), false);
+
+// ④ 空 active = 全部；缺失渠道的会话在 active 非空时不命中（与 web 同）
+eq('④ 空 active ⇒ 全部（缺失渠道也含）', sessionInChannel(sess({ chat_id: 'z' }), ''), true);
+eq('④ 缺失渠道 + 指定 active ⇒ 不命中', sessionInChannel(sess({ chat_id: 'z' }), 'web'), false);
 
 if (fail > 0) { console.log(`  channel_filter: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  channel_filter: ${pass} passed, 0 failed`);

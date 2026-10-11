@@ -92,6 +92,12 @@ export interface ChannelSource {
   channel?: string;
   /** 服务端字段名（snake_case）：SubAgent 行标注的父会话渠道。 */
   parent_channel?: string;
+  /**
+   * 服务端随 session-tree 下发的 **SubAgent 子树**（`channel/web/web.go:288` 的
+   * `Children []UserChatWithPreview json:"children,omitempty"`；递归同形）。
+   * web 用它把子会话归到父渠道名下（`SessionSidebar.tsx:99-106`）。
+   */
+  children?: ChannelSource[];
 }
 
 /** 渠道名次（未知 = 999，排末尾）。 */
@@ -135,12 +141,66 @@ export function availableChannels(sessions: SessionItem[]): string[] {
  *
  * "未知渠道"也能按原值筛出（`availableChannels` 把未知渠道也列进去了，选中它即
  * `channel === active`）。返回 true = 该会话应显示在列表里。
+ *
+ * ⚠️ 只比**会话自身的 channel**（字符串级）。要按"会话属于哪个渠道"过滤（含父子渠道），
+ *    用 {@link sessionInChannel} —— 本函数保留给纯字符串场景/既有调用点。
  */
 export function channelFilterMatches(channel: string, active: string): boolean {
   if (active.length === 0) {
     return true;
   }
   return channel === active;
+}
+
+/** 子树里**任一**节点的 `parent_channel` 命中 active（递归 —— 含孙子，不是只看直接子）。 */
+function subtreeHasParentChannel(s: ChannelSource, active: string): boolean {
+  const kids: ChannelSource[] | undefined = s.children;
+  if (kids === undefined || kids === null) {
+    return false;
+  }
+  for (let i = 0; i < kids.length; i++) {
+    const c: ChannelSource = kids[i];
+    if (c.parent_channel === active) {
+      return true;
+    }
+    if (subtreeHasParentChannel(c, active)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * **"该会话属于哪个渠道"** —— 逐字对齐 web 权威
+ * `components/session/SessionSidebar.tsx:99-106`：
+ * ```
+ * s.channel === active || s.parentChannel === active
+ *   || (s.children || []).some(c => c.parentChannel === active)
+ * ```
+ * 即：会话自身的渠道 **∪** 它的父渠道 **∪** 它的子会话（SubAgent）所归的父渠道。
+ * （子会话的渠道是 `agent`，但它的 `parent_channel` 指向真实渠道 ⇒ 选中真实渠道时
+ *   子会话必须出现；否则用户选得到渠道、却筛出**空列表**。）
+ *
+ * · `active` 为空串 = **全部**（与 web `if (!store.activeChannel) return store.sessions` 同）；
+ * · 缺失渠道的会话在 `active` 非空时不命中（与 web 同）；
+ * · children 递归到任意深度（web 只比直接子；本仓 session-tree 的 children 是**嵌套**树，
+ *   递归才能覆盖"孙子的 parent_channel"，需求明确要求"不看直接父"）。
+ *
+ * @param s      会话行（`SessionItem`；服务端已随行下发 `channel`/`parent_channel`/`children`）
+ * @param active 当前筛选渠道（空串 = 全部）
+ */
+export function sessionInChannel(s: SessionItem, active: string): boolean {
+  if (active.length === 0) {
+    return true;
+  }
+  const src: ChannelSource = s as ChannelSource;
+  if (src.channel === active) {
+    return true;
+  }
+  if (src.parent_channel === active) {
+    return true;
+  }
+  return subtreeHasParentChannel(src, active);
 }
 
 /** 当前筛选的展示名（空 = 「全部」；否则复用 `channelLabel` 与抽屉标注同源）。 */

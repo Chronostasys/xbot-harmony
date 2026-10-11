@@ -43,7 +43,7 @@ import { mdCacheStats, MdCacheStats } from '../core/markdown';
 import { blocksSignature, completedBlocks, displayContent, displayReasoning, rowHasInFlightSignal, rowIsEmpty, streamStatsText } from '../core/streammerge';
 import {
   activeChannelLabel, ALL_CHANNEL_ORDER, availableChannels, channelFilterMatches,
-  channelLabel, hiddenRowCount, visibleRows, MAX_ROWS_VISIBLE,
+  channelLabel, hiddenRowCount, sessionInChannel, visibleRows, MAX_ROWS_VISIBLE,
 } from '../core/sessionpick';
 import {
   collapseKey, groupSessionsFromItems, groupTitle, normalizeSessionCategory,
@@ -3442,9 +3442,9 @@ struct Index {
     for (let i = 0; i < this.sessions.length; i++) {
       const s: SessionItem = this.sessions[i];
       const label: string = s.label !== undefined ? s.label : '';
-      const ch: string = s.channel !== undefined ? s.channel : '';
+      // 归属判据：自身 channel ∪ parent_channel ∪ children.parent_channel（web SessionSidebar:99-106）
       if (sessionMatches(label, s.chat_id, this.sessQuery)
-        && channelFilterMatches(ch, this.activeChannel)) {
+        && sessionInChannel(s, this.activeChannel)) {
         out.push(s);
       }
     }
