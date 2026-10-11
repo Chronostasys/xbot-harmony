@@ -24,6 +24,11 @@ export class MdBlock {
    * 用下标做 key 时，流式内容增长会让块的 key 漂移 ⇒ ArkUI 复用/错位组件 ⇒ 视觉错乱。
    */
   key: string = '';
+  /**
+   * 本块在**源串**里的起始字符偏移（供流式"按块增量复用"定位重解析起点）。
+   * 见 `parseMarkdownCached`：追加文本不可能改动除最后一个块之外的块 ⇒ 从其起点重解析尾部。
+   */
+  start: number = 0;
   kind: MdBlockKind = MdBlockKind.Paragraph;
   /** 标题级别 1..6；列表嵌套层级 0.. */
   level: number = 0;
@@ -55,10 +60,21 @@ export class MdSpan {
 }
 
 export function parseMarkdown(src: string): MdBlock[] {
+  mdParseChars += src.length;
   const blocks: MdBlock[] = [];
   const lines: string[] = src.replace(/\r\n/g, '\n').split('\n');
+  // 每行在 src 里的起始偏移（供"按块增量复用"定位重解析起点）
+  const lineOff: number[] = [];
+  {
+    let acc: number = 0;
+    for (let k = 0; k < lines.length; k++) {
+      lineOff.push(acc);
+      acc += lines[k].length + 1;
+    }
+  }
   let i: number = 0;
   let para: string[] = [];
+  let paraStart: number = 0;
 
   const flushPara = (): void => {
     if (para.length === 0) {
@@ -67,6 +83,7 @@ export function parseMarkdown(src: string): MdBlock[] {
     const b: MdBlock = new MdBlock();
     b.kind = MdBlockKind.Paragraph;
     b.text = para.join('\n');
+    b.start = lineOff[paraStart];
     blocks.push(b);
     para = [];
   };
@@ -90,6 +107,7 @@ export function parseMarkdown(src: string): MdBlock[] {
       const b: MdBlock = new MdBlock();
       b.kind = MdBlockKind.Code;
       b.lang = fence[2] !== undefined ? fence[2] : '';
+      b.start = lineOff[i];
       i++;
       const body: string[] = [];
       while (i < lines.length) {
@@ -111,6 +129,7 @@ export function parseMarkdown(src: string): MdBlock[] {
       flushPara();
       const b: MdBlock = new MdBlock();
       b.kind = MdBlockKind.Divider;
+      b.start = lineOff[i];
       blocks.push(b);
       i++;
       continue;
@@ -124,6 +143,7 @@ export function parseMarkdown(src: string): MdBlock[] {
       b.kind = MdBlockKind.Heading;
       b.level = h[1].length;
       b.text = h[2].trim();
+      b.start = lineOff[i];
       blocks.push(b);
       i++;
       continue;
@@ -132,6 +152,7 @@ export function parseMarkdown(src: string): MdBlock[] {
     // 引用（连续行合并）
     if (/^\s{0,3}>\s?/.test(line)) {
       flushPara();
+      const qStart: number = i;
       const body: string[] = [];
       while (i < lines.length && /^\s{0,3}>\s?/.test(lines[i])) {
         body.push(lines[i].replace(/^\s{0,3}>\s?/, ''));
@@ -140,6 +161,7 @@ export function parseMarkdown(src: string): MdBlock[] {
       const b: MdBlock = new MdBlock();
       b.kind = MdBlockKind.Quote;
       b.text = body.join('\n');
+      b.start = lineOff[qStart];
       blocks.push(b);
       continue;
     }
@@ -150,6 +172,7 @@ export function parseMarkdown(src: string): MdBlock[] {
       const b: MdBlock = new MdBlock();
       b.kind = MdBlockKind.Table;
       b.header = splitRow(line);
+      b.start = lineOff[i];
       i += 2;
       while (i < lines.length && lines[i].indexOf('|') >= 0 && lines[i].trim().length > 0) {
         b.rows.push(splitRow(lines[i]));
@@ -163,10 +186,12 @@ export function parseMarkdown(src: string): MdBlock[] {
     const li: RegExpMatchArray | null = line.match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/);
     if (li !== null) {
       flushPara();
+      const lStart: number = i;
       const b: MdBlock = new MdBlock();
       b.kind = MdBlockKind.List;
       b.ordered = /\d/.test(li[2]);
       b.level = Math.floor(li[1].length / 2);
+      b.start = lineOff[lStart];
       while (i < lines.length) {
         const m: RegExpMatchArray | null = lines[i].match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/);
         if (m === null) {
@@ -179,17 +204,28 @@ export function parseMarkdown(src: string): MdBlock[] {
       continue;
     }
 
+    if (para.length === 0) {
+      paraStart = i;
+    }
     para.push(line.trim());
     i++;
   }
   flushPara();
-  // 生成稳定 key：内容派生（同样内容得同样 key），同内容重复时用出现序号区分
+  assignKeys(blocks);
+  return blocks;
+}
+
+/**
+ * 生成稳定 key（内容派生 + **全局下标**）。
+ * ⚠️ 增量拼接后必须对**整体**重编号：尾部解析出来的下标从 0 起，
+ * 若只给尾部编号就会与头部撞 key ⇒ ArkUI 复用错位（渲染错乱）。
+ */
+function assignKeys(blocks: MdBlock[]): void {
   for (let k = 0; k < blocks.length; k++) {
     const b: MdBlock = blocks[k];
     const sig: string = `${b.kind}|${b.level}|${b.text.length}|${b.items.length}|${b.code.length}|${b.header.length}|${b.rows.length}`;
     b.key = `md-${sig}-${k}`;
   }
-  return blocks;
 }
 
 function splitRow(line: string): string[] {
@@ -365,6 +401,12 @@ export class MdCacheStats {
   chars: number = 0;
   /** 当前缓存条目数 */
   entries: number = 0;
+  /**
+   * **实际喂给解析器的字符总量**（每次 `parseMarkdown` 入参长度之和）。
+   * 这是"流式重解析开销"的**唯一可测口径**：前缀链全量重解析 ⇒ ≈ 文档 × 渲染次数 / 2（近二次）；
+   * 按块增量复用 ⇒ ≈ 文档规模（×1.x）。见 `tools/tests/mdview_perf.test.ts`。
+   */
+  parseChars: number = 0;
 }
 
 const MD_CACHE_MAX_CHARS: number = 2 * 1024 * 1024;
@@ -379,16 +421,43 @@ let mdSpanChars: number = 0;
 
 let mdCacheHits: number = 0;
 let mdCacheMisses: number = 0;
+/** 喂给解析器的字符总量（见 `MdCacheStats.parseChars`）。 */
+let mdParseChars: number = 0;
 
-/** 解析 Markdown（带缓存）。渲染路径一律走这个。 */
+/** 上一次解析的原文与其结果 —— 供**按块增量复用**（见 `parseMarkdownCached`）。 */
+let mdLastSrc: string = '';
+let mdLastBlocks: MdBlock[] = [];
+
+/** 解析 Markdown（带缓存 + **按块增量复用**）。渲染路径一律走这个。 */
 export function parseMarkdownCached(src: string): MdBlock[] {
   const hit: MdBlock[] | undefined = mdBlockCache.get(src);
   if (hit !== undefined) {
     mdCacheHits++;
+    mdLastSrc = src;
+    mdLastBlocks = hit;
     return hit;
   }
   mdCacheMisses++;
-  const blocks: MdBlock[] = parseMarkdown(src);
+  let blocks: MdBlock[];
+  if (mdLastBlocks.length > 1 && src.length > mdLastSrc.length && src.startsWith(mdLastSrc)) {
+    // ── 按块增量复用（流式：src 是上一个 src 的**超集**）────────────────────────────
+    // 解析器是**逐行顺序**的，且除**最后一个块**之外，每个块都由空行/构造终止符封闭
+    // ⇒ 追加文本只可能改动"最后一个（仍在生长的）块"。故只从它的起点重解析尾部。
+    // 效果：喂给解析器的字符量从"前缀求和（近二次）"降到 ≈ 文档规模。
+    // 正确性由 `tools/tests/md_cache.test.ts`（内容一致）+ `mdview_perf.test.ts`（比值）守护。
+    const stable: number = mdLastBlocks.length - 1;
+    const rewind: number = mdLastBlocks[stable].start;
+    const tail: MdBlock[] = parseMarkdown(src.substring(rewind));
+    for (let k = 0; k < tail.length; k++) {
+      tail[k].start += rewind;
+    }
+    blocks = mdLastBlocks.slice(0, stable).concat(tail);
+    assignKeys(blocks);
+  } else {
+    blocks = parseMarkdown(src);
+  }
+  mdLastSrc = src;
+  mdLastBlocks = blocks;
   mdBlockCache.set(src, blocks);
   mdBlockOrder.push(src);
   mdBlockChars += src.length;
@@ -400,6 +469,24 @@ export function parseMarkdownCached(src: string): MdBlock[] {
     mdBlockChars -= oldest.length;
   }
   return blocks;
+}
+
+/**
+ * 清空全部解析缓存与计数器。
+ * ⚠️ **仅供测试**从干净状态度量（生产路径不调用）。
+ */
+export function resetMdCache(): void {
+  mdBlockCache = new Map<string, MdBlock[]>();
+  mdBlockOrder = [];
+  mdBlockChars = 0;
+  mdSpanCache = new Map<string, MdSpan[]>();
+  mdSpanOrder = [];
+  mdSpanChars = 0;
+  mdCacheHits = 0;
+  mdCacheMisses = 0;
+  mdParseChars = 0;
+  mdLastSrc = '';
+  mdLastBlocks = [];
 }
 
 /** 解析行内片段（带缓存）。 */
@@ -430,6 +517,7 @@ export function mdCacheStats(): MdCacheStats {
   st.misses = mdCacheMisses;
   st.chars = mdBlockChars + mdSpanChars;
   st.entries = mdBlockOrder.length + mdSpanOrder.length;
+  st.parseChars = mdParseChars;
   return st;
 }
 
