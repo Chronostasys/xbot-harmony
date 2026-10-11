@@ -57,12 +57,12 @@ R="$PREFIX/modules.abc"; mkdir -p "$R"; cp -r "$PROJ/.preview/default/." "$R/"
 ln -sfn "$R" "$PREFIX/entry"; ln -sfn "$R" "$PREFIX/com.chronostasys.xbot"
 ls "$R" >/dev/null && echo "  资产就绪: $R/ets/modules.abc"
 
-echo "== 3/4 起 Xvfb :$XDISP（软件 GL）=="
+echo "== 3/4 起 Xvfb :${XDISP}（软件 GL）=="
 Xvfb ":$XDISP" -screen 0 1320x2848x24 +extension GLX +render >/tmp/xvfb$XDISP.log 2>&1 &
 echo "  Xvfb PID=$! （结束请：kill <PID>，禁用 pkill）"
 sleep 3
 
-echo "== 4/4 跑 Previewer（端口 $PORT）=="
+echo "== 4/4 跑 Previewer（端口 ${PORT}）=="
 export LD_LIBRARY_PATH="/tmp/zvlib:/tmp/pvlibs:$BINS:$BINS/module:$CLI/sdk/default/hms/toolchains/lib"
 DISPLAY=":$XDISP" LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe MESA_GL_VERSION_OVERRIDE=4.5 \
   "$BINS/Previewer" -refresh region -projectID 743055776 -ts trace_hbt_commandPipe \

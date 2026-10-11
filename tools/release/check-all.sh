@@ -6,7 +6,7 @@
 #
 # ⛔ 本脚本**只调用** tools/tests/run.sh、tools/gate.sh，绝不修改它们，也不改任何源码。
 # ⛔ 设备：只做**只读** dump（bm dump）；绝不碰用户会话。
-# ⚠️ bash 3.2 + UTF-8 locale：含中文的字符串里变量一律写 ${var}（`$var中文` 会被吞）。
+# ⚠️ bash 3.2 + UTF-8 locale：含中文的字符串里变量一律写 ${var}（`${var}中文` 会被吞）。
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

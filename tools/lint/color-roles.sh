@@ -55,26 +55,28 @@ fi
 
 # ── 2) 扫描调用点，挑出非法字面量 ─────────────────────────────────────────
 scan() { # $1=函数名  $2=合法集合文件  $3=角色类别名
-  local fn="$1" set="$2" kind="$3" f line lit bad=0 hits=0
-  # 抓 `fn(` 之后到第一个 `'...'` 之间的实参（支持嵌套括号/多参/CustomBuilder 换行）
+  local fn="$1" set="$2" kind="$3" hit frag lit line f bad=0 hits=0
+  # ⚠️ 只取**调用片段**（grep -o）而不是整行：实测踩过坑 ——
+  #    `Text('保存').fontSize(typeOf('type.subhead').size)` 用"整行 + 每行第一个引号"会误取 '保存'（假红）。
+  # `[^)(']*` ⇒ 实参里不含嵌套括号/引号 ⇒ 只在"字面量确实是该调用的实参"时命中，宁漏不误报。
   while IFS= read -r hit; do
     [ -n "$hit" ] || continue
+    f="${hit%%:*}"; line="${hit#*:}"; line="${line%%:*}"; frag="${hit#*:}"; frag="${frag#*:}"
+    lit="$(printf '%s' "$frag" | sed -E "s/^[^']*'([^']*)'.*/\1/")"
+    [ -n "$lit" ] || continue
     hits=$((hits + 1))
-    f="${hit%%:*}"
-    lit="$(printf '%s' "$hit" | sed -E "s/^[^:]*:[0-9]+:[^']*'([^']*)'.*/\1/")"
-    line="$(printf '%s' "$hit" | sed -E 's/^[^:]*:([0-9]+):.*/\1/')"
     if ! grep -Fxq -- "$lit" "$set"; then
       printf '  ❌ %s:%s  %s(%s) —— 非法 %s role\n' "${f#$ROOT/}" "$line" "$fn" "'$lit'" "$kind"
       bad=$((bad + 1))
     fi
-  done < <(grep -rnE --include='*.ets' --include='*.ts' "${fn}\([^)]*'[^']*'" $SCAN_DIRS 2>/dev/null)
+  done < <(grep -rnoE --include='*.ets' --include='*.ts' "${fn}\([^)(']*'[^']*'" $SCAN_DIRS 2>/dev/null)
   # ⚠️ 子 shell 里跑 ⇒ 计数写文件带出去（bash 3.2 无 nameref）
   echo "$(( $(cat "$TMP/counts" 2>/dev/null || echo 0) + hits ))" > "$TMP/counts"
   return $bad
 }
 
 {
-  echo "== 合法 role 集合（真源 $DESIGN_FILE）=="
+  echo "== 合法 role 集合（真源 ${DESIGN_FILE}）=="
   echo "  颜色 ${n_colors}｜面 ${n_surfaces}｜字型 ${n_types}｜高程 ${n_elevs}"
   if [ "$n_surfaces" -gt 0 ]; then echo "  面: $(paste -sd, "$TMP/surfaces.txt")"; fi
   if [ "$n_types" -gt 0 ]; then echo "  字型: $(paste -sd, "$TMP/types.txt")"; fi

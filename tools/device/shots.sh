@@ -27,7 +27,7 @@ for a in "$@"; do
     --tour) TOUR=1 ;;
     --no-install) INSTALL=0 ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
-    *) echo "未知参数：$a（见 --help）"; exit 1 ;;
+    *) echo "未知参数：${a}（见 --help）"; exit 1 ;;
   esac
 done
 
@@ -96,7 +96,7 @@ shot() {  # shot <名字>  ⇒ $OUT/<名字>.jpeg（**全分辨率，不做缩�
       echo "  → $OUT/$name.jpeg"
     fi
   else
-    echo "  !! 截图失败：$name（snapshot_display 是否可用？）"
+    echo "  !! 截图失败：${name}（snapshot_display 是否可用？）"
   fi
 }
 # `uitest uiInput click` 是官方 uitest 通道（比 uinput -T -c 更贴近真实触摸）

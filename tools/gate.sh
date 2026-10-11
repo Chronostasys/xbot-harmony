@@ -32,8 +32,8 @@ bash "$HERE/typecheck/check.sh" || fail=1
 #    B 类（连续动画 LoadProgress/Marquee、未走动底座的一次性过渡，实测 18 条）**仅警告、不误伤**。
 #    放在 ④ ArkTS 真编译**之前**：它只扫源码、秒级（实测 ~2s），属"离线"块 ⇒ 快速失败、不碰构建锁。
 #    `LC_ALL=C` 是**规避**（不是修复）：本仓 AGENTS.md GOTCHA —— bash 3.2 + UTF-8 locale 会把
-#    `$var（` 的 `（` 吞进变量名。gate 在 ④ 里 `source env.sh`（LANG=zh_CN.UTF-8）⇒ 之后的子脚本
-#    若写 `$var（` 就会 `unbound variable`。**已知**：`tools/perf/guard.sh:83` 有这处（其作者
+#    `${var}（` 的 `（` 吞进变量名。gate 在 ④ 里 `source env.sh`（LANG=zh_CN.UTF-8）⇒ 之后的子脚本
+#    若写 `${var}（` 就会 `unbound variable`。**已知**：`tools/perf/guard.sh:83` 有这处（其作者
 #    perf-audit 应改成 `${fail}`）；此处统一在 C locale 下跑离线 lint，保证 gate 判定与开发者
 #    locale 无关（不掩盖逻辑，只消掉解析隐患）。
 echo "===== ③b 在飞动效单一来源（A 硬红 / B 警告）====="
