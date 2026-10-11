@@ -23,7 +23,10 @@
  *    pill 的"在飞"只用**静态**语言（状态色 + 柔影；扫光由调用方提供）。
  *    排队态的符号缩放呼吸是批次22 已定稿的**纯附加**，本波不动（要动先问）。
  */
-import { R_LG, R_SM, FS_CAPTION, SP_1, SP_2 } from '../core/tokens';
+import {
+  INSET_CHIP_X, INSET_CHIP_Y, INSET_PILL_X, INSET_PILL_Y, MARKER_GLYPH, MARKER_GLYPH_DASHED,
+  MARKER_SPINNER, RADIUS_CHIP, RADIUS_PILL, SPACE_XXS, TYPE_CHIP, typeOf,
+} from '../core/design';
 import { ST_DONE } from '../core/toolstatus';
 import {
   PILL_MARKER_SLOT, PILL_LIVE_GLOW_RADIUS,
@@ -67,13 +70,13 @@ export struct ToolPill {
         if (markerShape(this.kind) === SHAPE_CHECK) {
           // 成功：**描边绿勾**（安静，不喧哗）
           SymbolGlyph($r('sys.symbol.checkmark_circle'))
-            .fontSize(13).fontColor([coreStatusColorOf(this.kind, this.theme)])
+            .fontSize(MARKER_GLYPH).fontColor([coreStatusColorOf(this.kind, this.theme)])
         } else if (markerShape(this.kind) === SHAPE_CROSS) {
           SymbolGlyph($r('sys.symbol.xmark_circle_fill'))
-            .fontSize(13).fontColor([coreStatusColorOf(this.kind, this.theme)])
+            .fontSize(MARKER_GLYPH).fontColor([coreStatusColorOf(this.kind, this.theme)])
         } else if (markerShape(this.kind) === SHAPE_MINUS) {
           SymbolGlyph($r('sys.symbol.minus_circle'))
-            .fontSize(13).fontColor([coreStatusColorOf(this.kind, this.theme)])
+            .fontSize(MARKER_GLYPH).fontColor([coreStatusColorOf(this.kind, this.theme)])
         } else if (markerShape(this.kind) === SHAPE_RING) {
           // 排队态：**静态**虚线空心圆（形态档 `SHAPE_RING`）。
           // ⛔ 批次23 裁决：**删除**原先的循环符号效果 `ScaleSymbolEffect`（用户重做指令
@@ -86,41 +89,41 @@ export struct ToolPill {
           // ⚠️ 静态标记的**最终形态**归 `design-lead` 的设计系统（`docs/REDESIGN-INPUT-PILL.md §C3`）；
           //   有机器门禁守护：`tools/lint/inflight-single-source.sh`（A 类循环动效准白名单）。
           SymbolGlyph($r('sys.symbol.circle_dashed'))
-            .fontSize(12).fontColor([coreStatusColorOf(this.kind, this.theme)])
+            .fontSize(MARKER_GLYPH_DASHED).fontColor([coreStatusColorOf(this.kind, this.theme)])
         } else {
           // 运行/生成中（SHAPE_SPINNER）：**会动的**原生指示器（静态字符是 TUI 观感，用户明确否掉）
-          LoadingProgress().width(13).height(13).color(coreStatusColorOf(this.kind, this.theme))
+          LoadingProgress().width(MARKER_SPINNER).height(MARKER_SPINNER).color(coreStatusColorOf(this.kind, this.theme))
         }
       }
       .width(PILL_MARKER_SLOT).height(PILL_MARKER_SLOT)
       .flexShrink(0)
 
       Text(this.label)
-        .fontSize(FS_CAPTION)
+        .fontSize(typeOf('type.caption').size)
         .fontColor(corePillTextColorOf(this.kind, this.theme))
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .margin({ left: SP_1 })
+        .margin({ left: SPACE_XXS })
         // 名称**可收缩**（长参数截断出省略号），状态标记/chip 不可收缩 ⇒ chip 永不被挤掉
         .flexShrink(1)
 
       if (this.chip.length > 0) {
         Text(this.chip)
-          .fontSize(10)
+          .fontSize(typeOf(TYPE_CHIP).size)
           .fontColor(coreStatusColorOf(this.kind, this.theme))
           // ⛔ chip 底色**恒 ≠ pill 底色**（否则选中 pill 上 chip"消失"）—— 见 `core/toolvisual.chipBgOf`
           .backgroundColor(chipBgOf(this.kind, this.selected, this.theme))
-          .padding({ left: SP_1, right: SP_1, top: 1, bottom: 1 })
-          .borderRadius(R_SM)
-          .margin({ left: SP_1 })
+          .padding({ left: INSET_CHIP_X, right: INSET_CHIP_X, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
+          .borderRadius(RADIUS_CHIP)
+          .margin({ left: SPACE_XXS })
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .flexShrink(0)
       }
     }
-    .padding({ left: SP_2, right: SP_2, top: 5, bottom: 5 })
+    .padding({ left: INSET_PILL_X, right: INSET_PILL_X, top: INSET_PILL_Y, bottom: INSET_PILL_Y })
     .backgroundColor(pillBgOf(this.kind, this.selected, this.theme))
-    .borderRadius(R_LG)
+    .borderRadius(RADIUS_PILL)
     .clip(true)
     .shadow({
       radius: this.live ? PILL_LIVE_GLOW_RADIUS : 0,

@@ -106,9 +106,14 @@ ok('GoalBanner 接 SPACE_XS', gb.includes('SPACE_XS'));
 ok('GoalBanner 不再有 BADGE_FS 常量', !gb.includes('BADGE_FS'));
 ok('GoalBanner 不再有 FS_CAPTION', !gb.includes('FS_CAPTION'));
 ok('GoalBanner 不再有裸 fontSize(12)', !gb.includes('fontSize(12)'));
-// ⛔ 仍保留（值不等/缺 token）：PAD_X/PAD_Y=10/6、ICON=14、卡片/徽标圆角
-ok('GoalBanner 仍保留 PAD_X/PAD_Y（值不等，待裁决）', gb.includes('PAD_X') && gb.includes('PAD_Y'));
-ok('GoalBanner 仍保留 ICON（缺 token）', gb.includes('ICON'));
+// ⛔ 2026-10-11（`7841978` 补齐 goal 组 / 图标档）：旧魔数 PAD_X/PAD_Y=10/6、ICON=14、
+//    BORDER_ALPHA 深浅分叉、BADGE_TINT 全部**消失**，改走语义出口（回退即红）。
+ok('GoalBanner 不再有 PAD_X/PAD_Y（改 INSET_GOAL_X/Y）',
+  !gb.includes('PAD_X') && !gb.includes('PAD_Y')
+  && gb.includes('INSET_GOAL_X') && gb.includes('INSET_GOAL_Y'));
+ok('GoalBanner 不再有 ICON 常量（改 ICON_MD）', !gb.includes('const ICON') && gb.includes('ICON_MD'));
+ok('GoalBanner 描边/徽标走 goal 语义出口', gb.includes('goalBorderOf(') && gb.includes('goalBadgeBgOf('));
+ok('GoalBanner 不再自判深浅（无 isLightPalette）', !gb.includes('isLightPalette'));
 
 console.log(`\n  token_migration: ${pass} passed, ${fail} failed`);
 if (fail > 0) { process.exit(1); }

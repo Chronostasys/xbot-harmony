@@ -7,8 +7,9 @@ import { R_SM, R_MD, R_LG, SP_1, SP_2, SP_3 } from '../core/tokens';
 // 排版节奏（本波「布局/层级」重做的主战场）：行高此前**全文一处都没有**（`docs/REDESIGN.md §1.2`）
 // ⇒ ArkUI 默认行高偏紧、"呼吸"完全不可控。这里把尺度全部取自 `core/design.ets` 的 `MD_*` 组。
 import {
-  MD_BLOCK_GAP, MD_BODY_LEADING, MD_CODE_LEADING, MD_HEADING_GAP_BOTTOM, MD_HEADING_GAP_TOP,
-  MD_HEADING_LEADING, MdHeading, mdHeadings, typeOf,
+  MD_BLOCK_GAP, MD_BODY_LEADING, MD_CODE_LEADING, MD_CODE_SIZE, MD_HEADING_GAP_BOTTOM,
+  MD_HEADING_GAP_TOP, MD_HEADING_LEADING, MD_LIST_INDENT, MD_LIST_ITEM_GAP, MD_TABLE_CELL_X,
+  MD_TABLE_CELL_Y, MD_TABLE_SIZE, MdHeading, mdHeadings, typeOf, SPACE_HAIR,
   // `#13` 视觉裁决（`docs/WEB-ALIGNMENT.md §16.2 #13`）：代码块底 = `surface.well`(sunken)、
   // 圆角 = `RADIUS_CARD`、边 = 结构性发丝 `hairlineOf`。
   RADIUS_CARD, hairlineOf, wellOf,
@@ -250,18 +251,18 @@ export struct MarkdownView {
       .borderRadius({ topRight: R_SM, bottomRight: R_SM })
       .border({ width: { left: 3, top: 0, right: 0, bottom: 0 }, color: this.pal().accent })
     } else if (b.kind === MdBlockKind.List) {
-      Column({ space: 3 }) {
+      Column({ space: MD_LIST_ITEM_GAP }) {
         ForEach(b.items, (item: string, k: number) => {
           Row({ space: 6 }) {
             Text(b.ordered ? `${k + 1}.` : '•')
-              .fontSize(14)
+              .fontSize(typeOf('type.callout').size)
               .fontColor(this.pal().textSecondary)
-              .margin({ top: 2 })
+              .margin({ top: SPACE_HAIR })
             this.Inline(item, this.pal().textPrimary)
           }
           .width('100%')
           .alignItems(VerticalAlign.Top)
-          .padding({ left: b.level * 12 })
+          .padding({ left: b.level * MD_LIST_INDENT })
         }, (item: string, k: number) => `${b.key}-li${k}`)
       }
       .width('100%')
@@ -435,9 +436,9 @@ export struct MarkdownView {
           }
           .wordBreak(WordBreak.NORMAL)
           .fontFamily('monospace')
-          .fontSize(13)
+          .fontSize(MD_CODE_SIZE)
           // 代码行高显式（`MD_CODE_LEADING`=1.5；等宽字需更紧但仍要可读）——旧实现无 `.lineHeight`。
-          .lineHeight(13 * MD_CODE_LEADING)
+          .lineHeight(MD_CODE_SIZE * MD_CODE_LEADING)
           .padding(SP_3)
           .textAlign(TextAlign.Start)
         }
@@ -453,7 +454,7 @@ export struct MarkdownView {
         }
         .wordBreak(WordBreak.BREAK_ALL)
         .fontFamily('monospace')
-        .fontSize(13)
+        .fontSize(MD_CODE_SIZE)
         .width('100%')
         .padding(SP_3)
         .textAlign(TextAlign.Start)
@@ -485,11 +486,11 @@ export struct MarkdownView {
           ForEach(b.header, (h: string) => {
             Text(h)
               .wordBreak(WordBreak.BREAK_ALL)
-              .fontSize(13)
+              .fontSize(MD_TABLE_SIZE)
               .fontWeight(FontWeight.Bold)
               .fontColor(this.pal().textPrimary)
               .layoutWeight(1)
-              .padding(6)
+              .padding({ left: MD_TABLE_CELL_X, right: MD_TABLE_CELL_X, top: MD_TABLE_CELL_Y, bottom: MD_TABLE_CELL_Y })
           }, (h: string, k: number) => `${b.key}-th${k}`)
         }
         .width('100%')
@@ -502,14 +503,14 @@ export struct MarkdownView {
             ForEach(row, (cell: string, ci: number) => {
               Text(cell)
                 .wordBreak(WordBreak.BREAK_ALL)
-                .fontSize(13)
+                .fontSize(MD_TABLE_SIZE)
                 .fontColor(this.pal().textPrimary)
                 .layoutWeight(1)
-                .padding(6)
+                .padding({ left: MD_TABLE_CELL_X, right: MD_TABLE_CELL_X, top: MD_TABLE_CELL_Y, bottom: MD_TABLE_CELL_Y })
             }, (cell: string, ci: number) => `${b.key}-td${ri}-${ci}`)
           }
           .width('100%')
-          .border({ width: { top: 1 }, color: this.eff().glassBorder })
+          .border({ width: { top: 1 }, color: hairlineOf(this.pal()) })
         }, (row: string[], ri: number) => `${b.key}-tr${ri}`)
       } else {
         Row({ space: SP_1 }) {
@@ -534,7 +535,7 @@ export struct MarkdownView {
                   .constraintSize({ minWidth: 84 })
                 Text(f.value)
                   .wordBreak(WordBreak.BREAK_ALL)
-                  .fontSize(13).fontColor(this.pal().textPrimary)
+                  .fontSize(MD_TABLE_SIZE).fontColor(this.pal().textPrimary)
                   .layoutWeight(1)
               }
               .width('100%')
@@ -544,12 +545,12 @@ export struct MarkdownView {
           .width('100%')
           .alignItems(HorizontalAlign.Start)
           .padding({ left: 8, right: 8, top: 6, bottom: 6 })
-          .border({ width: { top: ri === 0 ? 0 : 1 }, color: this.eff().glassBorder })
+          .border({ width: { top: ri === 0 ? 0 : 1 }, color: hairlineOf(this.pal()) })
         }, (row: string[], ri: number) => `${b.key}-sr${ri}`)
       }
     }
     .width('100%')
-    .border({ width: 1, color: this.eff().glassBorder })
+    .border({ width: 1, color: hairlineOf(this.pal()) })
     .borderRadius(R_LG)
     .clip(true)
     .margin({ top: SP_1, bottom: SP_1 })

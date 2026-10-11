@@ -34,6 +34,7 @@
  */
 import { Palette, paletteOf, surfacesOf } from '../core/theme';
 import { FS_CAPTION, R_MD, SP_3, SP_5, SP_7, SP_1 } from '../core/tokens';
+import { PRESS_OPACITY, RADIUS_CHIP } from '../core/design';
 import {
   CTX_RING_STROKE, CTX_ROLE_DANGER, ctxColorRole, ctxDrawnPercent, ctxLevel,
 } from '../core/ctxring';
@@ -85,11 +86,11 @@ export struct ContextRing {
     // （⛔ Stack **没有** justifyContent —— 那是 Column/Row/Flex 的属性；写了会 ArkTS 编译失败，
     //   且离线门禁（run.sh/lint/typecheck，只编译 core/）抓不到 ⇒ 唯一真门禁是 hvigorw assembleHap）。
     .alignContent(Alignment.Center)
-    .borderRadius(R_MD)                       // web `rounded-md`
+    .borderRadius(RADIUS_CHIP)                // web `rounded-md`
     // ⛔ 静息态**不写** `normal`：`normal` 会接管属性、盖掉动态值；本仓 ThinkingLine / MessageNav
     //    都已按此纪律删掉静息态 `normal` 覆盖（同款隐患）。这里同样只留 `pressed`
     //    （web 静息态亦无 opacity 规则，默认即 1）。
-    .stateStyles({ pressed: { .opacity(0.75) } })
+    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) } })
     .onClick(() => {
       this.detailOpen = !this.detailOpen;
     })

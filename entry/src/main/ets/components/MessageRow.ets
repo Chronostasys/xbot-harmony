@@ -19,6 +19,11 @@ import { runeCount } from '../core/typewriter';
 import { Palette, paletteOf, Effects, effectsOf } from '../core/theme';
 import { BUBBLE, withAlpha } from '../core/bubble';
 import { R_MD, R_XL, R_LG, SP_1, SP_2, SP_3, FS_CAPTION } from '../core/tokens';
+// 语义令牌（`7841978` §4.6/§4.7/§6）：浮层宽 / 分隔条高 / 全圆角 / pill 间距与最大宽 / 按压。
+import {
+  GAP_PILL, INSET_PILL_Y, OVERLAY_ROW_H, PILL_MAX_W, POPOVER_W, POPOVER_W_OVERFLOW, PRESS_OPACITY,
+  RADIUS_FULL, SPACE_HAIR,
+} from '../core/design';
 import {
   anchorsAt, COMPACTED_LABEL, compactionAnchors, splitMarker,
 } from '../core/compaction';
@@ -35,14 +40,6 @@ import { SubAgentTree } from './SubAgentTree';
 import { flattenSubAgents } from '../core/subagent';
 import { animFast, animMsgIn } from './anim';
 
-/** 「更早区域」分隔条行高（vp）—— web `h-7` = 28px。三态**恒定**，避免加载前后布局跳变。 */
-const REGION_ROW_H: number = 28;
-/** 浮层宽度（对齐 web `FoldedToolGroup` 的 `POPOVER_CLASS` 宽 430px；手机端收窄到 340vp）。 */
-const POP_W: number = 340;
-/** "+N" 溢出浮层宽度。 */
-const OVER_W: number = 320;
-/** 压缩胶囊的圆角（web `rounded-full`）——高度 ~20vp ⇒ 取足够大的值即得全圆头。 */
-const PILL_RADIUS: number = 999;
 /** 压缩摘要正文的最大高度（web `max-h-[40vh] overflow-y-auto`；手机取 ~48% 视口）。 */
 const COMPACT_BODY_MAX_H: number = 420;
 /** 压缩分隔行两侧发丝线的不透明度（web `bg-border/70`）。 */
@@ -477,7 +474,7 @@ export struct MessageRowView {
           }
         }
         .width('100%')
-        .height(REGION_ROW_H)     // **恒定行高**（web `h-7`）：三态不改变布局，避免滚动跳变
+        .height(OVERLAY_ROW_H)     // **恒定行高**（web `h-7`）：三态不改变布局，避免滚动跳变
         .justifyContent(FlexAlign.Center)
         // 可见性哨兵：滚到顶部露出本条 ⇒ 自动取更早一段（web `useRegionWindow` 的 IO 哨兵）
         .onVisibleAreaChange([0.0, 1.0], (isVisible: boolean) => {
@@ -741,11 +738,11 @@ export struct MessageRowView {
           .hitTestBehavior(HitTestMode.None)
       }
     }
-    .margin(3)
+    .margin(GAP_PILL)
     // 与 live 块同款宽度上限（生成中的参数是流式文本，可能几百字符；无上限会撑破屏幕）
-    .constraintSize({ maxWidth: 240 })
+    .constraintSize({ maxWidth: PILL_MAX_W })
     .clip(true)
-    .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
     .onClick(() => {
       // ① 保留既有能力：页面 `toggleTool` 负责折叠视图下 `fetchIterationDetail` 按需拉取。
       this.onToggleTool(it.iteration, t.name);
@@ -763,7 +760,7 @@ export struct MessageRowView {
       mask: false,
       popupColor: this.pal().surfaceAlt,
       radius: R_XL,
-      width: POP_W,
+      width: POPOVER_W,
       onWillDismiss: (action: DismissPopupAction) => {
         this.popKey = '';
       },
@@ -779,11 +776,11 @@ export struct MessageRowView {
     Text(`+${this.hideCount(it)}`)
       .fontSize(FS_CAPTION)
       .fontColor(this.pal().textMuted)
-      .padding({ left: SP_2, right: SP_2, top: 5, bottom: 5 })
-      .margin(3)
+      .padding({ left: SP_2, right: SP_2, top: INSET_PILL_Y, bottom: INSET_PILL_Y })
+      .margin(GAP_PILL)
       .backgroundColor(this.overIter === it.iteration ? this.pal().surfaceHi : this.pal().surfaceAlt)
       .borderRadius(R_LG)
-      .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
       .onClick(() => {
         this.overIter = this.overIter === it.iteration ? -1 : it.iteration;
       })
@@ -794,7 +791,7 @@ export struct MessageRowView {
         mask: false,
         popupColor: this.pal().surface,
         radius: R_XL,
-        width: OVER_W,
+        width: POPOVER_W_OVERFLOW,
         onWillDismiss: (action: DismissPopupAction) => {
           this.overIter = -1;
         },
@@ -934,11 +931,11 @@ struct CompactionDividerRow {
               .animation(animFast())
           }
         }
-        .padding({ left: 10, right: 10, top: 2, bottom: 2 })
+        .padding({ left: 10, right: 10, top: SPACE_HAIR, bottom: SPACE_HAIR })
         .backgroundColor(this.pal().surfaceAlt)
-        .borderRadius(PILL_RADIUS)
+        .borderRadius(RADIUS_FULL)
         .border({ width: 1, color: this.pal().border, style: BorderStyle.Dashed })
-        .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
           // 无正文 ⇒ 点击无操作（web：按钮存在但 `open && body` 才展开）
           if (this.body.length > 0) {

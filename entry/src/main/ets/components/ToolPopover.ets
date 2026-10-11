@@ -11,8 +11,9 @@
  *     渲染照它的信息结构：`@@` 块头徽标 / 双列行号 / 增绿删红。
  *  3. **弹层底座** —— 交给 `bindPopup`（ArkUI 原生），本文件不做浮层定位。
  */
-import { Palette, paletteOf, Surfaces, surfacesOf, Effects, effectsOf } from '../core/theme';
+import { Palette, paletteOf, Surfaces, surfacesOf } from '../core/theme';
 import { R_LG, R_MD, R_SM, R_XL, SP_1, SP_2, SP_3, FS_BODY, FS_CAPTION } from '../core/tokens';
+import { PRESS_OPACITY, RADIUS_CHIP, SPACE_HAIR, TYPE_CHIP, typeOf } from '../core/design';
 import { ToolProgress } from '../core/types';
 import { renderKind } from '../core/toolstatus';
 import { statusColorOf } from './ToolVisual';
@@ -177,14 +178,7 @@ export struct ToolPopoverCard {
     return paletteOf(this.theme);
   }
 
-  private eff(): Effects {
-    return effectsOf(this.pal());
-  }
-
-  /** 面 / 边界 token（**由色板派生**，与 `eff()` 同一纪律、同样无缓存薄访问器）。
-   *  代码块 / 终端块 / diff 行底曾把**阴影 token** `eff().elev1` 当底色用——语义错位，
-   *  现改用 `Surfaces.sunken`（其取值逐字节 ≡ `compositeOver(elev1, surface)`，见 theme.ets
-   *  `legacyElev1Of`）⇒ 观感零变化、语义归位。 */
+  /** 下沉内容面（代码块 / 终端块 / diff 行底）—— `Surfaces.sunken`（语义角色，非魔数、非阴影错位）。 */
   private surf(): Surfaces {
     return surfacesOf(this.pal());
   }
@@ -216,12 +210,12 @@ export struct ToolPopoverCard {
   @Builder
   SectionHead(label: string, body: string, what: string) {
     Row({ space: SP_1 }) {
-      Text(label).fontSize(10).fontColor(this.pal().textMuted).layoutWeight(1)
+      Text(label).fontSize(typeOf(TYPE_CHIP).size).fontColor(this.pal().textMuted).layoutWeight(1)
       SymbolGlyph($r('sys.symbol.rectangle_on_rectangle'))
         .fontSize(13)
         .fontColor([this.pal().textMuted])
-        .padding({ left: SP_1, right: SP_1, top: 2, bottom: 2 })
-        .stateStyles({ pressed: { .opacity(0.5) }, normal: { .opacity(1) } })
+        .padding({ left: SP_1, right: SP_1, top: SPACE_HAIR, bottom: SPACE_HAIR })
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
           this.onCopy(body, what);
         })
@@ -329,17 +323,17 @@ export struct ToolPopoverCard {
       // 双列行号（旧 / 新）—— 等宽、右对齐、不可选（与 web `LineNumbers` 一致）
       Text(ln.oldNum > 0 ? `${ln.oldNum}` : '')
         .width(LN_W).textAlign(TextAlign.End)
-        .fontSize(10).fontFamily('monospace').fontColor(this.pal().textMuted)
+        .fontSize(typeOf(TYPE_CHIP).size).fontFamily('monospace').fontColor(this.pal().textMuted)
       Text(ln.newNum > 0 ? `${ln.newNum}` : '')
         .width(LN_W).textAlign(TextAlign.End)
-        .fontSize(10).fontFamily('monospace').fontColor(this.pal().textMuted)
+        .fontSize(typeOf(TYPE_CHIP).size).fontFamily('monospace').fontColor(this.pal().textMuted)
         .margin({ right: SP_1 })
       Text(ln.kind === DIFF_ADD ? '+' : (ln.kind === DIFF_DEL ? '-' : ' '))
         .width(10).fontSize(12).fontFamily('monospace')
         .fontColor(ln.kind === DIFF_ADD ? this.pal().successText
           : (ln.kind === DIFF_DEL ? this.pal().dangerText : this.pal().textMuted))
       Text(ln.text.length > 0 ? ln.text : ' ')
-        .fontSize(11).fontFamily('monospace')
+        .fontSize(typeOf('type.caption').size).fontFamily('monospace')
         // ⛔ 不折行（web `whitespace-pre`）：长行由 diff 卡整体横向滚动承担
         .wordBreak(WordBreak.NORMAL)
         .maxLines(1)
@@ -356,15 +350,15 @@ export struct ToolPopoverCard {
   HunkRow(ln: DiffLine) {
     Row({ space: SP_2 }) {
       Text(splitHunk(ln.text).marker)
-        .fontSize(10).fontFamily('monospace').fontColor(this.pal().accentText)
+        .fontSize(typeOf(TYPE_CHIP).size).fontFamily('monospace').fontColor(this.pal().accentText)
       if (splitHunk(ln.text).rest.length > 0) {
         Text(splitHunk(ln.text).rest)
-          .fontSize(10).fontFamily('monospace').fontColor(this.pal().textMuted)
+          .fontSize(typeOf(TYPE_CHIP).size).fontFamily('monospace').fontColor(this.pal().textMuted)
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
       }
     }
     .width('100%')
-    .padding({ top: 2, bottom: 2 })
+    .padding({ top: SPACE_HAIR, bottom: SPACE_HAIR })
     .backgroundColor(this.pal().accentDeep)
   }
 
@@ -375,10 +369,10 @@ export struct ToolPopoverCard {
       Row({ space: SP_1 }) {
         SymbolGlyph($r('sys.symbol.doc_text')).fontSize(12).fontColor([this.pal().textMuted])
         Text(f.path.length > 0 ? f.path : '（未命名文件）')
-          .fontSize(10).fontFamily('monospace').fontColor(this.pal().textSecondary)
+          .fontSize(typeOf(TYPE_CHIP).size).fontFamily('monospace').fontColor(this.pal().textSecondary)
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
-        Text(`+${f.adds}`).fontSize(10).fontColor(this.pal().successText)
-        Text(`−${f.dels}`).fontSize(10).fontColor(this.pal().dangerText)
+        Text(`+${f.adds}`).fontSize(typeOf(TYPE_CHIP).size).fontColor(this.pal().successText)
+        Text(`−${f.dels}`).fontSize(typeOf(TYPE_CHIP).size).fontColor(this.pal().dangerText)
       }
       .width('100%').padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
       .backgroundColor(this.surf().sunken)
@@ -430,12 +424,12 @@ export struct ToolPopoverCard {
           .layoutWeight(1)
         if (this.vm.status.length > 0) {
           Text(this.vm.status)
-            .fontSize(10).fontColor(this.vm.statusColor)
-            .padding({ left: SP_1, right: SP_1, top: 2, bottom: 2 })
-            .backgroundColor(this.surf().sunken).borderRadius(R_SM)
+            .fontSize(typeOf(TYPE_CHIP).size).fontColor(this.vm.statusColor)
+            .padding({ left: SP_1, right: SP_1, top: SPACE_HAIR, bottom: SPACE_HAIR })
+            .backgroundColor(this.surf().sunken).borderRadius(RADIUS_CHIP)
         }
         if (this.vm.elapsedMs > 0) {
-          Text(formatElapsed(this.vm.elapsedMs)).fontSize(10).fontColor(this.pal().textMuted)
+          Text(formatElapsed(this.vm.elapsedMs)).fontSize(typeOf(TYPE_CHIP).size).fontColor(this.pal().textMuted)
         }
       }
       .width('100%')
@@ -466,7 +460,7 @@ export struct ToolPopoverCard {
       }
       if (this.vm.hasExit) {
         Text(`退出码 ${this.vm.exitCode}`)
-          .fontSize(10)
+          .fontSize(typeOf(TYPE_CHIP).size)
           .fontColor(this.vm.exitCode !== 0 ? this.pal().dangerText : this.pal().textMuted)
       }
       if (!this.vm.hasAny) {
@@ -537,11 +531,11 @@ export struct ToolOverflowList {
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                   .layoutWeight(1)
                 if (t.elapsed_ms !== undefined && t.elapsed_ms > 0) {
-                  Text(formatElapsed(t.elapsed_ms)).fontSize(10).fontColor(this.pal().textMuted)
+                  Text(formatElapsed(t.elapsed_ms)).fontSize(typeOf(TYPE_CHIP).size).fontColor(this.pal().textMuted)
                 }
               }
               .width('100%').padding({ top: SP_1, bottom: SP_1 })
-              .stateStyles({ pressed: { .opacity(0.7) }, normal: { .opacity(1) } })
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
                 this.sel = this.sel === i ? -1 : i;
               })

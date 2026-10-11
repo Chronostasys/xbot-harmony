@@ -17,6 +17,10 @@ import { foldPills } from '../core/streammerge';
 import { Palette, paletteOf, Effects, effectsOf } from '../core/theme';
 import { BUBBLE } from '../core/bubble';
 import { R_MD, R_XL, R_LG, SP_1, SP_2, SP_5, FS_CAPTION } from '../core/tokens';
+import {
+  GAP_PILL, INSET_PILL_Y, POPOVER_W_OVERFLOW, PRESS_OPACITY, RADIUS_PILL, SPACE_HAIR, SPACE_XXS,
+  STROKE_RAIL, surfaceFillOf, SURFACE_CHIP,
+} from '../core/design';
 import { orbBreath } from '../core/orb';
 import { MOTION_BEAT_MS } from './anim';
 import { MarkdownView } from './MarkdownView';
@@ -28,7 +32,7 @@ import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from '.
 
 /** 单工具浮层宽度（对齐 web 浮层 430px；手机端收窄）。 */
 const LT_POP_W: number = 320;
-/** "+N" 溢出浮层宽度。 */
+/** "+N" 溢出浮层宽度（web 无对应；手机端窄板）。 */
 const LT_OVER_W: number = 300;
 /**
  * 旗舰在飞指示器（光球）的直径 —— 取**尺度 token** `SP_5`（20vp）。
@@ -366,11 +370,11 @@ return renderKind(t.status, t.exit_code, true);
     Text(`+${this.hideN()}`)
       .fontSize(FS_CAPTION)
       .fontColor(this.pal().textMuted)
-      .padding({ left: SP_2, right: SP_2, top: 5, bottom: 5 })
-      .margin(3)
-      .backgroundColor(this.overOpen ? this.eff().glassBorder : this.eff().glassBg)
-      .borderRadius(R_LG)
-      .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+      .padding({ left: SP_2, right: SP_2, top: INSET_PILL_Y, bottom: INSET_PILL_Y })
+      .margin(GAP_PILL)
+      .backgroundColor(this.overOpen ? this.pal().surfaceHi : surfaceFillOf(this.pal(), SURFACE_CHIP))
+      .borderRadius(RADIUS_PILL)
+      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
       .onClick(() => {
         this.overOpen = !this.overOpen;
       })
@@ -472,7 +476,7 @@ return renderKind(t.status, t.exit_code, true);
         .padding({ left: SP_1 })
       }
       if (this.text.length > 0) {
-        Column({ space: 2 }) {
+        Column({ space: SPACE_HAIR }) {
           MarkdownView({
             text: this.shownText(),
             onImage: this.onImage,
@@ -487,7 +491,7 @@ return renderKind(t.status, t.exit_code, true);
             //   · 不再有彩色外发光（发光体**只允许光球一个**；且白底上彩色光晕会读成"脏"）；
             //   · 不再 10Hz 硬闪，改为按 `MOTION_BEAT_MS`（2×D_SLOW=640ms）呼吸 ⇒ 与整组同刻度。
             Row()
-              .width(2).height(14)
+              .width(STROKE_RAIL).height(14)
               .backgroundColor(this.pal().accent)
               .borderRadius(1)
               .opacity(this.caretAlpha)
@@ -497,7 +501,7 @@ return renderKind(t.status, t.exit_code, true);
         .alignItems(HorizontalAlign.Start)
       }
       if (this.tools.length > 0) {
-        Column({ space: 4 }) {
+        Column({ space: SPACE_XXS }) {
           // 同一迭代内：**每工具一枚 pill**；>8 枚时前 7 枚 + "+N"（对齐 web `MergedPills`）。
           Flex({ wrap: FlexWrap.Wrap }) {
             ForEach(this.shownList(), (t: ToolProgress, i: number) => {
@@ -516,9 +520,9 @@ return renderKind(t.status, t.exit_code, true);
               // 硬约束宽度：生成中的 label 是**流式参数**（可能几百字符），
               // 不给上限就会撑得比屏幕还长（真机铁证）
               .constraintSize({ maxWidth: 240 })
-              .margin(3)
+              .margin(GAP_PILL)
               .clip(true)
-              .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
                 // 点 pill **弹浮层**（对齐 web），再点同枚 = 关闭。
                 this.popIdx = this.popIdx === i ? -1 : i;
@@ -530,7 +534,7 @@ return renderKind(t.status, t.exit_code, true);
                 mask: false,
                 popupColor: this.pal().surface,
                 radius: R_XL,
-                width: LT_POP_W,
+                width: POPOVER_W_OVERFLOW,
                 onWillDismiss: (action: DismissPopupAction) => {
                   this.popIdx = -1;
                 },

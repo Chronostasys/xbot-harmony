@@ -59,8 +59,9 @@ has(thinkSrc, '.margin({ top: SP_1 })',
 has(thinkSrc, '.padding({ left: 10, right: 0, top: 0, bottom: 0 })',
   '展开体左缩进 = 10（web `:72` `pl-2.5`）+ 去掉 web 没有的上下内边距');
 // 静息态不得覆盖动态 opacity：web 按钮静息态无 opacity 规则（`:63` 只有 hover/active 过渡）
-has(thinkSrc, '.stateStyles({ pressed: { .opacity(0.6) } })',
-  '按压态唯一覆盖 opacity（与 web `:active` 同语义）');
+// （`7841978`：按压刻度统一到全站唯一 `PRESS_OPACITY`=0.6 ⇒ pin 由 `0.6` 改为此符号）
+has(thinkSrc, '.stateStyles({ pressed: { .opacity(PRESS_OPACITY) } })',
+  '按压态唯一覆盖 opacity（走全站唯一刻度 PRESS_OPACITY）');
 hasNot(thinkSrc, 'normal: { .opacity(1) }',
   '⛔ 静息态不写 `normal.opacity`（本行已无动态值，仍只写 pressed —— 与 web 一致）');
 // 2026-10-11 波：思考行**静态**（去呼吸）—— 同一时刻只有一个在飞动效 = 光球。

@@ -34,6 +34,7 @@
  */
 import { paletteOf, surfacesOf } from '../core/theme';
 import { FS_CAPTION, R_LG, SP_1, SP_5 } from '../core/tokens';
+import { PRESS_OPACITY, RADIUS_PILL, SPACE_HAIR, STROKE_RAIL, TEXT_DIM } from '../core/design';
 import { AssistantOrb, ORB_MODE_THINKING } from './AssistantOrb';
 
 /** 前导光球直径 = 尺度 token `SP_5`（20vp）—— 与 `LiveTailView` 块首的独立光球**同值**。 */
@@ -108,9 +109,9 @@ export struct ThinkingLine {
       //    仅以颜色（`accentSoft`）表达"此刻它在领读"，不引入第二个脉动源。
       //    静息态**不写** `stateStyles.normal`（`normal` 会接管属性、盖掉动态值）——本行已无动态值，
       //    仍只写 `pressed`，与 web 的按钮一致（web 静息态无 opacity 规则）。
-      .padding({ left: SP_1, right: SP_1, top: 2, bottom: 2 })
-      .borderRadius(R_LG)
-      .stateStyles({ pressed: { .opacity(0.6) } })
+      .padding({ left: SP_1, right: SP_1, top: SPACE_HAIR, bottom: SPACE_HAIR })
+      .borderRadius(RADIUS_PILL)
+      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) } })
       .onClick(() => {
         this.onToggle();
       })
@@ -119,7 +120,7 @@ export struct ThinkingLine {
         Text(this.body)
           .fontSize(FS_CAPTION)
           .fontColor(paletteOf(this.theme).textMuted)
-          .opacity(0.75)
+          .opacity(TEXT_DIM)
           .width('100%')
           .wordBreak(WordBreak.BREAK_WORD)
           // 对齐 web `ThinkingLine.tsx:72`：展开体 = `mt-1`(4) 上间距 + `pl-2.5`(10) 左缩进。
@@ -127,7 +128,7 @@ export struct ThinkingLine {
           .padding({ left: 10, right: 0, top: 0, bottom: 0 })
           // 左栅栏是**结构性边界**（承载"这是思考展开体"的信息）⇒ 走 `hairline`
           // （浅色/极简白下比 `border` 明显更清楚；深色族 `hairline ≡ border` 逐字节零变化）。
-          .border({ width: { left: 2 }, color: surfacesOf(paletteOf(this.theme)).hairline })
+          .border({ width: { left: STROKE_RAIL }, color: surfacesOf(paletteOf(this.theme)).hairline })
           .copyOption(CopyOptions.LocalDevice)
       }
     }

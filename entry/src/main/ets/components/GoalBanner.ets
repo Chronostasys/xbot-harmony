@@ -30,24 +30,18 @@
  * ⛔ 颜色只用 `pal()` 语义色（禁 hex），浅色判据用 `isLightPalette`（不按主题名），
  *    尺度用 `core/tokens.ets`。
  */
-import { isLightPalette, Palette, paletteOf } from '../core/theme';
+import { Palette, paletteOf } from '../core/theme';
 import { R_MD, R_SM, SP_1 } from '../core/tokens';
-import { INSET_CHIP_Y, SPACE_XS, TYPE_CHIP, TYPE_GOAL, typeOf } from '../core/design';
-import { withAlpha } from '../core/bubble';
+// 语义令牌（`7841978`：goal 组 + 图标尺寸档）—— 组件不再自写 PAD/ICON/ALPHA/TINT 魔数。
+import {
+  ICON_MD, INSET_CHIP_Y, INSET_GOAL_X, INSET_GOAL_Y, SPACE_XS, TYPE_CHIP, TYPE_GOAL,
+  goalBadgeBgOf, goalBorderOf, typeOf,
+} from '../core/design';
 import { goalDisplay, GoalDisplay, goalEditCommit, goalEditable } from '../core/statusfmt';
 
-/** 卡片内边距（web `px-2.5 py-1.5` = 10/6）。
- * ⚠️ 语义令牌 `INSET_CARD_X/Y`（12/12）与它**值不等** ⇒ 未替换（见交付"待裁决"清单）。 */
-const PAD_X: number = 10;
-const PAD_Y: number = 6;
-/** 图标字号（web `size-3.5` = 14px）。
- * ⚠️ 无 14 的图标令牌（`type.caption`.size=12 值不等）⇒ 未替换（见"缺 token"清单）。 */
-const ICON: number = 14;
-/** 进行中目标的强调色描边不透明度（web `border-accent/30`）；浅色底需更实才看得见。 */
-const BORDER_ALPHA_DARK: number = 0.3;
-const BORDER_ALPHA_LIGHT: number = 0.5;
-/** 徽标底纹不透明度（web `bg-accent/15` / `bg-green-500/15`）。 */
-const BADGE_TINT: number = 0.15;
+// ── 尺寸/取色一律走语义令牌（`7841978` §4.7/§4.8）─────────────────────────────
+// 旧魔数（PAD_X/PAD_Y=10/6、ICON=14、BORDER_ALPHA 深浅分叉、BADGE_TINT=0.15）已收进
+// `core/design.ets`：`INSET_GOAL_X/Y`、`ICON_MD`、`goalBorderOf()`、`goalBadgeBgOf()`。
 
 /**
  * 目标横幅。`objective` 为空 ⇒ **不产出任何节点**（`goalDisplay(...).visible === false`）。
@@ -80,16 +74,11 @@ export struct GoalBanner {
   }
 
   /**
-   * 卡片描边色：已完成走 success，进行中走 accent（web `:69-71`）。
-   *
-   * ⛔ 方法名**不能叫 `borderColor`**：`CustomComponent` 基类（`CommonMethod`）已有同名
-   *   `borderColor(...)` 属性方法 ⇒ 报 `10505001 Property 'borderColor' in type 'GoalBanner'
-   *   is not assignable to the same property in base type 'CustomComponent'`（与 `AssistantOrb.size`
-   *   同款事故）。**改名**即可（本组件此前是孤儿、从未被 ArkTS 检查，故接线时才暴露）。
+   * 卡片描边色：已完成走 success、进行中走 accent（web `:69-71`）—— 浅/深分叉在
+   * `core/design.goalBorderOf`（`isLightSurface` 一处），组件不再自判主题、不再挑 alpha。
    */
   private bannerBorderColor(): string {
-    const alpha: number = isLightPalette(this.pal()) ? BORDER_ALPHA_LIGHT : BORDER_ALPHA_DARK;
-    return withAlpha(this.display().completed ? this.pal().success : this.pal().accent, alpha);
+    return goalBorderOf(this.pal(), this.display().completed);
   }
 
   /** 提交编辑（web `:52-58`）：空串/未变更 ⇒ 不回调、直接退出编辑。 */
@@ -120,10 +109,10 @@ export struct GoalBanner {
           SymbolGlyph(this.display().completed
             ? $r('sys.symbol.checkmark')
             : $r('sys.symbol.dart_target'))
-            .fontSize(ICON)
+            .fontSize(ICON_MD)
             .fontColor([this.display().completed ? this.pal().success : this.pal().accent])
         }
-        .width(ICON).height(ICON).alignContent(Alignment.Center)
+        .width(ICON_MD).height(ICON_MD).alignContent(Alignment.Center)
 
         if (this.editing) {
           // 就地编辑（web 桌面分支 `:91-115`：Enter 保存 / 失焦保存）
@@ -144,7 +133,7 @@ export struct GoalBanner {
             .fontColor(this.pal().accent)
             .padding({ left: SPACE_XS, right: SPACE_XS, top: 3, bottom: 3 })
             .borderRadius(R_SM)
-            .backgroundColor(withAlpha(this.pal().accent, BADGE_TINT))
+            .backgroundColor(goalBadgeBgOf(this.pal(), false))
             .onClick(() => {
               this.commit();
             })
@@ -181,8 +170,7 @@ export struct GoalBanner {
             .fontSize(typeOf(TYPE_CHIP).size)
             .fontWeight(FontWeight.Medium)
             .fontColor(this.display().completed ? this.pal().success : this.pal().accent)
-            .backgroundColor(withAlpha(
-              this.display().completed ? this.pal().success : this.pal().accent, BADGE_TINT))
+            .backgroundColor(goalBadgeBgOf(this.pal(), this.display().completed))
             .borderRadius(R_SM)
             .padding({ left: 6, right: 6, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
 
@@ -208,7 +196,7 @@ export struct GoalBanner {
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
-      .padding({ left: PAD_X, right: PAD_X, top: PAD_Y, bottom: PAD_Y })
+      .padding({ left: INSET_GOAL_X, right: INSET_GOAL_X, top: INSET_GOAL_Y, bottom: INSET_GOAL_Y })
       .backgroundColor(this.pal().surface)
       .borderRadius(R_MD)
       .border({ width: 1, color: this.bannerBorderColor() })

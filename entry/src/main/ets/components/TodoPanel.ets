@@ -21,9 +21,13 @@
  * ⛔ 颜色只用 `pal()` 语义色（**禁 hex**），浅色判据用 `isLightPalette`（**不按主题名硬判**），
  *    尺度用 `core/tokens.ets`，动效用 `components/anim.ets`。
  */
-import { isLightPalette, Palette, paletteOf } from '../core/theme';
+import { Palette, paletteOf } from '../core/theme';
 import { FS_CAPTION, R_MD, R_SM, SP_1, SP_2, SP_3 } from '../core/tokens';
-import { withAlpha } from '../core/bubble';
+// 语义令牌（`7841978` §4.7/§4.8/§6）：控件行高 / 进度条 / 清单高 / 菜单宽 / goal 行底纹 / 按压。
+import {
+  CONTROL_ROW_H, ICON_MD, ICON_SM, INSET_CHIP_X, INSET_CHIP_Y, LIST_MAX_H, MENU_W, PRESS_OPACITY,
+  PROGRESS_H, PROGRESS_W, RADIUS_CHIP, TYPE_CHIP, goalRowTintOf, typeOf,
+} from '../core/design';
 import { animFast } from './anim';
 import { TodoItem } from '../core/types';
 import {
@@ -35,21 +39,9 @@ import {
   roleColorOf, todoVisual,
 } from '../core/statusvisual';
 
-/** 收起态行高（web `h-7` = 28px）。 */
-const HEADER_H: number = 28;
-/** 进度条尺寸（web `h-1.5 w-12` = 6×48）。 */
-const BAR_W: number = 48;
-const BAR_H: number = 6;
-/** 展开区最大高度（web `max-h-[240px]`）。 */
-const LIST_MAX_H: number = 240;
-/** 图标字号（web 触屏 `h-4 w-4` = 16，桌面 12）。 */
-const ICON: number = 14;
-/** goal 行底纹：深色 7%（web `bg-accent/[0.07]`）、浅色取 14%（白底 7% 不可见）。
- *  ⛔ 用 `isLightPalette` 判**色板亮度**，不按主题名。 */
-const GOAL_TINT_DARK: number = 0.07;
-const GOAL_TINT_LIGHT: number = 0.14;
-/** 行按压反馈不透明度。 */
-const PRESS_OPACITY: number = 0.7;
+// ── 尺寸/取色一律走语义令牌（`7841978`），组件不再自写魔数 ──────────────────────
+// 旧魔数：HEADER_H=28、BAR_W/H=48/6、LIST_MAX_H=240、ICON=14、GOAL_TINT 深浅分叉、
+//         PRESS_OPACITY=0.7（与 design.PRESS_OPACITY=0.6 冲突，本次统一到 0.6）、菜单 width(120)。
 
 /**
  * 一行（真 `@Component` + `@Prop` —— `kind`/文本/徽标变化必须驱动重渲染）。
@@ -130,15 +122,14 @@ struct TodoRowView {
   }
 
   private goalTint(): string {
-    const alpha: number = isLightPalette(this.pal()) ? GOAL_TINT_LIGHT : GOAL_TINT_DARK;
-    return withAlpha(this.pal().accent, alpha);
+    return goalRowTintOf(this.pal());
   }
 
   build() {
     Row({ space: SP_2 }) {
       // 状态图标（点击 = 勾选/取消；web `data-testid="todo-status"`）
       SymbolGlyph(this.iconRes())
-        .fontSize(ICON)
+        .fontSize(ICON_MD)
         .fontColor([this.iconColor()])
         .onClick(() => {
           this.onToggle();
@@ -184,17 +175,17 @@ struct TodoRowView {
       // goal 徽标（web `data-testid="todo-goal-badge"`）
       if (this.isGoal) {
         Text('goal')
-          .fontSize(9)
+          .fontSize(typeOf(TYPE_CHIP).size)
           .fontColor(this.pal().accent)
-          .backgroundColor(withAlpha(this.pal().accent, isLightPalette(this.pal()) ? 0.18 : 0.15))
-          .borderRadius(R_SM)
-          .padding({ left: 6, right: 6, top: 1, bottom: 1 })
+          .backgroundColor(goalRowTintOf(this.pal()))
+          .borderRadius(RADIUS_CHIP)
+          .padding({ left: INSET_CHIP_X, right: INSET_CHIP_X, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
       }
 
       // 触屏操作菜单（web 触屏分支只留一个 `⋯`：编辑 / 删除；桌面是三枚 hover 图标）
       if (this.editable) {
         SymbolGlyph($r('sys.symbol.line_3_horizontal'))
-          .fontSize(ICON)
+          .fontSize(ICON_MD)
           .fontColor([this.pal().textSecondary])
           .onClick(() => {
             this.menuOpen = !this.menuOpen;
@@ -214,8 +205,8 @@ struct TodoRowView {
     }
     .width('100%')
     .alignItems(VerticalAlign.Top)
-    .padding({ left: SP_1, right: SP_1, top: 5, bottom: 5 })
-    .borderRadius(R_SM)
+    .padding({ left: SP_1, right: SP_1, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
+    .borderRadius(RADIUS_CHIP)
     .backgroundColor(this.isGoal ? this.goalTint() : this.pal().transparent)
     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
   }
@@ -243,7 +234,7 @@ struct TodoRowView {
           this.onRemove();
         })
     }
-    .width(120)
+    .width(MENU_W)
     .alignItems(HorizontalAlign.Start)
   }
 }
@@ -329,16 +320,16 @@ export struct TodoPanel {
         Row({ space: SP_2 }) {
           Row({ space: SP_2 }) {
             SymbolGlyph($r('sys.symbol.chevron_right'))
-              .fontSize(12)
+              .fontSize(ICON_SM)
               .fontColor([this.pal().textMuted])
               .rotate({ angle: this.expanded ? 90 : 0 })
               .animation(animFast())
             Progress({ value: todoPercent(this.state()), total: 100, type: ProgressType.Linear })
-              .width(BAR_W)
-              .height(BAR_H)
+              .width(PROGRESS_W)
+              .height(PROGRESS_H)
               .color(this.pal().accent)
               .backgroundColor(this.pal().surfaceAlt)
-              .style({ strokeWidth: BAR_H, enableSmoothEffect: true })
+              .style({ strokeWidth: PROGRESS_H, enableSmoothEffect: true })
             Text(todoCountLabel(this.state()))
               .fontSize(FS_CAPTION)
               .fontColor(this.pal().textSecondary)
@@ -359,7 +350,7 @@ export struct TodoPanel {
           // 🎯「设为目标」—— 仅**无 goal** 时（web `TodoPullOut.tsx:113-121`）
           if (!this.hasGoal) {
             SymbolGlyph($r('sys.symbol.dart_target'))
-              .fontSize(ICON)
+              .fontSize(ICON_MD)
               .fontColor([this.pal().textMuted])
               .padding(SP_1)
               .onClick(() => {
@@ -368,7 +359,7 @@ export struct TodoPanel {
           }
         }
         .width('100%')
-        .height(HEADER_H)
+        .height(CONTROL_ROW_H)
         .padding({ left: SP_3, right: SP_3 })
 
         // ── 展开态：清单 ─────────────────────────────────────────────────────────
