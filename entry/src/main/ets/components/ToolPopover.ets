@@ -350,7 +350,10 @@ export struct ToolPopoverCard {
       .scrollable(ScrollDirection.Free)
       .scrollBar(BarState.Auto)
       .width('100%')
-      .constraintSize({ maxHeight: BODY_MAX_H })
+      // ⛔ 输出块**必须**把超宽内容**裁在块内**（长行/长 JSON/长路径 ⇒ 否则撑宽父级 ⇒ "字超出屏幕"）。
+      // 设计 = **块内横滑**（内层 `Column` 不设宽 ⇒ 列宽 = 最长行 ⇒ 由本 `Scroll` 横滑）。
+      .clip(true)
+      .constraintSize({ maxHeight: BODY_MAX_H, maxWidth: '100%' })
       // 内边距对齐 web `ToolCallBlock.tsx:66`（JSON 参数块 `px-2.5 py-1.5` = 左右 10 / 上下 6）
       .padding({ left: 10, right: 10, top: 6, bottom: 6 })
       .backgroundColor(surfaceFillOf(this.pal(), 'surface.well'))
