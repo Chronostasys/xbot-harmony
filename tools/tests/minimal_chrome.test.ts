@@ -26,7 +26,8 @@ declare function require(m: 'path'): { join(...parts: string[]): string };
 declare const __dirname: string;
 
 import { R_MD, SP_2, SP_3 } from '../../entry/src/main/ets/core/tokens';
-import { ALL_THEMES, paletteOf } from '../../entry/src/main/ets/core/theme';
+import { ALL_THEMES, paletteOf, surfacesOf, isLightPalette, Palette } from '../../entry/src/main/ets/core/theme';
+import { insetHairlineOf } from '../../entry/src/main/ets/core/design';
 import { chipBgOf, pillBgOf } from '../../entry/src/main/ets/core/toolvisual';
 
 let pass = 0;
@@ -103,9 +104,27 @@ has(navSrc, '.width(BTN)\n      .height(BTN)',
 // 工具胶囊（web `FoldedToolGroup` 的 pill）：靠 `surfaceAlt/surfaceHi` 底分层，**无边框**。
 hasNot(visSrc, '.border(',
   '工具胶囊无边框（web pill 靠底分层，不靠描边）');
-// 工具浮层（web `ToolCallBlock`）：靠 `Surfaces.sunken` 底分层，**无边框**。
-hasNot(popSrc, '.border(',
-  '工具浮层无边框（web `ToolCallBlock` 靠 `sunken` 底分层）');
+// 工具浮层（web `ToolCallBlock`）：**浅色靠填充差分界、不发丝**（web 原则的真实意图）；
+// ⚠️ 2026-10-11 **按新事实改写**（原断言"一律无边框"的前提被测量证伪，⛔ 不是放宽、更不是删）：
+//    证据出处 —— `contrast-ux` 的深色边界审计（`tools/tests/dark_boundary_channels_contrast.test.ts`
+//    §C 缺口表 / §15 收敛记录）：深色**下沉面**对画布仅 **1.0005**（几乎完全重合，且**无任何**已接线
+//    通道）⇒ 深色必须补一道**内凹发丝**；而浅色（porcelain 1.0456 / light 1.0788）填充差本就够
+//    ⇒ **浅色不该凭空多一道线**（"极简白不发丝"）。
+//    机制 = `insetHairlineOf(p)`：**深色 ⇒ `surfacesOf().hairline`（1.2188 ✅）/ 浅色 ⇒ `transparent`**。
+has(popSrc, 'insetHairlineOf(',
+  '工具浮层的边框走 `insetHairlineOf`（唯一的"仅深色"发丝出口，⛔ 不许随手写不透明边框色）');
+{
+  let lightBorderless: boolean = true;
+  let darkHairline: boolean = true;
+  for (let i = 0; i < ALL_THEMES.length; i++) {
+    const p: Palette = paletteOf(ALL_THEMES[i]);
+    const c: string = insetHairlineOf(p);
+    if (isLightPalette(p)) { if (c !== p.transparent) { lightBorderless = false; } }
+    else { if (c !== surfacesOf(p).hairline) { darkHairline = false; } }
+  }
+  ok('工具浮层：**浅色下无边框**（`insetHairlineOf` 浅色臂 = `transparent` ⇒ 逐字节不变）', lightBorderless);
+  ok('  工具浮层：**深色下允许内凹发丝**（因深色下沉面无其它通道）', darkHairline);
+}
 // ── 工具 pill 底分层 —— **行为断言**（不再匹配组件源码文本）────────────────────────
 // 分层判据已**下沉** `core/toolvisual.ets:pillBgOf/chipBgOf`（`components/ToolVisual.ets:107,117`
 // 只转发）。直接 import 纯函数断**语义**，远强于文本匹配：文本匹配既**脆**（组件改成转发就假红），
