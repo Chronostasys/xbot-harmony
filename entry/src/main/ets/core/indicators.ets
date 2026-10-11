@@ -86,3 +86,30 @@ export function showsHistorySkeleton(loading: boolean, rowsLen: number): boolean
 export function hasRunningSignal(o: BusySignals): boolean {
   return showsBusyPlaceholder(o) || o.tailShowsIndicator;
 }
+
+/** 压缩阶段的 phase 值（服务端 `ProgressSnapshot.phase`；见 `core/progress_types.ts:18`）。 */
+export const PHASE_COMPRESSING: string = 'compressing';
+
+/** busy 占位文案：**压缩上下文**（web `MessageList.tsx:1679-1686` → `t('agent.compressing')`）。 */
+export const BUSY_LABEL_COMPRESSING: string = '正在压缩上下文…';
+
+/** busy 占位文案：**普通思考**（web `ShimmerThinking`，i18n `agent.thinking`）。 */
+export const BUSY_LABEL_THINKING: string = '思考中…';
+
+/**
+ * busy 占位符的**文案**（纯函数 —— 唯一判据，组件层不得再自造）。
+ *
+ * web 权威：`web/src/components/agent/MessageList.tsx:1679-1686` 在 busy 占位里按
+ * `liveProgress?.phase === 'compressing'` 二选一：
+ *   · 压缩 ⇒ `Loader2` + `t('agent.compressing')`（「正在压缩上下文…」）；
+ *   · 其余 ⇒ `<ShimmerThinking/>`（「思考中…」）。
+ *
+ * ⛔ 现状缺陷（本函数修的）：原生**透传了 `phase` 却无任何 UI 消费者** ⇒ 压缩期恒显示
+ *   「思考中…」，与 web 分叉（压缩是一段可能很久、且**不产出思考**的阶段，用「思考中」
+ *   描述它是误导）。判据收敛到此处，`pages/Index.ets` 的占位行只消费本返回值。
+ *
+ * @param phase 服务端 `ProgressSnapshot.phase`（`undefined`/`''` ⇒ 当作普通思考，与 web 同）
+ */
+export function busyLabel(phase: string | undefined): string {
+  return phase === PHASE_COMPRESSING ? BUSY_LABEL_COMPRESSING : BUSY_LABEL_THINKING;
+}
