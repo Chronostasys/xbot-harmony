@@ -39,6 +39,7 @@ import {
   type Turn,
   type TurnID,
 } from './chat_types_full'
+import { noteTurndrop } from './derive'
 
 // ─── 工具：迭代合并（I4 append-only + 权威覆盖语义） ──────────
 
@@ -541,8 +542,8 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
           // 收尸）。正常时序 text_final(N) 先 commit（旧 turn 已 committed，这里
           // 不触发）。此路径会把旧 live 收尸（有产出 → committed/fold；无产出 →
           // frozen 空壳 → derive 跳过 → "整个 turn 的 assistant 消失"形态），
-          // 且旧 turn 的后续事件因 kind!=='live' 被丢弃。捕获触发证据。
-          console.warn('[TURNDROP] turn_started(N+1) folded a LIVE turn mid-flight', {
+          // 且旧 turn 的后续事件因 kind!=='live' 被丢弃。降级为 debug（汇总见 noteTurndrop）。
+          noteTurndrop('foldedLive', `folded-live:${old.id}>${ev.turnID}`, {
             chatID: s.chatID, oldTurn: old.id, newTurn: ev.turnID,
             oldHasOutput: hasOutput(old.phase.data), oldUser: old.user !== null,
             contentLen: old.phase.data.content.length,
@@ -1070,7 +1071,7 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
       // [TURNDROP] 诊断：text_final 到达时 target 已 frozen（session-idle mid-flight
       // 冻结 / turn_started 收尸后 text 迟到恢复的证据链 —— 与上面两条配对看）。
       if (t.phase.kind === 'frozen') {
-        console.warn('[TURNDROP] late text_final recovered a FROZEN turn', {
+        noteTurndrop('lateText', `late-text:${target}`, {
           chatID: s.chatID, turnID: target, cancelled: ev.cancelled,
           contentLen: ev.content?.length ?? 0,
         })
@@ -1234,7 +1235,7 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
         //（activeTurn=null，上面已 return）。此路径会把 live 冻结 + 后续
         // iteration/stream 事件因 kind!=='live' 被丢弃（"live progress 消失
         // 再也不更新"的 reduce 层形态）。捕获触发证据。
-        console.warn('[TURNDROP] session(idle) froze a LIVE turn mid-flight', {
+        noteTurndrop('idleFroze', `idle-froze:${t.id}`, {
           chatID: s.chatID, turnID: t.id, lastSeq: s.lastSeq,
           contentLen: live.content.length, reasoningLen: live.reasoning.length,
           iterations: live.iterations.length, iter: live.iter, streaming: live.streaming,
@@ -1259,7 +1260,7 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
       // [TURNDROP] 诊断：mid-turn idle 删除无产出且无 user 行的 live（空壳行灭绝）。
       // reasoning-only streaming 若 reasoning 已被迭代边界清空（advanced 清流式字段后
       // 新内容未到）即命中此分支。
-      console.warn('[TURNDROP] session(idle) DELETED a live turn with no output', {
+      noteTurndrop('idleDelete', `idle-delete:${t.id}`, {
         chatID: s.chatID, turnID: t.id, lastSeq: s.lastSeq,
         contentLen: live.content.length, reasoningLen: live.reasoning.length,
         iterations: live.iterations.length, iter: live.iter, streaming: live.streaming,
