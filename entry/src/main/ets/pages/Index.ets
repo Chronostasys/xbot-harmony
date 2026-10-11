@@ -1026,7 +1026,14 @@ struct Index {
   /** overlay `onDone`：撤下开屏并清表。 */
   private onSplashDone(): void {
     this.clearAllSplashTimers();
-    this.showSplash = false;
+    // ⛔ **必须延到下一帧**：本回调由子组件（`SplashOverlay`）在**它的 build 期**触发 ⇒
+    //    直接写 `showSplash` 就是「build 期改 @Component 状态」，ArkUI 抛**应用级错误**
+    //    （真机实证 2026-10-12：`AceStateMgmt: State variable 'showSplash' has changed during
+    //    render! ... New UINode objects added to update queue while re-render!`）——
+    //    它会连带破坏本次渲染（列表空白的同类病灶）。`delay(…, 0)` 把写入排到当前帧之后。
+    delay(() => {
+      this.showSplash = false;
+    }, 0);
   }
 
   private clearSplashTimer(id: number): void {
@@ -7559,7 +7566,13 @@ class ChatRowDataSource implements IDataSource {
   }
 
   getData(index: number): ChatRow {
-    return this.rows[index];
+    // ⛔ **绝不返回 `undefined`**（2026-10-12 真机 P0）：`LazyForEach` 的 key 生成器
+    //    `sessionScopedRowKey(this.currentChat, row)` 会立刻读 `row.id` —— 拿到 `undefined`
+    //    即**抛异常**，ArkUI 随即**中断整个子树**的构建 ⇒ `List` 与它之后的一切（**输入框**）
+    //    都不渲染 = 用户看到的"列表空 + 输入框都没出来"（白屏）。索引越界只可能发生在
+    //    "框架缓存的 count 与数组已换"的竞态窗口里 ⇒ 这里给一个**空行兜底**，保证不炸。
+    const r: ChatRow | undefined = this.rows[index];
+    return r !== undefined && r !== null ? r : new ChatRow();
   }
 
   registerDataChangeListener(listener: DataChangeListener): void {

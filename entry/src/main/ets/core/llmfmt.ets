@@ -49,9 +49,20 @@ export interface LlmConfig {
 export class LlmConfigEntries implements LlmConfig {
   ok: boolean = true;
   model_entries: LlmModelEntry[] = [];
+  /**
+   * 用户级**上下文上限**（`get_user_max_context` 的产物；`0` = 未设置）。
+   *
+   * ⛔ **为什么不再从 `GET /api/llm-config` 取**（2026-10-12 真机：设了 1M 却显示「未设置」）：
+   *   ① 那条 REST 服务端注册为 **POST-only**（GET 恒 405，实测）⇒ `max_context` **从来没取到过**；
+   *   ② 且服务端**真正的读写入口**是 RPC `get_user_max_context` / `set_user_max_context`
+   *   （`rpc_table.go:678-680`）—— web 的 `useSessionContext` 也读 `snapshot.max_context_tokens`
+   *   同一族语义。⇒ 与 web 同源：本字段由 `core/store.loadLlmConfig` 用该 RPC 填充。
+   */
+  max_context: number = 0;
 
-  constructor(entries: LlmModelEntry[] | undefined) {
+  constructor(entries: LlmModelEntry[] | undefined, maxContext: number = 0) {
     this.model_entries = entries !== undefined && entries !== null ? entries : [];
+    this.max_context = maxContext > 0 ? maxContext : 0;
   }
 }
 

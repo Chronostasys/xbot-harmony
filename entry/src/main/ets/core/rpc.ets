@@ -116,6 +116,43 @@ export const RPC_UPDATE_PER_MODEL_CONFIG: string = 'update_per_model_config';
 /** `refresh_model_entries`（无参 `rpc0err`）→ `[]protocol.ModelEntry`。`rpc_table.go:762-769`；web `api.ts:798-800`。 */
 export const RPC_REFRESH_MODEL_ENTRIES: string = 'refresh_model_entries';
 
+// ── 用户级上下文上限（web `useSessionContext` 的 `max_context_tokens` 同族）────────────────
+//
+// ⛔ **为什么必须走 RPC**（2026-10-12 真机：设了 1M 上下文却显示「未设置」）：
+//   服务端真正的读写入口是 `get_user_max_context`（`rpc0` → int）/ `set_user_max_context`
+//   （`rpc1void` `{max_context}`）—— `serverapp/rpc_table.go:678-680`。
+//   旧实现读 `GET /api/llm-config`（该路由注册为 **POST-only** ⇒ GET 恒 405 ⇒ 从来没取到过）、
+//   写 `POST /api/llm-max-context`（`channel/web/web.go` 里**未注册**该路由 ⇒ 404）。
+//   ⇒ 与 web 同源：改走上面两条 RPC。
+/** `get_user_max_context`（无参）→ `int`（用户级上下文上限；0/负 = 未设置）。 */
+export const RPC_GET_USER_MAX_CONTEXT: string = 'get_user_max_context';
+/** `set_user_max_context`（`rpc1void`）`{max_context}` → void。 */
+export const RPC_SET_USER_MAX_CONTEXT: string = 'set_user_max_context';
+
+/**
+ * `set_user_max_context` 的入参。
+ *
+ * ⚠️ 字段名**必须**是 `max_context`（服务端 `rpc_table.go:679-681` 的 json tag）。
+ */
+export class MaxContextParams {
+  max_context: number = 0;
+
+  constructor(n: number) {
+    this.max_context = n;
+  }
+}
+
+/** 归一化用户级上限：非有限数 / ≤0 ⇒ `0`（读作"未设置"，桌面端同口径）。 */
+export function normalizeMaxContext(v: number | null | undefined): number {
+  if (v === undefined || v === null) {
+    return 0;
+  }
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) {
+    return 0;
+  }
+  return v;
+}
+
 // ⛔ 2026-10-12 修「模型面板永久转圈」时：`list_all_model_entries` 的常量**早已定义在上方常量表**
 //   （`RPC_LIST_ALL_MODEL_ENTRIES`，:63，且已登记进 `RpcMethod.ALL`）⇒ ⛔ 别在此处再定义一份
 //   （会 `TS2451 Cannot redeclare`）。取模型列表**必须走 RPC `list_all_model_entries`**，
