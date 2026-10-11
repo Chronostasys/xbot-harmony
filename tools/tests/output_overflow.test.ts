@@ -70,6 +70,15 @@ if (repo.length > 0) {
   }
   ok(`★④ SyntheticCard 的等宽块走 BREAK_ALL（实得 ${monoAll} ≥1）`, monoAll >= 1);
   ok(`★④ 且**无**等宽块仍用 BREAK_WORD（实得 ${monoWord} 应为 0）`, monoWord === 0);
+  // ★⑤ **每个含横向的 `ScrollDirection.Free` 容器**都必须同时有 `width('100%')` + `clip(true)` + `maxWidth:'100%'`
+  //    （`horizontal_overflow_gate` 只查 `Text` 站点，**不查容器**）。零扫描判红：Free 数必须 > 0 且与三件套数相符。
+  const freeTp: number = count(tp, 'ScrollDirection.Free');
+  const clipTp: number = count(tp, '.clip(true)');
+  const maxTp: number = count(tp, "maxWidth: '100%'");
+  ok(`★⑤ ToolPopover 的横向容器（Free）都锁宽+裁剪：Free=${freeTp} ≤ clip=${clipTp} 且 ≤ maxW=${maxTp}`,
+    freeTp > 0 && clipTp >= freeTp && maxTp >= freeTp);
+  const freePh: number = count(src('PluginHost.ets'), 'ScrollDirection.Free');   // 预期 0（无横向容器）
+  ok(`★⑤ PluginHost 无横向容器（Free=${freePh}）—— 零扫描判红由上一行承担`, freePh === 0);
 }
 
 if (fail > 0) { console.log(`  output_overflow: ${pass} passed, ${fail} failed`); process.exit(1); }
