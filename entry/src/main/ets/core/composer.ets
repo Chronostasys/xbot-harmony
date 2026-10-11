@@ -6,6 +6,9 @@
  * - `@`：文件补全 —— 候选来自 `POST /api/fs/list {path}` → `{entries:[{name,isDir,size,mode,modTime}]}`。
  */
 
+/** 候选上限（逐字对齐 web `useCompletion.ts:67` `const MAX_CANDIDATES = 20`）。 */
+export const MAX_CANDIDATES: number = 20;
+
 /** 一条命令候选。 */
 export class CommandItem {
   name: string = '';
@@ -24,6 +27,10 @@ export class FsEntry {
  *
  * 规则（与 Web 一致）：从文本**末尾**往前扫，遇到空白就停；token 必须**以触发符开头**，
  * 且触发符前面是行首或空白（避免把邮箱 `a@b` 当成提及）。
+ *
+ * ⚠️ **命令（`/`）只在"首块"**（web `useCompletion.ts:244-252`：`isFirstBlock &&
+ *   /^\s*$/.test(beforeWord)`）⇒ `/` 之前**不得有换行**；`@` 无此限制
+ *   （web `detectAtPrefix` 允许 `\n` 前导，`:141-144`）。
  */
 export function activeToken(text: string, trigger: string): string {
   let i: number = text.length;
@@ -44,6 +51,10 @@ export function activeToken(text: string, trigger: string): string {
       return '';
     }
   }
+  // ⚠️ 命令补全只在首块（`/` 前有换行 ⇒ 不是命令，web `:244-251`）。
+  if (trigger === '/' && text.substring(0, i).indexOf('\n') >= 0) {
+    return '';
+  }
   return token;
 }
 
@@ -52,9 +63,16 @@ export function matchCommands(all: CommandItem[], token: string): CommandItem[] 
   const q: string = token.length > 0 ? token.substring(1).toLowerCase() : '';
   const out: CommandItem[] = [];
   for (let i = 0; i < all.length; i++) {
-    const name: string = all[i].name.toLowerCase();
+    const item: CommandItem = all[i];
+    if (item.name.length === 0) {
+      continue; // web `useCompletion.ts:254`：`!!cmd.name` 过滤空名
+    }
+    const name: string = item.name.toLowerCase();
     if (q.length === 0 || name.indexOf(`/${q}`) === 0) {
-      out.push(all[i]);
+      out.push(item);
+      if (out.length >= MAX_CANDIDATES) {
+        break; // web `:262`：`.slice(0, MAX_CANDIDATES)`
+      }
     }
   }
   return out;
@@ -66,14 +84,23 @@ export function applyCommand(text: string, token: string, name: string): string 
   return `${head}${name} `;
 }
 
-/** 文件候选（姓名包含查询即命中；目录优先排在前面）。 */
+/**
+ * 文件候选。
+ *
+ * 逐字对齐 web `useCompletion.ts:295-302`：`name.toLowerCase().startsWith(filterText.toLowerCase())`
+ * ⇒ **前缀**匹配（不是子串！），再 `.slice(0, MAX_CANDIDATES)`。
+ *
+ * ⚠️ **刻意偏离**：本仓把**目录排在前面**（web 保持 `/api/fs/list` 原序 = `os.ReadDir` 字母序，
+ * 无目录优先，`web_fs.go:189`）—— 这是本文件既有的 UX 选择，保留并在测试里钉住。
+ */
 export function matchFiles(entries: FsEntry[], token: string): FsEntry[] {
   const q: string = token.length > 0 ? token.substring(1).toLowerCase() : '';
   const dirs: FsEntry[] = [];
   const files: FsEntry[] = [];
   for (let i = 0; i < entries.length; i++) {
     const e: FsEntry = entries[i];
-    if (q.length > 0 && e.name.toLowerCase().indexOf(q) < 0) {
+    // web `:296`：前缀匹配（原为 `indexOf(q) < 0` 子串匹配 ⇒ 会把 `localStorage.md` 匹到 `@stor`）。
+    if (q.length > 0 && e.name.toLowerCase().indexOf(q) !== 0) {
       continue;
     }
     if (e.isDir) {
@@ -82,7 +109,7 @@ export function matchFiles(entries: FsEntry[], token: string): FsEntry[] {
       files.push(e);
     }
   }
-  return dirs.concat(files);
+  return dirs.concat(files).slice(0, MAX_CANDIDATES); // web `:297`
 }
 
 /** 把 `@token` 换成 `@路径`（目录补 `/`，便于继续往下钻）。 */
