@@ -673,8 +673,6 @@ struct Index {
 
   /** 运行中工具的流光位置（纯 transform，不触发布局） */
   @State sweepX: number = -80;
-  /** 切会话时列表淡入（0.001 → 1 由 animateTo 驱动） */
-  @State listAlpha: number = 1;
   /** 上次发送失败的正文（提供一键重试） */
   @State failedSend: string = '';
   private draftTimer: number = -1;
@@ -1937,11 +1935,10 @@ struct Index {
     const alreadyOpen: boolean = target.currentChatId === chatId;
     this.store = target;
     this.rekeyPool(target, chatId);
-    // 切会话：列表淡入（先置近 0 再 animateTo 回 1 —— 避免"闪一下旧会话"的观感）
-    this.listAlpha = 0.001;
-    this.anim(() => {
-      this.listAlpha = 1;
-    });
+    // ⛔ 切会话**不再**用"整张列表 opacity 0.001 → 1"来遮旧会话：
+    //    那是"可读性成了动画的函数"（动画被打断/未跑 ⇒ 整列表近不可见，用户亲报的同类缺陷）。
+    //    现在由 **行级 `entryRestOpacity()` + `.transition` 出现过渡**（`core/msgentry.ets`）负责观感：
+    //    静息态恒为 1（fail-safe），过渡只是锦上添花。`rekeyPool(target, chatId)` 已负责换行。
     // 切会话即换草稿（每个会话各自一份；弱网下也能恢复）
     this.failedSend = '';
     this.draft = this.config.draftFor(chatId);
@@ -3554,7 +3551,6 @@ struct Index {
         }
       }
       .width('100%').height('100%').edgeEffect(EdgeEffect.Spring).padding({ left: SPACE_XS, right: SPACE_XS })
-      .opacity(this.listAlpha)
       // 预构建 4 行：滚动时不必等构建（越小内存越省，越大滚动越顺）
       .cachedCount(4)
       // ⛔ 记录的**只有**"这一帧的滚动是不是用户干的"（ScrollSource 由 Scroll 框架给出，
