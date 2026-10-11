@@ -3241,6 +3241,8 @@ struct Index {
                 initialTab: this.settingsInitialTab,
                 surfaceWeb: this.useWebUI,
                 notifyOn: this.notifyOn,
+                // 账号面板的用户名（审计 G1：此前**未透传** ⇒ 账号页永远看不到真实用户名）
+                username: this.username,
                 // 「开发者 → 导出会话」要会话选择器（`{channel, chat_id}`）；空 ⇒ 按钮禁用
                 channel: this.store.channel,
                 chatID: this.store.currentChatId,

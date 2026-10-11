@@ -124,6 +124,9 @@ export struct SettingsPanel {
   @Prop channel: string = '';
   /** 当前会话 id（页面 `store.currentChatId`）——同上。 */
   @Prop chatID: string = '';
+  /** 当前登录用户名（页面 `this.username` 注入；缺省 ⇒ 账号面板回落中性文案，⛔ 不会空白）。
+   *  审计 G1：此前**未透传** ⇒ 账号页**永远看不到真实用户名**（web 显示 `SettingsDialog.tsx:84-90`）。 */
+  @Prop username: string = '';
 
   /** 「设置加载失败 ⇒ 重试」回调（由页面注入；⛔ 必须真的重发请求，不许只改状态位）。
    *  `onRetrySettings` 供 关于/智能体（重拉 `/api/settings`）；`onRetryPluginCatalog` 供 插件（重拉插件目录）。 */
@@ -390,9 +393,10 @@ export struct SettingsPanel {
       } else if (this.active === SETTINGS_TAB_ABOUT) {
         SettingsAbout({ http: this.http, theme: this.theme, canRetry: true, onRetry: this.onRetrySettings })
       } else if (this.active === SETTINGS_TAB_ACCOUNT) {
-        // ⚠️ 用户名需页面侧注入（服务端无 /api/auth/me，见 SettingsAccount 头注）；
-        // 未注入时面板回落中性文案，不会空白。
-        SettingsAccount({ http: this.http, theme: this.theme })
+        // 登录用户名由**页面侧注入**（服务端无 /api/auth/me，见 SettingsAccount 头注）：
+        // 页面 `this.username` → 本组件 `@Prop username` → 账号面板显示；
+        // 未注入（空串）时面板回落中性文案，不会空白。
+        SettingsAccount({ http: this.http, theme: this.theme, username: this.username })
       } else if (this.active === SETTINGS_TAB_DEVELOPER) {
         // 开发者分区：SSE 录制 + 连接状态 + **导出会话**（导出要 http 与会话选择器 ⇒ 一并透传）
         SettingsDeveloper({ http: this.http, theme: this.theme, channel: this.channel, chatID: this.chatID })
