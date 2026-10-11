@@ -812,3 +812,22 @@ thinking（4 档）、tier（3 档）、provider（2）、api_type（2）、CTX/
 **「碰 Index.ets」的项（不在本轮，供调度者排队）**：仅 **#2 开发者「导出会话」按钮组** ——
 `components/SettingsDeveloper.ets` **当前不注入 `http`**，需页面补传（`pages/Index.ets:2936-2968` 的 `SettingsPanel(...)` 调用处）；
 判据：产物 == `core/export.ets:toCodexJsonl/toMulticaJsonl/toBenchmarkJsonl`，配 `tools/tests/export.test.ts`（已存在）。
+
+---
+
+## 18. 批次 25（2026-10-11）：**动效单一来源 + 光球第三波 + 流式提速 + porcelain ⚠️ 修复**
+
+`origin/main = ee0419e`（13 笔）。gate65：`GATE_EXIT=0` · 离线 0 失败 · 在飞动效 A 类 0 / B 类 3 · 性能护栏 15/0 · 取色 role 绿 · 未消费 core 模块 0 · **ArkTS `BUILD SUCCESSFUL in 26 s 495 ms`**。
+
+| # | 项 | 结论与证据 |
+|---|---|---|
+| 1 | **动效「单一来源」收敛**（`508b3e5` + `9681fbc`） | 删 `animSpring()`（**0 消费者死工厂**，守卫同步收缩）；`core/splash.ets` 3 个"缺档"其实**底座已有**（注释过期）+ `MOTION_BREATH_MS`/`MOTION_BEAT_MS` + 第 4 个双来源 `SPLASH_MARK_BOX_VP ≡ MOTION_SPLASH_MARK_VP`（**别名赋值，值逐字 160**）收敛。`MessageRow` 就地过渡**经裁决为有意豁免**（收进工厂会给底座新增 2 处 `.animation(` ⇒ 撞 `motion_budget` 台账；`.combine()` 语义无法脱机证明等价）⇒ 已**留痕**（`docs/ARKTS-GOTCHAS.md` 批次 38） |
+| 2 | **光球第三波**（`18f679f`） | 双频呼吸 + 轨道景深（"比 Siri 好看"迭代） |
+| 3 | **流式热路径提速**（`9526ea3`，目标⑤） | `runeCount` 免整数组分配（**67.9→29.6µs**）、`clipRunes` 单次 `substring`（**89.4→14.9µs**）、`inFlightBlock` 键集合 O(D×K)→O(D+K)（D=64 档 **16.2→6.9µs**；D=8 档**噪声内无变化**，如实标注）。⛔ 诚实否决：`blocksSignature` 改 `join` **更慢**；`parseMarkdown` 正则不动（`\s` 含全角空格，改错=静默渲染差异） |
+| 4 | **porcelain ⚠️ 修复**（`ae2c9e0`） | ⚠️-1 `warn` 4.238→**5.465** / `success` 4.205→**5.412**（压深保色相）；⚠️-2 **否掉审计处方**（"浅色一律 `surfaceAlt`"会让 porcelain 玻璃 1.0616→**1.0088 < §E5 地板 1.02**）⇒ 改显式阈值守卫、≈零像素变化；⚠️-5 `foreground3` **登记为预留角色**（web 四阶契约对齐，⛔ 不删） |
+| 5 | **目标③**（`c87b5b6`/`dbacc14`/`9627598`） | 开发者导出补 openai/codex（G2/G3）· Web 账号 invite-only 提示行（G6）· 账号用户名恒不显示（**G1 三跳接线**）· 清死导入 |
+| 6 | **我修的真红**（`8e23aad`→`54ef97f`） | `role_surface_floor` §B 硬红：`SettingsWebUsers.ets:258` 图标直取 `textMuted`（porcelain 2.17–2.54 < 图标地板 3）⇒ 走**计算型 role** `colorOf(p,'iconMuted')`（浅 = `textSecondary` 5.07 ✓）。⚠️ 我中途**用错通道**（`pal().iconMuted` ⇒ ArkTS 硬红 `10505001`）**且把编译丢后台就写"真编译通过"**⇒ HEAD 坏；两条坑已入 `AGENTS.md`（`ee0419e`） |
+
+**真机判决（`responseRegion` 旧做法全站废止）**：负偏移外扩**无效**、**真 44×44 布局盒有效**（盒内图标外 ⇒ 关得掉 ✓、盒外 ⇒ 不误关 ✓ 阴性对照）；报④浅色白字 ✓。**报③后半条**（行右缘可选）当前**不可验证** —— 服务端 LLM 未配置 ⇒ 模型面板恒停「正在读取模型列表…」、列表为空。
+
+**目标④ 裁决（本批）**：`annotations` **创建侧原生不成立**（`SelectionContainer` `@since 26.0.0` > 本工程 21；无选区包围盒 API；入口不在复制菜单）⇒ **ArkWeb 网页模式承载**；**展示侧**（裸 XML）为真缺陷 ⇒ 已接线 `components/UserBubble.ets`。
