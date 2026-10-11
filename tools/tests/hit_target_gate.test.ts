@@ -178,10 +178,9 @@ ok(`⚠️ 门槛本身不许被下调：HIT_TARGET_MIN(${MIN}) ≥ Apple HIG �
 
 console.log('\n▶ §B A 类命中：显式尺寸 < 阈值且无补偿（HIT_TARGET_MIN / responseRegion）');
 /** 本线**改不动**、已出 spec 的（`pages/Index.ets` 归 main agent）。 */
-const PENDING_SPEC: string[] = [
-  'pages/Index.ets :: Button #constraintSize(42)',   // 「测试连接」minHeight 42
-  'pages/Index.ets :: Button #constraintSize(38)',   // 「重试/重新登录」minHeight 38
-];
+// ⚠️ 2026-10-11 `63d169b`（splash-ux）已把这两处改到 `HIT_TARGET_MIN` ⇒ **台账按"只许缩短"删空**。
+//    保留一个空数组（而不是删掉常量）：下一次新命中会立刻被"命中集 == 登记集"拦住。
+const PENDING_SPEC: string[] = [];
 const hits: string[] = unregisteredHits(srcByRel, []);
 for (let i = 0; i < hits.length; i++) { console.log(`  ${hits[i]}`); }
 ok(`命中数 == 已登记 spec 数（实测 ${hits.length} / 登记 ${PENDING_SPEC.length}）`, hits.length === PENDING_SPEC.length);

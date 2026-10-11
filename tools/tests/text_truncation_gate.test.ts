@@ -180,15 +180,14 @@ const KNOWN_OK: string[] = [
   'components/ToolPopover.ets :: ln.length > 0 ? ln : \' \'',
   'components/ToolPopover.ets :: ln.text.length > 0 ? ln.text : \' \'',
 ];
-/** 本线**改不动**、已出 spec 的（`pages/Index.ets` 归 main agent）。 */
-const PENDING_SPEC: string[] = [
-  'pages/Index.ets :: loadErrHint(this.loadErr)',
-  'pages/Index.ets :: attachChipText(it)',
-  'pages/Index.ets :: cronLine(job)',
-  'pages/Index.ets :: bgTaskLine(t, this.nowMs())',
-  'pages/Index.ets :: subagentLine(a)',
-  'pages/Index.ets :: runnerLine(r)',
-];
+/**
+ * 本线**改不动**、已出 spec 的（`pages/Index.ets` 归 main agent）。
+ *
+ * ⚠️ 2026-10-11 `63d169b`（splash-ux）已把六处全补上 `.textOverflow({overflow: Ellipsis})`
+ *    ⇒ **台账按"只许缩短"删空**（实测非空白命中 8 → 2，那 2 条是 KNOWN_OK 的代码行）。
+ *    保留空数组：下一次新命中会立刻被"实测集合 == 两表之并"拦住。
+ */
+const PENDING_SPEC: string[] = [];
 /**
  * **结构性豁免**（不是逐条放行）：文本内容**本身就是空白**（`Text(){}` 容器 / `Text(' ')` 占位）
  * ⇒ **没有可裁的内容**，配不配 `textOverflow` 都一样。判据对这类**按性质**放过，并打印条数。
