@@ -933,3 +933,40 @@ vs 深色黑柔影 **1.0206/1.0122** ⇒ 再次确认"浅色柔影比深色黑�
 **⚠️ 方法论（第二次踩）：口径修正必须落到「扫描」里，不能只写进「台账 / 数字断言」。**
 我把口径 (b)（宿主感知）只做成"登记 + 断言" ⇒ 扫描**仍报** `SplashOverlay:174` ⇒ "未登记"永远挡着；
 把它**做进 `scanBad`**（判断是否压在 `splashBrandCanvas()` 上、用真宿主算）后才真正干净。
+
+---
+
+## §18 role × **实际合成底** 的可读性矩阵（2026-10-11）
+
+**为什么需要它**：`theme_contrast` 只覆盖「**role vs 画布**」；而用户亲报的"白主题正文看不清"，
+根因正是**底不是画布**（表格/代码块/玻璃/浮层/强调色叠加）⇒ 只比画布会**假过**。
+
+**有效底的类别（**全部从渲染真源取，⛔ 不猜**）**：10 类 —— 画布 · `surface.card` · `surface.chip` ·
+`surface.well`（代码块/终端/diff 行底）· `surface.pill` · `surface.overlay` · **玻璃（合成）** ·
+`accent` · `dangerBg` · `warnBg`（真源：`core/design.ets` 的 `surfaceRoles()` 表层 + `surfaceFillOf`）。
+
+**⛔ 半透明的底必须先合成，不许拿 `#AARRGGBB` 直接比。**
+`effectsOf(p).glassBg` 是**基色 @62%**（实测 alpha=204）⇒ 有效底 = `compositeOver(glassBg, appBg)`
+（合成后 alpha=253，**整数舍入**，故判据用「≥250 近似不透明」而**不是** `=== 255`）。
+⚠️ 这条口径是**必要**的：我曾想用"对比度差 > 0.5"自证它，但 porcelain 的玻璃≈白底 ⇒ 与正文的对比度几乎不变
+（16.56 vs 16.83）——**拿不敏感的量当判据＝假红**；改为直接断言 **alpha**（204 → 253）。
+
+**矩阵规模**：12 role × 10 底（含"只允许压自家实心"的 `onAccent`/`dangerOnFill`/`warnOnFill`）× 5 主题 = **330 格**，
+**逐格打印数值**（`!` 标低于门槛）。门槛取仓内已批准常量：正文 `AA_TEXT`=**4.5** · 非文本 `AA_NON_TEXT`=**3** ·
+`textMuted` 的**非交互元信息**档 `AA_MUTED`=**2.0**（⛔ 一字不放宽）。
+
+**当前最紧的几格（porcelain）**：
+
+| role × 底 | 比值 | 门槛 | 余量 |
+|---|---|---|---|
+| `textSecondary` × 凹槽 chip / 行底 well | **4.53** | 4.5 | **+0.03** ⚠️ 最紧 |
+| `iconMuted` × pill（dark） | 3.09 | 3 | +0.09 |
+| `textSecondary` × pill | 4.70 | 4.5 | +0.20 |
+| `onAccent` × accent（porcelain） | 4.70 | 4.5 | +0.20 |
+
+**不达标 1 格**：`dark | onAccent | accent` = **4.35 < 4.5** —— ⛔ **不是新缺口**，是**继承既有台账的既知条目**
+（出处 `tools/tests/theme_contrast.test.ts:314` §G6「不许删」：它建模的是**纯色** accent，真主按钮渲的是**渐变**、
+端色由 `gradientEndOf()` 护航到 ≥4.5）⇒ 本判据 `KNOWN_TIGHT` 登记它（⛔ 只许缩短）。
+
+**⚠️ 本判据不硬红**：颜色对的缺口属**主题层**（`core/theme.ets` = `brand-impl`），本文件只把矩阵与缺口**如实列清**；
+硬红仍由 `theme_contrast` 的既批准台账承担。本文件的断言只做"矩阵非空 / 无解析失败 / 覆盖健全 / 台账只许缩短 / mutation"。
