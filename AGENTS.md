@@ -96,3 +96,18 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   工厂，唯一 import `@ohos.curves` 处）。**`core/*.ets` 禁止 import ArkUI/`@ohos.*` 全局类型**
   —— `run.sh` 把它当纯 TS 编译，会 TS2307。
 - **门禁并发安全**：`tools/tests/run.sh` 的产物目录带 PID（`.out.$$`），可多线并发跑互不干扰。
+- **⛔ 动手前先 `git status`（多线并行下的保命动作）**：本仓常有多条线（人或 agent）同时改不同文件
+  ⇒ 派单/开工**前**必须先 `git status --short`，**凡出现在在途列表里的文件一律只上报不改**。
+  真实事故：主 agent 把 `components/ContextRing.ets` / `ThinkingLine.ets` 派给新线，
+  而它们已在别人的在途改动里 ⇒ 差点互相覆盖。
+  同理**自证时不要替别人改、也不要把别人的在途错误算自己头上**：主树 `gate.sh` 的 ④ 步
+  可能因**别人的在途文件**变红（如 `WebSurface.ets:415`/`GoalBanner.ets:85`），
+  自证请用**隔离 worktree**（`git worktree add` 到临时目录 + 复制整树 + 把在途文件回退到 HEAD）。
+  ⚠️ `git worktree add` 会**静默失败**（注册残留）⇒ 先 `git worktree remove --force` + `git worktree prune`。
+- **⛔ 干净 worktree / 新 clone 里跑门禁前必须装依赖**：`oh_modules` 是 git-ignored ⇒
+  不 `ohpm install --all` 会因缺 `@hxa-atpc/noties_prism4j` 在 ④ 步**假红**（实例见 GOTCHAS 批次 28）。
+- **判据 ≠ 信号（我本人假报三次的根因）**：粗放 `grep -rn` 取整行再猜"行内第一个引号"会把
+  `Text('保存').fontSize(typeOf('type.subhead')…)` 误判成 `typeOf('保存')`；把**注释里记录色值的文档**
+  当违规；`$VAR（`（变量紧跟全角括号）在 bash 3.2 + UTF-8 locale 下会 `unbound variable`。
+  ⇒ 只取**调用片段**（`grep -o` 风格）、**剥注释**、**先 `source ~/ohos-cli/env.sh` 自证**、
+  零扫描要判红、mutation 自证、**上报前逐条看上下文**。
