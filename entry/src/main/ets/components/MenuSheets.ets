@@ -80,6 +80,8 @@ export struct SessSheet {
   @Prop canDown: boolean = false;
   /** 是否已进入"确认删除（再点一次）"态（页面 `sessConfirmDelete === sessMenuId`）。 */
   @Prop confirmDelete: boolean = false;
+  /** 当前会话是否已标星（页面 `isStarredChat(sessMenuId)`）—— 决定本项文案「标星/取消标星」。 */
+  @Prop starred: boolean = false;
   /** 菜单项点击（页面 `onSheetItem(code)` —— 派发留页面）。 */
   onItem: (code: string) => void = () => {
   };
@@ -147,6 +149,9 @@ export struct SessSheet {
         this.CtxItem(this.canTop ? '置顶' : '置顶（已在顶部）', MOVE_TOP, !this.canTop)
         this.CtxItem(this.canUp ? '上移' : '上移（已在顶部）', MOVE_UP, !this.canUp)
         this.CtxItem(this.canDown ? '下移' : '下移（已在底部）', MOVE_DOWN, !this.canDown)
+        // 标星：**唯一**交互入口（行体只留一枚小标记 ⇒ 标题不再被 44 热区挤掉；对齐 web
+        // `SessionItem.tsx` 把 star 放进 context menu 的口径）。文案随状态（web `session.star/unstar`）。
+        this.CtxItem(this.starred ? '取消标星' : '标星', 'star', false)
         this.CtxItem('重命名', 'rename', false)
         this.CtxItem('分支（fork 出新会话）', 'fork', false)
         this.CtxItem(this.confirmDelete ? '确认删除（再点一次）' : '删除', 'delete', false)

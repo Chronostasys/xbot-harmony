@@ -504,6 +504,46 @@ export function timeBucketLabel(key: string): string {
   return key;
 }
 
+/**
+ * 会话行的「相对时间」标签（web `SessionItem.tsx:332-347 relativeTime` 的逐条移植）。
+ *
+ * 规则（与 web **逐字同源**，文案取 `i18n/zh-CN.ts:145-148`）：
+ *   1. `Date.parse(lastActive)` 解析失败（NaN）⇒ `''`（**空串**，不是"刚刚" —— 缺时间不撒谎）；
+ *   2. `diff < 1min`  ⇒ `'刚刚'`；
+ *   3. `diff < 60min` ⇒ `'N 分钟前'`；
+ *   4. `diff < 24h`   ⇒ `'N 小时前'`；
+ *   5. `diff < 30d`   ⇒ `'N 天前'`；
+ *   6. 否则           ⇒ 本地 `YYYY/M/D`（web 落 `toLocaleDateString`；原生端显式格式化 ⇒ 无 locale 依赖）。
+ *
+ * ⚠️ `nowMs` **必须注入**（⛔ 不读 `Date.now()`）：纯函数才好判据（web 靠真实时钟 ⇒ 不可测）。
+ *    页面调用点传 `Date.now()`。
+ * ⚠️ 未来时间（`diff < 0`，时钟漂移/服务端时区偏）⇒ 落 `'刚刚'`（与 `min < 1` 同支，⛔ 不吐负数）。
+ */
+export function relativeTimeLabel(lastActive: string, nowMs: number): string {
+  const ts: number = Date.parse(lastActive);
+  if (Number.isNaN(ts)) {
+    return '';
+  }
+  const diff: number = nowMs - ts;
+  const min: number = Math.floor(diff / 60000);
+  if (min < 1) {
+    return '刚刚';
+  }
+  if (min < 60) {
+    return `${min} 分钟前`;
+  }
+  const hr: number = Math.floor(min / 60);
+  if (hr < 24) {
+    return `${hr} 小时前`;
+  }
+  const day: number = Math.floor(hr / 24);
+  if (day < 30) {
+    return `${day} 天前`;
+  }
+  const d: Date = new Date(ts);
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+}
+
 /** 状态组的中文标题（web `i18n/zh-CN.ts` session.status.*）。 */
 export function statusGroupLabel(key: string): string {
   const k: string = statusGroupKey(key);

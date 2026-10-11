@@ -78,7 +78,7 @@ import {
 } from '../core/sessionpick';
 import {
   applyGroupsCollapsed, collapseAllPlan, collapseKey, CollapseAllPlan, groupSessionsFromItems, groupTitle,
-  normalizeSessionCategory, pathGroupTooltip, SESSION_CATEGORIES, SessionGroup, sessionCategoryLabel,
+  normalizeSessionCategory, pathGroupTooltip, relativeTimeLabel, SESSION_CATEGORIES, SessionGroup, sessionCategoryLabel,
 } from '../core/sessiongroup';
 import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msgindex';
 import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, WebPluginListWire, buildPluginCatalog } from '../core/pluginhost';
@@ -2267,6 +2267,16 @@ struct Index {
     }
   }
 
+  /**
+   * 会话行右侧的「相对时间」（web `SessionItem.tsx:332-347` 同源）。
+   *
+   * ⛔ 页面**只做时钟注入**，规则全在 `core/sessiongroup.ets:relativeTimeLabel`（判据与渲染同源）。
+   *    `last_active` 缺失 ⇒ 传空串 ⇒ 解析失败 ⇒ `''`（缺时间**不撒谎**，⛔ 不回落 `'刚刚'`）。
+   */
+  private relTimeOf(lastActive: string | undefined): string {
+    return relativeTimeLabel(lastActive !== undefined ? lastActive : '', Date.now());
+  }
+
   /** 标签显示名（来自会话列表的名字，取不到则用 id 末段）。 */
   private tabLabel(chatId: string): string {
     for (let i = 0; i < this.sessions.length; i++) {
@@ -3460,6 +3470,7 @@ struct Index {
             canUp: this.menuCanMove(MOVE_UP),
             canDown: this.menuCanMove(MOVE_DOWN),
             confirmDelete: this.sessConfirmDelete === this.sessMenuId,
+            starred: this.isStarredChat(this.sessMenuId),
             onItem: (code: string) => {
               this.onSheetItem(code);
             },
@@ -4886,6 +4897,13 @@ struct Index {
       }
       return;
     }
+    if (code === 'star') {
+      // 标星/取消标星（web `SessionItem.tsx` context menu 的 `session.star/unstar`）。
+      // ⛔ 复用**既有**出口 `toggleStarChat`（唯一写入点；页面不另写一套 star 存储）。
+      this.sessMenuId = '';
+      this.toggleStarChat(id);
+      return;
+    }
     if (code === 'rename') {
       this.renamingId = id;
       const s: SessionItem | undefined = this.currentMenuSession();
@@ -6088,7 +6106,7 @@ struct Index {
       return;
     }
     if (code === MOVE_TOP || code === MOVE_UP || code === MOVE_DOWN || code === 'rename'
-      || code === 'fork' || code === 'delete') {
+      || code === 'fork' || code === 'delete' || code === 'star') {
       this.runSessAction(code);
       return;
     }
@@ -7120,53 +7138,36 @@ struct Index {
                             })
                         }.width('100%')
                       } else {
+                        // ── 单行行体（web `SessionItem.tsx:1-8` 权威：`[状态点] 标题 相对时间`）──
+                        // 移除三处"开发者噪音"：渠道 chip、裸 `chat_id`、两行排版。⛔ 它们对用户无信息量，
+                        // 却各占视线（原实现第二行恒显示 `Web` + `chat_026B326DE4C4`）。
+                        // 超越 web：行内动作收进**尾部拇指区**（星标 + ⋯），各自真实 44×44 布局盒。
                         Row({ space: SPACE_XS }) {
-                          Column({ space: SPACE_HAIR }) {
-                            Row({ space: SPACE_XS }) {
-                              if (s.running === true) {
-                                // 运行中 = **静态** 状态点（⛔ 不呼吸：唯一在飞动效 = 光球）。
-                                Row().width(SPACE_XS).height(SPACE_XS).borderRadius(SPACE_XS / 2).backgroundColor(this.pal().success)
-                              }
-                              Text(this.tabLabel(s.chat_id))
-                                .fontSize(typeOf('type.body').size)
-                                .fontColor(s.chat_id === this.currentChat ? this.pal().accentText : this.pal().textPrimary)
-                                .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                                .layoutWeight(1)
-                            }.width('100%').alignItems(VerticalAlign.Center)
-                            Row({ space: SPACE_XS }) {
-                              Text(channelLabel(s.channel !== undefined ? s.channel : 'web'))
-                                .fontSize(typeOf('type.micro').size).fontColor(this.pal().textSecondary)
-                                .padding({ left: INSET_CHIP_X, right: INSET_CHIP_X, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
-                                .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip')).borderRadius(RADIUS_CHIP)
-                                // §15：chip 面补内凹发丝（深色才有值、浅色 transparent）
-                                .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
-                              // ⛔ 仅当"会话 id 与标题不同"时才补 id（否则与上一行标题同串）。
-                              if (s.chat_id !== this.tabLabel(s.chat_id)) {
-                                Text(s.chat_id)
-                                  .fontSize(typeOf('type.micro').size).fontColor(this.pal().textMuted)
-                                  .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                                  .layoutWeight(1)
-                              }
-                            }.width('100%')
+                          if (s.running === true) {
+                            // 运行中 = **静态** 状态点（⛔ 不呼吸：唯一在飞动效 = 光球）。
+                            Row().width(SPACE_XS).height(SPACE_XS).borderRadius(SPACE_XS / 2).backgroundColor(this.pal().success)
                           }
-                          .layoutWeight(1).alignItems(HorizontalAlign.Start)
-
-                          // 星标（收藏）：一点即切，已星标用实心星 + accent 色
-                          // ⚠️ 未收藏支取 `textSecondary`（⛔ 非 `iconMuted`）：本行底在"当前会话"时 =
-                          // `surface.overlayRowHover`(= RUNG_ACTIVE = `surfaceHi`)；dark 下 `iconMuted`(=`textMuted`)
-                          // 压 `surfaceHi` 仅 **2.8164 < 3.0**（图标地板），`textSecondary` 五主题 ≥4.33 ✓
-                          // （浅色族 `iconMuted` 本就 = `textSecondary` ⇒ 零变化）。判据 `tools/tests/star_contrast.test.ts`。
-                          SymbolGlyph(this.isStarredChat(s.chat_id)
-                            ? $r('sys.symbol.star_fill') : $r('sys.symbol.star'))
-                            .fontSize(typeOf('type.headline').size)
-                            .fontColor([this.isStarredChat(s.chat_id) ? this.pal().accent : this.pal().textSecondary])
-                            .padding(SPACE_XS)
-                            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-                            .accessibilityText(this.isStarredChat(s.chat_id) ? '取消标星' : '标星')
-                            .onClick(() => {
-                              this.toggleStarChat(s.chat_id);
-                            })
-                          // 触屏铁律：多个行内操作折叠成「一个 ⋯ + 菜单」，绝不并排常显。
+                          // 标星 = **非交互小标记**（Apple 旗标式；⛔ 不占 44 热区 —— 真机量测：星标盒吃
+                          // 149px（15% 行宽），把当前会话标题截成 `harmony-ui…`）。仅**已标星**才渲染
+                          // （未标星不显示空星 ⇒ 零噪音）；交互入口统一在 `⋯` 菜单的「标星/取消标星」
+                          // （对齐 web `SessionItem.tsx` 把 star 放进 context menu 的口径）。
+                          // ⚠️ 三元保留 `isStarredChat` 真判据（`star_contrast.test.ts` §1 钉"恰好 1 处"）。
+                          if (this.isStarredChat(s.chat_id)) {
+                            SymbolGlyph(this.isStarredChat(s.chat_id)
+                              ? $r('sys.symbol.star_fill') : $r('sys.symbol.star'))
+                              .fontSize(typeOf('type.subhead').size)
+                              .fontColor([this.isStarredChat(s.chat_id) ? this.pal().accent : this.pal().textSecondary])
+                          }
+                          Text(this.tabLabel(s.chat_id))
+                            .fontSize(typeOf('type.body').size)
+                            .fontColor(s.chat_id === this.currentChat ? this.pal().accentText : this.pal().textPrimary)
+                            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                            .layoutWeight(1)
+                          // 相对时间（web `SessionItem.tsx:332-347`；`last_active` 缺失 ⇒ 空串 ⇒ 不渲任何字符）
+                          Text(this.relTimeOf(s.last_active))
+                            .fontSize(typeOf('type.micro').size).fontColor(this.pal().textMuted)
+                            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                          // 行内次级动作折成一个 `⋯` + 菜单（标星入口已在菜单里 ⇒ 行体只剩一个动作键）。
                           // ⛔ 前景是 **`Text`**（文字字形，⛔ 不是 `SymbolGlyph`）⇒ 地板 = AA_TEXT(4.5)，
                           // 而 porcelain 下 `textSecondary` 压本行**当前会话**底（`surface.overlayRowHover`
                           // = `surfaceHi`）仅 **4.337 < 4.5** ⇒ 当前会话支改 `textPrimary`（各主题 ≥12）；
@@ -7174,7 +7175,7 @@ struct Index {
                           Text('⋯')
                             .fontSize(typeOf('type.headline').size)
                             .fontColor(s.chat_id === this.currentChat ? this.pal().textPrimary : this.pal().textSecondary)
-                            .padding(SPACE_XS)
+                            .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).textAlign(TextAlign.Center)
                             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                             .accessibilityText('更多操作')
                             .onClick(() => {
@@ -7183,7 +7184,8 @@ struct Index {
                               });
                               this.sessConfirmDelete = '';
                             })
-                        }.width('100%')
+                        }
+                        .width('100%').alignItems(VerticalAlign.Center)
                       }
                     }
                     .width('100%')
@@ -7275,7 +7277,9 @@ struct Index {
         })
       }.width('100%')
     }
-    .width('82%').height('100%')
+    // ⚠️ 88%（原 82%）：真机量测行内容仅 919px ⇒ 标题在"已标星 + 有相对时间 + ⋯"时被截断
+    //    （`harmony-ui-dev` → `harmony-ui…`）。侧栏是**主动航面**，Apple 在 iPhone 上也逼近全宽。
+    .width('88%').height('100%')
     .padding(SP_3)
     .backgroundColor(this.eff().glassBg)
     .backgroundBlurStyle(BlurStyle.Regular, { colorMode: this.glassMode() })

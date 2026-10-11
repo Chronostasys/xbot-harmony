@@ -1126,3 +1126,49 @@ composer 主按钮恒为 `runningNow() ? 停止 : 发送` ⇒ busy 时输入文�
   驱动一轮、量 `busy→idle` 的墙钟延迟）。
 - **流式中向上滚不回拉**：`core/listfollow` 的"只置位不清位"接线已在；但本轮**未能**用
   `dumpLayout` 观测视口（见 `ARKTS-GOTCHAS.md` 批次 41 ⑦）⇒ **判据待补**，不得据现有数据下结论。
+
+### 21.12 目标③（侧栏重设计 · 第一批）：会话行**单行化** + 星标入菜单 + 抽屉 82%→88%（2026-10-12）
+
+**用户原话**：「重设计排版，对标苹果，现在侧边栏丑的要死。不要一比一复刻 web 排版，你是原生你要
+超越 web。」本批先解决**最扎眼的一处**：会话行。工具：`dumpLayout` 逐元素量测（数值 > 看图）。
+
+**web 权威（只读）**：`web/src/components/session/SessionItem.tsx:1-8` 头注释原文 ——
+*"Single-line layout: `[status dot] + title + relative time`. No left decoration bar; active
+session uses background highlight."*；`:332-347 relativeTime` 给出五档文案
+（`刚刚 / N 分钟前 / N 小时前 / N 天前 / 本地日期`，文案真源 `i18n/zh-CN.ts:145-148`）；
+星标的**菜单**入口见其 context menu（`session.star / session.unstar`）。
+
+**改前（真机 `dumpLayout` 实测，density ≈3.39）**：行高 194px，**两行**排版；第二行恒为
+`Web` chip + 裸 `chat_026B326DE4C4` ⇒ ① 对用户零信息量；② 星标 + `⋯` 两个 44 盒吃 298px（32% 行宽）；
+③ **无相对时间**。
+
+**改后**：
+- `core/sessiongroup.ets` 新增纯函数 `relativeTimeLabel(lastActive, nowMs)` —— web `:332-347` **逐档等价**；
+  ⛔ **时钟注入**（不读 `Date.now()`）⇒ 可判据（web 靠真实时钟 ⇒ 不可测）；坏串/缺字段 ⇒ **空串**
+  （⛔ 不撒谎成"刚刚"）。调用点：`pages/Index.ets:relTimeOf`（页面只做 `Date.now()` 注入）。
+- 行体 = **单行** `[运行点] [★ 仅已标星] [标题(flex)] [相对时间] [⋯ 44]`；删掉渠道 chip 与裸 `chat_id`。
+- 星标：行内降为**非交互小标记**（`type.subhead`，Apple 旗标式，仅已标星才渲染）；交互入口迁到
+  `⋯` 菜单（`components/MenuSheets.ets:SessSheet` 新增「标星/取消标星」项 + 页面 `runSessAction('star')`
+  → **复用既有** `toggleStarChat`，⛔ 未新造存储）。
+- 抽屉 `.width('82%')` → `'88%'`（侧栏是主动航面；Apple 在 iPhone 上也逼近全宽）。
+
+**判据同步（两处形态锚，均**有意**更新、非放松）**：
+- `tools/tests/status_sheet_drawer.test.ts` 靶子4b：原为"第二行 `id≠标题` 才补 id 的去重条件" ⇒
+  第二行已删 ⇒ 升级为**更强的形态锚**：`hasNot('Text(s.chat_id)')` + `hasNot('Text(channelLabel(')`
+  （"结构不存在"，一个字符都不许渲染）+ 新增"相对时间真的接上了"（页面出口 → 纯函数 → 时钟注入）。
+- `tools/tests/star_contrast.test.ts` §0 第二锚：行内 `toggleStarChat(s.chat_id)` 已不存在 ⇒
+  改为**菜单派发的真实落点**（闸门 `code === 'star'` + 写入 `this.toggleStarChat(id)`）；
+  §1 的"星标 ternary 取色恰好 1 处 + 未收藏支 = `textSecondary`" 一字未动（小标记仍带该三元）。
+- 新增判据：`sessiongroup.test.ts` ⑧ 11 条 `relativeTimeLabel` 边界（1min/60min/24h/30d 四档边界、
+  坏串、未来时间）。
+
+**自证**：`sessiongroup` 110/0 · `sessiongroup_wiring` 49/0 · `star_contrast` **30/0** ·
+`status_sheet_drawer` 19/0 · `drawer_hotpath` 17/0 · `a11y_icon_button` 11/0 · `hit_target_gate` 10/0 ·
+`hit_spacing_gate` 10/0 · 全量 `✅ 纯逻辑测试通过` · `typecheck` 95 文件 ✅ ·
+`BUILD SUCCESSFUL in 9 s 313 ms` · 真机 A/B：标题由 `harmony-ui…`（截断）→ **完整显示**。
+⚠️ 过程事故（已按 AGENTS 处置）：第一版 `Text(this.relTimeOf(...))` 有 `maxLines(1)` 却**无
+`textOverflow`** ⇒ 真门禁 `text_truncation_gate` A 类判红（脱机三条抓不到，只有全量能抓）。
+
+**未做（明确记账）**：分段控件轨道里塞折叠键（控制类型混用）；「分类分段 + 渠道 chips」两条并列筛选条
+占 ~250px（IA 重复）；footer 文案技术化（`面板（任务 / 子代理 / Runner）`）；分组头 44vp 偏高。
+⇒ 下一批（B-2c）。

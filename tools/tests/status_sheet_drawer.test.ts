@@ -101,11 +101,20 @@ ok('组头字重走语义出口 typeOf(...).weight', semMatch !== null);
 ok('组头字重 ≥ medium（读得出"上一级"层次）', semWeight >= 500);
 hasNot(grpHead, 'FontWeight.Regular', '⛔ 组头不得回落 regular（层次会被拉平）');
 
-// ── 靶子4b：次级文字去重（id == 标题时不再重复打一遍 id）────────────────────────
-const rowLine2: string = between(indexSrc, 'Text(channelLabel(s.channel', "}.width('100%')");
-ok('会话行第二行可定位', rowLine2.length > 50);
-has(rowLine2, 'if (s.chat_id !== this.tabLabel(s.chat_id))',
-  '仅当 id ≠ 标题时才补 id（消 `web-4` / `Web web-4` 同串重复）');
+// ── 靶子4b：会话行**单行化**（对齐 web `SessionItem.tsx:1-8` "Single-line layout"）──────
+// 历史：此处原为"第二行 `id == 标题` 时不重复打一遍 id"的去重判据。2026-10-12 升级为**整行单行**：
+//   第二行（渠道 chip + 裸 `chat_id`）对用户零信息量，而 web 权威明确是单行
+//   （`[status dot] + title + relative time`，无左侧装饰条）⇒ 直接删除该行。
+// ⚠️ 判据随之**加强**：不再只断言"去重条件存在"，而是断言**结构不存在**（一个字符都不渲染）
+//    + 新能力（相对时间）**真的接上了**（页面单出口 → 纯函数）。这样"删掉第二行但忘了接时间"
+//    与"接了时间但第二行还在"两种半成品都必红。
+const relHelper: string = between(indexSrc, 'private relTimeOf(', '}');
+ok('相对时间出口可定位', relHelper.length > 20);
+has(relHelper, 'relativeTimeLabel(', '页面只做时钟注入 ⇒ 规则全在纯函数（判据与渲染同源）');
+has(relHelper, 'Date.now()', '时钟在**页面**注入（纯函数不读全局时钟 ⇒ 可测）');
+has(indexSrc, 'Text(this.relTimeOf(s.last_active))', '会话行渲染相对时间（唯一时间出口）');
+hasNot(indexSrc, 'Text(s.chat_id)', '⛔ 会话行不再渲染裸 chat_id（开发者噪音，web 权威无此项）');
+hasNot(indexSrc, 'Text(channelLabel(', '⛔ 会话行不再渲染渠道 chip（同上；渠道过滤条仍在）');
 
 console.log(`  status_sheet_drawer: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

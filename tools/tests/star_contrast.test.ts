@@ -63,7 +63,14 @@ const idx: string = stripSrc(idxRaw);
 // ════════════════════════════════════════════════════════════════════════════
 ok('§0 零扫描判红：pages/Index.ets 被读到（非空）', idx.length > 0, `len=${idx.length}`);
 ok('§0 零扫描判红：源码含星标内容锚 `isStarredChat(s.chat_id)`', idx.indexOf('isStarredChat(s.chat_id)') >= 0);
-ok('§0 零扫描判红：源码含 `toggleStarChat(s.chat_id)`（真实落点的第二锚）', idx.indexOf('toggleStarChat(s.chat_id)') >= 0);
+// ⚠️ anchor 2026-10-12 更新：行内星标改为**非交互小标记**（真机量测：44×44 热区吃掉 149px
+//    = 15% 行宽 ⇒ 当前会话标题被截成 `harmony-ui…`）⇒ 交互入口迁到 `⋯` 菜单
+//    （`components/MenuSheets.ets:SessSheet` 的「标星/取消标星」）。第二锚随之从行内
+//    `toggleStarChat(s.chat_id)` 改为**菜单派发的真实落点**：闸门 `code === 'star'` + 写入
+//    `this.toggleStarChat(id)`。两者缺一 ⇒ 标星**打不开**（用户可见回退）⇒ 判据仍具判别力。
+ok("§0 零扫描判红：源码含菜单闸门 `code === 'star'`（标星唯一交互入口）", idx.indexOf("code === 'star'") >= 0);
+ok('§0 零扫描判红：源码含 `this.toggleStarChat(id)`（菜单 → 状态机唯一写入点）',
+  idx.indexOf('this.toggleStarChat(id)') >= 0);
 ok("§0 零扫描判红：该行底锚存在 —— `surfaceFillOf(this.pal(), 'surface.overlayRowHover')`（= RUNG_ACTIVE = surfaceHi）",
   idx.indexOf("surfaceFillOf(this.pal(), 'surface.overlayRowHover')") >= 0);
 

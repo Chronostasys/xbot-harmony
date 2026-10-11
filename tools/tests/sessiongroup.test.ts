@@ -25,7 +25,7 @@ import {
   isSessionCategory, normalizeSessionCategory, needsCategoryMigration, collapseKey,
   sessionKey, sameSession, parseAgentChatID, isSubAgentSession,
   timeBucket, pathBucket, sessionGroupKey, sortSessions, groupSessions,
-  groupTitle, statusGroupKey, pathGroupTooltip, basename,
+  groupTitle, statusGroupKey, pathGroupTooltip, basename, relativeTimeLabel,
   allCollapseKeys, allGroupsCollapsed, applyGroupsCollapsed, collapseAllPlan,
 } from '../../entry/src/main/ets/core/sessiongroup';
 
@@ -309,6 +309,26 @@ eq('合成·剔除：空 keys ⇒ 状态不变',
   const afterExpand = applyGroupsCollapsed(afterCollapse, p1.keys, p1.target);
   eq('往返：再展开回到空', afterExpand, []);
   eq('往返：展开后 allCollapsed=false', collapseAllPlan('path', keys, afterExpand).allCollapsed, false);
+}
+
+// ⑧ 相对时间（web `SessionItem.tsx:332-347 relativeTime` 的逐条等价；时钟**注入** ⇒ 可测）
+{
+  const NOW: number = Date.parse('2026-10-12T12:00:00Z');
+  const at = (ms: number): string => new Date(NOW - ms).toISOString();
+  const MIN = 60000, HOUR = 60 * MIN, DAY = 24 * HOUR;
+  eq('相对时间：解析失败 ⇒ 空串（⛔ 不撒谎成"刚刚"）', relativeTimeLabel('', NOW), '');
+  eq('相对时间：坏串 ⇒ 空串', relativeTimeLabel('not-a-date', NOW), '');
+  eq('相对时间：30s ⇒ 刚刚', relativeTimeLabel(at(30000), NOW), '刚刚');
+  eq('相对时间：恰 60s ⇒ 1 分钟前（边界取 >=）', relativeTimeLabel(at(MIN), NOW), '1 分钟前');
+  eq('相对时间：59min ⇒ 59 分钟前', relativeTimeLabel(at(59 * MIN), NOW), '59 分钟前');
+  eq('相对时间：恰 60min ⇒ 1 小时前（分钟支上界）', relativeTimeLabel(at(60 * MIN), NOW), '1 小时前');
+  eq('相对时间：23h ⇒ 23 小时前', relativeTimeLabel(at(23 * HOUR), NOW), '23 小时前');
+  eq('相对时间：恰 24h ⇒ 1 天前（小时支上界）', relativeTimeLabel(at(24 * HOUR), NOW), '1 天前');
+  eq('相对时间：29d ⇒ 29 天前', relativeTimeLabel(at(29 * DAY), NOW), '29 天前');
+  eq('相对时间：恰 30d ⇒ 本地日期（天支上界，web 落 toLocaleDateString）',
+    relativeTimeLabel(at(30 * DAY), NOW), '2026/9/12');
+  eq('相对时间：未来时间（时钟漂移）⇒ 刚刚，⛔ 不吐负数',
+    relativeTimeLabel(new Date(NOW + 5 * MIN).toISOString(), NOW), '刚刚');
 }
 
 console.log(`sessiongroup: ${pass} passed, ${fail} failed`);
