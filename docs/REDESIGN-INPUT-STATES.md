@@ -130,7 +130,8 @@
 ### C4. 命中区 / 可点性
 
 `core/design.ets:575` 已有 `MIN_HIT`（44）概念，但失败卡按钮写 `minHeight:38`（`Index.ets:3005`）、
-重连横幅**不可点**、`EmptyNotice` 无操作。⇒ 状态面的**可点元素**需统一走 `MIN_HIT` + `responseRegion`。
+重连横幅**不可点**、`EmptyNotice` 无操作。⇒ 状态面的**可点元素**需统一走 `MIN_HIT`/`HIT_TARGET_MIN`（**真实 ≥44 布局盒承载 `onClick`**；
+⛔ **不用 `responseRegion` 外扩** —— 2026-10-11 真机实测其负偏移外扩**无效**）。
 
 ---
 

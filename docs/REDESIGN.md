@@ -237,7 +237,7 @@ space.md   = 16  space.lg = 20   space.xl = 24   space.xxl = 32
 
 | 维度 | 规范 | 判据（可验收） |
 |---|---|---|
-| **命中区** | `HIT_TARGET_MIN = 44` vp（Apple HIG）| 图标视觉可更小，用 `responseRegion` 外扩；实测 ≥44×44 |
+| **命中区** | `HIT_TARGET_MIN = 44` vp（Apple HIG）| 图标视觉可更小，**用"真实 ≥44 布局盒"承载 `onClick`**；⛔ **不用 `responseRegion` 外扩**（**真机实测负偏移外扩无效**，见 `docs/UI-AUDIT-CHECKLIST.md` §热区/AGENTS）|
 | **即时反馈** | 按压**同帧**变化（不等待动画） | `PRESS_OPACITY = 0.6`（全站唯一，取代散落的 0.75/0.7/0.6）|
 | **按压形态** | 文本行**只改透明度**；卡片/大按钮可 `PRESS_SCALE = 0.97` | 只缩卡片，⛔ 文本行不缩放（避免抖动）|
 | **长按** | `LONG_PRESS_MS = 400` | 复制/菜单 |
@@ -397,7 +397,7 @@ Apple label 家族），`accentSoft/accentText` 用**更饱和的实体色**（�
 
 - **无硬边框**（1px 描边在整条流里是唯一的"遗留 box"，实测像素证据见 `minimal_chrome.test.ts`）。
 - 底纹仅用于内容滚到底下时的可读性（Δ1 亮度）；`RADIUS_PILL`；按压 `PRESS_OPACITY`。
-- 命中区：视觉 32，`responseRegion` 外扩到 **44**（`HIT_TARGET_MIN`）。
+- 命中区：视觉 32，**用"真实 44 布局盒"包住**（`HIT_TARGET_MIN`）；⛔ **不用 `responseRegion` 外扩**（真机实测无效）。
 - `< 2` 个用户锚点 ⇒ 零渲染（判据 `core/msgindex.ets:shouldShowNav`）。
 
 ### 7.6 设置行 `SettingsRows`

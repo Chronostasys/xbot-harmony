@@ -66,8 +66,8 @@ MessageNav 现在是「右上角一枚 32px 悬浮按钮 + 一个 popup 列表�
 - **需要的新机制**：`onDidBuild`/下一帧回调，或 `List` 的 `onScrollIndex` 兜底。
 
 ### G. 触摸目标（本波已缓解）
-- 按钮视觉 32×32（`MessageNav.ets:37`），本波用 `responseRegion` 外扩到 44×44（`:306-313`），
-  **布局/视觉尺寸未变**。但"44"是**硬编码常量** `HIT_PAD`（`:42`），**无 token** —— 见 §2。
+- 按钮视觉 32×32（`MessageNav.ets:37`），本波用**真实 44 布局盒**包住（⛔ **不再用 `responseRegion` 外扩** —— 2026-10-11 真机实测其负偏移外扩**无效**），
+  **布局/视觉尺寸未变**。⚠️ 既有的 `HIT_PAD` 外扩常量口径**已废止**（判据须改钉"自身布局盒 ≥ `HIT_TARGET_MIN`"，见 `docs/UI-AUDIT-CHECKLIST.md` §热区）。
 
 ---
 
