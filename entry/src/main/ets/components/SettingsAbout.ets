@@ -64,6 +64,11 @@ export struct SettingsAbout {
   /** HTTP 客户端（由页面注入 `store.http`）。默认空实例只为满足 ArkTS 成员初始化。 */
   http: XbotHttp = new XbotHttp('');
   @Prop theme: string = 'dark';
+  /** 是否给错误态「重试」入口（真值由页面经 SettingsPanel 注入）。 */
+  @Prop canRetry: boolean = false;
+  /** 点「重试」时调用 —— 重发**本分区自己的**请求（⛔ 空实现 = 假重试）。 */
+  onRetry: () => void = () => {
+  };
 
   @State private info: SystemInfoRow | undefined = undefined;
   @State private check: UpdateCheckRow | undefined = undefined;
@@ -269,7 +274,7 @@ export struct SettingsAbout {
       })
 
       if (this.error.length > 0) {
-        SettingsErrorBar({ message: this.error, theme: this.theme })
+        SettingsErrorBar({ message: this.error, theme: this.theme, canRetry: this.canRetry, onRetry: this.onRetry })
       }
 
       if (this.loading) {

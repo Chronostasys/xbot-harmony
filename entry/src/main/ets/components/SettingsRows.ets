@@ -776,18 +776,43 @@ export struct SettingsRadioRow {
 export struct SettingsErrorBar {
   @Prop message: string = '';
   @Prop theme: string = 'dark';
+  /** 是否给「重试」入口（**由页面经 SettingsPanel 注入的真回调**驱动，⛔ 不是状态位）。 */
+  @Prop canRetry: boolean = false;
+  /** 点「重试」时调用（重发**该分区自己的**请求；⛔ 空实现 = 假重试）。 */
+  onRetry: () => void = () => {
+  };
 
   private pal(): Palette {
     return paletteOf(this.theme);
   }
 
   build() {
-    Text(this.message)
-      .fontSize(fs('type.caption'))
-      .fontWeight(fw('type.caption'))
-      .lineHeight(lh('type.caption'))
-      .fontColor(this.pal().dangerText)
-      .width('100%')
-      .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+    Column({ space: SPACE_HAIR }) {
+      Text(this.message)
+        .fontSize(fs('type.caption'))
+        .fontWeight(fw('type.caption'))
+        .lineHeight(lh('type.caption'))
+        .fontColor(this.pal().dangerText)
+        .width('100%')
+      // 重试入口（2026-10-11）：三态模板照 `PluginsSheet.ets:155-170`。
+      // ⛔ `canRetry` 为真才渲染；⛔ 只渲染不接线 = 假重试 ⇒ 判据 `settings_error_retry.test.ts`
+      //    另断"目标分区必须把 onRetry 透传进来"（回调由页面经 SettingsPanel 注入）。
+      if (this.canRetry) {
+        Row() {
+          Text('重试')
+            .fontSize(fs('type.caption'))
+            .fontWeight(fw('type.caption'))
+            .fontColor(colorOf(this.pal(), 'accentSoft'))
+        }
+        .width('100%')
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .onClick(() => {
+          this.onRetry();
+        })
+      }
+    }
+    .width('100%')
+    .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+    .alignItems(HorizontalAlign.Start)
   }
 }

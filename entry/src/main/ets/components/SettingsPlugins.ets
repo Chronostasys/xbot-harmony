@@ -386,6 +386,11 @@ struct PluginFieldRow {
 
 @Component
 export struct SettingsPlugins {
+  /** 是否给错误态「重试」入口（真值由页面经 SettingsPanel 注入）。 */
+  @Prop canRetry: boolean = false;
+  /** 点「重试」时调用 —— 重发**本分区自己的**请求（⛔ 空实现 = 假重试）。 */
+  onRetry: () => void = () => {
+  };
   /** HTTP 客户端（由页面注入 `store.http`）。 */
   http: XbotHttp = new XbotHttp('');
   @Prop theme: string = 'dark';
@@ -616,7 +621,7 @@ export struct SettingsPlugins {
       })
 
       if (this.error.length > 0) {
-        SettingsErrorBar({ message: this.error, theme: this.theme })
+        SettingsErrorBar({ message: this.error, theme: this.theme, canRetry: this.canRetry, onRetry: this.onRetry })
       }
       if (this.notice.length > 0) {
         Text(this.notice)

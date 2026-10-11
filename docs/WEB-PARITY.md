@@ -868,3 +868,14 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 - 守护：`tools/tests/settings_apply_path.test.ts`（断言设置键的读取不在 `aboutToAppear`/`onPageShow`
   等一次性钩子里；`KEY_SURFACE` 在白名单内并注明本理由）。
 - web 侧**无此键**（原生独有）⇒ 不涉及 parity 对齐。
+
+### 2.11 设置分区「错误态可重试」—— 只对齐 web 给了重试的 **3 个**分区
+
+- **web 权威取证**：`grep -rlnE "重试|Retry|retry|刷新" web/src/components/settings/*.tsx`
+  ⇒ 仅 **`SettingsAbout.tsx` / `SettingsAgent.tsx` / `SettingsPlugins.tsx`**（另 2 个命中是 `.test.tsx`）。
+- ⇒ 原生**只对这三对齐**：`components/SettingsAbout.ets` / `SettingsAgent.ets` / `SettingsPlugins.ets`
+  把 `canRetry` / `onRetry` 透传给共享的 `SettingsErrorBar`（`SettingsRows.ets`，新增两 prop + 「重试」入口）。
+- ⛔ **其余 5 个分区不报障**：`SettingsLlm` / `SettingsStorage` / `SettingsChannels` / `SettingsTools` /
+  `SettingsWebUsers` —— **web 亦无重试** ⇒ 给它们加 = **超出 parity 的臆造**（判据里有反向断言钉住）。
+- ⚠️ **`onRetry` 必须真的重发该分区自己的请求**（⛔ 空实现 = 假重试）。第三层（页面侧注入回调）
+  归主 agent；判据 `tools/tests/settings_error_retry.test.ts` 只钉"组件侧已接线"，不替代端到端。
