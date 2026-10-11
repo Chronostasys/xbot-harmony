@@ -85,8 +85,12 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   ['components/QueueSheet.ets', 1],    // 同上
   ['components/SettingsPanel.ets', 1], // 同上
   ['components/StatusSheet.ets', 1],   // 同上
-  ['components/TodoPanel.ets', 1],     // 菜单浮层 —— 同上
-  ['components/MessageNav.ets', 1],    // 导航浮层 —— 同上
+  ['components/TodoPanel.ets', 1],     // ⚠️ 属性动画 `.animation(animFast())`（`chevron_right` 的 `rotate 0→90`）
+                                       //   —— **必须留**（2026-10-11 动效审计逐处判）：它讲的是**展开/收起的
+                                       //   **方向状态变化**，删了箭头会"跳"；web `TodoPullOut.tsx` 同款有过渡。
+  ['components/MessageNav.ets', 1],    // ⚠️ 属性动画（`backgroundColor` + `opacity` 的 idle 40% ↔ 激活 100%）
+                                       //   —— **必须留**：状态变化（激活态），且**逐字对齐 web 的 `transition-all`**；
+                                       //   删 ⇒ 激活变硬切。两处都**不是**"为动而动"。（`bindPopup` 本体是系统绘制，改不到）
   ['components/Lightbox.ets', 1],      // 全屏浮层弹出 —— 同上
   ['components/Toast.ets', 1],         // ⚠️ **可删候选**（见报告：web 无对应动画）
   ['pages/Index.ets', 3],              // 页面级（归 main agent 协调）
