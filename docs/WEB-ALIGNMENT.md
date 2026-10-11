@@ -993,3 +993,36 @@ web 全仓（505 个 `src` 文件）`vibrat|haptic`（宽松 `-i`）**0 命中**
 
 ### 21.6 排队（未完成）
 a11y 扫描线（全仓图标-only 按钮统一 `accessibilityText`）· ④ 高冲突项 D/E/F（`NewSessionDialog` 残余 / `PathPicker` 自动补全 / `ThinkingModeControl` 入 composer，**均须动 `Index.ets`**）· `core/rpc.ets` 补 `get_session_subscription`（订阅行）· B6 系统 toast → 品牌 toast（`MarkdownView` 经 `MessageRow`/`LiveTailView` 透传）· 开屏真机连拍 · 通知真机复验（卡服务端未配 LLM）。
+
+### 21.8 批次 31–35 留痕（目标⑤ 视觉层次 + 判据自身健康）
+
+**⑤ E1 #1：L1 顶层弹层**根面通道统一（`5c3cb43`）—— `PluginsSheet` / `QueueSheet` / `SelfCheckSheet`
+的根面从**裸 `pal().appBg`** 换成 `surfaceFillOf(p,'surface.overlay')` + `shadowLayersOf(p,'overlay')`
+两层（照 `SyntheticCard`/`StatusSheet` 的两元素落法），做法 = 外层 `Stack` 承 far、内层承 near。
+⚠️ **本项深色族也会变**（面 `#0B0B0E→#0E0E14` 等；影从"完全没有"→ 该档 `glow` 彩色柔影）——
+编排者**明文批准**：本项是「**同层级一致性**」修复，本仓的"深色逐字节不变"是**浅色专属任务**的约束，
+不适用此项。逐值表（dark/aurora/nebula/light/porcelain × 旧→新）见交付报告。
+
+**⑤ G1 第三轮：`pages/Index.ets` 影站点收尾**（`24cba88`）—— 登录品牌瓦片（`:3621`）/ 登录 CTA（`:3728`）/
+发送钮（`:4428`）三处加**贴合层 near**（**加性**：原 far 表达式一字不改 ⇒ **深色逐字节不变**真值成立）。
+- ⛔ **编排者的签名提案被否**（对的做法）：我原提议 `shadowLayersOf(p, tier, offsetY?, offsetX?)`，
+  但 6 处里 **4 处**的 far **取色**与档派生不同（`raised`/`pill` 的 far 深色 = `glow` 而档派生 = `elev2/elev1`；
+  `panel`/`drawer` 的 far 深色 = `eff().elev3` 而档派生 = `glow`）⇒ 只给偏移参数会**改深色观感**。
+  ⇒ 改用 **near-only 加性**（far 留调用点）⇒ **`core/` 零改动**，也无需动任何守卫的语义。
+  附：`offsetX` **不需要**进 `ShadowLayer`（侧向偏移本就在**调用点**自己写）。
+- **判定不做**（已裁决）：`:3760` 登录玻璃卡 · `:6980` 抽屉 —— **玻璃材质族**与"浮起柔影"是**两个独立抓手**（§18）；
+  `:3636`（仅深色分支渲染 ⇒ near 恒不可见，**no-op**）。
+- **G1 收口结论**：全仓余下的**单层** `.shadow` 只剩 `ToolVisual`（★⑤ `EXPECT_SINGLE` 里**有意**单层：
+  发光通道 ≠ 柔影通道）与 `UserBubble`（消息气泡，**非"浮起的自由面"** ⇒ 域外）。
+
+**判据自身健康：`sessiongroup_wiring` 的"时间炸弹"**（`456eda0`，编排者本人）—— 该判据把
+`T0='2026-10-11T00:30+08:00'` **硬编码为"今天"**，而分桶口径是 `>= 今天 0 点 ⇒ today`
+（`core/sessiongroup.ets:259-276`）⇒ **每逢跨日 00:00 后必红**（2026-10-12 00:01 实测踩到）。
+修法：`isoLocal(Date)` + `new Date(Y,M,D,…)` **相对当前本地日期**算 T0/T1/T2，语义不变、与运行时刻无关。
+**穷举核对**：全仓"把绝对日期当今天"的**仅此一处**（`llmerror`/`notify`/`palette_accent_rule` 只把"今天"
+当散文/输入文本；`sessiongroup.test.ts` 本就用 `startOfToday` 相对计算）。
+⇒ **判据纪律追加一条**：**任何"今天/昨天/更早"的断言都必须相对 `Date.now()` 计算**，⛔ 不许硬编码日期。
+
+**⛔ 编排者本人的操作事故（记下来，别再犯）**：我曾在**一个 gate 还在跑时**把它的 worktree
+`git worktree remove` 掉再重建 ⇒ 那份日志里的红（含"ArkTS 编译失败"）**全是假红**（编译中途丢文件）。
+⇒ **纪律**：跑门禁必须**串行**、用**独立路径**；判定红/绿前先确认"这份日志没被别的操作打断"。
