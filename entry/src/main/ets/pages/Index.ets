@@ -104,6 +104,7 @@ import { QueueSheet } from '../components/QueueSheet';
 import { PluginsSheet } from '../components/PluginsSheet';
 import { SelfCheckSheet } from '../components/SelfCheckSheet';
 import { SessSheet, SearchHitsSheet, ContextSheet } from '../components/MenuSheets';
+import { AskUserSheet } from '../components/AskUserSheet';
 import { sheetTransition } from '../components/anim';
 import { rpc } from '../core/rpc';
 import { TodoPayloadRow, removeTodoAt, renameTodoAt, todoPayloadRows, toggleTodoAt } from '../core/todos';
@@ -2270,6 +2271,26 @@ struct Index {
     return false;
   }
 
+  /**
+   * 设置「其他（自己填）」的文本（P2-3：AskUserSheet 的 `setOther` 回调）。
+   *
+   * ⛔ **逐字搬**自原 `@Builder AskUserSheet()` 里 `TextInput.onChange` 的内联体（搬而不改）：
+   * 整体重建 `askSelections`（每个元素新建 `AskSelection`，`labels` 沿用原引用）——
+   * 这是「选中态切换靠整体替换触发重渲染」的既有约定，不能改写成就地改。
+   */
+  private setAskOther(qid: string, v: string): void {
+    const next: AskSelection[] = [];
+    for (let i = 0; i < this.askSelections.length; i++) {
+      const s: AskSelection = this.askSelections[i];
+      const copy: AskSelection = new AskSelection();
+      copy.qid = s.qid;
+      copy.labels = s.labels;
+      copy.other = s.qid === qid ? v : s.other;
+      next.push(copy);
+    }
+    this.askSelections = next;
+  }
+
   private async submitAsk(cancelled: boolean): Promise<void> {
     const store: ChatStore | null = this.store;
     if (store === null || this.askBusy) {
@@ -2511,9 +2532,23 @@ struct Index {
           })
         }.width('100%').height('100%')
       }
-      // AskUser（服务端权威：有 pending 就弹）
+      // AskUser（服务端权威：有 pending 就弹；P2-3 抽出：components/AskUserSheet.ets）
       if (this.askUser !== null) {
-        this.AskUserSheet()
+        AskUserSheet({
+          theme: this.themeName,
+          questions: this.askUser !== null && this.askUser.questions !== undefined ? this.askUser.questions : [],
+          busy: this.askBusy,
+          isSelected: (qid: string, label: string) => this.isAskSelected(qid, label),
+          onToggleOption: (qid: string, label: string, multi: boolean) => {
+            this.toggleAskOption(qid, label, multi);
+          },
+          setOther: (qid: string, v: string) => {
+            this.setAskOther(qid, v);
+          },
+          onSubmit: (cancelled: boolean) => {
+            this.submitAsk(cancelled);
+          },
+        })
       }
       // 渲染自检（逐构件隔离排查用）
       if (this.showSelfCheck) {
@@ -5847,78 +5882,6 @@ struct Index {
   /** 该模型是否可选（禁用的不给点）。 */
   private modelSelectable(e: LlmModelEntry): boolean {
     return selectable(e);
-  }
-
-  @Builder
-  AskUserSheet() {
-    Column({ space: 10 }) {
-      Text('xbot 需要你确认').fontSize(15).fontWeight(FontWeight.Bold).fontColor(this.pal().warn).width('100%')
-      List() {
-        ForEach(this.askUser !== null && this.askUser.questions !== undefined ? this.askUser.questions : [],
-          (q: AskQuestion, qi: number) => {
-            ListItem() {
-              Column({ space: 6 }) {
-                if (q.header !== undefined && q.header.length > 0) {
-                  Text(q.header).fontSize(12).fontColor(this.pal().textSecondary).width('100%')
-                }
-                Text(q.question !== undefined ? q.question : '').fontSize(14).fontColor(this.pal().textPrimary).width('100%')
-
-                ForEach(q.options !== undefined ? q.options : [], (opt: AskOption, oi: number) => {
-                  Row() {
-                    Text(this.isAskSelected(q.id !== undefined ? q.id : `q${qi}`,
-                      opt.label !== undefined ? opt.label : '') ? '已选' : '未选')
-                      .fontSize(14).fontColor(this.pal().accentText)
-                    Column() {
-                      Text(opt.label !== undefined ? opt.label : '').fontSize(13).fontColor(this.pal().textPrimary)
-                      if (opt.description !== undefined && opt.description.length > 0) {
-                        Text(opt.description).fontSize(11).fontColor(this.pal().textMuted)
-                      }
-                    }.layoutWeight(1).alignItems(HorizontalAlign.Start).margin({ left: 6 })
-                  }
-                  .width('100%').padding(8).backgroundColor(this.pal().surface)
-                  .borderRadius(6)
-                  .onClick(() => {
-                    this.toggleAskOption(q.id !== undefined ? q.id : `q${qi}`,
-                      opt.label !== undefined ? opt.label : '',
-                      q.multi_select === true);
-                  })
-                }, (opt: AskOption, oi: number) => `o-${qi}-${oi}`)
-
-                if (q.allow_other === true) {
-                  TextInput({ placeholder: '其他（自己填）' })
-                    .onChange((v: string) => {
-                      const next: AskSelection[] = [];
-                      for (let i = 0; i < this.askSelections.length; i++) {
-                        const s: AskSelection = this.askSelections[i];
-                        const copy: AskSelection = new AskSelection();
-                        copy.qid = s.qid;
-                        copy.labels = s.labels;
-                        copy.other = s.qid === (q.id !== undefined ? q.id : `q${qi}`) ? v : s.other;
-                        next.push(copy);
-                      }
-                      this.askSelections = next;
-                    })
-                    .constraintSize({ minHeight: 38 }).backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary)
-                }
-              }.width('100%').padding(8)
-            }
-          }, (q: AskQuestion, qi: number) => q.id !== undefined ? q.id : `q${qi}`)
-      }
-      .constraintSize({ maxHeight: 420 }).width('100%')
-
-      Row({ space: 8 }) {
-        Button('取消').layoutWeight(1).constraintSize({ minHeight: 42 }).backgroundColor(this.pal().surfaceHi).onClick(() => {
-          this.submitAsk(true);
-        })
-        Button(this.askBusy ? '提交中…' : '提交').layoutWeight(1).constraintSize({ minHeight: 42 })
-          .backgroundColor(this.pal().accent).fontColor(this.pal().onAccent)
-          .onClick(() => {
-            this.submitAsk(false);
-          })
-      }.width('100%')
-    }
-    .width('94%').padding(16).backgroundColor(this.pal().surfaceAlt)
-    .borderRadius(12).border({ width: 1, color: this.pal().warn })
   }
 
   // ── 弹层：图片查看 ────────────────────────────────────────────────────────
