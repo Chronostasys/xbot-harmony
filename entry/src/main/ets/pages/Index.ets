@@ -53,6 +53,7 @@ import {
 import { mdCacheStats, MdCacheStats } from '../core/markdown';
 import { blocksSignature, completedBlocks, displayContent, displayReasoning, rowHasInFlightSignal, rowIsEmpty, streamStatsText } from '../core/streammerge';
 import { canRewindWhile } from '../core/ctxmenu';
+import { rowById } from '../core/rowquery';
 import {
   activeChannelLabel, ALL_CHANNEL_ORDER, availableChannels, channelFilterMatches,
   channelLabel, hiddenRowCount, sessionInChannel, visibleRows, MAX_ROWS_VISIBLE,
@@ -430,9 +431,11 @@ struct Index {
    * 保存 row.id / 该 user 行的 turnID / **原始**正文（用于在新鲜历史里定位 DB id，
    * 用户编辑后的新正文由 `draft` 承载）。
    */
+  /**
+   * rewind 编辑目标 = **只存行 id**（`core/rowquery.rowById` 用时查 `turnID`/`content`）。
+   * ⛔ 曾另有 `rewindEditTurnID` + `rewindEditOriginal` —— 同一行**三个来源**、三处须同步（脆）⇒ 收敛掉。
+   */
   @State rewindEditRowId: string = '';
-  @State rewindEditTurnID: number = 0;
-  @State rewindEditOriginal: string = '';
 
   // ── 弹层 ──────────────────────────────────────────────────────────────────
   @State showDrawer: boolean = false;
@@ -5504,8 +5507,6 @@ struct Index {
       return;
     }
     this.rewindEditRowId = row.id;
-    this.rewindEditTurnID = row.turnID;
-    this.rewindEditOriginal = row.content;
     this.draft = row.content;
     this.anim(() => {
       this.ctxOpen = false;
@@ -5517,8 +5518,6 @@ struct Index {
   /** 退出 rewind 编辑态（取消）。 */
   private cancelRewindEdit(): void {
     this.rewindEditRowId = '';
-    this.rewindEditTurnID = 0;
-    this.rewindEditOriginal = '';
     this.draft = '';
   }
 
@@ -5531,10 +5530,14 @@ struct Index {
     if (store === null) {
       return;
     }
-    const target: RewindTarget = new RewindTarget(this.rewindEditTurnID, this.rewindEditOriginal);
+    // 目标行**用时查得**（单一来源：只存行 id）。行已不在（会话切换/行被替换）⇒ 放弃本次提交。
+    const row: ChatRow | undefined = rowById(this.rows, this.rewindEditRowId);
+    if (row === undefined) {
+      this.cancelRewindEdit();
+      return;
+    }
+    const target: RewindTarget = new RewindTarget(row.turnID, row.content);
     this.rewindEditRowId = '';
-    this.rewindEditTurnID = 0;
-    this.rewindEditOriginal = '';
     this.draft = '';
     try {
       const done: boolean = await store.rewindToMessage(target, text);
