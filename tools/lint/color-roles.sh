@@ -53,6 +53,55 @@ if [ "$n_colors" -lt 10 ]; then
   exit 2
 fi
 
+# ── 1.5) **剥注释镜像**（本仓明文：「注释里记录色值/role 是允许且鼓励的」）──────────
+#  实测踩过：`Fallback.ets` 头注里写了 `typeOf('type.*')` 这种**说明形状** ⇒ 旧版把注释当代码判红，
+#  迫使作者改注释（白费一轮）。⇒ 先把"注释→等长空白"做镜像（**保留换行** ⇒ 行号不漂移）再扫；
+#  ⛔ 字符串里的 `//`（如 `'xbot://a'`）不剥 —— 用状态机而非"字符后是否有冒号"的启发式。
+mkdir -p "$TMP/src"
+python3 - "$ROOT" "$TMP/src" $SCAN_DIRS <<'PYSTRIP'
+import os, sys
+root, out = sys.argv[1], sys.argv[2]
+def strip(src):
+    res = []; i = 0; n = len(src); st = 0; q = ''
+    while i < n:
+        c = src[i]; c2 = src[i + 1] if i + 1 < n else ''
+        if st == 0:
+            if c == '"' or c == "'" or c == chr(96):
+                st = 3; q = c; res.append(c); i += 1; continue
+            if c == '/' and c2 == '/':
+                st = 1; res.append('  '); i += 2; continue
+            if c == '/' and c2 == '*':
+                st = 2; res.append('  '); i += 2; continue
+            res.append(c); i += 1; continue
+        if st == 1:
+            if c == chr(10): st = 0; res.append(c)
+            else: res.append(' ')
+            i += 1; continue
+        if st == 2:
+            if c == '*' and c2 == '/': st = 0; res.append('  '); i += 2; continue
+            res.append(c if c == chr(10) else ' '); i += 1; continue
+        if c == chr(92):
+            res.append(c)
+            if c2: res.append(c2)
+            i += 2; continue
+        if c == q: st = 0
+        res.append(c); i += 1
+    return ''.join(res)
+for d in sys.argv[3:]:
+    for dp, _dn, fns in os.walk(d):
+        for fn in fns:
+            if not fn.endswith(('.ets', '.ts')): continue
+            p = os.path.join(dp, fn)
+            dst = os.path.join(out, os.path.relpath(p, root))
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            src = open(p, encoding='utf-8').read()
+            open(dst, 'w', encoding='utf-8').write(strip(src))
+PYSTRIP
+MIRROR_DIRS=""
+for d in $SCAN_DIRS; do MIRROR_DIRS="$MIRROR_DIRS $TMP/src/${d#$ROOT/}"; done
+SCAN_DIRS="$MIRROR_DIRS"
+SHOW_PREFIX="$TMP/src/"
+
 # ── 2) 扫描调用点，挑出非法字面量 ─────────────────────────────────────────
 scan() { # $1=函数名  $2=合法集合文件  $3=角色类别名
   local fn="$1" set="$2" kind="$3" hit frag lit line f bad=0 hits=0
@@ -66,7 +115,7 @@ scan() { # $1=函数名  $2=合法集合文件  $3=角色类别名
     [ -n "$lit" ] || continue
     hits=$((hits + 1))
     if ! grep -Fxq -- "$lit" "$set"; then
-      printf '  ❌ %s:%s  %s(%s) —— 非法 %s role\n' "${f#$ROOT/}" "$line" "$fn" "'$lit'" "$kind"
+      printf '  ❌ %s:%s  %s(%s) —— 非法 %s role\n' "${f#$SHOW_PREFIX}" "$line" "$fn" "'$lit'" "$kind"
       bad=$((bad + 1))
     fi
   done < <(grep -rnoE --include='*.ets' --include='*.ts' "${fn}\([^)(']*'[^']*'" $SCAN_DIRS 2>/dev/null)
