@@ -753,6 +753,9 @@ struct Index {
       this.serverUrl = saved.serverUrl;
     }
     this.username = saved.username;
+    // 渠道过滤：读回持久化值（`config.init` 已用 `normalizeActiveChannel` 归一化，回落单点）
+    // ⇒ 用户上次选的渠道**重启后还在**（对齐 web `useSessionStore` 的 `xbot:active-channel`）。
+    this.activeChannel = saved.activeChannel;
     this.recentServers = this.config.recentServers();
     if (saved.serverUrl.length > 0 && saved.sessionCookie.length > 0) {
       this.cookie = saved.sessionCookie;
@@ -5431,6 +5434,9 @@ struct Index {
           .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.activeChannel = '';
+            // 切换成功后落盘（对齐 web localStorage；失败不影响本次过滤）
+            this.config.saveActiveChannel('').catch(() => {
+            });
           })
         ForEach(availableChannels(this.sessions), (ch: string) => {
           Text(activeChannelLabel(ch))
@@ -5442,6 +5448,9 @@ struct Index {
             .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
             .onClick(() => {
               this.activeChannel = ch;
+              // 切换成功后落盘（对齐 web localStorage；失败不影响本次过滤）
+              this.config.saveActiveChannel(ch).catch(() => {
+              });
             })
         }, (ch: string) => `chfilter-${ch}`)
       }
