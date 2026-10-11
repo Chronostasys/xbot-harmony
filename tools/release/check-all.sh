@@ -19,11 +19,14 @@ if [ -n "${HOME:-}" ] && [ -f "${HOME}/ohos-cli/env.sh" ]; then
   source "${HOME}/ohos-cli/env.sh" >/dev/null 2>&1 || true
 fi
 
-RESULTS="${ROOT}/.release-check.$$.txt"
-BLOCKERS="${ROOT}/.release-blockers.$$.txt"
-NOTES="${ROOT}/.release-notes.$$.txt"
+# ⛔ 临时产物一律放**仓库之外**（mktemp -d）：`trap` 只在正常退出/可捕获信号时跑，
+#    被 SIGKILL/休眠就留垃圾 ⇒ 若写在仓库根目录会污染"工作区干净"判据（也曾被 git add -A 误收）。
+OUT="$(mktemp -d "${TMPDIR:-/tmp}/xbot-release.XXXXXX")"
+trap 'rm -rf "${OUT}"' EXIT INT TERM HUP
+RESULTS="${OUT}/check.txt"
+BLOCKERS="${OUT}/blockers.txt"
+NOTES="${OUT}/notes.txt"
 : > "${RESULTS}"; : > "${BLOCKERS}"; : > "${NOTES}"
-trap 'rm -f "${RESULTS}" "${BLOCKERS}" "${NOTES}"' EXIT
 
 # record <名称> <ok|fail> <说明> <归属线索>
 record() {
