@@ -52,6 +52,16 @@ import {
 import { paletteOf, ALL_THEMES, contrastRatio, THEME_DARK, THEME_LIGHT, THEME_PORCELAIN } from '../../entry/src/main/ets/core/theme';
 import { designIssues, contrastAudit, contrastFailures, nestingPairsDistinct, ladderDirectionOk, themeOk, colorOf, knownContrastLedger, AA_TEXT, AA_NON_TEXT, AA_MUTED, PRESS_OPACITY, PRESS_SCALE, HIT_TARGET_MIN, LONG_PRESS_MS } from '../../entry/src/main/ets/core/design';
 
+/**
+ * **剥注释**（本仓约定：注释里记代码片段/色值是**允许且鼓励**的 ⇒ 判据扫源码前**必须**先剥，
+ * 否则两个方向都错：禁串被注释提及 ⇒ **假红**；要求串只在注释里出现 ⇒ **假绿**）。
+ * ⚠️ 保留换行（不压行）⇒ 行号不漂移（本仓已入库 GOTCHA）。
+ */
+function stripSrc(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, (m: string) => m.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (m: string, p: string) => p + ' '.repeat(m.length - p.length));
+}
+
 let pass = 0;
 let fail = 0;
 function eq(name: string, got: unknown, want: unknown): void {
@@ -224,7 +234,7 @@ const fsMod = require('fs');
 const pathMod = require('path');
 const repoRoot = pathMod.join(__dirname, '..', '..', '..', '..');
 const etsDir = pathMod.join(repoRoot, 'entry', 'src', 'main', 'ets');
-const designSrc: string = fsMod.readFileSync(pathMod.join(etsDir, 'core', 'design.ets'), 'utf-8');
+const designSrc: string = stripSrc(fsMod.readFileSync(pathMod.join(etsDir, 'core', 'design.ets'), 'utf-8'));
 hasNot(designSrc, '#FFF', 'design.ets 无 #FFF 字面量');
 // 用正则式（避免把本条断言自身的字面量算进去）
 ok('design.ets 无 #RRGGBB 字面量', !/#[0-9a-fA-F]{6}\b/.test(designSrc));
@@ -250,7 +260,7 @@ function countMatches(dir: string, re: RegExp): number {
       if (st === null) { continue; }
       if (st.isDirectory()) { walk(full); continue; }
       if (full.slice(full.length - 4) !== '.ets') { continue; }
-      const src: string = fsMod.readFileSync(full, 'utf-8');
+      const src: string = stripSrc(fsMod.readFileSync(full, 'utf-8'));
       const m = src.match(re);
       if (m) { n += m.length; }
     }
@@ -324,6 +334,17 @@ for (const t of ALL_THEMES) {
   const p = paletteOf(t);
   ok(`[${t}] colorOf(p,'warn') 解析出非 transparent`, colorOf(p, 'warn') !== p.transparent);
   ok(`[${t}] colorOf(p,'orbRingStroke') 解析出非 transparent`, colorOf(p, 'orbRingStroke') !== p.transparent);
+}
+
+
+// ── 剥注释的**判别力自证**（防"剥注释把扫描也剥没了"这类白绿）──────────────────────
+{
+  ok('判别力：**注释里**的禁串被剥掉（不误红）',
+    stripSrc('// .fontColor([this.pal().textMuted])').indexOf('.fontColor(') < 0);
+  ok('判别力：**代码里**的同一串仍在（不误绿）',
+    stripSrc('const a = 1; .fontColor([this.pal().textMuted])').indexOf('.fontColor(') >= 0);
+  ok('判别力：剥注释**保留换行**（行号不漂移）',
+    stripSrc('a\n// x\nb').split('\n').length === 3);
 }
 
 if (fail > 0) { console.log(`  design: ${pass} passed, ${fail} failed`); process.exit(1); }

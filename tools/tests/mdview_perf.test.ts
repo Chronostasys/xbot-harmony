@@ -24,6 +24,16 @@ import { paletteOf, contrastRatio, isLightPalette } from '../../entry/src/main/e
 import { wellOf } from '../../entry/src/main/ets/core/design';
 import { highlightCode } from '../../entry/src/main/ets/core/highlight';
 
+/**
+ * **剥注释**（本仓约定：注释里记代码片段/色值是**允许且鼓励**的 ⇒ 判据扫源码前**必须**先剥，
+ * 否则两个方向都错：禁串被注释提及 ⇒ **假红**；要求串只在注释里出现 ⇒ **假绿**）。
+ * ⚠️ 保留换行（不压行）⇒ 行号不漂移（本仓已入库 GOTCHA）。
+ */
+function stripSrc(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, (m: string) => m.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (m: string, p: string) => p + ' '.repeat(m.length - p.length));
+}
+
 let pass = 0;
 let fail = 0;
 function ok(name: string, cond: boolean): void {
@@ -39,8 +49,8 @@ function hasNot(src: string, needle: string, name: string): void { ok(name, src.
 const fsMod = require('fs');
 const pathMod = require('path');
 const repoRoot = pathMod.join(__dirname, '..', '..', '..', '..');
-const mdSrc: string = fsMod.readFileSync(
-  pathMod.join(repoRoot, 'entry', 'src', 'main', 'ets', 'components', 'MarkdownView.ets'), 'utf-8');
+const mdSrc: string = stripSrc(fsMod.readFileSync(
+  pathMod.join(repoRoot, 'entry', 'src', 'main', 'ets', 'components', 'MarkdownView.ets'), 'utf-8'));
 
 // ══════════════════════════════════════════════════════════════════════════════
 // P0#1 链接可点击
@@ -198,6 +208,17 @@ ok('键随 baseColor 变化', mdInlineKey('t', pal, 'vscode-dark', '') !== mdInl
 // 组件形态：确实接了这个记忆化
 has(mdSrc, 'mdInlineMemo.getOrCompute(', 'inlineStyles 走记忆化容器');
 has(mdSrc, 'mdInlineKey(text, pal, mdTheme, bc)', '记忆化键由 core/mdview 产出');
+
+
+// ── 剥注释的**判别力自证**（防"剥注释把扫描也剥没了"这类白绿）──────────────────────
+{
+  ok('判别力：**注释里**的禁串被剥掉（不误红）',
+    stripSrc('// .fontColor([this.pal().textMuted])').indexOf('.fontColor(') < 0);
+  ok('判别力：**代码里**的同一串仍在（不误绿）',
+    stripSrc('const a = 1; .fontColor([this.pal().textMuted])').indexOf('.fontColor(') >= 0);
+  ok('判别力：剥注释**保留换行**（行号不漂移）',
+    stripSrc('a\n// x\nb').split('\n').length === 3);
+}
 
 if (fail > 0) {
   console.log(`  mdview_perf: ${pass} passed, ${fail} failed`);
