@@ -3,9 +3,27 @@ import {
   PluginCatalogGroup,
   PluginCatalogItem,
   PluginViewItem,
-  PLUGIN_OPEN_DIRECT,
   normalizePluginIcon,
 } from '../core/pluginhost';
+import {
+  PluginBadge,
+  pluginCatalogEmptyNotice,
+  pluginCatalogFootnote,
+  pluginCatalogHint,
+  pluginCatalogSummaryText,
+  pluginViewBadge,
+  pluginStateBadge,
+  pluginViewCountText,
+} from '../core/pluginview';
+import {
+  colorOf, hairlineOf, surfaceFillOf,
+  GAP_ROW_Y, GAP_SECTION, GUTTER_SCREEN, HIT_TARGET_MIN, INSET_CARD_X, INSET_CARD_Y,
+  INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X, INSET_ROW_Y, PRESS_OPACITY, RADIUS_CARD, RADIUS_CHIP,
+  RADIUS_PILL, SPACE_HAIR, SPACE_LG, SPACE_XS, STROKE_HAIRLINE,
+} from '../core/design';
+import { fs, fw, lh, SettingsGroupHeader, tc } from './SettingsRows';
+import { WIDGET_EVENT_WEB } from '../core/widgetsview';
+import { PluginWidgets } from './PluginWidgets';
 import { WebSurface } from './WebSurface';
 
 /**
@@ -22,25 +40,26 @@ import { WebSurface } from './WebSurface';
  * （证据见 `core/pluginhost.ets` 文件头）⇒ 只有 web 应用本体（权威宿主页）能跑它们。
  * 原生能且**只该**做的是"目录 + 承载"：目录信息完全来自 `web_plugin_list` 的元数据。
  *
- * ── 注入契约（下一波在 `pages/Index.ets` 里接）────────────────────────────────
- * ```ts
- * const catalog = await store.loadPluginCatalog(this.locale);
- * PluginHost({
- *   items: catalog.items,          // 插件条目（名称/描述/版本/视图数/可打开 URL）
- *   groups: catalog.groups,        // 按容器（侧栏/信息栏/状态栏…）聚合的视图
- *   theme: this.themeName,
- *   panelUrl: this.panelUrl,       // 空 ⇒ 只显示目录；非空 ⇒ 承载宿主页
- *   onOpen: (url: string) => { this.panelUrl = url; },
- *   onClose: () => { this.panelUrl = ''; },
- * })
- * ```
+ * ── 视觉重排（2026-10-11，`docs/REDESIGN.md`：层级/密度/发丝/命中区）───────────
+ *   · 与 `components/SettingsPanel.ets` / `SettingsRows.ets` **同一套语言**：直接复用其
+ *     `fs/fw/lh/tc`（排版角色 → ArkUI 属性）与 `SettingsGroupHeader`（`type.caption` + 发丝）；
+ *   · 层级靠**字号/字重/灰阶/留白**（名字 `type.subhead`、说明 `type.callout`、元信息
+ *     `type.caption`/`type.micro`），不再靠"到处描边 + 圆角 10 + 内距 12 手写"；
+ *   · 卡片面 = `surfaceFillOf('surface.card')` + **结构性发丝** `hairlineOf` + `RADIUS_CARD`；
+ *     徽标 = `surface.chip`（内嵌凹槽）+ `RADIUS_CHIP`；
+ *   · 行命中区 ≥ `HIT_TARGET_MIN`（44）；按压走全站唯一 `PRESS_OPACITY`；
+ *   · 颜色**一律**经 `colorOf`（禁 `pal().xxx` 直取、禁 hex ⇒ 门禁 ⑥c）。
+ *
+ * ── 判据与渲染同源 ───────────────────────────────────────────────────────────
+ * "state 徽标该不该显示 / dynamic 该不该标「按需」/ 计数与空态文案"全部在
+ * `core/pluginview.ets`（纯逻辑，可脱机单测）；本组件**只画**（`docs/REDESIGN.md §11`）。
  *
  * ⚠️ 组件成员契约（ArkUI 硬约束）：
  *   · 会变的内容一律 `@Prop`（`items`/`groups`/`theme`/`panelUrl`）—— 父组件赋新数组即重建列表；
  *   · **回调用普通成员**（`onOpen`/`onClose`）：ArkTS 的 `@Prop/@State` 承载函数类型不可靠
- *     （装饰器做值拷贝/观测，函数不是可观测数据），与 `WebSurface.ets:94-98` 的处理一致；
- *   · 行渲染**内联在 `ForEach` 闭包里**，不用带参 `@Builder`（`@Builder` 参数是"调用那刻的快照"
- *     ⇒ 会卡在首帧，见 `docs/ARKTS-GOTCHAS.md`）。
+ *     （装饰器做值拷贝/观测，函数不是可观测数据），与 `WebSurface.ets:99` 的处理一致；
+ *   · 行/卡是**真 `@Component` + `@Prop`**（`PluginCardRow`/`PluginViewRow`/`PluginBadgeChip`），
+ *     ⛔ 不用带参 `@Builder`（参数是"调用那刻的快照" ⇒ 列表卡在首帧，见 `docs/ARKTS-GOTCHAS.md`）。
  */
 @Component
 export struct PluginHost {
@@ -51,6 +70,18 @@ export struct PluginHost {
   @Prop theme: string = 'dark';
   /** 要承载的宿主页 URL（空 ⇒ 只显示目录）。 */
   @Prop panelUrl: string = '';
+  /**
+   * 本会话的插件 widget 载荷（`web_widgets` / `plugin_widgets` 的原始 JSON；空 = 未收到）。
+   *
+   * 为什么由**本组件**承载：`PluginWidgets`（插件 widget 渲染层）此前是**孤儿组件**
+   * （`tools/lint/orphan-components.sh` 的唯一命中）⇒ 它不进 ArkTS 依赖图、其 ArkTS 错误
+   * **编译期不报**（`docs/ARKTS-GOTCHAS.md` 批次13 的"假绿"）。本组件是"插件面"的**唯一注入点**，
+   * 由它真实实例化 `PluginWidgets` ⇒ 该组件恢复**真编译覆盖**（与 `SettingsPanel` 消设置面板孤儿同理）。
+   * ⚠️ 载荷来源（store 的 SSE 捕获）见交付的接线补丁；未接线时**恒为空** ⇒ 本段**零节点**（不产空壳）。
+   */
+  @Prop widgetContent: string = '';
+  /** widget 事件名（`web_widgets` / `plugin_widgets`）。 */
+  @Prop widgetEvent: string = WIDGET_EVENT_WEB;
 
   /** 点"打开"：把目标 URL 交给上层（上层写进 `panelUrl` 或自行导航）。 */
   onOpen: (url: string) => void = () => {
@@ -58,48 +89,6 @@ export struct PluginHost {
   /** 关闭宿主页（WebSurface 的"‹ 返回"）。 */
   onClose: () => void = () => {
   };
-
-  private pal(): Palette {
-    return paletteOf(this.theme);
-  }
-
-  /**
-   * 插件图标名 → HarmonyOS 符号。
-   *
-   * 名字来源：`view.icon` 声明的 **lucide 名**（web `plugin-runtime/pluginIcons.ts:30-56` 的
-   * `ICON_MAP`）—— 先归一化（`normalizePluginIcon`：trim+小写，与 web `:63` 同规则），
-   * 再查本表。HarmonyOS `sys.symbol.*` 与 lucide **不是一一对应**，故只覆盖语义接近的，
-   * 其余一律回落通用方块（`square_grid_2x2`，对应 web 的 `Puzzle` 降级）。
-   * 符号名必须是**字面量**（ArkTS 不允许 `$r('sys.symbol.' + x)` 拼装）。
-   *
-   * 覆盖 vs web `ICON_MAP` 19 键：已映射 14 键；`search`/`info`/`blocks`/`boxes`/`puzzle`
-   * 无**已验证**的 `sys.symbol` 名可用（不猜名 —— 猜错会渲染空白）⇒ 回落通用方块。
-   */
-  private symbolFor(icon: string): Resource {
-    const k: string = normalizePluginIcon(icon);
-    if (k === 'server' || k === 'server-cog') {
-      return $r('sys.symbol.rectangle_on_rectangle');
-    }
-    if (k === 'git-branch' || k === 'git' || k === 'git-commit-horizontal') {
-      return $r('sys.symbol.circle_dashed');
-    }
-    if (k === 'chart' || k === 'activity' || k === 'sparkline') {
-      return $r('sys.symbol.line_3_horizontal');
-    }
-    if (k === 'tasks' || k === 'files' || k === 'code' || k === 'terminal') {
-      return $r('sys.symbol.doc_text');
-    }
-    if (k === 'message') {
-      return $r('sys.symbol.list_bullet');
-    }
-    if (k === 'sparkles') {
-      return $r('sys.symbol.lightbulb');
-    }
-    if (k === 'wrench') {
-      return $r('sys.symbol.gearshape');
-    }
-    return $r('sys.symbol.square_grid_2x2');
-  }
 
   build() {
     Column() {
@@ -113,124 +102,365 @@ export struct PluginHost {
           },
         })
       } else {
-        // ── 原生目录（数据全部来自 web_plugin_list 元数据，零猜测）──────────────
+        // ── 原生目录（数据全部来自 web_plugin_list 元数据，零猜测）────────────────
         Scroll() {
-          Column({ space: 10 }) {
+          Column({ space: GAP_SECTION }) {
+            // 概览行：层级标题 + 中性提示
             Row() {
-              Text(`插件目录（${this.items.length}）`)
-                .fontSize(14)
-                .fontColor(this.pal().textPrimary)
+              Text(pluginCatalogSummaryText(this.items.length))
+                .fontSize(fs('type.subhead'))
+                .fontWeight(fw('type.subhead'))
+                .lineHeight(lh('type.subhead'))
+                .fontColor(tc(this.pal(), 'type.subhead'))
                 .layoutWeight(1)
-              Text('在宿主页里运行').fontSize(11).fontColor(this.pal().textMuted)
+              Text(pluginCatalogHint())
+                .fontSize(fs('type.caption'))
+                .fontWeight(fw('type.caption'))
+                .lineHeight(lh('type.caption'))
+                .fontColor(colorOf(this.pal(), 'textMuted'))
             }
             .width('100%')
-            .padding({ left: 12, right: 12, top: 10, bottom: 4 })
+            .alignItems(VerticalAlign.Center)
 
+            // 空态：一行小字（无填充/无边框/无发光，同 `docs/DESIGN-SYSTEM.md §10` 语言）
             if (this.items.length === 0) {
-              Text('没有声明前端产物的插件（服务端未启用插件系统，或插件都没有 web.entry）')
-                .fontSize(12)
-                .fontColor(this.pal().textMuted)
-                .padding(12)
+              Text(pluginCatalogEmptyNotice())
+                .fontSize(fs('type.callout'))
+                .fontWeight(fw('type.callout'))
+                .lineHeight(lh('type.callout'))
+                .fontColor(colorOf(this.pal(), 'textMuted'))
+                .width('100%')
+                .padding({
+                  left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y,
+                })
             }
 
-            // ── 插件列表 ──────────────────────────────────────────────────────
-            ForEach(this.items, (p: PluginCatalogItem) => {
-              Column({ space: 4 }) {
-                Row({ space: 8 }) {
-                  SymbolGlyph(this.symbolFor(p.icon)).fontSize(16)
-                    .fontColor([this.pal().accentSoft])
-                  Text(p.name).fontSize(14).fontColor(this.pal().textPrimary).layoutWeight(1)
-                    .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                  if (p.version.length > 0) {
-                    Text(`v${p.version}`).fontSize(10).fontColor(this.pal().textMuted)
-                  }
-                  if (p.state.length > 0 && p.state !== 'active') {
-                    // 非 active（禁用/未激活）如实标注：不假装可用。
-                    // 语气是**中性**，不是出错 —— web 权威基准 `PluginManagerPanel.tsx:223`
-                    // (`isActive ? 'bg-green-500' : 'bg-slate-400'`) 非 active = 中性灰。
-                    // 用 `textSecondary` 而非 `textMuted`：后者（porcelain `#AEAEB2`）叠在
-                    // `surfaceAlt` 上对比度不足，10px 字读不清；`textSecondary` 五套主题都达标。
-                    Text(p.state).fontSize(10).fontColor(this.pal().textSecondary)
-                      .padding({ left: 6, right: 6, top: 1, bottom: 1 })
-                      .borderRadius(6)
-                      .backgroundColor(this.pal().surfaceAlt)
-                  }
-                }
-                .width('100%')
-
-                if (p.description.length > 0) {
-                  Text(p.description).fontSize(11).fontColor(this.pal().textSecondary)
-                    .maxLines(3).textOverflow({ overflow: TextOverflow.Ellipsis })
-                }
-
-                Row({ space: 6 }) {
-                  Text(`${p.views.length} 个视图`).fontSize(11).fontColor(this.pal().textMuted)
-                  Text(p.moduleUrl).fontSize(9).fontColor(this.pal().textMuted).layoutWeight(1)
-                    .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                  Text('打开').fontSize(12).fontColor(this.pal().accentSoft)
-                }
-                .width('100%')
+            // ── 插件列表（卡片）────────────────────────────────────────────────
+            if (this.items.length > 0) {
+              Column({ space: GAP_ROW_Y }) {
+                ForEach(this.items, (p: PluginCatalogItem) => {
+                  PluginCardRow({
+                    item: p,
+                    theme: this.theme,
+                    onOpen: (url: string) => {
+                      this.onOpen(url);
+                    },
+                  })
+                }, (p: PluginCatalogItem) => `plugin#${p.id}#${p.url}`)
               }
               .width('100%')
-              .padding(12)
-              .backgroundColor(this.pal().surfaceAlt)
-              .borderRadius(10)
-              .onClick(() => {
-                this.onOpen(p.url);
-              })
-            }, (p: PluginCatalogItem) => `plugin#${p.id}#${p.url}`)
+            }
 
-            // ── 视图分组（按容器：侧栏 / 信息栏 / 状态栏…，与 web 布局位对应）────
+            // ── 视图分组（按容器：侧栏 / 信息栏 / 状态栏…，与 web 布局位对应）──────
             ForEach(this.groups, (g: PluginCatalogGroup) => {
-              Column({ space: 4 }) {
-                Text(g.label).fontSize(12).fontColor(this.pal().textSecondary)
-                  .width('100%').padding({ left: 4, top: 6 })
+              Column({ space: GAP_ROW_Y }) {
+                SettingsGroupHeader({ title: g.label, theme: this.theme })
                 ForEach(g.views, (v: PluginViewItem) => {
-                  Row({ space: 8 }) {
-                    SymbolGlyph(this.symbolFor(v.icon)).fontSize(14)
-                      .fontColor([this.pal().accentSoft])
-                    Column({ space: 1 }) {
-                      Text(v.title).fontSize(13).fontColor(this.pal().textPrimary)
-                        .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                      Text(v.pluginName).fontSize(10).fontColor(this.pal().textMuted)
-                        .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                    }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-                    if (v.dynamic) {
-                      // 参数化视图（VSCode webviewPanel 语义）：只能由宿主内部 openViewTab 打开
-                      Text('按需').fontSize(10).fontColor(this.pal().textMuted)
-                        .padding({ left: 6, right: 6, top: 1, bottom: 1 })
-                        .borderRadius(6).backgroundColor(this.pal().appBg)
-                    }
-                    Text('打开').fontSize(12).fontColor(this.pal().accentSoft)
-                  }
-                  .width('100%')
-                  .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-                  .backgroundColor(this.pal().surfaceAlt)
-                  .borderRadius(8)
-                  .onClick(() => {
-                    // 直开（同源页面 URL）与"进宿主页"在 core 侧已判好，这里只执行
-                    this.onOpen(v.openUrl);
+                  PluginViewRow({
+                    view: v,
+                    theme: this.theme,
+                    onOpen: (url: string) => {
+                      this.onOpen(url);
+                    },
                   })
                 }, (v: PluginViewItem) => `view#${v.id}`)
               }
               .width('100%')
             }, (g: PluginCatalogGroup) => `group#${g.container}`)
 
-            // 说明：为什么点开后是宿主页 —— 诚实告知用户与实现者
-            Text('说明：插件 UI 是浏览器 ESM 模块（需要 web 宿主的 React 与能力注入），'
-              + '因此点击后在宿主页内运行；本目录只做"有哪些插件/视图"的索引。')
-              .fontSize(10)
-              .fontColor(this.pal().textMuted)
-              .padding({ left: 12, right: 12, top: 8, bottom: 12 })
+            // ── 本会话插件 widget（`PluginWidgets` —— 消孤儿的**真实消费者**）────────
+            // ⚠️ 载荷未接时 `widgetContent` 恒空 ⇒ `PluginWidgets` 自身判 `visible=false` ⇒ **零节点**。
+            //    这里再判一次 `length > 0` 只是为了连分区标题一起省掉（不产"空标题 + 空体"）。
+            if (this.widgetContent.length > 0) {
+              Column({ space: GAP_ROW_Y }) {
+                SettingsGroupHeader({ title: '本会话插件 widget', theme: this.theme })
+                PluginWidgets({
+                  content: this.widgetContent,
+                  event: this.widgetEvent,
+                  theme: this.theme,
+                })
+              }
+              .width('100%')
+            }
+
+            // 脚注：为什么点开后是宿主页 —— 诚实告知用户与实现者
+            Text(pluginCatalogFootnote())
+              .fontSize(fs('type.caption'))
+              .fontWeight(fw('type.caption'))
+              .lineHeight(lh('type.caption'))
+              .fontColor(colorOf(this.pal(), 'textMuted'))
+              .width('100%')
           }
           .width('100%')
+          .alignItems(HorizontalAlign.Start)
+          .padding({
+            left: GUTTER_SCREEN, right: GUTTER_SCREEN, top: SPACE_XS, bottom: SPACE_LG,
+          })
         }
         .width('100%')
         .layoutWeight(1)
+        .scrollBar(BarState.Off)
       }
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(this.pal().appBg)
   }
+
+  private pal(): Palette {
+    return paletteOf(this.theme);
+  }
+}
+
+/**
+ * 一枚小徽标（`surface.chip` 内嵌凹槽 + `type.micro`）。
+ * 语义色角色由调用方经 `core/pluginview.ets` 判据给出（本组件不自己判色）。
+ */
+@Component
+struct PluginBadgeChip {
+  @Prop text: string = '';
+  @Prop role: string = 'textSecondary';
+  @Prop theme: string = 'dark';
+
+  private pal(): Palette {
+    return paletteOf(this.theme);
+  }
+
+  build() {
+    Text(this.text)
+      .fontSize(fs('type.micro'))
+      .fontWeight(fw('type.micro'))
+      .lineHeight(lh('type.micro'))
+      .fontColor(colorOf(this.pal(), this.role))
+      .padding({
+        left: INSET_CHIP_X, right: INSET_CHIP_X, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y,
+      })
+      .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
+      .borderRadius(RADIUS_CHIP)
+  }
+}
+
+/** "打开"动作的视觉片（整卡可点 ⇒ 这里只是**可点性提示**，不再独立挂热区）。 */
+@Component
+struct PluginOpenAffordance {
+  @Prop theme: string = 'dark';
+
+  private pal(): Palette {
+    return paletteOf(this.theme);
+  }
+
+  build() {
+    Text('打开')
+      .fontSize(fs('type.caption'))
+      .fontWeight(fw('type.caption'))
+      .lineHeight(lh('type.caption'))
+      .fontColor(colorOf(this.pal(), 'accentSoft'))
+      .padding({
+        left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y,
+      })
+      .borderRadius(RADIUS_PILL)
+      .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+  }
+}
+
+/** 一张插件卡（图标 / 名称 / 版本 / 状态徽标 / 说明 / 视图数 / 模块 URL / 打开）。 */
+@Component
+struct PluginCardRow {
+  @Prop item: PluginCatalogItem = new PluginCatalogItem();
+  @Prop theme: string = 'dark';
+  onOpen: (url: string) => void = () => {
+  };
+
+  private pal(): Palette {
+    return paletteOf(this.theme);
+  }
+
+  /** 状态徽标判据（`core/pluginview.ets`；本组件不自己判）。 */
+  private badge(): PluginBadge {
+    return pluginStateBadge(this.item.state);
+  }
+
+  build() {
+    Row({ space: SPACE_XS }) {
+      SymbolGlyph(pluginSymbol(this.item.icon))
+        .fontSize(18)
+        .fontColor([colorOf(this.pal(), 'accentSoft')])
+
+      Column({ space: SPACE_HAIR }) {
+        Row({ space: SPACE_XS }) {
+          Text(this.item.name)
+            .fontSize(fs('type.subhead'))
+            .fontWeight(fw('type.subhead'))
+            .lineHeight(lh('type.subhead'))
+            .fontColor(tc(this.pal(), 'type.subhead'))
+            .layoutWeight(1)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          if (this.item.version.length > 0) {
+            Text(`v${this.item.version}`)
+              .fontSize(fs('type.micro'))
+              .fontWeight(fw('type.micro'))
+              .lineHeight(lh('type.micro'))
+              .fontColor(colorOf(this.pal(), 'textMuted'))
+          }
+          if (this.badge().show) {
+            PluginBadgeChip({
+              text: this.badge().text,
+              role: this.badge().colorRole,
+              theme: this.theme,
+            })
+          }
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+
+        if (this.item.description.length > 0) {
+          Text(this.item.description)
+            .fontSize(fs('type.callout'))
+            .fontWeight(fw('type.callout'))
+            .lineHeight(lh('type.callout'))
+            .fontColor(tc(this.pal(), 'type.callout'))
+            .maxLines(3)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+        }
+
+        Row({ space: SPACE_XS }) {
+          Text(pluginViewCountText(this.item.views.length))
+            .fontSize(fs('type.caption'))
+            .fontWeight(fw('type.caption'))
+            .lineHeight(lh('type.caption'))
+            .fontColor(colorOf(this.pal(), 'textMuted'))
+            .flexShrink(0)
+          Text(this.item.moduleUrl)
+            .fontSize(fs('type.micro'))
+            .fontFamily('monospace')
+            .fontColor(colorOf(this.pal(), 'textMuted'))
+            .layoutWeight(1)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          PluginOpenAffordance({ theme: this.theme })
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Top)
+    .constraintSize({ minHeight: HIT_TARGET_MIN })
+    .padding({
+      left: INSET_CARD_X, right: INSET_CARD_X, top: INSET_CARD_Y, bottom: INSET_CARD_Y,
+    })
+    .backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))
+    .borderRadius(RADIUS_CARD)
+    .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+    .onClick(() => {
+      this.onOpen(this.item.url);
+    })
+  }
+}
+
+/** 一行视图（图标 / 标题 / 所属插件 / 「按需」徽标 / 打开）。 */
+@Component
+struct PluginViewRow {
+  @Prop view: PluginViewItem = new PluginViewItem();
+  @Prop theme: string = 'dark';
+  onOpen: (url: string) => void = () => {
+  };
+
+  private pal(): Palette {
+    return paletteOf(this.theme);
+  }
+
+  private badge(): PluginBadge {
+    return pluginViewBadge(this.view.dynamic);
+  }
+
+  build() {
+    Row({ space: SPACE_XS }) {
+      SymbolGlyph(pluginSymbol(this.view.icon))
+        .fontSize(16)
+        .fontColor([colorOf(this.pal(), 'accentSoft')])
+
+      Column({ space: SPACE_HAIR }) {
+        Text(this.view.title)
+          .fontSize(fs('type.subhead'))
+          .fontWeight(fw('type.subhead'))
+          .lineHeight(lh('type.subhead'))
+          .fontColor(tc(this.pal(), 'type.subhead'))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+        Text(this.view.pluginName)
+          .fontSize(fs('type.micro'))
+          .fontWeight(fw('type.micro'))
+          .lineHeight(lh('type.micro'))
+          .fontColor(colorOf(this.pal(), 'textMuted'))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+
+      if (this.badge().show) {
+        PluginBadgeChip({ text: this.badge().text, role: this.badge().colorRole, theme: this.theme })
+      }
+      PluginOpenAffordance({ theme: this.theme })
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Center)
+    .constraintSize({ minHeight: HIT_TARGET_MIN })
+    .padding({
+      left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y,
+    })
+    .backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))
+    .borderRadius(RADIUS_CARD)
+    .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+    .onClick(() => {
+      // 直开（同源页面 URL）与"进宿主页"在 core 侧已判好，这里只执行
+      this.onOpen(this.view.openUrl);
+    })
+  }
+}
+
+/**
+ * 插件图标名 → `sys.symbol.*`（**文件级函数**：两张卡与目录共用同一张表，避免写两遍）。
+ *
+ * 名字来源：`view.icon` 声明的 **lucide 名**（web `plugin-runtime/pluginIcons.ts:30-56` 的
+ * `ICON_MAP`）—— 先归一化（`normalizePluginIcon`：trim+小写，与 web `:63` 同规则），再查本表。
+ * HarmonyOS `sys.symbol.*` 与 lucide **不是一一对应**，故只覆盖语义接近的，其余一律回落通用方块
+ * （`square_grid_2x2`，对应 web 的 `Puzzle` 降级）。符号名必须是**字面量**（ArkTS 不允许
+ * `$r('sys.symbol.' + x)` 拼装）。
+ *
+ * 覆盖 vs web `ICON_MAP` 19 键：已映射 14 键；`search`/`info`/`blocks`/`boxes`/`puzzle`
+ * 无**已验证**的 `sys.symbol` 名可用（不猜名 —— 猜错会渲染空白）⇒ 回落通用方块。
+ */
+function pluginSymbol(icon: string): Resource {
+  const k: string = normalizePluginIcon(icon);
+  if (k === 'server' || k === 'server-cog') {
+    return $r('sys.symbol.rectangle_on_rectangle');
+  }
+  if (k === 'git-branch' || k === 'git' || k === 'git-commit-horizontal') {
+    return $r('sys.symbol.circle_dashed');
+  }
+  if (k === 'chart' || k === 'activity' || k === 'sparkline') {
+    return $r('sys.symbol.line_3_horizontal');
+  }
+  if (k === 'tasks' || k === 'files' || k === 'code' || k === 'terminal') {
+    return $r('sys.symbol.doc_text');
+  }
+  if (k === 'message') {
+    return $r('sys.symbol.list_bullet');
+  }
+  if (k === 'sparkles') {
+    return $r('sys.symbol.lightbulb');
+  }
+  if (k === 'wrench') {
+    return $r('sys.symbol.gearshape');
+  }
+  return $r('sys.symbol.square_grid_2x2');
 }
