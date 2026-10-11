@@ -12,6 +12,12 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 TARGETS=("$ROOT/entry/src/main/ets/components" "$ROOT/entry/src/main/ets/pages")
 
+# 剥注释镜像（本仓明文：注释里提及 API 是**允许**的）—— 在镜像上扫描，避免行尾/块注释误红
+source "$HERE/_strip-mirror.sh"
+MIRROR="$(mktemp -d "${TMPDIR:-/tmp}/render-path.XXXXXX")"
+trap 'rm -rf "$MIRROR"' EXIT
+mirror_comments "$MIRROR" "${TARGETS[@]}"
+
 bad=0
 for dir in "${TARGETS[@]}"; do
   [ -d "$dir" ] || continue
@@ -19,8 +25,8 @@ for dir in "${TARGETS[@]}"; do
     [ -n "$hit" ] || continue
     bad=1
     echo "  ✗ $hit"
-  done < <(grep -rnE '(^|[^A-Za-z0-9_.])(parseMarkdown|parseInline)\(' "$dir" --include='*.ets' 2>/dev/null \
-            | grep -vE ':[0-9]+: *(\*|//)' || true)
+  done < <(grep -rnE '(^|[^A-Za-z0-9_.])(parseMarkdown|parseInline)\(' "$MIRROR/${dir#$ROOT/}" --include='*.ets' 2>/dev/null \
+            | sed "s#^$MIRROR/##" || true)
 done
 
 if [ "$bad" -ne 0 ]; then
