@@ -684,3 +684,23 @@ MarkdownView **无固定数值宽容器** ⇒ **结构性命中 0**。即：**�
   **零扫描判红** + 两层 mutation 实测打红）。
 - 登记处：`docs/PORCELAIN-AUDIT.md §0.1`。
 - **待设备验证**：浅色（porcelain/light）下登录徽标 / CTA / 发送钮**有中性柔影**、且**无彩色脏光**（本波未碰设备）。
+
+---
+
+## 附：2026-10-11 深晚两份**只读审计**的发现（登记待办，非"已修"）
+
+### A. porcelain（极简白）全量审计（`porcelain-audit`，实算 WCAG 同源公式）
+**结论**：**角色层 0 硬缺陷** —— 29 个角色逐条有浅色值、**无一条残留深色** ⇒ 不存在"白底黑块/白字"。
+残留 5 项 ⚠️（修复线 `porcelain-fix` 在跑，域限 `core/theme.ets`）：
+| # | 项 | 证据（实算） | 状态 |
+|---|---|---|---|
+| ⚠️-1 | `warn`/`success`/`statusWaiting` 作**小号正文** < AA 4.5 | `warn #B26A00`=**4.238**（对 `appBg` 3.959）· `success #1E8E3E`=**4.205**；**porcelain 专属**（light 主题 7.09/5.48）。真实落点 13 处（`AskUserSheet:113`/`MessageRow:563`/`QueueSheet:111`/`SelfCheckSheet:60`/`SettingsAbout:445,552,461,568`/`SettingsChannels:476,556,562,1053`/`Index.ets:3942,4053,4196`） | 修复中 |
+| ⚠️-2 | `glassBaseOf` 的「同色回退」**已失效**（porcelain `appBg #F7F7F8` ≠ `surface #FFFFFF`）⇒ 玻璃底合成后对画布仅 **1.06**（≈不可见）；`:685-689` 注释已过期 | `core/theme.ets:691-694` | 修复中 |
+| ⚠️-3 | `textSecondary`/`accent` 落 `surfaceHi` = **4.337/4.017 < 4.5**，`contrastReqs()` **未覆盖**该底 | `core/design.ets:898-925` | ⛔ 待 `design.ets` 释放后派 |
+| ⚠️-4 | `colorOf` **未暴露** 6 角色（`foreground3`/`accentHover`/`accentSoftFade`/`bubbleUser`/`borderStrong`/`success`）⇒ 绕过取色 role 门禁（只能 `pal()` 直取） | `core/design.ets:853-892` | 同上 |
+| ⚠️-5 | `foreground3` **0 消费点**（疑似死角色） | 仅 `core/theme.ets` | 修复中（登记或接线） |
+
+### B. 动效「单一来源」审计（`motion-audit`）
+**结论**：**❌=0**（无自造曲线 / 无越权 `@ohos.curves` import / 过渡**零字面量时长**）；6 项 ⚠️ 缝隙（`motion-source` 在跑）：
+`animSpring()` **0 消费者死工厂**（已删，守卫同步收缩）· `MessageRow` 就地构造过渡 · `SplashOverlay` 本地 `withTiming` ·
+`core/splash.ets` 3 个"缺档"其实**底座已有**且注释过期 · 入口曲线两族（**有据**，待 `DESIGN-SYSTEM.md` 明写）· `tokens.D_BASE` 幽灵档（**已清死导入 `9627598`**）。
