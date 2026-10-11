@@ -497,12 +497,12 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | 用户消息气泡（含编辑态） | `components/agent/UserMessage.tsx:49`（编辑态 `:170-213`） | ✅ | `components/UserBubble.ets:23`（接线 `Index.ets:4960`，长按 `:4963`） |
 | 助手消息 | `components/agent/AssistantMessage.tsx:195` | ✅ | `components/MessageRow.ets:435`（空回复 `:971` EmptyNotice） |
 | 消息操作菜单（复制变体/链接/复制选区） | `MessageActions.tsx:213,286-299` | ✅ | `Index.ets:4908-4938` CtxItem；入口 `UserBubble.ets:70`、`MessageRow.ets:551` |
-| **消息编辑并重发/回退**（rewind） | `UserMessage.tsx:31,114,149,315`、`workspace/panels/AgentPanel.tsx:929` | ❌ | 见 11.5 证据 ① |
-| **消息注释/高亮** | `MessageAnnotations.tsx:47,267`（`AgentPanel.tsx:1044`） | ❌ | 见 11.5 证据 ② |
-| **选区工具条**（tiptap 富文本 B/I/链接） | `SelectionToolbar.tsx:48`（`MessageInput.tsx:845`） | ❌ | 见 11.5 证据 ③ |
-| **Synthetic/Interrupt 卡** | `SyntheticToolCard.tsx:393,568` | ❌ | 见 11.5 证据 ④ |
+| **消息编辑并重发/回退**（rewind） | `UserMessage.tsx:31,114,149,315`、`workspace/panels/AgentPanel.tsx:929` | ✅ **已接线**（⚠️ **2026-10-11 目标④订正**：原注 ❌ **已过时**） | `pages/Index.ets:2574`（发送口分流到 rewind）/`:5832`（`user-rewind` 菜单码）/`:5865-5910 beginRewindEdit·cancelRewindEdit·submitRewind` + 编辑态提示条 `:3694 RewindEditBar`/`:4264` 渲染；并发互斥判据与渲染同源 `core/ctxmenu.canRewindWhile`（`Index.ets:3319`）+ 菜单项 `components/MenuSheets.ets:377 userMenuItems(canRewind)`；纯逻辑 + REST `core/msgops.ets:307-372` + `core/store.ets:1086 rewindTo`。⚠️ 11.5 证据 ① **已过期** |
+| **消息注释/高亮** | `MessageAnnotations.tsx:47,267`（`AgentPanel.tsx:1044`） | 🟡 **展示侧已接线 / 创建侧 N/A**（⚠️ **2026-10-11 目标④订正**） | **展示侧**：`components/UserBubble.ets:23,85` 消费 `core/annotations.annotatedMessagePlainText`（不再把裸 `<response-annotations>` XML 上屏）。**创建侧**（划词加批注）**原生不成立**：web 唯一入口依赖浏览器选区（`window.getSelection()` / `getClientRects()`），ArkUI 唯一跨 `Text` 选区 API `SelectionContainer` `@since 26.0.0` > SDK21 + 无"取选区包围盒"API ⇒ §11.10 已裁"创建侧 N/A；ArkWeb 网页模式完整可用"。⚠️ 11.5 证据 ② 的 `grep→0` 取证时刻早于 `core/annotations.ets` 落地 |
+| **选区工具条**（tiptap 富文本 B/I/链接） | `SelectionToolbar.tsx:48`（`MessageInput.tsx:845`） | ⚪ **N/A**（⚠️ **2026-10-11 目标④订正**：`❌`→`⚪`） | 原生输入是**纯文本** TextArea（无 tiptap 富文本语义）⇒ 该 UI 前提不存在（§X.E 已判 N/A）。11.5 证据 ③ 的 `grep→0` 仍成立，但结论应是"**不适用**"而非"缺" |
+| **Synthetic/Interrupt 卡** | `SyntheticToolCard.tsx:393,568` | ✅ **已接线**（⚠️ **2026-10-11 目标④订正**：原注 ❌ **已过时**） | `components/SyntheticCard.ets:36`（专用 3 形态 `bg_task`/`subagent`/`interrupt` + 通用降级）；判据与渲染同源 `core/synthhints.ets:69 isSyntheticToolName`；消费点 `components/MessageRow.ets:801`（committed）+ `components/LiveTailView.ets:589`（live）。⚠️ 11.5 证据 ④ **已过期** |
 | **ShellPromoteBar** | `ToolRender.tsx:483` | ❌ | 见 11.5 证据 ⑤ |
-| **AnsiText**（ANSI SGR 终端着色） | `AnsiText.tsx:205`（3 消费点） | 🟡 | **解析层 + 本仓色板映射已就绪（`core/ansi.ets`），消费点未接线** ⇒ 见 §11.10；11.5 证据 ⑥ **已过期** |
+| **AnsiText**（ANSI SGR 终端着色） | `AnsiText.tsx:205`（3 消费点） | ✅ **已接线**（⚠️ **2026-10-11 目标④订正**：原注「消费点未接线」**已过时**） | **5 组件真消费** `core/ansi`（`grep -rn "core/ansi" components/` = 5 文件导入）：`LiveTailView.ets:36`、`MessageRow.ets:39`、`SyntheticCard.ets:20`、`ToolPopover.ets:20`、`ToolVisual.ets:31`；判据 `tools/tests/ansi_wiring.test.ts`（13 断言）。⚠️ 11.5 证据 ⑥ **已过期** |
 | 图片灯箱 | `Lightbox.tsx:21,31` | ✅ | `Index.ets:5979` ImageViewer + `core/imgops.ets` |
 | Markdown 渲染 | `MarkdownRenderer.tsx:530` | ✅ | `components/MarkdownView.ets:101` + `core/markdown.ets` |
 | 代码高亮 / CodeView | `CodeView.tsx:30`、`highlight.ts:22` | ✅ | `core/highlight.ets:136`（prism4j） |
@@ -518,7 +518,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | Todo 拉出面板 | `TodoPullOut.tsx:28` | ✅ | `components/TodoPanel.ets:238`（`Index.ets:3212`） |
 | Goal 横幅 | `GoalBanner.tsx:30` | ✅ | `components/GoalBanner.ets:55`（`Index.ets:3165`） |
 | SubAgent 进度树 | `SubAgentProgressTree.tsx:27` | ✅ | `components/SubAgentTree.ets:177`（`MessageRow.ets:591,659`） |
-| StagingTray（排队消息暂存） | `StagingTray.tsx:314`（`AgentPanel.tsx:1094`） | 🟡 | `Index.ets:5795` QueueSheet；**缺** interject(插队)/clear/拖拽重排 |
+| StagingTray（排队消息暂存） | `StagingTray.tsx:314`（`AgentPanel.tsx:1094`） | 🟡 **已补 interject/clear**（⚠️ **2026-10-11 目标④订正**） | `components/QueueSheet.ets`（P2 从 `Index.ets` 抽出）+ 接线 `Index.ets:3119 clearQueue()`/`:3125 interjectQueued(id, full)`；纯逻辑 + REST `core/store.ets:1120 clearQueue`/`:1156 interjectQueued`（`useChatMessages.ts:899-920` 移植）。**仍缺**：拖拽重排 |
 | 消息导航（用户消息跳转） | `MessageUserNav.tsx:60` | ✅ | `components/MessageNav.ets:147`（`Index.ets:2964`） |
 | MessageInput + 补全（`/`、`@`） | `MessageInput.tsx:173`、`CompletionPopup.tsx:21` | ✅ | `core/composer.ets`（`activeToken`/`matchCommands`/`matchFiles`/`applyCommand`/`applyMention`/`selNext`/`selPrev`/`completionKeyAction`）+ `Index.ets` 输入区浮层（`3955`）/ `refreshCompletion`（`4634`）/ TextArea `onKeyEvent`（`4163`）；选中态 `cmdSel` + ↑↓/Tab/Esc + `@` 文件回车接受 |
 | 输入附件（文件/图片/粘贴） | `MessageInput.tsx:198-332` | ✅ | `Index.ets:1692-1802` + `core/attach.ets` |
@@ -542,11 +542,11 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | 会话排序（星标→sort_order→时间） | `lib/session-grouping.ts` | ✅ | `core/sessiongroup.ets:601-609` + `core/stars.ets starredFirst` |
 | 空状态 | `SessionEmptyState.tsx:16` | ✅ | `Index.ets:2827-2843` |
 | 会话搜索（本地筛选 + 服务端搜消息） | `SessionSearch.tsx:36` | 🟡 **切会话已修、服务端搜索恒空** | `Index.ets:5174`（筛选）/`:4113 runSearch`/`:4855 SearchHitsSheet`；`bf9dc78` 真机证实 active session 跟随；**服务端 `/api/search` 恒空** ⇒ 见 11.5 证据 ⑧-bis |
-| 新建会话对话框（渠道 + cwd + label） | `NewSessionDialog.tsx:34` | 🟡 | 原生**无对话框**：`Index.ets:1663 newSession()` 直接 `createSession()`（默认渠道/无 cwd/无 label） |
-| 渠道选择/过滤（列表按渠道过滤） | `ChannelPicker.tsx:73` | 🟡 | 徽标 ✅（`core/sessionpick.ets:34`）；**过滤 ❌** 见 11.5 证据 ⑦ |
-| 路径选择 cwd（输入 + 最近目录） | `PathPicker.tsx:36` | ❌ | 见 11.5 证据 ⑦ |
-| 会话视图条（+「全部折叠/展开」） | `SessionViewBar.tsx:34` | 🟡 | 分类切换 ✅ `Index.ets:5196`；**全部折叠/展开 ❌** |
-| 会话信息面板（cwd 可编辑/消息数/最后活跃） | `components/sidebar/SessionInfo.tsx:40` | 🟡 | `Index.ets:5643 StatusSheet`；缺 cwd 编辑/消息数/最后活跃 |
+| 新建会话对话框（渠道 + cwd + label） | `NewSessionDialog.tsx:34` | ✅ **已接线**（⚠️ **2026-10-11 目标④订正**：原注「无对话框」**已过时**） | `pages/Index.ets:5944 NewSessionSheet`（工作目录输入 `:5969` + 最近目录候选 `:5982-6025` + 取消/创建）；消费 `core/recentdirs` 的 parse/remember/remove/serialize（`Index.ets:2240/2252/2288`）；判据 `tools/tests/recentdirs_ui.test.ts`。**仍缺**：label（会话名）输入 + 渠道选择 chip |
+| 渠道选择/过滤（列表按渠道过滤） | `ChannelPicker.tsx:73` | ✅ **已接线**（⚠️ **2026-10-11 目标④订正**：原注「过滤 ❌」**已过时**） | 纯逻辑 `core/sessionpick.ets:128 availableChannels`/`:192 sessionInChannel`/`:207 activeChannelLabel`；页面 `Index.ets:485 activeChannel`（持久化 `:1215`）/`:4399` 过滤判定/`:6502-6532` UI（「全部」+ 逐渠道 chip）。⚠️ 11.5 证据 ⑦ 的两条（渠道过滤 / 最近目录）**均已过期** |
+| 路径选择 cwd（输入 + 最近目录） | `PathPicker.tsx:36` | ✅ **已接线**（⚠️ **2026-10-11 目标④订正**：原注 ❌ **已过时**） | `pages/Index.ets:5969` 工作路径 TextInput + `:5982-6025` 最近目录候选（点选填入 / 删除）；纯逻辑 `core/recentdirs.ets`。**仍缺**：`PathPicker` 的**自动补全下拉**（web 边打字边给候选，见 §XI.3 尾注） |
+| 会话视图条（+「全部折叠/展开」） | `SessionViewBar.tsx:34` | 🟡 | 分类切换 ✅ `Index.ets:5196`；**「全部折叠/展开」仍 ❌**（⚠️ 2026-10-11 复核：纯逻辑 `core/sessiongroup.ets:770 collapseAllPlan` **已存在但全仓 0 UI 消费** ⇒ 用户不可达；单组折叠 `Index.ets:4446 isGroupCollapsed`/`:4457 toggleGroup` 已有） |
+| 会话信息面板（cwd 可编辑/消息数/最后活跃） | `components/sidebar/SessionInfo.tsx:40` | 🟡 | `components/StatusSheet.ets:94`（`Index.ets:3222` 接线）；现含 **cwd 行**（`:106` / `Index.ets:3228`）+ goal/用量/模型/上限；**缺** cwd **编辑** / 消息数 / 最后活跃（2026-10-11 复核：StatusSheet 无这三项） |
 | 任务面板（cron + 后台任务 + runner） | `components/sidebar/TasksPanel.tsx:26` | ✅ | `Index.ets:4716 PanelsSheet` + `core/panels.ets` |
 | 文件树 / 文件搜索 | `sidebar/FileExplorer.tsx:34` / `FileSearch.tsx:26` | ⚪ | fs RPC + 编辑器 ⇒ ArkWeb（`WebSurface.ets:54`） |
 | 终端列表 | `sidebar/TerminalList.tsx:35` | ⚪ | xterm.js ⇒ ArkWeb |
@@ -568,21 +568,21 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | ├ Language | `SettingsDialog.tsx:115,177` | 🟡 | 刻意只读（文案硬编码，见 §3） |
 | ├ Agent | `settings/SettingsAgent.tsx:113` | ✅ | `components/SettingsAgent.ets`（`allow_self_compact` + vision×4） |
 | ├ Tools | `settings/SettingsTools.tsx:35` | ✅ | `components/SettingsTools.ets` |
-| ├ LLM（读/启停/默认/CRUD/档位/思考） | `settings/SettingsLLM.tsx:78`、`llm-console.tsx` | 🟡 | `components/SettingsLlm.ets`（含 CRUD）；**缺 import/export_subscriptions**（§XI 记档待做） |
+| ├ LLM（读/启停/默认/CRUD/档位/思考/**导入导出**） | `settings/SettingsLLM.tsx:78`、`llm-console.tsx` | ✅（⚠️ **2026-10-11 目标④订正**：原注「缺 import/export」**已过时**） | `components/SettingsLlm.ets`（含 CRUD）；**导入/导出已接线**：`RPC_IMPORT_SUBSCRIPTIONS`/`RPC_EXPORT_SUBSCRIPTIONS`（`:68-69`）→ `importSubscriptions`（`:659`）/`exportSubscriptions`（`:602`），消费点 `:883/:895` |
 | ├ **Channels**（飞书/插件渠道 + 一键绑定） | `settings/SettingsChannels.tsx:118` | ✅（**2026-10-11 订正**：11.5 ⑨ 已过期） | `components/SettingsChannels.ets`（1151 行，逐条移植）+ 纯逻辑 `core/channelscfg.ets`；判据 `tools/tests/settings_url_overflow.test.ts` 钉 URL 折行 |
 | ├ Storage | `settings/SettingsStorage.tsx:57` | ✅ | `components/SettingsStorage.ets` |
 | ├ WebUsers | `settings/SettingsWebUsers.tsx:31` | ✅ | `components/SettingsWebUsers.ets` |
 | ├ Account（用户名 + 登出） | `SettingsDialog.tsx:69` | ✅ | `components/SettingsAccount.ets` |
 | ├ **Developer**（SSE REC + 导出） | `settings/SettingsDeveloper.tsx:20` | ✅（**2026-10-11 订正**：11.5 ⑩ 已过期） | `components/SettingsDeveloper.ets`（552 行，录制+连接状态+导出会话；已接 `SettingsPanel.ets` `SETTINGS_TAB_DEVELOPER`） |
 | ├ Layout（slot 配置） | `settings/SettingsLayout.tsx:39` | ⚪ | Dockview 专属（§XI 判 N/A） |
-| ├ Plugins（配置表单 + 图标上传） | `settings/SettingsPlugins.tsx:60` | 🟡 | `components/SettingsPlugins.ets`（803 行，配置读写+启停+重载，已接 tab）；缺**图标上传** |
+| ├ Plugins（配置表单 + **图标上传** + **安装 .zip** + 后端全量） | `settings/SettingsPlugins.tsx:60` | ✅（⚠️ **2026-10-11 目标④订正**：原注「缺图标上传」**已过时**） | `components/SettingsPlugins.ets`（1003 行）；**图标上传已实现** `core/settingsplugins.ets:820-1000`（上传端点 / 校验 / 预览分类）+ 消费点 `SettingsPlugins.ets:575 pluginUploadPath(...)`；**安装 .zip** `SettingsPlugins.ets:659 installZip`（`:730` 常驻按钮）；**后端全量** `:496 loadBackend`（`RPC_PLUGIN_STATUS`）。见 §XII 订正 |
 | ├ **Notify**（原生独有，web 无此分区） | — | ✅（**波11 补齐**） | `components/SettingsPanel.ets` NotifySection：`KEY_NOTIFY_ASK`/`KEY_NOTIFY_TURN_DONE`/`KEY_NOTIFY_DETAIL` 三开关（判据 `tools/tests/settings_notify_ui.test.ts`） |
 | └ About（版本 + update + **应用内更新/重启**） | `settings/SettingsAbout.tsx:92` | ✅ | `components/SettingsAbout.ets` + `core/aboutops.ets`（apply_update/restart_server 两步确认 + 40s 轮询；release notes 外链可点） |
 | 插件目录 + 宿主页运行时 | `plugin-runtime/loader.ts` | ✅ | `components/PluginHost.ets` + `core/pluginhost.ets:573`（裸 `.js` 语义**已修**） |
-| 插件管理面板（启停/配置） | `plugins/manager/PluginManagerPanel.tsx` | 🟡 | 原生只读目录 |
-| **web_widgets / plugin_widgets 事件** | `plugins/PluginWidgetProvider.tsx:51` | ❌ **静默丢** | `core/types.ets:236-237` 仅两个常量，`core/store.ets onSse` 无消费（§8.3 波3） |
-| **InfoBar**（插件状态条） | `plugins/InfoBar.tsx:15` | ❌ | 无对应组件 |
-| **Ambience 壁纸/主题**（玻璃化） | `ambience/AmbienceRoot.tsx:53`、`store.ts` | ❌ | 见 11.5 证据 ⑪ |
+| 插件管理面板（启停/配置/安装/全量） | `plugins/manager/PluginManagerPanel.tsx` | ✅（⚠️ **2026-10-11 目标④订正**：原注「原生只读目录」**已过时**） | `components/SettingsPlugins.ets`：启停 `:613/620`（`RPC_PLUGIN_SET_ENABLED`）、重载 `:631/639`（`RPC_PLUGIN_RELOAD`，二次确认）、安装 `.zip` `:659 installZip`、后端全量 `:902-962`（`plugin_status`） |
+| **web_widgets / plugin_widgets 事件** | `plugins/PluginWidgetProvider.tsx:51` | ✅ **已接线**（⚠️ **2026-10-11 目标④订正**：原注「静默丢」**已过时**） | 数据面 `core/store.ets:121-129`（事件名 + 原始载荷，**绝不静默丢**）+ `core/panels.ets:182+` 判据；渲染 `components/PluginWidgets.ets` / `components/PluginHost.ets:24`（`WIDGET_EVENT_WEB`）；页面接线 `pages/Index.ets:91-92,1558` |
+| **InfoBar**（插件状态条） | `plugins/InfoBar.tsx:15` | ✅ **已落地**（⚠️ **2026-10-11 目标④订正**：原注「无对应组件」**已过时**） | `components/WidgetDock.ets:47`（常驻细条，只取 `infoBar` zone，**空态零占位**）+ 纯逻辑 `core/widgetsview.ets:697 widgetDockView` + 接线 `pages/Index.ets:4380`（输入框下方）；判据 `tools/tests/widget_dock.test.ts`（35 断言）。见 §XII.6 |
+| **Ambience 壁纸/主题**（玻璃化） | `ambience/AmbienceRoot.tsx:53`、`store.ts` | ❌ **壁纸 UI 缺 / 玻璃值消费已就绪**（2026-10-11 复核） | 玻璃 `opacity`/`blur` 消费已就绪（`core/theme.ets:818/833 setAmbience` 覆盖式）；**壁纸上传 UI 仍缺**（`grep -rn wallpaper` 仅注释/文档）。⚠️ 且三个值**无客户端抵达路径**（`xbot.ambience` 无 `web` 面 ⇒ 服务端 `rpc_table.go:2293` 整条跳过）⇒ 今日无调用点（§2.9 / §XI.3 已记档）。判"不建议迁"（§11.7） |
 | PWA / SW 更新提示 | `PWAUpdatePrompt.tsx:13`、`UpdateReminder.tsx:27` | ⚪ | 无 Service Worker |
 | 内置插件（git-fancy/git-info/iteration-stats/session-stats/ssh-runner/skill-manager） | `plugins/*` | ⚪ | 随 web bundle ⇒ ArkWeb（§8.4） |
 
@@ -590,24 +590,33 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 
 | web 功能 | web file:line | 状态 | 原生 file:line / 证据 |
 |---|---|---|---|
-| **命令路由 / 深链**（`xbot://settings.open?section=llm`） | `lib/commandRouter.ts:32,61,171` | ❌ | 见 11.5 证据 ⑫ |
-| **最近工作目录** | `lib/recent-workdirs.ts:12` | ❌ | 见 11.5 证据 ⑦ |
-| **SSE 录制调试工具**（REC → .ev） | `hooks/useSSERecorder.ts:30`、`workspace/panels/DebugToolbar.tsx:20` | ❌ | 见 11.5 证据 ⑩ |
+| **命令路由 / 深链**（`xbot://settings.open?section=llm`） | `lib/commandRouter.ts:32,61,171` | ✅ **已接线**（⚠️ **2026-10-11 目标④订正**：原注 ❌ **已过时**） | 纯逻辑 `core/command.ets`；消费点 `entryability/EntryAbility.ets:28,68,153`（冷启动深链，唯一生产消费点）+ `pages/Index.ets:147,1059`（页面消费/命令集合）。⚠️ 11.5 证据 ⑫ **已过期** |
+| **最近工作目录** | `lib/recent-workdirs.ts:12` | ✅ **已接线**（⚠️ **2026-10-11 目标④订正**：原注 ❌ **已过时**，与 §11.2 行 450 / §XI.3 同源） | `core/recentdirs.ets` + `pages/Index.ets NewSessionSheet`（parse/remember/remove/serialize 四 API 真消费）；判据 `tools/tests/recentdirs_ui.test.ts` |
+| **SSE 录制调试工具**（REC → .ev） | `hooks/useSSERecorder.ts:30`、`workspace/panels/DebugToolbar.tsx:20` | ✅ **已接线**（⚠️ **2026-10-11 目标④订正**：原注 ❌ **已过时**） | 纯逻辑 `core/sserec.ets`（环形缓冲 512 条/512KiB + 脱敏 + 连接状态）+ 组件 `components/SettingsDeveloper.ets`（tab `developer`）；埋点 `core/sse.ets:329/474/518/569/621/684`。⚠️ 11.5 证据 ⑩ **已过期** |
 | 键盘快捷键分发（keybinding） | `lib/commandRouter.ts:160` | ⚪ | 手机端无物理键盘（发送键例外，已迁 `KEY_SEND_KEY`） |
 | Web 缓存（TTL） | `lib/webCache.ts:4` | 🟡 | `core/config.ets` 偏好缓存（语义近似，非同一实现） |
 | i18n 文案表（zh/en/ja 切换） | `i18n/index.ts` | 🟡 | `core/i18n.ets` 只读 locale（文案硬编码 ~100 处，见 §3） |
 | 主题（md 主题驱动 dark/light + accent） | `providers/theme.tsx` | ✅ | `core/theme.ets`（5 套应用色板）+ `core/accent.ets` + `core/mdtheme.ets` |
-| 开发者模式（Rec 按钮显隐） | `hooks/useDeveloperMode.ts:1` | ❌ | 见 11.5 证据 ⑩ |
+| 开发者模式（Rec 按钮显隐） | `hooks/useDeveloperMode.ts:1` | ✅ **已接线**（⚠️ **2026-10-11 目标④订正**：原注 ❌ **已过时**） | `components/SettingsDeveloper.ets:45`（本地 prefs `xbot_devtools/developer-mode`）→ `:130/209 sseRecorder.setEnabled(...)`。⚠️ 11.5 证据 ⑩ **已过期** |
 
 ### 11.5 ❌ 缺项的**可证伪**证据块（搜索命令 + 结论，均在 `entry/src/main/ets` 下执行）
 
 - ① **消息编辑/重发/回退**：`grep -rniE "onRewind|editMessage|resend|重发|编辑并" .` → 仅命中 `core/streammerge.ets`/`core/reduce.ts` 的**状态机注释**（无 UI）。结论：无编辑/回退入口。
+  - ⚠️ **2026-10-11 目标④订正：本结论已过期**。取证时刻早于 rewind UI 落地 —— 实测**已接线**：
+    `pages/Index.ets:2574`（发送口分流）/`:5832`（`user-rewind` 菜单码）/`:5865-5910 beginRewindEdit·cancelRewindEdit·submitRewind` / `:3694 RewindEditBar`（编辑态提示条）；
+    并发互斥判据 `core/ctxmenu.canRewindWhile`（`:3319`）+ 菜单项 `components/MenuSheets.ets:377`；纯逻辑 + REST `core/msgops.ets:307-372` + `core/store.ets:1086 rewindTo`（§11.11.3 已核）。⇒ 本项应为 **✅ 已有**。
 - ② **消息注释/高亮**：`grep -rni "annotation" .` → **0 命中**。
 - ③ **选区工具条**：`grep -rniE "bubblemenu|tiptap" .` → **0 命中**。（`MarkdownView.ets` 的 "Selection" 实为 AskUser 选择项，`Index.ets:107 AskSelection`。）
 - ④ **Synthetic/Interrupt 卡**：`grep -rni "synthetic" .` → 仅 `core/agent_normalize.ts:166` 注释；`grep -rniE "interruptcard|打断卡" .` → **0**。
+  - ⚠️ **2026-10-11 目标④订正：本结论已过期**。实测**已接线**：`components/SyntheticCard.ets:36`（专用 3 形态 `bg_task`/`subagent`/`interrupt` + 通用降级）；
+    判据与渲染同源 `core/synthhints.ets:69 isSyntheticToolName`；消费点 `components/MessageRow.ets:801`（committed）+ `components/LiveTailView.ets:589`（live）。⇒ 本项应为 **✅ 已有**。
 - ⑤ **ShellPromoteBar**：`grep -rni "promote" .` → **0 命中**。
 - ⑥ **AnsiText**：`grep -rniE "ansi|sgr|\\\\u001b|\\\\x1b" .` → **0**（早前误报的匹配是 `transient`/`humanSize`/`statusGroupKey` 等词）。`ToolPopover.ets:96 classifyLine` 只做行级分类，**不解析 ANSI SGR**。⚠️ **2026-10-11 订正：本结论已过期** —— 并行线在**当日 09:43**（`9ad6c30`）已落地 `core/ansi.ets` 的**解析层**，本波（`10aae43`）又补齐**到本仓色板的映射**（`ANSI_COLOR_ROLES`/`ansiPaletteOf`）；**消费点仍未接线**（见 §11.10）。⚠️ 教训：`grep → 0` 类判据**必须写明取证时刻**，否则会被后续协作立刻推翻。
 - ⑦ **渠道过滤 / 路径选择 / 最近工作目录**：`grep -rniE "channelpicker|availableChannels|渠道选择" .` → 0；`grep -rniE "PathPicker|pickDir|chooseDir" .` → 0；`grep -rniE "recent" .` → 8 命中**全是** `core/config.ets:117 recentServers`（服务器 URL 历史）。
+  - ⚠️ **2026-10-11 目标④订正：三条均已过期**（取证时刻早于落地）——
+    · **渠道过滤**：`core/sessionpick.ets:128 availableChannels`/`:192 sessionInChannel` + `Index.ets:485 activeChannel`/`:6502-6532` UI ⇒ **✅ 已接线**；
+    · **最近工作目录**：`core/recentdirs.ets` + `Index.ets NewSessionSheet` ⇒ **✅ 已接线**；
+    · **路径选择 cwd**：`Index.ets:5969` 工作路径输入 + `:5982-6025` 最近目录候选 ⇒ **✅ 已接线**（仅 `PathPicker` 自动补全下拉仍缺）。
 - ⑧ **分享页 / 会话导出**：`grep -rniE "SharePage|分享页|shareToken|share_link" .` → 0；`grep -rniE "导出|exportSession|systemShare|shareKit" .` → 仅 `core/http.ets:150 exportSessionCookie`（cookie，**非**会话导出）。
   - ⚠️ **2026-10-11 订正（会话导出形态 —— 原文"markdown/jsonl"为误标）**：web 权威 `web/src/components/agent/api.ts:378-582`（`downloadSession`）实际输出 **5 种形态 + 1 个开发者文本**：
     `native`=**json**（`:560-566`）、`openai`=**json**（`:396-422`）、`codex`=**jsonl**（`:424-462`）、`multica`=**jsonl**（`:464-558`）、`benchmark`=**jsonl**（`:383-391`）；
@@ -633,8 +642,12 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 
 - ⑨ **Channels 设置分区**：`grep -rn "get_channel_config\|set_channel_config\|feishu_bind" core components` → **0 命中**（`core/settings.ets:286 CONFIG_SURFACE_METHODS` 亦未含）。契约见 §9.2.1。
 - ⑩ **Developer 模式 / SSE 录制**：`grep -rniE "useDeveloperMode|sseRec|录制|recorder" core components pages` → **0 命中**。
+  - ⚠️ **2026-10-11 目标④订正：本结论已过期**。实测**已接线**：纯逻辑 `core/sserec.ets`（环形缓冲 + 脱敏 + 连接状态）+ 组件
+    `components/SettingsDeveloper.ets`（设置 tab `developer`，`:45` 开发者模式开关、`:130/209 sseRecorder.setEnabled`）+ 埋点 `core/sse.ets:329/474/518/569/621/684`。⇒ 本项应为 **✅ 已有**。
 - ⑪ **Ambience**：`grep -rln "ambience\|wallpaper" .` → 仅 `core/pluginhost.ets:240` 的**注释**；无 `core/ambience.ets`、无组件。
 - ⑫ **命令路由/深链**：`grep -rniE "xbot://|commandrouter|settings\.open" .` → **0 命中**。原生唯一外部入口是**通知点击**（`entryability/EntryAbility.ets:123 captureOpenChat`，仅 chatId）。
+  - ⚠️ **2026-10-11 目标④订正：本结论已过期**。实测**已接线**：纯逻辑 `core/command.ets`（`xbot://` / `xbot:` / `/command/` 三种等价写法 + `registeredCommands()`），
+    消费点 `entryability/EntryAbility.ets:28,68,153`（**冷启动深链的生产消费点**）+ `pages/Index.ets:147,1059`（页面消费）。⇒ 本项应为 **✅ 已有**。
 
 ### 11.6 ⚠️ 死代码甄别（web 有、但**不算功能**，不要列为"web 有原生没有"）
 
@@ -800,21 +813,21 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 
 | # | 功能 | web 权威 `file:line` | 原生现状 `file:line` | 分档 | 可感度 | 优先级 |
 |---|---|---|---|---|---|---|
-| 1 | **AnsiText 接色** | `AnsiText.tsx:205`（3 消费点） | `core/ansi.ets` 就绪；`components/MessageRow.ets`/`ToolPopover.ets` **未接** | **B**（只在 `components/`，**非热文件**） | 高 | **P1** |
-| 2 | **rewind 入口** | `UserMessage.tsx:31,114,149`；`AgentPanel.tsx:929` | `store.rewindTo`(`store.ets:1086`) 就绪；**无长按菜单** | **B** | 高 | **P1** |
+| 1 | **AnsiText 接色** | `AnsiText.tsx:205`（3 消费点） | ✅ **已闭环**（⚠️ 2026-10-11 目标④订正：原注「`MessageRow`/`ToolPopover` 未接」**已过时**）—— 5 组件真消费 `core/ansi`（`MessageRow.ets:39`/`ToolPopover.ets:20`/`ToolVisual.ets:31`/`SyntheticCard.ets:20`/`LiveTailView.ets:36`） | — | — | ✅ **已完成** |
+| 2 | **rewind 入口** | `UserMessage.tsx:31,114,149`；`AgentPanel.tsx:929` | ✅ **已闭环**（⚠️ 2026-10-11 目标④订正：原注「无长按菜单」**已过时**）—— `Index.ets:5832` 菜单码 / `:5865-5910` 编辑态 + `MenuSheets.ets:377` 菜单项 | — | — | ✅ **已完成** |
 | 3 | **会话导出（`json`/`jsonl`/`txt`；⛔ 无 markdown）** | `SettingsDeveloper.tsx:60-92`（turn+iter=txt）+ `agent/api.ts:378-582`（native/openai=json、codex/multica/benchmark=jsonl） | ✅ **已接线**（`core/export.ets` + `components/SettingsDeveloper.ets` 的 `ForEach(exportActions(), …)`；⚠️ 原注「UI 入口未接线」已过时，`settings-gaps` `c87b5b6` 又补齐 openai/codex） | **A✅ + B** | 中 | **P2 → 已闭环** |
-| 4 | PathPicker / cwd 选择 | `PathPicker.tsx:36` + `recent-workdirs.ts:12` | `core/recentdirs.ets` 就绪；无选择器（`Index.ets:1787 newSession()` 直建） | **B** | 中 | P2 |
-| 5 | 命令深链**入口** | `commandRouter.ts:61,136` | `core/command.ets` 就绪；`EntryAbility.ets:123 captureOpenChat` 仅 chatId | **B**（+可能 C） | 中 | P2 |
+| 4 | PathPicker / cwd 选择 | `PathPicker.tsx:36` + `recent-workdirs.ts:12` | 🟡 **部分已落**（⚠️ 2026-10-11 目标④订正）：`core/recentdirs.ets` + `Index.ets:5969` 输入面 + `:5982-6025` 最近目录候选 ⇒ **仅** `PathPicker` **自动补全下拉**仍缺 | **B** | 中 | P2 |
+| 5 | 命令深链**入口** | `commandRouter.ts:61,136` | ✅ **已闭环**（⚠️ 2026-10-11 目标④订正：原注「仅 chatId」**已过时**）—— `core/command.ets` + `EntryAbility.ets:28,68,153` + `Index.ets:147,1059` | — | — | ✅ **已完成** |
 | 6 | SessionViewBar「全部折叠/展开」 | `SessionViewBar.tsx:34` | 分类切换 ✅；批量切换 **grep 0 命中** | **B** | 中 | P3（XS） |
-| 7 | NewSessionDialog（渠道 + cwd + label） | `NewSessionDialog.tsx:34` | `Index.ets:1787` 直接 `createSession()`（默认渠道/无 cwd/无 label） | **B**(+C) | 中 | P3 |
+| 7 | NewSessionDialog（渠道 + cwd + label） | `NewSessionDialog.tsx:34` | 🟡 **部分已落**（⚠️ 2026-10-11 目标④订正）：`Index.ets:5944 NewSessionSheet` 已含工作目录 + 最近目录候选 ⇒ **仅** label（会话名）+ 渠道 chip 缺 | **B**(+C) | 中 | P3 |
 | 8 | SessionInfo（cwd 可编辑 / 消息数 / 最后活跃） | `sidebar/SessionInfo.tsx:40` | `Index` 的 `StatusSheet`；缺这 3 项 | **B** | 中 | P3 |
-| 9 | Synthetic / Interrupt 卡 | `SyntheticToolCard.tsx:393,568` | **0**（仅 `core/agent_normalize.ts:166` 注释） | **A**(先定 web 语义) + **B** | 中 | P3 |
+| 9 | Synthetic / Interrupt 卡 | `SyntheticToolCard.tsx:393,568` | ✅ **已接线**（⚠️ 2026-10-11 目标④订正：原注「**0**」**已过时**）—— `components/SyntheticCard.ets:36` + `MessageRow.ets:801` + `LiveTailView.ets:589` | — | — | ✅ **已完成** |
 | 10 | ShellPromoteBar | `ToolRender.tsx:483` | 后端 promote-to-background RPC **已有**（`core/chattypes.ts:55`）；**UI 0** | **C**(核 RPC 契约) + **B** | 中低 | P4 |
 | 11 | 设置 General「清缓存」 | `SettingsGeneral.tsx:32` | **grep 0 命中** | **B** | 低 | P4 |
 | 12 | 设置 Appearance「UI_MODE」外壳切换 | `SettingsAppearance.tsx:54` | `ui_mode` 已到状态机（`core/render.ets:31`）但**无 UI 消费**（死字段） | **B**(+C) | 低 | P4 |
 | 13 | 分享页（token 只读） | `SharePage.tsx:33` | **0 命中** | **A+B+D**(REST token) | 中低 | P4 |
 | 14 | FoldedToolGroup 组内分组标头 | `FoldedToolGroup.tsx:716` | 有跨迭代合并/`+N`；**缺组内按 kind 分组标头** | **B** | 低 | P4 |
-| 15 | InfoBar（插件状态条） | `InfoBar.tsx:15` | 仅 `core/widgetsview.ets:182` 的名称映射，**无状态条组件** | **B** | 低 | P4 |
+| 15 | InfoBar（插件状态条） | `InfoBar.tsx:15` | ✅ **已落地**（⚠️ 2026-10-11 目标④订正：原注「无状态条组件」**已过时**）—— `components/WidgetDock.ets:47` + `Index.ets:4380` | — | — | ✅ **已完成** |
 | 16 | 选区工具条（tiptap B/I/链接） | `SelectionToolbar.tsx:48` | **0 命中** | **B** | 低 | **存疑**（tiptap 不适用，见 §3） |
 | 17 | Ambience 壁纸/主题 | `AmbienceRoot.tsx:40` | **0**（仅 `core/pluginhost.ets:240` 注释） | **B** | 低 | ⛔ **不建议迁**（§11.7） |
 
@@ -859,7 +872,66 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 - 本节**只读**，未改任何代码/测试；行号基于本轮工作树，`Index.ets`/`components/*` 正被多线并发改 ⇒ **以锚点文本为准**。
 - 本轮**更正 5 处过期旧判**（均已在上表就地标注）：`§11.3` Channels ❌→✅、`§11.3` LLM import/export 🟡→✅、
   `§11.7 #3/#4/#5` ❌/🟡→✅、`§11.5 ①`/`§11.7 #2` rewind（已具纯逻辑）。
-- ⛔ 仍未接线的高可感项 = **AnsiText 接色** + **rewind 入口**（两者均**逻辑就绪**，**只差 UI**）。
+- ⛔ ~~仍未接线的高可感项 = **AnsiText 接色** + **rewind 入口**（两者均**逻辑就绪**，**只差 UI**）~~。
+  ⚠️ **2026-10-11 目标④订正：此句已过时** —— 两者**均已接线**（见 §11.1 行 500/505、§11.12）。⇒ 旧审计的高可感项**已清空**，真实剩余缺口见 §11.12。
+
+### 11.12 目标④台账校准（2026-10-11 · 只读复核 + 订正）—— **已核验的真实剩余缺口**
+
+> **做法**：把 §11.1~§11.4 的每条 `❌`/`🟡` **逐条拿去和真源码对**（`grep` 取**调用片段**、查**消费点计数**、⛔ 不把"core 里有纯逻辑"当"功能可用"、⛔ 不把注释/文档当实现）。
+> **本轮共订正 18 处过时断言**（各表已就地标注「目标④订正」）：rewind / AnsiText / Synthetic 卡 / 新建会话对话框 / 渠道过滤 / 路径选择 cwd /
+> StagingTray interject·clear / LLM 导入导出 / Plugins 图标上传 / 插件管理面板 / web_widgets / InfoBar / 命令深链 / 最近工作目录 / SSE 录制 / 开发者模式 /
+> §XII 的 `.zip` 安装 / §XII 的 `plugin_status` 全量后端插件。**判为 ⚪ N/A**：选区工具条（tiptap 富文本前提不存在）。
+
+#### 11.12.1 已核验的**真实剩余缺口**（按 用户可感度 × 成本 排序）
+
+| # | 缺口（用户可感知） | web 权威 `file:line` | 原生现状 `file:line` | 成本 | 风险（动哪个文件） | 能否机器判据 |
+|---|---|---|---|---|---|---|
+| 1 | **会话视图条「全部折叠 / 全部展开」** | `SessionViewBar.tsx:34-79` | 纯逻辑**已存在但 0 UI 消费**：`core/sessiongroup.ets:770 collapseAllPlan`（全仓仅 core 内 3 处定义，无页面/组件调用）；单组折叠已有 `Index.ets:4446 isGroupCollapsed`/`:4457 toggleGroup` | **XS** | **高**：`pages/Index.ets` | ✅ 可（钉 `collapseAllPlan` 调用点计数 ≥1 + mutation） |
+| 2 | **折叠工具组「组内按 kind 分组标头」** | `FoldedToolGroup.tsx:716` | 有跨迭代合并 + `+N` 溢出；**无 kind 分组标头**（`grep kindGroup/groupLabel/组标头` → 0） | S–M | 中：`components/{MessageRow,LiveTailView}.ets` | ✅ 可（钉分组判据函数调用点） |
+| 3 | **会话信息面板补全**（cwd **可编辑** / 消息数 / 最后活跃） | `sidebar/SessionInfo.tsx:40` | `components/StatusSheet.ets:94`（cwd **只读** `:106` + goal/用量/模型/上限）；**无**这三项 | S–M | 中：`components/StatusSheet.ets`（独立组件，低冲突） | ✅ 可 |
+| 4 | **PathPicker 自动补全下拉**（边打字边给候选） | `PathPicker.tsx:36` | `Index.ets:5969` 输入面 + `:5982-6025` 最近目录候选**已有**；**无**自动补全 | S–M | **高**：`pages/Index.ets` | ✅ 可 |
+| 5 | **NewSessionDialog 残余**（label 会话名 + 渠道 chip） | `NewSessionDialog.tsx:34,58-88` | `Index.ets:5944 NewSessionSheet`（工作目录 + 最近目录 + 取消/创建**已有**）；**无** label / 渠道 | S | **高**：`pages/Index.ets` | ✅ 可 |
+| 6 | **ThinkingModeControl 置于 composer** | `ThinkingModeControl.tsx:68`（`MessageInput.tsx` 内） | 四档逻辑在 **设置页** `components/SettingsLlm.ets:1060`；composer 内**无**档位控件 | S–M | **高**：`pages/Index.ets`（composer） | ✅ 可 |
+| 7 | **ShellPromoteBar**（shell 工具转后台） | `ToolRender.tsx:483` | `grep promote/ShellPromote` → **仅** `core/chattypes.ts:55` **注释**（RPC 目标语义）；**无 UI、无 RPC 常量** | M | **高**：`pages/Index.ets` + `components/ToolVisual.ets`（+可能 `core/`） | ⚠️ 部分（需先定 web 语义/契约） |
+| 8 | **分享页**（token 只读分享） | `SharePage.tsx:33` | `grep SharePage/分享页/shareToken` → **0**；仅 `core/http.ets:150 exportSessionCookie`（cookie，非分享） | M | 中：新页面（可能不碰 `Index.ets` 热区）+ **D 服务端 REST** | ⚠️ 部分 |
+
+**其余 🟡/❌ 经复核仍准确，但属「有意不同 / N/A / 未排期」**（⛔ 不是"遗漏"，别当缺口派单）：
+
+| 项 | 现判 | 依据 |
+|---|---|---|
+| ShimmerThinking 形态 | 🟡 有意不同 | 原生等价物 = 「思考中…」占位 + `AssistantOrb.ets`（`core/indicators.ets:96/105`），**非缺失** |
+| 移动端外壳 / 多标签 | 🟡 平台差 | 原生即移动端（抽屉 + Sheet）；多标签 = 会话池标签条 `Index.ets:4131-4134`（`poolOrder`） |
+| 设置 General 清缓存 | ⚪ N/A | 无可清对象（无 SW；md 解析缓存有界）—— §XI.3 已立论 |
+| 设置 Appearance UI_MODE | ⚪ N/A | 单手机布局；`KEY_UI_MODE` 死字段白名单（§XI.3 / settings_keys_consumed） |
+| 设置 Language 可写 | 🟡 未排期 | `core/i18n.ets` 只读 locale；UI 文案硬编码 ~100 处 ⇒ 大重构（§3） |
+| 消息注释创建侧 | ⚪ N/A | ArkUI 无跨 `Text` 选区 API（`SelectionContainer` `@since 26.0.0` > SDK21）—— §11.10 裁决 |
+| 选区工具条（tiptap） | ⚪ N/A | 原生输入是纯文本，富文本选区语义不存在 —— §X.E 裁决 |
+| Ambience 壁纸 | ❌ **不建议迁** | 且三个值无客户端抵达路径（`xbot.ambience` 无 `web` 面）—— §2.9 / §11.7 |
+| Web 缓存（TTL） | 🟡 存疑 | `core/config.ets` 偏好缓存语义近似，非同一实现 |
+| 会话信息面板缺项 | 🟡 | 见 11.12.1 #3（本轮列为剩余缺口） |
+| 会话搜索 | 🟡 服务端根因 | 端到端恒空**在服务端**（`handleSearch` 查库），本仓无法修 —— §11.5 ⑧-bis |
+
+#### 11.12.2 派单候选表（给主 agent，按依赖冲突分组）
+
+> 判据：**单文件低冲突** = 改动只落在 `components/**` 的**非热文件**或新文件；**高冲突** = 必须动 `pages/Index.ets`（或正在被别的线占用的 `components/**`）。
+> ⚠️ 派单前先 `git status --short`：本轮在途 = `pages/Index.ets` / `core/{markdown,render}.ets` / `components/QueueSheet.ets`（**别人持有，只上报不改**）。
+
+| 序 | 候选 | 依赖分档 | 冲突面 | 现成度（还差什么） |
+|---|---|---|---|---|
+| A | **会话视图条「全部折叠/展开」** | 单文件低冲突（`core/sessiongroup.ets` 已就绪 ⇒ 只需页面加按钮） | ⚠️ **高**（`Index.ets`） | 纯逻辑 ✅ + 只差 UI 接线 |
+| B | **折叠工具组 kind 分组标头** | 低冲突（`components/{MessageRow,LiveTailView}.ets`，但需先定 web 分组口径） | 中 | 需先定 web 语义 |
+| C | **会话信息面板补全（消息数/最后活跃/cwd 编辑）** | **单文件低冲突**（`components/StatusSheet.ets` 独立组件） | **低** | 需补数据面（消息数/最后活跃来源） |
+| D | **NewSessionDialog 残余（label/渠道 chip）** | 高冲突 | ⚠️ **高**（`Index.ets` `NewSessionSheet`） | 输入面已就绪，只差两字段 |
+| E | **PathPicker 自动补全下拉** | 高冲突 | ⚠️ **高**（`Index.ets` composer） | 输入面已就绪 |
+| F | **ThinkingModeControl 移入 composer** | 高冲突 | ⚠️ **高**（`Index.ets` composer） | 四档逻辑已在 `SettingsLlm`，需搬到 composer |
+| G | **ShellPromoteBar** | C+B（需先定 web 语义 + possibly `core/` RPC 常量） | ⚠️ **高** | 从 0 起（仅注释） |
+| H | **分享页** | A+B+D（新页面 + 服务端 REST token） | 中（新文件）+ 服务端依赖 | 从 0 起 + 需服务端 |
+
+**给调度的建议**：
+- **纯逻辑已就绪、只差接线**（最高性价比、可立即派）：**A**（`collapseAllPlan`）—— 但它是**唯一**一个"逻辑在、0 消费"的功能缺口（其余"逻辑就绪项"本轮已核**全部接线**）。
+- **单文件、不碰 `Index.ets`** 的低冲突项：**C**（`StatusSheet.ets` 独立组件）；**B** 若只改 `components/` 亦然（但需先定 web 分组口径）。
+- **必须动 `Index.ets`**（高冲突，建议串行排在 `perf4` 释放后）：A / D / E / F / G。
+- **依赖服务端**：H。
 
 ### 2.9 spec（待排期，主 agent 已裁决「原生应当消费」）——插件玻璃/壁纸/柔焦值未下沉
 
@@ -1119,8 +1191,8 @@ web 的**服务端 RPC 配置面**（LLM/Storage/Channels/WebUsers/About/Agent/T
 | ③ | 插件 **widget**：zones（styled spans）+ 声明式组件 | `plugins/PluginWidgetProvider.tsx:41-95`、`WidgetZone.tsx:14-69`、`components.tsx:37-259` | `core/widgetsview.ets:361 widgetsView` + `components/PluginWidgets.ets`；载荷接线 `core/store.ets:121-129` → `pages/Index.ets:1480-1482,3275-3276` → `PluginHost.ets:173-183` | **✅ 声明式 7 种齐**（`badge/progress/metric/sparkline/table/list/markdown`，与 web `components.tsx:236-259` **一一对应**）；`code`/`src` 仍降级（需 iframe 沙箱）。⚠️ **2026-10-11 收口 `sparkline`/`table`**（此前显式降级）——见 XII.5 |
 | ③ | widget 的**常驻落点**（`infoBar` 状态条） | `plugins/InfoBar.tsx:15-27`（**常驻**，含 `PluginPanelContainer container="info_bar"` + `WidgetZone zone="infoBar" excludePrefixes={['git:']}` + `SWUpdateButton`）· 挂载 `layouts/MobileAppShell.tsx:483-487` · 另 `git-info/GitStatusPanel.tsx:41` | `core/widgetsview.ets:640-710 widgetDockView`（纯逻辑）+ `components/WidgetDock.ets`（细条渲染）+ 接线 `pages/Index.ets`（`ChatView` 的输入框**下方**） | **✅ 2026-10-11 已落地（信息栏 zone 口径）** —— `infoBar` zone 的 spans 落在聊天页常驻细条（空态**零占位**）；⚠️ **刻意分叉**：web 恒占 24px 条（含 SW 更新按钮），原生**无 widget 时零高度**（不改变既有布局）；`git:` 前缀 span 随 web 排除（web 由 fancy `GitStatusPanel` 呈现，原生无该视图 ⇒ 不重复显示）。见 XII.6 |
 | ④ | 插件管理：**启用/禁用** + **重载** | `plugins/manager/PluginManagerPanel.tsx:82-127`（`plugin_reload` / `plugin_set_enabled` + 主动同步前端 runtime） | `components/SettingsPlugins.ets`（`RPC_PLUGIN_RELOAD`/`RPC_PLUGIN_SET_ENABLED`，`core/rpc.ets:1085,1087`）；判据 `core/settingsplugins.ets` | **✅ 已支持**（原生按用户要求收严为"写后回读"，不乐观更新） |
-| ④ | 插件管理：**安装 `.zip`** | `PluginManagerPanel.tsx:129-143` → `installPluginFile`（`components/agent/api.ts:644-649`，`POST /api/plugin/install-file` multipart） | **无**（`SettingsPlugins.ets:19` 明示"本期不呈现"） | **⛔ 缺** —— 需文件选择 + multipart 上传；修点 `components/Settings*.ets`（**域外**） |
-| ④ | **后端插件全量**视图（含**无 web 产物**者） | `PluginManagerPanel.tsx:52-76`（`plugin_status {rescan:true}` → script/grpc 运行时插件全貌） | **无** —— 原生只消费 `web_plugin_list`（`core/store.ets:1042`） | **⛔ 缺** —— 用户**看不到/管不了**纯后端插件；需新 RPC（`core/rpc.ets`，**域外**） |
+| ④ | 插件管理：**安装 `.zip`** | `PluginManagerPanel.tsx:129-143` → `installPluginFile`（`components/agent/api.ts:644-649`，`POST /api/plugin/install-file` multipart） | `components/SettingsPlugins.ets:659 installZip`（`:730` 常驻按钮）+ 纯逻辑 `core/settingsplugins.ets:1060-1191`（`pluginInstallFilenameFromUri`/`pluginInstallSizeOk`/`pluginUploadStatusFromMessage`） | ✅ **已支持**（⚠️ **2026-10-11 目标④订正**：原注「⛔ 缺」**已过时**） —— `DocumentViewPicker` 选 `.zip` → `XbotHttp.uploadBytes`（复用既有上传器，含管理员 403 文案） |
+| ④ | **后端插件全量**视图（含**无 web 产物**者） | `PluginManagerPanel.tsx:52-76`（`plugin_status {rescan:true}` → script/grpc 运行时插件全貌） | `components/SettingsPlugins.ets:496 loadBackend`（`:902-962` 渲染）+ `core/rpc.ets:1099 RPC_PLUGIN_STATUS` + 纯逻辑 `core/settingsplugins.ets:1202-1320` | ✅ **已支持**（⚠️ **2026-10-11 目标④订正**：原注「⛔ 缺」**已过时**） |
 | ⑤ | **组件面板**（按 slot 过滤 + `web_ui_action` 交互 + 沙箱） | `plugins/PluginComponentPanel.tsx:24-97`、`plugins/api.ts:16-47` | `core/widgetsview.ets` + `PluginWidgets.ets`（声明式已覆盖） | **🟡 半支持** —— 交互（`web_ui_action`）与 `code`/`src` 沙箱**架构性缺**（同 ① N/A 阵营） |
 | ⑥ | 设置页**插件配置表单**（schema 驱动 + 搜索 + section + 7 控件 + 图片上传） | `components/settings/SettingsPlugins.tsx:60-196,485-666,221-354` | `components/SettingsPlugins.ets` + `core/settingsplugins.ets`（`plugin_config`/`plugin_config_set`；控件/校验/掩码/滑条/分组的判据全在 core） | **✅ 已支持**（含 `image` 上传，`core/settingsplugins.ets:834-1000`） |
 | ⑦ | **频道**（内置 + 插件渠道；飞书一键绑定） | `settings/SettingsChannels.tsx:118-531`、`session/ChannelPicker.tsx:53-64` | `components/SettingsChannels.ets`（`FeishuBindPanel:345`、`feishu_app_guide`/`feishu_bind_start`/`feishu_bind_status`） | **✅ 已支持**（§11.3 上一批已订正"Channels 实际已实现"） |
@@ -1132,8 +1204,8 @@ web 的**服务端 RPC 配置面**（LLM/Storage/Channels/WebUsers/About/Agent/T
 | 优先级 | 差距 | 价值 | 成本 / 阻塞 | 备注 |
 |---|---|---|---|---|
 | **P0** | **widget 常驻落点（`infoBar`）** | **高** —— 此前 widget 在正常使用路径**完全不可见**（插件如 `xbot.git-fancy` 的状态一直"推了但没人看"） | `pages/Index.ets`（只加落点/接线）+ `components/WidgetDock.ets` + `core/widgetsview.ets` | **✅ 2026-10-11 已落地** —— 聊天页输入框下方常驻细条消费 `infoBar` zone（空态**零占位**）；判据 `tools/tests/widget_dock.test.ts`（35 断言 + 5 mutation）。见 XII.6 |
-| **P1** | `plugin_status` **全量后端插件** | 中高 —— "支持**所有**插件"的直接需求（纯后端插件现无入口） | 新 RPC（`core/rpc.ets`）+ 管理 UI（`Settings*.ets`）—— **均在域外** | 需先把 `plugin_status` 加入 `core/rpc.ets` 常量表 |
-| **P1** | **`.zip` 安装** | 中 —— 自助装插件（web 用户可自助，原生不能） | 文件选择 + multipart 上传；落 `components/SettingsPlugins.ets`（**域外**） | 参考 `installPluginFile` 的端点契约 `POST /api/plugin/install-file` |
+| ~~P1~~ | ~~`plugin_status` 全量后端插件~~ | — | — | ✅ **2026-10-11 已落地**（`core/rpc.ets:1099` + `SettingsPlugins.ets:496/902-962`）—— 原列 P1 **已过时** |
+| ~~P1~~ | ~~`.zip` 安装~~ | — | — | ✅ **2026-10-11 已落地**（`SettingsPlugins.ets:659 installZip`）—— 原列 P1 **已过时** |
 | **P2** | widget **`sparkline`/`table`** | 中低 —— 真插件用得少但存在（`iteration-stats` 类偏 metric） | `core/widgetsview.ets` + `components/PluginWidgets.ets` | **✅ 2026-10-11 已落地**（此前是**显式降级行**）——见 XII.5 |
 | **P2** | 插件**图标** 19/19 + 面板/目录**同源** | 中低（视觉一致性） | 低 ⇒ **本轮已落地** | 见 XII.3 |
 
@@ -1164,7 +1236,7 @@ mutation 实测：抽 `search` 分支 → 4 红；换回本地副本 → 3 红�
 ### XII.4 一句话结论
 
 **插件面已高度 parity**（目录/宿主页/设置配置表单/启停重载/频道/飞书绑定/**声明式 widget 7/7**/**widget 常驻信息栏落点** 均已落地）；
-**真缺口 2 条** —— ① `plugin_status` 全量后端插件（需新 RPC）② `.zip` 安装；
+**⚠️ 2026-10-11 目标④订正**：原记"真缺口 2 条"——① `plugin_status` 全量后端插件 ② `.zip` 安装 —— **现均已落地**（见 XII.1 ④两行 / XII.2 划除行）；
 另有 **4 条 N/A**（沙箱/桥/行为扩展/深链）与 **1 条 web 侧待补**（视图深链）。
 **⚠️ 无一条经过真机验证（本波设备禁令）⇒ 均标"待设备验证"。**
 
