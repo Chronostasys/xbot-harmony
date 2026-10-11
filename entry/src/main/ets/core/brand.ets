@@ -14,7 +14,7 @@
  * 坐标系：一切几何以 **1024×1024 画布**表达（比例驱动，非像素驱动）；任何尺寸都从它等比缩放
  * （`docs/BRAND.md §2`）。改样式只改这里的常量，别去改生成的资源。
  */
-import { Palette, darkPalette, isLightPalette } from './theme';
+import { Palette, darkPalette, isLightPalette, relativeLuminance, contrastRatio } from './theme';
 
 // ── 尺寸常量 ──────────────────────────────────────────────────────────────────
 
@@ -294,35 +294,13 @@ export const SUGGESTED_MAX_RADIUS: number = Math.round(0.8 * ICON_INSCRIBED_RADI
 
 // ── WCAG 对比度（纯函数；降级链与门禁共用同一口径）──────────────────────────────
 
-/**
- * WCAG 2.1 相对亮度（0..1）。
- * 接受 `#RRGGBB` 或 8 位 `#AARRGGBB`（取末 6 位；如 `Effects.glowSoft`）；非法值按黑（0）处理，**不抛**。
- */
-export function relativeLuminance(hex: string): number {
-  const h: string = hex.charAt(0) === '#' ? hex.slice(1) : hex;
-  const six: string = h.length === 8 ? h.slice(2) : h;
-  if (six.length !== 6) { return 0; }
-  const chan: number[] = [
-    parseInt(six.substring(0, 2), 16) / 255,
-    parseInt(six.substring(2, 4), 16) / 255,
-    parseInt(six.substring(4, 6), 16) / 255,
-  ];
-  const lin: number[] = [];
-  for (let i = 0; i < 3; i++) {
-    const v: number = chan[i];
-    lin.push(v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
-  }
-  return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
-}
-
-/** WCAG 2.1 对比度（≥ 1）。 */
-export function contrastRatio(a: string, b: string): number {
-  const la: number = relativeLuminance(a);
-  const lb: number = relativeLuminance(b);
-  const hi: number = la > lb ? la : lb;
-  const lo: number = la > lb ? lb : la;
-  return (hi + 0.05) / (lo + 0.05);
-}
+// ⚠️ **单一源收敛**（2026-10-11）：`relativeLuminance`/`contrastRatio` 原先在本文件**复制**了一份
+//    （与 `theme.ets` 公式等价 —— 双方独立比对均判等价；本轮 **11 处采样 0 不一致**实证，含 8 位
+//    `#AARRGGBB` 与非法输入）。⇒ 改为**复用 `./theme`**（`brand → theme` 单向；theme **不** import brand
+//    ⇒ 无环）。
+// **契约钉住**（⛔ 防 theme 侧将来改行为 ⇒ 静默改语义）：**非法输入 ⇒ 不抛、按黑(0)** ——
+//    `theme` 侧实测同样不抛 ⇒ 保持；判据见 `tools/tests/brand_contrast_contract.test.ts`。
+export { relativeLuminance, contrastRatio };
 
 // ── 降级链（presentation ladder：满幅 → 实心 → 轮廓 → wordmark）────────────────
 // 依据：`docs/mockups/brand-splash.html §③` 与 `docs/REDESIGN-INPUT-BRAND.md §3.3/§3.4`。
