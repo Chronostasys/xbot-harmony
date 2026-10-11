@@ -321,6 +321,11 @@ export function surfaceRoles(): SurfaceRole[] {
     // ⛔ 取值 = `p.surfaceAlt`（与现状调用点**逐字节等价**，深色渲染不变）。
     new SurfaceRole('surface.raised', RUNG_RAISED, false),
     new SurfaceRole('surface.overlayRow', RUNG_RAISED, false),
+    // **中性**"激活/选中"面（2026-10-11，tokens-ux spec）：自由面里 `pal().surfaceHi` 此前**无恒等 role**
+    // （`RUNG_ACTIVE` 只有两个**有语义**的角色：`overlayRowHover`=浮层行悬停 / `pillSelected`=选中的 pill）
+    // ⇒ 直取 `pal().surfaceHi` 的调用点无法收敛到唯一口径。本 role 提供**语义中性**的恒等入口。
+    // ⛔ 取值 = `p.surfaceHi`（走 `RUNG_ACTIVE` ⇒ 与现状调用点**逐字节等价**，深色渲染不变）。
+    new SurfaceRole('surface.active', RUNG_ACTIVE, false),
     new SurfaceRole('surface.overlayRowHover', RUNG_ACTIVE, false),
     new SurfaceRole('surface.pill', RUNG_RAISED, false),        // 工具 pill（普通）
     new SurfaceRole('surface.pillSelected', RUNG_ACTIVE, false),// 工具 pill（浮层打开的那一枚）
