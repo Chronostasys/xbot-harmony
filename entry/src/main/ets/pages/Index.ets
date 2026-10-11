@@ -3982,7 +3982,7 @@ struct Index {
   // ── P7：会话管理 ─────────────────────────────────────────────────────────
 
   /** 抽屉里显示的会话（本地筛选：按名字/chat_id，大小写不敏感）。 */
-  private filteredSessions(): SessionItem[] {
+  private filteredSessions(starredIn?: string[]): SessionItem[] {
     const out: SessionItem[] = [];
     for (let i = 0; i < this.sessions.length; i++) {
       const s: SessionItem = this.sessions[i];
@@ -3995,7 +3995,9 @@ struct Index {
     }
     // 星标优先（对齐 web `sortSessions` 的第一关键字）；同组内保持服务端下发顺序，
     // 不重排其余项 —— 避免与既有的置顶/上移/下移打架。
-    const starred: string[] = this.starredIds();
+    // ⚡ 性能热点（抽屉）：`starredIds()` 是 `parseStarred(settingOf(...))` = **每次都 JSON 解析**；
+    // 调用方（`drawerGroups`）已算过一次 ⇒ 传入复用（⛔ 不改变语义：同一帧内 settings 不变）。
+    const starred: string[] = starredIn !== undefined ? starredIn : this.starredIds();
     if (starred.length === 0) {
       return out;
     }
@@ -4062,14 +4064,22 @@ struct Index {
     this.collapsedGroups = next;
   }
 
-  /** 按 chat_id 取原始行（分组产物只带"分组/排序读到的字段"；行卡要渲染原始行）。 */
-  private sessionById(chatId: string): SessionItem | undefined {
+  /**
+   * `sessions` 的 **chat_id → 行** 索引（O(n) 建一次）。
+   *
+   * 为什么：`drawerGroups` 原对每个分组项调一次 `sessionById`（线性扫描）⇒ **O(n²)**；
+   * 抽屉每帧重建（`DrawerSheet` 直接消费 `drawerGroups()`）⇒ 6s 级主线程阻塞的嫌疑点。
+   * ⚠️ **首命中优先**（`if (!has) set`）⇒ 与原逐项线性扫描**逐字等价**（重复 id 时同取首个）。
+   */
+  private sessionIndex(): Map<string, SessionItem> {
+    const idx: Map<string, SessionItem> = new Map<string, SessionItem>();
     for (let i = 0; i < this.sessions.length; i++) {
-      if (this.sessions[i].chat_id === chatId) {
-        return this.sessions[i];
+      const s: SessionItem = this.sessions[i];
+      if (!idx.has(s.chat_id)) {
+        idx.set(s.chat_id, s);
       }
     }
-    return undefined;
+    return idx;
   }
 
   /**
@@ -4085,14 +4095,18 @@ struct Index {
    */
   private drawerGroups(): DrawerGroup[] {
     const cat: string = this.sessionCategory();
+    // ⚡ 每帧只算**一次** starred（原：filteredSessions 内一次 + 这里一次 ⇒ 两次 JSON 解析）。
+    const starred: string[] = this.starredIds();
     const groups: SessionGroup[] = groupSessionsFromItems(
-      this.filteredSessions(), cat, this.starredIds());
+      this.filteredSessions(starred), cat, starred);
+    // ⚡ 回查改**预建索引**（原：每项一次线性扫描 ⇒ O(n²)）。
+    const idx: Map<string, SessionItem> = this.sessionIndex();
     const out: DrawerGroup[] = [];
     for (let i = 0; i < groups.length; i++) {
       const g: SessionGroup = groups[i];
       const items: SessionItem[] = [];
       for (let j = 0; j < g.sessions.length; j++) {
-        const it: SessionItem | undefined = this.sessionById(g.sessions[j].chatId);
+        const it: SessionItem | undefined = idx.get(g.sessions[j].chatId);
         if (it !== undefined) {
           items.push(it);
         }
@@ -4109,14 +4123,15 @@ struct Index {
     }
     // path 组的**重名消歧**：web 把完整路径放在 hover tooltip（`SessionGroup.tsx:82`），
     // 原生端没有 hover ⇒ 只在"末段目录名重复"时补一行完整路径（保持列表干净）。
+    // ⚡ 消歧由 O(g²) 嵌套扫描改为 **O(g)** 计数（语义逐字等价：title 出现 >1 次即"重名"）。
+    const titleCount: Map<string, number> = new Map<string, number>();
     for (let i = 0; i < out.length; i++) {
-      let dup: boolean = false;
-      for (let j = 0; j < out.length; j++) {
-        if (i !== j && out[j].title === out[i].title) {
-          dup = true;
-          break;
-        }
-      }
+      const t: string = out[i].title;
+      const c: number = titleCount.get(t) !== undefined ? (titleCount.get(t) as number) : 0;
+      titleCount.set(t, c + 1);
+    }
+    for (let i = 0; i < out.length; i++) {
+      const dup: boolean = (titleCount.get(out[i].title) as number) > 1;
       out[i].tip = dup ? pathGroupTooltip(out[i].key, cat) : '';
     }
     return out;
