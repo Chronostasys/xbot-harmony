@@ -328,43 +328,43 @@ export struct SettingsPanel {
     .padding({ left: SPACE_LG, right: SPACE_XS, top: SPACE_XS, bottom: SPACE_XS })
   }
 
-  /** 分区切换条（与各面板的"片"同视觉语言）。分区多 ⇒ 横向可滚，避免窄屏挤爆。 */
+  /**
+   * 分区切换条（与各面板的"片"同视觉语言）。
+   * ⚠️ **改 `Flex(wrap)`（2026-10-12）**：原先横向 `Scroll` + `scrollBar(Off)` + `clip(true)`
+   * 在 6 个分区时会**把末项（消息渠道）切在屏幕右缘**（无滚动提示 ⇒ 看起来"坏了"，真机截图确认）
+   * ⇒ 用换行（`FlexWrap.Wrap`）保证**任何屏宽都不切字**，且无需隐藏滚动条这一"看不见的 affordance"。
+   */
   @Builder
   TabBar() {
-    Scroll() {
-      Row({ space: SPACE_XS }) {
-        ForEach(this.tabs(), (t: SettingsTabSpec) => {
-          Text(t.label)
-            .fontSize(fs('type.caption'))
-            .fontWeight(fw('type.caption'))
-            .lineHeight(lh('type.caption'))
-            .fontColor(t.id === this.active ? this.pal().onAccent : tc(this.pal(), 'type.caption'))
-            .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
-            .backgroundColor(t.id === this.active
-              ? this.pal().accent
-              : surfaceFillOf(this.pal(), 'surface.chip'))
-            .borderRadius(RADIUS_PILL)
-            .border({
-              width: STROKE_HAIRLINE,
-              color: t.id === this.active ? this.pal().accent : hairlineOf(this.pal()),
-            })
-            .constraintSize({ minHeight: HIT_TARGET_MIN })
-            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-            .onClick(() => {
-              this.active = t.id;
-              // 通知偏好**按需**拉取（首次进入该分区才发 RPC，避免每次打开设置都打服务端）
-              if (t.id === SETTINGS_TAB_NOTIFY && !this.notifyLoaded) {
-                void this.loadNotifyPrefs();
-              }
-            })
-        }, (t: SettingsTabSpec) => `tab|${t.id}`)
-      }
+    Flex({ wrap: FlexWrap.Wrap }) {
+      ForEach(this.tabs(), (t: SettingsTabSpec) => {
+        Text(t.label)
+          .fontSize(fs('type.caption'))
+          .fontWeight(fw('type.caption'))
+          .lineHeight(lh('type.caption'))
+          .fontColor(t.id === this.active ? this.pal().onAccent : tc(this.pal(), 'type.caption'))
+          .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
+          .backgroundColor(t.id === this.active
+            ? this.pal().accent
+            : surfaceFillOf(this.pal(), 'surface.chip'))
+          .borderRadius(RADIUS_PILL)
+          .border({
+            width: STROKE_HAIRLINE,
+            color: t.id === this.active ? this.pal().accent : hairlineOf(this.pal()),
+          })
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
+          .margin({ right: SPACE_XS, bottom: SPACE_XS })
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            this.active = t.id;
+            // 通知偏好**按需**拉取（首次进入该分区才发 RPC，避免每次打开设置都打服务端）
+            if (t.id === SETTINGS_TAB_NOTIFY && !this.notifyLoaded) {
+              void this.loadNotifyPrefs();
+            }
+          })
+      }, (t: SettingsTabSpec) => `tab|${t.id}`)
     }
     .width('100%')
-    .scrollable(ScrollDirection.Horizontal)
-    .scrollBar(BarState.Off)
-    // H0（contrast-ux 硬红）：横向 Scroll 必须自裁剪 ⇒ 内容不溢出容器边界。
-    .clip(true)
   }
 
   build() {

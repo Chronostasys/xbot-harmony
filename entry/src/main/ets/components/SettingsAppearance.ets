@@ -303,10 +303,12 @@ export struct SettingsAppearance {
    *
    * ⚠️ 颜色圆点不是文本 chip，`SettingsChipRow` 覆盖不了 ⇒ 这是**唯一**一段无对应原子的控件；
    *    其尺寸/命中区仍取令牌（`HIT_TARGET_MIN` 圆点、`STROKE_HAIRLINE` 描边、`hairlineOf`）。
+   * ⚠️ **改 `Flex(wrap)`（2026-10-12）**：原 `Row` 单行 + 末尾向右 `padding`，在 6 预设 + 「跟随主题」
+   *    时会**把第 7 个圆点切在屏幕右缘**（真机截图确认）⇒ 换行保证不切。
    */
   @Builder
   AccentSwatches() {
-    Row({ space: SPACE_XS }) {
+    Flex({ wrap: FlexWrap.Wrap }) {
       ForEach(ACCENT_PRESETS, (hex: string) => {
         Stack({ alignContent: Alignment.Center }) {
           if (this.accentHex().toUpperCase() === hex) {
@@ -323,6 +325,7 @@ export struct SettingsAppearance {
           width: this.accentHex().toUpperCase() === hex ? 2 : STROKE_HAIRLINE,
           color: this.accentHex().toUpperCase() === hex ? this.pal().textPrimary : hairlineOf(this.pal()),
         })
+        .margin({ right: SPACE_XS, bottom: SPACE_XS })
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .accessibilityText('强调色 ' + hex)
         .onClick(() => {
@@ -340,6 +343,7 @@ export struct SettingsAppearance {
       .borderRadius(HIT_TARGET_MIN / 2)
       .backgroundColor(this.pal().surfaceAlt)
       .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+      .margin({ right: SPACE_XS, bottom: SPACE_XS })
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
       .accessibilityText('跟随主题')
       .onClick(() => {
@@ -347,7 +351,7 @@ export struct SettingsAppearance {
       })
     }
     .width('100%')
-    .padding({ left: SPACE_SM, right: SPACE_SM, bottom: SPACE_XS })
+    .padding({ left: SPACE_SM, right: SPACE_SM })
   }
 
   /**

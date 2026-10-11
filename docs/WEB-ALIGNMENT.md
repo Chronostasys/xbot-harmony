@@ -1317,3 +1317,25 @@ N 个药丸堆叠、chrome 噪点大；web 侧本就是纯列表）⇒ **一个�
 
 **未做（记账）**：另两个 sheet 的 `CtxItem`（`SearchHitsSheet` 仅「关闭」/ `ContextSheet` 消息复制类
 动作）仍是纯文字 —— 图标化留待 ⑨「面板同源清理」一并做（消息复制类需另找字形）。
+
+### 21.17 目标③（第五批·⑨）：设置面板「多枚举控件」溢出裁剪 → **换行**（2026-10-12）
+
+**真机问题**（截图确认）：`components/SettingsPanel.ets` 顶部**分区切换条**原为
+`Scroll` + `.scrollable(ScrollDirection.Horizontal)` + `.scrollBar(BarState.Off)` + `.clip(true)` 的
+**单行横向滚动** —— 12 个分区（外观/工具/模型/智能体/插件/消息渠道/存储/Web 账号/开发者/通知/关于/账号）
+时，**末项被切在屏幕右缘**（半字），且滚动条被关掉 ⇒ **零"可滚动"affordance** ⇒ 用户看到的是"坏了"。
+`components/SettingsAppearance.ets` 的**强调色色板**同理（6 预设 + 「跟随主题」= 7 个圆点，第 7 个被切）。
+
+**修法**（= 本仓既有约定，见 `SettingsRows.ets:SettingsChipRow`）：两处都改
+**`Flex({ wrap: FlexWrap.Wrap })` + 逐项 `.margin({ right: SPACE_XS, bottom: SPACE_XS })`** ⇒
+**任何屏宽都不切字**、也不需要"隐藏滚动条"这种看不见的 affordance（真机：12 个分区 3 行、7 个圆点 2 行）。
+① 分区条去掉 `Scroll`/`scrollBar(Off)`/`clip(true)`；② 色板由 `Row` 改 `Flex(wrap)`。
+
+**判据（判别力已自证）**：新增 `tools/tests/settings_panel_wrap.test.ts`（7 条，读两文件**真源**+剥注释）——
+`TabBar` 区间有 `Flex({ wrap: FlexWrap.Wrap })` / 无 `ScrollDirection.Horizontal` / 无 `scrollBar(BarState.Off)`
+/ 有逐项 `margin`；`AccentSwatches` 区间有 `Flex({ wrap: FlexWrap.Wrap })`。**自证**：注入"TabBar 换回
+单行 `Row`" ⇒ **1 红**；"色板换回 `Row`" ⇒ **1 红**。
+
+**未做（记账）**：其余面板（`StatusSheet`/`PluginsSheet`/`QueueSheet`/`SelfCheckSheet`/`SettingsPanel`）
+的**页头**仍有三种实现（标题：完整 `type.headline` role vs 裸 `FS_TITLE`+`fw`；关闭 X：44 真盒 vs
+`.padding(SPACE_MD)`；X 尺寸：`X_GLYPH 17` vs `ICON_LG 16`）—— 统一留待下一批（属"锦上添花"，非缺陷）。
