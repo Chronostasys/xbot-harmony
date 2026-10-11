@@ -139,14 +139,36 @@ Column() { this.Inline(b.text) }
 **机制**：`syncFrom()` 在**每次 store 变更**时被调用（流式期间 = 每个 SSE 事件一次），而它里面
 **无条件**执行 `listScroller.scrollEdge(Edge.Bottom)` ⇒ 任何滚动位置都被反复重置。
 
-**修法**：`@State atBottom`，由 `List.onScrollIndex` 维护（判据：最后可见项的**列表项下标**是否等于末项下标），
-只在 `atBottom === true` 时跟随；**切会话时强制置 true**（用户预期"看到最新"）。
+**修法**：`@State followBottom` —— 它是**用户意图标志**（= web `!userScrolledUp`），**不是位置快照**。
+判据本体是**纯函数** `core/listfollow.nextFollowBottom(prev, userDriven, endIndex, itemCount)`
+（脱机单测 `tools/tests/listfollow.test.ts`）；`pages/Index.ets` 只做 ArkUI 胶水：
+
+```ts
+.onWillScroll((o, st, src) => { this.userScrollFrame = isUserScrollSource(src); })   // 只记"是不是用户干的"
+.onScrollIndex((start, end) => { this.followBottom = nextFollowBottom(this.followBottom, userDriven, end, n); })
+```
+跟随开关只在 `followBottom === true` 时触发 `scrollEdge(Edge.Bottom)`；**切会话 / 点「回到最新」强制置 true**
+（用户预期"看到最新"）；`navToRow`（用户点导航）置 false。
+
+⛔ **只有用户输入能翻转它**：程序滚动（`ScrollSource.SCROLLER` / `SCROLLER_ANIMATION`，即 `Scroller`
+成员方法 `scrollEdge`/`scrollToIndex`）与**内容增删引起的钳位/索引回调**一律不置位。
+
+> **2026-10-11 真机 P0（用户报「有时候点击工具 pill 自动把视角跳到最下方」）的根因就是本条的旧写法**：
+> 旧版把 `atBottom` 当**位置快照**、由 `onScrollIndex` **无条件双向赋值** ⇒ 内容增删（live 行在飞⇄折叠、
+> busy 占位符进出、行窗口放开）引起重排/钳位时会把 `atBottom` **误置 true 并粘住**，之后任意一次
+> store 变更（流式事件，或**点工具 pill** 触发的 `fetchIterationDetail`）就 `scrollEdge(Bottom)`。
+> **别再让"最后可见项 == 末项"这种会被非用户动作改写的判据去写"是否跟随"** —— 位置可以算，
+> 意图只能由用户输入改（web 同源：`userScrolledUp` 只由用户输入翻转）。
 
 **两个必须注意的点**：
 
-1. `onScrollIndex` 给的是**列表项**下标，而列表项数 **≠ rows.length**（头部可能多一项"加载更早消息"、
-   尾部可能多一项 busy 指示器）⇒ 必须用显式 `listItemCount(hasMore, loadingMore, rowsLen, busy)` 计算末项下标。
-2. 该 helper 必须是**模块级函数**（ArkUI 的 struct 不是普通类，静态成员在真机上是 `undefined`）。
+1. `onScrollIndex` 给的是**列表项**下标，而列表项数 **≠ rows.length** ⇒ 必须用显式 `listItemCount()` 计算末项下标，
+   且**头项判据必须与渲染它的那个 `if` 同源**：渲染头项的条件是
+   `hasMore || loadingMore || hiddenRowCount(...) > 0`（**三者缺一不可**；`pages/Index.ets` 统一走 `hasHeadItem()`）。
+   漏掉 `hiddenRowCount` 一项 ⇒"全量历史已加载但行窗口被截断"（长会话常态）时项数**少算 1** ⇒
+   `end >= n-1` 提前一项成立 ⇒ 用户还差一项才到底却被判成贴底（同一 P0 的第二个成因）。
+2. 该 helper 必须是**纯函数 / 模块级函数**（ArkUI 的 struct 不是普通类，静态成员在真机上是 `undefined`；
+   `core/*.ets` 里不许引用 ArkUI 全局类型，故 `ScrollSource` → boolean 的映射留在页面侧）。
 
 **同源铁律（与 xbot Web 端一致）**：所有"滚到底部"调用都必须由"用户没往上滚"守卫，
 否则就是抢用户的滚动位置。
