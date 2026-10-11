@@ -20,6 +20,12 @@ import { isLightPalette, paletteOf } from '../core/theme';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'xbot';
+/**
+ * `loadContent('pages/Index')` 失败后的**重试次数**（重试 1 次 ⇒ 共 2 试）。
+ * 取 1 的理由：失败基本都是瞬时/环境类（打包/资源/上下文未就绪），第二次有实质机会；
+ * 再多只会拖长"空白期"（此时用户已经没有任何可读内容），不如**尽快进兜底页**。
+ */
+const MAX_LOAD_RETRY: number = 1;
 
 export default class EntryAbility extends UIAbility {
   private darkSystem: boolean = true;
@@ -60,16 +66,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
-    windowStage.loadContent('pages/Index', (err: BusinessError) => {
-      if (err.code !== 0) {
-        hilog.error(DOMAIN, TAG, 'loadContent failed: %{public}s', JSON.stringify(err));
-        return;
-      }
-      hilog.info(DOMAIN, TAG, 'loadContent succeeded');
-      // 通知授权必须**在 UI 就绪之后**请求（授权框需要一个已加载好的 UIAbility 上下文）；
-      // 失败（用户拒绝 / 弹框冲突）只记日志，不影响启动。
-      ensureEnabled(this.context);
-    });
+    this.loadContentWithRetry(windowStage, 0);
 
     // ⛔ 不启用沉浸式（full-screen layout）。
     // 原因（2026-10-09）：`setWindowLayoutFullScreen(true)` 会让内容铺到状态栏/挖孔之下，
@@ -158,5 +155,38 @@ export default class EntryAbility extends UIAbility {
       const err: BusinessError = e as BusinessError;
       hilog.warn(DOMAIN, TAG, 'captureOpenChat skipped: %{public}s', err.message);
     }
+  }
+
+  /**
+   * 加载首页 —— **失败绝不静默**（`docs/SPLASH-SPEC.md §10 ③` 的最小落地）：
+   *   ① 打**明确 tag** 的 `hilog.error`（`xbot` ⇒ 可 `hilog -x | grep xbot` 归因）；
+   *   ② **重试一次**（`MAX_LOAD_RETRY`）；
+   *   ③ 两试仍失败 ⇒ 加载**最小兜底页** `pages/Fallback`（纯文本；⛔ 不白屏、⛔ 不复杂 UI）。
+   *
+   * 为什么"不静默 return"是最低要求：`loadContent` 失败 ⇒ 页面根本没挂载 ⇒ 系统开屏撤下后
+   * **屏幕上什么都没有**，而日志只有一行 error ⇒ 现场无法归因、用户只会说"打不开"。
+   */
+  private loadContentWithRetry(windowStage: window.WindowStage, attempt: number): void {
+    windowStage.loadContent('pages/Index', (err: BusinessError) => {
+      if (err.code === 0) {
+        hilog.info(DOMAIN, TAG, 'loadContent succeeded');
+        // 通知授权必须**在 UI 就绪之后**请求（授权框需要一个已加载好的 UIAbility 上下文）；
+        // 失败（用户拒绝 / 弹框冲突）只记日志，不影响启动。
+        ensureEnabled(this.context);
+        return;
+      }
+      hilog.error(DOMAIN, TAG, 'loadContent failed (attempt=%{public}d): %{public}s', attempt, JSON.stringify(err));
+      if (attempt < MAX_LOAD_RETRY) {
+        this.loadContentWithRetry(windowStage, attempt + 1);
+        return;
+      }
+      // 两试均失败 ⇒ **兜底**（⛔ 不白屏）
+      hilog.error(DOMAIN, TAG, 'loadContent 两试均失败 ⇒ 加载兜底页 pages/Fallback');
+      windowStage.loadContent('pages/Fallback', (e2: BusinessError) => {
+        if (e2.code !== 0) {
+          hilog.error(DOMAIN, TAG, '兜底页也加载失败: %{public}s', JSON.stringify(e2));
+        }
+      });
+    });
   }
 }

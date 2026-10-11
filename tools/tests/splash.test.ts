@@ -247,16 +247,19 @@ function stripComments(src: string): string {
     splashBrandCanvas() === splashBrandCanvas() && splashBrandCanvas() === darkPalette().appBg);
 }
 
-// ── ② 品牌开屏标记档位（**恒定深色面** —— 方案 (a)；委托 core/brand.markLevelFor）────────────
+// ── ② 品牌开屏标记档位 —— **恒 `full`**（2026-10-11 裁决：删死码，不留死分支）──────────────
 //
-// 品牌标记是**品牌资产**：恒紫、⛔ 不做浅色变体（`docs/DESIGN-SYSTEM.md §13.6`）——
-//   此前 porcelain 走 `solid` 档，但 `SplashOverlay` 对 `full`/`solid` **渲染同一张**预生成品牌紫 PNG
-//   （`tools/brand/emit.js` 用 `brandAccent()` 生成）⇒ 真机标记**永远紫**（与调用方声称不符）。
-//   现承载面恒为 `splashBrandCanvas()`（深色）⇒ 恒 `full` ⇒ 与渲染的紫色 PNG 一致。
+// 品牌标记是**品牌资产**：恒紫、⛔ 不做浅色/单色/wordmark 变体（`docs/DESIGN-SYSTEM.md §13.6`）。
+//   此前委托 `markLevelFor`，但开屏的调用点**恒**传 `monochrome=false` + `size=SPLASH_MARK_BOX_VP(160)`
+//   `≫ MARK_MIN_GLYPH_VP(24)` ⇒ `OUTLINE` / `WORDMARK` **永不可达**（死码）⇒ 现为**恒 `full`** 的常量判据。
+//   ⛔ `core/brand.markLevelFor` 仍是**通用**降级链（服务**其它**消费者，如通知小图标选资产）——**未动**。
+//
+// mutation 自证：把 `splashBrandMarkLevel` 改成 `return MARK_LADDER_OUTLINE;`（或恢复 size/monochrome 入参
+//   与分支）⇒ 下面第一条必红。
 {
-  eq('品牌开屏标记 ⇒ FULL（深色面 ⇒ 预生成的品牌紫 PNG）', splashBrandMarkLevel(SPLASH_MARK_REF_VP, false), MARK_LADDER_FULL);
-  eq('单色/无障碍 ⇒ OUTLINE（零填充零发光）', splashBrandMarkLevel(SPLASH_MARK_REF_VP, true), MARK_LADDER_OUTLINE);
-  eq('边长过小 ⇒ WORDMARK', splashBrandMarkLevel(20, false), MARK_LADDER_WORDMARK);
+  eq('品牌开屏标记 ⇒ **恒 `full`**（预生成的品牌紫 PNG）', splashBrandMarkLevel(), MARK_LADDER_FULL);
+  ok('  ⇒ 无入参 ⇒ 结构上不可能降级（同 `splashPhaseIsInFlight` 的"恒值判据"范式）',
+    splashBrandMarkLevel() === MARK_LADDER_FULL && splashBrandMarkLevel() === MARK_LADDER_FULL);
   // 标记可见性：品牌标记色对**品牌画布**的对比度（WCAG 非文本 ≥ 3:1）
   const c: number = contrastRatio(brandAccent(), splashBrandCanvas());
   ok(`品牌标记对品牌画布对比度 ≥ 3:1（非文本；实得 ${c.toFixed(4)}）`, c >= 3.0);
@@ -334,7 +337,14 @@ function stripComments(src: string): string {
   ok('① 组件**不接** canvasFollowApp（FOLLOW_APPLICATION 已废弃）', oc.indexOf('canvasFollowApp') < 0);
   ok('① 组件**不接** systemDark（不再按系统深浅选基准画布）', oc.indexOf('systemDark') < 0);
   ok('② 组件**消费**恒定画布 splashBrandCanvas()', oc.indexOf('splashBrandCanvas()') >= 0);
-  ok('② 组件**消费**恒定标记 splashBrandMarkLevel(', oc.indexOf('splashBrandMarkLevel(') >= 0);
+  // ⚠️ 2026-10-11 起：标记**恒 `full`** ⇒ 组件侧没有"挑档"这件事（`OUTLINE`/`WORDMARK` 死码已删）
+  //    ⇒ 断言从"组件消费 splashBrandMarkLevel"改为"组件**不再有**挑档 + 直接渲染品牌标记"。
+  ok('② 组件**不再**有标记挑档（无 level()、无 MARK_LADDER_*）',
+    oc.indexOf('level()') < 0 && oc.indexOf('MARK_LADDER_') < 0);
+  ok('② 组件**直接**渲染预生成的品牌标记 $r(\'app.media.start_icon\')',
+    oc.indexOf("$r('app.media.start_icon')") >= 0);
+  ok('② 组件**不再**引用 brand_mark_outline（该资产现由**通知小图标**独占消费）',
+    oc.indexOf('brand_mark_outline') < 0);
   ok('② 组件**不再**用旧的 theme 版判据（splashCanvasOf/splashMarkLevelOf）',
     oc.indexOf('splashCanvasOf') < 0 && oc.indexOf('splashMarkLevelOf') < 0);
   ok('③ 接线处**不再**传 canvasFollowApp 给 SplashOverlay', ic.indexOf('canvasFollowApp') < 0);

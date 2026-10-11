@@ -15,9 +15,9 @@
  *      **让位/退出（T2）不许超调**（`animEaseOut()` = `EASE_OUT_CSS`，`components/anim.ets:103`，
  *      已就绪）。`@ohos/curves` 只许在 `components/anim.ets` import，组件侧**不能自造曲线**。
  *   3. **颜色零字面量**：唯一入口 `colorOf(p, role)`；底色走 `core/splash.splashBrandCanvas()`
- *      （**恒定品牌深色**，= T0 系统开屏色）；标记档位走 `core/splash.splashBrandMarkLevel()`
- *      （**恒定深色面** ⇒ `full` = 预生成的品牌紫 PNG，由 `core/brand.brandAccent()` 生成，**不走** `colorOf`）；
- *      深浅判据在 `core/splash.splashBrandMarkLevel` 内（`isLightPalette`，⛔ 不按主题名硬判）。
+ *      （**恒定品牌深色**，= T0 系统开屏色）；标记**恒 `full`** —— 一枚预生成的品牌紫 PNG
+ *      （`$r('app.media.start_icon')`，由 `tools/brand/emit.js` 用 `brandAccent()` 生成，**不走** `colorOf`）；
+ *      判据 = `core/splash.splashBrandMarkLevel()`（**恒 full**，纯函数/可脱机单测）。
  *   3b. **T1 画布与标记恒**不随 `theme`**变化**（真机缺陷修复 2026-10-11，方案 (a)「品牌开屏恒深」）：
  *      本组件**不接 `theme`** —— 这是"画布不在展示期间翻色"的**结构性保证**（⛔ 不是靠调用方自觉）。
  *      画布 = `splashBrandCanvas()`（= T0 色 ⇒ T0→T1 **零跳色**）；品牌标记 = 品牌资产、恒紫
@@ -34,7 +34,6 @@ import { Palette, darkPalette } from '../core/theme';
 import {
   HIT_TARGET_MIN, RADIUS_CHIP, SPACE_HAIR, SPACE_SM, SPACE_XL, colorOf, typeOf,
 } from '../core/design';
-import { MARK_LADDER_OUTLINE, MARK_LADDER_WORDMARK } from '../core/brand';
 import {
   SPLASH_HINT_DELAY_MS,
   SPLASH_HINT_ENTER_OPACITY,
@@ -48,7 +47,6 @@ import {
   SPLASH_T2,
   SPLASH_T3,
   splashBrandCanvas,
-  splashBrandMarkLevel,
 } from '../core/splash';
 import { animBase, animEaseOut } from './anim';
 
@@ -104,10 +102,8 @@ export struct SplashOverlay {
     return splashBrandCanvas();
   }
 
-  /** 标记档位（唯一判据在 core/brand.markLevelFor，经 core/splash 委托；⛔ 不读 `theme`）。 */
-  private level(): string {
-    return splashBrandMarkLevel(SPLASH_MARK_BOX_VP, false);
-  }
+  // ⛔ 不再有 `level()`：档位**恒 `full`**（`core/splash.splashBrandMarkLevel()`，纯判据/可单测）
+  //    ⇒ 组件侧没有"挑档"这件事（原先 `WORDMARK`/`OUTLINE` 两分支永不可达，已删死码）。
 
   aboutToAppear(): void {
     if (this.reduceMotion) {
@@ -160,34 +156,18 @@ export struct SplashOverlay {
         .backgroundColor(this.canvasColor())
 
       // ── 标记（T1 入场）—— ⛔ 内联，不抽 @Builder（见文件头纪律 1）──────────────
-      if (this.level() === MARK_LADDER_WORDMARK) {
-        Text('xbot')
-          .fontSize(typeOf('type.display').size)
-          .fontWeight(typeOf('type.display').weight)
-          .letterSpacing(typeOf('type.display').tracking)
-          .fontColor(colorOf(this.pal(), 'textPrimary'))
-          .opacity(this.markOpacity)
-          .scale({ x: this.markScale, y: this.markScale })
-          .translate({ y: -this.markLift })
-      } else if (this.level() === MARK_LADDER_OUTLINE) {
-        Image($r('app.media.brand_mark_outline'))
-          .width(SPLASH_MARK_BOX_VP)
-          .height(SPLASH_MARK_BOX_VP)
-          .objectFit(ImageFit.Contain)
-          .opacity(this.markOpacity)
-          .scale({ x: this.markScale, y: this.markScale })
-          .translate({ y: -this.markLift })
-      } else {
-        // `full` / `solid`：同一枚**自带颜色**的开屏标记（紫气泡 + 反色星芒，透明底）
-        // —— 见 `docs/BRAND.md §4.1`（深浅底上都可读，故**不**做两版）。
-        Image($r('app.media.start_icon'))
-          .width(SPLASH_MARK_BOX_VP)
-          .height(SPLASH_MARK_BOX_VP)
-          .objectFit(ImageFit.Contain)
-          .opacity(this.markOpacity)
-          .scale({ x: this.markScale, y: this.markScale })
-          .translate({ y: -this.markLift })
-      }
+      //    档位**恒 `full`**（`core/splash.splashBrandMarkLevel()`）：一枚**自带颜色**的开屏标记
+      //    （品牌紫气泡 + 反色星芒，透明底）—— 见 `docs/BRAND.md §4.1`（深浅底上都可读，故**不**做两版）。
+      //    ⚠️ 2026-10-11 删死码：原先的 `WORDMARK`（`size < 24`）/ `OUTLINE`（`monochrome`）两条分支
+      //    在本组件**永不可达**（恒传 `monochrome=false`、`size = 160 ≫ 24`）⇒ 连同其资产引用一并删除。
+      //    ⛔ `brand_mark_outline.svg` 的唯一消费者 = 通知小图标（`workreconcile/icons.ets`）——**不是**死资产。
+      Image($r('app.media.start_icon'))
+        .width(SPLASH_MARK_BOX_VP)
+        .height(SPLASH_MARK_BOX_VP)
+        .objectFit(ImageFit.Contain)
+        .opacity(this.markOpacity)
+        .scale({ x: this.markScale, y: this.markScale })
+        .translate({ y: -this.markLift })
 
       // ── 跳过提示（视觉小 12–32vp；热区 ≥44 靠 `responseRegion` 外扩 ⇒ ⛔ 不改布局尺寸）──
       Column() {

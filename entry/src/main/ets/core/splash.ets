@@ -21,12 +21,12 @@
  * ⛔ "在飞"铁律（`docs/DESIGN-SYSTEM.md §8`）：同一时刻**只允许一个在飞动效 = 光球**。
  *    开屏 T1/T2 是**一次性过渡**，不是"在飞" ⇒ 光球在 T3 才允许启动（`splashOrbAllowed`）。
  */
-import { Palette, darkPalette, isLightPalette } from './theme';
+import { darkPalette } from './theme';
 import { MOTION_BASE_MS, MOTION_SLOW_MS, MOTION_FAST_MS } from './motion';
 import { ORB_BREATH_MS } from './orb';
 import { EASE_SPRING_CSS, EASE_OUT_CSS } from './tokens';
 import { SPACE_SM, SPACE_XXL } from './design';
-import { BrandSurface, brandAccentFor, contrastRatio, markLevelFor } from './brand';
+import { MARK_LADDER_FULL } from './brand';
 
 // ════════════════════════════════════════════════════════════════════════════
 // 1. 标识（字符串常量 —— 与 `core/brand.ets: MARK_LADDER_*` / `AssistantOrb: ORB_MODE_*` 同法）
@@ -400,21 +400,19 @@ export function splashBrandCanvas(): string {
 }
 
 /**
- * ④ 品牌开屏标记档位（**恒定深色面**，方案 (a)）。
+ * ④ 品牌开屏标记档位 —— **恒 `full`**（"满幅品牌色 + 反色 glyph" = 预生成的品牌紫 PNG
+ * `$r('app.media.start_icon')`，由 `tools/brand/emit.js` 用 `brandAccent()` 生成）。
  *
- * 品牌标记是**品牌资产**：恒用品牌色、⛔ 不随应用主题/强调色变（`docs/DESIGN-SYSTEM.md §13.6`）。
- * 承载面恒为 `splashBrandCanvas()`（深色）⇒ 走 `markLevelFor` 的**深色臂** ⇒ `full`
- *   （= 预生成的品牌紫 PNG `$r('app.media.start_icon')`，由 `tools/brand/emit.js` 用
- *    `brandAccent()` 生成；⛔ **不生成浅色变体** —— §13.6 明令）。
- * 深浅仍走**亮度口径** `isLightPalette`（⛔ 不按主题名硬判），对比度仍走 `brandAccentFor`，
- * 与 `markLevelFor(brand.ets)` **同一降级链** —— 唯一变化：承载面**不再来自 theme**。
- * ⛔ 本函数**无 theme 入参**（同 ③ 的结构性保证）。
+ * 依据（2026-10-11 裁决）：T1 品牌开屏**恒深、恒品牌**（方案 (a)）⇒ 原先那两条降级路在开屏
+ * **永不可达**：组件恒传 `monochrome=false`、`size = SPLASH_MARK_BOX_VP(160) ≫ MARK_MIN_GLYPH_VP(24)`
+ * ⇒ `OUTLINE` / `WORDMARK` 是**死码**，**已删**（不留死分支）。
+ * ⛔ **本函数不是"通用降级链"**：`core/brand.ets: markLevelFor(BrandSurface)` 仍是通用判据
+ *    （服务**其它**消费者，如通知小图标选资产）；本函数只表达"开屏标记恒 full"这一条既定设计
+ *    —— logo 是品牌资产、⛔ 不随主题/强调色/单色变（`docs/DESIGN-SYSTEM.md §13.6`）。
+ * ⛔ 无入参（既不读 theme，也不读 size/monochrome）—— 判据：`tools/tests/splash.test.ts §②`。
  */
-export function splashBrandMarkLevel(sizeVp: number, monochrome: boolean): string {
-  const p: Palette = darkPalette();
-  const s: BrandSurface = new BrandSurface(!isLightPalette(p), monochrome, sizeVp,
-    contrastRatio(brandAccentFor(p), p.appBg));
-  return markLevelFor(s);
+export function splashBrandMarkLevel(): string {
+  return MARK_LADDER_FULL;
 }
 
 /**

@@ -48,6 +48,27 @@ function readJson(rel: string): any {
 function exists(rel: string): boolean {
   return fs.existsSync(R(rel));
 }
+/** 剥注释**保留换行**（源码形态判据只看代码；本仓已入库 GOTCHA：不剥注释会被注释里的名字骗）。 */
+function stripComments(src: string): string {
+  let out = '';
+  let i = 0;
+  while (i < src.length) {
+    const c = src.charAt(i);
+    const n = i + 1 < src.length ? src.charAt(i + 1) : '';
+    if (c === '/' && n === '/') {
+      while (i < src.length && src.charAt(i) !== '\n') { i++; }
+      if (i < src.length) { out += '\n'; i++; }
+    } else if (c === '/' && n === '*') {
+      i += 2;
+      while (i < src.length && !(src.charAt(i) === '*' && i + 1 < src.length && src.charAt(i + 1) === '/')) {
+        if (src.charAt(i) === '\n') { out += '\n'; }
+        i++;
+      }
+      i += 2;
+    } else { out += c; i++; }
+  }
+  return out;
+}
 
 // ── ① 资产**存在性 + 命名**（BRAND §5/§12.2 的资源清单）──────────────────────────
 {
@@ -130,11 +151,15 @@ function exists(rel: string): boolean {
 {
   const overlay: string = fs.readFileSync(R('entry/src/main/ets/components/SplashOverlay.ets'), 'utf8');
   const icons: string = fs.readFileSync(R('entry/src/main/ets/workreconcile/icons.ets'), 'utf8');
-  ok('SplashOverlay 引用 $r(\'app.media.start_icon\')（标记本体）', overlay.indexOf("$r('app.media.start_icon')") >= 0);
-  ok('SplashOverlay 引用 $r(\'app.media.brand_mark_outline\')（降级链 OUTLINE 档）',
-    overlay.indexOf("$r('app.media.brand_mark_outline')") >= 0);
-  ok('两者都真有文件',
-    exists('entry/src/main/resources/base/media/start_icon.png')
+  const oc: string = stripComments(overlay);   // ⛔ 只看代码：注释里**提到**资产名不算引用
+  ok('SplashOverlay 引用 $r(\'app.media.start_icon\')（标记本体）', oc.indexOf("$r('app.media.start_icon')") >= 0);
+  ok('SplashOverlay 引用的 start_icon 真有文件', exists('entry/src/main/resources/base/media/start_icon.png'));
+  // ⚠️ 2026-10-11 起：开屏**恒 full** ⇒ `SplashOverlay` **不再**引用 `brand_mark_outline.svg`
+  //    （原先的 OUTLINE 档永不可达 ⇒ 死码已删）。该资产**仍非死资产**：唯一消费者 = 通知小图标。
+  ok('SplashOverlay **不再**引用 brand_mark_outline（开屏恒 full ⇒ 无 OUTLINE 档）',
+    oc.indexOf('brand_mark_outline') < 0);
+  ok('brand_mark_outline.svg 仍是**活资产**（消费者 = 通知小图标 icons.ets）',
+    icons.indexOf("$r('app.media.brand_mark_outline')") >= 0
     && exists('entry/src/main/resources/base/media/brand_mark_outline.svg'));
   // 通知小图标：解 svg → 回退 png（两路资产都必须在）
   ok('通知小图标首选 $r(\'app.media.brand_mark_outline\')', icons.indexOf("$r('app.media.brand_mark_outline')") >= 0);
