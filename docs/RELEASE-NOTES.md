@@ -53,7 +53,7 @@
 | 越界数字**不再写默认值覆盖后端**（对齐 web「以后端为准」）。 | `024256d` |
 | **偏好设置**：字号 / 代码换行 / 思考默认 / 发送快捷键——与 web **共用同一份服务端偏好**。 | `09703dd` `e919628` |
 | 设置页**主题入口 5 选 1**，玻璃材质跟随主题。 | `686ebf1` |
-| 设置里新增「**消息渠道（Channels）**」分区：整段补齐 web 的渠道配置面。 | `4b200af` `37a0e56` |
+| 「**消息渠道（Channels）**」分区：web 的渠道配置面。**组件与纯逻辑已提交，但尚未接线进设置面板**（tab 登记为"未实现" ⇒ 隐藏，避免空壳）⇒ **当前用户不可见**。 | `4b200af` `37a0e56`（⏳ 未接线） |
 
 ### 1.4 web 功能迁移（Web feature migration）
 
@@ -122,7 +122,8 @@
 | 10 | 长词换行策略 | **待设计定稿** | ArkUI **无** `wrap-anywhere` 等价物，现用 `BREAK_ALL` + "不撑破气泡"妥协。 | `docs/WEB-ALIGNMENT.md §16 #9` |
 | 11 | **PWA 安装诊断**（添加到主屏/离线） | **不迁** | 原生无 PWA 概念（web 的 SW/多标签本就不适用）。 | `docs/WEB-PARITY.md`（设置 About 行）+ `docs/ARCHITECTURE.md §5` |
 | 12 | 构建门禁的"**并发假红**" | **部分缓解** | `check.sh` 的 PID 目录 + hvigor 串行锁已缓解，但多线同树并行仍可能互扰（**非阻塞**，重跑即可）。 | `docs/RELEASE.md §5` |
-| 13 | Markdown 正文链接直点 / Index P2 弹层抽取 | **落盘未提交（在途）** | 见第 1 节里 `⏳` 标记的两处：`MarkdownView.ets` 的链接 `onClick`（HEAD 尚无）与 `Index` 的 P2 弹层（`PluginsSheet`/`QueueSheet`/`SelfCheckSheet` 已 `add` 未提交）。截至本文撰写时**无哈希可引**。 | `git status --porcelain`（2026-10-11，HEAD `37a0e56`） |
+| 13 | 「消息渠道（Channels）」分区**接线** | **组件已提交，未接线** | `SettingsChannels.ets` 与 `core/channelscfg.ets` 已提交（`4b200af` / `37a0e56`），但 `SettingsPanel` **未实例化**它（`build()` 里无 `SettingsChannels({…})`），且 tab 显式登记 `implemented=false`（隐藏，避免"点进去是空壳"）⇒ **用户暂不可见**；接线后把 `implemented` 改 `true` 即出现。 | `SettingsPanel.ets:81`（`new SettingsTabSpec(SETTINGS_TAB_CHANNELS, '渠道', false)`，头注 `:46-50`）+ `core/settingsplugins.ets:636-656` |
+| 14 | Markdown 正文链接直点 / Index P2 弹层抽取 | **落盘未提交（在途）** | 见第 1 节里 `⏳` 标记的两处：`MarkdownView.ets` 的链接 `onClick`（HEAD 尚无）与 `Index` 的 P2 弹层（`PluginsSheet`/`QueueSheet`/`SelfCheckSheet` 已 `add` 未提交）。截至本文撰写时**无哈希可引**。 | `git status --porcelain`（2026-10-11，HEAD `37a0e56`） |
 
 > 未决项口径（供验收时对账 AskUser 问题清单是否穷尽）：
 > `grep -rIcE '待用户拍板|待拍板' docs` —— 见 `docs/RELEASE.md §3.2`。
