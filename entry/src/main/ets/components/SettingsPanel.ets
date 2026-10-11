@@ -23,6 +23,7 @@ import { SettingsStorage } from './SettingsStorage';
 import { SettingsTools } from './SettingsTools';
 import { SettingsWebUsers } from './SettingsWebUsers';
 import { SettingsPlugins } from './SettingsPlugins';
+import { SettingsChannels } from './SettingsChannels';
 import { fallbackTabId, SettingsTabSpec, visibleTabs } from '../core/settingsplugins';
 import { SettingsErrorBar, SettingsPanelHeader, SettingsToolRow } from './SettingsRows';
 import { KEY_NOTIFY_DETAIL, notifyPrefValue, notifyPrefsFrom, settingLabel } from '../core/settings';
@@ -43,10 +44,9 @@ export const SETTINGS_TAB_DEVELOPER: string = 'developer';
 /** 插件分区（配置读写 + 启停 + 重载；对齐 web `SettingsPlugins.tsx`）。 */
 export const SETTINGS_TAB_PLUGINS: string = 'plugins';
 /**
- * 「渠道」分区 —— web 有（`SettingsChannels.tsx`）、原生**尚未实现**。
+ * 「渠道」分区 —— 消息渠道配置（飞书等），逐条移植 web `SettingsChannels.tsx`。
  *
- * ⛔ 显式登记为 `implemented=false`（⇒ 由 `shouldShowTab` 隐藏）：用户亲报的失败模式是
- *    「未实现的分区点进去是空壳 ⇒ 以为坏了」。落地后把 `implemented` 改 `true` 即出现。
+ * 已实现（`components/SettingsChannels.ets` + 纯逻辑 `core/channelscfg.ets`）⇒ `implemented=true`。
  */
 export const SETTINGS_TAB_CHANNELS: string = 'channels';
 /**
@@ -71,14 +71,13 @@ function settingsTabSpecs(): SettingsTabSpec[] {
     new SettingsTabSpec(SETTINGS_TAB_LLM, '模型', true),
     new SettingsTabSpec(SETTINGS_TAB_AGENT, '智能体', true),
     new SettingsTabSpec(SETTINGS_TAB_PLUGINS, '插件', true),
+    new SettingsTabSpec(SETTINGS_TAB_CHANNELS, '消息渠道', true),
     new SettingsTabSpec(SETTINGS_TAB_STORAGE, '存储', true),
     new SettingsTabSpec(SETTINGS_TAB_WEBUSERS, 'Web 账号', true),
     new SettingsTabSpec(SETTINGS_TAB_DEVELOPER, '开发者', true),
     new SettingsTabSpec(SETTINGS_TAB_NOTIFY, '通知', true),
     new SettingsTabSpec(SETTINGS_TAB_ABOUT, '关于', true),
     new SettingsTabSpec(SETTINGS_TAB_ACCOUNT, '账号', true),
-    // ⛔ 未实现分区（登记但隐藏）：web 有渠道分区，原生尚未落地 ⇒ 不显示空壳。
-    new SettingsTabSpec(SETTINGS_TAB_CHANNELS, '渠道', false),
   ];
 }
 
@@ -243,6 +242,9 @@ export struct SettingsPanel {
       } else if (this.active === SETTINGS_TAB_PLUGINS) {
         // 插件分区：配置读写（写后回读）+ 启停 + 重载（对齐 web SettingsPlugins/PluginManagerPanel）
         SettingsPlugins({ http: this.http, theme: this.theme })
+      } else if (this.active === SETTINGS_TAB_CHANNELS) {
+        // 渠道分区：消息渠道配置（飞书等）—— 逐条移植 web `SettingsChannels.tsx`
+        SettingsChannels({ http: this.http, theme: this.theme })
       } else if (this.active === SETTINGS_TAB_NOTIFY) {
         // 通知分区：通知偏好（含正文隐私开关 KEY_NOTIFY_DETAIL）
         this.NotifySection()
