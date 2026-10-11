@@ -1028,6 +1028,26 @@ async function startAbilityAgent(params: Record<string, Object>): Promise<Object
  *   ⑥ **点击回跳链路**（`startAbilityAgent`）：本体与按钮共用 `START_ABILITY + parameters`。
  * ⚠️ 全程 try/catch：通知是旁路，失败最多"没提醒"，绝不让聊天崩。
  */
+/**
+ * 「通知装饰」**不透明钩子**（端口）。
+ *
+ * ⛔ 为什么是"不透明 + 在 ArkTS 侧 cast"：小图标字段是 `smallIcon?: image.PixelMap`
+ *   （SDK `notificationRequest.d.ts:310`，**不是 Resource**），而本文件属 `core/`
+ *   **不许 import `@ohos.*`**（`run.sh` 当纯 TS 编译）⇒ **无法**在此声明/转换 `PixelMap`。
+ *   故本层只留一个 `(request: Object) => void` 的端口；解码与 cast 都在 ArkTS 侧
+ *   （`entry/src/main/ets/workreconcile/icons.ets`）。
+ * 语义：**调用方实现必须自己 try/catch**；本层再兜一层 ⇒ 装饰失败绝不影响发通知。
+ */
+export type NotifyDecorator = (request: Object) => void;
+
+/** 已注册的装饰器（同一时刻至多一个；`null` = 不装饰）。 */
+let notifyDecorator: NotifyDecorator | null = null;
+
+/** 注册装饰器（幂等；由 `entryability/EntryAbility.ets` 启动时调一次）。 */
+export function setNotifyDecorator(fn: NotifyDecorator): void {
+  notifyDecorator = fn;
+}
+
 export async function publishTurn(title: string, text: string, chatId: string): Promise<boolean> {
   try {
     const kind: string = kindFromNotifyTitle(title);
@@ -1100,6 +1120,15 @@ export async function publishTurn(title: string, text: string, chatId: string): 
       // ask_user 允许重响（新问题就该再提醒一次；若用固定 id 覆盖更新也仍会提示）。
       isAlertOnce: kind !== NOTIFY_KIND_ASK,
     };
+    // 品牌小图标等**装饰**：端口在 ArkTS 侧实现（见 `setNotifyDecorator` 注释）。
+    // ⛔ 解析/解码**不在这里**——本调用路径必须保持"零解码"（否则每次发通知都解码）。
+    if (notifyDecorator !== null) {
+      try {
+        notifyDecorator(request);
+      } catch (e) {
+        // 装饰是旁路：失败 ⇒ 不设该字段 ⇒ 回落系统默认图标（绝不因装饰失败而丢通知）
+      }
+    }
     await notificationManager.publish(request);
     // 记账：该会话现在有未读提醒（按会话去重）⇒ 角标与通知同步重算
     unread.add(chatId);

@@ -15,6 +15,7 @@ import {
 } from '../core/notify';
 import { readCachedTheme } from '../core/config';
 import { ensureReconcileScheduled } from '../workreconcile/schedule';
+import { installNotifyIcon } from '../workreconcile/icons';
 import { isLightPalette, paletteOf } from '../core/theme';
 
 const DOMAIN: number = 0x0000;
@@ -46,6 +47,10 @@ export default class EntryAbility extends UIAbility {
     this.captureOpenChat(want);
     // 后台对账（延迟任务）：把 NotifyReconcileAbility 排进队列（幂等）。
     // ⛔ 旁路：失败只记日志（见 workreconcile/schedule.ets）；不改通知主链路的任何语义。
+    // 品牌小图标（通知 smallIcon）：启动时解一次并注册装饰器。
+    // 旁路：失败静默回落系统默认图标（见 workreconcile/icons.ets）。
+    installNotifyIcon(this.context).catch(() => {
+    });
     ensureReconcileScheduled(this.context);
     hilog.info(DOMAIN, TAG, 'EntryAbility onCreate');
   }
