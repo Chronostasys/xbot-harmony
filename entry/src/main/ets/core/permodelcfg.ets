@@ -16,7 +16,7 @@
  *   · `vision` 是**纯手动**开关（无模型名白名单）；关 ⇒ `vision_detail` 必须清空（`''`）。
  */
 
-import { API_TYPE_CHAT_COMPLETIONS, normalizeApiTypeForSubmit } from './settings';
+import { API_TYPE_CHAT_COMPLETIONS, fmtTokens, normalizeApiTypeForSubmit } from './settings';
 import { PerModelConfig, PerModelConfigBody, SubscriptionRow } from './rpc';
 
 /** `max_context` 预设（web `llm-console.tsx` `CTX_PRESETS`；0 = 跟随默认）。 */
@@ -29,21 +29,10 @@ export const VISION_DETAILS: string[] = ['', 'low', 'high'];
 export const FOLLOW_DEFAULT_LABEL: string = '跟随默认';
 
 /**
- * token 数的显示文案（web `llm-console.tsx:fmtTokens`）。
- * `<= 0` ⇒ 「跟随默认」；`>= 1e6` ⇒ `n M`；`>= 1000` ⇒ `n K`；否则原样。
+ * token 数的显示文案 —— ⛔ **复用 `core/settings.ets:fmtTokens`**（同语义：`<=0` ⇒
+ * 「跟随默认」；K/M 档），本模块**不再自带一份**（避免"两份实现"）。
  */
-export function fmtTokens(n: number): string {
-  if (!(n > 0)) {
-    return FOLLOW_DEFAULT_LABEL;
-  }
-  if (n >= 1000000) {
-    return `${Math.round(n / 100000) / 10}M`;
-  }
-  if (n >= 1000) {
-    return `${Math.round(n / 100) / 10}K`;
-  }
-  return `${n}`;
-}
+export { fmtTokens };
 
 /** 某一档预设的显示文案（供 chip/list 行）。 */
 export function presetLabel(n: number): string {
