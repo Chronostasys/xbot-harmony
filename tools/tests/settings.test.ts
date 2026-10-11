@@ -5,6 +5,8 @@ import {
   clampFontScale, fontScaleFrom, fontScaleLabel, fontScalePresets, KEY_CODE_WRAP, KEY_FONT_SCALE,
   KEY_SEND_KEY, localKey, normalizeSendKey, parseBool, sendKeyLabel, serverKey, settingLabel,
   settingOf, SEND_KEY_ENTER, SEND_KEY_MOD_ENTER, toLocalSettings, KEY_REASONING_DEFAULT,
+  KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE, KEY_UI_MODE, KEY_STARRED, KEY_SESSION_CATEGORY,
+  KEY_APP_THEME, KEY_SURFACE, KEY_ORB, KEY_NOTIFY_ASK, KEY_NOTIFY_TURN_DONE, KEY_NOTIFY_DETAIL,
 } from '../../entry/src/main/ets/core/settings';
 
 let pass = 0, fail = 0;
