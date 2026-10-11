@@ -439,6 +439,81 @@ ok('§8 落点存活锚：星标未收藏支 ∈ {仍用 iconMuted（登记项�
   starMuted || starFixed, `neither found（落点被重写 ⇒ 请同步本段）`);
 console.log(`      · §8 星标落点现状：${starMuted ? '仍用 iconMuted（欠账活着）' : (starFixed ? '已换 textSecondary（落点已修）' : '未识别')}`);
 
+// ════════════════════════════════════════════════════════════════════════════
+// §9 「加载中…」的层级：**web 权威 = `text-muted`**（元信息档）
+// ════════════════════════════════════════════════════════════════════════════
+// web 取证（只读 `/Users/bobli/src/xbot/web`）：同句一律走 `text-text-muted` ——
+//   · `src/pages/SharePage.tsx:111`  `<div className="p-8 text-center text-sm text-text-muted">加载中…</div>`
+//   · `src/plugins/ssh-runner/index.tsx:1565` / `:1759`  `text-[10px] text-text-muted`
+//   · `src/plugins/git-fancy/index.tsx:248` / `:415`、`commit.tsx:60`  `text-xs text-text-muted`
+//   token 定义：`src/index.css:163`（浅 `--text-muted:#999999`）/ `:269`（深 `#6b6b6b`）
+//             + `:397` `--color-text-muted: var(--text-muted)` ⇒ 原生对应 role = **`textMuted`**。
+// ⇒ 本仓「加载中…」**必须走 `textMuted`**（⛔ 不因主题变档）；唯一偏离 = `SettingsAbout.ets`（用 `secondaryText()`，
+//   浅色族变 `textSecondary` ⇒ 三主题次级层级不一致）—— 已登记，交主 agent 派线收敛。
+// 形态判据（源码扫；⛔ 不硬编行号，按 `Settings*.ets` 全扫 + 文案锚）：
+const KNOWN_LOADING_LEVEL_EXCEPTIONS: string[] = ['components/SettingsAbout.ets'];
+function settingsFiles(): string[] {
+  const dir: string = pathMod.join(etsRoot, 'components');
+  const all: string[] = [];
+  const entries: string[] = fsMod.readdirSync(dir);
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].indexOf('Settings') === 0 && entries[i].slice(-4) === '.ets') { all.push(entries[i]); }
+  }
+  return all;
+}
+function scanLoadingLevels(): string[] {   // 返回 `文件|fontColor 实参 role 表达式`
+  const out: string[] = [];
+  // ⚠️ 定向正则：`this.pal().textMuted` / `this.secondaryText()` / `colorOf(...)`
+  //    （⛔ 不能用 `.fontColor\(([^)]*)\)` —— 会被 `this.pal()` 的内层 `)` 截断）
+  const re: RegExp = /\.fontColor\(\s*\[?\s*(this\.pal\(\)\.[A-Za-z0-9_]+|this\.[A-Za-z0-9_]+\(\)|colorOf\([^\]]*\))/;
+  const hit = (lines: string[], i: number): string => {
+    for (let j = i; j <= Math.min(lines.length - 1, i + 4); j++) {
+      const m: RegExpMatchArray | null = lines[j].match(re);
+      if (m !== null) { return m[1].trim(); }
+    }
+    return '';
+  };
+  const names: string[] = settingsFiles();
+  for (let n = 0; n < names.length; n++) {
+    const rel: string = `components/${names[n]}`;
+    const lines: string[] = stripSrc(fsMod.readFileSync(pathMod.join(etsRoot, rel), 'utf-8')).split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].indexOf('加载中') < 0) { continue; }
+      out.push(`${rel}|${hit(lines, i)}`);
+    }
+  }
+  // 环境注入（mutation 自证用；⛔ 不碰仓内文件）
+  const extra: string = process.env.XBOT_SCAN_EXTRA !== undefined ? (process.env.XBOT_SCAN_EXTRA as string) : '';
+  if (extra.length > 0) {
+    const xs: string[] = extra.split(':');
+    for (let i = 0; i < xs.length; i++) {
+      if (xs[i].length === 0) { continue; }
+      const ls: string[] = fsMod.readFileSync(xs[i], 'utf-8').split('\n');
+      for (let k = 0; k < ls.length; k++) {
+        if (ls[k].indexOf('加载中') < 0) { continue; }
+        out.push(`${xs[i]}|${hit(ls, k)}`);
+      }
+    }
+  }
+  return out;
+}
+const LOADING: string[] = scanLoadingLevels();
+ok('§9 零扫描判红：扫到「加载中…」文案（>0 ⇒ 扫描器与真源相连）', LOADING.length > 0, `got ${LOADING.length}`);
+console.log(`  · §9 「加载中…」层级实扫（web 权威 = textMuted）：`);
+for (let i = 0; i < LOADING.length; i++) {
+  const parts: string[] = LOADING[i].split('|');
+  const file: string = parts[0];
+  const arg: string = parts[1];
+  const known: boolean = KNOWN_LOADING_LEVEL_EXCEPTIONS.indexOf(file) >= 0;
+  console.log(`      ${file} → ${arg}${known ? '  [已知偏离，待修]' : ''}`);
+  if (known) {
+    ok(`§9 [${file}] 是**已登记偏离**（已改 textMuted ⇒ 请从白名单删除）`,
+      arg.indexOf('textMuted') < 0, `got ${arg}`);
+  } else {
+    ok(`§9 [${file}] 走 web 口径 textMuted（⛔ 不因主题变档）`, arg === 'this.pal().textMuted', `got ${arg}`);
+  }
+}
+
 console.log(`\n  porcelain_surfacehi_contrast: ${pass} passed, ${fail} failed`);
 if (fail > 0) { process.exit(1); }
 process.exit(0);

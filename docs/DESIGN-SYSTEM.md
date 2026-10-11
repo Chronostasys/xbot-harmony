@@ -1264,4 +1264,57 @@ vs 深色黑柔影 **1.0206/1.0122** ⇒ 再次确认"浅色柔影比深色黑�
 `tools/tests/porcelain_surfacehi_contrast.test.ts §8`（矩阵形态 + 门槛 3.0 + **逐主题实算**
 + **只 dark 缺** + 缺口数值**钉死 2.8164**（只许变好）+ 落点存活锚）。
 
+---
+
+## 16. 「加载中…」的层级 = `textMuted`（web 权威口径，2026-10-11 · 任务 A2）
+
+**取证（只读 `/Users/bobli/src/xbot/web`）**：web 侧同句**一律** `text-text-muted` ——
+
+| web 落点 | class |
+|---|---|
+| `src/pages/SharePage.tsx:111` | `p-8 text-center text-sm **text-text-muted**` |
+| `src/plugins/ssh-runner/index.tsx:1565` | `px-2 py-3 text-[10px] **text-text-muted**` |
+| `src/plugins/ssh-runner/index.tsx:1759` | `text-[10px] **text-text-muted**` |
+| `src/plugins/git-fancy/index.tsx:248` / `:415` | `text-xs / text-[10px] **text-text-muted**` |
+| `src/plugins/git-fancy/commit.tsx:60` | `flex h-full … text-xs **text-text-muted**` |
+
+token：`src/index.css:163`（浅 `--text-muted:#999999`）/ `:269`（深 `#6b6b6b`）+ `:397`
+`--color-text-muted: var(--text-muted)` ⇒ 原生对应 role = **`textMuted`**。
+
+**⚠️ 与 web 不符的一处**：`components/SettingsAbout.ets:283` 用 `this.secondaryText()`
+（= `isLightPalette ? textSecondary : textMuted`）⇒ **浅色族（light/porcelain）变 `textSecondary`**，
+与其余 **7 处**（`SettingsAgent:?` / `SettingsChannels:1006` / `SettingsLlm:1050` / `SettingsPlugins:757` /
+`SettingsStorage:285` / `SettingsTools:146` / `SettingsWebUsers:186`，均 `pal().textMuted`）**层级不一致**，
+且**偏离 web 权威**。
+
+**裁决：收敛到 `textMuted`**（web 口径；⛔ 不是"哪个顺眼"）。⚠️ 落在 `components/SettingsAbout.ets`
+（**非本线域**）⇒ **由主 agent 另派线落地**。
+**机器登记（本线已落）**：`core/design.ets` 的 `AA_MUTED` 注释写明该约定；
+判据 `tools/tests/porcelain_surfacehi_contrast.test.ts §9`（源码扫 `Settings*.ets` 的「加载中…」⇒
+必须 `this.pal().textMuted`；`SettingsAbout.ets` 登记为**唯一已知偏离**，**修好 ⇒ 断言红 ⇒ 逼删白名单**）。
+
+---
+
+## 17. 弹层高度：**无档，不新造 token**（2026-10-11 · 任务 C3）
+
+**取证（只读 `/Users/bobli/src/xbot/web`）**：web **没有**"弹层高度阶梯"这一语义 ——
+- `src/components/ui/sheet.tsx` 是 Radix `Sheet` 原语（`data-slot="sheet-*"`），**不含高度 token**；
+- `src/components/settings/SettingsDialog.tsx:142` = `h-[70vh] max-h-[80vh]`（**视口相对**，非固定档）；
+- 其余全是**内容区上限**：`max-h-[240px]`（`panel/rails.tsx:361`、`agent/TodoPullOut.tsx:126`）、
+  `max-h-[40dvh]`（`TodoPullOut.tsx:158`）、`max-h-[70vh]`（`agent/GenUIPanel.tsx:96`）、
+  `max-h-[85vh]`（`file/ImagePreview.tsx:68`）⇒ 各按内容/场景取，**不是一套档位**。
+
+**裁决：⛔ 不新增 `SHEET_H_*` token**（web 无对应语义；原生弹层按**内容自适应**更合理）。
+**⚠️ 但复核出一个更真的问题（交主 agent 派线）**：仓内这 5 个高度**不是同一种东西** ——
+| 落点 | 形态 | 值 |
+|---|---|---|
+| `QueueSheet.ets:147` | **固定高** `.height(300)` | 300 |
+| `PluginsSheet.ets:214` | **固定高** `.height(320)` | 320 |
+| `MenuSheets.ets:64→262` | **上限** `.constraintSize({maxHeight})` | 420 |
+| `AskUserSheet.ets:63→256` | **上限** `maxHeight` | 420 |
+| `MessageNav.ets:51→393` | **上限** `maxHeight`（web `max-h-[60vh]`） | 420 |
+
+⇒ 真正的"不一致"是 **固定高 vs 上限**（不是缺档位）：固定高的两个面板**在内容为空时仍占满 300/320**。
+**本线不改组件**；**留痕处 = 本节**（`MenuSheets`/`AskUserSheet` 的头注已有"无 `list.maxHeight` token（报备）"）。
+
 

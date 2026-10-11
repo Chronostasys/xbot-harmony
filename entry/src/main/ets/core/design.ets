@@ -833,6 +833,17 @@ export const AA_NON_TEXT: number = 3.0;
 /**
  * "几乎不该被读到"的最弱一档（`textMuted`）阈值 —— 与既有 `theme_contrast.test.ts` 同口径。
  * ⚠️ 这是**有意**低于 §1.4.3 的档（元信息不是"正文"）；⛔ 只许 `textMuted` 用，别外扩。
+ *
+ * ── **约定：哪些文案走这一档**（2026-10-11，按 **web 权威**取证）────────────────────────
+ * **非交互元信息/占位/进度文案 ⇒ `textMuted`**（= web `--text-muted`，`xbot/web/src/index.css:163`），
+ * ⛔ **不因主题变档**（色板自己会分身：浅 `#999999` / 深 `#6b6b6b`）。已取证的同族文案：
+ *   · **「加载中…」**：web `SharePage.tsx:111`(`text-sm text-text-muted`) ·
+ *     `plugins/ssh-runner/index.tsx:1565`/`:1759` · `plugins/git-fancy/index.tsx:248`/`:415` ·
+ *     `git-fancy/commit.tsx:60` —— **一律 `text-text-muted`**。
+ *   · 占位/时间戳类沿用既有 `textMuted` 口径（`docs/DESIGN-SYSTEM.md §4`）。
+ * 判据 = `tools/tests/porcelain_surfacehi_contrast.test.ts §9`（源码扫 `Settings*.ets` 的
+ *   「加载中…」→ 必须 `this.pal().textMuted`；唯一已登记偏离 = `SettingsAbout.ets`（用
+ *   `secondaryText()`，浅色族变 `textSecondary` ⇒ 与 web 口径不符，待收敛））。
  */
 export const AA_MUTED: number = 2.0;
 
