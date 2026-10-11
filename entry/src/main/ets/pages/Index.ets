@@ -50,6 +50,12 @@ import {
   KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE, KEY_ORB, KEY_REASONING_DEFAULT, KEY_SEND_KEY, KEY_SESSION_CATEGORY,
   KEY_STARRED, normalizeSendKey, orbEnabled, parseBool, sendKeyLabel, settingOf, settingLabel, SEND_KEY_MOD_ENTER,
 } from '../core/settings';
+// 最近工作目录（新建会话选 cwd）—— web `lib/recent-workdirs.ts` 的纯逻辑移植（`10aae43`）。
+// 持久化走**服务端设置键** `RECENT_WORKDIRS_SERVER_KEY`（= web `userSettings.ts:44` 的映射目标），
+// 与 web 共享同一份偏好（`core/settings.ets` 对该键原样透传 ⇒ 零丢键）。
+import {
+  parseRecentWorkDirs, rememberWorkDir, removeWorkDir, serializeRecentWorkDirs, RECENT_WORKDIRS_SERVER_KEY,
+} from '../core/recentdirs';
 import {
   isInterruptSend, MODE_INTERRUPT, MODE_QUEUE, modeHint, modeLabel, sendToast, toggleMode,
 } from '../core/sendmode';
@@ -218,6 +224,28 @@ class SetTodosParams {
     this.todos = todos;
   }
 }
+
+/**
+ * `set_cwd` 的 RPC params（web `agent/api.ts:168-177`：`{channel, chat_id, dir, force:true}`）。
+ *
+ * ⛔ `force:true` 不可省：服务端 `rpc_table.go:431-449` 据此走 `SetCWDForced`（**原样采纳**传入路径），
+ *   否则会被既有 cwd / 自动推断值顶掉（用户要求原文：「我传的是什么路径就得是什么路径」）。
+ */
+class SetCwdParams {
+  channel: string = '';
+  chat_id: string = '';
+  dir: string = '';
+  force: boolean = true;
+
+  constructor(channel: string, chatId: string, dir: string) {
+    this.channel = channel;
+    this.chat_id = chatId;
+    this.dir = dir;
+  }
+}
+
+/** `set_cwd` 的 RPC method 名（服务端 `agent/req_types.go:14`；⛔ 与 `set_goal` 等同址就地定义）。 */
+const RPC_SET_CWD: string = 'set_cwd';
 
 /**
  * 单个 turn 默认最多渲染多少个迭代。
@@ -464,6 +492,16 @@ struct Index {
 
   // ── 弹层 ──────────────────────────────────────────────────────────────────
   @State showDrawer: boolean = false;
+  // ── 新建会话（web `NewSessionDialog` 等价弹层：工作目录 + 最近目录候选）─────────
+  /** 弹层开关。 */
+  @State showNewSession: boolean = false;
+  /** 工作目录输入（空 = 不设 cwd，用服务端默认 —— 与原生既有行为一致）。 */
+  @State newSessionPath: string = '';
+  /**
+   * 最近目录候选的**渲染快照**（打开时从 settings 解析一次；删除后同步更新）。
+   * ⚠️ 用独立 @State 而非每次读 settings：删除要立刻反映到界面（同 web 的 `setRecentWorkDirs`）。
+   */
+  @State newSessionDirs: string[] = [];
   /**
    * 抽屉里**已折叠的分组键**（`collapseKey(category, groupKey)` 形态）。
    *
@@ -1390,6 +1428,11 @@ struct Index {
       this.showSettingsPanel = false;
       return true;
     }
+    // 新建会话弹层（与设置面同款：不进 `OverlayState` 封闭枚举，先于既有浮层栈关闭）
+    if (this.showNewSession) {
+      this.showNewSession = false;
+      return true;
+    }
     const code: OverlayCode = topOverlay(this.overlayState());
     if (code === '') {
       return false;
@@ -2175,6 +2218,73 @@ struct Index {
     } catch (e) {
       const err: BusinessError = e as BusinessError;
       this.toast(`新建失败: ${err.message}`);
+    }
+  }
+
+  /**
+   * 打开「新建会话」弹层 —— web `NewSessionDialog` 的等价落点（工作目录 + 最近目录候选）。
+   *
+   * 为什么需要它：web 的「新建会话」是**弹层**（`SessionSidebar.tsx:529` / `builtinPanels.tsx:228`），
+   * 里面可选 cwd（`PathPicker`）+ 最近目录候选；原生此前 `newSession()` **直建**（无 cwd）
+   * ⇒ 最近目录根本无从露面。本次只补"工作目录"这一段（label 要改 `core/store.ets` 的
+   * `createSession` 签名，超出本次改动面 ⇒ 不碰）。
+   */
+  private openNewSession(): void {
+    this.showDrawer = false;
+    // 打开那刻读一次（对齐 web `NewSessionDialog.tsx:42-50` 的 useEffect）。
+    this.newSessionDirs = parseRecentWorkDirs(settingOf(this.settings, RECENT_WORKDIRS_SERVER_KEY));
+    // 预填最近一条（web `:47` `recent[0] || '/'`）；原生**无候选则留空 = 不设 cwd**（不改既有默认行为的兜底）。
+    this.newSessionPath = this.newSessionDirs.length > 0 ? this.newSessionDirs[0] : '';
+    this.showNewSession = true;
+  }
+
+  private closeNewSession(): void {
+    this.showNewSession = false;
+  }
+
+  /** 移除一条最近目录（web `NewSessionDialog.tsx:107` 的 X）—— 立即落盘。 */
+  private removeRecentDir(path: string): void {
+    const next: string[] = removeWorkDir(this.newSessionDirs, path);
+    this.newSessionDirs = next;
+    this.persistRecentDirs(next);
+  }
+
+  /** 最近目录落盘（服务端设置键 = 与 web 同一格；失败只 toast，不影响本次使用）。 */
+  private persistRecentDirs(list: string[]): void {
+    void this.setSetting(RECENT_WORKDIRS_SERVER_KEY, serializeRecentWorkDirs(list));
+  }
+
+  /**
+   * 确认新建：建会话 →（有路径则）`set_cwd` → 记入最近目录
+   * —— 逐条对齐 web `useSessionStore.ts:1481-1485`（create → setCwd → rememberRecentWorkDir）。
+   *
+   * ⚠️ 顺序不可换：**只有 `set_cwd` 成功才 remember**（失败不往列表里塞噪声）。
+   * ⚠️ `set_cwd` 失败**不回滚**会话（会话已建好）；只 toast —— 与 web 同款非致命处理。
+   */
+  private async confirmNewSession(): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    const path: string = this.newSessionPath.trim();
+    this.showNewSession = false;
+    this.showDrawer = false;
+    try {
+      await store.createSession();
+    } catch (e) {
+      this.toast(`新建失败: ${errText(e as Object)}`);
+      return;
+    }
+    if (path.length === 0) {
+      return;
+    }
+    try {
+      await rpc<Object>(store.http, RPC_SET_CWD, new SetCwdParams(store.channel, store.currentChatId, path));
+      const next: string[] = rememberWorkDir(this.newSessionDirs, path);
+      this.newSessionDirs = next;
+      this.persistRecentDirs(next);
+    } catch (e) {
+      this.toast(`工作目录设置失败: ${errText(e as Object)}`);
     }
   }
 
@@ -2975,6 +3085,16 @@ struct Index {
           this.DrawerSheet()
         }
         .width('100%').height('100%')
+      }
+      // 新建会话弹层（工作目录 + 最近目录候选）—— web `NewSessionDialog` 的等价落点。
+      // 底部 sheet，容器同既有 QueueSheet/PluginsSheet（scrim 点击收起 + 内容上浮过渡）。
+      if (this.showNewSession) {
+        Column() {
+          Blank().layoutWeight(1).width('100%').onClick(() => {
+            this.closeNewSession();
+          })
+          this.NewSessionSheet()
+        }.width('100%').height('100%')
       }
       // 队列
       if (this.showQueue) {
@@ -5785,6 +5905,139 @@ struct Index {
     return COPY_RAW;
   }
 
+  /**
+   * 新建会话弹层（web `NewSessionDialog` 的等价物）—— 工作目录输入 + 最近目录候选。
+   *
+   * 无参 `@Builder`（读 `this` 状态）⇒ 满足"带参 @Builder 子树不随参数重建"纪律：
+   * 候选/输入都是页面 `@State`，删一条立即反映（同 web `setRecentWorkDirs`）。
+   * 样式与既有 sheet 同源（glass 材质）；⛔ **不加**入场动效（见方法尾注释）；命中区全 ≥44 真实布局盒。
+   */
+  @Builder
+  NewSessionSheet() {
+    Column({ space: SPACE_SM }) {
+      // 头部：标题 + 关闭（44 命中区）
+      Row() {
+        Text('新建会话')
+          .fontSize(typeOf('type.headline').size)
+          .fontWeight(typeOf('type.headline').weight)
+          .fontColor(this.pal().textPrimary)
+          .layoutWeight(1)
+        Row() {
+          SymbolGlyph($r('sys.symbol.xmark'))
+            .fontSize(ICON_MD)
+            .fontColor([this.pal().textSecondary])
+        }
+        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          this.closeNewSession();
+        })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
+      // 工作目录输入（web `PathPicker` 的输入面；自动补全下拉是另一项，本次不搬）
+      TextInput({ placeholder: '工作路径（可选），如 /root/Code/xbot', text: this.newSessionPath })
+        .onChange((v: string) => {
+          this.newSessionPath = v;
+        })
+        .placeholderColor(this.pal().textMuted)
+        .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
+        .fontColor(this.pal().textPrimary)
+        .fontSize(typeOf('type.caption').size)
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .borderRadius(RADIUS_CHIP)
+        .padding({ left: SPACE_SM, right: SPACE_SM })
+
+      // 最近目录候选（web `NewSessionDialog.tsx:91-114`；空 ⇒ 整段不渲染，对齐 web 的 `: null`）
+      if (this.newSessionDirs.length > 0) {
+        Text('最近使用的工作路径')
+          .fontSize(typeOf('type.micro').size)
+          .fontColor(this.pal().textSecondary)
+          .width('100%')
+        Column({ space: SPACE_XS }) {
+          ForEach(this.newSessionDirs, (path: string) => {
+            Row({ space: SPACE_XS }) {
+              // 点路径 = 填进输入框（web `:99 setWorkPath`）—— 自带 ≥44 布局盒
+              Row() {
+                Text(path)
+                  .fontSize(typeOf('type.caption').size)
+                  .fontColor(this.pal().textSecondary)
+                  .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .layoutWeight(1)
+              }
+              .layoutWeight(1)
+              .constraintSize({ minHeight: HIT_TARGET_MIN })
+              .alignItems(VerticalAlign.Center)
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .onClick(() => {
+                this.newSessionPath = path;
+              })
+              // 删除这条（web `:103-110` 的 X）—— 44×44 真实布局盒
+              Row() {
+                SymbolGlyph($r('sys.symbol.xmark'))
+                  .fontSize(ICON_MD)
+                  .fontColor([colorOf(this.pal(), 'iconMuted')])
+              }
+              .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+              .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .onClick(() => {
+                this.removeRecentDir(path);
+              })
+            }
+            .width('100%')
+            .padding({ left: SPACE_SM })
+            .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
+            .borderRadius(RADIUS_CHIP)
+          }, (path: string) => `ns-${path}`)
+        }
+        .width('100%')
+      }
+
+      // 取消 / 创建（自绘行按钮，各占一半、命中区 ≥44）
+      Row({ space: SPACE_SM }) {
+        Row() {
+          Text('取消')
+            .fontSize(typeOf('type.subhead').size)
+            .fontColor(this.pal().textSecondary)
+        }
+        .layoutWeight(1)
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          this.closeNewSession();
+        })
+        Row() {
+          Text('创建')
+            .fontSize(typeOf('type.subhead').size)
+            .fontColor(this.pal().onAccent)
+        }
+        .layoutWeight(1)
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+        .backgroundColor(this.pal().accent)
+        .borderRadius(RADIUS_PILL)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          void this.confirmNewSession();
+        })
+      }
+      .width('100%')
+    }
+    .width('100%').padding(SPACE_MD)
+    .backgroundColor(this.eff().glassBg)
+    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.glassMode() })
+    .borderRadius({ topLeft: R_2XL, topRight: R_2XL })
+    .border({ width: 1, color: this.eff().glassBorder })
+    .alignItems(HorizontalAlign.Start)
+    // ⛔ 有意**不加** `.transition(sheetTransition())`：遵守「不新增未登记动效」——
+    //    `pages/Index.ets` 的动效台账（`tools/tests/motion_budget.test.ts`）为 3，此处加第 4 处会
+    //    破"只许缩短"。弹层**即刻出现**（无入场动效）；如要与兄弟 sheet 一致的滑入，请先登记台账。
+  }
+
   /** 面板：四个标签各拉一个端点（定时任务 / 后台任务 / 子代理 / Runner）。 */
   @Builder
   PanelsSheet() {
@@ -6123,7 +6376,8 @@ struct Index {
         .alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
-          this.newSession();
+          // 走「新建会话」弹层（可选用工作目录）；web `SessionSidebar.tsx:529` 同款。
+          this.openNewSession();
         })
         Row() {
           SymbolGlyph($r('sys.symbol.xmark'))
@@ -6286,7 +6540,7 @@ struct Index {
             .borderRadius(RADIUS_PILL)
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
-              this.newSession();
+              this.openNewSession();
             })
           } else {
             Row() {

@@ -447,7 +447,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | `web_widgets`/`plugin_widgets` 事件 | `plugins/WidgetZone.tsx` | 未迁，**现状直接忽略** | — | `core/store.ets`（至少不静默丢） |
 | Ambience 壁纸/主题 | `ambience/AmbienceRoot.tsx:40` | 未迁 | 本地偏好 | 新增 `core/ambience.ets` + 组件 |
 | **命令路由 / 深链**（`xbot://settings.open?section=llm`） | `lib/commandRouter.ts:61` | 未迁 | 无 | 新增 `core/commandrouter.ets`（**纯逻辑、S**） |
-| **最近工作目录** | `lib/recent-workdirs.ts:12` | 未迁 | 本地偏好 | 新增 `core/recentdirs.ets`（**纯逻辑、S**） |
+| **最近工作目录** | `lib/recent-workdirs.ts:12` | ✅ **已接线**（2026-10-11，目标④） | 服务端偏好 | `core/recentdirs.ets`（`10aae43`）+ `Index.ets` 的「新建会话」弹层（`NewSessionSheet`，消费 parse/remember/remove/serialize）；判据 `tools/tests/recentdirs_ui.test.ts` |
 | 移动端导航状态 | `lib/mobileNav.ts:26` | 未迁 | — | **存疑**（原生有独立外壳） |
 | Web 缓存（TTL） | `lib/webCache.ts:4` | 部分（`core/config.ets` 偏好缓存） | — | **存疑** |
 | i18n 文案表（zh/en/ja） | `i18n/index.ts` | 部分（`core/i18n.ets` **只**做 locale 读取；UI 文案硬编码中文） | — | 大重构（100+ 处字符串） |
@@ -662,7 +662,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | 7 | **Developer 模式 + SSE REC** | 排障/复现 bug 的刚需（契合「真机点击是移动靶」痛点）；纯本地偏好，S 级 | 新增 `components/SettingsDeveloper.ets` + `SettingsPanel.ets` 加 tab |
 | 8 | **Channels 设置分区** | web 14 分区中原生**唯一整块缺席**的服务端配置面，落地即 13/14 | 新增 `components/SettingsChannels.ets` + `SettingsPanel.ets` 加 tab（契约见 §9.2.1；⚠️ 飞书 secret 服务端未打码，见 §9.3） |
 | 9 | **会话导出（`json`/`jsonl`/`txt`，⛔ 无 markdown）** | 🟡 **纯逻辑已交付 `a7e6ffc`**；UI 入口缺（手机端分享/上报会话常用） | `core/export.ets`（就绪）+ `Index.ets` 入口 + `SettingsDeveloper`/分享 |
-| 10 | **最近工作目录 + PathPicker** | 新建会话选 cwd 是常规操作；`recent-workdirs` 纯逻辑 S 级 | 新增 `core/recentdirs.ets` + `NewSessionDialog` 等价弹层 |
+| 10 | **最近工作目录 + PathPicker** | ✅ **已接线**（2026-10-11，目标④）：`core/recentdirs.ets` + `NewSessionDialog` 等价弹层（`Index.ets` `NewSessionSheet`）。⚠️ `PathPicker` 自动补全下拉仍未迁 | — |
 
 > 次优先（形态差异，非硬缺口）：FoldedToolGroup 组内分组标头、ShimmerThinking 骨架、ThinkingModeControl 位置、
 > 消息注释/高亮、选区工具条、分享页。**不建议迁**：Ambience（与「玻璃必须锁深色」及无 CSS 级联冲突）、
@@ -758,7 +758,7 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 | 项 | 原判 | 现判 | 证据 / 余量 |
 |---|---|---|---|
 | AnsiText（ANSI SGR 着色） | ❌ | ✅ **已接线**（⚠️ **2026-10-11 深晚订正**：原判「消费点未接线」**已过时**） | `core/ansi.ets`：解析 `9ad6c30`、本仓色板映射 `10aae43`；**消费点 `0af6ef3`（SyntheticCard 逐 span）+ `bed4672`（live pill 标签）** ⇒ 5 组件真消费（`MessageRow`/`ToolVisual`/`SyntheticCard`/`LiveTailView`/`ToolPopover`）；判据 `ansi_wiring.test.ts` **13 断言** + `ansi.test.ts` 钉 web 字节对齐 |
-| 最近工作目录 | ❌ | 🟡 **纯逻辑就绪；UI 未接线** | `core/recentdirs.ets`（`10aae43`，键/版本/上限 5 逐字对齐 web） |
+| 最近工作目录 | ❌ | ✅ **已接线**（2026-10-11，目标④） | `core/recentdirs.ets`（`10aae43`，键/版本/上限 5 逐字对齐 web）+ `Index.ets` `NewSessionSheet`（parse/remember/remove/serialize 四 API 真消费）；判据 `tools/tests/recentdirs_ui.test.ts`（钉调用点计数 + 写回路径） |
 | 命令路由 / 深链 | ❌ | 🟡 **仅解析与校验就绪；派发未接线** | `core/command.ets`（`10aae43`）—— 设计上**只解析**，副作用留给页面 |
 | 消息注释 / 高亮 | ❌ | ⛔ **创建侧原生不成立（裁决 A，2026-10-11，有据）；展示侧在修** | `core/annotations.ets`（`10aae43`）。**裁定依据**（`annotations` 线取证）：web 入口唯一依赖**浏览器选区**（`MessageAnnotations.tsx:34-44` `window.getSelection()` + `:111-117` `range.getClientRects()` 定位悬浮按钮），而 ① ArkUI 唯一的跨 `Text` 选区 API `SelectionContainer` **全文件 `@since 26.0.0`** > 本工程 `compatibleSdkVersion 6.0.1(21)` ⇒ **版本门限**（抬 SDK 须用户拍板，⛔ 不抬）；② **无**"取选区包围盒"API；③ 批注入口**不在复制菜单**（`MessageActions.tsx:15` 原文）⇒ 换入口必然**语义分叉**（`quote` 只能整条 vs web"某段摘录"）。**功能并未缺失**：ArkWeb 网页模式（`pages/Index.ets:2938-2955` `useWebUI`）下该 UI **完整可用**。**展示侧**（原生把带批注消息显示成裸 `<response-annotations>` XML）是**真缺陷** ⇒ 已在 `components/UserBubble.ets` 内接线（在飞） |
 | 插件面（目录 / widget / 桥 / WebSurface） | 🟡❌ | ✅ **三面进设计系统 + widget 数据面 + 桥 page→native** | `f5e7163` `9bda52d` `910b420` `30069bb` `8b036aa` `5f04360`；另**消掉 `PluginWidgets` 孤儿**（恢复编译期检查，原为假绿） |
@@ -1063,7 +1063,7 @@ web 的**服务端 RPC 配置面**（LLM/Storage/Channels/WebUsers/About/Agent/T
 | `xbot-theme`（legacy） | — | ⛔ **N/A** | web 的 md 主题现驱动 mode；原生用 `KEY_APP_THEME`（5 套，原生独有）替代 |
 | （清除缓存） | 按钮 | ⛔ **N/A** | web 的清缓存 = `clearWebCaches()`（会话树/进度快照/注释缓存）+ `location.reload()`；原生无 Service Worker、会话树缓存由 `core/store` 内存管理、markdown 解析缓存**有界**（`MD_CACHE_MAX_CHARS` 自动淘汰）⇒ 无对应可清对象，"清缓存"会是假功能 |
 | `xbot:ambience`（壁纸） | 上传 + 滑杆 | 🟡 **缺** | 玻璃 `opacity`/`blur` 的**消费**已就绪（`core/theme.ets` 消费插件环境值）；**壁纸上传 UI 缺**（需相册/文件选择）。登记待做 |
-| `xbot:recent-workdirs:v1` | 路径选择 | ⛔ **N/A** | 依赖 `PathPicker`（`§11.5 ⑦` 已判 N/A 方向：无原生 cwd 编辑入口） |
+| `xbot:recent-workdirs:v1` | 路径选择 | ✅ **已支持** | `Index.ets` 的 `NewSessionSheet`（新建会话弹层：工作目录输入 + 最近目录候选）。走**服务端键** `web:workspace:recent-workdirs`（web `userSettings.ts:44` 的映射目标，原生 `serverKey/localKey` 原样透传）⇒ 与 web 共读一份。⚠️ `PathPicker` 的**自动补全下拉**仍未迁（另立） |
 | `xbot:layout:*` / `panel-layout*` / `leftSidebar*` / `leftbar:*` | 桌面布局 | ⛔ **N/A** | Dockview/桌面外壳专属（§3 / §8.4） |
 | `xbot:session-collapsed-groups`/`unread`/`active-channel` | 列表 UI 态 | ⛔ **N/A** | 原生会话列表无"折叠组"三态同步需求（分组折叠是本地渲染态，不跨端）；`active-channel` 属 `ChannelPicker` 过滤（§11.2 证据 ⑦） |
 | `xbot:update-reminder:dismissed:v1` | 更新提示 | ⛔ **N/A** | 无 Service Worker（§11.3 PWA 行） |

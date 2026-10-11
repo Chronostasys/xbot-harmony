@@ -43,7 +43,10 @@ ok('探测到仓库根', repo.length > 0);
  * ⚠️ 若某条是"**正在接线**"（在途），它应尽快消失（`sheets` 即此类：plugin-ux 正在接）。
  */
 const UNCONSUMED: string[] = [
-  'annotations',   // 待处置：接线 或 写明理由（实测基线）
+  // ✅ **已收缩**：`annotations`（2026-10-11，`user_bubble_annotations` 线）—— 展示侧已接线：
+  //    `components/UserBubble.ets:85` 消费 `core/annotations.annotatedMessagePlainText`
+  //    （带批注 user 消息不再裸 XML 上屏）；判据 = `tools/tests/user_bubble_annotations.test.ts`。
+  //    ⚠️ 原「批注 UI（划词）」不可迁的原生结论见 `docs/WEB-ALIGNMENT.md` / 该线交付（SDK 门限）。
   'dangerconfirm', // ✅ **有意零消费**（S3-a 裁决，2026-10-11）：**web 无"两步确认"模式** ——
   //                   web 的破坏性动作都是【单击直执行 + busy/错误提示】：
   //                   · 退出登录 `web/src/components/settings/SettingsDialog.tsx:66-99`（单击 `logout()`）
@@ -51,13 +54,11 @@ const UNCONSUMED: string[] = [
   //                   全 web 搜 `再次点击/再点一次/armed` 只命中无关用途（MessageList 加载哨兵等）⇒
   //                   接本模块 = **主动背离 web + 用户没要求** ⇒ 不接。本文件保留为**纯逻辑 + 测试**
   //                   （它把既有 5 份各自为政的组件内实现收敛成一张表），**不接线**。
-  'recentdirs',    // ⏸️ **待 `pages/Index.ets` 接线**（S2 复核，2026-10-11）：自然消费点 =
-  //                   **新建会话的 cwd 选择**（web 权威 `web/src/components/session/NewSessionDialog.tsx:26,38,91-93`
-  //                   —— `loadRecentWorkDirs` 列候选 + `removeRecentWorkDir` 单项删除；写入时机 =
-  //                   `web/src/hooks/useSessionStore.ts:32` `rememberRecentWorkDir`；共享设置键映射
-  //                   `web/src/lib/userSettings.ts:44` → `web:workspace:recent-workdirs`）。
-  //                   ⛔ 原生对应流程在 `pages/Index.ets`（禁改）⇒ **不给孤儿组件、不造消费**；
-  //                   判据早已在树里（`tools/tests/recentdirs.test.ts`，36 断言）。
+  // ✅ **已收缩**：`recentdirs`（2026-10-11，目标④ 线）—— UI 已接线：
+  //    `pages/Index.ets` 的「新建会话」弹层（`NewSessionSheet`）消费
+  //    `parseRecentWorkDirs`/`rememberWorkDir`/`removeWorkDir`/`serializeRecentWorkDirs`
+  //    （web 权威 `web/src/components/session/NewSessionDialog.tsx:26,38,91-93` + `useSessionStore.ts:32,1481-1485`）；
+  //    判据 = `tools/tests/recentdirs_ui.test.ts`（钉**调用点计数** + 写回路径 + mutation 自证）。
   'sheets',        // ⚠️ **在途**：plugin-ux 正在接线 ⇒ 接完应从此表删除
 ];
 // ✅ 已收缩：`command` / `ctxmenu` 在本判据首跑后数分钟内被接线 ⇒ 实测 6 → 4（**实测 < 台账**那条

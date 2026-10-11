@@ -2,8 +2,9 @@
  * 最近工作目录 —— **纯逻辑移植** web `src/lib/recent-workdirs.ts`（load/remember/remove）。
  *
  * 用途（对齐 web）：新建会话要选 cwd（工作目录），手机上重打路径极烦 ⇒ 记住最近用过的
- * 5 个目录，选目录时直接给候选。web 侧把这份列表存 `localStorage` **并同步到服务端**
- * （共享设置键 `xbot:recent-workdirs:v1`）；原生端复用项目既有的「设置项都是 string」通道，
+ * 5 个目录，选目录时直接给候选。web 侧把这份列表存 **localStorage**（键 `xbot:recent-workdirs:v1`）
+ * **并同步到服务端**（服务端键 `web:workspace:recent-workdirs`，见 `web/src/lib/userSettings.ts:44`）；
+ * 原生端复用项目既有的「设置项都是 string」通道（读写用**服务端键** `RECENT_WORKDIRS_SERVER_KEY`，
  * 所以本文件只做**串 ↔ 列表**的纯变换 + 增删语义，**不碰任何存储 API**（便于脱机单测，
  * 也让宿主自由选择落盘位置）。
  *
@@ -21,8 +22,18 @@
  * `tools/tests/run.sh` 当**纯 TS** 编译 ⇒ **禁止** import ArkUI / `@ohos.*`。
  */
 
-/** 共享设置键（**与 web `recentWorkDirsStorageKey` 逐字一致**）。 */
+/** web 的 **localStorage** 键（`recentWorkDirsStorageKey`，与 web 逐字一致；原生无 localStorage）。 */
 export const RECENT_WORKDIRS_KEY: string = 'xbot:recent-workdirs:v1';
+/**
+ * **服务端**设置键 —— 两端读写**同一份**服务端偏好的键。
+ *
+ * 为什么不是 `RECENT_WORKDIRS_KEY`：web 的 localStorage 键经 `userSettings.ts:44`
+ * 的 `SETTING_MAP` 映射到服务端键 `web:workspace:recent-workdirs`；原生没有 localStorage，
+ * 走 `store.saveSettings`/`store.settings`（服务端通道）⇒ 必须用**服务端键**才与 web 共读一份。
+ * ⚠️ 原生 `core/settings.ets` 未收录该键 ⇒ `serverKey()/localKey()` 对它**原样透传**（§17.5-5 零丢键）
+ *    ⇒ 用它读写即命中 web 写的同一格。
+ */
+export const RECENT_WORKDIRS_SERVER_KEY: string = 'web:workspace:recent-workdirs';
 /** 存储格式版本（web 写死 1；不匹配即拒）。 */
 export const RECENT_WORKDIRS_VERSION: number = 1;
 /** 保留条数上限。 */
