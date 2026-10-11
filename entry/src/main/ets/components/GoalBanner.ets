@@ -139,7 +139,10 @@ export struct GoalBanner {
             })
           Text('取消')
             .fontSize(typeOf(TYPE_GOAL).size)
-            .fontColor(this.pal().textMuted)
+            // ⛔ **B 类可见度**（2026-10-11 系统性审计）：这是**可点**元素，门槛是**非文本 3:1**；
+            //    而 `textMuted` 在 porcelain 下**所有面**只有 2.17–2.54（它的批准档是 `AA_MUTED`=**2.0**，
+            //    那是给**非交互元信息**的）⇒ 可点 UI 必须用 `textSecondary`（porcelain 4.74 ✓）。
+            .fontColor(this.pal().textSecondary)
             .padding({ left: SPACE_XS, right: SPACE_XS, top: 3, bottom: 3 })
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
