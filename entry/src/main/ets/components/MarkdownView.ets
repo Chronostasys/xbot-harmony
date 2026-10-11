@@ -588,7 +588,9 @@ export struct MarkdownView {
             ForEach(tableRowFields(b.header, row), (f: TableField, fi: number) => {
               Row({ space: 6 }) {
                 Text(f.label)
-                  .fontSize(12).fontColor(this.pal().textSecondary)
+                  // ⛔ 层级纪律（2026-10-11 审计）：这里是**阶梯里的 caption 档值(12)** 却写成字面量
+                  //    ⇒ 绕过排版阶梯。改为走档（同号 ⇒ 1.0 下视觉零变化，但换档/审计都跟着走）。
+                  .fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary)
                   .constraintSize({ minWidth: 84 })
                 Text(f.value)
                   .wordBreak(WordBreak.BREAK_ALL)
