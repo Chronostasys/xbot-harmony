@@ -71,7 +71,16 @@ export function liveIterationOf(row: IterList): HistoryIteration {
   if (best === undefined) {
     nLiveCreated++;                                 // 诊断：旧实现会在这里写迭代 0
     const created: HistoryIteration = { iteration: 1, content: '', reasoning: '', tools: [] };
-    row.iterations.push(created);
+    // ⛔ **必须换新数组，禁止就地 `push`**（2026-10-12 定案的真根因）：本仓的热路径指纹记忆化
+    //    （`core/render.ets` 的 `convertedBlocksMemo`/`completedSigOf`/`liveBlocksSignature`、
+    //    `core/streammerge.ets` 的 `blocksSignature`）**按数组/行对象"对象恒等"做缓存键**，
+    //    其正确性前提写在它们的注释里：「传进来的数组**整体替换、绝不就地改**」。
+    //    而这里是 `ChatRow.iterations`（`types.ets:257` `ChatRow implements IterList`）
+    //    ⇒ 就地 push 后**对象没变、内容变了** ⇒ 缓存把**旧指纹**当新 ⇒ 页面那侧
+    //    `blocksSig !== liveBlocksSig` **永远相等** ⇒ `@State liveBlocks` 永不重赋
+    //    ⇒ **内容冻结在首帧**（真机症状：切到活跃会话整页空白 / "永远加载不完"；
+    //    且只对走本条路径的**活跃**会话发作 —— 与"切一部分会话"完全吻合）。
+    row.iterations = row.iterations.concat([created]);
     return created;
   }
   return best;
@@ -85,8 +94,11 @@ export function upsertIteration(row: IterList, iteration: number): HistoryIterat
     }
   }
   const created: HistoryIteration = { iteration, content: '', reasoning: '', tools: [] };
-  row.iterations.push(created);
-  row.iterations.sort((a: HistoryIteration, b: HistoryIteration) => a.iteration - b.iteration);
+  // ⛔ 同上（见 `liveIterationOf` 的注释）：**换新数组 + 副本排序**，⛔ 不得就地 `push`/`sort`
+  //    —— 就地改会让按对象恒等的指纹记忆化返回**旧值**，页面门控永不触发（冻结在首帧）。
+  const next: HistoryIteration[] = row.iterations.concat([created]);
+  next.sort((a: HistoryIteration, b: HistoryIteration) => a.iteration - b.iteration);
+  row.iterations = next;
   return created;
 }
 

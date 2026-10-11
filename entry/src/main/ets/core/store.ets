@@ -99,6 +99,19 @@ import {
 } from './types';
 
 export class ChatStore {
+  /** resync 重载的最小间隔（ms）——**合并**冗余的 `resync_required`（见 SSE 分支的注释）。 */
+  private static readonly RESYNC_MIN_MS: number = 2000;
+  /** 静态自增实例号：**只为诊断**（池里每个会话一个 store ⇒ 日志必须能分辨是哪一个）。 */
+  private static nextSid: number = 1;
+  /** 本实例的实例号（诊断用；见 `[SWITCH]` 日志）。 */
+  readonly sid: number = ChatStore.nextSid++;
+  /**
+   * resync 重载的**合并闸门**（见 SSE `resync_required` 分支）：
+   * `resyncAt` = 上次重载时间戳；`resyncInFlight` = 是否正在重载。
+   * ⛔ 不合并 ⇒ 大/活跃会话会 `loadHistory` **自触发成环**（实测每 ~230ms 一次）。
+   */
+  resyncAt: number = 0;
+  resyncInFlight: boolean = false;
   http: XbotHttp;
   sse: SseClient;
   channel: string = 'web';
@@ -309,6 +322,8 @@ export class ChatStore {
     }
     this.rows = next;
     this.onUpdate();
+    // ⛔ 切会话诊断（用户点名要的）：历史落地后把"真结果"打出来 —— 行数 / 错误 / 会话身份。
+    console.debug(`[SWITCH] loaded sid=${this.sid} chatId=${this.currentChatId} channel=${this.channel} rows=${this.rows.length} histErr=${this.historyError}`);
   }
 
   /** 清空行缓存（切会话 / 整体复位时）。 */
@@ -650,6 +665,9 @@ export class ChatStore {
     }
     this.channel = channelForChat(this.sessions, chatId);
     this.currentChatId = chatId;
+    // ⛔ 切会话诊断（用户点名要的）：入口就把"切到谁 / 什么渠道 / 列表里有没有它"打出来 ——
+    //    渠道解析依赖会话列表（列表为空/不含该会话 ⇒ 回落默认渠道 ⇒ `/api/history` 404）。
+    console.debug(`[SWITCH] open sid=${this.sid} chatId=${chatId} channel=${this.channel} sessions=${this.sessions.length} rowsBefore=${this.rows.length} histErrBefore=${this.historyError}`);
     // ⛔ 通知服务端"当前会话"（`POST /api/chats/{chatID}/switch`）—— **fire-and-forget**。
     //   服务端的 active session（`userCurrentSession[senderID]`）是 `handleSearch`（搜消息，`:1120`）、
     //   会话树（`:1443`）、终端（`web_pty.go:557`）、WS 缺省路由/cancel 的**唯一**输入；
@@ -1495,9 +1513,28 @@ export class ChatStore {
       return;
     }
     if (event === SseEventType.resyncRequired) {
-      // 环形缓冲已淘汰 ⇒ 回退 DB 权威快照（web 同款语义）
-      this.loadHistory().catch((e: Error) => {
-        console.error(`resync 失败: ${e.message}`);
+      // 环形缓冲已淘汰 ⇒ 回退 DB 权威快照（web 同款语义）。
+      //
+      // ⛔ **必须合并**（2026-10-12 真机 P0「永远加载不完」的真形态，实测）：大/活跃会话
+      //   （真机例：`chat_D3D036023DB7` 2513 行）下，服务端因**增量窗口覆盖不了客户端缺口**
+      //   会**反复**下发 `resync_required`；而每次重载只取 `limit=30` 的**快照尾部**，
+      //   **缺口并没有被补上** ⇒ 服务端再发 ⇒ `loadHistory` **自触发成环**
+      //   （实测：每 ~230ms 重拉一次、`rows` 每次 +8：212→220→228→…，屏幕永不落定）。
+      //   ⇒ 合并策略：**在飞**或**刚拉过**（< `RESYNC_MIN_MS`）直接丢弃这一次 ——
+      //   重载总是取**最新**快照，丢弃不会让画面更旧；间隔到点后仍会重新校准。
+      const now: number = Date.now();
+      if (this.resyncInFlight || now - this.resyncAt < ChatStore.RESYNC_MIN_MS) {
+        console.debug(`[SWITCH] resyncCoalesced sid=${this.sid} chatId=${this.currentChatId} dt=${now - this.resyncAt} inFlight=${this.resyncInFlight ? 1 : 0}`);
+        return;
+      }
+      this.resyncAt = now;
+      this.resyncInFlight = true;
+      console.debug(`[SWITCH] resyncRequired sid=${this.sid} chatId=${this.currentChatId} rows=${this.rows.length}`);
+      // `loadHistory` 自带 try/catch（不抛）⇒ 两个回调都释放闸门
+      this.loadHistory().then(() => {
+        this.resyncInFlight = false;
+      }, () => {
+        this.resyncInFlight = false;
       });
       return;
     }
@@ -1523,6 +1560,7 @@ export class ChatStore {
       if (shouldReloadHistory(action)) {
         // 外部 rewind（别的客户端 / 本机编辑确定后服务端广播 `history_rewound`）⇒
         // 历史已被截断，必须重载（复用 core/streammerge.ets 的判据，与 web 同源）。
+        console.debug(`[SWITCH] historyRewound sid=${this.sid} chatId=${this.currentChatId} action=${action}`);
         this.loadHistory().catch(() => {
           // 重载失败不影响主链路；下一次事件/切会话会再兜底
         });

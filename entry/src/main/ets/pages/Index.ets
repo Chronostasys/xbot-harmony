@@ -1549,6 +1549,8 @@ struct Index {
     //    两个会话的行指纹可能**逐字相同** ⇒ 不重置就永远不刷新 `this.rows`
     //    （表现为"切到哪个会话都显示上一个会话的内容"，且 busy 与内容来自不同会话 = 状态混乱）。
     if (identityChanged(this.currentChat, store.currentChatId)) {
+      // ⛔ 切会话诊断（用户点名要的）：页面侧看见的"身份切换"（含渲染入口的关键量）。
+      console.debug(`[SWITCH] page identity ${this.currentChat} -> ${store.currentChatId} sid=${store.sid} storeRows=${store.rows.length} dsBefore=${this.rowDs.count()} limit=${this.rowLimit}`);
       this.currentChat = store.currentChatId;   // ← 身份先定
       this.followBottom = true;   // 切会话：用户预期"看到最新" ⇒ 意图重置为跟随
       this.rowLimit = MAX_ROWS_VISIBLE;   // 切会话重置行窗口（否则行数会无限累积增长）
