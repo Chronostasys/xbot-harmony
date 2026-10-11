@@ -3,7 +3,12 @@
  *
  * 动机（真实假绿）：migrate-ux 交的 `core/reasoningopen.ts` **零消费方**，而
  *   `run.sh` / `lint` / `typecheck` / ④ ArkTS 编译**全绿** ⇒ "修了 bug"是假的（靠读 diff 才发现）。
- * ⚠️ 与 brand-impl 的 `orphan_core_module`（**模块级**）互补：模块被人 import ≠ 里面每个导出都被用。
+ * ⚠️ **分工（交叉引用，别删任何一个）**：
+ *   · **模块级**（"整个模块无人 import"）由 `brand-impl` 的 `tools/tests/orphan_core_module.test.ts` 覆盖；
+ *   · **符号级**（"模块被 import 但某导出没人用"）由**本文件**覆盖 —— 两者互补，不重复。
+ * ⚠️ **本判据是"字符串代理"（高噪，⛔ 不以它下结论）**：`export { X } from './y'` 的 **barrel 再导出**
+ *   与 **`X.y` 命名空间访问**都抓不到 ⇒ 实测"零消费"数会随判据口径在 **19↔39** 之间跳（两个数都不可信）。
+ *   正解是**真 import-graph 解析**（超出本判据能力）⇒ 本判据**只作线索**，台账里每一条都要**人读**判定。
  *
  * 判据：枚举各 `core/*.ts` 的导出符号（`export function/const/class/interface`），
  *   断言每个符号在**其它文件**里有引用（剥注释；`rel` 相对 `ETS_DIR`）。
