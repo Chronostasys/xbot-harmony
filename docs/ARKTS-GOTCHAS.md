@@ -974,3 +974,54 @@ At File: entry/src/main/ets/core/highlight.ets:18:8
 - **通用教训**：**别用"内容变了吗"当判据，要问"是谁让内容变的"** ——
   用户**自己发起**的就地变更（展开/折叠/选中）一律不得移动视口；只有**尾部增长**（流式新增/追加）才可以跟随。
   凡"任何状态变化都触发副作用"的写法都是同型地雷。
+
+## 批次 32：**`@Builder` 体顶层不能写 `const`** —— 局部量要么**表达式传参**，要么搬进普通方法（2026-10-11，真编译实测）
+
+- **现象**：为了消掉"同一个纯函数在一行里被算好多遍"的冗余，在 `@Builder` 体**最外层**加了两行局部量：
+  ```ts
+  @Builder
+  PlainLine(ln: string, li: number) {
+    const lineKind: number = classifyLine(ln);          // ← 293
+    const lineFg: string = this.lineColor(lineKind);    // ← 294
+    if (hasAnsi(ln)) { … }
+  }
+  ```
+  脱机三条（`run.sh` / `lint` / `typecheck`）**全绿**，`hvigorw assembleHap` 直接失败：
+
+  ```
+  ERROR: 10905209 ArkTS Compiler Error
+  Error Message: Only UI component syntax can be written here. At File: /Users/bobli/src/xbot-harmony/entry/src/main/ets/components/ToolPopover.ets:293:5
+  Error Message: Only UI component syntax can be written here. At File: /Users/bobli/src/xbot-harmony/entry/src/main/ets/components/ToolPopover.ets:294:5
+  ```
+
+- **为什么**：`@Builder` 的方法体在 ArkTS 里是**"UI 组件语法位置"**（会被展开成组件树），
+  **顶层只允许 UI 描述**；`const`/`let` 这类语句不属于 UI 语法 ⇒ 报 `10905209`。
+  ⚠️ 这条**只**约束 `@Builder` **体顶层**——**普通私有方法里局部量完全合法**。
+  ⛔ **别把"我在别处见过 builder 里写 `const`"当先例**：那种"先例"通常是
+  **普通方法**（例：`components/MessageRow.ets:898-903` 的 `private popVM()`，紧邻一个 `@Builder`
+  ⇒ 极易看错）或 `ForEach` 的 **item 闭包**（那是 lambda，不是 builder 体顶层）。
+
+- **正确姿势（两个都合法，按需要选）**：
+  1. **表达式传参**（本次采用，最小改动）：把"按行算一次"的结果从**调用点**作为参数传进来 ——
+     ```ts
+     // 调用点（`ForEach` 的 item 闭包，每行执行一次）
+     this.PlainLine(ln, li, this.lineColor(classifyLine(ln)))
+     // builder 只负责用参数
+     @Builder PlainLine(ln: string, li: number, fg: string) { … .fontColor(fg) … }
+     ```
+     ⇒ 从"单行 `2×spanCount+1` 次"降到恒 **1 次**，且**不引入任何语句**。
+  2. **搬进普通方法**：把计算放 `private xxxOf(...): T { … }`，builder 只调用它拿值。
+     （若那个方法**每个 span 都要调**，就消不掉重复 ⇒ 优先选 1。）
+
+- **判别法**：
+  - 症状 = **脱机三条全绿、`hvigorw` 报 `10905209 Only UI component syntax can be written here`**
+    ⇒ 先看报错行是不是 `@Builder`（或其 `@Builder` 内 `if/ForEach` 体）**顶层的语句**，而不是 UI 属性链。
+  - ⛔ 机器判据只能抓"已知形态"（本波加的源头守护见下）；**这类错误的唯一可靠发现手段是
+    `hvigorw assembleHap`** —— 又一次印证门禁 ④ 不可替代（同批次 13 / 21 / 22）。
+  - 本波同时留下的守护：`tools/tests/msgflow_visual.test.ts` (⑤) 断言 `PlainLine` 调用点形态为
+    `this.PlainLine(ln, li, this.lineColor(classifyLine(ln)))` 且全文件 `classifyLine(ln)` 仅 1 处
+    （**计数须先剥注释**，否则注释里的同名串会虚增 ⇒ 假红，同批次 16 的教训）。
+
+- **通用教训**：**ArkTS 的"合法位置"比"合法语法"更窄** —— 同一段 `const x = f(y);`
+  在方法里合法、在 `@Builder` 顶层非法、在 `build()` 里也非法。
+  写组件时先问"这一行是在**UI 描述位置**还是在**普通语句位置**"，再想怎么消冗余。
