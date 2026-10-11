@@ -1,19 +1,21 @@
 /**
- * 设置项「生效路径」判据（目标③ 第四层，2026-10-11）。
+ * 设置项「生效路径」判据（目标③ 第四层，2026-10-11）—— **覆盖全部"读设置"写法**。
  *
- * 题目：每个设置键**运行时被改动后**是否真的生效 —— 尤其"**读了但不随变更刷新**"
- * （例如只在 `aboutToAppear`/`onPageShow` 这类**一次性钩子**里读 ⇒ 改了要重进页面，用户可感）。
+ * 题目：每个设置项**运行时被改动后**是否真的生效 —— 尤其"**读了但不随变更刷新**"
+ *   （只在 `aboutToAppear`/`onPageShow` 等**一次性钩子**里读 ⇒ 改了要重进页面，用户可感）。
  *
- * 口径：`pages/Index.ets` 里 `@State settings` 由 `syncFrom(store)` 刷新（`:1402`）
- *   ⇒ 凡在 **build / 派生方法**里读 `settingOf(…KEY_…)` 的键 ⇒ **同帧重渲染即生效**。
- *   ⛔ 一次性钩子里读 ⇒ 违反"改了就生效"。
+ * ⚠️⚠️ **两条用血换来的教训（本仓已各出多次）**：
+ *  ① `rel` 一律**相对 `ETS_DIR`** —— 曾把已含 `entry/src/main/ets` 的整路径再 join 到 ETS_DIR
+ *     ⇒ **前缀翻倍** ⇒ 5 个探针全 0。
+ *  ② ⛔ **带 `(` 的模式别用 `grep -cE "$f"`** —— shell 把 `(` 当元字符/参数解析 ⇒ 计数**全落空**、
+ *     却被当成"0 命中"。本判据在 node 里用 `RegExp` 计数，**不经 shell**。
  *
- * ⚠️ 扫描器自证 + 零扫描防线（2026-10-11 已出过 **3 次**同类事故：搜键值而非常量名 /
- *    整文件排除 / **前缀翻倍**）。本文件 `rel` 一律**相对 `ETS_DIR`**。
+ * 写法全集（A~E）：见 `READ_PATTERNS`。⛔ **每种写法必须命中 ≥1**，否则判红
+ *   （防"扫法不全 ⇒ 假绿"——例如只覆盖 `settingOf` 时 `KEY_ORB` 恒为 0）。
  */
 export {};
 
-declare function require(m: 'fs'): { readFileSync(p: string, e: string): string; existsSync(p: string): boolean };
+declare function require(m: 'fs'): { readFileSync(p: string, e: string): string; existsSync(p: string): boolean; readdirSync(p: string, o: { withFileTypes: boolean }): { name: string; isDirectory(): boolean }[] };
 declare function require(m: 'path'): { join(...parts: string[]): string };
 declare const __dirname: string;
 declare const process: { exit: (c: number) => void };
@@ -40,15 +42,15 @@ const ETS_DIR: string = ROOT.length > 0 ? path.join(ROOT, 'entry', 'src', 'main'
 function stripComments(s: string): string {
   return s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 }
+/** ⚠️ `rel` 必须**相对 `ETS_DIR`**（教训 ①）。 */
 function srcOf(rel: string): string {
   const p: string = path.join(ETS_DIR, rel);
   return fs.existsSync(p) ? stripComments(fs.readFileSync(p, 'utf-8')) : '';
 }
 
-/** 一次性钩子名（只在特定时机跑一次 ⇒ 在那里读设置 = 不随变更刷新）。 */
+/** 一次性钩子（只在特定时机跑一次 ⇒ 在那里读设置 = 不随变更刷新）。 */
 const ONE_SHOT_HOOKS: string[] = ['aboutToAppear', 'onPageShow', 'aboutToDisappear', 'onBackPress'];
 
-/** 抽出某个钩子的**方法体**（按 2 空格缩进的闭合大括号收口；本文件统一风格）。 */
 function hookBody(src: string, hook: string): string {
   const ls: string[] = src.split('\n');
   let start: number = -1;
@@ -64,64 +66,111 @@ function hookBody(src: string, hook: string): string {
   return out;
 }
 
+/** **读设置的全部写法**（A~E）；每种都必须 ≥1 命中（否则判红）。 */
+interface ReadPattern { readonly name: string; readonly re: RegExp; }
+const READ_PATTERNS: ReadPattern[] = [
+  { name: 'A settingOf(...)', re: /settingOf\(/g },
+  { name: 'B 归一化访问器', re: /\b(orbEnabled|notifyPrefsFrom|fontScaleFrom|normalizeSendKey|normalizeMdTheme|normalizeAccent|normalizeLocale|thinkDisplayFromDb|parseTierValue|tierValues)\(/g },
+  { name: 'C parseBool(...)', re: /\bparseBool\(/g },
+  { name: 'D 直接字段读 .settings[x]', re: /\.settings\[[A-Za-z_]/g },
+  // ⚠️ E 的**真实形态** = `settingOf(store.settings, KEY_x)`（读 **store 镜像**整张 map），
+  //    见 Index.ets:1403/1412/1419。第一版我写成 `orbEnabled(store.settings)` 之类 ⇒ 命中 0 ⇒
+  //    「每种写法 ≥1」防线**正确开火**（它不是假绿，是把"扫法不全"抓了出来）。
+  { name: 'E store.settings 整张传入 settingOf', re: /settingOf\(store\.settings/g },
+];
+
+function collect(dir: string, out: string[]): void {
+  const es = fs.readdirSync(dir, { withFileTypes: true });
+  for (let i = 0; i < es.length; i++) {
+    const e = es[i];
+    const p: string = path.join(dir, e.name);
+    if (e.isDirectory()) {
+      if (e.name === 'build' || e.name === 'oh_modules' || e.name === 'node_modules') { continue; }
+      collect(p, out);
+    } else if (e.name.endsWith('.ets')) { out.push(p); }
+  }
+}
+const ALL: string[] = [];
+if (ETS_DIR.length > 0) { collect(ETS_DIR, ALL); }
+
+/**
+ * **白名单**（写法 D 的**泛型透传 / 归一化在下游 / 回滚读**）—— 2026-10-11 逐处语境判定，
+ * 全部"无害"（⛔ 只许缩短）：
+ *  · `core/store.ets:437`   —— 原始 accent 交给 setAppAccent，**归一化在下游** `withAccent→normalizeAccent`；
+ *  · `core/settings.ets:1073` —— `tierValues` 内**泛型透传**（按调用方 key 取，无固定语义）；
+ *  · `core/rpc.ets:1043`    —— 同上，泛型 key 查找；
+ *  · `pages/Index.ets:4612/4624` —— 写路径 + **回滚用的泛型读**（旧值原样存回，不经语义消费）。
+ */
+const WRITE_SIDE_OR_GENERIC: string[] = [
+  'core/store.ets', 'core/settings.ets', 'core/rpc.ets', 'pages/Index.ets',
+];
+
 const INDEX_SRC: string = srcOf('pages/Index.ets');
 const SETTINGS_KEYS: string[] = [
   'KEY_MD_THEME', 'KEY_ACCENT', 'KEY_SEND_KEY', 'KEY_CODE_WRAP', 'KEY_FONT_SCALE',
   'KEY_ORB', 'KEY_REASONING_DEFAULT', 'KEY_APP_THEME', 'KEY_SURFACE',
   'KEY_STARRED', 'KEY_SESSION_CATEGORY',
 ];
-/** 白名单：**有意**在一次性路径里读的键（每条必须给理由）。 */
-const ALLOWED_ONE_SHOT: string[] = [
-  // `KEY_SURFACE`：`Index.ets:1419` 的读取在 `syncFrom` 里、由 `surfaceApplied` **一次性闸门**保护
-  // —— 有意设计（防"聊天进行中"被强制换面）。用户体验：**改后需重进页面生效**（已记入 WEB-PARITY）。
-  // ⛔ 它不在 `aboutToAppear` 里；进白名单是为了在任何"一次性"路径出现时不误报。
-  'KEY_SURFACE',
-];
 
-// ── 零扫描防线 + 自证 ───────────────────────────────────────────────────────
+// ── 零扫描防线 + 逐写法分布（每种写法 ≥1，否则扫法不全 ⇒ 红）────────────────────
 eq('零扫描防线：仓库根解析成功', ROOT.length > 0, true);
 eq('零扫描防线：读到 pages/Index.ets 源码（非空）', INDEX_SRC.length > 1000, true);
+eq('零扫描防线：扫到 ≥100 个 .ets 源文件', ALL.length >= 100, true);
 {
-  let found: number = 0;
-  console.log('  ── 扫描器自证：钩子体长度 + 逐键读取分布 ──');
+  let missingPattern: number = 0;
+  console.log('  ── 逐写法命中分布（全仓 .ets；每类必须 ≥1）──');
+  for (let pi = 0; pi < READ_PATTERNS.length; pi++) {
+    let n: number = 0;
+    for (let fi = 0; fi < ALL.length; fi++) {
+      const m: string[] | null = stripComments(fs.readFileSync(ALL[fi], 'utf-8')).match(READ_PATTERNS[pi].re);
+      if (m !== null) { n += m.length; }
+    }
+    console.log(`    ${READ_PATTERNS[pi].name.padEnd(34)} × ${n}`);
+    if (n === 0) { missingPattern++; }
+  }
+  eq('每种读法都要被扫到 ≥1（否则扫法不全 ⇒ 假绿）', missingPattern, 0);
+  let hooks: number = 0;
   for (let i = 0; i < ONE_SHOT_HOOKS.length; i++) {
-    const body: string = hookBody(INDEX_SRC, ONE_SHOT_HOOKS[i]);
-    console.log(`    ${ONE_SHOT_HOOKS[i].padEnd(20)} 体 ${body.length} 字符`);
-    if (body.length > 0) { found++; }
+    if (hookBody(INDEX_SRC, ONE_SHOT_HOOKS[i]).length > 0) { hooks++; }
   }
-  // `aboutToAppear`/`onPageShow` 必须能被抽出来（否则抽体逻辑坏了 ⇒ 假绿）
-  eq('零扫描防线：aboutToAppear 与 onPageShow 的体都抽到了', found >= 2, true);
-  let readSites: number = 0;
+  eq('零扫描防线：≥2 个一次性钩子体抽到了（否则抽体逻辑坏 ⇒ 假绿）', hooks >= 2, true);
+  let reads: number = 0;
   for (let i = 0; i < SETTINGS_KEYS.length; i++) {
-    const n: number = (INDEX_SRC.match(new RegExp(`settingOf\\((this|store)\\.settings, ${SETTINGS_KEYS[i]}\\)`, 'g')) || []).length;
-    console.log(`    ${SETTINGS_KEYS[i].padEnd(24)} 读取点 ${n}`);
-    readSites += n;
+    reads += (INDEX_SRC.match(new RegExp(`settingOf\\((this|store)\\.settings, ${SETTINGS_KEYS[i]}\\)`, 'g')) || []).length;
   }
-  eq('零扫描防线：11 个键至少各有 1 个读取点（总 >= 11）', readSites >= 11, true);
+  eq('零扫描防线：11 键的 settingOf 读取点 ≥11', reads >= 11, true);
 }
 
-// ── 判定：一次性钩子里**不得**读设置键（白名单除外）────────────────────────────
+// ── 判定：一次性钩子里**不得**出现任何一种"读设置"写法（写法 D 仅白名单文件放行）────
 {
   const bad: string[] = [];
   for (let hi = 0; hi < ONE_SHOT_HOOKS.length; hi++) {
     const body: string = hookBody(INDEX_SRC, ONE_SHOT_HOOKS[hi]);
-    for (let ki = 0; ki < SETTINGS_KEYS.length; ki++) {
-      const key: string = SETTINGS_KEYS[ki];
-      if (body.indexOf(key) < 0) { continue; }
-      let allowed = false;
-      for (let ai = 0; ai < ALLOWED_ONE_SHOT.length; ai++) {
-        if (ALLOWED_ONE_SHOT[ai] === key) { allowed = true; }
+    for (let pi = 0; pi < READ_PATTERNS.length; pi++) {
+      const m: string[] | null = body.match(READ_PATTERNS[pi].re);
+      if (m === null) { continue; }
+      // 写法 D 的**写**侧（`this.settings[k] = v`）不是"读"，单独放行；其余一律判红。
+      if (READ_PATTERNS[pi].name.indexOf('D ') === 0) {
+        const lines: string[] = body.split('\n');
+        let readOnly: number = 0;
+        for (let li = 0; li < lines.length; li++) {
+          if (/\.settings\[[A-Za-z_]/.test(lines[li]) && lines[li].indexOf('] =') < 0) { readOnly++; }
+        }
+        if (readOnly === 0) { continue; }
+        bad.push(`${ONE_SHOT_HOOKS[hi]} 里出现「${READ_PATTERNS[pi].name}」读 × ${readOnly}（⇒ 改了不生效）`);
+        continue;
       }
-      if (!allowed) { bad.push(`${ONE_SHOT_HOOKS[hi]} 里读了 ${key}（⇒ 改了不生效，需重进页面）`); }
+      bad.push(`${ONE_SHOT_HOOKS[hi]} 里出现「${READ_PATTERNS[pi].name}」× ${m.length}（⇒ 改了不生效）`);
     }
   }
   if (bad.length > 0) {
-    console.log('  ✗ 设置键在一次性钩子里被读（应改为 build/派生方法里读）：');
+    console.log('  ✗ 一次性钩子里出现读设置：');
     for (let i = 0; i < bad.length; i++) { console.log(`      ${bad[i]}`); }
   }
-  eq('每个设置键的读取都在 build/派生方法里（⛔ 不在 aboutToAppear/onPageShow 等一次性钩子）', bad.length, 0);
+  eq('一次性钩子里不得出现任何"读设置"写法（改了要重进页面 = 用户可感缺陷）', bad.length, 0);
+  eq('白名单只覆盖"写侧/泛型透传"的 4 个文件（逐处理由见常量注释）', WRITE_SIDE_OR_GENERIC.length, 4);
 }
 
 if (fail > 0) { console.log(`  ✗ settings_apply_path: ${pass} passed, ${fail} failed`); process.exit(1); }
-console.log(`  ✅ settings_apply_path: ${pass} passed, 0 failed（11 键；一次性钩子读取 0 处；白名单 1）`);
+console.log(`  ✅ settings_apply_path: ${pass} passed, 0 failed（5 类读法全覆盖；一次性钩子读取 0 处）`);
 process.exit(0);
