@@ -143,6 +143,76 @@ export const WATCHDOG_RECONNECT: string = 'reconnect';
 /** 看门狗动作：连接也没了、退避计时器也没了（异常态）⇒ 直接重开一次。 */
 export const WATCHDOG_RESTART: string = 'restart';
 
+// ── 失败分类（纯函数）：把「服务端明确拒绝」与「网络抖动」分开 ───────────────────
+//
+// 为什么必须有它（用户亲报缺陷「一直在连接中」的第二个面）：`requestInStream` 的**完成
+// 回调对任何失败都走 `scheduleReconnect()`** ⇒ 若服务端**明确拒绝**（例如 `/api/sse` 对
+// 未知/已删除会话回 404 `session not found`、对无权限回 403 `access denied`，见
+// `channel/web/web_sse.go:68,216`），客户端会**无限重连**、界面**永久**显示
+// 「连接断开，正在重连…」——用户看到的正是这个死循环（重连只会一直拿到同一个 4xx）。
+// 这类"终态"必须**停止重连**并给出可解释的终态，而不是假装"网络不好、待会就好"。
+
+/** 终态：服务端明确拒绝，重连没有意义（**不应**无限重试）。 */
+export const SSE_OUTCOME_TERMINAL: string = 'terminal';
+/** 瞬态：网络抖动 / 5xx / 超时 ⇒ 值得退避重试。 */
+export const SSE_OUTCOME_TRANSIENT: string = 'transient';
+
+/**
+ * 终态下的连接状态。页面据此显示「可解释的终态」而不是「正在重连」。
+ * （`pages/Index.ets` 的横幅判据当前只认 `connecting`/`reconnecting` ⇒ `failed`
+ * 天然不再显示"正在重连"；页面若要显示终态文案需加一个分支，见交付报告。）
+ */
+export const SSE_STATE_FAILED: string = 'failed';
+
+/**
+ * 把一次流式请求的 HTTP 状态码归类为**终态**或**瞬态**（纯函数，可脱机单测）。
+ *
+ * 判据：**4xx（客户端错误）** = 服务端已"看懂并明确拒绝"⇒ 重试只会得到同一个答案 ⇒ 终态。
+ * 两个例外按**瞬态**处理（重试有意义）：
+ *   · `408 Request Timeout` —— 本请求超时，未必是持续拒绝；
+ *   · `429 Too Many Requests` —— 限流，退避后可能恢复。
+ * 其余（`0` = 无响应 / 网络层失败、`5xx` 服务端临时故障、`3xx`）一律**瞬态**。
+ *
+ * ⚠️ `401` 归终态，但它的语义由调用方**单独**路由（`onUnauthorized` → 退回登录），
+ *    本函数只负责"要不要无限重连"这一个判据。
+ *
+ * @param httpCode 响应状态码（`0` = 未拿到响应）
+ */
+export function classifyStreamOutcome(httpCode: number): string {
+  if (httpCode >= 400 && httpCode < 500 && httpCode !== 408 && httpCode !== 429) {
+    return SSE_OUTCOME_TERMINAL;
+  }
+  return SSE_OUTCOME_TRANSIENT;
+}
+
+/**
+ * 终态下给用户/日志的**可解释原因**（纯函数，绝不空手而归）。
+ *
+ * 取值依据：服务端 `/api/sse` 的拒绝语义（`channel/web/web_sse.go`）——
+ *   · `404 session not found`（第 68-70 行 `isUnknownSession`：会话不存在/已删除）；
+ *   · `403 access denied`（第 216-218 行 `canAccessSession`：无权访问）；
+ *   · `400 chat_id is required` / `405 method not allowed`（参数/方法错误）；
+ *   · `401 unauthorized`（会话失效，另走登录）。
+ */
+export function reasonForStreamStatus(httpCode: number): string {
+  if (httpCode === 404) {
+    return '会话不存在或已被删除';
+  }
+  if (httpCode === 403) {
+    return '无权访问该会话';
+  }
+  if (httpCode === 400) {
+    return '请求参数不合法';
+  }
+  if (httpCode === 405) {
+    return '请求方法不被支持';
+  }
+  if (httpCode === 401) {
+    return '登录已失效';
+  }
+  return `服务端拒绝连接（HTTP ${httpCode}）`;
+}
+
 /**
  * 看门狗的一次巡检决策（**纯函数**，可脱机单测）。
  *
@@ -171,8 +241,8 @@ export function watchdogDecision(
   stallMs: number,
   retryPending: boolean,
 ): string {
-  if (state === 'idle') {
-    return WATCHDOG_IDLE;
+  if (state === 'idle' || state === SSE_STATE_FAILED) {
+    return WATCHDOG_IDLE; // 未订阅 / 服务端明确拒绝（终态）⇒ 不许看门狗再踢它重连
   }
   if (state === 'open') {
     if (!reqHeld) {
@@ -218,6 +288,8 @@ export class SseClient {
   private watchdogArmed: boolean = false;
   /** 看门狗下一次巡检的定时器句柄（`-1` = 无）。 */
   private watchdogTimer: number = -1;
+  /** 最近一次**终态**失败的可解释原因（页面可读；空串 = 无终态失败）。 */
+  lastFailureReason: string = '';
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
@@ -379,6 +451,7 @@ export class SseClient {
     this.lastFrameAt = 0;
     this.lastForceReconnectAt = 0;
     this.attemptAt = 0;
+    this.lastFailureReason = '';
     // 自主看门狗：只要订阅着就周期巡检（半开连接 / 尝试挂死 / 计时器丢失三种卡死态）
     this.armWatchdog();
     this.setState('connecting');
@@ -443,18 +516,55 @@ export class SseClient {
       header: headers,
       connectTimeout: 15000,
       readTimeout: 0,
+      // ⚠️ 强制 HTTP/1.1 —— 用户亲报缺陷「新建会话后一直在连接中」的**根因修复**：
+      // 不指定时系统默认协商到 **HTTP/3(QUIC)**，而本模块的**流式写回调**在复用连接上
+      // ~1 秒即崩：hilog `http_exec.cpp:741 CURLcode result 23`（= CURLE_WRITE_ERROR）+
+      // `isStream:true, errCode:2300023, RespCode:200, httpVer:3, reuse:1`，`size:407`
+      // （刚收到一小段就写失败）⇒ SSE 每 ~1s 断一次、界面**永久**「连接断开，正在重连…」。
+      // 判别实验（curl 对同一远程服务端，三种 Accept-Encoding）：identity/gzip/zstd 在
+      // HTTP/2 下**都能持续收流 20s+** ⇒ 服务端与压缩都无辜，问题锁定在**客户端 h3 流式路径**。
+      // SSE 是长连接、不需要多路复用 ⇒ 取最稳的 h1.1（h2 在本模块有已知 framing 缺陷，见
+      // SDK 的 2300016，且无收益）。
+      usingProtocol: http.HttpProtocol.HTTP1_1,
     }, (err: BusinessError, code: number) => {
+      // ① 会话失效：交给页面退回登录（重连只会一直 401）
       if (code === 401) {
-        // 会话失效：重连没有意义（只会一直 401）⇒ 停掉并让页面退回登录
         this.stopped = true;
-        this.setState('idle');
+        this.stopWatchdog();
+        this.lastFailureReason = reasonForStreamStatus(code);
+        this.setState(SSE_STATE_FAILED);
         this.onUnauthorized();
         return;
       }
+      // ② 服务端**明确拒绝**（4xx，如 404 session not found / 403 access denied）⇒ 终态：
+      //    停止无限重连，并留下可解释的终态（否则界面永久"正在重连…"）。
+      if (classifyStreamOutcome(code) === SSE_OUTCOME_TERMINAL) {
+        this.stopped = true;
+        this.stopWatchdog();
+        this.releaseReq();
+        this.lastFailureReason = reasonForStreamStatus(code);
+        this.setState(SSE_STATE_FAILED);
+        console.warn(`xbot sse: 服务端拒绝流式连接（终态，停止重连）：${this.lastFailureReason}`);
+        return;
+      }
+      // ③ 瞬态（网络抖动 / 5xx / 超时 / CURLE_WRITE_ERROR 等）⇒ 既有退避重连
       if (err !== undefined && err !== null && err.code !== 0) {
         this.scheduleReconnect();
       }
     });
+  }
+
+  /** 拆掉并释放当前底层连接（终态时用；与 close() 里的清理同形）。 */
+  private releaseReq(): void {
+    if (this.req === null) {
+      return;
+    }
+    const r: http.HttpRequest = this.req;
+    this.req = null;
+    r.off('dataReceive');
+    r.off('dataEnd');
+    r.off('headersReceive');
+    r.destroy();
   }
 
   private scheduleReconnect(): void {

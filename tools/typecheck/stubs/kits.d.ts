@@ -11,6 +11,8 @@ declare module '@kit.NetworkKit' {
   export namespace http {
     export enum RequestMethod { GET = 'GET', POST = 'POST' }
     export enum HttpDataType { STRING = 0, OBJECT = 1, ARRAY_BUFFER = 2 }
+    // 真实 SDK：HTTP 协议版本（0/1/2）。core/sse.ets 用它强制 HTTP/1.1。
+    export enum HttpProtocol { HTTP1_1 = 0, HTTP2 = 1, HTTP3 = 2 }
     export interface HttpRequestOptions {
       method?: RequestMethod | string;
       header?: Record<string, string> | Object;
@@ -18,6 +20,7 @@ declare module '@kit.NetworkKit' {
       expectDataType?: HttpDataType;
       connectTimeout?: number;
       readTimeout?: number;
+      usingProtocol?: HttpProtocol;
     }
     export interface HttpResponse {
       result: string | Object | ArrayBuffer;

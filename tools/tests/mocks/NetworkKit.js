@@ -87,5 +87,9 @@ module.exports = {
     createHttp,
     RequestMethod: { GET: 'GET', POST: 'POST' },
     HttpDataType: { STRING: 0, OBJECT: 1, ARRAY_BUFFER: 2 },
+    // 保真：真机 http 模块暴露 HttpProtocol（0/1/2）。core/sse.ets 现在用
+    // `usingProtocol: http.HttpProtocol.HTTP1_1` 强制 HTTP/1.1（真机 h3 流式缺陷的修复）
+    // ⇒ 脱机 harness 必须提供它，否则 openStream 里取属性会抛（假红）。
+    HttpProtocol: { HTTP1_1: 0, HTTP2: 1, HTTP3: 2 },
   },
 };
