@@ -164,6 +164,11 @@ struct TodoRowView {
           .wordBreak(WordBreak.BREAK_ALL)
           .layoutWeight(1)
           .textAlign(TextAlign.Start)
+          // ⛔ 编辑入口被 `editable` 守卫 ⇒ 必须把该 flag 接到 `.enabled()`（".enabled(this.<guard>)"）：
+          //    否则它照常有 press 反馈、点了却没动作 = **交互死区**（web `TodoPullOut` 同义）。
+          //    ⚠️ 刻意**只**禁这一处 —— 本行内还有**未被守卫**的状态勾选（`:133 onToggle`），
+          //    若把 `.enabled(this.editable)` 加到整行会把勾选一起禁掉。
+          .enabled(this.editable)
           .onClick(() => {
             if (this.editable) {
               this.onStartEdit();

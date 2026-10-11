@@ -33,7 +33,7 @@ const CDIR: string = path.join(REPO, 'entry/src/main/ets/components');
 /** 聊天流交互组件（见文件头：只扫不在他人手上的）。 */
 const FILES: string[] = [
   'MessageRow.ets', 'LiveTailView.ets', 'MarkdownView.ets', 'AuthImage.ets',
-  'SubAgentTree.ets', 'ToolVisual.ets', 'LlmErrorNotice.ets',
+  'SubAgentTree.ets', 'ToolVisual.ets', 'LlmErrorNotice.ets', 'TodoPanel.ets',
 ];
 
 /**
@@ -77,6 +77,39 @@ for (let i = 0; i < FILES.length; i++) {
   const treeSrc: string = fs.readFileSync(path.join(CDIR, 'SubAgentTree.ets'), 'utf8');
   ok('SubAgentTree：受守卫的可点行带 .enabled(openable)',
     treeSrc.indexOf('.enabled(this.openable)') >= 0 && treeSrc.indexOf('if (this.openable)') >= 0);
+}
+
+// ── ⑤ **通用判据**（防"交互死区"整类）：`onClick` 被 flag **纯守卫**（`if (flag) { 动作 }`，
+//    无 else）⇒ 必须 `.enabled(同一 flag)`。仅"纯守卫"算死区；`if/else` 两分支都有动作的不算。
+//    ⚠️ 取**调用片段**（正则取 onClick 体）、**先剥注释**（否则注释里的 `if (this.x)` 会假命中）。
+//    ⚠️ 靠色/透明度表达"已禁用"（如 AskUserSheet 提交键用 `.opacity(DISABLED_OPACITY)`）**不**属死区
+//      ⇒ 不在扫描集的文件不参与（扫描集 = 上面 FILES）。
+function stripComments(s: string): string {
+  // 块注释 + 行注释；⛔ 行注释用 `(^|[^:])//` 以免把 `https://…` 里的 `//` 也剥掉。
+  return s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+}
+for (let i = 0; i < FILES.length; i++) {
+  const f: string = FILES[i];
+  const p: string = path.join(CDIR, f);
+  let src: string;
+  try {
+    src = stripComments(fs.readFileSync(p, 'utf8'));
+  } catch (e) {
+    continue; // ① 已报"不可读"
+  }
+  const guardRe: RegExp = /\.onClick\(\(\)\s*=>\s*\{([\s\S]{0,180}?)\n\s*\}\)/g;
+  let m: RegExpExecArray | null = guardRe.exec(src);
+  while (m !== null) {
+    const body: string = m[1];
+    const g: RegExpExecArray | null = /if\s*\(!?this\.([A-Za-z_]\w*)\)/.exec(body);
+    // 纯守卫 = 命中 flag 守卫 **且** 无 `else`（if/else 两分支都动作 ⇒ 非死区）
+    if (g !== null && !/\}\s*else\b/.test(body)) {
+      const flag: string = g[1];
+      ok(`${f}：守卫 onClick(${flag}) ⇒ 有 .enabled(this.${flag})`,
+        src.indexOf(`.enabled(this.${flag})`) >= 0 || src.indexOf(`.enabled(!this.${flag})`) >= 0);
+    }
+    m = guardRe.exec(src);
+  }
 }
 
 console.log(`  interactive_feedback: ${pass} passed, ${fail} failed`);
