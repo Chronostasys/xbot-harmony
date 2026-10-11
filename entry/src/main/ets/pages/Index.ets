@@ -12,6 +12,7 @@ import { webview } from '@kit.ArkWeb';
 import { ChatStore } from '../core/store';
 import { beginTurnKeepAlive, endTurnKeepAlive, ensureEnabled, notificationsEnabled, PENDING_CHAT_KEY, PENDING_CHAT_SEQ_KEY, PENDING_ACTION_KEY, isKnownNotifyAction, NOTIFY_ACTION_STOP, NOTIFY_ACTION_CONTINUE } from '../core/notify';
 import { ALL_THEMES, normalizeTheme, Palette, paletteOf, themeLabel, Effects, effectsOf, isDarkThemeName, isLightPalette } from '../core/theme';
+import { brandAccentFor } from '../core/brand';
 import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, withAccent } from '../core/accent';
 import { MD_THEMES, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';
 import { localeLabel, normalizeLocale } from '../core/i18n';
@@ -3121,13 +3122,19 @@ struct Index {
   @Builder
   LoginView() {
     Stack({ alignContent: Alignment.Center }) {
-      // ── 深空底：垂直渐变（appBg → surfaceAlt → appBg）──
-      Column()
-        .width('100%').height('100%')
-        .linearGradient({
-          angle: 180,
-          colors: [[this.pal().appBg, 0.0], [this.pal().surfaceAlt, 0.52], [this.pal().appBg, 1.0]],
-        })
+      // ── 深空底：垂直渐变（appBg → surfaceAlt → appBg）—— **仅深色系**（那是深色的设计）──
+      // ⛔ 浅色面**不画**：porcelain 下三端 = `#FFFFFF → #F6F6F7 → #FFFFFF`（对比度 ≈1.0，肉眼零差）
+      //    ⇒ 纯空转一次全屏渐变，且违 `docs/REDESIGN.md §3.4`"白底不靠渐变立层次"。
+      //    白主题的层次由**发丝 + 柔影**给（登录卡的 `surface.card` + `hairlineOf`）。
+      //    深浅只经 `isLightPalette(paletteOf(theme))` 判（⛔ 不按主题名硬判）；深色**逐字节不变**。
+      if (!isLightPalette(this.pal())) {
+        Column()
+          .width('100%').height('100%')
+          .linearGradient({
+            angle: 180,
+            colors: [[this.pal().appBg, 0.0], [this.pal().surfaceAlt, 0.52], [this.pal().appBg, 1.0]],
+          })
+      }
       // ── 顶部光晕：径向 accent 辉光（未来感的来源，纯装饰）──
       Column()
         .width(620).height(620).borderRadius(310)
@@ -3144,20 +3151,41 @@ struct Index {
         // 与 `fontColor` 无关（ArkUI 没有 gradient-text）⇒ 渐变必须放在**容器**上，文字用纯色前景。
         // 原写法把 Text 的背景刷成紫渐变、且无 borderRadius ⇒ 真机上是"直角紫方块"
         // （见 docs/ARKTS-GOTCHAS.md 批次 14）。此处改为有意的应用徽标（squircle 观感）。
-        Column() {
-          Text('xbot').fontSize(34).fontWeight(typeOf('type.headline').weight)
-            .fontColor(this.pal().onAccent)
-            .letterSpacing(0.5)
+        // ⛔ 浅色面**不是**彩色渐变牌（`docs/REDESIGN.md §3.4`：白底靠"发丝 + 柔影"立层次，
+        //    禁彩色渐变当"牌"）—— porcelain 下 `gradientFrom/To` = `#0071E3→#0066CC`，刷在纯白上
+        //    就是"一块蓝渐变牌"，与极简白的气质冲突。⇒ 浅色面改 **中性面（`surface.card` = 白）
+        //    + 结构性发丝（`hairlineOf`）+ 柔影**，glyph 用**本主题品牌色**（`brandAccentFor(p)`，
+        //    porcelain = Apple Blue `#0071E3`，即浅色面"标记色"口径，见 `docs/BRAND.md §12.1`/①）。
+        // 深色面**逐字节不变**（品牌渐变 + `onAccent` glyph + `glassBorder`）。
+        // 深浅只经 `isLightPalette(paletteOf(theme))` 判（⛔ 不按主题名硬判）。
+        if (isLightPalette(this.pal())) {
+          Column() {
+            Text('xbot').fontSize(34).fontWeight(typeOf('type.headline').weight)
+              .fontColor(brandAccentFor(this.pal()))
+              .letterSpacing(0.5)
+          }
+          .width(108).height(108)
+          .borderRadius(30)
+          .backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))
+          .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+          .shadow({ radius: 26, color: this.eff().glow, offsetX: 0, offsetY: 10 })
+          .justifyContent(FlexAlign.Center)
+        } else {
+          Column() {
+            Text('xbot').fontSize(34).fontWeight(typeOf('type.headline').weight)
+              .fontColor(this.pal().onAccent)
+              .letterSpacing(0.5)
+          }
+          .width(108).height(108)
+          .borderRadius(30)
+          .linearGradient({
+            angle: 135,
+            colors: [[this.eff().gradientFrom, 0.0], [this.eff().gradientTo, 1.0]],
+          })
+          .border({ width: 1, color: this.eff().glassBorder })
+          .shadow({ radius: 26, color: this.eff().glow, offsetX: 0, offsetY: 10 })
+          .justifyContent(FlexAlign.Center)
         }
-        .width(108).height(108)
-        .borderRadius(30)
-        .linearGradient({
-          angle: 135,
-          colors: [[this.eff().gradientFrom, 0.0], [this.eff().gradientTo, 1.0]],
-        })
-        .border({ width: 1, color: this.eff().glassBorder })
-        .shadow({ radius: 26, color: this.eff().glow, offsetX: 0, offsetY: 10 })
-        .justifyContent(FlexAlign.Center)
         Text('连接你的 xbot 服务端 · 原生鸿蒙客户端')
           .fontSize(FS_CAPTION).fontColor(this.pal().textMuted)
           .margin({ bottom: SP_4 })

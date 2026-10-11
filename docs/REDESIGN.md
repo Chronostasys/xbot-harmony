@@ -175,6 +175,15 @@ space.md   = 16  space.lg = 20   space.xl = 24   space.xxl = 32
 | 阴影 | 浮层（Sheet/菜单）、需要"浮起"的整卡 | 用阴影当"在飞"（§4）|
 | 发光（彩色光晕） | **仅深色系**，且**仅光球** | 浅色系一律禁（45% 饱和色晕压白底 = 脏）|
 
+> **落地记录（2026-10-11，白主题收尾）**：同一条"浅色系禁彩色"也管**彩色渐变当'牌'**——
+> `pages/Index.ets` 的 `LoginView()` 两处已按此收口：① 应用徽标（原 porcelain 下是
+> `gradientFrom/To` = `#0071E3→#0066CC` 的**蓝渐变方块**）⇒ 浅色面改 **中性面
+> `surfaceFillOf(p,'surface.card')` + 结构性发丝 `hairlineOf(p)` + 柔影**，glyph 用本主题品牌色
+> `brandAccentFor(p)`（porcelain = Apple Blue `#0071E3`）；② 登录页底垂直渐变（porcelain 下
+> `#FFF→#F6F6F7→#FFF`，对比度 ≈1.0 肉眼零差）⇒ **仅深色渲染**。深浅只经
+> `isLightPalette(paletteOf(theme))` 判；**深色逐字节不变**。
+> 机器判据 = `tools/tests/porcelain_login.test.ts`（源码形态 + 真函数取值 + mutation 自证）。
+
 ---
 
 ## 4. 动效原则
