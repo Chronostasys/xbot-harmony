@@ -143,21 +143,80 @@ export function orbBreath(t: number, periodMs: number): number {
 }
 
 /**
+ * 呼吸值 → 半径（**唯一映射**：单频 `orbRadius` 与双频 `orbRadiusFine` 共用 ——
+ * ⛔ 不许在组件里再写一份（两份公式必然漂移），这正是"判据与渲染同源"的落点）。
+ */
+function radiusOf(breath: number, baseR: number, minScale: number, maxScale: number): number {
+  const base: number = baseR > 0 ? baseR : 0;
+  return base * (minScale + (maxScale - minScale) * breath);
+}
+
+/** 呼吸值 → 透明度（**唯一映射**，同上）。 */
+function opacityOf(breath: number, minO: number, maxO: number): number {
+  return minO + (maxO - minO) * breath;
+}
+
+/**
  * 呼吸半径：`baseR * (minScale + (maxScale-minScale)*orbBreath)`。
  * 值域 `[baseR*minScale, baseR*maxScale]`；`baseR<=0` 视为 0（不产生负半径）。
  */
 export function orbRadius(
   t: number, baseR: number, periodMs: number, minScale: number, maxScale: number): number {
-  const base: number = baseR > 0 ? baseR : 0;
-  const b: number = orbBreath(t, periodMs);
-  return base * (minScale + (maxScale - minScale) * b);
+  return radiusOf(orbBreath(t, periodMs), baseR, minScale, maxScale);
 }
 
 /**
  * 呼吸透明度：`minO + (maxO-minO)*orbBreath`。值域 `[min(minO,maxO), max(minO,maxO)]`。
  */
 export function orbOpacity(t: number, periodMs: number, minO: number, maxO: number): number {
-  return minO + (maxO - minO) * orbBreath(t, periodMs);
+  return opacityOf(orbBreath(t, periodMs), minO, maxO);
+}
+
+// ── 双频呼吸（主呼吸 + 次级起伏 —— "去机械感"的量化落点）──────────────────────────
+/**
+ * 次级起伏的**谐波倍数** = 2（整数倍 ⇒ 契约内；`docs/DESIGN-SYSTEM.md §8.1`：在飞组的呼吸/
+ * 脉冲必须是主呼吸刻度的**整数分数或倍数**）⇒ **周期仍是 `periodMs`，不新造时长刻度**。
+ *
+ * 为什么需要它：主呼吸是"快吸慢呼"的**单峰**波形 —— 单峰且每周期完全一致 = **节拍器**
+ * （可预测 = 机械感，是"像机器而不是像活物"的头号特征）。叠加一个 2× 谐波的**微弱**分量
+ * （与真实心跳的"二次搏动"/dicrotic notch 同构）⇒ 波形不再是教科书式的单峰
+ * ⇒ 一眼读作"有生命的呼吸"。
+ * ⛔ 只改**波形形状**：周期（`ORB_BREATH_SWELL` 无关，仍是 `periodMs`）、端点值（谷 0 / 峰 1）
+ * 与值域 `[0,1]` 全部不变 ⇒ 既有契约（`docs/DESIGN-SYSTEM.md §7.1.1`）与下游映射不受影响。
+ */
+export const ORB_BREATH_FINE_HARMONIC: number = 2;
+
+/**
+ * 次级起伏的深度（相对呼吸量程）。`0` ⇒ 退回单频 `orbBreath`（可关断）。
+ * ⚠️ 取 0.18 的量纲依据：22vp 光球的主呼吸半径量程实测约 1.64vp ⇒ 起伏峰-峰 ≈ 0.30vp
+ * （3× 屏 ≈ 0.9px）—— **够被眼睛读到"不是完美节拍"，又不至于读成"抖"**（克制）。
+ */
+const ORB_BREATH_FINE_AMP: number = 0.18;
+
+/**
+ * 双频呼吸值 ∈ `[0,1]`：`orbBreath`（主，快吸慢呼）+ 一个 2× 谐波的**窗口化**微弱分量。
+ *
+ * 窗口 `4·b·(1−b)` 在两端（`b=0` / `b=1`）**恰为 0** ⇒ **端点逐值不变**
+ * （谷仍 = 0、峰仍 = 1，"满量程不塌"与"峰值 = 1"两条既有契约自动成立）；
+ * 起伏只发生在中段（真正"在呼吸"的那一段）。末尾夹紧 ⇒ 值域仍 ⊆ `[0,1]`。
+ */
+export function orbBreathFine(t: number, periodMs: number): number {
+  const b: number = orbBreath(t, periodMs);
+  const w: number = 4 * b * (1 - b);                 // ∈[0,1]，两端恰 0
+  const ripple: number = Math.sin(2 * Math.PI * ORB_BREATH_FINE_HARMONIC * orbPhase(t, periodMs));
+  const v: number = b + ORB_BREATH_FINE_AMP * w * ripple;
+  return v < 0 ? 0 : (v > 1 ? 1 : v);
+}
+
+/** 双频呼吸半径（与 `orbRadius` **同一映射**，只是喂 `orbBreathFine`）。 */
+export function orbRadiusFine(
+  t: number, baseR: number, periodMs: number, minScale: number, maxScale: number): number {
+  return radiusOf(orbBreathFine(t, periodMs), baseR, minScale, maxScale);
+}
+
+/** 双频呼吸透明度（与 `orbOpacity` **同一映射**，只是喂 `orbBreathFine`）。 */
+export function orbOpacityFine(t: number, periodMs: number, minO: number, maxO: number): number {
+  return opacityOf(orbBreathFine(t, periodMs), minO, maxO);
 }
 
 /**
@@ -229,6 +288,48 @@ export function orbWave(t: number, phase: number, seed: number): number {
   const c: number = Math.sin(2 * Math.PI * 3 * u + s * 2.3);
   return (a + 0.6 * b + 0.4 * c) / 2.0;
 }
+
+// ── 轨道景深（"近大远小" ⇒ 环读作**倾斜的三维轨道**，而非平面的一圈点）──────────────
+/**
+ * 景深：把粒子在**单位圆上的纵向位置** `y`（画布坐标：y 向下）映射成"远近度" ∈ `[0,1]`
+ * （`0` = 环的后缘/最远，`1` = 环的前缘/最近）。
+ *
+ * 为什么这是"提升一档"而不是"加特效"：**等大等亮的一圈光点 = 2D loading 圈**的头号特征；
+ * 人眼读空间靠的正是"近大远小 + 亮度差"。给同一圈光点一个**纵向深度权重**
+ * ⇒ 环立刻读作"绕着一颗核在倾斜的轨道上转"（有体积、有前后），而**一个像素都没多画**。
+ * 性质（测试钉住）：`y=-1 ⇒ 0`、`y=0 ⇒ 0.5`、`y=+1 ⇒ 1`、对 `y` 单调不减；
+ * 非有限输入 ⇒ `0.5`（中性，不倒向任一端 —— fail-safe）；输入越界 ⇒ 夹到 `[0,1]`。
+ */
+export function orbDepthNear(y: number): number {
+  if (!(y === y)) { return 0.5; }   // NaN ⇒ 中性
+  if (y <= -1) { return 0; }
+  if (y >= 1) { return 1; }
+  return (y + 1) / 2;
+}
+
+/**
+ * 景深增益：近端 `near`、远端 `far`，按 `k ∈ [0,1]`（**该态的景深强度**）插值到 `1`。
+ * `k = 0` ⇒ **恒 1**（该态无景深 ⇒ 退化为既有**平面**环 —— 可关断、可回退）。
+ *
+ * 性质（测试钉住）：对 `y` 单调不减（`near > far` 时 ⇒ **近层 > 远层**）；`k` 单调；
+ * 有界 `⊆ [min(1,far), max(1,near)]`。⛔ 两端均为**正数** ⇒ 远粒子**也看得见**（只是更小更弱）
+ * ——"任何态不得出现静止不可见"。
+ */
+export function orbDepthGain(y: number, near: number, far: number, k: number): number {
+  const d: number = orbDepthNear(y);
+  const base: number = far + (near - far) * d;
+  const kk: number = k > 1 ? 1 : (k > 0 ? k : 0);
+  return 1 + (base - 1) * kk;
+}
+
+/** 近端尺寸增益（环前缘）。 */
+export const ORB_DEPTH_SIZE_NEAR: number = 1.28;
+/** 远端尺寸增益（环后缘）—— 必须 > 0（远粒子也要看得见）。 */
+export const ORB_DEPTH_SIZE_FAR: number = 0.78;
+/** 近端不透明度增益（环前缘）。 */
+export const ORB_DEPTH_ALPHA_NEAR: number = 1.15;
+/** 远端不透明度增益（环后缘）—— 必须 > 0（"任何态不可见"的防线）。 */
+export const ORB_DEPTH_ALPHA_FAR: number = 0.72;
 
 // ── 帧率策略（**纯策略**：可脱机单测、可变异自证）──────────────────────────────
 /**
@@ -342,5 +443,40 @@ export function orbEffectiveMode(orbMode: string, quiet: boolean): string {
     return MODE_SECONDARY;
   }
   return MODE_THINKING;
+}
+
+// ── 态 → 景深强度（"深度 = 在场感"）────────────────────────────────────────────
+/**
+ * 态 → 轨道景深强度（`0` = 平面/最平，`1` = 最立体）。
+ *
+ * 为什么把这条策略也上收本层：它与 `orbTargetFps` / `orbEffectiveMode` **同类** —— 都是
+ * "态 × 策略 ⇒ 数值"的**纯映射**。散在组件里就会各自漂移；收在这里则可脱机单测、可变异自证。
+ * 组件只负责喂 `mode`（不写第二份 `if` 链）。
+ *
+ * 设计语义（为什么不只是"幅度不同"）：景深是一条**与颜色/速度都无关的静态形态维度**
+ * —— `porcelain`/`light` 下 `tool` 与 `thinking` 的环**同为 `#0071E3`**（`core/theme.ets`）
+ * ⇒ 颜色维度静帧不可辨；深度给"工具在飞"又一个**静帧可辨**的线索（§7.2 的另一半）。
+ * `idle` 收到接近平面 ⇒ "静止也是设计"（克制）；未知态回落 `thinking`（宁可满档，不静默降级）。
+ */
+export const ORB_DEPTH_THINKING: number = 0.85;
+/** `tool`（工具在飞、光球领读）：最立体。 */
+export const ORB_DEPTH_TOOL: number = 1;
+/** `secondary`（让位）：收一半（退到中景）。 */
+export const ORB_DEPTH_SECONDARY: number = 0.45;
+/** `idle`（静默）：接近平面。 */
+export const ORB_DEPTH_IDLE: number = 0.2;
+
+/** 态 → 景深强度（纯函数；未知态回落 `thinking`）。 */
+export function orbDepthOf(mode: string): number {
+  if (mode === MODE_TOOL) {
+    return ORB_DEPTH_TOOL;
+  }
+  if (mode === MODE_IDLE) {
+    return ORB_DEPTH_IDLE;
+  }
+  if (mode === MODE_SECONDARY) {
+    return ORB_DEPTH_SECONDARY;
+  }
+  return ORB_DEPTH_THINKING;
 }
 

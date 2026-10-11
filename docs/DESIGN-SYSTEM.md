@@ -147,15 +147,22 @@ bash tools/lint/color-roles.sh
 
 ### 7.1 四态状态机（态 → 视觉 → 驱动 `@Prop` → 降级）
 
-| 态 | 呼吸/能量 | 公转相位 | 轨道 | 环色 | 帧率 | 驱动 | 读作 |
-|---|---|---|---|---|---|---|---|
-| `thinking` | 1.0（既有观感） | 1.0× | 1.0× | `accentSoft` | 30 | `orbMode`（调用方给） | 在思考 / 在写 |
-| `tool` | 0.9 | **2.2×** | **1.08×** | `statusRunning` | 30 | `orbMode`（任一工具在飞） | 工具在飞 |
-| `secondary` | **0.5** | **0.5×** | 1.0× | `accentSoft` | **18** | `orbMode`（`thinkingIsPrimary()`） | **让位**（别处才是主角） |
-| `idle` | **0.25** | **0（冻结）** | 1.0× | `accentSoft` | **12** | `orbMode` 或**心跳停摆自判** | 静默（静止也是设计） |
+| 态 | 呼吸/能量 | 公转相位 | 轨道 | **景深** | 环色 | 帧率 | 驱动 | 读作 |
+|---|---|---|---|---|---|---|---|---|
+| `thinking` | 1.0（既有观感） | 1.0× | 1.0× | 0.85 | `accentSoft` | **20** | `orbMode`（调用方给） | 在思考 / 在写 |
+| `tool` | 0.9 | **2.2×** | **1.08×** | **1.0（最立体）** | `statusRunning` | 30 | `orbMode`（任一工具在飞） | 工具在飞 |
+| `secondary` | **0.5** | **0.5×** | 1.0× | 0.45 | `accentSoft` | **18** | `orbMode`（`thinkingIsPrimary()`） | **让位**（别处才是主角） |
+| `idle` | **0.25** | **0（冻结）** | 1.0× | **0.2（近平面）** | `accentSoft` | **12** | `orbMode` 或**心跳停摆自判** | 静默（静止也是设计） |
 
-⚠️ 帧率列**以 `core/orb.ets` 的 `ORB_FPS_*` 为准**（`tool`/`thinking` = 30、`secondary` = 18、`idle` = 12）。
-本表曾误写 `thinking = 20`（那是 `secondary` 引入前的旧值），2026-10-11 审计一并订正。
+⚠️ 帧率列**以 `core/orb.ets` 的 `ORB_FPS_*` 为准**：`tool` = 30、**`thinking` = 20**、`secondary` = 18、
+`idle` = 12。`thinking` **确实**走 `orbTargetFps` 的 `ORB_FPS_THINKING`(20) 降频分支
+（`core/orb.ets:405`；由 `a3f0cc1`「慢波形降频」引入，`tools/tests/orb.test.ts` 钉死 20，
+真机实测流式期 CPU 4.4–4.7% 正是它的地板）。**本表与组件头曾一度把 `thinking` "订正"成 30**
+（并附"thinking 不在降频分支里"的说法）—— **那是错的**，2026-10-11 按**代码 + 判据**回正。
+
+**景深列** = `core/orb.ets:orbDepthOf(mode)`（"深度 = 在场感"：`tool` 最立体、`idle` 近平面）。
+它是一条**与颜色/速度都无关的静态形态维度** —— `porcelain`/`light` 下 `tool` 与 `thinking` 的环
+**同为 `#0071E3`**（`core/theme.ets`）⇒ 颜色维度静帧不可辨；深度给"工具在飞"一个**静帧可辨**的线索。
 
 ⛔ **优先级的唯一判据 = `core/orb.ets:orbEffectiveMode(orbMode, quiet)`（纯函数）**：
 `tool > idle(显式) > idle(静默自判) > secondary > thinking`。组件侧**不得**自己再写一份 `if` 链 ——
@@ -179,6 +186,30 @@ bash tools/lint/color-roles.sh
    **只快不退**（`c<1` ⇒ 严格单调），且"`tool` 加速 = 用更短周期跑同一函数"的等价关系仍成立。
 
 纪律：`0 < ORB_BREATH_INHALE < 0.5`、`0 < ORB_SPIN_EASE < 1`（**改回 0.5 / 0 即红**，`orb.test.ts` 逐条守护）。
+
+### 7.1.2 「双频呼吸 + 轨道景深」—— 再提升一档（2026-10-11 第三波）
+
+两处**只加"形状/层次"、不加元素、不加时长、不加动效面**的提升（判据 `tools/tests/orb_motion.test.ts`，57 断言）：
+
+1. **双频呼吸**（`core/orb.ets:orbBreathFine` / `orbRadiusFine` / `orbOpacityFine`）。
+   主呼吸是"快吸慢呼"的**单峰**波形 —— 单峰且每周期完全一致 = **节拍器**（可预测 = 机械感）。
+   叠加一个 **2× 谐波**（`ORB_BREATH_FINE_HARMONIC = 2`，**整数倍 ⇒ 周期仍是 `ORB_BREATH_MS`，
+   不新造时长刻度**）的微弱分量，与真实心跳的"二次搏动"同构 ⇒ 读作"有生命的呼吸"。
+   ⛔ 窗口 `4·b·(1−b)` 在两端恰为 0 ⇒ **端点逐值不变**（峰仍 1 / 谷仍 0）、值域仍 `[0,1]`；
+   `ORB_BREATH_FINE_AMP = 0.18`（实测峰-峰偏差 ≈ 0.30vp @3× 屏 ≈ 0.9px —— 够读到"不是节拍"，
+   不至于读成"抖"；`0` 即退回单频）。映射与 `orbRadius`/`orbOpacity` **同源**（共用私有 `radiusOf`/`opacityOf`）。
+   ⛔ 单频 `orbBreath`/`orbRadius`/`orbOpacity` **一字未动**（`orb.test.ts` 的波形/单调/端点契约继续成立）。
+2. **轨道景深**（`core/orb.ets:orbDepthNear` / `orbDepthGain` / `ORB_DEPTH_*`）。
+   **等大等亮的一圈光点 = 2D loading 圈**的头号特征；人眼读空间靠"近大远小 + 亮度差"。
+   逐粒子按**纵向位置** `y` 给尺寸/亮度增益（近 `1.28×/1.15×`、远 `0.78×/0.72×`）⇒ 环读作
+   **倾斜的三维轨道**，**一个像素都没多画**。`orbDepthOf(mode)` 给每态一个强度（见 §7.1 景深列）。
+
+**为什么不更花哨**（三条硬边界，逐条都有判据）：① 不加**颜色**（取色仍只走 accent 家族 + `statusRunning`
++ `inflightHaloOf`/`hairlineOf`）；② 不加**元素/图元**（没有 specular 高光点、没有第二圈环、没有光斑）；
+③ 不加**动效面/定时器**（`animateTo(` 仍 2、`.transition(`/`.animation(` 仍 0、`setInterval(` 仍 1 ——
+`orb_motion.test.ts` 与 `motion_budget`／`one_inflight_motion` 同源钉住）。新增的只有**两个纯函数维度**。
+⚠️ **观感（"是不是真比 Siri 好看"）必须真机连拍验收** —— 离线判据只证明"参数不变量与接线在位"，
+**不证明好看**。
 
 - **`idle` 自判**：`orbBeat`（正文+思考的码点长度和）超过 `ORB_QUIET_MS`（= 呼吸周期/4 = 640ms = 2×`D_SLOW`）
   未再前进 ⇒ 转入 `idle`。**为什么放在组件内**：父组件（`LiveTailView`）流式期以 ≤20Hz 重建，

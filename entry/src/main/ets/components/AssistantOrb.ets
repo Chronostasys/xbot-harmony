@@ -6,17 +6,25 @@
  * 并按**运行态**切换"动效语义"（下表）—— 不是一套循环用到黑。
  *
  * ── 四态状态机（本波核心；契约见 `docs/DESIGN-SYSTEM.md §7`）────────────────────
- *   | 态 | 呼吸/能量 | 公转相位 | 轨道 | 环色 | 帧率 | 读作 |
- *   |---|---|---|---|---|---|---|
- *   | `thinking` | 1.0（既有观感） | 1.0× | 1.0× | accentSoft | 30 | 在思考 / 在写 |
- *   | `tool`     | 0.9 | **2.2×** | **1.08×** | **statusRunning** | 30 | 工具在飞（一眼可辨） |
- *   | `secondary`| **0.5** | **0.5×** | 1.0× | accentSoft | **18** | 让位（别处才是主角） |
- *   | `idle`     | **0.25** | **0.0（冻结）** | 1.0× | accentSoft | **12** | 静默（**静止也是设计**） |
+ *   | 态 | 呼吸/能量 | 公转相位 | 轨道 | 景深 | 环色 | 帧率 | 读作 |
+ *   |---|---|---|---|---|---|---|---|
+ *   | `thinking` | 1.0（既有观感） | 1.0× | 1.0× | 0.85 | accentSoft | 30 | 在思考 / 在写 |
+ *   | `tool`     | 0.9 | **2.2×** | **1.08×** | **1.0（最立体）** | **statusRunning** | 30 | 工具在飞（一眼可辨） |
+ *   | `secondary`| **0.5** | **0.5×** | 1.0× | 0.45 | accentSoft | **18** | 让位（别处才是主角） |
+ *   | `idle`     | **0.25** | **0.0（冻结）** | 1.0× | **0.2（近平面）** | accentSoft | **12** | 静默（**静止也是设计**） |
  *
- *   ⚠️ 帧率列**以 `core/orb.ets` 的 `ORB_FPS_*` 为准**：`tool` 30 / `thinking` 30 /
- *      `secondary` 18 / `idle` 12。`thinking` 走 `orbTargetFps` 回落**主态 30**（`thinking`
- *      不在降频分支里 —— 降频只给"让位/静默"两档）。本表曾误写 `thinking=20`（那是
- *      `secondary` 之前的旧值），2026-10-11 审计一并订正。
+ *   · **呼吸 = 双频**（`core/orb.ets:orbBreathFine`）：主呼吸（快吸慢呼，非对称）× 一个
+ *     **2× 谐波**的微弱分量（端点逐值不变、周期不变、值域仍 `[0,1]`）—— 单峰波形读作
+ *     **节拍器**（机械感的头号特征），叠加二次搏动后才读作"有生命的呼吸"。
+ *   · **景深 = 一条静态形态维度**（`core/orb.ets:orbDepthOf` / `orbDepthGain`）：逐粒子按
+ *     纵向位置给"近大远小 + 亮度差" ⇒ 平面的一圈点读作**倾斜的三维轨道**。
+ *     ⛔ 与颜色无关 ⇒ `porcelain`/`light` 下 `tool`/`thinking` 环**同为 `#0071E3`** 时，
+ *     "工具在飞"仍**静帧可辨**（配合 §7.2 的细环变亮线索）。
+ *
+ *   ⚠️ 帧率列**以 `core/orb.ets` 的 `ORB_FPS_*` 为准**：`tool` 30 / **`thinking` 20** /
+ *      `secondary` 18 / `idle` 12。`thinking` **确实**走 `orbTargetFps` 的 `ORB_FPS_THINKING`(20)
+ *      降频分支（`core/orb.ets`，`a3f0cc1`「慢波形降频」引入；`orb.test.ts` 钉死 20）。
+ *      此处曾一度"订正"成 30（并称"thinking 不在降频分支里"）—— **那是错的**，2026-10-11 按代码回正。
  *
  *   · 态由 `@Prop orbMode` 给出（调用方从状态机派生）；`idle` 还可由光球**自己**判定：
  *     `@Prop orbBeat`（活动心跳）超过 `ORB_QUIET_MS` 未再前进 ⇒ 转入 idle。
@@ -64,7 +72,9 @@ import {
   ORB_OPACITY_MIN, ORB_OPACITY_MAX, ORB_RING_RADIUS,
   ORB_CORE_SOLID_STOP, ORB_CORE_MID_STOP, ORB_HALO_DECAY_STOP,
   ORB_FPS_MAIN, ORB_FPS_SECONDARY, ORB_FPS_IDLE, orbTargetFps, orbEffectiveMode,
-  OrbParticle, orbRadius, orbOpacity, orbParticles, orbWave,
+  ORB_DEPTH_THINKING, ORB_DEPTH_SIZE_NEAR, ORB_DEPTH_SIZE_FAR,
+  ORB_DEPTH_ALPHA_NEAR, ORB_DEPTH_ALPHA_FAR, orbDepthOf, orbDepthGain,
+  OrbParticle, orbRadiusFine, orbOpacityFine, orbParticles, orbWave,
 } from '../core/orb';
 import { animBase, MOTION_BREATH_MS, MOTION_QUIET_MS } from './anim';
 import { activityVitality, vitalityGain } from '../core/motion';
@@ -327,6 +337,11 @@ export struct AssistantOrb {
   private haloCur: number = 1;
   private spinCur: number = 1;
   private ringCur: number = 1;
+  /**
+   * 景深强度（缓动到 `orbDepthOf(mode)`）。
+   * 初值 = `thinking` 档 ⇒ 首帧即常态（与其它 Cur 同一处理：不"开场先弱一下"）。
+   */
+  private depthCur: number = ORB_DEPTH_THINKING;
   /** 环色交叉淡出：0 = 基准色，1 = 工具色。 */
   private colorMix: number = 0;
   /** 当前生效帧率（态/可见性变化时用于重设定时器）。初值 = 主态（与既有行为一致）。 */
@@ -566,6 +581,8 @@ export struct AssistantOrb {
     this.haloCur = this.haloCur + (st.halo - this.haloCur) * k;
     this.spinCur = this.spinCur + (st.spin - this.spinCur) * k;
     this.ringCur = this.ringCur + (st.ring - this.ringCur) * k;
+    // 景深强度：同款缓动（态变不硬切）。策略在 `core/orb.ets:orbDepthOf`（唯一判据，不在此写 if 链）。
+    this.depthCur = this.depthCur + (orbDepthOf(mode) - this.depthCur) * k;
     const mixTarget: number = st.ringTool ? 1 : 0;
     this.colorMix = this.colorMix + (mixTarget - this.colorMix) * k;
 
@@ -597,11 +614,12 @@ export struct AssistantOrb {
     const paint: OrbPaint = this.paint;
     const ctx: CanvasRenderingContext2D = this.ctx;
 
-    // 呼吸：只对**偏移量**做幅度缩放 ⇒ amp=1 且 vital=0.5 时与既有实现逐值等价
+    // 呼吸：只对**偏移量**做幅度缩放 ⇒ amp=1 且 vital=0.5 时与上一轮实现仅在"中段的
+    // 2× 谐波细微起伏"上不同（端点逐值不变）。双频见 `core/orb.ets:orbBreathFine`。
     const baseR: number = c * ORB_CORE_SCALE;
-    const rRaw: number = orbRadius(now, baseR, MOTION_BREATH_MS, ORB_BREATH_MIN, ORB_BREATH_MAX);
+    const rRaw: number = orbRadiusFine(now, baseR, MOTION_BREATH_MS, ORB_BREATH_MIN, ORB_BREATH_MAX);
     const coreR: number = baseR + (rRaw - baseR) * this.ampCur * vAmp;
-    const oRaw: number = orbOpacity(now, MOTION_BREATH_MS, ORB_OPACITY_MIN, ORB_OPACITY_MAX);
+    const oRaw: number = orbOpacityFine(now, MOTION_BREATH_MS, ORB_OPACITY_MIN, ORB_OPACITY_MAX);
     const op: number = 1 - (1 - oRaw) * this.ampCur * vAmp;
     // 公转相位：**按实际帧间隔累加**（`dt × 平滑增益`）—— 增益变化时相位连续、不跳（见字段注释）
     this.spinPhaseMs += dt * this.spinCur * vSpin;
@@ -645,11 +663,11 @@ export struct AssistantOrb {
     const baseW: number = 1 - mix;
     if (baseW > 0.002) {
       ctx.fillStyle = paint.ring;
-      this.paintParticles(ctx, ps, c, ringR, unit, op, baseW);
+      this.paintParticles(ctx, ps, c, ringR, unit, op, baseW, this.depthCur);
     }
     if (mix > 0.002) {
       ctx.fillStyle = paint.ringTool;
-      this.paintParticles(ctx, ps, c, ringR, unit, op, mix);
+      this.paintParticles(ctx, ps, c, ringR, unit, op, mix, this.depthCur);
     }
 
     // ④ 细环描边：极弱的一圈，给出"仪器感/科技感"（几乎不可见但存在）。
@@ -666,16 +684,26 @@ export struct AssistantOrb {
     ctx.globalAlpha = 1;
   }
 
-  /** 粒子环一轮（基准色/工具色共用）；`weight` = 该遍颜色的权重（交叉淡出用）。 */
+  /**
+   * 粒子环一轮（基准色/工具色共用）；`weight` = 该遍颜色的权重（交叉淡出用）；
+   * `depth` = 态景深强度（`core/orb.ets:orbDepthOf` 缓动而来）。
+   *
+   * **景深**（本轮的"层次"提升）：逐粒子按**纵向位置** `p.y` 给"近大远小 + 亮度差"
+   * （近/远增益来自 `core/orb.ets:orbDepthGain` —— **判据与渲染同源**，组件不写第二份公式）。
+   * ⛔ 两端增益均为正（`ORB_DEPTH_*_FAR > 0`）⇒ 远粒子**也看得见**，只是更小更弱。
+   */
   private paintParticles(
     ctx: CanvasRenderingContext2D, ps: OrbParticle[], c: number,
-    ringR: number, unit: number, op: number, weight: number): void {
+    ringR: number, unit: number, op: number, weight: number, depth: number): void {
     for (let i = 0; i < ps.length; i++) {
       const p: OrbParticle = ps[i];
       const px: number = c + p.x * ringR;
       const py: number = c + p.y * ringR;
-      const pr: number = Math.max(0.6, p.r * unit * 0.9);
-      ctx.globalAlpha = p.a * op * weight;
+      const dSize: number = orbDepthGain(p.y, ORB_DEPTH_SIZE_NEAR, ORB_DEPTH_SIZE_FAR, depth);
+      const dAlpha: number = orbDepthGain(p.y, ORB_DEPTH_ALPHA_NEAR, ORB_DEPTH_ALPHA_FAR, depth);
+      const pr: number = Math.max(0.6, p.r * unit * 0.9 * dSize);
+      const a: number = p.a * op * weight * dAlpha;
+      ctx.globalAlpha = a > 1 ? 1 : a;
       ctx.beginPath();
       ctx.arc(px, py, pr, 0, 2 * Math.PI);
       ctx.closePath();
