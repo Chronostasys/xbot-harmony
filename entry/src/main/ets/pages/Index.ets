@@ -1,6 +1,6 @@
 import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { fileIo, picker } from '@kit.CoreFileKit';
-import { componentSnapshot, componentUtils, display, promptAction, window } from '@kit.ArkUI';
+import { componentSnapshot, componentUtils, display, window } from '@kit.ArkUI';
 import { image } from '@kit.ImageKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { vibrator } from '@kit.SensorServiceKit';
@@ -110,6 +110,11 @@ import {
   shouldShowSplash, shouldStartSplash,
 } from '../core/splash';
 import { SplashOverlay } from '../components/SplashOverlay';
+import { Toast } from '../components/Toast';
+import {
+  TOAST_KIND_COPY, TOAST_KIND_NOTICE, ToastState, emptyToast, nextToast,
+  toastDurationMs, toastExpired, toastVisible,
+} from '../core/toast';
 import { MessageRowView } from '../components/MessageRow';
 import { UserBubbleView } from '../components/UserBubble';
 import { MarkdownView } from '../components/MarkdownView';
@@ -352,6 +357,8 @@ struct Index {
    * 若将来引入"页面级重建的热启动"，把 `splashLaunchKind` 换成 `LAUNCH_WARM` 即自动不显示。
    */
   @State showSplash: boolean = false;
+  /** 自绘 in-app toast（单槽；`msg` 非空 = 可见）。唯一判据来源 = `core/toast.ets`（⛔ 不另立）。 */
+  @State toastState: ToastState = emptyToast();
   /** 开屏阶段（T1→T2→T3）；唯一消费方是 `SplashOverlay` 的 `@Watch`。 */
   @State splashPhase: string = SPLASH_T1;
 
@@ -1696,8 +1703,21 @@ struct Index {
     }
   }
 
-  private toast(msg: string): void {
-    promptAction.showToast({ message: msg, duration: 2500 });
+  /**
+   * 自绘 in-app toast（C4：不吃系统 `promptAction` ⇒ 与设计系统同族：token 半径/柔影/发丝/字角色）。
+   * 可见性 = **状态的函数**（`toastVisible`），动画只做装饰（`.transition`）⇒ fail-safe（门禁 ⑨ 正向形态）。
+   * ⛔ 复用本文件**唯一** setTimeout 出口 `delay()`（性能预算 7/7 已满，⛔ 不新增调用点）。
+   */
+  private toast(msg: string, kind: string = TOAST_KIND_NOTICE): void {
+    this.toastState = nextToast(this.toastState, kind, msg);
+    const seq: number = this.toastState.seq;
+    const ms: number = toastDurationMs(this.toastState.kind);
+    delay((): void => {
+      // 版本校验：陈旧计时器**不误杀**新 toast（单槽替换语义）
+      if (toastExpired(this.toastState, seq)) {
+        this.toastState = emptyToast();
+      }
+    }, ms);
   }
 
   // ── 登录 / 登出 ───────────────────────────────────────────────────────────
@@ -3113,6 +3133,12 @@ struct Index {
             this.skipSplash();
           },
         })
+      }
+
+      // ── 自绘 in-app toast（C4）—— **末子**（`Stack` 后入子的在上层；`hitTestBehavior(None)` 不吃点击）──
+      //    可见性 = 状态的函数（`toastVisible`）⇒ 动画被打断也不会"永久不可读"（门禁 ⑨ 的正向形态）。
+      if (toastVisible(this.toastState)) {
+        Toast({ theme: this.themeName, msg: this.toastState.msg })
       }
     }
     .width('100%')
