@@ -1,29 +1,41 @@
 /**
  * PluginWidgets — 插件 widget 的**渲染层**（web `PluginWidgetProvider` + `WidgetZone` + `components.tsx`
  * 的原生对应）。本组件**只画**：一切"该不该显示 / 怎么降级 / 用什么色"的判断在
- * `core/widgetsview.ets`（纯逻辑，可脱机单测）里，组件不得自己再判一次（判据与渲染同源）。
+ * `core/widgetsview.ets`（主判据）+ `core/pluginview.ets`（展示算术）里，组件不得自己再判一次
+ * （判据与渲染同源 ⇒ `docs/REDESIGN.md §11`）。
  *
  * 权威基准（web）：
  *   · zones/span → `web/src/plugins/WidgetZone.tsx:14-23,38-69`（style→色，`href` 成链接，无内容不渲染）；
  *   · 声明式组件 → `web/src/plugins/components.tsx:37-259`（badge/progress/metric/list/markdown …）；
  *   · `code`/`src` → `PluginComponentPanel.tsx:72-87`（iframe 沙箱 ⇒ 原生**显式降级**）。
  *
- * ⛔ 视觉纪律：颜色只用 `core/design.ets:colorOf` + 语义面 token（禁 hex）；尺度只用 design token。
+ * ── 视觉重排（2026-10-11，`docs/REDESIGN.md`）─────────────────────────────────
+ *   · 与 `SettingsPanel/SettingsRows` **同一套语言**：复用 `fs/fw/lh/tc`（排版角色 → 属性）；
+ *     chip = `surface.chip`（内嵌凹槽），凹槽（进度轨）= `surface.well`，面 = `surface.card` + 发丝；
+ *   · 颜色**一律**经 `colorOf` / `roleColorOf`（禁 `pal().xxx` 直取、禁 hex ⇒ 门禁 ⑥c）；
+ *   · ⛔ 浅/深分叉只走 `isLightPalette`（本组件**不需要**分叉：全部走语义 token）；
+ *   · ⛔ 唯一在飞动效 = 光球 ⇒ 本组件**零动效**（badge 的脉冲点在本版是**静态**点）。
+ *
  * ⛔ 会变的内容一律 `@Prop`/`@State` 驱动；条目是**独立 `@Component`**（带参 `@Builder` 的子树
  *    不随参数重建 —— docs/ARKTS-GOTCHAS §4）。
  * ⛔ 显示判据唯一：`view.visible`（空载荷 ⇒ **零节点**，不产空壳）。
  */
 import { Palette, paletteOf } from '../core/theme';
 import {
-  colorOf, hairlineOf, typeOf, wellOf,
+  colorOf, hairlineOf, surfaceFillOf, wellOf,
   GAP_ROW_Y, GAP_SECTION, INSET_CARD_X, INSET_CARD_Y, INSET_CHIP_X, INSET_CHIP_Y,
-  INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, RADIUS_CHIP, SPACE_HAIR, SPACE_XS,
+  INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, SPACE_HAIR, SPACE_XS,
+  STROKE_HAIRLINE,
 } from '../core/design';
 import {
   KIND_BADGE, KIND_LIST, KIND_MARKDOWN, KIND_METRIC, KIND_PROGRESS,
   WIDGET_EVENT_WEB, WidgetComponentView, WidgetItemView, WidgetSpanView, WidgetsView,
   WidgetZoneView, toneColorRole, widgetsView,
 } from '../core/widgetsview';
+import {
+  WIDGET_UNSUPPORTED_LABEL, widgetDegradeDetail, widgetDeltaRole, widgetLabel, widgetPercent,
+} from '../core/pluginview';
+import { fs, fw, lh } from './SettingsRows';
 
 /** 进度条高度（vp）——纯几何常量（非颜色/时长，不进 design token）。 */
 const BAR_H: number = 6;
@@ -34,8 +46,9 @@ const DOT: number = 6;
  * 语义色角色 → 实际色。
  * ⛔ `warn`（"警告**文字**"角色，`theme_contrast.test.ts:127,450` 已登记、5 套主题全 ≥3:1）不在
  *    `core/design.ets:colorOf` 的解析表里 ⇒ 这里补一条（用的就是 `pal().warn`，**不新增颜色**）。
+ *    ⛔ 这是**已知的缺 role**（应补进 `core/design.ets`，由令牌层持有者落；本组件不越界改）。
  *    其余一律走 `colorOf`（唯一解析）。⛔ 本函数**只解析角色**，不参与"该用什么角色"的判据
- *    —— 判据在 `core/widgetsview.ets`（判据与渲染同源）。
+ *    —— 判据在 `core/widgetsview.ets` + `core/pluginview.ets`（判据与渲染同源）。
  */
 function roleColorOf(p: Palette, role: string): string {
   if (role === 'warn') { return p.warn; }
@@ -55,13 +68,17 @@ struct WidgetZoneRow {
   build() {
     Row({ space: SPACE_XS }) {
       Text(this.zone.label)
-        .fontSize(typeOf('type.micro').size)
-        .fontColor(this.pal().textMuted)
+        .fontSize(fs('type.micro'))
+        .fontWeight(fw('type.micro'))
+        .lineHeight(lh('type.micro'))
+        .fontColor(colorOf(this.pal(), 'textMuted'))
         .flexShrink(0)
       Row({ space: SPACE_XS }) {
         ForEach(this.zone.spans, (s: WidgetSpanView, i: number) => {
           Text(s.text)
-            .fontSize(typeOf('type.caption').size)
+            .fontSize(fs('type.caption'))
+            .fontWeight(fw('type.caption'))
+            .lineHeight(lh('type.caption'))
             .fontColor(roleColorOf(this.pal(), s.colorRole))
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -85,19 +102,20 @@ struct WidgetComponentCard {
     return paletteOf(this.theme);
   }
 
+  /** 标题（有才画；web `PluginComponentPanel.tsx:67-69`）—— 判据在 `core/pluginview.ets`。 */
   private label(): string {
-    return this.view.title.length > 0 ? this.view.title : this.view.widgetId;
+    return widgetLabel(this.view.title, this.view.widgetId);
   }
 
   @Builder
   CardBody() {
     Column({ space: GAP_ROW_Y }) {
-      // 标题（有才画；web `PluginComponentPanel.tsx:67-69`）
       if (this.label().length > 0 && this.view.kind !== KIND_BADGE) {
         Text(this.label())
-          .fontSize(typeOf('type.micro').size)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.pal().textSecondary)
+          .fontSize(fs('type.micro'))
+          .fontWeight(fw('type.micro'))
+          .lineHeight(lh('type.micro'))
+          .fontColor(colorOf(this.pal(), 'textSecondary'))
           .width('100%')
           .textAlign(TextAlign.Start)
       }
@@ -109,36 +127,41 @@ struct WidgetComponentCard {
             .backgroundColor(roleColorOf(this.pal(), toneColorRole(this.view.tone)))
             .borderRadius(DOT / 2)
           Text(this.view.badgeText)
-            .fontSize(typeOf('type.micro').size)
-            .fontWeight(FontWeight.Medium)
+            .fontSize(fs('type.micro'))
+            .fontWeight(fw('type.micro'))
+            .lineHeight(lh('type.micro'))
             .fontColor(roleColorOf(this.pal(), toneColorRole(this.view.tone)))
         }
         .padding({ left: INSET_CHIP_X, right: INSET_CHIP_X, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
-        .backgroundColor(wellOf(this.pal()))
+        .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
         .borderRadius(RADIUS_CHIP)
       } else if (this.view.kind === KIND_PROGRESS) {
         // web `ProgressWidget`：label + 条 + 百分比
         if (this.view.progressLabel.length > 0) {
           Text(this.view.progressLabel)
-            .fontSize(typeOf('type.caption').size)
-            .fontColor(this.pal().textSecondary)
+            .fontSize(fs('type.caption'))
+            .fontWeight(fw('type.caption'))
+            .lineHeight(lh('type.caption'))
+            .fontColor(colorOf(this.pal(), 'textSecondary'))
             .width('100%')
             .textAlign(TextAlign.Start)
         }
         Stack({ alignContent: Alignment.Start }) {
           Row()
-            .width(`${this.pct()}%`)
+            .width(`${widgetPercent(this.view.progressValue, this.view.progressMax)}%`)
             .height(BAR_H)
-            .backgroundColor(this.pal().accentSoft)
+            .backgroundColor(colorOf(this.pal(), 'accentSoft'))
             .borderRadius(BAR_H / 2)
         }
         .width('100%').height(BAR_H)
         .backgroundColor(wellOf(this.pal()))
         .borderRadius(BAR_H / 2)
         if (this.view.showValue) {
-          Text(`${Math.round(this.pct())}%`)
-            .fontSize(typeOf('type.micro').size)
-            .fontColor(this.pal().textMuted)
+          Text(`${Math.round(widgetPercent(this.view.progressValue, this.view.progressMax))}%`)
+            .fontSize(fs('type.micro'))
+            .fontWeight(fw('type.micro'))
+            .lineHeight(lh('type.micro'))
+            .fontColor(colorOf(this.pal(), 'textMuted'))
             .width('100%')
             .textAlign(TextAlign.End)
         }
@@ -146,22 +169,26 @@ struct WidgetComponentCard {
         // web `MetricWidget`：label + 大值 + delta
         Row({ space: SPACE_XS }) {
           Text(this.view.metricValue)
-            .fontSize(typeOf('type.headline').size)
-            .fontWeight(FontWeight.SemiBold)
-            .fontColor(this.pal().textPrimary)
+            .fontSize(fs('type.headline'))
+            .fontWeight(fw('type.headline'))
+            .lineHeight(lh('type.headline'))
+            .fontColor(colorOf(this.pal(), 'textPrimary'))
           if (this.view.metricDelta.length > 0) {
             Text(this.view.metricDelta)
-              .fontSize(typeOf('type.micro').size)
-              .fontColor(this.deltaRole() === 'textPrimary' ? this.pal().textMuted
-                : roleColorOf(this.pal(), this.deltaRole()))
+              .fontSize(fs('type.micro'))
+              .fontWeight(fw('type.micro'))
+              .lineHeight(lh('type.micro'))
+              .fontColor(roleColorOf(this.pal(), widgetDeltaRole(this.view.metricDelta)))
           }
         }
         .width('100%')
         .alignItems(VerticalAlign.Bottom)
         if (this.view.metricLabel.length > 0) {
           Text(this.view.metricLabel)
-            .fontSize(typeOf('type.micro').size)
-            .fontColor(this.pal().textMuted)
+            .fontSize(fs('type.micro'))
+            .fontWeight(fw('type.micro'))
+            .lineHeight(lh('type.micro'))
+            .fontColor(colorOf(this.pal(), 'textMuted'))
             .width('100%')
             .textAlign(TextAlign.Start)
         }
@@ -169,24 +196,28 @@ struct WidgetComponentCard {
         // web `ListWidget`：title + key:value 行
         if (this.view.listTitle.length > 0) {
           Text(this.view.listTitle)
-            .fontSize(typeOf('type.caption').size)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.pal().textSecondary)
+            .fontSize(fs('type.caption'))
+            .fontWeight(fw('type.caption'))
+            .lineHeight(lh('type.caption'))
+            .fontColor(colorOf(this.pal(), 'textSecondary'))
             .width('100%')
             .textAlign(TextAlign.Start)
         }
         ForEach(this.view.listItems, (it: WidgetItemView, i: number) => {
           Row() {
             Text(it.key)
-              .fontSize(typeOf('type.caption').size)
-              .fontColor(this.pal().textSecondary)
+              .fontSize(fs('type.caption'))
+              .fontWeight(fw('type.caption'))
+              .lineHeight(lh('type.caption'))
+              .fontColor(colorOf(this.pal(), 'textSecondary'))
               .layoutWeight(1)
               .textAlign(TextAlign.Start)
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
             Text(it.value)
-              .fontSize(typeOf('type.caption').size)
-              .fontWeight(FontWeight.Medium)
+              .fontSize(fs('type.caption'))
+              .fontWeight(fw('type.caption'))
+              .lineHeight(lh('type.caption'))
               .fontColor(roleColorOf(this.pal(), toneColorRole(it.tone)))
               .flexShrink(0)
           }
@@ -196,8 +227,10 @@ struct WidgetComponentCard {
       } else if (this.view.kind === KIND_MARKDOWN) {
         // web `MarkdownWidget`：逐行渲染为段落（此处直接读 `markdownText`，行由 '\n' 分）
         Text(this.view.markdownText)
-          .fontSize(typeOf('type.callout').size)
-          .fontColor(this.pal().textPrimary)
+          .fontSize(fs('type.callout'))
+          .fontWeight(fw('type.callout'))
+          .lineHeight(lh('type.callout'))
+          .fontColor(colorOf(this.pal(), 'textPrimary'))
           .width('100%')
           .textAlign(TextAlign.Start)
       } else {
@@ -208,18 +241,20 @@ struct WidgetComponentCard {
         Row({ space: SPACE_HAIR }) {
           Row()
             .width(DOT).height(DOT)
-            .backgroundColor(this.pal().warn)
+            .backgroundColor(roleColorOf(this.pal(), 'warn'))
             .borderRadius(DOT / 2)
             .flexShrink(0)
-          Text('暂不支持')
-            .fontSize(typeOf('type.micro').size)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.pal().textSecondary)
+          Text(WIDGET_UNSUPPORTED_LABEL)
+            .fontSize(fs('type.micro'))
+            .fontWeight(fw('type.micro'))
+            .lineHeight(lh('type.micro'))
+            .fontColor(colorOf(this.pal(), 'textSecondary'))
             .flexShrink(0)
-          Text(this.view.kind.length > 0 && this.view.reason.length === 0
-            ? this.view.kind : `${this.view.kind}${this.view.reason.length > 0 ? ' · ' + this.view.reason : ''}`)
-            .fontSize(typeOf('type.micro').size)
-            .fontColor(this.pal().textMuted)
+          Text(widgetDegradeDetail(this.view.kind, this.view.reason))
+            .fontSize(fs('type.micro'))
+            .fontWeight(fw('type.micro'))
+            .lineHeight(lh('type.micro'))
+            .fontColor(colorOf(this.pal(), 'textMuted'))
             .layoutWeight(1)
             .maxLines(2)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -232,28 +267,14 @@ struct WidgetComponentCard {
     .alignItems(HorizontalAlign.Start)
   }
 
-  private pct(): number {
-    const max: number = this.view.progressMax > 0 ? this.view.progressMax : 100;
-    let p: number = (this.view.progressValue / max) * 100;
-    if (p < 0) { p = 0; }
-    if (p > 100) { p = 100; }
-    return p;
-  }
-
-  private deltaRole(): string {
-    // web `components.tsx:78`：delta 不以 '-' 开头 ⇒ 正向（绿），否则负向（红）。
-    if (this.view.metricDelta.length === 0) { return 'textPrimary'; }
-    return this.view.metricDelta.startsWith('-') ? 'dangerText' : 'successText';
-  }
-
   build() {
     Column() {
       this.CardBody()
     }
     .width('100%')
     .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
-    .backgroundColor(wellOf(this.pal()))
-    .borderRadius(RADIUS_CHIP)
+    .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
+    .borderRadius(RADIUS_PILL)
   }
 }
 
@@ -261,7 +282,7 @@ struct WidgetComponentCard {
  * 插件 widget 面板（zones + 声明式组件）。
  *
  * ⚠️ 本组件**只负责自身渲染与降级表达**；把哪一次的 widget 载荷、放在页面何处由宿主注入
- *    （接线说明见交付；`pages/Index.ets` 归 `arch-split`）。
+ *    （接线说明见交付；`pages/Index.ets` 归 `sidebar-ux`）。
  */
 @Component
 export struct PluginWidgets {
@@ -295,12 +316,16 @@ export struct PluginWidgets {
             // 坏载荷（非空）⇒ **显式降级行**（绝不静默丢）。
             Row({ space: SPACE_HAIR }) {
               Text('插件数据无效')
-                .fontSize(typeOf('type.micro').size)
-                .fontColor(this.pal().dangerText)
+                .fontSize(fs('type.micro'))
+                .fontWeight(fw('type.micro'))
+                .lineHeight(lh('type.micro'))
+                .fontColor(colorOf(this.pal(), 'dangerText'))
                 .flexShrink(0)
               Text(this.view.reason)
-                .fontSize(typeOf('type.micro').size)
-                .fontColor(this.pal().textMuted)
+                .fontSize(fs('type.micro'))
+                .fontWeight(fw('type.micro'))
+                .lineHeight(lh('type.micro'))
+                .fontColor(colorOf(this.pal(), 'textMuted'))
                 .layoutWeight(1)
                 .maxLines(2)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -323,10 +348,10 @@ export struct PluginWidgets {
       .padding({
         left: INSET_CARD_X, right: INSET_CARD_X, top: INSET_CARD_Y, bottom: INSET_CARD_Y,
       })
-      .backgroundColor(this.pal().surface)
+      .backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))
       .borderRadius(RADIUS_CARD)
       // 浅色系靠结构性发丝立边（`core/design.ets:surfaceRoles` 的 `surface.card` 契约）。
-      .border({ width: SPACE_HAIR, color: hairlineOf(this.pal()) })
+      .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
     }
   }
 }
