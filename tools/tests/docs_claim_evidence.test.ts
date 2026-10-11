@@ -41,6 +41,12 @@ function findRoot(start: string): string {
 }
 const ROOT: string = findRoot(__dirname);
 const DOCS: string[] = ['docs/WEB-PARITY.md', 'docs/WEB-ALIGNMENT.md'];
+/** §2.13（设置对齐 web 现状报告）**声称的判据名**（逐条必须解析到真实文件）。 */
+const SEC_213_JUDGES: string[] = [
+  'settings.test.ts', 'settings_keys_consumed.test.ts', 'settings_value_sets.test.ts',
+  'settings_apply_path.test.ts', 'settings_error_retry.test.ts', 'settings_copy_parity.test.ts',
+  'accent.test.ts', 'theme_contrast.test.ts', 'theme_contrast_matrix.test.ts',
+];
 const TESTS_DIR: string = path.join(ROOT, 'tools', 'tests');
 
 /**
@@ -103,6 +109,21 @@ for (let i = 0; i < claims.length; i++) {
 }
 eq(`✅ 行声称的判据文件必须存在（缺失 ${missing} 条；白名单 ${whitelisted} 条）`, missing, 0);
 eq('白名单只列"非本仓声称"（web 侧）文件，且都确实不在 tools/tests/', whitelisted, 0);
+
+// ── §2.13 逐条兑现核查（2026-10-11）────────────────────────────────────────────
+// 该节每行都挂了判据名 => 逐条断言"能解析到真实文件"（文件在 + 会被 run.sh 聚合）。
+{
+  let bad = 0;
+  console.log(`  ── §2.13 声称的判据名逐条核查（${SEC_213_JUDGES.length} 个）──`);
+  for (let i = 0; i < SEC_213_JUDGES.length; i++) {
+    const n = SEC_213_JUDGES[i];
+    const okFile = fs.existsSync(path.join(TESTS_DIR, n));
+    if (!okFile) { bad++; }
+    console.log(`    ${n.padEnd(34)} ${okFile ? '存在' : '❌ 缺失'}`);
+  }
+  eq('§2.13 声称的每个判据名都能解析到真实文件（0 缺失）', bad, 0);
+  eq('§2.13 声称的判据名数 >= 9（零扫描：提取到 0 个 => 红）', SEC_213_JUDGES.length >= 9, true);
+}
 
 if (fail > 0) { console.log(`  ✗ docs_claim_evidence: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  ✅ docs_claim_evidence: ${pass} passed, 0 failed（${seen.length} 个唯一判据名，全部存在）`);
