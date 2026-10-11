@@ -573,6 +573,11 @@ export class ChatStore {
     this.queue = [];
     this.hasMore = false;
     this.oldestId = 0;
+    // 插件 widget 载荷同属**会话态**（服务端按 chat_id 推 `web_widgets`/`plugin_widgets`）
+    // ⇒ 必须随会话复位，否则切到会话 B 仍显示**会话 A** 的 widget（串台）。
+    // 与 `rows`/`queue` 同档：在下面这一次 `onUpdate()` 之前生效。
+    this.lastWidgetEvent = '';
+    this.lastWidgetContent = '';
     this.onUpdate();
     await this.loadHistory();
     await this.loadQueue();
