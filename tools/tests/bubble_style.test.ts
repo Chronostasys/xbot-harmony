@@ -19,17 +19,38 @@ declare const __dirname: string;
 import { BUBBLE, withAlpha, userBubbleBg } from '../../entry/src/main/ets/core/bubble';
 import { darkPalette, lightPalette } from '../../entry/src/main/ets/core/theme';
 
+/**
+ * **剥注释**（本仓约定：注释里记代码片段/色值是**允许且鼓励**的 ⇒ 判据扫源码前**必须**先剥，
+ * 否则两个方向都错：禁串被注释提及 ⇒ **假红**；要求串只在注释里出现 ⇒ **假绿**）。
+ * ⚠️ 保留换行 ⇒ 行号不漂移。
+ */
+function stripSrc(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, (m: string) => m.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (m: string, p: string) => p + ' '.repeat(m.length - p.length));
+}
+
 let pass = 0;
 let fail = 0;
 function check(label: string, cond: boolean, detail: string): void {
-  if (cond) { pass++; } else { fail++; console.log(`  ✗ ${label}: ${detail}`); }
+  if (cond) { pass++; } else { fail++; 
+// ── 剥注释的**判别力自证** ──────────────────────────────────────────────────────
+{
+  check('判别力：**注释里**的禁串被剥掉（不误红）',
+    stripSrc('// .fontColor([this.pal().textMuted])').indexOf('.fontColor(') < 0, '');
+  check('判别力：**代码里**的同一串仍在（不误绿）',
+    stripSrc('const a = 1; .fontColor([this.pal().textMuted])').indexOf('.fontColor(') >= 0, '');
+  check('判别力：剥注释**保留换行**（行号不漂移）',
+    stripSrc('a\n// x\nb').split('\n').length === 3, '');
+}
+
+console.log(`  ✗ ${label}: ${detail}`); }
 }
 
 function readSrc(rel: string): string {
   const fs = require('fs');
   const path = require('path');
   const root = path.join(__dirname, '..', '..', '..', '..');   // <repo>/tools/tests/.out/js → 4 级
-  return fs.readFileSync(path.join(root, rel), 'utf-8');
+  return stripSrc(fs.readFileSync(path.join(root, rel), 'utf-8'));
 }
 
 console.log('\n▶ ② 气泡样式对齐 web（映射表 + 源码接线 + 结构守卫）');

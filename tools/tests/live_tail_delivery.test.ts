@@ -40,6 +40,16 @@ import { ChatRow, ToolProgress } from '../../entry/src/main/ets/core/types';
 import { displayContent, displayReasoning } from '../../entry/src/main/ets/core/streammerge';
 import type { SseListener } from '../../entry/src/main/ets/core/sse';
 
+/**
+ * **剥注释**（本仓约定：注释里记代码片段/色值是**允许且鼓励**的 ⇒ 判据扫源码前**必须**先剥，
+ * 否则两个方向都错：禁串被注释提及 ⇒ **假红**；要求串只在注释里出现 ⇒ **假绿**）。
+ * ⚠️ 保留换行 ⇒ 行号不漂移。
+ */
+function stripSrc(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, (m: string) => m.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (m: string, p: string) => p + ' '.repeat(m.length - p.length));
+}
+
 const CHAT = 'chat-1';
 
 let pass = 0;
@@ -49,7 +59,18 @@ function check(label: string, cond: boolean, detail: string): void {
     pass++;
   } else {
     fail++;
-    console.log(`  ✗ ${label}: ${detail}`);
+    
+// ── 剥注释的**判别力自证** ──────────────────────────────────────────────────────
+{
+  check('判别力：**注释里**的禁串被剥掉（不误红）',
+    stripSrc('// .fontColor([this.pal().textMuted])').indexOf('.fontColor(') < 0, '');
+  check('判别力：**代码里**的同一串仍在（不误绿）',
+    stripSrc('const a = 1; .fontColor([this.pal().textMuted])').indexOf('.fontColor(') >= 0, '');
+  check('判别力：剥注释**保留换行**（行号不漂移）',
+    stripSrc('a\n// x\nb').split('\n').length === 3, '');
+}
+
+console.log(`  ✗ ${label}: ${detail}`);
   }
 }
 
@@ -67,10 +88,10 @@ function readWiring(): Wiring {
   const fs = require('fs');
   const path = require('path');
   const root = path.join(__dirname, '..', '..', '..', '..');   // <repo>/tools/tests/.out/js → 4 级
-  const indexSrc: string = fs.readFileSync(
-    path.join(root, 'entry', 'src', 'main', 'ets', 'pages', 'Index.ets'), 'utf-8');
-  const rowSrc: string = fs.readFileSync(
-    path.join(root, 'entry', 'src', 'main', 'ets', 'components', 'MessageRow.ets'), 'utf-8');
+  const indexSrc: string = stripSrc(fs.readFileSync(
+    path.join(root, 'entry', 'src', 'main', 'ets', 'pages', 'Index.ets'), 'utf-8'));
+  const rowSrc: string = stripSrc(fs.readFileSync(
+    path.join(root, 'entry', 'src', 'main', 'ets', 'components', 'MessageRow.ets'), 'utf-8'));
   return {
     pageState: /@State\s+liveText\s*:\s*string/.test(indexSrc)
       && /@State\s+liveReasoning\s*:\s*string/.test(indexSrc)

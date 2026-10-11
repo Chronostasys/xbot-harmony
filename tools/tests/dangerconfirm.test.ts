@@ -7,6 +7,10 @@
  *
  * ⚠️ 结尾必须 `process.exit(...)`（`run.sh` 用 `set -e` 顺序跑，不退出会挂住整个套件）。
  */
+// ⚠️ 清扫记档（2026-10-11，扫源码不剥注释专项）：本文件的断言**全在纯逻辑层**（两段式状态机
+//    `dangerPress` 等纯函数）；`has/hasNot(src, …)` 两个 helper **无任何调用点**（只在定义处 +
+//    本注释的示例里出现）、且**无 `readFileSync` 调用** ⇒ **不扫源码** ⇒ **无需剥注释**（有意不套 `stripSrc`）。
+
 declare const process: { exit: (c: number) => void };
 declare function require(m: 'fs'): { readFileSync(p: string, e: string): string };
 declare function require(m: 'path'): { join(...parts: string[]): string };
