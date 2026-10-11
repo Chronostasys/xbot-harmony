@@ -1108,3 +1108,17 @@ this[closeFlagOf('drawer')] = false;   // ⛔ ArkTS 禁动态属性 —— 不�
   `case` 里还是同样的字面名，**等于没省**，只多一层噪声。
 - **推广**：凡"想用一张表统一驱动 ArkUI 静态成员/`@State`"的需求，都撞这条 ——
   正解是"表 + **源码形态判据**（扫源码断言字面名与表一致）"，不是运行期查表。
+
+### 34. 长按/右键菜单：**系统绘制 vs 自绘** —— 一条不可改的边界
+
+| 路径 | 触发 | 外观 / 项集 | 可控性 |
+|---|---|---|---|
+| **系统文字选择菜单** | `.copyOption(CopyOptions.LocalDevice)`（`MessageRow:1146` / `ThinkingLine:171` / `ToolPopover:272…541` / `UserBubble:75` / `SyntheticCard:257,266` / `LlmErrorNotice:105` / `StatusSheet:85`） | 系统弹「复制 / 全选…」 | ⛔ **不可控**：外观与项集由系统绘制 —— **改不了、只能叠加**（别硬做；web 的 `copySelection` 在原生**由系统覆盖**） |
+| **自绘上下文菜单** | `LongPressGesture` → 页面 `ctxKind` → `components/MenuSheets.ets` 的 `ContextSheet` | 走设计系统（`surface.overlay` + `hairlineOf` + `stateStyles` + `HIT_TARGET_MIN`） | ✅ 可控 |
+
+- **菜单项集的判据不入组件**：走 `core/ctxmenu.ets`（纯逻辑、可脱机单测）—— 组件内 `ForEach(iterMenuItems(...))`，
+  **不另写过滤**（判据与渲染同源）。
+- **空项按设计过滤**（对齐 web `MessageActions.tsx:298-301`）：服务端会把"还是空壳的在飞迭代"记进
+  `iteration_history` ⇒ 不做过滤就会恒出「复制该迭代正文」等项、点了只得"没有可复制的内容"。
+  ⚠️ 用**过滤**而非 `dim` 置灰：web 就是**不产出**该项；`dim` 留给"已在顶部/底部"这类**必须可见**的解释性禁用。
+- **文档/审计口径**：讲"长按菜单"时必须先注明走的是哪条路 —— 只有**自绘**那条能谈外观与项集对齐。
