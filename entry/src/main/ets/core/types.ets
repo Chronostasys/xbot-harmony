@@ -261,6 +261,13 @@ export class ChatRow implements IterList {
   content: string = '';
   iterations: HistoryIteration[] = [];
   isLive: boolean = false;
+  /**
+   * 该 user 行是否为**后台通知注入**（web `ChatMessage.isNotification` / `UserMessage.tsx:45`）。
+   * 渲染层据此分流：**通知类原样呈现**（web `UserMessage.notification.test.tsx:13/23`），
+   * 普通用户消息走与助手同一条 markdown（web `UserMessage.tsx:4-5`）。
+   * 数据源：派生行 `UserRowView.isNotification` → `core/render.ets:applyRow` 透传。
+   */
+  isNotification: boolean = false;
   /** 渲染版本：每次内容变化自增，参与 ForEach key */
   rev: number = 0;
   /**

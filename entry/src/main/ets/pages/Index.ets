@@ -6590,6 +6590,16 @@ struct Index {
     if (row.role === 'user') {
       UserBubbleView({
         text: row.content,
+        // 通知类 user 行**原样呈现**（web `UserMessage.notification.test.tsx:13/23`）；其余走
+        // 与助手同一条 markdown 渲染（web `UserMessage.tsx:4-5`）—— 追加的图片引用因此成图。
+        isNotification: row.isNotification === true,
+        mdTheme: this.mdThemeId(),
+        onImage: (src: string) => {
+          this.openImage(src);
+        },
+        loadImage: (src: string) => {
+          return this.loadImageBytes(src);
+        },
         onLongPress: () => {
           this.openCtx('user', row.id, 0, '');
         },
