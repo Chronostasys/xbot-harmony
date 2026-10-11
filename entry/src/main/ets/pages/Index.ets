@@ -4177,14 +4177,6 @@ struct Index {
         .margin({ top: SP_2, right: SP_2 })
       }
       .layoutWeight(1).width('100%')
-      // ⛔ **聊天区不得被挤到 0 高**（2026-10-12 P0 白屏的根因修复）：本 `Stack` 是
-      //    `layoutWeight(1)`，它与**同级输入框区**分余量；而输入框区（`GoalBanner`/`TodoPanel`/
-      //    输入胶囊）在 `f5d4003` 把图标从 `responseRegion` 外扩改成**真实 44×44 布局盒**后
-      //    **固有高度变大** ⇒ 余量被吃光 ⇒ 本 `Stack` 被压到 **0 高** ⇒ `List` 无空间可排 ⇒
-      //    **整块白屏**（真机 dump 铁证：坏态 `Stack h=0` / 正常 `Stack h=1996`；只有带
-      //    todo/goal 横幅的会话先被挤爆 ⇒ 用户报的"切一部分会话必白"）。
-      //    ⇒ 给聊天区一个**下限**：宁可输入框区被压缩/溢出，也不许会话内容消失。
-      .constraintSize({ minHeight: 176 })
 
       // 关掉跟随时给一个「回到最新」（列表很长时不用一路滑）；跟随中不显示
       if (showsJumpToLatest(this.followBottom, this.rows.length)) {

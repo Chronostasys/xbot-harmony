@@ -23,11 +23,11 @@
  */
 import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
 import { FS_CAPTION, R_MD, R_SM, SP_1, SP_2, SP_3 } from '../core/tokens';
-// 语义令牌（`7841978` §4.7/§4.8/§6）：进度条 / 清单高 / 菜单宽 / goal 行底纹 / 按压。
+// 语义令牌（`7841978` §4.7/§4.8/§6）：控件行高 / 进度条 / 清单高 / 菜单宽 / goal 行底纹 / 按压。
 import {
-  ELEV_OVERLAY, ICON_MD, ICON_SM, INSET_CHIP_X, INSET_CHIP_Y, LIST_MAX_H, MENU_W,
+  CONTROL_ROW_H, ELEV_OVERLAY, ICON_MD, ICON_SM, INSET_CHIP_X, INSET_CHIP_Y, LIST_MAX_H, MENU_W,
   PRESS_OPACITY, PROGRESS_H, PROGRESS_W, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP,
-  elevationColorOf, goalRowTintOf, hairlineOf, structuralRuleOf,
+  elevationColorOf, goalRowTintOf, hairlineOf,
   surfaceFillOf, typeOf, colorOf, HIT_TARGET_MIN, } from '../core/design';
 import { animFast } from './anim';
 import { TodoItem } from '../core/types';
@@ -129,18 +129,15 @@ struct TodoRowView {
   build() {
     Row({ space: SP_2 }) {
       // 状态图标（点击 = 勾选/取消；web `data-testid="todo-status"`）
-      // ⛔ 命中区：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`；
-      //    图标视觉尺寸不变（仍 `ICON_MD`=14，盒内居中）。⚠️ 行首盒 14→44 ⇒ 标签可用宽 -30（`layoutWeight` 吸收）。
-      Row() {
-        SymbolGlyph(this.iconRes())
-          .fontSize(ICON_MD)
-          .fontColor([this.iconColor()])
-      }
-      .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
-      .accessibilityText(this.struck() ? '标记未完成' : '标记完成')
-      .onClick(() => {
-        this.onToggle();
-      })
+      SymbolGlyph(this.iconRes())
+        .fontSize(ICON_MD)
+        .fontColor([this.iconColor()])
+        // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = `ICON_MD`(14) < 44 ⇒ `responseRegion` 外扩。
+        //    本图标是行首元素（左侧无邻座）⇒ 主要向**左**扩（不抢右侧可点标签的命中区）。
+        .responseRegion({ x: -22, y: -11, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
+        .onClick(() => {
+          this.onToggle();
+        })
 
       if (this.editing) {
         // 就地编辑（web 桌面分支 `:188-210`：Enter 保存 / Esc 取消）
@@ -159,7 +156,6 @@ struct TodoRowView {
           })
       } else {
         Text(this.label)
-          .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(FS_CAPTION)
           // 字色 / 字重 / 删除线全部来自唯一真源（`StatusVisual`），组件不再就地判 `this.kind`
           .fontColor(this.labelColor())
@@ -189,12 +185,7 @@ struct TodoRowView {
       if (this.isGoal) {
         Text('goal')
           .fontSize(typeOf(TYPE_CHIP).size)
-          // ⛔ 目标⑤：徽标字（`TYPE_CHIP`=10，normal 字号）是**文字** ⇒ 需 AA_TEXT 4.5。
-          //    `accent` 是**非文本/图形** role（3.0）⇒ 压本行 goal 底纹（`accent@14% over 已 tint 行`
-          //    = 双层 tint）+ 卡片面，实算 porcelain 仅 **3.25**、light **4.54**（贴线）⇒ 不足/不稳
-          //    ⇒ 改走文字 role `accentText`（porcelain 4.75 / dark 9.77 / light 5.74 / aurora 10.44 /
-          //    nebula 8.77，全 ≥4.5）。底纹 `goalRowTintOf` 不动（观感意图保持）。
-          .fontColor(this.pal().accentText)
+          .fontColor(this.pal().accent)
           .backgroundColor(goalRowTintOf(this.pal()))
           .borderRadius(RADIUS_CHIP)
           .padding({ left: INSET_CHIP_X, right: INSET_CHIP_X, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
@@ -202,17 +193,14 @@ struct TodoRowView {
 
       // 触屏操作菜单（web 触屏分支只留一个 `⋯`：编辑 / 删除；桌面是三枚 hover 图标）
       if (this.editable) {
-        // ⛔ 命中区：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`。
-        Row() {
-          SymbolGlyph($r('sys.symbol.line_3_horizontal'))
-            .fontSize(ICON_MD)
-            .fontColor([this.pal().textSecondary])
-        }
-        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
-        .accessibilityText('更多操作')
-        .onClick(() => {
-          this.menuOpen = !this.menuOpen;
-        })
+        SymbolGlyph($r('sys.symbol.line_3_horizontal'))
+          .fontSize(ICON_MD)
+          .fontColor([this.pal().textSecondary])
+          // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = 14 < 44 ⇒ 外扩。行尾元素 ⇒ 主要向**右**扩。
+          .responseRegion({ x: -6, y: -11, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
+          .onClick(() => {
+            this.menuOpen = !this.menuOpen;
+          })
           .bindPopup(this.menuOpen, {
             builder: this.RowMenu,
             placement: Placement.BottomRight,
@@ -241,7 +229,6 @@ struct TodoRowView {
   RowMenu() {
     Column() {
       Text('编辑')
-        .constraintSize({ minHeight: HIT_TARGET_MIN })
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().textPrimary)
         .width('100%')
@@ -252,7 +239,6 @@ struct TodoRowView {
           this.onStartEdit();
         })
       Text('删除')
-        .constraintSize({ minHeight: HIT_TARGET_MIN })
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().dangerText)
         .width('100%')
@@ -379,25 +365,21 @@ export struct TodoPanel {
 
           // 🎯「设为目标」—— 仅**无 goal** 时（web `TodoPullOut.tsx:113-121`）
           if (!this.hasGoal) {
-            // ⛔ 命中区：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`；
-            //    图标视觉尺寸不变（仍 `ICON_MD`=14，盒内居中）。
-            Row() {
-              SymbolGlyph($r('sys.symbol.dart_target'))
-                .fontSize(ICON_MD)
-                .fontColor([colorOf(this.pal(), 'iconMuted')])
-            }
-            .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
-            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-            .accessibilityText('设为目标')
-            .onClick(() => {
-              this.onSetGoal();
-            })
+            SymbolGlyph($r('sys.symbol.dart_target'))
+              .fontSize(ICON_MD)
+              .fontColor([colorOf(this.pal(), 'iconMuted')])
+              .padding(SP_1)
+              // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = 14 + 2×`SP_1`(4) = 22 < 44 ⇒ 外扩。
+              //    左邻 `Row({space: SP_2})` 间距 8 > 左扩 6 ⇒ 不与左侧「折叠开关」的命中区重叠。
+              .responseRegion({ x: -6, y: -11, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .onClick(() => {
+                this.onSetGoal();
+              })
           }
         }
         .width('100%')
-        // ⛔ 控制条抬到 `HIT_TARGET_MIN`(44)：内含可点「设为目标」图标，其命中盒 = **自身布局盒**，
-        //    而布局盒受父高约束 ⇒ 父高 <44 时命中区仍会被裁到 28。可靠性 > 视觉密度（原 `CONTROL_ROW_H`=28）。
-        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .height(CONTROL_ROW_H)
         .padding({ left: SP_3, right: SP_3 })
 
         // ── 展开态：清单 ─────────────────────────────────────────────────────────
@@ -454,9 +436,7 @@ export struct TodoPanel {
       .alignItems(HorizontalAlign.Start)
       .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))
       .borderRadius(R_MD)
-      // **面→面**轮廓 = `structuralRuleOf`（浅色 `borderStrong`，比面内强一档；深色 `border` 逐字节）——
-      // 与 `SettingsRows`/`PluginHost` 的卡片同层级 ⇒ 同通道（`docs/DESIGN-SYSTEM.md §13.5`）。
-      .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
+      .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
       .clip(true)
     }
   }
