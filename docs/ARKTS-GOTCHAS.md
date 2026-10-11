@@ -661,3 +661,26 @@ Usage of standard library is restricted (arkts-limited-stdlib)
   ```
   ⇒ 判据变为「**只在注释/文档里被提到 ⇒ 仍是孤儿**」。同时新增 `--self-test` 夹具（注释提及⇒孤儿 / 无提及⇒孤儿 / 真消费者⇒不算孤儿），把本次回归钉死。
 - **教训（比缺陷本身更重要）**：**门禁的每一把尺子都必须能被证伪**。批次 13/14/15 教的是"门禁口径之外要真机走一遍"；这一批教的是"**门禁自己说的话也可能是假的**"。凡"工具报绿"就直接采信，等于把批次 13 再犯一遍。⇒ 新增或修改任何门禁脚本，**必须**带 `--self-test` 或有判别力的 mutation 自证。
+
+## 批次 17：**`touch` 是破坏性的** —— 「强制重编破增量假绿」会把**已删除的文件复活成 0 字节**（2026-10-11，我亲手把 HEAD 弄红）
+
+- **背景**：某条线把 `core/guards.ets` **改名**为 `core/guards.ts`（原因：ArkTS **禁止 `.ets` 里声明类型谓词**，报 `10505001/arkts-no-is`；而 `core/*.ts` 端口件本就是为了避开 ArkTS 严格性而存在）。该改名已正确提交（`git show` 显示 `{core/guards.ets => core/guards.ts}`），`git status` 干净，隔离验证全绿。
+- **我做了什么**：随后按惯例"强制重编破增量假绿"，执行
+  ```bash
+  touch entry/src/main/ets/core/guards.ets entry/src/main/ets/core/http.ets …   # ⛔
+  ```
+  ⇒ **凭空出现一个 0 字节的 `guards.ets`**（`touch` 对不存在的路径会**创建**它，语义是 create-or-update，不是 update）。
+- **后果（症状离根因极远）**：ArkTS 解析 `import … from './guards'` 时**优先命中 `.ets`**，命中一个空文件 ⇒
+  ```
+  10505001 File '.../core/guards.ets' is not a module.     (http.ets:15、store.ets:16)
+  10605999 'env.error' is possibly 'undefined'.            (http.ets:299、300、381、382)  ← 连锁
+  10605999 Type 'string | undefined' is not assignable to type 'string'.
+  ```
+  共 8 个错误 + `BUILD FAILED`。看上去**完全像"别人提交了坏代码"**（我据此误判了那条线的交付诚实性，浪费一轮判断）。
+- **一眼取证**：
+  ```bash
+  ls -la core/guards*      # 0 字节的 guards.ets（mtime = 我刚跑 touch 的时刻）+ 2846 字节的 guards.ts
+  git status --short       # ?? core/guards.ets  ⇒ 未跟踪 ⇒ 是本地凭空造的，不在任何提交里
+  ```
+- **正确做法（破增量假绿）**：① `touch -c <确实存在的文件>`（`-c` 不创建）；② 或改一个**确实存在**的无关文件（如 `pages/Index.ets`）触发重编；③ 或 `hvigorw clean` / 删 `entry/build` 全量重编。
+- **排障纪律**：看到"别人的文件红了"，**先 `ls -la` 那个文件、再看 `git status` 是否 `??`**，分清「提交坏了」与「本地被污染」。**在扩展名决定模块解析顺序的工程里，一个凭空造出的 0 字节同名文件就能顶掉真模块**。
