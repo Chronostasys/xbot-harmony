@@ -130,7 +130,9 @@ eq('md 块间距 = 8（原凹口 6）', MD_BLOCK_GAP, SPACE_XS);
 // E. 材质：分层表面（**底里有底不许撞色**）
 // ════════════════════════════════════════════════════════════════════════════
 const sroles: SurfaceRole[] = surfaceRoles();
-eq('语义面表 10 项', sroles.length, 10);
+// 计数随**表**变（2026-10-11：+`surface.raised`（0f618e3，RUNG_RAISED 中性面）+`surface.active`
+// （ac4a384，RUNG_ACTIVE 中性面）⇒ 10 → 12）。⛔ 这是"表变了、断言跟着变"，不是放宽阈值。
+eq('语义面表 12 项', sroles.length, 12);
 eq('chip = 内嵌凹槽（SUNKEN）', surfaceFillOf(paletteOf(THEME_DARK), 'surface.chip') === wellOf(paletteOf(THEME_DARK)), true);
 
 for (const t of ALL_THEMES) {
