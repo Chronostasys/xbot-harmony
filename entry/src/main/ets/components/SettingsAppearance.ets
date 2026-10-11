@@ -39,7 +39,7 @@ import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent } from
 import { MD_THEMES, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';
 import { localeLabel, normalizeLocale } from '../core/i18n';
 import {
-  HIT_TARGET_MIN, SPACE_XS, SPACE_SM, STROKE_HAIRLINE, hairlineOf,
+  HIT_TARGET_MIN, SPACE_XS, SPACE_SM, SPACE_LG, STROKE_HAIRLINE, hairlineOf,
 } from '../core/design';
 import {
   SettingsActionRow, SettingsChipRow, SettingsGroupHeader, SettingsToolRow, SettingsValueRow,
@@ -148,7 +148,10 @@ export struct SettingsAppearance {
   }
 
   build() {
-    Column({ space: 0 }) {
+    // 内容长（12 项 + 5 个分组头）⇒ **必须可滚动**，否则超出部分被裁切
+    // （与其余分区同款：`Scroll` 承载 + `layoutWeight(1)`）。
+    Scroll() {
+      Column({ space: 0 }) {
       // ═══ 外观 ═══════════════════════════════════════════════════════════════
       SettingsGroupHeader({ title: '外观', theme: this.theme })
 
@@ -291,8 +294,14 @@ export struct SettingsAppearance {
         },
       })
     }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+      .padding({ bottom: SPACE_LG })
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .scrollBar(BarState.Auto)
+      .align(Alignment.Top)
   }
 
   /**
