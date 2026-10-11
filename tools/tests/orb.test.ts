@@ -16,7 +16,7 @@ declare const process: { exit: (c: number) => void };
 import {
   ORB_BREATH_MS, ORB_SPIN_MS, ORB_BREATH_MIN, ORB_BREATH_MAX,
   ORB_OPACITY_MIN, ORB_OPACITY_MAX, ORB_RING_RADIUS,
-  ORB_FPS_MAIN, ORB_FPS_SECONDARY, ORB_FPS_IDLE, orbTargetFps,
+  ORB_FPS_MAIN, ORB_FPS_THINKING, ORB_FPS_SECONDARY, ORB_FPS_IDLE, orbTargetFps,
   OrbParticle, orbPhase, orbBreath, orbRadius, orbOpacity, orbParticles, orbWave,
 } from '../../entry/src/main/ets/core/orb';
 import { D_SLOW } from '../../entry/src/main/ets/core/tokens';
@@ -269,17 +269,19 @@ const visBody: string = bodyOf(orbSrc, 'private onVisibility(isVisible: boolean)
 ok('onVisibility() 函数体可定位', visBody.length > 20);
 has(visBody, 'this.syncLoop();', '可见性变化 ⇒ 走 syncLoop（能起也能停 ⇒ 可恢复）');
 // (h7c) 帧率策略（**真函数跑数值**；改坏 ⇒ 红）
-eq('主态帧率 = 30（丝滑基线）', ORB_FPS_MAIN, 30);
+eq('tool 态帧率 = 30（丝滑基线，**不降频**）', ORB_FPS_MAIN, 30);
+eq('思考态帧率 = 20（慢波形降频；实测流式 CPU 4.4–4.7% 的地板）', ORB_FPS_THINKING, 20);
 eq('让位态帧率 = 18', ORB_FPS_SECONDARY, 18);
 eq('静默态帧率 = 12', ORB_FPS_IDLE, 12);
-eq('orbTargetFps(thinking, 可见) = 30', orbTargetFps('thinking', true), ORB_FPS_MAIN);
+eq('orbTargetFps(thinking, 可见) = 20（慢波形 ⇒ 降频）', orbTargetFps('thinking', true), ORB_FPS_THINKING);
 eq('orbTargetFps(tool, 可见) = 30（主态不降频）', orbTargetFps('tool', true), ORB_FPS_MAIN);
 eq('orbTargetFps(secondary, 可见) = 18', orbTargetFps('secondary', true), ORB_FPS_SECONDARY);
 eq('orbTargetFps(idle, 可见) = 12', orbTargetFps('idle', true), ORB_FPS_IDLE);
 eq('orbTargetFps(任意态, 不可见) = 0（停表）', orbTargetFps('thinking', false), 0);
 eq('orbTargetFps 未知态回落主态', orbTargetFps('nope', true), ORB_FPS_MAIN);
-ok('降频序：主态 > 让位态 > 静默态 > 停表（主态恒为最大）',
-  ORB_FPS_MAIN > ORB_FPS_SECONDARY && ORB_FPS_SECONDARY > ORB_FPS_IDLE && ORB_FPS_IDLE > 0);
+ok('降频序：tool(主态) > thinking > secondary > idle > 停表（主态恒为最大）',
+  ORB_FPS_MAIN > ORB_FPS_THINKING && ORB_FPS_THINKING > ORB_FPS_SECONDARY
+  && ORB_FPS_SECONDARY > ORB_FPS_IDLE && ORB_FPS_IDLE > 0);
 // (h7d) 组件侧的态名与 `core/orb.ets` 的帧率策略**同字面量**（否则策略对不上任何态）
 has(orbSrc, "export const ORB_MODE_IDLE: string = 'idle';", 'ORB_MODE_IDLE 字面量与 orbTargetFps 的 idle 一致');
 has(orbSrc, "export const ORB_MODE_SECONDARY: string = 'secondary';",
@@ -310,9 +312,9 @@ eq('冻结时不同时刻位置恒定（帧间零变化）',
 //        另有一枚"让位态"光球（`思考 N 字` 为主角时）与可见光球同屏。
 const SCEN_VISIBLE_S = 40;
 const SCEN_OFFSCREEN_S = 20;
-/** 改前策略：`shouldRun` 不看可见性，且让位态与主态同为 30fps ⇒ 全程满帧。 */
+/** 改前策略：`shouldRun` 不看可见性，且所有态同为 30fps ⇒ 全程满帧。 */
 function framesBefore(secs: number): number { return secs * 30; }
-/** 改后策略：不可见 ⇒ 0；让位态 18fps；主态 30fps。 */
+/** 改后策略：不可见 ⇒ 0；`idle` 12 / `secondary` 18 / `thinking` 20 / `tool` 30 fps。 */
 function framesAfter(secs: number, visible: boolean, mode: string): number {
   return secs * orbTargetFps(mode, visible);
 }
@@ -325,13 +327,17 @@ console.log(`   主态光球（40s 可见 + 20s 滚出屏幕）：改前 ${befor
   + `（${(((beforeMain - afterMain) / beforeMain) * 100).toFixed(0)}% 省）`);
 console.log(`   让位态光球（40s 可见）：改前 ${beforeSec} 帧 ⇒ 改后 ${afterSec} 帧`
   + `（${(((beforeSec - afterSec) / beforeSec) * 100).toFixed(0)}% 省）`);
-console.log('   （主态 = thinking/tool **恒 30fps 不降** —— "丝滑"不因优化妥协）');
+console.log('   （`tool` 态恒 30fps 不降；`thinking` 慢波形降到 20fps —— 帧率是流式 CPU 地板的旋钮）');
 ok('滚出屏幕的 20s 重绘归零（不可见 ⇒ 停表）', framesAfter(SCEN_OFFSCREEN_S, false, 'thinking') === 0);
 ok('改后主态总重绘 ≤ 改前（性能只降不升）', afterMain <= beforeMain);
 ok('改后让位态重绘 ≤ 改前', afterSec <= beforeSec);
-ok('主态可见时 **仍为满帧 30fps**（丝滑基线不被牺牲）',
-  framesAfter(SCEN_VISIBLE_S, true, 'thinking') === framesBefore(SCEN_VISIBLE_S)
-  && framesAfter(SCEN_VISIBLE_S, true, 'tool') === framesBefore(SCEN_VISIBLE_S));
+// ⛔ 契约（2026-10-11 修订）：**`tool` 态**（用户正盯着工具在跑）仍为满帧 30fps ——
+//    "丝滑"不因优化妥协；`thinking` 是**慢波形**态（呼吸周期 ORB_BREATH_MS = 2560ms）
+//    ⇒ 按 20fps 采样肉眼无差，但流式期重绘省 1/3（实测流式 CPU 4.4–4.7% / 空态 0.05%）。
+ok('`tool` 态可见时 **仍为满帧 30fps**（丝滑基线不被牺牲）',
+  framesAfter(SCEN_VISIBLE_S, true, 'tool') === framesBefore(SCEN_VISIBLE_S));
+ok('`thinking` 态按慢波形降到 20fps（省 1/3 重绘）',
+  framesAfter(SCEN_VISIBLE_S, true, 'thinking') === SCEN_VISIBLE_S * ORB_FPS_THINKING);
 
 if (fail > 0) {
   console.log(`  orb: ${pass} passed, ${fail} failed`);

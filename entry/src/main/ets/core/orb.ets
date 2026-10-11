@@ -145,12 +145,28 @@ export function orbWave(t: number, phase: number, seed: number): number {
 
 // ── 帧率策略（**纯策略**：可脱机单测、可变异自证）──────────────────────────────
 /**
- * 主态（思考 / 工具在飞）帧率 = 30fps。
+ * 主态 = **`tool`**（有工具在飞）帧率 = 30fps。
  *
- * ⛔ 纪律："**丝滑**"是用户的硬要求 ⇒ **主态永不降频**。降频只允许发生在
- *    "看不见"（滚出屏幕）或"不是主角"（`secondary`）的时候。
+ * ⛔ 纪律："**丝滑**"是用户的硬要求 ⇒ `tool` 态（用户正盯着工具在跑）**永不降频**。
+ *    降频只允许发生在三类情形："看不见"（滚出屏幕）、"不是主角"（`secondary`）、
+ *    或**慢波形**态（`idle` 12fps / `thinking` 20fps —— 见各自常量的理由）。
  */
 export const ORB_FPS_MAIN: number = 30;
+/**
+ * 思考态（`thinking`）帧率 = 20fps。
+ *
+ * 为什么可以降：`thinking` 是**最常见**的流式态（正在吐正文 / 刚起头），但此刻波形是
+ * **慢波形**（整周期 `ORB_BREATH_MS` = 2560ms）⇒ 20fps 对慢波形足够平滑，肉眼与 30fps 无差；
+ * 而帧率是 Canvas 光球的**唯一成本旋钮**（每帧 `clearRect` + 全量重画）。
+ *   真机实测（同机 7s 窗口，`hidumper --cpuusage`）：**流式期 app CPU 4.4–4.7%**、
+ *   空态仅 **0.05%** ⇒ 那 4.7% 正是"定时器驱动重绘"的地板，按帧率等比下降。
+ *
+ * ⛔ 只降**采样率**，绝不改呼吸**周期/幅度**：相位由 `Date.now()` 喂纯函数算
+ *    （见 `components/AssistantOrb.draw()`），缓动用**真实帧间隔** ⇒ 观感速度与帧率无关。
+ *    `docs/DESIGN-SYSTEM.md §8.1` 的刻度契约（呼吸/脉冲必须是主呼吸刻度的整数分数/倍数）
+ *    不受影响 —— 帧率是采样密度，不是刻度。
+ */
+export const ORB_FPS_THINKING: number = 20;
 /**
  * 让位态（`secondary`）帧率 = 18fps。
  *
@@ -165,6 +181,8 @@ export const ORB_FPS_IDLE: number = 12;
 const MODE_SECONDARY: string = 'secondary';
 /** 静默态名（同上，与 `ORB_MODE_IDLE` 同字面量）。 */
 const MODE_IDLE: string = 'idle';
+/** 思考态名（同上，与 `components/AssistantOrb.ets` 的 `ORB_MODE_THINKING` 同字面量）。 */
+const MODE_THINKING: string = 'thinking';
 
 /**
  * 光球的目标帧率（**纯策略**；`0` = 不该跑 / 停表）。
@@ -175,8 +193,11 @@ const MODE_IDLE: string = 'idle';
  *
  * 策略：
  *   · `visible === false`（完全滚出屏幕）⇒ **0**（停表；回来立即恢复）—— 不可见的不该烧电；
- *   · `idle` ⇒ 12fps；`secondary` ⇒ 18fps（都不是主角/不是在动）；
- *   · `thinking` / `tool`（主态）⇒ **30fps 恒定**（"丝滑"不因任何优化而妥协）。
+ *   · `idle` ⇒ 12fps（呼吸幅度 0.25、粒子冻结）；
+ *   · `secondary` ⇒ 18fps（呼吸/公转已减半，且不是主角）；
+ *   · `thinking` ⇒ 20fps（**最常见**的流式态；慢波形 ⇒ 肉眼与 30fps 无差，但省 1/3 重绘）；
+ *   · `tool` ⇒ **30fps 恒定**（主态，"丝滑"不因任何优化而妥协）；
+ *   · 未知态 ⇒ 回落 `ORB_FPS_MAIN`（宁可多画，不静默降级）。
  *
  * ⚠️ `active=false` / `paused=true`（后台）/ `reduceMotion=true` 的"停表"仍由组件侧
  *    `shouldRun()` 决定 —— 那三者的语义是"**不画**"，不只是"降频"。
@@ -190,6 +211,9 @@ export function orbTargetFps(mode: string, visible: boolean): number {
   }
   if (mode === MODE_SECONDARY) {
     return ORB_FPS_SECONDARY;
+  }
+  if (mode === MODE_THINKING) {
+    return ORB_FPS_THINKING;
   }
   return ORB_FPS_MAIN;
 }
