@@ -91,6 +91,11 @@ export struct AuthImage {
         .objectFit(ImageFit.Contain)
         .borderRadius(RADIUS_PILL)
         .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CHIP))
+        // ⛔ 图片卡边界（2026-10-11 审计）：**成功态此前没有发丝**，而**失败/兜底态有**（见下）
+        //    ⇒ "图片没加载出来"比"加载出来了"边界更清楚 = 顺序颠倒。补上同一条结构性发丝。
+        //    另：唯一填充 `surface.chip` 在 dark/aurora/nebula 对画布 < 1.03（`DESIGN-SYSTEM.md §15`
+        //    的"画布→下沉"缺口）⇒ 发丝是这几个主题下**唯一**能立边的手段（`hairline` ≥1.20 达标）。
+        .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
         // press 反馈（全 App 统一口径 `PRESS_OPACITY`）——图片可点（打开大图），此前**无任何反馈**。
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
