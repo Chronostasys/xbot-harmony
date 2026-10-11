@@ -111,21 +111,24 @@ for (let ti = 0; ti < ALL_THEMES.length; ti++) {
 // §3 真实落点取证 + 逐主题实算（审计数的复核）
 // ════════════════════════════════════════════════════════════════════════════
 // 真实落点（`textSecondary` 坐在 `surfaceHi` 面 / 其**别名**面上）—— 审计当时**未**逐一 grep，本处查实。
-// ⚠️ **现状（2026-10-11，两批处置）**：
-//   · **第一批｜已修（`8fbe8d2`，直接 `pal().surfaceHi`）**：
+// ⚠️ **现状（2026-10-11，两批均已清）**：
+//   · **第一批（`8fbe8d2`，直接 `pal().surfaceHi`）—— 已修（换底）**：
 //       L1 `components/LiveTailView.ets`  `OverflowBadge`「+N」：展开态底 → `surface.raised`（porcelain 4.696 ✓）
 //       L2 `components/MessageRow.ets`     `OverflowBadge`「+N」：展开态底 → `surface.card`（porcelain 5.071 ✓）
 //       L3 `components/SettingsLlm.ets`    「取消」容器底 → `surface.raised`（porcelain 4.696 ✓）
 //       L4 `pages/Index.ets` 运行中发送键：前景是 **`SymbolGlyph` 图标（非文字）** ⇒ `AA_NON_TEXT`(3.0)
 //          ⇒ porcelain 4.337 ≥ 3.0 **本就达标、非缺陷、不改**（`contrast_landing.test.ts §5` 钉死）。
-//   · **第二批｜别名掩盖（`surface-alias` 线在修，⛔ 未修完前本条目不收缩）**：
+//   · **第二批（`3f3e7d1`，别名掩盖）—— 已清**：
 //       `'surface.overlayRowHover'` / `'surface.pillSelected'` / `'surface.active'` **同属 `RUNG_ACTIVE`
-//       ≡ `surfaceHi`**（⇒ 同一底色、不同名字）⇒ **只按字面量 `'surfaceHi'` 搜会漏**。实测仍有 3 处
-//       **文字**落点坐在别名底上：`pages/Index.ets:6626`（'取消'，底 `surface.overlayRowHover`）·
-//       `pages/Index.ets:6673`（'⋯'，同底）· `components/AskUserSheet.ets:199`
-//       （`type.callout` = `textSecondary`，底 `surface.overlayRowHover`）。
-//       ⇒ **结构性教训**：凡"按面名搜落点"必须**展开别名** —— 已固化成 `surfaceAliasesOf()`
-//         （`core/design.ets`，**从 `surfaceRoles()` 派生**）+ 本文件 §7。
+//       ≡ `surfaceHi`**（同一底色、不同名字）⇒ **只按字面量 `'surfaceHi'` 搜会漏**。曾漏 3 处**文字**落点
+//       （坐在 `surface.overlayRowHover` 底上），修法：`pages/Index.ets:6626`（'取消'）/:6687（'⋯'）
+//       **只换"当前会话"支的 fg** → `textPrimary`（⛔ 不换底 ⇒ 保住"当前会话"的强调）；
+//       `components/AskUserSheet.ets:202`（`type.callout` = `textSecondary`）**整条梯子下移一档**
+//       （选中 `surface.overlayRow` / 未选中 `surface.overlay`）。
+//       ⇒ **结构性教训（仍成立）**：凡"按面名搜落点"必须**展开别名** —— 已固化成 `surfaceAliasesOf()`
+//         （`core/design.ets`，**从 `surfaceRoles()` 派生**）+ 本文件 §7 + `tools/tests/surface_alias.test.ts`。
+// ⚠️ **矩阵层不受影响**：`contrastReqs()` 的 `textSecondary × surfaceHi` 仍是 **4.3374 < 4.5**
+//    ⇒ `knownContrastLedger()` 那条**保留**（它与"落点是否修好"无关，见 `theme_contrast` 台账注释）。
 // ⚠️ `accent` 坐在 `surfaceHi` 上：**未找到**真实落点（已 grep `pal().accent` 全部前景用法；
 //    MessageNav 的 `accent` 坐在 `withAlpha(accent, 0.10)` 上、非 surfaceHi）⇒ 该格按 accent 的
 //    **非文本/图形**类别取 `AA_NON_TEXT`(3.0) ⇒ 各主题均达标。
@@ -184,6 +187,7 @@ for (let i = 0; i < ledger.length; i++) {
 }
 // 白名单冻结：条目集合变化（增/删）都必须**显式**改这里 ⇒ 否则红（防静默留缺口/静默放宽）
 const EXPECTED_LEDGER: string[] = [
+  'dark|iconMuted|surfaceHi',
   'dark|onAccent|accent',
   'porcelain|textSecondary|surfaceHi',
 ];
@@ -386,6 +390,54 @@ for (let ti = 0; ti < ALL_THEMES.length; ti++) {
       `got ${surfaceFillOf(p, ACTIVE_ALIASES[i])}`);
   }
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// §8 ⭐ 星标图标地面：`iconMuted` 压 `RUNG_ACTIVE` 面（= `surfaceHi`）
+// ════════════════════════════════════════════════════════════════════════════
+// 落点（唯一，实测）：`pages/Index.ets:6692` —— 会话行**星标**（`SymbolGlyph`，未收藏支 = `iconMuted`），
+//   底 = `surface.overlayRowHover`（= `RUNG_ACTIVE` = `surfaceHi`），**仅"当前会话"那一行的状态**。
+// ⚠️ **订正**：常被误记成"深色三主题都不足 3.0"——那是把 **`dark` 的 `textMuted`** 拿去压
+//   aurora/nebula 的 `surfaceHi`（跨主题错配）。按 `iconMutedOf` 的正确取值，**只有 dark 缺**。
+const STAR_LANDING: string = 'pages/Index.ets:6692';
+const rIm: ContrastReq | undefined = findReq(reqs, 'iconMuted', 'surfaceHi');
+ok('§8 矩阵含 iconMuted × surfaceHi（RUNG_ACTIVE 面；零扫描判红）', rIm !== undefined);
+ok('§8 其门槛 = AA_NON_TEXT(3.0)（图标 = 非文本地板，⛔ 不放宽到 2.x）',
+  rIm !== undefined && rIm.min === AA_NON_TEXT,
+  `got ${rIm !== undefined ? rIm.min : 'n/a'}`);
+// `surfaceHi` 确为 RUNG_ACTIVE 别名族的填充（与 §7 同源；⛔ 不硬编面名）
+ok('§8 RUNG_ACTIVE 别名族非空（该面确由别名族承载）', surfaceAliasesOf('surface.active').length > 0);
+const REGISTERED_STAR: string = 'dark';   // 唯一已登记主题（见 `knownContrastLedger`）
+const STAR_RATIO_PIN: number = 2.8164;    // 钉死数值：只许变好，⛔ 不许静默变差
+console.log(`  · §8 ${STAR_LANDING} 的 iconMuted 压 RUNG_ACTIVE 面，逐主题实算（地板 3.0）：`);
+for (let ti = 0; ti < ALL_THEMES.length; ti++) {
+  const theme: string = ALL_THEMES[ti];
+  const p: Palette = paletteOf(theme);
+  const r: number = contrastRatio(colorOf(p, 'iconMuted'), p.surfaceHi);
+  const bad: boolean = r < AA_NON_TEXT;
+  console.log(`      ${theme.padEnd(10)} iconMuted=${colorOf(p, 'iconMuted')} ${r.toFixed(4)}${bad ? ' !' : '  '}`);
+  if (theme === REGISTERED_STAR) {
+    // 已登记主题：**必须仍不达标**（修好 ⇒ 陈旧 ⇒ 红）+ **数值钉死**（只许变好）
+    ok(`§8 [${theme}] 是已登记缺口（>3.0 ⇒ 陈旧 ⇒ 请收缩台账）`, bad, `got ${r.toFixed(4)}`);
+    ok(`§8 [${theme}] 缺口数值钉死 ≈ ${STAR_RATIO_PIN}（⛔ 不许静默恶化；变好 ⇒ 同步订正）`,
+      Math.abs(r - STAR_RATIO_PIN) < 0.002, `got ${r.toFixed(4)}`);
+  } else {
+    ok(`§8 [${theme}] iconMuted 压 RUNG_ACTIVE 面 ≥ ${AA_NON_TEXT}（未登记 ⇒ 必须达标）`,
+      !bad, `got ${r.toFixed(4)}`);
+  }
+}
+ok('§8 落点被登记（台账含 dark|iconMuted|surfaceHi ⇒ 交主 agent 派线修）',
+  ledger.indexOf('dark|iconMuted|surfaceHi') >= 0);
+// 落点存在性锚（**内容锚，⛔ 不按行号** —— `pages/Index.ets` 常被其他线编辑，行号会漂）：
+const idxSrc: string = stripSrc(fsMod.readFileSync(pathMod.join(etsRoot, 'pages', 'Index.ets'), 'utf-8'));
+//   ⚠️ 无论哪种，**台账行 `dark|iconMuted|surfaceHi` 都保留** —— 它记录的是「**role × 面**的能力缺口」
+//     （`iconMuted`(dark) 在 `surfaceHi` 上只有 2.816），**不是**某个落点；落点换 fg 不会让它陈旧。
+const STAR_STILL_MUTED: string = "isStarredChat(s.chat_id) ? this.pal().accent : colorOf(this.pal(), 'iconMuted')";
+const STAR_FIXED: string = "isStarredChat(s.chat_id) ? this.pal().accent : this.pal().textSecondary";
+const starMuted: boolean = idxSrc.indexOf(STAR_STILL_MUTED) >= 0;
+const starFixed: boolean = idxSrc.indexOf(STAR_FIXED) >= 0;
+ok('§8 落点存活锚：星标未收藏支 ∈ {仍用 iconMuted（登记项活着）, 已换 textSecondary（落点已修）}',
+  starMuted || starFixed, `neither found（落点被重写 ⇒ 请同步本段）`);
+console.log(`      · §8 星标落点现状：${starMuted ? '仍用 iconMuted（欠账活着）' : (starFixed ? '已换 textSecondary（落点已修）' : '未识别')}`);
 
 console.log(`\n  porcelain_surfacehi_contrast: ${pass} passed, ${fail} failed`);
 if (fail > 0) { process.exit(1); }

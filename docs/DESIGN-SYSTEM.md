@@ -1210,13 +1210,18 @@ vs 深色黑柔影 **1.0206/1.0122** ⇒ 再次确认"浅色柔影比深色黑�
 （它们的填充都 = `Palette.surfaceHi`）；`RUNG_RAISED` 有 `surface.raised` / `surface.overlayRow` / `surface.pill`
 （= `surfaceAlt`）；`RUNG_CARD` 有 `surface.card` / `surface.overlay` / `surface.input`（= `surface`）。
 
-⇒ **凡"按面名搜落点"的排查/判据，必须展开别名家族**，否则**永远漏**（实测漏掉
-`pages/Index.ets:6626`（'取消'）· `pages/Index.ets:6673`（'⋯'）· `components/AskUserSheet.ets:199`
-—— 三处 `textSecondary` 文字坐在 `surface.overlayRowHover`(= `RUNG_ACTIVE`) 底上）。
+⇒ **凡"按面名搜落点"的排查/判据，必须展开别名家族**，否则**永远漏**。
+**实测**：**曾漏** 3 处 `textSecondary` **文字**落点 —— 坐在 `surface.overlayRowHover`(= `RUNG_ACTIVE`) 底上 ——
+`pages/Index.ets:6626`（'取消'）· `pages/Index.ets:6687`（'⋯'）· `components/AskUserSheet.ets:202`
+（`type.callout`）；**已修**（`surface-alias`，commit **`3f3e7d1`**）：A/B **只换"当前会话"支的 fg** → `textPrimary`
+（⛔ 不换底：换底会削掉"当前会话"的强调），C **整条梯子下移一档**（选中 `surface.overlayRow` / 未选中 `surface.overlay`）。
 
-**机器防线**：`core/design.ets: surfaceAliasesOf(name)`（**从 `surfaceRoles()` 派生**同 rung 家族，
-⛔ 不硬编面名）+ `tools/tests/porcelain_surfacehi_contrast.test.ts §7`
-（家族冻结 + 每成员逐主题 ≡ `p.surfaceHi` + 反面"异 rung 不入家族" + 「未回落」反向锚）。
+**机器防线（三处，互补）**：
+1. `core/design.ets: surfaceAliasesOf(name)` —— **从 `surfaceRoles()` 派生**同 rung 家族，⛔ 不硬编面名；
+2. `tools/tests/porcelain_surfacehi_contrast.test.ts §7` —— 家族冻结 + 每成员逐主题 ≡ `p.surfaceHi`
+   + 反面"异 rung 不入家族" + 「未回落」反向锚；
+3. `tools/tests/surface_alias.test.ts` —— 落点检查清单**由别名表派生**（⛔ 不硬编）+ 三处落点的**修法形态**
+   + mutation 锚（回退 ⇒ 必红）。
 
 **⚠️ `surface.active` 的去留（裁决：保留，登记为「预留 / 暂无消费」）**——其**唯一**消费者
 （`SettingsLlm.ets` 就地编辑框底）在 `8fbe8d2` 换底为 `surface.raised` ⇒ 现 **0 个 `.ets` 消费者**。三条依据：
@@ -1230,5 +1235,33 @@ vs 深色黑柔影 **1.0206/1.0122** ⇒ 再次确认"浅色柔影比深色黑�
 ⛔ 若将来真要收敛：须**同批**改 `design.test.ts` 计数 + 退役 `surface_active.test.ts`，并论证
 「`RUNG_ACTIVE` 不需要中性入口」（现有两个名字覆盖不了）。留痕处：`core/design.ets` 的
 `surfaceRoles()` 注释（`new SurfaceRole('surface.active', …)` 上方）。
+
+### 15.6 ⭐ 星标图标地面：`iconMuted` 压 `RUNG_ACTIVE` 面（**已登记，走落点侧**）
+
+**发现**（`surface-alias` 复核别名底时钓出）：会话行**星标** = `SymbolGlyph` + `colorOf(p,'iconMuted')`
+（未收藏支），坐在**当前会话**那一行的底 `surface.overlayRowHover`（= `RUNG_ACTIVE` = `surfaceHi`）上
+⇒ 触到 WCAG §1.4.11 的**图标 3:1 地板**。
+
+| 落点 | 前景 role | 底 | 字号 | 逐主题实算（地板 3.0）|
+|---|---|---|---|---|
+| `pages/Index.ets:6692`（唯一，**仅"当前会话"那行**） | `iconMuted` | `surface.overlayRowHover`(= `surfaceHi`) | `type.headline` | dark **2.816 ✗** · light 6.147 ✓ · aurora 3.902 ✓ · nebula 4.154 ✓ · porcelain 4.337 ✓ |
+
+**⚠️ 订正（重要）**：常被误记为"**深色三主题都不足 3.0**（dark 2.816 / aurora 2.594 / nebula 2.810）"——
+后两个是把 **`dark` 的 `textMuted`（`#63636F`）** 拿去压 aurora/nebula 的 `surfaceHi`（**跨主题错配**）算出的。
+按 `iconMutedOf` 的**正确**取值（各主题用自己的 `textMuted`：aurora `#6b8399` / nebula `#8577ad`），
+**只有 dark 一主题缺 0.184**。
+
+**裁决：走落点侧（(b)），⛔ 不改 role（(a) 已被算掉）**——
+- (a) 改 `iconMutedOf` 的深色臂 ⇒ ① **过改**：aurora/nebula **本已达标**（3.902 / 4.154）也会被抬高；
+  ② **爆炸半径 ≈25 个 `iconMuted` 落点 × 3 个深色主题（≈75 处渲染）** 全部变亮（dark `#63636F→#9A9AAB` 等）；
+  ③ 该函数的分支判据是 `isLightPalette(p)`（**色板亮度**，仓规⛔不许按主题名硬判）⇒ **无法只修 dark**。
+- (b) 落点侧：`Index.ets:6692` 未收藏支改用 `textSecondary`（各主题 ≥4.33 ⇒ 达标；浅色族 `iconMuted`
+  本就 = `textSecondary` ⇒ **浅色零变化**）⇒ **爆炸半径 = 1 处 × 1 状态**。
+- ⚠️ 该落点在 `pages/Index.ets`（**非本线域**）⇒ **由主 agent 另派线落地；落地后收缩台账**。
+
+**机器登记（本线已落）**：`core/design.ets: contrastReqs()` 新增 `iconMuted|surfaceHi`（`AA_NON_TEXT`）
++ `knownContrastLedger()` 新增 `dark|iconMuted|surfaceHi`；判据
+`tools/tests/porcelain_surfacehi_contrast.test.ts §8`（矩阵形态 + 门槛 3.0 + **逐主题实算**
++ **只 dark 缺** + 缺口数值**钉死 2.8164**（只许变好）+ 落点存活锚）。
 
 

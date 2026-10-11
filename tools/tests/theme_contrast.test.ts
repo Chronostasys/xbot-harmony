@@ -297,19 +297,20 @@ const LEDGER: string[] = [
   // ── 目标⑤（2026-10-11 阈值字号校正后**新暴露**）────────────────────────────────────
   // `textSecondary` 档位由 3.0 校正到 4.5（它有 10–14 的 normal 字号落点，见 CANVAS_ROLES 注释）
   // ⇒ porcelain 的 `surfaceHi` 面暴露为 4.34:1。
-  // ⚠️ **本行仍须保留**（⛔ 别收缩）—— 落点分两批，第一批已修、第二批在改：
-  //   · **第一批（已修，`8fbe8d2`）**：`LiveTailView.ets` / `MessageRow.ets` / `SettingsLlm.ets`
-  //     的 3 处**直接** `pal().surfaceHi` 换底（→ `surface.raised` / `surface.card`，
-  //     porcelain ≥4.5）。第 4 处（`Index.ets` 发送键）经复核是 **`SymbolGlyph` 图标**
-  //     ⇒ 适用 `AA_NON_TEXT`(3.0) ⇒ **本就达标、非缺陷、不改**（`contrast_landing.test.ts §5` 钉死）。
-  //   · **第二批（别名掩盖，`surface-alias` 线在修）**：`'surface.overlayRowHover'` /
-  //     `'surface.pillSelected'` / `'surface.active'` **同属 `RUNG_ACTIVE` ≡ `surfaceHi`**
-  //     ⇒ 只按字面量 `'surfaceHi'` 搜**会漏**。实测仍有 3 处文字落点坐在别名底上：
-  //     `pages/Index.ets:6626`（'取消'，底 `surface.overlayRowHover`）、
-  //     `pages/Index.ets:6673`（'⋯'，同底）、`components/AskUserSheet.ets:199`
-  //     （`type.callout`=textSecondary，底 `surface.overlayRowHover`）。
-  //   ⇒ **等第二批修完再收缩本行**。判据侧的教训已落成 `surfaceAliasesOf()`
-  //     （`core/design.ets`，从 `surfaceRoles()` 派生别名家族）+ `porcelain_surfacehi_contrast §7`。
+  // ⚠️ **本行是"矩阵格"欠账，与落点是否修好无关** ⇒ ⛔ **不许收缩**（删 = 承认重新引入）：
+  //   只要 `textSecondary` 仍是 4.5 档、porcelain 的 `surfaceHi` 仍是 `#EDEDEF`，这一格就恒 < 4.5。
+  // **落点侧现状（两批，均已清）**：
+  //   · 第一批（`8fbe8d2`）：`LiveTailView.ets` / `MessageRow.ets` / `SettingsLlm.ets` 的 3 处
+  //     **直接** `pal().surfaceHi` **换底**（→ `surface.raised` / `surface.card`，porcelain ≥4.5）；
+  //     第 4 处（`Index.ets` 发送键）经复核是 **`SymbolGlyph` 图标** ⇒ 适用 `AA_NON_TEXT`(3.0)
+  //     ⇒ **本就达标、非缺陷、不改**（`contrast_landing.test.ts §5` 钉死）。
+  //   · 第二批（**别名掩盖**，`3f3e7d1` 已清）：`'surface.overlayRowHover'` / `'surface.pillSelected'` /
+  //     `'surface.active'` **同属 `RUNG_ACTIVE` ≡ `surfaceHi`** ⇒ 只按字面量 `'surfaceHi'` 搜**会漏**。
+  //     修法：`Index.ets:6626`（'取消'）/:6687（'⋯'）**只换"当前会话"支的 fg** → `textPrimary`
+  //     （⛔ 不换底：换底会削掉"当前会话"的强调）；`AskUserSheet.ets:202`（`type.callout`）**整条梯子下移一档**
+  //     （选中 `surface.overlayRow` / 未选中 `surface.overlay`）。
+  //   ⇒ 判据侧教训已落地：`core/design.ets: surfaceAliasesOf()`（从 `surfaceRoles()` 派生别名家族）
+  //     + `porcelain_surfacehi_contrast §7` + `surface_alias.test.ts`。
   'porcelain|textSecondary|surfaceHi',
   // ── 根因 A：`onAccent`（定义是"主按钮上的文字"）被用在**中性面** surfaceHi 上 ──────────
   // 证据：pages/Index.ets:3942-3943（同一 Text：fontColor(onAccent) + backgroundColor(surfaceHi)

@@ -997,6 +997,12 @@ export function contrastReqs(): ContrastReq[] {
     // 浅色 = textSecondary（≥3:1）/ 深色 = textMuted（逐字节）。见 `iconMutedOf`。
     new ContrastReq('iconMuted', 'appBg', AA_NON_TEXT, '弱交互图标（chevron/关闭/把手）压画布'),
     new ContrastReq('iconMuted', 'surface', AA_NON_TEXT, '弱交互图标压卡片'),
+    // ── 目标⑤（2026-10-11）：把 `surfaceHi`（= `RUNG_ACTIVE` 别名族）也纳入 `iconMuted` 的底 ─────
+    // 落点 = `pages/Index.ets:6692` 会话行**星标**（`SymbolGlyph`，未收藏支 = `iconMuted`），
+    //   其底 = `surface.overlayRowHover`（= `RUNG_ACTIVE` = `surfaceHi`）—— **仅"当前会话"那一行的状态**。
+    // 实算：light 6.1468 ✓ / porcelain 4.3374 ✓ / aurora 3.9022 ✓ / nebula 4.1535 ✓ / **dark 2.8164 ✗**。
+    // ⇒ dark 缺 0.184，登记进 `knownContrastLedger()`（修法见该函数注释：走**落点侧**）。
+    new ContrastReq('iconMuted', 'surfaceHi', AA_NON_TEXT, '弱图标压选中/高亮面（RUNG_ACTIVE；dark 2.816，见台账）'),
     // 警告文字（**文字** role：11–12 落点 ⇒ `AA_TEXT`；与 `theme_contrast` §J 的 porcelain ≥4.5 同口径）
     new ContrastReq('warn', 'surface', AA_TEXT, '警告文字（连接断开/降级提示）'),
     // 危险/警告**实心底上的文字**（`state.danger.fg` / `state.warn.fg`）—— 见 §4.10
@@ -1075,6 +1081,26 @@ export function contrastAudit(theme: string): ContrastResult[] {
  *     `SettingsLlm`/`MessageRow`/`Index` 组件侧，其中 `MessageRow.ets`/`Index.ets` 本波被其他线持有）
  *     ⇒ **均超出本线域**，按仓内纪律**显式登记 + 交由主 agent 裁决**（⛔ 不静默留缺口、⛔ 不放宽阈值）。
  *     ⚠️ 本行**不许**为了变绿而删 —— 删 = 承认重新引入不可读的选中面小号文字。
+ *   · **目标⑤（2026-10-11）`dark|iconMuted|surfaceHi` = 2.816 < 3.0**（图标地板，差 0.184）。
+ *     **落点（唯一，实测 `file:line`）**：`pages/Index.ets:6692` —— 会话行**星标**
+ *     （`SymbolGlyph`，未收藏支 = `colorOf(p,'iconMuted')`），其底 = `surface.overlayRowHover`
+ *     （= `RUNG_ACTIVE` = `surfaceHi`）；**仅在"当前会话"那一行的状态下**成立。
+ *     **逐主题实算**（同一 role × 同一面，可比）：light **6.147** / porcelain **4.337** /
+ *     aurora **3.902** / nebula **4.154** / **dark 2.816 ✗** ⇒ **只 dark 一主题缺**。
+ *     ⚠️ 订正：常被误记为"深色三主题都不够"——那是把 **`dark` 的 `textMuted`（`#63636F`）**
+ *     拿去压 aurora/nebula 的 `surfaceHi`（**跨主题错配**）算出的 2.594 / 2.810；
+ *     按 `iconMutedOf` 的**正确**取值（各主题自己的 `textMuted`）只有 dark 不达标。
+ *     **为什么走落点侧而非改 role（(a) 已被算掉）**：`iconMutedOf` 的分支判据是
+ *     `isLightPalette(p)`（**色板亮度**，⛔ 仓规不许按主题名硬判）⇒ 改深色臂会**同时**改掉
+ *     aurora/nebula **本已达标**的取值（6.026→ / 3.902→7.346 / 4.154→7.663），
+ *     且波及**全部 ≈25 个 `iconMuted` 落点 × 3 个深色主题**（≈75 处渲染变亮）⇒ **代价远大于收益**。
+ *     落点侧修法（最小爆炸半径，**1 处 × 1 状态**）：`Index.ets:6676` 的未收藏支改用 `textSecondary`
+ *     （各主题 ≥4.33 ⇒ 达标；浅色族 `iconMuted` 本就 = `textSecondary`，故浅色**零变化**）。
+ *     ⚠️ 该落点在 `pages/Index.ets`（**本线禁改**）⇒ 由主 agent 另派线落地。
+ *     ⚠️ **订正**：本行记录的是「**role × 面**的能力缺口」（`iconMuted`(dark) 在 `surfaceHi` 上只有 2.816），
+ *     **不是**某个落点 ⇒ **落点换 fg（如改 `textSecondary`）不会使本行陈旧**；本行**长期保留**作护栏
+ *     （将来谁再把 `iconMuted` 放到 dark 的 `RUNG_ACTIVE` 面上，缺 0.184 这件事有账可查）。
+ *     只有**改 role（(a)）或改主题色值**才会让它陈旧。
  *   · **已收缩（2026-10-11 同日，档位校正）**：先前的 `porcelain|accent|surfaceHi` / `dark|accent|surfaceHi`
  *     两条已**删除**。理由：`accent` 是**非文本/图形** role（弧/环/点/图标），按 **role 类别**（= 字号档，
  *     见 `AA_TEXT` 注释）该格应取 `AA_NON_TEXT`(3.0) ⇒ porcelain 4.017 / dark 3.839 **均达标**
@@ -1085,6 +1111,7 @@ export function knownContrastLedger(): string[] {
   return [
     'dark|onAccent|accent',
     'porcelain|textSecondary|surfaceHi',
+    'dark|iconMuted|surfaceHi',
   ];
 }
 
