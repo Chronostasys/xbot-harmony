@@ -297,3 +297,34 @@ md缓存 命中=… 未命中=…（命中率 …%） 占用=…KB 条目=…
 **真机清单（⛔ 本轮不占设备，留待通知后跑）**：① 极长会话名（抽屉/头部）② 极长工具输出（pill label / 浮层）
 ③ 极长 URL（消息内链接）④ 错误详情（`LlmErrorNotice` 展开 + `Index.ets` 的 `loadErrHint`）——
 逐个看：**截得有没有提示**（`…`）、**有没有撑破布局**。
+
+---
+
+## 2026-10-11 批次：**命中区/热区**审计（目标⑤"交互起来很爽"）
+
+**规范出处（⛔ 取仓内真源，不臆造）**：`core/design.ets:757 HIT_TARGET_MIN = 44`
+（注释："Apple HIG ≥44pt；图标视觉尺寸可更小，命中区用 `responseRegion` 外扩"）。
+本仓既有补偿模式：`PluginsSheet` / `SplashOverlay` / `StatusSheet` 的关闭/跳过按钮 —— **视觉小、热区靠 `responseRegion` 外扩**。
+
+**判据**：`tools/tests/hit_target_gate.test.ts`（10 passed / 0 failed）——
+**可点元素（链上有 `onClick`/`bindMenu`/`bindPopup`/`bindSheet`/`gesture`/`onTouch`/`bindTips`）
+若显式设了 < `HIT_TARGET_MIN` 的 `height`/`width`/`size`/`constraintSize` 数值，
+且链上既无 `HIT_TARGET_MIN` 也无 `responseRegion`** ⇒ 红。
+⛔ 阈值**从 `design.ets` 现场解析**（不写死），并断言 **`HIT_TARGET_MIN ≥ 44`** —— 防止"标准被悄悄下调而判据仍绿"。
+
+**规模与命中**：扫 45 文件 / **200 个可点元素** ⇒ A 类命中 **6 处**（**无假阳性**，全低于 44vp）：
+
+| 处置 | 位置 | 原值 | 改成 |
+|---|---|---|---|
+| ✅ 已修 | `components/SelfCheckSheet.ets:50` | `constraintSize({minHeight: 40})` | `HIT_TARGET_MIN` |
+| ✅ 已修 | `components/SettingsDeveloper.ets:309/447/457` | `.height(32)` ×3 | `constraintSize({minHeight: HIT_TARGET_MIN})` |
+| spec（归 main agent） | `pages/Index.ets:3287` | `minHeight: 42`（「测试连接」） | 建议 `HIT_TARGET_MIN` |
+| spec（归 main agent） | `pages/Index.ets:3466` | `minHeight: 38`（「重试/重新登录」） | 建议 `HIT_TARGET_MIN` |
+
+⚠️ **为什么 `SettingsDeveloper` 的三处不用 `responseRegion`**：它们是 `Row({space: SP_2})` 里的**文字按钮**，
+热区外扩 6vp 会**与兄弟重叠 ⇒ 误触** —— 本仓 `responseRegion` 模式是给**独立图标按钮**的。
+⇒ 文字按钮抬高度、图标按钮外扩热区，两者按场景分派。
+
+**扫描器自证教训**：mutation 断言第一版写成 `got.length > PENDING_SPEC.length`（2）——
+而基线带 `PENDING_SPEC` 后未登记命中恒为 **0**、注入后为 **1** ⇒ `1 > 2` 为假 ⇒ **判据自己假红**
+（不是产品错）。正确断言是**"出现新的未登记命中"**（`> 0`）。

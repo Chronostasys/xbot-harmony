@@ -9,7 +9,7 @@
 import { Palette, paletteOf } from '../core/theme';
 import { FS_CAPTION, FS_TITLE, R_LG, R_XL, SP_2, SP_3 } from '../core/tokens';
 import {
-  PRESS_OPACITY, GAP_PILL, INSET_CARD_X, INSET_PILL_X, INSET_PILL_Y, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, hairlineOf, surfaceFillOf,
+  HIT_TARGET_MIN, PRESS_OPACITY, GAP_PILL, INSET_CARD_X, INSET_PILL_X, INSET_PILL_Y, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, hairlineOf, surfaceFillOf,
 } from '../core/design';
 import { fs, fw } from './SettingsRows';
 import { MarkdownView } from './MarkdownView';
@@ -45,8 +45,9 @@ export struct SelfCheckSheet {
           })
       }.width('100%')
 
+      // ⛔ 命中区必须 ≥ `HIT_TARGET_MIN`(44, Apple HIG)：原先写死 40 低于阈值（审计命中）。
       Button(this.geoRunning ? '采集中…' : '采集各页版面几何（数值，无需网络）')
-        .width('100%').constraintSize({ minHeight: 40 }).backgroundColor(this.pal().accentSoft)
+        .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN }).backgroundColor(this.pal().accentSoft)
         .onClick(() => {
           this.onCollect();
         })

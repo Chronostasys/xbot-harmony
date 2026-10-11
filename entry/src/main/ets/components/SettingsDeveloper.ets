@@ -38,6 +38,7 @@ import {
 import {
   RPC_EXPORT_SESSION, RPC_EXPORT_SESSION_JSONL, SessionSelectorParams, readableRpcError, rpc,
 } from '../core/rpc';
+import { HIT_TARGET_MIN } from '../core/design';
 import { SettingsPanelHeader, SettingsToolRow } from './SettingsRows';
 
 /** 本地偏好（**不同步服务端**；对齐 web 的 localStorage 语义）。 */
@@ -303,7 +304,9 @@ export struct SettingsDeveloper {
             .fontColor(this.chatID.length > 0 ? this.pal().onAccent : this.pal().textMuted)
             .backgroundColor(this.chatID.length > 0 ? this.pal().accent : this.pal().surfaceAlt)
             .borderRadius(R_MD)
-            .height(32)
+            // ⛔ 命中区 ≥ 44（Apple HIG）：32 低于阈值（审计命中）；
+            //    文字按钮在 Row(space:SP_2) 里**不宜 responseRegion 外扩**（会与兄弟重叠 ⇒ 误触）。
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
             .enabled(this.chatID.length > 0 && this.exportBusy.length === 0)
             .onClick(() => {
               void this.exportOne(a);
@@ -440,7 +443,8 @@ export struct SettingsDeveloper {
           .fontColor(this.pal().textSecondary)
           .backgroundColor(this.pal().surfaceAlt)
           .borderRadius(R_MD)
-          .height(32)
+          // ⛔ 命中区 ≥ 44（Apple HIG）：32 低于阈值（审计命中）。
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
           .onClick(() => {
             this.clearRec();
           })
@@ -449,7 +453,8 @@ export struct SettingsDeveloper {
           .fontColor(this.pal().onAccent)
           .backgroundColor(this.pal().accent)
           .borderRadius(R_MD)
-          .height(32)
+          // ⛔ 命中区 ≥ 44（Apple HIG）：32 低于阈值（审计命中）。
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
           .onClick(() => {
             this.copyRec();
           })
