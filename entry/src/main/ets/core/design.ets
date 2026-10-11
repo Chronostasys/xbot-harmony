@@ -788,6 +788,25 @@ export function iconMutedOf(p: Palette): string {
   return isLightPalette(p) ? p.textSecondary : p.textMuted;
 }
 
+/**
+ * **面 → 面**的「**结构性分隔**」唯一出口 —— 与 `hairlineOf` 的"面**内**发丝"成**一档之差的成对**。
+ *
+ * 为什么需要它（`docs/DESIGN-SYSTEM.md §13`「特制白主题的层次语言」）：深色靠**发光/玻璃**分层，
+ * 浅色必须靠**结构**分层。而 `hairline` 的目标只是 **1.3201**（§9.2 的 web 基线，用于**面内**行分隔）；
+ * **面的轮廓**（卡片压画布的边界）在纯白上需要**更强**一档 —— 用色板里**既有**的 `borderStrong`
+ * （本就是"次要按钮描边"的强边界色），**不新造色值**。
+ *
+ * | | 浅色系（`isLightPalette`） | 深色系 |
+ * |---|---|---|
+ * | 取值 | `p.borderStrong`（对白 ≈1.45:1） | `p.border`（**逐字节不变**） |
+ *
+ * ⛔ 用途边界：**面到面**（卡片/分区的外轮廓）。面**内**的行分隔仍走 `hairlineOf`（⛔ 不混用）。
+ * 判据按 `isLightPalette(p)`（色板亮度），⛔ 不按主题名。
+ */
+export function structuralRuleOf(p: Palette): string {
+  return isLightPalette(p) ? p.borderStrong : p.border;
+}
+
 export function colorOf(p: Palette, role: string): string {
   if (role === 'sunken') { return surfacesOf(p).sunken; }
   if (role === 'hairline') { return surfacesOf(p).hairline; }
@@ -822,6 +841,8 @@ export function colorOf(p: Palette, role: string): string {
   if (role === 'orbRingStroke') { return orbRingStrokeOf(p); }
   // 弱但必须可辨的**图标**（浅 = textSecondary ≥3:1 / 深 = textMuted 逐字节）—— 见 `iconMutedOf`。
   if (role === 'iconMuted') { return iconMutedOf(p); }
+  // **面→面**的结构性分隔（浅 = borderStrong 更强轮廓 / 深 = border 逐字节）—— 见 `structuralRuleOf`。
+  if (role === 'structuralRule') { return structuralRuleOf(p); }
   if (role === 'dangerOnFill') { return onFillFgOf(p, p.dangerBg); }
   if (role === 'warnOnFill') { return onFillFgOf(p, p.warnBg); }
   return p.transparent;

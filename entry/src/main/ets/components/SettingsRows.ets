@@ -29,8 +29,7 @@ import {
   INSET_CARD_X, INSET_CARD_Y, INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X, INSET_ROW_Y,
   RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, STROKE_HAIRLINE, HIT_TARGET_MIN, SURFACE_COMPOSER,
   SPACE_HAIR, SPACE_XS, SPACE_SM, SPACE_MD, SPACE_XL,
-  typeOf, colorOf, hairlineOf, surfaceFillOf,
-} from '../core/design';
+  typeOf, colorOf, hairlineOf, surfaceFillOf, structuralRuleOf, } from '../core/design';
 import { displayApiKey, providerLine, stripScheme } from '../core/rpc';
 
 // ── 排版令牌 → ArkUI 属性（**唯一映射**；组件只读角色名，不写数值）──────────────
@@ -537,7 +536,9 @@ export struct SettingsSubCard {
     .padding({ left: INSET_CARD_X, right: INSET_CARD_X, top: INSET_CARD_Y, bottom: INSET_CARD_Y })
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))
     .borderRadius(RADIUS_CARD)
-    .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+    // **面→面**轮廓走 `structuralRuleOf`（浅色 = 更强轮廓，深色 = `border` 逐字节）；
+    // 面**内**行分隔/控件边仍走 `hairlineOf`（⛔ 不混用，见 `docs/DESIGN-SYSTEM.md §13.5`）。
+    .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
   }
 }
 
