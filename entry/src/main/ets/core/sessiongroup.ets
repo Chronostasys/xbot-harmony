@@ -666,3 +666,112 @@ export function groupSessionsFromItems(
   }
   return groupSessions(rows, category, starredIds);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 9. 会话分组「全部折叠 / 全部展开」（web `SessionViewBar.tsx:34-79` +
+//    `useSessionStore.ts:1241-1252` setGroupsCollapsed）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 「全部折叠 / 全部展开」控件的一体化结果（**判据与渲染同源**的唯一出口）。
+ *
+ * web 把同一份判据在两处展开（`SessionViewBar.tsx:35-38` + `:73`）：
+ *   · `keys         = groupKeys.map((k) => collapseKey(category, k))`
+ *   · `allCollapsed = keys.length > 0 && keys.every((k) => collapsedGroups.has(k))`
+ *   · 按钮**图标/文案**由 `allCollapsed` 决定；点击动作 = `setGroupsCollapsed(keys, !allCollapsed)`
+ * 原生化后**收进这一个纯函数**：组件只读 `plan.visible / allCollapsed / target / keys`，
+ * ⛔ 不得在组件里再判一次（否则"图标显示展开、点的却是折叠"这类两套判据必会分叉）。
+ */
+export class CollapseAllPlan {
+  /** 当前分类下所有分组的折叠键（`collapseKey(category, groupKey)` 形态；顺序同入参 groupKeys）。 */
+  keys: string[] = [];
+  /** 是否应显示该控件（web：`keys.length > 0` 才渲染按钮）。 */
+  visible: boolean = false;
+  /** 是否**全部**已折叠（web：`keys.length > 0 && every(∈ collapsed)`；**空集 ⇒ false**）。 */
+  allCollapsed: boolean = false;
+  /** 点击后的目标折叠态 = `!allCollapsed`（web：`setGroupsCollapsed(keys, !allCollapsed)`）。 */
+  target: boolean = false;
+}
+
+/** 数组包含（纯函数；`core/*.ets` 用数组而非 `Set`，对齐 ArkUI 可观测数组语义）。 */
+function includesStr(arr: string[], v: string): boolean {
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i] === v) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** 当前分类下所有分组的折叠键（web `SessionViewBar.tsx:35`）。 */
+export function allCollapseKeys(category: string, groupKeys: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < groupKeys.length; i++) {
+    out.push(collapseKey(category, groupKeys[i]));
+  }
+  return out;
+}
+
+/**
+ * 是否**全部**已折叠（web `SessionViewBar.tsx:35` 的 `allCollapsed`）。
+ *
+ * ⚠️ 边界：`keys` 为空 ⇒ **false**（不是 true）—— 空集若算"全部折叠"，空列表会显示"全部展开"，
+ *    与 web 显式 `keys.length > 0 && …` 相悖。
+ */
+export function allGroupsCollapsed(keys: string[], collapsed: string[]): boolean {
+  if (keys.length === 0) {
+    return false;
+  }
+  for (let i = 0; i < keys.length; i++) {
+    if (!includesStr(collapsed, keys[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * 折叠态**合成**：把 `keys` 全部并入（`collapsed=true`）或全部剔除（`false`）折叠集，返回**新数组**。
+ *
+ * 逐条对齐 web `useSessionStore.ts:1241-1252 setGroupsCollapsed`：
+ *   · `keys` 为空 ⇒ **状态不变**（web `if (keys.length === 0) return`）⇒ 本函数返回内容相同的副本；
+ *   · 并入：去重（web 用 `Set`），已在集里的键不重复追加，**新键按入参顺序追加在末尾**；
+ *   · 剔除：不在集里的键是 **no-op**（web `Set.delete` 对不存在键无副作用）；
+ *   · 顺序：保留原集顺序（web `[...next]` 保持 Set 插入序）。
+ */
+export function applyGroupsCollapsed(current: string[], keys: string[], collapsed: boolean): string[] {
+  const out: string[] = [];
+  if (collapsed) {
+    for (let i = 0; i < current.length; i++) {
+      out.push(current[i]);
+    }
+    for (let i = 0; i < keys.length; i++) {
+      if (!includesStr(out, keys[i])) {
+        out.push(keys[i]);
+      }
+    }
+  } else {
+    for (let i = 0; i < current.length; i++) {
+      if (!includesStr(keys, current[i])) {
+        out.push(current[i]);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * 「全部折叠 / 全部展开」的**唯一判据出口**（组件只消费它 ⇒ 判据与渲染同源）。
+ *
+ * @param category  当前分类（给组键加前缀 —— 见 `collapseKey`）。
+ * @param groupKeys 当前分类下的**组键**（不含分类前缀；如 `groupSessions(...).map(g => g.key)`）。
+ * @param collapsed 当前已折叠键集（`collapseKey` 形态）。
+ */
+export function collapseAllPlan(category: string, groupKeys: string[], collapsed: string[]): CollapseAllPlan {
+  const plan: CollapseAllPlan = new CollapseAllPlan();
+  plan.keys = allCollapseKeys(category, groupKeys);
+  plan.visible = plan.keys.length > 0;
+  plan.allCollapsed = allGroupsCollapsed(plan.keys, collapsed);
+  plan.target = !plan.allCollapsed;
+  return plan;
+}

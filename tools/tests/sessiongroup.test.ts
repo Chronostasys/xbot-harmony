@@ -11,6 +11,8 @@
  *   · `sortSessions` 把 `sb - sa` 改成 `sa - sb` ⇒ '星标浮到组内顶部' 失败
  *   · `normalizeSessionCategory` 去掉 time→path 迁移 ⇒ '老存储 time 一次性迁到 path' 失败
  *   · `groupSessions` 不过滤 SubAgent            ⇒ 'SubAgent 不进主分组' 失败
+ *   · `applyGroupsCollapsed` 并入时**不去重**      ⇒ '合成·并入：已在集里不重复' 失败
+ *   · `allGroupsCollapsed` 空集改回 `true`         ⇒ '空列表：allCollapsed=false…' 失败
  *
  * ⚠️ 结尾必须 `process.exit(...)`：`run.sh` 用 `set -e` 顺序跑，不退出会挂住整个套件。
  */
@@ -24,6 +26,7 @@ import {
   sessionKey, sameSession, parseAgentChatID, isSubAgentSession,
   timeBucket, pathBucket, sessionGroupKey, sortSessions, groupSessions,
   groupTitle, statusGroupKey, pathGroupTooltip, basename,
+  allCollapseKeys, allGroupsCollapsed, applyGroupsCollapsed, collapseAllPlan,
 } from '../../entry/src/main/ets/core/sessiongroup';
 
 // 顺带验证：新增的分类键真接上了「本地键 ↔ 服务端键」映射（web userSettings.ts:42）。
@@ -233,6 +236,80 @@ eq('分类键本地名', KEY_SESSION_CATEGORY, 'xbot:session-category');
 eq('分类键 → 服务端键', serverKey(KEY_SESSION_CATEGORY), 'web:session:category');
 eq('服务端键 → 本地键', localKey('web:session:category'), KEY_SESSION_CATEGORY);
 eq('既有星标键未被改动', serverKey(KEY_STARRED), 'web:session:starred');
+
+// ── (11) 会话分组「全部折叠 / 全部展开」纯逻辑 ──────────────────────────────────
+// web 权威：`SessionViewBar.tsx:34-79`（allCollapsed / toggleLabel / onClick）+
+// `useSessionStore.ts:1241-1252`（setGroupsCollapsed）。**判据与渲染同源** = `collapseAllPlan`。
+
+// 折叠键生成：带分类前缀（同一 `collapseKey`）
+eq('allCollapseKeys 带分类前缀', allCollapseKeys('path', ['/a', '/b']), ['path:/a', 'path:/b']);
+eq('allCollapseKeys 空输入 ⇒ 空', allCollapseKeys('time', []), []);
+
+// ① 空列表：控件不可见，且**不得**误判为"全部折叠"（web `keys.length > 0 &&`）
+{
+  const p = collapseAllPlan('path', [], []);
+  eq('空列表：控件不可见 visible=false', p.visible, false);
+  eq('空列表：allCollapsed=false（不误判全折叠）', p.allCollapsed, false);
+  eq('空列表：keys 为空', p.keys, []);
+}
+
+// ② 全展开态：collapsed 空 ⇒ 点击后应"全部折叠"
+{
+  const p = collapseAllPlan('path', ['/a', '/b'], []);
+  eq('全展开：visible=true', p.visible, true);
+  eq('全展开：allCollapsed=false', p.allCollapsed, false);
+  eq('全展开：target=true（点击后全部折叠）', p.target, true);
+}
+
+// ③ 全部折叠：collapsed 含全部键（含无关键也不影响）
+{
+  const p = collapseAllPlan('path', ['/a', '/b'], ['path:/a', 'path:/b', 'path:/zzz']);
+  eq('全折叠：allCollapsed=true', p.allCollapsed, true);
+  eq('全折叠：target=false（点击后全部展开）', p.target, false);
+}
+
+// ④ 部分展开：只折了一部分 ⇒ 视为未全折叠（target 仍是"折叠"）
+{
+  const p = collapseAllPlan('path', ['/a', '/b'], ['path:/a']);
+  eq('部分折叠：allCollapsed=false', p.allCollapsed, false);
+  eq('部分折叠：target=true', p.target, true);
+}
+
+// ⑤ 键不存在 / 跨分类同名键：都不得误判为已折叠
+eq('键不存在不误判', collapseAllPlan('path', ['/a'], ['path:other']).allCollapsed, false);
+eq('跨分类同名键不串味（path:today ≠ time:today）',
+  collapseAllPlan('time', ['today'], ['path:today']).allCollapsed, false);
+eq('allGroupsCollapsed 空 keys ⇒ false', allGroupsCollapsed([], []), false);
+
+// ⑥ 折叠态合成（web setGroupsCollapsed）：并入去重/追加末尾/保留原序；剔除 no-op；空 keys 不变
+eq('合成·并入：新键追加末尾',
+  applyGroupsCollapsed(['path:/a'], ['path:/b', 'path:/c'], true),
+  ['path:/a', 'path:/b', 'path:/c']);
+eq('合成·并入：已在集里不重复',
+  applyGroupsCollapsed(['path:/a'], ['path:/a', 'path:/b'], true),
+  ['path:/a', 'path:/b']);
+eq('合成·并入：空 keys ⇒ 状态不变',
+  applyGroupsCollapsed(['path:/a'], [], true), ['path:/a']);
+eq('合成·剔除：移除命中键（保留原序）',
+  applyGroupsCollapsed(['path:/a', 'path:/b', 'path:/c'], ['path:/b'], false),
+  ['path:/a', 'path:/c']);
+eq('合成·剔除：未命中键 no-op',
+  applyGroupsCollapsed(['path:/a'], ['path:/zzz'], false), ['path:/a']);
+eq('合成·剔除：空 keys ⇒ 状态不变',
+  applyGroupsCollapsed(['path:/a'], [], false), ['path:/a']);
+
+// ⑦ 判据↔动作闭合：对 target 作用一次 ⇒ allCollapsed **必翻转**（同源的关键性质）
+{
+  const keys: string[] = ['/a', '/b'];
+  const p0 = collapseAllPlan('path', keys, []);
+  const afterCollapse = applyGroupsCollapsed([], p0.keys, p0.target);
+  const p1 = collapseAllPlan('path', keys, afterCollapse);
+  eq('往返：折叠后 allCollapsed=true', p1.allCollapsed, true);
+  eq('往返：再点 target=false', p1.target, false);
+  const afterExpand = applyGroupsCollapsed(afterCollapse, p1.keys, p1.target);
+  eq('往返：再展开回到空', afterExpand, []);
+  eq('往返：展开后 allCollapsed=false', collapseAllPlan('path', keys, afterExpand).allCollapsed, false);
+}
 
 console.log(`sessiongroup: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
