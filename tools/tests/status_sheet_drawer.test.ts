@@ -154,14 +154,46 @@ has(indexSrc, '.padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XXS,
 //    ⚠️ 区间起点取 `if (this.sessQuery.length > 0) {`（= **注释之后**）：若起点取 TextInput，会把我写在
 //    清空键上方的注释（里面**就写着** `responseRegion` 字样）卷进区间 ⇒ `hasNot` **假红**
 //    （本仓既有教训：形态/缺席断言必须只在**剥注释后的代码**上做）。
-const sbox: string = between(indexSrc, 'if (this.sessQuery.length > 0) {', '搜消息');
+const sbox: string = between(indexSrc, 'if (this.sessQuery.length > 0) {', "Text('搜本会话')");
 ok('搜索框清空键块可定位（零扫描判红）', sbox.length > 100);
-has(between(indexSrc, 'SymbolGlyph($r(\'sys.symbol.magnifyingglass\'))', '搜消息'),
+has(between(indexSrc, 'SymbolGlyph($r(\'sys.symbol.magnifyingglass\'))', "Text('搜本会话')"),
   "TextInput({ placeholder: '筛选会话…'", '放大镜在搜索框**之前**（同块内、视觉上"在框里"）');
 has(sbox, 'sys.symbol.xmark_circle_fill', '非空时出现清空键（条件渲染）');
 has(sbox, 'HIT_TARGET_MIN', '清空键是真实 ≥44 布局盒（⛔ 不用 responseRegion 外扩）');
 has(sbox, "accessibilityText('清空筛选')", '清空键有 a11y 文案（图标-only 控件的既有约定）');
 hasNot(sbox, 'responseRegion', '⛔ 清空键不靠 responseRegion 外扩热区（真机无效）');
+
+// ── 靶子4e：搜索钮语义/禁态 + 新建会话弹层分组排版（2026-10-12 目标③ 第四批）───────
+// 抽屉里「搜索消息」的语义 = 服务端 `/api/search`，**仅当前会话**（见 `runSearch` 注释），与左侧
+// "本地即时筛选会话列表"是**两件事** ⇒ 文案必须明示（`搜本会话`，⛔ 不能是含糊的 `搜消息`），
+// 且**空查询时置灰**（Apple：无效果的动作不能看起来可点）。
+const sbtn: string = between(indexSrc, 'Row({ space: SPACE_XXS }) {',
+  "accessibilityText('在当前会话的消息中搜索（服务端）')");
+ok('搜索钮块可定位（零扫描判红）', sbtn.length > 60);
+has(sbtn, 'sys.symbol.magnifyingglass', '搜索钮带放大镜图标（与裸文字按钮区分）');
+has(sbtn, 'this.sessQuery.trim().length > 0', '空查询置灰判据在位');
+has(sbtn, "colorOf(this.palOnce(), 'iconMuted')", '置灰态图标走 iconMuted（⛔ 不硬写 Palette 字段）');
+// ⚠️ 取色一律 `palOnce()`（与 `pal()` **同值**、按 `主题|强调色` memo）：本页 `this.pal()` 调用点受
+//    `tools/perf/guard.sh` 硬线（≤1250）约束 ⇒ **新增 UI 必须走 memo 入口**（判据因此按 palOnce 钉）。
+has(sbtn, 'this.palOnce().accentSoft', '激活态文字走 accentSoft（文字 accent 口径）');
+
+// 新建会话弹层：最近目录 = **iOS inset grouped**（一个圆角容器 + 行间发丝）⛔ 不是 N 个独立药丸；
+// 半径在整张 sheet 内统一到 `RADIUS_CARD`（原 `RADIUS_CHIP` 在该尺寸下发方）。
+const nsheet: string = between(indexSrc, 'NewSessionSheet() {', 'PanelsSheet() {');
+ok('新建会话弹层块可定位（零扫描判红）', nsheet.length > 1500);
+has(nsheet, 'hairlineOf(this.palOnce())', '最近目录行间有发丝分隔（inset grouped 结构语言）');
+has(nsheet, '.clip(true)', '分组容器裁圆角（末行不溢出容器圆角）');
+hasNot(nsheet, '.borderRadius(RADIUS_CHIP)', '⛔ sheet 内不再残留 RADIUS_CHIP（半径统一 RADIUS_CARD）');
+// ⚠️ 计数必须**限定到最近目录块**：整张 sheet 里字段面/补全下拉面也用 `surface.chip`（各 1 层）
+// ⇒ 用整张 sheet 计数会把它们算进来（我第一版就是这么误写的：得 4）。判据只关心"行有没有各自披底"。
+const recent: string = between(indexSrc, "Text('最近使用的工作路径')", '// 取消 / 创建（自绘行按钮');
+ok('最近目录块可定位（零扫描判红）', recent.length > 200);
+has(recent, 'hairlineOf(this.palOnce())', '最近目录行间有发丝分隔（inset grouped 结构语言）');
+{
+  const pills: number =
+    (recent.match(/backgroundColor\(surfaceFillOf\(this\.palOnce?\(\), 'surface\.chip'\)\)/g) || []).length;
+  ok(`最近目录只剩 1 层容器底（surface.chip×${pills}，应为 1）—— 退回每行药丸 ⇒ N ⇒ 红`, pills === 1);
+}
 
 console.log(`  status_sheet_drawer: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

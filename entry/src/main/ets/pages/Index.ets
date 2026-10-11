@@ -6329,7 +6329,7 @@ struct Index {
         .fontColor(this.palOnce().textPrimary)
         .fontSize(typeOf('type.caption').size)
         .constraintSize({ minHeight: HIT_TARGET_MIN })
-        .borderRadius(RADIUS_CHIP)
+        .borderRadius(RADIUS_CARD)
         .padding({ left: SPACE_SM, right: SPACE_SM })
 
       // 工作目录（web `PathPicker`：输入面 + **自动补全下拉**，`PathPicker.tsx:135-192`）
@@ -6350,7 +6350,7 @@ struct Index {
         .fontColor(this.palOnce().textPrimary)
         .fontSize(typeOf('type.caption').size)
         .constraintSize({ minHeight: HIT_TARGET_MIN })
-        .borderRadius(RADIUS_CHIP)
+        .borderRadius(RADIUS_CARD)
         .padding({ left: SPACE_SM, right: SPACE_SM })
 
       // 自动补全下拉（web `PathPicker.tsx:154-192`）：加载中 / 无结果 / 目录候选（点击下钻）。
@@ -6393,18 +6393,27 @@ struct Index {
         .width('100%')
         .backgroundColor(surfaceFillOf(this.palOnce(), 'surface.chip'))
         .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.palOnce()) })
-        .borderRadius(RADIUS_CHIP)
+        .borderRadius(RADIUS_CARD)
         .constraintSize({ maxHeight: 220 })
       }
 
       // 最近目录候选（web `NewSessionDialog.tsx:91-114`；空 ⇒ 整段不渲染，对齐 web 的 `: null`）
+      // 2026-10-12（第四批排版）：原实现**每行各披一层 `surface.chip` 圆角底** ⇒ N 个药丸堆叠、
+      // chrome 噪点大（web 侧本就是**纯列表**）。改 **iOS inset grouped**：一个圆角容器承载所有行、
+      // 行间用**发丝线**分隔 —— 与本抽屉列表同一套结构语言（结构靠发丝，不靠卡片）。
       if (this.newSessionDirs.length > 0) {
         Text('最近使用的工作路径')
           .fontSize(typeOf('type.micro').size)
           .fontColor(this.pal().textSecondary)
           .width('100%')
-        Column({ space: SPACE_XS }) {
-          ForEach(this.newSessionDirs, (path: string) => {
+        Column() {
+          ForEach(this.newSessionDirs, (path: string, idx: number) => {
+            if (idx > 0) {
+              Divider()
+                .strokeWidth(STROKE_HAIRLINE)
+                .color(hairlineOf(this.palOnce()))
+                .margin({ left: SPACE_SM, right: SPACE_SM })
+            }
             Row({ space: SPACE_XS }) {
               // 点路径 = 填进输入框（web `:99 setWorkPath`）—— 自带 ≥44 布局盒
               Row() {
@@ -6418,6 +6427,7 @@ struct Index {
               .constraintSize({ minHeight: HIT_TARGET_MIN })
               .alignItems(VerticalAlign.Center)
               .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .accessibilityText(`使用工作路径 ${path}`)
               .onClick(() => {
                 this.newSessionPath = path;
               })
@@ -6425,7 +6435,7 @@ struct Index {
               Row() {
                 SymbolGlyph($r('sys.symbol.xmark'))
                   .fontSize(ICON_MD)
-                  .fontColor([colorOf(this.pal(), 'iconMuted')])
+                  .fontColor([colorOf(this.palOnce(), 'iconMuted')])
               }
               .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
               .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
@@ -6436,12 +6446,14 @@ struct Index {
               })
             }
             .width('100%')
-            .padding({ left: SPACE_SM })
-            .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
-            .borderRadius(RADIUS_CHIP)
+            .padding({ left: SPACE_SM, right: SPACE_XXS })
+            .alignItems(VerticalAlign.Center)
           }, (path: string) => `ns-${path}`)
         }
         .width('100%')
+        .backgroundColor(surfaceFillOf(this.palOnce(), 'surface.chip'))
+        .borderRadius(RADIUS_CARD)
+        .clip(true)
       }
 
       // 取消 / 创建（自绘行按钮，各占一半、命中区 ≥44）
@@ -6933,8 +6945,8 @@ struct Index {
               this.sessQuery = v;
             })
             .layoutWeight(1)
-            .backgroundColor(this.pal().transparent)
-            .fontColor(this.pal().textPrimary)
+            .backgroundColor(this.palOnce().transparent)
+            .fontColor(this.palOnce().textPrimary)
             .fontSize(typeOf('type.subhead').size)
             .padding({ left: 0, right: 0 })
           // 清空键：仅非空时渲染（零噪音）；**真实 44×44 布局盒**（⛔ 不用 responseRegion 外扩）。
@@ -6958,13 +6970,21 @@ struct Index {
         .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlayRow'))
         .borderRadius(RADIUS_CARD)
         .alignItems(VerticalAlign.Center)
-        Row() {
+        // 「搜索消息」（服务端 `/api/search`，**仅当前会话**）——与左边"本地即时筛选会话列表"是
+        // **两件事** ⇒ 必须是**看起来像按钮**的独立控件：图标 + 明示动宾（`搜本会话`，避免被读成
+        // "全局搜会话名"）+ **空查询时置灰**（Apple：无效果的动作不能看起来可点）+ a11y 写清作用域。
+        Row({ space: SPACE_XXS }) {
           if (this.searchBusy) {
             LoadingProgress().width(SPACE_MD).height(SPACE_MD).color(this.pal().accent)
           } else {
-            Text('搜消息')
+            SymbolGlyph($r('sys.symbol.magnifyingglass'))
+              .fontSize(ICON_SM)
+              .fontColor([this.sessQuery.trim().length > 0
+                ? this.palOnce().accentSoft
+                : colorOf(this.palOnce(), 'iconMuted')])
+            Text('搜本会话')
               .fontSize(typeOf('type.caption').size)
-              .fontColor(this.pal().accentSoft)
+              .fontColor(this.sessQuery.trim().length > 0 ? this.palOnce().accentSoft : this.palOnce().textSecondary)
           }
         }
         .height(HIT_TARGET_MIN)
@@ -6972,6 +6992,7 @@ struct Index {
         .justifyContent(FlexAlign.Center)
         .alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('在当前会话的消息中搜索（服务端）')
         .onClick(() => {
           if (!this.searchBusy) {
             this.runSearch();

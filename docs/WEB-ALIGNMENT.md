@@ -1254,3 +1254,39 @@ web 权威（`SessionViewBar.tsx:66-78`）= `ChevronsUpDown`（⇕，全部展�
 **未做（明确记账，下一批）**：⑥ `搜消息` 的 affordance（现为独立 `accentSoft` 文字按钮，与"本地筛选"
 语义不同 ⇒ 考虑改成带边框的次级按钮或图标+文字）；⑦ 新建会话弹层观感；⑧ 其它面板（设置/队列/能力面板）
 的排版与 footer 同源清理；⑨ 会话行 `⋯` 菜单的层级与图标（现为文字列表）。
+
+### 21.15 目标③（第四批）：搜索钮的语义与禁态 · 新建会话弹层分组排版 · 性能预算处置（2026-10-12）
+
+**① 抽屉「搜索消息」钮 —— 语义修正 + 禁态**（原：裸 `accentSoft` 文字 `搜消息`，永远"看起来可点"）
+- **语义**：`runSearch()` 走服务端 `/api/search` 且**只检索当前会话**（见其注释），与左侧字段的
+  "**本地即时筛选会话列表**"是**两件事** ⇒ 文案必须明示 ⇒ 改 **`搜本会话`**（⛔ 不能是含糊的 `搜消息`）。
+- **affordance**：加行内 `magnifyingglass` 图标（ICON_SM），与裸文字区分。
+- **禁态**：空查询时 `runSearch` 直接 return ⇒ 原样永远高亮 = **假可点**。改：`sessQuery.trim().length > 0`
+  才用 `accentSoft`（图标 + 文字），否则走 `colorOf(pal,'iconMuted')` / `textSecondary`（Apple：无效果的
+  动作不能看起来可点）。a11y 补 `'在当前会话的消息中搜索（服务端）'` 写清作用域。
+- ⚠️ 该钮与左侧字段**同排**，所以"两件事"必须靠文案+禁态区分（真机截图已确认）。
+
+**② 新建会话弹层：最近目录改 iOS `inset grouped`**（原：**每行各披一层 `surface.chip` 圆角底** ⇒
+N 个药丸堆叠、chrome 噪点大；web 侧本就是纯列表）⇒ **一个圆角容器承载所有行 + 行间发丝线**，与抽屉
+列表同一套结构语言（**结构靠发丝，不靠卡片**）；`ForEach` 用 `idx > 0` 时才渲染发丝（首行无上边线）。
+**半径统一**：本 sheet 内字段面 / 补全下拉面 / 分组容器一律 `RADIUS_CARD`(12)（原 `RADIUS_CHIP`(6)
+在该尺寸下发方）；行点选 a11y 补 `使用工作路径 <path>`。
+
+**③ 判据（判别力已自证）**：`tools/tests/status_sheet_drawer.test.ts` 新增 **靶子4e** ——
+搜索钮区间含 `magnifyingglass` + `sessQuery.trim().length > 0` + `colorOf(this.palOnce(), 'iconMuted')`
+（置灰路径）；sheet 区间 `hairlineOf(this.palOnce())` + `.clip(true)` + **无 `RADIUS_CHIP`** +
+**最近目录块内 `surface.chip` 恰好 1 层**（退回"每行药丸"⇒ N ⇒ 红）。
+自证：注入"行各披药丸底 + 置灰态改用硬写字段" ⇒ **3 条红**（46/0 → 40/3 观察值）。
+
+**④ 性能预算（硬线）**：本批新增取色最初写 `this.pal()` ⇒ A 线 1253 > 上限 1250（门禁红）⇒
+新增 UI 一律 `palOnce()`（同值 + 按 `主题|强调色` memo）⇒ **A 线 1244**（较基线净减 3）。
+
+**自证**：`status_sheet_drawer` **46/0** · 全量 `✅ 纯逻辑测试通过` · **`bash tools/gate.sh` 全绿（9 步）** ·
+真机两张截图（抽屉：`🔍 筛选会话…` + 置灰 `🔍 搜本会话` · 弹层：分组容器 + 行间发丝 + 12px 半径）。
+⚠️ 本轮 **`uitest uiInput`/`uinput` 注入整体失效**（click/keyEvent Home 零效果、两次 dump 逐字节相同）
+⇒ 截图用**临时初始态法**（改 `@State` 让抽屉/弹层开机即显，截后立即回退并 `grep SCRATCH`=0 自证）；
+**交互行为（点清空键/点搜本会话）留待注入恢复后补验**。
+
+**未做（记账）**：⑧ 会话行 `⋯` 菜单（`components/MenuSheets.ets` 的 `CtxItem`，现为纯文字列表 ⇒
+考虑图标 + 破坏性项红色分组）；⑨ 其余面板（设置 `SettingsPanel.ets` / 队列 `QueueSheet.ets` /
+能力面板 `PluginsSheet.ets`）的排版与 footer 同源清理。
