@@ -293,6 +293,14 @@ export const MAX_TEXT_BYTES: number = 3000;
 export const MULTILINE_TOTAL_BYTES: number = MULTILINE_MAX_LINES * MULTILINE_MAX_LINE_BYTES;
 
 /**
+ * 长文本形态（`NotificationLongTextContent.longText`）的字节上界。依据（SDK）：`longText` ——
+ * "The size does not exceed **3072 bytes**, and the excess part will be truncated."
+ * （`notification/notificationContent.d.ts:96-105`）。留 72 字节余量（多字节字符的字节口径差
+ * + 退化提示语 `NOTIFY_MORE_HINT`）。
+ */
+export const MAX_LONG_TEXT_BYTES: number = 3000;
+
+/**
  * **优雅退化的提示语**：正文塞不下 3 行时，末行改用它 —— 告诉用户"更多内容在应用内"，
  * 而不是丢半句话让人费解。点通知/动作按钮即深链进会话看全部。
  */
@@ -699,30 +707,77 @@ export function withMoreHint(lines: string[], maxLineBytes: number): string[] {
 }
 
 /**
- * 正文形态（纯函数）：**给定正文 → 期望形态**（可以只喂**长度**）。
+ * **长文本形态的优雅退化**：把正文按 `MAX_LONG_TEXT_BYTES` 夹住后追加 `NOTIFY_MORE_HINT`
+ * （"…完整内容见应用内"）。与 `withMoreHint`（多行版）**同款语义**，只是这里正文是一整段
+ * （`NotificationLongTextContent.longText`）而不是行数组。
+ */
+export function withMoreHintLongText(body: string): string {
+  const s: string = body !== undefined && body !== null ? body : '';
+  const room: number = MAX_LONG_TEXT_BYTES - utf8Bytes(NOTIFY_MORE_HINT);
+  const head: string = truncateBytesRaw(s, room > 0 ? room : 0);
+  return `${head}${NOTIFY_MORE_HINT}`;
+}
+
+/**
+ * 正文形态（纯函数）：**给定正文 → 期望形态**。
  *
- *   · 空串 / `≤ COLLAPSED_MAX_CHARS` 字 ⇒ `'basic'`（折叠态一行足够，不折腾多行）；
- *   · 更长 ⇒ `'multiline'`（展开为多行，容量 3 × 1000 = 3000 字节 ⇒ 常见长回复零截断）。
+ * 三档（都对应 SDK 的 `ContentType`，见 `publishTurn`）：
+ *   · 空串 / `≤ COLLAPSED_MAX_CHARS` 字 ⇒ `'basic'`（折叠态一行足够，不折腾展开）；
+ *   · 更长且**多段**（有换行分段）⇒ `'multiline'`：保留用户行结构，展开显示最多 3 行
+ *     （`NotificationMultiLineContent.lines`，`notification/notificationContent.d.ts:167-174`）；
+ *   · 更长且**单段**、且**超过多行单行容量**（> `MULTILINE_MAX_LINE_BYTES` 字节）⇒ `'long_text'`：
+ *     单段长正文若塞进 multiLine 只能占 1 行、被 1024 字节硬截断（丢 2/3 容量）；改走
+ *     `NotificationLongTextContent.longText`（**3072 字节**，`notification/notificationContent.d.ts:96-105`）
+ *     才能整段展示 ⇒ 这是"长回复不丢内容"的关键一档。
  *
- * ⚠️ 判据用**字符数**（不是字节）：`COLLAPSED_MAX_CHARS` 是"折叠一行的可读性阈值"，
- *    与字节容量无关（字节容量在多行形态里由 `bodyLinesDetailed` 单独把关）。
+ * ⚠️ 阈值用**字符数**判"要不要展开"（`COLLAPSED_MAX_CHARS` 是折叠一行的可读性阈值），
+ *    用**字节数**判"单段该用 multiLine 还是 longText"（容量是字节口径）—— 两者都不猜，见下。
  */
 export function notifyShapeFor(bodyText: string): string {
   const s: string = bodyText !== undefined && bodyText !== null ? bodyText : '';
-  return s.length > COLLAPSED_MAX_CHARS ? NOTIFY_SHAPE_MULTILINE : NOTIFY_SHAPE_BASIC;
+  if (s.length <= COLLAPSED_MAX_CHARS) {
+    return NOTIFY_SHAPE_BASIC;
+  }
+  if (!hasMultipleSegments(s) && utf8Bytes(s) > MULTILINE_MAX_LINE_BYTES) {
+    return NOTIFY_SHAPE_LONG_TEXT;
+  }
+  return NOTIFY_SHAPE_MULTILINE;
+}
+
+/**
+ * 正文是否**多段**（纯函数）：按换行切分、丢弃纯空白段后，非空段数 ≥ 2 ⇒ true。
+ * 判据与 `bodyLinesDetailed` 的切分**同源**（都先 `\n` 切、再逐段压空白 trim、空段丢弃）
+ * ⇒ "多段 ⇒ multiLine、单段 ⇒ 可能 longText"的判定与真正渲染的行数一致。
+ */
+export function hasMultipleSegments(text: string): boolean {
+  const s: string = text !== undefined && text !== null ? text : '';
+  const raw: string[] = s.split('\n');
+  let n: number = 0;
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i].replace(/\s+/g, ' ').trim().length > 0) {
+      n += 1;
+      if (n >= 2) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /** 形态标签（**不可达 SDK 的纯值**）：单行。 */
 export const NOTIFY_SHAPE_BASIC: string = 'basic';
-/** 形态标签：多行。 */
+/** 形态标签：多行（最多 3 行）。 */
 export const NOTIFY_SHAPE_MULTILINE: string = 'multiline';
+/** 形态标签：长文本（展开为一整段，容量 3072 字节）。 */
+export const NOTIFY_SHAPE_LONG_TEXT: string = 'long_text';
 
 /**
  * 正文规划（纯值对象）：`publishTurn` 据此拼 SDK content，脱机可断言。
- *   · `shape`：`NOTIFY_SHAPE_BASIC` / `NOTIFY_SHAPE_MULTILINE`
+ *   · `shape`：`NOTIFY_SHAPE_BASIC` / `NOTIFY_SHAPE_MULTILINE` / `NOTIFY_SHAPE_LONG_TEXT`
  *   · `preview`：折叠态正文（`normal.text` / `briefText`），已按 `MAX_TEXT_BYTES` 夹住
- *   · `lines`：多行形态的行数组（basic 形态为空）
- *   · `degraded`：**是否优雅退化**（正文塞不下系统容量 ⇒ 末行为 `NOTIFY_MORE_HINT`，
+ *   · `lines`：多行形态的行数组（basic / long_text 形态为空）
+ *   · `longText`：长文本形态的展开正文（basic / multiline 形态为空串）
+ *   · `degraded`：**是否优雅退化**（正文塞不下系统容量 ⇒ 末/尾为 `NOTIFY_MORE_HINT`，
  *     完整内容在应用内）
  */
 export class NotifyBodyPlan {
@@ -730,12 +785,14 @@ export class NotifyBodyPlan {
   preview: string;
   lines: string[];
   degraded: boolean;
+  longText: string;
 
-  constructor(shape: string, preview: string, lines: string[], degraded: boolean) {
+  constructor(shape: string, preview: string, lines: string[], degraded: boolean, longText: string = '') {
     this.shape = shape;
     this.preview = preview;
     this.lines = lines;
     this.degraded = degraded;
+    this.longText = longText;
   }
 }
 
@@ -743,7 +800,7 @@ export class NotifyBodyPlan {
  * 正文 → 规划（纯函数）：把"截断/摘要/形态/退化/隐私"一次算清（`publishTurn` 唯一入口）。
  *
  * @param showDetail 是否把正文放进系统可见面（隐私开关，默认 true）。`false` ⇒ **只留标题 +
- *        兜底文案**（回复/问题正文绝不进锁屏与通知栏），形态回落单行、无多行、无退化。
+ *        兜底文案**（回复/问题正文绝不进锁屏与通知栏），形态回落单行、无多行/长文本、无退化。
  */
 export function notifyBodyPlan(kind: string, detail: string, showDetail: boolean = true): NotifyBodyPlan {
   if (showDetail !== true) {
@@ -751,16 +808,21 @@ export function notifyBodyPlan(kind: string, detail: string, showDetail: boolean
   }
   const d: string = detail !== undefined && detail !== null ? detail.trim() : '';
   const body: string = d.length > 0 ? d : defaultNotifyBody(kind);
+  const preview: string = truncateToBytes(summarizeBody(body, COLLAPSED_MAX_CHARS), MAX_TEXT_BYTES);
   const shape: string = notifyShapeFor(body);
+  if (shape === NOTIFY_SHAPE_LONG_TEXT) {
+    // 单段长正文 ⇒ 展开用**整段**（longText ≤ 3072 字节）；真超容量才优雅退化（尾加"完整内容见应用内"）
+    const over: boolean = utf8Bytes(body) > MAX_LONG_TEXT_BYTES;
+    const longText: string = over ? withMoreHintLongText(body) : body;
+    return new NotifyBodyPlan(shape, preview, [], over, longText);
+  }
   if (shape === NOTIFY_SHAPE_MULTILINE) {
     const res: NotifyLines = bodyLinesDetailed(body, MULTILINE_MAX_LINES, MULTILINE_MAX_LINE_BYTES);
     const lines: string[] = res.truncated
       ? withMoreHint(res.lines, MULTILINE_MAX_LINE_BYTES)
       : res.lines;
-    const preview: string = truncateToBytes(summarizeBody(body, COLLAPSED_MAX_CHARS), MAX_TEXT_BYTES);
     return new NotifyBodyPlan(shape, preview, lines, res.truncated);
   }
-  const preview: string = truncateToBytes(summarizeBody(body, COLLAPSED_MAX_CHARS), MAX_TEXT_BYTES);
   return new NotifyBodyPlan(NOTIFY_SHAPE_BASIC, preview, [], false);
 }
 
@@ -910,8 +972,21 @@ export async function notificationsEnabled(): Promise<boolean> {
 
 /**
  * 构造「拉起本应用并带参数」的 WantAgent。
- * 依据（SDK）：`wantAgent.WantAgentInfo{wants, actionType: START_ABILITY, requestCode, actionFlags}`
- * → 点击时以 `wants[i].parameters` 拉起目标 ability（EntryAbility.onCreate / onNewWant 收到）。
+ *
+ * 依据（SDK `wantAgent/wantAgentInfo.d.ts`，**逐字段带行号**）：
+ *   · `actionType?: abilityWantAgent.OperationType`（**since 11**，:63）—— 本轮用的字段；
+ *   · `actionFlags?: Array<abilityWantAgent.WantAgentFlags>`（**since 11**，:92）—— 本轮用的字段；
+ *   · 旧字段 `operationType?: wantAgent.OperationType`（:55）与 `wantAgentFlags?`（:84）在
+ *     **API 11 起已 deprecated**（`@deprecated since 11` / `@useinstead …actionType|actionFlags`，
+ *     :52-53 / :81-82）。
+ *
+ * ⚠️ **退路（写清以便基线漂移时不用重新调研）**：本工程 pin `compatibleSdkVersion 6.0.1(21)` ≥ 11
+ *   ⇒ 新字段正确。**若将来把基线下探到 API < 11**：把下面两行换成
+ *   `operationType: wantAgent.OperationType.START_ABILITY` / `wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]`，
+ *   并把枚举来源由 `@ohos.app.ability.wantAgent` 换回 `@ohos.wantAgent`（语义等价）。
+ *   `requestCode: 0` + `actionFlags:[UPDATE_PRESENT_FLAG]`：点击后**更新已有的 present** 而非堆叠新的。
+ *
+ * → 点击时以 `wants[0].parameters` 拉起目标 ability（EntryAbility.onCreate / onNewWant 收到）。
  */
 async function startAbilityAgent(params: Record<string, Object>): Promise<Object> {
   const info: wantAgent.WantAgentInfo = {
@@ -933,15 +1008,17 @@ async function startAbilityAgent(params: Record<string, Object>): Promise<Object
  * 发一条通知（待回答 / 回合结束）。点击**通知本体**或**动作按钮**都会拉起本应用并带参数
  * （EntryAbility.onCreate/onNewWant 接收 → `pendingOpenChatId` / `pendingNotifyAction`）。
  *
- * 「专业级」体现在五处（都不破坏既有链路）：
+ * 「专业级」体现在六处（都不破坏既有链路）：
  *   ① **动作按钮**（`notifyActionsFor` → 「查看」，最多 2 枚）：与通知本体**共用同一套
  *      `START_ABILITY + parameters` 直达链路**，不另造一套；
- *   ② **长正文不截断**（`notifyBodyPlan`）：长正文升级为多行（`lines`），折叠态给摘要；
- *      真塞不下时**优雅退化**（末行 = "…完整内容见应用内"，见 `withMoreHint`）；
+ *   ② **长正文不截断**（`notifyBodyPlan`）：三档形态 —— 折叠态一行（basic）/ 多段走多行
+ *      （multiline，≤3 行）/ **单段长正文走长文本**（long_text，整段 ≤3072 字节）；真塞不下
+ *      时**优雅退化**（尾 = "…完整内容见应用内"，见 `withMoreHint`/`withMoreHintLongText`）；
  *   ③ **档位化 slot**：`ask_user` → SOCIAL_COMMUNICATION（横幅+响铃），`turn_done` →
  *      CONTENT_INFORMATION（静默）—— 让"需要回答"比"回合完成"更醒目；
  *   ④ **按会话分组 + 替换**：`groupName` 归一组、`id` 按会话派生 ⇒ 同会话更新、异会话并存；
- *   ⑤ **标题夹取**（`clampTitle`）：会话名再长也不撑爆 1024 字节。
+ *   ⑤ **标题夹取**（`clampTitle`）：会话名再长也不撑爆 1024 字节；
+ *   ⑥ **点击回跳链路**（`startAbilityAgent`）：本体与按钮共用 `START_ABILITY + parameters`。
  * ⚠️ 全程 try/catch：通知是旁路，失败最多"没提醒"，绝不让聊天崩。
  */
 export async function publishTurn(title: string, text: string, chatId: string): Promise<boolean> {
@@ -952,22 +1029,41 @@ export async function publishTurn(title: string, text: string, chatId: string): 
     const safeTitle: string = clampTitle(title);
     const agent: Object = await startAbilityAgent({ 'chat_id': chatId });
     const bodyText: string = plan.preview.length > 0 ? plan.preview : defaultNotifyBody(kind);
-    const content: notificationManager.NotificationContent = {
-      notificationContentType: plan.shape === NOTIFY_SHAPE_MULTILINE
-        ? notificationManager.ContentType.NOTIFICATION_CONTENT_MULTILINE
-        : notificationManager.ContentType.NOTIFICATION_CONTENT_BASIC_TEXT,
-      normal: { title: safeTitle, text: bodyText },
-    };
-    if (plan.shape === NOTIFY_SHAPE_MULTILINE) {
+    let content: notificationManager.NotificationContent;
+    if (plan.shape === NOTIFY_SHAPE_LONG_TEXT) {
+      // ⭐ 长文本形态：折叠态 = `normal`（title/text）；展开 = `longText`（≤3072 字节，整段）。
+      //    `NotificationLongTextContent` **继承** `NotificationBasicContent` ⇒ `title`/`text`/`briefText`
+      //    /`expandedTitle` 都是必填（SDK `notification/notificationContent.d.ts:96-125`）。
+      content = {
+        notificationContentType: notificationManager.ContentType.NOTIFICATION_CONTENT_LONG_TEXT,
+        normal: { title: safeTitle, text: bodyText },
+        longText: {
+          title: safeTitle,
+          text: bodyText,
+          longText: plan.longText.length > 0 ? plan.longText : bodyText,
+          briefText: bodyText,
+          expandedTitle: safeTitle,
+        },
+      };
+    } else if (plan.shape === NOTIFY_SHAPE_MULTILINE) {
       const lines: string[] = plan.lines.length > 0 ? plan.lines : [bodyText];
       // ⚠️ `NotificationMultiLineContent` **继承** `NotificationBasicContent` ⇒ `title`/`text`
       //    也是必填（SDK `notification/notificationContent.d.ts:146-175`）：折叠态就渲染它们。
-      content.multiLine = {
-        title: safeTitle,
-        text: bodyText,
-        lines: lines,
-        longTitle: safeTitle,
-        briefText: bodyText,
+      content = {
+        notificationContentType: notificationManager.ContentType.NOTIFICATION_CONTENT_MULTILINE,
+        normal: { title: safeTitle, text: bodyText },
+        multiLine: {
+          title: safeTitle,
+          text: bodyText,
+          lines: lines,
+          longTitle: safeTitle,
+          briefText: bodyText,
+        },
+      };
+    } else {
+      content = {
+        notificationContentType: notificationManager.ContentType.NOTIFICATION_CONTENT_BASIC_TEXT,
+        normal: { title: safeTitle, text: bodyText },
       };
     }
     // 动作按钮：只发射 `notifyActionsFor` 给出的"今天真能用"的那些（当前 = 「查看」）

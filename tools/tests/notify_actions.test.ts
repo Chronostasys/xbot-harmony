@@ -100,8 +100,10 @@ const pOk = notifyBodyPlan(NOTIFY_KIND_ASK, 'x'.repeat(500));
 eq('规划: 500 字（容量内）⇒ multiline 且 **未退化**', `${pOk.shape}/${pOk.degraded}`, 'multiline/false');
 eq('规划: 未退化时行内无提示语', pOk.lines[0].indexOf(NOTIFY_MORE_HINT) >= 0, false);
 
-const pDeg = notifyBodyPlan(NOTIFY_KIND_ASK, 'x'.repeat(5000));
-eq('规划: 5000 字（超容量）⇒ multiline 且 **退化**', `${pDeg.shape}/${pDeg.degraded}`, 'multiline/true');
+// 多段超容量 ⇒ multiline 退化（行数超上限；单段超容量改走 long_text，见 notify_content.test.ts）
+const pDeg = notifyBodyPlan(NOTIFY_KIND_ASK,
+  ['x'.repeat(1500), 'y'.repeat(1500), 'z'.repeat(1500), 'w'.repeat(1500)].join('\n'));
+eq('规划: 多段超容量 ⇒ multiline 且 **退化**', `${pDeg.shape}/${pDeg.degraded}`, 'multiline/true');
 eq('规划: 退化时末行是提示语', pDeg.lines[pDeg.lines.length - 1].endsWith(NOTIFY_MORE_HINT), true);
 eq('规划: 退化时折叠摘要仍非空（摘要 + 更深层）', pDeg.preview.length > 0, true);
 eq('规划: 退化时行数不超上限', pDeg.lines.length <= MULTILINE_MAX_LINES, true);

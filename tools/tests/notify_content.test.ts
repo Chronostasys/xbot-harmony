@@ -6,7 +6,8 @@
  *   · `truncateToBytes`：按字节截断且**不劈开码点**（emoji 不被切成半个），截断补 `…`；
  *   · `summarizeBody`：折叠态摘要（压换行/空白 + 截断）；
  *   · `bodyLines`：**长正文不被截断** —— 单段长正文零 `…`；超过 maxLines 段才在末段补 `…`；
- *   · `notifyShapeFor`：**给定长度 → 期望形态**（≤120 字 = 单行；>120 字 = 多行）；
+ *   · `notifyShapeFor`：**给定正文 → 期望形态**（≤120 字 = 单行；>120 字且多段 = 多行；
+ *     >120 字且单段且 >1000 字节 = 长文本）；
  *   · `notifyBodyPlan`：把上面三件事合成一个规划（`publishTurn` 的唯一入口）。
  *
  * ⚠️ 结尾必须 `process.exit(...)`：`tools/tests/run.sh` 用 `set -e` 且逐文件 `node`。
@@ -15,19 +16,23 @@ declare const process: { exit: (c: number) => void };
 
 import {
   COLLAPSED_MAX_CHARS,
+  MAX_LONG_TEXT_BYTES,
   MULTILINE_MAX_LINES,
   MULTILINE_MAX_LINE_BYTES,
   NOTIFY_KIND_ASK,
   NOTIFY_KIND_TURN_DONE,
   NOTIFY_MORE_HINT,
   NOTIFY_SHAPE_BASIC,
+  NOTIFY_SHAPE_LONG_TEXT,
   NOTIFY_SHAPE_MULTILINE,
   bodyLines,
+  hasMultipleSegments,
   notifyBodyPlan,
   notifyShapeFor,
   summarizeBody,
   truncateToBytes,
   utf8Bytes,
+  withMoreHintLongText,
 } from '../../entry/src/main/ets/core/notify';
 
 let pass = 0, fail = 0;
@@ -92,9 +97,39 @@ eq('形态: 空串 ⇒ basic', notifyShapeFor(''), NOTIFY_SHAPE_BASIC);
 eq('形态: 恰好 120 字 ⇒ basic', notifyShapeFor('x'.repeat(COLLAPSED_MAX_CHARS)), NOTIFY_SHAPE_BASIC);
 eq('形态: 121 字 ⇒ multiline（阈值是 >120）', notifyShapeFor('x'.repeat(121)), NOTIFY_SHAPE_MULTILINE);
 eq('形态: 500 字 ⇒ multiline', notifyShapeFor('x'.repeat(500)), NOTIFY_SHAPE_MULTILINE);
-eq('形态: 形态标签本身（常量契约）', `${NOTIFY_SHAPE_BASIC}/${NOTIFY_SHAPE_MULTILINE}`, 'basic/multiline');
+eq('形态: 形态标签本身（常量契约）', `${NOTIFY_SHAPE_BASIC}/${NOTIFY_SHAPE_MULTILINE}/${NOTIFY_SHAPE_LONG_TEXT}`, 'basic/multiline/long_text');
 eq('形态: 多行上限 = 3（对齐 SDK lines ≤ 3）', MULTILINE_MAX_LINES, 3);
 eq('形态: 每行字节上限 < SDK 的 1024（留余量）', MULTILINE_MAX_LINE_BYTES < 1024, true);
+
+// ── hasMultipleSegments：换行分段判据（与 bodyLinesDetailed 切分同源）──────────
+eq('分段: 单段（无换行）⇒ false', hasMultipleSegments('hello world'), false);
+eq('分段: 单个换行但后半空白 ⇒ 仍单段', hasMultipleSegments('hello\n   '), false);
+eq('分段: 两非空段 ⇒ true', hasMultipleSegments('a\nb'), true);
+eq('分段: 三空段 ⇒ false', hasMultipleSegments('\n\n\n'), false);
+eq('分段: 多空行夹一段 ⇒ false', hasMultipleSegments('\n\n只有一段\n\n'), false);
+
+// ── 长文本形态：单段长正文改走 longText（容量 3072 > multiLine 单行 1024）────────
+// 依据：SDK `NotificationLongTextContent.longText` ≤ 3072 字节（notificationContent.d.ts:96-105）
+eq('长文本: 单段 ASCII 500（≤1000 字节）⇒ 仍 multiline（multiLine 一行装得下）', notifyShapeFor('x'.repeat(500)), NOTIFY_SHAPE_MULTILINE);
+eq('长文本: 单段 CJK 400（=1200 字节 >1000）⇒ long_text', notifyShapeFor('中'.repeat(400)), NOTIFY_SHAPE_LONG_TEXT);
+eq('长文本: 多段（即使每段很长）⇒ multiline（保结构）', notifyShapeFor(`中`.repeat(400) + '\n' + `文`.repeat(400)), NOTIFY_SHAPE_MULTILINE);
+eq('长文本: 恰好 120 字 ⇒ basic（折叠阈值优先）', notifyShapeFor('中'.repeat(120)), NOTIFY_SHAPE_BASIC);
+eq('长文本: 空格量 3000 ⇒ long_text', notifyShapeFor(' '.repeat(3000)), NOTIFY_SHAPE_LONG_TEXT);
+eq('长文本: 上限 3000 ≤ SDK 的 3072', MAX_LONG_TEXT_BYTES <= 3072, true);
+
+const pLongText = notifyBodyPlan(NOTIFY_KIND_TURN_DONE, '中'.repeat(400));
+eq('规划: 单段 CJK 400 ⇒ long_text', pLongText.shape, NOTIFY_SHAPE_LONG_TEXT);
+eq('规划: long_text ⇒ lines 为空（不用多行通道）', pLongText.lines.length, 0);
+eq('规划: long_text ⇒ longText 保留**全文**（零截断）', pLongText.longText, '中'.repeat(400));
+eq('规划: long_text ⇒ degraded=false（未超 3072）', pLongText.degraded, false);
+eq('规划: long_text 折叠摘要 = 120 + …', pLongText.preview, '中'.repeat(120) + '…');
+
+// 超 3072 字节 ⇒ 优雅退化（尾 = 完整内容见应用内）
+const pOver = notifyBodyPlan(NOTIFY_KIND_TURN_DONE, '中'.repeat(2000)); // 6000 字节 > 3000
+eq('规划: 单段超 3000 字节 ⇒ long_text 且 degraded', `${pOver.shape}/${pOver.degraded}`, 'long_text/true');
+eq('规划: 退化时 longText 尾是提示语', pOver.longText.endsWith(NOTIFY_MORE_HINT), true);
+eq('规划: 退化后 longText ≤ 3000 字节', utf8Bytes(pOver.longText) <= MAX_LONG_TEXT_BYTES, true);
+eq('退化助手: withMoreHintLongText 对短串原样 + 提示', withMoreHintLongText('abc'), `abc${NOTIFY_MORE_HINT}`);
 
 // ── notifyBodyPlan：合成规划（publishTurn 的唯一入口）───────────────────────
 const pShort = notifyBodyPlan(NOTIFY_KIND_TURN_DONE, '');
