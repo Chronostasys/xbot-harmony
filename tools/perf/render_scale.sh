@@ -54,4 +54,21 @@ print("按类型:", ', '.join(f"{k}:{v}" for k, v in typ.most_common(12)))
 # 关键量：消息列表里的 ListItem 数 = 当前实际构建的"行"数（含 live 行/占位）
 print(f"ListItem={typ.get('ListItem', 0)}  List={typ.get('List', 0)}  Text={typ.get('Text', 0)}")
 print("关键 id:", [i for i, _ in ids][:8])
+# 机械 grep 口径（可直接复制到 shell 复核上面的 python 计数）
+raw = open(sys.argv[1], encoding='utf-8').read()
+import re as _re
+q = chr(34)
+n_type = len(_re.findall(q + "type" + q + ":", raw))
+n_li = len(_re.findall(q + "type" + q + ":" + q + "ListItem" + q, raw))
+n_think = len(_re.findall(q + "text" + q + ":" + q + "思考 " + r"\d+" + " 字" + q, raw))
+print("[grep 口径] \"type\": 出现 %d 次 / ListItem %d 个 / 「思考 N 字」%d 个" % (n_type, n_li, n_think))
 PY
+
+# ── 逐行（ListItem）规模：块数 / 节点数 —— #1（单行 N 块）改造的主口径 ──────────────
+HERE="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$HERE/row_scale.py" ]; then
+  echo
+  python3 "$HERE/row_scale.py" "$J" || true
+else
+  echo "⚠️ 缺 $HERE/row_scale.py（逐行块数/节点数）"
+fi
