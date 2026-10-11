@@ -18,7 +18,7 @@ import { Palette, paletteOf, Effects, effectsOf } from '../core/theme';
 import { BUBBLE } from '../core/bubble';
 import { R_MD, R_XL, R_LG, SP_1, SP_2, SP_5, FS_CAPTION } from '../core/tokens';
 import { orbBreath } from '../core/orb';
-import { MOTION_BEAT_MS, MOTION_BREATH_MS } from './anim';
+import { MOTION_BEAT_MS } from './anim';
 import { MarkdownView } from './MarkdownView';
 import { ThinkingLine } from './ThinkingLine';
 import { AssistantOrb, ORB_MODE_THINKING, ORB_MODE_TOOL, ORB_MODE_SECONDARY } from './AssistantOrb';
@@ -78,8 +78,6 @@ export struct LiveTailView {
   @State popIdx: number = -1;
   /** "+N" 溢出浮层开关。 */
   @State overOpen: boolean = false;
-  /** 共享呼吸权重 ∈[0,1]（整组同一心跳；相位只由 `Date.now()` 与 `anim.ets` 的刻度决定）。 */
-  @State breathAmp: number = 1;
   /** 打字机光标不透明度（按 `MOTION_BEAT_MS` 呼吸；**不再** 10Hz 硬闪）。 */
   @State caretAlpha: number = 1;
   private runes: string[] = [];
@@ -148,25 +146,15 @@ export struct LiveTailView {
   /**
    * 降级（reduce motion）—— **整组在飞动效的唯一开关**。
    *
-   * 同一个值同时决定：光球是否停表（`AssistantOrb.reduceMotion`）、`思考 N 字` 是否做呼吸强调
-   * （`emphasis` 固定 1 = 静态）、光标是否呼吸（固定 1 = 常亮）。**一个来源，三处生效**，
-   * 不允许某个元素单独"还在动"。
+   * 同一个值同时决定：光球是否停表（`AssistantOrb.reduceMotion`）、打字机光标是否呼吸
+   * （固定 1 = 常亮）。**一个来源，两处生效**，不允许某个元素单独"还在动"。
+   * （本波起 `思考 N 字` 已无动效 ⇒ 无需在此关断；它只是静态颜色，见 `ThinkingLine` 文件头。）
    * ⚠️ 本工程 `compatibleSdkVersion 21`：系统查询 `accessibility.isAnimationReduceEnabledSync()`
    *   是 **@since 23**（`sdk …/api/@ohos.accessibility.d.ts:658`）⇒ **当前拿不到系统值**，
    *   这里作为接线点暂时恒 false；将来 SDK 抬到 23 时只改这一个方法体。
    */
   private reduceMotion(): boolean {
     return false;
-  }
-
-  /**
-   * 共享呼吸权重 ∈[0,1]：整组唯一的"心跳"。
-   *
-   * 相位只由 `Date.now()` 与 `MOTION_BREATH_MS` 决定（`core/orb.ets` 的纯函数，无本地累加器）
-   * ⇒ 光球的呼吸与思考行的强调**天然同源同相**，读作一个整体在呼吸。
-   */
-  private breath(): number {
-    return this.reduceMotion() ? 1 : orbBreath(Date.now(), MOTION_BREATH_MS);
   }
 
   /**
@@ -276,12 +264,11 @@ export struct LiveTailView {
     }
     const skip: boolean = this.skip;
     this.skip = !this.skip;
-    // ── 共享呼吸（整组同一心跳）──────────────────────────────────────────────
-    // 相位只由 `Date.now()` + `anim.ets` 的刻度决定 ⇒ 与光球同源同相（读作一个整体在呼吸）。
+    // ── 打字机光标呼吸（整组唯一动效是光球；光标是"正在写入"的局部标记）──────────────
+    // 相位只由 `Date.now()` + `anim.ets` 的刻度决定（无本地累加器）⇒ 与光球同源同步。
     // 打字机追平后本定时器会停 ⇒ 呼吸值**停在当前相位**（定格）；下一批 token 到达即续上。
-    // 这是刻意的：**有动静才呼吸**（与光球"静默即 idle"同一哲学），代价是幅度极弱时的一次相位跳跃。
+    // 这是刻意的：**有动静才呼吸**（与光球"静默即 idle"同一哲学）。
     const now: number = Date.now();
-    this.breathAmp = this.breath();
     this.caretAlpha = this.reduceMotion() ? 1 : 0.35 + 0.65 * orbBreath(now, MOTION_BEAT_MS);
     // 思考：展开时逐字（纯 Text，便宜）
     if (this.typingReason()) {
@@ -441,21 +428,23 @@ export struct LiveTailView {
   build() {
     // `gap-1`（web `LiveIteration` 的 `flex flex-col gap-1`）—— 思考/正文/工具之间 4px
     Column({ space: BUBBLE.blockInnerGap }) {
-      // ── 旗舰「思考中 / 生成中」指示器（在飞块的最前面）──────────────────────────
-      // 位置对齐 web：`LiveIteration` 把在飞指示（`ShimmerThinking`）作为块的**首个**
-      // 元素渲染（`web/src/components/agent/LiveIteration.tsx:217-219`）。
+      // ── 旗舰「思考中 / 生成中」指示器（光球）────────────────────────────────────
+      // 在飞视觉语言的**唯一主角**（见 `docs/DESIGN-SYSTEM.md §8`）：同屏**只有它一个动效**。
       //
-      // ⛔ 必须走**真 `@Component` + `@Prop`**（`AssistantOrb`）：带参全局 `@Builder`
-      //    的参数是"调用那一刻的快照"、其子树不随参数重建（docs/ARKTS-GOTCHAS §4 ——
-      //    本项目已两次栽在这：字数卡住、点不开）。
-      //
-      // 可见性判据 = 「本组件被挂载」本身（**不是**打字机每拍状态）：
+      // ⛔ 光球挂载的判据 = 「本组件被挂载」本身（**不是**打字机每拍状态）：
       //   · `MessageRowView` 只在 live 行末尾在飞块**确有内容**时才建 `LiveTailView`
       //     （`MessageRow.ets:301-303 hasLiveContent` → `:387-389`）；
       //   · 回合离开 live 路径时页面清空 `liveText/liveReasoning/liveTools`
       //     （`pages/Index.ets:3420-3446 syncLiveTail`）⇒ 本组件被删除 ⇒ 光球随之消失。
       //   ⇒ 挂载 ⟺ 尾部确有在飞信号（与 `core/streammerge.ets:360 rowHasInFlightSignal`
       //     同源）⇒ **已提交/历史迭代不走这条路径，永远不会出现光球**。
+      //
+      // ⛔ 位置（2026-10-11 真机修正）：光球**不再**独占块首一行 —— 那是"消息中间飘着一个
+      //    spinner"的根源（用户截图 ②）。改为：
+      //     ① 有思考行 ⇒ 光球作该行的**前导图元**（并进 `ThinkingLine` 同一行，取代灯泡）
+      //        —— web 的在飞指示本就是思考行自身（其 label 微光），从不是"行上方另挂一个"；
+      //     ② 无思考行（正在写正文 / 工具在飞 / 刚起头）⇒ 光球才独占块首一行（回退位）。
+      //   ⇒ 两种情形光球都在块首/行首，视觉锚点一致，不"跳"。
       //
       // 性能取舍（为什么**不**做"每帧 @State 推进"，也不把可见性绑到 `typingText()`）：
       //   · 绑打字机状态 ⇒ 该状态流式期以 ≤20Hz 翻转（每拍追平/落后），每次翻转都会
@@ -464,9 +453,34 @@ export struct LiveTailView {
       //   · 绑挂载生命周期 ⇒ 一个在飞块内 Canvas 与定时器**只创建一次**；30fps 的
       //     `clearRect + 重绘` 全发生在 `AssistantOrb` 自己的画布里（其 `draw()`），
       //     **不产生任何 ArkUI 树重建**；父组件 20Hz 的重建只用**同值**重新求值这里的
-      //     `if` 与 `@Prop` ⇒ 复用既有节点，画布不受打扰。
+      //     `if` 与 `@Prop` ⇒ 复用既有节点，画布不受打扰（思考行内的光球同理：`@Prop label`
+      //     每拍变化驱动 ThinkingLine 重建，但光球的 `@Prop` 同值 ⇒ 复用节点）。
       //   · 后台（`paused`）⇒ 光球按契约**立即停表**并画一帧静息态（官规 §3）。
-      if (this.orb) {
+      if (this.reasoning.length > 0) {
+        // ⛔ 必须是**组件**（`@Prop` 值变化通道）——带参 `@Builder` 的参数是"调用那一刻的快照"，
+        //    其子树**不随参数重建**（docs/ARKTS-GOTCHAS §4）⇒ 症状正是用户 2026-10-10 报的：
+        //    字数卡住不变、打字机不推进、**点它无法展开**。
+        ThinkingLine({
+          label: `思考 ${this.reasonCount()} 字`,
+          body: this.shownReason(),
+          open: this.reasonOpen,
+          theme: this.theme,
+          // 领读身份（只改色、不呼吸）—— 见 `thinkingIsPrimary()`
+          live: this.thinkingIsPrimary(),
+          // 旗舰光球作本行**前导图元**：同屏唯一动效（`orb` = 设置开关，缺省开）
+          orb: this.orb,
+          orbMode: this.orbMode(),
+          orbBeat: this.orbBeat(),
+          paused: this.paused,
+          reduceMotion: this.reduceMotion(),
+          onToggle: () => {
+            this.reasonOpen = !this.reasonOpen;
+            this.syncTimer();
+          },
+        })
+      } else if (this.orb) {
+        // 无思考行时（正在写正文 / 工具在飞 / 刚起头）：光球仍作在飞指示，独占块首一行。
+        // 与思考行内的光球**同值同种子**（尺寸/相位一致）⇒ 思考到来时"就地长出文字"，不跳位置/尺寸。
         Row() {
           AssistantOrb({
             theme: this.theme,
@@ -478,29 +492,11 @@ export struct LiveTailView {
             orbMode: this.orbMode(),
             // 活动心跳（正文+思考的码点长度和）—— 光球据此在静默 >640ms 后转入 idle
             orbBeat: this.orbBeat(),
-            // 降级：**整组唯一开关**（同一值也决定思考行是否呼吸、光标是否呼吸）
+            // 降级：整组唯一开关（同一值也决定光球是否停表、光标是否呼吸）
             reduceMotion: this.reduceMotion(),
           })
         }
         .padding({ left: SP_1 })
-      }
-      if (this.reasoning.length > 0) {
-        // ⛔ 必须是**组件**（`@Prop` 值变化通道）——带参 `@Builder` 的参数是"调用那一刻的快照"，
-        //    其子树**不随参数重建**（docs/ARKTS-GOTCHAS §4）⇒ 症状正是用户 2026-10-10 报的：
-        //    字数卡住不变、打字机不推进、**点它无法展开**。
-        ThinkingLine({
-          label: `思考 ${this.reasonCount()} 字`,
-          body: this.shownReason(),
-          open: this.reasonOpen,
-          theme: this.theme,
-          // 主高亮源判定 + 整组共享的呼吸权重（见 docs/DESIGN-SYSTEM.md §8）
-          live: this.thinkingIsPrimary(),
-          emphasis: this.breathAmp,
-          onToggle: () => {
-            this.reasonOpen = !this.reasonOpen;
-            this.syncTimer();
-          },
-        })
       }
       if (this.text.length > 0) {
         Column({ space: 2 }) {

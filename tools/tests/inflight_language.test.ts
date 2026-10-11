@@ -1,9 +1,15 @@
 /**
- * 「在飞视觉语言」契约测试（波5e）—— 流式期间**一个主高亮源、一套节奏刻度、一个降级开关**。
+ * 「在飞视觉语言」契约测试（波5e / 2026-10-11 收敛）—— 流式期间**一个动效主角、一套节奏刻度、一个降级开关**。
  *
  * 背景（用户口令）：流式期间同时存在光球 / `思考 N 字` / 打字机光标 / 工具 pill 四个"高亮源"，
  * 它们各自的动效与节奏是分别长出来的 ⇒ 容易"两个高亮源打架"。本波把它们收敛成一套语言，
  * 本文件就是那套语言的**可红契约**（契约正文见 `docs/DESIGN-SYSTEM.md §8`）。
+ *
+ * ⛔ 2026-10-11 变更（用户报「你搞了两个思考 spinner?」——截图里 ① `思考 N 字` 左侧紫色呼吸点
+ *   + ② 块首光球）：**同一时刻只允许一个动效**。web 的在飞指示只可能有一个、且都是文字微光
+ *   （`LiveIteration.tsx:217-219` 的 `ShimmerThinking` / `:240-246` 的 label `SweepText`）。
+ *   原生把"在飞指示"实现为旗舰光球 ⇒ **光球是唯一动效**；`思考 N 字` 行改为**恒静态**
+ *   （只按 `live` 改色），且光球**并进思考行作前导图元**（读作消息的一部分，不"飘"）。
  *
  * 为什么读**真实源码**：`tools/tests/run.sh` 只把 `core/**` 当纯 TS 编译（见其 for 循环），
  * `components/**` 不进这套 harness ⇒ 组件层无法直接 import 单测。本仓既有先例：
@@ -89,8 +95,8 @@ has(tailSrc, 'return ORB_MODE_TOOL;', '有工具 ⇒ tool（光球领读）');
 has(tailSrc, 'return this.thinkingIsPrimary() ? ORB_MODE_SECONDARY : ORB_MODE_THINKING;',
   '只有思考 ⇒ secondary（光球让位），否则 thinking');
 has(tailSrc, 'orbMode: this.orbMode(),', '光球态由优先级函数驱动（非写死）');
-has(tailSrc, 'live: this.thinkingIsPrimary(),', '思考行的主高亮身份由同一判据驱动');
-has(tailSrc, 'emphasis: this.breathAmp,', '思考行强调走共享呼吸权重');
+has(tailSrc, 'live: this.thinkingIsPrimary(),', '思考行的领读身份由同一判据驱动（**只改色**）');
+hasNot(tailSrc, 'emphasis: this.breathAmp,', '⛔ 思考行不再接呼吸权重（动效唯一属于光球）');
 // 让位态在光球侧真实存在（三处：常量/状态/查表）
 has(orbSrc, "export const ORB_MODE_SECONDARY: string = 'secondary';", '光球有 secondary 态常量');
 has(orbSrc, 'const ST_SECONDARY: OrbState = new OrbState(ORB_SECONDARY_AMP, ORB_SECONDARY_HALO, ORB_SECONDARY_SPIN, 1, false, ORB_FPS);',
@@ -103,19 +109,23 @@ has(tailSrc, 'this.caretAlpha = this.reduceMotion() ? 1 : 0.35 + 0.65 * orbBreat
   '光标改为按 MOTION_BEAT_MS 呼吸（同刻度家族）');
 hasNot(tailSrc, 'shadow(', 'LiveTailView 内不再有任何 shadow（彩色外发光只归光球）');
 has(tailSrc, '.opacity(this.caretAlpha)', '光标用呼吸权重上屏');
-// 思考行：非主高亮时**零强调**（不得私自发光/加动效）
-has(thinkSrc, '.opacity(this.live ? 0.72 + 0.28 * this.emphasis : 1)',
-  '思考行只有 live 时才做极弱强调，否则恒为 1');
+// 思考行：**恒静态**（不得私自发光/加动效）—— 动效唯一属于光球（2026-10-11「一个动效」）
+hasNot(thinkSrc, '0.72 + 0.28', '⛔ 思考行不再呼吸（去掉第二个脉动源）');
+hasNot(thinkSrc, 'this.emphasis', '思考行不再持有 emphasis 呼吸权重');
 has(thinkSrc, '@Prop live: boolean = false;', 'live 默认 false ⇒ committed 迭代零行为变化');
 hasNot(thinkSrc, 'shadow(', '思考行不引入第二个发光体');
+// 位置：光球并进思考行作**前导图元**（不复"行上方另飘一个" —— 真机读作"两个 spinner"）
+has(thinkSrc, 'AssistantOrb({', '思考行以光球作前导图元（同屏唯一在飞指示，读作消息的一部分）');
+has(thinkSrc, 'if (this.orb) {', '光球开启时光球取代灯泡作为行首图元');
+has(tailSrc, 'orb: this.orb,', 'LiveTailView 把光球开关投递给思考行（同一开关，两处不并存）');
+has(tailSrc, '} else if (this.orb) {', '无思考行时光球独占块首一行（回退位，非主路径）');
 
 // ── (d) 降级一致：一个开关，三处生效 ──────────────────────────────────────────
 has(tailSrc, 'private reduceMotion(): boolean {', 'reduceMotion 是 LiveTailView 的单一来源');
 has(tailSrc, 'reduceMotion: this.reduceMotion(),', '开关 ①：光球（停表）');
-has(tailSrc, 'private breath(): number {\n    return this.reduceMotion() ? 1 : orbBreath(Date.now(), MOTION_BREATH_MS);',
-  '开关 ②：共享呼吸（降级 ⇒ 恒 1 = 静态）');
+hasNot(tailSrc, 'MOTION_BREATH_MS', '思考行呼吸已移除 ⇒ LiveTailView 不再引用主呼吸刻度（无第二处脉动）');
 has(tailSrc, 'this.caretAlpha = this.reduceMotion() ? 1 : 0.35 + 0.65 * orbBreath(now, MOTION_BEAT_MS);',
-  '开关 ③：打字机光标（降级 ⇒ 常亮不呼吸）');
+  '开关 ②：打字机光标（降级 ⇒ 常亮不呼吸）');
 has(orbSrc, 'this.ready && this.active && !this.paused && !this.reduceMotion;',
   '光球 shouldRun() 含 reduceMotion');
 // 降级来源的真实性：API 21 拿不到系统值（@since 23）—— 断言注释/理由留在代码里，防止被"顺手接上"

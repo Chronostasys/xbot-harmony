@@ -14,11 +14,32 @@
  *   · 头部 = **图标 + 标签**，`w-fit`（不撑满整行），**无展开箭头**（用户要求删除）；
  *   · 展开体 = 左侧 2px 竖线 + 缩进，muted 色 + 0.75 透明度（弱于正文）。
  *
- * 图标说明：web 用 lucide `Brain`；HarmonyOS 符号集无 brain（`sysResource.js` 4042 项无匹配），
- * 取语义最近的 `lightbulb`。**图标只是提示符，不承载状态**。
+ * ── 在飞动效：**同一时刻只有一个动效**（2026-10-11 波，用户报「两个思考 spinner」）──────
+ * web 的在飞指示**只可能有一个**，且都是**文字微光（`SweepText`）**、绝非图形：
+ *   · 空内容 ⇒ `ShimmerThinking`（"思考中…"微光**文字**，`LiveIteration.tsx:217-219`）；
+ *   · 有思考 ⇒ 本行的 **label** 微光（`LiveIteration.tsx:240-246`），且**仅**在
+ *     `reasoningInProgress`（无正文、无工具）窗口；有正文/工具时 label 是**静态**的
+ *     `思考 N 字`（`LiveIteration.tsx:246`）。
+ * 原生把"在飞指示"实现为**旗舰光球**（`components/AssistantOrb`，web 无此物）⇒ 它就是那
+ * **唯一的动效主角**：本行**静态**（`live` 时**只改色** `accentSoft`、**不呼吸/不脉冲**）。
+ *   ⛔ 旧 wave5e 的 `.opacity(0.72→1.0)` 呼吸是"第二个高亮源"，与光球同屏即用户 2026-10-11
+ *     报的「两个思考 spinner」（截图里 ① 紫色呼吸点 + ② 光球）——本波把它去掉。
+ *   ⛔ 光球开启时以**光球作前导图元**（取代灯泡图标），使"在飞"读作**这一行**在飞、
+ *     而不是"行上方另飘着一个 spinner"。光球关闭（设置项）时回落灯泡图标，本行仍静态。
+ *   ⚠️ 契约变更：`docs/DESIGN-SYSTEM.md §8.2/§8.3` 的「只有思考 ⇒ `思考 N 字` 呼吸强调」
+ *      作废，改为「光球是唯一动效；`思考 N 字` 恒静态、只以颜色表达领读」。
+ *
+ * 图标说明：web 用 lucide `Brain`；HarmonyOS 符号集无 brain，取语义最近的 `lightbulb`。
+ *   **图标只是提示符，不承载状态**（光球关闭时才出现）。
  */
 import { paletteOf, surfacesOf } from '../core/theme';
-import { FS_CAPTION, R_LG, SP_1, SP_2 } from '../core/tokens';
+import { FS_CAPTION, R_LG, SP_1, SP_5 } from '../core/tokens';
+import { AssistantOrb, ORB_MODE_THINKING } from './AssistantOrb';
+
+/** 前导光球直径 = 尺度 token `SP_5`（20vp）—— 与 `LiveTailView` 块首的独立光球**同值**。 */
+const ORB_LEAD_SIZE: number = SP_5;
+/** 光球相位种子（本波同屏至多一枚，为多实例预留；与 LiveTailView 的种子一致）。 */
+const ORB_LEAD_SEED: number = 7;
 
 @Component
 export struct ThinkingLine {
@@ -30,18 +51,25 @@ export struct ThinkingLine {
   @Prop open: boolean = false;
   @Prop theme: string = 'dark';
   /**
-   * **是否由本行当"主高亮源"**（在飞视觉语言，见 `docs/DESIGN-SYSTEM.md §8`）。
+   * **此刻本行是不是主高亮源**（= `LiveTailView.thinkingIsPrimary()`，与光球 `secondary` 同源）。
    *
-   * 同一时刻只允许一个主高亮源：有工具在飞 / 正在写正文时 = **光球**（本行静态弱化）；
-   * 只有思考在流（无工具、无正文）时才轮到本行 ⇒ 图标+标签转 `accentSoft` 并按共享呼吸
-   * 刻度做极弱强调。默认 `false` ⇒ **committed 迭代零行为变化**（永远 muted、永远静态）。
+   * ⛔ 只决定**颜色**（`accentSoft`），**不承载任何动效** —— 动效唯一属于光球（见文件头）。
+   * 默认 `false` ⇒ committed 迭代零行为变化（永远 muted、永远静态）。
    */
   @Prop live: boolean = false;
   /**
-   * 共享呼吸权重 ∈[0,1]（调用方按 `anim.ets` 的 `MOTION_BREATH_MS` 用 `orbBreath()` 算出）。
-   * **会变** ⇒ 必须 `@Prop`（`@Builder` 参数是首帧快照）。非 live 时无意义（不参与渲染）。
+   * 是否以**旗舰光球**作本行前导图元（取代灯泡图标）。
+   * 由 `LiveTailView.orb`（设置开关，缺省开）投递；committed 迭代恒 `false`。
    */
-  @Prop emphasis: number = 1;
+  @Prop orb: boolean = false;
+  /** 光球运行态（`thinking` / `tool` / `secondary` / `idle`）—— 由调用方从状态机派生。 */
+  @Prop orbMode: string = ORB_MODE_THINKING;
+  /** 光球活动心跳（正文+思考的码点长度和）—— 光球据此自判静默。 */
+  @Prop orbBeat: number = 0;
+  /** 应用是否在后台（光球必须停表）。 */
+  @Prop paused: boolean = false;
+  /** 降级（reduce motion）—— 光球停表 + 静息一帧（整组唯一开关，由调用方投递）。 */
+  @Prop reduceMotion: boolean = false;
   /** 点击开合（状态由调用方持有 —— 同一语义两处共用）。 */
   onToggle: () => void = () => {
   };
@@ -50,21 +78,36 @@ export struct ThinkingLine {
     Column({ space: 0 }) {
       // 头部：`w-fit` ⇒ 不设 width('100%')（点击热区只覆盖图标+文字，与 web 的 `w-fit` 一致）
       Row({ space: SP_1 }) {
-        SymbolGlyph($r('sys.symbol.lightbulb'))
-          .fontSize(FS_CAPTION)
-          .fontColor([this.live ? paletteOf(this.theme).accentSoft : paletteOf(this.theme).textMuted])
+        if (this.orb) {
+          // 旗舰光球 = 本行的**前导图元**（web 里在飞指示本就是思考行自身：其 label 微光；
+          // 原生把整个光球并进这一行 ⇒ 一眼读作"这一行在飞"，且同屏**唯一**动效）。
+          // ⛔ 真 `@Component` + `@Prop`（带参 @Builder 会冻在首帧）。
+          AssistantOrb({
+            theme: this.theme,
+            orbSize: ORB_LEAD_SIZE,
+            active: true,
+            paused: this.paused,
+            seed: ORB_LEAD_SEED,
+            orbMode: this.orbMode,
+            orbBeat: this.orbBeat,
+            reduceMotion: this.reduceMotion,
+          })
+        } else {
+          // 光球关闭（设置项）⇒ 回落灯泡提示符；committed 迭代恒走这条。
+          SymbolGlyph($r('sys.symbol.lightbulb'))
+            .fontSize(FS_CAPTION)
+            .fontColor([this.live ? paletteOf(this.theme).accentSoft : paletteOf(this.theme).textMuted])
+        }
         Text(this.label)
           .fontSize(FS_CAPTION)
           .fontColor(this.live ? paletteOf(this.theme).accentSoft : paletteOf(this.theme).textMuted)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
       }
-      // 主高亮时：按共享呼吸刻度做**极弱**强调（0.72→1.0），不是第二个发光体
-      // ⛔ 静息态**不写** `stateStyles.normal.opacity`：`normal` 会接管该属性 ⇒ **盖掉**上一行的
-      //    动态 opacity ⇒ `思考 N 字` 的呼吸强调恒为 1（"假绿"：inflight_language 只校验这行源码
-      //    存在，看不见它被 normal 覆盖）。web 的按钮静息态**无** opacity 规则（`ThinkingLine.tsx:63`
-      //    只有 hover/active 的过渡）⇒ 原生端静息态交还给上面那条动态值，只有按压态覆盖。
-      .opacity(this.live ? 0.72 + 0.28 * this.emphasis : 1)
+      // ⛔ 本行**静态**（不写任何随时间的 `.opacity()`）：同一时刻只有一个"在飞"动效 = 光球。
+      //    仅以颜色（`accentSoft`）表达"此刻它在领读"，不引入第二个脉动源。
+      //    静息态**不写** `stateStyles.normal`（`normal` 会接管属性、盖掉动态值）——本行已无动态值，
+      //    仍只写 `pressed`，与 web 的按钮一致（web 静息态无 opacity 规则）。
       .padding({ left: SP_1, right: SP_1, top: 2, bottom: 2 })
       .borderRadius(R_LG)
       .stateStyles({ pressed: { .opacity(0.6) } })
@@ -80,8 +123,6 @@ export struct ThinkingLine {
           .width('100%')
           .wordBreak(WordBreak.BREAK_WORD)
           // 对齐 web `ThinkingLine.tsx:72`：展开体 = `mt-1`(4) 上间距 + `pl-2.5`(10) 左缩进。
-          // 原为「无上间距 + 左 8 + 上下各 2」⇒ 与头部贴死、缩进比 web 浅 2vp、且多出一份
-          // 与 web 无关的垂直内边距（web 展开体只有左缩进，无内边距）。
           .margin({ top: SP_1 })
           .padding({ left: 10, right: 0, top: 0, bottom: 0 })
           // 左栅栏是**结构性边界**（承载"这是思考展开体"的信息）⇒ 走 `hairline`

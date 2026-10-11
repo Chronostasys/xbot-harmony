@@ -62,9 +62,15 @@ has(thinkSrc, '.padding({ left: 10, right: 0, top: 0, bottom: 0 })',
 has(thinkSrc, '.stateStyles({ pressed: { .opacity(0.6) } })',
   '按压态唯一覆盖 opacity（与 web `:active` 同语义）');
 hasNot(thinkSrc, 'normal: { .opacity(1) }',
-  '⛔ 静息态不写 `normal.opacity` —— 否则 `思考 N 字` 的呼吸强调被钉死为 1（假绿）');
-has(thinkSrc, '.opacity(this.live ? 0.72 + 0.28 * this.emphasis : 1)',
-  '呼吸强调仍由 live/emphasis 驱动（wave5e 契约不破）');
+  '⛔ 静息态不写 `normal.opacity`（本行已无动态值，仍只写 pressed —— 与 web 一致）');
+// 2026-10-11 波：思考行**静态**（去呼吸）—— 同一时刻只有一个在飞动效 = 光球。
+// 旧 wave5e 的 `.opacity(0.72 + 0.28*emphasis)` 呼吸与光球同屏 ⇒ 用户报「两个思考 spinner」。
+hasNot(thinkSrc, '0.72 + 0.28',
+  '⛔ 思考行不再呼吸（无 0.72+0.28 脉搏）——「同一时刻只有一个动效」的核心判据');
+hasNot(thinkSrc, 'this.emphasis',
+  '思考行不再持有 emphasis 呼吸权重（动效唯一属于光球）');
+has(thinkSrc, '.fontColor(this.live ? paletteOf(this.theme).accentSoft : paletteOf(this.theme).textMuted)',
+  '领读仅以**颜色**（accentSoft）表达，不承载动效');
 
 // ════════════════════════════════════════════════════════════════════════════
 // ② 正文 `MarkdownView.ets`  ↔  web `MarkdownRenderer.tsx` + `index.css .markdown-body`
