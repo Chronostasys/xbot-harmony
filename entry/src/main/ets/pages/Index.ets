@@ -42,6 +42,7 @@ import {
 import { mdCacheStats, MdCacheStats } from '../core/markdown';
 import { blocksSignature, completedBlocks, displayContent, displayReasoning, rowHasInFlightSignal, rowIsEmpty, streamStatsText } from '../core/streammerge';
 import {
+  activeChannelLabel, ALL_CHANNEL_ORDER, availableChannels, channelFilterMatches,
   channelLabel, hiddenRowCount, visibleRows, MAX_ROWS_VISIBLE,
 } from '../core/sessionpick';
 import {
@@ -69,7 +70,7 @@ import {
 } from '../core/llmfmt';
 import {
   COPY_RAW, COPY_REPLY, COPY_THINKING, COPY_TOOLS, CopyParts, composeCopy, linkLabel, linksIn,
-  resolveOpenable, toolArgsOnly, toolCopyText, toolResultOnly,
+  resolveOpenable, RewindTarget, toolArgsOnly, toolCopyText, toolResultOnly,
 } from '../core/msgops';
 import {
   AskOption,
@@ -304,6 +305,24 @@ struct Index {
   @State hasMore: boolean = false;
   @State loadingMore: boolean = false;
   @State queue: QueueItem[] = [];
+
+  /**
+   * 会话列表的**渠道过滤**（空串 = 全部）。
+   * ⚠️ 纯客户端派生（web `useSessionStore.activeChannel`）；过滤只作用于列表视图，
+   *    绝不改 `channelForChat` 的"按会话取渠道"语义（真机事故：否则点开非 web 会话报
+   *    `session not found`）。web 用 localStorage 持久化（`xbot:active-channel`），
+   *    原生端本波未接线持久化（`core/config.ets` 不属本波可改文件）⇒ 进程内记忆。
+   */
+  @State activeChannel: string = '';
+
+  /**
+   * rewind（编辑并重发）的当前编辑目标 —— 非空即处于"编辑态"。
+   * 保存 row.id / 该 user 行的 turnID / **原始**正文（用于在新鲜历史里定位 DB id，
+   * 用户编辑后的新正文由 `draft` 承载）。
+   */
+  @State rewindEditRowId: string = '';
+  @State rewindEditTurnID: number = 0;
+  @State rewindEditOriginal: string = '';
 
   // ── 弹层 ──────────────────────────────────────────────────────────────────
   @State showDrawer: boolean = false;
@@ -1938,6 +1957,16 @@ struct Index {
     if (store === null || this.anyUploading()) {
       return;
     }
+    // rewind 编辑态：发送 = 回退并重发（不走普通发送路径 —— rewind → reset → reload → send
+    // 的铁律顺序封装在 store.rewindTo 内）。
+    if (this.rewindEditRowId.length > 0) {
+      if (text.length === 0) {
+        this.toast('内容不能为空');
+        return;
+      }
+      await this.submitRewind(text);
+      return;
+    }
     const keys: string[] = doneKeys(this.attachments);
     const names: string[] = doneNames(this.attachments);
     const sizes: number[] = doneSizes(this.attachments);
@@ -2721,6 +2750,34 @@ struct Index {
     .width('100%').height('100%')
   }
 
+  /**
+   * rewind 编辑态提示条。
+   *
+   * 无参 `@Builder`（读 `this` 状态）—— 满足"带参全局 @Builder 的子树不随参数重建"纪律：
+   * 提示条的显隐由外层 `if (this.rewindEditRowId.length > 0)` 控制，@Builder 内不含会变参数。
+   */
+  @Builder
+  RewindEditBar() {
+    Row({ space: SP_2 }) {
+      SymbolGlyph($r('sys.symbol.square_and_pencil')).fontSize(14).fontColor([this.pal().warn])
+      Text('编辑并重发：将回退此消息及其后的回复')
+        .fontSize(FS_CAPTION).fontColor(this.pal().warn).layoutWeight(1)
+        .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+      Text('取消').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary)
+        .padding({ left: SP_2, right: SP_2, top: 4, bottom: 4 })
+        .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          this.cancelRewindEdit();
+        })
+    }
+    .width('100%')
+    .padding({ left: SP_2, right: SP_1, top: 6, bottom: 6 })
+    .backgroundColor(withAlpha(this.pal().warn, 0.08))
+    .borderRadius(R_MD)
+    .border({ width: 1, color: withAlpha(this.pal().warn, 0.35) })
+    .margin({ left: SP_3, right: SP_3, top: SP_2 })
+  }
+
   @Builder
   ChatView() {
     Column() {
@@ -3228,6 +3285,11 @@ struct Index {
         },
       })
 
+      // rewind 编辑态提示条（在输入胶囊上方；仅编辑态渲染）
+      if (this.rewindEditRowId.length > 0) {
+        this.RewindEditBar()
+      }
+
       // 输入区：**单一面**（附件 / 输入 / 发送共用一条胶囊），靠留白分层，不靠描边。
       Row({ space: SP_1 }) {
         SymbolGlyph($r('sys.symbol.paperclip')).fontSize(22).fontColor([this.pal().textSecondary])
@@ -3320,7 +3382,9 @@ struct Index {
     for (let i = 0; i < this.sessions.length; i++) {
       const s: SessionItem = this.sessions[i];
       const label: string = s.label !== undefined ? s.label : '';
-      if (sessionMatches(label, s.chat_id, this.sessQuery)) {
+      const ch: string = s.channel !== undefined ? s.channel : '';
+      if (sessionMatches(label, s.chat_id, this.sessQuery)
+        && channelFilterMatches(ch, this.activeChannel)) {
         out.push(s);
       }
     }
@@ -4461,6 +4525,10 @@ struct Index {
       this.copyText(row.content, '文本');
       return;
     }
+    if (code === 'user-rewind') {
+      this.beginRewindEdit(row);
+      return;
+    }
     if (code.indexOf('row-') === 0) {
       this.copyText(composeCopy(this.partsForRow(row), this.variantOf(code)), '消息');
       return;
@@ -4487,6 +4555,64 @@ struct Index {
       } else {
         this.copyText(toolCopyText(t.name, args, out), '工具内容');
       }
+    }
+  }
+
+  // ── rewind（编辑并重发） ───────────────────────────────────────────────────
+  //
+  // 对齐 web：`UserMessage.tsx` 的内联编辑 + `AgentPanel.tsx:929 rewindTo`。
+  // ⛔ 铁律顺序（rewind → reset 状态机 → reload → send）封装在 `store.rewindTo` 内，
+  //    页面只负责"进入编辑态 / 提交"。
+
+  /** 进入 rewind 编辑态：把该 user 行正文预填进输入框，标记编辑目标。 */
+  private beginRewindEdit(row: ChatRow): void {
+    if (row.role !== 'user') {
+      return;
+    }
+    this.rewindEditRowId = row.id;
+    this.rewindEditTurnID = row.turnID;
+    this.rewindEditOriginal = row.content;
+    this.draft = row.content;
+    this.anim(() => {
+      this.ctxOpen = false;
+    });
+    this.scheduleDraftSave(row.content);
+    this.toast('编辑后发送 = 回退此消息及其后的回复，并重发');
+  }
+
+  /** 退出 rewind 编辑态（取消）。 */
+  private cancelRewindEdit(): void {
+    this.rewindEditRowId = '';
+    this.rewindEditTurnID = 0;
+    this.rewindEditOriginal = '';
+    this.draft = '';
+  }
+
+  /**
+   * 提交 rewind —— 交给 `store.rewindToMessage`（内含"新鲜快照兜底解析 DB id" +
+   * rewind → reset → reload → send 的铁律顺序）。
+   */
+  private async submitRewind(text: string): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    const target: RewindTarget = new RewindTarget(this.rewindEditTurnID, this.rewindEditOriginal);
+    this.rewindEditRowId = '';
+    this.rewindEditTurnID = 0;
+    this.rewindEditOriginal = '';
+    this.draft = '';
+    try {
+      const done: boolean = await store.rewindToMessage(target, text);
+      if (!done) {
+        this.toast('暂时无法回退这条消息（尚未落库）');
+        return;
+      }
+      this.buzz();
+      this.toast('已回退并重发');
+    } catch (e) {
+      this.draft = text;
+      this.toast(`回退失败: ${errText(e as Object)}`);
     }
   }
 
@@ -4917,6 +5043,7 @@ struct Index {
 
       if (this.ctxKind === 'user') {
         this.CtxItem('复制文本', 'user-text')
+        this.CtxItem('编辑并重发', 'user-rewind')
       } else if (this.ctxKind === 'tool') {
         this.CtxItem('复制输出', 'tool-out')
         this.CtxItem('复制参数', 'tool-args')
@@ -5209,6 +5336,35 @@ struct Index {
         }, (c: string) => `cat-${c}`)
       }
       .width('100%').padding({ bottom: 6 })
+
+      // 渠道筛选（web `ChannelPicker.tsx`：由会话列表推导渠道，排除内部 agent）。
+      // ⛔ 纯客户端派生，过滤**只作用于列表** —— 绝不动 `channelForChat`（真机事故：
+      //    否则点开非 web 会话报 `session not found`）。
+      Flex({ wrap: FlexWrap.Wrap }) {
+        Text(activeChannelLabel(this.activeChannel))
+          .fontSize(11)
+          .fontColor(this.activeChannel.length === 0 ? this.pal().textPrimary : this.pal().textSecondary)
+          .backgroundColor(this.activeChannel.length === 0 ? this.pal().surfaceHi : this.pal().surfaceAlt)
+          .borderRadius(6).textAlign(TextAlign.Center)
+          .padding({ left: 10, right: 10, top: 5, bottom: 5 }).margin(2)
+          .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            this.activeChannel = '';
+          })
+        ForEach(availableChannels(this.sessions), (ch: string) => {
+          Text(activeChannelLabel(ch))
+            .fontSize(11)
+            .fontColor(this.activeChannel === ch ? this.pal().textPrimary : this.pal().textSecondary)
+            .backgroundColor(this.activeChannel === ch ? this.pal().surfaceHi : this.pal().surfaceAlt)
+            .borderRadius(6).textAlign(TextAlign.Center)
+            .padding({ left: 10, right: 10, top: 5, bottom: 5 }).margin(2)
+            .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
+            .onClick(() => {
+              this.activeChannel = ch;
+            })
+        }, (ch: string) => `chfilter-${ch}`)
+      }
+      .width('100%').padding({ left: 4, right: 4, bottom: 6 })
 
       List() {
         ForEach(this.drawerGroups(), (g: DrawerGroup) => {
@@ -5836,6 +5992,12 @@ struct Index {
       Row() {
         Text(`待发队列 (${this.queue.length})`).fontSize(16).fontWeight(FontWeight.Bold)
           .fontColor(this.pal().textPrimary).layoutWeight(1)
+        Text('清空').fontSize(12).fontColor(this.pal().dangerText).padding({ left: 8, right: 8, top: 6, bottom: 6 })
+          .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            // 无 clear 端点（web 同款）：遍历逐个 cancel。
+            this.store?.clearQueue();
+          })
         SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
 .onClick(() => {
           this.showQueue = false;
@@ -5859,6 +6021,14 @@ struct Index {
               Text('↓').fontSize(14).fontColor(this.pal().accentSoft).padding(6).onClick(() => {
                 const id: string = q.msg_id !== undefined ? q.msg_id : (q.id !== undefined ? q.id : '');
                 this.store?.moveQueued(id, 1);
+              })
+              // ⚡ 插队：must use the FULL content（server `preview` 截断到 ~80 runes ⇒ 会丢内容）
+              Text('插队').fontSize(12).fontColor(this.pal().warn).padding(6).onClick(() => {
+                const id: string = q.msg_id !== undefined ? q.msg_id : (q.id !== undefined ? q.id : '');
+                const full: string = q.content !== undefined && q.content.length > 0
+                  ? q.content
+                  : (q.text !== undefined ? q.text : '');
+                this.store?.interjectQueued(id, full);
               })
               SymbolGlyph($r('sys.symbol.xmark')).fontSize(15).fontColor([this.pal().dangerText]).padding(6).onClick(() => {
                 const id: string = q.msg_id !== undefined ? q.msg_id : (q.id !== undefined ? q.id : '');

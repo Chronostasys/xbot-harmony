@@ -1114,6 +1114,26 @@ export class ChatStore {
   }
 
   /**
+   * rewind 的**入口**（页面用）：先解析目标 DB id，解析不到时**拉一次新鲜历史**再解析
+   * （对齐 web `AgentPanel.tsx:944-948`：回声行缺 dbID 时用 `fetchHistory` 兜底），
+   * 然后再走 {@link rewindTo} 的完整铁律顺序。
+   *
+   * @returns 是否执行了回退（false = 目标不可用/未落库）
+   */
+  async rewindToMessage(target: RewindTarget, editedContent: string): Promise<boolean> {
+    let id: number = rewindTargetDBID(this.history, target);
+    if (id <= 0) {
+      // 新鲜快照兜底：`user_echo` 在入队时发出、dbID 只随历史重载下发。
+      await this.loadHistory();
+      id = rewindTargetDBID(this.history, target);
+    }
+    if (id <= 0) {
+      return false;
+    }
+    return await this.rewindTo(id, editedContent);
+  }
+
+  /**
    * 整体复位状态机 + 行缓存 + 历史累积（rewind / 重载前用）。
    * 与 `openSession` 的复位同源（`initialChatState` —— 杜绝"漏重置某个字段"）。
    */
