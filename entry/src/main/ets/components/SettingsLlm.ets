@@ -56,7 +56,7 @@ import {
   SettingsChipRow, SettingsErrorBar, SettingsPanelHeader, SettingsSubCard, SettingsTextFieldRow,
   SettingsToolRow,
 } from './SettingsRows';
-import { PRESS_OPACITY } from '../core/design';
+import { PRESS_OPACITY, surfaceFillOf } from '../core/design';
 
 /**
  * S12：订阅导出 / 导入的 RPC 方法名 + 参数体。
@@ -828,7 +828,7 @@ export struct SettingsLlm {
     .width('100%')
     .alignItems(HorizontalAlign.Start)
     .padding(SP_2)
-    .backgroundColor(this.pal().surfaceHi)
+    .backgroundColor(surfaceFillOf(this.pal(), 'surface.active'))
     .borderRadius(R_LG)
   }
 

@@ -109,7 +109,9 @@ const RULES: Rule[] = [
 
 /** 白名单（每条必须写明**为什么可留**）。键 = `文件|规则名`。 */
 const ALLOWED: string[] = [
-  // `pal().surfaceHi`（RUNG_ACTIVE）：仍缺中性 role ⇒ 待 brand-impl；暂不判。
+  // `pal().surfaceHi`（RUNG_ACTIVE）：brand-impl 已落 'surface.active'（design.ets:328，深色逐字节 = surfaceHi）
+  // ⇒ 10 个自由面当前**无** surfaceHi 调用点（其余在 Index/MessageRow/LiveTailView = 他线禁改区）；
+  //   SettingsLlm:831 那处已收敛（非自由面）。规则本身未加（自由面无该模式）。
 ];
 
 const violations: string[] = [];
