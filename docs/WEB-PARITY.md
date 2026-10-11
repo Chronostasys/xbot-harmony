@@ -378,7 +378,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | 登录页 | `pages/LoginPage.tsx:18` | ✅ | `Index.ets:2557 LoginView` |
 | 注册页 | `pages/RegisterPage.tsx:26` | ✅ | `Index.ets:1438 store.http.register` |
 | **分享页**（token 只读分享） | `pages/SharePage.tsx:33` | ❌ | 见 11.5 证据 ⑧ |
-| **会话导出**（markdown/jsonl） | `SettingsDeveloper.tsx:60`、`agent/api.ts:332` | ❌ | 见 11.5 证据 ⑧ |
+| **会话导出**（`json`/`jsonl`/`txt`；⛔ **无 markdown**） | `SettingsDeveloper.tsx:60-92`、`agent/api.ts:378-582` | 🟡 **纯逻辑已交付** | `core/export.ets`（`a7e6ffc`，全形态 + 78 断言）；**UI 入口未接线**（见 11.5 证据 ⑧） |
 
 ### 11.3 C 域：设置全分区 / 插件体系 / 其它
 
@@ -431,6 +431,12 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 - ⑥ **AnsiText**：`grep -rniE "ansi|sgr|\\\\u001b|\\\\x1b" .` → **0**（早前误报的匹配是 `transient`/`humanSize`/`statusGroupKey` 等词）。`ToolPopover.ets:96 classifyLine` 只做行级分类，**不解析 ANSI SGR**。⚠️ **2026-10-11 订正：本结论已过期** —— 并行线在**当日 09:43**（`9ad6c30`）已落地 `core/ansi.ets` 的**解析层**，本波（`10aae43`）又补齐**到本仓色板的映射**（`ANSI_COLOR_ROLES`/`ansiPaletteOf`）；**消费点仍未接线**（见 §11.10）。⚠️ 教训：`grep → 0` 类判据**必须写明取证时刻**，否则会被后续协作立刻推翻。
 - ⑦ **渠道过滤 / 路径选择 / 最近工作目录**：`grep -rniE "channelpicker|availableChannels|渠道选择" .` → 0；`grep -rniE "PathPicker|pickDir|chooseDir" .` → 0；`grep -rniE "recent" .` → 8 命中**全是** `core/config.ets:117 recentServers`（服务器 URL 历史）。
 - ⑧ **分享页 / 会话导出**：`grep -rniE "SharePage|分享页|shareToken|share_link" .` → 0；`grep -rniE "导出|exportSession|systemShare|shareKit" .` → 仅 `core/http.ets:150 exportSessionCookie`（cookie，**非**会话导出）。
+  - ⚠️ **2026-10-11 订正（会话导出形态 —— 原文"markdown/jsonl"为误标）**：web 权威 `web/src/components/agent/api.ts:378-582`（`downloadSession`）实际输出 **5 种形态 + 1 个开发者文本**：
+    `native`=**json**（`:560-566`）、`openai`=**json**（`:396-422`）、`codex`=**jsonl**（`:424-462`）、`multica`=**jsonl**（`:464-558`）、`benchmark`=**jsonl**（`:383-391`）；
+    mime 分别 `application/json`（前两者）/ `application/x-jsonlines`（后三者）；另加开发者 **turn+iter**=`txt`（`text/plain`，`SettingsDeveloper.tsx:60-92`）。
+    ⛔ **web 无 markdown 导出**（`grep -rniE "text/markdown|\\.md['\"]"` 在 `web/src` **零导出命中**；服务端 RPC 表亦仅 `export_session`/`export_session_jsonl`，`serverapp/rpc_table.go:1539/1577`）。
+    **文件名口径**（`api.ts:570-572`）：`<label>.<ext>`，`label=(chatID||'session').replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,60)` —— **不含时间戳**（时间戳仅 SSE 录制器 `sse-dump-<ts>.ev` 用）。
+  - **本仓落地（2026-10-11）**：纯逻辑**已交付 `a7e6ffc`** —— `core/export.ets`（native/openai=json、codex/multica/benchmark=jsonl、turn+iter=txt 全形态 + `ExportClock` 注入时间/id）+ `tools/tests/export.test.ts`（78 断言）；**UI 入口未接线**（需 `core/rpc.ets` 补 `export_session`/`export_session_jsonl` RPC 常量 + `Index.ets` 接会话菜单/设置面）。
 - ⑨ **Channels 设置分区**：`grep -rn "get_channel_config\|set_channel_config\|feishu_bind" core components` → **0 命中**（`core/settings.ets:286 CONFIG_SURFACE_METHODS` 亦未含）。契约见 §9.2.1。
 - ⑩ **Developer 模式 / SSE 录制**：`grep -rniE "useDeveloperMode|sseRec|录制|recorder" core components pages` → **0 命中**。
 - ⑪ **Ambience**：`grep -rln "ambience\|wallpaper" .` → 仅 `core/pluginhost.ets:240` 的**注释**；无 `core/ambience.ets`、无组件。
@@ -461,7 +467,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | 6 | **SessionViewBar「全部折叠/展开」** | 折叠机制/组键齐备，只差批量入口，XS | `Index.ets`（`toggleGroup`/`isGroupCollapsed` 之上加一个全量切换） |
 | 7 | **Developer 模式 + SSE REC** | 排障/复现 bug 的刚需（契合「真机点击是移动靶」痛点）；纯本地偏好，S 级 | 新增 `components/SettingsDeveloper.ets` + `SettingsPanel.ets` 加 tab |
 | 8 | **Channels 设置分区** | web 14 分区中原生**唯一整块缺席**的服务端配置面，落地即 13/14 | 新增 `components/SettingsChannels.ets` + `SettingsPanel.ets` 加 tab（契约见 §9.2.1；⚠️ 飞书 secret 服务端未打码，见 §9.3） |
-| 9 | **会话导出（markdown/jsonl）** | ❌ 缺口中通用价值最高；手机端分享/上报会话常用 | `core/`（导出纯逻辑）+ `Index.ets` 入口 + `SettingsDeveloper`/分享 |
+| 9 | **会话导出（`json`/`jsonl`/`txt`，⛔ 无 markdown）** | 🟡 **纯逻辑已交付 `a7e6ffc`**；UI 入口缺（手机端分享/上报会话常用） | `core/export.ets`（就绪）+ `Index.ets` 入口 + `SettingsDeveloper`/分享 |
 | 10 | **最近工作目录 + PathPicker** | 新建会话选 cwd 是常规操作；`recent-workdirs` 纯逻辑 S 级 | 新增 `core/recentdirs.ets` + `NewSessionDialog` 等价弹层 |
 
 > 次优先（形态差异，非硬缺口）：FoldedToolGroup 组内分组标头、ShimmerThinking 骨架、ThinkingModeControl 位置、
@@ -588,7 +594,7 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 |---|---|---|---|---|---|---|
 | 1 | **AnsiText 接色** | `AnsiText.tsx:205`（3 消费点） | `core/ansi.ets` 就绪；`components/MessageRow.ets`/`ToolPopover.ets` **未接** | **B**（只在 `components/`，**非热文件**） | 高 | **P1** |
 | 2 | **rewind 入口** | `UserMessage.tsx:31,114,149`；`AgentPanel.tsx:929` | `store.rewindTo`(`store.ets:1086`) 就绪；**无长按菜单** | **B** | 高 | **P1** |
-| 3 | **会话导出（markdown/jsonl）** | `SettingsDeveloper.tsx:60` + `agent/api.ts:332` | 无（仅 `core/http.ets:150 exportSessionCookie`，是 cookie 非会话导出） | **A+B** | 中 | **P2** |
+| 3 | **会话导出（`json`/`jsonl`/`txt`；⛔ 无 markdown）** | `SettingsDeveloper.tsx:60-92`（turn+iter=txt）+ `agent/api.ts:378-582`（native/openai=json、codex/multica/benchmark=jsonl） | **纯逻辑已交付 `a7e6ffc`**（`core/export.ets`，78 断言）；**UI 入口未接线**（需 `core/rpc.ets` 补 `export_session`/`export_session_jsonl` + `Index.ets` 接菜单/设置） | **A✅ + B** | 中 | **P2** |
 | 4 | PathPicker / cwd 选择 | `PathPicker.tsx:36` + `recent-workdirs.ts:12` | `core/recentdirs.ets` 就绪；无选择器（`Index.ets:1787 newSession()` 直建） | **B** | 中 | P2 |
 | 5 | 命令深链**入口** | `commandRouter.ts:61,136` | `core/command.ets` 就绪；`EntryAbility.ets:123 captureOpenChat` 仅 chatId | **B**（+可能 C） | 中 | P2 |
 | 6 | SessionViewBar「全部折叠/展开」 | `SessionViewBar.tsx:34` | 分类切换 ✅；批量切换 **grep 0 命中** | **B** | 中 | P3（XS） |
@@ -604,7 +610,7 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 | 16 | 选区工具条（tiptap B/I/链接） | `SelectionToolbar.tsx:48` | **0 命中** | **B** | 低 | **存疑**（tiptap 不适用，见 §3） |
 | 17 | Ambience 壁纸/主题 | `AmbienceRoot.tsx:40` | **0**（仅 `core/pluginhost.ets:240` 注释） | **B** | 低 | ⛔ **不建议迁**（§11.7） |
 
-> **A 档（纯逻辑可先行）已近枯竭**：上表唯一还剩的 A 档 = **#3 会话导出**（序列化纯逻辑）与 **#9 卡数据面**（待先定 web 语义）。
+> **A 档（纯逻辑可先行）已近枯竭**：上表唯一还剩的 A 档 = **#3 会话导出**（序列化纯逻辑，**已交付 `a7e6ffc`**）与 **#9 卡数据面**（待先定 web 语义）。
 > 其余全部是 **B**（等 `pages/Index.ets` 释放）或 **C/D**。⇒ 下一波的调度瓶颈从"纯逻辑池"转为"**`Index.ets` 释放时机**"。
 
 #### 11.11.3 专项核实：rewind 是否已有纯逻辑？—— **是（不是缺失）**
@@ -623,8 +629,8 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
    —— 可感度**最高**（工具/shell 输出是最高频呈现面），逻辑已就绪，且**能绕开当前被占用的热文件** ⇒ 最易解除。
 2. **rewind 入口接线**（分档 B）—— 可感度**高**（唯一能改写历史错字的操作），**REST + 纯逻辑已全就绪**，
    剩的是 `UserBubble` 编辑态 + `Index.ets` 长按菜单（接线级）；是 `§11.7 #2` 的兑现。
-3. **会话导出 markdown/jsonl**（分档 **A+B**）—— 可感度**中高**（手机端分享/上报常用），
-   且**纯逻辑可先行（A）**、不占热文件；是 Top10 #9 且填补 §11.5 ⑧ 的一半（另一半分享页需服务端）。
+3. **会话导出 `json`/`jsonl`/`txt`**（分档 **A+B**）—— 可感度**中高**（手机端分享/上报常用），
+   **纯逻辑已交付 `a7e6ffc`（A✅）**、不占热文件；**仅剩 B 档入口**（`Index.ets` 接菜单/设置）；是 Top10 #9 且填补 §11.5 ⑧ 的一半（另一半分享页需服务端）。
 
 > 备选（若调度只认"纯逻辑、零 `Index.ets` 依赖"）：**#3 会话导出** + **#9 卡数据面**（需先拍 web 语义）——
 > 但前者仍需 B 档入口才可见，后者价值中；**当前真正的高可感项都卡在 `Index.ets` 上**。
