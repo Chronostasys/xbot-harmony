@@ -41,6 +41,13 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   （模拟器地域校验需要），macOS 自带 bash 3.2 在 UTF-8 locale 下把 `$s（` 的 `（` 就读进变量名 ⇒
   `unbound variable`（`set -u` 下直接挂）。**症状**：脚本单独跑正常、经过 `source ~/ohos-cli/env.sh`
   就报错（`LC_CTYPE=C` 时不复现）。**规则**：含中文的字符串里一律写 **`${var}`**，别写 `$var`。
+- **取色 role 写错 = 运行时静默不可见** ⛔（2026-10-11 我在审计令牌层时钓出）：
+  `core/design.ets: colorOf(p, role)` 末尾是 `return p.transparent` ⇒ 写**不在真源角色表里**的名字
+  （典型：`docs/REDESIGN-INPUT-*.md` 与 `docs/mockups/*.html` 里的**散文记号** `'text.pillName'`/
+  `'status.danger'`，以及新造字符串）**编译零警告、运行时文字/图标不可见**，其它测试全抓不到。
+  同类第二入口：`elevationColorOf`（未知档静默落 `elev1`）。
+  合法集合/映射表见 `docs/DESIGN-SYSTEM.md §12`；机器判据 = `tools/gate.sh` 的 **⑥b**
+  （`tools/lint/color-roles.sh`，硬红；mutation 自证过：注入 `colorOf(p,'text.pillName')` 必红）。
 - **`tools/gate.sh` 的第 ⑤ 步（孤儿组件）是警告级**：ArkTS **不检查没有任何消费者的组件文件**
   ⇒ "新组件 + 门禁全绿"可能是假绿（见上一条）；接线后请重跑。
   `No signingConfig found for product default` ⇒ 只产出 `*-unsigned.hap` ⇒ 装机报

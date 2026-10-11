@@ -119,6 +119,8 @@ grep -rnoE "#[0-9a-fA-F]{3,8}\b" entry/src/main/ets/pages entry/src/main/ets/com
 grep -rnoE "Text\('(✳|📎|➕|✦|✕|☰|⊞|⚙|⋯)'\)" entry/src/main/ets/ | head
 # 3) 三项门禁
 bash tools/tests/run.sh && bash tools/lint/render-path.sh && bash tools/typecheck/check.sh
+# 3b) 取色 role 合法性（⛔ 未知 role 会被 colorOf 静默解析成 transparent ⇒ 文字/图标不可见；见 §12）
+bash tools/lint/color-roles.sh
 # 4) 构建 + 装机 + 截图
 ~/ohos-cli/deploy.sh
 ```
@@ -472,4 +474,53 @@ web 浅色 `src/index.css:160 --border: #e0e0e0` 压在 `:153 --bg-primary: #fff
    —— ⛔ 不许为了可读性把它一路压到全黑（§G2 会红）。
 3. 两套主题**其余角色逐字节不变**（§G4）；`accentDeep` 若将来被接进任何派生，§G4 立刻红。
 4. `dark|onAccent|accent` 台账条目**不许删**（§G6）—— 删 = 放宽阈值。
+
+## 12. 取色 role 的合法集合（唯一入口 + 静默陷阱 + 机器判据）
+
+> 新增于 2026-10-11（我在审计"令牌层完备性"时钓出，属**真缺陷类别**，非风格问题）。
+
+### 12.1 唯一入口
+
+| 你要什么 | 唯一入口 | role 形态 |
+|---|---|---|
+| 文字/强调/语义色 | `core/design.ets: colorOf(p, role)` | **camelCase、不含点** |
+| 面 / 底 / 卡片 | `surfaceFillOf(p, role)`（或 `SURFACE_*` 常量） | **带点**（`surface.*`） |
+| 字号+配套字色 | `typeOf('type.x')`（或 `TYPE_*` 常量） | 带点（`type.*`） |
+| 品牌色（logo/开屏/标记） | `core/brand.ets: brandAccent()` / `brandOnAccent()` | **函数**，不是 role |
+| 发丝 / 玻璃 / 高程 | `hairlineOf(p)` / `glassFillOf(p)` / `elevationColorOf(p, lv)` | — |
+
+合法集合**从真源自动抽取**（见 §12.3），此处不复制粘贴以免两处漂移。
+
+### 12.2 ⛔ 陷阱：未知 role **静默**变透明
+
+`colorOf()` 的末尾是 `return p.transparent;` —— 也就是说**写错 role 不会报错**：
+
+```
+colorOf(p, 'text.pillName')   // ← docs/REDESIGN-INPUT-*.md 与 docs/mockups/*.html 里的"散文记号"
+                              //   不是 API！编译零警告、运行时 → transparent → 文字/图标不可见
+```
+
+这就是本仓最容易踩的坑：**设计文档写得越漂亮，实现越容易照抄记号**。常用映射：
+
+`text.pillName → textPrimary`｜`text.chip → textSecondary`｜`text.pillNameError → dangerText`｜
+`status.danger → statusError`｜`text.thinkingPrimary → textPrimary`｜
+`brand.primary → brandAccent()`｜`brand.onPrimary → brandOnAccent()`
+
+### 12.3 机器判据（硬红）
+
+`bash tools/lint/color-roles.sh`（已接入 `tools/gate.sh` 的 **⑥b**，**硬红**）：
+
+- **合法集合从 `core/design.ets` 抽取**（`role === '…'` / `new SurfaceRole('…')` / `new TypeRole('…')`）
+  ⇒ 真源改集合，判据自动跟随；⛔ 不硬编码、不复制粘贴。
+- 只查**字符串字面量**实参 ⇒ 写 `SURFACE_COMPOSER` / `TYPE_PILL_NAME` 常量天然是推荐姿势。
+- 自带**零扫描判红**（防"正则与真源脱节 ⇒ 白绿"）。
+- **mutation 自证**：注入 `colorOf(p,'text.pillName')` 必红（实测✅）、同一副本不注入必绿（实测✅）。
+  2026-10-11 落地时真树 **32 处取色调用全部合法** ⇒ 无存量欠账 ⇒ 可直接硬红。
+
+### 12.4 纪律（违反即回归）
+
+1. 组件里**不许出现**真源集合之外的取色 role 字面量（⑥b 会红）。
+2. 需要**新**颜色角色 ⇒ 加进 `core/design.ets` 的角色表（⛔ 不在组件里硬写字面量 hex）。
+3. `docs/REDESIGN-INPUT-*.md` 与 `docs/mockups/*.html` 中的**带点记号是散文**，
+   实现时必须按 §12.1 翻译；发现新记号 ⇒ 回填本表。
 

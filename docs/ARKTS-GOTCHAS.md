@@ -864,3 +864,27 @@ Usage of standard library is restricted (arkts-limited-stdlib)
   3. 新增面板时，**X / 背板 / 返回键写同一个 flag**，并至少用 `dump` 确认"能关"。
 - **同类隐患**：该文件 `xmark` 共 **9 处** ⇒ 逐一与其所属 `@Builder` 的渲染 flag 对照，
   ⛔ 不要只修用户报的那一处。
+
+## 批次 27：取色 role 写错 ⇒ **运行时静默不可见**（2026-10-11，我审计令牌层时钓出；已加硬门禁 ⑥b）
+
+**症状（最阴的一种）**：组件里写 `colorOf(p, 'text.pillName')` —— 编译**零警告**、任何测试都不红，
+但 `core/design.ets` 的 `colorOf()` 末尾是 `return p.transparent` ⇒ **文字/图标运行时不可见**。
+表现成"这条 UI 怎么空白了"，而你会先去怀疑布局/渲染，不怀疑颜色。
+
+**成因**：`docs/REDESIGN-INPUT-*.md` 与 `docs/mockups/*.html`（**设计散文**）用的是**带点记号**
+（`text.pillName` / `status.danger` / `brand.primary` / `brand.mark.*`），而真 API 是：
+- **文字/语义色**：`colorOf(p, role)`，role 是 **camelCase 不含点**（`textPrimary`/`dangerText`/`statusError`…）；
+- **面/底**：`surfaceFillOf(p, role)`，role 才带点（`surface.*`），且应用 `SURFACE_*` 常量；
+- **字型+配套字色**：`typeOf('type.x')`；**品牌色**走 `core/brand.ets: brandAccent()/brandOnAccent()`（不是 role）。
+⇒ **文档写得越漂亮，实现越容易照抄记号**。这就是"知识与实现分叉"的又一例（同类见批次 23/24/26）。
+
+**同类第二入口**：`elevationColorOf(p, level)` —— 未知档**静默落 `elev1`**（错阴影，不报错）。
+
+**纪律（防复发）**：
+1. 取色**只准**用真源角色表里的名字 / `SURFACE_*`、`TYPE_*`、`ELEV_*` 常量；⛔ 组件里不写 role 字面量之外的猜测；
+2. 需要新角色 ⇒ 加进 `core/design.ets` 的角色表（⛔ 不在组件里写 hex）；
+3. **机器判据**：`tools/lint/color-roles.sh`（`tools/gate.sh` **⑥b**，**硬红**）——
+   合法集合从真源**抽取**（真源改则判据跟随）、只查字符串字面量、自带**零扫描判红**防白绿；
+   mutation 自证：注入 `colorOf(p,'text.pillName')` / `elevationColorOf(p,'elev4')` **必红**，
+   同副本不注入**必绿**（我实测过，落地时真树 32 处调用全合法 ⇒ 无存量欠账，可直接硬红）。
+4. 记号↔真 API 的映射表：`docs/DESIGN-SYSTEM.md §12`。
