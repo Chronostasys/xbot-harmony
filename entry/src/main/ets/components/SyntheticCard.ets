@@ -17,6 +17,7 @@
  */
 import { ToolProgress } from '../core/types';
 import { Effects, effectsOf, Palette, paletteOf, shadowRadiusOf } from '../core/theme';
+import { AnsiSpan, ansiBgOf, ansiFgOf, ansiPaletteOf, ansiSpansIfAny, hasAnsi } from '../core/ansi';
 import { FS_BODY, FS_CAPTION, R_LG, R_XL, SP_1, SP_2, SP_3 } from '../core/tokens';
 import {
   RADIUS_CHIP, SPACE_HAIR, SURFACE_CHIP, SURFACE_PILL, TYPE_CHIP,
@@ -100,6 +101,33 @@ export struct SyntheticCard {
     const detail: string = this.tool.detail !== undefined ? this.tool.detail : '';
     const summary: string = this.tool.summary !== undefined ? this.tool.summary : '';
     return syntheticBodyOf(this.hints(), detail, summary);
+  }
+
+  /** 正文底色（无显式前景色的 span 继承它）—— 与纯文本路径**同源**。 */
+  private bodyColor(): string {
+    return this.form() === FORM_BG_TASK ? this.pal().textSecondary : this.pal().textPrimary;
+  }
+
+  /** ANSI 16 色（按 theme 记忆化）—— 颜色**零字面量**，全走 `ansiPaletteOf(pal)`。 */
+  private ansiTheme: string = '';
+  private ansiPal: string[] = [];
+
+  private ansiColors(): string[] {
+    if (this.ansiTheme !== this.theme) {
+      this.ansiTheme = this.theme;
+      this.ansiPal = ansiPaletteOf(this.pal());
+    }
+    return this.ansiPal;
+  }
+
+  /**
+   * 正文的 **ANSI span**（注入型假工具的 `output`/`message` 也可能带终端 SGR 颜色码）。
+   * ⛔ **判据与渲染同源**：`ansiSpansIfAny` = `hasAnsi` + `parseAnsi` 同一纯函数（`core/ansi` 唯一入口，
+   * 组件**不另写** ANSI 判断）；**颜色零字面量**（取色走 `ansiFgOf`/`ansiBgOf` + 色板）。
+   */
+  private bodySpans(): AnsiSpan[] {
+    const s: AnsiSpan[] | null = ansiSpansIfAny(this.body(), this.ansiColors());
+    return s !== null ? s : [];
   }
 
   private errorText(): string {
@@ -202,14 +230,41 @@ export struct SyntheticCard {
 
       // ── 正文：结构化 output/message 优先；无 ⇒ 坦白说明（绝不空卡）────────────────
       if (this.body().length > 0) {
-        Text(this.body())
+        if (hasAnsi(this.body())) {
+          // 含终端 SGR 颜色码 ⇒ 逐 span 上色（对齐 web `AnsiText.tsx:205` 的消费点；
+          // `core/ansi` 唯一入口、判据与渲染同源、颜色零字面量）。
+          Text() {
+            ForEach(this.bodySpans(), (sp: AnsiSpan, si: number) => {
+              Span(sp.text)
+                .fontSize(this.form() === FORM_BG_TASK ? FS_CAPTION : FS_BODY)
+                .fontColor(ansiFgOf(sp, this.bodyColor()))
+                .fontWeight(sp.bold ? FontWeight.Bold : FontWeight.Normal)
+                .fontStyle(sp.italic ? FontStyle.Italic : FontStyle.Normal)
+                .decoration({
+                  type: sp.strike ? TextDecorationType.LineThrough
+                    : (sp.underline ? TextDecorationType.Underline : TextDecorationType.None),
+                  color: ansiFgOf(sp, this.bodyColor()),
+                })
+                .textBackgroundStyle({ color: ansiBgOf(sp, this.pal().transparent) })
+            }, (sp: AnsiSpan, si: number) => `sb${si}`)
+          }
           .fontSize(this.form() === FORM_BG_TASK ? FS_CAPTION : FS_BODY)
           .fontFamily(this.form() === FORM_BG_TASK ? 'monospace' : 'sans-serif')
-          .fontColor(this.form() === FORM_BG_TASK ? this.pal().textSecondary : this.pal().textPrimary)
+          .fontColor(this.bodyColor())
           .width('100%')
           .wordBreak(WordBreak.BREAK_WORD)
           .textAlign(TextAlign.Start)
           .copyOption(CopyOptions.LocalDevice)
+        } else {
+          Text(this.body())
+            .fontSize(this.form() === FORM_BG_TASK ? FS_CAPTION : FS_BODY)
+            .fontFamily(this.form() === FORM_BG_TASK ? 'monospace' : 'sans-serif')
+            .fontColor(this.form() === FORM_BG_TASK ? this.pal().textSecondary : this.pal().textPrimary)
+            .width('100%')
+            .wordBreak(WordBreak.BREAK_WORD)
+            .textAlign(TextAlign.Start)
+            .copyOption(CopyOptions.LocalDevice)
+        }
       } else {
         Text('历史记录未包含结构化详情')
           .fontSize(FS_CAPTION)

@@ -44,19 +44,26 @@ function countOf(src: string, needle: string): number {
 
 const MSG: string = 'MessageRow.ets';
 const TV: string = 'ToolVisual.ets';
+const SC: string = 'SyntheticCard.ets';
 const msgSrc: string = stripComments(fs.readFileSync(path.join(CDIR, MSG), 'utf8'));
 const tvSrc: string = stripComments(fs.readFileSync(path.join(CDIR, TV), 'utf8'));
+const scSrc: string = stripComments(fs.readFileSync(path.join(CDIR, SC), 'utf8'));
 
 // ── 扫描器自证：扫了哪些文件 + 逐文件计数 ─────────────────────────────────────────────
 console.log(`  ansi-scan dir=${CDIR}`);
-console.log(`  ansi-scan files: ${MSG}, ${TV}`);
+console.log(`  ansi-scan files: ${MSG}, ${TV}, ${SC}`);
 const msgCalls: number = countOf(msgSrc, 'ansiSpansIfAny(');
 const msgImport: number = countOf(msgSrc, "from '../core/ansi'");
 const tvFg: number = countOf(tvSrc, 'ansiFgOf(');
 const tvBg: number = countOf(tvSrc, 'ansiBgOf(');
 const tvSlot: number = countOf(tvSrc, 'labelSpans');
+const scCalls: number = countOf(scSrc, 'ansiSpansIfAny(');
+const scImport: number = countOf(scSrc, "from '../core/ansi'");
+const scFg: number = countOf(scSrc, 'ansiFgOf(');
+const scBg: number = countOf(scSrc, 'ansiBgOf(');
 console.log(`  ansi-scan ${MSG}: ansiSpansIfAny(=${msgCalls} import=${msgImport}`);
 console.log(`  ansi-scan ${TV}: ansiFgOf(=${tvFg} ansiBgOf(=${tvBg} labelSpans=${tvSlot}`);
+console.log(`  ansi-scan ${SC}: ansiSpansIfAny(=${scCalls} import=${scImport} ansiFgOf(=${scFg} ansiBgOf(=${scBg}`);
 
 // ── ① MessageRow：真 import + `ansiSpansIfAny(` 生产调用点 ────────────────────────────
 ok(`MessageRow 真 import core/ansi（${msgImport} ≥ 1）`, msgImport >= 1);
@@ -67,8 +74,15 @@ ok(`ToolVisual 逐 span 取前景色 ansiFgOf(（${tvFg} ≥ 1）`, tvFg >= 1);
 ok(`ToolVisual 逐 span 取背景色 ansiBgOf(（${tvBg} ≥ 1）`, tvBg >= 1);
 ok(`ToolVisual 有 labelSpans 入口（${tvSlot} ≥ 2：声明 + 使用）`, tvSlot >= 2);
 
+// ── ③ SyntheticCard（注入型假工具正文 = 工具输出）：同源入口 + 逐 span 取色 ──────────
+ok(`SyntheticCard 真 import core/ansi（${scImport} ≥ 1）`, scImport >= 1);
+ok(`SyntheticCard 有 ansiSpansIfAny( 生产调用点（${scCalls} ≥ 1）`, scCalls >= 1);
+ok(`SyntheticCard 逐 span 取前景色 ansiFgOf(（${scFg} ≥ 1）`, scFg >= 1);
+ok(`SyntheticCard 逐 span 取背景色 ansiBgOf(（${scBg} ≥ 1）`, scBg >= 1);
+
 // ── 零扫描判红：链接线调用点合计必须 > 0（扫描器与真源脱节 ⇒ 红）──────────────────────
-ok('零扫描判红：AnsiText 接线调用点合计 > 0', msgCalls + msgImport + tvFg + tvBg > 0);
+ok('零扫描判红：AnsiText 接线调用点合计 > 0',
+  msgCalls + msgImport + tvFg + tvBg + scCalls + scImport > 0);
 
 console.log(`  ansi-wiring: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
