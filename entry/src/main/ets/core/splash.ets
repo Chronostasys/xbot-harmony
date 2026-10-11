@@ -26,9 +26,10 @@ import { darkPalette } from './theme';
 import {
   MOTION_BASE_MS, MOTION_SLOW_MS, MOTION_FAST_MS,
   MOTION_MIN_DWELL_MS, MOTION_SPLASH_TIMEOUT_MS, MOTION_ENTER_SCALE,
+  MOTION_SPLASH_MARK_VP,
 } from './motion';
 import { EASE_SPRING_CSS, EASE_OUT_CSS } from './tokens';
-import { SPACE_SM, SPACE_XXL } from './design';
+import { SPACE_SM } from './design';
 import { MARK_LADDER_FULL } from './brand';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -151,13 +152,15 @@ export const SPLASH_HINT_FADE_MS: number = MOTION_FAST_MS;
 export const SPLASH_HINT_ENTER_OPACITY: number = 0;
 
 // ── 标记展示尺寸 ─────────────────────────────────────────────────────────────
-/** 标记盒相对 `space.xxl` 的倍数（**布局档**，非动效时长）。 */
+/** 标记盒相对 `space.xxl` 的倍数（**布局档**，非动效时长；`tools/tests/splash.test.ts` 仍按 `SPACE_XXL × 本值` 复核）。 */
 export const SPLASH_MARK_BOX_MULT: number = 5;
 /**
- * 标记展示盒边长（vp）= `5 × space.xxl(32)` = **160vp**。
- * 缺档⑥：`spaceRoles()` 只到 `xxl=32`，无"开屏标记盒"档（建议提升为底座尺寸档）。
+ * 标记展示盒边长（vp）= `MOTION_SPLASH_MARK_VP` = **160vp**。
+ * ⛔ 真源 = `core/motion.ets:MOTION_SPLASH_MARK_VP`（= `SP_8 × 5` = `space.xxl(32) × 5`）；
+ *    本名是**别名**（此前此处独立写 `SPACE_XXL × SPLASH_MARK_BOX_MULT`，与底座**双来源 = 漂移隐患**，
+ *    2026-10-11 动效「单一来源」收敛），⛔ 不再复制数值。
  */
-export const SPLASH_MARK_BOX_VP: number = SPACE_XXL * SPLASH_MARK_BOX_MULT;
+export const SPLASH_MARK_BOX_VP: number = MOTION_SPLASH_MARK_VP;
 
 /** 判定标记档位时用的**参考边长**（vp）—— 开屏标记远大于 `MARK_MIN_GLYPH_VP`(24) ⇒ 不会退 wordmark。 */
 export const SPLASH_MARK_REF_VP: number = SPLASH_MARK_BOX_VP;

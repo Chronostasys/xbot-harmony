@@ -27,6 +27,7 @@ export {};
 
 import {
   SPLASH_MIN_DWELL_MS, SPLASH_TIMEOUT_MS, SPLASH_MARK_ENTER_SCALE,
+  SPLASH_MARK_BOX_VP, SPLASH_MARK_REF_VP,
   SPLASH_ENTER_MS, SPLASH_EXIT_MS, SPLASH_TOTAL_MS,
   SPLASH_HINT_DELAY_MS, SPLASH_HINT_FADE_MS,
   SPLASH_T1, SPLASH_T2, SPLASH_T3,
@@ -35,6 +36,7 @@ import {
 import {
   MOTION_BASE_MS, MOTION_FAST_MS, MOTION_SLOW_MS,
   MOTION_MIN_DWELL_MS, MOTION_SPLASH_TIMEOUT_MS, MOTION_ENTER_SCALE,
+  MOTION_SPLASH_MARK_VP,
 } from '../../entry/src/main/ets/core/motion';
 import {
   MOTION_BREATH_MS as DESIGN_BREATH_MS, MOTION_BEAT_MS as DESIGN_BEAT_MS,
@@ -104,6 +106,10 @@ ok('⛔ splash.ets: 不再引用 ORB_BREATH_MS（真源已换 MOTION_SPLASH_TIME
 ok('splash.ets: SPLASH_MARK_ENTER_SCALE 是别名（= MOTION_ENTER_SCALE）',
   splashSrc.indexOf('export const SPLASH_MARK_ENTER_SCALE: number = MOTION_ENTER_SCALE;') >= 0);
 ok('⛔ splash.ets: 不再有裸 0.92 字面量（复制数值）', splashSrc.indexOf('= 0.92;') < 0);
+ok('splash.ets: SPLASH_MARK_BOX_VP 是别名（= MOTION_SPLASH_MARK_VP，第 4 个同类双来源）',
+  splashSrc.indexOf('export const SPLASH_MARK_BOX_VP: number = MOTION_SPLASH_MARK_VP;') >= 0);
+ok('⛔ splash.ets: SPLASH_MARK_BOX_VP 不再独立写 SPACE_XXL * SPLASH_MARK_BOX_MULT（复制数值）',
+  splashSrc.indexOf('SPLASH_MARK_BOX_VP: number = SPACE_XXL') < 0);
 
 // ② core/design.ets 与 components/anim.ets **同源**（同一底座表达式，非"巧合同值"）
 const designSrc: string = readSrc('core/design.ets');
@@ -157,6 +163,11 @@ eq('SPLASH_MARK_ENTER_SCALE = 0.92（旧值不变）', SPLASH_MARK_ENTER_SCALE, 
 eq('MOTION_MIN_DWELL_MS = 400（底座真源不变）', MOTION_MIN_DWELL_MS, 400);
 eq('MOTION_SPLASH_TIMEOUT_MS = 2560（底座真源不变）', MOTION_SPLASH_TIMEOUT_MS, 2560);
 eq('MOTION_ENTER_SCALE = 0.92（底座真源不变）', MOTION_ENTER_SCALE, 0.92);
+// 第 4 个同类双来源：标记盒边长（值 160 不变）。
+eq('SPLASH_MARK_BOX_VP === MOTION_SPLASH_MARK_VP', SPLASH_MARK_BOX_VP, MOTION_SPLASH_MARK_VP);
+eq('SPLASH_MARK_BOX_VP = 160（旧值不变）', SPLASH_MARK_BOX_VP, 160);
+eq('MOTION_SPLASH_MARK_VP = 160（底座真源不变）', MOTION_SPLASH_MARK_VP, 160);
+eq('SPLASH_MARK_REF_VP === SPLASH_MARK_BOX_VP（不变）', SPLASH_MARK_REF_VP, SPLASH_MARK_BOX_VP);
 // 呼吸/细节拍：同源 + 值不变。
 eq('design.MOTION_BREATH_MS === ORB_BREATH_MS（同源）', DESIGN_BREATH_MS, ORB_BREATH_MS);
 eq('design.MOTION_BREATH_MS = 2560（旧值不变）', DESIGN_BREATH_MS, 2560);

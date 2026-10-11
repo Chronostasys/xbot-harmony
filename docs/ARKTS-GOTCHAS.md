@@ -1272,3 +1272,19 @@ this[closeFlagOf('drawer')] = false;   // ⛔ ArkTS 禁动态属性 —— 不�
   还原备份 ⇒ **28 passed / 0 failed**（绿）。
 - **教训**：判据要**钉"值变化通道"这一抽象**，而不是逐个 bug 打补丁 —— 本轮四个出口（一次性求值 / 快照 /
   缓存键 / 列表项）是同一个病因的四种表现，一次钉住三处、第四处（列表项）留作警告并写明"为什么不敢硬红"。
+
+## 批次 38（2026-10-11，main agent 目标⑤ 裁决）：**`MessageRow` 入场过渡「就地构造」是有意的**（⛔ 别顺手"收敛"它）
+
+`components/MessageRow.ets` 的 `entryTransition()` **就地**构造出现过渡 —— 组合
+`TransitionEffect.OPACITY` ⊕ `TransitionEffect.translate({ y: entryStartDy() })`，时长取 `animMsgIn()`
+—— **不经** `components/anim.ets` 的具名工厂。**这是有意为之，不是疏漏**：
+
+- 若收进 `anim.ets` 具名工厂（如 `msgRowTransition()`），会给底座**新增 2 处 `.animation(`**
+  ⇒ 撞 `tools/tests/motion_budget.test.ts` 的台账 `['components/anim.ets', 6]`（本仓铁律「动效只许减」）；
+- 且 `.combine()` 下两处 `.animation()` 的**组合语义**（`component/common.d.ts`：combine 时 animation 作用于
+  "后一个"）**无法脱机证明等价**（静息观感不得变），naive 收敛要顺带重构 `sheetTransition`/`toastTransition`/
+  `lightboxTransition` **三个既有工厂**（各有 ≥1 真机验收过的观感）。
+- **裁决（2026-10-11，main agent）**：收益 = "单一来源"（**架构**）；代价 = 三工厂回归风险 ⇒ **不成比例** ⇒
+  本轮**暂不收敛**。⇒ ⛔ 未把该处钉进任何"必须走工厂"的判据（`motion_uniform` rule D 只抓
+  `.transition(TransitionEffect…`，抓不到 `entryTransition()` 的返回体）—— 属**已知的有意豁免**，
+  若将来真要收，须先补"组合语义等价"的判据再动。
