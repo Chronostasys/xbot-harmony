@@ -463,3 +463,40 @@ export function annotatedMessageDisplay(content: string, t: Translate): string {
   for (let i = 0; i < segs.length; i++) { if (segs[i].length > 0) { kept.push(segs[i]); } }
   return kept.join('\n\n');
 }
+
+/**
+ * 原生**纯文本**展示（宿主普通 `Text` 专用）—— 出站信封 ⇒ 可读纯文本；非信封 ⇒ **逐字原样**。
+ *
+ * ── 为什么不用 `annotatedMessageDisplay` 的输出直接渲染（本仓真缺陷：裸 XML 上屏）──────
+ *   ① 后端/其它端（web、ArkWeb 网页模式）发出的**带批注 user 消息**，其 `content` 是出站信封；
+ *      原生若直接 `Text(content)` ⇒ 用户看到一大坨 `<response-annotations>…`（裸 XML）。
+ *   ② 但 `annotatedMessageDisplay` 产出的是 **Markdown**（`### ` 标题 / `**加粗**` / ```text 围栏
+ *      —— 见本文件 `:452-456`）；原生那个 `Text` 会把记号**原样上屏**（"假装渲染"）。
+ *   ③ ⛔ "事后正则剥离记号"**不安全**：`parsed.body` 是**用户自己的正文**（必须逐字保留），
+ *      其中本就可能含 `### `/`**`/反引号行 ⇒ 剥离会**删掉用户内容**（实测：body = `# My heading`
+ *      会被误改成 `My heading`）。
+ *   ⇒ 改为**从 `parseAnnotatedMessage` 的结构直接拼纯文本**：只由本函数注入**标签行**，
+ *      用户内容（body / quote / comment）**逐字保留**、不注入任何 markdown 记号、也不剥离既有字符。
+ *
+ *   （web 侧该展示走 Markdown 渲染器 `UserMessage.tsx:68`；原生渲染 Markdown 的是
+ *    `components/MarkdownView.ets` —— 高频热点/他域，本修复**刻意不依赖它**。）
+ *
+ * 上限/形状校验复用同一份 `parseAnnotatedMessage`（与 web 同判据）；非信封 ⇒ 原样返回，零回归。
+ */
+export function annotatedMessagePlainText(content: string, t: Translate): string {
+  const parsed: ParsedAnnotatedMessage | null = parseAnnotatedMessage(content);
+  if (parsed === null) { return content; }
+  const parts: string[] = [];
+  if (parsed.body.length > 0) { parts.push(parsed.body); }
+  const head: string = t('agent.annotations.feedbackHeading');
+  if (head.length > 0) { parts.push(head); }
+  for (let i = 0; i < parsed.annotations.length; i++) {
+    const item: ResponseAnnotation = parsed.annotations[i];
+    parts.push(t('agent.annotations.item', i + 1));
+    parts.push(`${t('agent.annotations.quote')}\n${item.text}`);
+    parts.push(`${t('agent.annotations.comment')}\n${item.annotation}`);
+  }
+  const kept: string[] = [];
+  for (let i = 0; i < parts.length; i++) { if (parts[i].length > 0) { kept.push(parts[i]); } }
+  return kept.join('\n\n');
+}

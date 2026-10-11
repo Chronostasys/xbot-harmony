@@ -20,6 +20,25 @@ import { Palette, paletteOf } from '../core/theme';
 import { BUBBLE } from '../core/bubble';
 import { UserBubbleFace, userBubbleFace } from '../core/bubbleview';
 import { GAP_ROW_Y, INSET_BUBBLE_X, INSET_BUBBLE_Y, RADIUS_BUBBLE, typeOf } from '../core/design';
+import { annotatedMessagePlainText } from '../core/annotations';
+
+/**
+ * 批注展示的**文案表**（逐字对齐 web `i18n/zh-CN.ts:451-461` 的 `agent.annotations.*`）。
+ *
+ * ⛔ 为什么放在这里而不是 `core/i18n.ets`：原生 i18n 目前**只有 locale 清单、没有文案表**
+ *   （全 UI 文案硬编码，见 `core/i18n.ets` 头注释）⇒ 这里只给展示函数注入它需要的 4 个 key，
+ *   与"原生 UI 文案 = 硬编码中文"的现状同款；英/日在原生端尚未接入（与其余 UI 一致）。
+ *
+ * ⚠️ 必须逐字对齐 web：`feedbackHeading` 是**发给用户的显示文案**，若与 web 分叉，
+ *   同一份信封在两端显示不同 ⇒ 本函数是"展示侧"的真源之一。
+ */
+function annotationLabel(key: string, num?: number): string {
+  if (key === 'agent.annotations.item') { return `批注 ${num !== undefined ? num : 1}`; }
+  if (key === 'agent.annotations.quote') { return '所选文本'; }
+  if (key === 'agent.annotations.comment') { return '用户评论'; }
+  if (key === 'agent.annotations.feedbackHeading') { return '针对本会话之前的回答，补充以下批注反馈：'; }
+  return '';
+}
 
 @Component
 export struct UserBubbleView {
@@ -59,7 +78,11 @@ export struct UserBubbleView {
   build() {
     Row() {
       Blank()
-      Text(this.text)
+      // 展示侧修复（2026-10-11）：后端/其它端发的**带批注 user 消息**其 content 是出站信封
+      //（`# Response annotations:\n…<response-annotations>…</response-annotations>\n\n# My request:\n正文`）
+      // ⇒ 直接 `Text(content)` 会把**裸 XML 上屏**。改经 `core/annotations.annotatedMessagePlainText`
+      // 转成**纯文本**（非信封 ⇒ 逐字原样，零回归）。该函数属 `core/`，纯函数、有脱机单测。
+      Text(annotatedMessagePlainText(this.text, annotationLabel))
         .wordBreak(WordBreak.BREAK_ALL)
         // 字号走语义层 `type.body`（15fp）；文字色 = 与淡色底配对的 `textPrimary`（web `text-text-primary`）。
         // ⛔ 不再用 `onAccent`（那是"实心 accent 之上的字"的角色，与 accent@15% 淡底不匹配）。
