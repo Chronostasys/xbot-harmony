@@ -295,7 +295,17 @@ export struct MarkdownView {
                 .margin({ top: SPACE_HAIR })
                 .flexShrink(0)
             }
-            this.Inline(item, this.pal().textPrimary)
+            // ⛔ P0（用户报「含列表项时该行最后若干字符超出屏宽」的真因）：
+            //    `Inline(...)` 内部是 `.width('100%')` 的 `Text`，**直接放进 `Row` 里**
+            //    ⇒ 子弹头宽度 + `space:6` 之外**还要再占满父 Row 的 100%** ⇒ 每行右侧稳定
+            //    溢出 (`子弹头+6`)。正文段落无此病（495-509 已修同类：Text 在 Column 里，
+            //    100% 即父宽）。修 = 用 `layoutWeight(1)` 容器吃掉"剩余宽度"，
+            //    内层 Text 的 100% 于是 = 剩余宽 ✓（本仓既有范式：第 438/638 行）。
+            Column() {
+              this.Inline(item, this.pal().textPrimary)
+            }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
           }
           .width('100%')
           .alignItems(VerticalAlign.Top)
