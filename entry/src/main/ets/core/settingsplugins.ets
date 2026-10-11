@@ -68,9 +68,13 @@ export function normalizeFieldType(t: string | null | undefined): string {
  * ⛔ `unknown` 同理（连语义都不知道，不能编辑）。
  */
 export function isFieldEditable(kind: string): boolean {
+  // ⚠️ 2026-10-11 裁决：`unknown` **改为可编辑**（对齐 web —— web 的 `default` 分支
+  //    `SettingsPlugins.tsx:636-646` 对未知类型就是**可编辑文本框**）。本仓是 web 权威的移植，
+  //    "不猜"的价值改由**保守写入**实现：读原值原样显示、写前 `validateValue` 不过就不发、
+  //    服务端拒收则只报错**不覆盖**（`writeValue` 的既有行为）。⛔ image 仍不在此列（有专门上传值区）。
   return kind === PLUGIN_FIELD_BOOLEAN || kind === PLUGIN_FIELD_STRING
     || kind === PLUGIN_FIELD_NUMBER || kind === PLUGIN_FIELD_SELECT
-    || kind === PLUGIN_FIELD_MULTISELECT;
+    || kind === PLUGIN_FIELD_MULTISELECT || kind === PLUGIN_FIELD_UNKNOWN;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -467,7 +471,8 @@ export function displayValue(prop: PluginConfigProperty, v: ConfigValue): string
     return optionLabel(prop, v.s);
   }
   if (prop.kind === PLUGIN_FIELD_UNKNOWN) {
-    return '（不支持的类型）';
+    // 对齐 web：未知类型是**可编辑文本框** ⇒ **原值原样显示**（不再一刀切「不支持」）。
+    return v.s.length > 0 ? v.s : '（未知类型，当前为空）';
   }
   return prop.secret ? maskedSecret(v.s) : v.s;
 }
@@ -478,7 +483,7 @@ export function textInputValue(prop: PluginConfigProperty, v: ConfigValue): stri
     return `${v.n}`;
   }
   if (prop.kind === PLUGIN_FIELD_STRING || prop.kind === PLUGIN_FIELD_SELECT
-    || prop.kind === PLUGIN_FIELD_IMAGE) {
+    || prop.kind === PLUGIN_FIELD_IMAGE || prop.kind === PLUGIN_FIELD_UNKNOWN) {
     return v.s;
   }
   return '';

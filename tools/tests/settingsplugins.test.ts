@@ -98,7 +98,7 @@ const bad: PluginConfigCatalog = parsePluginConfig({
   }],
 } as Object);
 eq('未知 type ⇒ unknown（不猜成 string）', bad.entries[0].properties[0].kind, PLUGIN_FIELD_UNKNOWN);
-eq('未知 type 不可编辑', bad.entries[0].properties[0].editable, false);
+eq('未知 type ⇒ 可编辑（2026-10-11 对齐 web default 分支）', bad.entries[0].properties[0].editable, true);
 eq('缺 type ⇒ unknown', bad.entries[0].properties[1].kind, PLUGIN_FIELD_UNKNOWN);
 eq('option 为 null ⇒ 跳过（不炸）', bad.entries[0].properties[1].options.length, 1);
 eq('option 缺 value ⇒ 空串', bad.entries[0].properties[1].options[0].value, '');
@@ -113,7 +113,8 @@ eq('可编辑性：boolean/string/number/select/multiselect 都可编辑',
   [PLUGIN_FIELD_BOOLEAN, PLUGIN_FIELD_STRING, PLUGIN_FIELD_NUMBER, PLUGIN_FIELD_SELECT,
     PLUGIN_FIELD_MULTISELECT].map(isFieldEditable), [true, true, true, true, true]);
 eq('可编辑性：image 不可编辑（本期无上传）', isFieldEditable(PLUGIN_FIELD_IMAGE), false);
-eq('可编辑性：unknown 不可编辑', isFieldEditable(PLUGIN_FIELD_UNKNOWN), false);
+eq('可编辑性：unknown 可编辑（对齐 web；保守写入靠 validateValue + 服务端拒收不覆盖）',
+  isFieldEditable(PLUGIN_FIELD_UNKNOWN), true);
 
 eq('readValue：boolean 只认真 bool', readValue(PLUGIN_FIELD_BOOLEAN, 'true').b, false);
 eq('readValue：boolean 真值', readValue(PLUGIN_FIELD_BOOLEAN, true).b, true);
@@ -368,8 +369,9 @@ const componentPath = pathMod.join(
   eq('★E string ⇒ text', pluginControlKind(PLUGIN_FIELD_STRING), 'text');
   eq('★E image ⇒ image 档（**不是 static** —— 它有上传值区；2026-10-11 修映射分叉）',
     pluginControlKind(PLUGIN_FIELD_IMAGE), 'image');
-  eq('★E unknown ⇒ static', pluginControlKind(PLUGIN_FIELD_UNKNOWN), 'static');
-  eq('★E 未知类型（协议新增）也 ⇒ static（不猜）', pluginControlKind('whatever'), 'static');
+  eq('★E unknown ⇒ text 档（对齐 web default 文本框）', pluginControlKind(PLUGIN_FIELD_UNKNOWN), 'text');
+  eq('★E 未归一化的杂类 kind ⇒ static（只读；kind 必须先过 normalizeFieldType）',
+    pluginControlKind('whatever'), 'static');
   eq('★E 空类型 ⇒ static', pluginControlKind(''), 'static');
 }
 

@@ -317,6 +317,24 @@ grep -E "XBOTPROBE|XBOT-PROBE|ARKWEB-CONSOLE" /tmp/h.txt
   通过后由 web 先定 **`window 'xbot:bridge'` 事件 + `xbotNative.postMessage`** 契约，
   原生再按契约接线。**顺序反了就是造契约。**
 
+### 8.7 插件配置字段：**形态差异裁决**（2026-10-11，避免被当缺口反复讨论）
+
+**A. `select` 用 chips，不用下拉 —— 保留（形态差异，非缺口）**
+- web 用下拉：`SettingsPlugins.tsx:611-628`（`<Select>` + `SelectTrigger/SelectContent/SelectItem`）。
+- 原生用 **chips（可点标签）**（`core/settingsplugins.ets:pluginControlKind ⇒ PLUGIN_CTRL_CHIPS`）。
+- **为什么保留 chips**：① 移动端 chips 命中区更大、更可点（本仓 `HIT_TARGET_MIN` 纪律）；
+  ② 与 web 的**无障碍树**语义一致（都是"一组选项 + 当前选中"，原生 chip 同步 `onAccent` 选中态）；
+  ③ `multiselect` 本来就是 chips（web `:668-699`），单/多选形态统一反而更好懂。
+- ⇒ **裁决：保留**。以后再看到"web 是下拉"，按本条处理，别当缺口。
+
+**B. 未知类型（`normalizeFieldType ⇒ unknown`）⇒ 对齐 web（可编辑文本框）**
+- web `default` 分支（`SettingsPlugins.tsx:636-646`）对**任何**未知类型都渲染**可编辑 `<Input>`**
+  ⇒ 原生此前 `static` 只读**不一致**；2026-10-11 裁决**对齐 web**（`isFieldEditable(unknown)=true`、
+  `pluginControlKind(unknown)=text`、`textInputValue/displayValue` 原值原样）。
+- "不猜"的价值改由**保守写入**承载：`validateValue` 不过就不发（`core/settingsplugins.ets`），
+  服务端拒收只报错、**不覆盖**本地值（`components/SettingsPlugins.ets:writeValue` 既有行为）。
+- ⚠️ `image` 仍是**独立一档**（`PLUGIN_CTRL_IMAGE`，有专门上传值区），**不**走 unknown/text。
+
 ## 9. 设置「服务端配置面」parity（2026-10-11 调研，任务3 波2）
 
 web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language）已对齐（§1、任务3 波1）；
