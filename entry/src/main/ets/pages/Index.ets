@@ -70,7 +70,8 @@ import {
 } from '../core/llmfmt';
 import {
   AskAnswerInput, COPY_RAW, COPY_REPLY, COPY_THINKING, COPY_TOOLS, CopyParts, composeCopy, linkLabel,
-  linksIn, mergeAskAnswers, resolveOpenable, RewindTarget, toolArgsOnly, toolCopyText, toolResultOnly,
+  linksIn, mergeAskAnswers, PendingEdit, resolveOpenable, RewindTarget, toolArgsOnly, toolCopyText,
+  toolResultOnly,
 } from '../core/msgops';
 import {
   AskOption,
@@ -241,6 +242,18 @@ function selectionsFor(ask: AskUserPrompt | null): AskSelection[] {
     out.push(sel);
   }
   return out;
+}
+
+/**
+ * todos 指纹（乐观覆盖层与同步**共用同一口径** —— 两处必须逐字一致，否则永不收敛）。
+ * 模块级函数：ArkUI struct 的静态成员在真机上是 undefined。
+ */
+function todosFpOf(todos: TodoItem[]): string {
+  const parts: string[] = [];
+  for (let i = 0; i < todos.length; i++) {
+    parts.push(`${todos[i].status}#${todos[i].text}`);
+  }
+  return `${todos.length}|${parts.join(',')}`;
 }
 
 /**
@@ -603,6 +616,9 @@ struct Index {
 
   // ── 显示设置 ──────────────────────────────────────────────────────────────
   @State showReasoning: boolean = true;
+
+  /** todos 的乐观覆盖层（web `usePendingEdit.ts:57-95`）：本地勾选/改名不被更旧的快照盖掉。 */
+  private pendingTodos: PendingEdit = new PendingEdit();
 
   private store: ChatStore | null = null;
   /** 合并同步用：待同步的 store 与"已排帧"标志（见 scheduleSync） */
@@ -1025,6 +1041,7 @@ struct Index {
       this.sessionsFp = '';
       this.queueFp = '';
       this.todosFp = '';   // 逐一会话作废（见下）
+      this.pendingTodos.discard();   // 乐观覆盖层随会话作废（否则会挡住新会话的快照）
     }
     const sessFp: string = this.fingerprintSessions(store.sessions, store.currentChatId);
     if (sessFp !== this.sessionsFp) {
@@ -1063,8 +1080,10 @@ struct Index {
     }
     this.usage = store.usage;
     this.cwd = store.cwd;
-    const todosFp: string = `${store.todos.length}|${store.todos.map((t: TodoItem) => `${t.status}#${t.text}`).join(',')}`;
-    if (todosFp !== this.todosFp) {
+    const todosFp: string = todosFpOf(store.todos);
+    if (this.pendingTodos.accepts(todosFp)) {
+      // 本地乐观编辑尚未收敛：忽略（可能更旧的）服务端快照，保持本地覆盖（web usePendingEdit）。
+    } else if (todosFp !== this.todosFp) {
       this.todosFp = todosFp;
       this.todos = store.todos.slice();
     }
@@ -1924,10 +1943,16 @@ struct Index {
     if (store === null) {
       return;
     }
+    // 乐观覆盖（web `usePendingEdit`）：立即本地生效 + 记 pending，挡住在途的**更旧**快照。
+    this.pendingTodos.commit(todosFpOf(next));
+    this.todos = next;
+    this.todosFp = todosFpOf(next);
     try {
       await rpc<Object>(store.http, 'set_todos',
         new SetTodosParams(store.channel, store.currentChatId, todoPayloadRows(next)));
     } catch (e) {
+      // 失败：放弃本地覆盖，下一次同步回落到服务端权威值
+      this.pendingTodos.discard();
       this.toast(`更新清单失败: ${errText(e as Object)}`);
     }
   }

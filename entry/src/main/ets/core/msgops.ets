@@ -249,6 +249,61 @@ export function mergeAskAnswers(inputs: AskAnswerInput[]): Record<string, string
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 乐观覆盖层（pending edit）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 乐观覆盖层（web `hooks/usePendingEdit.ts:57-95` 的等价纯逻辑）：用户本地编辑
+ * （todos / goal）在服务端权威快照收敛回来之前，**不被更旧的快照盖掉**。
+ *
+ * 背景：原生每次 `onUpdate` 都无条件 `this.todos = store.todos.slice()` ⇒ 用户刚勾选/改名后，
+ * 一个**更旧的**进度快照回来就会把界面**回退**（web 用 usePendingEdit 挡住这种乱序）。
+ *
+ * 用法：本地编辑时 `commit(want)`（want = 期望值的指纹）；每次服务端快照到达时调
+ * `accepts(snapshot)`：
+ *   · 快照 == want ⇒ 已收敛，清 pending、返回 false（可安全用快照值）；
+ *   · 否则（更旧的快照）⇒ 保持本地覆盖、返回 true（调用方**不**用快照覆盖界面）。
+ * `gen` 单调自增，供调用方做乱序防护。
+ */
+export class PendingEdit {
+  private active: boolean = false;
+  private want: string = '';
+  private gen: number = 0;
+
+  /** 是否有一笔未收敛的本地编辑。 */
+  isPending(): boolean {
+    return this.active;
+  }
+
+  /** 本地提交（乐观）：进入 pending，记录期望指纹，返回本次序号（单调，防乱序）。 */
+  commit(want: string): number {
+    this.active = true;
+    this.want = want;
+    this.gen++;
+    return this.gen;
+  }
+
+  /** 服务端快照到达：收敛 ⇒ 清 pending、返回 false；否则保持 pending、返回 true。 */
+  accepts(snapshot: string): boolean {
+    if (!this.active) {
+      return false;
+    }
+    if (snapshot === this.want) {
+      this.active = false;
+      this.want = '';
+      return false;
+    }
+    return true;
+  }
+
+  /** 放弃本地覆盖（改失败 / 切会话时）。 */
+  discard(): void {
+    this.active = false;
+    this.want = '';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // rewind（消息编辑并重发 / 回退）
 // ─────────────────────────────────────────────────────────────────────────────
 
