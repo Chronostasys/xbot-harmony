@@ -716,9 +716,9 @@ thinking（4 档）、tier（3 档）、provider（2）、api_type（2）、CTX/
 | 模型 / LLM | thinking + 并发 + tier×3 + **订阅 CRUD + 导入导出 + 按模型配置** | thinking + 并发 + tier×3 + 订阅启停/默认 + 新增/编辑 + 模型管理 + 导入导出订阅 + **按模型配置（context/output/api_type/vision+detail）** | ✅（**2026-10-11 复核订正**：原标 ⚠️「完整度不及 web」是**误判** —— `components/SettingsLlm.ets:735-784` 的 `ModelConfigEditor` 已逐字段覆盖 web `llm-console.tsx` 的五项，预设表同源 `core/permodelcfg`） |
 | 消息渠道 | web 渠道 + 插件渠道 + 飞书绑定 | schema 驱动（飞书绑定有） | ⚠️ 渠道集较小 |
 | 存储 | schema 驱动（static/oss…） | 同 | ✅ |
-| 账号 | 用户名 + 退出 | 同 | ✅ |
+| 账号 | 用户名 + 退出 | 退出（两步确认） | ⚠️ **2026-10-11 复核订正**：**用户名恒不显示**（G1 —— `SettingsPanel.ets:395` 未把 `username` 传给 `SettingsAccount`，且该组件无此成员 ⇒ 恒回落「当前登录账号」；`Index.ets:408` 有 `@State username` 却没透传）|
 | Web 账号 | 建/列/删（一次性密码） | 同 | ✅ |
-| 开发者 | 录制开关 + **导出 Turn/benchmark/openai/codex** | 录制开关 + 复制/清空 + **连接状态卡** | ⚠️ **缺导出按钮**（`core/export.ets` 逻辑已在，**未接线**） |
+| 开发者 | 录制开关 + **导出 Turn/benchmark/openai/codex** | 录制开关 + 复制/清空 + **连接状态卡** + 导出 native/Turn/Multica/benchmark | ⚠️ **缺 openai / codex 两个导出按钮**（⚠️ **2026-10-11 复核订正**：原文"缺导出按钮·未接线"**已过时** —— `Index.ets:3235` 已注入 `http/channel/chatID`、4 个导出动作**已接线可点**；真实缺口 = `exportActions()` 未列 `toOpenAiJson`/`toCodexJsonl`（实现已在，见 G2/G3）） |
 | 布局 | slot 选择 + 重置（VSCode 式面板布局） | **无** | ❌（**N/A**：原生单布局，无 dock 概念） |
 | 插件 | 搜索 + 配置字段（number 滑条 / multiselect / image 上传） | 配置字段（Toggle/Text/Chip；**image 禁编辑**）+ 启停 + 重载 | ⚠️ 控件类型较少 |
 | 关于 | 版本 + 更新 + 重启 + **PWA 安装** | 版本/提交/构建/渠道/运行时/托管 + 更新 + 重启 | ✅（PWA **N/A**） |
@@ -748,7 +748,8 @@ thinking（4 档）、tier（3 档）、provider（2）、api_type（2）、CTX/
 
 **波次建议**（按文件冲突矩阵）：
 - **波 A（不占线，随时可做）**：#8（已做）· #1（`SettingsAppearance.ets`，无 Index 依赖）· #4/#5（LLM/插件组件）。
-- **波 B（等 `Index.ets` 释放）**：#2（开发者导出，需页面补传 `http`）。
+- **波 B（等 `pages/Index.ets` 释放）**：⚠️ **2026-10-11 复核订正** —— 原 #2（开发者导出）**已不需要 `Index.ets`**（`Index.ets:3235` 早已注入完整参数、4 个导出已可点）。
+  当前**真正**与 `Index.ets` 相关的设置缺口 = **G1（账号 `username` 未透传）**。
 - **不做**：#3（无 i18n 地基）· #6（服务端面）· #7（已是有意差异）。
 
 ### 17.4 本轮**已落地**（文案修正 + 判别力测试）
