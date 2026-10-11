@@ -96,6 +96,64 @@ export const NOTIFY_ID_MAX: number = 0x7FFFFFFF;
 export const NOTIFY_GROUP_NAME: string = 'xbot.chat';
 
 /**
+ * 每个**会话**一个通知组：`${NOTIFY_GROUP_NAME}#${chatId}`。
+ *
+ * SDK 依据（`api/notification/notificationRequest.d.ts:331-340` 原文）：
+ *   "When different notifications have the same **groupName**, these notifications will be
+ *    displayed as a group. **The size does not exceed 202 bytes**, and the excess part will be truncated."
+ *   ⇒ 系统**按 groupName 自动分组**；本文件**没有** `groupSummary` / `isGroupSummary` 之类的
+ *     "显式摘要通知"字段（全文件 grep 无）⇒ 不需要另发一条 summary。
+ *
+ * 为什么从"全局一个组"改成"每会话一组"：原来所有会话堆在**同一簇**里，用户看到的是
+ * "一堆混在一起的通知"；per-chat 后同一会话的 `turn_done`/`ask` 归一簇，**跨会话不混**。
+ * ⚠️ 202 字节上限：`NOTIFY_GROUP_NAME` 是固定前缀，chatId 是服务端 id（约 17 字符）⇒ 远未逼近；
+ *    仍写 `clampGroupName` 兜底（**不为未发生的输入编造裁剪逻辑之外的语义**：超限就截断，与 SDK 同行为）。
+ */
+export function notifyGroupOf(chatId: string): string {
+  const c: string = chatId !== undefined && chatId !== null ? chatId : '';
+  // 没有 chatId（理论不可达：publishTurn 恒带会话）⇒ 回落全局组，保持旧行为可辨识
+  if (c.length === 0) {
+    return NOTIFY_GROUP_NAME;
+  }
+  return clampGroupName(`${NOTIFY_GROUP_NAME}#${c}`);
+}
+
+/** groupName 字节上限（SDK 原文 202；按 UTF-8 字节裁，避免多字节被 SDK 从中间截断）。 */
+export const GROUP_NAME_MAX_BYTES: number = 202;
+
+/** 按**UTF-8 字节**截到 `GROUP_NAME_MAX_BYTES`（不抛；超限即截，与 SDK 的截断行为一致）。 */
+export function clampGroupName(s: string): string {
+  const src: string = s !== undefined && s !== null ? s : '';
+  if (utf8Len(src) <= GROUP_NAME_MAX_BYTES) {
+    return src;
+  }
+  let out: string = '';
+  let used: number = 0;
+  // 逐个码点累加，遇到下一个会越界就停（不切半个多字节字符）
+  for (let i = 0; i < src.length; i++) {
+    const ch: number = src.charCodeAt(i);
+    const w: number = ch < 0x80 ? 1 : (ch < 0x800 ? 2 : 3);
+    if (used + w > GROUP_NAME_MAX_BYTES) {
+      break;
+    }
+    out += src.charAt(i);
+    used += w;
+  }
+  return out;
+}
+
+/** UTF-8 字节长度（纯函数；用于 202 字节上限判据）。 */
+export function utf8Len(s: string): number {
+  const src: string = s !== undefined && s !== null ? s : '';
+  let n: number = 0;
+  for (let i = 0; i < src.length; i++) {
+    const c: number = src.charCodeAt(i);
+    n += c < 0x80 ? 1 : (c < 0x800 ? 2 : 3);
+  }
+  return n;
+}
+
+/**
  * FNV-1a 32 位哈希（纯函数，确定性）。
  *
  * ⚠️ **刻意不用 `Math.imul`**：它虽是 ES2015 标准，但本模块的 ArkTS 侧我无法在本轮编译验证，
@@ -1113,7 +1171,8 @@ export async function publishTurn(title: string, text: string, chatId: string): 
       // ⭐ 档位化 slot：ask = 横幅+响铃（更醒目），turn_done = 静默（见 slotTagFor 的 SDK 依据）
       notificationSlotType: slotTypeOf(slotTagFor(kind)),
       // 同一应用的所有聊天提醒归一组 ⇒ 系统可折叠展示（SDK since 8 支持）
-      groupName: NOTIFY_GROUP_NAME,
+      // ⛔ 必须经派生函数：**每会话一组**（改回常量直传 ⇒ 判据红，见 notify_group.test.ts）
+      groupName: notifyGroupOf(chatId),
       autoDeletedTime: Date.now() + AUTO_DELETE_MS,
       tapDismissed: true,
       // 同一 id 的更新是否重复响铃：turn_done 去重（phase_done 与 session idle 会各来一次），
@@ -1161,25 +1220,20 @@ export async function setBadge(n: number): Promise<boolean> {
 /**
  * 清掉本应用**全部聊天提醒**（登出/换账号等"整机清场"场景）。
  *
- * 依据（SDK）：`cancelGroup(groupName: string): Promise<void>` —— 取消**同一分组**的全部通知
- * （`@ohos.notificationManager.d.ts:644-665`，since 9）。我们的通知**全部**带
- * `groupName = NOTIFY_GROUP_NAME` ⇒ 用 `cancelGroup` 是**语义最精确**的"清场"。
+ * ⚠️ **2026-10-11 变更（per-chat 分组后必须同步）**：`groupName` 已从"全局一个组"改为
+ * `notifyGroupOf(chatId)` = **每会话一组** ⇒ 旧写法 `cancelGroup(NOTIFY_GROUP_NAME)`
+ * **再也匹配不到任何通知**（静默失效！）。故这里改为 `cancelAll()` 为主（它本就兜底）。
  * 再兜一次 `cancelAll()`：万一将来有通知落在分组之外（或分组参数没生效），也不会留僵尸。
  * 两步都 try/catch（任一步失败不阻断另一步），最后与系统对账重算角标。
  */
 export async function clearAll(): Promise<boolean> {
   let ok: boolean = false;
-  try {
-    await notificationManager.cancelGroup(NOTIFY_GROUP_NAME);
-    ok = true;
-  } catch (e) {
-    console.warn(`xbot notify: cancelGroup 失败（改走 cancelAll）: ${describeError(e as Object)}`);
-  }
+  // ⛔ 不再用 cancelGroup(全局名)：per-chat 分组下它匹配不到任何通知（静默失效）。
   try {
     await notificationManager.cancelAll();
     ok = true;
   } catch (e) {
-    // cancelAll 失败也没关系：上面 cancelGroup 已尽力
+    console.warn(`xbot notify: cancelAll 失败（忽略）: ${describeError(e as Object)}`);
   }
   unread.clear();
   lastNotifiedChatId = '';
