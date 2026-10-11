@@ -28,7 +28,10 @@
  */
 
 /** 一套语义色板。字段名就是"用途"，不是"颜色"—— 这样浅色主题才可能正确。 */
-import { SHADOW_RADIUS_CARD, SHADOW_RADIUS_OVERLAY, LIGHT_SHADOW_DIFFUSION } from './tokens';
+import {
+  SHADOW_RADIUS_CARD, SHADOW_RADIUS_OVERLAY, SHADOW_RADIUS_HERO,
+  SHADOW_RADIUS_RAISED, SHADOW_RADIUS_PILL, LIGHT_SHADOW_DIFFUSION,
+} from './tokens';
 
 export class Palette {
   /** 最底背景（页面） */
@@ -864,12 +867,21 @@ export function effectsOf(p: Palette): Effects {
  * | 深色系 | `SHADOW_RADIUS_*`（**基础档，逐字节不变**） |
  * | 浅色系 | `round(SHADOW_RADIUS_* × LIGHT_SHADOW_DIFFUSION)`（**更大**） |
  *
- * `tier==='overlay'` ⇒ `OVERLAY`（20）；其余 ⇒ `CARD`（10）。
+ * 档名 → 基础：`hero`26 / `raised`18 / `overlay`20 / `pill`14 / 其余 `card`10。
  * ⛔ 判据按 `isLightPalette(p)`；⛔ 深色臂不乘扩散。
  */
 export function shadowRadiusOf(p: Palette, tier: string): number {
-  const base: number = tier === 'overlay' ? SHADOW_RADIUS_OVERLAY : SHADOW_RADIUS_CARD;
+  const base: number = shadowRadiusBaseOf(tier);
   return isLightPalette(p) ? Math.round(base * LIGHT_SHADOW_DIFFUSION) : base;
+}
+
+/** 档名 → 基础半径（⛔ 每个档的深色值 = 迁移前调用点的**原字面量**）。 */
+function shadowRadiusBaseOf(tier: string): number {
+  if (tier === 'hero') { return SHADOW_RADIUS_HERO; }        // 26
+  if (tier === 'raised') { return SHADOW_RADIUS_RAISED; }    // 18
+  if (tier === 'pill') { return SHADOW_RADIUS_PILL; }        // 14
+  if (tier === 'overlay') { return SHADOW_RADIUS_OVERLAY; }  // 20
+  return SHADOW_RADIUS_CARD;                                 // 10（默认）
 }
 
 export function shadowColorOf(p: Palette, tier: string): string {

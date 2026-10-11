@@ -84,6 +84,10 @@ export const EASE_SPRING_OVERLAP: number = 0.0;        // 秒（不叠加）
 //    · `OVERLAY` = `SP_5` = 20（= `SPACE_LG`，AskUserMenu/StatusSheet 原用它）。
 export const SHADOW_RADIUS_CARD: number = SP_5 / 2;    // 10 —— 抬升级（卡片/内联）
 export const SHADOW_RADIUS_OVERLAY: number = SP_5;     // 20 —— 浮层级（Sheet / 菜单 / 状态）
+// 以下三档专供 `pages/Index.ets` 的投影（**深色臂 = 原字面量**，逐字节保证）：
+export const SHADOW_RADIUS_HERO: number = 26;          // 26 —— 主视觉（登录徽标投影）
+export const SHADOW_RADIUS_RAISED: number = 18;        // 18 —— 抬升按钮（登录 CTA）
+export const SHADOW_RADIUS_PILL: number = 14;          // 14 —— 药丸控件（发送钮）
 /** 浅色系**半径扩散系数**（>1 ⇒ 浅色柔影更"软"）。⛔ 深色臂不乘（逐字节不变）。 */
 export const LIGHT_SHADOW_DIFFUSION: number = 1.5;
 

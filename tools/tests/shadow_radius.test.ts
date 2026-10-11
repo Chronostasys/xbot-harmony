@@ -21,8 +21,13 @@ import {
   paletteOf, effectsOf, isLightPalette, shadowRadiusOf, ALL_THEMES,
 } from '../../entry/src/main/ets/core/theme';
 import {
-  SHADOW_RADIUS_CARD, SHADOW_RADIUS_OVERLAY, LIGHT_SHADOW_DIFFUSION,
+  SHADOW_RADIUS_CARD, SHADOW_RADIUS_OVERLAY, SHADOW_RADIUS_HERO,
+  SHADOW_RADIUS_RAISED, SHADOW_RADIUS_PILL, LIGHT_SHADOW_DIFFUSION,
 } from '../../entry/src/main/ets/core/tokens';
+
+/** 档名 → 基础值（供逐档遍历）。 */
+const TIERS: string[] = ['card', 'overlay', 'hero', 'raised', 'pill'];
+const BASE: number[] = [SHADOW_RADIUS_CARD, SHADOW_RADIUS_OVERLAY, SHADOW_RADIUS_HERO, SHADOW_RADIUS_RAISED, SHADOW_RADIUS_PILL];
 
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean, extra?: string): void {
@@ -36,13 +41,18 @@ function eq(name: string, got: unknown, want: unknown): void {
 {
   eq('档值快照：CARD = 10（= SP_5/2，原 SyntheticCard 字面量）', SHADOW_RADIUS_CARD, 10);
   eq('档值快照：OVERLAY = 20（= SP_5 = SPACE_LG，原 sheet 字面量）', SHADOW_RADIUS_OVERLAY, 20);
+  // 本轮补齐的三档：**深色值 = Index.ets 迁移前的原字面量**（26/18/14）⇒ 逐字节保证
+  eq('档值快照：HERO = 26（= 登录徽标投影原字面量）', SHADOW_RADIUS_HERO, 26);
+  eq('档值快照：RAISED = 18（= 登录 CTA 原字面量）', SHADOW_RADIUS_RAISED, 18);
+  eq('档值快照：PILL = 14（= 发送钮原字面量）', SHADOW_RADIUS_PILL, 14);
   ok('扩散系数 > 1（浅色更大半径）', LIGHT_SHADOW_DIFFUSION > 1);
   for (let i = 0; i < ALL_THEMES.length; i++) {
     const t: string = ALL_THEMES[i];
     const p = paletteOf(t);
     if (!isLightPalette(p)) {
-      eq(`深色族 ${t}: card 档 === 基础值（逐字节不变）`, shadowRadiusOf(p, 'card'), SHADOW_RADIUS_CARD);
-      eq(`深色族 ${t}: overlay 档 === 基础值（逐字节不变）`, shadowRadiusOf(p, 'overlay'), SHADOW_RADIUS_OVERLAY);
+      for (let k = 0; k < TIERS.length; k++) {
+        eq(`深色族 ${t}: ${TIERS[k]} 档 === 基础值（逐字节不变）`, shadowRadiusOf(p, TIERS[k]), BASE[k]);
+      }
     }
   }
 }
@@ -53,7 +63,10 @@ function eq(name: string, got: unknown, want: unknown): void {
     const t: string = ALL_THEMES[i];
     const p = paletteOf(t);
     if (!isLightPalette(p)) { continue; }
-    eq(`${t}: card 半径 = round(base × 扩散)`, shadowRadiusOf(p, 'card'), Math.round(SHADOW_RADIUS_CARD * LIGHT_SHADOW_DIFFUSION));
+    for (let k = 0; k < TIERS.length; k++) {
+      eq(`${t}: ${TIERS[k]} 半径 = round(base × 扩散)`, shadowRadiusOf(p, TIERS[k]), Math.round(BASE[k] * LIGHT_SHADOW_DIFFUSION));
+      ok(`  · ${TIERS[k]} 浅色 > 深色基础（更软）`, shadowRadiusOf(p, TIERS[k]) > BASE[k]);
+    }
     ok(`★② ${t}: 浅色 card 半径 > 深色基础（更软）`,
       shadowRadiusOf(p, 'card') > SHADOW_RADIUS_CARD, `got ${shadowRadiusOf(p, 'card')}`);
     ok(`  · overlay 半径同样更大`, shadowRadiusOf(p, 'overlay') > SHADOW_RADIUS_OVERLAY);
@@ -82,8 +95,13 @@ function eq(name: string, got: unknown, want: unknown): void {
     ok('  · 深色臂返回基础档', th.indexOf('return isLightPalette(p) ? Math.round(base * LIGHT_SHADOW_DIFFUSION) : base;') >= 0);
     ok('  · 未反向 import design（防成环）', th.indexOf("from './design'") < 0);
     ok('  · import tokens（纯数值层）', th.indexOf("from './tokens'") >= 0);
-    ok('tokens.ets: 三个新档齐备',
-      tk.indexOf('SHADOW_RADIUS_CARD') >= 0 && tk.indexOf('SHADOW_RADIUS_OVERLAY') >= 0 && tk.indexOf('LIGHT_SHADOW_DIFFUSION') >= 0);
+    ok('tokens.ets: 五档 + 扩散系数齐备',
+      tk.indexOf('SHADOW_RADIUS_CARD') >= 0 && tk.indexOf('SHADOW_RADIUS_OVERLAY') >= 0
+      && tk.indexOf('SHADOW_RADIUS_HERO') >= 0 && tk.indexOf('SHADOW_RADIUS_RAISED') >= 0
+      && tk.indexOf('SHADOW_RADIUS_PILL') >= 0 && tk.indexOf('LIGHT_SHADOW_DIFFUSION') >= 0);
+    ok('theme.ets: 分派覆盖 hero/raised/pill（非死代码，测试即消费）',
+      th.indexOf("if (tier === 'hero')") >= 0 && th.indexOf("if (tier === 'raised')") >= 0
+      && th.indexOf("if (tier === 'pill')") >= 0);
 
     // ── ★④ 不留"未消费"：新档必须被真实调用点消费 ─────────────────────────────────
     const consumers: string[] = ['SyntheticCard', 'AskUserSheet', 'MenuSheets', 'StatusSheet'];
