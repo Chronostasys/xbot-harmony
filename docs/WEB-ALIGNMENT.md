@@ -815,9 +815,7 @@ thinking（4 档）、tier（3 档）、provider（2）、api_type（2）、CTX/
 
 ---
 
-## 18. 批次 25（2026-10-11）：**动效单一来源 + 光球第三波 + 流式提速 + porcelain ⚠️ 修复**
-
-`origin/main = ee0419e`（13 笔）。gate65：`GATE_EXIT=0` · 离线 0 失败 · 在飞动效 A 类 0 / B 类 3 · 性能护栏 15/0 · 取色 role 绿 · 未消费 core 模块 0 · **ArkTS `BUILD SUCCESSFUL in 26 s 495 ms`**。
+## 18. 批次 25（2026-10-11）：**动效单一来源 + 光球第三波 + 流式提速 + porcelain ⚠️ 修复**`origin/main = ee0419e`（13 笔）。gate65：`GATE_EXIT=0` · 离线 0 失败 · 在飞动效 A 类 0 / B 类 3 · 性能护栏 15/0 · 取色 role 绿 · 未消费 core 模块 0 · **ArkTS `BUILD SUCCESSFUL in 26 s 495 ms`**。
 
 | # | 项 | 结论与证据 |
 |---|---|---|
@@ -831,3 +829,52 @@ thinking（4 档）、tier（3 档）、provider（2）、api_type（2）、CTX/
 **真机判决（`responseRegion` 旧做法全站废止）**：负偏移外扩**无效**、**真 44×44 布局盒有效**（盒内图标外 ⇒ 关得掉 ✓、盒外 ⇒ 不误关 ✓ 阴性对照）；报④浅色白字 ✓。**报③后半条**（行右缘可选）当前**不可验证** —— 服务端 LLM 未配置 ⇒ 模型面板恒停「正在读取模型列表…」、列表为空。
 
 **目标④ 裁决（本批）**：`annotations` **创建侧原生不成立**（`SelectionContainer` `@since 26.0.0` > 本工程 21；无选区包围盒 API；入口不在复制菜单）⇒ **ArkWeb 网页模式承载**；**展示侧**（裸 XML）为真缺陷 ⇒ 已接线 `components/UserBubble.ets`。
+
+---
+
+## 19. 触觉反馈（haptics）—— **既有能力的明账**（2026-10-11 补档，因为这决策此前**从没进 doc**）
+
+⚠️ **本节存在的原因**：2026-10-11 我（编排者）**凭假定**派了一条"给项目加触觉反馈"的线，前提写的是"触觉**完全没做**" ——
+**前提为假**：触觉在 `181a6a6`（E4 轮次）**早已落地**。根因就是"这条决策**零 doc 记录**"（`docs/` 全仓 `触觉|振动|vibrat|haptic` **0 命中**），
+下一个人/agent 必然重犯。**故补此节为唯一真源。**
+
+### 19.1 现状（真基线，实测于 `9686b73`）
+
+| 位置 | 内容 |
+|---|---|
+| `core/haptics.ets` | 纯常量 `HAPTIC_TAP_MS = 12`（唯一消费方 `pages/Index.ets:4955`） |
+| `pages/Index.ets:6` | `import { vibrator } from '@kit.SensorServiceKit'`（⚠️ **kit 转发写法，不是** `@ohos.vibrator` 字面量） |
+| `pages/Index.ets:4937` | `private buzz()` —— **全仓唯一 `startVibration(` 调用点** |
+| `pages/Index.ets:4955` | `vibrator.startVibration({type:'time',duration:HAPTIC_TAP_MS},{id:0,usage:'unknown'})` |
+| 6 个落点 | `:2487` 发送/打断 · `:3270` 切主题 · `:4705` `/` 命令选中 · `:4820` `@` 文件选中 · `:4890` 星标切换 · `:5767` 回退重发成功 |
+| `module.json5:33` | `ohos.permission.VIBRATE`（**已声明**；`startVibration` 必需，缺则 reject） |
+| `tools/tests/haptics.test.ts` | **15 断言**门禁：① `startVibration(` 全仓**恰好 1 处**且必须在 `pages/Index.ets`；② **`components/**` 零** `startVibration`（**组件别自己震 ← 刻意设计，⛔ 不是疏漏**）；③ 静默失败契约（`try`+`catch`+`.catch(`）④ `this.buzz()` ≥1 ⑤ `buzz()` 体形态 + 零扫描判红 |
+
+### 19.2 平台事实（读 SDK 真源，非记忆）
+
+`~/ohos-cli/command-line-tools/sdk/default/openharmony/ets/api/@ohos.vibrator.d.ts`：`startVibration(effect, attribute)` **@since 9** ·
+`VibrateTime{type:'time',duration}`（range `(0,1800000]` ms）**@since 9** · `VibrateAttribute.usage` **必填 @since 9**（`deviceId?` @since 19）
+⇒ **无任何 `@since > 21`** 的 API 被需要 ⇒ **不触碰"抬 SDK 须用户拍板"红线**。
+`ohos.permission.VIBRATE` **必需**，但**早已声明** ⇒ 增触觉**无需新权限**。
+⚠️ **模拟器/平板无马达** ⇒ `startVibration` 只会 reject ⇒ 实现靠 `try/catch + .catch()` **静默失败**；
+**故"震没震/爽不爽"离线与模拟器上均不可判** —— 只能钉**调用形态**，手感必须**真机验证**。
+
+### 19.3 web parity：**无此能力**
+
+web 全仓（505 个 `src` 文件）`vibrat|haptic`（宽松 `-i`）**0 命中**；仓内既有研究同结论
+（`.research/web-features.md:299`「振动反馈 haptic —— 不存在」）。⇒ **触觉属纯原生增强**，不违反 parity ——
+**也正因此**，门禁②（组件层零触觉）才是刻意纪律：**⛔ 不为每个 `onClick` 加触觉、⛔ 不在组件层加**。
+
+### 19.4 本轮裁决：**方向 B（事件→档位，架构不变）**
+
+现状是**单档**（所有事件恒 `12ms`）。裁决**做**"事件→触觉档位"升级，但**严格受限**：
+**仍单入口（`pages/Index.ets` 的 `buzz()`）、零新文件、零新权限、⛔ 不改门禁②（组件层继续零触觉）**。
+纯映射 `hapticFor(event)` 落在 `core/haptics.ets`（可脱机单测）；`Index.ets` 只多传一个事件名。
+⛔ 若某事件未登记 ⇒ **不动**（安全默认）。⚠️ **档位数值（10/20ms 之类）属"手感"，必须真机验证后才算数。**
+
+### 19.5 ⚠️ 判据陷阱（下次改这块必读）
+
+1. **字符串陷阱**：现有 import 是 `@kit.SensorServiceKit`，**不是** `@ohos.vibrator`。
+   判据若只 `grep '@ohos.vibrator'` ⇒ 读到 **0** ⇒ **假绿**。必须按平台符号 `vibrator.startVibration(` 或**两种 import 形式都算**。
+2. **`{type:'time',...}` 是对象字面量**：ArkTS 严格性下**不可挪进 `core/*.ts`** ⇒ 常量只许放 `core/haptics.ets`，调用留在 `.ets`。**唯一判据 = `BUILD SUCCESSFUL`**。
+3. **⛔ 别把行号写进判据**：`haptics.test.ts` 头注释的行号（`buzz()` 写 `:4489-4500`、6 处写 `:2327/...`）**已全部失效**（实际 `:4937`、`2487/3270/4705/4820/4890/5767`），且 `Index.ets` 常被改 ⇒ 行号必漂。**只钉形态/计数**。
