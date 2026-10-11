@@ -14,8 +14,15 @@
  *   · flag 的**所有权仍留页面**（`@State` 在 `pages/Index.ets`）——本文件**只声明对应关系**，
  *     不持有状态、不 import ArkUI。`core/overlays.topOverlay` 依赖"flag 集中"，
  *     本表是它"每个 flag 恰好属于一个面板"这一前提的可测形式。
- *   · `closeFlagOf(id)` = 该面板**唯一**可写的 flag ⇒ 组件/页面的关闭分支只许引用它，
- *     ⛔ 不许再手写字面 flag 名。
+ *   · ⚠️ **更正（2026-10-11，实测）**：`closeFlagOf(id)` 返回的是**字符串**（flag 的**名字**），
+ *     而"关闭面板"必须写**静态** `@State`（`this.showDrawer = false`）；把返回串变成静态写
+ *     只有**动态成员访问**一条路（`this[closeFlagOf('drawer')] = false`）—— **ArkTS 禁动态属性**
+ *     （全仓 `this[` 零命中）⇒ **页面关闭分支现实中只能写字面 flag 名**，本表**无法**被页面引用。
+ *     ⛔ 别再尝试"让关闭分支引用本表"（试过，无合法形态；`switch` 把同样的字面名搬进 `case` 等于没省）。
+ *   · ✅ 因此本模块的**不变量执行者 = `tools/tests/sheets.test.ts`（源码形态 oracle）**：
+ *     它扫 `pages/Index.ets` 每个浮层 `@Builder` 头部 X 的 onClick flag，断言 `=== closeFlagOf(id)`
+ *     ⇒ 任何人把 X 写错 flag（即 2026-10-11 那次真机 P0）**当场变红**。这是"flag 所有权集中"
+ *     在本仓（无动态属性）下的**唯一可执行形态**。
  *
  * ⚠️ 本文件属 `core/` ⇒ 被 `tools/tests/run.sh` 当**纯 TS** 编译 ⇒ **禁止** import ArkUI/`@ohos.*`。
  */

@@ -1085,3 +1085,26 @@ At File: entry/src/main/ets/core/highlight.ets:18:8
   （5 套主题静息对比度 ≥4.5 + 源码契约 + mutation 自证"注入 `entered 永不置 true` 必红"）。
   ⛔ 修法不许靠"放宽对比度台账阈值"。
   ⚠️ 写这类**源码判据**必须**先剥注释** —— 第一版把注释里记录的旧写法当成违规 ⇒ 假红。
+
+## 批次 34：**ArkTS 禁动态属性 ⇒ "用字符串表驱动静态 `@State`"没有合法形态**（2026-10-11）
+
+**症状（不是崩溃，是"看起来该能做、实际做不了"）**：`core/sheets.ets` 把"面板 id → 它的 flag 名"
+收成唯一真相表，并规定"**关闭分支只许引用 `closeFlagOf(id)`**"。但落地时发现：**引用不了**。
+
+**根因**：`closeFlagOf(id)` 返回的是**字符串**（flag 的**名字**）；而"关闭面板"必须写**静态**成员
+（`this.showDrawer = false`）。把运行期字符串变成静态写，只有**动态成员访问**一条路：
+```ts
+this[closeFlagOf('drawer')] = false;   // ⛔ ArkTS 禁动态属性 —— 不可用
+```
+本仓 `entry/src/main/ets` 全量 `grep "this\["` **零命中**（印证：从未、也不该出现）。
+
+**结论 / 正确形态**：
+- **能驱动静态 `@State` 的只能是字面名**（`this.showDrawer = false`）—— 编译期必须能静态解析；
+- 因此"集中声明 flag 所有权"的价值**不能**由"页面引用表"实现，而应由
+  **字符串表（唯一真相）+ 源码形态判据（oracle）** 组合实现：
+  `tools/tests/sheets.test.ts` 扫 `pages/Index.ets` 每个浮层 `@Builder` 头部 X 的 flag，
+  断言 `=== closeFlagOf(id)` ⇒ **写错 flag 当场变红**（2026-10-11 那次"设置面板点 X 关不掉"P0 的防线）。
+- ⛔ 别再用 `switch (closeFlagOf(id)) { case 'showDrawer': this.showDrawer = false; … }` 绕 ——
+  `case` 里还是同样的字面名，**等于没省**，只多一层噪声。
+- **推广**：凡"想用一张表统一驱动 ArkUI 静态成员/`@State`"的需求，都撞这条 ——
+  正解是"表 + **源码形态判据**（扫源码断言字面名与表一致）"，不是运行期查表。
