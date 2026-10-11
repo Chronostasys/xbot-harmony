@@ -105,12 +105,12 @@ for (const f of files) {
     ledger.push(`${rel}: startVibration ×${n}`);
     if (rel.indexOf('components/') === 0) { compVib += n; }
   }
-  if (rel === 'pages/Index.ets') { indexBuzzCalls = (src.match(/this\.buzz\(\)/g) || []).length; }
+  if (rel === 'pages/Index.ets') { indexBuzzCalls = (src.match(/this\.buzz\(/g) || []).length; }
 }
 
 console.log(`▶ 触觉扫描：${files.length} 个 .ets，startVibration 调用点 ${vibSites} 处`);
 for (const l of ledger) { console.log(`    · ${l}`); }
-console.log(`    · 唯一入口复用：this.buzz() ×${indexBuzzCalls}`);
+console.log(`    · 唯一入口复用：this.buzz(...) ×${indexBuzzCalls}`);
 
 // ① 唯一入口
 eq('① 全仓 `startVibration(` 恰好 1 处（唯一入口）', vibSites, 1);
@@ -123,7 +123,7 @@ eq('② `components/**` 零 `startVibration`（组件别自己震）', compVib, 
 ok('③ 承载文件有静默失败契约（try + catch + .catch）',
   indexSrc.indexOf('try {') >= 0 && indexSrc.indexOf('catch (e)') >= 0 && indexSrc.indexOf('.catch(') >= 0);
 // ④ 入口确实在用
-ok(`④ 唯一入口确实被复用（this.buzz() ≥ 1，实得 ${indexBuzzCalls}）`, indexBuzzCalls >= 1);
+ok(`④ 唯一入口确实被复用（this.buzz(...) ≥ 1，实得 ${indexBuzzCalls}）`, indexBuzzCalls >= 1);
 
 // ── ⑤ `buzz()` 的**源码形态**（E4 落地件 1/2）──────────────────────────────────────
 //   ① **死代码已删**：函数体内**不得**再出现 `settingOf(`（原实现读 `KEY_CODE_WRAP`=「代码换行」开关，
@@ -133,8 +133,9 @@ ok(`④ 唯一入口确实被复用（this.buzz() ≥ 1，实得 ${indexBuzzCall
 {
   const idxRaw: string = fs.readFileSync(path.join(root, 'entry/src/main/ets/pages/Index.ets'), 'utf8');
   const idxCode: string = stripComments(idxRaw);
-  // 定位 `private buzz(): void { … }` 的函数体（括号配对；⛔ 不用"下一行"猜）
-  const sig: number = idxCode.indexOf('private buzz(): void {');
+  // 定位 `private buzz(<事件>): void { … }` 的函数体（括号配对；⛔ 不用"下一行"猜）。
+  // 阶段 2 起签名带事件参数 ⇒ 只按 `private buzz(` 前缀定位（⛔ 不写死参数表，防漂）。
+  const sig: number = idxCode.indexOf('private buzz(');
   let body: string = '';
   if (sig >= 0) {
     const open: number = idxCode.indexOf('{', sig);
@@ -147,15 +148,41 @@ ok(`④ 唯一入口确实被复用（this.buzz() ≥ 1，实得 ${indexBuzzCall
   }
   ok('⑤ 定位到 `buzz()` 函数体（⛔ 零扫描判红）', body.length > 0);
   ok('⑤ ① 函数体内**无** `settingOf(`（死 if 已删）', body.indexOf('settingOf(') < 0);
-  ok('⑤ ② 时长走具名常量 `duration: HAPTIC_TAP_MS`', body.indexOf('duration: HAPTIC_TAP_MS') >= 0);
+  // 阶段 2：档位**不再裸写**，一律由纯映射 `hapticFor(event)` 决定（真源在 core/haptics.ets）。
+  ok('⑤ ② 时长走纯映射 `hapticFor(event)`（具名真源，⛔ 非裸数字）', body.indexOf('hapticFor(event)') >= 0);
   ok('⑤ ② ⛔ 不再有裸时长 `duration: <数字>`', !/duration:\s*\d/.test(body));
+  ok('⑤ ② 未登记事件 ⇒ 不动（`HAPTIC_NONE_MS` 早退，安全默认）', body.indexOf('HAPTIC_NONE_MS') >= 0);
   ok('⑤ ② 常量真源存在且被 Index 消费（无孤儿）',
     fs.existsSync(path.join(root, 'entry/src/main/ets/core/haptics.ets'))
     && idxCode.indexOf("from '../core/haptics'") >= 0
-    && idxCode.indexOf('HAPTIC_TAP_MS') >= 0);
+    && idxCode.indexOf('hapticFor') >= 0);
   ok('⑤ ③ 「恒开」语义写进注释（读**原文**，非剥注释版）', idxRaw.indexOf('恒开') >= 0);
   ok('⑤ ⛔ 全文不再出现「代码换行」键被误用于触觉（`KEY_CODE_WRAP` 不在 buzz 体附近）',
     body.indexOf('KEY_CODE_WRAP') < 0);
+}
+
+// ── ⑥ 6 个落点各自传入事件名（阶段 2 接线形态）──────────────────────────────────
+//   ① 全仓唯一入口的调用点**恰好 6 处**，且**都带事件参数**（⛔ 无空参 `this.buzz()`）；
+//   ② **逐一钉住事件名（计数，非"存在"——防漏接 / 换错）**：
+//      send ×1（发送）· stop ×1（打断；与 send 共入口，由 `interrupt` 判别 ⇒ 同一条 arg 含两者）·
+//      select ×2（`/` 命令 + `@` 文件）· toggle ×2（主题 + 星标）· confirm ×1（回退重发成功）；
+//   ③ 零扫描判红：一处都扫不到即红（读的是 `indexSrc`，已在遍历时剥注释）。
+{
+  const args: string[] = [];
+  const re: RegExp = /this\.buzz\(([^)]*)\)/g;
+  let m: RegExpExecArray | null = re.exec(indexSrc);
+  while (m !== null) { args.push(m[1].trim()); m = re.exec(indexSrc); }
+  ok(`⑥ 扫到 this.buzz(...) 调用点 > 0（实得 ${args.length}）—— 零扫描判红`, args.length > 0);
+  eq('⑥ 恰好 6 个落点（唯一入口的 6 个复用点）', args.length, 6);
+  eq('⑥ 6 个落点**全部**传了事件名（⛔ 无空参 this.buzz()）',
+    args.filter((a: string) => a.length > 0).length, 6);
+  const countOf = (name: string): number => args.filter((a: string) => a.indexOf(name) >= 0).length;
+  eq('⑥ send ×1（发送）', countOf('HAPTIC_EVENT_SEND'), 1);
+  eq('⑥ stop ×1（打断；与 send 共入口，由 interrupt 判别 ⇒ 同一条 arg 含两者）',
+    countOf('HAPTIC_EVENT_STOP'), 1);
+  eq('⑥ select ×2（/ 命令 + @ 文件）', countOf('HAPTIC_EVENT_SELECT'), 2);
+  eq('⑥ toggle ×2（切主题 + 星标会话）', countOf('HAPTIC_EVENT_TOGGLE'), 2);
+  eq('⑥ confirm ×1（回退并重发成功）', countOf('HAPTIC_EVENT_CONFIRM'), 1);
 }
 
 if (fail > 0) { console.log(`  haptics: ${pass} passed, ${fail} failed`); process.exit(1); }

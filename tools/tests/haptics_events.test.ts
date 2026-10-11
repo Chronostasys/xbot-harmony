@@ -94,7 +94,9 @@ if (root.length > 0) {
   const idx: string = fs.existsSync(idxPath) ? stripComments(fs.readFileSync(idxPath, 'utf8')) : '';
   ok('⑥ 探测到 pages/Index.ets（零扫描判红）', idx.length > 0);
   ok("⑥ Index.ets 仍 import '../core/haptics'（模块有真消费者）", idx.indexOf("from '../core/haptics'") >= 0);
-  ok('⑥ 既有单档常量 HAPTIC_TAP_MS 仍被 Index 消费（语义不变）', idx.indexOf('HAPTIC_TAP_MS') >= 0);
+  ok('⑥ 纯映射 `hapticFor` 真被 Index 消费（阶段 2 接线已做，防"没接线"假绿）', idx.indexOf('hapticFor(') >= 0);
+  ok('⑥ 事件常量真被 Index 传参（登记表有真消费者，防"常量空转"）',
+    idx.indexOf('HAPTIC_EVENT_SEND') >= 0 && idx.indexOf('HAPTIC_EVENT_CONFIRM') >= 0);
 }
 
 // ── ④ 哨兵不与合法时长撞车 ──────────────────────────────────────────────────

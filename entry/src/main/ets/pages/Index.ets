@@ -14,7 +14,12 @@ import { ChatStore } from '../core/store';
 import { beginTurnKeepAlive, endTurnKeepAlive, ensureEnabled, notificationsEnabled, PENDING_CHAT_KEY, PENDING_CHAT_SEQ_KEY, PENDING_ACTION_KEY, isKnownNotifyAction, NOTIFY_ACTION_STOP, NOTIFY_ACTION_CONTINUE } from '../core/notify';
 // 后台对账（workScheduler 延迟任务）的取消入口（目标①：登出必须停掉它）
 import { cancelReconcileScheduled } from '../workreconcile/schedule';
-import { HAPTIC_TAP_MS } from '../core/haptics';
+// 触觉「事件 → 档位」：唯一入口 `buzz(event)` 只消费本模块的**纯映射**（阶段 2）。
+// ⛔ 时长不再裸写、也不再直接用单档常量 —— 一律由 `hapticFor(event)` 决定（未登记事件 ⇒ 不动）。
+import {
+  hapticFor, HAPTIC_NONE_MS,
+  HAPTIC_EVENT_SEND, HAPTIC_EVENT_STOP, HAPTIC_EVENT_SELECT, HAPTIC_EVENT_TOGGLE, HAPTIC_EVENT_CONFIRM,
+} from '../core/haptics';
 // ⚠️ 2026-10-11：`isDarkThemeName` **已从这里移除** —— 本文件 3 处旧用法已全部改走**亮度口径**
 //   （`isLightPalette(paletteOf(theme))`，铁律「禁按主题名硬判」）⇒ 该导入**已无消费者**（死导入）。
 import { ALL_THEMES, normalizeTheme, Palette, paletteOf, themeLabel, Effects, effectsOf, isLightPalette, shadowColorOf, shadowRadiusOf } from '../core/theme';
@@ -2594,7 +2599,9 @@ struct Index {
     this.attachments = [];
     const busyBefore: boolean = this.busy;
     const interrupt: boolean = isInterruptSend(this.busy, this.sendMode);
-    this.buzz();
+    // 触觉：本入口同管"发送"与"打断"两种动作 ⇒ 事件名由 `interrupt` 判别，
+    // 两者档位相同（中档），但登记名分开 ⇒ 判据可钉住"这里是发送/打断"。
+    this.buzz(interrupt ? HAPTIC_EVENT_STOP : HAPTIC_EVENT_SEND);
     try {
       let interrupted: boolean = false;
       console.info('xbot send: 进入发送路径（await 前）');
@@ -3387,7 +3394,7 @@ struct Index {
                   this.themeName = t;
                   this.setSetting(KEY_APP_THEME, t);
                   this.syncSystemTheme();
-                  this.buzz();
+                  this.buzz(HAPTIC_EVENT_TOGGLE);
                 },
                 onSetSurface: (web: boolean) => {
                   this.setSurface(web);
@@ -4822,7 +4829,7 @@ struct Index {
   private pickCommand(name: string): void {
     this.draft = applyCommand(this.draft, this.cmdToken, name);
     this.refreshCompletion(this.draft);
-    this.buzz();
+    this.buzz(HAPTIC_EVENT_SELECT);
   }
 
   // ── 补全浮层的选中态 / 键盘导航（纯语义全在 `core/composer.ets`，这里只做接线）──────────
@@ -4937,11 +4944,16 @@ struct Index {
       this.loadFs(joinPath(this.fsDir, e.name));
     }
     this.refreshCompletion(this.draft);
-    this.buzz();
+    this.buzz(HAPTIC_EVENT_SELECT);
   }
 
   /**
    * 短震动反馈（**恒开**；无马达/无权限时**静默** —— 不打断任何流程）。
+   *
+   * 阶段 2（目标⑤）：**唯一入口收事件名** `buzz(event)`，档位由纯映射 `hapticFor(event)`
+   * 决定（映射真源在 `core/haptics.ets`，登记表 `HAPTIC_EVENT_*`）。
+   * ⛔ **未登记事件 ⇒ `hapticFor` 返 0（`HAPTIC_NONE_MS`）⇒ 不动**（安全默认；拼错/新造的名字
+   *   只会静默不震，绝不误震、绝不抛错）。
    *
    * ⚠️ 2026-10-11 删死码：原实现这里有一段
    * `if (!parseBool(settingOf(this.settings, <代码换行开关>), true)) { …分支体只有注释… }`
@@ -4950,9 +4962,13 @@ struct Index {
    * 依据：手感反馈是"世界第一流畅"的一部分 ⇒ 有意恒开（web 权威零触觉 ⇒ 本仓不新增触觉点，
    * 只保留这一处既有约定；判据 = `tools/tests/haptics.test.ts`）。
    */
-  private buzz(): void {
+  private buzz(event: string): void {
+    const ms: number = hapticFor(event);
+    if (ms === HAPTIC_NONE_MS) {
+      return; // 未登记事件 ⇒ 不动（安全默认）
+    }
     try {
-      vibrator.startVibration({ type: 'time', duration: HAPTIC_TAP_MS }, { id: 0, usage: 'unknown' })
+      vibrator.startVibration({ type: 'time', duration: ms }, { id: 0, usage: 'unknown' })
         .catch(() => {
           // 有意吞：无振动器件（平板/模拟器）—— 触觉反馈可选，失败不影响任何交互语义。
         });
@@ -5007,7 +5023,7 @@ struct Index {
   private toggleStarChat(chatId: string): void {
     const next: string[] = toggleStarred(this.starredIds(), chatId);
     this.setSetting(KEY_STARRED, serializeStarred(next));
-    this.buzz();
+    this.buzz(HAPTIC_EVENT_TOGGLE);
   }
 
   /** 代码是否自动换行（默认开）。 */
@@ -5884,7 +5900,7 @@ struct Index {
         this.toast('暂时无法回退这条消息（尚未落库）');
         return;
       }
-      this.buzz();
+      this.buzz(HAPTIC_EVENT_CONFIRM);
       this.toast('已回退并重发');
     } catch (e) {
       this.draft = text;

@@ -838,17 +838,17 @@ thinking（4 档）、tier（3 档）、provider（2）、api_type（2）、CTX/
 **前提为假**：触觉在 `181a6a6`（E4 轮次）**早已落地**。根因就是"这条决策**零 doc 记录**"（`docs/` 全仓 `触觉|振动|vibrat|haptic` **0 命中**），
 下一个人/agent 必然重犯。**故补此节为唯一真源。**
 
-### 19.1 现状（真基线，实测于 `9686b73`）
+### 19.1 现状（真基线；**阶段 2 已落地** —— 事件→档位接线）
 
 | 位置 | 内容 |
 |---|---|
-| `core/haptics.ets` | 纯常量 `HAPTIC_TAP_MS = 12`（唯一消费方 `pages/Index.ets:4955`） |
-| `pages/Index.ets:6` | `import { vibrator } from '@kit.SensorServiceKit'`（⚠️ **kit 转发写法，不是** `@ohos.vibrator` 字面量） |
-| `pages/Index.ets:4937` | `private buzz()` —— **全仓唯一 `startVibration(` 调用点** |
-| `pages/Index.ets:4955` | `vibrator.startVibration({type:'time',duration:HAPTIC_TAP_MS},{id:0,usage:'unknown'})` |
-| 6 个落点 | `:2487` 发送/打断 · `:3270` 切主题 · `:4705` `/` 命令选中 · `:4820` `@` 文件选中 · `:4890` 星标切换 · `:5767` 回退重发成功 |
-| `module.json5:33` | `ohos.permission.VIBRATE`（**已声明**；`startVibration` 必需，缺则 reject） |
-| `tools/tests/haptics.test.ts` | **15 断言**门禁：① `startVibration(` 全仓**恰好 1 处**且必须在 `pages/Index.ets`；② **`components/**` 零** `startVibration`（**组件别自己震 ← 刻意设计，⛔ 不是疏漏**）；③ 静默失败契约（`try`+`catch`+`.catch(`）④ `this.buzz()` ≥1 ⑤ `buzz()` 体形态 + 零扫描判红 |
+| `core/haptics.ets` | **纯底座 + 事件→档位纯映射**：常量 `HAPTIC_TAP_MS=12` / `HAPTIC_LIGHT_MS`(=`HAPTIC_TAP_MS`=12) / `HAPTIC_MEDIUM_MS=20` / 哨兵 `HAPTIC_NONE_MS=0`；事件登记表 `HAPTIC_EVENT_*`（send/stop/select/toggle/confirm）；纯函数 `hapticFor(event)`（未登记 ⇒ `HAPTIC_NONE_MS`） |
+| `pages/Index.ets` 顶部 | `import { vibrator } from '@kit.SensorServiceKit'`（⚠️ **kit 转发写法，不是** `@ohos.vibrator` 字面量）；`import { hapticFor, HAPTIC_NONE_MS, HAPTIC_EVENT_* } from '../core/haptics'` |
+| `pages/Index.ets` `private buzz(event: string)` | **全仓唯一 `startVibration(` 调用点**：`const ms = hapticFor(event); if (ms===HAPTIC_NONE_MS) return; … startVibration({type:'time',duration:ms},{id:0,usage:'unknown'})`（**未登记事件 ⇒ 不动**） |
+| **6 个落点 → 事件** | 发送/打断共入口 → `interrupt ? HAPTIC_EVENT_STOP : HAPTIC_EVENT_SEND`（中档）· 切主题 → `HAPTIC_EVENT_TOGGLE` · `/` 命令选中 → `HAPTIC_EVENT_SELECT` · `@` 文件选中 → `HAPTIC_EVENT_SELECT` · 星标切换 → `HAPTIC_EVENT_TOGGLE` · 回退重发成功 → `HAPTIC_EVENT_CONFIRM` |
+| `module.json5` | `ohos.permission.VIBRATE`（**已声明**；`startVibration` 必需，缺则 reject） |
+| `tools/tests/haptics.test.ts` | **接线形态**门禁（①~⑥，24 断言）：① `startVibration(` 全仓**恰好 1 处**且必须在 `pages/Index.ets`；② **`components/**` 零** `startVibration`（**组件别自己震 ← 刻意设计，⛔ 不是疏漏**）；③ 静默失败契约（`try`+`catch`+`.catch(`）④ 入口复用 ≥1；⑤ `buzz(event)` 体形态（时长走 `hapticFor(event)`、无裸数字、`HAPTIC_NONE_MS` 早退）+ 零扫描判红；**⑥ 6 落点事件名逐一计数**（send×1·stop×1·select×2·toggle×2·confirm×1，无空参） |
+| `tools/tests/haptics_events.test.ts` | **纯逻辑半场**门禁（32 断言）：`hapticFor` 每事件→档位、未登记⇒不动、量级契约、哨兵、纯模块形态、模块被 `Index` 消费 |
 
 ### 19.2 平台事实（读 SDK 真源，非记忆）
 
@@ -877,4 +877,21 @@ web 全仓（505 个 `src` 文件）`vibrat|haptic`（宽松 `-i`）**0 命中**
 1. **字符串陷阱**：现有 import 是 `@kit.SensorServiceKit`，**不是** `@ohos.vibrator`。
    判据若只 `grep '@ohos.vibrator'` ⇒ 读到 **0** ⇒ **假绿**。必须按平台符号 `vibrator.startVibration(` 或**两种 import 形式都算**。
 2. **`{type:'time',...}` 是对象字面量**：ArkTS 严格性下**不可挪进 `core/*.ts`** ⇒ 常量只许放 `core/haptics.ets`，调用留在 `.ets`。**唯一判据 = `BUILD SUCCESSFUL`**。
-3. **⛔ 别把行号写进判据**：`haptics.test.ts` 头注释的行号（`buzz()` 写 `:4489-4500`、6 处写 `:2327/...`）**已全部失效**（实际 `:4937`、`2487/3270/4705/4820/4890/5767`），且 `Index.ets` 常被改 ⇒ 行号必漂。**只钉形态/计数**。
+3. **⛔ 别把行号写进判据**：`haptics.test.ts` 头注释的历史行号（`buzz()` 写 `:4489-4500`、6 处写 `:2327/...`）早已全部失效；**连本节 19.1 曾记的"实际行号"也已漂**（`Index.ets` 常被改）⇒ **只钉形态/计数**（`haptics.test.ts` 用正则数 `this.buzz(` 调用点，不写行号）。
+
+### 19.6 阶段 2 落地记录（事件→档位接线，2026-10-11）
+
+阶段 1 只落了**纯映射**（`core/haptics.ets` 的 `hapticFor`）；阶段 2 把它**接进页面**：
+
+- `buzz()` → **`buzz(event: string)`**：收事件名 ⇒ `hapticFor(event)` 取档；`HAPTIC_NONE_MS`(0) ⇒ **早退不震**（未登记事件安全默认）。
+- **6 个落点逐一传事件**（见 19.1 表）；其中**发送/打断共用一个入口** ⇒ 事件名由局部布尔 `interrupt` 判别
+  （`interrupt ? HAPTIC_EVENT_STOP : HAPTIC_EVENT_SEND`，两者同档、登记名分开，判据可钉）。
+- **⛔ 架构约束全部保持**：唯一 `startVibration(` 仍在 `pages/Index.ets`；`components/**` 仍**零** `startVibration`；
+  **零新文件、零新权限**；`core/haptics.ets` 仍是纯逻辑（不 import `@ohos.*`/`@kit.*`/ArkUI）。
+- **判据变化**：`haptics.test.ts` 的 ⑤② 从"时长走具名常量 `HAPTIC_TAP_MS`"改为"时长走纯映射 `hapticFor(event)`"
+  （**不是放宽**：仍硬拦"裸数字时长"，且新增 `HAPTIC_NONE_MS` 早退断言）；新增 **⑥** 钉 6 落点事件名**计数**。
+  `haptics_events.test.ts` 的 ⑥ 消费方断言从 `HAPTIC_TAP_MS` 改为 `hapticFor(`（模块仍被真消费）。
+- **mutation 自证（实测）**：把某落点事件名去掉（空参）⇒ ⑥「全部传了事件名」+「confirm×1」必红；
+  把两处 `select` 换成 `toggle`（**同档位**、存在性判据会漏）⇒ ⑥「select×2」/「toggle×2」**计数**必红。
+- ⚠️ **"爽不爽 / 时长合不合适"仍只能真机验证**：模拟器/平板无马达（见 19.2），离线与模拟器均不可判。
+
