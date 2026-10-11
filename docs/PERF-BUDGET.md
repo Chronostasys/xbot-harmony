@@ -162,7 +162,31 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
   **无容量上限 / 无泄漏**（与 `core/derive.ts` 的 `assistantRowByTurn`、`core/markdown.ets` 的 mdCache 同手法）。
 - ⚠️ **仍未销账**（下一步，⛔ 别在没有恒等前提处直接套缓存）：
   · `blocksSignature`（`pages/Index.ets` 每次 sync 调 **2 次**）仍是最大单项（≈6.7 µs/次 @340 块）；
-  · `inFlightBlock` 每帧仍重建 `completedKeys`（O(已提交工具数)，≈1.8 µs/帧 @K=54）。
+  · ~~`inFlightBlock` 每帧仍重建 `completedKeys`（O(已提交工具数)，≈1.8 µs/帧 @K=54）~~ ⇒ **已销账，见 §1.6c**。
+
+### 1.6c 流式/打字机纯逻辑热路径（✅ 2026-10-11 落地：免分配计数/裁剪 + 键集合 O(D×K)→O(D+K)）
+
+> 口径 = `tools/perf/bench_core.sh` 的 `runeCount_8k_us` / `clipRunes_8k_half_us` /
+> `inFlightBlock_K54_us` / `inFlightBlock_K54D64_us`（**本波新增度量**，min-of-N；判据
+> `bash tools/tests/run-one.sh stream_perf_equiv`）。数值取跨多次 run 的**中位数**（宿主多线并发，方差大）。
+
+| 指标 | 优化前 | **优化后** | 说明 |
+|---|---|---|---|
+| `runeCount(8K)` | **50.4–76.6 µs**（中位 67.9） | **17.7–34.1 µs**（中位 29.6） | `toRunes(text).length` → **纯计数不建数组**（`core/typewriter.ets`） |
+| `clipRunes(8K, n=半)` | **73.5–107.1 µs**（中位 89.4） | **9.9–19.2 µs**（中位 14.9） | 建整码点数组 + 逐码点拼串 → **扫第 n 码点边界 + 单次 `substring`** |
+| `inFlightBlock(K=54,D=8)` | 2.63 µs | 2.44 µs（**噪声内，无变化**） | D 小 ⇒ 旧的 O(K) 建表项本就占主导 |
+| `inFlightBlock(K=54,D=64)` | **16.2 µs** | **6.9 µs** | `completedKeys` 由 `Array.indexOf` → **`Set.has`**（去掉 O(在飞数×已提交键数) 项） |
+
+- **改动点**（均"同样输入 ⇒ 同样输出"，判据 `stream_perf_equiv` 用独立 oracle 逐字段比）：
+  · `core/typewriter.ets`：`runeCount` / `clipRunes` 改**免分配**（新增 `runeWidthAt` 与 `toRunes` 同判据）；
+  · `core/render.ets` `inFlightBlock`：已提交工具键容器 `string[]`+`indexOf` → `Set<string>`+`has`。
+- **为什么是热路径**：`components/LiveTailView.ets` 每拍渲染调 `clipRunes`；`components/MessageRow.ets`
+  每次 build 对每个块的思考文本调 `runeCount`（「思考 N 字」）；live 行**每帧**走 `inFlightBlock`。
+- ⛔ **本地记录**：新增度量是**新增**（不是放宽任何门槛）；`guard.sh` 的既有阈值**一个没动**。
+  诚实声明：D=8（常见档）无可见收益 —— Set 的收益只在**大在飞数**（一次派发很多工具）才显。
+- **未做（诚实）**：`blocksSignature`（`+=` 拼串）试过 `Array.join` ⇒ **反而慢**（18.8→29.4 µs @340 块），**否决**；
+  `parseMarkdown` 的每行正则（274K ≈1.65 ms 里的大头）与 `replace(/\s+$/,'')` 手写化，因**风险 > 收益**
+  （`\s` 语义含全角空格等，改错=静默渲染差异）**未做**。
 
 ### 1.7 TURNDROP 噪声（已修，留基线防回归）
 - 现状（`1cfad7a`）：逐 turn `console.debug` + burst 结束**一条** warn 汇总；`turndropSeen` 去重。
@@ -283,6 +307,7 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
 | 2026-10-11 | 全部（首次建立） | — | 用**跨多次 run 的实测最大值 × ~3** 起阈值；sub-µs 指标跨 run 可差 10× ⇒ 只做数量级护栏 | perf 线 |
 | 2026-10-11 | 第 22~24 条（行内块窗口） | 新增 | **不是放宽**：`6ad8477` 落地 TOP1 后**新增**的硬计数判据（渲染块数 ≤24 / 隐藏 ≥1 / 估算节点 ≤600），阈值 = 判据本身（确定性计数，无抖动） | perf 线 |
 | 2026-10-11 | live 行每帧已完成块转换（**新增判据，非门禁阈值**） | — | 目标⑤落地：`core/render.ets` `liveBlocksMemo`（按源数组对象恒等）把 live 行每帧对**未变化**已完成块的转换数 **N → 0**（N=108）。判据 `tools/tests/perf_live_frame.test.ts`（13 passed；mutation ⇒ exit 1）。**不是放宽任何门槛**：`guard.sh`/`bench_core` 的既有指标（含 `blocksSignature_340_us`）一律未动 | perf 线（目标⑤） |
+| 2026-10-11 | `runeCount`/`clipRunes`/`inFlightBlock`（**新增度量，阈值一个没动**） | — | 目标⑤第二轮：`core/typewriter.ets` 的 `runeCount`/`clipRunes` 改**免分配**（−2.3×/−6× @8K）；`core/render.ets` `inFlightBlock` 的已提交键容器 `Array.indexOf`→`Set.has`（大在飞数档 16.2→6.9 µs）。**仅新增** `bench_core` 度量行（`runeCount_8k_us`/`clipRunes_8k_half_us`/`inFlightBlock_K54_us`/`inFlightBlock_K54D64_us`），**未动任何既有阈值**。判据 `tools/tests/stream_perf_equiv.test.ts`（26 passed；3 处 mutation ⇒ exit 1）。详见 §1.6c | perf 线（目标⑤） |
 
 > 规则：任何上调都必须在**本表**写明"为什么不是代码退化"（附 `bench_core.sh` 两遍输出）。
 

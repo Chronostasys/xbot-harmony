@@ -40,9 +40,31 @@ export function toRunes(text: string): string[] {
   return out;
 }
 
+/**
+ * 从 `i` 起的**下一个码点占几个 UTF-16 单元**（代理对 = 2，其它 = 1）。
+ * 判据与 `toRunes` **逐字同源**（含"末位孤立高代理按单单元处理"这一分支）——
+ * 抽出来是为了让 `runeCount`/`clipRunes` **不分配整个码点数组**（流式每拍/每次 build 都调）。
+ */
+function runeWidthAt(text: string, i: number): number {
+  const c: number = text.charCodeAt(i);
+  if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
+    return 2;
+  }
+  return 1;
+}
+
 /** 码点数（"思考 N 字"要用它，而不是 `length`）。 */
 export function runeCount(text: string): number {
-  return toRunes(text).length;
+  // ⛔ 纯计数，**不建码点数组**：本函数在每次 build 里对每个块的思考文本各调一次
+  //    （`components/MessageRow.ets` 的「思考 N 字」）；旧实现 `toRunes(text).length`
+  //    为一个整数分配长度 ∝ 文本的 `string[]`（实测 8K 文本 ≈38 µs 里绝大部分是分配）。
+  let n: number = 0;
+  let i: number = 0;
+  while (i < text.length) {
+    i += runeWidthAt(text, i);
+    n += 1;
+  }
+  return n;
 }
 
 /** 取前 n 个码点（n<=0 返回空串；n 超长返回原串）。 */
@@ -50,15 +72,20 @@ export function clipRunes(text: string, n: number): string {
   if (n <= 0) {
     return '';
   }
-  const runes: string[] = toRunes(text);
-  if (n >= runes.length) {
+  // ⛔ 只**扫出第 n 个码点的 UTF-16 边界**再切一刀（单次 `substring`）：旧实现先建整个
+  //    码点数组、再逐码点 `out += runes[i]` 拼串（≈文本长度次字符串拼接）。打字机每拍
+  //    渲染都调它（`components/LiveTailView.ets` 的 `shownText`/`shownReason`）。
+  let count: number = 0;
+  let i: number = 0;
+  while (i < text.length && count < n) {
+    i += runeWidthAt(text, i);
+    count += 1;
+  }
+  // 扫到了串尾（n ≥ 码点总数）⇒ 原样返回（与旧实现 `n >= runes.length` 分支一致）。
+  if (i >= text.length) {
     return text;
   }
-  let out: string = '';
-  for (let i = 0; i < n; i++) {
-    out += runes[i];
-  }
-  return out;
+  return text.substring(0, i);
 }
 
 /** CJK 半速的"近追平"门限：基础步伐 ≤ 此值（web `useTypewriter.ts:106` `advance <= 3`）。 */

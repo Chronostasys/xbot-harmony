@@ -219,18 +219,22 @@ export function inFlightBlock(r: LiveRowView, completed: HistoryIteration[]): Hi
     }
   }
   const deduped: ToolProgress[] = mergeTools([], live);
-  const completedKeys: string[] = [];
+  // 已提交迭代的**工具键集合** —— 用 `Set` 而非数组 `indexOf`：后者对每枚在飞工具线性扫全表
+  // ⇒ O(在飞工具数 × 已提交工具键数)。live 行**每帧**都跑此段（`liveIterations`），真实单行
+  // 已完成工具数可达数十枚 ⇒ 这是随 turn 增长的每帧成本。`Set` 的成员判定是 O(1)。
+  // ⛔ **输出逐字节不变**：键比较同为字符串全等（`Set.has` ≡ `indexOf(...) < 0` 的取反）。
+  const completedKeys: Set<string> = new Set<string>();
   for (let i = 0; i < completed.length; i++) {
     const it: HistoryIteration = completed[i];
     if (it.tools === undefined) {
       continue;
     }
     for (let j = 0; j < it.tools.length; j++) {
-      completedKeys.push(toolKey(it.tools[j]));
+      completedKeys.add(toolKey(it.tools[j]));
     }
   }
   for (let i = 0; i < deduped.length; i++) {
-    if (completedKeys.indexOf(toolKey(deduped[i])) < 0) {
+    if (!completedKeys.has(toolKey(deduped[i]))) {
       tools.push(deduped[i]);
     }
   }
