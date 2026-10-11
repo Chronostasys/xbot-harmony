@@ -32,9 +32,9 @@
  *   dark `textMuted #63636F`@22% ≈ `border #20202B`）。⚠️ 轨道是"弧占多少"的**参照系**，
  *   浅色/极简白下若用 `border` 会淡到读不出占比 ⇒ 必须有足够的可见度（走结构性发丝 `hairline`）。
  */
-import { Palette, paletteOf, surfacesOf } from '../core/theme';
+import { Palette, paletteOf, shadowRadiusOf, surfacesOf } from '../core/theme';
 import { FS_CAPTION, R_MD, SP_3, SP_5, SP_7, SP_1 } from '../core/tokens';
-import { PRESS_OPACITY, RADIUS_CHIP } from '../core/design';
+import { ELEV_OVERLAY, PRESS_OPACITY, RADIUS_CHIP, elevationColorOf, surfaceFillOf } from '../core/design';
 import {
   CTX_RING_STROKE, CTX_ROLE_DANGER, ctxColorRole, ctxDrawnPercent, ctxLevel,
 } from '../core/ctxring';
@@ -99,8 +99,11 @@ export struct ContextRing {
       placement: Placement.Top,
       enableArrow: false,
       mask: false,
-      popupColor: this.pal().surface,
-      radius: R_MD,
+      // 浮层三件套走**设计系统口径**（C4 续）：面 = 唯一面口径 `surface.overlay`；圆角 = 语义档 token；
+      // 柔影 = token（系统**不给** popup 描边 ⇒ 浅色下"面板 vs 页面"的边界只能由柔影承担）。
+      popupColor: surfaceFillOf(this.pal(), 'surface.overlay'),
+      radius: RADIUS_CHIP,
+      shadow: { radius: shadowRadiusOf(this.pal(), 'overlay'), color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 },
       width: CTX_POP_W,
       onWillDismiss: (action: DismissPopupAction) => {
         this.detailOpen = false;

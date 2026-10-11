@@ -27,12 +27,12 @@
  * ⛔ 颜色只用 `pal()/eff()` 语义色，尺度只用 `core/tokens.ets`，动效用 `components/anim.ets`
  *   —— **禁硬编码 hex / 时长**。
  */
-import { Effects, effectsOf, Palette, paletteOf } from '../core/theme';
+import { Effects, effectsOf, Palette, paletteOf, shadowRadiusOf } from '../core/theme';
 import { SP_1 } from '../core/tokens';
 import { withAlpha } from '../core/bubble';
 import {
-  RADIUS_CHIP, HIT_TARGET_MIN, SPACE_XS, SPACE_XL,
-  colorOf, surfaceFillOf,
+  ELEV_OVERLAY, RADIUS_CHIP, HIT_TARGET_MIN, SPACE_XS, SPACE_XL,
+  colorOf, elevationColorOf, surfaceFillOf,
 } from '../core/design';
 import { fs, lh, fw } from './SettingsRows';
 import { animFast } from './anim';
@@ -349,6 +349,8 @@ export struct MessageNav {
         mask: false,
         popupColor: surfaceFillOf(this.pal(), 'surface.overlay'),  // web `bg-bg-elevated`（= 浮层面）
         radius: RADIUS_CHIP,
+        // 柔影 = token（C4 续：系统**不给** popup 描边 ⇒ 浅色下"面板 vs 页面"的边界只能由柔影承担）。
+        shadow: { radius: shadowRadiusOf(this.pal(), 'overlay'), color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 },
         width: PANEL_W,
         onWillDismiss: (action: DismissPopupAction) => {
           this.open = false;

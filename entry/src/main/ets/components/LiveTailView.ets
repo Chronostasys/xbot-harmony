@@ -14,12 +14,12 @@
 import { ToolProgress } from '../core/types';
 import { advanceVisible, clipRunes, isCJK, isTyping, runeCount, toRunes } from '../core/typewriter';
 import { foldPills } from '../core/streammerge';
-import { Palette, paletteOf, Effects, effectsOf } from '../core/theme';
+import { Palette, paletteOf, Effects, effectsOf, shadowRadiusOf } from '../core/theme';
 import { BUBBLE } from '../core/bubble';
 import { R_MD, R_XL, R_LG, SP_1, SP_2, SP_5, FS_CAPTION } from '../core/tokens';
 import {
-  GAP_PILL, INSET_PILL_Y, POPOVER_W_OVERFLOW, PRESS_OPACITY, RADIUS_PILL, SPACE_HAIR, SPACE_XXS,
-  STROKE_RAIL, surfaceFillOf, SURFACE_CHIP,
+  ELEV_OVERLAY, GAP_PILL, INSET_PILL_Y, POPOVER_W_OVERFLOW, PRESS_OPACITY, RADIUS_CARD, RADIUS_PILL,
+  SPACE_HAIR, SPACE_XXS, STROKE_RAIL, elevationColorOf, surfaceFillOf, SURFACE_CHIP,
 } from '../core/design';
 import { orbBreath } from '../core/orb';
 import { MOTION_BEAT_MS } from './anim';
@@ -429,8 +429,10 @@ return renderKind(t.status, t.exit_code, true);
         placement: Placement.Bottom,
         enableArrow: false,
         mask: false,
-        popupColor: this.pal().surface,
-        radius: R_XL,
+        // 浮层三件套走设计系统口径（C4 续）：面 = `surface.overlay`；圆角 = 语义档；柔影 = token。
+        popupColor: surfaceFillOf(this.pal(), 'surface.overlay'),
+        radius: RADIUS_CARD,
+        shadow: { radius: shadowRadiusOf(this.pal(), 'overlay'), color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 },
         width: LT_OVER_W,
         onWillDismiss: (action: DismissPopupAction) => {
           this.overOpen = false;
@@ -589,8 +591,10 @@ return renderKind(t.status, t.exit_code, true);
                   placement: Placement.Bottom,
                   enableArrow: false,
                   mask: false,
-                  popupColor: this.pal().surface,
-                  radius: R_XL,
+                  // 浮层三件套走设计系统口径（C4 续）：面 = `surface.overlay`；圆角 = 语义档；柔影 = token。
+                  popupColor: surfaceFillOf(this.pal(), 'surface.overlay'),
+                  radius: RADIUS_CARD,
+                  shadow: { radius: shadowRadiusOf(this.pal(), 'overlay'), color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 },
                   width: POPOVER_W_OVERFLOW,
                   onWillDismiss: (action: DismissPopupAction) => {
                     this.popIdx = -1;
