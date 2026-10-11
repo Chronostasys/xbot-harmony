@@ -20,13 +20,22 @@
  *   `SubAgentRow.key`（= 身份 + 内容指纹，见 `core/subagent.ets` 的说明）—— ArkUI key 不变
  *   则不重建该项，key 不含内容会让状态图标/描述卡在首帧（ARKTS-GOTCHAS §3）。
  * ⛔ 颜色只用 `pal()` 语义色；尺度只用 `core/tokens.ets`。**禁硬编码 hex / 时长**。
+ *
+ * ── 「状态 → 视觉」唯一真源（2026-10-11 收敛）──────────────────────────────────
+ *   改造前本组件把 `kind` 判了**三段独立 if 链**（竖条色 / 图标 / 图标色）+ 一处标签三元。
+ *   现全部改由 `core/statusvisual.ets:subagentVisual(kind)` 的**单一产物** `StatusVisual` 驱动：
+ *     · 竖条色 = `roleColorOf(v.toneRole, pal)` × `v.markerAlpha`；
+ *     · 图标色 = `roleColorOf(v.iconRole, pal)`；标签色 = `roleColorOf(v.labelRole, pal)`；
+ *     · 图标   = `v.marker` → `sys.symbol`（core 不能持 `Resource`，映射留本组件**一处**）。
+ *   ⇒ 改一个状态只改 `statusvisual` 一处；组件"结构上不可能分叉"。
  */
 import { Palette, paletteOf, isLightPalette, surfacesOf } from '../core/theme';
 import { FS_CAPTION, R_LG, SP_1 } from '../core/tokens';
 import { withAlpha } from '../core/bubble';
+import { SubAgentRow } from '../core/subagent';
 import {
-  SUB_DONE, SUB_ERROR, SUB_RUNNING, SubAgentRow,
-} from '../core/subagent';
+  MARK_CHECK, MARK_CROSS, StatusVisual, roleColorOf, subagentVisual,
+} from '../core/statusvisual';
 
 /** 卡片内边距（web `py-1.5 pl-2.5 pr-2`）。 */
 const CARD_PAD_L: number = 10;
@@ -35,9 +44,8 @@ const CARD_PAD_Y: number = 6;
 /** 卡片描边不透明度（web `border-border/50`）与底色不透明度（web `bg-bg-secondary/50`）。 */
 const CARD_BORDER_ALPHA: number = 0.5;
 const CARD_BG_ALPHA: number = 0.5;
-/** 左侧状态竖条宽度（web `w-[2px]`）与 done 态的 accent 透明度（web `accent 30%`）。 */
+/** 左侧状态竖条宽度（web `w-[2px]`）。done 态的 accent 透明度 = `StatusVisual.markerAlpha`。 */
 const BAR_W: number = 2;
-const BAR_DONE_ALPHA: number = 0.3;
 /** 子行缩进（web `ml-3 pl-3` = 12 + 12）与图标边长（web `size-3.5`/`size-3`）。 */
 const CHILD_INDENT: number = 12;
 const ICON_TOP: number = 14;
@@ -69,26 +77,37 @@ struct SubAgentRowView {
     return paletteOf(this.theme);
   }
 
-  /** running/other → accent；done → accent@30%；error → statusError（web `--destructive`）。 */
-  private barColor(): string {
-    if (this.kind === SUB_ERROR) {
-      return this.pal().statusError;
-    }
-    if (this.kind === SUB_DONE) {
-      return withAlpha(this.pal().accent, BAR_DONE_ALPHA);
-    }
-    return this.pal().accent;
+  /** 本行的**全部视觉语义**（唯一真源：`core/statusvisual.ets:subagentVisual`）。 */
+  private vis(): StatusVisual {
+    return subagentVisual(this.kind);
   }
 
-  /** 图标：running→lightbulb(accent) / done→checkmark(muted) / error→xmark_circle_fill(error)。 */
+  /** 竖条色 = 标记主色角色 × 不透明度（done = accent@30%，见 `subagentVisual.markerAlpha`）。 */
+  private barColor(): string {
+    const v: StatusVisual = this.vis();
+    return withAlpha(roleColorOf(v.toneRole, this.pal()), v.markerAlpha);
+  }
+
+  /** 图标色 = 图标色角色（running/error 用强调/危险色，其余 muted）。 */
+  private iconColor(): string {
+    return roleColorOf(this.vis().iconRole, this.pal());
+  }
+
+  /** 标签文字色 = 标签角色（running ⇒ accent，其余 ⇒ secondary）。 */
+  private labelColor(): string {
+    return roleColorOf(this.vis().labelRole, this.pal());
+  }
+
+  /** 形态档 → `sys.symbol`（core 不能持 `Resource` ⇒ 映射留在组件，**唯一一处**）。 */
   private iconRes(): Resource {
-    if (this.kind === SUB_DONE) {
+    const marker: string = this.vis().marker;
+    if (marker === MARK_CHECK) {
       return $r('sys.symbol.checkmark');
     }
-    if (this.kind === SUB_ERROR) {
+    if (marker === MARK_CROSS) {
       return $r('sys.symbol.xmark_circle_fill');
     }
-    return $r('sys.symbol.lightbulb');
+    return $r('sys.symbol.lightbulb');   // MARK_BULB / 兜底
   }
 
   /**
@@ -107,17 +126,6 @@ struct SubAgentRowView {
     return withAlpha(this.pal().border, CARD_BORDER_ALPHA);
   }
 
-  /** 图标色：只有 running 与 error 用强调/危险色，其余 muted（web `:127-135`）。 */
-  private iconColor(): string {
-    if (this.kind === SUB_ERROR) {
-      return this.pal().statusError;
-    }
-    if (this.kind === SUB_RUNNING) {
-      return this.pal().accent;
-    }
-    return this.pal().textMuted;
-  }
-
   private isChild(): boolean {
     return this.depth > 0;
   }
@@ -130,7 +138,8 @@ struct SubAgentRowView {
       Text(this.label)
         .fontSize(FS_CAPTION)                      // web `text-xs`
         .fontWeight(FontWeight.Medium)             // web `font-medium`
-        .fontColor(this.kind === SUB_RUNNING ? this.pal().accent : this.pal().textSecondary)
+        // 标签色走唯一真源（running ⇒ accent，其余 ⇒ secondary）—— 不再就地判 `this.kind`
+        .fontColor(this.labelColor())
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
       if (this.desc.length > 0) {

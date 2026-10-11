@@ -27,9 +27,13 @@ import { withAlpha } from '../core/bubble';
 import { animFast } from './anim';
 import { TodoItem } from '../core/types';
 import {
-  hasTodos, isGoalTodo, TODO_DONE, TODO_DOING, todoCountLabel, todoPercent, todoRowKey, todoState,
+  hasTodos, isGoalTodo, todoCountLabel, todoPercent, todoRowKey, todoState,
   TodoState, todoStatusKind, todoText,
 } from '../core/todos';
+import {
+  EMPHASIS_MEDIUM, MARK_CIRCLE_CHECK, MARK_CIRCLE_DASHED, StatusVisual,
+  roleColorOf, todoVisual,
+} from '../core/statusvisual';
 
 /** 收起态行高（web `h-7` = 28px）。 */
 const HEADER_H: number = 28;
@@ -88,26 +92,41 @@ struct TodoRowView {
     return paletteOf(this.theme);
   }
 
-  /** 状态图标色（web `:239-243`：done → `--status-success`，doing → accent，pending → muted）。 */
-  private iconColor(): string {
-    if (this.kind === TODO_DONE) {
-      return this.pal().successText;
-    }
-    if (this.kind === TODO_DOING) {
-      return this.pal().accent;
-    }
-    return this.pal().textMuted;
+  /** 本行的**全部视觉语义**（唯一真源：`core/statusvisual.ets:todoVisual`）。 */
+  private vis(): StatusVisual {
+    return todoVisual(this.kind);
   }
 
-  /** 状态图标（HarmonyOS 无 `Circle`/`Loader2` ⇒ `circle` / `circle_dashed` / `checkmark_circle_fill`）。 */
+  /** 状态图标色 = 图标色角色（done → success，doing → accent，pending → muted）。 */
+  private iconColor(): string {
+    return roleColorOf(this.vis().iconRole, this.pal());
+  }
+
+  /** 标签文字色 = 标签角色（done → muted，其余 → 正文）。 */
+  private labelColor(): string {
+    return roleColorOf(this.vis().labelRole, this.pal());
+  }
+
+  /** 标签字重（doing ⇒ Medium）。 */
+  private textWeight(): FontWeight {
+    return this.vis().emphasis === EMPHASIS_MEDIUM ? FontWeight.Medium : FontWeight.Normal;
+  }
+
+  /** 标签是否加删除线（done ⇒ 是）。 */
+  private struck(): boolean {
+    return this.vis().struck;
+  }
+
+  /** 形态档 → `sys.symbol`（core 不能持 `Resource` ⇒ 映射留在组件，**唯一一处**）。 */
   private iconRes(): Resource {
-    if (this.kind === TODO_DONE) {
+    const marker: string = this.vis().marker;
+    if (marker === MARK_CIRCLE_CHECK) {
       return $r('sys.symbol.checkmark_circle_fill');
     }
-    if (this.kind === TODO_DOING) {
+    if (marker === MARK_CIRCLE_DASHED) {
       return $r('sys.symbol.circle_dashed');
     }
-    return $r('sys.symbol.circle');
+    return $r('sys.symbol.circle');   // MARK_CIRCLE / 兜底
   }
 
   private goalTint(): string {
@@ -143,10 +162,11 @@ struct TodoRowView {
       } else {
         Text(this.label)
           .fontSize(FS_CAPTION)
-          .fontColor(this.kind === TODO_DONE ? this.pal().textMuted : this.pal().textPrimary)
-          .fontWeight(this.kind === TODO_DOING ? FontWeight.Medium : FontWeight.Normal)
+          // 字色 / 字重 / 删除线全部来自唯一真源（`StatusVisual`），组件不再就地判 `this.kind`
+          .fontColor(this.labelColor())
+          .fontWeight(this.textWeight())
           // done ⇒ 删除线（web `line-through`）
-          .decoration(this.kind === TODO_DONE
+          .decoration(this.struck()
             ? { type: TextDecorationType.LineThrough, color: this.pal().textMuted }
             : { type: TextDecorationType.None })
           .maxLines(2)
