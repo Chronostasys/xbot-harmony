@@ -129,8 +129,15 @@ export struct GoalBanner {
             })
           Text('保存')
             .fontSize(typeOf(TYPE_GOAL).size)
-            .fontColor(this.pal().accent)
+            // ⛔ 目标⑤：`accent` 是**非文本/图形** role（AA_NON_TEXT 3.0，供弧/环/图标用），
+            //    此处是 12 的 **normal 字号文字** ⇒ 需 AA_TEXT 4.5。实算 porcelain 压
+            //    `goalBadgeBgOf`(= accent@15% over `surface`) 只有 **3.83**（dark 3.84 亦不足）
+            //    ⇒ 改走语义等价的**文字** role `accentText`（本仓为"强调文字/徽标字"定义的 4.5 档）：
+            //    逐主题实算 porcelain 5.60 / dark 9.63 / light 7.01 / aurora 10.19 / nebula 8.55（全 ≥4.5）。
+            .fontColor(this.pal().accentText)
             .padding({ left: SPACE_XS, right: SPACE_XS, top: 3, bottom: 3 })
+            // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44, Apple HIG)：原先只靠 padding 撑高（≈22）⇒ 低于阈值。
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
             .borderRadius(R_SM)
             .backgroundColor(goalBadgeBgOf(this.pal(), false))
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
@@ -144,6 +151,8 @@ export struct GoalBanner {
             //    那是给**非交互元信息**的）⇒ 可点 UI 必须用 `textSecondary`（porcelain 4.74 ✓）。
             .fontColor(this.pal().textSecondary)
             .padding({ left: SPACE_XS, right: SPACE_XS, top: 3, bottom: 3 })
+            // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44, Apple HIG)：原先只靠 padding 撑高（≈22）⇒ 低于阈值。
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               this.cancel();
@@ -151,6 +160,7 @@ export struct GoalBanner {
         } else {
           // 目标文本：单行截断；已完成 ⇒ muted + 删除线（web `:122-128`）
           Text(this.display().objective)
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
             .fontSize(typeOf(TYPE_GOAL).size)
             .fontColor(this.display().completed ? this.pal().textMuted : this.pal().textPrimary)
             .decoration(this.display().completed
@@ -177,38 +187,48 @@ export struct GoalBanner {
             .fontWeight(FontWeight.Medium)
             // ⛔ **水平溢出**：徽标文案长度不可控（模型生成）⇒ 加宽上限，否则顶出所在 Row。
             .constraintSize({ maxWidth: PILL_MAX_W })
-            .fontColor(this.display().completed ? this.pal().success : this.pal().accent)
+            // ⛔ 目标⑤：徽标字（10 档）是 normal 字号文字 ⇒ 需 AA_TEXT 4.5。`accent` 是图形 role
+            //    （3.0）⇒ 压 `goalBadgeBgOf`(= accent@15% over `surface`) porcelain 仅 **3.83**
+            //    （dark 3.84 亦不足）⇒ 进行中分支改走文字 role `accentText`（porcelain 5.60 ✓）。
+            //    `success` 分支保留（`success` 在 porcelain 已按 4.5 档取值，非本次越界项）。
+            .fontColor(this.display().completed ? this.pal().success : this.pal().accentText)
             .backgroundColor(goalBadgeBgOf(this.pal(), this.display().completed))
             .borderRadius(R_SM)
             .padding({ left: 6, right: 6, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
 
           // 编辑入口：**仅进行中**（web `:145-154`）
           if (goalEditable(this.display().completed)) {
-            SymbolGlyph($r('sys.symbol.square_and_pencil'))
-              .fontSize(typeOf('type.caption').size)
-              .fontColor([colorOf(this.pal(), 'iconMuted')])
-              // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = `type.caption`(12) < 44 ⇒ 外扩。
-              //    本行右侧两个图标间距 SPACE_XS(8) ⇒ 44×44 **必重叠** ⇒ 取"互不重叠的最大矩形"：
-              //    pencil 主要向**左**扩（左邻 = 目标文本 `Text`，其 onClick 与 pencil **同一动作** ⇒ 重叠无害）。
-              .responseRegion({ x: -32, y: -16, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
-              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-              .onClick(() => {
-                this.draft = this.objective;
-                this.editing = true;
-              })
+            // ⛔ 命中区：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`；
+            //    图标视觉尺寸不变（仍 `type.caption`=12，盒内居中）。左邻 = 目标文本（可点、**同一动作**）。
+            Row() {
+              SymbolGlyph($r('sys.symbol.square_and_pencil'))
+                .fontSize(typeOf('type.caption').size)
+                .fontColor([colorOf(this.pal(), 'iconMuted')])
+            }
+            .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+            .accessibilityText('编辑目标')
+            .onClick(() => {
+              this.draft = this.objective;
+              this.editing = true;
+            })
           }
 
           // 清除（web `:157-167`；编辑态隐藏）
-          SymbolGlyph($r('sys.symbol.xmark'))
-            .fontSize(typeOf('type.caption').size)
-            .fontColor([colorOf(this.pal(), 'iconMuted')])
-            // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：视觉边长 = 12 < 44 ⇒ 外扩。
-            //    本图标是行尾元素（右肩空）⇒ 主要向**右**扩，避免与左侧 pencil 的命中区重叠。
-            .responseRegion({ x: -8, y: -16, width: HIT_TARGET_MIN, height: HIT_TARGET_MIN })
-            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-            .onClick(() => {
-              this.onClearGoal();
-            })
+          // ⛔ 命中区：同上 —— 真实 44×44 布局盒承载 `onClick`。`margin.left` 给两枚相邻盒留 8vp 死区
+          //    ⇒ 点「编辑」不会误触「清除」（两者动作相反）。
+          Row() {
+            SymbolGlyph($r('sys.symbol.xmark'))
+              .fontSize(typeOf('type.caption').size)
+              .fontColor([colorOf(this.pal(), 'iconMuted')])
+          }
+          .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
+          .margin({ left: SPACE_XS })
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .accessibilityText('清除目标')
+          .onClick(() => {
+            this.onClearGoal();
+          })
         }
       }
       .width('100%')
