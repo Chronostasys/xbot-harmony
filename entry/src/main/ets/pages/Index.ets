@@ -4851,9 +4851,11 @@ struct Index {
       Row() {
         Text('设置').fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.pal().textPrimary).layoutWeight(1)
         SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(8)
-.onClick(() => {
-          this.showSettings = false;
-        })
+          .onClick(() => {
+            // P0（用户报「点 X 无反应」）：本面板的渲染 flag 是 `showPrefs`（见 `build()`
+            // 的 `if (this.showPrefs)`），此前误写成别的面板的 `showSettings` ⇒ 点 X 关不掉。
+            this.showPrefs = false;
+          })
       }.width('100%')
 
       // 聊天界面：原生 / 内嵌 ArkWeb（用户要求可切换；ArkWeb 内也有"切回原生"按钮）
