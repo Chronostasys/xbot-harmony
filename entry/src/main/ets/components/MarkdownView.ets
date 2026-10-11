@@ -1,7 +1,7 @@
 import { AuthImage } from './AuthImage';
 import { pasteboard } from '@kit.BasicServicesKit';
-import { Palette, paletteOf, surfacesOf, Effects, effectsOf } from '../core/theme';
-import { codeBgOf, codeFgOf, codeTone, CodeTone, normalizeMdTheme } from '../core/mdtheme';
+import { Palette, paletteOf, surfacesOf, Effects, effectsOf, contrastRatio, isLightPalette } from '../core/theme';
+import { codeBgOf, codeFgOf, codeTone, CodeTone, isLightMdTheme, normalizeMdTheme } from '../core/mdtheme';
 import { R_SM, R_MD, R_LG, SP_1, SP_2, SP_3 } from '../core/tokens';
 import {
   MdBlock, MdBlockKind, MdSpan, parseInlineCached, parseMarkdownCached,
@@ -31,6 +31,33 @@ export function imagesIn(text: string): string[] {
     }
   }
   return out;
+}
+
+/** 行内码文本的正文阈值（WCAG AA）。 */
+const INLINE_CODE_MIN_RATIO: number = 4.5;
+
+/**
+ * 行内码**文本色**——必须与**它自己的底**（md 主题的 `tone.inlineBg`）配对。
+ *
+ * ⛔ 为什么不能无条件用全局 `pal.accentText`：全局应用主题与 md 主题是**两条独立的明暗轴**
+ *   （应用主题 = dark/light/aurora/nebula/porcelain；md 主题 = 23 套，各自有 mode）。
+ *   二者**相反**时会把"深字压深底 / 浅字压浅底"：
+ *     · 极简白/浅色应用 + 默认 `vscode-dark`（最常见的默认组合）⇒ 深 `accentText`
+ *       压深 `inlineBg`，实测 **1.1 ~ 2.5:1**（正文阈值 4.5）—— 行内码几乎读不出；
+ *     · 深色应用 + `github-light`/`solarized-light` 等浅色 md 主题 ⇒ 浅 `accentText`
+ *       压浅底，实测 **1.28 ~ 1.49:1**。
+ *   二者**同明暗**时（深色应用 + 深色 md 主题）`accentText` 已可读 ⇒ **原样保留（零回归）**。
+ *
+ * 取值规则（不新造色值，全部复用既有角色）：
+ *   · `accentText` 对 `inlineBg` 已 ≥ 4.5 ⇒ 用它（保色相，观感不变）；
+ *   · 否则退回 **md 主题自己的代码字色** `tone.fg` —— 它与 `inlineBg` **同族配对**
+ *     （web `markdown-themes.css` 的 `--md-inline-code-text` 也是这么配的），故必然可读。
+ */
+function inlineCodeFg(pal: Palette, tone: CodeTone): string {
+  if (contrastRatio(pal.accentText, tone.inlineBg) >= INLINE_CODE_MIN_RATIO) {
+    return pal.accentText;
+  }
+  return tone.fg;
 }
 
 /**
@@ -79,8 +106,9 @@ export function inlineStyles(text: string, pal: Palette, mdTheme: string, baseCo
       st.text = ` ${sp.text} `;
       st.mono = true;
       st.size = 13;
-      // 行内码：胶囊底用**所选 md 主题的行内码底**（与代码块同源，避免两种"代码"配色打架）
-      st.color = pal.accentText;
+      // 行内码：胶囊底用**所选 md 主题的行内码底**（与代码块同源，避免两种"代码"配色打架）；
+      // 文本色必须与**这个底**配对，见 `inlineCodeFg`。
+      st.color = inlineCodeFg(pal, tone);
       st.bg = tone.inlineBg;
     } else if (sp.link.length > 0) {
       st.text = sp.text;
@@ -253,6 +281,34 @@ export struct MarkdownView {
     return n * this.fontScale;
   }
 
+  /**
+   * 代码块**语言条**（语言标签 + 「复制」）的取色：是否必须**跟随代码底**。
+   *
+   * 语言条是代码块的 chrome，但它的底此前写死 `pal().surfaceAlt`（全局次级面），
+   * 而代码区底是 `codeBgOf(mdTheme, pal)`（所选 md 主题）——**两条独立的明暗轴**。
+   * 二者**相反**时（最常见：极简白/浅色应用 + 默认 `vscode-dark`）会得到
+   * "近白语言条压在全黑代码块上"的割裂，且标签色 `textMuted`（全局）对那个底也不配对。
+   *
+   * 判据：`isLightPalette(pal) !== isLightMdTheme(mdTheme)` ⇒ 跟随代码底（同明暗时**零回归**）。
+   * ⛔ 一律按**亮度**判（色板用 `isLightPalette`，md 主题用 `isLightMdTheme`），不按主题名硬判。
+   */
+  private codeChromeOnTone(): boolean {
+    return isLightPalette(this.pal()) !== isLightMdTheme(this.mdTheme);
+  }
+
+  /** 语言条底色：同明暗 = 全局次级面（既有观感）；相反 = 与代码区同底的 md 主题代码底。 */
+  private codeStripBg(): string {
+    return this.codeChromeOnTone() ? codeBgOf(this.mdTheme, this.pal()) : this.pal().surfaceAlt;
+  }
+
+  /** 「复制」色：同明暗 = 全局 `accentSoft`（既有观感）；相反 = md 主题代码字色（与其底配对）。
+   *  ⚠️ 语言标签**刻意不跟随**：`textMuted` 是**中调灰**（浅色系 #94A3B8/#A2A2A7、深色系 #63636F），
+   *  压在浅底与深底上都读得出（实测：浅色族恒 ≥2.34、深色族恒 ≥3.09）⇒ 保持既有的
+   *  "语言标签 = textMuted"（web `index.css:199 --md-code-lang-text`）语义与源码形态不变。 */
+  private codeStripAction(): string {
+    return this.codeChromeOnTone() ? codeFgOf(this.mdTheme) : this.pal().accentSoft;
+  }
+
   @Builder
   CodeBlock(b: MdBlock) {
     Column() {
@@ -267,7 +323,7 @@ export struct MarkdownView {
           .layoutWeight(1)
         Text('复制')
           .fontSize(11)
-          .fontColor(this.pal().accentSoft)
+          .fontColor(this.codeStripAction())
           .onClick(() => {
             // 剪贴板：用 pasteboard（`getContext(this).getApplicationContext().getPasteboard()` 不是 ArkTS API）
             try {
@@ -281,7 +337,7 @@ export struct MarkdownView {
       }
       .width('100%')
       .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_1 })
-      .backgroundColor(this.pal().surfaceAlt)
+      .backgroundColor(this.codeStripBg())
       .borderRadius({ topLeft: R_MD, topRight: R_MD })
       // 顶部细条（语言标签条）与代码区之间一条玻璃分隔线
       .border({ width: { bottom: 1 }, color: this.eff().glassBorder })
