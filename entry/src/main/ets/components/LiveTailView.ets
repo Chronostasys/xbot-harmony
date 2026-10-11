@@ -180,9 +180,9 @@ return isLiveStatus(this.kind(t));
 return renderKind(t.status, t.exit_code, true);
   }
 
-  /** 状态 chip 文案（空 = 无 chip）。 */
+  /** 状态 chip 文案（空 = 无 chip；running 带时长 —— **与 pill/committed 块同一组入参**）。 */
   private chip(t: ToolProgress): string {
-    return statusChip(this.kind(t), t.exit_code, t.gen_chars);
+    return statusChip(this.kind(t), t.exit_code, t.gen_chars, t.elapsed_ms);
   }
 
   /** pill 展示文本（名称/标签，**不含**状态 badge —— 状态由 chip 表达）。 */
