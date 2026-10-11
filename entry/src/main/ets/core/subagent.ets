@@ -140,8 +140,17 @@ export interface SubAgentRow {
   openable: boolean;
 }
 
+/**
+ * ArkUI `ForEach` key = `id` + **可变内容指纹**（kind + **desc 全文**）。
+ * ⛔ 必须随内容变化：ArkUI 的 ForEach **key 不变则不重建该项**（ARKTS-GOTCHAS §3），
+ *    而子组件是 `@Prop` 驱动的真组件 —— key 不变 ⇒ @Prop 不更新 ⇒ 状态图标/描述卡在首帧。
+ *    这一点与 web（React 按键身份 + 每帧 re-render）语义不同，是本仓的既定适配手法
+ *    （同 `rowdiff.sessionScopedRowKey` 的 `rev`）。
+ * ⛔ 用 **desc 全文**（**不是** `desc.length`）：旧版 key 含长度 ⇒ `'ab'→'cd'`（同长异文）
+ *    时 key 不变 ⇒ ArkUI 认为没变 ⇒ 描述**卡在首帧**（"内容变了界面不动"同族）。
+ */
 function rowKeyOf(id: string, kind: string, desc: string): string {
-  return `${id}#${kind}#${desc.length}`;
+  return `${id}#${kind}#${desc}`;
 }
 
 /**

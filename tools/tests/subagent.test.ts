@@ -157,6 +157,11 @@ function node(role: string, status: string, instance?: string, desc?: string,
   ok('描述同长同状态 ⇒ key 相同（幂等）',
     flattenSubAgents([node('a', 'running', 'i1', 'aa')], true)[0].key === d1[0].key);
 
+  // ⛔ H10：**同长异文** desc ⇒ key 必须变（旧版 key 含 desc.length ⇒ 同长不变 ⇒ 描述卡首帧）
+  const s1: SubAgentRow[] = flattenSubAgents([node('a', 'running', 'i1', 'ab')], true);
+  const s2: SubAgentRow[] = flattenSubAgents([node('a', 'running', 'i1', 'cd')], true);
+  ok('同长异文 desc ⇒ key 变（H10：key 用全文非长度）', s1[0].key !== s2[0].key);
+
   // 同一棵树内 key **唯一**（重复 key ⇒ ArkUI 复用错位）
   const dup: SubAgentRow[] = flattenSubAgents([
     node('x', 'running', undefined, undefined, undefined, [node('x', 'running')]),
