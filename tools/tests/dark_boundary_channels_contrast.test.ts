@@ -6,6 +6,21 @@
  * `elevationColorOf(p,ELEV_OVERLAY)`（深色 = `#000000@42%` 黑柔影，压在近黑画布上**等于没有**）。
  * 本文件把问法扩到**深色全部面层级**。
  *
+ * ── ⚠️ 与 web 的关系：**有意增强，web 无对应机制**（2026-10-11 QA 复核，只读取证）──────────
+ *   web（`web/src/index.css`）**没有**"边界通道分类 + 阈值"这套：
+ *     · 面：`--background` / `--card` / `--popover` **全部 = `var(--bg-primary)`**（`:212/214/216`）
+ *       —— 三个"层级"在 web 里**同值**，不存在"逐层拉开填充对比"的概念；
+ *     · 边：`--border` **单值**（`:160 #e0e0e0`；`:234` 注释"`--border` inherits the Spec palette value"），
+ *       另有 `--border-strong: #cccccc`（`:173`）—— 只有"普通/强"两档，**不按通道量化**；
+ *     · 影/发光：用 Tailwind 档（`shadow-xs/sm/md/lg/xl/2xl/inner`，全 web 用量见下）**按感觉选**，
+ *       没有任何对比度阈值判据。
+ *   ⇒ 本仓把"填充 / 发丝 / 净影 / 发光"四通道**分类 + 设阈值**（浮层起点：填充 1.0217 / 净影 1.0122 < 1.03）
+ *      是**原生对 web 的有意增强**（web 靠视觉挑选、原生靠可判据的不变量）⇒
+ *      **⛔ 不要**因为"web 没这么做"就把它当不一致/过度设计。
+ *   （另注：影的档位口径也不同 —— web 是 Tailwind **尺寸梯度** `shadow-xs..2xl`，
+ *     原生是 `core/theme.ets:shadowRadiusOf` 的**用途语义档** hero/raised/pill/panel/drawer/overlay/card，
+ *     且浅色额外乘 `LIGHT_SHADOW_DIFFUSION`（web 无深浅分叉）⇒ 同为有意不同。）
+ *
  * ── ⛔ 本文件最重要的一条纪律：**只把「实际接线」的通道计入判定** ──────────────────
  * 第一版我犯过这个错：把 `effectsOf(p).glow`（accent@45%，净 1.25+）当成一条通道算进每个面 ⇒
  * **7 个相邻对全部"达标"、缺口表空**。但 `efa9d71` 已证：**浮层用的是 `elevationColorOf`（黑影），
