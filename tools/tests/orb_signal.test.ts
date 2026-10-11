@@ -198,8 +198,8 @@ hasNot(orbSrc, 'export function activityVitality', '组件层不得自带一份�
 // (B7) 既有契约未被顶掉（本波不得回退上一轮的数值/门控）
 has(orbSrc, 'const ORB_TOOL_SPIN_GAIN: number = 2.2;', 'tool 公转 2.2× 仍在（未被本波改动）');
 has(orbSrc, 'const ORB_EASE_MS: number = MOTION_BREATH_MS / 8;', '缓动刻度仍是主呼吸/8');
-has(orbSrc, 'this.ready && this.active && !this.paused && !this.reduceMotion;',
-  '停表门控仍含 paused + reduceMotion');
+has(orbSrc, 'this.ready && this.active && !this.paused && !this.reduceMotion && this.visible;',
+  '停表门控仍含 paused + reduceMotion + visible（302da8f 起把"不可见"并入停表门控）');
 
 if (fail > 0) {
   console.log(`  orb_signal: ${pass} passed, ${fail} failed`);
