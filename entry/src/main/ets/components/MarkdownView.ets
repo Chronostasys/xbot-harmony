@@ -9,6 +9,9 @@ import { R_SM, R_MD, R_LG, SP_1, SP_2, SP_3 } from '../core/tokens';
 import {
   MD_BLOCK_GAP, MD_BODY_LEADING, MD_CODE_LEADING, MD_HEADING_GAP_BOTTOM, MD_HEADING_GAP_TOP,
   MD_HEADING_LEADING, MdHeading, mdHeadings, typeOf,
+  // `#13` 视觉裁决（`docs/WEB-ALIGNMENT.md §16.2 #13`）：代码块底 = `surface.well`(sunken)、
+  // 圆角 = `RADIUS_CARD`、边 = 结构性发丝 `hairlineOf`。
+  RADIUS_CARD, hairlineOf, wellOf,
 } from '../core/design';
 import {
   MdBlock, MdBlockKind, MdSpan, parseInlineCached, parseMarkdownCached,
@@ -409,9 +412,11 @@ export struct MarkdownView {
       .width('100%')
       .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_1 })
       .backgroundColor(this.codeStripBg())
-      .borderRadius({ topLeft: R_MD, topRight: R_MD })
-      // 顶部细条（语言标签条）与代码区之间一条玻璃分隔线
-      .border({ width: { bottom: 1 }, color: this.eff().glassBorder })
+      // 语言条上圆角 = `RADIUS_CARD`（`#13`：与块体同档，设计系统语义圆角）。
+      .borderRadius({ topLeft: RADIUS_CARD, topRight: RADIUS_CARD })
+      // 顶部细条（语言标签条）与代码区之间一条**结构性发丝**（`#13`：边 = hairline，
+      // 不再用 `eff().glassBorder` —— 玻璃是"浮层面板"材质，用在内容面上是语义错位）。
+      .border({ width: { bottom: 1 }, color: hairlineOf(this.pal()) })
 
       // ── 代码区：Prism4j 高亮 + 溢出策略 ──────────────────────────────────────
       // 溢出（P0#2）：换行模式 ⇒ 词内折行；不换行模式 ⇒ **横向滚动**。
@@ -455,13 +460,11 @@ export struct MarkdownView {
       }
     }
     .width('100%')
-    // 代码块：**用所选 Markdown 主题的代码底/字**（与 web markdown-themes 同源；
-    // 不跟随会退化成"23 套主题长得一模一样"的假功能）。圆角与描边保持全局语言。
-    .backgroundColor(codeBgOf(this.mdTheme, this.pal()))
-    .borderRadius(R_MD)
-    .border({ width: 1, color: this.eff().glassBorder })
-    // 代码块用 6vp 圆角（web `MarkdownRenderer.tsx:206` `rounded-md` = 6px）——与 web 的
-    // 内容块（代码/参数/工具卡）同一档；原先 8vp（R_LG）与"卡片 12vp"之间没有层级依据。
+    // 代码块底 = `surface.well`(sunken)（`#13` 视觉裁决：视觉以设计系统为权威，不再跟随 md 主题底；
+    // md 主题降级为"语法色覆盖项"，见 `docs/REDESIGN.md §7.9`）。圆角 = `RADIUS_CARD`、边 = 发丝。
+    .backgroundColor(wellOf(this.pal()))
+    .borderRadius(RADIUS_CARD)
+    .border({ width: 1, color: hairlineOf(this.pal()) })
     .margin({ top: SP_1, bottom: SP_1 })
   }
 

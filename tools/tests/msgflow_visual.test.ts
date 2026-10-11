@@ -75,11 +75,12 @@ has(thinkSrc, '.fontColor(this.live ? paletteOf(this.theme).accentSoft : palette
 // ════════════════════════════════════════════════════════════════════════════
 // ② 正文 `MarkdownView.ets`  ↔  web `MarkdownRenderer.tsx` + `index.css .markdown-body`
 // ════════════════════════════════════════════════════════════════════════════
-// 代码块圆角：web `MarkdownRenderer.tsx:206` `rounded-md`（6）
-has(mdSrc, '.backgroundColor(codeBgOf(this.mdTheme, this.pal()))\n    .borderRadius(R_MD)',
-  '代码块圆角 = R_MD(6)（web `:206` `rounded-md`）');
-has(mdSrc, '.borderRadius({ topLeft: R_MD, topRight: R_MD })',
-  '代码块语言条上圆角 = R_MD（与块体同档）');
+// 代码块视觉 = **设计系统值**（`docs/WEB-ALIGNMENT.md §16.2 #13`：功能以 web 为权威、**视觉以设计系统为权威**
+//   ⇒ 底 = `surface.well`(sunken) + 圆角 = `RADIUS_CARD`；旧的 web `rounded-md`(R_MD) 期望值按裁决**作废**）。
+has(mdSrc, '.backgroundColor(wellOf(this.pal()))\n    .borderRadius(RADIUS_CARD)',
+  '代码块底 = surface.well（sunken）+ 圆角 = RADIUS_CARD（§16.2 #13）');
+has(mdSrc, '.borderRadius({ topLeft: RADIUS_CARD, topRight: RADIUS_CARD })',
+  '代码块语言条上圆角 = RADIUS_CARD（与块体同档，§16.2 #13）');
 // 语言标签：web `:214` `font-mono text-[11px]` + `index.css:199 --md-code-lang-text = var(--text-muted)`
 has(mdSrc, "          .fontSize(11)\n          .fontFamily('monospace')\n          .fontColor(this.pal().textMuted)",
   '语言标签 = 等宽 11 + textMuted（web `:214` + `index.css:199`）');

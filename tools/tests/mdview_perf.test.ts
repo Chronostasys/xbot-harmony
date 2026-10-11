@@ -21,7 +21,7 @@ import {
   MdInlineMemo, MdInlineStyle, mdInlineKey,
 } from '../../entry/src/main/ets/core/mdview';
 import { paletteOf, contrastRatio, isLightPalette } from '../../entry/src/main/ets/core/theme';
-import { codeBgOf, codeFgOf, isLightMdTheme } from '../../entry/src/main/ets/core/mdtheme';
+import { wellOf } from '../../entry/src/main/ets/core/design';
 import { highlightCode } from '../../entry/src/main/ets/core/highlight';
 
 let pass = 0;
@@ -88,7 +88,8 @@ function rejoin(code: string, lang: string): string {
 const snippet = 'export function f(x: number): number {\n  return x + 1;\n}';
 eq('高亮降级：内容零丢失（shell/ts 片段）', rejoin(snippet, 'ts'), snippet);
 eq('高亮降级：unknown 语言零丢失', rejoin('a\nb', 'notalang'), 'a\nb');
-// token 色护栏：要么是语义角色色且对代码底达标，要么退回代码字色（绝不出现读不出的颜色）
+// token 色护栏：要么是语义角色色且对**代码块真实底**（`#13`：`surface.well`）达标，
+// 要么退回**同族 palette 前景** `pal.textPrimary`（绝不出现读不出的颜色）。
 const themes = ['vscode-dark', 'github-light', 'solarized-light', 'dracula'];
 const pals = ['dark', 'light', 'porcelain', 'aurora'];
 const keys = ['comment', 'string', 'keyword', 'number', 'func', 'prop', 'type', 'tag', 'op', 'punct', 'diff-add', 'diff-del', ''];
@@ -96,8 +97,8 @@ let guardBad = 0;
 for (let ti = 0; ti < themes.length; ti++) {
   for (let pi = 0; pi < pals.length; pi++) {
     const pal = paletteOf(pals[pi]);
-    const bg = codeBgOf(themes[ti], pal);
-    const base = codeFgOf(themes[ti]);
+    const bg = wellOf(pal);              // ← `#13`：代码块底 = surface.well（不再随 md 主题）
+    const base = pal.textPrimary;        // ← `#13`：回退色 = palette 同族前景
     for (let ki = 0; ki < keys.length; ki++) {
       const c = codeTokenColor(keys[ki], pal, themes[ti]);
       const isBase = c === base;
@@ -106,9 +107,9 @@ for (let ti = 0; ti < themes.length; ti++) {
     }
   }
 }
-eq('所有 token×主题 组合都满足"语义色达标 或 退回代码字色"', guardBad, 0);
-// 空 key 必须退默认代码字色
-eq('空 key ⇒ 代码字色', codeTokenColor('', paletteOf('dark'), 'vscode-dark'), codeFgOf('vscode-dark'));
+eq('所有 token×主题 组合都满足"语义色达标 或 退回默认前景"', guardBad, 0);
+// 空 key 必须退默认前景（`#13`：底是 palette ⇒ 回退也是 palette）
+eq('空 key ⇒ 默认前景', codeTokenColor('', paletteOf('dark'), 'vscode-dark'), paletteOf('dark').textPrimary);
 // 组件形态：确实接了高亮引擎 + 用 mdview 的 token 色
 has(mdSrc, 'highlightCode(b.code, b.lang)', '代码块接了 core/highlight（Prism4j）');
 has(mdSrc, 'codeTokenColor(sp.key, this.pal(), this.mdTheme)', 'token 色走 core/mdview.codeTokenColor');

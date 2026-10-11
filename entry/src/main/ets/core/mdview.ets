@@ -12,7 +12,8 @@
  */
 
 import { Palette, contrastRatio } from './theme';
-import { codeBgOf, codeFgOf } from './mdtheme';
+// `#13` 视觉裁决：代码块底 = `surface.well`(sunken)（palette 驱动）⇒ token 色的结对底改为 `wellOf`。
+import { wellOf } from './design';
 import { MdSpan, parseInlineCached } from './markdown';
 import {
   K_COMMENT, K_STRING, K_KEYWORD, K_NUMBER, K_FUNC, K_PROP, K_TYPE, K_TAG, K_OP, K_PUNCT,
@@ -95,16 +96,20 @@ export function codeRoleColor(key: string, pal: Palette): string {
 /**
  * 代码 token 的最终文本色 —— **双层保证**：
  *  ① 与 `ToolPopover` 同一份语义角色映射（不新造第二套语法色）；
- *  ② 但**代码块底**来自所选 md 主题（与全局色板是两条**独立明暗轴**）⇒ 对角色色加**对比度护栏**：
- *     不达标就退回该主题自己的代码字色（`codeFgOf`，与代码底**同族配对**，必然可读）。
- *     ⇒ 杜绝"深字压深底 / 浅字压浅底"（真机最常见的 `极简白 + vscode-dark` 组合即属此列）。
+ *  ② 代码块底 = `surface.well`(sunken)（`#13` 视觉裁决：palette 驱动，非 md 主题）⇒ 对角色色加
+ *     **对比度护栏**：不达标就退回**同族 palette 前景** `pal.textPrimary`（与 sunken 必然可读）。
+ *
+ * ⚠️ 为什么不再是 `codeFgOf(mdTheme)`：旧底的结对色是 md 主题的代码字色；底改成 `surface.well`
+ *    （palette）后，二者成"两条独立明暗轴"⇒ 会出现"浅字压浅底"（例：porcelain + 默认 `vscode-dark`
+ *    ⇒ `#D4D4D4` 压 `#F2F2F2`，实测 ≈1.13，代码**整块不可见**）。护栏与回退一律按**真实底**取。
+ * `mdTheme` 形参**保留**（调用点与既有测试的签名兼容；语义上不再使用）。
  */
 export function codeTokenColor(key: string, pal: Palette, mdTheme: string): string {
-  const base: string = codeFgOf(mdTheme);
+  const base: string = pal.textPrimary;
   if (key.length === 0) { return base; }
   const cand: string = codeRoleColor(key, pal);
   if (cand.length === 0) { return base; }
-  return contrastRatio(cand, codeBgOf(mdTheme, pal)) >= CODE_TOKEN_MIN_RATIO ? cand : base;
+  return contrastRatio(cand, wellOf(pal)) >= CODE_TOKEN_MIN_RATIO ? cand : base;
 }
 
 // ── 行内样式（P1#5：按文本记忆化）────────────────────────────────────────────
