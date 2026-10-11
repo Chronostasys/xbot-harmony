@@ -816,8 +816,11 @@ export function boolSettingValue(on: boolean): string {
 }
 
 /**
- * 设置面板里的整数档：**空/非法/越界 ⇒ 回落默认值**（与 web 的 `if (…>=min && …<=max) push else push(默认)` 同义）。
- * 供"写回"使用 —— web 的 placeholder 只是占位，真正落库的是默认值。
+ * 设置面板里的整数档：**空/非法/越界 ⇒ 回落默认值**。
+ *
+ * ⚠️ **已不用于写回路径**（`buildVisionWrites` 改用 `settingIntOrDefaultOrSkip`）——
+ *    因为它把"空"与"非空越界"**并成一档**，而 web 对非空越界是**跳过该键**（不写），
+ *    写默认值会**覆盖后端已有值**（违反"状态一律以后端为准"）。保留仅为兼容既有断言。
  */
 export function clampSettingInt(raw: string, min: number, max: number, fallback: number): number {
   const t: string = raw !== undefined && raw !== null ? raw.trim() : '';
@@ -829,6 +832,41 @@ export function clampSettingInt(raw: string, min: number, max: number, fallback:
     return fallback;
   }
   return n;
+}
+
+/**
+ * 写回路径的整数档 —— **空 ⇒ 默认；非空但非法/越界 ⇒ `null`（= 本键不写，保留后端旧值）**。
+ *
+ * 权威：web `SettingsAgent.tsx:172-190` —— `else`（**只有空串**）才 push 默认；
+ * 非空但 `n<min || n>max` ⇒ **该键不 push**（既不写值也不回默认）。
+ * ⛔ 这正是"以后端为准"的硬要求：客户端不能因为用户输错一个数字就把服务端旧值改掉。
+ */
+export function settingIntOrDefaultOrSkip(
+  raw: string, min: number, max: number, fallback: number,
+): number | null {
+  const t: string = raw !== undefined && raw !== null ? raw.trim() : '';
+  if (t.length === 0) {
+    return fallback;
+  }
+  const n: number = parseInt(t, 10);
+  if (isNaN(n) || n < min || n > max) {
+    return null;
+  }
+  return n;
+}
+
+/** 写回路径的 MB 档 —— 空 ⇒ 默认 4MB；非空但越界/非法 ⇒ `null`（不写）。web `SettingsAgent.tsx:178-183`。 */
+export function mbToBytesOrDefaultOrSkip(raw: string): string | null {
+  const t: string = raw !== undefined && raw !== null ? raw.trim() : '';
+  const def: string = `${VISION_DEFAULT_MAX_IMAGE_MB * BYTES_PER_MB}`;
+  if (t.length === 0) {
+    return def;
+  }
+  const mb: number = parseFloat(t);
+  if (isNaN(mb) || mb <= 0 || mb > VISION_MAX_MB) {
+    return null;
+  }
+  return `${Math.round(mb * BYTES_PER_MB)}`;
 }
 
 /** 字节数 → MB 显示（保留 1 位小数；web `SettingsAgent.tsx:140`）。空/非法 ⇒ 空串（界面显示占位）。 */
@@ -866,17 +904,32 @@ export function normalizeVisionFormat(raw: string): string {
  * 视觉设置 → **写入列表**（与 web `saveVisionSettings`（`SettingsAgent.tsx:167-200`）逐条同序同义）。
  *
  * 顺序即 web 的 `writes.push` 顺序：edge_px → bytes → output_format → jpeg_quality。
+ *
+ * ⛔ **空 vs 越界必须分开**（本波修的 P1，web `:172-190`）：
+ *   · **空输入** ⇒ 写**默认值**（1024 / 4MB / 85）；
+ *   · **非空但越界/非法** ⇒ **该键不写**（保留后端旧值）——
+ *     旧实现无条件回落默认并写回 ⇒ 用户输错一个数字就把服务端原值**覆盖**成默认，
+ *     违背用户常驻要求「状态一律以后端为准」。
+ *   · `output_format` **恒写**（web 无条件 push；空 ⇒ `auto`）。
  */
 export function buildVisionWrites(edgePx: string, maxImageMb: string, format: string, jpegQuality: string): SettingWrite[] {
-  const edge: number = clampSettingInt(edgePx, VISION_MIN_EDGE_PX, VISION_MAX_EDGE_PX, VISION_DEFAULT_EDGE_PX);
-  const quality: number = clampSettingInt(jpegQuality, VISION_MIN_JPEG_QUALITY, VISION_MAX_JPEG_QUALITY,
-    VISION_DEFAULT_JPEG_QUALITY);
-  return [
-    new SettingWrite(AGENT_KEY_VISION_MAX_IMAGE_EDGE_PX, `${edge}`),
-    new SettingWrite(AGENT_KEY_VISION_MAX_IMAGE_BYTES, mbInputToBytes(maxImageMb)),
-    new SettingWrite(AGENT_KEY_VISION_OUTPUT_FORMAT, normalizeVisionFormat(format)),
-    new SettingWrite(AGENT_KEY_VISION_JPEG_QUALITY, `${quality}`),
-  ];
+  const out: SettingWrite[] = [];
+  const edge: number | null = settingIntOrDefaultOrSkip(edgePx, VISION_MIN_EDGE_PX, VISION_MAX_EDGE_PX,
+    VISION_DEFAULT_EDGE_PX);
+  if (edge !== null) {
+    out.push(new SettingWrite(AGENT_KEY_VISION_MAX_IMAGE_EDGE_PX, `${edge}`));
+  }
+  const bytes: string | null = mbToBytesOrDefaultOrSkip(maxImageMb);
+  if (bytes !== null) {
+    out.push(new SettingWrite(AGENT_KEY_VISION_MAX_IMAGE_BYTES, bytes));
+  }
+  out.push(new SettingWrite(AGENT_KEY_VISION_OUTPUT_FORMAT, normalizeVisionFormat(format)));
+  const quality: number | null = settingIntOrDefaultOrSkip(jpegQuality, VISION_MIN_JPEG_QUALITY,
+    VISION_MAX_JPEG_QUALITY, VISION_DEFAULT_JPEG_QUALITY);
+  if (quality !== null) {
+    out.push(new SettingWrite(AGENT_KEY_VISION_JPEG_QUALITY, `${quality}`));
+  }
+  return out;
 }
 
 /** 从 `get_settings` 结果里取键（缺省 ⇒ 空串，调用方走各自的 placeholder/默认）。 */
