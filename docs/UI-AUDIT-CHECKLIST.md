@@ -333,7 +333,13 @@ md缓存 命中=… 未命中=…（命中率 …%） 占用=…KB 条目=…
   可点元素若显式设了 < 44 的 `height/width/size/constraintSize` 数值、且链上**没有** `HIT_TARGET_MIN` ⇒ 红。
   ⛔ `responseRegion` **不再算补偿**（`stripResponseRegion` 先把链上的它剥掉再判）。
 - `tools/tests/hit_spacing_gate.test.ts`（10 passed / 0 failed）—— 热区尺寸 ≥44 且同容器内 ≥2 热区须不重叠。
-⛔ 阈值**从 `design.ets` 现场解析**（不写死），并断言 **`HIT_TARGET_MIN ≥ 44`** —— 防止"标准被悄悄下调而判据仍绿"。
+- `tools/tests/hit_target_pad.test.ts`（12 passed / 0 failed，`d710364`）—— **补"三条缝"**：靠 `padding(+fontSize)`
+  撑高的**可点 `Text`** 曾同时漏过上面三条判据（① 无显式尺寸 ⇒ `hit_target_gate` 不红 ② 非 `SymbolGlyph` ⇒ A2 不红
+  ③ 是 `Text` ⇒ `hittarget_audit` §D **只警告不判红**）⇒ 新增静态判据：链上有 CLICK、链上**无** `height/constraintSize/HIT_TARGET_MIN`、
+  且 `est = fontSize×1.35 + 竖直padding < 44` ⇒ 红（`fontSize`/竖直 padding 从 `tokens.ets`/`design.ets` **现场解析**，
+  ⛔ 不写死）。⚠️ **非 `Text` 容器**（高度由子节点决定）**静态判不了** ⇒ **只打印"待人工/真机核实"**（⛔ 别硬判 = 猜布局）。
+  ⚠️ 实测 `components/**` 可点 `Text` **71 个中 63 个 < 44** ⇒ 本轮修 6 处（视觉不变），余 **57 处进台账**（`PAD_LEDGER`，**只许缩短**）。
+⚠️ 阈值**从 `design.ets` 现场解析**（不写死），并断言 **`HIT_TARGET_MIN ≥ 44`** —— 防止"标准被悄悄下调而判据仍绿"。
 
 **历史命中（前一批，尺寸类）**：扫 45 文件 / **200 个可点元素** ⇒ A 类命中 **6 处**（全低于 44vp）：
 
