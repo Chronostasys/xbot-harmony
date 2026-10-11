@@ -539,6 +539,10 @@ struct SettingsDevStatLine {
         .fontSize(FS_CAPTION)
         .fontFamily('monospace')
         .fontColor(this.valueColor.length > 0 ? this.valueColor : this.pal().textSecondary)
+        // H1 残留风险收口（2026-10-11）：本组件是**共享组件**（8 个消费点），value 是 Row 内
+        // **唯一可变长元素**；此前只有 maxLines+textOverflow、**无宽度上限** ⇒ `Blank()` 被压到 0
+        // 后极长值仍可顶宽。原则：**标签优先可读、值以省略收尾** ⇒ 给 value 侧设宽度上限。
+        .constraintSize({ maxWidth: '70%' })
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
     }

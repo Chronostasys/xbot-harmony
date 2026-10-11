@@ -119,6 +119,22 @@ console.log(`  ── 自证：扫描 ${FILES.length} 个 Settings*.ets；逐形
   eq('SettingsChannels 的 bindUrl 已 BREAK_ALL（同上）', BREAK.test(ch), true);
 }
 
+// ── H1 残留风险钉死（2026-10-11）：共享组件 SettingsDevStatLine 的 value 侧必须有宽度上限 ──
+// 背景：value 是该 Row 内**唯一可变长元素**（label 为短固定文案、中间是 Blank）；此前只有
+// maxLines+textOverflow、**无宽度上限** ⇒ Blank 被压到 0 后极长值仍可顶宽。
+// ★ mutation 必红：抽掉 .constraintSize / .layoutWeight / 裸 maxWidth ⇒ 本组红。
+{
+  const dev = stripComments(fs.readFileSync(path.join(COMP, 'SettingsDeveloper.ets'), 'utf-8'));
+  const i = dev.indexOf('struct SettingsDevStatLine');
+  eq('① SettingsDevStatLine 定义处被定位到', i >= 0, true);
+  const seg = i >= 0 ? dev.slice(i, i + 1400) : '';
+  const hasCap = /constraintSize\s*\(/.test(seg) || /layoutWeight\s*\(/.test(seg) || /maxWidth/.test(seg);
+  eq('② 该 Row 内必须有一个元素带宽度上限（constraintSize / layoutWeight / maxWidth）', hasCap, true);
+  eq('③ value 侧必须仍保留省略（maxLines + textOverflow）', /maxLines\(1\)/.test(seg) && /textOverflow\s*\(/.test(seg), true);
+  // 零扫描防线：段过短 ⇒ 定位失效 ⇒ 红
+  eq('④ 零扫描防线：抽出的段长 > 300（否则定位失效）', seg.length > 300, true);
+}
+
 if (fail > 0) { console.log(`  ✗ settings_url_overflow: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  ✅ settings_url_overflow: ${pass} passed, 0 failed（${FILES.length} 个 Settings*.ets）`);
 process.exit(0);
