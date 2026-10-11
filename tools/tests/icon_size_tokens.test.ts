@@ -75,6 +75,13 @@ if (repo.length > 0) {
   ok(`★⑤ §15 chip：PluginHost 走内凹发丝（实得 ${a} ≥1）`, a >= 1);
   ok(`★⑤ §15 chip：PluginWidgets 的 2 处 chip 走内凹发丝（实得 ${b}）`, b === 2);
   ok(`★⑤ §15 chip：零扫描判红（合计 ${a + b} > 0）`, a + b > 0);
+  // ★⑥ **误报守卫**（2026-10-11 实测教训）：`ToolPopover:418` 的 `surface.well` 出现在 **diff 行的
+  //    条件着色**里（`.backgroundColor(kind===DIFF_ADD ? surface.well : …warnBg/transparent)`）
+  //    = **文本行底纹，不是"面"** ⇒ 给它接内凹发丝**是错的**（会给普通文本行凭空加边）。
+  //    ⇒ 钉住：该文件的 `insetHairlineOf` **恰 4 处**（4 个 well 面），⛔ 不许按"扫描命中"机械全接。
+  //    mutation：给那处 diff 行接上 ⇒ 5 ⇒ 必红。
+  const tp: number = count('entry/src/main/ets/components/ToolPopover.ets', 'insetHairlineOf(this.pal())');
+  ok(`★⑥ 防误报：ToolPopover 的 insetHairlineOf **恰 4 处**（4 个 well 面；diff 行底纹不算面）—— 实得 ${tp}`, tp === 4);
 }
 if (fail > 0) { console.log(`  icon_size_tokens: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  icon_size_tokens: ${pass} passed, 0 failed`);
