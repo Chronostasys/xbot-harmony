@@ -74,3 +74,28 @@ export function scaleText(s: number): string {
 export function isZoomed(s: number): boolean {
   return Math.abs(clampScale(s) - 1) > 0.01;
 }
+
+// ── 手势关闭（**原生补充**；web 的 lightbox 只给 Esc / 点遮罩，`web/src/components/agent/Lightbox.tsx:42-66`）──
+
+/**
+ * 「下滑关闭」的触发比例 = 视口高度的 **1/5**。
+ * 取 1/5 的依据：小于它读作"手抖 / 本想平移"，大于它才是"我要关掉"；这是**手势阈值**（不是动画时长）
+ * ⇒ 不进 `allowedDurations()`。
+ */
+export const SWIPE_DISMISS_RATIO: number = 0.2;
+
+/**
+ * 下滑手势**是否应当关闭**（纯判据）：
+ *   · **放大态永不由下滑关闭** —— 此时单指拖动 = 平移（边界在 `panLimit`），两条手势语义互斥；
+ *   · 只认**向下**（`dy > 0`），且需超过 `viewportH × SWIPE_DISMISS_RATIO`；
+ *   · 非法入参（NaN/视口 ≤ 0）⇒ `false`（防御，不抛）。
+ */
+export function shouldDismissBySwipe(dy: number, viewportH: number, scale: number): boolean {
+  if (isZoomed(scale)) {
+    return false;
+  }
+  if (!Number.isFinite(dy) || !Number.isFinite(viewportH) || viewportH <= 0) {
+    return false;
+  }
+  return dy >= viewportH * SWIPE_DISMISS_RATIO;
+}

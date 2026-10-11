@@ -167,6 +167,14 @@ export const MOTION_SHEET_SLIDE_VP: number = 260;
  */
 export const MOTION_TOAST_SLIDE_VP: number = MOTION_SHEET_SLIDE_VP / 4;
 
+/**
+ * 图片 lightbox（全屏浮层）的**入场缩放起点** = **0.96**（`1 → 0.96` 的"收一下再展开"）。
+ * ⚠️ **设计值**（无既有常量可派生 —— 同 `MOTION_ENTER_SCALE` / `MOTION_SHEET_SLIDE_VP` 的处理）。
+ * 为什么不用 `sheetTransition()`：lightbox 是**全屏**浮层 ⇒ 从下滑入读作"抽屉"，语义不对；
+ * 用**轻微缩放 + 淡入**表达"浮层弹起"。⛔ 不是动画时长 ⇒ 不进 `allowedDurations()`。
+ */
+export const MOTION_LIGHTBOX_ENTER_SCALE: number = 0.96;
+
 /** 数值区间校验（纯函数）：`lo <= x <= hi`。 */
 export function inRange(x: number, lo: number, hi: number): boolean {
   return typeof x === 'number' && x === x && x >= lo && x <= hi;

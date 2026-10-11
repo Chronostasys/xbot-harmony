@@ -16,7 +16,7 @@
 import curves from '@ohos.curves';
 import {
   MOTION_FAST_MS, MOTION_BASE_MS, MOTION_MSG_IN_MS, MOTION_SLOW_MS,
-  MOTION_SHEET_SLIDE_VP, MOTION_TOAST_SLIDE_VP,
+  MOTION_LIGHTBOX_ENTER_SCALE, MOTION_SHEET_SLIDE_VP, MOTION_TOAST_SLIDE_VP,
   springBezier, springParams,
 } from '../core/motion';
 import { ORB_BREATH_MS } from '../core/orb';
@@ -164,6 +164,19 @@ export function sheetTransition(): TransitionEffect {
  */
 export function toastTransition(): TransitionEffect {
   return TransitionEffect.translate({ y: MOTION_TOAST_SLIDE_VP })
+    .animation({ duration: MOTION_BASE_MS, curve: sheetCurve() })
+    .combine(TransitionEffect.OPACITY.animation({ duration: MOTION_FAST_MS }));
+}
+
+/**
+ * **图片 lightbox**（全屏浮层）的出入场 —— **轻微缩放 + 淡入**（`scale 0.96 → 1`）。
+ *
+ * 为什么不复用 `sheetTransition()`：lightbox 是**全屏**浮层（不是底部面板）⇒ 从下滑入读作"抽屉"，
+ * 语义不对。⛔ 时长/曲线/缩放起点**全部来自底座**（`MOTION_BASE_MS` / `MOTION_FAST_MS` /
+ * `MOTION_LIGHTBOX_ENTER_SCALE` / `sheetCurve()`）—— 本函数只组合，不自造数值。
+ */
+export function lightboxTransition(): TransitionEffect {
+  return TransitionEffect.scale({ x: MOTION_LIGHTBOX_ENTER_SCALE, y: MOTION_LIGHTBOX_ENTER_SCALE })
     .animation({ duration: MOTION_BASE_MS, curve: sheetCurve() })
     .combine(TransitionEffect.OPACITY.animation({ duration: MOTION_FAST_MS }));
 }
