@@ -7,6 +7,7 @@
 import image from '@ohos.multimedia.image';
 import { Palette, paletteOf } from '../core/theme';
 import {
+  PRESS_OPACITY,
   RADIUS_PILL, RADIUS_CHIP, STROKE_HAIRLINE, HIT_TARGET_MIN,
   SPACE_XXS, SPACE_XS, SPACE_SM, SPACE_HAIR,
   colorOf, surfaceFillOf, hairlineOf, SURFACE_CHIP,
@@ -91,6 +92,8 @@ export struct AuthImage {
         .objectFit(ImageFit.Contain)
         .borderRadius(RADIUS_PILL)
         .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CHIP))
+        // press 反馈（全 App 统一口径 `PRESS_OPACITY`）——图片可点（打开大图），此前**无任何反馈**。
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
           this.onOpen(this.src);
         })
@@ -130,6 +133,8 @@ export struct AuthImage {
       .borderRadius(RADIUS_CHIP)
       // 图片卡描边是**结构性边界**（承载"这是一张可点的图"的信息）⇒ `hairlineOf` 唯一出口。
       .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+      // press 反馈（统一口径）——失败「重试」/兜底「查看图片」都可点，此前**无任何反馈**。
+      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
       .onClick(() => {
         if (this.failed) {
           this.failed = false;

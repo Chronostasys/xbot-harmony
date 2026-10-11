@@ -1,6 +1,7 @@
 import { AuthImage } from './AuthImage';
 import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
+import { promptAction } from '@kit.ArkUI';
 import { Palette, paletteOf, surfacesOf, Effects, effectsOf, contrastRatio, isLightPalette } from '../core/theme';
 import { codeBgOf, codeFgOf, codeTone, CodeTone, isLightMdTheme, normalizeMdTheme } from '../core/mdtheme';
 import { R_SM, R_MD, R_LG, SP_1, SP_2, SP_3 } from '../core/tokens';
@@ -12,8 +13,9 @@ import {
   MD_TABLE_CELL_Y, MD_TABLE_SIZE, MdHeading, mdHeadings, typeOf, SPACE_HAIR,
   // `#13` 视觉裁决（`docs/WEB-ALIGNMENT.md §16.2 #13`）：代码块底 = `surface.well`(sunken)、
   // 圆角 = `RADIUS_CARD`、边 = 结构性发丝 `hairlineOf`。
-  RADIUS_CARD, hairlineOf, wellOf,
+  PRESS_OPACITY, RADIUS_CARD, hairlineOf, wellOf,
 } from '../core/design';
+import { COPY_FEEDBACK_MS, copyLabel } from '../core/feedback';
 import {
   MdBlock, MdBlockKind, MdSpan, alignOf, parseInlineCached, parseMarkdownCached,
   TableField, tableRowFields, useTableGrid,
@@ -414,13 +416,20 @@ export struct MarkdownView {
         Text('复制')
           .fontSize(11)
           .fontColor(this.codeStripAction())
+          // press 反馈：全 App 统一口径 `PRESS_OPACITY`（此前**点了像没反应**——无任何反馈）
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             // 剪贴板：用 pasteboard（`getContext(this).getApplicationContext().getPasteboard()` 不是 ArkTS API）
             try {
               const data: pasteboard.PasteData =
                 pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, b.code);
               pasteboard.getSystemPasteboard().setData(data);
+              // 可见反馈 = **toast**（与消息级复制 `Index.ets:5106` 同一手段/文案 ⇒ 复制反馈全 App 统一）。
+              // ⛔ **不用组件内 `setTimeout`**：性能预算 ⑦ 的 `setTimeout` 调用点**已用满 7**
+              //    （`docs/PERF-BUDGET.md §2-18`）⇒ 本处不再新增常驻定时器。
+              promptAction.showToast({ message: copyLabel('复制', true), duration: COPY_FEEDBACK_MS });
             } catch (e) {
+              // 失败：**不撒谎**（不弹「已复制」），只记日志（与既有"失败静默"一致）
               console.error('copy failed');
             }
           })
