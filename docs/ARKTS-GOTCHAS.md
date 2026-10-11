@@ -865,7 +865,27 @@ Usage of standard library is restricted (arkts-limited-stdlib)
 - **同类隐患**：该文件 `xmark` 共 **9 处** ⇒ 逐一与其所属 `@Builder` 的渲染 flag 对照，
   ⛔ 不要只修用户报的那一处。
 
-## 批次 27：取色 role 写错 ⇒ **运行时静默不可见**（2026-10-11，我审计令牌层时钓出；已加硬门禁 ⑥b）
+## 批次 28：在**干净 worktree** 里跑门禁，④ 会因"依赖没装"**假红**（2026-10-11，我本人踩；差点因此拦住一次装机）
+
+**症状**：`git worktree add --detach /tmp/xxx <ref>` 在干净树里跑 `bash tools/gate.sh` ⇒
+```
+❌ ArkTS 编译失败：> hvigor ERROR: BUILD FAILED
+Error Message: Cannot find module '@hxa-atpc/noties_prism4j' or its corresponding type declarations.
+At File: entry/src/main/ets/core/highlight.ets:18:8
+```
+而**同一 commit 在主树里门禁全绿**。⇒ 极易误判成"提交的内容编译不过 / 有人推坏了"。
+
+**成因**：`oh_modules/`（含 bytecode HAR 依赖，如高亮用的 `@hxa-atpc/noties_prism4j`）是
+**git-ignored** 的 ⇒ 新建的 worktree 里没有它；而 `tools/gate.sh` 的 ④ **只编译、不装依赖** ⇒ 必然假红。
+主树之所以绿，是因为主树的 `oh_modules` 早就在了。
+
+**纪律（防复发）**：
+1. **凡在干净 worktree / 新 clone 里跑门禁，先 `ohpm install --all`**（本仓 `~/ohos-cli/deploy.sh`
+   与验收脚本 `/tmp/xbot-accept.sh` 都自带这步 ⇒ 装机路径不受影响）；
+2. 看到"干净树编译失败"先问一句：**依赖装了吗**？再怀疑代码；
+3. 与批次 21/22 同源：**门禁自己也会制造假绿/假红**——判据必须在"目标环境"里自证。
+   （本次的收获是：正因为我坚持在干净树里验证**已提交内容**，才没把"工作树绿、提交内容另有问题"
+   的情况放过去；也正因如此，才需要把这条"假红"也钉下来，免得下次误杀。）
 
 **症状（最阴的一种）**：组件里写 `colorOf(p, 'text.pillName')` —— 编译**零警告**、任何测试都不红，
 但 `core/design.ets` 的 `colorOf()` 末尾是 `return p.transparent` ⇒ **文字/图标运行时不可见**。

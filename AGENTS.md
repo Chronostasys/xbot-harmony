@@ -36,7 +36,10 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   ② 跑一次**真门禁**确认它在门禁里真绿（别只看单独跑）；
   ③ 做 **mutation 自证**：注入一个"必红样本"⇒ 必须红、同副本不注入 ⇒ 必须绿；
   ④ 抓取规则要**只取调用片段**（`grep -o`），别"取整行第一个引号"（我把 `Text('保存').fontSize(
-  typeOf('type.subhead')…)` 误判成 `typeOf('保存')` ⇒ 假红）；⑤ 扫到 0 处要**判红**（白绿防线）。
+  typeOf('type.subhead')…)` 误判成 `typeOf('保存')` ⇒ 假红）；⑤ 扫到 0 处要**判红**（白绿防线）；
+  ⑥ 在**干净 worktree / 新 clone** 里跑门禁前先 `ohpm install --all` —— `oh_modules` 是 git-ignored，
+  否则 ④ 必因缺 `@hxa-atpc/noties_prism4j` 之类**假红**（我本人差点因此拦住一次装机；
+  `deploy.sh` 与验收脚本自带这步，装机路径不受影响）。详见 `docs/ARKTS-GOTCHAS.md` 批次 28。
 - **ArkUI `CustomComponent` 基类的成员名不能用作组件成员名**：`size`/`width`/`height`/`position`/
   `offset`/`scale`/`rotate`/`opacity`/`visibility`/`clip`/`zIndex`/`id`/`key`（以及 `onClick` 等事件名）。
   写成 `@Prop size: number` 会报 `10505001 Property 'size' in type 'X' is not assignable to the same
