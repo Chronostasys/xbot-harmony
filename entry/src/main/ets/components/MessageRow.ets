@@ -84,7 +84,23 @@ export const NOTICE_KIND_FAILED: string = 'failed';
 @Component
 export struct MessageRowView {
   @ObjectLink row: ChatRow;
+  /**
+   * 显式主题覆盖（**测试 / 独立预览**用）。生产页面**不传**（留空）⇒ 走下面的 `appTheme` 订阅。
+   */
   @Prop theme: string = 'dark';
+  /**
+   * 全局主题**订阅**（生产唯一真源）—— 修「浅色主题下历史正文白底白字」的根因。
+   *
+   * ⛔ 根因：历史行由 `LazyForEach` 承载，其 item builder **只在键（`id#rev`）变化时**才重新执行；
+   *   主题变更**不改变任何行键** ⇒ `applyRows` 零通知 ⇒ 已存在行的 `@Prop theme` **冻结在创建那刻**
+   *   （= `'dark'`）⇒ 取深色调色板 = 白字。live 行在 `LazyForEach` **之外**（页面 build 直驱，
+   *   见 `pages/Index.ets` 的 `LiveRowBody`）⇒ 每次重建都拿当前主题 ⇒ 正常。这个"历史 vs live"的
+   *   不对称正是用户看到的现象。
+   * ⇒ 修法（**订阅式**）：行**自己订阅** AppStorage ⇒ 主题变更时**每个已存在组件实例各自重渲染**，
+   *   与 `ForEach`/`LazyForEach` 的键语义**无关**（`@StorageProp` 是组件级订阅，不经列表重投递）。
+   *   ⚠️ 装饰器参数字面量 `'appTheme'` 与页面 `pages/Index.ets` 的 `@StorageLink('appTheme')` 逐字一致。
+   */
+  @StorageProp('appTheme') appTheme: string = '';
   /** Markdown 主题 id（透传给 MarkdownView，只影响代码块/行内码配色）。 */
   @Prop mdTheme: string = 'vscode-dark';
   @Prop fontScaleV: number = 1;
@@ -197,8 +213,16 @@ export struct MessageRowView {
    */
   @State blockLimit: number = MSG_BLOCK_WINDOW;
 
+  /**
+   * 生效主题：**生产走全局订阅**（`appTheme`），订阅缺失时（测试/独立预览）回落到显式 `@Prop theme`。
+   * 单一真源：有 `appTheme` 时它是唯一来源，`@Prop theme` 不再参与（避免"两个真源"）。
+   */
+  private themeId(): string {
+    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+  }
+
   private pal(): Palette {
-    return paletteOf(this.theme);
+    return paletteOf(this.themeId());
   }
 
   /**
@@ -263,8 +287,8 @@ export struct MessageRowView {
   private bandCache: SweepBand = new SweepBand();
 
   private sweepBand(): SweepBand {
-    if (this.bandTheme !== this.theme) {
-      this.bandTheme = this.theme;
+    if (this.bandTheme !== this.themeId()) {
+      this.bandTheme = this.themeId();
       this.bandCache = sweepBandOf(this.pal());
     }
     return this.bandCache;
@@ -330,7 +354,7 @@ export struct MessageRowView {
 
   /** 浮层状态点颜色 —— 判据**同源**：走唯一映射 `ToolVisual.statusColorOf`（判据是 `core/toolstatus`）。 */
   private toolColor(t: ToolProgress): string {
-    return statusColorOf(this.toolKind(t), this.theme);
+    return statusColorOf(this.toolKind(t), this.themeId());
   }
 
   /**
@@ -568,11 +592,11 @@ export struct MessageRowView {
           // 服务端**明确标记**的空响应（哨兵 `'(empty response)'`）⇒ 显示可读文案，
           // ⛔ 绝不把哨兵字面量当正文上屏（web 同款：先判 `isEmptyResponseContent` 再渲染，
           //   `AssistantMessage.tsx:147-149` + `:169-171`）。
-          EmptyNotice({ kind: NOTICE_KIND_FAILED, theme: this.theme })
+          EmptyNotice({ kind: NOTICE_KIND_FAILED, theme: this.themeId() })
         } else if (looksLikeLlmError(this.row.content)) {
           // LLM 调用失败 ⇒ **摘要行 + 可展开详情**（判据与渲染同源：`core/llmerror.ets`）。
           // 真机取证：此前把整段 `#1..#5` 原样铺满屏 ⇒ 现在首屏仅 1 行，点开才看原文。
-          LlmErrorNotice({ text: this.row.content, theme: this.theme })
+          LlmErrorNotice({ text: this.row.content, theme: this.themeId() })
         } else {
           MarkdownView({
             text: this.row.content,
@@ -584,7 +608,7 @@ export struct MessageRowView {
             },
             fontScale: this.fontScaleV,
             wrapCode: this.wrapCodeV,
-            theme: this.theme,
+            theme: this.themeId(),
             mdTheme: this.mdTheme,
           })
         }
@@ -593,7 +617,7 @@ export struct MessageRowView {
       //    web `TurnBody.tsx:922-928`：leading 分隔渲染在**全部迭代块之前**（与迭代同级）。
       if (this.compactionsAt(0).length > 0) {
         ForEach(this.compactionsAt(0), (c: WebCompaction, ci: number) => {
-          CompactionDividerRow({ body: splitMarker(c.content).body, theme: this.theme })
+          CompactionDividerRow({ body: splitMarker(c.content).body, theme: this.themeId() })
         }, (c: WebCompaction, ci: number) => `${this.row.id}#cpt#head#${ci}`)
       }
       // 已完成迭代。live 行的列表来自**值** `liveBlocks`（@Prop）；普通行走带 key 的
@@ -632,7 +656,7 @@ export struct MessageRowView {
         //    无压缩 ⇒ 空数组 ⇒ **不产出任何节点**（不留空行/占位）。
         if (this.compactionsAt(it.iteration).length > 0) {
           ForEach(this.compactionsAt(it.iteration), (c: WebCompaction, ci: number) => {
-            CompactionDividerRow({ body: splitMarker(c.content).body, theme: this.theme })
+            CompactionDividerRow({ body: splitMarker(c.content).body, theme: this.themeId() })
           }, (c: WebCompaction, ci: number) => `${this.row.id}#cpt#${it.iteration}#${ci}`)
         }
       }, (it: HistoryIteration) => `${this.row.id}#${it.iteration}#${it.live === true ? 'L' : 'C'}`)
@@ -696,7 +720,7 @@ export struct MessageRowView {
         reasoning: this.liveReasoning,
         tools: this.liveTools,
         paused: this.paused,
-        theme: this.theme,
+        theme: this.themeId(),
         fontScale: this.fontScaleV,
         wrapCode: this.wrapCodeV,
         orb: this.orb,
@@ -719,7 +743,7 @@ export struct MessageRowView {
       if (this.liveSubAgents.length > 0) {
         SubAgentTree({
           rows: flattenSubAgents(this.liveSubAgents, this.subAgentOpenable),
-          theme: this.theme,
+          theme: this.themeId(),
           onOpen: (k: string) => {
             this.onOpenSubAgent(k);
           },
@@ -744,14 +768,14 @@ export struct MessageRowView {
           body: displayReasoning(it),
           // 与 live 侧同构的共享键（`turnID:iteration`）—— commit 后 remount 仍读到同一展开态。
           stateKey: reasoningKey(this.row.turnID, it.iteration),
-          theme: this.theme,
+          theme: this.themeId(),
         })
       }
 
       if (displayContent(it).length > 0) {
         if (looksLikeLlmError(displayContent(it))) {
           // 迭代内正文是 LLM 失败文本 ⇒ 摘要行 + 可展开详情（同 row 级判据，判据与渲染同源）。
-          LlmErrorNotice({ text: displayContent(it), theme: this.theme })
+          LlmErrorNotice({ text: displayContent(it), theme: this.themeId() })
         } else {
           MarkdownView({
             text: displayContent(it),
@@ -763,7 +787,7 @@ export struct MessageRowView {
             },
             fontScale: this.fontScaleV,
             wrapCode: this.wrapCodeV,
-            theme: this.theme,
+            theme: this.themeId(),
             mdTheme: this.mdTheme,
           })
         }
@@ -776,7 +800,7 @@ export struct MessageRowView {
         ForEach(this.synthToolsOf(it), (t: ToolProgress) => {
           SyntheticCard({
             tool: t,
-            theme: this.theme,
+            theme: this.themeId(),
             onCopy: (text: string, what: string) => {
               this.onCopy(text, what);
             },
@@ -808,7 +832,7 @@ export struct MessageRowView {
       if (it.subAgents !== undefined && it.subAgents.length > 0) {
         SubAgentTree({
           rows: flattenSubAgents(it.subAgents, this.subAgentOpenable),
-          theme: this.theme,
+          theme: this.themeId(),
           onOpen: (k: string) => {
             this.onOpenSubAgent(k);
           },
@@ -839,7 +863,7 @@ export struct MessageRowView {
         chip: this.toolChip(t),
         live: this.toolLive(t),
         selected: this.popKey.length > 0 && this.popKey === this.pillKeyOf(it, t, ti),
-        theme: this.theme,
+        theme: this.themeId(),
       })
       // 运行中：一道扫光（纯 transform ⇒ 不触发布局，触屏也稳），中心叠 sheen 高光。
       // 取色**唯一口径** = `core/sweep.ets:sweepBandOf`（判据与渲染同源）：深色 = 彩色 accent 扫光
@@ -969,7 +993,7 @@ export struct MessageRowView {
   ToolPopBody() {
     ToolPopoverCard({
       vm: this.popVM(),
-      theme: this.theme,
+      theme: this.themeId(),
       onCopy: (text: string, what: string) => {
         this.onCopy(text, what);
       },
@@ -981,7 +1005,7 @@ export struct MessageRowView {
   OverflowPopBody() {
     ToolOverflowList({
       tools: this.overTools(),
-      theme: this.theme,
+      theme: this.themeId(),
       onCopy: (text: string, what: string) => {
         this.onCopy(text, what);
       },
@@ -997,7 +1021,7 @@ export struct MessageRowView {
       // 🖼 chrome 与 `AssistantBlock()` 完全一致（同一 `BUBBLE.assistantPadX/rowPadY`）⇒ 空态
       //    与正常回复在视觉上"同一列、同一左边界"，不会看起来像另一个东西。
       Column() {
-        EmptyNotice({ kind: NOTICE_KIND_EMPTY, theme: this.theme })
+        EmptyNotice({ kind: NOTICE_KIND_EMPTY, theme: this.themeId() })
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
@@ -1029,12 +1053,20 @@ export struct MessageRowView {
 struct CompactionDividerRow {
   /** 摘要正文（可展开；空 ⇒ 不可展开）。由 `splitMarker(content).body` 派生。 */
   @Prop body: string = '';
+  /** 显式主题覆盖（测试/独立预览）；生产留空 ⇒ 跟随 AppStorage 订阅。 */
   @Prop theme: string = 'dark';
+  /** 全局主题订阅（生产唯一真源；主题变更时本组件各自重渲染，见 MessageRowView 的根因说明）。 */
+  @StorageProp('appTheme') appTheme: string = '';
+
+  /** 生效主题：生产走订阅，缺失时回落显式覆盖（单一口径，不产生两个真源）。 */
+  private themeId(): string {
+    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+  }
   /** 展开态（真 @State ⇒ 点击可切换、子树重建）。 */
   @State open: boolean = false;
 
   private pal(): Palette {
-    return paletteOf(this.theme);
+    return paletteOf(this.themeId());
   }
 
   build() {
@@ -1135,10 +1167,18 @@ struct CompactionDividerRow {
 struct EmptyNotice {
   /** 档位：`empty`（回合结束但无产出）| `failed`（服务端标记的空/异常响应）。 */
   @Prop kind: string = NOTICE_KIND_EMPTY;
+  /** 显式主题覆盖（测试/独立预览）；生产留空 ⇒ 跟随 AppStorage 订阅。 */
   @Prop theme: string = 'dark';
+  /** 全局主题订阅（生产唯一真源；主题变更时本组件各自重渲染，见 MessageRowView 的根因说明）。 */
+  @StorageProp('appTheme') appTheme: string = '';
+
+  /** 生效主题：生产走订阅，缺失时回落显式覆盖（单一口径，不产生两个真源）。 */
+  private themeId(): string {
+    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+  }
 
   private pal(): Palette {
-    return paletteOf(this.theme);
+    return paletteOf(this.themeId());
   }
 
   /** 是否失败档：唯一加重手段 = 升一档颜色 + 一枚状态图标。 */

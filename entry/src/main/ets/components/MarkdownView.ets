@@ -161,8 +161,14 @@ export struct MarkdownView {
   @Prop wrapCode: boolean = true;
   /** 消息字号缩放（1 = 默认；由设置面板控制，范围 0.85–1.4 已在上游夹取） */
   @Prop fontScale: number = 1;
-  /** 主题（由页面透传；语义色板见 core/theme.ets） */
+  /** 显式主题覆盖（测试/独立预览）；生产走 `appTheme` 全局订阅（页面不传）。 */
   @Prop theme: string = 'dark';
+  /**
+   * 全局主题**订阅**（生产唯一真源）—— 正文实际取色点。历史行由 `LazyForEach` 承载，主题变更
+   * 不改变行键 ⇒ 只靠 `@Prop` 投递会**冻结在创建那刻**（浅色主题下取深色板 = 白底白字）。
+   * 本组件**自己订阅** AppStorage ⇒ 主题变更时每个已存在实例各自重渲染（与列表键语义无关）。
+   */
+  @StorageProp('appTheme') appTheme: string = '';
   /** Markdown 主题 id（与 web 共享 `web:ui:md-theme`；只影响代码块/行内码配色）。 */
   @Prop mdTheme: string = 'vscode-dark';
   /**
@@ -172,9 +178,14 @@ export struct MarkdownView {
    */
   @Prop linkBase: string = '';
 
+  /** 生效主题：生产走订阅，缺失时回落显式覆盖（单一口径，不产生两个真源）。 */
+  private themeId(): string {
+    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+  }
+
   /** 当前语义色板（深浅两套，换主题只换取值） */
   private pal(): Palette {
-    return paletteOf(this.theme);
+    return paletteOf(this.themeId());
   }
 
   /** 视觉效果 token（玻璃/光晕/渐变/层级）—— 由色板派生，跨主题自动一致。 */
@@ -295,7 +306,7 @@ export struct MarkdownView {
           load: this.loadImage,
           onOpen: this.onImage,
           maxHeight: this.imageMaxHeight,
-          theme: this.theme,
+          theme: this.themeId(),
         })
       }, (src: string, k: number) => `${b.key}-img${k}`)
     }

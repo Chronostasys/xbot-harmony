@@ -24,13 +24,25 @@ import { GAP_ROW_Y, INSET_BUBBLE_X, INSET_BUBBLE_Y, RADIUS_BUBBLE, typeOf } from
 @Component
 export struct UserBubbleView {
   @Prop text: string = '';
+  /** 显式主题覆盖（测试/独立预览）；生产页面留空 ⇒ 跟随 `appTheme` 订阅。 */
   @Prop theme: string = 'dark';
+  /**
+   * 全局主题**订阅**（生产唯一真源）—— 与 `MessageRowView` 同根因：用户气泡行也由 `LazyForEach`
+   * 承载，主题变更不改变行键 ⇒ 已存在行的 `@Prop theme` 会冻结在创建那刻（浅色主题下取深色板 =
+   * 白字）。⇒ 行**自己订阅** AppStorage，主题变更时每个已存在实例各自重渲染（与列表键语义无关）。
+   */
+  @StorageProp('appTheme') appTheme: string = '';
   /** 长按（页面据此弹"复制"菜单） */
   onLongPress: () => void = () => {
   };
 
+  /** 生效主题：生产走订阅，缺失时回落显式覆盖（单一口径，不产生两个真源）。 */
+  private themeId(): string {
+    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+  }
+
   private pal(): Palette {
-    return paletteOf(this.theme);
+    return paletteOf(this.themeId());
   }
 
   /**

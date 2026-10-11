@@ -60,7 +60,14 @@ export struct LiveTailView {
   @Prop tools: ToolProgress[] = [];
   /** 应用是否在后台（官方性能规范 §3：后台必须挂起非必要定时器/动画） */
   @Prop @Watch('onSource') paused: boolean = false;
+  /** 显式主题覆盖（测试/独立预览）；生产走 `appTheme` 全局订阅（页面不传）。 */
   @Prop theme: string = 'dark';
+  /**
+   * 全局主题**订阅**（生产唯一真源）—— 与 MessageRowView/UserBubbleView/MarkdownView 同根因：
+   * live 行虽在 `LazyForEach` 之外（本组件通常随页面 build 重建），但为与其它主题消费者**同一机制**
+   * 并覆盖"live 行进 LazyForEach"的边界，这里也自行订阅 AppStorage。
+   */
+  @StorageProp('appTheme') appTheme: string = '';
   /** Markdown 主题 id（透传给 MarkdownView，只影响代码块/行内码配色）。 */
   @Prop mdTheme: string = 'vscode-dark';
   @Prop fontScale: number = 1;
@@ -103,8 +110,13 @@ export struct LiveTailView {
   private lastTextLen: number = -1;
   private lastReasonLen: number = -1;
 
+  /** 生效主题：生产走订阅，缺失时回落显式覆盖（单一口径，不产生两个真源）。 */
+  private themeId(): string {
+    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+  }
+
   private pal(): Palette {
-    return paletteOf(this.theme);
+    return paletteOf(this.themeId());
   }
 
   /** 视觉效果 token（玻璃/光晕/渐变/层级）—— 由色板派生，跨主题自动一致。 */
@@ -366,7 +378,7 @@ return renderKind(t.status, t.exit_code, true);
    *   的 `statusChip`（见 `chip()`）；本文件原先的 `badge()`/`label()` 已删。
    */
   private color(t: ToolProgress): string {
-    return statusColorOf(this.kind(t), this.theme);
+    return statusColorOf(this.kind(t), this.themeId());
   }
 
   // ── 工具 pill 折叠 / 浮层（对齐 web `MergedPills` + `LazyPillPopover`）──────────
@@ -417,7 +429,7 @@ return renderKind(t.status, t.exit_code, true);
   ToolPopBody() {
     ToolPopoverCard({
       vm: this.popVM(),
-      theme: this.theme,
+      theme: this.themeId(),
     })
   }
 
@@ -457,7 +469,7 @@ return renderKind(t.status, t.exit_code, true);
   OverflowPopBody() {
     ToolOverflowList({
       tools: foldPills(this.realList()).hidden,
-      theme: this.theme,
+      theme: this.themeId(),
       live: true,
     })
   }
@@ -501,7 +513,7 @@ return renderKind(t.status, t.exit_code, true);
           label: `思考 ${this.reasonCount()} 字`,
           body: this.shownReason(),
           stateKey: reasoningKey(this.turnID, this.iteration),
-          theme: this.theme,
+          theme: this.themeId(),
           // 领读身份（只改色、不呼吸）—— 见 `thinkingIsPrimary()`
           live: this.thinkingIsPrimary(),
           // 旗舰光球作本行**前导图元**：同屏唯一动效（`orb` = 设置开关，缺省开）
@@ -521,7 +533,7 @@ return renderKind(t.status, t.exit_code, true);
         // 与思考行内的光球**同值同种子**（尺寸/相位一致）⇒ 思考到来时"就地长出文字"，不跳位置/尺寸。
         Row() {
           AssistantOrb({
-            theme: this.theme,
+            theme: this.themeId(),
             orbSize: LT_ORB_SIZE,
             active: true,
             paused: this.paused,
@@ -540,7 +552,7 @@ return renderKind(t.status, t.exit_code, true);
         Column({ space: SPACE_HAIR }) {
           if (looksLikeLlmError(this.shownText())) {
             // 在飞正文已是 LLM 失败文本 ⇒ 摘要行 + 可展开详情（判据与渲染同源，同 MessageRow）。
-            LlmErrorNotice({ text: this.shownText(), theme: this.theme })
+            LlmErrorNotice({ text: this.shownText(), theme: this.themeId() })
           } else {
             MarkdownView({
               text: this.shownText(),
@@ -548,7 +560,7 @@ return renderKind(t.status, t.exit_code, true);
               loadImage: this.loadImage,
               fontScale: this.fontScale,
               wrapCode: this.wrapCode,
-              theme: this.theme,
+              theme: this.themeId(),
               mdTheme: this.mdTheme,
             })
           }
@@ -570,7 +582,7 @@ return renderKind(t.status, t.exit_code, true);
         Column({ space: SPACE_XXS }) {
           // ── 假工具（注入型通知）⇒ 卡片（在飞时尤其可能是 `user_interrupt`）─────────
           ForEach(this.synthList(), (t: ToolProgress) => {
-            SyntheticCard({ tool: t, theme: this.theme })
+            SyntheticCard({ tool: t, theme: this.themeId() })
           }, (t: ToolProgress) => `lt-syn#${t.name}#${t.call_id !== undefined ? t.call_id : ''}`)
           // ── 真工具：每工具一枚 pill；>8 枚时前 7 枚 + "+N"（对齐 web `MergedPills`）──
           if (this.shownList().length > 0 || this.hideN() > 0) {
@@ -587,7 +599,7 @@ return renderKind(t.status, t.exit_code, true);
                     chip: this.chip(t),
                     live: this.live(t),
                     selected: this.popIdx === i,
-                    theme: this.theme,
+                    theme: this.themeId(),
                   })
                 }
                 // 硬约束宽度：生成中的 label 是**流式参数**（可能几百字符），

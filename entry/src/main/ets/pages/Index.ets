@@ -673,8 +673,19 @@ struct Index {
   /** 401 只处理一次（多个请求可能同时失败，避免重复弹回登录） */
   private authExpiredHandled: boolean = false;
 
-  /** 应用主题（深/浅；与 Web 共用服务端偏好键 xbot-app-theme） */
-  @State themeName: string = 'dark';
+  /**
+   * 应用主题（深/浅；与 Web 共用服务端偏好键 xbot-app-theme）—— **唯一真源**。
+   *
+   * ⛔ 用 `@StorageLink('appTheme')`（不是 `@State`）：把主题**同步进 AppStorage**，让每个
+   *   历史行组件用 `@StorageProp('appTheme')` **各自订阅**（见 `components/MessageRow.ets`
+   *   的根因说明）。为什么必须订阅：历史行由 `LazyForEach` 承载，其 item builder **只在行键
+   *   （`id#rev`）变化时**执行；主题变更不改变任何行键 ⇒ `applyRows` 零通知 ⇒ 只靠页面把
+   *   `themeName` 当 `@Prop` 投递，已存在行会**冻结在创建那刻**（浅色主题下取深色板 = 白底白字）。
+   *   `@StorageLink` 保持本变量为唯一真源，所有既有写入点（首帧缓存 / 设置变更 / 设置面板）
+   *   自动同步到 AppStorage，无需另加 @Watch。
+   * ⚠️ 装饰器参数是**字面量** `'appTheme'`，与各组件的 `@StorageProp('appTheme')` 逐字一致。
+   */
+  @StorageLink('appTheme') themeName: string = 'dark';
   /** SSE 连接状态（来自 store：idle|connecting|open|reconnecting） */
   @State connState: string = 'idle';
   /** 输入框聚焦（合成器卡片描边亮起） */
@@ -5750,7 +5761,6 @@ struct Index {
     if (row.role === 'user') {
       UserBubbleView({
         text: row.content,
-        theme: this.themeName,
         onLongPress: () => {
           this.openCtx('user', row.id, 0, '');
         },
@@ -5760,7 +5770,6 @@ struct Index {
       // 等待态由列表尾部的「思考中…」占位承担（与 web 的 ShimmerThinking 同语义）
       MessageRowView({
         row: row,
-        theme: this.themeName,
         mdTheme: this.mdThemeId(),
         fontScaleV: this.fontScale(),
         wrapCodeV: this.wrapCode(),
@@ -5823,7 +5832,6 @@ struct Index {
         liveTools: this.liveTools,
         liveBlocks: this.liveBlocks,
         liveSubAgents: this.liveSubAgents,
-        theme: this.themeName,
         mdTheme: this.mdThemeId(),
         fontScaleV: this.fontScale(),
         wrapCodeV: this.wrapCode(),
