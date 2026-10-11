@@ -393,7 +393,11 @@ export struct WebSurface {
         //    完成注册，**先于页面导航**——所以页面第一批脚本就能看到 `window.xbotNative`。
         //    若页面**已加载后**再改代理，需走 `controller.registerJavaScriptProxy(...)` +
         //    `refresh()` 才生效（本组件用属性方式，随组件创建自动注册，无需手动 refresh）。
-        //    「属性注册 vs 首次 src 导航的先后」以 ArkWeb 内核实现为准 —— **待真机验证**。
+        //    「属性注册 vs 首次 src 导航的先后」——✅ **已真机证实**（2026-10-11，本机 SDK 21）：
+        //    注入发生在**文档最早期**（`readyState="loading"` 且 `hasHead=false/hasBody=false`，
+        //    即 `<head>` 尚未解析）时，`typeof window.xbotNative === "object"` ⇒ 属性式注册确实
+        //    **先于页面脚本**。（探针原文与复现命令见 `docs/WEB-PARITY.md §8.7`；⚠️ 该节同时记录了
+        //    "注入真桥前必须收窄 `scriptRules`" 的纪律 —— 探针不得直接放大成桥。）
         // ⚠️ methodList 必须逐一列出要暴露的方法名；漏写则页面侧 `xbotNative.postMessage` 为 undefined。
         .javaScriptProxy({
           object: this.nativeBridge,
