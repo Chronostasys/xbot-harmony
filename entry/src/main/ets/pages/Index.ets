@@ -115,6 +115,7 @@ import {
   shouldShowSplash, shouldStartSplash,
 } from '../core/splash';
 import { SplashOverlay } from '../components/SplashOverlay';
+import { Lightbox } from '../components/Lightbox';
 import { Toast } from '../components/Toast';
 import {
   TOAST_KIND_COPY, TOAST_KIND_NOTICE, ToastState, emptyToast, nextToast,
@@ -3163,9 +3164,24 @@ struct Index {
           })
         }.width('100%').height('100%')
       }
-      // 图片查看
+      // 图片查看（E5）：真 @Component `Lightbox`（旧 `@Builder ImageViewer()` 已删 —— 它缺「下滑关闭」
+      //   与「按角色分别处置的 press」；容器也从「94%×80% 卡片」改为**全屏浮层**，对齐 web `Lightbox.tsx`）
       if (this.imagePixel !== null || this.imageBusy) {
-        this.ImageViewer()
+        Lightbox({
+          theme: this.themeName,
+          pixel: this.imagePixel,
+          busy: this.imageBusy,
+          label: '',
+          onClose: () => {
+            this.closeViewer();
+          },
+          onSave: () => {
+            void this.saveToAlbum();
+          },
+          onToast: (m: string) => {
+            this.toast(m);
+          },
+        })
       }
       // ArkWeb 逃生舱（插件 UI / GenUI / 终端 / 编辑器 / 完整 Web UI）
       if (this.panelUrl.length > 0) {
@@ -6521,97 +6537,6 @@ struct Index {
 
   // ── 弹层：图片查看 ────────────────────────────────────────────────────────
 
-  @Builder
-  ImageViewer() {
-    Column() {
-      Row({ space: 8 }) {
-        Text('图片').fontSize(typeOf('type.body').size).fontColor(this.pal().textPrimary).layoutWeight(1)
-        if (isZoomed(this.imgScale)) {
-          Text(scaleText(this.imgScale)).fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary)
-          Text('复位').fontSize(typeOf('type.caption').size).fontColor(this.pal().accentSoft).padding(6).onClick(() => {
-            this.imgScale = 1;
-            this.imgTransX = 0;
-            this.imgTransY = 0;
-          })
-        }
-        // 保存到相册：走系统安全组件（SaveButton）—— 用户授权后才有写权限，
-        // 因此不需要申请相册写权限，也不会在未授权时静默失败。
-        SaveButton({ icon: SaveIconStyle.FULL_FILLED, text: SaveDescription.SAVE_IMAGE, buttonType: ButtonType.Capsule })
-          .onClick((event: ClickEvent, result: SaveButtonOnClickResult) => {
-            if (result === SaveButtonOnClickResult.SUCCESS) {
-              this.saveToAlbum();
-            } else {
-              this.toast('需要授权才能保存到相册');
-            }
-          })
-        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(10).onClick(() => {
-          this.closeViewer();
-        })
-      }.width('100%')
-
-      if (this.imageBusy) {
-        Column() {
-          LoadingProgress().width(32).height(32).color(this.pal().accent)
-          Text('加载图片…').fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary).margin({ top: SPACE_XS })
-        }.layoutWeight(1).justifyContent(FlexAlign.Center)
-      } else if (this.imagePixel !== null) {
-        Stack() {
-          Image(this.imagePixel)
-            .objectFit(ImageFit.Contain)
-            .width('100%')
-            .height('100%')
-            .scale({ x: this.imgScale, y: this.imgScale })
-            .translate({ x: this.imgTransX, y: this.imgTransY })
-            .gesture(
-              GestureGroup(GestureMode.Parallel,
-                // 双指缩放：以手势开始时的缩放为基准（否则会指数级失控）
-                PinchGesture({ fingers: 2 })
-                  .onActionStart(() => {
-                    this.imgBaseScale = this.imgScale;
-                  })
-                  .onActionUpdate((e: GestureEvent) => {
-                    this.imgScale = clampScale(this.imgBaseScale * e.scale);
-                    if (!isZoomed(this.imgScale)) {
-                      this.imgTransX = 0;
-                      this.imgTransY = 0;
-                    }
-                  }),
-                // 拖动平移：位移同样以手势开始时的位置为基准，并按放大倍数夹取
-                PanGesture({ fingers: 1 })
-                  .onActionStart(() => {
-                    this.imgBaseX = this.imgTransX;
-                    this.imgBaseY = this.imgTransY;
-                  })
-                  .onActionUpdate((e: GestureEvent) => {
-                    const limX: number = panLimit(this.imgScale, this.viewW, this.imgW);
-                    const limY: number = panLimit(this.imgScale, this.viewH, this.imgH);
-                    this.imgTransX = clampOffset(this.imgBaseX + e.offsetX, limX);
-                    this.imgTransY = clampOffset(this.imgBaseY + e.offsetY, limY);
-                  }),
-                // 双击：1 ↔ 2.5 倍
-                TapGesture({ count: 2 })
-                  .onAction(() => {
-                    this.imgScale = nextZoom(this.imgScale);
-                    if (!isZoomed(this.imgScale)) {
-                      this.imgTransX = 0;
-                      this.imgTransY = 0;
-                    }
-                  })
-              )
-            )
-        }
-        .layoutWeight(1)
-        .width('100%')
-        .clip(true)
-        .onAreaChange((oldArea: Area, newArea: Area) => {
-          this.viewW = Number(newArea.width);
-          this.viewH = Number(newArea.height);
-        })
-      }
-    }
-    .width('94%').height('80%').padding(SPACE_SM)
-    .backgroundColor(this.pal().appBg).borderRadius(RADIUS_CARD).border({ width: 1, color: this.pal().border })
-  }
 }
 
 /**
