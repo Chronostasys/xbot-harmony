@@ -340,6 +340,30 @@ Apple label 家族），`accentSoft/accentText` 用**更饱和的实体色**（�
 
 ⛔ 禁止：pill 内新增呼吸/旋转/脉冲（§4.1）；chip 与 pill 同面；`loadingProgress` 当"整机状态"。
 
+**令牌收编（2026-10-11，工具/状态面实测清单 `docs/mockups/03-tool-states.html` 的 7 条缺口）**：
+
+| 部件 | token | 值 |
+|---|---|---|
+| pill 内距 | `INSET_PILL_X` / `INSET_PILL_Y` | 8 / **5**（5 是**光学档**，白名单 `opticalValues()`；取 8 会让 pill 长到 30vp）|
+| 标记槽 | `MARKER_SLOT` | 14（恒定 ⇒ 左对齐前提）|
+| 标记 glyph | `MARKER_GLYPH` / `MARKER_GLYPH_DASHED` / `MARKER_SPINNER` | 13 / 12 / 13 |
+| pill 最大宽 / 外边距 | `PILL_MAX_W` / `GAP_PILL` | 240 / 3 |
+| 在飞表面 | `INFLIGHT_PILL_SURFACE` | `surface.pillSelected`（**静态**提升一档）|
+| 在飞柔影 | `inflightPillShadowOf(p)` + `INFLIGHT_PILL_GLOW_RADIUS` | 深色 `glow` / 浅色 `elev2`；半径 12（**静态色**，⛔ 不含动画）|
+| 浮层阴影 | `ELEV_CARD` / `ELEV_RAISED` / `ELEV_OVERLAY` + `elevationColorOf/LevelOf` | 语义出口，组件不再直接 `effectsOf()` |
+
+**★ 裁决：chip 的唯一语义 = `surface.chip`（= 内嵌凹槽 `sunken`），不随选中变化。**
+⇒ `core/toolvisual.chipBgOf` 里"选中时把 chip 与 pill 对调"是**旧补丁**，迁移时
+**删除**，改为 `surfaceFillOf(p, 'surface.chip')`（一处、可测）。
+理由：chip 是 pill **内部**的下沉面，与"pill 是否被选中"是**正交**的两件事；
+把两者耦合起来才会产生"chip 与选中 pill 同色 ⇒ 消失"的整类 bug。
+
+**纯白主题的层级下限**：任一可嵌套面的对比度 ≥ `MIN_LEVEL_DELTA = 1.025`；
+低于 `HAIRLINE_ASSIST_BELOW = 1.05` 时该面**必须补一条结构性发丝**
+（porcelain 的 pill↔chip = 1.037 ⇒ **落在此区，须补发丝**；`chipNeedsHairline(p)` 可判）。
+
+**★ 排队态 `ScaleSymbolEffect`：移除**（裁决，见 §4.4）—— 静态度 = 虚线空心圆 + 「排队」chip。
+
 ### 7.3 思考行 `ThinkingLine`
 
 - 头部 = 图标（光球关闭时）+ 标签，`type.caption`，`w-fit`（热区只覆盖图标+文字）。
@@ -532,3 +556,6 @@ pages/Index（**只做组合与数据接线**；所有 @Builder 的"会变内容
 | 7 | **是否引入 App 内品牌开屏页** | (a) 引入（真动效载体）；(b) 用首帧标记入场即可 | §9.4；新增页面/路由 |
 | 8 | **横向 Scroll 手势** | 需真机验证（代码块/宽表横滑嵌在纵向 List 内）| 影响 §7.9 溢出策略落地 |
 | 9 | **chip 文字档** | (a) `textSecondary`（porcelain 余量仅 0.7%）；(b) `textPrimary`（更稳但更重）| §7.2；影响"安静"读数 |
+| 10 | **灰阶可辨性够不够**（排队灰 vs 执行中蓝在去色后趋近）| (a) **默认：靠形态+文案两维**（当前已满足 §8.2）；(b) 再给失败/终止加 1px 边框差（`danger@30%`）| 推荐 (a)；(b) 只在用户实测色盲不可辨时启用，代价是"多一条边"|
+| 11 | **纯白三层"面"的层次够不够**（pill↔chip 只差 1.037）| (a) **默认：给 chip 补发丝**（`chipNeedsHairline` 已判，porcelain 命中）；(b) 加深 chip 填充；(c) 接受现状 | 推荐 (a)：不动色值、只加一条安静的结构线，最"苹果" |
+| 12 | **排队态删除呼吸后的静态度** | (a) **默认：静态虚线空心圆 + 「排队」chip**（§4.4）；(b) 换成实心灰点（更"重"）；(c) 保留一次性淡入 | 推荐 (a)；⛔ 任何选项都**不能**是循环动效 |
