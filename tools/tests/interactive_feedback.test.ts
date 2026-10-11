@@ -1,13 +1,16 @@
 /**
  * 交互反馈一致性门禁（**静态源码扫描**）—— 防"点了像没反应"的回归。
  *
- * 判定口径（本仓既有约定）：
- *   · 凡**可点**的容器元素 ⇒ 必须有 `stateStyles({ pressed: … })` 的按压反馈；
- *   · 按压不透明度**只准引用 `PRESS_OPACITY`**（不许写死 `.opacity(0.6)`）。
+ * 判定口径：
+ *   ① 凡可点的聊天流容器 ⇒ 必须有 `stateStyles({ pressed: … })` 的按压反馈；
+ *   ② 按压不透明度只准引用 `PRESS_OPACITY`（不许写死 `.opacity(0.6)`）；
+ *   ③（④/⑤ 见下）**通用判据**：`onClick` 被 flag **纯守卫**（`if(flag){动作}`、无 `else`）
+ *      ⇒ 必须 `.enabled(同一 flag)`（交互死区防护）。
  *
- * ⚠️ 扫描集**只含我负责、且当前不在他人手上的**聊天流组件。`LlmErrorNotice` / `ThinkingLine`
- *    / `TodoPanel` / `GoalBanner` 此刻是**他人在途**文件 ⇒ **不纳入**（避免把别人的在途状态
- *    算成我这边的红；那几处的 press 缺口见交付回报，只上报不改）。
+ * ✅ **⑤ 已推广到全 `components/**`**（`fs.readdirSync` 枚举，非手写清单）—— 扫描器**自证**：
+ *    打印扫描目录 + 文件数 + 文件名 + 每文件 `onClick`/守卫命中分布 + 每个命中给"修/明示豁免"；
+ *    **零扫描判红**（全仓 onClick=0 ⇒ 红，防正则与真源脱节的白绿）。
+ *    豁免只在 `GUARD_EXEMPT` 里**逐个附理由**（当前 2 条，均为"opacity 明示禁用 ⇒ 视觉不撒谎"）。
  *
  * ⚠️ 结尾必须 `process.exit(...)`：`tools/tests/run.sh` 用 `set -e` 且逐文件 `node`。
  */
@@ -79,37 +82,69 @@ for (let i = 0; i < FILES.length; i++) {
     treeSrc.indexOf('.enabled(this.openable)') >= 0 && treeSrc.indexOf('if (this.openable)') >= 0);
 }
 
-// ── ⑤ **通用判据**（防"交互死区"整类）：`onClick` 被 flag **纯守卫**（`if (flag) { 动作 }`，
-//    无 else）⇒ 必须 `.enabled(同一 flag)`。仅"纯守卫"算死区；`if/else` 两分支都有动作的不算。
-//    ⚠️ 取**调用片段**（正则取 onClick 体）、**先剥注释**（否则注释里的 `if (this.x)` 会假命中）。
-//    ⚠️ 靠色/透明度表达"已禁用"（如 AskUserSheet 提交键用 `.opacity(DISABLED_OPACITY)`）**不**属死区
-//      ⇒ 不在扫描集的文件不参与（扫描集 = 上面 FILES）。
+// ── ⑤ **通用判据 —— 全 `components/**`**：`onClick` 被 flag **纯守卫**（`if (flag) { 动作 }`，无
+//    `else`）⇒ 必须 `.enabled(同一 flag)`（否则"能点但没用"= **交互死区**，press 反馈撒谎）。
+//    · **剥注释**（行注释 `(^|:)//`，免剥掉 `https://` 里的 `//`）
+//    · **只取 onClick 调用片段**（正则取体，不取整行）
+//    · **零扫描判红**（全仓 onClick 总数为 0 ⇒ 红；防"正则与真源脱节 ⇒ 白绿"）
+//    · `if/else` 两分支都动作的**不算**死区（如 `AuthImage` 失败重试 vs 打开）
+//    · **opacity 明示禁用**的走 `GUARD_EXEMPT`（附理由 —— 视觉已表达禁用 ⇒ press 不撒谎）
 function stripComments(s: string): string {
-  // 块注释 + 行注释；⛔ 行注释用 `(^|[^:])//` 以免把 `https://…` 里的 `//` 也剥掉。
   return s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 }
-for (let i = 0; i < FILES.length; i++) {
-  const f: string = FILES[i];
-  const p: string = path.join(CDIR, f);
-  let src: string;
-  try {
-    src = stripComments(fs.readFileSync(p, 'utf8'));
-  } catch (e) {
-    continue; // ① 已报"不可读"
-  }
-  const guardRe: RegExp = /\.onClick\(\(\)\s*=>\s*\{([\s\S]{0,180}?)\n\s*\}\)/g;
-  let m: RegExpExecArray | null = guardRe.exec(src);
-  while (m !== null) {
-    const body: string = m[1];
-    const g: RegExpExecArray | null = /if\s*\(!?this\.([A-Za-z_]\w*)\)/.exec(body);
-    // 纯守卫 = 命中 flag 守卫 **且** 无 `else`（if/else 两分支都动作 ⇒ 非死区）
-    if (g !== null && !/\}\s*else\b/.test(body)) {
-      const flag: string = g[1];
-      ok(`${f}：守卫 onClick(${flag}) ⇒ 有 .enabled(this.${flag})`,
-        src.indexOf(`.enabled(this.${flag})`) >= 0 || src.indexOf(`.enabled(!this.${flag})`) >= 0);
+/** 豁免：动作被 flag 守卫，但**用透明度明示了"已禁用"**（视觉不撒谎）⇒ 不算交互死区。 */
+const GUARD_EXEMPT: Map<string, string> = new Map<string, string>([
+  ['AskUserSheet.ets', '提交键 binding/busy 时 .opacity(DISABLED_OPACITY) 明示禁用'],
+  ['SettingsChannels.ets', '绑定键 binding 时 .opacity(0.5) 明示禁用'],
+]);
+{
+  const comps: string[] = fs.readdirSync(CDIR).filter((n: string): boolean => n.endsWith('.ets')).sort();
+  // ① 扫描器自证：扫了哪些文件（绝对路径 + 数量）
+  console.log(`  ⑤ scan dir=${CDIR} files=${comps.length}`);
+  console.log(`  ⑤ files: ${comps.join(', ')}`);
+  let onClickTotal = 0, guards = 0, matched = 0, exempt = 0, failN = 0;
+  for (let i = 0; i < comps.length; i++) {
+    const f: string = comps[i];
+    const src: string = stripComments(fs.readFileSync(path.join(CDIR, f), 'utf8'));
+    const clicks: number = countAll(src, /\.onClick\(/g);
+    onClickTotal += clicks;
+    const guardRe: RegExp = /\.onClick\(\(\)\s*=>\s*\{([\s\S]{0,180}?)\n\s*\}\)/g;
+    let m: RegExpExecArray | null = guardRe.exec(src);
+    const hits: string[] = [];
+    while (m !== null) {
+      const body: string = m[1];
+      const g: RegExpExecArray | null = /if\s*\(!?this\.([A-Za-z_]\w*)\)/.exec(body);
+      // 纯守卫 = 命中 flag 守卫 **且** 无 `else`（if/else 两分支都动作 ⇒ 非死区）
+      if (g !== null && !/\}\s*else\b/.test(body)) { hits.push(g[1]); }
+      m = guardRe.exec(src);
     }
-    m = guardRe.exec(src);
+    if (hits.length > 0) {
+      // ② 命中分布（每文件 onClick / 守卫）
+      console.log(`  ⑤ ${f}: onClick=${clicks} guards=[${hits.join(',')}]`);
+    }
+    for (let k = 0; k < hits.length; k++) {
+      const flag: string = hits[k];
+      guards++;
+      const wired: boolean = src.indexOf(`.enabled(this.${flag})`) >= 0
+        || src.indexOf(`.enabled(!this.${flag})`) >= 0;
+      let verdict: string;
+      if (wired) { matched++; verdict = '修：.enabled(' + flag + ') 在位'; }
+      else if (GUARD_EXEMPT.has(f)) { exempt++; verdict = '明示豁免：' + GUARD_EXEMPT.get(f); }
+      else { failN++; verdict = '**未处理（死区）**'; }
+      // ③ 每个命中给"修 / 明示豁免"
+      console.log(`  ⑤   ${f}: guard(${flag}) => ${verdict}`);
+      ok(`${f}：守卫 onClick(${flag}) 已修 或 明示豁免`, wired || GUARD_EXEMPT.has(f));
+    }
   }
+  // 零扫描判红
+  ok('⑤ 零扫描判红：全 components/** 的 onClick 总数 > 0', onClickTotal > 0);
+  console.log(`  ⑤ SUMMARY files=${comps.length} onClick=${onClickTotal} guards=${guards}`
+    + ` wired=${matched} exempt=${exempt} unhandled=${failN} (exemptions=${orgExemptList()})`);
+}
+function orgExemptList(): string {
+  const out: string[] = [];
+  GUARD_EXEMPT.forEach((v: string, k: string): void => { out.push(k); });
+  return out.join('|');
 }
 
 console.log(`  interactive_feedback: ${pass} passed, ${fail} failed`);
