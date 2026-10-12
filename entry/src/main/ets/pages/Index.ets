@@ -8790,8 +8790,13 @@ struct Index {
     //    **且**列表一起缩短 ⇒ 行内重命名输入框能被滚进可见区（只抬底栏做不到后者）。
     //    键盘收起 = 0 ⇒ 与原先逐字节一致。
     .padding({ top: SP_3, left: SP_3, right: SP_3, bottom: SP_3 + px2vp(this.kbHeightPx) })
-    .backgroundColor(this.eff().glassBg)
-    .backgroundBlurStyle(BlurStyle.Regular, { colorMode: this.glassMode() })
+    // ⚠️ 2026-10-12（用户「侧边栏丑的要死 · 你要考虑**所有的面板**」）：抽屉原先**只有它是玻璃**
+    //    （`eff().glassBg` alpha 0.84 + `BlurStyle.Regular`），其余 **7 个浮层全是实底**
+    //    `surfaceFillOf(pal,'surface.overlay')`（Plugins/Queue/SessionStats/TaskDetail/Terminal/
+    //    Status/Files）。真机截图实锤：抽屉背后是**高密度正文**（代码 + 思考），0.84 的玻璃把它透上来
+    //    ⇒ 满屏模糊灰斑 =「脏」，列表可读性反而下降（大面积 ≠ 小芯片，玻璃在小面上是质感、在大面上是噪点）。
+    //    ⇒ 与所有面板统一**面语言**：实底 overlay 面（去 blur，保留右缘发丝线 + 投影 + 滑入过渡）。
+    .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .borderWidth({ right: STROKE_HAIRLINE }).borderColor(hairlineOf(this.pal()))
     .shadow({ radius: shadowRadiusOf(this.pal(), 'drawer'), color: this.eff().elev3, offsetX: SPACE_XS, offsetY: 0 })
     .position({ x: 0, y: 0 })

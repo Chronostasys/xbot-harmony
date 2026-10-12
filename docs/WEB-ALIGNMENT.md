@@ -3518,3 +3518,48 @@ token 既不是"对齐 web"，也不是可读文案。
 且**每次点击后重新取坐标**——我一度拿旧 dump 的坐标去点，`cx.py` 返回空 ⇒ 命令退化成
 `uitest uiInput click `（**空坐标**）。所幸空参数不点任何位置、**未误点 composer** ✓。
 另外：浮层**不吃 BACK 键**（`input keyevent 2` 关不掉文件面板）⇒ 关浮层要点**它自己的 X**。
+
+## §21.63 面板面语言统一：抽屉不再是「唯一的玻璃」（15o·d）（2026-10-12）
+
+### 用户口径
+
+「现在**侧边栏丑的要死**……**我只说了侧边栏但是你要考虑所有的面板**」「我要求比苹果官方做的还好看」。
+
+### 真机截图实锤：**面语言分裂**
+
+| 面 | 根容器背景 | 说明 |
+|---|---|---|
+| 8 个浮层面板（AskUser / 能力面板 / 待发队列 / 会话统计 / 任务详情 / 终端 / 状态 / 文件） | `surfaceFillOf(pal,'surface.overlay')`（**实底**） | 一致 ✓ |
+| **抽屉** | `eff().glassBg`（alpha **0.84**）+ `BlurStyle.Regular` | **唯一异类** ✗ |
+
+抽屉背后恰好是**高密度正文**（代码块 + 思考段）⇒ 0.84 的玻璃把它**透上来**，整片糊成灰斑。
+**大面积 ≠ 小芯片**：玻璃在小面上是质感（状态栏胶囊、按钮底），在大面上就是**噪点 + 可读性下降**。
+
+### 改法：抽屉并入同一套**面语言**
+
+`pages/Index.ets` 的 `DrawerSheet()` 根容器：
+
+```diff
+-  .backgroundColor(this.eff().glassBg)
+-  .backgroundBlurStyle(BlurStyle.Regular, { colorMode: this.glassMode() })
++  .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
+```
+
+保留**右缘发丝线**（`borderWidth({right: STROKE_HAIRLINE})` + `hairlineOf`）、**投影**
+（`shadowRadiusOf(pal,'drawer')`）、**滑入过渡**（底座 `drawerTransition()`）、88% 宽、键盘让位
+（`SP_3 + px2vp(kbHeightPx)`）——⛔ 一个都没动。`glassMode()` 仍有 4 个消费点（状态栏/胶囊等小面）
+⇒ 未成孤儿。
+
+### 判据 `tools/tests/panel_surface_consistency.test.ts`（新建 · **36 passed**）
+
+守三条：**A** 8 个浮层组件根容器 = 实底 overlay 面（取 builder 末尾**最后一个** `.backgroundColor(`，
+即 ArkUI 根容器属性块）；**B** 抽屉切片根容器 = 实底 overlay 面，且**无** `glassBg`/`backgroundBlurStyle`
+（透字源），发丝线/投影/过渡**仍在**；**C** 9 处根容器归一化到**同一 role**（`pal()`/`palOnce()`/
+`bgOverlay()` 是同一 role 的**合法别名** ⇒ 比 role 不比拼写，防"92% vs 94%"式漂移）。
+
+⛔ **本次两个自证/踩坑（都写进判据注释了）**：
+1. **块注释里出现 `*/` 会提前终止注释** ⇒ 我注释里写了 `` `.out-*/` ``，tsc 直接把后续当代码解析
+   （`TS1005/TS1443/TS1110` 一串）。含路径/通配的注释一律写成 `.out-<pid>/`。
+2. **判据钉"令牌名"= 假绿**：B4 起初写 `slice.indexOf('STROKE_HAIRLINE') >= 0`，而我改面语言时
+   **误删了整行** `.borderWidth({ right: STROKE_HAIRLINE })`（切片里别处也有该令牌）⇒ 判据没红。
+   ⇒ 改钉**调用片段** `.borderWidth({ right: STROKE_HAIRLINE })`（本仓 GOTCHA：判据要取调用片段）。
