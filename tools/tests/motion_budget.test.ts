@@ -75,7 +75,9 @@ function walk(dir: string, out: string[]): void {
  * 每条都已归类（必须留 / 可合并 / 可删 见提交说明）；**新增条目必须写"它讲哪条状态/空间关系"**。
  */
 const BUDGET: Map<string, number> = new Map<string, number>([
-  ['components/anim.ets', 6],          // 工厂本体（唯一出口，⛔ 不是"站点"）
+  // 工厂本体（唯一出口，⛔ 不是"站点"）。2026-10-12 +2：`drawerTransition()`（抽屉**横向**滑入
+  //   —— 讲"侧栏从左边进来"的空间关系）与 `scrimTransition()`（遮罩**纯淡入** —— 讲"遮罩铺开"的层次）。
+  ['components/anim.ets', 8],
   ['components/SplashOverlay.ets', 5], // 开屏 T1 入场 / T2 让位 / 提示延迟淡入 —— **必须留**（状态+空间）
   ['components/AssistantOrb.ets', 2],  // 光球状态切换 —— **必须留**（就是"唯一在飞"的那个）
   ['components/MessageRow.ets', 4],    // 消息入场/按压 —— ⚠️ chat-surface-ux 域（见报告）
@@ -95,7 +97,9 @@ const BUDGET: Map<string, number> = new Map<string, number>([
                                        //   删 ⇒ 激活变硬切。两处都**不是**"为动而动"。（`bindPopup` 本体是系统绘制，改不到）
   ['components/Lightbox.ets', 1],      // 全屏浮层弹出 —— 同上
   ['components/Toast.ets', 1],         // ⚠️ **可删候选**（见报告：web 无对应动画）
-  ['pages/Index.ets', 3],              // 页面级（归 main agent 协调）
+  // 页面级（归 main agent 协调）。2026-10-12 +2：会话抽屉 = 遮罩淡入 + 抽屉横向滑入
+  //   （**必须留**：抽屉的进出场就是"从左侧滑出/收回"的空间关系；此前**瞬现瞬消**）。
+  ['pages/Index.ets', 5],
 ]);
 
 const root: string = findRoot();

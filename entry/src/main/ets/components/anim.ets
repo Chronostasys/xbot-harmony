@@ -15,7 +15,7 @@
 import curves from '@ohos.curves';
 import {
   MOTION_FAST_MS, MOTION_BASE_MS, MOTION_MSG_IN_MS, MOTION_SLOW_MS,
-  MOTION_LIGHTBOX_ENTER_SCALE, MOTION_SHEET_SLIDE_VP,
+  MOTION_DRAWER_SLIDE_VP, MOTION_LIGHTBOX_ENTER_SCALE, MOTION_SHEET_SLIDE_VP,
   springBezier,
 } from '../core/motion';
 import { ORB_BREATH_MS } from '../core/orb';
@@ -189,4 +189,28 @@ export function lightboxTransition(): TransitionEffect {
   return TransitionEffect.scale({ x: MOTION_LIGHTBOX_ENTER_SCALE, y: MOTION_LIGHTBOX_ENTER_SCALE })
     .animation({ duration: MOTION_BASE_MS, curve: sheetCurve() })
     .combine(TransitionEffect.OPACITY.animation({ duration: MOTION_FAST_MS }));
+}
+
+/**
+ * **侧栏抽屉**（左侧滑出，`DrawerSheet`）的出入场 —— **横向滑入 + 淡入**。
+ *
+ * 为什么不复用 `sheetTransition()`：后者从**屏底**滑入（纵向），抽屉在左侧 ⇒ 语义不对
+ * （同 `lightboxTransition` 的理由）。⛔ 时长/曲线/位移**全部来自底座**
+ * （`MOTION_BASE_MS` / `MOTION_FAST_MS` / `MOTION_DRAWER_SLIDE_VP` / `sheetCurve()`）—— 本函数只组合。
+ *
+ * ⚠️ 用 `.transition()` 而非 `.opacity(三元)`：静息态 = 组件自身属性 = **可见** ⇒ fail-safe
+ *    （门禁 ⑨；`tools/lint/anim-opacity-gate.sh`）。
+ */
+export function drawerTransition(): TransitionEffect {
+  return TransitionEffect.translate({ x: -MOTION_DRAWER_SLIDE_VP })
+    .animation({ duration: MOTION_BASE_MS, curve: sheetCurve() })
+    .combine(TransitionEffect.OPACITY.animation({ duration: MOTION_FAST_MS }));
+}
+
+/**
+ * **抽屉遮罩（scrim）** 的出入场 —— **纯淡入淡出**（⛔ 不带位移：遮罩是平面，位移无空间含义）。
+ * 时长取快档（`MOTION_FAST_MS`），与抽屉本体的滑入同起同止（遮罩先「铺开」、抽屉再「滑上」）。
+ */
+export function scrimTransition(): TransitionEffect {
+  return TransitionEffect.OPACITY.animation({ duration: MOTION_FAST_MS });
 }

@@ -161,6 +161,19 @@ export const MOTION_SPLASH_MARK_VP: number = SP_8 * 5;
 export const MOTION_SHEET_SLIDE_VP: number = 260;
 
 /**
+ * **侧栏抽屉**（左侧滑出）的横向入场位移（vp）。
+ *
+ * ⛔ 为什么单开一个 token（而不是复用 `MOTION_SHEET_SLIDE_VP`）：
+ *   · 后者是**纵向**档（面板自下而上），抽屉是**横向**语义 —— 轴不同、读法不同
+ *     （同 `lightboxTransition` 不复用 sheet 的理由：语义不对）；
+ *   · 值取 `88% × 屏宽` 量级的保守整档（抽屉实宽 = `88%`，见 `DrawerSheet` 的 `.width('88%')`）
+ *     ⇒ 起始位置在屏外左侧，滑动全程可见、无"跳一下"。
+ *   ⛔ 位移**只许**从这里取：`tools/tests/motion_uniform.test.ts` 规则 F 把任何
+ *     `translate({ x|y: <数字> })` 字面量判红。
+ */
+export const MOTION_DRAWER_SLIDE_VP: number = 340;
+
+/**
  * ⛔ **未采纳**（见 `components/anim.ets` 同名注释）：popup 类**不是**用 `sheetTransition()` 的
  * （`TodoPanel`/`MessageNav` 是 `.animation(animFast())`；`ToolPopover`/`ContextRing` 系统绘制）
  * ⇒ 不新增 `MOTION_POPUP_ENTER_SCALE`（零消费者 = 死常量）。
