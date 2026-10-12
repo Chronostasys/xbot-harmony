@@ -135,8 +135,13 @@ eq('④ 选中芯高常量派生自间距令牌恰 1 处', countIn(pg, 'const SE
 const seg: string = slice(pg, 'ForEach(SESSION_CATEGORIES, (c: string) => {', 'this.setSessionCategory(c);');
 ok('④ 分段控件切片非空（零扫描判红）', seg.length > 300, `len=${seg.length}`);
 eq('④ 切片内消费 SEG_PILL_H 恰 1 处', countIn(seg, '.height(SEG_PILL_H)'), 1);
-// 轨道层（视觉）必须真的画出 36：`.width('100%').height(SEG_TRACK_H)` 全文件恰 1 处
-eq('④ 轨道行消费 SEG_TRACK_H（视觉层）恰 1 处', countIn(pg, ".width('100%').height(SEG_TRACK_H)"), 1);
+// 轨道层（视觉）必须真的画出 36：`.width('100%').height(SEG_TRACK_H)` 全文件恰 2 处。
+// ⚠️ 2026-10-13（15z12 判据演进）：原为「恰 1 处」（只有抽屉「分类」）。本轮**模型选择器
+//    「思考模式」**由实心 accent 芯片 ×4 改**同款分段控件**（目标③「所有面板一种语言」，
+//    `§21.87`）⇒ 消费点变 2。⛔ 不是"放宽到 ≥1"：**恰 2**，多一处就红（逼下一次显式决策），
+//    且两处的**形态**由 `tools/tests/segmented_control.test.ts` 逐站点钉住（轨道/芯/浮起/无实心块）。
+eq('④ 轨道行消费 SEG_TRACK_H（视觉层）恰 2 处（抽屉分类 + 思考模式）',
+  countIn(pg, ".width('100%').height(SEG_TRACK_H)"), 2);
 // 可量测性：轨道层必须有 `id` 测试钩子（真机 dumpLayout 才能**量出**视觉高度；同
 // `xbot-empty-state`/`xbot-skeleton` 口径）。⛔ 删钩子 = 真机不可量 ⇒ 判红。
 eq('④ 轨道层有 id 测试钩子（真机可量）恰 1 处', countIn(pg, ".id('xbot-seg-track')"), 1);

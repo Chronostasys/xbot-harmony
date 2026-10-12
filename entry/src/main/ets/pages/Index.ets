@@ -9305,7 +9305,13 @@ struct Index {
 
       // ── 思考模式（web `ModelSelector.tsx:154-164` 的 popover 底部 `ThinkingModeControl`）──────
       // 落点：web 把它挂在「模型选择器」popover 内 ⇒ 原生等价物即本 `ModelSheet`（最小改动）。
-      // 形态：本仓**无滑杆先例**（全程 chip）⇒ 用 chip；**步骤语义/文案**逐字对齐 web composer
+      // 形态（2026-10-13，15z12，目标③「对标苹果」）：由 **实心 accent 芯片 ×4** 改
+      //   **iOS 分段控件**（`UISegmentedControl`）—— 与抽屉「分类」分段控件**同一形态/同一尺寸**
+      //   （`SEG_TRACK_H`/`SEG_PILL_H` 见文件头）。病根与同批改造的运行面板页签**同一个**：
+      //   实心色块读起来是"按钮墙"；而"选一个值"的语义 Apple 一律用**分段控件**，不是 4 个实心块。
+      //   ⛔ 不新增视觉语言：下沉轨道（`surface.chip` + 内凹发丝）+ 选中段**浮起**（`surface.card`）+
+      //   文字加重 —— 这三点全部照抄抽屉那一处（单一真源在**令牌层**，⛔ 不另发明一套配色）。
+      // **步骤语义/文案**逐字对齐 web composer
       //   （`core/settings.ets` 的 `thinkingStepLabel` = `关/思考/思考+/思考++`）。
       // ⛔ 行**真实 ≥44 布局盒**（`HIT_TARGET_MIN`，不靠 `responseRegion`）；写库走 `set_user_thinking_mode` 裸值。
       Column({ space: SPACE_XS }) {
@@ -9319,38 +9325,60 @@ struct Index {
             .constraintSize({ maxWidth: 120 })
         }
         .width('100%')
-        Flex({ wrap: FlexWrap.Wrap }) {
-          ForEach(THINKING_STEP_LABELS, (label: string, i: number) => {
-            Row() {
-              Text(label)
-                .fontSize(typeOf('type.caption').size)
-                .fontColor(i === this.thinkStep ? this.palOnce().onAccent : this.palOnce().textSecondary)
-                // 横向约束（`horizontal_overflow_gate` H1：`label` 命中可变长词表 ⇒ 必须给收缩能力）
-                .constraintSize({ maxWidth: 160 })
-                .textAlign(TextAlign.Center)
-            }
-            .constraintSize({ minHeight: HIT_TARGET_MIN })
-            .padding({ left: SPACE_SM, right: SPACE_SM })
-            .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
-            .backgroundColor(i === this.thinkStep
-              ? this.palOnce().accent
-              : surfaceFillOf(this.palOnce(), 'surface.chip'))
-            .borderRadius(RADIUS_CHIP)
-            .border({
-              width: STROKE_HAIRLINE,
-              color: i === this.thinkStep ? this.palOnce().accent : insetHairlineOf(this.palOnce()),
-            })
-            .margin({ right: SPACE_XS, bottom: SPACE_XS })
-            .opacity(this.thinkBusy ? 0.5 : 1)
-            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-            .onClick(() => {
-              if (!this.thinkBusy && i !== this.thinkStep) {
-                void this.commitThinkingStep(i);
+        // 结构 = `Stack[ 轨道层 | 命中层 ]`（同抽屉分类分段控件）：轨道是**画**出来的背景（垂直居中），
+        // 命中层承载点击 ⇒ 视觉 36、热区 44（⛔ 不能靠 `responseRegion` 外扩：真机实测无效）。
+        Stack() {
+          Row()
+            .width('100%').height(SEG_TRACK_H)
+            .backgroundColor(surfaceFillOf(this.palOnce(), 'surface.chip'))
+            // chip 面补**内凹发丝**（深色才有值、浅色 transparent ⇒ 浅色逐字节不变）
+            .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.palOnce()) })
+            .borderRadius(RADIUS_PILL)
+          Row({ space: SPACE_HAIR }) {
+            ForEach(THINKING_STEP_LABELS, (label: string, i: number) => {
+              Row() {
+                Row() {
+                  Text(label)
+                    .fontSize(typeOf('type.caption').size)
+                    .fontWeight(i === this.thinkStep ? FontWeight.Medium : FontWeight.Regular)
+                    .fontColor(i === this.thinkStep ? this.palOnce().textPrimary : this.palOnce().textSecondary)
+                    // ⛔ 横向约束（`horizontal_overflow_gate` H1：`label` 是**变量**、长度无上限
+                    //    ⇒ 必须给收缩能力，否则该站点判红）。`layoutWeight(1)` + `textAlign(Center)`
+                    //    在分段控件里是**天然**语义：段内文字占满芯宽、超出走省略号。
+                    .layoutWeight(1)
+                    .textAlign(TextAlign.Center)
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                }
+                .width('100%').height(SEG_PILL_H)
+                .justifyContent(FlexAlign.Center)
+                .alignItems(VerticalAlign.Center)
+                .backgroundColor(i === this.thinkStep
+                  ? surfaceFillOf(this.palOnce(), 'surface.card')
+                  : this.palOnce().transparent)
+                .borderRadius(RADIUS_CHIP)
+                // 选中态缓动（Apple 分段控件的选中是**渐变**、不是硬切）：走底座 `animBase()`
+                // ⛔ 不新建曲线对象（受 `anim*()` ≤20 预算约束）；只动底色 ⇒ 不碰不透明度语义。
+                .animation(animBase())
               }
-            })
-          }, (label: string, i: number) => `think-step-${i}`)
+              .layoutWeight(1)
+              .height(HIT_TARGET_MIN)
+              .justifyContent(FlexAlign.Center)
+              .alignItems(VerticalAlign.Center)
+              // 提交在飞（`thinkBusy`）⇒ 整段降不透明度（与旧形态同一语义；初值 1 ⇒ 失败方向安全）
+              .opacity(this.thinkBusy ? 0.5 : 1)
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .onClick(() => {
+                if (!this.thinkBusy && i !== this.thinkStep) {
+                  void this.commitThinkingStep(i);
+                }
+              })
+            }, (label: string, i: number) => `think-step-${i}`)
+          }
+          .width('100%')
         }
         .width('100%')
+        .height(HIT_TARGET_MIN)
       }
       .width('100%')
       .padding({ top: SPACE_SM })

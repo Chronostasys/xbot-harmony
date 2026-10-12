@@ -145,7 +145,11 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   //   ② 抽屉分段控件（`项目/状态/时间`）选中态 ×1 + 运行面板 chips 选中态 ×1
   //      `.animation(animBase())` —— 讲的是"**选中项从 A 到 B**"这条状态关系（Apple
   //      `UISegmentedControl` 的选中是渐变、不是硬切）。只动底色/描边 ⇒ 不碰不透明度语义。
-  ['pages/Index.ets', 15],
+  // 2026-10-13 +1（15z12）：运行面板 chips → **下划线页签**（`§21.86`）后，这 1 处 `animBase()`
+  //   随形态**保留**在指示器上（只动指示器底色）；另 **模型选择器「思考模式」**由实心芯片 ×4 改
+  //   **分段控件**（`§21.87`）⇒ 新增选中段 `.animation(animBase())` ×1（与抽屉那一处同款）。
+  //   ⛔ 两处都走既有工厂 `animBase()`（零新增曲线对象）；讲的状态关系 = "选中项从 A 到 B"。
+  ['pages/Index.ets', 16],
 ]);
 
 const root: string = findRoot();

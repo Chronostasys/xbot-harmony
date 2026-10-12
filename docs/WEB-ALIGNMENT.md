@@ -4284,3 +4284,47 @@ builder **每次长按弹出时**才求值；且每行只捕获**本行**的 `(p
 点 `终端` ⇒ 指示线移到 `终端`、表头出现「＋ 新建」、内容切到「本会话暂无终端」。
 ⚠️ 本轮装机时遇到一次 `render_service SERVICE_BLOCK`（05:01:24 faultlog）⇒ 冷启重来后**不可复现**，
 且**开关运行面板三次均正常** ⇒ 判为安装/冷启瞬态，未归因本改动（如实记录）。
+
+## §21.87 「选一个值」全站只许一种语言：分段控件（15z12，2026-10-13）
+
+**症状（目标③「所有面板一个设计系统」，用户亲报「实心芯片」）**：同一个 app 里"选一个值"长着**三种脸** ——
+- ① 运行面板页签 = 实心 accent 芯片 ×5（本轮已改**下划线式**，见 §21.86）；
+- ② **思考模式**（`ModelSheet` 内，`Index.ets` 的 `ThinkingModeControl` 对应物）= **实心 accent 芯片 ×4**
+  （选中 = 整块 accent + `onAccent` 字 + `Flex(wrap)` 参差）；
+- ③ 抽屉「分类」= **iOS 分段控件**（下沉轨道 + 选中段浮起 + 文字加重）—— 本仓**唯一正确先例**。
+
+**修法**：② 改 **分段控件**，与 ③ **同形态、同尺寸常量**（`SEG_TRACK_H`/`SEG_PILL_H`，见 `Index.ets` 文件头）：
+下沉轨道（`surface.chip` + `insetHairlineOf` 内凹发丝）+ 选中段**浮起**（`surface.card`）+ 文字加重
+（`FontWeight.Medium`）+ 选中态 `animation(animBase())`（渐变、不硬切）。结构 = `Stack[ 轨道层 | 命中层 ]`
+⇒ **视觉 36 / 热区 44**（⛔ 不靠 `responseRegion` 外扩：真机实测无效，见 AGENTS.md GOTCHA）。
+⛔ **不新增视觉语言**：三点全部照抄抽屉那处 —— 单一真源在**令牌层**（`core/design.ets`），
+⛔ 不另发明一套配色。
+
+**新判据 `tools/tests/segmented_control.test.ts`（19 passed）**：**两个站点同时钉** ——
+轨道 `SEG_TRACK_H` / 选中段 `SEG_PILL_H` / `surface.chip` / `surface.card` / `FontWeight.Medium` /
+命中盒真实 44 / ⛔ **`accent` 出现 0 次**（不得是实心块）/ ⛔ 不得回 `Flex(wrap)` 芯片行 /
+⛔ 档名不得硬编码（必须来自 `core/settings.ets:THINKING_STEP_LABELS`）。
+- ⚠️ **锚点踩坑（本轮实测假红两次）**：① 起点锚必须**早于轨道那行** —— 轨道是
+  `Row().width('100%').height(SEG_TRACK_H)` 再接 `.id('xbot-seg-track')`，从 `id(` 起切会**漏掉
+  `SEG_TRACK_H`**；② 负向断言（`accent` 0 次）**不能**整文件 grep —— 页面里有多个**合法** accent
+  实心块（表头「＋ 新建」/「＋ 新建会话」/设置「应用」）⇒ 必须只切调用片段。
+- **mutation 自证（实跑，4/4 捕获）**：思考块回实心 accent ⇒ 红 2 条；`SEG_TRACK_H→RADIUS_CHIP` ⇒ 红 1 条；
+  抽屉选中段不浮起 ⇒ 红 1 条；思考块回 `Flex(wrap)` ⇒ 红 1 条。⚠️ 本轮自证**不改共享树**（在
+  `/tmp` 的文本副本上重放同一套锚点+谓词）⇒ 零风险（共享工作树里 `cp` 回滚会误伤他线在途改动）。
+
+**装机取证（1320×2848）**：模型选择器 → 思考模式 = 一条下沉轨道 + **「思考+」段浮起**（其余三段无填充、
+纯文字），档位数**一眼可数**（等分 4 段）——不再是 4 个实心色块。
+
+### 附带教训：**改「选值控件形态」会同时踩 3 个受管台账**（本轮实测，全红）
+本轮改动落地后真门禁**红 3 步**（脱机三条全绿 ⇒ 只有真门禁能抓）—— 记下来，下次改形态直接对齐：
+1. **`tools/tests/sidebar_view_state.test.ts` ④**：`countIn(pg, ".width('100%').height(SEG_TRACK_H)")`
+   **恰 1 处** —— 它是"轨道真的画出 36"的**站点计数**断言 ⇒ 新增第二个分段控件站点**必红**。
+   处置：演进为**恰 2**（⛔ 不放宽成 `≥1`，多一处仍要红、逼下次显式决策），并在注释里点名两个站点。
+2. **`tools/tests/motion_budget.test.ts`**：`['pages/Index.ets', N]` 是**逐文件动效台账**（⛔ 只许
+   显式登记，不许超）⇒ 新增 `.animation(animBase())` 必红 ⇒ 登记 +1 并写明"哪条状态关系、走哪个工厂"。
+3. **`tools/tests/horizontal_overflow_gate.test.ts` H1**：`Text(<变量>)` 在 `Row` 内**必须有**
+   `layoutWeight`/`flexShrink`/`constraintSize`（或祖先具备）—— 我第一版只写了 `maxLines+textOverflow`
+   ⇒ `pages/Index.ets :: H1 :: ANCHOR:label` 未登记 ⇒ 红。
+   处置：**真加约束**（`.layoutWeight(1)` + `textAlign(Center)`，在分段控件里本就是天然语义），
+   ⛔ **不**往 `PENDING_FIX` 台账里塞（那是"真待办"清单，塞进去等于把缺陷写成豁免）。
+   📌 推论：**新写带 `Text(变量)` 的控件时，约束必须一次写全**（本次是靠真门禁抓出来的）。
