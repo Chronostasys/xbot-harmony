@@ -137,7 +137,15 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   //   （`.symbolEffect(new ReplaceSymbolEffect(WHOLE, CROSS_FADE))`）—— 讲的是**同一个按钮**的
   //   语义在「发送 → 插话 → 停止」之间切换（用户要求「busy 时输入文字 ⇒ 按钮变插队/排队」的
   //   视觉落点）；此前是硬切。⛔ 用一次性子类（非循环）⇒ `inflight-single-source.sh` 归 B2。
-  ['pages/Index.ets', 7],
+  // 2026-10-13 +8（目标③「所有面板」+①「丝滑动画」）：**面板内切换语言统一**，全部走既有工厂
+  //   （⛔ 零新增曲线对象）：
+  //   ① 运行面板 5 个 tab 的内容根（List）×5 + 空态（`PanelEmpty` 的 Column）×1 = 6 处
+  //      `.transition(fadeTransition())` —— 讲的是"**tab 分支替换**"这条状态关系（此前切 tab
+  //      是瞬变，列表↔空态高度差会"跳"）。用**出现过渡**（静息态恒可见）⇒ 天然 fail-safe。
+  //   ② 抽屉分段控件（`项目/状态/时间`）选中态 ×1 + 运行面板 chips 选中态 ×1
+  //      `.animation(animBase())` —— 讲的是"**选中项从 A 到 B**"这条状态关系（Apple
+  //      `UISegmentedControl` 的选中是渐变、不是硬切）。只动底色/描边 ⇒ 不碰不透明度语义。
+  ['pages/Index.ets', 15],
 ]);
 
 const root: string = findRoot();

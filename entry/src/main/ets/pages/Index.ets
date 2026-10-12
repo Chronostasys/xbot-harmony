@@ -7809,6 +7809,8 @@ struct Index {
     .layoutWeight(1)
     .justifyContent(FlexAlign.Center)
     .alignItems(HorizontalAlign.Center)
+    // 与 tab 内容的 List 同一过渡（切 tab 时「空态 <-> 列表」也只淡入，不跳）
+    .transition(fadeTransition())
   }
 
   /** 面板：四个标签各拉一个端点（定时任务 / 后台任务 / 子代理 / Runner）。 */
@@ -7884,6 +7886,8 @@ struct Index {
             .backgroundColor(this.panelTab === tab ? this.pal().accent : surfaceFillOf(this.pal(), 'surface.chip'))
             .borderRadius(RADIUS_PILL)
             .border({ width: STROKE_HAIRLINE, color: this.panelTab === tab ? this.pal().accent : hairlineOf(this.pal()) })
+            // 选中态缓动（与抽屉分段控件同一口径；只动底色/描边）
+            .animation(animBase())
             .constraintSize({ minHeight: HIT_TARGET_MIN })
             .layoutWeight(1)
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
@@ -7916,6 +7920,9 @@ struct Index {
               }
             }, (job: CronJob, i: number) => `cron-${job.id}#${i}`)
           }.layoutWeight(1).width('100%')
+          // 切 tab = 分支移除 + 插入 => 用**出现过渡**（`fadeTransition`）。静息态恒为可见值
+          // （⛔ 绝不写 `opacity(x?1:0)` + animateTo 那种「可读性是动画的函数」的形态，见门禁⑨）。
+          .transition(fadeTransition())
         }
       } else if (this.panelTab === 'tasks') {
         if (this.bgTasks.length === 0) {
@@ -7937,6 +7944,9 @@ struct Index {
               }
             }, (t: BgTask, i: number) => `bg-${t.id}#${t.status}#${i}`)
           }.layoutWeight(1).width('100%')
+          // 切 tab = 分支移除 + 插入 => 用**出现过渡**（`fadeTransition`）。静息态恒为可见值
+          // （⛔ 绝不写 `opacity(x?1:0)` + animateTo 那种「可读性是动画的函数」的形态，见门禁⑨）。
+          .transition(fadeTransition())
         }
       } else if (this.panelTab === 'subs') {
         if (this.subagents.length === 0) {
@@ -7961,6 +7971,9 @@ struct Index {
               }
             }, (a: SubAgentRow, i: number) => `sub-${a.chat_id}#${i}`)
           }.layoutWeight(1).width('100%')
+          // 切 tab = 分支移除 + 插入 => 用**出现过渡**（`fadeTransition`）。静息态恒为可见值
+          // （⛔ 绝不写 `opacity(x?1:0)` + animateTo 那种「可读性是动画的函数」的形态，见门禁⑨）。
+          .transition(fadeTransition())
         }
       } else if (this.panelTab === 'term') {
         // ⚠️ 取色一律走 `palOnce()`（记忆化入口，语义与 `pal()` 逐字节一致）：`this.pal()` 是
@@ -7992,6 +8005,9 @@ struct Index {
               }
             }, (t: TerminalInfo, i: number) => `term-${t.tid}#${i}`)
           }.layoutWeight(1).width('100%')
+          // 切 tab = 分支移除 + 插入 => 用**出现过渡**（`fadeTransition`）。静息态恒为可见值
+          // （⛔ 绝不写 `opacity(x?1:0)` + animateTo 那种「可读性是动画的函数」的形态，见门禁⑨）。
+          .transition(fadeTransition())
         }
       } else {
         if (this.runners.length === 0) {
@@ -8011,6 +8027,9 @@ struct Index {
               }
             }, (r: RunnerRow, i: number) => `run-${r.name}#${r.online}#${i}`)
           }.layoutWeight(1).width('100%')
+          // 切 tab = 分支移除 + 插入 => 用**出现过渡**（`fadeTransition`）。静息态恒为可见值
+          // （⛔ 绝不写 `opacity(x?1:0)` + animateTo 那种「可读性是动画的函数」的形态，见门禁⑨）。
+          .transition(fadeTransition())
         }
       }
     }
@@ -8558,6 +8577,10 @@ struct Index {
                   ? surfaceFillOf(this.pal(), 'surface.card')
                   : this.pal().transparent)
                 .borderRadius(RADIUS_CHIP)
+                // 选中态缓动（Apple `UISegmentedControl` 的选中是**渐变**、不是硬切）：走底座
+                // `animBase()`（⛔ 不新建曲线对象，受 `anim*()` ≤20 预算约束）。只动底色
+                // => 不碰不透明度语义、失败方向安全（门禁⑨ 无关）。
+                .animation(animBase())
               }
               .layoutWeight(1)
               .height(HIT_TARGET_MIN)
