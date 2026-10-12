@@ -1339,3 +1339,27 @@ N 个药丸堆叠、chrome 噪点大；web 侧本就是纯列表）⇒ **一个�
 **未做（记账）**：其余面板（`StatusSheet`/`PluginsSheet`/`QueueSheet`/`SelfCheckSheet`/`SettingsPanel`）
 的**页头**仍有三种实现（标题：完整 `type.headline` role vs 裸 `FS_TITLE`+`fw`；关闭 X：44 真盒 vs
 `.padding(SPACE_MD)`；X 尺寸：`X_GLYPH 17` vs `ICON_LG 16`）—— 统一留待下一批（属"锦上添花"，非缺陷）。
+
+
+## §21.18 目标④ · **文件管理**原生化（2026-10-12）
+
+**缺口**（用户亲报「文件管理也没有」）：`/api/fs/*` 在原生**全仓 0 消费**（`core/reqbody.ets`
+的契约注释还写错了端点前缀，见 `ARKTS-GOTCHAS` 批次 49 附）。
+
+**实现**（原生渲染，⛔ 不塞 WebView —— web 侧 `FileExplorer.tsx` + `workspace/panels/FilePanel.tsx` 的能力）：
+
+| 层 | 落点 | 内容 |
+|---|---|---|
+| 纯逻辑 | `core/files.ets`（新） | `sortFsEntries`（**逐字对齐** web `useFileSystem.ts:96-99`：目录优先 + `localeCompare`）、`fileKindOf`/`extOf`、`parentPath`/`joinFsPath`/`baseNameOf`、`fmtSize`（1024 进制）/`fmtAgo`、`fsCrumbs` |
+| 数据 | `core/store.ets` | `listFs`（既有）+ **新增 `readFs`**（`POST /api/fs/read`，权威 = 服务端 `fsReadResponse`） |
+| UI | `components/FilesSheet.ets`（新） | 头部（标题 + 刷新 + 关闭，**44 真实热区**）+ **面包屑**（横向滚动、点段回跳）+ `LazyForEach` 目录列表（图标/大小/chevron）+ 单文件预览（markdown 走 `MarkdownView`、图片走 `AuthImage` 鉴权字节、其余等宽文本） |
+| 入口 | `pages/Index.ets` | 抽屉 footer **第 5 键「文件」**（初始目录 = 会话 `cwd` 的权威值） |
+
+**判据**：`tools/tests/files_pure.test.ts`（44 条；**mutation 自证**：排序比较符反向 ⇒ 2 红、
+`1024→1000` ⇒ 1 红、`extOf` 的 `i<=0 → i<0` ⇒ 1 红）。**真机实证**：面板列出 `/Users/bobli`
+（Applications/Desktop/Documents/…，见接线后 `dumpLayout`）。
+
+**踩过的坑（已入台账）**：`@Prop` 喂 `LazyForEach` 未挂 `@Watch` ⇒ 列表恒空（`ARKTS-GOTCHAS` 批次 49）。
+
+**记账（未做）**：文件**搜索**（`/api/fs/search`，web `FileExplorer` 有）、文件**重命名/删除/新建**、
+编辑保存（web 侧 `MonacoEditor` 的编辑也**不持久化** ⇒ 原生 v1 不落编辑能力，与 web 同口径）。

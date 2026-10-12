@@ -188,7 +188,9 @@ function eq(name: string, got: unknown, want: unknown): void {
     //   ✅ 2026-10-11（目标⑤ E1 待批 #1）：`PluginsSheet`/`QueueSheet`/`SelfCheckSheet` 三面板的 L1 根面
     //      从"裸 `appBg` + 无柔影"迁到 `shadowLayersOf('overlay')` 多层柔影 ⇒ 从"无影站点"变为多层消费者。
     const EXPECT_MULTI: string[] = [
-      'components/AskUserSheet.ets', 'components/Lightbox.ets', 'components/MenuSheets.ets',
+      'components/AskUserSheet.ets',
+      // 文件管理面板（目标④）：侧栏柔影走 `shadowLayersOf(pal,'overlay')` 同一出口（⛔ 不写死半径）。
+      'components/FilesSheet.ets', 'components/Lightbox.ets', 'components/MenuSheets.ets',
       'components/PluginsSheet.ets', 'components/QueueSheet.ets', 'components/SelfCheckSheet.ets',
       'components/StatusSheet.ets', 'components/SyntheticCard.ets', 'components/Toast.ets',
       'pages/Index.ets',

@@ -84,6 +84,7 @@ import {
 import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msgindex';
 import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, WebPluginListWire, buildPluginCatalog } from '../core/pluginhost';
 import { hasIterStatsBadge, iterStatsText } from '../core/pluginviews';
+import { FsFileEntry, FsReadResult, fileKindOf, FK_IMAGE, sortFsEntries } from '../core/files';
 import {
   ATTACH_DONE, ATTACH_FAILED, ATTACH_UPLOADING, AttachItem, MAX_ATTACH, appendRef, attachChipText,
   attachmentRef, baseName, doneKeys, doneNames, doneRefs, doneSizes, hasRef, humanSize, mimeOf,
@@ -160,6 +161,7 @@ import { TodoPanel } from '../components/TodoPanel';
 import { StatusSheet } from '../components/StatusSheet';
 import { QueueSheet } from '../components/QueueSheet';
 import { PluginsSheet } from '../components/PluginsSheet';
+import { FilesSheet } from '../components/FilesSheet';
 import { SelfCheckSheet } from '../components/SelfCheckSheet';
 import { SessSheet, SearchHitsSheet, ContextSheet } from '../components/MenuSheets';
 import { AskUserSheet } from '../components/AskUserSheet';
@@ -531,6 +533,17 @@ struct Index {
   @State collapsedGroups: string[] = [];
   @State showQueue: boolean = false;
   @State showPlugins: boolean = false;
+  // ── 文件管理（目标④）——页面独占所有权；组件只收 @Prop ──────────────────────
+  @State showFiles: boolean = false;
+  @State fmDir: string = '/';
+  @State fmEntries: FsFileEntry[] = [];
+  @State fsLoading: boolean = false;
+  @State fsError: string = '';
+  @State fsPreviewPath: string = '';
+  @State fsPreviewText: string = '';
+  @State fsPreviewLoading: boolean = false;
+  @State fsPreviewIsImage: boolean = false;
+  @State fsPreviewImageUrl: string = '';
   @State showSelfCheck: boolean = false;
   /** 各页版面几何的**屏幕可见文本**（无需网络：截一张图即可把数值带给我） */
   /**
@@ -2828,6 +2841,73 @@ struct Index {
   }
 
   /** 取图片字节（带会话鉴权）—— AuthImage 与查看器共用同一实现。 */
+  // ── 文件管理（目标④「文件管理也没有」）───────────────────────────────────────
+  /** 开文件面板。初始目录 = 当前会话 cwd（`/api/session/status` 的权威值），缺则根目录。 */
+  private openFiles(): void {
+    this.showFiles = true;
+    this.closeFsPreview();
+    const start: string = this.store !== null && this.store.cwd.length > 0 ? this.store.cwd : '/';
+    this.loadFsDir(start);
+  }
+
+  /** 列目录。失败 ⇒ 面板红字 + 重试（⛔ 不吞异常、不假装成空目录）。 */
+  private async loadFsDir(dir: string): Promise<void> {
+    const store: ChatStore | null = this.store;
+    this.fmDir = dir;
+    this.fsError = '';
+    if (store === null) {
+      this.fsError = '未连接服务端';
+      this.fmEntries = [];
+      return;
+    }
+    this.fsLoading = true;
+    try {
+      const es: FsEntry[] = await store.listFs(dir);
+      const mapped: FsFileEntry[] = [];
+      for (let i = 0; i < es.length; i++) {
+        mapped.push({ name: es[i].name, isDir: es[i].isDir, size: es[i].size });
+      }
+      // 排序**唯一判据** = `core/files.ets:sortFsEntries`（与判据同一份纯函数）。
+      this.fmEntries = sortFsEntries(mapped);
+    } catch (err) {
+      this.fsError = '目录读取失败，请重试';
+      this.fmEntries = [];
+    }
+    this.fsLoading = false;
+  }
+
+  /** 打开文件：图片走 `AuthImage` 鉴权字节通道；其余读文本（markdown 由面板交给 `MarkdownView`）。 */
+  private async openFsFile(filePath: string, kind: string): Promise<void> {
+    const store: ChatStore | null = this.store;
+    this.fsPreviewPath = filePath;
+    this.fsPreviewText = '';
+    this.fsPreviewIsImage = kind === FK_IMAGE;
+    this.fsPreviewImageUrl = kind === FK_IMAGE
+      ? `/api/fs/raw?path=${encodeURIComponent(filePath)}` : '';
+    if (kind === FK_IMAGE) {
+      return;    // 图片：字节走 AuthImage（`/api/fs/raw` 是字节流，读文本无意义）
+    }
+    if (store === null) {
+      this.fsPreviewText = '未连接服务端';
+      return;
+    }
+    this.fsPreviewLoading = true;
+    try {
+      const r: FsReadResult = await store.readFs(filePath);
+      this.fsPreviewText = r.isBinary ? '（二进制文件，无法以文本预览）' : r.content;
+    } catch (err) {
+      this.fsPreviewText = '文件读取失败，请重试';
+    }
+    this.fsPreviewLoading = false;
+  }
+
+  private closeFsPreview(): void {
+    this.fsPreviewPath = '';
+    this.fsPreviewText = '';
+    this.fsPreviewIsImage = false;
+    this.fsPreviewImageUrl = '';
+  }
+
   private async loadImageBytes(src: string): Promise<ArrayBuffer> {
     const store: ChatStore | null = this.store;
     if (store === null) {
@@ -3395,6 +3475,47 @@ struct Index {
             },
             onClose: () => {
               this.showPlugins = false;
+            },
+          })
+        }.width('100%').height('100%')
+      }
+      // 文件管理（P2 抽出：components/FilesSheet.ets）——showFiles/目录/预览全留页面。
+      if (this.showFiles) {
+        Stack() {
+          Row() {
+            Blank()
+          }.width('100%').height('100%').onClick(() => {
+            this.showFiles = false;
+          })
+          FilesSheet({
+            theme: this.themeName,
+            path: this.fmDir,
+            entries: this.fmEntries,
+            loading: this.fsLoading,
+            error: this.fsError,
+            previewPath: this.fsPreviewPath,
+            previewText: this.fsPreviewText,
+            previewLoading: this.fsPreviewLoading,
+            previewIsImage: this.fsPreviewIsImage,
+            previewImageUrl: this.fsPreviewImageUrl,
+            mdTheme: this.mdThemeId(),
+            loadImageBytes: (src: string) => {
+              return this.loadImageBytes(src);
+            },
+            onNavigate: (dir: string) => {
+              this.loadFsDir(dir);
+            },
+            onOpenFile: (f: string, k: string) => {
+              this.openFsFile(f, k);
+            },
+            onClosePreview: () => {
+              this.closeFsPreview();
+            },
+            onRefresh: () => {
+              this.loadFsDir(this.fmDir);
+            },
+            onClose: () => {
+              this.showFiles = false;
             },
           })
         }.width('100%').height('100%')
@@ -7465,6 +7586,21 @@ struct Index {
         .accessibilityText('插件与 Web UI：插件目录、宿主页、完整 Web UI')
         .onClick(() => {
           this.openPlugins();
+        })
+        Column({ space: 2 }) {
+          SymbolGlyph($r('sys.symbol.folder'))
+            .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
+          Text('文件')
+            .fontSize(typeOf('type.micro').size).fontColor(this.pal().textSecondary)
+        }
+        .layoutWeight(1).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('文件管理：浏览与预览工作目录')
+        .onClick(() => {
+          this.showFiles = false;
+          this.showDrawer = false;
+          this.openFiles();
         })
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.power'))

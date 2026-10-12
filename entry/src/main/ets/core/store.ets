@@ -30,6 +30,7 @@ import { BgTask, CronJob, RunnerRow, SubAgentRow, isWidgetEvent } from './panels
 import { serverKey, toLocalSettings, KEY_ACCENT } from './settings';
 import { setAppAccent } from './theme';
 import { FsEntry } from './composer';
+import { FsReadResult } from './files';
 import { MaxContextParams, RPC_GET_SESSION_SUBSCRIPTION, RPC_GET_USER_MAX_CONTEXT, RPC_LIST_ALL_MODEL_ENTRIES, RPC_SET_USER_MAX_CONTEXT, RPC_WEB_PLUGIN_LIST, SessionSelectorParams, SessionSubscription, normalizeMaxContext, readableRpcError, rpc, sessionSubscriptionId } from './rpc';
 import {
   PluginCatalog,
@@ -549,6 +550,17 @@ export class ChatStore {
     const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>('/api/fs/list', body);
     const arr: Object | undefined = raw['entries'];
     return arrOrEmpty(arr as FsEntry[]);
+  }
+
+  /**
+   * 读文件（`POST /api/fs/read {path}` → `{content,language,size,isBinary,encoding?}`）。
+   *
+   * 权威契约 = 服务端 `channel/web/web_fs.go:fsReadResponse`（⛔ 不是 `/api/files/*`）。
+   * 文件管理面板用；`isBinary` 为真时 `content` 无意义（面板改走图片/字节通道）。
+   */
+  async readFs(path: string): Promise<FsReadResult> {
+    const body: Record<string, string> = { 'path': path };
+    return await this.http.postAs<FsReadResult>('/api/fs/read', body);
   }
 
   async loadCronTasks(): Promise<void> {

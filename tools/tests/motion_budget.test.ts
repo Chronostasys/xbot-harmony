@@ -82,6 +82,8 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   ['components/MenuSheets.ets', 3],    // 三个抽屉 —— **必须留**（从下滑入/滑出 = 空间关系）
   ['components/AskUserSheet.ets', 1],  // 弹层开合 —— 同上
   ['components/PluginsSheet.ets', 1],  // 同上
+  // 文件管理面板（目标④）：唯一动效 = 弹层开合 `sheetTransition()`（与其它 L1 浮层同一条）。
+  ['components/FilesSheet.ets', 1],
   ['components/QueueSheet.ets', 1],    // 同上
   ['components/SettingsPanel.ets', 1], // 同上
   ['components/StatusSheet.ets', 1],   // 同上

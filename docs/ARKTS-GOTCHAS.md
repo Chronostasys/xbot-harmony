@@ -1594,3 +1594,34 @@ ArkWeb 有自己的持久 cookie 仓）。原代码只在 `prepareWebUI()` 里�
 webview.WebCookieManager.configCookieSync(base + '/', cookie);   // cookie 来自 store.http.exportSessionCookie()
 ```
 **判别**：凡"原生接口通、WebView 里却 401/要重登" ⇒ 先查 cookie 注入，别查服务端鉴权。
+
+
+## 批次 49（2026-10-12，编排者**真机实测**）：`@Prop` 喂 `LazyForEach` **必须挂 `@Watch`** —— 否则列表恒空
+
+**症状**（真机截图 + `dumpLayout`）：文件面板打开、**面包屑正确**（`/ > Users > bobli`）、
+正文**一片空白** —— 连我写的「空目录」提示都**不出现**。
+
+**为什么空白而不是显示"空目录"**（这是定位关键）：面板判据是
+`if (this.entries.length === 0) → 显示空目录 else → List/LazyForEach`。**`@Prop entries` 是有的**
+（页面异步拉到了）⇒ 走 `else` 分支 ⇒ 画 `LazyForEach`；而 **`LazyForEach` 的数据源 `ds` 是组件内部字段、
+只在 `aboutToAppear` 里 `ds.setItems(this.entries)` 同步过一次 —— 那一刻 `entries` 还是 `[]`**
+（页面还没 await 回来）⇒ **数据源永远空** ⇒ 画出一个"有列表但 0 行"的空壳。
+
+**正确写法**：
+```ts
+@Prop @Watch('onEntriesChanged') entries: FsFileEntry[] = [];
+onEntriesChanged(): void { this.ds.setItems(this.entries); }
+```
+⛔ 只写 `onEntriesChanged()` 方法**没有用** —— 不带 `@Watch` 的普通方法 ArkUI 永远不会调用它。
+（同族：`@Prop @Watch('cb')` 是仓内既有写法，见 `LiveTailView`/`SplashOverlay`/`WidgetDock`。）
+
+**推论（更一般）**：凡"`@Prop` 数据 → 组件内部派生结构（数据源/缓存/码点表）"的接线，
+**派生同步点必须挂在 `@Watch` 上**，不能只靠 `aboutToAppear`（它只在该组件的**首帧**跑一次）。
+
+### 附（同批次）：文件系统端点是 **`/api/fs/`**，不是 `/api/files/`
+
+`core/reqbody.ets` 顶部注释曾把二者混写（`/api/files/list {path, show_hidden}`）。
+**服务端源码为准**（`channel/web/web.go:937-940`）：
+`/api/fs/list` · `/api/fs/read` · `/api/fs/raw`（字节流，图片预览用）· `/api/fs/search`；
+`/api/files/*` **只有** `upload` / `download` / `viewimg`。
+⇒ 新增文件类接口前先 `grep '"/api/fs/' channel/web/web.go`（本次已按此实现 `core/files.ets`）。
