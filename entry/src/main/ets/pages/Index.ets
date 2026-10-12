@@ -117,7 +117,7 @@ import {
   modelPanelStatus, parseContext, selectable,
 } from '../core/llmfmt';
 import {
-  AskAnswerInput, COPY_RAW, COPY_REPLY, COPY_THINKING, COPY_TOOLS, CopyParts, composeCopy, linkLabel,
+  AskAnswerInput, askAllAnswered, askAnsweredFlags, COPY_RAW, COPY_REPLY, COPY_THINKING, COPY_TOOLS, CopyParts, composeCopy, linkLabel,
   linksIn, mergeAskAnswers, PendingEdit, resolveOpenable, RewindTarget, toolArgsOnly, toolCopyText,
   toolResultOnly,
 } from '../core/msgops';
@@ -192,6 +192,11 @@ class AskSelection {
   qid: string = '';
   labels: string[] = [];
   other: string = '';
+  /**
+   * 该题的**自由文本**（web `AskUserPanel.tsx:43 freeInputs`；优先级最高）。
+   * ⛔ web 铁律：**每题恒有自由文本输入**（用户可以无视选项直接写）。
+   */
+  free: string = '';
 }
 
 /**
@@ -3474,6 +3479,7 @@ struct Index {
       const copy: AskSelection = new AskSelection();
       copy.qid = s.qid;
       copy.other = s.other;
+      copy.free = s.free;
       if (!multi) {
         copy.labels = s.labels.indexOf(label) >= 0 ? [] : [label];
       } else if (s.labels.indexOf(label) >= 0) {
@@ -3511,9 +3517,68 @@ struct Index {
       copy.qid = s.qid;
       copy.labels = s.labels;
       copy.other = s.qid === qid ? v : s.other;
+      copy.free = s.free;
       next.push(copy);
     }
     this.askSelections = next;
+  }
+
+  /**
+   * 设置某题的**自由文本**（web `AskUserPanel.tsx:301-315` 的 `freeInputs`）。
+   *
+   * 形态与 `setAskOther` 逐字同款（整体重建 `askSelections` ⇒ 触发重渲染；`labels`/`other` 沿用）。
+   * ⛔ 不回写 `other`：两者是**并列**输入通道，合并优先级由 `mergeAskAnswers` 决定
+   *    （free > other > labels，web `:71-85`）。
+   */
+  private setAskFree(qid: string, v: string): void {
+    const next: AskSelection[] = [];
+    for (let i = 0; i < this.askSelections.length; i++) {
+      const s: AskSelection = this.askSelections[i];
+      const copy: AskSelection = new AskSelection();
+      copy.qid = s.qid;
+      copy.labels = s.labels;
+      copy.other = s.other;
+      copy.free = s.qid === qid ? v : s.free;
+      next.push(copy);
+    }
+    this.askSelections = next;
+  }
+
+  /** 读某题的「其他」文本（组件 `readOther` 回调；找不到 ⇒ 空串）。 */
+  private askOtherOf(qid: string): string {
+    for (let i = 0; i < this.askSelections.length; i++) {
+      const s: AskSelection = this.askSelections[i];
+      if (s.qid === qid) {
+        return s.other;
+      }
+    }
+    return '';
+  }
+
+  /** 读某题的自由文本（组件 `readFree` 回调；找不到 ⇒ 空串）。 */
+  private askFreeOf(qid: string): string {
+    for (let i = 0; i < this.askSelections.length; i++) {
+      const s: AskSelection = this.askSelections[i];
+      if (s.qid === qid) {
+        return s.free;
+      }
+    }
+    return '';
+  }
+
+  /** 当前答案（`mergeAskAnswers` 唯一真源；组件只消费，⛔ 不自己拼）。 */
+  private askAnswers(): Record<string, string> {
+    const inputs: AskAnswerInput[] = [];
+    for (let i = 0; i < this.askSelections.length; i++) {
+      const s: AskSelection = this.askSelections[i];
+      inputs.push(new AskAnswerInput(s.labels, s.other, s.free));
+    }
+    return mergeAskAnswers(inputs);
+  }
+
+  /** 逐题「已答」标记（向导圆点 + 提交可用态；判据同源 `core/msgops`）。 */
+  private askAnswered(): boolean[] {
+    return askAnsweredFlags(this.askAnswers(), this.askSelections.length);
   }
 
   private async submitAsk(cancelled: boolean): Promise<void> {
@@ -3526,7 +3591,7 @@ struct Index {
       const inputs: AskAnswerInput[] = [];
       for (let i = 0; i < this.askSelections.length; i++) {
         const s: AskSelection = this.askSelections[i];
-        inputs.push(new AskAnswerInput(s.labels, s.other));
+        inputs.push(new AskAnswerInput(s.labels, s.other, s.free));
       }
       const answers: Record<string, string> = mergeAskAnswers(inputs);
       await store.respondAsk(answers, cancelled);
@@ -4117,12 +4182,20 @@ struct Index {
             theme: this.themeName,
             questions: this.askUser !== null && this.askUser.questions !== undefined ? this.askUser.questions : [],
             busy: this.askBusy,
+            // 派生入参（⛔ 判据同源 `core/msgops`，组件不自造第二套）
+            answered: this.askAnswered(),
+            allAnswered: askAllAnswered(this.askAnswered()),
             isSelected: (qid: string, label: string) => this.isAskSelected(qid, label),
             onToggleOption: (qid: string, label: string, multi: boolean) => {
               this.toggleAskOption(qid, label, multi);
             },
             setOther: (qid: string, v: string) => {
               this.setAskOther(qid, v);
+            },
+            readFree: (qid: string) => this.askFreeOf(qid),
+            readOther: (qid: string) => this.askOtherOf(qid),
+            setFree: (qid: string, v: string) => {
+              this.setAskFree(qid, v);
             },
             onSubmit: (cancelled: boolean) => {
               this.submitAsk(cancelled);

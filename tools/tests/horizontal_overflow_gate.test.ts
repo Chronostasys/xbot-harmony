@@ -369,8 +369,6 @@ const PENDING_FIX: string[] = [
   'components/PluginWidgets.ets :: H1 :: ANCHOR:s.text',
   // 插件徽标文本（`badgeText`，插件提供）⇒ 待加 `maxWidth`
     // 目标条状态徽标（自生成，长度可控但无上限）⇒ 待加 `constraintSize({maxWidth})`
-    // 选择项标签（选项集自校，长度可控）⇒ 待加 `maxWidth`
-  'components/AskUserSheet.ets :: H1 :: ANCHOR:this.labelOf(opt)',
   // 抽屉状态行标签 ⇒ 待加 `maxWidth`
   'components/StatusSheet.ets :: H1 :: ANCHOR:this.label',
   // 子代理树节点标签（模型生成，长度不可控）⇒ 待加 `layoutWeight(1)`

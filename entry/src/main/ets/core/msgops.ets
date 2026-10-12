@@ -210,14 +210,22 @@ export function gapTopBefore(iters: HistoryIteration[]): number {
 // AskUser 答案拼装
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** 一个问题的选择（页面 `AskSelection` 的纯逻辑镜像）：已选标签 + "其它"输入。 */
+/** 一个问题的选择（页面 `AskSelection` 的纯逻辑镜像）：已选标签 + "其它"输入 + **自由文本**。 */
 export class AskAnswerInput {
   labels: string[] = [];
   other: string = '';
+  /**
+   * 该题的**自由文本**（web `AskUserPanel.tsx:43 freeInputs`）。
+   *
+   * ⛔ web 铁律（`AskUserPanel.tsx:5-7` 头注）：**每题恒有自由文本输入** —— 用户可以无视选项，
+   *    直接写自己想要的。优先级最高（见 `mergeAskAnswers`）。
+   */
+  free: string = '';
 
-  constructor(labels: string[], other: string) {
+  constructor(labels: string[], other: string, free: string) {
     this.labels = labels;
     this.other = other;
+    this.free = free;
   }
 }
 
@@ -225,27 +233,71 @@ export class AskAnswerInput {
 export const MULTI_JOIN: string = '、';
 
 /**
+ * 「其他（自己填）」的按钮标签（逐字对齐 web `agent.askUserOther` 的中文译文）。
+ *
+ * ⛔ web 语义（`AskUserPanel.tsx:82`）：这一项是**开关触发器、不是答案** —— 合并时要从已选里
+ *    **剔除**（用户的真实答案取自它的输入框）。否则"只点了其他但没填"会提交出这五个字。
+ */
+export const ASK_OTHER_LABEL: string = '其他（自己填）';
+
+/**
  * 选择 → 提交给服务端的 `answers`（逐字对齐 web `AskUserPanel.tsx:67-88`）。
  *
  * ⛔ 契约（web 权威，服务端按此解析）：
  *   · **键 = 问题下标** `String(i)`（不是 `q.id`！旧版用 q.id ⇒ 服务端按 web 契约取不到答案）；
- *   · 优先级：**"其它"输入 > 已选标签**（其它值独占该题答案，不是附加后缀）；
- *   · 多选以 `、`（`MULTI_JOIN`）连接。
+ *   · 优先级：**自由文本 > "其它"输入 > 已选标签**（web `:71-85` 三段 `continue`，逐字同序）；
+ *   · 多选以 `、`（`MULTI_JOIN`）连接；
+ *   · **无答案的题不落键**（web 只在有值时写 `merged[key]`）—— 调用方据 `askAllAnswered` 判"可提交"。
  */
 export function mergeAskAnswers(inputs: AskAnswerInput[]): Record<string, string> {
   const out: Record<string, string> = {};
   for (let i = 0; i < inputs.length; i++) {
     const s: AskAnswerInput = inputs[i];
+    const free: string = s.free !== undefined && s.free !== null ? s.free.trim() : '';
+    if (free.length > 0) {
+      out[String(i)] = free;
+      continue;
+    }
     const other: string = s.other.trim();
     if (other.length > 0) {
       out[String(i)] = other;
       continue;
     }
-    if (s.labels.length > 0) {
-      out[String(i)] = s.labels.join(MULTI_JOIN);
+    // ⛔ 先剔除「其他」开关本身（web `:82 realPicks`）——它是触发器，不是答案。
+    const picks: string[] = s.labels.filter((l: string) => l !== ASK_OTHER_LABEL);
+    if (picks.length > 0) {
+      out[String(i)] = picks.join(MULTI_JOIN);
     }
   }
   return out;
+}
+
+/**
+ * 每题的「已答」标记（web `AskUserPanel.tsx:90 allAnswered` 的逐题版）。
+ *
+ * `total` = 问题数（**不是** answers 的键数）：某题没答案时 `answers[i]` 缺席 ⇒ 该位 `false`。
+ * 供向导的圆点状态（已答/未答）与「提交」可用态使用。
+ */
+export function askAnsweredFlags(answers: Record<string, string>, total: number): boolean[] {
+  const flags: boolean[] = [];
+  for (let i = 0; i < total; i++) {
+    const v: string | undefined = answers[String(i)];
+    flags.push(v !== undefined && v !== null && v.trim().length > 0);
+  }
+  return flags;
+}
+
+/** 是否**所有**问题都已作答（web `:90`）—— 决定「提交」是否可用（web `:355 disabled={!allAnswered}`）。 */
+export function askAllAnswered(flags: boolean[]): boolean {
+  if (flags.length === 0) {
+    return false;
+  }
+  for (let i = 0; i < flags.length; i++) {
+    if (!flags[i]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
