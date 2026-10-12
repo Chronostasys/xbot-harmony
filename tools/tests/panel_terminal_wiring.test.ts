@@ -66,20 +66,62 @@ const psBody: string = psStart >= 0
   ? idxSrc.slice(psStart, psNextBuilder > 0 ? psNextBuilder : idxSrc.length)
   : '';
 const newBtn: number = countOf(idxSrc, "'＋ 新建'");
-const chipsFlex: number = psBody.indexOf('Flex({ wrap: FlexWrap.Wrap })');
+// ⚠️ 2026-10-12 二次演进：tab 行已从 `Flex({ wrap: FlexWrap.Wrap })` 改成
+//    **`Row` + 每片 `layoutWeight(1)` 等分**（等分 ⇒ 不可能被裁、也不可能参差；见 Index.ets 头注）。
+//    ⇒ 本判据的**定位锚**随之演进为「第一个内容分支」（意图不变：`＋ 新建` 必须在**表头**、
+//    即早于内容区；⛔ 不删除这条断言）。
+const contentAt: number = psBody.indexOf("if (this.panelTab === 'cron')");
 const newBtnAt: number = psBody.indexOf("'＋ 新建'");
 const termCall: number = countOf(psBody, 'this.newTerminal()');
 const oldEmpty: number = countOf(idxSrc, '本会话暂无终端；点');
 const newEmpty: number = countOf(idxSrc, '本会话暂无终端');
-console.log(`  panel-scan ${IDX}: '＋ 新建' 全页=${newBtn} PanelsSheet片段长=${psBody.length} 内位置=${newBtnAt} chipsFlex=${chipsFlex} newTerminal()=${termCall} 旧空态=${oldEmpty} 新空态=${newEmpty}`);
+console.log(`  panel-scan ${IDX}: '＋ 新建' 全页=${newBtn} PanelsSheet片段长=${psBody.length} 内位置=${newBtnAt} 内容区=${contentAt} newTerminal()=${termCall} 旧空态=${oldEmpty} 新空态=${newEmpty}`);
 
 ok(`PanelsSheet 片段已切出（长 ${psBody.length} > 1000）`, psBody.length > 1000);
 ok(`运行面板「＋ 新建」全页唯一（${newBtn} == 1）`, newBtn === 1);
-ok(`「＋ 新建」在**表头**（片段内位置 ${newBtnAt} < chips ${chipsFlex}）`,
-  newBtnAt >= 0 && chipsFlex >= 0 && newBtnAt < chipsFlex);
+ok(`「＋ 新建」在**表头**（片段内位置 ${newBtnAt} < 内容区 ${contentAt}）`,
+  newBtnAt >= 0 && contentAt >= 0 && newBtnAt < contentAt);
 ok(`「＋ 新建」仍接线 newTerminal()（片段内 ${termCall} ≥ 1）`, termCall >= 1);
 ok(`旧空态文案（指向已删的行内按钮）已清除（${oldEmpty} == 0）`, oldEmpty === 0);
 ok(`新空态文案存在（${newEmpty} ≥ 1）`, newEmpty >= 1);
+
+// ── ①b 面板 tab 行 = **等分**（目标③ 排版）────────────────────────────────────────
+//     病根（真机量测，2026-10-12）：`Flex(wrap)` 虽不裁，但**每片宽度随标签参差**
+//     （222/222/182/194/141px），行尾留白 0~200px ⇒ 看着"没排过"。
+//     修法 = `Row({ space: SPACE_XS })` + 每片 `.layoutWeight(1)`（= iOS `UISegmentedControl`
+//     形态：**恰得 1/n 宽、任何屏宽都齐平、不可能被裁**）+ `.textAlign(TextAlign.Center)`。
+{
+  const tabStart: number = psBody.indexOf('Row({ space: SPACE_XS })');
+  const tabEnd: number = psBody.indexOf("if (this.panelTab === 'cron')");
+  const tabRow: string = tabStart >= 0 && tabEnd > tabStart ? psBody.slice(tabStart, tabEnd) : '';
+  ok(`①b tab 行切片非空（零扫描判红，len=${tabRow.length}）`, tabRow.length > 100);
+  // ⚠️ `layoutWeight(1)` 在源码里只出现 **2** 次（表头标题 1 + **ForEach 体内的芯片** 1）——
+  //    ForEach 体只写一遍（不是 5 遍）⇒ ⛔ 别按"5"断言。
+  ok(`①b 每片 \`layoutWeight(1)\`（${countOf(tabRow, 'layoutWeight(1)')} 处：表头 1 + 芯片 1）`,
+    countOf(tabRow, 'layoutWeight(1)') === 2);
+  ok('①b ⛔ 不再有 wrap 形态的逐项 `.margin({ right: SPACE_XS, bottom: SPACE_XS })`',
+    countOf(tabRow, '.margin({ right: SPACE_XS, bottom: SPACE_XS })') === 0);
+  ok('①b tab 文字居中（`.textAlign(TextAlign.Center)`）', tabRow.indexOf('.textAlign(TextAlign.Center)') >= 0);
+  ok('①b tab 命中盒 ≥44（`.constraintSize({ minHeight: HIT_TARGET_MIN })`）',
+    tabRow.indexOf('.constraintSize({ minHeight: HIT_TARGET_MIN })') >= 0);
+}
+// ①c **不变式**：标签 ≤ 2 个汉字（含计数才放得进 1/5 宽 ≈ 63vp；见 `panelTabLabel` 头注）。
+//     ⛔ 只钉"等分形态"不判别：谁把标签写长（如「子代理 12」），等分下文字会被挤/换行。
+//     ⚠️ 标签定义在 `panelTabLabel`（**在 PanelsSheet 之前**）⇒ 必须换锚点切片，⛔ 别在 psBody 里找。
+{
+  const lblStart: number = idxSrc.indexOf('panelTabLabel(tab: string): string {');
+  const lblEnd: number = idxSrc.indexOf('private panelTabs(): string[] {');
+  const lblBody: string = lblStart >= 0 && lblEnd > lblStart ? idxSrc.slice(lblStart, lblEnd) : '';
+  ok(`①c panelTabLabel 切片非空（零扫描判红，len=${lblBody.length}）`, lblBody.length > 100);
+  const lbl: string[] = [];
+  const re: RegExp = /return `([^`${]*)+\$\{suffix\}`/g;
+  let m: any = re.exec(lblBody);
+  while (m !== null) { lbl.push(String(m[1])); m = re.exec(lblBody); }
+  ok(`①c 取到全部 tab 标签（现 ${lbl.length} 个，应 5）`, lbl.length === 5);
+  let worst: string = '';
+  for (let i: number = 0; i < lbl.length; i++) { if (lbl[i].length > worst.length) { worst = lbl[i]; } }
+  ok(`①c 最长 tab 标签 ≤ 2 字（最长 =「${worst}」）`, worst.length > 0 && worst.length <= 2);
+}
 
 // ── ② 终端键帽：发丝边 + 统一最小键宽（**经单一取色点 `keyRoleColor`**）────────────────
 // ⚠️ **不能只数全文件计数**：`hairlineOf(this.palOnce())` 全文件有 3 处（两个 builder + 面板根边）

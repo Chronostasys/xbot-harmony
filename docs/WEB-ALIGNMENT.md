@@ -3332,3 +3332,47 @@ mutation 自证 ×3；还原 md5 一致。
   `.id('xbot-…')` 测试钩子 + `uitest dumpLayout` 读 bounds（本仓 `xbot-empty-state`/`xbot-skeleton` 同款）。
 
 
+
+
+## §21.58 运行面板（PanelsSheet）：tab 等分 + 固定 60% 高（15o·a）（2026-10-12）
+
+用户目标③/④：「**任务管理做的很差**」「你要考虑所有的面板」。
+
+### ① tab 行：`Flex(wrap)` 参差 → **`Row` + 每片 `layoutWeight(1)` 等分**
+
+**真机量测（改造前）**：`Flex(wrap)` 虽不裁字，但每片宽随标签参差
+**222 / 222 / 182 / 194 / 141px**、行尾留白 0~200px ⇒ 看着"没排过"。
+**修法**：`Row({ space: SPACE_XS })` + 每片 `.layoutWeight(1)` + `.textAlign(TextAlign.Center)`
++ `.constraintSize({ minHeight: HIT_TARGET_MIN })`（原先只有 `padding(SPACE_XS)` 四边 ⇒ 命中盒
+≈28vp **< 44**，顺手修掉）。等分是 **iOS `UISegmentedControl` 形态**：⛔ 不可能被裁、也不可能参差，
+且**无需任何魔数**（任何屏宽都齐平）。
+**真机量测（改造后）**：5 片**各 220px**、右端 1263 = 内容右缘（**齐平** ✓）、片高 149px = **44vp** ✓。
+
+**标签一律 2 个汉字**（`定时 / 后台 / 代理 / 机器 / 终端`，原 `定时任务/后台任务/子代理/Runner/终端`）：
+每片 1/5 宽 ≈ 63vp ⇒ 文字预算 = `63 − 2×SPACE_XS` ≈ **3.9 个全角字**；「2 字 + 空格 + 2 位数」
+= 3.8 ⇒ **放得下**（真机实测「后台 142」在片内完整显示 ✓）；3 字标签**带计数**会溢出。
+判据 ①c 钉住这条不变式（正则取标签 + ≤2 字）。`机器` 与本面板自己的空态文案「暂无受管机器」同源。
+
+### ② sheet 高度：内容撑高（640px）→ **固定 60%**
+
+**真机量测（改造前）**：按内容撑 ⇒ 只有 **640px = 189vp**，列表又被 `maxHeight: 420` 卡住
+⇒ 一屏看不下 3 行（142 个后台任务时尤其糟）。
+**修法**：sheet 根 `.height('60%')`（iOS 中档 detent 量级）+ 5 个列表
+`.constraintSize({ maxHeight: 420 })` → **`.layoutWeight(1)`** ⇒ 列表吃满剩余。
+**真机量测（改造后）**：sheet = `[0,1180][1320,2754] h=1574` = **恰好 60%** ✓。
+
+### 判据（`tools/tests/panel_terminal_wiring.test.ts` 26 → **31 passed**）
+
+- 「＋ 新建 在表头」这条**没有删除**，但**定位锚随之演进**：原先用 `Flex({ wrap: FlexWrap.Wrap })`
+  的位置当锚，现在 tab 行不是 Flex ⇒ 改用「第一个内容分支 `if (this.panelTab === 'cron')`」
+  （意图不变：`＋ 新建` 必须早于内容区）。
+- 新增 ①b：tab 行形态（`Row` + `layoutWeight(1)` + 居中 + `minHeight: HIT_TARGET_MIN`）+ **反向**
+  「不再有 wrap 形态的逐项 `.margin({ right: SPACE_XS, bottom: SPACE_XS })`」。
+- 新增 ①c：**标签 ≤ 2 字**不变式。
+- ⚠️ 自证教训：`layoutWeight(1)` 在源码里只出现 **2 次**（表头标题 1 + `ForEach` **体内** 1）——
+  `ForEach` 体只写一遍 ⇒ ⛔ 别按"5 片"断言（我第一版就错在这）；标签定义在 `panelTabLabel`
+  （**在 `PanelsSheet` 之前**）⇒ 切片锚点也得换，否则正则扫到 0 条（假红）。
+
+### 门禁 / 装机
+
+`BUILD SUCCESSFUL in 8 s 274 ms` · `✅ 真门禁全绿` · `GATE_EXIT=0` · 装机 `DEPLOY_EXIT=0`。

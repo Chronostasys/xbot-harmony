@@ -6381,19 +6381,24 @@ struct Index {
   private panelTabLabel(tab: string): string {
     const n: number = this.panelCount(tab);
     const suffix: string = n > 0 ? ` ${n}` : '';
+    // ⚠️ 2026-10-12（目标③ 排版）：标签一律 **2 个汉字** —— tab 行改成 `Row` + `layoutWeight(1)`
+    //    等分（5 片在 1320px 屏上每片 63vp），文字预算 = `63vp − 2×SPACE_XS` ≈ 3.9 个全角字；
+    //    「2 字 + 空格 + 2 位数」= 3.8 个全角字 ⇒ **放得下**；3 字标签 + 计数会溢出（被挤/换行）。
+    //    ⇒ `后台任务`→`后台`、`定时任务`→`定时`、`子代理`→`代理`、`Runner`→`机器`
+    //    （`机器` 与本面板自己的空态文案「暂无受管机器」同源）。
     if (tab === 'tasks') {
-      return `后台任务${suffix}`;
+      return `后台${suffix}`;
     }
     if (tab === 'subs') {
-      return `子代理${suffix}`;
+      return `代理${suffix}`;
     }
     if (tab === 'term') {
       return `终端${suffix}`;
     }
     if (tab === 'runners') {
-      return `Runner${suffix}`;
+      return `机器${suffix}`;
     }
-    return `定时任务${suffix}`;
+    return `定时${suffix}`;
   }
 
   private panelTabs(): string[] {
@@ -7654,7 +7659,7 @@ struct Index {
   /** 面板：四个标签各拉一个端点（定时任务 / 后台任务 / 子代理 / Runner）。 */
   @Builder
   PanelsSheet() {
-    Column({ space: 8 }) {
+    Column({ space: SPACE_SM }) {
       // ⚠️ 2026-10-12（目标③）：`刷新` / `✕` 原先只靠 `padding(SPACE_XS)` 撑热区（≈32 < 44，
       //    违反 Apple HIG）⇒ 改**真实 ≥44 布局盒**（⛔ 不用 `responseRegion` 负偏移外扩 —— 真机实测无效）。
       Row({ space: SPACE_XS }) {
@@ -7706,24 +7711,26 @@ struct Index {
         })
       }.width('100%').alignItems(VerticalAlign.Center)
 
-      // ⚠️ 2026-10-12（目标③）：原 `Row({space:6})` **不换行也不滚动** ⇒ 5 个 tab（定时/后台/子代理/
-      //    Runner/终端）在 1320px 屏上**右缘被裁**（真机 dump：`终端 0` 落在 [1120,2536][1302,2623]，
-      //    贴 sheet 右缘、像"坏了"）。改 `Flex(wrap)`（与 `SettingsPanel.TabBar` 同一处置）：任何屏宽
-      //    都不切字，且不需要"看不见的滚动条"这一 affordance。
+      // ⚠️ 2026-10-12（目标③ 排版）：原 `Row({space:6})` 不换行 ⇒ 5 个 tab 右缘被裁（真机 dump：
+      //    `终端 0` 落在 [1120,2536][1302,2623] 贴 sheet 右缘、像"坏了"）⇒ 先改 `Flex(wrap)`
+      //    （不裁了，但**每片宽度随标签参差** 222/222/182/194/141px ⇒ 看着"没排过"）。
+      //    本轮改 **`Row` + 每片 `layoutWeight(1)` 等分**：⛔ 不可能被裁（每片恰得 1/n 宽）、
+      //    **也不可能参差**（无魔数、任何屏宽都齐平）—— 这就是 iOS `UISegmentedControl` 的形态。
+      //    ⚠️ 前提 = 标签 ≤ 2 个汉字（含计数）：「2 字 + 空格 + 2 位数」= 3.8 个全角字 ≤ 每片预算
+      //    3.9（见 `panelTabLabel` 头注）；判据 ③b 钉住这条不变式（标签槽位 + 等分形态）。
       //    中性治装对齐 `SettingsPanel.TabBar`：未选中 = chip 面 + 内凹发丝；选中 = 实心 accent。
-      //    ⚠️ 用 `SPACE_XS`（`INSET_ROW_Y` 未在本页导入，二者同值）。
-      Flex({ wrap: FlexWrap.Wrap }) {
+      Row({ space: SPACE_XS }) {
         ForEach(this.panelTabs(), (tab: string) => {
           Text(this.panelTabLabel(tab))
             .fontSize(typeOf('type.caption').size)
             .fontColor(this.panelTab === tab ? this.pal().onAccent : this.pal().textSecondary)
-            // ⚠️ 水平内边距取 `SPACE_XS`(8)（而非 `INSET_ROW_X`=12）：5 片在 1320px 屏上
-            //    要**单行放下**（12 ⇒ 第 5 片「终端 0」被挤到第二行成"孤儿片"，真机量测过）。
-            .padding({ left: SPACE_XS, right: SPACE_XS, top: SPACE_XS, bottom: SPACE_XS })
+            .textAlign(TextAlign.Center)
+            .padding({ left: SPACE_XS, right: SPACE_XS })
             .backgroundColor(this.panelTab === tab ? this.pal().accent : surfaceFillOf(this.pal(), 'surface.chip'))
             .borderRadius(RADIUS_PILL)
             .border({ width: STROKE_HAIRLINE, color: this.panelTab === tab ? this.pal().accent : hairlineOf(this.pal()) })
-            .margin({ right: SPACE_XS, bottom: SPACE_XS })
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
+            .layoutWeight(1)
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               this.switchPanelTab(tab);
@@ -7753,7 +7760,7 @@ struct Index {
                 })
               }
             }, (job: CronJob, i: number) => `cron-${job.id}#${i}`)
-          }.constraintSize({ maxHeight: 420 }).width('100%')
+          }.layoutWeight(1).width('100%')
         }
       } else if (this.panelTab === 'tasks') {
         if (this.bgTasks.length === 0) {
@@ -7774,7 +7781,7 @@ struct Index {
                 })
               }
             }, (t: BgTask, i: number) => `bg-${t.id}#${t.status}#${i}`)
-          }.constraintSize({ maxHeight: 420 }).width('100%')
+          }.layoutWeight(1).width('100%')
         }
       } else if (this.panelTab === 'subs') {
         if (this.subagents.length === 0) {
@@ -7798,7 +7805,7 @@ struct Index {
                 })
               }
             }, (a: SubAgentRow, i: number) => `sub-${a.chat_id}#${i}`)
-          }.constraintSize({ maxHeight: 420 }).width('100%')
+          }.layoutWeight(1).width('100%')
         }
       } else if (this.panelTab === 'term') {
         // ⚠️ 取色一律走 `palOnce()`（记忆化入口，语义与 `pal()` 逐字节一致）：`this.pal()` 是
@@ -7829,7 +7836,7 @@ struct Index {
                 })
               }
             }, (t: TerminalInfo, i: number) => `term-${t.tid}#${i}`)
-          }.constraintSize({ maxHeight: 420 }).width('100%')
+          }.layoutWeight(1).width('100%')
         }
       } else {
         if (this.runners.length === 0) {
@@ -7848,11 +7855,17 @@ struct Index {
                 })
               }
             }, (r: RunnerRow, i: number) => `run-${r.name}#${r.online}#${i}`)
-          }.constraintSize({ maxHeight: 420 }).width('100%')
+          }.layoutWeight(1).width('100%')
         }
       }
     }
-    .width('100%').padding(SPACE_MD)
+    .width('100%')
+    // ⚠️ 2026-10-12（目标③/④，用户点名「**任务管理做的很差**」）：原先是**按内容撑高**的底部
+    //    sheet（真机量测只有 640px = 189vp），列表又被 `maxHeight: 420` 卡住 ⇒ 一屏看不下 3 行。
+    //    改**固定 60%**（iOS 中档 detent 量级）：高度稳定、列表 `layoutWeight(1)` 吃满剩余
+    //    ⇒ 一屏能看 ~6 行；空态仍在顶部（内容少时 sheet 不塌、也不留突兀空白）。
+    .height('60%')
+    .padding(SPACE_MD)
     .backgroundColor(this.eff().glassBg)
     .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.glassMode() })
     .borderRadius({ topLeft: R_2XL, topRight: R_2XL })
