@@ -99,6 +99,19 @@ export function vtArrowKeys(appCursor: boolean, final: string): string {
   return (appCursor ? '\x1bO' : '\x1b[') + final;
 }
 
+/**
+ * `Ctrl` + 字母 ⇒ 控制字符。真源 = web `TerminalPanel.handleAuxKey`（`workspace/panels/TerminalPanel.tsx`）：
+ *   `sendToPty(String.fromCharCode(key.label.toUpperCase().charCodeAt(0) - 64))`
+ * 即 `A`⇒`\x01`(行首) `C`⇒`\x03`(SIGINT) `D`⇒`\x04`(EOF) `E`⇒`\x05`(行尾) `L`⇒`\x0c`(clear)
+ * `R`⇒`\x12`(反向搜索) `W`⇒`\x17`(删词) `Z`⇒`\x1a`(挂起)。**非单字母 ⇒ 空串**（调用点据此不渲染）。
+ */
+export function ctrlLetterByte(ch: string): string {
+  if (ch.length !== 1) { return ''; }
+  const c: number = ch.toUpperCase().charCodeAt(0);
+  if (c < 65 || c > 90) { return ''; }
+  return String.fromCharCode(c - 64);
+}
+
 // ── 编解码（纯 JS 实现；core 不许 import @ohos.util）──────────────────────────
 /** code point ⇒ JS 字符串（含代理对）。 */
 export function vtCpToString(cp: number): string {

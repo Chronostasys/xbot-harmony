@@ -12,8 +12,12 @@
 declare const process: { exit: (c: number) => void };
 
 import {
-  VtTerm, vtArrowKeys, vtB64ToBytes, vtBytesToB64, vtCharWidth, vtUtf8Encode,
+  ctrlLetterByte, VtTerm, vtArrowKeys, vtB64ToBytes, vtBytesToB64, vtCharWidth, vtUtf8Encode,
 } from '../../entry/src/main/ets/core/vt';
+declare const require: (m: string) => any;
+declare const __dirname: string;
+const path = require('path');
+const fs = require('fs');
 
 let pass = 0, fail = 0;
 function eq(name: string, got: unknown, want: unknown): void {
@@ -197,6 +201,47 @@ eq('四个方向 final 原样带出',
   eq('DECRQM `?1$p` 查询不改 DECCKM', t.appCursorKeys, true);
   t.feedText('\x1bc'); // RIS 复位
   eq('RIS 复位后 DECCKM 归零', t.appCursorKeys, false);
+}
+
+// ── Ctrl 修饰键行（键区第二行）⇒ 控制字符映射 ─────────────────────────────────
+// 真源 = web `TerminalPanel.handleAuxKey`（`String.fromCharCode(upper.charCodeAt(0) - 64)`）；
+// 原生落点 `ctrlLetterByte`（已接进 `TerminalSheet` 的 Ctrl 行）。
+eq('Ctrl-C ⇒ SIGINT', ctrlLetterByte('C'), '\x03');
+eq('Ctrl-D ⇒ EOF', ctrlLetterByte('D'), '\x04');
+eq('Ctrl-L ⇒ 清屏', ctrlLetterByte('L'), '\x0c');
+eq('Ctrl-A ⇒ 行首', ctrlLetterByte('A'), '\x01');
+eq('Ctrl-E ⇒ 行尾', ctrlLetterByte('E'), '\x05');
+eq('Ctrl-W ⇒ 删词', ctrlLetterByte('W'), '\x17');
+eq('Ctrl-R ⇒ 反向搜索', ctrlLetterByte('R'), '\x12');
+eq('Ctrl-Z ⇒ 挂起（SIGTSTP）', ctrlLetterByte('Z'), '\x1a');
+eq('小写同映射（大小写不敏感）', ctrlLetterByte('d'), '\x04');
+eq('非单字母 ⇒ 空串（调用点据此不渲染）',
+  [ctrlLetterByte('1'), ctrlLetterByte('↑'), ctrlLetterByte(''), ctrlLetterByte('AB')], ['', '', '', '']);
+
+// ── Home / End 同样受 DECCKM 影响（xterm 同款：`\x1b[H` ↔ `\x1bOH`）────────────
+eq('Home/End：DECCKM 关 ⇒ CSI', [vtArrowKeys(false, 'H'), vtArrowKeys(false, 'F')], ['\x1b[H', '\x1b[F']);
+eq('Home/End：DECCKM 开 ⇒ SS3', [vtArrowKeys(true, 'H'), vtArrowKeys(true, 'F')], ['\x1bOH', '\x1bOF']);
+
+// ── 键区「源码形态」：新键位**真的接进渲染路径**（钉调用点计数，非"函数存在"）──────
+{
+  const repo: string = path.resolve(__dirname, '../../../..');
+  const tsSrc: string = fs.readFileSync(
+    path.join(repo, 'entry/src/main/ets/components/TerminalSheet.ets'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const countOf = (src: string, needle: string): number => {
+    let n = 0, i = src.indexOf(needle);
+    while (i >= 0) { n++; i = src.indexOf(needle, i + needle.length); }
+    return n;
+  };
+  eq('ctrlLetterByte 调用点 = 9（Ctrl-C 直按 + 8 个 Ctrl 字母）', countOf(tsSrc, 'ctrlLetterByte('), 9);
+  eq('Home/End 走 DECCKM 哨兵（`@H`/`@F`，比 web 写死 CSI 更正确）',
+    countOf(tsSrc, "this.keyChip('Home', '@H')") + countOf(tsSrc, "this.keyChip('End', '@F')"), 2);
+  eq('PgUp/PgDn 序列', countOf(tsSrc, "'\\x1b[5~'") + countOf(tsSrc, "'\\x1b[6~'"), 2);
+  eq('副键行符号键 | ~ / - 齐全',
+    countOf(tsSrc, "this.keyChip('|', '|')") + countOf(tsSrc, "this.keyChip('~', '~')")
+    + countOf(tsSrc, "this.keyChip('/', '/')") + countOf(tsSrc, "this.keyChip('-', '-')"), 4);
+  eq('Ctrl 开关是**无参** builder（`@Builder` 快照陷阱防线）', /@Builder\s+ctrlChip\(\)\s*\{/.test(tsSrc), true);
+  eq('零扫描白绿防线：TerminalSheet 源码读到了', tsSrc.length > 1000, true);
 }
 
 console.log(`vt.test: ${pass} passed, ${fail} failed`);

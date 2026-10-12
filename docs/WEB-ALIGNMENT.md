@@ -1741,3 +1741,57 @@ in 6 s 217 ms` + `✅ 真门禁全绿` + `GATE_EXIT=0`（性能预算 A 1246≤1
 **真机全链路实证**（`deploy.sh` DEPLOY_EXIT=0；`sleep 150` 前台执行）：Shell pill 显示「执行中」→ 点 pill
 → 浮层出现**凹槽面上的「转后台」**（图 g.jpeg）→ 点它 → **toast「已转入后台：188a272a」**（服务端真 task id，
 图 h.jpeg）+ 工具转 `✅ done` + 后台任务列表即时刷新（agent 侧也确认「运行环境本身将其提升为后台任务」）。
+
+---
+
+## §21.29 目标④ 终端：**移动端键区补全**（对齐 web `TerminalPanel` 附件栏）（2026-10-12）
+
+**用户原话**：「终端和任务管理做的很差」。
+
+**web 权威** = `web/src/workspace/panels/TerminalPanel.tsx`：
+- `PRIMARY_KEYS`(38-46)：`Esc` · `Tab` · **`Ctrl`(toggle)** · `↑↓←→`
+- `SECONDARY_KEYS`(50-59)：`Home` · `End` · `PgUp` · `PgDn` · `|` · `~` · `/` · `-`
+- `CTRL_KEYS`(61-70)：`C D L A E W R Z`
+- `handleAuxKey`(111-119)：`ctrlActive` 为真且键是字母 ⇒ `String.fromCharCode(upper.charCodeAt(0) - 64)`
+
+原生缺口：此前只有 `Ctrl-C` / `Tab` / `Esc` / 方向键共 7 枚（Home/End/PgUp/PgDn、`|~/-`、Ctrl-D/L/A/E/W/R/Z 全无）。
+
+**原生形态（单列双行 · 恒定高度）**：
+- 主键行：`Ctrl-C` · `Tab` · `Esc` · **`Ctrl`(开关)** · `↑` `↓` `←` `→`
+- 副键行：Ctrl 关 ⇒ `Home` `End` `PgUp` `PgDn` `|` `~` `/` `-`；Ctrl 开 ⇒ `C` `D` `L` `A` `E` `W` `R` `Z`
+- ⛔ **切换必须等高等宽（换行不换高）**：副键行若在 Ctrl 时"多长出一行"，`layoutWeight(1)` 的终端画布就会
+  变矮 ⇒ `onAreaChange` → `applySize` **每次都向 PTY 发 resize** ⇒ 终端重排、用户现场输出被搅动。故两行同高。
+- **一行 8 枚必须真放得下**：真机首验发现末枚（`→` / `-`）被 `Scroll` 视口**裁掉**（行内容 ≈1348px > 可用 1128px，
+  dump 里该节点**根本不在树里**）⇒ 把键芯片水平内边距收成具名常量 `KEY_PAD_X = 6`（原 `SPACE_SM`=12），
+  行内容降到 ≈1039px ⇒ 8 枚全可见。竖直内边距仍 14 ⇒ 命中盒不掉到 `HIT_TARGET_MIN` 之下。
+
+**⛔ 比 web 更正确的一处**：Home/End 走 DECCKM 哨兵 `@H`/`@F`（复用 `vtArrowKeys` ⇒ 应用光标键模式下发
+SS3 `\x1bOH`/`\x1bOF`）；web 把 `\x1b[H`/`\x1b[F` **写死** ⇒ 在 `vim`/`less`/`man` 等开启 DECCKM 的程序里
+Home/End 失效。`Ctrl-C` 保留**直按**（web 要先进 Ctrl 模式才够得着）⇒ 无肌肉记忆回归。
+
+**`@Builder` 快照陷阱防线**：`Ctrl` 开关芯片是**无参** `@Builder ctrlChip()`（内部读 `this.ctrlActive`）——
+带参 builder 的参数是"调用那一刻的快照"，把开关态当参数传会让芯片**永久卡在 `Ctrl`**（AGENTS GOTCHA）。
+
+**纯逻辑**：`core/vt.ets` 新增 `ctrlLetterByte(ch)`（web `handleAuxKey` 逐字同源；非单字母 ⇒ 空串），
+渲染路径**消费 9 处**（Ctrl-C 直按 + 8 个 Ctrl 字母）⇒ 可脱机单测，且以"钉调用点计数"防死消费。
+
+**⛔ 性能预算 vs 形态判据的又一次拉扯（本批踩到，记录以防复踩）**：
+- B 线（`this.pal()|palOnce()` ≤1350）**顶格**。首版为给 `ctrlChip` 腾 3 处预算，把 4 处
+  `colorOf(this.palOnce(),'iconMuted')` 抽成访问器 ⇒ **`sheet_chrome` ② 硬红** —— 该判据钉的正是
+  **字面** `colorOf(…,'iconMuted')`（页头关闭 X 的取色 token）。
+  ⇒ 最终处置：关闭 X **恢复字面**（判据要求的形态即契约，不可用访问器绕过），改抽 **3 处
+  `this.palOnce().textPrimary`**（画布 spans / 标题 / 输入框 —— 无判据钉它）⇒ **A 1246 · B 1350（净零）**。
+- 承接批次 8 的同类教训：**`surfaceFillOf(p, role)` 对未知 role 静默落 `RUNG_CARD`**
+  （`design.ets:361-368`）⇒ `surfaceFillOf(p,'accentSoft')` 是**静默无效**（渲染成普通卡面）；
+  `accentSoft` 是**颜色** role ⇒ 必须写 `colorOf(p,'accentSoft')`。
+- **真机逮到的静默缺陷（编译、脱机判据、取色 role 门禁全绿也抓不到）**：`Ctrl` 开关开启态首版写成
+  **`accentSoft` 实底 + `accentText` 字** ⇒ 真机上是**实心紫药丸 + 看不见的字**（`accentSoft`/`accentText`
+  同族，对比度不足）。⇒ 改用全站既有的**实心强调配对** `accent` 底 + `onAccent` 字（与 `Index.ets` 的
+  「＋ 新建」按钮同款，`onAccent = contrastForeground(accent)` 即"压在实心 accent 上的前景"）。
+  ⛔ **凡是"选中/开启"实心态，一律 `accent` + `onAccent`，别用 `accentSoft` 当实底**。
+
+**判据**：`vt.test` **78 passed / 0 failed**（+20 条：Ctrl 映射 10 · Home/End DECCKM 2 · 键区源码形态
+6 · 零扫描白绿防线）；形态判据 `sheet_chrome` 81/0 · `free_surface_unify` 88/0 · `icon_size_tokens` 18/0 ·
+`text_truncation_gate` 9/0 · `motion_budget` 12/0 · `sheets2_visual` 193/0。
+**判据取得**：`tools/gate.sh` = ④ `ArkTS BUILD SUCCESSFUL in 10 s 377 ms` + `✅ 真门禁全绿` + `GATE_EXIT=0`
+（性能预算 A 1246≤1250 · B 1350≤1350，与批次 8 持平 ⇒ **净零**）。

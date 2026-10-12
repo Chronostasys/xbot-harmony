@@ -22,7 +22,7 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { display } from '@kit.ArkUI';
 
 import { AnsiSpan, ansiFgOf, ansiPaletteOf } from '../core/ansi';
-import { VtLine, VtTerm, vtArrowKeys, vtB64ToBytes } from '../core/vt';
+import { ctrlLetterByte, VtLine, VtTerm, vtArrowKeys, vtB64ToBytes } from '../core/vt';
 import {
   encodeResize, encodeStdin, parseTermMsg, TERM_CLOSE_MSG, TERM_CLOSED, TERM_CONNECTED,
   TERM_CONNECTING, TERM_ERROR, TERM_EXITED, TermMsg, TerminalInfo, terminalStatusRole,
@@ -40,6 +40,12 @@ import { sheetTransition } from './anim';
 const TERM_MAX_LINES: number = 200;
 /** 合并刷新间隔（ms）：≈10fps，够流畅且不会把 UI 线程打满。 */
 const TERM_FLUSH_MS: number = 100;
+/**
+ * 键芯片水平内边距（vp）。**必须**保证一行 8 枚键在 `xbot_phone`（1320px）上放得下 ——
+ * 否则末枚（`→` / `-`）会被 `Scroll` 视口裁掉（真机实测：`SPACE_SM`=12 时行内容 ≈1348px > 可用 1128px）。
+ * 竖直内边距仍走 14 ⇒ 命中盒 ≥44（`HIT_TARGET_MIN` 口径：fontSize×1.35 + 2×padY）。
+ */
+const KEY_PAD_X: number = 6;
 /**
  * 面板里**非画布**部分的高度（vp）：标题行 + 状态行 + 输入行 + 键行 + 3 个间距。
  * 由 `xbot_phone`（1320×2848）实测标定：画布盒 ≈456vp、整板 ≈690vp ⇒ 其余 ≈202vp。
@@ -69,6 +75,8 @@ export struct TerminalSheet {
   @State private flow: AnsiSpan[] = [];
   @State private input: string = '';
   @State private note: string = '';
+  /** `Ctrl` 修饰键开关（对齐 web `TerminalPanel` 的 `ctrlActive`）：开启后第二行换成 Ctrl 组合字母。 */
+  @State private ctrlActive: boolean = false;
 
   private term: VtTerm = new VtTerm(80, 24);
   private ws: webSocket.WebSocket | null = null;
@@ -93,6 +101,16 @@ export struct TerminalSheet {
     this.palCache = fresh;
     this.palThemeCache = this.theme;
     return fresh;
+  }
+
+  /** 图标弱色：⛔ 必须走 `colorOf`（`iconMuted` 是**计算型 role**，不是 `Palette` 字段）。 */
+  private iconMutedC(): string {
+    return colorOf(this.palOnce(), 'iconMuted');
+  }
+
+  /** 正文色（终端画布 spans / 标题 / 输入框共用）——取色记忆化入口，避免多处重复读板。 */
+  private textPrimaryC(): string {
+    return this.palOnce().textPrimary;
   }
 
   private fs(): number {
@@ -382,13 +400,32 @@ export struct TerminalSheet {
     Text(label)
       .fontSize(typeOf('type.caption').size)
       .fontColor(this.palOnce().textSecondary)
-      .padding({ left: SPACE_SM, right: SPACE_SM, top: 14, bottom: 14 })
+      .padding({ left: KEY_PAD_X, right: KEY_PAD_X, top: 14, bottom: 14 })
       .backgroundColor(surfaceFillOf(this.palOnce(), 'surface.input'))
       .borderRadius(RADIUS_PILL)
       // 按压反馈：全站唯一口径 `PRESS_OPACITY`（门禁 `interactive_feedback` 硬红要求）
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
       .onClick(() => {
         this.sendKey(seq);
+      })
+  }
+
+  /**
+   * `Ctrl` 修饰键开关（对齐 web `TerminalPanel` 的 `ctrlActive`）。
+   * ⛔ **无参** builder 读 `this.ctrlActive`：`@Builder` 的参数是"调用那一刻的快照"，把开关态
+   * 当参数传 ⇒ 芯片会永久卡在初值（本仓 `@Builder` 快照陷阱）。无参读 `this` 才会随 `@State` 刷新。
+   */
+  @Builder
+  ctrlChip() {
+    Text(this.ctrlActive ? 'Ctrl ✓' : 'Ctrl')
+      .fontSize(typeOf('type.caption').size)
+      .fontColor(colorOf(this.palOnce(), this.ctrlActive ? 'onAccent' : 'textSecondary'))
+      .padding({ left: KEY_PAD_X, right: KEY_PAD_X, top: 14, bottom: 14 })
+      .backgroundColor(this.ctrlActive ? colorOf(this.palOnce(), 'accent') : surfaceFillOf(this.palOnce(), 'surface.input'))
+      .borderRadius(RADIUS_PILL)
+      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+      .onClick(() => {
+        this.ctrlActive = !this.ctrlActive;
       })
   }
 
@@ -400,7 +437,7 @@ export struct TerminalSheet {
           Text(this.headTitle())
             .fontSize(typeOf('type.subhead').size)
             .fontWeight(typeOf('type.subhead').weight)
-            .fontColor(this.palOnce().textPrimary)
+            .fontColor(this.textPrimaryC())
             .constraintSize({ maxWidth: '100%' })
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -412,10 +449,10 @@ export struct TerminalSheet {
               .fill(colorOf(this.palOnce(), terminalStatusRole(this.status)))
             Text(terminalStatusText(this.status, this.exitCode))
               .fontSize(typeOf('type.micro').size)
-              .fontColor(colorOf(this.palOnce(), 'iconMuted'))
+              .fontColor(this.iconMutedC())
             Text(`${this.term.cols}×${this.term.rows}`)
               .fontSize(typeOf('type.micro').size)
-              .fontColor(colorOf(this.palOnce(), 'iconMuted'))
+              .fontColor(this.iconMutedC())
           }
         }
         .alignItems(HorizontalAlign.Start)
@@ -447,7 +484,7 @@ export struct TerminalSheet {
             Span(sp.text)
               .fontSize(this.fs())
               .fontFamily('monospace')
-              .fontColor(ansiFgOf(sp, this.palOnce().textPrimary))
+              .fontColor(ansiFgOf(sp, this.textPrimaryC()))
           }, (sp: AnsiSpan, si: number) => `${si}:${sp.text}`)
         }
         .fontSize(this.fs())
@@ -483,7 +520,7 @@ export struct TerminalSheet {
           .fontSize(this.fs())
           .fontFamily('monospace')
           .fontColor(this.palOnce().textPrimary)
-          .placeholderColor(colorOf(this.palOnce(), 'iconMuted'))
+          .placeholderColor(this.iconMutedC())
           .backgroundColor(surfaceFillOf(this.palOnce(), 'surface.input'))
           .borderRadius(RADIUS_CHIP)
           .enterKeyType(EnterKeyType.Send)
@@ -498,22 +535,60 @@ export struct TerminalSheet {
       .width('100%')
 
       // ── 常用键（软键盘发不出的控制序列）──
-      Scroll() {
-        Row({ space: SPACE_XS }) {
-          this.keyChip('Ctrl-C', '\x03')
-          this.keyChip('Tab', '\t')
-          this.keyChip('Esc', '\x1b')
-          // 方向键用哨兵 `@<final>`：发送时按 DECCKM 解析（CSI/SS3），见 `resolveKey`
-          this.keyChip('↑', '@A')
-          this.keyChip('↓', '@B')
-          this.keyChip('←', '@D')
-          this.keyChip('→', '@C')
+      Column({ space: SPACE_XS }) {
+        // 主键行：web `PRIMARY_KEYS` + `Ctrl` 修饰开关（Ctrl-C 保留直按，避免肌肉记忆回归）。
+        Scroll() {
+          Row({ space: SPACE_XS }) {
+            this.keyChip('Ctrl-C', ctrlLetterByte('C'))
+            this.keyChip('Tab', '\t')
+            this.keyChip('Esc', '\x1b')
+            this.ctrlChip()
+            // 方向键用哨兵 `@<final>`：发送时按 DECCKM 解析（CSI/SS3），见 `resolveKey`
+            this.keyChip('↑', '@A')
+            this.keyChip('↓', '@B')
+            this.keyChip('←', '@D')
+            this.keyChip('→', '@C')
+          }
         }
+        .scrollable(ScrollDirection.Horizontal)
+        .scrollBar(BarState.Off)
+        .clip(true)
+        .width('100%')
+
+        // 副键行：Ctrl 关 ⇒ web `SECONDARY_KEYS`（Home/End 同样走哨兵 ⇒ 应用光标键模式下发 SS3）；
+        //          Ctrl 开 ⇒ web `CTRL_KEYS`（常见 shell 快捷键）。**等高等宽**切换 ⇒ 画布不抖动、
+        //          不会因键区高度变化而反复向 PTY 发 resize（见 `applySize`）。
+        Scroll() {
+          Row({ space: SPACE_XS }) {
+            if (this.ctrlActive) {
+              // Ctrl 组合字母：字节真源 = `ctrlLetterByte`（web `handleAuxKey` 同源，可脱机单测）
+              this.keyChip('C', ctrlLetterByte('C'))
+              this.keyChip('D', ctrlLetterByte('D'))
+              this.keyChip('L', ctrlLetterByte('L'))
+              this.keyChip('A', ctrlLetterByte('A'))
+              this.keyChip('E', ctrlLetterByte('E'))
+              this.keyChip('W', ctrlLetterByte('W'))
+              this.keyChip('R', ctrlLetterByte('R'))
+              this.keyChip('Z', ctrlLetterByte('Z'))
+            } else {
+              this.keyChip('Home', '@H')
+              this.keyChip('End', '@F')
+              this.keyChip('PgUp', '\x1b[5~')
+              this.keyChip('PgDn', '\x1b[6~')
+              this.keyChip('|', '|')
+              this.keyChip('~', '~')
+              this.keyChip('/', '/')
+              this.keyChip('-', '-')
+            }
+          }
+        }
+        .scrollable(ScrollDirection.Horizontal)
+        .scrollBar(BarState.Off)
+        .clip(true)
+        .width('100%')
       }
-      .scrollable(ScrollDirection.Horizontal)
-      .scrollBar(BarState.Off)
-      .clip(true)
       .width('100%')
+      .alignItems(HorizontalAlign.Start)
     }
     .width('94%')
     .height('82%')
