@@ -3453,3 +3453,50 @@ mutation 自证 ×3；还原 md5 一致。
 结果：**离线三条全绿**（`run.sh`/`lint`/`typecheck` 都不编译组件文件），**只有真门禁 ④ ArkTS 编译**
 报 `10505001 Cannot find name 'queueListHeight'`。⇒ 再次印证：**判据的真门禁是 `hvigorw assembleHap`**。
 ⛔ 推论：**改组件文件（`components/*.ets`）后必须跑真门禁 ④**，别信离线三条。
+
+## §21.61 插件失败态的 UI 提示（15p·a）（2026-10-12）
+
+### 真根因（跨仓取证，**已向用户报备并拍板**）
+
+用户目标④原话：「**现在其实插件都打不开**」「统计插件的面板我们看不到」。取证链：
+
+| 项 | 值 |
+|---|---|
+| 服务端源码修复 `plugin/manager.go` `findPluginDir`（P0：数据目录不得遮蔽真插件目录） | commit `b6166456` **2026-10-12 01:51** |
+| 运行中的后端二进制 `~/.local/bin/xbot-cli` 构建时间 | **2026-10-10 19:29**（早 **28 小时**） |
+| 审计日志（`~/.xbot/plugins/audit-*.jsonl`）原文 | `plugin xbot.genui: activation failed: start plugin process: fork/exec ./bin/genui-plugin: no such file or directory`（同样 3 条：genui / git-fancy / ssh-runner） |
+| 客户端数据源（curl 实测） | `POST /api/fs/list` **200 + entries** ✓、RPC `get_session_usage_stats` **200 + 真数据** ✓ |
+
+⇒ 结论：**不是客户端缺陷**；`rescan` 也救不了（旧二进制）。**用户拍板：不动后端**，
+「能加载的插件比如统计能正常工作即可，加载失败的不管，**ui 给个提示就行**」。
+
+### 客户端改动：`error` 态从「英文 token」→ 中文提示「未启动」
+
+诊断：`pluginStateBadge()` 此前对**一切非 active** 的 state **原样显示**（`error` ⇒ 中文界面里一个
+英文单词，用户**读不懂为什么点不开**）。原口径注释写的是「⛔ 不把 state 翻成中文：web 没有这套文案」
+—— 但 web 权威（`PluginManagerPanel.tsx:223`）在这里**只画一个圆点、根本没有文字** ⇒ 原样显示英文
+token 既不是"对齐 web"，也不是可读文案。
+
+新口径：**已知档**（`error`）给中文提示「未启动」+ `dangerText`（失败要显眼）；
+**未知档仍原样暴露**（不猜、不静默吞）；`active` 仍**不显示**（成功要安静）。
+
+### 真机验收（装机后 dump 实锤）
+
+插件目录（原生）页：
+
+| 插件 | 显示 |
+|---|---|
+| GenUI（display_html） | `v1.0.0 · **未启动**` ✓ |
+| Git 面板 | `v0.3.5 · **未启动**` ✓ |
+| 迭代指标（`xbot.iteration-stats`，active） | `v1.0.0`（**无状态后缀** ✓ 成功保持安静） |
+| 远程机器（SSH） | `v1.0.6 · **未启动**` ✓ |
+
+统计面板（用户点名「看不到」的那个）**真机实测有数据**：`Avg TTFT 1.9s` · `Avg TPOT 2ms` ·
+`Avg tok/s 1371` · 上下文水位 `615.5k` · 当前模型 `deepseek-v4.1-flash` · 生成 `251` ·
+按模型分组（`in 568.15M · out 690.6k · cache 0 · 1397 iters`）✓
+
+### 判据（`tools/tests/pluginview.test.ts` → **109 passed**）
+
+新增 6 条：`error` 显示 / 文案 == 「未启动」/ 语气 == `dangerText` / 带空白也识别 /
+`pluginMetaText('1.0.0','error')` == `'v1.0.0 · 未启动'` / `active` 的 meta 行不带后缀。
+旧断言（未知档原样、`disabled` 中性、trim）**全部保留** ⇒ 判别力双向：去掉 `error` 分支 ⇒ 前两条红。

@@ -27,6 +27,10 @@ import { GAP_ROW_Y, HIT_TARGET_MIN, INSET_ROW_Y } from './design';
 /** 服务端 `web_plugin_list` 的 `state` 里的"正常"档（`rpc_table.go` 的实测取值）。 */
 export const PLUGIN_STATE_ACTIVE: string = 'active';
 
+/** 服务端 `state` 里的"**激活失败**"档（2026-10-12 真机 + 审计日志实锤：`fork/exec ./bin/*:
+ *  no such file or directory` ⇒ 该插件进程根本没起来 ⇒ 它的面板**不可能**工作）。 */
+export const PLUGIN_STATE_ERROR: string = 'error';
+
 /** 一个徽标的显示判据（是否显示 / 文案 / 语义色角色）。 */
 export class PluginBadge {
   show: boolean = false;
@@ -47,14 +51,25 @@ export class PluginBadge {
  * 规则（逐条对齐 web 权威基准 `plugins/manager/PluginManagerPanel.tsx:223`
  * `isActive ? 'bg-green-500' : 'bg-slate-400'`）：
  *   · 空 / `active` ⇒ **不显示**（成功要安静 —— 满屏绿点是最吵的噪音源，`REDESIGN.md §2.7`）；
- *   · 其余（`disabled`/`inactive`/…）⇒ **原样**显示该 state 文本，语气**中性**（`textSecondary`）。
- *   ⛔ 不把 state 翻成中文：web 没有这套文案，自造即背离"文案逐字取 web、禁自创"。
+ *   · **`error`（激活失败）⇒ 中文提示「未启动」+ `dangerText`**（见下）；
+ *   · 其余未知档（`disabled`/`inactive`/…）⇒ **原样**显示该 state 文本，语气**中性**（`textSecondary`）。
+ *   ⛔ 未知档不自造中文：web 没有这套文案，自造即背离"文案逐字取 web、禁自创"（**但已知档除外**，
+ *      见下 ⚠️）；原样暴露也不会静默吞掉信息。
  *   ⛔ 不用 `statusWaiting`/`statusIdle` 等**状态标记/点色**当正文色（浅底仅 1.7–2.1:1，读不出）。
+ *
+ * ⚠️ 2026-10-12（用户拍板，覆盖此前"一律不翻中文"的口径）：用户原话「**加载失败的不管，ui 给个
+ *    提示就行**」——`state=error` 的插件进程**根本没起来**（审计日志实锤 `fork/exec ./bin/*:
+ *    no such file or directory`）⇒ 它的面板点了必然不工作。此时把英文 token `error` 直接当徽标
+ *    显示，中文界面里**读不懂为什么点不开** ⇒ 改为**已知档**给中文提示「未启动」（语气 `dangerText`，
+ *    与"失败要显眼、成功要安静"同一口径）。**未知档仍原样暴露**（不猜）。
  */
 export function pluginStateBadge(state: string): PluginBadge {
   const s: string = isPresent(state) ? state.trim() : '';
   if (s.length === 0 || s === PLUGIN_STATE_ACTIVE) {
     return new PluginBadge(false, '', 'textSecondary');
+  }
+  if (s === PLUGIN_STATE_ERROR) {
+    return new PluginBadge(true, '未启动', 'dangerText');
   }
   return new PluginBadge(true, s, 'textSecondary');
 }

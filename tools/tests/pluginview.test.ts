@@ -15,7 +15,7 @@ declare function require(m: 'path'): { join(...parts: string[]): string };
 declare const __dirname: string;
 
 import {
-  PLUGIN_STATE_ACTIVE, WIDGET_UNSUPPORTED_LABEL, WEB_PHASE_ERROR, WEB_PHASE_IDLE, WEB_PHASE_LOADING,
+  PLUGIN_STATE_ACTIVE, PLUGIN_STATE_ERROR, WIDGET_UNSUPPORTED_LABEL, WEB_PHASE_ERROR, WEB_PHASE_IDLE, WEB_PHASE_LOADING,
   WEB_PHASE_READY,
   PluginBadge, WebStatus,
   pluginCatalogEmptyNotice, pluginCatalogSummaryText, pluginViewBadge, pluginStateBadge,
@@ -49,6 +49,15 @@ function ok(name: string, cond: boolean): void {
   eq('★A 非 active 语气中性', dis.colorRole, 'textSecondary');
   eq('★A 未知 state 原样暴露（不静默吞）', pluginStateBadge('weird-state').text, 'weird-state');
   eq('★A state 去空白', pluginStateBadge('  inactive ').text, 'inactive');
+  // ⚠️ 2026-10-12（用户拍板「加载失败的不管，ui 给个提示就行」）：`error` 是**已知档** ⇒ 中文提示。
+  //    判别力：去掉 `PLUGIN_STATE_ERROR` 分支 ⇒ 前两条立刻红（会退回英文原文 + 中性色）。
+  const err: PluginBadge = pluginStateBadge(PLUGIN_STATE_ERROR);
+  eq('★A error ⇒ 显示', err.show, true);
+  eq('★A error ⇒ 中文提示（不给用户看英文 token）', err.text, '未启动');
+  eq('★A error ⇒ 语气 = dangerText（失败要显眼）', err.colorRole, 'dangerText');
+  eq('★A error 带空白也识别（trim）', pluginStateBadge(' error ').text, '未启动');
+  eq('★A meta 行拼装：v1.0.0 · 未启动', pluginMetaText('1.0.0', PLUGIN_STATE_ERROR), 'v1.0.0 · 未启动');
+  eq('★A meta 行 active 不带状态后缀', pluginMetaText('1.0.0', PLUGIN_STATE_ACTIVE), 'v1.0.0');
 }
 
 // ── 视图「按需」徽标 / 计数 ────────────────────────────────────────────────────
