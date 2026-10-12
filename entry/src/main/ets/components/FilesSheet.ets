@@ -20,9 +20,10 @@
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import {
   baseNameOf, filterFsEntries, FK_DIR, FK_IMAGE, FK_MARKDOWN, FsCrumb, FsFileEntry,
-  fileKindOf, fmtSize, fsCodeFence, fsCodeLanguage,
+  fileKindOf, fsCodeFence, fsCodeLanguage,
   fsCrumbs, fsFilterEmptyText, fsFilterPlaceholder,
-  fsHiddenToggleLabel, joinFsPath,
+  fsHiddenToggleLabel, FsRow, FsSearchEntry, fsRowsForDir, fsRowsForSearch,
+  fsSearchEmptyText, fsSearchSummary, FS_SEARCH_LIMIT,
 } from '../core/files';
 import {
   colorOf, hairlineOf, HIT_TARGET_MIN, INSET_ROW_X, MENU_W, PRESS_OPACITY, RADIUS_CARD, RADIUS_CHIP, RADIUS_SHEET,
@@ -35,16 +36,19 @@ import { drawerTransition } from './anim';
 import { MarkdownView } from './MarkdownView';
 import { AuthImage } from './AuthImage';
 
-/** 目录列表数据源（`LazyForEach` 行级虚拟化 —— 大目录不炸节点）。 */
+/**
+ * 列表数据源（`LazyForEach` 行级虚拟化 —— 大目录不炸节点）。
+ * ⛔ 行类型是**统一视图模型** `FsRow`（目录浏览 ⊕ 搜索结果共用一个 builder；`ForEach` 预算已 0 余量）。
+ */
 class FsDataSource implements IDataSource {
-  private items: FsFileEntry[] = [];
+  private items: FsRow[] = [];
   private listeners: DataChangeListener[] = [];
 
   totalCount(): number {
     return this.items.length;
   }
 
-  getData(index: number): FsFileEntry {
+  getData(index: number): FsRow {
     return this.items[index];
   }
 
@@ -61,8 +65,8 @@ class FsDataSource implements IDataSource {
     }
   }
 
-  /** 整表替换（目录切换 / 刷新）⇒ 全量重载（本面板无"最小通知键"需求）。 */
-  setItems(items: FsFileEntry[]): void {
+  /** 整表替换（目录切换 / 刷新 / 搜索）⇒ 全量重载（本面板无"最小通知键"需求）。 */
+  setItems(items: FsRow[]): void {
     this.items = items;
     for (let i = 0; i < this.listeners.length; i++) {
       this.listeners[i].onDataReloaded();
@@ -72,6 +76,9 @@ class FsDataSource implements IDataSource {
 
 /** 面包屑单段最大宽（vp）—— 横向滚动里的动态文本必须有上限（`horizontal_overflow_gate` H1）。 */
 const CRUMB_MAX: number = 220;
+
+/** 行内次要右列最大宽（vp）—— 同上：搜索态的"所在目录"是动态文本，必须有宽度上限。 */
+const SUB_MAX: number = 160;
 
 /** 条目图标（`core/files.ets` 的种类 ⇒ 系统符号）。 */
 function entrySymbol(kind: string): Resource {
@@ -153,6 +160,19 @@ export struct FilesSheet {
    * `core/files.ets:fsListBody`（⛔ 键名 `show_hidden`，服务端 query 侧却是 `showHidden`）。
    */
   @Prop showHidden: boolean = false;
+  /**
+   * ── 递归搜索（`/api/fs/search`）───────────────────────────────────────────────
+   * `searching` 必须挂 `@Watch`：搜索态**进出**都要重建数据源 ——
+   *   · 进入 ⇒ 行来自 `searchItems`（不是 `entries`）；
+   *   · 退出（清空查询/切目录）⇒ 必须把行**换回目录**，否则列表停在上一批搜索结果上。
+   *   ⚠️ 不能只靠 `@Watch('searchItems')`：页面若先置 `searchItems` 再翻 `searching`，
+   *      那一帧 `searching` 还是旧值 ⇒ 事件被吞 ⇒ 列表空 ⇒ 这里**两个 watch 都做全量重建**。
+   */
+  @Prop @Watch('onSearchingChanged') searching: boolean = false;
+  @Prop searchQuery: string = '';
+  @Prop @Watch('onSearchItemsChanged') searchItems: FsSearchEntry[] = [];
+  @Prop searchLoading: boolean = false;
+  @Prop searchError: string = '';
   /** 预览态：非空 ⇒ 面板切到单文件视图。 */
   @Prop previewPath: string = '';
   @Prop previewText: string = '';
@@ -189,6 +209,12 @@ export struct FilesSheet {
   };
   /** 切换「隐藏文件」开关（页面翻转状态后**重列当前目录**）。 */
   onToggleHidden: () => void = () => {
+  };
+  /** 递归搜索（过滤框**回车**触发；web 无此 UI ⇒ 超越 web 的能力，端点契约见 `core/files.ets`）。 */
+  onSearch: (query: string) => void = () => {
+  };
+  /** 退出搜索态（清空查询 ⇒ 回到目录浏览）。 */
+  onExitSearch: () => void = () => {
   };
   onClose: () => void = () => {
   };
@@ -294,15 +320,64 @@ export struct FilesSheet {
   /**
    * 应用内联过滤：`filtered = filterFsEntries(entries, filterQuery)` 并推给 `LazyForEach`。
    * ⛔ 过滤**只影响展示**，不碰 `entries` 本身（页面的目录状态是唯一真源）。
+   * ⛔ 搜索态下**不推**（那时的行来自 `searchItems`，见 `applySearch`）——否则一次 `entries`
+   *    刷新会把搜索结果冲掉（页面切目录时会先清 `entries` 再异步填）。
    */
   private applyFilter(): void {
     this.filtered = filterFsEntries(this.entries, this.filterQuery);
-    this.ds.setItems(this.filtered);
+    if (!this.searching) {
+      this.ds.setItems(fsRowsForDir(this.path, this.filtered));
+    }
+  }
+
+  /** 搜索态的数据入口：行来自 `searchItems`（页面已用 `sortFsSearch` 排好；组件不重排）。 */
+  private applySearch(): void {
+    this.ds.setItems(fsRowsForSearch(this.path, this.searchItems));
+  }
+
+  /** 搜索态**进出** ⇒ 重建数据源（两个 watch 都做全量重建，见 `searching` 的注释）。 */
+  onSearchingChanged(): void {
+    if (this.searching) {
+      this.applySearch();
+    } else {
+      // 退出搜索 ⇒ 过滤框一起清空：否则新目录会被上一个搜索词**静默过滤**（看着像空目录）。
+      this.filterQuery = '';
+      this.applyFilter();
+    }
+  }
+
+  onSearchItemsChanged(): void {
+    if (this.searching) {
+      this.applySearch();
+    }
   }
 
   /** 面包屑（判据同源：`core/files.ets:fsCrumbs`）。 */
   private crumbs(): FsCrumb[] {
     return fsCrumbs(this.path);
+  }
+
+  /** 失败文案（搜索态与目录态是**两条不同的结论**，⛔ 不许合并成一句"加载失败"）。 */
+  private errText(): string {
+    return this.searching ? this.searchError : this.error;
+  }
+
+  /** 当前列表的行数（搜索态看结果数，目录态看过滤后的条目数）。 */
+  private rowCount(): number {
+    return this.searching ? this.searchItems.length : this.filtered.length;
+  }
+
+  /** 空态文案（判据在 `core/files.ets`，组件不写第二套）。 */
+  private emptyText(): string {
+    return this.searching ? fsSearchEmptyText(this.searchQuery) : fsFilterEmptyText(this.filterQuery);
+  }
+
+  /** 空态字形：在过滤/搜索 ⇒ 放大镜；真空目录 ⇒ 文件夹（⛔ 不许"没有匹配"却画文件夹）。 */
+  private emptyIcon(): Resource {
+    if (this.searching || this.filterQuery.length > 0) {
+      return $r('sys.symbol.magnifyingglass');
+    }
+    return $r('sys.symbol.folder');
   }
 
   /**
@@ -487,9 +562,15 @@ export struct FilesSheet {
               .padding(0)
               .layoutWeight(1)
               .constraintSize({ minHeight: HIT_TARGET_MIN })
+              .enterKeyType(EnterKeyType.Search)
               .onChange((v: string) => {
                 this.filterQuery = v;
                 this.applyFilter();
+              })
+              // ⛔ 递归搜索是**手动**触发（回车）而不是输入防抖：性能预算 `setTimeout` 仅剩 1 处余量，
+              //    且服务端 `searchDir` 是**同步递归 walk** ⇒ 每键一搜会打爆响应。
+              .onSubmit(() => {
+                this.onSearch(this.filterQuery);
               })
             if (this.filterQuery.length > 0) {
               Row() {
@@ -500,10 +581,15 @@ export struct FilesSheet {
               .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
               .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
               .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-              .accessibilityText('清除过滤')
+              .accessibilityText(this.searching ? '退出搜索' : '清除过滤')
               .onClick(() => {
+                // 搜索态下清空 = **退出搜索**（回到目录浏览）；否则只是清过滤词。
                 this.filterQuery = '';
-                this.applyFilter();
+                if (this.searching) {
+                  this.onExitSearch();
+                } else {
+                  this.applyFilter();
+                }
               })
             }
           }
@@ -516,16 +602,34 @@ export struct FilesSheet {
           .constraintSize({ minHeight: HIT_TARGET_MIN })
         }
 
-        // ── 目录列表 ────────────────────────────────────────────────────────
+        // ── 搜索汇总（搜索态、有命中时一行）──────────────────────────────────
+        // ⛔ 必须能区分"搜索中止/失败"与"没有匹配"——前者走下面的红字通知态（带重试）。
+        if (this.searching && !this.searchLoading && this.searchError.length === 0 && this.searchItems.length > 0) {
+          Row() {
+            Text(fsSearchSummary(this.searchItems.length, this.searchQuery, FS_SEARCH_LIMIT))
+              .fontSize(typeOf('type.micro').size)
+              .fontColor(this.tint('secondary'))
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .layoutWeight(1)
+          }
+          .width('100%')
+          .padding({ left: SPACE_SM, right: SPACE_SM })
+        }
+
+        // ── 列表（目录浏览 ⊕ 搜索结果，同一个 builder）──────────────────────
         // 三态一律走面板级统一长相（`FsNotice`：大号弱化字形 + 说明 + 居中，对标 Apple）。
-        if (this.loading) {
-          FsNotice({ theme: this.theme, icon: $r('sys.symbol.folder'), text: '读取目录…', tone: 'secondary' })
-        } else if (this.error.length > 0) {
+        if (this.loading || (this.searching && this.searchLoading)) {
+          FsNotice({
+            theme: this.theme, icon: $r('sys.symbol.folder'),
+            text: this.searching ? '搜索中…' : '读取目录…', tone: 'secondary',
+          })
+        } else if (this.errText().length > 0) {
           // 失败态：字形 + 红字 + 重试（重试是**独立热区 ≥44**，不再挤在文案行尾）
           Column({ space: SPACE_MD }) {
             FsNotice({
               theme: this.theme, icon: $r('sys.symbol.exclamationmark_triangle'),
-              text: this.error, tone: 'danger',
+              text: this.errText(), tone: 'danger',
             })
             Text('重试')
               .fontSize(typeOf('type.callout').size)
@@ -534,7 +638,11 @@ export struct FilesSheet {
               .constraintSize({ minHeight: HIT_TARGET_MIN })
               .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
-                this.onRefresh();
+                if (this.searching) {
+                  this.onSearch(this.filterQuery);
+                } else {
+                  this.onRefresh();
+                }
               })
           }
           .width('100%')
@@ -542,33 +650,40 @@ export struct FilesSheet {
           .justifyContent(FlexAlign.Center)
           .alignItems(HorizontalAlign.Center)
           .padding({ bottom: SPACE_LG })
-        } else if (this.filtered.length === 0) {
-          // 过滤无命中 ⇒ `magnifyingglass`；真空目录 ⇒ `folder`（判据：文案由 `core/files` 给，
-          // 但**图标**必须与"是否在过滤"一致，否则"没有匹配」却画个文件夹，误导）
+        } else if (this.rowCount() === 0) {
+          // 过滤/搜索无命中 ⇒ `magnifyingglass`；真空目录 ⇒ `folder`（判据：文案由 `core/files` 给，
+          // 但**图标**必须与"是否在过滤/搜索"一致，否则「没有匹配」却画个文件夹，误导）
           FsNotice({
             theme: this.theme,
-            icon: this.filterQuery.length > 0 ? $r('sys.symbol.magnifyingglass') : $r('sys.symbol.folder'),
-            text: fsFilterEmptyText(this.filterQuery),
+            icon: this.emptyIcon(),
+            text: this.emptyText(),
             tone: 'secondary',
           })
         } else {
           List() {
-            LazyForEach(this.ds, (e: FsFileEntry) => {
+            LazyForEach(this.ds, (r: FsRow) => {
               ListItem() {
                 Row({ space: SPACE_SM }) {
-                  SymbolGlyph(entrySymbol(fileKindOf(e.name, e.isDir)))
+                  SymbolGlyph(entrySymbol(r.kind))
                     .fontSize(ICON_MD)
-                    .fontColor([this.tint(e.isDir ? 'accentSoft' : 'icon')])
-                  Text(e.name)
+                    .fontColor([this.tint(r.isDir ? 'accentSoft' : 'icon')])
+                  Text(r.label)
                     .fontSize(typeOf('type.callout').size)
                     .fontColor(this.tint('text'))
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                     .layoutWeight(1)
-                  if (!e.isDir) {
-                    Text(fmtSize(e.size))
+                  // 次要右列：目录态 = 文件大小；搜索态 = 所在目录（相对搜索根）。
+                  // ⛔ 合成**一个** `Text`（两种内容共用这一处取色点）—— 分成两列会多一个色板读取站点，
+                  //    而性能预算 B 线（`pal() ∨ palOnce()` 读取总量）余量已是**个位数**。
+                  if (r.size.length > 0 || r.sub.length > 0) {
+                    Text(r.size.length > 0 ? r.size : r.sub)
                       .fontSize(typeOf('type.caption').size)
                       .fontColor(this.tint('muted'))
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      // 动态宽度上限（H1：横向上下文里不允许无界文本）
+                      .constraintSize({ maxWidth: SUB_MAX })
                   }
                   SymbolGlyph($r('sys.symbol.chevron_right'))
                     .fontSize(typeOf('type.caption').size)
@@ -580,21 +695,22 @@ export struct FilesSheet {
                 .alignItems(VerticalAlign.Center)
                 .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                 .onClick(() => {
-                  if (e.isDir) {
-                    this.onNavigate(joinFsPath(this.path, e.name));
+                  // 行只认 `r.path`（绝对路径）—— 搜索行分散在各子目录，拼 `this.path + name` 会拼错。
+                  if (r.isDir) {
+                    this.onNavigate(r.path);
                   } else {
-                    this.onOpenFile(joinFsPath(this.path, e.name), fileKindOf(e.name, false));
+                    this.onOpenFile(r.path, fileKindOf(r.label, false));
                   }
                 })
                 // 长按 = 行菜单（web `FileExplorer.tsx:369` 的 ContextMenu：打开/加入聊天/复制路径）。
                 // ⛔ 用 `bindContextMenu`（长按）而不是 `bindMenu`（点按）—— 行本身的点按已有语义
                 //    （进目录/开预览），菜单必须挂在**另一个手势**上，否则互相抢。
                 .bindContextMenu(
-                  this.rowMenu(joinFsPath(this.path, e.name), e.isDir),
+                  this.rowMenu(r.path, r.isDir),
                   ResponseType.LongPress,
                 )
               }
-            }, (e: FsFileEntry) => `fs-${this.path}-${e.name}`)
+            }, (r: FsRow) => r.key)
           }
           .layoutWeight(1)
           .width('100%')

@@ -90,7 +90,7 @@ import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msg
 import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, WebPluginListWire, buildPluginCatalog } from '../core/pluginhost';
 import { hasIterStatsBadge, iterStatsText } from '../core/pluginviews';
 import { SkillItem } from '../core/skills';
-import { FsFileEntry, FsReadResult, fileKindOf, FK_IMAGE, fsMention, sortFsEntries } from '../core/files';
+import { FsFileEntry, FsReadResult, FsSearchEntry, fileKindOf, FK_IMAGE, fsMention, sortFsEntries, sortFsSearch } from '../core/files';
 import {
   ATTACH_DONE, ATTACH_FAILED, ATTACH_UPLOADING, AttachItem, MAX_ATTACH, appendRef, attachChipText,
   attachmentRef, baseName, doneKeys, doneNames, doneRefs, doneSizes, hasRef, humanSize, mimeOf,
@@ -616,6 +616,17 @@ struct Index {
    * （旧实现把它们塞进正文 Text ⇒ 看着像文件真的写着那句话）。
    */
   @State fsPreviewNotice: string = '';
+  /**
+   * ── 递归搜索（`/api/fs/search`）───────────────────────────────────────────────
+   * 触发是**手动**（过滤框回车）而不是输入防抖：性能预算里 `setTimeout` 只剩 1 处余量，
+   * 且服务端是**同步递归 walk**（`searchDir` 深度优先、最多 `maxSearchLimit` 条）⇒ 每键一搜会打爆响应。
+   * `fsSearchActive` = 搜索态（面板据此切列表/空态文案）；清空查询 / 切目录 / 刷新都会退出它。
+   */
+  @State fsSearchActive: boolean = false;
+  @State fsSearchQuery: string = '';
+  @State fsSearchItems: FsSearchEntry[] = [];
+  @State fsSearchLoading: boolean = false;
+  @State fsSearchError: string = '';
   @State showSelfCheck: boolean = false;
   /** 各页版面几何的**屏幕可见文本**（无需网络：截一张图即可把数值带给我） */
   /**
@@ -3197,6 +3208,8 @@ struct Index {
   private async loadFsDir(dir: string): Promise<void> {
     const store: ChatStore | null = this.store;
     this.fmDir = dir;
+    // 切目录 / 刷新 / 切隐藏开关都走这里 ⇒ 一律**退出搜索态**（搜索结果属于上一个目录，留着是陈旧数据）。
+    this.exitFsSearch();
     this.fsError = '';
     if (store === null) {
       this.fsError = '未连接服务端';
@@ -3219,7 +3232,49 @@ struct Index {
     this.fsLoading = false;
   }
 
-  /** 打开文件：图片走 `AuthImage` 鉴权字节通道；其余读文本（markdown 由面板交给 `MarkdownView`）。 */
+  /**
+   * 递归搜索（`/api/fs/search`）—— web 侧**有端点、无 UI**（`useFileSystem.searchFiles` 全仓 0 消费方，
+   * 权威取证见 `core/files.ets` 的 `FsSearchBody` 注释）⇒ 本仓接上是**超越 web**，不是 parity 缺口。
+   *
+   * ⛔ 手动触发（过滤框**回车**）：性能预算 `setTimeout` 仅剩 1 处余量，且服务端是同步递归 walk。
+   * ⛔ 空查询 ⇒ 直接退出搜索态（不拿空串去打服务端，那会 400）。
+   * 失败 ⇒ 面板走**通知态**（红字 + 重试），⛔ 不假装成"没有匹配"（那是两条完全不同的用户结论）。
+   */
+  private async runFsSearch(query: string): Promise<void> {
+    const q: string = query !== undefined && query !== null ? query.trim() : '';
+    if (q.length === 0) {
+      this.exitFsSearch();
+      return;
+    }
+    const store: ChatStore | null = this.store;
+    this.fsSearchActive = true;
+    this.fsSearchQuery = q;
+    this.fsSearchError = '';
+    if (store === null) {
+      this.fsSearchError = '未连接服务端';
+      this.fsSearchItems = [];
+      return;
+    }
+    this.fsSearchLoading = true;
+    try {
+      const items: FsSearchEntry[] = await store.searchFs(q, this.fmDir, this.fsShowHidden);
+      // 排序**唯一判据** = `core/files.ets:sortFsSearch`（目录在前，再按名称；与目录列表同口径）。
+      this.fsSearchItems = sortFsSearch(items);
+    } catch (err) {
+      this.fsSearchError = '搜索失败，请重试';
+      this.fsSearchItems = [];
+    }
+    this.fsSearchLoading = false;
+  }
+
+  /** 退出搜索态（清空查询 / 切目录 / 刷新 / 关面板都落到这里）。 */
+  private exitFsSearch(): void {
+    this.fsSearchActive = false;
+    this.fsSearchQuery = '';
+    this.fsSearchItems = [];
+    this.fsSearchLoading = false;
+    this.fsSearchError = '';
+  }
   private async openFsFile(filePath: string, kind: string): Promise<void> {
     const store: ChatStore | null = this.store;
     this.fsPreviewPath = filePath;
@@ -4141,6 +4196,17 @@ struct Index {
             },
             onRefresh: () => {
               this.loadFsDir(this.fmDir);
+            },
+            searching: this.fsSearchActive,
+            searchQuery: this.fsSearchQuery,
+            searchItems: this.fsSearchItems,
+            searchLoading: this.fsSearchLoading,
+            searchError: this.fsSearchError,
+            onSearch: (q: string) => {
+              this.runFsSearch(q);
+            },
+            onExitSearch: () => {
+              this.exitFsSearch();
             },
             showHidden: this.fsShowHidden,
             onToggleHidden: () => {

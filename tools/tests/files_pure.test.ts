@@ -18,6 +18,8 @@ import {
   fsListBody, fsHiddenToggleLabel,
   filterFsEntries, fsFilterEmptyText, fsFilterPlaceholder,
   fsCodeLanguage, fsCodeFence, fsMention,
+  fsRelPath, fsRowsForDir, fsRowsForSearch, fsSearchBody, fsSearchEmptyText, fsSearchSub,
+  fsSearchSummary, sortFsSearch, FS_SEARCH_LIMIT, FsSearchEntry,
   FK_DIR, FK_IMAGE, FK_MARKDOWN, FK_TEXT, FsFileEntry,
 } from '../../entry/src/main/ets/core/files';
 
@@ -177,6 +179,77 @@ eq('★ 提及：绝对路径 ⇒ @path', fsMention('/a/b/c.ts'), '@/a/b/c.ts');
 eq('★ 提及：去首尾空白', fsMention('  /a/b  '), '@/a/b');
 eq('★ 提及：空串 ⇒ 空串（调用方据此不插入孤立 @）', fsMention(''), '');
 eq('★ 提及：纯空白 ⇒ 空串', fsMention('   '), '');
+
+
+// ── 递归搜索（`/api/fs/search`；web 有端点、0 消费方 ⇒ 本仓接上属「超越 web」）──────────
+eq('★ 搜索体：POST 键名是 query（服务端 `handleFsSearchPOST` 解 `query`，不是 GET 的 `q`）',
+  fsSearchBody('abc', '/root', false), { query: 'abc', path: '/root', limit: FS_SEARCH_LIMIT, show_hidden: false });
+eq('★ 搜索体：空查询照样构造（空串由调用方拦，⛔ 函数不抛）',
+  fsSearchBody('  ', '', true).query, '');
+eq('★ 搜索体：空路径归一为根 /（同服务端 `rawPath == "" ⇒ "/"`）',
+  fsSearchBody('a', '', false).path, '/');
+eq('★ 搜索体：show_hidden 是**下划线**键（与 /api/fs/list 同 footgun）',
+  JSON.stringify(fsSearchBody('a', '/', true)).indexOf('show_hidden') >= 0, true);
+
+const se: FsSearchEntry[] = [
+  { path: '/r/z.txt', name: 'z.txt', isDir: false },
+  { path: '/r/sub/b.txt', name: 'b.txt', isDir: false },
+  { path: '/r/dir', name: 'dir', isDir: true },
+];
+eq('★ 搜索排序：目录在前（与目录列表同口径）',
+  sortFsSearch(se).map((x) => x.name).join(','), 'dir,b.txt,z.txt');
+eq('★ 搜索排序：返回新数组，不改入参', (() => {
+  const before = se.map((x) => x.name).join(',');
+  sortFsSearch(se);
+  return se.map((x) => x.name).join(',') === before;
+})(), true);
+
+eq('★ 相对路径：根下相对（不含前导斜杠）', fsRelPath('/r', '/r/a/b.txt'), 'a/b.txt');
+eq('★ 相对路径：root=/ 时去掉首个斜杠', fsRelPath('/', '/a/b'), 'a/b');
+eq('★ 相对路径：root 带尾斜杠也认', fsRelPath('/r/', '/r/a'), 'a');
+eq('★ 相对路径：不在 root 下 ⇒ 原样（⛔ 不瞎裁）', fsRelPath('/r', '/other/a'), '/other/a');
+eq('★ 相对路径：等于 root ⇒ 空串', fsRelPath('/r', '/r'), '');
+eq('★ 副标签：直属根下 ⇒ 空串（行上不显示副标签）', fsSearchSub('/r', '/r/a.txt'), '');
+eq('★ 副标签：子目录 ⇒ 相对目录', fsSearchSub('/r', '/r/sub/a.txt'), 'sub');
+eq('★ 副标签：深层子目录 ⇒ 相对多级目录', fsSearchSub('/r', '/r/sub/deep/a.txt'), 'sub/deep');
+
+eq('★ 搜索空态：空查询给操作指引（不是"空目录"）',
+  fsSearchEmptyText(''), '输入名称后回车，在当前目录（含子目录）中搜索');
+eq('★ 搜索空态：有查询 ⇒ **写明深度上限**（服务端 maxSearchDepth=3；不写会让用户以为功能坏了）',
+  fsSearchEmptyText('zzz'), '当前目录及最多 3 层子目录内没有匹配「zzz」的文件');
+ok('★ 搜索空态与目录空态**必须不同**（否则用户分不清"没搜到"和"目录是空的"）',
+  fsSearchEmptyText('zzz') !== fsFilterEmptyText('zzz'));
+eq('★ 搜索汇总：有结果（含深度上限）', fsSearchSummary(3, 'ab', FS_SEARCH_LIMIT),
+  '「ab」· 3 个匹配（最多 3 层）');
+eq('★ 搜索汇总：命中条数上限 ⇒ 明说已达上限（否则用户以为文件不存在）',
+  fsSearchSummary(FS_SEARCH_LIMIT, 'ab', FS_SEARCH_LIMIT),
+  `「ab」· ${FS_SEARCH_LIMIT} 个匹配（最多 3 层） · 已达上限`);
+
+// ── 统一行视图模型（目录浏览 ⊕ 搜索结果共用一个 builder）────────────────────────
+const rd = fsRowsForDir('/r', [
+  { name: 'sub', isDir: true, size: 0 },
+  { name: 'a.txt', isDir: false, size: 2048 },
+]);
+eq('★ 目录行：数 = 入参条数', rd.length, 2);
+eq('★ 目录行：绝对路径由 dir + name 拼（行不再自己拼）', rd[1].path, '/r/a.txt');
+eq('★ 目录行：文件带大小文案', rd[1].size, '2.0 KB');
+eq('★ 目录行：目录**不带**大小（⛔ 不显示假的 0 B）', rd[0].size, '');
+eq('★ 目录行：副标签空（目录态不显示"所在目录"）', rd[0].sub, '');
+eq('★ 目录行：图标种类走 fileKindOf', rd[0].kind, FK_DIR);
+eq('★ 目录行：key 带 d: 前缀且含绝对路径（两态不串行）', rd[0].key, 'd:/r/sub');
+ok('★ 目录行：key 唯一', rd[0].key !== rd[1].key);
+
+const rs = fsRowsForSearch('/r', se);
+eq('★ 搜索行：数 = 入参条数', rs.length, 3);
+eq('★ 搜索行：path 直接用服务端给的绝对路径（分散子目录不可重拼）', rs[1].path, '/r/sub/b.txt');
+eq('★ 搜索行：size 恒空（⛔ 搜索结果没有 size，写 0 B 是谎报）', rs[1].size, '');
+eq('★ 搜索行：副标签 = 所在目录相对路径', rs[1].sub, 'sub');
+eq('★ 搜索行：直属根下的结果副标签空', fsRowsForSearch('/r', [
+  { path: '/r/x.txt', name: 'x.txt', isDir: false },
+])[0].sub, '');
+eq('★ 搜索行：key 带 s: 前缀（与目录行 key 不冲突）', rs[0].key, 's:/r/z.txt');
+eq('★ 搜索行：目录结果 kind = dir', rs[2].kind, FK_DIR);
+eq('★ 搜索行：label = 文件名（不是整个路径 ⇒ 省略号不会吃掉文件名）', rs[1].label, 'b.txt');
 
 
 if (fail > 0) {

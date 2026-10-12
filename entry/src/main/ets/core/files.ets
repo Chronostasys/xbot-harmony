@@ -181,15 +181,140 @@ export function fsMention(path: string): string {
   return p.length > 0 ? `@${p}` : '';
 }
 
-/** 过滤输入框的占位文案（web `sidebar.filterPlaceholder`）。 */
+/** 过滤输入框的占位文案（web `sidebar.filterPlaceholder`）。
+ *  ⛔ 必须同时提示两条语义：**输入 = 过滤当前目录**、**回车 = 递归搜索子目录**（否则新能力没人发现）。 */
 export function fsFilterPlaceholder(): string {
-  return '按名称过滤（当前目录）';
+  return '过滤当前目录 · 回车搜子目录';
 }
 
 /** 过滤无命中时的一行空态（⛔ 不静默：用户必须知道"是过滤没命中"而不是"目录是空的"）。 */
 export function fsFilterEmptyText(query: string): string {
   const q: string = query !== undefined && query !== null ? query.trim() : '';
   return q.length === 0 ? '空目录' : `没有匹配「${q}」的条目`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 递归搜索（`/api/fs/search`）—— web 侧**有端点、无 UI**（`useFileSystem.searchFiles` 全仓 0 消费方）
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** 一条搜索结果（= 服务端 `fsSearchResult`，`channel/web/web_fs.go:474-478`）。 */
+export interface FsSearchEntry {
+  path: string;
+  name: string;
+  isDir: boolean;
+}
+
+/**
+ * `POST /api/fs/search` 请求体（= 服务端 `handleFsSearchPOST` 的匿名 body，
+ * `channel/web/web_rest.go:482-501`）：`{query, path?, limit?, show_hidden?}`
+ * → 服务端折成 GET query（`q`/`path`/`limit`/`showHidden`）→ `handleFsSearch`。
+ *
+ * ⛔⛔ **POST body 的键是 `query`，GET query 的键是 `q`** —— 这是本能力的头号 footgun：
+ *   写 `q` ⇒ 服务端读到空查询 ⇒ **400 `query parameter 'q' is required`**（不是 200 空结果）。
+ *   逐字取证：`web_rest.go:484`（`Query string \`json:"query"\``）vs `web_fs.go:512`（`Get("q")`）。
+ * ⛔ 响应键恒为 **`results`**（不是 `entries`，与 `/api/fs/list` 不同）。
+ * ⛔ `show_hidden` 与 `/api/fs/list` 同键（下划线）；`limit` 服务端会夹到 `maxSearchLimit`。
+ */
+export interface FsSearchBody {
+  query: string;
+  path: string;
+  limit: number;
+  show_hidden: boolean;
+}
+
+/**
+ * 单次搜索条数上限（客户端**主动**夹一次）。
+ * 服务端 `defaultSearchLimit`/`maxSearchLimit` 已在服务端夹；这里客户端也夹一道，
+ * 避免一次搜索把 LazyForEach 灌成上千行（列表虚拟化扛得住，但**阅读**没意义）。
+ */
+export const FS_SEARCH_LIMIT: number = 200;
+
+/**
+ * 递归**深度**上限（= 服务端 `maxSearchDepth`，`channel/web/web_fs.go:24` 逐字 `maxSearchDepth = 3`）。
+ *
+ * ⛔ 这是**必须暴露给用户**的服务端约束（不是可有可无的文案细节）：搜索根下**深于 3 层**的文件
+ *    **搜不到**（真机实测：在仓库根搜 `reasoning` 只回 `tools/tests/*` 两个，
+ *    `entry/src/main/ets/core/reasoningopen.ts`（第 5 层）不在结果里）。
+ *    若不告知，用户看到 0 结果会以为**功能坏了/文件不存在**（本仓最忌的"静默"）。
+ *    正确用法：**先进到子目录再搜**（每次搜索都以当前目录为新根）。
+ * ⛔ 客户端**不能**用它做"提前停"（那是服务端的行走策略）；这里只用于**文案诚实**。
+ */
+export const FS_SEARCH_MAX_DEPTH: number = 3;
+
+/** 组 `/api/fs/search` 请求体（**判据与请求同源**；空路径归一为根 `/`，同服务端 `rawPath == "" ⇒ "/"`）。 */
+export function fsSearchBody(query: string, path: string, showHidden: boolean, limit: number = FS_SEARCH_LIMIT): FsSearchBody {
+  const q: string = query !== undefined && query !== null ? query.trim() : '';
+  return {
+    query: q,
+    path: path !== undefined && path !== null && path.length > 0 ? path : '/',
+    limit: limit > 0 ? limit : FS_SEARCH_LIMIT,
+    show_hidden: showHidden,
+  };
+}
+
+/**
+ * 搜索结果排序 —— 与目录列表**同口径**（目录在前，再按名称 `localeCompare`），复用同一比较器语义。
+ * 服务端按 `os.ReadDir` 的**遍历序**返回（`searchDir` 深度优先）⇒ 直接渲染会让"同名条目散在各处"。
+ */
+export function sortFsSearch(items: readonly FsSearchEntry[]): FsSearchEntry[] {
+  const out: FsSearchEntry[] = [];
+  for (let i = 0; i < items.length; i++) {
+    out.push(items[i]);
+  }
+  out.sort((a: FsSearchEntry, b: FsSearchEntry): number => {
+    if (a.isDir !== b.isDir) {
+      return a.isDir ? -1 : 1;
+    }
+    return a.name.localeCompare(b.name);
+  });
+  return out;
+}
+
+/** 相对路径：`p` 在 `root` 之下 ⇒ 去掉根前缀（不含前导斜杠）；否则原样返回绝对路径。 */
+export function fsRelPath(root: string, p: string): string {
+  const r: string = root !== undefined && root !== null ? root : '/';
+  if (r.length === 0 || r === '/') {
+    return p.length > 0 && p.charAt(0) === '/' ? p.slice(1) : p;
+  }
+  const prefix: string = r.charAt(r.length - 1) === '/' ? r : `${r}/`;
+  if (p === r) {
+    return '';
+  }
+  if (p.indexOf(prefix) === 0) {
+    return p.slice(prefix.length);
+  }
+  return p;
+}
+
+/** 搜索行的**副标签** = 该条目所在目录（相对搜索根）；直属根下 ⇒ 空串（行上不显示）。 */
+export function fsSearchSub(root: string, p: string): string {
+  const r: string = root !== undefined && root !== null && root.length > 0 ? root : '/';
+  const dir: string = parentPath(p);
+  if (dir === r) {
+    return '';
+  }
+  return fsRelPath(r, dir);
+}
+
+/**
+ * 搜索空态文案。
+ * ⛔ 必须与「目录是空的」**分开表述**：搜索没命中时若写"空目录"，用户会以为目录真的没有文件。
+ * ⛔ 必须写出**深度上限**（服务端 `maxSearchDepth = 3`）——否则深层文件搜不到时，
+ *    用户会得出"功能坏了/文件不存在"的错误结论（真机实测就是如此）。
+ */
+export function fsSearchEmptyText(query: string): string {
+  const q: string = query !== undefined && query !== null ? query.trim() : '';
+  return q.length === 0
+    ? '输入名称后回车，在当前目录（含子目录）中搜索'
+    : `当前目录及最多 ${FS_SEARCH_MAX_DEPTH} 层子目录内没有匹配「${q}」的文件`;
+}
+
+/** 搜索汇总文案（结果数 + 深度上限 + 命中条数上限时的提示；`limit` = 请求条数上限）。 */
+export function fsSearchSummary(count: number, query: string, limit: number): string {
+  const q: string = query !== undefined && query !== null ? query.trim() : '';
+  const n: number = count > 0 ? count : 0;
+  const head: string = `「${q}」· ${n} 个匹配（最多 ${FS_SEARCH_MAX_DEPTH} 层）`;
+  return limit > 0 && n >= limit ? `${head} · 已达上限` : head;
 }
 
 /**
@@ -343,4 +468,73 @@ export function fsCodeFence(name: string, language: string, content: string): st
   }
   const tail: string = body.length > 0 && body.charAt(body.length - 1) === '\n' ? '' : '\n';
   return `${fence}${lang}\n${body}${tail}${fence}\n`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 统一行视图模型（目录浏览行 ⊕ 搜索结果行）—— 面板**只画**，行的全部判据在这里
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * 面板行的**视图模型**。
+ *
+ * 为什么要有它：同一个列表要承载两种数据 —— **目录浏览**（名字 + 大小）与
+ * **搜索结果**（名字 + 所在目录）；而行的**点击/长按语义完全一致**（都指向一个绝对路径）。
+ * 做成两种行类型 ⇒ 两套 `LazyForEach` + 两套行 builder（性能预算里 `ForEach` 已 **0 余量**）
+ * ⇒ 统一成一种行、一个 builder。
+ *
+ * ⛔ `path` 是**绝对路径**，行不再自己拼（旧的 `joinFsPath(this.path, e.name)` 在搜索态下会拼错：
+ *    搜索结果分散在各子目录，`this.path` 只是搜索根）。
+ */
+export interface FsRow {
+  /** `LazyForEach` 身份键（目录态 `d:` / 搜索态 `s:` 前缀，两态不串行）。 */
+  key: string;
+  /** 主标签（文件/目录名）。 */
+  label: string;
+  /** 副标签（搜索 = 所在目录的相对路径；目录浏览 = 空串 ⇒ 不渲染）。 */
+  sub: string;
+  /** 次要右列文案（目录浏览 = 文件大小；搜索 = 空串，⛔ 搜索行没有 size，写 `0 B` 是谎报）。 */
+  size: string;
+  isDir: boolean;
+  /** 绝对路径（行的**唯一真值**：点击进目录/开预览、长按菜单三项都读它）。 */
+  path: string;
+  /** 图标种类（`fileKindOf`，单一判据）。 */
+  kind: string;
+}
+
+/** 目录浏览行。`dir` = 当前目录；`entries` 已由 `sortFsEntries` 排好（本函数**不重排**）。 */
+export function fsRowsForDir(dir: string, entries: readonly FsFileEntry[]): FsRow[] {
+  const out: FsRow[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const e: FsFileEntry = entries[i];
+    const p: string = joinFsPath(dir, e.name);
+    out.push({
+      key: `d:${p}`,
+      label: e.name,
+      sub: '',
+      size: e.isDir ? '' : fmtSize(e.size),
+      isDir: e.isDir,
+      path: p,
+      kind: fileKindOf(e.name, e.isDir),
+    });
+  }
+  return out;
+}
+
+/** 搜索结果行。`root` = 搜索根（副标签显示"根下相对目录"；直属根下 ⇒ 副标签空）。 */
+export function fsRowsForSearch(root: string, items: readonly FsSearchEntry[]): FsRow[] {
+  const out: FsRow[] = [];
+  const r: string = root !== undefined && root !== null && root.length > 0 ? root : '/';
+  for (let i = 0; i < items.length; i++) {
+    const it: FsSearchEntry = items[i];
+    out.push({
+      key: `s:${it.path}`,
+      label: it.name,
+      sub: fsSearchSub(r, it.path),
+      size: '',
+      isDir: it.isDir,
+      path: it.path,
+      kind: fileKindOf(it.name, it.isDir),
+    });
+  }
+  return out;
 }

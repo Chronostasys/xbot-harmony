@@ -4204,3 +4204,55 @@ builder **每次长按弹出时**才求值；且每行只捕获**本行**的 `(p
 空串 ⇒ 空串（调用方据此**不插入孤立 `@`**）/ 纯空白 ⇒ 空串。
 
 **形状**：行长按 ⇒ 平台上下文菜单（`bindContextMenu`，长按手势，⛔ 不用 `bindMenu` 免与点按抢）。
+
+## §21.85 文件面板：子目录递归搜索（回车触发）（15z11，2026-10-13）
+
+**定位：这是「超越 web」而不是 parity 补齐** —— web 侧 `useFileSystem.searchFiles` 调
+`POST /api/fs/search`，但**全仓 0 个消费方**（没有 UI 入口）⇒ 服务端能力**白放着**。原生接上。
+
+**契约（服务端源码逐字，⛔ 不要凭 web TS 猜）**
+- `channel/web/web.go:940`：路由 `authenticatedPOST(handleFsSearchPOST)`；实际 walk 在
+  `web_fs.go:472-566`（`handleFsSearch`）。
+- **请求体键名 footgun**：POST body 是 **`query`**（`web_rest.go:484`），服务端再折成 GET query 的
+  **`q`**（`web_fs.go:512`）。写 `q` ⇒ **400 `query parameter 'q' is required`**（不是空结果）。
+  响应也是折的：`show_hidden`（下划线，同 `/api/fs/list`）⇒ query `showHidden`。
+- **响应键是 `results`**（`fsSearchResponse`，`web_fs.go:479-481`），**不是** `entries`。
+- ⛔ **`maxSearchDepth = 3`**（`web_fs.go:24`）：只走**搜索根下最多 3 层**。
+  真机实测：在仓库根搜 `reasoningopen` 只回 `tools/tests/reasoningopen.test.ts`（第 3 层），
+  `entry/src/main/ets/core/reasoningopen.ts`（第 5 层）**搜不到**。这是服务端**设计约束**，
+  客户端不能假装它能搜全 —— 见下「诚实文案」。
+
+**触发为什么是"回车"而不是输入防抖**：性能预算 `setTimeout` 只剩 1 处余量，且服务端是
+**同步递归 walk**（每次按键一搜会把响应打爆）。⇒ 手动触发，多次搜索不受任何计时器约束。
+
+**修法**
+- 纯逻辑（`core/files.ets`）：`fsSearchBody`（单点构造请求体）/ `sortFsSearch`（目录在前 + 名称，
+  与目录列表**同口径**）/ `fsRelPath` / `fsSearchSub` / `fsSearchEmptyText` / `fsSearchSummary`，
+  `FS_SEARCH_LIMIT = 200`（= 服务端 `maxSearchLimit`）、`FS_SEARCH_MAX_DEPTH = 3`（= 服务端 `maxSearchDepth`）。
+- **统一行视图模型 `FsRow`**：目录浏览行与搜索结果行合成**一种**行（`key/label/sub/size/isDir/path/kind`）
+  ⇒ 共用一个 `LazyForEach` + 一个行 builder。⛔ 两个理由：`ForEach` 预算已 **107/107（0 余量）**；
+  且**行不再自己拼路径**（旧的 `joinFsPath(this.path, e.name)` 在搜索态是**错的** —— 结果分散在各子目录，
+  `this.path` 只是搜索根）。
+- 面板：过滤框 `.enterKeyType(EnterKeyType.Search)` + `.onSubmit` ⇒ `onSearch(query)`；搜索态下
+  **清空 X = 退出搜索**（回到目录浏览）；一行汇总 `「q」· N 个匹配（最多 3 层）`。
+- 页面：`runFsSearch`（空查询直接退出，⛔ 不拿空串打服务端）/ `exitFsSearch`；
+  `loadFsDir` 开头一律 `exitFsSearch()` ⇒ **切目录/刷新/切隐藏开关都退出搜索态**（否则是陈旧结果）。
+- 面板 `searching` 与 `searchItems` **两个 `@Watch` 都做全量重建**（页面可能先置 items 再翻 flag，
+  只挂一个会被时序吞掉 ⇒ 列表空）。
+
+**诚实文案（本仓最忌"静默"）**：空态必须写**深度上限** ——
+`当前目录及最多 3 层子目录内没有匹配「q」的文件`。若只写"子目录里没有"，用户看到 0 结果会得出
+"功能坏了/文件不存在"的错误结论（真机第一次就是这样）。汇总行也同样标注（最多 3 层）。
+搜索失败走**红字通知态 + 重试**，⛔ 绝不与"没有匹配"合并成同一句话（两条完全不同的用户结论）。
+
+**判据（`files_pure.test.ts`，116 passed）**：请求体（`query` 键 / 空路径归一 `/` / `show_hidden` 下划线 /
+空查询不抛）；排序（目录在前 + 不改入参）；`fsRelPath` 四界（根下 / root=`/` / 尾斜杠 / **不在 root 下不瞎裁**）；
+`fsSearchSub`（直属根下空 / 子目录 / 多级）；空态两分支 + **与目录空态必须不同** + **含深度上限**；
+汇总 + 命中上限明说；`fsRowsForDir`/`fsRowsForSearch`（path 拼接 vs 服务端路径、目录不带假 `0 B`、
+副标签、key 前缀两态不串行、label 是文件名）。
+
+**装机取证（1320×2848）**：`reasoningopen` ⇒ `「reasoningopen」· 1 个匹配（最多 3 层）` +
+行 `reasoningopen.test.ts` / 副标签 `tools/tests`；点结果行 ⇒ 进代码预览（`typescript` 徽标 + 高亮）；
+返回 ⇒ **搜索态保留**；点 X ⇒ 回目录列表（大小列恢复）；`zzznope` ⇒ 放大镜空态 + 深度文案。
+
+**形状**：搜索与过滤共用同一个输入框（输入 = 过滤当前目录；回车 = 递归搜索）。

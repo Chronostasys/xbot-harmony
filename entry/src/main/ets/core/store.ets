@@ -32,7 +32,7 @@ import { TerminalInfo } from './termproto';
 import { serverKey, toLocalSettings, KEY_ACCENT } from './settings';
 import { setAppAccent } from './theme';
 import { FsEntry } from './composer';
-import { FsListBody, FsReadResult, fsListBody } from './files';
+import { FsListBody, FsReadResult, FsSearchBody, FsSearchEntry, fsListBody, fsSearchBody } from './files';
 import { SkillItem, SkillWire, parseSkillList } from './skills';
 import { MaxContextParams, RPC_GET_SESSION_SUBSCRIPTION, RPC_GET_USER_MAX_CONTEXT, RPC_LIST_ALL_MODEL_ENTRIES, RPC_SET_USER_MAX_CONTEXT, RPC_SKILL_GET_CONTENT, RPC_SKILL_LIST, RPC_SKILL_SET_ENABLED, RPC_WEB_PLUGIN_LIST, SessionSelectorParams, SessionSubscription, SkillContentWire, SkillGetContentParams, SkillListParams, SkillSetEnabledAck, SkillSetEnabledParams, normalizeMaxContext, readableRpcError, rpc, sessionSubscriptionId } from './rpc';
 import {
@@ -596,6 +596,21 @@ export class ChatStore {
   async readFs(path: string): Promise<FsReadResult> {
     const body: Record<string, string> = { 'path': path };
     return await this.http.postAs<FsReadResult>('/api/fs/read', body);
+  }
+
+  /**
+   * 递归搜索（`POST /api/fs/search {query,path?,limit?,show_hidden?}` → `{results:[{path,name,isDir}]}`）。
+   *
+   * 权威契约 = 服务端 `channel/web/web_rest.go:482-501`（POST 壳）+ `web_fs.go:472-548`（递归 walk）。
+   * ⛔ 请求体由 `core/files.ets:fsSearchBody` **单点**构造 —— POST body 键名 `query` 与 GET query
+   *    键名 `q` 的差异是 footgun（写错 ⇒ 服务端 400，不是空结果）。
+   * ⛔ 响应键是 `results`（**不是** `entries`）。
+   */
+  async searchFs(query: string, path: string, showHidden: boolean = false): Promise<FsSearchEntry[]> {
+    const body: FsSearchBody = fsSearchBody(query, path, showHidden);
+    const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>('/api/fs/search', body);
+    const arr: Object | undefined = raw['results'];
+    return arrOrEmpty(arr as FsSearchEntry[]);
   }
 
   async loadCronTasks(): Promise<void> {
