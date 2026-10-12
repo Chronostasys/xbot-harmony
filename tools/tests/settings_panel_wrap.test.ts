@@ -137,7 +137,21 @@ has(panel, 'const TAB_CHIP_W: number = fs(\'type.caption\') * 4.5 + INSET_ROW_X 
 
 const swatches: string = between(appearance, 'AccentSwatches() {', 'AccentCustomInput() {');
 ok('AccentSwatches 区间可定位（非空）', swatches.length > 0);
-has(swatches, 'Flex({ wrap: FlexWrap.Wrap })', '强调色色板 = Flex(wrap)（第 7 个圆点不再被切）');
+// ⚠️ 2026-10-13（15z5，判据演进；⛔ 不是删判据）：色板由 `Flex(wrap)` 改 **`Row` + `SpaceBetween`**。
+//    真机量测（`uitest dumpLayout`，密度 149px = 44vp）：色板可用宽 **350vp**；原实现每圆点
+//    = 44 + 右 margin 8 = **52vp 步距** ⇒ 7 枚 = **364vp > 350vp** ⇒ 必然换行，第 7 枚
+//    （「跟随主题」）**独占第二行** = 视觉孤儿（装机截图可见）。
+//    ⛔ 不能缩小圆点（44 = `HIT_TARGET_MIN` 是真机命中下限）⇒ 去逐项右 margin、由 `SpaceBetween`
+//    分配 ⇒ **7 × 44 = 308vp ≤ 350vp ⇒ 恒一行**，首尾与上方标签对齐（Apple palette 行口径）。
+has(swatches, 'Row() {', '强调色色板 = 单行 Row（调色板一行到底）');
+has(swatches, '.justifyContent(FlexAlign.SpaceBetween)', '强调色色板 = SpaceBetween 分配间距');
+ok('反：色板不再用 Flex(wrap)（wrap 会在 350vp 下把第 7 枚挤到第二行）',
+  swatches.indexOf('Flex({ wrap: FlexWrap.Wrap })') < 0);
+ok('反：色圈不再带右 margin（末项右 margin 会把行尾内缩、与上方标签错位）',
+  swatches.indexOf('.margin({ right: SPACE_XS, bottom: SPACE_XS })') < 0);
+// 白绿防线：色板必须真的是 Row（不是别的容器）+ 圆点仍守 44 命中下限
+has(swatches, '.width(HIT_TARGET_MIN)\n      .height(HIT_TARGET_MIN)',
+  '色圈仍为 44×44 命中盒（真机命中下限，⛔ 不许缩小）');
 
 if (fail > 0) {
   console.log(`  ✗ settings_panel_wrap: ${pass} passed, ${fail} failed`);

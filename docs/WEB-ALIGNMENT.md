@@ -4021,3 +4021,26 @@ terminal 字形）⇒ 终端 tab 用 `code`（终端=敲代码的壳），并把
 **装机复验**：抽屉分段控件（选中「时间」）与运行面板 chips 渲染**无回归** ✓；
 动效本身为过渡语义，静态截图不可证 ⇒ 以门禁 + 无回归为准（诚实口径）。
 门禁 `GATE_EXIT=0` + `BUILD SUCCESSFUL`。
+
+## §21.78 设置·外观：强调色色板"第 7 枚孤儿行" → 恒一行（15z5，2026-10-13）
+
+**症状**（装机截图，目标③「所有面板」）：强调色 6 枚预设一行，第 7 枚「跟随主题」**独占第二行**
+⇒ 视觉孤儿、像"没排过"。
+
+**量测**（`uitest dumpLayout`，密度由已知 44vp 的 tab 芯片反推 = **149px = 44vp**）：
+- 色板可用宽 = 1186px = **350vp**
+- 原实现每圆点 = 44vp + 右 `margin SPACE_XS`(8) = **52vp 步距** ⇒ 7 枚 = **364vp > 350vp**
+  ⇒ **算术上必然换行**。
+- ⛔ **不能缩小圆点**：44 = `HIT_TARGET_MIN` 是**真机命中的下限**（AGENTS.md 的 `responseRegion`
+  血债：外扩无效 ⇒ 只能靠真实布局盒）⇒ 唯一出路是**去掉逐项右 margin**，改由
+  `Row().justifyContent(FlexAlign.SpaceBetween)` 分配：**7 × 44 = 308vp ≤ 350vp** ⇒ 恒一行，
+  且首尾与上方标签对齐（Apple palette 行的口径）。
+
+**装机复验（几何判据，非目测）**：`dumpLayout` 显示 **7 枚色圈同一 y=1257**（x=107..1214），
+第二行 y=1487 恰为「自定义颜色输入框 + 应用」⇒ 孤儿行消失 ✓。
+
+**判据演进（只演进不删除）**：`tools/tests/settings_panel_wrap.test.ts` 由钉
+`Flex({ wrap: FlexWrap.Wrap })` 改为钉 **`Row()` + `justifyContent(FlexAlign.SpaceBetween)`**，
+并加三条反向/白绿断言：⛔ 不得再用 `Flex(wrap)`、⛔ 色圈不得带右 margin、
+✅ 圆点仍为 44×44 命中盒（不许为"排得下"而缩小）⇒ `settings_panel_wrap: 20 passed`。
+门禁 `GATE_EXIT=0` + `BUILD SUCCESSFUL`。

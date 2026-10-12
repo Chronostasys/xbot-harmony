@@ -290,7 +290,7 @@ export struct SettingsAppearance {
    */
   @Builder
   AccentSwatches() {
-    Flex({ wrap: FlexWrap.Wrap }) {
+    Row() {
       ForEach(ACCENT_PRESETS, (hex: string) => {
         Stack({ alignContent: Alignment.Center }) {
           if (this.accentHex().toUpperCase() === hex) {
@@ -307,7 +307,7 @@ export struct SettingsAppearance {
           width: this.accentHex().toUpperCase() === hex ? 2 : STROKE_HAIRLINE,
           color: this.accentHex().toUpperCase() === hex ? this.pal().textPrimary : hairlineOf(this.pal()),
         })
-        .margin({ right: SPACE_XS, bottom: SPACE_XS })
+        .margin({ bottom: SPACE_XS })
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .accessibilityText('强调色 ' + hex)
         .onClick(() => {
@@ -325,7 +325,7 @@ export struct SettingsAppearance {
       .borderRadius(HIT_TARGET_MIN / 2)
       .backgroundColor(this.pal().surfaceAlt)
       .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
-      .margin({ right: SPACE_XS, bottom: SPACE_XS })
+      .margin({ bottom: SPACE_XS })
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
       .accessibilityText('跟随主题')
       .onClick(() => {
@@ -333,6 +333,14 @@ export struct SettingsAppearance {
       })
     }
     .width('100%')
+    // ⚠️ 2026-10-13（目标③）：由 `Flex(wrap)` 改 **`Row` + `SpaceBetween`**。
+    //    真机量测（`uitest dumpLayout`，密度 149px = 44vp）：色板可用宽 **350vp**；
+    //    原实现每圆点 = 44 + 右 margin 8 = **52vp 步距** ⇒ 7 枚 = **364vp > 350vp** ⇒ 必然换行，
+    //    第 7 枚（「跟随主题」）**独占第二行** = 视觉孤儿（截图可见）。
+    //    ⛔ 不能靠缩小圆点修（44 = `HIT_TARGET_MIN` 是**真机命中的下限**，见 AGENTS.md）；
+    //    ⇒ 去掉逐项右 margin、改由 `SpaceBetween` 分配：7 × 44 = **308vp ≤ 350vp** ⇒ **恒一行**，
+    //    且首尾与上方标签对齐（"调色板一行到底" = Apple palette 行的口径）。
+    .justifyContent(FlexAlign.SpaceBetween)
     .padding({ left: SPACE_SM, right: SPACE_SM })
   }
 
