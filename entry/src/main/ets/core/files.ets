@@ -139,6 +139,48 @@ export function sortFsEntries(entries: readonly FsFileEntry[]): FsFileEntry[] {
 }
 
 /**
+ * 目录列表**过滤**（内联搜索）—— 逐字对齐 web `sidebar/FileExplorer.tsx:124-131`：
+ *   `q = query.trim().toLowerCase()`；空 ⇒ **不过滤**（返回全量，web 是"退出搜索态"）；
+ *   否则 `name.toLowerCase().includes(q)`（大小写不敏感**子串**，非前缀、非模糊打分）。
+ *
+ * ⚠️ 只匹配 `name`：web 那一版还匹配 `path`，因为它的 `flatFiles` 是**递归平铺**的整棵树；
+ *    本仓是**单目录**浏览器（`fsListBody` 一次只列一层）⇒ `path` 前缀恒等于当前目录，
+ *    再拿它匹配只会让"当前目录里的每个条目都命中"（假命中）⇒ 这里**只按 name**，语义等价。
+ *
+ * ⛔ 返回**新数组**（不改入参）；已按调用方的既有排序传进来（本函数**不重排**）。
+ */
+export function filterFsEntries(entries: readonly FsFileEntry[], query: string): FsFileEntry[] {
+  const q: string = query !== undefined && query !== null ? query.trim().toLowerCase() : '';
+  if (q.length === 0) {
+    const all: FsFileEntry[] = [];
+    for (let i = 0; i < entries.length; i++) {
+      all.push(entries[i]);
+    }
+    return all;
+  }
+  const out: FsFileEntry[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const e: FsFileEntry = entries[i];
+    const n: string = e.name !== undefined && e.name !== null ? e.name.toLowerCase() : '';
+    if (n.indexOf(q) >= 0) {
+      out.push(e);
+    }
+  }
+  return out;
+}
+
+/** 过滤输入框的占位文案（web `sidebar.filterPlaceholder`）。 */
+export function fsFilterPlaceholder(): string {
+  return '按名称过滤（当前目录）';
+}
+
+/** 过滤无命中时的一行空态（⛔ 不静默：用户必须知道"是过滤没命中"而不是"目录是空的"）。 */
+export function fsFilterEmptyText(query: string): string {
+  const q: string = query !== undefined && query !== null ? query.trim() : '';
+  return q.length === 0 ? '空目录' : `没有匹配「${q}」的条目`;
+}
+
+/**
  * 人类可读大小（Apple 风格：`1.5 KB` / `3.4 MB`）。
  * 进制用 **1024**（与 Finder/`du -h` 同族，用户可预期）；`1.0` 也保留一位小数
  * （`1.0 KB` > 裸 `1 KB`：数字列宽度一致，列表不抖）。

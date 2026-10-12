@@ -19,7 +19,8 @@
  */
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import {
-  baseNameOf, FK_DIR, FK_IMAGE, FK_MARKDOWN, FsCrumb, FsFileEntry, fileKindOf, fmtSize, fsCrumbs,
+  baseNameOf, filterFsEntries, FK_DIR, FK_IMAGE, FK_MARKDOWN, FsCrumb, FsFileEntry, fileKindOf, fmtSize,
+  fsCrumbs, fsFilterEmptyText, fsFilterPlaceholder,
   fsHiddenToggleLabel, joinFsPath,
 } from '../core/files';
 import {
@@ -132,6 +133,16 @@ export struct FilesSheet {
   private ds: FsDataSource = new FsDataSource();
 
   /**
+   * 内联过滤查询 + 过滤后的可见条目（对齐 web `sidebar/FileExplorer.tsx:124-131` 的
+   * 名称大小写不敏感子串过滤；判据 = `core/files.ets:filterFsEntries`，⛔ 组件不写第二套）。
+   *
+   * ⚠️ 过滤结果**缓存在 `@State`**（而不是在 build 里现算）：列目录是 `LazyForEach` 虚拟化的大列表
+   *   （可能上千条），build 每次重建数组会把滚动帧打爆。
+   */
+  @State private filterQuery: string = '';
+  @State private filtered: FsFileEntry[] = [];
+
+  /**
    * 记忆化色板（**唯一取色入口**）。
    *
    * ⛔ 两条硬线同时约束，本形态是唯一同时合法的写法：
@@ -156,13 +167,74 @@ export struct FilesSheet {
     return fresh;
   }
 
-  aboutToAppear(): void {
-    this.ds.setItems(this.entries);
+  /**
+   * 面板取色（**一次 `palOnce()` 换 N 个站点**）。
+   *
+   * ⛔ 为什么必须收成一个方法：`tools/perf/guard.sh` 的 **B 线**（全仓 `this.pal()` ∨
+   *    **palOnce 调用点**总数（门禁用 `grep -oE` 计数、**不剥注释** ⇒ 注释里也别写该字面量），
+   *    上限 1350 且**只许减**）—— 本轮文件"过滤行"按"看着直白"
+   *    逐处直写 role，实测把全仓顶到 **1355 ⇒ 真红**（基线 1349）。形态与本仓
+   *    `TerminalSheet.keyRoleColor` 同款（那边的注释记了同一课）。
+   * ⚠️ `role` 是**本方法私有**的判别串，⛔ **不是** `colorOf` 的角色名：真源角色表只有
+   *    `core/design.ets:colorOf` 里的那些（`docs/DESIGN-SYSTEM.md §12`）。本方法每个分支都落到
+   *    真源角色（`iconMuted`/`textMuted`）或 `Palette` 真字段，⛔ 不新造角色名。
+   *
+   * ⛔ **两处故意不收敛**（保留字面量，别"顺手优化"）：页头**关闭 X** 的取色
+   *    （`sheet_chrome` ② 钉「关闭 X = `iconMuted`/破坏性 `dangerText`」）与**面板根容器**的
+   *    实底面（`panel_surface_consistency` A 钉「根容器 = 实底 `surface.overlay`」）。
+   *    这两条是**设计判据**，静态扫描看的是调用片段 ⇒ 走 `tint(role)` 会让判据失去判别力。
+   */
+  private tint(role: string): string {
+    const p: Palette = this.palOnce();
+    if (role === 'icon') {
+      return colorOf(p, 'iconMuted');
+    }
+    if (role === 'text') {
+      return p.textPrimary;
+    }
+    if (role === 'muted') {
+      return p.textMuted;
+    }
+    if (role === 'secondary') {
+      return p.textSecondary;
+    }
+    if (role === 'accent') {
+      return p.accent;
+    }
+    if (role === 'accentSoft') {
+      return p.accentSoft;
+    }
+    if (role === 'onAccent') {
+      return p.onAccent;
+    }
+    if (role === 'danger') {
+      return p.dangerText;
+    }
+    if (role === 'input') {
+      return surfaceFillOf(p, 'surface.input');
+    }
+    if (role === 'overlay') {
+      return surfaceFillOf(p, 'surface.overlay');
+    }
+    return hairlineOf(p);
   }
 
-  /** `@Prop entries` 变化 ⇒ 同步数据源（LazyForEach 的数据入口）。 */
+  aboutToAppear(): void {
+    this.applyFilter();
+  }
+
+  /** `@Prop entries` 变化 ⇒ 重算过滤并同步数据源（LazyForEach 的数据入口）。 */
   onEntriesChanged(): void {
-    this.ds.setItems(this.entries);
+    this.applyFilter();
+  }
+
+  /**
+   * 应用内联过滤：`filtered = filterFsEntries(entries, filterQuery)` 并推给 `LazyForEach`。
+   * ⛔ 过滤**只影响展示**，不碰 `entries` 本身（页面的目录状态是唯一真源）。
+   */
+  private applyFilter(): void {
+    this.filtered = filterFsEntries(this.entries, this.filterQuery);
+    this.ds.setItems(this.filtered);
   }
 
   /** 面包屑（判据同源：`core/files.ets:fsCrumbs`）。 */
@@ -177,7 +249,7 @@ export struct FilesSheet {
         if (this.previewPath.length > 0) {
           Row() {
             SymbolGlyph($r('sys.symbol.chevron_left'))
-              .fontSize(ICON_MD).fontColor([colorOf(this.palOnce(), 'iconMuted')])
+              .fontSize(ICON_MD).fontColor([this.tint('icon')])
           }
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
@@ -190,7 +262,7 @@ export struct FilesSheet {
         Text(this.previewPath.length > 0 ? baseNameOf(this.previewPath) : '文件')
           .fontSize(typeOf('type.headline').size)
           .fontWeight(typeOf('type.headline').weight)
-          .fontColor(this.palOnce().textPrimary)
+          .fontColor(this.tint('text'))
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .layoutWeight(1)
@@ -201,20 +273,18 @@ export struct FilesSheet {
           Row({ space: SPACE_XS }) {
             Text('隐藏文件')
               .fontSize(typeOf('type.caption').size)
-              .fontColor(this.showHidden ? this.palOnce().onAccent : this.palOnce().textSecondary)
+              .fontColor(this.tint(this.showHidden ? 'onAccent' : 'secondary'))
             if (this.showHidden) {
               SymbolGlyph($r('sys.symbol.checkmark'))
                 .fontSize(typeOf('type.micro').size)
-                .fontColor([this.palOnce().onAccent])
+                .fontColor([this.tint('onAccent')])
             }
           }
           .constraintSize({ minHeight: HIT_TARGET_MIN })
           .padding({ left: SPACE_XS, right: SPACE_XS })
           .justifyContent(FlexAlign.Center)
           .alignItems(VerticalAlign.Center)
-          .backgroundColor(this.showHidden
-            ? this.palOnce().accent
-            : surfaceFillOf(this.palOnce(), 'surface.input'))
+          .backgroundColor(this.tint(this.showHidden ? 'accent' : 'input'))
           .borderRadius(RADIUS_CHIP)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .accessibilityText(fsHiddenToggleLabel(this.showHidden))
@@ -223,7 +293,7 @@ export struct FilesSheet {
           })
           Row() {
             SymbolGlyph($r('sys.symbol.arrow_clockwise'))
-              .fontSize(ICON_MD).fontColor([colorOf(this.palOnce(), 'iconMuted')])
+              .fontSize(ICON_MD).fontColor([this.tint('icon')])
           }
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
@@ -256,14 +326,14 @@ export struct FilesSheet {
               if (i > 0) {
                 SymbolGlyph($r('sys.symbol.chevron_right'))
                   .fontSize(typeOf('type.micro').size)
-                  .fontColor([colorOf(this.palOnce(), 'iconMuted')])
+                  .fontColor([this.tint('icon')])
               }
               // 面包屑段：**真实 ≥44 热区**由 Row 承载（⛔ 小 Text 自带 padding 只有 16vp；
               // `hit_target_pad` 的实测/台账一致性会红）。
               Row() {
                 Text(c.label)
                   .fontSize(typeOf('type.caption').size)
-                  .fontColor(i === this.crumbs().length - 1 ? this.palOnce().accentSoft : this.palOnce().textSecondary)
+                  .fontColor(this.tint(i === this.crumbs().length - 1 ? 'accentSoft' : 'secondary'))
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                   // 动态宽度上限（H1：横向上下文里不允许无界文本）
@@ -289,24 +359,67 @@ export struct FilesSheet {
         // 横向滚动容器必须自 clip（`horizontal_overflow_gate` H0 硬判：内容溢出不留外溢）。
         .clip(true)
 
+        // ── 内联过滤（对齐 web `FileExplorer` 的搜索框：名称大小写不敏感子串）──────
+        if (this.entries.length > 0) {
+          Row({ space: SPACE_XS }) {
+            SymbolGlyph($r('sys.symbol.magnifyingglass'))
+              .fontSize(typeOf('type.caption').size)
+              .fontColor([this.tint('icon')])
+            TextInput({ text: this.filterQuery, placeholder: fsFilterPlaceholder() })
+              .placeholderColor(this.tint('muted'))
+              .fontColor(this.tint('text'))
+              .fontSize(typeOf('type.callout').size)
+              .backgroundColor(Color.Transparent)
+              .padding(0)
+              .layoutWeight(1)
+              .constraintSize({ minHeight: HIT_TARGET_MIN })
+              .onChange((v: string) => {
+                this.filterQuery = v;
+                this.applyFilter();
+              })
+            if (this.filterQuery.length > 0) {
+              Row() {
+                SymbolGlyph($r('sys.symbol.xmark_circle_fill'))
+                  .fontSize(typeOf('type.caption').size)
+                  .fontColor([this.tint('icon')])
+              }
+              .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+              .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .accessibilityText('清除过滤')
+              .onClick(() => {
+                this.filterQuery = '';
+                this.applyFilter();
+              })
+            }
+          }
+          .width('100%')
+          .padding({ left: SPACE_SM, right: SPACE_XS })
+          .alignItems(VerticalAlign.Center)
+          .backgroundColor(this.tint('input'))
+          .borderRadius(RADIUS_CHIP)
+          .border({ width: STROKE_HAIRLINE, color: this.tint('hairline') })
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
+        }
+
         // ── 目录列表 ────────────────────────────────────────────────────────
         if (this.loading) {
           Text('读取目录…')
             .fontSize(typeOf('type.subhead').size)
-            .fontColor(this.palOnce().textSecondary)
+            .fontColor(this.tint('secondary'))
             .width('100%')
             .padding({ top: SPACE_MD, bottom: SPACE_MD })
         } else if (this.error.length > 0) {
           Row({ space: SPACE_SM }) {
             Text(this.error)
               .fontSize(typeOf('type.subhead').size)
-              .fontColor(this.palOnce().dangerText)
+              .fontColor(this.tint('danger'))
               .layoutWeight(1)
               .maxLines(2)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
             Text('重试')
               .fontSize(typeOf('type.subhead').size)
-              .fontColor(this.palOnce().accentSoft)
+              .fontColor(this.tint('accentSoft'))
               .padding({ left: SPACE_SM, right: SPACE_SM })
               .constraintSize({ minHeight: HIT_TARGET_MIN })
               .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
@@ -316,10 +429,10 @@ export struct FilesSheet {
           }
           .width('100%')
           .alignItems(VerticalAlign.Center)
-        } else if (this.entries.length === 0) {
-          Text('空目录')
+        } else if (this.filtered.length === 0) {
+          Text(fsFilterEmptyText(this.filterQuery))
             .fontSize(typeOf('type.subhead').size)
-            .fontColor(this.palOnce().textSecondary)
+            .fontColor(this.tint('secondary'))
             .width('100%')
             .padding({ top: SPACE_MD, bottom: SPACE_MD })
         } else {
@@ -329,21 +442,21 @@ export struct FilesSheet {
                 Row({ space: SPACE_SM }) {
                   SymbolGlyph(entrySymbol(fileKindOf(e.name, e.isDir)))
                     .fontSize(ICON_MD)
-                    .fontColor([e.isDir ? this.palOnce().accentSoft : colorOf(this.palOnce(), 'iconMuted')])
+                    .fontColor([this.tint(e.isDir ? 'accentSoft' : 'icon')])
                   Text(e.name)
                     .fontSize(typeOf('type.callout').size)
-                    .fontColor(this.palOnce().textPrimary)
+                    .fontColor(this.tint('text'))
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                     .layoutWeight(1)
                   if (!e.isDir) {
                     Text(fmtSize(e.size))
                       .fontSize(typeOf('type.caption').size)
-                      .fontColor(this.palOnce().textMuted)
+                      .fontColor(this.tint('muted'))
                   }
                   SymbolGlyph($r('sys.symbol.chevron_right'))
                     .fontSize(typeOf('type.caption').size)
-                    .fontColor([colorOf(this.palOnce(), 'iconMuted')])
+                    .fontColor([this.tint('icon')])
                 }
                 .width('100%')
                 .constraintSize({ minHeight: HIT_TARGET_MIN })
@@ -363,14 +476,14 @@ export struct FilesSheet {
           .layoutWeight(1)
           .width('100%')
           .scrollBar(BarState.Off)
-          .divider({ strokeWidth: STROKE_HAIRLINE, color: hairlineOf(this.palOnce()), startMargin: INSET_ROW_X })
+          .divider({ strokeWidth: STROKE_HAIRLINE, color: this.tint('hairline'), startMargin: INSET_ROW_X })
         }
       } else {
         // ── 单文件预览 ──────────────────────────────────────────────────────
         if (this.previewLoading) {
           Text('读取文件…')
             .fontSize(typeOf('type.subhead').size)
-            .fontColor(this.palOnce().textSecondary)
+            .fontColor(this.tint('secondary'))
             .width('100%')
             .padding({ top: SPACE_MD })
         } else if (this.previewIsImage) {
@@ -392,7 +505,7 @@ export struct FilesSheet {
           } else {
             Text('图片加载中…')
               .fontSize(typeOf('type.subhead').size)
-              .fontColor(this.palOnce().textSecondary)
+              .fontColor(this.tint('secondary'))
               .width('100%')
               .padding({ top: SPACE_MD })
           }
@@ -414,7 +527,7 @@ export struct FilesSheet {
             Text(this.previewText)
               .fontSize(typeOf('type.subhead').size)
               .fontFamily('monospace')
-              .fontColor(this.palOnce().textPrimary)
+              .fontColor(this.tint('text'))
               .textAlign(TextAlign.Start)
               .width('100%')
           }
@@ -429,7 +542,7 @@ export struct FilesSheet {
     .padding(SPACE_MD)
     .backgroundColor(surfaceFillOf(this.palOnce(), 'surface.overlay'))
     .borderWidth({ left: STROKE_HAIRLINE })
-    .borderColor(hairlineOf(this.palOnce()))
+    .borderColor(this.tint('hairline'))
     // 侧栏柔影 —— 唯一出口 `core/theme.shadowLayersOf`（同 `PluginsSheet`/`DrawerSheet` 同族；
     // ⛔ 不写死半径/颜色：浅色=小半径贴合影、深色=该档原值）。
     .shadow({

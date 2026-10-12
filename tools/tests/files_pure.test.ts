@@ -16,6 +16,7 @@ declare const process: { exit: (c: number) => void };
 import {
   extOf, fileKindOf, parentPath, joinFsPath, sortFsEntries, fmtSize, fmtAgo, fsCrumbs,
   fsListBody, fsHiddenToggleLabel,
+  filterFsEntries, fsFilterEmptyText, fsFilterPlaceholder,
   FK_DIR, FK_IMAGE, FK_MARKDOWN, FK_TEXT, FsFileEntry,
 } from '../../entry/src/main/ets/core/files';
 
@@ -114,6 +115,36 @@ eq('★ 关闭时读法「显示隐藏文件」', fsHiddenToggleLabel(false), '�
 eq('★ 开启时读法「不显示隐藏文件」', fsHiddenToggleLabel(true), '不显示隐藏文件');
 ok('★ 两种状态读法不同（否则颜色态无替代文本）',
   fsHiddenToggleLabel(true) !== fsHiddenToggleLabel(false));
+
+// ── 内联过滤（对齐 web `sidebar/FileExplorer.tsx:124-131`）──────────────────────
+const ENT: FsFileEntry[] = [
+  { name: 'README.md', isDir: false, size: 10, modTime: '' },
+  { name: 'src', isDir: true, size: 0, modTime: '' },
+  { name: 'SRC.md', isDir: false, size: 1, modTime: '' },
+  { name: 'main.ets', isDir: false, size: 2, modTime: '' },
+];
+eq('★ 过滤：空查询 ⇒ 不过滤（全量）', filterFsEntries(ENT, '').length, 4);
+eq('★ 过滤：纯空白 ⇒ 不过滤（trim 后为空）', filterFsEntries(ENT, '   ').length, 4);
+eq('★ 过滤：大小写不敏感子串', filterFsEntries(ENT, 'read').map((e) => e.name).join(','), 'README.md');
+eq('★ 过滤：子串命中在中间也算（非前缀）', filterFsEntries(ENT, 'adme').map((e) => e.name).join(','), 'README.md');
+eq('★ 过滤：大小写混写命中两条（名字与扩展名都算）',
+  filterFsEntries(ENT, 'src').map((e) => e.name).join(','), 'src,SRC.md');
+eq('★ 过滤：目录也参与过滤（不是只过滤文件）',
+  filterFsEntries(ENT, 'src').filter((e) => e.isDir).length, 1);
+eq('★ 过滤：无命中 ⇒ 空数组', filterFsEntries(ENT, 'zzz').length, 0);
+ok('★ 过滤返回新数组（不改入参）', (() => {
+  const before = ENT.length;
+  filterFsEntries(ENT, 'main');
+  return ENT.length === before;
+})());
+ok('★ 过滤不改写条目顺序（排序是调用方的事）',
+  filterFsEntries(ENT, 'src').map((e) => e.name).join(',') === 'src,SRC.md');
+// 空态文案必须区分"空目录"与"过滤没命中"（⛔ 不静默）
+eq('★ 空态：无查询 ⇒ 空目录', fsFilterEmptyText(''), '空目录');
+eq('★ 空态：有查询 ⇒ 明说没匹配（带查询原文）',
+  fsFilterEmptyText('zzz'), '没有匹配「zzz」的条目');
+ok('★ 空态：两种情形文案不同', fsFilterEmptyText('') !== fsFilterEmptyText('zzz'));
+ok('★ 占位文案非空（输入框必须有可读提示）', fsFilterPlaceholder().length > 0);
 
 if (fail > 0) {
   console.log(`  ✗ files_pure: ${pass} passed, ${fail} failed`);

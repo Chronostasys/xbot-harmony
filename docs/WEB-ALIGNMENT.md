@@ -3805,3 +3805,39 @@ webview.WebCookieManager.configCookieSync(hostPageUrl(this.url), cookie, false);
 `tools/tests/pluginpanel.test.ts` ⑤：`@Prop sessionCookie` 存在 / 调 `configCookieSync` /
 作用域取 origin / **两个承载点都透传**（计数=2）/ 扫描器自证（`WebSurface({` 恰 2 处）。
 126 passed。
+
+## §21.70 目标④·文件管理对标：补内联过滤/搜索（15v，2026-10-13）
+
+用户长期目标④：「文件管理也没有，终端和任务管理做的很差」。本轮**先对标再动手**：
+
+| 能力面 | web 权威 | 原生（改动前） | 结论 |
+|---|---|---|---|
+| 目录浏览 / 面包屑 / 排序 / 大小 / 时间 / 隐藏文件 | `sidebar/FileExplorer.tsx`（406 行） | `components/FilesSheet.ets` + `core/files.ets` | ✅ 已有 |
+| **按名过滤（内联搜索框）** | `FileExplorer.tsx:124-131`（名称/路径大小写不敏感子串）+ `FileSearch.tsx`（防抖 200ms 全树搜索） | ❌ **缺** | **本轮补** |
+| 单文件预览（md 预览 / 图片 / 文本） | `workspace/panels/FilePanel.tsx` + `components/file/*` | `FilesSheet` 预览态（复用 `MarkdownView`） | ✅ 已有 |
+| 终端（VT 模拟 / 新建 / 关闭 / 列表） | `TerminalPanel.tsx` + `TerminalList.tsx` | `components/TerminalSheet.ets`（641 行，`core/vt.ets` 自研 VT） | ✅ 已达标 |
+| 任务管理（cron / 后台任务 / 子代理；kill / remove） | `sidebar/TasksPanel.tsx`（332 行） | `panelTab` cron/tasks/subs + `TaskDetailSheet` + `store.killBgTask`/`removeCronTask` | ✅ 已覆盖 |
+
+### 落地
+1. `core/files.ets`
+   - `filterFsEntries(entries, query)` —— 逐字对齐 web `FileExplorer.tsx:124-131`：`trim().toLowerCase()`
+     **子串**匹配、空查询 ⇒ **不过滤**（返回全量）；
+     ⚠️ **只匹配 `name`**：web 那版还匹配 `path`，因为它的 `flatFiles` 是**递归平铺**整棵树；本仓是
+     **单目录**浏览器 ⇒ `path` 前缀恒等于当前目录，拿它匹配会「当前目录里每条都命中」（假命中）。
+   - `fsFilterPlaceholder()` / `fsFilterEmptyText(query)` —— 空态**必须区分**「空目录」与「没匹配」，
+     后者带上查询原文（⛔ 不静默：用户得知道是"过滤没命中"而不是"目录是空的"）。
+2. `components/FilesSheet.ets`：目录列表上方加**内联过滤行**（放大镜 + `TextInput` + 清除键，
+   ⛔ 清除键是 ≥44 布局盒，不是 `responseRegion` 外扩）；过滤结果缓存在 `@State filtered`
+   （**不在 build 里现算** —— 大目录 `LazyForEach` 虚拟化，build 重建数组会打爆滚动帧）。
+3. 判据 `tools/tests/files_pure.test.ts`（**66 passed**）：空查询/纯空白不过滤、大小写不敏感、
+   中间子串命中、目录也参与、无命中空数组、返回新数组、不改顺序、空态文案两态不同、占位非空。
+
+### ⚠️ 本轮踩到并修好的门禁（值得记住）
+> **性能预算 B 线**（全仓 `this.pal()` ∨ `this.palOnce()` **调用点**总数 ≤ 1350，**只许减**）：
+> 过滤行按"看着直白"逐处直写 role（+6 站点）⇒ 基线 1349 → **1355 真红**。
+> ⇒ 照抄本仓既有形态（`TerminalSheet.keyRoleColor`）：收成一个 `tint(role)` 方法（**一次取色**换 N 站点）
+> ⇒ 全仓 **1325**。
+> ⛔ **两处故意不收敛**：页头**关闭 X** 取色（`sheet_chrome` ② 钉 `iconMuted`/`dangerText`）与
+> **面板根容器**实底面（`panel_surface_consistency` A 钉 `surface.overlay`）—— 这两条是**设计判据**、
+> 静态扫描看**调用片段**，走 `tint(role)` 会让判据失去判别力（本轮实测这两条直接红，已还原字面量）。
+> 另注：门禁用 `grep -oE` 计数、**不剥注释** ⇒ 注释里也别写该字面量。
