@@ -14,7 +14,7 @@
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import { FS_CAPTION, R_LG, R_XL, SP_2, SP_3 } from '../core/tokens';
 import {
-  HIT_TARGET_MIN, PRESS_OPACITY, GAP_PILL, INSET_CARD_X, INSET_PILL_X, INSET_PILL_Y, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, hairlineOf, structuralRuleOf, surfaceFillOf, ICON_XL, ICON_LG } from '../core/design';
+  HIT_TARGET_MIN, PRESS_OPACITY, GAP_PILL, INSET_CARD_X, INSET_PILL_X, INSET_PILL_Y, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, SHEET_ACTION_GLYPH, colorOf, hairlineOf, structuralRuleOf, surfaceFillOf, ICON_XL } from '../core/design';
 import { fs, fw } from './SettingsRows';
 import { MarkdownView } from './MarkdownView';
 import { sheetTransition } from './anim';
@@ -55,8 +55,8 @@ export struct SelfCheckSheet {
           // ⛔ 关闭 X：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`；
           //    图标视觉尺寸不变（仍 16，盒内居中）。
           Row() {
-            SymbolGlyph($r('sys.symbol.xmark')).fontSize(ICON_LG)
-              .fontColor([this.pal().textSecondary])
+            SymbolGlyph($r('sys.symbol.xmark')).fontSize(SHEET_ACTION_GLYPH)
+              .fontColor([colorOf(this.pal(), 'iconMuted')])
           }
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center)

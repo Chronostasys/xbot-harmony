@@ -20,8 +20,8 @@
 import { AnsiSpan, ansiBgOf, ansiFgOf, ansiPaletteOf, ansiSpansIfAny, hasAnsi } from '../core/ansi';
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import {
-  colorOf, HIT_TARGET_MIN, ICON_MD, PRESS_OPACITY, RADIUS_SHEET, SPACE_MD, SPACE_SM, SPACE_XS,
-  SURFACE_CARD, surfaceFillOf, typeOf,
+  colorOf, HIT_TARGET_MIN, ICON_MD, PRESS_OPACITY, RADIUS_SHEET, SHEET_ACTION_GLYPH, SPACE_MD, SPACE_SM,
+  SPACE_XS, SURFACE_CARD, surfaceFillOf, typeOf,
 } from '../core/design';
 import { sheetTransition } from './anim';
 
@@ -127,7 +127,7 @@ export struct TaskDetailSheet {
           }
           Row() {
             SymbolGlyph($r('sys.symbol.xmark'))
-              .fontSize(ICON_MD)
+              .fontSize(SHEET_ACTION_GLYPH)
               .fontColor([colorOf(this.palOnce(), 'iconMuted')])
           }
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)

@@ -12,7 +12,7 @@
  */
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import { QueueItem } from '../core/types';
-import { PRESS_OPACITY, STROKE_HAIRLINE, SURFACE_CARD, hairlineOf, structuralRuleOf, surfaceFillOf, ICON_LG, HIT_TARGET_MIN } from '../core/design';
+import { PRESS_OPACITY, STROKE_HAIRLINE, SURFACE_CARD, SHEET_ACTION_GLYPH, colorOf, hairlineOf, structuralRuleOf, surfaceFillOf, HIT_TARGET_MIN } from '../core/design';
 import { FS_CAPTION, R_LG, R_MD, R_XL, SP_2, SP_3, SP_4 } from '../core/tokens';
 import { fs, fw, lh } from './SettingsRows';
 // 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线/位移；E3 统一）。
@@ -82,8 +82,8 @@ export struct QueueSheet {
             })
           // ⛔ 关闭 X：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`。
           Row() {
-            SymbolGlyph($r('sys.symbol.xmark')).fontSize(ICON_LG)
-              .fontColor([this.pal().textSecondary])
+            SymbolGlyph($r('sys.symbol.xmark')).fontSize(SHEET_ACTION_GLYPH)
+              .fontColor([colorOf(this.pal(), 'iconMuted')])
           }
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center)
@@ -151,7 +151,7 @@ export struct QueueSheet {
                   this.onInterject(this.idOf(q), this.textOf(q));
                 })
                 Row() {
-                  SymbolGlyph($r('sys.symbol.xmark')).fontSize(15).fontColor([this.pal().dangerText])
+                  SymbolGlyph($r('sys.symbol.xmark')).fontSize(SHEET_ACTION_GLYPH).fontColor([this.pal().dangerText])
                 }
                 .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
                 .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })

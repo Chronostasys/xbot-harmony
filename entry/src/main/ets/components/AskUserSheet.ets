@@ -39,8 +39,8 @@ import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import { AskOption, AskQuestion } from '../core/types';
 import {
   PRESS_OPACITY,   DISABLED_OPACITY, HIT_TARGET_MIN, INSET_CARD_X, INSET_ROW_X, INSET_ROW_Y,
-  MARKER_SLOT, RADIUS_CARD, RADIUS_PILL, SPACE_HAIR, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XS,
-  STROKE_HAIRLINE, SURFACE_COMPOSER, hairlineOf, surfaceFillOf,
+  MARKER_SLOT, RADIUS_CARD, RADIUS_PILL, SHEET_ACTION_GLYPH, SPACE_HAIR, SPACE_LG, SPACE_MD, SPACE_SM,
+  SPACE_XS, STROKE_HAIRLINE, SURFACE_COMPOSER, colorOf, hairlineOf, surfaceFillOf,
 } from '../core/design';
 import { fs, fw, lh, tc, tk } from './SettingsRows';
 // 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线/位移；E3 统一）。
@@ -50,12 +50,13 @@ import { fs, fw, lh, tc, tk } from './SettingsRows';
 import { sheetTransition } from './anim';
 
 /**
- * X 关闭图标的视觉边长（vp）—— 与 `type.headline` 字号一致。
- * ⚠️ **报备**：`core/design.ets` 无「图标按钮视觉边长」token。
+ * 关闭 X 的视觉边长 —— 统一走 `SHEET_ACTION_GLYPH`（2026-10-12）。
+ * 此前本文件与 `StatusSheet` **各定义一份** `X_GLYPH = 17` 魔数，而 `ICON_LG`(16)/`ICON_MD`(14)
+ * 的 sheet 并存 ⇒ 9 个"关闭"出现**三种尺寸 + 三族颜色**（细节不一致）。现由 design 层**单一 token**
+ * 收口；⛔ 不再在本文件定义局部魔数（`tools/tests/sheet_chrome.test.ts` 硬红拦回归）。
  * ⛔ 热区**不靠** `responseRegion` 负偏移外扩（真机实测（SDK21）**无效**，见 `AGENTS.md` GOTCHAS）
  *    ⇒ 图标放进**真实 `HIT_TARGET_MIN`×`HIT_TARGET_MIN` 布局盒**、盒内居中、`onClick` 落在该盒。
  */
-const X_GLYPH: number = 17;
 /**
  * 问题列表最大高（vp）。
  * ⚠️ **报备**：无 `list.maxHeight` token（仓内 QueueSheet/PluginsSheet 亦为字面量高度）。
@@ -129,8 +130,8 @@ export struct AskUserSheet {
           //    （热区 = 布局盒本身）；图标**视觉尺寸不变**（17，盒内居中）。
           Row() {
             SymbolGlyph($r('sys.symbol.xmark'))
-              .fontSize(X_GLYPH)
-              .fontColor([this.pal().textSecondary])
+              .fontSize(SHEET_ACTION_GLYPH)
+              .fontColor([colorOf(this.pal(), 'iconMuted')])
           }
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center)

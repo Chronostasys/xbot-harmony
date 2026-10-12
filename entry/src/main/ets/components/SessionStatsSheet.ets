@@ -20,8 +20,9 @@
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import { ByModelRow, SessionUsage, StatCell, byModelRows, contextCells, overviewCells, perfCells, recentTableHeader, recentTableText } from '../core/sessionstats';
 import {
-  colorOf, hairlineOf, HIT_TARGET_MIN, ICON_LG, ICON_MD, INSET_ROW_X, INSET_ROW_Y, PRESS_OPACITY,
-  RADIUS_CARD, RADIUS_SHEET, SPACE_MD, SPACE_SM, SPACE_XS, SPACE_XXS, STROKE_HAIRLINE, structuralRuleOf,
+  colorOf, hairlineOf, HIT_TARGET_MIN, ICON_MD, INSET_ROW_X, INSET_ROW_Y, PRESS_OPACITY,
+  RADIUS_CARD, RADIUS_SHEET, SHEET_ACTION_GLYPH, SPACE_MD, SPACE_SM, SPACE_XS, SPACE_XXS, STROKE_HAIRLINE,
+  structuralRuleOf,
   SURFACE_CARD, surfaceFillOf, typeOf,
 } from '../core/design';
 import { sheetTransition } from './anim';
@@ -206,8 +207,8 @@ export struct SessionStatsSheet {
           })
           Row() {
             SymbolGlyph($r('sys.symbol.xmark'))
-              .fontSize(ICON_LG)
-              .fontColor([this.cSecondary()])
+              .fontSize(SHEET_ACTION_GLYPH)
+              .fontColor([colorOf(this.palOnce(), 'iconMuted')])
           }
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)

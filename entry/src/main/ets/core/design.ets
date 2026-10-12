@@ -612,6 +612,21 @@ export const ICON_MD: number = 14;
 /** 大图标（触屏命中区内的操作图标；web `h-4 w-4` = 16）。 */
 export const ICON_LG: number = 16;
 export const ICON_XL: number = 20;   // 大图标档（原 22 与 20 的图标站点并入 ⇒ 见 tools/tests/icon_size_tokens.test.ts 台账）
+/**
+ * **面板/sheet 页头动作图标**（关闭 X、刷新…）的视觉边长。
+ *
+ * 为什么需要它（2026-10-12 实测清点）：9 个 sheet 的"关闭 X"曾**各写各的** —— `X_GLYPH=17`
+ * （`AskUserSheet`/`StatusSheet` 两处各定义一份同名魔数）、`ICON_LG=16`、`ICON_MD=14` **三种尺寸并存**，
+ * 且颜色也是三族（`pal().textSecondary` / `palOnce().textSecondary` / `colorOf(…,'iconMuted')`）。
+ * 同一个"关闭"在不同面板里大小/深浅都不一样 ⇒ 观感像不同产品拼起来的（违反目标③"所有面板一个设计系统"）。
+ *
+ * 取值 = `ICON_LG`（**已有 token，非新魔数**）：① 它是"触屏命中区内的操作图标"档，页头 X 正是此语义；
+ * ② 对齐 web 权威的关闭按钮尺寸（`MessageAnnotations.tsx:347` `size-4` = 16px）；③ 现状 4 个 sheet
+ * 已用它（多数派）。**每处必须真实 ≥`HIT_TARGET_MIN` 布局盒**承载 `onClick`（`responseRegion` 负偏移
+ * 外扩在真机/SDK21 上无效，见 `AGENTS.md` GOTCHAS）。
+ * 判据：`tools/tests/sheet_chrome.test.ts`（形态契约，零扫描判红 + mutation 自证）。
+ */
+export const SHEET_ACTION_GLYPH: number = ICON_LG;
 
 // ── 控件尺寸（设置行 / 输入 / chip）──────────────────────────────────────────
 /** 输入控件高度 = 最小命中区 44（数值与 §6 `HIT_TARGET_MIN` 同源，测试钉同值以免分叉）。 */

@@ -30,7 +30,8 @@ import {
 } from '../core/termproto';
 import { Palette, paletteOf } from '../core/theme';
 import {
-  colorOf, HIT_TARGET_MIN, ICON_MD, PRESS_OPACITY, RADIUS_CHIP, RADIUS_PILL, RADIUS_SHEET, SPACE_MD,
+  colorOf, HIT_TARGET_MIN, PRESS_OPACITY, RADIUS_CHIP, RADIUS_PILL, RADIUS_SHEET,
+  SHEET_ACTION_GLYPH, SPACE_MD,
   SPACE_SM, SPACE_XS, surfaceFillOf, typeOf,
 } from '../core/design';
 import { sheetTransition } from './anim';
@@ -409,7 +410,7 @@ export struct TerminalSheet {
 
         Row() {
           SymbolGlyph($r('sys.symbol.xmark'))
-            .fontSize(ICON_MD)
+            .fontSize(SHEET_ACTION_GLYPH)
             .fontColor([colorOf(this.palOnce(), 'iconMuted')])
         }
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)

@@ -1495,3 +1495,62 @@ SLIDE_SWITCH / translate / rotate / scale / move / asymmetric`；`.height()` 也
 装机后展开思考区目视：正文**淡入**且**一定可见**（不透明度地板）、停下不消失；busy 且有内容时
 主按钮图标**替换过渡**到 ⚡。
 
+## §21.23 目标③「所有面板一个设计系统」：关闭 X 收成单一 token（2026-10-12）
+
+**发现方式（先量后改，非拍脑袋）**：逐文件清点 9 个 sheet 的"页头关闭 X" —— **尺寸三族**
+（`X_GLYPH=17` / `ICON_LG=16` / `ICON_MD=14`，另有 `QueueSheet` 行内移除 X 的裸 `15`）、
+**颜色三族**（`pal().textSecondary` / `palOnce().textSecondary` / `colorOf(…,'iconMuted')`）。
+`X_GLYPH` 还是个**同名魔数各写两份**（`AskUserSheet.ets:58`、`StatusSheet.ets:54`）。
+
+**为什么算缺陷**：用户要求③是"**所有面板**一个设计系统、对标苹果"。同一个"关闭"在不同面板里
+字号差 3vp、深浅不同 ⇒ 面板之间互相切换时观感是"几个产品拼起来的"。这不是审美偏好，
+是**同一个语义控件没有单一来源**。
+
+**修法**（单一来源 + 语义命名，⛔ 不新造魔数）：
+- `core/design.ets` 新增 `SHEET_ACTION_GLYPH: number = ICON_LG` —— 用**已有 token** 作值。
+  选 `ICON_LG`(16) 的三条理由：① 它的语义就是"触屏命中区内的操作图标"；② 对齐 web 权威的
+  关闭按钮尺寸（`MessageAnnotations.tsx:347` `size-4` = 16px）；③ 现状**多数派**（4 个 sheet 已用）。
+- 9 个 sheet 的关闭 X 一律 `.fontSize(SHEET_ACTION_GLYPH)` + `.fontColor([colorOf(…, 'iconMuted')])`
+  —— 弱色图标走**计算型 role**（AGENTS.md「⛔ `iconMuted` 是计算型 role」条）。
+  例外**显式**保留：`QueueSheet` 行内"移除"是**破坏性**动作 ⇒ 仍 `dangerText`（颜色语义不同）。
+- 删掉两处 `X_GLYPH` 局部魔数；清掉因此归零的未用 import（4×`ICON_LG` + 1×`ICON_MD`）。
+
+**已复核「非缺陷」（同一批账目，附实证，避免下次重复怀疑）**：
+- **底部统计行"右侧溢出"= 假警报**。用密度反解（环 `SP_5`=20vp → 实测 68px ⇒ **density = 3.4**）
+  逐项对上声明值：`padding left:10`→34px（实测环左缘 **33**）· 环 `SP_7`=28vp→95px（实测 **95**）·
+  `Row(space:8)`→27px（实测 128→155 = **27**）· 右内边距→1286px（实测文本右缘 **1288**）。
+  ⇒ 文本盒**已撑满到右内边距**（`layoutWeight(1)` 生效），字符串比盒短故无省略号。
+  先前"1288 vs 屏宽 1320 差 32"就是 `padding 10vp`(34px) 取整。
+- **`/api/chats/list` 与抽屉"不同源"= 假警报**。抽屉单一数据源 = `/api/session-tree`
+  （`core/store.ets:402`），`/api/chats/list` 全仓 **0 调用点**（仅 3 处注释提及）；web 侧栏
+  **同样**只走 `session-tree`（`web/src/hooks/useSessionStore.ts:1028`）⇒ 两端同源。
+  且**无分页缺陷**：POST 版服务端缺 `limit` ⇒ `limit=-1` = **全量**（`web_rest.go:743-759`）。
+- **抽屉行分隔线**：已 `Divider().margin({left: INSET_ROW_X, right: INSET_ROW_X})`（与行内边距对齐，
+  即 Apple 的内缩分隔线）⇒ 无需改。
+- **`TaskDetailSheet` 的 `xmark_circle_fill`**：那是**终止任务**键（`dangerText`，仅运行中显示），
+  **不是**关闭键（关闭仍是 `xmark`）⇒ 不同语义、不同字形是**正确**的，不在本次收编范围。
+
+**判据（新增 + 演进，⛔ 不删除）**：
+- **新增** `tools/tests/sheet_chrome.test.ts`（形态契约，61 断言）：① `design.ets` 导出
+  `SHEET_ACTION_GLYPH = ICON_LG`（钉**等值**，防有人改成别的值而静默漂移）；② 9 个 sheet 的
+  **每一处**关闭 X 都必须走该 token + `'iconMuted'`（破坏性 `dangerText` 显式放行）、
+  ⛔ 不得用 `.textSecondary`/`.textPrimary` 当图标色；③ **逐文件钉命中数**（合计 **10**，删一处即红）；
+  ④ 无 `X_GLYPH` 魔数回归。
+  **判据纪律**：先**剥注释**（`AskUserSheet`/`StatusSheet` 的注释**正文明写** `X_GLYPH`，不剥必假红）；
+  只取**属性链片段**（从字形行向下，遇到不以 `.` 开头的行即止 —— ⛔ 不用固定 500 字符窗口，
+  那会串到下一字形的属性上 ⇒ 假绿）；**零扫描判红**。
+- **演进** `tools/tests/icon_size_tokens.test.ts`：`PluginsSheet`/`QueueSheet` 两行的 needle 从
+  `fontSize(ICON_LG)` 迁到 `fontSize(SHEET_ACTION_GLYPH)`（语义别名，值同族）⇒ **判据不删只演进**；
+  `ICON_LG` 的"非零消费"由 `Lightbox` 行继续保证。
+
+**mutation 自证**（先跑通再上报）：把 `AskUserSheet` 的 `.fontSize(SHEET_ACTION_GLYPH)` 改回
+`.fontSize(17)`、`.fontColor([colorOf(…,'iconMuted')])` 改回 `[this.pal().textSecondary]`
+⇒ **`58 passed, 3 failed`（exit 1）**，三条判据各自命中；还原后 **md5 逐字节一致**
+（`6f3fd8839c23776afa81a46feba4d9a9`），0 条 `MUTATION-REMOVED` 残留。
+
+**判据（提交前已取得）**：`bash tools/gate.sh` ⇒ `✅ 真门禁全绿` + `④ ArkTS BUILD SUCCESSFUL`（exit 0）；
+性能预算逐条达标：A 线 `this.pal()` **1244**/1250（未变）· B 线 **1347**/1350（+1，`SessionStatsSheet`
+的 `palOnce` 从 helper 内移到调用点）· ForEach **107**/107（未变）· `anim*()` 14/20。
+⚠️ 实现期内曾因 `PluginsSheet`/`QueueSheet` 的 `fontSize(ICON_LG)` 归零而**红过一次**
+（`icon_size_tokens` 2 条）—— 这正是"判据有判别力"的证据：**改动被文档化的台账当场抓住**。
+

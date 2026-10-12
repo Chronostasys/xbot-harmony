@@ -40,18 +40,18 @@
  */
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import {
-  PRESS_OPACITY, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, RADIUS_CHIP, SPACE_HAIR,
-  SPACE_LG, SPACE_SM,
+  PRESS_OPACITY, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, RADIUS_CHIP, SHEET_ACTION_GLYPH,
+  SPACE_HAIR, SPACE_LG, SPACE_SM,
   SPACE_XS, STROKE_HAIRLINE, hairlineOf, surfaceFillOf, colorOf, } from '../core/design';
 import { fs, fw, lh, tc, tk } from './SettingsRows';
 import { sheetTransition } from './anim';
 
 /**
- * X 关闭图标的视觉边长（vp，= `type.headline` 字号）。
- * ⚠️ **报备**：无「图标按钮视觉边长」token。
+ * 关闭 X 的视觉边长 —— 统一走 `SHEET_ACTION_GLYPH`（2026-10-12，与 `AskUserSheet` 同一 token）。
+ * 此前本文件与 `AskUserSheet` **各定义一份** `X_GLYPH = 17` 魔数 ⇒ 已并入 design 层单一 token；
+ * ⛔ 不再在本文件定义局部魔数（`tools/tests/sheet_chrome.test.ts` 硬红拦回归）。
  * ⛔ 热区不靠 `responseRegion` 负偏移外扩（真机实测无效）⇒ 真实 44×44 布局盒承载 `onClick`。
  */
-const X_GLYPH: number = 17;
 
 /**
  * 一行「标签 + 值」——层级 = 标签次级色 / 值主色（web `SessionInfo.tsx` 的 `InfoRow`）。
@@ -249,8 +249,8 @@ export struct StatusSheet {
           //    图标视觉尺寸不变（仍 17，盒内居中）。
           Row() {
             SymbolGlyph($r('sys.symbol.xmark'))
-              .fontSize(X_GLYPH)
-              .fontColor([this.pal().textSecondary])
+              .fontSize(SHEET_ACTION_GLYPH)
+              .fontColor([colorOf(this.pal(), 'iconMuted')])
           }
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center)

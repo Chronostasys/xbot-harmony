@@ -45,8 +45,12 @@ if (repo.length > 0) {
   const WANT: string[][] = [
     ['entry/src/main/ets/components/Lightbox.ets', 'fontSize(ICON_LG)'],
     ['entry/src/main/ets/components/MarkdownView.ets', 'fontSize(ICON_SM)'],
-    ['entry/src/main/ets/components/PluginsSheet.ets', 'fontSize(ICON_LG)'],
-    ['entry/src/main/ets/components/QueueSheet.ets', 'fontSize(ICON_LG)'],
+    // ⚠️ 2026-10-12 收编演进（目标③「所有面板一个设计系统」）：`PluginsSheet`/`QueueSheet` 的页头关闭 X
+    //    从**裸 token** `fontSize(ICON_LG)` 改走**语义别名** `SHEET_ACTION_GLYPH`（值 = `ICON_LG`，同族；
+    //    见 `tools/tests/sheet_chrome.test.ts` ① 钉死等值）。⇒ 两行 needle 随语义迁移，**判据不删只演进**
+    //    （`ICON_LG` 本身的"非零消费"由 `Lightbox` 行继续保证；⛔ 若哪天也归零，那才是真该删 token 的信号）。
+    ['entry/src/main/ets/components/PluginsSheet.ets', 'fontSize(SHEET_ACTION_GLYPH)'],
+    ['entry/src/main/ets/components/QueueSheet.ets', 'fontSize(SHEET_ACTION_GLYPH)'],
     ['entry/src/main/ets/components/ToolPopover.ets', 'fontSize(ICON_SM)'],
     ['entry/src/main/ets/components/SelfCheckSheet.ets', 'fontSize(ICON_XL)'],
   ];

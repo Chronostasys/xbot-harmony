@@ -23,7 +23,8 @@ import {
   joinFsPath,
 } from '../core/files';
 import {
-  colorOf, hairlineOf, HIT_TARGET_MIN, INSET_ROW_X, PRESS_OPACITY, RADIUS_CARD, RADIUS_SHEET, SPACE_MD,
+  colorOf, hairlineOf, HIT_TARGET_MIN, INSET_ROW_X, PRESS_OPACITY, RADIUS_CARD, RADIUS_SHEET,
+  SHEET_ACTION_GLYPH, SPACE_MD,
   SPACE_SM, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD, surfaceFillOf, ICON_MD, typeOf,
 } from '../core/design';
 // 本面板是**侧栏**（不是底部面板）⇒ 走 `drawerTransition()`（横向滑入），与 `DrawerSheet` 同语义；
@@ -199,7 +200,7 @@ export struct FilesSheet {
         }
         Row() {
           SymbolGlyph($r('sys.symbol.xmark'))
-            .fontSize(ICON_MD).fontColor([colorOf(this.palOnce(), 'iconMuted')])
+            .fontSize(SHEET_ACTION_GLYPH).fontColor([colorOf(this.palOnce(), 'iconMuted')])
         }
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)

@@ -36,7 +36,8 @@ import { PluginPanelStatus, pluginMetaText, pluginPanelStatus } from '../core/pl
 import { pluginSymbol } from './PluginHost';
 import {
   colorOf, GAP_ROW_Y, hairlineOf, structuralRuleOf, surfaceFillOf, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y,
-  PRESS_OPACITY, RADIUS_CARD, RADIUS_SHEET, SPACE_MD, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD, ICON_LG } from '../core/design';
+  PRESS_OPACITY, RADIUS_CARD, RADIUS_SHEET, SHEET_ACTION_GLYPH, SPACE_MD, SPACE_SM, SPACE_XS, STROKE_HAIRLINE,
+  SURFACE_CARD } from '../core/design';
 import { fs, fw } from './SettingsRows';
 // 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线；E3 统一）。
 import { sheetTransition } from './anim';
@@ -124,8 +125,8 @@ export struct PluginsSheet {
             .fontColor(this.pal().textPrimary).layoutWeight(1)
           // ⛔ 关闭 X：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`。
           Row() {
-            SymbolGlyph($r('sys.symbol.xmark')).fontSize(ICON_LG)
-              .fontColor([this.pal().textSecondary])
+            SymbolGlyph($r('sys.symbol.xmark')).fontSize(SHEET_ACTION_GLYPH)
+              .fontColor([colorOf(this.pal(), 'iconMuted')])
           }
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center)
