@@ -26,7 +26,7 @@ import { channelForChat } from './sessionpick';
 import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
 import { moveOrders, parseSearchHits, searchBody, SEARCH_LIMIT_DEFAULT, SearchBody, chatSwitchPath, chatSwitchChannel, ChatSwitchResult, parseChatSwitch } from './sessionops';
 import { RewindReq, RewindTarget, gapTopBefore, rewindTargetDBID } from './msgops';
-import { BgTask, CronJob, KillBgTaskParams, RunnerRow, SubAgentRow, isWidgetEvent } from './panels';
+import { activeSubAgentNodes, BgTask, CronJob, findSessionNodeOf, KillBgTaskParams, RunnerRow, SubAgentRow, subAgentRowOf, isWidgetEvent } from './panels';
 import { PromoteShellParams, PromoteShellResult, promoteSessionKey } from './toolshell';
 import { TerminalInfo } from './termproto';
 import { serverKey, toLocalSettings, KEY_ACCENT } from './settings';
@@ -403,28 +403,23 @@ export class ChatStore {
   async loadSessions(): Promise<void> {
     const data: SessionTreeData = await this.http.postAs<SessionTreeData>(
       '/api/session-tree', new EmptyReq());
-    // 子代理也来自会话树（面板用；不是另开一个数据源）
-    const subs: SubAgentRow[] = [];
-    // ⚠️ 服务端 Go 的 nil slice → JSON null：必须用 arrOrEmpty，不能只判 undefined。
-    //   P0 根因：orphan_subagents 为 null 时 `orphan.length` 抛 "Cannot read property length of null"。
-    const orphan: SessionItem[] = arrOrEmpty(data.orphan_subagents);
-    for (let i = 0; i < orphan.length; i++) {
-      const src: SessionItem = orphan[i];
-      const row: SubAgentRow = new SubAgentRow();
-      // ⚠️ 外来 JSON：字符串字段可能是 null（Go nil → JSON null）⇒ 必须三态，
-      //    否则 `null` 会落进 `row.chat_id`（标注 string）并在下游 `.length` 处炸。
-      const cid: string | null | undefined = src.chat_id;
-      const lb: string | null | undefined = src.label;
-      row.chat_id = cid !== undefined && cid !== null ? cid : '';
-      row.label = lb !== undefined && lb !== null ? lb : '';
-      row.running = src.running === true;
-      subs.push(row);
-    }
-    this.subagents = subs;
     // sessions/chats 同为服务端返回 ⇒ 均可能为 null（曾 `sessions !== undefined && sessions.length` 崩溃）。
     const sessionList: SessionItem[] = arrOrEmpty(data.sessions);
     const list: SessionItem[] = sessionList.length > 0 ? sessionList : arrOrEmpty(data.chats);
     this.sessions = list;
+    // 子代理 = **当前会话节点的 children**（只取活跃者）—— web `TasksPanel.tsx:36-40` 同源。
+    //  ⛔ 15h 实锤（用户「任务管理做的很差」的第二处）：旧实现取 `orphan_subagents`（孤立根），
+    //     而后端对当前会话**恒返回 `null`** ⇒ 面板「子代理」tab **结构性永远空**；
+    //     web 列的是当前会话的子代理树（后端实测 `harmony-ui-dev` 有 19 个 `type=agent` 子项）。
+    //  ⚠️ 服务端 Go 的 nil slice → JSON `null` ⇒ 一律 `arrOrEmpty`/三态取值（历史 P0 形态）。
+    //  ⚠️ 必须在 `list` 声明**之后**（否则 TS2448 块级变量先用后声明 —— 本轮编译真红过）。
+    const node: SessionItem | null = findSessionNodeOf(list, this.currentChatId);
+    const actives: SessionItem[] = activeSubAgentNodes(node);
+    const subs: SubAgentRow[] = [];
+    for (let i = 0; i < actives.length; i++) {
+      subs.push(subAgentRowOf(actives[i]));
+    }
+    this.subagents = subs;
     // 会话树的 `running` 是服务端权威忙碌标记 —— 本地 busy 只是 SSE 事件的快路径，
     // 错过一条 idle（断线重连/切后台）就会永远显示"运行中"。每次拉到会话树都对账一次。
     // 例外：刚发送的 3 秒内不对账（乐观 busy 先行，服务端标记 running 有一个 RTT 窗口）。

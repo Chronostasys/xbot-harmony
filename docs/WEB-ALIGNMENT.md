@@ -2852,3 +2852,63 @@ busy 时**置位**（恰 1）· `finally` 里**判读**（恰 1）· **先清后
 真机终验需用户在场/授权。② 面板其余 tab（子代理/Runner/定时任务）的**内容形态**尚未逐屏量测
 （本批只确证了"取数被吞"这一条硬缺陷）。
 
+
+## §21.50 目标④「任务管理做的很差」第二处实锤：面板「子代理」tab **结构性永远空**（2026-10-12）
+
+**用户原话**（长期目标④）：「任务管理做的很差」⇒ §21.49 修掉「取数被吞」后继续逐 tab 深审，
+抓到更硬的一条：**这一页永远不可能显示任何东西**。
+
+**取证（后端 + web 权威 + 代码三方对照）**
+- 后端 `POST /api/session-tree`（当前会话 `channel=web, chat_id=chat_EDE9F493EB26`）：
+  `orphan_subagents: null`（**恒 null**），而子代理**挂在会话节点的 `children` 下** ——
+  实测 `harmony-ui-dev` 有 **19** 个 child、`ctrlc-tui-bugfix` 有 1 个，字段 `type='agent'` +
+  `role`/`instance`/`parent_chat_id`/`historical`/`status`。
+- 原生旧实现：`this.subagents` 取自 `orphan_subagents`（`store.ets:410`）⇒ 对当前会话**恒空**，
+  面板「子代理」永远是「暂无子代理会话」。
+- web 权威：`TasksPanel.tsx:36-40` = `findSessionNode(activeSession).children` →
+  `flattenSubAgentTree`（`session-tree.ts:37`，**DFS 前序**）→ `filter(isActiveSubAgent)`
+  （`:300` = `running===true || status ∈ {running, waiting_input, pending}`）。
+  ⇒ 原生**选错了数据源**（不是渲染问题、也不是后端问题）。
+
+**修法（三层；判据与渲染同源）**
+1. `core/types.ets`：`SessionItem` 补 `children?`/`role?`/`instance?`/`status?`/`historical?`/`preview?`/`type?`
+   —— 此前**只解析 5 个字段**，children 等全被丢弃（这正是"看不见"的根）。
+2. `core/panels.ets`：新增**纯函数**（可脱机单测，组件只消费）：
+   `findSessionNodeOf`（递归按 `chat_id` 找节点）· `isActiveSubAgent`（**逐字**对齐 web `:300`）·
+   `flattenSubAgentNodes`（**DFS 前序** + `channel#chat_id` 去重防自引用死循环；⛔ 无闭包递归，显式栈）·
+   `activeSubAgentNodes` · `subAgentRowOf`（三态取值：JSON `null` → 空串）。
+   并把 `subagentPrimary` 升级为 web `subAgentTitle` 口径（`role/instance` 优先 → `label` → `chat_id`）、
+   `subagentSubText` 扩到 `preview`/等待输入/排队中/运行中/历史/完成。
+3. `core/store.ets`：`subagents` 改由**当前会话节点**的 `children` 派生
+   （`findSessionNodeOf(list, currentChatId)` → `activeSubAgentNodes` → `subAgentRowOf`）。
+   ⚠️ 必须放在 `list` 声明**之后** —— 首版放前面直接吃到 `TS2448 块级变量先用后声明`（编译真红过）。
+
+**判据（新增 + 演进，⛔ 不删除）**
+- 新增 `tools/tests/panels_subagents.test.ts`（**35 passed**）：DFS 前序（⛔ 用 BFS 会被抓）· 去重 ·
+  **自引用不死循环** · 活跃判据 8 条（含 `status='active'` **不算**活跃 —— 与 `core/subagent.ets`
+  的 `isLiveSubAgent` 是**两条有意不同的判据**，该差异**必须**钉住）· 只留活跃者 · 递归查找 ·
+  行映射三态取值 · 标题/副行 11 条。
+- 演进 `tools/tests/store_null.test.ts`（26 passed）：fixture 把 null 字段子代理挪到**当前会话 children** 下，
+  并加**反向锚** —— `orphan_subagents` 里放 `label='ORPHAN-MUST-NOT-APPEAR'` 的项，
+  断言子代理列表**恰 1 条且 label 为空串** ⇒ 一旦退回 orphan 口径**必红**。
+- **mutation 自证 ×3（⛔ 切片内注入**，见 §21.49 教训）：㈠ `isActiveSubAgent` 改恒真 ⇒ **6 红**；
+  ㈡ 展平的子节点压栈顺序反转（前序变错序）⇒ **1 红**；㈢ store 把 `findSessionNodeOf(list, currentChatId)`
+  换成 `null`（源头断链）⇒ `store_null` **1 红**。三次 `cp` 还原后 **md5 逐字节一致**
+  （`b86b7de5…` / `aa759e09…`）。
+
+**真机确认**：装机后本会话「子代理」显示「暂无子代理会话」**是正确空态**（该会话 `children` 为空）；
+**遗留**：需要一个"有活跃子代理"的会话做端到端截图确认（本批未遇上）。
+
+**方法论纠正（重要，省下后续大量时间）**
+- ⛔ 我在 §21.49 记的「运行面板是**独立 window**，`uitest dumpLayout` 抓不到」**是错的** ——
+  那是**动画瞬态**误判（在弹层滑入动画完成前 dump）。本轮实测 `dumpLayout` **能**抓到全部 5 个 tab
+  芯片的精确 bounds（`定时任务[57,1119][279,1226]`、`后台任务 115[306,1119][609,1226]`、
+  `子代理[636,1119][818,1226]`、`Runner[845,1119][1039,1226]`、`终端[1066,1119][1207,1226]`）
+  ⇒ **面板的一切量测/点击都应走 `dumpLayout`**（精确），不必再做像素考古。
+- ⚠️ 弹层是**内容驱动高度**：空态时表头 `y≈2100`（芯片 `y≈2394`），有内容时表头 `y≈984`
+  （芯片 `y≈1119`）⇒ **上一帧的坐标不可复用**（每帧重新定位）。
+- ⚠️ `view_image` 给的是**缩放帧**（1320×2848 → 最长边 2048），肉眼估的坐标**不能用于点击**
+  （我据此点空过两次）。
+- ⚠️ 芯片**文字匹配**会被聊天正文里的同名字样污染（"子代理"命中了我自己的消息）⇒
+  定位必须**限定在芯片带**（先用唯一的「后台任务 N」药丸定出该带的 y）。
+

@@ -36,6 +36,22 @@ export interface SessionItem {
   label?: string;
   last_active?: string;
   running?: boolean;
+  /**
+   * 会话树**子节点**（子代理挂在当前会话的 `children` 下 —— 后端实测：`harmony-ui-dev` 有 19 个
+   * `type=agent` 的子项）。此前**未解析** ⇒ 面板「子代理」tab 取的是 `orphan_subagents`（后端恒
+   * `null`）⇒ **结构性永远空**（15h 实锤，见 `docs/WEB-ALIGNMENT.md §21.50`）。
+   */
+  children?: SessionItem[];
+  /** 子代理身份：`role`/`instance`（web `subAgentTitle` 优先用它们）。 */
+  role?: string;
+  instance?: string;
+  /** 子代理状态（`running`/`waiting_input`/`pending`/`done`…；web `isActiveSubAgent` 判据之一）。 */
+  status?: string;
+  /** 是否历史会话（web 副行文本用）。 */
+  historical?: boolean;
+  preview?: string;
+  /** 会话类型（`main`/`agent`）。 */
+  type?: string;
 }
 
 export interface SessionTreeData {

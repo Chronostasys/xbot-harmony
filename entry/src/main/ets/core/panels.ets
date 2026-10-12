@@ -15,8 +15,9 @@
  *    只能返回字符串、用不了 `SymbolGlyph`，故文字是唯一自洽解。
  */
 
+import { arrOrEmpty } from './guards';
 import { ST_ERROR, toolStatusKind } from './toolstatus';
-import { SseEventType } from './types';
+import { SessionItem, SseEventType } from './types';
 
 export interface CronJob {
   id?: string;
@@ -62,6 +63,109 @@ export class SubAgentRow {
   chat_id: string = '';
   label: string = '';
   running: boolean = false;
+  /** 15h：标题/副行对齐 web（`TasksPanel.tsx:308 subAgentTitle` 优先 `role/instance`）。 */
+  role: string = '';
+  instance: string = '';
+  /** 服务端状态（`running`/`waiting_input`/`pending`/…）—— 副行文案与「活跃」判据都用它。 */
+  status: string = '';
+  /** 服务端给的预览行（有则优先当副行，web 同口径）。 */
+  preview: string = '';
+  historical: boolean = false;
+}
+
+/**
+ * 会话树里按 `chat_id` 找节点（**递归 children**）—— web `TasksPanel.tsx` 的 `findSessionNode` 同口径。
+ * ⛔ 面板「子代理」tab 必须挂在**当前会话节点**下取 children（15h 实锤：原实现取 `orphan_subagents`，
+ *   后端对当前会话恒返回 `null` ⇒ tab 结构性永远空）。
+ */
+export function findSessionNodeOf(
+  nodes: SessionItem[] | null | undefined, chatId: string,
+): SessionItem | null {
+  const src: SessionItem[] = arrOrEmpty(nodes);
+  for (let i = 0; i < src.length; i++) {
+    const n: SessionItem | null | undefined = src[i];
+    if (n === null || n === undefined) {
+      continue;
+    }
+    if (n.chat_id === chatId) {
+      return n;
+    }
+    const hit: SessionItem | null = findSessionNodeOf(n.children, chatId);
+    if (hit !== null) {
+      return hit;
+    }
+  }
+  return null;
+}
+
+/**
+ * 子代理「活跃」判据 —— **逐字对齐** web `TasksPanel.tsx:300 isActiveSubAgent`：
+ *   `running === true || status ∈ {running, waiting_input, pending}`。
+ */
+export function isActiveSubAgent(s: SessionItem): boolean {
+  const st: string = s.status !== undefined && s.status !== null ? s.status : '';
+  return s.running === true || st === 'running' || st === 'waiting_input' || st === 'pending';
+}
+
+/**
+ * 会话节点 → 子代理**扁平行**：**DFS 前序**（⛔ 逐字对齐 web `flattenSubAgentTree`（`session-tree.ts:37`
+ * 的 `visit` 递归先父后子）—— 顺序直接决定 UI 顺序，用 BFS 会与 web 不一致），并**去重**
+ * （`channel#chat_id`，防服务端自引用导致死循环）。
+ * ⛔ 无闭包递归（ArkTS 对自引用 const 不友好）⇒ 用显式栈：子节点**逆序压栈** ⇒ 弹出即前序。
+ */
+export function flattenSubAgentNodes(root: SessionItem | null | undefined): SessionItem[] {
+  const out: SessionItem[] = [];
+  const seen: string[] = [];
+  const stack: SessionItem[] = [];
+  const top: SessionItem[] = root === null || root === undefined ? [] : arrOrEmpty(root.children);
+  for (let i = top.length - 1; i >= 0; i--) {
+    stack.push(top[i]);
+  }
+  while (stack.length > 0) {
+    const n: SessionItem | undefined = stack.pop();
+    if (n === undefined || n === null) {
+      continue;
+    }
+    const ch: string = n.channel !== undefined && n.channel !== null ? n.channel : '';
+    const key: string = `${ch}#${n.chat_id}`;
+    if (seen.indexOf(key) >= 0) {
+      continue;
+    }
+    seen.push(key);
+    out.push(n);
+    const kids: SessionItem[] = arrOrEmpty(n.children);
+    for (let j = kids.length - 1; j >= 0; j--) {
+      stack.push(kids[j]);
+    }
+  }
+  return out;
+}
+
+/** 当前会话节点的**活跃子代理**（= 面板「子代理」tab 的真源；web `TasksPanel.tsx:36-40`）。 */
+export function activeSubAgentNodes(root: SessionItem | null | undefined): SessionItem[] {
+  const all: SessionItem[] = flattenSubAgentNodes(root);
+  const out: SessionItem[] = [];
+  for (let i = 0; i < all.length; i++) {
+    if (isActiveSubAgent(all[i])) {
+      out.push(all[i]);
+    }
+  }
+  return out;
+}
+
+/** 会话节点 → 面板行（字段三态取值：服务端字符串可能是 JSON `null`）。 */
+export function subAgentRowOf(s: SessionItem): SubAgentRow {
+  const r: SubAgentRow = new SubAgentRow();
+  r.chat_id = s.chat_id !== undefined && s.chat_id !== null ? s.chat_id : '';
+  r.label = s.label !== undefined && s.label !== null ? s.label : '';
+  r.role = s.role !== undefined && s.role !== null ? s.role : '';
+  r.instance = s.instance !== undefined && s.instance !== null ? s.instance : '';
+  r.status = s.status !== undefined && s.status !== null ? s.status : '';
+  r.preview = s.preview !== undefined && s.preview !== null ? s.preview : '';
+  r.historical = s.historical === true;
+  const st: string = r.status;
+  r.running = s.running === true || st === 'running' || st === 'waiting_input' || st === 'pending';
+  return r;
 }
 
 /** 调度文本：cron 表达式 / 每 N 秒 / 延迟 N 秒（优先级同服务端语义）。 */
@@ -268,6 +372,13 @@ export function runnerTone(r: RunnerRow): string {
 
 /** 子代理·主行（标识）= label（缺 ⇒ chat_id）。 */
 export function subagentPrimary(s: SubAgentRow): string {
+  // 15h：标题口径对齐 web `TasksPanel.tsx:308 subAgentTitle` —— `role`(/`instance`) 优先，
+  //      其次 `label`，再次 `chat_id`（后端会话树的子代理项带 `role`/`instance`）。
+  const role: string = s.role !== undefined ? s.role.trim() : '';
+  const inst: string = s.instance !== undefined ? s.instance.trim() : '';
+  if (role.length > 0) {
+    return inst.length > 0 ? `${role}/${inst}` : role;
+  }
   const label: string = s.label !== undefined ? s.label.trim() : '';
   if (label.length > 0) {
     return label;
@@ -275,9 +386,26 @@ export function subagentPrimary(s: SubAgentRow): string {
   return s.chat_id !== undefined ? s.chat_id : '';
 }
 
-/** 子代理·副行 = 运行中/完成（纯文字，无 emoji —— §2.8）。 */
+/** 子代理·副行 = 预览 / 等待输入 / 排队中 / 运行中 / 历史 / 完成（纯文字，无 emoji —— §2.8）。 */
 export function subagentSubText(s: SubAgentRow): string {
-  return s.running === true ? '运行中' : '完成';
+  const p: string = s.preview !== undefined ? s.preview.trim() : '';
+  if (p.length > 0) {
+    return p;
+  }
+  const st: string = s.status !== undefined ? s.status.trim() : '';
+  if (st === 'waiting_input') {
+    return '等待输入';
+  }
+  if (st === 'pending') {
+    return '排队中';
+  }
+  if (s.running === true) {
+    return '运行中';
+  }
+  if (s.historical === true) {
+    return '历史';
+  }
+  return '完成';
 }
 
 /** 子代理·tone：运行中 ⇒ success；其余 ⇒ muted。 */

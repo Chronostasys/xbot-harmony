@@ -137,11 +137,17 @@ async function main(): Promise<void> {
   {
     const store = new ChatStore('http://127.0.0.1:9');
     stubHttp(store, {
-      // 会话树：orphan_subagents 里的字符串字段为 null + sessions 的 label 为 null
+      // 会话树：当前会话的 **children** 里字符串字段为 null + sessions 的 label 为 null
       '/api/session-tree': {
-        sessions: [{ chat_id: 'c1', channel: 'web', label: null }],
+        sessions: [{
+          chat_id: 'c1', channel: 'web', label: null,
+          // 15h：子代理真源 = **当前会话节点的 children**（旧口径 `orphan_subagents` 恒 null ⇒ 恒空）
+          children: [{ chat_id: null, label: null, status: 'running' }],
+        }],
         chats: null,
-        orphan_subagents: [{ chat_id: null, label: null, running: true }],
+        // ⛔ 反例（15h）：`orphan_subagents` 里的项**不得**再进面板子代理列表 ——
+        //    给个可辨识 label，若它混入则下面的断言必红。
+        orphan_subagents: [{ chat_id: null, label: 'ORPHAN-MUST-NOT-APPEAR', running: true }],
       } as unknown as object,
       // 历史：messages 元素的关键字段全 null（Go 零值/nil → JSON null）
       '/api/history': {
@@ -165,9 +171,11 @@ async function main(): Promise<void> {
     try {
       await store.loadSessions();
     } catch (e) { t2 = (e as Error).message; }
-    ok('★ loadSessions（orphan_subagents 字段为 null）不得抛', t2.length === 0, t2);
-    ok('★ null 的 label 归一化为空串（不是 null）',
-      store.subagents.length > 0 && store.subagents[0].label === '', `${store.subagents.length}`);
+    ok('★ loadSessions（session-tree 字段为 null）不得抛', t2.length === 0, t2);
+    // 15h 演进：子代理源 = **当前会话的 children**（null label ⇒ 归一空串）；
+    // ⛔ 反向：`orphan_subagents` 里的项**不得**混入（旧口径的结构性空 tab 正来自它）。
+    ok('★ 子代理源 = 当前会话 children（label null→空串；orphan 不混入）',
+      store.subagents.length === 1 && store.subagents[0].label === '', `${store.subagents.length}`);
 
     let t3: string = '';
     try {
