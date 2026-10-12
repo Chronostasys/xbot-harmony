@@ -40,6 +40,9 @@ import {
   type TurnID,
 } from './chat_types_full'
 import { noteTurndrop } from './derive'
+// ⛔ 从**纯 `.ts`** 导入（`core/*.ts` 禁止 import `.ets` —— ArkTS 硬红 10605999；
+//    `streammerge` 是 `.ets`）。实现只有一份（`toolmerge.ts`），`streammerge.ets` 也用它。
+import { mergeActiveStatus } from './toolmerge'
 
 // ─── 工具：迭代合并（I4 append-only + 权威覆盖语义） ──────────
 
@@ -799,10 +802,18 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
         // 的事件到达」才回来。规则（与旧 store 同语义）：边界且事件不带工具时，
         // 保留 prev 的已渲染工具并把在跑中的标记为 done；事件自带列表时以其为权威
         // （新迭代的工具照常替换）。
+        // ⛔ **同迭代内不得整表替换**（2026-10-12 用户亲报 P0：「running 绝不能变回
+        //    pending」）：服务端整批先标 `pending`（`agent/engine_run_tools.go:49-64`）
+        //    且这些条目**残留进后续帧** ⇒ 整表替换会把已 `running` 的同键工具**打回排队**
+        //    （画面「正在执行的工具显示排队」，严重时「一个迭代所有 tool 都排队」）。
+        //    ⇒ 走 `mergeActiveStatus`：成员仍以当帧为准，但**同键状态只升不降**
+        //    （web `progressStore.dedupTools:339-364` 的 `rank` 语义，等价移植）。
         activeTools:
           (advanced || committedNow) && ev.activeTools.length === 0
             ? markToolsCompleted(prev.activeTools)
-            : ev.activeTools,
+            : (advanced || committedNow)
+              ? ev.activeTools
+              : mergeActiveStatus(prev.activeTools, ev.activeTools) as WebToolProgress[],
         // 工具去重（旧前端 mergeProgressState 语义）：工具从 generating 转
         // running 时，stream 事件残留的同名 streamingTools 条目必须清除 ——
         // 否则同一工具渲染两个（一个 executing 带参数 + 一个 generating 无
@@ -1496,7 +1507,12 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
           // 后 task_wait 一个 generating pill + 一个 running pill）。同名
           // generating 条目在 activeTools 声明 running 时即过期 —— 合并结果
           // 强制过滤；不同名条目各自独立（Read generating + Shell running 共存）。
-          const mergedActiveTools = d.activeTools.length > 0 ? d.activeTools : snap.activeTools
+          // ⛔ 同键状态**只升不降**（陈旧快照的 `pending` 不得把已 `running` 的打回排队）——
+          // 与 `reduce` 的 stream/iteration case 同一判据（`mergeActiveStatus` 头注）。
+          const mergedActiveTools = mergeActiveStatus(
+            snap.activeTools,
+            d.activeTools.length > 0 ? d.activeTools : snap.activeTools,
+          ) as WebToolProgress[]
           const mergedStreamingTools = filterIfNeeded(
             d.streamingTools.length > 0 ? d.streamingTools : snap.streamingTools,
             (t2) => !mergedActiveTools.some((a) => a.name === t2.name),

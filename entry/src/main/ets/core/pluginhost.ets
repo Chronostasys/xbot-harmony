@@ -609,6 +609,11 @@ export function buildPluginCatalog(
       views.push(t);
     }
     item.views = views;
+    // 插件卡图标 = **该插件首个视图声明的 lucide 图标**（对齐"用插件自己的图标"这一诉求）。
+    // ⛔ 此前**从不赋值** ⇒ `PluginCatalogItem.icon` 恒为 `''` ⇒ 卡片 `pluginSymbol('')` 一律
+    //   回落通用 `puzzle` ⇒ **所有插件卡图标一模一样**（2026-10-12 真机截图实锤）。
+    // 视图**未**声明 icon（如 `xbot.iteration-stats`）⇒ 留空 ⇒ 回落 `puzzle`（与 web 权威一致）。
+    item.icon = views.length > 0 ? views[0].icon : '';
     catalog.items.push(item);
   }
 

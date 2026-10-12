@@ -1576,3 +1576,21 @@ arkts-no-any-unknown            At Index.ets:7397:12
 **同族**（本仓已有记录，一并复述）：**注释里的字面旧实现**会被"朴素 grep 型判据"当违规 ⇒
 **判据一律先剥注释**；本条是它的镜像 —— **注释还会"吃掉"后面的代码**（`*/` 提前闭合），
 所以**写注释时也要想着解析器**。
+
+## 批次 48（2026-10-12，编排者真机实测）：**ArkWeb 有独立的 cookie 仓** —— 原生已登录 ≠ 内嵌网页已登录
+
+**症状**：原生聊天页一切正常（`XbotHttp` 带 `xbot_session` cookie 调 RPC 全通），但任何
+`WebSurface`（`Web({src: <同源 URL>})`）载入服务端页面后，页面**自己**请求接口得到
+**`HTTP 401 Unauthorized`** ⇒ 用户看到 web 版登录页（真机实测：插件目录点「迭代指标 → 打开」
+得到 `加载失败：HTTP 401 Unauthorized`）。
+
+**根因**：ArkWeb 的 cookie 与原生 HTTP 栈**不共享**（原生 `XbotHttp` 只在**内存**里持 cookie；
+ArkWeb 有自己的持久 cookie 仓）。原代码只在 `prepareWebUI()` 里注入，且其**首行**
+`if (!this.useWebUI) return` ⇒ **原生承载（默认）下从未注入** ⇒ 每个内嵌页面都是未登录态。
+
+**修法**：把注入抽成**与承载方式无关**的幂等方法（`Index.ets: syncSessionCookieToWeb(store)`），
+**在每一个**会打开同源页面的入口前调用（`openPluginHost` / `openPlugins` / `prepareWebUI`）：
+```ts
+webview.WebCookieManager.configCookieSync(base + '/', cookie);   // cookie 来自 store.http.exportSessionCookie()
+```
+**判别**：凡"原生接口通、WebView 里却 401/要重登" ⇒ 先查 cookie 注入，别查服务端鉴权。

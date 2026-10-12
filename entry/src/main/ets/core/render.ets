@@ -437,6 +437,44 @@ function liveIterations(r: LiveRowView): HistoryIteration[] {
   return out;
 }
 
+/**
+ * live 行**工具状态摘要** —— 状态/退出码/已生成字数任一变化都必须让行重建。
+ *
+ * ⛔ 为什么必须有（2026-10-12 用户亲报 P0，原话「running 绝不能变回 pending」）：
+ *   行指纹（`rowSignature`）此前只含 `last.tools.length`。而**工具执行期间模型不产 token**
+ *   ⇒ `content.length`/`tools.length` **都不变** ⇒ 指纹不变 ⇒ `applyRow` 记忆化**不重建行**
+ *   ⇒ 行内 `iterations[i].tools` **冻结在"工具仍是 `pending`"的那一帧** ⇒ pill 一直显示
+ *   「排队」，直到下次有内容变化才跳变。加入状态摘要后，`pending→running→done` 每次都改
+ *   指纹 ⇒ 行重建 ⇒ chip 与现实**逐帧一致**（服务端 `active_tools` 的 `status` 为准）。
+ *
+ * 只取**离散**字段（`name`/`status`/`exit_code`/`gen_chars`）——⛔ 不含 `elapsed_ms`
+ * （running 时长是每帧变的连续量，纳入会让 live 行每帧重建，得不偿失）。
+ */
+/** 工具状态摘要可消费的最小结构面（原生 `ToolProgress` 与 web `WebToolProgress` 都满足）。 */
+interface StatusSigTool {
+  name?: string;
+  status?: string;
+  exit_code?: number;
+  exitCode?: number;
+  gen_chars?: number;
+  genChars?: number;
+}
+
+function toolsStatusSig(tools: readonly StatusSigTool[] | undefined): string {
+  if (tools === undefined || tools.length === 0) {
+    return '-';
+  }
+  const parts: string[] = [];
+  for (let i = 0; i < tools.length; i++) {
+    const t: StatusSigTool = tools[i];
+    const ec: number | undefined = t.exit_code !== undefined ? t.exit_code : t.exitCode;
+    const gc: number | undefined = t.gen_chars !== undefined ? t.gen_chars : t.genChars;
+    parts.push(`${t.name !== undefined ? t.name : ''}:${t.status !== undefined ? t.status : ''}`
+      + `:${ec !== undefined ? ec : ''}:${gc !== undefined ? gc : ''}`);
+  }
+  return parts.join(',');
+}
+
 /** 行内容变化指纹 —— 变了才自增 `rev`（参与 ForEach key）。 */
 function rowSignature(r: Row): string {
   switch (r.kind) {
@@ -446,7 +484,8 @@ function rowSignature(r: Row): string {
       const last: WebIteration | undefined = r.iterations.length > 0
         ? r.iterations[r.iterations.length - 1] : undefined;
       const lastSig: string = last !== undefined
-        ? `${last.iteration}:${last.content.length}:${last.reasoning.length}:${last.tools.length}` : '-';
+        ? `${last.iteration}:${last.content.length}:${last.reasoning.length}:${last.tools.length}`
+          + `:${toolsStatusSig(last.tools)}` : '-';
       // ⚠️ 必须含**在飞字段**（content/reasoning/tools/lastIter）：在飞迭代块
       // 是由它们折叠出的最后一个迭代块，其内容每帧都变 —— 指纹不含它则
       // 行内容不刷新（"流式只在尾块更新、行内静止"）。含它 ⇒ 每帧 rev 自增、
@@ -455,6 +494,12 @@ function rowSignature(r: Row): string {
         + `#${r.regionsBefore !== undefined ? r.regionsBefore : 0}`
         + `#${r.lastIter}#${r.content.length}#${r.reasoning.length}`
         + `#${r.activeTools.length}#${r.streamingTools.length}`
+        // ⛔ **工具状态摘要**（2026-10-12 P0，用户原话「running 绝不能变回 pending」）：
+        //    live 块是由 `r.activeTools`/`r.streamingTools` **即时折叠**出的（**不在**
+        //    `r.iterations` 里 ⇒ 上面 `lastSig` 对它无效）。只含**长度**时，同一工具
+        //    `pending→running` 指纹不变 ⇒ `applyRow` 跳过 ⇒ 行内 tools 冻结在首帧的
+        //    `pending` ⇒ pill 永远「排队」。加状态摘要后每次状态变化都改指纹。
+        + `#${toolsStatusSig(r.activeTools)}#${toolsStatusSig(r.streamingTools)}`
         // SubAgent 树（live 快照）：变了必须让行重建，否则行上的 subAgents 冻结在首帧
         + `#${subAgentSig(r.subAgents)}`;
     }
@@ -462,7 +507,8 @@ function rowSignature(r: Row): string {
       const last: WebIteration | undefined = r.iterations.length > 0
         ? r.iterations[r.iterations.length - 1] : undefined;
       const lastSig: string = last !== undefined
-        ? `${last.iteration}:${last.content.length}:${last.reasoning.length}:${last.tools.length}` : '-';
+        ? `${last.iteration}:${last.content.length}:${last.reasoning.length}:${last.tools.length}`
+          + `:${toolsStatusSig(last.tools)}` : '-';
       return `f#${r.turnID}#${r.iterations.length}#${lastSig}#${r.content.length}#${r.reasoning.length}`;
     }
     case 'committed': {

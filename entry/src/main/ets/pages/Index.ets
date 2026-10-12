@@ -83,6 +83,7 @@ import {
 } from '../core/sessiongroup';
 import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msgindex';
 import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, WebPluginListWire, buildPluginCatalog } from '../core/pluginhost';
+import { hasIterStatsBadge, iterStatsText } from '../core/pluginviews';
 import {
   ATTACH_DONE, ATTACH_FAILED, ATTACH_UPLOADING, AttachItem, MAX_ATTACH, appendRef, attachChipText,
   attachmentRef, baseName, doneKeys, doneNames, doneRefs, doneSizes, hasRef, humanSize, mimeOf,
@@ -721,6 +722,12 @@ struct Index {
   @State showPluginHost: boolean = false;
   @State pluginItems: PluginCatalogItem[] = [];
   @State pluginGroups: PluginCatalogGroup[] = [];
+  /**
+   * 插件目录（**常驻**一份，非"打开面板才拉"）—— 供**原生渲染插件视图**判据用
+   * （`core/pluginviews.ets`：装了且声明了某视图才渲染原生徽章）。
+   * 非关键路径：失败留 null ⇒ 原生徽章不显示（不是错误）。
+   */
+  @State nativeCatalog: PluginCatalog | null = null;
   /** 插件宿主页 URL（**与页面级 `panelUrl` 分离** ⇒ 不会同时挂载两个 WebSurface）。 */
   @State pluginPageUrl: string = '';
   // ── 插件 widget 数据面（页面半边；`store` 半边在 `core/store.ets` 的 lastWidgetEvent/Content）──
@@ -1277,6 +1284,13 @@ struct Index {
         this.prepareWebUI(store);
         store.loadSettings().catch(() => {
           // 设置非关键路径
+        });
+        // 插件目录（**常驻一份**）：原生渲染插件视图（如迭代指标徽章）的启用判据。
+        // 非关键路径——失败置 null ⇒ 原生徽章不显示（不阻塞启动，也不吞成"成功"）。
+        store.loadPluginCatalog(this.localeId()).then((c: PluginCatalog) => {
+          this.nativeCatalog = c;
+        }).catch(() => {
+          this.nativeCatalog = null;
         });
         this.authExpiredHandled = false;
         this.loggedIn = true;
@@ -3087,6 +3101,11 @@ struct Index {
     this.showDrawer = false;
     this.pluginPanelError = '';
     this.pluginPanelLoading = true;
+    const store0: ChatStore | null = this.store;
+    // ⛔ 面板内任一「打开」都会载入同源 web 页面（`WebSurface`）⇒ 先把会话 cookie 注入 ArkWeb
+    if (store0 !== null) {
+      this.syncSessionCookieToWeb(store0);
+    }
     this.anim(() => {
       this.showPlugins = true;
     });
@@ -3138,6 +3157,30 @@ struct Index {
   }
 
   /**
+   * 顶栏**原生**「迭代指标」徽章文案（插件 `xbot.iteration-stats` 的 `status_bar_right` 视图）。
+   *
+   * ⭐ **原生渲染（不是把 web UI 塞进 WebView）** —— 数据**全部来自宿主自己**
+   * （`ProgressSnapshot.streamStats` 的 `tokensPerSec`/`ttftMs`），与 web 侧该插件消费的
+   * "实时指标桥"**同源**；判据逐字对齐插件产物（`tps<=0 ⇒ 不显示`），落在
+   * `core/pluginviews.ets:iterStatsText`（纯逻辑，可脱机单测）。
+   *
+   * 启用判据 = **插件已安装且声明了该视图**（`hasIterStatsBadge(this.nativeCatalog)`）——
+   * 没装就恒不渲染（不臆造一个 web 没有的东西）。
+   */
+  private iterStatsBadgeText(): string {
+    const st: ChatStore | null = this.store;
+    if (st === null || !hasIterStatsBadge(this.nativeCatalog)) {
+      return '';
+    }
+    const ss = st.liveProgress().streamStats;
+    if (ss === undefined || ss === null) {
+      return '';
+    }
+    // `showTTFT` 默认 true（插件 `plugin.json` 的 configuration 默认值）。
+    return iterStatsText(ss.tokensPerSec, ss.ttftMs, true);
+  }
+
+  /**
    * 打开**原生插件目录 + 宿主页**（`components/PluginHost` 的唯一注入点）。
    * 目录数据 = `store.loadPluginCatalog()`（服务端 `web_plugin_list` 元数据，零猜测）。
    * 宿主页 URL 用**独立的** `pluginPageUrl`（与页面级 `panelUrl` 分离）。
@@ -3148,8 +3191,12 @@ struct Index {
     this.showPlugins = false;
     this.panelUrl = '';
     this.pluginPageUrl = '';
-    this.showPluginHost = true;
     const store: ChatStore | null = this.store;
+    // ⛔ 插件宿主页（`WebSurface` 载入的同源页面）**必须**先带上会话 cookie，否则 401（见 `syncSessionCookieToWeb`）
+    if (store !== null) {
+      this.syncSessionCookieToWeb(store);
+    }
+    this.showPluginHost = true;
     if (store === null) {
       return;
     }
@@ -3964,6 +4011,20 @@ struct Index {
         }
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
+
+        // ── 原生「迭代指标」徽章（插件 `xbot.iteration-stats` 的 `status_bar_right` 视图）──
+        // ⭐ 这正是"插件视图原生渲染"的落点：数据来自宿主自己的实时指标（与 web 侧插件同源），
+        //    **不打开任何 web UI**。文案判据 `core/pluginviews.ets:iterStatsText`（空 ⇒ 不渲染）。
+        if (this.iterStatsBadgeText().length > 0) {
+          Text(this.iterStatsBadgeText())
+            .fontSize(typeOf('type.micro').size)
+            .fontWeight(typeOf('type.micro').weight)
+            .fontFamily('monospace')
+            .fontColor(colorOf(this.pal(), 'successText'))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .margin({ right: SP_1 })
+        }
 
         if (this.queue.length > 0) {
           Text(`队列 ${this.queue.length}`)
@@ -5613,26 +5674,43 @@ struct Index {
   }
 
   /**
-   * 准备内嵌 web UI：把会话 cookie 注入 ArkWeb 的 cookie 存储（httpOnly 由 ArkWeb 自己处理），
-   * 再设地址 ⇒ 打开即已登录（与原生侧同一凭据，用户不用在 webview 里再登一次）。
+   * 把原生会话 cookie 同步进 ArkWeb 的 cookie 仓（**幂等**；与「承载方式」无关）。
+   *
+   * 为什么必须独立成方法：ArkWeb 有**独立的 cookie 仓**（**不**共享原生 `XbotHttp` 的内存 cookie），
+   * 而下列**每一个**页面都是同源 `base/` 的 web 页面 ⇒ 都必须带上会话 cookie：
+   *   · 完整 Web UI（`webUiUrl`）；· **插件宿主页 / 插件面板**（`panelUrl`/`pluginPageUrl` → `WebSurface`）。
+   * ⛔ 此前只在 `prepareWebUI` 里注入，且其首行即 `if (!this.useWebUI) return` ⇒ **原生承载下**
+   *   任何 `WebSurface` 打开服务器页面都是**未登录** ⇒ 服务端 **401** ⇒ 用户看到 web 登录页
+   *   （2026-10-12 真机实测：插件目录点「迭代指标 → 打开」得到 `加载失败：HTTP 401 Unauthorized`；
+   *   这正是「插件都打不开」的**客户端侧**根因）。
+   * @returns 是否已把（非空）cookie 注入（false ⇒ 页面会落到登录页，可重登）。
+   */
+  private syncSessionCookieToWeb(store: ChatStore): boolean {
+    const base: string = store.http.baseUrl;
+    const cookie: string = store.http.exportSessionCookie();
+    if (cookie.length === 0) {
+      return false;
+    }
+    try {
+      // 服务端 cookie 是 host-only；对根地址配置即可覆盖整站
+      webview.WebCookieManager.configCookieSync(base + '/', cookie);
+      return true;
+    } catch (e) {
+      // 注入失败不阻塞：webview 里会落到登录页，用户可再登一次
+      return false;
+    }
+  }
+
+  /**
+   * 准备内嵌 web UI：先把会话 cookie 注入 ArkWeb（见 `syncSessionCookieToWeb`）再设地址
+   * ⇒ 打开即已登录（与原生侧同一凭据，用户不用在 webview 里再登一次）。
    */
   private prepareWebUI(store: ChatStore): void {
     if (!this.useWebUI) {
       return;
     }
-    const base: string = store.http.baseUrl;
-    const cookie: string = store.http.exportSessionCookie();
-    try {
-      if (cookie.length > 0) {
-        // 服务端 cookie 是 host-only；对根地址配置即可覆盖整站
-        webview.WebCookieManager.configCookieSync(base + '/', cookie);
-      }
-      this.webCookieReady = true;
-    } catch (e) {
-      // 注入失败不阻塞：webview 里会落到登录页，用户可再登一次
-      this.webCookieReady = false;
-    }
-    this.webUiUrl = base + '/';
+    this.webCookieReady = this.syncSessionCookieToWeb(store);
+    this.webUiUrl = store.http.baseUrl + '/';
   }
 
   /** 切换"内嵌完整 web UI / 原生界面"（写进设置，两端口径一致）。 */

@@ -21,6 +21,9 @@
 import { ChatRow, HistoryIteration, IterList, ProgressEvent, ToolProgress } from './types';
 import { ST_GENERATING } from './toolstatus';
 import { nonEmpty } from './guards';
+// ⛔ ArkTS `arkts-no-misplaced-imports`：**所有 import 必须在文件顶部**（不能放中间）。
+//    `toolmerge` 是**纯 `.ts`**（`reduce.ts` 也要用它，而 `core/*.ts` 禁 import `.ets`）。
+import { mergeActiveStatus, toolRank } from './toolmerge';
 
 /** 该事件是否"只带流式字段"（与 服务端 isStreamOnlyProgress 同判据，但更宽松：不要求 iteration==0）。 */
 export function isStreamOnly(e: ProgressEvent): boolean {
@@ -103,30 +106,13 @@ export function upsertIteration(row: IterList, iteration: number): HistoryIterat
 }
 
 /**
- * 状态优先级：**终态优先**（error/done=4 > running=3 > generating=2 > pending=1 > 其它=0）——
- * **逐字移植** web `progressStore.dedupTools` 的 `rank`（`progressStore.ts:343-345`）。
- *
- * 为什么必须有优先级：同一个工具会同时出现在**陈旧快照**（active_tools，仍是 running）
- * 与**新快照**（completed_tools，已 done/error）里。旧的"后到者赢"会让陈旧的 running
- * 赢 ⇒ 工具永远不转绿；反过来也会让陈旧的 pending 盖掉"已在执行"的 running
- * （用户 2026-09-14「已完成还是渲染成进行中」/ 2026-10-11「executing 被当成排队」的根因）。
- *
- * ⛔ **`generating` 必须排在 `pending` 之上**（本表曾把它排在 0 = 低于 pending，**是移植偏差**，
- *    2026-10-11 用户亲报"有时所有工具都在排队"的根因）：
- *    web 的 `dedupTools` 把 `generating` 的工具**整体排除在 rank 比较之外**
- *    （`progressStore.ts:351-354`：`if (tool.status === 'generating') { result.push(tool); continue }`）
- *    ⇒ 在 web 里后到的 `pending` **永远盖不掉**同一调用的"生成中"。本仓是**跨帧累积**合并
- *    （见 `applyStreamFrame`/`applyStructured`），没法"直接 push 不登记键"，只能在 rank 里
- *    把这一保护**等价表达**出来：语义上 排队 < 参数流式生成中 < 执行中（单调推进）。
+ * `toolRank`（状态优先级）与 `mergeActiveStatus`（active 工具「状态只升不降」合并）已**收敛到
+ * 纯 `.ts` 的 `./toolmerge`** —— 因为 `reduce.ts`（纯 `.ts`）同样需要它们，而
+ * **`core/*.ts` 禁止 import `.ets`**（ArkTS 硬红 `10605999`，见 `docs/ARKTS-GOTCHAS.md`）。
+ * 此处**原样转出**（import 在文件顶部 —— ArkTS `arkts-no-misplaced-imports`），
+ * 既有调用点（含 `tools/tests/*.ts`）与判据不变。
  */
-export function toolRank(status: string | undefined): number {
-  const s: string = status !== undefined ? status : '';
-  if (s === 'error' || s === 'done') { return 4; }
-  if (s === 'running' || s === 'executing') { return 3; }
-  if (s === 'generating') { return 2; }
-  if (s === 'pending') { return 1; }
-  return 0;                       // 未知
-}
+export { mergeActiveStatus, toolRank };
 
 /**
  * 工具的去重键（同一次调用跨帧必须**稳定**）。
