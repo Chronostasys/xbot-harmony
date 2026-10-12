@@ -311,8 +311,12 @@ export struct ToolPopoverCard {
   }
 
   /** 无背景时的兜底（ArkUI `textBackgroundStyle` 需一个合法色值；透明 = 视觉无背景）。 */
+  /**
+   * 输出块**真实底色** —— 既是 well 的 `backgroundColor`，也是 ANSI 取色的默认背景 `defBg`。
+   * ⛔ 不能传 `transparent`：反色（SGR 7）会把它当作"字色" ⇒ 文字透明不可见。
+   */
   private ansiBgFallback(): string {
-    return this.pal().transparent;
+    return surfaceFillOf(this.pal(), 'surface.well');
   }
 
   /** 段头：小标签 + 右侧复制按钮（图标化，不用文字撑宽）。 */
@@ -387,15 +391,15 @@ export struct ToolPopoverCard {
       Text() {
         ForEach(this.ansiSpans(ln), (sp: AnsiSpan, si: number) => {
           Span(sp.text)
-            .fontColor(ansiFgOf(sp, fg))
+            .fontColor(ansiFgOf(sp, fg, this.ansiBgFallback()))
             .fontWeight(sp.bold ? FontWeight.Bold : FontWeight.Normal)
             .fontStyle(sp.italic ? FontStyle.Italic : FontStyle.Normal)
             .decoration({
               type: sp.strike ? TextDecorationType.LineThrough
                 : (sp.underline ? TextDecorationType.Underline : TextDecorationType.None),
-              color: ansiFgOf(sp, fg),
+              color: ansiFgOf(sp, fg, this.ansiBgFallback()),
             })
-            .textBackgroundStyle({ color: ansiBgOf(sp, this.ansiBgFallback()) })
+            .textBackgroundStyle({ color: ansiBgOf(sp, fg, this.ansiBgFallback()) })
         }, (sp: AnsiSpan, si: number) => `a${li}_${si}`)
       }
       .wordBreak(WordBreak.NORMAL)
@@ -675,15 +679,15 @@ export struct ToolPopoverCard {
           Text() {
             ForEach(this.ansiSpans(this.vm.summary), (sp: AnsiSpan, si: number) => {
               Span(sp.text)
-                .fontColor(ansiFgOf(sp, this.pal().textSecondary))
+                .fontColor(ansiFgOf(sp, this.pal().textSecondary, this.ansiBgFallback()))
                 .fontWeight(sp.bold ? FontWeight.Bold : FontWeight.Normal)
                 .fontStyle(sp.italic ? FontStyle.Italic : FontStyle.Normal)
                 .decoration({
                   type: sp.strike ? TextDecorationType.LineThrough
                     : (sp.underline ? TextDecorationType.Underline : TextDecorationType.None),
-                  color: ansiFgOf(sp, this.pal().textSecondary),
+                  color: ansiFgOf(sp, this.pal().textSecondary, this.ansiBgFallback()),
                 })
-                .textBackgroundStyle({ color: ansiBgOf(sp, this.ansiBgFallback()) })
+                .textBackgroundStyle({ color: ansiBgOf(sp, this.pal().textSecondary, this.ansiBgFallback()) })
             }, (sp: AnsiSpan, si: number) => `sm${si}`)
           }
           .wordBreak(WordBreak.BREAK_WORD)

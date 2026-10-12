@@ -4081,3 +4081,37 @@ terminal 字形）⇒ 终端 tab 用 `code`（终端=敲代码的壳），并把
 
 **装机复验**：设置·外观 —— 4×3 下划线页签、选中「外观」紫字 + 下划线 ✓；同屏还可见色板 7 枚一行 ✓。
 门禁 `GATE_EXIT=0` + `BUILD SUCCESSFUL`（`accent_chrome 82` · `settings_panel_wrap 20` · `A 线 1226`）。
+
+## §21.81 终端/任务详情：ANSI **背景**从未渲染 + 反色（SGR 7）**整块消失**（15z8，2026-10-13）
+
+**症状（用户点名「终端和任务管理做的很差」的可判定落点）**：`ansiFgOf` 逐 span 上了前景色，
+但**全仓没有任何一处渲染 ANSI 背景** ⇒ `htop`/`vim`/`less` 这类**靠背景构图**的全屏 TUI、
+`\x1b[48;…m` 色块、反色高亮在原生端**全部花屏**（web 走 xterm.js，背景天然正确 ⇒ parity 缺口）。
+
+**取证（两层）**：
+1. **静态**：`grep -rl ansiFgOf` 逐文件计数得 `TaskDetailSheet`(fg=2/bg=0) 与 `TerminalSheet`(fg=1/bg=0)
+   —— 只画前景；`TaskDetailSheet` 更是把 `ansiBgOf` **import 了却零消费**（死 import）。
+2. **真机（装机截图 `INVERSE` 行）**：修好背景后仍见 `INVERSE` / `REVERSE-ON-RED`
+   **只有字色变化、没有反色块** ⇒ 反色仍有第二个根因。
+
+**根因（第二个，藏在共享纯函数里）**：`ansiBgOf(sp, fallback)` 先取"**非空 raw** `fg`/`bg`"再 swap ⇒
+`\033[7m` 不配颜色时两侧都为空 ⇒ 双双落到 `fallback` ⇒ **反色块整块消失**。
+真终端语义 = 对**有效色（含默认前景/默认背景）**整体对调 ⇒ 深底浅字必须成块。
+
+**修法**：
+- `core/ansi.ets`：`ansiFgOf(sp, defFg, defBg)` / `ansiBgOf(sp, defFg, defBg)` —— 两个默认色都传入，
+  swap 落在有效色上（**唯一 swap 点**仍在 `core/ansi`，渲染层绝不自行 swap）。
+- 5 个渲染器（`TerminalSheet`/`TaskDetailSheet`/`ToolPopover`/`ToolVisual`/`SyntheticCard`）逐 span
+  补 `textBackgroundStyle`；`defBg` = **容器真实底色**（画布 `sunken` / 卡面 `SURFACE_CARD` /
+  well / `pillBgOf` / `SURFACE_PILL`）。⛔ **不得传 `transparent`**（反色时它变成"字色" ⇒ 文字透明）。
+- span 的 `ForEach` **键补 `fg/bg/inverse`**：只按 `索引:文本` 做键时，同位置换色的 span
+  **不重建** ⇒ 颜色卡住（与 `LazyForEach` 最小通知键同族缺陷）。
+
+**判据（`panel_terminal_wiring.test.ts` ③④ + `ansi.test.ts`）**：
+① 画布 `textBackgroundStyle × ansiBgOf` == 1、每处前景取色点都配了背景（计数相等）；
+② **全组件目录**逐文件配对（任何新渲染器漏画背景 ⇒ 红；含 `ToolVisual` 多行调用形态 ⇒ 扫描器归一化空白）；
+③ 反色纯函数：`inverse + 无任何显式色` ⇒ 底 = `defFg`、字 = `defBg`；`inverse + 只给前景` ⇒ 底 = 该前景；
+④ **禁用** `ansiBgOf(...transparent...)`（全目录扫，0 容忍）。
+
+**装机视觉取证（决定性）**：终端里 `sh /tmp/ansi_demo.sh`（256 色绿底 / 真彩紫底 / 命名红底 +
+两组反色）⇒ 截图三块底色**全部渲染成实心色块**（修复前全丢）。

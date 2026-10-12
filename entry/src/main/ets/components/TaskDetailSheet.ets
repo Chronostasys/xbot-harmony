@@ -66,6 +66,14 @@ export struct TaskDetailSheet {
     return fresh;
   }
 
+  /**
+   * 输出块**真实底色** —— 既是卡片 `backgroundColor`，也是 ANSI 取色的默认背景 `defBg`
+   * （⛔ 不能传 `transparent`：反色（SGR 7）会把它当作"字色" ⇒ 文字透明不可见）。
+   */
+  private wellBgC(): string {
+    return surfaceFillOf(this.palOnce(), SURFACE_CARD);
+  }
+
   /** 输出正文的 ANSI span（⛔ 无转义 ⇒ 空数组 ⇒ 调用方走纯文本路径，逐字节不变）。 */
   private outSpans(): AnsiSpan[] {
     const s: AnsiSpan[] | null = ansiSpansIfAny(this.output, ansiPaletteOf(this.palOnce()));
@@ -154,15 +162,22 @@ export struct TaskDetailSheet {
               Text() {
                 ForEach(this.outSpans(), (sp: AnsiSpan, si: number) => {
                   Span(sp.text)
-                    .fontColor(ansiFgOf(sp, this.palOnce().textPrimary))
+                    .fontColor(ansiFgOf(sp, this.palOnce().textPrimary, this.wellBgC()))
+                    // ⛔ ANSI **背景**（`\x1b[48;…m` / 反色 SGR 7）必须画：只画前景时
+                    //    `htop`/`vim`/`less` 这类靠背景构图的全屏 TUI 与反色高亮全部花屏
+                    //    （`ansiBgOf` 此前只 import 未消费 = 死 import）。默认背景 = 卡片真实底色
+                    //    （⛔ 不能传 `transparent` —— 反色时它会变成"字色" ⇒ 文字透明不可见）。
+                    .textBackgroundStyle({ color: ansiBgOf(sp, this.palOnce().textPrimary, this.wellBgC()) })
                     .fontWeight(sp.bold ? FontWeight.Bold : FontWeight.Normal)
                     .fontStyle(sp.italic ? FontStyle.Italic : FontStyle.Normal)
                     .decoration({
                       type: sp.strike ? TextDecorationType.LineThrough
                         : (sp.underline ? TextDecorationType.Underline : TextDecorationType.None),
-                      color: ansiFgOf(sp, this.palOnce().textPrimary),
+                      color: ansiFgOf(sp, this.palOnce().textPrimary, this.wellBgC()),
                     })
-                }, (sp: AnsiSpan, si: number) => `o${si}`)
+                  // ⛔ 键必须含色/反色：只按 `o<索引>` 做键 ⇒ 同位置换色的 span **不重建**
+                  //    （`\x1b[31mfoo` → `\x1b[32mfoo` 颜色卡住不变）。
+                }, (sp: AnsiSpan, si: number) => `o${si}:${sp.fg}:${sp.bg}:${sp.inverse ? 1 : 0}`)
               }
               .fontSize(typeOf('type.caption').size)
               .fontFamily('monospace')

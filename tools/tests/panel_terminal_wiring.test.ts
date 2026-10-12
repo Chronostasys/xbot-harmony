@@ -190,9 +190,64 @@ ok(`判读后先清标志再重入（清除 ${rpQueueClear} == 1）`, rpQueueCle
 ok(`重入按当前 tab 再刷一次（${rpReenter} == 1）`, rpReenter === 1);
 ok(`切 tab 会触发刷新（switchPanelTab 内调 refreshPanel ${swTabCall} == 1）`, swTabCall === 1);
 
+// ── ③ 终端画布：ANSI **背景**必须被渲染（15z8，用户"终端做的很差"的可判定落点）────────────
+//   根因取证：`AnsiSpan` 一直带 `bg`/`inverse`、`vt.ets:863` 也一直在装配背景色，但画布 spans
+//   **只设了 `fontColor`** ⇒ vim/htop/less 这类全屏 TUI（靠 `\x1b[48;…m` 与反色构图）整片花屏。
+//   判据 = `ansiBgOf` 落进 `textBackgroundStyle`，且**每处画前景的 span 都同时画背景**（计数相等）。
+const bgPaint: number = countOf(termSrc, 'textBackgroundStyle({ color: ansiBgOf(');
+const fgPaint: number = countOf(termSrc, 'ansiFgOf(');
+const bgImport: number = countOf(termSrc, 'ansiBgOf');
+const bgFallbackDecl: number = countOf(termSrc, 'private canvasBgC(): string {');
+const bgFallbackUse: number = countOf(termSrc, 'ansiBgOf(sp, this.textPrimaryC(), this.canvasBgC())');
+const spanKeyBg: number = countOf(termSrc, '${si}:${sp.fg}:${sp.bg}:${sp.inverse ? 1 : 0}:${sp.text}');
+// ⛔ 反色（SGR 7）的 swap 必须落在**真实底色**上：`defBg` 传 `transparent` ⇒ 反色时它变成
+//    "字色" ⇒ 文字透明不可见（且底/字双双落 fallback ⇒ 反色块整块消失，真机截图实证）。
+//    ⇒ **凡 `ansiBgOf(` 调用行都不得出现 `transparent`**（全组件目录扫，不只看终端）。
+const FILES: string[] = fs.readdirSync(COMPONENTS).filter((f: string) => f.endsWith('.ets'));
+let transBg: number = 0;
+for (const f of FILES) {
+  // ⚠️ 归一化空白后再扫：调用可能**跨行**书写（`textBackgroundStyle({\n color: ansiBgOf(`）
+  //    ⇒ 按原样 `indexOf` 会漏/误判（本轮实测：`ToolVisual` 的多行形态被判"未配对" = 假红）。
+  const s: string = stripComments(fs.readFileSync(path.join(COMPONENTS, f), 'utf8')).replace(/\s+/g, ' ');
+  const hits: RegExpMatchArray | null = s.match(/ansiBgOf\(.{0,160}?transparent/g);
+  if (hits !== null) {
+    transBg += hits.length;
+    console.log(`    ⚠️ ANSI 默认底传了 transparent：${f}`);
+  }
+}
+console.log(`  panel-scan ${TERM}(画布): bgPaint=${bgPaint} fgPaint=${fgPaint} ansiBgOf=${bgImport} canvasBgDecl=${bgFallbackDecl} canvasBgUse=${bgFallbackUse} spanKeyBg=${spanKeyBg} | 全目录 ansiBgOf+transparent=${transBg}`);
+
+ok(`画布渲染 ANSI 背景（textBackgroundStyle × ansiBgOf = ${bgPaint} == 1）`, bgPaint === 1);
+ok(`⛔ 每处 span 前景色都配了背景（fg ${fgPaint} == bg ${bgPaint}）`, fgPaint === bgPaint);
+ok(`背景默认走单一取色入口（声明 ${bgFallbackDecl} == 1 / 消费 ${bgFallbackUse} == 1）`,
+  bgFallbackDecl === 1 && bgFallbackUse === 1);
+ok(`⛔ span 键含 bg/inverse（${spanKeyBg} == 1；否则换色不重建 ⇒ 颜色卡住）`, spanKeyBg === 1);
+ok(`⛔ ANSI 默认底色不是 transparent（${transBg} == 0；是 ⇒ 反色时字透明/整块消失）`, transBg === 0);
+
+// ── ④ 通用规则：**凡画 ANSI 前景的渲染器，必须同时画背景**（15z8）──────────────────────
+//   缺口取证：`grep -rl ansiFgOf` 后逐文件计数发现 `TaskDetailSheet`(fg=2/bg=0) 与
+//   `TerminalSheet`(fg=1/bg=0) 两处只画前景 ⇒ 用户点名的「终端和任务管理做的很差」里，
+//   ANSI 输出（htop/vim/less 全屏 TUI、反色高亮）全花屏。本规则把"配对"钉死，
+//   将来任何新渲染器漏画背景都会在这里红（而不是等真机截图）。
+let fgFiles: number = 0, unpaired: number = 0, paired: number = 0;
+for (const f of FILES) {
+  const s: string = stripComments(fs.readFileSync(path.join(COMPONENTS, f), 'utf8')).replace(/\s+/g, ' ');
+  if (s.indexOf('ansiFgOf(') < 0) { continue; }
+  fgFiles++;
+  if (s.indexOf('textBackgroundStyle({ color: ansiBgOf(') >= 0) { paired++; } else {
+    unpaired++;
+    console.log(`    ⚠️ 只画前景未画背景：${f}`);
+  }
+}
+console.log(`  panel-scan 组件目录 ANSI 渲染器：画前景=${fgFiles} 已配对=${paired} 未配对=${unpaired}`);
+
+ok(`ANSI 渲染器全配对（画前景 ${fgFiles} 个文件，未配对 ${unpaired} == 0）`, unpaired === 0);
+ok(`⛔ 零扫描判红：确实扫到了 ANSI 渲染器（${fgFiles} ≥ 4，否则扫描器与真源脱节）`, fgFiles >= 4);
+
 // ── 零扫描判红：链接线调用点合计必须 > 0（扫描器与真源脱节 ⇒ 红）──────────────────
 ok('零扫描判红：运行面板/终端键帽接线证据合计 > 0',
-  newBtn + termCall + newEmpty + minWDecl + keyBorderVia + ctrlBorderVia + roleHairline + rpQueueSet > 0);
+  newBtn + termCall + newEmpty + minWDecl + keyBorderVia + ctrlBorderVia + roleHairline + rpQueueSet
+  + bgPaint + bgFallbackUse + fgFiles > 0);
 
 console.log(`  panel-terminal-wiring: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

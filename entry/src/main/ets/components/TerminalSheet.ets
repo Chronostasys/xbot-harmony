@@ -21,7 +21,7 @@ import { webSocket } from '@kit.NetworkKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { display } from '@kit.ArkUI';
 
-import { AnsiSpan, ansiFgOf, ansiPaletteOf } from '../core/ansi';
+import { AnsiSpan, ansiBgOf, ansiFgOf, ansiPaletteOf } from '../core/ansi';
 import { ctrlLetterByte, VtLine, VtTerm, vtArrowKeys, vtB64ToBytes } from '../core/vt';
 import {
   encodeResize, encodeStdin, parseTermMsg, TERM_CLOSE_MSG, TERM_CLOSED, TERM_CONNECTED,
@@ -116,6 +116,14 @@ export struct TerminalSheet {
   /** 正文色（终端画布 spans / 标题 / 输入框共用）——取色记忆化入口，避免多处重复读板。 */
   private textPrimaryC(): string {
     return this.palOnce().textPrimary;
+  }
+
+  /**
+   * 终端画布**真实底色** —— 既是画布 `Scroll` 的 `backgroundColor`，也是 ANSI 取色的默认背景
+   * `defBg`（⛔ 不能传 `transparent`：反色（SGR 7）会把它当作"字色" ⇒ 文字透明不可见）。
+   */
+  private canvasBgC(): string {
+    return colorOf(this.palOnce(), 'sunken');
   }
 
   private fs(): number {
@@ -523,8 +531,12 @@ export struct TerminalSheet {
             Span(sp.text)
               .fontSize(this.fs())
               .fontFamily('monospace')
-              .fontColor(ansiFgOf(sp, this.textPrimaryC()))
-          }, (sp: AnsiSpan, si: number) => `${si}:${sp.text}`)
+              .fontColor(ansiFgOf(sp, this.textPrimaryC(), this.canvasBgC()))
+              // ANSI **背景**（`\x1b[48;…m` / 反色 SGR 7）：以前只画前景 ⇒ vim/htop/less 这类
+              // 全屏 TUI 与反色高亮全部花屏。默认背景 = 画布真实底色（反色时才 swap 得对）。
+              // ⚠️ 需要在 `Span` 上用 `textBackgroundStyle`（Span 无 `backgroundColor`；同 `ToolPopover`）。
+              .textBackgroundStyle({ color: ansiBgOf(sp, this.textPrimaryC(), this.canvasBgC()) })
+          }, (sp: AnsiSpan, si: number) => `${si}:${sp.fg}:${sp.bg}:${sp.inverse ? 1 : 0}:${sp.text}`)
         }
         .fontSize(this.fs())
         .fontFamily('monospace')

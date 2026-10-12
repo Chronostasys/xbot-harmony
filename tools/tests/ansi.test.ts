@@ -247,16 +247,29 @@ eq('ansiSpansIfAny: 无转义（tab/中文）⇒ null', ansiSpansIfAny('a\tb 中
 }
 
 // 反色 swap **恰好一次** —— 渲染层唯一取色出口 `ansiFgOf`/`ansiBgOf`（解析层从不 swap）。
+// ⛔ 三参形态（`defFg`/`defBg`）：swap 必须作用在**有效色（含默认）**上。
 {
   const inv: AnsiSpan = new AnsiSpan();
   inv.text = 'x'; inv.fg = '#cf222e'; inv.bg = '#0550ae'; inv.inverse = true;
-  eq('ansiFgOf: inverse ⇒ 前景取 raw bg', ansiFgOf(inv, '#base'), '#0550ae');
-  eq('ansiBgOf: inverse ⇒ 背景取 raw fg', ansiBgOf(inv, '#fallback'), '#cf222e');
+  eq('ansiFgOf: inverse ⇒ 前景取 raw bg', ansiFgOf(inv, '#base', '#well'), '#0550ae');
+  eq('ansiBgOf: inverse ⇒ 背景取 raw fg', ansiBgOf(inv, '#base', '#well'), '#cf222e');
   const plain: AnsiSpan = new AnsiSpan();
   plain.text = 'y'; plain.fg = '#cf222e';
-  eq('ansiFgOf: 非反色 ⇒ 取 raw fg', ansiFgOf(plain, '#base'), '#cf222e');
-  eq('ansiFgOf: 无前景 ⇒ 继承 base', ansiFgOf(new AnsiSpan(), '#base'), '#base');
-  eq('ansiBgOf: 无背景 ⇒ fallback', ansiBgOf(plain, '#fallback'), '#fallback');
+  eq('ansiFgOf: 非反色 ⇒ 取 raw fg', ansiFgOf(plain, '#base', '#well'), '#cf222e');
+  eq('ansiFgOf: 无前景 ⇒ 继承 defFg', ansiFgOf(new AnsiSpan(), '#base', '#well'), '#base');
+  eq('ansiBgOf: 无背景 ⇒ defBg', ansiBgOf(plain, '#base', '#well'), '#well');
+  // ★ 真机回归（装机截图实证）：`\033[7m` 不配颜色时，两侧**都必须**落到各自默认色再对调
+  //   ⇒ 底 = 默认前景、字 = 默认背景。旧实现先取"非空 raw"再 swap ⇒ 双双落 fallback
+  //   ⇒ 反色块整块消失（`INVERSE` 只剩普通深字、vim/htop 状态条没有反色条）。
+  const bare: AnsiSpan = new AnsiSpan();
+  bare.text = 'z'; bare.inverse = true;
+  eq('⛔ inverse + 无任何显式色 ⇒ 底 = defFg（反色块必须成块）', ansiBgOf(bare, '#bodyfg', '#wellbg'), '#bodyfg');
+  eq('⛔ inverse + 无任何显式色 ⇒ 字 = defBg（不能落到透明）', ansiFgOf(bare, '#bodyfg', '#wellbg'), '#wellbg');
+  // 只给一侧时的反色（vim 状态条常见：`\033[7m` 叠在已有前景上）
+  const half: AnsiSpan = new AnsiSpan();
+  half.text = 'w'; half.fg = '#cf222e'; half.inverse = true;
+  eq('inverse + 只给前景 ⇒ 底 = 该前景', ansiBgOf(half, '#bodyfg', '#wellbg'), '#cf222e');
+  eq('inverse + 只给前景 ⇒ 字 = defBg', ansiFgOf(half, '#bodyfg', '#wellbg'), '#wellbg');
 }
 
 // ── MessageRow 消费路径**等价值**：`ansiSpansIfAny(toolLabel, ansiPaletteOf(paletteOf(theme)))` ──

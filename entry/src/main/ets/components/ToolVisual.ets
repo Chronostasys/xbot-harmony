@@ -108,20 +108,26 @@ export struct ToolPill {
       if (this.labelSpans.length > 0) {
         // ANSI 逐 span 上色（对齐 web `AnsiText.tsx:205` 的消费点；判据与渲染同源 = `core/ansi`）。
         // ⛔ 颜色零字面量：前景走 `ansiFgOf`（未定色时继承 pill 文本色 `corePillTextColorOf`），
-        //    背景走 `ansiBgOf`（无背景 ⇒ 色板 `transparent`）。
+        //    背景走 `ansiBgOf`（未定色时继承 pill 真实底色 `pillBgOf` —— ⛔ 别传 `transparent`：
+        //    反色（SGR 7）会把它当作"字色" ⇒ 文字透明不可见）。
         Text() {
           ForEach(this.labelSpans, (sp: AnsiSpan, si: number) => {
             Span(sp.text)
               .fontSize(typeOf('type.caption').size)
-              .fontColor(ansiFgOf(sp, corePillTextColorOf(this.kind, this.theme)))
+              .fontColor(ansiFgOf(sp, corePillTextColorOf(this.kind, this.theme),
+                pillBgOf(this.kind, this.selected, this.theme)))
               .fontWeight(sp.bold ? FontWeight.Bold : FontWeight.Normal)
               .fontStyle(sp.italic ? FontStyle.Italic : FontStyle.Normal)
               .decoration({
                 type: sp.strike ? TextDecorationType.LineThrough
                   : (sp.underline ? TextDecorationType.Underline : TextDecorationType.None),
-                color: ansiFgOf(sp, corePillTextColorOf(this.kind, this.theme)),
+                color: ansiFgOf(sp, corePillTextColorOf(this.kind, this.theme),
+                  pillBgOf(this.kind, this.selected, this.theme)),
               })
-              .textBackgroundStyle({ color: ansiBgOf(sp, paletteOf(this.theme).transparent) })
+              .textBackgroundStyle({
+                color: ansiBgOf(sp, corePillTextColorOf(this.kind, this.theme),
+                  pillBgOf(this.kind, this.selected, this.theme)),
+              })
           }, (sp: AnsiSpan, si: number) => `pl${si}`)
         }
         .fontSize(typeOf('type.caption').size)

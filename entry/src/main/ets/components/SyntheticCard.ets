@@ -151,6 +151,14 @@ export struct SyntheticCard {
     return formatDuration(ms);
   }
 
+  /**
+   * 卡片**真实底色** —— 既是卡面 `backgroundColor`，也是 ANSI 取色的默认背景 `defBg`。
+   * ⛔ 不能传 `transparent`：反色（SGR 7）会把它当作"字色" ⇒ 文字透明不可见。
+   */
+  private cardBgC(): string {
+    return surfaceFillOf(this.pal(), SURFACE_PILL);
+  }
+
   /** 小徽标（等宽小字 + chip 底）—— subject / 状态 / 退出码 / 耗时共用。 */
   @Builder
   Chip(text: string, color: string) {
@@ -246,15 +254,15 @@ export struct SyntheticCard {
             ForEach(this.bodySpans(), (sp: AnsiSpan, si: number) => {
               Span(sp.text)
                 .fontSize(this.form() === FORM_BG_TASK ? FS_CAPTION : FS_BODY)
-                .fontColor(ansiFgOf(sp, this.bodyColor()))
+                .fontColor(ansiFgOf(sp, this.bodyColor(), this.cardBgC()))
                 .fontWeight(sp.bold ? FontWeight.Bold : FontWeight.Normal)
                 .fontStyle(sp.italic ? FontStyle.Italic : FontStyle.Normal)
                 .decoration({
                   type: sp.strike ? TextDecorationType.LineThrough
                     : (sp.underline ? TextDecorationType.Underline : TextDecorationType.None),
-                  color: ansiFgOf(sp, this.bodyColor()),
+                  color: ansiFgOf(sp, this.bodyColor(), this.cardBgC()),
                 })
-                .textBackgroundStyle({ color: ansiBgOf(sp, this.pal().transparent) })
+                .textBackgroundStyle({ color: ansiBgOf(sp, this.bodyColor(), this.cardBgC()) })
             }, (sp: AnsiSpan, si: number) => `sb${si}`)
           }
           .fontSize(this.form() === FORM_BG_TASK ? FS_CAPTION : FS_BODY)

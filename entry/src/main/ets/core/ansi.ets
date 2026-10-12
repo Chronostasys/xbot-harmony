@@ -177,21 +177,33 @@ export function ansiSpansIfAny(text: string, palette: string[]): AnsiSpan[] | nu
 }
 
 /**
- * 渲染层取色的**唯一出口 —— 前景**：把 span 的 raw `fg`/`bg` + `inverse` 解析成最终前景色。
+ * 渲染层取色的**唯一 swap 点**：把 span 的 raw `fg`/`bg` + `inverse` 解析成最终前景/背景。
+ *
  * ⛔ `inverse`（SGR 7）**只在此 swap 恰好一次** —— 解析层从不 swap（见文件头"等价改写"），
- *    渲染层**必须**经由本函数取色、**绝不**自行 swap（重复 swap = 观感错）。
- * @param sp   `parseAnsi` 产出的 span（`fg`/`bg` 为**原始值**）。
- * @param base 无显式前景（且非反色）时继承的底色（渲染层的语义行色）。
+ *    渲染层**必须**经由 `ansiFgOf`/`ansiBgOf` 取色、**绝不**自行 swap（重复 swap = 观感错）。
+ *
+ * ⛔ 关键：swap 必须作用在**有效色（含默认值）**上，而不是"raw 非空值"上：
+ *    `\033[7m`（不配前景/背景）在真终端里 = 「默认前景 ⇄ 默认背景」**整体对调**
+ *    ⇒ 结果是**默认前景色当底、默认背景色当字**（深底浅字）。旧写法先取"非空 raw"再 swap，
+ *    两侧都为空 ⇒ 双双落到 fallback ⇒ **反色块整块消失**（真机装机截图实证：`INVERSE`
+ *    只剩一行普通深字、vim/htop 的状态条没有反色条）。⇒ 两个默认色**都必须**传进来。
+ *
+ * @param sp    `parseAnsi` 产出的 span（`fg`/`bg` 为**原始值**，`''` = 未指定）。
+ * @param defFg 默认前景（渲染层正文色）。
+ * @param defBg 默认背景（渲染层**真实**画布/卡片底色；⛔ 别传 `transparent` ——
+ *              反色时它会变成"字色"⇒ 文字透明不可见）。
  */
-export function ansiFgOf(sp: AnsiSpan, base: string): string {
-  const f: string = sp.inverse ? sp.bg : sp.fg;
-  return f !== '' ? f : base;
+export function ansiFgOf(sp: AnsiSpan, defFg: string, defBg: string): string {
+  const f: string = sp.fg !== '' ? sp.fg : defFg;
+  const b: string = sp.bg !== '' ? sp.bg : defBg;
+  return sp.inverse ? b : f;
 }
 
-/** 同上，**背景**：反色后无背景时返回 `fallback`（渲染层传 `p.transparent`）。 */
-export function ansiBgOf(sp: AnsiSpan, fallback: string): string {
-  const b: string = sp.inverse ? sp.fg : sp.bg;
-  return b !== '' ? b : fallback;
+/** 同上的**背景**一半（同一 swap 点；两半的默认值口径必须一致）。 */
+export function ansiBgOf(sp: AnsiSpan, defFg: string, defBg: string): string {
+  const f: string = sp.fg !== '' ? sp.fg : defFg;
+  const b: string = sp.bg !== '' ? sp.bg : defBg;
+  return sp.inverse ? f : b;
 }
 
 /**
