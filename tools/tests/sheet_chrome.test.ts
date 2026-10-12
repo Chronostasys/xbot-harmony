@@ -212,13 +212,16 @@ for (const rel of SHEETS) {
   ok('⑥ ⛔ 内容区不再放「共 N 个终端」计数',
     src.indexOf('共 ${this.terminals.length} 个终端') < 0);
   // 新建入口在位（空态下仍需能开终端）
+  // ⚠️ 2026-10-12（15d 判据演进）：入口已从**内容区右对齐孤按钮**上移到**表头**（仅终端 tab），
+  //    ⇒ 本文件只保证"入口存在"；"在表头且唯一"由 `panel_terminal_wiring.test.ts` 钉住。
   ok('⑥ 终端 tab 保留「＋ 新建」入口', src.indexOf("'＋ 新建'") >= 0);
   // 五 tab 空态在位（**逐字钉住** ⇒ 防误改/误删；措辞升级须同步改本判据）
   const EMPTIES: string[] = [
     "PanelEmpty('本会话暂无定时任务')",
     "PanelEmpty('本会话暂无后台任务')",
     "PanelEmpty('暂无子代理会话')",
-    "PanelEmpty('本会话暂无终端；点「＋ 新建」开一个')",
+    // ⚠️ 15d：文案与"行内按钮"解耦（按钮已上移表头）⇒ 不再出现"点「＋ 新建」开一个"
+    "PanelEmpty('本会话暂无终端')",
     "Text('暂无受管机器')",
   ];
   for (const s of EMPTIES) {

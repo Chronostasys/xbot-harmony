@@ -47,6 +47,11 @@ const TERM_FLUSH_MS: number = 100;
  */
 const KEY_PAD_X: number = 6;
 /**
+ * 键帽**统一最小宽度**（vp）：单字符键（`↑`/`~`/`|`/`C`）否则只有 ~20vp，
+ * 与 `Ctrl-C` 并排时一宽一窄像"掉字"。44 = Apple HIG 最小命中，键帽据此对齐成"键盘感"。
+ */
+const KEY_MIN_W: number = 44;
+/**
  * 面板里**非画布**部分的高度（vp）：标题行 + 状态行 + 输入行 + 键行 + 3 个间距。
  * 由 `xbot_phone`（1320×2848）实测标定：画布盒 ≈456vp、整板 ≈690vp ⇒ 其余 ≈202vp。
  * 只用于"视口 ⇒ 行数"；即使略偏，也只是多/少一行，不影响正确性。
@@ -394,15 +399,45 @@ export struct TerminalSheet {
   }
 
   // ── 渲染 ──────────────────────────────────────────────────────────────────
+
+  /**
+   * 键帽取色 —— **单一取色点**（`role` ∈ `text` / `bg` / `border`）。
+   *
+   * ⚠️ 为什么收成一个方法：性能预算 **B 线（`this.pal()` ∨ `this.palOnce()` 调用点总数）顶格 1350、
+   *    只许减不许增**。两个键 builder 各有 3 个 role，逐处直写 = **6 个调用点**；本方法体只取一次色
+   *    ⇒ 净 −4。⛔ 别为了"看着直白"再散回各 builder（会顶穿预算 —— 本轮实测 +3 ⇒ 1353 **真红**）。
+   * ⚠️ `role` 是**本方法私有**的判别串（⛔ 不是 `colorOf` 的角色名）：三支分别落到
+   *    `colorOf(...'textSecondary'|'onAccent'|'accent')`、`surfaceFillOf(..., 'surface.input')`、`hairlineOf`。
+   */
+  private keyRoleColor(active: boolean, role: string): string {
+    const p: Palette = this.palOnce();
+    if (role === 'border') {
+      return active ? colorOf(p, 'accent') : hairlineOf(p);
+    }
+    if (role === 'bg') {
+      return active ? colorOf(p, 'accent') : surfaceFillOf(p, 'surface.input');
+    }
+    return colorOf(p, active ? 'onAccent' : 'textSecondary');
+  }
+
   @Builder
   keyChip(label: string, seq: string) {
     // 命中区：靠**对称竖直 padding** 把盒子顶到 ≥44（判据真源口径：fontSize×1.35 + 2×padY ≥ 44）
     Text(label)
       .fontSize(typeOf('type.caption').size)
-      .fontColor(this.palOnce().textSecondary)
+      .fontColor(this.keyRoleColor(false, 'text'))
       .padding({ left: KEY_PAD_X, right: KEY_PAD_X, top: 14, bottom: 14 })
-      .backgroundColor(surfaceFillOf(this.palOnce(), 'surface.input'))
+      // ⚠️ 2026-10-12（目标③/④「终端做的很差」真机取证）：**浅色主题下 `surface.input` 填充
+      //    与面板底 `surface.overlay` 近乎同色 ⇒ 键帽完全看不见、整排退化成"裸文本"**
+      //    （深色主题因明暗差才勉强可辨）。设计系统原则：**浅色系靠结构性发丝立边**
+      //    （与输入面 `.border(hairline)` 同一处置）⇒ 每个键补一条发丝边，键帽才成立。
+      .backgroundColor(this.keyRoleColor(false, 'bg'))
+      .border({ width: STROKE_HAIRLINE, color: this.keyRoleColor(false, 'border') })
       .borderRadius(RADIUS_PILL)
+      // 统一最小键宽：`↑`/`~`/`|` 这类单字符键否则只有 ~20vp，与 `Ctrl-C` 并排像"掉字"。
+      // 键区在水平 `Scroll` 内 ⇒ 溢出只滚动、不挤压。
+      .constraintSize({ minWidth: KEY_MIN_W })
+      .textAlign(TextAlign.Center)
       // 按压反馈：全站唯一口径 `PRESS_OPACITY`（门禁 `interactive_feedback` 硬红要求）
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
       .onClick(() => {
@@ -419,10 +454,14 @@ export struct TerminalSheet {
   ctrlChip() {
     Text(this.ctrlActive ? 'Ctrl ✓' : 'Ctrl')
       .fontSize(typeOf('type.caption').size)
-      .fontColor(colorOf(this.palOnce(), this.ctrlActive ? 'onAccent' : 'textSecondary'))
+      .fontColor(this.keyRoleColor(this.ctrlActive, 'text'))
       .padding({ left: KEY_PAD_X, right: KEY_PAD_X, top: 14, bottom: 14 })
-      .backgroundColor(this.ctrlActive ? colorOf(this.palOnce(), 'accent') : surfaceFillOf(this.palOnce(), 'surface.input'))
+      .backgroundColor(this.keyRoleColor(this.ctrlActive, 'bg'))
+      // 同上：未激活时也要有发丝边才看得见键帽（激活态是实心 accent ⇒ 自带对比，不必描边）。
+      .border({ width: STROKE_HAIRLINE, color: this.keyRoleColor(this.ctrlActive, 'border') })
       .borderRadius(RADIUS_PILL)
+      .constraintSize({ minWidth: KEY_MIN_W })
+      .textAlign(TextAlign.Center)
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
       .onClick(() => {
         this.ctrlActive = !this.ctrlActive;

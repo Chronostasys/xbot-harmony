@@ -7361,6 +7361,29 @@ struct Index {
         if (this.panelBusy) {
           LoadingProgress().width(16).height(16).color(this.pal().accent)
         }
+        // ⚠️ 2026-10-12（目标③/④）：原「＋ 新建」是**内容区里一行右对齐的孤按钮**（真机取证：
+        //    终端 tab 下它单独占一行、上下各留 ~150px 空隙、空态再沉到最底 ⇒ 看着"没做完"）。
+        //    ⇒ 收进**表头**（与 刷新/✕ 同排，仅终端 tab 出现）：动作归动作、内容归内容，
+        //    与 `SettingsPanel` / `PluginsSheet` 的表头动作惯例一致。
+        if (this.panelTab === 'term') {
+          Row() {
+            Text('＋ 新建')
+              .fontSize(typeOf('type.caption').size)
+              .fontColor(this.palOnce().onAccent)
+              .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_XS, bottom: SPACE_XS })
+              .backgroundColor(this.palOnce().accent)
+              .borderRadius(RADIUS_PILL)
+          }
+          // 真机实测 `responseRegion` 负偏移外扩**不生效**（AGENTS.md GOTCHA）⇒ 用真实 44 布局盒
+          .height(HIT_TARGET_MIN)
+          .padding({ left: SPACE_XS, right: SPACE_XS })
+          .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .accessibilityText('新建终端')
+          .onClick(() => {
+            this.newTerminal();
+          })
+        }
         Row() {
           Text('刷新').fontSize(typeOf('type.caption').size).fontColor(this.pal().accentSoft)
         }
@@ -7482,22 +7505,9 @@ struct Index {
         // ⛔ 内容区**不再放计数**：面板 tab 标签本身已带计数（`panelTabLabel('term')` = `终端${n>0? ' '+n:''}`，
         //    `panelCount('term')` = `terminals.length`）⇒「共 N 个终端」与 tab「终端 N」**永远重复**
         //    （真机取证：tab 显示「终端 2」+ 内容区「共 2 个终端」）。留 tab 的计数即可（其空态自动隐后缀）。
-        //    内容区只保留「＋ 新建」入口（空态下仍可开），右对齐。
-        Row() {
-          Text('＋ 新建')
-            .fontSize(typeOf('type.caption').size)
-            .fontColor(this.palOnce().onAccent)
-            .padding({ left: 14, right: 14, top: 14, bottom: 14 })
-            .backgroundColor(this.palOnce().accent)
-            .borderRadius(RADIUS_PILL)
-            .accessibilityText('新建终端')
-            .onClick(() => {
-              this.newTerminal();
-            })
-        }.width('100%').justifyContent(FlexAlign.End)
-
+        // ⛔ 内容区**无动作**：唯一的「＋ 新建」已上移到表头（见上）——此处只留列表 / 空态。
         if (this.terminals.length === 0) {
-          this.PanelEmpty('本会话暂无终端；点「＋ 新建」开一个')
+          this.PanelEmpty('本会话暂无终端')
         } else {
           List({ space: 6 }) {
             ForEach(this.terminals, (t: TerminalInfo, i: number) => {
