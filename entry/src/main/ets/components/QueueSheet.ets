@@ -13,7 +13,7 @@
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import { QueueItem } from '../core/types';
 import { PRESS_OPACITY, STROKE_HAIRLINE, SURFACE_CARD, hairlineOf, structuralRuleOf, surfaceFillOf, ICON_LG, HIT_TARGET_MIN } from '../core/design';
-import { FS_CAPTION, FS_TITLE, R_LG, R_MD, R_XL, SP_2, SP_3, SP_4 } from '../core/tokens';
+import { FS_CAPTION, R_LG, R_MD, R_XL, SP_2, SP_3, SP_4 } from '../core/tokens';
 import { fs, fw, lh } from './SettingsRows';
 // 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线/位移；E3 统一）。
 import { sheetTransition } from './anim';
@@ -68,7 +68,7 @@ export struct QueueSheet {
     Stack() {
       Column({ space: SP_2 }) {
         Row() {
-          Text(`待发队列 (${this.queue.length})`).fontSize(FS_TITLE).fontWeight(fw('type.headline'))
+          Text(`待发队列 (${this.queue.length})`).fontSize(fs('type.headline')).fontWeight(fw('type.headline'))
             .fontColor(this.pal().textPrimary).layoutWeight(1)
           Text('清空').fontSize(FS_CAPTION).fontColor(this.pal().dangerText)
             .padding({ left: SP_2, right: SP_2, top: 6, bottom: 6 })

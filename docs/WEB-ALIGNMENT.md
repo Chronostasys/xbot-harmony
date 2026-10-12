@@ -1440,3 +1440,23 @@ xbot-native-42
 **判据**：`bash tools/gate.sh` ⇒ `✅ 真门禁全绿` + `4 ArkTS BUILD SUCCESSFUL`（exit 0）；装机帧目视确认
 （`entry-default-signed.hap`；⚠️ 脱机三条永远抓不到 ArkTS —— 本批 B2/B3 的 `bindMenu`/新 `@Builder`
 只有真编译能抓）。
+
+## §21.21 目标③「**所有面板**」：页头热区 / 片条 / 空态 / 标题字阶统一（2026-10-12）
+
+**用户要求**：「我只说了侧边栏但是你要考虑所有的面板」。本轮把**运行面板**与两个 sheet 页面的
+偏差收敛（全部有真机 dump 取证）：
+
+| # | 偏差（真机取证） | 处置 |
+|---|---|---|
+| ① | 运行面板 `刷新` / `✕` 只靠 `padding(SPACE_XS)` 撑热区 ⇒ **≈32 < 44**（违反 Apple HIG） | 改**真实 ≥44 布局盒**（⛔ 不用 `responseRegion` 负偏移外扩 —— 真机已证无效） |
+| ② | tab 行 `Row({space:6})` **不换行也不滚动** ⇒ 5 片右缘被裁（`终端 0` 落 `[1120,2536][1302,2623]`，贴 sheet 右缘像坏了） | 改 `Flex(wrap)`（与 `SettingsPanel.TabBar` 同一处置）；片内距 12→`SPACE_XS`(8) ⇒ 5 片**单行放下** |
+| ③ | 空态 `Text('（本会话暂无X）')` 顶左 + `type.caption`(12) ⇒ 像"没画完" | 收成 `PanelEmpty()`：**居中** + `type.callout`(14) + 上下 `SPACE_LG` 留白 |
+| ④ | `QueueSheet`/`SelfCheckSheet` 页头用 `FS_TITLE`(16)，而设计系统契约规定 **Sheet 头 = `type.headline`**(17) | 统一到 `fs('type.headline')`，同步收窄 import（⛔ 不留未用符号） |
+
+**判据**：`bash tools/gate.sh` ⇒ `✅ 真门禁全绿` + `ArkTS BUILD SUCCESSFUL`（exit 0）；装机后
+`dumpLayout` + 帧目视：5 片齐、空态居中、热区达标。
+
+**未做（诚实记账，⛔ 不假称已统一）**：`SettingsPanelHeader`（title + subtitle）与各 sheet 的
+**自持页头**（title + actions）仍是两族。本轮只**对齐语义与数值**（标题 role / 热区 / 内边距 / 空态），
+⛔ **未**抽公共 `@Component`：`@BuilderParam` 铺改 10 个文件风险高，而收益只是"少写几行"——
+数值统一已达成**视觉一致**（真机目视同节奏）。若日后要真合并，改点在 `SettingsRows.SettingsPanelHeader`。

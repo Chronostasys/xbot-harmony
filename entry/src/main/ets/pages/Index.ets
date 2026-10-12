@@ -5799,20 +5799,28 @@ struct Index {
     return this.cronTasks.length;
   }
 
+  /**
+   * 面板片条文案（web `SessionViewBar` 的两级：名 + 计数）。
+   *
+   * ⚠️ 2026-10-12（目标③）**计数为 0 时不显示后缀** —— Apple 徽标惯例：没有东西可提示就不画徽标。
+   * 信息**不减**（面板正文本来就有空态），但 5 片能**单行放下**（真机实测带 ` 0` 时末片会被挤到第二行）。
+   */
   private panelTabLabel(tab: string): string {
+    const n: number = this.panelCount(tab);
+    const suffix: string = n > 0 ? ` ${n}` : '';
     if (tab === 'tasks') {
-      return `后台任务 ${this.panelCount(tab)}`;
+      return `后台任务${suffix}`;
     }
     if (tab === 'subs') {
-      return `子代理 ${this.panelCount(tab)}`;
+      return `子代理${suffix}`;
     }
     if (tab === 'term') {
-      return `终端 ${this.panelCount(tab)}`;
+      return `终端${suffix}`;
     }
     if (tab === 'runners') {
-      return `Runner ${this.panelCount(tab)}`;
+      return `Runner${suffix}`;
     }
-    return `定时任务 ${this.panelCount(tab)}`;
+    return `定时任务${suffix}`;
   }
 
   private panelTabs(): string[] {
@@ -6963,33 +6971,75 @@ struct Index {
     //    破"只许缩短"。弹层**即刻出现**（无入场动效）；如要与兄弟 sheet 一致的滑入，请先登记台账。
   }
 
+  /**
+   * 面板空态：**居中**的一行（Apple 的空态是"有意留白"，⛔ 不是顶左的一小撮小字）。
+   *
+   * ⚠️ 参数是**字面量**、不随状态变 ⇒ 用页面自持的带参 `@Builder` 安全（不触发"带参 @Builder 的
+   * 子树不随参数重建"那类失效 —— 那条只对"会变的内容"致命）。
+   */
+  @Builder
+  PanelEmpty(text: string) {
+    Text(text)
+      .fontSize(typeOf('type.callout').size)
+      // ⚠️ 走 `palOnce()`（记忆化入口）：本页 `this.pal()` 调用点受性能预算 A 线（≤1250）约束，
+      //    新增 UI 一律走 memo 入口（语义与 `pal()` 逐字节一致）。
+      .fontColor(this.palOnce().textMuted)
+      .width('100%')
+      .textAlign(TextAlign.Center)
+      .padding({ top: SPACE_LG, bottom: SPACE_LG })
+  }
+
   /** 面板：四个标签各拉一个端点（定时任务 / 后台任务 / 子代理 / Runner）。 */
   @Builder
   PanelsSheet() {
     Column({ space: 8 }) {
-      Row() {
+      // ⚠️ 2026-10-12（目标③）：`刷新` / `✕` 原先只靠 `padding(SPACE_XS)` 撑热区（≈32 < 44，
+      //    违反 Apple HIG）⇒ 改**真实 ≥44 布局盒**（⛔ 不用 `responseRegion` 负偏移外扩 —— 真机实测无效）。
+      Row({ space: SPACE_XS }) {
         Text('运行面板').fontSize(typeOf('type.headline').size).fontWeight(typeOf('type.headline').weight).fontColor(this.pal().textPrimary).layoutWeight(1)
         if (this.panelBusy) {
           LoadingProgress().width(16).height(16).color(this.pal().accent)
         }
-        Text('刷新').fontSize(typeOf('type.caption').size).fontColor(this.pal().accentSoft).padding(SPACE_XS).onClick(() => {
+        Row() {
+          Text('刷新').fontSize(typeOf('type.caption').size).fontColor(this.pal().accentSoft)
+        }
+        .height(HIT_TARGET_MIN).padding({ left: SPACE_XS, right: SPACE_XS })
+        .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
           this.refreshPanel();
         })
-        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(SPACE_XS)
-        .accessibilityText('关闭')
-.onClick(() => {
+        Row() {
+          SymbolGlyph($r('sys.symbol.xmark')).fontSize(typeOf('type.headline').size).fontColor([this.pal().textSecondary])
+        }
+        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('关闭运行面板')
+        .onClick(() => {
           this.showPanels = false;
         })
-      }.width('100%')
+      }.width('100%').alignItems(VerticalAlign.Center)
 
-      Row({ space: 6 }) {
+      // ⚠️ 2026-10-12（目标③）：原 `Row({space:6})` **不换行也不滚动** ⇒ 5 个 tab（定时/后台/子代理/
+      //    Runner/终端）在 1320px 屏上**右缘被裁**（真机 dump：`终端 0` 落在 [1120,2536][1302,2623]，
+      //    贴 sheet 右缘、像"坏了"）。改 `Flex(wrap)`（与 `SettingsPanel.TabBar` 同一处置）：任何屏宽
+      //    都不切字，且不需要"看不见的滚动条"这一 affordance。
+      //    中性治装对齐 `SettingsPanel.TabBar`：未选中 = chip 面 + 内凹发丝；选中 = 实心 accent。
+      //    ⚠️ 用 `SPACE_XS`（`INSET_ROW_Y` 未在本页导入，二者同值）。
+      Flex({ wrap: FlexWrap.Wrap }) {
         ForEach(this.panelTabs(), (tab: string) => {
           Text(this.panelTabLabel(tab))
             .fontSize(typeOf('type.caption').size)
             .fontColor(this.panelTab === tab ? this.pal().onAccent : this.pal().textSecondary)
-            .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-            .backgroundColor(this.panelTab === tab ? this.pal().accent : this.pal().surface)
+            // ⚠️ 水平内边距取 `SPACE_XS`(8)（而非 `INSET_ROW_X`=12）：5 片在 1320px 屏上
+            //    要**单行放下**（12 ⇒ 第 5 片「终端 0」被挤到第二行成"孤儿片"，真机量测过）。
+            .padding({ left: SPACE_XS, right: SPACE_XS, top: SPACE_XS, bottom: SPACE_XS })
+            .backgroundColor(this.panelTab === tab ? this.pal().accent : surfaceFillOf(this.pal(), 'surface.chip'))
             .borderRadius(RADIUS_PILL)
+            .border({ width: STROKE_HAIRLINE, color: this.panelTab === tab ? this.pal().accent : hairlineOf(this.pal()) })
+            .margin({ right: SPACE_XS, bottom: SPACE_XS })
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
             .onClick(() => {
               this.switchPanelTab(tab);
             })
@@ -6998,7 +7048,7 @@ struct Index {
 
       if (this.panelTab === 'cron') {
         if (this.cronTasks.length === 0) {
-          Text('（本会话暂无定时任务）').fontSize(typeOf('type.caption').size).fontColor(this.pal().textMuted).width('100%')
+          this.PanelEmpty('（本会话暂无定时任务）')
         } else {
           List({ space: 6 }) {
             ForEach(this.cronTasks, (job: CronJob, i: number) => {
@@ -7017,7 +7067,7 @@ struct Index {
         }
       } else if (this.panelTab === 'tasks') {
         if (this.bgTasks.length === 0) {
-          Text('（本会话暂无后台任务）').fontSize(typeOf('type.caption').size).fontColor(this.pal().textMuted).width('100%')
+          this.PanelEmpty('（本会话暂无后台任务）')
         } else {
           List({ space: 6 }) {
             ForEach(this.bgTasks, (t: BgTask, i: number) => {
@@ -7043,7 +7093,7 @@ struct Index {
         }
       } else if (this.panelTab === 'subs') {
         if (this.subagents.length === 0) {
-          Text('（暂无子代理会话）').fontSize(typeOf('type.caption').size).fontColor(this.pal().textMuted).width('100%')
+          this.PanelEmpty('（暂无子代理会话）')
         } else {
           List({ space: 6 }) {
             ForEach(this.subagents, (a: SubAgentRow, i: number) => {
@@ -7084,10 +7134,7 @@ struct Index {
         }.width('100%')
 
         if (this.terminals.length === 0) {
-          Text('（本会话暂无终端；点「＋ 新建」开一个）')
-            .fontSize(typeOf('type.caption').size)
-            .fontColor(this.palOnce().textMuted)
-            .width('100%')
+          this.PanelEmpty('（本会话暂无终端；点「＋ 新建」开一个）')
         } else {
           List({ space: 6 }) {
             ForEach(this.terminals, (t: TerminalInfo, i: number) => {

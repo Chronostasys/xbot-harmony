@@ -12,7 +12,7 @@
  * 同通道（web `bg-bg-elevated` = 浮层面；此前为裸 `pal().appBg` + 无柔影）。
  */
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
-import { FS_CAPTION, FS_TITLE, R_LG, R_XL, SP_2, SP_3 } from '../core/tokens';
+import { FS_CAPTION, R_LG, R_XL, SP_2, SP_3 } from '../core/tokens';
 import {
   HIT_TARGET_MIN, PRESS_OPACITY, GAP_PILL, INSET_CARD_X, INSET_PILL_X, INSET_PILL_Y, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, hairlineOf, structuralRuleOf, surfaceFillOf, ICON_XL, ICON_LG } from '../core/design';
 import { fs, fw } from './SettingsRows';
@@ -50,7 +50,7 @@ export struct SelfCheckSheet {
     Stack() {
       Column() {
         Row() {
-          Text('渲染自检').fontSize(FS_TITLE).fontWeight(fw('type.headline'))
+          Text('渲染自检').fontSize(fs('type.headline')).fontWeight(fw('type.headline'))
             .fontColor(this.pal().textPrimary).layoutWeight(1)
           // ⛔ 关闭 X：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`；
           //    图标视觉尺寸不变（仍 16，盒内居中）。
