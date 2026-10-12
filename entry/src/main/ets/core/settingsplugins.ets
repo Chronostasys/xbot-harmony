@@ -28,6 +28,7 @@
  *    禁无类型对象字面量（一律用 `class`）；无 `any`/`unknown`（用联合类型 + `typeof` 收窄）。
  */
 import { arrOrEmpty, isPresent } from './guards';
+import { resolvePluginText } from './pluginhost';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ① 字段类型
@@ -1275,13 +1276,94 @@ export function pluginStatusIsActive(state: string): boolean {
  * · 无 `id` 的条目**跳过**（没有 id 就启停/重载不了 ⇒ 宁可不显示，也不做一个点了报错的控件）；
  * · `name` 空 ⇒ 回落 `id`（⛔ 不画空标题）；`active`/`total` 非有限 ⇒ 用条目数兜底。
  */
-export function parsePluginStatus(raw: Object | null | undefined): PluginStatusList {
+/** `web_plugin_list` 的单条（只取解析文本要用的 `i18n` 表；见 `core/rpc.ets:RPC_WEB_PLUGIN_LIST`）。 */
+interface WebPluginDeclWire {
+  id?: string;
+  i18n?: Record<string, Record<string, string>>;
+}
+
+/** `web_plugin_list` 响应整体。 */
+interface WebPluginDeclListWire {
+  plugins?: WebPluginDeclWire[];
+}
+
+/**
+ * 抽 `pluginId → i18n 表`（web `PluginManagerPanel.tsx:66-70` 同款）。
+ *
+ * ⛔ 为什么必须拉这张表：服务端 `plugin_status` 的 `name` **原样是 i18n key**
+ * （实测 `name:"manifest.name"`，2026-10-13 现场取证）——不解析就会在设置里直接显示
+ * `manifest.name`（用户报「插件都打不开」时看到的正是它）。
+ */
+export function parsePluginI18nTables(
+  raw: Object | null | undefined,
+): Map<string, Record<string, Record<string, string>>> {
+  const out: Map<string, Record<string, Record<string, string>>> = new Map();
+  if (!isPresent(raw)) {
+    return out;
+  }
+  const wire: WebPluginDeclListWire = raw as WebPluginDeclListWire;
+  const list: WebPluginDeclWire[] = arrOrEmpty(wire.plugins);
+  for (let i = 0; i < list.length; i++) {
+    const d: WebPluginDeclWire | undefined = list[i];
+    if (!isPresent(d)) {
+      continue;
+    }
+    const id: string = isPresent(d.id) ? d.id.trim() : '';
+    if (id.length === 0 || !isPresent(d.i18n)) {
+      continue;
+    }
+    out.set(id, d.i18n as Record<string, Record<string, string>>);
+  }
+  return out;
+}
+
+/**
+ * `key` 形状判据：形如 `manifest.name` / `view.badge.title` 的**点分小写标识**。
+ * 用来区分"**没解析出来的 i18n key**"与"真的就叫这个名字"（人名/产品名极少长这样）。
+ * ⛔ 含空格或大写开头 ⇒ 判为**自然文本**（如 `Ambience`、`Git Fancy`）。
+ */
+export function looksLikeI18nKey(s: string): boolean {
+  const t: string = isPresent(s) ? s.trim() : '';
+  if (t.length === 0 || t.indexOf(' ') >= 0 || t.indexOf('（') >= 0) {
+    return false;
+  }
+  const dot: number = t.indexOf('.');
+  if (dot <= 0 || dot >= t.length - 1) {
+    return false;
+  }
+  for (let i = 0; i < t.length; i++) {
+    const c: string = t.charAt(i);
+    const ok: boolean = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c === '.' || c === '_' || c === '-';
+    if (!ok) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * `plugin_status` 响应 → 视图模型（**全容错**：null / 缺字段 / 坏数组都不炸）。
+ * · 无 `id` 的条目**跳过**（没有 id 就启停/重载不了 ⇒ 宁可不显示，也不做一个点了报错的控件）；
+ * · `name` 是 **i18n key** ⇒ 用该插件的 `i18n` 表解析；解析不出来（表缺失/未命中）⇒ **回落 `id`**
+ *   （⛔ 绝不把 `manifest.name` 当显示名——web 权威 `PluginManagerPanel.tsx:226` 的同一语义）；
+ * · `active`/`total` 非有限 ⇒ 用条目数兜底。
+ *
+ * @param tables `web_plugin_list` 抽出的 `pluginId → i18n 表`（缺省 `{}` ⇒ 全部回落 id）
+ * @param locale 语言（`zh-CN` 等；缺省空串 ⇒ 解析器走"任意语言"兜底链）
+ */
+export function parsePluginStatus(
+  raw: Object | null | undefined,
+  tables?: Map<string, Record<string, Record<string, string>>>,
+  locale?: string,
+): PluginStatusList {
   const out: PluginStatusList = new PluginStatusList();
   if (!isPresent(raw)) {
     return out;
   }
   const wire: PluginStatusWire = raw as PluginStatusWire;
   const list: PluginStatusEntryWire[] = arrOrEmpty(wire.plugins);
+  const loc: string = locale !== undefined ? locale : '';
+  const tbl: Map<string, Record<string, Record<string, string>>> = tables !== undefined ? tables : new Map();
   for (let i = 0; i < list.length; i++) {
     const e: PluginStatusEntryWire | undefined = list[i];
     if (!isPresent(e)) {
@@ -1291,7 +1373,13 @@ export function parsePluginStatus(raw: Object | null | undefined): PluginStatusL
     if (id.length === 0) {
       continue;
     }
-    const name: string = isPresent(e.name) && e.name.length > 0 ? e.name : id;
+    const rawName: string = isPresent(e.name) ? e.name.trim() : '';
+    // ① 先按 i18n 表解析（命中 ⇒ 译文；非 key 或没有表 ⇒ 原样返回）
+    let name: string = resolvePluginText(tbl.get(id), rawName, loc);
+    // ② 仍是"没解析出来的 key"（或压根没名字）⇒ 回落 id，绝不把 manifest.name 当显示名
+    if (name.length === 0 || looksLikeI18nKey(name)) {
+      name = id;
+    }
     out.entries.push(new PluginStatusEntry(
       id, name,
       isPresent(e.version) ? e.version : '',
@@ -1313,10 +1401,30 @@ export function pluginStatusSummaryText(active: number, total: number): string {
 }
 
 /** 行内元信息（`v<版本> · <runtime> · <state>`；空段自动省略，全空 ⇒ 空串，调用方不画）。 */
+/** 状态的中文标签（服务端 `state` 是英文枚举：`active`/`error`/…；直译对用户无意义）。 */
+export function pluginStateLabel(state: string): string {
+  const s: string = isPresent(state) ? state.trim() : '';
+  if (s === 'active') {
+    return '已启用';
+  }
+  if (s === 'error') {
+    // 实测失败原因（后端原文）：`activation failed: start plugin process: fork/exec ./bin/<x>-plugin:
+    // no such file or directory` ⇒ 多半缺 sidecar 二进制；开关时会由 `readableRpcError` 给出全文。
+    return '启动失败';
+  }
+  if (s === 'disabled') {
+    return '已停用';
+  }
+  if (s === 'loading') {
+    return '加载中';
+  }
+  return s;
+}
+
 export function pluginStatusMetaText(e: PluginStatusEntry): string {
   const parts: string[] = [];
   if (isPresent(e.version) && e.version.length > 0) { parts.push(`v${e.version}`); }
   if (isPresent(e.runtime) && e.runtime.length > 0) { parts.push(e.runtime); }
-  if (isPresent(e.state) && e.state.length > 0) { parts.push(e.state); }
+  if (isPresent(e.state) && e.state.length > 0) { parts.push(pluginStateLabel(e.state)); }
   return parts.join(' · ');
 }

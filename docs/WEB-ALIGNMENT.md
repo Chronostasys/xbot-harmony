@@ -3726,3 +3726,48 @@ R5 回调接到**既有**出口 `this.handleSetGoal(t)`；扫描器自证：`Tex
 - `tools/tests/loadmore_anchor.test.ts`（新，19 passed）：bug ③ 的锚定通路 + 反模式守卫。
 - 形态演进：`enumeration_forms`（`onSetTheme` 形态随第二套主题删除，19→18）；
   `haptics`（切主题的 toggle 落点删除，6→5 落点 / toggle 2→1）。
+
+## §21.68 插件线取证：名字是 i18n key + 「打不开」的后端根因（15t，2026-10-13）
+
+用户长期目标④：「必须真的支持 web 的所有插件和功能，现在其实**插件都打不开**」。
+
+### 现场取证（`http://localhost:8082` 真实数据，账号 adm）
+```bash
+POST /api/rpc {"method":"plugin_status","params":{"rescan":true}}
+→ {"active":2,"total":5,"plugins":[
+     {"id":"xbot.ambience","name":"Ambience","runtime":"script","state":"active"},
+     {"id":"xbot.genui","name":"manifest.name","runtime":"grpc","state":"error"},
+     {"id":"xbot.git-fancy","name":"manifest.name","runtime":"stdio","state":"error"},
+     {"id":"xbot.iteration-stats","name":"manifest.name","runtime":"script","state":"active"},
+     {"id":"xbot.ssh-runner","name":"manifest.name","runtime":"stdio","state":"error"}]}
+```
+① **`name` 字段原样是 i18n key**（`manifest.name`）——服务端不做解析，客户端必须用**该插件的
+   `web.i18n` 表**解析。web 权威 `plugins/manager/PluginManagerPanel.tsx:26-31,60-70`：并行拉
+   `web_plugin_list` 拿 `i18n` 表，再 `resolvePluginText(i18nTables[p.id], p.name) ?? p.name`。
+   ⇒ 原生此前只拉 `plugin_status` ⇒ 设置里**直接显示 `manifest.name`**（本轮修）。
+
+② **「打不开」的后端根因（非原生缺陷）**：启用失败时服务端返回可读原文 ——
+   ```bash
+   POST /api/rpc {"method":"plugin_set_enabled","params":{"id":"xbot.git-fancy","enabled":true}}
+   → internal_error: plugin xbot.git-fancy: activation failed:
+       start plugin process: fork/exec ./bin/git-fancy-plugin: no such file or directory
+   ```
+   即 **sidecar 二进制缺失**（`genui`=grpc / `git-fancy`,`ssh-runner`=stdio 三个运行时都必须
+   `fork/exec ./bin/<x>-plugin`）；唯一能跑的是 `script` 运行时（纯 JS：`ambience`、`iteration-stats`）
+   ⇒ 用户要的 **git 面板 / GenUI 面板 / SSH 面板全在这三个无法启动的插件里**，面板自然「看不到」。
+   ⛔ 这条属**后端部署**（缺 `bin/*`），原生侧无从补救；原生侧能做的是**把原因如实透出**。
+
+### 本轮原生侧落地
+1. `core/rpc.ets`：**复用**已存在的 `RPC_WEB_PLUGIN_LIST`（⛔ 我一度重复声明，真门禁 ④ 立刻红
+   `Cannot redeclare block-scoped variable` —— 又一次证明"脱机三条 ≠ 能编译"）。
+2. `core/settingsplugins.ets`：
+   - `parsePluginI18nTables(web_plugin_list)` → `Map<pluginId, i18n 表>`（web `:66-70` 同款）；
+   - `looksLikeI18nKey(s)`：点分小写标识（`manifest.name`/`view.badge.title`）⇒ 判"**没解析出来的 key**"，
+     含空格/大写/中文 ⇒ 自然文本（`Ambience`/`Git Fancy`/`迭代指标`）；
+   - `parsePluginStatus(raw, tables?, locale?)`：先按 i18n 表解析，**仍是 key 或空 ⇒ 回落 `id`**
+     （⛔ 绝不把 `manifest.name` 当显示名）；表缺失/请求失败**不影响列表**（降级不炸）。
+   - `pluginStateLabel(state)`：`error` ⇒ **启动失败**、`active` ⇒ 已启用（原样输出英文枚举对用户无意义）。
+3. `components/SettingsPlugins.ets`：`loadBackend` 先拉 `web_plugin_list`（失败吞掉）再拉 `plugin_status`；
+   新增 `@Prop locale`（由 `SettingsPanel` 从服务端设置 `KEY_LOCALE` 透传）⇒ 按界面语言取译文。
+4. 判据：`tools/tests/plugin_status.test.ts` ④b（**64 passed**）——无表回落 id / 有表解析中文名 /
+   语言未命中回落 en / key 未命中回落 id / 普通名不受影响 / `looksLikeI18nKey` 语义 / 表抽取。

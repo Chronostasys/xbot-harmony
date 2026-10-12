@@ -25,6 +25,8 @@
  */
 import { Palette, paletteOf } from '../core/theme';
 import { XbotHttp } from '../core/http';
+import { normalizeLocale } from '../core/i18n';
+import { KEY_LOCALE, settingOf } from '../core/settings';
 import {
   PRESS_OPACITY,   INSET_CARD_X, INSET_CARD_Y, INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, RADIUS_PILL,
   STROKE_HAIRLINE, HIT_TARGET_MIN, SPACE_XS, SPACE_SM, SPACE_MD, SPACE_LG, SHEET_ACTION_GLYPH,
@@ -423,7 +425,7 @@ export struct SettingsPanel {
         SettingsDeveloper({ http: this.http, theme: this.theme, channel: this.channel, chatID: this.chatID })
       } else if (this.active === SETTINGS_TAB_PLUGINS) {
         // 插件分区：配置读写（写后回读）+ 启停 + 重载（对齐 web SettingsPlugins/PluginManagerPanel）
-        SettingsPlugins({ http: this.http, theme: this.theme, canRetry: true, onRetry: this.onRetryPluginCatalog })
+        SettingsPlugins({ http: this.http, theme: this.theme, canRetry: true, onRetry: this.onRetryPluginCatalog, locale: normalizeLocale(settingOf(this.settings, KEY_LOCALE)) })
       } else if (this.active === SETTINGS_TAB_CHANNELS) {
         // 渠道分区：消息渠道配置（飞书等）—— 逐条移植 web `SettingsChannels.tsx`
         SettingsChannels({ http: this.http, theme: this.theme })

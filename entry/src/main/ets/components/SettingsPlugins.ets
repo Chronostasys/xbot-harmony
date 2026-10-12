@@ -28,10 +28,11 @@ import { fileIo, picker } from '@kit.CoreFileKit';
 import { common } from '@kit.AbilityKit';
 import { FS_CAPTION, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5 } from '../core/tokens';
 import {
+  EmptyParams,
   PluginConfigParams, PluginConfigSetParams, PluginReloadParams, PluginSetEnabledParams,
   PluginStatusParams,
   readableRpcError, rpc, RPC_PLUGIN_CONFIG, RPC_PLUGIN_CONFIG_SET, RPC_PLUGIN_RELOAD,
-  RPC_PLUGIN_SET_ENABLED, RPC_PLUGIN_STATUS,
+  RPC_PLUGIN_SET_ENABLED, RPC_PLUGIN_STATUS, RPC_WEB_PLUGIN_LIST,
 } from '../core/rpc';
 import {
   ConfigValue, PLUGIN_FIELD_BOOLEAN, PLUGIN_FIELD_IMAGE, PLUGIN_FIELD_MULTISELECT,
@@ -51,7 +52,7 @@ import {
   PLUGIN_INSTALL_MAX_BYTES, PLUGIN_INSTALL_MIME, PLUGIN_INSTALL_PATH,
   PluginInstallResult, parsePluginInstallResult, pluginInstallErrorText,
   pluginInstallFilenameFromUri, pluginInstallSizeOk, pluginInstallSuccessText,
-  PluginStatusEntry, PluginStatusList, parsePluginStatus, pluginStatusIsActive,
+  PluginStatusEntry, PluginStatusList, parsePluginI18nTables, parsePluginStatus, pluginStatusIsActive,
   pluginStatusMetaText, pluginStatusSummaryText,
 } from '../core/settingsplugins';
 import { PRESS_OPACITY, CONTROL_INPUT_H, colorOf, hairlineOf, HIT_TARGET_MIN } from '../core/design';
@@ -405,6 +406,8 @@ export struct SettingsPlugins {
   /** HTTP 客户端（由页面注入 `store.http`）。 */
   http: XbotHttp = new XbotHttp('');
   @Prop theme: string = 'dark';
+  /** 界面语言（`zh-CN` 等；插件清单 `web.i18n` 是按语言取译文 —— 服务端 `name` 是 i18n key）。 */
+  @Prop locale: string = '';
 
   @State private catalog: PluginConfigCatalog = new PluginConfigCatalog();
   @State private loading: boolean = true;
@@ -504,8 +507,17 @@ export struct SettingsPlugins {
    */
   private async loadBackend(): Promise<void> {
     try {
+      // 两个 RPC **并行**（web `PluginManagerPanel.tsx:60-64` 同款）：
+      //  · `plugin_status`  → 全量 + state/active/total
+      //  · `web_plugin_list` → 各插件清单的 `web.i18n` 文案表
+      // ⛔ 为什么必须拉清单：服务端 `plugin_status` 的 `name` **原样是 i18n key**
+      //    （实测 `name:"manifest.name"`）⇒ 不解析就在设置里显示 `manifest.name`。
+      // ⛔ 清单拉失败**不影响列表**（表缺失 ⇒ 名字回落 id，与 web `?? p.name` 同属"降级不炸"）。
+      const decls: Object = await rpc<Object>(this.http, RPC_WEB_PLUGIN_LIST, new EmptyParams())
+        .catch(() => new Object());
       const raw: Object = await rpc<Object>(this.http, RPC_PLUGIN_STATUS, new PluginStatusParams(false));
-      this.backend = parsePluginStatus(raw);
+      const tables: Map<string, Record<string, Record<string, string>>> = parsePluginI18nTables(decls);
+      this.backend = parsePluginStatus(raw, tables, this.locale);
       this.backendErr = '';
     } catch (e) {
       this.backendErr = readableRpcError((e as Error).message);

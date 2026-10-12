@@ -36,8 +36,8 @@ declare const __dirname: string;
 declare const process: { exit: (c: number) => void };
 
 import {
-  parsePluginStatus, PluginStatusEntry, PluginStatusList, pluginStatusIsActive,
-  pluginStatusMetaText, pluginStatusSummaryText,
+  looksLikeI18nKey, parsePluginI18nTables, parsePluginStatus, PluginStatusEntry, PluginStatusList,
+  pluginStatusIsActive, pluginStatusMetaText, pluginStatusSummaryText,
 } from '../../entry/src/main/ets/core/settingsplugins';
 import { PluginStatusParams, RpcMethod, RPC_PLUGIN_STATUS } from '../../entry/src/main/ets/core/rpc';
 
@@ -153,6 +153,38 @@ eq('零扫描防线：切出 struct 体（非空且短于整文件）',
   eq('④ 解析：id 全空白被跳过', parsePluginStatus({ plugins: [{ id: '   ' }] }).entries.length, 0);
   // name 空 ⇒ 回落 id
   eq('④ 解析：name 空回落 id', parsePluginStatus({ plugins: [{ id: 'xbot.c' }] }).entries[0].name, 'xbot.c');
+
+  // ── 判据 ④b：`name` 是 **i18n key**（服务端实测 `name:"manifest.name"`）───────
+  //    用户 2026-10-13 现场取证：设置里直接显示 `manifest.name` ⇒ 必须用该插件的 web.i18n 解析。
+  const k = { plugins: [{ id: 'xbot.genui', name: 'manifest.name', version: '1.0.0', state: 'error', runtime: 'grpc' }] };
+  eq('④b 无表 ⇒ 回落 id（⛔ 绝不显示 manifest.name）',
+    parsePluginStatus(k).entries[0].name, 'xbot.genui');
+  const tables = parsePluginI18nTables({
+    plugins: [{ id: 'xbot.genui', i18n: { 'zh-CN': { 'manifest.name': 'GenUI（display_html）' }, en: { 'manifest.name': 'GenUI' } } }],
+  });
+  eq('④b 有表 ⇒ 解析出中文真名',
+    parsePluginStatus(k, tables, 'zh-CN').entries[0].name, 'GenUI（display_html）');
+  eq('④b 有表但语言未命中 ⇒ 回落 en',
+    parsePluginStatus(k, tables, 'ja').entries[0].name, 'GenUI');
+  eq('④b 有表但 key 未命中 ⇒ 回落 id',
+    parsePluginStatus({ plugins: [{ id: 'x.json', name: 'manifest.name' }] },
+      parsePluginI18nTables({ plugins: [{ id: 'x.json', i18n: { en: { other: 'x' } } }] }),
+      'en').entries[0].name, 'x.json');
+  eq('④b 普通名字（非 key）不受影响',
+    parsePluginStatus({ plugins: [{ id: 'xbot.ambience', name: 'Ambience' }] }, tables, 'zh-CN')
+      .entries[0].name, 'Ambience');
+  // key 形态判据本身（区分"没解析出来的 key"与"真叫这个名字"）
+  eq('④b looksLikeI18nKey：manifest.name ⇒ true', looksLikeI18nKey('manifest.name'), true);
+  eq('④b looksLikeI18nKey：view.badge.title ⇒ true', looksLikeI18nKey('view.badge.title'), true);
+  eq('④b looksLikeI18nKey：Ambience ⇒ false', looksLikeI18nKey('Ambience'), false);
+  eq('④b looksLikeI18nKey：含空格的自然名 ⇒ false', looksLikeI18nKey('Git Fancy'), false);
+  eq('④b looksLikeI18nKey：中文名 ⇒ false', looksLikeI18nKey('迭代指标'), false);
+  // 表抽取（web PluginManagerPanel.tsx:66-70 同款）
+  const extracted: Map<string, Record<string, Record<string, string>>> = parsePluginI18nTables({
+    plugins: [{ id: 'a', i18n: { en: { k: 'v' } } }, { id: '', i18n: { en: {} } }, { id: 'c' }],
+  });
+  eq('④b parsePluginI18nTables：只收「有 id + 有表」的项', extracted.size, 1);
+  eq('④b parsePluginI18nTables：表内容原样', JSON.stringify(extracted.get('a')), JSON.stringify({ en: { k: 'v' } }));
   // 计数缺失 / 非有限 ⇒ 用条目数兜底
   const noCounts: PluginStatusList = parsePluginStatus({ plugins: [{ id: 'a' }, { id: 'b' }] });
   eq('④ 解析：计数缺失 ⇒ 用条目数兜底', [noCounts.active, noCounts.total], [2, 2]);
@@ -170,8 +202,8 @@ eq('零扫描防线：切出 struct 体（非空且短于整文件）',
   eq('④ 状态：空 ⇒ false', pluginStatusIsActive(''), false);
 
   // 文案
-  eq('④ 元信息：v/runtime/state 全给', pluginStatusMetaText(new PluginStatusEntry('x', 'n', '1.0', 'active', 'script')),
-    'v1.0 · script · active');
+  eq('④ 元信息：v/runtime/state 全给（状态中文化）', pluginStatusMetaText(new PluginStatusEntry('x', 'n', '1.0', 'active', 'script')),
+    'v1.0 · script · 已启用');
   eq('④ 元信息：全空 ⇒ 空串（调用方不画）', pluginStatusMetaText(new PluginStatusEntry('x', 'n', '', '', '')), '');
   eq('④ 概览：启用 1 / 共 3', pluginStatusSummaryText(1, 3), '全部插件（启用 1 / 共 3）');
   eq('④ 概览：非有限 ⇒ 归零（不显示 NaN）', pluginStatusSummaryText(Number.NaN, Number.NaN),
