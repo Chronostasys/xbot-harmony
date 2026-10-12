@@ -134,14 +134,19 @@ has(indexSrc, 'this.activeChannel.length === 0 ? \'surface.pillSelected\' : \'su
   '触发器保留「选中全部 = 凹槽面」的既有面口径（⛔ 未新造面名）');
 
 // ── 靶子4d：分组头节奏 · 行密度 · 搜索框（2026-10-12 目标③ 第三批）─────────────────
-// ① 分组头**底对齐**：44vp 可点盒（硬约束，`hit_target_gate` 的 PENDING_SPEC 已清空 ⇒ 页面也在管）
-//    装 ~12vp 文字，**居中**会在组头**下方**也留 ~13vp ⇒ 真机量测「组头文字 → 本组首行文字」
-//    = 127px ≈ **37.5vp** 的空带（看起来像布局断了）。底对齐把这半边空气挪到**组的上方**
-//    （= 组与组之间的分隔，正是需要的）⇒ 组头紧贴本组首个会话行（21vp）。
+// ① 分组头 **居中 + 仅非首组显式留白**（2026-10-12 第二次修，原实现 = 「44vp 盒**底对齐**」）：
+//    44vp 可点盒（硬约束，`hit_target_gate` 的 PENDING_SPEC 已清空 ⇒ 页面也在管）装 ~12vp
+//    文字时——**居中**会把空气均分到上下；**底对齐**则把全部 ~26vp 堆到组头**上方**。
+//    底对齐对"组与组之间"正是想要的，但**首个组**上方没有"上一组" ⇒ 那 26vp 直接顶在
+//    筛选条下面（真机量测：筛选条底 y≈700 → 首组标题 y≈864 = **~150px 空带**，看起来像
+//    布局断了 —— 用户 2026-10-12 亲报「这么丑的排版」的场景之一）。
+//    ⇒ 改：居中 + **非首组** 加 `SPACE_MD` 上边距 ⇒ 组间空带**不变**（改为显式 margin），
+//      首组紧贴筛选条（真机复测：首组标题 y **864 → 809**，空带 -55px）。
 const grpRow: string = between(indexSrc, 'Text(`${g.items.length}`)', 'this.toggleGroup(');
 ok('分组头行块可定位（零扫描判红）', grpRow.length > 40);
-has(grpRow, '.alignItems(VerticalAlign.Bottom)', '分组头内容底对齐（空气归组间、组头紧贴本组行）');
-hasNot(grpRow, '.alignItems(VerticalAlign.Center)', '⛔ 分组头不再垂直居中（空带会留在组头下方）');
+has(grpRow, '.alignItems(VerticalAlign.Center)', '分组头内容居中（上下空气均分，⛔ 不把空气全堆在组头上方）');
+has(grpRow, '.margin({ top: gIdx > 0 ? SPACE_MD : 0 })', '组间空带**显式化**且 ⛔ 首组不留白（空气归组间、组头紧贴本组行）');
+has(indexSrc, 'ForEach(this.drawerGroups(), (g: DrawerGroup, gIdx: number) => {', '组序号入 ForEach（"首组"判定所需）');
 
 // ② 会话行密度：行高 = 尾部 `⋯` 的 44vp 真实热区盒 + 上下 `SPACE_XXS`(4) ⇒ **52vp**。
 //    原用 `INSET_ROW_Y`(8) ⇒ 60vp（比 Apple 44pt 单行列表高 39%）。判据钉**精确内边距串**。

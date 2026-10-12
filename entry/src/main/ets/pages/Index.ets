@@ -7255,7 +7255,7 @@ struct Index {
         .alignItems(HorizontalAlign.Center)
       } else {
         List() {
-          ForEach(this.drawerGroups(), (g: DrawerGroup) => {
+          ForEach(this.drawerGroups(), (g: DrawerGroup, gIdx: number) => {
             // 组头：chevron（展开时旋转 90°）+ 标题 + 计数徽标；点整行 = 折叠/展开。
             // 层级：组头用 `type.micro` + 半档字重（中文无大小写，以字重补 web `uppercase` 的层次）。
             ListItem() {
@@ -7274,12 +7274,13 @@ struct Index {
               }
               .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
               .padding({ left: SPACE_XXS, right: SPACE_XXS })
-              // ⚠️ **底对齐**（2026-10-12，原为 `Center`）：组头是**可点行**（≥44 热区是硬约束，
-              //    `hit_target_gate` 的 `PENDING_SPEC` 已清空 ⇒ `pages/Index.ets` 也在管），
-              //    44 盒装 12vp 文字时**居中**会在组头**下方**也留 ~13vp ⇒ 真机量测"组头文字→本组首行
-              //    文字"= **127px ≈ 37.5vp** 的空带（看起来像布局断了）。底对齐把这半边空气挪到
-              //    **组的上方**（= 组与组之间的分隔，正是需要的），组头紧贴本组行 ⇒ 21vp。
-              .alignItems(VerticalAlign.Bottom)
+              // ⚠️ **居中 + 仅非首组显式留白**（2026-10-12 二次修，原为「44 盒底对齐」）：
+              //    底对齐把 44 盒里 ~26vp 的空气**全堆在组头上方**（本意是当组间分隔），
+              //    但**首个组**上方没有"上一组" ⇒ 那 26vp 直接顶在筛选条下面，真机量测
+              //    「筛选条底(y≈700) → 首组标题(y≈852)」= **~150px 空带**（看起来像布局断了）。
+              //    改：居中 + **非首组** 加 `SPACE_MD` 上边距 ⇒ 组间空带不变、首组紧贴筛选条。
+              .alignItems(VerticalAlign.Center)
+              .margin({ top: gIdx > 0 ? SPACE_MD : 0 })
               .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
                 this.toggleGroup(this.sessionCategory(), g.key);
