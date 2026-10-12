@@ -7198,11 +7198,11 @@ struct Index {
       } else if (this.panelTab === 'term') {
         // ⚠️ 取色一律走 `palOnce()`（记忆化入口，语义与 `pal()` 逐字节一致）：`this.pal()` 是
         //    **未 memo 的真分配**，性能预算 A 线（≤1250）只许减 ⇒ 新增 UI 按本页既定约定走本入口。
-        Row({ space: SPACE_XS }) {
-          Text(`共 ${this.terminals.length} 个终端`)
-            .fontSize(typeOf('type.micro').size)
-            .fontColor(this.palOnce().textSecondary)
-            .layoutWeight(1)
+        // ⛔ 内容区**不再放计数**：面板 tab 标签本身已带计数（`panelTabLabel('term')` = `终端${n>0? ' '+n:''}`，
+        //    `panelCount('term')` = `terminals.length`）⇒「共 N 个终端」与 tab「终端 N」**永远重复**
+        //    （真机取证：tab 显示「终端 2」+ 内容区「共 2 个终端」）。留 tab 的计数即可（其空态自动隐后缀）。
+        //    内容区只保留「＋ 新建」入口（空态下仍可开），右对齐。
+        Row() {
           Text('＋ 新建')
             .fontSize(typeOf('type.caption').size)
             .fontColor(this.palOnce().onAccent)
@@ -7213,7 +7213,7 @@ struct Index {
             .onClick(() => {
               this.newTerminal();
             })
-        }.width('100%')
+        }.width('100%').justifyContent(FlexAlign.End)
 
         if (this.terminals.length === 0) {
           this.PanelEmpty('本会话暂无终端；点「＋ 新建」开一个')
@@ -7223,7 +7223,7 @@ struct Index {
               ListItem() {
                 PanelRowCard({
                   theme: this.themeName,
-                  primary: terminalPrimary(t),
+                  primary: terminalPrimary(t, i),
                   secondary: terminalSubText(t, this.nowMs()),
                   // ⛔ 终端**列表**无连接状态数据（状态只在 `TerminalSheet` 的本地 @State）⇒ 恒 muted
                   tone: TONE_MUTED,

@@ -35,6 +35,19 @@ export function terminalTitle(t: TerminalInfo): string {
   return cwd;
 }
 
+/**
+ * **详情页**头部标题：cwd 末段；空 cwd 回退**泛称「终端」**。
+ *
+ * ⛔ 与 `terminalTitle` 的唯一差别 = 空 cwd 的回落值：列表里要**唯一**（两行同名没法点）⇒ 回落 tid；
+ *    详情页一次只显示一个 ⇒ 回落**用户语「终端」**（⛔ 用户面**不露内部 id**「t-17917…」—— 真机取证：
+ *    新建终端（cwd 尚空）头部显示裸 tid，苹果不会这样）。
+ */
+export function terminalHeadTitle(t: TerminalInfo): string {
+  const cwd: string = t.cwd !== undefined ? t.cwd.trim() : '';
+  if (cwd.length === 0) { return '终端'; }
+  return terminalTitle(t);
+}
+
 /** 存活时长（`12s` / `3m` / `2h` / `1d`）；无法解析时返回 `''`。 */
 export function terminalAgeText(t: TerminalInfo, nowMs: number): string {
   const ms: number = Date.parse(t.createdAt);
@@ -47,14 +60,21 @@ export function terminalAgeText(t: TerminalInfo, nowMs: number): string {
 }
 
 /**
- * 终端·主行（标识）= cwd 末段（缺 cwd 回落 tid）。
+ * 终端·列表主行（标识）= cwd 末段；**空 cwd ⇒ `终端 N`**（N = 行序号 + 1，`idx` 从 0 起）。
  *
  * ⛔ 批次10（2026-10-12）拆分：此前 `terminalLine` 单行 `proj · 3m`（标识 + 时长挤在一行）。
  *    拆成主行（标识）+ 副行（完整 cwd · 时长）—— ⛔ **不臆造状态**：终端连接状态只存在于
  *    `TerminalSheet` 的本地 `@State`（列表数据 `{tid,cwd,createdAt}` 里没有）⇒ 列表不显示状态。
+ *
+ * ⛔ 批次13d（2026-10-12）：空 cwd **不再回落裸 tid**（真机取证：列表行显示
+ *    `t-1791790296656155000` —— 20 字符内部 id，用户面不可读）。web 权威命名 = `Terminal ${termSeq}`
+ *    （`useTerminal.ts:146`，创建时**递增序号**；原生 `TerminalInfo` 无该字段）⇒ 用**渲染序号**近似
+ *    （列表顺序稳定 ⇒ 序号稳定）。
  */
-export function terminalPrimary(t: TerminalInfo): string {
-  return terminalTitle(t);
+export function terminalPrimary(t: TerminalInfo, idx: number): string {
+  const cwd: string = t.cwd !== undefined ? t.cwd.trim() : '';
+  if (cwd.length > 0) { return terminalTitle(t); }
+  return `终端 ${idx + 1}`;
 }
 
 /** 终端·副行 = `<完整 cwd> · <时长>`（缺项自动省略；cwd 与主行末段同源、信息更全）。 */

@@ -10,7 +10,7 @@ declare const process: { exit: (c: number) => void };
 
 import {
   TermMsg, TerminalInfo, TERM_CLOSE_MSG, TERM_CONNECTED, TERM_CONNECTING, TERM_ERROR, TERM_EXITED,
-  encodeResize, encodeStdin, parseTermMsg, terminalAgeText, terminalPrimary, terminalSubText, terminalStatusRole,
+  encodeResize, encodeStdin, parseTermMsg, terminalAgeText, terminalHeadTitle, terminalPrimary, terminalSubText, terminalStatusRole,
   terminalStatusText, terminalTitle, termWsUrl,
 } from '../../entry/src/main/ets/core/termproto';
 
@@ -34,14 +34,21 @@ eq('尾斜杠也取到末段', terminalTitle(info('t-1', '/Users/bobli/src/', ''
 eq('空 cwd 回退 tid', terminalTitle(info('t-9', '', '')), 't-9');
 eq('根目录无末段回退原串', terminalTitle(info('t-9', '/', '')), '/');
 
+// ── 详情页标题（`terminalHeadTitle`）：与列表**同源**，但空 cwd 回**用户语「终端」**（不露裸 tid）──
+eq('详情页标题取 cwd 末段', terminalHeadTitle(info('t-1', '/Users/bobli/src/xbot-harmony', '')), 'xbot-harmony');
+eq('详情页标题空 cwd ⇒ 泛称「终端」（⛔ 不露 tid）', terminalHeadTitle(info('t-1791790296656150000', '', '')), '终端');
+eq('详情页标题纯空白 cwd ⇒ 泛称「终端」', terminalHeadTitle(info('t-9', '   ', '')), '终端');
+eq('详情页标题根目录 ⇒ 原串 /', terminalHeadTitle(info('t-9', '/', '')), '/');
+
 eq('30 秒', terminalAgeText(info('t', '/x', '2026-10-12T11:59:30Z'), NOW), '30s');
 eq('5 分钟', terminalAgeText(info('t', '/x', '2026-10-12T11:55:00Z'), NOW), '5m');
 eq('2 小时', terminalAgeText(info('t', '/x', '2026-10-12T10:00:00Z'), NOW), '2h');
 eq('3 天', terminalAgeText(info('t', '/x', '2026-10-09T12:00:00Z'), NOW), '3d');
 eq('坏时间戳 ⇒ 空', terminalAgeText(info('t', '/x', 'not-a-date'), NOW), '');
 
-eq('终端主行 = cwd 末段', terminalPrimary(info('t', '/a/proj', '2026-10-12T11:55:00Z')), 'proj');
-eq('终端主行缺 cwd 回落 tid', terminalPrimary(info('t9', '', '')), 't9');
+eq('终端主行 = cwd 末段', terminalPrimary(info('t', '/a/proj', '2026-10-12T11:55:00Z'), 0), 'proj');
+eq('终端主行缺 cwd ⇒ 终端 N（⛔ 不露裸 tid）', terminalPrimary(info('t9', '', ''), 0), '终端 1');
+eq('终端主行序号 = idx+1', terminalPrimary(info('t9', '', ''), 3), '终端 4');
 // ⛔ 批次10：副行 = **完整 cwd · 时长**（此前单行 `proj · 5m` 把标识与元信息挤在一起）
 eq('终端副行 = cwd · 时长', terminalSubText(info('t', '/a/proj', '2026-10-12T11:55:00Z'), NOW), '/a/proj · 5m');
 eq('终端副行缺 createdAt 只剩 cwd', terminalSubText(info('t', '/a/proj', ''), NOW), '/a/proj');

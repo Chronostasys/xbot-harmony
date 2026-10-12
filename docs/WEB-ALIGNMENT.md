@@ -2065,3 +2065,52 @@ Apple 的空态是**陈述句**，不是「（这里什么都没有）」。此�
 **判据取得**：`tools/gate.sh` ⇒ **`✅ 真门禁全绿` + `GATE_EXIT=0`**（`BUILD SUCCESSFUL in 16 s 514 ms`；
 290 文件 0 失败；A 1242/1250 · B 1342/1350 · ForEach 107/107 逐条未变）；装机 `deploy.sh` ⇒ `DEPLOY_EXIT=0`；
 真机复核 ⇒ 运行面板「Runner」空态显示 `暂无受管机器`（无全角括号）✓。
+
+## §21.36 目标③ 所有面板（第十批）：终端头部去裸 id + 运行面板计数去冗余（2026-10-12）
+
+真机取证（逐个面板 dump + 截图审计 FilesSheet / SessionStatsSheet / 运行面板 / TerminalSheet）：
+
+**① 终端显示裸内部 id**（`t-1791790296656150000`）—— 两处（真机取证）：
+**详情头部**（`TerminalSheet.headTitle()`）与**列表行**（`terminalPrimary`）在新建终端（`cwd` 尚空）时
+都走 `cwd 空 ⇒ 回落 tid` 分支 ⇒ 用户面暴露 20 字符内部 id（苹果不会；web 权威命名 = `Terminal ${termSeq}`，
+`useTerminal.ts:146` —— 创建时**递增序号**）。
+
+- ⛔ **不能**直接改 `terminalTitle`（`termproto.test.ts` 钉「空 cwd 回退 tid」，且它仍是唯一性回落源）。
+- 修法 = 两条**面上**入口各自去掉裸 id：
+  · **详情页** `terminalHeadTitle(t)`（新纯函数）：cwd 末段；空 cwd → 用户语 **「终端」**（详情一次只显示一个 ⇒ 无需序号）。
+  · **列表** `terminalPrimary(t, idx)`：cwd 末段；空 cwd → **`终端 ${idx + 1}`**（**渲染序号**近似 web 的
+    `Terminal N` —— 原生 `TerminalInfo` 无 termSeq 字段；列表顺序稳定 ⇒ 序号稳定）。调用点
+    `Index.ets` 传 `i`。
+
+**② 运行面板「终端」tab 内容区计数与 tab 标签重复**：tab 标签 = `panelTabLabel('term')` =
+`终端${n>0? ' '+n:''}`（**已带计数**，`panelCount('term')` = `terminals.length`），而内容区又画
+「共 N 个终端」⇒ **双计数**（真机取证：tab 显示「终端 2」+ 内容区「共 2 个终端」）；空态下更糟
+（「共 0 个终端」+ 空态文案「本会话暂无终端…」都说"没有"）。
+
+- 修法 = 内容区**删计数**（计数由 tab 承担；其空态自动隐后缀 ⇒ 空态只显示 `终端`）；
+  内容区只留「＋ 新建」入口（`.justifyContent(FlexAlign.End)` 右对齐，空态下仍可开）。
+
+**非缺陷（审计结论，勿重报）**：终端按键条（Ctrl-C/Tab/…）虽视觉为**裸文字**，但注释明示
+「竖直内边距 14 ⇒ 命中盒 ≥44」（`HIT_TARGET_MIN` 口径），可点性达标；FilesSheet（面包屑 +
+文件夹/文件图标 + 尺寸次级色 + chevron）/ SessionStatsSheet（指标网格 + 按模型 + 最近迭代表、
+等宽对齐数字）已对齐设计系统，无硬伤。
+
+**判据（演进，⛔ 不删除）**：
+- `termproto.test.ts`：`terminalHeadTitle` 新增 **4** 条（cwd 末段 / 空 cwd → 「终端」/ 纯空白 → 「终端」/
+  根目录 → `/`）；`terminalPrimary` 的「缺 cwd 回落 tid」**演进**为「空 cwd ⇒ `终端 N`」（2 条：
+  `idx` 0 ⇒ `终端 1`；`idx` 3 ⇒ `终端 4`）⇒ 37 → **42**。
+- `sheet_chrome.test.ts` 新增 **⑥**：tab 标签**带计数**（`终端${suffix}`）+ 内容区**不再放计数**
+  （⛔ 双计数回归防线）+「＋ 新建」入口在位 + 五 tab 空态**逐字钉住**（防误改/误删）⇒ 85 → **94**。
+
+**mutation 自证**（三次，均在门禁同环境）：
+① `terminalHeadTitle` 空 cwd 分支改回 `return t.tid` ⇒ `termproto` **`39 passed, 2 failed`**；
+② `Index.ets` 内容区加回 `Text(\`共 N 个终端\`)` ⇒ `sheet_chrome` **`93 passed, 1 failed`**（⑥ 反条命中）；
+③ `terminalPrimary` 空 cwd 改回 `return t.tid` ⇒ `termproto` **`40 passed, 2 failed`**；
+  三次还原后 **md5 逐字节一致**（`0adcf802…` / `c3bd14c4…` / `cc68a191…`）⇒ 各回全绿。
+⚠️ 本轮判据**当场抓到我一次**：⑥ 初版把「暂无受管机器」写成 `PanelEmpty('暂无受管机器')` —— 真码是
+`Text('暂无受管机器')`（运行面板 runner 空态走裸 `Text` 非 `PanelEmpty`）⇒ **立刻红** ⇒ 改对。
+
+**判据取得**：`tools/gate.sh` ⇒ **`✅ 真门禁全绿` + `GATE_EXIT=0`**（`BUILD SUCCESSFUL in 8 s 879 ms`；
+290 文件 0 失败；A 1242/1250 · **B 1341/1350**（−1，删计数）· ForEach 107/107）；装机 `deploy.sh` ⇒
+`DEPLOY_EXIT=0`；真机复核 ⇒ ① 终端详情头部 = **`终端`**（原裸 id `t-1791…`）；② 终端列表行 = **`终端 1`/`终端 2`**
+（原裸 id）；③ 运行面板终端 tab 标签 = **`终端 2`**（tab 承担计数）且**内容区无 `共 2 个终端`**（只 `＋ 新建` 右对齐）。

@@ -25,7 +25,7 @@ import { AnsiSpan, ansiFgOf, ansiPaletteOf } from '../core/ansi';
 import { ctrlLetterByte, VtLine, VtTerm, vtArrowKeys, vtB64ToBytes } from '../core/vt';
 import {
   encodeResize, encodeStdin, parseTermMsg, TERM_CLOSE_MSG, TERM_CLOSED, TERM_CONNECTED,
-  TERM_CONNECTING, TERM_ERROR, TERM_EXITED, TermMsg, TerminalInfo, terminalStatusRole,
+  TERM_CONNECTING, TERM_ERROR, TERM_EXITED, TermMsg, TerminalInfo, terminalHeadTitle, terminalStatusRole,
   terminalStatusText, terminalTitle, termWsUrl,
 } from '../core/termproto';
 import { Palette, paletteOf } from '../core/theme';
@@ -122,7 +122,7 @@ export struct TerminalSheet {
     t.tid = this.tid;
     t.cwd = this.cwd;
     t.createdAt = '';
-    return terminalTitle(t);
+    return terminalHeadTitle(t);
   }
 
   // ── 生命周期 ──────────────────────────────────────────────────────────────

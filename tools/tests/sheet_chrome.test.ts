@@ -199,6 +199,33 @@ for (const rel of SHEETS) {
   ok(`③ ${rel} 无局部魔数 \`X_GLYPH\`（回归防线）`, src.indexOf('X_GLYPH') < 0);
 }
 
+// ── ⑥ 运行面板「终端」tab：内容区**不放计数**（tab 标签已带 `终端 N` ⇒ 永远重复）──────────────
+// 真机取证（2026-10-12）：tab 标签 = `panelTabLabel('term')` = `终端${n>0?' '+n:''}`（**已带计数**），
+//   而内容区又画「共 N 个终端」⇒ **双计数**；空态下更糟（「共 0 个终端」+ 空态文案都说"没有"）。
+//   ⇒ 内容区**删计数**（只留「＋ 新建」右对齐）；计数由 tab 承担（其空态自动隐后缀）。
+{
+  const src: string = read(path.join(ETS, 'pages/Index.ets'));
+  ok('⑥ pages/Index.ets 读到源码（零扫描判红）', src.length > 0);
+  // 正：tab 标签**带计数**（`panelTabLabel` 的 `终端${suffix}` 分支）
+  ok('⑥ 面板 tab 标签带计数（`终端${suffix}`）', src.indexOf('return `终端${suffix}`') >= 0);
+  // 反：内容区**不得再有**计数（旧形态 ⇒ 与 tab 双计数 / 空态啰嗦）
+  ok('⑥ ⛔ 内容区不再放「共 N 个终端」计数',
+    src.indexOf('共 ${this.terminals.length} 个终端') < 0);
+  // 新建入口在位（空态下仍需能开终端）
+  ok('⑥ 终端 tab 保留「＋ 新建」入口', src.indexOf("'＋ 新建'") >= 0);
+  // 五 tab 空态在位（**逐字钉住** ⇒ 防误改/误删；措辞升级须同步改本判据）
+  const EMPTIES: string[] = [
+    "PanelEmpty('本会话暂无定时任务')",
+    "PanelEmpty('本会话暂无后台任务')",
+    "PanelEmpty('暂无子代理会话')",
+    "PanelEmpty('本会话暂无终端；点「＋ 新建」开一个')",
+    "Text('暂无受管机器')",
+  ];
+  for (const s of EMPTIES) {
+    ok(`⑥ 运行面板空态在位：${s}`, src.indexOf(s) >= 0);
+  }
+}
+
 if (fail > 0) { console.log(`  sheet_chrome: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  sheet_chrome: ${pass} passed, 0 failed`);
 process.exit(0);
