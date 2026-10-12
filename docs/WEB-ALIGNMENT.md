@@ -2214,3 +2214,65 @@ Apple 的空态是**陈述句**，不是「（这里什么都没有）」。此�
 由 **mutation 自证测试 + 真编译**覆盖（真机触发分别需"活工具组"与 0 命中搜索，`inputText` 未落字，
 故不单独截图）。
 
+
+## §21.39 目标③（第十三批）：设置分区**文案卫生**（去码名/内部路径/Markdown 残留）+「回到最新」改**悬浮提示**（2026-10-12）
+
+**审计对象**：设置面板 12 个分区的**用户可见文案**（`components/Settings*.ets`，共 8080 行；13e 只审过「外观」）
++ 主对话页「↓ 回到最新」入口的**呈现形态**（用户亲报）。
+
+### A. 设置分区文案卫生（5 处真缺陷，跨 4 个分区）
+- **① `SettingsAgent.ets:161` 开关描述直呼工具名 `compact_context`**：原
+  `'开启后智能体可调用 compact_context 按需压缩自己的上下文（阈值触发的自动压缩不受此开关影响）。'`
+  —— 工具名是**代码标识符**，用户看不懂。修 → `'开启后智能体可在需要时自行压缩上下文（阈值触发的自动压缩不受此开关影响）。'`。
+- **② `SettingsStorage.ets:273/313` 开发者语「bucket 为真值 / 由 bucket 承载」**：`bucket` 是 schema 字段名，
+  「真值」（source of truth）是程序术语。web 权威 `zh-CN.ts:679` 用「云端对象不会过期」。修 → subtitle
+  `'上传的图片与文件存在哪里。默认存本机（免配置）；也可选云对象存储 —— 云端对象不会过期。保存后立即热切换，无需重启。密钥由服务端打码，留空修改不会覆盖真实凭据。'`、
+  provider 描述 `'本地 = 文件与图片留在本机；云存储 = 上传到你的对象存储，链接不会过期。'`。
+- **③ `SettingsDeveloper.ets:376` 副标题含字面 Markdown `**自动脱敏**`**：ArkUI `Text` **不渲染 Markdown**
+  ⇒ `**` 会**原样上屏**（与同文件 `:406` 已修的「把符号当图标」同类）。修 → 去掉 `**`（不加富文本）。
+- **④ `SettingsDeveloper.ets:420/422/427` 连接状态卡标签露内部变量名**：`'请求协议 (httpVer)'` /
+  `'上次错误码 (errCode)'` / `'上次响应码 (respCode)'`（原生自造卡，web 无此物）⇒ 去掉括号码名，保留可读标签。
+- **⑤ `SettingsPlugins.ets:227` 图片说明露内部 API 路径**：`'当前值 = 本站上传的图片（/api/plugin-files/…）。'`
+  —— `/api/…` 是内部路径（web 只在 `fetch` 里用，从不上屏）。修 → `'当前值 = 本站上传的图片。'`。
+
+### B.「↓ 回到最新」= **悬浮提示**（不再独霸一行、不挤压历史）
+- **用户亲报**：「回到最新那个 popup 应该是悬浮提示，而不是单独占一片区域 / 不该挤压我们的历史」。
+- **旧形态（缺）**：药丸放在消息区**下方**的一个**全宽 `Row`**（`width('100%')` + `justifyContent(Center)`
+  + `SPACE_HAIR` 上下距）⇒ **吃掉一整行高度**、把消息列表顶短；命中区靠 `responseRegion` 负偏移外扩，
+  而该手法**真机实测无效**（`docs/ARKTS-GOTCHAS.md`）⇒ 实际热区仅 ~28px（< 44）。
+- **新形态**：药丸**叠在消息区之上**（移入 `Index.ets` 的 `Stack({alignContent:TopEnd})` 内作末子 = 最上层），
+  用「**全屏透明容器 + 底对齐 + 水平居中** + `hitTestBehavior(HitTestMode.Transparent)`」（与
+  `components/Toast` 同一手法，只是 `Transparent` 而非 `None` —— 药丸要可点、列表照常滑）
+  ⇒ **不占布局**（列表恢复整高）、不挡列表。命中盒改为「**把 onClick 落在 ≥44 的布局盒**上」
+  （`Row().constraintSize({minHeight: HIT_TARGET_MIN}).padding({left/right: SPACE_MD})`，视觉药丸尺寸不变、
+  盒内居中）—— 即 GOTCHAS 的**正解**。
+
+**判据演进**（两处，均**零扫描判红** + **mutation 自证**）：
+- `tools/tests/settings_copy_parity.test.ts` 新增 **③ 文案卫生**（**9 → 18**）：剥注释后抽 4 分区**单引号字面量**
+  （321 条），逐条拒绝**内部标识符**（`compact_context`/`httpVer`/`errCode`/`respCode`）、**内部 API 路径**
+  `/api/`、**Markdown 残留** `**`、**开发者语**（`bucket 为真值`/`bucket 承载`）+ 逐条**正向钉新文案**在位。
+  ⛔ 只扫**字面量**（注释里的码名是文档，不算）。
+- `tools/tests/overlays.test.ts` 新增「回到最新 = 悬浮提示」describe（**7 → 12**）：切 `Index.ets` 该子树，
+  断言**全屏透明容器**（`height('100%')`）+ **底对齐** + `hitTestBehavior(Transparent)` + **命中盒 ≥44**；
+  子树内**无** `responseRegion`、**无** `FlexAlign.Center`（旧布局行形态）。
+  ⚠️ 坑：`run-one.sh` 把测试编译到 `.out.$$/js/` ⇒ `__dirname` 非 `tools/tests/`，**必须向上查找仓库根**。
+- **连带修复两条"恒有 responseRegion"式自证断言**（`tools/tests/hit_spacing_gate.test.ts:204` /
+  `tools/tests/hittarget_audit.test.ts:375`）：本批把全仓 `responseRegion` **清到 0**（移除「回到最新」的失效
+  外扩，即最后一处）⇒ 旧自证「生产代码里处数 > 0」**假红**。改为 **mutation 注入自证**（合成含
+  `responseRegion` 的源 ⇒ 扫描器必捕获）—— 自证**不再依赖生产用法**（`10→10` / `21→22`，仅断言换形）。
+
+**mutation 自证**：文案卫生 —— 回退 `compact_context` ⇒ 2 红；回退 `**` ⇒ 2 红；回退 `(httpVer)` ⇒ 2 红；
+回退 `bucket 为真值` ⇒ 2 红；还原后 md5 逐字节一致。悬浮形态 —— 注入失效 `responseRegion` ⇒ 1 红；
+底对齐改居中 ⇒ 2 红；命中盒退回 32 ⇒ 1 红；还原后 md5 一致。
+
+**非缺陷（勿重报）**：各分区的**卡片容器**现统一用 `pal().surface` + `R_XL` + `pal().border`（10 个分区
+**同一形态** ⇒ 是**惯例**不是不一致；`SettingsRows` 的行原子走语义令牌是**另一层**，二者不矛盾）；
+`SettingsRows` 原子（Tool/Number/Chip/TextField/SubCard）的命中区、选中态（accent 底 + onAccent 字）、发丝边界
+均合规。`api_key / token` 出现在**开发者**面板的脱敏说明里是**有意**（列举被脱敏的字段名）。
+
+**判据取得**：`tools/gate.sh` ⇒ **`✅ 真门禁全绿` + `GATE_EXIT=0`**（`BUILD SUCCESSFUL in 9 s 503 ms`；
+290 文件 0 失败；A **1246**/1250 · **B 1345**/1350 · ForEach **107**/107 —— 与 13e/13f 基线**逐值相同**）。
+装机 `deploy.sh` ⇒ `DEPLOY_EXIT=0`；真机 `dumpLayout` 复核 ⇒ 上滚后「回到最新」**悬浮在消息之上**
+（`text='回到最新'` 的 bounds `[539,2242][781,2335]`，其**上方与下方均有**消息文本
+`先搞个3B…` `[273,2336][1233,2417]` ⇒ **未占布局行**；命中盒 = 其外 ≥44 的布局盒）。
+

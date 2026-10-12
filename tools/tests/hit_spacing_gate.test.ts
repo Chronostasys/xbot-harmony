@@ -16,9 +16,10 @@
  *     ⇒ **数学上不可能重叠** ⇒ 自动放过（附理由）。
  *
  * ── 实测 ──────────────────────────────────────────────────────────────────────
- * 全仓 `responseRegion` **2 处**（均在 `pages/Index.ets`，归 main agent）—— components 侧已于
- * 2026-10-11 全量改为**真实 44 布局盒**（真机证 `responseRegion` 负偏移外扩**无效**）⇒ 本判据
- * components 侧已无对象，仅余 pages 的尺寸/重叠可判。
+ * 全仓 `responseRegion` **0 处**（components 侧 2026-10-11 全量改为**真实 44 布局盒**；pages 侧最后一处
+ * ——「回到最新」药丸的失效外扩——于 2026-10-12 批13g 改为悬浮层 + 真实 44 布局盒 ⇒ **清零**）。
+ * 真机已证 `responseRegion` 负偏移外扩**无效** ⇒ 本判据现无生产对象，**扫描器有效性改由 mutation 注入自证**
+ * （见 §A：合成一段含 `responseRegion` 的源 ⇒ 必被扫到）。
  * ⚠️ components 侧仍有**大量 `layoutWeight` 容器**（`WebSurface` chrome 行等）——chrome 行两端是两个
  * 独立 44 盒、中间标题 `layoutWeight(1)` ⇒ **数学上不可能重叠**。
  */
@@ -201,7 +202,12 @@ for (let i = 0; i < regions.length; i++) {
   console.log(`  ${pad(r.rel, 30)}:${pad(String(r.line), 5)} width=${pad(r.wExpr, 30)} ⇒ ${isNaN(r.w) ? '（求值失败）' : r.w}   height ⇒ ${isNaN(r.h) ? '（求值失败）' : r.h}`);
 }
 ok('零扫描判红：文件数 > 0', srcByRel.size > 0);
-ok('扫描器有效性：`responseRegion` 处数 > 0', regions.length > 0);
+// ⛔ 自证必须**自带样本**，不能靠"生产代码里恰好有 responseRegion"——全仓清零后（13g 移除「回到最新」
+//    的失效外扩拐杖）该断言会**假红**。改为 **mutation 注入**：合成一段含 responseRegion 的源 ⇒ 必被扫到。
+const rrSynth: Map<string, string> = new Map<string, string>();
+rrSynth.set('components/__selfcheck__.ets',
+  'Xxx()\n  .responseRegion({ x: -6, y: -6, width: 40, height: 40 })\n');
+ok('扫描器有效性：注入合成 `responseRegion` ⇒ 必被扫到（不依赖生产用法）', scanRegions(rrSynth).length > 0);
 ok('常量表解析成功（`HIT_TARGET_MIN` 可求值）', evalExpr('HIT_TARGET_MIN', 0) === HIT_TARGET_MIN);
 ok('⚠️ 算术表达式可求值（如 `HIT_TARGET_MIN * 2`，不是字面量）',
   !isNaN(evalExpr('HIT_TARGET_MIN * 2', 0)) && evalExpr('HIT_TARGET_MIN * 2', 0) === HIT_TARGET_MIN * 2);

@@ -4563,29 +4563,38 @@ struct Index {
           },
         })
         .margin({ top: SP_2, right: SP_2 })
-      }
-      .layoutWeight(1).width('100%')
 
-      // 关掉跟随时给一个「回到最新」（列表很长时不用一路滑）；跟随中不显示
-      if (showsJumpToLatest(this.followBottom, this.rows.length)) {
-        Row() {
-          Text('回到最新').fontSize(typeOf('type.caption').size).fontColor(this.pal().textPrimary)
-            .padding({ left: SPACE_SM, right: SPACE_SM, top: 7, bottom: 7 })
-            .backgroundColor(this.pal().accentDeep)
-            .borderRadius(RADIUS_SHEET)
-            // 热区 ≥ `HIT_TARGET_MIN`(44)：视觉小药丸，靠 `responseRegion` **外扩**、⛔ 不改布局/视觉尺寸
-            // （与 `SplashOverlay`「轻点跳过」/`MessageNav` 同法；全局小字按钮口径统一到这一处）。
-            .responseRegion({ x: -SPACE_SM, y: -SPACE_SM, width: '100%', height: HIT_TARGET_MIN })
+        // 「回到最新」—— **悬浮提示**（叠在消息区之上、贴底居中；⛔ **不占布局行** ⇒ 不挤压历史）。
+        // 出现条件与原实现一致（`showsJumpToLatest` 纯函数：跟随暂停 + 确有内容）。
+        // 命中盒：`onClick` 落在 **≥ HIT_TARGET_MIN(44) 的布局盒** 上 —— 原实现用 `responseRegion`
+        //   负偏移外扩热区，**真机实测无效**（`docs/ARKTS-GOTCHAS.md`）；视觉药丸尺寸不变，只是把它
+        //   居中放进一个 44 高的透明命中盒（与 `components/Toast` 同一「全屏透明容器 + 底对齐」手法）。
+        if (showsJumpToLatest(this.followBottom, this.rows.length)) {
+          Column() {
+            Row() {
+              Text('回到最新').fontSize(typeOf('type.caption').size).fontColor(this.pal().textPrimary)
+                .padding({ left: SPACE_SM, right: SPACE_SM, top: 7, bottom: 7 })
+                .backgroundColor(this.pal().accentDeep)
+                .borderRadius(RADIUS_SHEET)
+            }
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
+            .padding({ left: SPACE_MD, right: SPACE_MD })
             .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
             .onClick(() => {
               // 用户显式要求回到底部 ⇒ 意图置为跟随（与切会话同一语义）
               this.listScroller.scrollEdge(Edge.Bottom);
               this.followBottom = true;
             })
+          }
+          .width('100%').height('100%')
+          .justifyContent(FlexAlign.End)
+          .alignItems(HorizontalAlign.Center)
+          .padding({ bottom: SPACE_MD })
+          // 不吃点击：容器透明（子药丸可点；下方列表照常滚动/点击）—— 同 `SplashOverlay` 口径。
+          .hitTestBehavior(HitTestMode.Transparent)
         }
-        .width('100%').justifyContent(FlexAlign.Center)
-        .padding({ top: SPACE_HAIR, bottom: SPACE_HAIR })
       }
+      .layoutWeight(1).width('100%')
 
       // 状态栏：上下文用量环 + 模型 · token 用量 · todos · goal（点开看全部；全部来自服务端权威值）
       if (this.statusBarText().length > 0) {

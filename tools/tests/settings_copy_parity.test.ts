@@ -5,6 +5,11 @@
  *   （`SettingsAbout` / `SettingsAgent` / `SettingsPlugins`）里**用户可见的文案常量**
  *   必须落在**白名单**内（每条注明 web 出处）；并断言 `'重试'` 与 web **逐字相同**。
  *
+ * ③（批13g 增）**文案卫生**：4 个分区（Agent / Storage / Developer / Plugins）的用户可见串不得含
+ *   **内部标识符**（工具名 `compact_context`、SSE 字段 `httpVer`/`errCode`/`respCode`）、
+ *   **内部 API 路径**（`/api/…`）、**Markdown 残留**（`**` —— `Text` 不渲染 ⇒ 原样上屏）、
+ *   或**开发者语**（「bucket 为真值 / 承载」）。只扫**剥注释后的单引号字面量**（注释里的码名是文档，不算）。
+ *
  * web 出处（`/Users/bobli/src/xbot/web/src/i18n/zh-CN.ts`）：
  *   · `:16  retry: '重试'`            ⇒ 本仓 `'重试'` 逐字一致
  *   · `:232 loading: '加载中…'`       ⇒ 本仓 `'加载中…'`（单省略号）一致
@@ -114,6 +119,76 @@ eq('零扫描防线：仓库根解析成功', ROOT.length > 0, true);
 eq('白名单常量表非空（`加载中…` / `重试`）', ALLOWED_LABELS.length, 2);
 eq('白名单每条都必须非空（防占位作弊）', ALLOWED_LABELS[0].length > 0 && ALLOWED_LABELS[1].length > 0, true);
 
+// ── ③ 文案卫生（目标③，批13g）：用户可见串不得含内部标识符 / 内部 API 路径 / Markdown 残留 ──────
+// 口径：把 4 个分区的源码**剥注释**后抽**单引号字面量**（用户可见串必在其中）⇒ 逐一拒绝：
+//   · 内部标识符（代码里的名字，如工具名 `compact_context`、SSE 字段名 `httpVer`）；
+//   · 内部 API 路径（`/api/…` —— web 只在 `fetch` 里用，从不上屏）；
+//   · Markdown 残留（`**` —— ArkUI `Text` 不渲染 Markdown ⇒ 会原样上屏）。
+// ⛔ 只抽字面量：注释里的码名/路径是**文档**，不是用户可见内容（mutation 自证亦据此）。
+{
+  const HYGIENE_FILES: string[] = [
+    'components/SettingsAgent.ets',
+    'components/SettingsStorage.ets',
+    'components/SettingsDeveloper.ets',
+    'components/SettingsPlugins.ets',
+  ];
+  function literals(s: string): string[] {
+    const out: string[] = [];
+    const m: RegExpMatchArray | null = s.match(/'[^'\\]*'/g);
+    if (m !== null) { for (let i = 0; i < m.length; i++) { out.push(m[i]); } }
+    return out;
+  }
+  // 已知**内部标识符**：`compact_context` = 工具名（Agent 开关描述曾直呼其名 ⇒ 13g 去码）；
+  //   `httpVer`/`errCode`/`respCode` = SSE 状态字段名（Developer 连接状态卡标签曾带码名括号 ⇒ 13g 去码）。
+  const INTERNAL_IDS: string[] = ['compact_context', 'httpVer', 'errCode', 'respCode'];
+  // 已知**开发者语短语**（13g 从 Storage 文案里删除；「真值/承载」是程序术语，不是用户语言）。
+  const BANNED_PHRASES: string[] = ['bucket 为真值', 'bucket 承载'];
+  let lits: number = 0;
+  const badId: string[] = [];
+  const badPhrase: string[] = [];
+  for (let i = 0; i < HYGIENE_FILES.length; i++) {
+    const ls: string[] = literals(srcOf(HYGIENE_FILES[i]));
+    lits += ls.length;
+    for (let j = 0; j < ls.length; j++) {
+      const lit: string = ls[j];
+      let bad: boolean = false;
+      for (let k = 0; k < INTERNAL_IDS.length; k++) {
+        if (lit.indexOf(INTERNAL_IDS[k]) >= 0) { bad = true; }
+      }
+      if (lit.indexOf('/api/') >= 0) { bad = true; }
+      if (lit.indexOf('**') >= 0) { bad = true; }
+      if (bad) { badId.push(`${HYGIENE_FILES[i]}: ${lit}`); }
+      for (let k = 0; k < BANNED_PHRASES.length; k++) {
+        if (lit.indexOf(BANNED_PHRASES[k]) >= 0) { badPhrase.push(`${HYGIENE_FILES[i]}: ${lit}`); }
+      }
+    }
+  }
+  console.log(`    文案卫生③：4 分区共抽到字面量 ${lits} 条；内部标识/API/Markdown 违规 ${badId.length}；开发者语 ${badPhrase.length}`);
+  // 零扫描防线（白绿）：抽不到字面量 ⇒ 规则形同虚设 ⇒ 判红
+  eq('零扫描防线：4 分区共抽到 > 50 条单引号字面量', lits > 50, true);
+  if (badId.length > 0) { for (let i = 0; i < badId.length; i++) { console.log(`      ✗ ${badId[i]}`); } }
+  eq('用户可见串不得含内部标识符(compact_context/httpVer/errCode/respCode)/内部 API 路径/Markdown 残留',
+    badId.length, 0);
+  if (badPhrase.length > 0) { for (let i = 0; i < badPhrase.length; i++) { console.log(`      ✗ ${badPhrase[i]}`); } }
+  eq('用户可见串不得含开发者语（「bucket 为真值」/「bucket 承载」）', badPhrase.length, 0);
+
+  // ③b 逐条固定：修好后的文案必须在位（⛔ 判据演进，不删；防回退）
+  eq('Agent：开关描述改用「自行压缩上下文」（不再直呼工具名）',
+    srcOf('components/SettingsAgent.ets').indexOf('可在需要时自行压缩上下文') >= 0, true);
+  eq('Storage：provider 描述改用「上传到你的对象存储」',
+    srcOf('components/SettingsStorage.ets').indexOf('上传到你的对象存储') >= 0, true);
+  {
+    const dev: string = srcOf('components/SettingsDeveloper.ets');
+    eq('Developer：副标题去 Markdown（「录制内容会自动脱敏」原样保留）',
+      dev.indexOf('录制内容会自动脱敏') >= 0, true);
+    eq('Developer：连接状态卡三条标签去码名括号（请求协议 / 上次错误码 / 上次响应码）',
+      dev.indexOf("label: '请求协议'") >= 0 && dev.indexOf("label: '上次错误码'") >= 0
+        && dev.indexOf("label: '上次响应码'") >= 0, true);
+  }
+  eq('Plugins：图片说明去内部 API 路径（保留「当前值 = 本站上传的图片。」）',
+    srcOf('components/SettingsPlugins.ets').indexOf('当前值 = 本站上传的图片。') >= 0, true);
+}
+
 if (fail > 0) { console.log(`  ✗ settings_copy_parity: ${pass} passed, ${fail} failed`); process.exit(1); }
-console.log(`  ✅ settings_copy_parity: ${pass} passed, 0 failed（白名单 2 条；错误正文判"有意不同"并记档）`);
+console.log(`  ✅ settings_copy_parity: ${pass} passed, 0 failed（白名单 2 条；错误正文判"有意不同"并记档；③ 文案卫生）`);
 process.exit(0);

@@ -372,7 +372,16 @@ const compRR: Hit[] = responseRegions(compSrc);
 const pageRR: Hit[] = responseRegions(pageSrc);
 const allRR: Hit[] = responseRegions(allSrc);
 compRR.forEach((h: Hit): void => { console.log(`  ${pad(h.key, 46)} :${h.line}`); });
-ok('零扫描判红：全仓仍扫到 `responseRegion`（含 pages，证明扫描器有效）', allRR.length > 0);
+console.log(`  （现存全仓 responseRegion ${allRR.length} 处 —— 13g 已清零；扫描器有效性改由下方 mutation 注入自证）`);
+// ⛔ 自证改为 **mutation 注入**：全仓 responseRegion 已清零（13g 移除「回到最新」的失效外扩拐杖）
+//    ⇒ 旧断言「全仓仍扫到」会**假红**。扫描器有效性必须**自带样本**证明，而非依赖生产用法。
+{
+  const rrSynth: Map<string, string> = new Map<string, string>();
+  rrSynth.set('components/__selfcheck__.ets',
+    'Xxx()\n  .responseRegion({ x: -6, y: -6, width: 40, height: 40 })\n');
+  ok('零扫描判红：注入合成 `responseRegion` ⇒ 必被扫到（证明扫描器有效，不依赖生产用法）',
+    responseRegions(rrSynth).length > 0);
+}
 ok(`components/** responseRegion 数 == 台账（实测 ${compRR.length} / 登记 ${RR_LEDGER.length}）`, compRR.length === RR_LEDGER.length);
 ok('components 命中集与台账集一一对应（同一集合）', ((): boolean => {
   const a: string = compRR.map((h: Hit): string => h.key).sort().join('|');

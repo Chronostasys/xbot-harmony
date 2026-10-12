@@ -224,7 +224,7 @@ struct PluginFieldRow {
       }
       .width('100%')
       if (pluginImageValueKind(this.imgValue) === PLUGIN_IMG_UPLOADED) {
-        Text('当前值 = 本站上传的图片（/api/plugin-files/…）。')
+        Text('当前值 = 本站上传的图片。')
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .width('100%')

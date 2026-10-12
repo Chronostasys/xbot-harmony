@@ -13,7 +13,7 @@
  *     512 条 / 512KiB 有界（`core/sserec.ets`）+ 凭据脱敏（安全红线）。
  *
  * ── 原生增强（web 没有，明确标注）──────────────────────────────────────────────
- *   ① **SSE 连接状态卡**：state / 请求协议(httpVer) / 上次 errCode / 上次 respCode /
+ *   ① **SSE 连接状态卡**：状态 / 请求协议 / 上次错误码 / 上次响应码 /
  *      重连次数 / 已收事件数 / 连接尝试数 —— 正是本次排障（HTTP/3 崩溃 `errCode:2300023`）
  *      要一眼看清的量（web 的 DebugToolbar 只显示录制条数）；
  *   ② **一键复制**（把 `toJson()` 复制到剪贴板，便于贴进 issue）；
@@ -373,7 +373,7 @@ export struct SettingsDeveloper {
     Column({ space: SP_3 }) {
       SettingsPanelHeader({
         title: '开发者',
-        subtitle: '排障工具：录制 SSE 事件流并查看连接状态。录制内容会**自动脱敏**（api_key / token 等）。',
+        subtitle: '排障工具：录制 SSE 事件流并查看连接状态。录制内容会自动脱敏（api_key / token 等）。',
         theme: this.theme,
       })
 
@@ -417,14 +417,14 @@ export struct SettingsDeveloper {
         .width('100%')
 
         SettingsDevStatLine({ label: '状态', value: devStateLabel(this.connState), valueColor: this.pal().textSecondary, theme: this.theme })
-        SettingsDevStatLine({ label: '请求协议 (httpVer)', value: this.connHttpVer, valueColor: this.pal().textSecondary, theme: this.theme })
+        SettingsDevStatLine({ label: '请求协议', value: this.connHttpVer, valueColor: this.pal().textSecondary, theme: this.theme })
         SettingsDevStatLine({
-          label: '上次错误码 (errCode)',
+          label: '上次错误码',
           value: this.connErr !== 0 ? `${this.connErr}` : '',
           valueColor: this.connErr !== 0 ? this.pal().dangerText : this.pal().textMuted,
           theme: this.theme,
         })
-        SettingsDevStatLine({ label: '上次响应码 (respCode)', value: this.connResp !== 0 ? `${this.connResp}` : '', valueColor: this.pal().textSecondary, theme: this.theme })
+        SettingsDevStatLine({ label: '上次响应码', value: this.connResp !== 0 ? `${this.connResp}` : '', valueColor: this.pal().textSecondary, theme: this.theme })
         SettingsDevStatLine({ label: '重连次数', value: `${this.connReconnects}`, valueColor: this.pal().textSecondary, theme: this.theme })
         SettingsDevStatLine({ label: '连接尝试', value: `${this.connAttempts}`, valueColor: this.pal().textSecondary, theme: this.theme })
         SettingsDevStatLine({ label: '已收事件', value: `${this.connFrames}`, valueColor: this.pal().textSecondary, theme: this.theme })

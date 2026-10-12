@@ -12,6 +12,9 @@
  *   2. `showsJumpToLatest` **贴底不显示**、空列表不显示。
  */
 declare const process: { exit: (c: number) => void };
+declare function require(m: 'fs'): { readFileSync(p: string, e: string): string; existsSync(p: string): boolean };
+declare function require(m: 'path'): { join(...parts: string[]): string };
+declare const __dirname: string;
 
 import { describe, expect, it, summary } from './vitest_shim';
 import { OverlayState, hasOverlay, topOverlay } from '../../entry/src/main/ets/core/overlays';
@@ -83,6 +86,55 @@ describe('「↓ 回到最新」判据：贴底/空列表都不显示', () => {
   });
   it('空列表 ⇒ 不显示（即使不在底部）', () => {
     expect(showsJumpToLatest(false, 0)).toBe(false);
+  });
+});
+
+// ── 「回到最新」呈现形态（目标③ 批13g）：**悬浮提示**，不占布局行 ──────────────────────
+// 用户亲报：「回到最新那个 popup 应该是悬浮提示，而不是单独占一片区域 / 不该挤压我们的历史」。
+// 旧实现把药丸放在消息区**下方**的一个全宽 `Row` 里 ⇒ 吃掉一行高度、把列表顶短。
+// 新形态：药丸叠在消息区**之上**（`Stack` 内），贴底居中、容器全屏透明 + `hitTestBehavior(Transparent)`
+//   ⇒ 不占布局、不挡列表；命中盒 ≥ HIT_TARGET_MIN（⛔ 不用真机无效的 `responseRegion` 外扩）。
+describe('「回到最新」= 悬浮提示（叠层；不占布局行、不挤压历史）', () => {
+  const fs = require('fs');
+  const path = require('path');
+  // ⛔ `run-one.sh` 把测试编译到 `.out.$$/js/` 下再跑 ⇒ `__dirname` 不是 `tools/tests/`；
+  //    必须**向上查找仓库根**（含 `entry/src/main/ets`），别写死相对层级。
+  let root: string = __dirname;
+  for (let i = 0; i < 10; i++) {
+    if (fs.existsSync(path.join(root, 'entry', 'src', 'main', 'ets'))) { break; }
+    root = path.join(root, '..');
+  }
+  const idxPath: string = path.join(root, 'entry', 'src', 'main', 'ets', 'pages', 'Index.ets');
+  const raw: string = fs.existsSync(idxPath) ? fs.readFileSync(idxPath, 'utf-8') : '';
+  // 剥注释：只认**真实代码形态**（注释里的说明/历史不算）
+  const src: string = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const anchor: number = src.indexOf("Text('回到最新')");
+  const start: number = anchor > 0 ? src.lastIndexOf('if (showsJumpToLatest(', anchor) : -1;
+  const stop: number = anchor > 0 ? src.indexOf('.hitTestBehavior', anchor) : -1;
+  const slice: string = start > 0 && stop > start ? src.slice(start, stop + 64) : '';
+
+  it('零扫描防线：读到源码、定位到「回到最新」子树', () => {
+    expect(src.length).toBeGreaterThan(1000);
+    expect(anchor).toBeGreaterThan(0);
+    expect(slice.length).toBeGreaterThan(150);
+  });
+
+  it('悬浮层：全屏透明容器 + 底对齐（justifyContent End）+ hitTestBehavior(Transparent)', () => {
+    expect(slice).toContain("height('100%')");
+    expect(slice).toContain('justifyContent(FlexAlign.End)');
+    expect(slice).toContain('hitTestBehavior(HitTestMode.Transparent)');
+  });
+
+  it('命中盒 ≥44：onClick 落在 constraintSize({ minHeight: HIT_TARGET_MIN }) 的布局盒上', () => {
+    expect(slice).toContain('constraintSize({ minHeight: HIT_TARGET_MIN })');
+  });
+
+  it('⛔ 不用失效的 responseRegion 外扩热区（真机实测不生效）', () => {
+    expect(slice).not.toContain('responseRegion');
+  });
+
+  it('⛔ 不再是「全宽居中」的布局行（旧形态 = justifyContent(FlexAlign.Center)）', () => {
+    expect(slice).not.toContain('FlexAlign.Center');
   });
 });
 

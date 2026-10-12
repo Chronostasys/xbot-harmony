@@ -270,8 +270,8 @@ export struct SettingsStorage {
     Column({ space: SP_3 }) {
       SettingsPanelHeader({
         title: '存储',
-        subtitle: '配置上传文件的后端。本地 static 无需配置；切到云存储后由 bucket 承载，'
-          + '保存即热切换（无需重启）。密钥由服务端打码，留空修改不会覆盖真实凭据。',
+        subtitle: '上传的图片与文件存在哪里。默认存本机（免配置）；也可选云对象存储 —— 云端对象'
+          + '不会过期。保存后立即热切换，无需重启。密钥由服务端打码，留空修改不会覆盖真实凭据。',
         theme: this.theme,
       })
 
@@ -310,7 +310,7 @@ export struct SettingsStorage {
               if (this.providerField() !== undefined) {
                 SettingsChipRow({
                   label: '后端',
-                  description: '本地 = 图片/文件留在本机；云存储 = bucket 为真值，图片不会过期。',
+                  description: '本地 = 文件与图片留在本机；云存储 = 上传到你的对象存储，链接不会过期。',
                   value: this.fieldValue('provider'),
                   options: this.providerValues(),
                   labels: this.providerLabels(),

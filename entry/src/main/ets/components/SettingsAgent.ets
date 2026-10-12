@@ -158,8 +158,8 @@ export struct SettingsAgent {
             Column({ space: 0 }) {
               SettingsToolRow({
                 label: '允许智能体自行压缩上下文',
-                description: '开启后智能体可调用 compact_context 按需压缩自己的上下文（阈值触发'
-                  + '的自动压缩不受此开关影响）。',
+                description: '开启后智能体可在需要时自行压缩上下文（阈值触发的自动压缩'
+                  + '不受此开关影响）。',
                 isOn: this.selfCompact,
                 mono: false,
                 busy: this.savingSelf,
