@@ -113,15 +113,20 @@ function sliceBlock(src: string, mark: string, endIndent: string): string {
 
 // ③ 消费点计数（Index）
 const USE: string = 'px2vp(this.kbHeightPx)';
-eq('③ 页面消费点恰 2 处（抽屉底栏 / 终端 sheet）', countIn(pg, USE), 2);
-eq('③ 页面订阅点 @StorageProp(kbHeightPx) 恰 1 处', countIn(pg, '@StorageProp(\'kbHeightPx\')'), 1);
+// 7 处 = 抽屉根容器 + 终端 sheet + 5 个含输入框的浮层（新建会话 / AskUser / 状态 / 模型 / 设置面）。
+// ⛔ 计数一律**精确 `=== n`**：夹带一处"顺手加的"（如 composer 那段文档流）会让闭包证明（④b）红。
+eq('③ 页面消费点恰 7 处', countIn(pg, USE), 7);
+eq('③ 页面订阅点 @StorageProp(kbHeightPx) 恰 1 处（唯一订阅点）', countIn(pg, '@StorageProp(\'kbHeightPx\')'), 1);
 
 // ④ 两个消费点**逐个**落在自己的浮层切片内（各恰 1 处）
 {
-  // 抽屉底栏：从「退出」按钮的点击（底栏最后一个动作）到 DrawerSheet 结束
+  // 抽屉：从「退出」按钮的点击（抽屉最后一个动作）到 DrawerSheet 结束。
+  // 让位**落在抽屉根容器**（`.width('88%').height('100%')` 那个 Column 的 padding）——
+  // ⛔ 只抬底栏那一排是不够的：抽屉里有**行内重命名输入框**（列表中部），只抬底栏时
+  //    列表底部仍在键盘下 ⇒ 输入框滚不进可见区。整片内容区上缩才两者兼顾。
   const s: string = sliceBlock(pg, 'this.doLogout();', '  ');
-  ok('④ 抽屉底栏切片非空（零扫描判红）', s.length > 40, `len=${s.length}`);
-  eq('④ 抽屉底栏切片内让位恰 1 处', countIn(s, USE), 1);
+  ok('④ 抽屉切片非空（零扫描判红）', s.length > 40, `len=${s.length}`);
+  eq('④ 抽屉切片内让位恰 1 处', countIn(s, USE), 1);
 }
 {
   // ⛔ 反向钉（"不许死消费"纪律）：运行面板内**没有**输入框（终端 tab 只有列表 + 「＋ 新建」，
@@ -139,9 +144,55 @@ eq('③ 页面订阅点 @StorageProp(kbHeightPx) 恰 1 处', countIn(pg, '@Stora
   eq('④ 终端浮层切片内让位恰 1 处', countIn(s, USE), 1);
 }
 
-// ⑤ 两处消费点必须**都在浮层容器上**（⛔ 钉住"不是加在随便一个元素上"）：
-//    形态 = `.padding({ bottom: px2vp(this.kbHeightPx) })`
-eq('⑤ 让位形态（padding bottom）恰 2 处', countIn(pg, `.padding({ bottom: ${USE} })`), 2);
+// ④b 其余 5 个**含输入框**的浮层：让位**逐个**落在自己的容器切片内（各恰 1 处）。
+//     ⛔ 为什么必须逐个钉：全文件计数（③）只能证明"总数对"，证明不了"每处都加在对的元素上"
+//     —— 把让位误加到某个无关 Row、又漏掉设置面 ⇒ 总数仍是 7 ⇒ 假绿。
+//     **闭包证明**：各切片计数之和 == 全文件计数 ⇒ 全文件**没有第 8 处**（钉住"别顺手给文档流
+//     元素也加"：composer / GoalBanner / TodoPanel 都是文档流，系统 `RESIZE` 已避让，
+//     再加 = **双倍避让**）。见 ④c 的反向断言。
+const OVERLAYS: Array<[string, string]> = [
+  ['④b 新建会话 sheet（2 输入 + 底部 sheet）', 'this.NewSessionSheet()'],
+  ['④b AskUser 确认卡（居中）', 'AskUserSheet({'],
+  ['④b 会话状态面板（居中）', 'StatusSheet({'],
+  ['④b 模型/上下文栏（底部 sheet）', 'this.ModelSheet()'],
+  ['④b 全屏设置面板（6 分区含输入）', 'SettingsPanel({'],
+];
+let sliceSum: number = 0;
+{
+  sliceSum += countIn(sliceBlock(pg, 'this.doLogout();', '  '), USE); // 抽屉根容器（④ 已钉）
+  sliceSum += countIn(sliceBlock(pg, 'if (this.showTerminal) {', '      '), USE);
+}
+for (let i = 0; i < OVERLAYS.length; i++) {
+  const label: string = OVERLAYS[i][0];
+  const s: string = sliceBlock(pg, OVERLAYS[i][1], '      ');
+  ok(`${label} 切片非空（零扫描判红）`, s.length > 80, `len=${s.length}`);
+  eq(`${label} 切片内让位恰 1 处`, countIn(s, USE), 1);
+  sliceSum += countIn(s, USE);
+}
+eq('④b 闭包证明：各切片让位之和 == 全文件让位总数（无第 8 处）', sliceSum, countIn(pg, USE));
+
+// ④c 反向：**文档流**元素不做让位 —— 它们的输入框属页面文档流（`RESIZE` 已被系统避让：
+//     真机实测 composer 上移 932px）⇒ 加让位 = **双倍避让**（系统 + 自己）。
+//     这一条钉住"不要顺手加进去"；覆盖 `GoalBanner` → 「添加目标」内联输入 → `TodoPanel` 这一列。
+{
+  const s: string = sliceTo(pg, '      GoalBanner({', '      TodoPanel({');
+  ok('④c 输入胶囊上方那一列切片非空（零扫描判红）', s.length > 300, `len=${s.length}`);
+  eq('④c 该列内含「添加目标」内联输入框（确认切的是对的地方）', countIn(s, 'goalDraft'), 2);
+  eq('④c 反向：文档流元素**不许**有让位（防双倍避让）', countIn(s, USE), 0);
+}
+
+// ⑤ 两处消费点必须**都在浮层容器上**（⛔ 钉住"不是加在随便一个元素上"），且形态**各自精确**：
+//    ⛔ 别用宽松正则（`.padding` 后面接什么都算）—— 本仓教训：宽形态断言会在重构后假绿。
+{
+  const termForm: string = `.padding({ bottom: ${USE} })`;
+  eq('⑤ 简单形态（容器 padding-bottom）恰 6 处', countIn(pg, termForm), 6);
+  const drawerForm: string = `.padding({ top: SP_3, left: SP_3, right: SP_3, bottom: SP_3 + ${USE} })`;
+  eq('⑤ 抽屉根容器让位形态（四边 padding + 底部加键盘高）恰 1 处', countIn(pg, drawerForm), 1);
+  // ⛔ 反向：抽屉底栏那一排**不许**再单独让位（否则"整片上缩 + 底栏再上缩"= 双倍让位、底部留白翻倍）。
+  const barSlice: string = sliceBlock(pg, 'accessibilityText(\'退出登录\')', '      ');
+  ok('⑤ 抽屉底栏切片非空（零扫描判红）', barSlice.length > 20, `len=${barSlice.length}`);
+  eq('⑤ 反向：抽屉底栏那一排自己不许带让位', countIn(barSlice, USE), 0);
+}
 
 console.log(`  overlay_keyboard_inset: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

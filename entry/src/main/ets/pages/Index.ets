@@ -3867,6 +3867,10 @@ struct Index {
           })
           this.NewSessionSheet()
         }.width('100%').height('100%')
+        // 键盘让位（⛔ 见 `kbHeightPx` 注释）：新建会话有 **2 个输入框**（名称 / 工作目录）且是
+        // **底部 sheet** ⇒ 键盘弹起时整张 sheet 在最底、被完全盖住（浮层内输入框 ⇒ 系统避让不生效）
+        // ⇒ 按键盘高度收缩可用区，sheet 整体**浮到键盘上方**。
+        .padding({ bottom: px2vp(this.kbHeightPx) })
       }
       // 队列
       if (this.showQueue) {
@@ -4056,21 +4060,29 @@ struct Index {
       }
       // AskUser（服务端权威：有 pending 就弹；P2-3 抽出：components/AskUserSheet.ets）
       if (this.askUser !== null) {
-        AskUserSheet({
-          theme: this.themeName,
-          questions: this.askUser !== null && this.askUser.questions !== undefined ? this.askUser.questions : [],
-          busy: this.askBusy,
-          isSelected: (qid: string, label: string) => this.isAskSelected(qid, label),
-          onToggleOption: (qid: string, label: string, multi: boolean) => {
-            this.toggleAskOption(qid, label, multi);
-          },
-          setOther: (qid: string, v: string) => {
-            this.setAskOther(qid, v);
-          },
-          onSubmit: (cancelled: boolean) => {
-            this.submitAsk(cancelled);
-          },
-        })
+        // 键盘让位（⛔ 见 `kbHeightPx` 注释）：AskUser 卡是**居中**的（`.width('94%')` + 内容高），
+        // 键盘弹起时其底部（「其它」输入框 / 提交按钮）会被系统避让**漏掉**（浮层内输入框）⇒ 被盖住。
+        // 这里收缩可用区 ⇒ 卡片整体上移。⛔ 包一层全屏 `Stack` **不改变层级语义**：原实现就是根
+        // `Stack` 的直系子节点、同为核心居中。
+        Stack() {
+          AskUserSheet({
+            theme: this.themeName,
+            questions: this.askUser !== null && this.askUser.questions !== undefined ? this.askUser.questions : [],
+            busy: this.askBusy,
+            isSelected: (qid: string, label: string) => this.isAskSelected(qid, label),
+            onToggleOption: (qid: string, label: string, multi: boolean) => {
+              this.toggleAskOption(qid, label, multi);
+            },
+            setOther: (qid: string, v: string) => {
+              this.setAskOther(qid, v);
+            },
+            onSubmit: (cancelled: boolean) => {
+              this.submitAsk(cancelled);
+            },
+          })
+        }
+        .width('100%').height('100%')
+        .padding({ bottom: px2vp(this.kbHeightPx) })
       }
       // 渲染自检（逐构件隔离排查用）
       if (this.showSelfCheck) {
@@ -4184,6 +4196,9 @@ struct Index {
             },
           })
         }.width('100%').height('100%')
+        // 键盘让位（⛔ 见 `kbHeightPx` 注释）：状态面板内的「工作路径」输入框是**浮层内**输入框
+        // ⇒ 系统避让不生效 ⇒ 按键盘高度收缩可用区（面板随之整体上移）。
+        .padding({ bottom: px2vp(this.kbHeightPx) })
       }
       // 模型 / 上下文上限选择栏
       if (this.showModel) {
@@ -4195,6 +4210,9 @@ struct Index {
           })
           this.ModelSheet()
         }.width('100%').height('100%')
+        // 键盘让位（⛔ 见 `kbHeightPx` 注释）：模型栏底部有「上下文上限」手输框（浮层内输入框
+        // ⇒ 系统避让不生效）⇒ 按键盘高度收缩可用区（栏随之整体上移，输入行不被盖）。
+        .padding({ bottom: px2vp(this.kbHeightPx) })
       }
       // 面板（定时任务 / 后台任务 / 子代理 / Runner）
       if (this.showPanels) {
@@ -4370,6 +4388,10 @@ struct Index {
         }
         .width('100%').height('100%')
         .backgroundColor(this.pal().appBg)
+        // 键盘让位（⛔ 见 `kbHeightPx` 注释）：设置面有 **6 个分区含输入框**（LLM 的 key/URL、
+        // 外观、渠道、插件、用户、审计行）——全是**浮层内**输入框 ⇒ 系统避让不生效 ⇒ 底部输入行
+        // 会被键盘盖死。按键盘高度收缩可用区（面板内滚动列表随之缩短 ⇒ 输入行可滚进可见区）。
+        .padding({ bottom: px2vp(this.kbHeightPx) })
       }
       // 全屏：原生插件目录 + 宿主页（components/PluginHost 的**唯一注入点**，消孤儿）。
       if (this.showPluginHost) {
@@ -8742,15 +8764,16 @@ struct Index {
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
-      // ── 键盘让位（⛔ 见 `kbHeightPx` 注释）：焦点在**抽屉自己的搜索框**时 `RESIZE` 不生效 ⇒
-      //    抽屉底这排 5 键会留在窗口底、被软键盘完全盖死（真机 dump：节点被 IME 窗口整批裁掉）。
-      //    这里按键盘高度把这排动作**顶到键盘上方**（键盘收起 = 0 ⇒ 与原先逐字节一致）。
-      .padding({ bottom: px2vp(this.kbHeightPx) })
     }
     // ⚠️ 88%（原 82%）：真机量测行内容仅 919px ⇒ 标题在"已标星 + 有相对时间 + ⋯"时被截断
     //    （`harmony-ui-dev` → `harmony-ui…`）。侧栏是**主动航面**，Apple 在 iPhone 上也逼近全宽。
     .width('88%').height('100%')
-    .padding(SP_3)
+    // ── 键盘让位（⛔ 见 `kbHeightPx` 注释）：焦点在**抽屉自己的搜索框/行内重命名框**时 `RESIZE` 不生效
+    //    ⇒ 抽屉内容留在窗口底、被软键盘盖死（真机 dump：节点被 IME 窗口整批裁掉）。
+    //    让位**落根容器**（而非底栏那一排）：整片内容区上缩 ⇒ 底部 5 键顶到键盘上方，
+    //    **且**列表一起缩短 ⇒ 行内重命名输入框能被滚进可见区（只抬底栏做不到后者）。
+    //    键盘收起 = 0 ⇒ 与原先逐字节一致。
+    .padding({ top: SP_3, left: SP_3, right: SP_3, bottom: SP_3 + px2vp(this.kbHeightPx) })
     .backgroundColor(this.eff().glassBg)
     .backgroundBlurStyle(BlurStyle.Regular, { colorMode: this.glassMode() })
     .borderWidth({ right: STROKE_HAIRLINE }).borderColor(hairlineOf(this.pal()))
