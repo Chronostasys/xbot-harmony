@@ -3,7 +3,7 @@ declare const process: { exit: (c: number) => void };
 
 import {
   bgTaskMetaText, bgTaskOutputText, bgTaskPrimary, bgTaskRunning, bgTaskStatusText, bgTaskSubText,
-  bgTaskTone, countText, cronPrimary, cronSubText,
+  bgTaskTone, cmdOneLine, countText, cronPrimary, cronSubText,
   durationText, fmtHHMM, KillBgTaskParams, runnerPrimary, runnerSubText, runnerTone, scheduleText,
   SubAgentRow, subagentPrimary, subagentSubText, subagentTone,
   TONE_ERROR, TONE_MUTED, TONE_SUCCESS,
@@ -121,6 +121,20 @@ eq('TONE_MUTED 字面量', TONE_MUTED, 'muted');
 
 eq('计数 0', countText(0), '0');
 eq('计数 12', countText(12), '12');
+
+// ── `cmdOneLine`：命令 → 单行显示串（2026-10-12；用户点名「任务管理做的很差」）──────────────
+// 真机取证：后台任务列表主行整行 `K=~/.ssh/b300_spot.pem\nssh -i $K ubuntu@...'set -e\ncd ~/cann\n…`
+//   —— 服务端 `command` 里是**字面 `\n`**（反斜杠 + n）⇒ `.maxLines(1)` 也照旧把转义噪声显示出来。
+// 判别力：把任一条改回「原样 trim」⇒ 对应断言红（下面的 want 里都不含 `\n`）。
+eq('cmdOneLine：字面 \\n → 空格', cmdOneLine('a\\nb'), 'a b');
+eq('cmdOneLine：真实换行 → 空格', cmdOneLine('a\nb'), 'a b');
+eq('cmdOneLine：字面 \\t 与制表 → 空格', cmdOneLine('a\\tb\tc'), 'a b c');
+eq('cmdOneLine：连续空白折叠为 1', cmdOneLine('a   \\n  b'), 'a b');
+eq('cmdOneLine：首尾去白', cmdOneLine('  a b  '), 'a b');
+eq('cmdOneLine：空串', cmdOneLine(''), '');
+eq('cmdOneLine：单行原样', cmdOneLine('ls -la'), 'ls -la');
+eq('bgTaskPrimary 走单行归一化', bgTaskPrimary({ command: 'x\\ny' }), 'x y');
+eq('cronPrimary 走单行归一化', cronPrimary({ every_seconds: 30, message: 'a\\nb' }), 'a b');
 
 if (fail > 0) { console.log(`  panels: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  panels: ${pass} passed, 0 failed`);

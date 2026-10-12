@@ -207,7 +207,9 @@ export const TONE_ERROR: string = 'error';
 
 /** 定时任务·主行（标识 = 消息文本；缺 ⇒ 调度文本，绝不渲染空行）。 */
 export function cronPrimary(job: CronJob): string {
-  const msg: string = job.message !== undefined ? job.message.trim() : '';
+  // ⚠️ 走 `cmdOneLine` 同款归一化：`message` 可能是多行/带转义 ⇒ 主行是 `.maxLines(1)`，
+  //    不折叠会在行里留下换行噪声（与后台任务主行同一处置）。
+  const msg: string = job.message !== undefined ? cmdOneLine(job.message.trim()) : '';
   return msg.length > 0 ? msg : scheduleText(job);
 }
 
@@ -249,8 +251,41 @@ export function durationText(startedAt: string | undefined, finishedAt: string |
  * 后台任务·主行（标识）= 命令（缺 ⇒ id）——**单行**，长命令由组件 `maxLines(1)` 截断。
  * ⛔ 时长/exit/id 不再挤在这一行（旧 `bgTaskLine` 的缺陷：真机 3 行截断把元信息全吃掉）。
  */
+/**
+ * 命令 / 多行文本 → **单行显示串**（纯函数，列表主行与详情标题专用）。
+ *
+ * ⛔ 服务端 `command` 里带**字面 `\\n`**（反斜杠 + n，JSON 双重转义）以及真实换行/制表/连续空白
+ * —— 直接渲染会在行里出现一堆「\n」字样（真机取证 2026-10-12：后台任务列表 142 行主行整行全是
+ * `K=~/.ssh/b300_spot.pem\nssh -i $K ubuntu@...'set -e\ncd ~/cann\n...`，一层转义噪声）。
+ * 规则：`\n`/`\t`/`\r`（**字面**与真实两种形态）→ 空格；连续空白折叠为 1 个；首尾去白。
+ * ⛔ 不用正则（ArkTS 侧稳妥）：手写折叠循环。
+ */
+export function cmdOneLine(cmd: string): string {
+  if (cmd.length === 0) {
+    return '';
+  }
+  const flat: string = cmd
+    .split('\\n').join(' ').split('\\t').join(' ').split('\\r').join(' ')
+    .split('\n').join(' ').split('\t').join(' ').split('\r').join(' ');
+  let out: string = '';
+  let prevSpace: boolean = false;
+  for (let i: number = 0; i < flat.length; i++) {
+    const ch: string = flat.charAt(i);
+    if (ch === ' ') {
+      if (prevSpace) {
+        continue;
+      }
+      prevSpace = true;
+    } else {
+      prevSpace = false;
+    }
+    out += ch;
+  }
+  return out.trim();
+}
+
 export function bgTaskPrimary(t: BgTask): string {
-  const cmd: string = t.command !== undefined ? t.command.trim() : '';
+  const cmd: string = t.command !== undefined ? cmdOneLine(t.command.trim()) : '';
   if (cmd.length > 0) {
     return cmd;
   }

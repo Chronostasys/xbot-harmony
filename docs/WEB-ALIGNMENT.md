@@ -3376,3 +3376,36 @@ mutation 自证 ×3；还原 md5 一致。
 ### 门禁 / 装机
 
 `BUILD SUCCESSFUL in 8 s 274 ms` · `✅ 真门禁全绿` · `GATE_EXIT=0` · 装机 `DEPLOY_EXIT=0`。
+
+
+## §21.59 任务行命令文本归一化（`cmdOneLine`）（15o·b）（2026-10-12）
+
+用户目标④：「**任务管理做的很差**」。
+
+### 病根（真机取证）
+
+后台任务列表（当时 **142** 条）主行整行是**一层转义噪声**：
+`K=~/.ssh/b300_spot.pem\nssh -i $K ubuntu@3.37.20.114 'set -e\ncd ~/cann\npython3 -m venv venv\n…`
+—— 服务端 `command` 里带的是**字面 `\n`**（反斜杠 + n，JSON 双重转义），而 `PanelRowCard` 主行是
+`.maxLines(1)` ⇒ 转义噪声被原样显示、真正有信息量的后半段被省略号吃掉。
+
+### 修法：纯函数 `cmdOneLine`（`core/panels.ets`）
+
+`\n`/`\t`/`\r`（**字面**与真实两种形态）→ 空格；连续空白折叠为 1；首尾去白。
+⛔ 不用正则（ArkTS 侧稳妥）：手写折叠循环。
+接线：`bgTaskPrimary`（列表主行）、`cronPrimary`（定时任务主行）、`openTaskDetail` 的
+`taskDetailTitle`（详情**标题**，否则标题换行把表头撑乱）。⛔ 输出正文（`bgTaskOutputText`）**不动**
+—— 那是多行正文，折叠会毁掉排版。
+
+### 判据（`tools/tests/panels.test.ts` → **75 passed**）
+
+8 条新断言（字面转义 / 真实换行 / 制表符 / 连续空白折叠 / 首尾去白 / 空串 / 单行原样 /
+`bgTaskPrimary`+`cronPrimary` 端到端），**判别力靠 want 里不含 `\n`**：把实现改回"原样 trim"
+⇒ 前 5 条与后 2 条立刻红。
+
+### ⚠️ 真机视觉复核被**主动放弃**（不是失败）
+
+装机后准备复核时发现：设备上**用户的 `AskUserSheet` 正开着**（应用内 agent 在向用户提问）——
+我的点击落在它的 scrim 区，继续点就有**误答/误取消用户问题**的风险 ⇒ **立即停止设备交互**。
+⇒ 本轮以**离线判别力判据**（75 passed，含 mutation 型断言）+ `BUILD SUCCESSFUL` 收口；
+真机视觉复核**登记为待办**（等设备处于中性态再做）。

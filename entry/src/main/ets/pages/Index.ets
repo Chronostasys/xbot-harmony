@@ -44,6 +44,7 @@ import {
 } from '../core/sessionops';
 import {
   BgTask, bgTaskMetaText, bgTaskOutputText, bgTaskPrimary, bgTaskRunning, bgTaskStatusText, bgTaskSubText,
+  cmdOneLine,
   bgTaskTone, CronJob, cronPrimary, cronSubText, RunnerRow, runnerPrimary, runnerSubText, runnerTone,
   SubAgentRow, subagentPrimary, subagentSubText, subagentTone, TONE_MUTED,
 } from '../core/panels';
@@ -6413,7 +6414,9 @@ struct Index {
    */
   private openTaskDetail(t: BgTask): void {
     this.taskDetailId = t.id !== undefined ? t.id : '';
-    this.taskDetailTitle = t.command !== undefined ? t.command : '';
+    // ⚠️ 详情**标题**也走单行归一化（与列表主行 `bgTaskPrimary` 同一纯函数）：命令里的字面
+    //    `\n` 若原样进标题，会在表头换行把布局撑乱。
+    this.taskDetailTitle = t.command !== undefined ? cmdOneLine(t.command) : '';
     this.taskDetailStatus = bgTaskStatusText(t);
     this.taskDetailMeta = bgTaskMetaText(t, this.nowMs());
     this.taskDetailOutput = bgTaskOutputText(t);
