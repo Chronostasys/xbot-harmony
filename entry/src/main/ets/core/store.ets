@@ -12,9 +12,9 @@
  */
 import { XbotHttp } from './http';
 import { SseClient } from './sse';
-import { rowIsEmpty, shouldReloadHistory } from './streammerge';
+import { hasFreshPhaseDone, rowIsEmpty, shouldReloadHistory } from './streammerge';
 import { arrOrEmpty, isPresent } from './guards';
-import { ChatState, DomainEvent, initialChatState, NonEmptyS, nonEmptyStr, UserRow } from './chat_types_full';
+import { ChatState, DomainEvent, EventSeq, initialChatState, NonEmptyS, nonEmptyStr, UserRow } from './chat_types_full';
 import { reduce } from './reduce';
 import { deriveRows, Row } from './derive';
 import { normalizeEvent } from './normalize';
@@ -449,6 +449,37 @@ export class ChatStore {
       this.pushEvent({ type: 'session_running', running: false });
     }
     this.onUpdate();
+  }
+
+  /**
+   * 权威 idle 的**本地落点**（逐字移植 web `agent-idle` → `useSessionStore.setStatus(selector,'idle')`）。
+   *
+   * 为什么必须本地置位、不能只靠 REST 对账：web 权威明确 —— `session(idle)` 与 PhaseDone
+   *   都在**内存里**把会话标记 idle（`useSessionStore.ts:1697` 原文 *"Don't call refresh() here
+   *   — it causes a race where the HTTP response (which may be stale) overwrites the SSE-driven
+   *   status"*）。原生此前只发 REST `loadSessions()` ⇒ `serverRunning()` 要等一个往返才转 false
+   *   ⇒ composer 的 busy 拖后（用户 2026-10-12：*"iter 结束如果最后没 tool … 应该立刻进入
+   *   idle"*）。
+   *
+   * 两个动作**同帧**：
+   *   ① 会话树内存置位（`running=false`）⇒ 页面 `serverRunning()/freshServerRunning` 立即转
+   *      false（`fingerprintSessions` 含 running ⇒ 页面下一帧即同步；`busyNow` 的四路 OR 少一路）；
+   *   ② 状态机 `session_running(false)` ⇒ 清权威闸门 + 把仍 live 的 turn **定格收尾**
+   *      （`reduce.ts:515-533`：activeTurn=null、内容保留、streaming=false）。
+   *
+   * 幂等：会话树已 false + `sessionRunning` 已 false 时，reduce 返回原 state（零渲染变化）。
+   */
+  private applyLocalIdle(chatId: string): void {
+    // ⛔ ArkTS 禁对象展开（`arkts-no-spread`，门禁 ④ 实测抓到 `store.ets` 的对象字面量展开）
+    //    ⇒ 原地改字段（`SessionItem` 字段可写）。页面按 `fingerprintSessions`（含 running）
+    //    的**值**变化识别 ⇒ `this.sessions = store.sessions.slice()` 换新数组引用 ⇒ 重渲。
+    for (let i = 0; i < this.sessions.length; i++) {
+      if (this.sessions[i].chat_id === chatId && this.sessions[i].running === true) {
+        this.sessions[i].running = false;
+      }
+    }
+    // pushEvent → rebuildRows → onUpdate（页面据此同步会话树 + 行）。
+    this.pushEvent({ type: 'session_running', running: false });
   }
 
   /**
@@ -1654,7 +1685,19 @@ export class ChatStore {
     //   （服务端会给流式帧盖 iteration，猜错会把 stream_* 当结构化静默丢弃）。
     raw['type'] = event;
     const evs: readonly DomainEvent[] | null = normalizeEvent(raw, this.currentChatId);
+    // 水位必须在 `pushEvents` **之前**取（事件应用后 seq 会前移 ⇒ 陈旧守卫失效）。
+    const lastSeqBefore: EventSeq | null = this.state.lastSeq;
     this.pushEvents(evs);
+    // ── PhaseDone ⇒ **立刻**本地置 idle（逐字移植 web `useProgressStream.ts:1190-1198`
+    //    的 `dispatchAgentIdle(ownChatID, ownChannel)`）─────────────────────────────
+    //  服务端 `PhaseDone`（`progress.phase === 'done'`）是 turn 结束的**最快**权威信号；
+    //  `session(idle)` 要等 `Run()` 完全退出后才发（`agent/agent.go:3531` 的 defer）。
+    //  web 据此把会话**内存内**置 idle；原生此前只等 `session(idle)` → REST 往返 ⇒
+    //  composer 的 busy 拖后（用户 2026-10-12：*"iter 结束如果最后没 tool … 应该立刻
+    //  进入 idle"*）。新鲜性守卫见 `hasFreshPhaseDone`（防回放的上一回合 PhaseDone 误伤）。
+    if (hasFreshPhaseDone(evs, lastSeqBefore, this.state.activeTurn)) {
+      this.applyLocalIdle(this.currentChatId);
+    }
     // 通知旁路（新增；不改状态机语义）：回合结束取**上面同一份**归一化结果
     // （`phase_done`）——判据与状态机同源，不二次解析载荷。
     this.notifyOnSse(event, '', evs);
@@ -1675,6 +1718,11 @@ export class ChatStore {
           // 重载失败不影响主链路；下一次事件/切会话会再兜底
         });
       } else if (action === 'idle' || action === 'agent-idle') {
+        // ★ 本地**立即**置 idle（web `useSessionStore` 内存内 `setStatus('idle')` —— 不刷 REST）。
+        //   服务端 `session(idle)` 是权威"本会话已停"信号（归属已由 `normalizeEvent` 的
+        //   `extractEventChatID` 按 chat 过滤）⇒ 立即清权威闸门 + 会话树 running；下面的
+        //   REST 对账仍照跑（拉权威 todos/用量/running，覆盖本地乐观值的漂移）。
+        this.applyLocalIdle(this.currentChatId);
         this.loadStatus().catch(() => {
           // 状态非关键路径
         });

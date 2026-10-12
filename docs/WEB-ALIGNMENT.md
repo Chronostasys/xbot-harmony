@@ -1847,3 +1847,57 @@ Home/End 失效。`Ctrl-C` 保留**直按**（web 要先进 Ctrl 模式才够得
 `sheet_chrome` 85/0 · `free_surface_unify` 90/0 · `sheets2_visual` 193/0 · `icon_size_tokens` 18/0 ·
 `text_truncation_gate` 9/0 · `motion_budget` 12/0。
 **性能预算**：A 1242≤1250 · B 1342≤1350（**净减**）。
+
+## §21.31 目标②「细节完美」：「turn 结束 ⇒ **立刻** idle」（2026-10-12）
+
+**用户原话**：*"iter 结束如果最后没 tool，那么代表整个 turn 结束了，应该立刻进入 idle"*。
+
+**诊断（真根因，逐层查到 web 权威）**：web 里 turn 结束有**两条**置 idle 的路，原生只实现了慢的那条：
+- **快路（原生缺失）**：`PhaseDone`（`progress.phase === 'done'`，服务端 `emitBuiltinProgressDone`）
+  ⇒ web `useProgressStream.ts:1190-1198` **专门** `dispatchAgentIdle(ownChatID, ownChannel)`
+  ⇒ `useSessionStore` **内存内**把会话置 idle（`setStatus(selector,'idle')`）。
+- **慢路（原生只有这条）**：`session(idle)` —— 它在服务端 `Run()` **完全退出后**才发
+  （`agent/agent.go:3531` 的 defer），且原生收到后只发 REST `loadSessions()` ⇒ `serverRunning()`
+  要**再等一个往返**才转 false。两段延迟叠加 ⇒ composer 的 busy 拖后。
+
+**修复（逐字移植 web，不新造状态）**：
+1. 新增纯函数 **`core/streammerge.ets:hasFreshPhaseDone(evs, lastSeqBefore, activeTurn)`** ——
+   判"这一帧就是 turn 结束"。三守卫（对齐 web `useProgressStream.ts:1154/1166-1176`）：
+   ① 有 `phase_done`；② **不陈旧**（`seq` 缺失宽容，或 `seq > 上一帧水位` —— 否则切到 busy
+   会话时**回放的上一回合 PhaseDone** 会把在跑回合误置 idle）；③ 指向**当前 activeTurn**。
+2. 新增 **`core/store.ets:applyLocalIdle(chatId)`** —— 权威 idle 的本地落点，两动作同帧：
+   ① 会话树**内存置位** `running=false`（`fingerprintSessions` 含 running ⇒ 页面下一帧即同步，
+   `busyNow` 少一路 `freshServerRunning`）；② 状态机 `session_running(false)`
+   （清权威闸门 + 把仍 live 的 turn **定格收尾** —— `reduce.ts:515-533`，内容保留）。
+3. 接线：`onSse` 在 `pushEvents` **后**若 `hasFreshPhaseDone(...)` ⇒ `applyLocalIdle`（**快路**）；
+   `session(idle|agent-idle)` 分支也调 `applyLocalIdle`（**慢路**就地内存化），REST 对账仍照跑。
+
+**同批确认已实现的另三条用户点名细节**（本轮读码核对；⚠️ 其中 (d) 有**残留竞态**，见文末）：
+- **cancel spin → 成功立刻 idle**（item b）：`store.cancel()` 成功即 push `session_running(false)` +
+  `session(busy=false)`（乐观 idle，`useChatMessages.ts:870-884` 逐字移植）；`cancelling` 驱动
+  `LoadingProgress` 转圈（`composerCancelling()`）。
+- **busy 时输入文字 ⇒ 主按钮自动变插队/排队**（item c）：`composerShowStop()` / `composerCanSend()`
+  （web `MessageInput.tsx:686-687/935-939`）；busy + 有内容 ⇒ 主按钮为「发送」并按 `sendMode`
+  换 `bolt`（插话）/`paperplane`（排队），旁边 chip 由 `core/sendmode` 的 `modeLabel` 出字。
+  **✅ 真机确证（2026-10-12）**：busy 会话里输入文字后，主按钮当场从「停止」（`square_fill` 深色方块）
+  变为「发送」（`paperplane_fill` 紫色圆），mode chip 仍标「排队」——与用户描述逐字一致。
+- **流式上滚不被人机对抗**（item d）：`core/listfollow.ets` 的 `nextFollowBottom` / `markUserScrollFrame`
+  / `shouldAutoScroll` —— **"是否跟随"是用户意图不是位置快照**；`onWillScroll` **只置位不清位**
+  （清位只在 `onScrollIndex` 一次性消费），程序滚动/内容钳位绝不改写意图。
+
+> ⚠️ **残留缺陷（用户 2026-10-12 真机亲报：「思考中数字滚动的时候，用户滚开会立马被拉回最下方」）**：
+>   原设计在 `onScrollIndex` 里 `const userDriven = this.userScrollFrame; this.userScrollFrame = false;
+>   this.followBottom = nextFollowBottom(...)` —— 用户 flag 是一个**单布尔**，**任一**索引回调都会消费它；
+>   流式期间程序滚动（`scrollEdge(Bottom)`，打字机每帧触发）的索引回调会**抢先**消费用户刚置的 flag，
+>   且此刻 `end` 恰为 `itemCount-1` ⇒ `followBottom` 被判回 `true` ⇒ 用户被拽回底部。
+>   ⇒ 下一批按 web 权威重构：**用户一动手即 `pauseFollowing()`**（与位置无关），只在"用户滚回底部"才恢复。见 §21.32。
+
+**判据**：`streammerge.test` **74/0**（+14 条 `hasFreshPhaseDone` 三守卫判别力）·
+新建 **`local_idle_wiring.test.ts` 7/0**（钉**调用点计数**：`applyLocalIdle` ≥ 2 覆盖快慢两路、
+`hasFreshPhaseDone` 真 import + 调用、`cancel` 乐观 idle push ≥ 1 —— 防"判据在但没人调"的死消费）。
+**⛔ 门禁当场抓到 1 个真 ArkTS 错误（记录以示"脱机三条 ≠ 能编译"）**：首版 `applyLocalIdle` 用对象展开
+`this.sessions[i] = { ...this.sessions[i], running: false }` ⇒ 门禁 ④ 报
+`10605099 arkts-no-spread`（`store.ets:475`）—— **脱机三条永远抓不到**。修：改**原地字段赋值**。
+**性能预算**：无新增 `pal()/palOnce()` 字面（判据全在 `.ets` 纯逻辑侧，不在渲染树）；A 1242 · B 1342（不变）。
+
+

@@ -13,11 +13,14 @@ declare const process: { exit: (c: number) => void };
 import {
   isStreamOnly, hasStructured, liveIterationOf, upsertIteration, mergeTools, toolsFromEvent,
   applyStreamFrame, applyStructured, displayContent, displayReasoning, mergeToolRuns,
-  isIdleAction, isBusyAction, shouldReloadHistory,
+  isIdleAction, isBusyAction, shouldReloadHistory, hasFreshPhaseDone,
 } from '../../entry/src/main/ets/core/streammerge';
 import {
   HistoryIteration, IterList, ProgressEvent, ToolProgress,
 } from '../../entry/src/main/ets/core/types';
+import {
+  DomainEvent, EventSeq, TurnID, eventSeq, iterNum, turnID,
+} from '../../entry/src/main/ets/core/chat_types_full';
 
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean): void {
@@ -213,6 +216,40 @@ const withReasoning = mergeToolRuns([
   { iteration: 2, reasoning: 'b', tools: [tool('X', 'x2', 'done')] },
 ]);
 eq('各带 reasoning 的迭代不被合并（两行是两次真实调用）', withReasoning.length, 2);
+
+// ── ⑬ hasFreshPhaseDone：PhaseDone ⇒ 立刻本地置 idle 的**新鲜性守卫** ────────────────
+// 用户 2026-10-12：*"iter 结束如果最后没 tool … 应该立刻进入 idle"* —— 服务端 PhaseDone 是
+// 最快权威信号（`session(idle)` 要等 Run() 退出）。但回放的上一回合 PhaseDone 不得误伤在跑回合。
+// 判据（web `useProgressStream.ts:1166-1176`）：① 有 phase_done；② 不陈旧（seq > 水位或缺 seq）；
+// ③ 指向当前 activeTurn（turnID 缺失回退 activeTurn）。三条守卫**任一去掉 ⇒ 对应断言必红**。
+const TID = turnID(7);
+const OTHER = turnID(9);
+function pd(tid: TurnID | null, seq: EventSeq | null): DomainEvent {
+  return { type: 'phase_done', turnID: tid, seq, finalIteration: null, todos: undefined };
+}
+const iterEv = {
+  type: 'iteration', turnID: TID, iter: iterNum(1), seq: eventSeq(5),
+  content: undefined, reasoning: undefined, activeTools: [], completedTools: [],
+  iterationsDelta: [], todos: undefined, subAgents: undefined, tokenUsage: undefined, streamStats: undefined,
+} as DomainEvent;
+
+eq('新鲜 phase_done（seq>水位 且属 activeTurn）⇒ true', hasFreshPhaseDone([pd(TID, eventSeq(10))], eventSeq(5), TID), true);
+eq('evs=null ⇒ false', hasFreshPhaseDone(null, eventSeq(5), TID), false);
+eq('空事件数组 ⇒ false', hasFreshPhaseDone([], eventSeq(5), TID), false);
+eq('无 phase_done（只 iteration）⇒ false', hasFreshPhaseDone([iterEv], eventSeq(5), TID), false);
+// 守卫②：陈旧（seq ≤ 水位）⇒ 跳过
+eq('陈旧 phase_done（seq==水位）⇒ false（回放不得误伤）', hasFreshPhaseDone([pd(TID, eventSeq(5))], eventSeq(5), TID), false);
+eq('陈旧 phase_done（seq<水位）⇒ false', hasFreshPhaseDone([pd(TID, eventSeq(3))], eventSeq(5), TID), false);
+// 守卫②宽容：seq/lastSeq 缺失 ⇒ 照常（后端 mock/首帧）
+eq('seq 缺失 ⇒ 宽容放行 true', hasFreshPhaseDone([pd(TID, null)], eventSeq(5), TID), true);
+eq('水位缺失（null）⇒ 宽容放行 true', hasFreshPhaseDone([pd(TID, eventSeq(10))], null, TID), true);
+// 守卫③：属别的 turn ⇒ 不动本会话
+eq('phase_done 属别的 turn ⇒ false', hasFreshPhaseDone([pd(OTHER, eventSeq(10))], eventSeq(5), TID), false);
+eq('turnID 缺失 ⇒ 回退 activeTurn ⇒ true', hasFreshPhaseDone([pd(null, eventSeq(10))], eventSeq(5), TID), true);
+eq('activeTurn 为 null（无法证伪）⇒ true', hasFreshPhaseDone([pd(TID, eventSeq(10))], eventSeq(5), null), true);
+// 混合批：前面的 iteration 不干扰，找到 phase_done 即判
+eq('混合 [iteration, 新鲜 phase_done] ⇒ true', hasFreshPhaseDone([iterEv, pd(TID, eventSeq(11))], eventSeq(5), TID), true);
+eq('混合 [陈旧 phase_done, 无其它] ⇒ false', hasFreshPhaseDone([iterEv, pd(TID, eventSeq(2))], eventSeq(5), TID), false);
 
 if (fail > 0) { console.log(`  streammerge: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  streammerge: ${pass} passed, 0 failed`);

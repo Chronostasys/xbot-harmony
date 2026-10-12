@@ -19,6 +19,7 @@
  * 本模块是**纯函数**（不依赖 SDK），由 `tools/tests/streammerge.test.ts` 守护。
  */
 import { ChatRow, HistoryIteration, IterList, ProgressEvent, ToolProgress } from './types';
+import { DomainEvent, EventSeq, TurnID } from './chat_types_full';
 import { ST_GENERATING } from './toolstatus';
 import { nonEmpty } from './guards';
 // ⛔ ArkTS `arkts-no-misplaced-imports`：**所有 import 必须在文件顶部**（不能放中间）。
@@ -612,6 +613,52 @@ export function isBusyAction(action: string): boolean {
 /** 历史被回退（rewind）⇒ 必须重载历史，否则界面停留在被撤销的内容上。 */
 export function shouldReloadHistory(action: string): boolean {
   return action === 'history_rewound';
+}
+
+/**
+ * 本批归一化事件里是否含**新鲜**（非回放）的 `phase_done` —— 即"这一帧就是 turn 结束"。
+ *
+ * 为什么需要它（用户 2026-10-12 目标②：*"iter 结束如果最后没 tool … 应该立刻进入 idle"*）：
+ *   服务端 `PhaseDone`（`progress.phase === 'done'`）是 turn 结束的**最快**权威信号，
+ *   而 `session(idle)` 要等 `Run()` **完全退出后**才发（`agent/agent.go:3531` 的 defer）。
+ *   web 因此专门在 PhaseDone 时 `dispatchAgentIdle`（`useProgressStream.ts:1190-1198`）把会话
+ *   **内存内**置 idle；原生此前完全缺这一路 ⇒ composer 的 busy 只能等 `session(idle)` → REST 往返。
+ *
+ * 判据（逐字对齐 web `useProgressStream.ts:1154/1166-1176`）：
+ *   ① 有 `phase_done` 事件；
+ *   ② 它**不陈旧**：`seq` 缺失（宽容）或 `seq > 上一帧水位`（重放事件 seq ≤ 水位 ⇒ 跳过，
+ *      否则切到 busy 会话时回放的**上一回合** PhaseDone 会把在跑回合误置 idle）；
+ *   ③ 它指向**当前活动 turn**（`turnID === null` 回退 activeTurn；turnID 与 activeTurn 不符
+ *      ⇒ 属别的 turn，不动本会话）。
+ *
+ * 由 `tools/tests/streammerge.test.ts` 守护（判别力：去掉任一守卫 ⇒ 对应断言必红）。
+ *
+ * @param evs 本帧归一化结果（`pushEvents` 的入参）
+ * @param lastSeqBefore 必须是 `pushEvents` **之前**的水位（事件应用后水位会前移）
+ * @param activeTurn 当前活动 turn（`state.activeTurn`）
+ */
+export function hasFreshPhaseDone(
+  evs: readonly DomainEvent[] | null,
+  lastSeqBefore: EventSeq | null,
+  activeTurn: TurnID | null,
+): boolean {
+  if (evs === null) {
+    return false;
+  }
+  for (let i = 0; i < evs.length; i++) {
+    const ev: DomainEvent = evs[i];
+    if (ev.type !== 'phase_done') {
+      continue;
+    }
+    if (ev.seq !== null && lastSeqBefore !== null && ev.seq <= lastSeqBefore) {
+      continue; // 陈旧/回放 —— 不置 idle
+    }
+    if (ev.turnID !== null && activeTurn !== null && ev.turnID !== activeTurn) {
+      continue; // 属别的 turn
+    }
+    return true;
+  }
+  return false;
 }
 
 
