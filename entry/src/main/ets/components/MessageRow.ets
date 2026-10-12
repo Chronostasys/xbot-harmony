@@ -187,6 +187,14 @@ export struct MessageRowView {
   /** 复制反馈落地（页面品牌 toast；**透传**给两处 `MarkdownView` 与本组件的 `LiveTailView`）。 */
   onToast: (msg: string) => void = () => {
   };
+  /**
+   * 「转后台」动作（页面注入：RPC `promote_shell` + toast；入参 = `tool_call_id`，
+   * 出参 = 新后台任务 id，失败抛错）。**透传**给两处 `ToolPopoverCard`（committed 侧本组件
+   * 与 live 侧 `LiveTailView`）—— 用户插话「跟 web 一样支持 promote shell to background」。
+   */
+  onPromoteShell: (callId: string) => Promise<string> = async (callId: string) => {
+    return '';
+  };
 
   /** 「更早区域」自动加载的三态（对齐 web `RegionsDivider` 的 idle/loading/error）。
    *  ⛔ 触发源是**可见性**（`onVisibleAreaChange` 哨兵语义），**不是点击** ——
@@ -743,6 +751,8 @@ export struct MessageRowView {
         },
         // B6：live 在飞正文里的代码块复制 —— 落点**透传**页面品牌 toast。
         onToast: this.onToast,
+        // 转后台：live 侧 pill 的浮层里出现「转后台」条（透传页面 RPC 回调）。
+        onPromoteShell: this.onPromoteShell,
       })
       // ── live 快照的 SubAgent 进度树（web `LiveIteration.tsx:282`：
       //    `{hasSubAgents && <SubAgentProgressTree nodes={liveSubAgents} />}` ——
@@ -1010,6 +1020,10 @@ export struct MessageRowView {
       theme: this.themeId(),
       onCopy: (text: string, what: string) => {
         this.onCopy(text, what);
+      },
+      // 转后台（仅进行中的 Shell 显示；判据在卡片内 = `core/toolshell.canPromoteShell`）
+      onPromote: (callId: string) => {
+        return this.onPromoteShell(callId);
       },
     })
   }

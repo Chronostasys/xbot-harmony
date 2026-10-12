@@ -1696,3 +1696,48 @@ A 线 `this.pal()` 1244/1250 · B 线 1348/1350 · ForEach 107/107 · `anim*()` 
 
 **判据取得**：`run-one bubble_style` = 35 passed, 0 failed；`tools/gate.sh` = ④ `ArkTS BUILD SUCCESSFUL
 in 4 s 758 ms` + `✅ 真门禁全绿` + `GATE_EXIT=0`（性能预算未越线）。
+
+---
+
+## §21.28 目标④ shell **转后台**（promote-to-background）真支持（2026-10-12）
+
+**用户插话**：「跟 web 一样，**支持用户 promote shell to background**」——前台 shell 执行中可一键
+转入后台，agent 迭代不再阻塞等待它。
+
+**服务端契约（已核实）**：`serverapp/rpc_table.go:1854` `promote_shell{session_key, tool_call_id}`
+→ `{ok, task_id}`（实现 `tools.PromoteForegroundShell`，`tools/shell_promote.go`）。
+⛔ `session_key` 必须是**面板所见会话**（`channel:chatID`）—— 服务端按它查注册的 `ForegroundShellHandle`
+（`tools/shell.go:347`）；用 shell 自身的 `ctx.SessionKey` 在 physicalChannel override / SubAgent
+场景下会落空报 `no running shell`（`docs/agent/gotchas-tools.md:18`）。
+
+**新增纯逻辑**：`core/toolshell.ets`（`parseShellText` / `canPromoteShell` / `promoteSessionKey` /
+`shellCommandOfLabel` + RPC 参数类）—— 逐字移植 web `ToolRender.tsx` 的 `parseShell`（349-394）与
+`ShellPromoteBar`（483-551）的显示+启用判据：
+- **task id 锚定首行、且在剥头部标记行之前**提取（`[PROMOTED to background by user] … [task_id: "xxx"]`
+  与 `[TIMEOUT after …] … [task_id: "xxx"]` 都把 id 放在**首行**；不锚定会把普通输出里的字面量误判）；
+- `canPromote` 必须**含 `pending`/`generating`**（web 2026-09-14 亲报 bug：「我确定是 running，没渲染
+  转后台按钮」—— 卡片运行中观感与按钮判据必须同源；原生直接复用 `core/toolstatus.isToolInProgress`）。
+
+**接线（端到端）**：`core/store.ets` `promoteShell(toolCallId)`（建会话键 → RPC → **立刻**
+`loadBgTasks()`，不等 web 那 30s 轮询，返回 task_id）；`components/ToolPopover.ets` 的 `ToolPopoverCard`
+—— 新增 `@Prop` 派生的 `canPromoteShell` 判据 + `onPromote` 回调 + 四态（idle/promoting/done/error）
+**单面**动作条（`HIT_TARGET_MIN` 整行命中盒，⛔ 不用 `responseRegion` 负偏移外扩）；回调经
+`MessageRow.ets`/`LiveTailView.ets` 透传、由 `pages/Index.ets` 的 `promoteShellAction` 注入
+（RPC + 品牌 toast；失败**向上抛**让卡片进 error 态，⛔ 不假装成功）。
+⚠️ web 的 `FastForward` 图标在 HarmonyOS 符号库**不存在**（`forward`/`forward_fill` 均查无；已用 SDK
+`sysResource.js` 真源核对）⇒ 取语义等价的 `arrow_down_and_rectangle_on_rectangle`（"落入叠层"）。
+
+**⛔ 两门禁互相拉扯（本批代价最大的一处）**：面判据要求井面写成**字面** `backgroundColor(surfaceFillOf(this.pal(), 'surface.well'))`
++ `.border({…insetHairlineOf(this.pal())})`；而性能预算 A/B 线按**字面次数**计 `this.pal()`
+（**顶格**：B 线余量仅 2）⇒ 该动作条只能**一面**、且取色复用已有值（`vm.statusColor` /
+`statusColorOf`，不进预算）。判据同步演进（保留判别力）：`free_surface_unify` L3 面 4→5、
+`icon_size_tokens` ★⑥ 4→5、★② `ICON_SM` 1→3（+2 处**真图标站点**）。
+
+**判据（新增 `tools/tests/toolshell.test.ts`，44 条）**：task id 首行锚定 + **非首行不误判** ×
+`[EXIT n] <cmd>` 命令同行剥离（命令不一致时**不吞正文**）× `[TIMEOUT after …]` × promoted 真实 fixture
+（`tools/shell.go:392/397` 原文）× `canPromote` 四态（含 pending/generating）× 会话键 × RPC 字段名。
+**判据取得**：`run-one toolshell` = **44 passed, 0 failed**；`tools/gate.sh` = ④ `ArkTS BUILD SUCCESSFUL
+in 6 s 217 ms` + `✅ 真门禁全绿` + `GATE_EXIT=0`（性能预算 A 1246≤1250 · B 1350≤1350）。
+**真机全链路实证**（`deploy.sh` DEPLOY_EXIT=0；`sleep 150` 前台执行）：Shell pill 显示「执行中」→ 点 pill
+→ 浮层出现**凹槽面上的「转后台」**（图 g.jpeg）→ 点它 → **toast「已转入后台：188a272a」**（服务端真 task id，
+图 h.jpeg）+ 工具转 `✅ done` + 后台任务列表即时刷新（agent 侧也确认「运行环境本身将其提升为后台任务」）。

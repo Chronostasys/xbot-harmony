@@ -16,7 +16,10 @@ import { R_LG, R_MD, R_SM, R_XL, SP_1, SP_2, SP_3, FS_BODY, FS_CAPTION } from '.
 import {
   PRESS_OPACITY, RADIUS_CHIP, SPACE_HAIR, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP, hairlineOf, insetHairlineOf, surfaceFillOf, typeOf, MARKER_GLYPH, ICON_SM, colorOf, HIT_TARGET_MIN } from '../core/design';
 import { ToolProgress } from '../core/types';
-import { renderKind } from '../core/toolstatus';
+import { renderKind, ST_DONE, ST_ERROR, toolStatusKind } from '../core/toolstatus';
+import {
+  NO_EXIT_CODE, SHELL_TOOL_NAME, ShellParsed, canPromoteShell, parseShellText, shellCommandOfLabel,
+} from '../core/toolshell';
 import { AnsiSpan, ansiBgOf, ansiFgOf, ansiPaletteOf, ansiSpansIfAny, hasAnsi } from '../core/ansi';
 import { statusColorOf } from './ToolVisual';
 import { fileArgFields, FileArgFields, isFileTool, langFromPath, pathFromLabel } from '../core/toolargs';
@@ -59,6 +62,16 @@ export interface ToolDetailVM {
   exitCode: number;
   elapsedMs: number;
   hasAny: boolean;
+  /** 原始工具名（`Shell` 等）—— `core/toolshell.canPromoteShell` 的输入。 */
+  toolName: string;
+  /** 语义状态档（`core/toolstatus.toolStatusKind`）—— `canPromoteShell` 的输入。 */
+  kind: string;
+  /** LLM tool_call id（转后台 RPC 的目标）；空 = 不可转。 */
+  callId: string;
+  /** 输出已被标记「已转后台」（`core/toolshell.parseShellText`）。 */
+  promoted: boolean;
+  /** 后台任务 id（解析自输出；空 = 无）。 */
+  bgTask: string;
 }
 
 export function formatElapsed(ms: number): string {
@@ -144,6 +157,11 @@ export function toolDetailVM(t: ToolProgress | undefined, statusColor: string, s
     exitCode: 0,
     elapsedMs: 0,
     hasAny: false,
+    toolName: '',
+    kind: '',
+    callId: '',
+    promoted: false,
+    bgTask: '',
   };
   if (t === undefined) { return vm; }
   vm.title = t.label !== undefined && t.label.length > 0 ? t.label : t.name;
@@ -164,6 +182,20 @@ export function toolDetailVM(t: ToolProgress | undefined, statusColor: string, s
   vm.hasExit = t.exit_code !== undefined;
   vm.exitCode = t.exit_code !== undefined ? t.exit_code : 0;
   vm.elapsedMs = t.elapsed_ms !== undefined ? t.elapsed_ms : 0;
+  // ── Shell 工具：输出语义解析（web `ShellRender` × `parseShell`）──────────────────
+  // ⛔ 只在**真剥掉了标记行**时才改写 `vm.detail`（普通输出逐字节不动 ⇒ 零回归）。
+  vm.toolName = t.name !== undefined ? t.name : '';
+  vm.kind = toolStatusKind(t.status, t.exit_code);
+  vm.callId = t.call_id !== undefined ? t.call_id : '';
+  if (vm.toolName === SHELL_TOOL_NAME) {
+    const sp: ShellParsed = parseShellText(vm.detail,
+      shellCommandOfLabel(t.label !== undefined ? t.label : ''));
+    vm.promoted = sp.promoted;
+    vm.bgTask = sp.bgTask;
+    if (sp.promoted || sp.timeout || sp.exitCode !== NO_EXIT_CODE) {
+      vm.detail = sp.output;
+    }
+  }
   vm.hasAny = vm.args.length > 0 || vm.detail.length > 0 || vm.summary.length > 0
     || vm.content.length > 0 || hasDiffBody(hints);
   return vm;
@@ -175,9 +207,61 @@ export struct ToolPopoverCard {
   @Prop theme: string = 'dark';
   onCopy: (text: string, what: string) => void = (text: string, what: string) => {
   };
+  /**
+   * 「转后台」回调（页面注入；入参 = `tool_call_id`，出参 = 新后台任务 id，失败抛错）。
+   * 未注入 ⇒ 走默认空实现 ⇒ 按钮点了不会有副作用（**但按钮本身仍会显示** ——
+   * 显示判据是 `canPromoteShell(vm…)`，与回调是否注入无关；生产页面必注入）。
+   */
+  onPromote: (callId: string) => Promise<string> = async (callId: string) => {
+    return '';
+  };
+
+  /** 转后台的人机态：idle → promoting → done / error（web `PromoteState`）。 */
+  @State promoteState: string = 'idle';
+  /** 成功返回的后台任务 id（本地态；与 `vm.bgTask` 互为兜底）。 */
+  @State promotedTaskID: string = '';
 
   private pal(): Palette {
     return paletteOf(this.theme);
+  }
+
+  // ── 转后台（web `ShellRender:444-445` × `ShellPromoteBar`）────────────────────
+  /** 是否显示「转后台」—— 逐字对齐 web 的显示+启用判据（见 `core/toolshell.canPromoteShell`）。 */
+  private promotable(): boolean {
+    return canPromoteShell(this.vm.toolName, this.vm.kind, this.vm.callId);
+  }
+
+  /** 已是「后台运行中」—— 本地成功态 **或** 输出里已有 `[PROMOTED to background…]` 标记。 */
+  private bgDone(): boolean {
+    return this.promoteState === 'done' || this.vm.promoted;
+  }
+
+  /** 展示用的后台任务 id（本地态优先；回落输出解析值）。 */
+  private bgTaskId(): string {
+    if (this.promotedTaskID.length > 0) { return this.promotedTaskID; }
+    return this.vm.bgTask;
+  }
+
+  /** 条文案（四态合一）：done 优先（**权威态来自输出标记**，本地态只是即时反馈）。 */
+  private promoteLabel(): string {
+    if (this.bgDone()) {
+      return this.bgTaskId().length > 0 ? '已在后台运行' : '已转入后台';
+    }
+    if (this.promoteState === 'promoting') { return '正在转后台…'; }
+    if (this.promoteState === 'error') { return '转后台失败 · 重试'; }
+    return '转后台';
+  }
+
+  /** 点「转后台」：RPC → 成功转 done 态；失败转 error 态（web 同款两态，错误文案由页面 toast 承担）。 */
+  private doPromote(): void {
+    if (this.promoteState === 'promoting' || !this.promotable()) { return; }
+    this.promoteState = 'promoting';
+    this.onPromote(this.vm.callId).then((taskId: string) => {
+      this.promotedTaskID = taskId;
+      this.promoteState = 'done';
+    }).catch((e: Error) => {
+      this.promoteState = 'error';
+    });
   }
 
   /** 下沉内容面（代码块 / 终端块 / diff 行底）—— `Surfaces.sunken`（语义角色，非魔数、非阴影错位）。 */
@@ -504,6 +588,59 @@ export struct ToolPopoverCard {
     .width('100%').alignItems(HorizontalAlign.Start)
   }
 
+  /**
+   * 「转后台」条 —— web `ShellPromoteBar`（`ToolRender.tsx:483-551`）的原生落点。
+   *
+   * 只在**进行中的 Shell 工具**上出现（`promotable()` = web 的 `inProgress` ×
+   * `callID !== ''`，见 `core/toolshell.canPromoteShell`）；
+   * 四个态合一行为两条文案（idle/promoting/done/error），⛔ 不铺第二张脸。
+   *
+   * ⚠️ web 用 `FastForward` 图标 —— HarmonyOS 符号库**没有** `forward`/`forward_fill`
+   *    （已查 SDK `sysResource.js` 真源）⇒ 取语义等价的 `arrow_down_and_rectangle_on_rectangle`
+   *    （"落入叠层" = 转入后台任务层）。
+   * ⛔ 命中盒靠**布局盒**（整行 `.height(HIT_TARGET_MIN)`），**不用** `responseRegion` 负偏移外扩
+   *    （真机实测无效，见 `docs/UI-AUDIT-CHECKLIST.md`）。
+   * ⛔ 取色一律用**已有值**（`vm.statusColor` / `statusColorOf`）—— 性能预算 B 线余量极小
+   *    （`tools/perf/guard.sh`：`this.pal()` 按**字面次数**计），本条的色板读只有**面 + 发丝** 2 处。
+   */
+  @Builder
+  PromoteBar() {
+    Row({ space: SP_2 }) {
+      if (this.bgDone()) {
+        // 成功态：安静（不喧哗）—— 状态色勾（web `shell-promote-done` 的 CheckCircle2）
+        SymbolGlyph($r('sys.symbol.checkmark_circle'))
+          .fontSize(ICON_SM)
+          .fontColor([statusColorOf(ST_DONE, this.theme)])
+      } else if (this.promoteState === 'promoting') {
+        LoadingProgress().width(ICON_SM).height(ICON_SM).color(this.vm.statusColor)
+      } else {
+        SymbolGlyph($r('sys.symbol.arrow_down_and_rectangle_on_rectangle'))
+          .fontSize(ICON_SM).fontColor([this.vm.statusColor])
+      }
+      Text(this.promoteLabel())
+        .fontSize(FS_CAPTION)
+        .fontColor(this.promoteState === 'error' ? statusColorOf(ST_ERROR, this.theme) : this.vm.statusColor)
+        .fontWeight(FontWeight.Medium).layoutWeight(1)
+        .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+      if (this.bgDone() && this.bgTaskId().length > 0) {
+        Text(this.bgTaskId())
+          .fontSize(typeOf(TYPE_CHIP).size).fontFamily('monospace')
+          .fontColor(this.vm.statusColor).maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .flexShrink(0)
+      }
+    }
+    .width('100%').height(HIT_TARGET_MIN)
+    .padding({ left: SP_2, right: SP_2 })
+    .backgroundColor(surfaceFillOf(this.pal(), 'surface.well'))
+    .borderRadius(R_MD)
+    .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
+    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+    .onClick(() => {
+      this.doPromote();
+    })
+  }
+
   build() {
     Column({ space: SP_2 }) {
       // header：状态色点 + 名字 + 状态徽标 + 耗时
@@ -525,6 +662,11 @@ export struct ToolPopoverCard {
         }
       }
       .width('100%')
+
+      // 转后台（仅**进行中的 Shell**）—— web `ShellRender:444-445` 的落点（终端卡之下）
+      if (this.promotable()) {
+        this.PromoteBar()
+      }
 
       if (this.vm.summary.length > 0 && this.vm.summary !== this.vm.detail) {
         // 摘要取自命令输出**首行** ⇒ 可能携带 SGR 颜色码（web `FoldedToolGroup.tsx:387`

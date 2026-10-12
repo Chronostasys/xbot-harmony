@@ -83,6 +83,13 @@ export struct LiveTailView {
   onToast: (msg: string) => void = () => {
   };
   /**
+   * 「转后台」动作（页面注入：RPC `promote_shell` + toast）—— 透传给工具浮层卡片
+   * （`ToolPopoverCard.onPromote`）。用户插话「跟 web 一样支持 promote shell to background」。
+   */
+  onPromoteShell: (callId: string) => Promise<string> = async (callId: string) => {
+    return '';
+  };
+  /**
    * 是否渲染旗舰「思考中 / 生成中」光球（`components/AssistantOrb`）。
    *
    * 默认 `true` ⇒ 与接线前行为一致（只是把在飞指示升级为光球）。
@@ -433,6 +440,10 @@ return renderKind(t.status, t.exit_code, true);
     ToolPopoverCard({
       vm: this.popVM(),
       theme: this.themeId(),
+      // 转后台（仅进行中的 Shell 显示；判据在卡片内 = `core/toolshell.canPromoteShell`）
+      onPromote: (callId: string) => {
+        return this.onPromoteShell(callId);
+      },
     })
   }
 

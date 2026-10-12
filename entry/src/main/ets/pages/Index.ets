@@ -5951,6 +5951,30 @@ struct Index {
     }
   }
 
+  /**
+   * 「转后台」—— 把**正在执行的前台 shell** 转入后台（RPC `promote_shell`；web
+   * `ShellPromoteBar`（`components/agent/ToolRender.tsx:491-516`）同源）。
+   *
+   * 成功：toast 报出新任务 id（store 内已就地重拉后台任务列表 ⇒ 任务面板立刻可见，
+   * 不必等 web 那 30s 轮询）。失败：可读 toast + **向上抛**，让浮层卡片进入 error 态
+   * （web 同款 `PromoteState.error`，⛔ 不假装成功）。
+   */
+  private async promoteShellAction(callId: string): Promise<string> {
+    const st: ChatStore | null = this.store;
+    if (st === null || callId.length === 0) {
+      return '';
+    }
+    try {
+      const taskId: string = await st.promoteShell(callId);
+      this.toast(taskId.length > 0 ? `已转入后台：${taskId}` : '已转入后台');
+      return taskId;
+    } catch (e) {
+      const err: BusinessError = e as BusinessError;
+      this.toast(`转后台失败: ${err.message}`);
+      throw e as Error;
+    }
+  }
+
   private async refreshPanel(): Promise<void> {
     const store: ChatStore | null = this.store;
     if (store === null || this.panelBusy) {
@@ -7280,6 +7304,10 @@ struct Index {
         onOpenSubAgent: (sessionKey: string) => {
           this.openSubAgentSession(sessionKey);
         },
+        // 转后台：进行中的 shell 工具浮层里出现「转后台」条（RPC `promote_shell` + toast）。
+        onPromoteShell: (callId: string) => {
+          return this.promoteShellAction(callId);
+        },
       })
     }
   }
@@ -7341,6 +7369,10 @@ struct Index {
         // B6：live 在飞正文里的代码块「复制」—— 落点 = 品牌 toast（同 committed 侧）。
         onToast: (msg: string) => {
           this.toast(msg, TOAST_KIND_COPY);
+        },
+        // 转后台：live 侧 shell 工具浮层里的「转后台」条（RPC `promote_shell` + toast）。
+        onPromoteShell: (callId: string) => {
+          return this.promoteShellAction(callId);
         },
       })
     }

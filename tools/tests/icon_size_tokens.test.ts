@@ -66,8 +66,12 @@ if (repo.length > 0) {
   //    真正的反向不变量 = **该文件的 `ICON_SM` 命中数 == 判类时的图标数**（多出来 ⇒ 必是文字站点被误换）。
   ok('★② MarkdownView 的 ICON_SM 恰 1 处（判类时只有 1 个图标站点 ⇒ 多出即误换）',
     count('entry/src/main/ets/components/MarkdownView.ets', 'fontSize(ICON_SM)') === 1);
-  ok('★② ToolPopover 的 ICON_SM 恰 1 处（判类时只有 1 个图标站点 ⇒ 其 4 处文字站点未被动）',
-    count('entry/src/main/ets/components/ToolPopover.ets', 'fontSize(ICON_SM)') === 1);
+  // ⚠️ 计数随**形态扩张**演进（2026-10-12）：原 1 处（`rectangle_on_rectangle` 溢出入口）+
+  //    **本批 shell「转后台」条 2 处**（成功条勾 / 可点条图标）—— 两处都是**真图标站点**
+  //    （`SymbolGlyph`），不是文字站点被误换。（同条里的 `LoadingProgress` 走 `.width/.height`，
+  //    不计入 `fontSize` 口径。）
+  ok('★② ToolPopover 的 ICON_SM 恰 3 处（3 个真图标站点 ⇒ 多出即文字站点被误换）',
+    count('entry/src/main/ets/components/ToolPopover.ets', 'fontSize(ICON_SM)') === 3);
   // ★③ ICON_XL 已定义且**有消费**（⛔ 不留零消费常量）
   ok('★③ design.ets 定义 ICON_XL = 20', count('entry/src/main/ets/core/design.ets', 'export const ICON_XL: number = 20;') === 1);
   ok('★③ 且被 SelfCheckSheet 的 3 处消费', count('entry/src/main/ets/components/SelfCheckSheet.ets', 'fontSize(ICON_XL)') === 3);
@@ -91,8 +95,10 @@ if (repo.length > 0) {
   //    = **文本行底纹，不是"面"** ⇒ 给它接内凹发丝**是错的**（会给普通文本行凭空加边）。
   //    ⇒ 钉住：该文件的 `insetHairlineOf` **恰 4 处**（4 个 well 面），⛔ 不许按"扫描命中"机械全接。
   //    mutation：给那处 diff 行接上 ⇒ 5 ⇒ 必红。
+  // ⚠️ 计数随**形态扩张**演进（2026-10-12）：原 4 个 well 面 + **本批 shell「转后台」条 1 处**
+  //    （单面四态，真带内凹发丝）= 5。判别力不变：给 diff 行底纹接上 ⇒ 6 ⇒ 必红。
   const tp: number = count('entry/src/main/ets/components/ToolPopover.ets', 'insetHairlineOf(this.pal())');
-  ok(`★⑥ 防误报：ToolPopover 的 insetHairlineOf **恰 4 处**（4 个 well 面；diff 行底纹不算面）—— 实得 ${tp}`, tp === 4);
+  ok(`★⑥ 防误报：ToolPopover 的 insetHairlineOf **恰 5 处**（5 个 well 面；diff 行底纹不算面）—— 实得 ${tp}`, tp === 5);
 }
 if (fail > 0) { console.log(`  icon_size_tokens: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  icon_size_tokens: ${pass} passed, 0 failed`);

@@ -96,7 +96,10 @@ const SITES: Site[] = [
   { file: 'components/QueueSheet.ets', level: 'L2', marker: 'backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))', expect: 1 },
   { file: 'components/SyntheticCard.ets', level: 'L2', marker: 'backgroundColor(surfaceFillOf(this.pal(), SURFACE_PILL))', expect: 1 },
   // ── L3 内嵌凹槽（well / chip = insetHairlineOf）──────────────────────────────
-  { file: 'components/ToolPopover.ets', level: 'L3', marker: "backgroundColor(surfaceFillOf(this.pal(), 'surface.well'))", expect: 4 },
+  // ⚠️ 计数随**形态扩张**演进（2026-10-12）：原 4 个 well 面（参数/内容/输出/hunk 头）+
+  //    **本批 shell「转后台」条 1 个**（单面承载 idle/promoting/done/error 四态；带 `insetHairlineOf`
+  //    通道）= 5。判别力不变：任一面缺通道 / 多出裸面 ⇒ 计数 ≠ 5 ⇒ 红。
+  { file: 'components/ToolPopover.ets', level: 'L3', marker: "backgroundColor(surfaceFillOf(this.pal(), 'surface.well'))", expect: 5 },
   { file: 'components/PluginHost.ets', level: 'L3', marker: "backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))", expect: 1 },
 ];
 

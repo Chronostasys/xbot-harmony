@@ -27,6 +27,7 @@ import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, U
 import { moveOrders, parseSearchHits, searchBody, SEARCH_LIMIT_DEFAULT, SearchBody, chatSwitchPath, chatSwitchChannel, ChatSwitchResult, parseChatSwitch } from './sessionops';
 import { RewindReq, RewindTarget, gapTopBefore, rewindTargetDBID } from './msgops';
 import { BgTask, CronJob, KillBgTaskParams, RunnerRow, SubAgentRow, isWidgetEvent } from './panels';
+import { PromoteShellParams, PromoteShellResult, promoteSessionKey } from './toolshell';
 import { TerminalInfo } from './termproto';
 import { serverKey, toLocalSettings, KEY_ACCENT } from './settings';
 import { setAppAccent } from './theme';
@@ -599,6 +600,26 @@ export class ChatStore {
   async killBgTask(taskId: string): Promise<void> {
     await rpc<void>(this.http, 'kill_bg_task', new KillBgTaskParams(taskId));
     await this.loadBgTasks();
+  }
+
+  /**
+   * 把**正在执行的前台 shell** 转入后台（RPC `promote_shell`，参数 `{session_key, tool_call_id}`）
+   * —— web `ShellPromoteBar`（`components/agent/ToolRender.tsx:491-516`）同源。
+   *
+   * 成功后返回新后台任务 id（web 拿它显示 done 条 + task_id + toast），并**立刻**重拉后台任务
+   * 列表（web 靠 `bg-task-promoted` 事件让任务面板即时刷新，否则 30s 轮询内看不到新任务）。
+   *
+   * ⛔ `session_key` 必须是**面板所见会话**（`channel:chatID`）—— 服务端按它查注册的
+   *    `ForegroundShellHandle`（`tools/shell.go:347` / `tools/shell_promote.go`）；用 shell 自身的
+   *    ctx 键在 physicalChannel override / SubAgent 场景下会落空报 `no running shell`
+   *    （`docs/agent/gotchas-tools.md:18`）。
+   */
+  async promoteShell(toolCallId: string): Promise<string> {
+    const key: string = promoteSessionKey(this.channel, this.currentChatId);
+    const res: PromoteShellResult = await rpc<PromoteShellResult>(
+      this.http, 'promote_shell', new PromoteShellParams(key, toolCallId));
+    await this.loadBgTasks();
+    return res.task_id !== undefined && res.task_id !== null ? res.task_id : '';
   }
 
   /**
