@@ -20,8 +20,8 @@
 import { AnsiSpan, ansiBgOf, ansiFgOf, ansiPaletteOf, ansiSpansIfAny, hasAnsi } from '../core/ansi';
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import {
-  colorOf, HIT_TARGET_MIN, ICON_MD, PRESS_OPACITY, RADIUS_SHEET, SHEET_ACTION_GLYPH, SPACE_MD, SPACE_SM,
-  SPACE_XS, SURFACE_CARD, surfaceFillOf, typeOf,
+  colorOf, hairlineOf, HIT_TARGET_MIN, ICON_MD, PRESS_OPACITY, RADIUS_SHEET, SHEET_ACTION_GLYPH, SPACE_MD,
+  SPACE_SM, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD, surfaceFillOf, typeOf,
 } from '../core/design';
 import { sheetTransition } from './anim';
 
@@ -197,18 +197,22 @@ export struct TaskDetailSheet {
         .scrollBar(BarState.Auto)
         .edgeEffect(EdgeEffect.Spring)
       }
-      .width('94%')
-      .height('80%')
+      // 内层 = 卡片**内容盒**（100% 填满外层卡）；**尺寸由外层承载** —— 与 `SessionStatsSheet` 同结构。
+      .width('100%')
+      .height('100%')
       .padding(SPACE_MD)
       .backgroundColor(surfaceFillOf(this.palOnce(), 'surface.overlay'))
       .borderRadius(RADIUS_SHEET)
+      .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.palOnce()) })
       .shadow({
         radius: this.sheetLayers()[0].radius,
         color: this.sheetLayers()[0].color,
         offsetX: 0, offsetY: this.sheetLayers()[0].offsetY,
       })
     }
-    .width('100%').height('100%')
+    // 外层 = **卡片本体**（承载尺寸 + far 环境影）；⛔ 不能是 `100%×100%` —— 实测「任务详情」曾因外层
+    //   全屏不透明把聊天整屏盖住（同 `SessionStatsSheet` 的同一处缺陷，本轮一并修）。
+    .width('94%').height('80%')
     .backgroundColor(surfaceFillOf(this.palOnce(), 'surface.overlay'))
     .borderRadius(RADIUS_SHEET)
     .shadow({

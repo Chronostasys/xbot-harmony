@@ -30,9 +30,9 @@ import {
 } from '../core/termproto';
 import { Palette, paletteOf } from '../core/theme';
 import {
-  colorOf, HIT_TARGET_MIN, PRESS_OPACITY, RADIUS_CHIP, RADIUS_PILL, RADIUS_SHEET,
+  colorOf, hairlineOf, HIT_TARGET_MIN, PRESS_OPACITY, RADIUS_CHIP, RADIUS_PILL, RADIUS_SHEET,
   SHEET_ACTION_GLYPH, SPACE_MD,
-  SPACE_SM, SPACE_XS, surfaceFillOf, typeOf,
+  SPACE_SM, SPACE_XS, STROKE_HAIRLINE, surfaceFillOf, typeOf,
 } from '../core/design';
 import { sheetTransition } from './anim';
 
@@ -394,9 +394,10 @@ export struct TerminalSheet {
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .textAlign(TextAlign.Start)
           Row({ space: 6 }) {
-            Row()
-              .width(8).height(8).borderRadius(4)
-              .backgroundColor(colorOf(this.palOnce(), terminalStatusRole(this.status)))
+            // 状态圆点：用 `Circle()`（ToolPopover 的状态点同款）⇒ ⛔ 零数值 borderRadius。
+            Circle()
+              .width(8).height(8)
+              .fill(colorOf(this.palOnce(), terminalStatusRole(this.status)))
             Text(terminalStatusText(this.status, this.exitCode))
               .fontSize(typeOf('type.micro').size)
               .fontColor(colorOf(this.palOnce(), 'iconMuted'))
@@ -506,7 +507,7 @@ export struct TerminalSheet {
     .padding(SPACE_MD)
     .backgroundColor(surfaceFillOf(this.palOnce(), 'surface.overlay'))
     .borderRadius(RADIUS_SHEET)
-    .border({ width: 1, color: this.palOnce().border })
+    .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.palOnce()) })
     .alignItems(HorizontalAlign.Start)
     .transition(sheetTransition())
   }

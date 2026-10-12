@@ -314,8 +314,9 @@ export struct SessionStatsSheet {
         // 纵向滚动容器：横向不溢出（H0 判据针对横向 Scroll；此处补 clip 亦无害且更稳）
         .clip(true)
       }
-      .width('92%')
-      .height('78%')
+      // 内层 = 卡片**内容盒**（100% 填满外层卡）；**尺寸由外层承载** —— 与 `PluginsSheet`/`StatusSheet` 同结构。
+      .width('100%')
+      .height('100%')
       .padding(SPACE_MD)
       .backgroundColor(this.bgOverlay())
       .borderRadius(RADIUS_SHEET)
@@ -326,7 +327,10 @@ export struct SessionStatsSheet {
         offsetX: 0, offsetY: this.sheetLayers()[0].offsetY,
       })
     }
-    .width('100%').height('100%')
+    // 外层 = **卡片本体**（承载尺寸 + far 环境影）；⛔ 不能是 `100%×100%` —— 实测「统计」面板曾因
+    //   外层全屏不透明（`bgOverlay`）把聊天整屏盖住、far 柔影落在屏幕边缘，与 `PluginsSheet` 的
+    //   「居中浮动卡 + 背后可见聊天」观感不一致（本轮真机复现并修）。
+    .width('92%').height('78%')
     .backgroundColor(this.bgOverlay())
     .borderRadius(RADIUS_SHEET)
     .shadow({

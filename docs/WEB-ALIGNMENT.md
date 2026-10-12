@@ -1590,3 +1590,40 @@ SLIDE_SWITCH / translate / rotate / scale / move / asymmetric`；`.height()` 也
 **mutation 自证**：把 `Index.ets` 一处页头 token 改回 `17`、`SettingsPanel` 改回 `fs('type.headline')`
 ⇒ `sheet_chrome` **`74 passed, 3 failed`（exit 1）**（两条文件级 token 计数 + 一条总数）；还原后
 **md5 逐字节一致**（`42627e5c…` / `49fecea8…`）。
+
+---
+
+## §21.25 目标③「所有面板一个设计系统」批次 5：**浮层根容器**契约扩面 —— 修 2 个「全屏遮挡」真缺陷（2026-10-12）
+
+**维度切换（自查发现的新面）**：§21.23/§21.24 收的是"页头**关闭 X**"这一维度。本轮改用**同族形态
+契约**扫「浮层**根容器**」这一维度 —— 把"居中浮动卡"同族的 8 个 sheet 逐个量与 `PluginsSheet`（真机
+已验的浮动卡基准）比对。既有契约早已存在于 `tools/tests/sheets2_visual.test.ts`（`⛔ 无
+`.border({width:1})` / `⛔ 不用 `pal().border` 当结构边界 / 结构边界走 `hairlineOf`），**但只覆盖
+AskUser/Status/MenuSheets 3 个文件** ⇒ 同族其余 5 个**从未被这套断言触达** ⇒ 缺陷漏网。
+
+| # | 站点 | 缺陷（真机/源码实证） | 处置 |
+|---|---|---|---|
+| ① | `SessionStatsSheet.ets` 根 `Stack` | 写成 `.width('100%').height('100%')` + 不透明 `surface.overlay` ⇒ **整屏盖住聊天**；far 柔影落在屏幕边缘（**真机复现**：卡片外区域无聊天、与 `PluginsSheet` 不一致） | 内外**交换尺寸**：内层 `.width('100%').height('100%')`（内容盒）、外层 `.width('92%').height('78%')`（卡片本体承载 far 影）⇒ 还原为居中浮动卡 |
+| ② | `TaskDetailSheet.ets` 根 `Stack` | **同①**（外层 100%×100% 全屏遮挡）；且内层**缺**结构发丝 | 同①交换尺寸（外层 `94%×80%`）+ 内层补 `.border({width: STROKE_HAIRLINE, color: hairlineOf(palOnce())})` |
+| ③ | `TerminalSheet.ets:509` | 根边界用 `.border({ width: 1, color: this.palOnce().border })` —— **装饰性 `pal().border` + 裸宽 1**（浅色系可见度不足；`hairlineOf` 会按 `HAIRLINE_TARGET_RATIO` 压深） | 改 `.border({ width: STROKE_HAIRLINE, color: hairlineOf(this.palOnce()) })`（深色逐字节不变） |
+| ④ | `TerminalSheet.ets:398` | 状态圆点 `Row().width(8).height(8).borderRadius(4)` —— **裸数值 borderRadius** | 改 `Circle().width(8).height(8).fill(…)`（`ToolPopover` 状态点同款，零数值 borderRadius） |
+| ⑤ | `QueueSheet.ets` / `SelfCheckSheet.ets` 根圆角 | 裸写 tokens 的 `R_XL`（值 = 12，与同族 `StatusSheet`/`AskUserSheet` 的语义 token `RADIUS_CARD` **同值**但丢语义） | 改语义 token `RADIUS_CARD`（**零视觉变化**） |
+
+**判据（演进，⛔ 不删除）**：`tools/tests/sheets2_visual.test.ts` 新增 **§⑧**，把"居中浮动卡"同族
+**8 个文件**（AskUser/Status/Queue/SelfCheck/Plugins/SessionStats/TaskDetail/Terminal）纳入：
+- ★ **根容器必须是卡片尺寸**：判据 = **承载 `.transition(sheetTransition())` 的外层容器，其最后一个
+  `.width('N%')` ∈ 卡片宽度（92/94），而非 `100`**（=`outerWidthPct()` 辅助函数）。这一条直接钉死
+  ①②——把任一 sheet 根改回 `width('100%').height('100%')` ⇒ 该值变 100 ⇒ 红。
+- 结构边界 `hairlineOf` + `STROKE_HAIRLINE` + `surface.overlay`；⛔ 禁 `.border({width:1}` /
+  `pal().border` / `palOnce().border`；零裸数值 `borderRadius`/`fontSize`。
+- Queue/SelfCheck 额外钉 `has('RADIUS_CARD')` + `hasNot('R_XL')`。
+
+**mutation 自证**（用测试自带 `SHEETS2_COMP_DIR` 指向副本，⛔ 不动真树）：把 `SessionStatsSheet` 根改回
+`100%×100%` + `TerminalSheet` 边框改回裸宽 `1`/`palOnce().border` ⇒ **`189 passed, 4 failed`（exit 1）**
+（① 根宽度 92→100；③ 三条：`.border({width:1})`/`palOnce().border`/`hairlineOf` 消失）。
+
+**判据取得**：`run-one sheets2_visual` = **`193 passed, 0 failed`**；`run.sh` = **`RUN_EXIT=0`**；
+`tools/gate.sh` = ④ `ArkTS BUILD SUCCESSFUL` + **`✅ 真门禁全绿` + `GATE_EXIT=0`**（性能预算未越线：
+A 线 `this.pal()` 1244/1250 · B 线 1348/1350 · ForEach 107/107 · `anim*()` 14/20）。
+**真机复核**：`~/ohos-cli/deploy.sh`（`DEPLOY_EXIT=0`）后从「能力面板 → 会话统计」打开 ⇒ 统计面板
+由**全屏不透明遮挡**变为**居中浮动卡**（两侧/底部可见背后聊天 + 输入框），与 `PluginsSheet` 观感一致。

@@ -12,9 +12,9 @@
  * 同通道（web `bg-bg-elevated` = 浮层面；此前为裸 `pal().appBg` + 无柔影）。
  */
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
-import { FS_CAPTION, R_LG, R_XL, SP_2, SP_3 } from '../core/tokens';
+import { FS_CAPTION, R_LG, SP_2, SP_3 } from '../core/tokens';
 import {
-  HIT_TARGET_MIN, PRESS_OPACITY, GAP_PILL, INSET_CARD_X, INSET_PILL_X, INSET_PILL_Y, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, SHEET_ACTION_GLYPH, colorOf, hairlineOf, structuralRuleOf, surfaceFillOf, ICON_XL } from '../core/design';
+  HIT_TARGET_MIN, PRESS_OPACITY, GAP_PILL, INSET_CARD_X, INSET_PILL_X, INSET_PILL_Y, RADIUS_CARD, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, SHEET_ACTION_GLYPH, colorOf, hairlineOf, structuralRuleOf, surfaceFillOf, ICON_XL } from '../core/design';
 import { fs, fw } from './SettingsRows';
 import { MarkdownView } from './MarkdownView';
 import { sheetTransition } from './anim';
@@ -163,7 +163,7 @@ export struct SelfCheckSheet {
       }
       .width('100%').height('100%').padding(SP_3)
       .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
-      .borderRadius(R_XL)
+      .borderRadius(RADIUS_CARD)
       // 顶层弹层根边界 = **结构性发丝**（与 `PluginsSheet`/`QueueSheet`/`StatusSheet` 等同层级 ⇒ 同通道）；
       // ⛔ 此前是手写的裸 `pal().borderStrong` + 裸宽 `1`（`docs/DESIGN-SYSTEM.md §13.5`）。
       .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
@@ -177,7 +177,7 @@ export struct SelfCheckSheet {
     // 环境层（far）：浅色 = 大半径环境柔影；深色 = 该档原值（`glow`，逐字节不变）。
     .width('94%').height('86%')
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
-    .borderRadius(R_XL)
+    .borderRadius(RADIUS_CARD)
     .shadow({
       radius: this.sheetLayers()[1].radius,
       color: this.sheetLayers()[1].color,

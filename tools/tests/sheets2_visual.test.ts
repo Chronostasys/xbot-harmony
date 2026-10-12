@@ -248,6 +248,61 @@ has(menuCode, "colorOf(this.pal(), 'dangerText')", 'MenuSheets: 破坏性项（�
 has(menuCode, "colorOf(this.pal(), 'iconMuted')", 'MenuSheets: 图标弱色走 colorOf iconMuted（⛔ 非 Palette 字段）');
 has(menuCode, '.fontSize(ICON_MD)', 'MenuSheets: 图标尺寸走 ICON_MD token（零字面量）');
 
+// ════════════════════════════════════════════════════════════════════════════
+// ⑧ 「居中浮动卡」浮层**根容器**契约（2026-10-12 本轮：从 ③ 的 3 文件扩面到同族全部 8 个）
+//    背景：③ 的逐文件断言只覆盖 AskUser/Status/MenuSheets。本轮把**同族**（居中浮动卡）的
+//    其余 sheet 也纳入，抓出并修掉两类此前漏网的缺陷：
+//      · 根 Stack 写成 `100%×100%`（不透明 `surface.overlay`）⇒ **整屏盖住聊天**、far 柔影落在
+//        屏幕边缘（真机实测 `SessionStatsSheet`/`TaskDetailSheet` 曾如此，与 `PluginsSheet`
+//        「居中浮动卡 + 背后可见聊天」观感不一致）；
+//      · 面板边界用**装饰性** `pal().border` + 裸宽 `1`（真机实测 `TerminalSheet`）——
+//        ⛔ 结构边界必须走 `hairlineOf`（浅色系才有足够可见度）。
+//    判据 = **承载 `.transition(sheetTransition())` 的外层容器，其最后一个 `.width('N%')` 必须
+//      是卡片宽度（92/94），而非 100% 全屏**。mutation 自证：把任一 sheet 根改回
+//      `width('100%').height('100%')` ⇒ `outerWidthPct` 由 92/94 变 100 ⇒ 红（见提交信息）。
+// ════════════════════════════════════════════════════════════════════════════
+function outerWidthPct(code: string): string {
+  const idx: number = code.lastIndexOf('.transition(sheetTransition())');
+  const pre: string = idx >= 0 ? code.substring(0, idx) : code;
+  const found: RegExpMatchArray | null = pre.match(/\.width\('(\d+)%'\)/g);
+  if (found === null || found.length === 0) { return ''; }
+  const last: string = found[found.length - 1];
+  const m: RegExpMatchArray | null = last.match(/'(\d+)%'/);
+  return m !== null ? m[1] : '';
+}
+
+const CARD_SHEETS: string[][] = [
+  ['AskUserSheet.ets', '94'],
+  ['StatusSheet.ets', '92'],
+  ['QueueSheet.ets', '92'],
+  ['SelfCheckSheet.ets', '94'],
+  ['PluginsSheet.ets', '92'],
+  ['SessionStatsSheet.ets', '92'],
+  ['TaskDetailSheet.ets', '94'],
+  ['TerminalSheet.ets', '94'],
+];
+for (let i = 0; i < CARD_SHEETS.length; i++) {
+  const rel: string = CARD_SHEETS[i][0];
+  const wantW: string = CARD_SHEETS[i][1];
+  const code: string = stripComments(fsMod.readFileSync(pathMod.join(COMP, rel), 'utf-8'));
+  // ① 浮层根 = 卡片尺寸（⛔ 不是 100% 全屏 ⇒ 不会整屏遮挡聊天）
+  eq(`${rel}: 浮层根 = 卡片宽度 ${wantW}%（非 100% 全屏）`, outerWidthPct(code), wantW);
+  // ② 结构边界 = 结构性发丝（⛔ 不是装饰性 pal().border / 裸宽 1）
+  hasNot(code, '.border({ width: 1', `${rel}: ⛔ 无装饰性 .border({width:1})`);
+  hasNot(code, 'pal().border', `${rel}: ⛔ 不用 pal().border 当结构边界`);
+  hasNot(code, 'palOnce().border', `${rel}: ⛔ 不用 palOnce().border 当结构边界`);
+  has(code, 'STROKE_HAIRLINE', `${rel}: 发丝宽度走 STROKE_HAIRLINE`);
+  has(code, 'hairlineOf(', `${rel}: 结构边界走 hairlineOf`);
+  has(code, 'surface.overlay', `${rel}: 面板面 = surface.overlay`);
+  ok(`${rel}: 无 .borderRadius(<数字>)`, code.search(/\.borderRadius\(\s*[0-9]/) < 0);
+  ok(`${rel}: 无 .fontSize(<数字>)`, code.search(/\.fontSize\(\s*[0-9]/) < 0);
+  // ③ 圆角走**语义 token**（Queue/SelfCheck 此前裸写 tokens 的 `R_XL`；同值 12 但丢语义）
+  if (rel === 'QueueSheet.ets' || rel === 'SelfCheckSheet.ets') {
+    has(code, 'RADIUS_CARD', `${rel}: 面板圆角走语义 token RADIUS_CARD`);
+    hasNot(code, 'R_XL', `${rel}: ⛔ 不再裸写 R_XL（改 RADIUS_CARD，同值 12）`);
+  }
+}
+
 if (fail > 0) {
   console.log(`  sheets2_visual: ${pass} passed, ${fail} failed`);
   process.exit(1);

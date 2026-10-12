@@ -12,8 +12,8 @@
  */
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import { QueueItem } from '../core/types';
-import { PRESS_OPACITY, STROKE_HAIRLINE, SURFACE_CARD, SHEET_ACTION_GLYPH, colorOf, hairlineOf, structuralRuleOf, surfaceFillOf, HIT_TARGET_MIN } from '../core/design';
-import { FS_CAPTION, R_LG, R_MD, R_XL, SP_2, SP_3, SP_4 } from '../core/tokens';
+import { PRESS_OPACITY, RADIUS_CARD, STROKE_HAIRLINE, SURFACE_CARD, SHEET_ACTION_GLYPH, colorOf, hairlineOf, structuralRuleOf, surfaceFillOf, HIT_TARGET_MIN } from '../core/design';
+import { FS_CAPTION, R_LG, R_MD, SP_2, SP_3, SP_4 } from '../core/tokens';
 import { fs, fw, lh } from './SettingsRows';
 // 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线/位移；E3 统一）。
 import { sheetTransition } from './anim';
@@ -174,7 +174,7 @@ export struct QueueSheet {
       }
       .width('100%').padding(SP_4)
       .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
-      .borderRadius(R_XL)
+      .borderRadius(RADIUS_CARD)
       .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
       // 贴合层（near）：浅色 = `elev2` 小半径贴合影；深色 = 透明（不渲染 ⇒ 净观感不变）。
       .shadow({
@@ -186,7 +186,7 @@ export struct QueueSheet {
     // 环境层（far）：浅色 = 大半径环境柔影；深色 = 该档原值（`glow`，逐字节不变）。
     .width('92%')
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
-    .borderRadius(R_XL)
+    .borderRadius(RADIUS_CARD)
     .shadow({
       radius: this.sheetLayers()[1].radius,
       color: this.sheetLayers()[1].color,
