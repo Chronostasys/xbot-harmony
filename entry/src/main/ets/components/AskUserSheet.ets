@@ -40,7 +40,7 @@ import { AskOption, AskQuestion } from '../core/types';
 import {
   PRESS_OPACITY,   DISABLED_OPACITY, HIT_TARGET_MIN, INSET_CARD_X, INSET_ROW_X, INSET_ROW_Y,
   MARKER_SLOT, RADIUS_CARD, RADIUS_PILL, SHEET_ACTION_GLYPH, SPACE_HAIR, SPACE_LG, SPACE_MD, SPACE_SM,
-  SPACE_XS, STROKE_HAIRLINE, SURFACE_COMPOSER, colorOf, hairlineOf, surfaceFillOf,
+  SHEET_WIDTH, SPACE_XS, STROKE_HAIRLINE, SURFACE_COMPOSER, colorOf, hairlineOf, surfaceFillOf,
 } from '../core/design';
 import { fs, fw, lh, tc, tk } from './SettingsRows';
 // 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线/位移；E3 统一）。
@@ -312,7 +312,7 @@ export struct AskUserSheet {
       })
     }
     // 环境层（far）：浅色 = 大半径环境柔影；深色 = 该档原值（`elev3`/`glow`，逐字节不变）。
-    .width('94%')
+    .width(SHEET_WIDTH)
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .borderRadius(RADIUS_CARD)
     .shadow({

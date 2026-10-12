@@ -32,7 +32,7 @@ import { Palette, paletteOf } from '../core/theme';
 import {
   colorOf, hairlineOf, HIT_TARGET_MIN, PRESS_OPACITY, RADIUS_CHIP, RADIUS_PILL, RADIUS_SHEET,
   SHEET_ACTION_GLYPH, SPACE_MD,
-  SPACE_SM, SPACE_XS, STROKE_HAIRLINE, surfaceFillOf, typeOf,
+  SHEET_WIDTH, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, surfaceFillOf, typeOf,
 } from '../core/design';
 import { sheetTransition } from './anim';
 
@@ -629,7 +629,7 @@ export struct TerminalSheet {
       .width('100%')
       .alignItems(HorizontalAlign.Start)
     }
-    .width('94%')
+    .width(SHEET_WIDTH)
     .height('82%')
     .padding(SPACE_MD)
     .backgroundColor(surfaceFillOf(this.palOnce(), 'surface.overlay'))

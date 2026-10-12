@@ -23,7 +23,7 @@ import {
   colorOf, hairlineOf, HIT_TARGET_MIN, ICON_MD, INSET_ROW_X, INSET_ROW_Y, PRESS_OPACITY,
   RADIUS_CARD, RADIUS_CHIP, RADIUS_SHEET, SHEET_ACTION_GLYPH, SPACE_MD, SPACE_SM, SPACE_XS, SPACE_XXS, STROKE_HAIRLINE,
   structuralRuleOf,
-  SURFACE_CARD, surfaceFillOf, typeOf,
+  SHEET_WIDTH, SURFACE_CARD, surfaceFillOf, typeOf,
 } from '../core/design';
 import { sheetTransition } from './anim';
 
@@ -469,7 +469,7 @@ export struct SessionStatsSheet {
     // 外层 = **卡片本体**（承载尺寸 + far 环境影）；⛔ 不能是 `100%×100%` —— 实测「统计」面板曾因
     //   外层全屏不透明（`bgOverlay`）把聊天整屏盖住、far 柔影落在屏幕边缘，与 `PluginsSheet` 的
     //   「居中浮动卡 + 背后可见聊天」观感不一致（本轮真机复现并修）。
-    .width('92%').height('78%')
+    .width(SHEET_WIDTH).height('78%')
     .backgroundColor(this.bgOverlay())
     .borderRadius(RADIUS_SHEET)
     .shadow({

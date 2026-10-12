@@ -37,7 +37,7 @@ import { pluginSymbol } from './PluginHost';
 import {
   colorOf, GAP_ROW_Y, hairlineOf, structuralRuleOf, surfaceFillOf, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y,
   PRESS_OPACITY, RADIUS_CARD, RADIUS_SHEET, SHEET_ACTION_GLYPH, SPACE_MD, SPACE_SM, SPACE_XS, STROKE_HAIRLINE,
-  SURFACE_CARD } from '../core/design';
+  SHEET_WIDTH, SURFACE_CARD } from '../core/design';
 import { fs, fw } from './SettingsRows';
 // 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线；E3 统一）。
 import { sheetTransition } from './anim';
@@ -287,7 +287,7 @@ export struct PluginsSheet {
       })
     }
     // 环境层（far）：浅色 = 大半径环境柔影；深色 = 该档原值（`glow`，逐字节不变）。
-    .width('92%')
+    .width(SHEET_WIDTH)
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .borderRadius(RADIUS_SHEET)
     .shadow({

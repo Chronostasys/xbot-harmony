@@ -88,6 +88,18 @@ export const INSET_CHIP_X: number = SPACE_XXS;
 export const INSET_CHIP_Y: number = SPACE_HAIR;
 /** 屏幕左右安全边距（列表容器）。 */
 export const GUTTER_SCREEN: number = SPACE_MD;
+/**
+ * 居中浮层面板（sheet）的**标准宽度** = 屏宽的 92%。
+ *
+ * 为什么钉成令牌（2026-10-12 真机审计）：9 个居中浮层曾**两套口径**（5 个 `'92%'` + 4 个 `'94%'`）
+ * ⇒ 用户并排看不同面板，左右留白差 13px（3% vs 4%）=「不是一个家族」。文档口径本就唯一
+ * （`docs/UI-AUDIT-CHECKLIST.md:41`「卡片宽度非 92%（居中失效）」；`docs/WEB-ALIGNMENT.md:3558`
+ * 把 "92% vs 94%" 漂移直接列为缺陷类）。
+ * 取值锚点：屏宽 4%/边 ≈ **`GUTTER_SCREEN`(16vp)**（本机 1320px ⇒ 52.8px/边 = 15.6vp）——
+ * 与列表容器的屏幕安全边距**同值** ⇒ 浮层左缘与正文左缘落在同一条竖轴上（内建网格，非巧合）。
+ * ⛔ 主题无关（几何不随深/浅色变）；抽屉 `DrawerSheet` 是**侧栏**不是居中卡 ⇒ 用 88% 另值。
+ */
+export const SHEET_WIDTH: string = '92%';
 /** 气泡内水平内边距。 */
 export const INSET_BUBBLE_X: number = SPACE_SM + SPACE_HAIR; // 14（对齐 web px-3.5）
 /** 气泡内垂直内边距。 */

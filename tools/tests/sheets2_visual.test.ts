@@ -257,36 +257,48 @@ has(menuCode, '.fontSize(ICON_MD)', 'MenuSheets: 图标尺寸走 ICON_MD token�
 //        「居中浮动卡 + 背后可见聊天」观感不一致）；
 //      · 面板边界用**装饰性** `pal().border` + 裸宽 `1`（真机实测 `TerminalSheet`）——
 //        ⛔ 结构边界必须走 `hairlineOf`（浅色系才有足够可见度）。
-//    判据 = **承载 `.transition(sheetTransition())` 的外层容器，其最后一个 `.width('N%')` 必须
-//      是卡片宽度（92/94），而非 100% 全屏**。mutation 自证：把任一 sheet 根改回
-//      `width('100%').height('100%')` ⇒ `outerWidthPct` 由 92/94 变 100 ⇒ 红（见提交信息）。
+//    判据 = **承载 `.transition(sheetTransition())` 的外层容器，其最后一个宽度声明**必须是
+//      **卡片宽度**。⚠️ 2026-10-12 **判据演进**（目标③「所有面板一个设计系统」）：8 个居中浮层
+//      的宽口径曾**两套**（4×裸 `94%` + 4×裸 `92%`）⇒ 本轮统一到令牌 `SHEET_WIDTH`（= 92%，
+//      证据见 `tools/tests/panel_surface_consistency.test.ts` D 组）⇒ 本判据从"逐文件钉分档字面"
+//      演进为"钉**同一个令牌**"（⛔ 不再钉分档 —— 那正是本轮修掉的缺陷形态）。
+//      mutation 自证：把任一 sheet 根改回 `width('100%').height('100%')` ⇒ `outerWidthSpec`
+//      由 `SHEET_WIDTH` 变 `100%` ⇒ 红（见提交信息）。
 // ════════════════════════════════════════════════════════════════════════════
-function outerWidthPct(code: string): string {
+/** 取浮层根（`.transition(sheetTransition())` 之前）**最靠后**的一个宽度声明，规范成可比较的串。 */
+function outerWidthSpec(code: string): string {
   const idx: number = code.lastIndexOf('.transition(sheetTransition())');
   const pre: string = idx >= 0 ? code.substring(0, idx) : code;
-  const found: RegExpMatchArray | null = pre.match(/\.width\('(\d+)%'\)/g);
-  if (found === null || found.length === 0) { return ''; }
-  const last: string = found[found.length - 1];
-  const m: RegExpMatchArray | null = last.match(/'(\d+)%'/);
-  return m !== null ? m[1] : '';
+  let bestIdx: number = -1;
+  let bestVal: string = '';
+  const litRe = /\.width\('(\d+)%'\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = litRe.exec(pre)) !== null) {
+    if (m.index > bestIdx) { bestIdx = m.index; bestVal = m[1] + '%'; }
+  }
+  const tok = '.width(SHEET_WIDTH)';
+  let i: number = pre.indexOf(tok);
+  while (i >= 0) { if (i > bestIdx) { bestIdx = i; bestVal = 'SHEET_WIDTH'; } i = pre.indexOf(tok, i + tok.length); }
+  return bestVal;
 }
+// 自证（mutation 等价物）：喂"必红/应绿"样本给**同一个**判定函数，双向都要对。
+ok('自证 · 根 = 令牌 SHEET_WIDTH', outerWidthSpec(".width(SHEET_WIDTH)\n.transition(sheetTransition())") === 'SHEET_WIDTH');
+ok('自证 · ⛔ 根 = 100% 全屏 ⇒ 判红', outerWidthSpec(".width('100%').height('100%')\n.transition(sheetTransition())") === '100%');
+ok('自证 · 令牌优先于更早的百分比字面量（内层 100% 不算根）',
+  outerWidthSpec(".width('100%').width(SHEET_WIDTH)\n.transition(sheetTransition())") === 'SHEET_WIDTH');
+ok('自证 · 令牌之后又被百分比字面量覆盖 ⇒ 取更后者（根 = 该字面量）',
+  outerWidthSpec(".width(SHEET_WIDTH).width('94%')\n.transition(sheetTransition())") === '94%');
 
-const CARD_SHEETS: string[][] = [
-  ['AskUserSheet.ets', '94'],
-  ['StatusSheet.ets', '92'],
-  ['QueueSheet.ets', '92'],
-  ['SelfCheckSheet.ets', '94'],
-  ['PluginsSheet.ets', '92'],
-  ['SessionStatsSheet.ets', '92'],
-  ['TaskDetailSheet.ets', '94'],
-  ['TerminalSheet.ets', '94'],
+// 8 个居中浮层（同族）：宽口径**统一**为令牌 `SHEET_WIDTH`（92%）—— 判据**不再**逐文件钉分档。
+const CARD_SHEETS: string[] = [
+  'AskUserSheet.ets', 'StatusSheet.ets', 'QueueSheet.ets', 'SelfCheckSheet.ets',
+  'PluginsSheet.ets', 'SessionStatsSheet.ets', 'TaskDetailSheet.ets', 'TerminalSheet.ets',
 ];
 for (let i = 0; i < CARD_SHEETS.length; i++) {
-  const rel: string = CARD_SHEETS[i][0];
-  const wantW: string = CARD_SHEETS[i][1];
+  const rel: string = CARD_SHEETS[i];
   const code: string = stripComments(fsMod.readFileSync(pathMod.join(COMP, rel), 'utf-8'));
-  // ① 浮层根 = 卡片尺寸（⛔ 不是 100% 全屏 ⇒ 不会整屏遮挡聊天）
-  eq(`${rel}: 浮层根 = 卡片宽度 ${wantW}%（非 100% 全屏）`, outerWidthPct(code), wantW);
+  // ① 浮层根 = 卡片宽度（令牌 `SHEET_WIDTH`=92%，⛔ 不是 100% 全屏 ⇒ 不会整屏遮挡聊天）
+  eq(`${rel}: 浮层根宽度 = 令牌 SHEET_WIDTH（92%，非 100% 全屏）`, outerWidthSpec(code), 'SHEET_WIDTH');
   // ② 结构边界 = 结构性发丝（⛔ 不是装饰性 pal().border / 裸宽 1）
   hasNot(code, '.border({ width: 1', `${rel}: ⛔ 无装饰性 .border({width:1})`);
   hasNot(code, 'pal().border', `${rel}: ⛔ 不用 pal().border 当结构边界`);

@@ -12,7 +12,7 @@
  */
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import { QueueItem } from '../core/types';
-import { PRESS_OPACITY, RADIUS_CARD, STROKE_HAIRLINE, SURFACE_CARD, SHEET_ACTION_GLYPH, colorOf, hairlineOf, structuralRuleOf, surfaceFillOf, HIT_TARGET_MIN } from '../core/design';
+import { PRESS_OPACITY, RADIUS_CARD, SHEET_WIDTH, STROKE_HAIRLINE, SURFACE_CARD, SHEET_ACTION_GLYPH, colorOf, hairlineOf, structuralRuleOf, surfaceFillOf, HIT_TARGET_MIN } from '../core/design';
 import { FS_CAPTION, R_LG, R_MD, SP_2, SP_3, SP_4 } from '../core/tokens';
 // ⛔ 列表高度判据**只此一处**（`core/panels.queueListHeight`）——组件不自己算高度。
 import { queueListHeight } from '../core/panels';
@@ -188,7 +188,7 @@ export struct QueueSheet {
       })
     }
     // 环境层（far）：浅色 = 大半径环境柔影；深色 = 该档原值（`glow`，逐字节不变）。
-    .width('92%')
+    .width(SHEET_WIDTH)
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .borderRadius(RADIUS_CARD)
     .shadow({

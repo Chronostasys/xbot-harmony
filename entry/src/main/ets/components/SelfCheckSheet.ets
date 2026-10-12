@@ -14,7 +14,7 @@
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import { FS_CAPTION, R_LG, SP_2, SP_3 } from '../core/tokens';
 import {
-  HIT_TARGET_MIN, PRESS_OPACITY, GAP_PILL, INSET_CARD_X, INSET_PILL_X, INSET_PILL_Y, RADIUS_CARD, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, SHEET_ACTION_GLYPH, colorOf, hairlineOf, structuralRuleOf, surfaceFillOf, ICON_XL } from '../core/design';
+  HIT_TARGET_MIN, PRESS_OPACITY, GAP_PILL, INSET_CARD_X, INSET_PILL_X, INSET_PILL_Y, RADIUS_CARD, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, SHEET_ACTION_GLYPH, colorOf, hairlineOf, structuralRuleOf, surfaceFillOf, ICON_XL, SHEET_WIDTH } from '../core/design';
 import { fs, fw } from './SettingsRows';
 import { MarkdownView } from './MarkdownView';
 import { sheetTransition } from './anim';
@@ -175,7 +175,7 @@ export struct SelfCheckSheet {
       })
     }
     // 环境层（far）：浅色 = 大半径环境柔影；深色 = 该档原值（`glow`，逐字节不变）。
-    .width('94%').height('86%')
+    .width(SHEET_WIDTH).height('86%')
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .borderRadius(RADIUS_CARD)
     .shadow({

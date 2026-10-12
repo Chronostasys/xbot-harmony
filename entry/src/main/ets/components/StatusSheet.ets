@@ -42,7 +42,7 @@ import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import {
   PRESS_OPACITY, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, RADIUS_CHIP, SHEET_ACTION_GLYPH,
   SPACE_HAIR, SPACE_LG, SPACE_SM,
-  SPACE_XS, STROKE_HAIRLINE, hairlineOf, surfaceFillOf, colorOf, } from '../core/design';
+  SHEET_WIDTH, SPACE_XS, STROKE_HAIRLINE, hairlineOf, surfaceFillOf, colorOf, } from '../core/design';
 import { fs, fw, lh, tc, tk } from './SettingsRows';
 import { sheetTransition } from './anim';
 
@@ -376,7 +376,7 @@ export struct StatusSheet {
       })
     }
     // 环境层（far）：浅色 = 大半径环境柔影；深色 = 该档原值（`elev3`/`glow`，逐字节不变）。
-    .width('92%')
+    .width(SHEET_WIDTH)
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .borderRadius(RADIUS_CARD)
     .shadow({

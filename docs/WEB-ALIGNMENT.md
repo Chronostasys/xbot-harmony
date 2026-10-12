@@ -3597,3 +3597,51 @@ token 既不是"对齐 web"，也不是可读文案。
 带 `layoutWeight(1)`（= 不再与时间抢行 ⇒ 直指本次缺陷形态）/ 空 `last_active` 不渲染时间行。
 既有断言（`MARKER_GUTTER` 恰 2 处、`relTimeOf` 唯一时间出口、吸顶组头同材质…）**全部保留** ✓
 ⇒ 未破坏 15e/15f 的契约。
+
+## §21.65 居中浮层宽度归一到 `SHEET_WIDTH` 令牌（15o·f）（2026-10-12）
+
+**病根（真机审计 · 目标③「你要考虑所有的面板」）**：9 个**居中浮层面板**曾**两套宽口径** ——
+
+| 口径 | 面板 |
+|---|---|
+| 裸 `'92%'`（5） | `ModelSheet`(Index) / `QueueSheet` / `PluginsSheet` / `SessionStatsSheet` / `StatusSheet` |
+| 裸 `'94%'`（4） | `TaskDetailSheet` / `TerminalSheet` / `SelfCheckSheet` / `AskUserSheet` |
+
+⇒ 用户先后打开两个面板并排看：左右留白 **52.8px vs 39.6px（差 13px）** =「不是一个家族」。
+文档口径本就唯一：`docs/UI-AUDIT-CHECKLIST.md:41`「卡片宽度非 **92%**（居中失效）」；
+`docs/WEB-ALIGNMENT.md:3558` 更把 "92% vs 94%" 漂移**直接列为缺陷类**。
+
+**取值锚点**：屏宽 4%/边 = 15.6vp ≈ **`GUTTER_SCREEN`(16vp)**（本仓「屏幕左右安全边距」令牌，
+`design.ets:90`）⇒ 92% 不是随手取的数：浮层左缘与列表正文左缘**落在同一条竖轴上**（内建网格）。
+
+**修法**：新增令牌 `core/design.ets: export const SHEET_WIDTH: string = '92%';`，9 个浮层根容器
+`.width('9x%')` → `.width(SHEET_WIDTH)`（顺带清掉 `Index.ets` 一处提到旧值 94% 的陈旧注释）。
+⚠️ 抽屉 `DrawerSheet` 是**侧栏不是居中卡** ⇒ 维持 88%（判据显式白名单例外）。
+
+**判据（`tools/tests/panel_surface_consistency.test.ts` → 37 → 49 passed，+12）**：
+
+- D1a/D1b：令牌定义于真源 `core/design.ets` 且 = `'92%'`（文档唯一口径）；
+- **D3 全仓 `components/*.ets` + `pages/Index.ets` 零裸百分比宽**（扫描器只取 `.width('…')`
+  **调用片段**，`SHEET_WIDTH` 自然不漏进来；唯一例外 = 满宽 `100%`(内层内容盒) / 侧栏 `88%`）；
+- D4：`SHEET_WIDTH` **实际消费点 ≥ 9**（⛔ 钉调用点计数，不钉"令牌名出现过"）；
+- mutation 自证：判定函数对裸 `92%`/`94%`/`96%` 判红、对 `100%`/`88%` 判绿，双向都过。
+
+真机复核：9 个面板左右留白**逐像素一致**（4% = 52.8px/边）✓。
+
+**附 · 间距裸数值审计（同批，结论 = 不收编）**：同批扫了各面板的裸数值间距，命中
+`TaskDetailSheet space:2`、`QueueSheet space:SP_2`/`padding(...6)`、`SelfCheckSheet space:6(×9)/space:10`、
+`TerminalSheet space:3/6`、`padding(...14)`。逐条核令牌语义后判**不收编**：
+· `SPACE_HAIR(2)` 文档**明确保留**给「图标-紧邻文字光学对齐」（`design.ets:49-52`）⇒ 挪作标题/副标题
+  间隙属**语义违规**（比"裸值"更坏）；`SPACE_HAIR` 是**唯一**的非 4 倍数档，不是通用 hairline 间隙。
+· `space:6`/`10`/`3`/`14` **无对应语义档**（`GAP_ROW_Y`/`INSET_GOAL_Y`=6 各绑"消息行"/"目标条"，
+  张冠李戴会误导读者）⇒ 这些是**单站点密集/光学值**，属 `opticalValues()` 同类例外，**有意保留**。
+⇒ 收编它们 = 零视觉收益 + 语义污染风险 ⇒ 不动（本仓既有先例：`SelfCheckSheet` 9 处 `space:6` 通过门禁）。
+
+**附 · 哪些面板**不**属于「居中卡」家族（⛔ 防把有意区分误读成漂移）**：同批盘点了其余面板根宽，
+**全屏/全宽是有意为之**，不受 `SHEET_WIDTH` 约束 ——
+· `FilesSheet` / `SkillsSheet`：根 `100%×100%` + **左缘发丝** `borderWidth({left: STROKE_HAIRLINE})`
+  = **全屏侧栏式**内容导航面（面包屑下钻 / 技能列表；对标 Apple「文件/备忘录」的整页形态）⇒ 不用 92%；
+· `MenuSheets`（底部操作菜单）/ `Lightbox`（大图）：**全屏/全宽**，都是满宽语义；
+· `DrawerSheet`：**侧栏** 88%（侧滑，非居中）；
+· `ToolPopover` / `PluginHost`：100% 是**父容器内的内容盒**（自身由定位层给尺寸），非浮层根。
+⇒ 「居中浮动卡 = `SHEET_WIDTH` 92%」只管 9 个**对话框**（8 组件 + `ModelSheet`）。

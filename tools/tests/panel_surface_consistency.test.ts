@@ -17,6 +17,10 @@
  *   C. **同一 role 字符串**：9 处根容器取的 role 必须是**同一个** `'surface.overlay'`
  *      （别名 `this.bgOverlay()` 亦计入，其实现见 `SessionStatsSheet.bgOverlay()`）。
  *      ⛔ 这条防的是"92% vs 94%"式的**悄悄漂移**：面语言一旦两家口径，就会再长出"脏"的面。
+ *   D. **居中浮层宽度 = 单一令牌** `SHEET_WIDTH`：全仓 `components/*.ets` + `pages/Index.ets` **零**裸
+ *      百分比宽（除满宽 `100%`(内层内容盒) / 侧栏 `88%`(抽屉)，白名单例外），9 处浮层根容器全走令牌。
+ *      ⛔ 这条正面对的**就是** C 里点名的那个"92% vs 94%" —— 面语言统一后**接着**统一宽口径
+ *      （9 个居中浮层曾 5×裸 `92%` + 4×裸 `94%` ⇒ 并排看差 13px =「不是一个家族」）。
  *
  * ── 纪律（沿用本仓 `polish_states_press` 等形态判据的先例）──────────────────────
  *   · **剥注释**：本次抽屉切片里"唯一"的 `glassBg` 字样就在**我写的理由注释**里
@@ -29,7 +33,7 @@
  *   · `export {}`（⇒ TS 模块）：避免与聚合编译里的兄弟测试顶层符号相撞。
  */
 declare const process: { exit: (c: number) => void };
-declare function require(m: 'fs'): { readFileSync(p: string, e: string): string; existsSync(p: string): boolean };
+declare function require(m: 'fs'): { readFileSync(p: string, e: string): string; existsSync(p: string): boolean; readdirSync(p: string): string[] };
 declare function require(m: 'path'): { join(...parts: string[]): string; resolve(...parts: string[]): string };
 declare const __dirname: string;
 export {};
@@ -197,6 +201,76 @@ for (const pair of PANELS) {
   for (const r of roles) { if (uniq.indexOf(r) < 0) { uniq.push(r); } }
   ok('C1. 9 处根容器面语言**唯一**（无第二家口径）', uniq.length === 1, `uniq=${JSON.stringify(uniq)}`);
   ok('C2. 该唯一口径 = 实底 overlay 面', uniq.length === 1 && uniq[0] === 'surface.overlay', `uniq=${JSON.stringify(uniq)}`);
+}
+
+// ── D. 居中浮层宽度 = **单一令牌** `SHEET_WIDTH`（防"92% vs 94%"宽口径漂移 · 2026-10-12）──────
+// 用户口径：「你要考虑所有的面板」。真机审计挖出 9 个居中浮层曾**两套宽口径**（5×裸 `92%` +
+// 4×裸 `94%`）⇒ 并排看不同面板左右留白差 13px =「不是一个家族」；而文档口径本就唯一
+// （`docs/UI-AUDIT-CHECKLIST.md:41`「卡片宽度非 92%（居中失效）」）。
+{
+  // 判定：`.width('NN%')` 的 NN 是否**合法**。合法 = 满宽（内层内容盒）/ 侧栏抽屉(88%)；
+  // ⛔ 其余一切（尤其 `9x%`）判红 —— 居中浮层宽度**必须**走 `SHEET_WIDTH` 令牌。
+  function widthLiteralOk(inner: string): boolean {
+    return inner === '100%' || inner === '88%';
+  }
+  // 只取 `.width('…')` 的**调用片段**（⛔ 不取"出现过引号"）：marker 带引号 ⇒ `SHEET_WIDTH` 自然不漏进来。
+  function scanWidthLiterals(src: string): string[] {
+    const out: string[] = [];
+    const marker = ".width('";
+    let i: number = src.indexOf(marker);
+    while (i >= 0) {
+      const s: number = i + marker.length;
+      const e: number = src.indexOf("')", s);
+      if (e > s) {
+        const inner: string = src.substring(s, e);
+        if (inner.length > 0 && inner.indexOf('%') === inner.length - 1) { out.push(inner); }
+      }
+      i = src.indexOf(marker, i + marker.length);
+    }
+    return out;
+  }
+  function countOcc(s: string, sub: string): number {
+    let n: number = 0;
+    let i: number = s.indexOf(sub);
+    while (i >= 0) { n++; i = s.indexOf(sub, i + sub.length); }
+    return n;
+  }
+
+  // mutation 自证（双向 · 同一判定函数喂必红/应绿样本）
+  ok('自证D · 裸 92% ⇒ 红（漂移源之一）', !widthLiteralOk('92%'));
+  ok('自证D · 裸 94% ⇒ 红（漂移源之二）', !widthLiteralOk('94%'));
+  ok('自证D · 96% ⇒ 红', !widthLiteralOk('96%'));
+  ok('自证D · 满宽 100% ⇒ 绿（内层内容盒）', widthLiteralOk('100%'));
+  ok('自证D · 侧栏 88% ⇒ 绿（抽屉例外）', widthLiteralOk('88%'));
+  ok('自证D · 扫描器只取带引号的调用片段',
+    scanWidthLiterals("A.width('92%')\n.width(SHEET_WIDTH)").length === 1);
+
+  // D1. 令牌定义在真源 + 值 = 文档唯一口径
+  const designSrc: string = stripComments(fsMod.readFileSync(pathMod.join(ROOT, 'entry/src/main/ets/core/design.ets'), 'utf-8'));
+  ok('D1a. `SHEET_WIDTH` 定义于 core/design.ets', designSrc.indexOf('export const SHEET_WIDTH: string = ') >= 0);
+  ok('D1b. `SHEET_WIDTH` = 92%（文档唯一口径）', designSrc.indexOf("export const SHEET_WIDTH: string = '92%';") >= 0);
+
+  // D2/D3. 全仓 `components/*.ets` + `pages/Index.ets`：零裸百分比宽（除满宽/侧栏）+ 令牌真被消费
+  const compDir: string = pathMod.join(ROOT, 'entry/src/main/ets/components');
+  const names: string[] = fsMod.readdirSync(compDir).filter(
+    (n: string) => n.length > 4 && n.substring(n.length - 4) === '.ets');
+  ok('D2a. 扫描到组件目录（零扫描判红）', names.length >= 20, `n=${names.length}`);
+  const files: string[] = names.map((n: string) => 'entry/src/main/ets/components/' + n);
+  files.push('entry/src/main/ets/pages/Index.ets');
+  const offenders: string[] = [];
+  let tokenUses: number = 0;
+  let scannedFiles: number = 0;
+  for (const rel of files) {
+    const src: string = stripComments(fsMod.readFileSync(pathMod.join(ROOT, rel), 'utf-8'));
+    scannedFiles++;
+    for (const inner of scanWidthLiterals(src)) {
+      if (!widthLiteralOk(inner)) { offenders.push(`${rel} .width('${inner}')`); }
+    }
+    tokenUses += countOcc(src, '.width(SHEET_WIDTH)');
+  }
+  ok('D2b. 扫到全部文件（零扫描判红）', scannedFiles === files.length && scannedFiles >= 21, `n=${scannedFiles}`);
+  ok('D3. 零裸百分比宽（居中浮层宽度只走令牌；除满宽/侧栏）', offenders.length === 0, offenders.join(' | '));
+  ok('D4. `SHEET_WIDTH` 实际消费点 ≥ 9（居中浮层全走令牌）', tokenUses >= 9, `uses=${tokenUses}`);
 }
 
 console.log(`  panel_surface_consistency: ${pass} passed, ${fail} failed`);

@@ -36,7 +36,7 @@ import {
   MARKER_GUTTER,
   PRESS_OPACITY, PRESS_SCALE, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, RADIUS_SHEET, SHEET_ACTION_GLYPH, SPACE_HAIR, SPACE_LG, SPACE_MD,
   SPACE_SM, SPACE_XL, SPACE_XS, SPACE_XXL, SPACE_XXS, STROKE_HAIRLINE, colorOf, hairlineOf,
-  insetHairlineOf, surfaceFillOf, typeOf,
+  insetHairlineOf, SHEET_WIDTH, surfaceFillOf, typeOf,
 } from '../core/design';
 import { isUnauthorized, loadErrHint, loadErrTitle, needsRelogin, needsSessionRefresh } from '../core/autherr';
 import {
@@ -4061,7 +4061,7 @@ struct Index {
       }
       // AskUser（服务端权威：有 pending 就弹；P2-3 抽出：components/AskUserSheet.ets）
       if (this.askUser !== null) {
-        // 键盘让位（⛔ 见 `kbHeightPx` 注释）：AskUser 卡是**居中**的（`.width('94%')` + 内容高），
+        // 键盘让位（⛔ 见 `kbHeightPx` 注释）：AskUser 卡是**居中**的（`SHEET_WIDTH` + 内容高），
         // 键盘弹起时其底部（「其它」输入框 / 提交按钮）会被系统避让**漏掉**（浮层内输入框）⇒ 被盖住。
         // 这里收缩可用区 ⇒ 卡片整体上移。⛔ 包一层全屏 `Stack` **不改变层级语义**：原实现就是根
         // `Stack` 的直系子节点、同为核心居中。
@@ -9058,7 +9058,7 @@ struct Index {
       offsetX: 0, offsetY: this.contactLayer('overlay').offsetY,
     })
     }
-    .width('92%')
+    .width(SHEET_WIDTH)
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .borderRadius(RADIUS_CARD)
     // 环境层（far）：浅色 = 大半径环境柔影；深色 = 该档原值。
