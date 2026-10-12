@@ -189,6 +189,9 @@ function eq(name: string, got: unknown, want: unknown): void {
     //      从"裸 `appBg` + 无柔影"迁到 `shadowLayersOf('overlay')` 多层柔影 ⇒ 从"无影站点"变为多层消费者。
     const EXPECT_MULTI: string[] = [
       'components/AskUserSheet.ets',
+      // 定时任务详情（目标④「任务管理做的很差」收尾）：与 TaskDetailSheet 同构的双层柔影
+      // （near=贴合影 / far=环境影），走 `shadowLayersOf(...,'overlay')` 同一出口（⛔ 不写死半径）。
+      'components/CronDetailSheet.ets',
       // 文件管理面板（目标④）：侧栏柔影走 `shadowLayersOf(pal,'overlay')` 同一出口（⛔ 不写死半径）。
       'components/FilesSheet.ets', 'components/Lightbox.ets', 'components/MenuSheets.ets',
       'components/PluginsSheet.ets', 'components/QueueSheet.ets', 'components/SelfCheckSheet.ets',

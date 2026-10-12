@@ -27,6 +27,8 @@ export interface CronJob {
   chat_id?: string;
   cron_expr?: string;
   every_seconds?: number;
+  /** 一次性**绝对时间**（`at`）——服务端 `storage/sqlite/cron.go:24` 的 json tag。 */
+  at?: string;
   delay_seconds?: number;
   one_shot?: boolean;
   next_run?: string;
@@ -169,13 +171,20 @@ export function subAgentRowOf(s: SessionItem): SubAgentRow {
   return r;
 }
 
-/** 调度文本：cron 表达式 / 每 N 秒 / 延迟 N 秒（优先级同服务端语义）。 */
+/** 调度文本：cron 表达式 / 每 N 秒 / **绝对时间** / 延迟 N 秒（优先级同服务端 + web `TasksPanel.tsx:137-146`）。 */
 export function scheduleText(job: CronJob): string {
   if (job.cron_expr !== undefined && job.cron_expr.length > 0) {
     return job.cron_expr;
   }
   if (job.every_seconds !== undefined && job.every_seconds > 0) {
     return `每 ${job.every_seconds} 秒`;
+  }
+  // ⚠️ `at`（一次性绝对时间）**必须在 `delay_seconds` 之前** —— 与 web 的取值顺序逐字一致
+  //    （`cronExpr → everySeconds → at → delaySeconds`）。漏掉 `at` 的真机症状：agent 用
+  //    「2027-01-01 触发」建的任务在面板里显示「未设置」（2026-10-13 装机实测，本波修）。
+  if (job.at !== undefined && job.at !== null && job.at.length > 0) {
+    const t: string = fmtDateTime(job.at);
+    return t.length > 0 ? `${t} 触发` : job.at;
   }
   if (job.delay_seconds !== undefined && job.delay_seconds > 0) {
     return `${job.delay_seconds} 秒后`;
@@ -220,6 +229,47 @@ export function cronSubText(job: CronJob): string {
   const next: string = fmtHHMM(job.next_run);
   const tail: string = next.length > 0 ? ` · 下次 ${next}` : '';
   return `${one}${scheduleText(job)}${tail}`;
+}
+
+/** 两位补零（内部工具）。 */
+function pad2(n: number): string {
+  return n < 10 ? `0${n}` : `${n}`;
+}
+
+/** ISO 时间 → `YYYY-MM-DD HH:MM`（本地时区；空 ⇒ `''`；解析失败原样返回）。 */
+export function fmtDateTime(iso: string | undefined): string {
+  if (iso === undefined || iso === null || iso.length === 0) {
+    return '';
+  }
+  const t: number = Date.parse(iso);
+  if (Number.isNaN(t)) {
+    return iso;
+  }
+  const d: Date = new Date(t);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+/**
+ * 定时任务·**消息全文**（详情页用）。
+ *
+ * ⛔ 与主行 `cronPrimary` 的 `cmdOneLine` 归一化**刻意不同**：主行是 `.maxLines(1)`，
+ *    多行提示词在那里只剩第一行；详情页若也折叠，用户**永远看不到自己写的正文**
+ *    （web `TasksPanel.tsx:120-131` 展开区同样保留原文 —— 用户报告过"电脑 cron 也无法点开看详情"）。
+ *    这里只去首尾空白，行内换行/缩进逐字保留。
+ */
+export function cronMessageText(job: CronJob): string {
+  const m: string = job.message !== undefined && job.message !== null ? job.message : '';
+  return m.trim();
+}
+
+/** 定时任务·投递目标 = `channel:chat_id`（缺项自动省略；两者皆空 ⇒ `''`）。 */
+export function cronTargetText(job: CronJob): string {
+  const ch: string = job.channel !== undefined && job.channel !== null ? job.channel.trim() : '';
+  const cid: string = job.chat_id !== undefined && job.chat_id !== null ? job.chat_id.trim() : '';
+  if (ch.length > 0 && cid.length > 0) {
+    return `${ch}:${cid}`;
+  }
+  return ch.length > 0 ? ch : cid;
 }
 
 /** 时长文本（秒 / 分秒）。 */

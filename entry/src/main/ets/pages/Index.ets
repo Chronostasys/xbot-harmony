@@ -45,7 +45,8 @@ import {
 import {
   BgTask, bgTaskMetaText, bgTaskOutputText, bgTaskPrimary, bgTaskRunning, bgTaskStatusText, bgTaskSubText,
   cmdOneLine,
-  bgTaskTone, CronJob, cronPrimary, cronSubText, RunnerRow, runnerPrimary, runnerSubText, runnerTone,
+  bgTaskTone, CronJob, cronMessageText, cronPrimary, cronSubText, cronTargetText, fmtDateTime,
+  RunnerRow, runnerPrimary, runnerSubText, runnerTone, scheduleText,
   SubAgentRow, subagentPrimary, subagentSubText, subagentTone, TONE_MUTED,
 } from '../core/panels';
 import { TerminalInfo, terminalPrimary, terminalSubText } from '../core/termproto';
@@ -172,6 +173,7 @@ import { FilesSheet } from '../components/FilesSheet';
 import { SkillsSheet } from '../components/SkillsSheet';
 import { SelfCheckSheet } from '../components/SelfCheckSheet';
 import { TaskDetailSheet } from '../components/TaskDetailSheet';
+import { CronDetailSheet } from '../components/CronDetailSheet';
 // 运行面板（任务管理）的**结构化行卡**（真 @Component；取色走 `paletteOf(theme)` ⇒ 不占页面预算）
 import { PanelRowCard, ROW_TRAIL_CHEVRON, ROW_TRAIL_CLOSE, ROW_TRAIL_DELETE, ROW_TRAIL_NONE } from '../components/PanelRows';
 import { TerminalSheet } from '../components/TerminalSheet';
@@ -767,6 +769,15 @@ struct Index {
   @State taskDetailMeta: string = '';
   @State taskDetailOutput: string = '';
   @State taskDetailRunning: boolean = false;
+  // 定时任务详情（web `TasksPanel.tsx:120-172` 展开区对齐）：cron 行**点开看全文**（此前只复制一行摘要，
+  // 多行提示词被主行 `maxLines(1)` 截断 ⇒ 正文永久不可见）。
+  @State showCronDetail: boolean = false;
+  @State cronDetailMessage: string = '';
+  @State cronDetailSchedule: string = '';
+  @State cronDetailNext: string = '';
+  @State cronDetailTarget: string = '';
+  @State cronDetailCreated: string = '';
+  @State cronDetailId: string = '';
   @State runners: RunnerRow[] = [];
   @State subagents: SubAgentRow[] = [];
   @State panelBusy: boolean = false;
@@ -1672,6 +1683,11 @@ struct Index {
     // 新建会话弹层（与设置面同款：不进 `OverlayState` 封闭枚举，先于既有浮层栈关闭）
     if (this.showNewSession) {
       this.showNewSession = false;
+      return true;
+    }
+    // 任务/定时/终端详情（都从运行面板内开出 ⇒ 必须先于 `panels` 关，否则返回键会连面板一起收）
+    if (this.showCronDetail) {
+      this.showCronDetail = false;
       return true;
     }
     const code: OverlayCode = topOverlay(this.overlayState());
@@ -4342,53 +4358,11 @@ struct Index {
           })
         }.width('100%').height('100%')
       }
-      // 后台任务详情（任务列表点行打开）——用户点名「任务管理做的很差」
-      if (this.showTaskDetail) {
-        Stack() {
-          Row() {
-            Blank()
-          }.width('100%').height('100%').onClick(() => {
-            this.showTaskDetail = false;
-          })
-          TaskDetailSheet({
-            theme: this.themeName,
-            title: this.taskDetailTitle,
-            statusText: this.taskDetailStatus,
-            metaText: this.taskDetailMeta,
-            output: this.taskDetailOutput,
-            running: this.taskDetailRunning,
-            onKill: () => {
-              this.killTaskDetail();
-            },
-            onClose: () => {
-              this.showTaskDetail = false;
-            },
-          })
-        }.width('100%').height('100%')
-      }
-      // 终端面板（运行面板 → 「终端」tab 点行/新建 打开）——用户点名「终端做的很差」
-      if (this.showTerminal) {
-        Stack() {
-          Row() {
-            Blank()
-          }.width('100%').height('100%').onClick(() => {
-            this.showTerminal = false;
-          })
-          TerminalSheet({
-            theme: this.themeName,
-            tid: this.termTid,
-            cwd: this.termCwd,
-            baseUrl: this.termBaseUrl(),
-            cookie: this.termCookie(),
-            onClose: () => {
-              this.showTerminal = false;
-            },
-          })
-        }.width('100%').height('100%')
-        // 键盘让位（⛔ 见 `kbHeightPx` 注释）：终端 sheet 是 `.height('82%')` **居中**的，其底部
-        // （命令行输入行）会在键盘弹起时被盖住 ⇒ 按键盘高度收缩可用区，sheet 随之整体上移。
-        .padding({ bottom: px2vp(this.kbHeightPx) })
-      }
+      // ⚠️ 三个「从运行面板里开出来的」详情层（后台任务 / 定时任务 / 终端）**刻意**渲染在
+      //   `showPanels` 之后 —— ArkUI 的绘制顺序 = build 里的**先后**（后者盖前者）。
+      //   ⛔ 2026-10-13 真机实证（本波）：这三层原先排在 `showPanels` **之前** ⇒ 点开「定时」详情后，
+      //   运行面板（60% 底部 sheet）**盖住了详情卡的下半屏**（截图：详情只剩标题 + 消息块一半，
+      //   「调度/下次运行/目标/ID」全被面板压住）。判据：`cron_detail.test.ts` ⑥q 钉**顺序**。
       // 会话状态（todos / goal / 用量 / cwd）
       if (this.showStatus) {
         Stack() {
@@ -4462,6 +4436,77 @@ struct Index {
         //    `TextInput|TextArea` 命中 **0** 处（终端 tab 只有列表 + 「＋ 新建」按钮，
         //    真正的输入行在 `TerminalSheet`）⇒ 面板**不可能**与软键盘共存（开面板时
         //    `openPanels()` 已先收键盘）⇒ 加了就是**不可达的死代码**。终端那层已单独处理。
+      }
+      // ── 运行面板**之上**的三层详情（顺序敏感：后渲染者盖前者，⛔ 别往上挪）──────────
+      // 后台任务详情（任务列表点行打开）——用户点名「任务管理做的很差」
+      if (this.showTaskDetail) {
+        Stack() {
+          Row() {
+            Blank()
+          }.width('100%').height('100%').onClick(() => {
+            this.showTaskDetail = false;
+          })
+          TaskDetailSheet({
+            theme: this.themeName,
+            title: this.taskDetailTitle,
+            statusText: this.taskDetailStatus,
+            metaText: this.taskDetailMeta,
+            output: this.taskDetailOutput,
+            running: this.taskDetailRunning,
+            onKill: () => {
+              this.killTaskDetail();
+            },
+            onClose: () => {
+              this.showTaskDetail = false;
+            },
+          })
+        }.width('100%').height('100%')
+      }
+      // 定时任务详情（定时 tab 点行打开）——web `TasksPanel.tsx:120-172` 的展开区对齐：
+      // 「调度 / 下次运行 / 目标 / ID(+创建时间)」+ 消息全文（主行 `maxLines(1)` 看不到的那部分）。
+      if (this.showCronDetail) {
+        Stack() {
+          Row() {
+            Blank()
+          }.width('100%').height('100%').onClick(() => {
+            this.showCronDetail = false;
+          })
+          CronDetailSheet({
+            theme: this.themeName,
+            message: this.cronDetailMessage,
+            schedule: this.cronDetailSchedule,
+            nextText: this.cronDetailNext,
+            targetText: this.cronDetailTarget,
+            createdText: this.cronDetailCreated,
+            idText: this.cronDetailId,
+            onClose: () => {
+              this.showCronDetail = false;
+            },
+          })
+        }.width('100%').height('100%')
+      }
+      // 终端面板（运行面板 → 「终端」tab 点行/新建 打开）——用户点名「终端做的很差」
+      if (this.showTerminal) {
+        Stack() {
+          Row() {
+            Blank()
+          }.width('100%').height('100%').onClick(() => {
+            this.showTerminal = false;
+          })
+          TerminalSheet({
+            theme: this.themeName,
+            tid: this.termTid,
+            cwd: this.termCwd,
+            baseUrl: this.termBaseUrl(),
+            cookie: this.termCookie(),
+            onClose: () => {
+              this.showTerminal = false;
+            },
+          })
+        }.width('100%').height('100%')
+        // 键盘让位（⛔ 见 `kbHeightPx` 注释）：终端 sheet 是 `.height('82%')` **居中**的，其底部
+        // （命令行输入行）会在键盘弹起时被盖住 ⇒ 按键盘高度收缩可用区，sheet 随之整体上移。
+        .padding({ bottom: px2vp(this.kbHeightPx) })
       }
       // 会话操作菜单（置顶/上移/下移/改名/分支/删除）
       if (this.sessMenuId.length > 0) {
@@ -6678,6 +6723,26 @@ struct Index {
     this.showTaskDetail = true;
   }
 
+  /**
+   * 打开定时任务详情。
+   * ⛔ 判据**全部**来自 `core/panels.ets`（`cronMessageText`/`scheduleText`/`cronTargetText`/`fmtDateTime`）
+   *   —— 与列表行 `cronPrimary`/`cronSubText` 同一份纯函数 ⇒ 不可能"行里说 A、详情说 B"。
+   * 为什么需要它：cron 主行是 `.maxLines(1)`（多行提示词只显示第一行），此前点按只复制一行摘要
+   *   ⇒ **正文永久不可见**（web `TasksPanel.tsx:120-172` 的展开区正是为修这一条）。
+   */
+  private openCronDetail(job: CronJob): void {
+    this.cronDetailMessage = cronMessageText(job);
+    const one: string = job.one_shot === true ? ' · 一次性' : '';
+    this.cronDetailSchedule = `${scheduleText(job)}${one}`;
+    this.cronDetailNext = fmtDateTime(job.next_run);
+    this.cronDetailTarget = cronTargetText(job);
+    this.cronDetailCreated = fmtDateTime(job.created_at);
+    this.cronDetailId = job.id !== undefined && job.id !== null ? job.id.trim() : '';
+    // 详情卡会占掉下半屏 ⇒ 开卡前收键盘（与后台任务详情同一处置）。
+    this.dismissKeyboard();
+    this.showCronDetail = true;
+  }
+
   // ── 终端（PTY）：列表 / 新建 / 关闭 / 打开 ─────────────────────────────────
 
   /** 终端 WS 的基址（`store.http.baseUrl`；`ws://` 由 `termWsUrl` 派生）。 */
@@ -7050,6 +7115,7 @@ struct Index {
     this.showSettingsPanel = false;
     this.showPanels = false;
     this.showTaskDetail = false;
+    this.showCronDetail = false;
     this.showTerminal = false;
     this.showSearchHits = false;
     this.showPluginHost = false;
@@ -8041,7 +8107,7 @@ struct Index {
                   tone: TONE_MUTED,
                   trailing: ROW_TRAIL_DELETE,
                   onTap: () => {
-                    this.copyText(`${cronPrimary(job)} · ${cronSubText(job)}`, '定时任务');
+                    this.openCronDetail(job);
                   },
                   onTrailing: () => {
                     this.removeCron(job.id !== undefined ? job.id : '');

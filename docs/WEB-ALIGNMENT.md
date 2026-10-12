@@ -4328,3 +4328,56 @@ builder **每次长按弹出时**才求值；且每行只捕获**本行**的 `(p
    处置：**真加约束**（`.layoutWeight(1)` + `textAlign(Center)`，在分段控件里本就是天然语义），
    ⛔ **不**往 `PENDING_FIX` 台账里塞（那是"真待办"清单，塞进去等于把缺陷写成豁免）。
    📌 推论：**新写带 `Text(变量)` 的控件时，约束必须一次写全**（本次是靠真门禁抓出来的）。
+
+## §21.88 定时任务：点开看**详情**（消息全文 + 四字段）+ 装机钓出的两个真缺陷（15z13，2026-10-13）
+
+**症状（用户点名「任务管理做的很差」的最后一块）**：运行面板「定时」tab 的 cron 行**点按只把一行摘要
+复制进剪贴板**，行尾只有删除 X、没有 chevron（看起来"不可打开"）；而主行是 `.maxLines(1)`
+（`components/PanelRows.ets`）⇒ **多行提示词只剩第一行，正文永久不可见**。
+
+**web 权威**（`web/src/components/sidebar/TasksPanel.tsx:120-172`）：cron 行**可点开**（`expandedCronID`），
+展开区给「调度 / 下次运行 / 目标(channel:chatID) / ID」；该文件里还留着一句用户报告原文 ——
+*"电脑 cron 也无法点开看详情"*。⇒ 本波把"能点开"补上，并把 web 只有 4 个字段的展开区做成
+**独立详情卡**（消息全文有地方放、字段可等宽对齐）。
+
+**落地**：
+- `core/panels.ets`：新增 `fmtDateTime`（`YYYY-MM-DD HH:MM` 本地）/ `cronMessageText`（**只去首尾空白，
+  行内换行逐字保留** —— ⛔ 与主行的 `cmdOneLine` 刻意不同）/ `cronTargetText`（`channel:chat_id`，缺项省略）。
+- `components/CronDetailSheet.ets`（新）：标题 + 关闭（真 44 盒）+ **消息全文**（封顶 `CRON_MSG_MAX_H`=280vp
+  其内滚动、`BREAK_ALL`、长按可复制）+ 字段行（真 `@Component`+`@Prop`，⛔ 不用带参 `@Builder`）。
+  **不设「删除」按钮**：行尾已有唯一删除入口（同一动作两处 = 两个按钮的噪声）。
+- `pages/Index.ets`：`openCronDetail(job)`（6 个字符串**全部**取自上面的纯函数 ⇒ 行/详情同源）、
+  弹层门控、返回键分支（**先于**浮层栈 ⇒ 否则按返回会连整个运行面板一起收）、`closeOverlaysAboveDrawer` 登记。
+
+### ⛔ 装机钓出的两个真缺陷（脱机三条 + 甚至真门禁都抓不到，只有**真机点开**才暴露）
+
+1. **`scheduleText` 从未处理 `at`（一次性绝对时间）** ⇒ agent 用「2027-01-01 触发」建的任务，
+   面板里显示**「未设置」**（真机截图 + DB 逐字段核对：服务端 `cron.go:24` 的 `at` 字段落库，
+   而本仓只看了 `cron_expr/every_seconds/delay_seconds` —— 也**漏声明了 `CronJob.at`**，故 TS 编译 0 报错）。
+   web 的取值顺序是 `cronExpr → everySeconds → at → delaySeconds` ⇒ 按此补齐（`at` **必须**在 `delay_seconds` 之前），
+   显示为本地化 `${fmtDateTime(at)} 触发`（不可解析 ⇒ 原样显示，不丢信息）。
+   📌 推论：**纯函数"少看一个字段"不会红任何判据**（`scheduleText` 的测试只喂了它看的那几个字段）
+   ⇒ 真机 + 服务端 schema 逐字段对账是唯一能钓出这类缺口的手段。
+2. **绘制顺序：三层详情被运行面板盖住下半屏**（`pages/Index.ets`）。ArkUI 的层级 = build 里的**先后**
+   （后者盖前者），而 `showTaskDetail` / `showCronDetail` / `showTerminal` 三层原先渲染在 `showPanels`
+   **之前** ⇒ 真机截图：详情卡只剩标题 + 消息块上半，**「调度/下次运行/目标/ID」全被 60% 底部面板压住**
+   （`TaskDetailSheet` / `TerminalSheet` 同病，本波一并修）。处置：三层**整体移到 `showPanels` 之后**，
+   并在两处写明"顺序敏感，⛔ 别往上挪"；判据 `cron_detail.test.ts` ⑥q 钉**三个调用点都 > `this.PanelsSheet()`**。
+
+### 判据（`tools/tests/cron_detail.test.ts`，59 passed）
+钉**调用点**而非"存在就行"：①cron 行 `onTap` 是 `openCronDetail(job)` 且**同片段 `copyText(` 已消失**；
+②`openCronDetail` 每个字段都取自纯函数、且**不得**出现 `cmdOneLine`/`cronPrimary`（防又折叠成单行）；
+③真门控 + 组件被消费恰 1 处 + 6 个 props 全部接线；④返回键先于浮层栈；⑤开抽屉收口已登记；
+⑥组件侧：无 `ForEach(`、无 `this.pal()`、读取点恰 2、真 `@Component`+`@Prop`、关闭 X 真 44 盒、
+消息可复制/可折行/封顶、空值渲染 `—`、L2 卡走 `structuralRuleOf`。
+
+### 受管台账演进 4 处（改形态必踩，逐个登记理由）
+1. `motion_budget`：新面 `['components/CronDetailSheet.ets', 1]`（唯一动效 = `sheetTransition()`）。
+2. `shadow_radius` ★⑤：多层柔影消费白名单 + 该文件（near 贴合影 / far 环境影，走 `shadowLayersOf`）。
+3. `wordbreak_policy` ④：全仓 `BREAK_ALL` 40 → **41**（唯一合法"加 1"：cron 消息 = 可能内嵌
+   URL/绝对路径/命令的**提示词**，与 `TaskDetailSheet` 的输出正文同类 ⇒ 必须 `BREAK_ALL`；
+   全仓其它站点一个没动）。
+4. `overlay_keyboard_dismiss` ②：总调用点 9 → **10** + `openCronDetail` 进 8→9 个入口逐个钉的名单
+   （新浮层入口必须收键盘，详情卡占下半屏）。
+   ＋ 真门禁另抓一次 `@Prop onClose: () => void` ⇒ `10905363 V1 装饰器不许标函数类型`（回调**不加** `@Prop`，
+   同 `TaskDetailSheet.onKill`）—— ⛔ 这条只有 `hvigorw assembleHap` 能抓。

@@ -3,7 +3,8 @@ declare const process: { exit: (c: number) => void };
 
 import {
   bgTaskMetaText, bgTaskOutputText, bgTaskPrimary, bgTaskRunning, bgTaskStatusText, bgTaskSubText,
-  bgTaskTone, cmdOneLine, countText, cronPrimary, cronSubText,
+  bgTaskTone, cmdOneLine, countText, cronMessageText, cronPrimary, cronSubText, cronTargetText,
+  fmtDateTime,
   queueListHeight, QUEUE_LIST_MIN_H, QUEUE_LIST_MAX_H, QUEUE_ROW_H,
   durationText, fmtHHMM, KillBgTaskParams, runnerPrimary, runnerSubText, runnerTone, scheduleText,
   SubAgentRow, subagentPrimary, subagentSubText, subagentTone,
@@ -19,6 +20,14 @@ function eq(name: string, got: unknown, want: unknown): void {
 eq('cron 表达式优先', scheduleText({ cron_expr: '0 9 * * *', every_seconds: 30 }), '0 9 * * *');
 eq('每 N 秒', scheduleText({ every_seconds: 30 }), '每 30 秒');
 eq('延迟 N 秒', scheduleText({ delay_seconds: 60 }), '60 秒后');
+// `at`（一次性绝对时间）—— 2026-10-13 装机实测发现的缺口：agent 用绝对时间建的任务此前显示「未设置」。
+// ⚠️ 优先级与 web `TasksPanel.tsx:137-146` 逐字一致：`cron_expr → every_seconds → at → delay_seconds`。
+eq('绝对时间 at（本地化）', scheduleText({ at: new Date(2027, 0, 1, 9, 0, 0).toISOString() }),
+  '2027-01-01 09:00 触发');
+eq('at 优先于 delay_seconds（同 web 顺序）',
+  scheduleText({ at: new Date(2027, 0, 1, 9, 0, 0).toISOString(), delay_seconds: 60 }), '2027-01-01 09:00 触发');
+eq('every_seconds 优先于 at', scheduleText({ every_seconds: 30, at: '2027-01-01T09:00:00' }), '每 30 秒');
+eq('at 不可解析 ⇒ 原样显示（不丢信息，仍标触发）', scheduleText({ at: '09:00' }), '09:00 触发');
 eq('都没设', scheduleText({}), '未设置');
 
 eq('无效 ISO 原样', fmtHHMM('not-a-date'), 'not-a-date');
@@ -148,6 +157,28 @@ eq('queue 100 条 ⇒ 上限封顶', queueListHeight(100), QUEUE_LIST_MAX_H);
 eq('queue 上限 < 100 行（确有封顶）', QUEUE_LIST_MAX_H < 100 * QUEUE_ROW_H, true);
 eq('queue 行高 = 44 命中盒 + 2×8 内边距 + 6 行距', QUEUE_ROW_H, 44 + 16 + 6);
 eq('queue 非整数按 floor', queueListHeight(2.9), 2 * QUEUE_ROW_H);
+
+// ── 定时任务详情（2026-10-13，目标④ 对标 web `TasksPanel.tsx:120-172` 展开区）───────────────
+// 病根：cron 行点按**只复制一行摘要**，而主行是 `.maxLines(1)` ⇒ **多行提示词正文永久不可见**。
+// 判别力：㈠ 若 `cronMessageText` 改成复用 `cmdOneLine`（折叠换行）⇒ 下面第 1 条红；
+//        ㈡ 若 `fmtDateTime` 退化成 `fmtHHMM`（丢日期）⇒ 第 3 条红；
+//        ㈢ 若 `cronTargetText` 只拼 channel 不拼 chat_id ⇒ 第 4 条红。
+eq('cron 消息全文保留换行（⛔ 不再单行折叠）', cronMessageText({ message: '第一行\n第二行\n  缩进' }),
+  '第一行\n第二行\n  缩进');
+eq('cron 消息去首尾空白', cronMessageText({ message: '\n  hi  \n' }), 'hi');
+eq('cron 消息缺失 ⇒ 空串', cronMessageText({}), '');
+
+const dt = new Date(2026, 8, 1, 9, 5, 0).toISOString();
+eq('fmtDateTime 带日期（本地）', fmtDateTime(dt), '2026-09-01 09:05');
+eq('fmtDateTime 空 ⇒ 空串', fmtDateTime(undefined), '');
+eq('fmtDateTime 无效 ISO 原样', fmtDateTime('not-a-date'), 'not-a-date');
+// ⛔ 判别点：`fmtHHMM` 只给 HH:MM，详情必须带日期（跨天 / 历史任务否则分不清哪天）。
+eq('fmtDateTime ≠ fmtHHMM（确有日期信息）', fmtDateTime(dt) !== fmtHHMM(dt), true);
+
+eq('cron 目标 = channel:chat_id', cronTargetText({ channel: 'web', chat_id: 'chat_1' }), 'web:chat_1');
+eq('cron 目标缺 chat_id ⇒ 只 channel', cronTargetText({ channel: 'web' }), 'web');
+eq('cron 目标缺 channel ⇒ 只 chat_id', cronTargetText({ chat_id: 'chat_1' }), 'chat_1');
+eq('cron 目标皆缺 ⇒ 空串（组件渲染 —）', cronTargetText({}), '');
 
 if (fail > 0) { console.log(`  panels: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  panels: ${pass} passed, 0 failed`);

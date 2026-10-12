@@ -63,14 +63,18 @@ ok('① 剥注释后仍非空', src.length > 100000, `len=${src.length}`);
 
 const CALL: string = 'this.dismissKeyboard();';
 
-// ② 总调用点数（8 个入口 + sendDraft 里 1 处）
-eq('② 总调用点数恰 9（8 入口 + sendDraft 发送后）', countIn(src, CALL), 9);
+// ② 总调用点数（**9** 个入口 + sendDraft 里 1 处 = 10）
+//    ⚠️ 2026-10-13（目标④ 任务管理收尾）：新增「定时任务详情」入口 `openCronDetail()` —— 它同样是
+//    浮层入口，必须收键盘（详情卡占下半屏、被键盘压住就看不见内容）⇒ 计数 9 → **10**（恰 +1，留空档会假绿）。
+eq('② 总调用点数恰 10（9 入口 + sendDraft 发送后）', countIn(src, CALL), 10);
 
-// ③ 八个浮层入口逐个钉（切片内恰 1 处）
+// ③ 九个浮层入口逐个钉（切片内恰 1 处）
 const OPENERS: string[] = [
   'private openDrawer(): void {',
   'private openPanels(): void {',
   'private openTaskDetail(t: BgTask): void {',
+  // 定时任务详情（2026-10-13）：与后台任务详情**同一处置**（开卡前收键盘）。
+  'private openCronDetail(job: CronJob): void {',
   'private openCtx(kind: string, rowId: string, iter: number, tool: string): void {',
   'private openToolsCtx(rowId: string, iter: number): void {',
   'private openFiles(): void {',

@@ -112,6 +112,9 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   ['components/TerminalSheet.ets', 1],
   // 会话统计面板（目标④「统计插件的面板我们看不到」）：同样走 `sheetTransition()`。
   ['components/SessionStatsSheet.ets', 1],
+  // 定时任务详情（目标④「任务管理做的很差」收尾）：同样只走 `sheetTransition()`
+  //   —— 全站面板入场语言唯一那一套（⛔ 不自造第二套）。
+  ['components/CronDetailSheet.ets', 1],
   ['components/TodoPanel.ets', 2],     // ① 属性动画 `.animation(animFast())`（`chevron_right` 的 `rotate 0→90`）
                                        //   —— **必须留**（2026-10-11 动效审计逐处判）：它讲的是**展开/收起的
                                        //   **方向状态变化**，删了箭头会"跳"；web `TodoPullOut.tsx` 同款有过渡。

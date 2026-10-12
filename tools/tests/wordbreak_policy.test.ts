@@ -170,7 +170,11 @@ for (const f of files) {
   //    （`web/src/index.css:538`）被 `th/td` **继承**且表格**未覆盖** ⇒ web 单元格本来就是 break-word，
   //    原生 `BREAK_ALL` 属**与权威分歧**；② 站点原注释的理由（"`BREAK_WORD` 对无空格超长串无效"）
   //    已被 15b 用 SDK 原文 + 装机实证**证伪**（找不到断点时会 break between any two characters）。
-  const BUDGET_ALL = 40;      // 全仓 BREAK_ALL 站点上限（15b 46→44；15f 44→40 = 实测值，⛔ 不留空档）
+  const BUDGET_ALL = 41;      // 全仓 BREAK_ALL 站点上限（15b 46→44；15f 44→40 = 实测值；15z12 40→41）
+  //    ⚠️ 15z12 登记理由（⛔ 唯一合法的"加 1"）：新增 `components/CronDetailSheet.ets` 的**消息全文**站点。
+  //    按本文件 §"何时用 BREAK_ALL"：cron 消息是发给 agent 的**提示词**，可能内嵌不可断长串
+  //    （URL / 绝对路径 / 命令）⇒ 与 `TaskDetailSheet` 的**输出正文**同一类，必须 BREAK_ALL。
+  //    ⛔ 不是"为提高上限而提高"：全仓其它站点一个没动（分布里只多出这一个文件）。
   const BUDGET_WORD_MIN = 20; // 全仓 BREAK_WORD 站点下限（15b 14→16；15f 16→20 = 实测值）
   const BUDGET_MD = 1;        // MarkdownView：只剩代码 wrap（表格单元已全部归一）
   const BUDGET_ASK = 3;       // AskUserSheet：空态小字 + header + 选项标签（正文已是 BREAK_WORD）
