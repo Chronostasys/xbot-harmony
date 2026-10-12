@@ -269,5 +269,28 @@ has(grpDef, 'backgroundBlurStyle(BlurStyle.Regular', '吸顶组头带模糊（�
 has(drawerList, '${this.isGroupCollapsed(this.sessionCategory(), g.key)}`)',
   '组头 ForEach 键**含折叠态**（header 参数是快照 ⇒ 否则 chevron 卡初值）');
 
+// ── 靶子4g：会话行**两行式**（2026-10-12 15o·e 目标③「所有面板 · 对标苹果」）────────────────
+// 真机 dump 实得（单行时）：行宽 999px 被切走 `[点槽 81][标题 509][时间 179][⋯ 149]`
+// ⇒ 标题只拿 **51%** ⇒ `手机NPU部署30B-MoE`（需 ~712px）被截成 `手机NPU部署30B-…`（截图实锤）。
+// 契约：**次级信息（相对时间）降为第二行**（Apple Files/Notes 列表惯例，原生惯例而非复刻 web）
+//       ⇒ 标题拿满剩余宽（≈761px，+50%）；行高仍 = `⋯` 的 44vp 盒（两行合计 106px < 149px）
+//       ⇒ **密度零损失**。
+{
+  const body: string = between(indexSrc, '// ── 标题 + 时间：**两行**', "Text('⋯')");
+  ok('两行行体可定位（零扫描判红）', body.length > 200);
+  has(body, 'Column({ space: SPACE_HAIR })', '标题 + 时间同住一个 Column（两行）');
+  has(body, '.layoutWeight(1).alignItems(HorizontalAlign.Start)',
+    'Column 吃满行内剩余宽（标题不再与时间争同一行）');
+  // 标题必须**自己**占满该列宽——否则 ellipsis 仍会截长名（正是本次要修的缺陷形态）。
+  {
+    const titleBlock: string = between(body, 'Text(this.tabLabel(s.chat_id))', 'if (this.relTimeOf');
+    ok('标题块可定位（零扫描判红）', titleBlock.length > 50);
+    has(titleBlock, ".width('100%')", "标题 Text 占满列宽（`.width('100%')`）");
+    hasNot(titleBlock, '.layoutWeight(1)', '标题不再与时间抢同一行（weight 已上移到 Column）');
+  }
+  // 空串**不渲染**时间行：两行布局下渲染空串会白留一行高 ⇒ 行高参差。
+  has(body, 'if (this.relTimeOf(s.last_active).length > 0)', '空 last_active ⇒ 不渲染时间行（不留空行）');
+}
+
 console.log(`  status_sheet_drawer: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

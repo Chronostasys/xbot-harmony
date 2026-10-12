@@ -8626,17 +8626,30 @@ struct Index {
                           .width(MARKER_GUTTER)
                           .justifyContent(FlexAlign.Center)
                           .alignItems(VerticalAlign.Center)
-                          Text(this.tabLabel(s.chat_id))
-                            .fontSize(typeOf('type.body').size)
-                            .fontColor(s.chat_id === this.currentChat ? this.pal().accentText : this.pal().textPrimary)
-                            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                            .layoutWeight(1)
-                          // 相对时间（web `SessionItem.tsx:332-347`；`last_active` 缺失 ⇒ 空串 ⇒ 不渲任何字符）
-                          Text(this.relTimeOf(s.last_active))
-                            // ⚠️ 2026-10-12：`type.micro`(10) 与 15 的标题并排时真机读不动
-                            // ⇒ 提到 caption(12)，贴 iOS 列表元信息字号（宽度余量足够，实测不截断）。
-                            .fontSize(typeOf('type.caption').size).fontColor(this.pal().textMuted)
-                            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                          // ── 标题 + 时间：**两行**（Apple「文件」列表形态）────────────────────
+                          // ⚠️ 2026-10-12（真机量测，`dumpLayout` 实得）：单行时行宽 999px 被
+                          //    `[点槽 81][标题 509][时间 179][⋯ 149]` 切走 —— 标题只拿 **51%**
+                          //    ⇒ `手机NPU部署30B-MoE`（需 ~712px）被截成 `手机NPU部署30B-…`。
+                          //    把时间降到**第二行**：标题拿 999-81-149-8 ≈ **761px**（+50%）⇒ 15 字标题不再截断；
+                          //    两行合计 59+47 = 106px < 行高 149px(44vp) ⇒ **密度零损失**、行高仍 = Apple 单行高度。
+                          //    次级信息降行 = 原生列表惯例（Apple Files/Notes 同款），⛔ 不是"复刻 web"（web 是单行）。
+                          Column({ space: SPACE_HAIR }) {
+                            Text(this.tabLabel(s.chat_id))
+                              .fontSize(typeOf('type.body').size)
+                              .fontColor(s.chat_id === this.currentChat ? this.pal().accentText : this.pal().textPrimary)
+                              .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                              .width('100%').textAlign(TextAlign.Start)
+                            // 相对时间（web `SessionItem.tsx:332-347`；`last_active` 缺失 ⇒ 空串 ⇒ 不渲任何字符）。
+                            // ⚠️ 空串时**整行不渲染**（两行布局下渲染空串会白留一行高 ⇒ 行高参差）。
+                            if (this.relTimeOf(s.last_active).length > 0) {
+                              Text(this.relTimeOf(s.last_active))
+                                // ⚠️ 2026-10-12：`type.micro`(10) 读不动 ⇒ caption(12)（iOS 列表元信息档）。
+                                .fontSize(typeOf('type.caption').size).fontColor(this.pal().textMuted)
+                                .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                                .width('100%').textAlign(TextAlign.Start)
+                            }
+                          }
+                          .layoutWeight(1).alignItems(HorizontalAlign.Start)
                           // 行内次级动作折成一个 `⋯` + 菜单（标星入口已在菜单里 ⇒ 行体只剩一个动作键）。
                           // ⛔ 前景是 **`Text`**（文字字形，⛔ 不是 `SymbolGlyph`）⇒ 地板 = AA_TEXT(4.5)，
                           // 而 porcelain 下 `textSecondary` 压本行**当前会话**底（`surface.overlayRowHover`
