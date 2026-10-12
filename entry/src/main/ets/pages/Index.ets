@@ -3010,6 +3010,7 @@ struct Index {
   // 原生此前**零覆盖** ⇒ 补齐。数据/所有权全留页面（组件只收 @Prop + 回调）。
   /** 开技能面板（并拉一次列表）。 */
   private openSkills(): void {
+    this.dismissKeyboard();
     this.showSkills = true;
     this.closeSkillView();
     this.loadSkills();
@@ -3100,6 +3101,7 @@ struct Index {
   // ── 文件管理（目标④「文件管理也没有」）───────────────────────────────────────
   /** 开文件面板。初始目录 = 当前会话 cwd（`/api/session/status` 的权威值），缺则根目录。 */
   private openFiles(): void {
+    this.dismissKeyboard();
     this.showFiles = true;
     this.closeFsPreview();
     const start: string = this.store !== null && this.store.cwd.length > 0 ? this.store.cwd : '/';
@@ -3565,6 +3567,7 @@ struct Index {
   private openSessionStats(): void {
     this.showDrawer = false;
     this.showPlugins = false;
+    this.dismissKeyboard();
     this.anim(() => {
       this.showSessionStats = true;
     });
@@ -6281,6 +6284,8 @@ struct Index {
     this.taskDetailMeta = bgTaskMetaText(t, this.nowMs());
     this.taskDetailOutput = bgTaskOutputText(t);
     this.taskDetailRunning = bgTaskRunning(t);
+    // 任务输出卡会占满下半屏 ⇒ 开卡前收键盘（否则输出正文被键盘压住）。
+    this.dismissKeyboard();
     this.showTaskDetail = true;
   }
 
@@ -6622,6 +6627,11 @@ struct Index {
     //   最先渲染，运行面板/任务详情/设置面都在其后 ⇒ z 序更高）⇒ 开抽屉前必须收掉它们，
     //   否则真机表现为"抽屉背景里叠着一张任务卡 + 运行面板"，抽屉列表被盖住 ⇒ **看起来像坏了**
     //   （2026-10-12 实测三张浮层同屏）。与 `openPanels()`「面板由抽屉进入 ⇒ 先收抽屉」是同一条铁律。
+    // ⛔ 开浮层前**先收软键盘**（`dismissKeyboard()`，与发送后同一出口）：聊天页 composer 常驻焦点
+    //   ⇒ 键盘弹起；不收则**抽屉底部 5 键 / 运行面板内容被键盘压掉**（2026-10-12 真机实证：
+    //   键盘弹起时抽屉 5 键从 y2667 被顶到 y1719，运行面板「终端」tab 下半屏被盖）。
+    //   Apple 语义：打开新浮层 ⇒ 旧上下文的输入焦点一并撤销。
+    this.dismissKeyboard();
     this.closeOverlaysAboveDrawer();
     this.showDrawer = true;
     const store: ChatStore | null = this.store;
@@ -6666,6 +6676,9 @@ struct Index {
   private openPanels(): void {
     // 浮层互斥：面板由抽屉进入 ⇒ 先收抽屉（同一时刻只允许一个半屏/全屏浮层）
     this.showDrawer = false;
+    // ⛔ 面板内容（终端 / 任务列表）绝不能被**软键盘**压住（2026-10-12 真机实证：键盘弹起时
+    //   「终端」tab 只剩标题+芯片可见，正文与输入行全在键盘之下）⇒ 开面板前先收键盘。
+    this.dismissKeyboard();
     this.anim(() => {
             this.showPanels = true;
           });
@@ -6892,6 +6905,7 @@ struct Index {
     this.ctxRowId = rowId;
     this.ctxIter = iter;
     this.ctxTool = tool;
+    this.dismissKeyboard();
     this.anim(() => {
       this.ctxOpen = true;
     });
@@ -6907,6 +6921,7 @@ struct Index {
     this.ctxRowId = rowId;
     this.ctxIter = iter;
     this.ctxTool = '';
+    this.dismissKeyboard();
     const it: HistoryIteration | undefined = this.ctxIteration();
     const names: string[] = [];
     const hasText: boolean[] = [];
