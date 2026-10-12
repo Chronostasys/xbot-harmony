@@ -3893,3 +3893,32 @@ ArkUI 元素按**树位置**标识、不按数据 id ⇒ 换题时同一个 `Tex
 上一题的文字会**残留**在下一题里；返回上一题时输入框是空的，用户再敲一个字会把页面里存的值**整段替换**。
 ⇒ 组件内 `@State freeDraft/otherDraft` 作镜像（`step` 变时用页面 `readFree`/`readOther` 重载），
 `onChange` 里**同时**写镜像与回写页面（页面仍是提交时读的唯一真源）。形态同 `SettingsPlugins` 搜索框。
+
+## §21.72 本轮（15t–15w）模拟器复验记录（真机截图取证，2026-10-13 03:13–03:15）
+
+装机路径 `~/ohos-cli/deploy.sh`（signed HAP，`com.chronostasys.xbot`，模拟器 `127.0.0.1:5555`）。
+
+| # | 交付 | 复验动作 | 结果 |
+|---|---|---|---|
+| 1 | 插件名 i18n 解析 + 状态中文化（`1a4a17a`） | 设置 → **插件** Tab | ✅ `Ambience v0.3.0·script·已启用` / `GenUI… v1.0.0·grpc·**启动失败**` / `Git 面板 v0.3.5·stdio·启动失败` / `迭代指标 v1.0.0·script·已启用`（**对比用户原截图：三行 `manifest.name` + 英文 `error`**） |
+| 2 | 同上（插件目录面板） | 抽屉 → **插件**（能力面板） | ✅ `GenUI（display_html）`/`Git 面板`/`迭代指标`/`远程机器（SSH）` 真名 + 各自中文描述（`未启动` 态） |
+| 3 | **内嵌 Web 承载面 401 修复**（`867a98f`） | 能力面板 → **完整 Web UI** | ✅ Web SPA **完整加载且可交互**（会话列表 `harmony-ui-dev`、`310t/s · 1.4s` 指标、消息流 markdown、composer）—— 修前症状是"页面能载入但接口全 401" |
+| 4 | 文件管理内联过滤（`72dd15a`） | 抽屉 → **文件** | ✅ 表头（文件/隐藏文件/刷新/×）+ 面包屑（`/ Users bobli src **xbot-harmony**`）+ **过滤行「🔍 按名称过滤（当前目录）」** + 目录优先排序带体积（19.1 KB …） |
+| 5 | 会话统计面板（早前） | 能力面板 → **会话统计** | ✅ 真实数据渲染（in 1.10B / cache 438.42M·39.9% / TTFT 2.0s / tok/s 1355 / 按模型明细）⇒ 用户「统计插件的面板我们看不到」已可见 |
+
+⚠️ 复验中的**操作学**（值得记住）：点击后必须**等动画**再截图；从 Web UI 切回原生时"切回原生"行在
+WebView 之下、点击坐标易落到 composer（本轮误触弹出键盘）⇒ 切回后先 `keyEvent 2` 收键盘再继续。
+
+## §21.73 目标④·genui 现状判定：**后端阻塞**，原生侧暂无可验证落点（15x，2026-10-13）
+
+- 用户诉求：「必须真的支持 web 的所有插件和功能」——web 侧 GenUI 走
+  `components/agent/GenUIPanel.tsx`（164 行：panel 外壳 = 标题 + 折叠 + 全屏，默认展开）包
+  `plugins/SandboxedUI.tsx`（沙箱 iframe 跑插件 JS）。原生不可能跑插件 JS ⇒ 原生等价物只能是把
+  插件 UI 交给 `WebSurface`（宿主页 = 服务端根，`core/pluginhost.hostPageUrl`）——**该通路本轮已修好
+  401**（§21.69 + §21.72 #3）。
+- **但**：`xbot.genui` 在后端恒为 `state=error`（`activation failed: fork/exec ./bin/genui-plugin:
+  no such file or directory`，见 §21.68）⇒ 插件不激活 ⇒ 其工具不注册 ⇒ `ui_mode="genui"` 的结果
+  **在实际会话里产生不出来**，`genuiContent` 恒空（`core/derive.ts:422` 的判据恒 false）。
+- ⇒ **结论**：genui 的端到端验收被**后端缺 sidecar 二进制**阻塞（与 §21.68 同因）。原生侧不写
+  "无法验证的投机代码"（本仓铁律：判据要有判别力），改为**在此记账**；待后端补 `bin/genui-plugin`
+  后，按 §21.69 的同一通路（插件宿主页 + WebSurface）接 `GenUIPanel` 等价外壳（标题/折叠/全屏）。
