@@ -29,7 +29,8 @@ import { normalizeLocale } from '../core/i18n';
 import { KEY_LOCALE, settingOf } from '../core/settings';
 import {
   PRESS_OPACITY,   INSET_CARD_X, INSET_CARD_Y, INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, RADIUS_PILL,
-  STROKE_HAIRLINE, HIT_TARGET_MIN, SPACE_XS, SPACE_SM, SPACE_MD, SPACE_LG, SHEET_ACTION_GLYPH,
+  STROKE_HAIRLINE, STROKE_RAIL, HIT_TARGET_MIN, SPACE_HAIR, SPACE_XS, SPACE_SM, SPACE_MD, SPACE_LG,
+  SHEET_ACTION_GLYPH,
   hairlineOf, structuralRuleOf, surfaceFillOf, colorOf,
 } from '../core/design';
 import { SettingsAbout } from './SettingsAbout';
@@ -351,33 +352,45 @@ export struct SettingsPanel {
   TabBar() {
     Flex({ wrap: FlexWrap.Wrap }) {
       ForEach(this.tabs(), (t: SettingsTabSpec) => {
-        Text(t.label)
-          .fontSize(fs('type.caption'))
-          .fontWeight(fw('type.caption'))
-          .lineHeight(lh('type.caption'))
-          .fontColor(t.id === this.active ? this.pal().onAccent : tc(this.pal(), 'type.caption'))
-          .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
-          .backgroundColor(t.id === this.active
-            ? this.pal().accent
-            : surfaceFillOf(this.pal(), 'surface.chip'))
-          .borderRadius(RADIUS_PILL)
-          .border({
-            width: STROKE_HAIRLINE,
-            color: t.id === this.active ? this.pal().accent : hairlineOf(this.pal()),
-          })
-          // 统一宽度 + 文字居中（苹果式网格）——⛔ 必须**同时**有：只给 minWidth 而文字左对齐
-          // 会让短标签（「存储」）在宽芯片里贴左，看着像错位。
-          .constraintSize({ minWidth: TAB_CHIP_W, minHeight: HIT_TARGET_MIN })
-          .textAlign(TextAlign.Center)
-          .margin({ right: SPACE_XS, bottom: SPACE_XS })
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            this.active = t.id;
-            // 通知偏好**按需**拉取（首次进入该分区才发 RPC，避免每次打开设置都打服务端）
-            if (t.id === SETTINGS_TAB_NOTIFY && !this.notifyLoaded) {
-              void this.loadNotifyPrefs();
-            }
-          })
+        // 2026-10-13（目标③「对标苹果」）：由「实心芯片网格」改 **下划线式页签**（文本强调 + 指示器）。
+        //   装机走查（设置·外观）确认：12 枚同形实心块读起来是"按钮墙"，与 iOS 的分区页签语言不符。
+        //   下划线式保住 **12 项同屏可见** 与 `HIT_TARGET_MIN` 命中下限，同时把视觉重量从
+        //   "12 个色块"降到"1 条线"（Apple：选中 = 文字加重 + 一条指示线，不是填充块）。
+        Column({ space: SPACE_HAIR }) {
+          Text(t.label)
+            .fontSize(fs('type.subhead'))
+            .fontWeight(t.id === this.active ? FontWeight.Medium : fw('type.subhead'))
+            .lineHeight(lh('type.subhead'))
+            // ⛔ `accent` **不得**直接做文字色（该角色对底仅 4.05 < 4.5，仓内铁律见
+            //    `tools/tests/accent_chrome.test.ts`）⇒ 文字走 `accentSoft`（5.57–12.0 全主题过线）。
+            .fontColor(t.id === this.active ? this.pal().accentSoft : tc(this.pal(), 'type.caption'))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .textAlign(TextAlign.Center)
+            // ⛔ 这里**不能**给 `width('100%')`：外层 Column 是"按内容定宽"的 flex 子项，
+            //    子项要 100% ⇒ 回环解析成**整行宽** ⇒ `Flex(wrap)` 每行只放得下 1 片（装机实测：
+            //    12 个页签被排成单列）。居中由外层 Column 的 `alignItems(Center)` 负责。
+          // 指示器：**仅选中项上色**（未选中 = 透明 ⇒ 失败方向安全：绝不让"状态缺失"读成"已选中"）。
+          Row()
+            .width(SPACE_LG)
+            .height(STROKE_RAIL)
+            .borderRadius(STROKE_RAIL)
+            .backgroundColor(t.id === this.active ? this.pal().accent : this.pal().transparent)
+        }
+        // 统一宽度 + 文字居中（苹果式网格）——⛔ 必须**同时**有：只给 minWidth 而文字左对齐
+        // 会让短标签（「存储」）在宽格位里贴左，看着像错位。
+        .constraintSize({ minWidth: TAB_CHIP_W, minHeight: HIT_TARGET_MIN })
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+        .margin({ right: SPACE_XS, bottom: SPACE_XS })
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          this.active = t.id;
+          // 通知偏好**按需**拉取（首次进入该分区才发 RPC，避免每次打开设置都打服务端）
+          if (t.id === SETTINGS_TAB_NOTIFY && !this.notifyLoaded) {
+            void this.loadNotifyPrefs();
+          }
+        })
       }, (t: SettingsTabSpec) => `tab|${t.id}`)
     }
     .width('100%')

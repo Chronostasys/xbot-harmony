@@ -4059,3 +4059,25 @@ terminal 字形）⇒ 终端 tab 用 `code`（终端=敲代码的壳），并把
 
 **判据**：既有 `status_sheet_drawer` 的锚点（`Divider()` 在 `renamingId === s.chat_id` 之后、
 内缩 margin 串不变）**仍成立** ⇒ `status_sheet_drawer: 73 passed`。门禁 `GATE_EXIT=0` + `BUILD SUCCESSFUL`。
+
+## §21.80 设置面板：12 枚实心芯片网格 → **下划线式页签**（15z7，2026-10-13）
+
+**症状**（装机截图，目标③「对标苹果」）：设置页头下是 **12 枚同形实心块**的 4×3 网格，读起来是
+"按钮墙"（Material 式控件网格），与 iOS 的分区页签语言不符 —— 也是整页"最不苹果"的一处。
+
+**修法**：`SettingsPanel.TabBar()` 改为 **下划线式页签**：标签（选中 = `accentSoft` + `Medium` 字重）
++ 一条 `STROKE_RAIL`(2vp) 指示器（仅选中项上色、未选中 `transparent` ⇒ 失败方向安全）。
+保住 **12 项同屏可见**（4×3）与 `HIT_TARGET_MIN` 命中下限，把视觉重量从"12 个色块"降到"1 条线"。
+
+**⛔ 两条踩到的仓内铁律**（都由真门禁抓出）：
+1. **`accent` 不得直接做文字色**（该角色对底 4.05 < 4.5）⇒ `accent_chrome` 红；文字走
+   `accentSoft`（5.57–12.0，全主题过线）——判据在当时就写着"回退任一落点 ⇒ 红"。
+2. `SPACE_HAIR` 该文件未 import ⇒ **ArkTS 编译红**（`Cannot find name 'SPACE_HAIR'`）——
+   再一次印证：脱机三条永远绿，**只有真编译能抓**。
+
+**⚠️ 一次真实回归（已修，见 `docs/ARKTS-GOTCHAS.md` 批次 30）**：首版给 `Column` 内的 `Text` 加了
+`.width('100%')` ⇒ "父按内容定宽 + 子要 100%" 回环 ⇒ 12 片**排成单列**。编译绿、静态判据绿，
+**只有装机 `dumpLayout` 量几何才逮到**；修后实测 4×3（y=424/600/775 各 4 片）。
+
+**装机复验**：设置·外观 —— 4×3 下划线页签、选中「外观」紫字 + 下划线 ✓；同屏还可见色板 7 枚一行 ✓。
+门禁 `GATE_EXIT=0` + `BUILD SUCCESSFUL`（`accent_chrome 82` · `settings_panel_wrap 20` · `A 线 1226`）。

@@ -1662,3 +1662,21 @@ Column() {                       // 气泡面：底色/圆角 + maxWidth（无 p
 ⛔ 也别用 `.clip(true)` 遮：那只是把"切在屏边"改成"切在气泡边"，✓ 判据应看**内容宽是否 = 内容盒**。
 **一般化**：任何"父有水平内距 + 子用 `width('100%')`/百分比"的组合，都要怀疑这条 ⇒ 改成
 `layoutWeight(1)` 或给内容一个**确定 vp 宽**。
+
+## 批次 30：`Flex(wrap)` 里"按内容定宽"的子项，其**内部子节点**给 `width('100%')` ⇒ 该子项被撑成整行（每行只放得下 1 个）（2026-10-13，我本人踩，装机截图逮到）
+
+**症状**：设置面板的 12 个分区页签（`Flex({ wrap: FlexWrap.Wrap })` + 每片
+`Column().constraintSize({ minWidth: TAB_CHIP_W, minHeight: HIT_TARGET_MIN })`）改版后**排成单列**
+（每行一片、12 行）。`dumpLayout` 实测：12 片**同一个 x、y 递增**。
+
+**根因**：我给 `Column` 内的 `Text` 加了 `.width('100%')`。`Column` 在这个 `Flex` 里是
+**按内容定宽**的子项（只有 `minWidth`、没有确定宽）⇒ 内部子节点要"父宽的 100%"形成**回环**，
+ArkUI 解析为该子项**占满可用宽度** ⇒ wrap 每行只放得下 1 片。
+
+**正确做法**：`Text` **不要**给 `width('100%')`；居中由外层容器的
+`.alignItems(HorizontalAlign.Center)`（+ `.justifyContent(FlexAlign.Center)`）负责。
+`textAlign(TextAlign.Center)` 对"内容宽"的 Text 无副作用、可留（读屏/长标签场景仍需要）。
+
+**判据**：这类"布局回环"**静态判据抓不到**（编译绿、`has(...)` 断言也绿）——
+唯一可靠判据是**装机 + `uitest dumpLayout` 看几何**（本仓既有口径：点击/布局都要原子 dump）。
+⇒ 凡动 `Flex(wrap)` / `layoutWeight` / 百分比宽的布局，**必须**装机量 x/y 分布（不是只看截图）。
