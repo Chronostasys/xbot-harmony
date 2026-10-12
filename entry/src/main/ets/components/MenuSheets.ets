@@ -195,7 +195,9 @@ export struct SessSheet {
         // `SessionItem.tsx` 把 star 放进 context menu 的口径）。文案随状态（web `session.star/unstar`）。
         this.CtxItem(this.starred ? '取消标星' : '标星', 'star', false)
         this.CtxItem('重命名', 'rename', false)
-        this.CtxItem('分支（fork 出新会话）', 'fork', false)
+        // 分支：措辞对齐 web `session.fork = '分叉会话'`（⛔ 去英文开发者语 `fork`；
+        // 「分叉出…」保留 web 词根、去掉 "分支（fork …）" 的英文双标）。
+        this.CtxItem('分叉出新会话', 'fork', false)
         this.CtxItem(this.confirmDelete ? '确认删除（再点一次）' : '删除', 'delete', false)
         Divider()
           .strokeWidth(STROKE_HAIRLINE)
@@ -250,6 +252,15 @@ export struct SearchHitsSheet {
     return paletteOf(this.theme);
   }
 
+  /**
+   * 头部标题（⛔ 0 命中时**不给**「点一条复制片段」—— 没有可点项，指令是假的；空态正文已陈述
+   * "没有匹配的消息"，头部再显示操作提示即自相矛盾。真机取证 2026-10-12）。
+   */
+  private hitsTitle(): string {
+    const n: number = this.hits.length;
+    return n > 0 ? `本会话命中 ${n} 条（点一条复制片段）` : '搜索结果';
+  }
+
   /** 带参 @Builder（同 `SessSheet.CtxItem`；⛔ 不要改成 @Component）。 */
   @Builder
   CtxItem(label: string, code: string, dim: boolean) {
@@ -287,7 +298,7 @@ export struct SearchHitsSheet {
     // ⛔ ArkUI 每元素只能挂一层 `.shadow()` ⇒ 外层 `Stack` 承载 far（同 `SyntheticCard` 范例）。
     Stack() {
       Column({ space: 0 }) {
-        Text(`本会话命中 ${this.hits.length} 条（点一条复制片段）`)
+        Text(this.hitsTitle())
           .fontSize(fs('type.caption'))
           .fontWeight(fw('type.caption'))
           .lineHeight(lh('type.caption'))
@@ -446,7 +457,13 @@ export struct ContextSheet {
   }
 
   private headerLabel(): string {
-    return this.ctxKind === 'tool' ? '工具操作' : (this.ctxKind === 'iter' ? '迭代操作' : '消息操作');
+    // 工具（单枚）与工具（**组**）是同一族操作（都复制工具输出/参数）⇒ 同一标题。
+    // ⛔ 此前只判 `'tool'`，工具**组**菜单（`ctxKind === 'tools'`，`openToolsCtx` 真机可达）
+    //    落到兜底 `'消息操作'` ⇒ **长按工具组时标题与内容不符**（真机取证 2026-10-12）。
+    if (this.ctxKind === 'tool' || this.ctxKind === 'tools') {
+      return '工具操作';
+    }
+    return this.ctxKind === 'iter' ? '迭代操作' : '消息操作';
   }
 
   build() {

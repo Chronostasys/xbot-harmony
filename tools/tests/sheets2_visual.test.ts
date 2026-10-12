@@ -303,6 +303,59 @@ for (let i = 0; i < CARD_SHEETS.length; i++) {
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// ⑨ 底部操作菜单三件套（MenuSheets）**文案/标题**契约（2026-10-12 批次 13f）
+//    真机取证发现三类缺陷（会话/搜索/上下文菜单同族）：
+//      · `ContextSheet.headerLabel` 只判 `'tool'` ⇒ 工具**组**菜单（`ctxKind==='tools'`，
+//        `openToolsCtx` 真机可达）落到兜底 `'消息操作'`（长按工具组时标题与内容不符）；
+//      · `SearchHitsSheet` 头部**无条件**显示「（点一条复制片段）」⇒ 0 命中时是**假指令**、
+//        且与正文「没有匹配的消息」重复（`runSearch` 无条件 `showSearchHits=true`）；
+//      · `SessSheet` 分支项 label 含**英文开发者语** `fork`（web 权威 = `session.fork='分叉会话'`）。
+//    mutation 自证：回退任一处 ⇒ 对应断言红（见提交信息）。
+// ════════════════════════════════════════════════════════════════════════════
+// ⑨a headerLabel 必须同时覆盖 'tool' 与 'tools'（都 → '工具操作'）
+const hlStart: number = menuCode.indexOf('private headerLabel(): string {');
+const hlEnd: number = hlStart >= 0 ? menuCode.indexOf('\n  }', hlStart) : -1;
+const hlBody: string = hlStart >= 0 && hlEnd > hlStart ? menuCode.substring(hlStart, hlEnd) : '';
+ok('MenuSheets: 找到 headerLabel 函数体（零扫描判红）', hlBody.length > 0);
+has(hlBody, "'tool'", 'headerLabel: 覆盖单枚工具菜单 tool');
+has(hlBody, "'tools'", 'headerLabel: 覆盖工具**组**菜单 tools（⛔ 否则落兜底「消息操作」）');
+has(hlBody, '工具操作', 'headerLabel: tool/tools 同源出「工具操作」');
+has(hlBody, "'消息操作'", 'headerLabel: 其余（消息/用户）仍落「消息操作」兜底');
+
+// ⑨b SearchHitsSheet 头部按命中数分档（0 命中不给「点一条复制片段」假指令）
+const htStart: number = menuCode.indexOf('private hitsTitle(): string {');
+const htEnd: number = htStart >= 0 ? menuCode.indexOf('\n  }', htStart) : -1;
+const htBody: string = htStart >= 0 && htEnd > htStart ? menuCode.substring(htStart, htEnd) : '';
+ok('MenuSheets: 找到 hitsTitle 函数体（零扫描判红）', htBody.length > 0);
+const qIdx: number = htBody.indexOf('n > 0 ?');
+const colonIdx: number = qIdx >= 0 ? htBody.indexOf(' : ', qIdx) : -1;
+const trueBranch: string = qIdx >= 0 && colonIdx > qIdx ? htBody.substring(qIdx, colonIdx) : '';
+const falseBranch: string = colonIdx > 0 ? htBody.substring(colonIdx) : '';
+ok('hitsTitle: 按命中数 >0 分档（三元）', qIdx >= 0 && colonIdx > qIdx);
+has(trueBranch, '点一条复制片段', 'hitsTitle: 操作提示只在**有命中**的真分支');
+has(falseBranch, '搜索结果', 'hitsTitle: 0 命中的假分支 = 中性标题「搜索结果」');
+hasNot(falseBranch, '点一条复制片段', 'hitsTitle: ⛔ 假分支（0 命中）不含操作提示');
+// 头部渲染改用函数（⛔ 不再是无条件模板串）
+has(menuCode, 'Text(this.hitsTitle())', 'SearchHitsSheet: 头部走 hitsTitle()（按命中数分档）');
+hasNot(menuCode, '命中 ${this.hits.length} 条（点一条复制片段）`',
+  'SearchHitsSheet: ⛔ 不再无条件显示操作提示');
+
+// ⑨c **一般规则**：菜单项 label 不含英文开发者语（本轮抓到 `fork`）
+const menuLabels: string[] = [];
+const labRe = /this\.CtxItem\(([^,]+?),/g;
+let lm: RegExpExecArray | null = labRe.exec(menuCode);
+while (lm !== null) { menuLabels.push(lm[1].trim()); lm = labRe.exec(menuCode); }
+ok('MenuSheets: 扫到菜单项 label > 0（零扫描判红）', menuLabels.length > 0);
+const leakedLabels: string[] = menuLabels.filter((s) => /fork/i.test(s));
+ok('MenuSheets: 无菜单项 label 含英文开发者语 fork（一般规则）', leakedLabels.length === 0);
+const forkRe = /this\.CtxItem\(\s*([^,]+?)\s*,\s*'fork'/g;
+let forkLabel: string = '';
+let fm: RegExpExecArray | null = forkRe.exec(menuCode);
+while (fm !== null) { forkLabel = fm[1]; fm = forkRe.exec(menuCode); }
+ok('MenuSheets: 找到 SessSheet 分支菜单项（零扫描判红）', forkLabel.length > 0);
+has(forkLabel, '分叉', 'SessSheet 分支项用 web 词根「分叉」');
+
 if (fail > 0) {
   console.log(`  sheets2_visual: ${pass} passed, ${fail} failed`);
   process.exit(1);
