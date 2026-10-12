@@ -23,7 +23,7 @@ declare const __dirname: string;
 //
 // 反查真源：组头"层次"的断言要能**真正**判定"字重比正文重半档"，而不是只匹配源码字符串
 // ⇒ 引入 `core/design.ets` 的 `typeOf`（`run-one.sh`/`run.sh` 会把该路径 sed 成本目录的 `./`）。
-import { typeOf } from '../../entry/src/main/ets/core/design';
+import { typeOf, MARKER_GUTTER, SPACE_XS, SPACE_HAIR } from '../../entry/src/main/ets/core/design';
 export {};
 
 let pass = 0;
@@ -53,6 +53,10 @@ const indexSrc: string = fsMod.readFileSync(srcPath('SSD_INDEX_SRC',
 //    见 `docs/INDEX-SPLIT-PLAN.md` §5）⇒ 状态弹层的结构断言改读**组件源码**。
 const statusSrc: string = fsMod.readFileSync(srcPath('SSD_STATUS_SRC',
   'entry/src/main/ets/components/StatusSheet.ets'), 'utf-8');
+// 令牌真源（§4f 的 `MARKER_GUTTER` 派生式断言要读它）：`design.ets` 是纯 `.ets` 但**无 ArkUI 全局**
+// ⇒ 可直接读数；⛔ 不改成"猜值"（猜值 = 判据与真源脱钩）。
+const designSrc: string = fsMod.readFileSync(
+  pathMod.join(repoRoot, 'entry/src/main/ets/core/design.ets'), 'utf-8');
 
 /** 从锚点 A 到锚点 B 之间的源码片段（找不到返回空串）。 */
 function between(src: string, a: string, b: string): string {
@@ -204,6 +208,37 @@ has(recent, 'hairlineOf(this.palOnce())', '最近目录行间有发丝分隔（i
     (recent.match(/backgroundColor\(surfaceFillOf\(this\.palOnce?\(\), 'surface\.chip'\)\)/g) || []).length;
   ok(`最近目录只剩 1 层容器底（surface.chip×${pills}，应为 1）—— 退回每行药丸 ⇒ N ⇒ 红`, pills === 1);
 }
+
+// ── 靶子4f：行**前导标记槽**（2026-10-12 目标③ 第七批：修"标题参差"）────────────────
+// 真机 dump 实证（同一帧两条会话）：跑动行标题左缘 **134px**、静息行 **80px** ⇒ 差 **16vp**。
+// 根因：状态点/星标是**条件渲染**（`if (running)` / `if (starred)`）⇒ 有标记的行把标题顶右。
+// 契约：标记住进**恒占位**的 `MARKER_GUTTER` 槽 ⇒ 标题左缘与"有没有标记"**无关**；同一槽同时
+//      给**组头折叠箭头**复用 ⇒ 组头标题与行标题落在**同一条竖轴**上。
+const gutter: string = between(indexSrc, 'if (s.running === true) {', 'Text(this.tabLabel(s.chat_id))');
+ok('标记槽块可定位（零扫描判红）', gutter.length > 100);
+has(gutter, '.width(MARKER_GUTTER)', '状态点/星标收进恒宽槽（⛔ 不再条件渲染把标题顶开）');
+has(gutter, 'justifyContent(FlexAlign.Center)', '槽内居中（点/星/空三态的标题左缘一致）');
+// 槽宽必须装得下**最坏内容**：运行中 **且** 已标星 = 点 `SPACE_XS` + `SPACE_HAIR` + 星
+// `typeOf('type.subhead').size`。装不下 ⇒ 槽内挤压 ⇒ 标记溢出、标题又位移（变相回归）。
+ok(`槽宽 ≥ 最坏内容（点 ${SPACE_XS} + ${SPACE_HAIR} + 星 ${typeOf('type.subhead').size} = ${SPACE_XS + SPACE_HAIR + typeOf('type.subhead').size}；实得 ${MARKER_GUTTER}）`,
+  MARKER_GUTTER >= SPACE_XS + SPACE_HAIR + typeOf('type.subhead').size);
+{
+  // 全文件**恰好 2 处** `MARKER_GUTTER` 宽槽：行内 1 + 组头 1。
+  // 少一处 ⇒ 组头又跑偏（红）；多一处 ⇒ 有人另造了第三处槽（红）。
+  const n: number = (indexSrc.match(/\.width\(MARKER_GUTTER\)/g) || []).length;
+  ok(`MARKER_GUTTER 宽槽恰 2 处（行 + 组头；实得 ${n}）`, n === 2);
+}
+// 行分隔线左缘内缩到**文字起点**（= 行内边距 + 槽宽 + 行内间距）—— Apple 的 inset separator
+// （线只从正文起画，前导标记槽那片留白不画线）。
+has(indexSrc, '.margin({ left: INSET_ROW_X + MARKER_GUTTER + SPACE_XS, right: INSET_ROW_X })',
+  '行分隔线左缘 = 文字起点（⛔ 不再从行内容左缘起画）');
+// 组头左右内边距 = **行内边距** ⇒ 组头标题与行标题同轴、计数徽标右缘与行尾 `⋯` 右缘对齐。
+has(between(indexSrc, 'Text(`${g.items.length}`)', 'this.toggleGroup('),
+  '.padding({ left: INSET_ROW_X, right: INSET_ROW_X })', '组头左右内边距 = 行内边距（同一条竖轴）');
+// 令牌真源：`MARKER_GUTTER` 定义在 design.ets 且**由空间档派生**（⛔ 不是就地新造的魔数）。
+has(designSrc, 'export const MARKER_GUTTER: number = SPACE_XL;',
+  'MARKER_GUTTER 定义在 design.ets 并取空间档（⛔ 页面不写死数字）');
+has(designSrc, 'import', 'design.ets 可读（零扫描防线）');
 
 console.log(`  status_sheet_drawer: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

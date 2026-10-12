@@ -33,6 +33,7 @@ import { EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_BOOT_WORDMARK, F
 // `typeOf` 是唯一出口）。色值一律经 `this.pal()`（`surfaceFillOf` 的 role 是**带点**的语义面名）。
 import {
   GAP_BLOCK, HIT_TARGET_MIN, ICON_MD, ICON_SM, INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X,
+  MARKER_GUTTER,
   PRESS_OPACITY, PRESS_SCALE, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, RADIUS_SHEET, SHEET_ACTION_GLYPH, SPACE_HAIR, SPACE_LG, SPACE_MD,
   SPACE_SM, SPACE_XL, SPACE_XS, SPACE_XXL, SPACE_XXS, STROKE_HAIRLINE, colorOf, hairlineOf,
   insetHairlineOf, surfaceFillOf, typeOf,
@@ -7770,12 +7771,15 @@ struct Index {
         //    触发器上** ⇒ 删掉 chips 行后信息不减（用户一眼看得出"正在按渠道过滤"）。
         Row({ space: SPACE_HAIR }) {
           Text(activeChannelLabel(this.activeChannel))
-            .fontSize(typeOf('type.micro').size)
+            // ⚠️ 2026-10-12：此前 `type.micro`(10) 而**同一行的分段控件**用 `type.caption`(12)
+            // ⇒ 两个并列筛选控件的标签竟不同档（真机量测：分段文字高 47px、chip 文字高 40px）。
+            // 同排控件标签**必须同档**（Apple：工具栏上的并列控件共用一个字阶）⇒ 提 caption(12)。
+            .fontSize(typeOf('type.caption').size)
             .fontColor(this.activeChannel.length === 0 ? this.pal().textPrimary : this.pal().textSecondary)
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
           SymbolGlyph($r('sys.symbol.chevron_down'))
-            .fontSize(typeOf('type.micro').size)
+            .fontSize(typeOf('type.caption').size)
             .fontColor([colorOf(this.pal(), 'iconMuted')])
         }
         .height(HIT_TARGET_MIN)
@@ -7860,12 +7864,19 @@ struct Index {
             // 层级：组头用 `type.micro` + 半档字重（中文无大小写，以字重补 web `uppercase` 的层次）。
             ListItem() {
               Row({ space: SPACE_XS }) {
-                SymbolGlyph($r('sys.symbol.chevron_right'))
-                  .fontSize(typeOf('type.micro').size).fontColor([colorOf(this.pal(), 'iconMuted')])
-                  .rotate({ angle: this.isGroupCollapsed(this.sessionCategory(), g.key) ? 0 : 90 })
-                  // 折叠/展开的箭头旋转**要有过渡**（此前瞬变 ⇒ 观感"跳"）。
-                  // 属性动画走底座 `animFast()`（⛔ 不自造时长/曲线）；`.animation()` 作用于其**之前**的属性。
-                  .animation(animFast())
+                // 折叠箭头住进**与行内标记同一个槽**（`MARKER_GUTTER`）⇒ 组头标题与行标题落在
+                // **同一条竖轴**上（此前组头标题 x≈22vp、行标题 x≈58vp ⇒ 差 36vp，读起来像两套排版）。
+                Row() {
+                  SymbolGlyph($r('sys.symbol.chevron_right'))
+                    .fontSize(typeOf('type.micro').size).fontColor([colorOf(this.pal(), 'iconMuted')])
+                    .rotate({ angle: this.isGroupCollapsed(this.sessionCategory(), g.key) ? 0 : 90 })
+                    // 折叠/展开的箭头旋转**要有过渡**（此前瞬变 ⇒ 观感"跳"）。
+                    // 属性动画走底座 `animFast()`（⛔ 不自造时长/曲线）；`.animation()` 作用于其**之前**的属性。
+                    .animation(animFast())
+                }
+                .width(MARKER_GUTTER)
+                .justifyContent(FlexAlign.Center)
+                .alignItems(VerticalAlign.Center)
                 Text(g.title)
                   // Apple 侧栏分区头节奏：次级字号 + 半档字重（中文无大小写 ⇒ 以字重补 web `uppercase`
                   // 的层次）。⚠️ 2026-10-12：原 `type.micro`(10) 与行标题 15 的落差过大 ⇒ 真机读不动。
@@ -7878,7 +7889,9 @@ struct Index {
                   .backgroundColor(this.pal().surfaceAlt).borderRadius(RADIUS_PILL)
               }
               .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
-              .padding({ left: SPACE_XXS, right: SPACE_XXS })
+              // 组头左右内边距 = **行内边距**（`INSET_ROW_X`）：此前组头用 `SPACE_XXS`(4) 而行用
+              // `INSET_ROW_X`(12) ⇒ 组头文字与行标题再多差 8vp（叠加箭头差 ⇒ 合计 36vp）。
+              .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
               // ⚠️ **居中 + 仅非首组显式留白**（2026-10-12 二次修，原为「44 盒底对齐」）：
               //    底对齐把 44 盒里 ~26vp 的空气**全堆在组头上方**（本意是当组间分隔），
               //    但**首个组**上方没有"上一组" ⇒ 那 26vp 直接顶在筛选条下面，真机量测
@@ -7945,21 +7958,30 @@ struct Index {
                         // 却各占视线（原实现第二行恒显示 `Web` + `chat_026B326DE4C4`）。
                         // 超越 web：行内动作收进**尾部拇指区**（星标 + ⋯），各自真实 44×44 布局盒。
                         Row({ space: SPACE_XS }) {
-                          if (s.running === true) {
-                            // 运行中 = **静态** 状态点（⛔ 不呼吸：唯一在飞动效 = 光球）。
-                            Row().width(SPACE_XS).height(SPACE_XS).borderRadius(SPACE_XS / 2).backgroundColor(this.pal().success)
+                          // 前导**标记槽**（`MARKER_GUTTER`）：恒定占位、内容可空。
+                          // 为什么：标记此前是**条件渲染** ⇒ 「有状态的会话」标题被顶右、「无状态的」贴左，
+                          // 真机同屏量到标题左缘 **80px vs 134px（差 16vp）** ⇒ 整列参差（Apple 列表的
+                          // 行文字恒在同一条竖轴上）。槽内**居中** ⇒ 点/星/空三种情形的标题左缘完全一致。
+                          Row({ space: SPACE_HAIR }) {
+                            if (s.running === true) {
+                              // 运行中 = **静态** 状态点（⛔ 不呼吸：唯一在飞动效 = 光球）。
+                              Row().width(SPACE_XS).height(SPACE_XS).borderRadius(SPACE_XS / 2).backgroundColor(this.pal().success)
+                            }
+                            // 标星 = **非交互小标记**（Apple 旗标式；⛔ 不占 44 热区 —— 真机量测：星标盒吃
+                            // 149px（15% 行宽），把当前会话标题截成 `harmony-ui…`）。仅**已标星**才渲染
+                            // （未标星不显示空星 ⇒ 零噪音）；交互入口统一在 `⋯` 菜单的「标星/取消标星」
+                            // （对齐 web `SessionItem.tsx` 把 star 放进 context menu 的口径）。
+                            // ⚠️ 三元保留 `isStarredChat` 真判据（`star_contrast.test.ts` §1 钉"恰好 1 处"）。
+                            if (this.isStarredChat(s.chat_id)) {
+                              SymbolGlyph(this.isStarredChat(s.chat_id)
+                                ? $r('sys.symbol.star_fill') : $r('sys.symbol.star'))
+                                .fontSize(typeOf('type.subhead').size)
+                                .fontColor([this.isStarredChat(s.chat_id) ? this.pal().accent : this.pal().textSecondary])
+                            }
                           }
-                          // 标星 = **非交互小标记**（Apple 旗标式；⛔ 不占 44 热区 —— 真机量测：星标盒吃
-                          // 149px（15% 行宽），把当前会话标题截成 `harmony-ui…`）。仅**已标星**才渲染
-                          // （未标星不显示空星 ⇒ 零噪音）；交互入口统一在 `⋯` 菜单的「标星/取消标星」
-                          // （对齐 web `SessionItem.tsx` 把 star 放进 context menu 的口径）。
-                          // ⚠️ 三元保留 `isStarredChat` 真判据（`star_contrast.test.ts` §1 钉"恰好 1 处"）。
-                          if (this.isStarredChat(s.chat_id)) {
-                            SymbolGlyph(this.isStarredChat(s.chat_id)
-                              ? $r('sys.symbol.star_fill') : $r('sys.symbol.star'))
-                              .fontSize(typeOf('type.subhead').size)
-                              .fontColor([this.isStarredChat(s.chat_id) ? this.pal().accent : this.pal().textSecondary])
-                          }
+                          .width(MARKER_GUTTER)
+                          .justifyContent(FlexAlign.Center)
+                          .alignItems(VerticalAlign.Center)
                           Text(this.tabLabel(s.chat_id))
                             .fontSize(typeOf('type.body').size)
                             .fontColor(s.chat_id === this.currentChat ? this.pal().accentText : this.pal().textPrimary)
@@ -8009,10 +8031,12 @@ struct Index {
                       }
                     })
                     // 结构性发丝（⛔ 不是装饰描边）：行与行之间的唯一分隔。
+                    // 左缘**内缩到文字起点**（Apple 的 inset separator：线只从正文起画，前导标记槽那片
+                    // 留白不画线）⇒ 视觉上"线跟着文字走"，与标题左缘形成同一条竖轴。
                     Divider()
                       .strokeWidth(STROKE_HAIRLINE)
                       .color(hairlineOf(this.pal()))
-                      .margin({ left: INSET_ROW_X, right: INSET_ROW_X })
+                      .margin({ left: INSET_ROW_X + MARKER_GUTTER + SPACE_XS, right: INSET_ROW_X })
                   }
                   .width('100%')
                 }

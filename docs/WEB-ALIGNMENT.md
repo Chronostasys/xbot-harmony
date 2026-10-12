@@ -1931,5 +1931,46 @@ this.userScrollFrame = false; this.followBottom = nextFollowBottom(this.followBo
 `if (!this.followBottom) {`；并断言 `markUserScrollFrame(`/`nextFollowBottom(` 仍被消费 —— 防死代码）。
 **性能预算**：无新增 `pal()/palOnce()` 字面。
 
+---
+
+## §21.33 目标③ 侧栏（第七批）：**前导标记槽**修「标题参差」+ 组头同轴 + 分隔线内缩（2026-10-12）
+
+**发现方式（先量后改）**：真机 `dumpLayout` 逐行取**左缘 x**，同一帧里就抓到三种值 ——
+组头「今天」**97** · 静息行「xbot-harmony」**80** · 跑动行「harmony-ui-dev」**134**。
+差 16vp 的根因是**条件渲染**：状态点/星标写成 `if (running) { Row().width(SPACE_XS)… }` ⇒
+**有标记的行把标题顶右**、无标记的贴左。整个列表读起来"参差不齐"（Apple 列表的行文字
+**恒在同一条竖轴上**）。用户 2026-10-12 亲报的「侧边栏丑的要死」，这是其中一条**可量化**的硬伤。
+
+| # | 缺陷（真机实证） | 处置 |
+|---|---|---|
+| ① | 行标题左缘随"有无状态点/星标"变化（**80 vs 134**，差 16vp） | 新增语义 token **`MARKER_GUTTER`(= `SPACE_XL` 24) + 恒占位前导槽**（内容可空、槽内居中）⇒ 点/星/空**三态标题左缘一致** |
+| ② | 组头标题与行标题**不同轴**（组头 97 / 行 80）—— 箭头在流内、且组头内边距用 `SPACE_XXS`(4) 而行用 `INSET_ROW_X`(12) | 折叠箭头**住进同一槽**（`MARKER_GUTTER`）+ 组头内边距改 `INSET_ROW_X` ⇒ 组头与行标题**同轴**（实测双双 **188**） |
+| ③ | 行分隔线从**行内容左缘**起画（80），与文字起点（188）错位；Apple 是 inset separator（线只从正文起画） | `.margin({ left: INSET_ROW_X + MARKER_GUTTER + SPACE_XS })` ⇒ 实测 **188 → 1079**（= 文字起点 → 行尾 `⋯` 右缘） |
+| ④ | 筛选条**同一行的两个并列控件标签不同档**：分段控件 `type.caption`(12)、渠道 chip `type.micro`(10)（真机量测文字高 47px vs 40px） | 渠道 chip 标签与 icon 提 caption(12)（真机实测 chip 文字宽 68 → **81**） |
+
+**为什么 `MARKER_GUTTER` 取 24（`SPACE_XL`）而不是"随便一个够宽的值"**：槽内**最坏内容**
+= 运行中 **且** 已标星 = 状态点 `SPACE_XS`(8) + 光学半档 `SPACE_HAIR`(2) + 星标
+`typeOf('type.subhead').size`（`FS_BODY`-1 = **13**）= **23 ≤ 24** ✔。这条**已写成判据**
+（改小槽宽必红 —— 槽内挤压会让标记溢出、标题又位移，属变相回归）。
+
+**判据（演进，⛔ 不删除）**：`status_sheet_drawer.test.ts` 新增 **§4f**（9 条，48 → **57**）：
+① 标记槽块可定位（零扫描判红）；② `has('.width(MARKER_GUTTER)')` + `justifyContent(FlexAlign.Center)`；
+③ **槽宽 ≥ 最坏内容**（算式写在断言名里，用 `typeOf` 反查真源，⛔ 不硬编码 13）；
+④ 全文件 `.width(MARKER_GUTTER)` **恰 2 处**（行 + 组头；少一处 ⇒ 组头又跑偏，多一处 ⇒ 有人另造槽）；
+⑤ 分隔线 margin 串逐字钉；⑥ 组头内边距 = `INSET_ROW_X` 双钉；⑦ `design.ets` 里
+`export const MARKER_GUTTER: number = SPACE_XL;`（⛔ 页面不许写死数字）。
+
+**mutation 自证**（用测试自带 `SSD_INDEX_SRC` 指向副本，⛔ 不动真树）：把行内标记槽
+（`.width(MARKER_GUTTER)` 三行）删回条件渲染 ⇒ **`54 passed, 3 failed`（exit 1）**；
+同副本不注入 ⇒ **`57 passed, 0 failed`**（方向两侧都验过）。
+
+**判据取得**：`tools/gate.sh` ⇒ **`✅ 真门禁全绿` + `GATE_EXIT=0`**（④ `BUILD SUCCESSFUL in 24 s 789 ms`）；
+离线 **290 个测试文件 0 失败**；性能预算**逐条未越线**（A 线 `this.pal()` **1242**/1250 · B 线
+**1342**/1350 · ForEach **107**/107 —— 三值均与上批**逐字节相同**，因本轮只加结构、未新增取色面）。
+**真机复核**（`deploy.sh` ⇒ `DEPLOY_EXIT=0`，`dumpLayout`）：组头「今天/昨天/更早」、
+跑动行「harmony-ui-dev」、静息行「xbot-harmony/web-1」、以及「收到-简短回复/Agent-keen-*」
+**左缘一律 188**；分隔线 **188 → 1079**；渠道 chip 文字宽 68 → 81。
+
+
 
 

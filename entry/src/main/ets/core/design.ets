@@ -68,6 +68,20 @@ export const INSET_CARD_Y: number = SPACE_SM;
 export const INSET_ROW_X: number = SPACE_SM;
 /** 列内行垂直内边距（44 命中区靠行高+padding 共同达成，见 §6）。 */
 export const INSET_ROW_Y: number = SPACE_XS;
+/**
+ * 列内行的**前导标记槽**宽度（会话行的状态点/星标、分组头的折叠箭头都住在这里）。
+ *
+ * 为什么必须有这个槽（2026-10-12 真机 dump 实证）：此前标记是**条件渲染**（`if (running)`
+ * 才画状态点），于是「有标记的行」标题被顶到右侧、而「无标记的行」标题贴左 —— 真机量测
+ * 同屏内标题左缘 **80px vs 134px（差 16vp）**，整列读起来是"参差不齐"的（Apple 列表的
+ * 行文字**恒在同一条竖轴上**）。
+ * ⇒ 槽**恒定占位**、内容可空 ⇒ 标题左缘与标记有无**无关**。
+ *
+ * 取值 = `SPACE_XL`(24)：槽内最坏情形（运行中 **且** 已标星）= 状态点 `SPACE_XS`(8) +
+ * 光学半档 `SPACE_HAIR`(2) + 星标 `type.subhead`.size（`FS_BODY`-1 = **13**）= **23** ≤ 24 ✔。
+ * ⛔ 改小槽宽前先重算这条（槽内会被挤压 ⇒ 标记溢出、标题又位移）。
+ */
+export const MARKER_GUTTER: number = SPACE_XL; // 24
 /** 小徽标/chip 水平内边距。 */
 export const INSET_CHIP_X: number = SPACE_XXS;
 /** 小徽标/chip 垂直内边距（光学半档之上，实际取 2 ⇒ 视觉紧凑）。 */
