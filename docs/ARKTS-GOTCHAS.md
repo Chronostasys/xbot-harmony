@@ -1704,3 +1704,19 @@ Error Message: Argument of type '(offset: number, state: ScrollState, source: Sc
 **排查手法（有用）**：报 `is not assignable to parameter of type 'XxxCallback'` ⇒ 直接
 `grep -n "declare type XxxCallback" $OHOS_SDK/default/openharmony/ets/component/*.d.ts` 拿逐字签名，
 别靠记忆或从别处抄。
+
+## 批次 32：`Scroll` 的内容**默认垂直居中** ⇒ 短内容被顶到面板正中间（15z10，2026-10-13）
+
+**症状（真机截图取证）**：文件面板预览一个 **109 B** 的 `.ts` 文件 ⇒ 代码块被画在
+**面板正中间**，上下各留半屏空白 —— 看着像"只加载了一半 / 还没加载完"（用户会以为坏了）。
+
+**根因**：ArkUI `Scroll` 的**内容对齐默认是 `Center`**（不是 `Start`）。`Scroll` 的
+`.layoutWeight(1)` 只给它高度，内容在其中**居中**摆放。长文档看不出来（内容撑满 ⇒ 没得居中），
+**短内容才暴露** —— 所以这类缺陷特别容易漏（我们自己的 markdown 预览分支同样中招，只是
+docs 都够长没被发现）。
+
+**修法**：凡是"内容应从顶部开始"的滚动区（文件预览、文档预览、任何 `Scroll` 包内容块）
+一律显式 `.align(Alignment.TopStart)`。横向滚动区同理（`Alignment.TopStart` 或 `Start`）。
+
+**判据**：暂无自动判据（形态上"没写 `.align`"与"想居中"无法区分）；靠**装机看短内容**
+（本仓 `tools/tests/*` 覆盖不到渲染位置）。📷 取证：`109 B` 的 `hvigorfile.ts` 预览。

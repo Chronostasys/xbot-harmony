@@ -279,3 +279,56 @@ export function fsListBody(path: string, showHidden: boolean): FsListBody {
 export function fsHiddenToggleLabel(show: boolean): string {
   return show ? '不显示隐藏文件' : '显示隐藏文件';
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 代码预览（非图片/非 markdown 的文本文件）
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * 代码预览的语言标识：**服务端 `language` 优先**（`/api/fs/read` 由后端按扩展名/内容判定），
+ * 缺失时回落本仓 `extOf(name)`（大小写已归一）。两者都空 ⇒ 空串（`prismLangName` 会回落纯文本）。
+ *
+ * ⛔ 单一判据：组件**不自己**判断后缀（与 `fileKindOf` 同一模块）。
+ */
+export function fsCodeLanguage(name: string, language: string): string {
+  const l: string = language !== undefined && language !== null ? language.trim() : '';
+  if (l.length > 0) {
+    return l.toLowerCase();
+  }
+  return extOf(name);
+}
+
+/**
+ * 把文件内容包成 **markdown 围栏代码块**，用于复用聊天侧**同一套**代码渲染
+ * （Prism4j 高亮 / 复制条 / `wrapCode` 溢出策略 / 圆角沉底）——⛔ 面板不另写一个"文件代码视图"。
+ *
+ * ⛔ **围栏长度必须自证安全**：内容里若自带 `` ``` `` 会把围栏提前闭合 ⇒ 后半段被当正文解析
+ *   （最坏情况：整块高亮崩掉、行号错位）。`CommonMark` 规定「围栏长度 ≥ 内容中任意反引号串」
+ *   ⇒ 这里取 `max(3, 最长连续反引号串 + 1)`，并统一用反引号（内容含 `~~~` 不影响）。
+ */
+export function fsCodeFence(name: string, language: string, content: string): string {
+  const lang: string = fsCodeLanguage(name, language);
+  const body: string = content !== undefined && content !== null ? content : '';
+  let run: number = 0;
+  let best: number = 0;
+  for (let i = 0; i < body.length; i++) {
+    if (body.charAt(i) === '`') {
+      run = run + 1;
+      if (run > best) {
+        best = run;
+      }
+    } else {
+      run = 0;
+    }
+  }
+  let fenceLen: number = best + 1;
+  if (fenceLen < 3) {
+    fenceLen = 3;
+  }
+  let fence: string = '';
+  for (let i = 0; i < fenceLen; i++) {
+    fence = `${fence}\``;
+  }
+  const tail: string = body.length > 0 && body.charAt(body.length - 1) === '\n' ? '' : '\n';
+  return `${fence}${lang}\n${body}${tail}${fence}\n`;
+}

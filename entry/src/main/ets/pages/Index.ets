@@ -608,6 +608,14 @@ struct Index {
   @State fsPreviewLoading: boolean = false;
   @State fsPreviewIsImage: boolean = false;
   @State fsPreviewImageUrl: string = '';
+  /** 预览语言（`/api/fs/read` 的 `language`；代码预览据此选 Prism4j 语法）。 */
+  @State fsPreviewLanguage: string = '';
+  /**
+   * 预览通知（非空 ⇒ 面板显示居中通知态，**不显示正文**）。
+   * 用于「二进制文件」「未连接服务端」「读取失败」—— 这些**不是文件内容**
+   * （旧实现把它们塞进正文 Text ⇒ 看着像文件真的写着那句话）。
+   */
+  @State fsPreviewNotice: string = '';
   @State showSelfCheck: boolean = false;
   /** 各页版面几何的**屏幕可见文本**（无需网络：截一张图即可把数值带给我） */
   /**
@@ -3216,6 +3224,8 @@ struct Index {
     const store: ChatStore | null = this.store;
     this.fsPreviewPath = filePath;
     this.fsPreviewText = '';
+    this.fsPreviewNotice = '';
+    this.fsPreviewLanguage = '';
     this.fsPreviewIsImage = kind === FK_IMAGE;
     this.fsPreviewImageUrl = kind === FK_IMAGE
       ? `/api/fs/raw?path=${encodeURIComponent(filePath)}` : '';
@@ -3223,15 +3233,21 @@ struct Index {
       return;    // 图片：字节走 AuthImage（`/api/fs/raw` 是字节流，读文本无意义）
     }
     if (store === null) {
-      this.fsPreviewText = '未连接服务端';
+      this.fsPreviewNotice = '未连接服务端';
       return;
     }
     this.fsPreviewLoading = true;
     try {
       const r: FsReadResult = await store.readFs(filePath);
-      this.fsPreviewText = r.isBinary ? '二进制文件，无法以文本预览' : r.content;
+      if (r.isBinary) {
+        // ⛔ 二进制：**通知态**（不是文件内容）—— 旧实现写进 `previewText` ⇒ 代码视图里像源代码
+        this.fsPreviewNotice = '二进制文件，无法以文本预览';
+      } else {
+        this.fsPreviewText = r.content;
+        this.fsPreviewLanguage = r.language !== undefined && r.language !== null ? r.language : '';
+      }
     } catch (err) {
-      this.fsPreviewText = '文件读取失败，请重试';
+      this.fsPreviewNotice = '文件读取失败，请重试';
     }
     this.fsPreviewLoading = false;
   }
@@ -3239,6 +3255,8 @@ struct Index {
   private closeFsPreview(): void {
     this.fsPreviewPath = '';
     this.fsPreviewText = '';
+    this.fsPreviewNotice = '';
+    this.fsPreviewLanguage = '';
     this.fsPreviewIsImage = false;
     this.fsPreviewImageUrl = '';
   }
@@ -4074,6 +4092,8 @@ struct Index {
             error: this.fsError,
             previewPath: this.fsPreviewPath,
             previewText: this.fsPreviewText,
+            previewLanguage: this.fsPreviewLanguage,
+            previewNotice: this.fsPreviewNotice,
             previewLoading: this.fsPreviewLoading,
             previewIsImage: this.fsPreviewIsImage,
             previewImageUrl: this.fsPreviewImageUrl,

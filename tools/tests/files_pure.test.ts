@@ -17,6 +17,7 @@ import {
   extOf, fileKindOf, parentPath, joinFsPath, sortFsEntries, fmtSize, fmtAgo, fsCrumbs,
   fsListBody, fsHiddenToggleLabel,
   filterFsEntries, fsFilterEmptyText, fsFilterPlaceholder,
+  fsCodeLanguage, fsCodeFence,
   FK_DIR, FK_IMAGE, FK_MARKDOWN, FK_TEXT, FsFileEntry,
 } from '../../entry/src/main/ets/core/files';
 
@@ -145,6 +146,32 @@ eq('★ 空态：有查询 ⇒ 明说没匹配（带查询原文）',
   fsFilterEmptyText('zzz'), '没有匹配「zzz」的条目');
 ok('★ 空态：两种情形文案不同', fsFilterEmptyText('') !== fsFilterEmptyText('zzz'));
 ok('★ 占位文案非空（输入框必须有可读提示）', fsFilterPlaceholder().length > 0);
+
+// ── 代码预览（围栏块复用聊天渲染）─────────────────────────────────────────────
+eq('★ 语言：服务端 language 优先', fsCodeLanguage('a.py', 'Python'), 'python');
+eq('★ 语言：服务端缺失 ⇒ 回落扩展名', fsCodeLanguage('a.ETS', ''), 'ets');
+eq('★ 语言：两者皆空 ⇒ 空串（回落纯文本）', fsCodeLanguage('Makefile', ''), '');
+eq('★ 语言：服务端纯空白视同缺失', fsCodeLanguage('a.ts', '   '), 'ts');
+// 围栏：普通内容 ⇒ 3 反引号 + 语言 + 内容 + 收尾（`a` 无扩展名 ⇒ 语言为空）
+eq('★ 围栏：标准形态', fsCodeFence('a', '', 'x = 1\n'), '```\nx = 1\n```\n');
+eq('★ 围栏：带上语言', fsCodeFence('a.py', 'python', 'x = 1\n'), '```python\nx = 1\n```\n');
+eq('★ 围栏：内容无尾换行 ⇒ 补一个（否则收尾栅栏与末行粘连）',
+  fsCodeFence('a', '', 'x'), '```\nx\n```\n');
+// ⛔ 安全：内容自带 3 反引号 ⇒ 围栏必须加长到 4（否则提前闭合、后半段被当正文）
+eq('★ 围栏：内容含 ``` ⇒ 围栏升为 4（不提前闭合）',
+  fsCodeFence('a', '', 'a\n```\nb\n'), '````\na\n```\nb\n````\n');
+eq('★ 围栏：内容含 5 反引号连续串 ⇒ 围栏升为 6',
+  fsCodeFence('a', '', '`````\n'), '``````\n`````\n``````\n');
+ok('★ 围栏：升长后首尾长度一致且 = 内容最长串 + 1',
+  (() => {
+    const s = fsCodeFence('a', '', '`````\n');
+    const first = s.slice(0, s.indexOf('\n')).length;
+    const rest = s.slice(s.indexOf('\n') + 1);
+    const second = rest.slice(rest.lastIndexOf('\n', rest.length - 2) + 1, rest.length - 1).length;
+    return first === 6 && second === 6;
+  })());
+ok('★ 围栏：空内容不炸（返回空代码块）', fsCodeFence('a.txt', '', '').indexOf('```') === 0);
+
 
 if (fail > 0) {
   console.log(`  ✗ files_pure: ${pass} passed, ${fail} failed`);

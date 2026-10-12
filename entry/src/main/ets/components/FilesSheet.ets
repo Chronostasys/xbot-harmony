@@ -19,13 +19,14 @@
  */
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import {
-  baseNameOf, filterFsEntries, FK_DIR, FK_IMAGE, FK_MARKDOWN, FsCrumb, FsFileEntry, fileKindOf, fmtSize,
+  baseNameOf, filterFsEntries, FK_DIR, FK_IMAGE, FK_MARKDOWN, FsCrumb, FsFileEntry,
+  fileKindOf, fmtSize, fsCodeFence, fsCodeLanguage,
   fsCrumbs, fsFilterEmptyText, fsFilterPlaceholder,
   fsHiddenToggleLabel, joinFsPath,
 } from '../core/files';
 import {
   colorOf, hairlineOf, HIT_TARGET_MIN, INSET_ROW_X, PRESS_OPACITY, RADIUS_CARD, RADIUS_CHIP, RADIUS_SHEET,
-  SHEET_ACTION_GLYPH, SPACE_MD,
+  SHEET_ACTION_GLYPH, SPACE_LG, SPACE_MD,
   SPACE_SM, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD, surfaceFillOf, ICON_MD, typeOf,
 } from '../core/design';
 // 本面板是**侧栏**（不是底部面板）⇒ 走 `drawerTransition()`（横向滑入），与 `DrawerSheet` 同语义；
@@ -83,6 +84,54 @@ function entrySymbol(kind: string): Resource {
   return $r('sys.symbol.doc_text');
 }
 
+/**
+ * 面板级「空/加载/失败」态（**对标 Apple** 的统一长相：大号弱化字形 + 说明 + 居中）。
+ *
+ * ⛔ 必须是**真 `@Component` + `@Prop`**，不能用带参 `@Builder`：过滤无命中时用户继续打字
+ *   ⇒ 分支条件（`filtered.length === 0`）不变、只有文案变；`@Builder` 的参数是"调用那一刻的快照"
+ *   ⇒ 文案会**卡在首帧**（本仓血债，见 `docs/ARKTS-GOTCHAS.md`）。
+ */
+@Component
+struct FsNotice {
+  @Prop theme: string = 'dark';
+  @Prop icon: Resource = $r('sys.symbol.folder');
+  @Prop text: string = '';
+  /** 文案色调：`secondary`（空/加载，弱）或 `danger`（失败）。 */
+  @Prop tone: string = 'secondary';
+
+  private palOnce(): Palette {
+    return paletteOf(this.theme);
+  }
+
+  /**
+   * 一次取色换两个站点（性能预算 B 线：全仓 `this.palOnce()` 调用点**只许减**）。
+   * 返回 `[iconColor, textColor]`；`this.palOnce()` 字面量在本文件恒 **1** 处。
+   */
+  private noticeColors(): string[] {
+    const p: Palette = this.palOnce();
+    return [colorOf(p, 'iconMuted'), this.tone === 'danger' ? p.dangerText : p.textMuted];
+  }
+
+  build() {
+    Column({ space: SPACE_SM }) {
+      SymbolGlyph(this.icon)
+        .fontSize(typeOf('type.display').size)
+        .fontColor([this.noticeColors()[0]])
+      Text(this.text)
+        .fontSize(typeOf('type.callout').size)
+        .fontColor(this.noticeColors()[1])
+        .width('100%')
+        .textAlign(TextAlign.Center)
+        .maxLines(4)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+    }
+    .width('100%')
+    .layoutWeight(1)
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+  }
+}
+
 @Component
 export struct FilesSheet {
   @Prop theme: string = 'dark';
@@ -107,6 +156,14 @@ export struct FilesSheet {
   /** 预览态：非空 ⇒ 面板切到单文件视图。 */
   @Prop previewPath: string = '';
   @Prop previewText: string = '';
+  /** 预览文件的**语言标识**（`/api/fs/read` 的 `language`；代码预览用它选 Prism4j 语法）。 */
+  @Prop previewLanguage: string = '';
+  /**
+   * 预览态的**通知文案**（非空 ⇒ 显示居中通知态而不是文件正文）。
+   * 用途：二进制文件 / 未连接 / 读取失败 —— 这些**不是文件内容**，塞进代码视图里会误导
+   * （用户会以为文件真的写着那句话）。判据：文案由页面给（面板不猜）。
+   */
+  @Prop previewNotice: string = '';
   @Prop previewLoading: boolean = false;
   @Prop previewIsImage: boolean = false;
   /** 图片预览 URL（`/api/fs/raw?path=...`；空 = 非图片）。 */
@@ -403,24 +460,20 @@ export struct FilesSheet {
         }
 
         // ── 目录列表 ────────────────────────────────────────────────────────
+        // 三态一律走面板级统一长相（`FsNotice`：大号弱化字形 + 说明 + 居中，对标 Apple）。
         if (this.loading) {
-          Text('读取目录…')
-            .fontSize(typeOf('type.subhead').size)
-            .fontColor(this.tint('secondary'))
-            .width('100%')
-            .padding({ top: SPACE_MD, bottom: SPACE_MD })
+          FsNotice({ theme: this.theme, icon: $r('sys.symbol.folder'), text: '读取目录…', tone: 'secondary' })
         } else if (this.error.length > 0) {
-          Row({ space: SPACE_SM }) {
-            Text(this.error)
-              .fontSize(typeOf('type.subhead').size)
-              .fontColor(this.tint('danger'))
-              .layoutWeight(1)
-              .maxLines(2)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          // 失败态：字形 + 红字 + 重试（重试是**独立热区 ≥44**，不再挤在文案行尾）
+          Column({ space: SPACE_MD }) {
+            FsNotice({
+              theme: this.theme, icon: $r('sys.symbol.exclamationmark_triangle'),
+              text: this.error, tone: 'danger',
+            })
             Text('重试')
-              .fontSize(typeOf('type.subhead').size)
+              .fontSize(typeOf('type.callout').size)
               .fontColor(this.tint('accentSoft'))
-              .padding({ left: SPACE_SM, right: SPACE_SM })
+              .padding({ left: SPACE_MD, right: SPACE_MD })
               .constraintSize({ minHeight: HIT_TARGET_MIN })
               .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
@@ -428,13 +481,19 @@ export struct FilesSheet {
               })
           }
           .width('100%')
-          .alignItems(VerticalAlign.Center)
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
+          .padding({ bottom: SPACE_LG })
         } else if (this.filtered.length === 0) {
-          Text(fsFilterEmptyText(this.filterQuery))
-            .fontSize(typeOf('type.subhead').size)
-            .fontColor(this.tint('secondary'))
-            .width('100%')
-            .padding({ top: SPACE_MD, bottom: SPACE_MD })
+          // 过滤无命中 ⇒ `magnifyingglass`；真空目录 ⇒ `folder`（判据：文案由 `core/files` 给，
+          // 但**图标**必须与"是否在过滤"一致，否则"没有匹配」却画个文件夹，误导）
+          FsNotice({
+            theme: this.theme,
+            icon: this.filterQuery.length > 0 ? $r('sys.symbol.magnifyingglass') : $r('sys.symbol.folder'),
+            text: fsFilterEmptyText(this.filterQuery),
+            tone: 'secondary',
+          })
         } else {
           List() {
             LazyForEach(this.ds, (e: FsFileEntry) => {
@@ -481,11 +540,14 @@ export struct FilesSheet {
       } else {
         // ── 单文件预览 ──────────────────────────────────────────────────────
         if (this.previewLoading) {
-          Text('读取文件…')
-            .fontSize(typeOf('type.subhead').size)
-            .fontColor(this.tint('secondary'))
-            .width('100%')
-            .padding({ top: SPACE_MD })
+          // 加载态 = 面板级统一长相（`doc_text` + 一行说明 + 居中）
+          FsNotice({ theme: this.theme, icon: $r('sys.symbol.doc_text'), text: '读取文件…', tone: 'secondary' })
+        } else if (this.previewNotice.length > 0) {
+          // 「这不是文件内容」的通知（二进制/未连接/读取失败）——⛔ 绝不塞进代码视图（会谎报文件内容）。
+          FsNotice({
+            theme: this.theme, icon: $r('sys.symbol.exclamationmark_triangle'),
+            text: this.previewNotice, tone: 'secondary',
+          })
         } else if (this.previewIsImage) {
           if (this.previewImageUrl.length > 0) {
             Column() {
@@ -503,16 +565,21 @@ export struct FilesSheet {
             .layoutWeight(1)
             .width('100%')
           } else {
-            Text('图片加载中…')
-              .fontSize(typeOf('type.subhead').size)
-              .fontColor(this.tint('secondary'))
-              .width('100%')
-              .padding({ top: SPACE_MD })
+            FsNotice({ theme: this.theme, icon: $r('sys.symbol.picture'), text: '图片加载中…', tone: 'secondary' })
           }
-        } else if (fileKindOf(baseNameOf(this.previewPath), false) === FK_MARKDOWN) {
+        } else {
+          // **文本类（markdown + 代码/纯文本）走同一渲染器**：
+          //   · markdown ⇒ 原样（`MarkdownView` 的文档路径）；
+          //   · 其余 ⇒ 包成**围栏代码块**（`fsCodeFence`）⇒ 直接复用聊天侧同一套
+          //     Prism4j 高亮 / 复制条 / `wrapCode` 溢出策略 —— ⛔ 面板**不另写**一个"文件代码视图"
+          //     （否则同一个 .py 在聊天里高亮、在文件面板里是灰字，全站两副面孔）。
+          //   ⚠️ 行号不做：本仓没有"行号槽 + 横向滚动"的成熟布局，硬上会引入 gutter 随内容横滚的错位
+          //     （宁可没有，也不做一个错的）。
           Scroll() {
             MarkdownView({
-              text: this.previewText,
+              text: fileKindOf(baseNameOf(this.previewPath), false) === FK_MARKDOWN
+                ? this.previewText
+                : fsCodeFence(baseNameOf(this.previewPath), this.previewLanguage, this.previewText),
               theme: this.theme,
               mdTheme: this.mdTheme,
               fontScale: this.fontScale,
@@ -522,18 +589,9 @@ export struct FilesSheet {
           .layoutWeight(1)
           .width('100%')
           .scrollBar(BarState.Off)
-        } else {
-          Scroll() {
-            Text(this.previewText)
-              .fontSize(typeOf('type.subhead').size)
-              .fontFamily('monospace')
-              .fontColor(this.tint('text'))
-              .textAlign(TextAlign.Start)
-              .width('100%')
-          }
-          .layoutWeight(1)
-          .width('100%')
-          .scrollBar(BarState.Off)
+          // ⛔ `Scroll` 的内容**默认垂直居中**（真机取证：109B 的小文件被顶到面板正中间，
+          //    上下各留半屏空白，看着像"没加载完"）⇒ 文件预览必须**顶对齐**（Apple 文件查看器同）。
+          .align(Alignment.TopStart)
         }
       }
     }
