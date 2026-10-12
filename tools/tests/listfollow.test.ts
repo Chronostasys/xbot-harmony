@@ -9,7 +9,7 @@
 declare const process: { exit: (c: number) => void };
 
 import { describe, expect, it, summary } from './vitest_shim';
-import { listItemCount, nextFollowBottom, shouldAutoScroll, followSuppressUntil, FOLLOW_SUPPRESS_MS, markUserScrollFrame } from '../../entry/src/main/ets/core/listfollow';
+import { listItemCount, nextFollowBottom, shouldAutoScroll, followSuppressUntil, FOLLOW_SUPPRESS_MS, markUserScrollFrame, followAfterScrollStop } from '../../entry/src/main/ets/core/listfollow';
 
 let pass = 0;
 let fail = 0;
@@ -201,6 +201,48 @@ describe('程序滚动抢 flag 的竞态（2026-10-12 真机缺陷）', () => {
     eq('用户滚回底部 ⇒ 恢复跟随', nextFollowBottom(follow, true, 9, 10), true);
     // ④ 用户只是往上滚、未到底（用户帧）⇒ 仍暂停
     eq('用户未到底 ⇒ 仍暂停', nextFollowBottom(false, true, 3, 10), false);
+  });
+});
+
+// ── 滚回底部「回到最新」药丸复位（2026-10-12 用户真机亲报）──────────────────────────
+// 真机复现：上滑回历史（药丸出现）→ 滑回**末项**停手，药丸**仍在**（列表已贴底）。
+// 根因：`onWillScroll` 对每个用户帧置 `followBottom=false`（含贴底的**回弹/惯性帧**），
+//   而 `onScrollIndex` **只在可见索引区间变化**时回调 ⇒ 末帧"已贴底但索引未变"无人复位。
+// 修法：`onScrollStop` + `Scroller.isAtEnd()`（**位置**判据，与索引区间无关）⇒ `followAfterScrollStop`。
+// 判别力（mutation）：把 `followAfterScrollStop` 改成恒 `return prev` ⇒ 第 ① 条立即红。
+describe('滚回底部 ⇒ 「回到最新」药丸复位（2026-10-12 用户真机亲报）', () => {
+  it('贴底停止 ⇒ 恢复跟随（药丸消失）；停在中途 ⇒ 保持用户意图', () => {
+    // ① 复现场景：用户滚回最底部停手 ⇒ 必须恢复跟随（否则药丸常驻）
+    eq('贴底停止 ⇒ 恢复跟随（药丸消失）', followAfterScrollStop(false, true), true);
+    // ② 反向：用户刻意停在中途（未贴底）⇒ ⛔ 不得被拽回底部、药丸保留
+    eq('未贴底停止 ⇒ 保持暂停（药丸保留）', followAfterScrollStop(false, false), false);
+    // ③ 已在跟随 ⇒ 不因停止滚动而反转
+    eq('跟随时贴底停止 ⇒ 仍跟随', followAfterScrollStop(true, true), true);
+    eq('跟随时未贴底停止 ⇒ 保持跟随意图', followAfterScrollStop(true, false), true);
+  });
+});
+
+// ── 恢复跟随必须用精确位置判据（`Scroller.isAtEnd()`），索引判据会"人机对抗"（2026-10-12）──
+// 真机场景：**流式**期间末项 = 在飞 live 行（思考 + 打字机正文），可**高到占满整个视口**
+//   ⇒ 用户在该行**内部**往上滚时 `end === itemCount-1` 仍成立（末项始终可见）
+//   ⇒ 索引判据误判"已回底" ⇒ 恢复跟随 ⇒ 自动滚动把用户**强行拉回底部**（用户亲报的"人机对抗"）。
+//   `isAtEnd()` 判的是**偏移量到底**、与"末项是否可见"无关 ⇒ 只有真滚到底才恢复。
+// 判别力（mutation）：删掉 `if (atEnd !== undefined) return atEnd;`（恒走索引判据）⇒ 第 ① 条红。
+describe('恢复跟随用精确位置判据 isAtEnd（索引判据在"高 live 行"下会误判 ⇒ 人机对抗）', () => {
+  it('① 末项可见但**未**真滚到底 ⇒ ⛔ 不得恢复跟随', () => {
+    eq('索引判据说"到底"、位置说"没到底" ⇒ 不恢复（防人机对抗）',
+      nextFollowBottom(false, true, 9, 10, false), false);
+  });
+  it('② 真的滚到底（isAtEnd()=true）⇒ 恢复跟随', () => {
+    eq('位置判据说"到底" ⇒ 恢复', nextFollowBottom(false, true, 4, 10, true), true);
+  });
+  it('③ 程序滚动（userDriven=false）⇒ 无论位置如何都不改写用户意图', () => {
+    eq('程序帧 + 到底 ⇒ 保持 prev=false', nextFollowBottom(false, false, 9, 10, true), false);
+    eq('程序帧 + 未到底 ⇒ 保持 prev=true', nextFollowBottom(true, false, 3, 10, false), true);
+  });
+  it('④ 无 scroller（省略 atEnd）⇒ 回退索引判据（旧行为/回归用例不变）', () => {
+    eq('省略 atEnd、末项可见 ⇒ 索引判据 true', nextFollowBottom(false, true, 9, 10), true);
+    eq('省略 atEnd、未到底 ⇒ 暂停', nextFollowBottom(false, true, 3, 10), false);
   });
 });
 

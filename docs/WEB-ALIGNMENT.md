@@ -2546,3 +2546,75 @@ A **1246**/1250 · **B 1350**/1350 · ForEach **107**/107；⑧ 无未消费 cor
 与正文不同（表格是结构件、含长 token 概率高）⇒ 本批**不动**，留待逐面评估（台账已把它们钉住，
 只会更严不会更松）。
 
+## §21.45 会话滚动/跟随四项真机缺陷（目标②，2026-10-12，用户装机后连报）
+
+这一批**全部是用户真机亲报**，且全落在同一条交互主脊（会话阅读时的滚动/跟随），
+体现出同一类根因：**用"事件"推断"意图"，而事件的语义与意图并不等价**。
+
+### ① 「回到最新」滚回最下方不消失
+**复现（真机截图实证）**：上滑回历史 ⇒ 药丸出现；滑回末项停手 ⇒ 药丸**仍在**（列表已贴底）。
+**根因**：`onWillScroll` 对**每个用户帧**置 `followBottom=false`（含贴底后的**回弹/惯性帧**），
+而 `onScrollIndex` **只在可见索引区间变化时**才回调 ⇒ 末帧"已贴底但索引未变"时**无人复位**。
+**修法**：`.onScrollStop` + `Scroller.isAtEnd()`（**位置**判据，SDK `scroll.d.ts:552-566`
+"Checks whether the component has scrolled to the bottom"），判据落纯函数
+`core/listfollow.ets:followAfterScrollStop`。装机验证：v1（上滑 ⇒ 出现）/ v2（滚回底 ⇒ **消失**）。
+
+### ② 流式上滚"人机对抗、被强行拉回底下"
+**根因**：恢复跟随走的是**索引判据** `end >= itemCount-1` —— 它只说明"**末项可见**"，
+**不等于**"滚动位置到底"。流式期间**末项 = 在飞 live 行**（思考 + 打字机正文），
+可**高到占满整个视口**；用户在该行**内部**往上滚时末项**始终可见** ⇒ 索引判据恒 true
+⇒ 误判"已回底" ⇒ 恢复跟随 ⇒ 自动滚动把用户拽回（正是"人机对抗"）。
+**修法**：`nextFollowBottom` 增第 5 实参 `atEnd?`（**精确位置判据**优先，省略才回退索引判据），
+页面传 `this.listScroller.isAtEnd()`。
+
+### ③ 发送后不收键盘、视角不滚到最下方
+`sendDraft` 发完**什么都不做**：键盘不主动收；视角由 `shouldAutoScroll` 决定，
+而用户若刚上滚过（意图=暂停）⇒ **不滚**。
+**修法**：发送那一刻置 `followBottom=true`（语义 = 主动发消息必然想看最新，与切会话同源）
++ `dismissKeyboard()`（`UIContext.getFocusController().clearFocus()`，SDK
+`@ohos.arkui.UIContext.d.ts:3239-3250`）+ `scrollEdge(Edge.Bottom)`。
+⛔ 不新增定时器（性能预算 `setTimeout` 7/7 已满）。
+
+### ④ 弹性过滚动期间药丸"闪现"（本轮最深的一处）
+**用户原话**：「药丸只在**刚好**在最下方才不渲染；容器有弹性，**向下过滚动时它还会出现**，
+自动回正之后才消失」。
+**根因（两层）**：
+1. `isUserScrollSource` 把 `ScrollSource.EDGE_EFFECT` 算成用户输入 —— 而 SDK
+   `component/enums.d.ts:3928-3936` 原文是 **"Over scroll with EdgeEffect.Spring"**
+   （弹性回弹**动画帧**，不是手势）；
+2. 更要命：**弹性过滚动期间 `Scroller.isAtEnd()` 判假**（本轮装机实测：过滚动瞬间药丸照闪、
+   回正才消失）⇒ **任何"用 `isAtEnd()` 当暂停闸门"的写法都堵不住**（第一版本就这么写的，实测无效）。
+**修法（职责分离）**：
+- ㈠ `EDGE_EFFECT` **移出**用户源（SDK 定性）；
+- ㈡ 药丸显示加**贴底位置闸门** `core/indicators.ets:showsJumpToLatest(..., atEnd?)`——闸门值 =
+  页面在 **`onScrollStop` 采样**的 `@State atEndUi`（停止**前**的位置不随过滚动帧变化
+  ⇒ 过滚动/回弹全程闸门恒"在底部" ⇒ **不闪**）；
+- ㈢ `onWillScroll` 的暂停保持**立即**（⛔ 不拿不可靠的 `isAtEnd()` 当暂停条件）；
+  用户真的上滚**并停下** ⇒ 同一 `onScrollStop` 里 `atEndUi` 变 false ⇒ 药丸照常出现。
+**装机验证**：g1（贴底过滚动瞬间）**无药丸**（对比修前 o1 同场景药丸在）；g4（上滚回历史）
+药丸**正常出现**（回归无碍）。
+
+### 判据（全部含 mutation 自证）
+- `tools/tests/listfollow.test.ts`（**57 passed**）新增两组：药丸复位（4 条）；恢复必须用精确位置判据
+  （**末项可见但未真到底 ⇒ ⛔ 不恢复** —— 正是人机对抗的形态；真到底 ⇒ 恢复；程序帧不改写意图；
+  省略 `atEnd` 回退索引判据 —— 6 条）。**mutation ×2**：㈠ `followAfterScrollStop` 恒 `return prev` ⇒ 1 红；
+  ㈡ 删 `if (atEnd !== undefined) return atEnd;` ⇒ 2 红。
+- `tools/tests/overlays.test.ts`（**16 passed**）新增「贴底位置闸门」组（4 条，含"省略 `atEnd` 时
+  行为与两参版**完全一致**"的回归）。**mutation**：删 `if (atEnd === true) return false;` ⇒ 1 红。
+- 三次 mutation 还原后 md5 **逐字节一致**、全部复绿。
+
+### 门禁 / 装机
+`bash tools/gate.sh` ⇒ `BUILD SUCCESSFUL` · **294 测试文件 0 失败** · `core/` 静态检查 103 ✓ ·
+无孤儿组件 ✓ · `✅ 真门禁全绿` · `GATE_EXIT=0`。
+装机：模拟器 `DEPLOY_EXIT=0` + 真机 **HUAWEI Mate 90 Pro Max (CMM-AL10)** `install bundle successfully`。
+
+### 遗留（诚实边界）
+③ 的**行为**终验未走完（模拟器 `inputText` 未落进 `TextArea` ⇒ 没真正完成一次"发送"）；
+ArkTS 编译已覆盖该路径（`getUIContext()`/`clearFocus()` 均真编译通过），行为待下次真机操作确认。
+
+### 经验（写进门禁意识）
+"事件源"≠"用户意图"：`ScrollSource` 里的 **`EDGE_EFFECT` 是动画**；
+`onWillScroll` 会为**回弹/惯性**帧也派发；`onScrollIndex` **只在索引区间变化时**回调
+⇒ **"最后一次回调"未必是"最后一次状态"**。凡"靠回调推断意图"的地方，都要问一句：
+*最后一帧没回调时，谁负责复位？*
+

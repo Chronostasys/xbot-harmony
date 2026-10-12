@@ -27,14 +27,44 @@
  *  ④ 空列表（`itemCount <= 0`）无从判断 ⇒ 保持 prev。
  */
 export function nextFollowBottom(prev: boolean, userDriven: boolean, endIndex: number,
-  itemCount: number): boolean {
+  itemCount: number, atEnd?: boolean): boolean {
   if (!userDriven) {
     return prev;
   }
   if (itemCount <= 0) {
     return prev;
   }
+  // ★ 优先用**精确的位置判据**（`Scroller.isAtEnd()`，调用方从 `onScrollIndex` 传入）。
+  //   为什么索引判据不够（用户 2026-10-12 亲报"流式时上滚被人机对抗、被强行拉回底下"）：
+  //   `endIndex >= itemCount-1` 只说明"**末项可见**"，**不等于**"滚动位置到底"——
+  //   流式期间**末项 = 在飞 live 行**（思考 + 打字机正文），它可以**高到占满整个视口**；
+  //   用户在**它内部**往上滚时末项始终可见 ⇒ 索引判据恒 true ⇒ 误判"已回底" ⇒ 恢复跟随
+  //   ⇒ 自动滚动随即把用户拽回底部（正是"人机对抗"）。`isAtEnd()` 判的是**偏移量到底**，
+  //   与"末项是否可见"无关 ⇒ 只有当用户**真的滚到底**才恢复。
+  //   `atEnd === undefined` 仅供**无 scroller 的纯逻辑/回归用例**回退到索引判据。
+  if (atEnd !== undefined) {
+    return atEnd;
+  }
   return endIndex >= itemCount - 1;
+}
+
+/**
+ * 滚动**停止**后的跟随开关（`onScrollStop` + `Scroller.isAtEnd()`，**位置式**判据）。
+ *
+ * ⛔ 为什么必须补这一路（用户 2026-10-12 真机亲报「滚回最下方，『回到最新』药丸不消失」；
+ *    真机截图实证：列表已停在**末项**，药丸仍常驻）：
+ *    `onWillScroll` 对**每一个用户帧**都置 `followBottom=false`（含**贴底之后**的回弹/惯性帧 ——
+ *    `EdgeEffect.Spring` 在末尾仍产出用户源帧），而 `onScrollIndex` **只在可见索引区间变化时**
+ *    才回调 ⇒ 最后一帧"已贴底但索引未变"时 **没有任何回调去复位** ⇒ 药丸常驻。
+ *    `isAtEnd()` 判的是**滚动位置**（SDK `scroll.d.ts:552-566` 原文：Checks whether the component
+ *    has scrolled to the bottom），与索引区间无关 ⇒ 恰好补上这个缺口。
+ *
+ * 不变量（判别力测试钉死）：
+ *  ① 贴底（`atEnd === true`）⇒ **恒为 true**（恢复跟随 ⇒ 药丸消失、新内容继续跟随）；
+ *  ② 未贴底 ⇒ **保持 prev**（⛔ 不把"用户刻意往上滚停在中途"也拽回底部）。
+ */
+export function followAfterScrollStop(prev: boolean, atEnd: boolean): boolean {
+  return atEnd ? true : prev;
 }
 
 /**

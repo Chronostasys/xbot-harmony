@@ -89,6 +89,29 @@ describe('「↓ 回到最新」判据：贴底/空列表都不显示', () => {
   });
 });
 
+// ── 贴底**位置闸门**（`atEnd` 第三参）：压制弹性过滚动期间的"闪现"（2026-10-12 用户亲报）──
+// 用户原话：「药丸只在**刚好**在最下方才不渲染；容器有弹性，**向下过滚动时它还会出现**，
+//   自动回正之后才消失」。根因：`EdgeEffect.Spring` 过滚动期间滚动帧会把跟随意图置暂停，
+//   而视口其实还在末尾 ⇒ 药丸闪现。闸门 = 页面在**滚动停止**时缓存的 `isAtEnd()`。
+// ⛔ 实测：过滚动期间直接调 `isAtEnd()` 判**假** ⇒ 不能当这一闸门（必须在 onScrollStop 采样）。
+// 判别力（mutation）：删掉 `if (atEnd === true) return false;` ⇒ 第 ① 条立即红。
+describe('「↓ 回到最新」贴底位置闸门（防弹性过滚动闪现）', () => {
+  it('① 暂停 + 有内容，但**视口仍在末尾** ⇒ ⛔ 不显示（防过滚动闪现）', () => {
+    expect(showsJumpToLatest(false, 5, true)).toBe(false);
+  });
+  it('② 暂停 + 有内容 + **确实离开了末尾** ⇒ 显示', () => {
+    expect(showsJumpToLatest(false, 5, false)).toBe(true);
+  });
+  it('③ 省略 atEnd（旧调用点/回归）⇒ 行为与两参版完全一致', () => {
+    expect(showsJumpToLatest(true, 5)).toBe(false);
+    expect(showsJumpToLatest(false, 5)).toBe(true);
+    expect(showsJumpToLatest(false, 0)).toBe(false);
+  });
+  it('④ 跟随时（atBottom=true）闸门不得把药丸"放出来"', () => {
+    expect(showsJumpToLatest(true, 5, false)).toBe(false);
+  });
+});
+
 // ── 「回到最新」呈现形态（目标③ 批13g）：**悬浮提示**，不占布局行 ──────────────────────
 // 用户亲报：「回到最新那个 popup 应该是悬浮提示，而不是单独占一片区域 / 不该挤压我们的历史」。
 // 旧实现把药丸放在消息区**下方**的一个全宽 `Row` 里 ⇒ 吃掉一行高度、把列表顶短。

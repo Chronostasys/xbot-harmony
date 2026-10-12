@@ -60,8 +60,22 @@ export function showsBusyPlaceholder(o: BusySignals): boolean {
 /**
  * 「↓ 回到最新」是否显示 —— **贴底不显示**、空列表不显示（对齐 web：仅在
  * follow 暂停、且确有内容时才给"回到底部"入口）。
+ *
+ * ★ 第三个参数 = **贴底位置闸门**（`atEnd?: boolean`，2026-10-12 用户真机亲报）：
+ *   用户原话「药丸只在**刚好**在最下方才不渲染；容器有弹性，**向下过滚动时它还会出现**，
+ *   自动回正之后才消失」。根因：`EdgeEffect.Spring` 的**弹性过滚动**期间，滚动帧会把
+ *   「跟随」意图置为暂停（`onWillScroll` ⇒ `followBottom=false`），而此刻**视口其实还在末尾**
+ *   （只是被拉过头），于是药丸**闪现**、回正后才消失。
+ *   ⛔ `Scroller.isAtEnd()` **不足以**当这个闸门（实测：弹性过滚动期间它判**假**）⇒ 用页面在
+ *   **滚动停止**时缓存的位置（`@State atEndUi`）当闸门：停止前的位置不变 ⇒ 过滚动/回弹全程
+ *   闸门恒为"在底部"⇒ 药丸**不闪**。
+ *   ⛔ 注意方向：这个闸门**只压制闪现**，绝不阻止"用户真的上滚后出药丸"——
+ *   用户上滚**并停下**时 `atEndUi` 立刻变 false（同一 `onScrollStop` 里更新），药丸随即出现。
  */
-export function showsJumpToLatest(atBottom: boolean, rowsLen: number): boolean {
+export function showsJumpToLatest(atBottom: boolean, rowsLen: number, atEnd?: boolean): boolean {
+  if (atEnd === true) {
+    return false;
+  }
   return !atBottom && rowsLen > 0;
 }
 

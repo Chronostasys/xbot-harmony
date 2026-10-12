@@ -104,7 +104,7 @@ import { SSE_STATE_FAILED } from '../core/sse';
 import { WIDGET_EVENT_WEB } from '../core/widgetsview';
 // 插件桥 page→native 的消息类型（协议权威 = `core/webbridge.ets`）
 import { BridgeMessage } from '../core/webbridge';
-import { listItemCount, nextFollowBottom, shouldAutoScroll, followSuppressUntil, FOLLOW_SUPPRESS_MS, markUserScrollFrame } from '../core/listfollow';
+import { listItemCount, nextFollowBottom, shouldAutoScroll, followSuppressUntil, FOLLOW_SUPPRESS_MS, markUserScrollFrame, followAfterScrollStop } from '../core/listfollow';
 import { OverlayCode, OverlayState, topOverlay } from '../core/overlays';
 import {
   currentTodo, modelText, todoProgress, usageText,
@@ -445,8 +445,12 @@ function mdCacheText(): string {
  *    清位只发生在 `onScrollIndex` 消费时（`nextFollowBottom` 之后立即复位）。
  */
 function isUserScrollSource(src: ScrollSource): boolean {
+  // ⛔ `EDGE_EFFECT` **不算用户输入**：SDK `component/enums.d.ts:3928-3936` 原文
+  //    "Over scroll with EdgeEffect.Spring" —— 那是**弹性回弹动画帧**，不是用户手势。
+  //    此前把它计入用户 ⇒ 贴底回弹/过滚动时置 `followBottom=false` ⇒「回到最新」药丸
+  //    在**回弹期间闪现**、回正后才消失（用户 2026-10-12 亲报）。⛔ 别再把它加回来。
   return src === ScrollSource.DRAG || src === ScrollSource.FLING
-    || src === ScrollSource.EDGE_EFFECT || src === ScrollSource.OTHER_USER_INPUT
+    || src === ScrollSource.OTHER_USER_INPUT
     || src === ScrollSource.SCROLL_BAR || src === ScrollSource.SCROLL_BAR_FLING;
 }
 
@@ -582,6 +586,14 @@ struct Index {
    * 与 xbot Web 端既有铁律一致（所有 GotoBottom 调用由 !userScrolledUp 守卫）。
    */
   @State followBottom: boolean = true;
+
+  /**
+   * 上一次**滚动停止**时是否已在末尾（`Scroller.isAtEnd()` 的页面缓存）。
+   * 用途 = 「回到最新」药丸的**贴底位置闸门**（压制 `EdgeEffect.Spring` 弹性过滚动期间的**闪现**）。
+   * ⛔ 为什么不直接调 `isAtEnd()`：**弹性过滚动期间它判假**（2026-10-12 实测：过滚动瞬间药丸
+   *   照闪、回正才消失）⇒ 只有在**滚动停止**时采样才稳定。见 `core/indicators.ets:showsJumpToLatest`。
+   */
+  @State atEndUi: boolean = true;
 
   /**
    * 「程序滚到底」的**就地操作抑制窗**结束时刻（毫秒；0 = 无抑制）。
@@ -2875,6 +2887,22 @@ struct Index {
     }
   }
 
+  /**
+   * 收起软键盘（用户**显式发送后**调用）。
+   *
+   * 走 `UIContext` 的焦点控制器 `FocusController.clearFocus()`（API 12；SDK 声明
+   * `@ohos.arkui.UIContext.d.ts:3239-3250`）：清焦点 ⇒ 输入法会话结束 ⇒ 键盘收起。
+   * ⛔ 不用 `focusControl.requestFocus(别的 id)` 那种"把焦点挪走"的绕法（会改变焦点语义、
+   *   给别的控件戴上高亮）；也⛔不引 `inputMethod.stopInputSession()`（更重、是全局 IME 操作）。
+   */
+  private dismissKeyboard(): void {
+    try {
+      this.getUIContext().getFocusController().clearFocus();
+    } catch (e) {
+      // 无焦点/无 UI 上下文：无事可做（⛔ 绝不因"收键盘失败"影响发送本身）
+    }
+  }
+
   private async sendDraft(): Promise<void> {
     const store: ChatStore | null = this.store;
     const text: string = this.draft.trim();
@@ -2914,6 +2942,17 @@ struct Index {
     // 触觉：本入口同管"发送"与"打断"两种动作 ⇒ 事件名由 `interrupt` 判别，
     // 两者档位相同（中档），但登记名分开 ⇒ 判据可钉住"这里是发送/打断"。
     this.buzz(interrupt ? HAPTIC_EVENT_STOP : HAPTIC_EVENT_SEND);
+    // ★ 发送后：**收起键盘 + 视角回到最新**（用户 2026-10-12 真机亲报「发完不收键盘、
+    //   视角不自动滚到最下方」）。语义 = 用户**主动发消息** ⇒ 意图必然是"看最新的"
+    //   （与切会话同一语义：意图重置为跟随，见 `switchSession`）。⛔ 不新增定时器 ——
+    //   后续 `syncFrom` 的 `shouldAutoScroll`（意图已为 true）会继续跟随后续新增行到底。
+    this.followBottom = true;
+    this.dismissKeyboard();
+    try {
+      this.listScroller.scrollEdge(Edge.Bottom);
+    } catch (e) {
+      // 首帧尚未布局：忽略（下一步 store 变更后的 syncFrom 仍会跟随到底）
+    }
     try {
       let interrupted: boolean = false;
       console.info('xbot send: 进入发送路径（await 前）');
@@ -4727,6 +4766,11 @@ struct Index {
         //   流式期间程序滚动与用户拖动**交错**，等索引回调时程序滚动可能已把视图钉回底部
         //   （`end === itemCount-1`）⇒ 被判"仍在跟随" ⇒ 用户**滚不动**。
         if (user) {
+          // 用户一动手 ⇒ **立即**暂停跟随（逐字移植 web `MessageList.tsx:1330-1333` 的
+          //   `onWheel → pauseFollowing()`：与方向/位置无关）。⛔ 这里**不**加位置判据：
+          //   弹性过滚动期间 `isAtEnd()` 不可靠（实测判假）⇒ 用"位置闸门"当暂停条件会漏；
+          //   药丸的**闪现**由**渲染侧**的贴底闸门 `atEndUi` 压制（见 `showsJumpToLatest` 注释），
+          //   与"暂停"职责分离。
           this.followBottom = false;
         }
       })
@@ -4748,13 +4792,30 @@ struct Index {
           const itemCount: number = listItemCount(this.hasHeadItem(), busyPlaceholder,
             this.rowDs.count(), liveRows);
           // 用户滚回底部 ⇒ 恢复跟随（web `checkBottomAndResume()` 同义）；否则保持暂停。
-          this.followBottom = nextFollowBottom(this.followBottom, true, end, itemCount);
+          // ⛔ 恢复**必须**用精确位置判据 `isAtEnd()`（第 5 实参）—— 索引判据在
+          //    "末项 = 高到占满视口的在飞 live 行"时会**误判已回底**（用户 2026-10-12 亲报的
+          //    "流式时上滚被强行拉回"就是它；论证见 `core/listfollow.ets:nextFollowBottom`）。
+          this.followBottom = nextFollowBottom(this.followBottom, true, end, itemCount,
+            this.listScroller.isAtEnd());
         }
         // 对齐 web：滚到顶部**自动**拉更早历史（web 用 IntersectionObserver 哨兵，同语义），
         // 不再要求用户先点一下按钮。loadingMore 自锁，避免请求风暴。
         if (start === 0 && !this.loadingMore && this.hasMore) {
           this.loadMore();
         }
+      })
+      // ★ 停止滚动时的**位置式**复位（用户 2026-10-12 真机亲报「滚回最下方『回到最新』不消失」；
+      //   真机截图实证：列表已停在末项、药丸仍常驻）——
+      //   `onWillScroll` 对**每个用户帧**置 `followBottom=false`（含贴底之后的回弹/惯性帧），
+      //   而 `onScrollIndex` **只在可见索引区间变化**时才回调 ⇒ 末帧"已贴底但索引未变"时
+      //   **无人复位**。`isAtEnd()` 判**滚动位置**、与索引区间无关 ⇒ 贴底停手即恢复跟随。
+      //   判据与状态**同源**（`core/listfollow.ets:followAfterScrollStop`，脱机单测 + mutation 自证）。
+      .onScrollStop(() => {
+        // 位置只在**滚动停止**时采样：弹性过滚动期间 `isAtEnd()` 判假、不可用（实测）；
+        // 停止时采样得到的是**稳定**位置 ⇒ 同时喂给「恢复跟随」与药丸的贴底闸门。
+        const atEnd: boolean = this.listScroller.isAtEnd();
+        this.followBottom = followAfterScrollStop(this.followBottom, atEnd);
+        this.atEndUi = atEnd;
       })
       .onReachStart(() => {
         if (!this.loadingMore && this.hasMore) {
@@ -4780,7 +4841,7 @@ struct Index {
         // 命中盒：`onClick` 落在 **≥ HIT_TARGET_MIN(44) 的布局盒** 上 —— 原实现用 `responseRegion`
         //   负偏移外扩热区，**真机实测无效**（`docs/ARKTS-GOTCHAS.md`）；视觉药丸尺寸不变，只是把它
         //   居中放进一个 44 高的透明命中盒（与 `components/Toast` 同一「全屏透明容器 + 底对齐」手法）。
-        if (showsJumpToLatest(this.followBottom, this.rows.length)) {
+        if (showsJumpToLatest(this.followBottom, this.rows.length, this.atEndUi)) {
           Column() {
             Row() {
               Text('回到最新').fontSize(typeOf('type.caption').size).fontColor(this.pal().textPrimary)
