@@ -4181,3 +4181,26 @@ parameter of type 'ScrollOnWillScrollCallback'`。脱机三条永远绿。
 + 含 5 连串升到 6 + 首尾等长 + 空内容不炸。
 
 **形状**：面板三态与空/失败区分字形；代码文件与聊天代码块**同一渲染路径**（单一真源）。
+
+## §21.84 文件面板：行长按菜单（打开/加入聊天/复制路径）（15z11，2026-10-13）
+
+**症状（parity 缺口）**：web 文件树每行都有 `ContextMenu`（`sidebar/FileExplorer.tsx:369-387`）：
+**打开 / 加入聊天（`insertIntoChat(\`@${node.path}\`)`）/ 复制路径（`navigator.clipboard.writeText`）**。
+原生文件面板此前**行只能点按**（进目录 / 开预览）⇒ 用户无法"把某个文件路径塞进聊天问 agent"，
+也无法复制路径 —— 这是目标④「必须真的支持 web 的所有功能」里**功能面**的实缺口（不是长相问题）。
+
+**修法**：每行挂 `bindContextMenu(this.rowMenu(path, isDir), ResponseType.LongPress)`，三项逐字对齐 web：
+- **打开**（目录 ⇒ 进目录；文件 ⇒ 预览）—— 与点按同一语义，便于长按菜单自洽；
+- **加入聊天** ⇒ 页面 `addFsToChat()`：`core/files.ets:fsMention(path)` = `@<path>`，**追加**进 `draft`
+  （web `chatInputBridge.ts` "appended to current content"：不覆盖用户已打的字），随后**收起面板**
+  （文件面板是全屏侧栏，不收则输入框被盖住、用户看不见刚插进去的提及）；
+- **复制路径** ⇒ 页面 `copyFsPath()` 走**全站唯一剪贴板出口** `copyText()`（⛔ 不另开 pasteboard）。
+
+**为什么这里的带参 `@Builder` 安全**（与「参数=调用那一刻快照」陷阱不冲突）：`bindContextMenu` 的
+builder **每次长按弹出时**才求值；且每行只捕获**本行**的 `(path, isDir)`，行 key 含 `this.path`+名
+⇒ 目录/条目一变即换行实例，参数不存在"过期"。会卡快照的是**常驻子树**用带参 builder 承载**会变的值**。
+
+**判据（`files_pure.test.ts`，81 passed）**：`fsMention` 绝对路径 ⇒ `@path` / 去首尾空白 /
+空串 ⇒ 空串（调用方据此**不插入孤立 `@`**）/ 纯空白 ⇒ 空串。
+
+**形状**：行长按 ⇒ 平台上下文菜单（`bindContextMenu`，长按手势，⛔ 不用 `bindMenu` 免与点按抢）。

@@ -90,7 +90,7 @@ import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msg
 import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, WebPluginListWire, buildPluginCatalog } from '../core/pluginhost';
 import { hasIterStatsBadge, iterStatsText } from '../core/pluginviews';
 import { SkillItem } from '../core/skills';
-import { FsFileEntry, FsReadResult, fileKindOf, FK_IMAGE, sortFsEntries } from '../core/files';
+import { FsFileEntry, FsReadResult, fileKindOf, FK_IMAGE, fsMention, sortFsEntries } from '../core/files';
 import {
   ATTACH_DONE, ATTACH_FAILED, ATTACH_UPLOADING, AttachItem, MAX_ATTACH, appendRef, attachChipText,
   attachmentRef, baseName, doneKeys, doneNames, doneRefs, doneSizes, hasRef, humanSize, mimeOf,
@@ -3270,6 +3270,29 @@ struct Index {
     return buf !== null ? buf : new ArrayBuffer(0);
   }
 
+  /** 文件行菜单「复制路径」——走全站唯一剪贴板出口 `copyText`（⛔ 不另开 pasteboard 调用）。 */
+  private copyFsPath(filePath: string): void {
+    void this.copyText(filePath, '路径');
+  }
+
+  /**
+   * 文件行菜单「加入聊天」——把 `@path` 提及时**追加**进输入框（web `insertIntoChat` 的
+   * "appended to current content" 语义，`src/lib/chatInputBridge.ts`）。
+   *
+   * 追加而非覆盖：用户可能已在打字，覆盖会**吃掉**他写的内容。
+   * 收面板：文件面板是**全屏侧栏**，不收起来则输入框被盖住 ⇒ 用户看不到刚插进去的提及。
+   */
+  private addFsToChat(filePath: string): void {
+    const mention: string = fsMention(filePath);
+    if (mention.length === 0) {
+      return;
+    }
+    const base: string = this.draft;
+    this.draft = base.length === 0 ? mention : `${base} ${mention}`;
+    this.showFiles = false;
+    this.toast('已加入聊天输入框');
+  }
+
   /**
    * 会话在服务端已不存在（404）：刷新列表并切到第一个可用会话。
    * 这类错误**重试没有意义**（会话真的没了），必须换一个会话。
@@ -4106,6 +4129,12 @@ struct Index {
             },
             onOpenFile: (f: string, k: string) => {
               this.openFsFile(f, k);
+            },
+            onCopyPath: (f: string) => {
+              this.copyFsPath(f);
+            },
+            onAddToChat: (f: string) => {
+              this.addFsToChat(f);
             },
             onClosePreview: () => {
               this.closeFsPreview();

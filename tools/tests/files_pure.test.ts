@@ -17,7 +17,7 @@ import {
   extOf, fileKindOf, parentPath, joinFsPath, sortFsEntries, fmtSize, fmtAgo, fsCrumbs,
   fsListBody, fsHiddenToggleLabel,
   filterFsEntries, fsFilterEmptyText, fsFilterPlaceholder,
-  fsCodeLanguage, fsCodeFence,
+  fsCodeLanguage, fsCodeFence, fsMention,
   FK_DIR, FK_IMAGE, FK_MARKDOWN, FK_TEXT, FsFileEntry,
 } from '../../entry/src/main/ets/core/files';
 
@@ -171,6 +171,12 @@ ok('★ 围栏：升长后首尾长度一致且 = 内容最长串 + 1',
     return first === 6 && second === 6;
   })());
 ok('★ 围栏：空内容不炸（返回空代码块）', fsCodeFence('a.txt', '', '').indexOf('```') === 0);
+
+// ── 「加入聊天」的提及文本（web `FileExplorer.tsx:375` 的 `@${node.path}`）────────
+eq('★ 提及：绝对路径 ⇒ @path', fsMention('/a/b/c.ts'), '@/a/b/c.ts');
+eq('★ 提及：去首尾空白', fsMention('  /a/b  '), '@/a/b');
+eq('★ 提及：空串 ⇒ 空串（调用方据此不插入孤立 @）', fsMention(''), '');
+eq('★ 提及：纯空白 ⇒ 空串', fsMention('   '), '');
 
 
 if (fail > 0) {

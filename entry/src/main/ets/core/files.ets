@@ -169,6 +169,18 @@ export function filterFsEntries(entries: readonly FsFileEntry[], query: string):
   return out;
 }
 
+/**
+ * 「加入聊天」要插入的文本 —— 逐字对齐 web `sidebar/FileExplorer.tsx:375`
+ * （`insertIntoChat(\`@${node.path}\`)`）。
+ *
+ * 语义：把文件路径做成 `@path` 提及（聊天输入框里 `@` 触发文件/路径补全，见 web
+ * `useCompletion.ts`）；空路径 ⇒ 空串（调用方据此**不插入**，⛔ 不插一个孤立的 `@`）。
+ */
+export function fsMention(path: string): string {
+  const p: string = path !== undefined && path !== null ? path.trim() : '';
+  return p.length > 0 ? `@${p}` : '';
+}
+
 /** 过滤输入框的占位文案（web `sidebar.filterPlaceholder`）。 */
 export function fsFilterPlaceholder(): string {
   return '按名称过滤（当前目录）';

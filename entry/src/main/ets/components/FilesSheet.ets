@@ -25,7 +25,7 @@ import {
   fsHiddenToggleLabel, joinFsPath,
 } from '../core/files';
 import {
-  colorOf, hairlineOf, HIT_TARGET_MIN, INSET_ROW_X, PRESS_OPACITY, RADIUS_CARD, RADIUS_CHIP, RADIUS_SHEET,
+  colorOf, hairlineOf, HIT_TARGET_MIN, INSET_ROW_X, MENU_W, PRESS_OPACITY, RADIUS_CARD, RADIUS_CHIP, RADIUS_SHEET,
   SHEET_ACTION_GLYPH, SPACE_LG, SPACE_MD,
   SPACE_SM, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD, surfaceFillOf, ICON_MD, typeOf,
 } from '../core/design';
@@ -177,6 +177,12 @@ export struct FilesSheet {
   };
   onOpenFile: (filePath: string, kind: string) => void = () => {
   };
+  /** 复制条目路径（web `FileExplorer.tsx:379-382` 的 `navigator.clipboard.writeText` ⇒ 页面 toast）。 */
+  onCopyPath: (filePath: string) => void = () => {
+  };
+  /** 「加入聊天」：页面把 `@path` 提及时插进输入框（web `insertIntoChat(\`@${path}\`)`）。 */
+  onAddToChat: (filePath: string) => void = () => {
+  };
   onClosePreview: () => void = () => {
   };
   onRefresh: () => void = () => {
@@ -297,6 +303,57 @@ export struct FilesSheet {
   /** 面包屑（判据同源：`core/files.ets:fsCrumbs`）。 */
   private crumbs(): FsCrumb[] {
     return fsCrumbs(this.path);
+  }
+
+  /**
+   * 行长按菜单 —— 逐项对齐 web `sidebar/FileExplorer.tsx:369-387` 的 `ContextMenuContent`
+   * 三项：**打开 / 加入聊天 / 复制路径**（web 第二项即 `insertIntoChat(\`@${path}\`)`）。
+   *
+   * ⚠️ 为什么这里的**带参** `@Builder` 是安全的（与 `docs/ARKTS-GOTCHAS.md` 的"快照"陷阱不冲突）：
+   *   `bindContextMenu` 的 builder **每次长按弹出时**才求值，且每个 row 只捕获**本行**的
+   *   `(path, isDir)` —— 行 key 含 `this.path` + `e.name` ⇒ 目录/条目一变即换行实例，
+   *   参数不存在"过期"。会卡快照的是**常驻子树**里用带参 builder 承载**会变的值**。
+   */
+  @Builder
+  rowMenu(filePath: string, isDir: boolean) {
+    Column() {
+      Text(isDir ? '打开' : '预览')
+        .fontSize(typeOf('type.callout').size)
+        .fontColor(this.tint('text'))
+        .width('100%')
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .padding({ left: SPACE_MD, right: SPACE_MD, top: SPACE_SM, bottom: SPACE_SM })
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          if (isDir) {
+            this.onNavigate(filePath);
+          } else {
+            this.onOpenFile(filePath, fileKindOf(baseNameOf(filePath), false));
+          }
+        })
+      Text('加入聊天')
+        .fontSize(typeOf('type.callout').size)
+        .fontColor(this.tint('text'))
+        .width('100%')
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .padding({ left: SPACE_MD, right: SPACE_MD, top: SPACE_SM, bottom: SPACE_SM })
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          this.onAddToChat(filePath);
+        })
+      Text('复制路径')
+        .fontSize(typeOf('type.callout').size)
+        .fontColor(this.tint('text'))
+        .width('100%')
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .padding({ left: SPACE_MD, right: SPACE_MD, top: SPACE_SM, bottom: SPACE_SM })
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          this.onCopyPath(filePath);
+        })
+    }
+    .width(MENU_W)
+    .alignItems(HorizontalAlign.Start)
   }
 
   build() {
@@ -529,6 +586,13 @@ export struct FilesSheet {
                     this.onOpenFile(joinFsPath(this.path, e.name), fileKindOf(e.name, false));
                   }
                 })
+                // 长按 = 行菜单（web `FileExplorer.tsx:369` 的 ContextMenu：打开/加入聊天/复制路径）。
+                // ⛔ 用 `bindContextMenu`（长按）而不是 `bindMenu`（点按）—— 行本身的点按已有语义
+                //    （进目录/开预览），菜单必须挂在**另一个手势**上，否则互相抢。
+                .bindContextMenu(
+                  this.rowMenu(joinFsPath(this.path, e.name), e.isDir),
+                  ResponseType.LongPress,
+                )
               }
             }, (e: FsFileEntry) => `fs-${this.path}-${e.name}`)
           }
