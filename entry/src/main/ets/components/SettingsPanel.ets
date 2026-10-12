@@ -102,6 +102,17 @@ function settingsTabSpecs(): SettingsTabSpec[] {
   ];
 }
 
+/**
+ * 分区芯片的**统一宽度**（vp）—— 苹果式控件网格的关键：**所有芯片同宽**，行才齐。
+ *
+ * 派生（⛔ 不是就地字面量）：`4 × type.caption` + 两侧内距（`INSET_ROW_X × 2`）+ 发丝
+ * = "4 个全角字宽"的预算。**不变式：每个标签的视觉宽度 ≤ 4 个全角字**（见
+ * `tools/tests/settings_panel_wrap.test.ts` 的 ⑤：按 CJK=1 / ASCII=0.5 逐标签算宽度并判红）。
+ * 真机（1320px / 3.386）：74vp = 250px ⇒ 内容宽 1186px 一行容 4 片（4×(250+27)=1108 ≤ 1186）
+ * ⇒ 12 片 = **3 行 × 4 片**（⛔ 改造前是 167/208/248/262px 四种宽度、行尾参差 215/233/644px）。
+ */
+const TAB_CHIP_W: number = fs('type.caption') * 4.5 + INSET_ROW_X * 2;
+
 @Component
 export struct SettingsPanel {
   /** HTTP 客户端（由页面注入 `store.http`）。默认空实例只为满足 ArkTS 成员初始化。 */
@@ -325,7 +336,10 @@ export struct SettingsPanel {
     }
     .width('100%')
     .alignItems(VerticalAlign.Center)
-    .padding({ left: SPACE_LG, right: SPACE_XS, top: SPACE_XS, bottom: SPACE_XS })
+    // ⚠️ 页头底距 = **显式** 12vp（`SPACE_SM`）：`build()` 的根 `Column` 已改成 `space: 0`
+    //    （见那里的注释：原先 header→芯片条→分区 三层间距叠成 36vp 死空间）⇒ 这一条是
+    //    「页头 → 芯片条」的唯一间距。⛔ 不要再动成 `SPACE_XS`（8vp 会贴着芯片条）。
+    .padding({ left: SPACE_LG, right: SPACE_XS, top: SPACE_XS, bottom: SPACE_SM })
   }
 
   /**
@@ -352,7 +366,10 @@ export struct SettingsPanel {
             width: STROKE_HAIRLINE,
             color: t.id === this.active ? this.pal().accent : hairlineOf(this.pal()),
           })
-          .constraintSize({ minHeight: HIT_TARGET_MIN })
+          // 统一宽度 + 文字居中（苹果式网格）——⛔ 必须**同时**有：只给 minWidth 而文字左对齐
+          // 会让短标签（「存储」）在宽芯片里贴左，看着像错位。
+          .constraintSize({ minWidth: TAB_CHIP_W, minHeight: HIT_TARGET_MIN })
+          .textAlign(TextAlign.Center)
           .margin({ right: SPACE_XS, bottom: SPACE_XS })
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
@@ -368,7 +385,12 @@ export struct SettingsPanel {
   }
 
   build() {
-    Column({ space: SPACE_SM }) {
+    // ⚠️ `space: 0` + 各处**显式**间距（2026-10-12 排版专项）：
+    //    原先 `space: SPACE_SM`(12) 与「芯片底 margin 8」「分区标题自带 top 16」三层叠成
+    //    **36vp** 死空间（真机实测：芯片条底 y915 → 首个分组标题 y1036 = 121px = 35.7vp）。
+    //    现在：页头底距 12（`Header` 自带）→ 芯片条 → 分区（标题自带 top 16 + 芯片底 margin 8）
+    //    = 24vp。⛔ 别再往这个 Column 上加 `space`（会重新叠出死空间）。
+    Column({ space: 0 }) {
       this.Header()
       this.TabBar()
 

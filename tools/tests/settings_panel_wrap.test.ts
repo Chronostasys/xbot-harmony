@@ -88,6 +88,53 @@ hasNot(tabBar, 'ScrollDirection.Horizontal', '设置分区条 ⛔ 不再横向 S
 hasNot(tabBar, 'scrollBar(BarState.Off)', '设置分区条 ⛔ 不再"关掉滚动条"');
 has(tabBar, '.margin({ right: SPACE_XS, bottom: SPACE_XS })', '设置分区条每项有 margin（wrap 的间距来源）');
 
+// ── ⑤ 芯片**同宽**（苹果式控件网格）─────────────────────────────────────────────
+//    病根（真机实测）：标签自然宽 ⇒ 芯片 167/208/248/262px **四种宽度**、行尾留白 215/233/644px
+//    ⇒ 看着"没排过"。修法 = 统一宽度令牌 + 文字居中（只给宽度不给居中 ⇒ 短标签在宽芯片里贴左）。
+has(tabBar, '.constraintSize({ minWidth: TAB_CHIP_W, minHeight: HIT_TARGET_MIN })', '⑤ 芯片用统一宽度令牌 TAB_CHIP_W');
+has(tabBar, '.textAlign(TextAlign.Center)', '⑤ 芯片文字居中（宽芯片里的短标签不贴左）');
+has(panel, 'const TAB_CHIP_W: number = fs(\'type.caption\') * 4.5 + INSET_ROW_X * 2;',
+  '⑤ TAB_CHIP_W = 4.5 全角字宽（文字预算）+ 两侧内距（⛔ 不是就地字面量）');
+
+// ⑤b **不变式**：标签视觉宽度 ≤ **4.5 全角字宽** —— 这是 TAB_CHIP_W 的全部推导前提。
+//     ⛔ 只钉"令牌存在"不判别：谁加一个 5 字标签，推导失效、文字被挤/换行（本仓血债形态）。
+//     槽位计法（**纯算术**，不依赖字体度量 ⇒ 不会漂移）：CJK = 1 · ASCII = 0.65 · 空格 = 0.5。
+//     实测校准（真机 caption=12vp）：`智能体` 37.4vp / 估 36；`Web 账号` 53.5vp / 估 53.4；
+//     `消息渠道` 49.3vp / 估 48 —— 估法**略偏小**（≤1.5vp）⇒ 留 0.05 槽位余量即可。
+{
+  const labels: string[] = [];
+  const re: RegExp = /new SettingsTabSpec\([^,]+,\s*'([^']*)'/g;
+  let m: any = re.exec(panel);
+  while (m !== null) { labels.push(String(m[1])); m = re.exec(panel); }
+  ok(`⑤b 取到全部分区标签（现 ${labels.length} 个，应 ≥ 10）`, labels.length >= 10);
+  let widest: string = '';
+  let widestSlots: number = 0;
+  for (let i: number = 0; i < labels.length; i++) {
+    const L: string = labels[i];
+    let slots: number = 0;
+    for (const ch of L) {
+      if (/[\u2e80-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch)) { slots += 1; }
+      else if (ch === ' ') { slots += 0.5; }
+      else { slots += 0.65; }
+    }
+    if (slots > widestSlots) { widestSlots = slots; widest = L; }
+  }
+  ok(`⑤b 最宽标签 ≤ 4.5 全角字宽（最宽 =「${widest}」= ${widestSlots.toFixed(2)}）`, widestSlots <= 4.5);
+}
+
+// ── ⑦ 死空间（真机实测 121px = 35.7vp）──────────────────────────────────────────
+//    根因 = 三层间距叠加：芯片底 margin 8 + 根 Column `space: SPACE_SM` 12 + 分组标题自带 top 16。
+//    修法 = 根 Column `space: 0`（间隙改显式）+ 页头底距 SPACE_SM ⇒ 「芯片条 → 首个分组标题」24vp。
+//    ⛔ 反向断言：谁再把 `space` 加回根 Column 就红（死空间会回来）。
+{
+  const buildBody: string = between(panel, 'build() {', '\n  }\n}');
+  ok('⑦ build 区间可定位（非空）', buildBody.length > 200);
+  has(buildBody, 'Column({ space: 0 })', '⑦ build 根 Column `space: 0`');
+  hasNot(buildBody, 'Column({ space: SPACE_SM })', '⑦ 反向：build 里不许再叠 SPACE_SM 的 Column 间隙');
+  has(panel, 'left: SPACE_LG, right: SPACE_XS, top: SPACE_XS, bottom: SPACE_SM })',
+    '⑦ 页头底距 = SPACE_SM（「页头 → 芯片条」的唯一间距）');
+}
+
 const swatches: string = between(appearance, 'AccentSwatches() {', 'AccentCustomInput() {');
 ok('AccentSwatches 区间可定位（非空）', swatches.length > 0);
 has(swatches, 'Flex({ wrap: FlexWrap.Wrap })', '强调色色板 = Flex(wrap)（第 7 个圆点不再被切）');
