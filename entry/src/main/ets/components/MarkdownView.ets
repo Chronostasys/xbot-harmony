@@ -212,6 +212,18 @@ export struct MarkdownView {
   };
   /** 消息内图片最大高度（vp） */
   imageMaxHeight: number = 340;
+  /**
+   * **内容定宽**模式（用户气泡用）：根容器与行内正文改用 `LayoutPolicy.wrapContent`
+   * （`width` 的 `Length | LayoutPolicy` 重载，API 20+）⇒ 组件**随内容收窄**、上限由父的
+   * `constraintSize` 约束。默认 `false` = 撑满父宽（助手正文）。
+   *
+   * ⛔ 为什么需要：用户气泡此前是 `Row{ Column{MarkdownView}.layoutWeight(1) }` ⇒ 气泡恒撑满
+   *   `max-w-[85%]`（web 是 `flex` 内容定宽 ⇒ 短消息自动收窄）。根 + 段落 `Text` 的 `width('100%')`
+   *   是"必然撑满"的根因；`LayoutPolicy.wrapContent` 是 ArkUI 原生解法（无需复制属性链）。
+   * ⚠️ 只对**全段落**消息开启（见 `UserBubble.fitWidth()`）：含代码块/表格等 `matchParent` 子块时，
+   *   `wrapContent` 父会被折叠成 0（SDK 原文：无确定尺寸子项 ⇒ 容器与子项均 (0,0)）。
+   */
+  @Prop fitContent: boolean = false;
 
   build() {
     // 块级节奏 = `MD_BLOCK_GAP`(8)（`core/design.ets`；旧凹口值 6）。web 靠 margin 折叠、原生
@@ -222,7 +234,8 @@ export struct MarkdownView {
         this.Block(b, idx)
       }, (b: MdBlock, idx: number) => b.key)
     }
-    .width('100%')
+    // 撑满父宽（助手正文）；`fitContent` ⇒ 随内容收窄（用户气泡，见该 @Prop 注释）。
+    .width(this.fitContent ? LayoutPolicy.wrapContent : '100%')
     .alignItems(HorizontalAlign.Start)
   }
 
@@ -365,7 +378,8 @@ export struct MarkdownView {
           })
       }, (s: MdInlineStyle, i: number) => `sp-${i}-${s.text.length}`)
     }
-    .width('100%')
+    // `fitContent`（用户气泡）⇒ 随内容收窄；否则撑满（助手正文）。
+    .width(this.fitContent ? LayoutPolicy.wrapContent : '100%')
     .textAlign(TextAlign.Start)
     // 正文字行高显式（`MD_BODY_LEADING`=1.55 × `type.body` 15fp）——本仓此前正文**无一处**
     // `.lineHeight()`（`docs/REDESIGN.md §1.2`），行高由 ArkUI 默认值接管、不可控。

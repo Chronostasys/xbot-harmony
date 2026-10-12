@@ -23,6 +23,7 @@ import { UserBubbleFace, userBubbleFace } from '../core/bubbleview';
 import { MarkdownView } from './MarkdownView';
 import { GAP_ROW_Y, INSET_BUBBLE_X, INSET_BUBBLE_Y, RADIUS_BUBBLE, typeOf } from '../core/design';
 import { annotatedMessagePlainText } from '../core/annotations';
+import { MdBlock, MdBlockKind, parseMarkdownCached } from '../core/markdown';
 
 /**
  * 批注展示的**文案表**（逐字对齐 web `i18n/zh-CN.ts:451-461` 的 `agent.annotations.*`）。
@@ -88,6 +89,24 @@ export struct UserBubbleView {
    */
   private displayText(): string {
     return annotatedMessagePlainText(this.text, annotationLabel);
+  }
+
+  /**
+   * 是否走 MarkdownView 的**内容定宽**模式（气泡随内容收窄）—— 对齐 web `UserMessage.tsx`
+   * （`flex justify-end` + 气泡 `max-w-full` ⇒ 短消息自动收窄）。
+   *
+   * 判据 = 整条消息只由**段落**块组成（短消息常态）。含代码块/表格/引用/列表等 `matchParent`
+   * 子块时返回 false ⇒ 气泡撑满（`LayoutPolicy.wrapContent` 父在无确定尺寸子项时会被折叠成 0，
+   * 见 `MarkdownView.fitContent`）。
+   */
+  private fitWidth(): boolean {
+    const bs: MdBlock[] = parseMarkdownCached(this.displayText());
+    for (let i = 0; i < bs.length; i++) {
+      if (bs[i].kind !== MdBlockKind.Paragraph) {
+        return false;
+      }
+    }
+    return bs.length > 0;
   }
 
   /** 生效主题：生产走订阅，缺失时回落显式覆盖（单一口径，不产生两个真源）。 */
@@ -169,11 +188,16 @@ export struct UserBubbleView {
               MarkdownView({
                 text: this.displayText(),
                 mdTheme: this.mdTheme,
+                // 内容定宽 ⇒ 短消息气泡自动收窄（web `UserMessage` 同构）；见 `fitWidth()`。
+                fitContent: this.fitWidth(),
                 onImage: this.onImage,
                 loadImage: this.loadImage,
               })
             }
-            .layoutWeight(1)
+            // 内容定宽（短消息）：权重归零 ⇒ 内层 Column 随内容定宽（与 `MarkdownView.fitContent`
+            // **必须配套** —— 否则 layoutWeight 会把它撑满气泡 maxWidth，`wrapContent` 无从生效）。
+            // 非定宽（含代码块/表格等块级）仍权重 1 = 历史 P0 修法（内容盒解析，防溢出）。
+            .layoutWeight(this.fitWidth() ? 0 : 1)
             .alignItems(HorizontalAlign.Start)
           }
           .padding({

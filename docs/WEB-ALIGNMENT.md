@@ -1658,3 +1658,41 @@ A 线 `this.pal()` 1244/1250 · B 线 1348/1350 · ForEach 107/107 · `anim*()` 
 
 **判据取得**：`run-one vt` = 60 passed, 0 failed；`tools/gate.sh` = ④ `ArkTS BUILD SUCCESSFUL in 8 s 266 ms`
 + `✅ 真门禁全绿` + `GATE_EXIT=0`（性能预算未越线）。
+
+---
+
+## §21.27 目标③ 用户气泡**内容定宽**（短消息自动收窄）（2026-10-12）
+
+**用户插话**：「用户消息如果很短，气泡应该自动变窄，右对齐才对吧」。
+
+**真机确证缺陷**（/tmp/chat2.jpeg）：用户气泡「只回复一个字：好」（6 字）/「sleep40」都**撑到 ≈74–85% 宽**、不随内容收窄（web 权威 `UserMessage.tsx`：`flex justify-end` + 气泡 `max-w-full` ⇒ **内容定宽**、短消息自动收窄）。
+
+**根因（两层，第二层才是元凶）**：
+1. `MarkdownView` 根 `Column` 与行内正文 `Text` 都写 `width('100%')` ⇒ 必然撑满；
+2. 用户气泡内层 `Column` 的 **`.layoutWeight(1)`** —— 权重让它吃满可用宽 ⇒ 即使 ① 修好气泡仍满宽
+   （**首次真机复核仍满宽的根本原因**，/tmp/b.jpeg）。
+
+**修法**：
+- `MarkdownView` 新增 `@Prop fitContent`：为真时**根 + 行内正文**改用 ArkUI 原生
+  **`LayoutPolicy.wrapContent`**（`width` 的 `Length | LayoutPolicy` 重载，SDK API 20+；本仓
+  `compatibleSdkVersion 21`）——「随子内容定宽、受父 content area 约束」。
+- `UserBubble`：内层 `Column` 改 **`.layoutWeight(this.fitWidth() ? 0 : 1)`**（定宽时权重归零 ⇒ 随内容
+  收窄；非定宽保留权重 1 = 历史 P0 修法，含块级内容时用）。
+- `fitWidth()` 判据 = **整条消息只由段落块组成**（`parseMarkdownCached(displayText())` 全
+  `MdBlockKind.Paragraph`）。⛔ 含代码块/表格等 `matchParent` 子块时必须返回 false —— 否则
+  `wrapContent` 父在无确定尺寸子项时会被折叠成 (0,0)（SDK 原文）。
+
+**退路/等价性**：非定宽路径（含块级）**逐字节不变**（仍 `width('100%')` + `layoutWeight(1)`）⇒ 零回归。
+
+**判据（演进）**：`tools/tests/bubble_style.test.ts` 新增 Part 2b（5 条）：`MarkdownView` 有 `fitContent` ·
+`LayoutPolicy.wrapContent` **恰两处** · **两处都由 `this.fitContent ? … : '100%'` 门控**（否则助手正文
+回归收窄）· `UserBubble` 传 `fitContent: this.fitWidth()` · `fitWidth` 按 `MdBlockKind.Paragraph` 判据。
+**mutation 自证**：把 `MarkdownView` 两处三元改回 `'100%'` ⇒ **`39 passed, 2 failed`（exit 1）**；字节
+还原后 `md5` 一致、复跑 **`35 passed, 0 failed`**。
+
+**真机复核**：`deploy.sh`（DEPLOY_EXIT=0）后 —— 短气泡「只回复一个字：好」/「sleep40」**明显收窄 +
+右对齐**（对比 /tmp/chat2.jpeg）；**长单段消息**多行换行、气泡 Text 物理右缘 **1233 < 1320**（**无横向
+溢出**，历史 P0 无回归，/tmp/e2.jpeg）；助手消息左对齐正常。
+
+**判据取得**：`run-one bubble_style` = 35 passed, 0 failed；`tools/gate.sh` = ④ `ArkTS BUILD SUCCESSFUL
+in 4 s 758 ms` + `✅ 真门禁全绿` + `GATE_EXIT=0`（性能预算未越线）。

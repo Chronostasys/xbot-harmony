@@ -150,5 +150,26 @@ check('committed 行有 isEmptyBubble 守卫（无空气泡）',
   && /isEmptyBubble\(\)\s*:\s*boolean[\s\S]*?rowIsEmpty\(this\.row\)/.test(rowSrc),
   'build() 缺少空气泡守卫或 isEmptyBubble 未与 rowIsEmpty 同源');
 
+// ── Part 2b：用户气泡**内容定宽**（短消息自动收窄，对齐 web `flex` 内容定宽）──────────
+// 真机缺陷（2026-10-12，/tmp/chat2.jpeg）：「只回复一个字：好」/「sleep40」等短消息的气泡**恒撑满
+// `max-w-[85%]`**、不随内容收窄。根因 = markdown 分支 `Row{ Column{MarkdownView}.layoutWeight(1) }`
+// ⇒ `MarkdownView` 根 + 段落 `Text` 的 `width('100%')` 必撑满。修法 = `MarkdownView.fitContent`
+// 模式：根容器与行内正文改用 ArkUI 原生 `LayoutPolicy.wrapContent`（`width` 的
+// `Length | LayoutPolicy` 重载，API 20+）——**随内容收窄**、上限由父 `constraintSize` 约束。
+const mdSrc: string = readSrc('entry/src/main/ets/components/MarkdownView.ets');
+check('MarkdownView 有 fitContent @Prop（内容定宽开关）',
+  /@Prop\s+fitContent\s*:\s*boolean/.test(mdSrc), 'MarkdownView 缺 fitContent');
+check('MarkdownView 用 LayoutPolicy.wrapContent 恰两处（根 + 行内正文）',
+  (mdSrc.match(/LayoutPolicy\.wrapContent/g) || []).length === 2,
+  `wrapContent 出现 ${(mdSrc.match(/LayoutPolicy\.wrapContent/g) || []).length} 次（应 2）`);
+check('两处 wrapContent 都由 fitContent 三元门控（否则助手正文回归收窄）',
+  (mdSrc.match(/this\.fitContent\s*\?\s*LayoutPolicy\.wrapContent\s*:\s*'100%'/g) || []).length === 2,
+  'wrapContent 未由 fitContent 门控');
+check('UserBubble 传 fitContent: this.fitWidth()（开启内容定宽）',
+  userSrc.includes('fitContent: this.fitWidth()'), 'UserBubble 未开启内容定宽');
+check('fitWidth 判据 = 全段落（含块级时撑满，防 wrapContent 折叠成 0）',
+  /MdBlockKind\.Paragraph/.test(userSrc) && /parseMarkdownCached\(/.test(userSrc),
+  'fitWidth 未按段落判据');
+
 console.log(`\n  bubble_style: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
