@@ -7865,6 +7865,65 @@ struct Index {
     .width(160)
   }
 
+  /**
+   * 抽屉分区**组头**（`ListItemGroup.header`）。
+   *
+   * ⚠️ 为什么独立成构件而不是内联成 `ListItem`：只有 `header` 能配 `List().sticky(StickyStyle.Header)`
+   *    ⇒ 组头**吸顶**（Apple 列表语义：滚动长会话列表时「今天 / 昨天」始终可见；web 侧栏**不吸顶**
+   *    ⇒ 这是原生**超越**项）。普通 `ListItem` 写了 `.sticky()` 也**静默无效**。
+   * ⚠️ **吸顶必须自带不透明底**，否则行会从组头下面透出来。这里用**与抽屉根同一材质**
+   *    （`eff().glassBg` + `BlurStyle.Regular`）⇒ 吸顶时与周围**逐像素无缝**（⛔ 别换成别的 surface
+   *    角色：抽屉根是玻璃材质，任何不透明近似都会在吸顶那一刻露出色差接缝）。
+   * ⚠️ 组间距（非首组 `SPACE_MD`）由 `margin` 改 `padding` **且被底色覆盖**：未吸顶时观感**逐像素不变**
+   *    （仍是"60vp = 留白 + 标题"），吸顶时那段留白不再是透明缝（否则行会在缝里露出来）。
+   * ⚠️ 折叠态在 builder 体内读 `this.isGroupCollapsed(...)`，而 `header` 参数是**调用那一刻的快照**
+   *    （本仓 `@Builder` 快照陷阱）⇒ 外层 ForEach 的**键必须带折叠态**（见 `DrawerSheet` 内注释），
+   *    否则 chevron 旋转会**卡在初值**。
+   */
+  @Builder
+  DrawerGroupHeader(g: DrawerGroup, gIdx: number) {
+    Row({ space: SPACE_XS }) {
+      // 折叠箭头住进**与行内标记同一个槽**（`MARKER_GUTTER`）⇒ 组头标题与行标题落在
+      // **同一条竖轴**上（此前组头标题 x≈22vp、行标题 x≈58vp ⇒ 差 36vp，读起来像两套排版）。
+      Row() {
+        SymbolGlyph($r('sys.symbol.chevron_right'))
+          .fontSize(typeOf('type.micro').size).fontColor([colorOf(this.pal(), 'iconMuted')])
+          .rotate({ angle: this.isGroupCollapsed(this.sessionCategory(), g.key) ? 0 : 90 })
+          // 折叠/展开的箭头旋转**要有过渡**（此前瞬变 ⇒ 观感"跳"）。
+          // 属性动画走底座 `animFast()`（⛔ 不自造时长/曲线）；`.animation()` 作用于其**之前**的属性。
+          .animation(animFast())
+      }
+      .width(MARKER_GUTTER)
+      .justifyContent(FlexAlign.Center)
+      .alignItems(VerticalAlign.Center)
+      Text(g.title)
+        // Apple 侧栏分区头节奏：次级字号 + 半档字重（中文无大小写 ⇒ 以字重补 web `uppercase`
+        // 的层次）。⚠️ 2026-10-12：原 `type.micro`(10) 与行标题 15 的落差过大 ⇒ 真机读不动。
+        .fontSize(typeOf('type.caption').size).fontWeight(typeOf('type.subhead').weight).fontColor(this.pal().textSecondary)
+        .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        .layoutWeight(1)
+      Text(`${g.items.length}`)
+        .fontSize(typeOf('type.micro').size).fontColor(this.pal().textMuted)
+        .padding({ left: SPACE_XS, right: SPACE_XS, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
+        .backgroundColor(this.pal().surfaceAlt).borderRadius(RADIUS_PILL)
+    }
+    .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
+    // 组头左右内边距 = **行内边距**（`INSET_ROW_X`）：此前组头用 `SPACE_XXS`(4) 而行用
+    // `INSET_ROW_X`(12) ⇒ 组头文字与行标题再多差 8vp（叠加箭头差 ⇒ 合计 36vp）。
+    .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: gIdx > 0 ? SPACE_MD : 0 })
+    // ⚠️ **居中 + 仅非首组留白**（2026-10-12 二次修，原为「44 盒底对齐」）：底对齐把 44 盒里 ~26vp
+    //    的空气全堆在组头上方，而**首个组**上方没有"上一组" ⇒ 那 26vp 顶在筛选条下面，真机量测
+    //    「筛选条底(y≈700) → 首组标题(y≈852)」= ~150px 空带（看起来像布局断了）。
+    .alignItems(VerticalAlign.Center)
+    // 吸顶底：与抽屉根**同材质**（见上方注释）。
+    .backgroundColor(this.eff().glassBg)
+    .backgroundBlurStyle(BlurStyle.Regular, { colorMode: this.glassMode() })
+    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+    .onClick(() => {
+      this.toggleGroup(this.sessionCategory(), g.key);
+    })
+  }
+
   @Builder
   DrawerSheet() {
     Column() {
@@ -8151,50 +8210,11 @@ struct Index {
       } else {
         List() {
           ForEach(this.drawerGroups(), (g: DrawerGroup, gIdx: number) => {
-            // 组头：chevron（展开时旋转 90°）+ 标题 + 计数徽标；点整行 = 折叠/展开。
-            // 层级：组头用 `type.micro` + 半档字重（中文无大小写，以字重补 web `uppercase` 的层次）。
-            ListItem() {
-              Row({ space: SPACE_XS }) {
-                // 折叠箭头住进**与行内标记同一个槽**（`MARKER_GUTTER`）⇒ 组头标题与行标题落在
-                // **同一条竖轴**上（此前组头标题 x≈22vp、行标题 x≈58vp ⇒ 差 36vp，读起来像两套排版）。
-                Row() {
-                  SymbolGlyph($r('sys.symbol.chevron_right'))
-                    .fontSize(typeOf('type.micro').size).fontColor([colorOf(this.pal(), 'iconMuted')])
-                    .rotate({ angle: this.isGroupCollapsed(this.sessionCategory(), g.key) ? 0 : 90 })
-                    // 折叠/展开的箭头旋转**要有过渡**（此前瞬变 ⇒ 观感"跳"）。
-                    // 属性动画走底座 `animFast()`（⛔ 不自造时长/曲线）；`.animation()` 作用于其**之前**的属性。
-                    .animation(animFast())
-                }
-                .width(MARKER_GUTTER)
-                .justifyContent(FlexAlign.Center)
-                .alignItems(VerticalAlign.Center)
-                Text(g.title)
-                  // Apple 侧栏分区头节奏：次级字号 + 半档字重（中文无大小写 ⇒ 以字重补 web `uppercase`
-                  // 的层次）。⚠️ 2026-10-12：原 `type.micro`(10) 与行标题 15 的落差过大 ⇒ 真机读不动。
-                  .fontSize(typeOf('type.caption').size).fontWeight(typeOf('type.subhead').weight).fontColor(this.pal().textSecondary)
-                  .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .layoutWeight(1)
-                Text(`${g.items.length}`)
-                  .fontSize(typeOf('type.micro').size).fontColor(this.pal().textMuted)
-                  .padding({ left: SPACE_XS, right: SPACE_XS, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
-                  .backgroundColor(this.pal().surfaceAlt).borderRadius(RADIUS_PILL)
-              }
-              .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
-              // 组头左右内边距 = **行内边距**（`INSET_ROW_X`）：此前组头用 `SPACE_XXS`(4) 而行用
-              // `INSET_ROW_X`(12) ⇒ 组头文字与行标题再多差 8vp（叠加箭头差 ⇒ 合计 36vp）。
-              .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
-              // ⚠️ **居中 + 仅非首组显式留白**（2026-10-12 二次修，原为「44 盒底对齐」）：
-              //    底对齐把 44 盒里 ~26vp 的空气**全堆在组头上方**（本意是当组间分隔），
-              //    但**首个组**上方没有"上一组" ⇒ 那 26vp 直接顶在筛选条下面，真机量测
-              //    「筛选条底(y≈700) → 首组标题(y≈852)」= **~150px 空带**（看起来像布局断了）。
-              //    改：居中 + **非首组** 加 `SPACE_MD` 上边距 ⇒ 组间空带不变、首组紧贴筛选条。
-              .alignItems(VerticalAlign.Center)
-              .margin({ top: gIdx > 0 ? SPACE_MD : 0 })
-              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-              .onClick(() => {
-                this.toggleGroup(this.sessionCategory(), g.key);
-              })
-            }
+            // 组头 = `ListItemGroup` 的 `header`（⛔ 不再是普通 `ListItem`）：只有 `header` 能配
+            // `.sticky(StickyStyle.Header)` ⇒ 组头**吸顶**（Apple 列表语义：滚动长会话列表时
+            // 「今天 / 昨天」始终可见；web 侧栏不吸顶 ⇒ 这是原生**超越**项）。构件见 `DrawerGroupHeader`。
+            ListItemGroup({ header: this.DrawerGroupHeader(g, gIdx) }) {
+              // ⚠️ 组头**移出**本 builder 体（改为 `header`），故这里只剩行；缩进沿用原层级（ArkTS 不看缩进）。
             // 仅当"末段目录名重名"时补一行完整路径（web 靠 hover tooltip，原生端没有 hover）
             if (g.tip.length > 0) {
               ListItem() {
@@ -8306,11 +8326,13 @@ struct Index {
                       }
                     }
                     .width('100%')
-                    // 行高预算（2026-10-12）：行体内容 = 尾部 `⋯` 的 **44vp 真实热区盒**
-                    // （⛔ 不可小于 `HIT_TARGET_MIN`，`responseRegion` 外扩真机无效），上下再各加
-                    // `SPACE_XXS`(4) ⇒ 行高 **52vp**。原用 `INSET_ROW_Y`(8) ⇒ 60vp，比 Apple 44pt
-                    // 单行列表高 39%；收紧后同屏多约 15% 行数，更贴 iOS 列表节奏（真机量测过）。
-                    .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XXS, bottom: SPACE_XXS })
+                    // 行高预算（2026-10-12 **二次**收紧）：行体内容 = 尾部 `⋯` 的 **44vp 真实热区盒**
+                    // （⛔ 不可小于 `HIT_TARGET_MIN`，`responseRegion` 外扩真机无效）⇒ **行高恒 == 44vp ==
+                    // Apple 单行列表高度**。前批把 `INSET_ROW_Y`(8) 收到 `SPACE_XXS`(4) ⇒ 52vp（仍比
+                    // Apple 44pt 高 ~18%）；本轮直接**去掉竖向内边距** —— 44 盒即行高：真机量测
+                    // **178px → 149px**（density 3.386），同屏多约 18% 行数
+                    // （用户 2026-10-12 亲报「只有那么一点点区域真的用于会话，用户要频繁的滚动」）。
+                    .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
                     .backgroundColor(s.chat_id === this.currentChat
                       ? surfaceFillOf(this.pal(), 'surface.overlayRowHover')
                       : this.pal().transparent)
@@ -8333,10 +8355,16 @@ struct Index {
                 }
               }, (s: SessionItem) => `${s.chat_id}#${s.label}#${s.running}`)
             }
-          }, (g: DrawerGroup) => `${this.sessionCategory()}#${g.key}`)
+            // ↑ 关闭 `if (!isGroupCollapsed…)`；↓ 关闭本组 `ListItemGroup`
+            }
+          // ⚠️ 键里**必须**带上折叠态：`ListItemGroup.header` 的参数是"调用那一刻的快照"（本仓
+          //    `@Builder` 快照陷阱）⇒ 折叠态不进键（或不经 `@State` 读取）时，chevron 旋转会**卡在初值**。
+          }, (g: DrawerGroup) => `${this.sessionCategory()}#${g.key}#${this.isGroupCollapsed(this.sessionCategory(), g.key)}`)
         }
         .layoutWeight(1).width('100%')
         .scrollBar(BarState.Off)
+        // 组头吸顶：⛔ 只有 `ListItemGroup.header` 才吸，普通 `ListItem` 写了**静默无效**。
+        .sticky(StickyStyle.Header)
       }
 
       // ── 底部动作：**紧凑工具栏**（单行 4 键；图标 + micro 标签）──────────────────

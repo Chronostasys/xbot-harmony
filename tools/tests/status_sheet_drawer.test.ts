@@ -149,13 +149,16 @@ has(indexSrc, 'this.activeChannel.length === 0 ? \'surface.pillSelected\' : \'su
 const grpRow: string = between(indexSrc, 'Text(`${g.items.length}`)', 'this.toggleGroup(');
 ok('分组头行块可定位（零扫描判红）', grpRow.length > 40);
 has(grpRow, '.alignItems(VerticalAlign.Center)', '分组头内容居中（上下空气均分，⛔ 不把空气全堆在组头上方）');
-has(grpRow, '.margin({ top: gIdx > 0 ? SPACE_MD : 0 })', '组间空带**显式化**且 ⛔ 首组不留白（空气归组间、组头紧贴本组行）');
+has(grpRow, '.padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: gIdx > 0 ? SPACE_MD : 0 })',
+  '组间空带在**组头底色盒内**（padding）且 ⛔ 首组不留白 —— 吸顶时无缝（margin 会成透明缝，见靶子4f）');
 has(indexSrc, 'ForEach(this.drawerGroups(), (g: DrawerGroup, gIdx: number) => {', '组序号入 ForEach（"首组"判定所需）');
 
 // ② 会话行密度：行高 = 尾部 `⋯` 的 44vp 真实热区盒 + 上下 `SPACE_XXS`(4) ⇒ **52vp**。
 //    原用 `INSET_ROW_Y`(8) ⇒ 60vp（比 Apple 44pt 单行列表高 39%）。判据钉**精确内边距串**。
-has(indexSrc, '.padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XXS, bottom: SPACE_XXS })',
-  '会话行垂直内边距走 SPACE_XXS ⇒ 行高 52vp（贴 iOS 列表节奏）');
+has(indexSrc, '.padding({ left: INSET_ROW_X, right: INSET_ROW_X })',
+  '会话行**无**竖向内边距 ⇒ 行高 == 44vp == Apple 单行列表高度（真机 178px → 149px）');
+hasNot(between(indexSrc, 'this.renamingId === s.chat_id', 'Divider()'), 'top: SPACE_XXS',
+  '⛔ 行内不再有竖向 padding（有 ⇒ 行高回涨 52vp，密度红利丢失）');
 
 // ③ 搜索框：行内**放大镜**（提示"这是搜索"）+ **条件清空键**（Apple `UISearchBar` 的 clear 同为
 //    条件出现）。清空键必须是**真实 44 布局盒**（⛔ `responseRegion` 外扩真机已证无效）+ 有 a11y 文案。
@@ -233,12 +236,38 @@ ok(`槽宽 ≥ 最坏内容（点 ${SPACE_XS} + ${SPACE_HAIR} + 星 ${typeOf('ty
 has(indexSrc, '.margin({ left: INSET_ROW_X + MARKER_GUTTER + SPACE_XS, right: INSET_ROW_X })',
   '行分隔线左缘 = 文字起点（⛔ 不再从行内容左缘起画）');
 // 组头左右内边距 = **行内边距** ⇒ 组头标题与行标题同轴、计数徽标右缘与行尾 `⋯` 右缘对齐。
+// ⚠️ 15e 演进：组头内边距串多了一段 `top`（组间空带进底色盒，见靶子4d）⇒ 断言串随之带上 `top`，
+//    仍是**逐字**钉住（⛔ 不是放宽成"含 left/right 即可"）。
 has(between(indexSrc, 'Text(`${g.items.length}`)', 'this.toggleGroup('),
-  '.padding({ left: INSET_ROW_X, right: INSET_ROW_X })', '组头左右内边距 = 行内边距（同一条竖轴）');
+  '.padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: gIdx > 0 ? SPACE_MD : 0 })',
+  '组头左右内边距 = 行内边距（同一条竖轴）');
 // 令牌真源：`MARKER_GUTTER` 定义在 design.ets 且**由空间档派生**（⛔ 不是就地新造的魔数）。
 has(designSrc, 'export const MARKER_GUTTER: number = SPACE_XL;',
   'MARKER_GUTTER 定义在 design.ets 并取空间档（⛔ 页面不写死数字）');
 has(designSrc, 'import', 'design.ets 可读（零扫描防线）');
+
+// ── 靶子4f：抽屉组头**吸顶**（2026-10-12 15e 目标③）─────────────────────────────
+// 为什么：Apple 列表语义 —— 滚动长会话列表时分区名（今天/昨天）**始终可见**；web 侧栏不吸顶
+// ⇒ 原生**超越**项。ArkUI 里**只有** `ListItemGroup.header` 会吸（普通 `ListItem` 写了
+// `.sticky()` 也**静默无效**）⇒ 必须同时钉住三层，缺一即"以为吸了其实没吸"：
+//   ① 组头是 `ListItemGroup` 的 `header` 构件；② List 上真有 `.sticky(StickyStyle.Header)`；
+//   ③ 吸顶底**不透明**且与抽屉根**同材质**（否则行会从组头下面 / 留白缝里透出来）。
+// ⚠️ `between()` 的**终点是排他**的 ⇒ 切片终点必须取 `.sticky()` **之后**的锚（否则"List 真的开了吸顶"
+//    那条会切不到 `.sticky` 而**假红** —— 本轮首跑即踩，实测 65 passed / 1 failed）。
+const drawerList: string = between(indexSrc,
+  'ListItemGroup({ header: this.DrawerGroupHeader(g, gIdx) }) {', '// ── 底部动作');
+ok('抽屉列表块可定位（零扫描判红）', drawerList.length > 200);
+has(drawerList, 'ListItemGroup({ header: this.DrawerGroupHeader(g, gIdx) })',
+  '组头 = ListItemGroup.header（吸顶的**唯一**前提）');
+has(drawerList, '.sticky(StickyStyle.Header)', 'List 真的开了吸顶');
+has(indexSrc, 'DrawerGroupHeader(g: DrawerGroup, gIdx: number) {', '组头构件定义在位（零扫描防线）');
+const grpDef: string = between(indexSrc, 'DrawerGroupHeader(g: DrawerGroup, gIdx: number) {', 'this.toggleGroup(');
+ok('组头构件块可定位（零扫描判红）', grpDef.length > 200);
+has(grpDef, '.backgroundColor(this.eff().glassBg)',
+  '吸顶组头底色 = 抽屉根**同材质**（⛔ 不能透明、也不能是别的 surface 角色 ⇒ 吸顶露色差接缝）');
+has(grpDef, 'backgroundBlurStyle(BlurStyle.Regular', '吸顶组头带模糊（与抽屉根一致 ⇒ 逐像素无缝）');
+has(drawerList, '${this.isGroupCollapsed(this.sessionCategory(), g.key)}`)',
+  '组头 ForEach 键**含折叠态**（header 参数是快照 ⇒ 否则 chevron 卡初值）');
 
 console.log(`  status_sheet_drawer: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
