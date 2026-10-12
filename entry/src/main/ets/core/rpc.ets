@@ -66,6 +66,13 @@ export const RPC_SET_DEFAULT_SUBSCRIPTION: string = 'set_default_subscription';
 export const RPC_GET_SETTINGS: string = 'get_settings';
 export const RPC_SET_SETTING: string = 'set_setting';
 
+// ── 会话用量统计（`xbot.session-stats` 内置插件面板的唯一数据源）─────────────────
+//
+// `get_session_usage_stats`（`{channel,chat_id,limit?}` → `TenantUsageStats`）。参数契约逐字取自
+// web `web/src/plugin-api/rpc.ts:73`，限值语义见 `:38` 注释（`>500`/`<0` ⇒ 500，`0` ⇒ 无明细）。
+// 该面板在 web 是随主包打包的内置插件（不在磁盘插件目录）⇒ 服务端 `web_plugin_list` 不下发它。
+export const RPC_GET_SESSION_USAGE_STATS: string = 'get_session_usage_stats';
+
 // ── llm 分区的「并发 / 思考模式」（波6；逐个核对服务端 rpc_table.go，非猜测）──────
 //
 // ⚠️ 这 4 个都是 **no-admin**（`rpc0`/`rpc1void` 直接注册，没有 `requireAdmin` 包裹）——
@@ -246,6 +253,7 @@ export class RpcMethod {
   static readonly setDefaultSubscription: string = RPC_SET_DEFAULT_SUBSCRIPTION;
   static readonly getSettings: string = RPC_GET_SETTINGS;
   static readonly setSetting: string = RPC_SET_SETTING;
+  static readonly getSessionUsageStats: string = RPC_GET_SESSION_USAGE_STATS;
   static readonly getLlmConcurrency: string = RPC_GET_LLM_CONCURRENCY;
   static readonly setLlmConcurrency: string = RPC_SET_LLM_CONCURRENCY;
   static readonly getUserThinkingMode: string = RPC_GET_USER_THINKING_MODE;
@@ -275,6 +283,7 @@ export class RpcMethod {
     RPC_SET_DEFAULT_SUBSCRIPTION,
     RPC_GET_SETTINGS,
     RPC_SET_SETTING,
+    RPC_GET_SESSION_USAGE_STATS,
     RPC_GET_LLM_CONCURRENCY,
     RPC_SET_LLM_CONCURRENCY,
     RPC_GET_USER_THINKING_MODE,
@@ -392,6 +401,25 @@ export class SetSettingParams {
     this.namespace = namespace;
     this.key = key;
     this.value = value;
+  }
+}
+
+/**
+ * `get_session_usage_stats` 的 params（web `plugin-api/rpc.ts:73`）。
+ *
+ * `limit` 语义（`rpc.ts:38` 注释）：服务端 `ORDER BY id DESC LIMIT ?` 钳制 ——
+ * `>500` 或 `<0` ⇒ **500**；`0` ⇒ **无明细**。会话统计面板取上限 500（与 web 面板
+ * `TREND_SAMPLE_LIMIT` 同值），因为「最近迭代」表与趋势共用同一份明细。
+ */
+export class SessionUsageStatsParams {
+  channel: string = '';
+  chat_id: string = '';
+  limit: number = 500;
+
+  constructor(channel: string, chatId: string, limit: number) {
+    this.channel = channel;
+    this.chat_id = chatId;
+    this.limit = limit;
   }
 }
 

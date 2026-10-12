@@ -66,6 +66,9 @@ export struct PluginsSheet {
   /** 打开**完整 Web UI**（页面用自己的 serverUrl 置 `panelUrl`）。 */
   onOpenWebUi: () => void = () => {
   };
+  /** 打开**原生会话统计面板**（内置插件 `xbot.session-stats`；判据/渲染在 `core/sessionstats.ets`）。 */
+  onOpenSessionStats: () => void = () => {
+  };
   /** 打开某个插件面板（页面置 `panelUrl = p.url`）。 */
   onOpenPlugin: (p: PluginCatalogItem) => void = () => {
   };
@@ -141,6 +144,12 @@ export struct PluginsSheet {
           ListItem() {
             this.EntryRow('插件目录（原生）', (): void => {
               this.onOpenPluginHost();
+            })
+          }
+          // 会话统计（内置插件 `xbot.session-stats` —— **原生渲染**，数据来自宿主 RPC）
+          ListItem() {
+            this.EntryRow('会话统计', (): void => {
+              this.onOpenSessionStats();
             })
           }
           // 完整 Web UI（插件 / GenUI / 终端 / 编辑器都在里面）

@@ -163,6 +163,7 @@ import { TodoPanel } from '../components/TodoPanel';
 import { StatusSheet } from '../components/StatusSheet';
 import { QueueSheet } from '../components/QueueSheet';
 import { PluginsSheet } from '../components/PluginsSheet';
+import { SessionStatsSheet } from '../components/SessionStatsSheet';
 import { FilesSheet } from '../components/FilesSheet';
 import { SelfCheckSheet } from '../components/SelfCheckSheet';
 import { TaskDetailSheet } from '../components/TaskDetailSheet';
@@ -170,7 +171,8 @@ import { TerminalSheet } from '../components/TerminalSheet';
 import { SessSheet, SearchHitsSheet, ContextSheet } from '../components/MenuSheets';
 import { AskUserSheet } from '../components/AskUserSheet';
 import { animBase, animFast, drawerTransition, fadeTransition, sheetTransition } from '../components/anim';
-import { readableRpcError, rpc, RpcMethod, RPC_WEB_PLUGIN_LIST, ThinkingModeParams } from '../core/rpc';
+import { readableRpcError, rpc, RpcMethod, RPC_WEB_PLUGIN_LIST, RPC_GET_SESSION_USAGE_STATS, SessionUsageStatsParams, ThinkingModeParams } from '../core/rpc';
+import { parseSessionUsage, SessionUsage, SessionUsageWire } from '../core/sessionstats';
 import { TodoPayloadRow, removeTodoAt, renameTodoAt, todoPayloadRows, toggleTodoAt } from '../core/todos';
 import { WebSubAgentProgress } from '../core/chattypes';
 import { EMPTY_BLOCKS_SIGNATURE, liveBlocksSignature, subAgentsFingerprint } from '../core/render';
@@ -760,6 +762,13 @@ struct Index {
   @State nativeCatalog: PluginCatalog | null = null;
   /** 插件宿主页 URL（**与页面级 `panelUrl` 分离** ⇒ 不会同时挂载两个 WebSurface）。 */
   @State pluginPageUrl: string = '';
+  // ── 会话统计面板（内置插件 `xbot.session-stats` 的原生落地）─────────────────────
+  // 它不在服务端 `web_plugin_list`（随 web 主包打包）⇒ 只能作为**内置入口**暴露；
+  // 数据全来自宿主 RPC（`get_session_usage_stats`）⇒ 原生渲染，不塞 WebView。
+  @State showSessionStats: boolean = false;
+  @State sessUsage: SessionUsage = new SessionUsage();
+  @State sessionStatsLoading: boolean = false;
+  @State sessionStatsError: string = '';
   // ── 插件 widget 数据面（页面半边；`store` 半边在 `core/store.ets` 的 lastWidgetEvent/Content）──
   /** 当前 widget 事件名（SSE 载荷产出；空 ⇒ 回落 `WIDGET_EVENT_WEB`）。 */
   @State widgetEvent: string = WIDGET_EVENT_WEB;
@@ -3310,6 +3319,53 @@ struct Index {
     }
   }
 
+  /**
+   * 打开**会话统计面板**（内置插件 `xbot.session-stats` 的原生落地）。
+   *
+   * 为什么是"内置入口"而不是从 `web_plugin_list` 取：该插件在 web 是随**主包**打包的
+   * `builtinViews`（`web/src/plugin-runtime/usePluginRuntimeHost.ts:112`），不在磁盘插件目录
+   * ⇒ 服务端从不下发它（实测只回 4 条磁盘插件）⇒ 原生必须自己给它一个入口，否则用户
+   * 「统计插件的面板我们看不到」（用户原话）。
+   *
+   * 浮层互斥：从能力面板/抽屉进入 ⇒ 先收它们（同一时刻只允许一个半屏/全屏浮层）。
+   */
+  private openSessionStats(): void {
+    this.showDrawer = false;
+    this.showPlugins = false;
+    this.anim(() => {
+      this.showSessionStats = true;
+    });
+    this.loadSessionStats();
+  }
+
+  /**
+   * 拉会话用量统计 → 投给统计面板（**不吞错**：失败可读化后交面板显示 + 可重试）。
+   * 数据源 = RPC `get_session_usage_stats`（服务端 iteration_history 聚合）；判据/格式化
+   * 全在 `core/sessionstats.ets`（纯逻辑，可脱机单测），页面只负责取数与所有权。
+   */
+  private async loadSessionStats(): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      this.sessUsage = new SessionUsage();
+      this.sessionStatsError = '尚未连接服务端';
+      this.sessionStatsLoading = false;
+      return;
+    }
+    this.sessionStatsLoading = true;
+    try {
+      const wire: SessionUsageWire = await rpc<SessionUsageWire>(
+        store.http, RPC_GET_SESSION_USAGE_STATS,
+        new SessionUsageStatsParams(store.channel, store.currentChatId, 500));
+      this.sessUsage = parseSessionUsage(wire);
+      this.sessionStatsError = '';
+    } catch (e) {
+      this.sessUsage = new SessionUsage();
+      this.sessionStatsError = readableRpcError((e as Error).message);
+    } finally {
+      this.sessionStatsLoading = false;
+    }
+  }
+
   // ── 图片（cookie 鉴权端点 → 自行取字节解码） ──────────────────────────────
 
   /** 关闭查看器（复位缩放/位移，下次打开是干净的）。 */
@@ -3487,6 +3543,9 @@ struct Index {
               this.showPlugins = false;
               this.panelUrl = this.serverUrl;
             },
+            onOpenSessionStats: () => {
+              this.openSessionStats();
+            },
             onOpenPlugin: (p: PluginCatalogItem) => {
               this.showPlugins = false;
               this.panelUrl = p.url;
@@ -3538,6 +3597,28 @@ struct Index {
             },
             onClose: () => {
               this.showFiles = false;
+            },
+          })
+        }.width('100%').height('100%')
+      }
+      // 会话统计面板（内置插件 `xbot.session-stats` 的原生落地）——数据/所有权留页面。
+      if (this.showSessionStats) {
+        Stack() {
+          Row() {
+            Blank()
+          }.width('100%').height('100%').onClick(() => {
+            this.showSessionStats = false;
+          })
+          SessionStatsSheet({
+            theme: this.themeName,
+            stats: this.sessUsage,
+            loading: this.sessionStatsLoading,
+            error: this.sessionStatsError,
+            onRetry: () => {
+              this.loadSessionStats();
+            },
+            onClose: () => {
+              this.showSessionStats = false;
             },
           })
         }.width('100%').height('100%')
