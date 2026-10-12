@@ -208,9 +208,15 @@ export function drawerTransition(): TransitionEffect {
 }
 
 /**
- * **抽屉遮罩（scrim）** 的出入场 —— **纯淡入淡出**（⛔ 不带位移：遮罩是平面，位移无空间含义）。
- * 时长取快档（`MOTION_FAST_MS`），与抽屉本体的滑入同起同止（遮罩先「铺开」、抽屉再「滑上」）。
+ * **纯淡入淡出**（⛔ 无位移）—— 给「内容出现/消失」这类**无空间含义**的过渡。
+ *
+ * 现有消费点（同一个语义，⛔ 不为每处再造一个同名工厂）：
+ *   · 会话抽屉的**遮罩（scrim）**：遮罩是平面，位移无空间含义 ⇒ 只淡；与抽屉本体的横向滑入
+ *     同起同止（遮罩先「铺开」、抽屉再「滑上」）；
+ *   · `AuthImage` **解码完成 ⇒ 图片淡入**（此前"啪"地弹出，且与 skeleton 的消失不同步）。
+ *
+ * 时长取快档（`MOTION_FAST_MS`）—— ⛔ 不自造数值（本函数只组合底座的时长常量）。
  */
-export function scrimTransition(): TransitionEffect {
+export function fadeTransition(): TransitionEffect {
   return TransitionEffect.OPACITY.animation({ duration: MOTION_FAST_MS });
 }

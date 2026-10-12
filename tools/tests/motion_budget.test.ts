@@ -80,6 +80,9 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   ['components/anim.ets', 8],
   ['components/SplashOverlay.ets', 5], // 开屏 T1 入场 / T2 让位 / 提示延迟淡入 —— **必须留**（状态+空间）
   ['components/AssistantOrb.ets', 2],  // 光球状态切换 —— **必须留**（就是"唯一在飞"的那个）
+  // 图片解码完成 ⇒ 淡入（2026-10-12）：讲的是"内容出现"的状态过渡（此前"啪"地弹出、
+  //   与 skeleton 消失不同步）；影响聊天图 / 文件预览 / lightbox 全链路 ⇒ **必须留**。
+  ['components/AuthImage.ets', 1],
   ['components/MessageRow.ets', 4],    // 消息入场/按压 —— ⚠️ chat-surface-ux 域（见报告）
   ['components/MenuSheets.ets', 3],    // 三个抽屉 —— **必须留**（从下滑入/滑出 = 空间关系）
   ['components/AskUserSheet.ets', 1],  // 弹层开合 —— 同上

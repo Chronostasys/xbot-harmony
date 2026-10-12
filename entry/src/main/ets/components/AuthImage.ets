@@ -12,6 +12,8 @@ import {
   SPACE_XXS, SPACE_XS, SPACE_SM, SPACE_HAIR,
   colorOf, surfaceFillOf, hairlineOf, SURFACE_CHIP, MARKER_GLYPH } from '../core/design';
 import { fs, lh, fw, tc } from './SettingsRows';
+// 动效唯一出口（⛔ 不自造时长/曲线）。
+import { fadeTransition } from './anim';
 
 const PM_CACHE: Map<string, image.PixelMap> = new Map<string, image.PixelMap>();
 const PM_ORDER: string[] = [];
@@ -98,6 +100,9 @@ export struct AuthImage {
         .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
         // press 反馈（全 App 统一口径 `PRESS_OPACITY`）——图片可点（打开大图），此前**无任何反馈**。
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        // 解码完成 ⇒ **淡入**（此前图片"啪"地弹出，与 skeleton 的消失不同步）。
+        // ⚠️ 用 `.transition()` 而非 `.opacity(三元)`：静息态 = 组件自身属性 = **可见** ⇒ fail-safe（门禁 ⑨）。
+        .transition(fadeTransition())
         .onClick(() => {
           this.onOpen(this.src);
         })

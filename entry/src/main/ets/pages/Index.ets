@@ -165,7 +165,7 @@ import { FilesSheet } from '../components/FilesSheet';
 import { SelfCheckSheet } from '../components/SelfCheckSheet';
 import { SessSheet, SearchHitsSheet, ContextSheet } from '../components/MenuSheets';
 import { AskUserSheet } from '../components/AskUserSheet';
-import { animBase, drawerTransition, scrimTransition, sheetTransition } from '../components/anim';
+import { animBase, drawerTransition, fadeTransition, sheetTransition } from '../components/anim';
 import { readableRpcError, rpc, RpcMethod, RPC_WEB_PLUGIN_LIST, ThinkingModeParams } from '../core/rpc';
 import { TodoPayloadRow, removeTodoAt, renameTodoAt, todoPayloadRows, toggleTodoAt } from '../core/todos';
 import { WebSubAgentProgress } from '../core/chattypes';
@@ -3396,8 +3396,8 @@ struct Index {
           }
           .width('100%').height('100%')
           .backgroundColor(this.eff().elev2)
-          // 遮罩纯淡入淡出（与抽屉横向滑入同起同止）。
-          .transition(scrimTransition())
+          // 遮罩纯淡入淡出（与抽屉横向滑入同起同止）—— 走底座 `fadeTransition()`。
+          .transition(fadeTransition())
           .onClick(() => {
             this.closeDrawer();
           })

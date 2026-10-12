@@ -26,7 +26,9 @@ import {
   colorOf, hairlineOf, HIT_TARGET_MIN, INSET_ROW_X, PRESS_OPACITY, RADIUS_CARD, RADIUS_SHEET, SPACE_MD,
   SPACE_SM, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD, surfaceFillOf, ICON_MD, typeOf,
 } from '../core/design';
-import { sheetTransition } from './anim';
+// 本面板是**侧栏**（不是底部面板）⇒ 走 `drawerTransition()`（横向滑入），与 `DrawerSheet` 同语义；
+// ⛔ 原先用 `sheetTransition()`（自下而上）轴不对 —— 侧栏从底部滑入读作「抽屉」，语义冲突。
+import { drawerTransition } from './anim';
 import { MarkdownView } from './MarkdownView';
 import { AuthImage } from './AuthImage';
 
@@ -400,7 +402,8 @@ export struct FilesSheet {
       offsetX: SPACE_XS,
       offsetY: 0,
     })
-    .transition(sheetTransition())
+    // 侧栏出入场 = **横向滑入**（`drawerTransition()`，与 `DrawerSheet` 同语义）。
+    .transition(drawerTransition())
   }
 
   /** 本面板柔影（两层数组恒返 `[near, far]`；本面板是侧栏 ⇒ 取环境层 `far`）。 */
