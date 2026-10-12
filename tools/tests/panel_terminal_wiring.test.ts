@@ -125,9 +125,32 @@ ok(`取色点落到 hairlineOf（${roleHairline} ≥ 1）`, roleHairline >= 1);
 ok(`取色点落到 surfaceFillOf（${roleSurface} ≥ 1）`, roleSurface >= 1);
 ok(`取色点**只取一次色**（palOnce ${rolePalOnce} == 1，B 线预算顶格）`, rolePalOnce === 1);
 
+// ── 15g：面板刷新**绝不静默丢弃**（真机实证：切 tab 后列表停在空态，而后端同一会话有 48 条）────
+const rpFrom: number = idxSrc.indexOf('private async refreshPanel()');
+const rpTo: number = idxSrc.indexOf('\n  private ', rpFrom + 10);
+const rp: string = rpFrom < 0 ? '' : idxSrc.substring(rpFrom, rpTo < 0 ? idxSrc.length : rpTo);
+const rpQueueSet: number = countOf(rp, 'this.panelRefreshQueued = true;');
+const rpQueueClear: number = countOf(rp, 'this.panelRefreshQueued = false;');
+const rpQueueRead: number = countOf(rp, 'if (this.panelRefreshQueued) {');
+const rpReenter: number = countOf(rp, 'this.refreshPanel();');
+// ⛔ 旧的"静默丢弃"写法（`if (store === null || this.panelBusy) return;`）必须**已消失**。
+const rpOldDrop: number = countOf(rp, 'if (store === null || this.panelBusy) {');
+const swTabCall: number = countOf(
+  idxSrc.substring(idxSrc.indexOf('private switchPanelTab'), idxSrc.indexOf('private switchPanelTab') + 200),
+  'this.refreshPanel();');
+console.log(`  panel-scan refreshPanel(长${rp.length}) 置位=${rpQueueSet} 清除=${rpQueueClear} 判读=${rpQueueRead} 重入=${rpReenter} 旧丢弃写法=${rpOldDrop} 切tab调刷新=${swTabCall}`);
+
+ok(`刷新切片已切出（${rp.length} > 200）`, rp.length > 200);
+ok(`⛔ 旧的"静默丢弃"写法已不存在（${rpOldDrop} == 0；有 ⇒ 切 tab 又会停空态）`, rpOldDrop === 0);
+ok(`busy 时记「待刷新」而非丢弃（置位 ${rpQueueSet} == 1）`, rpQueueSet === 1);
+ok(`finally 里判读待刷新（${rpQueueRead} == 1）`, rpQueueRead === 1);
+ok(`判读后先清标志再重入（清除 ${rpQueueClear} == 1）`, rpQueueClear === 1);
+ok(`重入按当前 tab 再刷一次（${rpReenter} == 1）`, rpReenter === 1);
+ok(`切 tab 会触发刷新（switchPanelTab 内调 refreshPanel ${swTabCall} == 1）`, swTabCall === 1);
+
 // ── 零扫描判红：链接线调用点合计必须 > 0（扫描器与真源脱节 ⇒ 红）──────────────────
 ok('零扫描判红：运行面板/终端键帽接线证据合计 > 0',
-  newBtn + termCall + newEmpty + minWDecl + keyBorderVia + ctrlBorderVia + roleHairline > 0);
+  newBtn + termCall + newEmpty + minWDecl + keyBorderVia + ctrlBorderVia + roleHairline + rpQueueSet > 0);
 
 console.log(`  panel-terminal-wiring: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

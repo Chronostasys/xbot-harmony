@@ -714,6 +714,12 @@ struct Index {
   @State runners: RunnerRow[] = [];
   @State subagents: SubAgentRow[] = [];
   @State panelBusy: boolean = false;
+  /**
+   * 「面板待刷新」标志（15g）：`refreshPanel()` 在**上一次拉取还在飞**时被调用 ⇒ 记下待刷新，
+   * 等当前这次结束再为**当前** tab 补一次。⛔ 不许退回"直接 return 丢掉请求"的写法（真机实证见
+   * `refreshPanel` 内注释：切 tab 后列表停在空态，而后端同一会话有 48 条）。
+   */
+  private panelRefreshQueued: boolean = false;
   // 终端（PTY）—— 用户点名「终端做的很差」：原生此前 **0 消费**（`/api/terminal/*` + `/ws/terminal`）
   @State terminals: TerminalInfo[] = [];
   @State showTerminal: boolean = false;
@@ -6296,7 +6302,19 @@ struct Index {
 
   private async refreshPanel(): Promise<void> {
     const store: ChatStore | null = this.store;
-    if (store === null || this.panelBusy) {
+    if (store === null) {
+      return;
+    }
+    if (this.panelBusy) {
+      // ⛔ 2026-10-12（15g）**绝不静默丢弃**：原写法在此直接 `return` ⇒ 切 tab / 连点「刷新」时，
+      //   若上一次拉取还在飞，**这次请求被整个吞掉** ⇒ 列表停在旧数据或空态。
+      //   真机实证（决定性）：抽屉 → 运行（默认「定时任务」，打开即发请求）→ **马上**点「后台任务」
+      //   ⇒ 显示「本会话暂无后台任务」；而 `POST /api/tasks/list` 对**同一会话**
+      //   （`channel=web, chat_id=chat_EDE9F493EB26`）返回 **48 条**；随后点表头「刷新」
+      //   （= 同一段代码、此时 `panelBusy` 已落回 false）⇒ 48 条**立刻全部出现**。
+      //   ⇒ 结论：不是取数或渲染问题，就是**这次请求被守卫丢掉**。
+      //   修法：记「待刷新」标志，等当前这次结束再按**当前** tab 补一次（幂等、⛔ 不加定时器）。
+      this.panelRefreshQueued = true;
       return;
     }
     this.panelBusy = true;
@@ -6316,6 +6334,11 @@ struct Index {
       this.toast(`加载失败: ${errText(e as Object)}`);
     } finally {
       this.panelBusy = false;
+      if (this.panelRefreshQueued) {
+        // 先清标志再重入 ⇒ 不会自激循环（只补一次；期间再来请求会重新置位）
+        this.panelRefreshQueued = false;
+        this.refreshPanel();
+      }
     }
   }
 
