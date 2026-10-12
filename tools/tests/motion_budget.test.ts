@@ -92,6 +92,10 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   ['components/QueueSheet.ets', 1],    // 同上
   ['components/SettingsPanel.ets', 1], // 同上
   ['components/StatusSheet.ets', 1],   // 同上
+  // 2026-10-12：穷举扫全仓 7 个浮层，**只有它与 `ToolPopover` 是 0 过渡**（`ToolPopover` 走
+  //   `bindPopup` 系统绘制，改不到）⇒ 给它补与 StatusSheet **同一个工厂** `sheetTransition()`，
+  //   不再"自检面板"独独瞬现（面板入场语言全站统一）。
+  ['components/SelfCheckSheet.ets', 1],
   ['components/TodoPanel.ets', 1],     // ⚠️ 属性动画 `.animation(animFast())`（`chevron_right` 的 `rotate 0→90`）
                                        //   —— **必须留**（2026-10-11 动效审计逐处判）：它讲的是**展开/收起的
                                        //   **方向状态变化**，删了箭头会"跳"；web `TodoPullOut.tsx` 同款有过渡。

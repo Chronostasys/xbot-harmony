@@ -17,6 +17,7 @@ import {
   HIT_TARGET_MIN, PRESS_OPACITY, GAP_PILL, INSET_CARD_X, INSET_PILL_X, INSET_PILL_Y, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, hairlineOf, structuralRuleOf, surfaceFillOf, ICON_XL, ICON_LG } from '../core/design';
 import { fs, fw } from './SettingsRows';
 import { MarkdownView } from './MarkdownView';
+import { sheetTransition } from './anim';
 
 @Component
 export struct SelfCheckSheet {
@@ -182,5 +183,9 @@ export struct SelfCheckSheet {
       color: this.sheetLayers()[1].color,
       offsetX: 0, offsetY: this.sheetLayers()[1].offsetY,
     })
+    // 出入场过渡（2026-10-12 穷举扫全仓 7 个浮层：**只有它与 `ToolPopover` 是 0 过渡**；
+    // 后者走 `bindPopup`（系统绘制，改不到，见 `anim.ets:176`）⇒ 这里补齐。
+    // 与 `StatusSheet` **同一个工厂**（`sheetTransition()`，不许自造第二套入场语言）。
+    .transition(sheetTransition())
   }
 }
