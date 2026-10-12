@@ -2,9 +2,11 @@
 declare const process: { exit: (c: number) => void };
 
 import {
-  bgTaskLine, bgTaskMetaText, bgTaskOutputText, bgTaskRunning, bgTaskStatusText, countText, cronLine,
-  durationText, fmtHHMM, KillBgTaskParams, runnerLine, scheduleText, statusIcon,
-  SubAgentRow, subagentLine,
+  bgTaskMetaText, bgTaskOutputText, bgTaskPrimary, bgTaskRunning, bgTaskStatusText, bgTaskSubText,
+  bgTaskTone, countText, cronPrimary, cronSubText,
+  durationText, fmtHHMM, KillBgTaskParams, runnerPrimary, runnerSubText, runnerTone, scheduleText,
+  SubAgentRow, subagentPrimary, subagentSubText, subagentTone,
+  TONE_ERROR, TONE_MUTED, TONE_SUCCESS,
 } from '../../entry/src/main/ets/core/panels';
 
 let pass = 0, fail = 0;
@@ -23,16 +25,13 @@ eq('空 ISO', fmtHHMM(undefined), '');
 const iso = new Date(2026, 8, 1, 9, 5, 0).toISOString();
 eq('本地 HH:MM', fmtHHMM(iso), '09:05');
 
-eq('一次性标记', cronLine({ one_shot: true, cron_expr: '0 9 * * *', message: '检查', next_run: iso }),
-  '一次性 · 0 9 * * * · 检查 · 下次 09:05');
-eq('周期任务无标记', cronLine({ every_seconds: 30, message: '轮询' }), '每 30 秒 · 轮询');
-
-eq('运行中标记', statusIcon('running'), '运行中');
-eq('排队标记', statusIcon('pending'), '运行中');
-eq('完成标记', statusIcon('done'), '完成');
-eq('失败标记', statusIcon('failed'), '失败');
-eq('终止标记', statusIcon('killed'), '失败');
-eq('未知状态', statusIcon('weird'), '·');
+// ── 结构化行（主行 / 副行 / tone）—— 批次10（2026-10-12，「任务管理做的很差」）────────
+// 真判别点：长命令**不得**吃掉状态/时长（旧 `bgTaskLine` 单行 ⇒ 元信息被 maxLines 截掉）。
+eq('cron 主行 = 消息', cronPrimary({ one_shot: true, cron_expr: '0 9 * * *', message: '检查', next_run: iso }), '检查');
+eq('cron 主行缺消息回落调度', cronPrimary({ every_seconds: 30 }), '每 30 秒');
+eq('cron 副行 = 一次性+调度+下次', cronSubText({ one_shot: true, cron_expr: '0 9 * * *', message: '检查', next_run: iso }),
+  '一次性 · 0 9 * * * · 下次 09:05');
+eq('cron 副行无一次性标记', cronSubText({ every_seconds: 30, message: '轮询' }), '每 30 秒');
 
 const t0 = new Date(2026, 8, 1, 9, 0, 0).getTime();
 eq('秒级时长', durationText(new Date(t0).toISOString(), undefined, t0 + 12000), '12s');
@@ -42,12 +41,25 @@ eq('已结束用 finished_at', durationText(new Date(t0).toISOString(),
 eq('缺 started_at', durationText(undefined, undefined, t0), '');
 eq('负数按 0', durationText(new Date(t0).toISOString(), undefined, t0 - 5000), '0s');
 
-eq('后台任务行', bgTaskLine({ id: '3f8f', command: 'go test ./...', status: 'running',
-  started_at: new Date(t0).toISOString() }, t0 + 12000), '运行中 go test ./... · 12s（3f8f）');
-eq('失败任务带 exit', bgTaskLine({ id: 'a1', command: 'ls', status: 'failed', exit_code: 2 }, 0),
-  '失败 ls · exit 2（a1）');
-
-eq('失败任务无 started_at 不含时长', bgTaskLine({ id: 'a1', command: 'ls', status: 'failed', exit_code: 2 }, 0), '失败 ls · exit 2（a1）');
+// 主行 = 纯命令（无前缀、无元信息）——真机 62 条任务曾被「完成 <命令…>」一锅端
+eq('后台主行 = 命令', bgTaskPrimary({ id: '3f8f', command: 'go test ./...', status: 'running' }), 'go test ./...');
+eq('后台主行缺命令回落 id', bgTaskPrimary({ id: '3f8f' }), '3f8f');
+eq('后台主行去空白', bgTaskPrimary({ id: 'x', command: '  ls  ' }), 'ls');
+// 副行 = 状态短语 + 元信息（判据同源于 bgTaskStatusText/bgTaskMetaText）
+eq('后台副行 运行中+时长+id', bgTaskSubText({ id: '3f8f', command: 'go test ./...', status: 'running',
+  started_at: new Date(t0).toISOString() }, t0 + 12000), '运行中 · 12s · 3f8f');
+eq('后台副行 失败带 exit', bgTaskSubText({ id: 'a1', command: 'ls', status: 'failed', exit_code: 2 }, 0),
+  '失败 · exit 2 · a1');
+eq('后台副行 失败并入 error 首行', bgTaskSubText({ id: 'b2', command: 'ls', status: 'failed', exit_code: 1,
+  error: 'boom\nmore' }, 0), '失败 · exit 1 · b2 · boom');
+eq('后台副行 成功**不**并入 error', bgTaskSubText({ id: 'c3', command: 'ls', status: 'done', exit_code: 0,
+  error: 'stale' }, 0), '完成 · exit 0 · c3');
+// tone：运行中 ⇒ success；失败 ⇒ error；完成 ⇒ muted（⛔ killed 不是 error —— 用户主动终止）
+eq('tone 运行中', bgTaskTone({ status: 'running' }), TONE_SUCCESS);
+eq('tone 失败', bgTaskTone({ status: 'failed', exit_code: 2 }), TONE_ERROR);
+eq('tone done+exit0', bgTaskTone({ status: 'done', exit_code: 0 }), TONE_MUTED);
+eq('tone killed 非 error', bgTaskTone({ status: 'killed', exit_code: 130 }), TONE_MUTED);
+eq('tone 无 status', bgTaskTone({}), TONE_MUTED);
 
 // ── 后台任务**详情**（2026-10-12「任务管理做的很差」的判据）──────────────────────
 eq('running 判运行中', bgTaskRunning({ status: 'running' }), true);
@@ -82,18 +94,30 @@ eq('error 已含在 output 里不重复', bgTaskOutputText({ output: 'x\nboom', 
 const kp = new KillBgTaskParams('t-1');
 eq('kill 参数名是 task_id', kp.task_id, 't-1');
 
-eq('在线 runner', runnerLine({ name: 'gpu-1', mode: 'ssh', online: true, version: '1.2',
-  workspace: '/root/w' }), '在线 gpu-1 · ssh · v1.2 · /root/w');
-eq('离线 runner 默认 native', runnerLine({ name: 'r2', online: false }), '离线 r2 · native');
-eq('未命名 runner', runnerLine({ online: true }), '在线 (未命名) · native');
+eq('runner 主行 = 名字', runnerPrimary({ name: 'gpu-1', online: true }), 'gpu-1');
+eq('runner 主行缺名', runnerPrimary({ online: true }), '(未命名)');
+eq('runner 副行 在线+mode+版本+workspace', runnerSubText({ name: 'gpu-1', mode: 'ssh', online: true, version: '1.2',
+  workspace: '/root/w' }), '在线 · ssh · v1.2 · /root/w');
+eq('runner 副行 离线默认 native', runnerSubText({ name: 'r2', online: false }), '离线 · native');
+eq('runner tone 在线', runnerTone({ online: true }), TONE_SUCCESS);
+eq('runner tone 离线', runnerTone({ online: false }), TONE_MUTED);
 
 function subRow(chatId: string, label: string, running: boolean): SubAgentRow {
   const r = new SubAgentRow();
   r.chat_id = chatId; r.label = label; r.running = running;
   return r;
 }
-eq('子代理运行中', subagentLine(subRow('x', 'tester-1', true)), '运行中 tester-1');
-eq('子代理完成回落 chat_id', subagentLine(subRow('sub-9', '', false)), '完成 sub-9');
+eq('子代理主行 = label', subagentPrimary(subRow('x', 'tester-1', true)), 'tester-1');
+eq('子代理主行回落 chat_id', subagentPrimary(subRow('sub-9', '', false)), 'sub-9');
+eq('子代理副行 运行中', subagentSubText(subRow('x', 'tester-1', true)), '运行中');
+eq('子代理副行 完成', subagentSubText(subRow('x', 'tester-1', false)), '完成');
+eq('子代理 tone 运行中', subagentTone(subRow('x', 't', true)), TONE_SUCCESS);
+eq('子代理 tone 完成', subagentTone(subRow('x', 't', false)), TONE_MUTED);
+
+// ── tone 常量真源（组件`PanelRows` 与 core 必须同字面量；写错 ⇒ 副行静默落 muted）────
+eq('TONE_SUCCESS 字面量', TONE_SUCCESS, 'success');
+eq('TONE_ERROR 字面量', TONE_ERROR, 'error');
+eq('TONE_MUTED 字面量', TONE_MUTED, 'muted');
 
 eq('计数 0', countText(0), '0');
 eq('计数 12', countText(12), '12');

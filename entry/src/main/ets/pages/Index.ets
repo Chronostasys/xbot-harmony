@@ -42,10 +42,11 @@ import {
   canMove, MOVE_DOWN, MOVE_TOP, MOVE_UP, hitLine, sessionLabel, sessionMatches,
 } from '../core/sessionops';
 import {
-  BgTask, bgTaskLine, bgTaskMetaText, bgTaskOutputText, bgTaskRunning, bgTaskStatusText,
-  CronJob, cronLine, RunnerRow, runnerLine, SubAgentRow, subagentLine,
+  BgTask, bgTaskMetaText, bgTaskOutputText, bgTaskPrimary, bgTaskRunning, bgTaskStatusText, bgTaskSubText,
+  bgTaskTone, CronJob, cronPrimary, cronSubText, RunnerRow, runnerPrimary, runnerSubText, runnerTone,
+  SubAgentRow, subagentPrimary, subagentSubText, subagentTone, TONE_MUTED,
 } from '../core/panels';
-import { TerminalInfo, terminalLine } from '../core/termproto';
+import { TerminalInfo, terminalPrimary, terminalSubText } from '../core/termproto';
 import {
   activeToken, applyCommand, applyMention, clampSel, CMD_ROWS, CommandItem, completionKeyAction, enterSends,
   FS_ROWS, FsEntry, joinPath, matchCommands, matchFiles, parentDir, selNext, selPrev,
@@ -167,6 +168,8 @@ import { SessionStatsSheet } from '../components/SessionStatsSheet';
 import { FilesSheet } from '../components/FilesSheet';
 import { SelfCheckSheet } from '../components/SelfCheckSheet';
 import { TaskDetailSheet } from '../components/TaskDetailSheet';
+// 运行面板（任务管理）的**结构化行卡**（真 @Component；取色走 `paletteOf(theme)` ⇒ 不占页面预算）
+import { PanelRowCard, ROW_TRAIL_CHEVRON, ROW_TRAIL_CLOSE, ROW_TRAIL_DELETE, ROW_TRAIL_NONE } from '../components/PanelRows';
 import { TerminalSheet } from '../components/TerminalSheet';
 import { SessSheet, SearchHitsSheet, ContextSheet } from '../components/MenuSheets';
 import { AskUserSheet } from '../components/AskUserSheet';
@@ -7095,14 +7098,19 @@ struct Index {
           List({ space: 6 }) {
             ForEach(this.cronTasks, (job: CronJob, i: number) => {
               ListItem() {
-                Row({ space: 6 }) {
-                  Text(cronLine(job)).fontSize(typeOf('type.caption').size).fontColor(this.pal().textPrimary).layoutWeight(1)
-                    .maxLines(2).wordBreak(WordBreak.BREAK_ALL)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  SymbolGlyph($r('sys.symbol.xmark')).fontSize(13).fontColor([this.pal().dangerText]).padding(6).accessibilityText('删除').onClick(() => {
+                PanelRowCard({
+                  theme: this.themeName,
+                  primary: cronPrimary(job),
+                  secondary: cronSubText(job),
+                  tone: TONE_MUTED,
+                  trailing: ROW_TRAIL_DELETE,
+                  onTap: () => {
+                    this.copyText(`${cronPrimary(job)} · ${cronSubText(job)}`, '定时任务');
+                  },
+                  onTrailing: () => {
                     this.removeCron(job.id !== undefined ? job.id : '');
-                  })
-                }.width('100%').padding(SPACE_XS).backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
+                  },
+                })
               }
             }, (job: CronJob, i: number) => `cron-${job.id}#${i}`)
           }.constraintSize({ maxHeight: 420 }).width('100%')
@@ -7114,20 +7122,15 @@ struct Index {
           List({ space: 6 }) {
             ForEach(this.bgTasks, (t: BgTask, i: number) => {
               ListItem() {
-                Row({ space: SPACE_XS }) {
-                  Text(bgTaskLine(t, this.nowMs())).fontSize(typeOf('type.caption').size).fontColor(this.pal().textPrimary)
-                    .layoutWeight(1)
-                    .maxLines(3).wordBreak(WordBreak.BREAK_ALL)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  // 可点提示（点整行进详情：输出/kill）—— 此前这里只有一行字，用户"看不到也杀不掉"
-                  SymbolGlyph($r('sys.symbol.chevron_right'))
-                    .fontSize(typeOf('type.micro').size)
-                    .fontColor([colorOf(this.pal(), 'iconMuted')])
-                }
-                .width('100%').padding(SPACE_XS).backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
-                .alignItems(VerticalAlign.Center)
-                .onClick(() => {
-                  this.openTaskDetail(t);
+                PanelRowCard({
+                  theme: this.themeName,
+                  primary: bgTaskPrimary(t),
+                  secondary: bgTaskSubText(t, this.nowMs()),
+                  tone: bgTaskTone(t),
+                  trailing: ROW_TRAIL_CHEVRON,
+                  onTap: () => {
+                    this.openTaskDetail(t);
+                  },
                 })
               }
             }, (t: BgTask, i: number) => `bg-${t.id}#${t.status}#${i}`)
@@ -7140,17 +7143,19 @@ struct Index {
           List({ space: 6 }) {
             ForEach(this.subagents, (a: SubAgentRow, i: number) => {
               ListItem() {
-                Text(subagentLine(a)).fontSize(typeOf('type.caption').size)
-                  .fontColor(a.running === true ? this.pal().successText : this.pal().textSecondary)
-                  .width('100%').padding(SPACE_XS).backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
-                  .maxLines(2).wordBreak(WordBreak.BREAK_ALL)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .onClick(() => {
+                PanelRowCard({
+                  theme: this.themeName,
+                  primary: subagentPrimary(a),
+                  secondary: subagentSubText(a),
+                  tone: subagentTone(a),
+                  trailing: ROW_TRAIL_NONE,
+                  onTap: () => {
                     this.showPanels = false;
                     if (a.chat_id !== undefined) {
                       this.switchSession(a.chat_id);
                     }
-                  })
+                  },
+                })
               }
             }, (a: SubAgentRow, i: number) => `sub-${a.chat_id}#${i}`)
           }.constraintSize({ maxHeight: 420 }).width('100%')
@@ -7181,33 +7186,19 @@ struct Index {
           List({ space: 6 }) {
             ForEach(this.terminals, (t: TerminalInfo, i: number) => {
               ListItem() {
-                Row({ space: SPACE_XS }) {
-                  Text(terminalLine(t, this.nowMs()))
-                    .fontSize(typeOf('type.caption').size)
-                    .fontColor(this.palOnce().textPrimary)
-                    .layoutWeight(1)
-                    .maxLines(2).wordBreak(WordBreak.BREAK_ALL)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  // 关闭（删终端 ⇒ 服务端一并销毁 PTY）——44 热区形态（图标居中）
-                  Row() {
-                    SymbolGlyph($r('sys.symbol.xmark'))
-                      .fontSize(13)
-                      .fontColor([this.palOnce().dangerText])
-                  }
-                  .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
-                  .justifyContent(FlexAlign.Center)
-                  .accessibilityText('关闭终端')
-                  .onClick(() => {
+                PanelRowCard({
+                  theme: this.themeName,
+                  primary: terminalPrimary(t),
+                  secondary: terminalSubText(t, this.nowMs()),
+                  // ⛔ 终端**列表**无连接状态数据（状态只在 `TerminalSheet` 的本地 @State）⇒ 恒 muted
+                  tone: TONE_MUTED,
+                  trailing: ROW_TRAIL_CLOSE,
+                  onTap: () => {
+                    this.openTerminal(t);
+                  },
+                  onTrailing: () => {
                     this.closeTerminal(t.tid);
-                  })
-                  SymbolGlyph($r('sys.symbol.chevron_right'))
-                    .fontSize(typeOf('type.micro').size)
-                    .fontColor([colorOf(this.palOnce(), 'iconMuted')])
-                }
-                .width('100%').padding(SPACE_XS).backgroundColor(this.palOnce().surface).borderRadius(RADIUS_CHIP)
-                .alignItems(VerticalAlign.Center)
-                .onClick(() => {
-                  this.openTerminal(t);
+                  },
                 })
               }
             }, (t: TerminalInfo, i: number) => `term-${t.tid}#${i}`)
@@ -7220,11 +7211,14 @@ struct Index {
           List({ space: 6 }) {
             ForEach(this.runners, (r: RunnerRow, i: number) => {
               ListItem() {
-                Text(runnerLine(r)).fontSize(typeOf('type.caption').size)
-                  .fontColor(r.online === true ? this.pal().successText : this.pal().textSecondary)
-                  .width('100%').padding(SPACE_XS).backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
-                  .maxLines(2).wordBreak(WordBreak.BREAK_ALL)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                PanelRowCard({
+                  theme: this.themeName,
+                  primary: runnerPrimary(r),
+                  secondary: runnerSubText(r),
+                  tone: runnerTone(r),
+                  trailing: ROW_TRAIL_NONE,
+                  tappable: false,
+                })
               }
             }, (r: RunnerRow, i: number) => `run-${r.name}#${r.online}#${i}`)
           }.constraintSize({ maxHeight: 420 }).width('100%')

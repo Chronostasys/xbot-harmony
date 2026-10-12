@@ -1795,3 +1795,55 @@ Home/End 失效。`Ctrl-C` 保留**直按**（web 要先进 Ctrl 模式才够得
 `text_truncation_gate` 9/0 · `motion_budget` 12/0 · `sheets2_visual` 193/0。
 **判据取得**：`tools/gate.sh` = ④ `ArkTS BUILD SUCCESSFUL in 10 s 377 ms` + `✅ 真门禁全绿` + `GATE_EXIT=0`
 （性能预算 A 1246≤1250 · B 1350≤1350，与批次 8 持平 ⇒ **净零**）。
+
+## §21.30 目标④ 运行面板「任务管理」四类列表**结构化重做**（2026-10-12）
+
+**用户原话**：「终端和任务管理做的很差」。（终端已由 §21.19/§21.26/§21.29 覆盖；本节 = **任务管理**。）
+
+**真机逮到的形态缺陷**（`运行面板 → 后台任务`，本会话 62 条）：每行是**一行纯文本**
+`bgTaskLine()` = `${状态图标} ${命令} · ${时长} · exit N（id）`，而命令往往很长（`cd /… && source …`）
+⇒ `maxLines(3)` 把**时长/exit/id 全部截掉**，62 行看起来一模一样（全是「完成 <长命令…>」），
+既分不出新旧也看不见成败。**根因 = 元信息被放在“会超长的标识”之后**。
+
+**修法（形态对齐 web `web/src/components/sidebar/TasksPanel.tsx`，⛔ 非像素复刻）**：
+每行拆成「**主行（标识）** + **副行（状态 · 元信息）**」两行：
+- 主行 = 命令（后台任务）/ 消息（定时任务）/ label（子代理）/ 名字（Runner）/ cwd 末段（终端），
+  **单行截断** ⇒ 长命令不再挤掉元信息；
+- 副行 = 状态短语 + `exit N` + 时长 + id（缺项自动省略），**按语义 tone 上色**
+  （运行中/在线 ⇒ `successText`；**故障**失败 ⇒ `dangerText`；完成/已终止/离线 ⇒ `textMuted`）；
+- 尾部动作码化：`ROW_TRAIL_{NONE,CHEVRON,DELETE,CLOSE}`（删除/关闭共用一个字形分支，只有
+  `accessibilityText` 与动作不同）。
+
+**⛔ 关键架构决策：必须是真 `@Component`（`components/PanelRows.ets`）+ `@Prop`，不是页面 `@Builder`**
+1. 带参 `@Builder` 的参数是"调用那一刻的**快照**" ⇒ 列表会卡首帧、状态永不更新（AGENTS GOTCHA）；
+2. **取色走 `paletteOf(this.theme)`（组件自带 theme）⇒ 不占页面性能预算** ——
+   `tools/perf/guard.sh` 只数组件/页面里 `this.pal()` / `this.palOnce()` 的**字面次数**；
+   四类列表从页面内联 Text 改为消费组件后，**A 线 1246 → 1242 · B 线 1350 → 1342（净减）**。
+   （这是"新增 UI 会顶破预算"困局的正解：**把面搬进自带 theme 的组件**，而不是抽访问器绕过判据。）
+
+**判据全部收敛到 `core/panels.ets` / `core/termproto.ets`（纯逻辑、可脱机单测）**：
+`bgTaskPrimary` / `bgTaskSubText` / `bgTaskTone` · `cronPrimary` / `cronSubText` ·
+`runnerPrimary` / `runnerSubText` / `runnerTone` · `subagentPrimary` / `subagentSubText` / `subagentTone` ·
+`terminalPrimary` / `terminalSubText`。旧 `bgTaskLine`/`cronLine`/`runnerLine`/`subagentLine`/`terminalLine`
+与 `statusIcon` **已删除**（避免"同一语义两份实现"）；tone 常量 `TONE_{SUCCESS,ERROR,MUTED}` 是**唯一真源**。
+
+**⛔ 测试当场抓到本实现的一个真 bug（记录以示判别力）**：首版 `bgTaskTone` 直接调
+`toolStatusKind(status, exit_code)` ⇒ 被杀的进程（`killed` + `exit 130`）被判 `error`（红），
+**而同一行的副行 `bgTaskStatusText` 显示「已终止」** —— 一行自相矛盾（本仓已知缺陷类）。
+⇒ 抽出**唯一判据** `bgTaskFailed(t)`（`killed`/`aborted`/`cancelled` **抢在** `exit_code` 之前，
+不算故障），`bgTaskStatusText` / `bgTaskSubText` / `bgTaskTone` **三处同源**。
+
+**⛔ 不臆造状态**：终端**列表**数据只有 `{tid,cwd,createdAt}`（连接状态存在于 `TerminalSheet` 的本地
+`@State`）⇒ 列表副行只画 `完整 cwd · 时长`，**不显示**连接状态（宁可少画，不编造）。
+
+**形态门禁同步演进（判据不删，只改期望值 + 写明理由）**：
+- `sheet_chrome` ②：`pages/Index.ets` xmark 链 9 → **7**（2 处行内/破坏性 xmark 随组件迁出）；
+  新增 `components/PanelRows.ets`（token 0 / total 1）；全局 20 → **19**（删除与关闭**共用**一个
+  字形分支 ⇒ 比旧页面少 1 处重复）。
+- `free_surface_unify`：`PanelRowCard` 是 **L2 内嵌卡** ⇒ 轮廓**必须** `structuralRuleOf`（首版误用
+  `hairlineOf` ⇒ ③ 硬红，实测抓到）；并登记进 L2 覆盖台账。
+
+**判据**：`panels.test` **66 passed / 0 failed** · `panels2_visual` 47/0 · `termproto.test` 37/0 ·
+`sheet_chrome` 85/0 · `free_surface_unify` 90/0 · `sheets2_visual` 193/0 · `icon_size_tokens` 18/0 ·
+`text_truncation_gate` 9/0 · `motion_budget` 12/0。
+**性能预算**：A 1242≤1250 · B 1342≤1350（**净减**）。

@@ -94,6 +94,8 @@ const SITES: Site[] = [
   { file: 'components/SelfCheckSheet.ets', level: 'L2', marker: 'backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))', expect: 8 },
   { file: 'components/TodoPanel.ets', level: 'L2', marker: 'backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))', expect: 1 },
   { file: 'components/QueueSheet.ets', level: 'L2', marker: 'backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))', expect: 1 },
+  // 运行面板结构化行卡（批次10 新建）：L2 内嵌卡（面到面轮廓 = `structuralRuleOf`）
+  { file: 'components/PanelRows.ets', level: 'L2', marker: 'backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))', expect: 1 },
   { file: 'components/SyntheticCard.ets', level: 'L2', marker: 'backgroundColor(surfaceFillOf(this.pal(), SURFACE_PILL))', expect: 1 },
   // ── L3 内嵌凹槽（well / chip = insetHairlineOf）──────────────────────────────
   // ⚠️ 计数随**形态扩张**演进（2026-10-12）：原 4 个 well 面（参数/内容/输出/hunk 头）+

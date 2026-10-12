@@ -10,7 +10,7 @@ declare const process: { exit: (c: number) => void };
 
 import {
   TermMsg, TerminalInfo, TERM_CLOSE_MSG, TERM_CONNECTED, TERM_CONNECTING, TERM_ERROR, TERM_EXITED,
-  encodeResize, encodeStdin, parseTermMsg, terminalAgeText, terminalLine, terminalStatusRole,
+  encodeResize, encodeStdin, parseTermMsg, terminalAgeText, terminalPrimary, terminalSubText, terminalStatusRole,
   terminalStatusText, terminalTitle, termWsUrl,
 } from '../../entry/src/main/ets/core/termproto';
 
@@ -40,8 +40,13 @@ eq('2 小时', terminalAgeText(info('t', '/x', '2026-10-12T10:00:00Z'), NOW), '2
 eq('3 天', terminalAgeText(info('t', '/x', '2026-10-09T12:00:00Z'), NOW), '3d');
 eq('坏时间戳 ⇒ 空', terminalAgeText(info('t', '/x', 'not-a-date'), NOW), '');
 
-eq('列表行 = 标题 · 时长', terminalLine(info('t', '/a/proj', '2026-10-12T11:55:00Z'), NOW), 'proj · 5m');
-eq('无法算时长时只剩标题', terminalLine(info('t', '/a/proj', ''), NOW), 'proj');
+eq('终端主行 = cwd 末段', terminalPrimary(info('t', '/a/proj', '2026-10-12T11:55:00Z')), 'proj');
+eq('终端主行缺 cwd 回落 tid', terminalPrimary(info('t9', '', '')), 't9');
+// ⛔ 批次10：副行 = **完整 cwd · 时长**（此前单行 `proj · 5m` 把标识与元信息挤在一起）
+eq('终端副行 = cwd · 时长', terminalSubText(info('t', '/a/proj', '2026-10-12T11:55:00Z'), NOW), '/a/proj · 5m');
+eq('终端副行缺 createdAt 只剩 cwd', terminalSubText(info('t', '/a/proj', ''), NOW), '/a/proj');
+eq('终端副行缺 cwd 只剩时长', terminalSubText(info('t', '', '2026-10-12T11:55:00Z'), NOW), '5m');
+eq('终端副行全空', terminalSubText(info('t', '', ''), NOW), '');
 
 // ── 状态 ─────────────────────────────────────────────────────────────────────
 eq('连接中文案', terminalStatusText(TERM_CONNECTING, -1), '连接中');

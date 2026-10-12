@@ -93,27 +93,26 @@ export function fmtHHMM(iso: string | undefined): string {
   return `${hh}:${mm}`;
 }
 
-/** 一条定时任务的显示行。 */
-export function cronLine(job: CronJob): string {
+// ── 行卡**语义 tone**（⛔ core/ 只产 role 名，**不 import 任何主题/调色板**）──────────
+// 运行面板四类列表的**结构化行**（批次10，2026-10-12）：此前每类都是「单行纯文本」，
+// 状态与元信息被长命令挤掉（真机：62 条后台任务全渲染成「完成 <长命令…>」，时长/id 被
+// `maxLines` 截掉）⇒ 拆成「主行（标识）+ 副行（状态 · 元信息）」两行，副行按 tone 上色。
+export const TONE_MUTED: string = 'muted';
+export const TONE_SUCCESS: string = 'success';
+export const TONE_ERROR: string = 'error';
+
+/** 定时任务·主行（标识 = 消息文本；缺 ⇒ 调度文本，绝不渲染空行）。 */
+export function cronPrimary(job: CronJob): string {
+  const msg: string = job.message !== undefined ? job.message.trim() : '';
+  return msg.length > 0 ? msg : scheduleText(job);
+}
+
+/** 定时任务·副行 = `[一次性 · ]<调度>[ · 下次 HH:MM]`（缺项自动省略）。 */
+export function cronSubText(job: CronJob): string {
   const one: string = job.one_shot === true ? '一次性 · ' : '';
   const next: string = fmtHHMM(job.next_run);
   const tail: string = next.length > 0 ? ` · 下次 ${next}` : '';
-  const msg: string = job.message !== undefined ? job.message : '';
-  return `${one}${scheduleText(job)} · ${msg}${tail}`;
-}
-
-/** 后台任务的状态标记（纯文字，无 emoji —— 设计系统 §2.8；见 core/panels 顶部说明）。 */
-export function statusIcon(status: string | undefined): string {
-  if (status === 'running' || status === 'started' || status === 'pending') {
-    return '运行中';
-  }
-  if (status === 'done' || status === 'completed' || status === 'success') {
-    return '完成';
-  }
-  if (status === 'failed' || status === 'error' || status === 'killed') {
-    return '失败';
-  }
-  return '·';
+  return `${one}${scheduleText(job)}${tail}`;
 }
 
 /** 时长文本（秒 / 分秒）。 */
@@ -142,17 +141,57 @@ export function durationText(startedAt: string | undefined, finishedAt: string |
   return `${m}m${r}s`;
 }
 
-/** 一条后台任务的显示行。 */
-export function bgTaskLine(t: BgTask, nowMs: number): string {
-  const icon: string = statusIcon(t.status);
-  const cmd: string = t.command !== undefined ? t.command : '';
-  const dur: string = durationText(t.started_at, t.finished_at, nowMs);
-  const durPart: string = dur.length > 0 ? ` · ${dur}` : '';
-  // 错误态判据**同源**（`core/toolstatus`）：`'failed'` 与 `'error'` 都判 ST_ERROR（不再各写一份）。
-  const exitPart: string = toolStatusKind(t.status, undefined) === ST_ERROR
-    ? ` · exit ${t.exit_code !== undefined ? t.exit_code : '?'}` : '';
-  const id: string = t.id !== undefined ? t.id : '';
-  return `${icon} ${cmd}${durPart}${exitPart}（${id}）`;
+/**
+ * 后台任务·主行（标识）= 命令（缺 ⇒ id）——**单行**，长命令由组件 `maxLines(1)` 截断。
+ * ⛔ 时长/exit/id 不再挤在这一行（旧 `bgTaskLine` 的缺陷：真机 3 行截断把元信息全吃掉）。
+ */
+export function bgTaskPrimary(t: BgTask): string {
+  const cmd: string = t.command !== undefined ? t.command.trim() : '';
+  if (cmd.length > 0) {
+    return cmd;
+  }
+  return t.id !== undefined ? t.id : '';
+}
+
+/**
+ * 后台任务·副行 = `状态 · exit N · 时长 · id`（缺项自动省略；失败时并入 `error` 首行）。
+ *
+ * ⛔ 状态短语走 `bgTaskStatusText`（**唯一判据**，killed 抢在 exit_code 之前）—— 与详情页同源。
+ */
+export function bgTaskSubText(t: BgTask, nowMs: number): string {
+  const parts: string[] = [bgTaskStatusText(t)];
+  const meta: string = bgTaskMetaText(t, nowMs);
+  if (meta.length > 0) {
+    parts.push(meta);
+  }
+  const err: string = t.error !== undefined ? t.error.trim() : '';
+  if (err.length > 0 && bgTaskFailed(t)) {
+    // 失败原因不能只藏在详情里：副行补一句（取首行，避免多行撑高行卡）
+    const nl: number = err.indexOf('\n');
+    parts.push(nl >= 0 ? err.substring(0, nl) : err);
+  }
+  return parts.join(' · ');
+}
+
+/**
+ * 是否属于**故障失败**（⛔ `killed`/`aborted`/`cancelled` = 用户主动终止 ⇒ **不算**故障）。
+ *
+ * ⭐ 批次10 抽出的**唯一判据**：`bgTaskStatusText`（文案）/ `bgTaskSubText`（是否并入 error）/
+ *    `bgTaskTone`（颜色）三处**必须同源** —— 否则会出现「副行说『已终止』、颜色却报红」这种
+ *    **同一行自相矛盾**（本仓已知缺陷类：列表与详情不同源）。测试 `panels.test.ts` 捕获过该 bug。
+ */
+export function bgTaskFailed(t: BgTask): boolean {
+  const raw: string = t.status !== undefined ? t.status.toLowerCase() : '';
+  if (raw === 'killed' || raw === 'aborted' || raw === 'cancelled') { return false; }
+  return toolStatusKind(t.status, t.exit_code) === ST_ERROR;
+}
+
+/** 后台任务·tone：运行中 ⇒ success；故障失败 ⇒ error；其余（完成/已终止）⇒ muted。 */
+export function bgTaskTone(t: BgTask): string {
+  if (bgTaskRunning(t)) {
+    return TONE_SUCCESS;
+  }
+  return bgTaskFailed(t) ? TONE_ERROR : TONE_MUTED;
 }
 
 // ── 后台任务**详情**（2026-10-12 补齐）─────────────────────────────────────────────
@@ -177,15 +216,15 @@ export function bgTaskRunning(t: BgTask): boolean {
 /**
  * 详情页状态短语（纯文字；设计系统 §2.8 禁 emoji）。
  *
- * ⛔ **判据与 `bgTaskLine` 同源**（`toolStatusKind`），唯一例外是 `killed` **要抢在 exit_code
- *   之前**：被杀的进程 exit 130 ⇒ 若先问 `toolStatusKind` 会返回 ST_ERROR 而显示「失败」，
- *   那就把「用户主动终止」误报成故障（web 面板同样把 killed 单列）。
+ * ⛔ **判据 = `bgTaskFailed`（唯一真源）**：`killed` **要抢在 exit_code 之前**判 —— 被杀的进程
+ *    exit 130 ⇒ 若先问 `toolStatusKind` 会返回 ST_ERROR 而显示「失败」，那就把「用户主动终止」
+ *    误报成故障（web 面板同样把 killed 单列）。
  */
 export function bgTaskStatusText(t: BgTask): string {
   const raw: string = t.status !== undefined ? t.status.toLowerCase() : '';
   if (raw === 'killed' || raw === 'aborted' || raw === 'cancelled') { return '已终止'; }
   if (bgTaskRunning(t)) { return '运行中'; }
-  return toolStatusKind(t.status, t.exit_code) === ST_ERROR ? '失败' : '完成';
+  return bgTaskFailed(t) ? '失败' : '完成';
 }
 
 /** 详情页副行：`exit 0 · 3.2s · <id>`（耗时同源 `durationText`；缺项自动省略）。 */
@@ -208,22 +247,42 @@ export function bgTaskOutputText(t: BgTask): string {
   return `${out}\n${err}`;
 }
 
-/** 一条 Runner 的显示行（凭据永不显示）。状态用**纯文字**（在线/离线），无 emoji —— 设计系统 §2.8。 */
-export function runnerLine(r: RunnerRow): string {
+/** Runner·主行（标识）= 名字（缺 ⇒ `(未命名)`）——凭据永不显示。 */
+export function runnerPrimary(r: RunnerRow): string {
+  return r.name !== undefined && r.name.length > 0 ? r.name : '(未命名)';
+}
+
+/** Runner·副行 = `在线/离线 · <mode>[ · v<version>][ · <workspace>]`（纯文字，无 emoji —— §2.8）。 */
+export function runnerSubText(r: RunnerRow): string {
   const dot: string = r.online === true ? '在线' : '离线';
-  const name: string = r.name !== undefined ? r.name : '(未命名)';
   const mode: string = r.mode !== undefined && r.mode.length > 0 ? r.mode : 'native';
   const ver: string = r.version !== undefined && r.version.length > 0 ? ` · v${r.version}` : '';
   const ws: string = r.workspace !== undefined && r.workspace.length > 0 ? ` · ${r.workspace}` : '';
-  return `${dot} ${name} · ${mode}${ver}${ws}`;
+  return `${dot} · ${mode}${ver}${ws}`;
 }
 
-/** 一条子代理的显示行。状态用**纯文字**（运行中/完成），无 emoji —— 设计系统 §2.8。 */
-export function subagentLine(s: SubAgentRow): string {
-  const dot: string = s.running === true ? '运行中' : '完成';
-  const label: string = s.label !== undefined && s.label.length > 0
-    ? s.label : (s.chat_id !== undefined ? s.chat_id : '');
-  return `${dot} ${label}`;
+/** Runner·tone：在线 ⇒ success；离线 ⇒ muted。 */
+export function runnerTone(r: RunnerRow): string {
+  return r.online === true ? TONE_SUCCESS : TONE_MUTED;
+}
+
+/** 子代理·主行（标识）= label（缺 ⇒ chat_id）。 */
+export function subagentPrimary(s: SubAgentRow): string {
+  const label: string = s.label !== undefined ? s.label.trim() : '';
+  if (label.length > 0) {
+    return label;
+  }
+  return s.chat_id !== undefined ? s.chat_id : '';
+}
+
+/** 子代理·副行 = 运行中/完成（纯文字，无 emoji —— §2.8）。 */
+export function subagentSubText(s: SubAgentRow): string {
+  return s.running === true ? '运行中' : '完成';
+}
+
+/** 子代理·tone：运行中 ⇒ success；其余 ⇒ muted。 */
+export function subagentTone(s: SubAgentRow): string {
+  return s.running === true ? TONE_SUCCESS : TONE_MUTED;
 }
 
 /** 面板计数文本（0 也要显示，避免"面板是空的"和"没加载"混淆）。 */

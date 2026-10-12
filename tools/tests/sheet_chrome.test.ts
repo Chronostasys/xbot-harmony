@@ -151,8 +151,13 @@ const SPECS: { rel: string; token: number; total: number }[] = [
   { rel: 'components/QueueSheet.ets', token: 2, total: 2 }, // 头部关闭 + 行内移除（后者 token+危险色）
   { rel: 'components/SelfCheckSheet.ets', token: 1, total: 1 },
   { rel: 'components/TaskDetailSheet.ets', token: 1, total: 1 },
-  // 页面级页头面板（目标③「所有面板」）：5 个页头关闭走 token；4 处行内/破坏性为例外。
-  { rel: 'pages/Index.ets', token: 5, total: 9 },
+  // 运行面板（任务管理）结构化行卡 —— 批次10（2026-10-12）**抽出**的组件：**破坏性** xmark
+  // 由页面迁来（删除定时任务 / 关闭终端）。⛔ 二者**共用一个字形分支**（只有 `accessibilityText`
+  // 与动作不同，DRY）⇒ 本文件链数 = **1**（旧页面里是 2 处）。
+  { rel: 'components/PanelRows.ets', token: 0, total: 1 },
+  // 页面级页头面板（目标③「所有面板」）：5 个页头关闭走 token；2 处行内/破坏性为例外
+  // （批次10 后另 2 处已随 `PanelRowCard` 迁出页面 ⇒ 9 → 7）。
+  { rel: 'pages/Index.ets', token: 5, total: 7 },
   // 偏好设置页头关闭（token + iconMuted；命中盒由 `padding(SPACE_MD)` 撑到 ≥44）。
   { rel: 'components/SettingsPanel.ets', token: 1, total: 1 },
 ];
@@ -186,7 +191,7 @@ for (const spec of SPECS) {
   ok(`② ${rel} xmark 字形链总数 = ${spec.total}（实测 ${chains.length}；含显式例外）`, chains.length === spec.total);
 }
 ok(`② 全部面板页头关闭 X（token）总数 = 16（实测 ${totalTokens}）`, totalTokens === 16);
-ok(`② 全部面板 xmark 链总数 = 20（实测 ${totalChains}）`, totalChains === 20);
+ok(`② 全部面板 xmark 链总数 = 19（实测 ${totalChains}）`, totalChains === 19);
 
 // ── ③ 魔数回归防线：这 9 个文件里不得再有局部 `X_GLYPH` 标识符 ────────────────────
 for (const rel of SHEETS) {

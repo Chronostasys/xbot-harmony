@@ -46,11 +46,29 @@ export function terminalAgeText(t: TerminalInfo, nowMs: number): string {
   return `${Math.floor(sec / 86400)}d`;
 }
 
-/** 列表行文本：`proj · 3m`。 */
-export function terminalLine(t: TerminalInfo, nowMs: number): string {
-  const title: string = terminalTitle(t);
+/**
+ * 终端·主行（标识）= cwd 末段（缺 cwd 回落 tid）。
+ *
+ * ⛔ 批次10（2026-10-12）拆分：此前 `terminalLine` 单行 `proj · 3m`（标识 + 时长挤在一行）。
+ *    拆成主行（标识）+ 副行（完整 cwd · 时长）—— ⛔ **不臆造状态**：终端连接状态只存在于
+ *    `TerminalSheet` 的本地 `@State`（列表数据 `{tid,cwd,createdAt}` 里没有）⇒ 列表不显示状态。
+ */
+export function terminalPrimary(t: TerminalInfo): string {
+  return terminalTitle(t);
+}
+
+/** 终端·副行 = `<完整 cwd> · <时长>`（缺项自动省略；cwd 与主行末段同源、信息更全）。 */
+export function terminalSubText(t: TerminalInfo, nowMs: number): string {
+  const parts: string[] = [];
+  const cwd: string = t.cwd !== undefined ? t.cwd.trim() : '';
+  if (cwd.length > 0) {
+    parts.push(cwd);
+  }
   const age: string = terminalAgeText(t, nowMs);
-  return age.length > 0 ? `${title} · ${age}` : title;
+  if (age.length > 0) {
+    parts.push(age);
+  }
+  return parts.join(' · ');
 }
 
 // ── 数据通道状态（对齐 web `TerminalStatus`）────────────────────────────────
