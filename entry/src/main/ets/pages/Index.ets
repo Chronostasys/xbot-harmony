@@ -3866,7 +3866,7 @@ struct Index {
       } else if (this.useWebUI && this.webUiUrl.length > 0) {
         // ArkWeb 承载完整 web UI（设置里可切换；右下角按钮一键切回原生）
         Stack() {
-          WebSurface({ url: this.webUiUrl, theme: this.themeName, chrome: false, onBridgeMessage: (m: BridgeMessage) => {
+          WebSurface({ url: this.webUiUrl, theme: this.themeName, chrome: false, sessionCookie: this.cookie, onBridgeMessage: (m: BridgeMessage) => {
             this.handleBridgeMessage(m);
           }, onClose: () => {
           } })
@@ -4366,7 +4366,7 @@ struct Index {
       }
       // ArkWeb 逃生舱（插件 UI / GenUI / 终端 / 编辑器 / 完整 Web UI）
       if (this.panelUrl.length > 0) {
-        WebSurface({ url: this.panelUrl, theme: this.themeName, onBridgeMessage: (m: BridgeMessage) => {
+        WebSurface({ url: this.panelUrl, theme: this.themeName, sessionCookie: this.cookie, onBridgeMessage: (m: BridgeMessage) => {
           this.handleBridgeMessage(m);
         }, onClose: () => {
           this.panelUrl = '';

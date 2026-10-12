@@ -3771,3 +3771,37 @@ POST /api/rpc {"method":"plugin_status","params":{"rescan":true}}
    新增 `@Prop locale`（由 `SettingsPanel` 从服务端设置 `KEY_LOCALE` 透传）⇒ 按界面语言取译文。
 4. 判据：`tools/tests/plugin_status.test.ts` ④b（**64 passed**）——无表回落 id / 有表解析中文名 /
    语言未命中回落 en / key 未命中回落 id / 普通名不受影响 / `looksLikeI18nKey` 语义 / 表抽取。
+
+## §21.69 内嵌 Web 承载面（插件面板 / Web UI 逃生舱）**401** 的根因与修法（15u，2026-10-13）
+
+用户亲报：「点开插件 git 面板直接 **401**，原版 web 没有这个问题」。
+
+### 取证（服务端实测，排除"页面本身要鉴权"）
+```bash
+curl -s -o /dev/null -w "%{http_code}" http://localhost:8082/                     # 200（无 cookie）
+curl -s -o /dev/null -w "%{http_code}" http://localhost:8082/plugins/xbot.iteration-stats/web/index.js   # 200
+```
+⇒ **页面与插件资源本身不需要鉴权**；401 只可能来自页面内 SPA 发出的 **XHR 没有会话 cookie**。
+
+### 根因
+`components/WebSurface.ets` 用 `Web({ src, controller })` 承载服务端页面，而 **ArkWeb 的 cookie 存储
+独立于原生 `XbotHttp` 的 cookie jar**（`core/http.ets` 自维护 `xbot_session`，不落系统 cookie 库）
+⇒ 内嵌页面的每个 `/api/…` 请求都不带 `xbot_session` ⇒ 服务端一律 401。
+（原生 UI 走 `XbotHttp`，所以原生界面一切正常 —— 这正是"只有内嵌面 401"的原因。）
+
+### 修法
+`WebSurface` 新增 `@Prop sessionCookie`，在 `aboutToAppear`（**先于页面发请求**）与 `onUrlChanged`
+（插件 A → B / 原生 ⇄ Web UI）调用新方法 `syncSessionCookie()`：
+```ts
+webview.WebCookieManager.configCookieSync(hostPageUrl(this.url), cookie, false);
+```
+- 作用域取 **origin**（`hostPageUrl`）—— ArkWeb 按 url 归域，写根路径才能覆盖 `/api/…` 与 `/plugins/…`；
+- 空 cookie / 空 url 静默跳过；失败只记日志（旁路，绝不影响承载）；
+- API 走 `WebCookieManager.configCookieSync`（SDK `@ohos.web.webview.d.ts:1207`，@since 11）。
+宿主两处承载点（`webUiUrl` 全屏 Web UI、`panelUrl` 插件面板）都透传 `sessionCookie: this.cookie`
+（应用级唯一凭据来源）。
+
+### 判据
+`tools/tests/pluginpanel.test.ts` ⑤：`@Prop sessionCookie` 存在 / 调 `configCookieSync` /
+作用域取 origin / **两个承载点都透传**（计数=2）/ 扫描器自证（`WebSurface({` 恰 2 处）。
+126 passed。

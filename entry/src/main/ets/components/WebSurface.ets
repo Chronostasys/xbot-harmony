@@ -10,6 +10,7 @@ import {
   WEB_PHASE_ERROR, WEB_PHASE_IDLE, WEB_PHASE_LOADING, WEB_PHASE_READY,
   WebStatus, webErrorDetail, webHttpErrorDetail, webStatusOf,
 } from '../core/pluginview';
+import { hostPageUrl } from '../core/pluginhost';
 import {
   PRESS_OPACITY,   colorOf, hairlineOf, surfaceFillOf,
   HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_PILL, SPACE_XS, STROKE_HAIRLINE,
@@ -116,6 +117,17 @@ export struct WebSurface {
    * ⚠️ 即便 chrome=false，**加载失败**状态条仍会显示（否则失败被静默 ⇒ 用户面对白屏无从判断）。
    */
   @Prop chrome: boolean = true;
+  /**
+   * 会话 cookie（`xbot_session=<value>`，由页面透传应用级凭据）。
+   *
+   * ⛔ 为什么必须有（用户 2026-10-13 亲报「点开插件 git 面板直接 401」）：
+   *   ArkWeb 的 cookie 存储**独立于**原生 `XbotHttp` 的 cookie jar ⇒ 内嵌 page 载入后，
+   *   SPA 发出的每个 XHR 都**不带**会话 cookie ⇒ 服务端一律 401（页面本身 200——
+   *   实测根路径与 `/plugins/&lt;id&gt;/web/&lt;entry&gt;.js` 在无 cookie 时也 200）⇒ 症状正是
+   *   "页面出来了、接口全挂"。
+   *   ArkWeb 侧唯一出口是 `WebCookieManager.configCookieSync(url, value)`（@since 11）。
+   */
+  @Prop sessionCookie: string = '';
   /** 关闭回调（由页面清空 url 卸载本组件）。 */
   onClose: () => void = () => {
   };
@@ -158,9 +170,33 @@ export struct WebSurface {
       this.onBridgeMessage(m);
       this.applyHostAction(m);
     };
+    // ⛔ **先注入会话 cookie 再让页面开始发请求**（用户亲报「点开插件 git 面板直接 401」）：
+    //    ArkWeb 的 cookie 存储独立于原生 cookie jar ⇒ 不注入则 SPA 的每个 XHR 都 401。
+    this.syncSessionCookie();
     // `@Prop` 初值不触发 @Watch ⇒ 首帧手动置一次加载态（空 url 则由页面后续赋值触发）。
     if (this.url.length > 0) {
       this.phase = WEB_PHASE_LOADING;
+    }
+  }
+
+  /**
+   * 把应用级会话 cookie 写进 ArkWeb 的 cookie 存储（幂等；空 cookie / 非法 url 时静默跳过）。
+   *
+   * 判据是"**取 origin**"而不是整条 url：ArkWeb 的 `configCookieSync` 按 url 归域，写根路径
+   * 才能覆盖该站点的全部请求（插件资源 `/plugins/...`、接口 `/api/...` 同在根路径下）。
+   * 失败只记日志，绝不影响承载（旁路）。
+   */
+  private syncSessionCookie(): void {
+    const cookie: string = this.sessionCookie.length > 0 ? this.sessionCookie : '';
+    if (cookie.length === 0 || this.url.length === 0) {
+      return;
+    }
+    try {
+      const origin: string = hostPageUrl(this.url);
+      webview.WebCookieManager.configCookieSync(origin, cookie, false);
+    } catch (e) {
+      const err: BusinessError = e as BusinessError;
+      console.error(`xbot web: 注入会话 cookie 失败（已忽略）: ${err.message}`);
     }
   }
 
@@ -261,6 +297,8 @@ export struct WebSurface {
     if (this.url.length === 0) {
       return;
     }
+    // 换了目标页（插件 A → B / 原生 ⇄ Web UI）⇒ 对新 origin 重注入会话 cookie（幂等）
+    this.syncSessionCookie();
     this.phase = WEB_PHASE_LOADING;
     this.loadErr = '';
     try {

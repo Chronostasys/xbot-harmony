@@ -15,6 +15,9 @@
  * ⚠️ 结尾必须 `process.exit(...)`：`tools/tests/run.sh` 用 `set -e` 且逐文件 `node`。
  */
 declare const process: { exit: (c: number) => void };
+declare function require(m: 'fs'): { readFileSync(p: string, e: string): string };
+declare function require(m: 'path'): { join(...parts: string[]): string };
+declare const __dirname: string;
 
 import {
   PLUGIN_DEFAULT_ENTRY,
@@ -339,6 +342,28 @@ for (let i = 0; i < CAT.items.length; i++) {
 ok('不变量：目录所有 openUrl 都不是模块资源', catalogSafe);
 ok('目录条目仍是 PluginPanelInfo 子类（Index.ets 的既有消费不受影响）',
   CAT.items[0] instanceof PluginHostInfo);
+
+// ── ⑤ 内嵌承载面必须**注入会话 cookie**（用户 2026-10-13 亲报「点开插件 git 面板直接 401」）──
+//    机制：ArkWeb 的 cookie 存储**独立于**原生 XbotHttp 的 jar ⇒ 不注入则内嵌 SPA 的每个 XHR
+//    都不带 `xbot_session` ⇒ 服务端一律 401（页面本身 200：实测 `/`、`/plugins/*/web/*.js`）。
+{
+  const fs = require('fs');
+  const path = require('path');
+  const root = path.join(__dirname, '..', '..', '..', '..');
+  const webSrc: string = fs.readFileSync(
+    path.join(root, 'entry', 'src', 'main', 'ets', 'components', 'WebSurface.ets'), 'utf-8');
+  const idxSrc: string = fs.readFileSync(
+    path.join(root, 'entry', 'src', 'main', 'ets', 'pages', 'Index.ets'), 'utf-8');
+  ok('⑤ WebSurface 声明 sessionCookie 入参', /@Prop\s+sessionCookie\s*:\s*string/.test(webSrc));
+  ok('⑤ WebSurface 调 ArkWeb 的 configCookieSync 注入（唯一出口）',
+    /WebCookieManager\.configCookieSync\(/.test(webSrc));
+  ok('⑤ 注入作用域取 origin（hostPageUrl）—— 覆盖 `/api/…` 与 `/plugins/…`',
+    /configCookieSync\(\s*origin\s*,/.test(webSrc) && /hostPageUrl\(/.test(webSrc));
+  const sites: number = (idxSrc.match(/sessionCookie:\s*this\.cookie/g) || []).length;
+  eq('⑤ 两个承载点都透传 cookie（Web UI 逃生舱 + 插件面板）', sites, 2);
+  const props: number = (idxSrc.match(/WebSurface\(\{/g) || []).length;
+  eq('⑤ 自证扫描器：宿主里的 WebSurface 挂载点恰好 2 处', props, 2);
+}
 
 if (fail > 0) { console.log(`  pluginpanel: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  pluginpanel: ${pass} passed, 0 failed`);
