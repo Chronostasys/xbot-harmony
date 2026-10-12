@@ -142,10 +142,18 @@ describe('「回到最新」= 悬浮提示（叠层；不占布局行、不挤�
     expect(slice.length).toBeGreaterThan(150);
   });
 
-  it('悬浮层：全屏透明容器 + 底对齐（justifyContent End）+ hitTestBehavior(Transparent)', () => {
+  it('悬浮层：全屏透明容器 + 底对齐（justifyContent End）+ hitTestBehavior(None)', () => {
     expect(slice).toContain("height('100%')");
     expect(slice).toContain('justifyContent(FlexAlign.End)');
-    expect(slice).toContain('hitTestBehavior(HitTestMode.Transparent)');
+    // ⛔ 2026-10-13 收紧（模拟器隔离对照实测）：原判据钉的是 `Transparent`，但
+    //   `Transparent` = "**自身也响应** + 子响应 + 兄弟响应"，而本容器是 **100%×100% 全屏**覆盖层
+    //   ⇒ 它把整个消息区纳入自己的响应面。实测：同一个上滑手势（`swipe x=660`，路径**掠过**药丸）
+    //   把视角带向**更新**内容（= 药丸的 `scrollEdge(Bottom)` 生效），而 `swipe x=200`（避开药丸）
+    //   正常上行 ⇒ **滑动手势会误触药丸**。
+    //   `None` = "自身不响应，子组件响应" ⇒ 覆盖层对命中测试完全透明，只有药丸 44 盒响应
+    //   （与 `components/Toast.ets:95` 同一口径）。
+    expect(slice).toContain('hitTestBehavior(HitTestMode.None)');
+    expect(slice).not.toContain('hitTestBehavior(HitTestMode.Transparent)');
   });
 
   it('命中盒 ≥44：onClick 落在 constraintSize({ minHeight: HIT_TARGET_MIN }) 的布局盒上', () => {

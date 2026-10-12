@@ -3922,3 +3922,22 @@ WebView 之下、点击坐标易落到 composer（本轮误触弹出键盘）⇒
 - ⇒ **结论**：genui 的端到端验收被**后端缺 sidecar 二进制**阻塞（与 §21.68 同因）。原生侧不写
   "无法验证的投机代码"（本仓铁律：判据要有判别力），改为**在此记账**；待后端补 `bin/genui-plugin`
   后，按 §21.69 的同一通路（插件宿主页 + WebSurface）接 `GenUIPanel` 等价外壳（标题/折叠/全屏）。
+
+## §21.74 「回到最新」药丸被**滑动手势误触** → 修 hit-test 模式（15y，2026-10-13）
+
+**怎么发现的**：做「加载更多锚定」模拟器取证时，`swipe 660 900 → 660 2300`（路径掠过贴底居中的
+「回到最新」药丸）把视角带向**更新**内容；同一手势改走 `swipe 200 …`（避开药丸）则正常上行
+⇒ 隔离对照坐实**滑动手势会误触药丸**。
+
+**根因**：药丸的全屏覆盖层写的是 `hitTestBehavior(HitTestMode.Transparent)`。ArkUI 语义里
+`Transparent` = 「**自身也响应** + 子响应 + 兄弟响应」——覆盖层是 **100%×100%** ⇒ 它把整个消息区
+纳入自己的响应面。仓内**正确口径**在 `components/Toast.ets:95`：全屏透明覆盖层用
+`HitTestMode.None`（= 「自身不响应，子组件响应」）⇒ 覆盖层对命中测试完全透明，只有药丸 44 盒响应。
+
+**修法**：`pages/Index.ets` 的「回到最新」覆盖层改 `HitTestMode.None`（与 `Toast` 同一口径），
+并把注释里"同 `SplashOverlay` 口径"改为正确的理由（`SplashOverlay` 是**该吃**触摸的开屏层，不可类比）。
+
+**装机复验（决定性判据）**：修后同一隔离对照 —— `swipe x=660` 掠过药丸之后，药丸**仍然存在**
+（药丸动作会把 `followBottom=true` ⇒ 药丸消失）⇒ **动作未被触发**、滑动正常 ✓。
+判据同步演进：`tools/tests/overlays.test.ts` 由钉 `Transparent` 改为钉 `None` **且**断言不含
+`Transparent`（`overlays: 16 passed`）—— 门禁 `GATE_EXIT=0`。

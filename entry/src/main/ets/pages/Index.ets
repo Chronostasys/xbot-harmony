@@ -5190,8 +5190,15 @@ struct Index {
           .justifyContent(FlexAlign.End)
           .alignItems(HorizontalAlign.Center)
           .padding({ bottom: SPACE_MD })
-          // 不吃点击：容器透明（子药丸可点；下方列表照常滚动/点击）—— 同 `SplashOverlay` 口径。
-          .hitTestBehavior(HitTestMode.Transparent)
+          // ⛔ 不吃任何命中：容器透明（子药丸可点；下方列表照常滚动/点击）—— 与 `components/Toast`
+          //    **同一口径**（`Toast.ets:95` 也是 `None`）。
+          //    ⚠️ 此前这里写的是 `HitTestMode.Transparent`：它**让容器自身也参与命中测试**
+          //    （Transparent = "自身 + 子 + 兄弟都响应"），而本容器是 **100%×100% 全屏**覆盖层 ⇒
+          //    它会把消息区上方整片区域纳入自己的响应面。模拟器隔离对照实测：同样的上滑手势
+          //    （`swipe x=660`，路径**掠过**药丸）把视角带向**更新**内容（= 药丸的
+          //    `scrollEdge(Bottom)` 生效了），而 `x=200`（避开药丸）正常上行 ⇒ 滑动手势会误触药丸。
+          //    改 `None`（"自身不响应，子组件响应"）后覆盖层对命中测试完全透明，只有药丸 44 盒响应。
+          .hitTestBehavior(HitTestMode.None)
         }
       }
       .layoutWeight(1).width('100%')
