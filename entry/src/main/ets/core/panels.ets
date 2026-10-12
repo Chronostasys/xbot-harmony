@@ -155,6 +155,59 @@ export function bgTaskLine(t: BgTask, nowMs: number): string {
   return `${icon} ${cmd}${durPart}${exitPart}（${id}）`;
 }
 
+// ── 后台任务**详情**（2026-10-12 补齐）─────────────────────────────────────────────
+// 用户点名「任务管理做的很差」：此前原生只有上面那一行字 —— **看不到输出、杀不掉**。
+// 形态对齐 web `workspace/panels/BackgroundPanel.tsx`（标题 + 状态 + kill + 实时输出）。
+
+/** `kill_bg_task` 的 RPC 参数（服务端 `serverapp/rpc_table.go:1818` 读 `task_id`）。 */
+export class KillBgTaskParams {
+  task_id: string = '';
+
+  constructor(taskId: string) {
+    this.task_id = taskId;
+  }
+}
+
+/** 任务是否仍在跑（web `BackgroundPanel.tsx:33`：`running|started` ⇒ 运行中）。 */
+export function bgTaskRunning(t: BgTask): boolean {
+  const raw: string = t.status !== undefined ? t.status.toLowerCase() : '';
+  return raw === 'running' || raw === 'started';
+}
+
+/**
+ * 详情页状态短语（纯文字；设计系统 §2.8 禁 emoji）。
+ *
+ * ⛔ **判据与 `bgTaskLine` 同源**（`toolStatusKind`），唯一例外是 `killed` **要抢在 exit_code
+ *   之前**：被杀的进程 exit 130 ⇒ 若先问 `toolStatusKind` 会返回 ST_ERROR 而显示「失败」，
+ *   那就把「用户主动终止」误报成故障（web 面板同样把 killed 单列）。
+ */
+export function bgTaskStatusText(t: BgTask): string {
+  const raw: string = t.status !== undefined ? t.status.toLowerCase() : '';
+  if (raw === 'killed' || raw === 'aborted' || raw === 'cancelled') { return '已终止'; }
+  if (bgTaskRunning(t)) { return '运行中'; }
+  return toolStatusKind(t.status, t.exit_code) === ST_ERROR ? '失败' : '完成';
+}
+
+/** 详情页副行：`exit 0 · 3.2s · <id>`（耗时同源 `durationText`；缺项自动省略）。 */
+export function bgTaskMetaText(t: BgTask, nowMs: number): string {
+  const parts: string[] = [];
+  if (t.exit_code !== undefined) { parts.push(`exit ${t.exit_code}`); }
+  const dur: string = durationText(t.started_at, t.finished_at, nowMs);
+  if (dur.length > 0) { parts.push(dur); }
+  const id: string = t.id !== undefined ? t.id : '';
+  if (id.length > 0) { parts.push(id); }
+  return parts.join(' · ');
+}
+
+/** 详情页输出正文（`error` 并入尾部 —— 失败原因不能只藏在别的字段里）。 */
+export function bgTaskOutputText(t: BgTask): string {
+  const out: string = t.output !== undefined ? t.output : '';
+  const err: string = t.error !== undefined ? t.error : '';
+  if (out.length === 0) { return err; }
+  if (err.length === 0 || out.indexOf(err) >= 0) { return out; }
+  return `${out}\n${err}`;
+}
+
 /** 一条 Runner 的显示行（凭据永不显示）。状态用**纯文字**（在线/离线），无 emoji —— 设计系统 §2.8。 */
 export function runnerLine(r: RunnerRow): string {
   const dot: string = r.online === true ? '在线' : '离线';

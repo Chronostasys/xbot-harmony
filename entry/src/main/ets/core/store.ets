@@ -26,7 +26,7 @@ import { channelForChat } from './sessionpick';
 import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
 import { moveOrders, parseSearchHits, searchBody, SEARCH_LIMIT_DEFAULT, SearchBody, chatSwitchPath, chatSwitchChannel, ChatSwitchResult, parseChatSwitch } from './sessionops';
 import { RewindReq, RewindTarget, gapTopBefore, rewindTargetDBID } from './msgops';
-import { BgTask, CronJob, RunnerRow, SubAgentRow, isWidgetEvent } from './panels';
+import { BgTask, CronJob, KillBgTaskParams, RunnerRow, SubAgentRow, isWidgetEvent } from './panels';
 import { serverKey, toLocalSettings, KEY_ACCENT } from './settings';
 import { setAppAccent } from './theme';
 import { FsEntry } from './composer';
@@ -586,6 +586,16 @@ export class ChatStore {
     const arr: Object | undefined = raw['background_tasks'];
     this.bgTasks = arrOrEmpty(arr as BgTask[]);
     this.onUpdate();
+  }
+
+  /**
+   * 终止一条后台任务（RPC `kill_bg_task`，参数 `{task_id}`）—— web `BackgroundPanel.kill`
+   * （`workspace/panels/BackgroundPanel.tsx:172` `ws.rpc('kill_bg_task', {task_id})`）同源。
+   * 成功后重拉列表（web 靠 30s 轮询；这里立刻刷，用户按下去就能看到状态变化）。
+   */
+  async killBgTask(taskId: string): Promise<void> {
+    await rpc<void>(this.http, 'kill_bg_task', new KillBgTaskParams(taskId));
+    await this.loadBgTasks();
   }
 
   /**

@@ -42,7 +42,8 @@ import {
   canMove, MOVE_DOWN, MOVE_TOP, MOVE_UP, hitLine, sessionLabel, sessionMatches,
 } from '../core/sessionops';
 import {
-  BgTask, bgTaskLine, CronJob, cronLine, RunnerRow, runnerLine, SubAgentRow, subagentLine,
+  BgTask, bgTaskLine, bgTaskMetaText, bgTaskOutputText, bgTaskRunning, bgTaskStatusText,
+  CronJob, cronLine, RunnerRow, runnerLine, SubAgentRow, subagentLine,
 } from '../core/panels';
 import {
   activeToken, applyCommand, applyMention, clampSel, CMD_ROWS, CommandItem, completionKeyAction, enterSends,
@@ -163,6 +164,7 @@ import { QueueSheet } from '../components/QueueSheet';
 import { PluginsSheet } from '../components/PluginsSheet';
 import { FilesSheet } from '../components/FilesSheet';
 import { SelfCheckSheet } from '../components/SelfCheckSheet';
+import { TaskDetailSheet } from '../components/TaskDetailSheet';
 import { SessSheet, SearchHitsSheet, ContextSheet } from '../components/MenuSheets';
 import { AskUserSheet } from '../components/AskUserSheet';
 import { animBase, animFast, drawerTransition, fadeTransition, sheetTransition } from '../components/anim';
@@ -654,6 +656,14 @@ struct Index {
   @State panelTab: string = 'cron';
   @State cronTasks: CronJob[] = [];
   @State bgTasks: BgTask[] = [];
+  // 后台任务详情（用户点名「任务管理做的很差」：看不到输出、杀不掉 ⇒ 点列表行打开详情）
+  @State showTaskDetail: boolean = false;
+  @State taskDetailId: string = '';
+  @State taskDetailTitle: string = '';
+  @State taskDetailStatus: string = '';
+  @State taskDetailMeta: string = '';
+  @State taskDetailOutput: string = '';
+  @State taskDetailRunning: boolean = false;
   @State runners: RunnerRow[] = [];
   @State subagents: SubAgentRow[] = [];
   @State panelBusy: boolean = false;
@@ -3562,6 +3572,30 @@ struct Index {
           })
         }.width('100%').height('100%')
       }
+      // 后台任务详情（任务列表点行打开）——用户点名「任务管理做的很差」
+      if (this.showTaskDetail) {
+        Stack() {
+          Row() {
+            Blank()
+          }.width('100%').height('100%').onClick(() => {
+            this.showTaskDetail = false;
+          })
+          TaskDetailSheet({
+            theme: this.themeName,
+            title: this.taskDetailTitle,
+            statusText: this.taskDetailStatus,
+            metaText: this.taskDetailMeta,
+            output: this.taskDetailOutput,
+            running: this.taskDetailRunning,
+            onKill: () => {
+              this.killTaskDetail();
+            },
+            onClose: () => {
+              this.showTaskDetail = false;
+            },
+          })
+        }.width('100%').height('100%')
+      }
       // 会话状态（todos / goal / 用量 / cwd）
       if (this.showStatus) {
         Stack() {
@@ -5663,6 +5697,50 @@ struct Index {
   }
 
   /** 刷新当前标签页的数据（每个标签只拉自己那一个端点）。 */
+  /**
+   * 打开后台任务详情。
+   * ⛔ 判据**全部**来自 `core/panels.ets`（`bgTaskStatusText`/`bgTaskMetaText`/`bgTaskOutputText`/
+   *   `bgTaskRunning`）—— 与列表行 `bgTaskLine` 同一份纯函数 ⇒ 不可能"列表说运行中、详情说完成"。
+   */
+  private openTaskDetail(t: BgTask): void {
+    this.taskDetailId = t.id !== undefined ? t.id : '';
+    this.taskDetailTitle = t.command !== undefined ? t.command : '';
+    this.taskDetailStatus = bgTaskStatusText(t);
+    this.taskDetailMeta = bgTaskMetaText(t, this.nowMs());
+    this.taskDetailOutput = bgTaskOutputText(t);
+    this.taskDetailRunning = bgTaskRunning(t);
+    this.showTaskDetail = true;
+  }
+
+  /**
+   * 终止详情里的后台任务（RPC `kill_bg_task`；web `BackgroundPanel.tsx:172` 的
+   * `ws.rpc('kill_bg_task', {task_id})` 同源）。
+   * 成功后**就地刷新**详情（SIGTERM 在飞时状态可能还是"运行中" ⇒ 用户可自行关闭/再点，
+   * ⛔ 不假装成功）；失败给可读 toast（服务端 `access denied: task not found` 是唯一原因来源）。
+   */
+  private async killTaskDetail(): Promise<void> {
+    const id: string = this.taskDetailId;
+    const st: ChatStore | null = this.store;
+    if (id.length === 0 || st === null) {
+      return;
+    }
+    try {
+      await st.killBgTask(id);
+      this.toast('已请求终止');
+      const list: BgTask[] = st.bgTasks;
+      for (let i = 0; i < list.length; i++) {
+        if (list[i].id === id) {
+          this.openTaskDetail(list[i]);
+          return;
+        }
+      }
+      this.showTaskDetail = false;
+    } catch (e) {
+      const err: BusinessError = e as BusinessError;
+      this.toast(`终止失败: ${err.message}`);
+    }
+  }
+
   private async refreshPanel(): Promise<void> {
     const store: ChatStore | null = this.store;
     if (store === null || this.panelBusy) {
@@ -6758,11 +6836,21 @@ struct Index {
           List({ space: 6 }) {
             ForEach(this.bgTasks, (t: BgTask, i: number) => {
               ListItem() {
-                Text(bgTaskLine(t, this.nowMs())).fontSize(typeOf('type.caption').size).fontColor(this.pal().textPrimary)
-                  .width('100%').padding(SPACE_XS).backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
-                  .maxLines(3).wordBreak(WordBreak.BREAK_ALL)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .copyOption(CopyOptions.LocalDevice)
+                Row({ space: SPACE_XS }) {
+                  Text(bgTaskLine(t, this.nowMs())).fontSize(typeOf('type.caption').size).fontColor(this.pal().textPrimary)
+                    .layoutWeight(1)
+                    .maxLines(3).wordBreak(WordBreak.BREAK_ALL)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  // 可点提示（点整行进详情：输出/kill）—— 此前这里只有一行字，用户"看不到也杀不掉"
+                  SymbolGlyph($r('sys.symbol.chevron_right'))
+                    .fontSize(typeOf('type.micro').size)
+                    .fontColor([colorOf(this.pal(), 'iconMuted')])
+                }
+                .width('100%').padding(SPACE_XS).backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
+                .alignItems(VerticalAlign.Center)
+                .onClick(() => {
+                  this.openTaskDetail(t);
+                })
               }
             }, (t: BgTask, i: number) => `bg-${t.id}#${t.status}#${i}`)
           }.constraintSize({ maxHeight: 420 }).width('100%')

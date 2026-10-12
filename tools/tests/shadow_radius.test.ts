@@ -192,7 +192,11 @@ function eq(name: string, got: unknown, want: unknown): void {
       // 文件管理面板（目标④）：侧栏柔影走 `shadowLayersOf(pal,'overlay')` 同一出口（⛔ 不写死半径）。
       'components/FilesSheet.ets', 'components/Lightbox.ets', 'components/MenuSheets.ets',
       'components/PluginsSheet.ets', 'components/QueueSheet.ets', 'components/SelfCheckSheet.ets',
-      'components/StatusSheet.ets', 'components/SyntheticCard.ets', 'components/Toast.ets',
+      'components/StatusSheet.ets', 'components/SyntheticCard.ets',
+      // 后台任务详情（目标④「任务管理做的很差」）：与 SelfCheckSheet 同构的双层柔影
+      // （near=贴合影 / far=环境影），走 `shadowLayersOf(...,'sheet')` 同一出口（⛔ 不写死半径）。
+      'components/TaskDetailSheet.ets',
+      'components/Toast.ets',
       'pages/Index.ets',
     ];
     const EXPECT_SINGLE: string[] = [

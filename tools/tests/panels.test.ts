@@ -2,7 +2,8 @@
 declare const process: { exit: (c: number) => void };
 
 import {
-  bgTaskLine, countText, cronLine, durationText, fmtHHMM, runnerLine, scheduleText, statusIcon,
+  bgTaskLine, bgTaskMetaText, bgTaskOutputText, bgTaskRunning, bgTaskStatusText, countText, cronLine,
+  durationText, fmtHHMM, KillBgTaskParams, runnerLine, scheduleText, statusIcon,
   SubAgentRow, subagentLine,
 } from '../../entry/src/main/ets/core/panels';
 
@@ -47,6 +48,39 @@ eq('失败任务带 exit', bgTaskLine({ id: 'a1', command: 'ls', status: 'failed
   '失败 ls · exit 2（a1）');
 
 eq('失败任务无 started_at 不含时长', bgTaskLine({ id: 'a1', command: 'ls', status: 'failed', exit_code: 2 }, 0), '失败 ls · exit 2（a1）');
+
+// ── 后台任务**详情**（2026-10-12「任务管理做的很差」的判据）──────────────────────
+eq('running 判运行中', bgTaskRunning({ status: 'running' }), true);
+eq('started 判运行中', bgTaskRunning({ status: 'started' }), true);
+eq('RUNNING 大写也认', bgTaskRunning({ status: 'RUNNING' }), true);
+eq('done 不运行', bgTaskRunning({ status: 'done' }), false);
+eq('无 status 不运行', bgTaskRunning({}), false);
+
+eq('运行中短语', bgTaskStatusText({ status: 'running' }), '运行中');
+eq('完成短语', bgTaskStatusText({ status: 'done', exit_code: 0 }), '完成');
+eq('failed 短语', bgTaskStatusText({ status: 'failed', exit_code: 2 }), '失败');
+eq('error 短语', bgTaskStatusText({ status: 'error' }), '失败');
+// ⭐ 真判别：被杀的进程 exit 130 ⇒ 若先问 toolStatusKind 会返回 ST_ERROR 而误报「失败」；
+//    "用户主动终止" 必须抢在 exit_code 之前判 —— 这条错了用户会以为任务崩了。
+eq('killed 抢在 exit 之前', bgTaskStatusText({ status: 'killed', exit_code: 130 }), '已终止');
+eq('cancelled 同 killed', bgTaskStatusText({ status: 'cancelled', exit_code: 1 }), '已终止');
+eq('done 但 exit 非 0 ⇒ 失败', bgTaskStatusText({ status: 'done', exit_code: 1 }), '失败');
+
+eq('副行 exit+时长+id', bgTaskMetaText({ id: '3f8f', status: 'done', exit_code: 0,
+  started_at: '2026-09-01T09:00:00Z', finished_at: '2026-09-01T09:00:03Z' }, Date.parse('2026-09-01T09:00:09Z')),
+  'exit 0 · 3s · 3f8f');
+eq('副行无 exit_code 只有 id', bgTaskMetaText({ id: 'a1' }, 0), 'a1');
+eq('副行全空', bgTaskMetaText({}, 0), '');
+
+eq('输出优先', bgTaskOutputText({ output: 'hi', error: 'boom' }), 'hi\nboom');
+eq('只有 error', bgTaskOutputText({ error: 'boom' }), 'boom');
+eq('只有 output', bgTaskOutputText({ output: 'hi' }), 'hi');
+eq('全空', bgTaskOutputText({}), '');
+// ⭐ error 已在 output 里时不重复拼（服务端 CurrentOutput 常把 stderr 并进 output）
+eq('error 已含在 output 里不重复', bgTaskOutputText({ output: 'x\nboom', error: 'boom' }), 'x\nboom');
+
+const kp = new KillBgTaskParams('t-1');
+eq('kill 参数名是 task_id', kp.task_id, 't-1');
 
 eq('在线 runner', runnerLine({ name: 'gpu-1', mode: 'ssh', online: true, version: '1.2',
   workspace: '/root/w' }), '在线 gpu-1 · ssh · v1.2 · /root/w');
