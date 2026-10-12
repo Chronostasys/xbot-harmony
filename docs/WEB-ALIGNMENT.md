@@ -1380,3 +1380,38 @@ N 个药丸堆叠、chrome 噪点大；web 侧本就是纯列表）⇒ **一个�
 
 **记账（未做）**：文件**搜索**（`/api/fs/search`，web `FileExplorer` 有）、文件**重命名/删除/新建**、
 编辑保存（web 侧 `MonacoEditor` 的编辑也**不持久化** ⇒ 原生 v1 不落编辑能力，与 web 同口径）。
+
+## §21.19 目标④ · **原生终端**真机端到端实证（2026-10-12）
+
+**背景**：用户点名「终端做的很差」⇒ 原生落地（`e7f1452`：`core/vt.ets` VT 模拟器 + `core/termproto.ets`
+线协议 + `components/TerminalSheet.ets`；⛔ 不塞 WebView）。本轮**上机把端到端链路验穿**
+（模拟器 `xbot_phone` 1320×2848，驱动会话 `web-1`）。
+
+**入口链（已走通）**：顶栏 ☰ ⇒ 抽屉 ⇒ 底部**单行 4 键**「运行」⇒ 运行面板底部 tab「**终端**」
+⇒「＋ 新建」（`POST /api/terminal/create`）⇒ `showTerminal=true` ⇒ TerminalSheet。
+
+**连接态（`dumpLayout` 逐字）**：标题 `t-1791779043472137000`（tid）· 状态 `已连接` · 尺寸 `45×24`
+（`applySize` 已把 cols/rows 上报 PTY）· 画布首行 = zsh 提示符 `➜  ~`。
+
+**键盘输入往返（决定性证据）**：点终端输入框 `[97,2144][1224,2279]` → `uitest uiInput inputText
+'echo xbot-native-42'` → `keyEvent 2054`（ENTER，触发 `.onSubmit ⇒ submitInput()`）⇒ 终端画布骤变为：
+
+```
+➜  ~ echo xbot-native-42
+xbot-native-42
+➜  ~
+```
+
+⇒ `encodeStdin('echo xbot-native-42\r')` ⇒ `{type:'stdin',data:<b64>}` ⇒ WS ⇒ **服务端 PTY 真执行**
+⇒ stdout 回传 ⇒ `vtB64ToBytes`/`VtTerm.feed` ⇒ 渲染。**整条链路无一处虚设**。
+
+**控制键（证明 `\x1b[A` 真写进 PTY）**：点快捷键行 `↑`（`keyChip('↑','\x1b[A')` ⇒ `sendKey`）⇒
+画布追显 `➜  ~ echo xbot-native-42`（zsh **历史召回**）⇒ 控制序列确实送达 PTY，非仅 UI 回显。
+快捷键行全表（`TerminalSheet.ets:489-495`）：`Ctrl-C=\x03` · `Tab=\t` · `Esc=\x1b` · `↑=\x1b[A` ·
+`↓=\x1b[B` · `←=\x1b[D` · `→=\x1b[C`。
+
+**输入模型（诚实记账）**：输入是**整行发送**（`TextInput` 回车 ⇒ 整行 + `\r`），**不是**逐键 raw 模式；
+交互式全屏程序（vim/REPL 光标编辑）靠**快捷键行**发控制序列驱动，未做「raw 透传」。这是**设计选择**
+（移动端软键盘无 Esc/Ctrl/方向键），非缺陷 —— 但也不宣称覆盖全部 TUI 交互场景。
+
+**未覆盖（沿用 `core/vt.ets` 头注）**：鼠标上报 · bracketed paste · DSR 应答 · 连字 · 冷门宽字符区。
