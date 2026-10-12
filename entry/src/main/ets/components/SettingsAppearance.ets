@@ -152,7 +152,8 @@ export struct SettingsAppearance {
 
       SettingsChipRow({
         label: settingLabel(KEY_APP_THEME),
-        description: '应用主题（含原生独享的「极简白」）。',
+        // ⛔ 描述**不得复述标签**：标签已是「应用主题」，此处只补充"哪一项是原生独享"。
+        description: '「极简白」为原生端独享。',
         value: this.theme,
         options: ALL_THEMES,
         labels: this.themeLabels(),

@@ -27,6 +27,17 @@ const path = require('path');
 const fs = require('fs');
 export {};
 
+// ── ④ 的**标签真源** = `core/settings.ets:settingLabel`（⛔ 不自造表；KEY_* 一起导入以解析 `settingLabel(KEY_X)`）。
+import {
+  settingLabel, KEY_APP_THEME, KEY_ACCENT, KEY_MD_THEME, KEY_LOCALE, KEY_FONT_SCALE, KEY_CODE_WRAP,
+  KEY_SEND_KEY, KEY_REASONING_DEFAULT, KEY_ORB, KEY_NOTIFY_ASK, KEY_NOTIFY_TURN_DONE, KEY_NOTIFY_DETAIL,
+} from '../../entry/src/main/ets/core/settings';
+/** 源码标识符（`KEY_X`）→ 真值（用于把 `settingLabel(KEY_X)` 解析成标签文案）。 */
+const KEYMAP: { [k: string]: string } = {
+  KEY_APP_THEME, KEY_ACCENT, KEY_MD_THEME, KEY_LOCALE, KEY_FONT_SCALE, KEY_CODE_WRAP,
+  KEY_SEND_KEY, KEY_REASONING_DEFAULT, KEY_ORB, KEY_NOTIFY_ASK, KEY_NOTIFY_TURN_DONE, KEY_NOTIFY_DETAIL,
+};
+
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean, extra?: string): void {
   if (cond) { pass++; } else { fail++; console.log(`  ✗ ${name}${extra !== undefined ? `\n      ${extra}` : ''}`); }
@@ -155,6 +166,58 @@ if (parenHits.length === 0) {
   ok('③ 用户文案无整体全角括号包裹（`\'（…）\'` 占位 = 0，除 web-parity 白名单）', true);
 } else {
   for (const v of parenHits) { ok(`占位括注违规：${v}（去全角括号 ⇒ 陈述句/标签）`, false); }
+}
+
+// ── ④ 设置行**描述不得复述标签**（批次 13e 统一）─────────────────────────────────
+// 口径（Apple 式设置行）：标签是**名词短语**（"应用主题"），描述只补充**它没说的信息**；
+//   ⛔ 描述以标签原文开头 ⇒ 读成"应用主题 / 应用主题（含…）"，复述 = 噪声。真机截图取证（2026-10-12）：
+//   `SettingsAppearance.ets:155` 原为 `'应用主题（含原生独享的「极简白」）。'` ⇒ 读成"应用主题 / 应用主题…"。
+// 解析：`label:` 为字符串字面量或 `settingLabel(KEY_X)`（真源 `core/settings.ets`）；解析不到 ⇒ 跳过。
+// ⛔ 零扫描判红；mutation：把那行改回复述串 ⇒ 必红。
+const settingsFiles: string[] = files.filter((f) => /[\\/]components[\\/]Settings[^\\/]*\.ets$/.test(f));
+const dupHits: string[] = [];
+let rowPairs = 0;
+for (const f of settingsFiles) {
+  const rel: string = path.relative(ETS, f).split(path.sep).join('/');
+  const src: string = stripComments(fs.readFileSync(f, 'utf8'));
+  const callRe = /Settings[A-Za-z]+Row\(\{/g;
+  let cm: RegExpExecArray | null = callRe.exec(src);
+  while (cm !== null) {
+    const open = cm.index + cm[0].length - 1;   // 指向 '{'
+    let depth = 0; let j = open; let end = -1;
+    while (j < src.length) {
+      const ch = src.charAt(j);
+      if (ch === '{') { depth++; } else if (ch === '}') { depth--; if (depth === 0) { end = j; break; } }
+      j++;
+    }
+    if (end > open) {
+      const block = src.slice(open + 1, end);
+      const lm = /label:\s*([^,\n]+)/.exec(block);
+      const dm = /description:\s*'([^'\n]*)'/.exec(block);
+      if (lm !== null && dm !== null) {
+        const expr = lm[1].trim();
+        let label = '';
+        const lit = /^'([^']*)'$/.exec(expr);
+        const sl = /^settingLabel\(([A-Za-z0-9_]+)\)$/.exec(expr);
+        if (lit !== null) { label = lit[1]; }
+        else if (sl !== null && KEYMAP[sl[1]] !== undefined) { label = settingLabel(KEYMAP[sl[1]]); }
+        if (label.length > 0) {
+          rowPairs++;
+          const desc = dm[1];
+          if (desc.indexOf(label) === 0) {
+            dupHits.push(`${rel}: 标签「${label}」被描述复述（描述="${desc}"）`);
+          }
+        }
+      }
+    }
+    cm = callRe.exec(src);
+  }
+}
+ok(`零扫描判红：设置行 label+description 配对 > 0（实得 ${rowPairs}）`, rowPairs > 0);
+if (dupHits.length === 0) {
+  ok('④ 设置行描述不以标签原文开头（不复述标签）', true);
+} else {
+  for (const v of dupHits) { ok(`设置行描述复述标签：${v}（描述只补充标签没说的信息）`, false); }
 }
 
 if (fail > 0) { console.log(`  empty_state_copy: ${pass} passed, ${fail} failed`); process.exit(1); }

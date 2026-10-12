@@ -2114,3 +2114,53 @@ Apple 的空态是**陈述句**，不是「（这里什么都没有）」。此�
 290 文件 0 失败；A 1242/1250 · **B 1341/1350**（−1，删计数）· ForEach 107/107）；装机 `deploy.sh` ⇒
 `DEPLOY_EXIT=0`；真机复核 ⇒ ① 终端详情头部 = **`终端`**（原裸 id `t-1791…`）；② 终端列表行 = **`终端 1`/`终端 2`**
 （原裸 id）；③ 运行面板终端 tab 标签 = **`终端 2`**（tab 承担计数）且**内容区无 `共 2 个终端`**（只 `＋ 新建` 右对齐）。
+
+## §21.37 目标③ 所有面板（第十一批）：设置「应用主题」描述去复述 + ModelSheet 命中区/根面统一（2026-10-12）
+
+真机取证（开抽屉 → 设置面板截图 + `ModelSheet` 源码切片审计）：
+
+**① 设置行**描述复述标签** ⇒ 读成"应用主题 / 应用主题（含…）"**（真机截图逐字）：
+`SettingsAppearance.ets:155` 的 `SettingsChipRow` 标签 = `settingLabel(KEY_APP_THEME)` = **「应用主题」**，
+而 `description` = **`'应用主题（含原生独享的「极简白」）。'`** ⇒ 视觉上标签下方紧跟"应用主题（…）"，
+**复述**、噪声（Apple 式设置行：描述只补充标签**没说的信息**）。
+
+- 修法 = 描述**只留增量信息** ⇒ `'「极简白」为原生端独享。'`（⛔ 不动 `settingLabel` 真源 —— 它与 web
+  `t()` 可能同源、且被他测钉）。全仓 `description:` 系统清点：**仅此一处**复述标签，其余（强调色/Markdown
+  主题/语言/字号/换行/思考/光球/聊天界面/发送键/通知三开关/智能体/LLM 各档）均为真解释。
+
+**② `ModelSheet`（模型与上下文）命中区 <44 且根面未统一**（源码切片 + 同层级对照）：
+本面板的「思考模式」chip 与失败态「重试」**已** ≥44，但同一面板里 **ctx 预设 chip**（`padding(…5)`≈22vp）、
+**「应用」按钮**（≈28vp）、**模型行**（`padding(SPACE_XS)`≈29vp）、**ctx 输入框**（`minHeight:36`）都**低于**
+`HIT_TARGET_MIN`(44) ⇒ 面板**内部**口径不一致（Apple HIG：可点元素 ≥44）；根面又是**裸 `pal().appBg`
++ 裸 `border`**，而同层级 `StatusSheet`/`QueueSheet`/`SelfCheckSheet`/`AskUserSheet` **一律**
+`surfaceFillOf(p,'surface.overlay')` + `hairlineOf(p)` + **两层柔影**（`Stack` 承载 far / 内层承载 near）。
+
+- 修法 = ① 四处可点元素改**真实 ≥44 布局盒**（`constraintSize({ minHeight: HIT_TARGET_MIN })` 承载
+  `onClick`，`stateStyles` 按压反馈，chip 底色走 `surface.chip` + `hairlineOf`）；
+  ② 根面**包一层 `Stack`**：内层 Column = overlay 面 + 结构性发丝 + near 柔影（`contactLayer('overlay')`），
+  外层 Stack = `.width('92%')` + overlay 面 + far 柔影（`shadowLayersOf(p,'overlay')[1]`）+ `sheetTransition()`。
+
+**非缺陷（勿重报）**：QueueSheet（标题带计数 `待发队列 (N)` —— 独立面板无 tab 重复计数；上/下移/插队/取消
+均 44 盒 + 语义色）/ SelfCheckSheet（A–H 八组为**自检样张**，非开发者语；`【长按复制】` 为提示非括注）
+/ NewSessionSheet（inset grouped 最近目录 + 命中区 ≥44）已对齐，无硬伤。
+
+**判据（演进，⛔ 不删除）**：
+- `empty_state_copy.test.ts` 新增 **④ 设置行描述不得复述标签**（一般规则）：扫 `components/Settings*.ets`
+  的 `Settings*Row({ label: …, description: '…' })`，`label` 解析 = 字符串字面量 **或**
+  `settingLabel(KEY_X)`（导入**真源** `core/settings.ets`，⛔ 不自造表）⇒ 断言 `description` **不以 label 原文开头**；
+  **零扫描判红**（配对 > 0）⇒ 5 → **7**。
+- `model_list_states.test.ts` 新增 **⑧**：⑧a 切片内 `constraintSize({ minHeight: HIT_TARGET_MIN })` **≥4 处**；
+  ⑧b 根面含 `surfaceFillOf(…,'surface.overlay')` + `hairlineOf` 且**无** `.backgroundColor(this.pal().appBg)`；
+  **内联 mutation 自证**（全抽 44 盒 / 根面全替换回 appBg ⇒ 各自必红）⇒ 24 → **28**。
+
+**mutation 自证**（§④ 手工，门禁同环境）：把 `SettingsAppearance.ets` 描述改回复述串 ⇒
+`empty_state_copy` **`6 passed, 1 failed`**（④ 命中：`标签「应用主题」被描述复述`）⇒ 还原后 md5 **逐字节一致**
+（`d48af183…`）⇒ 回全绿。（§⑧ 的 mutation 已**内联**进测试，每次运行自证。）
+
+**判据取得**：`tools/gate.sh` ⇒ **`✅ 真门禁全绿` + `GATE_EXIT=0`**（`BUILD SUCCESSFUL in 6 s 953 ms`；
+290 文件 0 失败；A **1246**/1250（+4，ModelSheet 补面）· **B 1345**/1350（+4）· ForEach **107**/107）；装机
+`deploy.sh` ⇒ `DEPLOY_EXIT=0`；真机复核 ⇒ ① 设置面板「应用主题」行 = 标签**「应用主题」** + 描述
+**「「极简白」为原生端独享。」**（原「应用主题（含…）」复述已去）；② `ModelSheet` 根面 = **带柔影的
+浮起卡片**（原裸 `appBg` 无影），ctx 预设 chip（32k/128k/200k/1.0M）/「应用」按钮 / 模型行（dpsk 分组）
+**一律 ≥44 高**。
+

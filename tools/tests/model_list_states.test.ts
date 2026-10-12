@@ -201,6 +201,33 @@ ok('mutation ④b：reloadModelList 不再走既有取数入口 ⇒ 必红', !ch
 const mLiteral: string = `${MS}\n.color('#FF00FF')`;
 ok('mutation ⑥：注入颜色字面量 ⇒ 必红', !checkNoLiteralOrTimer(mLiteral));
 
+// ── ⑧ 命中区 ≥44 + 根面统一（批次 13e，Apple HIG / L1 顶层弹层语言）────────────────
+// 取证（2026-10-12 真机截图）：`ModelSheet` 的 ctx 预设 chip（`padding(…5)`≈22vp）、「应用」按钮
+//   （≈28vp）、模型行（`padding(SPACE_XS)`≈29vp）都**低于** HIT_TARGET_MIN(44) —— 与本面板
+//   「思考模式」chip（已 ≥44）及全仓浮层口径**内部不一致**；根面又是**裸 `pal().appBg` + 裸 `border`**
+//   （同层级 `StatusSheet`/`QueueSheet`/`SelfCheckSheet` 一律 `surfaceFillOf(p,'surface.overlay')`
+//   + `hairlineOf` + 两层柔影）⇒ 本轮补齐。
+function countIn(s: string, sub: string): number { return s.split(sub).length - 1; }
+/** ⑧a：≥44 布局盒 ≥4 处（ctx 预设 / 应用 / 输入框 / 重试 / 模型行 / 思考 chip）。 */
+function checkHitTargets(slice: string): boolean {
+  return countIn(slice, 'constraintSize({ minHeight: HIT_TARGET_MIN })') >= 4;
+}
+/** ⑧b：根面走 overlay 语言（overlay 面 + 发丝），且**不再**用裸 appBg。 */
+function checkRootFace(slice: string): boolean {
+  return slice.indexOf("surfaceFillOf(this.pal(), 'surface.overlay')") >= 0
+    && slice.indexOf('hairlineOf(this.pal())') >= 0
+    && slice.indexOf('.backgroundColor(this.pal().appBg)') < 0;
+}
+ok('⑧a ModelSheet 命中区 ≥44 布局盒 ≥4 处（ctx 预设/应用/输入框/重试/模型行）', checkHitTargets(MS),
+  `实得 ${countIn(MS, 'constraintSize({ minHeight: HIT_TARGET_MIN })')} 处`);
+ok('⑧b ModelSheet 根面统一 overlay（surface.overlay + hairline，无裸 appBg）', checkRootFace(MS));
+
+// mutation ⑧：注入必红样本 ⇒ 必须判红
+ok('mutation ⑧a：全抽掉 ≥44 布局盒 ⇒ 必红',
+  !checkHitTargets(MS.split('constraintSize({ minHeight: HIT_TARGET_MIN })').join('constraintSize({ minHeight: 36 })')));
+ok('mutation ⑧b：根面改回裸 appBg（overlay 面全替换）⇒ 必红',
+  !checkRootFace(MS.split("surfaceFillOf(this.pal(), 'surface.overlay')").join('this.pal().appBg')));
+
 if (fail > 0) { console.log(`  model_list_states: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  model_list_states: ${pass} passed, 0 failed`);
 process.exit(0);

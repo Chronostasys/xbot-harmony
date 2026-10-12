@@ -8160,6 +8160,10 @@ struct Index {
    */
   @Builder
   ModelSheet() {
+    // ── 根面统一（L1 顶层弹层）：`surfaceFillOf(p,'surface.overlay')` + 结构性发丝 `hairlineOf`
+    //    + **两层柔影**（同 `StatusSheet`/`QueueSheet`/`SelfCheckSheet`/`AskUserSheet` 同通道；
+    //    此前是**裸 `pal().appBg` + 裸 `border`**，与同层级弹层割裂 ⇒ 本轮补齐。
+    Stack() {
     Column({ space: 10 }) {
       Row() {
         Text('模型与上下文').fontSize(typeOf('type.headline').size).fontWeight(typeOf('type.headline').weight).fontColor(this.pal().textPrimary).layoutWeight(1)
@@ -8190,14 +8194,21 @@ struct Index {
         .fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary).width('100%')
       Row({ space: 6 }) {
         ForEach(this.ctxPresets(), (p: number, i: number) => {
-          Text(this.ctxPresetText(p))
-            .fontSize(typeOf('type.caption').size).fontColor(this.pal().accentSoft)
-            .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-            .backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
-            .border({ width: 1, color: this.pal().border })
-            .onClick(() => {
-              this.applyMaxContext(p);
-            })
+          // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44, Apple HIG)：原先仅靠 `padding(…5)` 撑到 ≈22 ⇒ 低于阈值。
+          //    改**真实 ≥44 布局盒**承载 `onClick`（同本面板「思考模式」chip 与全仓浮层口径）。
+          Row() {
+            Text(this.ctxPresetText(p))
+              .fontSize(typeOf('type.caption').size).fontColor(this.pal().accentSoft)
+              .padding({ left: SPACE_XS, right: SPACE_XS })
+          }
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
+          .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+          .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip')).borderRadius(RADIUS_CHIP)
+          .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            this.applyMaxContext(p);
+          })
         }, (p: number, i: number) => `ctx-preset-${p}`)
       }.width('100%')
 
@@ -8206,11 +8217,18 @@ struct Index {
           .onChange((v: string) => {
             this.ctxInput = v;
           })
-          .layoutWeight(1).constraintSize({ minHeight: 36 })
+          .layoutWeight(1).constraintSize({ minHeight: HIT_TARGET_MIN })
           .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary).fontSize(typeOf('type.caption').size)
-        Text('应用').fontSize(typeOf('type.caption').size).fontColor(this.pal().onAccent).padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_XS, bottom: SPACE_XS })
-          .backgroundColor(this.pal().accent).borderRadius(RADIUS_CHIP)
-          .onClick(() => {
+        // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：原仅靠 `padding(…SPACE_XS)` 撑到 ≈28 ⇒ 低于阈值。
+        Row() {
+          Text('应用').fontSize(typeOf('type.caption').size).fontColor(this.pal().onAccent)
+        }
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .padding({ left: SPACE_SM, right: SPACE_SM })
+        .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+        .backgroundColor(this.pal().accent).borderRadius(RADIUS_CHIP)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
             const n: number = parseContext(this.ctxInput);
             if (n <= 0) {
               this.toast('上下文上限格式不对（示例：200k / 1m / 200000）');
@@ -8273,7 +8291,13 @@ struct Index {
                       Text('当前').fontSize(typeOf('type.caption').size).fontColor(this.pal().successText)
                     }
                   }
-                  .width('100%').padding(SPACE_XS).backgroundColor(this.pal().surface).borderRadius(RADIUS_CHIP)
+                  // ⛔ 命中区 ≥44（原 `padding(SPACE_XS)` 仅撑到 ≈29）⇒ 行真实 ≥44 布局盒（Apple 列表行口径）。
+                  .width('100%')
+                  .constraintSize({ minHeight: HIT_TARGET_MIN })
+                  .padding({ left: SPACE_XS, right: SPACE_XS })
+                  .alignItems(VerticalAlign.Center)
+                  .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip')).borderRadius(RADIUS_CHIP)
+                  .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                   .onClick(() => {
                     if (!this.modelSelectable(e)) {
                       this.toast('该模型已禁用');
@@ -8347,8 +8371,27 @@ struct Index {
       .padding({ top: SPACE_SM })
       .border({ width: { top: STROKE_HAIRLINE }, color: hairlineOf(this.pal()) })
     }
-    .width('92%').padding(SPACE_MD).backgroundColor(this.pal().appBg)
-    .borderRadius(RADIUS_CARD).border({ width: 1, color: this.pal().border })
+    .width('100%').padding(SPACE_MD)
+    .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
+    .borderRadius(RADIUS_CARD)
+    // 顶层弹层根边界 = **结构性发丝**（与 `QueueSheet`/`SelfCheckSheet`/`StatusSheet` 等同层级 ⇒ 同通道）。
+    .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+    // 贴合层（near）：浅色 = 接触影；深色 = 透明（不渲染 ⇒ 净观感不变）。
+    .shadow({
+      radius: this.contactLayer('overlay').radius,
+      color: this.contactLayer('overlay').color,
+      offsetX: 0, offsetY: this.contactLayer('overlay').offsetY,
+    })
+    }
+    .width('92%')
+    .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
+    .borderRadius(RADIUS_CARD)
+    // 环境层（far）：浅色 = 大半径环境柔影；深色 = 该档原值。
+    .shadow({
+      radius: shadowLayersOf(this.pal(), 'overlay')[1].radius,
+      color: shadowLayersOf(this.pal(), 'overlay')[1].color,
+      offsetX: 0, offsetY: shadowLayersOf(this.pal(), 'overlay')[1].offsetY,
+    })
     .transition(sheetTransition())
   }
 
