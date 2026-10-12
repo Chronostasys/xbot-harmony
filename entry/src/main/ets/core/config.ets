@@ -27,6 +27,11 @@ const KEY_THEME: string = 'app_theme';
 // 离线草稿（弱网/杀进程不丢正在写的内容；只保最近一个会话）
 const KEY_DRAFT_CHAT: string = 'draft_chat_id';
 const KEY_DRAFT_TEXT: string = 'draft_text';
+// 会话抽屉的**分类（项目/状态/时间）本地镜像**：业务真值在服务端 settings（`web:session:category`，
+// 与 web 共读一份），但那份要**登录后一次网络往返**才到；而抽屉可能在首帧就被打开（或此刻离线）
+// ⇒ 只读服务端会出现"冷启首帧显示默认『项目』、随后跳到上次选择"的**闪变**（用户观感 = "没记住"）。
+// 本地镜像让**首帧**就是上次的选择；服务端值到达后**服务端胜**（跨设备一致，web 改的也算数）。
+const KEY_SESSION_CATEGORY_LOCAL: string = 'local_session_category';
 
 export class AppConfig {
   serverUrl: string = '';
@@ -39,6 +44,8 @@ export class AppConfig {
   draftText: string = '';
   /** 会话列表渠道过滤（空串 = 全部；对齐 web `activeChannel:null`）。 */
   activeChannel: string = '';
+  /** 会话抽屉分类（`path`/`status`/`time`；空串 = 没存过 ⇒ 用服务端值，再回落默认『项目』）。 */
+  sessionCategory: string = '';
 }
 
 export class ConfigStore {
@@ -57,6 +64,8 @@ export class ConfigStore {
     this.data.draftText = s.getSync(KEY_DRAFT_TEXT, '') as string;
     // 渠道过滤：读盘后立刻归一化（纯函数 —— 与写盘同一口径，键名/默认/回落单点）
     this.data.activeChannel = normalizeActiveChannel(s.getSync(ACTIVE_CHANNEL_KEY, '') as string);
+    // 分类本地镜像（归一化在页面读出口做：`normalizeSessionCategory` 单点；此处只搬盘上字符串）
+    this.data.sessionCategory = s.getSync(KEY_SESSION_CATEGORY_LOCAL, '') as string;
     return this.data;
   }
 
@@ -110,6 +119,22 @@ export class ConfigStore {
       return;
     }
     s.putSync(ACTIVE_CHANNEL_KEY, norm);
+    await s.flush();
+  }
+
+  /**
+   * 保存分类本地镜像（`path`/`status`/`time`）。与 `saveActiveChannel` 同族：**只搬字符串**，
+   * 归一化在页面读出口（`normalizeSessionCategory`）单点做 —— 坏值读回来自动回落默认。
+   * ⚠️ 调用点必须**同时**写服务端（`setSetting(KEY_SESSION_CATEGORY, …)`）：本地只是**首帧镜像**，
+   *    服务端才是跨设备真值（web 也读同一个键）。
+   */
+  async saveSessionCategory(cat: string): Promise<void> {
+    this.data.sessionCategory = cat;
+    const s: preferences.Preferences | null = this.store;
+    if (s === null) {
+      return;
+    }
+    s.putSync(KEY_SESSION_CATEGORY_LOCAL, cat);
     await s.flush();
   }
 

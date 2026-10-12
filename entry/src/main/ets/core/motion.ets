@@ -20,7 +20,7 @@
 
 // spring 曲线控制点 + springMotion 三参：**引用 tokens.ets 的既有常量，不复制**。
 import {
-  D_FAST, D_SLOW, SP_8,
+  D_FAST, D_SLOW, SP_4, SP_8,
   EASE_SPRING_CSS,
   EASE_SPRING_P1X, EASE_SPRING_P1Y, EASE_SPRING_P2X, EASE_SPRING_P2Y,
   EASE_SPRING_RESPONSE, EASE_SPRING_DAMPING, EASE_SPRING_OVERLAP,
@@ -186,6 +186,20 @@ export const MOTION_DRAWER_SLIDE_VP: number = 340;
  * 用**轻微缩放 + 淡入**表达"浮层弹起"。⛔ 不是动画时长 ⇒ 不进 `allowedDurations()`。
  */
 export const MOTION_LIGHTBOX_ENTER_SCALE: number = 0.96;
+
+/**
+ * **会话面切换**的纵向入场位移（vp）—— 用户 2026-10-12 亲报「侧边栏点击切换会话后要有动画，现在没有」。
+ *
+ * ⛔ 为什么单开一个 token：
+ *   · 复用 `MOTION_SHEET_SLIDE_VP`(260) 会把**整面**内容从屏外推进来 —— 那是"面板弹出"的语义，
+ *     切换会话是**同层级内容替换**（Apple 只在同层级做极小位移）；
+ *   · 复用行级 `entryStartDy()`(4px) 又太小，整面看不出动（"没有动画"就是用户的原始描述）；
+ *   · 取 `SP_4`(16vp)：约 4 倍行级位移 —— 整面可辨、又不产生"从屏外飞入"的错觉。
+ *   ⇒ 数值**派生自间距尺度**（`SP_4`），不是就地字面量；判据同 `motion_uniform.test.ts` 规则 F。
+ * ⚠️ **只动位移、绝不动不透明度**：静息态位移恒 0 ⇒ 动画被打断也只是"位置差一点"，
+ *    可读性**永不**成为动画的函数（本仓血债；门禁 ⑨ / `anim-opacity-gate.sh`）。
+ */
+export const MOTION_SESSION_SWITCH_SLIDE_VP: number = SP_4;
 
 /** 数值区间校验（纯函数）：`lo <= x <= hi`。 */
 export function inRange(x: number, lo: number, hi: number): boolean {

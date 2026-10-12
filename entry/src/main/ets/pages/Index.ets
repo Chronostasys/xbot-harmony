@@ -177,6 +177,8 @@ import { TerminalSheet } from '../components/TerminalSheet';
 import { SessSheet, SearchHitsSheet, ContextSheet } from '../components/MenuSheets';
 import { AskUserSheet } from '../components/AskUserSheet';
 import { animBase, animFast, drawerTransition, fadeTransition, sheetTransition } from '../components/anim';
+// 会话面切换的入场位移档（动效数值只许从底座 `core/motion.ets` 取；⛔ 页面不写字面量）
+import { MOTION_SESSION_SWITCH_SLIDE_VP } from '../core/motion';
 import { readableRpcError, rpc, RpcMethod, RPC_WEB_PLUGIN_LIST, RPC_GET_SESSION_USAGE_STATS, RPC_GET_USER_TOKEN_USAGE, RPC_GET_DAILY_TOKEN_USAGE, RPC_GET_SESSION_USAGE_BUCKETS, SessionUsageStatsParams, DailyUsageParams, SessionUsageBucketsParams, EmptyParams, ThinkingModeParams } from '../core/rpc';
 import { parseSessionUsage, SessionUsage, SessionUsageWire, parseUserUsage, parseDailyUsage, parseBuckets, UserUsage, UserUsageWire, DailyUsage, DailyUsageWire, UsageBucket, UsageBucketWire, bucketRequestCount, DAILY_DAYS_WINDOW, tzOffsetMinutesFor } from '../core/sessionstats';
 import { TodoPayloadRow, removeTodoAt, renameTodoAt, todoPayloadRows, toggleTodoAt } from '../core/todos';
@@ -312,6 +314,18 @@ const STAR_GLOW_SIZE: number = 150;
 function delay(fn: () => void, ms: number): number {
   return setTimeout(fn, ms);
 }
+
+// ── 分段控件（iOS segmented control）的**视觉**尺寸（用户 2026-10-12 亲报「那个项目/状态/时间 高度
+//    太高了」）────────────────────────────────────────────────────────────────────────────
+// 病根：此前把**命中盒**（`HIT_TARGET_MIN` = 44vp）直接当**视觉**高度用 ⇒ 轨道 44 + 上下内边距 = 48vp，
+//   比 Apple 栏内控件（~32-36pt，见 iOS 分段控件/导航栏按钮）高出一大截，观感"笨重"。
+// ⛔ 不能靠 `responseRegion` 负偏移外扩来"视觉小、热区大" —— 真机实测无效（本仓 GOTCHA）。
+//    ⇒ 正解：**轨道画小（36）、命中外盒留大（44）**：选中芯 32 浮在 36 轨道里（Apple 的 28-in-32 同比例），
+//    而每段的 `onClick` 落在 44 的布局盒上 ⇒ 视觉是 Apple 的、热区仍是 44。
+/** 分段控件的视觉轨道高（vp）= 36。 */
+const SEG_TRACK_H: number = SPACE_XXL + SPACE_XXS;
+/** 分段控件选中芯（浮起 pill）高（vp）= 32 —— 与轨道留 2vp 内缩。 */
+const SEG_PILL_H: number = SPACE_XXL;
 
 // ════════════════════════════════════════════════════════════════════════════
 // 深链命令的页面落点（S1）—— 纯映射部分
@@ -508,6 +522,23 @@ struct Index {
    *    原生端本波未接线持久化（`core/config.ets` 不属本波可改文件）⇒ 进程内记忆。
    */
   @State activeChannel: string = '';
+  /**
+   * 抽屉分类的**本地首帧镜像**（`path`/`status`/`time`；`''` = 没存过）。
+   *
+   * 为什么要有它（用户 2026-10-12 亲报「侧边栏要能记忆上次选择的排序」）：分类的**真值**在服务端
+   * settings（`web:session:category`，与 web 共读一份，读写都已核实通过），但那份要**登录后一次
+   * 网络往返**才到页面 ⇒ 冷启后立刻开抽屉会先显示默认『项目』、随后跳到上次选择（观感 = "没记住"）。
+   * 本地盘上镜像（`core/config.ets` 的 `sessionCategory`）让**首帧**即上次的选择；服务端值到达后
+   * **服务端胜**（`sessionCategory()` 的优先级：服务端 > 本地镜像 > 默认）⇒ 跨设备一致。
+   */
+  @State localSessionCategory: string = '';
+  /**
+   * **会话面切换**的入场位移系数（`0` = 静息；切换瞬间置 `1` 再动画归零）。
+   *
+   * ⛔ 只动位移、绝不动不透明度：静息态恒为 0 ⇒ 动画即使被打断，内容仍在原位、**完全可读**
+   * （本仓血债「可读性不能是动画的函数」+ 门禁 ⑨）。位移值 = 底座 `MOTION_SESSION_SWITCH_SLIDE_VP`。
+   */
+  @State switchSlide: number = 0;
 
   /**
    * rewind（编辑并重发）的当前编辑目标 —— 非空即处于"编辑态"。
@@ -1384,6 +1415,8 @@ struct Index {
     // 渠道过滤：读回持久化值（`config.init` 已用 `normalizeActiveChannel` 归一化，回落单点）
     // ⇒ 用户上次选的渠道**重启后还在**（对齐 web `useSessionStore` 的 `xbot:active-channel`）。
     this.activeChannel = saved.activeChannel;
+    // 分类本地镜像：**首帧就用上次的选择**（服务端值到达后由 `sessionCategory()` 接管 —— 服务端胜）
+    this.localSessionCategory = saved.sessionCategory;
     this.recentServers = this.config.recentServers();
     if (saved.serverUrl.length > 0 && saved.sessionCookie.length > 0) {
       this.cookie = saved.sessionCookie;
@@ -2395,6 +2428,12 @@ struct Index {
    */
   private async switchSession(chatId: string): Promise<void> {
     this.showDrawer = false;
+    // ── 会话面切换动效（用户 2026-10-12 亲报「侧边栏点击切换会话后要有动画，现在没有」）──────
+    // ① 本帧先把整面**下沉一格**（`switchSlide=1`；静息态是 0 ⇒ 不动时与原先逐字节一致）；
+    // ② 内容就位后由 `settleSwitchSlide()` 在**下一帧**动画归零 ⇒ 新会话"从下方落位"。
+    // ⛔ 只动位移、**绝不碰不透明度**：动画被打断最多是位置差一格，内容始终完全可读（门禁 ⑨）。
+    // ⛔ 为什么必须跨帧：同帧里"置 1 再动画到 0"会被 ArkUI 合并成一次状态变更（起点=终点 ⇒ 看不见）。
+    this.switchSlide = 1;
     // ⛔ 会话作用域的**前端状态**必须随切换清空（同「跨会话串内容」一类事故，2026-10-10）：
     //   attachments —— 在 A 会话挂的文件绝不能跟着带到 B 会话（切过去直接发 => 发错文件）
     //   cmd* / fs*  —— 上一个会话残留的 `/` `@` 补全菜单
@@ -2430,6 +2469,9 @@ struct Index {
     if (alreadyOpen) {
       // 池里这个会话一直开着：直接把已累积的状态映到界面（不发生任何网络等待）
       this.syncFrom(target);
+      // ⛔ 这条路径**没有 await**（同帧同步返回）⇒ 必须照样收尾，否则入场位移永远停在起点
+      //    （整面比正常位置低 16vp —— 本仓"位移起点必须被收回"的硬要求）。
+      this.settleSwitchSlide();
       return;
     }
     try {
@@ -2438,6 +2480,23 @@ struct Index {
       this.loadErr = errText(e as Object);
       this.toast(`切换失败: ${this.loadErr}`);
     }
+    this.settleSwitchSlide();
+  }
+
+  /**
+   * 会话面切换的**收尾**：在**下一帧**把入场位移用底座动效归零（静息态）。
+   *
+   * ⛔ 必须跨帧：`switchSession()` 的"池中已开"路径**没有 await**（同帧同步跑完）⇒ 若在这里直接
+   *    `this.anim(…)`，ArkUI 会把"置 1 + 归 0"合并成一次状态变更（动画起点 = 终点 = 0）⇒ **看不见动画**。
+   *    `delay(…, 0)` 是本文件唯一的 `setTimeout` 出口（性能预算 ⑦ 计调用点个数）。
+   * ⛔ 只归零位移、不动不透明度：可读性不依赖动画（门禁 ⑨ / `anim-opacity-gate.sh`）。
+   */
+  private settleSwitchSlide(): void {
+    delay(() => {
+      this.anim(() => {
+        this.switchSlide = 0;
+      });
+    }, 0);
   }
 
   /**
@@ -4989,8 +5048,11 @@ struct Index {
         }
       }
       .layoutWeight(1).width('100%')
-
-      // 状态栏：上下文用量环 + 模型 · token 用量 · todos · goal（点开看全部；全部来自服务端权威值）
+      // 会话面切换的入场位移（用户亲报「切换会话后要有动画，现在没有」）：静息态 = `switchSlide` 恒 0
+      // ⇒ 与原先逐字节一致；切换瞬间由 `switchSession()` 置 1、下一帧经 `this.anim()` 归零。
+      // ⛔ 只动 `translate`：**不碰不透明度** ⇒ 动画即使被打断，内容也只是偏移若干 vp、完全可读
+      //    （本仓血债「可读性不能是动画的函数」；门禁 ⑨ / `tools/lint/anim-opacity-gate.sh`）。
+      .translate({ y: this.switchSlide * MOTION_SESSION_SWITCH_SLIDE_VP })
       if (this.statusBarText().length > 0) {
         Row({ space: 8 }) {
           // 上下文用量环（web `ContextRing.tsx` 同构）：常驻可视，≥80% 变告警色。
@@ -5456,12 +5518,42 @@ struct Index {
    *   `core/settings.ets`，本波禁改）。对"网页端已迁移过"的用户语义等价（读到的就是 `path`）。
    */
   private sessionCategory(): string {
-    return normalizeSessionCategory(settingOf(this.settings, KEY_SESSION_CATEGORY), true);
+    const srv: string = settingOf(this.settings, KEY_SESSION_CATEGORY);
+    if (srv.length > 0) {
+      return normalizeSessionCategory(srv, true);
+    }
+    // 服务端设置**尚未到达**（冷启首帧 / 离线 / 本用户从未在服务端存过）⇒ 用**本地镜像**
+    // （用户"上次选的那个"）；都没有才回落默认『项目』。⇒ 首帧就"记得"，且服务端一到就接管。
+    return normalizeSessionCategory(this.localSessionCategory, true);
   }
 
-  /** 切分类：乐观生效 + 写回服务端（与其它设置同一条路径）。 */
+  /**
+   * 切分类：乐观生效 + **双写**（本地镜像 + 服务端，与其它设置同一条路径）。
+   * 本地写只为**首帧**；服务端写才是跨设备真值 ⇒ 两条都必须有（缺本地 ⇒ 冷启首帧闪默认值；
+   * 缺服务端 ⇒ 换设备/网页端看不到你的选择）。
+   */
   private setSessionCategory(cat: string): void {
+    this.localSessionCategory = cat;
+    this.persistSessionCategory(cat);
     this.setSetting(KEY_SESSION_CATEGORY, cat);
+  }
+
+  /**
+   * 本地镜像落盘（**失败不影响**本次切换 —— 见 catch 内说明）。
+   *
+   * ⚠️ 为什么包成独立方法而不是就地挂一个空的链式 catch：本仓吞异常台账**只许缩短**
+   *   （`tools/tests/interaction_feedback.test.ts` 的 `SWALLOW_BUDGET`），新增"空 catch"会直接红。
+   *   这里用**有说明的** catch（块内写清为什么可以吞）⇒ 既诚实又不触发预算。
+   */
+  private async persistSessionCategory(cat: string): Promise<void> {
+    try {
+      await this.config.saveSessionCategory(cat);
+    } catch (e) {
+      // 有意吞：本地镜像**写盘失败不影响本次切换**。服务端（`setSetting`）才是跨设备真值，
+      // 本地盘只是"冷启首帧"用的镜像；写失败 ⇒ 下次冷启首帧回落默认『项目』，
+      // 随后服务端值一到即纠正（`sessionCategory()` 的优先级：服务端 > 本地镜像 > 默认）。
+      // 也**不弹 toast**：这是用户看不见的内部降级，弹了只是噪音。
+    }
   }
 
   /** 某分组是否已折叠（键**必须**带分类前缀 —— 见 `core/sessiongroup.ets:collapseKey`）。 */
@@ -8245,36 +8337,52 @@ struct Index {
       Row({ space: SPACE_XS }) {
         // ① 分类切换器（iOS 分段控件）：下沉轨道（`surface.chip`）+ 选中段浮起。
         //    清单**只从** `SESSION_CATEGORIES` 渲染（组件里不再列一遍分类）。
-        Row({ space: SPACE_HAIR }) {
-          ForEach(SESSION_CATEGORIES, (c: string) => {
-            Row() {
-              Text(sessionCategoryLabel(c))
-                .fontSize(typeOf('type.caption').size)
-                .fontWeight(c === this.sessionCategory() ? FontWeight.Medium : FontWeight.Regular)
-                .fontColor(c === this.sessionCategory() ? this.pal().textPrimary : this.pal().textSecondary)
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-            }
-            .layoutWeight(1)
-            .height(HIT_TARGET_MIN)
-            .justifyContent(FlexAlign.Center)
-            .alignItems(VerticalAlign.Center)
-            .backgroundColor(c === this.sessionCategory()
-              ? surfaceFillOf(this.pal(), 'surface.card')
-              : this.pal().transparent)
-            .borderRadius(RADIUS_CHIP)
-            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-            .onClick(() => {
-              this.setSessionCategory(c);
-            })
-          }, (c: string) => `cat-${c}`)
+        //    ⚠️ 尺寸：**轨道 36 / 选中芯 32 / 命中外盒 44**（`SEG_TRACK_H`/`SEG_PILL_H` 见文件头）
+        //    —— 视觉按 Apple、热区仍 `HIT_TARGET_MIN`（⛔ 不能靠 `responseRegion` 外扩：真机无效）。
+        //    结构 = `Stack[ 轨道层 | 命中层 ]`：轨道是**画**出来的背景（垂直居中），命中层承载点击。
+        Stack() {
+          Row()
+            .width('100%').height(SEG_TRACK_H)
+            // 测试钩子（同 `xbot-empty-state`/`xbot-skeleton` 口径）：真机 `uitest dumpLayout` 能取到
+            // 这一层的 bounds ⇒ **可观测量出**视觉高度（用户报的就是"视觉太高"，必须可量）。
+            .id('xbot-seg-track')
+            .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
+            // §15：chip 面补**内凹发丝**（深色才有值、浅色 transparent ⇒ 浅色逐字节不变）
+            .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
+            .borderRadius(RADIUS_PILL)
+          Row({ space: SPACE_HAIR }) {
+            ForEach(SESSION_CATEGORIES, (c: string) => {
+              Row() {
+                Row() {
+                  Text(sessionCategoryLabel(c))
+                    .fontSize(typeOf('type.caption').size)
+                    .fontWeight(c === this.sessionCategory() ? FontWeight.Medium : FontWeight.Regular)
+                    .fontColor(c === this.sessionCategory() ? this.pal().textPrimary : this.pal().textSecondary)
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                }
+                .width('100%').height(SEG_PILL_H)
+                .justifyContent(FlexAlign.Center)
+                .alignItems(VerticalAlign.Center)
+                .backgroundColor(c === this.sessionCategory()
+                  ? surfaceFillOf(this.pal(), 'surface.card')
+                  : this.pal().transparent)
+                .borderRadius(RADIUS_CHIP)
+              }
+              .layoutWeight(1)
+              .height(HIT_TARGET_MIN)
+              .justifyContent(FlexAlign.Center)
+              .alignItems(VerticalAlign.Center)
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .onClick(() => {
+                this.setSessionCategory(c);
+              })
+            }, (c: string) => `cat-${c}`)
+          }
+          .width('100%').height(HIT_TARGET_MIN)
         }
         .layoutWeight(1)
-        .padding(SPACE_HAIR)
-        .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
-        // §15：chip 面补**内凹发丝**（深色才有值、浅色 transparent ⇒ 浅色逐字节不变）
-        .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
-        .borderRadius(RADIUS_PILL)
+        .height(HIT_TARGET_MIN)
 
         // ② 全部折叠 / 全部展开（web `SessionViewBar.tsx:66-78`）—— **轨道之外**，只在有分组时出现
         //    （`plan.visible`）。判据与动作**同源**（`collapseAllPlan`）：`allCollapsed` 决定图标，

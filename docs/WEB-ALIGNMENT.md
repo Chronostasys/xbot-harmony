@@ -3114,3 +3114,84 @@ Apple 语义：打开新浮层 ⇒ 旧上下文的输入焦点一并撤销。
 登录页（`:4480/4530/4539`）——焦点在这些浮层内时视口同样不缩。
 ⛔ 插件「整页」是 Web 内容（XComponent/Web），键盘避让归 web 侧自身，不要在这里硬塞。
 
+
+## §21.55 侧边栏专项（用户 2026-10-12 三条点名）（2026-10-12）
+
+用户原话：「侧边栏要能**记忆**上次是选择的按什么排序，还有那个**项目 状态 时间 高度太高了**，
+还有侧边栏点击切换会话后要**有动画**，现在没有」。
+
+### ① 分类（项目/状态/时间）记忆 —— 先证伪再修
+
+**先量测**（⛔ 不猜）：分类真值在服务端 settings 的 `web:session:category`（与 web 共读一份）。
+真机实测**两个方向都通**：
+- 写：点「状态」芯片 ⇒ 后端立刻 `web:session:category = 'status'`，抽屉即时改按状态分组（运行中/空闲）；
+- 读：冷启（服务端当时是 web 写的 `time`）⇒ 抽屉组头是**时间桶**（`今天`/`昨天`/`更早` + 计数）。
+
+⇒ 记忆**不是**坏的，坏的是**首帧**：服务端值要**登录后一次网络往返**才到页面，
+冷启后立刻开抽屉会先画默认『项目』再跳变（用户观感 = "没记住"）。
+
+**修法（本地首帧镜像 + 服务端权威）**：
+- `core/config.ets`：新增 prefs 键 `local_session_category`（`KEY_SESSION_CATEGORY_LOCAL`）+ `AppConfig.sessionCategory`
+  + `init` 读盘 + `saveSessionCategory()` 写盘（与既有 `activeChannel` 同一套路）。
+- `pages/Index.ets`：`@State localSessionCategory`；`sessionCategory()` 优先级 =
+  **服务端 > 本地镜像 > 默认**（服务端一到就接管 ⇒ 跨设备一致、web 改的也算数）；
+  `setSessionCategory()` **双写**（本地镜像 + `setSetting`）。
+- ⛔ 为什么本地写要包成 `persistSessionCategory()`（含**说明注释**的 catch）而不是就地挂空链式 catch：
+  本仓吞异常台账**只许缩短**（`interaction_feedback` 的 `SWALLOW_BUDGET`）⇒ 新增空块直接红。
+- **真机证据**：点「时间」后设备侧 prefs 里 `local_session_category="time"`（`hdc` 读
+  `/data/app/el2/100/base/com.chronostasys.xbot/haps/entry/preferences/xbot_settings`）**且**后端 `time` ✓ 双写落地。
+
+### ② 分段控件"高度太高" —— 视觉层与命中层分离
+
+**病根**：把**命中盒**（`HIT_TARGET_MIN` = 44vp）直接当**视觉**高度用 ⇒ 轨道 44 + 上下内边距(2×2) = **48vp**，
+比 Apple 栏内控件（~32-36pt）高一大截。⛔ **不能**靠 `responseRegion` 负偏移做"视觉小、热区大"
+—— 真机实测无效（本仓 GOTCHA）。
+**修法**：`Stack[ 轨道(36) | 命中层(每段 44, 选中芯 32) ]` —— 画小、按大：
+轨道 `SEG_TRACK_H = SPACE_XXL + SPACE_XXS`(36)、芯 `SEG_PILL_H = SPACE_XXL`(32)、
+每段 `onClick` 落 **44 布局盒**（Apple 的 28-in-32 同比例）。
+⛔ 底色只许落在 **32 的芯**上，命中盒那层**不画底色/不设圆角**（判据反向钉住 ⇒ 防"视觉 44"复活）。
+**真机量测**（新加测试钩子 `.id('xbot-seg-track')`，同 `xbot-empty-state`/`xbot-skeleton` 口径）：
+轨道 `y562..684` = **122px = 36.0vp**（修复前 48vp = 163px，降 25%）；芯片/底栏 y 无回归。
+
+### ③ 点会话切换要有动画 —— 只动位移（可读性不依赖动画）
+
+- 底座新增 `MOTION_SESSION_SWITCH_SLIDE_VP = SP_4`(16vp)（⛔ 派生自间距尺度，非就地字面量；
+  比行级 `entryStartDy()`(4px) 大 —— 整面才看得出，又远小于 sheet 的 260vp 屏级位移）。
+- 修法：`switchSession()` 入口本帧置 `switchSlide = 1` ⇒ 内容就位后 `settleSwitchSlide()`
+  在**下一帧** `this.anim()` 归零（新会话"从下方落位"）。
+- ⛔ **只动 `translate`、绝不碰不透明度**：静息位移恒 0 ⇒ 动画被打断最多是位置差一格，
+  内容**始终完全可读**（本仓血债；门禁 ⑨）。
+- ⛔ 为什么必须跨帧：同帧"置 1 + 归 0"会被 ArkUI 合并成一次状态变更（起点 = 终点 ⇒ 看不见动画）。
+  用本文件唯一 `setTimeout` 出口 `delay(…, 0)`（性能预算 ⑦ 计调用点个数）。
+  ⚠️ **判据当场钓出真 bug**：`switchSession()` 的"池中已开"分支**没有 await**（同帧同步返回）
+  ⇒ 它当时没调收尾 ⇒ 该路径会**永久停在起点（整面低 16vp）**。已修 + 判据钉"收尾恰 2 处"。
+- 真机验证：切换后内容在**正常位**（顶栏 y166、消息行间距 105px，无 54px 下移）⇒ 无残留偏移、
+  不存在"卡在起点"的失败态。⚠️ 220ms 的动效本身**无法用静帧证明**（如实登记：动效存在性由判据钉，
+  真机只验"终态正确 + 无失败态"）。
+
+### 判据 / 门禁 / 三个既有判据的正确处置
+
+判据 **`tools/tests/sidebar_view_state.test.ts`（49 passed）**：配置镜像全链路（键常量/字段/读/写各恰 1）·
+读出口**恰 2 处归一化**（服务端 + 本地镜像）+ 服务端守卫 · 写出口双写各恰 1 + 本地落盘**不许**空 catch ·
+分段控件尺寸**令牌派生**（`SEG_TRACK_H`/`SEG_PILL_H`）+ 轨道 id 钩子 + **反向**：命中盒不画底色/不设圆角 ·
+切换动效：令牌 `= SP_4` · import 恰 1 · `translate` 恰 1 · 起点恰 1 · **不许**同帧归零 · 收尾恰 2 ·
+收尾跨帧 + **反向**：收尾不许有 `.opacity(`。⚠️ "注释必须在场"那条**必须用原文**（剥注释视图里注释不存在 ⇒ 假红）。
+mutation 自证 ×3；还原 md5 一致。
+
+**门禁**：`BUILD SUCCESSFUL in 12 s 984 ms` · **301 测试文件 0 失败** · `--static ✅16/❌0` · `✅ 真门禁全绿` ·
+`GATE_EXIT=0` · `DEPLOY_EXIT=0`。**本轮改动连带触红三个既有判据（全部按规则处置，⛔ 没有放宽）**：
+1. `interaction_feedback`（吞异常台账只许缩短）⇒ 改用**有说明**的 catch（见 ①）。
+2. `persistence_roundtrip`（新持久化键必须显式登记）⇒ 台账新增 `['KEY_SESSION_CATEGORY_LOCAL', 2]`。
+3. `sessiongroup_wiring`（原先钉单条表达式 `normalizeSessionCategory(settingOf(...), true)`）
+   ⇒ **演进**成三条分钉（读服务端键 / 服务端分支归一化 / 本地镜像分支归一化），判别力不减。
+
+### ⛔ 本轮新钓出的 GOTCHA（会浪费半小时）
+
+- **注释里写出被扫描的字面形态 ⇒ 判据假红**：我在 JSDoc 里写了"而不是就地 `.catch(() => {})`"，
+  而 `interaction_feedback` 对**原文**跑 `\.catch\(\s*\([^)]*\)\s*=>\s*\{\s*\}\s*\)`
+  ⇒ 把这句**注释**当成第 4 处空 catch ⇒ 台账超限 + "无说明"双红。**规则：注释里描述被扫描的代码形态时，
+  必须改写措辞**（本仓同族 GOTCHA：判据对原文/剥注释两个视图都要看）。
+- **宿主无 PIL/ImageMagick/ffmpeg** ⇒ 截图**无法**在宿主做像素量测。要"可量的视觉"就给元素加
+  `.id('xbot-…')` 测试钩子 + `uitest dumpLayout` 读 bounds（本仓 `xbot-empty-state`/`xbot-skeleton` 同款）。
+
+

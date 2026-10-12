@@ -174,9 +174,13 @@ const pageSrc: string = fsMod.readFileSync(
 has(pageSrc, 'groupSessionsFromItems(', '抽屉接线层调用 core/sessiongroup 的分组函数');
 has(pageSrc, 'ForEach(this.drawerGroups()', '抽屉列表遍历分组视图（不再直接遍历 filteredSessions）');
 has(pageSrc, 'private drawerGroups(): DrawerGroup[] {', '分组视图入口存在');
-// (B2) 分类来自**与 web 共用的服务端设置键**，并归一化（不私有改判）
-has(pageSrc, 'normalizeSessionCategory(settingOf(this.settings, KEY_SESSION_CATEGORY), true)',
-  '分类读服务端设置键 xbot:session-category 并归一化');
+// (B2) 分类来自**与 web 共用的服务端设置键**，并归一化（不私有改判）。
+//   ⚠️ 2026-10-12 演进：新增**本地首帧镜像**（用户点名「侧边栏要能记忆上次选择的排序」）⇒
+//      读出口从"单条表达式"变成"服务端优先 + 本地镜像回落"两分支 ⇒ 断言改为**分条钉**（判别力不减：
+//      仍然要求"读服务端键"与"经同一纯函数归一化"，且两分支各自归一化）。
+has(pageSrc, 'settingOf(this.settings, KEY_SESSION_CATEGORY)', '分类读服务端设置键 xbot:session-category');
+has(pageSrc, 'normalizeSessionCategory(srv, true)', '服务端值经 normalizeSessionCategory 归一化');
+has(pageSrc, 'normalizeSessionCategory(this.localSessionCategory, true)', '本地镜像值经同一归一化函数');
 has(pageSrc, 'this.setSetting(KEY_SESSION_CATEGORY, cat);', '切分类写回服务端（同一条设置路径）');
 // (B3) 切换器**只从 SESSION_CATEGORIES 渲染**（模块注释要求：组件里不得再列一遍分类）
 has(pageSrc, 'ForEach(SESSION_CATEGORIES, (c: string) => {', '切换器遍历 SESSION_CATEGORIES');

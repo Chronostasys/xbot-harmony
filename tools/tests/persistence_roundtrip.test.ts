@@ -64,6 +64,10 @@ const PERSIST_BUDGET: Map<string, number> = new Map<string, number>([
   ['KEY_THEME', 3],        // 主题（读 2：初始化 + 同步 / 写 1）
   ['KEY_DRAFT_CHAT', 4],   // `draft_chat_id`：草稿 + "当前会话"（读 1 / 写 1 + saveDraft 内读写）
   ['KEY_DRAFT_TEXT', 2],   // 草稿正文
+  // 分类本地镜像（2026-10-12 新增，用户点名「侧边栏要能记忆上次选择的排序」）：
+  // 业务真值在服务端 `web:session:category`；本地盘只做**冷启首帧**镜像（服务端值到达后服务端胜）
+  // ⇒ 读 1（`init`）/ 写 1（`saveSessionCategory`），共 2。
+  ['KEY_SESSION_CATEGORY_LOCAL', 2],
 ]);
 
 const root: string = findRoot();
