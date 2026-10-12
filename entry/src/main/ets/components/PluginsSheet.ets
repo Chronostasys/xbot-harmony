@@ -94,12 +94,25 @@ export struct PluginsSheet {
     return shadowLayersOf(this.pal(), 'overlay');
   }
 
-  /** 一行「跳转入口」（能力面板的两条固定入口：原生目录 / 完整 Web UI）。 */
+  /** 一行「跳转入口」（能力面板的三条固定入口：原生目录 / 会话统计 / 完整 Web UI）。
+   *
+   * 结构与下方**插件行逐项对齐**（图标 → 标题 → 尾部 chevron）：真机帧里此前入口行**没有图标**
+   * 而插件行有 ⇒ 同一张表里两种行形，前 3 行看着"没画完"（`EntryRow` 与插件行的差别只有这一点）。
+   * 图标一律取**已验证**的 `sys.symbol.*`（`PluginHost.ets:pluginSymbol` 那张白名单；
+   * `plugin_icons.test.ts` 会拿 SDK 名册校验每个符号名）。
+   */
   @Builder
-  EntryRow(label: string, onClick: () => void) {
-    Row() {
+  EntryRow(label: string, sym: Resource, onClick: () => void) {
+    Row({ space: SPACE_XS }) {
+      SymbolGlyph(sym)
+        .fontSize(PLUGIN_ICON)
+        .fontColor([this.pal().accentSoft])
       Text(label).fontSize(fs('type.callout')).fontColor(this.pal().textPrimary).layoutWeight(1)
-      Text('打开').fontSize(fs('type.caption')).fontColor(this.pal().accentSoft)
+      // 尾部 = **chevron**（Apple 列表里"可进入"的惯用形态）。此前这里是 accent 文字「打开」，
+      // 与插件行一起重复 6 次 ⇒ 一张表里 6 个同色动作词：既噪、又把"整行可点"读成"两个按钮"。
+      SymbolGlyph($r('sys.symbol.chevron_right'))
+        .fontSize(fs('type.caption'))
+        .fontColor([colorOf(this.pal(), 'iconMuted')])
     }
     .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
     .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
@@ -137,25 +150,27 @@ export struct PluginsSheet {
           })
         }.width('100%')
 
-        Text('原生渲染聊天主链路；下列能力由 ArkWeb 承载（与 Web 版同源、能力一致）：')
-          .fontSize(fs('type.caption')).fontColor(this.pal().textSecondary).width('100%')
+        // ⚠️ 2026-10-12（目标③ 第八批）：删掉原说明段「原生渲染聊天主链路；下列能力由 ArkWeb 承载
+        //    （与 Web 版同源、能力一致）：」——两条理由：① 它**不准**（`插件目录（原生）`/`会话统计`
+        //    是原生渲染，不属"由 ArkWeb 承载"）；② Apple 的用户面弹层不解释**渲染架构**，各行的
+        //    标签（「…（原生）」/「完整 Web UI」）已自带这一信息 ⇒ 删掉即少两行 chrome。
 
         List() {
           // 原生插件目录（components/PluginHost）：列出所有插件/视图贡献点，点开在宿主页运行
           ListItem() {
-            this.EntryRow('插件目录（原生）', (): void => {
+            this.EntryRow('插件目录（原生）', $r('sys.symbol.puzzle'), (): void => {
               this.onOpenPluginHost();
             })
           }
           // 会话统计（内置插件 `xbot.session-stats` —— **原生渲染**，数据来自宿主 RPC）
           ListItem() {
-            this.EntryRow('会话统计', (): void => {
+            this.EntryRow('会话统计', $r('sys.symbol.line_3_horizontal'), (): void => {
               this.onOpenSessionStats();
             })
           }
           // 完整 Web UI（插件 / GenUI / 终端 / 编辑器都在里面）
           ListItem() {
-            this.EntryRow('完整 Web UI', (): void => {
+            this.EntryRow('完整 Web UI', $r('sys.symbol.rectangle_on_rectangle'), (): void => {
               this.onOpenWebUi();
             })
           }
@@ -220,7 +235,10 @@ export struct PluginsSheet {
                       .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
                   }
                 }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-                Text('打开').fontSize(fs('type.caption')).fontColor(this.pal().accentSoft)
+                // 尾部 = **chevron**（与上方入口行同一形态 ⇒ 整张表只有一种"可进入"表达）。
+                SymbolGlyph($r('sys.symbol.chevron_right'))
+                  .fontSize(fs('type.caption'))
+                  .fontColor([colorOf(this.pal(), 'iconMuted')])
               }
               .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
               .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })

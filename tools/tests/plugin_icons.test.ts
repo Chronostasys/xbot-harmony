@@ -111,6 +111,22 @@ const hostBody: string = pluginSymbolBody(hostSrc);
   eq('① 旧副本 pluginSymbolOrGrid 计数 = 0（已删）',
     countOf(sheetSrc, 'pluginSymbolOrGrid'), 0);
   eq('① PluginsSheet 不再硬编码 square_grid_2x2', countOf(sheetSrc, 'square_grid_2x2'), 0);
+
+  // ── ①b 行形态统一（2026-10-12 目标③ 第八批）────────────────────────────────────
+  // 真机帧：能力面板里**入口行没有图标**、插件行有图标 ⇒ 同一张表里两种行形（前 3 行看着"没画完"）。
+  // 契约：两类行统一为 [图标 → 标题 → 尾部 chevron]；且**不得**再出现 accent 文字动作词「打开」
+  // （一张表里 6 个同色动作词既噪、又把"整行可点"读成"两个按钮"）。
+  // ⚠️ 断言串一律取**带前缀的代码形态**（`EntryRow(` / `Text(`），⛔ 不取裸词 —— 否则实现注释里
+  //    记录该词的那段会**假红**（本仓既有教训：形态/缺席断言必须在代码形态上做）。
+  eq('①b 入口行收图标参数（EntryRow 签名）',
+    countOf(sheetSrc, 'EntryRow(label: string, sym: Resource, onClick: () => void)'), 1);
+  eq('①b 三条入口行都传了图标（调用点 = 3）', countOf(sheetSrc, "this.EntryRow('"), 3);
+  eq('①b 尾部动作统一为 chevron（两类行各 1 处 = 2）',
+    countOf(sheetSrc, "$r('sys.symbol.chevron_right')"), 2);
+  eq('①b ⛔ 不再有文字动作词「打开」', countOf(sheetSrc, "Text('打开')"), 0);
+  // 说明段（"原生渲染聊天主链路；…"）已删：它**不准**（`插件目录（原生）`/`会话统计` 是原生渲染，
+  // 不属"由 ArkWeb 承载"），且 Apple 的用户面弹层不解释渲染架构（各行标签已自带该信息）。
+  eq('①b ⛔ 已删实现说明段', countOf(sheetSrc, "Text('原生渲染聊天主链路"), 0);
 }
 
 // ── 判据 ②：覆盖 web `ICON_MAP` 19 键（与真源 isKnownPluginIcon 双向一致）────────────

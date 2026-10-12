@@ -7128,7 +7128,7 @@ struct Index {
 
       if (this.panelTab === 'cron') {
         if (this.cronTasks.length === 0) {
-          this.PanelEmpty('（本会话暂无定时任务）')
+          this.PanelEmpty('本会话暂无定时任务')
         } else {
           List({ space: 6 }) {
             ForEach(this.cronTasks, (job: CronJob, i: number) => {
@@ -7152,7 +7152,7 @@ struct Index {
         }
       } else if (this.panelTab === 'tasks') {
         if (this.bgTasks.length === 0) {
-          this.PanelEmpty('（本会话暂无后台任务）')
+          this.PanelEmpty('本会话暂无后台任务')
         } else {
           List({ space: 6 }) {
             ForEach(this.bgTasks, (t: BgTask, i: number) => {
@@ -7173,7 +7173,7 @@ struct Index {
         }
       } else if (this.panelTab === 'subs') {
         if (this.subagents.length === 0) {
-          this.PanelEmpty('（暂无子代理会话）')
+          this.PanelEmpty('暂无子代理会话')
         } else {
           List({ space: 6 }) {
             ForEach(this.subagents, (a: SubAgentRow, i: number) => {
@@ -7216,7 +7216,7 @@ struct Index {
         }.width('100%')
 
         if (this.terminals.length === 0) {
-          this.PanelEmpty('（本会话暂无终端；点「＋ 新建」开一个）')
+          this.PanelEmpty('本会话暂无终端；点「＋ 新建」开一个')
         } else {
           List({ space: 6 }) {
             ForEach(this.terminals, (t: TerminalInfo, i: number) => {
