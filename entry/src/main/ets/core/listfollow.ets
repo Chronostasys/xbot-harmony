@@ -153,3 +153,26 @@ export function shouldAutoScroll(followBottom: boolean, contentGrew: boolean,
 export function followSuppressUntil(nowMs: number, windowMs: number): number {
   return nowMs + windowMs;
 }
+
+/**
+ * 行窗口**放开一批**之后，把「原本位于视口顶部的那一项」重新放回视口顶部所需的**新列表项下标**。
+ *
+ * ── 为什么必须有它（用户 2026-10-13 亲报）────────────────────────────────────
+ *   「加载更多触发后，新内容应该接在**当前屏幕上方**（屏外），用户要继续往上滚才能看到；
+ *     现在是加载之后**立刻视角跑到被加载的最上方**。」
+ *   机制：放开行窗口（`rowLimit += MAX_ROWS_VISIBLE`）⇒ `syncRowDs()` 在数据源**头部插入**行。
+ *   插入点 = **头项之后**（头项 = 列表第 0 项，此刻正可见）⇒ 插入落在**视口之内** ⇒ 框架的
+ *   `List.maintainVisibleContentPosition`（只对"视口**之外**插入/删除"生效）**帮不上忙**；
+ *   `List` 只能按**像素偏移**保位 ⇒ 同一个偏移此刻指向**新插入的行** ⇒ 视口跳到新内容顶部。
+ *
+ *   唯一确定的做法：**显式**把旧的首个可见项滚回视口顶部（`ScrollAlign.START`）——
+ *   新放开的 `prepended` 行全部落在它**前面**，即屏幕**上方之外**。
+ *
+ * @param prevTopIndex 放开前**首个可见列表项**下标（页面 `@State listStart`，来自 `onScrollIndex`）
+ * @param prepended 本次在数据源**头部**插入的项数（放开后 `rowDs.count()` 的增量）
+ * @returns 新列表项下标（夹到 ≥0；放开前已在顶部则结果 = `prepended`，语义仍是"旧首项回顶部"）
+ */
+export function anchoredIndexAfterPrepend(prevTopIndex: number, prepended: number): number {
+  const t: number = prevTopIndex + prepended;
+  return t > 0 ? t : 0;
+}

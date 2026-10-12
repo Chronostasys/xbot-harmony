@@ -142,9 +142,14 @@ eq('键清单一维对齐（常量名 ↔ 键值）', KEY_CONSTS.length, KEY_VAL
  * **有意保留的死键白名单**（每条必须给理由；⛔ 不许为"让测试变绿"往里塞）。
  * `KEY_UI_MODE`：原生是**单手机布局**，无 desktop shell ⇒ `auto/desktop/mobile` 无处消费。
  *   保留键（不删）是因为**它与 web 共享** `web:ui:ui-mode` —— 删了会让 web 侧设置丢/串。
+ * `KEY_APP_THEME`：**原生第二套主题**（深/浅/极光/星云/极简白）已被删除 —— 用户 2026-10-13 拍板
+ *   「只有一种主题设置，就是你从后端接口拉的那种」；web 权威 `providers/theme.tsx:101` 里应用明暗
+ *   是 `modeForTheme(mdTheme)` 的**派生量**，`SettingsAppearance.tsx` 只暴露 mdTheme + accent
+ *   ⇒ 应用色板改由 `core/mdtheme.appPaletteForMdTheme` 从 `xbot-md-theme` 派生。保留常量只为
+ *   **不删服务端遗留值**（`web:ui:app-theme` 不在 web 的 `SETTING_MAP` 里，无人读它）。
  */
-const DELIBERATE_DEAD: string[] = ['KEY_UI_MODE'];
-const DELIBERATE_REASON: string = 'KEY_UI_MODE：原生单手机布局（无 desktop shell），保留键只为与 web 共享的 key 表一致/不丢键';
+const DELIBERATE_DEAD: string[] = ['KEY_UI_MODE', 'KEY_APP_THEME'];
+const DELIBERATE_REASON: string = 'KEY_UI_MODE：原生单手机布局（无 desktop shell），保留键只为与 web 共享的 key 表一致/不丢键；KEY_APP_THEME：主题真源已并为 xbot-md-theme（appPaletteForMdTheme 派生），保留常量只为不删服务端遗留值';
 
 console.log('  ── 扫描器自证：逐键命中分布 ──');
 const dead: string[] = [];

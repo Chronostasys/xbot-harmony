@@ -8,7 +8,7 @@
  *
  * ── 承接清单（`pages/Index.ets` 旧 `PrefsSheet` 逐项，⛔ 一条不许丢）─────────────
  *   1. 聊天界面（原生 / 内嵌网页）  → 本文件「界面」组（`KEY_SURFACE`）
- *   2. 主题（5 套）                 → 「外观」组（`KEY_APP_THEME`）
+ *   2. 主题（**唯一一项** = markdown 主题）→ 「外观」组（`KEY_MD_THEME`）
  *   3. 字号                         → 「文字与阅读」组（`KEY_FONT_SCALE`）
  *   4. 代码换行                     → 「文字与阅读」组（`KEY_CODE_WRAP`）
  *   5. 思考默认展开                 → 「文字与阅读」组（`KEY_REASONING_DEFAULT`）
@@ -28,9 +28,9 @@
  *   · 行样式只消费 **共享原子**（`SettingsToolRow`/`SettingsChipRow`/`SettingsValueRow`/
  *     `SettingsActionRow`/`SettingsGroupHeader`）+ `core/design.ets` 语义令牌（⛔ 禁字面量）。
  */
-import { Palette, paletteOf, ALL_THEMES, themeLabel } from '../core/theme';
+import { Palette, paletteOf } from '../core/theme';
 import {
-  KEY_ACCENT, KEY_APP_THEME, KEY_CODE_WRAP, KEY_FONT_SCALE, KEY_LOCALE, KEY_MD_THEME, KEY_ORB,
+  KEY_ACCENT, KEY_CODE_WRAP, KEY_FONT_SCALE, KEY_LOCALE, KEY_MD_THEME, KEY_ORB,
   KEY_REASONING_DEFAULT, KEY_SEND_KEY, fontScaleFrom, fontScaleLabel, fontScalePresets,
   normalizeSendKey, orbEnabled, parseBool, sendKeyLabel, settingLabel, settingOf,
   SEND_KEY_ENTER, SEND_KEY_MOD_ENTER,
@@ -64,9 +64,6 @@ export struct SettingsAppearance {
 
   /** 写一项服务端设置（页面 `setSetting`）。 */
   onSetSetting: (key: string, value: string) => void = () => {
-  };
-  /** 切换主题（页面：置 `themeName` + 落盘 + `syncSystemTheme`）。 */
-  onSetTheme: (t: string) => void = () => {
   };
   /** 切换聊天界面承载方式（页面 `setSurface`）。 */
   onSetSurface: (web: boolean) => void = () => {
@@ -118,13 +115,6 @@ export struct SettingsAppearance {
   }
 
   // ── 候选（供 chip 行；⛔ 列表与标签都不手写）──────────────────────────────────
-  private themeLabels(): string[] {
-    const out: string[] = [];
-    for (let i = 0; i < ALL_THEMES.length; i++) {
-      out.push(themeLabel(ALL_THEMES[i]));
-    }
-    return out;
-  }
   private fontOptions(): string[] {
     const ps: number[] = fontScalePresets();
     const out: string[] = [];
@@ -150,18 +140,9 @@ export struct SettingsAppearance {
       // ═══ 外观 ═══════════════════════════════════════════════════════════════
       SettingsGroupHeader({ title: '外观', theme: this.theme })
 
-      SettingsChipRow({
-        label: settingLabel(KEY_APP_THEME),
-        // ⛔ 描述**不得复述标签**：标签已是「应用主题」，此处只补充"哪一项是原生独享"。
-        description: '「极简白」为原生端独享。',
-        value: this.theme,
-        options: ALL_THEMES,
-        labels: this.themeLabels(),
-        theme: this.theme,
-        onSelect: (v: string) => {
-          this.onSetTheme(v);
-        },
-      })
+      // ⛔ **没有**独立的「应用主题」行：主题只有**一项**（下面的 markdown 主题），
+      //    应用明暗由它**派生**（web 权威 `providers/theme.tsx:101` `modeForTheme(mdTheme)`）。
+      //    历史：本行曾并列「深色/浅色/极光/星云/极简白」⇒ 两套主题互相打脸（用户亲报）。
 
       // 强调色：预设色板 + 「跟随主题」；颜色圆点不是文本 chip ⇒ 单列一段（无对应原子）
       SettingsValueRow({

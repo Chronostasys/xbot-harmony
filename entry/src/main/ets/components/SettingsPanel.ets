@@ -148,9 +148,6 @@ export struct SettingsPanel {
   /** 写一项设置（页面 `setSetting`）。 */
   onSetSetting: (key: string, value: string) => void = () => {
   };
-  /** 切换主题（页面：置 `themeName` + 落盘 + `syncSystemTheme`）。 */
-  onSetTheme: (t: string) => void = () => {
-  };
   /** 切换承载方式（页面 `setSurface`）。 */
   onSetSurface: (web: boolean) => void = () => {
   };
@@ -402,7 +399,6 @@ export struct SettingsPanel {
           surfaceWeb: this.surfaceWeb,
           notifyOn: this.notifyOn,
           onSetSetting: this.onSetSetting,
-          onSetTheme: this.onSetTheme,
           onSetSurface: this.onSetSurface,
           onSetNotify: this.onSetNotify,
           onRefresh: this.onRefresh,

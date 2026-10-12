@@ -25,7 +25,7 @@ import {
 import { ALL_THEMES, normalizeTheme, Palette, paletteOf, themeLabel, Effects, effectsOf, isLightPalette, shadowColorOf, shadowLayersOf, ShadowLayer, shadowRadiusOf } from '../core/theme';
 import { brandAccentFor } from '../core/brand';
 import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, withAccent } from '../core/accent';
-import { MD_THEMES, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';
+import { MD_THEMES, appPaletteForMdTheme, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';
 import { localeLabel, normalizeLocale } from '../core/i18n';
 import { isStarred, parseStarred, serializeStarred, starredFirst, toggleStarred } from '../core/stars';
 import { EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_BOOT_WORDMARK, FS_BRAND_WORDMARK, FS_CAPTION, FS_HERO, FS_TITLE, R_2XL, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5, SP_6, SP_8 } from '../core/tokens';
@@ -57,7 +57,7 @@ import {
   clampOffset, clampScale, isZoomed, nextZoom, panLimit, saveImageName, scaleText,
 } from '../core/imgops';
 import {
-  fontScaleFrom, fontScaleLabel, fontScalePresets, KEY_APP_THEME, KEY_CODE_WRAP, KEY_FONT_SCALE, KEY_SURFACE,
+  fontScaleFrom, fontScaleLabel, fontScalePresets, KEY_CODE_WRAP, KEY_FONT_SCALE, KEY_SURFACE,
   KEY_MD_THEME, KEY_ACCENT, KEY_LOCALE, KEY_ORB, KEY_REASONING_DEFAULT, KEY_SEND_KEY, KEY_SESSION_CATEGORY,
   KEY_STARRED, normalizeSendKey, orbEnabled, parseBool, sendKeyLabel, settingOf, settingLabel, SEND_KEY_MOD_ENTER,
   THINKING_STEP_LABELS, thinkingModeToStep, thinkingStepLabel, thinkingStepToMode,
@@ -97,7 +97,7 @@ import {
   patchByUid, pendingCount, removeByUid,
 } from '../core/attach';
 import { changedByKeys, identityChanged, needsFullReload, rowKey, rowsFpOf, sameRowIds,
-  scopedFingerprint, sessionScopedRowKey, tailRows } from '../core/rowdiff';
+  scopedFingerprint, themableRowKey, tailRows } from '../core/rowdiff';
 import { BusySignals, busyLabel, busyNow, DRAWER_EMPTY_NO_MATCH, DRAWER_EMPTY_NO_SESSIONS, DRAWER_EMPTY_NONE, drawerEmptyHint, drawerEmptyKind, showsBusyPlaceholder, showsHistorySkeleton, showsJumpToLatest } from '../core/indicators';
 // SSE 终态（服务端明确拒绝 ⇒ 停止无限重连）——页面横幅据它显示**可解释的终态**而非"正在重连"。
 import { SSE_STATE_FAILED } from '../core/sse';
@@ -105,7 +105,7 @@ import { SSE_STATE_FAILED } from '../core/sse';
 import { WIDGET_EVENT_WEB } from '../core/widgetsview';
 // 插件桥 page→native 的消息类型（协议权威 = `core/webbridge.ets`）
 import { BridgeMessage } from '../core/webbridge';
-import { listItemCount, nextFollowBottom, shouldAutoScroll, followSuppressUntil, FOLLOW_SUPPRESS_MS, markUserScrollFrame, followAfterScrollStop } from '../core/listfollow';
+import { listItemCount, nextFollowBottom, shouldAutoScroll, followSuppressUntil, FOLLOW_SUPPRESS_MS, markUserScrollFrame, followAfterScrollStop, anchoredIndexAfterPrepend } from '../core/listfollow';
 import { OverlayCode, OverlayState, topOverlay } from '../core/overlays';
 import {
   currentTodo, modelText, todoProgress, usageText,
@@ -1888,10 +1888,11 @@ struct Index {
       this.terminals = store.terminals;
     }
     this.settings = store.settings;
-    const t: string = settingOf(store.settings, KEY_APP_THEME);
-    if (t.length > 0) {
-      this.themeName = normalizeTheme(t);
-    }
+    // ⛔ 主题**单一真源** = markdown 主题（服务端 `web:ui:md-theme`，与 web 同一项）。
+    // web 权威 `providers/theme.tsx:101-113`：应用明暗 = `modeForTheme(mdTheme)` **派生**，
+    // 没有第二套「应用主题」设置（用户 2026-10-13 拍板：「只有一种主题设置，就是你从后端接口拉的那种」）。
+    // 判据与取色同源：色板只由 `core/mdtheme.appPaletteForMdTheme` 给出（纯函数、已单测）。
+    this.themeName = appPaletteForMdTheme(settingOf(store.settings, KEY_MD_THEME));
     // 系统表面跟随主题（幂等：仅主题变化时打系统 API + 写本地缓存）。
     // 冷启动 settings 到达这条路由它覆盖 EntryAbility 的缓存判定（热启动亦生效）。
     this.syncSystemTheme();
@@ -2448,18 +2449,17 @@ struct Index {
     this.addingGoal = false;
     this.goalDraft = '';
     const target: ChatStore = this.storeFor(chatId);
-    // 会话列表是**应用级**数据，但快照存在 store 上：池里刚建的 store 是空的，
-    // 若直接切过去，抽屉会没数据、渠道解析也会错（⇒ 404）。这里先补齐。
-    if (target.sessions.length === 0) {
-      try {
-        await target.loadSessions();
-      } catch (e) {
-        // 拉不到列表不阻塞切换：openSession 里还会再试一次
-      }
-    }
     const alreadyOpen: boolean = target.currentChatId === chatId;
     this.store = target;
     this.rekeyPool(target, chatId);
+    // ⛔ **点击即刻可见**（用户 2026-10-13 亲报「切换会话点击后立刻要 loading，不能看起来没变」）：
+    //    `openSession()` 在能拉到历史之前有**两次网络往返**（会话列表 + `/api/history`）；期间界面若
+    //    原封不动仍是**上一个会话**的内容 ⇒ 用户以为"点了没反应"。⇒ 当场（无 await）切身份 + 清空
+    //    + 进 loading：头部立刻换成新会话标题、消息区立刻进历史骨架。
+    //    ⛔ 会话列表的补齐**下沉**到 `openSession()`（它本来就会补一次），此处不再单独 await。
+    if (!alreadyOpen) {
+      target.beginSwitch(chatId);
+    }
     // ⛔ 切会话**不再**用"整张列表 opacity 0.001 → 1"来遮旧会话：
     //    那是"可读性成了动画的函数"（动画被打断/未跑 ⇒ 整列表近不可见，用户亲报的同类缺陷）。
     //    现在由 **行级 `entryRestOpacity()` + `.transition` 出现过渡**（`core/msgentry.ets`）负责观感：
@@ -3038,6 +3038,10 @@ struct Index {
     //   （与切会话同一语义：意图重置为跟随，见 `switchSession`）。⛔ 不新增定时器 ——
     //   后续 `syncFrom` 的 `shouldAutoScroll`（意图已为 true）会继续跟随后续新增行到底。
     this.followBottom = true;
+    // ⛔ 顺带清掉「就地操作」抑制窗：它存在只为保护"展开/收起工具后别被程序拽走视口"，
+    //    而**主动发送**是更新的意图（用户 2026-10-13 亲报「有时候发消息了不会自动 follow bottom」）
+    //    —— 抑制窗还没过期时发送就会命中"不跟随"。发送 ⇒ 意图重置 ⇒ 抑制作废。
+    this.followSuppressUntilMs = 0;
     this.dismissKeyboard();
     try {
       this.listScroller.scrollEdge(Edge.Bottom);
@@ -3298,6 +3302,49 @@ struct Index {
       return;
     }
     await store.loadMore();
+  }
+
+  /**
+   * 放开一批行窗口 + **保持可见位置**（新放开的行落在屏幕**上方之外**）。
+   *
+   * 用户 2026-10-13 亲报：「加载更多触发后，加载的新内容应该直接接在**当前屏幕上方**（屏外），
+   * 用户要继续往上滚才能看到；现在是加载之后**立刻视角跑到被加载的最上方**」。
+   *
+   * 机制（见 `core/listfollow.ets:anchoredIndexAfterPrepend` 的长注释）：放开窗口 ⇒ 数据源**头部
+   * 插入**行；插入点 = **头项之后**（头项是列表第 0 项且此刻可见）⇒ 落在**视口之内** ⇒
+   * 框架的 `List.maintainVisibleContentPosition`（只对"视口**之外**插入/删除"生效）帮不上忙；
+   * `List` 只能按像素偏移保位 ⇒ 同一偏移此刻指向新插入的行 ⇒ 视口跳到新内容顶部。
+   * ⇒ **显式**把旧的首个可见**内容行**滚回视口顶部（`ScrollAlign.START`）：新行全部在它前面。
+   *
+   * ⛔ 锚点取「首个可见**内容行**」而不是「首个可见列表项」：头项可见时（`listStart === 0`）
+   *    头项自身**不动**（插入在它之后），锚它等于没锚 ⇒ 必须锚 `listStart || 1` 那一行
+   *    （= 放开前视口顶部那一条正文），这才是用户眼睛所在。
+   */
+  private widenRowWindow(): void {
+    const before: number = this.rowDs.count();
+    const prevTop: number = this.listStart > 0 ? this.listStart : 1;
+    this.rowLimit += MAX_ROWS_VISIBLE;
+    this.syncRowDs();
+    const prepended: number = this.rowDs.count() - before;
+    if (prepended > 0) {
+      const target: number = anchoredIndexAfterPrepend(prevTop, prepended);
+      // ⛔ 必须**下一帧再滚一次**：`syncRowDs()` 刚发出的 `onDataReloaded()` 要到下一次布局才
+      //    生效，同帧 `scrollToIndex` 会落到**旧布局**上而**静默失效**（真机实测：`[DS] tail 12→15`
+      //    证明插入已发生，但视口纹丝不动 = 补偿没生效）。故同帧先试一次（布局已就绪时立即生效）
+      //    + 下一帧补一次（reload 生效后生效）。
+      try {
+        this.listScroller.scrollToIndex(target, false, ScrollAlign.START);
+      } catch (e) {
+        // 首帧尚未布局：交给下一帧的补偿
+      }
+      setTimeout(() => {
+        try {
+          this.listScroller.scrollToIndex(target, false, ScrollAlign.START);
+        } catch (e) {
+          // 仍未布局：放弃（下一次用户滚动会自然对齐）
+        }
+      }, 0);
+    }
   }
 
   // ── 用户消息导航（components/MessageNav + core/msgindex）──────────────────────
@@ -4360,13 +4407,6 @@ struct Index {
                 onSetSetting: (key: string, value: string) => {
                   void this.setSetting(key, value);
                 },
-                // 主题：置本地 + 落盘 + 系统表面（与旧 PrefsSheet 同一条路径）
-                onSetTheme: (t: string) => {
-                  this.themeName = t;
-                  this.setSetting(KEY_APP_THEME, t);
-                  this.syncSystemTheme();
-                  this.buzz(HAPTIC_EVENT_TOGGLE);
-                },
                 onSetSurface: (web: boolean) => {
                   this.setSurface(web);
                 },
@@ -4902,8 +4942,7 @@ struct Index {
             .onClick(() => {
               // 兜底：万一自动触发没打到（例如列表未滚动），点一下也能放开窗口
               if (hiddenRowCount(this.rows.length, this.rowLimit) > 0) {
-                this.rowLimit += MAX_ROWS_VISIBLE;
-                this.syncRowDs();
+                this.widenRowWindow();
               } else if (!this.loadingMore && this.hasMore) {
                 this.loadMore();
               }
@@ -4918,7 +4957,7 @@ struct Index {
           ListItem() {
             this.ChatRowBody(row)
           }
-        }, (row: ChatRow) => sessionScopedRowKey(this.currentChat, row))
+        }, (row: ChatRow) => themableRowKey(this.currentChat, this.themeName, row))
 
         // ── live turn 的整条 assistant 消息（LazyForEach 之外，@State 直驱）──
         // 真机 bug ② 根治点：live 迭代不再是"单独的气泡/单独的 ListItem"，而是这条
@@ -4955,6 +4994,18 @@ struct Index {
       .width('100%').height('100%').edgeEffect(EdgeEffect.Spring).padding({ left: SPACE_XS, right: SPACE_XS })
       // 预构建 4 行：滚动时不必等构建（越小内存越省，越大滚动越顺）
       .cachedCount(4)
+      // ⛔ **上方插入内容时必须保持可见位置**（用户 2026-10-13 亲报）：
+      //   「加载更多触发后，新内容应该接在**当前屏幕上方**（屏外），用户继续往上滚才能看到；
+      //     现在是一加载视角就跑到**被加载内容的最上方**」。
+      //   机制：行窗口放开（`rowLimit += MAX_ROWS_VISIBLE`）⇒ 数据源**在头部插入**行
+      //   （`applyRows` 判骨架变化 ⇒ `onDataReloaded()`）⇒ 列表按**下标**保位 ⇒ 同一个下标
+      //   现在指向的是**新插入的内容** ⇒ 视口"跳"到新内容顶部。
+      //   修法 = ArkUI **内置**语义（SDK `list.d.ts:1439`，`@since 12`）：数据在**可视区之外**
+      //   插入/删除时保持可见内容位置不变 ⇒ 新行落在屏外上方，用户不动。
+      //   ⛔ 不手写"记录首行键 + 事后 scrollToIndex"的补偿：那要跨一次布局回调（`scrollToIndex`
+      //      在 DS 通知生效前会打到旧布局，`navToRow` 的 `try/catch` 注释已记该竞态），
+      //      而本属性由框架在**布局阶段**完成，无竞态。
+      .maintainVisibleContentPosition(true)
       // ⛔ 记录的**只有**"这一帧的滚动是不是用户干的"（ScrollSource 由 Scroll 框架给出，
       //    `SCROLLER`/`SCROLLER_ANIMATION` = 程序滚动与内容钳位 ⇒ 绝不算用户输入）。
       .onWillScroll((offset: number, state: ScrollState, source: ScrollSource) => {
@@ -5330,6 +5381,12 @@ struct Index {
         theme: this.themeName,
         onSetGoal: () => {
           this.addingGoal = true;
+        },
+        // ⛔ 能力开关走显式布尔（回调默认值是 no-op 非 undefined ⇒ "靠 undefined 判能力"恒真）
+        canSetGoalTodo: true,
+        onSetGoalTodo: (t: string) => {
+          // web `:305` 同义：用该行文本直接设为目标（服务端 `set_goal`，与 🎯 同一出口）
+          this.handleSetGoal(t);
         },
         onToggleTodo: (i: number) => {
           this.pushTodos(toggleTodoAt(this.todos, i));
@@ -6946,7 +7003,7 @@ struct Index {
     // ⛔ 数据源诊断（2026-10-12 P0）：若这里 `tail>0` 而界面仍空 ⇒ 病灶在 LazyForEach/渲染层；
     //    若根本没走到这行（`[SYNC] grew=0`）⇒ 病灶在同一条同步闸门。
     console.debug(`[DS] chat=${this.currentChat} rest=${rest.length} tail=${tail.length} live=${live !== undefined ? 1 : 0} dsBefore=${this.rowDs.count()}`);
-    this.rowDs.applyRows(tail, this.currentChat);
+    this.rowDs.applyRows(tail, this.currentChat, this.themeName);
   }
 
   /**
@@ -9240,6 +9297,8 @@ class ChatRowDataSource implements IDataSource {
    */
   private keys: string[] = [];
   private listeners: DataChangeListener[] = [];
+  /** 上一帧的行色板（`themeName`）。与 `chatId` 同责：变了就必须整表 reload（键含主题）。 */
+  private theme: string = '';
 
   totalCount(): number {
     return this.rows.length;
@@ -9274,9 +9333,14 @@ class ChatRowDataSource implements IDataSource {
   }
 
   /** 用新行集替换（骨架不变则只通知变更行，避免整表重建丢滚动锚点）。 */
-  applyRows(next: ChatRow[], chatId: string): void {
+  applyRows(next: ChatRow[], chatId: string, theme: string): void {
     // 骨架重建判据必须含**会话身份**（见 core/rowdiff.needsFullReload 的事故注释）
-    const structural: boolean = needsFullReload(this.rows, next, this.chatId, chatId);
+    // ⛔ 还必须含**主题**：`LazyForEach` 的键含主题（`themableRowKey`）⇒ 主题变了键全变，
+    //    必须走整表 reload 让框架重读键/重建条目；否则键已变而只发 `onDataChange` ⇒
+    //    已存在行仍冻结在旧色板（用户亲报「深色看不清字」的同一根因）。
+    const structural: boolean = needsFullReload(this.rows, next, this.chatId, chatId)
+      || theme !== this.theme;
+    this.theme = theme;
     // ⚠️ 变更判定用**上一帧键快照**（不是 changedRowIndices(this.rows, next) ——
     //    行对象是就地更新的，新貌旧貌同一引用 ⇒ 永远判"没变" ⇒ 零通知）。
     const changed: number[] = structural ? [] : changedByKeys(this.keys, next);

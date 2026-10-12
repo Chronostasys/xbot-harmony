@@ -763,8 +763,34 @@ export class ChatStore {
     await this.loadSessions();
   }
 
+  /**
+   * **点击即反馈**：把"身份 + 清空 + loading"当场落地（**无 await**）。
+   *
+   * 用途见 `openSession` 顶部注释（用户 2026-10-13 亲报「切换会话点击后立刻要 loading，不能看起来
+   * 没变」）。与 `openSession` 里那段复位**同源**（都用 `initialChatState` 的复位口径），区别只是
+   * **时机**：本方法在**任何网络往返之前**，好让页面第一帧就给出反馈。
+   *
+   * ⛔ 渠道解析（`channelForChat`）**不在此处**：它依赖会话列表（列表为空会回落默认渠道 ⇒
+   *    非 web 会话 `/api/history` 404，真机实测），必须留在 `openSession` 的列表就绪之后。
+   */
+  beginSwitch(chatId: string): void {
+    this.currentChatId = chatId;
+    this.rows = [];
+    this.rowCache = new Map();
+    this.hasMore = false;
+    this.oldestId = 0;
+    this.historyError = '';
+    this.historyLoading = true;
+    this.onUpdate();
+  }
+
   async openSession(chatId: string): Promise<void> {
-    // ⚠️ 会话可能属于**非 web 渠道**（飞书 oc_*/ou_*）。必须用它自己的 channel，
+    // ⛔ **点击即刻可见**（用户 2026-10-13 亲报「切换会话点击后立刻要 loading，不能看起来没变」）：
+    //    `openSession()` 在拉到历史之前有**两次网络往返**（会话列表 + `/api/history`）；期间界面若
+    //    原封不动仍是**上一个会话**的内容 ⇒ 用户以为"点了没反应"。⇒ 先当场切身份 + 清空 + 进 loading
+    //    （页面据此立刻渲染历史骨架 `showsHistorySkeleton`），网络回来只是把内容填进来。
+    //    幂等：页面池中已开路径不经此处；下面 loadHistory 还会再置一次。
+    this.beginSwitch(chatId);
     // 否则 /api/history 会返回 404 session not found（真机实测，见 core/sessionpick.ets）。
     //
     // ⚠️ 而渠道解析**依赖会话列表**：列表为空时 channelForChat 会回落默认渠道 ⇒ 非 web 会话

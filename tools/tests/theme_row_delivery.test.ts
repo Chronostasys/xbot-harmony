@@ -30,6 +30,7 @@ declare function require(m: 'path'): { join(...parts: string[]): string };
 declare const __dirname: string;
 
 import { paletteOf, contrastRatio } from '../../entry/src/main/ets/core/theme';
+import { appPaletteForMdTheme } from '../../entry/src/main/ets/core/mdtheme';
 
 let pass = 0;
 let fail = 0;
@@ -61,6 +62,9 @@ interface Wiring {
   userBubbleResolves: boolean;
   mdSubscribesTheme: boolean;     // MarkdownView 声明 @StorageProp('appTheme')
   liveSubscribes: boolean;        // LiveTailView 声明 @StorageProp('appTheme')
+  rowKeyHasTheme: boolean;        // LazyForEach 行键含主题（themableRowKey）—— 2026-10-13 第二轮根因
+  dsReloadsOnTheme: boolean;      // 数据源在主题变化时整表 reload（键变了必须让框架重读键）
+  singleThemeSource: boolean;     // 应用色板**派生**自 md 主题（唯一主题设置）
 }
 
 function readWiring(): Wiring {
@@ -87,6 +91,13 @@ function readWiring(): Wiring {
     userBubbleResolves: resolver(userSrc) && /paletteOf\(\s*this\.themeId\(\)\s*\)/.test(userSrc),
     mdSubscribesTheme: subTheme(mdSrc),
     liveSubscribes: subTheme(liveSrc),
+    // LazyForEach 的 key 生成器必须把主题带上（真源 = `core/rowdiff.themableRowKey`）
+    rowKeyHasTheme: /themableRowKey\(\s*this\.currentChat\s*,\s*this\.themeName\s*,\s*row\s*\)/.test(indexSrc),
+    // 数据源必须在主题变化时整表 reload（键变了 ⇒ 必须让框架重读键/重建条目）
+    dsReloadsOnTheme: /applyRows\(\s*next:\s*ChatRow\[\]\s*,\s*chatId:\s*string\s*,\s*theme:\s*string\s*\)/.test(indexSrc)
+      && /\|\|\s*theme\s*!==\s*this\.theme/.test(indexSrc),
+    // 应用色板必须**派生**自 md 主题（唯一主题设置），而不是读第二套 KEY_APP_THEME
+    singleThemeSource: /this\.themeName\s*=\s*appPaletteForMdTheme\(/.test(indexSrc),
   };
 }
 
@@ -126,6 +137,16 @@ function main(): void {
   check('F6 LiveTailView 订阅 @StorageProp(\'appTheme\')', w.liveSubscribes,
     'live 行为同一机制的一致性订阅');
 
+  // ── ①b 形态：**主题必须进 LazyForEach 的行键**（2026-10-13 用户亲报「深色 theme 看不清字」）──
+  //    行内任何取色点（含第三方子组件、带参 @Builder 子树 —— 后者参数是快照）都躲不掉
+  //    「条目只在键变化时重建」这条框架语义。✅ 正解 = 让主题变更本身成为一次行身份变更。
+  check('F7 LazyForEach 行键含主题（themableRowKey(currentChat, themeName, row)）', w.rowKeyHasTheme,
+    '主题不进键 ⇒ 主题变更零通知 ⇒ 已存在行冻结在创建那刻的色板（深色下暗字、浅色下白字）');
+  check('F8 数据源 applyRows 接收主题并在变化时整表 reload', w.dsReloadsOnTheme,
+    '键已变却不 reload ⇒ 框架不重读键 ⇒ 只有可见行的键变了、条目仍是旧色板');
+  check('F9 应用色板派生自 md 主题（唯一主题设置，无第二套 KEY_APP_THEME）', w.singleThemeSource,
+    '两套主题真源 ⇒ 用户报「你搞出两种主题设置是错的」（web 权威 modeForTheme(mdTheme)）');
+
   // ── ② 语义：快照取色 vs 当前取色 ────────────────────────────────────────
   const dark = paletteOf('dark');
   const porcelain = paletteOf('porcelain');
@@ -144,6 +165,21 @@ function main(): void {
     `深色正文色压在浅色画布上对比度=${staleContrast.toFixed(2)}（预期 ≈1）`);
   check('S4 当前主题取色可读（对比度 ≥ 4.5）', freshContrast >= 4.5,
     `浅色正文对比度=${freshContrast.toFixed(2)}`);
+
+  // ── ③ 语义：**唯一主题设置**的派生（md 主题 → 应用色板）────────────────────
+  check('S5 md 主题 → 应用色板的派生（light/dark/两个品牌主题/未知回落）',
+    appPaletteForMdTheme('github-light') === 'light'
+    && appPaletteForMdTheme('vscode-dark') === 'dark'
+    && appPaletteForMdTheme('monokai') === 'dark'
+    && appPaletteForMdTheme('xbot-aurora') === 'aurora'
+    && appPaletteForMdTheme('xbot-nebula') === 'nebula'
+    && appPaletteForMdTheme('不存在的主题') === 'dark',
+    `未知 id 必须回落默认主题的色板（默认 vscode-dark ⇒ dark），实测=${appPaletteForMdTheme('不存在的主题')}`);
+  // 派生出来的色板必须**可读**（否则「唯一主题设置」会把用户带进不可读状态）
+  const derivedLight: string = appPaletteForMdTheme('one-light');
+  check('S6 派生色板的正文可读（≥ 4.5）',
+    contrastRatio(paletteOf(derivedLight).textPrimary, paletteOf(derivedLight).appBg) >= 4.5,
+    `派生色板 ${derivedLight} 的正文对比度=${contrastRatio(paletteOf(derivedLight).textPrimary, paletteOf(derivedLight).appBg).toFixed(2)}`);
 
   console.log(`\n  theme_row_delivery: ${pass} passed, ${fail} failed`);
   process.exit(fail > 0 ? 1 : 0);

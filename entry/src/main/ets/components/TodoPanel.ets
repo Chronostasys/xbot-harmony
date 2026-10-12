@@ -63,10 +63,18 @@ struct TodoRowView {
   @Prop draft: string = '';
   /** 是否可编辑（宿主是否提供改名/删除回调）。 */
   @Prop editable: boolean = false;
+  /**
+   * 是否提供「设为目标」动作（web `TodoPullOut.tsx:300` 的 `{onSetGoalTodo && (…)}`：
+   * 仅当宿主提供该回调时该项才出现在 `⋯` 菜单里 —— 与 `editable` 同构的"能力开关"）。
+   */
+  @Prop canSetGoal: boolean = false;
   @Prop theme: string = 'dark';
   onToggle: () => void = () => {
   };
   onStartEdit: () => void = () => {
+  };
+  /** 「设为目标」（web `:305` `onSetGoalTodo(todo.text)` —— 用本行文本设为目标）。 */
+  onSetGoal: () => void = () => {
   };
   onDraft: (v: string) => void = (v: string) => {
   };
@@ -236,10 +244,24 @@ struct TodoRowView {
     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
   }
 
-  /** `⋯` 菜单（web 触屏 Popover：编辑 / 删除）。 */
+  /** `⋯` 菜单（web 触屏 Popover：**设为目标 / 编辑 / 删除**——`TodoPullOut.tsx:300-321` 三项同构）。 */
   @Builder
   RowMenu() {
     Column() {
+      // 「设为目标」仅当宿主提供回调（web `:300` 的 `{onSetGoalTodo && (…)}`）
+      if (this.canSetGoal) {
+        Text('设为目标')
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().textPrimary)
+          .width('100%')
+          .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            this.menuOpen = false;
+            this.onSetGoal();
+          })
+      }
       Text('编辑')
         .constraintSize({ minHeight: HIT_TARGET_MIN })
         .fontSize(FS_CAPTION)
@@ -289,6 +311,16 @@ export struct TodoPanel {
   /** 「设为目标」入口（web `TodoPullOut.tsx:114-121` `onClick={onSetGoal}`）。 */
   onSetGoal: () => void = () => {
   };
+  /**
+   * 「用**本行文本**设为目标」（web `TodoPullOut.tsx:305` `onSetGoalTodo(todo.text)`）。
+   * ⚠️ 与 `canSetGoalTodo` 成对：⛔ 不要像 `editable()` 那样"靠回调是否为 `undefined` 判能力"
+   *    —— 属性默认值是非 `undefined` 的 no-op ⇒ 该判据恒真、守卫永不生效（本仓已有的坑）。
+   *    能力开关一律走**显式 `@Prop` 布尔**。
+   */
+  onSetGoalTodo: (text: string) => void = (text: string) => {
+  };
+  /** 宿主是否提供「设为目标」动作（web `TodoPullOut.tsx:300` `{onSetGoalTodo && (…)}`）。 */
+  @Prop canSetGoalTodo: boolean = false;
   /** 勾选/取消（宿主做乐观覆盖 + `set_todos` 持久化）。 */
   onToggleTodo: (index: number) => void = (index: number) => {
   };
@@ -364,7 +396,9 @@ export struct TodoPanel {
               .fontColor(this.pal().textSecondary)
             Text(this.state().currentText.length > 0 ? this.state().currentText : '全部完成')
               .fontSize(FS_CAPTION)
-              .fontColor(this.state().currentText.length > 0 ? this.pal().textPrimary : this.pal().textMuted)
+              // ⛔ 单次取板：`colorOf(p, role)` + 计算型 role —— 原本写成
+              //    `cond ? this.pal().textPrimary : this.pal().textMuted` ⇒ **两次读板**（性能预算⑦按**调用点**计数）
+              .fontColor(colorOf(this.pal(), this.state().currentText.length > 0 ? 'textPrimary' : 'textMuted'))
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .layoutWeight(1)
@@ -419,9 +453,17 @@ export struct TodoPanel {
                 editing: this.editingIndex === i,
                 draft: this.draft,
                 editable: this.editable(),
+                canSetGoal: this.canSetGoalTodo,
                 theme: this.theme,
                 onToggle: () => {
                   this.onToggleTodo(i);
+                },
+                onSetGoal: () => {
+                  // web `TodoPullOut.tsx:305`：`onSetGoalTodo(todo.text)` —— 直接把本行文本设为目标
+                  const tx: string = todoText(t);
+                  if (tx.length > 0) {
+                    this.onSetGoalTodo(tx);
+                  }
                 },
                 onStartEdit: () => {
                   this.startEdit(i);

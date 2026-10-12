@@ -3645,3 +3645,84 @@ token 既不是"对齐 web"，也不是可读文案。
 · `DrawerSheet`：**侧栏** 88%（侧滑，非居中）；
 · `ToolPopover` / `PluginHost`：100% 是**父容器内的内容盒**（自身由定位层给尺寸），非浮层根。
 ⇒ 「居中浮动卡 = `SHEET_WIDTH` 92%」只管 9 个**对话框**（8 组件 + `ModelSheet`）。
+
+---
+
+### §21.66 Todo 行 `⋯` 菜单补「设为目标」（目标④「任务管理做的很差」，15q·a，2026-10-13）
+
+**病根（逐条对照 web 权威 `web/src/components/agent/TodoPullOut.tsx`）**：原生 `components/TodoPanel.ets`
+的触屏 `⋯` 菜单只有 **编辑 / 删除**，而 web 触屏 Popover 是 **三项**（`:300-321`）：
+
+| web 项 | 图标 | 动作 | 行号 |
+|---|---|---|---|
+| 设为目标 | `Target` | `onSetGoalTodo(todo.text)` | `:300-311` |
+| 编辑 | `Pencil` | `startEdit(i)` | `:312-321` |
+| 删除 | `Trash2` | `removeTodo(i)` | `:322-330` |
+
+缺口用户可感知：想用某条待办当目标时，**必须先清空现有目标**再用折叠行的 🎯 重新输入（多两步 + 重打字）。
+
+**修法**：`TodoRowView` 新增 `@Prop canSetGoal` + `onSetGoal`；菜单首项 =「设为目标」，受
+`if (this.canSetGoal)` 守卫（web `:300` 的 `{onSetGoalTodo && (…)}` 同义）。`TodoPanel` 新增
+`onSetGoalTodo(text)` + **显式 `@Prop canSetGoalTodo`**。
+⛔ 刻意**不**复用本组件既有的 `editable()` 写法（"回调 `!== undefined` 即有能力"）——属性默认值是
+非 `undefined` 的 no-op ⇒ 该判据**恒真**、守卫永不生效（本仓既有坑）。宿主 `pages/Index.ets` 接
+`canSetGoalTodo: true` + `onSetGoalTodo` → **既有出口** `handleSetGoal(t)`（`set_goal`，⛔ 不新造通路）。
+
+**⚠️ 性能预算⑦的取舍（本轮踩到、已修）**：初版给三项各配图标（web 有 `Target/Pencil/Trash2`）⇒
+每项 2 次取板（图标色 + 文字色）、共 6 次 ⇒ 门禁⑦**红**：`this.pal()` **1251 > 1250**、
+`this.pal() ∨ this.palOnce()` **1353 > 1350**。该预算「⛔ 只许减」（`docs/PERF-BUDGET.md`）⇒
+两项处置：① 菜单改回**纯文字三项**（省 3 次）；② 顺手把折叠行一处**双读三元**降为单读
+（`cond ? this.pal().textPrimary : this.pal().textMuted` ⇒ `colorOf(this.pal(), cond ? …)`，省 1 次）。
+⇒ 计数回到基线（1247 / 1349，双线均留余量）。
+
+**判据**（新 `tools/tests/todo_row_menu.test.ts`，14 passed）：R1 菜单三项各**恰好一处** `Text('<标签>')`
+调用（⛔ 调用点计数，非"标签字样出现过"）；R2「设为目标」受 `if (this.canSetGoal)` 守卫；
+R3 菜单**纯文字** + 段内 `this.pal()` 调用点 ≤ 3（钉"⛔ 不为好看给每项加图标而超性能预算"）；
+R4 宿主**真的接上**（`canSetGoalTodo: true` ∧ `onSetGoalTodo:` —— 防"组件有、页面没接"的死消费）；
+R5 回调接到**既有**出口 `this.handleSetGoal(t)`；扫描器自证：`Text('设为目标')` 置换成 `Text('xxxx')`
+⇒ 计数必掉 0。⛔ 首轮踩到**假阳**：`accessibilityText('设为目标')` 的后缀恰是 `Text('设为目标')`
+⇒ 已加词边界 `(?<![A-Za-z])`（否则误计 2 处）。
+
+## §21.67 主题**单一真源** + 深色可读性根治 + 切会话即时反馈（15s，2026-10-13）
+
+### 病灶与用户原话
+- 「你之前白色看不清字，现在**深色 theme 看不清字**了，你就不能彻底修好」——模拟器像素取证：
+  正文段 vs 底 **CR=1.19 / 1.29 / 1.57**（WCAG 要 ≥4.5）；卡片内对照 4.05。
+- 「markdown 主题是你臆造的，**那个就是主题**，参考 web 端。你搞出**两种主题设置**是错的」
+  「只有一种主题设置，就是你从后端接口拉的那种」。
+- 「theme 切换要**实时生效**」「切换会话点击后立刻要 loading，**不能看起来没变**」。
+- 「有时候发消息了，不会自动 follow bottom」「有时切会话后发消息是假的，实际上第一条消息没发出去」。
+
+### 权威（web 端）
+- `web/src/providers/theme.tsx:99-113`：用户只选 **`mdTheme`**（`xbot-md-theme`）；应用明暗
+  `theme = modeForTheme(mdTheme)` 是**派生量**，并 `syncSettingToServer(MARKDOWN_THEME_STORAGE_KEY, mdTheme)`。
+- `web/src/components/settings/SettingsAppearance.tsx` 只暴露 **mdTheme + accentColor** 两项。
+- web **没有** `app-theme`（`grep -rn "app-theme" src/` 无命中；`THEME_STORAGE_KEY='xbot-theme'` 只声明未用）。
+
+### 修法
+1. `core/mdtheme.ets` 新增 `appPaletteForMdTheme(id)`：md 主题 ⇒ 应用色板
+   （`mode==='light'` ⇒ light，其余 ⇒ dark；两个品牌主题 `xbot-aurora`/`xbot-nebula` 保留原生全色板）。
+2. `pages/Index.ets` 的 `themeName` 改为**派生**自 `KEY_MD_THEME`（不再读 `KEY_APP_THEME`）；
+   删除「应用主题」chips 行（`SettingsAppearance`）与 `onSetTheme` 全链路（含 `SettingsPanel`）。
+   `KEY_APP_THEME` 进 `settings_keys_consumed` 的**有意保留死键**白名单（附理由）。
+3. **主题并入行键**（`core/rowdiff.themableRowKey` = `chatId#id#rev@theme`）：
+   `LazyForEach` 条目**只在键变化时**重建；主题不进键 ⇒ 主题变更零通知 ⇒ 已存在行冻结在创建那刻
+   的色板（浅色下白字 / 深色下暗字，同一根因的两个方向）。数据源 `applyRows(next, chatId, theme)`
+   在主题变化时走**整表 reload**（键已变，必须让框架重读键）。⇒ 切主题**实时生效**、无遗漏
+   （行内任何取色点——含第三方子组件与"参数=快照"的带参 `@Builder` 子树——都躲不掉）。
+4. **切会话即时反馈**：新增 `ChatStore.beginSwitch(chatId)`（身份 + 清空 + `historyLoading=true`，
+   **无 await**）；`switchSession` 把 `this.store = target` + `beginSwitch` 提到**任何 await 之前**。
+   - 「点击后没反应」：原先 `this.store = target` 排在 `await target.loadSessions()`（一次网络往返）
+     之后 ⇒ 期间界面仍是上一个会话。
+   - 「首条消息假发送」：**同一窗口**——期间 `sendDraft()` 读到的 `this.store` 仍是**旧 store**
+     ⇒ 消息发到上一个会话（当前视图里自然"没发出去"）。重排后窗口消失。
+5. **发送 ⇒ 重置抑制窗**：`sendDraft` 里 `followSuppressUntilMs = 0`。抑制窗只为保护"展开工具后
+   别被程序拽走视口"，而主动发送是**更新的意图**；窗未过期时发送正是"有时不 follow bottom"的命中路径。
+
+### 判据（判据只演进不删除）
+- `tools/tests/theme_row_delivery.test.ts`：F1–F6（原有行订阅）+ **F7 行键含主题** + **F8 数据源
+  主题变更整表 reload** + **F9 应用色板派生自 md 主题** + S5（派生函数语义：light/dark/品牌/未知回落）
+  + S6（派生色板正文可读 ≥4.5）。15 passed。
+- `tools/tests/loadmore_anchor.test.ts`（新，19 passed）：bug ③ 的锚定通路 + 反模式守卫。
+- 形态演进：`enumeration_forms`（`onSetTheme` 形态随第二套主题删除，19→18）；
+  `haptics`（切主题的 toggle 落点删除，6→5 落点 / toggle 2→1）。

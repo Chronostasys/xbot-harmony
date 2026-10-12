@@ -7,7 +7,7 @@
  *
  * 纯数据 + 纯函数 ⇒ 可脱机单测（`tools/tests/mdtheme.test.ts`）。
  */
-import { Palette, isLightPalette } from './theme';
+import { Palette, isLightPalette, THEME_AURORA, THEME_DARK, THEME_LIGHT, THEME_NEBULA } from './theme';
 
 /** web `DEFAULT_MARKDOWN_THEME`。 */
 export const DEFAULT_MD_THEME: string = 'vscode-dark';
@@ -147,4 +147,24 @@ export function codeBgOf(id: string, p: Palette): string {
 
 export function codeFgOf(id: string): string {
   return codeTone(id).fg;
+}
+
+/**
+ * 由 markdown 主题 id **派生应用色板**（主题的**唯一**真源 → 应用明暗）。
+ *
+ * web 权威 `src/providers/theme.tsx:101-113`：
+ *   `const theme = modeForTheme(mdTheme)` —— 应用明暗（`.dark` class）**不是**独立设置，
+ *   而是所选 markdown 主题的派生量；`SettingsAppearance.tsx` 也只暴露「mdTheme + accentColor」
+ *   两项。⛔ 本仓曾据此并列出第二套「应用主题」（含原生独享的 porcelain）⇒ 两套主题互相打脸
+ *   （用户 2026-10-13 亲报「你搞出两种主题设置是错的」）。
+ *
+ * 例外：两个**品牌主题** `xbot-aurora` / `xbot-nebula` 有对应的原生**全色板**
+ * （`core/theme.ets` 的 aurora/nebula，深色但色相不同）⇒ 保留其独特观感。
+ * 其余一律按 mode 归到 dark/light（与 web 的二元明暗**逐字同源**）。
+ */
+export function appPaletteForMdTheme(id: string): string {
+  const norm: string = normalizeMdTheme(id);
+  if (norm === 'xbot-aurora') { return THEME_AURORA; }
+  if (norm === 'xbot-nebula') { return THEME_NEBULA; }
+  return mdThemeMode(norm) === 'light' ? THEME_LIGHT : THEME_DARK;
 }

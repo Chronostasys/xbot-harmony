@@ -101,10 +101,13 @@ eq('零扫描防线：设置组件合并源码非空（> 5000 字符）', SET.le
   eq('① 任一读法形态 0 命中 ⇒ 红（本项应恒 0 个零命中）', zeroF, 0);
 }
 
-// ── ② 写入口形态：任一为 0 ⇒ 红（基线 19 种，见交付记录）────────────────────────
+// ── ② 写入口形态：任一为 0 ⇒ 红（基线 18 种，见交付记录）────────────────────────
+// ⚠️ 2026-10-13 从 19 → 18：`onSetTheme` 随**第二套主题**（应用主题 5 套）一并删除
+//    （用户拍板「只有一种主题设置」；web 权威 `providers/theme.tsx:101` 里应用明暗是
+//    `modeForTheme(mdTheme)` 的派生量）⇒ 该写入口在源码里已无对应实现，形态清单随之收敛。
 {
   const forms: string[] = [
-    'onSetSetting', 'onSetTheme', 'onSetSurface', 'onSetNotify', 'onToggle', 'onSelect', 'onRetry',
+    'onSetSetting', 'onSetSurface', 'onSetNotify', 'onToggle', 'onSelect', 'onRetry',
     'onText', 'onReveal', 'onRefresh', 'onInput', 'onCopy', 'onSave', 'onSetDefault', 'onStartBind',
     'onRetrySettings', 'onRetryPluginCatalog', 'onPickImage', 'onOpen',
   ];
@@ -114,7 +117,7 @@ eq('零扫描防线：设置组件合并源码非空（> 5000 字符）', SET.le
     const c: number = (SET.match(new RegExp(`\\b${forms[i]}\\b`, 'g')) || []).length;
     if (c === 0) { console.log(`       ${forms[i]} × 0   ← 形态丢失/写错`); zero++; }
   }
-  eq('② 写入口形态数 ≥ 19（基线，实测；onPick 不在本池 => 已按实测收正）', forms.length >= 19, true);
+  eq('② 写入口形态数 ≥ 18（基线，实测；onPick 不在本池 => 已按实测收正）', forms.length >= 18, true);
   eq('② 任一写入口形态 0 命中 ⇒ 红', zero, 0);
 }
 
@@ -123,7 +126,7 @@ eq('零扫描防线：设置组件合并源码非空（> 5000 字符）', SET.le
   const keyForms: string[][] = [
     ['常量名', 'KEY_'],
     ['字符串字面量', "'xbot-"],
-    ['分区专用回调', 'onSetTheme|onSetSurface|onSetNotify'],
+    ['分区专用回调', 'onSetSurface|onSetNotify'],
   ];
   let zero = 0;
   console.log('    ③ 键引用形态逐项命中：');

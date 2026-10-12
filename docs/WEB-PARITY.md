@@ -17,9 +17,9 @@
 
 | 本地键 | 服务端键 | 归属 | 状态 |
 |---|---|---|---|
-| `xbot-app-theme` | `web:ui:app-theme` | 原生独有 | ✅ 可改（深/浅/极光/星云/极简白） |
+| `xbot-app-theme` | `web:ui:app-theme` | ~~原生独有~~ **已废弃（2026-10-13）** | ⛔ 不再消费：主题**单一真源**= `xbot-md-theme`（应用明暗 = `modeForTheme(mdTheme)` 派生，web 权威 `providers/theme.tsx:101`）。常量保留只为不删服务端遗留值 |
 | `xbot-accent` | `web:ui:accent` | **真共享** | ✅ 可改（6 预设 + 跟随主题） |
-| `xbot-md-theme` | `web:ui:md-theme` | **真共享** | ✅ 可改（23 套，只影响代码块/行内码） |
+| `xbot-md-theme` | `web:ui:md-theme` | **真共享** | ✅ 可改（23 套；**唯一主题设置**：同时决定代码块配色与全局明暗） |
 | `xbot-starred` | `web:session:starred` | **真共享** | ✅ 可改（星标 + 星标优先排序） |
 | `xbot-locale` | `web:ui:locale` | **真共享** | ⚠️ **只读展示**（web 可改；本仓无 i18n 文案表 ⇒ 见 §3 / `WEB-ALIGNMENT §17.5-1`） |
 | `xbot-font-scale` | `web:ui:font-scale` | 原生独有 | ✅ 可改（web 无此设置） |

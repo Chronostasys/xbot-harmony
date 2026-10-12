@@ -79,6 +79,25 @@ export function sessionScopedRowKey(chatId: string, r: ChatRow): string {
 }
 
 /**
+ * 行的**渲染键**：`chatId#id#rev@theme`。
+ *
+ * ⛔ 主题**必须**在键里（用户两轮亲报的真病灶，本轮第二次修）：
+ *   `LazyForEach` 的 item builder **只在键变化时**重建；主题变更不改键 ⇒ 已存在行**冻结在创建
+ *   那刻的色板** ⇒ 浅色下白字（`theme_row_delivery.test.ts` S3）／深色下暗字（2026-10-13 用户
+ *   亲报「深色 theme 看不清字」，像素实测对比度 1.19–1.57:1）。行内**任何**取色点（含第三方
+ *   子组件、带参 `@Builder` 子树 —— 后者参数是快照，父级重建也不会更新）都因此躲不掉 ⇒ 与其
+ *   逐个组件补订阅，不如让**主题变更本身就是一次行身份变更**：一次性、无遗漏。
+ *
+ * ⚠️ 两处必须**同源**（否则 `changedByKeys` 的 diff 与框架实键不一致 ⇒ 零通知或误通知）：
+ *   · 数据源快照（`ChatRowDataSource.applyRows` 内部）
+ *   · `LazyForEach` 的 key 生成器（页面）
+ *   ⇒ 都调本函数，别再各写一份（历史上曾一份 `rowKey` 一份 `sessionScopedRowKey`）。
+ */
+export function themableRowKey(chatId: string, theme: string, r: ChatRow): string {
+  return sessionScopedRowKey(chatId, r) + '@' + theme;
+}
+
+/**
  * **会话作用域指纹**：`chatId|n|p1,p2,…`（rows / sessions / queue / todos 同一契约）。
  *
  * ⛔ 同一事故的第二处：指纹用于判「要不要把 store 的数据重新投影到界面」。不含会话身份时,

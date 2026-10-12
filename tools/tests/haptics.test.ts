@@ -161,11 +161,13 @@ ok(`④ 唯一入口确实被复用（this.buzz(...) ≥ 1，实得 ${indexBuzzC
     body.indexOf('KEY_CODE_WRAP') < 0);
 }
 
-// ── ⑥ 6 个落点各自传入事件名（阶段 2 接线形态）──────────────────────────────────
-//   ① 全仓唯一入口的调用点**恰好 6 处**，且**都带事件参数**（⛔ 无空参 `this.buzz()`）；
+// ── ⑥ 5 个落点各自传入事件名（阶段 2 接线形态）──────────────────────────────────
+//   ① 全仓唯一入口的调用点**恰好 5 处**，且**都带事件参数**（⛔ 无空参 `this.buzz()`）；
 //   ② **逐一钉住事件名（计数，非"存在"——防漏接 / 换错）**：
 //      send ×1（发送）· stop ×1（打断；与 send 共入口，由 `interrupt` 判别 ⇒ 同一条 arg 含两者）·
-//      select ×2（`/` 命令 + `@` 文件）· toggle ×2（主题 + 星标）· confirm ×1（回退重发成功）；
+//      select ×2（`/` 命令 + `@` 文件）· toggle ×1（星标会话）· confirm ×1（回退重发成功）；
+//      ⚠️ 2026-10-13 从 6 → 5、toggle 2 → 1：**切主题**那个落点随第二套主题（应用主题 5 套）删除
+//      （用户拍板「只有一种主题设置」）—— 主题改由 md 主题派生，切换走 `onSetSetting` 路径。
 //   ③ 零扫描判红：一处都扫不到即红（读的是 `indexSrc`，已在遍历时剥注释）。
 {
   const args: string[] = [];
@@ -173,15 +175,15 @@ ok(`④ 唯一入口确实被复用（this.buzz(...) ≥ 1，实得 ${indexBuzzC
   let m: RegExpExecArray | null = re.exec(indexSrc);
   while (m !== null) { args.push(m[1].trim()); m = re.exec(indexSrc); }
   ok(`⑥ 扫到 this.buzz(...) 调用点 > 0（实得 ${args.length}）—— 零扫描判红`, args.length > 0);
-  eq('⑥ 恰好 6 个落点（唯一入口的 6 个复用点）', args.length, 6);
-  eq('⑥ 6 个落点**全部**传了事件名（⛔ 无空参 this.buzz()）',
-    args.filter((a: string) => a.length > 0).length, 6);
+  eq('⑥ 恰好 5 个落点（唯一入口的 5 个复用点）', args.length, 5);
+  eq('⑥ 5 个落点**全部**传了事件名（⛔ 无空参 this.buzz()）',
+    args.filter((a: string) => a.length > 0).length, 5);
   const countOf = (name: string): number => args.filter((a: string) => a.indexOf(name) >= 0).length;
   eq('⑥ send ×1（发送）', countOf('HAPTIC_EVENT_SEND'), 1);
   eq('⑥ stop ×1（打断；与 send 共入口，由 interrupt 判别 ⇒ 同一条 arg 含两者）',
     countOf('HAPTIC_EVENT_STOP'), 1);
   eq('⑥ select ×2（/ 命令 + @ 文件）', countOf('HAPTIC_EVENT_SELECT'), 2);
-  eq('⑥ toggle ×2（切主题 + 星标会话）', countOf('HAPTIC_EVENT_TOGGLE'), 2);
+  eq('⑥ toggle ×1（星标会话）', countOf('HAPTIC_EVENT_TOGGLE'), 1);
   eq('⑥ confirm ×1（回退并重发成功）', countOf('HAPTIC_EVENT_CONFIRM'), 1);
 }
 
