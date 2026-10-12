@@ -102,7 +102,9 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   ['components/Toast.ets', 1],         // ⚠️ **可删候选**（见报告：web 无对应动画）
   // 页面级（归 main agent 协调）。2026-10-12 +2：会话抽屉 = 遮罩淡入 + 抽屉横向滑入
   //   （**必须留**：抽屉的进出场就是"从左侧滑出/收回"的空间关系；此前**瞬现瞬消**）。
-  ['pages/Index.ets', 5],
+  // 2026-10-12 +1：侧边栏分组箭头的折叠/展开**旋转过渡**（属性动画 `animFast()`）——
+  //   讲的是分组收起/展开的方向状态变化（此前瞬变 ⇒ 观感跳）。
+  ['pages/Index.ets', 6],
 ]);
 
 const root: string = findRoot();

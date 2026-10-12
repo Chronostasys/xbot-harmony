@@ -165,7 +165,7 @@ import { FilesSheet } from '../components/FilesSheet';
 import { SelfCheckSheet } from '../components/SelfCheckSheet';
 import { SessSheet, SearchHitsSheet, ContextSheet } from '../components/MenuSheets';
 import { AskUserSheet } from '../components/AskUserSheet';
-import { animBase, drawerTransition, fadeTransition, sheetTransition } from '../components/anim';
+import { animBase, animFast, drawerTransition, fadeTransition, sheetTransition } from '../components/anim';
 import { readableRpcError, rpc, RpcMethod, RPC_WEB_PLUGIN_LIST, ThinkingModeParams } from '../core/rpc';
 import { TodoPayloadRow, removeTodoAt, renameTodoAt, todoPayloadRows, toggleTodoAt } from '../core/todos';
 import { WebSubAgentProgress } from '../core/chattypes';
@@ -7386,6 +7386,9 @@ struct Index {
                 SymbolGlyph($r('sys.symbol.chevron_right'))
                   .fontSize(typeOf('type.micro').size).fontColor([colorOf(this.pal(), 'iconMuted')])
                   .rotate({ angle: this.isGroupCollapsed(this.sessionCategory(), g.key) ? 0 : 90 })
+                  // 折叠/展开的箭头旋转**要有过渡**（此前瞬变 ⇒ 观感"跳"）。
+                  // 属性动画走底座 `animFast()`（⛔ 不自造时长/曲线）；`.animation()` 作用于其**之前**的属性。
+                  .animation(animFast())
                 Text(g.title)
                   .fontSize(typeOf('type.micro').size).fontWeight(typeOf('type.subhead').weight).fontColor(this.pal().textSecondary)
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
