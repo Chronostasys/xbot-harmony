@@ -175,7 +175,12 @@ hasNot(sbox, 'responseRegion', '⛔ 清空键不靠 responseRegion 外扩热区�
 const sbtn: string = between(indexSrc, 'Row({ space: SPACE_XXS }) {',
   "accessibilityText('在当前会话的消息中搜索（服务端）')");
 ok('搜索钮块可定位（零扫描判红）', sbtn.length > 60);
-has(sbtn, 'sys.symbol.magnifyingglass', '搜索钮带放大镜图标（与裸文字按钮区分）');
+// ⚠️ 2026-10-12（目标③ 侧栏排版重设）**判据演进**（⛔ 不是放宽）：字形从裸放大镜改成
+//   `text_and_magnifyingglass`（"搜索正文"）。原因（真机截图）：同排出现**两个同形**放大镜
+//   ⇒ 用户读成"第二个搜索框"（左边筛会话 vs 右边搜正文是两件事，必须**外形可辨**）。
+has(sbtn, 'sys.symbol.text_and_magnifyingglass', '搜索钮带"搜索正文"图标（⛔ 不与筛选框同形）');
+hasNot(sbtn, "SymbolGlyph($r('sys.symbol.magnifyingglass'))",
+  '⛔ 搜索钮不用与筛选框同形的裸放大镜（否则像第二个搜索框）');
 has(sbtn, 'this.sessQuery.trim().length > 0', '空查询置灰判据在位');
 has(sbtn, "colorOf(this.palOnce(), 'iconMuted')", '置灰态图标走 iconMuted（⛔ 不硬写 Palette 字段）');
 // ⚠️ 取色一律 `palOnce()`（与 `pal()` **同值**、按 `主题|强调色` memo）：本页 `this.pal()` 调用点受

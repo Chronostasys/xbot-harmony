@@ -1415,3 +1415,28 @@ xbot-native-42
 （移动端软键盘无 Esc/Ctrl/方向键），非缺陷 —— 但也不宣称覆盖全部 TUI 交互场景。
 
 **未覆盖（沿用 `core/vt.ets` 头注）**：鼠标上报 · bracketed paste · DSR 应答 · 连字 · 冷门宽字符区。
+
+## §21.20 目标③ 侧栏排版重设（第六批）：标题层级 / 歧义字形 / 折叠键（2026-10-12）
+
+**用户原话**：「重设计排版，对标苹果，现在侧边栏丑的要死…不要一比一复刻 web 排版，你是原生你要超越 web」。
+
+**真机观感诊断**（装机帧）与处置：
+
+| # | 现象 | 处置 |
+|---|---|---|
+| ① | 头部 `＋ 新建`：全角 `＋` 与"新建"的字面宽/基线不同 ⇒ 真机读成"+ 新建"**两块** | 换 `square_and_pencil` + `新建`（Apple 导航栏动作键形态；⛔ 不用实心色块抢列表层级 —— 调色板也没有 accent 底档） |
+| ② | 搜索行**同排两个同形放大镜**（筛选框 + `搜本会话`）⇒ 读成"第二个搜索框" | `搜本会话` 改 `text_and_magnifyingglass`（"搜索正文"），语义精确且外形可辨 |
+| ③ | 筛选行 `⇅`（两枚 chevron 叠）真机观感像**渲染故障**（HarmonyOS **无** `chevrons_up_down` 单字形） | 换平台「更多动作」`ellipsis_circle` + `bindMenu(CollapseMenu)`；菜单**只渲染当前适用**项（Apple 惯例） |
+| ④ | 组头 / 行时间用 `type.micro`(10)，与 15 的标题落差过大 ⇒ 真机读不动 | 提到 `type.caption`(12)（组头保留 `type.subhead` 的半档字重） |
+
+**判据随之演进（⛔ 不是删判据）**：
+- `tools/tests/collapse_all_wiring.test.ts` B2 段：原"钉 ⇅ **双箭头计数 ≥2** + 按钮区间含文案" ⇒
+  改"钉 `ellipsis_circle` **单枚** + chevron 计数 **=0** + `bindMenu(this.CollapseMenu)` + ⛔ 无 `onClick`
+  （bindMenu 自管开合）+ 文案/`allCollapsed` 三元**在菜单区间** + 触发器 a11y 只描述"这是什么""。
+  ⇒ 旧形态（退回双箭头、或在触发器上写 onClick）**立刻红**（判别力未减）。
+- `tools/tests/status_sheet_drawer.test.ts`：原"搜索钮 `show sys.symbol.magnifyingglass`" ⇒
+  改"`text_and_magnifyingglass` + ⛔ **不得**用与筛选框同形的裸放大镜"（两个方向都钉）。
+
+**判据**：`bash tools/gate.sh` ⇒ `✅ 真门禁全绿` + `4 ArkTS BUILD SUCCESSFUL`（exit 0）；装机帧目视确认
+（`entry-default-signed.hap`；⚠️ 脱机三条永远抓不到 ArkTS —— 本批 B2/B3 的 `bindMenu`/新 `@Builder`
+只有真编译能抓）。

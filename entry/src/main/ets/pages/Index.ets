@@ -7421,6 +7421,33 @@ struct Index {
     .width(200)
   }
 
+  /**
+   * 「分组显示」菜单（`ellipsis_circle` 触发，见筛选行内的注）。
+   *
+   * **只渲染此刻适用的那一项**（Apple「…」菜单惯例：菜单里只放当前能做的事）——
+   * `allCollapsed` 决定是「全部展开」还是「全部折叠」；点击落 `applyCollapseAll()`
+   * （= 按 `collapseAllPlan.target` **原子**设置，⛔ 不自造第二套折叠状态）。
+   */
+  @Builder
+  CollapseMenu() {
+    Column() {
+      Text(this.collapseAllPlanNow().allCollapsed ? '全部展开' : '全部折叠')
+        .width('100%')
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .fontSize(typeOf('type.subhead').size)
+        .fontColor(this.pal().textPrimary)
+        .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_XS, bottom: SPACE_XS })
+        .borderRadius(RADIUS_CHIP)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          this.applyCollapseAll();
+        })
+    }
+    .padding(SPACE_HAIR)
+    // 菜单宽度**显式给**（同 `ChannelPickerMenu`：不给会被 ArkUI 按浮层最大宽解析 ⇒ 撑到 ~375vp）。
+    .width(160)
+  }
+
   @Builder
   DrawerSheet() {
     Column() {
@@ -7433,8 +7460,14 @@ struct Index {
           .fontWeight(typeOf('type.headline').weight)
           .fontColor(this.pal().textPrimary)
           .layoutWeight(1)
-        Row() {
-          Text('＋ 新建')
+        // 「新建」= Apple 导航栏动作键形态：**图标 + accent 文字**（⛔ 不用实心色块抢占列表层级；
+        // 调色板无 accent 底档 ⇒ 上色只能走前景）。图标 `square_and_pencil`（写新会话），
+        // ⛔ 弃用全角「＋」——其字面宽度/基线与其他字形不同，真机观感是"+ 新建"被拉开成两块。
+        Row({ space: SPACE_HAIR }) {
+          SymbolGlyph($r('sys.symbol.square_and_pencil'))
+            .fontSize(ICON_SM)
+            .fontColor([this.pal().accentSoft])
+          Text('新建')
             .fontSize(typeOf('type.subhead').size)
             .fontColor(this.pal().accentSoft)
         }
@@ -7513,7 +7546,9 @@ struct Index {
           if (this.searchBusy) {
             LoadingProgress().width(SPACE_MD).height(SPACE_MD).color(this.pal().accent)
           } else {
-            SymbolGlyph($r('sys.symbol.magnifyingglass'))
+            // ⛔ 字形**必须区别于筛选框的 `magnifyingglass`**：同排两个放大镜会让用户以为
+            // 这是第二个搜索框。`text_and_magnifyingglass`（"搜索正文"）语义精确、外形可辨。
+            SymbolGlyph($r('sys.symbol.text_and_magnifyingglass'))
               .fontSize(ICON_SM)
               .fontColor([this.sessQuery.trim().length > 0
                 ? this.palOnce().accentSoft
@@ -7584,28 +7619,12 @@ struct Index {
         //    ⇒ ⛔ 不自造状态、不加动效。
         if (this.collapseAllPlanNow().visible) {
           Row() {
-            if (this.collapseAllPlanNow().allCollapsed) {
-              // 全部已折叠 ⇒ 动作为「全部展开」= web `ChevronsUpDown`（⇕，两箭头**朝外**）。
-              // ⚠️ 2026-10-12 修正（本行原为**单个** `chevron_up`）：与同排渠道触发器上的
-              //    `chevron_down` **同形**（都读作"下拉"）⇒ 歧义（用户以为这是第二个筛选下拉）。
-              //    ⛔ HarmonyOS 符号字体**没有** `chevrons_up_down` 单字形 —— 已用最小 `post`
-              //    表解析器枚举 `previewer/.../fonts/HMSymbolVF.ttf`（5563 字形）确认；
-              //    ⇒ 用两个**已存在**的符号叠成 ⇕/⇵，语义与 web 逐字同构。
-              Column({ space: SPACE_HAIR }) {
-                SymbolGlyph($r('sys.symbol.chevron_up'))
-                  .fontSize(ICON_SM).fontColor([colorOf(this.pal(), 'iconMuted')])
-                SymbolGlyph($r('sys.symbol.chevron_down'))
-                  .fontSize(ICON_SM).fontColor([colorOf(this.pal(), 'iconMuted')])
-              }
-            } else {
-              // 否则动作为「全部折叠」= web `ChevronsDownUp`（⇵，两箭头**朝内**）。
-              Column({ space: SPACE_HAIR }) {
-                SymbolGlyph($r('sys.symbol.chevron_down'))
-                  .fontSize(ICON_SM).fontColor([colorOf(this.pal(), 'iconMuted')])
-                SymbolGlyph($r('sys.symbol.chevron_up'))
-                  .fontSize(ICON_SM).fontColor([colorOf(this.pal(), 'iconMuted')])
-              }
-            }
+            // ⛔ 弃用"两枚箭头叠成 ⇅"：HarmonyOS **没有** `chevrons_up_down` 单字形（已枚举
+            //    `HMSymbolVF.ttf` 5563 字形确认），叠出来的 2×10vp 双箭头挤在 44 盒中央，
+            //    真机观感像**渲染故障**。改用平台标准「更多动作」原语 `ellipsis_circle` +
+            //    `bindMenu` ⇒ 语义（分组显示）自解释，⛔ 不必再"猜字形"。
+            SymbolGlyph($r('sys.symbol.ellipsis_circle'))
+              .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
           }
           // ⛔ 真机实测：`responseRegion` 负偏移外扩**无效** ⇒ 热区靠**真实 ≥44 布局盒**。
           .width(HIT_TARGET_MIN)
@@ -7613,14 +7632,12 @@ struct Index {
           .justifyContent(FlexAlign.Center)
           .alignItems(VerticalAlign.Center)
           // a11y：**图标-only、无可见文案** ⇒ 必须给读屏文案（对齐 web `SessionViewBar.tsx:39`
-          // 的 `aria-label`/`title`；文案逐字对齐 web `i18n/zh-CN.ts:108-109`）。动态跟随
-          // `allCollapsed`（全折叠 ⇒ "全部展开"）。约定见 `docs/DESIGN-SYSTEM.md`（由 design-matrix 落）。
-          .accessibilityText(this.collapseAllPlanNow().allCollapsed ? '全部展开' : '全部折叠')
+          // 的 `aria-label`/`title`；动作文案逐字对齐 web `i18n/zh-CN.ts:108-109`）。
+          .accessibilityText('分组显示')
           .borderRadius(RADIUS_CHIP)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            this.applyCollapseAll();
-          })
+          // ⛔ `bindMenu` 由 ArkUI 自管开合 ⇒ **不写 `onClick`**（写了会与锚点处理竞态，见渠道触发器注）。
+          .bindMenu(this.CollapseMenu, { placement: Placement.BottomRight, enableArrow: false })
         }
 
         // ③ 渠道筛选**下拉触发器**（web `ChannelPicker.tsx:90-119` 同构）。中性治装：选中「全部」
@@ -7725,7 +7742,9 @@ struct Index {
                   // 属性动画走底座 `animFast()`（⛔ 不自造时长/曲线）；`.animation()` 作用于其**之前**的属性。
                   .animation(animFast())
                 Text(g.title)
-                  .fontSize(typeOf('type.micro').size).fontWeight(typeOf('type.subhead').weight).fontColor(this.pal().textSecondary)
+                  // Apple 侧栏分区头节奏：次级字号 + 半档字重（中文无大小写 ⇒ 以字重补 web `uppercase`
+                  // 的层次）。⚠️ 2026-10-12：原 `type.micro`(10) 与行标题 15 的落差过大 ⇒ 真机读不动。
+                  .fontSize(typeOf('type.caption').size).fontWeight(typeOf('type.subhead').weight).fontColor(this.pal().textSecondary)
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                   .layoutWeight(1)
                 Text(`${g.items.length}`)
@@ -7823,7 +7842,9 @@ struct Index {
                             .layoutWeight(1)
                           // 相对时间（web `SessionItem.tsx:332-347`；`last_active` 缺失 ⇒ 空串 ⇒ 不渲任何字符）
                           Text(this.relTimeOf(s.last_active))
-                            .fontSize(typeOf('type.micro').size).fontColor(this.pal().textMuted)
+                            // ⚠️ 2026-10-12：`type.micro`(10) 与 15 的标题并排时真机读不动
+                            // ⇒ 提到 caption(12)，贴 iOS 列表元信息字号（宽度余量足够，实测不截断）。
+                            .fontSize(typeOf('type.caption').size).fontColor(this.pal().textMuted)
                             .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                           // 行内次级动作折成一个 `⋯` + 菜单（标星入口已在菜单里 ⇒ 行体只剩一个动作键）。
                           // ⛔ 前景是 **`Text`**（文字字形，⛔ 不是 `SymbolGlyph`）⇒ 地板 = AA_TEXT(4.5)，

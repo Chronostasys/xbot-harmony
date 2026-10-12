@@ -138,38 +138,43 @@ const applyLines = lineNumbersOf(pageSrc, 'applyGroupsCollapsed(');
 ok(`① Index.ets 消费 applyGroupsCollapsed（调用点计数 ${applyLines.length} ≥1）`, applyLines.length >= 1);
 console.log(`    · applyGroupsCollapsed( 调用点：entry/src/main/ets/pages/Index.ets:${applyLines.join(',')}`);
 
-// (B2) 交互形态：按钮存在 + 点击链 → 该函数。
-//   按钮区间 = `if (this.collapseAllPlanNow().visible) {` … `this.applyCollapseAll();`
+// (B2) 交互形态：**触发器**存在 + 动作经**菜单**唯一落 `applyCollapseAll`。
+//   ⚠️ 2026-10-12（目标③ 侧栏排版重设）**判据随之演进**（⛔ 不是删判据）：触发器从"两枚 chevron
+//   叠成 ⇅/⇵"改成平台标准「更多动作」原语 `ellipsis_circle` + `bindMenu`。原因：HarmonyOS **没有**
+//   `chevrons_up_down` 单字形，2×10vp 双箭头挤在 44 盒中央 ⇒ 真机观感像**渲染故障**。
+//   ⇒ 新判据：① 触发器 = **单枚** `ellipsis_circle`（⛔ chevron 计数必须为 0，退回即红）；
+//   ② 动作链改走 `bindMenu(CollapseMenu)`（`bindMenu` 自管开合 ⇒ ⛔ 不许再有 `onClick`）；
+//   ③ 「全部折叠/全部展开」文案 + `allCollapsed` 三元**搬进 `CollapseMenu`**、点击仍落同一函数。
+//   触发器区间 = `if (this.collapseAllPlanNow().visible) {` … `.bindMenu(this.CollapseMenu`
 const btnStart = pageSrc.indexOf('if (this.collapseAllPlanNow().visible) {');
-const btnEnd = pageSrc.indexOf('this.applyCollapseAll();', btnStart);
-const btnRaw = pageSrc.substring(btnStart, btnEnd > btnStart ? btnEnd + 24 : pageSrc.length);
+const btnEnd = pageSrc.indexOf('.bindMenu(this.CollapseMenu', btnStart);
+const btnRaw = pageSrc.substring(btnStart, btnEnd > btnStart ? btnEnd + 32 : pageSrc.length);
 // ⛔ 形态/缺席断言一律在**剥注释后**的代码上做（否则源码里"解释为何不用 X"的注释会假红）。
 const btnSrc = stripComments(btnRaw);
-ok('② 按钮区间可定位（未被删除/改名）', btnStart > 0 && btnRaw.length > 200 && btnRaw.length < 2500);
+ok('② 触发器区间可定位（未被删除/改名）', btnStart > 0 && btnRaw.length > 150 && btnRaw.length < 1500);
 // 可见性由 plan.visible 决定（web `keys.length > 0` 才渲染）
-has(pageSrc, 'if (this.collapseAllPlanNow().visible) {', '② 按钮可见性走 plan.visible（不另判一次）');
-// 图标由 plan.allCollapsed 决定（web 图标随 allCollapsed 切）
-has(pageSrc, 'if (this.collapseAllPlanNow().allCollapsed) {', '② 图标分支走 plan.allCollapsed');
-has(btnSrc, 'sys.symbol.chevron_up', '② 「全部展开」分支用系统符号（同 chevron 族）');
-has(btnSrc, 'sys.symbol.chevron_down', '② 「全部折叠」分支用系统符号（同 chevron 族）');
-// (B2d) ⚠️ 2026-10-12 修正：图标必须是**双箭头组合**（⇕ 展开 / ⇵ 折叠），⛔ 不能退回**单个** chevron。
-//   原因（真机观察 + 同排对比）：工具栏里渠道筛选的**下拉触发器**用的就是 `chevron_down`，若折叠键也用
-//   单个 chevron ⇒ 同一排出现**两个同形"下拉"** ⇒ 用户以为这是第二个筛选下拉（歧义）。
-//   ⛔ HarmonyOS 符号字体**没有** `chevrons_up_down` 这类双箭头**单字形** —— 已用最小 `post` 表解析器
-//   枚举 `previewer/common/bin/fonts/HMSymbolVF.ttf`（5563 字形）确认；⇒ 用两个**已存在**的符号叠成
-//   ⇕/⇵，语义与 web `SessionViewBar.tsx` 的 `ChevronsUpDown`/`ChevronsDownUp` 逐字同构。
-//   判据钉**计数**：两个分支各含 up+down ⇒ 总数各 ≥2；若退回单箭头 ⇒ 各 1 ⇒ 红。
+has(pageSrc, 'if (this.collapseAllPlanNow().visible) {', '② 触发器可见性走 plan.visible（不另判一次）');
+// 图标：**单枚** `ellipsis_circle` ⇒ 与同排渠道触发器的 `chevron_down` 不再同形/歧义。
+has(btnSrc, 'sys.symbol.ellipsis_circle', '② 触发器用 `ellipsis_circle`（平台「更多动作」原语）');
 const countOf = (s: string, n: string): number => s.split(n).length - 1;
 {
   const up: number = countOf(btnSrc, 'sys.symbol.chevron_up');
   const dn: number = countOf(btnSrc, 'sys.symbol.chevron_down');
-  ok(`② 图标是双箭头组合（chevron_up ×${up}、chevron_down ×${dn}，各 ≥2）`, up >= 2 && dn >= 2);
-  ok('② 双箭头由 `Column` 叠成（⛔ 不是单 SymbolGlyph 单字形）', btnSrc.indexOf('Column(') >= 0);
+  ok(`② ⛔ 触发器内不再有 chevron 图标（chevron_up ×${up}、chevron_down ×${dn}，必须都为 0）`,
+    up === 0 && dn === 0);
 }
-// 点击链：`.onClick(() => { this.applyCollapseAll(); })`
-has(btnSrc, '.onClick(', '② 按钮有点击处理器');
-has(btnSrc, 'this.applyCollapseAll();', '② 点击链到 applyCollapseAll');
+// 动作链：`bindMenu` 由 ArkUI 自管开合 ⇒ ⛔ 不写 `onClick`（写了会与锚点处理竞态，真机实测过）
+has(btnSrc, '.bindMenu(this.CollapseMenu', '② 触发器挂 bindMenu(CollapseMenu)');
+hasNot(btnSrc, '.onClick(', '② ⛔ 触发器不写 onClick（bindMenu 自管开合）');
 has(pageSrc, 'private applyCollapseAll(): void {', '② applyCollapseAll 存在');
+// 菜单区间 = `CollapseMenu() {` … `applyCollapseAll`（动作文案搬到这里）
+const menuStart = pageSrc.indexOf('CollapseMenu() {');
+const menuEnd = pageSrc.indexOf('applyCollapseAll', menuStart);
+const menuSrc = stripComments(pageSrc.substring(menuStart, menuEnd > menuStart ? menuEnd + 24 : menuStart + 1200));
+ok('② 菜单区间可定位（动作文案在菜单里）', menuStart > 0 && menuSrc.length > 100 && menuSrc.length < 1500);
+has(menuSrc, 'this.applyCollapseAll();', '② 菜单项点击链到 applyCollapseAll');
+has(menuSrc, "allCollapsed ? '全部展开' : '全部折叠'", '② 菜单文案随 allCollapsed 动态切换（与 web 同序）');
+has(menuSrc, 'collapseAllPlanNow()', '② 菜单文案读 collapseAllPlanNow（判据与动作同源）');
 // applyCollapseAll 体内：算 plan + 落新折叠集（判据与动作同源）
 const applyStart = pageSrc.indexOf('private applyCollapseAll(): void {');
 const applySrc = stripComments(pageSrc.substring(applyStart, applyStart + 400));
@@ -189,17 +194,17 @@ hasNot(btnSrc, '.transition(', '② 按钮不加入场动效（transition）');
 has(btnSrc, "colorOf(this.pal(), 'iconMuted')", '② 图标色走 colorOf(计算型 role)，非 Palette 字段');
 
 // (B2c) a11y 约定：**图标-only、无可见文案**的可点控件**必须**有 `accessibilityText`（读屏可读）。
-//   文案**动态跟随** `allCollapsed`，逐字对齐 web `SessionViewBar.tsx:39` + `i18n/zh-CN.ts:108-109`。
-//   ⛔ 视觉不变（仍无可见 `Text`）。
-has(btnSrc, '.accessibilityText(', '④ 图标-only 按钮有 accessibilityText（a11y 约定）');
-has(btnSrc, "'全部折叠'", '④ 文案字面量「全部折叠」在按钮区间');
-has(btnSrc, "'全部展开'", '④ 文案字面量「全部展开」在按钮区间');
-// 动态映射：全折叠 ⇒ 动作为「全部展开」（与 web `allCollapsed ? expandAllGroups : collapseAllGroups` 同序）
-has(btnSrc, "allCollapsed ? '全部展开' : '全部折叠'", '④ 文案随 allCollapsed 动态切换（与 web 同序）');
+//   ⚠️ 2026-10-12：文案**不再**挂在触发器上（触发器只回答"这是什么"=「分组显示」），
+//   而"点下去会发生什么"（全部折叠/全部展开）改由**菜单项**逐字承担 ⇒ 断言搬去 `menuSrc`（见 B2）。
+//   ⛔ 视觉不变（触发器内仍无可见 `Text`）。
+has(btnSrc, '.accessibilityText(', '④ 图标-only 触发器有 accessibilityText（a11y 约定）');
+has(btnSrc, "'分组显示'", '④ 触发器 a11y 文案只描述"这是什么"（动作文案在菜单里）');
+has(menuSrc, "'全部折叠'", '④ 菜单含文案字面量「全部折叠」');
+has(menuSrc, "'全部展开'", '④ 菜单含文案字面量「全部展开」');
 // ⚠️ 先把 a11y token 换名再查可见 `Text(`：`accessibilityText(` **本身含子串 `Text(`**
 //    ⇒ 直接 `hasNot('Text(')` 会**假红**（与"注释被当代码"同类的自伤，实测踩到）。
 const btnVisual = btnSrc.split('accessibilityText').join('a11yLabel');
-hasNot(btnVisual, 'Text(', '④ 视觉不变：按钮内无可见文案');
+hasNot(btnVisual, 'Text(', '④ 视觉不变：触发器内无可见文案');
 
 // (B3) 折叠态读写走**同一套既有状态**（⛔ 不自造状态）
 eq('③ @State collapsedGroups 声明唯一',
