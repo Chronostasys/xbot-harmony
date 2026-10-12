@@ -3941,3 +3941,32 @@ WebView 之下、点击坐标易落到 composer（本轮误触弹出键盘）⇒
 （药丸动作会把 `followBottom=true` ⇒ 药丸消失）⇒ **动作未被触发**、滑动正常 ✓。
 判据同步演进：`tools/tests/overlays.test.ts` 由钉 `Transparent` 改为钉 `None` **且**断言不含
 `Transparent`（`overlays: 16 passed`）—— 门禁 `GATE_EXIT=0`。
+
+## §21.75 运行面板空态：顶部一行小字 → 大号弱化字形 + 内容区居中（15z，2026-10-13）
+
+**怎么发现的**：用户 2026-10-13 目标④「终端和任务管理做的很差」。装机走查运行面板四个 tab
+（定时/后台/代理/终端）发现：**空态只有一行灰字、贴在内容区顶部**，下方留一大片空洞
+⇒ 观感「这个面板没做完」。而**同一 App 的抽屉空态**（`DrawerSheet`）却是「大图标 + 说明 + 动作」
+的完整形态 ⇒ 面板内空态**自家不一致**。
+
+**根因**：`PanelEmpty(text)` 的注释写着"居中的一行（Apple 的空态是有意留白）"，但实现只有
+`Text` + 上下 `SPACE_LG` padding —— **没有 `layoutWeight(1)` + 居中**，所以"居中"是注释里的，
+不是布局上的。
+
+**修法**：`PanelEmpty(icon: Resource, text: string)` =
+`Column{ SymbolGlyph(大字阶弱化图标) + Text(说明) }.layoutWeight(1).justifyContent(Center)`
+⇒ 占满内容区剩余空间后**真居中**；四个 tab 各配语义图标。
+
+**字形核对（本仓血债「猜字形」）**：SDK 资源表
+`previewer/common/resources/entry/resources.txt`（**9552** 个字形）逐名核对：
+`clock` ✅ / `hourglass` ✅ / `person_2` ✅ / `code` ✅；⛔ **`terminal` 0 命中**（该表根本没有
+terminal 字形）⇒ 终端 tab 用 `code`（终端=敲代码的壳），并把「不得使用不存在的
+`sys.symbol.terminal`」写成反向判据，防后人重蹈。
+
+**装机复验**：运行面板 → 终端 tab ⇒ 居中 `< >` 弱化字形 + 「本会话暂无终端」✓
+（截图对照旧形态：贴顶 + 下方空洞）。
+
+**判据演进（只演进不删除）**：`tools/tests/sheet_chrome.test.ts` ⑥ 由钉
+`PanelEmpty('文案')` 形态改为钉 `PanelEmpty($r('sys.symbol.X'), '文案')`（逐 tab），
+并加两条反向断言：⛔ 不得存在无字形的 `PanelEmpty('`；⛔ 不得使用 `sys.symbol.terminal`
+（`sheet_chrome: 96 passed`）。门禁 `GATE_EXIT=0` + `BUILD SUCCESSFUL`。

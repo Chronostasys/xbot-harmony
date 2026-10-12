@@ -7784,16 +7784,31 @@ struct Index {
    * ⚠️ 参数是**字面量**、不随状态变 ⇒ 用页面自持的带参 `@Builder` 安全（不触发"带参 @Builder 的
    * 子树不随参数重建"那类失效 —— 那条只对"会变的内容"致命）。
    */
+  // ── 2026-10-13（对标 Apple）：空态从「顶部一行小字」升级为**大号弱化字形 + 一行说明**，
+  //    并在内容区**真正居中**（真机取证：原实现贴在内容区**顶部**、下方留一大片空洞 ⇒
+  //    观感「这个面板没做完」）。`layoutWeight(1)` 占满剩余空间才是"居中"的前提。
+  //    ⚠️ 字形必须**已核对存在**（SDK `previewer/common/resources/entry/resources.txt` 资源表；
+  //    本仓血债 =「猜字形」，见 AGENTS.md）：本面板用 `clock`/`hourglass`/`person_2`/`code` ——
+  //    ⛔ **没有** `terminal` 字形（该表 9552 个字形里 0 命中）⇒ 终端改用 `code`。
   @Builder
-  PanelEmpty(text: string) {
-    Text(text)
-      .fontSize(typeOf('type.callout').size)
-      // ⚠️ 走 `palOnce()`（记忆化入口）：本页 `this.pal()` 调用点受性能预算 A 线（≤1250）约束，
-      //    新增 UI 一律走 memo 入口（语义与 `pal()` 逐字节一致）。
-      .fontColor(this.palOnce().textMuted)
-      .width('100%')
-      .textAlign(TextAlign.Center)
-      .padding({ top: SPACE_LG, bottom: SPACE_LG })
+  PanelEmpty(icon: Resource, text: string) {
+    Column({ space: SPACE_SM }) {
+      SymbolGlyph(icon)
+        .fontSize(typeOf('type.display').size)
+        .fontColor([colorOf(this.palOnce(), 'iconMuted')])
+      Text(text)
+        .fontSize(typeOf('type.callout').size)
+        // ⚠️ 走 `palOnce()`（记忆化入口）：本页 `this.pal()` 调用点受性能预算 A 线（≤1250）约束，
+        //    新增 UI 一律走 memo 入口（语义与 `pal()` 逐字节一致）。
+        .fontColor(this.palOnce().textMuted)
+        .width('100%')
+        .textAlign(TextAlign.Center)
+        .padding({ top: SPACE_LG, bottom: SPACE_LG })
+    }
+    .width('100%')
+    .layoutWeight(1)
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
   }
 
   /** 面板：四个标签各拉一个端点（定时任务 / 后台任务 / 子代理 / Runner）。 */
@@ -7880,7 +7895,7 @@ struct Index {
 
       if (this.panelTab === 'cron') {
         if (this.cronTasks.length === 0) {
-          this.PanelEmpty('本会话暂无定时任务')
+          this.PanelEmpty($r('sys.symbol.clock'), '本会话暂无定时任务')
         } else {
           List({ space: 6 }) {
             ForEach(this.cronTasks, (job: CronJob, i: number) => {
@@ -7904,7 +7919,7 @@ struct Index {
         }
       } else if (this.panelTab === 'tasks') {
         if (this.bgTasks.length === 0) {
-          this.PanelEmpty('本会话暂无后台任务')
+          this.PanelEmpty($r('sys.symbol.hourglass'), '本会话暂无后台任务')
         } else {
           List({ space: 6 }) {
             ForEach(this.bgTasks, (t: BgTask, i: number) => {
@@ -7925,7 +7940,7 @@ struct Index {
         }
       } else if (this.panelTab === 'subs') {
         if (this.subagents.length === 0) {
-          this.PanelEmpty('暂无子代理会话')
+          this.PanelEmpty($r('sys.symbol.person_2'), '暂无子代理会话')
         } else {
           List({ space: 6 }) {
             ForEach(this.subagents, (a: SubAgentRow, i: number) => {
@@ -7955,7 +7970,7 @@ struct Index {
         //    （真机取证：tab 显示「终端 2」+ 内容区「共 2 个终端」）。留 tab 的计数即可（其空态自动隐后缀）。
         // ⛔ 内容区**无动作**：唯一的「＋ 新建」已上移到表头（见上）——此处只留列表 / 空态。
         if (this.terminals.length === 0) {
-          this.PanelEmpty('本会话暂无终端')
+          this.PanelEmpty($r('sys.symbol.code'), '本会话暂无终端')
         } else {
           List({ space: 6 }) {
             ForEach(this.terminals, (t: TerminalInfo, i: number) => {

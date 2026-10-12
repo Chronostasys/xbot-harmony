@@ -216,17 +216,26 @@ for (const rel of SHEETS) {
   //    ⇒ 本文件只保证"入口存在"；"在表头且唯一"由 `panel_terminal_wiring.test.ts` 钉住。
   ok('⑥ 终端 tab 保留「＋ 新建」入口', src.indexOf("'＋ 新建'") >= 0);
   // 五 tab 空态在位（**逐字钉住** ⇒ 防误改/误删；措辞升级须同步改本判据）
+  // ⚠️ 2026-10-13（判据演进 15z）：空态从「顶部一行小字」升级为「**大号弱化字形 + 一行说明**、
+  //    且在内容区居中」⇒ 调用形态带上字形参数（`PanelEmpty($r('sys.symbol.X'), '文案')`）。
+  //    ⚠️ 字形**必须已核对存在**（SDK `previewer/common/resources/entry/resources.txt` 资源表；
+  //    本仓血债 =「猜字形」分类）—— 本轮实测：`clock`/`hourglass`/`person_2`/`code` ✅ 在表内，
+  //    ⛔ `terminal` 在该表 9552 个字形里 **0 命中**（故终端用 `code`）。
   const EMPTIES: string[] = [
-    "PanelEmpty('本会话暂无定时任务')",
-    "PanelEmpty('本会话暂无后台任务')",
-    "PanelEmpty('暂无子代理会话')",
+    "PanelEmpty($r('sys.symbol.clock'), '本会话暂无定时任务')",
+    "PanelEmpty($r('sys.symbol.hourglass'), '本会话暂无后台任务')",
+    "PanelEmpty($r('sys.symbol.person_2'), '暂无子代理会话')",
     // ⚠️ 15d：文案与"行内按钮"解耦（按钮已上移表头）⇒ 不再出现"点「＋ 新建」开一个"
-    "PanelEmpty('本会话暂无终端')",
+    "PanelEmpty($r('sys.symbol.code'), '本会话暂无终端')",
     "Text('暂无受管机器')",
   ];
   for (const s of EMPTIES) {
     ok(`⑥ 运行面板空态在位：${s}`, src.indexOf(s) >= 0);
   }
+  // 反（白绿防线）：⛔ 不得再出现「只给文案、不给字形」的旧形态 —— 否则空态退回"顶部一行小字"
+  ok('⑥ ⛔ 空态必须带字形（不得有 PanelEmpty(\' 形态）', src.indexOf("PanelEmpty('") < 0);
+  // 反：⛔ 不得用**不存在**的 `terminal` 字形（真机渲染空白 = 静默失败）
+  ok('⑥ ⛔ 不得用不存在的 sys.symbol.terminal', src.indexOf('sys.symbol.terminal') < 0);
 }
 
 if (fail > 0) { console.log(`  sheet_chrome: ${pass} passed, ${fail} failed`); process.exit(1); }
