@@ -99,6 +99,8 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   // 后台任务详情（目标④）：面板出场过渡，与 StatusSheet/SelfCheckSheet **同一个工厂**
   //   `sheetTransition()` —— 全站面板入场语言只有一套。
   ['components/TaskDetailSheet.ets', 1],
+  // 终端面板（目标④「终端做的很差」）：同样走 `sheetTransition()`（全站面板入场语言唯一）。
+  ['components/TerminalSheet.ets', 1],
   ['components/TodoPanel.ets', 1],     // ⚠️ 属性动画 `.animation(animFast())`（`chevron_right` 的 `rotate 0→90`）
                                        //   —— **必须留**（2026-10-11 动效审计逐处判）：它讲的是**展开/收起的
                                        //   **方向状态变化**，删了箭头会"跳"；web `TodoPullOut.tsx` 同款有过渡。

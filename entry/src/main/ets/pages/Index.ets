@@ -45,6 +45,7 @@ import {
   BgTask, bgTaskLine, bgTaskMetaText, bgTaskOutputText, bgTaskRunning, bgTaskStatusText,
   CronJob, cronLine, RunnerRow, runnerLine, SubAgentRow, subagentLine,
 } from '../core/panels';
+import { TerminalInfo, terminalLine } from '../core/termproto';
 import {
   activeToken, applyCommand, applyMention, clampSel, CMD_ROWS, CommandItem, completionKeyAction, enterSends,
   FS_ROWS, FsEntry, joinPath, matchCommands, matchFiles, parentDir, selNext, selPrev,
@@ -165,6 +166,7 @@ import { PluginsSheet } from '../components/PluginsSheet';
 import { FilesSheet } from '../components/FilesSheet';
 import { SelfCheckSheet } from '../components/SelfCheckSheet';
 import { TaskDetailSheet } from '../components/TaskDetailSheet';
+import { TerminalSheet } from '../components/TerminalSheet';
 import { SessSheet, SearchHitsSheet, ContextSheet } from '../components/MenuSheets';
 import { AskUserSheet } from '../components/AskUserSheet';
 import { animBase, animFast, drawerTransition, fadeTransition, sheetTransition } from '../components/anim';
@@ -667,6 +669,11 @@ struct Index {
   @State runners: RunnerRow[] = [];
   @State subagents: SubAgentRow[] = [];
   @State panelBusy: boolean = false;
+  // 终端（PTY）—— 用户点名「终端做的很差」：原生此前 **0 消费**（`/api/terminal/*` + `/ws/terminal`）
+  @State terminals: TerminalInfo[] = [];
+  @State showTerminal: boolean = false;
+  @State termTid: string = '';
+  @State termCwd: string = '';
 
   // ── P7 会话管理（搜索 / 排序 / 分支）──
   /** 抽屉里的本地筛选词（只过滤显示，不打断会话） */
@@ -1421,7 +1428,7 @@ struct Index {
     if (this.draftTimer >= 0) {
       clearTimeout(this.draftTimer);
     }
-    this.draftTimer = setTimeout(() => {
+    this.draftTimer = delay(() => {
       this.draftTimer = -1;
       if (this.currentChat.length > 0) {
         this.config.saveDraft(this.currentChat, text).catch(() => {
@@ -1562,7 +1569,7 @@ struct Index {
       return;
     }
     this.syncScheduled = true;
-    setTimeout(() => {
+    delay(() => {
       this.syncScheduled = false;
       const s: ChatStore | null = this.pendingSync;
       this.pendingSync = null;
@@ -1724,6 +1731,9 @@ struct Index {
     if (this.subagents !== store.subagents) {
       this.subagents = store.subagents;
     }
+    if (this.terminals !== store.terminals) {
+      this.terminals = store.terminals;
+    }
     this.settings = store.settings;
     const t: string = settingOf(store.settings, KEY_APP_THEME);
     if (t.length > 0) {
@@ -1760,7 +1770,7 @@ struct Index {
     // 只有用户意图为"跟随"**且尾部内容真的变了**才跟随；用户往上滚后意图被翻掉就不再抢滚动位置
     // （否则"阅读中被打断"）；用户就地展开/折叠（抑制窗内）也不抢（真机 P0，2026-10-11）。
     if (shouldAutoScroll(this.followBottom, contentGrew, Date.now(), this.followSuppressUntilMs)) {
-      setTimeout(() => {
+      delay(() => {
         try {
           this.listScroller.scrollEdge(Edge.Bottom);
         } catch (e) {
@@ -1857,7 +1867,7 @@ struct Index {
   /** 等待 ms（ArkTS 里没有 await sleep，自己包一层 Promise）。 */
   private wait(ms: number): Promise<void> {
     return new Promise<void>((resolve: () => void) => {
-      setTimeout(() => {
+      delay(() => {
         resolve();
       }, ms);
     });
@@ -3592,6 +3602,26 @@ struct Index {
             },
             onClose: () => {
               this.showTaskDetail = false;
+            },
+          })
+        }.width('100%').height('100%')
+      }
+      // 终端面板（运行面板 → 「终端」tab 点行/新建 打开）——用户点名「终端做的很差」
+      if (this.showTerminal) {
+        Stack() {
+          Row() {
+            Blank()
+          }.width('100%').height('100%').onClick(() => {
+            this.showTerminal = false;
+          })
+          TerminalSheet({
+            theme: this.themeName,
+            tid: this.termTid,
+            cwd: this.termCwd,
+            baseUrl: this.termBaseUrl(),
+            cookie: this.termCookie(),
+            onClose: () => {
+              this.showTerminal = false;
             },
           })
         }.width('100%').height('100%')
@@ -5673,6 +5703,9 @@ struct Index {
     if (tab === 'subs') {
       return this.subagents.length;
     }
+    if (tab === 'term') {
+      return this.terminals.length;
+    }
     if (tab === 'runners') {
       return this.runners.length;
     }
@@ -5686,6 +5719,9 @@ struct Index {
     if (tab === 'subs') {
       return `子代理 ${this.panelCount(tab)}`;
     }
+    if (tab === 'term') {
+      return `终端 ${this.panelCount(tab)}`;
+    }
     if (tab === 'runners') {
       return `Runner ${this.panelCount(tab)}`;
     }
@@ -5693,7 +5729,7 @@ struct Index {
   }
 
   private panelTabs(): string[] {
-    return ['cron', 'tasks', 'subs', 'runners'];
+    return ['cron', 'tasks', 'subs', 'runners', 'term'];
   }
 
   /** 刷新当前标签页的数据（每个标签只拉自己那一个端点）。 */
@@ -5710,6 +5746,67 @@ struct Index {
     this.taskDetailOutput = bgTaskOutputText(t);
     this.taskDetailRunning = bgTaskRunning(t);
     this.showTaskDetail = true;
+  }
+
+  // ── 终端（PTY）：列表 / 新建 / 关闭 / 打开 ─────────────────────────────────
+
+  /** 终端 WS 的基址（`store.http.baseUrl`；`ws://` 由 `termWsUrl` 派生）。 */
+  private termBaseUrl(): string {
+    const store: ChatStore | null = this.store;
+    return store !== null ? store.http.baseUrl : '';
+  }
+
+  /** 终端 WS 的会话 Cookie（与 `/api/*` 同一鉴权）。 */
+  private termCookie(): string {
+    const store: ChatStore | null = this.store;
+    return store !== null ? store.http.cookieHeaderForStream() : '';
+  }
+
+  /** 打开终端面板（列表行点击）。 */
+  private openTerminal(t: TerminalInfo): void {
+    this.termTid = t.tid;
+    this.termCwd = t.cwd !== undefined ? t.cwd : '';
+    // ⛔ 必须先收起运行面板：面板是**底部**浮层，不收起会压住终端自己的输入行与快捷键行
+    //    （真机 dump 实证：输入框在 y2144，而面板从 y2097 起 ⇒ 无法输入）。与「子代理行」同范式。
+    this.showPanels = false;
+    this.showTerminal = true;
+  }
+
+  /** 新建终端（`POST /api/terminal/create`）；成功后直接打开数据通道。 */
+  private async newTerminal(): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    try {
+      const tid: string = await store.createTerminal('');
+      if (tid.length > 0) {
+        this.termTid = tid;
+        this.termCwd = '';
+        this.showPanels = false;
+        this.showTerminal = true;
+      } else {
+        this.toast('新建终端失败');
+      }
+    } catch (e) {
+      this.toast(`新建终端失败: ${errText(e as Object)}`);
+    }
+  }
+
+  /** 关闭（删除）终端 —— 服务端 `Delete` 一并销毁 PTY（与 web 卸载面板同语义）。 */
+  private async closeTerminal(tid: string): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null || tid.length === 0) {
+      return;
+    }
+    try {
+      await store.deleteTerminal(tid);
+      if (this.termTid === tid) {
+        this.showTerminal = false;
+      }
+    } catch (e) {
+      this.toast(`关闭终端失败: ${errText(e as Object)}`);
+    }
   }
 
   /**
@@ -5754,6 +5851,8 @@ struct Index {
         await store.loadBgTasks();
       } else if (this.panelTab === 'runners') {
         await store.loadRunners();
+      } else if (this.panelTab === 'term') {
+        await store.loadTerminals();
       } else {
         await store.loadSessions();  // 子代理来自会话树
       }
@@ -6875,6 +6974,67 @@ struct Index {
                   })
               }
             }, (a: SubAgentRow, i: number) => `sub-${a.chat_id}#${i}`)
+          }.constraintSize({ maxHeight: 420 }).width('100%')
+        }
+      } else if (this.panelTab === 'term') {
+        // ⚠️ 取色一律走 `palOnce()`（记忆化入口，语义与 `pal()` 逐字节一致）：`this.pal()` 是
+        //    **未 memo 的真分配**，性能预算 A 线（≤1250）只许减 ⇒ 新增 UI 按本页既定约定走本入口。
+        Row({ space: SPACE_XS }) {
+          Text(`共 ${this.terminals.length} 个终端`)
+            .fontSize(typeOf('type.micro').size)
+            .fontColor(this.palOnce().textSecondary)
+            .layoutWeight(1)
+          Text('＋ 新建')
+            .fontSize(typeOf('type.caption').size)
+            .fontColor(this.palOnce().onAccent)
+            .padding({ left: 14, right: 14, top: 14, bottom: 14 })
+            .backgroundColor(this.palOnce().accent)
+            .borderRadius(RADIUS_PILL)
+            .accessibilityText('新建终端')
+            .onClick(() => {
+              this.newTerminal();
+            })
+        }.width('100%')
+
+        if (this.terminals.length === 0) {
+          Text('（本会话暂无终端；点「＋ 新建」开一个）')
+            .fontSize(typeOf('type.caption').size)
+            .fontColor(this.palOnce().textMuted)
+            .width('100%')
+        } else {
+          List({ space: 6 }) {
+            ForEach(this.terminals, (t: TerminalInfo, i: number) => {
+              ListItem() {
+                Row({ space: SPACE_XS }) {
+                  Text(terminalLine(t, this.nowMs()))
+                    .fontSize(typeOf('type.caption').size)
+                    .fontColor(this.palOnce().textPrimary)
+                    .layoutWeight(1)
+                    .maxLines(2).wordBreak(WordBreak.BREAK_ALL)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  // 关闭（删终端 ⇒ 服务端一并销毁 PTY）——44 热区形态（图标居中）
+                  Row() {
+                    SymbolGlyph($r('sys.symbol.xmark'))
+                      .fontSize(13)
+                      .fontColor([this.palOnce().dangerText])
+                  }
+                  .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+                  .justifyContent(FlexAlign.Center)
+                  .accessibilityText('关闭终端')
+                  .onClick(() => {
+                    this.closeTerminal(t.tid);
+                  })
+                  SymbolGlyph($r('sys.symbol.chevron_right'))
+                    .fontSize(typeOf('type.micro').size)
+                    .fontColor([colorOf(this.palOnce(), 'iconMuted')])
+                }
+                .width('100%').padding(SPACE_XS).backgroundColor(this.palOnce().surface).borderRadius(RADIUS_CHIP)
+                .alignItems(VerticalAlign.Center)
+                .onClick(() => {
+                  this.openTerminal(t);
+                })
+              }
+            }, (t: TerminalInfo, i: number) => `term-${t.tid}#${i}`)
           }.constraintSize({ maxHeight: 420 }).width('100%')
         }
       } else {

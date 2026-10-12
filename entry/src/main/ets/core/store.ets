@@ -27,6 +27,7 @@ import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, U
 import { moveOrders, parseSearchHits, searchBody, SEARCH_LIMIT_DEFAULT, SearchBody, chatSwitchPath, chatSwitchChannel, ChatSwitchResult, parseChatSwitch } from './sessionops';
 import { RewindReq, RewindTarget, gapTopBefore, rewindTargetDBID } from './msgops';
 import { BgTask, CronJob, KillBgTaskParams, RunnerRow, SubAgentRow, isWidgetEvent } from './panels';
+import { TerminalInfo } from './termproto';
 import { serverKey, toLocalSettings, KEY_ACCENT } from './settings';
 import { setAppAccent } from './theme';
 import { FsEntry } from './composer';
@@ -473,6 +474,8 @@ export class ChatStore {
   cronTasks: CronJob[] = [];
   /** 后台 shell 任务（`POST /api/tasks/list` → `{background_tasks}`） */
   bgTasks: BgTask[] = [];
+  /** 终端（PTY）列表（`POST /api/terminal/list` → `{terminals}`）。 */
+  terminals: TerminalInfo[] = [];
   /** 受管机器（RPC `runner_list` → `{runners}`；凭据绝不下发） */
   runners: RunnerRow[] = [];
   /** 子代理（会话树的 orphan_subagents） */
@@ -596,6 +599,39 @@ export class ChatStore {
   async killBgTask(taskId: string): Promise<void> {
     await rpc<void>(this.http, 'kill_bg_task', new KillBgTaskParams(taskId));
     await this.loadBgTasks();
+  }
+
+  /**
+   * 终端（PTY）列表 —— 对齐 web `useTerminal` 的 refresh（同一端点 `POST /api/terminal/list`）。
+   * ⚠️ body 键是 `chat_id`（**小写**），而 create 用的是 `chatID`（**大写 ID**）——
+   * 服务端既有事实（`channel/web/web_pty.go` 的 `terminalListReq` / `terminalCreateReq`），照抄别"统一"。
+   */
+  async loadTerminals(): Promise<void> {
+    const body: Record<string, string> = { 'chat_id': this.currentChatId };
+    const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>(
+      '/api/terminal/list', body);
+    const arr: Object | undefined = raw['terminals'];
+    this.terminals = arrOrEmpty(arr as TerminalInfo[]);
+    this.onUpdate();
+  }
+
+  /** 新建终端（`POST /api/terminal/create` body `{chatID, cwd}` → `{tid}`）。返回 tid（缺失时空串）。 */
+  async createTerminal(cwd: string): Promise<string> {
+    const body: Record<string, string> = { 'chatID': this.currentChatId, 'cwd': cwd };
+    const r: Record<string, Object> = await this.http.postAs<Record<string, Object>>(
+      '/api/terminal/create', body);
+    await this.loadTerminals();
+    const tid: Object | undefined = r['tid'];
+    return typeof tid === 'string' ? tid as string : '';
+  }
+
+  /**
+   * 关闭终端（`POST /api/terminal/{tid}/delete`）。
+   * 服务端 `Delete` 会一并销毁 PTY（web 侧靠卸载面板触发同一调用）—— 语义与 web **同源**。
+   */
+  async deleteTerminal(tid: string): Promise<void> {
+    await this.http.post(`/api/terminal/${tid}/delete`, new EmptyReq());
+    await this.loadTerminals();
   }
 
   /**
