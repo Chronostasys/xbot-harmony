@@ -18,10 +18,10 @@
  * ⛔ 同一时刻只允许一个在飞动效=光球 ⇒ 加载态是**一行小字**，不是 spinner（同 `PluginsSheet`）。
  */
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
-import { ByModelRow, SessionUsage, StatCell, byModelRows, contextCells, overviewCells, perfCells, recentTableHeader, recentTableText } from '../core/sessionstats';
+import { ByModelRow, DailyRow, DailyUsage, SessionUsage, StatCell, UsageBucket, UserUsage, byModelRows, contextCells, dailyRows, granularityLabel, granularityOptions, hasUserUsage, overviewCells, perfCells, recentTableHeader, recentTableText, trendSparkline, trendSummaryText, trendWindowText, userCells } from '../core/sessionstats';
 import {
   colorOf, hairlineOf, HIT_TARGET_MIN, ICON_MD, INSET_ROW_X, INSET_ROW_Y, PRESS_OPACITY,
-  RADIUS_CARD, RADIUS_SHEET, SHEET_ACTION_GLYPH, SPACE_MD, SPACE_SM, SPACE_XS, SPACE_XXS, STROKE_HAIRLINE,
+  RADIUS_CARD, RADIUS_CHIP, RADIUS_SHEET, SHEET_ACTION_GLYPH, SPACE_MD, SPACE_SM, SPACE_XS, SPACE_XXS, STROKE_HAIRLINE,
   structuralRuleOf,
   SURFACE_CARD, surfaceFillOf, typeOf,
 } from '../core/design';
@@ -37,6 +37,18 @@ export struct SessionStatsSheet {
   @Prop loading: boolean = false;
   /** 失败原因（已可读化；空 = 无错）。 */
   @Prop error: string = '';
+  // ── 15i：web 面板有而原生此前缺的三块（目标④「统计插件的面板我们看不到」）──────────
+  /** 用户累计（RPC `get_user_token_usage`；全 0 ⇒ 该块不渲染）。 */
+  @Prop user: UserUsage = new UserUsage();
+  /** 按日明细（已按日聚合，新 → 旧）。 */
+  @Prop daily: DailyUsage[] = [];
+  /** 趋势桶（按时间升序）。 */
+  @Prop buckets: UsageBucket[] = [];
+  /** 趋势粒度（`minute`/`hour`/`day`）。 */
+  @Prop granularity: string = 'hour';
+  /** 切换粒度（页面据此只重拉桶）。 */
+  onGranularity: (g: string) => void = (g: string) => {
+  };
   /** 重试（页面重发 RPC）。 */
   onRetry: () => void = () => {
   };
@@ -160,6 +172,71 @@ export struct SessionStatsSheet {
       .fontColor(this.cMuted())
       .width('100%')
       .margin({ top: SPACE_XS })
+  }
+
+  // ── 15i 新增三块的构造器（趋势 / 累计 / 按日）───────────────────────────────────
+
+  /** 强调色（趋势 sparkline 用；数据可视化取强调色，与顶栏/发送键同一语义）。 */
+  private cAccent(): string {
+    return colorOf(this.palOnce(), 'accent');
+  }
+
+  /** 趋势 sparkline（判据在 core `trendSparkline`；空 ⇒ 空串 ⇒ 不渲染该块）。 */
+  private sparkText(): string {
+    return trendSparkline(this.buckets, this.granularity);
+  }
+
+  /** 趋势小结（`合计 … · 活跃 x/y 桶 · 峰值 …`）。 */
+  private sparkMeta(): string {
+    return trendSummaryText(this.buckets, this.granularity);
+  }
+
+  /** 「按日」行（最多 5 天，新 → 旧；显式槽位，无 `ForEach`）。 */
+  private dayRows(): DailyRow[] {
+    return dailyRows(this.daily, 5);
+  }
+
+  /** 粒度芯片（选中 = 强调底色 + 对比前景；**热区 ≥44 由 Row 布局盒承载**）。 */
+  @Builder
+  granChip(g: string) {
+    Text(granularityLabel(g))
+      .fontSize(typeOf('type.caption').size)
+      .fontColor(this.granularity === g ? colorOf(this.palOnce(), 'onAccent') : this.cSecondary())
+      .textAlign(TextAlign.Center)
+      .width(56).height(HIT_TARGET_MIN)
+      .backgroundColor(this.granularity === g ? this.cAccent() : this.bgCard())
+      .borderRadius(RADIUS_CHIP)
+      .border({ width: STROKE_HAIRLINE, color: this.cStructural() })
+      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+      .accessibilityText(`趋势粒度 ${granularityLabel(g)}`)
+      .onClick(() => {
+        this.onGranularity(g);
+      })
+  }
+
+  /** 一行「按日」（日期 | 总量 | 元信息）。 */
+  @Builder
+  dayCard(r: DailyRow) {
+    Row({ space: SPACE_SM }) {
+      Text(r.day)
+        .fontSize(typeOf('type.caption').size)
+        .fontFamily('monospace').fontColor(this.cSecondary())
+        .width(56)
+      Text(r.total)
+        .fontSize(typeOf('type.caption').size).fontWeight(typeOf('type.caption').weight)
+        .fontFamily('monospace').fontColor(this.cPrimary())
+        .layoutWeight(1)
+      Text(r.meta)
+        .fontSize(typeOf('type.micro').size)
+        .fontColor(this.cMuted())
+        .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        .textAlign(TextAlign.End)
+        .layoutWeight(2)
+    }
+    .width('100%').alignItems(VerticalAlign.Center)
+    .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_XS, bottom: SPACE_XS })
+    .backgroundColor(this.bgCard())
+    .borderRadius(RADIUS_CARD)
   }
 
   /** 一个「按模型」卡片（模型名 + 一行指标；**显式渲染**，不 `ForEach`）。 */
@@ -299,6 +376,68 @@ export struct SessionStatsSheet {
                 .backgroundColor(this.bgCard())
                 .borderRadius(RADIUS_CARD)
                 .alignItems(HorizontalAlign.Start)
+              }
+
+              // ⑥ 趋势（sparkline + 粒度分段控件）—— 判据在 core `trendSparkline`/`trendSummaryText`
+              //    ⛔ 不画柱、不用 `ForEach`：单 `Text` 承载 8 级块字符（性能预算 ⑦ 约束）。
+              if (this.sparkText().length > 0) {
+                this.section(`token 趋势 · ${trendWindowText(this.granularity)}`)
+                Column({ space: SPACE_XS }) {
+                  Row({ space: SPACE_XS }) {
+                    this.granChip(granularityOptions()[0])
+                    this.granChip(granularityOptions()[1])
+                    this.granChip(granularityOptions()[2])
+                    Blank()
+                  }
+                  .width('100%')
+
+                  Text(this.sparkText())
+                    .fontSize(typeOf('type.callout').size)
+                    .fontFamily('monospace')
+                    .fontColor(this.cAccent())
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .width('100%')
+
+                  if (this.sparkMeta().length > 0) {
+                    Text(this.sparkMeta())
+                      .fontSize(typeOf('type.micro').size)
+                      .fontColor(this.cMuted())
+                      .maxLines(2)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      .width('100%')
+                  }
+                }
+                .width('100%').alignItems(HorizontalAlign.Start)
+                .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_XS, bottom: SPACE_XS })
+                .backgroundColor(this.bgCard())
+                .borderRadius(RADIUS_CARD)
+              }
+
+              // ⑦ 用户累计（全 0 ⇒ 不渲染空卡）
+              if (hasUserUsage(this.user)) {
+                this.section('累计')
+                this.metricRow(userCells(this.user))
+              }
+
+              // ⑧ 按日（最多 5 天；显式槽位 ⇒ 无 `ForEach`）
+              if (this.dayRows().length > 0) {
+                this.section('按日')
+                Column({ space: SPACE_XS }) {
+                  this.dayCard(this.dayRows()[0])
+                  if (this.dayRows().length > 1) {
+                    this.dayCard(this.dayRows()[1])
+                  }
+                  if (this.dayRows().length > 2) {
+                    this.dayCard(this.dayRows()[2])
+                  }
+                  if (this.dayRows().length > 3) {
+                    this.dayCard(this.dayRows()[3])
+                  }
+                  if (this.dayRows().length > 4) {
+                    this.dayCard(this.dayRows()[4])
+                  }
+                }.width('100%').alignItems(HorizontalAlign.Start)
               }
             }
           }

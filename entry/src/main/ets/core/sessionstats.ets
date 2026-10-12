@@ -484,3 +484,358 @@ export function recentTableText(u: SessionUsage): string {
   }
   return lines.join('\n');
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ⑦ 目标④ 续批（2026-10-12）：web 面板有而原生缺的**三块**
+//    · 用户累计（RPC `get_user_token_usage`）
+//    · 按日明细（RPC `get_daily_token_usage`，服务端按「日 × 模型」下发 ⇒ 这里按日聚合）
+//    · 趋势（RPC `get_session_usage_buckets` + `web tokenTrend.ts:38-42` 的粒度窗口）
+//
+// ⛔ 趋势**不画柱**而画**块字符 sparkline**：与上面等宽表同一理由 —— 性能预算 ⑦ 的
+//    `ForEach(` 处数是**全仓硬上限（≤107，只许减）** ⇒ 新面板不得再添 `ForEach`。
+//    单 `Text` 承载 sparkline（`▁▂▃▄▅▆▇█` 8 级）既零 `ForEach`、节点数 = 1，又天然是
+//    "近窗口全貌"的紧凑表达（与 Apple Health 的迷你趋势条同观感）。
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** 用户累计线类型（RPC `get_user_token_usage`）。 */
+export interface UserUsageWire {
+  total_tokens?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  cached_tokens?: number;
+  conversation_count?: number;
+  llm_call_count?: number;
+  sender_id?: string;
+}
+
+/** 单日（×模型）线类型（RPC `get_daily_token_usage`）。 */
+export interface DailyUsageWire {
+  date?: string;
+  model?: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  cached_tokens?: number;
+  conversation_count?: number;
+  llm_call_count?: number;
+}
+
+/** 趋势桶线类型（RPC `get_session_usage_buckets`；`bucket_start` = epoch 秒）。 */
+export interface UsageBucketWire {
+  bucket_start?: number;
+  calls?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  cached_tokens?: number;
+  total_ms_sum?: number;
+  ttft_ms_sum?: number;
+}
+
+/** 归一化后的用户累计。 */
+export class UserUsage {
+  totalTokens: number = 0;
+  inputTokens: number = 0;
+  outputTokens: number = 0;
+  cachedTokens: number = 0;
+  conversationCount: number = 0;
+  llmCallCount: number = 0;
+}
+
+/** 归一化后的单日聚合。 */
+export class DailyUsage {
+  date: string = '';
+  /** 当日 token 最多的模型（多模型时才有意义；空串 = 未知）。 */
+  model: string = '';
+  inputTokens: number = 0;
+  outputTokens: number = 0;
+  cachedTokens: number = 0;
+  conversationCount: number = 0;
+  llmCallCount: number = 0;
+}
+
+/** 归一化后的趋势桶。 */
+export class UsageBucket {
+  /** epoch 秒。 */
+  bucketStart: number = 0;
+  calls: number = 0;
+  inputTokens: number = 0;
+  outputTokens: number = 0;
+  cachedTokens: number = 0;
+}
+
+/** `get_user_token_usage` → `UserUsage`（缺字段一律 0）。 */
+export function parseUserUsage(raw: UserUsageWire | undefined): UserUsage {
+  const u: UserUsage = new UserUsage();
+  if (raw === undefined || raw === null) {
+    return u;
+  }
+  u.totalTokens = toNum(raw.total_tokens);
+  u.inputTokens = toNum(raw.input_tokens);
+  u.outputTokens = toNum(raw.output_tokens);
+  u.cachedTokens = toNum(raw.cached_tokens);
+  u.conversationCount = toNum(raw.conversation_count);
+  u.llmCallCount = toNum(raw.llm_call_count);
+  return u;
+}
+
+/**
+ * `get_daily_token_usage`（**数组**，元素 = 「日 × 模型」）→ 按日聚合（**新 → 旧**）。
+ * 同日多模型：token/会话/调用数相加；`model` 取当日 token 总和最大的那个。
+ */
+export function parseDailyUsage(raw: DailyUsageWire[] | null | undefined): DailyUsage[] {
+  const src: DailyUsageWire[] = raw !== undefined && raw !== null ? raw : [];
+  const out: DailyUsage[] = [];
+  for (let i = 0; i < src.length; i++) {
+    const r: DailyUsageWire = src[i];
+    if (r === undefined || r === null) {
+      continue;
+    }
+    const date: string = str(r.date);
+    const inTok: number = toNum(r.input_tokens);
+    const outTok: number = toNum(r.output_tokens);
+    let hit: DailyUsage | null = null;
+    for (let j = 0; j < out.length; j++) {
+      if (out[j].date === date) {
+        hit = out[j];
+        break;
+      }
+    }
+    if (hit === null) {
+      const d: DailyUsage = new DailyUsage();
+      d.date = date;
+      d.model = str(r.model);
+      d.inputTokens = inTok;
+      d.outputTokens = outTok;
+      d.cachedTokens = toNum(r.cached_tokens);
+      d.conversationCount = toNum(r.conversation_count);
+      d.llmCallCount = toNum(r.llm_call_count);
+      out.push(d);
+    } else {
+      const prev: number = hit.inputTokens + hit.outputTokens;
+      hit.inputTokens += inTok;
+      hit.outputTokens += outTok;
+      hit.cachedTokens += toNum(r.cached_tokens);
+      hit.conversationCount += toNum(r.conversation_count);
+      hit.llmCallCount += toNum(r.llm_call_count);
+      if (inTok + outTok > prev) {
+        hit.model = str(r.model);
+      }
+    }
+  }
+  // 新 → 旧（`date` 是 `YYYY-MM-DD` ⇒ 字典序 = 时间序，无需解析日期）。
+  out.sort((a: DailyUsage, b: DailyUsage): number => a.date < b.date ? 1 : (a.date > b.date ? -1 : 0));
+  return out;
+}
+
+/** `get_session_usage_buckets`（**数组**）→ 趋势桶（**按时间升序**）。 */
+export function parseBuckets(raw: UsageBucketWire[] | null | undefined): UsageBucket[] {
+  const src: UsageBucketWire[] = raw !== undefined && raw !== null ? raw : [];
+  const out: UsageBucket[] = [];
+  for (let i = 0; i < src.length; i++) {
+    const r: UsageBucketWire = src[i];
+    if (r === undefined || r === null) {
+      continue;
+    }
+    const b: UsageBucket = new UsageBucket();
+    b.bucketStart = toNum(r.bucket_start);
+    b.calls = toNum(r.calls);
+    b.inputTokens = toNum(r.input_tokens);
+    b.outputTokens = toNum(r.output_tokens);
+    b.cachedTokens = toNum(r.cached_tokens);
+    out.push(b);
+  }
+  out.sort((a: UsageBucket, b: UsageBucket): number => a.bucketStart - b.bucketStart);
+  return out;
+}
+
+/** 桶的 token 总量。 */
+export function bucketTokens(b: UsageBucket): number {
+  return b.inputTokens + b.outputTokens;
+}
+
+/** 粒度 → 窗口桶数（web `tokenTrend.ts:38-42`：分钟 60 / 小时 24 / 天 30）。 */
+export function bucketWindowBuckets(granularity: string): number {
+  if (granularity === 'minute') {
+    return 60;
+  }
+  if (granularity === 'day') {
+    return 30;
+  }
+  return 24;
+}
+
+/** 请求桶数的**窗口余量**（服务端按 `count` 回溯分桶；余量保证当前桶一定在内）。 */
+export const BUCKET_WINDOW_MARGIN: number = 2;
+
+/** 请求桶数 = 窗口桶数 + 余量（`get_session_usage_buckets` 的 `count`）。 */
+export function bucketRequestCount(granularity: string): number {
+  return bucketWindowBuckets(granularity) + BUCKET_WINDOW_MARGIN;
+}
+
+/** 按日明细的默认窗口（天）。 */
+export const DAILY_DAYS_WINDOW: number = 7;
+
+/**
+ * JS `Date.prototype.getTimezoneOffset()`（**UTC − 本地**，如东八区 = −480）
+ * → `get_session_usage_buckets` 的 `tz_offset_minutes`（**本地 − UTC**，东八区 = 480）。
+ * ⛔ 符号相反是 JS 的历史约定，混了会让趋势桶整体错 16 小时。
+ */
+export function tzOffsetMinutesFor(jsOffset: number): number {
+  return -toNum(jsOffset);
+}
+
+/** 粒度 → 窗口文案（`最近 24 小时`）。 */
+export function trendWindowText(granularity: string): string {
+  if (granularity === 'minute') {
+    return '最近 60 分钟';
+  }
+  if (granularity === 'day') {
+    return '最近 30 天';
+  }
+  return '最近 24 小时';
+}
+
+/** 分段控件的三个粒度（细 → 粗）。 */
+export function granularityOptions(): string[] {
+  return ['minute', 'hour', 'day'];
+}
+
+/** 粒度显示名（分段控件）。 */
+export function granularityLabel(g: string): string {
+  if (g === 'minute') {
+    return '分';
+  }
+  if (g === 'day') {
+    return '日';
+  }
+  return '时';
+}
+
+/** 8 级块字符（`▁▂▃▄▅▆▇█`）—— 趋势 sparkline 的字模。 */
+const SPARK_LEVELS: string = '▁▂▃▄▅▆▇█';
+
+/**
+ * 趋势 → **单行 sparkline**（块字符，8 级）。取窗口内**最后** N 个桶（N = `bucketWindowBuckets`）。
+ * 全部为 0（或空）⇒ 返回**空串**（组件据此不渲染该段，而不是画一条"全是底"的假线）。
+ */
+export function trendSparkline(buckets: UsageBucket[], granularity: string): string {
+  const n: number = bucketWindowBuckets(granularity);
+  const total: number = buckets.length;
+  if (total === 0) {
+    return '';
+  }
+  const start: number = total > n ? total - n : 0;
+  const vals: number[] = [];
+  let max: number = 0;
+  for (let i = start; i < total; i++) {
+    const v: number = bucketTokens(buckets[i]);
+    vals.push(v);
+    if (v > max) {
+      max = v;
+    }
+  }
+  if (max <= 0) {
+    return '';
+  }
+  let out: string = '';
+  for (let i = 0; i < vals.length; i++) {
+    const ratio: number = vals[i] / max;
+    let lvl: number = Math.round(ratio * (SPARK_LEVELS.length - 1));
+    if (lvl < 0) {
+      lvl = 0;
+    }
+    if (lvl > SPARK_LEVELS.length - 1) {
+      lvl = SPARK_LEVELS.length - 1;
+    }
+    out += SPARK_LEVELS.charAt(lvl);
+  }
+  return out;
+}
+
+/** 桶起点 → 刻度文案（分钟/小时 ⇒ `HH:MM`；天 ⇒ `MM-DD`；用**本地时区**）。 */
+export function bucketLabel(epochSec: number, granularity: string): string {
+  const ms: number = toNum(epochSec) * 1000;
+  if (ms <= 0) {
+    return '';
+  }
+  const d: Date = new Date(ms);
+  const pad = (v: number): string => (v < 10 ? `0${v}` : `${v}`);
+  if (granularity === 'day') {
+    return `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * 趋势小结（`合计 12.3M · 活跃 9/24 桶 · 峰值 18:00 1.2M`）。
+ * 无数据 ⇒ 空串（组件不渲染）。
+ */
+export function trendSummaryText(buckets: UsageBucket[], granularity: string): string {
+  const n: number = bucketWindowBuckets(granularity);
+  const total: number = buckets.length;
+  if (total === 0) {
+    return '';
+  }
+  const start: number = total > n ? total - n : 0;
+  let sum: number = 0;
+  let active: number = 0;
+  let peak: number = 0;
+  let peakAt: number = 0;
+  for (let i = start; i < total; i++) {
+    const v: number = bucketTokens(buckets[i]);
+    sum += v;
+    if (v > 0) {
+      active++;
+    }
+    if (v > peak) {
+      peak = v;
+      peakAt = buckets[i].bucketStart;
+    }
+  }
+  if (sum <= 0) {
+    return '';
+  }
+  return `合计 ${formatTokenCount(sum)} · 活跃 ${active}/${n} 桶`
+    + (peak > 0 ? ` · 峰值 ${bucketLabel(peakAt, granularity)} ${formatTokenCount(peak)}` : '');
+}
+
+/** 用户累计卡（总 token / 会话 / LLM 调用 / 缓存）。 */
+export function userCells(u: UserUsage): StatCell[] {
+  return [
+    new StatCell('累计 token', formatTokenCount(u.totalTokens), `${formatCount(u.llmCallCount)} 次调用`),
+    new StatCell('会话数', formatCount(u.conversationCount), ''),
+    new StatCell('缓存 token', formatTokenCount(u.cachedTokens),
+      `命中率 ${fmtPct(u.cachedTokens, u.inputTokens)}`),
+  ];
+}
+
+/** 一行「按日」展示单元。 */
+export class DailyRow {
+  day: string = '';
+  total: string = '';
+  meta: string = '';
+
+  constructor(day: string, total: string, meta: string) {
+    this.day = day;
+    this.total = total;
+    this.meta = meta;
+  }
+}
+
+/** 「按日」行（最多 `maxDays` 日，新→旧；`day` 去掉年份）。 */
+export function dailyRows(rows: DailyUsage[], maxDays: number): DailyRow[] {
+  const out: DailyRow[] = [];
+  const n: number = maxDays > 0 ? maxDays : 7;
+  for (let i = 0; i < rows.length && i < n; i++) {
+    const d: DailyUsage = rows[i];
+    const day: string = d.date.length >= 10 ? d.date.substring(5) : d.date;
+    const model: string = d.model.length > 0 ? ` · ${d.model}` : '';
+    out.push(new DailyRow(day, formatTokenCount(d.inputTokens + d.outputTokens),
+      `${formatCount(d.llmCallCount)} 次 · ${formatCount(d.conversationCount)} 会话${model}`));
+  }
+  return out;
+}
+
+/** 累计区是否可见（有数据才渲染；全 0 ⇒ 组件不画空卡）。 */
+export function hasUserUsage(u: UserUsage): boolean {
+  return u.totalTokens > 0 || u.conversationCount > 0 || u.llmCallCount > 0;
+}

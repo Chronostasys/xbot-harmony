@@ -2912,3 +2912,69 @@ busy 时**置位**（恰 1）· `finally` 里**判读**（恰 1）· **先清后
 - ⚠️ 芯片**文字匹配**会被聊天正文里的同名字样污染（"子代理"命中了我自己的消息）⇒
   定位必须**限定在芯片带**（先用唯一的「后台任务 N」药丸定出该带的 y）。
 
+
+## §21.51 统计插件面板补齐三块（用户累计 / 按日 / 趋势）—— 目标④点名项收口（2026-10-12）
+
+**用户原话**（目标④）：「插件都打不开，**比如统计插件的面板我们看不到**」。
+前批已把该面板**原生落地**（`core/sessionstats.ets` + `SessionStatsSheet.ets` + `PluginsSheet` 内
+「会话统计」内置入口），但只覆盖了**会话聚合**一路；本轮补齐到与 web 面板**同能力面**。
+
+**取证（web 权威：数据全来自宿主 RPC，不需要执行插件 JS）**
+- `web/src/plugins/session-stats/SessionStatsPanel.tsx:288/295/296/329` 的四路
+  `runtime.rpc.call(...)` = `get_session_usage_stats` / `get_user_token_usage` /
+  `get_daily_token_usage` / `get_session_usage_buckets`（`plugin-api/rpc.ts:65-87` 逐字可查）；
+- `TokenTrendSection.tsx` + `tokenTrend.ts:38-42`：粒度窗口 分钟 60 / 小时 24 / 天 30。
+⇒ 原生**自渲染**这条路是通的（顺带证伪"只能把 web 塞进 WebView"的假设）。
+
+⛔ **整页**插件面板深链仍不通（**新证据，比上一批更确切**）：web 的
+`lib/commandRouter.ts:113 parseUri` / `:135 navigate` **全仓无任何调用方**（无启动 hash 读取、
+无协议处理器）⇒ 无法从原生深链到某个 web 面板页。**这条必须 web 侧先接线**（跨仓，待用户拍板）；
+而**数据**是公开 RPC ⇒ 原生渲染不受影响（本轮即走此路）。
+
+**改动（四层；判据与渲染同源）**
+1. `core/sessionstats.ets`（486 → 821 行）新增三块纯逻辑：
+   `parseUserUsage` / `parseDailyUsage`（**按日聚合**：同日多模型相加、`model` 取当日最大、新→旧）/
+   `parseBuckets`（升序）；`bucketWindowBuckets` / `bucketRequestCount` / `trendWindowText` /
+   `granularityOptions` / `granularityLabel` / `tzOffsetMinutesFor`；
+   `trendSparkline`（**8 级块字符 `▁▂▃▄▅▆▇█`**）/ `trendSummaryText` / `userCells` / `dailyRows` /
+   `hasUserUsage`。全部 null 安全（缺字段 ⇒ 0/''，**绝不** NaN）。
+   · ⛔ **趋势不画柱、不用 `ForEach`**：性能预算 ⑦ 的 `ForEach(` 处数是**全仓硬上限（≤107，只许减）**
+     ⇒ 沿用本文件既有的"单 `Text` 承载"手法（等宽表同源决策），节点数 = 1。
+   · ⛔ `tzOffsetMinutesFor` 的存在意义：JS 的 `getTimezoneOffset()` 与 Unix **符号相反**
+     （东八区 = −480），混了会让趋势桶整体错 16 小时 ⇒ 单独一个纯函数 + 判据钉住。
+2. `core/rpc.ets`：三个 method 常量 + `RpcMethod` statics + 登记 `ALL`（该表有**完整性硬断言**：
+   具名常量必须都在 `ALL` 里、且数量相等）；`DailyUsageParams` / `SessionUsageBucketsParams`
+   （字段逐字取自 web；⚠️ ArkTS 类字段**一律参与序列化** ⇒ 不能靠"缺省"省略，
+   故 `count`/`tz_offset_minutes` 都显式传值）。
+3. `pages/Index.ets`：`loadSessionStats` 扩为**四路** —— ①会话聚合（失败 ⇒ 错误态 + 可重试）
+   ②③④**尽力而为**（单路失败只清该块 ⇒ 旧后端缺某路 RPC 也不拖垮整页）；
+   新增 `reloadStatsBuckets`（切粒度只重拉桶）/ `setStatsGranularity`；
+   ⛔ 加**在飞排队守卫**（`statsBusy` + `statsRefreshQueued`：忙时**排队**而非丢弃）—— §21.49 同族缺陷。
+4. `components/SessionStatsSheet.ets`：三段新 UI —— 趋势（sparkline + 分/时/日 分段控件；
+   芯片热区用**布局盒**≥44，⛔ 不用失效的 `responseRegion` 外扩）+ 累计（`userCells` 三卡）+
+   按日（最多 5 行，**显式槽位 ⇒ 零 `ForEach`**）。
+
+**判据（演进，⛔ 不删除；全部精确断言）**
+- `tools/tests/sessionstats.test.ts` **67 → 112 passed**（+45 条 ★K–★O）：时区反号 3 · 粒度窗口/文案/
+  顺序 11 · 用户累计解析+卡片 8 · 按日聚合（同日相加、模型取最大、新→旧、截断、日期前缀）10 ·
+  趋势（升序、长度=桶数、峰值=█、0 桶=▁、**全 0 ⇒ 空串**、窗口切片 30→24、小结含"合计"/"活跃 2/24 桶"、
+  空 ⇒ 空串）12 · 辅助 1。
+- `tools/tests/rpc.test.ts`：3 个新 method 登记 `ALL`（忘登记必红）。
+- **mutation 自证 ×3（切片内注入）**：㈠ `bucketWindowBuckets` 未知粒度回落 `24→0` ⇒ **9 红**；
+  ㈡ `trendSparkline` 的"全 0 ⇒ 空串"改成 `max=1`（画假线）⇒ **1 红**；㈢ `parseDailyUsage` 同日不聚合
+  ⇒ **1 红**；三次 `cp` 还原后 **md5 逐字节一致**（`8123924b…`）。
+- **门禁过程中真红过一次**（记录下来）：`text_truncation_gate` 报"未登记的 A 类命中 2 条"
+  （`SessionStatsSheet.ets :: this.sparkText()` / `this.sparkMeta()`）—— 该判据规则是
+  **凡带 `.maxLines(` 的 `Text` 必须同时带 `.textOverflow(`**（⛔ 两张豁免表只许缩短）
+  ⇒ 直接补齐 `.textOverflow({ overflow: TextOverflow.Ellipsis })`（**不登记豁免**），复跑 9 passed。
+
+**GATE**：`BUILD SUCCESSFUL in 23 s 912 ms` · **297 测试文件 0 失败** · `--static` ✅16/❌0 ·
+✅ 真门禁全绿 · `GATE_EXIT=0`。
+
+**遗留（更新）**：① 整页插件面板深链（需 web 侧给 `parseUri/navigate` 接线，跨仓待拍板）；
+② 「完整 Web UI」首载 >2s；③ 键盘弹出顶栏瞬时消失；④ 技能 install/uninstall/export；
+⑤ 3 个磁盘插件 `state=error`（服务端 `plog.go:157` + `manager.go:539`，非原生）；⑥ 抽屉底部 5 键形态
+（需用户拍板）；⑦ 任务详情/搜索命中未逐一看；⑧ **有活跃子代理的会话**做子代理 tab 端到端截图
+（实测当前所有会话的 children 全为 `historical/idle` ⇒ 属正确空态）；⑨ `iter 结束若最后没 tool ⇒ 立刻 idle`
+（待专项核实 —— 本轮只核实了 cancel/插队/滚动三条已交付）。
+

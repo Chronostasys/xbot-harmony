@@ -17,6 +17,10 @@ import {
   ByModelRow, RecentIterRow, SessionUsage, SessionUsageWire, StatCell,
   byModelRows, cacheRatio, contextCells, statMs, fmtPct, formatCount, formatRatio, formatTokenCount,
   overviewCells, parseSessionUsage, perfCells, recentRows, recentTableHeader, recentTableText, sinceText,
+  // 15i：趋势 / 用户累计 / 按日（web 面板有而原生此前缺的三块）
+  DailyUsage, UsageBucket, UserUsage, bucketRequestCount, bucketWindowBuckets, dailyRows,
+  granularityLabel, granularityOptions, hasUserUsage, parseBuckets, parseDailyUsage, parseUserUsage,
+  bucketTokens, trendSparkline, trendSummaryText, trendWindowText, tzOffsetMinutesFor, userCells,
 } from '../../entry/src/main/ets/core/sessionstats';
 
 let pass = 0, fail = 0;
@@ -24,8 +28,8 @@ function eq(name: string, got: unknown, want: unknown): void {
   const g = JSON.stringify(got), w = JSON.stringify(want);
   if (g === w) { pass++; } else { fail++; console.log(`  ✗ ${name}\n      got  ${g}\n      want ${w}`); }
 }
-function ok(name: string, cond: boolean): void {
-  if (cond) { pass++; } else { fail++; console.log(`  ✗ ${name}`); }
+function ok(name: string, cond: boolean, detail?: string): void {
+  if (cond) { pass++; } else { fail++; console.log(`  ✗ ${name}${detail !== undefined ? ` ｜ ${detail}` : ''}`); }
 }
 
 // ── ★A/★B/★C formatTokenCount（web `format.ts:7-13` 逐字）──────────────────────
@@ -218,6 +222,94 @@ function ok(name: string, cond: boolean): void {
   eq('★J 3 行', l3.length, 3);
   ok('★J 3 行逐行等宽', l3[0].length === hdr.length && l3[1].length === hdr.length && l3[2].length === hdr.length);
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ★K–★T（15i）：web 面板有而原生此前缺的三块 —— 用户累计 / 按日 / 趋势
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── ★K 时区符号（JS 的 getTimezoneOffset 与 Unix 反号；混了桶会错 16 小时）────────
+eq('★K 东八区 -480 ⇒ 480', tzOffsetMinutesFor(-480), 480);
+eq('★K 西五区 300 ⇒ -300', tzOffsetMinutesFor(300), -300);
+eq('★K 非数 ⇒ 0', tzOffsetMinutesFor(NaN), 0);
+
+// ── ★L 粒度窗口（web tokenTrend.ts:38-42）─────────────────────────────────────
+eq('★L minute 窗口 60', bucketWindowBuckets('minute'), 60);
+eq('★L hour 窗口 24', bucketWindowBuckets('hour'), 24);
+eq('★L day 窗口 30', bucketWindowBuckets('day'), 30);
+eq('★L 未知粒度回落 24（不是 0）', bucketWindowBuckets('nope'), 24);
+eq('★L 请求桶数 = 窗口 + 2', bucketRequestCount('hour'), 26);
+eq('★L 请求桶数 minute = 62', bucketRequestCount('minute'), 62);
+eq('★L 窗口文案 hour', trendWindowText('hour'), '最近 24 小时');
+eq('★L 窗口文案 minute', trendWindowText('minute'), '最近 60 分钟');
+eq('★L 窗口文案 day', trendWindowText('day'), '最近 30 天');
+eq('★L 粒度顺序 = 细→粗（3 项）', granularityOptions().length, 3);
+eq('★L 粒度顺序逐项', [granularityLabel(granularityOptions()[0]), granularityLabel(granularityOptions()[1]),
+  granularityLabel(granularityOptions()[2])], ['分', '时', '日']);
+
+// ── ★M 用户累计解析（空/缺字段一律 0）─────────────────────────────────────────
+const u0: UserUsage = parseUserUsage(undefined);
+eq('★M 无应答 ⇒ 全 0', [u0.totalTokens, u0.conversationCount, u0.llmCallCount], [0, 0, 0]);
+const u1: UserUsage = parseUserUsage({
+  total_tokens: 7919182118, input_tokens: 7888910363, output_tokens: 30271755,
+  cached_tokens: 7476332282, conversation_count: 875, llm_call_count: 34034,
+});
+eq('★M 字段解析', [u1.totalTokens, u1.conversationCount, u1.llmCallCount], [7919182118, 875, 34034]);
+ok('★M 全 0 ⇒ 不显示该块', !hasUserUsage(u0));
+ok('★M 有数据 ⇒ 显示该块', hasUserUsage(u1));
+// 累计卡：3 张；第一张 label 固定
+const uc: StatCell[] = userCells(u1);
+eq('★M 累计卡 3 张', uc.length, 3);
+eq('★M 首卡 label', uc[0].label, '累计 token');
+eq('★M 首卡值（7.92B）', uc[0].value, '7.92B');
+ok('★M 首卡副行含调用次数', uc[0].sub.indexOf('34,034') >= 0, uc[0].sub);
+
+// ── ★N 按日解析：同日多模型**聚合** + 新→旧 + 模型取当日最大 ────────────────────
+const d: DailyUsage[] = parseDailyUsage([
+  { date: '2026-10-11', model: 'small', input_tokens: 10, output_tokens: 5, llm_call_count: 1, conversation_count: 1 },
+  { date: '2026-10-12', model: 'big', input_tokens: 100, output_tokens: 50, llm_call_count: 7, conversation_count: 3 },
+  { date: '2026-10-11', model: 'big', input_tokens: 1000, output_tokens: 200, llm_call_count: 9, conversation_count: 2 },
+]);
+eq('★N 聚合成 2 日', d.length, 2);
+eq('★N 新→旧', [d[0].date, d[1].date], ['2026-10-12', '2026-10-11']);
+eq('★N 10-11 输入 = 10+1000', d[1].inputTokens, 1010);
+eq('★N 10-11 输出 = 5+200', d[1].outputTokens, 205);
+eq('★N 10-11 调用 = 1+9', d[1].llmCallCount, 10);
+eq('★N 10-11 会话 = 1+2', d[1].conversationCount, 3);
+eq('★N 当日最大模型 = big', d[1].model, 'big');
+eq('★N 空/null ⇒ 空数组', [parseDailyUsage(null).length, parseDailyUsage(undefined).length], [0, 0]);
+// 行渲染：最多 N 日 + 日期去年前缀
+const dr = dailyRows(d, 1);
+eq('★N dailyRows 截到 1 行', dr.length, 1);
+eq('★N 日期去年前缀', dr[0].day, '10-12');
+ok('★N 元信息含调用/会话', dr[0].meta.indexOf('7 次') >= 0 && dr[0].meta.indexOf('3 会话') >= 0, dr[0].meta);
+
+// ── ★O 趋势桶：升序 + 窗口切片 + sparkline 级别 ────────────────────────────────
+const bk: UsageBucket[] = parseBuckets([
+  { bucket_start: 200, input_tokens: 10, output_tokens: 0 },
+  { bucket_start: 100, input_tokens: 5, output_tokens: 0 },
+  { bucket_start: 300, input_tokens: 0, output_tokens: 0 },
+]);
+eq('★O 桶升序', [bk[0].bucketStart, bk[1].bucketStart, bk[2].bucketStart], [100, 200, 300]);
+eq('★O 桶 token 合计', [bucketTokens(bk[0]), bucketTokens(bk[1]), bucketTokens(bk[2])], [5, 10, 0]);
+eq('★O 空 ⇒ 空数组', parseBuckets(null).length, 0);
+// sparkline：max 桶 = █（最后一级）；0 桶 = 最低级 ▁
+const spark: string = trendSparkline(bk, 'hour');
+eq('★O sparkline 长度 = 桶数', spark.length, 3);
+eq('★O 峰值桶 ⇒ █', spark.charAt(1), '█');
+eq('★O 0 桶 ⇒ ▁（不是空格）', spark.charAt(2), '▁');
+eq('★O 全 0 桶 ⇒ 空串（不画假线）', trendSparkline([parseBuckets([{ bucket_start: 1 }])[0]], 'hour'), '');
+eq('★O 无桶 ⇒ 空串', trendSparkline([], 'hour'), '');
+// 窗口切片：给 30 个桶（hour 窗口 24）⇒ 只取**最后** 24 个
+const many: UsageBucket[] = [];
+for (let i = 0; i < 30; i++) {
+  many.push(parseBuckets([{ bucket_start: 1000 + i, input_tokens: i + 1 }])[0]);
+}
+eq('★O 窗口切片到 24', trendSparkline(many, 'hour').length, 24);
+// 小结：含合计 + 活跃计数；空 ⇒ 空串
+const sum: string = trendSummaryText(bk, 'hour');
+ok('★O 小结含「合计」', sum.indexOf('合计') >= 0, sum);
+ok('★O 小结含活跃 2/24 桶', sum.indexOf('活跃 2/24 桶') >= 0, sum);
+eq('★O 无数据小结 ⇒ 空串', trendSummaryText([], 'hour'), '');
 
 console.log(`sessionstats.test: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

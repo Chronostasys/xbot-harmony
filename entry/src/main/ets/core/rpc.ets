@@ -73,6 +73,17 @@ export const RPC_SET_SETTING: string = 'set_setting';
 // 该面板在 web 是随主包打包的内置插件（不在磁盘插件目录）⇒ 服务端 `web_plugin_list` 不下发它。
 export const RPC_GET_SESSION_USAGE_STATS: string = 'get_session_usage_stats';
 
+// ── 统计面板的另三路数据源（web `plugin-api/rpc.ts:65-87`；文案 `rpc.ts:68/79/84`）──
+//
+// 目标④「统计插件的面板我们看不到」：该插件的面板在 web 是**随主包打包的内置视图**，但数据全来自
+// 下面这些**宿主 RPC**（不需要执行插件 JS）⇒ 原生可自渲染。三路的 params 契约逐字取自 web：
+/** `get_user_token_usage`（**无参**）→ 用户累计（web `rpc.ts:79`）。 */
+export const RPC_GET_USER_TOKEN_USAGE: string = 'get_user_token_usage';
+/** `get_daily_token_usage {days?, sender_id?}` → 按「日 × 模型」明细（web `rpc.ts:84`）。 */
+export const RPC_GET_DAILY_TOKEN_USAGE: string = 'get_daily_token_usage';
+/** `get_session_usage_buckets {channel?, chat_id, granularity, count?, tz_offset_minutes?}`（web `rpc.ts:68`）。 */
+export const RPC_GET_SESSION_USAGE_BUCKETS: string = 'get_session_usage_buckets';
+
 // ── llm 分区的「并发 / 思考模式」（波6；逐个核对服务端 rpc_table.go，非猜测）──────
 //
 // ⚠️ 这 4 个都是 **no-admin**（`rpc0`/`rpc1void` 直接注册，没有 `requireAdmin` 包裹）——
@@ -254,6 +265,9 @@ export class RpcMethod {
   static readonly getSettings: string = RPC_GET_SETTINGS;
   static readonly setSetting: string = RPC_SET_SETTING;
   static readonly getSessionUsageStats: string = RPC_GET_SESSION_USAGE_STATS;
+  static readonly getUserTokenUsage: string = RPC_GET_USER_TOKEN_USAGE;
+  static readonly getDailyTokenUsage: string = RPC_GET_DAILY_TOKEN_USAGE;
+  static readonly getSessionUsageBuckets: string = RPC_GET_SESSION_USAGE_BUCKETS;
   static readonly getLlmConcurrency: string = RPC_GET_LLM_CONCURRENCY;
   static readonly setLlmConcurrency: string = RPC_SET_LLM_CONCURRENCY;
   static readonly getUserThinkingMode: string = RPC_GET_USER_THINKING_MODE;
@@ -284,6 +298,9 @@ export class RpcMethod {
     RPC_GET_SETTINGS,
     RPC_SET_SETTING,
     RPC_GET_SESSION_USAGE_STATS,
+    RPC_GET_USER_TOKEN_USAGE,
+    RPC_GET_DAILY_TOKEN_USAGE,
+    RPC_GET_SESSION_USAGE_BUCKETS,
     RPC_GET_LLM_CONCURRENCY,
     RPC_SET_LLM_CONCURRENCY,
     RPC_GET_USER_THINKING_MODE,
@@ -420,6 +437,45 @@ export class SessionUsageStatsParams {
     this.channel = channel;
     this.chat_id = chatId;
     this.limit = limit;
+  }
+}
+
+/**
+ * `get_daily_token_usage` 的 params（web `plugin-api/rpc.ts:84`：`{ days?, sender_id? }`）。
+ * `days` = 回溯天数（web 面板传 7）。
+ */
+export class DailyUsageParams {
+  days: number = 7;
+
+  constructor(days: number) {
+    this.days = days;
+  }
+}
+
+/**
+ * `get_session_usage_buckets` 的 params（web `plugin-api/rpc.ts:68-76`）。
+ *
+ * ⚠️ 四个字段**都要显式发**（ArkTS 类字段一律参与序列化 ⇒ 不能靠"缺省"省略）：
+ *   · `granularity`：`minute` / `hour` / `day`；
+ *   · `count`：请求桶数 = 窗口桶数 + 余量（web 同义；服务端按 `count` 回溯分桶）；
+ *   · `tz_offset_minutes`：**本地**时区偏移（分钟，东八区 = 480）——
+ *     不传则桶边界按 UTC 切，`HH:MM` 刻度会整体偏移。
+ *     取值 = `-new Date().getTimezoneOffset()`（JS 的符号与 Unix 相反）。
+ */
+export class SessionUsageBucketsParams {
+  channel: string = '';
+  chat_id: string = '';
+  granularity: string = 'hour';
+  count: number = 0;
+  tz_offset_minutes: number = 0;
+
+  constructor(channel: string, chatId: string, granularity: string, count: number,
+    tzOffsetMinutes: number) {
+    this.channel = channel;
+    this.chat_id = chatId;
+    this.granularity = granularity;
+    this.count = count;
+    this.tz_offset_minutes = tzOffsetMinutes;
   }
 }
 

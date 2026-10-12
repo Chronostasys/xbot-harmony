@@ -177,8 +177,8 @@ import { TerminalSheet } from '../components/TerminalSheet';
 import { SessSheet, SearchHitsSheet, ContextSheet } from '../components/MenuSheets';
 import { AskUserSheet } from '../components/AskUserSheet';
 import { animBase, animFast, drawerTransition, fadeTransition, sheetTransition } from '../components/anim';
-import { readableRpcError, rpc, RpcMethod, RPC_WEB_PLUGIN_LIST, RPC_GET_SESSION_USAGE_STATS, SessionUsageStatsParams, ThinkingModeParams } from '../core/rpc';
-import { parseSessionUsage, SessionUsage, SessionUsageWire } from '../core/sessionstats';
+import { readableRpcError, rpc, RpcMethod, RPC_WEB_PLUGIN_LIST, RPC_GET_SESSION_USAGE_STATS, RPC_GET_USER_TOKEN_USAGE, RPC_GET_DAILY_TOKEN_USAGE, RPC_GET_SESSION_USAGE_BUCKETS, SessionUsageStatsParams, DailyUsageParams, SessionUsageBucketsParams, EmptyParams, ThinkingModeParams } from '../core/rpc';
+import { parseSessionUsage, SessionUsage, SessionUsageWire, parseUserUsage, parseDailyUsage, parseBuckets, UserUsage, UserUsageWire, DailyUsage, DailyUsageWire, UsageBucket, UsageBucketWire, bucketRequestCount, DAILY_DAYS_WINDOW, tzOffsetMinutesFor } from '../core/sessionstats';
 import { TodoPayloadRow, removeTodoAt, renameTodoAt, todoPayloadRows, toggleTodoAt } from '../core/todos';
 import { WebSubAgentProgress } from '../core/chattypes';
 import { EMPTY_BLOCKS_SIGNATURE, liveBlocksSignature, subAgentsFingerprint } from '../core/render';
@@ -839,6 +839,18 @@ struct Index {
   @State sessUsage: SessionUsage = new SessionUsage();
   @State sessionStatsLoading: boolean = false;
   @State sessionStatsError: string = '';
+  // 15i：统计面板另三块（web 有而原生缺）—— 用户累计 / 按日 / 趋势桶。
+  @State statsUser: UserUsage = new UserUsage();
+  @State statsDaily: DailyUsage[] = [];
+  @State statsBuckets: UsageBucket[] = [];
+  /** 趋势粒度（分段控件；切换只重拉桶，不重拉其余三路）。 */
+  @State statsGranularity: string = 'hour';
+  /**
+   * 取数在飞（⛔ 同一时刻只允许一次）。
+   * §21.49 的教训（面板切 tab 请求被**静默吞掉**）在这里同样成立 ⇒ 重入**排队**而不是丢弃。
+   */
+  private statsBusy: boolean = false;
+  private statsRefreshQueued: boolean = false;
   // ── 插件 widget 数据面（页面半边；`store` 半边在 `core/store.ets` 的 lastWidgetEvent/Content）──
   /** 当前 widget 事件名（SSE 载荷产出；空 ⇒ 回落 `WIDGET_EVENT_WEB`）。 */
   @State widgetEvent: string = WIDGET_EVENT_WEB;
@@ -3556,17 +3568,32 @@ struct Index {
 
   /**
    * 拉会话用量统计 → 投给统计面板（**不吞错**：失败可读化后交面板显示 + 可重试）。
-   * 数据源 = RPC `get_session_usage_stats`（服务端 iteration_history 聚合）；判据/格式化
-   * 全在 `core/sessionstats.ets`（纯逻辑，可脱机单测），页面只负责取数与所有权。
+   *
+   * 四路数据（**逐字对齐 web 面板** `SessionStatsPanel.tsx` + `TokenTrendSection.tsx`）：
+   *   ① `get_session_usage_stats`（会话聚合；失败 ⇒ 面板显示错误 + 可重试）
+   *   ② `get_user_token_usage`（用户累计）    ┐
+   *   ③ `get_daily_token_usage`（按日明细）   ├ **尽力而为**：单路失败只清该块，
+   *   ④ `get_session_usage_buckets`（趋势桶） ┘ 不拖垮整页（旧后端可能没有某一路 RPC）。
+   * 判据/格式化全在 `core/sessionstats.ets`（纯逻辑）；页面只负责取数与所有权。
+   *
+   * ⛔ 在飞守卫：忙时**排队**（`statsRefreshQueued`）而不是丢弃 —— §21.49 的"请求被静默吞掉"同族缺陷。
    */
   private async loadSessionStats(): Promise<void> {
     const store: ChatStore | null = this.store;
     if (store === null) {
       this.sessUsage = new SessionUsage();
+      this.statsUser = new UserUsage();
+      this.statsDaily = [];
+      this.statsBuckets = [];
       this.sessionStatsError = '尚未连接服务端';
       this.sessionStatsLoading = false;
       return;
     }
+    if (this.statsBusy) {
+      this.statsRefreshQueued = true;
+      return;
+    }
+    this.statsBusy = true;
     this.sessionStatsLoading = true;
     try {
       const wire: SessionUsageWire = await rpc<SessionUsageWire>(
@@ -3578,8 +3605,67 @@ struct Index {
       this.sessUsage = new SessionUsage();
       this.sessionStatsError = readableRpcError((e as Error).message);
     } finally {
+      // ①②③④ 各自 try/catch ⇒ 这里只收尾（清 busy + 消费排队）。
+      this.statsBusy = false;
       this.sessionStatsLoading = false;
+      const again: boolean = this.statsRefreshQueued;
+      this.statsRefreshQueued = false;
+      if (again) {
+        this.loadSessionStats();
+        return;
+      }
     }
+    await this.loadStatsAux();
+  }
+
+  /** 用户累计 / 按日 / 趋势桶（三路**尽力而为**；任一路失败只清该块）。 */
+  private async loadStatsAux(): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    try {
+      const u: UserUsageWire = await rpc<UserUsageWire>(
+        store.http, RPC_GET_USER_TOKEN_USAGE, new EmptyParams());
+      this.statsUser = parseUserUsage(u);
+    } catch (e) {
+      this.statsUser = new UserUsage();
+    }
+    try {
+      const d: DailyUsageWire[] = await rpc<DailyUsageWire[]>(
+        store.http, RPC_GET_DAILY_TOKEN_USAGE, new DailyUsageParams(DAILY_DAYS_WINDOW));
+      this.statsDaily = parseDailyUsage(d);
+    } catch (e) {
+      this.statsDaily = [];
+    }
+    await this.reloadStatsBuckets();
+  }
+
+  /** 只重拉趋势桶（切换粒度时不惊动其余三路）。 */
+  private async reloadStatsBuckets(): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    const g: string = this.statsGranularity;
+    try {
+      const b: UsageBucketWire[] = await rpc<UsageBucketWire[]>(
+        store.http, RPC_GET_SESSION_USAGE_BUCKETS,
+        new SessionUsageBucketsParams(store.channel, store.currentChatId, g,
+          bucketRequestCount(g), tzOffsetMinutesFor(new Date().getTimezoneOffset())));
+      this.statsBuckets = parseBuckets(b);
+    } catch (e) {
+      this.statsBuckets = [];
+    }
+  }
+
+  /** 切换趋势粒度（分段控件回调）—— 只换 `statsGranularity` 并重拉桶。 */
+  private async setStatsGranularity(g: string): Promise<void> {
+    if (g === this.statsGranularity) {
+      return;
+    }
+    this.statsGranularity = g;
+    await this.reloadStatsBuckets();
   }
 
   // ── 图片（cookie 鉴权端点 → 自行取字节解码） ──────────────────────────────
@@ -3875,8 +3961,15 @@ struct Index {
           SessionStatsSheet({
             theme: this.themeName,
             stats: this.sessUsage,
+            user: this.statsUser,
+            daily: this.statsDaily,
+            buckets: this.statsBuckets,
+            granularity: this.statsGranularity,
             loading: this.sessionStatsLoading,
             error: this.sessionStatsError,
+            onGranularity: (g: string) => {
+              this.setStatsGranularity(g);
+            },
             onRetry: () => {
               this.loadSessionStats();
             },
