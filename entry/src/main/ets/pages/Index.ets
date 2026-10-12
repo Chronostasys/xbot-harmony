@@ -1254,7 +1254,12 @@ struct Index {
       return;
     }
     if (action.id === COMMAND_SIDEBAR_TOGGLE) {
-      this.showDrawer = !this.showDrawer;
+      // ⛔ 唯一开抽屉入口 = `openDrawer()`（它做浮层互斥）；关才直接置 false。
+      if (this.showDrawer) {
+        this.showDrawer = false;
+      } else {
+        this.openDrawer();
+      }
       return;
     }
     if (action.id === COMMAND_INPUT_FOCUS) {
@@ -1944,7 +1949,7 @@ struct Index {
     const parts: string[] = [];
     try {
       parts.push(`# 聊天页\n${this.collectGeometry()}`);
-      this.showDrawer = true;
+      this.openDrawer();
       await this.wait(700);
       parts.push(`# 会话抽屉\n${this.collectGeometry()}`);
       this.showDrawer = false;
@@ -2067,7 +2072,7 @@ struct Index {
         geo.push(`--- ${steps[i]} ---\n${this.collectGeometry()}`);
       }
       // 会话抽屉
-      this.showDrawer = true;
+      this.openDrawer();
       await this.wait(900);
       try {
         done.push(`02-drawer=${await this.captureAndUpload('02-drawer')}`);
@@ -6613,6 +6618,11 @@ struct Index {
   }
 
   private openDrawer(): void {
+    // ⛔ 浮层互斥（**反方向**）：抽屉在渲染序里是**最底层的浮层**（build 里 `if (this.showDrawer)`
+    //   最先渲染，运行面板/任务详情/设置面都在其后 ⇒ z 序更高）⇒ 开抽屉前必须收掉它们，
+    //   否则真机表现为"抽屉背景里叠着一张任务卡 + 运行面板"，抽屉列表被盖住 ⇒ **看起来像坏了**
+    //   （2026-10-12 实测三张浮层同屏）。与 `openPanels()`「面板由抽屉进入 ⇒ 先收抽屉」是同一条铁律。
+    this.closeOverlaysAboveDrawer();
     this.showDrawer = true;
     const store: ChatStore | null = this.store;
     if (store !== null) {
@@ -6620,6 +6630,37 @@ struct Index {
         // 刷新失败保留旧列表（弱网下仍能看到上次的会话）
       });
     }
+  }
+
+  /**
+   * 收掉所有**渲染在抽屉之上**的浮层（开抽屉前的互斥收口）——**唯一真源**。
+   *
+   * ⛔ 新增浮层时**必须**在这里登记（并补判据 `drawer_exclusive_wiring`：
+   *   `showDrawer = true` 全仓**只许出现 1 处**＝就是 `openDrawer()` 里那句
+   *   ⇒ 任何"绕过 openDrawer 直接开抽屉"的写法都会被抓红）。
+   */
+  private closeOverlaysAboveDrawer(): void {
+    this.showNewSession = false;
+    this.showQueue = false;
+    this.showPlugins = false;
+    this.showSkills = false;
+    this.showFiles = false;
+    this.showSelfCheck = false;
+    this.showStatus = false;
+    this.showModel = false;
+    this.showSettingsPanel = false;
+    this.showPanels = false;
+    this.showTaskDetail = false;
+    this.showTerminal = false;
+    this.showSearchHits = false;
+    this.showPluginHost = false;
+    this.showSessionStats = false;
+    this.sessMenuId = '';
+    this.ctxOpen = false;
+    this.panelUrl = '';
+    this.pluginPageUrl = '';
+    // 图片查看器走既有收口（重置缩放/位移 + 释放 PixelMap），⛔ 不手写第二套。
+    this.closeViewer();
   }
 
   private openPanels(): void {
