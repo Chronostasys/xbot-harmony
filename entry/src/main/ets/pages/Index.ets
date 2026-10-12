@@ -7416,82 +7416,71 @@ struct Index {
         .scrollBar(BarState.Off)
       }
 
-      // ── 底部动作（分组行：标签 + chevron，发丝线分隔；命中区 44）─────────────
-      Column() {
-        Divider().strokeWidth(STROKE_HAIRLINE).color(hairlineOf(this.pal())).margin({ top: SPACE_SM })
-        Row() {
+      // ── 底部动作：**紧凑工具栏**（单行 4 键；图标 + micro 标签）──────────────────
+      // ⛔ 2026-10-12 用户亲报（原话）：「只有那么一点点区域真的用于会话，用户要频繁的滚动…
+      //    按钮占据一大半？你要么侧边栏彻底给按钮重设计会话的交互，要么按钮改别的布局」。
+      //    原实现 = 4 个**整行**条目（每行 ≥44vp + 3 条发丝线 + 16vp 空带 ≈ 195vp ≈ 22% 屏高）
+      //    ⇒ 会话列表只剩 ~25% 屏高（真机截图量：列表仅 ~720px / 2848px）。
+      //    改**单行 4 键**：热区仍 ≥44vp、`accessibilityText` 逐字保留（含全量枚举）⇒
+      //    释放 ~140vp ≈ 18% 屏高给列表。破坏性动作仍**独立在最右**（Apple：不可逆动作与
+      //    导航项拉开），但不再单独占一整行。
+      Divider().strokeWidth(STROKE_HAIRLINE).color(hairlineOf(this.pal())).margin({ top: SPACE_SM })
+      Row() {
+        Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.gearshape'))
             .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
-            .margin({ right: SPACE_SM })
           Text('设置')
-            .fontSize(typeOf('type.subhead').size).fontColor(this.pal().textPrimary).layoutWeight(1)
-          SymbolGlyph($r('sys.symbol.chevron_right'))
-            .fontSize(typeOf('type.caption').size).fontColor([colorOf(this.pal(), 'iconMuted')])
+            .fontSize(typeOf('type.micro').size).fontColor(this.pal().textSecondary)
         }
-        .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
-        .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
-        .alignItems(VerticalAlign.Center)
+        .layoutWeight(1).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('设置')
         .onClick(() => {
-          // 设置入口（与右上角 ⚙ 同目的）—— 统一开 `SettingsPanel`（唯一设置面）
           this.openSettingsPanel();
         })
-        Divider().strokeWidth(STROKE_HAIRLINE).color(hairlineOf(this.pal())).margin({ left: INSET_ROW_X, right: INSET_ROW_X })
-        Row() {
+        Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.list_bullet'))
             .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
-            .margin({ right: SPACE_SM })
-          // 文案技术化（2026-10-12）：原 `面板（任务 / 子代理 / Runner）` 是**内部术语堆叠**
-          // 且漏了「定时任务」这一档；改**动词短语 + 单名**，全量枚举移入 a11y 文案。
-          Text('运行面板')
-            .fontSize(typeOf('type.subhead').size).fontColor(this.pal().textPrimary).layoutWeight(1)
-          SymbolGlyph($r('sys.symbol.chevron_right'))
-            .fontSize(typeOf('type.caption').size).fontColor([colorOf(this.pal(), 'iconMuted')])
+          Text('运行')
+            .fontSize(typeOf('type.micro').size).fontColor(this.pal().textSecondary)
         }
-        .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
-        .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
-        .alignItems(VerticalAlign.Center)
-        .accessibilityText('运行面板：定时任务、后台任务、子代理、Runner')
+        .layoutWeight(1).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('运行面板：定时任务、后台任务、子代理、Runner')
         .onClick(() => {
           this.openPanels();
         })
-        Divider().strokeWidth(STROKE_HAIRLINE).color(hairlineOf(this.pal())).margin({ left: INSET_ROW_X, right: INSET_ROW_X })
-        Row() {
+        Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.puzzle'))
             .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
-            .margin({ right: SPACE_SM })
-          Text('插件与 Web UI')
-            .fontSize(typeOf('type.subhead').size).fontColor(this.pal().textPrimary).layoutWeight(1)
-          SymbolGlyph($r('sys.symbol.chevron_right'))
-            .fontSize(typeOf('type.caption').size).fontColor([colorOf(this.pal(), 'iconMuted')])
+          Text('插件')
+            .fontSize(typeOf('type.micro').size).fontColor(this.pal().textSecondary)
         }
-        .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
-        .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
-        .alignItems(VerticalAlign.Center)
-        .accessibilityText('插件与 Web UI：插件目录、宿主页、完整 Web UI')
+        .layoutWeight(1).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('插件与 Web UI：插件目录、宿主页、完整 Web UI')
         .onClick(() => {
-          // 能力面板（原生插件目录 + 宿主页 + 完整 Web UI）——此前**无任何 UI 入口**
-          // （`showPlugins` 只被调试自检 `collectGeometry` 置位）⇒ 用户打不开；本行是唯一真入口。
           this.openPlugins();
         })
-        // 破坏性动作**独立成组**（Apple：不可逆动作与导航项之间留出视觉间隔）——
-        // 上边距把「插件与 Web UI」的尾部发丝与该分隔线拉开一个 `SPACE_MD` 的空带。
-        Divider().strokeWidth(STROKE_HAIRLINE).color(hairlineOf(this.pal()))
-          .margin({ top: SPACE_MD, left: INSET_ROW_X, right: INSET_ROW_X })
-        Row() {
-          Text('退出登录')
-            .fontSize(typeOf('type.subhead').size).fontColor(this.pal().dangerText).layoutWeight(1)
+        Column({ space: 2 }) {
+          SymbolGlyph($r('sys.symbol.power'))
+            .fontSize(ICON_MD).fontColor([this.pal().dangerText])
+          Text('退出')
+            .fontSize(typeOf('type.micro').size).fontColor(this.pal().dangerText)
         }
-        .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
-        .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
-        .alignItems(VerticalAlign.Center)
+        .layoutWeight(1).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('退出登录')
         .onClick(() => {
           this.doLogout();
         })
-      }.width('100%')
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
     }
     // ⚠️ 88%（原 82%）：真机量测行内容仅 919px ⇒ 标题在"已标星 + 有相对时间 + ⋯"时被截断
     //    （`harmony-ui-dev` → `harmony-ui…`）。侧栏是**主动航面**，Apple 在 iPhone 上也逼近全宽。
