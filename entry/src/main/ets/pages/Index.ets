@@ -8733,7 +8733,7 @@ struct Index {
               }
             }
             if (!this.isGroupCollapsed(this.sessionCategory(), g.key)) {
-              ForEach(g.items, (s: SessionItem) => {
+              ForEach(g.items, (s: SessionItem, sIdx: number) => {
                 ListItem() {
                   Column() {
                     // 行体：**扁平行**（无卡片/无描边/无阴影）—— 结构靠发丝线，选中靠一档填充。
@@ -8867,10 +8867,15 @@ struct Index {
                     // 结构性发丝（⛔ 不是装饰描边）：行与行之间的唯一分隔。
                     // 左缘**内缩到文字起点**（Apple 的 inset separator：线只从正文起画，前导标记槽那片
                     // 留白不画线）⇒ 视觉上"线跟着文字走"，与标题左缘形成同一条竖轴。
-                    Divider()
-                      .strokeWidth(STROKE_HAIRLINE)
-                      .color(hairlineOf(this.pal()))
-                      .margin({ left: INSET_ROW_X + MARKER_GUTTER + SPACE_XS, right: INSET_ROW_X })
+                    // ⚠️ 2026-10-13（目标③「对标苹果」）：**每组的最后一行不留线** —— Apple 分组列表
+                    //    （`UITableView.insetGrouped` / iOS「设置」）组尾**不画**分隔线；原位画一条会在
+                    //    组尾形成"悬空线"，紧贴下一个组头 ⇒ 组与组之间读出两条平行线、分组层次反而糊。
+                    if (sIdx < g.items.length - 1) {
+                      Divider()
+                        .strokeWidth(STROKE_HAIRLINE)
+                        .color(hairlineOf(this.pal()))
+                        .margin({ left: INSET_ROW_X + MARKER_GUTTER + SPACE_XS, right: INSET_ROW_X })
+                    }
                   }
                   .width('100%')
                 }

@@ -4044,3 +4044,18 @@ terminal 字形）⇒ 终端 tab 用 `code`（终端=敲代码的壳），并把
 并加三条反向/白绿断言：⛔ 不得再用 `Flex(wrap)`、⛔ 色圈不得带右 margin、
 ✅ 圆点仍为 44×44 命中盒（不许为"排得下"而缩小）⇒ `settings_panel_wrap: 20 passed`。
 门禁 `GATE_EXIT=0` + `BUILD SUCCESSFUL`。
+
+## §21.79 会话抽屉：每组末行不再画分隔线（Apple 分组列表惯用，15z6）
+
+**症状**（装机截图）：抽屉每个会话行下都画一条发丝，**含每组的最后一行** ⇒ 组尾出现"悬空线"，
+紧贴下一个组头（如 `web-1` 的线下面立刻是「更早」）⇒ 组与组之间读出两条平行线、分组层次反而糊。
+
+**修法**（对标 `UITableView.insetGrouped` / iOS「设置」：组尾**不画**分隔线）：
+`ForEach(g.items, (s, sIdx) => …)` 取索引，把 `Divider()` 包进
+`if (sIdx < g.items.length - 1)` —— 分隔线仍是"行与行之间"的唯一分隔（左缘内缩到文字起点不变），
+只是不再画在组尾。⛔ 不改 `INSET_ROW_X + MARKER_GUTTER + SPACE_XS` 的内缩口径（标量不变）。
+
+**装机复验**：抽屉截图对照（改前/改后）—— `web-1`、`手机NPU部署30B-MoE` 下方悬空线消失 ✓。
+
+**判据**：既有 `status_sheet_drawer` 的锚点（`Divider()` 在 `renamingId === s.chat_id` 之后、
+内缩 margin 串不变）**仍成立** ⇒ `status_sheet_drawer: 73 passed`。门禁 `GATE_EXIT=0` + `BUILD SUCCESSFUL`。
