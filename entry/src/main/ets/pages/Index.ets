@@ -907,6 +907,14 @@ struct Index {
   /** 安全区（状态栏/导航栏高度，由 EntryAbility 写入）—— 消除"内容顶到状态栏" */
   @StorageProp('safeTopVp') safeTop: number = 0;
   @StorageProp('safeBottomVp') safeBottom: number = 0;
+  /**
+   * 软键盘高度（**px**，由 `EntryAbility` 的 `keyboardHeightChange` 广播；键盘收起时为 0）。
+   * 为什么需要它：`KeyboardAvoidMode.RESIZE` **只对"焦点在文档流输入框"生效** —— 焦点落在**浮层内**
+   * 输入框（抽屉搜索框、运行面板里的输入行）时真机实测**视口一点不缩**（页面内容根恒 y2754）
+   * ⇒ 浮层底栏/输入行留在窗口底、被软键盘**完全盖死**（用户点名「终端和任务管理做的很差」的硬点）。
+   * 消费方式：**底部锚定的浮层**给其容器加 `.padding({ bottom: px2vp(this.kbHeightPx) })`。
+   */
+  @StorageProp('kbHeightPx') kbHeightPx: number = 0;
 
   // ── 点通知要打开的会话（通道 = AppStorage，键由 EntryAbility.captureOpenChat 写入）──
   // ⚠️ 装饰器参数必须是**字面量**（不能用导入的常量），这里的字符串与 core/notify.ets 的
@@ -4070,6 +4078,9 @@ struct Index {
             },
           })
         }.width('100%').height('100%')
+        // 键盘让位（⛔ 见 `kbHeightPx` 注释）：终端 sheet 是 `.height('82%')` **居中**的，其底部
+        // （命令行输入行）会在键盘弹起时被盖住 ⇒ 按键盘高度收缩可用区，sheet 随之整体上移。
+        .padding({ bottom: px2vp(this.kbHeightPx) })
       }
       // 会话状态（todos / goal / 用量 / cwd）
       if (this.showStatus) {
@@ -4134,6 +4145,10 @@ struct Index {
           })
           this.PanelsSheet()
         }.width('100%').height('100%')
+        // ⛔ 这里**不加**键盘让位（与本仓"不许死消费"纪律一致）：`PanelsSheet` 切片内
+        //    `TextInput|TextArea` 命中 **0** 处（终端 tab 只有列表 + 「＋ 新建」按钮，
+        //    真正的输入行在 `TerminalSheet`）⇒ 面板**不可能**与软键盘共存（开面板时
+        //    `openPanels()` 已先收键盘）⇒ 加了就是**不可达的死代码**。终端那层已单独处理。
       }
       // 会话操作菜单（置顶/上移/下移/改名/分支/删除）
       if (this.sessMenuId.length > 0) {
@@ -8619,6 +8634,10 @@ struct Index {
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
+      // ── 键盘让位（⛔ 见 `kbHeightPx` 注释）：焦点在**抽屉自己的搜索框**时 `RESIZE` 不生效 ⇒
+      //    抽屉底这排 5 键会留在窗口底、被软键盘完全盖死（真机 dump：节点被 IME 窗口整批裁掉）。
+      //    这里按键盘高度把这排动作**顶到键盘上方**（键盘收起 = 0 ⇒ 与原先逐字节一致）。
+      .padding({ bottom: px2vp(this.kbHeightPx) })
     }
     // ⚠️ 88%（原 82%）：真机量测行内容仅 919px ⇒ 标题在"已标星 + 有相对时间 + ⋯"时被截断
     //    （`harmony-ui-dev` → `harmony-ui…`）。侧栏是**主动航面**，Apple 在 iPhone 上也逼近全宽。

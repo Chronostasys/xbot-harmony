@@ -43,6 +43,13 @@ const MAX_LOAD_RETRY: number = 1;
 
 export default class EntryAbility extends UIAbility {
   private darkSystem: boolean = true;
+  /**
+   * 软键盘高度监听回调（与 `win.on('keyboardHeightChange', …)` **成对**；
+   * `onWindowStageDestroy` 里注销——避免留一个打到已销毁页面的回调）。
+   */
+  private kbCb: ((h: number) => void) | null = null;
+  /** 主窗口引用（**只为注销**上面的监听；窗口本身随 ability 销毁）。 */
+  private mainWin: window.Window | null = null;
 
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     // ⛔ **系统表面跟随主题**（原为硬编码深色 —— 浅色主题下会造成"外壳深、卡片浅"的割裂）。
@@ -105,6 +112,20 @@ export default class EntryAbility extends UIAbility {
     try {
       const win: window.Window = windowStage.getMainWindowSync();
       win.setWindowLayoutFullScreen(false);
+      // ── 软键盘高度 → AppStorage（**浮层自避让的唯一数据源**）────────────────────────────
+      // ⛔ 为什么必须自己广播：`KeyboardAvoidMode.RESIZE` **只对"焦点在文档流输入框"生效**。
+      //   真机 dump 对照（同一个抽屉，两次测量）：
+      //     · 点 composer（**文档流**）⇒ 页面内容根 y2754 → ~1780（视口真缩、输入框可见）✓
+      //     · 点抽屉搜索框（**浮层内**）⇒ 页面内容根**仍 2754**（视口一点没缩）⇒ 抽屉底栏留在
+      //       y2647、被 IME 窗口**完全盖死**（连 dump 都把它的节点整批裁掉，因为被别的窗口盖住）✗
+      //   ⇒ 浮层不能指望系统避让，必须自己按键盘高度让位。页面侧消费点：
+      //     `Index.ets` 的 `@StorageProp('kbHeightPx')`（抽屉底栏 / 运行面板底部内边距）。
+      //   单位 = **px**（页面侧用 `px2vp()` 换算）；键盘收起时系统会回调 **0** ⇒ 内边距归零。
+      this.kbCb = (h: number): void => {
+        AppStorage.setOrCreate<number>('kbHeightPx', h);
+      };
+      win.on('keyboardHeightChange', this.kbCb);
+      this.mainWin = win;
       // 键盘避让模式：ArkUI 默认是 OFFSET（键盘弹出时把**整页上推**）——底部输入框仍可能被键盘
       // 盖住、整页内容随键盘抖动，在"边打字边看进度"的聊天场景里体感就是"没法用"。
       // 选 RESIZE：键盘出现时**缩小布局视口**（列表自然变矮、输入框始终可见、内容不位移），
@@ -124,6 +145,19 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageDestroy(): void {
+    // 注销键盘高度监听（**显式对称**：窗口随 ability 销毁本不会泄漏，但 `kbHeightPx` 是浮层避让的
+    // 唯一数据源，⛔ 不能留一个可能打到已销毁页面的回调）。
+    const win: window.Window | null = this.mainWin;
+    if (win !== null && this.kbCb !== null) {
+      try {
+        win.off('keyboardHeightChange', this.kbCb);
+      } catch (e) {
+        const err: BusinessError = e as BusinessError;
+        hilog.warn(DOMAIN, TAG, 'keyboardHeightChange off skipped: %{public}s', err.message);
+      }
+      this.kbCb = null;
+      this.mainWin = null;
+    }
     hilog.info(DOMAIN, TAG, 'EntryAbility onWindowStageDestroy');
   }
 

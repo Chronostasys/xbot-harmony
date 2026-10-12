@@ -3057,3 +3057,60 @@ Apple 语义：打开新浮层 ⇒ 旧上下文的输入焦点一并撤销。
 或把搜索框从"全高 sheet + 底栏"结构里拆出（Apple `UISearchController` 语义）。
 ⛔ 本轮只登记，不动结构（避免与在途改动冲突）。
 
+
+## §21.54 浮层**自避让**软键盘（键盘高度的单一来源 + 2 个可达消费点）（2026-10-12）
+
+**§21.53 的残留缺陷已定性并修复**：§21.53 只做到"开浮层时收掉**已有**键盘"，
+但浮层**打开之后**键盘再弹起（焦点落在**浮层内**输入框）仍会盖住浮层底部。
+
+**根因（真机 dump 对照确证，非推测）**：`KeyboardAvoidMode.RESIZE`（`EntryAbility.ets`）
+**只在焦点落在"文档流"输入框时缩视口**：
+
+| 操作 | 焦点位置 | 页面内容根 bounds | composer/model 行 |
+|---|---|---|---|
+| k4 点 composer | 文档流 | `[0,131][1320,2754]` | y2417…2727 |
+| k5 **同上但键盘弹起** | 文档流 | **缩到 ~1780** ✓ | **y1476…1779**（上移 932px）✓ |
+| k2 抽屉开着、键盘**收** | — | 全高 | 底栏 5 键 **y2647** ✓ |
+| k3 点**抽屉自己的搜索框** | **浮层内** | **仍 `[0,131][1320,2754]`**（视口一点没缩）✗ | 仍 y2417（被 IME 盖住、dump 裁剪） |
+
+⇒ k3 里抽屉底栏节点**被 `uitest dumpLayout` 整批裁掉**（被 IME 窗口盖住 ⇒ 不算"可见节点"），
+即**底色正确、只是够不着**。同一元素的 y 取决于"键盘是否**先**存在"（键盘先弹起再开抽屉 ⇒ 底栏
+在 y1699 正常）⇒ **不确定行为本身就是缺陷**，且直接命中用户点名的「**终端和任务管理做的很差**」
+（终端 sheet 底部命令行 / 运行面板下半截 / 抽屉底栏 5 键都在键盘之下）。
+
+**修法（单一来源 + 最小消费）**：
+1. **生产者（唯一）**：`EntryAbility.onWindowStageCreate` 注册
+   `win.on('keyboardHeightChange', cb)` ⇒ `AppStorage.setOrCreate<number>('kbHeightPx', h)`（单位 px）；
+   `onWindowStageDestroy` 里 `win.off(...)` **成对注销**（⛔ 不留打到已销毁页面的回调）。
+2. **消费（页面 `@StorageProp('kbHeightPx')`）**：给**底部锚定**的浮层容器加
+   `.padding({ bottom: px2vp(this.kbHeightPx) })` —— 键盘收起时系统回调 **0** ⇒ 与修复前**逐字节一致**。
+   - 抽屉底栏（`DrawerSheet` 底部 5 键那排）
+   - 终端浮层（`showTerminal` 的 `Stack`；sheet 是 `.height('82%')` **居中**的，收缩可用区即整体上移）
+3. ⛔ **运行面板故意不加**（诚实纪律）：`PanelsSheet` 切片内 `TextInput|TextArea` 命中 **0**
+   （终端 tab 只有列表 + 「＋ 新建」，真输入行在 `TerminalSheet`）⇒ 面板**不可能**与键盘共存
+   （`openPanels()` 在 §21.53 已先收键盘）⇒ 加了就是**不可达的死消费点**。
+
+**真机验证（装机后，同一 dump 口径，对照修复前）**：
+- 抽屉底栏：键盘收 **y2647**（无回归）→ 键盘弹起 **y1587**（**仍在布局树**、浮在键盘正上方；
+  修复前该态下 5 键节点**整批消失**）。截图 `/tmp/f2.jpeg` 视觉一致 ✓
+- 终端 sheet：键盘弹起后快捷键行 `Ctrl-C/Tab/Esc` **y2140 → y820**、`Home/End/PgUp/PgDn`
+  **y2314 → y994**（整批上移到键盘之上）✓
+
+**判据（新增，⛔ 不删除）**：`tools/tests/overlay_keyboard_inset.test.ts`（**23 passed**）
+① 两文件零扫描判红 + 剥注释 · ② 生产者唯一（`on`/`AppStorage` 写入/`off` 各恰 1 处，且**切片内**分别落在
+`onWindowStageCreate`/`onWindowStageDestroy`）· ③ 消费点计数 **== 2** + `@StorageProp` 恰 1 处 ·
+④ 两个消费点**逐个**落在自己的浮层切片内（各恰 1 处）· **反向断言**：运行面板切片内让位**恰 0 处** ·
+⑤ 形态 = `.padding({ bottom: px2vp(this.kbHeightPx) })` **恰 2 处**。
+**mutation 自证 ×4**：删 `AppStorage.setOrCreate` 行 ⇒ 2 红 · 删终端让位 ⇒ 3 红 ·
+给运行面板加死消费点 ⇒ 3 红 · 还原 md5 逐字节一致。
+
+**GATE**：`BUILD SUCCESSFUL in 13 s 752 ms` · **300 测试文件 0 失败** · `--static ✅16/❌0` ·
+`✅ 真门禁全绿` · `GATE_EXIT=0` · 装机 `DEPLOY_EXIT=0`。
+
+**⚠️ 登记为下批复用点（机制已就位，`kbHeightPx` 拿来即用）**：其余"含输入框且底部/全屏锚定"的浮层——
+设置面板（`SettingsLlm/SettingsAppearance/SettingsChannels/SettingsPlugins/SettingsWebUsers/SettingsRows`
+共 6 个分区有 `TextInput`）、`AskUserSheet`、`StatusSheet`(3)/`TodoPanel`(1)/`GoalBanner`(1)、
+`NewSessionSheet`（`Index.ets:7344/7361`）、`ModelSheet`（`:8726` 上下文预设手输）、
+登录页（`:4480/4530/4539`）——焦点在这些浮层内时视口同样不缩。
+⛔ 插件「整页」是 Web 内容（XComponent/Web），键盘避让归 web 侧自身，不要在这里硬塞。
+
