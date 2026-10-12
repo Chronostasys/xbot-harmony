@@ -10,6 +10,9 @@
  *    把 `webStatusOf` 的 error 分支删掉 ⇒ ★D 红；把产物角色改成非法（如 `statusWaiting`）⇒ ★E 红。
  */
 declare const process: { exit: (c: number) => void };
+declare function require(m: 'fs'): { readFileSync(p: string, e: string): string; existsSync(p: string): boolean };
+declare function require(m: 'path'): { join(...parts: string[]): string };
+declare const __dirname: string;
 
 import {
   PLUGIN_STATE_ACTIVE, WIDGET_UNSUPPORTED_LABEL, WEB_PHASE_ERROR, WEB_PHASE_IDLE, WEB_PHASE_LOADING,
@@ -21,6 +24,8 @@ import {
   PANEL_STATE_EMPTY, PANEL_STATE_ERROR, PANEL_STATE_LOADING, PANEL_STATE_NONE,
   pluginPanelEmptyText, pluginPanelErrorText, pluginPanelStatus, pluginMetaText,
   webHttpErrorDetail,
+  PANEL_ENTRY_ROW_H, PANEL_FIXED_ENTRY_ROWS, PANEL_LIST_MAX_H, PANEL_LIST_MIN_H, PANEL_PLUGIN_ROW_H,
+  pluginPanelListHeight,
 } from '../../entry/src/main/ets/core/pluginview';
 
 let pass = 0, fail = 0;
@@ -213,6 +218,66 @@ eq('★D2 info 去空白', webErrorDetail('  oops  ', 0), 'oops');
   eq('★G 文案 = 加载失败：HTTP 404 Not Found', st.text, '加载失败：HTTP 404 Not Found');
   eq('★G 可重试', st.canRetry, true);
   eq('★G 色角色 = dangerText', st.colorRole, 'dangerText');
+}
+
+// ── ★H 能力面板「列表高度」（`pluginPanelListHeight`；真机缺陷：硬编码 320 会裁掉靠后的插件行）──
+{
+  // 回归钉（**本用例存在的理由**）：后端当时 4 个插件 ⇒ 旧硬编码 320 把第 4 个
+  // （`xbot.ssh-runner`）整条裁掉（真机 dump 侧证：其两行文本**完全不在**可见区）。
+  const h4: number = pluginPanelListHeight(PANEL_FIXED_ENTRY_ROWS, 4, 0);
+  ok('★H 4 个插件时列表高度**必须大于**旧硬编码 320（否则靠后的插件行被裁）', h4 > 320);
+  // 且要真的装得下（未触上限时，估计高度 ≥ 行数 × 行高估值）
+  eq('★H 未触上限 ⇒ 恰为 3×入口行 + 4×插件行',
+    h4, PANEL_FIXED_ENTRY_ROWS * PANEL_ENTRY_ROW_H + 4 * PANEL_PLUGIN_ROW_H);
+  ok('★H 该高度 ≥ 各行估值之和（装得下，不裁行）',
+    h4 >= PANEL_FIXED_ENTRY_ROWS * PANEL_ENTRY_ROW_H + 4 * PANEL_PLUGIN_ROW_H);
+
+  // 下限：行少/零行 ⇒ 不缩水（保持现状观感）
+  eq('★H 零行 ⇒ 下限', pluginPanelListHeight(0, 0, 0), PANEL_LIST_MIN_H);
+  eq('★H 仅 3 条固定入口 ⇒ 下限（198 < 320）', pluginPanelListHeight(3, 0, 0), PANEL_LIST_MIN_H);
+
+  // 上限：行多 ⇒ 到顶后表内滚动（卡片不再长高）
+  eq('★H 100 个插件 ⇒ 上限', pluginPanelListHeight(3, 100, 0), PANEL_LIST_MAX_H);
+  eq('★H 状态行/重试行也计入（各 1 行入口高）', pluginPanelListHeight(3, 2, 2),
+    3 * PANEL_ENTRY_ROW_H + 2 * PANEL_PLUGIN_ROW_H + 2 * PANEL_ENTRY_ROW_H);
+
+  // 单调性：插件越多**绝不更矮**（否则"加插件反而看不见"）
+  let mono = true;
+  let prev: number = pluginPanelListHeight(3, 0, 0);
+  for (let n = 1; n <= 40; n++) {
+    const cur: number = pluginPanelListHeight(3, n, 0);
+    if (cur < prev) { mono = false; }
+    prev = cur;
+  }
+  ok('★H 单调不减（0→40 个插件）', mono);
+
+  // 上下限自洽 + 防御怪值（NaN/负数/Infinity ⇒ 按 0 计，不产出 NaN 高度）
+  ok('★H MAX ≥ MIN', PANEL_LIST_MAX_H >= PANEL_LIST_MIN_H);
+  eq('★H NaN 计数 ⇒ 下限（不产出 NaN）', pluginPanelListHeight(NaN, NaN, NaN), PANEL_LIST_MIN_H);
+  eq('★H 负数计数 ⇒ 下限', pluginPanelListHeight(3, -5, -1), PANEL_LIST_MIN_H);
+  eq('★H Infinity 计数 ⇒ 下限（非有限数按 0 计，语义与注释一致）',
+    pluginPanelListHeight(3, Infinity, 0), PANEL_LIST_MIN_H);
+}
+
+// ── ★I 组件**必须消费**该判据（否则"判据绿、面板仍裁行"＝假绿）────────────────────────
+{
+  const fs = require('fs');
+  const path = require('path');
+  // ⛔ `run-one.sh` 把测试编译到 `.out.$$/js/` 下再跑 ⇒ `__dirname` 不是 `tools/tests/`；
+  //    必须**向上查找仓库根**（含 `entry/src/main/ets`）。
+  let root: string = __dirname;
+  for (let i = 0; i < 10; i++) {
+    if (fs.existsSync(path.join(root, 'entry', 'src', 'main', 'ets'))) { break; }
+    root = path.join(root, '..');
+  }
+  const sheetPath: string = path.join(root, 'entry', 'src', 'main', 'ets', 'components', 'PluginsSheet.ets');
+  const raw: string = fs.existsSync(sheetPath) ? fs.readFileSync(sheetPath, 'utf-8') : '';
+  const sheetSrc: string = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const consumers: number = (sheetSrc.match(/pluginPanelListHeight\(/g) || []).length;
+
+  ok('★I 零扫描防线：读到 PluginsSheet 源码', sheetSrc.length > 1000);
+  ok('★I 面板**消费**判据（调用点 ≥ 1；钉"方法体存在"会假绿）', consumers >= 1);
+  ok('★I ⛔ 不得再出现硬编码 `.height(320)`（正是会裁行的旧缺陷）', sheetSrc.indexOf('.height(320)') < 0);
 }
 
 console.log(`\npluginview.test.ts: ${pass} passed, ${fail} failed`);

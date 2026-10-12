@@ -737,6 +737,18 @@ struct Index {
   @State goalObjective: string = '';
   @State goalStatus: string = '';
   /**
+   * 顶栏**原生**「迭代指标」徽章文案（插件 `xbot.iteration-stats` 的 `status_bar_right` 视图）。
+   *
+   * ⛔ **必须经 `@State` 投影**（2026-10-12 真机实锤缺陷）：此前头部 builder **直读**
+   *    `store.liveProgress().streamStats`（非响应式）⇒ 头部只在 `busy`/`currentChat`/
+   *    `nativeCatalog` 变化时重渲，而 `busy` 在回合**开始**那一刻就置 true（此时
+   *    `stream_stats` 尚为 0）⇒ 之后指标有了**却没有重渲触发** ⇒ 徽章**恒为空**
+   *    （真机实测：流式中全页 0 处 `t/s`，而 web 同期显示 `190t/s · 930ms`）。
+   *    ⇒ 唯一正解 = 在更新通路 `sync()` 里投影（同 `goalObjective`/`todos`/`widgetContent`），
+   *    头部只读本 `@State`；取值判据仍在 `core/pluginviews.ets:iterStatsText`。
+   */
+  @State iterStatsBadge: string = '';
+  /**
    * 「正在添加目标」内联输入（web `MessageInput.tsx:695-726` 的 `addingGoal`）——
    * 由 `TodoPanel` 的 🎯 按钮打开；输入非空并回车/失焦 ⇒ `set_goal`。
    */
@@ -1699,6 +1711,13 @@ struct Index {
       this.listScroller.scrollEdge(Edge.Bottom);
     }
     this.busy = store.busy;
+    // 插件 `xbot.iteration-stats` 的原生徽章文案 —— ⛔ **必须在这里投影成 `@State`**：
+    // 头部若直读 `store.liveProgress()`（非响应式），徽章会在回合开始那一刻（stat 尚为 0）
+    // 渲染成空，之后**永不重渲** ⇒ 徽章恒空（真机实锤，见 `computeIterStatsBadge` 注释）。
+    const iterBadge: string = this.computeIterStatsBadge(store);
+    if (this.iterStatsBadge !== iterBadge) {
+      this.iterStatsBadge = iterBadge;
+    }
     this.connState = store.connState;
     // 插件 widget 数据面：把 store 收到的最新 SSE widget 载荷投影到页面（载荷未变则不触发重渲染）。
     // 判据（事件名/载荷）全在 `core/`（`store` 的 onSse 早退 + `core/widgetsview` 解析）。
@@ -3299,9 +3318,15 @@ struct Index {
    *
    * 启用判据 = **插件已安装且声明了该视图**（`hasIterStatsBadge(this.nativeCatalog)`）——
    * 没装就恒不渲染（不臆造一个 web 没有的东西）。
+   *
+   * ⛔ **本函数只做"算"，调用点必须在更新通路 `sync()` 里**（不得在 builder 内直调）——
+   *    2026-10-12 真机实锤：它此前**直接在头部 builder 内被调用** ⇒ 头部只在
+   *    `busy`/`currentChat`/`nativeCatalog` 变化时重渲，而 `busy` 在回合**开始**那一刻就
+   *    置 true（此时 `stream_stats` 尚为 0）⇒ 之后指标有了**却没有重渲触发** ⇒ 徽章
+   *    **恒为空**（真机实测：流式中全页 0 处 `t/s`，而 web 同期显示 `190t/s · 930ms`）。
+   *    ⇒ 正解 = 投影成 `@State iterStatsBadge`（头部只读它）。
    */
-  private iterStatsBadgeText(): string {
-    const st: ChatStore | null = this.store;
+  private computeIterStatsBadge(st: ChatStore | null): string {
     if (st === null || !hasIterStatsBadge(this.nativeCatalog)) {
       return '';
     }
@@ -4316,8 +4341,10 @@ struct Index {
         // ── 原生「迭代指标」徽章（插件 `xbot.iteration-stats` 的 `status_bar_right` 视图）──
         // ⭐ 这正是"插件视图原生渲染"的落点：数据来自宿主自己的实时指标（与 web 侧插件同源），
         //    **不打开任何 web UI**。文案判据 `core/pluginviews.ets:iterStatsText`（空 ⇒ 不渲染）。
-        if (this.iterStatsBadgeText().length > 0) {
-          Text(this.iterStatsBadgeText())
+        // ⛔ 只读 `@State iterStatsBadge`（在 `sync()` 投影）——不得在此直调 `store.liveProgress()`，
+        //    否则回合开始后 stat 到达时**不会重渲**（真机实锤缺陷，见该 `@State` 的注释）。
+        if (this.iterStatsBadge.length > 0) {
+          Text(this.iterStatsBadge)
             .fontSize(typeOf('type.micro').size)
             .fontWeight(typeOf('type.micro').weight)
             .fontFamily('monospace')

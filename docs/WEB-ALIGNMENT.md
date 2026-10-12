@@ -2276,3 +2276,61 @@ Apple 的空态是**陈述句**，不是「（这里什么都没有）」。此�
 （`text='回到最新'` 的 bounds `[539,2242][781,2335]`，其**上方与下方均有**消息文本
 `先搞个3B…` `[273,2336][1233,2417]` ⇒ **未占布局行**；命中盒 = 其外 ≥44 的布局盒）。
 
+## §21.40 目标④（插件面）：原生「迭代指标」徽章**恒空**修复 + 能力面板**硬编码高度裁行**修复（2026-10-12）
+
+用户亲报：「必须真的支持 web 的所有插件和功能，现在其实插件都打不开，比如**统计插件的面板我们看不到**」。
+真机复现 + 取证后，落到**两个真缺陷**（都在原生侧、均可判据化）。
+
+### 现场取证（只读，未改后端）
+- 后端 `web_plugin_list`：**4 个插件**，其中 3 个 `state='error'` + `enabled=false`
+  （`xbot.genui` / `xbot.git-fancy` / `xbot.ssh-runner`），仅 `xbot.iteration-stats` 为 `active`。
+  ⇒ 「打不开」里有 3 个是**服务端就没加载起来**（原生修不了；属后端）。
+- 「完整 Web UI」（ArkWeb 承载面）**是好的**：真机 `http://127.0.0.1:8082/` 约 6s 加载出完整 web 应用
+  （`/tmp/h5.jpeg`，其顶栏就渲染着插件徽章 `190t/s · 930ms`）。
+- 逐插件行**点开 = 打开整个 web 应用根**（`/tmp/h3.jpeg` 地址栏即 `http://127.0.0.1:8082/`）——这是**有意**兜底
+  （`core/pluginhost.ets:pluginPanelUrl`：`module_url` 恒是 ESM 资源 ⇒ 回落权威宿主页）；且 web 侧**没有** URL 深链
+  （`web/src` 的 `URLSearchParams` 只用于 SSE/命令路由，**零**视图路由）⇒ 原生**无法**"只打开某个插件面板"。
+  ⚠️ 这条是**能力边界**，不是本批修的缺陷（见"待办"）。
+
+### 缺陷①：原生「迭代指标」徽章**恒为空**（= 用户说的"统计插件的面板看不到"）
+- **症状（真机 dump）**：会话**流式中**（顶栏「运行中…」）全页 **0 处** `t/s`；web 侧同期显示 `190t/s · 930ms`。
+- **根因（代码结构实锤）**：`iterStatsBadgeText()` 在**头部 builder 内直读** `store.liveProgress().streamStats` ——
+  进度是 `store` 的**非 `@State`** 内部状态 ⇒ 头部只在 `busy`/`currentChat`/`nativeCatalog` 变化时重渲，而 `busy`
+  在**回合开始**那一刻就置 `true`（此时 `stream_stats` 尚为 0）⇒ 之后指标有了**却没有重渲触发** ⇒ 徽章**恒空**。
+  同 `AGENTS.md`「凡会变的值要么让行自己订阅，要么在变更路径显式发通知」。
+- **修法**：把"算"与"投影"分离 —— `computeIterStatsBadge(st)` 只算；**在更新通路 `sync()` 里投影**成
+  `@State iterStatsBadge`（同既有 `goalObjective`/`todos`/`widgetContent`）；头部 `Text` 只读该 `@State`。
+
+### 缺陷②：能力面板 `List` 硬编码 `height(320)` ⇒ 靠后的插件行**被裁**
+- **症状**：后端有 **4 个**插件，面板只看得见 **3 个**；`xbot.ssh-runner` 的行**完全不在可见区**
+  （只能从后端 `web_plugin_list` 才知道它存在）——「插件…面板我们看不到」的同族症状。
+- **根因**：`components/PluginsSheet.ets` 的 `List` 写死 `.height(320)`（≈ 只装得下 5 行）。面板是**菜单**
+  （内容自适应卡片），不该用固定高度。
+- **修法**：判据下沉为**纯函数** `core/pluginview.ets:pluginPanelListHeight(entryRows, pluginCount, statusRows)`
+  —— 按行数估值（`PANEL_ENTRY_ROW_H`=66 / `PANEL_PLUGIN_ROW_H`=74，取自 `design.ets` **同一套**间距/命中区常量），
+  **夹在 `[PANEL_LIST_MIN_H 320, PANEL_LIST_MAX_H 560]`**：行少 ⇒ 保持现状观感；行多 ⇒ 到顶后**表内滚动**。
+
+### 判据（判据与渲染同源 + mutation 自证）
+- `tools/tests/topbar_reactive.test.ts`（**新增，5 passed**）：① `@State iterStatsBadge` 存在且头部读它；
+  ② `sync()` 里 `computeIterStatsBadge(store)` 的结果赋给它；③ ⛔ 头部徽章子树内**不得**出现
+  `liveProgress(` / `computeIterStatsBadge(`（零扫描判红）。mutation：还原旧形态（头部直调）⇒ **2 红**；
+  删投影 ⇒ **1 红**；头部直读 `liveProgress()` ⇒ **1 红**；还原 md5 一致。
+- `tools/tests/pluginview.test.ts`（**100 → 103 passed**）：★H（4 插件时必须 **> 320**、未触顶恰为行数和、
+  下限/上限/单调性/`NaN|负数|Infinity` 防御）+ ★I（**组件必须消费**该判据；⛔ 不得再出现 `.height(320)`）。
+  mutation：纯函数退回恒 `320` ⇒ **5 红**；删上限夹取 ⇒ **1 红**；组件写回 `.height(320)` ⇒ **1 红**；还原 md5 一致。
+
+### 非缺陷（勿重报）
+- `pluginStateBadge` 把 `state` **原样**上屏（`v1.0.0 · error`）是**有意**：web 无该文案表，自造即背离"文案逐字取 web"。
+- 「会话统计」（内置 `xbot.session-stats`，**原生**渲染）真机**完全正常**（输入/输出/缓存命中/LLM 时长/Avg TTFT/TPOT/
+  tok-s/上下文水位/当前模型/最近迭代表全渲染，`/tmp/h6.jpeg`）——用户所指**不是**它。
+- 3 个插件 `state='error'` 是**服务端**加载失败（`~/.xbot/plugins/**` 的运行时/产物问题），**不在**原生侧。
+
+### 待办（下一批 13i，已取证）
+「插件行点开 = 打开整个 web 应用根」+「web 无深链」这一对事实 ⇒ 逐插件行目前**无法**诚实地"只打开该插件"。
+需产品决策：① 保留但把尾部 affordance 改为诚实的「在 Web UI 中」；② 或对 `error`/`disabled` 插件行改为**不可点**
+（同 `pluginViewBadge` 的"诚实优先：绝不渲染一个点了没反应的行"）。⛔ 不臆造。
+
+**判据取得**：`tools/gate.sh` ⇒ **`✅ 真门禁全绿` + `GATE_EXIT=0`**（`BUILD SUCCESSFUL in 11 s 524 ms`；
+**291 文件 0 失败**；A **1246**/1250 · **B 1345**/1350 · ForEach **107**/107 —— 与 13e–13g 基线**逐值相同**；
+⑧ 无未消费 core 模块；⑨ A 0 · B 3）。装机 `deploy.sh` ⇒ `DEPLOY_EXIT=0`；真机复核见下。
+

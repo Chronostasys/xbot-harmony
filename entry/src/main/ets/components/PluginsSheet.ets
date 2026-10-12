@@ -30,7 +30,7 @@
  */
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import { PluginCatalogItem } from '../core/pluginhost';
-import { PluginPanelStatus, pluginMetaText, pluginPanelStatus } from '../core/pluginview';
+import { PluginPanelStatus, pluginMetaText, pluginPanelStatus, pluginPanelListHeight, PANEL_FIXED_ENTRY_ROWS } from '../core/pluginview';
 // 插件图标映射**唯一出口** = `PluginHost` 的 `pluginSymbol`（19/19 覆盖 web `ICON_MAP`）——
 // ⛔ 不在本面板再写一份副本（副本会腐烂 / 各写一份 ⇒ 同一插件两处图标不一致）。
 import { pluginSymbol } from './PluginHost';
@@ -87,6 +87,17 @@ export struct PluginsSheet {
   /** 三态状态行（判据在 `core/pluginview.ets`；**判据与渲染同源**）。 */
   private status(): PluginPanelStatus {
     return pluginPanelStatus(this.loading, this.plugins.length, this.groupCount, this.error);
+  }
+
+  /**
+   * 列表高度（vp）——判据是纯函数 `core/pluginview.ets:pluginPanelListHeight`（可脱机单测）。
+   * ⛔ 旧实现是**硬编码 `.height(320)`**：插件一多就把靠后的行裁掉（真机实测 `xbot.ssh-runner`
+   *    整条不可见）⇒ 现按行数估值、夹在 `[PANEL_LIST_MIN_H, PANEL_LIST_MAX_H]`（超出才表内滚动）。
+   */
+  private listHeight(): number {
+    const st: PluginPanelStatus = this.status();
+    const statusRows: number = (st.show ? 1 : 0) + (st.canRetry ? 1 : 0);
+    return pluginPanelListHeight(PANEL_FIXED_ENTRY_ROWS, this.plugins.length, statusRows);
   }
 
   /** 本弹层的两层柔影（浅色 = 贴合 + 环境；深色 = 透明 + 原值）—— `core/theme.shadowLayersOf`。 */
@@ -253,7 +264,7 @@ export struct PluginsSheet {
             }
           }, (p: PluginCatalogItem) => `${p.id}#${p.url}`)
         }
-      .height(320).width('100%')
+      .height(this.listHeight()).width('100%')
       }
       .width('100%').padding(SPACE_MD)
       .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))

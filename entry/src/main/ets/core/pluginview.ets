@@ -15,6 +15,10 @@
  *      ⇒ 产出的 `colorRole` 必须是 `colorOf` 的合法角色（`docs/DESIGN-SYSTEM.md §12`）。
  */
 import { isPresent } from './guards';
+// 能力面板「列表高度」估值要用到**同一套**间距/命中区常量（⛔ 别在本文件另抄一份数字）——
+// `core/*.ets` 引用 `./design` 已有先例（`splash.ets`/`mdview.ets` 等）。`design.ets` 是纯数值表，
+// 不含 ArkUI/`@ohos.*` ⇒ 本文件仍可被 `run.sh` 当纯 TS 编译。
+import { GAP_ROW_Y, HIT_TARGET_MIN, INSET_ROW_Y } from './design';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ① 插件目录：状态徽标 / 视图徽标 / 计数 / 空态（`components/PluginHost.ets`）
@@ -339,4 +343,53 @@ export function pluginMetaText(version: string, state: string): string {
   const badge: PluginBadge = pluginStateBadge(state);
   if (badge.show) { parts.push(badge.text); }
   return parts.join(' · ');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ⑤ 能力面板：列表高度（内容自适应 + 上限；`components/PluginsSheet.ets` 消费）
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// 背景（2026-10-12 真机实锤缺陷）：面板的 `List` 此前是**硬编码 `.height(320)`** ⇒ 目录里
+// 插件一多，靠后的行**被裁在折线外**（实测：后端 4 个插件，`xbot.ssh-runner` 的行**完全看不到**，
+// 连"有这个插件"都无从得知）——用户亲报「插件的面板我们看不到」的同族症状。
+// 面板是**菜单**：行少 ⇒ 卡片矮（观感不变）；行多 ⇒ 长到上限后**表内滚动** —— 不再有"有行却看不见"。
+//
+// ⛔ 行高只能**估值**（ArkUI 无运行时测量出口）：单行行 = `max(HIT_TARGET_MIN, 单行文本高)` +
+//    `INSET_ROW_Y×2` + `GAP_ROW_Y`；插件行另有「名称/元信息 + 描述」两层文本（额外 `SPACE_XS`）。
+//    估值**宁可略高**：高了只是卡片略高；**低了就会裁掉行**（正是旧缺陷）。
+
+/** 能力面板的**固定入口行**数（原生目录 / 会话统计 / 完整 Web UI）——与组件里的三条 `ListItem` 同源。 */
+export const PANEL_FIXED_ENTRY_ROWS: number = 3;
+/** 「入口行」高度估值（vp）：单行文本，取命中区下限 + 上下内距 + 行间距。 */
+export const PANEL_ENTRY_ROW_H: number = HIT_TARGET_MIN + 2 * INSET_ROW_Y + GAP_ROW_Y;
+/** 「插件行」高度估值（vp）：入口行 + 描述那一层（两层文本）。 */
+export const PANEL_PLUGIN_ROW_H: number = PANEL_ENTRY_ROW_H + 8;
+/** 列表高度**下限**（vp）——行少时保持现状观感（与旧硬编码 320 对齐，不缩水）。 */
+export const PANEL_LIST_MIN_H: number = 320;
+/**
+ * 列表高度**上限**（vp）——超出则表内滚动，卡片不再长高。
+ * 取值：屏高 2848px / density 3.333 ≈ 854vp 的 ~65%（标题行 + 内距后仍留出上下留白）。
+ */
+export const PANEL_LIST_MAX_H: number = 560;
+
+/** 计数归一化：非有限数/负数 ⇒ 0（防御服务端给了怪值）。 */
+function panelRowCount(n: number): number {
+  return typeof n === 'number' && isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+/**
+ * 能力面板列表的高度（vp）——**夹在 `[PANEL_LIST_MIN_H, PANEL_LIST_MAX_H]`**。
+ *
+ * @param entryRows   固定入口行数（生产恒为 `PANEL_FIXED_ENTRY_ROWS`）
+ * @param pluginCount 目录里的插件数（`plugins.length`）
+ * @param statusRows  三态状态行占的行数（状态行本身 + 可能的「重试」行；无状态行传 0）
+ */
+export function pluginPanelListHeight(entryRows: number, pluginCount: number, statusRows: number): number {
+  const h: number = panelRowCount(entryRows) * PANEL_ENTRY_ROW_H
+    + panelRowCount(pluginCount) * PANEL_PLUGIN_ROW_H
+    + panelRowCount(statusRows) * PANEL_ENTRY_ROW_H;
+  if (h > PANEL_LIST_MAX_H) {
+    return PANEL_LIST_MAX_H;
+  }
+  return h > PANEL_LIST_MIN_H ? h : PANEL_LIST_MIN_H;
 }
