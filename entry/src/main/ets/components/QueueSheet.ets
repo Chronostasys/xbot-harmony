@@ -14,6 +14,8 @@ import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import { QueueItem } from '../core/types';
 import { PRESS_OPACITY, RADIUS_CARD, STROKE_HAIRLINE, SURFACE_CARD, SHEET_ACTION_GLYPH, colorOf, hairlineOf, structuralRuleOf, surfaceFillOf, HIT_TARGET_MIN } from '../core/design';
 import { FS_CAPTION, R_LG, R_MD, SP_2, SP_3, SP_4 } from '../core/tokens';
+// ⛔ 列表高度判据**只此一处**（`core/panels.queueListHeight`）——组件不自己算高度。
+import { queueListHeight } from '../core/panels';
 import { fs, fw, lh } from './SettingsRows';
 // 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线/位移；E3 统一）。
 import { sheetTransition } from './anim';
@@ -166,7 +168,9 @@ export struct QueueSheet {
             }
           }, (q: QueueItem) => `${q.msg_id}#${q.content}#${q.text}`)
         }
-        .height(300).width('100%')
+        // ⛔ 内容自适应高度（判据与渲染同源：`core/panels.queueListHeight`；此前硬编码 300 ⇒
+        //    队列长时靠后的行看不到、只有 1 条时又留一大块空白）。
+        .height(queueListHeight(this.queue.length)).width('100%')
         // ⛔ 用户报「滚动栏挡住交互」：**行内右侧就是可点图标**（上/下移、取消）⇒ 默认 `BarState.Auto`
         //    的滚动条叠在最右缘、参与命中测试 ⇒ 会抢掉右侧图标的点击。面板内短列表 ⇒ 显式关条。
         .scrollBar(BarState.Off)

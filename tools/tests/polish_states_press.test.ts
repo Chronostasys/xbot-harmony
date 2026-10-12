@@ -70,7 +70,10 @@ function checkQueueEmpty(src: string): boolean {
     && w.indexOf("lh('type.callout')") >= 0
     && w.indexOf('this.pal().textMuted') >= 0
     && src.indexOf('} else {') >= 0
-    && src.indexOf('.height(300)') >= 0;   // List 分支保留（不做成"空态把列表删了"）
+    // List 分支保留（不做成"空态把列表删了"）。⚠️ 2026-10-12（15o·c）：原来钉的是**魔数**
+    //   `.height(300)` —— 该硬编码正是"队列长时靠后行看不到"的病根，已换成**内容自适应**的
+    //   `queueListHeight(...)`（判据与渲染同源）⇒ 这里改为钉**调用片段**（只取调用，别钉实参拼写）。
+    && src.indexOf('.height(queueListHeight(') >= 0;
 }
 /** B. 「清空」可点文本的命中区 ≥ 44（链上有 `HIT_TARGET_MIN`）。 */
 function checkClearHit(src: string): boolean {

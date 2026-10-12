@@ -15,6 +15,7 @@
  *    只能返回字符串、用不了 `SymbolGlyph`，故文字是唯一自洽解。
  */
 
+import { GAP_ROW_Y, HIT_TARGET_MIN, SPACE_SM, SPACE_XS } from './design';
 import { arrOrEmpty } from './guards';
 import { ST_ERROR, toolStatusKind } from './toolstatus';
 import { SessionItem, SseEventType } from './types';
@@ -560,4 +561,36 @@ export function parseWidgetsPayload(event: string, content: string): WidgetSnaps
     snap.componentLabels = labels;
   }
   return snap;
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 待发队列面板：列表高度（内容自适应 + 上下限）—— `components/QueueSheet.ets` 消费
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// ⛔ 曾经的缺陷（与能力面板**同族**，见 `core/pluginview.ets:352-355` 的同类记载）：
+//    `QueueSheet` 的 `List` 是**硬编码 `.height(300)`** ⇒
+//    ① 队列长时**靠后的行看不到**（面板高度不随内容长，只能在 300vp 里滚）；
+//    ② 队列只有 1 条时**留一大块空白**（面板永远 300vp 高）。
+//    ⇒ 与能力面板同一处置：**行数 → 高度**，夹在 `[QUEUE_LIST_MIN_H, QUEUE_LIST_MAX_H]`；
+//      行少 ⇒ 卡片矮（观感不变）；行多 ⇒ 长到上限后**表内滚动**（不再有"有行却看不见"）。
+
+/** 队列行高（vp）估算 = 44 命中盒 + 上下内边距（`SPACE_XS`×2）+ 行距（`GAP_ROW_Y`）——与 `QueueSheet` 行卡同源。 */
+export const QUEUE_ROW_H: number = HIT_TARGET_MIN + 2 * SPACE_XS + GAP_ROW_Y;
+/** 队列列表最小高（vp）：1 条也要留出"能看见、不贴边"的高度。 */
+export const QUEUE_LIST_MIN_H: number = 120;
+/** 队列列表最大高（vp）：到此为止，超出**表内滚动**（≈ 6 行）。 */
+export const QUEUE_LIST_MAX_H: number = SPACE_SM * 35;
+
+/**
+ * 队列列表高度（vp）——**夹在 `[QUEUE_LIST_MIN_H, QUEUE_LIST_MAX_H]`**。
+ * ⛔ 负值/NaN 一律按 0 条（防御：上游 `queue` 可能瞬时为空）。
+ */
+export function queueListHeight(count: number): number {
+  const n: number = count > 0 ? Math.floor(count) : 0;
+  const h: number = n * QUEUE_ROW_H;
+  if (h > QUEUE_LIST_MAX_H) {
+    return QUEUE_LIST_MAX_H;
+  }
+  return h > QUEUE_LIST_MIN_H ? h : QUEUE_LIST_MIN_H;
 }

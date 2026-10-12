@@ -4,6 +4,7 @@ declare const process: { exit: (c: number) => void };
 import {
   bgTaskMetaText, bgTaskOutputText, bgTaskPrimary, bgTaskRunning, bgTaskStatusText, bgTaskSubText,
   bgTaskTone, cmdOneLine, countText, cronPrimary, cronSubText,
+  queueListHeight, QUEUE_LIST_MIN_H, QUEUE_LIST_MAX_H, QUEUE_ROW_H,
   durationText, fmtHHMM, KillBgTaskParams, runnerPrimary, runnerSubText, runnerTone, scheduleText,
   SubAgentRow, subagentPrimary, subagentSubText, subagentTone,
   TONE_ERROR, TONE_MUTED, TONE_SUCCESS,
@@ -135,6 +136,18 @@ eq('cmdOneLine：空串', cmdOneLine(''), '');
 eq('cmdOneLine：单行原样', cmdOneLine('ls -la'), 'ls -la');
 eq('bgTaskPrimary 走单行归一化', bgTaskPrimary({ command: 'x\\ny' }), 'x y');
 eq('cronPrimary 走单行归一化', cronPrimary({ every_seconds: 30, message: 'a\\nb' }), 'a b');
+
+// ── `queueListHeight`：待发队列列表高（内容自适应 + 上下限）（2026-10-12）──────────────────────
+// 病根：`QueueSheet` 的 List 曾**硬编码 `.height(300)`** ⇒ 队列长时靠后的行看不到；1 条时留一大块空白。
+// 判别力：把实现改回"恒 300"（或去掉 clamp）⇒ 下面 5 条里至少 3 条红。
+eq('queue 0 条 ⇒ 下限', queueListHeight(0), QUEUE_LIST_MIN_H);
+eq('queue 负值 ⇒ 下限（防御）', queueListHeight(-3), QUEUE_LIST_MIN_H);
+eq('queue 1 条 ⇒ 一行高（< 下限时取下限）', queueListHeight(1), QUEUE_LIST_MIN_H);
+eq('queue 2 条 ⇒ 两行高（已超下限）', queueListHeight(2), 2 * QUEUE_ROW_H);
+eq('queue 100 条 ⇒ 上限封顶', queueListHeight(100), QUEUE_LIST_MAX_H);
+eq('queue 上限 < 100 行（确有封顶）', QUEUE_LIST_MAX_H < 100 * QUEUE_ROW_H, true);
+eq('queue 行高 = 44 命中盒 + 2×8 内边距 + 6 行距', QUEUE_ROW_H, 44 + 16 + 6);
+eq('queue 非整数按 floor', queueListHeight(2.9), 2 * QUEUE_ROW_H);
 
 if (fail > 0) { console.log(`  panels: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  panels: ${pass} passed, 0 failed`);

@@ -3409,3 +3409,47 @@ mutation 自证 ×3；还原 md5 一致。
 我的点击落在它的 scrim 区，继续点就有**误答/误取消用户问题**的风险 ⇒ **立即停止设备交互**。
 ⇒ 本轮以**离线判别力判据**（75 passed，含 mutation 型断言）+ `BUILD SUCCESSFUL` 收口；
 真机视觉复核**登记为待办**（等设备处于中性态再做）。
+
+
+## §21.60 待发队列面板：列表高度硬编码 → 内容自适应（15o·c）（2026-10-12）
+
+用户目标③：「我只说了侧边栏但是你要考虑**所有的面板**」。
+
+### 病灶（与能力面板**同族**，本仓第二例）
+
+`QueueSheet` 的 `List` 是**硬编码 `.height(300)`** ⇒
+① 队列长时**靠后的行看不到**（面板高度不随内容长，只能在 300vp 里滚）；
+② 队列只有 1 条时**留一大块空白**（面板永远 300vp 高）。
+—— 与 `core/pluginview.ets:352-355` 记载的能力面板旧缺陷（`.height(320)` ⇒ `xbot.ssh-runner`
+的行**完全看不到**）**同一病灶**、同一处置。
+
+### 修法：纯函数 `queueListHeight(count)`（`core/panels.ets`）
+
+`n × QUEUE_ROW_H` 夹在 `[QUEUE_LIST_MIN_H(120), QUEUE_LIST_MAX_H(420)]`；
+`QUEUE_ROW_H = HIT_TARGET_MIN(44) + 2×SPACE_XS(8) + GAP_ROW_Y(6) = 66`（与行卡同源，⛔ 不写魔数）。
+行少 ⇒ 卡片矮（观感不变）；行多 ⇒ 长到上限后**表内滚动**。负值/NaN 按 0 条防御。
+`components/QueueSheet.ets` 只消费它（`.height(queueListHeight(this.queue.length))`）——
+**判据与渲染同源**（与本仓「组件只消费状态机产物」的约定一致）。
+
+### 判据（`tools/tests/panels.test.ts` 75 → **83 passed**）
+
+8 条新断言：0 条→下限 / 负值→下限（防御）/ 1 条→下限 / 2 条→两行高 / 100 条→上限封顶 /
+**上限 < 100 行（确有封顶）** / 行高 === 44+16+6（⛔ 不是魔数）/ 非整数 floor。
+判别力：实现改回"恒 300"或去掉 clamp ⇒ 至少 3 条红。
+
+### ⚠️ 连带修：`polish_states_press` 的**代理断言**随形态演进
+
+该判据的 `checkQueueEmpty()` 末尾原有一条代理断言 `src.indexOf('.height(300)') >= 0`
+（本意：「别把 List 分支删了、空态别把列表吞掉」）—— 而 `.height(300)` **正是本轮要消灭的魔数**
+⇒ 首轮门禁 **① 纯逻辑测试红**（301 文件中 1 个：`polish_states_press`）。
+处置与 §21.58 同一手法：**按形态改钉「调用片段」**（`src.indexOf('.height(queueListHeight(')`），
+⛔ 不钉实参拼写（`this.queue.length` 这种会被无关重构弄假红）。
+教训：**改渲染形态时，先 `grep` 全仓判据里有没有钉该魔数**（本次漏查，门禁才抓到）。
+
+### ⚠️ 另一个门禁抓到的真错（离线三条抓不到，第 5 次复现同一条 GOTCHA）
+
+`components/QueueSheet.ets` 加了 `queueListHeight(...)` 调用、**但 import 没插进去**（我的编辑脚本用
+`if 'panels' not in t` 判断，而文件里别处已有 "panels" 字样 ⇒ 条件假、跳过插入）。
+结果：**离线三条全绿**（`run.sh`/`lint`/`typecheck` 都不编译组件文件），**只有真门禁 ④ ArkTS 编译**
+报 `10505001 Cannot find name 'queueListHeight'`。⇒ 再次印证：**判据的真门禁是 `hvigorw assembleHap`**。
+⛔ 推论：**改组件文件（`components/*.ets`）后必须跑真门禁 ④**，别信离线三条。
