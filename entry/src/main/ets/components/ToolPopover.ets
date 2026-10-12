@@ -539,7 +539,7 @@ export struct ToolPopoverCard {
       Row({ space: SP_1 }) {
         // ⛔ **图标可见度**：同上 —— `textMuted` → `iconMuted`（图标专用档，≥3:1）。
         SymbolGlyph($r('sys.symbol.doc_text')).fontSize(ICON_SM).fontColor([colorOf(this.pal(), 'iconMuted')])
-        Text(f.path.length > 0 ? f.path : '（未命名文件）')
+        Text(f.path.length > 0 ? f.path : '未命名文件')
           .fontSize(typeOf(TYPE_CHIP).size).fontFamily('monospace').fontColor(this.pal().textSecondary)
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
         Text(`+${f.adds}`).fontSize(typeOf(TYPE_CHIP).size).fontColor(this.pal().successText)
@@ -721,7 +721,7 @@ export struct ToolPopoverCard {
           .fontColor(this.vm.exitCode !== 0 ? this.pal().dangerText : this.pal().textMuted)
       }
       if (!this.vm.hasAny) {
-        Text('（该工具无详情载荷）').fontSize(FS_CAPTION).fontColor(this.pal().textMuted)
+        Text('暂无详情').fontSize(FS_CAPTION).fontColor(this.pal().textMuted)
       }
     }
     .width('100%').alignItems(HorizontalAlign.Start)

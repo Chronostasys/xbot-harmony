@@ -266,7 +266,7 @@ export struct StatusSheet {
 
         if (this.isEmpty()) {
           // ── 空态：一行小字（无填充 / 无边框 / 无发光；docs/DESIGN-SYSTEM.md §10）──────
-          Text('（暂无会话状态）')
+          Text('暂无会话状态')
             .fontSize(fs('type.callout'))
             .fontWeight(fw('type.callout'))
             .lineHeight(lh('type.callout'))

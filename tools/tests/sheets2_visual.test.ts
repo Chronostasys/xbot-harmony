@@ -202,7 +202,7 @@ for (let i = 0; i < codes.length; i++) {
 //    ⛔ 不是放宽：仍钉住"命中区 ≥44"这一意图，并反向禁止旧拐杖。
 has(askCode, '.width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)', 'AskUserSheet: 关闭 X 命中区 = 真实 HIT_TARGET_MIN(44) 布局盒');
 hasNot(askCode, 'responseRegion', 'AskUserSheet: ⛔ 不用 responseRegion 外扩（真机实测负偏移外扩无效）');
-has(askCode, '没有待确认的问题', 'AskUserSheet: questions 为空 ⇒ 一行小字空态');
+has(askCode, "Text('没有待确认的问题')", 'AskUserSheet: questions 为空 ⇒ 一行小字空态（⛔ 无全角括号括注）');
 hasNot(askCode, "'已选'", 'AskUserSheet: ⛔ 不再用「已选」纯文本（改勾图标）');
 hasNot(askCode, "'未选'", 'AskUserSheet: ⛔ 不再用「未选」纯文本');
 has(askCode, 'sys.symbol.checkmark', 'AskUserSheet: 选中态 = 一枚 checkmark');
@@ -215,7 +215,7 @@ has(askCode, 'RADIUS_CARD', 'AskUserSheet: 面板圆角走 RADIUS_CARD');
 // ⛔ 2026-10-11 **按真机事实改写**（同 ④：旧 `responseRegion` 外扩已证无效）。
 has(statusCode, '.width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)', 'StatusSheet: 关闭 X 命中区 = 真实 HIT_TARGET_MIN(44) 布局盒');
 hasNot(statusCode, 'responseRegion', 'StatusSheet: ⛔ 不用 responseRegion 外扩（真机实测负偏移外扩无效）');
-has(statusCode, '暂无会话状态', 'StatusSheet: 五路输入全空 ⇒ 一行小字空态');
+has(statusCode, "Text('暂无会话状态')", 'StatusSheet: 五路输入全空 ⇒ 一行小字空态（⛔ 无全角括号括注）');
 has(statusCode, "'type.callout'", 'StatusSheet: 行标签走 type.callout（次级色）');
 has(statusCode, 'sys.symbol.chevron_right', 'StatusSheet: 切换入口是「行 + chevron」（非实心色块）');
 hasNot(statusCode, 'FontWeight.Bold', 'StatusSheet: ⛔ 标题不再写死 FontWeight.Bold（走 type.headline 字重）');

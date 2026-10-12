@@ -2947,7 +2947,7 @@ struct Index {
     this.fsPreviewLoading = true;
     try {
       const r: FsReadResult = await store.readFs(filePath);
-      this.fsPreviewText = r.isBinary ? '（二进制文件，无法以文本预览）' : r.content;
+      this.fsPreviewText = r.isBinary ? '二进制文件，无法以文本预览' : r.content;
     } catch (err) {
       this.fsPreviewText = '文件读取失败，请重试';
     }
@@ -7241,7 +7241,7 @@ struct Index {
         }
       } else {
         if (this.runners.length === 0) {
-          Text('（没有受管机器；Runner 由 xbot.ssh-runner 插件纳管）').fontSize(typeOf('type.caption').size).fontColor(this.pal().textMuted).width('100%')
+          Text('暂无受管机器').fontSize(typeOf('type.caption').size).fontColor(this.pal().textMuted).width('100%')
         } else {
           List({ space: 6 }) {
             ForEach(this.runners, (r: RunnerRow, i: number) => {
@@ -7428,7 +7428,7 @@ struct Index {
   private auditText(): string {
     const geo: string = this.geoText.length > 0
       ? this.geoText
-      : '（几何未采集：请点上面的「采集各页版面几何」按钮）';
+      : '几何未采集：请点上面的「采集各页版面几何」按钮';
     return `===== xbot-harmony 自检取证（长按可复制）=====\n`
       + `[渲染规模]\n${this.sessionStats()}\n\n[各页几何 x/y/w/h]\n${geo}`;
   }

@@ -145,7 +145,7 @@ export struct TaskDetailSheet {
         Scroll(this.scroller) {
           Column() {
             if (this.output.length === 0) {
-              Text(this.running ? '（暂无输出）' : '（无输出）')
+              Text(this.running ? '暂无输出' : '无输出')
                 .fontSize(typeOf('type.caption').size)
                 .fontColor(colorOf(this.palOnce(), 'iconMuted'))
                 .width('100%')

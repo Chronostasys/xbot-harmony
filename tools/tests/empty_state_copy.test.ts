@@ -129,6 +129,34 @@ if (violations.length === 0) {
   for (const v of violations) { ok(`空态文案违规：${v}（改用用户语）`, false); }
 }
 
+// ── ③ 用户文案**禁整体全角括号包裹**（批次 13c 统一）─────────────────────────────
+// 口径：面向用户的文案是**陈述句/标签**（web 权威 i18n：`暂无数据`/`暂无内容`/`暂无插件` —— 一律无括号），
+//   **不是**「（这里什么都没有）」式的括注 —— 后者读起来像占位符/开发备注，与 Apple 式干净文案相悖
+//   （用户目标③「对标苹果」）。真机取证（2026-10-12）：10 处括注（AskUserSheet/StatusSheet/ToolPopover×2/
+//   TaskDetailSheet/Index×3/SettingsPlugins×2）⇒ 全部去括号成陈述句。
+// 形态：**整条**字符串字面量被全角括号包裹（`'（…）'`）—— 覆盖 `Text('（…）')`、`Text(cond ? '（…）' : …)`
+//   与变量赋值（`x = '（…）'`）三种载体。⛔ `[^']` 保证不跨引号（相邻两串不会误并）。
+// 白名单（⛔ 逐字 web parity、且被他测钉住 ⇒ 不得改）：`MessageRow.EMPTY_NOTICE_TEXT = '（无文本输出）'`
+//   （= web `i18n.emptyAssistant`，`empty_notice.test.ts:117` 逐字钉）。
+const PAREN_WRAP: RegExp = /'（[^'\n]{1,60}）'/g;
+const PAREN_ALLOW: string[] = ['（无文本输出）'];
+const parenHits: string[] = [];
+for (const f of files) {
+  const rel: string = path.relative(ETS, f).split(path.sep).join('/');
+  const src: string = stripComments(fs.readFileSync(f, 'utf8'));
+  const hits: string[] | null = src.match(PAREN_WRAP);
+  if (hits !== null) {
+    for (const h of hits) {
+      if (PAREN_ALLOW.indexOf(h.slice(1, -1)) < 0) { parenHits.push(`${rel}: ${h}`); }
+    }
+  }
+}
+if (parenHits.length === 0) {
+  ok('③ 用户文案无整体全角括号包裹（`\'（…）\'` 占位 = 0，除 web-parity 白名单）', true);
+} else {
+  for (const v of parenHits) { ok(`占位括注违规：${v}（去全角括号 ⇒ 陈述句/标签）`, false); }
+}
+
 if (fail > 0) { console.log(`  empty_state_copy: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  empty_state_copy: ${pass} passed, 0 failed`);
 process.exit(0);

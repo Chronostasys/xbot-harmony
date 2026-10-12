@@ -149,7 +149,7 @@ export struct AskUserSheet {
 
         // ── 空态：一行小字（无填充 / 无边框 / 无发光；docs/DESIGN-SYSTEM.md §10）──────
         if (this.questions.length === 0) {
-          Text('（没有待确认的问题）')
+          Text('没有待确认的问题')
             .fontSize(fs('type.callout'))
             .fontWeight(fw('type.callout'))
             .lineHeight(lh('type.callout'))

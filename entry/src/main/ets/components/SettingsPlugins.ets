@@ -200,7 +200,7 @@ struct PluginFieldRow {
           .borderRadius(R_LG)
           .border({ width: 1, color: this.pal().border })
       }
-      Text(this.imgValue.length > 0 ? this.imgValue : '（未设置图片）')
+      Text(this.imgValue.length > 0 ? this.imgValue : '未设置图片')
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().textSecondary)
         .maxLines(2)
@@ -247,7 +247,7 @@ struct PluginFieldRow {
   @Builder
   LabelCol() {
     Column({ space: 2 }) {
-      Text(this.label.length > 0 ? this.label : '（未命名）')
+      Text(this.label.length > 0 ? this.label : '未命名')
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().textPrimary)
         .width('100%')

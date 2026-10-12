@@ -2012,3 +2012,56 @@ chevron 改回 `Text('打开')` ⇒ **`107 passed, 2 failed`**（③④ 各命�
 
 
 
+
+## §21.35 目标③ 所有面板（第九批）：空态文案**去全角括号括注**（全仓不变量，2026-10-12）
+
+**取证（真机 + 代码）**：全仓有 **10 处**面向用户的文案被**整体全角括号包裹**（`'（…）'`）——
+面板空态（`AskUserSheet`「（没有待确认的问题）」/`StatusSheet`「（暂无会话状态）」/
+`ToolPopover`「（该工具无详情载荷）」/`Index` Runner「（没有受管机器；Runner 由 xbot.ssh-runner
+插件纳管）」/`TaskDetailSheet` 三元两分支「（暂无输出）」「（无输出）」）、兜底标签
+（`ToolPopover`「（未命名文件）」/`SettingsPlugins`「（未设置图片）」「（未命名）」）、
+预览通知（`Index`「（二进制文件，无法以文本预览）」）、自检通知（`Index`「（几何未采集：…）」）。
+
+**为什么是缺陷**：括注是**占位符/开发备注**的书写习惯（web 的 placeholder 风格），
+web 权威自身的 i18n 空态**一律无括号**（`tasksEmpty: 暂无任务` / `terminalEmpty: 暂无终端` /
+`empty: 暂无文件` / `noResults: 无匹配结果` / `empty: 暂无插件`）。用户目标③「对标苹果」——
+Apple 的空态是**陈述句**，不是「（这里什么都没有）」。此外 `（该工具无详情载荷）」的「载荷」=
+开发者语（payload），`（…；Runner 由 xbot.ssh-runner 插件纳管）` 直接暴露插件 id。
+
+**修法**（10 处，逐条去全角括号 ⇒ 陈述句/标签；开发者语改用户语）：
+
+| # | 位置 | 旧 | 新 |
+|---|---|---|---|
+| ① | `components/AskUserSheet.ets:152` | `Text('（没有待确认的问题）')` | `Text('没有待确认的问题')` |
+| ② | `components/StatusSheet.ets:269` | `Text('（暂无会话状态）')` | `Text('暂无会话状态')` |
+| ③ | `components/ToolPopover.ets:724` | `Text('（该工具无详情载荷）')` | `Text('暂无详情')`（「载荷」= 开发者语） |
+| ④ | `components/ToolPopover.ets:542` | `… ? f.path : '（未命名文件）'` | `… ? f.path : '未命名文件'` |
+| ⑤ | `components/TaskDetailSheet.ets:148` | `Text(this.running ? '（暂无输出）' : '（无输出）')` | `Text(this.running ? '暂无输出' : '无输出')` |
+| ⑥⑦ | `components/SettingsPlugins.ets:203/250` | `'（未设置图片）'` / `'（未命名）'` | `'未设置图片'` / `'未命名'` |
+| ⑧ | `pages/Index.ets:7244` | Runner 空态（暴露插件 id） | `Text('暂无受管机器')` |
+| ⑨ | `pages/Index.ets:2950` | `… ? '（二进制文件，无法以文本预览）' : …` | `… ? '二进制文件，无法以文本预览' : …` |
+| ⑩ | `pages/Index.ets:7431` | `: '（几何未采集：…）'` | `: '几何未采集：…'` |
+
+⛔ **保留**（web-parity，被他测逐字钉）：`MessageRow.EMPTY_NOTICE_TEXT = '（无文本输出）'`
+（= web `i18n.emptyAssistant`，`empty_notice.test.ts:117` 钉）。
+
+**判据（演进，⛔ 不删除）**：
+- `empty_state_copy.test.ts` 新增 **③**（全仓硬不变量）：扫描**所有组件/页面**（已剥注释），
+  任何**整体被全角括号包裹**的字符串字面量（`'（…）'`，`[^']` 不跨引号）⇒ **命中即红**；
+  **显式白名单** = 仅 `（无文本输出）`（web parity）。口径**跨载体**：`Text('（…）')`、
+  `Text(cond ? '（…）' : …)`、变量赋值（`x = '（…）'`）**三种都抓**。
+  ⚠️ **这是被 mutation 逼出来的一次演进**：第一版正则只匹配 `Text('（` **立刻**形态 ⇒
+  **漏掉** `TaskDetailSheet` 的**三元两分支**（非内联首参）⇒ 改为「整体括号包裹」口径。
+- `sheets2_visual.test.ts`（`AskUserSheet`/`StatusSheet` 两处断言）+
+  `status_sheet_wiring.test.ts`（一处）**从钉子串升级为钉新形态**：
+  `has(code, "Text('没有待确认的问题')")` / `has(code, "Text('暂无会话状态')")`
+  —— 子串仍含旧文案 ⇒ **不假红**；但**整串（带 `Text(` 与无括号）**⇒ 括号若回潮立刻红。
+
+**mutation 自证**（两次，均在门禁同环境 `source ~/ohos-cli/env.sh`）：
+① 注入 `Text('（暂无数据）')` ⇒ `empty_state_copy` **`4 passed, 1 failed`**（静态形态命中）；
+② 注入**三元** `Text(cond ? '（暂无输出）' : '（无输出）')` ⇒ **`4 passed, 1 failed`**（动态形态亦命中）。
+两次还原后 **md5 逐字节一致**（`33b99254…` / `6a4fff59…`）⇒ `5 passed, 0 failed`。
+
+**判据取得**：`tools/gate.sh` ⇒ **`✅ 真门禁全绿` + `GATE_EXIT=0`**（`BUILD SUCCESSFUL in 16 s 514 ms`；
+290 文件 0 失败；A 1242/1250 · B 1342/1350 · ForEach 107/107 逐条未变）；装机 `deploy.sh` ⇒ `DEPLOY_EXIT=0`；
+真机复核 ⇒ 运行面板「Runner」空态显示 `暂无受管机器`（无全角括号）✓。
