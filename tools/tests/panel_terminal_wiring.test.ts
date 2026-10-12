@@ -104,6 +104,28 @@ ok(`新空态文案存在（${newEmpty} ≥ 1）`, newEmpty >= 1);
   ok('①b tab 文字居中（`.textAlign(TextAlign.Center)`）', tabRow.indexOf('.textAlign(TextAlign.Center)') >= 0);
   ok('①b tab 命中盒 ≥44（`.constraintSize({ minHeight: HIT_TARGET_MIN })`）',
     tabRow.indexOf('.constraintSize({ minHeight: HIT_TARGET_MIN })') >= 0);
+  // ── ①b-2（2026-10-13，15z12 判据演进：**下划线式页签**）────────────────────────────
+  //   病根：实心 accent 芯片 ×5 读起来是"按钮墙"（用户亲报），且与 `SettingsPanel.TabBar`
+  //   （早一轮已改下划线）**语言不一致**。⇒ 运行面板同改下划线；等分形态不变。
+  //   ⛔ 判据演进**只加不删**：上面 4 条（等分/居中/命中盒/无 wrap 边距）继续钉住。
+  //   ⚠️ 本组断言必须**只切页签 ForEach 体**（锚点 `ForEach(this.panelTabs()`）：
+  //      ①b 的 `tabRow` 从**表头**那行 `Row({ space: SPACE_XS })` 起切 ⇒ 会把表头「＋ 新建」
+  //      一起圈进来，而它**本来就该是** accent 实心按钮（文字 `onAccent`）⇒ 负向断言**假红**
+  //      （本轮实测：`onAccent` 出现 1 次，正是表头那个按钮，不是页签）。
+  //   判别力自证：页签回到实心（`backgroundColor(... ? this.pal().accent ...)` + `onAccent` 文字）
+  //      ⇒ 末条必红；未选中指示器改成 `this.pal().accent`（人人上色）⇒ 第 2 条必红。
+  const chipsStart: number = psBody.indexOf('ForEach(this.panelTabs()');
+  const chips: string = chipsStart >= 0 && tabEnd > chipsStart ? psBody.slice(chipsStart, tabEnd) : '';
+  ok(`①b-2 页签切片非空（零扫描判红，len=${chips.length}）`, chips.length > 100);
+  ok('①b-2 选中 = 下划线指示器（`.height(STROKE_RAIL)` 的 Row）',
+    chips.indexOf('.height(STROKE_RAIL)') >= 0);
+  ok('①b-2 未选中指示器**透明**（失败方向安全：状态缺失不得读成"已选中"）',
+    chips.indexOf('this.pal().transparent') >= 0);
+  ok('①b-2 选中文字走 `accentSoft`（⛔ `accent` 不得做文字色）',
+    chips.indexOf('this.pal().accentSoft') >= 0);
+  ok('①b-2 选中文字加重（`FontWeight.Medium`）', chips.indexOf('FontWeight.Medium') >= 0);
+  ok(`①b-2 ⛔ 不再是**实心 accent 芯片**（页签体内 \`onAccent\` ${countOf(chips, 'onAccent')} 次，应 0）`,
+    countOf(chips, 'onAccent') === 0);
 }
 // ①c **不变式**：标签 ≤ 2 个汉字（含计数才放得进 1/5 宽 ≈ 63vp；见 `panelTabLabel` 头注）。
 //     ⛔ 只钉"等分形态"不判别：谁把标签写长（如「子代理 12」），等分下文字会被挤/换行。

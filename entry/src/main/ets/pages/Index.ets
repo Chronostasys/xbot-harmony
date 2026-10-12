@@ -35,7 +35,7 @@ import {
   GAP_BLOCK, HIT_TARGET_MIN, ICON_MD, ICON_SM, INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X,
   MARKER_GUTTER,
   PRESS_OPACITY, PRESS_SCALE, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, RADIUS_SHEET, SHEET_ACTION_GLYPH, SPACE_HAIR, SPACE_LG, SPACE_MD,
-  SPACE_SM, SPACE_XL, SPACE_XS, SPACE_XXL, SPACE_XXS, STROKE_HAIRLINE, colorOf, hairlineOf,
+  SPACE_SM, SPACE_XL, SPACE_XS, SPACE_XXL, SPACE_XXS, STROKE_HAIRLINE, STROKE_RAIL, colorOf, hairlineOf,
   insetHairlineOf, SHEET_WIDTH, surfaceFillOf, typeOf,
 } from '../core/design';
 import { isUnauthorized, loadErrHint, loadErrTitle, needsRelogin, needsSessionRefresh } from '../core/autherr';
@@ -7990,25 +7990,40 @@ struct Index {
       //    **也不可能参差**（无魔数、任何屏宽都齐平）—— 这就是 iOS `UISegmentedControl` 的形态。
       //    ⚠️ 前提 = 标签 ≤ 2 个汉字（含计数）：「2 字 + 空格 + 2 位数」= 3.8 个全角字 ≤ 每片预算
       //    3.9（见 `panelTabLabel` 头注）；判据 ③b 钉住这条不变式（标签槽位 + 等分形态）。
-      //    中性治装对齐 `SettingsPanel.TabBar`：未选中 = chip 面 + 内凹发丝；选中 = 实心 accent。
+      //    ⚠️ 2026-10-13（目标③ 15z12）：由**实心 accent 芯片**改 **下划线式页签** —— 与
+      //    `SettingsPanel.TabBar`（早一轮同项改造）**同一视觉语言**：选中 = 文字加重 + 一条 accent
+      //    指示线，不是填充块。用户亲报「实心芯片」：5 枚同形实心块读起来是"按钮墙"，且实心色块
+      //    的视觉重量（5 × 色块）会压过面板标题本身的层级。
+      //    等分形态**保持不变**（每片 `layoutWeight(1)` ⇒ 任何屏宽都齐平、不可能被裁/参差）。
       Row({ space: SPACE_XS }) {
         ForEach(this.panelTabs(), (tab: string) => {
-          Text(this.panelTabLabel(tab))
-            .fontSize(typeOf('type.caption').size)
-            .fontColor(this.panelTab === tab ? this.pal().onAccent : this.pal().textSecondary)
-            .textAlign(TextAlign.Center)
-            .padding({ left: SPACE_XS, right: SPACE_XS })
-            .backgroundColor(this.panelTab === tab ? this.pal().accent : surfaceFillOf(this.pal(), 'surface.chip'))
-            .borderRadius(RADIUS_PILL)
-            .border({ width: STROKE_HAIRLINE, color: this.panelTab === tab ? this.pal().accent : hairlineOf(this.pal()) })
-            // 选中态缓动（与抽屉分段控件同一口径；只动底色/描边）
-            .animation(animBase())
-            .constraintSize({ minHeight: HIT_TARGET_MIN })
-            .layoutWeight(1)
-            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-            .onClick(() => {
-              this.switchPanelTab(tab);
-            })
+          Column({ space: SPACE_HAIR }) {
+            Text(this.panelTabLabel(tab))
+              .fontSize(typeOf('type.subhead').size)
+              .fontWeight(this.panelTab === tab ? FontWeight.Medium : typeOf('type.subhead').weight)
+              // ⛔ `accent` **不得**直接做文字色（对底仅 4.05 < 4.5，仓内铁律 `accent_chrome.test.ts`）
+              //    ⇒ 选中文字走 `accentSoft`（5.57–12.0 全主题过线），与设置页签同一口径。
+              .fontColor(this.panelTab === tab ? this.pal().accentSoft : this.pal().textSecondary)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .textAlign(TextAlign.Center)
+            // 指示器：**仅选中项上色**（未选中 = 透明 ⇒ 失败方向安全：绝不让"状态缺失"读成"已选中"）。
+            Row()
+              .width(SPACE_LG)
+              .height(STROKE_RAIL)
+              .borderRadius(STROKE_RAIL)
+              .backgroundColor(this.panelTab === tab ? this.pal().accent : this.pal().transparent)
+              // 选中态缓动（与抽屉分段控件同一口径；只动指示器底色）
+              .animation(animBase())
+          }
+          .layoutWeight(1)
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            this.switchPanelTab(tab);
+          })
         }, (tab: string) => `ptab-${tab}`)
       }.width('100%')
 
