@@ -1900,4 +1900,36 @@ Home/End 失效。`Ctrl-C` 保留**直按**（web 要先进 Ctrl 模式才够得
 `10605099 arkts-no-spread`（`store.ets:475`）—— **脱机三条永远抓不到**。修：改**原地字段赋值**。
 **性能预算**：无新增 `pal()/palOnce()` 字面（判据全在 `.ets` 纯逻辑侧，不在渲染树）；A 1242 · B 1342（不变）。
 
+## §21.32 目标②细节修复：**流式上滚不再被强行拉回底部**（2026-10-12）
+
+**用户真机亲报**（插话）：*"思考中数字滚动的时候，用户滚开会立马被拉回最下方"*
+（=`思考 N 字` 的数字随流式跳动期间，用户上滑看历史 ⇒ 立刻被拽回底部）。
+
+**根因（`pages/Index.ets` 滚动处理的结构性缺陷）**：
+`userScrollFrame` 是**单布尔**，而 `onScrollIndex` 里 `const userDriven = this.userScrollFrame;
+this.userScrollFrame = false; this.followBottom = nextFollowBottom(this.followBottom, userDriven, end, itemCount);`
+—— **任一**索引回调都会消费该 flag。流式期间程序滚动（`scrollEdge(Bottom)`，打字机每帧触发）与
+用户拖动**交错** ⇒ 程序滚动的索引回调**抢先消费**用户刚置的 flag，且此刻视图正被钉在底部
+（`end === itemCount-1`）⇒ `nextFollowBottom` 令 `followBottom` **判回 `true`** ⇒ 自动滚动继续 ⇒
+用户被拽回底部（「滚不动」）。§21.31 的文档当时误记为"已实现"，本轮据实修正。
+
+**修复（逐字移植 web 权威 `MessageList.tsx:1327-1345`）**：web 的语义是
+`onWheel → pauseFollowing()`（**与方向/位置无关**，用户一碰就交还控制权）+ 滚到底才
+`checkBottomAndResume()`。原生照此重构：
+1. **`onWillScroll`：用户帧 ⇒ 立即 `this.followBottom = false`**（不等索引回调按位置算）——
+   程序滚动随之**立刻停止**（`shouldAutoScroll` 变假），交错竞态从源头消失。
+2. **`onScrollIndex`：只在 `this.lastScrollWasUser` 为真时（本帧确属用户滚动）才判定恢复**，
+   且 `userDriven = this.userScrollFrame && this.lastScrollWasUser`；程序帧**绝不**改写意图。
+   恢复判据仍走纯函数 `core/listfollow.nextFollowBottom`（判据不删只演进）。
+3. **30ms 延迟程序滚动派发后复查 `this.followBottom`**：这 30ms 内用户若已动手 ⇒ 撤销本次滚动
+   （封掉"用户动手前刚排上队"的次要来源）。
+4. 新增字段 `lastScrollWasUser`（`onWillScroll` 每帧覆写；`onScrollIndex` 读）。
+
+**判据**：`listfollow.test` **47/0**（+2 条竞态判别力：「旧行为复现被拽回」vs「修复立即暂停」）·
+新建 **`scroll_follow_wiring.test.ts` 7/0**（钉 `pages/Index.ets` 的三处生产调用点：
+`this.lastScrollWasUser = user;` · `this.userScrollFrame && this.lastScrollWasUser` ·
+`if (!this.followBottom) {`；并断言 `markUserScrollFrame(`/`nextFollowBottom(` 仍被消费 —— 防死代码）。
+**性能预算**：无新增 `pal()/palOnce()` 字面。
+
+
 

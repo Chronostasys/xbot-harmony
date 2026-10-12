@@ -169,5 +169,40 @@ describe('markUserScrollFrame（只置位、不清位）', () => {
   });
 });
 
+// ── 用户 2026-10-12 真机亲报：「思考中数字滚动的时候，用户滚开会立马被拉回最下方」──────────
+// 根因：`userScrollFrame` 是**单布尔**，**任一** `onScrollIndex` 都会消费它；流式期间程序滚动
+//   （`scrollEdge(Bottom)`）与用户拖动**交错** ⇒ 程序滚动的索引回调**抢先消费**用户刚置的 flag，
+//   且此刻 `end` 恰为 `itemCount-1` ⇒ `nextFollowBottom` 把 `followBottom` 判回 `true`
+//   ⇒ 自动滚动继续 ⇒ 用户被拽回底部。
+// 修复（页 `pages/Index.ets`）：① 用户帧在 `onWillScroll` **立即** `followBottom=false`
+//   （web `pauseFollowing()`：与方向/位置无关）；② `onScrollIndex` 只在 `lastScrollWasUser`
+//   时判定恢复（程序帧**绝不**改写意图）；③ 30ms 延迟程序滚动派发后**复查** `followBottom`。
+describe('程序滚动抢 flag 的竞态（2026-10-12 真机缺陷）', () => {
+  it('旧行为复现：程序回调抢先消费 flag 且 end 在底部 ⇒ 被判回 true（用户被拽回）', () => {
+    let pending: boolean = markUserScrollFrame(false, true);          // ① 用户上滑
+    // ② 程序滚动的 onScrollIndex 抢先到达（此刻视图被钉在底部：end === itemCount-1）
+    const userDriven: boolean = pending;                             // 旧：单布尔，程序回调也消费
+    pending = false;
+    eq('旧行为：followBottom 被判回 true（拽回底部）', nextFollowBottom(true, userDriven, 9, 10), true);
+  });
+
+  it('★ 修复：用户帧**立即暂停** ⇒ 程序帧不再置回；用户滚回底部才恢复', () => {
+    let follow = true;
+    // ① 用户上滑 ⇒ onWillScroll(user) **立即**暂停（不等索引回调按位置算）
+    follow = false;
+    let pending: boolean = markUserScrollFrame(false, true);
+    // ② 程序滚动帧：lastScrollWasUser=false ⇒ 索引回调**不判定** ⇒ 保持暂停
+    const lastScrollWasUser = false;
+    const userDriven = pending && lastScrollWasUser;
+    pending = false;
+    eq('程序帧：userDriven=false（不判定）', userDriven, false);
+    eq('程序帧不改写意图 ⇒ 保持暂停（用户**不被**拽回）', follow, false);
+    // ③ 用户把列表滚回底部（用户帧）⇒ 恢复跟随（web `checkBottomAndResume()` 同义）
+    eq('用户滚回底部 ⇒ 恢复跟随', nextFollowBottom(follow, true, 9, 10), true);
+    // ④ 用户只是往上滚、未到底（用户帧）⇒ 仍暂停
+    eq('用户未到底 ⇒ 仍暂停', nextFollowBottom(false, true, 3, 10), false);
+  });
+});
+
 console.log(`  listfollow: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

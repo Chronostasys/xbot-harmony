@@ -589,6 +589,20 @@ struct Index {
    */
   private userScrollFrame: boolean = false;
 
+  /**
+   * **最近一帧** `onWillScroll` 的滚动是否来自用户输入（每次 `onWillScroll` 覆写）。
+   *
+   * 为什么单有 `userScrollFrame` 不够（用户 2026-10-12 真机亲报：「思考中数字滚动的时候，
+   *   用户滚开会立马被拉回最下方」）：`userScrollFrame` 是**单布尔**，**任一**索引回调都会消费它；
+   *   流式期间程序滚动（`scrollEdge(Bottom)`，打字机每帧触发）与用户拖动**交错** ⇒ 程序滚动的
+   *   `onScrollIndex` 会**抢先消费**用户刚置的 flag，且此刻 `end` 恰为 `itemCount-1`
+   *   ⇒ `followBottom` 被判回 `true` ⇒ 用户被拽回底部。
+   *   ⇒ 本字段让 `onScrollIndex` 只在**本帧确属用户滚动**时才判定"是否恢复跟随"
+   *   （web `MessageList.tsx` 的 `onWheel → pauseFollowing()` + `checkBottomAndResume()` 同构：
+   *   程序滚动**绝不**改写用户意图）。
+   */
+  private lastScrollWasUser: boolean = false;
+
   /** 首屏渲染的行窗口（避免一次性构建几十行；点上方的「显示更早」按批放开） */
   @State rowLimit: number = MAX_ROWS_VISIBLE;
 
@@ -1783,6 +1797,12 @@ struct Index {
     // （否则"阅读中被打断"）；用户就地展开/折叠（抑制窗内）也不抢（真机 P0，2026-10-11）。
     if (shouldAutoScroll(this.followBottom, contentGrew, Date.now(), this.followSuppressUntilMs)) {
       delay(() => {
+        // ⛔ **派发后复查意图**：这 30ms 内用户可能已经动手（`onWillScroll` 立即置
+        //    `followBottom=false`）⇒ 若此处不复查，一个"用户动手前刚排上队"的程序滚动
+        //    仍会把他拽回底部（用户 2026-10-12 亲报的"立马被拉回"的次要来源）。
+        if (!this.followBottom) {
+          return;
+        }
         try {
           this.listScroller.scrollEdge(Edge.Bottom);
         } catch (e) {
@@ -4483,27 +4503,41 @@ struct Index {
       // ⛔ 记录的**只有**"这一帧的滚动是不是用户干的"（ScrollSource 由 Scroll 框架给出，
       //    `SCROLLER`/`SCROLLER_ANIMATION` = 程序滚动与内容钳位 ⇒ 绝不算用户输入）。
       .onWillScroll((offset: number, state: ScrollState, source: ScrollSource) => {
-        // ⛔ **只置位、不清位**（见 `isUserScrollSource` 上方注释与 `core/listfollow.markUserScrollFrame`）：
-        //    流式期间每帧都有程序滚动（`scrollEdge(Bottom)`）⇒ 在此清位会把用户刚置的意图
-        //    在 `onScrollIndex` 消费前吃掉 ⇒ 用户"滚不动"（用户 2026-10-11 亲报）。
-        //    清位由 `onScrollIndex` 一次性消费。
-        this.userScrollFrame = markUserScrollFrame(this.userScrollFrame, isUserScrollSource(source));
+        const user: boolean = isUserScrollSource(source);
+        // 记录**本帧**来源：`onScrollIndex` 只在**本帧确属用户滚动**时才判定恢复跟随
+        // （见字段 `lastScrollWasUser` 的论证 —— 单布尔 flag 会被程序滚动的索引回调抢先消费）。
+        this.lastScrollWasUser = user;
+        // **只置位、不清位**（`markUserScrollFrame`）：程序帧不得清掉用户在飞意图。
+        this.userScrollFrame = markUserScrollFrame(this.userScrollFrame, user);
+        // ★ 用户一动手 ⇒ **立即暂停跟随**（逐字移植 web `MessageList.tsx:1330-1333`
+        //   `onWheel → pauseFollowing()`：**与方向/位置无关**，用户一碰就交还控制权）。
+        //   为什么必须**立即**、不能等 `onScrollIndex` 按位置判定（用户 2026-10-12 真机亲报）：
+        //   流式期间程序滚动与用户拖动**交错**，等索引回调时程序滚动可能已把视图钉回底部
+        //   （`end === itemCount-1`）⇒ 被判"仍在跟随" ⇒ 用户**滚不动**。
+        if (user) {
+          this.followBottom = false;
+        }
       })
       // 跟踪"是否跟随到底部"：end 是最后一个可见项的下标，等于末项下标即在底部。
       // 项数 = [可选"加载更早"头项] + rows + [可选 live 行项] + [可选 busy 指示器]，
       // 故用 listItemCount() 显式算（头项判据与渲染它的 `if` 同源：`hasHeadItem()`）。
       .onScrollIndex((start: number, end: number) => {
         this.listStart = start;   // 用户消息导航据此算当前锚点
-        // ⛔ 跟随开关是**用户意图**，只由**用户输入**翻转：程序滚动 / 内容增删引起的钳位与
-        //    索引回调一律不置位（否则"点工具 pill ⇒ store 变更 ⇒ 拽到最下方"的 P0 复发）。
-        const busyPlaceholder: boolean = showsBusyPlaceholder(this.busySignals());
-        const liveRows: number = this.hasLiveRow ? 1 : 0;
-        const itemCount: number = listItemCount(this.hasHeadItem(), busyPlaceholder,
-          this.rowDs.count(), liveRows);
-        // 一次性消费（避免泄漏到后续程序滚动帧）；判据本体是纯函数（core/listfollow）。
-        const userDriven: boolean = this.userScrollFrame;
+        // ⛔ 跟随开关是**用户意图**，只由**用户输入**翻转：只有**本帧确属用户滚动**
+        //    （`lastScrollWasUser`）且 flag 在飞时才判定 —— 程序滚动 / 内容增删引起的
+        //    索引回调一律**不碰意图**（否则"点工具 pill ⇒ store 变更 ⇒ 拽到最下方"的 P0 复发，
+        //    以及用户滚到一半被程序滚动的索引回调误判回跟随）。
+        const userDriven: boolean = this.userScrollFrame && this.lastScrollWasUser;
+        // 一次性消费（避免泄漏到后续程序滚动帧）。
         this.userScrollFrame = false;
-        this.followBottom = nextFollowBottom(this.followBottom, userDriven, end, itemCount);
+        if (userDriven) {
+          const busyPlaceholder: boolean = showsBusyPlaceholder(this.busySignals());
+          const liveRows: number = this.hasLiveRow ? 1 : 0;
+          const itemCount: number = listItemCount(this.hasHeadItem(), busyPlaceholder,
+            this.rowDs.count(), liveRows);
+          // 用户滚回底部 ⇒ 恢复跟随（web `checkBottomAndResume()` 同义）；否则保持暂停。
+          this.followBottom = nextFollowBottom(this.followBottom, true, end, itemCount);
+        }
         // 对齐 web：滚到顶部**自动**拉更早历史（web 用 IntersectionObserver 哨兵，同语义），
         // 不再要求用户先点一下按钮。loadingMore 自锁，避免请求风暴。
         if (start === 0 && !this.loadingMore && this.hasMore) {
