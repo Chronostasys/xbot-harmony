@@ -88,6 +88,7 @@ import {
 import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msgindex';
 import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, WebPluginListWire, buildPluginCatalog } from '../core/pluginhost';
 import { hasIterStatsBadge, iterStatsText } from '../core/pluginviews';
+import { SkillItem } from '../core/skills';
 import { FsFileEntry, FsReadResult, fileKindOf, FK_IMAGE, sortFsEntries } from '../core/files';
 import {
   ATTACH_DONE, ATTACH_FAILED, ATTACH_UPLOADING, AttachItem, MAX_ATTACH, appendRef, attachChipText,
@@ -167,6 +168,7 @@ import { QueueSheet } from '../components/QueueSheet';
 import { PluginsSheet } from '../components/PluginsSheet';
 import { SessionStatsSheet } from '../components/SessionStatsSheet';
 import { FilesSheet } from '../components/FilesSheet';
+import { SkillsSheet } from '../components/SkillsSheet';
 import { SelfCheckSheet } from '../components/SelfCheckSheet';
 import { TaskDetailSheet } from '../components/TaskDetailSheet';
 // 运行面板（任务管理）的**结构化行卡**（真 @Component；取色走 `paletteOf(theme)` ⇒ 不占页面预算）
@@ -543,6 +545,15 @@ struct Index {
   @State collapsedGroups: string[] = [];
   @State showQueue: boolean = false;
   @State showPlugins: boolean = false;
+  // ── 技能管理（目标④）——页面独占所有权；组件只收 @Prop ──────────────────────
+  @State showSkills: boolean = false;
+  @State skills: SkillItem[] = [];
+  @State skillsLoading: boolean = false;
+  @State skillsError: string = '';
+  /** 阅读态：技能名非空 ⇒ 面板切到 `SKILL.md` 视图。 */
+  @State skillViewName: string = '';
+  @State skillViewText: string = '';
+  @State skillViewLoading: boolean = false;
   // ── 文件管理（目标④）——页面独占所有权；组件只收 @Prop ──────────────────────
   @State showFiles: boolean = false;
   @State fmDir: string = '/';
@@ -2931,6 +2942,98 @@ struct Index {
     }
   }
 
+  // ── 技能管理（目标④「真的支持 web 的所有插件和功能」）─────────────────────────
+  //
+  // web 把技能管理做成内置前端插件 `xbot.skill-manager`（面板 `SkillManagerPanel.tsx`），
+  // 原生此前**零覆盖** ⇒ 补齐。数据/所有权全留页面（组件只收 @Prop + 回调）。
+  /** 开技能面板（并拉一次列表）。 */
+  private openSkills(): void {
+    this.showSkills = true;
+    this.closeSkillView();
+    this.loadSkills();
+  }
+
+  /** 拉技能列表。失败 ⇒ 面板红字 + 重试（⛔ 不吞异常、不假装成空列表 —— 与插件目录的吞法故意相反）。 */
+  private async loadSkills(): Promise<void> {
+    const st: ChatStore | null = this.store;
+    if (st === null) {
+      return;
+    }
+    this.skillsLoading = true;
+    this.skillsError = '';
+    try {
+      // `project_dir` = 会话工作区根（与 web 传 `cwd` 同源）⇒ 项目技能也能列出来。
+      const list: SkillItem[] = await st.listSkills(st.cwd);
+      this.skills = list;
+    } catch (e) {
+      this.skillsError = errText(e as Object);
+      this.skills = [];
+    } finally {
+      this.skillsLoading = false;
+    }
+  }
+
+  /**
+   * 开/关一条技能（**乐观更新**：先翻本地态，失败回滚 + 报错，最后静默重拉对齐服务端
+   * —— 逐条对齐 web `SkillManagerPanel.tsx:77-107` 的语义；防抖在原生**不需要**
+   * （`Toggle` 的 onChange 是离散事件，不是拖动流））。
+   */
+  private async toggleSkill(name: string, enabled: boolean): Promise<void> {
+    const st: ChatStore | null = this.store;
+    if (st === null) {
+      return;
+    }
+    const before: SkillItem[] = this.skills;
+    const next: SkillItem[] = [];
+    for (let i = 0; i < before.length; i++) {
+      const it: SkillItem = before[i];
+      next.push(it.name === name
+        ? {
+          name: it.name, description: it.description, path: it.path, source: it.source,
+          enabled: enabled, canUninstall: it.canUninstall,
+        }
+        : it);
+    }
+    this.skills = next;
+    try {
+      await st.setSkillEnabled(name, enabled);
+    } catch (e) {
+      this.skills = before;
+      this.skillsError = errText(e as Object);
+      return;
+    }
+    // 静默重拉：以服务端为准（与 web 的 `load(true)` 一致）
+    try {
+      this.skills = await st.listSkills(st.cwd);
+    } catch (e) {
+      // 重拉失败**不回滚**已成功的写入（写入已生效；列表保持乐观态即可）
+    }
+  }
+
+  /** 打开一条技能的 `SKILL.md`（`skill_get_content`；`path` 是**目录**，服务端自己拼文件）。 */
+  private async openSkillView(item: SkillItem): Promise<void> {
+    const st: ChatStore | null = this.store;
+    if (st === null) {
+      return;
+    }
+    this.skillViewName = item.name;
+    this.skillViewText = '';
+    this.skillViewLoading = true;
+    try {
+      this.skillViewText = await st.getSkillContent(item.path);
+    } catch (e) {
+      this.skillViewText = `读取失败：${errText(e as Object)}`;
+    } finally {
+      this.skillViewLoading = false;
+    }
+  }
+
+  private closeSkillView(): void {
+    this.skillViewName = '';
+    this.skillViewText = '';
+    this.skillViewLoading = false;
+  }
+
   /** 取图片字节（带会话鉴权）—— AuthImage 与查看器共用同一实现。 */
   // ── 文件管理（目标④「文件管理也没有」）───────────────────────────────────────
   /** 开文件面板。初始目录 = 当前会话 cwd（`/api/session/status` 的权威值），缺则根目录。 */
@@ -3614,6 +3717,10 @@ struct Index {
             onOpenSessionStats: () => {
               this.openSessionStats();
             },
+            onOpenSkills: () => {
+              this.showPlugins = false;
+              this.openSkills();
+            },
             onOpenPlugin: (p: PluginCatalogItem) => {
               this.showPlugins = false;
               this.panelUrl = p.url;
@@ -3670,6 +3777,44 @@ struct Index {
             },
             onClose: () => {
               this.showFiles = false;
+            },
+          })
+        }.width('100%').height('100%')
+      }
+      // 技能管理（目标④：web 的 `xbot.skill-manager` 插件面板 ⇒ 原生落地）——showSkills/列表全留页面。
+      if (this.showSkills) {
+        Stack() {
+          Row() {
+            Blank()
+          }.width('100%').height('100%').onClick(() => {
+            this.showSkills = false;
+          })
+          SkillsSheet({
+            theme: this.themeName,
+            loading: this.skillsLoading,
+            error: this.skillsError,
+            items: this.skills,
+            viewName: this.skillViewName,
+            viewText: this.skillViewText,
+            viewLoading: this.skillViewLoading,
+            mdTheme: this.mdThemeId(),
+            fontScale: this.fontScale(),
+            wrapCode: this.wrapCode(),
+            onToggle: (name: string, on: boolean) => {
+              void this.toggleSkill(name, on);
+            },
+            onOpen: (it: SkillItem) => {
+              void this.openSkillView(it);
+            },
+            onClosePreview: () => {
+              this.closeSkillView();
+            },
+            onRefresh: () => {
+              void this.loadSkills();
+            },
+            onClose: () => {
+              this.showSkills = false;
+              this.closeSkillView();
             },
           })
         }.width('100%').height('100%')
@@ -4330,6 +4475,26 @@ struct Index {
     .margin({ left: SP_3, right: SP_3, top: SP_2 })
   }
 
+  /**
+   * 骨架屏的**一行**（静态：两段占位条宽比）。
+   *
+   * ⛔ 这里刻意**不用 `ForEach`**（性能预算 ⑦：`ForEach(` 是全仓硬上限，只有 4 行的**静态**
+   *    装饰性骨架不值得占一个"动态列表站点"）。参数是**编译期字面量**（`'72%'/'46%'`…），
+   *    不会变 ⇒ 用带参 `@Builder` 完全安全（"带参子树不随参数重建"的坑只在参数会变时成立）。
+   */
+  @Builder
+  SkeletonRow(w1: string, w2: string) {
+    Row({ space: 8 }) {
+      Row().width(26).height(26).borderRadius(26 / 2).backgroundColor(this.pal().surfaceHi)
+      Column({ space: 6 }) {
+        Row().width(w1).height(10)
+          .backgroundColor(this.pal().surfaceHi).borderRadius(5)
+        Row().width(w2).height(10)
+          .backgroundColor(this.pal().surfaceHi).borderRadius(5)
+      }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+    }.width('100%')
+  }
+
   @Builder
   ChatView() {
     Column() {
@@ -4466,17 +4631,10 @@ struct Index {
       // ⇒ 空会话上骨架屏永久残留，且与下方空态同时渲染（真机走查抓到）。
       if (showsHistorySkeleton(this.historyLoading, this.rows.length) && this.currentChat.length > 0) {
         Column({ space: 10 }) {
-          ForEach([0, 1, 2, 3], (i: number) => {
-            Row({ space: 8 }) {
-              Row().width(26).height(26).borderRadius(26 / 2).backgroundColor(this.pal().surfaceHi)
-              Column({ space: 6 }) {
-                Row().width(i % 2 === 0 ? '72%' : '54%').height(10)
-                  .backgroundColor(this.pal().surfaceHi).borderRadius(5)
-                Row().width(i % 2 === 0 ? '46%' : '64%').height(10)
-                  .backgroundColor(this.pal().surfaceHi).borderRadius(5)
-              }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-            }.width('100%')
-          }, (i: number) => `sk-${i}`)
+          this.SkeletonRow('72%', '46%')
+          this.SkeletonRow('54%', '64%')
+          this.SkeletonRow('72%', '46%')
+          this.SkeletonRow('54%', '64%')
         }
         .width('100%').layoutWeight(1).padding({ left: SPACE_XXS, right: SPACE_XXS, top: SPACE_SM })
         .id('xbot-skeleton')

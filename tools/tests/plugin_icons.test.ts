@@ -120,7 +120,7 @@ const hostBody: string = pluginSymbolBody(hostSrc);
   //    记录该词的那段会**假红**（本仓既有教训：形态/缺席断言必须在代码形态上做）。
   eq('①b 入口行收图标参数（EntryRow 签名）',
     countOf(sheetSrc, 'EntryRow(label: string, sym: Resource, onClick: () => void)'), 1);
-  eq('①b 三条入口行都传了图标（调用点 = 3）', countOf(sheetSrc, "this.EntryRow('"), 3);
+  eq('①b 四条入口行都传了图标（调用点 = 4 = PANEL_FIXED_ENTRY_ROWS）', countOf(sheetSrc, "this.EntryRow('"), 4);
   eq('①b 尾部动作统一为 chevron（两类行各 1 处 = 2）',
     countOf(sheetSrc, "$r('sys.symbol.chevron_right')"), 2);
   eq('①b ⛔ 不再有文字动作词「打开」', countOf(sheetSrc, "Text('打开')"), 0);

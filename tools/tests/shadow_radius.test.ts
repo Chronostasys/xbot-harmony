@@ -125,7 +125,7 @@ function eq(name: string, got: unknown, want: unknown): void {
     const ms: string = fsMod.readFileSync(pathMod.join(repo, 'entry/src/main/ets/components/MenuSheets.ets'), 'utf-8');
     ok("  · sheet 走 'overlay' 档（= 原 SPACE_LG=20 ⇒ 深色不变）", ms.indexOf("shadowLayersOf(p, 'overlay')") >= 0);
     // G1 自证：五处浮层都经 `shadowLayersOf('overlay')` 消费（⛔ 不是"函数名存在"，是**调用点**）。
-    const overlayConsumers: string[] = ['AskUserSheet', 'Lightbox', 'MenuSheets', 'StatusSheet', 'Toast'];
+    const overlayConsumers: string[] = ['AskUserSheet', 'Lightbox', 'MenuSheets', 'StatusSheet', 'Toast', 'SkillsSheet'];
     for (let i = 0; i < overlayConsumers.length; i++) {
       const c: string = fsMod.readFileSync(pathMod.join(repo, `entry/src/main/ets/components/${overlayConsumers[i]}.ets`), 'utf-8');
       ok(`G1 消费点：${overlayConsumers[i]}.ets 走 shadowLayersOf(...,'overlay')`,
@@ -195,6 +195,8 @@ function eq(name: string, got: unknown, want: unknown): void {
       // 会话统计面板（目标④「统计插件的面板我们看不到」）：与其余浮层同构的双层柔影
       // （near=贴合影 / far=环境影），走 `shadowLayersOf(...,'sheet')` 同一出口（⛔ 不写死半径）。
       'components/SessionStatsSheet.ets',
+      // 技能面板（目标④）：侧栏双层柔影走 `shadowLayersOf(...,'overlay')` 同一出口（⛔ 不写死半径）。
+      'components/SkillsSheet.ets',
       'components/StatusSheet.ets', 'components/SyntheticCard.ets',
       // 后台任务详情（目标④「任务管理做的很差」）：与 SelfCheckSheet 同构的双层柔影
       // （near=贴合影 / far=环境影），走 `shadowLayersOf(...,'sheet')` 同一出口（⛔ 不写死半径）。

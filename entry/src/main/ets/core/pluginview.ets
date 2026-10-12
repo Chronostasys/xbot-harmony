@@ -358,8 +358,8 @@ export function pluginMetaText(version: string, state: string): string {
 //    `INSET_ROW_Y×2` + `GAP_ROW_Y`；插件行另有「名称/元信息 + 描述」两层文本（额外 `SPACE_XS`）。
 //    估值**宁可略高**：高了只是卡片略高；**低了就会裁掉行**（正是旧缺陷）。
 
-/** 能力面板的**固定入口行**数（原生目录 / 会话统计 / 完整 Web UI）——与组件里的三条 `ListItem` 同源。 */
-export const PANEL_FIXED_ENTRY_ROWS: number = 3;
+/** 能力面板的**固定入口行**数（原生目录 / 会话统计 / 技能 / 完整 Web UI）——与组件里的四条 `ListItem` 同源。 */
+export const PANEL_FIXED_ENTRY_ROWS: number = 4;
 /** 「入口行」高度估值（vp）：单行文本，取命中区下限 + 上下内距 + 行间距。 */
 export const PANEL_ENTRY_ROW_H: number = HIT_TARGET_MIN + 2 * INSET_ROW_Y + GAP_ROW_Y;
 /** 「插件行」高度估值（vp）：入口行 + 描述那一层（两层文本）。 */

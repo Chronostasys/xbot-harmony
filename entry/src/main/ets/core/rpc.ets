@@ -1218,6 +1218,58 @@ export const RPC_PLUGIN_RELOAD: string = 'plugin_reload';
  */
 export const RPC_PLUGIN_STATUS: string = 'plugin_status';
 
+// ── 技能管理（web 侧是内置插件 `xbot.skill-manager`；原生做视图，契约仍以服务端为准）──────
+
+/** `skill_list`（`rpc1`）`{project_dir}` → `SkillDetail[]`。
+ *  `serverapp/rpc_table.go:3148-3158` → `agent/skills.go:368 ListSkillsDetailed`；
+ *  web `plugins/xbot-skill-manager/SkillManagerPanel.tsx:52-55`。 */
+export const RPC_SKILL_LIST: string = 'skill_list';
+/** `skill_set_enabled`（`rpc1`）`{name,enabled}` → `{status:"ok"}`（写 `disabled_skills` 黑名单）。
+ *  `rpc_table.go:3160-3180`；web `SkillManagerPanel.tsx:95`。 */
+export const RPC_SKILL_SET_ENABLED: string = 'skill_set_enabled';
+/** `skill_get_content`（`rpc1`）`{path}` → `{content}`（`path` 是**技能目录**，服务端自己拼 `SKILL.md`；
+ *  内置技能的 `embedded:<name>` 伪路径也由服务端解析）。`rpc_table.go:3197-3211`。 */
+export const RPC_SKILL_GET_CONTENT: string = 'skill_get_content';
+
+/** `skill_list` 的 params（`project_dir` 空串 ⇒ 只返回非项目档的技能）。 */
+export class SkillListParams {
+  project_dir: string = '';
+
+  constructor(projectDir: string) {
+    this.project_dir = projectDir;
+  }
+}
+
+/** `skill_set_enabled` 的 params。 */
+export class SkillSetEnabledParams {
+  name: string = '';
+  enabled: boolean = false;
+
+  constructor(name: string, enabled: boolean) {
+    this.name = name;
+    this.enabled = enabled;
+  }
+}
+
+/** `skill_get_content` 的 params。 */
+export class SkillGetContentParams {
+  path: string = '';
+
+  constructor(path: string) {
+    this.path = path;
+  }
+}
+
+/** `skill_get_content` 的响应。 */
+export interface SkillContentWire {
+  content?: string;
+}
+
+/** `skill_set_enabled` 的响应。 */
+export interface SkillSetEnabledAck {
+  status?: string;
+}
+
 /** `plugin_config` 的 params（`id` 省略/空串 ⇒ 返回**全部**带配置声明的插件）。 */
 export class PluginConfigParams {
   id: string = '';

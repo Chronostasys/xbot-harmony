@@ -2415,3 +2415,80 @@ A **1246**/1250 · **B 1350**/1350 · ForEach **107**/107；⑧ 无未消费 cor
 现象级证据由**判据 + mutation** 承担（诚实记账）。
 ⚠️ B 线仍**顶格 1350/1350**：本批**零新增**色板读取点（只把表达式换成 `@State`）。
 
+## §21.43 细节修复（第十五批）：原生「技能管理」面板 —— 目标④ parity 缺口（2026-10-12）
+
+### 缺口是怎么找到的（系统 parity 扫描，不是猜）
+用户④「**必须真的支持 web 的所有插件和功能**」⇒ 做了一次 web 组件面 vs 原生的系统比对，钓到一处**零覆盖**：
+- web 侧技能管理 = **内置前端插件** `xbot.skill-manager`
+  （`web/src/plugins/xbot-skill-manager/SkillManagerPanel.tsx`，`contributes.container='right_sidebar'`，
+  `icon:'sparkles'`，视图 `builtin:xbot.skill-manager.panel`）；
+- 服务端契约齐备：`skill_list{project_dir}` → `SkillDetail[]`
+  （`rpc_table.go:3148-3158` → `agent/skills.go:368 ListSkillsDetailed`；字段 = `SkillInfo{name,description,path,author?,…}`
+  ⊕ `{source,enabled,can_uninstall}`）、`skill_set_enabled{name,enabled}`、`skill_get_content{path}`；
+- **原生全仓只有 2 处附带提到 "skill"**（均非管理面）⇒ 用户在原生端**完全看不到/管不了技能**（真实能力缺口）。
+- 真机数据（`skill_list` 实调）：**10 条技能全部 `source=embedded`、全部 `enabled`**。
+
+### 落地（视图原生重做；契约/判据仍以服务端与 web 为权威）
+- **纯逻辑** `core/skills.ets`（新）：`SkillItem` 归一化模型 + `parseSkillList`（⛔ 非数组/缺 `name` ⇒ 跳过，
+  **绝不抛**；`enabled` 只在**显式 `true`** 时为真 —— 字段缺失不乐观假设成"已启用"）+ 来源四档 ⊕ `other`
+  （未知档**不丢行**）+ `skillGroups`（档序 = 项目→用户→全局→内置→其他；空组不产出；**组内保持服务端顺序**）
+  + `skillRows`（**摊平**成一维：组标题行 ⊕ 条目行）+ `skillSummaryText`/`skillPathHint`/`skillToggleLabel`。
+- **RPC 地基** `core/rpc.ets`：`RPC_SKILL_LIST`/`RPC_SKILL_SET_ENABLED`/`RPC_SKILL_GET_CONTENT`
+  + `SkillListParams`/`SkillSetEnabledParams`/`SkillGetContentParams`（照 `PluginConfigParams` 范式；
+  ⛔ **不登记** `RpcMethod.ALL` —— 与既有插件 RPC 同一现状，`rpc.test.ts` 的 `NAMED` 是硬编码清单）。
+- **store**：`listSkills(projectDir)` / `setSkillEnabled(name,enabled)` / `getSkillContent(path)`
+  ——⚠️ 与 `loadPluginCatalog`（把错误吞成空目录）**故意相反**：面板有失败态+重试，**必须**能区分"空"与"失败" ⇒ 原样抛。
+- **组件** `components/SkillsSheet.ets`（新，侧栏 `drawerTransition()` 滑入）：标题/返回/刷新/关闭 +
+  计数行 + 三态（加载一行小字 / 失败红字+重试 / 空）+ 分组列表（组标题行 + 行=名称/描述/路径提示 + `Toggle(Switch)`）
+  + `SKILL.md` 阅读视图（**复用 `MarkdownView`** ⇒ 与聊天正文同一渲染器）。开关 = **乐观更新 + 失败回滚 + 静默重拉**
+  （逐条对齐 web `SkillManagerPanel.tsx:77-107`；防抖在原生不需要 —— `Toggle.onChange` 是离散事件不是拖动流）。
+- **入口**：能力面板（`PluginsSheet`）新增**第 4 条固定入口行**「技能」（`$r('sys.symbol.lightbulb')`
+  = `pluginSymbol('sparkles')` 的已验证映射）；`PANEL_FIXED_ENTRY_ROWS` 3 → **4**（高度估值与行数**同源**，
+  否则第 4 行会被裁 —— 13h 的教训）。
+
+### 预算与台账（⛔ 都是"判据演进"，不是绕过）
+- **判据演进 ①（`ForEach(` 硬上限 107/107）**：新面板的列表必须占**一处**列表站点 ⇒
+  把 `pages/Index.ets:4469` 的**静态装饰性骨架屏** `ForEach([0, 1, 2, 3], …)`（**无数据源、无响应性需求**，
+  参数是编译期字面量）展开为**静态 `@Builder SkeletonRow(w1,w2)` ×4 调用** ⇒ **真实减少**一个站点，
+  与新增的 1 个抵消 ⇒ **净额仍 107**（门禁实测 `✅ ForEach 处数 = 107 处`）。
+  ⛔ 这不是"躲计数"：计数**真的降了**，且降掉的正是"本不该占动态列表站点"的那处。
+- **判据演进 ②（登记）**：`motion_budget` 台账 +1（`components/SkillsSheet.ets: 1` = 侧栏横向滑入，
+  讲"侧栏从左边进来"的空间关系）；`shadow_radius` 的 `overlay` 双层白名单 +1（侧栏柔影走同一出口）；
+  `plugin_icons` ①b 期望 `EntryRow(` 调用点 3 → **4**（与 `PANEL_FIXED_ENTRY_ROWS` 同源）。
+- **H1（横向溢出）**：新组件的两个动态文本落在**外层 Row 的 span 内** ⇒ 按既有同类修法补
+  `constraintSize({maxWidth:'100%'})`（⛔ **不加台账** —— 台账是"只许缩短"的）。
+
+### ⛔ 我自己的误判（如实记账，因为它暴露了判据盲区）
+我在本批开头判定「`paletteOf(this.theme)` 不计入 A/B 线 ⇒ 无需腾预算」，但落组件时**照抄了 `FilesSheet`
+的 `palOnce()` 记忆化写法** —— 而门禁 **B 线 = `this.pal() ∨ this.palOnce()`**（含缓存命中）⇒ 首跑门禁
+**B 线 1369 > 1350**（红）。更值得记的是：我同批新写的判据当时**只断言 `this.pal()`**（漏 `palOnce()`）
+⇒ **判据全绿而门禁红**（判据盲区）。
+处置：① 组件改为**只**用 `paletteOf(this.theme)`（`core/theme.ets:575-587` 已按 `主题|强调色` 记忆化
+且键含 `APP_ACCENT` ⇒ 便宜 + 强调色不丢），删掉本地 `palOnce` 缓存 ⇒ B 线回 **1350**；
+② 判据**补一条**：`★★组件零 this.pal() / this.palOnce() 站点`（把盲区焊死）。
+其余首跑红灯：ArkTS 编译（`XbotStore`→`ChatStore`；`readableRpcError(e)`→`errText(e as Object)`；
+`fontScale/wrapCode` 是**方法**要加括号）—— 全部为**接线细节**，非设计问题。
+
+### 判据与取证
+- 新增 `tools/tests/skills_pure.test.ts`（**49 passed**，两层）：① 纯逻辑（解析归一/分档/分组档序/摊平/文案/路径提示）；
+  ② **消费形态**（⛔ 钉调用点，不钉"方法体存在"）：组件必须消费 `skillRows`/`skillSummaryText`/`skillToggleLabel`/
+  `skillPathHint`、必须画 `Toggle` 且 `selectedColor` 走强调色、**只允许 1 处列表站点**、**零 `pal/palOnce` 站点**；
+  页面必须接线（`openSkills`/`onOpenSkills`/`onToggle` 回调/挂载）；面板必须有第 4 行 + `PANEL_FIXED_ENTRY_ROWS===4`；
+  **预算净额**（骨架屏 `ForEach([0,1,2,3]` 已展开）。⚠️ 形态断言**先剥注释**（首跑两红即"注释里的散文提及"
+  被计入 —— 与门禁 `guard.sh:47-50` 同一坑）。
+- **mutation 五档**（每档必须红，还原后 md5 逐字节一致）：M1 计数口径写错（1 红）· M2 组件不读判据（1 红）·
+  **M3 开关回调传空名 = 死消费**（1 红，判据是为此**新增**的）· M4 `PANEL_FIXED_ENTRY_ROWS` 回退 3（1 红）·
+  M5 骨架屏退回动态循环（1 红，预算净额）。⚠️ M3/M5 首轮因**锚点写错文件/缩进**而"没注入"（假绿）⇒ 短锚点重跑。
+- `tools/gate.sh` ⇒ **`✅ 真门禁全绿` + `GATE_EXIT=0`**（`BUILD SUCCESSFUL in 18 s 247 ms`；**293 文件 0 失败**；
+  A **1246**/1250 · B **1350**/1350 · ForEach **107**/107；⑧ 无未消费 core 模块 = 103/103）。装机 `DEPLOY_EXIT=0`。
+- **真机决定性取证**（模拟器 xbot_phone）：① 能力面板第 4 行「技能」在位 `[241,970][1119,1025]`；
+  ② 面板 = 标题「技能」`[57,226]` + 计数「10 个技能 · 全部启用」`[57,334]` + 分组「内置技能 · 10」`[57,408]` + 10 行齐全
+  （agent-creator/ai-config/debug/hook-creator/orchestrator/plan/plugin-creator…）；③ **端到端开关**：点 `debug`
+  的开关 ⇒ **服务端** `debug.enabled: True → False`（启用数 10/10 → 9/10）**且 UI 实时变**
+  「10 个技能 · 9 启用 · 1 禁用」⇒ 原生开关**真的写入服务端**；再点复位 ⇒ 服务端回 `True`（10/10）；
+  ④ 点行 `plan` ⇒ `SKILL.md` **阅读视图**（截图实证：头部「‹ plan ✕」+ 标题/粗体/有序列表/行内代码 chip 全部渲染）。
+- **待办（诚实边界）**：web 面板还有 `install`（市场 REST `/api/app/install-file`）、`uninstall`
+  （`/api/app/uninstall`）、`export`（`/api/skills/export` zip 下载）三件 ⇒ 原生**未实现**
+  （原生无"下载/选择 zip"通道；`skill_validate_path`/`skill_install_file` 也未接）。
+  另：web 把该面板放在**右侧栏**（`right_sidebar`），原生落在**能力面板入口**（原生无右栏）—— 有意的导航差异。
+

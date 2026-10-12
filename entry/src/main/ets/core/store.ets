@@ -33,7 +33,8 @@ import { serverKey, toLocalSettings, KEY_ACCENT } from './settings';
 import { setAppAccent } from './theme';
 import { FsEntry } from './composer';
 import { FsListBody, FsReadResult, fsListBody } from './files';
-import { MaxContextParams, RPC_GET_SESSION_SUBSCRIPTION, RPC_GET_USER_MAX_CONTEXT, RPC_LIST_ALL_MODEL_ENTRIES, RPC_SET_USER_MAX_CONTEXT, RPC_WEB_PLUGIN_LIST, SessionSelectorParams, SessionSubscription, normalizeMaxContext, readableRpcError, rpc, sessionSubscriptionId } from './rpc';
+import { SkillItem, SkillWire, parseSkillList } from './skills';
+import { MaxContextParams, RPC_GET_SESSION_SUBSCRIPTION, RPC_GET_USER_MAX_CONTEXT, RPC_LIST_ALL_MODEL_ENTRIES, RPC_SET_USER_MAX_CONTEXT, RPC_SKILL_GET_CONTENT, RPC_SKILL_LIST, RPC_SKILL_SET_ENABLED, RPC_WEB_PLUGIN_LIST, SessionSelectorParams, SessionSubscription, SkillContentWire, SkillGetContentParams, SkillListParams, SkillSetEnabledAck, SkillSetEnabledParams, normalizeMaxContext, readableRpcError, rpc, sessionSubscriptionId } from './rpc';
 import {
   PluginCatalog,
   WebPluginListWire,
@@ -1582,6 +1583,39 @@ export class ChatStore {
   async listPlugins(): Promise<PluginPanelInfo[]> {
     const catalog: PluginCatalog = await this.loadPluginCatalog();
     return catalog.items;
+  }
+
+  // ── 技能管理（`xbot.skill-manager` 的**原生等价物**；纯逻辑在 `core/skills.ets`）─────────
+
+  /**
+   * 拉取**技能列表**（RPC `skill_list` → `agent/skills.go:368 ListSkillsDetailed`）。
+   *
+   * `projectDir` = 会话工作区根；非空 ⇒ 一并列出 `{projectDir}/.xbot/skills` 与
+   * `{projectDir}/.agents/skills` 下的**项目技能**（web 传 `cwd`，见
+   * `SkillManagerPanel.tsx:52-55`；原生传 `serverUrl` 之外的会话工作区）。
+   *
+   * ⚠️ 与 `loadPluginCatalog`（把错误吞成空目录）**故意不同**：技能面板有**失败态 + 重试**
+   *    （三态判据），必须能区分"空"与"失败" ⇒ 这里**原样抛出**（`readableRpcError` 由调用方格式化）。
+   */
+  async listSkills(projectDir: string): Promise<SkillItem[]> {
+    const raw: SkillWire[] = await rpc<SkillWire[]>(this.http, RPC_SKILL_LIST, new SkillListParams(projectDir));
+    return parseSkillList(raw);
+  }
+
+  /** 启用/禁用一条技能（RPC `skill_set_enabled`；服务端写 `disabled_skills` 黑名单并广播）。 */
+  async setSkillEnabled(name: string, enabled: boolean): Promise<void> {
+    await rpc<SkillSetEnabledAck>(this.http, RPC_SKILL_SET_ENABLED, new SkillSetEnabledParams(name, enabled));
+  }
+
+  /**
+   * 读取技能的 `SKILL.md` 内容（RPC `skill_get_content`）。
+   *
+   * ⛔ `path` 是**技能目录**（不是文件）：服务端自己拼 `SKILL.md`，且只有它能解析内置技能的
+   *    `embedded:<name>` 伪路径 ⇒ 客户端**不要**自己拼路径。
+   */
+  async getSkillContent(path: string): Promise<string> {
+    const res: SkillContentWire = await rpc<SkillContentWire>(this.http, RPC_SKILL_GET_CONTENT, new SkillGetContentParams(path));
+    return res.content !== undefined && res.content !== null ? res.content : '';
   }
 
   // ── SSE ────────────────────────────────────────────────────────────────────
