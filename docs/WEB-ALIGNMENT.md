@@ -2374,3 +2374,44 @@ Apple 的空态是**陈述句**，不是「（这里什么都没有）」。此�
 ⇒ 端到端（开关 → 请求体 `show_hidden` → 服务端过滤）全线打通。
 ⚠️ **B 线顶格**（1350/1350，本批 +5 站点来自胶囊的 `palOnce()`）：下一批若再增 `pal()/palOnce()` 站点必须先腾预算。
 
+## §21.42 细节修复（第十四批）：忙碌占位行**压缩期文案恒不更新** —— 与 13h 徽章**同一根因类**（2026-10-12）
+
+### 定性与取证
+用户点名④「终端和任务管理做的很差」⇒ 真机复核**现状**：`运行面板` 5 个 tab
+（定时任务/后台任务/子代理/Runner/终端）全部正常（空态文案分别为「本会话暂无定时任务」「本会话暂无后台任务」
+「暂无子代理会话」「暂无受管机器」「本会话暂无终端；点「＋ 新建」开一个」），终端 tab 有 `＋ 新建` +
+accent 选中态；`文件` 面板亦正常。⇒ 该两项已由前批（`e7f1452`/§21.19/21.26/21.29/21.30）覆盖，**本轮无缺陷**。
+顺带核了两处"看着可疑"的：状态行 `267.2K/1000K 26.719%` —— `26.719` 与 `1000K` **都是 web 逐字 parity**
+（`Number(p.toFixed(3))` / `formatTokensAsK`）⇒ **非缺陷**（幸而核了）。
+插件管理 RPC（`plugin_config`/`plugin_config_set`/`plugin_set_enabled`/`plugin_reload`/`plugin_status`）
+**均已被 `components/SettingsPlugins.ets` 消费** ⇒ 非缺口。
+
+⇒ 转而**系统扫 13h 那类根因**（builder 内直读非 `@State` 状态 ⇒ 值恒不更新），钓出**第二例**：
+
+### 缺陷：忙碌占位行「正在压缩上下文…」**不会出现**
+- 落点：`pages/Index.ets` 忙碌占位行（`if (showsBusyPlaceholder(this.busySignals()))` 内）
+  `Text(busyLabel(this.store.liveProgress().phase))` —— `phase` 是 `store` 的**非 `@State`** 内部状态
+  ⇒ 只在**建行那一刻**采样；压缩开始时页面级 `@State` 不一定变化 ⇒ **行不重渲** ⇒ 压缩期仍显示「思考中…」，
+  与 web（`MessageList.tsx:1679-1686` 按 phase 二选一）分叉。§12-E 当时只修了**文案源头**
+  （`busyLabel` 从零消费者接上），没修**响应性** —— 与 13h 徽章同一坑。
+- 修法（同 13h）：新增 `@State busyPhase: string`，在更新通路 `sync()` 里投影
+  （`const ph = store.liveProgress().phase`），占位行改 `Text(busyLabel(this.busyPhase))`。
+  行为等价（`busyLabel('')` ≡ `busyLabel(undefined)` ≡ 「思考中…」）。
+
+### 判据：把"逐点形态"升级为**普遍不变式**（`tools/tests/reactive_projection.test.ts`，**新增，8 passed**）
+钉死一条能防"新写 UI 再踩同一坑"的普遍规则：**`pages/Index.ets` 里 `liveProgress()` 只许出现在
+赋值右侧**（= 投影进 `@State` / 纯计算函数），**不得出现在任何 UI 调用参数里**；另加两条已知投影的回归钉
+（`@State iterStatsBadge` + `Text(this.iterStatsBadge)`；`@State busyPhase` + `busyLabel(this.busyPhase)`；
+⛔ 不得残留旧写法）。剥注释后逐行判（⛔ 不用"行内有没有 `=`"——`!==`/`<=` 也含 `=`，用 `=[^=<>!]*liveProgress\(\)`）。
+- mutation：占位行退回旧直读 ⇒ **2 红**；徽章退回 builder 内直调 ⇒ **1 红**；
+  新注入一处"UI 参数位直读 store"（模拟新写 UI 踩坑）⇒ **2 红**（普遍不变式 + 形态钉）。
+  三档还原后 md5 **逐字节一致**。
+
+### 判据取得
+`tools/gate.sh` ⇒ **`✅ 真门禁全绿` + `GATE_EXIT=0`**（`BUILD SUCCESSFUL in 9 s 633 ms`；**292 文件 0 失败**；
+A **1246**/1250 · **B 1350**/1350 · ForEach **107**/107；⑧ 无未消费 core 模块）。装机 `deploy.sh` ⇒ `DEPLOY_EXIT=0`；
+真机复核**无回归**（28 文本节点、页面结构完整、顶栏徽章 `231t/s · 1.9s` 仍在、状态行与 composer 正常）。
+⚠️ 本缺陷的**可观察面**（压缩期文案）无法按需触发（需上下文真正触发压缩）⇒ 真机只证"无回归"，
+现象级证据由**判据 + mutation** 承担（诚实记账）。
+⚠️ B 线仍**顶格 1350/1350**：本批**零新增**色板读取点（只把表达式换成 `@State`）。
+

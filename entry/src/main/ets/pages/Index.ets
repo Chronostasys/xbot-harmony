@@ -751,6 +751,15 @@ struct Index {
    */
   @State iterStatsBadge: string = '';
   /**
+   * 忙碌占位行的**阶段**（`ProgressSnapshot.phase`）—— `core/indicators.ets:busyLabel` 的输入。
+   *
+   * ⛔ **必须经 `@State` 投影**（与 `iterStatsBadge` 同因，2026-10-12）：占位行曾在 builder 内
+   *    直读 `store.liveProgress().phase`（非响应式）⇒ 只在建行那一刻采样；压缩开始时页面级
+   *    `@State` 不一定变化 ⇒ **行不重渲** ⇒ 压缩期仍显示「思考中…」，与 web
+   *    （`MessageList.tsx:1679-1686` 按 phase 二选一）分叉。
+   */
+  @State busyPhase: string = '';
+  /**
    * 「正在添加目标」内联输入（web `MessageInput.tsx:695-726` 的 `addingGoal`）——
    * 由 `TodoPanel` 的 🎯 按钮打开；输入非空并回车/失焦 ⇒ `set_goal`。
    */
@@ -1762,6 +1771,14 @@ struct Index {
     }
     if (this.goalStatus !== gSt) {
       this.goalStatus = gSt;
+    }
+    // 忙碌占位行的**阶段投影**（`core/indicators.ets:busyLabel` 的唯一判据输入）。
+    // ⛔ 同 `iterStatsBadge`（2026-10-12 真机实锤）：占位行曾在 builder 内**直读**
+    //    `store.liveProgress().phase`（非响应式）⇒ 只在建行那一刻采样 phase；压缩开始时
+    //    页面级 `@State` 不一定变化 ⇒ **行不重渲** ⇒ 压缩期仍显示「思考中…」（与 web 分叉）。
+    const ph: string = store.liveProgress().phase;
+    if (this.busyPhase !== ph) {
+      this.busyPhase = ph;
     }
     this.llmCfg = store.llmConfig;
     // 模型列表三态：镜像既有取数路径（`store.loadLlmConfig`）的**真结果**（`llmConfigState`/`llmConfigError`）。
@@ -4527,7 +4544,9 @@ struct Index {
               //    压缩期（`phase === 'compressing'`）⇒「正在压缩上下文…」，否则「思考中…」。
               //    此前写死资源串 ⇒ **`busyLabel` 零生产消费者**（门禁 ⑧ 警告）且压缩期文案与 web 分叉
               //    （web `MessageList.tsx:1679-1686` 按 phase 二选一）。
-              Text(busyLabel(this.store !== null ? this.store.liveProgress().phase : undefined)).fontSize(typeOf('type.subhead').size).fontColor(this.pal().textSecondary)
+              // ⛔ 只读 `@State busyPhase`（在 `sync()` 投影）——不得在此直调 `store.liveProgress()`，
+              //    否则压缩开始时**不会重渲**（真机同类缺陷，见该 `@State` 的注释）。
+              Text(busyLabel(this.busyPhase)).fontSize(typeOf('type.subhead').size).fontColor(this.pal().textSecondary)
             }.padding({ left: 14, top: SPACE_XS, bottom: SPACE_XS })
           }
         }
