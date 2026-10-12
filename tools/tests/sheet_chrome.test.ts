@@ -9,6 +9,13 @@
  * 观感就是"几个产品拼起来的"。⇒ 本单钉**形态契约**（谁、用哪个出口、**站内零魔数**），
  * 与 `collapse_all_wiring` / `motion_wiring_batch2` 同款（组件/页面不进离线 harness ⇒ 读真实源码断言）。
  *
+ * 批次 4 扩展（2026-10-12）：批次 3 只覆盖 9 个**组件文件**里的 sheet，**漏了页面级面板** ——
+ * `pages/Index.ets` 里 5 个页头"关闭"（插件全屏 / 新建会话 / 运行面板 / 抽屉 / 模型选择）仍是
+ * `17`/`ICON_MD`/`type.headline.size` + `textSecondary`，以及 `SettingsPanel`（偏好设置）页头。
+ * ⇒ 全部收编到同一 token；并顺带修 `PluginHost` 页头 X 的命中盒（原 `17+2×SPACE_XS=33 < 44`）。
+ * 页面文件里另有 4 处**行内/破坏性** xmark（标签页移除 / 最近路径移除 / 定时任务删除 / 关闭终端）
+ * **语义不同** ⇒ 显式记为 `total` 里的例外、不走 token（见 SPECS 注释）。
+ *
  * ⛔ 判据纪律（AGENTS.md「判据 ≠ 信号」）：
  *   · **先剥注释**（本仓用注释记录"为什么不用某做法"，朴朴素 grep 会把文档当违规 —— 本单里
  *     `AskUserSheet`/`StatusSheet` 的注释**正文明写含 `X_GLYPH`**，不剥注释必假红）；
@@ -122,43 +129,64 @@ function closeChains(src: string): string[] {
     /export\s+const\s+SHEET_ACTION_GLYPH\s*:\s*number\s*=\s*ICON_LG\s*;/.test(src));
 }
 
-// ── ② 9 个面板：每处关闭 X 都必须走统一 token + 弱色 role；逐文件钉命中数 ────────────
-// 每文件最低命中数（少一处 = 关闭键被删却没被发现）。QueueSheet 有 2 处（头部关闭 + 行内移除）。
-const SHEETS: string[] = [
-  'components/AskUserSheet.ets',
-  'components/StatusSheet.ets',
-  'components/SessionStatsSheet.ets',
-  'components/PluginsSheet.ets',
-  'components/FilesSheet.ets',
-  'components/TerminalSheet.ets',
-  'components/QueueSheet.ets',
-  'components/SelfCheckSheet.ets',
-  'components/TaskDetailSheet.ets',
+// ── ② 面板关闭 X：**页头关闭键**必须走统一 token + 弱色 role；逐文件钉「token 数 / 总链数」──
+// 每文件给 {rel, token, total}：
+//   · token = 该文件里**必须**走 `SHEET_ACTION_GLYPH` 的页头"关闭"键数；
+//   · total = 该文件里 xmark 字形链总数（含**显式例外**：行内移除 / 破坏性删除 / 关闭终端）。
+// **双钉**（token 与 total 同时钉）：① 少一个页头关闭键 ⇒ token 少 ⇒ 红；
+//   ② 多一个页头关闭键却忘走 token ⇒ total 多 ⇒ 红。方向两侧都逮得住。
+// 显式例外（**语义不同，不在收编范围**）：
+//   · `pages/Index.ets` 4 处 —— 标签页移除(11) / 新建会话-最近路径移除(ICON_MD) /
+//     定时任务删除(dangerText) / 关闭终端(dangerText)：都是**行内/破坏性**动作，非页头"关闭"；
+//   · 本文件外：`Lightbox`（媒体遮罩上的关闭 —— 需比 `iconMuted` 更亮的 `textSecondary`
+//     才在任意图像上可见）、`GoalBanner`（清除目标）、`MenuSheets`（字形工厂，非按钮）。
+// 「页头关闭键」判据 = 该字形属性链里含 `.fontSize(SHEET_ACTION_GLYPH)`。
+const SPECS: { rel: string; token: number; total: number }[] = [
+  { rel: 'components/AskUserSheet.ets', token: 1, total: 1 },
+  { rel: 'components/StatusSheet.ets', token: 1, total: 1 },
+  { rel: 'components/SessionStatsSheet.ets', token: 1, total: 1 },
+  { rel: 'components/PluginsSheet.ets', token: 1, total: 1 },
+  { rel: 'components/FilesSheet.ets', token: 1, total: 1 },
+  { rel: 'components/TerminalSheet.ets', token: 1, total: 1 },
+  { rel: 'components/QueueSheet.ets', token: 2, total: 2 }, // 头部关闭 + 行内移除（后者 token+危险色）
+  { rel: 'components/SelfCheckSheet.ets', token: 1, total: 1 },
+  { rel: 'components/TaskDetailSheet.ets', token: 1, total: 1 },
+  // 页面级页头面板（目标③「所有面板」）：5 个页头关闭走 token；4 处行内/破坏性为例外。
+  { rel: 'pages/Index.ets', token: 5, total: 9 },
+  // 偏好设置页头关闭（token + iconMuted；命中盒由 `padding(SPACE_MD)` 撑到 ≥44）。
+  { rel: 'components/SettingsPanel.ets', token: 1, total: 1 },
 ];
-const MIN_HITS: number[] = [1, 1, 1, 1, 1, 1, 2, 1, 1];
+const SHEETS: string[] = SPECS.map((s) => s.rel);
 let totalChains = 0;
-for (let k = 0; k < SHEETS.length; k++) {
-  const rel: string = SHEETS[k];
+let totalTokens = 0;
+for (const spec of SPECS) {
+  const rel: string = spec.rel;
   const src: string = read(path.join(ETS, rel));
   ok(`② ${rel} 读到源码（零扫描判红）`, src.length > 0);
   const chains: string[] = closeChains(src);
   totalChains += chains.length;
-  ok(`② ${rel} 关闭 X 命中数 ≥ ${MIN_HITS[k]}（实测 ${chains.length}）`, chains.length >= MIN_HITS[k]);
+  let tokens = 0;
   for (let j = 0; j < chains.length; j++) {
     const c: string = chains[j];
-    const tag: string = `② ${rel} 第 ${j + 1} 处关闭 X`;
-    ok(`${tag} 用 \`.fontSize(SHEET_ACTION_GLYPH)\`（⛔ 站内零魔数）`,
-      c.indexOf('.fontSize(SHEET_ACTION_GLYPH)') >= 0, c);
-    // 弱色图标**必须**走计算型 role `iconMuted`（AGENTS.md GOTCHA）；
-    // 例外：破坏性动作（QueueSheet 行内"移除"）走 `dangerText` —— **显式**才放行。
-    ok(`${tag} 颜色 = \`colorOf(…,'iconMuted')\`（或破坏性 \`dangerText\`）`,
-      c.indexOf("'iconMuted'") >= 0 || c.indexOf('dangerText') >= 0, c);
-    // ⛔ 反面形态：旧的"文字角色当图标色"
-    ok(`${tag} ⛔ 不得用 \`.textSecondary\`/裸 \`.textPrimary\` 当图标色`,
-      c.indexOf('textSecondary') < 0 && c.indexOf('.textPrimary') < 0, c);
+    if (c.indexOf('.fontSize(SHEET_ACTION_GLYPH)') >= 0) {
+      tokens++;
+      const tag: string = `② ${rel} 页头关闭 X（第 ${j + 1} 链）`;
+      // 弱色图标**必须**走计算型 role `iconMuted`（AGENTS.md GOTCHA）；
+      // 例外：破坏性动作（QueueSheet 行内"移除"）走 `dangerText` —— **显式**才放行。
+      ok(`${tag} 颜色 = \`colorOf(…,'iconMuted')\`（或破坏性 \`dangerText\`）`,
+        c.indexOf("'iconMuted'") >= 0 || c.indexOf('dangerText') >= 0, c);
+      // ⛔ 反面形态：旧的"文字角色当图标色"
+      ok(`${tag} ⛔ 不得用 \`.textSecondary\`/裸 \`.textPrimary\` 当图标色`,
+        c.indexOf('textSecondary') < 0 && c.indexOf('.textPrimary') < 0, c);
+    }
   }
+  totalTokens += tokens;
+  // ⛔ 零扫描判红：页头关闭键一个都不许走魔数（token 必须 = 期望值）
+  ok(`② ${rel} 页头关闭 X 走 token 命中数 = ${spec.token}（实测 ${tokens}）`, tokens === spec.token);
+  ok(`② ${rel} xmark 字形链总数 = ${spec.total}（实测 ${chains.length}；含显式例外）`, chains.length === spec.total);
 }
-ok(`② 9 个面板关闭 X 总数 = 10（实测 ${totalChains}；删一处即红）`, totalChains === 10);
+ok(`② 全部面板页头关闭 X（token）总数 = 16（实测 ${totalTokens}）`, totalTokens === 16);
+ok(`② 全部面板 xmark 链总数 = 20（实测 ${totalChains}）`, totalChains === 20);
 
 // ── ③ 魔数回归防线：这 9 个文件里不得再有局部 `X_GLYPH` 标识符 ────────────────────
 for (const rel of SHEETS) {

@@ -74,6 +74,10 @@ const TOK: Map<string, number> = new Map<string, number>([
   ['INSET_ROW_X', 12], ['INSET_ROW_Y', 8], ['INSET_PILL_X', 8], ['INSET_PILL_Y', 5],
   ['INSET_CHIP_X', 4], ['INSET_CHIP_Y', 2],
 ]);
+// `SHEET_ACTION_GLYPH`（`core/design.ets` 新增的"面板页头关闭 X"统一 token，值 = `ICON_LG`）。
+// ⛔ 从 `ICON_LG` **取值、不分叉**（ICON_LG 改了这里自动跟）；不写死数字。
+// 缺了它 ⇒ `SettingsPanel` 页头 X 的字号解析失败（只剩 padding）⇒ 被误判成 A 类小图标（假红）。
+TOK.set('SHEET_ACTION_GLYPH', TOK.get('ICON_LG') as number);
 const TYPE_SIZE: Map<string, number> = new Map<string, number>([
   ['type.display', 28], ['type.title', 21], ['type.headline', 17], ['type.body', 15],
   ['type.callout', 14], ['type.subhead', 13], ['type.caption', 12], ['type.micro', 10],

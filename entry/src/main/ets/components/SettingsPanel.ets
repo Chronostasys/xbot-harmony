@@ -27,8 +27,8 @@ import { Palette, paletteOf } from '../core/theme';
 import { XbotHttp } from '../core/http';
 import {
   PRESS_OPACITY,   INSET_CARD_X, INSET_CARD_Y, INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, RADIUS_PILL,
-  STROKE_HAIRLINE, HIT_TARGET_MIN, SPACE_XS, SPACE_SM, SPACE_MD, SPACE_LG,
-  hairlineOf, structuralRuleOf, surfaceFillOf,
+  STROKE_HAIRLINE, HIT_TARGET_MIN, SPACE_XS, SPACE_SM, SPACE_MD, SPACE_LG, SHEET_ACTION_GLYPH,
+  hairlineOf, structuralRuleOf, surfaceFillOf, colorOf,
 } from '../core/design';
 import { SettingsAbout } from './SettingsAbout';
 import { SettingsAccount } from './SettingsAccount';
@@ -314,8 +314,8 @@ export struct SettingsPanel {
         .fontColor(tc(this.pal(), 'type.headline'))
         .layoutWeight(1)
       SymbolGlyph($r('sys.symbol.xmark'))
-        .fontSize(fs('type.headline'))
-        .fontColor([this.pal().textSecondary])
+        .fontSize(SHEET_ACTION_GLYPH)
+        .fontColor([colorOf(this.pal(), 'iconMuted')])
         .padding(SPACE_MD)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .accessibilityText('关闭')

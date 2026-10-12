@@ -33,7 +33,7 @@ import { EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_BOOT_WORDMARK, F
 // `typeOf` 是唯一出口）。色值一律经 `this.pal()`（`surfaceFillOf` 的 role 是**带点**的语义面名）。
 import {
   GAP_BLOCK, HIT_TARGET_MIN, ICON_MD, ICON_SM, INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X,
-  PRESS_OPACITY, PRESS_SCALE, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, RADIUS_SHEET, SPACE_HAIR, SPACE_LG, SPACE_MD,
+  PRESS_OPACITY, PRESS_SCALE, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, RADIUS_SHEET, SHEET_ACTION_GLYPH, SPACE_HAIR, SPACE_LG, SPACE_MD,
   SPACE_SM, SPACE_XL, SPACE_XS, SPACE_XXL, SPACE_XXS, STROKE_HAIRLINE, colorOf, hairlineOf,
   insetHairlineOf, surfaceFillOf, typeOf,
 } from '../core/design';
@@ -3938,12 +3938,21 @@ struct Index {
         Column() {
           Row() {
             Text('插件').fontSize(typeOf('type.headline').size).fontWeight(typeOf('type.headline').weight).fontColor(this.pal().textPrimary).layoutWeight(1)
-            SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary]).padding(SPACE_XS)
-              .accessibilityText('关闭')
-              .onClick(() => {
-                this.showPluginHost = false;
-                this.pluginPageUrl = '';
-              })
+            // 关闭（页头 X）—— 统一 token + 弱色 role；⚠️ 原实现 `.fontSize(17).padding(SPACE_XS)`
+            //   命中盒仅 17+2×8 = 33vp **< 44**（真机可点性不足）⇒ 改真实 44×44 布局盒承载 onClick。
+            Row() {
+              SymbolGlyph($r('sys.symbol.xmark'))
+                .fontSize(SHEET_ACTION_GLYPH)
+                .fontColor([colorOf(this.pal(), 'iconMuted')])
+            }
+            .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+            .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+            .accessibilityText('关闭')
+            .onClick(() => {
+              this.showPluginHost = false;
+              this.pluginPageUrl = '';
+            })
           }.width('100%').padding({ left: SP_5, right: SP_2, top: SP_3, bottom: SP_1 })
 
           Column() {
@@ -6783,8 +6792,8 @@ struct Index {
           .layoutWeight(1)
         Row() {
           SymbolGlyph($r('sys.symbol.xmark'))
-            .fontSize(ICON_MD)
-            .fontColor([this.pal().textSecondary])
+            .fontSize(SHEET_ACTION_GLYPH)
+            .fontColor([colorOf(this.pal(), 'iconMuted')])
         }
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
@@ -7019,7 +7028,7 @@ struct Index {
           this.refreshPanel();
         })
         Row() {
-          SymbolGlyph($r('sys.symbol.xmark')).fontSize(typeOf('type.headline').size).fontColor([this.pal().textSecondary])
+          SymbolGlyph($r('sys.symbol.xmark')).fontSize(SHEET_ACTION_GLYPH).fontColor([colorOf(this.pal(), 'iconMuted')])
         }
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
@@ -7537,8 +7546,8 @@ struct Index {
         })
         Row() {
           SymbolGlyph($r('sys.symbol.xmark'))
-            .fontSize(typeOf('type.headline').size)
-            .fontColor([this.pal().textSecondary])
+            .fontSize(SHEET_ACTION_GLYPH)
+            .fontColor([colorOf(this.pal(), 'iconMuted')])
         }
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center)
@@ -8077,7 +8086,7 @@ struct Index {
         //    ⇒ 改用**真实 44×44 布局盒**（`HIT_TARGET_MIN`）承载 `onClick`：热区 = 布局盒本身，
         //      不依赖 `responseRegion` 的越界扩展；图标**视觉尺寸不变**（仍 17，盒内居中）。
         Row() {
-          SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.pal().textSecondary])
+          SymbolGlyph($r('sys.symbol.xmark')).fontSize(SHEET_ACTION_GLYPH).fontColor([colorOf(this.pal(), 'iconMuted')])
         }
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center)

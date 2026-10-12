@@ -1554,3 +1554,39 @@ SLIDE_SWITCH / translate / rotate / scale / move / asymmetric`；`.height()` 也
 ⚠️ 实现期内曾因 `PluginsSheet`/`QueueSheet` 的 `fontSize(ICON_LG)` 归零而**红过一次**
 （`icon_size_tokens` 2 条）—— 这正是"判据有判别力"的证据：**改动被文档化的台账当场抓住**。
 
+
+## §21.24 目标③「所有面板一个设计系统」批次 4：**页面级面板**的关闭 X 补齐收编（2026-10-12）
+
+**批次 3 的漏洞（自查发现，诚实记账）**：§21.23 只覆盖了 9 个**组件文件**里的 sheet，**漏了
+页面级面板** —— `pages/Index.ets` 里 5 个页头"关闭"（**插件全屏 / 新建会话 / 运行面板 / 抽屉 /
+模型选择**）仍是 `17` / `ICON_MD` / `typeOf('type.headline').size` + `pal().textSecondary`，
+以及 `components/SettingsPanel.ets`（偏好设置页头）。用户要求是"**所有**面板一个设计系统"⇒ 补齐。
+
+| # | 站点（真源行） | 原形态 | 处置 |
+|---|---|---|---|
+| ① | `Index.ets` 插件全屏页头 | `fontSize(17)…padding(SPACE_XS)` ⇒ 命中盒 **17+2×8 = 33 < 44** | 统一 token + `iconMuted`；**改真实 44×44 布局盒**（真机可点性） |
+| ② | `Index.ets` 新建会话（`NewSessionSheet`） | `ICON_MD`(14) + `textSecondary` | 统一 token + `iconMuted` |
+| ③ | `Index.ets` 运行面板页头 | `typeOf('type.headline').size`(17) + `textSecondary` | 统一 token + `iconMuted` |
+| ④ | `Index.ets` 抽屉页头 | `typeOf('type.headline').size`(17) + `textSecondary` | 统一 token + `iconMuted` |
+| ⑤ | `Index.ets` 模型选择面板页头 | `17` + `textSecondary` | 统一 token + `iconMuted` |
+| ⑥ | `SettingsPanel.ets` 偏好设置页头 | `fs('type.headline')`(17) + `textSecondary` | 统一 token + `iconMuted`（命中盒由 `padding(SPACE_MD)` 撑到 **16+32 = 48 ≥ 44**） |
+
+**显式例外（语义不同，**不**收编，附理由防"借例外之名"漏改）**：
+- `Index.ets` 另有 4 处 xmark —— 标签页移除(11) / 新建会话-最近路径移除(`ICON_MD`) /
+  定时任务删除(`dangerText`) / 关闭终端(`dangerText`)：都是**行内/破坏性**动作，**非页头"关闭"**。
+- `Lightbox.ets`：媒体遮罩上的关闭（深色背板 + 任意图像）—— 需比 `iconMuted` 更亮的
+  `textSecondary` 才可见（尺寸已是 `ICON_LG`，值同族）。`GoalBanner`：清除目标（行内）。
+  `MenuSheets.ets:124`：字形工厂（非按钮）。
+
+**判据（演进，⛔ 不删除）**：
+- `tools/tests/sheet_chrome.test.ts` 从"9 文件 / 每处都必走 token"演进为 **`{rel, token, total}` 双钉**：
+  `token` = 该文件**必须**走 `SHEET_ACTION_GLYPH` 的页头关闭数；`total` = 该文件 xmark 链总数
+  （含显式例外）。⇒ ① 少一个页头关闭 ⇒ `token` 少 ⇒ 红；② 多一个却忘走 token ⇒ `total` 多 ⇒ 红。
+  扩展为 **11 文件 / token 合计 16 / 链合计 20**。
+- `tools/tests/hittarget_audit.test.ts`：令牌真值表 `TOK` 补 `SHEET_ACTION_GLYPH`（**从 `ICON_LG`
+  衍生**，不分叉）。⚠️ 缺它时扫 `SettingsPanel` 页头 X：解析不出字号（`SHEET_ACTION_GLYPH` 不在表里）
+  ⇒ 只剩 `padding` 32 < 44 ⇒ **假红成 A 类小图标**（真值 16+32=48 ≥44）。此即"判据 × 令牌表必须同源"。
+
+**mutation 自证**：把 `Index.ets` 一处页头 token 改回 `17`、`SettingsPanel` 改回 `fs('type.headline')`
+⇒ `sheet_chrome` **`74 passed, 3 failed`（exit 1）**（两条文件级 token 计数 + 一条总数）；还原后
+**md5 逐字节一致**（`42627e5c…` / `49fecea8…`）。
