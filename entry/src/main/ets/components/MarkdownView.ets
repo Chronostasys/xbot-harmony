@@ -251,7 +251,14 @@ export struct MarkdownView {
         }, (s: MdSpan, i: number) => `h-${b.key}-${i}-${s.text.length}`)
       }
       .width('100%')
-      .wordBreak(WordBreak.BREAK_ALL)
+      // 断行策略（目标③/②，15b 定案）：**词边界优先**（`BREAK_WORD`）。
+      //   ArkUI 语义（SDK `enums.d.ts:4244-4259` 原文）：非 CJK 文本"preferentially wraps lines at
+      //   appropriate characters (for example, spaces). If no breakpoints are found, it breaks
+      //   between any two characters"（= CSS `overflow-wrap:break-word`）。
+      //   旧值 `BREAK_ALL` 是另一个极端（恒在任意字符断 = CSS `word-break:break-all`）⇒ 英文标题被
+      //   劈词（截图实证 `decisio|n`），违反 `docs/REDESIGN.md:326`（⛔ 禁止 `BREAK_ALL` 劈词）
+      //   与 `UI-AUDIT-CHECKLIST.md:639`（多行正文 ⇒ `BREAK_WORD`）。
+      .wordBreak(WordBreak.BREAK_WORD)
       // 标题行高显式（web `index.css:540 line-height:1.3`）；旧实现无 `.lineHeight`。
       .lineHeight(this.sz(this.headingSize(b.level)) * MD_HEADING_LEADING)
       // 标题上/下外边距进 token（`MD_HEADING_GAP_TOP/BOTTOM`；旧凹口值 `top:8|4 / bottom:2`）。
@@ -384,9 +391,17 @@ export struct MarkdownView {
     // 正文字行高显式（`MD_BODY_LEADING`=1.55 × `type.body` 15fp）——本仓此前正文**无一处**
     // `.lineHeight()`（`docs/REDESIGN.md §1.2`），行高由 ArkUI 默认值接管、不可控。
     .lineHeight(this.sz(typeOf('type.body').size) * MD_BODY_LEADING)
-    // 不可断超长 token（URL/代码/base64）在 ArkUI 里默认不在词内折行 ⇒ 横向撑破容器；
-    // 与 xbot Web 端已定稿的教训同源（break-words 不够，必须 wrap-anywhere）。
-    .wordBreak(WordBreak.BREAK_ALL)
+    // 断行策略（目标③/②，15b 定案）：**词边界优先**（`BREAK_WORD`），非恒劈词的 `BREAK_ALL`。
+    //   ArkUI 语义（SDK `enums.d.ts:4244-4259` 原文）：非 CJK 文本"preferentially wraps lines at
+    //   appropriate characters (for example, spaces). If no breakpoints are found, it breaks
+    //   between any two characters."（= CSS `overflow-wrap:break-word`）；CJK 文本与 `NORMAL` 同效
+    //   ⇒ 中文仍可逐字断（无回归）。旧值 `BREAK_ALL`（= CSS `word-break:break-all`）恒在任意字符断
+    //   ⇒ 英文正文被劈词（装机截图实证 `co|ding` / `expl|ore` / `mar|kdown` / `decisio|n` /
+    //   `Ne|ver`），违反 `docs/REDESIGN.md:326`（⛔ 禁止 `BREAK_ALL` 劈词）
+    //   与 `UI-AUDIT-CHECKLIST.md:639`（多行正文 ⇒ `BREAK_WORD`）。
+    //   ⚠️ 唯一风险 = "无空格超长 token（URL/路径/base64）是否仍撑宽父容器"（web 侧既有教训：
+    //   `break-word` 对 flex 的 min-content 无效）。本站点已由**装机对照实验**定论（§21.44）。
+    .wordBreak(WordBreak.BREAK_WORD)
   }
 
   /** 统一字号缩放入口（所有正文/标题/代码都经这里，避免漏改一处导致大小不一致）。 */

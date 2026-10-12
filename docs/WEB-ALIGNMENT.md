@@ -2492,3 +2492,57 @@ A **1246**/1250 · **B 1350**/1350 · ForEach **107**/107；⑧ 无未消费 cor
   （原生无"下载/选择 zip"通道；`skill_validate_path`/`skill_install_file` 也未接）。
   另：web 把该面板放在**右侧栏**（`right_sidebar`），原生落在**能力面板入口**（原生无右栏）—— 有意的导航差异。
 
+## §21.44 细节修复（第十五批之二）：正文断行策略 —— 「禁劈词」（目标③/②，2026-10-12）
+
+### 缺陷（装机截图实证，非推测）
+`plan` 技能阅读视图（纯英文正文）实测：`d|esign` · `before co|ding` · `multi-file c|hanges` ·
+`expl|ore` · `single mar|kdown` · `must concl|ude` · `go/no-go decisio|n` · `Ne|ver guess` ——
+**每个词都在词内被切断**。这不是"窄容器"问题：`coding`（6 字符）下一行完全放得下，仍被劈。
+⇒ 根因 = `components/MarkdownView.ets` 的**正文级站点**（Heading `:254`、Inline `:389`
+= 段落/引用/列表项共用渲染器）用的是 `WordBreak.BREAK_ALL`。
+
+### 真源（三条都已登记，本批只是执行）
+- `docs/REDESIGN.md:326`：⛔ **禁止**「`BREAK_ALL` 劈词」；
+- `docs/UI-AUDIT-CHECKLIST.md:639`：**多行自然语言正文** ⇒ `wordBreak(BREAK_WORD)`；
+  **可能含不可断长串**（URL / 绝对路径 / 命令 / 错误原文）或**代码** ⇒ `BREAK_ALL`；
+- ArkUI SDK `component/enums.d.ts:4244-4259` 原文：非 CJK 文本在 `BREAK_WORD` 下
+  "preferentially wraps lines at appropriate characters (for example, spaces). **If no
+  breakpoints are found, it breaks between any two characters.**"（= CSS `overflow-wrap:break-word`）；
+  `BREAK_ALL` 恒在任意两字符间断（= CSS `word-break:break-all`）。
+  **两条推论**：① `BREAK_WORD` 是**严格更优**的一档（超长 token 仍会断，只是不劈正常词）；
+  ② 对 CJK 文本 `BREAK_WORD ≡ NORMAL`（中文仍逐字断）⇒ 中文零回归。
+
+### 为什么此前填了 `BREAK_ALL`（误读，值得记）
+旧注释写的理由是"与 web 端已定稿的教训同源（break-words 不够，必须 wrap-anywhere）"——
+**把 web 的两档混为一谈**：web `UserMessage` 用的是 `overflow-wrap:anywhere`（**有意**比 `break-word`
+更激进：`anywhere` 会影响 min-content，专治 flex 里的超长串），而 web **正文**用的是
+`overflow-wrap:break-word`。此处是**正文** ⇒ 对应的正是 `BREAK_WORD`。同批审计也证实：
+`AskUserSheet` 早就是正确写法（正文 `q.question` = `BREAK_WORD`；header/选项标签/空态小字 = `BREAK_ALL`）
+⇒ 唯独 MarkdownView（**读得最多的那处**）漏了。
+
+### 修法（最小面）
+`MarkdownView` 的 **Heading + Inline** 两个正文级站点 ⇒ `BREAK_WORD`（正文区 `BREAK_ALL` 归零）；
+**不动**：代码块 wrap（`:530`，token 流逐字符断与 web `<pre>` 一致）、表格单元/表头（`:592/658/660`）、
+行数列标签（`:641`）、以及长串类站点（`LlmErrorNotice`/`PluginHost`/`MessageNav`/`SubAgentTree`…）与
+`UserBubble`（= web `wrap-anywhere` 的**有意分歧**，已登记）。全仓 `BREAK_ALL` 46 → **44**。
+
+### 判据
+新增 `tools/tests/wordbreak_policy.test.ts`（**17 passed**）：① 零扫描判红（两文件都真读到、真扫到站点）；
+② **正文区（Heading/Inline builder 切片）不得出现 `BREAK_ALL`** —— 主断言；③ 正文区确实 = `BREAK_WORD`
+（⛔ 不能"什么都不写"靠 ArkUI 默认 `NORMAL` 蒙）；④ **台账只许缩短**（全仓 `BREAK_ALL ≤ 44`、
+`BREAK_WORD ≥ 16`、MarkdownView `≤ 5`、AskUserSheet `≤ 3`）；⑤ 代码块 wrap 站点仍 `BREAK_ALL`。
+⛔ 剥注释（新注释里提到 `BREAK_ALL` 是文档不是站点）。**mutation 自证**：把 Inline 站点改回 ⇒
+**5 条断言转红**，还原后 md5 逐字节一致、复绿。
+
+### 装机验证（同内容对照，决定性）
+`DEPLOY_EXIT=0` 后同一份 `plan` SKILL.md 阅读视图：`design an approach, or think through a task before`
+/ `coding.` / `multi-` + `file changes`（连字符断）/ `explore the codebase.` / `markdown file.` /
+`conclude with clear next steps and a go/no-go` / `decision for the user.` —— **全部落在词边界**，
+且**零横向溢出**（首屏实测：长内联 chip `knowledge/ohos-cann-11m-npu.md` 正常换行、整列仍严格 100% 宽）。
+真门禁：`BUILD SUCCESSFUL in 8 s 592 ms` · **294 文件 0 失败** · `GATE_EXIT=0`。
+
+### 遗留（诚实边界）
+表格单元（`MarkdownView:592/658/660`）与若干面板小字仍是 `BREAK_ALL` —— 它们的容器宽度/内容面
+与正文不同（表格是结构件、含长 token 概率高）⇒ 本批**不动**，留待逐面评估（台账已把它们钉住，
+只会更严不会更松）。
+
