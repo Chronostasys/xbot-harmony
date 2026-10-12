@@ -1625,3 +1625,40 @@ onEntriesChanged(): void { this.ds.setItems(this.entries); }
 `/api/fs/list` · `/api/fs/read` · `/api/fs/raw`（字节流，图片预览用）· `/api/fs/search`；
 `/api/files/*` **只有** `upload` / `download` / `viewimg`。
 ⇒ 新增文件类接口前先 `grep '"/api/fs/' channel/web/web.go`（本次已按此实现 `core/files.ets`）。
+
+
+## 批次 50（2026-10-12，编排者**真机实测** P0）：父带 `padding` 时，子的 `width('100%')` 按**父的 border box** 解析 ⇒ 内容越界
+
+**症状**（用户亲报「用户消息超出屏幕了」）：用户气泡正文**右端越出气泡 40px、直接顶到屏幕右缘**
+（真机截图：`sleep 40 && e` / `k。不要…` 这类被裁断的字行）。
+
+**取证**（`dumpLayout` 的 JSON **按层级**读，⛔ 不是 grep 扁平列表）：修前
+
+```
+Column  x=226-1280 w=1054    ← 气泡「面」（padding 47×2、maxWidth 85%）
+  Column x=273-1320 w=1047   ← MarkdownView 根（`.width('100%')`）✗ 内容盒应 960（1054−94）
+```
+
+⇒ `MarkdownView` 根是 `Column({space}).width('100%')`（`MarkdownView.ets:219-225`），而
+**父带 `padding` 时该 `100%` 按父的 border box(1054) 解析**（不是内容盒 960）⇒ 正文按 1054 折行 ⇒ 越界。
+
+**合法修法**（实测生效；dump 复测 `x=273-1233 w=960` ✓）：
+用 **`Row` + `layoutWeight(1)`** 承载内容 —— `layoutWeight` 的"剩余宽"取自父的**已测量内容盒**
+（走的是与百分比不同的代码路径）⇒ 内容宽正确：
+
+```ts
+Column() {                       // 气泡面：底色/圆角 + maxWidth（无 padding）
+  Row() {                        // 内距行：padding 在此
+    Column() { MarkdownView({…}) }
+      .layoutWeight(1)           // ← 拿到 960（不是 1054）
+      .alignItems(HorizontalAlign.Start)
+  }.padding({ left/right: INSET_BUBBLE_X, … })
+}
+.constraintSize({ maxWidth: '85%' })
+```
+
+⛔ **反面尝试（实测无效，别再走）**：把 `padding` 与 `constraintSize` **拆到两层** —— 仍是 1047、仍越界
+（说明这不是"同节点两个属性打架"，而是**子百分比宽 vs 父内距**这条解析规则本身）。
+⛔ 也别用 `.clip(true)` 遮：那只是把"切在屏边"改成"切在气泡边"，✓ 判据应看**内容宽是否 = 内容盒**。
+**一般化**：任何"父有水平内距 + 子用 `width('100%')`/百分比"的组合，都要怀疑这条 ⇒ 改成
+`layoutWeight(1)` 或给内容一个**确定 vp 宽**。

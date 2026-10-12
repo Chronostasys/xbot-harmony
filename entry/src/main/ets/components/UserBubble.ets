@@ -148,25 +148,46 @@ export struct UserBubbleView {
           .copyOption(CopyOptions.LocalDevice)
       } else {
         // 外层 `Column` 承载气泡样式（⛔ 不把 `constraintSize` 等通用属性直接挂在自定义组件上）。
+        //
+        // ⛔ **`constraintSize` 与 `padding` 必须分两层**（2026-10-12 真机实测 P0「用户消息超出屏幕」）：
+        //   同一节点上同时挂 `padding` + `constraintSize({maxWidth:'85%'})` 时，ArkUI 给子节点
+        //   分配宽度走的是该节点的 **border box**（= 85% 全宽 ≈1054px）而**不是内容盒**
+        //   （1054 − 2×47 = 960px）⇒ `MarkdownView` 内联行的 `layoutWeight(1)`（吃"剩余宽"，
+        //   见 `MarkdownView.ets:299-310`）拿到 ≈1047px ⇒ 正文右端**溢出气泡、顶到屏幕右缘**。
+        //   真机 dump 实证：气泡框 `x=226-1280`，其内容 `x=273-1320`（超出气泡 40px、齐屏幕边）。
+        //   拆两层后：①「面层」只有内距/底色/圆角（宽 = ②的内容盒）→ 内联行拿到 960px ✓。
         Column() {
-          MarkdownView({
-            text: this.displayText(),
-            mdTheme: this.mdTheme,
-            onImage: this.onImage,
-            loadImage: this.loadImage,
+          // ⛔ **必须用 `Row` + `layoutWeight(1)` 承载 markdown，不能用 `padding` + `width('100%')`**
+          //（2026-10-12 真机实测 P0「用户消息超出屏幕」，JSON 层级实证）：
+          //   `MarkdownView` 根是 `Column(...).width('100%')`；当父节点同时有 `padding` 时，
+          //   ArkUI 把该 `100%` 按父的 **border box** 解析（气泡 1054px）而**不是内容盒**
+          //   （1054 − 2×47 = 960px）⇒ 正文按 1054 折行 ⇒ 右端越出气泡、顶到屏幕右缘。
+          //   `layoutWeight` 走的是**父的已测量内容盒**（960）⇒ 内容宽正确。
+          //   dump 实证（修前）：气泡面 `x=226-1280`，其内 markdown `x=273-1320`（超 40px、齐屏边）。
+          Row() {
+            Column() {
+              MarkdownView({
+                text: this.displayText(),
+                mdTheme: this.mdTheme,
+                onImage: this.onImage,
+                loadImage: this.loadImage,
+              })
+            }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
+          }
+          .padding({
+            left: INSET_BUBBLE_X, right: INSET_BUBBLE_X,
+            top: INSET_BUBBLE_Y, bottom: INSET_BUBBLE_Y,
+          })
+          .backgroundColor(this.face().bg)
+          .borderRadius({
+            topLeft: RADIUS_BUBBLE, topRight: RADIUS_BUBBLE,
+            bottomLeft: RADIUS_BUBBLE, bottomRight: BUBBLE.userRadiusBR,
           })
         }
-        .alignItems(HorizontalAlign.Start)
-        .padding({
-          left: INSET_BUBBLE_X, right: INSET_BUBBLE_X,
-          top: INSET_BUBBLE_Y, bottom: INSET_BUBBLE_Y,
-        })
+        // 约束层：**只有 maxWidth**（⛔ 不挂 padding —— 见上方分层的理由）。
         .constraintSize({ maxWidth: `${BUBBLE.userMaxWidthPct}%` })
-        .backgroundColor(this.face().bg)
-        .borderRadius({
-          topLeft: RADIUS_BUBBLE, topRight: RADIUS_BUBBLE,
-          bottomLeft: RADIUS_BUBBLE, bottomRight: BUBBLE.userRadiusBR,
-        })
       }
     }
     .width('100%')
