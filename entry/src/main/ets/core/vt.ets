@@ -14,11 +14,17 @@
  *          `(`/`)`/`#`/`%`… 中间字符序列（吞掉）
  *   · CSI：A/B/C/D/E/F（相对移动）· G(CHA) · d(VPA) · H/f(CUP) · J(ED) · K(EL) ·
  *          m(SGR) · L(IL) · M(DL) · P(DCH) · @(ICH) · X(ECH) · S/T(滚屏) · r(DECSTBM)
- *   · 私有模式：`?25`（光标显隐）· `?1049`/`?47`（备用屏，进/出各存/取）· 其余忽略
+ *   · 私有模式：`?25`（光标显隐）· `?1049`/`?47`（备用屏，进/出各存/取）· `?1`（DECCKM
+ *              应用光标键 ⇒ 方向键发 SS3 还是 CSI，见 `vtArrowKeys`）· 其余忽略
  *   · OSC：`]0;T`/`]2;T`（窗口标题，取到即写 `title`），其余忽略
  *
- * ── 明确**不做**的（诚实记账；web 的 xterm.js 会做）──────────────────────────
- *   · 鼠标上报 / bracketed paste / 六键 / DSR 应答（`core/terminalQueries` 在 web 侧也是**抑制**应答）
+ * ── 明确**不做**的（诚实记账）──────────────────────────
+ *   · 鼠标上报（`?1000`/`?1002`/`?1003`）/ bracketed paste（`?2004`）：移动端**无鼠标**、
+ *     粘贴走 `TextInput` ⇒ 原生不做。**⛔ 并非"web 抑制"** —— web 的 xterm.js **原生支持**
+ *     这两者，且它们根本不是"查询应答"（web 只抑制查询应答，见下条）
+ *   · DSR 应答（`CSI n` / `CSI ? n`）：web 侧 `core/terminalQueries` 的
+ *     `suppressTerminalQueryReplies`（真源 `web/src/lib/terminalQueries.ts`）**同样抑制**
+ *     ⇒ 原生一致不做 —— 上条与这条里**唯 DSR 与 web 一致**（应用光标键 DECCKM 已支持）
  *   · 连字（ligature）/ 复杂双向文本 / 组合字符的逐格合成（`\u0301` 等原样落格）
  *   · 真正的"字符宽度表"只覆盖常见区间（CJK/全角/emoji）；冷门区可能算成单宽
  *
@@ -81,6 +87,16 @@ export function vtCharWidth(cp: number): number {
   if (inRanges(cp, 0xffe0, 0xffe6, 0x1f300, 0x1f64f)) { return 2; }
   if (inRanges(cp, 0x1f900, 0x1f9ff, 0x20000, 0x3fffd)) { return 2; }
   return 1;
+}
+
+/**
+ * 方向键字节序列：`DECCKM`（`appCursor` = 应用光标键模式）**开** ⇒ SS3（`\x1bO A`）；
+ * **关** ⇒ CSI（`\x1b[ A`）。真源 = xterm.js `Terminal._applicationCursorKeys`（web 侧
+ * xterm.js 原生支持；⛔ 它**不属**"查询应答"，`core/terminalQueries` 不涉及）。
+ * `final` ∈ `A`(↑) `B`(↓) `C`(→) `D`(←)。
+ */
+export function vtArrowKeys(appCursor: boolean, final: string): string {
+  return (appCursor ? '\x1bO' : '\x1b[') + final;
 }
 
 // ── 编解码（纯 JS 实现；core 不许 import @ohos.util）──────────────────────────
@@ -175,6 +191,11 @@ export class VtTerm {
   cursorX: number = 0;
   cursorY: number = 0;
   cursorVisible: boolean = true;
+  /**
+   * DECCKM **应用光标键**模式（`CSI ? 1 h/l`）：开启后方向键应发 SS3（`\x1bO A`）而非
+   * CSI（`\x1b[ A`）。见 `vtArrowKeys`；xterm.js 同款（其 `_applicationCursorKeys`）。
+   */
+  appCursorKeys: boolean = false;
   /** 滚动区（0-based，含端点）。 */
   scrollTop: number = 0;
   scrollBottom: number = 23;
@@ -219,6 +240,7 @@ export class VtTerm {
     this.cursorX = 0;
     this.cursorY = 0;
     this.cursorVisible = true;
+    this.appCursorKeys = false;
     this.scrollTop = 0;
     this.scrollBottom = this.rows - 1;
     this.curFg = '';
@@ -459,15 +481,21 @@ export class VtTerm {
   }
 
   private privateMode(final: string, params: number[]): void {
+    // 只有 `h`/`l` 是"设置/清位"；其余 final（如 DECRQM `CSI ? … $ p` 的查询）**不得**改模式
+    // —— 否则一个 `CSI ? 25 $ p` 查询会把光标显隐/DECCKM 误清（解析器把 `$` 当非法中间字节
+    // 丢弃、仍以 `p` 作 final 走到这里，故必须在**此处**兜住）。
+    if (final !== 'h' && final !== 'l') { return; }
     const on: boolean = final === 'h';
     for (let i = 0; i < params.length; i++) {
       const m: number = params[i];
-      if (m === 25) { this.cursorVisible = on; }
+      if (m === 1) { this.appCursorKeys = on; } // DECCKM 应用光标键
+      else if (m === 25) { this.cursorVisible = on; }
       else if (m === 1049 || m === 47 || m === 1047) {
         if (on && !this.altActive) { this.enterAlt(); }
         else if (!on && this.altActive) { this.exitAlt(); }
       }
-      // 其余（2004 bracketed paste / 1000 鼠标 / 1 DECCKM…）忽略
+      // 其余（1000/1002/1003 鼠标 · 2004 bracketed paste · 1004 焦点事件…）忽略：
+      // 移动端无鼠标 / 无硬件按键流，粘贴走 `TextInput`。
     }
   }
 

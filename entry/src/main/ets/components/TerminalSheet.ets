@@ -22,7 +22,7 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { display } from '@kit.ArkUI';
 
 import { AnsiSpan, ansiFgOf, ansiPaletteOf } from '../core/ansi';
-import { VtLine, VtTerm, vtB64ToBytes } from '../core/vt';
+import { VtLine, VtTerm, vtArrowKeys, vtB64ToBytes } from '../core/vt';
 import {
   encodeResize, encodeStdin, parseTermMsg, TERM_CLOSE_MSG, TERM_CLOSED, TERM_CONNECTED,
   TERM_CONNECTING, TERM_ERROR, TERM_EXITED, TermMsg, TerminalInfo, terminalStatusRole,
@@ -325,7 +325,19 @@ export struct TerminalSheet {
     if (this.status !== TERM_CONNECTED) {
       return;
     }
-    this.raw(encodeStdin(seq));
+    this.raw(encodeStdin(this.resolveKey(seq)));
+  }
+
+  /**
+   * 方向键哨兵（`@A`..`@D`）在**发送那一刻**按当前 `DECCKM` 解析 —— ⛔ 不能在 `build()` 时定字节：
+   * `@Builder` 的参数是"调用那一刻的快照"，`?1h/l` 变化**不会**重投 ⇒ 会把方向键永久卡在初值
+   * （本仓 `@Builder` 快照陷阱，见 `docs/ARKTS-GOTCHAS.md`）。真源 = `vtArrowKeys`（`core/vt.ets`）。
+   */
+  private resolveKey(seq: string): string {
+    if (seq.length === 2 && seq.charAt(0) === '@') {
+      return vtArrowKeys(this.term.appCursorKeys, seq.charAt(1));
+    }
+    return seq;
   }
 
   private submitInput(): void {
@@ -491,10 +503,11 @@ export struct TerminalSheet {
           this.keyChip('Ctrl-C', '\x03')
           this.keyChip('Tab', '\t')
           this.keyChip('Esc', '\x1b')
-          this.keyChip('↑', '\x1b[A')
-          this.keyChip('↓', '\x1b[B')
-          this.keyChip('←', '\x1b[D')
-          this.keyChip('→', '\x1b[C')
+          // 方向键用哨兵 `@<final>`：发送时按 DECCKM 解析（CSI/SS3），见 `resolveKey`
+          this.keyChip('↑', '@A')
+          this.keyChip('↓', '@B')
+          this.keyChip('←', '@D')
+          this.keyChip('→', '@C')
         }
       }
       .scrollable(ScrollDirection.Horizontal)

@@ -1627,3 +1627,34 @@ AskUser/Status/MenuSheets 3 个文件** ⇒ 同族其余 5 个**从未被这套�
 A 线 `this.pal()` 1244/1250 · B 线 1348/1350 · ForEach 107/107 · `anim*()` 14/20）。
 **真机复核**：`~/ohos-cli/deploy.sh`（`DEPLOY_EXIT=0`）后从「能力面板 → 会话统计」打开 ⇒ 统计面板
 由**全屏不透明遮挡**变为**居中浮动卡**（两侧/底部可见背后聊天 + 输入框），与 `PluginsSheet` 观感一致。
+
+---
+
+## §21.26 目标④ 终端：**应用光标键（DECCKM）真支持** + 诚实记账（2026-10-12）
+
+**维度**：目标④「真的支持 web 的所有功能」在**终端输入侧**的一块缺口。
+
+**取证**（web 权威 = `web/src/lib/terminalQueries.ts` 全文）：`suppressTerminalQueryReplies` **只抑制
+"查询应答"**（OSC 10/11/12 · DA1 `CSI c`/DA2 `CSI > c` · DSR/CPR `CSI n`/`CSI ? n` · DECRQM
+`CSI ? … $ p` · XTVERSION `CSI > q`），**明确不碰**鼠标上报（`?1000/1002/1003`）/ bracketed paste
+（`?2004`）/ 应用光标键 —— 它们**不是**"查询应答"，是 xterm.js 的原生输入能力。⇒ `core/vt.ets`
+头注把四者并列为"web 也抑制"**归类不准**（诚实记账修正）。
+
+**真功能缺口**：`VtTerm` 此前**忽略** DECCKM（`CSI ? 1 h/l`）⇒ 方向键永远发 CSI（`\x1b[A`）；当 TUI
+（`less`/`vim`/`fzf`/readline）开启**应用光标键模式**时应发 SS3（`\x1bOA`）。xterm.js 原生处理。
+
+| # | 站点 | 处置 |
+|---|---|---|
+| ① | `core/vt.ets` | 新增 `VtTerm.appCursorKeys` 字段；`privateMode` 处理 `m === 1`；**导出纯函数 `vtArrowKeys(appCursor, final)`**（`\x1bO` vs `\x1b[`，可脱机单测）|
+| ② | `core/vt.ets` `privateMode` | **修 latent bug**：加 `if (final !== 'h' && final !== 'l') return;` 守卫 —— 此前 DECRQM `CSI ? 1 $ p`/`? 25 $ p`（解析器把 `$` 当非法中间字节丢弃、仍以 `p` 作 final）会被**误当清位** ⇒ 把光标显隐/DECCKM 静默清掉 |
+| ③ | `components/TerminalSheet.ets` | 方向键 chip 改**哨兵**（`@A`..`@D`），在**发送那一刻**凭 `VtTerm.appCursorKeys` 走 `vtArrowKeys` 解析 —— ⛔ 不能在 `build()` 时定字节（`@Builder` 参数是调用快照，`?1h/l` 不重投 ⇒ 方向键会永久卡初值，本仓铁律）|
+| ④ | `core/vt.ets` 头注 | 精确记账：鼠标上报/bracketed paste = 移动端无鼠标/无硬件按键流 ⇒ **原生不做**，⛔ **并非 web 抑制**；唯 DSR 与 web 一致 |
+
+**判据（演进）**：`tools/tests/vt.test.ts` 加 6 条（`vtArrowKeys` 两组 + 终端状态机 4 组：默认关 ·
+`?1h` 开 · `?1l` 关 · `?1;25h` 组合逐个生效 · DECRQM `?1$p` **不改**模式 · RIS `\x1bc` 归零）。
+**mutation 自证**：把 `privateMode` 的 `m === 1` 改成 `m === 999`（可编译变异）⇒ **`56 passed, 4 failed`
+（exit 1）**（4 条全抓到）；字节还原后 `md5` 与还原前**逐字节一致**、复跑 **`60 passed, 0 failed`**。
+⚠️ 首版变异（删整个 `if` 分支）造成**语法错**（裸 `else if`）⇒ 是编译红、**非测试红**，不算有效判别，已重做。
+
+**判据取得**：`run-one vt` = 60 passed, 0 failed；`tools/gate.sh` = ④ `ArkTS BUILD SUCCESSFUL in 8 s 266 ms`
++ `✅ 真门禁全绿` + `GATE_EXIT=0`（性能预算未越线）。

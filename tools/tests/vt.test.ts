@@ -12,7 +12,7 @@
 declare const process: { exit: (c: number) => void };
 
 import {
-  VtTerm, vtB64ToBytes, vtBytesToB64, vtCharWidth, vtUtf8Encode,
+  VtTerm, vtArrowKeys, vtB64ToBytes, vtBytesToB64, vtCharWidth, vtUtf8Encode,
 } from '../../entry/src/main/ets/core/vt';
 
 let pass = 0, fail = 0;
@@ -174,6 +174,29 @@ eq('ICH 插字符', lines('ab\x1b[1;1H\x1b[2@', 6, 2), ['  ab', '']);
   t.resize(3, 2);
   eq('缩小后按新宽截断', t.screenLines()[0].text, 'abc');
   eq('缩小后行数', t.screenLines().length, 2);
+}
+
+// ── DECCKM 应用光标键（`CSI ? 1 h/l`）⇒ 方向键 SS3 vs CSI ─────────────────────
+eq('DECCKM 关 ⇒ 方向键 CSI', vtArrowKeys(false, 'A'), '\x1b[A');
+eq('DECCKM 开 ⇒ 方向键 SS3', vtArrowKeys(true, 'A'), '\x1bOA');
+eq('四个方向 final 原样带出',
+  [vtArrowKeys(true, 'B'), vtArrowKeys(true, 'C'), vtArrowKeys(true, 'D')],
+  ['\x1bOB', '\x1bOC', '\x1bOD']);
+{
+  const t = new VtTerm(10, 2);
+  eq('DECCKM 默认关', t.appCursorKeys, false);
+  t.feedText('\x1b[?1h');
+  eq('`?1h` 开启 DECCKM', t.appCursorKeys, true);
+  t.feedText('\x1b[?1l');
+  eq('`?1l` 关闭 DECCKM', t.appCursorKeys, false);
+  t.feedText('\x1b[?1;25h');
+  eq('`?1;25h` 组合参数逐个生效（DECCKM 开 + 光标显）', [t.appCursorKeys, t.cursorVisible], [true, true]);
+  t.feedText('\x1b[?25l');
+  eq('`?25l` 隐藏光标（DECCKM 不受影响）', [t.appCursorKeys, t.cursorVisible], [true, false]);
+  t.feedText('\x1b[?1$p'); // DECRQM 查询**不得**改模式（latent bug 判别：无守卫时会被误清）
+  eq('DECRQM `?1$p` 查询不改 DECCKM', t.appCursorKeys, true);
+  t.feedText('\x1bc'); // RIS 复位
+  eq('RIS 复位后 DECCKM 归零', t.appCursorKeys, false);
 }
 
 console.log(`vt.test: ${pass} passed, ${fail} failed`);
