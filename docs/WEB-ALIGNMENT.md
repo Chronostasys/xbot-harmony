@@ -1460,3 +1460,38 @@ xbot-native-42
 **自持页头**（title + actions）仍是两族。本轮只**对齐语义与数值**（标题 role / 热区 / 内边距 / 空态），
 ⛔ **未**抽公共 `@Component`：`@BuilderParam` 铺改 10 个文件风险高，而收益只是"少写几行"——
 数值统一已达成**视觉一致**（真机目视同节奏）。若日后要真合并，改点在 `SettingsRows.SettingsPanelHeader`。
+
+## §21.22 目标①「丝滑动画」批次 2：展开/收起**出现过渡** + 主按钮**符号替换**（2026-10-12）
+
+**动机**：全仓动效面已基本齐（sheet/drawer/toast/lightbox/消息行入场），但有**两处硬切**——都
+**有 web 权威对照**，不是"为动而动"：
+
+| # | 位置 | 现状（硬切） | web 权威 | 处置 |
+|---|---|---|---|---|
+| ① | **思考区展开/收起**（`ThinkingLine`） | `if (this.open && body.length > 0)` ⇒ 展开体**瞬现瞬消** | `ThinkingLine.tsx:69` 包在 `AnimatedCollapse` 里（`opacity 180ms ease-out` + CSS `grid-template-rows 0fr→1fr`） | 加 `.transition(fadeTransition())` —— 出现过渡（静息恒可见 ⇒ fail-safe） |
+| ② | **Todo 拉出面板展开**（`TodoPanel`） | `if (this.expanded)` ⇒ 清单块瞬现 | 同 ①（`TodoPullOut.tsx:125` 也用 `AnimatedCollapse`） | 同 ①（**同一个**具名工厂） |
+| ③ | **composer 主按钮图标**（发送 ⇄ 插话 ⇄ 停止） | `$r()` 三元 ⇒ 图标**硬切** | Apple SF Symbols 的 **replace** 惯用法（web `MessageInput.tsx:941` 也是三态切换图标） | `.symbolEffect(new ReplaceSymbolEffect(WHOLE, CROSS_FADE))` —— **一次性**符号过渡 |
+
+**⚠️ 诚实记账（⛔ 不假称与 web 全等）**：`AnimatedCollapse` 是**两条**过渡叠加（高度 + 不透明度），
+原生只补上了**不透明度那一半**。原因**已实证**（不是"懒得做"）：ArkUI 的 `TransitionEffect` 静态档
+**没有任何尺寸档** —— SDK `component/common.d.ts:5329-5476` 只有 `IDENTITY / OPACITY / SLIDE /
+SLIDE_SWITCH / translate / rotate / scale / move / asymmetric`；`.height()` 也只收 `Length`
+（`common.d.ts:17149`，无 `undefined`/auto，**无法"从 0 补间到内容自然高"**）。
+⇒ 要真做高度补间只能"改结构"（如把内容塞进 `Scroll` 用视口量自然高再动画 `height`）—— 那是
+**为动画改结构**，且给每一行挂一个 `Scroll`（性能预算 + 手势嵌套双重风险），**收益不抵代价**，
+故**明确不做**并在此记账。
+
+**判据（判据只许演进、不删除）**：
+- `tools/tests/motion_budget.test.ts`：计分口径**新增第 5 项 `\.symbolEffect\(`** + 台账登记
+  `components/ThinkingLine.ets: 1`、`components/TodoPanel.ets: 1→2`、`pages/Index.ets: 6→7`。
+  **为什么必须演进**：`tools/lint/inflight-single-source.sh:12-15` 早把 SymbolEffect 分成两族
+  （循环类 = A 类 / `Appear/Disappear/Replace/Hierarchical` = 一次性"过渡"）；旧口径**数不到**
+  一次性 SymbolEffect ⇒ 新增一个符号过渡可以**绕过**台账（判据盲区 = 白绿）。本波 `Index.ets`
+  即新口径下的第一例。
+- `tools/lint/anim-opacity-gate.sh`（门禁 ⑨）：两处都用**出现过渡**（静息态 = 组件自身属性 =
+  可见）⇒ 过渡没跑/被打断仍可读（正向形态，**不需要** allowlist 豁免）。
+
+**判据（提交前已取得）**：`bash tools/gate.sh` ⇒ `✅ 真门禁全绿` + `ArkTS BUILD SUCCESSFUL`（exit 0）；
+装机后展开思考区目视：正文**淡入**且**一定可见**（不透明度地板）、停下不消失；busy 且有内容时
+主按钮图标**替换过渡**到 ⚡。
+

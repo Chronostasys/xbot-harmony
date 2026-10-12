@@ -71,7 +71,13 @@ function walk(dir: string, out: string[]): void {
 
 /**
  * **动效台账**（2026-10-11 首次清点；⛔ **只许缩短**）。
- * 计分口径 = 剥注释后 `\.transition\(` + `\.animation\(` + `animateTo\(` + `withDelay\(` 的出现次数。
+ * 计分口径 = 剥注释后 `\.transition\(` + `\.animation\(` + `animateTo\(` + `withDelay\(` + `\.symbolEffect\(`
+ * 的出现次数。
+ * ⚠️ 2026-10-12 **口径演进（判据只许演进、不删除）**：新增第 5 项 `\.symbolEffect\(` —— 依据是
+ *   `tools/lint/inflight-single-source.sh:12-15` 已把 SymbolEffect 分成两族（**循环子类** A 类 /
+ *   **一次性子类** `Appear/Disappear/Replace/Hierarchical` 属"过渡"）。旧口径**数不到**一次性
+ *   SymbolEffect ⇒ "新增一个符号过渡"可以**绕过**台账（= 判据盲区，正是"白绿"）。纳入后，
+ *   任何新增符号过渡都必须来登记"它讲哪条状态关系"（本波 `pages/Index.ets` 即第一例）。
  * 每条都已归类（必须留 / 可合并 / 可删 见提交说明）；**新增条目必须写"它讲哪条状态/空间关系"**。
  */
 const BUDGET: Map<string, number> = new Map<string, number>([
@@ -103,9 +109,18 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   ['components/TerminalSheet.ets', 1],
   // 会话统计面板（目标④「统计插件的面板我们看不到」）：同样走 `sheetTransition()`。
   ['components/SessionStatsSheet.ets', 1],
-  ['components/TodoPanel.ets', 1],     // ⚠️ 属性动画 `.animation(animFast())`（`chevron_right` 的 `rotate 0→90`）
+  ['components/TodoPanel.ets', 2],     // ① 属性动画 `.animation(animFast())`（`chevron_right` 的 `rotate 0→90`）
                                        //   —— **必须留**（2026-10-11 动效审计逐处判）：它讲的是**展开/收起的
                                        //   **方向状态变化**，删了箭头会"跳"；web `TodoPullOut.tsx` 同款有过渡。
+                                       // ② 2026-10-12：展开态清单块 `.transition(fadeTransition())` —— 讲的是
+                                       //   **展开/收起**（web 同处在 `AnimatedCollapse` 内，是 `opacity 180ms`
+                                       //   出现过渡）；静息态恒可见 ⇒ fail-safe（门禁 ⑨ 正向形态）。
+  // 思考区展开/收起（2026-10-12）—— 此前**硬切**（`if (this.open)` 门控的正文块瞬现瞬消），
+  //   而 web `ThinkingLine.tsx:69` 把它放在 `AnimatedCollapse`（`opacity 180ms ease-out` +
+  //   CSS grid 高度）里。本波补上 **opacity 那一半**（`.transition(fadeTransition())`，语义
+  //   = "内容出现/消失"）；⚠️ **高度不补间**（ArkUI `TransitionEffect` 无尺寸档，SDK 实证）——
+  //   诚实记账，不假称与 web 全等。静息态恒可见 ⇒ fail-safe（门禁 ⑨ 正向形态）。
+  ['components/ThinkingLine.ets', 1],
   ['components/MessageNav.ets', 1],    // ⚠️ 属性动画（`backgroundColor` + `opacity` 的 idle 40% ↔ 激活 100%）
                                        //   —— **必须留**：状态变化（激活态），且**逐字对齐 web 的 `transition-all`**；
                                        //   删 ⇒ 激活变硬切。两处都**不是**"为动而动"。（`bindPopup` 本体是系统绘制，改不到）
@@ -115,7 +130,11 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   //   （**必须留**：抽屉的进出场就是"从左侧滑出/收回"的空间关系；此前**瞬现瞬消**）。
   // 2026-10-12 +1：侧边栏分组箭头的折叠/展开**旋转过渡**（属性动画 `animFast()`）——
   //   讲的是分组收起/展开的方向状态变化（此前瞬变 ⇒ 观感跳）。
-  ['pages/Index.ets', 6],
+  // 2026-10-12 +1（本波，第 5 项新口径下的**第一例**）：composer 主按钮的图标**符号替换**
+  //   （`.symbolEffect(new ReplaceSymbolEffect(WHOLE, CROSS_FADE))`）—— 讲的是**同一个按钮**的
+  //   语义在「发送 → 插话 → 停止」之间切换（用户要求「busy 时输入文字 ⇒ 按钮变插队/排队」的
+  //   视觉落点）；此前是硬切。⛔ 用一次性子类（非循环）⇒ `inflight-single-source.sh` 归 B2。
+  ['pages/Index.ets', 7],
 ]);
 
 const root: string = findRoot();
@@ -138,7 +157,8 @@ for (const f of files) {
   const n: number = (src.match(/\.transition\(/g) || []).length
     + (src.match(/\.animation\(/g) || []).length
     + (src.match(/animateTo\(/g) || []).length
-    + (src.match(/withDelay\(/g) || []).length;
+    + (src.match(/withDelay\(/g) || []).length
+    + (src.match(/\.symbolEffect\(/g) || []).length;
   if (n === 0) { continue; }
   dist.push(`${rel}: ${n}（台账 ${BUDGET.has(rel) ? BUDGET.get(rel) : '未登记'}）`);
   if (!BUDGET.has(rel)) { undeclared.push(rel); }

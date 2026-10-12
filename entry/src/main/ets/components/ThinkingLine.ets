@@ -37,6 +37,7 @@ import { FS_CAPTION, R_LG, SP_1, SP_5 } from '../core/tokens';
 import { PRESS_OPACITY, RADIUS_PILL, SPACE_HAIR, STROKE_RAIL, TEXT_DIM, colorOf, } from '../core/design';
 import { getReasoningOpen, setReasoningOpen } from '../core/reasoningopen';
 import { AssistantOrb, ORB_MODE_THINKING } from './AssistantOrb';
+import { fadeTransition } from './anim';
 
 /** 前导光球直径 = 尺度 token `SP_5`（20vp）—— 与 `LiveTailView` 块首的独立光球**同值**。 */
 const ORB_LEAD_SIZE: number = SP_5;
@@ -171,6 +172,19 @@ export struct ThinkingLine {
           // （浅色/极简白下比 `border` 明显更清楚；深色族 `hairline ≡ border` 逐字节零变化）。
           .border({ width: { left: STROKE_RAIL }, color: surfacesOf(paletteOf(this.theme)).hairline })
           .copyOption(CopyOptions.LocalDevice)
+          // ── 展开/收起 = **出现过渡**（对齐 web `AnimatedCollapse`：`opacity 180ms ease-out`）────
+          // ⛔ 为什么用 `.transition()` 而不是"状态位 + onAppear 的 animateTo"：`if` 门控的内容
+          //    **静息态就是它自己的属性（可见）**，过渡只挂"插入/移除那一下" ⇒ 过渡没跑/被打断
+          //    仍停在可见（fail-safe；门禁 ⑨ `tools/lint/anim-opacity-gate.sh` 的正向形态）。
+          //    ⚠️ 反面教材见 `docs/ARKTS-GOTCHAS.md`（旧实现把静息态写成 `.opacity(0)` ⇒ 正文压到 13%）。
+          // ⚠️ **诚实记账（不假称与 web 一致）**：web 的 `fold-container` 是 CSS `grid-template-rows
+          //    0fr→1fr`（**高度补间**）+ opacity；ArkUI 的 `TransitionEffect` **没有任何尺寸档**
+          //    （SDK 实证：仅 IDENTITY/OPACITY/SLIDE/SLIDE_SWITCH/translate/rotate/scale/move/asymmetric
+          //    —— `component/common.d.ts:5329-5476`）⇒ 原生这边**高度不补间**，只做了 opacity 那一半
+          //    （用现有具名工厂 `fadeTransition()`，语义本就是"内容出现/消失"，⛔ 不新造工厂/时长）。
+          //    ⛔ 也不为此把结构改成"Scroll 视口量高 + 动画 height"：那是**为动画改结构**（且给每行
+          //    挂一个 Scroll ⇒ 性能预算与手势嵌套双重风险），收益不抵代价。
+          .transition(fadeTransition())
       }
     }
     .width('100%').alignItems(HorizontalAlign.Start)

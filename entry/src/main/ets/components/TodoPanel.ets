@@ -29,7 +29,7 @@ import {
   PRESS_OPACITY, PROGRESS_H, PROGRESS_W, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP,
   elevationColorOf, goalRowTintOf, hairlineOf, structuralRuleOf,
   surfaceFillOf, typeOf, colorOf, HIT_TARGET_MIN, } from '../core/design';
-import { animFast } from './anim';
+import { animFast, fadeTransition } from './anim';
 import { TodoItem } from '../core/types';
 import {
   hasTodos, isGoalTodo, todoCountLabel, todoPercent, todoRowKey, todoState,
@@ -453,6 +453,12 @@ export struct TodoPanel {
           .width('100%')
           .constraintSize({ maxHeight: LIST_MAX_H })
           .scrollBar(BarState.Auto)
+          // ── 展开/收起 = **出现过渡**（对齐 web `TodoPullOut` 的 `AnimatedCollapse`：`opacity 180ms`）──
+          // 与 `ThinkingLine` 的展开体**同一个**具名工厂（⛔ 不新造工厂/时长；语义 = "内容出现/消失"）。
+          // 静息态 = 组件自身属性（可见）⇒ 过渡没跑/被打断仍可读（fail-safe；门禁 ⑨ 的正向形态）。
+          // ⚠️ 高度**不补间**（ArkUI `TransitionEffect` 无尺寸档，SDK 实证；web 那半是 CSS grid）——
+          //    不在本处为动画改结构，详见 `ThinkingLine.ets` 同段注释。
+          .transition(fadeTransition())
         }
       }
       .width('100%')

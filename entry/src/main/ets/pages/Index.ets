@@ -4901,6 +4901,15 @@ struct Index {
                 : (this.sendMode === MODE_INTERRUPT ? $r('sys.symbol.bolt_fill') : $r('sys.symbol.paperplane_fill')))
                 .fontSize(typeOf('type.callout').size)
                 .fontColor([this.composerShowStop() ? this.pal().textSecondary : this.pal().onAccent])
+                // ── 状态过渡：**同一个主按钮**的语义在「发送 → 插话 → 停止」之间切换 ────────────
+                // 用户要求「busy 时输入了文字 ⇒ cancel 按钮自动变成插队/排队按钮」的**视觉**落点；
+                // 图标**换**的那一下用 Apple SF Symbols 的 replace 惯用法过渡，而不是硬切。
+                // ⛔ `ReplaceSymbolEffect` 是**一次性**子类 ⇒ `tools/lint/inflight-single-source.sh`
+                //    的 A 类（循环动效）不管它，归其 B2 约束（已在脚本注释里明列）。
+                // ⚠️ 必须显式选 `CROSS_FADE`：这三枚符号（paperplane / bolt / square）**彼此无关**
+                //    （不是同一符号的变体）⇒ 默认的 `SEQUENTIAL` 不适用（SDK `symbolglyph.d.ts:265-300`
+                //    的 `ReplaceEffectType`：SEQUENTIAL=0 / CROSS_FADE=1 / SLASH_OVERLAY=2）。
+                .symbolEffect(new ReplaceSymbolEffect(EffectScope.WHOLE, ReplaceEffectType.CROSS_FADE))
             }
           }
           // 视觉 32vp（`SPACE_XXL`；⛔ 无 `control.send` token，见交付缺 token 清单）
