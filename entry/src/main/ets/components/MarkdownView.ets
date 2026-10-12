@@ -604,7 +604,11 @@ export struct MarkdownView {
           })
       }, (s: MdInlineStyle, i: number) => `tc-${b.key}-${ci}-${i}-${s.text.length}`)
     }
-    .wordBreak(WordBreak.BREAK_ALL)
+    // ⚠️ 2026-10-12（15f 逐面评估）：本单元格原为 `BREAK_ALL`（与移动版同批误判）。归一到
+    // `BREAK_WORD`：web 权威 `.markdown-body { word-break: break-word }`（`web/src/index.css:538`）
+    // 被 `th/td` 继承且**表格未覆盖** ⇒ 单元格就是 break-word；`BREAK_ALL` 会把正常词劈成
+    // `impor|t()`（用户 2026-10-12 报「丑」的形态之一）。
+    .wordBreak(WordBreak.BREAK_WORD)
     .fontSize(MD_TABLE_SIZE)
     .fontColor(this.pal().textPrimary)
     .textAlign(this.ta(alignOf(b.aligns, ci)))
@@ -651,9 +655,9 @@ export struct MarkdownView {
             .flexShrink(0)
           Text(`表格（${b.header.length} 列 · ${b.rows.length} 行）`)
             .fontSize(11).fontColor(this.pal().textSecondary)
-            // 依据：本站点内容是**纯数字标签**（列/行计数，无 URL/长 token），但仍统一走 `BREAK_ALL`
-            // ⇒ 与正文/标题同口径（本文件正文级 Text 一律 BREAK_ALL，除代码块**横滑**那处有意 NORMAL）。
-            .wordBreak(WordBreak.BREAK_ALL)
+            // 依据：本站点内容是**纯数字标签**（列/行计数，无 URL/长 token）；本文件"正文级 Text"自
+            // 15b 起已统一为 `BREAK_WORD`（旧注释"一律 BREAK_ALL"已失效）⇒ 本站点随之归一。
+            .wordBreak(WordBreak.BREAK_WORD)
         }
         .width('100%')
         .alignItems(VerticalAlign.Center)
@@ -668,11 +672,17 @@ export struct MarkdownView {
                   //    ⇒ 绕过排版阶梯。改为走档（同号 ⇒ 1.0 下视觉零变化，但换档/审计都跟着走）。
                   .fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary)
                   .constraintSize({ minWidth: 84 })
-                  // 依据：表头标签来自 markdown 表格首行（用户内容，可能含长 token）⇒ 必须 BREAK_ALL
-                  // （`BREAK_WORD` 对"无空格超长串"无效 —— 与 `Inline` 正文同一条理由，web 亦为 break-words）。
-                  .wordBreak(WordBreak.BREAK_ALL)
+                  // ⚠️ 2026-10-12（15f「逐面评估」—— 15b 的遗留项）：本站点原为 `BREAK_ALL`，理由写的是
+                  // "`BREAK_WORD` 对无空格超长串无效"，**该理由是错的**：15b 已用 SDK 原文（`enums.d.ts:4244-4259`
+                  // "If no breakpoints are found, it breaks between any two characters"）+ 装机实证
+                  // （长 token `knowledge/ohos-cann-11m-npu.md` 在 `BREAK_WORD` 下正常换行）证伪。
+                  // 且 **web 权威同口径**：`.markdown-body { word-break: break-word }`（`web/src/index.css:538`）
+                  // 被 `th/td` **继承**且表格未覆盖 ⇒ web 表格单元就是 break-word ⇒ 原生用 `BREAK_ALL`
+                  // 属**与权威分歧**，窄列会把正常词劈成 `impor|t()`。
+                  .wordBreak(WordBreak.BREAK_WORD)
                 Text(f.value)
-                  .wordBreak(WordBreak.BREAK_ALL)
+                  // 同 label（见上条）：与 web `.markdown-body` 的 break-word 同口径，⛔ 不用 `BREAK_ALL`
+                  .wordBreak(WordBreak.BREAK_WORD)
                   .fontSize(MD_TABLE_SIZE).fontColor(this.pal().textPrimary)
                   .layoutWeight(1)
               }

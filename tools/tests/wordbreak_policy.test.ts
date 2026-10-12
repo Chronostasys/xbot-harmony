@@ -161,15 +161,38 @@ for (const f of files) {
 
 // ── ④ 台账（**只许缩短**；新增 ⇒ 红 ⇒ 必须来登记理由）────────────────────────────
 {
-  const BUDGET_ALL = 44;      // 全仓 BREAK_ALL 站点上限（15b 从 46 降到 44）
-  const BUDGET_WORD_MIN = 16; // 全仓 BREAK_WORD 站点下限（15b 从 14 升到 16）
-  const BUDGET_MD = 5;        // MarkdownView：代码 wrap 1 + 表格单元 4
+  // ⚠️ 2026-10-12（15f「逐面评估」—— 15b 的遗留项：表格单元）：MarkdownView 的**表格单元**（网格版
+  //    `TableCellSpan` + 移动卡片版 `TableBlock` 内的 label/value + "表格（N 列·M 行）"标签行）已全部
+  //    从 `BREAK_ALL` 归一为 `BREAK_WORD` ⇒ 台账随之**收紧**（⛔ 只许缩短）：
+  //      · MarkdownView `BREAK_ALL`：5 → **1**（只剩代码块 wrap —— token 流逐字符断是对的）
+  //      · 全仓 `BREAK_ALL`：44 → **42**；全仓 `BREAK_WORD`：16 → **19**
+  //    改名的两条独立证据（缺一不足以动它）：① **web 权威** `.markdown-body { word-break: break-word }`
+  //    （`web/src/index.css:538`）被 `th/td` **继承**且表格**未覆盖** ⇒ web 单元格本来就是 break-word，
+  //    原生 `BREAK_ALL` 属**与权威分歧**；② 站点原注释的理由（"`BREAK_WORD` 对无空格超长串无效"）
+  //    已被 15b 用 SDK 原文 + 装机实证**证伪**（找不到断点时会 break between any two characters）。
+  const BUDGET_ALL = 40;      // 全仓 BREAK_ALL 站点上限（15b 46→44；15f 44→40 = 实测值，⛔ 不留空档）
+  const BUDGET_WORD_MIN = 20; // 全仓 BREAK_WORD 站点下限（15b 14→16；15f 16→20 = 实测值）
+  const BUDGET_MD = 1;        // MarkdownView：只剩代码 wrap（表格单元已全部归一）
   const BUDGET_ASK = 3;       // AskUserSheet：空态小字 + header + 选项标签（正文已是 BREAK_WORD）
   ok(`④ 全仓 BREAK_ALL ≤ ${BUDGET_ALL}（只许缩短；新增须登记理由）`, totalAll <= BUDGET_ALL, `实得 ${totalAll}`);
   ok(`④ 全仓 BREAK_WORD ≥ ${BUDGET_WORD_MIN}（正文必须显式声明，⛔ 不能靠默认 NORMAL）`,
     totalWord >= BUDGET_WORD_MIN, `实得 ${totalWord}`);
-  const mdAll = countSites(readBody(MD_REL), ALL);
-  ok(`④ MarkdownView BREAK_ALL ≤ ${BUDGET_MD}（= 代码 wrap + 表格单元；正文 0）`, mdAll <= BUDGET_MD, `实得 ${mdAll}`);
+  const mdSrc = readBody(MD_REL);
+  const mdAll = countSites(mdSrc, ALL);
+  ok(`④ MarkdownView BREAK_ALL ≤ ${BUDGET_MD}（= 仅代码 wrap；正文 0 / 表格 0）`, mdAll <= BUDGET_MD, `实得 ${mdAll}`);
+  // ④b **表格单元 = BREAK_WORD**（15f 新增）：正反**双钉** + ⛔ **精确计数**（钉 `≥1`/`≥2` 会**假绿** ——
+  //    本轮 mutation 实测：卡片版实际 3 处，删 1 处后 `≥2` 仍通过而只有台账转红 ⇒ 必须 `=== n`）。
+  //    ⚠️ 注入式 mutation 必须打**代码行**：本文件这些站点上方就有写明 `BREAK_WORD`/`BREAK_ALL` 的注释，
+  //    而扫描前会 `stripComments` ⇒ 打到注释上**不会红**（本轮实测踩过一次）。
+  const tblGrid = sliceBetween(mdSrc, 'TableCellSpan(text: string', '@Builder');
+  const tblCard = sliceBetween(mdSrc, 'TableBlock(b: MdBlock', 'private headingSize(');
+  ok('④b 表格网格版切片可定位（零扫描判红）', tblGrid.length > 200);
+  ok('④b 表格移动卡片版切片可定位（零扫描判红）', tblCard.length > 200);
+  ok(`④b 网格版单元格 = BREAK_WORD 恰 1 处（实得 ${countSites(tblGrid, WORD)}）`, countSites(tblGrid, WORD) === 1);
+  ok(`④b 网格版单元格无 BREAK_ALL（实得 ${countSites(tblGrid, ALL)}）`, countSites(tblGrid, ALL) === 0);
+  ok(`④b 卡片版单元格 = BREAK_WORD 恰 3 处（标签行 + label + value，实得 ${countSites(tblCard, WORD)}）`,
+    countSites(tblCard, WORD) === 3);
+  ok(`④b 卡片版单元格无 BREAK_ALL（实得 ${countSites(tblCard, ALL)}）`, countSites(tblCard, ALL) === 0);
   const ask = readBody(ASK_REL);
   const askAll = countSites(ask, ALL);
   const askWord = countSites(ask, WORD);

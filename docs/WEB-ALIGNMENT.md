@@ -2754,3 +2754,42 @@ ArkTS 编译已覆盖该路径（`getUIContext()`/`clearFocus()` 均真编译通
 ② 15c-③「发送后收键盘 + 滚到底」的**行为**终验（模拟器 `inputText` 未落进 TextArea）；
 ③ 抽屉底部 5 键工具栏的形态（§16.2 批次25 已裁决"设置/账户在侧栏底部" ⇒ 需用户拍板才动）。
 
+
+## §21.48 细节修复（第十五批之三）：Markdown 表格**单元**断行 —— 15b 遗留项「逐面评估」（2026-10-12）
+
+**背景**：§21.44（15b）把 `MarkdownView` 的**正文级**站点改成 `BREAK_WORD`，但**表格单元**
+（网格版 `TableCellSpan` + 移动卡片版 `Text(f.label)`/`Text(f.value)` + "表格（N 列·M 行）"标签行）
+当时**有意保留 `BREAK_ALL`**，理由是"表格是结构件、含长 token 概率高"，并写进遗留待"逐面评估"。
+
+**逐面评估结论：应改（两条独立证据）**
+- **① web 权威（决定性）**：`web/src/index.css:538` 是 `.markdown-body { word-break: break-word; }`，
+  而表格样式块（`:571-582` 的 `.markdown-body table/th/td`）**只覆盖 border/padding/text-align**，
+  **未覆盖断行** ⇒ `th/td` **继承** `break-word` ⇒ **web 表格单元本来就是 break-word**。
+  原生用 `BREAK_ALL` 属**与权威分歧**，窄列会把正常词劈成 `impor|t()`（用户 2026-10-12 报「丑」的形态之一）。
+- **② 站点原注释的理由已被证伪**：注释写"`BREAK_WORD` 对'无空格超长串'无效 —— web 亦为 break-words"。
+  前半句在 15b 已用 SDK 原文证伪（`enums.d.ts:4244-4259`：找不到断点时 "breaks between any two
+  characters") + 装机实证（长 token `knowledge/ohos-cann-11m-npu.md` 正常换行）；后半句**自相矛盾**
+  （既说 web 是 break-words，却用 `BREAK_ALL`）。
+- ⇒ 4 个站点全部归一 `BREAK_WORD`；顺带修掉两处**失效注释**（"本文件正文级 Text 一律 `BREAK_ALL`"
+  自 15b 起已不成立）。
+
+**判据（演进 + 新增，⛔ 不删除）**：`tools/tests/wordbreak_policy.test.ts`
+- **台账收紧到实测值（只许缩短）**：全仓 `BREAK_ALL` 44 → **40**、`BREAK_WORD` 16 → **20**、
+  MarkdownView `BREAK_ALL` 5 → **1**（只剩代码块 wrap）。⛔ **不留空档**（首版我填 42/19 = 留了 2 空档，
+  与"钉实测值"的纪律不符 ⇒ 当场自纠）。
+- **新增 ④b「表格单元 = BREAK_WORD」6 条**，⛔ **精确计数** `=== n`：网格版恰 **1** 处 + 卡片版恰 **3** 处
+  （标签行/label/value），且两片 `BREAK_ALL === 0`。
+  ⚠️ **假绿事故留档（本轮实测）**：首版写 `≥1`/`≥2`，而卡片版实际 **3** 处 ⇒ 删掉 1 处后 `≥2` **仍通过**
+  （只有台账转红）⇒ **阈值必须钉调用点计数**（本仓"形态断言要钉调用点计数"那条 GOTCHA 的又一实例）。
+  ⚠️ 第二处坑：**注入式 mutation 必须打代码行** —— 该文件这些站点上方恰好有写 `BREAK_WORD`/`BREAK_ALL`
+  的注释，而扫描前 `stripComments` ⇒ 打到注释上**不会红**（我第一轮 mutation 就打在注释里，白跑）。
+
+**mutation 自证（重做后成立）**：㈠ 网格版**代码行** → `BREAK_ALL` ⇒ **5 红**（④b 两条 + 台账两条 + …）；
+㈡ 删卡片版 value 的 `.wordBreak(...)`（靠默认 `NORMAL`）⇒ **2 红**（④b 精确计数 + 台账）。
+两次 `cp` 还原后 **md5 逐字节一致**（`22de12231485b6d61d14d4d4832adb93`）。
+
+**已复核「非缺陷 / 有意保留」**：其余 24 个文件 40 处 `BREAK_ALL` **不动** —— 它们是**长串类**站点
+（`AskUserSheet` 空态小字/header、`LlmErrorNotice`、`PluginHost`、`MessageNav`、`SubAgentTree`、
+`TaskDetailSheet`、`SyntheticCard`… 及 `UserBubble` = web `wrap-anywhere` 的**有意分歧**，已登记），
+与"自然语言正文/表格单元"语义不同 ⇒ 台账继续钉住（⛔ 只许缩短）。
+
