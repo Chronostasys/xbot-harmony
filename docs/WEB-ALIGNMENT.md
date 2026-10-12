@@ -2334,3 +2334,43 @@ Apple 的空态是**陈述句**，不是「（这里什么都没有）」。此�
 **291 文件 0 失败**；A **1246**/1250 · **B 1345**/1350 · ForEach **107**/107 —— 与 13e–13g 基线**逐值相同**；
 ⑧ 无未消费 core 模块；⑨ A 0 · B 3）。装机 `deploy.sh` ⇒ `DEPLOY_EXIT=0`；真机复核见下。
 
+## §21.41 目标④（文件管理）：补齐 web 契约已有、原生未接的 **`show_hidden`** 隐藏文件开关（2026-10-12）
+
+用户亲报：「**文件管理也没有**」。真机实测后先**定性**：面板**不是没有**——`文件` 面板在真机上完全可用
+（标题「文件」+ 面包屑 `/Users/bobli/src/xbot-harmony` + `AppScope/docs/entry/hvigor/oh_modules` 条目，
+目录/预览/三态/刷新/面包屑回跳齐备）。⇒ 缺的是**能力面**。
+
+### 取证：原生缺的那一项（对齐 web 权威契约）
+- 逐字取证 web `hooks/useFileSystem.ts:79-93`：`listDir(path, showHidden = false)` → `POST /api/fs/list`
+  `{path, show_hidden}`；服务端 `channel/web/web_rest.go:448-461` 解 body 的 **`show_hidden`**，
+  再 `query.Set("showHidden", "true")` 折成 GET query；`channel/web/web_fs.go:203-210` 读 **query 键
+  `showHidden`（驼峰）** 并用 `isHidden`（点开头）过滤。
+  ⇒ 原生 `store.listFs` 此前只发 `{path}` ⇒ **永远看不到 dotfile**（`.env` / `.git` / `~/.xbot` …）。
+- ⛔ **头号 footgun**：body 侧键是 **`show_hidden`（下划线）**，query 侧是 **`showHidden`（驼峰）**。
+  写错任一处 ⇒ 服务端**静默忽略**（无错、无日志）⇒ 开关点了没反应，**只有真机点一次看有没有 dotfile** 能发现。
+- `POST /api/fs/search`（`{query,path?,limit?,show_hidden?}` → `{results:[{path,name,isDir}]}`）**不补**：
+  web 侧 `searchFiles` **零 UI 消费者**（只在 `useFileSystem.ts` 定义）⇒ 不是 parity，不臆造。
+
+### 修法（判据与请求同源）
+- `core/files.ets` 新增：`interface FsListBody{path, show_hidden}` + `fsListBody(path, showHidden)`
+  （空路径归一为根，同服务端 `rawPath=="" ⇒ "/"`）+ `fsHiddenToggleLabel(show)`（颜色态必须另有可读文本）。
+- `core/store.ets:listFs(path, showHidden = false)` 改走 `fsListBody`（⛔ 键名单点构造，不再散在组件里）。
+- `components/FilesSheet.ets`：头部新增**隐藏文件胶囊**（开启 = `accent` 实心态底 + `onAccent` 字 +
+  `checkmark`，关闭 = `surfaceFillOf(p,'surface.input')` + `textSecondary`；`accessibilityText` 用
+  `fsHiddenToggleLabel` ⇒ ⛔ 不靠颜色单打表达状态）；`onToggleHidden` 回调。
+- `pages/Index.ets`：`@State fsShowHidden`（跨开关保留）+ `loadFsDir` 传参 + 切换即重列当前目录。
+
+### 判据（`tools/tests/files_pure.test.ts` 52 → **53 passed**）
+新增 ⑧ 块：`fsListBody` 的**键名集合恰为 `{path, show_hidden}`**、⛔ 不得出现驼峰 `showHidden`、
+开关开/关映射、空路径归一、路径透传、`fsHiddenToggleLabel` 两态可读且**不相同**。
+- mutation：`show_hidden` 恒 `false` ⇒ **1 红**；两态读法写反 ⇒ **2 红**；把键名改驼峰（接口+字面量同改）
+  ⇒ **编译红**（类型系统是第一道防线：接口字段名 + 测试里的 `.show_hidden` 属性访问双重钉死）。
+  三档 mutation 还原后 md5 **逐字节一致**。
+
+**判据取得**：`tools/gate.sh` ⇒ **`✅ 真门禁全绿` + `GATE_EXIT=0`**（`BUILD SUCCESSFUL in 18 s 216 ms`；
+**291 文件 0 失败**；A **1246**/1250 · **B 1350**/1350 · ForEach **107**/107；⑧ 无未消费 core 模块；⑨ A 0 · B 3）。
+装机 `deploy.sh` ⇒ `DEPLOY_EXIT=0`。**真机复核（决定性）**：文件面板默认（开关关）**0 条 dotfile**；
+点「隐藏文件」胶囊后 ⇒ 立刻出现 **7 条**点开头条目 `.git` `.github` `.hvigor` `.idea` `.research` `.shots` `.gitignore`
+⇒ 端到端（开关 → 请求体 `show_hidden` → 服务端过滤）全线打通。
+⚠️ **B 线顶格**（1350/1350，本批 +5 站点来自胶囊的 `palOnce()`）：下一批若再增 `pal()/palOnce()` 站点必须先腾预算。
+

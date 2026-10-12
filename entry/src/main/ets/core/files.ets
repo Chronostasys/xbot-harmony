@@ -205,3 +205,35 @@ export function fsCrumbs(path: string): FsCrumb[] {
   }
   return out;
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 隐藏文件（`show_hidden`）—— web 契约里**已有**而原生此前未接的能力
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * `POST /api/fs/list` 的请求体（= 服务端 `handleFsListPOST` 的匿名 body）。
+ *
+ * ⛔⛔ **键名是 `show_hidden`（下划线），不是 `showHidden`** —— 这是本能力的头号 footgun：
+ *   服务端 **POST body** 认 `show_hidden`，随后 `query.Set("showHidden", "true")` 折成 GET query，
+ *   而 `handleFsList` 读的是 query 键 **`showHidden`（驼峰）**。写错任一处 ⇒ 服务端**静默忽略**
+ *   ⇒ 开关点了没反应（无报错、无日志），只有**真机点一次看有没有 dotfile** 才能发现。
+ *   逐字取证：`channel/web/web_rest.go:448-461`（body 解码 + 折 query）、
+ *   `channel/web/web_fs.go:203-210`（query 读取 + `isHidden` 过滤）。
+ */
+export interface FsListBody {
+  path: string;
+  show_hidden: boolean;
+}
+
+/** 组 `/api/fs/list` 请求体（**判据与请求同源**；空路径归一为根 `/`，同服务端 `rawPath == "" ⇒ "/"`）。 */
+export function fsListBody(path: string, showHidden: boolean): FsListBody {
+  return { path: path.length > 0 ? path : '/', show_hidden: showHidden };
+}
+
+/**
+ * 隐藏文件开关的**可访问读法**（开关是颜色态 ⇒ 必须另有可读文本，⛔ 不许只靠颜色表达状态）。
+ * 视觉标签固定「隐藏文件」，状态由这里补全（真机读屏 / UI 走查用）。
+ */
+export function fsHiddenToggleLabel(show: boolean): string {
+  return show ? '不显示隐藏文件' : '显示隐藏文件';
+}

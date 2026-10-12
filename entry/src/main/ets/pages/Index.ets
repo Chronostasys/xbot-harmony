@@ -549,6 +549,8 @@ struct Index {
   @State fmEntries: FsFileEntry[] = [];
   @State fsLoading: boolean = false;
   @State fsError: string = '';
+  /** 隐藏文件开关（`/api/fs/list` 的 `show_hidden`）—— 跨开关面板保留（用户偏好级）。 */
+  @State fsShowHidden: boolean = false;
   @State fsPreviewPath: string = '';
   @State fsPreviewText: string = '';
   @State fsPreviewLoading: boolean = false;
@@ -2934,7 +2936,7 @@ struct Index {
     }
     this.fsLoading = true;
     try {
-      const es: FsEntry[] = await store.listFs(dir);
+      const es: FsEntry[] = await store.listFs(dir, this.fsShowHidden);
       const mapped: FsFileEntry[] = [];
       for (let i = 0; i < es.length; i++) {
         mapped.push({ name: es[i].name, isDir: es[i].isDir, size: es[i].size });
@@ -3642,6 +3644,11 @@ struct Index {
               this.closeFsPreview();
             },
             onRefresh: () => {
+              this.loadFsDir(this.fmDir);
+            },
+            showHidden: this.fsShowHidden,
+            onToggleHidden: () => {
+              this.fsShowHidden = !this.fsShowHidden;
               this.loadFsDir(this.fmDir);
             },
             onClose: () => {

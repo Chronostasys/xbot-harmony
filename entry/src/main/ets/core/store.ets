@@ -32,7 +32,7 @@ import { TerminalInfo } from './termproto';
 import { serverKey, toLocalSettings, KEY_ACCENT } from './settings';
 import { setAppAccent } from './theme';
 import { FsEntry } from './composer';
-import { FsReadResult } from './files';
+import { FsListBody, FsReadResult, fsListBody } from './files';
 import { MaxContextParams, RPC_GET_SESSION_SUBSCRIPTION, RPC_GET_USER_MAX_CONTEXT, RPC_LIST_ALL_MODEL_ENTRIES, RPC_SET_USER_MAX_CONTEXT, RPC_WEB_PLUGIN_LIST, SessionSelectorParams, SessionSubscription, normalizeMaxContext, readableRpcError, rpc, sessionSubscriptionId } from './rpc';
 import {
   PluginCatalog,
@@ -578,10 +578,14 @@ export class ChatStore {
 
   /**
    * 列目录（`POST /api/fs/list {path, show_hidden?}` → `{entries:[{name,isDir,size,mode,modTime}]}`）。
-   * 输入框 `@` 文件补全用；服务端已做路径安全校验（resolveSafePath）。
+   * 输入框 `@` 文件补全用；文件管理面板用（`showHidden` 来自面板的隐藏文件开关）。
+   * 服务端已做路径安全校验（resolveSafePath）。
+   *
+   * ⛔ 请求体由 `core/files.ets:fsListBody` **单点**构造（键名 `show_hidden` 与服务端 query 键
+   *    `showHidden` 的驼峰/下划线差异是 footgun，见该函数注释）。
    */
-  async listFs(path: string): Promise<FsEntry[]> {
-    const body: Record<string, string> = { 'path': path.length > 0 ? path : '/' };
+  async listFs(path: string, showHidden: boolean = false): Promise<FsEntry[]> {
+    const body: FsListBody = fsListBody(path, showHidden);
     const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>('/api/fs/list', body);
     const arr: Object | undefined = raw['entries'];
     return arrOrEmpty(arr as FsEntry[]);

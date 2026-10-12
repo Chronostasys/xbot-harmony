@@ -20,10 +20,10 @@
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import {
   baseNameOf, FK_DIR, FK_IMAGE, FK_MARKDOWN, FsCrumb, FsFileEntry, fileKindOf, fmtSize, fsCrumbs,
-  joinFsPath,
+  fsHiddenToggleLabel, joinFsPath,
 } from '../core/files';
 import {
-  colorOf, hairlineOf, HIT_TARGET_MIN, INSET_ROW_X, PRESS_OPACITY, RADIUS_CARD, RADIUS_SHEET,
+  colorOf, hairlineOf, HIT_TARGET_MIN, INSET_ROW_X, PRESS_OPACITY, RADIUS_CARD, RADIUS_CHIP, RADIUS_SHEET,
   SHEET_ACTION_GLYPH, SPACE_MD,
   SPACE_SM, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD, surfaceFillOf, ICON_MD, typeOf,
 } from '../core/design';
@@ -97,6 +97,12 @@ export struct FilesSheet {
   @Prop @Watch('onEntriesChanged') entries: FsFileEntry[] = [];
   @Prop loading: boolean = false;
   @Prop error: string = '';
+  /**
+   * 隐藏文件开关（`/api/fs/list` 的 `show_hidden`）。
+   * 契约：web `hooks/useFileSystem.ts:79-93 listDir(path, showHidden)`；请求体构造走
+   * `core/files.ets:fsListBody`（⛔ 键名 `show_hidden`，服务端 query 侧却是 `showHidden`）。
+   */
+  @Prop showHidden: boolean = false;
   /** 预览态：非空 ⇒ 面板切到单文件视图。 */
   @Prop previewPath: string = '';
   @Prop previewText: string = '';
@@ -116,6 +122,9 @@ export struct FilesSheet {
   onClosePreview: () => void = () => {
   };
   onRefresh: () => void = () => {
+  };
+  /** 切换「隐藏文件」开关（页面翻转状态后**重列当前目录**）。 */
+  onToggleHidden: () => void = () => {
   };
   onClose: () => void = () => {
   };
@@ -186,6 +195,32 @@ export struct FilesSheet {
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .layoutWeight(1)
         if (this.previewPath.length === 0) {
+          // 隐藏文件开关（web 契约**已有**：`useFileSystem.listDir(path, showHidden)`；原生此前未接）。
+          // 形态：胶囊壳；**开启 = accent 实心态底 + onAccent 字**，另有 `checkmark` + `accessibilityText`
+          // 的可读状态（⛔ 不许只靠颜色表达状态）。
+          Row({ space: SPACE_XS }) {
+            Text('隐藏文件')
+              .fontSize(typeOf('type.caption').size)
+              .fontColor(this.showHidden ? this.palOnce().onAccent : this.palOnce().textSecondary)
+            if (this.showHidden) {
+              SymbolGlyph($r('sys.symbol.checkmark'))
+                .fontSize(typeOf('type.micro').size)
+                .fontColor([this.palOnce().onAccent])
+            }
+          }
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
+          .padding({ left: SPACE_XS, right: SPACE_XS })
+          .justifyContent(FlexAlign.Center)
+          .alignItems(VerticalAlign.Center)
+          .backgroundColor(this.showHidden
+            ? this.palOnce().accent
+            : surfaceFillOf(this.palOnce(), 'surface.input'))
+          .borderRadius(RADIUS_CHIP)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .accessibilityText(fsHiddenToggleLabel(this.showHidden))
+          .onClick(() => {
+            this.onToggleHidden();
+          })
           Row() {
             SymbolGlyph($r('sys.symbol.arrow_clockwise'))
               .fontSize(ICON_MD).fontColor([colorOf(this.palOnce(), 'iconMuted')])

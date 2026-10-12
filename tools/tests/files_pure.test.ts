@@ -15,6 +15,7 @@ declare const process: { exit: (c: number) => void };
 
 import {
   extOf, fileKindOf, parentPath, joinFsPath, sortFsEntries, fmtSize, fmtAgo, fsCrumbs,
+  fsListBody, fsHiddenToggleLabel,
   FK_DIR, FK_IMAGE, FK_MARKDOWN, FK_TEXT, FsFileEntry,
 } from '../../entry/src/main/ets/core/files';
 
@@ -23,6 +24,9 @@ let fail = 0;
 function eq(name: string, got: unknown, want: unknown): void {
   const g = JSON.stringify(got), w = JSON.stringify(want);
   if (g === w) { pass++; } else { fail++; console.log(`  ✗ ${name}\n      got  ${g}\n      want ${w}`); }
+}
+function ok(name: string, cond: boolean): void {
+  if (cond) { pass++; } else { fail++; console.log(`  ✗ ${name}`); }
 }
 
 // ── ① extOf 边界 ────────────────────────────────────────────────────────────
@@ -92,6 +96,24 @@ eq('crumbs 根', fsCrumbs('/').map((c) => c.label), ['/']);
 eq('crumbs 两级', fsCrumbs('/Users/bobli').map((c) => c.label), ['/', 'Users', 'bobli']);
 eq('crumbs 绝对路径累计正确', fsCrumbs('/a/b').map((c) => c.path), ['/', '/a', '/a/b']);
 eq('crumbs 尾斜杠不产生空段', fsCrumbs('/a/b/').map((c) => c.label), ['/', 'a', 'b']);
+
+// ── ⑧ 隐藏文件开关（`show_hidden`；web 契约已有、原生此前未接）──────────────────
+// ⛔⛔ 本块的核心价值：**钉死请求体的键名**。服务端 POST body 认 `show_hidden`（下划线），
+//     随后折成 GET query 键 `showHidden`（驼峰）；`handleFsList` 读的是驼峰那个。
+//     写错 ⇒ 服务端**静默忽略**（无错、无日志）⇒ 开关点了没反应 ⇒ 只有真机点一次才能发现。
+eq('★ show_hidden：开 ⇒ body.show_hidden=true（键名必须是下划线）', fsListBody('/a', true).show_hidden, true);
+eq('★ show_hidden：关 ⇒ body.show_hidden=false', fsListBody('/a', false).show_hidden, false);
+eq('★ 键名集合恰为 {path, show_hidden}（多写/写错驼峰都抓）',
+  Object.keys(fsListBody('/a', true)).sort(), ['path', 'show_hidden']);
+ok('★ ⛔ 不得出现驼峰 `showHidden` 键（那是服务端 query 侧的键，body 侧写它=静默失效）',
+  Object.keys(fsListBody('/a', true)).indexOf('showHidden') < 0);
+eq('★ 空路径归一为根（同服务端 `rawPath=="" ⇒ "/"`）', fsListBody('', false).path, '/');
+eq('★ 路径原样透传', fsListBody('/Users/bobli', true).path, '/Users/bobli');
+// 开关可读状态（颜色态必须另有文本，⛔ 不许只靠颜色表达状态）
+eq('★ 关闭时读法「显示隐藏文件」', fsHiddenToggleLabel(false), '显示隐藏文件');
+eq('★ 开启时读法「不显示隐藏文件」', fsHiddenToggleLabel(true), '不显示隐藏文件');
+ok('★ 两种状态读法不同（否则颜色态无替代文本）',
+  fsHiddenToggleLabel(true) !== fsHiddenToggleLabel(false));
 
 if (fail > 0) {
   console.log(`  ✗ files_pure: ${pass} passed, ${fail} failed`);
