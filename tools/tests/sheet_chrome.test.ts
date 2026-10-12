@@ -227,7 +227,8 @@ for (const rel of SHEETS) {
     "PanelEmpty($r('sys.symbol.person_2'), '暂无子代理会话')",
     // ⚠️ 15d：文案与"行内按钮"解耦（按钮已上移表头）⇒ 不再出现"点「＋ 新建」开一个"
     "PanelEmpty($r('sys.symbol.code'), '本会话暂无终端')",
-    "Text('暂无受管机器')",
+    // 2026-10-13：机器 tab 的裸 `Text` 也统一到 `PanelEmpty`（字形 `computer`，已核对）
+    "PanelEmpty($r('sys.symbol.computer'), '暂无受管机器')",
   ];
   for (const s of EMPTIES) {
     ok(`⑥ 运行面板空态在位：${s}`, src.indexOf(s) >= 0);

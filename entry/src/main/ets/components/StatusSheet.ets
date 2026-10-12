@@ -266,13 +266,25 @@ export struct StatusSheet {
 
         if (this.isEmpty()) {
           // ── 空态：一行小字（无填充 / 无边框 / 无发光；docs/DESIGN-SYSTEM.md §10）──────
-          Text('暂无会话状态')
-            .fontSize(fs('type.callout'))
-            .fontWeight(fw('type.callout'))
-            .lineHeight(lh('type.callout'))
-            .fontColor(this.pal().textMuted)
-            .width('100%')
-            .padding({ left: INSET_ROW_X, right: INSET_ROW_X, bottom: SPACE_XS })
+          // 空态（2026-10-13 对标 Apple）：字形 + 说明 + 内容区居中（同 `SkillsSheet`/`PanelEmpty`）。
+          Column({ space: SPACE_SM }) {
+            SymbolGlyph($r('sys.symbol.info_circle'))
+              .fontSize(fs('type.display'))
+              // ⛔ 图标弱色走 `colorOf(p,'iconMuted')`（非文本档 ≥3；`textMuted` 的批准档是文本 2）。
+              .fontColor([colorOf(paletteOf(this.theme), 'iconMuted')])
+            Text('暂无会话状态')
+              .fontSize(fs('type.callout'))
+              .fontWeight(fw('type.callout'))
+              .lineHeight(lh('type.callout'))
+              .fontColor(this.pal().textMuted)
+              .width('100%')
+              .textAlign(TextAlign.Center)
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
+          .padding({ left: INSET_ROW_X, right: INSET_ROW_X, bottom: SPACE_XS })
         } else {
           // ── 目标行（页面已算好前缀「目标：/已完成：」）——`type.caption` + warn ────────
           if (this.goalLine.length > 0) {

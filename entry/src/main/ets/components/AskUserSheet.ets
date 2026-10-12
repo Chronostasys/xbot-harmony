@@ -357,14 +357,26 @@ export struct AskUserSheet {
 
         // ── 空态：一行小字（无填充 / 无边框 / 无发光；docs/DESIGN-SYSTEM.md §10）──────
         if (this.questions.length === 0) {
-          Text('没有待确认的问题')
-            .fontSize(fs('type.callout'))
-            .fontWeight(fw('type.callout'))
-            .lineHeight(lh('type.callout'))
-            // 溢出兜底（说明性小字；换行不删信息）
-            .wordBreak(WordBreak.BREAK_ALL)
-            .fontColor(this.palOnce().textMuted)
-            .width('100%')
+          // 空态（2026-10-13 对标 Apple）：字形 + 说明 + 内容区居中。
+          Column({ space: SPACE_SM }) {
+            SymbolGlyph($r('sys.symbol.checkmark_circle'))
+              .fontSize(fs('type.display'))
+              // ⛔ 图标弱色走 `colorOf(p,'iconMuted')`（非文本档 ≥3；`textMuted` 的批准档是文本 2）。
+              .fontColor([colorOf(this.palOnce(), 'iconMuted')])
+            Text('没有待确认的问题')
+              .fontSize(fs('type.callout'))
+              .fontWeight(fw('type.callout'))
+              .lineHeight(lh('type.callout'))
+              // 溢出兜底（说明性小字；换行不删信息）
+              .wordBreak(WordBreak.BREAK_ALL)
+              .fontColor(this.palOnce().textMuted)
+              .width('100%')
+              .textAlign(TextAlign.Center)
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
         } else {
           // ── 进度条 + 圆点（**仅多问**；web `:131-160`）────────────────────────────
           if (this.isMulti()) {

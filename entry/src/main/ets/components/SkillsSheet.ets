@@ -161,11 +161,26 @@ export struct SkillsSheet {
           .width('100%')
           .alignItems(VerticalAlign.Center)
         } else if (this.items.length === 0) {
-          Text('暂无技能')
-            .fontSize(typeOf('type.subhead').size)
-            .fontColor(paletteOf(this.theme).textSecondary)
-            .width('100%')
-            .padding({ top: SPACE_MD, bottom: SPACE_MD })
+          // 空态（2026-10-13 对标 Apple）：大号弱化字形 + 说明，并在内容区**居中**
+          // （`layoutWeight(1)` 占满剩余空间才是"居中"的前提）。字形 `star` 已核对存在于
+          // SDK 资源表（`previewer/common/resources/entry/resources.txt`；⛔ 不猜字形）。
+          Column({ space: SPACE_SM }) {
+            SymbolGlyph($r('sys.symbol.star'))
+              .fontSize(typeOf('type.display').size)
+              // ⛔ 图标弱色**只能**走 `colorOf(p,'iconMuted')`（`textMuted` 的批准档是
+              // 「非交互元信息文本」=2，图标是**非文本** ⇒ 需 ≥3；仓内铁律见 AGENTS.md）。
+              .fontColor([colorOf(paletteOf(this.theme), 'iconMuted')])
+            Text('暂无技能')
+              .fontSize(typeOf('type.subhead').size)
+              .fontColor(paletteOf(this.theme).textSecondary)
+              .width('100%')
+              .textAlign(TextAlign.Center)
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
+          .padding({ top: SPACE_MD, bottom: SPACE_MD })
         } else {
           List() {
             ForEach(skillRows(this.items), (r: SkillRow) => {

@@ -325,10 +325,20 @@ export struct SessionStatsSheet {
                 .fontColor(this.cMuted())
                 .width('100%').padding(SPACE_SM)
             } else if (!this.hasData()) {
-              Text('暂无数据')
-                .fontSize(typeOf('type.callout').size)
-                .fontColor(this.cSecondary())
-                .width('100%').padding(SPACE_SM)
+              // 空态（2026-10-13 对标 Apple）：字形 + 说明。⚠️ 本处**在 `Scroll` 内** ⇒ 不做
+              // 垂直居中（`layoutWeight` 对 Scroll 子项无意义），只统一"字形 + 居中文字"形态。
+              Column({ space: SPACE_SM }) {
+                SymbolGlyph($r('sys.symbol.square_grid_2x2'))
+                  .fontSize(typeOf('type.display').size)
+                  // ⛔ 图标弱色走 `colorOf(p,'iconMuted')`（非文本档 ≥3）。
+                  .fontColor([colorOf(this.palOnce(), 'iconMuted')])
+                Text('暂无数据')
+                  .fontSize(typeOf('type.callout').size)
+                  .fontColor(this.cSecondary())
+                  .width('100%')
+              }
+              .width('100%').padding(SPACE_SM)
+              .alignItems(HorizontalAlign.Center)
             } else {
               // ① 用量四联卡（输入 / 输出 / 缓存命中 / LLM 时长）—— **2 列 × 2 行**（对齐 web
               //    窄形态 `grid-cols-2`：4 列挤一行时副标题「命中率 87.6%」「11 迭代 · 6 轮次」

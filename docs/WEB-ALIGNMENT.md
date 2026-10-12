@@ -3970,3 +3970,32 @@ terminal 字形）⇒ 终端 tab 用 `code`（终端=敲代码的壳），并把
 `PanelEmpty('文案')` 形态改为钉 `PanelEmpty($r('sys.symbol.X'), '文案')`（逐 tab），
 并加两条反向断言：⛔ 不得存在无字形的 `PanelEmpty('`；⛔ 不得使用 `sys.symbol.terminal`
 （`sheet_chrome: 96 passed`）。门禁 `GATE_EXIT=0` + `BUILD SUCCESSFUL`。
+
+## §21.76 全部面板空态统一「大号弱化字形 + 说明 + 内容区居中」（15z2，2026-10-13）
+
+**范围**（用户目标③「我只说了侧边栏但是你要考虑所有的面板」）：把**面板级**空态从"裸一行小字"
+统一为 Apple 形态。逐处落实（字形**逐个核对**存在于 SDK 资源表
+`previewer/common/resources/entry/resources.txt`，9552 字）：
+
+| 面板 | 文案 | 字形 | 容器处理 |
+|---|---|---|---|
+| 运行面板·定时 | 本会话暂无定时任务 | `clock` | `PanelEmpty`（`layoutWeight(1)` 居中） |
+| 运行面板·后台 | 本会话暂无后台任务 | `hourglass` | 同上 |
+| 运行面板·代理 | 暂无子代理会话 | `person_2` | 同上 |
+| 运行面板·终端 | 本会话暂无终端 | `code`（⛔ 无 `terminal` 字形） | 同上 |
+| 运行面板·机器 | 暂无受管机器 | `computer` | 同一 `PanelEmpty`（原为**裸 `Text`**） |
+| 技能面板 | 暂无技能 | `star` | `Column.layoutWeight(1)` 居中 |
+| 会话状态 | 暂无会话状态 | `info_circle` | 同上 |
+| 待确认问题 | 没有待确认的问题 | `checkmark_circle` | 同上 |
+| 会话统计 | 暂无数据 | `square_grid_2x2` | ⚠️ 在 `Scroll` 内 ⇒ 只统一形态、不做垂直居中 |
+
+**⚠️ 踩到的坑（本仓最经典的那个）**：图标弱色我最初写 `textMuted` ⇒ 门禁
+`role_surface_floor` 红「未登记的违规 3 处」。根因：`textMuted` 的**批准档是「非交互元信息
+文本」= 2**，而图标是**非文本**（档 ≥3）⇒ 必须走唯一出口 `colorOf(p, 'iconMuted')`
+（浅色 = `textSecondary` ≥3:1）。四处全部改走 `colorOf` 后 `role_surface_floor: 12 passed`。
+
+**预算**：新增一律走「零成本」入口 —— 组件内用 `paletteOf(this.theme)`（**不计入** A/B 线），
+页面内走 `palOnce()`。实测 A 线 1228（≤1250）、B 线 1344（≤1350）。
+
+**装机复验**：运行面板 4 tab + 机器 tab 逐个截图确认居中字形 ✓（对照旧形态：贴顶小字 + 下方空洞）。
+门禁 `GATE_EXIT=0` + `BUILD SUCCESSFUL`。

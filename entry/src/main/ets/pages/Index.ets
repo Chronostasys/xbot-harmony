@@ -7995,7 +7995,7 @@ struct Index {
         }
       } else {
         if (this.runners.length === 0) {
-          Text('暂无受管机器').fontSize(typeOf('type.caption').size).fontColor(this.pal().textMuted).width('100%')
+          this.PanelEmpty($r('sys.symbol.computer'), '暂无受管机器')
         } else {
           List({ space: 6 }) {
             ForEach(this.runners, (r: RunnerRow, i: number) => {
