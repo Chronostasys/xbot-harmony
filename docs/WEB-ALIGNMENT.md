@@ -1117,15 +1117,32 @@ composer 主按钮恒为 `runningNow() ? 停止 : 发送` ⇒ busy 时输入文�
 - `tools/tests/contrast_landing.test.ts` §5 L4 的**两处**源码形态锚同步为
   `runningNow() || composerShowStop()`（意图与反向断言一字未松）。
 
-**未做（明确记账）**：
-- **iter 末无 tool ⇒ 立刻 idle**：服务端 `agent/engine_run.go:1071` 明确 `"stop" + no_tool_calls →
-  final text response, return`（并在 `:1221` 附近对末次纯文本迭代补 `snapshotCompletedIteration`）
-  ⇒ turn **立刻**结束、随即下发 `text_final` + session idle；客户端既有路径
-  （`text_final` ⇒ commit ⇒ `activeTurn=null`；`session idle` ⇒ 刷新会话树 ⇒ `sessionRunning=false`）
-  与该语义一致 ⇒ **尚无客户端缺陷证据**，⛔ 不据猜改状态机；**待补真机实验**（在**另一个**会话里
-  驱动一轮、量 `busy→idle` 的墙钟延迟）。
-- **流式中向上滚不回拉**：`core/listfollow` 的"只置位不清位"接线已在；但本轮**未能**用
-  `dumpLayout` 观测视口（见 `ARKTS-GOTCHAS.md` 批次 41 ⑦）⇒ **判据待补**，不得据现有数据下结论。
+**真机实证（2026-10-12 完成 —— 模拟器 `xbot_phone` 1320×2848，驱动会话 `web-1`）**：
+四条细节**全部上机验过、全部按预期工作**；本轮**未新增修复**（过程截图 `/tmp/*.jpeg` 为临时物，不入库）。
+- **① iter 末无 tool ⇒ 立刻 idle**：发「只回复一个字：好」，轮询 `dumpLayout`（~0.75s/次）⇒
+  `+0.75s busy=1`、`+1.5s busy=0`（`排队` 标签消失、主按钮回 `paperplane`/accent）⇒ 回合结束**即** idle，
+  零残留。机理核验：`store.busy = sessionRunning ∥ streaming ∥ activeTurn`；末次**纯文本**迭代的
+  `text_final` ⇒ commit ⇒ `activeTurn=null` ⇒ `core/indicators.busyNow` 的 `localBusy` **同帧**落 false
+  ⇒ composer 与列表占位符**同帧**转 idle（**不**等 `session(idle)`）。与 `agent/engine_run.go:1071`
+  的 `"stop" + no_tool_calls → final text response, return` 语义一致。
+- **② cancel ⇒ 立刻 idle（spin 由代码保证）**：busy（`Shell: sleep 40; echo done` 执行中）时点停止 ⇒
+  运行中工具**折成 `失败`**（红字）、两处 live「思考」**定格保留**（内容不丢）、`排队` 标签消失、
+  主按钮回发送。⚠️ **spin（`LoadingProgress`）未能在截图中定格** —— `POST /api/cancel` 在 localhost 上
+  **亚帧级**（连「`uitest uiInput click` + `snapshot_display` 放进**同一条 `hdc shell`**」都追不上）；
+  其渲染由 `composerCancelling()`（= `composerShowStop() && store.cancelling`）结构性保证。
+- **③ busy 时输入文字 ⇒ 主按钮变发送**：busy + **空**输入 ⇒ **灰色停止方块**（`square_fill`/`surfaceHi`）
+  + 「排队」标签（`shell` 键在）；busy + 输入「临时加一句」⇒ **紫色 `paperplane`/accent 发送键**
+  （`Shell: sleep 30 执行中` 期间抓拍）⇒ 与 web `MessageInput.tsx:686-687` 同语义。
+- **③ 补强（本轮唯一的代码改动）**：web 主按钮在 `interruptMode` 用 **⚡ `Zap`**（`MessageInput.tsx:941`：
+  `interruptMode ? <Zap/> : busy ? <Mail/> : <Send/>`），原生原先**恒为纸飞机**（busy 发送与 idle 发送
+  长得一样）⇒ 按模式切图标：`sendMode === MODE_INTERRUPT ⇒ $r('sys.symbol.bolt_fill')`，否则纸飞机。
+  （`bolt_fill` 已在 `ets/build-tools/ets-loader/sysResource.js` 核对存在。）⛔ 只改**资源名**、未动
+  `contrast_landing.test.ts:179` 钉住的底色三元（`composerShowStop() ? surfaceHi : accent`）⇒ 零锚同步。
+- **④ 流式上滚不被拉回**：长输出回合中 `uiInput swipe` 上滑 ×3 ⇒ 「回到最新」按钮**出现**
+  （`showsJumpToLatest` ⇔ `!followBottom && rows.length>0`）；3s 后再抓帧：视口**仍停在历史**
+  （按钮仍在、最新回复仍在屏外、顶部可见内容逐字一致）⇒ 无自动滚回。机理：`shouldAutoScroll` 以
+  `followBottom`（**用户意图**）为闸门，程序滚动被 `markUserScrollFrame`「只置位不清位」挡住 ⇒
+  用户上滑后 `followBottom=false` ⇒ 流式新增**不**触发 `scrollEdge(Bottom)`。
 
 ### 21.12 目标③（侧栏重设计 · 第一批）：会话行**单行化** + 星标入菜单 + 抽屉 82%→88%（2026-10-12）
 

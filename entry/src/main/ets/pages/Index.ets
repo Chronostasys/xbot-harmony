@@ -4892,7 +4892,13 @@ struct Index {
                 .height(typeOf('type.callout').size)
                 .color(this.pal().textSecondary)
             } else {
-              SymbolGlyph(this.composerShowStop() ? $r('sys.symbol.square_fill') : $r('sys.symbol.paperplane_fill'))
+              // ⚡ 插话模式（busy + 有内容 + `sendMode===interrupt`）时图标换成 `bolt`（逐字对齐
+              //    web `MessageInput.tsx:941` 的 `interruptMode ? <Zap/> : busy ? <Mail/> : <Send/>`）：
+              //    "点了这一下会把消息**注入正在跑的回合**"必须一眼可辨，不能与普通发送共用纸飞机
+              //    （用户要求「busy 时输入文字 ⇒ 按钮变插队/排队」的**视觉**落点；文字 chip 仍标模式名）。
+              SymbolGlyph(this.composerShowStop()
+                ? $r('sys.symbol.square_fill')
+                : (this.sendMode === MODE_INTERRUPT ? $r('sys.symbol.bolt_fill') : $r('sys.symbol.paperplane_fill')))
                 .fontSize(typeOf('type.callout').size)
                 .fontColor([this.composerShowStop() ? this.pal().textSecondary : this.pal().onAccent])
             }
