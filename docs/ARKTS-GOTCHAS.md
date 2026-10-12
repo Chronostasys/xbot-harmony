@@ -1680,3 +1680,27 @@ ArkUI 解析为该子项**占满可用宽度** ⇒ wrap 每行只放得下 1 片
 **判据**：这类"布局回环"**静态判据抓不到**（编译绿、`has(...)` 断言也绿）——
 唯一可靠判据是**装机 + `uitest dumpLayout` 看几何**（本仓既有口径：点击/布局都要原子 dump）。
 ⇒ 凡动 `Flex(wrap)` / `layoutWeight` / 百分比宽的布局，**必须**装机量 x/y 分布（不是只看截图）。
+
+## 批次 31：`Scroll.onWillScroll` 是 **4 参**，`List.onWillScroll` 是 **3 参** —— 照抄页面的 List 写法 ⇒ ArkTS 硬红（2026-10-13，我本人踩）
+
+**症状**：给 `TerminalSheet` 的 `Scroll` 加"用户滚动意图"判据时，从 `pages/Index.ets` 的 `List`
+抄了同款写法 `(offset: number, state: ScrollState, source: ScrollSource) => {...}`（页面里编译通过、用了很久），
+新代码在**真门禁 ④ ArkTS 编译**报：
+
+```
+10505001 ArkTS Compiler Error
+Error Message: Argument of type '(offset: number, state: ScrollState, source: ScrollSource) => void'
+  is not assignable to parameter of type 'ScrollOnWillScrollCallback'.
+```
+
+**根因（SDK 真源，逐字）**：
+- `List`：`onWillScroll(callback: (scrollOffset: number, scrollState: ScrollState, source: ScrollSource) => void)`
+- `Scroll`（`ets/component/scroll.d.ts:1427`）：
+  `declare type ScrollOnWillScrollCallback = (xOffset: number, yOffset: number, scrollState: ScrollState, scrollSource: ScrollSource) => void | OffsetResult;`
+  ⇒ **两个偏移各一个参数**（x/y），**4 参**，且返回值可以是 `void | OffsetResult`。
+
+**规则**：跨组件（`List` ↔ `Scroll` ↔ `Grid`）抄回调**必须回 SDK `*.d.ts` 核对**同名事件的签名；
+`tsc` 脱机三条**永远抓不到**（它们不编译 ArkUI 组件），唯一判据是 `hvigorw assembleHap` / 真门禁 ④。
+**排查手法（有用）**：报 `is not assignable to parameter of type 'XxxCallback'` ⇒ 直接
+`grep -n "declare type XxxCallback" $OHOS_SDK/default/openharmony/ets/component/*.d.ts` 拿逐字签名，
+别靠记忆或从别处抄。

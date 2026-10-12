@@ -4115,3 +4115,33 @@ terminal 字形）⇒ 终端 tab 用 `code`（终端=敲代码的壳），并把
 
 **装机视觉取证（决定性）**：终端里 `sh /tmp/ansi_demo.sh`（256 色绿底 / 真彩紫底 / 命名红底 +
 两组反色）⇒ 截图三块底色**全部渲染成实心色块**（修复前全丢）。
+
+## §21.82 终端：输出**不再把人拽回底部**（跟随闸门，15z9，2026-10-13）
+
+**症状（用户长期要求 #2「sse streaming 时向上滚动绝不能人机对抗」，终端同类）**：
+`flush()` **无条件** `this.follow()` ⇒ 用户上翻读历史时**每来一行输出就被 `scrollEdge(Bottom)`
+拽回底部** —— 终端里根本读不了日志（比消息列表那处更硬：终端输出是连续滴灌的）。
+
+**修法（与消息列表**同一真源**，⛔ 不在这里重写一套）**：
+- 新增 `@State followBottom`；`flush()` 改为 `if (this.followBottom) { this.follow(); }`。
+- 画布 `Scroll` 加 `onWillScroll`：**只认定** `SCROLLER`/`SCROLLER_ANIMATION`（`scroller.scrollEdge`
+  程序滚动）不算用户，其余一律算用户 ⇒ `followBottom = false`（**只置位、不清位**，
+  与 `core/listfollow.markUserScrollFrame` 同口径）。
+- `onScrollStop` 一次性判定：`followBottom = followAfterScrollStop(followBottom, scroller.isAtEnd())`
+  ⇒ **滚回贴底即恢复跟随**。
+- ⚠️ **故意不做**「回到最新」药丸：终端跟随的惯用法（xterm）就是"滚到底即恢复"，
+  且浮层会挡住等宽正文；聊天列表那枚药丸存在是因为它另有"就地展开/抑制窗"那套语义。
+
+**⛔ 踩到的 ArkTS 坑（真门禁 ④ 抓出，见 `docs/ARKTS-GOTCHAS.md` 批次 31）**：
+`Scroll.onWillScroll` 是 **4 参** `(xOffset, yOffset, scrollState, scrollSource)`
+（SDK `scroll.d.ts:1427`），照抄页面 `List` 的 **3 参**形态 ⇒ `10505001 ... not assignable to
+parameter of type 'ScrollOnWillScrollCallback'`。脱机三条永远绿。
+
+**判据（`panel_terminal_wiring.test.ts` ⑤，mutation 自证）**：flush 闸门恰 1 处；
+⛔ 全文件 `this.follow();` **只剩 1 处**（多一处 = 又有无条件跟底）；用户意图判据含
+`ScrollSource.SCROLLER` ×2（守卫不是摆设）；`followAfterScrollStop(followBottom, isAtEnd())` 恰 1 处。
+
+**装机行为取证（决定性，双向）**：终端跑 `sh /tmp/slow.sh`（40 行 ×0.4s 慢速滴灌）：
+① 流式中上翻两次 ⇒ 截图 B/C（间隔 ~10s，期间仍在产出）**都停在 `line-0…line-8` 顶部区域**
+（未被拽走；修复前每次 flush 都会跳到底部）；
+② 再在画布内下滑到底 ⇒ 截图 G 显示**尾部最新行**（`line-0…line-5` 递增）⇒ 跟随**已恢复**。

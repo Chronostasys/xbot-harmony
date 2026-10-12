@@ -23,6 +23,8 @@ import { display } from '@kit.ArkUI';
 
 import { AnsiSpan, ansiBgOf, ansiFgOf, ansiPaletteOf } from '../core/ansi';
 import { ctrlLetterByte, VtLine, VtTerm, vtArrowKeys, vtB64ToBytes } from '../core/vt';
+// 「跟随底部」的纯逻辑（与消息列表**同一真源**，⛔ 不在这里重写一套）
+import { followAfterScrollStop } from '../core/listfollow';
 import {
   encodeResize, encodeStdin, parseTermMsg, TERM_CLOSE_MSG, TERM_CLOSED, TERM_CONNECTED,
   TERM_CONNECTING, TERM_ERROR, TERM_EXITED, TermMsg, TerminalInfo, terminalHeadTitle, terminalStatusRole,
@@ -88,6 +90,14 @@ export struct TerminalSheet {
   private flushTimer: number = -1;
   private dirty: boolean = false;
   private userClosed: boolean = false;
+  /**
+   * 是否跟随新输出（`flush()` 只在 true 时才 `scrollEdge(Bottom)`）。
+   *
+   * ⛔ 为什么要闸门（用户 2026-10-12 长期要求 #2「绝不能人机对抗」）：旧实现 `flush()` **无条件**
+   *    跟底 ⇒ 用户往上翻看历史时，**每来一行输出就把视角拽回底部** ⇒ 根本读不了日志。
+   *    语义与消息列表**同一真源** `core/listfollow`：用户一动手 ⇒ 暂停；滚回**贴底** ⇒ 恢复。
+   */
+  @State followBottom: boolean = true;
   private scroller: Scroller = new Scroller();
   /** 等宽字宽/行高（vp）——随字号推导，用于"视口 ⇒ 列/行"。 */
   private charW: number = 7.2;
@@ -322,7 +332,11 @@ export struct TerminalSheet {
     const all: VtLine[] = sb.concat(sc);
     const cut: VtLine[] = all.length > TERM_MAX_LINES ? all.slice(all.length - TERM_MAX_LINES) : all;
     this.flow = this.flatSpans(cut);
-    this.follow();
+    // ⛔ **不无条件跟底**：用户上翻读历史时若每来一行就 `scrollEdge(Bottom)` ⇒ 根本读不了
+    //    （"人机对抗"，用户长期要求 #2）。暂停/恢复判据走 `core/listfollow`（与消息列表同源）。
+    if (this.followBottom) {
+      this.follow();
+    }
   }
 
   /**
@@ -553,6 +567,23 @@ export struct TerminalSheet {
       .borderRadius(RADIUS_CHIP)
       .onAreaChange((oldArea: Area, newArea: Area) => {
         this.applySize(this.toVp(newArea.width), this.toVp(newArea.height));
+      })
+      // ⛔ 「用户滚动意图」标志 —— **只置位、不清位**（同 `core/listfollow.markUserScrollFrame`：
+      //    流式期间每帧都有程序滚动，若在这里按"非用户"清位 ⇒ 清掉用户刚置的意图 ⇒ 滚不动）。
+      //    ⚠️ 只认定 `SCROLLER`/`SCROLLER_ANIMATION`（`scroller.scrollEdge` 程序滚动）**不算**用户；
+      //    其余一律算用户 —— 失败方向安全：误判只导致"暂停跟随"（可再滚回底部恢复），
+      //    反向误判才会"人机对抗"（把用户拽回底部）。
+      // ⚠️ `Scroll.onWillScroll` 的签名是 **4 参** `(xOffset, yOffset, scrollState, scrollSource)`
+      //    （SDK `scroll.d.ts:1427 ScrollOnWillScrollCallback`）——**与 `List` 的 3 参不同**
+      //    （照抄页面 `List` 的写法会 ArkTS 硬红 `10505001 ... not assignable`）。
+      .onWillScroll((xOffset: number, yOffset: number, state: ScrollState, source: ScrollSource) => {
+        if (source !== ScrollSource.SCROLLER && source !== ScrollSource.SCROLLER_ANIMATION) {
+          this.followBottom = false;
+        }
+      })
+      // 清位只在**滚动停止**时一次性判定（判据 = 贴底 ⇒ 恢复跟随；同 `core/listfollow` 真源）。
+      .onScrollStop(() => {
+        this.followBottom = followAfterScrollStop(this.followBottom, this.scroller.isAtEnd());
       })
 
       if (this.note.length > 0) {

@@ -244,10 +244,29 @@ console.log(`  panel-scan 组件目录 ANSI 渲染器：画前景=${fgFiles} 已
 ok(`ANSI 渲染器全配对（画前景 ${fgFiles} 个文件，未配对 ${unpaired} == 0）`, unpaired === 0);
 ok(`⛔ 零扫描判红：确实扫到了 ANSI 渲染器（${fgFiles} ≥ 4，否则扫描器与真源脱节）`, fgFiles >= 4);
 
+// ── ⑤ 终端「不许把人拽回底部」（15z9，用户长期要求 #2「绝不能人机对抗」）────────────────────
+//   根因取证：`flush()` **无条件** `this.follow()` ⇒ 用户上翻读历史时，每来一行输出就被
+//   `scrollEdge(Bottom)` 拽回底部 ⇒ 根本读不了日志（与消息列表当年同一缺陷）。
+//   判据 = 闸门在位（`if (this.followBottom)` 恰好 1 处）+ `this.follow();` 调用点**只有闸门内那一处**
+//   （反向断言：多一处 = 又有无条件跟底）+ 恢复判据走 `core/listfollow.followAfterScrollStop`
+//   + 用户意图只认"非程序滚动"（`SCROLLER`/`SCROLLER_ANIMATION` 两个枚举必须出现 ⇒ 守卫不是摆设）。
+const flushGate: number = countOf(termSrc, 'if (this.followBottom) {');
+const followCalls: number = countOf(termSrc, 'this.follow();');
+const userGuard: number = countOf(termSrc, 'ScrollSource.SCROLLER');
+const stopResume: number = countOf(termSrc, 'followAfterScrollStop(this.followBottom, this.scroller.isAtEnd())');
+const onScrollStop: number = countOf(termSrc, '.onScrollStop(');
+console.log(`  panel-scan ${TERM}(跟随): flushGate=${flushGate} follow()=${followCalls} ScrollSource.SCROLLER×${userGuard} stopResume=${stopResume} onScrollStop=${onScrollStop}`);
+
+ok(`跟底闸门在位（flush 里 \`if (this.followBottom)\` = ${flushGate} == 1）`, flushGate === 1);
+ok(`⛔ 全文件 \`this.follow();\` 只剩 ${followCalls} 处（多 ⇒ 又有无条件跟底把人拽走）`, followCalls === 1);
+ok(`用户滚动意图判据含程序滚动两枚举（SCROLLER ×${userGuard} == 2）`, userGuard === 2);
+ok(`滚动停止时按"是否贴底"恢复跟随（${stopResume} == 1 / onScrollStop ${onScrollStop} == 1）`,
+  stopResume === 1 && onScrollStop === 1);
+
 // ── 零扫描判红：链接线调用点合计必须 > 0（扫描器与真源脱节 ⇒ 红）──────────────────
 ok('零扫描判红：运行面板/终端键帽接线证据合计 > 0',
   newBtn + termCall + newEmpty + minWDecl + keyBorderVia + ctrlBorderVia + roleHairline + rpQueueSet
-  + bgPaint + bgFallbackUse + fgFiles > 0);
+  + bgPaint + bgFallbackUse + fgFiles + flushGate + stopResume > 0);
 
 console.log(`  panel-terminal-wiring: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
