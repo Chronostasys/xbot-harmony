@@ -489,3 +489,17 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
   `starred` **每帧一次**；消歧改 `titleCount` 计数 **O(g)**。**行为逐字不变**（判据 `tools/tests/drawer_hotpath.test.ts`，14 断言）。
 - ⛔ **任何"抽屉耗时随 n² 增长"的旧观测/旧阈值一律作废**；复测请用 §7.1 的 `scroll_fps.sh`，
   在**同一 n** 下对比"开抽屉 + 滚动"的 FPS/jitters（设备排队中，首轮实测待补）。
+
+## 2026-10-13 复测（15z4，目标「性能也要非常好」）
+
+| 指标 | 本次实测 | 预算 | 结论 |
+|---|---|---|---|
+| 冷启 `onCreate→loadContent` | **303 / 319 ms**（两次自然样本） | —（历史 168 ms / 劣样本 1314 ms） | ✅ 健康，无需优化 |
+| `parseMarkdown(274K)` | **1.505 ms/次** | ≤ 50 ms | ✅ 单帧预算(16.7ms)的 9% |
+| `rowsFromHistory(340 块)` | **0.034 ms/事件** | ≤ 1 ms | ✅ |
+| `流式增长 120 拍` | **0.938 ms** | ≤ 300 ms | ✅ |
+
+复测命令：`bash tools/perf/bench_core.sh`；冷启 `TARGET=127.0.0.1:5555 bash tools/perf/coldstart.sh 18`
+（被动监听；本次为单条命令内"起监听 → `aa force-stop` → `aa start`"以免前/后台竞态）。
+
+⚠️ 口径：宿主并发占用时方差极大（文档已记 168↔1314 ms）⇒ 只作数量级判据。
