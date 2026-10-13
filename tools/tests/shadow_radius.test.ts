@@ -205,6 +205,9 @@ function eq(name: string, got: unknown, want: unknown): void {
       'components/SessionStatsSheet.ets',
       // 技能面板（目标④）：侧栏双层柔影走 `shadowLayersOf(...,'overlay')` 同一出口（⛔ 不写死半径）。
       'components/SkillsSheet.ets',
+      // 远程机器面板（§21.117，web 内置插件 `xbot.ssh-runner`）：侧栏双层柔影走
+      // `shadowLayersOf(...,'overlay')` 同一出口（⛔ 不写死半径）。
+      'components/SshRunnerSheet.ets',
       'components/StatusSheet.ets', 'components/SyntheticCard.ets',
       // 后台任务详情（目标④「任务管理做的很差」）：与 SelfCheckSheet 同构的双层柔影
       // （near=贴合影 / far=环境影），走 `shadowLayersOf(...,'sheet')` 同一出口（⛔ 不写死半径）。

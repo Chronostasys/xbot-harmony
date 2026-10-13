@@ -98,7 +98,12 @@ eq('深链只两个参数',
 // ── ⑥ 原生落地注册表 nativeViewKind（可扩展；空 = 放行 WebView 兜底）──────────────
 eq('git-fancy panel ⇒ git.panel', nativeViewKind('xbot.git-fancy.panel'), 'git.panel');
 eq('git-fancy commit ⇒ git.commit', nativeViewKind('xbot.git-fancy.commit'), 'git.commit');
-eq('ssh-runner panel ⇒ 空（无原生落地，放行 WebView）', nativeViewKind('xbot.ssh-runner.panel'), '');
+// ⚠️ §21.117：`xbot.ssh-runner.panel` **已**原生化（`SshRunnerSheet`）⇒ 期望值从 `''` 改为
+//    `'ssh.panel'`（此前无原生落地 ⇒ 点开会落到**整个 web 宿主页**，正是用户否掉的形态）。
+eq('ssh-runner panel ⇒ 原生面板（§21.117 已落地；此前为 "" = 放行整个 WebView）',
+  nativeViewKind('xbot.ssh-runner.panel'), 'ssh.panel');
+// 信息栏视图（`xbot.ssh-runner.bar`）落**同一个**原生面板（其目标切换行就是该徽章的入口）。
+eq('ssh-runner bar ⇒ 同一原生面板', nativeViewKind('xbot.ssh-runner.bar'), 'ssh.panel');
 eq('未来插件 ⇒ 空（协议仍通用，不写死）', nativeViewKind('xbot.future-plugin.panel'), '');
 eq('空 viewId ⇒ 空', nativeViewKind(''), '');
 

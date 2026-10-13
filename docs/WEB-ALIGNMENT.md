@@ -5633,3 +5633,63 @@ ForEach 处数一处未增（分组头是普通 `ListItem`，不是新 `ForEach`
 **④ `hvigor BUILD SUCCESSFUL in 15 s 255 ms`**；A 线 **1207**/1250、B 线 **1344**/1353
 （B 净 0：`TaskDetailSheet` 内联 `palOnce` 换成既有访问器 −1、新 `cRule()` +1）、ForEach 113/113。
 装机像素复核见上表。
+
+## §21.117 最后一个「打开 = 整个 web 应用」的插件面板：`xbot.ssh-runner`（远程机器）原生化（目标④）
+
+**症状（用户 ④ 原文「必须真的支持 web 的所有插件和功能，现在其实插件都打不开」）**：抽屉「插件」里点
+**「远程机器」**（= web 内置插件 `xbot.ssh-runner` 的面板视图）⇒ **整屏变成 web 版完整聊天应用**。
+
+**根因（注册表缺项，不是路由 bug）**：`core/pluginhost.ets:nativeViewKind` 是「插件视图 ⇒ 原生面板」的
+**唯一注册表**，此前只注册了 `xbot.git-fancy.{panel,commit}`。而本插件 `plugin.json` 声明了**两个**视图
+（`xbot.ssh-runner.panel` / `xbot.ssh-runner.bar`）⇒ 注册表返回空 ⇒ 按设计**放行 WebView 兜底**
+（`routePluginView` 的 else 分支 + `Index.ets:4638` 的导航前判）⇒ 落到宿主根页 = 整个 web 应用。
+这正是 `core/pluginviews.ets` 文件头记录的、用户明确否掉的那条路。
+
+**修复 = 面板原生化（体例沿用 `gitpanel`/`sessionstats`/`skills` 三个先例）**：
+- **纯逻辑层** `core/sshrunner.ets`（+473 行）：wire 模型 + 判据 **逐字对齐**
+  `web/src/plugins/ssh-runner/{index.tsx,shared.ts}`（1903 + 488 行）与 `plugins/xbot-ssh-runner/README.md`
+  的 8 个 RPC；`normalizeConnectionMode` / `connectionStateOf` / `parseTargets` / `serializeTargets` /
+  `mergeConfigValues` / `maskSSH` / 轮询常量**逐个搬自** `shared.ts`。**判别力测试** `tools/tests/sshrunner.test.ts`
+  **100 passed / 0 failed**（wire 键名逐字、连接态权威、配置容错、**脱敏**（私钥路径不得入列表行）、
+  作业终态、re-key 不重置机器设置、**`nativeViewKind` 注册表**）。
+- **组件层** `components/SshRunnerSheet.ets`（+2221 行）：每台机器一张 L2 卡（状态点 + 名称 + 「当前」徽章
+  + 脱敏 SSH + 连接方式 + 元信息 + 两排 44 盒动作 + 可展开诊断区）；新增向导六态（表单 / 探测 / 确认 /
+  装机 / 连接 / 完成）；未纳管登记行的清理入口。
+- **接线**：`nativeViewKind` 注册两个视图 id（常量**复用** `core/sshrunner.ets` 的唯一定义，
+  ⛔ 不在 `pluginhost` 再写一份字面量）⇒ 插件卡那条路**自动**直开原生（§21.115 的「导航前判」逻辑）。
+
+**为什么组件自持状态**（而非页面持）：每台机器有独立的连接态/诊断态/删除态（web 用 8 个
+`Record<string,…>`），摊到页面 `@State` 只会让页面变仓库 ⇒ 沿用 `TerminalSheet` 先例：
+**组件自持状态 + 页面注入 RPC 通道**（`callRpc` 依赖注入，组件不 import store）。
+
+**性能预算（两处顶格，均已登记）**：
+- 两套 web 轮询（作业 1.5s + 连接等待 1.5s）**合并成一个统一心跳** `setInterval`（同值 1500ms，
+  有在飞才布防、全静息即拆）⇒ `setInterval` 5→**6**（≤6），`setTimeout` **一处未增**，A 线（真分配
+  `this.pal()`）**一处未增**（取色收敛到唯一门 `tint(role)`）。
+- `ForEach` 113→**117**（四个**必要**列表：机器行 / 诊断事实 / 装机步骤 / 未纳管行）——
+  见 `docs/PERF-BUDGET.md §5`。
+- ⚠️ **B 线（色板读取总量）我第一版写错、被门禁当场抓红**：每一处取色都写成
+  `tint(this.palOnce(), '…')` ⇒ B 线 **1344 → 1426（> 1353 真红）**。**根因**：B 线数的是
+  `this.pal()` ∨ `this.palOnce()` 的**字面出现次数**（不是"分配次数"）⇒ 把 palette 当**参数**传
+  给 `tint()` 反而让每个调用点都变成一次计入的**读取点**。**修法**（与 `FilesSheet.tint(role)` 同款）：
+  每个结构体收敛出**唯一取色门** `private tc(role){ return tint(this.palOnce(), role); }`，
+  调用点一律写 `this.tc('text')` ⇒ 每结构体恒 1 次 ⇒ B 线 **1350 ≤ 1353**（+6）。
+
+**这一批由真门禁抓出的 ArkTS 错误（脱机三条**永远抓不到**，逐条已修）**：
+① `RegExpMatchArray` 触发 `arkts-no-structural-typing`（`maskSSH` 正则 ⇒ 改**手写扫描**）；
+② `RPC_RUNNER_LIST` 定义在 `core/rpc.ets` 而非 `sshrunner.ets`（导入处写错）；
+③ `Row` 无 `.rowGap()`（`Flex.space` 需未实证的 `LengthMetrics`）⇒ 改**两行 `Row`**；
+④ `$r('sys.symbol.server_rack')` 是**我凭空写的、SDK 里没有的符号**（它此前只出现在我自己的文件里，
+   而我的 grep 把"我自己刚写的"也算作了"已实证"⇒ 改用已实证的 `computer`）；
+⑤ ArkTS **不对可选字段 / 重复下标访问做收窄** ⇒ `x.a !== undefined ? x.a : d`
+   （`x = this.arr[i]`）仍是 `string | undefined` ⇒ 必须先落**局部量**（`const u = this.arr[i]`）。
+   ⛔ 这类错误**不打印文件行号**（`hvigor` 只给 `Error Message`）⇒ 只能直跑 `hvigorw assembleHap`
+   从完整输出里挖 `At File: …:line`（门禁日志会截断）。
+⑥ 五个既有静态门禁因新组件变红（**正是它们该做的事**）：`a11y_icon_button`（`this.label` 是 `@Prop`、
+   静态解析为空 ⇒ 加中文兜底）、`horizontal_overflow_gate`（3 处横向无界文本 ⇒ `constraintSize`）、
+   `text_truncation_gate`（5 处有 `maxLines` 无 `textOverflow`）、`motion_budget` + `shadow_radius`
+   （新组件的落点须登记台账）、`plugin_view_link`（该测试**原先把「ssh-runner 无原生落地」当期望值**，
+   本批改成 `ssh.panel` —— 这正是本批要改的事实）。
+
+**判据/验证**：`bash tools/gate.sh` ⇒ `GATE_RC=0`、`✅ 真门禁全绿`、
+**④ `hvigor BUILD SUCCESSFUL`**；① 326 个测试文件 **0 失败**；⑤ 无孤儿组件；⑧ 无未消费 core 模块。

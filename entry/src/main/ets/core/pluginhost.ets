@@ -34,6 +34,9 @@
  * ⇒ 禁 import `@ohos.*` / ArkUI 全局；故只用**字符串处理**做 URL 判据（不引 `@ohos.url`）。
  */
 import { PluginPanelInfo } from './types';
+// 插件视图 id 常量（**唯一真源**在 `core/sshrunner.ets`）——⛔ 不在本文件再写一份字面量
+// （同一协议两处字面量必然漂移；见 `AGENTS.md` 的「判据 ≠ 信号」）。
+import { SSH_BAR_VIEW_ID, SSH_PANEL_VIEW_ID } from './sshrunner';
 
 /** 服务端插件静态资源的路径前缀（`channel/web/web.go:980`）。 */
 export const PLUGIN_ASSET_PREFIX: string = '/plugins/';
@@ -957,6 +960,13 @@ export function nativeViewKind(viewId: string): string {
   }
   if (v === 'xbot.git-fancy.commit') {
     return 'git.commit';
+  }
+  if (v === SSH_PANEL_VIEW_ID) {
+    return 'ssh.panel';
+  }
+  if (v === SSH_BAR_VIEW_ID) {
+    // 信息栏徽章（「当前执行目标」）⇒ 落**同一个**原生面板（面板顶部那行就是目标切换入口）。
+    return 'ssh.panel';
   }
   return '';
 }

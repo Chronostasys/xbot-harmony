@@ -104,7 +104,12 @@ le "anim*() 调用点（每次调用新建曲线对象）" "$n_anim" 20 处
 # ⛔ 只许显式登记，不许超：该数是"规模指示"不是质量判据（见下方提示行），但**新增必须写明理由**才能抬。
 # 112 → **113**（§21.113）—— `components/StagingTray.ets` 的**待发队列条目列表**（web `StagingTray.tsx`
 # 同款：队列逐条渲染，「插队 / 取消」各一枚 44 盒）。全仓其它站点一个没动。
-le "ForEach 处数" "$n_fe" 113 处
+# 113 → **117**（§21.117）—— `components/SshRunnerSheet.ets`（web 内置插件 `xbot.ssh-runner`
+# 「远程机器」面板的原生落地 = ④「插件都打不开」的**最后一块**）。四个**必要**列表：
+# 机器行 / 诊断事实行 / 装机作业步骤 / 未纳管登记行。该组件取色收敛到唯一门 `tint(role)`
+# ⇒ A 线（真分配 `this.pal()`）**一处未增**；轮询**合并成一个** `setInterval`（setInterval 5→6，
+# 仍在上限内）。见 docs/PERF-BUDGET.md §5。
+le "ForEach 处数" "$n_fe" 117 处
 le "core 外裸 parseMarkdown/parseInline 调用点" "$n_raw" 0 处
 
 # ── 后台对账「极轻量」守卫（用户点名："注册一个极其轻量的任务"）────────────────────

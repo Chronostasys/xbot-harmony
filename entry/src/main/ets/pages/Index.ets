@@ -183,6 +183,9 @@ import { SelfCheckSheet } from '../components/SelfCheckSheet';
 import { TaskDetailSheet } from '../components/TaskDetailSheet';
 import { CronDetailSheet } from '../components/CronDetailSheet';
 import { GitPanelSheet } from '../components/GitPanelSheet';
+// 远程机器面板（web 内置插件 `xbot.ssh-runner` 的落地）——**自持状态 + 注入 RPC 通道**
+// （同 `TerminalSheet` 先例：判据全在 `core/sshrunner.ets`，页面只给通道与 flag）。
+import { SshRunnerSheet } from '../components/SshRunnerSheet';
 // 原生 Git 面板（web 内置插件 `xbot.git-fancy` 的落地）——**数据模型/判据/格式化全在纯模块**，
 // 页面只做取数与所有权（与 `core/panels.ets`→`CronDetailSheet` 同一分层）。
 import {
@@ -944,6 +947,8 @@ struct Index {
   // 数据全来自宿主 RPC（`web_plugin_rpc` → `xbot.git-fancy.*`），判据/解析在 `core/gitpanel.ets`。
   // ⛔ 形态机（`list`/`diff`/`commit`）与开关由**页面**持有（组件不发 RPC、不自持开关）。
   @State showGit: boolean = false;
+  /** 远程机器面板（web 内置插件 `xbot.ssh-runner`，§21.117）—— 组件自持状态，此处只持 flag。 */
+  @State showSsh: boolean = false;
   /** `list` | `diff` | `commit`（详情形态由它决定，⛔ 不靠"猜有没有 diff 文本"）。 */
   @State gitMode: string = 'list';
   @State gitStatus: GitStatus = new GitStatus();
@@ -1774,7 +1779,7 @@ struct Index {
     return this.showDrawer || this.showNewSession || this.showQueue || this.showPlugins
       || this.showFiles || this.showSkills || this.showSessionStats || this.showSelfCheck
       || this.showStatus || this.showModel || this.showPanels || this.showTaskDetail
-      || this.showCronDetail || this.showGit || this.showTerminal || this.showSettingsPanel
+      || this.showCronDetail || this.showGit || this.showSsh || this.showTerminal || this.showSettingsPanel
       || this.showPluginHost || this.sessMenuId.length > 0 || this.showSearchHits
       || this.ctxOpen || this.imagePixel !== null || this.imageBusy
       || this.panelUrl.length > 0 || this.askUser !== null;
@@ -1820,6 +1825,11 @@ struct Index {
       } else {
         this.showGit = false;
       }
+      return true;
+    }
+    // 远程机器面板（顶层浮层，web 内置插件 `xbot.ssh-runner`）
+    if (this.showSsh) {
+      this.showSsh = false;
       return true;
     }
     const code: OverlayCode = topOverlay(this.overlayState());
@@ -4141,8 +4151,41 @@ struct Index {
       } else {
         this.openGitPanel();
       }
+    } else if (kind === 'ssh.panel') {
+      // 远程机器（web 内置插件 `xbot.ssh-runner`）：先关插件宿主浮层，再开原生面板。
+      this.showPluginHost = false;
+      this.openSshPanel();
     }
     // 未来新插件的原生落地：往 nativeViewKind 注册 + 这里加一条分支。
+  }
+
+  // ── 原生「远程机器」面板（web 内置插件 `xbot.ssh-runner` 的落地，§21.117）─────────
+  // 与 Git 面板同因：web 侧插件 view **没有静态 URL 入口** ⇒ 未原生化就只会落到
+  // **整个 web 宿主页**（用户明确否掉的形态）。数据面 = 宿主 RPC（`web_plugin_rpc` +
+  // 核心 `runner_*`），解析/判据全在 `core/sshrunner.ets`；组件**自持**交互状态
+  // （同 `TerminalSheet` 先例）⇒ 页面只提供 RPC 通道与会话身份。
+
+  /** 打开原生「远程机器」面板（浮层互斥：从抽屉/能力面板进来先收它们）。 */
+  private openSshPanel(): void {
+    this.showDrawer = false;
+    this.showPlugins = false;
+    this.panelUrl = '';
+    this.showSsh = true;
+  }
+
+  private closeSshPanel(): void {
+    this.showSsh = false;
+  }
+
+  /** 面板用的宿主 RPC 通道（`rpc<Object>` 的薄封装 —— 组件不 import store）。 */
+  private sshRpc(): (method: string, params: Object) => Promise<Object> {
+    const st: ChatStore | null = this.store;
+    return (method: string, params: Object): Promise<Object> => {
+      if (st === null) {
+        return Promise.reject(new Error('尚未连接服务端'));
+      }
+      return rpc<Object>(st.http, method, params);
+    };
   }
 
   // ── 原生 Git 面板（web 内置插件 `xbot.git-fancy` 的落地）────────────────────────
@@ -5052,6 +5095,27 @@ struct Index {
             },
             onBack: () => {
               this.gitBackToList();
+            },
+          })
+        }.width('100%').height('100%')
+      }
+      // 原生「远程机器」面板（web 内置插件 `xbot.ssh-runner`）——⛔ 渲染顺序同 Git 面板：
+      // 必须在各详情 sheet 之后（ArkUI 层级 = build 先后），别往上挪。
+      if (this.showSsh) {
+        Stack() {
+          Row() {
+            Blank()
+          }.width('100%').height('100%').onClick(() => {
+            this.closeSshPanel();
+          })
+          SshRunnerSheet({
+            theme: this.themeName,
+            sessionChannel: this.store !== null ? this.store.channel : '',
+            sessionChatID: this.store !== null ? this.store.wireChatId() : '',
+            sessionReady: this.store !== null && this.store.wireChatId().length > 0,
+            callRpc: this.sshRpc(),
+            onClose: () => {
+              this.closeSshPanel();
             },
           })
         }.width('100%').height('100%')
@@ -7869,6 +7933,8 @@ struct Index {
     this.showSessionStats = false;
     // 原生 Git 面板（顶层浮层）——新增浮层必须在这里登记（本方法 = 唯一真源）。
     this.showGit = false;
+    // 远程机器面板（同为顶层浮层）——同上，必须在此登记。
+    this.showSsh = false;
     this.sessMenuId = '';
     this.ctxOpen = false;
     this.panelUrl = '';

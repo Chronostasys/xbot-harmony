@@ -102,6 +102,9 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   ['components/GitPanelSheet.ets', 1],
   // 文件管理面板（目标④）：唯一动效 = 弹层开合 `sheetTransition()`（与其它 L1 浮层同一条）。
   ['components/FilesSheet.ets', 1],
+  // 远程机器面板（§21.117，web 内置插件 `xbot.ssh-runner` 的原生落地）：唯一动效 =
+  //   侧栏开合 `sheetTransition()`（与 Git 面板 / 各 L1 浮层同一条出口，⛔ 不是装饰）。
+  ['components/SshRunnerSheet.ets', 1],
   // 技能面板（目标④）：唯一动效 = 侧栏开合 `drawerTransition()`（**横向**滑入 —— 讲「侧栏从左边
   //   进来」的空间关系，与 FilesSheet/DrawerSheet 同一条状态-空间关系，⛔ 不是装饰）。
   ['components/SkillsSheet.ets', 1],
