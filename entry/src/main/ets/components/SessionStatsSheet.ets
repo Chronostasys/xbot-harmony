@@ -336,12 +336,19 @@ export struct SessionStatsSheet {
                   .fontSize(typeOf('type.subhead').size)
                   .fontColor(this.cSecondary())
                   .width('100%')
+                  // ⚠️ 2026-10-13（目标③「对标苹果」·真机逐像素量测）：原**缺**这一行 ⇒ 字形被
+                  //    容器 `alignItems(Center)` 居中、而文字 `width('100%')` 默认**左对齐**
+                  //    （真机实测：字形中心 **660px**、主行中心 **237px**、提示行 **433px**
+                  //    —— 同一个空态两套对齐，读作"渲染错位"）。本行与自身注释"字形 + **居中文字**"
+                  //    冲突，属**实现与注释相反**。修法 = 与 `StatusSheet` 空态同口径（那边是对的）。
+                  .textAlign(TextAlign.Center)
                 // S2（对标 Apple 空态层级）：补**提示行**（怎么说才会有）——与运行面板 `PanelEmpty` 同形。
                 // ⚠️ 走既有 memo 入口 `this.cMuted()`（其内部已是 `palOnce()`）⇒ **不新增**读取点。
                 Text('本会话产生用量后会显示在这里')
                   .fontSize(typeOf('type.caption').size)
                   .fontColor(this.cMuted())
                   .width('100%')
+                  .textAlign(TextAlign.Center)
               }
               .width('100%').padding(SPACE_SM)
               .alignItems(HorizontalAlign.Center)

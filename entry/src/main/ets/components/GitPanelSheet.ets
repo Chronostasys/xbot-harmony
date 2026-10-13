@@ -109,6 +109,8 @@ export struct GitPanelSheet {
   @Prop error: string = '';
   /** 顶部一句状态（`gitHeadline(status)`）。 */
   @Prop headline: string = '';
+  /** 工作目录**是否** git 仓库（`status.repo`）—— 非仓库时**不渲染分区骨架**（见 `ListBody`）。 */
+  @Prop isRepo: boolean = true;
   /** 分支名（`gitBranchText(status)`）。 */
   @Prop branch: string = '';
   /** 与上游落差（`gitAheadBehindText(status)`；空 ⇒ 不画）。 */
@@ -523,30 +525,37 @@ export struct GitPanelSheet {
             .borderRadius(RADIUS_CARD)
             .margin({ left: INSET_ROW_X, right: INSET_ROW_X })
         }
-        // ── 工作区变更 ────────────────────────────────────────────────────
-        this.SectionTitle('工作区变更', this.changes.length)
-        ForEach(this.changes, (c: GitChange, i: number) => {
-          this.FileRow(c)
-        }, (c: GitChange, i: number) => `c${i}#${c.path}#${c.status}`)
-        // ── 提交历史 ──────────────────────────────────────────────────────
-        this.SectionTitle('提交历史', 0)
-        ForEach(this.log.commits, (r: GitCommitRow, i: number) => {
-          this.CommitRow(r)
-        }, (r: GitCommitRow, i: number) => `h${r.hash}`)
-        // 「加载更多」：只在**确认还有**时出现（⛔ 不做永远点不动的按钮）。
-        if (this.hasMore) {
-          Row() {
-            Text(this.logLoading ? '加载中…' : '加载更多')
-              .fontSize(fs('type.callout'))
-              .fontColor(this.skin().accent)
+        // ── 分区骨架：**仅当工作目录确是 git 仓库**时渲染 ─────────────────────────
+        // ⚠️ 2026-10-13（目标③ 逐面板量测·装机帧 `/tmp/v3_git.jpeg`）：非仓库时本面板只出
+        //    一句 notice，却**照样**渲染「工作区变更」/「提交历史」两个**空分区标题**（下方全空）
+        //    ⇒ 读作"渲染了一半"。web 权威 `plugins/git-fancy/index.tsx:256` 在非仓库时**只**渲染
+        //    `<div>{t('notRepo','当前目录不是 git 仓库')}</div>`、**没有任何分区骨架** ⇒ 对齐 web。
+        if (this.isRepo) {
+          // ── 工作区变更 ────────────────────────────────────────────────────
+          this.SectionTitle('工作区变更', this.changes.length)
+          ForEach(this.changes, (c: GitChange, i: number) => {
+            this.FileRow(c)
+          }, (c: GitChange, i: number) => `c${i}#${c.path}#${c.status}`)
+          // ── 提交历史 ──────────────────────────────────────────────────────
+          this.SectionTitle('提交历史', 0)
+          ForEach(this.log.commits, (r: GitCommitRow, i: number) => {
+            this.CommitRow(r)
+          }, (r: GitCommitRow, i: number) => `h${r.hash}`)
+          // 「加载更多」：只在**确认还有**时出现（⛔ 不做永远点不动的按钮）。
+          if (this.hasMore) {
+            Row() {
+              Text(this.logLoading ? '加载中…' : '加载更多')
+                .fontSize(fs('type.callout'))
+                .fontColor(this.skin().accent)
+            }
+            .width('100%')
+            .constraintSize({ minHeight: HIT_TARGET_MIN })
+            .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+            .onClick(() => {
+              this.onLoadMore();
+            })
           }
-          .width('100%')
-          .constraintSize({ minHeight: HIT_TARGET_MIN })
-          .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            this.onLoadMore();
-          })
         }
       }
       .width('100%')

@@ -4878,6 +4878,9 @@ struct Index {
             loading: this.gitLoading,
             error: this.gitError,
             headline: gitHeadline(this.gitStatus),
+            // 非仓库 ⇒ 组件**不渲染**「工作区变更 / 提交历史」分区骨架（对齐 web
+            // `plugins/git-fancy/index.tsx:256`：非仓库时只渲染一句 notice）。
+            isRepo: this.gitStatus.repo,
             branch: gitBranchText(this.gitStatus),
             aheadBehind: gitAheadBehindText(this.gitStatus),
             changes: this.gitStatus.changes,
