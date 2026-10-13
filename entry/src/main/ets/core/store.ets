@@ -914,7 +914,7 @@ export class ChatStore {
     // 历史 → `history_replaced`（逐字对齐 web `integrate.ts` 的 historyToReplaced）：
     //   经状态机（**merge 语义**，不盲替换 —— 见 reduce.ets 的 history_replaced 注释；
     //   盲替换会抹掉"只存在于状态机、DB 快照还没有"的 in-flight/post-fetch commit）。
-    this.history = ChatStore.toChatMessages(data.messages);
+    this.history = ChatStore.toChatMessages(data.messages, 0);
     this.pushEvent(historyToReplaced(this.history, data.active_progress));
     // ⚠️ `active_progress` 在"没有在飞进度"的会话上是 **JSON null**（真机实测）⇒ 必须三态判空。
     // ⛔ 且这一支**不得**炸掉整次历史加载：它只是"顺带恢复在飞态"，失败必须降级为"无在飞态"，
@@ -939,7 +939,7 @@ export class ChatStore {
     try {
       const data: HistoryData = await this.http.postAs<HistoryData>('/api/history', new HistoryReq(
         this.channel, this.currentChatId, 30, this.oldestId));
-      const older: ChatMessage[] = ChatStore.toChatMessages(data.messages);
+      const older: ChatMessage[] = ChatStore.toChatMessages(data.messages, this.oldestId);
       this.history = older.concat(this.history);
       this.applyHistoryMeta(data);
       // 分页只增量喂历史（active 快照传 null —— 不得动 live turn）。
@@ -978,7 +978,7 @@ export class ChatStore {
   }
 
   /** 历史消息 → web `ChatMessage[]`（`historyToReplaced` 的输入形状）。 */
-  static toChatMessages(messages: HistoryMessage[] | null | undefined): ChatMessage[] {
+  static toChatMessages(messages: HistoryMessage[] | null | undefined, batchTag: number = 0): ChatMessage[] {
     const out: ChatMessage[] = [];
     // 服务端 messages 可能为流式 payload/历史快照的缺失字段 —— null 与 undefined 一律归一为空。
     const src: HistoryMessage[] = arrOrEmpty(messages);
@@ -1022,7 +1022,7 @@ export class ChatStore {
         const parentTurn: number | undefined = m.turn_id !== undefined && m.turn_id !== null
           ? m.turn_id : undefined;
         const uRow: ChatMessage = {
-          id: mkID(tuID !== undefined ? `m-${tuID}` : `m-tu${i}`),
+          id: mkID(tuID !== undefined ? `m-${tuID}` : `tu-${batchTag}-${i}`),
           role: 'user',
           content: tu.content,
           iterations: [],
@@ -1039,7 +1039,7 @@ export class ChatStore {
       const role: ChatMessageRole = m.role === 'user' ? 'user'
         : (m.role === 'system' ? 'system' : 'assistant');
       const hasID: boolean = m.id !== undefined && m.id !== null;
-      const mid: string = mkID(hasID ? `m-${m.id}` : `m-i${i}`);
+      const mid: string = mkID(hasID ? `m-${m.id}` : `hist-${batchTag}-${i}`);
       // turn 内压缩点（`protocol/events.go:317`，后端早已下发 —— 本仓此前**零消费**）：
       // 空 ⇒ 不设键（保持既有行对象形状，渲染层零产出）。
       const comps: WebCompaction[] = toHistoryCompactions(m.compactions);
@@ -1082,7 +1082,7 @@ export class ChatStore {
    * 与页面渲染同一条路径（不再是独立的手写映射）。live 诊断测试用。
    */
   static rowsFromHistory(messages: HistoryMessage[]): ChatRow[] {
-    const ev: DomainEvent = historyToReplaced(ChatStore.toChatMessages(messages), null);
+    const ev: DomainEvent = historyToReplaced(ChatStore.toChatMessages(messages, 0), null);
     const state: ChatState = reduce(initialChatState(''), ev);
     const derived: readonly Row[] = deriveRows(state);
     const out: ChatRow[] = [];
