@@ -140,6 +140,24 @@ export struct SettingsStorage {
     return storageOptionLabel(this.schema, 'provider', live);
   }
 
+  /**
+   * `provider` chip 行**展示的选中值**：已保存值为空时回落到**正在运行**的 provider（`_active`）。
+   *
+   * 为什么必须回落（2026-10-13 真机取证）：
+   *   · 新装/未配置时服务端 `provider = ''` 而 `_active = 'local'`（实测 `get_storage_config`）⇒
+   *     原生 chip 行比对的是**存储值**（空串）⇒ **一枚都不选中**（真机 BMP 逐像素：5 枚选项底色
+   *     全 `#13141c`、选项区**零 accent 像素**），与紧邻上方的「当前生效 Local static」**自相矛盾**；
+   *   · web 权威 `components/settings/SettingsStorage.tsx:144-154` 用的是原生 `<select
+   *     value={valueOf('provider')}>`：值为空时**浏览器按 HTML 规则回落到第一项** ⇒ 用户看到的
+   *     就是"local 已选" ⇒ 本仓显式做到同一可观测行为（⛔ 不是自造新语义）。
+   * ⚠️ 只改**展示值**：`fieldValue()`（脏检查 `storageDirty` 与保存载荷 `buildStorageValues` 的输入）
+   *    一律不动 ⇒ 不产生"假脏"、不改变保存内容。
+   */
+  private providerChipValue(): string {
+    const cur: string = this.fieldValue('provider');
+    return cur.length > 0 ? cur : liveStorageProvider(this.config);
+  }
+
   private set(key: string, value: string): void {
     this.savedNotice = '';
     this.draft = withValue(this.draft, key, value);
@@ -311,7 +329,7 @@ export struct SettingsStorage {
                 SettingsChipRow({
                   label: '后端',
                   description: '本地 = 文件与图片留在本机；云存储 = 上传到你的对象存储，链接不会过期。',
-                  value: this.fieldValue('provider'),
+                  value: this.providerChipValue(),
                   options: this.providerValues(),
                   labels: this.providerLabels(),
                   busy: this.busy,
