@@ -4887,3 +4887,73 @@ B 线（`this.pal()` ∨ `this.palOnce()` 调用点）**顶格 1350、只许减*
 | 4 | 台账演进 | `['pages/Index.ets', 16]→17`、`['components/TerminalSheet.ets', 1]→2`（各写清"它讲哪条关系"：**"可回到底部"这条状态的出现/消失**）。 |
 
 **排查过、有意不改的**：`pages/Index.ets:8355` 已有一处**有意不加**过渡的弹层（原文写明"要加先登记台账"）⇒ 尊重原裁决；`stateStyles` 按压态、`.animation(animBase())` 的分段控件/页签指示器底色等**只动底色**，均已合规（门禁 ⑨：A 类 0 · B 类 3）。
+
+## §21.101 侧栏状态点按**真状态**取色 + 分段选中芯**真机可见**（drawer3，2026-10-13）
+
+用户口径（原话）：「重设计排版，对标苹果，现在侧边栏**丑的要死**……你要考虑**所有的面板**」。
+
+### 取证（真机截图 → BMP 逐像素，零猜测）
+
+抽屉整帧转 BMP 采样（`sips -s format bmp` + python3 `struct` 读 24bpp），量出两处**肉眼可复核**的硬缺陷：
+
+| # | 症状（真机实测） | 根因 |
+|---|---|---|
+| 1 | **两个会话挂着同一个绿点**，而真正在跑的那个反而没有点（点不表意） | 状态点判据只有 `s.running === true` 一个布尔 ⇒ web 的 6 档状态（`SessionItem.tsx:57-64` 的 `STATUS_COLOR` + `:92-94` 的 `executing`）**全部塌成一档**；`waiting_input`（该你说话了）与 `error` 完全不可见 |
+| 2 | 分段控件「时间」的选中芯 **`#0d0f14` 压轨道 `#0b0a0e` ⇒ Δ≈0.8%** | 选中段面写的是 `surface.card`（RUNG_CARD = 画布同档）⇒ 真机上只剩**文字颜色**这一条线索 |
+
+### 修法（判据进 core，组件只消费）
+
+- `core/sessiongroup.ets` 新增纯函数 `sessionStatusRole(status, running): string`，与 web 同源：
+  `waiting_input ⇒ statusWaiting`（**优先于**陈旧 `running`）、`running|pending ⇒ statusRunning`、
+  `error ⇒ statusError`、`unread ⇒ statusWaiting`，idle/未知 ⇒ `''`。
+  色值直接走调色板**已有**的 `statusRunning/Waiting/Error`（dark `#3388BB`/`#E6A700`/`#D1242F` = web `index.css:166-169` 的 `--status-*` **逐字节同值**）。
+- **有意差异（已写进注释 + 测试）**：`idle` **不画点**。web 画灰点，但本机 31 行会话里 25+ 条 idle
+  ⇒ 25+ 枚灰点只是噪点；前导槽 `MARKER_GUTTER` **恒宽占位** ⇒ 不画点也不动标题竖轴。
+- 分段选中芯 `surface.card` ⇒ **`surface.pillSelected`**（RUNG_ACTIVE = 设计系统里"选中的 pill"专属语义面，
+  与 `design.ets` 自身 `['surface.pillSelected','surface.chip']` 判据同源；⛔ 不是新造对照）。
+- 行卡 ForEach 键补 `s.status`：键不含状态 ⇒ 状态变化不重建行 ⇒ 点卡在旧色
+  （AGENTS.md「最小通知键 ⇒ 已存在行永不更新」同族陷阱）。
+
+### 判据与纪律
+
+- 装机复核（真机像素）：状态点实测 `#328aba`/`#2496d1` ≈ `p.statusRunning` ✓；选中芯 `#1c1d27` vs 轨道 `#0b0a0e` ✓ 清晰浮起。
+- 新测试 9 条（`sessiongroup.test.ts`）+ 键/接线断言（`sessiongroup_wiring.test.ts`）；
+  订正 2 条**钉住旧实现**的断言（`segmented_control` ① 选中段面、`status_sheet_drawer` 标记槽切片起点锚）。
+  mutation 自证：把选中段面改回 `surface.card` ⇒ ① 当场判红。
+- 门禁：`GATE_EXIT=0` + `✅ 真门禁全绿`；④ `BUILD SUCCESSFUL`；性能 A 1214/1250、B 1349/1350（净 0）。
+
+## §21.102 能力面板行体对标苹果：**卡片堆叠 → 分组列表**（panels5，2026-10-13）
+
+用户口径同上（「你要考虑所有的面板」）。装机抓「能力面板」整帧（`/tmp/p_plugins.jpeg`）与**同 App 的
+「文件」面板**（`/tmp/p_files.jpeg`）并排对照，量出两处硬缺陷：
+
+| # | 症状 | 根因 |
+|---|---|---|
+| 1 | 面板里 **9 条同形卡片**（面 + 圆角 + 描边 + 行间距）读作"一堆圆角块" ⇒ **分组层级消失** | 行体 = `surfaceFillOf(p, SURFACE_CARD)` + `RADIUS_CARD` + `structuralRuleOf` + `GAP_ROW_Y`。而同一 App 的「文件」面板与会话抽屉早已是 Apple 分组列表形态 ⇒ **三个列表两种长相** |
+| 2 | 「Git 面板」插件行图标 = **虚线圆**，真机与"图标还没加载出来"**无法区分** | `pluginSymbol('git-branch') → sys.symbol.circle_dashed`；而同一张表上「Git 面板（原生）」入口行用的是**实体**分支符号 ⇒ 同一语义两处两种长相 |
+
+### 修法（一律走既有令牌；⛔ 不新增字面量、⛔ 不动行高/热区）
+
+- **「文件」面板 = 形态基准**：行体收敛为 `padding({left/right: INSET_ROW_X})` +
+  `constraintSize({minHeight: HIT_TARGET_MIN})`；行与行靠
+  `List.divider({ strokeWidth: STROKE_HAIRLINE, color: hairlineOf(this.pal()), startMargin: INSET_ROW_X })`
+  分隔（左缘内缩到文字起点 = Apple 的 **inset separator**）。`EntryRow` 与插件行**同一形态**。
+- **仍走卡片的一处**：状态行的「重试」是**动作按钮**、不是一个列表行 ⇒ 保持卡面/圆角/面→面轮廓。
+- **Git 图标收敛**：`git-branch|git|git-commit-horizontal` → `arrow_triangle_merge`
+  （SDK 权威名册实证 `0xF0347`，且**已在本仓白名单**；与「Git 面板（原生）」入口行同符号）。
+
+### 判据与纪律
+
+- 新增形态契约 `plugin_icons.test.ts` **①c**：钉**正反两面**（行卡面恰剩 1 处 = 重试按钮；
+  `List.divider` + `startMargin: INSET_ROW_X` 在；两类行"无竖向内距"的行体内距 = 2），
+  并与基准文件 `FilesSheet` **同源对照**（将来改基准两处必须同改）。
+  ⚠️ 断言一律取**调用形态**（`.borderRadius(RADIUS_CARD)` / `.margin({ bottom: GAP_ROW_Y })`），
+  ⛔ 不取裸 token —— 裸词会**连 import 行一起数**，会让"行体退场"因 import 仍在而**假红**
+  （本仓"取整行/取裸词"的同类教训）。
+- 钉住旧形态的 2 条断言**按新契约订正**并在原地写明理由：`free_surface_unify` 的 PluginsSheet L2 卡面
+  3 → 1、`porcelain_layering` 的面→面轮廓 3 → 1（⛔ 不是放宽护栏：少的那两处**真的不再是卡**）。
+- 连带清理：`GAP_ROW_Y` 退出该文件 import（行间距不再由空隙表达）。
+- 门禁：`GATE_EXIT=0` + `✅ 真门禁全绿`；④ `BUILD SUCCESSFUL in 7 s 456 ms`；
+  性能**净减** A 1214→**1211**、B 1349→**1346**（ForEach 112/112 未新增）。
+- 装机复核：`/tmp/v2_plugins.jpeg` 与 `/tmp/v2_files.jpeg` **同形**（扁平行 + 发丝 + chevron），
+  9 行无截断回退、Git 图标与入口行同符号。
