@@ -22,7 +22,7 @@ import {
 } from '../core/haptics';
 // ⚠️ 2026-10-11：`isDarkThemeName` **已从这里移除** —— 本文件 3 处旧用法已全部改走**亮度口径**
 //   （`isLightPalette(paletteOf(theme))`，铁律「禁按主题名硬判」）⇒ 该导入**已无消费者**（死导入）。
-import { ALL_THEMES, normalizeTheme, Palette, paletteOf, themeLabel, Effects, effectsOf, isLightPalette, shadowColorOf, shadowLayersOf, ShadowLayer, shadowRadiusOf } from '../core/theme';
+import { ALL_THEMES, normalizeTheme, Palette, paletteOf, renderThemeKey, themeBaseName, themeLabel, Effects, effectsOf, isLightPalette, shadowColorOf, shadowLayersOf, ShadowLayer, shadowRadiusOf } from '../core/theme';
 import { brandAccentFor } from '../core/brand';
 import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, withAccent } from '../core/accent';
 import { MD_THEMES, appPaletteForMdTheme, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';
@@ -1988,7 +1988,17 @@ struct Index {
     // web 权威 `providers/theme.tsx:101-113`：应用明暗 = `modeForTheme(mdTheme)` **派生**，
     // 没有第二套「应用主题」设置（用户 2026-10-13 拍板：「只有一种主题设置，就是你从后端接口拉的那种」）。
     // 判据与取色同源：色板只由 `core/mdtheme.appPaletteForMdTheme` 给出（纯函数、已单测）。
-    this.themeName = appPaletteForMdTheme(settingOf(store.settings, KEY_MD_THEME));
+    // 主题标识 = **色板名 + 强调色**（`renderThemeKey`）：强调色是模块级覆盖、**不是** ArkUI 可
+    // 观察的状态 ⇒ 若标识只含色板名，改强调色时全站**零重渲染** ⇒ 80 处 `paletteOf` 仍是旧色板
+    //（用户 2026-10-13 亲报「配色根本没起作用 / theme 里各种配色必须真实起作用」的真根因）。
+    this.themeName = renderThemeKey(appPaletteForMdTheme(settingOf(store.settings, KEY_MD_THEME)),
+      this.accentHex());
+    // md 主题**同时推给全局订阅**（`@StorageProp('appMdTheme')`，消费点 `components/MarkdownView`）：
+    // md 主题只影响代码块/行内码配色，而历史行由 `LazyForEach` 承载 ⇒ 只靠 `@Prop mdTheme` 投递
+    // 会**冻结在创建那刻** ⇒ 换 md 主题后已存在行仍是旧配色（用户 2026-10-13 亲报
+    // 「浅色模式字色有时对有时不对像抽奖」/「所有浅色 theme 看起来完全一样」的同一根因）。
+    // 与 `appTheme` 走**同一纪律**：会变的值必须让行自己订阅，不靠列表重投递。
+    AppStorage.setOrCreate<string>('appMdTheme', this.mdThemeId());
     // 系统表面跟随主题（幂等：仅主题变化时打系统 API + 写本地缓存）。
     // 冷启动 settings 到达这条路由它覆盖 EntryAbility 的缓存判定（热启动亦生效）。
     this.syncSystemTheme();
@@ -6530,8 +6540,10 @@ struct Index {
     }
     this.appliedSystemTheme = t;
     const dark: boolean = !isLightPalette(paletteOf(t));   // 亮度口径（铁律），非主题名硬判
-    // 本地缓存（冷启动 EntryAbility 读它）：只在主题变化时写一次盘
-    this.config.saveTheme(t).catch(() => {
+    // 本地缓存（冷启动 EntryAbility 读它）：只在主题变化时写一次盘。
+    // ⛔ 写**色板名**而不是复合标识（`名字|强调色`）：EntryAbility 只按它定系统开屏/colorMode，
+    //    缓存里混进强调色会让冷启动的 `normalizeTheme` 多一次无谓分支（且强调色与开屏无关）。
+    this.config.saveTheme(themeBaseName(t)).catch(() => {
       // 缓存写盘失败不影响切主题
     });
     try {
@@ -6954,8 +6966,14 @@ struct Index {
     //    乐观更新只写了 `settings`、没写 `themeName` ⇒ 切换后色板**冻结在旧主题**
     //    （用户亲报「浅色看不清 / 所有 theme 不生效」的真根因）。这里立即派生同步，
     //    与 `syncFrom` 的取值**同源**（`appPaletteForMdTheme(KEY_MD_THEME)`），最终值一致。
-    if (key === KEY_MD_THEME) {
-      this.themeName = appPaletteForMdTheme(value);
+    // 主题标识含**强调色** ⇒ 改 `KEY_ACCENT` 也必须重算标识（否则强调色只写进模块级覆盖、
+    // 无任何可观察状态变化 ⇒ 全站零重渲染 ⇒「配色根本没起作用」，用户 2026-10-13 亲报）。
+    if (key === KEY_MD_THEME || key === KEY_ACCENT) {
+      this.themeName = renderThemeKey(
+        appPaletteForMdTheme(settingOf(this.settings, KEY_MD_THEME)), this.accentHex());
+      // 与 `syncFrom` 同址：乐观切换时必须**同步**推全局订阅，否则已存在行（`LazyForEach` 承载）
+      // 的代码块/行内码配色停在旧 md 主题（同 `themeName` 的那条注释，用户亲报的"抽奖"）。
+      AppStorage.setOrCreate<string>('appMdTheme', this.mdThemeId());
       this.syncSystemTheme();
     }
     try {

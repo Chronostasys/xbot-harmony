@@ -122,7 +122,9 @@ eq('所有 token×主题 组合都满足"语义色达标 或 退回默认前景"
 eq('空 key ⇒ 默认前景', codeTokenColor('', paletteOf('dark'), 'vscode-dark'), paletteOf('dark').textPrimary);
 // 组件形态：确实接了高亮引擎 + 用 mdview 的 token 色
 has(mdSrc, 'highlightCode(b.code, b.lang)', '代码块接了 core/highlight（Prism4j）');
-has(mdSrc, 'codeTokenColor(sp.key, this.pal(), this.mdTheme)', 'token 色走 core/mdview.codeTokenColor');
+// ⚠️ 2026-10-13：md 主题改走**全局订阅**（`mdThemeNow()` ← `@StorageProp('appMdTheme')`）——历史行由
+//   `LazyForEach` 承载，`@Prop mdTheme` 会冻结在创建那刻（用户亲报「浅色字色抽奖」）⇒ 形态断言随之上移。
+has(mdSrc, 'codeTokenColor(sp.key, this.pal(), this.mdThemeNow())', 'token 色走 core/mdview.codeTokenColor（经订阅取值）');
 
 // ══════════════════════════════════════════════════════════════════════════════
 // P1#4 按块增量复用：喂入解析器字符量 / 文档长度 ≤ 1.2（基线 3.39）

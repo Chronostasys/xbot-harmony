@@ -559,9 +559,43 @@ export function setAppAccent(hex: string): void {
   PALETTE_MEMO.clear();
 }
 
+/**
+ * 渲染主题标识（页面 `@StorageLink('appTheme')` 的值）里色板名与强调色之间的**分隔符**。
+ *
+ * ⛔ 为什么标识里必须带强调色（2026-10-13 用户亲报「**theme 里的各种配色必须真实起作用**」
+ *    /「配色根本没起作用」的真根因）：强调色覆盖（`APP_ACCENT`）此前只写进**模块级变量**
+ *    ——它**不是** ArkUI 能观察的状态 ⇒ 改强调色时页面既没有 `@State` 也没有 `@Prop` 变化
+ *    ⇒ 组件**不重渲染** ⇒ 全仓 80 处 `paletteOf(...)` 拿到的仍是切换前那份色板
+ *    （与 `docs/ARKTS-GOTCHAS.md` 的「死消费」同族：值变了、可观察面没变）。
+ *    把强调色并进**唯一可观察真源**（`appTheme`）⇒ 标识变 ⇒ 每个订阅者各自重渲染。
+ */
+const RENDER_SEP: string = '|';
+
+/** 取"色板名"：容忍 `名字|强调色` 复合标识（无分隔符则原样返回）。 */
+export function themeBaseName(id: string): string {
+  const i: number = id.indexOf(RENDER_SEP);
+  return i > 0 ? id.substring(0, i) : id;
+}
+
+/** 复合标识里的强调色（无则 `''`）。 */
+export function themeInlineAccent(id: string): string {
+  const i: number = id.indexOf(RENDER_SEP);
+  return i > 0 ? id.substring(i + 1) : '';
+}
+
+/**
+ * 组装渲染主题标识 —— 页面设 `themeName` 的**唯一出口**。
+ *
+ * 强调色为空（= 不覆盖）时**不加分隔符** ⇒ 标识逐字节等于旧值（零回归、零多余重渲染）。
+ */
+export function renderThemeKey(paletteTheme: string, accentHex: string): string {
+  return accentHex.length > 0 ? `${paletteTheme}${RENDER_SEP}${accentHex}` : paletteTheme;
+}
+
 /** 取色板的**构造实现**（未知主题回落深色 —— 深色是既有默认）。 */
 function buildPalette(theme: string): Palette {
-  if (theme === THEME_LIGHT) { return lightPalette(); }
+  const name: string = themeBaseName(theme);
+  if (name === THEME_LIGHT) { return lightPalette(); }
   if (theme === THEME_AURORA) { return auroraPalette(); }
   if (theme === THEME_NEBULA) { return nebulaPalette(); }
   if (theme === THEME_PORCELAIN) { return porcelainPalette(); }
@@ -573,17 +607,22 @@ function buildPalette(theme: string): Palette {
  *  ⚠️ 缓存键 = `主题|强调色`（2026-10-11）：强调色覆盖后返回的是**新对象**，
  *     `EFFECTS_MEMO`/`SURFACES_MEMO` 以 Palette 对象为键 ⇒ 自动跟着算，不会串味。 */
 export function paletteOf(theme: string): Palette {
-  const key: string = `${theme}|${APP_ACCENT}`;
+  // 色板名与强调色**各自取值**：名容忍复合标识；强调色优先取**标识内**（页面在切换那一刻写入 ⇒
+  // "改了立刻生效"，不受异步 `saveSettings` 往返影响），标识内没有才回落全局 `APP_ACCENT`。
+  const name: string = themeBaseName(theme);
+  const inline: string = themeInlineAccent(theme);
+  const accent: string = inline.length > 0 ? inline : APP_ACCENT;
+  const key: string = `${name}${RENDER_SEP}${accent}`;
   const hit: Palette | undefined = PALETTE_MEMO.get(key);
   if (hit !== undefined) {
     return hit;
   }
-  let p: Palette = buildPalette(theme);
-  if (APP_ACCENT.length > 0) {
+  let p: Palette = buildPalette(name);
+  if (accent.length > 0) {
     // ⛔ 深浅必须走**亮度口径**（`isLightPalette(p)`），**不按主题名硬判**（本仓铁律）。
     //    此处 `p` 已是 `Palette`（下一行才叠加 accent）⇒ 直接判它；
     //    ⛔ 不可写 `isLightPalette(paletteOf(theme))`（会递归进本函数）。
-    p = withAccent(p, APP_ACCENT, !isLightPalette(p));
+    p = withAccent(p, accent, !isLightPalette(p));
   }
   if (PALETTE_MEMO.size >= MEMO_MAX_ENTRIES) {
     PALETTE_MEMO.clear();
@@ -594,10 +633,12 @@ export function paletteOf(theme: string): Palette {
 
 /** 规范化主题名（未知值回落 dark）。 */
 export function normalizeTheme(v: string | undefined): string {
-  if (v === THEME_LIGHT) { return THEME_LIGHT; }
-  if (v === THEME_AURORA) { return THEME_AURORA; }
-  if (v === THEME_NEBULA) { return THEME_NEBULA; }
-  if (v === THEME_PORCELAIN) { return THEME_PORCELAIN; }
+  // 容忍复合标识（`名字|强调色`）—— 未知值同样回落深色。
+  const name: string = themeBaseName(v !== undefined ? v : '');
+  if (name === THEME_LIGHT) { return THEME_LIGHT; }
+  if (name === THEME_AURORA) { return THEME_AURORA; }
+  if (name === THEME_NEBULA) { return THEME_NEBULA; }
+  if (name === THEME_PORCELAIN) { return THEME_PORCELAIN; }
   return THEME_DARK;
 }
 

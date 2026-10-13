@@ -49,14 +49,16 @@ const idx: string = stripComments(fs.readFileSync(idxPath, 'utf8'));
 
 // setSetting 方法体（从签名到下一个 `private ` 方法）。
 const seg: string = sliceBetween(idx, 'private async setSetting(key: string, value: string)', 'private ');
-const syncTheme: number = countOf(seg, 'this.themeName = appPaletteForMdTheme(value)');
-const branch: number = countOf(seg, 'if (key === KEY_MD_THEME)');
+// 2026-10-13：主题标识改由 `renderThemeKey(色板名, 强调色)` 组装，且 `KEY_ACCENT` 必须与
+// `KEY_MD_THEME` 走**同一分支**（强调色若不进可观察真源 ⇒ 全站零重渲染 ⇒「配色没起作用」）。
+const syncTheme: number = countOf(seg, 'this.themeName = renderThemeKey(');
+const branch: number = countOf(seg, 'if (key === KEY_MD_THEME || key === KEY_ACCENT)');
 const sysTheme: number = countOf(seg, 'this.syncSystemTheme()');
 console.log(`  theme_switch: setSetting 片段=${seg.length} 同步themeName=${syncTheme} 分支=${branch} syncSystem=${sysTheme}`);
 
 ok('setSetting 片段取到（非空）', seg.length > 0);
-ok('① KEY_MD_THEME 分支存在（== 1）', branch === 1);
-ok('① 分支里同步 themeName = appPaletteForMdTheme(value)（≥ 1）', syncTheme >= 1);
+ok('① 主题分支存在且**同时**覆盖 KEY_MD_THEME / KEY_ACCENT（== 1）', branch === 1);
+ok('① 分支里同步 themeName = renderThemeKey(…)（≥ 1）', syncTheme >= 1);
 ok('② 分支里再 syncSystemTheme()（≥ 1）', sysTheme >= 1);
 ok('零扫描判红：themeName 同步证据合计 > 0', syncTheme + branch + sysTheme > 0);
 

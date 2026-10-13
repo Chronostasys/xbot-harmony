@@ -171,6 +171,21 @@ export struct MarkdownView {
   /** Markdown 主题 id（与 web 共享 `web:ui:md-theme`；只影响代码块/行内码配色）。 */
   @Prop mdTheme: string = 'vscode-dark';
   /**
+   * Markdown 主题的**全局订阅**（生产唯一真源）—— 与色板**同一纪律**（`appTheme`）。
+   *
+   * 为什么必须有它（用户 2026-10-13 亲报，两条症状同一根因）：
+   *   「浅色模式有时候字颜色对有时候不对像抽奖」+「配色里那么多 color，看起来只有浅色深色的差别，
+   *     所有浅色 theme 看起来完全一样」。
+   *   历史行由 `LazyForEach` 承载，其 item builder **只在新建时执行** ⇒ `@Prop mdTheme` 会
+   *   **冻结在创建那一刻**：切了 md 主题（例如 `github-light` → `vscode-light`）之后，已存在的行
+   *   仍用旧 md 主题的代码块/行内码配色，只有新行用新配色 ⇒ 同一屏两种配色 = "抽奖"；
+   *   而所有浅色 md 主题共享**同一套应用色板**（`appPaletteForMdTheme` 只分 light/dark）
+   *   ⇒ 若 md 主题的差异**唯一**落在代码块配色上，冻结就等于"所有浅色 theme 看起来一样"。
+   *   ⛔ 与 `@Prop` 的差别：`@StorageProp` 是**组件级订阅**，不经列表重投递 ⇒ 每个已存在实例
+   *      各自重渲染（同 `appTheme` 的既有做法，见 `docs/ARKTS-GOTCHAS.md` 的 `LazyForEach` 族）。
+   */
+  @StorageProp('appMdTheme') appMdThemeGlobal: string = '';
+  /**
    * 链接相对地址的解析基准（服务端地址）。空 = 只放行绝对地址（`http/https/mailto`）。
    * 对齐 web 的浏览器行为：相对链接按**同源**解析（`MarkdownRenderer.tsx:311-321` 是真 `<a href>`）。
    * 原生端由页面把服务端地址透传进来（未透传时相对链接会被白名单拒绝 —— 宁可拒绝也不猜地址）。
@@ -180,6 +195,11 @@ export struct MarkdownView {
   /** 生效主题：生产走订阅，缺失时回落显式覆盖（单一口径，不产生两个真源）。 */
   private themeId(): string {
     return this.appTheme.length > 0 ? this.appTheme : this.theme;
+  }
+
+  /** 生效 md 主题：生产走订阅，缺失时回落显式 `@Prop`（单一口径，不产生两个真源）。 */
+  private mdThemeNow(): string {
+    return this.appMdThemeGlobal.length > 0 ? this.appMdThemeGlobal : this.mdTheme;
   }
 
   /** 当前语义色板（深浅两套，换主题只换取值） */
@@ -358,7 +378,7 @@ export struct MarkdownView {
   @Builder
   Inline(text: string, baseColor: string) {
     Text() {
-      ForEach(inlineStyles(text, this.pal(), this.mdTheme, baseColor), (s: MdInlineStyle) => {
+      ForEach(inlineStyles(text, this.pal(), this.mdThemeNow(), baseColor), (s: MdInlineStyle) => {
         Span(s.text)
           .fontSize(this.sz(s.size))
           .fontColor(s.color)
@@ -447,12 +467,12 @@ export struct MarkdownView {
    * ⛔ 一律按**亮度**判（色板用 `isLightPalette`，md 主题用 `isLightMdTheme`），不按主题名硬判。
    */
   private codeChromeOnTone(): boolean {
-    return isLightPalette(this.pal()) !== isLightMdTheme(this.mdTheme);
+    return isLightPalette(this.pal()) !== isLightMdTheme(this.mdThemeNow());
   }
 
   /** 语言条底色：同明暗 = 全局次级面（既有观感）；相反 = 与代码区同底的 md 主题代码底。 */
   private codeStripBg(): string {
-    return this.codeChromeOnTone() ? codeBgOf(this.mdTheme, this.pal()) : this.pal().surfaceAlt;
+    return this.codeChromeOnTone() ? codeBgOf(this.mdThemeNow(), this.pal()) : this.pal().surfaceAlt;
   }
 
   /** 「复制」色：同明暗 = 全局 `accentSoft`（既有观感）；相反 = md 主题代码字色（与其底配对）。
@@ -460,7 +480,7 @@ export struct MarkdownView {
    *  压在浅底与深底上都读得出（实测：浅色族恒 ≥2.34、深色族恒 ≥3.09）⇒ 保持既有的
    *  "语言标签 = textMuted"（web `index.css:199 --md-code-lang-text`）语义与源码形态不变。 */
   private codeStripAction(): string {
-    return this.codeChromeOnTone() ? codeFgOf(this.mdTheme) : this.pal().accentSoft;
+    return this.codeChromeOnTone() ? codeFgOf(this.mdThemeNow()) : this.pal().accentSoft;
   }
 
   @Builder
@@ -518,7 +538,7 @@ export struct MarkdownView {
         Scroll() {
           Text() {
             ForEach(highlightCode(b.code, b.lang), (sp: HlSpan, si: number) => {
-              Span(sp.text).fontColor(codeTokenColor(sp.key, this.pal(), this.mdTheme))
+              Span(sp.text).fontColor(codeTokenColor(sp.key, this.pal(), this.mdThemeNow()))
             }, (sp: HlSpan, si: number) => `hl-${b.key}-${si}-${sp.text.length}`)
           }
           .wordBreak(WordBreak.NORMAL)
@@ -539,7 +559,7 @@ export struct MarkdownView {
       } else {
         Text() {
           ForEach(highlightCode(b.code, b.lang), (sp: HlSpan, si: number) => {
-            Span(sp.text).fontColor(codeTokenColor(sp.key, this.pal(), this.mdTheme))
+            Span(sp.text).fontColor(codeTokenColor(sp.key, this.pal(), this.mdThemeNow()))
           }, (sp: HlSpan, si: number) => `hl-${b.key}-${si}-${sp.text.length}`)
         }
         .wordBreak(WordBreak.BREAK_ALL)
@@ -584,7 +604,7 @@ export struct MarkdownView {
   @Builder
   TableCellSpan(text: string, ci: number, b: MdBlock, head: boolean) {
     Text() {
-      ForEach(inlineStyles(text, this.pal(), this.mdTheme, this.pal().textPrimary), (s: MdInlineStyle, i: number) => {
+      ForEach(inlineStyles(text, this.pal(), this.mdThemeNow(), this.pal().textPrimary), (s: MdInlineStyle, i: number) => {
         Span(s.text)
           .fontSize(MD_TABLE_SIZE)
           .fontColor(s.color)

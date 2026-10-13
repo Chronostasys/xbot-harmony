@@ -258,11 +258,12 @@ import { paletteOf } from '../../entry/src/main/ets/core/theme';
   ok('R3 effectsMemo 以 theme 为键', /export function effectsMemo\(theme: string\)/.test(tv)
     && /EFFECTS_MEMO\.set\(theme, e\)/.test(tv));
   const th: string = stripSrc(fsMod.readFileSync(pathMod.join(ETS_ROOT, 'core/theme.ets'), 'utf-8'));
-  // 缓存键 = `${theme}|${APP_ACCENT}`（含主题维度；强调色变化时 clear）⇒ 换主题不会命中旧色。
-  ok('R3 theme.ets PALETTE_MEMO 键含 theme 维度',
+  // 缓存键 = `${name}|${accent}`：**色板名 × 强调色**两维（2026-10-13：强调色改为从**渲染标识**里取，
+  // 见 `renderThemeKey`/`themeInlineAccent` —— 换主题或换强调色都不会命中旧色）。
+  ok('R3 theme.ets PALETTE_MEMO 键含（色板名 × 强调色）两维',
     /const PALETTE_MEMO: Map<string, Palette>/.test(th)
     && /PALETTE_MEMO\.get\(key\)/.test(th) && /PALETTE_MEMO\.set\(key,/.test(th)
-    && /\$\{theme\}\|\$\{APP_ACCENT\}/.test(th));
+    && /\$\{name\}\$\{RENDER_SEP\}\$\{accent\}/.test(th));
 }
 
 // 警示：core/ 里所有记忆化 `Map` 缓存（供人复核"键是否漏了会影响渲染的维度"）—— 非判红。

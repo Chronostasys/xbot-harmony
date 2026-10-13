@@ -237,12 +237,12 @@ ok('行内码**不再**直接写 `st.color = pal.accentText`', mdViewSrc.indexOf
 
 ok('语言条底走 `codeStripBg()`（不再写死 surfaceAlt）', mdViewSrc.indexOf('.backgroundColor(this.codeStripBg())') >= 0);
 ok('`codeStripBg` 在"明暗相反"时用 `codeBgOf`（与代码区同底）',
-  mdViewSrc.indexOf('return this.codeChromeOnTone() ? codeBgOf(this.mdTheme, this.pal()) : this.pal().surfaceAlt;') >= 0);
+  mdViewSrc.indexOf('return this.codeChromeOnTone() ? codeBgOf(this.mdThemeNow(), this.pal()) : this.pal().surfaceAlt;') >= 0);
 ok('语言标签**保持** `textMuted`（中调灰，压浅/深底都可读；源码形态不变）',
   mdViewSrc.indexOf("          .fontSize(11)\n          .fontFamily('monospace')\n          .fontColor(this.pal().textMuted)") >= 0);
 ok('「复制」走 `codeStripAction()`', mdViewSrc.indexOf('.fontColor(this.codeStripAction())') >= 0);
 ok('`codeChromeOnTone` 用 `isLightPalette` + `isLightMdTheme`（按亮度，不按主题名）',
-  mdViewSrc.indexOf('return isLightPalette(this.pal()) !== isLightMdTheme(this.mdTheme);') >= 0);
+  mdViewSrc.indexOf('return isLightPalette(this.pal()) !== isLightMdTheme(this.mdThemeNow());') >= 0);
 ok('MarkdownView 未按主题名硬判（无 `theme === \'porcelain\'` 之类）',
   mdViewSrc.indexOf("=== 'porcelain'") < 0 && mdViewSrc.indexOf("=== 'light'") < 0);
 
