@@ -126,7 +126,7 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
 | B 线·色板**读取**总量 `this.pal()` ∨ `this.palOnce()` | — | **1268**（松界 1350，✅；含缓存命中，非成本线） | — |
 | `this.eff()` 调用点 | 57 | **35**（上限 80，✅） | — |
 | `anim*()` 调用点 | 14 | **13**（上限 20，✅） | — |
-| 常驻定时器 | `setInterval` 4 / `setTimeout` 5 | **5 / 7**（上限 6 / 7，✅ 顶格） | ⚠️ `setTimeout` **已用满 7**（见 §2 第 18 条） |
+| 常驻定时器 | `setInterval` 4 / `setTimeout` 5 | **5 / 6**（上限 6 / 7，✅） | ℹ️ `setTimeout` 的第 6 处 = 运行面板自适应轮询（`pages/Index.ets` `syncPanelPoll`，2s/30s，见 §2 第 18 条） |
 
 > ⛔ **订正的原因**：本表原先三条"无记忆化"的结论已被两个 perf 提交推翻（`0c0b2e3` / `e60d1f6`）。
 > 留着旧值是为了**看趋势**，但**别再据此派"给 effectsOf 加缓存"的活**——那已经做完了。
@@ -137,7 +137,7 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
 |---|---|---|
 | `blocksSignature(340 块)` | **33.3 µs/次**（护栏上限 400 ✅） | **仍是最贵的 O(块数) 操作**；`pages/Index.ets:4253` 每次 sync 调 **2 次** ⇒ 单次 sync ≈ **67 µs**。⛔ 该文件属滚动行调度者，**不在 perf 线可改域** |
 
-| 常驻定时器 | `setInterval` **4** 处 / `setTimeout` **5** 处 | `AssistantOrb.ets` 2 / `LiveTailView.ets` 3（20Hz 打字机）/ `SettingsDeveloper` 2 / `pages/Index.ets` 6 处（含 600ms 脉冲） |
+| 常驻定时器 | `setInterval` **5** 处 / `setTimeout` **6** 处 | `AssistantOrb.ets` 2 / `LiveTailView.ets` 3（20Hz 打字机）/ `SettingsDeveloper` 2 / `pages/Index.ets` 7 处（含 600ms 脉冲 + 运行面板 2s/30s 自适应轮询 `syncPanelPoll`） |
 - 真机 CPU（同一台模拟器，7s 窗口，`hidumper --cpuusage <pid>`）：
   **空态（无 live 行）0.05%** vs **流式中 4.4–4.7%**（该会话只有 30 行 / 0 块）
   ⇒ 这 4.7% 是**流式地板成本**，全来自定时器驱动的重绘。
