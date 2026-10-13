@@ -8832,8 +8832,8 @@ struct Index {
    *    ⇒ 组头**吸顶**（Apple 列表语义：滚动长会话列表时「今天 / 昨天」始终可见；web 侧栏**不吸顶**
    *    ⇒ 这是原生**超越**项）。普通 `ListItem` 写了 `.sticky()` 也**静默无效**。
    * ⚠️ **吸顶必须自带不透明底**，否则行会从组头下面透出来。这里用**与抽屉根同一材质**
-   *    （`eff().glassBg` + `BlurStyle.Regular`）⇒ 吸顶时与周围**逐像素无缝**（⛔ 别换成别的 surface
-   *    角色：抽屉根是玻璃材质，任何不透明近似都会在吸顶那一刻露出色差接缝）。
+   *    （实底 `surface.overlay`）⇒ 吸顶时与周围**逐像素无缝**（⛔ 别换成玻璃或别的 surface
+   *    角色：抽屉根已于 15o·d 统一为实底 overlay，玻璃会重新"透字成脏"并在吸顶时露色差接缝）。
    * ⚠️ 组间距（非首组 `SPACE_MD`）由 `margin` 改 `padding` **且被底色覆盖**：未吸顶时观感**逐像素不变**
    *    （仍是"60vp = 留白 + 标题"），吸顶时那段留白不再是透明缝（否则行会在缝里露出来）。
    * ⚠️ 折叠态在 builder 体内读 `this.isGroupCollapsed(...)`，而 `header` 参数是**调用那一刻的快照**
@@ -8875,9 +8875,8 @@ struct Index {
     //    的空气全堆在组头上方，而**首个组**上方没有"上一组" ⇒ 那 26vp 顶在筛选条下面，真机量测
     //    「筛选条底(y≈700) → 首组标题(y≈852)」= ~150px 空带（看起来像布局断了）。
     .alignItems(VerticalAlign.Center)
-    // 吸顶底：与抽屉根**同材质**（见上方注释）。
-    .backgroundColor(this.eff().glassBg)
-    .backgroundBlurStyle(BlurStyle.Regular, { colorMode: this.glassMode() })
+    // 吸顶底：与抽屉根**同材质**（实底 overlay，见上方注释）。
+    .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
     .onClick(() => {
       this.toggleGroup(this.sessionCategory(), g.key);

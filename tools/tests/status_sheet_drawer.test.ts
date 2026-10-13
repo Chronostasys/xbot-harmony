@@ -263,9 +263,10 @@ has(drawerList, '.sticky(StickyStyle.Header)', 'List 真的开了吸顶');
 has(indexSrc, 'DrawerGroupHeader(g: DrawerGroup, gIdx: number) {', '组头构件定义在位（零扫描防线）');
 const grpDef: string = between(indexSrc, 'DrawerGroupHeader(g: DrawerGroup, gIdx: number) {', 'this.toggleGroup(');
 ok('组头构件块可定位（零扫描判红）', grpDef.length > 200);
-has(grpDef, '.backgroundColor(this.eff().glassBg)',
-  '吸顶组头底色 = 抽屉根**同材质**（⛔ 不能透明、也不能是别的 surface 角色 ⇒ 吸顶露色差接缝）');
-has(grpDef, 'backgroundBlurStyle(BlurStyle.Regular', '吸顶组头带模糊（与抽屉根一致 ⇒ 逐像素无缝）');
+has(grpDef, ".backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))",
+  '吸顶组头底色 = 抽屉根**同材质**（实底 overlay；⛔ 不能玻璃/透明 ⇒ 吸顶露色差接缝 + 透字成脏）');
+hasNot(grpDef, 'backgroundBlurStyle',
+  '吸顶组头**不带玻璃模糊**（实底 ⇒ 无透字成脏、与实底抽屉逐像素无缝）');
 has(drawerList, '${this.isGroupCollapsed(this.sessionCategory(), g.key)}`)',
   '组头 ForEach 键**含折叠态**（header 参数是快照 ⇒ 否则 chevron 卡初值）');
 
