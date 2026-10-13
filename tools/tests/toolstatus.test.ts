@@ -34,6 +34,8 @@ eq('pending ⇒ pending', toolStatusKind('pending', undefined), ST_PENDING);
 eq('error ⇒ error', toolStatusKind('error', undefined), ST_ERROR);
 eq('failed ⇒ error（同义档，panels 复用）', toolStatusKind('failed', undefined), ST_ERROR);
 eq('killed ⇒ killed', toolStatusKind('killed', undefined), ST_KILLED);
+eq('⛔ killed + exit 130 ⇒ killed（抢在 exit 之前，否则误报失败）', toolStatusKind('killed', 130), ST_KILLED);
+eq('aborted + exit 130 ⇒ killed', toolStatusKind('aborted', 130), ST_KILLED);
 eq('大写 GENERATING 也识别', toolStatusKind('GENERATING', undefined), ST_GENERATING);
 eq('running + exit 1 ⇒ error', toolStatusKind('running', 1), ST_ERROR);
 eq('generating + exit 1 ⇒ error', toolStatusKind('generating', 1), ST_ERROR);

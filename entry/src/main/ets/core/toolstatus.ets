@@ -67,9 +67,14 @@ export const ROLE_ACCENT: string = 'accent';   // 执行中 / 生成中（需要
  */
 export function toolStatusKind(status: string | undefined, exitCode: number | undefined): string {
   const raw: string = status !== undefined ? status.toLowerCase() : '';
-  if (exitCode !== undefined && exitCode !== 0) { return ST_ERROR; }
-  if (raw === 'error' || raw === 'failed') { return ST_ERROR; }
+  // ⛔ 「用户主动终止」必须**抢在 exit_code 之前**判（2026-10-13 修）：
+  //    被杀的进程 exit 130（SIGINT）≠ 0 ⇒ 若先问 exit_code 会返回 ST_ERROR 而显示「失败」，
+  //    把「用户主动终止」误报成故障。此前 `core/panels.ets` 的 `bgTaskFailed` 靠**调用点预判**
+  //    killed 绕过（只护住后台任务一条路径）；但工具 pill / live 尾 / 消息行三条路径
+  //    **直接**调 `toolStatusKind`（无预判）⇒ 被杀工具照样被误报「失败」——缺陷藏在单一真源里。
   if (raw === 'killed' || raw === 'aborted' || raw === 'cancelled') { return ST_KILLED; }
+  if (raw === 'error' || raw === 'failed') { return ST_ERROR; }
+  if (exitCode !== undefined && exitCode !== 0) { return ST_ERROR; }
   if (raw === 'pending') { return ST_PENDING; }
   if (raw === 'generating') { return ST_GENERATING; }
   if (raw === 'running' || raw === 'executing') { return ST_RUNNING; }
