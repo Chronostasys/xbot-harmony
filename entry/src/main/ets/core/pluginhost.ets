@@ -326,6 +326,52 @@ export function containerRank(container: string): number {
   return i >= 0 ? i : CONTAINER_ORDER.length;
 }
 
+/**
+ * 该容器下的视图能否**独立打开成一个面板页**。
+ *
+ * ⛔ 这是「插件面板打不开 / 看不到」的根因判据（2026-10-13 真实服务端 payload 实测）：
+ *   目录把每个插件都渲染成一行「可点开」，但只有声明了**面板类容器**的插件才有独立页：
+ *   · 面板类（可开）：`right_sidebar` / `panel` / `main` / `bottom`；
+ *   · 内嵌类（**不可开**）：`info_bar` / `status_bar_right` / `iteration`
+ *     —— 它们是**就地渲染的徽章/条**（`xbot.iteration-stats` 的 `t/s · ttft` 徽章
+ *     已由宿主原生渲染在顶栏），**没有独立页** ⇒ 点开只会得到一个空页
+ *     （用户原话：「统计插件的面板我们看不到」）。
+ *   容器词表逐字取自 web 权威 `web/src/plugin-api/manifest.ts:16 ViewContainer`。
+ *   未知容器按**不可开**处理（安全方向：宁可给信息行，不给空页）。
+ */
+export function isPanelContainer(container: string): boolean {
+  const c: string = container !== undefined && container !== null ? container.trim() : '';
+  return c === 'right_sidebar' || c === 'panel' || c === 'main' || c === 'bottom';
+}
+
+/** 去重后的容器展示名（如 `['status_bar_right']` → `'状态栏'`），保持声明次序。 */
+export function containerLabelsOf(views: PluginViewItem[]): string {
+  const labels: string[] = [];
+  const list: PluginViewItem[] = views !== undefined && views !== null ? views : [];
+  for (let i = 0; i < list.length; i++) {
+    const l: string = list[i].containerLabel;
+    if (l.length > 0 && labels.indexOf(l) < 0) {
+      labels.push(l);
+    }
+  }
+  return labels.join(' · ');
+}
+
+/**
+ * **不可点**卡片（`openable === false`）的副行提示 —— 说明它「已经在哪儿生效了」，
+ * 而不是给用户一个点开是空页的假入口（用户原话：「统计插件的面板我们看不到」）。
+ *   · 无视图贡献点（如 `xbot.genui`：视图由宿主内置渲染）⇒ `未声明面板`；
+ *   · 只有内嵌徽章/条（如 `xbot.iteration-stats` 的顶栏 `t/s · ttft` 徽章）⇒ `已挂载：状态栏`。
+ * 可点卡片返回空串（由组件决定不渲染该行）。
+ */
+export function pluginOpenHint(item: PluginCatalogItem): string {
+  if (item === undefined || item === null || item.openable) {
+    return '';
+  }
+  const labels: string = containerLabelsOf(item.views);
+  return labels.length > 0 ? `已挂载：${labels}` : '未声明面板';
+}
+
 /** 语言标签归一化（`zh_CN` → `zh-CN`；与 web `i18n.ts:16-18 normalizeLocale` 同规则）。 */
 function normalizeLocaleTag(tag: string): string {
   return tag !== undefined && tag !== null ? tag.trim().replace(/_/g, '-') : '';
@@ -458,6 +504,12 @@ export class PluginCatalogItem extends PluginHostInfo {
   /** 服务端 `state`（`active`/…）——**仅展示**，不用它做任何门控。 */
   state: string = '';
   views: PluginViewItem[] = [];
+  /**
+   * 是否**有可独立打开的面板**（= 存在 `kind:'view'` + 面板类容器 + 非 `dynamic` 的视图）。
+   * ⛔ 判据来源：`isPanelContainer`。为假 ⇒ 卡片渲染成**不可点信息行**（无 chevron），
+   * 否则点开是一个空页（用户报「统计插件的面板我们看不到」）。
+   */
+  openable: boolean = false;
 }
 
 /** 按容器聚合的一组视图（目录里的"分区"）。 */
@@ -609,6 +661,17 @@ export function buildPluginCatalog(
       views.push(t);
     }
     item.views = views;
+    // 可开性 = 存在「面板类容器 + 非 dynamic」的视图（⛔ 见 `isPanelContainer` 注释：
+    // 只声明内嵌徽章/条（`status_bar_right`/`info_bar`/`iteration`）或无 contributes 的插件
+    // **没有独立页** ⇒ 卡片渲染成不可点信息行，别给用户一个点开是空页的假入口）。
+    let openable: boolean = false;
+    for (let k = 0; k < views.length; k++) {
+      if (isPanelContainer(views[k].container) && !views[k].dynamic) {
+        openable = true;
+        break;
+      }
+    }
+    item.openable = openable;
     // 插件卡图标 = **该插件首个视图声明的 lucide 图标**（对齐"用插件自己的图标"这一诉求）。
     // ⛔ 此前**从不赋值** ⇒ `PluginCatalogItem.icon` 恒为 `''` ⇒ 卡片 `pluginSymbol('')` 一律
     //   回落通用 `puzzle` ⇒ **所有插件卡图标一模一样**（2026-10-12 真机截图实锤）。

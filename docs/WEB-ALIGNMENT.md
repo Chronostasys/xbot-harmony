@@ -4606,3 +4606,46 @@ dynamic 视图行也深链。mutation 自证：深链分支失效 ⇒ 6 条红�
   本次两层结构让其长度 +253 ⇒ **修正方式是"把说明搬出切片"而⛔ 不是放宽护栏**（已在源码就地记录）。
 - ⚠️ 新增 `ICON_XL` 消费点后**必须同步 import**——本轮真实踩到：漏 import ⇒ 真门禁
   `10505001 Cannot find name 'ICON_XL'`（脱机三条**抓不到**，因为页面不被它们编译）。
+
+## §21.94 「插件面板看不到」的**真根因**：给无面板的插件也开可点行 ⇒ 点开是空页（plfix1，2026-10-13）
+
+用户口径（原话）：「现在其实插件都打不开，**比如统计插件的面板我们看不到**」。
+
+### 取证（服务端 ground truth，零猜测）
+
+`POST /api/rpc {"method":"web_plugin_list"}`（`core/store.ets:1665 loadPluginCatalog` 的同一路）逐插件列
+`web.contributes`：
+
+| 插件 | 声明的视图贡献点 | 有独立面板？ |
+|---|---|---|
+| `xbot.genui` | **无 `contributes`**（视图由宿主内置渲染） | ✗ |
+| `xbot.git-fancy` | `right_sidebar` panel（非 dynamic）+ `main` dynamic commit | ✓ |
+| `xbot.iteration-stats` | **仅** `status_bar_right` badge | ✗ |
+| `xbot.ssh-runner` | `right_sidebar` panel + `info_bar` bar | ✓ |
+
+真机复现：能力面板点「迭代指标」行 ⇒ 打开的页**只有宿主 chrome**（顶栏 `‹ 迭代指标 ⟳` + 底部
+`🏠 本机 ⟳`），**内容区恒空**（两次截图同字节）。原因不是 401/加载失败 —— `xbot.iteration-stats`
+是**纯徽章插件**（顶栏那枚 `284t/s · 2.1s` 就是它，宿主已原生渲染），**根本没有面板页可开**；
+`xbot.genui` 同理（它没声明任何 view）。⇒ **假入口**。
+
+### 修法（判据进 core，组件只消费）
+
+- `core/pluginhost.ets` 新增 `isPanelContainer(container)`：容器词表**逐字取 web 权威**
+  `web/src/plugin-api/manifest.ts:16 ViewContainer`；**面板类** = `right_sidebar`/`panel`/`main`/`bottom`，
+  **内嵌类**（无独立页）= `status_bar_right`/`info_bar`/`iteration`；**未知容器按不可开**（安全方向）。
+- `PluginCatalogItem.openable` = 存在「`kind:'view'` + 面板类容器 + **非 `dynamic`**」的视图
+  （`dynamic` 只能由宿主带参 `openViewTab` 打开，没有 URL 入口 ⇒ 不算可开）。
+- `pluginOpenHint(item)`：不可开 ⇒ 副行说明**它已经在哪里生效**（`已挂载：状态栏` / `未声明面板`）。
+- `components/PluginsSheet.ets` / `components/PluginHost.ets`：**chevron 与 `onClick` 只在
+  `openable` 时出现**（chevron = 「可进入」的唯一表达），并按 `openable` 门控按压反馈。
+
+### 判据与纪律
+
+- `tools/tests/plugin_native_views.test.ts`：新增 12 条（容器分类 3 + 四个**真实插件形态**的可开性/提示 9）。
+  **mutation 自证**：让 `isPanelContainer('status_bar_right')` 为真 ⇒ 「徽章插件不可开」红；
+  openable 计算去掉 `!dynamic` ⇒ 「只有 main+dynamic ⇒ 不可开」红；`pluginOpenHint` 恒空 ⇒ 提示 2 条红。
+- ⚠️ 连带发现并修好一条**判据本身的弱点**：`tools/tests/interactive_feedback.test.ts` 的
+  `pressed:{.opacity(...)}` 提取器写成 `\(([^)]*)\)` ⇒ 遇 `this.openable() ? PRESS_OPACITY : 1`
+  在 `openable(` 的 `)` 处**截断 ⇒ 假红**。改成**平衡括号扫描**，并接受
+  「`<条件> ? PRESS_OPACITY : 1`」这一新形态（**假分支必须恰为 `1`**：写别的数值 = 偷改按压幅度 ⇒ 仍判红）。
+  自证：`0.5` ⇒ 红、`0.42` ⇒ 红、回退 ⇒ 243 全绿。

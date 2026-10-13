@@ -165,9 +165,23 @@ const PRESS_VALUE_EXEMPT: Map<string, string> = new Map<string, string>([
     const f: string = comps[i];
     const src: string = stripComments(fs.readFileSync(path.join(CDIR, f), 'utf8'));
     const vals: string[] = [];
-    const re: RegExp = /pressed:\s*\{\s*\.opacity\(([^)]*)\)/g;
-    let m: RegExpExecArray | null = re.exec(src);
-    while (m !== null) { vals.push(m[1].trim()); m = re.exec(src); }
+    // ⛔ 抽取 `pressed: { .opacity(<expr>) }` 的表达式必须做**平衡括号**扫描：
+    //   旧写法 `\(([^)]*)\)` 会在表达式里第一个 `)` 处截断（形如
+    //   `this.openable() ? PRESS_OPACITY : 1` ⇒ 截成 `this.openable(` ⇒ **假红**；2026-10-13 实测）。
+    const head: RegExp = /pressed:\s*\{\s*\.opacity\(/g;
+    let h: RegExpExecArray | null = head.exec(src);
+    while (h !== null) {
+      let i: number = h.index + h[0].length;
+      let depth: number = 1;
+      let end: number = -1;
+      while (i < src.length && depth > 0) {
+        const ch: string = src.charAt(i);
+        if (ch === '(') { depth++; } else if (ch === ')') { depth -= 1; if (depth === 0) { end = i; } }
+        i += 1;
+      }
+      if (end >= 0) { vals.push(src.substring(h.index + h[0].length, end).trim()); }
+      h = head.exec(src);
+    }
     const bgN: number = countAll(src, /pressed:\s*\{\s*\.backgroundColor\(/g);
     bgForm += bgN;
     if (vals.length === 0 && bgN === 0) { continue; }
@@ -176,11 +190,16 @@ const PRESS_VALUE_EXEMPT: Map<string, string> = new Map<string, string>([
       + `${bgN > 0 ? ' +bg×' + bgN : ''}`);
     for (let k = 0; k < vals.length; k++) {
       const v: string = vals[k];
-      if (v === 'PRESS_OPACITY') { fromConst++; }
+      // 两种合口径形态：
+      //   ① 恒等 `PRESS_OPACITY`；
+      //   ② **可点性门控** `<条件> ? PRESS_OPACITY : 1`（不可点的行不给按压反馈；
+      //      假分支**必须恰为 1** —— 写别的数值等于偷偷改按压幅度、绕过统一口径 ⇒ 仍判红）。
+      const gated: boolean = /^[\s\S]*\?\s*PRESS_OPACITY\s*:\s*1$/.test(v);
+      if (v === 'PRESS_OPACITY' || gated) { fromConst++; }
       else if (PRESS_VALUE_EXEMPT.has(f)) { exemptP++; }
       else { unhandled++; }
       ok(`${f}：pressed.opacity(${v}) 取自 PRESS_OPACITY 或明示豁免`,
-        v === 'PRESS_OPACITY' || PRESS_VALUE_EXEMPT.has(f));
+        v === 'PRESS_OPACITY' || gated || PRESS_VALUE_EXEMPT.has(f));
     }
   }
   console.log('  ⑥ press 口径（全 components/**，pressed 块分布）：');

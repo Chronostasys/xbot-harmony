@@ -3,6 +3,7 @@ import {
   PluginCatalogGroup,
   PluginCatalogItem,
   PluginViewItem,
+  isPanelContainer,
   normalizePluginIcon,
 } from '../core/pluginhost';
 import {
@@ -312,6 +313,14 @@ struct PluginCardRow {
     return pluginStateBadge(this.item.state);
   }
 
+  /**
+   * 该插件能否**单独打开** —— 判据在 core（`PluginCatalogItem.openable`），本组件不自己判。
+   * 为假 ⇒ 卡片不给 chevron、不响应点击（否则点开是一个空页）。
+   */
+  private openable(): boolean {
+    return this.item.openable;
+  }
+
   build() {
     Row({ space: SPACE_XS }) {
       SymbolGlyph(pluginSymbol(this.item.icon))
@@ -371,7 +380,9 @@ struct PluginCardRow {
             .layoutWeight(1)
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
-          PluginOpenAffordance({ theme: this.theme })
+          if (this.openable()) {
+            PluginOpenAffordance({ theme: this.theme })
+          }
         }
         .width('100%')
         .alignItems(VerticalAlign.Center)
@@ -388,9 +399,14 @@ struct PluginCardRow {
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))
     .borderRadius(RADIUS_CARD)
     .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
-    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+    .stateStyles({
+      pressed: { .opacity(this.openable() ? PRESS_OPACITY : 1) },
+      normal: { .opacity(1) },
+    })
     .onClick(() => {
-      this.onOpen();
+      if (this.openable()) {
+        this.onOpen();
+      }
     })
   }
 }
@@ -409,6 +425,15 @@ struct PluginViewRow {
 
   private badge(): PluginBadge {
     return pluginViewBadge(this.view.dynamic);
+  }
+
+  /**
+   * 该视图能否**单独打开**——面板类容器（`right_sidebar`/`panel`/`main`/`bottom`）且非 `dynamic`
+   * （`dynamic` 只能由宿主带参 `openViewTab`，没有 URL 入口）。
+   * 内嵌徽章/条（`status_bar_right`/`info_bar`/`iteration`）由宿主**就地渲染** ⇒ 不可开。
+   */
+  private openable(): boolean {
+    return isPanelContainer(this.view.container) && !this.view.dynamic;
   }
 
   build() {
@@ -441,7 +466,17 @@ struct PluginViewRow {
       if (this.badge().show) {
         PluginBadgeChip({ text: this.badge().text, role: this.badge().colorRole, theme: this.theme })
       }
-      PluginOpenAffordance({ theme: this.theme })
+      if (this.openable()) {
+        PluginOpenAffordance({ theme: this.theme })
+      } else {
+        // 内嵌徽章/条（`status_bar_right`/`info_bar`/`iteration`）**没有独立页** ——
+        // 由宿主就地渲染；这里只陈述状态，不给"可进入"暗示（点了也不会开空页）。
+        Text('内嵌渲染')
+          .fontSize(fs('type.micro'))
+          .fontWeight(fw('type.micro'))
+          .lineHeight(lh('type.micro'))
+          .fontColor(colorOf(this.pal(), 'textMuted'))
+      }
     }
     .width('100%')
     .alignItems(VerticalAlign.Center)
@@ -452,10 +487,16 @@ struct PluginViewRow {
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))
     .borderRadius(RADIUS_CARD)
     .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
-    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+    .stateStyles({
+      pressed: { .opacity(this.openable() ? PRESS_OPACITY : 1) },
+      normal: { .opacity(1) },
+    })
     .onClick(() => {
-      // 直开（同源页面 URL）与"进宿主页"在 core 侧已判好，这里只执行
-      this.onOpen();
+      // 直开（同源页面 URL）与"进宿主页"在 core 侧已判好，这里只执行；
+      // ⛔ 不可开的视图（内嵌徽章/条）静默忽略 —— 绝不开空页。
+      if (this.openable()) {
+        this.onOpen();
+      }
     })
   }
 }

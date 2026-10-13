@@ -29,7 +29,7 @@
  *    浅/深分叉只走 `isLightPalette(paletteOf(theme))`。
  */
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
-import { PluginCatalogItem } from '../core/pluginhost';
+import { PluginCatalogItem, pluginOpenHint } from '../core/pluginhost';
 import { PluginPanelStatus, pluginMetaText, pluginPanelStatus, pluginPanelListHeight, PANEL_FIXED_ENTRY_ROWS } from '../core/pluginview';
 // 插件图标映射**唯一出口** = `PluginHost` 的 `pluginSymbol`（19/19 覆盖 web `ICON_MAP`）——
 // ⛔ 不在本面板再写一份副本（副本会腐烂 / 各写一份 ⇒ 同一插件两处图标不一致）。
@@ -269,21 +269,39 @@ export struct PluginsSheet {
                       .fontSize(fs('type.caption')).fontColor(this.pal().textMuted)
                       .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
                   }
+                  // ⛔ 无独立面板的插件（只声明内嵌徽章/条，或未声明 contributes）⇒ 说明它
+                  //    「已经在哪儿生效了」，别让用户去找一个不存在的面板（判据 `pluginOpenHint`）。
+                  if (pluginOpenHint(p).length > 0) {
+                    Text(pluginOpenHint(p))
+                      .fontSize(fs('type.micro')).fontColor(this.pal().textMuted)
+                      .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+                  }
                 }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-                // 尾部 = **chevron**（与上方入口行同一形态 ⇒ 整张表只有一种"可进入"表达）。
-                SymbolGlyph($r('sys.symbol.chevron_right'))
-                  .fontSize(fs('type.caption'))
-                  .fontColor([colorOf(this.pal(), 'iconMuted')])
+                // 尾部 = **chevron**，**仅在该插件真有独立面板可开时**出现（chevron = "可进入"的唯一表达）。
+                // ⛔ 无面板的插件（只声明内嵌徽章/条，如 `xbot.iteration-stats`；或未声明 contributes，
+                //    如 `xbot.genui`）**不给 chevron** —— 否则点开是一个空页（用户原话
+                //    「统计插件的面板我们看不到」的根因；判据 `pluginOpenHint`/`isPanelContainer`）。
+                if (p.openable) {
+                  SymbolGlyph($r('sys.symbol.chevron_right'))
+                    .fontSize(fs('type.caption'))
+                    .fontColor([colorOf(this.pal(), 'iconMuted')])
+                }
               }
               .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
               .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
               .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))
               .borderRadius(RADIUS_CARD)
               .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
-              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .stateStyles({
+                pressed: { .opacity(p.openable ? PRESS_OPACITY : 1) },
+                normal: { .opacity(1) },
+              })
               .margin({ bottom: GAP_ROW_Y })
               .onClick(() => {
-                this.onOpenPlugin(p);
+                // 不可点的行（无独立面板）静默忽略 —— 绝不开空页
+                if (p.openable) {
+                  this.onOpenPlugin(p);
+                }
               })
             }
           }, (p: PluginCatalogItem) => `${p.id}#${p.url}`)

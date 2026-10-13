@@ -19,7 +19,7 @@ export {};
 
 declare const process: { exit: (c: number) => void };
 
-import { PluginCatalog, WebPluginListWire, buildPluginCatalog } from '../../entry/src/main/ets/core/pluginhost';
+import { PluginCatalog, WebPluginListWire, buildPluginCatalog, isPanelContainer, pluginOpenHint } from '../../entry/src/main/ets/core/pluginhost';
 import {
   ITER_STATS_CONTAINER, ITER_STATS_VIEW_ID, fmtMs, hasIterStatsBadge, iterStatsText,
 } from '../../entry/src/main/ets/core/pluginviews';
@@ -70,6 +70,69 @@ const otherCat: PluginCatalog = buildPluginCatalog({
 ok('启用判据：只有别的插件视图 ⇒ false（不误判）', hasIterStatsBadge(otherCat) === false);
 ok('常量：视图 id 与容器与插件产物一致',
   ITER_STATS_VIEW_ID === 'xbot.iteration-stats.badge' && ITER_STATS_CONTAINER === 'status_bar_right');
+
+// ── 可开性判据（⛔ 用户原话「统计插件的面板我们看不到」的根因，2026-10-13）────────────
+// 容器词表取 web 权威 `web/src/plugin-api/manifest.ts:16 ViewContainer`。
+// 判别力自证：让 `isPanelContainer` 对 `status_bar_right` 返回 true ⇒ 下面第 5/6 条红；
+//             openable 计算去掉 `!dynamic` ⇒ 第 10 条红；`pluginOpenHint` 恒返回 '' ⇒ 第 7/8 条红。
+ok('可开容器：right_sidebar/panel/main/bottom ⇒ true',
+  isPanelContainer('right_sidebar') && isPanelContainer('panel')
+  && isPanelContainer('main') && isPanelContainer('bottom'));
+ok('内嵌容器：info_bar/status_bar_right/iteration ⇒ false（不是面板）',
+  !isPanelContainer('info_bar') && !isPanelContainer('status_bar_right')
+  && !isPanelContainer('iteration'));
+ok('未知容器/空 ⇒ false（安全方向：宁可信息行，不给空页）',
+  !isPanelContainer('') && !isPanelContainer('sidebar_v2'));
+
+const catIter: PluginCatalog = buildPluginCatalog({
+  plugins: [{
+    id: 'xbot.iteration-stats', name: '迭代指标', entry: 'index.js', version: '1.0.0',
+    contributes: [{ kind: 'view', id: 'xbot.iteration-stats.badge', container: 'status_bar_right', title: 'view.badge.title', entry: 'index.js' }],
+  }],
+} as unknown as WebPluginListWire, 'zh-CN', 'http://x:8082');
+ok('可开性：只声明状态栏徽章的插件 ⇒ 不可开（点开只能得到空页）',
+  catIter.items[0].openable === false);
+eq('提示：徽章类插件 ⇒ 「已挂载：状态栏」（告诉它已在哪儿生效）',
+  pluginOpenHint(catIter.items[0]), '已挂载：状态栏');
+
+const catGenui: PluginCatalog = buildPluginCatalog({
+  plugins: [{ id: 'xbot.genui', name: 'GenUI', entry: 'index.js', version: '1.0.0' }],
+} as unknown as WebPluginListWire, 'zh-CN', 'http://x:8082');
+ok('可开性：未声明 contributes 的插件 ⇒ 不可开（视图由宿主内置渲染）',
+  catGenui.items[0].openable === false);
+eq('提示：无视图贡献点 ⇒ 「未声明面板」', pluginOpenHint(catGenui.items[0]), '未声明面板');
+
+const catGit: PluginCatalog = buildPluginCatalog({
+  plugins: [{
+    id: 'xbot.git-fancy', name: 'Git', entry: 'index.js', version: '0.3.5',
+    contributes: [
+      { kind: 'view', id: 'xbot.git-fancy.panel', container: 'right_sidebar', entry: 'index.js' },
+      { kind: 'view', id: 'xbot.git-fancy.commit', container: 'main', dynamic: true, entry: 'commit.js' },
+    ],
+  }],
+} as unknown as WebPluginListWire, 'zh-CN', 'http://x:8082');
+ok('可开性：有右栏面板（非 dynamic）⇒ 可开', catGit.items[0].openable === true);
+eq('提示：可开的插件不显示提示', pluginOpenHint(catGit.items[0]), '');
+
+const catDynOnly: PluginCatalog = buildPluginCatalog({
+  plugins: [{
+    id: 'xbot.dyn', name: 'D', entry: 'index.js',
+    contributes: [{ kind: 'view', id: 'xbot.dyn.commit', container: 'main', dynamic: true, entry: 'commit.js' }],
+  }],
+} as unknown as WebPluginListWire, 'zh-CN', 'http://x:8082');
+ok('可开性：只有 main+dynamic 视图 ⇒ 不可开（dynamic 只能由宿主带参打开，没有 URL 入口）',
+  catDynOnly.items[0].openable === false);
+
+const catSsh: PluginCatalog = buildPluginCatalog({
+  plugins: [{
+    id: 'xbot.ssh-runner', name: '远程机器', entry: 'index.js', version: '1.0.6',
+    contributes: [
+      { kind: 'view', id: 'xbot.ssh-runner.panel', container: 'right_sidebar', icon: 'server', entry: 'index.js' },
+      { kind: 'view', id: 'xbot.ssh-runner.bar', container: 'info_bar', icon: 'server', entry: 'bar.js' },
+    ],
+  }],
+} as unknown as WebPluginListWire, 'zh-CN', 'http://x:8082');
+ok('可开性：面板 + 信息栏混合 ⇒ 可开（有面板即可）', catSsh.items[0].openable === true);
 
 if (fail > 0) {
   console.log(`  ✗ plugin_native_views: ${pass} passed, ${fail} failed`);
