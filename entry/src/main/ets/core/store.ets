@@ -27,7 +27,7 @@ import { canonicalChatId, channelForChat } from './sessionpick';
 import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
 import { moveOrders, parseSearchHits, searchBody, SEARCH_LIMIT_DEFAULT, SearchBody, chatSwitchPath, chatSwitchChannel, ChatSwitchResult, parseChatSwitch } from './sessionops';
 import { RewindReq, RewindTarget, gapTopBefore, rewindTargetDBID } from './msgops';
-import { activeSubAgentNodes, BgTask, CronJob, findSessionNodeOf, KillBgTaskParams, RunnerRow, SubAgentRow, subAgentRowOf, isWidgetEvent } from './panels';
+import { activeSubAgentNodes, BgTask, CronJob, resolveSessionNode, KillBgTaskParams, RunnerRow, SubAgentRow, subAgentRowOf, isWidgetEvent } from './panels';
 import { PromoteShellParams, PromoteShellResult, promoteSessionKey } from './toolshell';
 import { TerminalInfo } from './termproto';
 import { serverKey, toLocalSettings, KEY_ACCENT } from './settings';
@@ -435,7 +435,10 @@ export class ChatStore {
     //     web 列的是当前会话的子代理树（后端实测 `harmony-ui-dev` 有 19 个 `type=agent` 子项）。
     //  ⚠️ 服务端 Go 的 nil slice → JSON `null` ⇒ 一律 `arrOrEmpty`/三态取值（历史 P0 形态）。
     //  ⚠️ 必须在 `list` 声明**之后**（否则 TS2448 块级变量先用后声明 —— 本轮编译真红过）。
-    const node: SessionItem | null = findSessionNodeOf(list, this.currentChatId);
+    //  ⛔ 用**规范化**解析器（`resolveSessionNode`）而非按原值精确比对：会话树实测同时给出
+    //     「幽灵行」（`chat_id='web:chat_X'`、`children=0`）与「真身行」（`chat_id='chat_X'`、
+    //     `children=19`），而本仓 `currentChatId` 是全键 ⇒ 精确比对**恰好命中幽灵** ⇒ 本 tab 恒空。
+    const node: SessionItem | null = resolveSessionNode(list, this.channel, this.currentChatId);
     const actives: SessionItem[] = activeSubAgentNodes(node);
     const subs: SubAgentRow[] = [];
     for (let i = 0; i < actives.length; i++) {
@@ -453,19 +456,10 @@ export class ChatStore {
     //     · running=false ⇒ 把仍在 live 的 turn 定格收尾（内容保留，绝不 wipe）。
     //   busy 本身由 AgentPanel 三元公式**计算**（get busy），不再在此手写对账 ——
     //   手写"对账窗口"正是「busy 残留 / 切会话几秒不对」的根源（真机 2026-10-10）。
-    let found: boolean = false;
-    for (let i = 0; i < this.sessions.length; i++) {
-      if (this.sessions[i].chat_id !== this.currentChatId) {
-        continue;
-      }
-      found = true;
-      this.pushEvent({ type: 'session_running', running: this.sessions[i].running === true });
-      break;
-    }
-    // web 用 `currentSession?.running ?? false`：会话不在列表里 ⇒ 权威值回落 false
-    if (!found) {
-      this.pushEvent({ type: 'session_running', running: false });
-    }
+    //  ⛔ 与子代理同一解析器（`resolveSessionNode`）：按原值精确比对会命中幽灵行
+    //     （`running` 字段缺失 ⇒ 恒 false）⇒ 真身 `running=true` 永远丢。
+    const runNode: SessionItem | null = resolveSessionNode(list, this.channel, this.currentChatId);
+    this.pushEvent({ type: 'session_running', running: runNode !== null && runNode.running === true });
     this.onUpdate();
   }
 

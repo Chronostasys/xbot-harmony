@@ -17,6 +17,7 @@
 
 import { GAP_ROW_Y, HIT_TARGET_MIN, SPACE_SM, SPACE_XS } from './design';
 import { arrOrEmpty } from './guards';
+import { canonicalChatId } from './sessionpick';
 import { ST_ERROR, toolStatusKind } from './toolstatus';
 import { SessionItem, SseEventType } from './types';
 
@@ -102,8 +103,74 @@ export function findSessionNodeOf(
 }
 
 /**
+ * 按**规范化** `chat_id` 解析「当前会话节点」—— 会话树里同一会话可能出现**两行**时挑**真身**。
+ *
+ * ── 为什么必须有（2026-10-13 服务端铁证，同一根因第三次咬人）────────────────────────
+ *   `/api/session-tree` 实测同时给出：
+ *     · `chat_id='web:chat_026B…'`（**幽灵行**：客户端曾把全键当裸 id 发出、由服务端新建；
+ *       `children=0`、无 `running`、`work_dir` 是默认值）
+ *     · `chat_id='chat_026B…'`（**真身**：`children=19`、`running=true`、`work_dir` 正确）
+ *   而本仓 `currentChatId` 是**全键** ⇒ 按原值精确比对**恰好命中幽灵行** ⇒
+ *     ① 面板「代理」tab **结构性永远空**（幽灵行 `children=0`，`activeSubAgentNodes` 返回空）；
+ *     ② 忙态对账恒拿到 `running=false`（幽灵行无该字段 ⇒ `=== true` 为假）⇒
+ *        「会话在跑」永远不会被服务端权威确认。
+ *   ⇒ 一律**规范化后**比较；同一 id 多行时优先 `children` 多者（真身判据），
+ *     并列再优先 `running === true`，仍并列取先见（顺序稳定 ⇒ 可断言）。
+ *
+ * ⚠️ 全树递归（含 `children`）：子代理会话也可被切为当前会话（树里其 `chat_id` 形如
+ *   `web:chat_X/explore:y`，规范化后保留 `/` 尾缀 ⇒ **不会**与根会话相撞）。
+ */
+export function resolveSessionNode(
+  nodes: SessionItem[] | null | undefined, channel: string, chatId: string,
+): SessionItem | null {
+  const want: string = canonicalChatId(channel, chatId);
+  if (want.length === 0) {
+    return null;
+  }
+  const hits: SessionItem[] = [];
+  collectCanonicalNodes(nodes, channel, want, hits);
+  let best: SessionItem | null = null;
+  for (let i = 0; i < hits.length; i++) {
+    const cand: SessionItem = hits[i];
+    if (best === null) {
+      best = cand;
+      continue;
+    }
+    const cn: number = arrOrEmpty(cand.children).length;
+    const bn: number = arrOrEmpty(best.children).length;
+    if (cn > bn) {
+      best = cand;
+      continue;
+    }
+    if (cn === bn && cand.running === true && best.running !== true) {
+      best = cand;
+    }
+  }
+  return best;
+}
+
+/** `resolveSessionNode` 的递归收集器（节点自带 channel 优先，缺字段回落调用方渠道）。 */
+function collectCanonicalNodes(
+  nodes: SessionItem[] | null | undefined, channel: string, want: string, out: SessionItem[],
+): void {
+  const src: SessionItem[] = arrOrEmpty(nodes);
+  for (let i = 0; i < src.length; i++) {
+    const n: SessionItem | null | undefined = src[i];
+    if (n === null || n === undefined) {
+      continue;
+    }
+    const ch: string = n.channel !== undefined && n.channel.length > 0 ? n.channel : channel;
+    if (canonicalChatId(ch, n.chat_id) === want) {
+      out.push(n);
+    }
+    collectCanonicalNodes(n.children, channel, want, out);
+  }
+}
+
+/**
  * 子代理「活跃」判据 —— **逐字对齐** web `TasksPanel.tsx:300 isActiveSubAgent`：
  *   `running === true || status ∈ {running, waiting_input, pending}`。
+ * ⛔ `active` **不算**（与 `core/subagent.ets:isLiveSubAgent` 是两条有意不同的判据）。
  */
 export function isActiveSubAgent(s: SessionItem): boolean {
   const st: string = s.status !== undefined && s.status !== null ? s.status : '';

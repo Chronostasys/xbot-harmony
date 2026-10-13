@@ -24,7 +24,7 @@ declare const process: { exit: (c: number) => void };
 import { SessionItem } from '../../entry/src/main/ets/core/types';
 import {
   activeSubAgentNodes, findSessionNodeOf, flattenSubAgentNodes, isActiveSubAgent,
-  subagentPrimary, subagentSubText, subAgentRowOf,
+  resolveSessionNode, subagentPrimary, subagentSubText, subAgentRowOf,
 } from '../../entry/src/main/ets/core/panels';
 
 let pass = 0, fail = 0;
@@ -92,6 +92,32 @@ eq('④ 找嵌套节点', findSessionNodeOf([tree], 'a1')?.chat_id, 'a1');
 eq('④ 找根节点', findSessionNodeOf([tree], 'p')?.chat_id, 'p');
 eq('④ 找不到 ⇒ null', findSessionNodeOf([tree], 'nope'), null);
 eq('④ null 入参 ⇒ null', findSessionNodeOf(null, 'a'), null);
+
+// ── ④b `resolveSessionNode`：**幽灵行 vs 真身行**（2026-10-13 服务端铁证）────────────
+//   `/api/session-tree` 实测同时给出 `chat_id='web:chat_X'`（幽灵：children=0、无 running）
+//   与 `chat_id='chat_X'`（真身：children=19、running=true），而本仓 `currentChatId` 是**全键**
+//   ⇒ 按原值精确比对**恰好命中幽灵** ⇒ ① 本 tab 恒空 ② 忙态对账恒 false。
+const phantom = node('web:chat_X', { channel: 'web' });
+const real = node('chat_X', { channel: 'web', running: true, children: [node('m1'), node('m2')] });
+const both = [phantom, real];
+eq('④b 全键入参 ⇒ 命中**真身**（children 多者）', resolveSessionNode(both, 'web', 'web:chat_X')?.chat_id, 'chat_X');
+eq('④b 裸 id 入参 ⇒ 同一真身', resolveSessionNode(both, 'web', 'chat_X')?.chat_id, 'chat_X');
+eq('④b 只有幽灵行 ⇒ 仍能解析到它（不返回 null）', resolveSessionNode([phantom], 'web', 'web:chat_X')?.chat_id, 'web:chat_X');
+eq('④b children 并列 ⇒ 优先 running=true',
+  resolveSessionNode([node('web:chat_Y', { channel: 'web' }), node('chat_Y', { channel: 'web', running: true })],
+    'web', 'web:chat_Y')?.chat_id, 'chat_Y');
+eq('④b 子代理尾缀不与根会话相撞',
+  resolveSessionNode([real, node('web:chat_X/explore:z', { channel: 'web' })], 'web', 'web:chat_X')?.chat_id, 'chat_X');
+eq('④b 子代理会话自己可被解析',
+  resolveSessionNode([real, node('web:chat_X/explore:z', { channel: 'web' })], 'web', 'web:chat_X/explore:z')?.chat_id,
+  'web:chat_X/explore:z');
+eq('④b 无匹配 ⇒ null', resolveSessionNode(both, 'web', 'chat_NOPE'), null);
+eq('④b 空/ null 入参 ⇒ null', resolveSessionNode(null, 'web', 'chat_X'), null);
+eq('④b 空 chatId ⇒ null', resolveSessionNode(both, 'web', ''), null);
+eq('④b 不同 canonical id 的行不误配', resolveSessionNode([node('oc_1', { channel: 'feishu' })], 'web', 'web:oc_2'), null);
+// ⚠️ 有意为之：`canonicalChatId` 的产物**与渠道无关**（`feishu:oc_1` ⇒ `oc_1`）⇒ 解析器只按
+//    规范化 id 匹配。这正是要匹配的目标（同一会话的重复行），误配只可能来自"两行同 id"
+//    —— 那本来就是同一个会话；不同会话的 id 命名空间不同（`chat_*` / `oc_*` / `ou_*`）。
 
 // ── ⑤ 行映射：三态取值 + running 派生 ────────────────────────────────────────────
 const jnull = { chat_id: 'c', channel: null, label: null, role: null, instance: null, status: null, preview: null } as unknown as SessionItem;

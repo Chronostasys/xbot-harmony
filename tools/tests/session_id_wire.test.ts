@@ -53,6 +53,7 @@ function count(s: string, needle: string): number {
 const store: string = readSrc('entry/src/main/ets/core/store.ets');
 const dev: string = readSrc('entry/src/main/ets/components/SettingsDeveloper.ets');
 const pick: string = readSrc('entry/src/main/ets/core/sessionpick.ets');
+const panels: string = readSrc('entry/src/main/ets/core/panels.ets');
 
 // ── ① 零扫描判红 ────────────────────────────────────────────────────────────
 // ⚠️ 判据自证时踩过：阈值一开始拍成 50000，而 `store.ets` **剥注释后**实为 47314 ⇒ 假红。
@@ -85,6 +86,14 @@ eq('④ 标签用 sessionDisplayKey 恰 1 处', count(dev, 'sessionDisplayKey(th
 eq('④ ⛔ 不再出现双写标签', count(dev, '${this.channel}:${this.chatID}'), 0);
 eq('④ export.ets 的 TXT 头也走规范形态', count(readSrc('entry/src/main/ets/core/export.ets'),
   'sessionDisplayKey'), 0);
+
+// ── ⑤ 会话节点解析**接线**（⛔ 防回归：store 不许退回按原值精确比对）──────────────────
+eq('⑤ store 用 resolveSessionNode 恰 2 处（子代理 + 忙态对账）', count(store, 'resolveSessionNode(list, this.channel, this.currentChatId)'), 2);
+eq('⑤ ⛔ store 不再按原值精确比对 currentChatId', count(store, 'chat_id !== this.currentChatId'), 0);
+eq('⑤ ⛔ store 不再用 findSessionNodeOf 匹配当前会话', count(store, 'findSessionNodeOf(list, this.currentChatId)'), 0);
+eq('⑤ store 确已不再 import findSessionNodeOf', count(store, 'findSessionNodeOf,'), 0);
+eq('⑤ panels 导出 resolveSessionNode 恰 1 处', count(panels, 'export function resolveSessionNode('), 1);
+eq('⑤ panels 走规范化（canonicalChatId）', count(panels, 'canonicalChatId(ch, n.chat_id)'), 1);
 
 console.log(`  session_id_wire: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
