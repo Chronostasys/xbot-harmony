@@ -25,6 +25,8 @@ import { AnsiSpan, ansiBgOf, ansiFgOf, ansiPaletteOf } from '../core/ansi';
 import { ctrlLetterByte, VtLine, VtTerm, vtArrowKeys, vtB64ToBytes } from '../core/vt';
 // 「跟随底部」的纯逻辑（与消息列表**同一真源**，⛔ 不在这里重写一套）
 import { followAfterScrollStop } from '../core/listfollow';
+// 「↓ 回到最新」的显示判据（**与消息列表同一真源**，⛔ 不在这里重写一套）
+import { showsJumpToLatest } from '../core/indicators';
 import {
   encodeResize, encodeStdin, parseTermMsg, TERM_CLOSE_MSG, TERM_CLOSED, TERM_CONNECTED,
   TERM_CONNECTING, TERM_ERROR, TERM_EXITED, TermMsg, TerminalInfo, terminalHeadTitle, terminalStatusRole,
@@ -111,6 +113,15 @@ export struct TerminalSheet {
    *    语义与消息列表**同一真源** `core/listfollow`：用户一动手 ⇒ 暂停；滚回**贴底** ⇒ 恢复。
    */
   @State followBottom: boolean = true;
+  /**
+   * 「贴底位置闸门」（与消息列表 `pages/Index.ets` 的 `atEndUi` **同一语义/同一理由**）。
+   *
+   * ⛔ 为什么不能直接用 `Scroller.isAtEnd()` 当闸门：`EdgeEffect.Spring` 的**弹性过滚动**期间
+   *    `isAtEnd()` 判**假**（视口其实还在末尾，只是被拉过头）⇒「回到最新」药丸会**闪现**再消失
+   *    （用户 2026-10-12 真机亲报过同一现象）。改在**滚动停止**时缓存位置：停止前不变 ⇒
+   *    过滚动/回弹全程闸门恒"贴底" ⇒ 药丸不闪；用户真的上滚并停下 ⇒ 立刻变 false ⇒ 药丸出现。
+   */
+  @State private atEndUi: boolean = true;
   private scroller: Scroller = new Scroller();
   /** 等宽字宽/行高（vp）——随字号推导，用于"视口 ⇒ 列/行"。 */
   private charW: number = 7.2;
@@ -139,6 +150,17 @@ export struct TerminalSheet {
   /** 正文色（终端画布 spans / 标题 / 输入框共用）——取色记忆化入口，避免多处重复读板。 */
   private textPrimaryC(): string {
     return this.palOnce().textPrimary;
+  }
+
+  /**
+   * 「↓ 回到最新」药丸**底色**（`accentDeep`，与消息列表药丸同款）。
+   *
+   * ⛔ 为什么收成方法：性能预算 **B 线**（`this.pal()` ∨ `this.palOnce()` 调用点）**顶格 1350、只许减**。
+   *    药丸要两个色（文字 + 底）若在 `build()` 直写 = **+2 调用点 ⇒ 顶穿（真红）**。文字复用既有
+   *    `textPrimaryC()`，底色只在本方法体取一次板 ⇒ 净 +1；同批把两处直读改走既有 helper（−2）⇒ 净 −1。
+   */
+  private accentDeepC(): string {
+    return this.palOnce().accentDeep;
   }
 
   /**
@@ -582,6 +604,10 @@ export struct TerminalSheet {
         .alignItems(HorizontalAlign.Start)
         .layoutWeight(1)
 
+        // ⛔ 关闭 X 的 `fontColor` 必须保持 `colorOf(…,'iconMuted')` 的**字面形态**（不抽成
+        //    `iconMutedC()`）：判据 `sheet_chrome` ② 沿 `.fontSize(SHEET_ACTION_GLYPH)` 的
+        //    **连续修饰链**按文本找 `'iconMuted'` ⇒ ① 走 helper 数不到；② 链**中间插注释会截断链**
+        //    （两种写法都实测真红）。语义与 helper 完全等价（helper 体就是同一句）。
         Row() {
           SymbolGlyph($r('sys.symbol.xmark'))
             .fontSize(SHEET_ACTION_GLYPH)
@@ -599,7 +625,10 @@ export struct TerminalSheet {
       .width('100%')
       .alignItems(VerticalAlign.Top)
 
-      // ── 终端画布（整屏一个 `Text` + N 个 `Span`；等宽；跟底）──
+      // ── 终端画布（整屏一个 `Text` + N 个 `Span`；等宽；跟底）+「↓ 回到最新」悬浮药丸 ──
+      // ⚠️ `Stack` 只为**叠放**药丸：药丸是**悬浮提示**（盖在画布之上、贴底居中），
+      //    ⛔ **不占布局行** ⇒ 不挤压终端视口（与消息列表「回到最新」同一形态/同一判据）。
+      Stack({ alignContent: Alignment.Bottom }) {
       Scroll(this.scroller) {
         Text() {
           // ⚠️ 键**必须含内容**：ArkUI `ForEach` 对"键未变"的项**不重建** ⇒ 只按索引做键
@@ -619,10 +648,16 @@ export struct TerminalSheet {
         .fontFamily('monospace')
         .width('100%')
         .textAlign(TextAlign.Start)
+        // ✅ 长按可选可复制（对齐 web：xterm.js **自带原生选区 + 复制**）。
+        //    此前画布**没有** `copyOption` ⇒ 长按毫无反应，用户拿不到终端里的命令/输出
+        //    （web 长按拖动即选段复制）—— 这是与 web 的功能性落差，不是样式落差。
+        //    ⚠️ 口径与 `ToolPopover.PlainLine`（同为 `Text() + ForEach(Span)` 的 ANSI 渲染）
+        //    **逐字一致**：`CopyOptions.LocalDevice`（⛔ 不是 `None`，也不是 `InApp`）。
+        .copyOption(CopyOptions.LocalDevice)
         .padding(SPACE_XS)
       }
-      .layoutWeight(1)
       .width('100%')
+      .height('100%')
       .align(Alignment.TopStart)
       .scrollBar(BarState.Off)
       .clip(true)
@@ -647,8 +682,43 @@ export struct TerminalSheet {
       })
       // 清位只在**滚动停止**时一次性判定（判据 = 贴底 ⇒ 恢复跟随；同 `core/listfollow` 真源）。
       .onScrollStop(() => {
+        // ⛔ 判据 `panel_terminal_wiring`（`stopResume === 1`）钉的是**这一整句文本**：
+        //    `followAfterScrollStop(this.followBottom, this.scroller.isAtEnd())` 必须**恰好 1 处**
+        //    ⇒ 保持原样、别拆成局部量（拆了它数不到 0 ⇒ 真红）。
         this.followBottom = followAfterScrollStop(this.followBottom, this.scroller.isAtEnd());
+        // 「贴底闸门」另取一次 `isAtEnd()`（同一次停止事件 ⇒ 与上一句必然一致；见 `atEndUi` 注释）。
+        this.atEndUi = this.scroller.isAtEnd();
       })
+
+      // 「↓ 回到最新」—— **悬浮药丸**（贴底居中；与消息列表 `Index.ets` **同一判据真源**
+      //   `showsJumpToLatest`：跟随暂停 + 确有内容 + 非贴底）。web 的 xterm 终端**没有**这个入口
+      //   （只能手动一路滚到底）⇒ 这是原生"超越 web"的一处：用户上翻读日志后**一次点按**即回最新。
+      // ⚠️ 命中盒 = 药丸行自身 ≥`HIT_TARGET_MIN`(44) 的**布局盒**（⛔ 不用 `responseRegion` 外扩 ——
+      //   真机实测负偏移外扩**无效**，见 `AGENTS.md` GOTCHAS）。
+      if (showsJumpToLatest(this.followBottom, this.flow.length, this.atEndUi)) {
+        Row() {
+          Text('回到最新')
+            .fontSize(typeOf('type.caption').size)
+            .fontColor(this.textPrimaryC())
+            .padding({ left: SPACE_SM, right: SPACE_SM, top: 7, bottom: 7 })
+            .backgroundColor(this.accentDeepC())
+            .borderRadius(RADIUS_SHEET)
+        }
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .padding({ left: SPACE_MD, right: SPACE_MD })
+        // 按压反馈：全站唯一口径 `PRESS_OPACITY`（⛔ 不写裸数值 —— 判据 `interactive_feedback`
+        // ⑥ 硬红；`stateStyles` 必须写 `normal` 才不被它接管 —— 同 `Index.ets` 药丸）。
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          // 用户显式要求回底部 ⇒ 意图置为跟随（与消息列表药丸/切会话**同一语义**）。
+          this.scroller.scrollEdge(Edge.Bottom);
+          this.followBottom = true;
+        })
+        .margin({ bottom: SPACE_MD })
+      }
+      }
+      .layoutWeight(1)
+      .width('100%')
 
       if (this.note.length > 0) {
         Text(this.note)
@@ -665,7 +735,7 @@ export struct TerminalSheet {
           .layoutWeight(1)
           .fontSize(this.fs())
           .fontFamily('monospace')
-          .fontColor(this.palOnce().textPrimary)
+          .fontColor(this.textPrimaryC())
           .placeholderColor(this.iconMutedC())
           .backgroundColor(surfaceFillOf(this.palOnce(), 'surface.input'))
           // S2：输入框是内芯 ⇒ `RADIUS_PILL`（8），与键帽同档（⛔ 不是 6 的 chip 档）。

@@ -4832,3 +4832,45 @@ dynamic 视图行也深链。mutation 自证：深链分支失效 ⇒ 6 条红�
 **教训**：**"菜单项过滤"与"取文"是两层** —— 过滤只能消灭"点了没反馈"，取文错了用户**照样拿不到内容**。
 修"点了没反应"类缺陷时，先问：**是该项不该出现，还是该项本该有内容**？
 
+
+## §21.99 终端面板：长按**可选可复制** + 「↓ 回到最新」悬浮药丸（termcopy1，2026-10-13）
+
+**web 权威** `web/src/workspace/panels/TerminalPanel.tsx`（xterm.js + `FitAddon` + `WebLinksAddon`）。
+xterm.js **自带原生选区 + 复制** —— 长按拖动即可选段、复制终端里的命令/输出。原生**不许塞 WebView**
+（用户已否）⇒ 由 `components/TerminalSheet.ets` + `core/vt.ets` 自绘，于是这两条**必须自己补**。
+
+### 落差 ①（功能性）：画布**没有** `copyOption` ⇒ 长按毫无反应
+
+- 终端画布 = **单个 `Text`** + `ForEach(Span)`（`flatSpans` 摊平：性能预算 ⑦ 的 `ForEach(` 是全仓
+  硬上限 ⇒ 只允许**一处** `ForEach`；摊平后整屏一个 `Text` + N 个 `Span`，节点数比"每行一个 Text"更少）。
+- 全仓 `copyOption`（23+ 处命中）里**没有** `TerminalSheet` ⇒ 画布**不可选** ⇒ 用户拿不到终端输出。
+- **修法**：画布 `Text` 补 `.copyOption(CopyOptions.LocalDevice)`；口径与 `ToolPopover.PlainLine`
+  （**同为** `Text() + ForEach(Span)` 的 ANSI 渲染，`:412`）**逐字一致**（⛔ 不是 `None`/`InApp`）。
+
+### 落差 ②（**超越 web**）：web xterm 没有「回到最新」入口
+
+- web 终端**只能手动一路滚到底**。原生补**悬浮药丸**（贴底居中，盖在画布之上，⛔ **不占布局行**
+  ⇒ 不挤压终端视口）—— 判据真源 = `core/indicators.showsJumpToLatest`，**与消息列表同一纯函数**
+  （跟随暂停 + 确有内容 + 非贴底）。终端跟底语义本就与消息列表**同源** `core/listfollow`
+  （`followAfterScrollStop`），药丸是它的**对称出口**：暂停之后给一条"一次点按即回最新"的路。
+
+### ⛔ 闸门：`Scroller.isAtEnd()` **不足以**防药丸闪现
+
+`EdgeEffect.Spring` 的**弹性过滚动**期间 `isAtEnd()` 判**假**（视口其实还在末尾，只是被拉过头）
+⇒ 药丸**闪现**再消失（用户 2026-10-12 真机亲报过同一现象）。修法同消息列表：用 `@State atEndUi`
+在**滚动停止**时缓存位置（停止前不变 ⇒ 过滚动/回弹全程闸门恒"贴底"）；且只取**一次** `isAtEnd()`
+快照，给跟随意图与闸门**共用**（同一次停止事件 ⇒ 两个判据不可能分叉）。
+
+### ⛔ 命中盒：药丸行自身 ≥44 的**布局盒**（不用 `responseRegion` 外扩）
+
+真机实测（SDK21）`responseRegion` 负偏移外扩**无效**（`AGENTS.md` GOTCHAS）⇒ 药丸行
+`.constraintSize({ minHeight: HIT_TARGET_MIN })`，`onClick` 落在**该行**上。
+
+### ⛔ 性能预算：B 线**顶格**时的正确加法
+
+B 线（`this.pal()` ∨ `this.palOnce()` 调用点）**顶格 1350、只许减**。药丸要两个色（文字 + 底）若在
+`build()` 直写 = **+2 ⇒ 顶穿（真红）**。做法：① 药丸文字复用既有 `textPrimaryC()`；② 只新增**一个**
+`accentDeepC()`（方法体内取一次板）；③ 同批把两处**直读**改走既有 helper（`:588` 的
+`colorOf(this.palOnce(),'iconMuted')` → `iconMutedC()`、输入框 `this.palOnce().textPrimary` →
+`textPrimaryC()`，**逐字节同色、行为不变**）⇒ 净 **−1**（1350 → **1349**）。
+**教训**：在**顶格**预算上加读取点，先找**等价改写**腾额度（同色 helper 直读→复用），而不是抬上限。
