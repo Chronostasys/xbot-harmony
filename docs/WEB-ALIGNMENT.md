@@ -5044,3 +5044,33 @@ web 权威 `SettingsLLM.tsx:248-271`：那一行**只有 4 枚按钮**（`justif
    选中态 = 实心 accent，非"页签"语义 ⇒ 与运行面板/设置页签的文字+下划线**不矛盾**（不同控件族）。
 3. **设置页签 3×4 网格**（`外观/工具/模型/智能体` …）：web 移动端是**横向滚动** nav，原生用换行网格
    是**手机宽度下的合理适配**（12 项若横滚则多数不可见）⇒ 维持。
+
+## §21.105 存储分区：后端选项**一枚都不选中** —— 未设置时回落到"正在运行"的 provider（panels8，2026-10-13）
+
+### 取证（服务端 + 真机逐像素，双铁证）
+
+- 服务端 `POST /api/rpc {"method":"get_storage_config"}` 实测：**`provider = ''`（未设置）** 而
+  **`_active = 'local'`**（含完整 `_schema`：provider 为 `select`，5 个 option）。
+- 真机 BMP（`/tmp/s_storage.jpeg`）：5 枚选项 chip 底色**全为 `#13141c`**、选项区**零 accent 像素**
+  ⇒ **一枚都不选中**；而紧邻上方写着「当前生效 Local static (this server)」⇒ 同一张卡里两句话
+  互相打脸（用户看不出当前值，必须回头读上面那行）。
+
+**根因**：chip 行比对的是**存储值**（空串）⇒ 无匹配。
+**web 权威** `web/src/components/settings/SettingsStorage.tsx:144-154`：用的是原生
+`<select value={valueOf('provider')}>` —— 值为空时**浏览器按 HTML 规则回落到第一项**
+⇒ 用户看到的就是"local 已选" ⇒ 本仓需显式做到**同一可观测行为**（⛔ 不是自造新语义）。
+
+### 修法（只改**展示值**，不碰数据）
+
+`components/SettingsStorage.ets` 新增 `providerChipValue()`：已保存值非空 ⇒ 原值；
+空 ⇒ `liveStorageProvider(config)`（即 `_active`）。chip 行的 `value` 改用它。
+⛔ `fieldValue()`（脏检查 `storageDirty` 与保存载荷 `buildStorageValues` 的输入）**一律不动**
+⇒ 不产生"假脏"、不改变保存内容（空值仍保存空值，服务端语义不变）。
+⛔ helper 无 `pal()`/`palOnce()` ⇒ 未新增取色调用。
+
+### 判据与纪律
+
+- 装机复拍 `/tmp/v6_storage.jpeg`：accent 选中芯出现（y=1844，`x 191..715` ⇒ 宽 524px ≈ 155vp，
+  正是「Local static (this server)」那枚）✓（修前同一量测**零 accent 像素**）。
+- `bash tools/gate.sh` ⇒ `GATE_EXIT=0` + `✅ 真门禁全绿`（④ `BUILD SUCCESSFUL in 5 s 107 ms`）。
+- 判据：`settings`（17 文件）全绿、`settings_value_sets` 21、`storage` 契约 76。
