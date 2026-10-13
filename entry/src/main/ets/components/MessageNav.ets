@@ -166,7 +166,7 @@ struct NavItemView {
     .constraintSize({ minHeight: HIT_TARGET_MIN })
     .padding({ left: SPACE_XS, right: SPACE_XS, top: ITEM_PAD_Y, bottom: ITEM_PAD_Y })
     // 当前项高亮（web `bg-accent/10`）；其余透明
-    .backgroundColor(this.row.active ? withAlpha(this.pal().accent, ACCENT_TINT) : this.pal().transparent)
+    .backgroundColor(this.row.active ? withAlpha(this.pal().accent, ACCENT_TINT) : Color.Transparent)
     // 按压反馈：**只写 `pressed`**（⛔ 不写 `normal` —— `normal` 会**接管**被它命名的属性，
     // 本仓 `ThinkingLine` 踩过；此条目虽暂无动态 opacity，但留着 `normal` 是同一坑的隐患）。
     // 全站统一手法（DESIGN-SYSTEM §4）：按压 = opacity（触屏行不加 scale，避免整行抖动）。

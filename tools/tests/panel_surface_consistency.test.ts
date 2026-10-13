@@ -194,12 +194,39 @@ for (const pair of PANELS) {
   if (slice.length > 1000) { roles.push(roleOf(lastBgArg(slice))); scanned++; }
 }
 
+// ── B2. 页面内其余两张曾为玻璃的**底部 sheet**（新建会话 / 运行面板）─────────────
+// 2026-10-13（目标③「所有面板同一家族」）：`NewSessionSheet` / `PanelsSheet` 与抽屉同批
+// 曾用 `eff().glassBg + BlurStyle.Thin`，而 8 个居中浮层 + 抽屉根早已统一实底 overlay。
+// 这两张是**大面底部 sheet**（运行面板 60% 屏高、新建会话占满下部）⇒ 玻璃把背后高密度
+// 正文透上来 =「脏」⇒ 与家族统一为实底 overlay（去 blur）。
+{
+  const idxRel = 'entry/src/main/ets/pages/Index.ets';
+  const idxSrc: string = stripComments(fsMod.readFileSync(pathMod.join(ROOT, idxRel), 'utf-8'));
+  const inPage: string[][] = [
+    ['NewSessionSheet（新建会话）', 'NewSessionSheet() {'],
+    ['PanelsSheet（运行面板）', 'PanelsSheet() {'],
+  ];
+  for (const pair of inPage) {
+    const name: string = pair[0];
+    const start: number = idxSrc.indexOf(pair[1]);
+    const endAt: number = idxSrc.indexOf('@Builder', start + 10);
+    const slice: string = start >= 0 ? idxSrc.substring(start, endAt > start ? endAt : start + 9000) : '';
+    ok(`${name} 切片非空（零扫描判红）`, slice.length > 500, `len=${slice.length}`);
+    if (slice.length > 500) {
+      ok(`${name} 根容器 = 实底 overlay 面`, isOverlaySurface(lastBgArg(slice)), `got: ${lastBgArg(slice)}`);
+      ok(`${name} 已无 glassBg（透字源）`, slice.indexOf('glassBg') < 0);
+      ok(`${name} 已无 backgroundBlurStyle（透字源）`, slice.indexOf('backgroundBlurStyle') < 0);
+      roles.push(roleOf(lastBgArg(slice))); scanned++;
+    }
+  }
+}
+
 // ── C. 同一 role 口径（防"两家口径"式漂移）───────────────────────────────────────
 {
-  ok('C0. 零扫描判红：扫到 9 个浮层根容器', scanned === 9, `scanned=${scanned}`);
+  ok('C0. 零扫描判红：扫到 11 个浮层根容器', scanned === 11, `scanned=${scanned}`);
   const uniq: string[] = [];
   for (const r of roles) { if (uniq.indexOf(r) < 0) { uniq.push(r); } }
-  ok('C1. 9 处根容器面语言**唯一**（无第二家口径）', uniq.length === 1, `uniq=${JSON.stringify(uniq)}`);
+  ok('C1. 11 处根容器面语言**唯一**（无第二家口径）', uniq.length === 1, `uniq=${JSON.stringify(uniq)}`);
   ok('C2. 该唯一口径 = 实底 overlay 面', uniq.length === 1 && uniq[0] === 'surface.overlay', `uniq=${JSON.stringify(uniq)}`);
 }
 

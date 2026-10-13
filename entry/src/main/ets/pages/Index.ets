@@ -8024,7 +8024,7 @@ struct Index {
    *
    * 无参 `@Builder`（读 `this` 状态）⇒ 满足"带参 @Builder 子树不随参数重建"纪律：
    * 候选/输入都是页面 `@State`，删一条立即反映（同 web `setRecentWorkDirs`）。
-   * 样式与既有 sheet 同源（glass 材质）；⛔ **不加**入场动效（见方法尾注释）；命中区全 ≥44 真实布局盒。
+   * 样式与既有 sheet 同源（实底 overlay 面）；⛔ **不加**入场动效（见方法尾注释）；命中区全 ≥44 真实布局盒。
    */
   @Builder
   NewSessionSheet() {
@@ -8225,10 +8225,9 @@ struct Index {
       .width('100%')
     }
     .width('100%').padding(SPACE_MD)
-    .backgroundColor(this.eff().glassBg)
-    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.glassMode() })
+    .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .borderRadius({ topLeft: R_2XL, topRight: R_2XL })
-    .border({ width: 1, color: this.eff().glassBorder })
+    .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
     .alignItems(HorizontalAlign.Start)
     // ⛔ 有意**不加** `.transition(sheetTransition())`：遵守「不新增未登记动效」——
     //    `pages/Index.ets` 的动效台账（`tools/tests/motion_budget.test.ts`）为 3，此处加第 4 处会
@@ -8512,10 +8511,9 @@ struct Index {
     //    ⇒ 一屏能看 ~6 行；空态仍在顶部（内容少时 sheet 不塌、也不留突兀空白）。
     .height('60%')
     .padding(SPACE_MD)
-    .backgroundColor(this.eff().glassBg)
-    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.glassMode() })
+    .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .borderRadius({ topLeft: R_2XL, topRight: R_2XL })
-    .border({ width: 1, color: this.eff().glassBorder })
+    .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
     .alignItems(HorizontalAlign.Start)
     .transition(sheetTransition())
   }
@@ -8953,7 +8951,7 @@ struct Index {
                 this.sessQuery = v;
               })
               .layoutWeight(1)
-              .backgroundColor(this.palOnce().transparent)
+              .backgroundColor(Color.Transparent)
               .fontColor(this.palOnce().textPrimary)
               .fontSize(typeOf('type.subhead').size)
               .padding({ left: 0, right: 0 })
@@ -9067,7 +9065,7 @@ struct Index {
                 .alignItems(VerticalAlign.Center)
                 .backgroundColor(c === this.sessionCategory()
                   ? surfaceFillOf(this.pal(), 'surface.card')
-                  : this.pal().transparent)
+                  : Color.Transparent)
                 .borderRadius(RADIUS_CHIP)
                 // 选中态缓动（Apple `UISegmentedControl` 的选中是**渐变**、不是硬切）：走底座
                 // `animBase()`（⛔ 不新建曲线对象，受 `anim*()` ≤20 预算约束）。只动底色

@@ -169,7 +169,7 @@ struct SubAgentRowView {
     .margin(this.isChild() ? { left: CHILD_INDENT } : {})
     // 命中区 ≥ `HIT_TARGET_MIN`（Apple HIG）：卡片行/子行按"可点行"给足高度（openable 时真可点）。
     .constraintSize({ minHeight: HIT_TARGET_MIN })
-    .backgroundColor(this.isChild() ? this.pal().transparent
+    .backgroundColor(this.isChild() ? Color.Transparent
       : withAlpha(surfaceFillOf(this.pal(), SURFACE_CARD), CARD_BG_ALPHA))
     .borderRadius(this.isChild() ? 0 : RADIUS_CARD)
     .border(this.isChild()
