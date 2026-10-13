@@ -771,3 +771,90 @@ export function pluginViewTarget(v: PluginViewItem, base: string): PluginOpenTar
   //    拼不出深链（无 base / 无 id）⇒ 空串，调用方据此**不导航**（比载入主界面正确）。
   return new PluginOpenTarget('', label);
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 插件视图导航拦截协议（2026-10-13，目标④「支持 web 所有插件 + 未来插件」）
+//
+// 问题（用户插话）：插件是「原生落地」（git-fancy → GitPanelSheet 等）可以接受，但**不能写死**。
+//   需要一套**专门的协议**：插件交互要求"打开 web 的别的页面"（如 git 的 commit 详情 / diff）时，
+//   原生端应**拦截**这个"打开"动作，转成打开**原生**面板 —— 而不是真的在 WebView 里跳过去。
+//
+// 协议 = 「深链 URL」两端同源：
+//   · 生成端：`pluginViewDeepLink`（本文件上方）→ `<base>?xbot_view=<viewId>&xbot_view_title=<title>`
+//     （web `ctx.ui.openViewTab` 打开视图时，宿主页会把视图映射成这条深链导航）。
+//   · 解析端：`parseXbotViewLink`（下方）—— WebView 的 `onLoadIntercept` 里解析导航 URL。
+//   · 路由端：`nativeViewKind`（下方）—— viewId ⇒ 原生面板 kind 的**注册表**（可扩展）。
+//   ⛔ 无原生落地的 viewId ⇒ 放行 WebView（web 宿主页兜底，任何插件都还能用）。
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** 深链里的视图标识（`?xbot_view=<viewId>&xbot_view_title=<title>`）。 */
+export class XbotViewLink {
+  viewId: string = '';
+  title: string = '';
+
+  constructor(viewId: string, title: string) {
+    this.viewId = viewId;
+    this.title = title;
+  }
+}
+
+/**
+ * 从 URL 解析 `?xbot_view=<viewId>&xbot_view_title=<title>`（无深链 ⇒ null）。
+ * ⛔ 与 `pluginViewDeepLink` 是**同一协议的两端**（一个生成、一个解析），不得各写一套。
+ * ⚠️ `decodeURIComponent` 失败（坏编码）⇒ 回落原串（拦截协议**只识别**，不做二次校验）。
+ */
+export function parseXbotViewLink(url: string): XbotViewLink | null {
+  const u: string = url !== undefined && url !== null ? url.trim() : '';
+  if (u.length === 0) {
+    return null;
+  }
+  const qi: number = u.indexOf('?');
+  if (qi < 0) {
+    return null;
+  }
+  let viewId: string = '';
+  let title: string = '';
+  const pairs: string[] = u.substring(qi + 1).split('&');
+  for (let i = 0; i < pairs.length; i++) {
+    const eq: number = pairs[i].indexOf('=');
+    if (eq < 0) {
+      continue;
+    }
+    const k: string = pairs[i].substring(0, eq);
+    const v: string = pairs[i].substring(eq + 1);
+    if (k === 'xbot_view') {
+      viewId = v;
+    } else if (k === 'xbot_view_title') {
+      title = v;
+    }
+  }
+  if (viewId.length === 0) {
+    return null;
+  }
+  let vid: string = viewId;
+  let tt: string = title;
+  try {
+    vid = decodeURIComponent(viewId);
+  } catch (e) {
+    vid = viewId;
+  }
+  try {
+    tt = decodeURIComponent(title);
+  } catch (e) {
+    tt = title;
+  }
+  return new XbotViewLink(vid, tt);
+}
+
+/**
+ * viewId ⇒ 原生面板 kind（**原生落地注册表**，可扩展）。
+ * 返回非空 = 原生端拦截该深链并打开对应原生面板；返回空 = 无原生落地 ⇒ 放行 WebView 兜底。
+ * 未来新插件的原生落地往这里加一条（协议层 `parseXbotViewLink` **无需改**）。
+ */
+export function nativeViewKind(viewId: string): string {
+  const v: string = viewId !== undefined && viewId !== null ? viewId : '';
+  if (v === 'xbot.git-fancy.panel' || v === 'xbot.git-fancy.commit') {
+    return 'git';
+  }
+  return '';
+}

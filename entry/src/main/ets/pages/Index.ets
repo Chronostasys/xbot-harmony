@@ -88,7 +88,7 @@ import {
   normalizeSessionCategory, pathGroupTooltip, relativeTimeLabel, SESSION_CATEGORIES, SessionGroup, sessionCategoryLabel,
 } from '../core/sessiongroup';
 import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msgindex';
-import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, PluginOpenTarget, PluginViewItem, WebPluginListWire, buildPluginCatalog, pluginOpenTarget, pluginViewDeepLink, pluginViewTarget, primaryViewId } from '../core/pluginhost';
+import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, PluginOpenTarget, PluginViewItem, WebPluginListWire, buildPluginCatalog, nativeViewKind, pluginOpenTarget, pluginViewDeepLink, pluginViewTarget, primaryViewId } from '../core/pluginhost';
 import { hasIterStatsBadge, iterStatsText } from '../core/pluginviews';
 import { SkillItem } from '../core/skills';
 import { FsFileEntry, FsReadResult, FsSearchEntry, fileKindOf, FK_IMAGE, fsMention, sortFsEntries, sortFsSearch } from '../core/files';
@@ -3902,6 +3902,23 @@ struct Index {
     }
   }
 
+  /**
+   * 插件视图深链导航 → 原生面板路由（「插件视图导航拦截协议」的路由端）。
+   * WebSurface 的 `onLoadIntercept` 拦截到 `?xbot_view=<viewId>` 深链后回调这里。
+   * ⛔ 只做一件事：按 `nativeViewKind(viewId)` 打开对应原生面板（无原生落地 ⇒ 不会进来）。
+   * ⚠️ 协议本身通用（任何插件视图都能走深链），这里只是"原生落地注册表"的分发。
+   */
+  private routePluginView(viewId: string, title: string, url: string): void {
+    const kind: string = nativeViewKind(viewId);
+    if (kind === 'git') {
+      // 先关插件宿主浮层（若拦截发生在宿主页里），再开原生 Git 面板
+      // （openGitPanel 内部再收抽屉/能力面板/panelUrl）。
+      this.showPluginHost = false;
+      this.openGitPanel();
+    }
+    // 未来新插件的原生落地：往 nativeViewKind 注册 + 这里加一条分支。
+  }
+
   // ── 原生 Git 面板（web 内置插件 `xbot.git-fancy` 的落地）────────────────────────
   // 为什么原生化：web 侧插件 view **没有静态 URL 入口**（只能经 `ctx.ui.openViewTab`），
   // 原生壳没有 React 宿主 ⇒ 点插件行只能落到 web 根页（聊天页）——用户「插件都打不开」。
@@ -4230,6 +4247,8 @@ struct Index {
         Stack() {
           WebSurface({ url: this.webUiUrl, theme: this.themeName, chrome: false, sessionCookie: this.cookie, onBridgeMessage: (m: BridgeMessage) => {
             this.handleBridgeMessage(m);
+          }, onOpenView: (viewId: string, title: string, url: string) => {
+            this.routePluginView(viewId, title, url);
           }, onClose: () => {
           } })
           Text('切回原生')
@@ -4868,6 +4887,8 @@ struct Index {
       if (this.panelUrl.length > 0) {
         WebSurface({ url: this.panelUrl, theme: this.themeName, sessionCookie: this.cookie, chromeLabel: this.panelTitle, onBridgeMessage: (m: BridgeMessage) => {
           this.handleBridgeMessage(m);
+        }, onOpenView: (viewId: string, title: string, url: string) => {
+          this.routePluginView(viewId, title, url);
         }, onClose: () => {
           this.panelUrl = '';
         } })
@@ -4977,6 +4998,10 @@ struct Index {
                 const t: PluginOpenTarget = pluginViewTarget(v, this.serverUrl);
                 this.pluginPageTitle = t.title;
                 this.pluginPageUrl = t.url;
+              },
+              onNativeView: (viewId: string, title: string, url: string) => {
+                // WebSurface 拦截到插件视图深链导航（`?xbot_view=<viewId>`）⇒ 路由到原生面板。
+                this.routePluginView(viewId, title, url);
               },
               onClose: () => {
                 this.pluginPageUrl = '';

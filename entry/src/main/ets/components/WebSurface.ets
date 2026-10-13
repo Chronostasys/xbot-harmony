@@ -10,7 +10,7 @@ import {
   WEB_PHASE_ERROR, WEB_PHASE_IDLE, WEB_PHASE_LOADING, WEB_PHASE_READY,
   WebStatus, webChromeLabel, webErrorDetail, webHttpErrorDetail, webStatusOf,
 } from '../core/pluginview';
-import { hostPageUrl } from '../core/pluginhost';
+import { hostPageUrl, nativeViewKind, parseXbotViewLink } from '../core/pluginhost';
 import {
   PRESS_OPACITY,   colorOf, hairlineOf, surfaceFillOf,
   HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_PILL, SPACE_XS, STROKE_HAIRLINE,
@@ -162,6 +162,15 @@ export struct WebSurface {
    *    默认空实现 ⇒ 未接线时消息被安全丢弃（不崩）。
    */
   onBridgeMessage: (m: BridgeMessage) => void = () => {
+  };
+
+  /**
+   * 插件视图**深链导航**被拦截时的回调（`?xbot_view=<viewId>` —— web 插件 `ctx.ui.openViewTab`
+   * 打开视图产生的导航）。由调用方接线，路由到原生面板（`nativeViewKind` 非空的那类）。
+   * ⛔ 默认空实现 ⇒ 未接线时 = 不拦截（`onLoadIntercept` 返回 false，放行 WebView 兜底）。
+   * ⚠️ 普通成员而非 `@Prop`（同 `onBridgeMessage`/`onClose`：函数回调不是可观测数据）。
+   */
+  onOpenView: (viewId: string, title: string, url: string) => void = (viewId: string, title: string, url: string) => {
   };
 
   /**
@@ -557,6 +566,23 @@ export struct WebSurface {
             this.phase = WEB_PHASE_ERROR;
             console.error('web http error (无法序列化)');
           }
+        })
+        // ── 插件视图**深链导航拦截**（2026-10-13，目标④「支持 web 所有插件 + 未来插件」）──
+        // web 插件 `ctx.ui.openViewTab` 打开视图时，宿主页会把视图映射成 `?xbot_view=<viewId>`
+        // 深链导航；原生端据此拦截，路由到原生面板（`nativeViewKind` 非空的那类）。
+        // ⛔ 返回 true = 拦截（不再让 WebView 加载）；false = 放行（无原生落地 ⇒ WebView 兜底）。
+        .onLoadIntercept((event) => {
+          try {
+            const targetUrl: string = event.data.getRequestUrl();
+            const link = parseXbotViewLink(targetUrl);
+            if (link !== null && nativeViewKind(link.viewId).length > 0) {
+              this.onOpenView(link.viewId, link.title, targetUrl);
+              return true;
+            }
+          } catch (e) {
+            // 拦截协议失败不得阻断导航（宁可放行走 WebView 兜底）
+          }
+          return false;
         })
         .width('100%')
         .layoutWeight(1)

@@ -15,7 +15,7 @@
  */
 declare const process: { exit: (c: number) => void };
 
-import { pluginViewDeepLink, primaryViewId, PluginViewItem } from '../../entry/src/main/ets/core/pluginhost';
+import { nativeViewKind, parseXbotViewLink, pluginViewDeepLink, primaryViewId, PluginViewItem } from '../../entry/src/main/ets/core/pluginhost';
 
 let pass = 0, fail = 0;
 function eq(name: string, got: unknown, want: unknown): void {
@@ -68,6 +68,30 @@ eq('空 viewId ⇒ 空串', pluginViewDeepLink('http://h', '', 'A'), '');
 // 深链的 query 必须只带视图身份，不带 token/path 等噪声（原生侧另带 cookie 鉴权）
 eq('深链只两个参数',
   pluginViewDeepLink('http://h', 'a.panel', 'A').split('?')[1].split('&').length, 2);
+
+// ── ⑤ 拦截协议：parseXbotViewLink（深链**解析端**，与 pluginViewDeepLink 同协议两端）──
+//   协议：web 插件 `ctx.ui.openViewTab` 打开视图 ⇒ 宿主页导航到 `?xbot_view=<viewId>` 深链
+//   ⇒ 原生端 `onLoadIntercept` 解析这条深链、路由到原生面板（见 nativeViewKind）。
+{
+  const l1 = parseXbotViewLink('http://127.0.0.1:8082/?xbot_view=xbot.git-fancy.panel&xbot_view_title=Git');
+  eq('解析标准深链 → viewId', l1 !== null ? l1.viewId : '', 'xbot.git-fancy.panel');
+  eq('解析标准深链 → title', l1 !== null ? l1.title : '', 'Git');
+  eq('标题 URL 解码', parseXbotViewLink('http://h/?xbot_view=a.panel&xbot_view_title=%E4%B8%AD%E6%96%87') !== null
+    ? (parseXbotViewLink('http://h/?xbot_view=a.panel&xbot_view_title=%E4%B8%AD%E6%96%87') as { title: string }).title : '', '中文');
+  eq('无 query ⇒ null', parseXbotViewLink('http://h/') === null, true);
+  eq('无 xbot_view ⇒ null', parseXbotViewLink('http://h/?foo=1') === null, true);
+  eq('xbot_view 空值 ⇒ null', parseXbotViewLink('http://h/?xbot_view=&xbot_view_title=A') === null, true);
+  const rt = parseXbotViewLink(pluginViewDeepLink('http://h', 'xbot.git-fancy.panel', 'Git 面板'));
+  eq('round-trip：生成→解析还原 viewId', rt !== null ? rt.viewId : '', 'xbot.git-fancy.panel');
+  eq('round-trip：还原中文 title', rt !== null ? rt.title : '', 'Git 面板');
+}
+
+// ── ⑥ 原生落地注册表 nativeViewKind（可扩展；空 = 放行 WebView 兜底）──────────────
+eq('git-fancy panel ⇒ git', nativeViewKind('xbot.git-fancy.panel'), 'git');
+eq('git-fancy commit ⇒ git', nativeViewKind('xbot.git-fancy.commit'), 'git');
+eq('ssh-runner panel ⇒ 空（无原生落地，放行 WebView）', nativeViewKind('xbot.ssh-runner.panel'), '');
+eq('未来插件 ⇒ 空（协议仍通用，不写死）', nativeViewKind('xbot.future-plugin.panel'), '');
+eq('空 viewId ⇒ 空', nativeViewKind(''), '');
 
 if (fail > 0) { console.log(`  plugin_view_link: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  plugin_view_link: ${pass} passed, 0 failed`);

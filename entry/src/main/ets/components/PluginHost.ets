@@ -106,6 +106,12 @@ export struct PluginHost {
   /** 关闭宿主页（WebSurface 的"‹ 返回"）。 */
   onClose: () => void = () => {
   };
+  /**
+   * WebSurface 拦截到插件视图深链导航（`?xbot_view=<viewId>`）时的回调 —— 透传给上层
+   * （上层用 `routePluginView` 路由到原生面板）。⛔ 默认空 = 不拦截（放行 WebView 兜底）。
+   */
+  onNativeView: (viewId: string, title: string, url: string) => void = (viewId: string, title: string, url: string) => {
+  };
 
   build() {
     Column() {
@@ -115,6 +121,9 @@ export struct PluginHost {
           url: this.panelUrl,
           theme: this.theme,
           chromeLabel: this.panelTitle,
+          onOpenView: (viewId: string, title: string, url: string) => {
+            this.onNativeView(viewId, title, url);
+          },
           onClose: () => {
             this.onClose();
           },
