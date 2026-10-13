@@ -43,7 +43,8 @@ import {
   canMove, MOVE_DOWN, MOVE_TOP, MOVE_UP, hitLine, sessionLabel, sessionMatches,
 } from '../core/sessionops';
 import {
-  BgTask, bgTaskMetaText, bgTaskOutputText, bgTaskPrimary, bgTaskRunning, bgTaskStatusText, bgTaskSubText,
+  BgTask, bgTaskLeadCode, bgTaskMetaText, bgTaskOutputText, bgTaskPrimary, bgTaskRunning, bgTaskStatusText, bgTaskSubText,
+  sortBgTasksActiveFirst,
   cmdOneLine,
   bgTaskTone, CronJob, cronMessageText, cronPrimary, cronSubText, cronTargetText, fmtDateTime,
   RunnerRow, runnerPrimary, runnerSubText, runnerTone, scheduleText,
@@ -7052,6 +7053,17 @@ struct Index {
 
   /** 刷新当前标签页的数据（每个标签只拉自己那一个端点）。 */
   /**
+   * 任务列表的**渲染序**：运行中置顶（判据 `core/panels.ets:sortBgTasksActiveFirst`，
+   * 页面不自己判）。
+   *
+   * 为什么需要：真机实测 354 条后台任务一屏平铺，"正在跑的那条"混在中段 ⇒ 用户报
+   * 「任务管理做的很差」的第一观感就是"看不到任务"。
+   */
+  private bgTasksSorted(): BgTask[] {
+    return sortBgTasksActiveFirst(this.bgTasks);
+  }
+
+  /**
    * 打开后台任务详情。
    * ⛔ 判据**全部**来自 `core/panels.ets`（`bgTaskStatusText`/`bgTaskMetaText`/`bgTaskOutputText`/
    *   `bgTaskRunning`）—— 与列表行 `bgTaskLine` 同一份纯函数 ⇒ 不可能"列表说运行中、详情说完成"。
@@ -8511,10 +8523,14 @@ struct Index {
           this.PanelEmpty($r('sys.symbol.hourglass'), '暂无后台任务', '后台命令在服务端持续运行，不受会话切换影响')
         } else {
           List({ space: 6 }) {
-            ForEach(this.bgTasks, (t: BgTask, i: number) => {
+            // ⛔ **运行中置顶**（判据 `core/panels.ets:sortBgTasksActiveFirst`）：真机实测 354 条
+            //    任务一屏平铺、正在跑的那条混在中段 ⇒ 用户"看不到任务"。排序 + 前导状态字形
+            //    （`bgTaskLeadCode`）让"哪条在跑 / 哪条失败"一眼可扫。
+            ForEach(this.bgTasksSorted(), (t: BgTask, i: number) => {
               ListItem() {
                 PanelRowCard({
                   theme: this.themeName,
+                  lead: bgTaskLeadCode(t),
                   primary: bgTaskPrimary(t),
                   secondary: bgTaskSubText(t, this.nowMs()),
                   tone: bgTaskTone(t),

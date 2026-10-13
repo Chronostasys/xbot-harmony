@@ -4649,3 +4649,69 @@ dynamic 视图行也深链。mutation 自证：深链分支失效 ⇒ 6 条红�
   在 `openable(` 的 `)` 处**截断 ⇒ 假红**。改成**平衡括号扫描**，并接受
   「`<条件> ? PRESS_OPACITY : 1`」这一新形态（**假分支必须恰为 `1`**：写别的数值 = 偷改按压幅度 ⇒ 仍判红）。
   自证：`0.5` ⇒ 红、`0.42` ⇒ 红、回退 ⇒ 243 全绿。
+
+## §21.95 **已取证缺口**：GenUI（`display_html`）产物在原生**不渲染**（gen1，2026-10-13）
+
+用户口径（原话）：「**必须真的支持web的所有插件和功能**」。本轮把 web 的插件/功能面逐条对照原生，
+发现**唯一**尚不支持的整类功能就是 **GenUI**（`xbot.genui`，即 `display_html` 工具的可视化产物）。
+
+### 取证（零猜测，file:line 可查）
+
+- **原生侧**：`genuiContent` 管线**全在、但 UI 零消费**——
+  `core/integrate.ts:225 genui: live.genuiContent ?? ''` → `core/derive.ts:327/365` →
+  `core/chattypes.ts:190 genuiContent` / `chat_types_full.ts:90 genui`，
+  且 `core/derive.ts:449` 只用它判「这块非空」。`grep -rn "genuiContent|\.genui" components/ pages/`
+  ⇒ **命中数 0**（只有注释），`grep -rn "ui_mode|uiMode" components/ pages/` ⇒ **命中数 0**，
+  全仓**无 `GenUIBlock`**（`chattypes.ts:51` 的注释是**照抄 web 的注释**，属"文档说有、代码没有"）。
+  ⇒ 这就是 AGENTS.md 记的**「死消费」形态**（第 4 例）：管线搬运、无人渲染 ⇒ 用户看不到。
+- **web 侧权威做法**：`LiveIteration.tsx:286 <GenUICollapsiblePanel code={progress.genuiContent}/>`
+  → `GenUIPanel.tsx:162 <SandboxedUI code={code}/>` → `SandboxedUI.tsx:240` **code mode**：
+  「compile TSX + mount a separate React root **INLINE**（无 iframe）」，
+  运行时组件库 = `src/genui/runtime.tsx`（639 行：Button/Card/Table/Stat/Sparkline/Progress/Badge/
+  Tabs/Modal/Form/Toast + 声明式 ECharts + `useThreeScene` + framer-motion + `useBus`）。
+  ⇒ **载荷是 LLM 生成的 TSX 源码**，靠 `new Function` 在父页编译作用域里执行。
+
+### 结论与建议（**待用户拍板**，故本轮不硬做）
+
+- 忠实移植 = 在 ArkTS 里实现"TSX 编译器 + React 运行时 + ECharts/three.js" ⇒ **不现实**；
+  假装支持（把 TSX 当文本渲出来）反而更差。
+- 唯一诚实可行的两条：
+  ① **受控沙箱面**：单块内容用 `WebSurface` 承载 web 的 GenUI 运行时（等同 web 自己的 iframe 隔离），
+     需要服务端提供一个能按 payload 渲染的 URL + 宿主注入 payload 的通道（**需 web 侧配合**）；
+  ② 原生**子集**渲染：若 payload 是可声明的组件树（非 TSX），可用既有 `core/widgetsview.ets`
+     的 `WidgetDock` 渲染 —— **本轮实测载荷是 TSX 源码**，故 ② 不成立。
+- ⛔ 在拍板前**不要把 `genuiContent` 标成"已支持"**：它现在是**静默丢弃**（用户看不到生成界面）。
+
+## §21.96 运行面板·「后台」页：**运行中置顶 + 前导状态字形**（tasklead1，2026-10-13）
+
+用户口径（原话）：「**终端和任务管理做的很差**」。真机走查（`/tmp/v6.jpg` 定时页 / `/tmp/v7.jpg` 后台页）：
+定时页空态已是三级（字形→主行→提示行 ✓）；**后台页 354 条任务一屏平铺**，每行只有
+「命令（截断）+ 状态行（失败·exit 1·28s·id）+ chevron」⇒ ① 正在跑的那条**混在中段**
+（用户"看不到任务"）② 无法一眼扫出失败项。
+
+### 修法（判据进 core，组件只消费）
+
+- `core/panels.ets` 新增：`bgTaskLeadCode(t)`（`LEAD_RUNNING/OK/FAIL/KILLED`）、
+  `sortBgTasksActiveFirst(list)`（**稳定**，运行中置顶、组内保持服务端时间序）、`bgTaskActiveCount(list)`。
+  ⛔ 前导码与 `bgTaskStatusText`（文案）/`bgTaskTone`（颜色）**同源**（都经 `bgTaskRunning`/
+  `bgTaskFailed`）—— 否则会出现「字形说运行中、颜色说失败」的同行自相矛盾（本仓已知缺陷类）。
+  `killed/aborted/cancelled` **单列**成 `LEAD_KILLED`（用户主动终止 ≠ 故障；exit 130 也不许报红）。
+- `components/PanelRows.ets`：`PanelRowCard` 新增 `@Prop lead`（码 ⇒ 符号映射**只在此文件**），
+  前导字形**固定槽宽**（`ICON_XL`=20）⇒ 有/无字形的行文字左边缘对齐。
+  符号名**实证**（SDK `resources.txt` 精确命中）：running=`arrow_2_circlepath`、ok=`checkmark_circle`、
+  fail=`xmark_circle_fill`、killed=`stop_circle`。
+- `pages/Index.ets`：任务页签改走 `this.bgTasksSorted()`（页面不自己排序）。
+
+### 判据
+
+`tools/tests/panels.test.ts` 新增 10 条（前导码 6 + 排序 3 + 计数 2 的交叉覆盖）。
+**mutation 自证**：`bgTaskLeadCode` 漏判 killed ⇒ 「killed ⇒ killed 码」红；
+`sortBgTasksActiveFirst` 不做两趟 ⇒ 「置顶且保序」红；`bgTaskActiveCount` 数全部 ⇒ 「计数=运行中数」红。
+
+**⚠️ 本轮踩到的性能预算坑（已修，值得记）**：前导字形最初写成**每个分支各取一次色板**
+（`.fontColor([this.pal().accentSoft])` ×4）⇒ 门禁 ⑦ **B 线红**：色板读取总量 **1353 > 1350**
+（A 线也从 1215 → 1219）。根因：`this.pal()` **未记忆化**（每次 `withAccent` 重新分配调色板）
+⇒ 它不是"取值"而是"分配"。修法 = **每个方法只取一次色板再分支**
+（`const p: Palette = this.pal();` 然后 `p.accentSoft`/`colorOf(p,'iconMuted')`），
+并把既有的 `toneColor()`（原本 3 次）一并收成 1 次 ⇒ 净**减**：A 1219→**1214**、B 1353→**1348**。
+⇒ 新写法顺带更省（每帧少 2 次调色板分配）。**教训**：在组件里按分支取色前，先在方法入口取一次。

@@ -18,11 +18,11 @@
 import { Palette, paletteOf } from '../core/theme';
 import {
   colorOf, structuralRuleOf, surfaceFillOf,
-  HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, PRESS_OPACITY, RADIUS_CARD,
+  HIT_TARGET_MIN, ICON_XL, INSET_ROW_X, INSET_ROW_Y, PRESS_OPACITY, RADIUS_CARD,
   SPACE_HAIR, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD,
 } from '../core/design';
 import { fs, fw, lh } from './SettingsRows';
-import { TONE_ERROR, TONE_MUTED, TONE_SUCCESS } from '../core/panels';
+import { TONE_ERROR, TONE_MUTED, TONE_SUCCESS, LEAD_FAIL, LEAD_KILLED, LEAD_OK, LEAD_RUNNING } from '../core/panels';
 
 /**
  * 尾部动作码 —— ⛔ 用**码**（字符串）而不是 `Resource`：`@Prop` 传 `Resource` 在 ArkTS 上要
@@ -45,6 +45,12 @@ export struct PanelRowCard {
   @Prop secondary: string = '';
   /** 语义 tone（`core/panels.ets` 的 `TONE_*`）——决定副行颜色。 */
   @Prop tone: string = 'muted';
+  /**
+   * **前导状态码**（`core/panels.ets` 的 `LEAD_*`；空串 ⇒ 不渲染前导字形）。
+   * 为什么要有：真机实测 354 条任务一屏平铺 ⇒ 靠副行文字扫不出「哪条在跑 / 哪条失败」；
+   * 前导字形让状态**一眼可扫**（Apple 列表行范式：状态字形恒在第一列，文字对齐不跳）。
+   */
+  @Prop lead: string = '';
   /** 尾部动作码（`ROW_TRAIL_*`）。 */
   @Prop trailing: string = 'none';
   /** 整卡是否可点（false ⇒ 不挂动作、不显示按压反馈 —— 如 Runner 行纯信息）。 */
@@ -60,19 +66,66 @@ export struct PanelRowCard {
     return paletteOf(this.theme);
   }
 
-  /** tone ⇒ 副行颜色（**唯一映射点**）。 */
+  /**
+   * tone ⇒ 副行颜色（**唯一映射点**）。
+   * ⛔ 只取**一次**色板再分支：`this.pal()` 是**未记忆化分配**（每次 `withAccent` 重新分配调色板）
+   *    ⇒ 每个分支各取一次会虚增性能预算 B 线（色板读取总量；`tools/perf/guard.sh`）。
+   */
   private toneColor(): string {
+    const p: Palette = this.pal();
     if (this.tone === TONE_SUCCESS) {
-      return this.pal().successText;
+      return p.successText;
     }
     if (this.tone === TONE_ERROR) {
-      return this.pal().dangerText;
+      return p.dangerText;
     }
-    return this.pal().textMuted;
+    return p.textMuted;
+  }
+
+  /**
+   * 前导状态字形的颜色（**唯一映射点**；⛔ 同 `toneColor` —— 只取一次色板）。
+   * 形随状态（形已足够表达），**色只强调"需要动作"的两个状态**（运行中/失败）；
+   * 完成/已终止保持中性（354 条的历史里，满屏彩色勾会变成噪声）。
+   */
+  private leadColor(): string {
+    const p: Palette = this.pal();
+    if (this.lead === LEAD_RUNNING) {
+      return p.accentSoft;
+    }
+    if (this.lead === LEAD_FAIL) {
+      return p.dangerText;
+    }
+    return colorOf(p, 'iconMuted');
   }
 
   build() {
     Row({ space: SPACE_XS }) {
+      // 前导状态字形（**固定槽宽** ⇒ 有/无字形的行文字仍然对齐；Apple 列表行范式）。
+      // ⛔ 符号名一律实证过（SDK `resources.txt` 精确命中），不猜。
+      if (this.lead.length > 0) {
+        Row() {
+          if (this.lead === LEAD_RUNNING) {
+            SymbolGlyph($r('sys.symbol.arrow_2_circlepath'))
+              .fontSize(fs('type.caption'))
+              .fontColor([this.leadColor()])
+          } else if (this.lead === LEAD_OK) {
+            SymbolGlyph($r('sys.symbol.checkmark_circle'))
+              .fontSize(fs('type.caption'))
+              .fontColor([this.leadColor()])
+          } else if (this.lead === LEAD_FAIL) {
+            SymbolGlyph($r('sys.symbol.xmark_circle_fill'))
+              .fontSize(fs('type.caption'))
+              .fontColor([this.leadColor()])
+          } else if (this.lead === LEAD_KILLED) {
+            SymbolGlyph($r('sys.symbol.stop_circle'))
+              .fontSize(fs('type.caption'))
+              .fontColor([this.leadColor()])
+          }
+        }
+        .width(ICON_XL)
+        .justifyContent(FlexAlign.Start)
+        .alignItems(VerticalAlign.Center)
+      }
       Column({ space: SPACE_HAIR }) {
         Text(this.primary)
           .fontSize(fs('type.callout'))

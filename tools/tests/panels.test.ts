@@ -2,9 +2,10 @@
 declare const process: { exit: (c: number) => void };
 
 import {
-  bgTaskMetaText, bgTaskOutputText, bgTaskPrimary, bgTaskRunning, bgTaskStatusText, bgTaskSubText,
+  bgTaskActiveCount, bgTaskLeadCode, bgTaskMetaText, bgTaskOutputText, bgTaskPrimary, bgTaskRunning,
+  bgTaskStatusText, bgTaskSubText,
   bgTaskTone, cmdOneLine, countText, cronMessageText, cronPrimary, cronSubText, cronTargetText,
-  fmtDateTime,
+  fmtDateTime, LEAD_FAIL, LEAD_KILLED, LEAD_OK, LEAD_RUNNING, sortBgTasksActiveFirst,
   queueListHeight, QUEUE_LIST_MIN_H, QUEUE_LIST_MAX_H, QUEUE_ROW_H,
   durationText, fmtHHMM, KillBgTaskParams, runnerPrimary, runnerSubText, runnerTone, scheduleText,
   SubAgentRow, subagentPrimary, subagentSubText, subagentTone,
@@ -179,6 +180,35 @@ eq('cron 目标 = channel:chat_id', cronTargetText({ channel: 'web', chat_id: 'c
 eq('cron 目标缺 chat_id ⇒ 只 channel', cronTargetText({ channel: 'web' }), 'web');
 eq('cron 目标缺 channel ⇒ 只 chat_id', cronTargetText({ chat_id: 'chat_1' }), 'chat_1');
 eq('cron 目标皆缺 ⇒ 空串（组件渲染 —）', cronTargetText({}), '');
+
+// ── 后台任务·列表层判据（2026-10-13；用户「任务管理做的很差」第二轮）────────────────
+// 真机实测：354 条任务一屏平铺 ⇒ 正在跑的混在中段、失败项扫不出来。
+// mutation 自证：`bgTaskLeadCode` 漏判 killed（归到 fail）⇒ 「killed ⇒ killed 码」红；
+//                `sortBgTasksActiveFirst` 不做两趟（组内乱序/丢失）⇒ 「置顶且保序」红；
+//                `bgTaskActiveCount` 改成数全部 ⇒ 「计数 = 运行中数」红。
+eq('前导码 running ⇒ running', bgTaskLeadCode({ status: 'running' }), LEAD_RUNNING);
+eq('前导码 started ⇒ running（web 口径 started 也算跑）', bgTaskLeadCode({ status: 'started' }), LEAD_RUNNING);
+eq('前导码 exit 0 ⇒ ok', bgTaskLeadCode({ status: 'done', exit_code: 0 }), LEAD_OK);
+eq('前导码 exit 2 ⇒ fail', bgTaskLeadCode({ status: 'failed', exit_code: 2 }), LEAD_FAIL);
+// ⛔ killed 不能算故障（必须与 `bgTaskStatusText`/`bgTaskTone` 同源：exit 130 也不许报红）
+eq('前导码 killed ⇒ killed（exit 130 也不许归 fail）',
+  bgTaskLeadCode({ status: 'killed', exit_code: 130 }), LEAD_KILLED);
+eq('前导码 aborted ⇒ killed', bgTaskLeadCode({ status: 'aborted', exit_code: 130 }), LEAD_KILLED);
+
+const bgL = [
+  { id: 'a', status: 'done', exit_code: 0 },
+  { id: 'b', status: 'running' },
+  { id: 'c', status: 'done', exit_code: 0 },
+  { id: 'd', status: 'started' },
+  { id: 'e', status: 'failed', exit_code: 1 },
+];
+eq('排序：运行中置顶、组内保持服务端原次序',
+  sortBgTasksActiveFirst(bgL).map((x) => x.id), ['b', 'd', 'a', 'c', 'e']);
+eq('排序：无运行中 ⇒ 原序（不动）',
+  sortBgTasksActiveFirst([{ id: 'x', status: 'done' }, { id: 'y', status: 'done' }]).map((x) => x.id), ['x', 'y']);
+eq('排序：空列表 ⇒ 空', sortBgTasksActiveFirst([]).length, 0);
+eq('计数：运行中数（含 started）', bgTaskActiveCount(bgL), 2);
+eq('计数：空 ⇒ 0', bgTaskActiveCount([]), 0);
 
 if (fail > 0) { console.log(`  panels: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  panels: ${pass} passed, 0 failed`);

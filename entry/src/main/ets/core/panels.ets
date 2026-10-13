@@ -384,6 +384,65 @@ export function bgTaskTone(t: BgTask): string {
   return bgTaskFailed(t) ? TONE_ERROR : TONE_MUTED;
 }
 
+// ── 后台任务·**列表层可读性判据**（前导状态码 / 运行中置顶）──────────────────────────
+// 用户点名「任务管理做的很差」；真机实测：354 条任务**一屏平铺**，每行只有「命令 + 状态行 +
+// chevron」⇒ ① 正在跑的那条混在中间（用户"看不到任务"）② 扫不出失败项。
+
+/** 前导状态码（⛔ `core/` 禁 ArkUI 资源 ⇒ 这里只出**码**，符号映射留在组件）。 */
+export const LEAD_RUNNING: string = 'running';
+export const LEAD_OK: string = 'ok';
+export const LEAD_FAIL: string = 'fail';
+export const LEAD_KILLED: string = 'killed';
+
+/**
+ * 列表行的**前导状态码** —— 与 `bgTaskStatusText`（文案）/ `bgTaskTone`（颜色）
+ * **同源**（都经 `bgTaskRunning`/`bgTaskFailed` 这两个唯一真源）。
+ * ⛔ 不许在这里另判一套：否则会出现「字形说运行中、颜色说失败」这种同一行自相矛盾
+ * （本仓已知缺陷类：列表与详情不同源）。
+ */
+export function bgTaskLeadCode(t: BgTask): string {
+  if (bgTaskRunning(t)) {
+    return LEAD_RUNNING;
+  }
+  const raw: string = t.status !== undefined ? t.status.toLowerCase() : '';
+  if (raw === 'killed' || raw === 'aborted' || raw === 'cancelled') {
+    return LEAD_KILLED;
+  }
+  return bgTaskFailed(t) ? LEAD_FAIL : LEAD_OK;
+}
+
+/** 运行中任务数（列表分组/徽章用；判据 = `bgTaskRunning`）。 */
+export function bgTaskActiveCount(list: BgTask[]): number {
+  const src: BgTask[] = arrOrEmpty(list);
+  let n: number = 0;
+  for (let i = 0; i < src.length; i++) {
+    if (bgTaskRunning(src[i])) {
+      n += 1;
+    }
+  }
+  return n;
+}
+
+/**
+ * **运行中置顶**排序（稳定；组内保持服务端原次序 = 时间序）。
+ * 真机实测动因：354 条里"正在跑的那条"混在中段 ⇒ 用户以为"任务没了"。
+ */
+export function sortBgTasksActiveFirst(list: BgTask[]): BgTask[] {
+  const src: BgTask[] = arrOrEmpty(list);
+  const out: BgTask[] = [];
+  for (let i = 0; i < src.length; i++) {
+    if (bgTaskRunning(src[i])) {
+      out.push(src[i]);
+    }
+  }
+  for (let i = 0; i < src.length; i++) {
+    if (!bgTaskRunning(src[i])) {
+      out.push(src[i]);
+    }
+  }
+  return out;
+}
+
 // ── 后台任务**详情**（2026-10-12 补齐）─────────────────────────────────────────────
 // 用户点名「任务管理做的很差」：此前原生只有上面那一行字 —— **看不到输出、杀不掉**。
 // 形态对齐 web `workspace/panels/BackgroundPanel.tsx`（标题 + 状态 + kill + 实时输出）。
