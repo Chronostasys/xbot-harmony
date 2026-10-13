@@ -129,19 +129,89 @@ function flatten(nodes: ReadonlyArray<Node>, out: HlSpan[], inherited: string): 
 }
 
 /**
- * 高亮入口：返回可直接渲染的 span 序列。
+ * 高亮结果**记忆化**（LRU）。
+ *
+ * 为什么必须缓存（用户 2026-10-13 亲报「往上加载特别多内容后明细特别卡」+ 长期要求「性能也要非常好」）：
+ * `highlightCode()` 每次调用都要跑一遍 Prism4j 分词，而**行视图每次重建都会重跑它**
+ * ——`LazyForEach` 的整表 reload（放开行窗口/加载更早历史）、主题变更、流式期间 live 行逐帧重建
+ * 全都算"重建"。同一 `(语言, 代码)` 的高亮结果是**纯函数**（只取决于这两个入参）⇒ 缓存即正确，
+ * 重建代价从"分词"降到"查表"。
+ *
+ * ⛔ 键 = `语法名\x00代码全文`：**逐字做键、不做数值哈希**。哈希碰撞会把 A 的配色/文本渲染成 B
+ *    （"内容错了但看不出来"的最坏一类事故）；逐字键不可能碰撞，且键里已含全文 ⇒ 不再另存副本。
+ * 上限双闸（条目数 + 总字符数）：超大代码块不至于把内存吃光；超限按**插入序**淘汰最旧。
+ */
+const HL_MEMO_MAX_ENTRIES: number = 64;
+const HL_MEMO_MAX_CHARS: number = 256 * 1024;
+const HL_MEMO: Map<string, HlSpan[]> = new Map<string, HlSpan[]>();
+let hlMemoChars: number = 0;
+
+/** 记忆化表当前条目数（诊断/判据用；非渲染路径）。 */
+export function highlightMemoSize(): number {
+  return HL_MEMO.size;
+}
+
+/** 记忆化表当前总字符数（诊断/判据用）。 */
+export function highlightMemoChars(): number {
+  return hlMemoChars;
+}
+
+/** 清空记忆化表（诊断/测试用）。 */
+export function clearHighlightMemo(): void {
+  HL_MEMO.clear();
+  hlMemoChars = 0;
+}
+
+/** 超限时按插入序淘汰最旧（`Map` 保序 ⇒ 首个即最旧）。 */
+function evictHighlightMemo(): void {
+  if (HL_MEMO.size <= HL_MEMO_MAX_ENTRIES && hlMemoChars <= HL_MEMO_MAX_CHARS) {
+    return;
+  }
+  const order: string[] = [];
+  HL_MEMO.forEach((_v: HlSpan[], k: string) => {
+    order.push(k);
+  });
+  for (let i = 0; i < order.length; i++) {
+    if (HL_MEMO.size <= HL_MEMO_MAX_ENTRIES && hlMemoChars <= HL_MEMO_MAX_CHARS) {
+      break;
+    }
+    const k: string = order[i];
+    HL_MEMO.delete(k);
+    hlMemoChars -= k.length;
+  }
+}
+
+/**
+ * 高亮入口：返回可直接渲染的 span 序列（**带记忆化**；返回值由调用方**只读**使用）。
  *
  * 任何异常/超长/未知语言都**退化为单段纯文本**（绝不吞内容 —— 用户至少要能看到原文）。
  */
 export function highlightCode(code: string, lang: string): HlSpan[] {
+  const name: string = prismLangName(lang);
+  // 键必须含**语言**与**代码全文**：同一段代码在不同语言下着色不同（`''` = 纯文本退化）。
+  const key: string = `${name}\u0000${code}`;
+  const hit: HlSpan[] | undefined = HL_MEMO.get(key);
+  if (hit !== undefined) {
+    return hit;
+  }
+  const out: HlSpan[] = highlightUncached(code, name);
+  // 单条超字符上限 ⇒ 不缓存（否则刚写入就被淘汰，等于把整张表冲干净）
+  if (key.length <= HL_MEMO_MAX_CHARS) {
+    HL_MEMO.set(key, out);
+    hlMemoChars += key.length;
+    evictHighlightMemo();
+  }
+  return out;
+}
+
+/** 未缓存的高亮实现（纯函数；`name` 已由 `prismLangName` 归一）。 */
+function highlightUncached(code: string, name: string): HlSpan[] {
   const plain: HlSpan[] = [];
   const whole: HlSpan = new HlSpan();
   whole.text = code;
   whole.key = '';
   plain.push(whole);
   if (code.length === 0 || code.length > MAX_HL_CHARS) { return plain; }
-
-  const name: string = prismLangName(lang);
   if (name.length === 0) { return plain; }
 
   try {
