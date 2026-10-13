@@ -93,6 +93,9 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   ['components/MenuSheets.ets', 3],    // 三个抽屉 —— **必须留**（从下滑入/滑出 = 空间关系）
   ['components/AskUserSheet.ets', 1],  // 弹层开合 —— 同上
   ['components/PluginsSheet.ets', 1],  // 同上
+  // 原生 Git 面板（2026-10-13，web 内置插件 `xbot.git-fancy` 的可选增强）——
+  // 唯一动效 = 弹层开合 `sheetTransition()`（与 CronDetailSheet / SessionStatsSheet 同一出口）。
+  ['components/GitPanelSheet.ets', 1],
   // 文件管理面板（目标④）：唯一动效 = 弹层开合 `sheetTransition()`（与其它 L1 浮层同一条）。
   ['components/FilesSheet.ets', 1],
   // 技能面板（目标④）：唯一动效 = 侧栏开合 `drawerTransition()`（**横向**滑入 —— 讲「侧栏从左边

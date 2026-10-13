@@ -120,7 +120,7 @@ const hostBody: string = pluginSymbolBody(hostSrc);
   //    记录该词的那段会**假红**（本仓既有教训：形态/缺席断言必须在代码形态上做）。
   eq('①b 入口行收图标参数（EntryRow 签名）',
     countOf(sheetSrc, 'EntryRow(label: string, sym: Resource, onClick: () => void)'), 1);
-  eq('①b 四条入口行都传了图标（调用点 = 4 = PANEL_FIXED_ENTRY_ROWS）', countOf(sheetSrc, "this.EntryRow('"), 4);
+  eq('①b 五条入口行都传了图标（调用点 = 5 = PANEL_FIXED_ENTRY_ROWS）', countOf(sheetSrc, "this.EntryRow('"), 5);
   eq('①b 尾部动作统一为 chevron（两类行各 1 处 = 2）',
     countOf(sheetSrc, "$r('sys.symbol.chevron_right')"), 2);
   eq('①b ⛔ 不再有文字动作词「打开」', countOf(sheetSrc, "Text('打开')"), 0);
@@ -162,6 +162,9 @@ const VERIFIED: Record<string, string> = {
   doc_text: '0xF0A3B', list_bullet: '0xF0A91', lightbulb: '0xF029C', gearshape: '0xF0020',
   square_grid_2x2: '0xF00E3', magnifyingglass: '0xF0029', info_circle: '0xF0296',
   puzzle: '0xF04A0', xmark: '0xF0056',
+  // 「Git 面板（原生）」入口行（2026-10-13）—— git 语义符号。
+  // ⛔ 首版误用 `arrow_branch`（**不在名册**，真机会静默空白）⇒ 改为实证名 `arrow_triangle_merge`。
+  arrow_triangle_merge: '0xF0347',
 };
 /** 尽力找本机 SDK 名册（找到 ⇒ 任何名册内的名字都放行；找不到 ⇒ 只用 frozen 白名单）。 */
 function liveSymbolNames(): Record<string, boolean> {

@@ -4381,3 +4381,76 @@ builder **每次长按弹出时**才求值；且每行只捕获**本行**的 `(p
    （新浮层入口必须收键盘，详情卡占下半屏）。
    ＋ 真门禁另抓一次 `@Prop onClose: () => void` ⇒ `10905363 V1 装饰器不许标函数类型`（回调**不加** `@Prop`，
    同 `TaskDetailSheet.onKill`）—— ⛔ 这条只有 `hvigorw assembleHap` 能抓。
+
+## §21.89 「插件都打不开」的两层根因 + **通用**解法（15z14，2026-10-13）
+
+用户原话：「必须真的支持 web 的所有插件和功能，现在其实插件都打不开」。本波把这句话**拆成两层**
+分别根治，并顺手把架构改成**零插件特判**（用户追问：「为什么要原生，你插件写特殊逻辑我们以后
+新的插件怎么办？」—— 这条追问是本波真正的转折点）。
+
+### 层①（后端，跨仓取证）：插件后端**根本没起来** ⇒ 客户端"无插件可展示"
+
+`web_plugin_list` 只回 4 条，其中 **3 条 `state=error` 且 `enabled=false`**（genui / git-fancy /
+ssh-runner），唯一 active 的是 `xbot.iteration-stats`。点启用直接报：
+
+```
+plugin xbot.git-fancy: activation failed: start plugin process:
+fork/exec ./bin/git-fancy-plugin: no such file or directory
+```
+
+**根因**：`~/.xbot/plugins/<id>/`（**只含 `data/` 与 `logs/`** —— `plugin/plog.go` 把插件日志目录
+建在**扫描目录之内**）**遮蔽**了 `~/.xbot/plugins/builtin/<id>/`（真插件目录，bin 是 Mach-O arm64、
+确实存在）。旧 `plugin/manager.go findPluginDir` 只判 `IsDir()` ⇒ 取第一个存在的目录 = 影子目录
+⇒ stdio/grpc 插件启动失败。native 型插件（iteration-stats）不受影响 ⇒ 它一直是 active。
+
+- **源码早已修**：`b6166456`（xbot 仓，2026-10-12 01:51）改成「候选目录**必须含 `plugin.json`** 才算命中」。
+- **但运行中的 `~/.local/bin/xbot-cli` 构建于 2026-10-10 19:29**（早 28h）⇒ **不含修复**。
+  ⇒ durable 修法 = 更新 xbot-cli（会重启 serve 进程；⛔ 本会话不能重启：agent 自己就跑在这条后端上）。
+- **无重启 workaround（已实测生效，本波用的就是它）**：把影子目录移开 + `plugin_reload`
+  ```bash
+  mv ~/.xbot/plugins/xbot.git-fancy ~/.xbot/plugins/.stale.xbot.git-fancy   # 同理 genui / ssh-runner
+  curl -b jar -X POST :8082/api/rpc -d '{"method":"plugin_reload","params":{"id":"xbot.git-fancy"}}'
+  ```
+  ⚠️ **`plugin_set_enabled` 不够**：它走 `enableEntry` → 复用**缓存的 `entry.Dir`**（Discover 时算错的
+  那个）⇒ 光移目录再 enable 仍报同一个错；**必须 `plugin_reload`** 重新 Discover。
+  ⚠️ 插件日志会在 `~/.xbot/plugins/<id>/logs` **重新生成影子目录** ⇒ **重启后又坏**（所以 durable 修法
+  仍是更新二进制）。本波后 4 个插件全部 `state=active`。
+
+### 层②（客户端）：插件视图**没有静态入口** ⇒ 原生点插件落"通用根页"
+
+web 侧插件 view 的权威事实（`plugin-runtime/usePluginViewPanels.ts:36` 原文）：**没有静态入口，
+只能通过 `ctx.ui.openViewTab({viewId, params})` 打开**；`mobileWorkView.pushMobileWorkView` 也只是
+**模块级单例**（不在 `window` 上）⇒ 任何**不在 React 树内**的宿主（鸿蒙原生壳）都拿不到。
+
+**⇒ 通用解法（本波改的就是 xbot 自身代码）**：在 web 侧开一个**唯一入口**，零插件特判：
+
+| 落点（xbot/web 仓） | 作用 |
+|---|---|
+| `src/plugin-runtime/pluginViewRequest.ts`（新） | `requestOpenPluginView` / `flushPluginViewRequest` / `parsePluginViewQuery`；**排队**到打开器与视图就绪 |
+| `src/plugin-runtime/editorTabs.ts` | 新增 `hasEditorTabOpener()`（据此决定"立刻开"还是"排队"） |
+| `src/plugin-runtime/viewRegistrySync.ts` | `sync()` 末尾 `flushPluginViewRequest()` —— **视图集合变化 = 插件模块 import 完成的信号** |
+| `src/layouts/AppShell.tsx` | ①URL 深链 `?xbot_view=<id>[&xbot_view_key=][&xbot_view_params=<json>][&xbot_view_title=]`；②`window.__xbotOpenPluginView(viewId, key, params, title)` |
+
+⇒ **任何插件**（内置 / 第三方 / web 以后新加的）只要声明了 view 贡献点，宿主就能展示它：
+原生只需拼一个 URL，**不需要知道任何插件是谁**。
+
+原生侧（本仓）对应两个**纯函数**（`core/pluginhost.ets`，可脱机单测）：
+- `primaryViewId(views)`：取第一个**非 `dynamic`** 的 view（⛔ dynamic 视图必须带参数打开，
+  无参打开=空面板 ⇒ 主入口不能选它；全 dynamic ⇒ 退回第一个；无 view ⇒ 空串）。
+- `pluginViewDeepLink(base, viewId, title)`：`<base>/?xbot_view=…&xbot_view_title=…`（尾斜杠归一化、
+  参数 `encodeURIComponent`）。
+
+页面接线（`pages/Index.ets`）：`onOpenPlugin(p)` = `primaryViewId(p.views)` → 深链 → `panelUrl`；
+无 view 声明（如 `xbot.genui` 由宿主内联渲染）⇒ 回落既有行为。**已删掉 15z13 的 git-fancy 特判**。
+
+### 原生面板的定位：**可选增强**，不在关键路径上
+
+`core/gitpanel.ets`（数据模型/判据，84 判据）+ `components/GitPanelSheet.ets`（三种形态：变更列表 /
+单文件 diff / commit 详情）保留为**能力面板里的固定入口**（先例：`会话统计` / `技能` 也是原生入口）
+——它比 webview 更快、更贴合原生；但**即使一个原生面板都没有，通用深链也能打开所有插件视图**。
+
+### 部署（web 侧改动必须重新构建并落到服务目录）
+
+web 仓 `npm ci`（node_modules 缺 `@tiptap/*` ⇒ 不装依赖 `tsc -b` 直接红）→ `npm run build` →
+`cp -R web/dist/. ~/.xbot/web/dist/`（**先备份** `~/.xbot/web/dist.bak-<ts>`）。
+自证：`grep -l xbot_view ~/.xbot/web/dist/assets/*.js` 命中 = 服务目录里确实是我这份构建。

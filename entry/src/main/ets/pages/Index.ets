@@ -88,7 +88,7 @@ import {
   normalizeSessionCategory, pathGroupTooltip, relativeTimeLabel, SESSION_CATEGORIES, SessionGroup, sessionCategoryLabel,
 } from '../core/sessiongroup';
 import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msgindex';
-import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, WebPluginListWire, buildPluginCatalog } from '../core/pluginhost';
+import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, WebPluginListWire, buildPluginCatalog, pluginViewDeepLink, primaryViewId } from '../core/pluginhost';
 import { hasIterStatsBadge, iterStatsText } from '../core/pluginviews';
 import { SkillItem } from '../core/skills';
 import { FsFileEntry, FsReadResult, FsSearchEntry, fileKindOf, FK_IMAGE, fsMention, sortFsEntries, sortFsSearch } from '../core/files';
@@ -174,6 +174,16 @@ import { SkillsSheet } from '../components/SkillsSheet';
 import { SelfCheckSheet } from '../components/SelfCheckSheet';
 import { TaskDetailSheet } from '../components/TaskDetailSheet';
 import { CronDetailSheet } from '../components/CronDetailSheet';
+import { GitPanelSheet } from '../components/GitPanelSheet';
+// 原生 Git 面板（web 内置插件 `xbot.git-fancy` 的落地）——**数据模型/判据/格式化全在纯模块**，
+// 页面只做取数与所有权（与 `core/panels.ets`→`CronDetailSheet` 同一分层）。
+import {
+  GitChange, GitCommitDetail, GitDiffData, GitLog, GitStatus, GitChatParams, GitCommitParams,
+  GitDiffParams, GitLogParams, WebPluginRpcParams, GitCommitDetailWire, GitDiffWire, GitLogWire,
+  GitStatusWire, gitAheadBehindText, gitBranchText, gitCommitMetaText, gitHeadline, gitMethod,
+  hasMoreGitLog, mergeGitLog, parseGitCommit, parseGitDiff, parseGitLog, parseGitStatus, GIT_LOG_PAGE,
+  GIT_PLUGIN_ID, RPC_WEB_PLUGIN,
+} from '../core/gitpanel';
 // 运行面板（任务管理）的**结构化行卡**（真 @Component；取色走 `paletteOf(theme)` ⇒ 不占页面预算）
 import { PanelRowCard, ROW_TRAIL_CHEVRON, ROW_TRAIL_CLOSE, ROW_TRAIL_DELETE, ROW_TRAIL_NONE } from '../components/PanelRows';
 import { TerminalSheet } from '../components/TerminalSheet';
@@ -899,6 +909,29 @@ struct Index {
   @State nativeCatalog: PluginCatalog | null = null;
   /** 插件宿主页 URL（**与页面级 `panelUrl` 分离** ⇒ 不会同时挂载两个 WebSurface）。 */
   @State pluginPageUrl: string = '';
+  // ── 原生 Git 面板（web 内置插件 `xbot.git-fancy` 的原生落地）───────────────────
+  // 数据全来自宿主 RPC（`web_plugin_rpc` → `xbot.git-fancy.*`），判据/解析在 `core/gitpanel.ets`。
+  // ⛔ 形态机（`list`/`diff`/`commit`）与开关由**页面**持有（组件不发 RPC、不自持开关）。
+  @State showGit: boolean = false;
+  /** `list` | `diff` | `commit`（详情形态由它决定，⛔ 不靠"猜有没有 diff 文本"）。 */
+  @State gitMode: string = 'list';
+  @State gitStatus: GitStatus = new GitStatus();
+  @State gitLog: GitLog = new GitLog();
+  @State gitLoading: boolean = false;
+  @State gitLogLoading: boolean = false;
+  @State gitError: string = '';
+  /** diff 详情（已归一化：`diffText` 可直接喂 `parseUnifiedDiff`）。 */
+  @State gitDiffPath: string = '';
+  @State gitDiffText: string = '';
+  @State gitDiffAdds: number = 0;
+  @State gitDiffDels: number = 0;
+  @State gitDiffFromCommit: string = '';
+  @State gitDiffLoading: boolean = false;
+  /** commit 详情。 */
+  @State gitCommitHash: string = '';
+  @State gitCommitMeta: string = '';
+  @State gitCommitMessage: string = '';
+  @State gitCommitFiles: GitChange[] = [];
   // ── 会话统计面板（内置插件 `xbot.session-stats` 的原生落地）─────────────────────
   // 它不在服务端 `web_plugin_list`（随 web 主包打包）⇒ 只能作为**内置入口**暴露；
   // 数据全来自宿主 RPC（`get_session_usage_stats`）⇒ 原生渲染，不塞 WebView。
@@ -1688,6 +1721,15 @@ struct Index {
     // 任务/定时/终端详情（都从运行面板内开出 ⇒ 必须先于 `panels` 关，否则返回键会连面板一起收）
     if (this.showCronDetail) {
       this.showCronDetail = false;
+      return true;
+    }
+    // 原生 Git 面板（顶层浮层）：**详情形态先回列表**，列表形态才关面板（与组件内返回键同序）
+    if (this.showGit) {
+      if (this.gitMode !== 'list') {
+        this.gitMode = 'list';
+      } else {
+        this.showGit = false;
+      }
       return true;
     }
     const code: OverlayCode = topOverlay(this.overlayState());
@@ -3846,6 +3888,135 @@ struct Index {
     }
   }
 
+  // ── 原生 Git 面板（web 内置插件 `xbot.git-fancy` 的落地）────────────────────────
+  // 为什么原生化：web 侧插件 view **没有静态 URL 入口**（只能经 `ctx.ui.openViewTab`），
+  // 原生壳没有 React 宿主 ⇒ 点插件行只能落到 web 根页（聊天页）——用户「插件都打不开」。
+  // 数据面 = 宿主 RPC（`web_plugin_rpc` → `xbot.git-fancy.*`），解析/判据在 `core/gitpanel.ets`。
+
+  /** 打开原生 Git 面板（浮层互斥：从抽屉/能力面板进来先收它们）+ 首次取数。 */
+  private openGitPanel(): void {
+    this.showDrawer = false;
+    this.showPlugins = false;
+    this.panelUrl = '';
+    this.showGit = true;
+    this.gitMode = 'list';
+    this.loadGitPanel();
+  }
+
+  /** 关闭（并复位形态：否则下次进来还停在某个 diff 上，用户会以为面板坏了）。 */
+  private closeGitPanel(): void {
+    this.showGit = false;
+    this.gitMode = 'list';
+  }
+
+  /** 详情形态 → 列表。 */
+  private gitBackToList(): void {
+    this.gitMode = 'list';
+  }
+
+  /**
+   * 取数：工作区状态 + 首页提交（**顺序两路**，失败即可读化 ⇒ 面板显示原因 + 可重试）。
+   * ⛔ 不吞错（同统计面板的教训）：错误落在 `gitError`，面板里画出来。
+   */
+  private async loadGitPanel(): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      this.gitStatus = new GitStatus();
+      this.gitLog = new GitLog();
+      this.gitError = '尚未连接服务端';
+      return;
+    }
+    this.gitLoading = true;
+    this.gitError = '';
+    try {
+      const st: GitStatusWire = await rpc<GitStatusWire>(store.http, RPC_WEB_PLUGIN,
+        new WebPluginRpcParams(gitMethod('status'),
+          new GitChatParams(store.channel, store.currentChatId)));
+      this.gitStatus = parseGitStatus(st);
+      const lg: GitLogWire = await rpc<GitLogWire>(store.http, RPC_WEB_PLUGIN,
+        new WebPluginRpcParams(gitMethod('log'),
+          new GitLogParams(store.channel, store.currentChatId, GIT_LOG_PAGE, 0)));
+      this.gitLog = parseGitLog(lg);
+    } catch (e) {
+      this.gitError = readableRpcError((e as Error).message);
+    } finally {
+      this.gitLoading = false;
+    }
+  }
+
+  /** 「加载更多」：`skip` = 已取条数，取下一页并**按 hash 去重合并**（⛔ 不去重 ⇒ 重复行 + 键冲突）。 */
+  private async loadMoreGitLog(): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null || this.gitLogLoading || !hasMoreGitLog(this.gitLog)) {
+      return;
+    }
+    this.gitLogLoading = true;
+    try {
+      const page: GitLogWire = await rpc<GitLogWire>(store.http, RPC_WEB_PLUGIN,
+        new WebPluginRpcParams(gitMethod('log'),
+          new GitLogParams(store.channel, store.currentChatId, GIT_LOG_PAGE, this.gitLog.commits.length)));
+      this.gitLog = mergeGitLog(this.gitLog, parseGitLog(page));
+    } catch (e) {
+      this.gitError = readableRpcError((e as Error).message);
+    } finally {
+      this.gitLogLoading = false;
+    }
+  }
+
+  /** 打开某文件的 diff（`commit` 非空 ⇒ 该提交作用域；空 ⇒ 工作区 vs HEAD）。 */
+  private async openGitDiff(path: string, commit: string): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    this.gitMode = 'diff';
+    this.gitDiffPath = path;
+    this.gitDiffFromCommit = commit;
+    this.gitDiffText = '';
+    this.gitDiffAdds = 0;
+    this.gitDiffDels = 0;
+    this.gitDiffLoading = true;
+    try {
+      const d: GitDiffWire = await rpc<GitDiffWire>(store.http, RPC_WEB_PLUGIN,
+        new WebPluginRpcParams(gitMethod('diff'),
+          new GitDiffParams(store.channel, store.currentChatId, path, commit)));
+      const parsed: GitDiffData = parseGitDiff(d);
+      this.gitDiffText = parsed.diffText;
+      this.gitDiffAdds = parsed.adds;
+      this.gitDiffDels = parsed.dels;
+    } catch (e) {
+      this.gitError = readableRpcError((e as Error).message);
+    } finally {
+      this.gitDiffLoading = false;
+    }
+  }
+
+  /** 打开某提交的详情（作者/时间/信息全文 + 该提交内文件；点文件再进 diff）。 */
+  private async openGitCommit(hash: string): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    this.gitMode = 'commit';
+    this.gitCommitMeta = '';
+    this.gitCommitMessage = '';
+    this.gitCommitFiles = [];
+    this.gitLoading = true;
+    try {
+      const c: GitCommitDetailWire = await rpc<GitCommitDetailWire>(store.http, RPC_WEB_PLUGIN,
+        new WebPluginRpcParams(gitMethod('commit'),
+          new GitCommitParams(store.channel, store.currentChatId, hash)));
+      const parsed: GitCommitDetail = parseGitCommit(c);
+      this.gitCommitMeta = gitCommitMetaText(parsed);
+      this.gitCommitMessage = parsed.message;
+      this.gitCommitFiles = parsed.files;
+    } catch (e) {
+      this.gitError = readableRpcError((e as Error).message);
+    } finally {
+      this.gitLoading = false;
+    }
+  }
+
   /**
    * 打开**会话统计面板**（内置插件 `xbot.session-stats` 的原生落地）。
    *
@@ -4156,8 +4327,31 @@ struct Index {
               this.showPlugins = false;
               this.openSkills();
             },
+            onOpenGit: () => {
+              this.openGitPanel();
+            },
             onOpenPlugin: (p: PluginCatalogItem) => {
               this.showPlugins = false;
+              // ⛔ 内嵌 webview 打开**服务端页面**前必须注入会话 cookie，否则 401 落登录页
+              //    （2026-10-12 真机实测过：那正是「插件都打不开」的客户端侧根因之一）。
+              const st: ChatStore | null = this.store;
+              if (st !== null) {
+                this.syncSessionCookieToWeb(st);
+              }
+              // ── **通用**打开（零插件特判）──────────────────────────────────────
+              // 数据来自插件自己声明的 view 贡献点（`contributes.views`）⇒ 以后 web 新加的任何
+              // 插件（内置/第三方）都自动可打开，宿主零改动。深链由 web 侧唯一入口
+              // `pluginViewRequest.ts` 消费（`?xbot_view=<viewId>`）。
+              const viewId: string = primaryViewId(p.views);
+              if (viewId.length > 0) {
+                const title: string = p.name.length > 0 ? p.name : viewId;
+                const link: string = pluginViewDeepLink(this.serverUrl, viewId, title);
+                if (link.length > 0) {
+                  this.panelUrl = link;
+                  return;
+                }
+              }
+              // 没有任何 view 贡献点（如 `xbot.genui` 由宿主内联渲染）⇒ 回落既有行为（web 根页）。
               this.panelUrl = p.url;
             },
             onRetry: () => {
@@ -4507,6 +4701,59 @@ struct Index {
         // 键盘让位（⛔ 见 `kbHeightPx` 注释）：终端 sheet 是 `.height('82%')` **居中**的，其底部
         // （命令行输入行）会在键盘弹起时被盖住 ⇒ 按键盘高度收缩可用区，sheet 随之整体上移。
         .padding({ bottom: px2vp(this.kbHeightPx) })
+      }
+      // 原生 Git 面板（抽屉「插件」→ 点 `Git 面板` 行）—— web 内置插件 `xbot.git-fancy` 的落地。
+      // ⚠️ **渲染顺序敏感**：必须在 `PanelsSheet()` 与三层详情**之后**（ArkUI 层级 = build 先后；
+      //    见 15z13 的「详情被面板盖住」真缺陷）——⛔ 别往上挪。
+      if (this.showGit) {
+        Stack() {
+          Row() {
+            Blank()
+          }.width('100%').height('100%').onClick(() => {
+            this.closeGitPanel();
+          })
+          GitPanelSheet({
+            theme: this.themeName,
+            loading: this.gitLoading,
+            error: this.gitError,
+            headline: gitHeadline(this.gitStatus),
+            branch: gitBranchText(this.gitStatus),
+            aheadBehind: gitAheadBehindText(this.gitStatus),
+            changes: this.gitStatus.changes,
+            log: this.gitLog,
+            logLoading: this.gitLogLoading,
+            hasMore: hasMoreGitLog(this.gitLog),
+            mode: this.gitMode,
+            diffPath: this.gitDiffPath,
+            diffText: this.gitDiffText,
+            diffAdds: this.gitDiffAdds,
+            diffDels: this.gitDiffDels,
+            diffFromCommit: this.gitDiffFromCommit,
+            diffLoading: this.gitDiffLoading,
+            commitMeta: this.gitCommitMeta,
+            commitMessage: this.gitCommitMessage,
+            commitFiles: this.gitCommitFiles,
+            onClose: () => {
+              this.closeGitPanel();
+            },
+            onRefresh: () => {
+              this.loadGitPanel();
+            },
+            onLoadMore: () => {
+              this.loadMoreGitLog();
+            },
+            // 形态在**切换之前**读：commit 形态里点文件 ⇒ 该提交作用域的 diff。
+            onOpenDiff: (path: string) => {
+              this.openGitDiff(path, this.gitMode === 'commit' ? this.gitCommitHash : '');
+            },
+            onOpenCommit: (hash: string) => {
+              this.openGitCommit(hash);
+            },
+            onBack: () => {
+              this.gitBackToList();
+            },
+          })
+        }.width('100%').height('100%')
       }
       // 会话操作菜单（置顶/上移/下移/改名/分支/删除）
       if (this.sessMenuId.length > 0) {
@@ -7120,6 +7367,8 @@ struct Index {
     this.showSearchHits = false;
     this.showPluginHost = false;
     this.showSessionStats = false;
+    // 原生 Git 面板（顶层浮层）——新增浮层必须在这里登记（本方法 = 唯一真源）。
+    this.showGit = false;
     this.sessMenuId = '';
     this.ctxOpen = false;
     this.panelUrl = '';

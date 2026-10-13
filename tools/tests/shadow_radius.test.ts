@@ -193,7 +193,12 @@ function eq(name: string, got: unknown, want: unknown): void {
       // （near=贴合影 / far=环境影），走 `shadowLayersOf(...,'overlay')` 同一出口（⛔ 不写死半径）。
       'components/CronDetailSheet.ets',
       // 文件管理面板（目标④）：侧栏柔影走 `shadowLayersOf(pal,'overlay')` 同一出口（⛔ 不写死半径）。
-      'components/FilesSheet.ets', 'components/Lightbox.ets', 'components/MenuSheets.ets',
+      'components/FilesSheet.ets',
+      // 原生 Git 面板（2026-10-13）：与其余浮层同构的双层柔影（near=贴合影 / far=环境影），
+      // 走 `shadowLayersOf(...,'overlay')` 同一出口（⛔ 不写死半径）。
+      // ⚠️ 本表按**字典序**排列（判据拿 `got.sort()` 与它逐字比）⇒ 新增必须插在正确位置。
+      'components/GitPanelSheet.ets',
+      'components/Lightbox.ets', 'components/MenuSheets.ets',
       'components/PluginsSheet.ets', 'components/QueueSheet.ets', 'components/SelfCheckSheet.ets',
       // 会话统计面板（目标④「统计插件的面板我们看不到」）：与其余浮层同构的双层柔影
       // （near=贴合影 / far=环境影），走 `shadowLayersOf(...,'sheet')` 同一出口（⛔ 不写死半径）。

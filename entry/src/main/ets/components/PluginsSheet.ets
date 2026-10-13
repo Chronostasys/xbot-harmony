@@ -73,6 +73,15 @@ export struct PluginsSheet {
   /** 打开**原生技能管理面板**（web 内置插件 `xbot.skill-manager` 的原生落地；判据在 `core/skills.ets`）。 */
   onOpenSkills: () => void = () => {
   };
+  /**
+   * 打开**原生 Git 面板**（web 内置插件 `xbot.git-fancy` 的**可选增强**；判据在 `core/gitpanel.ets`）。
+   *
+   * ⛔ 它**不在**关键路径上：任何插件（含以后 web 新加的/第三方的）都经**通用深链**
+   * （`onOpenPlugin` → `pluginViewDeepLink`，数据来自插件自己声明的 `contributes.views`）
+   * 打开。原生面板只是"比 webview 更快更贴合原生"的增强项（同 `会话统计`/`技能` 的先例）。
+   */
+  onOpenGit: () => void = () => {
+  };
   /** 打开某个插件面板（页面置 `panelUrl = p.url`）。 */
   onOpenPlugin: (p: PluginCatalogItem) => void = () => {
   };
@@ -186,6 +195,12 @@ export struct PluginsSheet {
           ListItem() {
             this.EntryRow('技能', $r('sys.symbol.lightbulb'), (): void => {
               this.onOpenSkills();
+            })
+          }
+          // Git 面板（web 内置插件 `xbot.git-fancy` 的**原生渲染**增强项；插件行本身走通用深链）
+          ListItem() {
+            this.EntryRow('Git 面板（原生）', $r('sys.symbol.arrow_triangle_merge'), (): void => {
+              this.onOpenGit();
             })
           }
           // 完整 Web UI（插件 / GenUI / 终端 / 编辑器都在里面）

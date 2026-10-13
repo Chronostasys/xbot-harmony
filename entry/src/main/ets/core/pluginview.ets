@@ -374,7 +374,14 @@ export function pluginMetaText(version: string, state: string): string {
 //    估值**宁可略高**：高了只是卡片略高；**低了就会裁掉行**（正是旧缺陷）。
 
 /** 能力面板的**固定入口行**数（原生目录 / 会话统计 / 技能 / 完整 Web UI）——与组件里的四条 `ListItem` 同源。 */
-export const PANEL_FIXED_ENTRY_ROWS: number = 4;
+/**
+ * 固定「入口行」行数（生产恒为 `PANEL_FIXED_ENTRY_ROWS`）—— **高度估值与真实行数同源**。
+ *
+ * ⚠️ 4 → 5（2026-10-13）：新增「Git 面板（原生）」入口（web 内置插件 `xbot.git-fancy` 的
+ *   可选增强）。⛔ 这里改了就必须改 `components/PluginsSheet.ets` 的真实行数：两处失配 =
+ *   13h 那个「第 N 行被裁」缺陷（高度估值少算一行 ⇒ 列表区放不下最后一行）。
+ */
+export const PANEL_FIXED_ENTRY_ROWS: number = 5;
 /** 「入口行」高度估值（vp）：单行文本，取命中区下限 + 上下内距 + 行间距。 */
 export const PANEL_ENTRY_ROW_H: number = HIT_TARGET_MIN + 2 * INSET_ROW_Y + GAP_ROW_Y;
 /** 「插件行」高度估值（vp）：入口行 + 描述那一层（两层文本）。 */
@@ -383,9 +390,14 @@ export const PANEL_PLUGIN_ROW_H: number = PANEL_ENTRY_ROW_H + 8;
 export const PANEL_LIST_MIN_H: number = 320;
 /**
  * 列表高度**上限**（vp）——超出则表内滚动，卡片不再长高。
- * 取值：屏高 2848px / density 3.333 ≈ 854vp 的 ~65%（标题行 + 内距后仍留出上下留白）。
+ * 取值：屏高 2848px / density 3.333 ≈ 854vp 的 ~77%（标题行 + 内距后仍留出上下留白）。
+ *
+ * ⚠️ 560 → 660（2026-10-13）：固定入口行 4 → 5（新增「Git 面板（原生）」）⇒ 真实装机形态
+ *   （5 入口行 + 后端当前 4 个插件）= 626vp，旧上限 560 会**在常见形态就触顶**（用户看到的是
+ *   "最后一行贴边 + 必须滚动"，而不是原来的"一屏看完"）。判据 `pluginview.test.ts` 的 ★H
+ *   （"未触上限 ⇒ 恰为 N×入口行 + M×插件行"）正是一条**回归钉**，就是为了防这类"悄悄触顶"。
  */
-export const PANEL_LIST_MAX_H: number = 560;
+export const PANEL_LIST_MAX_H: number = 660;
 
 /** 计数归一化：非有限数/负数 ⇒ 0（防御服务端给了怪值）。 */
 function panelRowCount(n: number): number {

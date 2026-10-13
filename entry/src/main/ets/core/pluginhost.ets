@@ -645,3 +645,69 @@ export function buildPluginCatalog(
   }
   return catalog;
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 通用插件视图打开（**零插件特判**）—— 2026-10-13 目标④ 的架构修正
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// ── 问题（用户原话）──────────────────────────────────────────────────────────
+// 「为什么要原生（给单个插件写特殊逻辑），我们以后新的插件怎么办？」—— 正解：**不能**为
+// 每个插件写原生面板；必须有一个**通用**机制，让**任何**插件（含 web 以后新加的、第三方的）
+// 只要声明了 view 贡献点，宿主就能把它展示出来。
+//
+// ── 机制（web 侧已落地，见 `web/src/plugin-runtime/pluginViewRequest.ts`）──────
+// web 侧插件 view 没有静态 URL（只能经 `ctx.ui.openViewTab`）⇒ 我们在 web 侧开了**唯一入口**：
+//   · URL 深链：`?xbot_view=<viewId>[&xbot_view_key=…][&xbot_view_params=<json>][&xbot_view_title=…]`
+//   · JS 钩子：`window.__xbotOpenPluginView(viewId, key, params, title)`
+// ⇒ 原生侧只需**拼 URL**（本文件两个纯函数），不需要知道任何插件是谁。
+//
+// ── 原生为什么还要有 `GitPanelSheet` 之类的面板 ─────────────────────────────────
+// 它们是**可选增强**（先例：会话统计 / 技能管理也是原生入口），**不在关键路径上**：
+// 即使一个原生面板都没有，通用深链也能打开**所有**插件视图。
+
+/**
+ * 某插件的「主视图 id」= 第一个**非 `dynamic`** 的 view 贡献点。
+ *
+ * ⛔ 为什么必须跳过 `dynamic`：web `manifest.ts:37-44` 原文——`dynamic` 视图「跳过（无静态入口，
+ *   只能经 `ctx.ui.openViewTab` 打开）」= **必须带参数**（如「打开某 commit 的 diff」）。
+ *   无参打开它只会得到一个空面板 ⇒ 主入口必须选非 dynamic 的那个（如 `.panel`）。
+ * 全部都是 dynamic ⇒ 退回第一个（至少给一次尝试机会，⛔ 不是静默什么都不做）。
+ * 一个 view 都没有（如 `xbot.genui` 由宿主内联渲染）⇒ 空串（调用方回落既有行为）。
+ */
+export function primaryViewId(views: PluginViewItem[]): string {
+  if (views === undefined || views === null || views.length === 0) {
+    return '';
+  }
+  for (let i = 0; i < views.length; i++) {
+    const v: PluginViewItem = views[i];
+    if (v !== undefined && v !== null && v.dynamic !== true && v.id.length > 0) {
+      return v.id;
+    }
+  }
+  for (let i = 0; i < views.length; i++) {
+    const v: PluginViewItem = views[i];
+    if (v !== undefined && v !== null && v.id.length > 0) {
+      return v.id;
+    }
+  }
+  return '';
+}
+
+/**
+ * 通用深链：`<base>?xbot_view=<viewId>&xbot_view_title=<title>`（web `parsePluginViewQuery` 消费）。
+ *
+ * · `base` 末尾的 `/` 归一化掉（避免 `//?xbot_view`）；
+ * · 参数一律 `encodeURIComponent`（中文标题 / 视图中含点号都必须安全）；
+ * · `base` 为空 ⇒ 返回空串（调用方不得把它当 URL 用）。
+ */
+export function pluginViewDeepLink(base: string, viewId: string, title: string): string {
+  if (base.length === 0 || viewId.length === 0) {
+    return '';
+  }
+  let root: string = base;
+  while (root.length > 0 && root.charAt(root.length - 1) === '/') {
+    root = root.substring(0, root.length - 1);
+  }
+  const q: string = `?xbot_view=${encodeURIComponent(viewId)}&xbot_view_title=${encodeURIComponent(title)}`;
+  return `${root}/${q}`;
+}
