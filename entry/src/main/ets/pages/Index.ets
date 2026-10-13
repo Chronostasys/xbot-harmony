@@ -5351,6 +5351,14 @@ struct Index {
             Text(this.busy ? '运行中…' : '空闲')
               .fontSize(typeOf('type.caption').size).fontColor(this.busy ? this.pal().accentSoft : this.pal().textMuted)
           }
+          // ⚠️ 状态块可点 = 打开会话状态面板（与 5682 状态栏「详情」同源）：无 goal/todo/usage
+          //   数据时 5682 状态栏不渲染 ⇒ 此处是**唯一常驻入口**（用户随时可查 cwd/会话信息/订阅）。
+          .padding({ top: SPACE_XXS, bottom: SPACE_XXS })
+          .onClick(() => {
+            this.anim(() => {
+              this.showStatus = true;
+            });
+          })
         }
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
