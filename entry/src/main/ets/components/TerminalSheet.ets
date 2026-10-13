@@ -32,7 +32,7 @@ import {
 } from '../core/termproto';
 import { Palette, paletteOf } from '../core/theme';
 import {
-  colorOf, hairlineOf, HIT_TARGET_MIN, PRESS_OPACITY, RADIUS_CHIP, RADIUS_PILL, RADIUS_SHEET,
+  colorOf, hairlineOf, HIT_TARGET_MIN, PRESS_OPACITY, RADIUS_CARD, RADIUS_PILL, RADIUS_SHEET,
   SHEET_ACTION_GLYPH, SPACE_MD,
   SHEET_WIDTH, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, surfaceFillOf, typeOf,
 } from '../core/design';
@@ -594,7 +594,8 @@ export struct TerminalSheet {
       .scrollBar(BarState.Off)
       .clip(true)
       .backgroundColor(colorOf(this.palOnce(), 'sunken'))
-      .borderRadius(RADIUS_CHIP)
+      // S2（形状语言 12/8 两级，与侧栏同一口径）：画布是**容器** ⇒ `RADIUS_CARD`（12）。
+      .borderRadius(RADIUS_CARD)
       .onAreaChange((oldArea: Area, newArea: Area) => {
         this.applySize(this.toVp(newArea.width), this.toVp(newArea.height));
       })
@@ -634,7 +635,8 @@ export struct TerminalSheet {
           .fontColor(this.palOnce().textPrimary)
           .placeholderColor(this.iconMutedC())
           .backgroundColor(surfaceFillOf(this.palOnce(), 'surface.input'))
-          .borderRadius(RADIUS_CHIP)
+          // S2：输入框是内芯 ⇒ `RADIUS_PILL`（8），与键帽同档（⛔ 不是 6 的 chip 档）。
+          .borderRadius(RADIUS_PILL)
           .enterKeyType(EnterKeyType.Send)
           .enabled(this.status === TERM_CONNECTED)
           .onChange((v: string) => {

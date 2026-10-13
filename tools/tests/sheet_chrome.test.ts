@@ -214,21 +214,29 @@ for (const rel of SHEETS) {
   // 新建入口在位（空态下仍需能开终端）
   // ⚠️ 2026-10-12（15d 判据演进）：入口已从**内容区右对齐孤按钮**上移到**表头**（仅终端 tab），
   //    ⇒ 本文件只保证"入口存在"；"在表头且唯一"由 `panel_terminal_wiring.test.ts` 钉住。
-  ok('⑥ 终端 tab 保留「＋ 新建」入口', src.indexOf("'＋ 新建'") >= 0);
+  // ⚠️ 2026-10-13（S2 判据演进）：动作键由**实心 accent 胶囊**改 **Apple 导航栏动作键形态**
+  //    （`plus` 字形 + accentSoft 文字，与抽屉「新建」`DrawerSheet` 同款）⇒ 锚演进为**稳定 id**
+  //    （`.id('xbot-panel-new')`，不再随文案/字形漂移）。⛔ 断言**不删除**：入口仍在位。
+  ok('⑥ 终端 tab 保留「新建」入口（稳定 id 锚 xbot-panel-new）', src.indexOf('xbot-panel-new') >= 0);
+  ok('⑥ 入口 = 图标 + 文字（`plus` 字形 + `新建`）',
+    src.indexOf("$r('sys.symbol.plus')") >= 0 && src.indexOf("Text('新建')") >= 0);
   // 五 tab 空态在位（**逐字钉住** ⇒ 防误改/误删；措辞升级须同步改本判据）
   // ⚠️ 2026-10-13（判据演进 15z）：空态从「顶部一行小字」升级为「**大号弱化字形 + 一行说明**、
   //    且在内容区居中」⇒ 调用形态带上字形参数（`PanelEmpty($r('sys.symbol.X'), '文案')`）。
   //    ⚠️ 字形**必须已核对存在**（SDK `previewer/common/resources/entry/resources.txt` 资源表；
   //    本仓血债 =「猜字形」分类）—— 本轮实测：`clock`/`hourglass`/`person_2`/`code` ✅ 在表内，
   //    ⛔ `terminal` 在该表 9552 个字形里 **0 命中**（故终端用 `code`）。
+  // ⚠️ 2026-10-13（S2 判据演进：空态**层级**）—— 由「字形 + 一行」升级为 **字形 + 主行 + 提示行**
+  //    （Apple 空态三段结构：主行 `type.subhead`+`textSecondary` / 提示行 `type.caption`+`textMuted`）
+  //    ⇒ 第三参 `hint` 进入调用形态。⛔ 仍是"逐字钉住"，只演进不改意图。
   const EMPTIES: string[] = [
-    "PanelEmpty($r('sys.symbol.clock'), '本会话暂无定时任务')",
-    "PanelEmpty($r('sys.symbol.hourglass'), '本会话暂无后台任务')",
-    "PanelEmpty($r('sys.symbol.person_2'), '暂无子代理会话')",
+    "PanelEmpty($r('sys.symbol.clock'), '暂无定时任务', '定时任务到点会自动执行本会话')",
+    "PanelEmpty($r('sys.symbol.hourglass'), '暂无后台任务', '后台命令在服务端持续运行，不受会话切换影响')",
+    "PanelEmpty($r('sys.symbol.person_2'), '暂无子代理', '派发子代理后会出现在这里')",
     // ⚠️ 15d：文案与"行内按钮"解耦（按钮已上移表头）⇒ 不再出现"点「＋ 新建」开一个"
-    "PanelEmpty($r('sys.symbol.code'), '本会话暂无终端')",
+    "PanelEmpty($r('sys.symbol.code'), '暂无终端', '新建终端即可在此设备上运行 shell')",
     // 2026-10-13：机器 tab 的裸 `Text` 也统一到 `PanelEmpty`（字形 `computer`，已核对）
-    "PanelEmpty($r('sys.symbol.computer'), '暂无受管机器')",
+    "PanelEmpty($r('sys.symbol.computer'), '暂无受管机器', '在服务端注册 Runner 后可在此查看')",
   ];
   for (const s of EMPTIES) {
     ok(`⑥ 运行面板空态在位：${s}`, src.indexOf(s) >= 0);

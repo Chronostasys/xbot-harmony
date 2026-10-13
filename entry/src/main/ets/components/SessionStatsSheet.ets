@@ -333,8 +333,14 @@ export struct SessionStatsSheet {
                   // ⛔ 图标弱色走 `colorOf(p,'iconMuted')`（非文本档 ≥3）。
                   .fontColor([colorOf(this.palOnce(), 'iconMuted')])
                 Text('暂无数据')
-                  .fontSize(typeOf('type.callout').size)
+                  .fontSize(typeOf('type.subhead').size)
                   .fontColor(this.cSecondary())
+                  .width('100%')
+                // S2（对标 Apple 空态层级）：补**提示行**（怎么说才会有）——与运行面板 `PanelEmpty` 同形。
+                // ⚠️ 走既有 memo 入口 `this.cMuted()`（其内部已是 `palOnce()`）⇒ **不新增**读取点。
+                Text('本会话产生用量后会显示在这里')
+                  .fontSize(typeOf('type.caption').size)
+                  .fontColor(this.cMuted())
                   .width('100%')
               }
               .width('100%').padding(SPACE_SM)

@@ -8313,26 +8313,52 @@ struct Index {
    * ⚠️ 参数是**字面量**、不随状态变 ⇒ 用页面自持的带参 `@Builder` 安全（不触发"带参 @Builder 的
    * 子树不随参数重建"那类失效 —— 那条只对"会变的内容"致命）。
    */
-  // ── 2026-10-13（对标 Apple）：空态从「顶部一行小字」升级为**大号弱化字形 + 一行说明**，
+  /**
+   * 面板表头**动作键**色（单一来源）：与抽屉「新建」（`DrawerSheet`）同口径 —— Apple 导航栏
+   * 动作键 = **图标 + accentSoft 文字**（⛔ 不用实心色块抢占列表/页签层级）。
+   *
+   * 收成一个方法 = 性能预算 B 线（`pal() ∨ palOnce()` 读取总量，余量个位数）**净减**：
+   * 「新建」原有 2 个读取点（`onAccent` + `accent`）+「刷新」1 个 ⇒ 收敛为这里的 1 个。
+   * ⛔ 别为了"看着直白"再散回各动作键（会把 B 线顶穿）。
+   */
+  private panelActionTint(): string {
+    return this.palOnce().accentSoft;
+  }
+
+  // ── 2026-10-13（对标 Apple）：空态从「顶部一行小字」升级为**大号弱化字形 + 说明**，
   //    并在内容区**真正居中**（真机取证：原实现贴在内容区**顶部**、下方留一大片空洞 ⇒
   //    观感「这个面板没做完」）。`layoutWeight(1)` 占满剩余空间才是"居中"的前提。
   //    ⚠️ 字形必须**已核对存在**（SDK `previewer/common/resources/entry/resources.txt` 资源表；
   //    本仓血债 =「猜字形」，见 AGENTS.md）：本面板用 `clock`/`hourglass`/`person_2`/`code` ——
   //    ⛔ **没有** `terminal` 字形（该表 9552 个字形里 0 命中）⇒ 终端改用 `code`。
+  // ── 2026-10-13（S2，对标 Apple 空态**层级**）：Apple 的"什么都没有"从来不是**一句话**，
+  //    而是 **字形 → 主行（说"没有什么"）→ 提示行（说"怎么才会有"）** 的三段层级：
+  //      · 主行 `type.subhead` + `textSecondary`（读成"标题"）
+  //      · 提示行 `type.caption` + `textMuted`（读成"补充"）
+  //    ⇒ 由 1 行升为 2 行（`hint` 允许空串 ⇒ 自动退回单行形态）。
   @Builder
-  PanelEmpty(icon: Resource, text: string) {
-    Column({ space: SPACE_SM }) {
+  PanelEmpty(icon: Resource, title: string, hint: string) {
+    Column({ space: SPACE_XS }) {
       SymbolGlyph(icon)
         .fontSize(typeOf('type.display').size)
         .fontColor([colorOf(this.palOnce(), 'iconMuted')])
-      Text(text)
-        .fontSize(typeOf('type.callout').size)
+      Text(title)
+        .fontSize(typeOf('type.subhead').size)
+        .fontWeight(typeOf('type.subhead').weight)
         // ⚠️ 走 `palOnce()`（记忆化入口）：本页 `this.pal()` 调用点受性能预算 A 线（≤1250）约束，
         //    新增 UI 一律走 memo 入口（语义与 `pal()` 逐字节一致）。
-        .fontColor(this.palOnce().textMuted)
+        .fontColor(this.palOnce().textSecondary)
         .width('100%')
         .textAlign(TextAlign.Center)
-        .padding({ top: SPACE_LG, bottom: SPACE_LG })
+        .padding({ top: SPACE_SM })
+      if (hint.length > 0) {
+        Text(hint)
+          .fontSize(typeOf('type.caption').size)
+          .fontColor(this.palOnce().textMuted)
+          .width('100%')
+          .textAlign(TextAlign.Center)
+          .padding({ bottom: SPACE_SM })
+      }
     }
     .width('100%')
     .layoutWeight(1)
@@ -8358,18 +8384,29 @@ struct Index {
         //    ⇒ 收进**表头**（与 刷新/✕ 同排，仅终端 tab 出现）：动作归动作、内容归内容，
         //    与 `SettingsPanel` / `PluginsSheet` 的表头动作惯例一致。
         if (this.panelTab === 'term') {
-          Row() {
-            Text('＋ 新建')
-              .fontSize(typeOf('type.caption').size)
-              .fontColor(this.palOnce().onAccent)
-              .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_XS, bottom: SPACE_XS })
-              .backgroundColor(this.palOnce().accent)
-              .borderRadius(RADIUS_PILL)
+          // ── 2026-10-13（S2，对标 Apple）：由**实心 accent 胶囊**改 **Apple 导航栏动作键形态**
+          //    = **图标 + accentSoft 文字**（与抽屉「新建」`DrawerSheet` 逐字同款）。原实心块与
+          //    页签/标题抢层级（用户口径「实心色块 = 按钮墙」）。
+          //    ⛔ 弃用全角「＋」——其字面宽度/基线与其他字形不同，真机观感是"＋ 新建"被拉开成两块。
+          //    `.id('xbot-panel-new')` = 面板动作键的**稳定判据锚**（`sheet_chrome` ⑥ /
+          //    `panel_terminal_wiring` ① 钉它，取代易随文案漂移的字面量）。
+          Row({ space: SPACE_XS }) {
+            SymbolGlyph($r('sys.symbol.plus'))
+              .fontSize(ICON_SM)
+              .fontColor([this.panelActionTint()])
+            Text('新建')
+              .fontSize(typeOf('type.subhead').size)
+              .fontColor(this.panelActionTint())
           }
+          // ⚠️ 用 `SPACE_XS`（⛔ **不是** `SPACE_HAIR`）：`status_sheet_drawer` 判据以
+          //    「`SPACE_HAIR` 且后接块开头」那一行为**首个**锚去切"抽屉分段控件轨道"——本处若同用
+          //    该间距常量会成为更早的首匹配 ⇒ 切片起点前移到本行、把 8916 的折叠动作卷进轨道
+          //    ⇒ 那条"控制类型不混用"断言**假红**（本轮实测踩过；⛔ 注释里也不得复写该锚串）。
           // 真机实测 `responseRegion` 负偏移外扩**不生效**（AGENTS.md GOTCHA）⇒ 用真实 44 布局盒
+          .id('xbot-panel-new')
           .height(HIT_TARGET_MIN)
           .padding({ left: SPACE_XS, right: SPACE_XS })
-          .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+          .alignItems(VerticalAlign.Center)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .accessibilityText('新建终端')
           .onClick(() => {
@@ -8377,10 +8414,11 @@ struct Index {
           })
         }
         Row() {
-          Text('刷新').fontSize(typeOf('type.caption').size).fontColor(this.pal().accentSoft)
+          // 与「新建」同口径（`panelActionTint()`，单一来源 ⇒ B 线净减）：刷新是**动作**、不是弱化
+          // 元信息 ⇒ 用 `type.subhead`（与抽屉动作键同尺寸；此前 `caption` 比「新建」矮一档）。
+          Text('刷新').fontSize(typeOf('type.subhead').size).fontColor(this.panelActionTint())
         }
         .height(HIT_TARGET_MIN).padding({ left: SPACE_XS, right: SPACE_XS })
-        .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .onClick(() => {
           this.refreshPanel();
@@ -8443,7 +8481,7 @@ struct Index {
 
       if (this.panelTab === 'cron') {
         if (this.cronTasks.length === 0) {
-          this.PanelEmpty($r('sys.symbol.clock'), '本会话暂无定时任务')
+          this.PanelEmpty($r('sys.symbol.clock'), '暂无定时任务', '定时任务到点会自动执行本会话')
         } else {
           List({ space: 6 }) {
             ForEach(this.cronTasks, (job: CronJob, i: number) => {
@@ -8470,7 +8508,7 @@ struct Index {
         }
       } else if (this.panelTab === 'tasks') {
         if (this.bgTasks.length === 0) {
-          this.PanelEmpty($r('sys.symbol.hourglass'), '本会话暂无后台任务')
+          this.PanelEmpty($r('sys.symbol.hourglass'), '暂无后台任务', '后台命令在服务端持续运行，不受会话切换影响')
         } else {
           List({ space: 6 }) {
             ForEach(this.bgTasks, (t: BgTask, i: number) => {
@@ -8494,7 +8532,7 @@ struct Index {
         }
       } else if (this.panelTab === 'subs') {
         if (this.subagents.length === 0) {
-          this.PanelEmpty($r('sys.symbol.person_2'), '暂无子代理会话')
+          this.PanelEmpty($r('sys.symbol.person_2'), '暂无子代理', '派发子代理后会出现在这里')
         } else {
           List({ space: 6 }) {
             ForEach(this.subagents, (a: SubAgentRow, i: number) => {
@@ -8527,7 +8565,7 @@ struct Index {
         //    （真机取证：tab 显示「终端 2」+ 内容区「共 2 个终端」）。留 tab 的计数即可（其空态自动隐后缀）。
         // ⛔ 内容区**无动作**：唯一的「＋ 新建」已上移到表头（见上）——此处只留列表 / 空态。
         if (this.terminals.length === 0) {
-          this.PanelEmpty($r('sys.symbol.code'), '本会话暂无终端')
+          this.PanelEmpty($r('sys.symbol.code'), '暂无终端', '新建终端即可在此设备上运行 shell')
         } else {
           List({ space: 6 }) {
             ForEach(this.terminals, (t: TerminalInfo, i: number) => {
@@ -8555,7 +8593,7 @@ struct Index {
         }
       } else {
         if (this.runners.length === 0) {
-          this.PanelEmpty($r('sys.symbol.computer'), '暂无受管机器')
+          this.PanelEmpty($r('sys.symbol.computer'), '暂无受管机器', '在服务端注册 Runner 后可在此查看')
         } else {
           List({ space: 6 }) {
             ForEach(this.runners, (r: RunnerRow, i: number) => {

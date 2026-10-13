@@ -18,7 +18,7 @@
 import { Palette, paletteOf } from '../core/theme';
 import {
   colorOf, structuralRuleOf, surfaceFillOf,
-  HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, PRESS_OPACITY, RADIUS_CHIP,
+  HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, PRESS_OPACITY, RADIUS_CARD,
   SPACE_HAIR, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD,
 } from '../core/design';
 import { fs, fw, lh } from './SettingsRows';
@@ -127,7 +127,8 @@ export struct PanelRowCard {
       left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y,
     })
     .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))
-    .borderRadius(RADIUS_CHIP)
+    // S2（形状语言 12/8 两级，与侧栏 `785a3fa` 同一口径）：**容器** = `RADIUS_CARD`（12）。
+    .borderRadius(RADIUS_CARD)
     // L2 内嵌卡「面到面轮廓」= `structuralRuleOf`（门禁 ③ 硬红：L2 卡不许走 L1 的 `hairlineOf`）
     .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
     // 不可点（纯信息行）⇒ `.enabled(false)`（ArkUI 同时禁掉点击与按压反馈；

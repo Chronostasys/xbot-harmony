@@ -65,16 +65,21 @@ const psNextBuilder: number = idxSrc.indexOf('@Builder', psStart + PS_MARK.lengt
 const psBody: string = psStart >= 0
   ? idxSrc.slice(psStart, psNextBuilder > 0 ? psNextBuilder : idxSrc.length)
   : '';
-const newBtn: number = countOf(idxSrc, "'＋ 新建'");
+// ⚠️ 2026-10-13（S2 判据演进）：动作键由**实心 accent 胶囊**改 **Apple 导航栏动作键形态**
+//    （`plus` 字形 + accentSoft 文字，与抽屉「新建」同款）⇒ 字面量锚演进为**稳定 id 锚**
+//    `.id('xbot-panel-new')`（不再随文案/字形漂移）。⛔ 意图不变、断言不删。
+const newBtn: number = countOf(idxSrc, 'xbot-panel-new');
 // ⚠️ 2026-10-12 二次演进：tab 行已从 `Flex({ wrap: FlexWrap.Wrap })` 改成
 //    **`Row` + 每片 `layoutWeight(1)` 等分**（等分 ⇒ 不可能被裁、也不可能参差；见 Index.ets 头注）。
 //    ⇒ 本判据的**定位锚**随之演进为「第一个内容分支」（意图不变：`＋ 新建` 必须在**表头**、
 //    即早于内容区；⛔ 不删除这条断言）。
 const contentAt: number = psBody.indexOf("if (this.panelTab === 'cron')");
-const newBtnAt: number = psBody.indexOf("'＋ 新建'");
+const newBtnAt: number = psBody.indexOf('xbot-panel-new');
 const termCall: number = countOf(psBody, 'this.newTerminal()');
 const oldEmpty: number = countOf(idxSrc, '本会话暂无终端；点');
-const newEmpty: number = countOf(idxSrc, '本会话暂无终端');
+// ⚠️ 2026-10-13（S2 判据演进：空态层级）：「本会话暂无终端」升级为「暂无终端」+ 提示行 ⇒
+//    针随之演进（子串锚 ⇒ ⛔ 不删断言；旧针 `本会话暂无终端` 已随文案消失）。
+const newEmpty: number = countOf(idxSrc, '暂无终端');
 console.log(`  panel-scan ${IDX}: '＋ 新建' 全页=${newBtn} PanelsSheet片段长=${psBody.length} 内位置=${newBtnAt} 内容区=${contentAt} newTerminal()=${termCall} 旧空态=${oldEmpty} 新空态=${newEmpty}`);
 
 ok(`PanelsSheet 片段已切出（长 ${psBody.length} > 1000）`, psBody.length > 1000);

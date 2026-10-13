@@ -273,10 +273,20 @@ export struct StatusSheet {
               // ⛔ 图标弱色走 `colorOf(p,'iconMuted')`（非文本档 ≥3；`textMuted` 的批准档是文本 2）。
               .fontColor([colorOf(paletteOf(this.theme), 'iconMuted')])
             Text('暂无会话状态')
-              .fontSize(fs('type.callout'))
-              .fontWeight(fw('type.callout'))
-              .lineHeight(lh('type.callout'))
-              .fontColor(this.pal().textMuted)
+              .fontSize(fs('type.subhead'))
+              .fontWeight(fw('type.subhead'))
+              .lineHeight(lh('type.subhead'))
+              // S2：改走 `paletteOf(this.theme)`（与 `SkillsSheet` 同口径；语义与 `pal()` 逐字节一致），
+              // 先把本行从性能预算 A/B 线里**摘出**，再在下方补提示行 —— 净减。
+              .fontColor(paletteOf(this.theme).textSecondary)
+              .width('100%')
+              .textAlign(TextAlign.Center)
+            // S2（对标 Apple 空态层级）：补**提示行**（怎么说才会有）——与运行面板 `PanelEmpty` 同形。
+            Text('会话信息加载后会显示在这里')
+              .fontSize(fs('type.caption'))
+              .fontWeight(fw('type.caption'))
+              .lineHeight(lh('type.caption'))
+              .fontColor(paletteOf(this.theme).textMuted)
               .width('100%')
               .textAlign(TextAlign.Center)
           }

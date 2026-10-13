@@ -175,6 +175,12 @@ export struct SkillsSheet {
               .fontColor(paletteOf(this.theme).textSecondary)
               .width('100%')
               .textAlign(TextAlign.Center)
+            // S2（对标 Apple 空态层级）：补**提示行**（怎么说才会有）——与运行面板 `PanelEmpty` 同形。
+            Text('技能由服务端技能目录提供')
+              .fontSize(typeOf('type.caption').size)
+              .fontColor(paletteOf(this.theme).textMuted)
+              .width('100%')
+              .textAlign(TextAlign.Center)
           }
           .width('100%')
           .layoutWeight(1)
