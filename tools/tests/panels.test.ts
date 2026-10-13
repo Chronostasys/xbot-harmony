@@ -9,6 +9,7 @@ import {
   queueListHeight, QUEUE_LIST_MIN_H, QUEUE_LIST_MAX_H, QUEUE_ROW_H,
   durationText, fmtHHMM, KillBgTaskParams, runnerPrimary, runnerSubText, runnerTone, scheduleText,
   SubAgentRow, subagentPrimary, subagentSubText, subagentTone,
+  PANEL_POLL_ACTIVE_MS, PANEL_POLL_IDLE_MS, panelPollMs,
   TONE_ERROR, TONE_MUTED, TONE_SUCCESS,
 } from '../../entry/src/main/ets/core/panels';
 
@@ -209,6 +210,31 @@ eq('排序：无运行中 ⇒ 原序（不动）',
 eq('排序：空列表 ⇒ 空', sortBgTasksActiveFirst([]).length, 0);
 eq('计数：运行中数（含 started）', bgTaskActiveCount(bgL), 2);
 eq('计数：空 ⇒ 0', bgTaskActiveCount([]), 0);
+
+// ── 运行面板自适应轮询周期（批次 2026-10-13，「任务管理做的很差」的可修点）──────────
+// 真判别点：**有在跑的东西 ⇒ 2s；否则 30s**（web `useTasks.ts:117-122` + `TasksPanel.tsx:48-54`）。
+// ⛔ 旧接线只在「打开/切 tab/手点刷新」取数 ⇒ 面板开着时数据是死的（后台任务跑完不更新）。
+// mutation 自证：`panelPollMs` 恒返回 IDLE ⇒ 「running 后台任务 ⇒ 2s」「running 子代理 ⇒ 2s」两条红；
+//                在子代理分支漏判 `running === true` ⇒ 「子代理非 running ⇒ 30s」红。
+eq('轮询：空 ⇒ 30s', panelPollMs([], []), PANEL_POLL_IDLE_MS);
+eq('轮询：全完成的后台任务 ⇒ 30s',
+  panelPollMs([{ id: 'a', status: 'done', exit_code: 0 }, { id: 'b', status: 'failed', exit_code: 1 }], []),
+  PANEL_POLL_IDLE_MS);
+eq('轮询：有 running 后台任务 ⇒ 2s', panelPollMs([{ id: 'a', status: 'running' }], []), PANEL_POLL_ACTIVE_MS);
+eq('轮询：started 也算在跑（web 同口径）⇒ 2s', panelPollMs([{ id: 'a', status: 'started' }], []), PANEL_POLL_ACTIVE_MS);
+const subIdle = new SubAgentRow();
+subIdle.chat_id = 'agent:reviewer/r1';
+subIdle.running = false;
+const subRun = new SubAgentRow();
+subRun.chat_id = 'agent:reviewer/r2';
+subRun.running = true;
+eq('轮询：无后台任务但子代理在跑 ⇒ 2s', panelPollMs([], [subRun]), PANEL_POLL_ACTIVE_MS);
+eq('轮询：子代理都不在跑 ⇒ 30s', panelPollMs([], [subIdle]), PANEL_POLL_IDLE_MS);
+eq('轮询：后台+子代理都静息 ⇒ 30s', panelPollMs([{ id: 'a', status: 'done' }], [subIdle]), PANEL_POLL_IDLE_MS);
+eq('轮询：两者都在跑 ⇒ 2s（取更快者，不许被静息项压回去）',
+  panelPollMs([{ id: 'a', status: 'running' }], [subRun]), PANEL_POLL_ACTIVE_MS);
+eq('轮询：常量与 web 字面量一致（2s/30s，⛔ 不许自造周期）',
+  [PANEL_POLL_ACTIVE_MS, PANEL_POLL_IDLE_MS], [2000, 30000]);
 
 if (fail > 0) { console.log(`  panels: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  panels: ${pass} passed, 0 failed`);

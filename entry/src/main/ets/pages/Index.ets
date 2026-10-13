@@ -194,6 +194,8 @@ import { TerminalSheet } from '../components/TerminalSheet';
 import { SessSheet, SearchHitsSheet, ContextSheet } from '../components/MenuSheets';
 import { AskUserSheet } from '../components/AskUserSheet';
 import { animBase, animFast, drawerTransition, fadeTransition, sheetTransition } from '../components/anim';
+// 运行面板「运行中 @2s / 静息 @30s」的自适应轮询预算（web `useTasks.ts:117-122` + `TasksPanel.tsx:48-54` 同源）
+import { panelPollMs } from '../core/panels';
 // 会话面切换的入场位移档（动效数值只许从底座 `core/motion.ets` 取；⛔ 页面不写字面量）
 import { MOTION_SESSION_SWITCH_SLIDE_VP } from '../core/motion';
 import { readableRpcError, rpc, RpcMethod, RPC_PLUGIN_CONFIG, PluginConfigParams, RPC_WEB_PLUGIN_LIST, RPC_GET_SESSION_USAGE_STATS, RPC_GET_USER_TOKEN_USAGE, RPC_GET_DAILY_TOKEN_USAGE, RPC_GET_SESSION_USAGE_BUCKETS, SessionUsageStatsParams, DailyUsageParams, SessionUsageBucketsParams, EmptyParams, ThinkingModeParams } from '../core/rpc';
@@ -1104,6 +1106,11 @@ struct Index {
    * 这是项目里已定稿的规矩（Web 端同款）。
    */
   private pulseTimer: number = -1;
+  /**
+   * 运行面板的**自适应轮询**定时器（自续期 `setTimeout`，模式同 `core/sse.ets` 看门狗）。
+   * 周期判据 = `core/panels.panelPollMs`（有在跑的东西 ⇒ 2s，否则 30s；web `useTasks.ts:117-122` 同源）。
+   */
+  private panelPollTimer: number = -1;
   // ── P12 查看器：缩放/平移（夹取逻辑在 core/imgops.ets，已单测）──
   @State imgScale: number = 1;
   @State imgTransX: number = 0;
@@ -1682,11 +1689,13 @@ struct Index {
     // 进后台：停掉脉冲与打字机的所有定时器（降功耗；回前台自动恢复）
     this.appPaused = true;
     this.syncPulse(false);
+    this.syncPanelPoll();
   }
 
   onPageShow(): void {
     this.appPaused = false;
     this.syncPulse(this.busy);
+    this.syncPanelPoll();
     // 回前台强制探活（旁路，仅此处一处调用）：`readTimeout:0` ⇒ 连接被中间设备静默掐死时
     // **收不到 `dataEnd`**，`dataEnd→scheduleReconnect` 那条路根本不走 ⇒ 界面看着在连、其实早死
     // （表现：消息不再更新）。`SseClient.forceReconnect()` 自判（久无帧 + 非 idle + 2s 节流，
@@ -1807,6 +1816,44 @@ struct Index {
       clearInterval(this.pulseTimer);
       this.pulseTimer = -1;
     }
+  }
+
+  /**
+   * 运行面板**轮询**：补一拍 + 按**最新**数据重排下一拍（自续期 `setTimeout`，同 `core/sse.ets` 看门狗）。
+   *
+   * ⛔ 为什么必须有：此前面板**只在**「打开 / 切 tab / 手点刷新」取数 ⇒ 面板开着时数据是**死的**
+   *    （后台任务跑完、子代理状态翻转都不会更新）—— 用户口径「任务管理做的很差」的可修点。
+   * ⚠️ 周期判据走 `core/panels.panelPollMs`（与「哪条在跑」的渲染判据同一份纯函数 ⇒ 不可能不一致）。
+   * ⚠️ 只补**当前 tab** 那一拍（`refreshPanel()` 自带 `panelBusy` 排队守卫、失败 toast，⛔ 不重复实现）。
+   */
+  private async panelPollStep(): Promise<void> {
+    if (!this.showPanels || this.appPaused) {
+      return;
+    }
+    await this.refreshPanel();
+    this.syncPanelPoll();
+  }
+
+  /**
+   * 布防/撤防运行面板轮询（**唯一布防点**）。
+   *
+   * 触发点：开面板 / 切 tab / 关面板（含 `closeOverlaysAboveDrawer`）/ 前台↔后台；另外每拍结束后
+   * 由 `panelPollStep()` 重排（数据变了 ⇒ 周期从 30s 切到 2s，反之亦然 —— 与 web `useTasks.ts:117`
+   * 的 `useEffect([bgTasks])` 同效果）。
+   * ⛔ 幂等：先无条件清掉旧定时器再按需重排（⛔ 绝不叠加两个定时器）。
+   */
+  private syncPanelPoll(): void {
+    if (this.panelPollTimer >= 0) {
+      clearTimeout(this.panelPollTimer);
+      this.panelPollTimer = -1;
+    }
+    if (!this.showPanels || this.appPaused) {
+      return;
+    }
+    this.panelPollTimer = setTimeout(() => {
+      this.panelPollTimer = -1;
+      void this.panelPollStep();
+    }, panelPollMs(this.bgTasks, this.subagents));
   }
 
   private scheduleSync(store: ChatStore): void {
@@ -7263,6 +7310,8 @@ struct Index {
     //    （真机 dump 实证：输入框在 y2144，而面板从 y2097 起 ⇒ 无法输入）。与「子代理行」同范式。
     this.showPanels = false;
     this.showTerminal = true;
+    // 面板已收起 ⇒ 撤防轮询（⛔ 别让它在后台空转）
+    this.syncPanelPoll();
   }
 
   /** 新建终端（`POST /api/terminal/create`）；成功后直接打开数据通道。 */
@@ -7278,6 +7327,8 @@ struct Index {
         this.termCwd = '';
         this.showPanels = false;
         this.showTerminal = true;
+        // 面板已收起 ⇒ 撤防轮询（同 `openTerminal`）
+        this.syncPanelPoll();
       } else {
         this.toast('新建终端失败');
       }
@@ -7626,6 +7677,8 @@ struct Index {
     this.pluginPageUrl = '';
     // 图片查看器走既有收口（重置缩放/位移 + 释放 PixelMap），⛔ 不手写第二套。
     this.closeViewer();
+    // 面板已被收（`showPanels = false`）⇒ 撤防轮询（本方法 = 浮层收口的唯一真源 ⇒ 必须在此撤防）
+    this.syncPanelPoll();
   }
 
   private openPanels(): void {
@@ -7638,11 +7691,15 @@ struct Index {
             this.showPanels = true;
           });
     this.refreshPanel();
+    // 面板开着 = 数据要活着（web `useTasks.ts:117-122` 的自适应轮询；见 `syncPanelPoll`）
+    this.syncPanelPoll();
   }
 
   private switchPanelTab(tab: string): void {
     this.panelTab = tab;
     this.refreshPanel();
+    // 切 tab 顺手把轮询倒计时重置（周期可能随新 tab 的数据变化 ⇒ 由 `syncPanelPoll` 重排）
+    this.syncPanelPoll();
   }
 
   private async removeCron(jobId: string): Promise<void> {

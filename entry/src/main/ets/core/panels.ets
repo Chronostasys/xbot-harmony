@@ -563,6 +563,41 @@ export function countText(n: number): string {
   return `${n}`;
 }
 
+/**
+ * 运行面板轮询周期：**有在跑的东西**（后台任务 或 子代理）⇒ 2s。
+ *
+ * web 同源：`useTasks.ts:117-122` —— `hasRunning ? 2_000 : REFRESH_INTERVAL_MS`。
+ */
+export const PANEL_POLL_ACTIVE_MS: number = 2000;
+
+/** 运行面板轮询周期：静息 ⇒ 30s（web `useTasks.ts:49 REFRESH_INTERVAL_MS = 30_000`）。 */
+export const PANEL_POLL_IDLE_MS: number = 30000;
+
+/**
+ * 运行面板的**自适应轮询周期**（ms）—— 与 web **逐条同源**（不允许发明）：
+ *   · `web/src/hooks/useTasks.ts:117-122`：有后台任务 `running|started` ⇒ `setInterval(…, 2_000)`，
+ *     否则 `REFRESH_INTERVAL_MS = 30_000`；
+ *   · `web/src/components/sidebar/TasksPanel.tsx:48-54`：有 running 子代理 ⇒ 每 `2_000ms`
+ *     `session.refresh()`。
+ * ⇒ 合成判据 = **「有任何在跑的东西 ⇒ 2s；否则 30s」**（两个真源取"更快者"，与 web 的叠加效果一致）。
+ *
+ * ⛔ 为什么必须有：此前原生**只在**「打开面板 / 切 tab / 手点刷新」取数 ⇒ 面板开着时数据是**死的**
+ *    （后台任务跑完、子代理状态翻转都不更新）—— 用户口径「任务管理做的很差」的可修点之一。
+ * ⛔ 纯函数（无定时器、不碰 ArkUI）⇒ 可脱机单测；接线侧只在"何时补一拍"上用 `setTimeout` 自续期。
+ */
+export function panelPollMs(bgTasks: BgTask[], subs: SubAgentRow[]): number {
+  if (bgTaskActiveCount(bgTasks) > 0) {
+    return PANEL_POLL_ACTIVE_MS;
+  }
+  const rows: SubAgentRow[] = arrOrEmpty(subs);
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].running === true) {
+      return PANEL_POLL_ACTIVE_MS;
+    }
+  }
+  return PANEL_POLL_IDLE_MS;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 插件 widget 推送（SSE `web_widgets` / `plugin_widgets`）—— **绝不静默丢**
 // ─────────────────────────────────────────────────────────────────────────────
