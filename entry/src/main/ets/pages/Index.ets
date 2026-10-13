@@ -4873,6 +4873,13 @@ struct Index {
             // 用户菜单：**并发编辑互斥**（判据 = `core/ctxmenu.canRewindWhile`；web `UserMessage.tsx:38-39`
             // `editDisabled` = "another message is being edited"）—— 有任一其它消息在编辑 ⇒ 「编辑并重发」置灰。
             canRewind: canRewindWhile(this.rewindEditRowId, this.ctxRowId),
+            // **消息（行）**菜单的空项过滤（判据与动作**同源** = `composeCopy(partsForRow(row), …)`
+            // 是否非空；项集真源 = `core/ctxmenu.rowMenuItems`）。用户 2026-10-13 亲报
+            // 「长按复制会提示没有可复制的内容」—— 长按"最后无正文的助手消息"点「复制回复」即命中。
+            canRowReply: this.ctxRowVariantText(COPY_REPLY).length > 0,
+            canRowThinking: this.ctxRowVariantText(COPY_THINKING).length > 0,
+            canRowTools: this.ctxRowVariantText(COPY_TOOLS).length > 0,
+            canRowRaw: this.ctxRowVariantText(COPY_RAW).length > 0,
             // 工具组菜单（`ctxKind === 'tools'`）：逐枚名 + 逐枚"有内容" + 组级拼接是否非空
             toolNames: this.ctxToolNames,
             toolHasText: this.ctxToolHasText,
@@ -7815,6 +7822,21 @@ struct Index {
   private ctxIterCanTools(): boolean {
     const it: HistoryIteration | undefined = this.ctxIteration();
     return it !== undefined && it.tools !== undefined && it.tools.length > 0;
+  }
+
+  /**
+   * 「消息（行）」菜单各变体的**可复制文本**（判据与动作**同源**：动作也是
+   * `composeCopy(this.partsForRow(row), this.variantOf(code))`，见 `runCtxAction`）。
+   *
+   * ⛔ **别按"单个字段非空"判** —— `COPY_THINKING` 的产物是**正文 + 思考**、
+   *    `COPY_TOOLS` 是**正文 + 思考 + 工具**（`core/msgops.composeCopy`）：正文非空时产物即非空
+   *    ⇒ 该项**应当**给出。按字段判会少给项（判据与动作脱节）。
+   * 事故（2026-10-13 用户亲报「长按复制会提示没有可复制的内容」）：`ContextSheet` 的行分支
+   *    此前**恒出 4 项** ⇒ 长按"最后无正文的助手消息"（工具收尾/空壳）点「复制回复」得空复制。
+   */
+  private ctxRowVariantText(variant: string): string {
+    const row: ChatRow | undefined = this.ctxRow();
+    return row === undefined ? '' : composeCopy(this.partsForRow(row), variant);
   }
 
   private partsForIteration(it: HistoryIteration): CopyParts {    const p: CopyParts = new CopyParts();

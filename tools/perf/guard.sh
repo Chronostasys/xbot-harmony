@@ -88,9 +88,13 @@ le "setInterval 调用点（常驻定时器）" "$n_itv" 6 处
 le "setTimeout 调用点" "$n_tmo" 7 处
 le "anim*() 调用点（每次调用新建曲线对象）" "$n_anim" 20 处
 # ForEach 处数（规模指示）：107 → 111（2026-10-13）—— 原生 Git 面板 `components/GitPanelSheet.ets`
-# 的 4 个**必要**列表（diff 行 / 变更文件 / 提交历史 / 提交内文件）。⛔ 只许显式登记，不许超：
-# 该数是"规模指示"不是质量判据（见下方提示行），但**新增必须写明理由**才能抬。
-le "ForEach 处数" "$n_fe" 111 处
+# 的 4 个**必要**列表（diff 行 / 变更文件 / 提交历史 / 提交内文件）。
+# 111 → **112**（2026-10-13）—— `components/MenuSheets.ets` 的**消息（行）**长按菜单并入
+# 既有「纯函数项集 + ForEach」模式（原为 4 条硬编码 `CtxItem`、无 ForEach）：为消灭
+# 「空复制项 ⇒ 误导 toast『没有可复制的内容』」（用户亲报），项集改由 `core/ctxmenu.rowMenuItems`
+# 过滤，与 iter/tools/user 三分支**同一形态**（判据与渲染同源）。
+# ⛔ 只许显式登记，不许超：该数是"规模指示"不是质量判据（见下方提示行），但**新增必须写明理由**才能抬。
+le "ForEach 处数" "$n_fe" 112 处
 le "core 外裸 parseMarkdown/parseInline 调用点" "$n_raw" 0 处
 
 # ── 后台对账「极轻量」守卫（用户点名："注册一个极其轻量的任务"）────────────────────

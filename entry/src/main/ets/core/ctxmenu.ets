@@ -21,6 +21,12 @@ export const ITER_REPLY: string = 'iter-reply';
 export const ITER_THINKING: string = 'iter-thinking';
 export const ITER_TOOLS: string = 'iter-tools';
 
+/** **消息（行）**菜单项 code。 */
+export const ROW_REPLY: string = 'row-reply';
+export const ROW_THINKING: string = 'row-thinking';
+export const ROW_TOOLS: string = 'row-tools';
+export const ROW_RAW: string = 'row-raw';
+
 /** **工具（组）**菜单项 code：逐枚 `copy-tool:<下标>`；组级「复制全部工具输出」。 */
 export const TOOL_ITEM_PREFIX: string = 'copy-tool:';
 export const TOOL_ALL: string = 'copy-all-tools';
@@ -96,6 +102,38 @@ export function iterMenuItems(canReply: boolean, canThinking: boolean, canTools:
   if (canReply) { out.push(item(ITER_REPLY, '复制该迭代正文')); }
   if (canThinking) { out.push(item(ITER_THINKING, '复制该迭代（含思考）')); }
   if (canTools) { out.push(item(ITER_TOOLS, '复制该迭代（含工具）')); }
+  return out;
+}
+
+/**
+ * **消息（行）**菜单项集 —— **空项过滤**（**超越 web**：web `MessageActions.tsx:284-290` 的
+ * `kind === 'message'` 分支**不过滤**，但它 `copy()` 是 `if (!text) return`（静默无操作，`:253-254`）
+ * ⇒ 用户点了也不会得到反馈；本仓 `Index.copyText` 对空文本会弹「没有可复制的内容」⇒ 必须**过滤**，
+ * 否则用户点「复制回复」只得到一个误导性 toast）。
+ *
+ * ⛔ **判据与动作必须同源**（本仓铁律）：四个 flag 由**动作将要复制的同一算式**派生 ——
+ *    `composeCopy(partsForRow(row), variantOf(code))` 是否非空（`core/msgops.composeCopy`）。
+ *    ⚠️ 别按"单个字段非空"判（如仅 `thinking` 非空）—— 因为 `COPY_THINKING` 的产物是
+ *    **正文 + 思考**（`composeCopy:47-53`）：正文非空时产物非空 ⇒ 该项**应当**给出。
+ *    这与 `iterMenuItems` 的三 flag（按字段）不同，是**更贴 web 的真实判据**（web 迭代侧也是
+ *    `iterationCopyText(...)` 非空才 push）。
+ *
+ * 事故（2026-10-13，用户亲报「长按复制会提示没有可复制的内容」）：`ContextSheet` 的 `else`
+ *    （`ctxKind === 'row'`）分支此前**恒出 4 项**，而 `iter` 分支已过滤 ⇒ 长按「最后无正文的
+ *    助手消息」（工具收尾/空壳）点「复制回复」必得一个空复制 + 误导 toast。
+ * @param canReply    `复制回复` 的产物（`composeCopy(…, COPY_REPLY)`）是否非空
+ * @param canThinking `复制（含思考）` 的产物（`COPY_THINKING`）是否非空
+ * @param canTools    `复制（含工具）` 的产物（`COPY_TOOLS`）是否非空
+ * @param canRaw      `复制原始 Markdown` 的产物（`COPY_RAW`）是否非空
+ * @returns 非空项（保序：回复 → 含思考 → 含工具 → 原文）；四项皆空 ⇒ **空数组**（菜单只剩取消）。
+ */
+export function rowMenuItems(canReply: boolean, canThinking: boolean, canTools: boolean,
+  canRaw: boolean): CtxMenuItem[] {
+  const out: CtxMenuItem[] = [];
+  if (canReply) { out.push(item(ROW_REPLY, '复制回复')); }
+  if (canThinking) { out.push(item(ROW_THINKING, '复制（含思考）')); }
+  if (canTools) { out.push(item(ROW_TOOLS, '复制（含工具）')); }
+  if (canRaw) { out.push(item(ROW_RAW, '复制原始 Markdown')); }
   return out;
 }
 

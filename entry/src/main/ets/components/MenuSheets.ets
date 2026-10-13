@@ -43,7 +43,7 @@ import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import { SearchHit } from '../core/types';
 import { hitLine, MOVE_DOWN, MOVE_TOP, MOVE_UP } from '../core/sessionops';
 import { linkLabel } from '../core/msgops';
-import { CtxMenuItem, iterMenuItems, toolsMenuItems, userMenuItems } from '../core/ctxmenu';
+import { CtxMenuItem, iterMenuItems, rowMenuItems, toolsMenuItems, userMenuItems } from '../core/ctxmenu';
 import {
   PRESS_OPACITY,   DISABLED_OPACITY, HIT_TARGET_MIN, ICON_MD, INSET_ROW_X, INSET_ROW_Y, RADIUS_CHIP, RADIUS_SHEET,
   SPACE_LG, SPACE_SM, SPACE_XS, SPACE_XXS, STROKE_HAIRLINE, colorOf, hairlineOf, surfaceFillOf,
@@ -414,6 +414,17 @@ export struct ContextSheet {
    * **缺省 `true`（向后兼容：不投递时行为不变）。**
    */
   @Prop canRewind: boolean = true;
+  /**
+   * **消息（行）**菜单的空项过滤开关（`ctxKind === 'row'`，判据 = `core/ctxmenu.rowMenuItems`）。
+   * **缺省 `true`（向后兼容：不投递时行为不变 = 恒出 4 项）。**
+   * 用户 2026-10-13 亲报「长按复制会提示没有可复制的内容」—— 长按"最后无正文的助手消息"
+   * （工具收尾/空壳）时，「复制回复」的产物为空 ⇒ 空复制 + 误导 toast。四项分别由
+   * `composeCopy(partsForRow(row), variant)` 是否非空派生（判据与动作**同源**）。
+   */
+  @Prop canRowReply: boolean = true;
+  @Prop canRowThinking: boolean = true;
+  @Prop canRowTools: boolean = true;
+  @Prop canRowRaw: boolean = true;
   /** 菜单项点击（页面 `onSheetItem(code)` —— 派发留页面）。 */
   onItem: (code: string) => void = () => {
   };
@@ -510,10 +521,13 @@ export struct ContextSheet {
               this.CtxItem(m.label, m.code, false)
             }, (m: CtxMenuItem, i: number) => `ctx-iter-${i}-${m.code}`)
         } else {
-          this.CtxItem('复制回复', 'row-reply', false)
-          this.CtxItem('复制（含思考）', 'row-thinking', false)
-          this.CtxItem('复制（含工具）', 'row-tools', false)
-          this.CtxItem('复制原始 Markdown', 'row-raw', false)
+          // **消息（行）**菜单：空项按设计过滤（判据与动作**同源** = `core/ctxmenu.rowMenuItems`）。
+          // 事故（2026-10-13 用户亲报「长按复制会提示没有可复制的内容」）：此前恒出 4 项，
+          // 长按「最后无正文的助手消息」（工具收尾/空壳）点「复制回复」⇒ 空复制 + 误导 toast。
+          ForEach(rowMenuItems(this.canRowReply, this.canRowThinking, this.canRowTools, this.canRowRaw),
+            (m: CtxMenuItem, i: number) => {
+              this.CtxItem(m.label, m.code, false)
+            }, (m: CtxMenuItem, i: number) => `ctx-row-${i}-${m.code}`)
         }
 
         // 链接（命中链接时才有 —— 与 Web 的落点语义一致）

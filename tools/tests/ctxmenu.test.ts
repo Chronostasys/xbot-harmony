@@ -19,7 +19,7 @@ const fs = require('fs');
 // ⛔ 必须标记为**模块**（否则顶层 `pass/fail` 落进全局作用域，与其它脚本测试重名冲突 TS2451）。
 export {};
 
-import { CtxMenuItem, ITER_REPLY, ITER_THINKING, ITER_TOOLS, USER_REWIND, USER_TEXT, canRewindWhile, iterMenuItems, toolsMenuItems, userMenuItems } from '../../entry/src/main/ets/core/ctxmenu';
+import { CtxMenuItem, ITER_REPLY, ITER_THINKING, ITER_TOOLS, ROW_RAW, ROW_REPLY, ROW_THINKING, ROW_TOOLS, USER_REWIND, USER_TEXT, canRewindWhile, iterMenuItems, rowMenuItems, toolsMenuItems, userMenuItems } from '../../entry/src/main/ets/core/ctxmenu';
 
 let pass = 0, fail = 0;
 function eq(name: string, got: unknown, want: unknown): void {
@@ -156,6 +156,43 @@ eq('**另一条**在编辑 ⇒ 本条不可（互斥）', canRewindWhile('r2', '
 eq('互斥与行 id 无关（换 id 仍互斥）', canRewindWhile('r2', 'r9'), false);
 eq('互斥 ⇒ 「编辑并重发」置灰（判据串联）', userMenuItems(canRewindWhile('r2', 'r1'))[1].dim, true);
 eq('可编辑 ⇒ 「编辑并重发」不置灰', userMenuItems(canRewindWhile('', 'r1'))[1].dim, false);
+
+// ── ①e 纯逻辑：**消息（行）**菜单项集（`core/ctxmenu.rowMenuItems`）────────────────────
+//  事故：用户 2026-10-13 亲报「长按复制会提示没有可复制的内容」—— 行分支此前**恒出 4 项**
+//  （`iter` 分支已过滤）⇒ 长按"最后无正文的助手消息"点「复制回复」得空复制 + 误导 toast。
+//  判据与动作**同源**：四项 flag = `composeCopy(partsForRow(row), variantOf(code))` 是否非空。
+eq('row 全有 ⇒ 4 项（回复/含思考/含工具/原文，保序）',
+  codes(rowMenuItems(true, true, true, true)), [ROW_REPLY, ROW_THINKING, ROW_TOOLS, ROW_RAW]);
+eq('row 全无 ⇒ **空**（反面板：菜单只剩取消，绝不产出死项）',
+  codes(rowMenuItems(false, false, false, false)), []);
+eq('row 仅正文 ⇒ 1 项', codes(rowMenuItems(true, false, false, false)), [ROW_REPLY]);
+eq('row 无正文但有思考 ⇒ 跳过「回复」但保留后两项（不串位）',
+  codes(rowMenuItems(false, true, true, false)), [ROW_THINKING, ROW_TOOLS]);
+eq('row 仅原文 ⇒ 1 项（第 4 项）', codes(rowMenuItems(false, false, false, true)), [ROW_RAW]);
+{
+  const m: CtxMenuItem[] = rowMenuItems(true, false, false, false);
+  eq('row label 非空', m[0].label.length > 0, true);
+  eq('row「回复」项 label 含「回复」', m[0].label.indexOf('回复') >= 0, true);
+}
+
+// ── ②b 源码形态：**行菜单**必须走同源判据（接线调用点计数 + 「旧硬编码项已删」反面板）──────
+const msRow: number = countOf(msSrc, 'rowMenuItems(');
+const msRowLit: number = countOf(msSrc, "'row-reply'") + countOf(msSrc, "'row-thinking'")
+  + countOf(msSrc, "'row-tools'") + countOf(msSrc, "'row-raw'");
+const ixCanRowReply: number = countOf(ixSrc, 'canRowReply:');
+const ixCanRowThinking: number = countOf(ixSrc, 'canRowThinking:');
+const ixCanRowTools: number = countOf(ixSrc, 'canRowTools:');
+const ixCanRowRaw: number = countOf(ixSrc, 'canRowRaw:');
+const ixRowVariant: number = countOf(ixSrc, 'ctxRowVariantText(');
+console.log(`  ctxmenu-scan row: MenuSheets rowMenuItems(=${msRow} 旧硬编码字面量=${msRowLit}`
+  + ` | Index canRow*=${ixCanRowReply}/${ixCanRowThinking}/${ixCanRowTools}/${ixCanRowRaw} ctxRowVariantText(=${ixRowVariant}`);
+ok(`MenuSheets 用 rowMenuItems( 渲染行菜单（判据与渲染同源，${msRow} ≥ 1）`, msRow >= 1);
+ok(`MenuSheets 已**删除**旧硬编码行项（'row-reply' 等字面量 = ${msRowLit}，必须 0）`, msRowLit === 0);
+ok(`Index 投递 canRowReply/canRowThinking/canRowTools/canRowRaw（${ixCanRowReply}/${ixCanRowThinking}/${ixCanRowTools}/${ixCanRowRaw} 各 ≥ 1）`,
+  ixCanRowReply >= 1 && ixCanRowThinking >= 1 && ixCanRowTools >= 1 && ixCanRowRaw >= 1);
+ok(`Index 用 ctxRowVariantText( 取同源判据（${ixRowVariant} ≥ 5：定义 1 + 投递 4）`, ixRowVariant >= 5);
+ok('零扫描判红：行菜单接线调用点合计 > 0',
+  msRow + msRowLit + ixCanRowReply + ixCanRowThinking + ixCanRowTools + ixCanRowRaw + ixRowVariant > 0);
 
 console.log(`  ctxmenu: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

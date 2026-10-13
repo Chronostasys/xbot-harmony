@@ -4715,3 +4715,95 @@ dynamic 视图行也深链。mutation 自证：深链分支失效 ⇒ 6 条红�
 （`const p: Palette = this.pal();` 然后 `p.accentSoft`/`colorOf(p,'iconMuted')`），
 并把既有的 `toneColor()`（原本 3 次）一并收成 1 次 ⇒ 净**减**：A 1219→**1214**、B 1353→**1348**。
 ⇒ 新写法顺带更省（每帧少 2 次调色板分配）。**教训**：在组件里按分支取色前，先在方法入口取一次。
+
+---
+
+## §21.97 输入框容器**隐形**：`surface.input` 与浮层底**同色**（inpborder1，2026-10-13）
+
+**用户插话**（真机截图取证）：终端面板的「输入命令，回车发送」输入框**看不到容器** ——
+只有一行占位文字浮在面板上。
+
+### 根因（设计系统内部同色，静态可判）
+
+- `core/design.ets` 里 `surface.input` 与 `surface.overlay` **同属 `RUNG_CARD`**
+  （`new SurfaceRole('surface.input', RUNG_CARD, true)` 与
+   `new SurfaceRole('surface.overlay', RUNG_CARD, true)` 同一层级）
+  ⇒ `surfaceFillOf(p,'surface.input')` 与 `surfaceFillOf(p,'surface.overlay')` **逐字节同色**；
+- `TerminalSheet` 的 `TextInput` 只给了 `.backgroundColor(...)`、**没给 `.border(...)`**
+  ⇒ 深/浅两主题下输入框容器都**完全不可见**（只靠填充立不出边界）。
+- `new SurfaceRole(name, rung, hairline)` 的**第三参 `hairline=true`** 正是
+  「该面需要**结构性发丝**来立边界」。全站输入面**同一口径**：
+  `pages/Index.ets` 的 composer 与 `components/SettingsRows.ets` 的两个输入框都写
+  `.border({ width: STROKE_HAIRLINE, color: hairlineOf(p) })`。终端键帽此前已补（`keyRoleColor`），
+  唯独**输入框被漏掉**。
+
+全仓扫描：**恰 2 处**同类欠账 —— `components/TerminalSheet.ets` 与 `components/StatusSheet.ets`
+（编辑态「工作路径」），均已补发丝。
+
+### 修法
+
+- `TerminalSheet.ets`：新增**记忆化** `inputHairlineC()`（`hairlineOf(this.palOnce())`），
+  给 `TextInput` 补 `.border({ width: STROKE_HAIRLINE, color: this.inputHairlineC() })`。
+  ⛔ 走方法而非直写 `hairlineOf(this.palOnce())`：**不新增 `palOnce()` 调用点**
+  （性能预算 ⑦ **B 线顶格 1350、只许减不许增**）。
+- `StatusSheet.ets`：同款一行。
+
+### 判据
+
+**新门禁 ⑥d**：`tools/lint/input-surface-border.sh`（**硬红**，接入 `tools/gate.sh`）。
+判据形态（⛔ 不是朴素 grep）：
+①**剥注释**（注释里提一句 `.border(` 就不算 —— 本仓组件爱在注释里写"为什么"）；
+②**只取元素调用链**（`TextInput(`/`TextArea(` 起、按 `()[]{}` 平衡走到该 ArkUI 元素的链尾，
+   跨多行回调与注释空行）—— 取整行/固定窗口会被 `=> { … }` 回调截断 ⇒ 假红/假绿；
+③**零扫描判红**（一个 `TextInput` 都没扫到 ⇒ 路径/正则与真源脱节 = 白绿）；
+④内联豁免 `// allow-input-noborder: <理由>`。
+**mutation 自证四态**（已跑）：注入必红样本→1 / 同副本补 `border`→0 /
+"注释里写 `.border(` 但无真代码"→1 / 空目录→2。
+⛔ 这类缺陷**编译零警告、脱机三条与其它测试全抓不到**，只有真机截图能看出来。
+
+---
+
+## §21.98 长按「消息」菜单给出**空复制项** ⇒ 误导 toast「没有可复制的内容」（rowcopy1，2026-10-13）
+
+**用户插话亲报**：长按复制会提示「没有可复制的内容」。
+
+### 根因（判据不设防 + 动静不同源）
+
+- 该 toast **只在应用内产生**：`pages/Index.ets: copyText(text, what)` 首行
+  `if (text.trim().length === 0) { this.toast('没有可复制的内容'); return; }`
+  ⇒ 用户点的必是**上下文菜单里的复制项**（终端等无菜单处不会调它）。
+- `components/MenuSheets.ets` 的 `ContextSheet` 里，`ctxKind === 'iter'` 分支**早已**按
+  web `MessageActions.tsx:298-301` 做**空项过滤**（`iterMenuItems`）；
+  而 **`else` 分支（= `ctxKind === 'row'`，长按助手消息正文）恒出 4 项**：
+  `复制回复 / 复制（含思考）/ 复制（含工具）/ 复制原始 Markdown`（4 条硬编码 `CtxItem`）。
+- ⇒ 长按「**最后无正文的助手消息**」（工具收尾轮 / 空壳轮 —— 正是本目标要求②里
+  "iter 结束如果最后没 tool 则 turn 结束"的那类行）点「复制回复」，
+  `composeCopy(partsForRow(row), COPY_REPLY)` 产物为空 ⇒ 空复制 + 误导 toast。
+- ⚠️ 与 web 的差异：web 的 `kind === 'message'` 分支**也不过滤**，但它 `copy()` 是
+  `if (!text) return`（`MessageActions.tsx:253-254`，**静默无操作 ⇒ 永不弹误导**）。
+  **原生超越 web**：既然产物必为空，就**不出该项**，而不是让用户点了才发现没内容。
+
+### 修法（判据与动作**同源** —— 本仓铁律）
+
+- `core/ctxmenu.ets`：新增 `rowMenuItems(canReply, canThinking, canTools, canRaw)` + `ROW_*` code。
+  四项 flag 由**动作将要复制的同一算式** `composeCopy(partsForRow(row), variantOf(code))`
+  是否非空派生。
+  ⛔ **不按"单字段非空"判** —— `COPY_THINKING` 的产物是**正文 + 思考**、
+  `COPY_TOOLS` 是**正文 + 思考 + 工具**（`core/msgops.composeCopy:47-59`）：
+  正文非空时产物即非空 ⇒ 该项**应当**给出（按字段判会少给项 = 判据与动作脱节）。
+- `components/MenuSheets.ets`：`ContextSheet` 行分支改
+  `ForEach(rowMenuItems(...))`，**删除 4 条硬编码项**；新增 4 个 `@Prop`
+  （缺省 `true` = 向后兼容：不投递时行为不变）。
+- `pages/Index.ets`：新增 `ctxRowVariantText(variant)`（与 `runCtxAction` 的
+  `copyText(composeCopy(this.partsForRow(row), this.variantOf(code)), '消息')` 同一算式）
+  + 投递 4 个 flag。
+
+### 判据
+
+`tools/tests/ctxmenu.test.ts` **+13 断言**：
+- 纯逻辑：全有 ⇒ 4 项（保序）／全无 ⇒ **空**（反面板）／仅正文／无正文但有思考 ⇒ 跳过回复不串位／仅原文／label；
+- 形态：`MenuSheets` 必须 `ForEach(rowMenuItems(...))`（**调用点计数** ≥1）；
+  `Index` 必须投递 4 个 `canRow*`（各 ≥1）+ 用 `ctxRowVariantText(`（≥5：定义 1 + 投递 4）；
+- **反面板**：`MenuSheets` 里旧硬编码字面量 `'row-reply'` 等必须**为 0**（有人改回硬编码必红）；
+- 零扫描判红。
+
