@@ -230,6 +230,17 @@ export function inFlightBlock(r: LiveRowView, completed: HistoryIteration[]): Hi
       live.push(toToolProgress(r.activeTools[i]));
     }
   }
+  // ③′ 当前迭代**已完成**的工具（web `toolDeriv` 第三个数组 `completedTools`）——
+  //   ⛔ 本仓曾只并 activeTools+streamingTools：工具完成后服务端把它移入
+  //   `completed_tools`（移出 activeTools）⇒ 不并它 ⇒ 该工具从 live 列表**消失**
+  //   （用户亲报：「一个迭代调 filereplace+shell，filereplace 完成后只剩 shell」）。
+  //   兜底 `?? []`：部分手写/旧序列化的 live 行没有该字段（防御，避免整表崩）。
+  const cTools: readonly WebToolProgress[] = r.completedTools !== undefined ? r.completedTools : [];
+  for (let i = 0; i < cTools.length; i++) {
+    if (isCurrentIterTool(cTools[i], maxCompletedIter)) {
+      live.push(toToolProgress(cTools[i]));
+    }
+  }
   const deduped: ToolProgress[] = mergeTools([], live);
   // 已提交迭代的**工具键集合** —— 用 `Set` 而非数组 `indexOf`：后者对每枚在飞工具线性扫全表
   // ⇒ O(在飞工具数 × 已提交工具键数)。live 行**每帧**都跑此段（`liveIterations`），真实单行

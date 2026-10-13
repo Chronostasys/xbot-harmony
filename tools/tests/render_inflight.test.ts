@@ -35,10 +35,11 @@ function tw(name: string, status: string, callId: string): WebToolProgress {
 }
 
 /** 造一个 live 行视图（只填 inFlightBlock 读的字段）。 */
-function lv(active: WebToolProgress[], streaming: WebToolProgress[], lastIter: number): LiveRowView {
+function lv(active: WebToolProgress[], streaming: WebToolProgress[], lastIter: number, completed: WebToolProgress[] = []): LiveRowView {
   return {
     kind: 'live', id: 'live', turnID: 1, isPartial: true, streaming: true,
     content: '', reasoning: '', iterations: [], activeTools: active, streamingTools: streaming,
+    completedTools: completed,
     genui: '', subAgents: [], todos: [], lastIter,
   } as unknown as LiveRowView;
 }
@@ -152,6 +153,43 @@ function hist(iter: number, tools: ToolProgress[]): HistoryIteration {
   const r: LiveRowView = lv([onlyStale], [], 5);
   // 无正文/思考 + 工具被滤光 ⇒ null（不渲染仅含陈旧 pending 的空壳）。
   eq('★⑥ 只剩陈旧 pending ⇒ null（不产「排队」空壳）', inFlightBlock(r, [done]), null);
+}
+
+// ── ⑦ ★ 用户亲报：一个迭代内多工具，**先完成的从 live 列表消失** ──────────────────
+//   「一个迭代 agent 调用两个工具 filereplace 和 shell，filereplace 完成后会从原生
+//    前端消失，只能看到 shell」。
+//   根因：服务端把**完成**的工具从 `active_tools` 移入 **`completed_tools`**；web
+//   `toolDeriv` 的 live 列表 = `streaming + active + **completed**`（三数组），本仓只并
+//   了前两个 ⇒ 完成的工具从 live 列表消失（只剩仍在 activeTools 的那个 shell）。
+//   修法：`inFlightBlock` 并入 `r.completedTools`（同一 `isCurrentIterTool` 过滤 +
+//   `completedIterToolKeys` 去重）。
+//   mutation 自证：删掉 `completedTools` 循环 ⇒ 本组「FileReplace 不消失」红。
+{
+  const shell: WebToolProgress = tw('Shell', 'running', 'shell-1');
+  (shell as unknown as { iteration?: number }).iteration = 4;
+  const frDone: WebToolProgress = tw('FileReplace', 'done', 'fr-1');
+  (frDone as unknown as { iteration?: number }).iteration = 4;
+  // FileReplace 完成后**只在** completedTools（已移出 activeTools），Shell 仍在 activeTools。
+  const r: LiveRowView = lv([shell], [], 4, [frDone]);
+  const block: HistoryIteration | null = inFlightBlock(r, []);
+  ok('★⑦ 有产物', block !== null);
+  if (block !== null) {
+    const bt: ToolProgress[] = block.tools === undefined ? [] : block.tools;
+    const ids: string[] = bt.map((t: ToolProgress) => t.call_id === undefined ? '' : t.call_id);
+    eq('★⑦ 已完成的 FileReplace（在 completedTools）**不消失**', ids.indexOf('fr-1') >= 0, true);
+    eq('★⑦ 仍在跑的 Shell 保留', ids.indexOf('shell-1') >= 0, true);
+    eq('★⑦ 两枚工具都在（用户原症状：只剩 shell）', bt.length, 2);
+  }
+  // 已提交迭代里的同键 completed 工具 ⇒ 仍被 completedIterToolKeys 滤掉（不进 live 列表，不双渲染）。
+  const doneIter: HistoryIteration = hist(4, [
+    { name: 'FileReplace', label: 'FileReplace', status: 'done', call_id: 'fr-1' } as unknown as ToolProgress,
+  ]);
+  const block2: HistoryIteration | null = inFlightBlock(r, [doneIter]);
+  if (block2 !== null) {
+    const bt2: ToolProgress[] = block2.tools === undefined ? [] : block2.tools;
+    const ids2: string[] = bt2.map((t: ToolProgress) => t.call_id === undefined ? '' : t.call_id);
+    eq('★⑦ 已提交进迭代的 FileReplace 仍被滤（不双渲染）', ids2.indexOf('fr-1') < 0, true);
+  }
 }
 
 if (fail > 0) { console.log(`  render_inflight: ${pass} passed, ${fail} failed`); process.exit(1); }

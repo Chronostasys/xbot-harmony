@@ -82,6 +82,10 @@ export interface LiveSnapshot {
   readonly activeTools: readonly WebToolProgress[]
   /** 流式检测中的工具（参数未生成完）。 */
   readonly streamingTools: readonly WebToolProgress[]
+  /** 当前迭代**已完成**的工具（服务端把完成的从 activeTools 移入 `completed_tools`；
+   *  web `LiveIteration.toolDeriv` 的**第三个数组** —— ⛔ 缺它则迭代内先完成的工具
+   *  在提交前从 live 列表**消失**，只剩还在 activeTools 里的那个）。 */
+  readonly completedTools: readonly WebToolProgress[]
   /** GenUI 流式代码（元数据驱动，任何 ui.mode=genui 工具）。 */
   readonly genui: string
   /** SubAgent 进度树。 */
@@ -109,6 +113,7 @@ export const EMPTY_LIVE: LiveSnapshot = {
   iterations: [],
   activeTools: [],
   streamingTools: [],
+  completedTools: [],
   genui: '',
   subAgents: [],
   todos: [],

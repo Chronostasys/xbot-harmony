@@ -1082,6 +1082,7 @@ describe('TDSM reduce — 历史 P0 回归', () => {
           iterations: [{ iteration: 1, content: '已完成迭代', reasoning: '', tools: [], toolCount: 0 }],
           activeTools: [],
           streamingTools: [],
+          completedTools: [],
           genui: '',
           subAgents: [],
           todos: [],

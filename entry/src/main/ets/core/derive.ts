@@ -115,6 +115,8 @@ export interface LiveRowView {
   readonly iterationsTruncated?: number
   readonly activeTools: readonly WebToolProgress[]
   readonly streamingTools: readonly WebToolProgress[]
+  /** 当前迭代已完成工具（web `toolDeriv` 第三数组）—— 渲染在飞块时并入 live 工具列表。 */
+  readonly completedTools: readonly WebToolProgress[]
   readonly genui: string
   readonly subAgents: readonly WebSubAgentProgress[]
   readonly todos: readonly TodoItem[]
@@ -321,6 +323,7 @@ function assistantRow(t: Turn): Row | null {
         iterations: d.iterations,
         activeTools: d.activeTools,
         streamingTools: d.streamingTools,
+        completedTools: d.completedTools,
         genui: d.genui,
         subAgents: d.subAgents,
         todos: d.todos,

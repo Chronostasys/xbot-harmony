@@ -824,6 +824,13 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
           : prev.streamingTools.filter(
               (t) => !ev.activeTools.some((a) => a.name === t.name),
             ),
+        // 当前迭代**已完成**的工具（web `LiveIteration.toolDeriv` 的第三个数组）——
+        // 服务端把完成的从 active_tools 移入 completed_tools；⛔ 不存/不渲染它 ⇒ 迭代内
+        // 先完成的工具（如 FileReplace 之后还有 Shell）在提交前从 live 列表**消失**。
+        // 同 activeTools：迭代边界/commit 以当帧为准，否则按 toolKey 合并（同键状态只升不降）。
+        completedTools: advanced || committedNow
+          ? ev.completedTools
+          : mergeActiveStatus(prev.completedTools, ev.completedTools) as WebToolProgress[],
         genui: advanced || committedNow ? '' : prev.genui,
         todos: ev.todos ?? prev.todos,
         subAgents: ev.subAgents ?? prev.subAgents,
