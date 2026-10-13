@@ -5074,3 +5074,82 @@ web 权威 `SettingsLLM.tsx:248-271`：那一行**只有 4 枚按钮**（`justif
   正是「Local static (this server)」那枚）✓（修前同一量测**零 accent 像素**）。
 - `bash tools/gate.sh` ⇒ `GATE_EXIT=0` + `✅ 真门禁全绿`（④ `BUILD SUCCESSFUL in 5 s 107 ms`）。
 - 判据：`settings`（17 文件）全绿、`settings_value_sets` 21、`storage` 契约 76。
+
+## §21.106 模态遮罩：**除抽屉外的所有 sheet 都没有 scrim** —— 页面文字在卡片边缘露出半截字形（panels9–14，2026-10-13）
+
+### 发现路径（一次**误判 + 自我纠正**，值得记）
+
+审「运行」面板五页（定时/后台/代理/机器/终端）时，打开**终端** sheet 后在卡片左下角看到
+一个**孤零零的 `d`**。第一反应是"终端井溢出"——**错**。`dumpLayout` 定住真凶：
+
+```
+''  Column [53,367][1267,2518]     ← 终端 sheet 自己的卡片（左缘 x=53）
+''  Row    [0,2445][1320,2511]     ← **页面**底部状态行（在 sheet 背后）
+      'deepseek-flash · /Users/bobl'  Text [33,2458][1287,2505]
+```
+
+页面状态行从 **x=33** 起、卡片从 **x=53** 起 ⇒ 首字母左半截从卡片旁露出来
+（BMP 逐像素：y≈2468、x≈52、`#9e9fa9`）。⚠️ 我第一次像素扫描**止于 y2460** 而漏掉它，
+还因此错判"目视怀疑不成立"——**扫描窗必须覆盖可疑区的全部**（记教训）。
+另：终端井底在 y=1914，与可疑点差 550px ⇒ **"溢出说"从一开始就该被排除**。
+
+### 根因（代码 + 像素双证）
+
+**每个浮层各自的点击捕获层都是完全透明的**：
+`Row(){Blank()}.width('100%').height('100%').onClick(close)` —— **没有 `backgroundColor`**；
+只有**抽屉**那一处恰好带了 scrim（`this.eff().elev2`）。两个后果：
+① 观感故障（上面那个 `d`）；② **模态感缺失**——背后页面看起来还能点（实际被捕获层拦住，
+承诺与事实不符）。
+
+### 修法（**单一遮罩层**，不是逐层加色）
+
+`pages/Index.ets` build 顶部加**一层**：`if (this.anyModalOpen()) { Row().width('100%')
+.height('100%').backgroundColor(this.eff().elev2).transition(fadeTransition()) }`，
+并**顺手删掉抽屉自己那份** scrim（否则叠成双倍黑）。
+- ⛔ 位置敏感：必须在**所有浮层声明之前**（ArkUI Stack 后声明者在上）⇒ 它盖住页面与内嵌
+  `WebSurface`，又被每个浮层自己的捕获层盖住（捕获层保持透明、继续负责点击收起）。
+- ⛔ 只加**一处** `eff()` 调用（预算 80，现值 27）；逐浮层加色要 +12 处且极易漏。
+- ⛔ `anim.ets` 里**没有** `scrimTransition()`（只是 `motion_budget` 注释里的概念）⇒
+  沿用抽屉的实际写法 `fadeTransition()`。
+
+### ⚠️ 第一版修法**装机当场被否**（这条最值得记）
+
+我第一版写 `hasOverlay(this.overlayState())` —— 看起来正是"单一真源"。**错**：
+`overlayState()` 是**返回键链路**的契约子集，字段表由 `core/overlays.OverlayState` 定死
+（drawer/settings/prefs/queue/plugins/selfCheck/status/model/panels/sessMenu/searchHits/
+ctxMenu/image/webPanel）⇒ **不含** `showTerminal`/`showTaskDetail`/`showCronDetail`/`showGit`/
+`showFiles`/`showSkills`/`showSessionStats`/`showNewSession`。
+装机量测**逐像素**否掉：终端打开时页面状态行仍是 `#9e9fa9`（与修复前完全相同）。
+⇒ 改用**页面级完备谓词** `anyModalOpen()`（24 项，含 `askUser`；不含 `showSplash` —— 开屏是
+不透明品牌画布，背后无可见内容）。
+
+### 判据与纪律
+
+- `tools/tests/sheet_scrim_wiring.test.ts`（新增，12 项）：② 统一遮罩层**恰 1 处**；
+  ③ 遮罩**先于** build 里第一个浮层；④ **完备性**——build 里每个 `if (this.showX)` 旗标都必须被
+  `anyModalOpen()` 消费（我第一版漏了 8 个旗标，正是这条该红的形态）；⑤ 捕获层点击收起仍在。
+- ⚠️ **判据自身的假红教训**：③ 我一开始全文件 `indexOf('if (this.showDrawer)')` ⇒ 命中
+  **L1408 的命令处理器**（`COMMAND_SIDEBAR_TOGGLE` 里那句 `if (this.showDrawer) { … } else
+  { openDrawer() }`），不是浮层声明 ⇒ 假红。**判据必须限定在 `build()` 体内**（同 AGENTS.md
+  "取调用片段"那条）。⛔ 别为了让判据变绿去改实现。
+- 装机复核（同一坐标点）：页面状态行 `#9e9fa9`（亮度 162）⇒ `#696a72`（亮度 **108**）=
+  **正好 32% 黑**；页面背景 `#0b0b0d` ⇒ `#070709` ✓。
+- `bash tools/gate.sh` ⇒ `GATE_EXIT=0` + `✅ 真门禁全绿`。
+
+### 同批判读（**复核过、不是缺陷**，登记防返工）
+
+- **终端 ANSI 渲染保真**：从 app 输入行注入 `ls --color=always /`，原生渲染出**蓝/紫/青三色**
+  目录名，与 macOS `ls --color` 语义对应 ✓（用户"终端做的很差"的渲染侧已成立）。
+- **按键条**：双排各 8 枚等分，键高 149px = **44vp** ✓ 达触控标准（此前的溢出缺陷已在早前批次修掉）。
+- 注入时我撞见 `dquote>`（引号未平衡）——**是我经 `hdc shell` + `uitest uiInput inputText` 的
+  引号穿透问题**，不是 app 缺陷（改用严格单引号包裹后命令完整送达、无多余字符）。
+- `45×24`（pty 尺寸）｜状态圆点 + `已连接`：与 web `terminalStatus` 文案同源 ✓。
+
+### E 遗留 cruft 的**定性结论**（不删）
+
+`core/settings.ets:KEY_APP_THEME`（↔ `web:ui:app-theme`）**不是** cruft：它已被
+`tools/tests/settings_keys_consumed.test.ts:145-152` 与 `KEY_UI_MODE` 一并钉为 `DELIBERATE_DEAD`
+（理由：主题真源已并为 `xbot-md-theme`，**保留常量只为不删服务端遗留值**；"原生第二套主题已被
+删除"是用户拍板）⇒ ⛔ **不许删、也不许接线**（接成第二个主题源即 `AGENTS.md` 警告的
+"死消费复活"）。已订正 `Index.ets:1004` 那句**事实错误**注释（谎称共用 `xbot-app-theme`；
+`grep -rn "app-theme" web/src/` ⇒ 零命中）—— 见 `2ab7ecc`。
