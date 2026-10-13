@@ -4710,6 +4710,11 @@ struct Index {
             cookie: this.termCookie(),
             onClose: () => {
               this.showTerminal = false;
+              // ⛔ 关闭面板 = 销毁 PTY（TerminalSheet.closeSelf 已发 `{"type":"close"}` ⇒ 服务端
+              //    `web_pty.go:689` `backend.Close(streamID)`）⇒ 终端条目必须**同步移除**，否则列表残留
+              //    "死终端"（PTY 已死，再点开 WS 连不上）。对齐 web `useTerminal.closeTerminal`：
+              //    关 tab = 销毁后端 PTY + 从 store 移除 session（不留死条目）。
+              void this.closeTerminal(this.termTid);
             },
           })
         }.width('100%').height('100%')

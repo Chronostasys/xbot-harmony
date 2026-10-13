@@ -300,10 +300,21 @@ ok(`关闭三元两侧异值（userClosed ? closed : error = ${closeTernary} == 
 ok(`⛔ 反例（同值 TERM_CLOSED : TERM_CLOSED = ${closeCollapsed} == 0）`, closeCollapsed === 0);
 ok(`userClosed 置位仍在（closeSelf 里 = true ×${userClosedSet} == 1）`, userClosedSet === 1);
 
+// ── ⑦ 关闭终端面板 = 移除条目（2026-10-13，反「死条目」语义分叉）────────────────────
+//   根因取证：`TerminalSheet.closeSelf()` 关闭面板时发 `{"type":"close"}` ⇒ 服务端
+//   `web_pty.go:689` `backend.Close(streamID)` **销毁 PTY**；但页面侧 `onClose` 此前只
+//   `showTerminal=false` **不移除终端条目** ⇒ 列表残留"死终端"（PTY 已死，再点开 WS 连不上）。
+//   而 web `useTerminal.closeTerminal`：关 tab = 销毁后端 PTY + 从 store 移除 session（不留死条目）。
+//   判据 = `onClose` 里调用 `this.closeTerminal(this.termTid)`（删后端 + 重拉列表）恰好 1 处。
+const onCloseDeletes: number = countOf(idxSrc, 'this.closeTerminal(this.termTid)');
+console.log(`  panel-scan ${IDX}(关闭语义): onClose→closeTerminal=${onCloseDeletes}`);
+
+ok(`关闭终端面板会移除条目（onClose 里 closeTerminal(termTid) = ${onCloseDeletes} == 1）`, onCloseDeletes === 1);
+
 // ── 零扫描判红：链接线调用点合计必须 > 0（扫描器与真源脱节 ⇒ 红）──────────────────
 ok('零扫描判红：运行面板/终端键帽接线证据合计 > 0',
   newBtn + termCall + newEmpty + minWDecl + keyBorderVia + ctrlBorderVia + roleHairline + rpQueueSet
-  + bgPaint + bgFallbackUse + fgFiles + flushGate + stopResume + closeTernary + userClosedSet > 0);
+  + bgPaint + bgFallbackUse + fgFiles + flushGate + stopResume + closeTernary + userClosedSet + onCloseDeletes > 0);
 
 console.log(`  panel-terminal-wiring: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
