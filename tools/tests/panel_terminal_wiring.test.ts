@@ -285,10 +285,25 @@ ok(`用户滚动意图判据含程序滚动两枚举（SCROLLER ×${userGuard} =
 ok(`滚动停止时按"是否贴底"恢复跟随（${stopResume} == 1 / onScrollStop ${onScrollStop} == 1）`,
   stopResume === 1 && onScrollStop === 1);
 
+// ── ⑥ 终端 WS 意外断开 ≠ 用户主动关闭（2026-10-13，反「死消费」缺陷）────────────────────
+//   根因取证：`ws.on('close')` 曾写 `this.userClosed ? TERM_CLOSED : TERM_CLOSED` ——
+//   三元两侧同值 ⇒ `userClosed` 是**死标志**（`closeSelf()` 置 true 却从不影响行为），
+//   且"意外断开"（网络掉线 / 服务端杀 PTY 而未先发 `exit`）被误报「已关闭」（像用户自己关的）。
+//   判据 = 三元两侧**必须异值**（`userClosed ? closed : error`）+ 反例（同值 `TERM_CLOSED : TERM_CLOSED`）
+//   必须 0 处 + `userClosed` 置位仍在（`= true` 1 处）⇒ 标志真有判别力。
+const closeTernary: number = countOf(termSrc, 'this.userClosed ? TERM_CLOSED : TERM_ERROR');
+const closeCollapsed: number = countOf(termSrc, 'TERM_CLOSED : TERM_CLOSED');
+const userClosedSet: number = countOf(termSrc, 'this.userClosed = true');
+console.log(`  panel-scan ${TERM}(关闭): closeTernary=${closeTernary} collapsed=${closeCollapsed} userClosedSet=${userClosedSet}`);
+
+ok(`关闭三元两侧异值（userClosed ? closed : error = ${closeTernary} == 1）`, closeTernary === 1);
+ok(`⛔ 反例（同值 TERM_CLOSED : TERM_CLOSED = ${closeCollapsed} == 0）`, closeCollapsed === 0);
+ok(`userClosed 置位仍在（closeSelf 里 = true ×${userClosedSet} == 1）`, userClosedSet === 1);
+
 // ── 零扫描判红：链接线调用点合计必须 > 0（扫描器与真源脱节 ⇒ 红）──────────────────
 ok('零扫描判红：运行面板/终端键帽接线证据合计 > 0',
   newBtn + termCall + newEmpty + minWDecl + keyBorderVia + ctrlBorderVia + roleHairline + rpQueueSet
-  + bgPaint + bgFallbackUse + fgFiles + flushGate + stopResume > 0);
+  + bgPaint + bgFallbackUse + fgFiles + flushGate + stopResume + closeTernary + userClosedSet > 0);
 
 console.log(`  panel-terminal-wiring: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

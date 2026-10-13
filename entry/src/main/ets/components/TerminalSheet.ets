@@ -226,7 +226,11 @@ export struct TerminalSheet {
     });
     ws.on('close', (err: BusinessError, value: webSocket.CloseResult) => {
       if (this.status !== TERM_EXITED && this.status !== TERM_ERROR) {
-        this.status = this.userClosed ? TERM_CLOSED : TERM_CLOSED;
+        // ⛔ 反例（2026-10-13 修）：曾写 `this.userClosed ? TERM_CLOSED : TERM_CLOSED` ——
+        //    三元两侧同值 ⇒ `userClosed` 是**死标志**，且"意外断开"（网络掉线 / 服务端杀 PTY
+        //    而**未**先发 `exit`）被误报成「已关闭」（像用户自己关的）。正确：只有用户主动关
+        //    才 `closed`；否则 `error`（「连接失败」）——`userClosed` 由此真正有判别力。
+        this.status = this.userClosed ? TERM_CLOSED : TERM_ERROR;
       }
       this.scheduleFlush(true);
     });
