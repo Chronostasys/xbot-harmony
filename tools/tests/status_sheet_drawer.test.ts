@@ -221,7 +221,10 @@ has(recent, 'hairlineOf(this.palOnce())', '最近目录行间有发丝分隔（i
 // 根因：状态点/星标是**条件渲染**（`if (running)` / `if (starred)`）⇒ 有标记的行把标题顶右。
 // 契约：标记住进**恒占位**的 `MARKER_GUTTER` 槽 ⇒ 标题左缘与"有没有标记"**无关**；同一槽同时
 //      给**组头折叠箭头**复用 ⇒ 组头标题与行标题落在**同一条竖轴**上。
-const gutter: string = between(indexSrc, 'if (s.running === true) {', 'Text(this.tabLabel(s.chat_id))');
+// ⚠️ 2026-10-13：起点锚由 `if (s.running === true) {` 改为**状态点现判据**（`sessDotRole`）——
+//    状态点不再只看 `running` 布尔（改由 `core/sessiongroup.sessionStatusRole` 统一判
+//    running/waiting/error），槽本身（`MARKER_GUTTER` 恒占位 + 居中）**契约未变**。
+const gutter: string = between(indexSrc, 'if (this.sessDotRole(s).length > 0) {', 'Text(this.tabLabel(s.chat_id))');
 ok('标记槽块可定位（零扫描判红）', gutter.length > 100);
 has(gutter, '.width(MARKER_GUTTER)', '状态点/星标收进恒宽槽（⛔ 不再条件渲染把标题顶开）');
 has(gutter, 'justifyContent(FlexAlign.Center)', '槽内居中（点/星/空三态的标题左缘一致）');

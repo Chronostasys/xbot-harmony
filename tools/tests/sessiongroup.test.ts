@@ -27,6 +27,7 @@ import {
   timeBucket, pathBucket, sessionGroupKey, sortSessions, groupSessions,
   groupTitle, statusGroupKey, pathGroupTooltip, basename, relativeTimeLabel,
   allCollapseKeys, allGroupsCollapsed, applyGroupsCollapsed, collapseAllPlan,
+  sessionStatusRole,
 } from '../../entry/src/main/ets/core/sessiongroup';
 
 // 顺带验证：新增的分类键真接上了「本地键 ↔ 服务端键」映射（web userSettings.ts:42）。
@@ -329,6 +330,23 @@ eq('合成·剔除：空 keys ⇒ 状态不变',
     relativeTimeLabel(at(30 * DAY), NOW), '2026/9/12');
   eq('相对时间：未来时间（时钟漂移）⇒ 刚刚，⛔ 不吐负数',
     relativeTimeLabel(new Date(NOW + 5 * MIN).toISOString(), NOW), '刚刚');
+}
+
+// ── 会话状态 ⇒ 语义色 role（权威：web `session/SessionItem.tsx:57-64` `STATUS_COLOR` +
+//    `:92-94` `executing`；⛔ 差异只有 idle/未知 ⇒ 不画点，理由见纯函数注释）──────────────────
+{
+  eq('状态：waiting_input ⇒ 等回答色（**优先于**陈旧 running —— web "stale running flag must never…"）',
+    sessionStatusRole('waiting_input', true), 'statusWaiting');
+  eq('状态：running ⇒ 运行色', sessionStatusRole('running', false), 'statusRunning');
+  eq('状态：服务端 running 布尔（status 缺失）⇒ 运行色', sessionStatusRole(undefined, true), 'statusRunning');
+  eq('状态：pending ⇒ 运行色（web executing 三条件之一）', sessionStatusRole('pending', false), 'statusRunning');
+  eq('状态：error ⇒ 失败色', sessionStatusRole('error', false), 'statusError');
+  eq('状态：unread ⇒ 等回答色（web STATUS_COLOR.unread = --status-waiting）',
+    sessionStatusRole('unread', false), 'statusWaiting');
+  eq('状态：idle ⇒ 空串（⛔ 不画点 = 与 web 的有意差异，⛔ 别改成 statusIdle）',
+    sessionStatusRole('idle', false), '');
+  eq('状态：未知值 ⇒ 空串（不猜色）', sessionStatusRole('mystery', false), '');
+  eq('状态：undefined + 未跑 ⇒ 空串', sessionStatusRole(undefined, false), '');
 }
 
 console.log(`sessiongroup: ${pass} passed, ${fail} failed`);

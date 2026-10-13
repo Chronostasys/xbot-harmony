@@ -253,6 +253,34 @@ export const TIME_BUCKETS: string[] = ['today', 'yesterday', 'earlier'];
 export const STATUS_ORDER: string[] = ['running', 'waiting_input', 'pending', 'unread', 'idle', 'error'];
 
 /**
+ * 会话状态 ⇒ **语义取色 role**（渲染层用 `colorOf(p, role)` 解析成色值；空串 ⇒ **不画点**）。
+ *
+ * 权威基准 web `components/session/SessionItem.tsx`：
+ *   · `STATUS_COLOR`（`:57-64`）= running `--status-running` / waiting·pending·unread `--status-waiting`
+ *     / idle `--status-idle` / error `--status-error`；
+ *   · `executing`（`:92-94`）= **`status !== 'waiting_input'`** 且（`running === true` ∨ `running` ∨ `pending`）
+ *     —— ⚠️ 注释原文："a stale running flag must never light the spinner while the waiting dot is
+ *     the truth" ⇒ **`waiting_input` 优先级最高**，陈旧 `running` 不许盖过"该你说话了"。
+ *
+ * 与 web 的**唯一有意差异**（原生克制，逐条可核）：
+ *   · `idle` ⇒ **空串（不画点）**。web 给 idle 画一枚灰点（`--status-idle`）；31 行列表里 25+ 枚灰点
+ *     只是噪点、不表意 ⇒ 原生只在"**需要注意力**"（等回答 / 跑着 / 失败）时占一个视觉锚点。
+ *     前导槽 `MARKER_GUTTER` 本就恒宽占位（`state gutter` 测试）⇒ **标题竖轴不受影响**。
+ *   · 未知状态 ⇒ 空串（web 走 `STATUS_COLOR[status]` ⇒ `undefined` 底色，等于不画）。
+ */
+export function sessionStatusRole(status: string | undefined, running: boolean): string {
+  const s: string = status === undefined ? '' : status;
+  // 等用户回答 —— **最高优先**（web `:92-94`：与 running 互斥，陈旧 running 不得覆盖）。
+  if (s === 'waiting_input') { return 'statusWaiting'; }
+  // 跑着（含服务端 `running` 布尔与 `pending` 队列态）—— web `executing` 同判据。
+  if (running === true || s === 'running' || s === 'pending') { return 'statusRunning'; }
+  if (s === 'error') { return 'statusError'; }
+  if (s === 'unread') { return 'statusWaiting'; }
+  // idle / 空 / 未知 ⇒ 不画点（见上方注释：原生克制，⛔ 别改成 statusIdle 灰点）。
+  return '';
+}
+
+/**
  * 时间分桶（web `149-161` timeBucket，**本地时区**）。
  *
  * 规则逐条抄录：

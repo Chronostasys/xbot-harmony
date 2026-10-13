@@ -20,7 +20,8 @@
  * **mutation 自证（实跑过）**：
  *   · 思考模式那处改回 `palOnce().accent` 实心底 + `onAccent` 字 ⇒ ②③④ 各红一条；
  *   · 把 `SEG_TRACK_H` 换成 `RADIUS_CHIP` ⇒ 尺寸断言红；
- *   · 抽屉那处删掉 `surface.card`（选中段不浮起）⇒ ① 红。
+ *   · 抽屉那处把选中段面改成 `surface.card`（RUNG_CARD ⇒ 深色下压凹槽轨道 Δ≈0.8%，选中态不可见）
+ *     ⇒ ① 红（本轮实跑）。
  */
 declare const process: { exit: (c: number) => void };
 declare const require: (m: string) => any;
@@ -79,7 +80,9 @@ ok(`① 抽屉分段控件切片非空（零扫描判红，len=${segA.length}）
 ok('① 轨道 = `SEG_TRACK_H`（视觉 36）', segA.indexOf('SEG_TRACK_H') >= 0);
 ok('① 选中段浮起 = `SEG_PILL_H`（视觉 32）', segA.indexOf('SEG_PILL_H') >= 0);
 ok('① 轨道面 = `surface.chip`', segA.indexOf("'surface.chip'") >= 0);
-ok('① 选中段面 = `surface.card`', segA.indexOf("'surface.card'") >= 0);
+ok('① 选中段面 = `surface.pillSelected`（RUNG_ACTIVE，"选中的 pill" 语义面；'
+  + '⚠️ 2026-10-13 由 `surface.card` 改此 —— 真实机取色实证：card 压 chip 轨道深色下 Δ≈0.8% ⇒ 选中态不可见）',
+  segA.indexOf("'surface.pillSelected'") >= 0);
 ok('① 选中段文字加重（`FontWeight.Medium`）', segA.indexOf('FontWeight.Medium') >= 0);
 ok(`① ⛔ 不得是实心 accent 块（accent 出现 ${countOf(segA, 'accent')} 次，应 0）`,
   countOf(segA, 'accent') === 0);

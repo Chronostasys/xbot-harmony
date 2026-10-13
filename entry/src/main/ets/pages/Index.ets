@@ -90,6 +90,7 @@ import {
 import {
   applyGroupsCollapsed, collapseAllPlan, collapseKey, CollapseAllPlan, groupSessionsFromItems, groupTitle,
   normalizeSessionCategory, parseAgentChatID, pathGroupTooltip, relativeTimeLabel, SESSION_CATEGORIES, SessionGroup, sessionCategoryLabel,
+  sessionStatusRole,
 } from '../core/sessiongroup';
 import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msgindex';
 import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, PluginOpenTarget, PluginViewItem, WebPluginListWire, buildPluginCatalog, nativeViewKind, pluginOpenTarget, pluginViewDeepLink, pluginViewTarget, primaryViewId } from '../core/pluginhost';
@@ -350,6 +351,13 @@ function delay(fn: () => void, ms: number): number {
 const SEG_TRACK_H: number = SPACE_XXL + SPACE_XXS;
 /** 分段控件选中芯（浮起 pill）高（vp）= 32 —— 与轨道留 2vp 内缩。 */
 const SEG_PILL_H: number = SPACE_XXL;
+
+/**
+ * 会话行「运行中」状态点的**光晕半径**（vp）= 3（≈ web `boxShadow: 0 0 8px` ÷ density 3.386）。
+ * 静态阴影 ⇒ 与"唯一在飞动效 = 光球"的口径不冲突（⛔ 不做呼吸/脉冲：那会进 `animateTo` 不透明度，
+ * 触本仓门禁⑨ 的 B 级通道，且呼吸点会与光球抢注意力）。
+ */
+const DOT_GLOW_R: number = 3;
 
 // ════════════════════════════════════════════════════════════════════════════
 // 深链命令的页面落点（S1）—— 纯映射部分
@@ -9222,6 +9230,21 @@ struct Index {
    *    （本仓 `@Builder` 快照陷阱）⇒ 外层 ForEach 的**键必须带折叠态**（见 `DrawerSheet` 内注释），
    *    否则 chevron 旋转会**卡在初值**。
    */
+  /**
+   * 会话行**状态点**的语义色 role（**唯一判据** = `core/sessiongroup.sessionStatusRole`）：
+   * 跑着=蓝 / 等回答=琥珀 / 失败=红；idle·未知 ⇒ 空串 ⇒ **不画点**（原生克制，见纯函数注释）。
+   * ⚠️ 2026-10-13：原实现只在 `running === true` 画**绿**点 ⇒ `waiting_input`（该你说话了）
+   * 与 `error` **完全不可见**，且绿 ≠ web `--status-running`。
+   */
+  private sessDotRole(s: SessionItem): string {
+    return sessionStatusRole(s.status, s.running === true);
+  }
+
+  /** 状态点色值（role → 色；未知名回落 transparent，与 `colorOf` 兜底同向）。 */
+  private sessDotColor(s: SessionItem): string {
+    return colorOf(this.palOnce(), this.sessDotRole(s));
+  }
+
   @Builder
   DrawerGroupHeader(g: DrawerGroup, gIdx: number) {
     Row({ space: SPACE_XS }) {
@@ -9450,8 +9473,14 @@ struct Index {
                 .width('100%').height(SEG_PILL_H)
                 .justifyContent(FlexAlign.Center)
                 .alignItems(VerticalAlign.Center)
+                // 选中芯 = **RUNG_ACTIVE**（`surface.pillSelected` = "选中的 pill" 专属语义面）。
+                // ⚠️ 2026-10-13 真机取色实证（sips→BMP 采样 `dr1.jpeg`）：原用 `surface.card`（RUNG_CARD）
+                //    ⇒ 深色下选中芯 `#0d0f14` 压轨道 `#0b0a0e`，**Δ≈0.8% ⇒ 选中态肉眼不可见**（只剩文字
+                //    变白）——这是用户报「侧边栏丑」的硬根因之一。`surface.pillSelected` = `#1c1d27`
+                //    ⇒ 明确浮在凹槽轨道上（与设计系统自身判据 `design.ets:1424` 的
+                //    `['surface.pillSelected','surface.chip']` 同源，⛔ 不是新造对照）。
                 .backgroundColor(c === this.sessionCategory()
-                  ? surfaceFillOf(this.pal(), 'surface.card')
+                  ? surfaceFillOf(this.pal(), 'surface.pillSelected')
                   : Color.Transparent)
                 .borderRadius(RADIUS_PILL)
                 // 选中态缓动（Apple `UISegmentedControl` 的选中是**渐变**、不是硬切）：走底座
@@ -9677,9 +9706,17 @@ struct Index {
                           // 真机同屏量到标题左缘 **80px vs 134px（差 16vp）** ⇒ 整列参差（Apple 列表的
                           // 行文字恒在同一条竖轴上）。槽内**居中** ⇒ 点/星/空三种情形的标题左缘完全一致。
                           Row({ space: SPACE_HAIR }) {
-                            if (s.running === true) {
-                              // 运行中 = **静态** 状态点（⛔ 不呼吸：唯一在飞动效 = 光球）。
-                              Row().width(SPACE_XS).height(SPACE_XS).borderRadius(SPACE_XS / 2).backgroundColor(this.palOnce().success)
+                            // 状态点（**唯一判据** = `core/sessiongroup.sessionStatusRole`，与 web
+                            // `SessionItem.tsx:57-64` 的 `STATUS_COLOR` + `:92-94` 的 `executing` 同源）：
+                            // 跑着=蓝 / 等回答=琥珀 / 失败=红；idle·未知 ⇒ 空串 ⇒ 不画（原生克制）。
+                            // ⚠️ 2026-10-13 修：原只在 `running===true` 画绿点 ⇒ `waiting_input`（该你说话了）
+                            // 与 `error` 完全不可见。
+                            if (this.sessDotRole(s).length > 0) {
+                              // 运行中 = **静态** 状态点 + 光晕（⛔ 不呼吸：唯一在飞动效 = 光球）。
+                              Row()
+                                .width(SPACE_XS).height(SPACE_XS).borderRadius(SPACE_XS / 2)
+                                .backgroundColor(this.sessDotColor(s))
+                                .shadow({ radius: DOT_GLOW_R, color: this.sessDotColor(s), offsetX: 0, offsetY: 0 })
                             }
                             // 标星 = **非交互小标记**（Apple 旗标式；⛔ 不占 44 热区 —— 真机量测：星标盒吃
                             // 149px（15% 行宽），把当前会话标题截成 `harmony-ui…`）。仅**已标星**才渲染
@@ -9777,7 +9814,7 @@ struct Index {
                   }
                   .width('100%')
                 }
-              }, (s: SessionItem) => `${s.chat_id}#${s.label}#${s.running}`)
+              }, (s: SessionItem) => `${s.chat_id}#${s.label}#${s.running}#${s.status}`)
             }
             // ↑ 关闭 `if (!isGroupCollapsed…)`；↓ 关闭本组 `ListItemGroup`
             }

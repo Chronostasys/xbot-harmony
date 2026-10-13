@@ -191,9 +191,13 @@ has(pageSrc, 'this.toggleGroup(this.sessionCategory(), g.key);', '点组头 = �
 has(pageSrc, 'this.isGroupCollapsed(this.sessionCategory(), g.key)', '展开态判据同源');
 has(pageSrc, 'Text(`${g.items.length}`)', '组头显示会话计数');
 has(pageSrc, "SymbolGlyph($r('sys.symbol.chevron_right'))", '组头 chevron 用系统符号');
-// (B5) 行体**未被改动**（key 生成器原样保留 = 行卡渲染没有被我重构）
-has(pageSrc, '(s: SessionItem) => `${s.chat_id}#${s.label}#${s.running}`',
-  '行卡 key 生成器保持原样（行体未重构）');
+// (B5) 行体**未被改动**（key 生成器 = 行身份；⚠️ 2026-10-13 起**必须**带 `s.status`：状态点是
+//      `status` 的函数（running/waiting/error），键不含它 ⇒ 状态变化**不重建行** ⇒ 点卡在旧色。
+//      这正是 AGENTS.md 的「最小通知键 ⇒ 已存在行永不更新」同族陷阱。）
+has(pageSrc, '(s: SessionItem) => `${s.chat_id}#${s.label}#${s.running}#${s.status}`',
+  '行卡 key 含 status（状态点判据的入参必须进键）');
+has(pageSrc, 'sessionStatusRole(s.status, s.running === true)',
+  '状态点 role 走纯函数 sessionStatusRole（与 web STATUS_COLOR/executing 同源）');
 // (B6) ⛔ 铁律：**抽屉**（会话列表所在区间）绝不出现"点击加载更多"
 const drawerStart: number = pageSrc.indexOf('DrawerSheet() {');
 const drawerEnd: number = pageSrc.indexOf('SettingsSheet() {', drawerStart);
