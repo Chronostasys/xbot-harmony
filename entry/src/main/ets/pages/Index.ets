@@ -52,6 +52,7 @@ import {
   bgTaskTone, CronJob, cronMessageText, cronPrimary, cronSubText, cronTargetText, fmtDateTime,
   RunnerRow, runnerPrimary, runnerSubText, runnerTone, scheduleText,
   SubAgentRow, subagentPrimary, subagentSubText, subagentTone, TONE_MUTED, LEAD_CRON,
+  resolveSessionNode,
 } from '../core/panels';
 import { TerminalInfo, terminalPrimary, terminalSubText } from '../core/termproto';
 import {
@@ -85,7 +86,8 @@ import { canRewindWhile } from '../core/ctxmenu';
 import { rowById } from '../core/rowquery';
 import {
   activeChannelLabel, ALL_CHANNEL_ORDER, availableChannels, channelFilterMatches,
-  channelLabel, hiddenRowCount, sessionInChannel, visibleRows, MAX_ROWS_VISIBLE,
+  channelLabel, dedupeSessionItems, hiddenRowCount, sessionInChannel, visibleRows, MAX_ROWS_VISIBLE,
+  canonicalChatId, channelForChat,
 } from '../core/sessionpick';
 import {
   applyGroupsCollapsed, collapseAllPlan, collapseKey, CollapseAllPlan, groupSessionsFromItems, groupTitle,
@@ -2734,23 +2736,43 @@ struct Index {
     return relativeTimeLabel(lastActive !== undefined ? lastActive : '', Date.now());
   }
 
+  /**
+   * 行的 `chat_id` 是否就是**当前会话** —— ⛔ 必须用**规范化**比较。
+   *
+   * 为什么（2026-10-13，同 §21.111 幽灵行根因第三次咬人）：`currentChat` 是**全键**
+   * （`web:chat_026B…`，历史 bug 写的），而会话树里**真身行**的 `chat_id` 是裸 id
+   * （`chat_026B…`）⇒ 原值精确比对**命中幽灵行**（现已由 `dedupeSessionItems` 从列表剔除）
+   * ⇒ 修完之后**没有任何行**会显示为当前会话（标题不高亮、无行底填充）＝新的静默退化。
+   */
+  private isCurrentSession(chatId: string): boolean {
+    if (chatId === this.currentChat) {
+      return true;
+    }
+    const a: string = canonicalChatId(channelForChat(this.sessions, chatId), chatId);
+    const b: string = canonicalChatId(channelForChat(this.sessions, this.currentChat), this.currentChat);
+    return a.length > 0 && a === b;
+  }
+
   /** 标签显示名（来自会话列表的名字，取不到则用 id 末段）。 */
   private tabLabel(chatId: string): string {
-    for (let i = 0; i < this.sessions.length; i++) {
-      if (this.sessions[i].chat_id === chatId) {
-        const s: SessionItem = this.sessions[i];
-        return sessionLabel(s.label !== undefined ? s.label : '', chatId);
-      }
+    // ⛔ 用**规范化解析器**取标签（`resolveSessionNode` 挑"真身"）：按原值精确比对会命中
+    //    幽灵行，而幽灵行的 label **就是原始会话键** ⇒ 顶栏标题显示 `web:chat_026B…`
+    //    （真机截图实锤），真名 `harmony-ui-dev` 反而丢失。
+    const node: SessionItem | null =
+      resolveSessionNode(this.sessions, channelForChat(this.sessions, chatId), chatId);
+    if (node !== null) {
+      return sessionLabel(node.label !== undefined ? node.label : '', chatId);
     }
     return sessionLabel('', chatId);
   }
 
   /** 该标签的会话是否在跑（用会话列表的 running，或该池 store 的 busy）。 */
   private tabRunning(chatId: string): boolean {
-    for (let i = 0; i < this.sessions.length; i++) {
-      if (this.sessions[i].chat_id === chatId) {
-        return this.sessions[i].running === true;
-      }
+    // ⛔ 同 `tabLabel`：按原值比对会命中幽灵行（无 `running` 字段 ⇒ 恒 false）。
+    const node: SessionItem | null =
+      resolveSessionNode(this.sessions, channelForChat(this.sessions, chatId), chatId);
+    if (node !== null) {
+      return node.running === true;
     }
     const st: ChatStore | undefined = this.pools.get(chatId);
     return st !== undefined && st.busy;
@@ -2923,11 +2945,12 @@ struct Index {
     if (id.length === 0) {
       return '';
     }
-    for (let i = 0; i < this.sessions.length; i++) {
-      if (this.sessions[i].chat_id === id) {
-        const s: SessionItem = this.sessions[i];
-        return s.last_active !== undefined ? s.last_active : '';
-      }
+    // ⛔ 同族（§21.112）：按原值精确比对命中的是**幽灵行**（`last_active` = 幽灵创建时刻，
+    //    真身的活跃时间反而丢）⇒ 状态面板的「最后活跃」会显示一个无意义的旧值。
+    const node: SessionItem | null =
+      resolveSessionNode(this.sessions, channelForChat(this.sessions, id), id);
+    if (node !== null) {
+      return node.last_active !== undefined ? node.last_active : '';
     }
     return '';
   }
@@ -2950,11 +2973,13 @@ struct Index {
   }
 
   private labelOf(chatId: string): string {
-    for (let i = 0; i < this.sessions.length; i++) {
-      const s: SessionItem = this.sessions[i];
-      if (s.chat_id === chatId) {
-        return s.label !== undefined && s.label.length > 0 ? s.label : s.chat_id;
-      }
+    // ⛔ 规范化解析（同 §21.112）：按原值精确比对会命中幽灵行，而幽灵行的 label **就是原始
+    //    会话键** ⇒ **顶栏标题**显示 `web:chat_026B…`（真机 22:09 装机实测：改完 `tabLabel`
+    //    顶栏仍不见好，正是因为顶栏走的是本方法，不是 `tabLabel`）。同族漏网点必须一次扫尽。
+    const node: SessionItem | null =
+      resolveSessionNode(this.sessions, channelForChat(this.sessions, chatId), chatId);
+    if (node !== null) {
+      return node.label !== undefined && node.label.length > 0 ? node.label : node.chat_id;
     }
     return chatId;
   }
@@ -6380,9 +6405,17 @@ struct Index {
 
   /** 抽屉里显示的会话（本地筛选：按名字/chat_id，大小写不敏感）。 */
   private filteredSessions(starredIn?: string[]): SessionItem[] {
+    // ── 幽灵行消除（`core/sessionpick.dedupeSessionItems`，纯函数 + 单测）──────────────
+    // 服务端 `/api/session-tree` 会把**同一会话的两行**并排下发：真身 `chat_X`（label
+    // `harmony-ui-dev` + 19 个子代理）与历史 bug 造出的幽灵 `web:chat_X`（**label 就是这串原始
+    // 会话键**）。抽屉按行渲染 ⇒ 用户看到一条叫 `web:chat_026B326DE4C4` 的垃圾行（用户口径③
+    // "侧边栏丑"的一类）。**同渠道 + 同规范 id** 只留信息量最大的一行（判据 `sessionBodyScore`）。
+    // ⛔ web 侧不做这件事（`session-grouping.ts:13` 直接 `${channel}:${chatID}` 拼键）⇒ 这里是
+    //    口径③允许的**超越**，不是偏离：被丢弃的行严格更少信息（0 子节点、无真人名、默认 cwd）。
+    const rows: SessionItem[] = dedupeSessionItems(this.sessions);
     const out: SessionItem[] = [];
-    for (let i = 0; i < this.sessions.length; i++) {
-      const s: SessionItem = this.sessions[i];
+    for (let i = 0; i < rows.length; i++) {
+      const s: SessionItem = rows[i];
       const label: string = s.label !== undefined ? s.label : '';
       // 归属判据：自身 channel ∪ parent_channel ∪ children.parent_channel（web SessionSidebar:99-106）
       if (sessionMatches(label, s.chat_id, this.sessQuery)
@@ -7549,12 +7582,13 @@ struct Index {
    * 是权威值（web 端同样以它为准）。
    */
   private serverRunning(): boolean {
-    for (let i = 0; i < this.sessions.length; i++) {
-      if (this.sessions[i].chat_id === this.currentChat) {
-        return this.sessions[i].running === true;
-      }
-    }
-    return false;
+    // ⛔ 规范化解析器（与 `tabLabel`/store 同一判据）：按原值精确比对会命中**幽灵行**
+    //    （`chat_id='web:chat_X'`、无 `running` 字段）⇒ 服务端权威 running **永远拿不到**
+    //    ⇒ `busySignals().freshServerRunning` 恒 false ⇒ 只剩 SSE 快路径 ⇒ 错过一条 idle
+    //    就永远显示"运行中"（正是本方法存在的理由，却因为比对形态失效）。
+    const node: SessionItem | null =
+      resolveSessionNode(this.sessions, channelForChat(this.sessions, this.currentChat), this.currentChat);
+    return node !== null && node.running === true;
   }
 
   /**
@@ -9752,7 +9786,7 @@ struct Index {
                             // 修法 = **只改当前会话这一支**的 fg 到 `textPrimary`（各主题 ≥12：
                             // 另见 `tools/tests/surface_alias.test.ts`）；⛔ 不改行底 —— 当前会话的
                             // 填充强调必须保留（porcelain 的 RUNG_RAISED 仅 1.009 vs 画布 ≈ 不可见）。
-                            .fontColor(s.chat_id === this.currentChat ? this.pal().textPrimary : this.pal().textSecondary)
+                            .fontColor(this.isCurrentSession(s.chat_id) ? this.pal().textPrimary : this.pal().textSecondary)
                             .padding(SPACE_XS)
                             .onClick(() => {
                               this.renamingId = '';
@@ -9808,8 +9842,8 @@ struct Index {
                               .fontSize(typeOf('type.body').size)
                               // 选中态 = 填充 + **中黑**（Apple 列表选中项的字重提升；深色下仅靠
                               // `surface.overlayRowHover` 填充区分度不足）。⛔ 不改字号/字形 ⇒ 行高不变。
-                              .fontWeight(s.chat_id === this.currentChat ? FontWeight.Medium : FontWeight.Regular)
-                              .fontColor(s.chat_id === this.currentChat ? this.palOnce().accentText : this.palOnce().textPrimary)
+                              .fontWeight(this.isCurrentSession(s.chat_id) ? FontWeight.Medium : FontWeight.Regular)
+                              .fontColor(this.isCurrentSession(s.chat_id) ? this.palOnce().accentText : this.palOnce().textPrimary)
                               .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                               .width('100%').textAlign(TextAlign.Start)
                             // 相对时间（web `SessionItem.tsx:332-347`；`last_active` 缺失 ⇒ 空串 ⇒ 不渲任何字符）。
@@ -9830,7 +9864,7 @@ struct Index {
                           // 非当前会话底 = `transparent`（画布）⇒ 仍用 `textSecondary`（porcelain 5.07 ✓）。
                           Text('⋯')
                             .fontSize(typeOf('type.headline').size)
-                            .fontColor(s.chat_id === this.currentChat ? this.palOnce().textPrimary : this.palOnce().textSecondary)
+                            .fontColor(this.isCurrentSession(s.chat_id) ? this.palOnce().textPrimary : this.palOnce().textSecondary)
                             .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).textAlign(TextAlign.Center)
                             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                             .accessibilityText('更多操作')
@@ -9852,7 +9886,7 @@ struct Index {
                     // **178px → 149px**（density 3.386），同屏多约 18% 行数
                     // （用户 2026-10-12 亲报「只有那么一点点区域真的用于会话，用户要频繁的滚动」）。
                     .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
-                    .backgroundColor(s.chat_id === this.currentChat
+                    .backgroundColor(this.isCurrentSession(s.chat_id)
                       ? surfaceFillOf(this.pal(), 'surface.overlayRowHover')
                       : Color.Transparent)
                     .borderRadius(RADIUS_PILL)

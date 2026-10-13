@@ -5385,3 +5385,71 @@ Avg TTFT 2.0s · Avg TPOT 4ms · Avg tok/s 294
 ⚠️ 复核纪律（记）：我一度把面板右上角的 **刷新按钮**（`sys.symbol.arrow_clockwise`）误读成"转圈不停
 的 loading"——`SessionStatsSheet.ets` 全文件**没有** `LoadingProgress`（头部只有刷新+关闭两个按钮）
 ⇒ **不是缺陷**。定论前必须回代码看绑定，别凭截图定性。
+
+---
+
+## §21.111 抽屉「幽灵会话」重复行：同渠道 + 同规范 id 去重（口径③的超越）
+
+**症状**：抽屉列表里同时出现两行同一会话 —— 真身（`harmony-ui-dev`）与一行标题是**原始会话键**
+`web:chat_026B326DE4C4` 的垃圾行。"侧边栏丑"的一类。
+
+**真机 `/api/session-tree` 实测两行**（`/tmp/tree_live.json`）：
+
+| 行 | `chat_id` | `label` | `children` | `status` | `is_current` | `work_dir` |
+|---|---|---|---|---|---|---|
+| **幽灵** | `web:chat_026B326DE4C4` | `web:chat_026B326DE4C4`（**原始键当名**） | 0 | `idle` | false | `/Users/bobli` |
+| **真身** | `chat_026B326DE4C4` | `harmony-ui-dev` | **19** | `running` | **true** | `…/xbot-harmony` |
+
+根因同 §21.107/§21.109：出网 id 形态写坏后服务端**新建了一个会话**（键=全键）；§21.107 只堵住了
+**再也不会新建**，历史遗留的幽灵行仍在树里 ⇒ 列表照旧并排渲染。
+
+**修法（纯函数，`core/sessionpick.ets`）**：
+`sessionBodyScore(s)`（判据从强到弱：① 有**真人可读名** = label 不是"原始键的变形" `+100000`
+② 子代理个数 ×10（封顶 999）③ `running` `+5` ④ `preview` 非空 `+2` ⑤ `last_active` 非空 `+1`）
++ `dedupeSessionItems(items)`：按 **`channel` + `canonicalChatId`** 分组，同组只留**分数最高**的一行，
+**保留先出现的位置**（真身原地替换幽灵 ⇒ 服务端顺序 + 星标优先不受影响）。
+消费点：`pages/Index.ets filteredSessions()`（抽屉的**唯一**列表入口）。⛔ 只看顶层行，不做跨层合并。
+
+**为什么分组键要带 `channel`**：`canonicalChatId` 的产物**与渠道无关**（`feishu:oc_1`⇒`oc_1`）⇒
+只比规范 id 会把**不同渠道里恰好同 id 的两个真会话**（`web:chat_X` / `cli:chat_X`）误并成一个。
+测试钉住："跨渠道同 id 不误并"。
+
+**与 web 的关系**：web `lib/session-grouping.ts:13` 是 `${channel||'web'}:${chatID}` **直接拼键**、
+**不去重** ⇒ web 同样会显示这条垃圾行（键还会变 `web:web:chat_…`）。本仓按口径③（"不要一比一复刻
+web，你要超越"）做去重 —— 被丢弃的行**严格更少信息**（0 子节点、无真人名、默认 cwd），不是"藏掉
+用户的数据"。
+
+**判据**：`tools/tests/sessionpick.test.ts` ④ 段（48 项全绿，含"幽灵在前也把真身放回原位"、
+"顺序不乱"、"跨渠道不误并"、"只有幽灵时原样留下"、打分逐档 + 封顶）。
+
+---
+
+## §21.112 同一根因的**第五/六处**受害点：顶栏标题 + 抽屉「当前会话」高亮
+
+修 §21.111 时回看真机截图（`/tmp/v22_taskdetail.jpeg` 顶栏）**当场发现**：标题显示
+**`web:chat_026B326DE4C4`**（原始会话键），而真名是 `harmony-ui-dev`。
+
+**根因（同一条链，按**原值**精确比对命中幽灵行）** —— ⚠️ **一次装机实测教训**：我先按"顶栏 =
+`tabLabel`"改了 `tabLabel`，装机后**顶栏照旧**显示原始键 ⇒ 回代码才发现顶栏走的是**另一个**
+助手 `labelOf()`（`Index.ets:5544` `Text(this.currentLabelOf…) ⇒ this.labelOf(this.currentChat)`）。
+**同族漏网点必须一次扫尽**（教训同 §21.107 的"只扫了 store.ets"）。本族共 **5 处**：
+
+| 落点 | 症状 |
+|---|---|
+| 顶栏标题 `labelOf()` | 标题显示 `web:chat_026B…`（真名 `harmony-ui-dev` 丢失） |
+| 标签条 `tabLabel()` | 同上（多标签时） |
+| `tabRunning()` | 服务端权威 running 恒 false |
+| `serverRunning()` | `busySignals.freshServerRunning` 恒 false ⇒ 只剩 SSE 快路径 ⇒ 错过一条 idle 就永远"运行中" |
+| 状态面板 `currentLastActive()` | 「最后活跃」取到幽灵的创建时刻 |
+
+`tabLabel`/`tabRunning`/`labelOf`/`serverRunning`/`currentLastActive` 一律改用
+`resolveSessionNode(this.sessions, channelForChat(this.sessions, <id>), <id>)`
+（§21.109 的规范化解析器：同 id 多行取 `children` 多者 = 真身）⇒ 标题拿到 `harmony-ui-dev`。
+- 抽屉行「是否当前会话」新增**唯一**助手 `isCurrentSession(chatId)`（规范化比较；5 处消费：
+  行底填充、标题字重/字色、两个 `⋯`/`取消` 字色）。
+  ⚠️ 这一步是**去重的前置条件**：幽灵行被 `dedupeSessionItems` 剔除后，若仍按原值比对，则
+  **没有任何行**会显示为当前会话（高亮静默消失）＝修一处、坏一处。⇒ 判据里两条必须**成对**出现。
+
+**判据**：`tools/tests/surface_alias.test.ts §2/§3` + `status_sheet_wiring.test.ts ⑥`
+（形态随实现更新，**意图不变**：当前行 `取消` 的 fg 仍是 `textPrimary`；`currentLastActive`
+仍真读 `last_active`）。

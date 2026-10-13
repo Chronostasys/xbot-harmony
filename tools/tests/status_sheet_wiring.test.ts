@@ -220,7 +220,9 @@ const lastActiveBody: string = ((): string => {
 })();
 ok('⑥ currentLastActive 可定位', lastActiveBody.length > 60);
 has(lastActiveBody, 'this.store.currentChatId', '⑥ 以当前会话 id 为键');
-has(lastActiveBody, 's.last_active !== undefined ? s.last_active', '⑥ 真读 SessionItem.last_active（core/types.ets:37）');
+// ⚠️ 2026-10-13：取值点从 `s`（按原值精确比对的循环）改为 `node`（`resolveSessionNode` 规范化解析，
+//    同 id 多行取真身 —— 见 docs §21.112）⇒ 断言随形态更新，意图不变（仍真读 `last_active`）。
+has(lastActiveBody, 'node.last_active !== undefined ? node.last_active', '⑥ 真读 SessionItem.last_active（core/types.ets:37）');
 has(lastActiveBody, "return '';", '⑥ 取不到 ⇒ 空串（面板不显示该行，不编造）');
 
 if (fail > 0) {

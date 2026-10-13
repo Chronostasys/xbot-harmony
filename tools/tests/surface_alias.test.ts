@@ -122,12 +122,12 @@ for (let i = 0; i < NON_ACTIVE.length; i++) {
 // ════════════════════════════════════════════════════════════════════════════
 // §2 落点 A —— Index.ets 会话重命名行「取消」：当前会话支 fg 不再是 textSecondary
 // ════════════════════════════════════════════════════════════════════════════
-const A_NEW: string = '.fontColor(s.chat_id === this.currentChat ? this.pal().textPrimary : this.pal().textSecondary)';
+const A_NEW: string = '.fontColor(this.isCurrentSession(s.chat_id) ? this.pal().textPrimary : this.pal().textSecondary)';
 // ① 形态：旧的无条件用法**已消失**（mutation 锚：回退成旧单行 ⇒ 本行红）
 ok('§2 ⛔ 旧形态（`取消` 无条件 textSecondary 单行链）已消失',
   aSrc.indexOf("Text('取消').fontSize(typeOf('type.subhead').size).fontColor(this.pal().textSecondary)") < 0);
 // ② 新形态存在：当前会话支 → textPrimary
-ok('§2 ✓ 新形态：`取消` 的 fg = `s.chat_id === this.currentChat ? textPrimary : textSecondary`',
+ok('§2 ✓ 新形态：`取消` 的 fg = `isCurrentSession(s.chat_id) ? textPrimary : textSecondary`',
   aSrc.indexOf(A_NEW) >= 0);
 // ③ 非当前会话仍走 textSecondary（弱化观感保留；其底 = `transparent` ⇒ 画布，达标）
 ok('§2 ✓ 非当前会话支保留 `textSecondary`（弱化观感未丢）', A_NEW.indexOf(': this.pal().textSecondary') >= 0);
@@ -162,8 +162,10 @@ ok("§2 ✓ 会话行补 `surface.overlayRowHover` 的调用点仍在（未被�
   ok('§3 ✓ 新形态：`⋯` 的 fg = 当前会话支 `textPrimary` / 其余 `textSecondary`',
     aSrc.indexOf(A_NEW) >= 0);
   // 该行**不再是**无条件 textSecondary（防"把条件去掉"这种更弱的回退）
+  // ⚠️ 2026-10-13：条件判据从 `s.chat_id === this.currentChat` 收成**唯一助手**
+  //    `this.isCurrentSession(s.chat_id)`（规范化比较，见 docs §21.112）⇒ 断言随形态更新，意图不变。
   const ellChain: string = lines.slice(ellLine, ellLine + 4).join('\n');
-  ok('§3 ✓ 该链含条件（非无条件 `textSecondary`）', ellChain.indexOf('?') >= 0 && ellChain.indexOf('currentChat') >= 0);
+  ok('§3 ✓ 该链含条件（非无条件 `textSecondary`）', ellChain.indexOf('?') >= 0 && ellChain.indexOf('isCurrentSession') >= 0);
 }
 
 // ════════════════════════════════════════════════════════════════════════════

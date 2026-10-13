@@ -86,6 +86,82 @@ export function sessionDisplayKey(channel: string, chatId: string): string {
   return `${c}:${id}`;
 }
 
+/**
+ * 行的「信息量」打分 —— 幽灵行消除（`dedupeSessionItems`）的**唯一判据**。
+ *
+ * 为什么需要：服务端 `/api/session-tree` 会把**同一个会话的两行**并排下发（真机实测
+ * `docs/WEB-ALIGNMENT.md §21.109`）—— 一行是**真身**（`chat_id='chat_X'`、label
+ * `harmony-ui-dev`、19 个子代理、`running`、正确 cwd），另一行是历史 bug 造出的**幽灵**
+ * （`chat_id='web:chat_X'`、**label 直接是这串原始键**、0 子节点、idle、默认 cwd）。
+ * 抽屉列表按行渲染 ⇒ 用户看到一条名叫 `web:chat_026B326DE4C4` 的垃圾行（"丑"）。
+ *
+ * 打分顺序（**从强到弱**，⛔ 不要改顺序 —— 测试逐档钉住）：
+ *   ① 有**真人可读名**（`+100000`）：幽灵行的 label 就是原始会话键 ⇒ 这一档最便宜也最准；
+ *   ② 子代理个数（每个 `+10`，上限 999 个）：真身挂着整棵子树；
+ *   ③ `running`（`+5`）/ ④ `preview` 非空（`+2`）/ ⑤ `last_active` 非空（`+1`）。
+ */
+export function sessionBodyScore(s: SessionItem): number {
+  if (s === undefined || s === null) {
+    return 0;
+  }
+  let n: number = 0;
+  const ch: string = s.channel !== undefined && s.channel.length > 0 ? s.channel : DEFAULT_CHANNEL;
+  const raw: string = s.chat_id !== undefined ? s.chat_id : '';
+  const label: string = s.label !== undefined ? s.label : '';
+  // ① 真人可读名：label 不是"原始会话键的变形"（`chat_X` / `web:chat_X` / 剥前缀后的裸 id）
+  if (label.length > 0 && label !== raw && label !== `${ch}:${raw}`
+    && label !== canonicalChatId(ch, raw)) {
+    n += 100000;
+  }
+  // ② 子代理个数
+  const kids: number = s.children !== undefined && s.children !== null ? s.children.length : 0;
+  n += (kids > 999 ? 999 : kids) * 10;
+  // ③④⑤ 其余"有内容"的信号
+  if (s.running === true) {
+    n += 5;
+  }
+  const preview: string = s.preview !== undefined ? s.preview.trim() : '';
+  if (preview.length > 0) {
+    n += 2;
+  }
+  if (s.last_active !== undefined && s.last_active.length > 0) {
+    n += 1;
+  }
+  return n;
+}
+
+/**
+ * **幽灵行消除**：同一 `channel` 下**规范化 id 相同**的行只保留信息量最大的那一行。
+ *
+ * ── 为什么按 `channel + canonicalChatId` 而不是只按 canonical id ────────────────────
+ * `canonicalChatId` 的产物**与渠道无关**（`feishu:oc_1` ⇒ `oc_1`，子代理的 channel 还可能是
+ * `agent`）⇒ 只比 canonical id 会把**不同渠道里恰好同名的两个真会话**（`web:chat_X` 与
+ * `cli:chat_X`）误并成一个。这里要求**渠道也相同**，只有"同渠道 + 同规范 id"才是幽灵/真身关系。
+ *
+ * 保留**先出现的位置**（用真身原地替换幽灵）⇒ 行的顺序（服务端顺序 + 星标优先）不受影响。
+ * ⛔ 只看**顶层行**：子代理挂在被保留那一行的 `children` 里，不做跨层合并。
+ */
+export function dedupeSessionItems(items: SessionItem[]): SessionItem[] {
+  if (items === undefined || items === null || items.length === 0) {
+    return items !== undefined && items !== null ? items : [];
+  }
+  const out: SessionItem[] = [];
+  const slot: Map<string, number> = new Map<string, number>();
+  for (let i = 0; i < items.length; i++) {
+    const s: SessionItem = items[i];
+    const ch: string = s.channel !== undefined && s.channel.length > 0 ? s.channel : DEFAULT_CHANNEL;
+    const key: string = `${ch}\u0000${canonicalChatId(ch, s.chat_id)}`;
+    const prev: number | undefined = slot.get(key);
+    if (prev === undefined) {
+      slot.set(key, out.length);
+      out.push(s);
+    } else if (sessionBodyScore(s) > sessionBodyScore(out[prev])) {
+      out[prev] = s;
+    }
+  }
+  return out;
+}
+
 /** 渠道的展示名（抽屉里标注来源，避免"这个会话为什么打不开"的困惑）。 */
 export function channelLabel(channel: string): string {
   if (channel === 'web') {
