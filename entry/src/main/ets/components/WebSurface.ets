@@ -165,12 +165,14 @@ export struct WebSurface {
   };
 
   /**
-   * 插件视图**深链导航**被拦截时的回调（`?xbot_view=<viewId>` —— web 插件 `ctx.ui.openViewTab`
-   * 打开视图产生的导航）。由调用方接线，路由到原生面板（`nativeViewKind` 非空的那类）。
+   * 插件视图**深链导航**被拦截时的回调（`?xbot_view=<viewId>[&xbot_view_params=<json>]` ——
+   * web 插件 `ctx.ui.openViewTab` 打开视图产生的导航）。由调用方接线，路由到原生面板
+   * （`nativeViewKind` 非空的那类）。`params` = 深链里 `xbot_view_params` 解析出的参数
+   * （如 git commit 的 `{ hash }`），供原生面板精确打开那一个视图。
    * ⛔ 默认空实现 ⇒ 未接线时 = 不拦截（`onLoadIntercept` 返回 false，放行 WebView 兜底）。
    * ⚠️ 普通成员而非 `@Prop`（同 `onBridgeMessage`/`onClose`：函数回调不是可观测数据）。
    */
-  onOpenView: (viewId: string, title: string, url: string) => void = (viewId: string, title: string, url: string) => {
+  onOpenView: (viewId: string, title: string, url: string, params: Record<string, string>) => void = (viewId: string, title: string, url: string, params: Record<string, string>) => {
   };
 
   /**
@@ -576,7 +578,7 @@ export struct WebSurface {
             const targetUrl: string = event.data.getRequestUrl();
             const link = parseXbotViewLink(targetUrl);
             if (link !== null && nativeViewKind(link.viewId).length > 0) {
-              this.onOpenView(link.viewId, link.title, targetUrl);
+              this.onOpenView(link.viewId, link.title, targetUrl, link.params);
               return true;
             }
           } catch (e) {

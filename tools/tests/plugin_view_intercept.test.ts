@@ -48,41 +48,45 @@ const hostSrc: string = stripComments(fs.readFileSync(path.join(COMP, 'PluginHos
 const intercept: number = countOf(webSrc, '.onLoadIntercept(');
 const webParse: number = countOf(webSrc, 'parseXbotViewLink(');
 const webKind: number = countOf(webSrc, 'nativeViewKind(');
-const webOnOpenView: number = countOf(webSrc, 'onOpenView: (viewId: string, title: string, url: string)');
+const webOnOpenView: number = countOf(webSrc, 'onOpenView: (viewId: string, title: string, url: string, params: Record<string, string>)');
 console.log(`  intercept: onLoadIntercept=${intercept} parse=${webParse} kind=${webKind} onOpenView=${webOnOpenView}`);
 
 ok(`① WebSurface 有 onLoadIntercept（${intercept} == 1）`, intercept === 1);
 ok(`① 拦截里调 parseXbotViewLink（${webParse} ≥ 1）`, webParse >= 1);
 ok(`① 拦截里调 nativeViewKind（${webKind} ≥ 1）`, webKind >= 1);
-ok(`① WebSurface 暴露 onOpenView 回调（${webOnOpenView} ≥ 1）`, webOnOpenView >= 1);
+ok(`① WebSurface 暴露 onOpenView 回调（4 参，${webOnOpenView} ≥ 1）`, webOnOpenView >= 1);
 
 // ── ② Index 路由层 ────────────────────────────────────────────────────────
-const routeDef: number = countOf(idxSrc, 'private routePluginView(viewId: string, title: string, url: string)');
+const routeDef: number = countOf(idxSrc, 'private routePluginView(viewId: string, title: string, url: string, params: Record<string, string>)');
 const routeKind: number = countOf(idxSrc, 'nativeViewKind(viewId)');
 const routeGit: number = countOf(idxSrc, 'this.openGitPanel();');
-const routeCalls: number = countOf(idxSrc, 'this.routePluginView(viewId, title, url);');
-const idxOnOpenView: number = countOf(idxSrc, 'onOpenView: (viewId: string, title: string, url: string)');
-const idxOnNativeView: number = countOf(idxSrc, 'onNativeView: (viewId: string, title: string, url: string)');
-console.log(`  route: def=${routeDef} kind=${routeKind} openGit=${routeGit} calls=${routeCalls} onOpenView=${idxOnOpenView} onNativeView=${idxOnNativeView}`);
+const routeGitCommit: number = countOf(idxSrc, 'this.openGitCommit(hash);');
+const routeParams: number = countOf(idxSrc, "params['hash']");
+const routeCalls: number = countOf(idxSrc, 'this.routePluginView(viewId, title, url, params);');
+const idxOnOpenView: number = countOf(idxSrc, 'onOpenView: (viewId: string, title: string, url: string, params: Record<string, string>)');
+const idxOnNativeView: number = countOf(idxSrc, 'onNativeView: (viewId: string, title: string, url: string, params: Record<string, string>)');
+console.log(`  route: def=${routeDef} kind=${routeKind} openGit=${routeGit} commit=${routeGitCommit} params=${routeParams} calls=${routeCalls} onOpenView=${idxOnOpenView} onNativeView=${idxOnNativeView}`);
 
-ok(`② Index 有 routePluginView 方法（${routeDef} == 1）`, routeDef === 1);
+ok(`② Index 有 routePluginView 方法（4 参，${routeDef} == 1）`, routeDef === 1);
 ok(`② 路由里按 nativeViewKind 分发（${routeKind} ≥ 1）`, routeKind >= 1);
 ok(`② git 落地 → openGitPanel（${routeGit} ≥ 1）`, routeGit >= 1);
+ok(`② commit 视图带 hash ⇒ openGitCommit（${routeGitCommit} ≥ 1）`, routeGitCommit >= 1);
+ok(`② 路由消费深链 hash 参数（${routeParams} ≥ 1）`, routeParams >= 1);
 ok(`② 三处接线（2 个 WebSurface + 1 个 PluginHost = ${routeCalls} ≥ 3）`, routeCalls >= 3);
 ok(`② WebSurface 调用点接线 onOpenView（${idxOnOpenView} ≥ 2）`, idxOnOpenView >= 2);
 ok(`② PluginHost 注入点接线 onNativeView（${idxOnNativeView} ≥ 1）`, idxOnNativeView >= 1);
 
 // ── ③ PluginHost 透传层 ──────────────────────────────────────────────────
-const hostProp: number = countOf(hostSrc, 'onNativeView: (viewId: string, title: string, url: string)');
-const hostFwd: number = countOf(hostSrc, 'this.onNativeView(viewId, title, url);');
+const hostProp: number = countOf(hostSrc, 'onNativeView: (viewId: string, title: string, url: string, params: Record<string, string>)');
+const hostFwd: number = countOf(hostSrc, 'this.onNativeView(viewId, title, url, params);');
 console.log(`  host: onNativeViewProp=${hostProp} forward=${hostFwd}`);
 
-ok(`③ PluginHost 有 onNativeView 回调 prop（${hostProp} ≥ 1）`, hostProp >= 1);
+ok(`③ PluginHost 有 onNativeView 回调 prop（4 参，${hostProp} ≥ 1）`, hostProp >= 1);
 ok(`③ WebSurface.onOpenView 透传到 onNativeView（${hostFwd} ≥ 1）`, hostFwd >= 1);
 
 // ── 零扫描判红 ────────────────────────────────────────────────────────────
 ok('零扫描判红：协议接线证据合计 > 0',
-  intercept + webParse + webKind + routeDef + routeKind + routeGit + routeCalls + hostProp + hostFwd > 0);
+  intercept + webParse + webKind + routeDef + routeKind + routeGit + routeGitCommit + routeCalls + hostProp + hostFwd > 0);
 
 console.log(`  plugin_view_intercept: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

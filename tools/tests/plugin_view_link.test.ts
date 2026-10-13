@@ -84,11 +84,20 @@ eq('深链只两个参数',
   const rt = parseXbotViewLink(pluginViewDeepLink('http://h', 'xbot.git-fancy.panel', 'Git 面板'));
   eq('round-trip：生成→解析还原 viewId', rt !== null ? rt.viewId : '', 'xbot.git-fancy.panel');
   eq('round-trip：还原中文 title', rt !== null ? rt.title : '', 'Git 面板');
+
+  // ── xbot_view_params（web `openViewTab({ params })` 序列化进深链；git commit 的 `{ hash }`）──
+  const pc = parseXbotViewLink('http://h/?xbot_view=xbot.git-fancy.commit&xbot_view_title=C&xbot_view_params='
+    + encodeURIComponent('{"hash":"abc123"}'));
+  eq('解析 xbot_view_params → hash', pc !== null ? (pc.params['hash'] || '') : '', 'abc123');
+  const pn = parseXbotViewLink('http://h/?xbot_view=a.panel');
+  eq('无 xbot_view_params ⇒ 空参数对象', pn !== null ? Object.keys(pn.params).length : -1, 0);
+  const pb = parseXbotViewLink('http://h/?xbot_view=a.panel&xbot_view_params=%7Bnot-json');
+  eq('坏 JSON params ⇒ 空参数对象（不崩）', pb !== null ? Object.keys(pb.params).length : -1, 0);
 }
 
 // ── ⑥ 原生落地注册表 nativeViewKind（可扩展；空 = 放行 WebView 兜底）──────────────
-eq('git-fancy panel ⇒ git', nativeViewKind('xbot.git-fancy.panel'), 'git');
-eq('git-fancy commit ⇒ git', nativeViewKind('xbot.git-fancy.commit'), 'git');
+eq('git-fancy panel ⇒ git.panel', nativeViewKind('xbot.git-fancy.panel'), 'git.panel');
+eq('git-fancy commit ⇒ git.commit', nativeViewKind('xbot.git-fancy.commit'), 'git.commit');
 eq('ssh-runner panel ⇒ 空（无原生落地，放行 WebView）', nativeViewKind('xbot.ssh-runner.panel'), '');
 eq('未来插件 ⇒ 空（协议仍通用，不写死）', nativeViewKind('xbot.future-plugin.panel'), '');
 eq('空 viewId ⇒ 空', nativeViewKind(''), '');

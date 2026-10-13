@@ -787,19 +787,50 @@ export function pluginViewTarget(v: PluginViewItem, base: string): PluginOpenTar
 //   ⛔ 无原生落地的 viewId ⇒ 放行 WebView（web 宿主页兜底，任何插件都还能用）。
 // ══════════════════════════════════════════════════════════════════════════════
 
-/** 深链里的视图标识（`?xbot_view=<viewId>&xbot_view_title=<title>`）。 */
+/** 深链里的视图标识（`?xbot_view=<viewId>&xbot_view_title=<title>[&xbot_view_params=<json>]`）。 */
 export class XbotViewLink {
   viewId: string = '';
   title: string = '';
+  /** `xbot_view_params` 解析出的字符串参数（缺省空对象）。 */
+  params: Record<string, string> = {};
 
-  constructor(viewId: string, title: string) {
+  constructor(viewId: string, title: string, params: Record<string, string>) {
     this.viewId = viewId;
     this.title = title;
+    this.params = params;
   }
 }
 
 /**
- * 从 URL 解析 `?xbot_view=<viewId>&xbot_view_title=<title>`（无深链 ⇒ null）。
+ * 解析 `xbot_view_params` 的 JSON（坏 JSON / 空 ⇒ 空对象，绝不抛）。
+ * web `openViewTab({ params })` 把 params 序列化进这条 query（`pluginViewRequest.ts:13`）。
+ * ⚠️ 只保留**字符串值**字段（插件 params 是标量，`Record<string, string>` 足够且零猜测）。
+ */
+function parseViewParams(json: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (json.length === 0) {
+    return out;
+  }
+  try {
+    const decoded: string = decodeURIComponent(json);
+    const obj: Record<string, Object> = JSON.parse(decoded) as Record<string, Object>;
+    const keys: string[] = Object.keys(obj);
+    for (let i = 0; i < keys.length; i++) {
+      const k: string = keys[i];
+      const v: Object = obj[k];
+      if (v !== undefined && v !== null) {
+        out[k] = v.toString();
+      }
+    }
+  } catch (e) {
+    // 坏 JSON ⇒ 空对象（拦截协议只识别，不因坏参数断导航）
+  }
+  return out;
+}
+
+/**
+ * 从 URL 解析 `?xbot_view=<viewId>&xbot_view_title=<title>[&xbot_view_params=<json>]`
+ * （无 `xbot_view` ⇒ null）。
  * ⛔ 与 `pluginViewDeepLink` 是**同一协议的两端**（一个生成、一个解析），不得各写一套。
  * ⚠️ `decodeURIComponent` 失败（坏编码）⇒ 回落原串（拦截协议**只识别**，不做二次校验）。
  */
@@ -814,6 +845,7 @@ export function parseXbotViewLink(url: string): XbotViewLink | null {
   }
   let viewId: string = '';
   let title: string = '';
+  let paramsJson: string = '';
   const pairs: string[] = u.substring(qi + 1).split('&');
   for (let i = 0; i < pairs.length; i++) {
     const eq: number = pairs[i].indexOf('=');
@@ -826,6 +858,8 @@ export function parseXbotViewLink(url: string): XbotViewLink | null {
       viewId = v;
     } else if (k === 'xbot_view_title') {
       title = v;
+    } else if (k === 'xbot_view_params') {
+      paramsJson = v;
     }
   }
   if (viewId.length === 0) {
@@ -843,18 +877,23 @@ export function parseXbotViewLink(url: string): XbotViewLink | null {
   } catch (e) {
     tt = title;
   }
-  return new XbotViewLink(vid, tt);
+  return new XbotViewLink(vid, tt, parseViewParams(paramsJson));
 }
 
 /**
  * viewId ⇒ 原生面板 kind（**原生落地注册表**，可扩展）。
  * 返回非空 = 原生端拦截该深链并打开对应原生面板；返回空 = 无原生落地 ⇒ 放行 WebView 兜底。
+ * ⚠️ kind 是**原生面板标识**（如 `git.panel`/`git.commit`），**不是**插件 id —— 路由层据此分派、
+ * 零插件 id 接触（插件 id 字面量只在 `core/gitpanel.ets` 的 `GIT_PLUGIN_ID` 定义一次）。
  * 未来新插件的原生落地往这里加一条（协议层 `parseXbotViewLink` **无需改**）。
  */
 export function nativeViewKind(viewId: string): string {
   const v: string = viewId !== undefined && viewId !== null ? viewId : '';
-  if (v === 'xbot.git-fancy.panel' || v === 'xbot.git-fancy.commit') {
-    return 'git';
+  if (v === 'xbot.git-fancy.panel') {
+    return 'git.panel';
+  }
+  if (v === 'xbot.git-fancy.commit') {
+    return 'git.commit';
   }
   return '';
 }

@@ -3904,17 +3904,25 @@ struct Index {
 
   /**
    * 插件视图深链导航 → 原生面板路由（「插件视图导航拦截协议」的路由端）。
-   * WebSurface 的 `onLoadIntercept` 拦截到 `?xbot_view=<viewId>` 深链后回调这里。
+   * WebSurface 的 `onLoadIntercept` 拦截到 `?xbot_view=<viewId>[&xbot_view_params=<json>]`
+   * 深链后回调这里。`params` = 深链参数（如 git commit 的 `{ hash }`）。
    * ⛔ 只做一件事：按 `nativeViewKind(viewId)` 打开对应原生面板（无原生落地 ⇒ 不会进来）。
    * ⚠️ 协议本身通用（任何插件视图都能走深链），这里只是"原生落地注册表"的分发。
    */
-  private routePluginView(viewId: string, title: string, url: string): void {
+  private routePluginView(viewId: string, title: string, url: string, params: Record<string, string>): void {
     const kind: string = nativeViewKind(viewId);
-    if (kind === 'git') {
+    if (kind === 'git.panel' || kind === 'git.commit') {
       // 先关插件宿主浮层（若拦截发生在宿主页里），再开原生 Git 面板
       // （openGitPanel 内部再收抽屉/能力面板/panelUrl）。
       this.showPluginHost = false;
-      this.openGitPanel();
+      // commit 视图（dynamic，带 hash 参数）⇒ 精确打开那一个 commit 详情；
+      // 其余（panel）/ 无 hash ⇒ 默认列表。
+      const hash: string = params['hash'] || '';
+      if (kind === 'git.commit' && hash.length > 0) {
+        this.openGitCommit(hash);
+      } else {
+        this.openGitPanel();
+      }
     }
     // 未来新插件的原生落地：往 nativeViewKind 注册 + 这里加一条分支。
   }
@@ -4247,8 +4255,8 @@ struct Index {
         Stack() {
           WebSurface({ url: this.webUiUrl, theme: this.themeName, chrome: false, sessionCookie: this.cookie, onBridgeMessage: (m: BridgeMessage) => {
             this.handleBridgeMessage(m);
-          }, onOpenView: (viewId: string, title: string, url: string) => {
-            this.routePluginView(viewId, title, url);
+          }, onOpenView: (viewId: string, title: string, url: string, params: Record<string, string>) => {
+            this.routePluginView(viewId, title, url, params);
           }, onClose: () => {
           } })
           Text('切回原生')
@@ -4887,8 +4895,8 @@ struct Index {
       if (this.panelUrl.length > 0) {
         WebSurface({ url: this.panelUrl, theme: this.themeName, sessionCookie: this.cookie, chromeLabel: this.panelTitle, onBridgeMessage: (m: BridgeMessage) => {
           this.handleBridgeMessage(m);
-        }, onOpenView: (viewId: string, title: string, url: string) => {
-          this.routePluginView(viewId, title, url);
+        }, onOpenView: (viewId: string, title: string, url: string, params: Record<string, string>) => {
+          this.routePluginView(viewId, title, url, params);
         }, onClose: () => {
           this.panelUrl = '';
         } })
@@ -4999,9 +5007,9 @@ struct Index {
                 this.pluginPageTitle = t.title;
                 this.pluginPageUrl = t.url;
               },
-              onNativeView: (viewId: string, title: string, url: string) => {
+              onNativeView: (viewId: string, title: string, url: string, params: Record<string, string>) => {
                 // WebSurface 拦截到插件视图深链导航（`?xbot_view=<viewId>`）⇒ 路由到原生面板。
-                this.routePluginView(viewId, title, url);
+                this.routePluginView(viewId, title, url, params);
               },
               onClose: () => {
                 this.pluginPageUrl = '';
