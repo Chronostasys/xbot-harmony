@@ -57,7 +57,7 @@ import {
 import { TerminalInfo, terminalPrimary, terminalSubText } from '../core/termproto';
 import {
   activeToken, applyCommand, applyMention, clampSel, CMD_ROWS, CommandItem, completionKeyAction,
-  composerPlaceholder, enterSends,
+  ComposerButton, composerButtonState, composerPlaceholder, enterSends,
   FS_ROWS, FsEntry, joinPath, matchCommands, matchFiles, parentDir, selNext, selPrev,
 } from '../core/composer';
 import {
@@ -6413,7 +6413,7 @@ struct Index {
         // 必须提前说清"按下去是排队还是打断"（插话语义与普通发送相反）。
         // ⛔ 文案一律单行：真机实测可用宽 240vp，web 桌面文案（含 `（Ctrl+Enter 发送）`）会换行被裁；
         //    "回车键什么行为"由下方 `.enterKeyType(...)`（软键盘回车键标签）表达，不重复塞进占位。
-        TextArea({ placeholder: composerPlaceholder(this.busy, isInterruptSend(this.busy, this.sendMode)), text: this.draft })
+        TextArea({ placeholder: composerPlaceholder(this.composerBtn().running, isInterruptSend(this.composerBtn().running, this.sendMode)), text: this.draft })
           // 深链 `input.focus` 的落点（`focusControl.requestFocus(COMPOSER_INPUT_ID)`）
           .id(COMPOSER_INPUT_ID)
           .onChange((v: string) => {
@@ -6450,7 +6450,7 @@ struct Index {
               this.sendDraft();
             }
           })
-        if (this.busy) {
+        if (this.composerBtn().running) {
           Text(modeLabel(this.sendMode))
             .fontSize(FS_CAPTION)
             .fontColor(this.sendMode === MODE_INTERRUPT ? this.pal().warn : this.pal().textMuted)
@@ -6483,7 +6483,7 @@ struct Index {
               //    （用户要求「busy 时输入文字 ⇒ 按钮变插队/排队」的**视觉**落点；文字 chip 仍标模式名）。
               SymbolGlyph(this.composerShowStop()
                 ? $r('sys.symbol.square_fill')
-                : (this.sendMode === MODE_INTERRUPT ? $r('sys.symbol.bolt_fill') : $r('sys.symbol.paperplane_fill')))
+                : (this.composerBtn().interject ? $r('sys.symbol.bolt_fill') : $r('sys.symbol.paperplane_fill')))
                 .fontSize(typeOf('type.callout').size)
                 .fontColor([this.composerShowStop() ? this.pal().textSecondary : this.pal().onAccent])
                 // ── 状态过渡：**同一个主按钮**的语义在「发送 → 插话 → 停止」之间切换 ────────────
@@ -7804,15 +7804,29 @@ struct Index {
     return this.draft.trim().length > 0 || pendingCount(this.attachments) > 0;
   }
 
-  /** 主按钮是否显示**停止**（= busy 且不可发送）；其余情况显示**发送**。 */
+  /**
+   * 主按钮簇的**同源语义**（chip 可见性 / 停止 / 转圈 / ⚡ 插话）——
+   * 判据本体是纯函数 `core/composer.composerButtonState`（脱机单测 + mutation 自证）。
+   *
+   * ⛔ 页面里**只准**从本方法取这几个布尔；⛔ 不得再出现裸 `this.busy` 驱动按钮簇
+   *   （2026-10-15 审计实测的缺陷：chip 曾用裸 `this.busy`，与按钮的 `runningNow()` 分叉 ⇒
+   *    「停止按钮 + 无模式 chip」自相矛盾。本仓铁律：判据与渲染必须同源）。
+   */
+  private composerBtn(): ComposerButton {
+    const st: ChatStore | null = this.store;
+    const running: boolean = this.runningNow();
+    return composerButtonState(running, this.composerCanSend(),
+      st !== null && st.cancelling, isInterruptSend(running, this.sendMode));
+  }
+
+  /** 主按钮是否显示**停止**（= 回合在跑 且 不可发送）；其余情况显示**发送**。 */
   private composerShowStop(): boolean {
-    return !this.composerCanSend() && this.runningNow();
+    return this.composerBtn().showStop;
   }
 
   /** 停止按钮是否**转圈**（web `:938` `cancelling && !canSend && busy`）。 */
   private composerCancelling(): boolean {
-    const st: ChatStore | null = this.store;
-    return this.composerShowStop() && st !== null && st.cancelling;
+    return this.composerBtn().cancelling;
   }
 
   /** 点「停止」= web `MessageInput.onCancel` ⇒ `chat.cancel()`；失败给可读提示（web 同款 toast）。 */

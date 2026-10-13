@@ -241,6 +241,51 @@ export function estimateTextWidthVp(text: string, fontSize: number): number {
   return em * fontSize;
 }
 
+/**
+ * 主按钮簇（**模式 chip + 唯一主按钮**）的同源语义 —— **纯逻辑**（可脱机单测）。
+ *
+ * ── 为什么必须抽成纯函数（本仓铁律「判据与渲染必须同源」，2026-10-15 审计实测）──────────
+ *   此前页面里有**两套"回合在跑"判据**同时驱动同一个按钮簇：
+ *     · 主按钮（图标/底色/阴影/无障碍/点击）= `runningNow()`（= `busyNow(busySignals())`
+ *       —— 页面注释亲口记的**统一**判据，修的是 2026-10-10「按钮=停止、列表=空」那批 P0）；
+ *     · 模式 chip（排队/⚡ 插话）= **裸 `this.busy`**（`store.busy` 投影）。
+ *   两者在若干窗口内会分叉（如 `askUser-pending` 时 `store.busy` 因互斥为 false，而
+ *   `busyNow(…)` 仍可为 true）⇒ 用户会看到「停止按钮 + 没有模式 chip」「占位文案说'发消息'
+ *   而按钮是停止」这类**自相矛盾**的按钮簇。⇒ 收进本函数：**一个 `running` 入参**，
+ *   所有消费者（chip / 按钮 / 占位文案）只准读它的产物。
+ *
+ * ⛔ 本函数**不读 `pal()` / 主题 / 任何全局**（纯逻辑 ⇒ 可脱机单测 + mutation 自证）。
+ * 判据：`tools/tests/composer.test.ts`（不变量 + 判别力 + mutation）。
+ */
+export class ComposerButton {
+  /** **唯一的"回合在跑"出口**（入参 `running` 的产物）—— chip 可见性、占位文案的 busy、
+   *  按钮语义**全部**读它（⛔ 页面里不得再有第二个 busy 源）。 */
+  running: boolean = false;
+  /** 主按钮 = **停止**（回合在跑 **且** 没有可发送内容 —— 有内容时按钮让位给"发送"）。 */
+  showStop: boolean = false;
+  /** 主按钮 = 停止 **且** 取消请求在飞 ⇒ 转圈（web `MessageInput.tsx:938` `cancelling && !canSend && busy`）。 */
+  cancelling: boolean = false;
+  /** ⚡ 插话图标（回合在跑 **且** 有内容 **且** 插话模式 ⇒ 点的这一下会注入当前回合）。 */
+  interject: boolean = false;
+}
+
+/**
+ * @param running        "回合在跑"（页面唯一判据 `runningNow()` ⇒ 会话隔离 + `busyNow(busySignals())`）
+ * @param hasContent     输入框有正文或待发附件（`composerCanSend`）
+ * @param cancelInFlight `store.cancelling`（取消请求在飞）
+ * @param interjectMode  `isInterruptSend(running, sendMode)`（不忙时恒为 false —— 插话只对在跑的回合有意义）
+ */
+export function composerButtonState(running: boolean, hasContent: boolean,
+  cancelInFlight: boolean, interjectMode: boolean): ComposerButton {
+  const b: ComposerButton = new ComposerButton();
+  // ① 唯一的"回合在跑"出口 —— chip / 占位 / 按钮**全部**从这里取，⛔ 不设第二个 busy 源。
+  b.running = running;
+  b.showStop = running && !hasContent;
+  b.cancelling = b.showStop && cancelInFlight;
+  b.interject = running && hasContent && interjectMode;
+  return b;
+}
+
 // ── 候选浮层的**选中态 / 键盘导航**（对齐 web `useCompletion.ts:369-397` handleKeyDown）──────
 //
 // 为什么单列：手机上软键盘没有方向键/Tab ⇒ 键盘导航是**外接键盘 + 无障碍**的补充路径；

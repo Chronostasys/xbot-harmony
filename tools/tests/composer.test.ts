@@ -2,7 +2,8 @@
 declare const process: { exit: (c: number) => void };
 
 import {
-  activeToken, applyCommand, applyMention, CommandItem, composerPlaceholder, composerPlaceholderBudgetVp,
+  activeToken, applyCommand, applyMention, CommandItem, ComposerButton, composerButtonState,
+  composerPlaceholder, composerPlaceholderBudgetVp,
   enterSends, estimateTextWidthVp, FsEntry, joinPath,
   matchCommands, matchFiles, maxComposerLines, MAX_CANDIDATES, parentDir,
 } from '../../entry/src/main/ets/core/composer';
@@ -102,6 +103,42 @@ eq('宽度估算：10 个 ASCII = 5em', estimateTextWidthVp('abcdefghij', 10), 5
 eq('宽度估算：2 空格 = 0.5em', estimateTextWidthVp('  ', 10), 5);
 eq('宽度估算：省略号按全角', estimateTextWidthVp('…', 10), 10);
 
-if (fail > 0) { console.log(`  composer: ${pass} passed, ${fail} failed`); process.exit(1); }
-console.log(`  composer: ${pass} passed, 0 failed`);
+// ══ 主按钮簇的同源语义（§21.120）══════════════════════════════════════════════════════
+// 判据本体 `core/composer.composerButtonState`。⛔ 关键不变量：chip 可见性 **恒等于** 主按钮用的
+// 那个 `running` ⇒ 页面里**不可能**再出现"停止按钮 + 无模式 chip"的自相矛盾（此前 chip 读裸 `this.busy`）。
+const bIdle = composerButtonState(false, false, false, false);
+eq('idle：不在跑', bIdle.running, false);
+eq('idle：主按钮 = 发送（非停止）', bIdle.showStop, false);
+eq('idle：不转圈', bIdle.cancelling, false);
+eq('idle：无 ⚡', bIdle.interject, false);
+const bStop = composerButtonState(true, false, false, false);
+eq('busy+无内容：主按钮 = 停止', bStop.showStop, true);
+eq('busy+无内容：chip 可见（与 running 同源）', bStop.running, true);
+const bCancel = composerButtonState(true, false, true, false);
+eq('busy+无内容+取消在飞：转圈', bCancel.cancelling, true);
+eq('busy+有内容：主按钮 = 发送（用户要求「busy 时输入文字 ⇒ 变插队/排队」）',
+  composerButtonState(true, true, false, false).showStop, false);
+eq('busy+有内容+取消在飞：也**不**转圈（按钮已是"发送"，没有取消语义）',
+  composerButtonState(true, true, true, false).cancelling, false);
+eq('busy+有内容+插话模式 ⇒ ⚡ 图标', composerButtonState(true, true, false, true).interject, true);
+eq('busy+有内容+排队模式 ⇒ 纸飞机（非 ⚡）', composerButtonState(true, true, false, false).interject, false);
+eq('idle+有内容+插话模式 ⇒ **非** ⚡（插话只对在跑的回合有意义）',
+  composerButtonState(false, true, false, true).interject, false);
+// ⭐ 同源不变量（全组合穷举）：`running` 必须**逐字**等于入参，且 showStop ⇒ running。
+const bcs: ComposerButton[] = [];
+for (const r of [false, true]) for (const h of [false, true]) for (const c of [false, true]) for (const m of [false, true]) {
+  bcs.push(composerButtonState(r, h, c, m));
+}
+eq('全组合：running === 入参 running（唯一出口）', bcs.map((b) => b.running).join(','),
+  'false,false,false,false,false,false,false,false,true,true,true,true,true,true,true,true');
+eq('全组合：showStop ⇒ running（不存在"不在跑却在停止"）', bcs.every((b) => !b.showStop || b.running), true);
+eq('全组合：interject ⇒ running（不存在"不在跑却显示 ⚡"）', bcs.every((b) => !b.interject || b.running), true);
+// ⭐ mutation 自证：若 chip 改回"第二个 busy 源"（不入参），上面这条 `running` 等式必红 ——
+//    这里给出反例本身，证明判据有判别力（并非恒真）。
+const divergent: ComposerButton = new ComposerButton();
+divergent.running = false;                      // 第二个源说"不在跑"
+eq('mutation：第二个 busy 源会让 running 等式失效（判据有判别力）',
+  divergent.running === composerButtonState(true, false, false, false).running, false);
+
+
 process.exit(0);

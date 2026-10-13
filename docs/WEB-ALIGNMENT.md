@@ -5851,3 +5851,106 @@ const placeholderText = goalMode ? t('agent.goal.inputPlaceholderMain')
 ① **326 个测试文件 0 失败**；`composer` 隔离单测 **52 passed, 0 failed**（36 → 52）；
 装机验收：busy 态占位为**单行**「处理中 — 消息将排队…」（首版两行被裁 ⇒ 已按上节修复）；
 ⑧ 无未消费 core 模块（107/107）· ⑨ A 硬红 0 / B 警告 3。
+
+---
+
+## §21.120 目标②点名四细节的逐项审计 + 审计钓出的真缺陷：主按钮簇的**第二个 busy 源**（目标②）
+
+用户口径（长期目标的第 ② 条，逐字）：*"iter结束如果最后没tool，那么代表整个turn结束了，应该立刻
+进入idle。用户点了cancel，那么应该cancel按钮spin一下，请求成功立刻进入idle。还有用户如果在busy
+的时候输入了文字，那么cancel按钮应该自动变成插队或者排队按钮。还有在sse streaming的时候如果用户向
+上滚动窗口，不能人机对抗，绝不能强行把用户拉回底下。"*
+
+### 一、四细节逐项（判据本体 → 接线 → 门禁）
+
+| 细节 | 判据本体（唯一真源） | 服务端依据（`/Users/bobli/src/xbot`） | 接线/门禁 |
+|---|---|---|---|
+| (a) iter 无 tool ⇒ turn 结束 ⇒ **立刻** idle | `core/streammerge.hasFreshPhaseDone()` → `store.applyLocalIdle()`（**乐观**置 idle，**不刷 REST**；逐字移植 web `useProgressStream.ts:1190-1198` 的 `dispatchAgentIdle`：*"Don't call refresh() — it causes a race"*） | `PhaseDone` 在 `Run()` 的 `defer progressFinalizer` 里发（`agent/engine.go:629`）⇒ **每 turn 恰好 1 次**（`agent/engine_progress_finalize_test.go` 断言），**不是每迭代一次**（否则会提前置 idle） | `tools/tests/local_idle_wiring.test.ts`（钉调用点计数：`applyLocalIdle(` ≥2、`hasFreshPhaseDone(evs, lastSeqBefore` ≥1） |
+| (b) cancel ⇒ **spin** + 请求成功**立刻** idle | `store.cancel()`：① `cancelling=true`（按钮转圈）② `POST /api/cancel` ③ 成功 ⇒ push `session_running(false)` **+** `session(busy=false)`（顺序不可反 —— `session` 的 idle 分支在 `sessionRunning` 仍 true 时是 no-op）；④ 成败都复位 `cancelling`（**失败保持 busy**，不假装已停） | web `useChatMessages.ts:870-884`（*"Optimistically mark the session as idle … don't wait for the SSE session(idle) event"*） | `local_idle_wiring.test.ts` 断言 `{ type: 'session', busy: false }` 乐观 push ≥1 |
+| (c) busy + 输入了文字 ⇒ 按钮变**插队/排队** | **本批重做**（见 §三）：`core/composer.composerButtonState()` | web `MessageInput.tsx:686-687/935-941`（`canSend = hasContent \|\| pendingUploads`；`interruptMode ? <Zap/> : busy ? <Mail/> : <Send/>`） | 新 `tools/tests/composer_button_wiring.test.ts`（15 断言） |
+| (d) SSE 流式时上滚 ⇒ **绝不**人机对抗 | `core/listfollow`：`markUserScrollFrame`（**只置位、不清位** —— 流式期间每帧都有程序滚动，清位会吃掉用户意图 ⇒ 滚不动）+ `nextFollowBottom(…, atEnd)`（用 `Scroller.isAtEnd()` **位置**判据，索引判据在"末项=占满视口的在飞行"时恒真 ⇒ 必被拽回）+ `shouldAutoScroll(followBottom, contentGrew, now, suppressUntil)` | web `userScrolledUp` 同源 | 消费点：`Index.ets` 5 处（`onWillScroll`/`onScrollIndex`/`onScrollStop`/两处 `syncFrom`）+ `TerminalSheet` 1 处 |
+
+### 二、装机受控实验（**记录失败与方法学教训** —— 比"绿"更有价值）
+
+用 `uitest` 在模拟器上做受控实验：冷启 → ☰ → **新建会话**（避免污染用户正在跑的会话）→ 发长任务。
+
+**⚠️ 方法学坑（三条，下次直接用）**：
+1. **软键盘会把 composer 从 `y≈2538` 顶到 `y≈1542`** ⇒ 任何"固定坐标点发送键"**必失效**。
+   必须**每次动态 dump 解析**按钮坐标，且**限定在 `xbot-composer` 子树内**取最右可点节点 ——
+   否则会命中**键盘上的「换行」键**（我第一次就是这么翻车的：dump 显示按钮在 `(1222,1875)`，
+   那其实是键盘右下角，消息根本没发出去，会话一直「空闲」）。
+2. **被观测对象可能就是我自己的会话**：截图里的 tool pill 与我这一轮敲的命令**逐字相同**
+   ⇒ **绝不能在它上面测 cancel**（会杀掉我自己的回合）。所以 (b) 必须用新建会话。
+3. **后端只有一路 LLM 时，别的会话的回合可能起不来**（我自己的回合占着后端 ⇒ 新会话的用户行
+   已出现、但 `turn_started` 迟迟不来 ⇒ 头部恒「空闲」）⇒ 实验环境被污染，需重试或换时段。
+
+**观测到的证据**：
+- (a) ✅ 回合结束（`Shell: sleep 90` → `config set` → `task_wait` 失败）后，头部转「空闲」、
+  占位回 `给 Agent 发消息…`、chip 消失（机器证据：dump 里「排队」chip 出现 → 消失）；
+- (b) ⚠️ **未取到 spin 帧**（诚实记账）：busy 确实抓到过（`C3_busy`：dump 里出现 `Text '排队'`
+  chip ⇒ `runningNow()=true`），但那一次回合在 ~24s 内自然结束（Agent 把 `sleep 90` **后台化**了），
+  cancel 点下去时已 idle ⇒ 拿到的是"已 idle"而非"转圈中"；
+- (c)/(d) ⚠️ 同上：受环境污染 + 新会话**内容太短（无滚动空间）** ⇒ 这两个实验设计本身有缺陷。
+- ⛔ **结论（诚实）**：(a) 有装机证据；(b)(c)(d) 本轮**只有代码 + 门禁证据，无装机帧**，
+  不谎报"已装机验证"。下轮要用**长流式提示词**（如 "写一篇 1500 字…"）产生持续增长的内容
+  才能同时测 (b)(d)。
+
+### 三、⭐ 审计钓出的**真缺陷**：主按钮簇有**两个** "回合在跑" 判据
+
+页面里同一个按钮簇被**两套判据**驱动：
+- 主按钮（图标/底色/阴影/无障碍/点击）= `runningNow()`（= `busyNow(busySignals())` —— 页面注释
+  `Index.ets:7755-7763` **亲口**记载这是"统一判据"，当年修的就是 2026-10-10「按钮=停止、列表=空」那批 P0）；
+- 模式 chip（排队 / ⚡ 插话）= **裸 `this.busy`**（`store.busy` 投影）。
+
+`store.busy` 含 **`askUser === null` 互斥**，而 `busyNow(…)` 不含 ⇒ 两者可在 `askUser-pending`
+窗口分叉 ⇒ 用户看到「**停止按钮 + 没有模式 chip**」这类自相矛盾的按钮簇。这违反本仓铁律
+**「组件只消费状态机产物；判据与渲染必须同源（同一个纯函数）」**。
+
+**修法（把语义收进纯函数，页面只消费）**：
+- `core/composer.ets` 新增 `class ComposerButton{running, showStop, cancelling, interject}` +
+  `composerButtonState(running, hasContent, cancelInFlight, interjectMode)` —— 不变量：
+  `running` **逐字等于入参**（唯一出口）；`showStop = running && !hasContent`；
+  `cancelling = showStop && cancelInFlight`（**有内容时按钮已是"发送"，不转圈**）；
+  `interject = running && hasContent && interjectMode`（⛔ 不在跑的回合不显示 ⚡ —— 插话对 idle
+  会退化成普通发送，见 `sendmode.ets`）；
+- `Index.ets` 新增唯一汇聚点 `private composerBtn(): ComposerButton`；`composerShowStop()` /
+  `composerCancelling()` 改为**委托**（不再各自重算）；模式 chip 门槛 `if (this.busy)` →
+  `if (this.composerBtn().running)`；占位文案 `composerPlaceholder(this.busy, …)` →
+  `composerPlaceholder(this.composerBtn().running, …)`；⚡ 图标 `this.sendMode === MODE_INTERRUPT`
+  → `this.composerBtn().interject`（行为等价：`sendMode` 在 `!store.busy` 时已复位，`Index.ets:2155`）。
+
+**登记不修**（各有理由，非疏漏）：头部状态 LED（`Index.ets:5675-5678`）仍读 `store.busy` ——
+它的 `askUser` 互斥是 **web 有意语义**（"等待用户回答时回合是 PAUSED，不得显示 busy"），且该窗口里
+composer 被 `AskUserSheet` 覆盖；发送路径的 `isInterruptSend(this.busy, …)`（`Index.ets:3318`）
+语义上应与按钮同源，但**改动会变更发送行为** ⇒ 留待专项（记账在此）。
+
+### 四、判据/验证
+
+- 纯逻辑：`tools/tests/composer.test.ts` 扩展 **全组合穷举**（`running×hasContent×cancelInFlight×
+  interjectMode` 16 组）+ 三条不变量（`running` 唯一出口 / `showStop ⇒ running` / `interject ⇒ running`）
+  + **mutation 自证**（造一个"第二个 busy 源"的反例，必须让等式失效 ⇒ 证明判据有判别力）。
+- 形态门禁（新）：`tools/tests/composer_button_wiring.test.ts` —— 钉**调用点形态**：汇聚点唯一、
+  两方法体只读产物、chip 门槛 = `composerBtn().running`、**页面里已无 `if (this.busy) {`**、
+  占位不再用裸 `this.busy`、⚡ = `composerBtn().interject`；含**零扫描判红**（白绿防线）。
+  ⛔ 钉"方法体存在"会假绿（本仓实例：`reasoningopen` 有函数、0 消费方）⇒ 必须钉调用点。
+- 真门禁：`bash tools/gate.sh` ⇒ 见下条实测记录。
+
+### 五、实测记录（`bash tools/gate.sh`，本批最终态）
+
+```
+✅ 共 327 个测试文件，0 个失败
+> hvigor BUILD SUCCESSFUL in 5 s 894 ms
+✅ 真门禁全绿（离线三条 + 在飞单一来源 + ArkTS 编译 + 取色 role + 颜色字面量 + 性能预算）
+GATE_RC=0
+```
+
+隔离单测：`composer` 组 **composer 65 / composer-button-wiring 15 / composer_input 9 /
+composer_send_aftercare 13** 全 0 失败。
+
+**⚠️ 本轮踩到的门禁坑（务必记住）**：新写的形态门禁 `composer_button_wiring.test.ts` **首版让 ① 判红**
+——`error TS2451: Cannot redeclare block-scoped variable 'process'`（连带 7 条）。
+**根因**：测试文件若**没有** `import`/`export`，tsc 就当它是**全局脚本** ⇒ 顶层 `declare const process`
+与另一个同类文件（`one_inflight_motion.test.ts`）**共用同一全局作用域** ⇒ 重声明。
+**修法**：文件里补一行 `export {};`（把它变成**模块**）—— 与 `local_idle_wiring.test.ts` 同款约定。
+⇒ 这正是 AGENTS.md 那条"**新增判据脚本必须先在门禁同环境自证**"的又一个实例（脱机 `run-one.sh`
+只单独编译一个文件 ⇒ **永远看不到**这种跨文件重声明）。
