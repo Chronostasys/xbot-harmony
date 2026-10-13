@@ -4957,3 +4957,48 @@ B 线（`this.pal()` ∨ `this.palOnce()` 调用点）**顶格 1350、只许减*
   性能**净减** A 1214→**1211**、B 1349→**1346**（ForEach 112/112 未新增）。
 - 装机复核：`/tmp/v2_plugins.jpeg` 与 `/tmp/v2_files.jpeg` **同形**（扁平行 + 发丝 + chevron），
   9 行无截断回退、Git 图标与入口行同符号。
+
+## §21.103 逐面板量测（④ 第四批）：统计空态**对齐矛盾** + Git 非仓库**多余分区骨架**（panels6，2026-10-13）
+
+**方法（本轮新增、可复用）**：能力面板各入口行**行高不齐**（多行插件行更高），截图目测定位会错 ⇒
+改用 `hdc shell "uitest dumpLayout -p /data/local/tmp/lay_p.json"` + `hdc file recv` 取**精确 bounds**，
+再按 bounds 中心点行（实测入口行 pitch ≈152px ≈ **44.9vp**，与 Apple 44pt 一致）。
+
+### 缺陷 1：统计面板空态**三条各在不同中心轴**（实现与自己的注释相反）
+
+装机帧 `/tmp/v3_stats.jpeg` 逐像素（设备像素，面板内容列 ≈110..1210）：
+
+| 空态元素 | 修复前中心 x | 修复后中心 x |
+|---|---|---|
+| 字形 | 660（= 面板中心） | 660 |
+| 主行「暂无数据」 | **237** | **660** |
+| 提示行「本会话产生用量后会显示在这里」 | **433** | **660** |
+
+根因：容器 `alignItems(HorizontalAlign.Center)` 只把**字形**居中，两个 `Text` 只有 `.width('100%')`、
+**缺** `.textAlign(TextAlign.Center)` ⇒ 默认左对齐；而该处注释原文写的是"字形 + **居中文字**"
+⇒ **实现与注释相反**。修法 = 与 `StatusSheet` 空态（那边是**对的**）同口径补 `textAlign`。
+
+### 缺陷 2：Git 面板非仓库时仍渲染两个**空分区标题**
+
+面板顶部一句 notice「当前会话的工作目录不是 Git 仓库」，**下面照样**渲染「工作区变更」/「提交历史」
+分区标题（下方全空）⇒ 读作"渲染了一半"。web 权威 `web/src/plugins/git-fancy/index.tsx:256`：
+非仓库**只**渲染 `<div>{t('notRepo','当前目录不是 git 仓库')}</div>`、**没有任何分区骨架**。
+修法：组件新增 `@Prop isRepo`（页面传 `this.gitStatus.repo`；判据在 core `GitStatus.repo`），
+仅当确为仓库时渲染骨架。
+
+### 判据与纪律
+
+- `bash tools/gate.sh` ⇒ `GATE_EXIT=0` + `✅ 真门禁全绿`；④ `BUILD SUCCESSFUL in 8 s 548 ms`。
+- ⚠️ **④ 中途真红过一次**：`GitPanelSheet.ets:560 Declaration or statement expected` —— 我插入
+  `if (this.isRepo) {` 时**少一个闭合大括号**，而**脱机三条全绿**、`git_panel` 51 也全绿
+  ⇒ 再次实证「唯一判据是真编译」。修后重跑取绿（教训与 `AGENTS.md` 的编译纪律同源）。
+- 装机复拍 `/tmp/v4_stats.jpeg`（三条同一中心轴 660）、`/tmp/v4_git.jpeg`（只剩 notice）。
+- 判据：`git_panel` 51 / `sessionstats` 112 / `panels2_visual` 47 / `panel_surface_consistency` 57。
+
+### 有意**不改**（登记为观察项，⛔ 非原生缺陷，别当 TODO 再修一遍）
+
+1. **技能面板描述开头的多余 `"`**（约 6 行，如 `"Manage SubAgent roles: …`）：取证
+   `POST /api/rpc {"method":"skill_list"}` 的 `description` **原文自带包裹双引号**；web
+   `plugins/xbot-skill-manager/SkillManagerPanel.tsx:225-227` **原样渲染**（不剥）⇒ **服务端数据形态**、
+   web 同款 ⇒ 按「参考 web，不许发明」**不在客户端自造剥离**（要修应改服务端的 frontmatter 解析）。
+2. **技能面板整体形态已合规**（扁平行 + 行内发丝 + 右侧开关；组头与行标签**同一竖轴**）⇒ 无需动。
