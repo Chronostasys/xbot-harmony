@@ -856,7 +856,7 @@ function buildEffects(p: Palette): Effects {
   // （覆盖见下方：`glassBlur` 与玻璃 alpha 同处尾部处理）
   // ── 环境（插件）值**覆盖**（`null` ⇒ 全部不动 ⇒ 逐字节现状）─────────────────────────
   const amb: AmbienceValues | null = currentAmbience;
-  e.glassBlur = amb === null ? 18 : amb.glassBlur;   // 覆盖式：值直用（⛔ 无单位换算，对齐 web）
+  e.glassBlur = ambiencePick(amb === null ? AMBIENCE_UNSET : amb.glassBlur, 18);
   // 渐变端色走**对比度护航**（真按钮底色是渐变，不是纯 accent —— 见 `gradientEndOf`）
   e.gradientFrom = gradientEndOf(p.accent, p.onAccent);
   e.gradientTo = gradientEndOf(p.accentSoft, p.onAccent);
@@ -870,8 +870,8 @@ function buildEffects(p: Palette): Effects {
     // ⚠️ 影响面：全站浅色玻璃（`glassBg`/`glassBorder` 的 10+ 调用点，如 Index 浮层/MarkdownView 代码块）
     //   同步更实；对比度台账 `theme_contrast_matrix` 复核达标（玻璃合成底上的四阶文字）。
     // 深色臂逐字节保留原 0.62/0.55（见下 `else`）——本次只改**浅色**档。
-    e.glassBg = alphaHex(glassBaseOf(p), amb === null ? 0.84 : amb.glassOpacity);
-    e.glassBorder = alphaHex(p.borderStrong, amb === null ? 0.86 : amb.glassOpacity);
+    e.glassBg = alphaHex(glassBaseOf(p), ambiencePick(amb === null ? AMBIENCE_UNSET : amb.glassOpacity, 0.84));
+    e.glassBorder = alphaHex(p.borderStrong, ambiencePick(amb === null ? AMBIENCE_UNSET : amb.glassOpacity, 0.86));
     // 浅底：白高光物理上不可见 ⇒ 换"中性"（无色相偏移）的极淡黑，读作扫光中心。
     e.sheen = alphaHex('#000000', 0.06);
     // 柔影：中性（取正文色相 → 略带主题冷调）+ 低透明；扩散交给调用点的 radius。
@@ -899,8 +899,8 @@ function buildEffects(p: Palette): Effects {
     e.glowSoft = alphaHex(p.textPrimary, 0.10);
   } else {
     // 深色玻璃：**逐字节不变**（原公共段的值搬进本臂，浅色臂另给档 —— 见上 L4 注释）。
-    e.glassBg = alphaHex(glassBaseOf(p), amb === null ? 0.62 : amb.glassOpacity);
-    e.glassBorder = alphaHex(p.borderStrong, amb === null ? 0.55 : amb.glassOpacity);
+    e.glassBg = alphaHex(glassBaseOf(p), ambiencePick(amb === null ? AMBIENCE_UNSET : amb.glassOpacity, 0.62));
+    e.glassBorder = alphaHex(p.borderStrong, ambiencePick(amb === null ? AMBIENCE_UNSET : amb.glassOpacity, 0.55));
     e.sheen = alphaHex('#FFFFFF', 0.06);
     e.elev1 = legacyElev1Of(p);
     e.elev2 = alphaHex('#000000', 0.32);
@@ -932,9 +932,15 @@ export class AmbienceValues {
  */
 let currentAmbience: AmbienceValues | null = null;
 /**
- * **为什么今天没有调用点**（⛔ 不是死代码，别当死代码删）：`xbot.ambience` **无 `web` 面**（纯后端插件）
- *   ⇒ 服务端 `serverapp/rpc_table.go:2293-2296` 把它**整条跳过** ⇒ 这三个值**到不了客户端**
- *   ⇒ 无处可接（记档见 `docs/WEB-PARITY.md` 的 §2.9 表）。**一旦有客户端插件供这三个键，一处调用即生效。**
+ * ⛔ **2026-10-13 订正（原注释写错了）**：此处曾写"`xbot.ambience` **无 `web` 面** ⇒ 服务端把它**整条跳过**
+ *   ⇒ 这三个值**到不了客户端** ⇒ 无处可接"。**错在把两个 RPC 的门控混为一谈**：
+ *   · `web_plugin_list` 确实按 `Web.Entry != ""` 跳过它 —— 但那是**插件目录**的清单，与配置无关；
+ *   · `plugin_config`（`serverapp/rpc_table.go:2370+`）**不看 `Web.Entry`**，只看 `ConfigSchema` 是否为 nil
+ *     ⇒ `xbot.ambience` **在返回里**。**实测**（登录后 curl）：`plugin_config{id:'xbot.ambience'}`
+ *     ⇒ `values:{glassBlur:0, glassOpacity:0.82, wallpaper:'', wallpaperOpacity:1}`。
+ *   ⇒ 值**一直在客户端手里**（`SettingsPlugins.load()` 早就在拉全量），只是**从没人应用**（死消费）。
+ *   现由 `core/settingsplugins.ambienceFromPluginConfig` 解析，并在 `pages/Index.bootstrap()`（首帧前，
+ *   保证主界面首次 build 已吃新值）与 `SettingsPlugins.load()`（改设置后）两处 `setAmbience(...)` 应用。
  * **唯一写入口**（覆盖式）：`null` ⇒ 复位（回到现状）；否则 **clamp**（按插件 schema 实测范围：
  * `glassOpacity 0~1`、`wallpaperOpacity 0~1`、`glassBlur 0~24`，见 `core/settingsplugins.ets:802-803`）。
  * ⚠️ 写后**清记忆化** ⇒ 下次 `effectsOf` 用新值重建（无需全字段拷贝 ⇒ 最小改动）。
@@ -944,9 +950,10 @@ export function setAmbience(v: AmbienceValues | null): void {
     currentAmbience = null;
   } else {
     const n: AmbienceValues = new AmbienceValues();
-    n.glassOpacity = Math.min(1, Math.max(0, v.glassOpacity));
-    n.wallpaperOpacity = Math.min(1, Math.max(0, v.wallpaperOpacity));
-    n.glassBlur = Math.min(24, Math.max(0, v.glassBlur));
+    // ⚠️ 哨兵必须**原样保留**：直接夹取会把"未设置"变成 0（= 全透明）—— 正是"缺省即变"的事故形态。
+    n.glassOpacity = clampAmbience(v.glassOpacity, 0, 1);
+    n.wallpaperOpacity = clampAmbience(v.wallpaperOpacity, 0, 1);
+    n.glassBlur = clampAmbience(v.glassBlur, 0, 24);
     currentAmbience = n;
   }
   EFFECTS_MEMO.clear();
@@ -954,6 +961,30 @@ export function setAmbience(v: AmbienceValues | null): void {
 /** 只读探针（判据/调试用；⛔ 组件不得据此分支）。 */
 export function ambienceOf(): AmbienceValues | null {
   return currentAmbience;
+}
+
+/**
+ * 「**未设置**」哨兵 —— `AmbienceValues` 逐键用它表示**该键不覆盖**（⇒ 回落原生默认）。
+ *
+ * **为什么必须逐键**：服务端 `plugin_config` 的 `values` **恒被 schema 默认值填满**
+ * （2026-10-13 实测 `xbot.ambience` ⇒ `{glassBlur:0, glassOpacity:0.82, wallpaperOpacity:1}`，
+ * 与 `properties.*.default` 逐键相同）⇒ 「0.82」既可能是"用户设成 0.82"、也可能是"从没动过"。
+ * 若原样套用，**深色玻璃会从 0.62 顶到 0.82、柔焦从 18 掉到 0** —— 即"缺省即变"事故。
+ * ⇒ 只有**用户真改过**的键（`values[k] !== properties[k].default`）才被置成哨兵以外的值。
+ */
+export const AMBIENCE_UNSET: number = -1;
+
+/** 覆盖式取用：哨兵 ⇒ **原生默认**；否则**值直用**（⛔ 无单位换算，与 web 同口径）。 */
+export function ambiencePick(override: number, nativeDefault: number): number {
+  return override >= 0 ? override : nativeDefault;
+}
+
+/** 夹取到 `[lo, hi]`；**负值 = 未设置 ⇒ 原样返回哨兵**（⛔ 不夹成 `lo` —— 那会把"没设置"变成 0）。 */
+function clampAmbience(v: number, lo: number, hi: number): number {
+  if (!(v >= 0)) {
+    return AMBIENCE_UNSET;
+  }
+  return Math.min(hi, Math.max(lo, v));
 }
 
 export function effectsOf(p: Palette): Effects {

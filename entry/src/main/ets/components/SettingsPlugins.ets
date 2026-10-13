@@ -21,7 +21,7 @@
  * ArkUI 约束：行组件的会变内容走 `@Prop`（基础类型）；`ForEach` 的 key **带内容指纹**
  * （`core/settingsplugins` 的两个 fingerprint 函数）——key 不变则复用节点、不重估 @Prop。
  */
-import { Palette, paletteOf } from '../core/theme';
+import { Palette, paletteOf, setAmbience } from '../core/theme';
 import { XbotHttp } from '../core/http';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { fileIo, picker } from '@kit.CoreFileKit';
@@ -53,7 +53,7 @@ import {
   PluginInstallResult, parsePluginInstallResult, pluginInstallErrorText,
   pluginInstallFilenameFromUri, pluginInstallSizeOk, pluginInstallSuccessText,
   PluginStatusEntry, PluginStatusList, parsePluginI18nTables, parsePluginStatus, pluginStatusIsActive,
-  pluginStatusMetaText, pluginStatusSummaryText,
+  pluginStatusMetaText, pluginStatusSummaryText, ambienceFromPluginConfig,
 } from '../core/settingsplugins';
 import { PRESS_OPACITY, CONTROL_INPUT_H, colorOf, hairlineOf, HIT_TARGET_MIN } from '../core/design';
 import { SettingsErrorBar, SettingsPanelHeader } from './SettingsRows';
@@ -489,6 +489,11 @@ export struct SettingsPlugins {
     try {
       const raw: Object = await rpc<Object>(this.http, RPC_PLUGIN_CONFIG, new PluginConfigParams(''));
       this.catalog = parsePluginConfig(raw);
+      // 环境（插件）值**同批应用** —— 同一份 `raw` 里就带着 `xbot.ambience` 的 `values`
+      // （服务端 `plugin_config` 不看 `Web.Entry`）⇒ 用户在这里改完「面板透明度」/「壁纸柔焦」
+      // 立刻生效，**无需重启**（此前这份数据一直白白丢掉：解析成一个没人用的目录）。
+      // ⛔ 逐键只取"用户真改过"的键（解析器比对 schema 默认值）⇒ 没动过 ⇒ `null` ⇒ 逐字节不变。
+      setAmbience(ambienceFromPluginConfig(raw));
       this.drafts = {};
       this.error = '';
     } catch (e) {

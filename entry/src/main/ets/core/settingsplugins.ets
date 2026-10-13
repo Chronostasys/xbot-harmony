@@ -29,6 +29,7 @@
  */
 import { arrOrEmpty, isPresent } from './guards';
 import { resolvePluginText } from './pluginhost';
+import { AMBIENCE_UNSET, AmbienceValues } from './theme';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ① 字段类型
@@ -298,6 +299,75 @@ export function parsePluginConfig(raw: Object | null | undefined): PluginConfigC
     catalog.entries.push(entry);
   }
   return catalog;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ⑧ 环境（插件）值 → `core/theme` 的 `AmbienceValues`（2026-10-13）
+//    web 权威：`web/src/plugins/xbot-ambience/index.ts:42-44` 读 `glassOpacity`/`wallpaperOpacity`/
+//    `glassBlur`，交 `plugin-api/ambience` 由宿主渲染氛围层。原生同一份数据来自 `plugin_config`
+//    （**不看 `Web.Entry`**，只按 `ConfigSchema` 门控 ⇒ `xbot.ambience` **在返回里**；实测见
+//    `core/theme.ets` 的订正注释）。
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** `xbot.ambience` 的插件 id（真源：`~/.xbot/plugins/builtin/xbot.ambience/plugin.json` 顶层 `id`）。 */
+export const AMBIENCE_PLUGIN_ID: string = 'xbot.ambience';
+
+/** 数值键取用（非 `number` ⇒ 哨兵；`undefined`/字符串/数组都不算"用户设了值"）。 */
+function ambienceNumber(raw: boolean | number | string | string[] | undefined): number {
+  return typeof raw === 'number' ? raw : AMBIENCE_UNSET;
+}
+
+/** 逐键判定"用户改过"：`values[k] !== properties[k].default` ⇒ 取值；否则哨兵。 */
+function ambienceCustomized(
+  props: Record<string, PluginPropWire>,
+  vals: Record<string, boolean | number | string | string[]>,
+  key: string,
+): number {
+  const p: PluginPropWire | undefined = props[key];
+  if (!isPresent(p)) {
+    return AMBIENCE_UNSET;
+  }
+  const v: number = ambienceNumber(vals[key]);
+  if (v < 0) {
+    return AMBIENCE_UNSET;
+  }
+  const d: number = ambienceNumber(p.default);
+  return v === d ? AMBIENCE_UNSET : v;
+}
+
+/**
+ * 环境（插件）值 → `AmbienceValues`（**纯函数**）。
+ *
+ * ⛔ **只把"用户真改过"的键置成值**，其余留 `AMBIENCE_UNSET`（⇒ 回落原生默认：浅 0.84 / 深 0.62、柔焦 18）。
+ *   为什么：服务端 `values` **恒被 schema 默认值填满**（实测 `glassBlur:0, glassOpacity:0.82,
+ *   wallpaperOpacity:1`）⇒ 原样套用会让**深色玻璃 0.62→0.82、柔焦 18→0** —— 即"缺省即变"事故。
+ * ⛔ 无该插件 / 无 `values` / 两个**原生会消费**的键全未改 ⇒ 返回 `null` ⇒ `setAmbience(null)`
+ *   ⇒ 观感**逐字节不变**。
+ * ⚠️ `wallpaper*` 原生 N/A（无壁纸渲染）—— 仍解析以对齐 web 契约，但**不参与**"是否改过"的判定。
+ */
+export function ambienceFromPluginConfig(raw: Object | null | undefined): AmbienceValues | null {
+  if (!isPresent(raw)) {
+    return null;
+  }
+  const wire: PluginConfigWire = raw as PluginConfigWire;
+  const entries: PluginEntryWire[] = arrOrEmpty(wire.plugins);
+  for (let i = 0; i < entries.length; i++) {
+    const e: PluginEntryWire | undefined = entries[i];
+    if (!isPresent(e) || e.id !== AMBIENCE_PLUGIN_ID) {
+      continue;
+    }
+    const props: Record<string, PluginPropWire> = isPresent(e.properties) ? e.properties : {};
+    const vals: Record<string, boolean | number | string | string[]> = isPresent(e.values) ? e.values : {};
+    const out: AmbienceValues = new AmbienceValues();
+    out.glassOpacity = ambienceCustomized(props, vals, 'glassOpacity');
+    out.glassBlur = ambienceCustomized(props, vals, 'glassBlur');
+    out.wallpaperOpacity = ambienceCustomized(props, vals, 'wallpaperOpacity');
+    if (out.glassOpacity < 0 && out.glassBlur < 0) {
+      return null;
+    }
+    return out;
+  }
+  return null;
 }
 
 /** 按 id 找条目（不存在 ⇒ `undefined`，调用方据此不写回）。 */

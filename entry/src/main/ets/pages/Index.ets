@@ -22,7 +22,10 @@ import {
 } from '../core/haptics';
 // ⚠️ 2026-10-11：`isDarkThemeName` **已从这里移除** —— 本文件 3 处旧用法已全部改走**亮度口径**
 //   （`isLightPalette(paletteOf(theme))`，铁律「禁按主题名硬判」）⇒ 该导入**已无消费者**（死导入）。
-import { ALL_THEMES, normalizeTheme, Palette, paletteOf, renderThemeKey, themeBaseName, themeLabel, Effects, effectsOf, isLightPalette, shadowColorOf, shadowLayersOf, ShadowLayer, shadowRadiusOf } from '../core/theme';
+import { ALL_THEMES, normalizeTheme, Palette, paletteOf, renderThemeKey, themeBaseName, themeLabel, Effects, effectsOf, isLightPalette, shadowColorOf, shadowLayersOf, ShadowLayer, shadowRadiusOf, setAmbience } from '../core/theme';
+// 环境（插件）值解析：`plugin_config`（**不看 `Web.Entry`**）里 `xbot.ambience` 的 `values`
+// ⇒ `AmbienceValues`（只取"用户真改过"的键）。详见 `core/theme.ets` 的 2026-10-13 订正注释。
+import { AMBIENCE_PLUGIN_ID, ambienceFromPluginConfig } from '../core/settingsplugins';
 import { brandAccentFor } from '../core/brand';
 import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, withAccent } from '../core/accent';
 import { MD_THEMES, appPaletteForMdTheme, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';
@@ -193,7 +196,7 @@ import { AskUserSheet } from '../components/AskUserSheet';
 import { animBase, animFast, drawerTransition, fadeTransition, sheetTransition } from '../components/anim';
 // 会话面切换的入场位移档（动效数值只许从底座 `core/motion.ets` 取；⛔ 页面不写字面量）
 import { MOTION_SESSION_SWITCH_SLIDE_VP } from '../core/motion';
-import { readableRpcError, rpc, RpcMethod, RPC_WEB_PLUGIN_LIST, RPC_GET_SESSION_USAGE_STATS, RPC_GET_USER_TOKEN_USAGE, RPC_GET_DAILY_TOKEN_USAGE, RPC_GET_SESSION_USAGE_BUCKETS, SessionUsageStatsParams, DailyUsageParams, SessionUsageBucketsParams, EmptyParams, ThinkingModeParams } from '../core/rpc';
+import { readableRpcError, rpc, RpcMethod, RPC_PLUGIN_CONFIG, PluginConfigParams, RPC_WEB_PLUGIN_LIST, RPC_GET_SESSION_USAGE_STATS, RPC_GET_USER_TOKEN_USAGE, RPC_GET_DAILY_TOKEN_USAGE, RPC_GET_SESSION_USAGE_BUCKETS, SessionUsageStatsParams, DailyUsageParams, SessionUsageBucketsParams, EmptyParams, ThinkingModeParams } from '../core/rpc';
 import { parseSessionUsage, SessionUsage, SessionUsageWire, parseUserUsage, parseDailyUsage, parseBuckets, UserUsage, UserUsageWire, DailyUsage, DailyUsageWire, UsageBucket, UsageBucketWire, bucketRequestCount, DAILY_DAYS_WINDOW, tzOffsetMinutesFor } from '../core/sessionstats';
 import { TodoPayloadRow, removeTodoAt, renameTodoAt, todoPayloadRows, toggleTodoAt } from '../core/todos';
 import { WebSubAgentProgress } from '../core/chattypes';
@@ -1545,6 +1548,19 @@ struct Index {
         this.authExpiredHandled = false;
         this.loggedIn = true;
         this.errMsg = '';
+        // 环境（插件）值：**在首帧之前**落到 `core/theme`（主界面由 `booted` 闸门放行 ⇒ 首次 build 必吃新值；
+        //   ⛔ 若像 `loadSettings()` 那样 fire-and-forget，首帧玻璃会是旧值 ⇒ 观感闪一下）。
+        // 背景：`xbot.ambience` 的 `glassOpacity`/`glassBlur` **此前从没人应用**（值早就在 `plugin_config`
+        //   返回里 —— 原注释误以为"到不了客户端"，见 `core/theme.ets` 的 2026-10-13 订正）。
+        // ⛔ 解析器**逐键比对 schema 默认值**：用户没动过 ⇒ `null` ⇒ 观感**逐字节不变**（⛔ 绝不把 web 的
+        //   0.82/0/1 当缺省 —— 那会让深色玻璃 0.62→0.82、柔焦 18→0）。
+        // 非关键路径：插件系统不可用 / 无该插件 ⇒ 保持现状，**绝不因它拖死启动**（同 `loadPluginCatalog`）。
+        try {
+          const ambRaw: Object = await rpc<Object>(store.http, RPC_PLUGIN_CONFIG, new PluginConfigParams(AMBIENCE_PLUGIN_ID));
+          setAmbience(ambienceFromPluginConfig(ambRaw));
+        } catch (e) {
+          setAmbience(null);
+        }
         // ⚠️ 打开首个会话**必须**单独兜住：它有网络等待（history/queue/status/subscribe）。
         //    若让它抛出到 bootstrap 外层，`booted` 永远不置位 ⇒ **无限启动页**（真机实测过）。
         //    失败只是"这个会话没打开"，用户可在界面上另选，不该拖死整个启动。
@@ -1992,14 +2008,22 @@ struct Index {
     // 主题标识 = **色板名 + 强调色**（`renderThemeKey`）：强调色是模块级覆盖、**不是** ArkUI 可
     // 观察的状态 ⇒ 若标识只含色板名，改强调色时全站**零重渲染** ⇒ 80 处 `paletteOf` 仍是旧色板
     //（用户 2026-10-13 亲报「配色根本没起作用 / theme 里各种配色必须真实起作用」的真根因）。
-    this.themeName = renderThemeKey(appPaletteForMdTheme(settingOf(store.settings, KEY_MD_THEME)),
-      this.accentHex());
-    // md 主题**同时推给全局订阅**（`@StorageProp('appMdTheme')`，消费点 `components/MarkdownView`）：
-    // md 主题只影响代码块/行内码配色，而历史行由 `LazyForEach` 承载 ⇒ 只靠 `@Prop mdTheme` 投递
-    // 会**冻结在创建那刻** ⇒ 换 md 主题后已存在行仍是旧配色（用户 2026-10-13 亲报
-    // 「浅色模式字色有时对有时不对像抽奖」/「所有浅色 theme 看起来完全一样」的同一根因）。
-    // 与 `appTheme` 走**同一纪律**：会变的值必须让行自己订阅，不靠列表重投递。
-    AppStorage.setOrCreate<string>('appMdTheme', this.mdThemeId());
+    // ⛔ **2026-10-13 用户报障真根因**：「重启=浅色 → 切会话=变深色 → 开设置=又变浅色」。
+    //    机制：`switchSession()` 把 `this.store` 换成**池里另一个 ChatStore**，而它的 `settings`
+    //    **还没拉回来**（空 `{}`）⇒ `appPaletteForMdTheme('')` 回落**深色** ⇒ 主题被错误翻成深色；
+    //    等设置到达（开设置页 / 该 store 的 `loadSettings()` 返回）再翻回浅色 ⇒ 用户看到"抽奖"。
+    //    ⇒ 与下方 `reasoningDefaultApplied` / `surfaceApplied` **同一纪律**：设置**没到达就不动它**
+    //    （首帧已有缓存主题，见 `aboutToAppear` 的 `normalizeTheme(cachedTheme)`）。
+    if (Object.keys(store.settings).length > 0) {
+      this.themeName = renderThemeKey(appPaletteForMdTheme(settingOf(store.settings, KEY_MD_THEME)),
+        this.accentHex());
+      // md 主题**同时推给全局订阅**（`@StorageProp('appMdTheme')`，消费点 `components/MarkdownView`）：
+      // md 主题只影响代码块/行内码配色，而历史行由 `LazyForEach` 承载 ⇒ 只靠 `@Prop mdTheme` 投递
+      // 会**冻结在创建那刻** ⇒ 换 md 主题后已存在行仍是旧配色（用户 2026-10-13 亲报
+      // 「浅色模式字色有时对有时不对像抽奖」/「所有浅色 theme 看起来完全一样」的同一根因）。
+      // 与 `appTheme` 走**同一纪律**：会变的值必须让行自己订阅，不靠列表重投递。
+      AppStorage.setOrCreate<string>('appMdTheme', this.mdThemeId());
+    }
     // 系统表面跟随主题（幂等：仅主题变化时打系统 API + 写本地缓存）。
     // 冷启动 settings 到达这条路由它覆盖 EntryAbility 的缓存判定（热启动亦生效）。
     this.syncSystemTheme();

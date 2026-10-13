@@ -18,7 +18,8 @@ declare const require: (m: string) => any;
 declare const __dirname: string;
 export {};
 
-import { paletteOf, effectsOf, setAmbience, AmbienceValues } from '../../entry/src/main/ets/core/theme';
+import { paletteOf, effectsOf, setAmbience, AmbienceValues, AMBIENCE_UNSET } from '../../entry/src/main/ets/core/theme';
+import { ambienceFromPluginConfig } from '../../entry/src/main/ets/core/settingsplugins';
 
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean, extra?: string): void {
@@ -82,6 +83,103 @@ const BEFORE: string[][] = [
       src.indexOf('const amb: AmbienceValues | null = currentAmbience;') >= 0);
     ok('③ 且三处玻璃取值都吃 `amb`（glassBlur + 2 主题 glassBg/Border）',
       (src.match(/amb === null \?/g) || []).length >= 5);
+  }
+}
+
+// ── ④ 解析器：服务端 `values` **恒填满 schema 默认** ⇒ 只有"用户真改过"的键才覆盖 ──────────
+//    真源（2026-10-13 登录后 curl `plugin_config{id:'xbot.ambience'}` 实拍）：
+//      properties.glassOpacity {number, default 0.82} · glassBlur {number, default 0} ·
+//      wallpaperOpacity {number, default 1}；values 与 defaults 逐键相同（**用户没动过**）。
+{
+  const DEF = (): Record<string, unknown> => ({
+    // ⛔ `id` 必须给：解析器只认 `xbot.ambience`（真载荷实测带 `"id":"xbot.ambience"`）
+    id: 'xbot.ambience',
+    properties: {
+      glassOpacity: { type: 'number', default: 0.82 },
+      glassBlur: { type: 'number', default: 0 },
+      wallpaperOpacity: { type: 'number', default: 1 },
+    },
+    values: { glassOpacity: 0.82, glassBlur: 0, wallpaperOpacity: 1 },
+  });
+  const wrap = (entry: Record<string, unknown>): Object => ({ plugins: [entry] });
+
+  // ④-1 头号安全护栏：用户没动过 ⇒ null ⇒ 观感**逐字节不变**（⛔ 绝不套用 web 的 0.82/0/1）
+  ok('④-1 values == defaults ⇒ null（不覆盖）', ambienceFromPluginConfig(wrap(DEF())) === null);
+
+  // ④-2 只改了「面板透明度」⇒ 只覆盖这一键，柔焦**不许被顺手改掉**
+  const e2 = DEF();
+  e2.values = { glassOpacity: 0.55, glassBlur: 0, wallpaperOpacity: 1 };
+  const a2 = ambienceFromPluginConfig(wrap(e2));
+  ok('④-2 只改 glassOpacity ⇒ 非 null', a2 !== null);
+  if (a2 !== null) {
+    eq('④-2 glassOpacity 取值', a2.glassOpacity, 0.55);
+    eq('④-2 glassBlur 留哨兵（不越权）', a2.glassBlur, AMBIENCE_UNSET);
+  }
+
+  // ④-3 只改了「壁纸柔焦」⇒ 同理
+  const e3 = DEF();
+  e3.values = { glassOpacity: 0.82, glassBlur: 12, wallpaperOpacity: 1 };
+  const a3 = ambienceFromPluginConfig(wrap(e3));
+  ok('④-3 只改 glassBlur ⇒ 非 null', a3 !== null);
+  if (a3 !== null) {
+    eq('④-3 glassBlur 取值', a3.glassBlur, 12);
+    eq('④-3 glassOpacity 留哨兵', a3.glassOpacity, AMBIENCE_UNSET);
+  }
+
+  // ④-4 端到端：只改 opacity ⇒ 玻璃变、深色柔焦**仍是 18**（⛔ 防"缺省即变"的事故形态）
+  const e4 = DEF();
+  e4.values = { glassOpacity: 0.5, glassBlur: 0, wallpaperOpacity: 1 };
+  setAmbience(ambienceFromPluginConfig(wrap(e4)));
+  const darkE = effectsOf(paletteOf('dark'));
+  eq('④-4 深色柔焦**仍 18**（没被 web 的 0 顶掉）', darkE.glassBlur, 18);
+  ok('④-4 深色玻璃 alpha 已按 0.5 生效（首字节 0x80）', darkE.glassBg.substring(1, 3) === '80', darkE.glassBg);
+  setAmbience(null);
+  eq('④-4 复位 ⇒ 深色玻璃回到改前', effectsOf(paletteOf('dark')).glassBg, BEFORE[1][1]);
+
+  // ④-5 不误伤：空载荷 / 无该插件 / 非 number 值 ⇒ null
+  ok('④-5 空载荷 ⇒ null', ambienceFromPluginConfig(null) === null);
+  ok('④-5 无 ambience 条目 ⇒ null',
+    ambienceFromPluginConfig(wrap({ id: 'xbot.other', properties: {}, values: {} })) === null);
+  const e6 = DEF();
+  e6.values = { glassOpacity: '0.5', glassBlur: 0, wallpaperOpacity: 1 };
+  ok('④-5 非 number ⇒ 不算"用户设了值" ⇒ null', ambienceFromPluginConfig(wrap(e6)) === null);
+
+  // ④-6 越界值按 schema 范围夹（glassOpacity 0.5..1 / glassBlur 0..24）
+  const e7 = DEF();
+  e7.values = { glassOpacity: 2, glassBlur: 99, wallpaperOpacity: 1 };
+  const a7 = ambienceFromPluginConfig(wrap(e7));
+  ok('④-6 越界 ⇒ 解析器**原样**给值（夹取是 `setAmbience` 的职责，不是解析器的）',
+    a7 !== null && a7.glassOpacity === 2 && a7.glassBlur === 99);
+  // 端到端：`setAmbience` 按 schema 范围夹（glassOpacity 0.5..1 / glassBlur 0..24）
+  setAmbience(a7);
+  const e7E = effectsOf(paletteOf('dark'));
+  eq('④-6 glassBlur 夹到 24', e7E.glassBlur, 24);
+  eq('④-6 glassOpacity 夹到 1 ⇒ alpha 满档 0xFF', e7E.glassBg.substring(1, 3), 'FF');
+  setAmbience(null);
+}
+
+// ── ⑤ 死消费防线：解析器必须**真被应用**（钉文件级调用点计数，⛔ 不钉"函数存在"）────────
+{
+  const fsMod = require('fs');
+  const pathMod = require('path');
+  let repo2 = '';
+  for (const up of ['../..', '../../..', '../../../..']) {
+    const c = pathMod.resolve(__dirname, up);
+    if (fsMod.existsSync(pathMod.join(c, 'entry/src/main/ets/pages/Index.ets'))) { repo2 = c; break; }
+  }
+  ok('⑤ 探到 Index.ets', repo2.length > 0);
+  if (repo2.length > 0) {
+    const strip = (s: string): string =>
+      s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    const idx: string = strip(fsMod.readFileSync(pathMod.join(repo2, 'entry/src/main/ets/pages/Index.ets'), 'utf-8'));
+    const setP: string = strip(fsMod.readFileSync(pathMod.join(repo2, 'entry/src/main/ets/components/SettingsPlugins.ets'), 'utf-8'));
+    ok('⑤ ★Index.ets 真应用（首帧前）== 1 处',
+      (idx.match(/setAmbience\(ambienceFromPluginConfig\(/g) || []).length === 1);
+    ok('⑤ ★SettingsPlugins.ets 真应用（改设置后）== 1 处',
+      (setP.match(/setAmbience\(ambienceFromPluginConfig\(/g) || []).length === 1);
+    ok('⑤ 解析器本体在 core/settingsplugins.ets（判据与实现同源）',
+      /export function ambienceFromPluginConfig\(/.test(
+        fsMod.readFileSync(pathMod.join(repo2, 'entry/src/main/ets/core/settingsplugins.ets'), 'utf-8')));
   }
 }
 
