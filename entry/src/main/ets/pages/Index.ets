@@ -8904,11 +8904,11 @@ struct Index {
       Text(g.title)
         // Apple 侧栏分区头节奏：次级字号 + 半档字重（中文无大小写 ⇒ 以字重补 web `uppercase`
         // 的层次）。⚠️ 2026-10-12：原 `type.micro`(10) 与行标题 15 的落差过大 ⇒ 真机读不动。
-        .fontSize(typeOf('type.caption').size).fontWeight(typeOf('type.subhead').weight).fontColor(this.pal().textSecondary)
+        .fontSize(typeOf('type.caption').size).fontWeight(typeOf('type.subhead').weight).fontColor(this.palOnce().textSecondary)
         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         .layoutWeight(1)
       Text(`${g.items.length}`)
-        .fontSize(typeOf('type.micro').size).fontColor(this.pal().textMuted)
+        .fontSize(typeOf('type.micro').size).fontColor(this.palOnce().textMuted)
         .padding({ left: SPACE_XS, right: SPACE_XS, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
         .backgroundColor(this.pal().surfaceAlt).borderRadius(RADIUS_PILL)
     }
