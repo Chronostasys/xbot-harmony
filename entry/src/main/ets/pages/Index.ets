@@ -9301,11 +9301,11 @@ struct Index {
                               this.renameText = v;
                             })
                             .layoutWeight(1).constraintSize({ minHeight: 36 })
-                            .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlayRow'))
-                            .fontColor(this.pal().textPrimary)
+                            .backgroundColor(surfaceFillOf(this.palOnce(), 'surface.overlayRow'))
+                            .fontColor(this.palOnce().textPrimary)
                             .fontSize(typeOf('type.body').size)
                             .borderRadius(RADIUS_PILL)
-                          Text('保存').fontSize(typeOf('type.subhead').size).fontColor(this.pal().accentSoft).padding(SPACE_XS).onClick(() => {
+                          Text('保存').fontSize(typeOf('type.subhead').size).fontColor(this.palOnce().accentSoft).padding(SPACE_XS).onClick(() => {
                             const store: ChatStore | null = this.store;
                             if (store !== null && s.chat_id !== undefined) {
                               store.renameSession(s.chat_id, this.renameText);
@@ -9339,7 +9339,7 @@ struct Index {
                           Row({ space: SPACE_HAIR }) {
                             if (s.running === true) {
                               // 运行中 = **静态** 状态点（⛔ 不呼吸：唯一在飞动效 = 光球）。
-                              Row().width(SPACE_XS).height(SPACE_XS).borderRadius(SPACE_XS / 2).backgroundColor(this.pal().success)
+                              Row().width(SPACE_XS).height(SPACE_XS).borderRadius(SPACE_XS / 2).backgroundColor(this.palOnce().success)
                             }
                             // 标星 = **非交互小标记**（Apple 旗标式；⛔ 不占 44 热区 —— 真机量测：星标盒吃
                             // 149px（15% 行宽），把当前会话标题截成 `harmony-ui…`）。仅**已标星**才渲染
@@ -9366,7 +9366,7 @@ struct Index {
                           Column({ space: SPACE_HAIR }) {
                             Text(this.tabLabel(s.chat_id))
                               .fontSize(typeOf('type.body').size)
-                              .fontColor(s.chat_id === this.currentChat ? this.pal().accentText : this.pal().textPrimary)
+                              .fontColor(s.chat_id === this.currentChat ? this.palOnce().accentText : this.palOnce().textPrimary)
                               .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                               .width('100%').textAlign(TextAlign.Start)
                             // 相对时间（web `SessionItem.tsx:332-347`；`last_active` 缺失 ⇒ 空串 ⇒ 不渲任何字符）。
@@ -9374,7 +9374,7 @@ struct Index {
                             if (this.relTimeOf(s.last_active).length > 0) {
                               Text(this.relTimeOf(s.last_active))
                                 // ⚠️ 2026-10-12：`type.micro`(10) 读不动 ⇒ caption(12)（iOS 列表元信息档）。
-                                .fontSize(typeOf('type.caption').size).fontColor(this.pal().textMuted)
+                                .fontSize(typeOf('type.caption').size).fontColor(this.palOnce().textMuted)
                                 .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                                 .width('100%').textAlign(TextAlign.Start)
                             }
@@ -9387,7 +9387,7 @@ struct Index {
                           // 非当前会话底 = `transparent`（画布）⇒ 仍用 `textSecondary`（porcelain 5.07 ✓）。
                           Text('⋯')
                             .fontSize(typeOf('type.headline').size)
-                            .fontColor(s.chat_id === this.currentChat ? this.pal().textPrimary : this.pal().textSecondary)
+                            .fontColor(s.chat_id === this.currentChat ? this.palOnce().textPrimary : this.palOnce().textSecondary)
                             .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).textAlign(TextAlign.Center)
                             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                             .accessibilityText('更多操作')
@@ -9428,7 +9428,7 @@ struct Index {
                     if (sIdx < g.items.length - 1) {
                       Divider()
                         .strokeWidth(STROKE_HAIRLINE)
-                        .color(hairlineOf(this.pal()))
+                        .color(hairlineOf(this.palOnce()))
                         .margin({ left: INSET_ROW_X + MARKER_GUTTER + SPACE_XS, right: INSET_ROW_X })
                     }
                   }
