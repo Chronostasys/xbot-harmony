@@ -32,7 +32,7 @@ import { EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_BOOT_WORDMARK, F
 // 抽屉重排：尺度/层级/材质一律走语义令牌层（⛔ 不新增字面量；`surfaceFillOf`/`hairlineOf`/
 // `typeOf` 是唯一出口）。色值一律经 `this.pal()`（`surfaceFillOf` 的 role 是**带点**的语义面名）。
 import {
-  GAP_BLOCK, HIT_TARGET_MIN, ICON_MD, ICON_SM, ICON_XL, INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X,
+  GAP_BLOCK, HIT_TARGET_MIN, ICON_MD, ICON_SM, ICON_XL, INSET_ROW_X,
   MARKER_GUTTER,
   PRESS_OPACITY, PRESS_SCALE, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, RADIUS_SHEET, SHEET_ACTION_GLYPH, SPACE_HAIR, SPACE_LG, SPACE_MD,
   SPACE_SM, SPACE_XL, SPACE_XS, SPACE_XXL, SPACE_XXS, STROKE_HAIRLINE, STROKE_RAIL, colorOf, hairlineOf,
@@ -8933,10 +8933,10 @@ struct Index {
         .fontSize(typeOf('type.caption').size).fontWeight(typeOf('type.subhead').weight).fontColor(this.palOnce().textSecondary)
         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         .layoutWeight(1)
+      // 计数 = **纯数字**（⛔ 不做胶囊底）：原实现的 `surfaceAlt` 药丸底 + 内边距把它读成一枚**按钮**，
+      // 与组头的折叠箭头抢注意力（Apple 分组列表的计数就是一行次级文字）。字号提 caption ⇒ 仍可读。
       Text(`${g.items.length}`)
-        .fontSize(typeOf('type.micro').size).fontColor(this.palOnce().textMuted)
-        .padding({ left: SPACE_XS, right: SPACE_XS, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
-        .backgroundColor(this.pal().surfaceAlt).borderRadius(RADIUS_PILL)
+        .fontSize(typeOf('type.caption').size).fontColor(this.palOnce().textMuted)
     }
     .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
     // 组头左右内边距 = **行内边距**（`INSET_ROW_X`）：此前组头用 `SPACE_XXS`(4) 而行用
@@ -9047,6 +9047,9 @@ struct Index {
           .width('100%')
           .height(SEG_TRACK_H)
           .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlayRow'))
+          // 与右侧「搜本会话」chip **同一面语言**：填充 + 内凹发丝。此前只有 chip 有边框、搜索框裸填充
+          // ⇒ 同排两种"面"读起来一个像输入框一个像按钮（`insetHairlineOf` 深色才有值、浅色透明）。
+          .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
           .borderRadius(RADIUS_CARD)
           .alignItems(VerticalAlign.Center)
         }
@@ -9084,7 +9087,7 @@ struct Index {
           // 容器（与滤波器那排同一家族）把两者拉成一对。
           .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
           .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
-          .borderRadius(RADIUS_CHIP)
+          .borderRadius(RADIUS_CARD)
         }
         .height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center)
@@ -9121,7 +9124,7 @@ struct Index {
             .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
             // §15：chip 面补**内凹发丝**（深色才有值、浅色 transparent ⇒ 浅色逐字节不变）
             .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
-            .borderRadius(RADIUS_PILL)
+            .borderRadius(RADIUS_CARD)
           Row({ space: SPACE_HAIR }) {
             ForEach(SESSION_CATEGORIES, (c: string) => {
               Row() {
@@ -9139,7 +9142,7 @@ struct Index {
                 .backgroundColor(c === this.sessionCategory()
                   ? surfaceFillOf(this.pal(), 'surface.card')
                   : Color.Transparent)
-                .borderRadius(RADIUS_CHIP)
+                .borderRadius(RADIUS_PILL)
                 // 选中态缓动（Apple `UISegmentedControl` 的选中是**渐变**、不是硬切）：走底座
                 // `animBase()`（⛔ 不新建曲线对象，受 `anim*()` ≤20 预算约束）。只动底色
                 // => 不碰不透明度语义、失败方向安全（门禁⑨ 无关）。
@@ -9184,7 +9187,7 @@ struct Index {
             .alignItems(VerticalAlign.Center)
             .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
             .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
-            .borderRadius(RADIUS_CHIP)
+            .borderRadius(RADIUS_CARD)
           }
           // ⛔ 真机实测：`responseRegion` 负偏移外扩**无效** ⇒ 热区靠**真实 ≥44 布局盒**。
           .width(HIT_TARGET_MIN)
@@ -9225,7 +9228,7 @@ struct Index {
             this.activeChannel.length === 0 ? 'surface.pillSelected' : 'surface.chip'))
           // §15：**只给 chip 支**补内凹发丝；选中态（pillSelected）保持无边框。
           .border({ width: STROKE_HAIRLINE, color: this.activeChannel.length === 0 ? Color.Transparent : insetHairlineOf(this.pal()) })
-          .borderRadius(RADIUS_CHIP)
+          .borderRadius(RADIUS_CARD)
         }
         .height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center)
@@ -9392,6 +9395,9 @@ struct Index {
                           Column({ space: SPACE_HAIR }) {
                             Text(this.tabLabel(s.chat_id))
                               .fontSize(typeOf('type.body').size)
+                              // 选中态 = 填充 + **中黑**（Apple 列表选中项的字重提升；深色下仅靠
+                              // `surface.overlayRowHover` 填充区分度不足）。⛔ 不改字号/字形 ⇒ 行高不变。
+                              .fontWeight(s.chat_id === this.currentChat ? FontWeight.Medium : FontWeight.Regular)
                               .fontColor(s.chat_id === this.currentChat ? this.palOnce().accentText : this.palOnce().textPrimary)
                               .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                               .width('100%').textAlign(TextAlign.Start)

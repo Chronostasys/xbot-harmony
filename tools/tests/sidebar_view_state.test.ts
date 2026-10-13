@@ -154,7 +154,11 @@ ok('④ 命中盒切片非空（零扫描判红）', segBox.length > 60, `len=${
 eq('④ 命中盒仍为 44', countIn(segBox, '.height(HIT_TARGET_MIN)'), 1);
 eq('④ 反向：命中盒那层**不画底色**', countIn(segBox, '.backgroundColor('), 0);
 eq('④ 反向：命中盒那层**不设圆角**（圆角属视觉层）', countIn(segBox, '.borderRadius('), 0);
-const segPill: string = slice(seg, '.width(\'100%\').height(SEG_PILL_H)', '.borderRadius(RADIUS_CHIP)');
+// ⚠️ 2026-10-13 anchor 演进（形状语言统一，`Index.ets` DrawerSheet）：视觉芯圆角由
+//    `RADIUS_CHIP`(6) 升为 `RADIUS_PILL`(8) —— 新语言 = **容器 12（`RADIUS_CARD`）/ 内芯 8**
+//    （搜索框、分段轨道、`⋯`、渠道 chip 全部收到 12；芯与并列 chip 的内部档位用 8）。
+//    ⛔ 不是放宽：终点仍是**语义令牌**（形状一变就红），只是令牌换档。
+const segPill: string = slice(seg, '.width(\'100%\').height(SEG_PILL_H)', '.borderRadius(RADIUS_PILL)');
 ok('④ 视觉芯切片非空（零扫描判红）', segPill.length > 40, `len=${segPill.length}`);
 eq('④ 视觉芯那层画底色恰 1 处', countIn(segPill, '.backgroundColor('), 1);
 

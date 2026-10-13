@@ -12,7 +12,7 @@
  */
 import { XbotHttp } from './http';
 import { SseClient } from './sse';
-import { hasFreshPhaseDone, rowIsEmpty, shouldReloadHistory } from './streammerge';
+import { hasFreshPhaseDone, isIdleAction, rowIsEmpty, shouldReloadHistory } from './streammerge';
 import { arrOrEmpty, isPresent } from './guards';
 import { ChatState, DomainEvent, EventSeq, initialChatState, NonEmptyS, nonEmptyStr, UserRow } from './chat_types_full';
 import { reduce } from './reduce';
@@ -1852,7 +1852,10 @@ export class ChatStore {
         this.loadHistory().catch(() => {
           // 重载失败不影响主链路；下一次事件/切会话会再兜底
         });
-      } else if (action === 'idle' || action === 'agent-idle') {
+      } else if (isIdleAction(action)) {
+        // ⛔ 判据**必须**走 `core/streammerge.isIdleAction`（同一纯函数）：此前这里内联
+        //    `action === 'idle' || action === 'agent-idle'` ⇒ 那个导出函数**生产 0 消费**
+        //    （"死消费"形态：判据与状态机不同源，改一处另一处不跟）。语义逐字不变。
         // ★ 本地**立即**置 idle（web `useSessionStore` 内存内 `setStatus('idle')` —— 不刷 REST）。
         //   服务端 `session(idle)` 是权威"本会话已停"信号（归属已由 `normalizeEvent` 的
         //   `extractEventChatID` 按 chat 过滤）⇒ 立即清权威闸门 + 会话树 running；下面的

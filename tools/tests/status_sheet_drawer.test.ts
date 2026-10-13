@@ -93,7 +93,11 @@ has(indexSrc, 'usageText: usageText(this.usage)', '页面喂入服务端权威�
 // ── 靶子4a：组头层次（web 是 font-semibold；中文以字重补半档）────────────────────
 // ⚠️ anchor 2026-10-11 更新：sidebar-ux 的 DrawerSheet 重排（`bce3dcf`）把徽标圆角 `8` 换成
 //    语义令牌 `RADIUS_PILL`（= `R_LG` = 8，**同值**）⇒ 旧 anchor 失效、`between` 返回空串（假红）。
-const grpHead: string = between(indexSrc, 'Text(g.title)', 'backgroundColor(this.pal().surfaceAlt).borderRadius(RADIUS_PILL)');
+// ⚠️ anchor 2026-10-13 更新（侧栏形状语言统一）：计数徽章由「`surfaceAlt` 药丸底 + 内边距」改为
+//    **纯次级文字**（药丸底读起来像按钮，与折叠箭头抢注意力）⇒ 旧终点针（`backgroundColor(...surfaceAlt)
+//    .borderRadius(RADIUS_PILL)`）在源码里已不存在、`between` 返回空串（假红）。
+//    ⛔ 不是放宽：终点仍是**同块的稳定锚点**（计数 `Text`），切片范围仍只覆盖组头（含标题字重）。
+const grpHead: string = between(indexSrc, 'Text(g.title)', 'Text(`${g.items.length}`)');
 ok('组头块可定位', grpHead.length > 20);
 // ⚠️ 字重 pin 同步为**语义出口**：`.fontWeight(typeOf('type.subhead').weight)`。
 //    ⛔ **不是回归**（已核真源）：`type.subhead.weight` = `WEIGHT_MEDIUM` = **500** = 旧
