@@ -6046,3 +6046,36 @@ composer_send_aftercare 13** 全 0 失败。
    而**空态文案（`开始对话`）也不在该子树里**（`first` 恒为 `null`）⇒ **"列表里没消息"这个结论
    不可信，必须重做探针**（改成**按几何**取"头部与 composer 之间的所有文本节点、按 y 排序"再判）。
    ⛔ 这正是 AGENTS.md 那条"判据 ≠ 信号"的又一次实例：**判据本身没自证前，不许据此下结论**。
+
+#### §21.121 再补（**定案**：故障在客户端流式路径，服务端无辜）
+
+**对照实验（宿主 curl 直连后端，同一 chat，采样 50s）**：
+
+```
+chat_id=web:chat_026B326DE4C4
+curl: (28) Operation timed out after 50036 milliseconds with 309 bytes received
+http=200 bytes=309 time=50.03
+event 计数= 4   类型频次= {'heartbeat': 3, 'ask_user_resolved': 1}
+首: 'id:69\n\nid:70\nevent:ask_user_resolved\ndata:{...}\n\nevent: heartbeat\ndata: {}\n\n...'
+末: '...\n\nevent: heartbeat\ndata: {}\n\nevent: heartbeat\ndata: {}\n\n'
+```
+
+**结论（三条，全部实测）**：
+1. 服务端**空闲会话每 ~15s 发一次真心跳**（`channel/web/web_sse.go:24 sseHeartbeatInterval = 15 * time.Second`、
+   `:728` 注释 "Send a REAL heartbeat event (not a comment line)"）⇒ 50s 内到 3 次
+   ⇒ **远低于客户端 `SSE_SILENCE_THRESHOLD_MS = 45000`**。
+   ⛔ **推翻**我上一条"无心跳 ⇒ 45s 看门狗误杀"的假设：**看门狗不是元凶**。
+2. 服务端在这条真实 chat 上**完整保活 50s**（HTTP 200、字节持续到超时）⇒ `/api/sse` 与心跳机制**无辜**。
+3. ⇒ 故障**锁定在应用侧的流式读取/写回调路径**（`requestInStream`），正是 `core/sse.ets:558-567`
+   逐字记载过的 h3 症状（`CURLcode 23 / errCode:2300023 / httpVer:3 / reuse:1`）那一族
+   —— 而该处**已经有** `usingProtocol: http.HttpProtocol.HTTP1_1` 的修复。
+
+**⇒ 下一轮 §21.121b 的第一步（唯一必需动作）**：读应用诊断面板的 **`请求协议`（`connHttpVer`）**
+（`components/SettingsDeveloper.ets:424`，`设置 → 开发者 → 「SSE 连接状态」卡`）：
+· 若不是 `HTTP/1.1`（或为空）⇒ **"强制 h1.1" 未生效 = 真回归**，直接修 `requestInStream` 的
+  `usingProtocol` 传递（ArkTS 选项对象到 native 的字段透传是重点怀疑对象）；
+· 若是 `HTTP/1.1` ⇒ 不是 h3 问题，改查 `dataEnd`/`on('dataReceive')` 的**写回调**与
+  `Accept-Encoding: identity` 之外的因素（对照 `web/src/providers/sseConnection.ts`）。
+⚠️ **该卡在面板折叠下方**，本轮用 `uitest uiInput swipe` / `dircFling` **都没能滚动到它**
+（8 次 dump 字节全同）⇒ 下一轮**别在滚动上耗**，直接用最短路径：**临时把该卡移到面板顶部**（一处
+`build()` 内顺序调整）⇒ 构建 + 装机 ⇒ dump 读字段 ⇒ **改回**（该临时改动不进 commit）。
