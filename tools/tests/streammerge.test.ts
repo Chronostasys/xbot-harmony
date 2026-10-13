@@ -12,7 +12,7 @@ declare const process: { exit: (c: number) => void };
 
 import {
   isStreamOnly, hasStructured, liveIterationOf, upsertIteration, mergeTools, toolsFromEvent,
-  applyStreamFrame, applyStructured, displayContent, displayReasoning, mergeToolRuns,
+  applyStreamFrame, applyStructured, displayContent, displayReasoning, resolveRowReply, mergeToolRuns,
   isIdleAction, isBusyAction, shouldReloadHistory, hasFreshPhaseDone,
 } from '../../entry/src/main/ets/core/streammerge';
 import {
@@ -250,6 +250,35 @@ eq('activeTurn 为 null（无法证伪）⇒ true', hasFreshPhaseDone([pd(TID, e
 // 混合批：前面的 iteration 不干扰，找到 phase_done 即判
 eq('混合 [iteration, 新鲜 phase_done] ⇒ true', hasFreshPhaseDone([iterEv, pd(TID, eventSeq(11))], eventSeq(5), TID), true);
 eq('混合 [陈旧 phase_done, 无其它] ⇒ false', hasFreshPhaseDone([iterEv, pd(TID, eventSeq(2))], eventSeq(5), TID), false);
+
+// ── ①e `resolveRowReply`（整条消息的「回复」取文）—— 逐字对齐 web
+//    `MessageActions.resolveCopyText`（`:31-41`）：顶层 content → 否则**从末迭代往前扫**
+//    （正文优先，再退一步推理）。用户 2026-10-13 亲报「长按复制会提示没有可复制的内容」
+//    的**取文侧根因** = 旧实现只看**最后一个迭代** ⇒ 末迭代「工具收尾/仅思考」时 reply 为空。
+{
+  const mk = (iteration: number, content?: string, reasoning?: string): HistoryIteration => {
+    const it: HistoryIteration = { iteration };
+    if (content !== undefined) { it.content = content; }
+    if (reasoning !== undefined) { it.reasoning = reasoning; }
+    return it;
+  };
+  eq('顶层 content 非空 ⇒ 直取（不理迭代）', resolveRowReply('顶层', [mk(1, '迭代1正文')]), '顶层');
+  eq('顶层空 + 末迭代有正文 ⇒ 取末迭代', resolveRowReply('', [mk(1, 'A'), mk(2, 'B')]), 'B');
+  // ★ 旧实现红：末迭代是「工具收尾」（无正文无推理）⇒ 旧实现 reply=''；
+  //   权威语义必须**回退到更早的迭代**。
+  eq('★末迭代工具收尾 ⇒ 回退取更早迭代的正文', resolveRowReply('', [mk(1, '早正文'), mk(2)]), '早正文');
+  eq('★全部无正文但更早迭代有推理 ⇒ 回退取推理', resolveRowReply('', [mk(1, undefined, '早推理'), mk(2)]), '早推理');
+  eq('单趟语义：末迭代只有推理 ⇒ 取该推理（不继续往前找正文）',
+    resolveRowReply('', [mk(1, '早正文'), mk(2, undefined, '末推理')]), '末推理');
+  eq('同一迭代内正文优先于推理', resolveRowReply('', [mk(1, '有正文', '有推理'), mk(2)]), '有正文');
+  eq('全空 ⇒ 空串（调用方据此隐藏「复制回复」项）', resolveRowReply('', [mk(1), mk(2)]), '');
+  eq('无迭代 + 顶层空 ⇒ 空串', resolveRowReply('', []), '');
+  {
+    const live: HistoryIteration = { iteration: 3 };
+    live.stream_text = '流式中';
+    eq('流式迭代（`stream_text`）也被取到（displayContent 语义）', resolveRowReply('', [live]), '流式中');
+  }
+}
 
 if (fail > 0) { console.log(`  streammerge: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  streammerge: ${pass} passed, 0 failed`);

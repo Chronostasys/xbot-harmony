@@ -77,7 +77,7 @@ import {
   isInterruptSend, MODE_INTERRUPT, MODE_QUEUE, modeHint, modeLabel, sendToast, toggleMode,
 } from '../core/sendmode';
 import { mdCacheStats, MdCacheStats } from '../core/markdown';
-import { completedBlocks, displayContent, displayReasoning, rowHasInFlightSignal, rowIsEmpty, streamStatsText } from '../core/streammerge';
+import { completedBlocks, displayContent, displayReasoning, resolveRowReply, rowHasInFlightSignal, rowIsEmpty, streamStatsText } from '../core/streammerge';
 import { canRewindWhile } from '../core/ctxmenu';
 import { rowById } from '../core/rowquery';
 import {
@@ -7856,24 +7856,40 @@ struct Index {
     return p;
   }
 
-  /** 整条消息的分段（Web 语义：顶层 content → 最后一迭代正文 → 该迭代思考/工具）。 */
+  /**
+   * 整条消息的分段 —— **逐字对齐 web `MessageActions.resolveCopyText` / `buildCopyVariant`**
+   * （`web/src/components/agent/MessageActions.tsx:31-61`；⛔ 不是"只看最后一迭代"）：
+   *   · `reply`    = 顶层 `content`，否则**从末迭代往前扫**（正文优先，再退一步推理）
+   *                  —— 真源 = `core/streammerge.resolveRowReply`（可脱机单测）；
+   *   · `thinking` = **跨全部迭代**的推理（web `its.filter(it=>it?.reasoning)`）；
+   *   · `tools`    = **跨全部迭代**的工具（web `its.flatMap(it=>it.tools)`）。
+   *
+   * 事故（2026-10-13 用户亲报「长按复制会提示没有可复制的内容」）**取文侧根因**：
+   *   旧实现 `reply` 只取**最后一个迭代**的 `displayContent` ⇒ 末迭代是「工具收尾 / 仅思考」
+   *   时 `reply=''` ⇒ 即便该行**明明有正文**（在更早的迭代里），「复制回复」也产出空串
+   *   （`ctxmenu.rowMenuItems` 的空项过滤只是把死项藏起来，取文侧不修用户**仍复制不到正文**）。
+   */
   private partsForRow(row: ChatRow): CopyParts {
     const p: CopyParts = new CopyParts();
-    let last: HistoryIteration | undefined = undefined;
-    if (row.iterations.length > 0) {
-      last = row.iterations[row.iterations.length - 1];
+    p.reply = resolveRowReply(row.content, row.iterations);
+    const thinks: string[] = [];
+    const tools: string[] = [];
+    const n: number = row.iterations.length;
+    for (let i = 0; i < n; i++) {
+      const ip: CopyParts = this.partsForIteration(row.iterations[i]);
+      if (ip.thinking.length > 0) {
+        thinks.push(ip.thinking);
+      }
+      if (ip.tools.length > 0) {
+        tools.push(ip.tools);
+      }
+      if (i === n - 1) {
+        p.raw = ip.raw;
+      }
     }
-    if (row.content.length > 0) {
-      p.reply = row.content;
-    } else if (last !== undefined) {
-      p.reply = displayContent(last);
-    }
-    if (last !== undefined) {
-      const ip: CopyParts = this.partsForIteration(last);
-      p.thinking = ip.thinking;
-      p.tools = ip.tools;
-      p.raw = ip.raw;
-    } else {
+    p.thinking = thinks.join('\n\n');
+    p.tools = tools.join('\n---\n');
+    if (n === 0) {
       p.raw = row.content;
     }
     return p;

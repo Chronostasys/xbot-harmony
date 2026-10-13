@@ -464,6 +464,38 @@ export function displayReasoning(it: HistoryIteration): string {
   return it.reasoning !== undefined ? it.reasoning : '';
 }
 
+/**
+ * 整条**助手消息**的「回复」取文 —— **逐字对齐 web `MessageActions.resolveCopyText`**
+ * （`web/src/components/agent/MessageActions.tsx:31-41`）：
+ *   ① 顶层 `rowContent` 非空 ⇒ 用它；
+ *   ② 否则**从最后一个迭代往前扫**：该迭代的正文非空 ⇒ 用它，否则**再看它的推理**，
+ *      两者皆空才退到前一个迭代。
+ *
+ * ⛔ 为什么不能用"只看最后一个迭代"（原实现）：末迭代常常是「**工具收尾**」或「**仅思考**」
+ *   （本目标要求②里"iter 结束如果最后没 tool 则 turn 结束"那类行的近亲）⇒ 其 `content` 为空，
+ *   而该行**明明有正文**（在更早的迭代里）⇒ 长按「复制回复」产出空串
+ *   （用户 2026-10-13 亲报「长按复制会提示没有可复制的内容」的**取文侧根因**；
+ *   菜单侧另有一层"空项过滤"，见 `core/ctxmenu.rowMenuItems` —— 但过滤只是把死项藏起来，
+ *   取文侧不修用户**仍复制不到正文**，故两层都要）。
+ */
+export function resolveRowReply(rowContent: string, its: HistoryIteration[]): string {
+  if (nonEmpty(rowContent)) {
+    return rowContent;
+  }
+  for (let i = its.length - 1; i >= 0; i--) {
+    const it: HistoryIteration = its[i];
+    const c: string = displayContent(it);
+    if (nonEmpty(c)) {
+      return c;
+    }
+    const r: string = displayReasoning(it);
+    if (nonEmpty(r)) {
+      return r;
+    }
+  }
+  return '';
+}
+
 
 // ── 工具 pill 的**分组 / 折叠**（逐字移植 web，纯函数 ⇒ 可脱机单测）──────────────
 // web 权威：
