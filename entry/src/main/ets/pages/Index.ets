@@ -96,7 +96,7 @@ import {
   sessionStatusRole,
 } from '../core/sessiongroup';
 import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msgindex';
-import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, PluginOpenTarget, PluginViewItem, WebPluginListWire, buildPluginCatalog, embedPluginViewLink, nativeViewKind, pluginOpenTarget, pluginViewDeepLink, pluginViewTarget, primaryViewId, PLUGIN_MANAGER_VIEW_ID } from '../core/pluginhost';
+import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, PluginOpenTarget, PluginViewItem, WebPluginListWire, buildPluginCatalog, embedPluginViewLink, nativeViewKind, pluginOpenTarget, pluginViewDeepLink, pluginViewTarget, primaryViewId, PLUGIN_MANAGER_VIEW_ID, webPanelDeepLink, webPanelTitle } from '../core/pluginhost';
 import { hasIterStatsBadge, iterStatsText } from '../core/pluginviews';
 import { SkillItem } from '../core/skills';
 import { FsFileEntry, FsReadResult, FsSearchEntry, fileKindOf, FK_IMAGE, fsMention, sortFsEntries, sortFsSearch } from '../core/files';
@@ -4124,6 +4124,37 @@ struct Index {
   }
 
   /**
+   * 打开 **web 内置面板**（`?xbot_panel=<id>`；真源 `web/src/workspace/panelRequest.ts`）。
+   *
+   * §21.122c（用户定向）：「必须真的支持 web 的所有插件和功能…**终端和任务管理做的很差**」
+   * ⇒ 原生的正确做法是把 **web 自己的面板**（`builtinPanels.tsx` 的 `core.*`）渲在 WebView 里
+   * （与 web 逐字同源、能力自动跟随 web 演进）；而不是每个能力再写一套原生实现
+   * （那套永远追不上 web、且必然与 web 分叉 —— `FilesSheet` 801 行就是前车之鉴）。
+   * ⛔ 与插件视图同一条纪律：内嵌 webview 载入同源页面**必须先注入会话 cookie**，否则 401 落登录页。
+   * ⛔ 白名单外/基地址空 ⇒ `webPanelDeepLink` 返回空串 ⇒ **什么都不开**（fail-closed，
+   *    ⛔ 不渲染一个 web 端会忽略参数、看着像"点了没反应"的空白页）。
+   */
+  private openWebPanel(panelId: string): void {
+    this.showDrawer = false;
+    this.panelUrl = '';
+    const store: ChatStore | null = this.store;
+    if (store !== null) {
+      this.syncSessionCookieToWeb(store);
+    }
+    const base: string = this.serverUrl.length > 0
+      ? this.serverUrl
+      : (store !== null ? store.http.baseUrl : '');
+    const url: string = webPanelDeepLink(base, panelId);
+    if (url.length === 0) {
+      this.toast('服务器地址未配置，无法打开面板');
+      return;
+    }
+    const title: string = webPanelTitle(panelId);
+    this.panelTitle = title.length > 0 ? title : '面板';
+    this.panelUrl = url;
+  }
+
+  /**
    * 打开 **GenUI（`display_html`）面板** —— 按需建分享 + 落 `WebSurface` URL。
    *
    * ── 为什么这样（完整依据见 `core/genui.ets` 头注释）────────────────────────────
@@ -6927,6 +6958,39 @@ struct Index {
   private palMemoTheme: string = '';
   private palMemoAccent: string = '';
   private palMemoVal: Palette | null = null;
+
+  // ── 抽屉底栏取色（**§21.122c 收敛**；性能预算 B 线 `pal()∨palOnce()` **只许减不许增**）──────
+  // ⛔ 为什么必须收敛到方法：`@Builder`/`build()` 体内**只许写 UI 语法**（ArkTS 硬约束 ——
+  //    我第一版想在底栏 `const p: Palette = this.palOnce();` 声明局部量，真门禁 ④ 直接红：
+  //    `10905209 Only UI component syntax can be written here`）。所以只能在**方法**里收敛；
+  //    形态与同仓 `FilesSheet.tint(role)` / `AskUserSheet.trayColor(role)` 一致：
+  //    按 `role + 主题 + 强调色` 记忆化（换主题/换强调色自动失效重算）。
+  private barMemoRole: string = '';
+  private barMemoTheme: string = '';
+  private barMemoAccent: string = '';
+  private barMemoVal: string = '';
+  /** 抽屉底栏取色：`'muted'`（图标弱色）/ `'text'`（标签）/ `'danger'`（退出）/ `'rule'`（发丝）。 */
+  private barTint(role: string): string {
+    const t: string = this.themeName;
+    const a: string = this.accentHex();
+    if (this.barMemoRole === role && this.barMemoTheme === t && this.barMemoAccent === a) {
+      return this.barMemoVal;
+    }
+    const p: Palette = this.palOnce();
+    let v: string = p.textSecondary;
+    if (role === 'muted') {
+      v = colorOf(p, 'iconMuted');
+    } else if (role === 'danger') {
+      v = p.dangerText;
+    } else if (role === 'rule') {
+      v = hairlineOf(p);
+    }
+    this.barMemoRole = role;
+    this.barMemoTheme = t;
+    this.barMemoAccent = a;
+    this.barMemoVal = v;
+    return v;
+  }
 
   /**
    * **记忆化**色板 —— 与 `pal()` 同值，但**同一（主题|强调色）只算一次**。
@@ -10153,13 +10217,16 @@ struct Index {
       //    改**单行 4 键**：热区仍 ≥44vp、`accessibilityText` 逐字保留（含全量枚举）⇒
       //    释放 ~140vp ≈ 18% 屏高给列表。破坏性动作仍**独立在最右**（Apple：不可逆动作与
       //    导航项拉开），但不再单独占一整行。
-      Divider().strokeWidth(STROKE_HAIRLINE).color(hairlineOf(this.pal())).margin({ top: SPACE_SM })
+      // ⚡ 取色**收敛**（性能预算 B 线 `this.pal()∨palOnce()` **只许减不许增**）：§21.122c 加
+      //    「终端」键时若每键各读两次会顶穿 1353 ⇒ 整条底栏统一走记忆化助手 `barTint(role)`
+      //    （实现见 `barTint` 注释：`@Builder` 体内不许声明局部量，只能在方法里收敛）。
+      Divider().strokeWidth(STROKE_HAIRLINE).color(this.barTint('rule')).margin({ top: SPACE_SM })
       Row() {
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.gearshape'))
-            .fontSize(ICON_XL).fontColor([colorOf(this.pal(), 'iconMuted')])
+            .fontSize(ICON_XL).fontColor([this.barTint('muted')])
           Text('设置')
-            .fontSize(typeOf('type.micro').size).fontColor(this.pal().textSecondary)
+            .fontSize(typeOf('type.micro').size).fontColor(this.barTint('text'))
         }
         .layoutWeight(1).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
@@ -10170,9 +10237,9 @@ struct Index {
         })
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.list_bullet'))
-            .fontSize(ICON_XL).fontColor([colorOf(this.pal(), 'iconMuted')])
+            .fontSize(ICON_XL).fontColor([this.barTint('muted')])
           Text('运行')
-            .fontSize(typeOf('type.micro').size).fontColor(this.pal().textSecondary)
+            .fontSize(typeOf('type.micro').size).fontColor(this.barTint('text'))
         }
         .layoutWeight(1).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
@@ -10183,9 +10250,9 @@ struct Index {
         })
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.puzzle'))
-            .fontSize(ICON_XL).fontColor([colorOf(this.pal(), 'iconMuted')])
+            .fontSize(ICON_XL).fontColor([this.barTint('muted')])
           Text('插件')
-            .fontSize(typeOf('type.micro').size).fontColor(this.pal().textSecondary)
+            .fontSize(typeOf('type.micro').size).fontColor(this.barTint('text'))
         }
         .layoutWeight(1).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
@@ -10196,9 +10263,9 @@ struct Index {
         })
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.folder'))
-            .fontSize(ICON_XL).fontColor([colorOf(this.pal(), 'iconMuted')])
+            .fontSize(ICON_XL).fontColor([this.barTint('muted')])
           Text('文件')
-            .fontSize(typeOf('type.micro').size).fontColor(this.pal().textSecondary)
+            .fontSize(typeOf('type.micro').size).fontColor(this.barTint('text'))
         }
         .layoutWeight(1).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
@@ -10209,6 +10276,23 @@ struct Index {
           this.showDrawer = false;
           this.openFiles();
         })
+        // ── §21.122c：**终端**（web 内置面板 `core.terminal` 走 WebView）────────────────────
+        // 用户原话「终端和任务管理做的很差」——本仓此前**根本没有**终端入口（4 键里没有），
+        // 而 web 的终端面板（TerminalList + useTerminal）是完整能力。按用户定向：**渲染 web
+        // 自己的面板**（与 web 逐字同源、能力自动跟随 web 演进），⛔ 不再写一套原生终端。
+        Column({ space: 2 }) {
+          SymbolGlyph($r('sys.symbol.code'))
+            .fontSize(ICON_XL).fontColor([this.barTint('muted')])
+          Text('终端')
+            .fontSize(typeOf('type.micro').size).fontColor(this.barTint('text'))
+        }
+        .layoutWeight(1).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('终端：web 终端面板（新建/切换会话终端）')
+        .onClick(() => {
+          this.openWebPanel('terminal');
+        })
         // ── 竖向发丝：把**销毁性**动作（退出登录）与导航项拉开 ──────────────────────
         // 2026-10-14（目标③「抽屉对标 Apple」）：Apple 不在主导航里放"等重的销毁项"——它要么收进
         // 设置，要么与导航项**显式隔开**。本仓的「退出登录」功能已有更安全的入口
@@ -10217,13 +10301,13 @@ struct Index {
         Column()
           .width(STROKE_HAIRLINE)
           .height(SPACE_LG)
-          .backgroundColor(hairlineOf(this.pal()))
+          .backgroundColor(this.barTint('rule'))
           .margin({ left: SPACE_XS, right: SPACE_XS })
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.power'))
-            .fontSize(ICON_XL).fontColor([this.pal().dangerText])
+            .fontSize(ICON_XL).fontColor([this.barTint('danger')])
           Text('退出')
-            .fontSize(typeOf('type.micro').size).fontColor(this.pal().dangerText)
+            .fontSize(typeOf('type.micro').size).fontColor(this.barTint('danger'))
         }
         .layoutWeight(1).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)

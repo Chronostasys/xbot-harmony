@@ -6252,3 +6252,59 @@ ArkWeb **不接** `onWindowNew` ⇒ `window.open(...)` / `<a target="_blank">` *
 2. **文件**：`onShowFileSelector`（`<input type=file>` ⇒ 附件上传）；`onDownloadStart`（下载）。
 3. **文件管理/终端/任务**三个 web 内置面板（`web/src/components/panel/builtinPanels.tsx` 的
    `core.files`/`core.terminal`/`core.tasks`）在原生侧的可达性与 chrome。
+
+## §21.122c 「宿主直达 web 内置面板」深链（`?xbot_panel=<id>`) + 原生「终端」入口
+
+**用户原话**：「必须真的支持 web 的所有插件和功能…**文件管理也没有，终端和任务管理做的很差**」。
+
+### ① 现状（先查清，别重复造）
+
+| 能力 | 原生侧现状 | web 侧真源 |
+|---|---|---|
+| 文件 | `components/FilesSheet.ets`（**801 行**原生，已接线 `Index.ets:4745`，入口 = 抽屉工具格「文件」） | `builtinPanels.tsx:276 core.files` |
+| 任务/运行 | `StatusSheet` + `TaskDetailSheet`（入口 = 工具格「运行」） | `builtinPanels.tsx:306 core.tasks` |
+| **终端** | ⛔ **完全没有**（工具格 4 键里没有；`showTerminal` 只在别处零星使用） | `builtinPanels.tsx:316 core.terminal`（TerminalList + `useTerminal`） |
+
+⇒ 结论：**文件/任务是"已有但做得差"，终端是"根本没有"**。按用户定向（渲染 web 自己的面板，
+⛔ 不再每个能力写一套原生实现 —— `FilesSheet` 801 行正是那套追不上的定制逻辑），本轮把
+**web 内置面板做成可直达**，原生只留一个键。
+
+### ② 协议（web 侧新增，与既有 `?xbot_view=` 分工明确）
+
+| 层 | 改动 |
+|---|---|
+| **web** `src/workspace/panelRequest.ts`（新，纯函数） | `PANEL_QUERY_KEY='xbot_panel'`、`PANEL_DEEP_LINK_IDS=['files','search','info','tasks','terminal']`（⛔ 与 `MobileAppShell.PANEL_BUTTONS` 同源）、`parsePanelQuery(search)`（白名单外 ⇒ `null`，fail-closed）、`mobileViewForPanel(id)`（非法 ⇒ `null`） |
+| **web** `MobileAppShell.tsx` | boot 读 `parsePanelQuery` ⇒ `setActivePanel(id)` + `setView('detail')` |
+| **web** `AppShell.tsx` | 桌面端 boot ⇒ `openPanel(id)`（走既有 `xbot:panel-request` 事件；子组件 effect 先于父组件 ⇒ 无竞态） |
+| **web** `panelRequest.test.ts`（新） | 6 条判据（5 个 id 全覆盖 / 与其它参数共存 / 坏 id ⇒ null / 大小写敏感 / 超长不抛 / 视图映射） |
+| **原生** `core/pluginhost.ets` | `WEB_PANEL_IDS`、`webPanelDeepLink(base,id)`（白名单外/空 base ⇒ **空串**）、`webPanelTitle(id)` |
+| **原生** `pages/Index.ets` | `openWebPanel(panelId)`（注入会话 cookie + 置 `panelUrl`）+ 抽屉工具格新增「**终端**」键（`sys.symbol.code`） |
+
+**与 `?xbot_view=` 的分工**：`xbot_view` = **插件贡献的 editor view**（动态 viewId）；
+`xbot_panel` = **宿主内置面板**（固定 5 个 id）。两条协议互不替代（web 侧有判据钉这一点）。
+
+### ③ 顺带修的硬门禁红灯（性能预算 B 线）
+
+加「终端」键时每键各读两次 `this.pal()` ⇒ **色板读取总量 1354 > 上限 1353** 直接红。
+⛔ 本仓纪律：**指标只许减不许增**（不许抬上限）。第一次尝试在 `@Builder` 体内
+`const p: Palette = this.palOnce();` ⇒ 真门禁 ④ 红：`10905209 Only UI component syntax can be
+written here`（**@Builder/build 体内只许写 UI 语法**，局部常量非法 —— 这条坑值得记）。
+最终改法 = 本仓既有模式：**记忆化取色助手**（同 `FilesSheet.tint` / `AskUserSheet.trayColor`）——
+新增 `private barTint(role)`（按 `role + 主题 + 强调色` 记忆化），整条底栏 11 处行内读取收敛到 0，
+总量 **1354 → 1341**（低于上限，且真机上取色次数也真变少）。
+
+### ④ 装机取证（模拟器 `127.0.0.1:5555`）
+
+- 前置：web 是**构建产物**（`~/.xbot/web/dist`，服务端 `resolveStaticDir` 顺序：显式配置 →
+  二进制旁 `web/dist` → `$XBOT_HOME/web/dist`）⇒ 改了 web 必须 `npm run build` + 覆盖部署
+  （已备份 `dist.bak-mine-*`）。校验：线上 `index-DdNzI2dd.js` 内含 `xbot_panel`。
+- 取证：抽屉 → **终端** ⇒ `WEB=2`（`Web` + `rootWebArea`），dump 出现
+  **web 终端面板真实内容**：`http://10.0.2.2:8082/?xbot_pan…`（深链生效）、「**新建终端**」、
+  「0 个终端」、「暂无终端」⇒ **用户点一次就进 web 的终端页**，零原生定制 ✅
+
+### ⑤ 后续
+
+- 文件/任务也有 web 版面板（`core.files`/`core.tasks`）⇒ 可按同一深链逐一切换/并存（待定：原生
+  那两套是保留为"可选增强"还是退场，需与用户对齐）。
+- 事件代理第二批（§21.122d）：剪贴板（SDK **无** clipboard resource ⇒ 只能走 JS 桥）、
+  `onShowFileSelector`（附件上传）、`onDownloadStart`（下载）。

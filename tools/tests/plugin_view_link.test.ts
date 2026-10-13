@@ -15,7 +15,7 @@
  */
 declare const process: { exit: (c: number) => void };
 
-import { nativeViewKind, parseXbotViewLink, pluginViewDeepLink, primaryViewId, PluginViewItem } from '../../entry/src/main/ets/core/pluginhost';
+import { nativeViewKind, parseXbotViewLink, pluginViewDeepLink, primaryViewId, PluginViewItem, WEB_PANEL_IDS, webPanelDeepLink, webPanelTitle } from '../../entry/src/main/ets/core/pluginhost';
 
 let pass = 0, fail = 0;
 function eq(name: string, got: unknown, want: unknown): void {
@@ -106,6 +106,28 @@ eq('ssh-runner panel ⇒ 原生面板（§21.117 已落地；此前为 "" = 放�
 eq('ssh-runner bar ⇒ 同一原生面板', nativeViewKind('xbot.ssh-runner.bar'), 'ssh.panel');
 eq('未来插件 ⇒ 空（协议仍通用，不写死）', nativeViewKind('xbot.future-plugin.panel'), '');
 eq('空 viewId ⇒ 空', nativeViewKind(''), '');
+
+// ── ⑥b §21.122c：宿主**直达 web 内置面板**深链（`?xbot_panel=<id>`）────────────────
+// 为什么值得钉：这条 URL 是原生壳打开 **web 自己的**文件/搜索/信息/任务/终端面板的**唯一**入口
+// （用户定向：渲染 web 自己的面板，⛔ 不再每个能力写一套原生实现）。
+// ⛔ id 白名单必须与 web 侧 `web/src/workspace/panelRequest.ts:PANEL_DEEP_LINK_IDS` **逐字一致**
+//    —— 不一致的后果是"点了没反应"（web 端白名单外直接忽略）。
+eq('web 面板 id 白名单与 web 侧逐字一致（5 个）',
+  JSON.stringify(WEB_PANEL_IDS), JSON.stringify(['files', 'search', 'info', 'tasks', 'terminal']));
+eq('文件面板深链', webPanelDeepLink('http://h:8082', 'files'), 'http://h:8082/?xbot_panel=files');
+eq('终端面板深链', webPanelDeepLink('http://h:8082', 'terminal'), 'http://h:8082/?xbot_panel=terminal');
+eq('尾斜杠归一化（⛔ 不出现 //?xbot_panel）',
+  webPanelDeepLink('http://h:8082/', 'tasks'), 'http://h:8082/?xbot_panel=tasks');
+eq('多个尾斜杠同样归一化', webPanelDeepLink('http://h:8082///', 'info'), 'http://h:8082/?xbot_panel=info');
+eq('⛔ 白名单外 ⇒ 空串（fail-closed：不把用户丢进 web 会忽略参数的空白页）',
+  webPanelDeepLink('http://h:8082', 'nope'), '');
+eq('⛔ 插件视图 id 不是面板 id（两条协议互不替代）',
+  webPanelDeepLink('http://h:8082', 'xbot.git-fancy.panel'), '');
+eq('空 base ⇒ 空串', webPanelDeepLink('', 'files'), '');
+eq('空 id ⇒ 空串', webPanelDeepLink('http://h:8082', ''), '');
+eq('标题：终端', webPanelTitle('terminal'), '终端');
+eq('标题：文件', webPanelTitle('files'), '文件');
+eq('标题：未知 id ⇒ 空串（调用方兜底文案）', webPanelTitle('nope'), '');
 
 if (fail > 0) { console.log(`  plugin_view_link: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  plugin_view_link: ${pass} passed, 0 failed`);

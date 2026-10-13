@@ -820,6 +820,63 @@ export function isEmbeddedViewLink(url: string): boolean {
  */
 export const PLUGIN_MANAGER_VIEW_ID: string = 'xbot.plugin-manager.panel';
 
+// ══════════════════════════════════════════════════════════════════════════════
+// 「宿主直达 web 内置面板」深链（**§21.122c**，用户定向）
+//
+// 用户原话：「必须真的支持 web 的所有插件和功能…文件管理也没有，终端和任务管理做的很差」。
+// ⇒ 原生的正确做法是把 **web 自己的面板**（`web/src/components/panel/builtinPanels.tsx` 的
+//   `core.*`）渲在 WebView 里（与 web 逐字同源、能力自动跟随 web 演进），而不是每个能力再写
+//   一套原生实现（那套永远追不上 web，且必然分叉 —— `FilesSheet` 801 行就是前车之鉴）。
+// web 侧解析器：`web/src/workspace/panelRequest.ts:parsePanelQuery`（`?xbot_panel=<id>`）。
+// ⛔ id 白名单**必须与 web 侧逐字一致**（`PANEL_DEEP_LINK_IDS`）—— 写错 ⇒ 白名单外 ⇒ web 端
+//    直接忽略 ⇒ 用户看到"点了没反应"。
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** 可直达的 web 内置面板 id（真源 `web/src/workspace/panelRequest.ts:PANEL_DEEP_LINK_IDS`）。 */
+export const WEB_PANEL_IDS: string[] = ['files', 'search', 'info', 'tasks', 'terminal'];
+
+/** 面板 id → 顶栏中文标题（面板自述；未知 id ⇒ 空串）。 */
+export function webPanelTitle(panelId: string): string {
+  if (panelId === 'files') {
+    return '文件';
+  }
+  if (panelId === 'search') {
+    return '搜索';
+  }
+  if (panelId === 'info') {
+    return '信息';
+  }
+  if (panelId === 'tasks') {
+    return '任务';
+  }
+  if (panelId === 'terminal') {
+    return '终端';
+  }
+  return '';
+}
+
+/**
+ * 直达 web 内置面板的深链：`<base>/?xbot_panel=<id>`（web `parsePanelQuery` 消费）。
+ *
+ * · `base` 末尾 `/` 归一化（避免 `//?xbot_panel`）；
+ * · **白名单外 ⇒ 空串**（调用方不得把它当 URL 用 —— fail-closed：宁可什么都不开，也不要把
+ *   用户丢进一个 web 端会忽略参数的空白页）；
+ * · `base` 为空 ⇒ 空串。
+ */
+export function webPanelDeepLink(base: string, panelId: string): string {
+  if (base.length === 0 || !WEB_PANEL_IDS.includes(panelId)) {
+    return '';
+  }
+  let root: string = base;
+  while (root.length > 0 && root.charAt(root.length - 1) === '/') {
+    root = root.substring(0, root.length - 1);
+  }
+  if (root.length === 0) {
+    return '';
+  }
+  return `${root}/?xbot_panel=${encodeURIComponent(panelId)}`;
+}
+
 /** 「打开某插件」的目标（URL + 顶栏人类标题）。ArkTS 禁无类型对象字面量 ⇒ class。 */
 export class PluginOpenTarget {
   /** 要载入的 URL（**有 view 时恒为深链**，见 `pluginOpenTarget`）。 */
