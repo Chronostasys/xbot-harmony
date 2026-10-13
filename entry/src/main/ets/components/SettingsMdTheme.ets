@@ -183,6 +183,11 @@ export struct SettingsMdThemePicker {
           .lineHeight(lh('type.subhead'))
           .fontColor(tc(this.pal(), 'type.subhead'))
           .width('100%')
+          // ⚠️ 2026-10-13（目标③「对标苹果」·真机量测）：label/description 此前**没有**内缩，
+          //    而**本组件自己的** `Preview()`（:250）与兄弟行（`SettingsValueRow` 等）都走
+          //    `INSET_ROW_X` ⇒ 装机帧里「Markdown 主题」左缘 **70px**、「强调色」**110px**
+          //    —— 同一段里两个对等行标签差 12vp。这里补齐到**同一条内容轴**。
+          .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
       }
       if (this.description.length > 0) {
         Text(this.description)
@@ -191,6 +196,7 @@ export struct SettingsMdThemePicker {
           .lineHeight(lh('type.callout'))
           .fontColor(tc(this.pal(), 'type.callout'))
           .width('100%')
+          .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
       }
       this.Preview()
 

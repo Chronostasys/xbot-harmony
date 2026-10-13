@@ -618,7 +618,14 @@ export struct SettingsGroupHeader {
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    .padding({ top: SPACE_MD, bottom: SPACE_XS })
+    // ⚠️ 2026-10-13（目标③「对标苹果」·真机逐像素量测）：**组标题与内容必须同轴**。
+    //    实测（1320×2848 装机帧）：组标题左缘 **69px**（= 容器内缩 `SPACE_LG`20vp），
+    //    而它下面的**行内容**左缘 **110px**（= 20 + `INSET_ROW_X`12）⇒ 同一段里标题/发丝
+    //    与内容**差 12vp**，眼睛读成"标题浮在左边"。
+    //    web 权威 `components/settings/SettingsSection.tsx:30-37`：标题与 children **同在一个
+    //    `px-4` 的卡里**（不是各缩各的）⇒ 本仓按同一口径把标题与发丝一起移到**内容轴**。
+    //    ⛔ 行内缩不动（`INSET_ROW_X` 是全仓 8+ 处的既有口径：`SettingsRows` 各行 / `PluginHost` 各行）。
+    .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_MD, bottom: SPACE_XS })
   }
 }
 
