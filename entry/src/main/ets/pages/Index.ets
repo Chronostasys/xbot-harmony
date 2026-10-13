@@ -1001,7 +1001,17 @@ struct Index {
   private authExpiredHandled: boolean = false;
 
   /**
-   * 应用主题（深/浅；与 Web 共用服务端偏好键 xbot-app-theme）—— **唯一真源**。
+   * 应用主题（深/浅；与 Web 共用服务端偏好键 **`xbot-md-theme`** ⇒ `web:ui:md-theme`）—— **唯一真源**。
+   *
+   * ⛔ 订正（2026-10-13 取证）：本行原文写的是「与 Web 共用 … `xbot-app-theme`」，**事实错误** ——
+   *   主题真走 `KEY_MD_THEME`（`core/settings.ets:78-80`），取值点见本文件 `applySettingsCached`
+   *   的 `settingOf(store.settings, KEY_MD_THEME)`；web 权威 `src/providers/theme.tsx:110-111`
+   *   亦然（`MARKDOWN_THEME_STORAGE_KEY = 'xbot-md-theme'` + `syncSettingToServer`）。
+   *   实测 `grep -rn "app-theme" web/src/` ⇒ **零命中**（web 根本没有这个键）。
+   * ⛔ 别去"接线" `KEY_APP_THEME`（`xbot-app-theme`）：它**不是**主题源 —— 它是已被删除的
+   *   「原生第二套主题」遗留键，`tools/tests/settings_keys_consumed.test.ts:145-152` 把它与
+   *   `KEY_UI_MODE` 一并钉为 `DELIBERATE_DEAD`（理由：保留常量只为不删服务端遗留值）。
+   *   谁把它接成第二个主题源，就是 `AGENTS.md` 警告的"死消费复活"缺陷。
    *
    * ⛔ 用 `@StorageLink('appTheme')`（不是 `@State`）：把主题**同步进 AppStorage**，让每个
    *   历史行组件用 `@StorageProp('appTheme')` **各自订阅**（见 `components/MessageRow.ets`
