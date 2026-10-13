@@ -5453,6 +5453,38 @@ struct Index {
           this.openPanels();
         })
 
+        // ── 常驻「文件」「插件」入口（同一对标：web 移动壳 `MobileAppShell.tsx:701-731` 的常驻
+        //    面板按钮条里 `files` / 插件面板 likewise **一直在屏上**）─────────────────────────────
+        // 用户 2026-10-13 亲报 ④：「插件都打不开…统计插件的面板我们看不到。文件管理也没有」
+        // ⇒ 代码层核查：面板本身**都在且都接线**（门禁 ⑤：67 组件 0 孤儿；`FilesSheet` 有搜索/预览/
+        //   图片/隐藏文件/失败重试全套），入口却只在**抽屉底栏**（要先开侧边栏）⇒ 真病根是**可达性**，
+        //   与上面「运行」入口同源 ⇒ 同修法：落到顶栏（图标 = 抽屉同一枚，处理器 = 抽屉同一个）。
+        Row() {
+          SymbolGlyph($r('sys.symbol.folder'))
+            .fontSize(ICON_XL)
+            .fontColor([this.panelActionTint()])
+        }
+        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('文件管理：浏览与预览工作目录')
+        .onClick(() => {
+          this.openFiles();
+        })
+
+        Row() {
+          SymbolGlyph($r('sys.symbol.puzzle'))
+            .fontSize(ICON_XL)
+            .fontColor([this.panelActionTint()])
+        }
+        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('插件与 Web UI：插件目录、宿主页、完整 Web UI')
+        .onClick(() => {
+          this.openPlugins();
+        })
+
         // ── 原生「迭代指标」徽章（插件 `xbot.iteration-stats` 的 `status_bar_right` 视图）──
         // ⭐ 这正是"插件视图原生渲染"的落点：数据来自宿主自己的实时指标（与 web 侧插件同源），
         //    **不打开任何 web UI**。文案判据 `core/pluginviews.ets:iterStatsText`（空 ⇒ 不渲染）。
