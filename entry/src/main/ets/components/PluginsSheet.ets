@@ -21,8 +21,11 @@
  *   · 根面（L1 顶层弹层）= `surfaceFillOf(p,'surface.overlay')`（浮层语义面，不透明）+ 结构性发丝
  *     `hairlineOf(p)` + **两层柔影** `shadowLayersOf(p,'overlay')`（浅色 = 贴合 + 环境；深色 = near 透明
  *     + 该档原值）—— 与同层级 `StatusSheet`/`AskUserSheet`/`MenuSheets` 同通道（web `bg-bg-elevated` = 浮层面）；
- *   · 行卡 = `surfaceFillOf(p, SURFACE_CARD)` + **面→面轮廓** `structuralRuleOf(p)` + `RADIUS_CARD`；
- *   · 内距 = `INSET_ROW_X/Y`；行间距 = `GAP_ROW_Y`；
+ *   · **行体 = 扁平行 + 行内发丝**（⛔ 不是"每条一张卡"）—— 与同 App 的「文件」面板（`FilesSheet`）
+ *     和会话抽屉**同一形态**：Apple 的分组列表是"一张容器 + 行内发丝"，同形卡片逐条堆叠会把分组
+ *     层级读没（真机 9 条卡读作"一堆圆角块"）。行高 ≥ `HIT_TARGET_MIN`（`constraintSize`）；
+ *   · 仍走**卡片**的两处 = 状态行的「重试」按钮（它是**动作按钮**、不是列表行）；
+ *   · 内距 = `INSET_ROW_X`（竖向内距**不加**：44 行高由 `HIT_TARGET_MIN` 给，与 `FilesSheet` 同口径）；
  *   · 按压走全站唯一 `PRESS_OPACITY`；行命中区 ≥ `HIT_TARGET_MIN`（`constraintSize`）；
  *   · 关闭按钮热区用 `responseRegion` 外扩（⛔ 不改布局/视觉尺寸）。
  * ⛔ 颜色不写 hex；状态行的色走 `pluginPanelStatus().colorRole`（`core/pluginview.ets` 产出的合法角色）；
@@ -35,7 +38,7 @@ import { PluginPanelStatus, pluginMetaText, pluginPanelStatus, pluginPanelListHe
 // ⛔ 不在本面板再写一份副本（副本会腐烂 / 各写一份 ⇒ 同一插件两处图标不一致）。
 import { pluginSymbol } from './PluginHost';
 import {
-  colorOf, GAP_ROW_Y, hairlineOf, structuralRuleOf, surfaceFillOf, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y,
+  colorOf, hairlineOf, structuralRuleOf, surfaceFillOf, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y,
   PRESS_OPACITY, RADIUS_CARD, RADIUS_SHEET, SHEET_ACTION_GLYPH, SPACE_MD, SPACE_SM, SPACE_XS, STROKE_HAIRLINE,
   SHEET_WIDTH, SURFACE_CARD } from '../core/design';
 import { fs, fw } from './SettingsRows';
@@ -138,12 +141,8 @@ export struct PluginsSheet {
         .fontColor([colorOf(this.pal(), 'iconMuted')])
     }
     .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
-    .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
-    .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))
-    .borderRadius(RADIUS_CARD)
-    .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
+    .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-    .margin({ bottom: GAP_ROW_Y })
     .onClick(() => {
       onClick();
     })
@@ -288,15 +287,11 @@ export struct PluginsSheet {
                 }
               }
               .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
-              .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
-              .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))
-              .borderRadius(RADIUS_CARD)
-              .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
+              .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
               .stateStyles({
                 pressed: { .opacity(p.openable ? PRESS_OPACITY : 1) },
                 normal: { .opacity(1) },
               })
-              .margin({ bottom: GAP_ROW_Y })
               .onClick(() => {
                 // 不可点的行（无独立面板）静默忽略 —— 绝不开空页
                 if (p.openable) {
@@ -307,6 +302,12 @@ export struct PluginsSheet {
           }, (p: PluginCatalogItem) => `${p.id}#${p.url}`)
         }
       .height(this.listHeight()).width('100%')
+      // 结构性发丝（⛔ 不是装饰描边）：**行与行之间的唯一分隔**（Apple 分组列表形态）。
+      // 本轮（目标③ 对标苹果）把行体从"每条一张卡（面 + 圆角 + 描边 + 行间距）"改为
+      // **扁平行 + 行内发丝** —— 与同 App 的「文件」面板（`FilesSheet`）和会话抽屉**同一形态**。
+      // 病根：9 条同形卡片在真机截图上读作"一堆圆角块"，分组层级消失；Apple 的分组列表是
+      // **一张容器 + 行内发丝**（左缘内缩到文字起点，线只从正文起画）。⛔ 行高/热区不动（仍 ≥44）。
+      .divider({ strokeWidth: STROKE_HAIRLINE, color: hairlineOf(this.pal()), startMargin: INSET_ROW_X })
       }
       .width('100%').padding(SPACE_MD)
       .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))

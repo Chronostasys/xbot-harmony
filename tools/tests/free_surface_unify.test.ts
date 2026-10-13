@@ -89,7 +89,10 @@ const SITES: Site[] = [
   { file: 'components/SettingsRows.ets', level: 'L2', marker: "backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))", expect: 1 },
   { file: 'components/PluginHost.ets', level: 'L2', marker: "backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))", expect: 2 },
   { file: 'components/PluginWidgets.ets', level: 'L2', marker: "backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))", expect: 1 },
-  { file: 'components/PluginsSheet.ets', level: 'L2', marker: 'backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))', expect: 3 },
+  // ⚠️ 2026-10-13（目标③ 对标苹果）：`PluginsSheet` 由 3 → **1**。该面板的**列表行**已改为
+  // **扁平行 + 行内发丝**（与「文件」面板/会话抽屉同形，见 `plugin_icons.test.ts` ①c 的形态契约）
+  // ⇒ 只剩状态行的「重试」**动作按钮**仍是卡（它不是一个列表行）。⛔ 不是"少走了一个出口"。
+  { file: 'components/PluginsSheet.ets', level: 'L2', marker: 'backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))', expect: 1 },
   { file: 'components/SettingsPanel.ets', level: 'L2', marker: "backgroundColor(surfaceFillOf(this.pal(), 'surface.card'))", expect: 1 },
   { file: 'components/SelfCheckSheet.ets', level: 'L2', marker: 'backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))', expect: 8 },
   { file: 'components/TodoPanel.ets', level: 'L2', marker: 'backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))', expect: 1 },

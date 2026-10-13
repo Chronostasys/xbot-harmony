@@ -99,9 +99,12 @@ if (repo.length > 0) {
     const SITES: string[][] = [
       ['entry/src/main/ets/components/PluginHost.ets', '2'],
       ['entry/src/main/ets/components/PluginWidgets.ets', '1'],
-      ['entry/src/main/ets/components/PluginsSheet.ets', '3'],
+      // ⚠️ 2026-10-13（目标③ 对标苹果）：`PluginsSheet` 由 3 → **1**。
+      // 该面板的**列表行**已改为**扁平行 + 行内发丝**（形态契约见 `plugin_icons.test.ts` ①c）
+      // ⇒ 行不再是"面到面"的卡、不需要面→面轮廓；只剩状态行的「重试」**动作按钮**仍是卡。
+      ['entry/src/main/ets/components/PluginsSheet.ets', '1'],
     ];
-    const WANT: number[] = [2, 1, 3];
+    const WANT: number[] = [2, 1, 1];
     let total: number = 0;
     for (let i = 0; i < SITES.length; i++) {
       const n: number = count(SITES[i][0], 'structuralRuleOf(this.pal())');

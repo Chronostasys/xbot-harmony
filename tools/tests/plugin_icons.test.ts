@@ -127,6 +127,34 @@ const hostBody: string = pluginSymbolBody(hostSrc);
   // 说明段（"原生渲染聊天主链路；…"）已删：它**不准**（`插件目录（原生）`/`会话统计` 是原生渲染，
   // 不属"由 ArkWeb 承载"），且 Apple 的用户面弹层不解释渲染架构（各行标签已自带该信息）。
   eq('①b ⛔ 已删实现说明段', countOf(sheetSrc, "Text('原生渲染聊天主链路"), 0);
+
+  // ── ①c 行体 = **扁平行 + 行内发丝**（2026-10-13 目标③「对标苹果」）──────────────────
+  // 真机截图：能力面板 9 条**同形卡片**（面 + 圆角 + 描边 + 行间距）读作"一堆圆角块" ⇒ 分组层级消失。
+  // Apple 的分组列表 = **一张容器 + 行内发丝**；同 App 的「文件」面板（`FilesSheet`）与会话抽屉
+  // 早已是这一形态 ⇒ 本面板收敛到**同一形态**（三个列表一个长相）。
+  // ⛔ 只钉"行卡是否退场"会假绿（可能只是没写）⇒ 必须**同时**钉"行内发丝在"（正反两面）。
+  {
+    const rowCards: number = countOf(sheetSrc, 'surfaceFillOf(this.pal(), SURFACE_CARD))');
+    eq('①c 面板行**不再是卡**（行卡面恰剩 1 处 = 状态行的「重试」动作按钮）', rowCards, 1);
+    // ⛔ 断言一律取**调用形态**（不是裸 token）：裸 `RADIUS_CARD` / `GAP_ROW_Y` 会**连 import 行一起数**，
+    //    那样"行体退场"会因 import 仍在而**假红**（本仓"取整行/取裸词"的同类教训）。
+    eq('①c ⛔ 行级圆角已退场（`.borderRadius(RADIUS_CARD)` 只剩「重试」那一处）',
+      countOf(sheetSrc, '.borderRadius(RADIUS_CARD)'), 1);
+    eq('①c ⛔ 行间距已退场（`.margin({ bottom: GAP_ROW_Y })` = 0 —— 行与行靠发丝分隔，不靠空隙）',
+      countOf(sheetSrc, '.margin({ bottom: GAP_ROW_Y })'), 0);
+    eq('①c ⛔ 行级面→面描边已退场（只剩「重试」那一处）',
+      countOf(sheetSrc, '.border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })'), 1);
+    // 正面判据：`List` 级 `.divider(...)` 必须在，且左缘**内缩到文字起点**（Apple 的 inset separator）
+    eq('①c 行内发丝在（`List.divider` + `startMargin: INSET_ROW_X`）',
+      countOf(sheetSrc, '.divider({ strokeWidth: STROKE_HAIRLINE, color: hairlineOf(this.pal()), startMargin: INSET_ROW_X })'), 1);
+    eq('①c 两类行统一走"无竖向内距"的行体内距 = 2（入口行 + 插件行）',
+      countOf(sheetSrc, 'padding({ left: INSET_ROW_X, right: INSET_ROW_X })'), 2);
+    // 同源对照：`FilesSheet`（形态基准）用的是**同一句**（若将来改基准，两处必须同时改）
+    const filesSrc: string = readOr(path.join(ETS, 'components', 'FilesSheet.ets'));
+    eq('①c 零扫描防线：含 components/FilesSheet.ets', filesSrc.length > 0, true);
+    eq('①c 与「文件」面板同形（同一条 `startMargin` 口径）',
+      filesSrc.indexOf('startMargin: INSET_ROW_X') >= 0, true);
+  }
 }
 
 // ── 判据 ②：覆盖 web `ICON_MAP` 19 键（与真源 isKnownPluginIcon 双向一致）────────────

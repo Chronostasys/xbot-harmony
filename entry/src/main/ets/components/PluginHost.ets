@@ -530,7 +530,11 @@ export function pluginSymbol(icon: string): Resource {
     return $r('sys.symbol.rectangle_on_rectangle');
   }
   if (k === 'git-branch' || k === 'git' || k === 'git-commit-horizontal') {
-    return $r('sys.symbol.circle_dashed');
+    // ⚠️ 2026-10-13（目标③「对标苹果」）：原为 `circle_dashed`（**虚线圆**）—— 真机截图里它与
+    //    「未加载/占位」图标**无法区分**（`Git 面板` 插件行看着像"图标没画出来"），而同一张表上的
+    //    「Git 面板（原生）」入口行用的是实体分支符号 ⇒ 同一语义两处两种长相。
+    //    ⇒ 收敛到 `arrow_triangle_merge`（SDK 实证 `0xF0347`，已在本仓白名单；与入口行同符号）。
+    return $r('sys.symbol.arrow_triangle_merge');
   }
   if (k === 'chart' || k === 'activity' || k === 'sparkline') {
     return $r('sys.symbol.line_3_horizontal');
