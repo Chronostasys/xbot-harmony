@@ -603,13 +603,26 @@ export function panelPollMs(bgTasks: BgTask[], subs: SubAgentRow[]): number {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * 原生渲染层目前**没有**消费 zones/components 的组件 ⇒ 明确标"未支持"（不静默）。
+ * 原生渲染层**已消费** zones/components ⇒ 事实为 `true`（2026-10-13 订正）。
  *
- * ⛔ 诚实契约：解析函数**照样**把服务端推来的 zones/components 解出来（数据已暴露），
- *    但这个常量 = false 表示"当前无组件可渲染" ⇒ 渲染层应显示「插件面板暂不支持」
- *    而不是默默什么都不做。接线方案见交付清单（需 `components/**`，不属本轮可改）。
+ * ── 历史（为什么这里曾经是 `false`，以及它为什么变成假陈述）──────────────────────
+ *   当年为 `false` 是**诚实**的："原生没有组件消费 zones/components"（解析在、渲染层缺），
+ *   并配上"渲染层应显示「插件面板暂不支持」而不是默默什么都不做"的契约。
+ *   此后 `components/PluginWidgets.ets` + `components/WidgetDock.ets` 补齐并接线，
+ *   但**常量与注释**（连同 `docs/RELEASE.md:98`、`docs/RELEASE-NOTES.md:118` 两份文档）
+ *   一同腐烂成**假陈述** ⇒ 正是 AGENTS.md 记的「同一件事只能有一个判据 / 文档说有、代码没有」形态。
+ *
+ * ── 接线（**可机器复核**：`tools/tests/widgets_parse.test.ts` ⑤ 钉调用点，⛔ 不钉"文件存在"）──
+ *   · `core/store.ets:onSse`：命中 `isWidgetEvent(event)` ⇒ 保留**原始串**（含坏 JSON）投给
+ *     `lastWidgetEvent` / `lastWidgetContent`（**先于 `JSON.parse`**，不解析 ⇒ 不可能抛）；
+ *   · `pages/Index.ets`：转成 `widgetEvent` / `widgetContent` ⇒
+ *     `components/WidgetDock.ets`（聊天内联落点）+ `components/PluginWidgets.ets`（宿主页全量卡）。
+ *
+ * ⛔ **单个 widget 体裁**不受支持时仍**逐块显式降级**（`WIDGET_UNSUPPORTED_LABEL` = 「暂不支持」，
+ *    见 `core/widgetsview.ets` 的 `degradeReasonForType`：`code`/`src` 需 iframe 沙箱）—— 那是**块级**
+ *    契约，与"整类功能有没有渲染层"是两件事，⛔ 别把二者混成一个旗标。
  */
-export const WIDGETS_RENDERABLE: boolean = false;
+export const WIDGETS_RENDERABLE: boolean = true;
 
 /** 一个 web UI 组件声明（web `types/shared.ts:692-724` 的 WebUIComponentDecl 子集）。 */
 export interface WidgetComponentDecl {

@@ -25,17 +25,11 @@ import { parseWidgetsPayload, WidgetSnapshot } from './panels';
 export const WIDGET_EVENT_WEB: string = 'web_widgets';
 export const WIDGET_EVENT_PLUGIN: string = 'plugin_widgets';
 
-/**
- * **渲染层已支持**（本轮新增）。
- *
- * ⛔ 与 `core/panels.ets:WIDGETS_RENDERABLE=false` 的关系（**必须一起改，否则自相矛盾**）：
- *   · `panels.WIDGETS_RENDERABLE` 的语义是"**原生有没有组件消费 zones/components**"，
- *     由 `widgets_parse.test.ts:74` 钉死为 `false`（当时的诚实状态：解析在、UI 缺）；
- *   · 本轮补上了 `components/PluginWidgets.ets` ⇒ 该状态**已变**，此常量表达"已支持"。
- *   ⚠️ 翻转 `WIDGETS_RENDERABLE` 需**其主**（`core/panels.ets` 有 owner）在同一提交里
- *      同步改 `widgets_parse.test.ts:74` —— 本模块**不改** panels（只在此声明事实）。
- */
-export const WIDGETS_VIEW_SUPPORTED: boolean = true;
+// ⛔ **这个事实的唯一声明处 = `core/panels.ets:WIDGETS_RENDERABLE`**（2026-10-13 起为 `true`）。
+//    本模块**不再**另立一个同义旗标（原 `WIDGETS_VIEW_SUPPORTED` 已删）：
+//    两个旗标表达同一件事就是"双真源"，而它俩历史上**互相打脸**
+//    （`panels.WIDGETS_RENDERABLE=false` ↔ 这里 `=true`）⇒ 删掉重复的那个，只留一处可复核的声明。
+//    渲染侧接线与**调用点**判据见 `tools/tests/widgets_parse.test.ts` ⑤。
 
 // ── 组件形态档（**判据**：组件据此选渲染分支；测试据此断言"未知 ⇒ 降级"）────────────────
 export const KIND_BADGE: string = 'badge';

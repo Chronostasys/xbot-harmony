@@ -115,7 +115,7 @@
 | 3 | 常驻前台 Service | **平台不开放给三方** | 三方拿不到常驻后台能力。 | 同上 |
 | 4 | `Index.ets` 拆分 **P3–P6**（服务层 **17 个域**） | **后续阶段** | 拆分是 strangler、逐块批准；服务层 3600 行按"操作域"切成 17 个候选域，且**有 5 组必须同搬**（否则判据分叉）。不阻塞验收。 | `docs/INDEX-SPLIT-PLAN.md §4.5`（含 17 域表 + 同搬组） |
 | 5 | 令牌**迁移**（把各组件散落值换成 `core/design.ets` token） | **后续阶段** | 现状 `components+pages` 仍有约 70 处圆角字面量、`this.pal()` ≤1250 处；迁移每阶段门禁必绿、可回滚。 | `docs/REDESIGN-STRUCTURE.md §3`（分阶段）+ `§0` 实测口径 |
-| 6 | 插件 **widget 界面渲染** | **未做渲染** | core 侧已解析并显式暴露（`core/panels.ets:parseWidgetsPayload` + `WIDGETS_RENDERABLE=false`），但**无渲染组件**；接线清单已交。 | `docs/RELEASE.md §5` |
+| 6 | 插件 **widget 界面渲染** | **已落地**（2026-10-13 订正） | 原记"未做渲染"是**过期条目**：渲染层早已接线（`core/store.ets:onSse` → `pages/Index.ets` → `components/WidgetDock.ets` 聊天内联 + `components/PluginWidgets.ets` 宿主全量卡），仅 `WIDGETS_RENDERABLE` 常量与本文档**一同腐烂**（**已订正为 `true`**）。调用点判据 `tools/tests/widgets_parse.test.ts` ⑤；块级限制（`code`/`src` 需沙箱）仍逐块降级。 | `docs/RELEASE.md §5` |
 | 7 | 渠道过滤 `activeChannel` 的**页面接线** | **未接线** | 纯逻辑 + IO 已就绪（`core/sessionpick.ets` / `core/config.ets:saveActiveChannel`），Index 侧三处调用待接。 | `docs/RELEASE.md §5` |
 | 8 | 代码块**语法高亮配色来源**分歧 | **待设计定稿** | 原生用**全局语义色板角色**（含对比度护栏），web 用每套 md 主题的 CSS 变量；23 套 × 20 变量搬进 ArkTS 属**外观**决策，归 `design-lead` 的 `core/design.ets`。 | `docs/WEB-ALIGNMENT.md §16 #6` |
 | 9 | **两条明暗轴**并存（`isLightPalette` × `isLightMdTheme`） | **待设计定稿** | md 主题是**用户可见功能**（与 web 共享 `web:ui:md-theme`），移除=功能回归；存量收敛需 `core/design.ets` 先给出"代码面色角色"。 | `docs/WEB-ALIGNMENT.md §16 #7` |

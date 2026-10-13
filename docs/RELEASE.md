@@ -95,7 +95,7 @@ hdc -t 127.0.0.1:5555 shell "aa start -a EntryAbility -b com.chronostasys.xbot"
 
 | 项 | 状态 | 原因 / 后续 |
 |---|---|---|
-| 插件 widget（`web_widgets`/`plugin_widgets`）渲染 | **未做渲染** | core 侧已解析并**显式暴露**（`core/panels.ets:parseWidgetsPayload` + `WIDGETS_RENDERABLE=false`），但**无渲染组件**；接线清单已交（`core/store.ets` handleSse + `components/**`） |
+| 插件 widget（`web_widgets`/`plugin_widgets`）渲染 | **已落地**（2026-10-13 订正；原记"未做渲染"是**过期条目**） | 渲染层早已接线，只是**常量与本文档一同腐烂**：`core/panels.ets:WIDGETS_RENDERABLE`（**已订正为 `true`**）→ `core/store.ets:onSse`（收原始串，不解析）→ `pages/Index.ets`（`widgetEvent`/`widgetContent`）→ `components/WidgetDock.ets`（聊天内联）+ `components/PluginWidgets.ets`（宿主全量卡）。**调用点判据** `tools/tests/widgets_parse.test.ts` ⑤。剩余**块级**限制：`code`/`src` 体裁需 iframe 沙箱 ⇒ 逐块显式降级「暂不支持」（`core/widgetsview.ets:degradeReasonForType`）。**唯一整类未支持 = GenUI（`display_html`）**，见 `docs/WEB-ALIGNMENT.md §21.95` |
 | `pages/Index.ets` 拆分（原 6420 行 / 18 单元） | **P1/P2-1 已实施** | P1（`19b58bb` 抽 `StatusSheet`）、P2-1（`3aa3945` 抽 `Queue/Plugins/SelfCheck Sheet`）各带 ④ 真编译取证，`Index.ets` 6420 → 6178 行；P2-2/P2-3/P3–P6 见 `docs/INDEX-SPLIT-PLAN.md`（后续阶段） |
 | 渠道过滤的 `activeChannel` 持久化**页面接线** | **未接线**（已另派） | 纯逻辑 + IO 就绪（`core/config.ets:saveActiveChannel`，键 `xbot:active-channel`，读写共用同一对纯函数）；`pages/Index.ets` 侧调用待接（`arch-split` 做） |
 | 构建门禁的"并发假红" | 部分缓解 | `check.sh` 的 PID 目录 + `include: ./build*/*.ts` 并发时仍可能互扰（非阻塞，重跑即可） |
