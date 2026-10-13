@@ -2887,7 +2887,7 @@ struct Index {
    * ⛔ `force:true` 不可省：服务端据此原样采纳传入路径（不做推断/转换）。
    */
   private async sendSetCwd(store: ChatStore, dir: string): Promise<void> {
-    await rpc<Object>(store.http, RPC_SET_CWD, new SetCwdParams(store.channel, store.currentChatId, dir));
+    await rpc<Object>(store.http, RPC_SET_CWD, new SetCwdParams(store.channel, store.wireChatId(), dir));
   }
 
   /**
@@ -3155,7 +3155,7 @@ struct Index {
     }
     try {
       await rpc<Object>(store.http, 'set_goal',
-        new SetGoalParams(store.channel, store.currentChatId, objective));
+        new SetGoalParams(store.channel, store.wireChatId(), objective));
     } catch (e) {
       this.toast(`设置目标失败: ${errText(e as Object)}`);
     }
@@ -3169,7 +3169,7 @@ struct Index {
     }
     try {
       await rpc<Object>(store.http, 'clear_goal',
-        new ClearGoalParams(store.channel, store.currentChatId));
+        new ClearGoalParams(store.channel, store.wireChatId()));
       // ⛔ **乐观覆盖**（web `AgentPanel.tsx:864-874` 的 `goalEditRef.current.commit(null, seq)` 同款）：
       //    RPC 成功 ⇒ **立刻**本地清掉 goal（goal 条当场消失）；服务端的显式清除标记
       //    （`{objective:"",status:"cleared"}`）到达即同值收敛（幂等，判据在 `core/reduce.ts:88-97`）。
@@ -3195,7 +3195,7 @@ struct Index {
     this.todosFp = todosFpOf(next);
     try {
       await rpc<Object>(store.http, 'set_todos',
-        new SetTodosParams(store.channel, store.currentChatId, todoPayloadRows(next)));
+        new SetTodosParams(store.channel, store.wireChatId(), todoPayloadRows(next)));
       this.pendingSeq.acceptSeq(seq); // ② RPC 成功 ⇒ 本次提交记账（更旧的提交不得回写）
     } catch (e) {
       // 失败：放弃本地覆盖，下一次同步回落到服务端权威值
@@ -4122,11 +4122,11 @@ struct Index {
     try {
       const st: GitStatusWire = await rpc<GitStatusWire>(store.http, RPC_WEB_PLUGIN,
         new WebPluginRpcParams(gitMethod('status'),
-          new GitChatParams(store.channel, store.currentChatId)));
+          new GitChatParams(store.channel, store.wireChatId())));
       this.gitStatus = parseGitStatus(st);
       const lg: GitLogWire = await rpc<GitLogWire>(store.http, RPC_WEB_PLUGIN,
         new WebPluginRpcParams(gitMethod('log'),
-          new GitLogParams(store.channel, store.currentChatId, GIT_LOG_PAGE, 0)));
+          new GitLogParams(store.channel, store.wireChatId(), GIT_LOG_PAGE, 0)));
       this.gitLog = parseGitLog(lg);
     } catch (e) {
       this.gitError = readableRpcError((e as Error).message);
@@ -4145,7 +4145,7 @@ struct Index {
     try {
       const page: GitLogWire = await rpc<GitLogWire>(store.http, RPC_WEB_PLUGIN,
         new WebPluginRpcParams(gitMethod('log'),
-          new GitLogParams(store.channel, store.currentChatId, GIT_LOG_PAGE, this.gitLog.commits.length)));
+          new GitLogParams(store.channel, store.wireChatId(), GIT_LOG_PAGE, this.gitLog.commits.length)));
       this.gitLog = mergeGitLog(this.gitLog, parseGitLog(page));
     } catch (e) {
       this.gitError = readableRpcError((e as Error).message);
@@ -4170,7 +4170,7 @@ struct Index {
     try {
       const d: GitDiffWire = await rpc<GitDiffWire>(store.http, RPC_WEB_PLUGIN,
         new WebPluginRpcParams(gitMethod('diff'),
-          new GitDiffParams(store.channel, store.currentChatId, path, commit)));
+          new GitDiffParams(store.channel, store.wireChatId(), path, commit)));
       const parsed: GitDiffData = parseGitDiff(d);
       this.gitDiffText = parsed.diffText;
       this.gitDiffAdds = parsed.adds;
@@ -4196,7 +4196,7 @@ struct Index {
     try {
       const c: GitCommitDetailWire = await rpc<GitCommitDetailWire>(store.http, RPC_WEB_PLUGIN,
         new WebPluginRpcParams(gitMethod('commit'),
-          new GitCommitParams(store.channel, store.currentChatId, hash)));
+          new GitCommitParams(store.channel, store.wireChatId(), hash)));
       const parsed: GitCommitDetail = parseGitCommit(c);
       this.gitCommitMeta = gitCommitMetaText(parsed);
       this.gitCommitMessage = parsed.message;
@@ -4260,7 +4260,7 @@ struct Index {
     try {
       const wire: SessionUsageWire = await rpc<SessionUsageWire>(
         store.http, RPC_GET_SESSION_USAGE_STATS,
-        new SessionUsageStatsParams(store.channel, store.currentChatId, 500));
+        new SessionUsageStatsParams(store.channel, store.wireChatId(), 500));
       this.sessUsage = parseSessionUsage(wire);
       this.sessionStatsError = '';
     } catch (e) {
@@ -4313,7 +4313,7 @@ struct Index {
     try {
       const b: UsageBucketWire[] = await rpc<UsageBucketWire[]>(
         store.http, RPC_GET_SESSION_USAGE_BUCKETS,
-        new SessionUsageBucketsParams(store.channel, store.currentChatId, g,
+        new SessionUsageBucketsParams(store.channel, store.wireChatId(), g,
           bucketRequestCount(g), tzOffsetMinutesFor(new Date().getTimezoneOffset())));
       this.statsBuckets = parseBuckets(b);
     } catch (e) {
@@ -5101,7 +5101,7 @@ struct Index {
                 username: this.username,
                 // 「开发者 → 导出会话」要会话选择器（`{channel, chat_id}`）；空 ⇒ 按钮禁用
                 channel: this.store.channel,
-                chatID: this.store.currentChatId,
+                chatID: this.store.wireChatId(),
                 onClose: () => {
                   this.showSettingsPanel = false;
                 },

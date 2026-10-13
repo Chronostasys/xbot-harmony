@@ -5317,3 +5317,54 @@ harmony-ui-dev         ch=chat_026B326DE4C4      kids=19  running=True status=ru
   我的用例曾预期"`feishu:oc_1` 行不匹配 `web:oc_1` 查询" —— **预期本身就错**（规范化产物与渠道
   无关，按设计就该匹配同 id 行），改为"不同 canonical id 不误配"并写明理由。**判据红了先问
   是不是判据错了**（本仓"判据 ≠ 信号"原则的又一次实证）。
+
+## §21.110 🔴 页面级 RPC **12 处漏网** ⇒ 统计面板「暂无数据」+ todos/goal/cwd/git 写操作全落幽灵会话（2026-10-13）
+
+### 症状（用户口径④「统计插件的面板我们看不到」）
+
+面板**能打开**了（能力面板 → 会话统计），但显示「暂无数据 / 本会话产生用量后会显示在这里」，
+右上角**转圈不停** —— 而同屏状态栏明明是 `deepseek-flash · 202K/1000K 20.201%`。
+
+### 服务端对照实验（`get_session_usage_stats`，两种 id 形态直打）
+
+| `chat_id` | 返回 |
+|---|---|
+| `chat_026B326DE4C4`（裸） | ✅ `avg_tokens_per_sec=294.19`、`turns=102`、`by_model[deepseek-flash]` 全量 |
+| `web:chat_026B326DE4C4`（全键） | ❌ 全 0 + `session_created_at=2026-10-13 19:32`（幽灵会话） |
+
+### 根因（§21.107 修复的**漏网点**）
+
+§21.107 只改了 `core/store.ets` 内部的出网参数，**页面级**（`pages/Index.ets`）还有 12 处直接
+`store.currentChatId` 构造会话级 RPC 参数：
+
+```
+new SetCwdParams(store.channel, store.currentChatId, dir)
+new SetGoalParams / new ClearGoalParams / new SetTodosParams(store.channel, store.currentChatId, …)
+new GitChatParams / new GitLogParams ×2 / new GitDiffParams / new GitCommitParams(…, store.currentChatId, …)
+new SessionUsageStatsParams(store.channel, store.currentChatId, 500)      ← 统计面板
+new SessionUsageBucketsParams(store.channel, store.currentChatId, …)      ← 趋势桶
+chatID: this.store.currentChatId                                          ← 设置面板的「导出会话」
+```
+
+⇒ 统计/趋势 **读**不到（面板空 + 转圈），而 cwd/goal/todos/git **写**操作全部发给幽灵会话
+（用户改 todo / 设 cwd / 设 goal 静默落到别处）。另有一处 `core/store.ets` 的
+`RPC_GET_SESSION_SUBSCRIPTION`（`SessionSelectorParams`）同样漏网。
+
+### 修法
+
+`ChatStore.wireChatId()` 由 `private` 提为 **public**（页面级 RPC 必须复用同一真源），
+`pages/Index.ets` 12 处 + `store.ets` 1 处全部改走它。
+
+### 判据（`session_id_wire.test.ts` ⑥，钉**页面**不漏网）
+
+`Index.ets` 里 `(store.channel, store.currentChatId` / `(this.store.channel, this.store.currentChatId`
+/ `chatID: this.store.currentChatId` **各 0 处**；`wireChatId()` 调用点 **≥ 12**；
+`store.ets` 的 `private wireChatId()` **0 处**（防有人再收回去）。
+
+### ⚠️ 我自己犯的两个错（记）
+
+1. **注释里写 `Git*/SessionUsageStats`** ⇒ `*/` **提前终止块注释** ⇒ 后半段注释变代码，
+   `run-one` 报一屏 `TS1005/TS1160`（不看错误原文就会误判成"别人在途文件"）。**规矩**：注释里
+   别写 `*/`（我自己的 GOTCHA 清单里早有"剥注释"的教训，这次是**写**注释时踩的）。
+2. 判据里用了未定义的 `idx`（TS2304）⇒ 补 `readSrc('…/pages/Index.ets')`；以及旧断言
+   `private wireChatId()` 与"提为 public"冲突 ⇒ 同步订正为"定义恰 1 处 + 非 private"。

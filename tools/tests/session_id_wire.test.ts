@@ -54,6 +54,7 @@ const store: string = readSrc('entry/src/main/ets/core/store.ets');
 const dev: string = readSrc('entry/src/main/ets/components/SettingsDeveloper.ets');
 const pick: string = readSrc('entry/src/main/ets/core/sessionpick.ets');
 const panels: string = readSrc('entry/src/main/ets/core/panels.ets');
+const idx: string = readSrc('entry/src/main/ets/pages/Index.ets');
 
 // ── ① 零扫描判红 ────────────────────────────────────────────────────────────
 // ⚠️ 判据自证时踩过：阈值一开始拍成 50000，而 `store.ets` **剥注释后**实为 47314 ⇒ 假红。
@@ -77,7 +78,8 @@ eq('② HistoryReq 两处都不再直传 currentChatId = 0', count(store, 'this.
 // ── ③ store 真消费 canonicalChatId（switch 路径内联）──────────────────────────
 eq('③ store import canonicalChatId 恰 1 处', count(store, 'canonicalChatId,'), 1);
 eq('③ store 使用 canonicalChatId 恰 1 处（chatSwitchPath）', count(store, 'canonicalChatId(this.channel, chatId)'), 1);
-eq('③ wireChatId() 定义恰 1 处', count(store, 'private wireChatId(): string'), 1);
+eq('③ wireChatId() 定义恰 1 处', count(store, 'wireChatId(): string {'), 1);
+eq('③ ⛔ 不得退回 private（页面级 RPC 要复用）', count(store, 'private wireChatId(): string'), 0);
 
 // ── ④ SettingsDeveloper：参数 + 标签都走规范形态 ─────────────────────────────
 eq('④ 导出参数用 canonicalChatId 恰 1 处',
@@ -94,6 +96,21 @@ eq('⑤ ⛔ store 不再用 findSessionNodeOf 匹配当前会话', count(store, 
 eq('⑤ store 确已不再 import findSessionNodeOf', count(store, 'findSessionNodeOf,'), 0);
 eq('⑤ panels 导出 resolveSessionNode 恰 1 处', count(panels, 'export function resolveSessionNode('), 1);
 eq('⑤ panels 走规范化（canonicalChatId）', count(panels, 'canonicalChatId(ch, n.chat_id)'), 1);
+eq('⑤ 订阅 RPC 也走 wireChatId', count(store, 'new SessionSelectorParams(this.channel, this.wireChatId())'), 1);
+
+// ── ⑥ 页面级出网参数（⛔ 2026-10-13 实测：这些**漏网点**让"统计面板看不到"）────────────
+//   `Index.ets` 里曾直接用 `store.currentChatId` 构造 12 处会话级 RPC 参数
+//   （`SetCwd/SetGoal/ClearGoal/SetTodos/GitChat/GitLog×2/GitDiff/GitCommit/SessionUsageStats/
+//    SessionUsageBuckets` + 导出会话的 `chatID`）⇒ 全部落到幽灵会话：
+//   · 统计面板「暂无数据」而同屏状态栏有 `202K/1000K`；裸 id 的 `get_session_usage_stats`
+//     实测返 294 tok/s + 102 turns，全键入参返**全 0**（服务端对照实验）。
+eq('⑥ ⛔ 页面不再直传 `(store.channel, store.currentChatId`', count(idx, '(store.channel, store.currentChatId'), 0);
+eq('⑥ ⛔ 页面不再直传 `(this.store.channel, this.store.currentChatId`',
+  count(idx, '(this.store.channel, this.store.currentChatId'), 0);
+eq('⑥ ⛔ 导出会话的 chatID 不再直传 currentChatId', count(idx, 'chatID: this.store.currentChatId'), 0);
+ok(`⑥ 页面 wireChatId() 调用点 ≥ 12（实得 ${count(idx, 'wireChatId()')}）`, count(idx, 'wireChatId()') >= 12);
+eq('⑥ store 的 wireChatId 已是 public（页面要能调用）', count(store, 'private wireChatId(): string'), 0);
+eq('⑥ store 的 wireChatId 定义恰 1 处', count(store, 'wireChatId(): string {'), 1);
 
 console.log(`  session_id_wire: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

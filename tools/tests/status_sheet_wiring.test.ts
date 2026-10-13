@@ -197,8 +197,10 @@ has(indexSrc, 'const RPC_SET_CWD: string = \'set_cwd\'', '⑤ 唯一 set_cwd met
 ok('⑤ `RPC_SET_CWD` 被消费（定义 + 发送点 ≥2 处）', count(indexSrc, 'RPC_SET_CWD') >= 2);
 has(indexSrc, 'private async sendSetCwd(store: ChatStore, dir: string): Promise<void>',
   '⑤ 唯一发送点 sendSetCwd 存在');
+// ⚠️ 2026-10-13 订正：chat_id 参数改为 `store.wireChatId()`（出网规范化，见 §21.110）。
+//    本判据的**意图不变**：写路径只许走既有 `set_cwd`（`RPC_SET_CWD` + `SetCwdParams`）。
 has(indexSrc,
-  'rpc<Object>(store.http, RPC_SET_CWD, new SetCwdParams(store.channel, store.currentChatId, dir))',
+  'rpc<Object>(store.http, RPC_SET_CWD, new SetCwdParams(store.channel, store.wireChatId(), dir))',
   '⑤ 发送点通过 RPC_SET_CWD + SetCwdParams（既有 set_cwd 契约）');
 eq('⑤ SetCwdParams 只构造 1 处（唯一写路径）', count(indexSrc, 'new SetCwdParams('), 1);
 has(indexSrc, 'class SetCwdParams', '⑤ SetCwdParams 类型仍在（force:true 契约）');

@@ -897,8 +897,13 @@ export class ChatStore {
    *   默认目录、todos 丢失、历史显示空态「开始对话」。
    * ⛔ 只规范**出网参数**：`currentChatId` 自身与会话树里的值保持原样（列表内各处比较、`/` 分隔的
    *   子代理 id 都以后者为准）。
+   * ⛔ **public 且必须被页面复用**：页面级 RPC（`SetCwd`/`SetGoal`/`SetTodos`/`Git` 系列/
+   *   `SessionUsageStats`/`SessionUsageBuckets`、导出会话的 `chatID`）此前各自直接传
+   *   `currentChatId` ⇒ 全部漏网、一律落到幽灵会话（实测：统计面板「暂无数据」而同屏状态栏有
+   *   `202K/1000K`；裸 id 的 `get_session_usage_stats` 返 294 tok/s + 102 turns，全键返全 0）。
+   *   页面一律走本方法，判据 `tools/tests/session_id_wire.test.ts` 钉 `Index.ets` 里这类直传为 0 处。
    */
-  private wireChatId(): string {
+  wireChatId(): string {
     return canonicalChatId(this.channel, this.currentChatId);
   }
 
@@ -1354,7 +1359,7 @@ export class ChatStore {
     try {
       const sub: SessionSubscription = await rpc<SessionSubscription>(
         this.http, RPC_GET_SESSION_SUBSCRIPTION,
-        new SessionSelectorParams(this.channel, this.currentChatId));
+        new SessionSelectorParams(this.channel, this.wireChatId()));
       this.sessionSubscription = sessionSubscriptionId(sub);
       this.sessionSubState = 'ready';
       this.onUpdate();

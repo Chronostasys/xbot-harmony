@@ -138,7 +138,10 @@ has(storeSrc, 'sessionSubState: string', '② 三态字段 sessionSubState 声�
 has(storeSrc, 'sessionSubError: string', '② 失败原因字段 sessionSubError 声明在');
 has(storeSrc, 'async loadSessionSubscription(): Promise<void>', '② 取数入口 loadSessionSubscription 定义在');
 // ⛔ 关键：**显式传本会话渠道**（服务端缺省回落 "cli" ⇒ 不传会读错租户行）。
-has(storeSrc, 'new SessionSelectorParams(this.channel, this.currentChatId)',
+// ⚠️ 2026-10-13 订正：chat_id 参数改为走 `wireChatId()`（会话 id **出网规范化** —— 见
+//    `docs/WEB-ALIGNMENT.md` §21.107/§21.110：直传 `currentChatId`(全键) 会落到幽灵会话）。
+//    本判据的**意图不变**：调用点必须**显式**传 `this.channel`（防 channel 缺省回落 cli）。
+has(storeSrc, 'new SessionSelectorParams(this.channel, this.wireChatId())',
   '② 调用点显式传 channel（new SessionSelectorParams(this.channel, …)）—— 防 channel 缺省回落 cli');
 ok('② loader 真调 rpc 发 RPC_GET_SESSION_SUBSCRIPTION',
   storeSrc.indexOf('this.http, RPC_GET_SESSION_SUBSCRIPTION') >= 0);
