@@ -325,9 +325,14 @@ export class SseClient {
     if (this.state === next) {
       return;
     }
+    const prev: string = this.state;
     this.state = next;
     // 录制埋点（原生增强）：状态快照 + （开关打开时）记一条生命周期事件。
     sseRecorder.status.state = next;
+    // ⛔ 排障埋点（**必须**保留）：流"静默死掉"时**没有任何回调**（`readTimeout:0` ⇒ 无
+    // `dataEnd`、无 `err`），而诊断面板的卡片在屏外（惰性构建 ⇒ `dumpLayout` 读不到）
+    // ⇒ **这里是"流到底断没断"唯一的可观测点**（2026-10-14 实证：只有 hilog 拿得到）。
+    console.debug(`xbot sse: 状态 ${prev}->${next}`);
     if (sseRecorder.isEnabled()) {
       sseRecorder.push(SSEE_EV_STATE, next, Date.now());
     }
@@ -398,6 +403,11 @@ export class SseClient {
         SSE_ATTEMPT_STALL_MS,
         this.reconnectTimer >= 0,
       );
+      if (action !== WATCHDOG_IDLE) {
+        // ⛔ 排障埋点（**必须**保留）：看门狗是"流静默死掉"时**唯一**的被动接管者
+        // ⇒ 它动了手却无日志的话，界面上只能看到"突然开始重连"，无从归因。
+        console.debug(`xbot sse: watchdog ${action} state=${this.state} 帧龄=${nowMs - this.lastFrameAt}ms`);
+      }
       if (action === WATCHDOG_RECONNECT) {
         this.scheduleReconnect();
       } else if (action === WATCHDOG_RESTART) {
@@ -517,6 +527,8 @@ export class SseClient {
     this.attemptAt = Date.now();
     // 录制状态：本次是一次连接尝试（面板显示"已尝试 N 次"）
     sseRecorder.status.attemptCount += 1;
+    // 排障埋点：每次尝试一行（含是否带续传游标）—— 重连风暴/游标丢失一眼可辨。
+    console.debug(`xbot sse: 发起尝试 #${sseRecorder.status.attemptCount} 续传=${this.lastEventId === '' ? '无' : this.lastEventId}`);
     // 续传游标由**纯函数**拼（`buildStreamUrl`）⇒ 脱机测试能直接钉死"带/不带 last_event_id"
     const url: string = buildStreamUrl(this.baseUrl, this.chatId, this.channel, this.lastEventId);
     if (sseRecorder.isEnabled()) {
@@ -541,6 +553,7 @@ export class SseClient {
     });
     req.on('dataEnd', () => {
       // 服务端关闭（重启/网络切换）→ 退避重连
+      console.debug('xbot sse: dataEnd（服务端关闭）');
       this.scheduleReconnect();
     });
 
@@ -571,6 +584,10 @@ export class SseClient {
       const errCode: number = err !== undefined && err !== null ? err.code : 0;
       sseRecorder.status.lastErrCode = errCode;
       sseRecorder.status.lastRespCode = code;
+      // ⛔ 排障埋点（**必须**保留）：见 `setState` 处的理由 —— 流失败若不留日志，
+      // 界面只会显示"正在重连…"，**无法区分**是 h3 写崩（2300023）、被拒（4xx）还是
+      // 中间设备静默掐断（本行只会以 code=0 errCode=0 的形态出现）。
+      console.debug(`xbot sse: 尝试结束 code=${code} errCode=${errCode}`);
       if (sseRecorder.isEnabled()) {
         sseRecorder.push(SSEE_EV_ERROR, `code=${code} errCode=${errCode}`, Date.now());
       }
