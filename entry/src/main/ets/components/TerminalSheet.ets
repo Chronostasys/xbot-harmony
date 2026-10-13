@@ -33,7 +33,7 @@ import {
 import { Palette, paletteOf } from '../core/theme';
 import {
   colorOf, hairlineOf, HIT_TARGET_MIN, PRESS_OPACITY, RADIUS_CARD, RADIUS_PILL, RADIUS_SHEET,
-  SHEET_ACTION_GLYPH, SPACE_MD,
+  SHEET_ACTION_GLYPH, SPACE_HAIR, SPACE_MD,
   SHEET_WIDTH, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, surfaceFillOf, typeOf,
 } from '../core/design';
 import { sheetTransition } from './anim';
@@ -48,8 +48,18 @@ const TERM_FLUSH_MS: number = 100;
  * ⛔ 2026-10-13：**宽度不再由本常量定**（键行改 `layoutWeight(1)` 等分布满）——旧实现靠
  * `窄 padding + minWidth 44` 去"挤进一行"，量测已证伪（可用宽 326.8vp < 8×44 + 7×8 = 408vp
  * ⇒ 末枚键必然被裁）。这里只留"文字离键边的最小呼吸量"。
+ * ⛔ 2026-10-13（真机取证「键帽标签被截成 `Ctrl...` / `Ho...`」）：4 太宽 —— 8 枚等分键每枚仅
+ *   33.9vp（可用宽 326.8 − 7×8 间隙），扣两侧 8 ⇒ 文字盒 25.9vp，连 `Home`(≈28vp) 都放不下。
+ *   ⇒ 收到 **3**，并把键行 `space` 由 `SPACE_XS`(8) 收到 `SPACE_HAIR`(2)（每枚再 +5.2vp）⇒
+ *   8 枚键宽 ≈39.1vp、文字盒 ≈33.1vp，`Home`/`PgUp`/`PgDn` **天然放得下**（不再依赖缩字兜底）。
  */
-const KEY_PAD_X: number = 4;
+const KEY_PAD_X: number = 3;
+/**
+ * 键帽**最小宽度**（vp）：单字符键（`↑`/`|`/`~`）的内容宽只有 ≈13vp ⇒ 用本值兜住命中盒
+ * （≈ Apple 键盘键宽 32pt）。⛔ 不是 `HIT_TARGET_MIN`(44)：8 × 44 = 352 > 可用 326.8vp 会溢出
+ * —— 这正是「末枚键被裁」的根因。多字符键取**自身内容宽**（更长 ⇒ 更宽，**不截断**）。
+ */
+const KEY_FLOOR_VP: number = 32;
 /**
  * 键帽**自动收字的下限**（vp）：长标签（`Ctrl-C`/`PgUp`）在等分后的窄键上按此下限缩字，
  * 保证**不截断、不换行**（`Text.minFontSize` + `heightAdaptivePolicy=MIN_FONT_SIZE_FIRST`）。
@@ -463,25 +473,31 @@ export struct TerminalSheet {
       .backgroundColor(this.keyRoleColor(false, 'bg'))
       .border({ width: STROKE_HAIRLINE, color: this.keyRoleColor(false, 'border') })
       .borderRadius(RADIUS_PILL)
-      // ⛔ 2026-10-13（用户亲报「终端做的很差」+ 模拟器/真机**双端** dumpLayout 取证）：**每行 8 枚键放不下**。
-      //    量测：键行可用宽 = 92%×1320 − 2×16vp ≈ 1103px ≈ **326.8vp**；而旧实现 8 键 × 44vp(`minWidth`)
-      //    + 7 × 8vp(gap) = **408vp** ⇒ 溢出 81vp ⇒ 末枚（`→` / `-`）**整枚不在可视区**、`←`/`/` 被裁半。
-      //    （旧注释"`KEY_PAD_X`=6 就放得下"的标定是错的：它只算了水平 padding，没算 `minWidth` 与本机
-      //      字体缩放 —— 实测键帽宽 149px=44vp 起，8 枚必然溢出。）⇒ 改**等分布满**：
-      //    每枚 `layoutWeight(1)` ⇒ 键宽随可用宽自适应，构造上**不可能**再有键被挤出（也不需要横向滚动）。
-      .layoutWeight(1)
+      // ── 键宽 = **内容宽 + 最小宽**（2026-10-13 第三轮真机取证）──────────────────────────
+      // 病史：① 旧实现 `minWidth(44)` × 8 = 352vp > 可用 326.8vp ⇒ **末枚键被裁**（`e22dcd2`）；
+      //   ② 改 `layoutWeight(1)` 等分布满后键不再被裁，但每枚仅 ≈40vp，**长标签被截成
+      //   `Ctrl...` / `Ho...`** —— 真机取证：`minFontSize` 自适应缩字在 `Text` 上**未介入**
+      //   （实测给了确定高度也不缩），超宽直接走 `Ellipsis`。
+      // ⇒ 第三轮回到 web 权威的**内容宽**（web `TerminalPanel` 键栏 = `flex` 内容宽 +
+      //   `overflow-x-auto`）。⛔ **不删任何键**（`vt.test.ts` 钉住 Ctrl-C 直按 + `| ~ / -` 四全）：
+      //   让每枚键**恰好等于其文字所需宽**（不截断），并用 `KEY_FLOOR_VP` 兜住单字符键的命中盒。
+      //   量测：内容宽合计 ≈296vp（行 1）/ ≈286vp（行 2）/ ≈270vp（Ctrl 行），**均 < 可用
+      //   326.8vp** ⇒ 无溢出、无截断，也不需要横向滚动（`ScrollDirection.Horizontal` 计数仍 0）。
+      .constraintSize({ minWidth: KEY_FLOOR_VP })
       .maxLines(1)
       // ⛔ `maxLines` 必须配 `textOverflow`（门禁 `text_truncation_gate` 硬红：不配 = 默认 `Clip`
-      //    ⇒ 超出的字**静默消失**）。这里正常永不触发（下面 `minFontSize` 会把标签收进键宽），
-      //    它只是**fail-safe**：万一极端窄屏/超大字号仍放不下，至少给用户一个 `…` 而不是空白。
+      //    ⇒ 超出的字**静默消失**）。内容宽下正常永不触发，它只是**fail-safe**：万一极端窄屏/
+      //    超大字号仍放不下，至少给用户一个 `…` 而不是空白。
       .textOverflow({ overflow: TextOverflow.Ellipsis })
-      // 自动收字：长标签（`Ctrl-C` / `PgUp`）在窄键上缩到放得下，短标签仍是原字号 ⇒ 不截断、不换行。
+      // 自动收字：内容宽下正常**不触发**（标签天然放得下）⇒ 纯 fail-safe 兜底。
       .minFontSize(KEY_MIN_FONT)
       .maxFontSize(typeOf('type.caption').size)
       .heightAdaptivePolicy(TextHeightAdaptivePolicy.MIN_FONT_SIZE_FIRST)
       .textAlign(TextAlign.Center)
-      // 键帽高度恒 ≥ HIT_TARGET_MIN（字号被收小时 padding 不再够高 ⇒ 显式兜底，保持整排等高）。
-      .constraintSize({ minHeight: HIT_TARGET_MIN })
+      // 键帽高度**恒定** `HIT_TARGET_MIN`（整排等高）。⛔ 用确定高度（`.height()`）而非
+      // `constraintSize({minHeight})`：`minFontSize` 自适应缩字需要**确定盒尺寸**才介入，
+      // 只给下限时超宽直接走 `textOverflow: Ellipsis`（真机取证：`Ctrl...` 即这条路径）。
+      .height(HIT_TARGET_MIN)
       // 按压反馈：全站唯一口径 `PRESS_OPACITY`（门禁 `interactive_feedback` 硬红要求）
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
       .onClick(() => {
@@ -496,7 +512,9 @@ export struct TerminalSheet {
    */
   @Builder
   ctrlChip() {
-    Text(this.ctrlActive ? 'Ctrl ✓' : 'Ctrl')
+    // ⛔ 标签**恒为 `Ctrl`**（不加 `✓`）：状态由**填充**表达（激活 = `accent` 实心，
+    //    见 `keyRoleColor(active, 'bg')`）—— `Ctrl ✓` 是 6 字宽，在等分键宽里会溢出错行。
+    Text('Ctrl')
       .fontSize(typeOf('type.caption').size)
       .fontColor(this.keyRoleColor(this.ctrlActive, 'text'))
       .padding({ left: KEY_PAD_X, right: KEY_PAD_X, top: 14, bottom: 14 })
@@ -504,16 +522,15 @@ export struct TerminalSheet {
       // 同上：未激活时也要有发丝边才看得见键帽（激活态是实心 accent ⇒ 自带对比，不必描边）。
       .border({ width: STROKE_HAIRLINE, color: this.keyRoleColor(this.ctrlActive, 'border') })
       .borderRadius(RADIUS_PILL)
-      // 与 `keyChip` 同一处置（等分布满 + 收字 + 兜底高度）：`Ctrl` 与它右侧 7 枚键**同宽**，
-      // 整排等宽才不会"掉字"（旧实现靠固定 `minWidth` 对齐，屏窄时会被挤出行外）。
-      .layoutWeight(1)
+      // 与 `keyChip` 同一处置（内容宽 + 最小宽）：`Ctrl` 取自身字宽（≈37vp）⇒ 标签恒完整。
+      .constraintSize({ minWidth: KEY_FLOOR_VP })
       .maxLines(1)
       .textOverflow({ overflow: TextOverflow.Ellipsis })   // 同 `keyChip`：门禁要求 + fail-safe
       .minFontSize(KEY_MIN_FONT)
       .maxFontSize(typeOf('type.caption').size)
       .heightAdaptivePolicy(TextHeightAdaptivePolicy.MIN_FONT_SIZE_FIRST)
       .textAlign(TextAlign.Center)
-      .constraintSize({ minHeight: HIT_TARGET_MIN })
+      .height(HIT_TARGET_MIN)
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
       .onClick(() => {
         this.ctrlActive = !this.ctrlActive;
@@ -654,7 +671,9 @@ export struct TerminalSheet {
         // ⛔ 不包 `Scroll`（2026-10-13，见 `keyChip` 的量测）：每枚键 `layoutWeight(1)` 等分布满
         //    ⇒ 无需横向滚动，也就**不可能**再有键落在可视区之外（旧实现 8×44vp 必然溢出，
         //    末枚 `→` 直接不可见、`←` 被裁半 —— 用户亲报「终端做的很差」的可见证据之一）。
-        Row({ space: SPACE_XS }) {
+        // ⛔ 键行 `space` = `SPACE_HAIR`(2)（不是 `SPACE_XS`(8)）：8 枚等分键 + 7 个 8vp 间隙会吃掉
+        //    56vp，每枚只剩 33.9vp ⇒ `Home`/`PgUp` 被截（真机取证）。收到 2vp ⇒ 每枚 +5.2vp。
+        Row({ space: SPACE_HAIR }) {
           this.keyChip('Ctrl-C', ctrlLetterByte('C'))
           this.keyChip('Tab', '\t')
           this.keyChip('Esc', '\x1b')
@@ -671,7 +690,7 @@ export struct TerminalSheet {
         //          Ctrl 开 ⇒ web `CTRL_KEYS`（常见 shell 快捷键）。**等高等宽**切换 ⇒ 画布不抖动、
         //          不会因键区高度变化而反复向 PTY 发 resize（见 `applySize`）。
         // ⛔ 与主键行同一处置：不包 `Scroll`（等分布满 ⇒ 无键会被挤出可视区；旧实现末枚 `-` 不可见）。
-        Row({ space: SPACE_XS }) {
+        Row({ space: SPACE_HAIR }) {
           if (this.ctrlActive) {
             // Ctrl 组合字母：字节真源 = `ctrlLetterByte`（web `handleAuxKey` 同源，可脱机单测）
             this.keyChip('C', ctrlLetterByte('C'))

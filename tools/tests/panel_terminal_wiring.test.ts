@@ -160,8 +160,16 @@ ok(`新空态文案存在（${newEmpty} ≥ 1）`, newEmpty >= 1);
 function builderBody(src: string, marker: string): string {
   const s: number = src.indexOf(marker);
   if (s < 0) { return ''; }
-  const n: number = src.indexOf('@Builder', s + marker.length);
-  return src.slice(s, n > 0 ? n : src.length);
+  // ⚠️ 2026-10-13（本判据自证时实测）：终点**必须**同时考虑「下一个 `@Builder`」与「组件 `build()`」。
+  //   只取下一个 `@Builder` 时，**最后一个** builder（`ctrlChip`）会一路切到文件尾、把 `build()`
+  //   里的 `.layoutWeight(1)`（画布 Scroll / 输入框）也计进来 ⇒ 旧断言「ctrlChip 等分 ≥1」**假绿**。
+  const stops: number[] = [];
+  const nb: number = src.indexOf('@Builder', s + marker.length);
+  if (nb > 0) { stops.push(nb); }
+  const nbuild: number = src.indexOf('\n  build() {', s + marker.length);
+  if (nbuild > 0) { stops.push(nbuild); }
+  const n: number = stops.length > 0 ? Math.min.apply(null, stops) : src.length;
+  return src.slice(s, n);
 }
 /** 方法体切片：从 `签名) {` 到**下一个同级方法/`@Builder`**（够用即可，用于断言取色落点）。 */
 function methodBody(src: string, marker: string): string {
@@ -173,10 +181,16 @@ function methodBody(src: string, marker: string): string {
 const keyChipBody: string = builderBody(termSrc, 'keyChip(label: string, seq: string) {');
 const ctrlChipBody: string = builderBody(termSrc, 'ctrlChip() {');
 const roleColorBody: string = methodBody(termSrc, 'private keyRoleColor(active: boolean, role: string): string {');
-// ⚠️ 2026-10-13：键宽不再靠固定 `KEY_MIN_W`，改 `layoutWeight(1)` **等分布满** —— 量测已证伪旧标定
-//   （可用宽 326.8vp < 8×44 + 7×8 = 408vp ⇒ 末枚键必被裁）。判据随之上移，并**钉旧常量退场**。
+// ⚠️ 2026-10-13（第三轮，真机取证「键帽标签被截成 `Ctrl...` / `Ho...`」）：`layoutWeight(1)` 等分
+//   虽不裁键，但每枚仅 ≈40vp ⇒ 长标签（`Ctrl-C`/`Home`/`PgUp`）溢出截断 —— 实测 `minFontSize`
+//   自适应缩字在 `Text` 上**未介入**（给了确定高度也不缩）。⇒ 回到 web 权威的**内容宽**
+//   （web `TerminalPanel` 键栏 = `flex` 内容宽 + `overflow-x-auto`）：`KEY_FLOOR_VP` 兜住单字符键，
+//   多字符键取**自身字宽**（不截断）。判据随之上移：**钉"内容宽 + 最小宽"形态** + **钉等分形态退场**。
 const minFontDecl: number = countOf(termSrc, 'const KEY_MIN_FONT');
 const keyMinWLeft: number = countOf(termSrc, 'KEY_MIN_W');
+const keyFloorDecl: number = countOf(termSrc, 'const KEY_FLOOR_VP');
+const keyFloorChip: number = countOf(keyChipBody, '.constraintSize({ minWidth: KEY_FLOOR_VP })');
+const keyFloorCtrl: number = countOf(ctrlChipBody, '.constraintSize({ minWidth: KEY_FLOOR_VP })');
 const keyBorderVia: number = countOf(keyChipBody, "this.keyRoleColor(false, 'border')");
 const ctrlBorderVia: number = countOf(ctrlChipBody, "this.keyRoleColor(this.ctrlActive, 'border')");
 const keyWeight: number = countOf(keyChipBody, '.layoutWeight(1)');
@@ -195,8 +209,11 @@ ok(`旧 KEY_MIN_W 已退场（${keyMinWLeft} == 0）—— 宽度改由等分布
 ok(`键行不再包横向 Scroll（ScrollDirection.Horizontal 残留 ${scrollInKeys} == 0）`, scrollInKeys === 0);
 ok(`keyChip 经单一取色点拿描边色（${keyBorderVia} ≥ 1）`, keyBorderVia >= 1);
 ok(`ctrlChip 经单一取色点拿描边色（${ctrlBorderVia} ≥ 1）`, ctrlBorderVia >= 1);
-ok(`keyChip 等分布满（layoutWeight ${keyWeight} ≥ 1）`, keyWeight >= 1);
-ok(`ctrlChip 等分布满（layoutWeight ${ctrlWeight} ≥ 1）`, ctrlWeight >= 1);
+ok(`keyChip 内容宽 + 最小宽（KEY_FLOOR_VP ${keyFloorChip} ≥ 1）`, keyFloorChip >= 1);
+ok(`ctrlChip 内容宽 + 最小宽（KEY_FLOOR_VP ${keyFloorCtrl} ≥ 1）`, keyFloorCtrl >= 1);
+ok(`KEY_FLOOR_VP 常量声明（${keyFloorDecl} == 1）`, keyFloorDecl === 1);
+ok(`⛔ 键宽不再等分（keyChip/ctrlChip 的 layoutWeight ${keyWeight}+${ctrlWeight} == 0）`,
+  keyWeight === 0 && ctrlWeight === 0);
 ok(`取色点落到 hairlineOf（${roleHairline} ≥ 1）`, roleHairline >= 1);
 ok(`取色点落到 surfaceFillOf（${roleSurface} ≥ 1）`, roleSurface >= 1);
 ok(`取色点**只取一次色**（palOnce ${rolePalOnce} == 1，B 线预算顶格）`, rolePalOnce === 1);
