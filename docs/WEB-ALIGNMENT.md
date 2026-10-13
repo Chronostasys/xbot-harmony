@@ -5217,3 +5217,44 @@ ctxMenu/image/webPanel）⇒ **不含** `showTerminal`/`showTaskDetail`/`showCro
 `core/panels.bgTaskMetaText` 改为 `!bgTaskRunning(t)` 才拼 `exit N`，并在 `panels.test.ts` 补一条
 **判别力用例**（fixture 带 `exit_code: -1` 且 `status: running`）—— 原用例的 fixture **没给**
 `exit_code`，所以此前放过了这个真缺陷。
+
+## §21.108 定时行缺**常驻前导字形** ⇒ ①少 web 的 ⏰ ②跨页签文字基线不齐（有数据态复盘，2026-10-13）
+
+### 症状（有数据态才看得见）
+
+面板修好之后「定时」页终于有行（`定时 1` / `一次性 · 2027-01-01 03:00 触发 · 下次 03:00` / 红色 ✕）。
+与 web 权威 `TasksPanel.tsx:101-182` 逐项对照发现：**web 的 cron 行有常驻 `<AlarmClock>` 前导图标**
+（`text-text-secondary`），而原生定时行**没传 `lead`** ⇒
+
+1. 少了 web 的 ⏰（扫视时少一个"这是定时任务"的锚点）；
+2. 更重要：`PanelRowCard` 的前导槽是**固定槽宽**（`if (this.lead.length > 0)` 时 `width(ICON_XL)`）⇒
+   **定时页与后台页的行文字起点不同**，切页签时文字整体横移（"列表行文字不该跳"是 Apple 列表行范式，
+   组件注释里就是这么写的）。
+
+### 修法
+
+- `core/panels.ets` 新增 `LEAD_CRON = 'cron'`（**常驻**码，区别于 `LEAD_RUNNING/OK/FAIL/KILLED`
+  四个**状态**码）。
+- `components/PanelRows.ets`：`this.lead === LEAD_CRON` ⇒ `SymbolGlyph($r('sys.symbol.clock'))`，
+  颜色走 `leadColor()` 的兜底分支（`colorOf(p,'iconMuted')`，与 web 的 `text-secondary` 同义）。
+  ⛔ **符号名不猜**：`sys.symbol.clock` 是同面板空态（`Index.ets` 的 `PanelEmpty('暂无定时任务')`）
+  **已装机渲染过**的名字；SDK 里没找到可 grep 的符号索引文件，所以只用"本仓已实证"的名字。
+- `pages/Index.ets`：cron 行的 `PanelRowCard` 传 `lead: LEAD_CRON`。
+- 后台任务行**保持**状态码（`lead: bgTaskLeadCode(t)`）—— 它要**随状态变形**，与 cron 的静态不同。
+
+### 判据（⛔ 钉"消费点计数"，不钉"常量存在"）
+
+新增 `tools/tests/panel_lead_wiring.test.ts`（11 项）：① 三文件真读到 + `LEAD_CRON` 定义恰 1 处；
+② `PanelRows.ets` 消费该码恰 1 处**且其分支体内确有 `SymbolGlyph` + 已实证符号名**；
+③ `Index.ets` 传 `lead: LEAD_CRON` 恰 1 处**且与 `primary: cronPrimary(job)` 落在同一对象字面量
+窗口内**（防"传在别的行上"假绿）；④ 后台行仍用状态码（防退回静态）。
+
+**mutation 自证（实测）**：删 `Index.ets` 的 `lead: LEAD_CRON` + 删 `PanelRows.ets` 的 LEAD_CRON
+分支 ⇒ **5 红**；还原 ⇒ **11 绿**。（备份 `/tmp/mut_*.bak` → 校验 → `rm -f`，全程不碰 git。）
+
+### ⚠️ 判据自身缺陷清单（本仓第 2 次同类假红）
+
+- `session_id_wire.test.ts`：文件规模阈值拍成 50000，剥注释后实为 **47314** ⇒ 假红。
+- `panel_lead_wiring.test.ts`：阈值拍成 20000/8000，实际 **16104/5829** ⇒ 假红。
+- ⇒ **规矩**：判据里凡是"文件规模/行数"阈值，一律先**量一次剥注释后的真实值**再写，
+  并按真实值留余量；⛔ 永不改实现去迁就判据。
