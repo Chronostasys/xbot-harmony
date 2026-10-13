@@ -5522,6 +5522,7 @@ struct Index {
       //    **都可能不显示**（不变量被破坏，见 `docs/REDESIGN-INPUT-STATES.md §F2`）。
       if (this.rows.length === 0 && this.loadErr.length === 0 && !busyNow(this.busySignals())
         && !this.loadingMore && this.currentChat.length > 0
+        && !this.isSubAgentChat()          // ⛔ 子代理会话**不**走通用「开始对话」空态（走下方专属空态）
         && !showsHistorySkeleton(this.historyLoading, this.rows.length)) {
         Column({ space: SP_3 }) {
           // ⛔ 星形不再用 `.shadow`：它按**字形包围盒**渲染 ⇒ 深色底上星形外面是一圈
@@ -5550,6 +5551,21 @@ struct Index {
         }
         .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
         .id('xbot-empty-state')
+      }
+
+      // ── 子代理会话的**专属空态**（与上面通用空态互斥：条件加了 `!this.isSubAgentChat()`）──────
+      // 为什么必须分开：子代理会话**没有独立消息历史** —— 服务端 `/api/history` 实测回
+      // `messages:null`、DB `session_messages` 对其 `channel=agent` 租户 `msgs=0`（它的内容只以
+      // `sub_agents` 进度挂在**父轮次**里，见 `isSubAgentChat()` 头注）⇒ 通用「开始对话 + 用 / 选命令、@ 提文件」
+      // 对该类会话**是误导**（那边没有可对话的东西、输入区也已按 web 语义不渲染）。
+      // ⚠️ 复用页面既有 `@Builder PanelEmpty`（图标 + 主行 + 提示行，居中）—— ⛔ 不新写取色：
+      //    性能预算 B 线（`pal()∨palOnce()` 读取总量）余量为 **0**（1350/1350），而 `PanelEmpty`
+      //    内部只读一次 `palOnce()`、已是既有站点 ⇒ **调用它不加计数**（新增取色会立刻顶穿门禁）。
+      if (this.rows.length === 0 && this.loadErr.length === 0 && this.currentChat.length > 0
+        && !this.loadingMore && this.isSubAgentChat()
+        && !showsHistorySkeleton(this.historyLoading, this.rows.length)) {
+        this.PanelEmpty($r('sys.symbol.person_2'), '子代理会话',
+          '它没有独立的消息历史 —— 运行过程显示在父会话对应的轮次里')
       }
 
       // 骨架屏：**只在"正在拉历史且还没有任何行"时**出现（判据在 `core/indicators.ets`，
