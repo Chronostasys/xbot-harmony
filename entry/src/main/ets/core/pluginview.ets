@@ -409,11 +409,16 @@ export function pluginMetaText(version: string, state: string): string {
  *   可选增强）。⛔ 这里改了就必须改 `components/PluginsSheet.ets` 的真实行数：两处失配 =
  *   13h 那个「第 N 行被裁」缺陷（高度估值少算一行 ⇒ 列表区放不下最后一行）。
  *
- * ⚠️ **§21.115**：值仍 = 5（原生目录 / 会话统计 / 技能 / Git 面板（原生）/ 完整 Web UI）；
+ * ⚠️ **§21.115**：值 5（原生目录 / 会话统计 / 技能 / Git 面板（原生）/ 完整 Web UI）；
  *   新增的**分组头「插件」不再折进本常量** —— 它由 `PANEL_SECTION_HEADER_H` **单独**计入
  *   `pluginPanelListHeight`（按真实 ≈ 半行高估值，⛔ 不再虚占一整行入口高）。
+ *
+ * ⚠️ 5 → 6（**§21.122**，2026-10-14，用户定向）：新增「**插件管理（Web）**」入口
+ *   （`xbot.plugin-manager.panel` → WebView）。它是「支持 web 所有插件（含未来插件）」的
+ *   **权威入口** —— 实测反证原生目录必然漏：`xbot.genui` 显示「0 个视图」⇒ 连「打开」都没有。
+ *   ⛔ 与上面 4 → 5 同理：这里改了**必须**同批改 `components/PluginsSheet.ets` 的真实行数。
  */
-export const PANEL_FIXED_ENTRY_ROWS: number = 5;
+export const PANEL_FIXED_ENTRY_ROWS: number = 6;
 /** 「入口行」高度估值（vp）：单行文本，取命中区下限 + 上下内距 + 行间距。 */
 export const PANEL_ENTRY_ROW_H: number = HIT_TARGET_MIN + 2 * INSET_ROW_Y + GAP_ROW_Y;
 /** 「插件行」高度估值（vp）：入口行 + 描述那一层（两层文本）。 */
@@ -428,8 +433,12 @@ export const PANEL_LIST_MIN_H: number = 320;
  *   （5 入口行 + 后端当前 4 个插件）= 626vp，旧上限 560 会**在常见形态就触顶**（用户看到的是
  *   "最后一行贴边 + 必须滚动"，而不是原来的"一屏看完"）。判据 `pluginview.test.ts` 的 ★H
  *   （"未触上限 ⇒ 恰为 N×入口行 + M×插件行"）正是一条**回归钉**，就是为了防这类"悄悄触顶"。
+ *
+ * ⚠️ 660 → 740（**§21.122**，2026-10-14）：固定入口行 5 → 6（新增「插件管理（Web）」）⇒
+ *   真实装机形态 = 6 入口行 + 4 插件 = **722vp** ⇒ 旧上限 660 会在**常见形态**触顶（★H 直接红，
+ *   本次门禁就是被它抓住的）。取 740 = 722 + 18 headroom（与上一档 626→660 的留白同量级）。
  */
-export const PANEL_LIST_MAX_H: number = 660;
+export const PANEL_LIST_MAX_H: number = 740;
 
 /** 计数归一化：非有限数/负数 ⇒ 0（防御服务端给了怪值）。 */
 function panelRowCount(n: number): number {

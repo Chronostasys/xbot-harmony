@@ -6140,3 +6140,60 @@ event 计数= 4   类型频次= {'heartbeat': 3, 'ask_user_resolved': 1}
 · ⛔ **busy 且有正文时主按钮不是"停止"** ⇒ 想验 (b) 必须先确认草稿为空（v2 因此**误发**一条消息）；
 · ⛔ **共享后端上可能有别的会话在跑**（v3 冷启即 busy）⇒ 装机实验必须**新建会话隔离**，否则
   "busy/排队/流式"全是别人的噪声。
+
+---
+
+## §21.122 插件内容一律 WebView 渲染（用户定向）+ 原生只做 chrome + 事件代理
+
+**用户原话（2026-10-14 插话）**：「我看你插件现在都是原生的？那岂不是全是定制逻辑？我是要求我们
+原生要支持所有 web 插件，所以你不能这么做吧。你应该支持渲染小 webview，然后代理一部分 web 原生
+的事件（比如打开文件之类的）」＋「你可以改 xbot 项目，就在当前分支改就行」。
+
+### ① 装机审计（8 个目标逐个点开，`uitest dumpLayout` 判 `Web` 节点数）
+
+| 目标 | 落点 | 判据 |
+|---|---|---|
+| 完整 Web UI | **WebView ✓** | `WEB=2`（`Web` + `rootWebArea`），渲染出 web 版会话 |
+| **GenUI（插件行）** | **点不开** | 页面自述「**0 个视图**」⇒ 连「打开」按钮都没有 |
+| **迭代指标（统计插件行）** | **点不开** | 「1 个视图」但同样**无入口** |
+| Git 面板（插件行） | 原生面板 | `WEB=0`，被 `nativeViewKind` 拦成原生 |
+| 远程机器（SSH）（插件行） | 原生面板 | `WEB=0` |
+| 会话统计 / 技能 / Git（原生）/ 插件目录（原生） | 原生面板 | `WEB=0` —— 但它们**本来就是 web 插件**（`xbot.session-stats` / `xbot.skill-manager` / `xbot.git-fancy`），原生里各重写了一套 |
+
+**根因（一句话）**：**用原生逻辑去猜 web 插件的视图模型必然漏** —— `xbot.genui` 的视图是
+`ctx.ui.openViewTab` **参数化动态**打开的，原生目录按静态 `contributes` 数 ⇒ 数出 0 个 ⇒ 无入口。
+这正是用户报的「统计插件的面板我们看不到」。
+
+### ② 改法（加法式，不动既有拦截契约）
+
+| 文件 | 改动 |
+|---|---|
+| `core/pluginhost.ets` | 新增 `XBOT_EMBED_PARAM`（`xbot_embed=1`）+ `embedPluginViewLink`（幂等）+ `isEmbeddedViewLink` + `PLUGIN_MANAGER_VIEW_ID`（`xbot.plugin-manager.panel`，真源 `web/src/plugins/manager/pluginManager.ts:34`） |
+| `components/WebSurface.ets` | `onLoadIntercept`：**带标记 ⇒ 让路**（`return false`，WebView 直渲），否则走原拦截链 |
+| `pages/Index.ets` | ① 插件行 `onOpenPlugin` **不再直开原生** ⇒ `panelUrl = embedPluginViewLink(target.url)`；② 新增 `openPluginManager()`（抽屉「插件」权威入口）；③ `PluginHost` 的两处 `onOpenPlugin`/`onOpenView` 同批打标记 |
+| `components/PluginsSheet.ets` | 新增首行「**插件管理（Web）**」+ `onOpenPluginManager` 回调 |
+| `core/pluginview.ets` | `PANEL_FIXED_ENTRY_ROWS` 5→6、`PANEL_LIST_MAX_H` 660→740（6 入口 + 4 插件 = 722vp，旧上限会在常见形态触顶） |
+| 判据同步 | `plugin_icons`（行数 5→6、⛔「不再硬编码 `square_grid_2x2`」的坑：那是"所有插件同图标"死分支符号 ⇒ 换 `list_bullet`）、`skills_pure`（常量 5→6）、`git_panel`（① 出口收紧为 `embedPluginViewLink(target.url)`）、`pluginview`（★H 用常量自洽，**上限同步后自动转绿**） |
+
+### ③ 装机取证（模拟器 `127.0.0.1:5555`，逐帧 dump）
+
+- **A 插件管理（Web）** ⇒ `WEB=2`，dump 出现 web 管理器真实内容：`Ambience 0.3.0` / `GenUI（display_html）1.0.0` / `Git 面板 0.3.5` / `迭代指标 1.0.0`
+  —— ⛔ **`Ambience` 是原生目录从来没列出的插件**（原生那套漏的实证）。
+- **B 插件行「Git 面板」** ⇒ `WEB=2`，dump = **web 自己的 Git 插件面板**（`Git 面板` / `当前目录不是 git 仓库` / `检查更新`），不再是原生面板。
+- **C 「Git 面板（原生）」** ⇒ `WEB=0` = 仍直开原生（**可选增强未被破坏**，`git_panel.test.ts` ① 的契约保留）。
+
+### ④ 方法论（本轮门禁教我的一次）
+
+**「先改行数常量，再四处同步」是硬约束**：`PANEL_FIXED_ENTRY_ROWS` 一次 5→6 连带
+**两个测试文件 + 一个高度上限**（`pluginview.test.ts` ★H 的"未触上限"前提直接失效 ⇒ 红）。
+门禁三轮红灯也正好是三条不同层的教训：① **漏 import**（`isEmbeddedViewLink` 只在
+`WebSurface` 用了没引进来）—— 脱机三条永远抓不到，**只有 ④ 真编译**能抓；
+② **判据里的符号禁令**（`plugin_icons` 禁止 PluginsSheet 出现 `square_grid_2x2`）；
+③ **高度上限回归钉**（就是为防"悄悄触顶"）。
+
+### ⑤ 未完成（§21.122b）
+
+- **事件代理**：WebView 侧还需代理 web 做不了的事（打开文件/下载/外链/剪贴板）—— 现有
+  `core/webbridge.ets` 是骨架，需按 web 侧真实调用点补齐。
+- **原生面板去留**：`会话统计`/`技能`/`插件目录（原生）` 是 web 插件的原生重写版；按用户定向
+  它们应逐步由 WebView 取代（保留为可选增强或删除，需与用户确认）。

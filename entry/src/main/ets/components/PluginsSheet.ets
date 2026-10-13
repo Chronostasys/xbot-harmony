@@ -67,6 +67,15 @@ export struct PluginsSheet {
   /** 打开**原生**插件目录宿主页（页面 `openPluginHost()`）。 */
   onOpenPluginHost: () => void = () => {
   };
+  /**
+   * 打开 **web 插件管理面板**（`xbot.plugin-manager.panel` → WebView；页面 `openPluginManager()`）。
+   *
+   * ⛔ 这是**权威入口**（用户 2026-10-14 定向）：插件列表/视图贡献点/启停/重载全由 web 用
+   * **插件自己声明的 contributes** 渲染 ⇒ 原生零猜测、**未来插件自动可用**。
+   * 实测反证（原生目录必然漏）：`xbot.genui` 在原生目录里显示「0 个视图」⇒ 连「打开」都没有。
+   */
+  onOpenPluginManager: () => void = () => {
+  };
   /** 打开**完整 Web UI**（页面用自己的 serverUrl 置 `panelUrl`）。 */
   onOpenWebUi: () => void = () => {
   };
@@ -200,6 +209,15 @@ export struct PluginsSheet {
         //    标签（「…（原生）」/「完整 Web UI」）已自带这一信息 ⇒ 删掉即少两行 chrome。
 
         List() {
+          // ── §21.122（用户 2026-10-14 定向）**权威入口**：web 插件管理面板 ────────────────
+          // 全部插件/视图贡献点 + 启停/重载由 web 用插件自己声明的 contributes 渲染（原生零猜测，
+          // 未来插件自动可用）。为什么放第一行：它是「支持 web 所有插件」的唯一不漏的入口
+          // ——实测原生目录对 `xbot.genui` 显示「0 个视图」、`迭代指标` 无入口。
+          ListItem() {
+            this.EntryRow('插件管理（Web）', $r('sys.symbol.list_bullet'), (): void => {
+              this.onOpenPluginManager();
+            })
+          }
           // 原生插件目录（components/PluginHost）：列出所有插件/视图贡献点，点开在宿主页运行
           ListItem() {
             this.EntryRow('插件目录（原生）', $r('sys.symbol.puzzle'), (): void => {

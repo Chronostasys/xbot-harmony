@@ -96,7 +96,7 @@ import {
   sessionStatusRole,
 } from '../core/sessiongroup';
 import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msgindex';
-import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, PluginOpenTarget, PluginViewItem, WebPluginListWire, XbotViewLink, buildPluginCatalog, nativeViewKind, parseXbotViewLink, pluginOpenTarget, pluginViewDeepLink, pluginViewTarget, primaryViewId } from '../core/pluginhost';
+import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, PluginOpenTarget, PluginViewItem, WebPluginListWire, buildPluginCatalog, embedPluginViewLink, nativeViewKind, pluginOpenTarget, pluginViewDeepLink, pluginViewTarget, primaryViewId, PLUGIN_MANAGER_VIEW_ID } from '../core/pluginhost';
 import { hasIterStatsBadge, iterStatsText } from '../core/pluginviews';
 import { SkillItem } from '../core/skills';
 import { FsFileEntry, FsReadResult, FsSearchEntry, fileKindOf, FK_IMAGE, fsMention, sortFsEntries, sortFsSearch } from '../core/files';
@@ -4093,6 +4093,37 @@ struct Index {
   }
 
   /**
+   * 打开 **web 插件管理面板**（抽屉「插件」的**权威入口**；用户 2026-10-14 定向）。
+   *
+   * ── 为什么以 web 的插件管理为中心 ──────────────────────────────────────────────
+   * 用户原话：「我看你插件现在都是原生的？那岂不是全是定制逻辑？…我要求我们原生要支持所有 web
+   *   插件…你应该支持渲染小 webview，然后代理一部分 web 原生的事件」。
+   * 实测反证原生目录**必然漏**（本轮装机审计）：`xbot.genui` 在原生目录里显示「**0 个视图**」
+   *   ⇒ 连「打开」按钮都没有；`迭代指标` 有 1 视图同样无入口 ⇒ 用户报的「统计插件面板看不到」。
+   *   web 的插件管理（`web/src/plugins/manager/PluginManagerPanel.tsx`）按**插件自己声明的
+   *   contributes** 渲染列表 + 启停/重载 ⇒ 原生零猜测、**未来插件自动可用**。
+   * ⛔ 带 `xbot_embed=1`：语义统一为「插件入口一律 WebView 直渲」（将来若有人给这个 view 加原生
+   *   落地，也不会把它从 webview 里偷走）。
+   * ⛔ 内嵌 webview 载入同源页面**必须**先注入会话 cookie，否则 401 落登录页。
+   */
+  private openPluginManager(): void {
+    this.showPlugins = false;
+    this.showDrawer = false;
+    this.panelUrl = '';
+    const store: ChatStore | null = this.store;
+    if (store !== null) {
+      this.syncSessionCookieToWeb(store);
+    }
+    const url: string = pluginViewDeepLink(this.serverUrl, PLUGIN_MANAGER_VIEW_ID, '插件');
+    if (url.length === 0) {
+      this.toast('服务器地址未配置，无法打开插件管理');
+      return;
+    }
+    this.panelTitle = '插件';
+    this.panelUrl = embedPluginViewLink(url);
+  }
+
+  /**
    * 打开 **GenUI（`display_html`）面板** —— 按需建分享 + 落 `WebSurface` URL。
    *
    * ── 为什么这样（完整依据见 `core/genui.ets` 头注释）────────────────────────────
@@ -4670,26 +4701,24 @@ struct Index {
               //    目录那条曾直接载入 `openUrl` = host 根页 = 聊天页 ⇒「跑回主界面」）。
               const target: PluginOpenTarget = pluginOpenTarget(p, this.serverUrl);
               if (target.url.length > 0) {
-                // ── §21.115：有**原生落地**的视图 ⇒ 直开原生面板（⛔ 不绕 WebSurface）────────────
-                // 为什么：插件卡（如 `xbot.git-fancy` 的「Git 面板」）的通用深链最终也会被
-                //   `onLoadIntercept` → `routePluginView` → `nativeViewKind` 拦回**同一个**原生面板
-                //   —— 但要多付一次整页 WebSurface 装载（真机可见的**闪白**）。这里在**导航前**先用
-                //   **同一个注册表**（`nativeViewKind`）判一次 ⇒ 直开原生、少一次往返。
-                // ⛔ 判据与拦截链**同源**（`nativeViewKind` 单一天源）；无原生落地 ⇒ 走 WebSurface 兜底
-                //   （任何非原生插件照旧可用）。这也让「删掉重复的『Git 面板（原生）』独立入口」成为
-                //   纯去重（能力不减：插件卡这条路变成**一等路径**）。
-                const link: XbotViewLink | null = parseXbotViewLink(target.url);
-                if (link !== null && nativeViewKind(link.viewId).length > 0) {
-                  this.routePluginView(link.viewId, link.title, target.url, link.params);
-                  return;
-                }
+                // ── §21.122（用户 2026-10-14 定向）：插件视图**一律 WebView 直渲** ───────────────
+                // 原实现：有原生落地的视图**直开原生面板**（省一次 WebSurface 装载）。用户明确否掉
+                //   这条路线 ——「插件都做成原生 ⇒ 全是定制逻辑，追不上『支持所有 web 插件』」。
+                // 现实现：插件内容（插件自带 UI，与 web 逐字同源）在 WebView 里渲染；原生只做
+                //   **外壳 chrome + 事件代理**（见 `docs/WEB-PARITY.md`）。`xbot_embed=1` 让
+                //   `onLoadIntercept` **让路**（否则同一 viewId 又会被拦回原生面板）。
+                // ⛔ 原生落地（Git/SSH 面板）保留为**可选增强**，由能力面板里的固定入口直开
+                //   （`onOpenGit` 等）—— 与插件目录这条路分离，两条路不再互相偷走对方的打开动作。
                 this.panelTitle = target.title;
-                this.panelUrl = target.url;
+                this.panelUrl = embedPluginViewLink(target.url);
                 return;
               }
               // 没有任何 view 贡献点（如 `xbot.genui` 由宿主内联渲染）⇒ 回落既有行为（web 根页）。
               this.panelTitle = p.name.length > 0 ? p.name : '插件';
               this.panelUrl = p.url;
+            },
+            onOpenPluginManager: () => {
+              this.openPluginManager();
             },
             onRetry: () => {
               // 重试拉目录（失败态里那颗「重试」按钮）——判据/三态由 `loadPluginCatalog` 统一驱动
@@ -5323,15 +5352,16 @@ struct Index {
               onOpenPlugin: (p: PluginCatalogItem) => {
                 // ⛔ 目录里点卡片/视图行**必须**走同一套通用深链（`pluginOpenTarget`）——
                 //    直接载入 `openUrl` 会落到 host 根页（聊天页）=「跑回主界面」（真机实证）。
+                // §21.122：插件视图一律 **WebView 直渲**（`xbot_embed=1` ⇒ 原生拦截让路）。
                 const t: PluginOpenTarget = pluginOpenTarget(p, this.serverUrl);
                 this.pluginPageTitle = t.title;
-                this.pluginPageUrl = t.url;
+                this.pluginPageUrl = embedPluginViewLink(t.url);
               },
               onOpenView: (v: PluginViewItem) => {
                 // 用户点名了目录里的**具体一行** ⇒ 开那一个 view（`pluginViewTarget`）。
                 const t: PluginOpenTarget = pluginViewTarget(v, this.serverUrl);
                 this.pluginPageTitle = t.title;
-                this.pluginPageUrl = t.url;
+                this.pluginPageUrl = embedPluginViewLink(t.url);
               },
               onNativeView: (viewId: string, title: string, url: string, params: Record<string, string>) => {
                 // WebSurface 拦截到插件视图深链导航（`?xbot_view=<viewId>`）⇒ 路由到原生面板。

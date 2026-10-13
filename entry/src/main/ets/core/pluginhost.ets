@@ -778,6 +778,48 @@ export function pluginViewDeepLink(base: string, viewId: string, title: string):
   return `${root}/${q}`;
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// 「WebView 直渲」标记（用户 2026-10-14 定向：**插件内容一律 webview 渲染**）
+//
+// 用户原话：「我看你插件现在都是原生的？那岂不是全是定制逻辑？…你应该支持渲染小
+//   webview，然后代理一部分 web 原生的事件（比如打开文件之类的）」。
+//
+// 为什么必须由 URL 自己声明而不是删掉 `nativeViewKind`：原生落地（Git/SSH 面板）保留为
+//   **可选增强**，由固定入口直开；而**插件目录**这条通用路要走 WebView 渲染插件自带 UI
+//   （与 web 逐字同源、且**未来插件自动可用**）。两条路都从同一条深链进入 ⇒ 需要显式标记。
+//   实测反证（原生猜插件视图模型必然漏）：`xbot.genui` 在原生目录里显示「**0 个视图**」⇒
+//   连「打开」按钮都没有；`迭代指标` 有 1 视图同样无入口 ⇒ 用户报的「统计插件面板看不到」。
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** 「WebView 直渲」标记参数（深链上加它 ⇒ 原生拦截层**让路**，不转原生面板）。 */
+export const XBOT_EMBED_PARAM: string = 'xbot_embed=1';
+
+/** 给插件视图深链打上「WebView 直渲」标记（**幂等**；非插件深链原样返回）。 */
+export function embedPluginViewLink(url: string): string {
+  if (url.length === 0 || url.indexOf('xbot_view=') < 0) {
+    return url;
+  }
+  if (url.indexOf(XBOT_EMBED_PARAM) >= 0) {
+    return url;
+  }
+  const sep: string = url.indexOf('?') >= 0 ? '&' : '?';
+  return `${url}${sep}${XBOT_EMBED_PARAM}`;
+}
+
+/** 该导航 URL 是否要求「WebView 直渲」（原生拦截层据此让路）。 */
+export function isEmbeddedViewLink(url: string): boolean {
+  return url.indexOf(XBOT_EMBED_PARAM) >= 0;
+}
+
+/**
+ * web 内置插件 `xbot.plugin-manager` 的**插件管理面板**视图 id
+ * （真源 `web/src/plugins/manager/pluginManager.ts:34`）。
+ *
+ * 抽屉「插件」的**权威入口**：列出全部插件及其视图贡献点 + 启停/重载/打开 —— 判据全在 web
+ * （插件自己声明的 `contributes`），**原生零猜测** ⇒ 「支持 web 所有插件（含未来插件）」。
+ */
+export const PLUGIN_MANAGER_VIEW_ID: string = 'xbot.plugin-manager.panel';
+
 /** 「打开某插件」的目标（URL + 顶栏人类标题）。ArkTS 禁无类型对象字面量 ⇒ class。 */
 export class PluginOpenTarget {
   /** 要载入的 URL（**有 view 时恒为深链**，见 `pluginOpenTarget`）。 */

@@ -171,7 +171,7 @@ function mk(name: string, source: string, enabled: boolean): SkillItem {
   ok('★页面接线：技能面板挂载（`SkillsSheet({`）', page.indexOf('SkillsSheet({') >= 0);
 
   ok('★能力面板第 4 条入口行（技能）在位', panel.indexOf("this.EntryRow('技能'") >= 0 && panel.indexOf('this.onOpenSkills();') >= 0);
-  eq('★固定入口行数 = 5（高度估值与行数同源；否则第 5 行会被裁；§21.115 分组头另计）', PANEL_FIXED_ENTRY_ROWS, 5);
+  eq('★固定入口行数 = 6（高度估值与行数同源；否则第 6 行会被裁；§21.115 分组头另计；§21.122 增「插件管理（Web）」）', PANEL_FIXED_ENTRY_ROWS, 6);
 
   // 性能预算 ⑦ 净额：静态骨架屏的 `ForEach([0, 1, 2, 3]` 必须已展开
   ok('★预算净额：静态骨架屏 `ForEach([0, 1, 2, 3]` 已展开为静态调用（`this.SkeletonRow(`）',

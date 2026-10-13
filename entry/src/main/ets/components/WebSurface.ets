@@ -10,7 +10,7 @@ import {
   WEB_PHASE_ERROR, WEB_PHASE_IDLE, WEB_PHASE_LOADING, WEB_PHASE_READY,
   WebStatus, webChromeLabel, webErrorDetail, webHttpErrorDetail, webStatusOf,
 } from '../core/pluginview';
-import { hostPageUrl, nativeViewKind, parseXbotViewLink } from '../core/pluginhost';
+import { hostPageUrl, isEmbeddedViewLink, nativeViewKind, parseXbotViewLink } from '../core/pluginhost';
 import {
   PRESS_OPACITY,   colorOf, hairlineOf, surfaceFillOf,
   HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_PILL, SPACE_XS, STROKE_HAIRLINE,
@@ -573,9 +573,14 @@ export struct WebSurface {
         // web 插件 `ctx.ui.openViewTab` 打开视图时，宿主页会把视图映射成 `?xbot_view=<viewId>`
         // 深链导航；原生端据此拦截，路由到原生面板（`nativeViewKind` 非空的那类）。
         // ⛔ 返回 true = 拦截（不再让 WebView 加载）；false = 放行（无原生落地 ⇒ WebView 兜底）。
+        // ⛔ **带「WebView 直渲」标记的深链一律放行**（用户 2026-10-14 定向：插件内容由 webview
+        //    渲染插件自带 UI，原生只做外壳 + 事件代理；标记由宿主插件入口打，见 `embedPluginViewLink`）。
         .onLoadIntercept((event) => {
           try {
             const targetUrl: string = event.data.getRequestUrl();
+            if (isEmbeddedViewLink(targetUrl)) {
+              return false;
+            }
             const link = parseXbotViewLink(targetUrl);
             if (link !== null && nativeViewKind(link.viewId).length > 0) {
               this.onOpenView(link.viewId, link.title, targetUrl, link.params);

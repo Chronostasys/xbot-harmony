@@ -94,7 +94,13 @@ ok('① 页面调唯一纯函数 pluginOpenTarget（主视图由插件自己的 
   openPluginSeg.indexOf('pluginOpenTarget(p, this.serverUrl)') >= 0);
 ok('① ⛔ 页面**不得**再内联拼深链（分叉防线：拼装只在 core 一处）',
   openPluginSeg.indexOf('pluginViewDeepLink(') < 0 && openPluginSeg.indexOf('primaryViewId(') < 0);
-ok('① 深链结果进 panelUrl', openPluginSeg.indexOf('this.panelUrl = target.url;') >= 0);
+// ⛔ 判据演进（**§21.122**，2026-10-14，用户定向）：插件视图**一律 WebView 直渲** ⇒ 深链进
+//    `panelUrl` 前必须打「WebView 直渲」标记（`embedPluginViewLink`），否则 `WebSurface` 的
+//    `onLoadIntercept` 会把同一 viewId 拦回**原生面板**（用户明确否掉的"每插件一份原生实现"）。
+//    形态仍钉**唯一调用点**（⛔ 页面不得自己拼条件），只是把出口从 `target.url` 收紧为
+//    `embedPluginViewLink(target.url)`。
+ok('① 深链结果进 panelUrl（§21.122：经 embedPluginViewLink 打「WebView 直渲」标记）',
+  openPluginSeg.indexOf('this.panelUrl = embedPluginViewLink(target.url);') >= 0);
 ok('① 无 view 声明时回落既有行为', openPluginSeg.indexOf('this.panelUrl = p.url;') >= 0);
 // 唯一纯函数自身：必须由 viewId 拼深链，且有 view 时**绝不**返回 host 根页（真机 bug 的根因）。
 const hostCore: string = stripComments(fs.readFileSync(path.join(CORE, 'pluginhost.ets'), 'utf8'));
