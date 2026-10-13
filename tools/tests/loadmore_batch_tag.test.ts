@@ -147,6 +147,11 @@ function joinSet(s: Set<string>): string {
     '未找到 loadMore 的 batchTag 实参');
   ok('D2 初始加载传 0（非 pagination 游标）',
     storeSrc.includes('ChatStore.toChatMessages(data.messages, 0)'));
+  // ⛔ web `useChatMessages.ts:620-639` 的「精确 id 全重复 ⇒ 停止分页」安全网（防游标停滞
+  //    死循环 + 重复行撞 key）。钉**调用片段**，不钉"名字出现过"。
+  ok('D3 loadMore 有「全重复 ⇒ hasMore=false 停止」安全网',
+    storeSrc.includes('if (fresh.length === 0) {') && storeSrc.includes('this.hasMore = false;'),
+    '未找到 fresh 全重复停止逻辑');
 }
 
 console.log(`\nloadmore_batch_tag: ${pass} passed, ${fail} failed`);

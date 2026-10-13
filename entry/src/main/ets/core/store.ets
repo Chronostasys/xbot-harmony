@@ -940,7 +940,27 @@ export class ChatStore {
       const data: HistoryData = await this.http.postAs<HistoryData>('/api/history', new HistoryReq(
         this.channel, this.currentChatId, 30, this.oldestId));
       const older: ChatMessage[] = ChatStore.toChatMessages(data.messages, this.oldestId);
-      this.history = older.concat(this.history);
+      // ⛔ 「全是重复 ⇒ 到底」停止条件（对齐 web `useChatMessages.ts:620-639` 的 `noExactDups`）：
+      //    服务端 `has_more` 只保证「这批之后还有行」，但若这批**全部**是与本地已持有的同
+      //    一行（游标未前进 / 边界对齐回带已加载行），说明已到尾部 —— 停止分页，绝不重复
+      //    前插（重复行 id 撞 `LazyForEach` key ⇒ 该子树不建项 = 用户「更早的加载不出来」）。
+      //    ⛔ 刻意**不**用「长度不变」当停止条件：一个超长 turn 跨多批时中间批只增迭代不增
+      //    行槽 ⇒ 长度不变但服务端仍有更早数据（web 同注释）。只认「精确 id 全重复」。
+      const existing: Set<string> = new Set<string>();
+      for (let i = 0; i < this.history.length; i++) {
+        existing.add(this.history[i].id);
+      }
+      const fresh: ChatMessage[] = [];
+      for (let i = 0; i < older.length; i++) {
+        if (!existing.has(older[i].id)) {
+          fresh.push(older[i]);
+        }
+      }
+      if (fresh.length === 0) {
+        this.hasMore = false;
+        return;
+      }
+      this.history = fresh.concat(this.history);
       this.applyHistoryMeta(data);
       // 分页只增量喂历史（active 快照传 null —— 不得动 live turn）。
       this.pushEvent(historyToReplaced(this.history, null));
