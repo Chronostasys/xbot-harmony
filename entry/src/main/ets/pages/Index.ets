@@ -9536,14 +9536,55 @@ struct Index {
   DrawerSheet() {
     Column() {
       // ── 头部（44 命中区 = Apple 导航栏高度）────────────────────────────────
-      // 层级：标题 = 本面板**唯一**「标题级」（`type.headline`）；「新建」= 次要动作文字
+      // 层级：标题 = 本面板**唯一**「页标题级」（`type.title`，主航面档；见下）；「新建」= 次要动作文字
       // （`type.subhead` + accentSoft，⛔ 不用实心色块抢占层级）；关闭 = 44×44 热区。
       Row({ space: SPACE_XS }) {
+        // ⚠️ 2026-10-14（目标③「抽屉对标 Apple」）：标题档由 `type.headline`(17) 升到
+        //    **`type.title`**(21 semibold)。理由：抽屉是**主航面**（不是 sheet）—— Apple 的主航面
+        //    用 large title，而 sheet 用 inline title；此前抽屉与 4 个 sheet 页头同为 17 ⇒ 主航面
+        //    读起来"没有比自己打开的面板更高一级"。21 是本仓排版阶梯里**唯一**达 large 的页头档
+        //    （`design.ets:864`），且仍 **bold/≥18.66px** ⇒ 对比度地板语义不变（走 `textPrimary`）。
+        //    ⛔ 不是新造档：`Fallback.ets` 的页标题已用同一档。
         Text('会话')
-          .fontSize(typeOf('type.headline').size)
-          .fontWeight(typeOf('type.headline').weight)
+          .fontSize(typeOf('type.title').size)
+          .fontWeight(typeOf('type.title').weight)
           .fontColor(this.pal().textPrimary)
           .layoutWeight(1)
+        // ── 「分组显示」= **视图选项**（全部折叠/全部展开）⇒ 归**顶栏**（Apple：视图/排序类选项在导航栏）
+        //    2026-10-14（目标③）：原先它挤在**筛选条**里，与「分段维度」「渠道值」两个*筛选*控件并排
+        //    ⇒ 三个等重胶囊让"筛选"与"视图"语义分不开、且把分段控件挤到只剩 65% 宽。移到顶栏后：
+        //    顶栏 = 标题 + 视图选项 + 新建 + 关闭（标准 Apple 导航栏），筛选条 = **只装筛选**。
+        //    ⛔ 形态与接线**逐字未变**（`collapse_all_wiring` 的形态契约照旧）：单枚 `ellipsis_circle`
+        //    + `bindMenu`（ArkUI 自管开合）+ 真实 44 布局盒 + a11y 文案。
+        if (this.collapseAllPlanNow().visible) {
+          Row() {
+            Row() {
+              // ⛔ 弃用"两枚箭头叠成 ⇅"：HarmonyOS **没有** `chevrons_up_down` 单字形，叠出来的
+              //    2×10vp 双箭头挤在 44 盒中央，真机观感像**渲染故障**。改用平台标准「更多动作」
+              //    原语 `ellipsis_circle` + `bindMenu` ⇒ 语义自解释，⛔ 不必再"猜字形"。
+              SymbolGlyph($r('sys.symbol.ellipsis_circle'))
+                .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
+            }
+            .width(SEG_TRACK_H)
+            .height(SEG_TRACK_H)
+            .justifyContent(FlexAlign.Center)
+            .alignItems(VerticalAlign.Center)
+            .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
+            .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
+            .borderRadius(RADIUS_CARD)
+          }
+          // ⛔ 真机实测：`responseRegion` 负偏移外扩**无效** ⇒ 热区靠**真实 ≥44 布局盒**。
+          .width(HIT_TARGET_MIN)
+          .height(HIT_TARGET_MIN)
+          .justifyContent(FlexAlign.Center)
+          .alignItems(VerticalAlign.Center)
+          // a11y：**图标-only、无可见文案** ⇒ 必须给读屏文案（对齐 web `SessionViewBar.tsx:39`
+          // 的 `aria-label`/`title`；动作文案逐字对齐 web `i18n/zh-CN.ts:108-109`）。
+          .accessibilityText('分组显示')
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          // ⛔ `bindMenu` 由 ArkUI 自管开合 ⇒ **不写 `onClick`**（写了会与锚点处理竞态）。
+          .bindMenu(this.CollapseMenu, { placement: Placement.BottomRight, enableArrow: false })
+        }
         // 「新建」= Apple 导航栏动作键形态：**图标 + accent 文字**（⛔ 不用实心色块抢占列表层级；
         // 调色板无 accent 底档 ⇒ 上色只能走前景）。图标 `square_and_pencil`（写新会话），
         // ⛔ 弃用全角「＋」——其字面宽度/基线与其他字形不同，真机观感是"+ 新建"被拉开成两块。
@@ -9747,46 +9788,7 @@ struct Index {
         .layoutWeight(1)
         .height(HIT_TARGET_MIN)
 
-        // ② 全部折叠 / 全部展开（web `SessionViewBar.tsx:66-78`）—— **轨道之外**，只在有分组时出现
-        //    （`plan.visible`）。判据与动作**同源**（`collapseAllPlan`）：`allCollapsed` 决定图标，
-        //    点击落 `applyCollapseAll`。折叠态走既有 `collapsedGroups`（与单组折叠同一套）
-        //    ⇒ ⛔ 不自造状态、不加动效。
-        // ⚠️ 2026-10-13（顶栏带三控件同高）：触发器改为**两层** —— 命中层 44（透明）+ 内部**居中**的
-        //    36×36 chip 视觉层（与同排分段轨道同高；此前视觉 = 44，比轨道高 8vp ⇒ 同排三种高度，
-        //    真机量测：轨道 122px / chip 149px）。说明搬到这里是因为 `collapse_all_wiring` 的
-        //    「触发器件区间 < 1500 字符」是**相干性护栏**（防切片吞进无关代码）⇒ 不靠放宽护栏过测。
-        if (this.collapseAllPlanNow().visible) {
-          Row() {
-            Row() {
-              // ⛔ 弃用"两枚箭头叠成 ⇅"：HarmonyOS **没有** `chevrons_up_down` 单字形（已枚举
-              //    `HMSymbolVF.ttf` 5563 字形确认），叠出来的 2×10vp 双箭头挤在 44 盒中央，
-              //    真机观感像**渲染故障**。改用平台标准「更多动作」原语 `ellipsis_circle` +
-              //    `bindMenu` ⇒ 语义（分组显示）自解释，⛔ 不必再"猜字形"。
-              SymbolGlyph($r('sys.symbol.ellipsis_circle'))
-                .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
-            }
-            .width(SEG_TRACK_H)
-            .height(SEG_TRACK_H)
-            .justifyContent(FlexAlign.Center)
-            .alignItems(VerticalAlign.Center)
-            .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
-            .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
-            .borderRadius(RADIUS_CARD)
-          }
-          // ⛔ 真机实测：`responseRegion` 负偏移外扩**无效** ⇒ 热区靠**真实 ≥44 布局盒**。
-          .width(HIT_TARGET_MIN)
-          .height(HIT_TARGET_MIN)
-          .justifyContent(FlexAlign.Center)
-          .alignItems(VerticalAlign.Center)
-          // a11y：**图标-only、无可见文案** ⇒ 必须给读屏文案（对齐 web `SessionViewBar.tsx:39`
-          // 的 `aria-label`/`title`；动作文案逐字对齐 web `i18n/zh-CN.ts:108-109`）。
-          .accessibilityText('分组显示')
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          // ⛔ `bindMenu` 由 ArkUI 自管开合 ⇒ **不写 `onClick`**（写了会与锚点处理竞态，见渠道触发器注）。
-          .bindMenu(this.CollapseMenu, { placement: Placement.BottomRight, enableArrow: false })
-        }
-
-        // ③ 渠道筛选**下拉触发器**（web `ChannelPicker.tsx:90-119` 同构）。中性治装：选中「全部」
+        // ② 渠道筛选**下拉触发器**（web `ChannelPicker.tsx:90-119` 同构）。中性治装：选中「全部」
         //    = 凹槽面（`surface.pillSelected`）；选中具体渠道 = 中性 chip + 内凹发丝。**当前值显示在
         //    触发器上** ⇒ 删掉 chips 行后信息不减（用户一眼看得出"正在按渠道过滤"）。
         // 命中层 44（透明）→ 视觉层 36 chip：与分段轨道、同排「分组显示」chip **同高**。
@@ -9830,6 +9832,16 @@ struct Index {
       .width('100%')
       .alignItems(VerticalAlign.Center)
       .padding({ bottom: SPACE_SM })
+
+      // ── 结构性发丝：工具条（标题 + 搜索 + 筛选）与内容区的分界 ──────────────────────
+      // 2026-10-14（目标③「抽屉对标 Apple」）：Apple 的侧栏/列表在工具栏与内容之间有一条发丝
+      // （`UINavigationBar` 底边 / macOS 侧栏顶部 divider）⇒ chrome 读成一个**工具条**、内容自成一区。
+      // 此前两者同底同色、边界只靠留白 ⇒ 观感是"一堆控件浮在灰面上"。⛔ 只加一条**结构性**发丝
+      // （`hairlineOf`；⛔ 不引入卡片/色块/第二层底色）。
+      Divider()
+        .strokeWidth(STROKE_HAIRLINE)
+        .color(hairlineOf(this.pal()))
+        .margin({ bottom: SPACE_SM })
 
       // ── 列表 / 空态 ────────────────────────────────────────────────────────
       // 空态判据走 `core/indicators.ets`（与骨架/占位同族，⛔ 页面不写第二套 `if`）。
@@ -10136,6 +10148,16 @@ struct Index {
           this.showDrawer = false;
           this.openFiles();
         })
+        // ── 竖向发丝：把**销毁性**动作（退出登录）与导航项拉开 ──────────────────────
+        // 2026-10-14（目标③「抽屉对标 Apple」）：Apple 不在主导航里放"等重的销毁项"——它要么收进
+        // 设置，要么与导航项**显式隔开**。本仓的「退出登录」功能已有更安全的入口
+        // （设置 → 账号：**两步确认** + 同一 `logout()` 路径）⇒ 底栏这枚保留为快捷方式，
+        // 但用一条竖向发丝把它与四个导航键分开 ⇒ 读成「4 导航 + 1 危险」，而不再是一排五个等权按钮。
+        Column()
+          .width(STROKE_HAIRLINE)
+          .height(SPACE_LG)
+          .backgroundColor(hairlineOf(this.pal()))
+          .margin({ left: SPACE_XS, right: SPACE_XS })
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.power'))
             .fontSize(ICON_XL).fontColor([this.pal().dangerText])
