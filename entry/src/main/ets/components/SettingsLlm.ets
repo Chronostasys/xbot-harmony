@@ -846,20 +846,32 @@ export struct SettingsLlm {
         theme: this.theme,
       })
 
-      // ── 工具栏：搜索 / 刷新模型 / 新增订阅（web `SettingsLLM.tsx:254-271`）──────
+      // ── 搜索框（**独立成行**）──────────────────────────────────────────────────
+      // ⚠️ 2026-10-13（目标③ 逐面板量测·`dumpLayout` 铁证）：原实现把搜索框塞进**下面那一行**
+      //    与 4 枚 chip 同排 + `layoutWeight(1)` ⇒ 中文 chip（各带 `SP_3` 左右内距）吃满后，
+      //    搜索框只剩 **115px ≈ 34vp**（实测 bounds `[134,1255][249,1316]`）——占位符
+      //    「搜索订阅 / 模型」**根本看不见**、字段不可用，真机上读作"一枚空的黑药丸"。
+      //    web 权威 `SettingsLLM.tsx:248-271`：那一行**只有 4 枚按钮**（`justify-end`），
+      //    搜索框**不在这行** ⇒ 本仓改为搜索框独立成行（也是 Apple 设置页的形态）。
+      TextInput({ text: this.subQuery, placeholder: '搜索订阅 / 模型' })
+        .width('100%')
+        .height(34)
+        .fontSize(FS_CAPTION)
+        .fontColor(this.pal().textPrimary)
+        .placeholderColor(this.pal().textMuted)
+        .backgroundColor(this.pal().surfaceAlt)
+        .borderRadius(R_LG)
+        .border({ width: 1, color: this.pal().border })
+        .onChange((v: string) => {
+          this.subQuery = v;
+        })
+
+      // ── 工具栏：刷新模型 / 导出 / 导入 / 新增订阅（web `SettingsLLM.tsx:254-271`）──────
+      // ⚠️ 与 web 的**有意差异**（已真机复核 `/tmp/v5_model.jpeg`）：web 把这 4 枚按钮与
+      //    标题块放**同一行**并用 `justify-end` 推到右侧；本仓在**窄屏**上把它们移到**独立一行**
+      //    （手机宽度放不下"标题 + 4 枚中文 chip"），此时独立行**起点对齐**才是自然读向
+      //    ⇒ ⛔ 不写 `justifyContent(FlexAlign.End)`（会在右侧留一团浮空按钮）。
       Row({ space: SP_2 }) {
-        TextInput({ text: this.subQuery, placeholder: '搜索订阅 / 模型' })
-          .layoutWeight(1)
-          .height(34)
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().textPrimary)
-          .placeholderColor(this.pal().textMuted)
-          .backgroundColor(this.pal().surfaceAlt)
-          .borderRadius(R_LG)
-          .border({ width: 1, color: this.pal().border })
-          .onChange((v: string) => {
-            this.subQuery = v;
-          })
         Text('刷新模型')
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textSecondary)

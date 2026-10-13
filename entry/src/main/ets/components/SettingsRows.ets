@@ -254,13 +254,16 @@ export struct SettingsNumberRow {
           Text(this.suffix)
             .fontSize(fs('type.caption'))
             .fontColor(tc(this.pal(), 'type.caption'))
-            // H1（contrast-ux）：`Row` 内的**可变长值**（后缀/单位/状态值）此前无任何收缩手
-            // ⇒ 长值时顶宽溢出。语义 = 值 ⇒ constraintSize 上限 + 截断（不加 layoutWeight，
-            // 因为标签侧才是应被压缩的一方 ⇒ 这里给值侧让位靠 maxWidth）。
-            // H1：`SettingsRows` 是**共享组件** ⇒ 不设硬百分比（怕某站点值被压到不可读）；
-            // 改保守方案：值侧吃剩余宽度 + 右对齐（短值不会被拉宽，长值在剩余空间内截断）。
-            .layoutWeight(1)
-            .textAlign(TextAlign.End)
+            // H1（contrast-ux）：`Row` 内的**可变长值**（后缀/单位/状态值）必须有宽度上限
+            // ⇒ `constraintSize` 上限 + 截断。
+            // ⛔ **绝不可**给这里加 `layoutWeight(1)`：它会让**内层 `Row`** 吃掉整行剩余宽度，
+            //    并把**同为 `layoutWeight(1)` 的标签列压到 ~41px**。2026-10-13 真机 `dumpLayout`
+            //    铁证（智能体面板 `最长边上限`/`单图大小上限` 两行）：标签与描述的 Text 节点
+            //    **整段从布局树消失** ⇒ 两个数字行**完全没有标签**，用户看不懂 `1024`/`1` 是什么；
+            //    同时单位被推到行尾、离输入框 560px（观感也断）。
+            //    本行注释第一版写的正是「不加 `layoutWeight`，靠 `maxWidth`」，代码却写了
+            //    `layoutWeight` ⇒ 又一次"注释与实现相反"。
+            .constraintSize({ maxWidth: INPUT_W })
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
