@@ -51,7 +51,7 @@ import {
   cmdOneLine,
   bgTaskTone, CronJob, cronMessageText, cronPrimary, cronSubText, cronTargetText, fmtDateTime,
   RunnerRow, runnerPrimary, runnerSubText, runnerTone, scheduleText,
-  SubAgentRow, subagentPrimary, subagentSubText, subagentTone, TONE_MUTED,
+  SubAgentRow, subagentPrimary, subagentSubText, subagentTone, TONE_MUTED, LEAD_CRON,
 } from '../core/panels';
 import { TerminalInfo, terminalPrimary, terminalSubText } from '../core/termproto';
 import {
@@ -8818,6 +8818,8 @@ struct Index {
               ListItem() {
                 PanelRowCard({
                   theme: this.themeName,
+                  // 常驻 ⏰ 前导字形（web `TasksPanel.tsx:115` AlarmClock 同源；见 `LEAD_CRON` 注释）。
+                  lead: LEAD_CRON,
                   primary: cronPrimary(job),
                   secondary: cronSubText(job),
                   tone: TONE_MUTED,

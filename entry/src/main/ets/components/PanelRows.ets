@@ -22,7 +22,7 @@ import {
   SPACE_HAIR, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD,
 } from '../core/design';
 import { fs, fw, lh } from './SettingsRows';
-import { TONE_ERROR, TONE_MUTED, TONE_SUCCESS, LEAD_FAIL, LEAD_KILLED, LEAD_OK, LEAD_RUNNING } from '../core/panels';
+import { TONE_ERROR, TONE_MUTED, TONE_SUCCESS, LEAD_CRON, LEAD_FAIL, LEAD_KILLED, LEAD_OK, LEAD_RUNNING } from '../core/panels';
 
 /**
  * 尾部动作码 —— ⛔ 用**码**（字符串）而不是 `Resource`：`@Prop` 传 `Resource` 在 ArkTS 上要
@@ -140,6 +140,12 @@ export struct PanelRowCard {
               .fontColor([this.leadColor()])
           } else if (this.lead === LEAD_KILLED) {
             SymbolGlyph($r('sys.symbol.stop_circle'))
+              .fontSize(fs('type.caption'))
+              .fontColor([this.leadColor()])
+          } else if (this.lead === LEAD_CRON) {
+            // 定时行的**常驻**⏰（web `TasksPanel.tsx:115` AlarmClock 同源）。
+            // ⛔ 符号名用本面板空态**已装机实证**过的 `clock`（`Index.ets` 的 `PanelEmpty`），不猜新名。
+            SymbolGlyph($r('sys.symbol.clock'))
               .fontSize(fs('type.caption'))
               .fontColor([this.leadColor()])
           }

@@ -393,6 +393,16 @@ export const LEAD_RUNNING: string = 'running';
 export const LEAD_OK: string = 'ok';
 export const LEAD_FAIL: string = 'fail';
 export const LEAD_KILLED: string = 'killed';
+/**
+ * **常驻**前导字形（非状态）：定时任务的 ⏰（web `TasksPanel.tsx:115` 的 `AlarmClock`，颜色
+ * `text-secondary` ⇒ 本仓走 `colorOf(p,'iconMuted')` 的兜底分支）。
+ *
+ * ⛔ 为什么不是状态码：cron 行的"状态"是**下次何时跑**，行内已由副行文案表达（`cronSubText`）；
+ *    web 同样给 cron 行挂**静态**闹钟图标（不像后台任务那样随状态变形）。且 `PanelRowCard` 的
+ *    前导槽是**固定槽宽** ⇒ 有/无字形决定"文字是否整体右移"，定时行缺它会让两个页签的
+ *    文字基线不齐（Apple 列表行范式：状态字形恒在第一列、文字对齐不跳）。
+ */
+export const LEAD_CRON: string = 'cron';
 
 /**
  * 列表行的**前导状态码** —— 与 `bgTaskStatusText`（文案）/ `bgTaskTone`（颜色）
