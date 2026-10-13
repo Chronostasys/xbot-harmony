@@ -78,9 +78,14 @@ export class SubAgentRow {
 }
 
 /**
- * 会话树里按 `chat_id` 找节点（**递归 children**）—— web `TasksPanel.tsx` 的 `findSessionNode` 同口径。
+ * 会话树里按 `chat_id` **原值**找节点（递归 children）—— web `TasksPanel.tsx` 的 `findSessionNode`
+ * 同口径。
  * ⛔ 面板「子代理」tab 必须挂在**当前会话节点**下取 children（15h 实锤：原实现取 `orphan_subagents`，
  *   后端对当前会话恒返回 `null` ⇒ tab 结构性永远空）。
+ * ⛔ **别用它解析"当前会话"**：会话树实测同时给出「幽灵行」（`chat_id` 自带渠道前缀、`children=0`）
+ *   与「真身行」（裸 id、带 children），而本仓 `currentChatId` 是**全键** ⇒ 原值比对**恰好命中幽灵**
+ *   ⇒ ① 有活跃子代理时 tab 仍空 ② 忙态对账恒拿到 `running=false`。解析当前会话一律用
+ *   `resolveSessionNode`（规范化比较 + 同 id 多行挑真身）。本函数保留给"已知精确 id"的查找。
  */
 export function findSessionNodeOf(
   nodes: SessionItem[] | null | undefined, chatId: string,

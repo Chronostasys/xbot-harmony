@@ -5258,3 +5258,62 @@ ctxMenu/image/webPanel）⇒ **不含** `showTerminal`/`showTaskDetail`/`showCro
 - `panel_lead_wiring.test.ts`：阈值拍成 20000/8000，实际 **16104/5829** ⇒ 假红。
 - ⇒ **规矩**：判据里凡是"文件规模/行数"阈值，一律先**量一次剥注释后的真实值**再写，
   并按真实值留余量；⛔ 永不改实现去迁就判据。
+
+## §21.109 🔴 会话树**幽灵行顶替真身** ⇒ ①有活跃子代理时「代理」tab 仍空 ②忙态对账恒 `false`（同一根因第三次咬人，2026-10-13）
+
+> ⚠️ **本节的因果陈述已订正过一次（记录在案）**：首版写的是「本会话有 19 个子代理、tab 却恒空」——
+> **错**。实测那 19 个子项**全是 `idle`**，而 web 权威 `TasksPanel.tsx:36-40` 同样
+> `.filter(isActiveSubAgent)` ⇒ **空态本来就是正确的**。真正的缺陷是下面这两条（用真函数 + 真
+> session-tree JSON 做的决定性验证，见"证据"）。
+
+### 服务端铁证（`/api/session-tree` **同一份响应里并排两行**）
+
+```
+web:chat_026B326DE4C4  ch=web:chat_026B326DE4C4  kids=0   running=None status=idle  ← 幽灵行
+harmony-ui-dev         ch=chat_026B326DE4C4      kids=19  running=True status=running ← 真身行
+  子项 (status,running) 分布: {('idle', None): 19}
+  explore/ui-markdown  ch=web:chat_026B326DE4C4/explore:ui-markdown  kids=0 …
+```
+
+幽灵行是 §21.107 的成因产物（客户端早前把**全键当裸 id** 发出、由服务端新建），其 `chat_id`
+**恰好等于**本仓 `currentChatId`（全键）；真身行则是**裸 id**。
+
+### 真缺陷（同一形态两处，都是"按原值精确比对"）
+
+1. **有活跃子代理时 tab 也永远看不见**：`findSessionNodeOf(list, currentChatId)` 命中幽灵行 ⇒
+   `children=0` ⇒ `activeSubAgentNodes` 恒返空 ⇒ 该 tab **只能**显示空态（真身子代理再怎么活跃都看不见）。
+2. **忙态对账恒 `false`**：`sessions[i].chat_id !== currentChatId` 循环同样只命中幽灵行，而幽灵行
+   完全没有 `running` 字段 ⇒ 恒推 `session_running: false` ⇒ 真身的 `running=true` **永远丢**
+   （服务端权威忙态对账失效；`running=false` 还会被当成"权威 idle"去把在飞 turn 定格收尾）。
+
+### 证据（真函数 + 真 JSON，决定性；临时取证脚本跑完即删）
+
+| 场景 | 旧解析（原值比对） | 新解析（规范化） |
+|---|---|---|
+| ① 真数据（19 子项全 `idle`） | 活跃 0 | 活跃 0 ⇒ **空态本就正确** |
+| ② 把任一子项标成 `running`（合成"有活跃子代理"） | **0**（tab 仍空 ⇒ 真缺陷） | **1** ✓ |
+| ③ 忙态（真身 `running=true`） | **false**（命中幽灵行） | **true** ✓ |
+
+### 修法（纯函数解析器：规范化比较 + 同 id 多行挑真身）
+
+`core/panels.ets` 新增 `resolveSessionNode(nodes, channel, chatId)`：全树递归收集
+`canonicalChatId(ch, chat_id)` 相等的节点，取 **children 最多者**（真身判据），并列再优先
+`running === true`，仍并列取先见（顺序稳定 ⇒ 可断言）。`store.ets` 两处改用它。
+
+⛔ **有意不加"渠道相等"约束**：`canonicalChatId` 的产物与渠道无关，而树里子代理 id 形如
+`web:chat_X/explore:y`（规范化后保留 `/` 尾缀、不与根会话相撞）；加约束反而会误杀子代理会话
+（其 `channel` 可能是内部渠道 `agent`，前缀剥不掉）。误配只可能来自"两行同 id" —— 那本来就是
+同一个会话；不同会话的 id 命名空间不同（`chat_*` / `oc_*` / `ou_*`）。
+
+### 判据
+
+- `panels_subagents.test.ts` ④b 新增 10 例：全键/裸 id 都命中**真身**（children 多者）、只有幽灵行
+  时仍可解析、children 并列优先 `running`、子代理尾缀不撞根、子代理自身可被解析、无匹配/空入参/
+  空 id ⇒ `null`、不同 canonical id 不误配。
+- `session_id_wire.test.ts` ⑤ 新增 6 项**接线**判据（防回归）：`resolveSessionNode(...)` 恰 2 处、
+  `chat_id !== this.currentChatId` **0 处**、`findSessionNodeOf(list, this.currentChatId)` **0 处**、
+  不再 import 它、`canonicalChatId(ch, n.chat_id)` 恰 1 处。
+- ⚠️ 判据自身两处假红（记）：`session_id_wire` 里引用了未定义的 `panels`（TS2304）；
+  我的用例曾预期"`feishu:oc_1` 行不匹配 `web:oc_1` 查询" —— **预期本身就错**（规范化产物与渠道
+  无关，按设计就该匹配同 id 行），改为"不同 canonical id 不误配"并写明理由。**判据红了先问
+  是不是判据错了**（本仓"判据 ≠ 信号"原则的又一次实证）。
