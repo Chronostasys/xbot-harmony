@@ -116,6 +116,9 @@ struct StatusInfoRow {
           .fontFamily('monospace')
           .backgroundColor(surfaceFillOf(this.pal(), 'surface.input'))
           .borderRadius(RADIUS_CHIP)
+          // ⛔ 结构发丝**必须**（与 `TerminalSheet` 输入框同一根因）：`surface.input` 与浮层底
+          //    `surface.overlay` 同属 `RUNG_CARD` ⇒ 填充**逐字节同色** ⇒ 不描边则输入框**不可见**。
+          .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
           .layoutWeight(1)
           .onChange((v: string) => {
             this.draft = v;

@@ -128,6 +128,20 @@ bash "$HERE/lint/color-roles.sh" || fail=1
 echo "===== ⑥c 颜色字面量（静态，硬红）====="
 bash "$HERE/lint/no-color-literals.sh" || fail=1
 
+# ⛔ 新增（2026-10-13 真机取证 + 用户插话「终端做的很差 / 考虑所有的面板」）：输入框容器可见性 —— **硬红**。
+#    为什么必须硬：`core/design.ets` 里 `surface.input` 与浮层底 `surface.overlay` **同属 `RUNG_CARD`**
+#      ⇒ `surfaceFillOf` 返回**逐字节同色**的分支；只靠填充，输入框容器在**深浅两主题下都完全不可见**
+#      （真机截图只剩一行浮空的占位文字）。`SurfaceRole('surface.input', RUNG_CARD, true)` 的第三参
+#      `hairline=true` 正是「该面需要结构性发丝来立边界」。全站输入面**同一口径**
+#      （`Index.ets` composer / `SettingsRows` 都 `.border(STROKE_HAIRLINE)`）⇒ 漏写就是缺陷。
+#    为什么现在就能硬：落地时实测**恰 2 处**存量欠账（`TerminalSheet` / `StatusSheet`）已修，
+#      真树此刻 **0 命中**（同 ⑥c 的口径）。
+#    脚本自带：剥注释（注释里提 `.border(` 不算）+ 只取元素调用链（按括号平衡，跨多行回调）
+#      + 零扫描判红 + 内联豁免（`// allow-input-noborder: <理由>`）。
+#    ⛔ 编译与其它测试**都抓不到**（只有真机截图能看出来）；mutation 自证四态见脚本末注释（已跑）。
+echo "===== ⑥d 输入框容器可见性（静态，硬红）====="
+bash "$HERE/lint/input-surface-border.sh" || fail=1
+
 # ⚠️ 新增（本波）：性能静态预算（`perf-audit` 交付）。秒级零抖动、**硬红**。
 #    ⛔ 刻意放在**最后一步**：它不读 ArkUI 源码、只做静态预算比对，**不与 ④ 的 ArkTS 真编译争构建锁**，
 #    也不拖慢主流程（实测 ~0s）。产物/耗时照打（便于识别假绿）。

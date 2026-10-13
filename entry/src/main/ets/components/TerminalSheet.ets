@@ -142,6 +142,22 @@ export struct TerminalSheet {
   }
 
   /**
+   * 输入框**结构发丝**色。
+   *
+   * ⛔ 为什么必须有（2026-10-13 真机取证）：`surface.input` 与面板底 `surface.overlay` **同属
+   *    `RUNG_CARD`**（`core/design.ets:346` vs `:378`）⇒ `surfaceFillOf` 返回**逐字节相同的填充**
+   *    ⇒ 只靠填充，输入框容器在**深浅两主题下都完全不可见**（截图里只剩一行浮空的占位文字）。
+   *    `SurfaceRole('surface.input', RUNG_CARD, true)` 的第三参 `hairline:true` 正是此意
+   *    （「该面需要结构性发丝来立边界」）—— 键帽已补（见 `keyRoleColor`），输入框此前被漏掉。
+   *    与全站输入面**同一口径**（`Index.ets` composer / `SettingsRows` 均 `.border(hairline)`）。
+   * ⚠️ 走本方法（记忆化入口）而非直写 `hairlineOf(this.palOnce())`：不新增 `this.palOnce()` 调用点
+   *    （性能预算 ⑦ **B 线顶格 1350、只许减不许增**）。
+   */
+  private inputHairlineC(): string {
+    return hairlineOf(this.palOnce());
+  }
+
+  /**
    * 终端画布**真实底色** —— 既是画布 `Scroll` 的 `backgroundColor`，也是 ANSI 取色的默认背景
    * `defBg`（⛔ 不能传 `transparent`：反色（SGR 7）会把它当作"字色" ⇒ 文字透明不可见）。
    */
@@ -654,6 +670,9 @@ export struct TerminalSheet {
           .backgroundColor(surfaceFillOf(this.palOnce(), 'surface.input'))
           // S2：输入框是内芯 ⇒ `RADIUS_PILL`（8），与键帽同档（⛔ 不是 6 的 chip 档）。
           .borderRadius(RADIUS_PILL)
+          // ⛔ 结构发丝**必须**：`surface.input` 与面板底 `surface.overlay` 同 rung ⇒ 填充同色
+          //    ⇒ 无发丝则输入框容器**完全不可见**（见 `inputHairlineC` 注释）。
+          .border({ width: STROKE_HAIRLINE, color: this.inputHairlineC() })
           .enterKeyType(EnterKeyType.Send)
           .enabled(this.status === TERM_CONNECTED)
           .onChange((v: string) => {
