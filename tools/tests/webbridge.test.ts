@@ -20,6 +20,7 @@ import {
   BRIDGE_TYPES, bridgeTypeIsAllowed, BridgeMessage, parseBridgeMessage,
   encodeBridgeMessage, encodeBridgeAck, makeBridgeMessage,
   NEW_WINDOW_BLOCK, NEW_WINDOW_EXTERNAL, NEW_WINDOW_IN_WEB, newWindowAction,
+  BRIDGE_ACTION_CLIPBOARD, BRIDGE_MAX_CLIPBOARD_LEN, clipboardTextOf, hostActionFor,
 } from '../../entry/src/main/ets/core/webbridge';
 
 let pass = 0;
@@ -252,6 +253,38 @@ eq('(n) 无 pageUrl 时绝对外链仍可外跳', newWindowAction('https://x.com
 eq('(n) 无 pageUrl 时同源地址判不出同源 ⇒ external（fail-safe：不外跳自己的 SPA 由上层兜底）',
   newWindowAction('http://127.0.0.1:8082/x', '', BASE), NEW_WINDOW_EXTERNAL);
 // mutation 自证锚点：把 sameOrigin 判定去掉 ⇒ 上面 4 条 in-web 会变 external ⇒ 必红。
+
+// ── (o) §21.122d：剪贴板写代理（`clipboard`）────────────────────────────────────
+// 为什么值得钉：宿主 WebView 源是 `http://10.0.2.2:8082` = 非 secure context ⇒ 浏览器不提供
+// `navigator.clipboard`，而 web 侧有 9+ 处 `writeText`（复制消息/代码/路径/URL）⇒ 修好之前
+// **全部静默失效**（web 侧 `catch {}` 吞掉）。破一条的后果都是用户可见的：
+//   ① `clipboard` 不在白名单 ⇒ `parseBridgeMessage` 返回 null ⇒ 桥**直接丢弃**（复制永远无效）；
+//   ② 文本截断缺失 ⇒ 超大串灌进系统剪贴板（白烧内存）；③ 空串被当成合法写 ⇒ 清空用户剪贴板。
+eq('clipboard 在桥类型白名单内', bridgeTypeIsAllowed('clipboard'), true);
+eq('宿主动作：clipboard ⇒ 写剪贴板动作', hostActionFor(makeBridgeMessage('c1', 'clipboard', '你好') as BridgeMessage).kind, BRIDGE_ACTION_CLIPBOARD);
+eq('动作文本 = payload 原文', hostActionFor(makeBridgeMessage('c1', 'clipboard', '你好，世界') as BridgeMessage).text, '你好，世界');
+// ⛔ 关键契约：payload 即**原文** —— 复制一段"长得像 JSON"的文本必须逐字保留，不许被当信封解析。
+eq('复制 JSON 文本逐字保留（不套二层 JSON）',
+  clipboardTextOf(makeBridgeMessage('c1', 'clipboard', '{"text":"a"}') as BridgeMessage), '{"text":"a"}');
+eq('多行/空白原样保留',
+  clipboardTextOf(makeBridgeMessage('c2', 'clipboard', 'a\n  b\tc') as BridgeMessage), 'a\n  b\tc');
+eq('空 payload ⇒ 空串（上层据此**跳过写入**，不清空用户剪贴板）',
+  clipboardTextOf(makeBridgeMessage('c3', 'clipboard', '') as BridgeMessage), '');
+eq('超长 ⇒ 截断到上限',
+  clipboardTextOf(makeBridgeMessage('c4', 'clipboard', 'x'.repeat(BRIDGE_MAX_CLIPBOARD_LEN + 100)) as BridgeMessage).length,
+  BRIDGE_MAX_CLIPBOARD_LEN);
+eq('剪贴板上限 < 信封 payload 上限（剪贴板另收紧）', BRIDGE_MAX_CLIPBOARD_LEN < BRIDGE_MAX_PAYLOAD_LEN, true);
+eq('null 消息 ⇒ 空串（不抛）', clipboardTextOf(null as unknown as BridgeMessage), '');
+// 端到端：页面发出的信封（垫片形态）能被解析且动作正确
+{
+  const wire = JSON.stringify({ v: BRIDGE_VERSION, id: 'clipboard', type: 'clipboard', payload: '代码片段' });
+  const parsed = parseBridgeMessage(wire);
+  eq('垫片形态的信封可解析', parsed === null ? 'null' : parsed.type, 'clipboard');
+  eq('垫片形态 ⇒ 动作文本正确',
+    parsed === null ? 'null' : hostActionFor(parsed).text, '代码片段');
+}
+// 未在白名单/非法类型仍必须被拒（回归：加类型时别把校验放宽）
+eq('未知类型仍被拒（write-clipboard 不是合法 type）', parseBridgeMessage(JSON.stringify({ v: BRIDGE_VERSION, id: 'x', type: 'write-clipboard', payload: 'a' })), null);
 
 if (fail > 0) {
   console.log(`  webbridge: ${pass} passed, ${fail} failed`);

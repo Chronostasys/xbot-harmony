@@ -4,6 +4,7 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import {
   BridgeMessage, parseBridgeMessage, encodeBridgeMessage, encodeBridgeAck, makeBridgeMessage,
   BridgeHostAction, BRIDGE_ACTION_CLOSE, BRIDGE_ACTION_LOG, BRIDGE_ACTION_READY,
+  BRIDGE_ACTION_CLIPBOARD,
   hostActionFor, bridgeInitPayload,
   NEW_WINDOW_EXTERNAL, NEW_WINDOW_IN_WEB, newWindowAction,
 } from '../core/webbridge';
@@ -37,6 +38,45 @@ const PROBE_JS: string =
   + 'nativeType:(typeof window.xbotNative),xbotKeys:keys};'
   + 'console.log("[XBOT-PROBE] xbotKeys="+JSON.stringify(keys));'
   + '}catch(e){console.log("[XBOT-PROBE] fail "+e);}})();';
+
+// ── 剪贴板垫片（`navigator.clipboard` polyfill；§21.122d 事件代理第二批）──────────────
+/**
+ * 为什么必须有（**实测语义**，不是可选增强）：
+ *   web 源码里有 **9+ 处** `navigator.clipboard.writeText(...)`（复制消息正文/代码块/文件路径/
+ *   渠道 URL…，见 `MessageActions.tsx:256`、`MarkdownRenderer.tsx:84`、`ToolRender.tsx:244`、
+ *   `FileExplorer.tsx:380`、`SettingsChannels.tsx:319`…），而宿主 WebView 的源是
+ *   **`http://10.0.2.2:8082` = 非 secure context** ⇒ 浏览器**不提供** `navigator.clipboard`
+ *   ⇒ 这些 `await navigator.clipboard.writeText(...)` 全部落进各自的空 catch（web 侧**静默**）
+ *   ⇒ 用户看到"点了复制，什么都没发生"。**这不是 web 的 bug，是宿主环境缺能力**。
+ *
+ * 修法（用户定向「代理一部分 web 原生的事件」）：在**页面脚本之前**注入垫片 ——
+ *   ① 只在 `navigator.clipboard` 缺失时补（secure context / 有原生能力时**一律不动**，避免覆盖更好实现）；
+ *   ② `writeText` 同步转发到既有 JS 桥 `xbotNative.postMessage({type:'clipboard', payload:原文})`
+ *      （⛔ payload 即原文，不套 JSON：否则"复制一段 JSON 文本"会被误解析）；
+ *   ③ 返回 `Promise.resolve()`（web 侧都是 `await`/`.then`，必须拿到 thenable，否则同步抛错）；
+ *   ④ `readText` **不实现**（⛔ 读剪贴板涉及用户隐私与系统能力，本仓暂无消费点 ⇒ 显式 reject，
+ *      比"假装返回空串"诚实：页面能区分"不支持"与"剪贴板为空"）。
+ * 安全性：垫片不接受任何页面传入的目标/类型，只把文本交给既定桥；长度由 `core/webbridge.ets`
+ *   （`BRIDGE_MAX_CLIPBOARD_LEN`）收敛，签名/白名单仍在原生侧。
+ */
+const CLIPBOARD_SHIM_JS: string =
+  '(function(){try{'
+  + 'var n=navigator;'
+  + 'if(n.clipboard&&n.clipboard.writeText){console.log("[XBOT-CLIP] native api present, shim skipped");return;}'
+  + 'console.log("[XBOT-CLIP] shim installed");'
+  + 'function send(t){try{'
+  + 'if(window.xbotNative&&window.xbotNative.postMessage){'
+  + 'window.xbotNative.postMessage(JSON.stringify({v:1,id:"clipboard",type:"clipboard",payload:String(t)}));'
+  + '}}catch(e){console.log("[XBOT-CLIP] post failed "+e);}}'
+  + 'var api={'
+  + 'writeText:function(t){send(t);return Promise.resolve();},'
+  + 'readText:function(){return Promise.reject(new Error("clipboard read unsupported by host"));},'
+  + 'write:function(items){var a=items||[];for(var i=0;i<a.length;i++){if(a[i]&&a[i].getType&&a[i].getType()==="text/plain"){return a[i].text().then(function(t){send(t);});}}return Promise.reject(new Error("only text/plain supported"));}'
+  + '};'
+  + 'try{Object.defineProperty(n,"clipboard",{value:api,configurable:true,writable:false});}'
+  + 'catch(e2){try{n.clipboard=api;}catch(e3){console.log("[XBOT-CLIP] install failed "+e3);}}'
+  + '}catch(e){console.log("[XBOT-CLIP] shim failed "+e);}})();';
+
 
 /**
  * 注入页面 `window.xbotNative` 的**原生代理对象**（ArkWeb `javaScriptProxy` 的 `object`）。
@@ -195,6 +235,20 @@ export struct WebSurface {
   };
 
   /**
+   * 剪贴板写请求（§21.122d：页面 `navigator.clipboard.writeText` 的代理）。
+   *
+   * 为什么必须有：宿主 WebView 的源是 `http://10.0.2.2:8082` = **非 secure context** ⇒ 浏览器
+   *   不提供 `navigator.clipboard`，而 web 侧有 **9+ 处** `writeText`（复制消息/代码/路径/URL）
+   *   ⇒ 全部落进各自的空 catch（**静默**）⇒ 用户"点了复制没反应"。
+   * 链路：页面 → `CLIPBOARD_SHIM_JS`（已注入的垫片）→ `xbotNative.postMessage({type:'clipboard'})`
+   *   → `hostActionFor`（纯判定）→ **本回调** → 上层写系统剪贴板（`@ohos.pasteboard`）。
+   * ⛔ 只在 `text` 非空时被调用（空文本会清空用户剪贴板，见 `applyHostAction` 注释）。
+   * ⚠️ 普通成员而非 `@Prop`（同 `onBridgeMessage`/`onOpenExternal`：函数回调不是可观测数据）。
+   */
+  onClipboardWrite: (text: string) => void = (text: string) => {
+  };
+
+  /**
    * 把 `nativeBridge` 的回调接到 `onBridgeMessage`，并执行**宿主 chrome 级动作**。
    * ⚠️ 必须在 `aboutToAppear`（早于 build / 页面加载）完成，确保页面第一次调
    *    `xbotNative.postMessage` 时回调已就位。
@@ -274,6 +328,16 @@ export struct WebSurface {
       if (action.kind === BRIDGE_ACTION_READY) {
         // 页面就绪握手 ⇒ 下发 `init`（主题等宿主能力）。id 固定且合法（BRIDGE_ID_RE）。
         this.postToPageRaw('host-init', 'init', bridgeInitPayload(this.theme));
+        return;
+      }
+      if (action.kind === BRIDGE_ACTION_CLIPBOARD) {
+        // 剪贴板写代理（§21.122d）：**文本为空的请求直接丢弃** —— 页面拿到的是
+        // `Promise.resolve()`（不抛错），若宿主此时真写剪贴板就会把用户已有内容清成空串。
+        // ⛔ 该判据与 `clipboardTextOf` 同源（`text` 已收敛/截断），组件不另判一次。
+        if (action.text.length > 0) {
+          this.onClipboardWrite(action.text);
+        }
+        return;
       }
     } catch (e) {
       const err: BusinessError = e as BusinessError;
@@ -505,8 +569,16 @@ export struct WebSurface {
         // 语义（SDK 原文）："after the root element (HTML Element) of the web page file is created,
         // but before any other content is loaded" ⇒ 这是**唯一**能在页面脚本前注入的官方能力。
         // ⚠️ `ScriptItem` 以字面量传入（形参类型已知 ⇒ ArkTS 允许，同 `Web({...})` 的 `WebOptions`）。
-        // ⚠️ `scriptRules: ['*']` = 所有来源；只**观测**，不下发任何业务数据。
-        .runJavaScriptOnDocumentStart([{ script: PROBE_JS, scriptRules: ['*'] }])
+        // 两条脚本都在**页面脚本之前**执行：
+        //   ① `CLIPBOARD_SHIM_JS` —— `navigator.clipboard` 垫片（§21.122d：非 secure context 下
+        //      浏览器不提供该 API ⇒ web 侧 9+ 处"复制"全部静默失效；垫片把写操作转成 JS 桥消息）。
+        //      ⛔ 必须在**业务脚本之前**装好：web 侧是启动时就取 `navigator.clipboard` 的形态。
+        //   ② `PROBE_JS` —— 只观测（列出 window 上 /xbot/i 的全局名）。
+        // ⚠️ `scriptRules: ['*']` = 所有来源。
+        .runJavaScriptOnDocumentStart([
+          { script: CLIPBOARD_SHIM_JS, scriptRules: ['*'] },
+          { script: PROBE_JS, scriptRules: ['*'] },
+        ])
         // 页面 `console.*` → 原生日志（tag = PROBE_TAG）⇒ 真机 `hdc shell hilog` 可观测注入是否发生。
         // 返回 false = 不消费（不阻断页面自身的 console 行为）。
         .onConsole((event) => {

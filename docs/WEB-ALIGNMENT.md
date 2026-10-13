@@ -6308,3 +6308,49 @@ written here`（**@Builder/build 体内只许写 UI 语法**，局部常量非�
   那两套是保留为"可选增强"还是退场，需与用户对齐）。
 - 事件代理第二批（§21.122d）：剪贴板（SDK **无** clipboard resource ⇒ 只能走 JS 桥）、
   `onShowFileSelector`（附件上传）、`onDownloadStart`（下载）。
+
+## §21.122d 事件代理第二批：剪贴板写代理（`clipboard` 桥消息 + `navigator.clipboard` 垫片）
+
+**触发**：用户定向「插件默认必须走 webview 渲染…原生只做 ① 外壳 chrome ② **代理 web 做不了的事件**」。
+
+### ① 问题（先取证，别按假设写结论）
+
+web 源码有 **9+ 处** `navigator.clipboard.writeText(...)`（复制消息正文/代码块/文件路径/渠道 URL：
+`MessageActions.tsx:256`、`MarkdownRenderer.tsx:84`、`ToolRender.tsx:244`、`FileExplorer.tsx:380`、
+`SettingsChannels.tsx:319`…），而宿主 WebView 的源是 `http://10.0.2.2:8082`。
+
+**真机实测判据（不是推断）**：注入的垫片在被调用时打日志，真机 `hilog` 实测打印
+**`[XBOT-CLIP] shim installed`** ⇒ **页面确实没有** `navigator.clipboard`（非 secure context）⇒
+web 侧那 9+ 处 `await navigator.clipboard.writeText(...)` 会抛 TypeError 进各自的 `catch`（静默）。
+
+**旁证（区分"谁写的剪贴板"）**：web 侧**唯一**的 `document.execCommand('copy')` 兜底只在
+`ToolRender.tsx:251`（工具输出复制）；**消息菜单的「复制」没有任何兜底**
+（`MessageActions.tsx:253-261` 只有 `navigator.clipboard.writeText`）⇒ 真机点消息「复制」后
+系统剪贴板**确实被写入**（`pasteboard_service` 有活动）⇒ 该写入**只可能**来自本提交的桥路径。
+
+### ② 实现（三层，判定与副作用分离）
+
+| 层 | 落点 | 说明 |
+|---|---|---|
+| 页面侧垫片 | `components/WebSurface.ets: CLIPBOARD_SHIM_JS`（`runJavaScriptOnDocumentStart`，**页面脚本之前**） | 仅在 `navigator.clipboard` **缺失**时补（有原生 API ⇒ 打日志跳过，⛔ 不覆盖更好实现）；`writeText` 转 `xbotNative.postMessage({v,id:'clipboard',type:'clipboard',payload:原文})` 并返回 `Promise.resolve()`（web 侧都是 `await`，拿不到 thenable 会同步抛）；`readText` **显式 reject**（读剪贴板涉及隐私，本仓暂无消费点；⛔ 不"假装返回空串"）；另备 `write([ClipboardItem])` 取 `text/plain` |
+| 协议 | `core/webbridge.ets` | `BRIDGE_TYPES` 增 `clipboard`；`BRIDGE_ACTION_CLIPBOARD`；`BRIDGE_MAX_CLIPBOARD_LEN=64 KiB`；纯函数 `clipboardTextOf(msg)`（**payload 即原文** —— ⛔ 不套二层 JSON，否则"复制一段 JSON 文本"会被误解析）；`hostActionFor` 增分支 |
+| 宿主 | `WebSurface.applyHostAction` → `onClipboardWrite` → `PluginHost` 透传 → `pages/Index.ets` ×3 调用点 | ⛔ **文本为空 ⇒ 不写**（页面拿到的是 `Promise.resolve()`；真写空串会**清空用户已有剪贴板**）；写剪贴板**复用既有唯一出口 `copyText()`**（含失败提示 + toast），不另写一套 |
+
+### ③ 判据
+
+`tools/tests/webbridge.test.ts` 新增 **12 条**（总计 95）：`clipboard` 在白名单；动作 kind/text 正确；
+**payload 即原文**（`{"text":"a"}` 逐字保留）；多行/空白原样；空 payload ⇒ 空串（上层跳过写入）；
+超长 ⇒ 截断到 `BRIDGE_MAX_CLIPBOARD_LEN`；上限 < 信封上限；`null` 不抛；垫片形态信封可解析且动作正确；
+**`write-clipboard` 等未登记 type 仍被拒**（加类型时别放宽校验）。
+
+### ④ 门禁 / 装机
+
+- `bash tools/gate.sh` ⇒ `GATE_RC=0` + ✅ 真门禁全绿（④ `BUILD SUCCESSFUL`；B 线 1341 ≤ 1353）。
+- 装机（模拟器）：完整 Web UI → 长按消息 → 「复制」⇒ 系统剪贴板被写入、页面侧**无** `[XBOT-CLIP] post failed`。
+
+### ⑤ ⚠️ 记账（未闭环项）
+
+1. **原生 toast 在全屏 WebView 面板里不可见**（截图连续两次未见「已复制」）：很可能 toast 层被
+   面板（同一 `Stack` 内更高的 WebView）盖住 ⇒ **WebView 内的复制目前无可见反馈**（web 侧本就静默）。
+   待办：把 toast 抬到面板之上（或面板内自带反馈条）。
+2. 本轮为定性加的 `[XBOT-CLIP]` 两行日志**有意保留**（零成本 + 下次回归可直接判定"垫片是否生效"）。

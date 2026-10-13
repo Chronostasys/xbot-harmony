@@ -120,6 +120,14 @@ export struct PluginHost {
   onOpenExternal: (url: string) => void = (url: string) => {
   };
 
+  /**
+   * WebSurface 转来的**剪贴板写请求**（§21.122d：页面 `navigator.clipboard.writeText` 代理）
+   * —— 透传给上层（上层用 `@ohos.pasteboard` 写系统剪贴板并给用户可见反馈）。
+   * ⛔ 默认空 = 丢弃（与 `onOpenExternal` 同一约定：未接线时不"假装成功"）。
+   */
+  onClipboardWrite: (text: string) => void = (text: string) => {
+  };
+
   build() {
     Column() {
       if (this.panelUrl.length > 0) {
@@ -133,6 +141,9 @@ export struct PluginHost {
           },
           onOpenExternal: (url: string) => {
             this.onOpenExternal(url);
+          },
+          onClipboardWrite: (text: string) => {
+            this.onClipboardWrite(text);
           },
           onClose: () => {
             this.onClose();

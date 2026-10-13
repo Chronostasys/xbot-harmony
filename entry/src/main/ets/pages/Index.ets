@@ -4585,6 +4585,11 @@ struct Index {
             // §21.122b：`target="_blank"`/`window.open` 的外链 ⇒ 交系统浏览器（与原生消息里的
             // 链接**同一出口** `openUrl` ⇒ 协议白名单/失败提示只有一份）。
             this.openUrl(url);
+          }, onClipboardWrite: (text: string) => {
+            // §21.122d：页面「复制」⇒ 宿主代写系统剪贴板（非 secure context 下浏览器不给
+            // `navigator.clipboard`；web 侧 9+ 处复制此前**全部静默失效**）。
+            // ⛔ 复用既有唯一出口 `copyText`（含 fail 提示 + toast），不另写一套。
+            this.copyText(text, '');
           }, onClose: () => {
           } })
           Text('切回原生')
@@ -5290,6 +5295,9 @@ struct Index {
         }, onOpenExternal: (url: string) => {
           // §21.122b：插件面板/完整 Web UI 里的 `target="_blank"` 外链 ⇒ 系统浏览器。
           this.openUrl(url);
+        }, onClipboardWrite: (text: string) => {
+          // §21.122d：面板里的「复制」⇒ 宿主代写系统剪贴板（同 §21.122b 的出口收敛思路）。
+          this.copyText(text, '');
         }, onClose: () => {
           this.panelUrl = '';
         } })
@@ -5408,6 +5416,10 @@ struct Index {
               onOpenExternal: (url: string) => {
                 // §21.122b：插件 WebView 里的外链（`target="_blank"`）⇒ 系统浏览器。
                 this.openUrl(url);
+              },
+              onClipboardWrite: (text: string) => {
+                // §21.122d：插件 WebView 里的「复制」⇒ 宿主代写系统剪贴板（与面板同一出口）。
+                this.copyText(text, '');
               },
               onClose: () => {
                 this.pluginPageUrl = '';

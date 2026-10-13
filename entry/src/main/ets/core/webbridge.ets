@@ -61,6 +61,7 @@ export const BRIDGE_MAX_JSON_LEN: number = BRIDGE_MAX_PAYLOAD_LEN + 4096;
  */
 export const BRIDGE_TYPES: string[] = [
   'ready', 'call', 'notify', 'log', 'resize', 'openExternal', 'close',
+  'clipboard',
   'init', 'result', 'event', 'theme',
 ];
 
@@ -235,8 +236,36 @@ export const BRIDGE_ACTION_CLOSE: string = 'close';
 export const BRIDGE_ACTION_LOG: string = 'log';
 /** 动作：页面就绪握手 ⇒ 宿主回一条 `init`（下发主题等能力）。 */
 export const BRIDGE_ACTION_READY: string = 'ready';
+/** 动作：**写系统剪贴板**（页面 `navigator.clipboard.writeText` 的代理；见文件末尾长注释）。 */
+export const BRIDGE_ACTION_CLIPBOARD: string = 'clipboard';
 /** 动作：**不处理**（业务类型由上层接线；未接线时既不崩也不编造语义）。 */
 export const BRIDGE_ACTION_IGNORE: string = 'ignore';
+
+/**
+ * 剪贴板文本上限（**64 KiB**）：单次复制不可能更多；超大串只会白烧内存/系统调用。
+ * ⛔ 与 `BRIDGE_MAX_PAYLOAD_LEN`（256 KiB，信封级）**不是**一个数：信封允许更大的 payload，
+ *    剪贴板另外收紧（页面不受信任）。
+ */
+export const BRIDGE_MAX_CLIPBOARD_LEN: number = 65536;
+
+/**
+ * `clipboard` 消息的 payload → 要写入剪贴板的文本（纯函数）。
+ *
+ * 契约：**payload 即原文**（⛔ 不再套一层 JSON —— 否则"复制一段 JSON 文本"会被误当信封解析，
+ * 用户复制的内容与粘贴结果不一致，且这种歧义无法从数据上分辨）。
+ * 坏输入（非字符串/空/超限）⇒ `''`（调用方据此**不写剪贴板**，避免把空串覆盖掉用户剪贴板）。
+ */
+export function clipboardTextOf(msg: BridgeMessage): string {
+  if (msg === null || msg === undefined) {
+    return '';
+  }
+  const t: string = typeof msg.payload === 'string' ? msg.payload : '';
+  if (t.length === 0) {
+    return '';
+  }
+  return t.length > BRIDGE_MAX_CLIPBOARD_LEN ? t.substring(0, BRIDGE_MAX_CLIPBOARD_LEN) : t;
+}
+
 
 /** 宿主动作（`kind` + 供日志用的 `text`）。 */
 export class BridgeHostAction {
@@ -272,6 +301,12 @@ export function hostActionFor(msg: BridgeMessage): BridgeHostAction {
   }
   if (msg.type === 'ready') {
     return new BridgeHostAction(BRIDGE_ACTION_READY, '');
+  }
+  if (msg.type === 'clipboard') {
+    // 剪贴板写代理（页面在非 secure context 下拿不到 `navigator.clipboard` ⇒ 由宿主代写）。
+    // 文本由 `clipboardTextOf` 收敛；空文本 ⇒ 动作仍回 `clipboard` 但 `text=''`，
+    // 上层据此**跳过写入**（⛔ 不能拿空串覆盖用户已有剪贴板）。
+    return new BridgeHostAction(BRIDGE_ACTION_CLIPBOARD, clipboardTextOf(msg));
   }
   return new BridgeHostAction(BRIDGE_ACTION_IGNORE, '');
 }
