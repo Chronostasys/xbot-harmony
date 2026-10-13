@@ -5954,3 +5954,70 @@ composer_send_aftercare 13** 全 0 失败。
 **修法**：文件里补一行 `export {};`（把它变成**模块**）—— 与 `local_idle_wiring.test.ts` 同款约定。
 ⇒ 这正是 AGENTS.md 那条"**新增判据脚本必须先在门禁同环境自证**"的又一个实例（脱机 `run-one.sh`
 只单独编译一个文件 ⇒ **永远看不到**这种跨文件重声明）。
+
+---
+
+## §21.121 目标②四细节的**装机取证**（诚实记账：拿到 1/4）+ 取证过程中钓出的**环境级根因**（目标②）
+
+### 一、结论先行（⛔ 不谎报"已装机验证"）
+
+| 细节 | 代码/门禁证据 | 装机帧 | 结论 |
+|---|---|---|---|
+| (a) iter 无 tool ⇒ turn 结束 ⇒ 立刻 idle | ✅ | ✅ **有** | 回合结束后头部转「空闲」、占位回 `给 Agent 发消息…`、模式 chip 消失（机器证据：dump 里 `Text '排队'` 出现 → 消失） |
+| (b) cancel ⇒ spin + 成功立刻 idle | ✅ | ❌ 无 | 见下"被阻断" |
+| (c) busy + 输入文字 ⇒ 按钮变插队/排队 | ✅ | ❌ 无 | 同上 |
+| (d) 流式上滚 ⇒ 不人机对抗 | ✅ | ❌ 无 | 同上 |
+
+**被阻断的原因（环境级，不是代码问题）**：本机模拟器上**应用的 SSE 长连接不通** ——
+顶部横幅恒为「连接断开，正在重连…（恢复后自动补齐消息）」，`store.busy` 永远为假
+⇒ (b)(c)(d) 三个实验的**前置条件（busy / 流式）根本立不起来**。
+
+**判据（三条独立证据，全部实测）**：
+1. **HTTP 正常、只有流不通**：用任务给的凭据在宿主 `POST /api/auth/login` 成功，随后
+   `POST /api/session-tree` 拉回 **57 个会话**，其中 `Agent-bold-fox` / `Agent-sunny-falcon` /
+   `Agent-bold-stone` / `sleep-90-command` / `Agent-witty-stone` **全是我在模拟器里"发"出去的**
+   ⇒ **应用的 POST 真的到了服务端**；而界面里那些消息**一条都不显示** ⇒ 断的只有 SSE 流。
+2. **端点与鉴权都正常**：`curl /api/sse` 无凭据 ⇒ `401`；带登录 cookie ⇒ `404 session not found`
+   （即**已过鉴权**、只是会话 id 不存在）⇒ 服务端 `/api/sse` 无辜。
+3. **应用自己的分类器说这是"瞬态"**：`core/sse.ets:classifyStreamOutcome` 把 **4xx 判终态**
+   （401 走 `onUnauthorized` 退登录，`SSE_STATE_FAILED`），而页面横幅**只在 `connecting`/`reconnecting`
+   时显示"正在重连"** ⇒ 横幅既然在显示，就说明应用拿到的是**瞬态失败**（无响应/`CURLE_WRITE_ERROR` 一类）。
+
+**⚠️ 这很可能是本仓已修缺陷的回归**：`core/sse.ets:558-567` **逐字记载过同一症状的根因**——
+「不指定协议时系统协商到 **HTTP/3(QUIC)**，流式写回调在复用连接上 ~1s 即崩
+（`http_exec.cpp:741 CURLcode result 23` / `errCode:2300023, RespCode:200, httpVer:3, reuse:1`）
+⇒ SSE 每 ~1s 断一次、界面**永久**『连接断开，正在重连…』」，修法是
+`usingProtocol: http.HttpProtocol.HTTP1_1`。该修复**仍在代码里**，但当前模拟器上症状**复现**。
+⇒ 下一步必须用**应用自带的诊断面板**（`设置 → 开发者 → 「SSE 连接状态」`卡，含
+**`请求协议`(httpVer)/`上次错误码`/`上次响应码`/`重连次数`/`连接尝试`**，见
+`components/SettingsDeveloper.ets:423-433`）读回这几个字段：若 `请求协议` 不是 `HTTP/1.1`
+⇒ 即"强制 h1.1"未生效，是真回归（**待办**）。
+
+### 二、取证过程中**新踩的坑**（已同步进 `docs/ARKTS-GOTCHAS.md` 批次 51）
+
+1. **`hdc rport` 反向 tunnel 陈旧** ⇒ 模拟器侧 accept 连接但转发失败 ⇒ **连上即断**、
+   `TIME_WAIT` 堆积、界面恒「正在重连」。修法：
+   `hdc -t 127.0.0.1:5555 fport rm tcp:8082 tcp:8082` + `hdc -t 127.0.0.1:5555 rport tcp:8082 tcp:8082`。
+2. **zsh 不对 `$VAR` 分词** ⇒ `D="hdc -t ..."; $D shell ...` **静默失败**（本机 shell 是 zsh）
+   ⇒ 我据此误判过一次「应用点击无响应」（其实读到的是**几百秒前的旧 dump**）。**凡 hdc 组合一律走 bash 脚本**。
+3. **`uitest uiInput inputText <x> <y> <text>` 不会自己聚焦** ⇒ 必须先单独 `click` 一次、再
+   **重新 dump 取坐标**（键盘会把 composer 从 `y≈2565` 顶到 `y≈1617`）、再打字，**并且打完要验证**。
+   本轮前三次实验（b2/d1/e1）**全部败在这一步**。
+4. **截图脚本别写双后缀**：`shot(){ ... "/tmp/$1.jpeg" }` + `shot e1_busy.jpeg` ⇒ 存成
+   `e1_busy.jpeg.jpeg`（本轮真的这样丢了一轮证据）。
+5. **软键盘把 composer 整体上移 ~950px**（`[0,2538][1320,2727]` → `[0,1542][1320,1779]`）
+   ⇒ 写死的按钮坐标必失效；选择器必须**限定在 `id=='xbot-composer'` 子树内**取最右可点节点
+   （宽松选择器会命中键盘上的**「换行」键**）。
+
+### 三、可复用的机器判据（**dumpLayout 里真能读到的字段**）
+
+本轮把"UI 状态可判"这件事落到了实处（详见 `ARKTS-GOTCHAS.md` 批次 51 ②）：
+
+| 目标 | 字段 | 例 |
+|---|---|---|
+| composer 三态占位 | `id=composer-input` 的 **`hint`** | `给 Agent 发消息…` / `处理中 — 消息将排队…` / `插话：立即注入当前回合…` |
+| 输入框正文 | 同节点 `text` | — |
+| busy | 模式 chip 的 `Text` = `排队`/`插话` | — |
+| 主按钮=停止/发送 | 按钮**内层** `Stack` 的 `backgroundColor` | 发送 = accent `#FF7C3AED`；停止 = `surfaceHi` |
+| 上滚是否被拽回 | `id=xbot-list` 子树**第一个非空 `Text`** 的 text+bounds | — |
+| ⛔ 读不到 | `accessibilityText`、`SymbolGlyph` 的符号名 | 都不进 dump |

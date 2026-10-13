@@ -1720,3 +1720,93 @@ docs 都够长没被发现）。
 
 **判据**：暂无自动判据（形态上"没写 `.align`"与"想居中"无法区分）；靠**装机看短内容**
 （本仓 `tools/tests/*` 覆盖不到渲染位置）。📷 取证：`109 B` 的 `hvigorfile.ts` 预览。
+
+## 批次 51（2026-10-15，编排者本人实测）：**新增的判据测试文件缺 `export {}` ⇒ 与别的"全局脚本"测试撞全局作用域**（脱机三条永远看不到）+ `dumpLayout` 里**真有**的机器判据字段清单
+
+### ① 新测试文件不加 `export {}` ⇒ 真门禁 ① 判红（TS2451），脱机 `run-one.sh` 永远绿
+
+症状（真门禁 ① 的原文，8 条一起报）：
+
+```
+tools/tests/.out-all.NNNN/composer_button_wiring.test.ts(13,15): error TS2451: Cannot redeclare block-scoped variable 'process'.
+tools/tests/.out-all.NNNN/composer_button_wiring.test.ts(14,15): error TS2451: Cannot redeclare block-scoped variable 'require'.
+tools/tests/.out-all.NNNN/composer_button_wiring.test.ts(15,15): error TS2451: Cannot redeclare block-scoped variable '__dirname'.
+tools/tests/.out-all.NNNN/one_inflight_motion.test.ts(26,15): error TS2451: Cannot redeclare block-scoped variable 'process'.
+... 共 8 条
+共 0 个测试文件，0 个失败（但**编译失败** ⇒ 判红）
+```
+
+**根因**：`tools/tests/*.test.ts` 里若**没有**顶层 `import`/`export`，TS 就当它是**全局脚本(script)**
+⇒ 它顶层的 `declare const process/require/__dirname`、`let pass/fail`、`function ok(...)`
+**与所有其它全局脚本测试共用同一个全局作用域** ⇒ 一旦有两个这样的文件，就互相重声明。
+（`composer_button_wiring.test.ts` 是第 2 个 —— 第 1 个是 `one_inflight_motion.test.ts`。）
+
+**修法**：文件里补一行 `export {};`（把它变成**模块**，声明就文件作用域了）——
+与 `local_idle_wiring.test.ts:28` 同款约定。
+⛔ **别把 `one_inflight_motion.test.ts` 也改**（它现在是唯一剩下的全局脚本，改了也没错，但属于别人的文件）。
+
+**为什么"脱机三条"抓不到**：`run-one.sh <子串>` 只把**匹配的那一个**测试文件喂给 tsc
+⇒ 单个全局脚本**没有第二个文件与它撞作用域** ⇒ 永远绿。
+**推论（与本仓那条"新增判据脚本必须先在门禁同环境自证"同源）**：新增/改名测试文件后，
+必须跑**真门禁**（或至少 `bash tools/tests/run.sh` 全量聚合编译），别只跑 `run-one.sh`。
+
+自查一行（扫全局脚本测试）：
+
+```bash
+for f in tools/tests/*.test.ts; do grep -qE '^export |^import ' "$f" || echo "GLOBAL_SCRIPT: $(basename $f)"; done
+```
+
+### ② `dumpLayout` 里**真正可用**的机器判据字段（⛔ 以及读不到的）
+
+本轮为审计目标②做"机器判据优先于目测"时实测的字段可用性：
+
+| 想读的东西 | dump 里能不能读 | 落在哪个字段 |
+|---|---|---|
+| composer 的**占位文案**（三态） | ✅ 能 | `id=composer-input` 的 **`hint`**（`'给 Agent 发消息…'` / `'处理中 — 消息将排队…'` / `'插话：立即注入当前回合…'`） |
+| 输入框里的**正文** | ✅ 能 | 同节点的 `text` |
+| 模式 chip（排队/插话） | ✅ 能 | 一个 `Text` 节点的 `text` = `排队`/`插话` |
+| **主按钮是"停止"还是"发送"** | ✅ 能（**间接**） | 按钮**内层** `Stack` 的 **`backgroundColor`**：`发送` = accent `#FF7C3AED`（本机深色）；`停止` = `surfaceHi`。⛔ 外层 `Stack` 的 bg 是 `#00000000`（透明），别读错节点 |
+| 按钮的 `accessibilityText`（`'停止'`/`'发送'`） | ❌ **读不到** | 不进 dump（`text`/`description` 都为空） |
+| `SymbolGlyph` 的**符号名**（`bolt_fill`/`paperplane_fill`/`square_fill`） | ❌ **读不到** | `SymbolGlyph` 节点全空 |
+| 列表**首个可见行**（判"上滚后有没有被拽回"） | ✅ 能 | `id=xbot-list` 子树里**第一个**非空 `Text` 的 `text` + bounds |
+
+⇒ **凡是"UI 状态 → 机器可判"的需求，先花 2 分钟 dump 一次看看字段在不在** —— 本轮就靠
+`hint` + 按钮内层 `backgroundColor` 把「(c) busy 时输入文字 ⇒ 按钮变插队/排队」变成了**单字段可判**。
+
+### ③ 软键盘会把 composer **整体顶起** ⇒ 写死的按钮坐标必然失效（且会点错东西）
+
+实测：composer 根 `Row` 的 `bounds` 在 **键盘收起** 时 `[0,2538][1320,2727]`、
+**键盘弹出**时 `[0,1542][1320,1779]` —— y 相差 **~1000px**。
+⇒ 写死 `(1229,2632)` 的"点发送"在键盘态会落到**键盘左下角**（消息根本没发出去）。
+**更坑**：如果按"y1>1400 的最右可点节点"这种**宽松选择器**找按钮，会命中键盘上的
+**「换行」键**（实测选中 `(1222,1875)`）⇒ 文本只在输入框里多一行，永远发不出去。
+
+**唯一可靠做法**：① 每次操作前**重新 `dumpLayout`**；② 选择器**限定在 `id=='xbot-composer'`
+子树内**取**最右**的可点节点；③ 点击与截图/判定**同一条 shell 命令原子执行**。
+
+### ④ `uitest uiInput inputText <x> <y> <text>` **不会自己聚焦** ⇒ 必须先单独 `click` 一次
+
+实测（2026-10-15）：把"点输入框 + 打字"合成**一条** `uitest uiInput inputText 707 2632 "hello"`
+**一个字都进不去**（dump 里 `composer-input` 的 `text`/`hint` 完全不变、键盘也不弹）。
+**可靠姿势 = 两步**：
+
+```bash
+hdc -t 127.0.0.1:5555 shell "uitest uiInput click $X $Y"      # ① 先聚焦（键盘弹出、composer 被顶起）
+sleep 1
+hdc shell "uitest dumpLayout ..."                            # ② **重新**取坐标（布局已变！见上一条③）
+hdc shell "uitest uiInput inputText $X $Y 'hello'"           # ③ 再打字
+```
+
+并且**打完要 dump 验证**（`composer-input` 的 `text` 非空）——⛔ 别假设它成功；把"验证 + 最多重试 3 次"
+写进脚本（本轮就是靠这个才发现"发送没生效"的真因）。
+
+### ⑤ zsh 不对 `$VAR` 做**分词** ⇒ `D="hdc -t 127.0.0.1:5555"; $D shell "..."` **静默失败**
+
+本机 shell 是 **zsh**（`zsh:2: command not found: hdc -t 127.0.0.1:5555`）。zsh 默认**不做**
+word splitting ⇒ `$D` 整体被当成**一个命令名**。若还把 stderr 重定向到 `/dev/null`，
+**失败是全静默的**：你会以为命令跑了，实际一切照旧 ⇒ 随后读到的 dump/截图全是**上一轮的陈旧数据**，
+据此得出的"结论"全部是假的（本轮我据此误判过一次"应用点击无响应/连接断开"，其实那条横幅来自
+**几百秒前的旧 dump**）。
+⇒ **凡 `hdc`/`$VAR` 组合的 shell 片段，一律写进 `#!/usr/bin/env bash` 脚本再 `bash /tmp/x.sh` 跑**；
+或在 zsh 里写 `${=D}`（显式分词）。⛔ 别在 zsh 交互片段里用 `$D shell ...` 做**判定**。
+**判据**：任何"截图/dump 结论"落地前，先确认**数据新鲜**（如 dump 里必须出现本轮刚生成的会话名）。
