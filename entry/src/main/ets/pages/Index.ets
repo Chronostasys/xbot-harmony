@@ -5412,6 +5412,30 @@ struct Index {
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
 
+        // ── 常驻「运行面板」入口（对标 web 移动壳的**常驻面板按钮条**，`MobileAppShell.tsx:701-731`）──
+        // 用户亲报：「运行面板入口不方便，要打开侧边栏才能进入」。原实现只有抽屉底栏那 5 键
+        // （`DrawerSheet` 里），必须**先开侧边栏**才点得到；而 web 的移动壳把面板入口做成**常驻**
+        // 按钮条（files/search/info/tasks/terminal 一直在屏上，见 `PANEL_BUTTONS`）⇒ 原生把
+        // 「运行面板」这一枚落到**顶栏**（与状态块 / 队列 chip 同排）⇒ 一步直达，不必开抽屉。
+        // ⛔ 图标用既有 `list_bullet`（= 抽屉底栏「运行」**同一枚** ⇒ 两处入口同形，不会被读成新功能）。
+        // ⛔ 真实 ≥44 布局盒承载点击（真机实测 `responseRegion` 负偏移外扩**无效**）。
+        // ⚠️ 取色走 `this.panelActionTint()`（本页**动作色单一出口**，内部只读一次 `palOnce()`）：
+        //    性能预算 B 线（`pal()∨palOnce()` 读取总量）余量已见底 —— 直接写 `palOnce()` 会把 1350
+        //    顶穿（实测 1351 ⇒ 门禁红）；走该出口**不加计数**，且它本就是 Apple「动作键」色（`accentSoft`），
+        //    与运行面板表头的「新建/刷新」同源 ⇒ 一眼可辨"这是动作"。
+        Row() {
+          SymbolGlyph($r('sys.symbol.list_bullet'))
+            .fontSize(ICON_XL)
+            .fontColor([this.panelActionTint()])
+        }
+        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('运行面板：定时任务、后台任务、子代理、Runner、终端')
+        .onClick(() => {
+          this.openPanels();
+        })
+
         // ── 原生「迭代指标」徽章（插件 `xbot.iteration-stats` 的 `status_bar_right` 视图）──
         // ⭐ 这正是"插件视图原生渲染"的落点：数据来自宿主自己的实时指标（与 web 侧插件同源），
         //    **不打开任何 web UI**。文案判据 `core/pluginviews.ets:iterStatsText`（空 ⇒ 不渲染）。
