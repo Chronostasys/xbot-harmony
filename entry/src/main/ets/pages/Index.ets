@@ -6941,6 +6941,15 @@ struct Index {
     const pairs: Record<string, string> = {};
     pairs[key] = value;
     this.settings[key] = value;   // 乐观：界面立刻变
+    // ⛔ 主题切换必须**同步**更新 themeName（`@StorageLink('appTheme')` 唯一真源）——
+    //    原实现只在 `syncFrom` 从 `store.settings` 重算（依赖 saveSettings 异步返回），
+    //    乐观更新只写了 `settings`、没写 `themeName` ⇒ 切换后色板**冻结在旧主题**
+    //    （用户亲报「浅色看不清 / 所有 theme 不生效」的真根因）。这里立即派生同步，
+    //    与 `syncFrom` 的取值**同源**（`appPaletteForMdTheme(KEY_MD_THEME)`），最终值一致。
+    if (key === KEY_MD_THEME) {
+      this.themeName = appPaletteForMdTheme(value);
+      this.syncSystemTheme();
+    }
     try {
       await store.saveSettings(pairs);
       if (key === KEY_REASONING_DEFAULT) {
