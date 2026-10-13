@@ -31,6 +31,12 @@
  *   json ≤ payload + 4 KiB（信封开销）—— 先拒超大原始串，避免对大串做 JSON.parse 白烧 CPU。
  */
 
+// ── 依赖（**只引纯 core 模块**，不引入任何 `@ohos.*`/ArkUI —— 本文件仍可脱机单测）──────
+// 「打开外链」的协议白名单与相对地址解析（`resolveOpenable`）是**消息层既有**的唯一出口，
+// 新窗口代理必须与它同源判定（⛔ 不另写一份白名单 —— 两份必然分叉）。
+import { resolveOpenable } from './msgops';
+import { sameOrigin } from './pluginhost';
+
 // ── 常量（协议契约；改动会同步反映到测试锚点）────────────────────────────────────
 /** 协议版本。页面与原生必须一致。 */
 export const BRIDGE_VERSION: number = 1;
@@ -281,4 +287,54 @@ export function bridgeInitPayload(theme: string): string {
   } catch (e) {
     return '{"theme":""}';
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// `onWindowNew`（新窗口请求）代理 —— 用户定向「代理一部分 web 原生的事件」
+//
+// ── 为什么必须有（不是可选增强）────────────────────────────────────────────────
+// ArkWeb 的**默认行为**：`window.open(...)` / `<a target="_blank">` 触发「创建新窗口」请求；
+// 宿主若**不接** `onWindowNew`，ArkWeb 不会自己开窗 ⇒ **整块静默失效**（点了没反应，无日志）。
+// 实证：web 侧 `MessageActions.tsx:127`「打开链接」= `window.open(href,'_blank',…)`；
+//   `MarkdownRenderer.tsx:274/316`（消息里的链接）、`MarkdownPreview.tsx:122`、
+//   `WidgetZone.tsx:43`、`SettingsAbout/Channels` 等共 **9 处 `target="_blank"`**。
+//   ⇒ 不代理 = 插件面板/完整 Web UI 里所有外链都是死的。
+//
+// ⛔ 另一条硬约束（SDK 原文）：`onWindowNew` 里**必须**回调 `handler.setWebController(...)`
+//    （不想开新窗就传 null），**否则渲染进程阻塞**。所以组件侧无论判定结果如何都会回话。
+//
+// 判定分三类（纯函数，可脱机单测；组件只执行副作用）：
+//   · `in-web`   —— **同源**（与承载页同 origin）⇒ 在**同一个** WebView 里导航
+//                  （同源页面本来就是同一份 SPA 的另一页，开系统浏览器是错的）；
+//   · `external` —— 非同源且在可打开协议白名单内 ⇒ 交系统浏览器（`startAbility viewData`）；
+//   · `block`    —— 其余（相对地址拼不出绝对、`javascript:`/`data:` 等不在白名单、空）⇒ 只拦不跳。
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** 新窗口请求 → 在**同一 WebView** 内导航（同源）。 */
+export const NEW_WINDOW_IN_WEB: string = 'in-web';
+/** 新窗口请求 → 交**系统浏览器**（非同源 + 白名单协议）。 */
+export const NEW_WINDOW_EXTERNAL: string = 'external';
+/** 新窗口请求 → **只拦不跳**（不可解析/不在白名单；fail-closed）。 */
+export const NEW_WINDOW_BLOCK: string = 'block';
+
+/**
+ * 新窗口请求该怎么做（纯函数）。
+ *
+ * @param targetUrl ArkWeb 给的 `event.targetUrl`（可能是相对地址、也可能带 `javascript:`）
+ * @param pageUrl   承载页当前地址（同源判定基准；空 ⇒ 无法判同源 ⇒ 只可能 external/block）
+ * @param base      服务端地址（相对地址的解析基准，通常 = `http.baseUrl`）
+ */
+export function newWindowAction(targetUrl: string, pageUrl: string, base: string): string {
+  const raw: string = typeof targetUrl === 'string' ? targetUrl : '';
+  // `resolveOpenable` 已做：trim → 白名单协议（http/https/mailto）/ 相对地址按 base 补全
+  // ⇒ 拼不出来的（含 `javascript:`、`data:`、协议相对以外的裸相对）一律空串。
+  const abs: string = resolveOpenable(raw, typeof base === 'string' ? base : '');
+  if (abs.length === 0) {
+    return NEW_WINDOW_BLOCK;
+  }
+  const page: string = typeof pageUrl === 'string' ? pageUrl : '';
+  if (page.length > 0 && sameOrigin(abs, page)) {
+    return NEW_WINDOW_IN_WEB;
+  }
+  return NEW_WINDOW_EXTERNAL;
 }

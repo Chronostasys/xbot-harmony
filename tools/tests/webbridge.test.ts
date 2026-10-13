@@ -19,6 +19,7 @@ import {
   BRIDGE_VERSION, BRIDGE_MAX_ID_LEN, BRIDGE_MAX_TYPE_LEN, BRIDGE_MAX_PAYLOAD_LEN,
   BRIDGE_TYPES, bridgeTypeIsAllowed, BridgeMessage, parseBridgeMessage,
   encodeBridgeMessage, encodeBridgeAck, makeBridgeMessage,
+  NEW_WINDOW_BLOCK, NEW_WINDOW_EXTERNAL, NEW_WINDOW_IN_WEB, newWindowAction,
 } from '../../entry/src/main/ets/core/webbridge';
 
 let pass = 0;
@@ -221,6 +222,36 @@ ok('全部怪输入均不抛（null 或对象）', weird.every((w) => {
     return false;
   }
 }));
+
+// ── (n) §21.122b 新窗口代理判定（`newWindowAction`）────────────────────────────
+// 为什么值得单测：这是**唯一**决定「`window.open`/`target=_blank` 点了会发生什么」的纯函数；
+// 判错的两个方向都是真缺陷：① 把同源页面当外链 ⇒ 在系统浏览器里打开自己的 SPA（会话丢失）；
+// ② 把 `javascript:`/`data:` 当外链 ⇒ 交给系统（**注入面**）。web 侧 9 处 `target="_blank"`
+// + `MessageActions.tsx:127` 的 `window.open` 全部经过这里。
+const BASE = 'http://127.0.0.1:8082';
+const PAGE = 'http://127.0.0.1:8082/?xbot_view=x';
+eq('(n) 绝对外链 ⇒ external', newWindowAction('https://github.com/a/b', PAGE, BASE), NEW_WINDOW_EXTERNAL);
+eq('(n) 同源绝对地址 ⇒ in-web（同一 SPA 的另一页，绝不外跳）',
+  newWindowAction('http://127.0.0.1:8082/plugins/x/index.html', PAGE, BASE), NEW_WINDOW_IN_WEB);
+eq('(n) 同源绝对路径（/开头）⇒ in-web',
+  newWindowAction('/plugins/x/index.html', PAGE, BASE), NEW_WINDOW_IN_WEB);
+eq('(n) 同源带查询串 ⇒ in-web', newWindowAction('/s/abc?t=1', PAGE, BASE), NEW_WINDOW_IN_WEB);
+eq('(n) mailto ⇒ external（不是 http 同源）', newWindowAction('mailto:a@b.c', PAGE, BASE), NEW_WINDOW_EXTERNAL);
+eq('(n) 端口不同 ⇒ external（origin 含端口）',
+  newWindowAction('http://127.0.0.1:9999/x', PAGE, BASE), NEW_WINDOW_EXTERNAL);
+eq('(n) 协议不同（https vs http）⇒ external',
+  newWindowAction('https://127.0.0.1:8082/x', PAGE, BASE), NEW_WINDOW_EXTERNAL);
+// ⛔ 注入面：这两个**必须**只拦不跳（旧实现若把 targetUrl 直接交给 startAbility 就是漏洞）
+eq('(n) javascript: ⇒ block（注入面）', newWindowAction('javascript:alert(1)', PAGE, BASE), NEW_WINDOW_BLOCK);
+eq('(n) data: ⇒ block（注入面）', newWindowAction('data:text/html,<script>1</script>', PAGE, BASE), NEW_WINDOW_BLOCK);
+eq('(n) file: ⇒ block', newWindowAction('file:///etc/passwd', PAGE, BASE), NEW_WINDOW_BLOCK);
+eq('(n) 空 ⇒ block', newWindowAction('', PAGE, BASE), NEW_WINDOW_BLOCK);
+eq('(n) 裸相对（拼不出绝对）⇒ block（宁可拒绝也不猜地址）',
+  newWindowAction('foo/bar.html', PAGE, BASE), NEW_WINDOW_BLOCK);
+eq('(n) 无 pageUrl 时绝对外链仍可外跳', newWindowAction('https://x.com/', '', BASE), NEW_WINDOW_EXTERNAL);
+eq('(n) 无 pageUrl 时同源地址判不出同源 ⇒ external（fail-safe：不外跳自己的 SPA 由上层兜底）',
+  newWindowAction('http://127.0.0.1:8082/x', '', BASE), NEW_WINDOW_EXTERNAL);
+// mutation 自证锚点：把 sameOrigin 判定去掉 ⇒ 上面 4 条 in-web 会变 external ⇒ 必红。
 
 if (fail > 0) {
   console.log(`  webbridge: ${pass} passed, ${fail} failed`);

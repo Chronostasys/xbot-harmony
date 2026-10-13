@@ -6197,3 +6197,58 @@ event 计数= 4   类型频次= {'heartbeat': 3, 'ask_user_resolved': 1}
   `core/webbridge.ets` 是骨架，需按 web 侧真实调用点补齐。
 - **原生面板去留**：`会话统计`/`技能`/`插件目录（原生）` 是 web 插件的原生重写版；按用户定向
   它们应逐步由 WebView 取代（保留为可选增强或删除，需与用户确认）。
+
+---
+
+## §21.122b 事件代理第一批：`onWindowNew`（新窗口/外链）
+
+**用户定向**：「你应该支持渲染小 webview，然后**代理一部分 web 原生的事件**（比如打开文件之类的）」。
+
+### ① 为什么这条不是可选增强（ArkWeb 硬事实）
+
+ArkWeb **不接** `onWindowNew` ⇒ `window.open(...)` / `<a target="_blank">` **整块静默失效**
+（点了没反应、无日志、dump 里什么都看不到）—— 而 web 侧**大量使用**：
+
+| web 侧调用点 | 是什么 |
+|---|---|
+| `components/agent/MessageActions.tsx:127` | 消息右键「打开链接」= `window.open(href,'_blank','noopener,noreferrer')` |
+| `components/agent/MarkdownRenderer.tsx:274/316` | **消息正文里的链接**（`target="_blank"`） |
+| `components/file/MarkdownPreview.tsx:122` | 文件预览里的链接 |
+| `plugins/WidgetZone.tsx:43` | 插件 widget 的链接 span |
+| `components/settings/SettingsAbout.tsx:308` / `SettingsChannels.tsx:442` | 关于/渠道页外链 |
+| （共 9 处 `target="_blank"` + 3 处 `window.open`） | |
+
+⇒ 不做代理 = **所有 WebView（完整 Web UI / 插件面板 / 插件目录）里的外链都是死的**。
+
+### ② 实现（判定在纯函数，组件只执行副作用）
+
+| 层 | 改动 |
+|---|---|
+| `core/webbridge.ets` | 新增 `newWindowAction(targetUrl, pageUrl, base)` + 三态常量 `NEW_WINDOW_IN_WEB / _EXTERNAL / _BLOCK`。⛔ 复用**既有唯一出口** `msgops.resolveOpenable`（协议白名单 http/https/mailto + 相对地址按 base 补全）与 `pluginhost.sameOrigin` —— **不另写一份白名单**（两份必然分叉） |
+| `components/WebSurface.ets` | 新增 `.onWindowNew(...)`：`in-web` ⇒ `controller.loadUrl(abs)`（同源页面就是同一份 SPA 的另一页，**绝不外跳**）；`external` ⇒ 调新回调 `onOpenExternal`；`block` ⇒ 只拦不跳。**无论哪种都回调 `handler.setWebController(null)`**（SDK 硬约束：不回话 ⇒ **渲染进程阻塞**） |
+| `components/PluginHost.ets` | 新增 `onOpenExternal` 透传 prop（同 `onNativeView` 模式） |
+| `pages/Index.ets` | 3 处接线（完整 Web UI / 面板 / PluginHost）⇒ 全部走**已有** `openUrl`（`startAbility({action:'ohos.want.action.viewData'})` + 协议白名单 + 失败提示）⇒ 外链出口**只有一份** |
+| `tools/tests/webbridge.test.ts` | +17 条判别力判据（`in-web`/`external`/`block` 三态 × 同源/跨端口/跨协议/`javascript:`/`data:`/`file:`/裸相对/空/无 pageUrl） |
+
+**攻击面锚点**（⛔ 这两条是安全判据，不是功能判据）：`javascript:alert(1)` 与
+`data:text/html,...` **必须**落到 `block`（若谁把 `targetUrl` 直接交给 `startAbility`，这两条立刻红）。
+
+### ③ 取证状态（诚实口径）
+
+- ✅ **编译**：`bash tools/gate.sh` ⇒ `GATE_RC=0` + ✅ 真门禁全绿（④ `BUILD SUCCESSFUL`；`setWebController(null)`
+  被 ArkTS 接受 —— 这是我事先不确定的点，靠 ④ 定案）；
+- ✅ **纯函数**：`webbridge.test.ts` 83 passed / 0 failed（含 17 条新判据）；
+- ⏳ **真机运行时未观测**：需要在 WebView 里点到一条真实外链。已定位**可确定性复现的触发点**
+  （`SessionItem.tsx:96-101` 会话行右键「在浏览器中打开」= `window.open(<同源>/?session=…)` ⇒
+  按本判定应落 **in-web**、面板原地导航；改前是静默无反应），但模拟器上 web UI 移动端
+  抽屉/右键菜单路径在有限时间内没走通（`uitest uiInput longClick` 未唤出会话行右键菜单）。
+  **待办**：真机点一条消息里的链接（`MarkdownRenderer` 那条路）即可闭环。
+
+### ④ 下一批（§21.122c 候选，按 web 侧真实调用点排序）
+
+1. **剪贴板**：⛔ SDK 权威（已读 `web.d.ts`）：`onPermissionRequest` 的 `ProtectedResourceType`
+   **只有 MIDI/摄像头/麦克风/传感器 —— 没有剪贴板** ⇒ 剪贴板**只能**走 JS 桥
+   （`xbotNative.postMessage`），且 `navigator.clipboard` 在 `http://` 源下**不是 secure context**。
+2. **文件**：`onShowFileSelector`（`<input type=file>` ⇒ 附件上传）；`onDownloadStart`（下载）。
+3. **文件管理/终端/任务**三个 web 内置面板（`web/src/components/panel/builtinPanels.tsx` 的
+   `core.files`/`core.terminal`/`core.tasks`）在原生侧的可达性与 chrome。

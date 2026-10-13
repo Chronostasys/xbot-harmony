@@ -4550,6 +4550,10 @@ struct Index {
             this.handleBridgeMessage(m);
           }, onOpenView: (viewId: string, title: string, url: string, params: Record<string, string>) => {
             this.routePluginView(viewId, title, url, params);
+          }, onOpenExternal: (url: string) => {
+            // §21.122b：`target="_blank"`/`window.open` 的外链 ⇒ 交系统浏览器（与原生消息里的
+            // 链接**同一出口** `openUrl` ⇒ 协议白名单/失败提示只有一份）。
+            this.openUrl(url);
           }, onClose: () => {
           } })
           Text('切回原生')
@@ -5252,6 +5256,9 @@ struct Index {
           this.handleBridgeMessage(m);
         }, onOpenView: (viewId: string, title: string, url: string, params: Record<string, string>) => {
           this.routePluginView(viewId, title, url, params);
+        }, onOpenExternal: (url: string) => {
+          // §21.122b：插件面板/完整 Web UI 里的 `target="_blank"` 外链 ⇒ 系统浏览器。
+          this.openUrl(url);
         }, onClose: () => {
           this.panelUrl = '';
         } })
@@ -5366,6 +5373,10 @@ struct Index {
               onNativeView: (viewId: string, title: string, url: string, params: Record<string, string>) => {
                 // WebSurface 拦截到插件视图深链导航（`?xbot_view=<viewId>`）⇒ 路由到原生面板。
                 this.routePluginView(viewId, title, url, params);
+              },
+              onOpenExternal: (url: string) => {
+                // §21.122b：插件 WebView 里的外链（`target="_blank"`）⇒ 系统浏览器。
+                this.openUrl(url);
               },
               onClose: () => {
                 this.pluginPageUrl = '';

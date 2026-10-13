@@ -5,12 +5,15 @@ import {
   BridgeMessage, parseBridgeMessage, encodeBridgeMessage, encodeBridgeAck, makeBridgeMessage,
   BridgeHostAction, BRIDGE_ACTION_CLOSE, BRIDGE_ACTION_LOG, BRIDGE_ACTION_READY,
   hostActionFor, bridgeInitPayload,
+  NEW_WINDOW_EXTERNAL, NEW_WINDOW_IN_WEB, newWindowAction,
 } from '../core/webbridge';
 import {
   WEB_PHASE_ERROR, WEB_PHASE_IDLE, WEB_PHASE_LOADING, WEB_PHASE_READY,
   WebStatus, webChromeLabel, webErrorDetail, webHttpErrorDetail, webStatusOf,
 } from '../core/pluginview';
 import { hostPageUrl, isEmbeddedViewLink, nativeViewKind, parseXbotViewLink } from '../core/pluginhost';
+// 「新窗口代理」复用**消息层同一个**外链解析（⛔ 不另写白名单，避免两份分叉）。
+import { resolveOpenable } from '../core/msgops';
 import {
   PRESS_OPACITY,   colorOf, hairlineOf, surfaceFillOf,
   HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y, RADIUS_PILL, SPACE_XS, STROKE_HAIRLINE,
@@ -173,6 +176,22 @@ export struct WebSurface {
    * ⚠️ 普通成员而非 `@Prop`（同 `onBridgeMessage`/`onClose`：函数回调不是可观测数据）。
    */
   onOpenView: (viewId: string, title: string, url: string, params: Record<string, string>) => void = (viewId: string, title: string, url: string, params: Record<string, string>) => {
+  };
+
+  /**
+   * 页面请求开**新窗口**且判定为**外部链接**时的回调（`onWindowNew` 代理）。
+   *
+   * 为什么必须有（用户定向「代理一部分 web 原生的事件」）：ArkWeb **不接** `onWindowNew`
+   * ⇒ `window.open` / `<a target="_blank">` **整块静默失效**（点了没反应）。web 侧实证调用点：
+   * `MessageActions.tsx:127`（消息「打开链接」）、`MarkdownRenderer.tsx:274/316`（正文里的链接）、
+   * 9 处 `target="_blank"`。
+   * 判定（同源/外链/拦截）在纯函数 `core/webbridge.ets:newWindowAction` 里；组件只执行副作用：
+   *   · `external` ⇒ 调本回调（页面用 `openUrl` 交系统浏览器）；
+   *   · `in-web`  ⇒ 在**同一个** WebView 里 `loadUrl`（同源页面就是同一份 SPA 的另一页）；
+   *   · `block`   ⇒ 只拦不跳。
+   * ⚠️ 普通成员而非 `@Prop`（同 `onBridgeMessage`/`onOpenView`：函数回调不是可观测数据）。
+   */
+  onOpenExternal: (url: string) => void = (url: string) => {
   };
 
   /**
@@ -499,6 +518,28 @@ export struct WebSurface {
             // 观测通路不得影响页面（console 取字段失败即放弃这条）
           }
           return false;
+        })
+        // ── 新窗口请求代理（`window.open(...)` / `<a target="_blank">`）─────────────────
+        // ⛔ ArkWeb **不接**此回调 ⇒ 新窗口请求**整块静默失效**（点了没反应、无日志）。web 侧
+        //    实证调用点：`MessageActions.tsx:127`（消息「打开链接」）、`MarkdownRenderer.tsx:274/316`
+        //    （正文里的链接）、9 处 `target="_blank"` ⇒ 不代理 = 所有 WebView 里外链都是死的。
+        //    判定在纯函数 `core/webbridge.ets:newWindowAction`（同源 ⇒ 本 WebView 内导航；
+        //    非同源且在协议白名单内 ⇒ 系统浏览器；其余 ⇒ 只拦不跳）。组件只执行副作用。
+        // ⛔ SDK 硬约束：本回调里**必须**调 `handler.setWebController(...)`（不开新窗传 null），
+        //    **否则渲染进程阻塞** ⇒ 所以无论判定结果都回话，且只在 `external` 时交给上层。
+        .onWindowNew((event) => {
+          try {
+            const abs: string = resolveOpenable(event.targetUrl, this.url);
+            const act: string = newWindowAction(event.targetUrl, this.url, this.url);
+            if (act === NEW_WINDOW_IN_WEB) {
+              this.controller.loadUrl(abs);
+            } else if (act === NEW_WINDOW_EXTERNAL) {
+              this.onOpenExternal(abs);
+            }
+          } catch (e) {
+            // 代理失败不得阻断导航（宁可只拦不跳）
+          }
+          event.handler.setWebController(null);
         })
         .onPageBegin((event) => {
           // ⛔ 不再把 URL 当标题（旧实现 `this.title = event.url` 正是"顶栏显示一条丑 URL"的

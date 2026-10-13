@@ -113,6 +113,12 @@ export struct PluginHost {
    */
   onNativeView: (viewId: string, title: string, url: string, params: Record<string, string>) => void = (viewId: string, title: string, url: string, params: Record<string, string>) => {
   };
+  /**
+   * WebSurface 判定为**外链**的新窗口请求（`target="_blank"`/`window.open`）—— 透传给上层
+   * （上层用 `openUrl` 交系统浏览器）。⛔ 默认空 = 只拦不跳（与 `onNativeView` 同一约定）。
+   */
+  onOpenExternal: (url: string) => void = (url: string) => {
+  };
 
   build() {
     Column() {
@@ -124,6 +130,9 @@ export struct PluginHost {
           chromeLabel: this.panelTitle,
           onOpenView: (viewId: string, title: string, url: string, params: Record<string, string>) => {
             this.onNativeView(viewId, title, url, params);
+          },
+          onOpenExternal: (url: string) => {
+            this.onOpenExternal(url);
           },
           onClose: () => {
             this.onClose();
