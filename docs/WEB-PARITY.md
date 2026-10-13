@@ -1330,3 +1330,27 @@ mutation 实测：删渲染层 sparkline 分支 → 2 红；把降级特判加�
 **⚠️ 未装机（设备禁令）⇒ 信息栏的**观感**（24vp 条高 / 出现时的布局位移 / 横向滚动）**待设备验证**。**
 
 
+
+### XII.7 插件**全覆盖对照表**（2026-10-13 · **装机实测**取证，目标④「必须真支持 web 的**所有**插件」）
+
+> **取源**：`~/.xbot/plugins/builtin/*/plugin.json`（后端 builtin，**只有 5 个**）+ `web/src/plugins/`（web bundle 内置）。
+> **判据口径**：① 原生**面板**（组件 + `core/` 纯逻辑 + 消费点计数）；② 原生**徽章/条**；③ **ArkWeb 深链兜底**
+> （`core/pluginhost.ets:953 nativeViewKind` 返回空串 ⇒ 放行 WebView）；④ **缺口**（必须明写原因与拍板人）。
+> ⛔ 不把"`core/` 里有纯逻辑"当"用户能用"；⛔ 不把注释当实现。
+
+| web 插件 | 声明（`web.contributes` / 内置面板） | 原生可及路径 | 取证 |
+|---|---|---|---|
+| `xbot.git-fancy` 0.3.5 | view `xbot.git-fancy.panel`(right_sidebar) + view `xbot.git-fancy.commit`(main) | **原生面板** `GitPanelSheet`；路由 `core/pluginhost.ets:953 nativeViewKind` → `'git.panel'`/`'git.commit'`，消费者 `pages/Index.ets:3924 routePluginView()`；入口「Git 面板（原生）」 | 模拟器实拍到该入口行 |
+| `xbot.iteration-stats` 1.0.0 | view `…badge`(container **status_bar_right**) | **原生徽章**（顶栏右侧）：`core/pluginviews.ets:41 ITER_STATS_VIEW_ID` + `:94 hasIterStats`；目录行状态徽标 = **`已挂载：状态栏`** | 模拟器实拍该徽标 |
+| `xbot.session-stats` | web bundle 内置 view `…panel`(right_sidebar) | **原生面板** `SessionStatsSheet`（`core/sessionstats.ets` + `core/rpc.ets:69` 会话用量 RPC）；入口「会话统计」 | 模拟器实拍到该入口行 |
+| `xbot-skill-manager` | web bundle 内置 `SkillManagerPanel`(right_sidebar) | **原生面板** `SkillsSheet`（`core/skills.ets`）；入口「技能」 | 模拟器实拍到该入口行 |
+| `manager`（插件管理） | web bundle 内置 | **原生面板** `PluginsSheet`（**原生**插件目录）；入口「插件目录（原生）」 | 模拟器实拍到该入口行 |
+| **`xbot.ssh-runner` 1.0.6** | view `…panel`(right_sidebar, icon `server`) + view `…bar`(container **info_bar**) | **无原生面板 ⇒ ArkWeb 深链兜底**：`nativeViewKind('xbot.ssh-runner.panel')` 返回空串 ⇒ 放行 WebView，载 `<base>?xbot_view=xbot.ssh-runner.panel&xbot_view_title=<title>` | **2026-10-13 模拟器实测 ✓**：点目录行「远程机器（SSH）」⇒ 原生 chrome（`‹` + 标题「远程机器（SSH）」 + 加载圈）包住 ArkWeb，屏上**只有该插件自己的面板**（`← 远程机器（SSH） ＋ 🔧 ⚙` / `切回本机` / `＋ 添加机器` / `本机（服务器）` / `还没有机器 —— 用一条 SSH 命令添加。`）——**不是** web 聊天主界面（= 用户点名禁止的"跑回主界面"**未发生**） |
+| `git-info`（脚本插件） | 产出 `zones.infoBar` | ⚠️ **无落点**：原生信息栏**照抄** web 的 `excludePrefixes={['git:']}`（web 侧该 span 由 fancy 的 `git-info/GitStatusPanel.tsx:40-46` 画成徽章组），而原生**没有**该视图 ⇒ git 状态在原生信息栏**不显示**（本节上方第 3 条已记账） | 读码取证（`core/widgetsview.ets` 注释） |
+| `xbot.genui` 1.0.0 | `web.entry=index.js`，**`contributes` 为空**（视图由宿主内联渲染 `w.__xbot_ui__`；payload = LLM 生成 TSX） | ❌ **缺口**（原生无 React 宿主）；目录行状态徽标 = **`未声明面板`** | 模拟器实拍该徽标；已入档 `docs/WEB-ALIGNMENT.md §21.95`，**待用户拍板**（原生重画 TSX 子集 vs 内嵌 WebView 承载 `__xbot_ui__`） |
+| `xbot.ambience` 0.3.0 | `contributes: {}`、**无 `web.entry`**（⇒ 不出现在 `web_plugin_list`） | ❌ **未消费**：真值 = `plugin_config_get` 的 `glassOpacity`(0.5..1.0) / 壁纸 / 柔焦；用户在插件里调这三项 ⇒ **原生玻璃面板/壁纸像素毫无变化** | `§2.9`（待排期） |
+
+**一句话结论**：能由宿主自己出数据、原生画得出的视图 —— **全部原生渲染**（4 个面板 + 1 个徽章：git / 会话统计 / 技能 / 插件目录 / 迭代指标），
+不能原生渲染的走 **ArkWeb 深链兜底**（`ssh-runner` **已实测可开**）。**真缺口 3 条**：`genui`（宿主渲染 TSX，**待用户拍板**）、
+`ambience`（配置值未消费，`§2.9`）、`git-info` 的 `infoBar` 分支（原生无该视图）。
+**后端 `web_plugin_list` 只有 4 条**（genui / git-fancy / iteration-stats / ssh-runner，见 `core/sessionstats.ets:9`）⇒ **4 条全部有路径**（0 条"打不开"）。
