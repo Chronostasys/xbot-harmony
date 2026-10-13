@@ -171,6 +171,76 @@ export function maxComposerLines(): number {
   return 6;
 }
 
+/**
+ * 主输入框的**占位文案**（随 busy / 插话变化）—— 语义逐字移植 web
+ * `MessageInput.tsx:214-221`：`interruptMode ? interject : busy ? busy : default`
+ * （web 还有 `goalMode` 首分支与 `sendKeyMode` 末分支，**为何原生都没有**见下两段）。
+ *
+ * **为什么不是一句静态「发消息…」**（2026-10-14 面板审计钓出：web 分状态、原生恒一句）：
+ *   · busy 时用户**看得见的下一条反馈**就是输入框本身；web 在这里明说「消息将排队」——
+ *     原生只说「发消息」，用户按下去是排队还是打断**无从预判**（`core/sendmode.ets` 的 chip 只标模式名，
+ *     且 chip 是 `busy` 才出现的次要控件）。
+ *   · 插话语义**与普通发送相反**（注入当前回合、不排队、不产生 user 行）⇒ 必须提前说清，
+ *     不能等用户点下去才用 toast 解释。
+ *
+ * ⛔ **两处与 web 的**有意**差异（都是"原生 ≠ 桌面"的适配，不是发明）**：
+ *   ① **无 `goalMode` 分支**：原生「目标输入」是**独立字段**（`goalDraft`，「添加目标」内联输入），
+ *      不共用本输入框 ⇒ 本输入框永处非 goal 态。
+ *   ② **无 `sendKeyMode` 分支**（web 的 `（Ctrl+Enter 发送）` / `（Enter 发送）`）：**真机实测**
+ *      输入框可用宽 = **240vp**（`type.body` 15vp），web 桌面文案（`给 Agent 发消息…（Ctrl+Enter 发送）`）
+ *      需 ≈256vp ⇒ **换行成两行并被裁**（`v_busy.jpeg` 实测「…消息将排 / 队…」）。而"回车键什么行为"
+ *      在原生平台本就有**专属机制** —— `enterKeyType(Send | NEW_LINE)`（软键盘回车键的**标签**本身就是
+ *      「发送」/「换行」，见 `Index.ets` 同一输入框上那行）⇒ 把桌面按键提示塞进 placeholder 是
+ *      **重复表达 + 必换行**，Apple 平台惯例也是走键盘键型。**故原生占位文案一律压到单行**。
+ *
+ * ⛔ **优先级顺序与 web 逐字一致**（`interject` 先于 `busy`）。两者实践中不同时为真
+ *   （`interruptMode` 在 busy→false 时被复位，见 `Index.ets` 的复位分支 + `sendmode.test.ts`），
+ *   但仍按 web 顺序判 —— 否则将来新增「离线排队」之类状态时语义会静默漂移。
+ * ⛔ 本函数**不读 `pal()` / 主题 / 任何全局**（纯逻辑 ⇒ 可脱机单测；文案与颜色解耦）。
+ * 判据：`tools/tests/composer.test.ts`（三态互异 + 优先级 + 单行预算）。
+ */
+export function composerPlaceholder(busy: boolean, interject: boolean): string {
+  if (interject) {
+    return '插话：立即注入当前回合…';
+  }
+  if (busy) {
+    return '处理中 — 消息将排队…';
+  }
+  return '给 Agent 发消息…';
+}
+
+/**
+ * 占位文案的**单行预算**（设备无关，单位 vp）—— 判据用，不参与渲染。
+ *
+ * 由来（2026-10-14 真机实测）：主输入框可用宽 = 屏宽 440vp − 附件/图片两枚图标 − 模式 chip −
+ * 发送键 − 各处内边距 ≈ **240vp**。占位文案**超一行会被裁**（实测 `210vp` 的串已贴边，
+ * 故留 ~12% 余量取 `210vp` 为上限）。⛔ 改文案时必须过这条闸，别只在脑子里估长度。
+ */
+export function composerPlaceholderBudgetVp(): number {
+  return 210;
+}
+
+/**
+ * 估一条中文/拉丁混排串的**渲染宽度（vp）**—— 判据用（`type.body` 15vp 档）。
+ *
+ * 逐类计宽（实测标定，误差 ~±8%）：CJK/全角标点/`…` = **1.0em**；ASCII 字母数字 = **0.5em**；
+ * 空格 = **0.25em**。⛔ 只求"能拦住换行"的判别力，不求像素级精确 —— 但**必须**比"目测"可靠。
+ */
+export function estimateTextWidthVp(text: string, fontSize: number): number {
+  let em = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c: number = text.charCodeAt(i);
+    if (c === 32) {
+      em += 0.25;                                   // 空格
+    } else if (c < 128) {
+      em += 0.5;                                    // ASCII
+    } else {
+      em += 1.0;                                    // CJK / 全角 / `…`
+    }
+  }
+  return em * fontSize;
+}
+
 // ── 候选浮层的**选中态 / 键盘导航**（对齐 web `useCompletion.ts:369-397` handleKeyDown）──────
 //
 // 为什么单列：手机上软键盘没有方向键/Tab ⇒ 键盘导航是**外接键盘 + 无障碍**的补充路径；

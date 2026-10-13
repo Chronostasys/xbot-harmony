@@ -5752,3 +5752,102 @@ ForEach 处数一处未增（分组头是普通 `ListItem`，不是新 `ForEach`
   （⛔ 本批**零判据改动**：4 处改动全部落在既有契约的"未钉区域"。）
 - 装机截图对照（`/tmp/d2118.jpeg`）：标题升档可见；`⋯` 已在顶栏；筛选条只剩两控件且分段变宽；
   两条发丝可见；底栏 `退出` 与导航键被竖线分开。
+
+---
+
+## §21.119 「**你要考虑所有的面板**」：逐面板对标 Apple 审计（**结论 = 绿**）+ 审计钓出的真 parity 缺口：composer 占位文案**不随模式变化**（目标②③）
+
+用户口径：「我只说了侧边栏但是**你要考虑所有的面板**」。
+
+### 方法（避免"感觉"下结论）
+
+① **装机视觉判读**：冷启 → 抽屉 → 逐面板截图 6 张（运行面板 · 定时/后台/终端 三页签 · 能力面板 ·
+会话统计 · 文件），逐张看图（`/tmp/p_run*.jpeg`、`/tmp/p_caps*.jpeg`、`/tmp/p_files.jpeg`）；
+② **静态 chrome 审计**：对 15 个浮层组件逐项抽形态（标题档 / 根面 role / 宽度 / 关闭字形的取色与
+命中盒 / 空态结构 / 面板体 inset），机器抽取值 + 逐条回读原文（`grep -B8 | tail -1` 这类启发式
+**会误捕内层 padding**，凡结论必须回读原文确认 —— 见 `AGENTS.md`「判据 ≠ 信号」）。
+
+### 审计结果（**无实质分歧** —— 差距已由 §21.115–§21.117 关闭）
+
+| 维度 | 抽取值 | 结论 |
+|---|---|---|
+| 页头标题档 | 14 个 sheet **全部** `type.headline`(17) | ✅ 一致（主航面用 `type.title`，见 §21.118 ⇒ 层级正确） |
+| 页头动作图标 | 全部 `SHEET_ACTION_GLYPH`+`colorOf(…,'iconMuted')`+**真实 44 布局盒** | ✅ 一致（⛔ 不用失效的 `responseRegion` 负偏移） |
+| 根面 role | 全部 `surfaceFillOf(…,'surface.overlay')` + 发丝 + 双层柔影 | ✅ 一致（§21.116 修掉了"卡与面同 rung"的隐形卡） |
+| 面板宽度 | 92% sheet 一律 `SHEET_WIDTH`；**全屏面板**（文件/终端/技能）一律 `100%` | ✅ 系统性的模式差异，非不一致 |
+| 排序语义 | 全屏面板体 inset 一律 `SPACE_MD` | ✅ 一致 |
+| 空态结构 | 字形 → 主行(`type.subhead`/`textSecondary`) → 提示行(`type.caption`/`textMuted`) | ✅ 一致（一字形两行的 Apple 层级） |
+
+**装机判读结论**：运行面板（页签下划线指示 + 任务卡 + kill 方块 / 完成态 chevron）、能力面板
+（插件卡 + 版本 + 「未声明面板」/「已挂载」标签）、会话统计（KPI 卡 + 按模型分档）、文件（面包屑 +
+过滤 + 大小 + 隐藏文件开关）—— 四者均已达"一个设计系统"观感。⇒ **本批不制造改动**。
+
+### ⭐ 审计钓出的**真 parity 缺口**（已修）：composer 占位文案不随模式变化
+
+**症状**（`/tmp/p_caps_stats.jpeg` 装机可见）：busy（运行中）时输入框仍显示「发消息…」。
+**web 权威**（`src/components/agent/MessageInput.tsx:214-221`）：
+
+```ts
+const placeholderText = goalMode ? t('agent.goal.inputPlaceholderMain')
+  : interruptMode ? t('agent.inputPlaceholderInterject')
+  : busy ? t('agent.inputPlaceholderBusy')
+  : t(sendKeyMode === 'enter' ? 'agent.inputPlaceholderEnter' : 'agent.inputPlaceholder')
+```
+
+对应中文（`src/i18n/zh-CN.ts:195-198/302`）：`'给 Agent 发消息…（Ctrl+Enter 发送）'` /
+`'…（Enter 发送）'` / `'Agent 处理中 — 消息将排队…'` / `'插话：立即注入当前 Turn，不打断…'`。
+**⇒ 原生恒一句 = 真缺口**，且它正落在用户点名的「busy 细节」上：busy 时输入框是用户**看得见的
+下一条反馈**，web 用一句话说清"按下去是**排队**"；原生只说「发消息」，用户对"排队 vs 打断"只能靠猜
+（`core/sendmode.ets` 的模式 chip 是**次要**控件、且只在 busy 时出现）。插话更甚 —— 其语义与普通发送
+**相反**（注入当前回合、不排队、不产生 user 行），必须**提前**说清而不是点下去才用 toast 解释。
+
+**修复**（均在既有形态内，⛔ 零新颜色/尺寸/曲线）：
+1. **纯函数** `core/composer.ets: composerPlaceholder(busy, interject)` —— 与 web **同优先级**
+   （`interject > busy`）。⛔ 不读 `pal()`/主题（可脱机单测）。
+2. **接线** `Index.ets` 主输入框：`composerPlaceholder(this.busy, isInterruptSend(this.busy, this.sendMode))`
+   —— ⛔ 复用既有纯函数 `isInterruptSend` 判"什么时候算插话"，不在页面里重写。
+
+### ⭐⭐ 首版被**真机验收打回**（这一步才是本批最有价值的部分）
+
+**第一版照抄了 web 的模板 + 桌面按键提示**，四态文案各为
+`'给 Agent 发消息…（Ctrl/⌘ + Enter 发送）'` / `'…（Enter 发送）'` / `'Agent 处理中 — 消息将排队…'` /
+`'插话：立即注入当前 Turn，不打断…'`，**脱机测试全绿**（文案互异 + 优先级都对）。
+**装机一看（`/tmp/v_busy.jpeg`）：占位换行成两行并被裁** —— 「Agent 处理中 — 消息将排 / 队…」。
+⇒ **这正是"判据 ≠ 信号"的又一次实例**：测试只钉了"文案对不对"，**没有钉"放不放得下"**。
+
+**实测量化**（`uitest dumpLayout`，不靠目测）：主输入框 `TextArea` bounds `[272,2543]-[993,2723]`
+⇒ 可用宽 **721px / 240vp**（`type.body` 15vp）；web 桌面文案 `'给 Agent 发消息…（Ctrl+Enter 发送）'`
+按字符类估算需 **≈256vp** ⇒ 必换行 ⇒ 必被裁。
+
+**处置（两条，都是"原生 ≠ 桌面"的适配，不是发明）**：
+① **去掉 `sendKeyMode` 分支**：web 的「（Ctrl+Enter 发送）」是**桌面**信息；原生平台本就有**专属机制**
+   表达同一件事 —— `enterKeyType(Send | NEW_LINE)`，**软键盘回车键的标签本身**就是「发送」/「换行」
+   （同一输入框上已有那行）⇒ 塞进 placeholder 是**重复表达 + 必换行**。
+② **文案压到单行预算内**：`'给 Agent 发消息…'` / `'处理中 — 消息将排队…'` / `'插话：立即注入当前回合…'`。
+   （去掉 `Agent ` 前缀与 `，不打断` 后缀 —— 对比度由「消息将排队」vs「立即注入当前回合」承担。）
+③ **把"放不下"变成机器判据**（否则下一批改文案会**静默**复现同一个裁切）：
+   `core/composer.ets` 新增 `estimateTextWidthVp(text, fontSize)`（按字符类：CJK/全角/`…`=1em、
+   ASCII=0.5em、空格=0.25em，实测标定 ±8%）+ `composerPlaceholderBudgetVp() = 210`（实测可用
+   240vp 留 ~12% 余量），测里**逐条真的量一遍**，并有 **mutation 自证**：注入 web 桌面原文
+   ⇒ 必须**超预算**（证明这条闸真的能拦）。
+
+### 判别力测试
+
+`tools/tests/composer.test.ts`（36 → **52** 断言）：三态互异（`new Set(...).size === 3`，
+防"三个分支返回同一句"式假绿）+ 两条**优先级**（`interject > busy`，含 idle+interject 的越界组合）
++ **逐条单行预算** + **mutation 自证** + 宽度估算器自身的判别力（12 CJK = 12em / 10 ASCII = 5em /
+空格 0.25em / `…` 按全角）。
+
+### 登记但**不修**的一处（显式记账，别当没看见）
+
+`core/tokens.ets` 的 8 级数值阶梯 `SP_1..SP_8`(4/8/12/…/32) 与语义档 `SPACE_*` **同值并存**
+（面板里 `SelfCheckSheet` 用 `SP_3`、`QueueSheet` 用 `SP_4`）。**取值逐字节相同 ⇒ 无视觉差异**，
+但词汇两套。改名波及 20+ 文件（`SettingsLlm` 单文件 54 处）且**零可见收益** ⇒ 本批不动；
+若将来做 token 收敛，须**一次性**全仓替换 + 跑全部静态护栏（不是逐文件零敲）。
+
+### 判据/验证
+
+`bash tools/gate.sh` ⇒ `GATE_RC=0`、`✅ 真门禁全绿`、**④ `hvigor BUILD SUCCESSFUL`**、
+① **326 个测试文件 0 失败**；`composer` 隔离单测 **52 passed, 0 failed**（36 → 52）；
+装机验收：busy 态占位为**单行**「处理中 — 消息将排队…」（首版两行被裁 ⇒ 已按上节修复）；
+⑧ 无未消费 core 模块（107/107）· ⑨ A 硬红 0 / B 警告 3。

@@ -56,7 +56,8 @@ import {
 } from '../core/panels';
 import { TerminalInfo, terminalPrimary, terminalSubText } from '../core/termproto';
 import {
-  activeToken, applyCommand, applyMention, clampSel, CMD_ROWS, CommandItem, completionKeyAction, enterSends,
+  activeToken, applyCommand, applyMention, clampSel, CMD_ROWS, CommandItem, completionKeyAction,
+  composerPlaceholder, enterSends,
   FS_ROWS, FsEntry, joinPath, matchCommands, matchFiles, parentDir, selNext, selPrev,
 } from '../core/composer';
 import {
@@ -6407,7 +6408,12 @@ struct Index {
           .onClick(() => {
             this.pickImages();
           })
-        TextArea({ placeholder: '发消息…', text: this.draft })
+        // 占位文案**随状态/模式变化**（web `MessageInput.tsx:214-221` 同源；判据 `core/composer.ets`）：
+        // idle/busy 排队/插话 三态各不相同 —— busy 时输入框是用户**看得见的下一条反馈**，
+        // 必须提前说清"按下去是排队还是打断"（插话语义与普通发送相反）。
+        // ⛔ 文案一律单行：真机实测可用宽 240vp，web 桌面文案（含 `（Ctrl+Enter 发送）`）会换行被裁；
+        //    "回车键什么行为"由下方 `.enterKeyType(...)`（软键盘回车键标签）表达，不重复塞进占位。
+        TextArea({ placeholder: composerPlaceholder(this.busy, isInterruptSend(this.busy, this.sendMode)), text: this.draft })
           // 深链 `input.focus` 的落点（`focusControl.requestFocus(COMPOSER_INPUT_ID)`）
           .id(COMPOSER_INPUT_ID)
           .onChange((v: string) => {
