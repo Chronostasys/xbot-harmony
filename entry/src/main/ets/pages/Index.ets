@@ -189,7 +189,7 @@ import {
   GIT_PLUGIN_ID, RPC_WEB_PLUGIN,
 } from '../core/gitpanel';
 // 运行面板（任务管理）的**结构化行卡**（真 @Component；取色走 `paletteOf(theme)` ⇒ 不占页面预算）
-import { PanelRowCard, ROW_TRAIL_CHEVRON, ROW_TRAIL_CLOSE, ROW_TRAIL_DELETE, ROW_TRAIL_NONE } from '../components/PanelRows';
+import { PanelRowCard, ROW_TRAIL_CHEVRON, ROW_TRAIL_CLOSE, ROW_TRAIL_DELETE, ROW_TRAIL_NONE, ROW_TRAIL_STOP } from '../components/PanelRows';
 import { TerminalSheet } from '../components/TerminalSheet';
 import { SessSheet, SearchHitsSheet, ContextSheet } from '../components/MenuSheets';
 import { AskUserSheet } from '../components/AskUserSheet';
@@ -7359,6 +7359,28 @@ struct Index {
    * 成功后**就地刷新**详情（SIGTERM 在飞时状态可能还是"运行中" ⇒ 用户可自行关闭/再点，
    * ⛔ 不假装成功）；失败给可读 toast（服务端 `access denied: task not found` 是唯一原因来源）。
    */
+  /**
+   * **行内终止**运行中的后台任务（列表行的尾部动作）。
+   *
+   * 与 `killTaskDetail` 同一 RPC（`kill_bg_task`，web `TasksPanel.tsx:246-255` / `BackgroundPanel.tsx:172`
+   * 同源），差别只在落点：这里不动详情卡（用户还在列表上）。
+   * ⛔ `store.killBgTask` 内部已 `loadBgTasks()` ⇒ 列表**就地**刷新（不靠轮询那 2s/30s 一拍）；
+   *    页面侧镜像由既有同步路径负责（`syncFromStore`）——⛔ 不另写一套取数。
+   */
+  private async killBgTaskRow(t: BgTask): Promise<void> {
+    const st: ChatStore | null = this.store;
+    const id: string = t.id !== undefined ? t.id : '';
+    if (st === null || id.length === 0) {
+      return;
+    }
+    try {
+      await st.killBgTask(id);
+      this.toast('已请求终止');
+    } catch (e) {
+      this.toast(`终止失败: ${errText(e as Object)}`);
+    }
+  }
+
   private async killTaskDetail(): Promise<void> {
     const id: string = this.taskDetailId;
     const st: ChatStore | null = this.store;
@@ -8761,9 +8783,17 @@ struct Index {
                   primary: bgTaskPrimary(t),
                   secondary: bgTaskSubText(t, this.nowMs()),
                   tone: bgTaskTone(t),
-                  trailing: ROW_TRAIL_CHEVRON,
+                  // 尾部动作按**状态**分流（判据 `bgTaskRunning` = 与状态文案/前导字形同一真源）：
+                  //   运行中 ⇒ **行内终止**（web `TasksPanel.tsx:246-255` 只在 running 时给 `Square` 按钮）；
+                  //   完成/失败 ⇒ chevron（进详情看输出 —— 原生比 web 多的一层，不因此丢掉）。
+                  // ⛔ 行键含 `t.status`（见下方 ForEach key）⇒ 状态翻转时该行**重建**，
+                  //    尾部动作随之切换（否则 `@Prop trailing` 不更新 = 完成的任务还挂着"终止"）。
+                  trailing: bgTaskRunning(t) ? ROW_TRAIL_STOP : ROW_TRAIL_CHEVRON,
                   onTap: () => {
                     this.openTaskDetail(t);
+                  },
+                  onTrailing: () => {
+                    this.killBgTaskRow(t);
                   },
                 })
               }

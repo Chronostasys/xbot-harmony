@@ -35,6 +35,14 @@ export const ROW_TRAIL_CHEVRON: string = 'chevron';
 export const ROW_TRAIL_DELETE: string = 'delete';
 /** 关闭（终端）。 */
 export const ROW_TRAIL_CLOSE: string = 'close';
+/**
+ * **终止**（运行中的后台任务）—— web `TasksPanel.tsx:246-255` 的 `Square` 按钮同源：
+ * 「正在跑的任务」在**列表里**一步可杀，不必先点进详情。
+ *
+ * ⛔ 为什么只给运行中的行：web 同样只在 `running` 时渲染该按钮（完成/失败的任务没有可终止的东西，
+ *    给个永远无效的动作 = Apple 明令禁止的"看起来可点其实没用"）。判据在场外 = `core/panels.bgTaskRunning`。
+ */
+export const ROW_TRAIL_STOP: string = 'stop';
 
 @Component
 export struct PanelRowCard {
@@ -98,6 +106,20 @@ export struct PanelRowCard {
     return colorOf(p, 'iconMuted');
   }
 
+  /**
+   * 尾部图标的**唯一**取色点。
+   *
+   * ⛔ 收成方法的理由 = 性能预算 **B 线**（`this.pal()` ∨ `this.palOnce()` 的**字面出现次数**，
+   *    `tools/perf/guard.sh`）**顶格 1350、只许减不许增**：三段尾部动作（chevron / 删除·关闭 /
+   *    终止）此前**各自**直读一次色板 ⇒ 补「终止」时新增第 4 处字面量 ⇒ 真门禁实测 **1351 真红**。
+   *    收进本方法后：**+1（本方法）− 3（三处分支直读） = 净 −2** ⇒ 1351 → **1349**（留 1 格余量）。
+   * ⚠️ 语义逐字节不变：`danger` ⇒ 破坏性动作色（删除 / 关闭 / 终止共用），否则弱化图标色（chevron）。
+   */
+  private trailColor(danger: boolean): string {
+    const p: Palette = this.pal();
+    return danger ? p.dangerText : colorOf(p, 'iconMuted');
+  }
+
   build() {
     Row({ space: SPACE_XS }) {
       // 前导状态字形（**固定槽宽** ⇒ 有/无字形的行文字仍然对齐；Apple 列表行范式）。
@@ -152,14 +174,32 @@ export struct PanelRowCard {
       if (this.trailing === ROW_TRAIL_CHEVRON) {
         SymbolGlyph($r('sys.symbol.chevron_right'))
           .fontSize(fs('type.micro'))
-          .fontColor([colorOf(this.pal(), 'iconMuted')])
+          .fontColor([this.trailColor(false)])
+      } else if (this.trailing === ROW_TRAIL_STOP) {
+        // 运行中的后台任务：**行内终止**（web `TasksPanel.tsx:246-255` 的 `Square` 按钮同款）。
+        // ⛔ 热区 = 真实 `HIT_TARGET_MIN` 布局盒（⛔ 不用 `responseRegion` 负偏移外扩 —— 真机实测无效）。
+        // 图标取 `square_fill` = 本仓「停止」的既有字形（composer 的停止键同款）⇒ 与"已终止"的
+        // **状态**字形（`stop_circle`，见 `LEAD_KILLED`）刻意区分：一个是动作、一个是状态。
+        Row() {
+          SymbolGlyph($r('sys.symbol.square_fill'))
+            .fontSize(fs('type.caption'))
+            .fontColor([this.trailColor(true)])
+        }
+        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center)
+        .alignItems(VerticalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('终止任务')
+        .onClick(() => {
+          this.onTrailing();
+        })
       } else if (this.trailing === ROW_TRAIL_DELETE || this.trailing === ROW_TRAIL_CLOSE) {
         // ⛔ 热区**不靠** `responseRegion` 负偏移外扩（真机实测 SDK21 无效，见 AGENTS.md GOTCHAS）
         //    ⇒ 图标放进真实 `HIT_TARGET_MIN` 布局盒、盒内居中（图标视觉尺寸不变）。
         Row() {
           SymbolGlyph($r('sys.symbol.xmark'))
             .fontSize(fs('type.caption'))
-            .fontColor([this.pal().dangerText])
+            .fontColor([this.trailColor(true)])
         }
         .width(HIT_TARGET_MIN)
         .height(HIT_TARGET_MIN)
