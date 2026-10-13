@@ -1354,3 +1354,20 @@ mutation 实测：删渲染层 sparkline 分支 → 2 红；把降级特判加�
 不能原生渲染的走 **ArkWeb 深链兜底**（`ssh-runner` **已实测可开**）。**真缺口 3 条**：`genui`（宿主渲染 TSX，**待用户拍板**）、
 `ambience`（配置值未消费，`§2.9`）、`git-info` 的 `infoBar` 分支（原生无该视图）。
 **后端 `web_plugin_list` 只有 4 条**（genui / git-fancy / iteration-stats / ssh-runner，见 `core/sessionstats.ets:9`）⇒ **4 条全部有路径**（0 条"打不开"）。
+
+## §XIII 台账再校准（2026-10-13）：§11.12.1「真实剩余缺口」**7 条逐条复核**
+
+> **做法**：⛔ 不认注释、不认"core 里有纯逻辑"，一律**数调用点 + 读渲染点**（`grep` 取片段）。
+> **结果：4 条已落地 · 1 条原断言**有误** · 1 条部分 · **真剩余只剩 1 条**（#2）。**
+
+| # | §11.12.1 原断言 | 2026-10-13 复核实证 | 结论 |
+|---|---|---|---|
+| 1 | 会话视图条「全部折叠 / 全部展开」= 纯逻辑已有但 **0 UI 消费** | `pages/Index.ets:8979` 真渲染 `Text(this.collapseAllPlanNow().allCollapsed ? '全部展开' : '全部折叠')`（`:6274` 走 `applyCollapseAll`）；同源判定 `:9264-9271`（`plan.visible` 决定出现）；**专判据** `tools/tests/collapse_all_wiring.test.ts`（钉"调用点计数 ≥1" + mutation） | ✅ **已落地**（原断言过时） |
+| 2 | 折叠工具组「组内按 kind 分组标头」（web `FoldedToolGroup.tsx:716`） | ⛔ **原断言的 web 依据也不存在**：`FoldedToolGroup.tsx` 里 `kind` 只出现在**合成工具**的 kind 头像/角标（`:183-184` / `:282`）；`grep -rn "byKind\|kindOrder\|kindLabel\|groupByKind\|TOOL_KIND" src/components src/lib src/hooks` ⇒ **0 命中**；`toolCategory`（`toolVisuals.ts:89`）只喂 **`CATEGORY_COLOR` 的颜色/图标**，**不画标头**。web 折叠组真形态 = **一行 pill + 每个 pill 各自浮窗**（`:735-745`）。原生已是同款（跨迭代合并 + `+N` 溢出） | ✅ **无缺口**（原断言有误；⚠️ 原生侧 `grep`=0 只证明"原生没做"，**不证明"web 有"**） |
+| 4 | PathPicker **无**自动补全下拉 | `core/pathpick.ets` 已是 web `PathPicker.tsx` 的逐字移植（parseInput/filter/navigateInto）；`pages/Index.ets:73` import、`:587` 状态（候选/加载中/展开）、`:8200-8221` 输入面 + **自动补全下拉**（加载中 / 无结果 / 候选点击下钻） | ✅ **已落地**（原断言过时） |
+| 5 | NewSessionDialog 残余（label 会话名 + **渠道 chip**） | label **已落地**：`:8188` `TextInput({placeholder:'留空则自动生成'})` + `:2743-2748` `createSession(label…)`。⛔ 但「渠道 chip」**本来就不是 web 的行为** —— web 权威 `session/NewSessionDialog.tsx` 只有 label + 工作路径 + 最近目录，**没有**渠道选择 ⇒ 不是缺口。**真残余 = web 有 `DialogDescription`（`session.newSessionDesc`）而原生无描述行**（小） | 🟡 **部分**（真残余仅"描述行"） |
+| 6 | ThinkingModeControl 应**置于 composer**（引 `ThinkingModeControl.tsx:68`（`MessageInput.tsx` 内）） | ⛔ **原断言的 web 位置就是错的**：`grep -n ThinkingModeControl src/components/agent/MessageInput.tsx` ⇒ **0**；权威用法 = `src/components/agent/ModelSelector.tsx:155`（模型选择器 popover 底部）。原生 `pages/Index.ets:9860-9926` 正在**模型选择器 popover** 内做四档分段控件（`thinkStep`/`thinkBusy`） | ✅ **已同源，无缺口**（原断言有误） |
+| 7 | ShellPromoteBar（shell 转后台）= 仅注释、**无 UI、无 RPC 常量** | `core/store.ets:664 promoteShell()`（RPC `promote_shell`，`core/toolshell.ets` 纯逻辑判定）+ `pages/Index.ets:7215 promoteShellAction()`、**两处入口** `:8757`（进行中 shell 浮层）/`:8823`（live shell 浮层）「转后台」条 | ✅ **已落地**（原断言过时） |
+
+**⇒ 结论**：§11.12.1 的 7 条**已全部结清** —— 4 条已落地（#1 / #4 / #7，加原表已标的 #3）、2 条**原断言有误**（#6 引的 web 位置错、#2 的 web 依据根本不存在）、1 条部分（#5 的「渠道 chip」非 web 行为；真残余仅为 web 有 `DialogDescription` 而原生无描述行）。
+**当前无未落地的高可感缺口**。后续新增缺口一律以 **web 现版本重新取证**：⛔ 别把"原生 `grep`=0"当成"web 有而我们没做"（#2 就是这么错的）。
