@@ -242,12 +242,12 @@ function guardMetricOk(g: string): boolean {
   if (g.indexOf("n_pal=$(grep -ro 'this\\.pal()'") < 0) { return false; }
   // B 线：数**限定名** this.palOnce()（`|this\.palOnce\(\)` 紧跟 A 的 pattern ⇒ 排除声明行）
   if (g.indexOf("n_pal_all=$(grep -roE 'this\\.pal\\(\\)|this\\.palOnce\\(\\)'") < 0) { return false; }
-  // 两条上限各自独立（A = 成本线 1250 只许减；B = 松界 1350）
+  // 两条上限各自独立（A = 成本线 1250 只许减；B = 松界 1352 —— §21.113 登记 +2，见 docs/PERF-BUDGET.md §5）
   if (g.indexOf('"$n_pal" 1250') < 0) { return false; }
-  if (g.indexOf('"$n_pal_all" 1350') < 0) { return false; }
+  if (g.indexOf('"$n_pal_all" 1352') < 0) { return false; }
   return true;
 }
-ok(`G2 闭合：guard.sh 拆 A/B 两条（A=成本线 1250 / B=读取总量 1350；词源 guard.sh:${firstLine(GUARD, 'n_pal_all=')}）`,
+ok(`G2 闭合：guard.sh 拆 A/B 两条（A=成本线 1250 / B=读取总量 1352；词源 guard.sh:${firstLine(GUARD, 'n_pal_all=')}）`,
   guardMetricOk(GUARD));
 
 // ── mutation 自证（断任一条 ⇒ 必红）───────────────────────────────────────────

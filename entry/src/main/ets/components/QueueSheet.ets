@@ -16,6 +16,9 @@ import { PRESS_OPACITY, RADIUS_CARD, SHEET_WIDTH, STROKE_HAIRLINE, SURFACE_CARD,
 import { FS_CAPTION, R_LG, R_MD, SP_2, SP_3, SP_4 } from '../core/tokens';
 // ⛔ 列表高度判据**只此一处**（`core/panels.queueListHeight`）——组件不自己算高度。
 import { queueListHeight } from '../core/panels';
+// ⛔ 条目 id / 正文档**只此一处**（`core/staging`）—— 与输入区上方的 `StagingTray` **同一真源**
+//    （原实现各有私有的 `idOf`/`textOf` 副本 ⇒ 两处口径会漂移）。
+import { stagingItemId, stagingText } from '../core/staging';
 import { fs, fw, lh } from './SettingsRows';
 // 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线/位移；E3 统一）。
 import { sheetTransition } from './anim';
@@ -50,17 +53,8 @@ export struct QueueSheet {
     return shadowLayersOf(this.pal(), 'overlay');
   }
 
-  /** 队列 id 兜底（`msg_id` 优先，其次 `id`）—— 与原实现逐字一致。 */
-  private idOf(q: QueueItem): string {
-    return q.msg_id !== undefined ? q.msg_id : (q.id !== undefined ? q.id : '');
-  }
-
-  /** 展示文本（`content` 优先，回落 `text`）。 */
-  private textOf(q: QueueItem): string {
-    return q.content !== undefined && q.content.length > 0
-      ? q.content
-      : (q.text !== undefined ? q.text : '');
-  }
+  // （条目 id / 正文的取法已上移到 `core/staging` 的 `stagingItemId`/`stagingText` —— 与
+  //  输入区上方的 `StagingTray` **同一真源**；本组件不再自持 `idOf`/`textOf` 副本。）
 
   build() {
     // ── 多层柔影（C3 推广，G1）：`shadowLayersOf` 恒返 [near, far] ─────────────────────────
@@ -114,7 +108,7 @@ export struct QueueSheet {
           ForEach(this.queue, (q: QueueItem) => {
             ListItem() {
               Row({ space: 6 }) {
-                Text(this.textOf(q))
+                Text(stagingText(q))
                   .fontSize(fs('type.subhead')).fontColor(this.pal().textPrimary).layoutWeight(1).maxLines(3)
                   .wordBreak(WordBreak.BREAK_ALL)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -132,7 +126,7 @@ export struct QueueSheet {
                 .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                 .accessibilityText('上移')
                 .onClick(() => {
-                  this.onMove(this.idOf(q), -1);
+                  this.onMove(stagingItemId(q), -1);
                 })
                 Row() {
                   SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(fs('type.callout')).fontColor([this.pal().accentSoft])
@@ -141,7 +135,7 @@ export struct QueueSheet {
                 .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                 .accessibilityText('下移')
                 .onClick(() => {
-                  this.onMove(this.idOf(q), 1);
+                  this.onMove(stagingItemId(q), 1);
                 })
                 // ⚡ 插队：must use the FULL content（server `preview` 截断到 ~80 runes ⇒ 会丢内容）
                 Row() {
@@ -150,7 +144,7 @@ export struct QueueSheet {
                 .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
                 .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                 .onClick(() => {
-                  this.onInterject(this.idOf(q), this.textOf(q));
+                  this.onInterject(stagingItemId(q), stagingText(q));
                 })
                 Row() {
                   SymbolGlyph($r('sys.symbol.xmark')).fontSize(SHEET_ACTION_GLYPH).fontColor([this.pal().dangerText])
@@ -159,7 +153,7 @@ export struct QueueSheet {
                 .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                 .accessibilityText('取消排队')
                 .onClick(() => {
-                  this.onCancel(this.idOf(q));
+                  this.onCancel(stagingItemId(q));
                 })
               }.width('100%').padding(SP_2).backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD)).borderRadius(R_LG)
               // **面→面**轮廓 = `structuralRuleOf`（此前**裸面**：只靠填充差，porcelain 下几乎读不出层次）——

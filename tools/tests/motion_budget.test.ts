@@ -126,6 +126,10 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   // 定时任务详情（目标④「任务管理做的很差」收尾）：同样只走 `sheetTransition()`
   //   —— 全站面板入场语言唯一那一套（⛔ 不自造第二套）。
   ['components/CronDetailSheet.ets', 1],
+  // 待发队列托盘（§21.113，目标④ web `StagingTray` 落地）：展开/折叠走**布局变化**
+  //   （`this.getUIContext().animateTo(animFast(), …)`）—— 讲的是"同一个托盘从折叠到展开"
+  //   这条状态关系（此前无此面）；⛔ 走底座 `animFast()`，**零新增曲线对象**。
+  ['components/StagingTray.ets', 1],
   ['components/TodoPanel.ets', 2],     // ① 属性动画 `.animation(animFast())`（`chevron_right` 的 `rotate 0→90`）
                                        //   —— **必须留**（2026-10-11 动效审计逐处判）：它讲的是**展开/收起的
                                        //   **方向状态变化**，删了箭头会"跳"；web `TodoPullOut.tsx` 同款有过渡。

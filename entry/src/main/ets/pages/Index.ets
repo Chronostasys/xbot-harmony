@@ -172,6 +172,7 @@ import { PluginHost } from '../components/PluginHost';
 import { GoalBanner } from '../components/GoalBanner';
 import { WidgetDock } from '../components/WidgetDock';
 import { TodoPanel } from '../components/TodoPanel';
+import { StagingTray } from '../components/StagingTray';
 import { StatusSheet } from '../components/StatusSheet';
 import { QueueSheet } from '../components/QueueSheet';
 import { PluginsSheet } from '../components/PluginsSheet';
@@ -6167,6 +6168,25 @@ struct Index {
         }
         .width('100%').padding({ left: 10, right: SPACE_XXS, top: 6 })
       }
+
+      // ── 待发队列托盘（web `workspace/panels/AgentPanel.tsx:1094` 的 `<StagingTray>` 排在
+      //    `MessageList` 与 `MessageInput` **之间**）—— 本仓落在输入区**正上方**、Goal 横幅
+      //    **之前**，即 web 的同一相对位置（列表 → 托盘 → 输入区）。组件自身以
+      //    `queue.length > 0` 短路（空 ⇒ 零节点）⇒ 无条件挂载 == web 的条件挂载（同一判据）。
+      //    它把「后面还排着几条 / 下一条是什么」提到一眼可见（顶栏 `队列 N` chip 只管"有没有"）。
+      StagingTray({
+        theme: this.themeName,
+        queue: this.queue,
+        onOpenManager: () => {
+          this.showQueue = true;
+        },
+        onInterject: (id: string, full: string) => {
+          this.store?.interjectQueued(id, full);
+        },
+        onCancel: (id: string) => {
+          this.store?.cancelQueued(id);
+        },
+      })
 
       // ── Goal 横幅（web `MessageInput.tsx:694`：`{goal ? <GoalBanner goal={goal} onEdit
       //    onClear/> : null}` —— 挂在输入胶囊**正上方**）。组件自身以 `goalDisplay().visible`

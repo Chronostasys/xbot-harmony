@@ -5453,3 +5453,31 @@ web，你要超越"）做去重 —— 被丢弃的行**严格更少信息**（0
 **判据**：`tools/tests/surface_alias.test.ts §2/§3` + `status_sheet_wiring.test.ts ⑥`
 （形态随实现更新，**意图不变**：当前行 `取消` 的 fg 仍是 `textPrimary`；`currentLastActive`
 仍真读 `last_active`）。
+
+## §21.113 待发队列托盘（web `StagingTray`）：队列从「顶栏一枚 chip」提到输入区上方（目标④）
+
+**背景（目标④「必须真的支持 web 的所有插件和功能」）**：`docs/WEB-PARITY.md` 的逐条表里，
+`StagingTray` 是**唯一没有原生对应物**的用户可见组件（`components/agent/StagingTray.tsx:314`，
+被 `workspace/panels/AgentPanel.tsx:1094` 挂在 `MessageList` 与 `MessageInput` **之间**）。
+本仓此前只把队列做成**顶栏一枚 `队列 N` chip**（点了开 `QueueSheet`）—— 它能回答"有没有待发"，
+**回答不了**"后面还排着几条 / 下一条是什么"，用户不开面板就看不到。
+
+**本批交付**（原生形态，⛔ 不是复刻 web 的 CSS）：
+- 新增纯逻辑 `core/staging.ets`（可脱机单测）：`stagingItemId` / `stagingText` /
+  `stagingCountLabel` / `stagingPreview`（**按码点**截断 ⇒ emoji 代理对不被劈半）/
+  `stagingListHeight`（有界，超出内部滚动）/ `stagingHeadPreview`。
+- 新增组件 `components/StagingTray.ets`：排在输入区**正上方**、Goal 横幅**之前**（= web 的
+  同一相对位置）。**折叠态**一行（计数 + 下一条预览 + 「管理」+ 展开箭头）；**展开态**逐条
+  「插队（⚡）/ 取消（✕）」。空队列 ⇒ **零节点**（同 web `:56`）。
+- 接线 `pages/Index.ets`（`StagingTray({...})`，回调走 `store.interjectQueued` /
+  `store.cancelQueued`；「管理」开既有 `QueueSheet`）。**顶栏 chip 保留**（它管"有没有"，
+  且 `topbar_reactive.test.ts` 以它为徽章子树的右界锚点）。
+- **单一真源收敛**：`QueueSheet` 的私有 `idOf`/`textOf` **删除**，改消费 `core/staging` 的
+  `stagingItemId`/`stagingText`（两处口径不再可能漂移）。
+
+**判据**：`tools/tests/staging.test.ts` —— ① 纯函数数值（含码点截断）；② 接线形态**钉调用点
+计数**（import 恰 1 处、`StagingTray({` 恰 1 处、空队列短路、组件**不 import store**、
+`QueueSheet` 已消费 `stagingItemId` 且私有 `idOf` 消失）。
+**真门禁**：`bash tools/gate.sh`（④ 真 ArkTS 编译）是唯一判据 —— 新组件**未接线前会被
+ArkTS 类型检查忽略**（假绿），接线后必须重跑。
+

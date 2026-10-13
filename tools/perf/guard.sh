@@ -82,7 +82,11 @@ rm -rf "${S_DIR}"
 # ⚠️ 2026-10-12 目标④ D/E/F 收口：**拆两条**（⛔ 不许合并成一个数）——
 #   A = `this.pal()`（未 memo ⇒ **真分配次数**，成本线，**只许减**）· B = A ∨ `this.palOnce()`（含缓存命中，松界/防失控）。
 le "A 线·色板分配次数 this.pal()（未 memo；⛔ 成本线，只许减）" "$n_pal" 1250 处
-le "B 线·色板读取总量 this.pal() ∨ this.palOnce()（含缓存命中；松界，防失控）" "$n_pal_all" 1350 处
+# ⚠️ §21.113 登记理由（B 线 1350 → 1352）：新增 `components/StagingTray.ets`（待发队列托盘，
+#  web 唯一未迁的用户可见组件）。该组件的取色**收敛到唯一门** `private trayColor(role)`
+#  （内含唯一 `this.palOnce()`）⇒ 本文件对 B 线的贡献**恒 1 处**（⛔ 非逐处直写 `this.pal().x`）。
+#  A 线（真分配 `this.pal()`）**一处未增**（走 `palOnce()`）⇒ 成本线不受影响。
+le "B 线·色板读取总量 this.pal() ∨ this.palOnce()（含缓存命中；松界，防失控）" "$n_pal_all" 1352 处
 le "this.eff() 调用点" "$n_eff" 80 处
 le "setInterval 调用点（常驻定时器）" "$n_itv" 6 处
 le "setTimeout 调用点" "$n_tmo" 7 处
@@ -94,7 +98,9 @@ le "anim*() 调用点（每次调用新建曲线对象）" "$n_anim" 20 处
 # 「空复制项 ⇒ 误导 toast『没有可复制的内容』」（用户亲报），项集改由 `core/ctxmenu.rowMenuItems`
 # 过滤，与 iter/tools/user 三分支**同一形态**（判据与渲染同源）。
 # ⛔ 只许显式登记，不许超：该数是"规模指示"不是质量判据（见下方提示行），但**新增必须写明理由**才能抬。
-le "ForEach 处数" "$n_fe" 112 处
+# 112 → **113**（§21.113）—— `components/StagingTray.ets` 的**待发队列条目列表**（web `StagingTray.tsx`
+# 同款：队列逐条渲染，「插队 / 取消」各一枚 44 盒）。全仓其它站点一个没动。
+le "ForEach 处数" "$n_fe" 113 处
 le "core 外裸 parseMarkdown/parseInline 调用点" "$n_raw" 0 处
 
 # ── 后台对账「极轻量」守卫（用户点名："注册一个极其轻量的任务"）────────────────────

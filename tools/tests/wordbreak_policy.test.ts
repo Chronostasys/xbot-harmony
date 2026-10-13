@@ -170,7 +170,11 @@ for (const f of files) {
   //    （`web/src/index.css:538`）被 `th/td` **继承**且表格**未覆盖** ⇒ web 单元格本来就是 break-word，
   //    原生 `BREAK_ALL` 属**与权威分歧**；② 站点原注释的理由（"`BREAK_WORD` 对无空格超长串无效"）
   //    已被 15b 用 SDK 原文 + 装机实证**证伪**（找不到断点时会 break between any two characters）。
-  const BUDGET_ALL = 44;      // 全仓 BREAK_ALL 站点上限（15b 46→44；15f 44→40 = 实测值；15z12 40→41；15z14 41→44）
+  const BUDGET_ALL = 45;      // 全仓 BREAK_ALL 站点上限（15b 46→44；15f 44→40 = 实测值；15z12 40→41；15z14 41→44；§21.113 44→45）
+  //    ⚠️ §21.113 登记理由（⛔ 唯一合法的"加 1"）：新增 `components/StagingTray.ets` 的
+  //    **待发队列预览**站点 —— 队列正文是**用户原文**（发给 agent 的提示词），可能内嵌不可断长串
+  //    （URL / 绝对路径 / 命令）⇒ 与 `QueueSheet` 的队列条目正文**同一类**，必须 BREAK_ALL。
+  //    ⛔ 全仓其它站点一个没动（分布里只多出这一个文件）。
   //    ⚠️ 15z14 登记理由（⛔ 唯一合法的"加 3"）：新增 `components/GitPanelSheet.ets` 的三个站点 ——
   //    ① 取数失败原因（可能含 URL/路径原文）② 提交信息**全文**（多行、可能内嵌长串）
   //    ③ 空 diff 说明文案（含"二进制文件/权限变更"这类长词组，窄屏必须能断）。
