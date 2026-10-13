@@ -4567,3 +4567,42 @@ turn 第一条迭代**之前** ⇒ 紧随 user msg）的横线，只有窗口**�
 `tools/tests/plugin_open_target.test.ts`（14 条）：有 view ⇒ URL 含 `xbot_view=` 且 **≠ host 根页**；
 全 dynamic ⇒ 深链第一个；无 view ⇒ 才回落；尾斜杠归一化；空 base ⇒ 空串；视图行开**被点的那个 id**；
 dynamic 视图行也深链。mutation 自证：深链分支失效 ⇒ 6 条红。
+
+## §21.93 侧栏顶栏带：搜索框/滤波器**同高同家族**（用户「侧边栏丑的要死」的排版修正）（15z16，2026-10-13）
+
+用户口径（原话）：「重设计排版，对标苹果，现在侧边栏**丑的要死**。不要一比一复刻 web 排版，你是原生
+你要超越 web。我只说了侧边栏但是你要考虑**所有的面板**」。真机截图（`/tmp/drawer1.jpeg`）逐像素定位到
+**顶栏带**三处"形状不成家族"：
+
+1. **滤波器那排**：左侧一整条分段轨道（视觉 36）+ 右侧实心「全部 ⌄」chip（视觉 **44**）+ **中间一枚
+   `ellipsis_circle` 裸字形**（无任何容器）⇒ 读起来像"渲染掉了一个容器"，且同排三控件**三种高度**
+   （真机 `dumpLayout` 量：轨道 122px / chip 149px / 裸字形无盒）。
+2. **搜索那排**：高大的搜索框（`surface.overlayRow` 面，视觉 44）右边一枚**裸文字 + 裸字形**
+   （「搜本会话」）⇒ 大小、材质、层级都对不上，像两个控件拼错了排。
+3. **底部 5 键**：图标用 `ICON_MD`(14) 而文字用 `type.micro`(10) ⇒ 图标/文字比 **1.4**，而 Apple
+   tab bar 的同类比约 **2.5** ⇒ 整条栏"发飘"。
+
+### 修法（一律走**既有**令牌；⛔ 不新增字面量）
+
+- **搜索框**：命中层 44（透明）+ 内部**视觉层 36**（`SEG_TRACK_H`，与分段轨道同档）承载 well 面。
+  清空键仍保留**真实 44×44 布局盒**（`hit_target_gate` 只认链上 `HIT_TARGET_MIN`），它比视觉行高
+  8vp 但**居中溢出**（ArkUI 默认不裁剪、图标居中 ⇒ 观感零差、命中只多不少）。
+- **「搜本会话」chip**：同款两层结构，视觉层 36 + `surface.chip` 面 + 内凹发丝
+  （`insetHairlineOf`）+ `RADIUS_CHIP`。
+- **「分组显示」`ellipsis_circle`**：加**同款 chip 容器**（此前是裸字形）⇒ 该排成为
+  「[分段轨道][chip][chip]」，三种形状收敛成两种、**三控件同高 36**。
+- **渠道触发器「全部 ⌄」**：同款两层结构（视觉层 36）；选中「全部」= `surface.pillSelected` 凹槽面、
+  选中具体渠道 = `surface.chip` + 内凹发丝（**面口径逐字不变**，只改高度）。
+- **底部 5 键图标**：`ICON_MD`(14) → `ICON_XL`(20)（**已有令牌**，"大图标档"）⇒ 图标/文字比 1.4 → 2.0，
+  向 Apple tab bar 的 2.5 靠拢；文字档与热区**不动**。
+
+### 判据与纪律
+
+- 全部被钉的既有断言**逐条仍绿**（`sidebar_view_state` 50 / `collapse_all_wiring` 49 /
+  `segmented_control` 19 / `status_sheet_drawer` 73 / `hit_target_gate` 10 / `hit_target_pad` 12 /
+  `hittarget_audit` 22 / `hit_spacing_gate` 10 / `panel_surface_consistency` 49 /
+  `icon_size_tokens` 18 / `design` 181 / `a11y_icon_button` 11）。
+- ⚠️ **`collapse_all_wiring` 的「触发器件区间 < 1500 字符」是相干性护栏**（防切片吞进无关代码）：
+  本次两层结构让其长度 +253 ⇒ **修正方式是"把说明搬出切片"而⛔ 不是放宽护栏**（已在源码就地记录）。
+- ⚠️ 新增 `ICON_XL` 消费点后**必须同步 import**——本轮真实踩到：漏 import ⇒ 真门禁
+  `10505001 Cannot find name 'ICON_XL'`（脱机三条**抓不到**，因为页面不被它们编译）。

@@ -32,7 +32,7 @@ import { EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_BOOT_WORDMARK, F
 // 抽屉重排：尺度/层级/材质一律走语义令牌层（⛔ 不新增字面量；`surfaceFillOf`/`hairlineOf`/
 // `typeOf` 是唯一出口）。色值一律经 `this.pal()`（`surfaceFillOf` 的 role 是**带点**的语义面名）。
 import {
-  GAP_BLOCK, HIT_TARGET_MIN, ICON_MD, ICON_SM, INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X,
+  GAP_BLOCK, HIT_TARGET_MIN, ICON_MD, ICON_SM, ICON_XL, INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X,
   MARKER_GUTTER,
   PRESS_OPACITY, PRESS_SCALE, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, RADIUS_SHEET, SHEET_ACTION_GLYPH, SPACE_HAIR, SPACE_LG, SPACE_MD,
   SPACE_SM, SPACE_XL, SPACE_XS, SPACE_XXL, SPACE_XXS, STROKE_HAIRLINE, STROKE_RAIL, colorOf, hairlineOf,
@@ -5141,7 +5141,7 @@ struct Index {
           .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(FS_BODY)
           .fontColor(this.pal().textSecondary)
-          .backgroundColor(this.pal().transparent)
+          .backgroundColor(Color.Transparent)
           .borderRadius(R_XL)
           .border({ width: 1, color: this.eff().glassBorder })
           .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
@@ -5208,7 +5208,7 @@ struct Index {
         Button('注册（仅服务端允许时）').width('100%').constraintSize({ minHeight: 44 })
           .fontSize(FS_BODY)
           .fontColor(this.pal().textSecondary)
-          .backgroundColor(this.pal().transparent)
+          .backgroundColor(Color.Transparent)
           .borderRadius(R_XL)
           .border({ width: 1, color: this.eff().glassBorder })
           .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
@@ -8940,62 +8940,83 @@ struct Index {
       // （`magnifyingglass`）+ **清空键**（`xmark_circle_fill`，仅非空时出现；Apple `UISearchBar`
       // 的 clear 同为条件出现）。容器改成 `Row` 承载图标 ⇒ `TextInput` 自身透明、去内边距。
       Row({ space: SPACE_XS }) {
-        // 输入面（**内层容器**）：承载放大镜 + 透明 `TextInput`（+ 条件清空键）⇒ 图标真正"在框里"。
-        Row({ space: SPACE_XS }) {
-          SymbolGlyph($r('sys.symbol.magnifyingglass'))
-            .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
-            .margin({ left: SPACE_SM })
-          TextInput({ placeholder: '筛选会话…', text: this.sessQuery })
-            .onChange((v: string) => {
-              this.sessQuery = v;
-            })
-            .layoutWeight(1)
-            .backgroundColor(this.palOnce().transparent)
-            .fontColor(this.palOnce().textPrimary)
-            .fontSize(typeOf('type.subhead').size)
-            .padding({ left: 0, right: 0 })
-          // 清空键：仅非空时渲染（零噪音）；**真实 44×44 布局盒**（⛔ 不用 responseRegion 外扩）。
-          if (this.sessQuery.length > 0) {
-            Row() {
-              SymbolGlyph($r('sys.symbol.xmark_circle_fill'))
-                .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
+        // 命中层 44（透明）→ 视觉层 36（Apple 搜索框高度）：与同排 chip 同高 ⇒ 整条搜索带读成一排。
+        // ⚠️ 清空键仍是**真实 44×44 布局盒**（`hit_target_gate` 只认链上 `HIT_TARGET_MIN`）；它比
+        //    视觉行高 8vp 但**居中溢出**（ArkUI 默认不裁剪、图标居中 ⇒ 观感零差、命中只多不少）。
+        Row() {
+          // 输入面（**内层容器**）：承载放大镜 + 透明 `TextInput`（+ 条件清空键）⇒ 图标真正"在框里"。
+          Row({ space: SPACE_XS }) {
+            SymbolGlyph($r('sys.symbol.magnifyingglass'))
+              .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
+              .margin({ left: SPACE_SM })
+            TextInput({ placeholder: '筛选会话…', text: this.sessQuery })
+              .onChange((v: string) => {
+                this.sessQuery = v;
+              })
+              .layoutWeight(1)
+              .backgroundColor(this.palOnce().transparent)
+              .fontColor(this.palOnce().textPrimary)
+              .fontSize(typeOf('type.subhead').size)
+              .padding({ left: 0, right: 0 })
+            // 清空键：仅非空时渲染（零噪音）；**真实 44×44 布局盒**（⛔ 不用 responseRegion 外扩）。
+            if (this.sessQuery.length > 0) {
+              Row() {
+                SymbolGlyph($r('sys.symbol.xmark_circle_fill'))
+                  .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
+              }
+              .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+              .justifyContent(FlexAlign.Center)
+              .alignItems(VerticalAlign.Center)
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .accessibilityText('清空筛选')
+              .onClick(() => {
+                this.sessQuery = '';
+              })
             }
-            .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
-            .justifyContent(FlexAlign.Center)
-            .alignItems(VerticalAlign.Center)
-            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-            .accessibilityText('清空筛选')
-            .onClick(() => {
-              this.sessQuery = '';
-            })
           }
+          .width('100%')
+          .height(SEG_TRACK_H)
+          .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlayRow'))
+          .borderRadius(RADIUS_CARD)
+          .alignItems(VerticalAlign.Center)
         }
         .layoutWeight(1)
         .constraintSize({ minHeight: HIT_TARGET_MIN })
-        .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlayRow'))
-        .borderRadius(RADIUS_CARD)
+        .justifyContent(FlexAlign.Center)
         .alignItems(VerticalAlign.Center)
         // 「搜索消息」（服务端 `/api/search`，**仅当前会话**）——与左边"本地即时筛选会话列表"是
         // **两件事** ⇒ 必须是**看起来像按钮**的独立控件：图标 + 明示动宾（`搜本会话`，避免被读成
         // "全局搜会话名"）+ **空查询时置灰**（Apple：无效果的动作不能看起来可点）+ a11y 写清作用域。
-        Row({ space: SPACE_XXS }) {
-          if (this.searchBusy) {
-            LoadingProgress().width(SPACE_MD).height(SPACE_MD).color(this.pal().accent)
-          } else {
-            // ⛔ 字形**必须区别于筛选框的 `magnifyingglass`**：同排两个放大镜会让用户以为
-            // 这是第二个搜索框。`text_and_magnifyingglass`（"搜索正文"）语义精确、外形可辨。
-            SymbolGlyph($r('sys.symbol.text_and_magnifyingglass'))
-              .fontSize(ICON_SM)
-              .fontColor([this.sessQuery.trim().length > 0
-                ? this.palOnce().accentSoft
-                : colorOf(this.palOnce(), 'iconMuted')])
-            Text('搜本会话')
-              .fontSize(typeOf('type.caption').size)
-              .fontColor(this.sessQuery.trim().length > 0 ? this.palOnce().accentSoft : this.palOnce().textSecondary)
+        // 命中层 44（透明）→ 视觉层 36 chip（与搜索框、分段轨道同高）。上色/转圈逻辑逐字不变。
+        Row() {
+          Row({ space: SPACE_XXS }) {
+            if (this.searchBusy) {
+              LoadingProgress().width(SPACE_MD).height(SPACE_MD).color(this.pal().accent)
+            } else {
+              // ⛔ 字形**必须区别于筛选框的 `magnifyingglass`**：同排两个放大镜会让用户以为
+              // 这是第二个搜索框。`text_and_magnifyingglass`（"搜索正文"）语义精确、外形可辨。
+              SymbolGlyph($r('sys.symbol.text_and_magnifyingglass'))
+                .fontSize(ICON_SM)
+                .fontColor([this.sessQuery.trim().length > 0
+                  ? this.palOnce().accentSoft
+                  : colorOf(this.palOnce(), 'iconMuted')])
+              Text('搜本会话')
+                .fontSize(typeOf('type.caption').size)
+                .fontColor(this.sessQuery.trim().length > 0 ? this.palOnce().accentSoft : this.palOnce().textSecondary)
+            }
           }
+          .height(SEG_TRACK_H)
+          .padding({ left: SPACE_XS, right: SPACE_XS })
+          .justifyContent(FlexAlign.Center)
+          .alignItems(VerticalAlign.Center)
+          // ── 视觉：chip 容器 ⇒ 与搜索框并列时读成「一个字段 + 一个按钮」──────────────────
+          // 原实现是**裸文字 + 裸字形**浮在高大的搜索框右边（用户 2026-10-13 报「丑」）⇒ 同款 chip
+          // 容器（与滤波器那排同一家族）把两者拉成一对。
+          .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
+          .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
+          .borderRadius(RADIUS_CHIP)
         }
         .height(HIT_TARGET_MIN)
-        .padding({ left: SPACE_XS, right: SPACE_XS })
         .justifyContent(FlexAlign.Center)
         .alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
@@ -9073,14 +9094,27 @@ struct Index {
         //    （`plan.visible`）。判据与动作**同源**（`collapseAllPlan`）：`allCollapsed` 决定图标，
         //    点击落 `applyCollapseAll`。折叠态走既有 `collapsedGroups`（与单组折叠同一套）
         //    ⇒ ⛔ 不自造状态、不加动效。
+        // ⚠️ 2026-10-13（顶栏带三控件同高）：触发器改为**两层** —— 命中层 44（透明）+ 内部**居中**的
+        //    36×36 chip 视觉层（与同排分段轨道同高；此前视觉 = 44，比轨道高 8vp ⇒ 同排三种高度，
+        //    真机量测：轨道 122px / chip 149px）。说明搬到这里是因为 `collapse_all_wiring` 的
+        //    「触发器件区间 < 1500 字符」是**相干性护栏**（防切片吞进无关代码）⇒ 不靠放宽护栏过测。
         if (this.collapseAllPlanNow().visible) {
           Row() {
-            // ⛔ 弃用"两枚箭头叠成 ⇅"：HarmonyOS **没有** `chevrons_up_down` 单字形（已枚举
-            //    `HMSymbolVF.ttf` 5563 字形确认），叠出来的 2×10vp 双箭头挤在 44 盒中央，
-            //    真机观感像**渲染故障**。改用平台标准「更多动作」原语 `ellipsis_circle` +
-            //    `bindMenu` ⇒ 语义（分组显示）自解释，⛔ 不必再"猜字形"。
-            SymbolGlyph($r('sys.symbol.ellipsis_circle'))
-              .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
+            Row() {
+              // ⛔ 弃用"两枚箭头叠成 ⇅"：HarmonyOS **没有** `chevrons_up_down` 单字形（已枚举
+              //    `HMSymbolVF.ttf` 5563 字形确认），叠出来的 2×10vp 双箭头挤在 44 盒中央，
+              //    真机观感像**渲染故障**。改用平台标准「更多动作」原语 `ellipsis_circle` +
+              //    `bindMenu` ⇒ 语义（分组显示）自解释，⛔ 不必再"猜字形"。
+              SymbolGlyph($r('sys.symbol.ellipsis_circle'))
+                .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
+            }
+            .width(SEG_TRACK_H)
+            .height(SEG_TRACK_H)
+            .justifyContent(FlexAlign.Center)
+            .alignItems(VerticalAlign.Center)
+            .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
+            .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
+            .borderRadius(RADIUS_CHIP)
           }
           // ⛔ 真机实测：`responseRegion` 负偏移外扩**无效** ⇒ 热区靠**真实 ≥44 布局盒**。
           .width(HIT_TARGET_MIN)
@@ -9090,7 +9124,6 @@ struct Index {
           // a11y：**图标-only、无可见文案** ⇒ 必须给读屏文案（对齐 web `SessionViewBar.tsx:39`
           // 的 `aria-label`/`title`；动作文案逐字对齐 web `i18n/zh-CN.ts:108-109`）。
           .accessibilityText('分组显示')
-          .borderRadius(RADIUS_CHIP)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           // ⛔ `bindMenu` 由 ArkUI 自管开合 ⇒ **不写 `onClick`**（写了会与锚点处理竞态，见渠道触发器注）。
           .bindMenu(this.CollapseMenu, { placement: Placement.BottomRight, enableArrow: false })
@@ -9099,28 +9132,34 @@ struct Index {
         // ③ 渠道筛选**下拉触发器**（web `ChannelPicker.tsx:90-119` 同构）。中性治装：选中「全部」
         //    = 凹槽面（`surface.pillSelected`）；选中具体渠道 = 中性 chip + 内凹发丝。**当前值显示在
         //    触发器上** ⇒ 删掉 chips 行后信息不减（用户一眼看得出"正在按渠道过滤"）。
-        Row({ space: SPACE_HAIR }) {
-          Text(activeChannelLabel(this.activeChannel))
-            // ⚠️ 2026-10-12：此前 `type.micro`(10) 而**同一行的分段控件**用 `type.caption`(12)
-            // ⇒ 两个并列筛选控件的标签竟不同档（真机量测：分段文字高 47px、chip 文字高 40px）。
-            // 同排控件标签**必须同档**（Apple：工具栏上的并列控件共用一个字阶）⇒ 提 caption(12)。
-            .fontSize(typeOf('type.caption').size)
-            .fontColor(this.activeChannel.length === 0 ? this.pal().textPrimary : this.pal().textSecondary)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-          SymbolGlyph($r('sys.symbol.chevron_down'))
-            .fontSize(typeOf('type.caption').size)
-            .fontColor([colorOf(this.pal(), 'iconMuted')])
+        // 命中层 44（透明）→ 视觉层 36 chip：与分段轨道、同排「分组显示」chip **同高**。
+        Row() {
+          Row({ space: SPACE_HAIR }) {
+            Text(activeChannelLabel(this.activeChannel))
+              // ⚠️ 2026-10-12：此前 `type.micro`(10) 而**同一行的分段控件**用 `type.caption`(12)
+              // ⇒ 两个并列筛选控件的标签竟不同档（真机量测：分段文字高 47px、chip 文字高 40px）。
+              // 同排控件标签**必须同档**（Apple：工具栏上的并列控件共用一个字阶）⇒ 提 caption(12)。
+              .fontSize(typeOf('type.caption').size)
+              .fontColor(this.activeChannel.length === 0 ? this.pal().textPrimary : this.pal().textSecondary)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+            SymbolGlyph($r('sys.symbol.chevron_down'))
+              .fontSize(typeOf('type.caption').size)
+              .fontColor([colorOf(this.pal(), 'iconMuted')])
+          }
+          .height(SEG_TRACK_H)
+          .padding({ left: SPACE_XS, right: SPACE_XS })
+          .justifyContent(FlexAlign.Center)
+          .alignItems(VerticalAlign.Center)
+          .backgroundColor(surfaceFillOf(this.pal(),
+            this.activeChannel.length === 0 ? 'surface.pillSelected' : 'surface.chip'))
+          // §15：**只给 chip 支**补内凹发丝；选中态（pillSelected）保持无边框。
+          .border({ width: STROKE_HAIRLINE, color: this.activeChannel.length === 0 ? Color.Transparent : insetHairlineOf(this.pal()) })
+          .borderRadius(RADIUS_CHIP)
         }
         .height(HIT_TARGET_MIN)
-        .padding({ left: SPACE_XS, right: SPACE_XS })
         .justifyContent(FlexAlign.Center)
         .alignItems(VerticalAlign.Center)
-        .backgroundColor(surfaceFillOf(this.pal(),
-          this.activeChannel.length === 0 ? 'surface.pillSelected' : 'surface.chip'))
-        // §15：**只给 chip 支**补内凹发丝；选中态（pillSelected）保持无边框。
-        .border({ width: STROKE_HAIRLINE, color: this.activeChannel.length === 0 ? this.pal().transparent : insetHairlineOf(this.pal()) })
-        .borderRadius(RADIUS_CHIP)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         // ③ 渠道筛选**下拉**（平台菜单原语 `bindMenu`）：ArkUI **自管开合**（点锚点开/关、点外部收起）
         //    ⇒ 页面**不自持**开合态、⛔ 不写 `onClick`（否则与 ArkUI 的锚点处理打架）。
@@ -9328,7 +9367,7 @@ struct Index {
                     .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
                     .backgroundColor(s.chat_id === this.currentChat
                       ? surfaceFillOf(this.pal(), 'surface.overlayRowHover')
-                      : this.pal().transparent)
+                      : Color.Transparent)
                     .borderRadius(RADIUS_PILL)
                     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                     .onClick(() => {
@@ -9377,7 +9416,7 @@ struct Index {
       Row() {
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.gearshape'))
-            .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
+            .fontSize(ICON_XL).fontColor([colorOf(this.pal(), 'iconMuted')])
           Text('设置')
             .fontSize(typeOf('type.micro').size).fontColor(this.pal().textSecondary)
         }
@@ -9390,7 +9429,7 @@ struct Index {
         })
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.list_bullet'))
-            .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
+            .fontSize(ICON_XL).fontColor([colorOf(this.pal(), 'iconMuted')])
           Text('运行')
             .fontSize(typeOf('type.micro').size).fontColor(this.pal().textSecondary)
         }
@@ -9403,7 +9442,7 @@ struct Index {
         })
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.puzzle'))
-            .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
+            .fontSize(ICON_XL).fontColor([colorOf(this.pal(), 'iconMuted')])
           Text('插件')
             .fontSize(typeOf('type.micro').size).fontColor(this.pal().textSecondary)
         }
@@ -9416,7 +9455,7 @@ struct Index {
         })
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.folder'))
-            .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
+            .fontSize(ICON_XL).fontColor([colorOf(this.pal(), 'iconMuted')])
           Text('文件')
             .fontSize(typeOf('type.micro').size).fontColor(this.pal().textSecondary)
         }
@@ -9431,7 +9470,7 @@ struct Index {
         })
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.power'))
-            .fontSize(ICON_MD).fontColor([this.pal().dangerText])
+            .fontSize(ICON_XL).fontColor([this.pal().dangerText])
           Text('退出')
             .fontSize(typeOf('type.micro').size).fontColor(this.pal().dangerText)
         }
@@ -9697,7 +9736,7 @@ struct Index {
                 .alignItems(VerticalAlign.Center)
                 .backgroundColor(i === this.thinkStep
                   ? surfaceFillOf(this.palOnce(), 'surface.card')
-                  : this.palOnce().transparent)
+                  : Color.Transparent)
                 .borderRadius(RADIUS_CHIP)
                 // 选中态缓动（Apple 分段控件的选中是**渐变**、不是硬切）：走底座 `animBase()`
                 // ⛔ 不新建曲线对象（受 `anim*()` ≤20 预算约束）；只动底色 ⇒ 不碰不透明度语义。
