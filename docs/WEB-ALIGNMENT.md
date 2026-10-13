@@ -6079,3 +6079,16 @@ event 计数= 4   类型频次= {'heartbeat': 3, 'ask_user_resolved': 1}
 ⚠️ **该卡在面板折叠下方**，本轮用 `uitest uiInput swipe` / `dircFling` **都没能滚动到它**
 （8 次 dump 字节全同）⇒ 下一轮**别在滚动上耗**，直接用最短路径：**临时把该卡移到面板顶部**（一处
 `build()` 内顺序调整）⇒ 构建 + 装机 ⇒ dump 读字段 ⇒ **改回**（该临时改动不进 commit）。
+
+#### §21.121 三补（hilog 取证：store 里**0 行** + 抓取手段的教训）
+
+· **应用自己的日志**（`hilog | grep JSAPP`，实测）：
+  `D A03D00/com.chronostasys.xbot/JSAPP: [SYNC] chat=chat_263F7E142E0B grew=0 storeRows=0 pageRows=0 ds=0 fpN=20`
+  ⇒ **`storeRows=0`**：`store` 里**一行都没有** ⇒ 与截图「空态」一致 ⇒ **发送确实没在本地落行**
+  （⛔ 这也说明我的 `first:null` 探针结论**恰好蒙对**，但探针本身仍不可信，见上条）。
+· **教训**：本机 hilog **滚动极快**（`hilog -x` 抓到的多是别家 app/系统的噪声），且应用 `console.info`
+  **不一定落进 hilog**（冷启后 50s 再 grep `JSAPP` + `sse/send` ⇒ **0 行**）。⇒ 下一轮**别靠 hilog**
+  抓 SSE 结果，**直接用应用自带诊断面板**（`设置→开发者→「SSE 连接状态」`）——它把
+  `请求协议/httpVer`、`上次错误码/lastErrCode`、`上次响应码/lastRespCode`、`重连次数`、`连接尝试`
+  做成了 `Text` 节点（`components/SettingsDeveloper.ets:423-433`），**dump 即可读**（只需先能滚到它；
+  最短路径 = 临时把该卡挪到面板顶部 → 构建装机 → 读 → 改回）。
