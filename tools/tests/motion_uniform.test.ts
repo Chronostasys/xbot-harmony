@@ -3,7 +3,7 @@
  *
  * 铁律：`components/anim.ets` 是全仓**唯一**允许构造**曲线 / 时长**的地方（也是唯一 import
  * `@ohos/curves` 的层）。页面/面板/抽屉/浮层一律调它的**具名工厂**
- * （`animFast()/animBase()/animMsgIn()/animSlow()/animEaseOut()/animEaseOutDelayed()/sheetTransition()/toastTransition()/lightboxTransition()`）。
+ * （`animFast()/animBase()/animMsgIn()/animEaseOut()/animEaseOutDelayed()/sheetTransition()/toastTransition()/lightboxTransition()`）。
  * ⇒ 任何**就地写**的转场参数都是**不一致点**，本判据一律判红：
  *   · `animateTo({ duration: … })`（内联参数对象，绕开工厂）；
  *   · `.animation({ duration/curve: … })`（内联过渡参数，只许在 `anim.ets` 的工厂里）；

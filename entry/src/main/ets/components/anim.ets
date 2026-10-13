@@ -59,11 +59,6 @@ export function animMsgIn(): AnimateParam {
   return { duration: MOTION_MSG_IN_MS, curve: springCurve() };
 }
 
-/** 大块/抽屉（320ms）。 */
-export function animSlow(): AnimateParam {
-  return { duration: MOTION_SLOW_MS, curve: springCurve() };
-}
-
 // ⛔ **已删死码**（2026-10-11 动效「单一来源」收敛）：此前的 `animSpring()`（物理弹簧，
 //    `curves.springMotion`）及其记忆化曲线 `springMotionCurve()` / `springMotionMemo` —— **全仓 0 消费者**：
 //    所有入场都走上面的 `cubicBezierCurve(springBezier())`（`springCurve()`），`springMotion` **从未被消费**。

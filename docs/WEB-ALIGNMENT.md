@@ -4874,3 +4874,16 @@ B 线（`this.pal()` ∨ `this.palOnce()` 调用点）**顶格 1350、只许减*
 `colorOf(this.palOnce(),'iconMuted')` → `iconMutedC()`、输入框 `this.palOnce().textPrimary` →
 `textPrimaryC()`，**逐字节同色、行为不变**）⇒ 净 **−1**（1350 → **1349**）。
 **教训**：在**顶格**预算上加读取点，先找**等价改写**腾额度（同色 helper 直读→复用），而不是抬上限。
+
+## §21.100 动效批次：删死工厂 `animSlow()` + 「回到最新」药丸补**同族**淡入（motion2，2026-10-13）
+
+**目标①「丝滑动画」。** 本波是**净中性偏减**的动效整治（台账「只许缩短」），无任何行为/判据真源变更。
+
+| # | 事项 | 证据 / 落点 |
+|---|---|---|
+| 1 | **删死工厂 `animSlow()`**（320ms「大块/抽屉」档） | `grep -rn animSlow` 全仓命中 **3 处、全是注释**（`core/splash.ets:71`、`:183`、`components/SplashOverlay.ets:76`）⇒ **0 代码消费者**，与已删的 `animSpring()` 同类。3 处注释同步改为**真实消费者** `animEaseOut()`（T2 让位实际走它）。 |
+| 2 | ⚠️ **死工厂删除对台账是"中性"的** —— 口径澄清（我踩了一次） | `motion_budget` 计的是 `.transition(`/`.animation(`/`animateTo(`/`withDelay(`/`.symbolEffect(` 的**声明数**；`animSlow()` 只 `return { duration, curve }`（`AnimateParam` 字面量）⇒ **贡献 0 个声明**。我首版把台账 `8` 改成 `7`，判据**当场真红**（`components/anim.ets: 8 > 台账 7`）⇒ 改回 8 并留痕。**教训：动台账前先确认"被删的东西到底被计了几分"。** |
+| 3 | **「回到最新」药丸补 `fadeTransition()`**（消息列表 `pages/Index.ets` + 终端 `components/TerminalSheet.ets`） | 药丸此前"啪"地出现（`if` 分支无过渡）；而**同为**「全屏透明容器 + 底对齐」的悬浮提示 `components/Toast.ets:97` **早已**是 `.transition(toastTransition())` ⇒ 观感不一致。补**纯淡入淡出**（⛔ 不滑入：提示不来自任何方向，位移是纯装饰 —— 与 `toastTransition()` 的既有裁决同源）。静息态 = 组件自身属性 = **可见** ⇒ fail-safe（门禁 ⑨）。**判据真源 `showsJumpToLatest` 不变**（只加过渡）。 |
+| 4 | 台账演进 | `['pages/Index.ets', 16]→17`、`['components/TerminalSheet.ets', 1]→2`（各写清"它讲哪条关系"：**"可回到底部"这条状态的出现/消失**）。 |
+
+**排查过、有意不改的**：`pages/Index.ets:8355` 已有一处**有意不加**过渡的弹层（原文写明"要加先登记台账"）⇒ 尊重原裁决；`stateStyles` 按压态、`.animation(animBase())` 的分段控件/页签指示器底色等**只动底色**，均已合规（门禁 ⑨：A 类 0 · B 类 3）。

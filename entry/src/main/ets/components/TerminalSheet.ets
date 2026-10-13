@@ -38,7 +38,7 @@ import {
   SHEET_ACTION_GLYPH, SPACE_HAIR, SPACE_MD,
   SHEET_WIDTH, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, surfaceFillOf, typeOf,
 } from '../core/design';
-import { sheetTransition } from './anim';
+import { fadeTransition, sheetTransition } from './anim';
 
 /** 渲染上限：scrollback 尾巴 + 屏幕。⛔ 别无限增长（Text 节点数 = 性能）。 */
 const TERM_MAX_LINES: number = 200;
@@ -715,6 +715,11 @@ export struct TerminalSheet {
           this.followBottom = true;
         })
         .margin({ bottom: SPACE_MD })
+        // 「回到最新」的**浮现/隐去** = 纯淡入淡出（无空间含义 ⇒ 不滑入）—— 走底座具名工厂
+        //   `fadeTransition()`，与 `components/Toast`（**同为**「全屏透明容器 + 底对齐」的悬浮提示）
+        //   同一族；此前是"啪"地出现/消失。判据真源 `showsJumpToLatest` 不变（本行只加过渡）。
+        //   静息态 = 组件自身属性 = **可见** ⇒ fail-safe（门禁 ⑨；⛔ 不用 `.opacity(cond ? 1 : 0)`）。
+        .transition(fadeTransition())
       }
       }
       .layoutWeight(1)

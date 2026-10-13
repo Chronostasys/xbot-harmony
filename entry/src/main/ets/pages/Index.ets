@@ -5697,6 +5697,11 @@ struct Index {
           //    `scrollEdge(Bottom)` 生效了），而 `x=200`（避开药丸）正常上行 ⇒ 滑动手势会误触药丸。
           //    改 `None`（"自身不响应，子组件响应"）后覆盖层对命中测试完全透明，只有药丸 44 盒响应。
           .hitTestBehavior(HitTestMode.None)
+          // 「回到最新」的**浮现/隐去** = 纯淡入淡出（无空间含义 ⇒ 不滑入）—— 走底座具名工厂
+          // `fadeTransition()`，与 `components/Toast`（**同为**「全屏透明容器 + 底对齐」的悬浮提示）
+          // 同一族；此前是"啪"地出现/消失（`Toast` 早已有过渡，本处却漏了 ⇒ 观感不一致）。
+          // 静息态 = 组件自身属性 = **可见** ⇒ fail-safe（门禁 ⑨；⛔ 不用 `.opacity(cond ? 1 : 0)`）。
+          .transition(fadeTransition())
         }
       }
       .layoutWeight(1).width('100%')

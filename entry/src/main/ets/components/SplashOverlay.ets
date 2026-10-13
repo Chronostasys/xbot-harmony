@@ -73,7 +73,7 @@ export struct SplashOverlay {
   onSkip: () => void = () => {
   };
 
-  /** 整层不透明度（T2 让位 ⇒ `animSlow` 工厂淡出，揭示首页首帧）。 */
+  /** 整层不透明度（T2 让位 ⇒ `animEaseOut` 工厂淡出，揭示首页首帧）。 */
   @State private overlayOpacity: number = 1;
   /** 标记不透明度（T1 入场：0→1，**一次**）。 */
   @State private markOpacity: number = SPLASH_MARK_ENTER_OPACITY;

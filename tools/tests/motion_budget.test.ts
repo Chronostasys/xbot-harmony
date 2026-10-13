@@ -83,6 +83,10 @@ function walk(dir: string, out: string[]): void {
 const BUDGET: Map<string, number> = new Map<string, number>([
   // 工厂本体（唯一出口，⛔ 不是"站点"）。2026-10-12 +2：`drawerTransition()`（抽屉**横向**滑入
   //   —— 讲"侧栏从左边进来"的空间关系）与 `scrimTransition()`（遮罩**纯淡入** —— 讲"遮罩铺开"的层次）。
+  // 2026-10-13：`animSlow()`（320ms「大块/抽屉」档）**已删** —— 全仓 0 消费者（唯 3 处引用全是注释，
+  //   且都在说"T2 让位"，而 T2 实际消费 `animEaseOut()`）⇒ 与已删的 `animSpring()` 同类死工厂。
+  //   ⚠️ 本台账**计不到这笔删减**：计分口径是 `.transition(`/`.animation(`/`animateTo(`/`withDelay(`/
+  //   `.symbolEffect(` 的**声明数**，而 `animSlow()` 只返回 `AnimateParam` 字面量（0 个声明）⇒ 仍 8。
   ['components/anim.ets', 8],
   ['components/SplashOverlay.ets', 5], // 开屏 T1 入场 / T2 让位 / 提示延迟淡入 —— **必须留**（状态+空间）
   ['components/AssistantOrb.ets', 2],  // 光球状态切换 —— **必须留**（就是"唯一在飞"的那个）
@@ -111,8 +115,12 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   // 后台任务详情（目标④）：面板出场过渡，与 StatusSheet/SelfCheckSheet **同一个工厂**
   //   `sheetTransition()` —— 全站面板入场语言只有一套。
   ['components/TaskDetailSheet.ets', 1],
-  // 终端面板（目标④「终端做的很差」）：同样走 `sheetTransition()`（全站面板入场语言唯一）。
-  ['components/TerminalSheet.ets', 1],
+  // 终端面板（目标④「终端做的很差」）：① 面板出入场走 `sheetTransition()`（全站面板入场语言唯一）；
+  //   ② 2026-10-13 **+1**：「回到最新」药丸的**浮现/隐去** = 纯淡入淡出 `fadeTransition()`
+  //   —— 讲的是"**可回到底部**"这条状态关系的出现/消失（无空间含义 ⇒ 不滑入），与 `components/Toast`
+  //   （同为「全屏透明容器 + 底对齐」的悬浮提示）**同一族**；此前"啪"地出现（`Toast` 早有过渡、此处漏了）。
+  //   判据真源 `showsJumpToLatest` 不变（本行只加过渡）。
+  ['components/TerminalSheet.ets', 2],
   // 会话统计面板（目标④「统计插件的面板我们看不到」）：同样走 `sheetTransition()`。
   ['components/SessionStatsSheet.ets', 1],
   // 定时任务详情（目标④「任务管理做的很差」收尾）：同样只走 `sheetTransition()`
@@ -155,7 +163,10 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   //   随形态**保留**在指示器上（只动指示器底色）；另 **模型选择器「思考模式」**由实心芯片 ×4 改
   //   **分段控件**（`§21.87`）⇒ 新增选中段 `.animation(animBase())` ×1（与抽屉那一处同款）。
   //   ⛔ 两处都走既有工厂 `animBase()`（零新增曲线对象）；讲的状态关系 = "选中项从 A 到 B"。
-  ['pages/Index.ets', 16],
+  // 2026-10-13 **+1**：消息列表「回到最新」药丸的**浮现/隐去** = 纯淡入淡出 `fadeTransition()`
+  //   —— 与终端面板同款药丸**同一语言**（讲"可回到底部"这条状态的出现/消失，无空间含义 ⇒ 不滑入）；
+  //   此前"啪"地出现/消失。静息态 = 组件自身属性 = 可见 ⇒ fail-safe（门禁 ⑨）。
+  ['pages/Index.ets', 17],
 ]);
 
 const root: string = findRoot();

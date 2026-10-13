@@ -45,7 +45,7 @@ else
 fi
 
 # ⚠️ 以下计数一律在**剥掉注释**的副本上做：这些预算数的是**调用点**，而注释里的散文提及
-# （「T2 让位走 animSlow()」「不要直接调 this.pal()」）会被文本 grep 计入 ⇒ **虚增**，
+# （「T2 让位走 animEaseOut()」「不要直接调 this.pal()」）会被文本 grep 计入 ⇒ **虚增**，
 # 让预算看起来更紧、甚至假红。2026-10-11 实测：某组件 7 处"命中"里**只有 2 处是真调用**。
 # 同手艺见 tools/lint/orphan-components.sh 的 strip_comments_to。
 #

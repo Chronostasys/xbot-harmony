@@ -68,7 +68,7 @@ export function splashPhases(): string[] {
 
 /** T1 时长 = `MOTION_BASE_MS`（220ms，`core/motion.ets:38`）⇒ `animBase()`。 */
 export const SPLASH_ENTER_MS: number = MOTION_BASE_MS;
-/** T2 时长 = `MOTION_SLOW_MS`（320ms，`core/motion.ets:45`）⇒ `animSlow()`。 */
+/** T2 时长 = `MOTION_SLOW_MS`（320ms，`core/motion.ets:45`）⇒ `animEaseOut()`。 */
 export const SPLASH_EXIT_MS: number = MOTION_SLOW_MS;
 /** T1+T2 总时长（默认档）= 540ms。 */
 export const SPLASH_TOTAL_MS: number = SPLASH_ENTER_MS + SPLASH_EXIT_MS;
@@ -180,7 +180,7 @@ export const SPLASH_MARK_REF_VP: number = SPLASH_MARK_BOX_VP;
 //    `orb-ux` 正在把它收成具名工厂 `animEaseOut()`（`components/anim.ets`，**本波不改该文件**）。
 //    ⇒ T2 曲线 **TODO：待 `animEaseOut()` 就绪**（本模块的判据已先行钉死，工厂就绪后组件直接换）。
 
-/** 曲线标识：**带超调**的 spring（= `animBase()` / `animSlow()`）。 */
+/** 曲线标识：**带超调**的 spring（= `animBase()`）。 */
 export const SPLASH_CURVE_SPRING: string = 'spring';
 /** 曲线标识：**无超调缓出**（= `EASE_OUT_CSS` / 待就绪的 `animEaseOut()`）。 */
 export const SPLASH_CURVE_EASE_OUT: string = 'easeOut';
