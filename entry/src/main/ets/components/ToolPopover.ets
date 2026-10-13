@@ -14,7 +14,7 @@
 import { Palette, paletteOf, Surfaces, surfacesOf } from '../core/theme';
 import { R_LG, R_MD, R_SM, R_XL, SP_1, SP_2, SP_3, FS_BODY, FS_CAPTION } from '../core/tokens';
 import {
-  PRESS_OPACITY, RADIUS_CHIP, SPACE_HAIR, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP, hairlineOf, insetHairlineOf, surfaceFillOf, typeOf, MARKER_GLYPH, ICON_SM, colorOf, HIT_TARGET_MIN } from '../core/design';
+  PRESS_OPACITY, RADIUS_CHIP, SPACE_HAIR, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP, hairlineOf, insetHairlineOf, structuralRuleOf, surfaceFillOf, typeOf, MARKER_GLYPH, ICON_SM, colorOf, HIT_TARGET_MIN } from '../core/design';
 import { ToolProgress } from '../core/types';
 import { renderKind, ST_DONE, ST_ERROR, toolStatusKind } from '../core/toolstatus';
 import {
@@ -565,6 +565,10 @@ export struct ToolPopoverCard {
     .borderRadius(R_MD)
     .clip(true)
     .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))
+    // L2 卡立边（⛔ 必需 —— 本浮层 `popupColor` 是 `surface.overlay`，与 `surface.card` **同 rung**
+    //   ⇒ 只设底色 = 卡片隐形。与同源孪生 `GitPanelSheet` 的 diff 卡（`skin().card` + `skin().rule`）
+    //   逐项对齐见该文件 `DiffFileCard`）。
+    .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
   }
 
   /** diff 卡集合（可能多文件）。 */

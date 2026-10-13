@@ -97,6 +97,18 @@ export struct SessionStatsSheet {
     return colorOf(this.palOnce(), 'dangerText');
   }
 
+  /**
+   * 卡片底（L2 内嵌卡的面）。
+   *
+   * ⛔ **必须配 `.border({ width: STROKE_HAIRLINE, color: this.cStructural() })`** ——
+   *    `surface.card` 与面板自身的面 `surface.overlay` **同属 `RUNG_CARD`**
+   *    （`core/design.ets:345-346`：两者都 `fillOfRung(p, RUNG_CARD)`）⇒ **填充色逐字节相同**。
+   *    所以"设了底色"本身**不足以**让卡片可见：缺那条结构性发丝时，卡片在面板底上**完全隐形**。
+   *    真机像素实测（2026-10-13，s_stats）：卡内 / 卡间隙 / 面板底 三点同为 `(13,15,20)`，
+   *    面板读作"一墙数字"而非"一组指标卡"。
+   *    ⇒ 本组件所有 `bgCard()` 处**一律**加 `this.cStructural()` 立边（全仓同层级卡同通道：
+   *    `PanelRows`/`SelfCheckSheet`/`QueueSheet`/`CronDetailSheet`/`SettingsPanel`/`PluginsSheet`）。
+   */
   private bgCard(): string {
     return surfaceFillOf(this.palOnce(), SURFACE_CARD);
   }
@@ -144,6 +156,8 @@ export struct SessionStatsSheet {
     .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_XS, bottom: SPACE_XS })
     .backgroundColor(this.bgCard())
     .borderRadius(RADIUS_CARD)
+    // L2 卡立边（⛔ 必需 —— 缺它卡片在面板底上不可见，见 `bgCard()` 注释）
+    .border({ width: STROKE_HAIRLINE, color: this.cStructural() })
   }
 
   /** 一行指标卡（**最多 4 槽，显式渲染** ⇒ 无需 `ForEach`；性能预算 ⑦ 的 ForEach 处数是全仓硬上限）。 */
@@ -237,6 +251,8 @@ export struct SessionStatsSheet {
     .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_XS, bottom: SPACE_XS })
     .backgroundColor(this.bgCard())
     .borderRadius(RADIUS_CARD)
+    // L2 卡立边（⛔ 必需 —— 缺它卡片在面板底上不可见，见 `bgCard()` 注释）
+    .border({ width: STROKE_HAIRLINE, color: this.cStructural() })
   }
 
   /** 一个「按模型」卡片（模型名 + 一行指标；**显式渲染**，不 `ForEach`）。 */
@@ -256,6 +272,8 @@ export struct SessionStatsSheet {
     .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_XS, bottom: SPACE_XS })
     .backgroundColor(this.bgCard())
     .borderRadius(RADIUS_CARD)
+    // L2 卡立边（⛔ 必需 —— 缺它卡片在面板底上不可见，见 `bgCard()` 注释）
+    .border({ width: STROKE_HAIRLINE, color: this.cStructural() })
   }
 
   build() {
@@ -398,6 +416,8 @@ export struct SessionStatsSheet {
                 .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_XS, bottom: SPACE_XS })
                 .backgroundColor(this.bgCard())
                 .borderRadius(RADIUS_CARD)
+                // L2 卡立边（⛔ 必需 —— 缺它卡片在面板底上不可见，见 `bgCard()` 注释）
+                .border({ width: STROKE_HAIRLINE, color: this.cStructural() })
                 .alignItems(HorizontalAlign.Start)
               }
 
@@ -435,6 +455,8 @@ export struct SessionStatsSheet {
                 .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_XS, bottom: SPACE_XS })
                 .backgroundColor(this.bgCard())
                 .borderRadius(RADIUS_CARD)
+                // L2 卡立边（⛔ 必需 —— 缺它卡片在面板底上不可见，见 `bgCard()` 注释）
+                .border({ width: STROKE_HAIRLINE, color: this.cStructural() })
               }
 
               // ⑦ 用户累计（全 0 ⇒ 不渲染空卡）

@@ -100,6 +100,16 @@ const SITES: Site[] = [
   // 运行面板结构化行卡（批次10 新建）：L2 内嵌卡（面到面轮廓 = `structuralRuleOf`）
   { file: 'components/PanelRows.ets', level: 'L2', marker: 'backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))', expect: 1 },
   { file: 'components/SyntheticCard.ets', level: 'L2', marker: 'backgroundColor(surfaceFillOf(this.pal(), SURFACE_PILL))', expect: 1 },
+  // ── L2 内嵌卡（**访问器形态 / 本批新登记**，2026-10-13 目标③④）────────────────────
+  // 背景：这三处的卡面**只有填充、无立边**（`fn === ''` ⇒ 被 ③ 旧的"无边界不算违规"盲区放过），
+  //   而 `surface.card` 与所在面板面 `surface.overlay` **同属 `RUNG_CARD`**
+  //   （`core/design.ets:345-346`）⇒ 填充逐字节同色 ⇒ **卡片完全隐形**。
+  //   真机像素实测（统计面板）：卡内 / 卡间隙 / 面板底 三点同为 `(13,15,20)` ⇒ 面板读作"一墙数字"。
+  // ⛔ 登记进 `SITES` 后，"**必须有**立边且通道 = `structuralRuleOf`"被逐处钉住
+  //   （少一处 ⇒ `fns.length ≠ expect` ⇒ 红；形态自证见本文件 ④ 的 mutation C）。
+  { file: 'components/SessionStatsSheet.ets', level: 'L2', marker: 'backgroundColor(this.bgCard())', expect: 6 },
+  { file: 'components/TaskDetailSheet.ets', level: 'L2', marker: 'backgroundColor(this.wellBgC())', expect: 1 },
+  { file: 'components/ToolPopover.ets', level: 'L2', marker: 'backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))', expect: 1 },
   // ── L3 内嵌凹槽（well / chip = insetHairlineOf）──────────────────────────────
   // ⚠️ 计数随**形态扩张**演进（2026-10-12）：原 4 个 well 面（参数/内容/输出/hunk 头）+
   //    **本批 shell「转后台」条 1 个**（单面承载 idle/promoting/done/error 四态；带 `insetHairlineOf`
@@ -110,10 +120,42 @@ const SITES: Site[] = [
 
 /** 边界窗口（面线之后多少行内找第一个 `.border(`/`.borderColor(`）。 */
 const WINDOW: number = 6;
-/** 通道函数抽取（`color: <fn>(this.pal())` / `.borderColor(<fn>(this.pal()))`）。 */
-const FN_RE: RegExp = /(?:color:\s*|borderColor\()([A-Za-z]+)\(this\.pal\(\)\)/;
+/**
+ * 通道函数抽取（**两种真实形态都必须认**）：
+ *   ① 直调：`color: structuralRuleOf(this.pal())` / `...(this.palOnce())`
+ *   ② **访问器**：`color: this.cStructural()`（组件把重复取色收敛成访问器以压 `pal()` 读数）
+ * ⛔ 2026-10-13（目标③）：此前只认 ① 的 `this.pal()` 一种形态 ⇒ `SessionStatsSheet` 的 5 处卡面
+ *    （面线走 `this.cStructural()`）在整个判据里**不可见**（`fn === ''`，又恰落进 ③ 旧的
+ *    "无边界不算违规"盲区）⇒ **卡片隐形**（`surface.card` 与面板面 `surface.overlay` 同 rung、
+ *    填充逐字节同色；真机像素实测卡内/卡间/面板底同为 `(13,15,20)`）**无人拦**。
+ */
+const FN_DIRECT: RegExp = /(?:color:\s*|borderColor\()([A-Za-z]+)\(this\.pal(?:Once)?\(\)\)/;
+const FN_ACCESSOR: RegExp = /(?:color:\s*|borderColor\()this\.([A-Za-z]+)\(\)/;
 
-/** 从 `faceIdx`（面线）起，取其后 WINDOW 行内**第一个**边界块的通道函数名；'' = 窗口内没有边界。 */
+/**
+ * 「取色访问器 → 通道函数」解析（**单行体**）：
+ *   `private cStructural(): string { return structuralRuleOf(this.palOnce()); }` ⇒ `{ cStructural: 'structuralRuleOf' }`
+ * ⚠️ 只认 `return <fn>(this.pal()/this.palOnce());` 的单行体（本仓访问器一律此形态）；
+ *    非此形态 ⇒ 不登记 ⇒ 调用点解析成 `''` ⇒ **判红**（宁可报红要人显式登记，也不静默漏读）。
+ */
+function accessorChannels(lines: string[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  const DECL: RegExp = /^\s*(?:private\s+|public\s+)?([A-Za-z_]\w*)\s*\(\s*\)\s*:\s*string\s*\{\s*$/;
+  const BODY: RegExp = /^\s*return\s+([A-Za-z]+)\(this\.pal(?:Once)?\(\)\)\s*;\s*$/;
+  for (let i = 0; i < lines.length; i++) {
+    const d = lines[i].match(DECL);
+    if (d === null) { continue; }
+    for (let j = i + 1; j < Math.min(lines.length, i + 5); j++) {
+      if (lines[j].trim().length === 0) { continue; }
+      const b = lines[j].match(BODY);
+      if (b !== null) { map[d[1]] = b[1]; }
+      break;
+    }
+  }
+  return map;
+}
+
+/** 从 `faceIdx`（面线）起，取其后 WINDOW 行内**第一个**边界块的通道函数名；'' = 窗口内无边界 / 通道认不出。 */
 function channelAfter(lines: string[], faceIdx: number): string {
   const end: number = Math.min(lines.length - 1, faceIdx + WINDOW);
   for (let i = faceIdx + 1; i <= end; i++) {
@@ -121,8 +163,15 @@ function channelAfter(lines: string[], faceIdx: number): string {
     if (ln.indexOf('.border(') >= 0 || ln.indexOf('.borderColor(') >= 0) {
       const stop: number = Math.min(lines.length - 1, i + 4);
       for (let j = i; j <= stop; j++) {
-        const m = lines[j].match(FN_RE);
-        if (m !== null && m.length > 1) { return m[1]; }
+        const md = lines[j].match(FN_DIRECT);
+        if (md !== null && md.length > 1) { return md[1]; }
+        const ma = lines[j].match(FN_ACCESSOR);
+        if (ma !== null && ma.length > 1) {
+          const acc: Record<string, string> = accessorChannels(lines);
+          const nm: string = ma[1];
+          if (Object.prototype.hasOwnProperty.call(acc, nm)) { return acc[nm]; }
+          return '';
+        }
       }
       return '';
     }
@@ -218,13 +267,19 @@ for (let fi = 0; fi < sweepFiles.length; fi++) {
     for (let mi = 0; mi < CARD_MARKERS.length; mi++) { if (lines[li].indexOf(CARD_MARKERS[mi]) >= 0) { isCardFace = true; } }
     if (!isCardFace) { continue; }
     const fn: string = channelAfter(lines, li);
-    // 无边界（嵌套/有意不描边）不算违规；**有边界但通道错**才算。
-    if (fn.length > 0 && fn !== LEVEL_FN.L2) {
+    // ⛔ 2026-10-13（目标③）：**"无立边"也算违规**。旧口径（"无边界 = 嵌套/有意不描边，不算违规"）
+    //    是**盲区**：`surface.card` 与面板面 `surface.overlay` 同属 `RUNG_CARD`
+    //    （`core/design.ets:345-346`）⇒ 填充逐字节同色 ⇒ **无立边 = 卡片完全隐形**（已实测 3 处）。
+    //    合法豁免**一律**走上面的 `KNOWN_CARD_GAPS` 台账（必须写明理由，且只许缩短）。
+    if (fn !== LEVEL_FN.L2) {
       let allowed = false;
       for (let gi = 0; gi < KNOWN_CARD_GAPS.length; gi++) {
         if (KNOWN_CARD_GAPS[gi].file === rel && lines[li].indexOf(KNOWN_CARD_GAPS[gi].marker) >= 0) { allowed = true; }
       }
-      if (!allowed) { cardViolations.push(`${rel}:${li + 1}  卡轮廓 = ${fn}（应 ${LEVEL_FN.L2}）`); }
+      if (!allowed) {
+        const shown: string = fn.length > 0 ? fn : '❌无立边（卡片将与面板底同色 ⇒ 隐形）';
+        cardViolations.push(`${rel}:${li + 1}  卡轮廓 = ${shown}（应 ${LEVEL_FN.L2}）`);
+      }
     }
   }
 }
@@ -304,6 +359,31 @@ eq(`⑤ 待批台账条数 = ${KNOWN_PENDING.length}（只许缩短）`, KNOWN_P
   const mutated: string = base.join('\n').replace('color: hairlineOf(this.pal())', 'color: structuralRuleOf(this.pal())');
   const mutFn: string = idx >= 0 ? channelAfter(mutated.split('\n'), idx) : '';
   eq('④ mutation B：注入 structuralRuleOf ⇒ 扫描器报出 structuralRuleOf', mutFn, 'structuralRuleOf');
+}
+{
+  // mutation C（L2 · **访问器形态**，2026-10-13 本批新增判据的判别力自证）：
+  //   `SessionStatsSheet` 卡面走 `color: this.cStructural()`（不是字面 `structuralRuleOf(this.pal())`）
+  //   ⇒ ① 扫描器必须**解析得到**访问器真值 `structuralRuleOf`；② 抹掉那条 `.border(...)` ⇒
+  //   必须解析成 `''`（= "无立边" ⇒ SITES 计数 ≠ expect ⇒ 必红）。
+  const m: string = 'backgroundColor(this.bgCard())';
+  const base: string[] = linesOf('components/SessionStatsSheet.ets');
+  let idx = -1;
+  for (let i = 0; i < base.length; i++) { if (base[i].indexOf(m) >= 0) { idx = i; break; } }
+  const baseFn: string = idx >= 0 ? channelAfter(base, idx) : '';
+  eq('④ mutation C 基线：SessionStatsSheet 卡面（访问器形态）通道 = structuralRuleOf', baseFn, 'structuralRuleOf');
+  const mutLines: string[] = [];
+  let removed = false;
+  for (let i = 0; i < base.length; i++) {
+    if (!removed && idx >= 0 && i > idx && i <= idx + WINDOW && base[i].indexOf('this.cStructural()') >= 0) {
+      removed = true;
+      continue;
+    }
+    mutLines.push(base[i]);
+  }
+  eq('④ mutation C 前提：确实抹掉了一行立边', removed, true);
+  const mutFn: string = idx >= 0 ? channelAfter(mutLines, idx) : '';
+  eq('④ mutation C：抹掉立边 ⇒ 解析成 ""（无立边 ⇒ SITES 计数不等 ⇒ 必红）', mutFn, '');
+  eq('④ mutation C：注入后 ≠ 基线（判别器真的分辨得出来）', mutFn !== baseFn, true);
 }
 
 // ── ⑥ L1 顶层弹层「根面 = surfaceFillOf(p,'surface.overlay')」逐处消费点（⛔ 不得裸 pal().appBg）──

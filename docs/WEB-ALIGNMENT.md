@@ -5579,3 +5579,57 @@ Avg tok/s 292 / 上下文水位 165.5k / 按模型 / 最近迭代表）—— �
 
 **性能预算**：**B 线 1353 → 1343、A 线 1250 → 1206**（净减；⛔ 未调阈值，无需 §5 记录）；
 ForEach 处数一处未增（分组头是普通 `ListItem`，不是新 `ForEach`）。
+
+## §21.116 统计面板「**隐形卡**」：`surface.card` 与面板面 `surface.overlay` **同 rung** ⇒ 只设底色 = 卡片不存在（3 文件 7 处 · 门禁闭盲区）（目标③）
+
+**症状（用户 ④ 点名的「统计」面板，装机实拍）**：面板内容读作"**一墙数字**" ——
+`输入 4.01B` / `输出 14.08M` / `缓存命中` / `Avg TTFT` … 全部裸浮在面板底上，**没有任何卡片边界**；
+`按模型` 三行、`最近迭代`表、趋势卡同理。视觉上完全不像"一组指标卡"。
+
+**根因（结构性，不是审美）**：`core/design.ets:345-346` ——
+`surface.card` 与 `surface.overlay` **绑在同一 `RUNG_CARD`** ⇒ `fillOfRung(p, RUNG_CARD)` ⇒
+**两者填充色逐字节相同**。故"给容器设了卡片底色"**本身不产生任何视觉分离**：
+卡片写在面板（`surface.overlay`）上时，**唯一**的分离手段是那条**结构性发丝**
+（`structuralRuleOf(p)`，全仓 L2 卡统一通道）。`SessionStatsSheet` 的 `metricCard`/`dayCard`/
+`modelCard`/最近迭代表/趋势卡**只设了 `bgCard()`、没设立边** ⇒ 卡片**完全隐形**。
+
+**决定性证据（像素级，非目测）**：`sips` 转 PNG + 纯 Python(zlib) 解码，同一 x 列纵向扫描卡区：
+
+| | 细轮廓行（≤6px 非底色带） | 卡顶行色 |
+|---|---|---|
+| **改前** `s_stats.jpeg` | **0** | `(13,15,20)` ＝ 面板底色 ⇒ **无分离**（卡内/卡间隙/面板底**三点同色**） |
+| **改后** `st2.jpeg` | **10** | `(28,30,35)` ⇒ 可见立边 |
+
+⇒ 判据是**可测量的**：改前整列恒等于面板底色，改后出现 10 条轮廓带。
+
+**同源第二/三处（同一根因，一起修）**：
+- `components/TaskDetailSheet.ets`（工具输出盒）：父面**就是**同文件的 `surface.overlay`（`:219`/`:231`）
+  ⇒ 只设底色 = 输出块读作"裸文字"。加 `cRule()` 立边（并顺手把 `:205` 的内联 `surfaceFillOf(this.palOnce(), …)`
+  换成既有访问器 `this.wellBgC()` ⇒ **net pal 读数 0**）。
+- `components/ToolPopover.ets`（diff 卡）：宿主 `popupColor` 是 `surface.overlay`
+  （`LiveTailView.ets:485`）⇒ 同因；且它的**同源孪生** `GitPanelSheet` 的 diff 卡
+  （`skin().card` + `skin().rule`，`:637`）**本来就有**立边 ⇒ 明确遗漏，补齐即逐项一致。
+
+**门禁闭盲区（`tools/tests/free_surface_unify.test.ts`，本批核心）**：旧判据有**两个**互相叠加的漏读：
+1. ③ 全景扫描的旧口径写着"**无边界（嵌套/有意不描边）不算违规**"（只拦"有边界但通道错"）；
+2. 通道抽取 `FN_RE` **只认 `this.pal()` 字面形态** —— 而 `SessionStatsSheet` 把取色收敛成访问器
+   `this.cStructural()`（压 `pal()` 读数）⇒ 该文件的卡面**在整个判据里根本不可见**。
+两者叠加 ⇒ 隐形卡**无人拦**。本批：
+- `FN_DIRECT` 接受 `this.pal()` / `this.palOnce()`（⛔ 注意正则必须写 `pal(?:Once)?`：
+  我第一版写成 `palOnce?`（= "`palOnc`+可选`e`"）⇒ 全部解析成 `''` ⇒ 33 条假红，已修）；
+- 新增 `FN_ACCESSOR` + `accessorChannels()`：解析**单行体访问器**
+  （`private cStructural(): string { return structuralRuleOf(this.palOnce()); }`）⇒ 认得 `color: this.cStructural()`；
+- ③ **"无立边"也判违规**（合法豁免只走 `KNOWN_CARD_GAPS` 台账，带理由、只许缩短）；
+- L2 站点表新增三处（`SessionStatsSheet` marker `backgroundColor(this.bgCard())` **expect 6**、
+  `TaskDetailSheet` `this.wellBgC()` **expect 1**、`ToolPopover` `SURFACE_CARD` **expect 1**）——
+  SITES 天然要求"**每处 marker 都必须**在 6 行内解析出 `structuralRuleOf`"，**少一处即计数不等 ⇒ 红**；
+- mutation **C**（新增自证）：抹掉 `SessionStatsSheet` 一条立边 ⇒ 必须解析成 `''`（判别力自证）。
+结果：`free_surface_unify` 由 35 passed/33 failed（我第一版）→ **103 passed / 0 failed**（23 组站点 · 42 处消费点）。
+
+**同源真源同步**：`docs/DESIGN-SYSTEM.md §13.5` 新增纪律 5（`surface.card` 面线**必须**立边；
+豁免须登记台账）—— 该节是 L1/L2 通道的唯一真源。
+
+**判据/验证**：`bash tools/gate.sh` ⇒ `GATE_RC=0`、`✅ 真门禁全绿`、
+**④ `hvigor BUILD SUCCESSFUL in 15 s 255 ms`**；A 线 **1207**/1250、B 线 **1344**/1353
+（B 净 0：`TaskDetailSheet` 内联 `palOnce` 换成既有访问器 −1、新 `cRule()` +1）、ForEach 113/113。
+装机像素复核见上表。

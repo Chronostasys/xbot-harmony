@@ -709,6 +709,13 @@ colorOf(p, 'text.pillName')   // ← docs/REDESIGN-INPUT-*.md 与 docs/mockups/*
 2. 分隔分两档、⛔ 不可混用：**面内** = `hairlineOf(p)`；**面到面** = `structuralRuleOf(p)`。
 3. 深浅只经 `isLightPalette(paletteOf(theme))`；新建 role 必须登记 `colorOf` + 有判据。
 4. **深色逐字节不变**：任何浅色再设计都必须在 `if (light) {…}` 分支内完成。
+5. ⛔ **`surface.card` 的面线必须有立边**（2026-10-13 加）：`surface.card` 与 `surface.overlay`
+   **同属 `RUNG_CARD`**（`core/design.ets:345-346` ⇒ 同一 `fillOfRung`）——**填充色逐字节相同**。
+   所以"给容器设了 `surface.card` 底色"**本身不产生任何视觉分离**：卡片写在面板（`surface.overlay`）上时，
+   缺 `.border({ width: STROKE_HAIRLINE, color: structuralRuleOf(p) })` ⇒ 卡片**完全隐形**
+   （真机像素实测：卡内 / 卡间隙 / 面板底三点同为 `(13,15,20)`，面板读作"一墙数字"）。
+   豁免（如坐在画布上、与底本就不同色；或纯裁切容器）**必须**登记 `tools/tests/free_surface_unify.test.ts`
+   的 `KNOWN_CARD_GAPS` 并写明理由。判据：该文件 ③（含"**无立边也算违规**"）+ L2 站点表（含访问器形态）。
 
 ### 13.6 品牌标记**不随主题**（2026-10-11 用户拍板，关闭 ① 第二半）
 

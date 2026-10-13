@@ -21,7 +21,7 @@ import { AnsiSpan, ansiBgOf, ansiFgOf, ansiPaletteOf, ansiSpansIfAny, hasAnsi } 
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import {
   colorOf, hairlineOf, HIT_TARGET_MIN, ICON_MD, PRESS_OPACITY, RADIUS_SHEET, SHEET_ACTION_GLYPH, SPACE_MD,
-  SHEET_WIDTH, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD, surfaceFillOf, typeOf,
+  SHEET_WIDTH, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD, structuralRuleOf, surfaceFillOf, typeOf,
 } from '../core/design';
 import { sheetTransition } from './anim';
 
@@ -72,6 +72,18 @@ export struct TaskDetailSheet {
    */
   private wellBgC(): string {
     return surfaceFillOf(this.palOnce(), SURFACE_CARD);
+  }
+
+  /**
+   * L2 内嵌卡「面到面轮廓」= `structuralRuleOf`（⛔ 必需）。
+   *
+   * 为什么必须显式立边：`wellBgC()` 的 `surface.card` 与本面板的面 `surface.overlay`
+   * **同属 `RUNG_CARD`**（`core/design.ets:345-346`）⇒ **填充色逐字节相同** ⇒ 只设底色
+   * 等于没设（输出块会读作"裸文字"）。全仓同层级卡同通道（`PanelRows`/`SessionStatsSheet`/
+   * `SelfCheckSheet`/… 见 `tools/tests/free_surface_unify.test.ts` 的 L2 站点表）。
+   */
+  private cRule(): string {
+    return structuralRuleOf(this.palOnce());
   }
 
   /** 输出正文的 ANSI span（⛔ 无转义 ⇒ 空数组 ⇒ 调用方走纯文本路径，逐字节不变）。 */
@@ -202,8 +214,10 @@ export struct TaskDetailSheet {
           }
           .width('100%')
           .padding(SPACE_SM)
-          .backgroundColor(surfaceFillOf(this.palOnce(), SURFACE_CARD))
+          .backgroundColor(this.wellBgC())
           .borderRadius(RADIUS_SHEET)
+          // L2 卡立边（⛔ 必需 —— `surface.card` 与面板面同 rung，无它 = 卡片隐形，见 `cRule()`）
+          .border({ width: STROKE_HAIRLINE, color: this.cRule() })
           .alignItems(HorizontalAlign.Start)
         }
         .layoutWeight(1)
