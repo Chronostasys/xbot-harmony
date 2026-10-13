@@ -72,6 +72,11 @@ export struct PluginHost {
   /** 要承载的宿主页 URL（空 ⇒ 只显示目录）。 */
   @Prop panelUrl: string = '';
   /**
+   * 承载页的**人类标题**（透传给 `WebSurface.chromeLabel`）—— 顶栏绝不显示原始 URL。
+   * 由上层在打开时给出（插件名 / 「完整 Web UI」…），例：点「Git 面板」⇒ `'Git 面板'`。
+   */
+  @Prop panelTitle: string = '';
+  /**
    * 本会话的插件 widget 载荷（`web_widgets` / `plugin_widgets` 的原始 JSON；空 = 未收到）。
    *
    * 为什么由**本组件**承载：`PluginWidgets`（插件 widget 渲染层）此前是**孤儿组件**
@@ -84,8 +89,19 @@ export struct PluginHost {
   /** widget 事件名（`web_widgets` / `plugin_widgets`）。 */
   @Prop widgetEvent: string = WIDGET_EVENT_WEB;
 
-  /** 点"打开"：把目标 URL 交给上层（上层写进 `panelUrl` 或自行导航）。 */
-  onOpen: (url: string) => void = () => {
+  /**
+   * 点插件卡「打开」：把**插件条目本身**交给上层（上层用 `core/pluginhost.ets:pluginOpenTarget`
+   * 拼**通用深链**再导航）。
+   *
+   * ⛔ 为什么传条目而不是 URL（2026-10-13 真机实证）：本组件的行/卡长期用
+   *    `PluginViewItem.openUrl` / `PluginCatalogItem.url` 直接导航，而真实贡献点**不带 URL**
+   *    ⇒ 那个值是 **host 根页**（聊天页）⇒ 点「打开」看到的是 **web 应用主界面**（用户点名禁止的
+   *    「跑回主界面」）。判据/深链必须**由上层统一拼**（见 `pluginOpenTarget`）。
+   */
+  onOpenPlugin: (p: PluginCatalogItem) => void = () => {
+  };
+  /** 点目录里的**具体一行视图**：上层用 `pluginViewTarget` 拼该 view 的深链。 */
+  onOpenView: (v: PluginViewItem) => void = () => {
   };
   /** 关闭宿主页（WebSurface 的"‹ 返回"）。 */
   onClose: () => void = () => {
@@ -98,6 +114,7 @@ export struct PluginHost {
         WebSurface({
           url: this.panelUrl,
           theme: this.theme,
+          chromeLabel: this.panelTitle,
           onClose: () => {
             this.onClose();
           },
@@ -143,8 +160,8 @@ export struct PluginHost {
                   PluginCardRow({
                     item: p,
                     theme: this.theme,
-                    onOpen: (url: string) => {
-                      this.onOpen(url);
+                    onOpen: () => {
+                      this.onOpenPlugin(p);
                     },
                   })
                 }, (p: PluginCatalogItem) => `plugin#${p.id}#${p.url}`)
@@ -160,8 +177,8 @@ export struct PluginHost {
                   PluginViewRow({
                     view: v,
                     theme: this.theme,
-                    onOpen: (url: string) => {
-                      this.onOpen(url);
+                    onOpen: () => {
+                      this.onOpenView(v);
                     },
                   })
                 }, (v: PluginViewItem) => `view#${v.id}`)
@@ -274,7 +291,7 @@ struct PluginOpenAffordance {
 struct PluginCardRow {
   @Prop item: PluginCatalogItem = new PluginCatalogItem();
   @Prop theme: string = 'dark';
-  onOpen: (url: string) => void = () => {
+  onOpen: () => void = () => {
   };
 
   private pal(): Palette {
@@ -364,7 +381,7 @@ struct PluginCardRow {
     .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
     .onClick(() => {
-      this.onOpen(this.item.url);
+      this.onOpen();
     })
   }
 }
@@ -374,7 +391,7 @@ struct PluginCardRow {
 struct PluginViewRow {
   @Prop view: PluginViewItem = new PluginViewItem();
   @Prop theme: string = 'dark';
-  onOpen: (url: string) => void = () => {
+  onOpen: () => void = () => {
   };
 
   private pal(): Palette {
@@ -429,7 +446,7 @@ struct PluginViewRow {
     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
     .onClick(() => {
       // 直开（同源页面 URL）与"进宿主页"在 core 侧已判好，这里只执行
-      this.onOpen(this.view.openUrl);
+      this.onOpen();
     })
   }
 }

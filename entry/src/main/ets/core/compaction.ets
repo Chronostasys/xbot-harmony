@@ -17,6 +17,7 @@
  *    「无类型对象字面量」⇒ 返回值一律用 `class`（不得用 `{...}` 字面量作类型）。
  */
 import type { WebCompaction } from './chattypes';
+import type { HistoryCompaction } from './types';
 
 /** 胶囊文案（web `i18n/zh-CN.ts:236` 的 `agent.compacted`）。原生端文案硬编码为中文。 */
 export const COMPACTED_LABEL: string = '上下文已压缩';
@@ -116,4 +117,43 @@ export function hasExpandableBody(c: WebCompaction | undefined): boolean {
     return false;
   }
   return splitMarker(c.content).body.length > 0;
+}
+
+/**
+ * `/api/history` 的 `messages[].compactions`（`protocol/events.go:317 HistoryCompaction`）
+ * → `WebCompaction[]` —— 接线在 `core/store.ets:toChatMessages`。
+ *
+ * ⛔ **此前 0 消费方**（本仓血债「死消费」的又一例：后端早在该批就下发了结构化压缩点，
+ *    本仓 `HistoryMessage` **没有这个字段** ⇒ JSON 直接被丢弃 ⇒ 历史 turn 的
+ *    「上下文已压缩」横线**从来不会内联出现**（只能靠 legacy standalone 标记行兜底、
+ *    且位置是列表尾部而非迭代之间）。web 同源消费点：`hooks/useChatMessages.ts:250`
+ *    （`Array.isArray(m.compactions) ? m.compactions : undefined`）。
+ *
+ * ⚠️ 外来 JSON：字段可能缺省 / 为 JSON `null`（Go nil → null）⇒ **显式三态**收窄；
+ *    `after_iteration` 缺失 ⇒ 0（= 该 turn 第一条迭代之前，与后端语义一致）。
+ * 无压缩 ⇒ **空数组**（渲染层据此零渲染，不留空行）。
+ */
+export function toHistoryCompactions(raw: HistoryCompaction[] | null | undefined): WebCompaction[] {
+  const out: WebCompaction[] = [];
+  if (raw === null || raw === undefined) {
+    return out;
+  }
+  for (let i = 0; i < raw.length; i++) {
+    const c: HistoryCompaction | null | undefined = raw[i];
+    if (c === null || c === undefined) {
+      continue;
+    }
+    const item: WebCompaction = {
+      afterIteration: c.after_iteration !== undefined && c.after_iteration !== null
+        ? c.after_iteration : 0,
+    };
+    if (c.content !== undefined && c.content !== null) {
+      item.content = c.content;
+    }
+    if (c.timestamp !== undefined && c.timestamp !== null) {
+      item.timestamp = c.timestamp;
+    }
+    out.push(item);
+  }
+  return out;
 }

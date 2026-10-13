@@ -86,11 +86,30 @@ const core: string = stripComments(coreRaw);
 // ── ① 插件行 **通用**深链（⛔ 零插件特判 —— 用户架构修正：任何插件都靠自己的 view 声明打开）──
 const openPluginSeg: string = sliceBetween(page, 'onOpenPlugin: (p: PluginCatalogItem) => {', 'onRetry');
 ok('onOpenPlugin 片段取到', openPluginSeg.length > 0);
-ok('① 主视图由插件自己的 views 决定', openPluginSeg.indexOf('primaryViewId(p.views)') >= 0);
-ok('① 深链由 base+viewId+title 拼（web 侧唯一入口）',
-  openPluginSeg.indexOf('pluginViewDeepLink(this.serverUrl, viewId, title)') >= 0);
-ok('① 深链结果进 panelUrl', openPluginSeg.indexOf('this.panelUrl = link;') >= 0);
+// ⛔ 判据演进（2026-10-13，15z15）：深链拼装**收敛到唯一纯函数** `pluginOpenTarget`
+//    （`core/pluginhost.ets`）—— 页面**不再自己拼**（此前页面与"原生插件目录"两条路径各自为政，
+//    目录那条直接载入 `openUrl` = host 根页 = 聊天页 ⇒ 真机实测「跑回主界面」）。
+//    所以这里钉的形态从"页面内有拼装表达式"改成"页面**调那个唯一函数**、且**不得**再内联拼装"。
+ok('① 页面调唯一纯函数 pluginOpenTarget（主视图由插件自己的 views 决定）',
+  openPluginSeg.indexOf('pluginOpenTarget(p, this.serverUrl)') >= 0);
+ok('① ⛔ 页面**不得**再内联拼深链（分叉防线：拼装只在 core 一处）',
+  openPluginSeg.indexOf('pluginViewDeepLink(') < 0 && openPluginSeg.indexOf('primaryViewId(') < 0);
+ok('① 深链结果进 panelUrl', openPluginSeg.indexOf('this.panelUrl = target.url;') >= 0);
 ok('① 无 view 声明时回落既有行为', openPluginSeg.indexOf('this.panelUrl = p.url;') >= 0);
+// 唯一纯函数自身：必须由 viewId 拼深链，且有 view 时**绝不**返回 host 根页（真机 bug 的根因）。
+const hostCore: string = stripComments(fs.readFileSync(path.join(CORE, 'pluginhost.ets'), 'utf8'));
+const potSeg: string = sliceBetween(hostCore, 'export function pluginOpenTarget(', 'export function pluginViewTarget(');
+ok('① pluginOpenTarget 片段取到', potSeg.length > 0);
+ok('① pluginOpenTarget 用 primaryViewId + pluginViewDeepLink 拼',
+  potSeg.indexOf('primaryViewId(views)') >= 0 && potSeg.indexOf('pluginViewDeepLink(base, viewId, label)') >= 0);
+ok('① pluginOpenTarget 只在**无 view** 时才回落 p.url',
+  potSeg.indexOf('return new PluginOpenTarget(p.url') >= 0);
+// 原生「插件目录」不得再直接用 openUrl 导航（真机实测的「跑回主界面」根因）。
+const hostComp: string = stripComments(fs.readFileSync(path.join(COMPONENTS, 'PluginHost.ets'), 'utf8'));
+ok('① ⛔ 原生目录不得直接导航 openUrl/item.url（跑回主界面根因）',
+  hostComp.indexOf('this.onOpen(this.view.openUrl') < 0 && hostComp.indexOf('this.onOpen(this.item.url') < 0);
+ok('① 原生目录两条路径都上报"点了谁"（onOpenPlugin/onOpenView）',
+  hostComp.indexOf('this.onOpenPlugin(p);') >= 0 && hostComp.indexOf('this.onOpenView(v);') >= 0);
 // ⛔ 判别点：**不许**按插件 id 分流（那正是"以后新插件怎么办"的病根）。
 ok('① 无插件 id 特判', openPluginSeg.indexOf('p.id ===') < 0 && openPluginSeg.indexOf('GIT_PLUGIN_ID') < 0);
 // 原生 Git 面板改为**固定入口**（可选增强，不在关键路径上）。

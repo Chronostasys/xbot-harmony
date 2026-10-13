@@ -4454,3 +4454,116 @@ web 侧插件 view 的权威事实（`plugin-runtime/usePluginViewPanels.ts:36` 
 web 仓 `npm ci`（node_modules 缺 `@tiptap/*` ⇒ 不装依赖 `tsc -b` 直接红）→ `npm run build` →
 `cp -R web/dist/. ~/.xbot/web/dist/`（**先备份** `~/.xbot/web/dist.bak-<ts>`）。
 自证：`grep -l xbot_view ~/.xbot/web/dist/assets/*.js` 命中 = 服务目录里确实是我这份构建。
+
+## §21.90 窗口化 turn：user 行**改挂** `turn_user` + 压缩点 `compactions` **零消费**（15z15，2026-10-13）
+
+用户插话（原话）：「还有你要确保这种 web view 交互完全正常」之前的另一条：「（加载更多）有时候
+不生效」——本轮顺着**同一族的接口变更**把两处**静默丢数据**一起根治。
+
+### 缺陷①：窗口化 turn 的 user 行在原生端**永久丢失**（`turn_user`）
+
+后端 `5c3aec7b`（xbot 仓 `channel/subscription.go:702-756 relocateIncompleteTurnUsers`、
+`protocol/events.go:302-310 TurnUser`）：对**只下发了尾部区域窗口**（`regions_before > 0`）的 turn，
+服务端**不再把它的 user 行放进消息流**（⛔ 消息不连续零容忍，用户 2026-10-11：绝不允许
+「user msg → 跳 y 条 → iter」这种把提问渲染在**尚未加载的缺口**上方的形态），而是把它**改挂**到
+该 turn 的 assistant 行的 `turn_user` 字段上。
+
+**本仓此前 0 消费**：`core/types.ets:HistoryMessage` **没有 `turn_user`**、`store.ets:toChatMessages`
+不还原 ⇒ 这类提问在原生端**彻底消失**（只剩一个孤零零的 assistant 回答）。
+
+**修复（对齐 web `hooks/useChatMessages.ts:200-221`）**：在**边缘**（`toChatMessages`）把
+`turn_user` 还原成常规 user 行、**插在该 assistant 行之前** —— 下游（`historyToReplaced` 建 turn /
+derive / rewind / 加载更多）**零改动**；是否渲染仍由 derive 的「窗口未覆盖迭代 1 ⇒ user 行不渲染」
+规则决定（`core/derive.ts:287 userHiddenByFold`，本仓**早已有**，无需改）。两个必须钉住的细节：
+
+- ⛔ **`dbID` 必须取 user 行自己**的 id（`tu.id ?? i+1`），**绝不能**回落成 assistant 行的 id
+  ——否则 rewind 会把这条 user msg 回滚到 assistant 行上（web 同处 CR 抓到的 bug）；
+- ⛔ 还原行与常规行**共用同一张 `seen` 去重表**（新增 `mkID` 闭包）：本仓血债「行 id 必须全局唯一」
+  （撞 key ⇒ `ForEach` 抛应用级错误 ⇒ **该列表子树整体不渲染** ⇒ 白屏）。
+
+### 缺陷②：turn 内压缩点 `compactions` **从未被消费**（第 4 例「死消费」）
+
+后端 `protocol/events.go:301/317 HistoryCompaction`（`after_iteration` / `content` / `timestamp`）
+**早已**在 `/api/history` 的 assistant 行上携带结构化压缩点；而本仓 `types.ets:HistoryMessage`
+**没有这个字段** ⇒ JSON 被直接丢弃 ⇒ 历史 turn 的「上下文已压缩」横线**从不内联出现**。
+web 同源消费点：`useChatMessages.ts:250`。
+
+**修复**：`types.ets` 加 `HistoryCompaction` + `HistoryMessage.compactions`；
+新增**纯函数** `core/compaction.ets:toHistoryCompactions`（外来 JSON 三态收窄：缺省/null/空数组/
+数组内混 null 一律安全；`after_iteration` 缺失 ⇒ 0），接线在 `toChatMessages`。
+
+### 缺陷③（同族，derive 端口**落后于 web**）：`afterIteration=0` 的压缩点会浮在缺口上
+
+web `src/chat/derive.ts:336-346 windowCompactions` 的规则：`afterIteration === 0`（压缩发生在该
+turn 第一条迭代**之前** ⇒ 紧随 user msg）的横线，只有窗口**覆盖到迭代 1**（`regionsBefore` 归零）
+时才允许渲染；否则它会浮在一个**尚未加载的缺口**正上方（= 又一处不连续）。本仓 `derive.ts` 的
+端口**没有**这条过滤（`compactions` 裸透传），而 `MessageRow` 又在 `compactionsAt(0)` 处**无条件**
+渲染 ⇒ 真缺陷。**修复**：把 `windowCompactions` **逐字移植**进 `entry/src/main/ets/core/derive.ts`
+并在 committed 分支应用 —— 与 `deriveRows` 里 user 行的隐藏规则**同源同处**（都在 derive）
+⇒ 任何时刻「要么完整时间线，要么什么都不渲染」。
+
+### 判据（均带 mutation 自证）
+
+- `tools/tests/turn_user_restore.test.ts`（22 条）：还原/顺序/`dbID` 归属/turnID 回落链/守卫/
+  id 唯一/端到端 derive 隐藏与归零后出现。**M1**（`dbID` 回落 `m.id`）⇒ B1 红；**M2**（还原块失效）
+  ⇒ 15 条红、还原后 22 绿。
+- `tools/tests/compaction_window.test.ts`（14 条）：接线（wire→`ChatMessage`）/三态/窗口过滤端到端。
+  **M**（derive 还原成裸透传）⇒ C1/D2 红；**M**（`> 0` 改 `>= 0`）⇒ C1 红。
+
+## §21.91 插件承载面顶栏：原始 URL → **人类标题**（15z15，2026-10-13）
+
+用户插话（原话）：「你开插件，上面有个地址是不是太丑了，能优化一下吗」——真机取证截图里顶栏就是
+一条 `http://127.0.0.1:8082/?xbot_view=xbot.git-fancy.panel`：**丑、无信息量、还泄露内网地址**。
+
+**根因（两处叠加）**：`WebSurface` 的 `onPageBegin` 把 `event.url` 写进 `title`，而顶栏渲染是
+`Text(this.title.length > 0 ? this.title : this.url)` ⇒ **恒显示原始 URL**。
+
+**修复**：
+- 新增**纯函数** `core/pluginview.ets:webChromeLabel(pageTitle, url, fallback)`，优先级：
+  **① 调用方给的语义标签**（插件**自己声明**的视图标题 / 「完整 Web UI」…；宿主打开时就知道要展示
+  什么，最权威——内置 web 的 `document.title` 恒为 `xbot`，不可用）→ ② 页面 `document.title`
+  （新增 `onTitleReceive` 接线；**否决**「看着像 URL / 恰好等于 url」的值）→ ③ **空串**
+  （组件据此**不渲染**该文本节点，绝不退回显示丑 URL）。
+- `WebSurface`：新增 `@Prop chromeLabel`；`onPageBegin` **不再**把 URL 当标题；标题**居中**
+  （`accentSoft` 两侧 44×44 真实命中盒不变）。
+- 标题从**插件清单**端到端透传（零猜测）：`PluginViewItem.title` → `PluginHost.onOpen(url, title)`
+  → `Index.pluginPageTitle` → `PanelHost.panelTitle` → `WebSurface.chromeLabel`；
+  「完整 Web UI」入口显式给 `'完整 Web UI'`。
+
+**判据**：`tools/tests/web_chrome_label.test.ts`（13 条：调用方标签优先 / URL 型页标题否决 /
+空串兜底**不回落 URL** / 纯函数幂等），mutation 自证见文件头注释。
+
+## §21.92 原生「插件目录」点开 = **web 应用主界面**（用户点名禁止的「跑回主界面」）（15z15，2026-10-13）
+
+用户插话（原话）：「你（还）要确保这种 web view 交互完全正常，**不能让用户交互后跑 webview 的主界面
+之类的去了**」。装机走查**当场复现**了这条：抽屉 → 插件（能力面板）→ 插件目录（原生）→ 点某插件卡的
+「打开」⇒ 原生顶栏标题正确（`← Git 面板 ⟳`，§21.91 生效），但**webview 里载入的是聊天页**
+（xbot web 应用主界面），不是插件面板。
+
+### 真根因（`core/pluginhost.ets` 目录模型的一个取值）
+
+`buildPluginCatalog` 里 `t.openUrl = target.url.length > 0 ? target.url : host` —— 而**真实 view
+贡献点不携带 URL**（`resolvePluginTarget` 的注释早已写明）⇒ `openUrl` **恒等于 host 根页**
+（= 聊天页）。原生目录的卡片/视图行长期**直接**用这个值导航 ⇒ 点「打开」= 载入应用主界面。
+
+⚠️ 这是**分叉缺陷**：**能力面板**那条路径（`PluginsSheet.onOpenPlugin`）早已接上通用深链（§21.89），
+所以同一个插件在两处行为不一致 —— 能力面板点开正常，目录里点开跑回主界面。用户在真机上看到的
+"插件都打不开"，一部分正是这条。
+
+### 修复：两处**同一个纯函数**（不可能再分叉）
+
+`core/pluginhost.ets` 新增（都是纯函数，可脱机判据）：
+- `pluginOpenTarget(p, base)`：**有 view 贡献点 ⇒** `primaryViewId` → `pluginViewDeepLink`
+  深链（⛔ 零插件特判）；**完全没有 view**（如 `xbot.genui` 由宿主内联渲染）才回落 `p.url`；
+  `base` 为空 ⇒ 空串（调用方不得载入空页）。
+- `pluginViewTarget(v, base)`：用户**点名**目录里的某一具体视图行 ⇒ 就开**那一个** view
+  （⛔ 不走 `primaryViewId`）；拼不出深链 ⇒ **空串**（⛔ 绝不回落 `openUrl` = 主界面）。
+
+接线：`Index.onOpenPlugin`（能力面板）与 `PluginHost.onOpenPlugin`/`onOpenView`（原生目录）
+**全部**改走上面两个函数；`PluginHost` 不再接收/使用任何 URL（只上报"用户点了谁"）。
+
+### 判据
+
+`tools/tests/plugin_open_target.test.ts`（14 条）：有 view ⇒ URL 含 `xbot_view=` 且 **≠ host 根页**；
+全 dynamic ⇒ 深链第一个；无 view ⇒ 才回落；尾斜杠归一化；空 base ⇒ 空串；视图行开**被点的那个 id**；
+dynamic 视图行也深链。mutation 自证：深链分支失效 ⇒ 6 条红。

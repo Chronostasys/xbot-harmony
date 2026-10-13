@@ -8,7 +8,7 @@ import {
 } from '../core/webbridge';
 import {
   WEB_PHASE_ERROR, WEB_PHASE_IDLE, WEB_PHASE_LOADING, WEB_PHASE_READY,
-  WebStatus, webErrorDetail, webHttpErrorDetail, webStatusOf,
+  WebStatus, webChromeLabel, webErrorDetail, webHttpErrorDetail, webStatusOf,
 } from '../core/pluginview';
 import { hostPageUrl } from '../core/pluginhost';
 import {
@@ -128,6 +128,15 @@ export struct WebSurface {
    *   ArkWeb 侧唯一出口是 `WebCookieManager.configCookieSync(url, value)`（@since 11）。
    */
   @Prop sessionCookie: string = '';
+  /**
+   * 顶栏的**人类标题**（调用方给的语义标签：插件名 / 「完整 Web UI」…）。
+   *
+   * ⛔ 为什么需要（用户 2026-10-13 亲报「你开插件，上面有个地址是不是太丑了」）：
+   *   旧实现 `Text(title.length > 0 ? title : url)` 在标题未知时**直接显示原始 URL**
+   *   （`http://127.0.0.1:8082/?xbot_view=xbot.git-fancy.panel`）——丑、无信息量、泄露内网地址。
+   *   现在一律经纯函数 `webChromeLabel(pageTitle, url, chromeLabel)`：**绝不**显示 URL。
+   */
+  @Prop chromeLabel: string = '';
   /** 关闭回调（由页面清空 url 卸载本组件）。 */
   onClose: () => void = () => {
   };
@@ -330,15 +339,22 @@ export struct WebSurface {
             .onClick(() => {
               this.onClose();
             })
-          Text(this.title.length > 0 ? this.title : this.url)
-            .fontSize(fs('type.caption'))
-            .fontWeight(fw('type.caption'))
-            .lineHeight(lh('type.caption'))
-            .fontColor(colorOf(this.pal(), 'textSecondary'))
-            .layoutWeight(1)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .padding({ left: SPACE_XS })
+          // 顶栏标题：**人类标签**，绝不显示原始 URL（`webChromeLabel` 纯函数，见 core/pluginview.ets）。
+          // 取不到标签 ⇒ **不渲染**该文本节点（旧实现退回显示 `http://127.0.0.1:8082/?xbot_view=…`，丑）。
+          if (webChromeLabel(this.title, this.url, this.chromeLabel).length > 0) {
+            Text(webChromeLabel(this.title, this.url, this.chromeLabel))
+              .fontSize(fs('type.caption'))
+              .fontWeight(fw('type.caption'))
+              .lineHeight(lh('type.caption'))
+              .fontColor(colorOf(this.pal(), 'textSecondary'))
+              .layoutWeight(1)
+              .textAlign(TextAlign.Center)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          } else {
+            // 无标签 ⇒ 用空白撑住中间（保持「返回」在左、「刷新」在右的位置不漂移）。
+            Blank().layoutWeight(1)
+          }
           // 刷新：系统符号（⛔ 不用 `⟳` 字符）
           // ⛔ 刷新：同上 —— 真实 44×44 布局盒承载 `onClick`（`onClick` 落在盒上，不依赖越界扩展）。
           Row() {
@@ -474,10 +490,24 @@ export struct WebSurface {
           return false;
         })
         .onPageBegin((event) => {
-          this.title = event !== undefined ? event.url : '';
+          // ⛔ 不再把 URL 当标题（旧实现 `this.title = event.url` 正是"顶栏显示一条丑 URL"的
+          //    根因）。标题一律来自 `onTitleReceive`（页面 `document.title`）+ 调用方给的人类标签。
+          this.title = '';
           // 新导航开始 ⇒ 清掉上一次的失败态（否则失败后成功加载仍显示错误条）
           this.phase = WEB_PHASE_LOADING;
           this.loadErr = '';
+        })
+        // 页面标题（`document.title`）→ 顶栏标签的**次选**来源（首选是调用方的 `chromeLabel`）。
+        // 取不到（未触发/空串）⇒ 保持空串，由 `webChromeLabel` 决定最终展示（可能不展示）。
+        // ⚠️ SDK 声明 `onTitleReceive(callback: Callback<OnTitleReceiveEvent>)`（`web.d.ts:6275`，
+        //    `title: string` 非可选，@since 12）⇒ **不得**写 `event !== undefined` 之类的比较
+        //    （ArkTS/TS 会给 TS2367「无重叠」）。取字段失败只可能来自内核异常 ⇒ try 兜住。
+        .onTitleReceive((event) => {
+          try {
+            this.title = event.title;
+          } catch (e) {
+            this.title = '';
+          }
         })
         .onPageEnd((event) => {
           // 失败后再来的 onPageEnd 不得把错误态刷成就绪（错误条要保持到用户重试/换页）

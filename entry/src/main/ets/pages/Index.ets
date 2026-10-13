@@ -88,7 +88,7 @@ import {
   normalizeSessionCategory, pathGroupTooltip, relativeTimeLabel, SESSION_CATEGORIES, SessionGroup, sessionCategoryLabel,
 } from '../core/sessiongroup';
 import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msgindex';
-import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, WebPluginListWire, buildPluginCatalog, pluginViewDeepLink, primaryViewId } from '../core/pluginhost';
+import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, PluginOpenTarget, PluginViewItem, WebPluginListWire, buildPluginCatalog, pluginOpenTarget, pluginViewDeepLink, pluginViewTarget, primaryViewId } from '../core/pluginhost';
 import { hasIterStatsBadge, iterStatsText } from '../core/pluginviews';
 import { SkillItem } from '../core/skills';
 import { FsFileEntry, FsReadResult, FsSearchEntry, fileKindOf, FK_IMAGE, fsMention, sortFsEntries, sortFsSearch } from '../core/files';
@@ -897,6 +897,11 @@ struct Index {
   @State pluginPanelLoading: boolean = false;
   @State pluginPanelError: string = '';
   @State panelUrl: string = '';
+  /**
+   * 承载页顶栏的**人类标题**（`WebSurface.chromeLabel`）—— 顶栏**绝不**显示原始 URL。
+   * 与 `panelUrl` **同生共死**：每次赋值 URL 时一并给出（插件名 / 「完整 Web UI」…）。
+   */
+  @State panelTitle: string = '';
   /** 原生「插件目录 + 宿主页」（components/PluginHost）的全屏浮层与数据。 */
   @State showPluginHost: boolean = false;
   @State pluginItems: PluginCatalogItem[] = [];
@@ -909,6 +914,14 @@ struct Index {
   @State nativeCatalog: PluginCatalog | null = null;
   /** 插件宿主页 URL（**与页面级 `panelUrl` 分离** ⇒ 不会同时挂载两个 WebSurface）。 */
   @State pluginPageUrl: string = '';
+  /**
+   * 插件宿主页顶栏的**人类标题**（透传 `PluginHost.panelTitle` → `WebSurface.chromeLabel`）。
+   *
+   * 来源：插件**自己声明**的视图标题（`PluginViewItem.title`，清单里是 i18n key、已在
+   * `buildPluginCatalog` 解析好）——宿主零猜测。⛔ 顶栏**绝不**显示原始 URL
+   * （用户 2026-10-13 亲报「你开插件，上面有个地址是不是太丑了」）。
+   */
+  @State pluginPageTitle: string = '';
   // ── 原生 Git 面板（web 内置插件 `xbot.git-fancy` 的原生落地）───────────────────
   // 数据全来自宿主 RPC（`web_plugin_rpc` → `xbot.git-fancy.*`），判据/解析在 `core/gitpanel.ets`。
   // ⛔ 形态机（`list`/`diff`/`commit`）与开关由**页面**持有（组件不发 RPC、不自持开关）。
@@ -1703,6 +1716,7 @@ struct Index {
     if (this.showPluginHost) {
       if (this.pluginPageUrl.length > 0) {
         this.pluginPageUrl = '';
+        this.pluginPageTitle = '';
       } else {
         this.showPluginHost = false;
       }
@@ -4318,6 +4332,7 @@ struct Index {
             },
             onOpenWebUi: () => {
               this.showPlugins = false;
+              this.panelTitle = '完整 Web UI';
               this.panelUrl = this.serverUrl;
             },
             onOpenSessionStats: () => {
@@ -4338,20 +4353,20 @@ struct Index {
               if (st !== null) {
                 this.syncSessionCookieToWeb(st);
               }
-              // ── **通用**打开（零插件特判）──────────────────────────────────────
+              // ── **通用**打开（零插件特判，判据在 `core/pluginhost.ets:pluginOpenTarget`）────
               // 数据来自插件自己声明的 view 贡献点（`contributes.views`）⇒ 以后 web 新加的任何
               // 插件（内置/第三方）都自动可打开，宿主零改动。深链由 web 侧唯一入口
               // `pluginViewRequest.ts` 消费（`?xbot_view=<viewId>`）。
-              const viewId: string = primaryViewId(p.views);
-              if (viewId.length > 0) {
-                const title: string = p.name.length > 0 ? p.name : viewId;
-                const link: string = pluginViewDeepLink(this.serverUrl, viewId, title);
-                if (link.length > 0) {
-                  this.panelUrl = link;
-                  return;
-                }
+              // ⛔ 与本页"插件目录"那条路径**同一个纯函数** ⇒ 两处不可能再分叉（真机实证过的分叉：
+              //    目录那条曾直接载入 `openUrl` = host 根页 = 聊天页 ⇒「跑回主界面」）。
+              const target: PluginOpenTarget = pluginOpenTarget(p, this.serverUrl);
+              if (target.url.length > 0) {
+                this.panelTitle = target.title;
+                this.panelUrl = target.url;
+                return;
               }
               // 没有任何 view 贡献点（如 `xbot.genui` 由宿主内联渲染）⇒ 回落既有行为（web 根页）。
+              this.panelTitle = p.name.length > 0 ? p.name : '插件';
               this.panelUrl = p.url;
             },
             onRetry: () => {
@@ -4846,7 +4861,7 @@ struct Index {
       }
       // ArkWeb 逃生舱（插件 UI / GenUI / 终端 / 编辑器 / 完整 Web UI）
       if (this.panelUrl.length > 0) {
-        WebSurface({ url: this.panelUrl, theme: this.themeName, sessionCookie: this.cookie, onBridgeMessage: (m: BridgeMessage) => {
+        WebSurface({ url: this.panelUrl, theme: this.themeName, sessionCookie: this.cookie, chromeLabel: this.panelTitle, onBridgeMessage: (m: BridgeMessage) => {
           this.handleBridgeMessage(m);
         }, onClose: () => {
           this.panelUrl = '';
@@ -4942,13 +4957,25 @@ struct Index {
               groups: this.pluginGroups,
               theme: this.themeName,
               panelUrl: this.pluginPageUrl,
+              panelTitle: this.pluginPageTitle,
               widgetContent: this.widgetContent,
               widgetEvent: this.widgetEvent,
-              onOpen: (url: string) => {
-                this.pluginPageUrl = url;
+              onOpenPlugin: (p: PluginCatalogItem) => {
+                // ⛔ 目录里点卡片/视图行**必须**走同一套通用深链（`pluginOpenTarget`）——
+                //    直接载入 `openUrl` 会落到 host 根页（聊天页）=「跑回主界面」（真机实证）。
+                const t: PluginOpenTarget = pluginOpenTarget(p, this.serverUrl);
+                this.pluginPageTitle = t.title;
+                this.pluginPageUrl = t.url;
+              },
+              onOpenView: (v: PluginViewItem) => {
+                // 用户点名了目录里的**具体一行** ⇒ 开那一个 view（`pluginViewTarget`）。
+                const t: PluginOpenTarget = pluginViewTarget(v, this.serverUrl);
+                this.pluginPageTitle = t.title;
+                this.pluginPageUrl = t.url;
               },
               onClose: () => {
                 this.pluginPageUrl = '';
+                this.pluginPageTitle = '';
               },
             })
           }.width('100%').layoutWeight(1)

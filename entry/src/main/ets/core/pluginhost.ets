@@ -711,3 +711,63 @@ export function pluginViewDeepLink(base: string, viewId: string, title: string):
   const q: string = `?xbot_view=${encodeURIComponent(viewId)}&xbot_view_title=${encodeURIComponent(title)}`;
   return `${root}/${q}`;
 }
+
+/** 「打开某插件」的目标（URL + 顶栏人类标题）。ArkTS 禁无类型对象字面量 ⇒ class。 */
+export class PluginOpenTarget {
+  /** 要载入的 URL（**有 view 时恒为深链**，见 `pluginOpenTarget`）。 */
+  url: string = '';
+  /** 顶栏标题（插件名；无 ⇒ 调用方兜底文案）。 */
+  title: string = '';
+
+  constructor(url: string, title: string) {
+    this.url = url;
+    this.title = title;
+  }
+}
+
+/**
+ * 「打开某插件」的唯一判据（**纯函数**）—— 原生目录的卡片/视图行都必须走它。
+ *
+ * ⛔ 为什么必须有（2026-10-13 真机实证，用户插话「不能让用户交互后跑 webview 的主界面之类的去了」）：
+ *   本仓 `PluginViewItem.openUrl` 的取法是 `target.url.length > 0 ? target.url : host`
+ *   （`buildPluginCatalog`），而**真实贡献点不带 URL** ⇒ `openUrl` 恒等于 **host 根页**
+ *   （= 聊天页）⇒ 原生目录里点「打开」/点视图行，载入的是 **web 应用主界面**而不是插件面板
+ *   ——正是被点名禁止的「跑回主界面」。（此前的深链只接在**能力面板**那条路径上，目录这条漏了。）
+ *
+ * 规则（与能力面板 `Index.onOpenPlugin` **同源**，两处都调本函数 ⇒ 不可能再分叉）：
+ *   · 有 view 贡献点 ⇒ `primaryViewId` 选主视图 → `pluginViewDeepLink` 深链（⛔ 零插件特判）；
+ *   · 完全没有 view（如 `xbot.genui` 由宿主内联渲染）⇒ 才回落插件自带的 `p.url`；
+ *   · `base` 为空（未登录/无端点）⇒ url 为空串（调用方不得当 URL 用，避免载入空页）。
+ */
+export function pluginOpenTarget(p: PluginCatalogItem, base: string): PluginOpenTarget {
+  const label: string = p.name !== undefined && p.name !== null && p.name.length > 0 ? p.name : '插件';
+  const views: PluginViewItem[] = p.views !== undefined && p.views !== null ? p.views : [];
+  const viewId: string = primaryViewId(views);
+  if (viewId.length > 0) {
+    const link: string = pluginViewDeepLink(base, viewId, label);
+    if (link.length > 0) {
+      return new PluginOpenTarget(link, label);
+    }
+    return new PluginOpenTarget('', label);
+  }
+  return new PluginOpenTarget(p.url !== undefined && p.url !== null ? p.url : '', label);
+}
+
+/**
+ * 「打开某个具体 view 行」的目标（**纯函数**）—— 用户显式点了目录里那一行 ⇒ 就开**那一个** view
+ * （⛔ 不走 `primaryViewId`：这里不是"插件的主入口"，而是用户点名的具体贡献点）。
+ *
+ * ⚠️ `dynamic` 视图（必须带参数，如「某 commit 的 diff」）无参打开会得到该插件自己的**空态**
+ *    ——这是**插件自己的**语义，比"跳到宿主主界面"正确得多（后者是纯粹的跑偏）。
+ */
+export function pluginViewTarget(v: PluginViewItem, base: string): PluginOpenTarget {
+  const label: string = v.title !== undefined && v.title !== null && v.title.length > 0
+    ? v.title : (v.id !== undefined ? v.id : '');
+  const link: string = pluginViewDeepLink(base, v.id !== undefined ? v.id : '', label);
+  if (link.length > 0) {
+    return new PluginOpenTarget(link, label);
+  }
+  // ⛔ **不**回落 `v.openUrl`：它恒为 host 根页（真实贡献点不带 URL）⇒ 回落等于「跑回主界面」。
+  //    拼不出深链（无 base / 无 id）⇒ 空串，调用方据此**不导航**（比载入主界面正确）。
+  return new PluginOpenTarget('', label);
+}

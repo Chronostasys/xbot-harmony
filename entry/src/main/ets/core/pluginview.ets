@@ -221,6 +221,35 @@ export function webStatusOf(phase: string, detail: string): WebStatus {
 }
 
 /**
+ * 承载面顶栏的**人类标题**（纯函数）—— 原生 chrome **绝不**显示原始 URL。
+ *
+ * 用户亲报（2026-10-13）：「你开插件，上面有个地址是不是太丑了」—— 点开插件后顶栏是一条
+ * `http://127.0.0.1:8082/?xbot_view=xbot.git-fancy.panel`：丑、无信息量、还泄露了内网地址。
+ *
+ * 优先级（高 → 低）：
+ *   ① `fallback` = **调用方**给的语义标签（插件名 / 「完整 Web UI」…）—— 宿主**打开时就知道**
+ *      自己要展示什么，这是最权威的来源（内置 web 的 `document.title` 恒为 `xbot`，不可用）；
+ *   ② `pageTitle` = 页面 `document.title`（`onTitleReceive`）—— 必须**否决**"看着像 URL /
+ *      恰好等于 url"的值（有些页面把 `location.href` 当标题）；
+ *   ③ 都不可用 ⇒ **空串**（组件据此不渲染该文本节点，而不是退回显示一条丑 URL）。
+ */
+export function webChromeLabel(pageTitle: string, url: string, fallback: string): string {
+  const f: string = isPresent(fallback) ? fallback.trim() : '';
+  if (f.length > 0) {
+    return f;
+  }
+  const t: string = isPresent(pageTitle) ? pageTitle.trim() : '';
+  if (t.length === 0 || t === url) {
+    return '';
+  }
+  const lower: string = t.toLowerCase();
+  if (lower.startsWith('http://') || lower.startsWith('https://') || lower.startsWith('file://')) {
+    return '';
+  }
+  return t;
+}
+
+/**
  * 内核错误（`WebResourceError.getErrorInfo()` / `getErrorCode()`）→ 展示明细。
  *   有 info 用 info；否则有非零 code 用 `错误码 N`；都没有 ⇒ 空串（调用方落回"加载失败"）。
  *   纯函数 ⇒ 可脱机断言（组件里只做"取内核值 → 交给它"）。

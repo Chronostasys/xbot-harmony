@@ -20,7 +20,8 @@ import { deriveRows, Row } from './derive';
 import { normalizeEvent } from './normalize';
 import { historyToReplaced, liveProgressFromState } from './integrate';
 import { applyRow } from './render';
-import { ChatMessage, ChatMessageRole, EMPTY_PROGRESS_SNAPSHOT, ProgressSnapshot, WebIteration } from './chattypes';
+import { ChatMessage, ChatMessageRole, EMPTY_PROGRESS_SNAPSHOT, ProgressSnapshot, WebCompaction, WebIteration } from './chattypes';
+import { toHistoryCompactions } from './compaction';
 import { normalizeWebIteration } from './agent_normalize';
 import { channelForChat } from './sessionpick';
 import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
@@ -990,19 +991,58 @@ export class ChatStore {
     //    ⇒ 撞 key。本处在**同一批**内去重：缺 id 用下标兜底；重复再补一次序号。
     //    ⚠️ 稳定 id 的语义不变：正常（有 id 且不重复）时输出仍逐字为 `m-<id>`。
     const seen: Map<string, number> = new Map<string, number>();
+    // 同一批内唯一化（见上「行 id 必须全局唯一」血债）。turn_user 还原行与常规行走**同一张表**
+    // ⇒ 两行永不撞 key。
+    const mkID = (base: string): string => {
+      const dup: number | undefined = seen.get(base);
+      if (dup !== undefined) {
+        seen.set(base, dup + 1);
+        return `${base}~${dup + 1}`;
+      }
+      seen.set(base, 0);
+      return base;
+    };
     for (let i = 0; i < src.length; i++) {
       const m: HistoryMessage = src[i];
+      // ── `turn_user` 边缘还原（后端 `5c3aec7b`；对齐 web `hooks/useChatMessages.ts:200-221`）──
+      // 窗口化 turn（`regions_before > 0`，只下发了尾部区域窗口）的 user 行被服务端**从消息流里
+      // 摘下**、改挂到该 turn 的 assistant 行的 `turn_user` 上（⛔ 消息不连续零容忍）。这里在
+      // **边缘**还原成常规 user 行，且**插在该 assistant 行之前** —— 下游（`historyToReplaced`
+      // 建 turn / derive / rewind / 加载更多）**零改动**；是否渲染仍由 derive 的「窗口未覆盖
+      // 迭代 1 ⇒ user 行不渲染」规则决定（`core/derive.ts:287 userHiddenByFold`：该 assistant 行
+      // 已经承载 `regionsBefore>0` ⇒ 还原出的 user 行在窗口补齐前**不渲染**，补齐后自然出现）。
+      const tu: HistoryMessage | undefined = m.turn_user;
+      if (tu !== undefined && tu !== null && tu.role === 'user'
+        && tu.content !== undefined && tu.content !== null) {
+        const tuID: number | undefined = tu.id !== undefined && tu.id !== null ? tu.id : undefined;
+        const tuTurn: number | undefined = tu.turn_id !== undefined && tu.turn_id !== null
+          ? tu.turn_id : undefined;
+        const tuTs: string | undefined = tu.timestamp !== undefined && tu.timestamp !== null
+          ? tu.timestamp : undefined;
+        const parentTurn: number | undefined = m.turn_id !== undefined && m.turn_id !== null
+          ? m.turn_id : undefined;
+        const uRow: ChatMessage = {
+          id: mkID(tuID !== undefined ? `m-${tuID}` : `m-tu${i}`),
+          role: 'user',
+          content: tu.content,
+          iterations: [],
+          turnID: tuTurn !== undefined ? tuTurn
+            : (parentTurn !== undefined ? parentTurn : 0),
+          timestamp: tuTs !== undefined ? tuTs : '',
+          isPartial: false,
+          // ⛔ dbID 必须取 **user 行自己**的 id —— 绝不能回落成 assistant 行的 id，
+          //    否则 rewind 会把这条 user msg 回滚到 assistant 行上（web 同处 CR 抓到的 bug）。
+          dbID: tuID !== undefined ? tuID : (i + 1),
+        };
+        out.push(uRow);
+      }
       const role: ChatMessageRole = m.role === 'user' ? 'user'
         : (m.role === 'system' ? 'system' : 'assistant');
       const hasID: boolean = m.id !== undefined && m.id !== null;
-      let mid: string = hasID ? `m-${m.id}` : `m-i${i}`;
-      const dup: number | undefined = seen.get(mid);
-      if (dup !== undefined) {
-        seen.set(mid, dup + 1);
-        mid = `${mid}~${dup + 1}`;
-      } else {
-        seen.set(mid, 0);
-      }
+      const mid: string = mkID(hasID ? `m-${m.id}` : `m-i${i}`);
+      // turn 内压缩点（`protocol/events.go:317`，后端早已下发 —— 本仓此前**零消费**）：
+      // 空 ⇒ 不设键（保持既有行对象形状，渲染层零产出）。
+      const comps: WebCompaction[] = toHistoryCompactions(m.compactions);
       const msg: ChatMessage = {
         id: mid,
         role,
@@ -1015,6 +1055,7 @@ export class ChatStore {
         timestamp: m.timestamp !== undefined && m.timestamp !== null ? m.timestamp : '',
         isPartial: false,
         dbID: m.id,
+        compactions: comps.length > 0 ? comps : undefined,
         regionsBefore: m.regions_before !== undefined && m.regions_before !== null
           ? m.regions_before : undefined,
       };
