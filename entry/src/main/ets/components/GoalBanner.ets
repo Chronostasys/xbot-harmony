@@ -34,7 +34,7 @@ import { Palette, paletteOf } from '../core/theme';
 import { R_MD, R_SM, SP_1 } from '../core/tokens';
 // 语义令牌（`7841978`：goal 组 + 图标尺寸档）—— 组件不再自写 PAD/ICON/ALPHA/TINT 魔数。
 import {
-  PRESS_OPACITY, ICON_MD, INSET_CHIP_Y, INSET_GOAL_X, INSET_GOAL_Y, SPACE_XS, TYPE_CHIP, TYPE_GOAL,
+  PRESS_OPACITY, ICON_LG, ICON_MD, INSET_CHIP_Y, INSET_GOAL_X, INSET_GOAL_Y, SPACE_XS, TYPE_CHIP, TYPE_GOAL,
   goalBadgeBgOf, goalBorderOf, typeOf, colorOf, PILL_MAX_W, HIT_TARGET_MIN, } from '../core/design';
 import { goalDisplay, GoalDisplay, goalEditCommit, goalEditable } from '../core/statusfmt';
 
@@ -198,11 +198,14 @@ export struct GoalBanner {
 
           // 编辑入口：**仅进行中**（web `:145-154`）
           if (goalEditable(this.display().completed)) {
-            // ⛔ 命中区：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`；
-            //    图标视觉尺寸不变（仍 `type.caption`=12，盒内居中）。左邻 = 目标文本（可点、**同一动作**）。
+            // ⛔ 命中区：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`。
+            // ⚠️ 2026-10-13（用户亲报「删除按钮两边巨大空白，奇丑无比」）：46 盒里塞 `type.caption`(12)
+            //    的图标 ⇒ **左右各 ~16vp 纯空气**，两枚相邻还叠 8vp 死区 ⇒ 读成"牌子上两粒小点"。
+            //    修法 = 图标提到**动作字形档** `ICON_LG`(16)（与 `SHEET_ACTION_GLYPH` 同档：
+            //    全仓 44 盒动作键都用它），盒仍是 44 ⇒ 命中不变、空气感降到 ~14vp/侧。
             Row() {
               SymbolGlyph($r('sys.symbol.square_and_pencil'))
-                .fontSize(typeOf('type.caption').size)
+                .fontSize(ICON_LG)
                 .fontColor([colorOf(this.pal(), 'iconMuted')])
             }
             .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
@@ -219,7 +222,8 @@ export struct GoalBanner {
           //    ⇒ 点「编辑」不会误触「清除」（两者动作相反）。
           Row() {
             SymbolGlyph($r('sys.symbol.xmark'))
-              .fontSize(typeOf('type.caption').size)
+              // 图标档位同「编辑」（`ICON_LG`）：两枚相邻动作键**必须同档**，否则一枚显大一码。
+              .fontSize(ICON_LG)
               .fontColor([colorOf(this.pal(), 'iconMuted')])
           }
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
@@ -233,7 +237,11 @@ export struct GoalBanner {
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
-      .padding({ left: INSET_GOAL_X, right: INSET_GOAL_X, top: INSET_GOAL_Y, bottom: INSET_GOAL_Y })
+      // ⚠️ 2026-10-13（用户亲报「删除按钮两边巨大空白」的**外侧**一半）：右内衬由 `INSET_GOAL_X`
+      //    收到 0 —— 尾随**动作盒**自带 (44−16)/2 = **14vp 内部空气**，等效视觉内衬 ≈ 左缘文字
+      //    内衬（光学对齐，Apple 工具栏惯例：图标按**图形边缘**对齐、不按盒边缘）。⛔ 文字侧内衬
+      //    不变 ⇒ 目标正文左缘与原先逐字节一致。
+      .padding({ left: INSET_GOAL_X, right: 0, top: INSET_GOAL_Y, bottom: INSET_GOAL_Y })
       .backgroundColor(this.pal().surface)
       .borderRadius(R_MD)
       .border({ width: 1, color: this.bannerBorderColor() })

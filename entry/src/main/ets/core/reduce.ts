@@ -89,7 +89,7 @@ function commandRowId(): string {
  * ClearGoal 推 {objective:"",status:"cleared"} 标记——nil Goal 经 omitempty 字段消失与"未携带"
  * 不可区分，故用标记表达"目标已删除"，null 写入 s.goal）；undefined = 事件未携带。
  */
-function applySessionFields(
+export function applySessionFields(
   s: ChatState,
   todos: readonly TodoItem[] | undefined,
   goal: GoalInfo | null | undefined,

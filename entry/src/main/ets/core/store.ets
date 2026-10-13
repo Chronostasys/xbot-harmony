@@ -15,7 +15,7 @@ import { SseClient } from './sse';
 import { hasFreshPhaseDone, isIdleAction, rowIsEmpty, shouldReloadHistory } from './streammerge';
 import { arrOrEmpty, isPresent } from './guards';
 import { ChatState, DomainEvent, EventSeq, initialChatState, NonEmptyS, nonEmptyStr, UserRow } from './chat_types_full';
-import { reduce } from './reduce';
+import { reduce, applySessionFields } from './reduce';
 import { deriveRows, Row } from './derive';
 import { normalizeEvent } from './normalize';
 import { historyToReplaced, liveProgressFromState } from './integrate';
@@ -214,6 +214,27 @@ export class ChatStore {
   /** 当前会话的 live 进度快照（对齐 web `liveProgressFromState`）。页面 live 尾块读它。 */
   liveProgress(): ProgressSnapshot {
     return liveProgressFromState(this.state);
+  }
+
+  /**
+   * **本地乐观清除目标** —— `clear_goal` RPC 成功后由页面调用（对齐 web
+   * `web/src/workspace/panels/AgentPanel.tsx:864-874` 的 `goalEditRef.current.commit(null, seq)`）。
+   *
+   * ⛔ 为什么必须有：服务端**会**推 `{objective:"",status:"cleared"}` 的显式清除标记
+   *   （`core/reduce.ts:88-97` 的 goal 三态语义已支持），但**只靠它不行** —— RPC 已成功而
+   *   推送延迟/丢失时，界面会一直显示一个**后端已删掉的目标**（用户 2026-10-13 亲报
+   *   「goal 的删除按钮点击后前端还显示 goal，虽然后端已经删掉了」）。web 的做法就是
+   *   本地先覆盖（乐观），推送到达即同值收敛（幂等）。
+   * ⛔ 走 `applySessionFields(s, undefined, null)`（reduce 的**同一个**会话级字段更新器）：
+   *   `null` = 显式清除、`undefined` = todos 不动 ⇒ **不另写一套 state 更新语义**。
+   * ⚠️ 只在**成功**后调用：失败时保留 banner（配合页面的 toast，用户能分清"没删掉"）。
+   */
+  clearGoalLocal(): void {
+    if (this.state.goal === null) {
+      return;
+    }
+    this.state = applySessionFields(this.state, undefined, null);
+    this.onUpdate();
   }
 
   /**

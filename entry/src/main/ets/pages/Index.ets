@@ -3060,7 +3060,14 @@ struct Index {
     try {
       await rpc<Object>(store.http, 'clear_goal',
         new ClearGoalParams(store.channel, store.currentChatId));
+      // ⛔ **乐观覆盖**（web `AgentPanel.tsx:864-874` 的 `goalEditRef.current.commit(null, seq)` 同款）：
+      //    RPC 成功 ⇒ **立刻**本地清掉 goal（goal 条当场消失）；服务端的显式清除标记
+      //    （`{objective:"",status:"cleared"}`）到达即同值收敛（幂等，判据在 `core/reduce.ts:88-97`）。
+      //    ⛔ 只等服务端推送是不够的：RPC 已成功而推送延迟/丢失时，界面会一直显示一个
+      //    **后端已删掉的目标**（用户 2026-10-13 亲报「点删除后前端还显示 goal」）。
+      store.clearGoalLocal();
     } catch (e) {
+      // 失败**不**做本地清除：banner 保留 + 明确报错（用户能分清"没删掉"，⛔ 不假装成功）
       this.toast(`清除目标失败: ${errText(e as Object)}`);
     }
   }
