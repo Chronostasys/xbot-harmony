@@ -290,6 +290,27 @@ export function settingLabel(key: string): string {
 }
 
 /**
+ * 「工具」分区统计行的**唯一文案出处**（对齐 web `settings.tools.summary`）。
+ *
+ * web 真源：`/Users/bobli/src/xbot/web/src/i18n/zh-CN.ts`
+ *   `settings.tools.summary: '已激活 {{active}} / {{total}} 个工具'`
+ *   → 渲染点 `web/src/components/settings/SettingsTools.tsx:132-134`。
+ *
+ * ⛔ 为什么要有这个纯函数：原生旧实现把文案**内联**在组件里
+ *   （`components/SettingsTools.ets` 的 `已启用 N / M 项`）⇒ 与 web 漂移（"项" vs "个工具"、
+ *   "已启用" vs "已激活"）且**无从断言**。文案下沉到本文件后：
+ *   ① 逐字对齐有 **单一真源**（组件只渲染，不再各写一份）；
+ *   ② 可脱机单测（`tools/tests/settings_tools_summary.test.ts`）。
+ *
+ * ⚠️ 语义无关（纯文案）：`active`/`total` 的**计数口径**仍由 `core/rpc.ets: buildToolsView`
+ *   的 `activeCount`（全部行中 `enabled` 者）/`totalCount`（`rows.length`）给出 ——
+ *   与 web `SettingsTools.tsx:71,133` 的 `tools.filter(x => x.enabled).length` / `tools.length` 同口径。
+ */
+export function toolsPanelSummary(active: number, total: number): string {
+  return `已激活 ${active} / ${total} 个工具`;
+}
+
+/**
  * 取「思考光球动效」开关（消费点：`components/LiveTailView` 的 `@Prop orb`）。
  *
  * 默认 **true**：键缺失/垃圾值一律回落"开" —— 它是视觉增强，默认开启才与接线前的

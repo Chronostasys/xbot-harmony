@@ -57,7 +57,8 @@ T0 发生在此之前（系统画），**不在**本时间线内 ⇒ `splashPhas
 | `animFast()` | 180ms + spring | `components/anim.ets:48-50` | 备用 |
 | `animBase()` | 220ms + spring | `components/anim.ets:53-55` | **T1 入场** |
 | `animMsgIn()` | 200ms + spring | `components/anim.ets:58-60` | 备用 |
-| `animSlow()` | 320ms + spring | `components/anim.ets:63-65` | **T2 让位** |
+| ~~`animSlow()`~~ | 320ms + **spring（有超调）** | `components/anim.ets:64-66` | ⛔ **本行已过时**（2026-10-12 订正）：T2 让位**不**用它 ⇒ 见下行 `animEaseOut()`；§4.5 裁决「让位不许超调」 |
+| `animEaseOut()` | 320ms + `EASE_OUT_CSS`（**零超调**） | `components/anim.ets:104` | **T2 让位（现行）** —— `SplashOverlay.ets:136` |
 | ~~`animSpring()`~~ | **已删**（2026-10-11：物理弹簧死工厂，全仓 0 消费者） | — | — |
 | spring 曲线 | `cubic-bezier(0.34,1.56,0.64,1)` | `core/tokens.ets:54`（`EASE_SPRING_CSS`） | **T1/T2 唯一曲线** |
 | spring 三参 | `response 0.30s / damping 0.65 / overlap 0` | `core/tokens.ets:76-78` | 已无生产消费者（`animSpring()` 已删） |
@@ -556,3 +557,70 @@ function curveHasOvershoot(css: string): boolean;            // 解析 cubic-bez
   风险 > 收益（会让光球在 T2 期间**消失**再出现 = 闪烁）。
 - 处置：§9 改写为"**揭示式交接**"（光球**可以**在 T2 期间已在跑；判据 = 退隐非飞走 / 不重播光球 / 退场 ≥ 入场），
   并把 `core/splash.ets:splashOrbAllowed` 标为**已废止**（或删除 + 同步删测试引用），⛔ 不留"看起来是铁律、其实 0 消费"的死判据。
+
+---
+
+## §16 目标⑤「开屏/logo 观感打磨」——分阶段盘点 + 待批规格（2026-10-12，`splash-cleanup`）
+
+> **本波纪律**：只**盘点 + 实测 + 提规格**；⛔ **未改任何 `.ets`/`.ts` 行为**（唯一改动 = 本节 + §3 一处过时台账行 + `anim-opacity-allowlist.txt` 的理由文本）。
+> 理由见 §16.4：所有"更苹果"的杠杆都已被 §2/§4.5/§4.6/§11 与 5 个判据文件钉死 ⇒ 改即规格变更 ⇒ 按纪律**停手回报**。
+> ⛔ 观感结论一律**待真机连拍**（本节不含任何"更好看"的断言）。
+
+### 16.1 分阶段盘点（逐元素 · 取值 · 时长 · 曲线 · `file:line`）
+
+| 阶段 | 元素 | 取值（真源符号 → 值） | 时长 | 曲线 | `file:line` |
+|---|---|---|---|---|---|
+| **T0** | 系统开屏（不可动画） | 底 = `$color:start_window_background`（base/dark **都是** `#0B0B0E` = `darkPalette().appBg`）；图标 = `$media:start_icon`（= T1 同一资产） | 系统定（亚秒） | 无 | `entry/src/main/module.json5:18-19`、`resources/base/profile/startWindow.json`、`resources/{base,dark}/element/color.json` |
+| **T1** | 画布 | `splashBrandCanvas()` = `darkPalette().appBg` = **`#0B0B0E`**（**无 theme 入参** ⇒ 结构性不随主题） | — | — | `core/splash.ets:424-426`；`SplashOverlay.ets:148-151` |
+| **T1** | 标记（PNG `start_icon`） | 盒 `SPLASH_MARK_BOX_VP` = `MOTION_SPLASH_MARK_VP` = `SPACE_XXL(32)×5` = **160vp**；`objectFit(Contain)`；档位恒 `FULL`（品牌紫 PNG，**不走** `colorOf`） | `animBase()` = `MOTION_BASE_MS` **220ms** | **spring** `cubic-bezier(0.34,1.56,0.64,1)`（**允许超调**，§4.5） | `core/splash.ets:163/440`、`SplashOverlay.ets:159-165/208-211`、`core/tokens.ets:66` |
+| **T1** | 标记入场初值 | `markOpacity 0 → 1`（`SPLASH_MARK_ENTER_OPACITY=0`）、`markScale 0.92 → 1`（`MOTION_ENTER_SCALE`） | 同上 | 同上 | `core/splash.ets:108-114`；`SplashOverlay.ets:79-81` |
+| **T1** | 跳过提示（`Text('轻点跳过')`） | 色 = `colorOf(darkPalette(), 'textMuted')` = `#63636F`；字号 `type.caption`；底距 `SPACE_XL`（24vp）；`hintOpacity 0 → 1`（延迟 220 + 淡入 180 = 恰在退场前满显） | `animEaseOutDelayed(220,180)` | `EASE_OUT_CSS`（零超调） | `SplashOverlay.ets:171-195/219-221`；`core/splash.ets:133/150/152` |
+| **T2** | 整层让位 | `overlayOpacity 1 → 0`（**唯一**淡出源） | `animEaseOut()` = `MOTION_SLOW_MS` **320ms** | `EASE_OUT_CSS`（**零超调**，§4.5） | `SplashOverlay.ets:136-140/199`；`components/anim.ets:104` |
+| **T2** | 标记 | 再乘自身 `markOpacity 1 → 0` + 上移 `0 → SPLASH_MARK_EXIT_LIFT_VP`(= `SPACE_SM` **12vp**) ⇒ 有效 α = **mark × overlay**（标记比底更快隐去 = "让位"层次） | 与整层**同一次** `animateTo` ⇒ 320ms | 同上 | `core/splash.ets:124`；`SplashOverlay.ets:136-140/163-165` |
+| **T3** | 交棒 | 页面 `showSplash=false` 卸载；光球（若在流式）**已在覆盖层背后**渲染 ⇒ 被 T2 **揭示**（揭示式交接，§9） | — | — | §9、`tools/tests/handoff_motion.test.ts` |
+
+**时间线（生产，§15 F1）**：迟滞 `SPLASH_HYSTERESIS_MS` 150 → `minDwell` `MOTION_MIN_DWELL_MS` 400 → T2 320 ⇒ **总 ≈720ms**；⛔ §4.1 的 220/540 是**仅测试模型**（生产 0 消费点，★C 打印计数 = 0）。
+
+### 16.2 资源实测（本波**离线探针**，非手抄；可复现）
+
+| 量 | 实测值 | 结论 |
+|---|---|---|
+| `start_icon.png` 尺寸/格式 | **512×512**，`bitDepth=8`，`colorType=6`（**RGBA**） | 与 `START_ICON_PX` 一致（`brand.test.ts:198-200` 已判） |
+| 四角 alpha | **0 / 0 / 0 / 0** | **透明底** ✓ ⇒ 在恒深画布上**不会**出现"白方块"（"极简"的底线） |
+| 内容（非透明）bbox | ≈ `x[112,396] · y[116,416]`（step-4 采样）⇒ 占画幅 **55%×59%**，光学中心 ≈ `(254,266)` vs 画幅中心 `(256,256)`（偏移 ≤2%） | 在 160vp 盒内**已近似光学居中** ⇒ 无需居中校正 |
+| **可见标记的实际尺寸** | `160vp × 55.5% ≈ `**`89vp`** | ⚠️ 用户看到的 logo 只有"标记盒"的 **≈56%** ⇒ §16.3 D |
+| 显示目标像素 | 160vp × 密度 3（1320×2848 模拟器）≈ **480px** < 源 512px | **不放大**（不会糊）⇒ 插值收益 ≈ 0 ⇒ §16.3 G |
+| T0/T1 资产 | T0 `startWindowAppIcon` **=** T1 `$r('app.media.start_icon')` | 同形同色；T0→T1 画布**逐字节同色**（★F / lifecycle ①） |
+| 窗口布局 | `EntryAbility.ets:107 setWindowLayoutFullScreen(false)` | 内容**不**铺到状态栏 ⇒ **无 "T1 露出状态栏色条" 这类 seam**（该假设已排除） |
+
+### 16.3 待批规格（旧 → 新 + 理由 + 三族影响）—— 7 条，**全部为语义级**
+
+| # | 旧 | 新 | 理由 | dark / light / porcelain |
+|---|---|---|---|---|
+| **A** | 提示 `hintOpacity` 静息态由动画决定（初值 0，`onAppear` 里 `animateTo` 拉到 1） | **静息态 = 可见(1)** + 入场用 `.transition(TransitionEffect.OPACITY.animation(animEaseOutDelayed(220,180)))` | `anim-opacity-allowlist.txt` 自述铁律：**文字**类元素的 opacity 动画「必须走"静息态恒可见 + 出现过渡"，不得靠本行豁免」；现状的提示**是文字**却靠豁免（本波已在 allowlist 就地标注） | 三族**无差异**（开屏恒深、提示色不随主题） ⚠️ **风险须先真机**：覆盖层是 `if(showSplash)` **动态插入**的子树，`.transition` 在"新插入子树的后代"上是否播放**本仓无实证**（`MessageRow` 的 transition 是**行自身**插入）。若不播 ⇒ 提示首帧即满显 = 丢 §4.6「先品牌后提示」（失败方向安全，但属**观感回归**）⇒ **取证后再改** |
+| **B** | 提示色 `'textMuted'`（`#63636F`） | `'textSecondary'`（`#9A9AAB`），或**保留** muted 并显式声明为"装饰性提示" | 实测对画布 `#0B0B0E`：**muted = 3.32:1（< 4.5 WCAG AA 正文）**；secondary = **7.10:1** ✓ | 三族**同一数值**（画布恒深） ⚠️ 与"更干净"张力：muted 更"退后"（≈ Apple tertiaryLabel）。⇒ **拍板项** |
+| **C** | T1 标记从 `opacity 0 / scale 0.92` **入场** ⇒ T0（已显示同一 logo）→ T1 首帧 **标记先消失再出现** | 苹果模型：T1 **静息即可见**（与 T0 无缝），入场动效只在"需要时"保留 | T0 与 T1 用**同一资产**、画布同色 ⇒ 唯一不连续处就是"标记重入场"（闪烁感） | 三族**无差异** ⛔ **未取证**：T0 的**渲染尺寸**由系统决定（本波无设备，禁止触碰）⇒ 无法断言"是否也发生尺寸跳变" ⇒ **必须先连拍取证**；改则牵动 §2 T1 / `SPLASH_MARK_ENTER_OPACITY` / `splash.test.ts:112` |
+| **D** | 标记按**图盒** 160vp 定档（§11 ⑥ 裁决） | 引入**可见标记尺寸**语义（或补 `SPLASH_MARK_INSET_RATIO`，把 512 画幅的 55.5% 显式化），使"看起来多大"可判可调 | 实测可见标记仅 **≈89vp** ⇒ 现行"160vp"读数与用户感知差 **1.8×**（调参时容易误判） | 三族**无差异** |
+| **E** | T1 入场曲线 = spring（`y=1.56`，**超调**） | 入场也用 `ease-out`（零超调） | 苹果式克制：logo 入场"冲过头再回"略活泼；§4.5 只**允许**超调、**不要求** | 三族**无差异** ⛔ §4.5 是设计系统级约定 ⇒ 改需拍板（判据 `splash.test.ts ★E` 同步） |
+| **F** | T2 = 整层淡出 **×** 标记自身淡出（有效 α = `(1−p)²`，标记比底更快隐去） | 单层**均匀** cross-dissolve（标记不额外乘） | 更像系统级整屏交接（§4.6 的"交棒气息"是另一种美学，二者都对，需选一） | 三族**无差异** 改则牵动 §4.6 表 / §4.7 / `handoff_motion ★①` |
+| **G** | — | **判定不做（本波）**：① `.interpolation(ImageInterpolation.High)`——源 512 → 目标 480px（0.94×），默认插值收益 ≈ 0；② 画布 `expandSafeArea`——`setWindowLayoutFullScreen(false)` ⇒ **无 seam 可修** | 避免"看起来做了打磨"的假动作 | — |
+
+> ⛔ **7 条全部不新增在飞动效 / 不新增时长曲线**：A/E/F 只换**已存在**的底座出口（`animEaseOutDelayed` / `EASE_OUT_CSS`）或**减**一层动效；B/D 是取值/语义档；G 是不做。
+
+### 16.4 为什么本波**代码 0 处改动**（不是漏做）
+
+1. 上方 7 条的**每一条**都动到 §2/§4.5/§4.6/§11 的规格条文或 5 个判据文件的既有断言（`splash.test.ts` / `splash_continuity` / `splash_lifecycle_contract` / `handoff_motion` / `transition_frame_contrast`）⇒ 属**语义变更**，按任务纪律「只做语义不变只换落点的守卫同步；语义变了 ⇒ 停手回报」**停手**。
+2. A/C/E 的**正确性无法离线判定**（`.transition` 在后代上的行为 / T0 系统渲染尺寸 / 真机观感）⇒ 无设备（本轮**禁碰** `127.0.0.1:5555`）时改动 = **盲改**。
+3. 现状**判据全绿、无已证缺陷**（§16.5）⇒ 无"必须现在修"的红。
+
+### 16.5 本波机器取证（**改前基线**，`file:line` 级证据见各测试输出）
+
+| 判据 | 结果 |
+|---|---|
+| `tools/tests/run-one.sh splash`（4 文件） | ✅ **215 断言全过**：`splash` 130 / `splash_assets` 38 / `splash_continuity` 26 / `splash_lifecycle_contract` 21（0 failed） |
+| `★B` 提示有效可见度自证 | 峰值 **1.0000**（@t=400.0ms）· 值域 [0,1]=true · 首帧有效 α=0.0000 · 淡入**在退场前跑完** |
+| `lifecycle ①/①b` | base=dark=`#0B0B0E` = `splashBrandCanvas`；画布**不随主题**（porcelain `#F7F7F8` / light `#F8FAFC` 都**不**影响它） |
+| `tools/lint/anim-opacity-gate.sh`（⑨） | **A（硬红）= 0** · **B（警告）= 3**（含 `SplashOverlay.ets`：mark/hint 从 0 入场，理由见 allowlist） · 扫 46 个 `.ets` |
+| `tools/lint/color-roles.sh` | ✅ 139 处取色全为合法 role（颜色 39 / 面 12 / 字型 8 / 高程 3） |
+| `tools/perf/guard.sh --static` | ✅ **16 / 0**（含 `setTimeout` 7/7、`anim*()` 13/20、`this.pal()` 1246/1250） |
+| ArkTS 编译 | ⏸ **未跑** —— 本波**未改任何 `.ets`** ⇒ 无编译输入变化；⛔ 因此本文件**不声称**"编译通过" |

@@ -23,6 +23,8 @@ import {
   ToolsSettingsData, ToolsView, ToolSettingRow, toolsEntryBusyKey, toolsEntryKey,
 } from '../core/rpc';
 import { SettingsErrorBar, SettingsMcpHead, SettingsPanelHeader, SettingsToolRow } from './SettingsRows';
+// 「工具」统计行的**唯一文案真源**（对齐 web `settings.tools.summary`）—— 组件只渲染，不各写一份。
+import { toolsPanelSummary } from '../core/settings';
 
 /** MCP 分组区块与内置列表之间的间距留白。 */
 const GAP: number = SP_2;
@@ -60,7 +62,8 @@ export struct SettingsTools {
 
   private summary(): string {
     const v: ToolsView = this.view();
-    return `已启用 ${v.activeCount} / ${v.totalCount} 项`;
+    // 文案真源 = `core/settings.toolsPanelSummary`（对齐 web `settings.tools.summary`）；计数口径 = `buildToolsView`。
+    return toolsPanelSummary(v.activeCount, v.totalCount);
   }
 
   private async load(): Promise<void> {
