@@ -5153,3 +5153,67 @@ ctxMenu/image/webPanel）⇒ **不含** `showTerminal`/`showTaskDetail`/`showCro
 删除"是用户拍板）⇒ ⛔ **不许删、也不许接线**（接成第二个主题源即 `AGENTS.md` 警告的
 "死消费复活"）。已订正 `Index.ets:1004` 那句**事实错误**注释（谎称共用 `xbot-app-theme`；
 `grep -rn "app-theme" web/src/` ⇒ 零命中）—— 见 `2ab7ecc`。
+
+## §21.107 🔴 **会话 id 形态错 ⇒ 定时/后台任务面板结构性永远空**（"任务管理做的很差"的真根因，panels15–16，2026-10-13）
+
+### 症状（用户口径④：「终端和任务管理做的很差」）
+
+审「运行」面板有数据态时**造了真数据**（用自身 Cron 工具给本会话加一个一次性任务），
+结果 App「定时」页**仍显示「暂无定时任务」** ⇒ 面板看不见已经存在的任务。
+
+### 服务端对照实验（同一会话，两种 `chat_id` 形态直接打，铁证）
+
+| 端点 | 裸 id `chat_026B…` | 全键 `web:chat_026B…` |
+|---|---|---|
+| `POST /api/cron/list` | ✅ 返回真实定时任务 | ❌ `tasks: null` |
+| `POST /api/tasks/list` | ✅ 返回真实后台任务 | ❌ `[]` |
+| `POST /api/session/status` | ✅ 正确 `cwd` + todos | ❌ 空 todos + 默认 `cwd=/Users/bobli` |
+
+**根因**：服务端把会话键一律组装成 `channel + ":" + chat_id`（`agent/*.go`、`serverapp/*.go` 共 48 处）
+⇒ **期望裸 id**（web 同款语义：`s.chatID` 是裸 id，`${channel}:${chatID}` 才是键）。而本仓
+`store.currentChatId` 是**全键** —— `/api/session-tree` 的 `is_current` 行 `chat_id` 字段**自带渠道
+前缀**，客户端原样收下 ⇒ 出网组装成 `web:web:chat_…`，落到一个**幽灵会话**上。
+`session-tree` 全字段取证把幽灵钉死：
+- 幽灵行：`chat_id='web:chat_026B…'`、**当天 19:32 才创建**、`work_dir='/Users/bobli'`（默认值）、`is_current:true`
+- 真身行：`chat_id='chat_026B…'`、label `harmony-ui-dev`、`running:true`、
+  `work_dir='/Users/bobli/src/xbot-harmony'`（**正确**）、19 个子代理、preview = 本轮消息
+
+⇒ 一口气解释三个用户可见症状：① 任务/定时面板永远空；② 状态行与设置里 `cwd` 显示成默认目录；
+③ todos/历史全丢（面板背后是幽灵会话的空态「开始对话」）。
+
+### 修法（**出网边界**规范化，不动 id 本身）
+
+- 新增纯函数 `core/sessionpick.canonicalChatId(channel, chatId)`（**循环剥一层层**前缀 ⇒
+  `web:web:chat_x` 这种已写坏的值也能收敛）、`hasChannelPrefix`、`sessionDisplayKey`。
+- `core/store.ets` 新增 `private wireChatId()`，**全部**会话级出网改走它（14 处）：
+  `cron/list`、`tasks/list`、`session/status`、`cancel`、`queue/list|cancel|reorder`、`rewind`、
+  `history`（两处）、`terminal/list|create`、`promote_shell` 的 `session_key`、`chats/{id}/switch`。
+- `components/SettingsDeveloper.ets`：导出参数走 `canonicalChatId`、标签走 `sessionDisplayKey`
+  （原先显示 `web:web:chat_…`；web 权威 `SettingsDeveloper.tsx:62` 是 `${channel}:${chatID}`，
+  因为 web 的 `chatID` 是裸 id）。
+- ⛔ **不**改 `currentChatId` 自身：会话树里 `/` 分隔的子代理 id（`web:chat_X/explore:y`）本来就带
+  前缀，且列表内各处比较都以树里的原值为准。
+
+### 判据与验证
+
+- 新增 `tools/tests/session_id_wire.test.ts`（17 项）：② **不许回退** —— store 里
+  `new SessionReq(this.channel, this.currentChatId)` / `'chat_id': this.currentChatId` /
+  `'chatID': this.currentChatId` **各 0 处**；③ `wireChatId()` 定义恰 1 处 + 使用 ≥ 8（实得 14）；
+  ④ 开发者面板参数/标签走规范形态，且**不得**再出现 `` `${this.channel}:${this.chatID}` ``。
+- `tools/tests/sessionpick.test.ts` 增 12 例覆盖边界（子代理尾缀、双前缀收敛、`web-1` 这类
+  **id 本身含冒号**的形态不动、空值）。
+- ⚠️ **判据自身的假红**（记）：`session_id_wire` 的"文件读到"阈值拍成 50000，而 `store.ets`
+  **剥注释后**实为 47314 ⇒ 假红；按真实规模留 15% 余量订正（⛔ 不给实现让步）。
+- **装机端到端**：修复后「定时」页签出现计数 **1**（我造的任务）、「后台」页签出现计数 **363** 并
+  列出真实行（`运行中 · 519m37s · 4c4bc8f8` / `完成 · exit 0 · 9s · 5e67fa00` …）；面板背后恢复为
+  本会话真实内容（`思考 N 字` / `3/5` todo / `258.4K/1000K` token / `详情`），不再是空态。
+- 清理：取证用的占位定时任务已**当场删除**。
+
+### 同批修订（有数据态暴露的第二处偏离）
+
+后台任务副行对**运行中**的任务也拼了 `exit -1`（服务端未结束时的哨兵值）⇒ 一行里自相矛盾
+（"还在跑"却"已退出、码 = -1"）。web 权威 `TasksPanel.tsx:240-243`：
+`status === 'done' ? \`exit ${exitCode}\` : status` ⇒ **只有结束才显示退出码**。
+`core/panels.bgTaskMetaText` 改为 `!bgTaskRunning(t)` 才拼 `exit N`，并在 `panels.test.ts` 补一条
+**判别力用例**（fixture 带 `exit_code: -1` 且 `status: running`）—— 原用例的 fixture **没给**
+`exit_code`，所以此前放过了这个真缺陷。
