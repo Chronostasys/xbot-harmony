@@ -168,23 +168,30 @@ function methodBody(src: string, marker: string): string {
 const keyChipBody: string = builderBody(termSrc, 'keyChip(label: string, seq: string) {');
 const ctrlChipBody: string = builderBody(termSrc, 'ctrlChip() {');
 const roleColorBody: string = methodBody(termSrc, 'private keyRoleColor(active: boolean, role: string): string {');
-const minWDecl: number = countOf(termSrc, 'const KEY_MIN_W');
+// ⚠️ 2026-10-13：键宽不再靠固定 `KEY_MIN_W`，改 `layoutWeight(1)` **等分布满** —— 量测已证伪旧标定
+//   （可用宽 326.8vp < 8×44 + 7×8 = 408vp ⇒ 末枚键必被裁）。判据随之上移，并**钉旧常量退场**。
+const minFontDecl: number = countOf(termSrc, 'const KEY_MIN_FONT');
+const keyMinWLeft: number = countOf(termSrc, 'KEY_MIN_W');
 const keyBorderVia: number = countOf(keyChipBody, "this.keyRoleColor(false, 'border')");
 const ctrlBorderVia: number = countOf(ctrlChipBody, "this.keyRoleColor(this.ctrlActive, 'border')");
-const keyMinW: number = countOf(keyChipBody, 'minWidth: KEY_MIN_W');
-const ctrlMinW: number = countOf(ctrlChipBody, 'minWidth: KEY_MIN_W');
+const keyWeight: number = countOf(keyChipBody, '.layoutWeight(1)');
+const ctrlWeight: number = countOf(ctrlChipBody, '.layoutWeight(1)');
+// 键行**不得**再包横向 `Scroll`（等分后无需滚动；留 Scroll 就等于还允许溢出）。
+const scrollInKeys: number = countOf(termSrc, 'ScrollDirection.Horizontal');
 const roleHairline: number = countOf(roleColorBody, 'hairlineOf(p)');
 const roleSurface: number = countOf(roleColorBody, 'surfaceFillOf(p,');
 const rolePalOnce: number = countOf(roleColorBody, 'this.palOnce()');
-console.log(`  panel-scan ${TERM}: KEY_MIN_W=${minWDecl} keyRoleColor(长${roleColorBody.length}) palOnce=${rolePalOnce} hairline=${roleHairline} surface=${roleSurface} | keyChip 长${keyChipBody.length} borderVia=${keyBorderVia} minW=${keyMinW} | ctrlChip 长${ctrlChipBody.length} borderVia=${ctrlBorderVia} minW=${ctrlMinW}`);
+console.log(`  panel-scan ${TERM}: KEY_MIN_FONT=${minFontDecl} KEY_MIN_W残留=${keyMinWLeft} 横向Scroll=${scrollInKeys} keyRoleColor(长${roleColorBody.length}) palOnce=${rolePalOnce} hairline=${roleHairline} surface=${roleSurface} | keyChip 长${keyChipBody.length} borderVia=${keyBorderVia} weight=${keyWeight} | ctrlChip 长${ctrlChipBody.length} borderVia=${ctrlBorderVia} weight=${ctrlWeight}`);
 
 ok(`键 builder 切片已切出（keyChip ${keyChipBody.length} / ctrlChip ${ctrlChipBody.length}）`,
   keyChipBody.length > 100 && ctrlChipBody.length > 100);
-ok(`KEY_MIN_W 常量声明（${minWDecl} == 1）`, minWDecl === 1);
+ok(`KEY_MIN_FONT 常量声明（${minFontDecl} == 1）`, minFontDecl === 1);
+ok(`旧 KEY_MIN_W 已退场（${keyMinWLeft} == 0）—— 宽度改由等分布满决定`, keyMinWLeft === 0);
+ok(`键行不再包横向 Scroll（ScrollDirection.Horizontal 残留 ${scrollInKeys} == 0）`, scrollInKeys === 0);
 ok(`keyChip 经单一取色点拿描边色（${keyBorderVia} ≥ 1）`, keyBorderVia >= 1);
 ok(`ctrlChip 经单一取色点拿描边色（${ctrlBorderVia} ≥ 1）`, ctrlBorderVia >= 1);
-ok(`keyChip 消费统一最小键宽（${keyMinW} ≥ 1）`, keyMinW >= 1);
-ok(`ctrlChip 消费统一最小键宽（${ctrlMinW} ≥ 1）`, ctrlMinW >= 1);
+ok(`keyChip 等分布满（layoutWeight ${keyWeight} ≥ 1）`, keyWeight >= 1);
+ok(`ctrlChip 等分布满（layoutWeight ${ctrlWeight} ≥ 1）`, ctrlWeight >= 1);
 ok(`取色点落到 hairlineOf（${roleHairline} ≥ 1）`, roleHairline >= 1);
 ok(`取色点落到 surfaceFillOf（${roleSurface} ≥ 1）`, roleSurface >= 1);
 ok(`取色点**只取一次色**（palOnce ${rolePalOnce} == 1，B 线预算顶格）`, rolePalOnce === 1);
@@ -313,7 +320,7 @@ ok(`关闭终端面板会移除条目（onClose 里 closeTerminal(termTid) = ${o
 
 // ── 零扫描判红：链接线调用点合计必须 > 0（扫描器与真源脱节 ⇒ 红）──────────────────
 ok('零扫描判红：运行面板/终端键帽接线证据合计 > 0',
-  newBtn + termCall + newEmpty + minWDecl + keyBorderVia + ctrlBorderVia + roleHairline + rpQueueSet
+  newBtn + termCall + newEmpty + minFontDecl + keyWeight + ctrlWeight + keyBorderVia + ctrlBorderVia + roleHairline + rpQueueSet
   + bgPaint + bgFallbackUse + fgFiles + flushGate + stopResume + closeTernary + userClosedSet + onCloseDeletes > 0);
 
 console.log(`  panel-terminal-wiring: ${pass} passed, ${fail} failed`);
