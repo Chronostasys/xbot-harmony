@@ -112,7 +112,7 @@ import { WIDGET_EVENT_WEB } from '../core/widgetsview';
 // 插件桥 page→native 的消息类型（协议权威 = `core/webbridge.ets`）
 import { BridgeMessage } from '../core/webbridge';
 import { listItemCount, nextFollowBottom, shouldAutoScroll, followSuppressUntil, FOLLOW_SUPPRESS_MS, markUserScrollFrame, followAfterScrollStop, anchoredIndexAfterPrepend } from '../core/listfollow';
-import { OverlayCode, OverlayState, topOverlay } from '../core/overlays';
+import { hasOverlay, OverlayCode, OverlayState, topOverlay } from '../core/overlays';
 import {
   currentTodo, modelText, todoProgress, usageText,
 } from '../core/statusfmt';
@@ -1746,6 +1746,34 @@ struct Index {
       image: this.imagePixel !== null || this.imageBusy,
       webPanel: this.panelUrl.length > 0,
     };
+  }
+
+  /**
+   * **是否有任何模态浮层打开** —— 仅用于那层统一遮罩（见 `build()` 顶部）。
+   *
+   * ⛔ 为什么**不能**直接用 `core/overlays.hasOverlay(this.overlayState())`（我第一版就是这么写的，
+   *    装机量测当场否掉）：`overlayState()` 是**返回键链路**的契约子集，字段表由 `core/overlays`
+   *    `OverlayState` 定死（drawer/settings/prefs/queue/plugins/selfCheck/status/model/panels/
+   *    sessMenu/searchHits/ctxMenu/image/webPanel）⇒ **不含** `showTerminal` / `showTaskDetail` /
+   *    `showCronDetail` / `showGit` / `showFiles` / `showSkills` / `showSessionStats` /
+   *    `showNewSession` ⇒ 用它对终端 sheet 恒假、遮罩不出现（实测：终端打开时页面状态行仍是
+   *    `#9e9fa9` 原亮度，与修复前逐像素相同）。
+   *
+   * ⛔ 判据同源：`tools/tests/sheet_scrim_wiring.test.ts` 静态扫描 `build()` 里**每一个**
+   *    `if (this.showX)` 浮层块，断言其旗标都在本方法里被消费 ⇒ 新增浮层忘了加进来会**红**
+   *    （否则就是本仓 `AGENTS.md` 反复警告的"死消费/假绿"）。
+   *
+   * 不含 `showSplash`：开屏是**不透明**品牌画布（`core/splash.ets`）⇒ 背后没有可见内容，
+   * 加遮罩无意义（也避免与 T2 渐隐过渡抢帧）。
+   */
+  private anyModalOpen(): boolean {
+    return this.showDrawer || this.showNewSession || this.showQueue || this.showPlugins
+      || this.showFiles || this.showSkills || this.showSessionStats || this.showSelfCheck
+      || this.showStatus || this.showModel || this.showPanels || this.showTaskDetail
+      || this.showCronDetail || this.showGit || this.showTerminal || this.showSettingsPanel
+      || this.showPluginHost || this.sessMenuId.length > 0 || this.showSearchHits
+      || this.ctxOpen || this.imagePixel !== null || this.imageBusy
+      || this.panelUrl.length > 0 || this.askUser !== null;
   }
 
   /**
@@ -4399,19 +4427,39 @@ struct Index {
         this.ChatView()
       }
 
-      // 会话抽屉（左侧滑出）：**scrim 遮罩 + 点击遮罩收起**（对齐 web backdrop 语义）。
-      // scrim 颜色取调色板派生 token `eff().elev2`（深色系 = 中性黑@32%、浅色系 = 正文色@10%，
-      // 与 Apple 侧栏 scrim 同量级；浅色主题自动更淡）——**不引入任何 hex 字面量**，也不按
-      // 主题名硬判（`effectsOf` 内部用 `isLightPalette` 亮度口径，新增主题自动成立）。
+      // ── 模态遮罩（**单一真源**：`core/overlays.hasOverlay`）───────────────────────────────
+      // 为什么必须**只此一层**（2026-10-13 真机取证）：
+      //   此前**每个浮层各自的点击捕获层都是完全透明**的（`Row(){Blank()}.width('100%')
+      //   .height('100%').onClick(close)`，**没有 backgroundColor**），只有抽屉那一处恰好带了
+      //   scrim ⇒ 两个后果（用户可见）：
+      //     ① **观感故障**：页面内容在 sheet 卡片边缘露出半截字形。实测铁证 —— 终端 sheet 打开时
+      //        卡片左缘 x=53，而**页面**底部状态行 `deepseek-flash · /Users/bobli` 从 x=33 起
+      //        ⇒ 首字母 `d` 的左半截从卡片左侧露出来（BMP 逐像素：y≈2468、x≈52、`#9e9fa9`）。
+      //        我一开始误判成"终端溢出"（终端井底 y=1914，差着 550px），`dumpLayout` 才定住真凶。
+      //     ② **模态感缺失**：背后页面看起来还能点（实际被捕获层拦住 ⇒ 承诺与事实不符）。
+      //   ⇒ 收敛成一层：任何浮层打开就压暗（`core/overlays.hasOverlay` 已是既有的单一真源，
+      //      抽屉也算在内 ⇒ 顺手删掉抽屉自己那层 scrim，避免叠成双倍黑）。
+      // ⛔ 位置敏感：必须在**所有浮层声明之前**（ArkUI Stack 后声明者在上）⇒ 它盖住页面与内嵌
+      //    WebSurface，又被每个浮层自己的捕获层盖住（捕获层保持透明、继续负责点击收起）。
+      // ⛔ 只加**一处** `eff()` 调用（`eff()` 预算 80，现值 27）—— 若改成逐浮层加色则要 +12 处。
+      if (this.anyModalOpen()) {
+        Row()
+          .width('100%').height('100%')
+          .backgroundColor(this.eff().elev2)
+          // 纯淡入淡出（与抽屉横向滑入 / sheet 上浮同起同止）—— 走底座 `fadeTransition()`。
+          .transition(fadeTransition())
+      }
+
+      // 会话抽屉（左侧滑出）：点击遮罩收起（对齐 web backdrop 语义）。
+      // scrim 颜色 = 上面那层统一遮罩（取调色板派生 token `eff().elev2`：深色系 = 中性黑@32%、
+      // 浅色系 = 正文色@10%，与 Apple 侧栏 scrim 同量级；浅色主题自动更淡）——**不引入任何 hex
+      // 字面量**，也不按主题名硬判（`effectsOf` 内部用 `isLightPalette` 亮度口径，新增主题自动成立）。
       if (this.showDrawer) {
         Stack() {
           Row() {
             Blank()
           }
           .width('100%').height('100%')
-          .backgroundColor(this.eff().elev2)
-          // 遮罩纯淡入淡出（与抽屉横向滑入同起同止）—— 走底座 `fadeTransition()`。
-          .transition(fadeTransition())
           .onClick(() => {
             this.closeDrawer();
           })
