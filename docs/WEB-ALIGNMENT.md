@@ -5368,3 +5368,20 @@ chatID: this.store.currentChatId                                          ← �
    别写 `*/`（我自己的 GOTCHA 清单里早有"剥注释"的教训，这次是**写**注释时踩的）。
 2. 判据里用了未定义的 `idx`（TS2304）⇒ 补 `readSrc('…/pages/Index.ets')`；以及旧断言
    `private wireChatId()` 与"提为 public"冲突 ⇒ 同步订正为"定义恰 1 处 + 非 private"。
+
+### 装机端到端（用户点名的症状已消除）
+
+修复后同一路径（能力面板 → 会话统计）实测渲染：
+
+```
+输入 3.88B / 输出 13.59M
+缓存命中 3.58B（命中率 92.4%） / LLM 时长 28h42m（19204 迭代 · 127 轮次）
+Avg TTFT 2.0s · Avg TPOT 4ms · Avg tok/s 294
+上下文水位 239.2k（生成 1.0k） / 当前模型 deepseek-flash（since 10-10 11:42）
+按模型：deepseek-flash / deepseek-v4.1-flash / deepseek-v4-pro（in·out·cache·iters）
+最近迭代：表头 T.I · In · Cache · Out · TTFT · TPOT
+```
+
+⚠️ 复核纪律（记）：我一度把面板右上角的 **刷新按钮**（`sys.symbol.arrow_clockwise`）误读成"转圈不停
+的 loading"——`SessionStatsSheet.ets` 全文件**没有** `LoadingProgress`（头部只有刷新+关闭两个按钮）
+⇒ **不是缺陷**。定论前必须回代码看绑定，别凭截图定性。
