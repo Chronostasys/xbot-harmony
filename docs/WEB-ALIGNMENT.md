@@ -5481,3 +5481,53 @@ web，你要超越"）做去重 —— 被丢弃的行**严格更少信息**（0
 **真门禁**：`bash tools/gate.sh`（④ 真 ArkTS 编译）是唯一判据 —— 新组件**未接线前会被
 ArkTS 类型检查忽略**（假绿），接线后必须重跑。
 
+
+## §21.114 GenUI（`display_html`）面板：从「一枚看不懂的工具 pill」到**可打开的面板**（目标④）
+
+**背景（用户原话）**：「必须真的支持 web 的所有插件和功能，现在其实插件都打不开，比如
+**统计插件的面板我们看不到**」。`xbot.genui` 是 web 内置插件（后端 `plugins/xbot-genui`）：
+它给 web 频道声明工具 `display_html`，把 LLM 生成的**交互式 TSX 面板**（ECharts 图表 /
+组件库 / three.js）渲染成聊天流里的**顶层面板**（web `components/agent/GenUIPanel.tsx:36`：
+默认展开 + 标题 + 折叠 + 全屏）。**本仓此前把它当一枚普通工具 pill** ⇒ 面板"看不见"。
+
+**为什么原生不能自己渲染**：面板源码是 **TSX**，web 用 `sucrase` 编译 + `new Function()` 求值
++ React 挂载（`plugins/SandboxedUI.tsx:33`）。⛔ **ArkTS 禁动态求值**（无 `eval`/`new Function`），
+亦无 React ⇒ 原生不可能执行它。
+
+**与 web 一致的落地（⛔ 零自造协议、零插件特判）**：复用 web **自己的**分享渲染链 ——
+`xbot.genui` 插件自己注册的 `shareRenderer`（`plugins/genui/index.tsx:99,214`，contentType
+`xbot.genui/tsx`）：
+1. `POST /api/share/create`（后端 `channel/web/web_share.go:34`）body
+   `{plugin_id, content_type, payload:<TSX>, title}` ⇒ data `{token, path:'/s/<token>', …}`；
+2. 把 `<host><path>` 交 `WebSurface`（ArkWeb）⇒ web SPA 的 `/s/:token` 路由（`web/src/App.tsx:45`）
+   交给**插件自己的** shareRenderer ⇒ `SandboxedUI` 渲染**同一个面板**，且**只渲染这个面板**
+   （用户明确否掉过「整屏变成 web 版的完整聊天应用」）。
+
+**本批交付**：
+- 新增纯逻辑 `core/genui.ets`（可脱机单测）：判据/文案/请求体/URL **逐条对齐 web** ——
+  `isGenuiTool`（只认服务端通用 UI 元数据 `ui_mode==='genui'`，**不看工具名**）、
+  `genuiFailed`（失败 ⇒ 绝不渲染，对齐 `genui/index.tsx:81`；被拒的 `display_html`
+  **保留完整 `args.code`** 但没有落库 UI，照渲染会得到永远空着的高面板）、
+  `stripGenuiPrefix`（逐字移植 `:57-67`）、`genuiCode`（`args.code` → `detail`）、
+  `genuiShareBody`（请求体**单点**构造）、`genuiPanelUrl`、`genuiPayloadTooLarge`（服务端 1 MiB）。
+- 新增组件 `components/GenuiPanelCard.ets`：把该工具渲染成**卡片**（图标/指示器 + 标题 +
+  副标题「生成中 N 字 · echarts」+「打开面板」），**整卡可点**（≥44 盒）；颜色**零字面量**且
+  收敛到**唯一取色门** `col(role)`（全文件仅 1 处 `this.palOnce()`）。
+- 接线：`components/MessageRow.ets` 的 `ToolItem` 分发（**历史行**）与
+  `components/LiveTailView.ets`（**在飞行**）各一处分支，判据同源（`genuiRenderable`）；
+  回调 `onOpenGenui` 只上报，**组件不 import store**（分层铁律）。
+- `pages/Index.ets`：`openGenuiPanel(code, title)` —— 先注入会话 cookie（否则内嵌 webview
+  401 落登录页），再 `store.shareGenuiPanel`，落 `panelUrl` 由既有 `WebSurface` 分支渲染。
+  **分享按需创建**（点开才建）：不在渲染路径里发请求，也不给用户留垃圾分享。
+- `core/store.ets`：`shareGenuiPanel`（`POST /api/share/create`，请求体走
+  `genuiShareBody` **单一真源**）。
+
+**判据**：`tools/tests/genui.test.ts`（14 passed）—— ① 纯函数逐条（含「失败态不给源码」、
+剥离前缀、URL 归一）；② **接线形态钉调用点计数**（两条渲染路径各 import/实例化恰 1 处、
+`genuiRenderable` 各恰 1 处、组件里**无裸 `'genui'` 判据**、组件**不 import store**、
+页面 `openGenuiPanel` 唯一实现且**两个 `MessageRowView` 都接上**）。
+
+**性能预算**：B 线 1352 → **1353**（+1，理由见 `docs/PERF-BUDGET.md §5`）；**A 线一处未增**、
+**ForEach 处数一处未增**（复用两处既有 ForEach）。
+
+

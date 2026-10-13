@@ -28,6 +28,8 @@ import {
   anchorsAt, COMPACTED_LABEL, compactionAnchors, splitMarker,
 } from '../core/compaction';
 import { MarkdownView } from './MarkdownView';
+import { GenuiPanelCard } from './GenuiPanelCard';
+import { genuiCardSubtitle, genuiCardTitle, genuiCode, genuiRenderable } from '../core/genui';
 import { LiveTailView } from './LiveTailView';
 import { ThinkingLine } from './ThinkingLine';
 import { ToolPill, statusColorOf } from './ToolVisual';
@@ -176,6 +178,12 @@ export struct MessageRowView {
    * `LongPressGesture` 是**内层**、优先拦截 ⇒ 不会双触发）。判据/项集 = `core/ctxmenu.toolsMenuItems`。
    */
   onOpenToolsCtx: (iter: number) => void = (iter: number) => {
+  };
+  /**
+   * 打开 **GenUI（`display_html`）面板**（页面负责建分享 + 落 `WebSurface` URL；组件不 IO）。
+   * 面板源码原样上报 —— 判据/文案在 `core/genui.ets`（判据与渲染同源）。
+   */
+  onOpenGenui: (code: string, title: string) => void = (code: string, title: string) => {
   };
   onToggleTool: (iter: number, toolName: string) => void = (iter: number, toolName: string) => {
   };
@@ -753,6 +761,8 @@ export struct MessageRowView {
         onToast: this.onToast,
         // 转后台：live 侧 pill 的浮层里出现「转后台」条（透传页面 RPC 回调）。
         onPromoteShell: this.onPromoteShell,
+        // GenUI（`display_html`）面板：live 在飞时也落卡片 —— 透传页面（建分享 + 落 URL）。
+        onOpenGenui: this.onOpenGenui,
       })
       // ── live 快照的 SubAgent 进度树（web `LiveIteration.tsx:282`：
       //    `{hasSubAgents && <SubAgentProgressTree nodes={liveSubAgents} />}` ——
@@ -830,7 +840,7 @@ export struct MessageRowView {
         if (this.shownPills(it).length > 0 || this.hideCount(it) > 0) {
           Flex({ wrap: FlexWrap.Wrap }) {
             ForEach(this.shownPills(it), (t: ToolProgress, ti: number) => {
-              this.ToolPillItem(it, t, this.origIndex(it, t))
+              this.ToolItem(it, t, this.origIndex(it, t))
             }, (t: ToolProgress, ti: number) => `${this.toolKey(this.row.turnID, it.iteration, t.name)}#${t.call_id !== undefined ? t.call_id : ''}#${this.origIndex(it, t)}`)
             if (this.hideCount(it) > 0) {
               this.OverflowBadge(it)
@@ -867,6 +877,32 @@ export struct MessageRowView {
     //    （2026-10-10 核对 `index.css:1416`）。live 块本就没有 rail ⇒ 保留会让"同一个迭代
     //    在 live 形态与 committed 形态长得不一样"（用户要求 iter 完全统一样式）。
     .margin({ top: BUBBLE.iterGap })
+  }
+
+  /**
+   * 工具条目分发 —— GenUI（`display_html`）⇒ **面板卡**（`GenuiPanelCard`）；其余 ⇒ 既有 pill。
+   *
+   * ⛔ 判据只此一处（`core/genui.genuiRenderable`），两分支同源；颜色/文案全在 core/组件。
+   * 为什么 card 而非 pill：web 把 `display_html` 结果当**顶层面板**（`GenUIPanel.tsx:36`），
+   * 不是一枚工具条 —— 原生此前只画 pill ⇒ 用户「统计插件的面板我们看不到」。
+   */
+  @Builder
+  ToolItem(it: HistoryIteration, t: ToolProgress, ti: number) {
+    if (genuiRenderable(t)) {
+      GenuiPanelCard({
+        title: genuiCardTitle(t),
+        subtitle: genuiCardSubtitle(t),
+        code: genuiCode(t),
+        live: this.toolLive(t),
+        theme: this.themeId(),
+        onOpen: (code: string, title: string) => {
+          this.onOpenGenui(code, title);
+        },
+      })
+      .margin(GAP_PILL)
+    } else {
+      this.ToolPillItem(it, t, ti)
+    }
   }
 
   @Builder

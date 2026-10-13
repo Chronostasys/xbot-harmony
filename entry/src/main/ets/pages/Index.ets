@@ -205,6 +205,7 @@ import { MOTION_SESSION_SWITCH_SLIDE_VP } from '../core/motion';
 import { readableRpcError, rpc, RpcMethod, RPC_PLUGIN_CONFIG, PluginConfigParams, RPC_WEB_PLUGIN_LIST, RPC_GET_SESSION_USAGE_STATS, RPC_GET_USER_TOKEN_USAGE, RPC_GET_DAILY_TOKEN_USAGE, RPC_GET_SESSION_USAGE_BUCKETS, SessionUsageStatsParams, DailyUsageParams, SessionUsageBucketsParams, EmptyParams, ThinkingModeParams } from '../core/rpc';
 import { parseSessionUsage, SessionUsage, SessionUsageWire, parseUserUsage, parseDailyUsage, parseBuckets, UserUsage, UserUsageWire, DailyUsage, DailyUsageWire, UsageBucket, UsageBucketWire, bucketRequestCount, DAILY_DAYS_WINDOW, tzOffsetMinutesFor } from '../core/sessionstats';
 import { TodoPayloadRow, removeTodoAt, renameTodoAt, todoPayloadRows, toggleTodoAt } from '../core/todos';
+import { genuiPayloadTooLarge } from '../core/genui';
 import { WebSubAgentProgress } from '../core/chattypes';
 import { EMPTY_BLOCKS_SIGNATURE, liveBlocksSignature, subAgentsFingerprint } from '../core/render';
 import { withAlpha } from '../core/bubble';
@@ -4077,6 +4078,45 @@ struct Index {
     } catch (e) {
       // 目录非关键路径：失败留空目录（PluginHost 会显示"没有声明前端产物的插件"）
       this.toast(`插件目录加载失败: ${errText(e as Object)}`);
+    }
+  }
+
+  /**
+   * 打开 **GenUI（`display_html`）面板** —— 按需建分享 + 落 `WebSurface` URL。
+   *
+   * ── 为什么这样（完整依据见 `core/genui.ets` 头注释）────────────────────────────
+   * 面板是 LLM 生成的 **TSX**，ArkTS 禁动态求值 ⇒ 原生**不执行**它。与 web 一致的唯一落地：
+   * 把源码交给 web **自己的** shareRenderer（`xbot.genui` 插件注册的 `xbot.genui/tsx`）
+   * 在 ArkWeb 里渲染 —— 且**只渲染这个面板**（SPA `/s/<token>` 路由，不是整个聊天应用；
+   * 用户明确否掉过「整屏变成 web 版的完整聊天应用」）。
+   * ⛔ 分享**按需创建**（点开才建）：不在渲染路径里发请求（分层铁律），也不给用户留垃圾分享。
+   */
+  private async openGenuiPanel(code: string, title: string): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null || code.length === 0) {
+      return;
+    }
+    if (genuiPayloadTooLarge(code)) {
+      this.toast('面板过大，无法打开');
+      return;
+    }
+    // 内嵌 webview 打开**服务端页面**前必须注入会话 cookie，否则 401 落登录页
+    // （与插件面板同因，见 `syncSessionCookieToWeb`）。
+    this.syncSessionCookieToWeb(store);
+    try {
+      const url: string = await store.shareGenuiPanel(code, title);
+      if (url.length === 0) {
+        this.toast('面板链接生成失败');
+        return;
+      }
+      // 浮层互斥：收掉其它浮层，再落 `panelUrl`（WebSurface 由既有分支渲染）。
+      this.showPlugins = false;
+      this.showPluginHost = false;
+      this.showDrawer = false;
+      this.panelTitle = title.length > 0 ? title : '交互式面板';
+      this.panelUrl = url;
+    } catch (e) {
+      this.toast(`打开面板失败: ${errText(e as Object)}`);
     }
   }
 
@@ -9095,6 +9135,10 @@ struct Index {
         onPromoteShell: (callId: string) => {
           return this.promoteShellAction(callId);
         },
+        // GenUI（`display_html`）面板：工具卡片 → 建分享 + 落 `WebSurface` URL（层内不留 IO）。
+        onOpenGenui: (code: string, title: string) => {
+          this.openGenuiPanel(code, title);
+        },
       })
     }
   }
@@ -9160,6 +9204,10 @@ struct Index {
         // 转后台：live 侧 shell 工具浮层里的「转后台」条（RPC `promote_shell` + toast）。
         onPromoteShell: (callId: string) => {
           return this.promoteShellAction(callId);
+        },
+        // GenUI（`display_html`）面板：工具卡片 → 建分享 + 落 `WebSurface` URL（层内不留 IO）。
+        onOpenGenui: (code: string, title: string) => {
+          this.openGenuiPanel(code, title);
         },
       })
     }

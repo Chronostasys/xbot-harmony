@@ -28,6 +28,8 @@ import { ThinkingLine } from './ThinkingLine';
 import { AssistantOrb, ORB_MODE_THINKING, ORB_MODE_TOOL, ORB_MODE_SECONDARY } from './AssistantOrb';
 import { ToolPill, statusColorOf } from './ToolVisual';
 import { SyntheticCard } from './SyntheticCard';
+import { GenuiPanelCard } from './GenuiPanelCard';
+import { genuiCardSubtitle, genuiCardTitle, genuiCode, genuiRenderable } from '../core/genui';
 import { LlmErrorNotice } from './LlmErrorNotice';
 import { isSyntheticToolName } from '../core/synthhints';
 import { looksLikeLlmError } from '../core/llmerror';
@@ -78,6 +80,13 @@ export struct LiveTailView {
     return new ArrayBuffer(0);
   };
   onToolLongPress: (name: string) => void = (name: string) => {
+  };
+  /**
+   * 打开 **GenUI（`display_html`）面板**（页面负责建分享 + 落 `WebSurface` URL）。
+   * 在飞面板 ⇒ 先落一个卡片（可见性），点开由 web 自己的 shareRenderer 渲染
+   * （依据见 `core/genui.ets` 头注释）。
+   */
+  onOpenGenui: (code: string, title: string) => void = (code: string, title: string) => {
   };
   /** 复制反馈落地（页面品牌 toast；**透传**给内部 `MarkdownView` —— B6 落点统一）。 */
   onToast: (msg: string) => void = () => {
@@ -609,6 +618,23 @@ return renderKind(t.status, t.exit_code, true);
           if (this.shownList().length > 0 || this.hideN() > 0) {
             Flex({ wrap: FlexWrap.Wrap }) {
               ForEach(this.shownList(), (t: ToolProgress, i: number) => {
+                // ── GenUI（`display_html`）⇒ **面板卡**（不是 pill）────────────────
+                //    面板是 LLM 生成的 TSX，原生不执行它（ArkTS 禁动态求值）；卡片给出
+                //    "面板存在"的可见性 + 一个入口 ⇒ 点开由 web **自己的** shareRenderer
+                //    在 ArkWeb 里渲染（依据见 `core/genui.ets` 头注释）。判据只此一处。
+                if (genuiRenderable(t)) {
+                  GenuiPanelCard({
+                    title: genuiCardTitle(t),
+                    subtitle: genuiCardSubtitle(t),
+                    code: genuiCode(t),
+                    live: this.live(t),
+                    theme: this.themeId(),
+                    onOpen: (code: string, title: string) => {
+                      this.onOpenGenui(code, title);
+                    },
+                  })
+                  .margin(GAP_PILL)
+                } else {
                 Stack() {
                   // 与 committed 块**共用同一套 pill 视觉**（状态标记 + 名称 + 状态 chip）。
                   // ⛔ 组件（@Prop 值变化通道）—— 带参 @Builder 会冻在第一帧（状态永不更新）。
@@ -650,6 +676,7 @@ return renderKind(t.status, t.exit_code, true);
                 .gesture(LongPressGesture().onAction(() => {
                   this.onToolLongPress(t.name);
                 }))
+                }
               }, (t: ToolProgress, i: number) => `lt-${i}#${t.name}#${t.call_id !== undefined ? t.call_id : ''}`)
               if (this.hideN() > 0) {
                 this.OverflowBadge()

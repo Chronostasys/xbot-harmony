@@ -34,6 +34,7 @@ import { serverKey, toLocalSettings, KEY_ACCENT } from './settings';
 import { setAppAccent } from './theme';
 import { FsEntry } from './composer';
 import { FsListBody, FsReadResult, FsSearchBody, FsSearchEntry, fsListBody, fsSearchBody } from './files';
+import { GenuiShareBody, genuiPanelUrl, genuiShareBody } from './genui';
 import { SkillItem, SkillWire, parseSkillList } from './skills';
 import { MaxContextParams, RPC_GET_SESSION_SUBSCRIPTION, RPC_GET_USER_MAX_CONTEXT, RPC_LIST_ALL_MODEL_ENTRIES, RPC_SET_USER_MAX_CONTEXT, RPC_SKILL_GET_CONTENT, RPC_SKILL_LIST, RPC_SKILL_SET_ENABLED, RPC_WEB_PLUGIN_LIST, SessionSelectorParams, SessionSubscription, SkillContentWire, SkillGetContentParams, SkillListParams, SkillSetEnabledAck, SkillSetEnabledParams, normalizeMaxContext, readableRpcError, rpc, sessionSubscriptionId } from './rpc';
 import {
@@ -627,6 +628,27 @@ export class ChatStore {
     const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>('/api/fs/search', body);
     const arr: Object | undefined = raw['results'];
     return arrOrEmpty(arr as FsSearchEntry[]);
+  }
+
+  /**
+   * 为一个 **GenUI（`display_html`）面板**建分享，返回可交 `WebSurface` 载入的 URL。
+   *
+   * ── 为什么走分享（完整依据见 `core/genui.ets` 头注释）──────────────────────────
+   * 面板是 LLM 生成的 **TSX**，ArkTS 禁动态求值 ⇒ 原生**不执行**它；唯一与 web 一致的
+   * 落地是把源码交给 web **自己的** shareRenderer（`xbot.genui` 插件注册的
+   * `xbot.genui/tsx`）在 ArkWeb 里渲染 —— 且**只渲染这个面板**（用户点名过：
+   * 不要「整屏变成 web 版的完整聊天应用」）。
+   *
+   * `POST /api/share/create`（后端 `channel/web/web_share.go:34`）body
+   * `{plugin_id, content_type, payload, title}` ⇒ data `{token, path:'/s/<token>', …}`。
+   * ⛔ 请求体由 `core/genui.genuiShareBody` **单点**构造；URL 由 `genuiPanelUrl` 拼。
+   */
+  async shareGenuiPanel(code: string, title: string): Promise<string> {
+    const body: GenuiShareBody = genuiShareBody(code, title);
+    const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>('/api/share/create', body);
+    const p: Object | undefined = raw['path'];
+    const path: string = p !== undefined && p !== null ? p.toString() : '';
+    return genuiPanelUrl(this.http.baseUrl, path);
   }
 
   async loadCronTasks(): Promise<void> {

@@ -86,7 +86,11 @@ le "A 线·色板分配次数 this.pal()（未 memo；⛔ 成本线，只许减�
 #  web 唯一未迁的用户可见组件）。该组件的取色**收敛到唯一门** `private trayColor(role)`
 #  （内含唯一 `this.palOnce()`）⇒ 本文件对 B 线的贡献**恒 1 处**（⛔ 非逐处直写 `this.pal().x`）。
 #  A 线（真分配 `this.pal()`）**一处未增**（走 `palOnce()`）⇒ 成本线不受影响。
-le "B 线·色板读取总量 this.pal() ∨ this.palOnce()（含缓存命中；松界，防失控）" "$n_pal_all" 1352 处
+# ⚠️ §21.114 登记理由（B 线 1352 → 1353）：新增 `components/GenuiPanelCard.ets`
+#  （GenUI/`display_html` 面板卡 —— 目标④ 用户明例「统计插件的面板我们看不到」：此前只画 pill）。
+#  同样收敛到**唯一取色门** `private col(role)`（内含唯一 `this.palOnce()`）⇒ 贡献**恒 1 处**；
+#  A 线一处未增。见 docs/PERF-BUDGET.md §5。
+le "B 线·色板读取总量 this.pal() ∨ this.palOnce()（含缓存命中；松界，防失控）" "$n_pal_all" 1353 处
 le "this.eff() 调用点" "$n_eff" 80 处
 le "setInterval 调用点（常驻定时器）" "$n_itv" 6 处
 le "setTimeout 调用点" "$n_tmo" 7 处
