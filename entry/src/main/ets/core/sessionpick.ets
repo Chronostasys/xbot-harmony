@@ -30,6 +30,62 @@ export function channelForChat(sessions: SessionItem[], chatId: string): string 
   return DEFAULT_CHANNEL;
 }
 
+/**
+ * 会话 id 的**规范（裸）形态** —— 去掉**重复的渠道前缀**。
+ *
+ * ── 为什么必须有它（2026-10-13 服务端对照实验，铁证）───────────────────────────────
+ * 服务端把会话键一律组装成 `channel + ":" + chat_id`（48 处，`agent/*.go`、`serverapp/*.go`），
+ * 即 **`chat_id` 期望的是裸 id**（web 同款语义：`s.chatID` 是裸 id，`${channel}:${chatID}` 才是键）。
+ * 而本仓 `store.currentChatId` 是**全键**（`/api/session-tree` 的 `is_current` 行 `chat_id` 字段
+ * 本身就带渠道前缀 ⇒ 客户端原样收下）⇒ 出网时 `channel` + 全键被组装成 `web:web:chat_…`，
+ * 落到一个**不存在的幽灵会话**上。实测（同一会话两种形态直接打服务端）：
+ *
+ *   | 端点 | 裸 id | 全键 |
+ *   |---|---|---|
+ *   | `/api/cron/list`    | ✅ 返回真实定时任务 | ❌ `tasks: null` |
+ *   | `/api/tasks/list`   | ✅ 返回真实后台任务 | ❌ `[]` |
+ *   | `/api/session/status` | ✅ 正确 cwd + todos | ❌ 空 todos + 默认 cwd `/Users/bobli` |
+ *
+ * ⇒ 用户可见：**定时/后台任务面板结构性永远空**（"任务管理做的很差"的真根因）、状态行 cwd 显示成
+ * 默认目录、todos 丢失、开发者面板显示 `web:web:chat_…`。
+ * ⛔ 修法**必须在出网边界规范化**（而不是改 `currentChatId` 本身）：会话树里 `/` 分隔的子代理
+ * 行（`web:chat_X/explore:y`）本来就带前缀，且列表内各处比较都以树里的原值为准。
+ */
+export function canonicalChatId(channel: string, chatId: string): string {
+  const c: string = (channel !== undefined && channel !== null) ? channel : '';
+  const id: string = (chatId !== undefined && chatId !== null) ? chatId : '';
+  if (c.length === 0 || id.length === 0) {
+    return id;
+  }
+  const prefix: string = `${c}:`;
+  // ⛔ 只剥**一层**：`web:web:chat_x`（已被写坏的值）也要能收敛回 `chat_x`。
+  let out: string = id;
+  while (out.startsWith(prefix)) {
+    out = out.substring(prefix.length);
+  }
+  return out;
+}
+
+/** 该 id 是否**已带**渠道前缀（= 服务端/历史把它当成了键；用于识别畸形行与提示）。 */export function hasChannelPrefix(channel: string, chatId: string): boolean {
+  const c: string = (channel !== undefined && channel !== null) ? channel : '';
+  const id: string = (chatId !== undefined && chatId !== null) ? chatId : '';
+  return c.length > 0 && id.startsWith(`${c}:`);
+}
+
+/**
+ * 会话的**显示键**：`渠道:裸id`（web 权威 `SettingsDeveloper.tsx:62` 的 `${channel}:${chatID}` 同款）。
+ *
+ * ⛔ 不能写 `${channel}:${chatId}`（本仓 `chatId` 常已带前缀 ⇒ 显示 `web:web:chat_…`，真机实测）。
+ */
+export function sessionDisplayKey(channel: string, chatId: string): string {
+  const c: string = (channel !== undefined && channel !== null) ? channel : '';
+  const id: string = canonicalChatId(c, chatId);
+  if (c.length === 0) {
+    return id;
+  }
+  return `${c}:${id}`;
+}
+
 /** 渠道的展示名（抽屉里标注来源，避免"这个会话为什么打不开"的困惑）。 */
 export function channelLabel(channel: string): string {
   if (channel === 'web') {

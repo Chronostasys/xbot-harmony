@@ -11,6 +11,7 @@ declare const process: { exit: (c: number) => void };
 import {
   channelForChat, channelLabel, visibleRows, hiddenRowCount,
   MAX_ROWS_VISIBLE, DEFAULT_CHANNEL,
+  canonicalChatId, hasChannelPrefix, sessionDisplayKey,
 } from '../../entry/src/main/ets/core/sessionpick';
 import { SessionItem } from '../../entry/src/main/ets/core/types';
 
@@ -39,6 +40,26 @@ eq('缺 channel 字段 → 回落 web', channelForChat(sessions, 'chat_NOCH'), '
 eq('空 channel → 回落 web', channelForChat(sessions, 'chat_EMPTY'), 'web');
 eq('未知会话 → 回落 web', channelForChat(sessions, 'chat_UNKNOWN'), 'web');
 eq('默认渠道常量 = web', DEFAULT_CHANNEL, 'web');
+
+// ── canonicalChatId / sessionDisplayKey（2026-10-13 服务端对照实验引入）────────────────
+// 真缺陷背景：本仓 `store.currentChatId` 是**全键**（会话树 `is_current` 行的 `chat_id` 字段自带
+// 渠道前缀，客户端原样收下），而服务端把会话键一律组装成 `channel + ":" + chat_id`（**期望裸 id**）
+// ⇒ 出网变成 `web:web:chat_…`，落到**幽灵会话**。服务端对照实验（同会话两种形态直打）：
+//   `/api/cron/list` 裸 ✅ / 全键 `null`；`/api/tasks/list` 裸 ✅ 真任务 / 全键 `[]`；
+//   `/api/session/status` 裸 ✅ 正确 cwd+todos / 全键 空 todos + 默认 cwd。
+// ⇒ 用户可见「定时/后台任务面板结构性永远空」（"任务管理做的很差"的真根因）。
+eq('canonical: 全键 ⇒ 裸 id', canonicalChatId('web', 'web:chat_AAA'), 'chat_AAA');
+eq('canonical: 已是裸 id ⇒ 原样', canonicalChatId('web', 'chat_AAA'), 'chat_AAA');
+eq('canonical: 子代理（`/` 尾缀）同样剥前缀', canonicalChatId('web', 'web:chat_A/explore:x'), 'chat_A/explore:x');
+eq('canonical: 已写坏的双前缀也收敛', canonicalChatId('web', 'web:web:chat_AAA'), 'chat_AAA');
+eq('canonical: 非该渠道前缀不动', canonicalChatId('web', 'feishu:oc_1'), 'feishu:oc_1');
+eq('canonical: id 里本就含冒号（web-1 形态）不动', canonicalChatId('web', 'web-1'), 'web-1');
+eq('canonical: channel 空 ⇒ 原样', canonicalChatId('', 'web:chat_AAA'), 'web:chat_AAA');
+eq('canonical: chatId 空 ⇒ 空', canonicalChatId('web', ''), '');
+eq('display: 全键入参不双写', sessionDisplayKey('web', 'web:chat_AAA'), 'web:chat_AAA');
+eq('display: 裸 id 入参补前缀', sessionDisplayKey('web', 'chat_AAA'), 'web:chat_AAA');
+eq('hasChannelPrefix: 全键 ⇒ true', hasChannelPrefix('web', 'web:chat_AAA'), true);
+eq('hasChannelPrefix: 裸 id ⇒ false', hasChannelPrefix('web', 'chat_AAA'), false);
 
 // ② 渠道展示名（抽屉里标注来源）
 eq('web 标签', channelLabel('web'), 'Web');

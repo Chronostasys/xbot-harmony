@@ -60,6 +60,12 @@ eq('后台主行去空白', bgTaskPrimary({ id: 'x', command: '  ls  ' }), 'ls')
 // 副行 = 状态短语 + 元信息（判据同源于 bgTaskStatusText/bgTaskMetaText）
 eq('后台副行 运行中+时长+id', bgTaskSubText({ id: '3f8f', command: 'go test ./...', status: 'running',
   started_at: new Date(t0).toISOString() }, t0 + 12000), '运行中 · 12s · 3f8f');
+// ⛔ **运行中 + 服务端哨兵 exit_code=-1 ⇒ 副行不得出现 exit**（2026-10-13 真机有数据态实测）：
+//  服务端对未结束任务恒发 `exit_code: -1`，而 web 只在 `status === 'done'` 时显示 `exit N`
+//  （`TasksPanel.tsx:240-243`）⇒ 此前真机副行是「运行中 · exit -1 · 519m37s · 4c4bc8f8」，
+//  同一行自相矛盾。上面那条用例的 fixture **没给 exit_code**，所以放过了这个真缺陷 —— 本用例补判别力。
+eq('后台副行 运行中**不报** exit（服务端哨兵 -1）', bgTaskSubText({ id: '4a4a', command: 'sleep 100',
+  status: 'running', exit_code: -1, started_at: new Date(t0).toISOString() }, t0 + 3000), '运行中 · 3s · 4a4a');
 eq('后台副行 失败带 exit', bgTaskSubText({ id: 'a1', command: 'ls', status: 'failed', exit_code: 2 }, 0),
   '失败 · exit 2 · a1');
 eq('后台副行 失败并入 error 首行', bgTaskSubText({ id: 'b2', command: 'ls', status: 'failed', exit_code: 1,

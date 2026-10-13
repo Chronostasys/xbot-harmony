@@ -23,7 +23,7 @@ import { applyRow } from './render';
 import { ChatMessage, ChatMessageRole, EMPTY_PROGRESS_SNAPSHOT, ProgressSnapshot, WebCompaction, WebIteration } from './chattypes';
 import { toHistoryCompactions } from './compaction';
 import { normalizeWebIteration } from './agent_normalize';
-import { channelForChat } from './sessionpick';
+import { canonicalChatId, channelForChat } from './sessionpick';
 import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
 import { moveOrders, parseSearchHits, searchBody, SEARCH_LIMIT_DEFAULT, SearchBody, chatSwitchPath, chatSwitchChannel, ChatSwitchResult, parseChatSwitch } from './sessionops';
 import { RewindReq, RewindTarget, gapTopBefore, rewindTargetDBID } from './msgops';
@@ -637,7 +637,7 @@ export class ChatStore {
 
   async loadCronTasks(): Promise<void> {
     const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>(
-      '/api/cron/list', new SessionReq(this.channel, this.currentChatId));
+      '/api/cron/list', new SessionReq(this.channel, this.wireChatId()));
     const arr: Object | undefined = raw['tasks'];
     this.cronTasks = arrOrEmpty(arr as CronJob[]);
     this.onUpdate();
@@ -646,7 +646,7 @@ export class ChatStore {
   /** 删除一条定时任务（`POST /api/cron/remove` body `{channel, chat_id, job_id}`）。 */
   async removeCronTask(jobId: string): Promise<void> {
     const body: Record<string, string> = {
-      'channel': this.channel, 'chat_id': this.currentChatId, 'job_id': jobId,
+      'channel': this.channel, 'chat_id': this.wireChatId(), 'job_id': jobId,
     };
     await this.http.post('/api/cron/remove', body);
     await this.loadCronTasks();
@@ -654,7 +654,7 @@ export class ChatStore {
 
   async loadBgTasks(): Promise<void> {
     const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>(
-      '/api/tasks/list', new SessionReq(this.channel, this.currentChatId));
+      '/api/tasks/list', new SessionReq(this.channel, this.wireChatId()));
     const arr: Object | undefined = raw['background_tasks'];
     this.bgTasks = arrOrEmpty(arr as BgTask[]);
     this.onUpdate();
@@ -683,7 +683,7 @@ export class ChatStore {
    *    （`docs/agent/gotchas-tools.md:18`）。
    */
   async promoteShell(toolCallId: string): Promise<string> {
-    const key: string = promoteSessionKey(this.channel, this.currentChatId);
+    const key: string = promoteSessionKey(this.channel, this.wireChatId());
     const res: PromoteShellResult = await rpc<PromoteShellResult>(
       this.http, 'promote_shell', new PromoteShellParams(key, toolCallId));
     await this.loadBgTasks();
@@ -696,7 +696,7 @@ export class ChatStore {
    * 服务端既有事实（`channel/web/web_pty.go` 的 `terminalListReq` / `terminalCreateReq`），照抄别"统一"。
    */
   async loadTerminals(): Promise<void> {
-    const body: Record<string, string> = { 'chat_id': this.currentChatId };
+    const body: Record<string, string> = { 'chat_id': this.wireChatId() };
     const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>(
       '/api/terminal/list', body);
     const arr: Object | undefined = raw['terminals'];
@@ -706,7 +706,7 @@ export class ChatStore {
 
   /** 新建终端（`POST /api/terminal/create` body `{chatID, cwd}` → `{tid}`）。返回 tid（缺失时空串）。 */
   async createTerminal(cwd: string): Promise<string> {
-    const body: Record<string, string> = { 'chatID': this.currentChatId, 'cwd': cwd };
+    const body: Record<string, string> = { 'chatID': this.wireChatId(), 'cwd': cwd };
     const r: Record<string, Object> = await this.http.postAs<Record<string, Object>>(
       '/api/terminal/create', body);
     await this.loadTerminals();
@@ -890,6 +890,25 @@ export class ChatStore {
   }
 
   /**
+   * **出网用的规范会话 id** —— 去掉重复的渠道前缀（详见 `core/sessionpick.canonicalChatId`）。
+   *
+   * ⛔ 为什么出网必须规范化（2026-10-13 服务端对照实验铁证）：服务端把会话键一律组装成
+   *   `channel + ":" + chat_id`（48 处），**期望 `chat_id` 是裸 id**（web 同款：`s.chatID` 裸、
+   *   `${channel}:${chatID}` 才是键）。而本仓 `currentChatId` 是**全键**（`/api/session-tree` 的
+   *   `is_current` 行 `chat_id` 字段自带前缀 ⇒ 客户端原样收下）⇒ 出网组装成 `web:web:chat_…`，
+   *   落到**幽灵会话**上。实测（同会话两种形态直打服务端）：`/api/cron/list` 裸 ✅ / 全键 `null`；
+   *   `/api/tasks/list` 裸 ✅ 返回真任务 / 全键 `[]`；`/api/session/status` 裸 ✅ 正确 cwd+todos /
+   *   全键 空 todos + 默认 cwd `/Users/bobli`。
+   *   ⇒ 用户可见：**定时/后台任务面板结构性永远空**（"任务管理做得很差"的真根因）、cwd 显示成
+   *   默认目录、todos 丢失、历史显示空态「开始对话」。
+   * ⛔ 只规范**出网参数**：`currentChatId` 自身与会话树里的值保持原样（列表内各处比较、`/` 分隔的
+   *   子代理 id 都以后者为准）。
+   */
+  private wireChatId(): string {
+    return canonicalChatId(this.channel, this.currentChatId);
+  }
+
+  /**
    * 通知服务端"当前会话"（`POST /api/chats/{chatID}/switch`，body `{channel}`）。
    *
    * 服务端把它记为 active session（`userCurrentSession[senderID]`）——`handleSearch`/会话树/
@@ -897,7 +916,7 @@ export class ChatStore {
    * `channel` 缺省 `web`（`chatSwitchChannel`）。**调用方负责吞异常**（fire-and-forget）。
    */
   private async notifyServerSwitch(chatId: string): Promise<ChatSwitchResult> {
-    const path: string = chatSwitchPath(chatId);
+    const path: string = chatSwitchPath(canonicalChatId(this.channel, chatId));
     const body: ChannelReq = new ChannelReq(chatSwitchChannel(this.channel));
     const raw: Object = await this.http.postAs<Object>(path, body);
     return parseChatSwitch(raw);
@@ -927,7 +946,7 @@ export class ChatStore {
     //   （否则就是"切 A→B 后看到 A 的内容"的串台）。会话号变了 ⇒ 整个丢弃。
     const forChat: string = this.currentChatId;
     const data: HistoryData = await this.http.postAs<HistoryData>('/api/history', new HistoryReq(
-      this.channel, this.currentChatId, 30, 0));
+      this.channel, this.wireChatId(), 30, 0));
     if (this.currentChatId !== forChat) {
       return;
     }
@@ -959,7 +978,7 @@ export class ChatStore {
     this.loadingMore = true;
     try {
       const data: HistoryData = await this.http.postAs<HistoryData>('/api/history', new HistoryReq(
-        this.channel, this.currentChatId, 30, this.oldestId));
+        this.channel, this.wireChatId(), 30, this.oldestId));
       const older: ChatMessage[] = ChatStore.toChatMessages(data.messages, this.oldestId);
       // ⛔ 「全是重复 ⇒ 到底」停止条件（对齐 web `useChatMessages.ts:620-639` 的 `noExactDups`）：
       //    服务端 `has_more` 只保证「这批之后还有行」，但若这批**全部**是与本地已持有的同
@@ -1388,7 +1407,7 @@ export class ChatStore {
     }
     try {
       const st: SessionStatus = await this.http.postAs<SessionStatus>(
-        '/api/session/status', new SessionReq(this.channel, this.currentChatId));
+        '/api/session/status', new SessionReq(this.channel, this.wireChatId()));
       // ⚠️ 外来 JSON：`token_usage` 可能是 JSON null（无用量时服务端给 nil 指针）⇒ 必须在这里
       //    收口成 `undefined`，否则 null 会落进 `usage: TokenUsage | undefined` 字段，
       //    下游 `usage !== undefined` 判真 ⇒ 取 `usage.prompt_tokens` 炸（同类缺陷的典型形态）。
@@ -1441,7 +1460,7 @@ export class ChatStore {
     this.cancelling = true;
     this.onUpdate();
     try {
-      await this.http.post('/api/cancel', new SessionReq(this.channel, this.currentChatId));
+      await this.http.post('/api/cancel', new SessionReq(this.channel, this.wireChatId()));
       this.pushEvents([
         { type: 'session_running', running: false },
         { type: 'session', busy: false },
@@ -1503,7 +1522,7 @@ export class ChatStore {
   async loadQueue(): Promise<void> {
     try {
       const data: QueueListData = await this.http.postAs<QueueListData>(
-        '/api/queue/list', new SessionReq(this.channel, this.currentChatId));
+        '/api/queue/list', new SessionReq(this.channel, this.wireChatId()));
       const items: QueueItem[] = arrOrEmpty(data.items);
       const list: QueueItem[] = items.length > 0 ? items : arrOrEmpty(data.queue);
       this.queue = list;
@@ -1514,7 +1533,7 @@ export class ChatStore {
   }
 
   async cancelQueued(msgId: string): Promise<void> {
-    await this.http.post('/api/queue/cancel', new QueueCancelReq(this.channel, this.currentChatId, msgId));
+    await this.http.post('/api/queue/cancel', new QueueCancelReq(this.channel, this.wireChatId(), msgId));
     await this.loadQueue();
   }
 
@@ -1542,7 +1561,7 @@ export class ChatStore {
     const tmp: string = ids[at];
     ids[at] = ids[to];
     ids[to] = tmp;
-    await this.http.post('/api/queue/reorder', new QueueReorderReq(this.channel, this.currentChatId, ids));
+    await this.http.post('/api/queue/reorder', new QueueReorderReq(this.channel, this.wireChatId(), ids));
     await this.loadQueue();
   }
 
@@ -1619,7 +1638,7 @@ export class ChatStore {
     }
     // ① rewind（先删服务端消息）
     await this.http.post('/api/history/rewind',
-      new RewindReq(this.channel, this.currentChatId, historyId));
+      new RewindReq(this.channel, this.wireChatId(), historyId));
     // ② reset 状态机（漏了 ⇒ 被删的 assistant 回放）
     this.resetStateMachine();
     // ③ reload 必须在 send 之前（否则乐观行被新历史抹掉）

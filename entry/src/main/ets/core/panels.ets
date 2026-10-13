@@ -479,7 +479,12 @@ export function bgTaskStatusText(t: BgTask): string {
 /** 详情页副行：`exit 0 · 3.2s · <id>`（耗时同源 `durationText`；缺项自动省略）。 */
 export function bgTaskMetaText(t: BgTask, nowMs: number): string {
   const parts: string[] = [];
-  if (t.exit_code !== undefined) { parts.push(`exit ${t.exit_code}`); }
+  // ⛔ **未结束不报退出码**（2026-10-13 有数据态真机实测 + web 权威）：web
+  //   `TasksPanel.tsx:240-243` 是 `task.status === 'done' ? \`exit ${task.exitCode}\` : task.status`
+  //   —— 即**只有结束时**才显示 `exit N`。此前原生给**运行中**的行也拼了 `exit -1`
+  //   （服务端未结束时的哨兵值）⇒ 副行变成「运行中 · exit -1 · 519m37s · 4c4bc8f8」，
+  //   同一行自相矛盾（"还在跑"却"已经退出、码 = -1"）。
+  if (!bgTaskRunning(t) && t.exit_code !== undefined) { parts.push(`exit ${t.exit_code}`); }
   const dur: string = durationText(t.started_at, t.finished_at, nowMs);
   if (dur.length > 0) { parts.push(dur); }
   const id: string = t.id !== undefined ? t.id : '';

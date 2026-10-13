@@ -28,6 +28,7 @@ import { fileIo } from '@kit.CoreFileKit';
 import { preferences } from '@kit.ArkData';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { Palette, paletteOf } from '../core/theme';
+import { canonicalChatId, sessionDisplayKey } from '../core/sessionpick';
 import { FS_CAPTION, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5 } from '../core/tokens';
 import { SSEE_MAX_BYTES, SSEE_MAX_ENTRIES, SseRecEntry, sseRecorder } from '../core/sserec';
 import { XbotHttp } from '../core/http';
@@ -251,7 +252,10 @@ export struct SettingsDeveloper {
     this.exportNote = '';
     this.exportErr = '';
     try {
-      const params: SessionSelectorParams = new SessionSelectorParams(this.channel, this.chatID);
+      // ⛔ 出网 id 必须**规范化**（裸 id）——见 `core/sessionpick.canonicalChatId` 的长注释：
+      //   服务端把会话键组装成 `channel + ":" + chat_id`，本仓 `chatID` 来自会话树（带前缀）
+      //   ⇒ 直接传会变成 `web:web:chat_…`（导出落到幽灵会话）。
+      const params: SessionSelectorParams = new SessionSelectorParams(this.channel, canonicalChatId(this.channel, this.chatID));
       let text: string;
       if (a.viaJsonlRpc) {
         const raw: Object = await rpc<Object>(this.http, RPC_EXPORT_SESSION_JSONL, params);
@@ -292,7 +296,7 @@ export struct SettingsDeveloper {
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().textPrimary)
         .width('100%')
-      Text(this.chatID.length > 0 ? `当前会话：${this.channel}:${this.chatID}` : '未打开会话（导出按钮禁用）。')
+      Text(this.chatID.length > 0 ? `当前会话：${sessionDisplayKey(this.channel, this.chatID)}` : '未打开会话（导出按钮禁用）。')
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().textMuted)
         .width('100%')
