@@ -89,7 +89,7 @@ import {
 } from '../core/sessionpick';
 import {
   applyGroupsCollapsed, collapseAllPlan, collapseKey, CollapseAllPlan, groupSessionsFromItems, groupTitle,
-  normalizeSessionCategory, pathGroupTooltip, relativeTimeLabel, SESSION_CATEGORIES, SessionGroup, sessionCategoryLabel,
+  normalizeSessionCategory, parseAgentChatID, pathGroupTooltip, relativeTimeLabel, SESSION_CATEGORIES, SessionGroup, sessionCategoryLabel,
 } from '../core/sessiongroup';
 import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msgindex';
 import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, PluginOpenTarget, PluginViewItem, WebPluginListWire, buildPluginCatalog, nativeViewKind, pluginOpenTarget, pluginViewDeepLink, pluginViewTarget, primaryViewId } from '../core/pluginhost';
@@ -2837,6 +2837,23 @@ struct Index {
       }
     }
     return '';
+  }
+
+  /**
+   * 当前会话是否**子代理（SubAgent）会话** —— agent 形 tenant 键 `<ch>:<chat>/<role>[:inst]`。
+   *
+   * 判据**唯一来源** = `core/sessiongroup.parseAgentChatID`（web `parseAgentChatID` 的逐字移植）
+   * ⇒ ⛔ 不在页面另写一套"含 `/` 就算"的字符串猜测（那会把普通会话名里的斜杠误判成子代理）。
+   *
+   * 为什么要它：**web 权威**（`web/src/workspace/panels/AgentPanel.tsx:561/930/1093/1114`）对子代理
+   * 面板有一整组 `!isSubAgent` 门控 —— 不渲染 StagingTray / MessageInput（输入区）、不做 queue 水合、
+   * 不给 rewind。原生的做法是把子代理会话**当普通聊天开**（`openSubAgentSession` → `switchSession`），
+   * 于是给一个**没有任何持久化消息**的会话（服务端 `/api/history` 实测回 `messages:null`；
+   * DB `session_messages` 对这些 `channel=agent` 租户 `msgs=0` —— 子代理内容只以 `sub_agents`
+   * 进度挂在**父轮次**里）配上"可以在这打字"的输入框 ⇒ 用户看到「子代理会话进入后永远空白」。
+   */
+  private isSubAgentChat(): boolean {
+    return parseAgentChatID(this.currentChat) !== undefined;
   }
 
   private labelOf(chatId: string): string {
@@ -6042,6 +6059,12 @@ struct Index {
         this.RewindEditBar()
       }
 
+      // ── 输入区：**子代理会话不渲染**（web 权威 `AgentPanel.tsx:1114` 的 `!isSubAgent && <MessageInput/>`）──
+      // 为什么：子代理会话**没有独立持久化历史**（服务端 `/api/history` 实测 `messages:null`），
+      // 它在服务端的角色是"父轮次里的进度"，不是可对话的会话 ⇒ 给它挂输入框会明确误导用户
+      // （"可以在这聊"），也正是「子代理会话进入后永远空白」观感的一半来源（空白 + 一个能打字的框）。
+      // ⛔ 判据见 `isSubAgentChat()`（唯一来源 `core/sessiongroup.parseAgentChatID`）。
+      if (!this.isSubAgentChat()) {
       // 输入区：**单一面**（附件 / 输入 / 发送共用一条胶囊），靠留白分层，不靠描边。
       Row({ space: SP_1 }) {
         SymbolGlyph($r('sys.symbol.paperclip')).fontSize(22).fontColor([this.pal().textSecondary])
@@ -6172,6 +6195,7 @@ struct Index {
       })
       .margin({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
       .id('xbot-composer')
+      }   // ← 关闭「子代理会话不渲染输入区」的 `if (!this.isSubAgentChat())`（见该块头注）
 
       // ── 常驻信息栏（插件**声明式 widget** 的落点）────────────────────────────────
       // 权威（web，逐条核对）：`MobileAppShell.tsx:483-487` 在 `main` **下方**常驻 `<InfoBar/>`
