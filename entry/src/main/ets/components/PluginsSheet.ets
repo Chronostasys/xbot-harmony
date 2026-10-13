@@ -41,7 +41,7 @@ import {
   colorOf, hairlineOf, structuralRuleOf, surfaceFillOf, HIT_TARGET_MIN, INSET_ROW_X, INSET_ROW_Y,
   PRESS_OPACITY, RADIUS_CARD, RADIUS_SHEET, SHEET_ACTION_GLYPH, SPACE_MD, SPACE_SM, SPACE_XS, STROKE_HAIRLINE,
   SHEET_WIDTH, SURFACE_CARD } from '../core/design';
-import { fs, fw } from './SettingsRows';
+import { fs, fw, lh } from './SettingsRows';
 // 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线；E3 统一）。
 import { sheetTransition } from './anim';
 
@@ -81,7 +81,8 @@ export struct PluginsSheet {
    *
    * ⛔ 它**不在**关键路径上：任何插件（含以后 web 新加的/第三方的）都经**通用深链**
    * （`onOpenPlugin` → `pluginViewDeepLink`，数据来自插件自己声明的 `contributes.views`）
-   * 打开。原生面板只是"比 webview 更快更贴合原生"的增强项（同 `会话统计`/`技能` 的先例）。
+   * 打开。本入口 = **保底直入口**（插件卡那条路依赖 `web_plugin_list` 成功；本入口不依赖）。
+   * 契约见 `tools/tests/git_panel.test.ts` ①。
    */
   onOpenGit: () => void = () => {
   };
@@ -97,6 +98,27 @@ export struct PluginsSheet {
 
   private pal(): Palette {
     return paletteOf(this.theme);
+  }
+
+  // ── 取色门（§21.115）─────────────────────────────────────────────────────────
+  // `this.pal()` 是**未记忆化分配**（每次 `withAccent` 重新分配调色板），而门禁 **B 线**
+  // （`this.pal()` ∨ `this.palOnce()` 的**字面出现次数**，`tools/perf/guard.sh`）**零余量**
+  // ⇒ 把**重复**的直读收敛成方法（同一色只写一处），本批**净减**读取点。
+  // ⛔ 语义逐字节不变：只是把 3 处同色直读收成 1 处（同 `PanelRows.trailColor` 的既有做法）。
+  private fg(): string {
+    return this.pal().textPrimary;
+  }
+
+  private accentSoftColor(): string {
+    return this.pal().accentSoft;
+  }
+
+  private mutedIcon(): string {
+    return colorOf(this.pal(), 'iconMuted');
+  }
+
+  private mutedText(): string {
+    return this.pal().textMuted;
   }
 
   /** 三态状态行（判据在 `core/pluginview.ets`；**判据与渲染同源**）。 */
@@ -120,7 +142,7 @@ export struct PluginsSheet {
     return shadowLayersOf(this.pal(), 'overlay');
   }
 
-  /** 一行「跳转入口」（能力面板的三条固定入口：原生目录 / 会话统计 / 完整 Web UI）。
+  /** 一行「跳转入口」（能力面板的固定入口：原生目录 / 会话统计 / 技能 / 完整 Web UI）。
    *
    * 结构与下方**插件行逐项对齐**（图标 → 标题 → 尾部 chevron）：真机帧里此前入口行**没有图标**
    * 而插件行有 ⇒ 同一张表里两种行形，前 3 行看着"没画完"（`EntryRow` 与插件行的差别只有这一点）。
@@ -132,13 +154,13 @@ export struct PluginsSheet {
     Row({ space: SPACE_XS }) {
       SymbolGlyph(sym)
         .fontSize(PLUGIN_ICON)
-        .fontColor([this.pal().accentSoft])
-      Text(label).fontSize(fs('type.callout')).fontColor(this.pal().textPrimary).layoutWeight(1)
+        .fontColor([this.accentSoftColor()])
+      Text(label).fontSize(fs('type.callout')).fontColor(this.fg()).layoutWeight(1)
       // 尾部 = **chevron**（Apple 列表里"可进入"的惯用形态）。此前这里是 accent 文字「打开」，
       // 与插件行一起重复 6 次 ⇒ 一张表里 6 个同色动作词：既噪、又把"整行可点"读成"两个按钮"。
       SymbolGlyph($r('sys.symbol.chevron_right'))
         .fontSize(fs('type.caption'))
-        .fontColor([colorOf(this.pal(), 'iconMuted')])
+        .fontColor([this.mutedIcon()])
     }
     .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
     .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
@@ -197,6 +219,8 @@ export struct PluginsSheet {
             })
           }
           // Git 面板（web 内置插件 `xbot.git-fancy` 的**原生渲染**增强项；插件行本身走通用深链）
+          // ⛔ 保留为**固定入口**（契约见 `tools/tests/git_panel.test.ts` ①：它是**可选增强**、
+          //    不在关键路径上 —— 插件卡那条路即使 RPC 拉目录失败也还在，这里给一条**保底**直入口）。
           ListItem() {
             this.EntryRow('Git 面板（原生）', $r('sys.symbol.arrow_triangle_merge'), (): void => {
               this.onOpenGit();
@@ -242,21 +266,48 @@ export struct PluginsSheet {
             }
           }
 
+          // ── 分组头「插件」（§21.115，Apple 分组列表语言）───────────────────────────
+          // 为什么要有：上面 4 行是**原生固定入口**，下面是**插件目录**里的插件卡片 —— 此前
+          // 二者同形**无分组**，一张表读下来像"8 个并列条目"（用户要的"对标苹果"= 分组可读）。
+          // 分组头文案/字阶对齐侧边栏既有分组头（今天/昨天/更早）同一语言；行高由
+          // `core/pluginview.ets:PANEL_SECTION_HEADER_H` **单独**计入（⛔ 不折进
+          // `PANEL_FIXED_ENTRY_ROWS` —— 它只数上面那 5 条入口行）。
+          if (this.plugins.length > 0) {
+            ListItem() {
+              Text('插件')
+                .fontSize(fs('type.micro'))
+                .fontWeight(fw('type.micro'))
+                .fontColor(this.mutedText())
+                .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                .width('100%')
+                .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_SM, bottom: SPACE_XS })
+            }
+          }
+
           // ── 插件行（图标 / 名称 / v版本·state / 描述 / 打开）──────────────────────
           // ⛔ 三态期间（加载/失败）不画空列表；有数据时才逐行渲染。
           ForEach(this.plugins, (p: PluginCatalogItem) => {
             ListItem() {
+              // ⚠️ §21.115：`alignItems(VerticalAlign.Top)` + 图标放进**高度 = 标题行高**的居中盒
+              //    ⇒ 前导图标与**首行标题同轴**（此前 Row 默认 `Center`，图标按**整卡**垂直居中 ⇒
+              //    在 3 行卡（名称 + 描述 + 提示）里落到**描述行**高度、与标题不同轴）。
+              //    Apple 多行列表行范式：前导字形对齐**第一行文本**，不是整块居中。
               Row({ space: SPACE_XS }) {
-                SymbolGlyph(pluginSymbol(p.icon))
-                  .fontSize(PLUGIN_ICON)
-                  .fontColor([this.pal().accentSoft])
+                Row() {
+                  SymbolGlyph(pluginSymbol(p.icon))
+                    .fontSize(PLUGIN_ICON)
+                    .fontColor([this.accentSoftColor()])
+                }
+                .height(lh('type.callout'))
+                .justifyContent(FlexAlign.Center)
+                .alignItems(VerticalAlign.Center)
                 Column({ space: SPACE_XS }) {
                   Row({ space: SPACE_XS }) {
-                    Text(p.name).fontSize(fs('type.callout')).fontColor(this.pal().textPrimary)
+                    Text(p.name).fontSize(fs('type.callout')).fontColor(this.fg())
                       .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
                     if (pluginMetaText(p.version, p.state).length > 0) {
                       Text(pluginMetaText(p.version, p.state))
-                        .fontSize(fs('type.micro')).fontColor(this.pal().textMuted)
+                        .fontSize(fs('type.micro')).fontColor(this.mutedText())
                         // ⚠️ 这一处原为 `flexShrink(0)` —— 但它是**文本**（版本/状态由插件给，可能很长）
                         // ⇒ 顶宽、把 `Row` 撑爆（全仓 11 处 `flexShrink(0)` 里唯一挂在文本上的）。
                         // ⇒ 改为**可收缩 + 单行省略**（`p.name` 那侧的 `layoutWeight(1)` 保持不动）。
@@ -265,14 +316,14 @@ export struct PluginsSheet {
                   }.width('100%').alignItems(VerticalAlign.Center)
                   if (p.description.length > 0) {
                     Text(p.description)
-                      .fontSize(fs('type.caption')).fontColor(this.pal().textMuted)
+                      .fontSize(fs('type.caption')).fontColor(this.mutedText())
                       .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
                   }
                   // ⛔ 无独立面板的插件（只声明内嵌徽章/条，或未声明 contributes）⇒ 说明它
                   //    「已经在哪儿生效了」，别让用户去找一个不存在的面板（判据 `pluginOpenHint`）。
                   if (pluginOpenHint(p).length > 0) {
                     Text(pluginOpenHint(p))
-                      .fontSize(fs('type.micro')).fontColor(this.pal().textMuted)
+                      .fontSize(fs('type.micro')).fontColor(this.mutedText())
                       .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
                   }
                 }.layoutWeight(1).alignItems(HorizontalAlign.Start)
@@ -281,12 +332,18 @@ export struct PluginsSheet {
                 //    如 `xbot.genui`）**不给 chevron** —— 否则点开是一个空页（用户原话
                 //    「统计插件的面板我们看不到」的根因；判据 `pluginOpenHint`/`isPanelContainer`）。
                 if (p.openable) {
-                  SymbolGlyph($r('sys.symbol.chevron_right'))
-                    .fontSize(fs('type.caption'))
-                    .fontColor([colorOf(this.pal(), 'iconMuted')])
+                  Row() {
+                    SymbolGlyph($r('sys.symbol.chevron_right'))
+                      .fontSize(fs('type.caption'))
+                      .fontColor([this.mutedIcon()])
+                  }
+                  .height(lh('type.callout'))
+                  .justifyContent(FlexAlign.Center)
+                  .alignItems(VerticalAlign.Center)
                 }
               }
               .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
+              .alignItems(VerticalAlign.Top)
               .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
               .stateStyles({
                 pressed: { .opacity(p.openable ? PRESS_OPACITY : 1) },
@@ -307,7 +364,11 @@ export struct PluginsSheet {
       // **扁平行 + 行内发丝** —— 与同 App 的「文件」面板（`FilesSheet`）和会话抽屉**同一形态**。
       // 病根：9 条同形卡片在真机截图上读作"一堆圆角块"，分组层级消失；Apple 的分组列表是
       // **一张容器 + 行内发丝**（左缘内缩到文字起点，线只从正文起画）。⛔ 行高/热区不动（仍 ≥44）。
-      .divider({ strokeWidth: STROKE_HAIRLINE, color: hairlineOf(this.pal()), startMargin: INSET_ROW_X })
+      // ⚠️ §21.115：`startMargin` 从 `INSET_ROW_X`（= 图标左缘）**再内缩一个图标槽**
+      //    （`PLUGIN_ICON + SPACE_XS`）⇒ 线从**正文起点**画（Apple `UITableView.insetGrouped`
+      //    的 inset separator 语义：线跟着文字走，不穿过前导字形）。与侧边栏行内 `Divider`
+      //    的 `INSET_ROW_X + MARKER_GUTTER + SPACE_XS` 同一口径。
+      .divider({ strokeWidth: STROKE_HAIRLINE, color: hairlineOf(this.pal()), startMargin: INSET_ROW_X + PLUGIN_ICON + SPACE_XS })
       }
       .width('100%').padding(SPACE_MD)
       .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))

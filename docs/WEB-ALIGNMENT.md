@@ -5531,3 +5531,51 @@ ArkTS 类型检查忽略**（假绿），接线后必须重跑。
 **ForEach 处数一处未增**（复用两处既有 ForEach）。
 
 
+
+## §21.115 能力面板（插件）精修：分组头 + 图标同轴 + 发丝内缩 + 取色净减 + 插件卡**直开原生**（目标③④）
+
+**动因（④ 逐项装机实证后的收口）**：本批先把用户 ④ 的每一项在模拟器上**逐条定性** ——
+① **插件打开流程真的能用**（能力面板 → 插件目录 → 点 Git 面板「打开」⇒ **原生 Git 面板**；
+远程机器（SSH）⇒ WebSurface 载入原生 chrome + SSH 面板）；② **统计插件的面板完全可用**
+（能力面板「会话统计」⇒ 原生 `SessionStatsSheet`：输入 4.00B / 输出 14.03M / 缓存命中 3.71B /
+命中率 92.6% / LLM 时长 29h40m / 19913 迭代 · 128 轮次 / Avg TTFT 2.0s / Avg TPOT 4ms /
+Avg tok/s 292 / 上下文水位 165.5k / 按模型 / 最近迭代表）—— 用户原话「统计插件的面板我们看不到」
+**已解决**（web 侧它正是 `xbot.session-stats` 的 `right_sidebar` 视图，标题「统计」，`sessionStats.ts:162`）；
+③ **文件管理在**（后端 FS API **只读** `/api/fs/list|read|raw|search|stat`，web 侧亦无写端点 ⇒
+非缺口；原生 `FilesSheet` 面包屑/列表+大小/预览/搜索齐）；④ **终端做得好**（真终端 45×24 + 全键位条）；
+⑤ **任务管理在**（运行面板「后台」页签 = 主行命令 + 副行「状态 · exit N · 时长 · id」，运行中置顶、
+前导状态字形、行内终止）。⇒ 本批聚焦 ③「对标苹果」。
+
+**本批交付（能力面板）**：
+- **分组头「插件」**：上面 5 条是**原生固定入口**（原生目录 / 会话统计 / 技能 / Git 面板（原生）/
+  完整 Web UI），下面是**插件目录**里的插件卡 —— 此前二者同形**无分组**，一张表读下来像"一堆并列
+  条目"（Apple 分组列表 = 分组可读）。分组头字阶/文案对齐侧边栏既有分组头（今天/昨天/更早）同一语言；
+  **条件渲染**（`plugins.length > 0` 才画）。
+- **前导图标与首行标题同轴**：插件行 `Row` 改 `alignItems(VerticalAlign.Top)`，图标放进**高度 =
+  标题行高**（`lh('type.callout')`）的居中槽 ⇒ 图标对齐**第一行文本**（此前默认 `Center`，在
+  3 行卡（名称 + 描述 + 提示）里图标落到**描述行**高度、与标题不同轴）。尾部 chevron 同法进同高槽。
+- **行内发丝内缩到文本列**：`List.divider` 的 `startMargin` 从 `INSET_ROW_X`（图标左缘）改为
+  `INSET_ROW_X + PLUGIN_ICON + SPACE_XS` ⇒ 线从**正文起点**画（Apple `UITableView.insetGrouped`
+  的 inset separator：线跟着文字走，不穿过前导字形）。与侧边栏行内 `Divider` 的
+  `INSET_ROW_X + MARKER_GUTTER + SPACE_XS` 同一口径。
+- **取色门收敛（性能）**：`this.pal()` 直读在此前是**逐处散写** ⇒ 收敛成
+  `private fg()/accentSoftColor()/mutedIcon()/mutedText()`（同一色只写一处，同 `PanelRows.trailColor`
+  既有做法）。实测 **B 线 1353 → 1343（−10）· A 线 1250 → 1206（−44）**。
+- **插件卡直开原生（零 WebView 往返）**：`Index.onOpenPlugin` 在导航前先用**既有注册表**
+  `nativeViewKind(parseXbotViewLink(target.url).viewId)` 判「有没有原生落地」⇒ 有（如
+  `xbot.git-fancy.panel` → `git.panel`）就**直开原生面板**，⛔ 不再付一次整页 WebSurface 装载
+  （真机可见的**闪白**）。⛔ 判据与拦截链**同源**（同一个 `nativeViewKind`）；无原生落地 ⇒
+  WebSurface 兜底（任何非原生插件照旧可用）。
+- ⛔ **保留**「Git 面板（原生）」**固定入口**：它是**设计契约**（`tools/tests/git_panel.test.ts` ①：
+  可选增强、**不在关键路径**）。本批一度删除（想消同表两个 Git 条目）⇒ 契约红 ⇒ 判定"插件卡那条路
+  依赖 `web_plugin_list` 成功、固定入口不依赖"⇒ **保底直入口**，保留。
+
+**判据/同源**：`core/pluginview.ets` 新增 `PANEL_SECTION_HEADER_H`（分组头 ≈ 30vp，**单独**计入
+`pluginPanelListHeight`，仅在 `pluginCount > 0` 时 —— 与组件 `if (plugins.length > 0)` **同源**）；
+`PANEL_FIXED_ENTRY_ROWS` 仍 = 5（只数 5 条入口行，⛔ 分组头不折进来）。测试：
+`tools/tests/pluginview.test.ts` ★H（+分组头、**无插件不计分组头**）、`plugin_icons.test.ts`
+①d（分组头恰 1 · Git 固定入口保留 · 顶部对齐 · 图标槽高 · 发丝内缩）、`git_panel.test.ts` ①（**未动**）、
+`skills_pure.test.ts` ★（`PANEL_FIXED_ENTRY_ROWS === 5` 未动）。
+
+**性能预算**：**B 线 1353 → 1343、A 线 1250 → 1206**（净减；⛔ 未调阈值，无需 §5 记录）；
+ForEach 处数一处未增（分组头是普通 `ListItem`，不是新 `ForEach`）。

@@ -124,6 +124,21 @@ const hostBody: string = pluginSymbolBody(hostSrc);
   eq('①b 尾部动作统一为 chevron（两类行各 1 处 = 2）',
     countOf(sheetSrc, "$r('sys.symbol.chevron_right')"), 2);
   eq('①b ⛔ 不再有文字动作词「打开」', countOf(sheetSrc, "Text('打开')"), 0);
+
+  // ── ①d §21.115 能力面板精修（分组头 / 图标同轴 / 发丝内缩）─────────────────────────
+  // ① 分组头「插件」：把 5 个原生入口与插件卡**分组可读**（Apple 分组列表语言）。
+  //    ⛔ 保留 Git 固定入口（契约见 `git_panel.test.ts` ①）⇒ 这里钉"仍恰 1 处"。
+  eq('①d 分组头「插件」恰 1 处', countOf(sheetSrc, "Text('插件')"), 1);
+  eq('①d Git 固定入口保留（契约在 git_panel.test.ts）',
+    countOf(sheetSrc, "this.EntryRow('Git 面板（原生）'"), 1);
+  // ② 前导图标与首行标题**同轴**：插件行 `Row` 顶部对齐（+ 图标槽 = 标题行高）。
+  eq('①d 插件行顶部对齐（图标与首行标题同轴）',
+    countOf(sheetSrc, '.alignItems(VerticalAlign.Top)') >= 1, true);
+  eq('①d 图标槽高 = 标题行高（lh(type.callout)）',
+    countOf(sheetSrc, ".height(lh('type.callout'))") >= 2, true);
+  // ③ 发丝内缩到**正文起点**（Apple insetGrouped 的 inset separator：线不穿过前导字形）。
+  eq('①d 行内发丝 startMargin 内缩到文本列',
+    countOf(sheetSrc, 'startMargin: INSET_ROW_X + PLUGIN_ICON + SPACE_XS'), 1);
   // 说明段（"原生渲染聊天主链路；…"）已删：它**不准**（`插件目录（原生）`/`会话统计` 是原生渲染，
   // 不属"由 ArkWeb 承载"），且 Apple 的用户面弹层不解释渲染架构（各行标签已自带该信息）。
   eq('①b ⛔ 已删实现说明段', countOf(sheetSrc, "Text('原生渲染聊天主链路"), 0);
@@ -145,8 +160,10 @@ const hostBody: string = pluginSymbolBody(hostSrc);
     eq('①c ⛔ 行级面→面描边已退场（只剩「重试」那一处）',
       countOf(sheetSrc, '.border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })'), 1);
     // 正面判据：`List` 级 `.divider(...)` 必须在，且左缘**内缩到文字起点**（Apple 的 inset separator）
-    eq('①c 行内发丝在（`List.divider` + `startMargin: INSET_ROW_X`）',
-      countOf(sheetSrc, '.divider({ strokeWidth: STROKE_HAIRLINE, color: hairlineOf(this.pal()), startMargin: INSET_ROW_X })'), 1);
+    // ⚠️ §21.115：内缩量从 `INSET_ROW_X` 改为 `INSET_ROW_X + PLUGIN_ICON + SPACE_XS`（线从**正文**
+    //    起画）⇒ 本处只钉**前缀**（发丝在 + startMargin 已设），精确形态由 ①d 钉。
+    eq('①c 行内发丝在（`List.divider` + startMargin 已设）',
+      countOf(sheetSrc, '.divider({ strokeWidth: STROKE_HAIRLINE, color: hairlineOf(this.pal()), startMargin: INSET_ROW_X'), 1);
     eq('①c 两类行统一走"无竖向内距"的行体内距 = 2（入口行 + 插件行）',
       countOf(sheetSrc, 'padding({ left: INSET_ROW_X, right: INSET_ROW_X })'), 2);
     // 同源对照：`FilesSheet`（形态基准）用的是**同一句**（若将来改基准，两处必须同时改）

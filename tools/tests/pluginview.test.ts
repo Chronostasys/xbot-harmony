@@ -25,6 +25,7 @@ import {
   pluginPanelEmptyText, pluginPanelErrorText, pluginPanelStatus, pluginMetaText,
   webHttpErrorDetail,
   PANEL_ENTRY_ROW_H, PANEL_FIXED_ENTRY_ROWS, PANEL_LIST_MAX_H, PANEL_LIST_MIN_H, PANEL_PLUGIN_ROW_H,
+  PANEL_SECTION_HEADER_H,
   pluginPanelListHeight,
 } from '../../entry/src/main/ets/core/pluginview';
 
@@ -236,19 +237,22 @@ eq('★D2 info 去空白', webErrorDetail('  oops  ', 0), 'oops');
   const h4: number = pluginPanelListHeight(PANEL_FIXED_ENTRY_ROWS, 4, 0);
   ok('★H 4 个插件时列表高度**必须大于**旧硬编码 320（否则靠后的插件行被裁）', h4 > 320);
   // 且要真的装得下（未触上限时，估计高度 ≥ 行数 × 行高估值）
-  eq('★H 未触上限 ⇒ 恰为 3×入口行 + 4×插件行',
-    h4, PANEL_FIXED_ENTRY_ROWS * PANEL_ENTRY_ROW_H + 4 * PANEL_PLUGIN_ROW_H);
+  // ⚠️ §21.115：有插件时**再加分组头**（`PANEL_SECTION_HEADER_H`，与组件 `if (plugins.length>0)` 同源）。
+  eq('★H 未触上限 ⇒ 恰为 N×入口行 + M×插件行 + 分组头',
+    h4, PANEL_FIXED_ENTRY_ROWS * PANEL_ENTRY_ROW_H + 4 * PANEL_PLUGIN_ROW_H + PANEL_SECTION_HEADER_H);
   ok('★H 该高度 ≥ 各行估值之和（装得下，不裁行）',
-    h4 >= PANEL_FIXED_ENTRY_ROWS * PANEL_ENTRY_ROW_H + 4 * PANEL_PLUGIN_ROW_H);
+    h4 >= PANEL_FIXED_ENTRY_ROWS * PANEL_ENTRY_ROW_H + 4 * PANEL_PLUGIN_ROW_H + PANEL_SECTION_HEADER_H);
 
   // 下限：行少/零行 ⇒ 不缩水（保持现状观感）
   eq('★H 零行 ⇒ 下限', pluginPanelListHeight(0, 0, 0), PANEL_LIST_MIN_H);
   eq('★H 仅 3 条固定入口 ⇒ 下限（198 < 320）', pluginPanelListHeight(3, 0, 0), PANEL_LIST_MIN_H);
+  eq('★H ⛔ 无插件 ⇒ **不计**分组头（与组件条件渲染同源）',
+    pluginPanelListHeight(3, 0, 1), PANEL_LIST_MIN_H);
 
   // 上限：行多 ⇒ 到顶后表内滚动（卡片不再长高）
   eq('★H 100 个插件 ⇒ 上限', pluginPanelListHeight(3, 100, 0), PANEL_LIST_MAX_H);
-  eq('★H 状态行/重试行也计入（各 1 行入口高）', pluginPanelListHeight(3, 2, 2),
-    3 * PANEL_ENTRY_ROW_H + 2 * PANEL_PLUGIN_ROW_H + 2 * PANEL_ENTRY_ROW_H);
+  eq('★H 状态行/重试行也计入（各 1 行入口高 + 分组头）', pluginPanelListHeight(3, 2, 2),
+    3 * PANEL_ENTRY_ROW_H + 2 * PANEL_PLUGIN_ROW_H + 2 * PANEL_ENTRY_ROW_H + PANEL_SECTION_HEADER_H);
 
   // 单调性：插件越多**绝不更矮**（否则"加插件反而看不见"）
   let mono = true;

@@ -402,13 +402,16 @@ export function pluginMetaText(version: string, state: string): string {
 //    `INSET_ROW_Y×2` + `GAP_ROW_Y`；插件行另有「名称/元信息 + 描述」两层文本（额外 `SPACE_XS`）。
 //    估值**宁可略高**：高了只是卡片略高；**低了就会裁掉行**（正是旧缺陷）。
 
-/** 能力面板的**固定入口行**数（原生目录 / 会话统计 / 技能 / 完整 Web UI）——与组件里的四条 `ListItem` 同源。 */
 /**
  * 固定「入口行」行数（生产恒为 `PANEL_FIXED_ENTRY_ROWS`）—— **高度估值与真实行数同源**。
  *
  * ⚠️ 4 → 5（2026-10-13）：新增「Git 面板（原生）」入口（web 内置插件 `xbot.git-fancy` 的
  *   可选增强）。⛔ 这里改了就必须改 `components/PluginsSheet.ets` 的真实行数：两处失配 =
  *   13h 那个「第 N 行被裁」缺陷（高度估值少算一行 ⇒ 列表区放不下最后一行）。
+ *
+ * ⚠️ **§21.115**：值仍 = 5（原生目录 / 会话统计 / 技能 / Git 面板（原生）/ 完整 Web UI）；
+ *   新增的**分组头「插件」不再折进本常量** —— 它由 `PANEL_SECTION_HEADER_H` **单独**计入
+ *   `pluginPanelListHeight`（按真实 ≈ 半行高估值，⛔ 不再虚占一整行入口高）。
  */
 export const PANEL_FIXED_ENTRY_ROWS: number = 5;
 /** 「入口行」高度估值（vp）：单行文本，取命中区下限 + 上下内距 + 行间距。 */
@@ -434,6 +437,13 @@ function panelRowCount(n: number): number {
 }
 
 /**
+ * 分组头行高度估值（vp；§21.115）—— 插件卡列表前的分组头「插件」。
+ * 实际 ≈ 1 行 micro 文本 + 上内距 `SPACE_SM` + 下内距 `SPACE_XS` ≈ 26vp ⇒ 取 **30**（略高、安全方向）。
+ * ⛔ 只在**有插件**（分组头才渲染）时计入 —— 与组件里 `if (this.plugins.length > 0)` 同源。
+ */
+export const PANEL_SECTION_HEADER_H: number = 30;
+
+/**
  * 能力面板列表的高度（vp）——**夹在 `[PANEL_LIST_MIN_H, PANEL_LIST_MAX_H]`**。
  *
  * @param entryRows   固定入口行数（生产恒为 `PANEL_FIXED_ENTRY_ROWS`）
@@ -441,9 +451,12 @@ function panelRowCount(n: number): number {
  * @param statusRows  三态状态行占的行数（状态行本身 + 可能的「重试」行；无状态行传 0）
  */
 export function pluginPanelListHeight(entryRows: number, pluginCount: number, statusRows: number): number {
+  const nPlugins: number = panelRowCount(pluginCount);
   const h: number = panelRowCount(entryRows) * PANEL_ENTRY_ROW_H
-    + panelRowCount(pluginCount) * PANEL_PLUGIN_ROW_H
-    + panelRowCount(statusRows) * PANEL_ENTRY_ROW_H;
+    + nPlugins * PANEL_PLUGIN_ROW_H
+    + panelRowCount(statusRows) * PANEL_ENTRY_ROW_H
+    // 分组头只在有插件时渲染（与组件 `if (this.plugins.length > 0)` 同源）。
+    + (nPlugins > 0 ? PANEL_SECTION_HEADER_H : 0);
   if (h > PANEL_LIST_MAX_H) {
     return PANEL_LIST_MAX_H;
   }

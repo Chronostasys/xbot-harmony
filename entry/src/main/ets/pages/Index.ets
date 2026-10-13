@@ -95,7 +95,7 @@ import {
   sessionStatusRole,
 } from '../core/sessiongroup';
 import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msgindex';
-import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, PluginOpenTarget, PluginViewItem, WebPluginListWire, buildPluginCatalog, nativeViewKind, pluginOpenTarget, pluginViewDeepLink, pluginViewTarget, primaryViewId } from '../core/pluginhost';
+import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, PluginOpenTarget, PluginViewItem, WebPluginListWire, XbotViewLink, buildPluginCatalog, nativeViewKind, parseXbotViewLink, pluginOpenTarget, pluginViewDeepLink, pluginViewTarget, primaryViewId } from '../core/pluginhost';
 import { hasIterStatsBadge, iterStatsText } from '../core/pluginviews';
 import { SkillItem } from '../core/skills';
 import { FsFileEntry, FsReadResult, FsSearchEntry, fileKindOf, FK_IMAGE, fsMention, sortFsEntries, sortFsSearch } from '../core/files';
@@ -4626,6 +4626,19 @@ struct Index {
               //    目录那条曾直接载入 `openUrl` = host 根页 = 聊天页 ⇒「跑回主界面」）。
               const target: PluginOpenTarget = pluginOpenTarget(p, this.serverUrl);
               if (target.url.length > 0) {
+                // ── §21.115：有**原生落地**的视图 ⇒ 直开原生面板（⛔ 不绕 WebSurface）────────────
+                // 为什么：插件卡（如 `xbot.git-fancy` 的「Git 面板」）的通用深链最终也会被
+                //   `onLoadIntercept` → `routePluginView` → `nativeViewKind` 拦回**同一个**原生面板
+                //   —— 但要多付一次整页 WebSurface 装载（真机可见的**闪白**）。这里在**导航前**先用
+                //   **同一个注册表**（`nativeViewKind`）判一次 ⇒ 直开原生、少一次往返。
+                // ⛔ 判据与拦截链**同源**（`nativeViewKind` 单一天源）；无原生落地 ⇒ 走 WebSurface 兜底
+                //   （任何非原生插件照旧可用）。这也让「删掉重复的『Git 面板（原生）』独立入口」成为
+                //   纯去重（能力不减：插件卡这条路变成**一等路径**）。
+                const link: XbotViewLink | null = parseXbotViewLink(target.url);
+                if (link !== null && nativeViewKind(link.viewId).length > 0) {
+                  this.routePluginView(link.viewId, link.title, target.url, link.params);
+                  return;
+                }
                 this.panelTitle = target.title;
                 this.panelUrl = target.url;
                 return;
