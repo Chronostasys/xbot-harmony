@@ -50,8 +50,11 @@ import { fadeTransition, sheetTransition } from './anim';
  * 本仓画布是**单个 Text 的 TextSpan 摊平**（`flatSpans`）——500 行 ≈ 数千 span 段仍是
  * **单组件**排版（无组件节点增长）；buffer 数据永远充足（VtTerm `maxScrollback=1000`
  * > 500，core/vt.ets:218）。⚠️ 若真机滚动掉帧 ⇒ 回落 300 或改视口窗口渲染。
+ *
+ * 500 → **1000**（2026-10-17，#7-3）：对齐 `VtTerm maxScrollback=1000` **整 buffer 上限**
+ * （此前只用一半——「buffer 数据永远充足」口径顺带升级为「全量」）。掉帧回落预案同上不变。
  */
-const TERM_MAX_LINES: number = 500;
+const TERM_MAX_LINES: number = 1000;
 /** 合并刷新间隔（ms）：≈10fps，够流畅且不会把 UI 线程打满。 */
 const TERM_FLUSH_MS: number = 100;
 /**

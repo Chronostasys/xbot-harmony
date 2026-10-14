@@ -2797,6 +2797,10 @@ struct Index {
     if (!alreadyOpen) {
       target.beginSwitch(chatId);
     }
+    // #7-4（2026-10-17）：切会话自动对账终端列表（web `useTerminal.ts:315-317` restoreFromBackend
+    // 同款——chatID 变化即拉；此前仅建/删后拉 ⇒ 别的端建的终端要等手动刷新才出现）。
+    // fire-and-forget：不阻塞切换（结果经 store.onUpdate 泵回界面）。
+    void target.loadTerminals();
     // ⛔ 切会话**不再**用"整张列表 opacity 0.001 → 1"来遮旧会话：
     //    那是"可读性成了动画的函数"（动画被打断/未跑 ⇒ 整列表近不可见，用户亲报的同类缺陷）。
     //    现在由 **行级 `entryRestOpacity()` + `.transition` 出现过渡**（`core/msgentry.ets`）负责观感：
