@@ -4135,7 +4135,7 @@ struct Index {
    * ⛔ 白名单外/基地址空 ⇒ `webPanelDeepLink` 返回空串 ⇒ **什么都不开**（fail-closed，
    *    ⛔ 不渲染一个 web 端会忽略参数、看着像"点了没反应"的空白页）。
    */
-  private openWebPanel(panelId: string): void {
+  private openWebPanel(panelId: string): boolean {
     this.showDrawer = false;
     this.panelUrl = '';
     const store: ChatStore | null = this.store;
@@ -4147,12 +4147,15 @@ struct Index {
       : (store !== null ? store.http.baseUrl : '');
     const url: string = webPanelDeepLink(base, panelId);
     if (url.length === 0) {
-      this.toast('服务器地址未配置，无法打开面板');
-      return;
+      // ⛔ fail-closed：白名单外/基地址空 ⇒ **不开任何 WebView**，返回 `false` 让调用方**回落**
+      //    到原生面板（§21.122e）。⛔ 不再在这里弹"服务器地址未配置" —— 每个调用点都有原生
+      //    回落时，一条错误提示反而是噪音（原生面板已经把能力端上来了）。
+      return false;
     }
     const title: string = webPanelTitle(panelId);
     this.panelTitle = title.length > 0 ? title : '面板';
     this.panelUrl = url;
+    return true;
   }
 
   /**
@@ -5826,9 +5829,14 @@ struct Index {
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('文件管理：浏览与预览工作目录')
+        .accessibilityText('文件管理：web 文件面板（`core.files`；离线回落原生）')
         .onClick(() => {
-          this.openFiles();
+          // §21.122e（用户定向「插件默认走 webview 渲染」）：**优先**渲 web 自己的文件面板
+          // （`?xbot_panel=files`，与 web 逐字同源、能力自动跟随 web 演进）；
+          // ⛔ 只有拿不到基地址时才回落到原生 `FilesSheet`（`openWebPanel` 返回 false）。
+          if (!this.openWebPanel('files')) {
+            this.openFiles();
+          }
         })
 
         Row() {
@@ -10265,15 +10273,22 @@ struct Index {
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.list_bullet'))
             .fontSize(ICON_XL).fontColor([this.barTint('muted')])
-          Text('运行')
+          Text('任务')
             .fontSize(typeOf('type.micro').size).fontColor(this.barTint('text'))
         }
         .layoutWeight(1).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('运行面板：定时任务、后台任务、子代理、Runner')
+        // §21.122e（用户定向「任务管理做的很差」）：抽屉键由**原生运行面板**改为 **web 任务面板**
+        // （`?xbot_panel=tasks` = web 的 `core.tasks`/`TasksPanel`：cron ⏰ + 后台任务 ▶ 含 kill/remove
+        // —— 能力自动跟随 web 演进）；⛔ 拿不到基地址时**回落**到原生运行面板（它是超集：
+        // 另有子代理/Runner/终端），所以这次改动**不减少任何可达能力**。
+        // ⚠️ 原生运行面板的入口仍在**顶栏**（同一出口 `openPanels()`）⇒ 两者不是二选一，是分工。
+        .accessibilityText('任务：web 任务面板（cron + 后台任务；离线回落原生运行面板）')
         .onClick(() => {
-          this.openPanels();
+          if (!this.openWebPanel('tasks')) {
+            this.openPanels();
+          }
         })
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.puzzle'))
@@ -10297,11 +10312,13 @@ struct Index {
         .layoutWeight(1).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('文件管理：浏览与预览工作目录')
+        .accessibilityText('文件管理：web 文件面板（`core.files`；离线回落原生）')
         .onClick(() => {
-          this.showFiles = false;
-          this.showDrawer = false;
-          this.openFiles();
+          // §21.122e：优先 web 文件面板（与顶栏「文件」同一出口，判定同源）；拿不到基地址才回落原生。
+          if (!this.openWebPanel('files')) {
+            this.showFiles = false;
+            this.openFiles();
+          }
         })
         // ── §21.122c：**终端**（web 内置面板 `core.terminal` 走 WebView）────────────────────
         // 用户原话「终端和任务管理做的很差」——本仓此前**根本没有**终端入口（4 键里没有），

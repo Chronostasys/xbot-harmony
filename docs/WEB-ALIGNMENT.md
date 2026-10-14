@@ -6395,3 +6395,40 @@ web 侧那 9+ 处 `await navigator.clipboard.writeText(...)` 会抛 TypeError �
 2. 选择器与下载的**真机端到端取证**（点 `<input type=file>` 弹出选择器、点下载链接落盘）尚未做
    —— 本轮只到"真门禁编译 ✅ + 纯逻辑判据 ✅"。
 
+---
+
+## §21.122e：文件 / 任务 也接 `?xbot_panel=` 深链（入口从**原生面板**改指 **web 面板**）
+
+### ① 现状核查（先查清，别重复造）
+
+- 深链协议两侧**早已同源**：host `core/pluginhost.ets:836 WEB_PANEL_IDS` = web
+  `web/src/workspace/panelRequest.ts:PANEL_DEEP_LINK_IDS` = `['files','search','info','tasks','terminal']`
+  （逐个比对过 ✓）；`parsePanelQuery` 的消费方是 `AppShell.tsx:264` / `MobileAppShell.tsx:154`。
+- **缺的不是协议，是入口**：`openWebPanel()` 存在，但**唯一调用点只有 `'terminal'`**（§21.122c）
+  ⇒ 「文件」「任务」两键仍指向**原生** `FilesSheet` / 原生运行面板 ⇒ 用户"文件管理也没有、任务管理
+  做的很差"的体感**照旧**（原生那套是分叉实现，永远追不上 web）。
+
+### ② 改法（一条纪律：能渲 web 的就不写原生第二套）
+
+| 入口 | 改前 | 改后 |
+|---|---|---|
+| 顶栏「文件」（常驻） | 原生 `FilesSheet` | **web `core.files`**（`?xbot_panel=files`） |
+| 抽屉「文件」 | 原生 `FilesSheet` | **web `core.files`**（同一出口） |
+| 抽屉「运行」→**「任务」** | 原生运行面板 | **web `core.tasks`**（cron ⏰ + 后台任务 ▶，含 kill/remove） |
+| 抽屉「终端」 | （§21.122c 已接） | 不变 |
+
+- `openWebPanel(panelId)` 改为**返回 `boolean`**：白名单外/基地址空 ⇒ `false`（⛔ fail-closed，
+  不开任何 WebView），调用方**回落原生面板** ⇒ ⛔ 不再弹"服务器地址未配置"这种噪音提示。
+- ⛔ **不减少任何可达能力**：原生运行面板是 web 任务面板的**超集**（另有子代理/Runner/终端），
+  且其入口仍在**顶栏**（同一 `openPanels()`）⇒ 抽屉那枚是"换成更好的"，不是"删掉一个"。
+
+### ③ 记账（未闭环）
+
+- 原生 `FilesSheet` / 运行面板**保留**（离线回落路径 + 超集能力）；是否删除待用户拍板。
+  ⚠️ web 任务面板与原生运行面板**内容有重叠**（cron/后台任务）—— 若用户希望"一个入口"，
+  需要再定一次口径。
+- `core.search` / `core.info` 两个面板**尚无原生常驻入口**：目前只能在 web 面板内部导航到
+  （深链协议已支持，缺的只是原生键位 —— 与"底栏键位密度"一起待设计定夺）。
+- **真机端到端取证未做**（点「文件」「任务」是否真渲出 web 面板）。
+
+
