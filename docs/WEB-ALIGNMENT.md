@@ -6997,3 +6997,40 @@ Vite 产物文件名带内容哈希 ⇒ 旧 chunk 残留无害）。
 （`core/composer.ets:266-284` `cancelling = showStop && cancelInFlight`），
 若要帧级拍到，需要**亚秒级连拍**（≤200ms 一帧）—— ⛔ 不把"没拍到"写成"没实现"，
 也不把"形态代码在 + ≤1s idle 已证"含糊成"全部都验过"。
+
+## §21.122x：要求② 余项「iter 结束无 tool ⇒ 立刻 idle」**跨仓判据链已闭环**（无需帧级截图即成立）
+
+承 §21.122r（当时只有客户端侧同源判据）。本轮把**服务端那一端**也读到并确认有判据锁死 ⇒ 该要求的
+因果链**两端都有可判定证据**，不再依赖"模拟器发送点击"这种不稳的取证路径。
+
+**① 服务端：`PhaseDone` = turn 结束的最快信号（且每 turn 恰好一次）**
+- 产出点 = `runState.progressFinalizer`（`agent/engine_run.go:261` 赋值；`runState` 定义见 `:141`），
+  其体内置 `s.structuredProgress.Phase = PhaseDone` + `Seq` 自增（`:285-288`），并 `Clone()` 后
+  经 `ProgressEventHandler` 下发（`:291-298`）。
+- 注册点 = `Run()` 内的 defer：`agent/engine.go:626 defer s.progressFinalizer()` ⇒ **语义 = "Run 退出时"**
+  = **整个 turn 结束**（不是每个 iteration）。
+- **暂停不发**：`engine_run.go:275-284` 在 `s.waitingUser` 时**提前 return**，注释原文说明
+  "the agent turn is **paused** (not ended). Do NOT send PhaseDone — the CLI would clear all progress
+  state (iterationHistory/progress/lastCompletedTools), causing all previous iterations' tools to
+  disappear from the progress panel" ⇒ 与"**最后没 tool 才算 turn 结束**"的语义**一致**
+  （有待办工具在飞时 phase 不是 done，面板不清空）。
+- **Go 判据**：`agent/engine_progress_finalize_test.go:46`
+  `t.Fatalf("PhaseDone emitted %d times, want exactly 1 …")` —— 断言每次 `Run` **恰好 1 次** PhaseDone
+  （守住历史上"重复 defer ⇒ 双发"的回归）。
+
+**② 客户端：新鲜 `PhaseDone` ⇒ **本地立刻** idle（不等 REST 往返）**
+- 纯函数 `core/streammerge.ets:672-694 hasFreshPhaseDone(evs, lastSeqBefore, activeTurn)`
+  —— 守卫三件事：`evs===null` ⇒ false；`seq <= lastSeqBefore`（回放/陈旧）⇒ false；
+  `turnID !== activeTurn`（属别的 turn）⇒ false；否则 true（`seq`/`watermark` 缺失时**宽容放行**）。
+- 判据：语义 = `tools/tests/streammerge.test.ts §⑬`（真值表：新鲜 ⇒ true / 陈旧(==,<) ⇒ false /
+  null/空/无 phase_done ⇒ false / 缺 seq 或缺水位 ⇒ 宽容 true）；
+  接线 = `tools/tests/local_idle_wiring.test.ts`（**钉调用点计数**：`store.ets` 真 import + 调用点 ≥1、
+  `applyLocalIdle(` 调用点 ≥2 —— 钉"方法体存在"会假绿，故钉计数）。
+
+⇒ **结论（可判定）**：服务端在 turn 真正结束的**那一刻**（Run 退出，早于 `session(idle)`
+—— 后者要等 `Run()` 返回后 `agent/agent.go:3531` 的 defer 才发）就发出恰好一次 `PhaseDone`；
+客户端收到**新鲜**的它即本地置 idle ⇒ **"立刻进入 idle"成立**，且"有 tool 在跑时不会提前 idle"
+（服务端 waitingUser / phase≠done 语义 + 客户端 activeTurn/seq 新鲜性守卫**双重**保证）。
+⚠️ 帧级截图仍**未取到**（模拟器发送点击不稳；且本次采集暴露我方**判据写错**：`输入框=''`
+在"点击未聚焦、文字根本没输入"时也成立 ⇒ 假阳性。已改判据为"**先见文字进入输入框**、再见其清空"
+才算发出，见 `/tmp/dh.sh` 底座 + `/tmp/verify_idle2.sh`）。
