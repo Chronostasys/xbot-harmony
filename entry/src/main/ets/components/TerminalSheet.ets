@@ -108,8 +108,15 @@ export struct TerminalSheet {
   /** 关闭面板（**不**负责删终端；删除走运行面板列表的删除键）。 */
   onClose: () => void = () => {
   };
+  /**
+   * 状态上抛（快赢 1，2026-10-17）：status 翻转 ⇒ 通知页面（列表行消费 `terminalTone`/
+   * `terminalStatusText` 上色——此前状态困本地面板 ⇒ 列表恒 muted 灰点，审计病灶①）。
+   */
+  onStatus: (tid: string, status: string, exitCode: number) => void = (_tid: string, _status: string, _code: number) => {
+  };
 
-  @State private status: string = TERM_CONNECTING;
+  // 快赢 1：@Watch 上抛 status 翻转（初值挂载不触发——首帧列表 muted 恰与 connecting 同 tone）。
+  @State @Watch('onStatusWatch') private status: string = TERM_CONNECTING;
   /** 键栏展开态（快赢 2，2026-10-17）：默认展开 = 现状零变化；收起 ⇒ 画布多 ≈104vp。 */
   @State private showKeys: boolean = true;
   @State private exitCode: number = -1;
@@ -563,6 +570,11 @@ export struct TerminalSheet {
     this.term.resize(cols, r);
     this.sendResize();
     this.scheduleFlush(true);
+  }
+
+  /** 快赢 1（2026-10-17）：status 翻转 ⇒ 上抛页面（@Watch 触发；初值挂载不触发）。 */
+  onStatusWatch(): void {
+    this.onStatus(this.tid, this.status, this.exitCode);
   }
 
   private closeSelf(): void {

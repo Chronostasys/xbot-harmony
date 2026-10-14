@@ -16,6 +16,7 @@
  * ⛔ 本文件属 `core/`：禁止 import ArkUI / `@ohos.*`（`tools/tests/run.sh` 当纯 TS 编译）。
  */
 import { vtBytesToB64, vtUtf8Encode } from './vt';
+import { TONE_ERROR, TONE_MUTED, TONE_SUCCESS } from './panels';
 
 // ── 终端列表项（服务端 `ptySessionInfo`：`{tid,cwd,createdAt}`）───────────────
 export class TerminalInfo {
@@ -116,6 +117,18 @@ export function terminalStatusRole(status: string): string {
   if (status === TERM_CONNECTED) { return 'successText'; }
   if (status === TERM_ERROR) { return 'dangerText'; }
   return 'iconMuted';
+}
+
+/**
+ * 快赢 1（2026-10-17）：状态对应的**列表行 tone**（`TONE_*` 语义体系——`PanelRowCard` 的
+ * `@Prop tone`；与上面的 role 体系并行：role 给详情头图标、tone 给列表行副行）。
+ * web 对照 `TerminalList.tsx:27-33`（五态着色）的原生对应：connecting⇒muted（短暂）·
+ * connected⇒success · error⇒error · exited/closed⇒muted。
+ */
+export function terminalTone(status: string): string {
+  if (status === TERM_CONNECTED) { return TONE_SUCCESS; }
+  if (status === TERM_ERROR) { return TONE_ERROR; }
+  return TONE_MUTED;
 }
 
 // ── WS 消息（解析 / 编码）────────────────────────────────────────────────────

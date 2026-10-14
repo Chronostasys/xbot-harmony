@@ -57,7 +57,7 @@ import {
   SubAgentRow, subagentPrimary, subagentSubText, subagentTone, TONE_MUTED, LEAD_CRON,
   resolveSessionNode,
 } from '../core/panels';
-import { TerminalInfo, terminalPrimary, terminalSubText } from '../core/termproto';
+import { TerminalInfo, terminalPrimary, terminalSubText, terminalTone } from '../core/termproto';
 import {
   activeToken, applyCommand, applyMention, clampSel, CMD_ROWS, CommandItem, completionKeyAction,
   ComposerButton, composerButtonState, composerPlaceholder, enterSends,
@@ -847,6 +847,11 @@ struct Index {
    * （354 条的「事后查错」原生详情层是超集，⛔ 不砍——审计 pitfalls）。
    */
   @State panelBgOnlyRunning: boolean = true;
+  /**
+   * 快赢 1（2026-10-17）：终端 live 状态（tid ⇒ `status|exitCode` 复合串）——由
+   * `TerminalSheet` 的 `onStatus` @Watch 上抛；列表行按此取 tone（此前恒 muted 灰点，审计病灶①）。
+   */
+  @State terminalLive: Map<string, string> = new Map<string, string>();
   // 后台任务详情（用户点名「任务管理做的很差」：看不到输出、杀不掉 ⇒ 点列表行打开详情）
   @State showTaskDetail: boolean = false;
   @State taskDetailId: string = '';
@@ -5371,6 +5376,10 @@ struct Index {
               //    关 tab = 销毁后端 PTY + 从 store 移除 session（不留死条目）。
               void this.closeTerminal(this.termTid);
             },
+            // 快赢 1：status 翻转上抛 ⇒ 列表行 tone/文案跟上（此前状态困 sheet 本地 ⇒ 恒灰点）。
+            onStatus: (tid: string, st: string, code: number) => {
+              this.terminalLive.set(tid, `${st}|${code}`);
+            },
           })
         }.width('100%').height('100%')
         // 键盘让位（⛔ 见 `kbHeightPx` 注释）：终端 sheet 是 `.height('82%')` **居中**的，其底部
@@ -8050,6 +8059,19 @@ struct Index {
     return sortBgTasksActiveFirst(visible);
   }
 
+  /** 快赢 1（2026-10-17）：tid 的 live 复合键（无记录 ⇒ 'none'——含进 ForEach key ⇒ 翻转即行重建）。 */
+  private termLiveKey(tid: string): string {
+    const v: string | undefined = this.terminalLive.get(tid);
+    return v !== undefined ? v : 'none';
+  }
+
+  /** 快赢 1：tid 的列表行 tone（无记录 ⇒ muted 兜底——与 connecting 同 tone，首帧不闪）。 */
+  private termLiveTone(tid: string): string {
+    const v: string | undefined = this.terminalLive.get(tid);
+    if (v === undefined) { return TONE_MUTED; }
+    return terminalTone(v.split('|')[0]);
+  }
+
   /**
    * 打开后台任务详情。
    * ⛔ 判据**全部**来自 `core/panels.ets`（`bgTaskStatusText`/`bgTaskMetaText`/`bgTaskOutputText`/
@@ -9830,7 +9852,7 @@ struct Index {
                   primary: terminalPrimary(t, i),
                   secondary: terminalSubText(t, this.nowMs()),
                   // ⛔ 终端**列表**无连接状态数据（状态只在 `TerminalSheet` 的本地 @State）⇒ 恒 muted
-                  tone: TONE_MUTED,
+                  tone: this.termLiveTone(t.tid),
                   trailing: ROW_TRAIL_CLOSE,
                   onTap: () => {
                     this.openTerminal(t);
@@ -9840,7 +9862,7 @@ struct Index {
                   },
                 })
               }
-            }, (t: TerminalInfo, i: number) => `term-${t.tid}#${i}`)
+            }, (t: TerminalInfo, i: number) => `term-${t.tid}#${this.termLiveKey(t.tid)}#${i}`)
           }.layoutWeight(1).width('100%')
           // 切 tab = 分支移除 + 插入 => 用**出现过渡**（`fadeTransition`）。静息态恒为可见值
           // （⛔ 绝不写 `opacity(x?1:0)` + animateTo 那种「可读性是动画的函数」的形态，见门禁⑨）。
