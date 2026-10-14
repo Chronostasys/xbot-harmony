@@ -675,6 +675,29 @@ export function isLightPalette(p: Palette): boolean {
   return lum > 128;
 }
 
+/**
+ * 思考展开体（**长散文**，12.5fp 正文）的前景色 —— 取**达标档 `textSecondary`**。
+ *
+ * ⛔ 为什么不能沿用 `textMuted`（哪怕再乘 `TEXT_DIM`）：`AA_MUTED = 2.0` 在本仓
+ *    **只给元信息**，明文「**不外扩到正文**」（`docs/DESIGN-SYSTEM.md:1198/1240`），
+ *    而展开体是用户要读的散文。实测（2026-10-14，用户亲报「切主题后历史正文几乎不可见」）：
+ *      · 旧写法 `textMuted × TEXT_DIM(0.75)` 浅色 **1.90:1**（`#94A3B8` 压 `#F8FAFC`）—— 连 2.0 都不到；
+ *      · web 同款（`web/src/components/agent/ThinkingLine.tsx:72-73` = `text-muted` + `opacity-75`）
+ *        浅色也只有 **1.87:1** ⇒ **两仓同病**，此处 web **不是**合法基准。
+ *    ⚠️ 只把 `textMuted` 换成"达标档"但仍乘 0.75 **也解不掉**：porcelain `textSecondary` 压
+ *      `#F7F7F8` 乘 0.75 后 = **2.97 < 3.0** ⇒ 那层压暗本身就是把达标档重新拖下地板的原因。
+ *
+ * 取值：`p.textSecondary`，**不再叠任何 `.opacity()`**（刻度由**层级**表达，不由透明度表达）。
+ *    五套色板满不透明度对比度（对各自 `appBg`）：light **7.25** · porcelain **4.81** ·
+ *    dark **7.10** · aurora **9.37** · nebula **9.19** —— **全部 ≥ AA 4.5**，
+ *    且仍明显弱于正文（`textPrimary`）⇒ 深浅观感一致，不再是"浅色糊、深色还行"。
+ *    与正文之外的弱档（引用块 = `textSecondary`）**同族**，不再自造第三档。
+ * 判据：`tools/tests/thinking_body_contrast.test.ts`（含"退回旧写法必红"的判别力段）。
+ */
+export function thinkingBodyColor(p: Palette): string {
+  return p.textSecondary;
+}
+
 /** 解析 `#RRGGBB`（非法按黑处理，保证 isLightPalette 不抛）。 */
 function hexToRgb(hex: string): number[] {
   const h: string = hex.charAt(0) === '#' ? hex.slice(1) : hex;

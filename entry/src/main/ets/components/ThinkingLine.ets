@@ -32,9 +32,9 @@
  * 图标说明：web 用 lucide `Brain`；HarmonyOS 符号集无 brain，取语义最近的 `lightbulb`。
  *   **图标只是提示符，不承载状态**（光球关闭时才出现）。
  */
-import { paletteOf, surfacesOf } from '../core/theme';
+import { paletteOf, surfacesOf, thinkingBodyColor } from '../core/theme';
 import { FS_CAPTION, R_LG, SP_1, SP_5 } from '../core/tokens';
-import { PRESS_OPACITY, RADIUS_PILL, SPACE_HAIR, STROKE_RAIL, TEXT_DIM, colorOf, } from '../core/design';
+import { PRESS_OPACITY, RADIUS_PILL, SPACE_HAIR, STROKE_RAIL, colorOf, } from '../core/design';
 import { getReasoningOpen, setReasoningOpen } from '../core/reasoningopen';
 import { AssistantOrb, ORB_MODE_THINKING } from './AssistantOrb';
 import { fadeTransition } from './anim';
@@ -81,6 +81,19 @@ export struct ThinkingLine {
   /** 生效主题：全局订阅优先，`@Prop theme` 仅兜底（同 `MessageRow.themeId()`）。 */
   private themeId(): string {
     return this.appTheme.length > 0 ? this.appTheme : this.theme;
+  }
+  /**
+   * 展开体（**长散文** 12.5fp 正文）的前景色 = 纯函数 `core/theme.thinkingBodyColor`（判据/渲染同源）。
+   *
+   * 取值口径与取证见该函数头（2026-10-14 用户亲报「切主题后历史正文几乎不可见」）：
+   * 旧写法 `textMuted × TEXT_DIM(0.75)`（与 web `ThinkingLine.tsx:72-73` 逐字同源）合成后
+   * **light 1.90:1**（web 同款 1.87:1 —— 两仓同病，web 在此不是合法基准），连本仓
+   * 「`AA_MUTED=2.0` 只给元信息、不外扩到正文」都违反；且"达标档再乘 0.75"同样不达标
+   * （porcelain 2.97 < 3.0）⇒ 刻度改由**层级**表达：正文 `textSecondary`（五套色板全 ≥ AA 4.5），
+   * ⛔ 不再叠 `.opacity()`。
+   */
+  private bodyColor(): string {
+    return thinkingBodyColor(paletteOf(this.themeId()));
   }
   /**
    * **此刻本行是不是主高亮源**（= `LiveTailView.thinkingIsPrimary()`，与光球 `secondary` 同源）。
@@ -177,8 +190,7 @@ export struct ThinkingLine {
       if (this.open && this.body.length > 0) {
         Text(this.body)
           .fontSize(FS_CAPTION)
-          .fontColor(paletteOf(this.themeId()).textMuted)
-          .opacity(TEXT_DIM)
+          .fontColor(this.bodyColor())
           .width('100%')
           .wordBreak(WordBreak.BREAK_WORD)
           // 对齐 web `ThinkingLine.tsx:72`：展开体 = `mt-1`(4) 上间距 + `pl-2.5`(10) 左缩进。

@@ -34,7 +34,8 @@ import { Palette, paletteOf } from '../core/theme';
 import { R_MD, R_SM, SP_1 } from '../core/tokens';
 // 语义令牌（`7841978`：goal 组 + 图标尺寸档）—— 组件不再自写 PAD/ICON/ALPHA/TINT 魔数。
 import {
-  PRESS_OPACITY, ICON_LG, ICON_MD, INSET_CHIP_Y, INSET_GOAL_X, INSET_GOAL_Y, SPACE_XS, TYPE_CHIP, TYPE_GOAL,
+  PRESS_OPACITY, ICON_MD, ICON_XL, INSET_CHIP_Y, INSET_GOAL_X, INSET_GOAL_Y, SPACE_XS, SPACE_XXS,
+  TYPE_CHIP, TYPE_GOAL,
   goalBadgeBgOf, goalBorderOf, typeOf, colorOf, PILL_MAX_W, HIT_TARGET_MIN, } from '../core/design';
 import { goalDisplay, GoalDisplay, goalEditCommit, goalEditable } from '../core/statusfmt';
 
@@ -196,43 +197,52 @@ export struct GoalBanner {
             .borderRadius(R_SM)
             .padding({ left: 6, right: 6, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
 
-          // 编辑入口：**仅进行中**（web `:145-154`）
-          if (goalEditable(this.display().completed)) {
-            // ⛔ 命中区：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`。
-            // ⚠️ 2026-10-13（用户亲报「删除按钮两边巨大空白，奇丑无比」）：46 盒里塞 `type.caption`(12)
-            //    的图标 ⇒ **左右各 ~16vp 纯空气**，两枚相邻还叠 8vp 死区 ⇒ 读成"牌子上两粒小点"。
-            //    修法 = 图标提到**动作字形档** `ICON_LG`(16)（与 `SHEET_ACTION_GLYPH` 同档：
-            //    全仓 44 盒动作键都用它），盒仍是 44 ⇒ 命中不变、空气感降到 ~14vp/侧。
+          // 动作键对（编辑 + 清除）—— ⛔ 两枚**必须同档、同盒、成对**放置：
+          //   外层 Row 的 `space: SPACE_XS`(8) 只负责"信息区 → 动作区"那一段，
+          //   两枚之间的间隙收成 `SPACE_XXS`(4)（原先是 8+8=16vp 双重间隙）。
+          Row({ space: SPACE_XXS }) {
+            // 编辑入口：**仅进行中**（web `:145-154`）
+            if (goalEditable(this.display().completed)) {
+              // ⛔ 命中区：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`。
+              // ⚠️ 2026-10-13（用户亲报「删除按钮两边巨大空白，奇丑无比」）：46 盒里塞 `type.caption`(12)
+              //    的图标 ⇒ **左右各 ~16vp 纯空气**，两枚相邻还叠 8vp 死区 ⇒ 读成"牌子上两粒小点"。
+              //    首修 = 图标提到**动作字形档** `ICON_LG`(16) ⇒ 空气感降到 ~14vp/侧。
+              // ⚠️ **2026-10-14 用户再报「删除按钮这么大空白」**（同一条，首修不够）：装机实测几何
+              //    （`uitest dumpLayout`，density≈3.17）：编辑盒 `966..1115`、清除盒 `1169..1318`，
+              //    字形仅 54px ⇒ **字形间距 ≈45vp**、每侧盒内空气 ≈15vp，外加盒间 16vp 双重间隙。
+              //    二修 = ① 字形进 `ICON_XL`(20，本仓已批准的大图标档) ⇒ 盒内空气 15→12vp/侧；
+              //           ② 两枚收进同一 `Row(space: SPACE_XXS)`、去掉 `margin.left` ⇒ 盒间 16→4vp。
+              //    合计字形间距 45→28vp（=1.4× 字形，Apple 工具栏量级）；⛔ 44×44 命中盒**一个都不缩**。
+              Row() {
+                SymbolGlyph($r('sys.symbol.square_and_pencil'))
+                  .fontSize(ICON_XL)
+                  .fontColor([colorOf(this.pal(), 'iconMuted')])
+              }
+              .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .accessibilityText('编辑目标')
+              .onClick(() => {
+                this.draft = this.objective;
+                this.editing = true;
+              })
+            }
+
+            // 清除（web `:157-167`；编辑态隐藏）
+            // ⛔ 命中区：同上 —— 真实 44×44 布局盒承载 `onClick`；两枚盒间仅 `SPACE_XXS`(4) 死区
+            //    （原来是 8+8=16vp；两枚动作相反，保留最小死区避免误触）。
             Row() {
-              SymbolGlyph($r('sys.symbol.square_and_pencil'))
-                .fontSize(ICON_LG)
+              SymbolGlyph($r('sys.symbol.xmark'))
+                // 图标档位同「编辑」（`ICON_XL`）：两枚相邻动作键**必须同档**，否则一枚显大一码。
+                .fontSize(ICON_XL)
                 .fontColor([colorOf(this.pal(), 'iconMuted')])
             }
             .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-            .accessibilityText('编辑目标')
+            .accessibilityText('清除目标')
             .onClick(() => {
-              this.draft = this.objective;
-              this.editing = true;
+              this.onClearGoal();
             })
           }
-
-          // 清除（web `:157-167`；编辑态隐藏）
-          // ⛔ 命中区：同上 —— 真实 44×44 布局盒承载 `onClick`。`margin.left` 给两枚相邻盒留 8vp 死区
-          //    ⇒ 点「编辑」不会误触「清除」（两者动作相反）。
-          Row() {
-            SymbolGlyph($r('sys.symbol.xmark'))
-              // 图标档位同「编辑」（`ICON_LG`）：两枚相邻动作键**必须同档**，否则一枚显大一码。
-              .fontSize(ICON_LG)
-              .fontColor([colorOf(this.pal(), 'iconMuted')])
-          }
-          .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
-          .margin({ left: SPACE_XS })
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .accessibilityText('清除目标')
-          .onClick(() => {
-            this.onClearGoal();
-          })
         }
       }
       .width('100%')

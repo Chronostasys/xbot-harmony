@@ -6524,3 +6524,52 @@ web 侧那 9+ 处 `await navigator.clipboard.writeText(...)` 会抛 TypeError �
 
 
 
+
+---
+
+## §21.122h：两个用户新报视觉缺陷 —— 思考正文可读性 + GoalBanner 动作键空气感
+
+**报告原话（2026-10-14）**：①「切换 theme 老的字颜色不会改过来」+ 截图（浅色下**历史消息正文几乎不可见**）；
+②「这个删除按钮这么大空白怎么回事」+ 截图（目标横幅右侧两枚动作键之间一大片空）。
+
+### 一、「老字色不改」—— 实测**不是**遗留态，是**落点本身**读不出
+
+**先证伪"行不跟主题"**（这是最容易被误判的方向，必须先用取色实测钉死）：
+
+| 取证 | 结果 |
+|---|---|
+| 代码：行组件是否自订阅 | ✅ 11 个文件（`MessageRow`/`ThinkingLine`/`MarkdownView`/`ToolVisual`/`UserBubble`…）均有 `@StorageProp('appTheme')` |
+| 代码：数据源是否在主题变更时整表重建 | ✅ `ChatRowDataSource.applyRows(next, chatId, theme)` 含 `theme !== this.theme ⇒ structural` |
+| 装机（模拟器，**切换前创建的行**） | ✅ 浅→深后该行渲染成 **`#65646B` ≈ 深色板 `textMuted` `#63636F`** ⇒ **行确实跟着变**，无视觉残留 |
+
+**真根因**：思考**展开体**当时 = `pal.textMuted × TEXT_DIM(0.75)`（`components/ThinkingLine.ets:180-181`，
+与 web `web/src/components/agent/ThinkingLine.tsx:72-73` 的 `text-muted` + `opacity-75` **逐字同源**）。
+合成后对比度（WCAG，对各自 `appBg`）：
+
+| 落点 | 对比度 | 判定 |
+|---|---|---|
+| 浅色 `#94A3B8` × 0.75 压 `#F8FAFC` | **1.90:1** | ✗ 连本仓**元信息档** `AA_MUTED=2.0` 都不到（`DESIGN-SYSTEM.md:1198/1240` 明文「只给元信息、**不外扩到正文**」） |
+| web 浅色 `#999999` × 0.75 压 `#FFFFFF` | **1.87:1** | ⇒ **两仓同病**：此处 web **不是**合法基准 |
+| porcelain `textSecondary` × 0.75 | 2.97:1 | ⇒ 「换达标档但**仍乘 0.75**」**也解不掉**（那层压暗就是把达标档拖下地板的原因） |
+
+**修法**（判据/渲染同源 = 纯函数 `core/theme.thinkingBodyColor`）：
+思考正文取**达标档 `textSecondary`**、⛔ **不再叠任何 `.opacity()`**（刻度由**层级**表达，不由透明度表达）。
+五套色板满不透明度：light **7.25** · porcelain **4.81** · dark **7.10** · aurora **9.37** · nebula **9.19**（**全 ≥ AA 4.5**），
+仍明显弱于正文（`textPrimary`）⇒ 深浅观感一致，不再"浅色糊、深色还行"。
+⛔ 标签「思考 N 字」仍走 `textMuted`（元信息档、web 口径 §16 已裁决，不动）。
+
+判据：`tools/tests/thinking_body_contrast.test.ts`（**28 passed**；含"退回旧写法必红"的判别力段 +
+源码形态断言（落点必须消费纯函数、展开体不得出现 `.opacity(TEXT_DIM)`），**零扫描判红**）。
+
+### 二、GoalBanner 两枚动作键「巨大空白」—— 2026-10-13 首修不够，装机几何二修
+
+`uitest dumpLayout` 实测（density≈3.17）：编辑盒 `x 966..1115`、清除盒 `x 1169..1318`，字形仅 54px
+⇒ **字形间距 ≈45vp**、每侧盒内空气 ≈15vp，**再叠盒间 16vp（Row `space` 8 + `margin.left` 8）**。
+⛔ 44×44 命中盒是**真机实测**的硬要求（`responseRegion` 负偏移外扩**无效**）⇒ **不能缩盒**，只能：
+① 字形 `ICON_LG`(16) → `ICON_XL`(20，本仓已批准的大图标档) ⇒ 盒内空气 15→12vp/侧；
+② 两枚收进同一 `Row({ space: SPACE_XXS })`、去掉 `margin.left` ⇒ 盒间 16→4vp。
+合计字形间距 **45 → 28vp**（≈1.4× 字形，Apple 工具栏量级）。
+⚠️ web 此处无 44 盒（`Pencil/X = size-3` + `gap-2`）⇒ 视觉更密，但那是"网页非触屏"的取法，
+原生按 HIG 保命中区 ⇒ 这是**有意偏离**，记账在此。
+
+判据：装机 `dumpLayout` 复测几何（见提交信息）。

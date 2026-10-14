@@ -736,7 +736,15 @@ export function goalRowTintOf(p: Palette): string {
 // ════════════════════════════════════════════════════════════════════════════
 // 4.9 弱化正文 / 全圆 —— 收编 ThinkingLine / MessageRow 的两个魔数
 // ════════════════════════════════════════════════════════════════════════════
-/** 弱化正文不透明度（思考展开体：弱于正文，但仍可读）。 */
+/**
+ * 弱化正文不透明度（**历史**：思考展开体的"弱于正文"层）。
+ *
+ * ⚠️ 2026-10-14 起**不再是思考展开体的取色方式**：`components/ThinkingLine.ets` 实测
+ *    `textMuted × TEXT_DIM` 合成对比度 light **1.90:1** / dark 2.24:1（用户亲报「历史正文几乎不可见」）
+ *    ⇒ 刻度改由**层级**表达（展开体 = `core/theme.thinkingBodyColor` ⇒ 达标档 `textSecondary`）。
+ *    本值保留（`tools/tests/design_wave_tokens.test.ts` 钉值 + `thinking_body_contrast.test.ts`
+ *    用它作"旧写法"对照）；⛔ **不要在未实测对比度的新落点上叠它**（它会把达标档拖到地板以下）。
+ */
 export const TEXT_DIM: number = 0.75;
 /** 全圆角（胶囊/圆头）——足够大即得"胶囊"形状（web `rounded-full`）。 */
 export const RADIUS_FULL: number = 999;
