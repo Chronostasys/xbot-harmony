@@ -837,7 +837,7 @@ struct Index {
    * `refreshPanel` 内注释：切 tab 后列表停在空态，而后端同一会话有 48 条）。
    */
   private panelRefreshQueued: boolean = false;
-  // 终端（PTY）—— 用户点名「终端做的很差」：原生此前 **0 消费**（`/api/terminal/*` + `/ws/terminal`）
+  // 终端（PTY）—— 用户点名「终端做的很差」：原生此前 **0 消费**（`/api/terminal` 前缀 + `/ws/terminal`）
   @State terminals: TerminalInfo[] = [];
   @State showTerminal: boolean = false;
   @State termTid: string = '';
@@ -3475,6 +3475,19 @@ struct Index {
 
   /** 取图片字节（带会话鉴权）—— AuthImage 与查看器共用同一实现。 */
   // ── 文件管理（目标④「文件管理也没有」）───────────────────────────────────────
+  /**
+   * 「Web 版」文件面板（§21.122bg）：原生入口接管默认后，web 版仍须**显式可达**
+   * （要求④：能力可换实现，⛔ 不能凭空消失）。拿不到基地址 ⇒ 明说不可用，
+   * ⛔ 不静默什么都不做（用户会以为按钮坏了）。
+   */
+  private openFsWeb(): void {
+    if (this.openWebPanel('files')) {
+      this.showFiles = false;
+    } else {
+      this.toast('Web 文件面板不可用：未连接服务端');
+    }
+  }
+
   /** 开文件面板。初始目录 = 当前会话 cwd（`/api/session/status` 的权威值），缺则根目录。 */
   private openFiles(): void {
     this.dismissKeyboard();
@@ -4882,6 +4895,10 @@ struct Index {
             onRefresh: () => {
               this.loadFsDir(this.fmDir);
             },
+            // §21.122bg：原生面板内保留 web 版入口（能力不减 —— 见 openFsWeb 注释）。
+            onOpenWeb: () => {
+              this.openFsWeb();
+            },
             searching: this.fsSearchActive,
             searchQuery: this.fsSearchQuery,
             searchItems: this.fsSearchItems,
@@ -5892,14 +5909,17 @@ struct Index {
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('文件管理：web 文件面板（`core.files`；离线回落原生）')
+        .accessibilityText('文件管理：原生文件面板（浏览/搜索/预览/加入聊天）')
         .onClick(() => {
-          // §21.122e（用户定向「插件默认走 webview 渲染」）：**优先**渲 web 自己的文件面板
-          // （`?xbot_panel=files`，与 web 逐字同源、能力自动跟随 web 演进）；
-          // ⛔ 只有拿不到基地址时才回落到原生 `FilesSheet`（`openWebPanel` 返回 false）。
-          if (!this.openWebPanel('files')) {
-            this.openFiles();
-          }
+          // §21.122bg（用户 2026-10-15 定向：「文件不需要用 web，可以用原生的」）：**原生优先**。
+          // 原文由 web 文件面板承担（`?xbot_panel=files`），但实测两条硬伤：
+          //   ① web 服务不可达/懒加载时它长时间停在「正在加载…」（真机截图为证）；
+          //   ② 文件管理是**宿主侧能力**（`core.files` 的原生 RPC（fs 端点）直接可达，
+          //      不依赖 webview、不依赖 web 资源是否已就绪）⇒ 拿它换一次 webview 往返 + 一屏
+          //      白屏不值得。
+          // ⛔ 「插件默认走 webview」这条纪律**只约束插件**，不约束宿主自有面板。
+          // web 版未被删除：原生面板头部的「Web 版」动作仍显式可达（能力不减）。
+          this.openFiles();
         })
 
         Row() {
@@ -10407,13 +10427,13 @@ struct Index {
         .layoutWeight(1).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('文件管理：web 文件面板（`core.files`；离线回落原生）')
+        .accessibilityText('文件管理：原生文件面板（浏览/搜索/预览/加入聊天）')
         .onClick(() => {
-          // §21.122e：优先 web 文件面板（与顶栏「文件」同一出口，判定同源）；拿不到基地址才回落原生。
-          if (!this.openWebPanel('files')) {
-            this.showFiles = false;
-            this.openFiles();
-          }
+          // §21.122bg：与顶栏「文件」同一出口（用户定向「文件不需要用 web」）⇒ **原生优先**。
+          // 收掉可能开着的 web 面板，否则两层面板叠着、退回时用户看到旧 web 页。
+          this.panelUrl = '';
+          this.showFiles = false;
+          this.openFiles();
         })
         // ── §21.122c：**终端**（web 内置面板 `core.terminal` 走 WebView）────────────────────
         // 用户原话「终端和任务管理做的很差」——本仓此前**根本没有**终端入口（4 键里没有），

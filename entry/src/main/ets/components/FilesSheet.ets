@@ -207,6 +207,13 @@ export struct FilesSheet {
   };
   onRefresh: () => void = () => {
   };
+  /**
+   * 「Web 版」动作（§21.122bg）：把 web 自己的文件面板（`?xbot_panel=files`）作为**显式次级**
+   * 入口保留 —— 原生面板接管默认入口后，web 版仍须可达（要求④「真的支持 web 的所有功能」：
+   * 能力可换实现，⛔ 不能凭空消失）。
+   */
+  onOpenWeb: () => void = () => {
+  };
   /** 切换「隐藏文件」开关（页面翻转状态后**重列当前目录**）。 */
   onToggleHidden: () => void = () => {
   };
@@ -479,6 +486,25 @@ export struct FilesSheet {
           .accessibilityText(fsHiddenToggleLabel(this.showHidden))
           .onClick(() => {
             this.onToggleHidden();
+          })
+          // 「Web 版」（§21.122bg）：原生接管默认入口后，web 文件面板仍是**显式可达**的次级
+          // 入口 —— 要求④「真的支持 web 的所有功能」：能力可换实现，⛔ 不能凭空消失。
+          // 形态沿用本文件的文字胶囊（同「隐藏文件」壳）：⛔ 不引新符号资源（可用性风险 > 收益）。
+          Row() {
+            Text('Web 版')
+              .fontSize(typeOf('type.caption').size)
+              .fontColor(this.tint('secondary'))
+          }
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
+          .padding({ left: SPACE_XS, right: SPACE_XS })
+          .justifyContent(FlexAlign.Center)
+          .alignItems(VerticalAlign.Center)
+          .backgroundColor(this.tint('input'))
+          .borderRadius(RADIUS_CHIP)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .accessibilityText('用 web 文件面板打开（能力与 web 逐字同源）')
+          .onClick(() => {
+            this.onOpenWeb();
           })
           Row() {
             SymbolGlyph($r('sys.symbol.arrow_clockwise'))

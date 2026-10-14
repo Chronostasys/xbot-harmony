@@ -1810,3 +1810,33 @@ word splitting ⇒ `$D` 整体被当成**一个命令名**。若还把 stderr �
 ⇒ **凡 `hdc`/`$VAR` 组合的 shell 片段，一律写进 `#!/usr/bin/env bash` 脚本再 `bash /tmp/x.sh` 跑**；
 或在 zsh 里写 `${=D}`（显式分词）。⛔ 别在 zsh 交互片段里用 `$D shell ...` 做**判定**。
 **判据**：任何"截图/dump 结论"落地前，先确认**数据新鲜**（如 dump 里必须出现本轮刚生成的会话名）。
+
+## 批次 52（2026-10-15，编排者本人实测）：**行注释里写 `/*` ⇒ 判据脚本"剥注释"会吞掉它后面全部源码 ⇒ 一片"零扫描"假红**
+
+**现象**：我只改了两个文件（`pages/Index.ets` 接线 + `components/FilesSheet.ets` 加一个头部动作），
+`bash tools/gate.sh` 突然报 **18 个测试文件失败**，红灯全是「零扫描」形态且**彼此无关**：
+`busy_label`（`busyLabel(` 生产调用点 0 ≥ 1）、`composer_input`（TextArea 高度上限 0 ≥ 1）、
+`completion`（`onKeyEvent` 0 ≥ 1）、`scroll_follow_wiring`（`lastScrollWasUser` 0 ≥ 1）、
+`overlays`／`sidebar_view_state`／`porcelain_shadow_sites`／`reactive_projection`／
+`contrast_landing`／`live_tail_delivery`／`overlay_keyboard_inset`…
+—— 全是**扫描 `Index.ets` 的判据**，而人工 `grep` 那些串**明明都在**。
+
+**根因**：判据的剥注释实现是（全仓统一形态，例如 `tools/tests/composer_input.test.ts:35`）
+```js
+s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+```
+**先剥块注释**。我在**行注释**里写了 `` `/api/fs/*` `` —— 其中的 `/*` 被当成**块注释起点**，
+非贪婪匹配一直吃到**文件里下一个 `*/`**（可能是几千行之后的某段 JSDoc）⇒ 那中间的源码
+（列表尾、输入胶囊、悬浮层…）对判据**整段不存在** ⇒ 零命中 ⇒ 假红。
+
+**A/B 自证**（我做的）：① 现状跑 `run-one.sh composer_input` ⇒ `7 passed, 2 failed`；
+② 把 `/*` 改成不含该序列的措辞 ⇒ `9 passed, 0 failed`。
+
+**规则**
+- ⛔ **注释里永不写 `/*`**：`/api/fs/*`、`core/*.ts`、`/api/terminal/*` 这类"路径通配"一律改写
+  （`/api/fs/`、`core/ 下的 .ts`、`/api/terminal 前缀`）。
+- 诊断特征**记牢**：**一次改动导致"多个互不相关的判据同时零扫描红"** ⇒ 先怀疑剥注释被截断
+  （`/*` / 未闭合字符串），**不要**去逐个怀疑那些判据坏掉。
+- 存量排查一条命令：
+  `grep -rn "^\s*//.*[^/]/\*" entry/src/main/ets --include=*.ets`（本轮清掉 `Index.ets:840` 与
+  `core/reduce.ts:43` 两处存量 —— 它们此前只是"运气好"：吞掉的区间里恰好没有判据要的串）。
