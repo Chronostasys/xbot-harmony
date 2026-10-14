@@ -6699,3 +6699,34 @@ web 侧那 9+ 处 `await navigator.clipboard.writeText(...)` 会抛 TypeError �
 `SymbolGlyph($r('sys.symbol.trash'))` 链并要求**真 44×44 布局盒**（`.width/.height(HIT_TARGET_MIN)`，
 比旧 `minHeight` 更严：旧形态宽度只有文字宽 ≈40 < 44）；mutation B 同步改为**只动该条链**的
 44 → 24（⛔ 别用全文件 `replace` 首个匹配，会误伤同文件其它 44 盒）。种子行同步换到 trash 字形。
+
+## §21.122n：修「新增/编辑订阅」表单不可用（表单被挤出屏幕且滚不到）—— 判据规则 C + mutation
+
+**用户亲报（2026-10-14 原话）**：「你编辑订阅写的什么狗屎，表单不全且无法滚动，根本用不了」。
+
+**根因（代码级，非猜测）**：`components/SettingsLlm.ets` 把 新增/编辑订阅 表单渲染成页面**根
+`Column` 的一个子块**，位置在列表 `Scroll()` **之前且与它平级**。根 `Column` **本身不可滚**
+⇒ 表单（协议 + API 类型 + 名称 + Base URL + API Key + 默认模型 + 校验行 + 保存/取消，≈ 560vp）
+高于屏幕剩余空间时，下半部分（含「保存/取消」）被推到屏外**且没有任何滚动路径可达**
+⇒ 用户看到的就是"表单不全 + 滚不动" = 不可用。
+
+**权威对照**：web `src/components/settings/llm-console.tsx:403-494` 的 `SubFormModal` 是**模态**：
+`ModalHeader` + **可滚 body**（`<div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">`）
++ **固定 footer**（`shrink-0`，保存按钮恒可见）。⇒ 契约 = "全字段可达 + 保存键可达"。
+⚠️ 顺带核实：字段**本来就是齐的**（web 6 个：协议 / API 类型(仅 openai) / 名称 / Base URL /
+API Key / 默认模型 —— 本仓同名同数），缺的**不是字段**而是**滚动路径**。
+
+**修法**（`components/SettingsLlm.ets`）：表单抽成**无参 `@Builder SubFormCard()`**（只读 `this`；
+⛔ 仓规：带参 `@Builder` 的参数是"调用那刻的快照"⇒ 子树不随更新重建，故只允许无参 `@Builder`），
+并在 `build()` 的页面 `Scroll() → Column({ space: SP_3 })` **首位**调用
+（`if (this.formOpen) { this.SubFormCard() }`）⇒ 表单与列表**同一条滚动**，全字段与「保存/取消」都可达。
+（选"移入页面 Scroll"而不是新造模态浮层：后者要动 `core/overlays` 的 flag 所有权与返回键链，
+爆炸半径远大于本缺陷；而"移入既有 Scroll"与 web 的"可滚 body"是同一契约。）
+
+**判据**：`tools/tests/vertical_scroll_height.test.ts` 新增 **§D 规则 C**（与既有"设置分区必须
+有高度路径"同源）：`SettingsLlm` 里 `this.SubFormCard()` 的下标必须 **>** `Scroll() {` 的下标
+（= 落在可滚区内），并**反向**钉"不得出现在 Scroll 之前"（平级 = 本次缺陷形态）；
+mutation 自证：把调用搬回 Scroll 之前 ⇒ 必红。隔离跑 **33 passed / 0 failed**。
+
+**取证**：真门禁 `bash tools/gate.sh` ⇒ `BUILD SUCCESSFUL` + `✅ 真门禁全绿` + `GATE_RC=0`；
+装机（模拟器 + 真机 `9QF0226922014533`）打开「新增订阅」表单截图复核（可滚到「保存/取消」）。

@@ -838,6 +838,140 @@ export struct SettingsLlm {
     .borderRadius(R_LG)
   }
 
+  /** 新增 / 编辑订阅表单（web `SubFormModal`，`llm-console.tsx:403-494`）。
+   *  ⛔ 2026-10-14 修（用户亲报「表单不全且无法滚动，根本用不了」）：原实现把本表的 `Column`
+   *  放在页面根 `Column` 里、**与列表 `Scroll` 平级** ⇒ 表单高于剩余空间时「保存/取消」被挤出屏幕
+   *  **且滚不到**（根 `Column` 不可滚）。web 权威 `SubFormModal` = 模态：header + **可滚 body**
+   *  （`overflow-y-auto`）+ **固定 footer**（`shrink-0`）⇒ 本组件改为把表单**置顶于页面唯一 `Scroll`**
+   *  内（`build()` 里 `if (this.formOpen) { this.SubFormCard() }`），与列表同滚动 ⇒ 全字段与按钮可达。
+   *  ⚠️ **无参 `@Builder`、只读 `this`**（仓规允许；⛔ 带参 `@Builder` 的子树不随参数重建）。
+   */
+  @Builder
+  SubFormCard() {
+    Column({ space: SP_1 }) {
+      Text(this.formEditing ? '编辑订阅' : '新增订阅')
+        .fontSize(FS_BODY)
+        .fontColor(this.pal().textPrimary)
+        .width('100%')
+      Text('协议、Base URL、凭据与默认模型；编辑时凭据留空或保持掩码则不改动。')
+        .fontSize(FS_CAPTION)
+        .fontColor(this.pal().textMuted)
+        .width('100%')
+
+      SettingsChipRow({
+        label: '协议',
+        description: '仅支持 OpenAI / Anthropic（其它值按 OpenAI 处理）。',
+        value: this.form.provider,
+        options: LLM_PROVIDER_IDS,
+        labels: LLM_PROVIDER_LABELS,
+        busy: this.formBusy,
+        theme: this.theme,
+        onSelect: (v: string) => {
+          const f: SubscriptionForm = this.cloneForm(this.form);
+          f.provider = v;
+          f.baseUrl = llmProviderUrl(v);   // 切协议 ⇒ base_url 重置为该协议默认（web :421-424）
+          this.form = f;
+        },
+      })
+
+      if (this.form.provider === LLM_PROVIDER_OPENAI) {
+        SettingsChipRow({
+          label: 'API 类型',
+          description: 'OpenAI 专用：Chat Completions（默认）或 Responses。',
+          value: this.form.apiType,
+          options: LLM_API_TYPES,
+          labels: LLM_API_TYPE_LABELS,
+          busy: this.formBusy,
+          theme: this.theme,
+          onSelect: (v: string) => {
+            const f: SubscriptionForm = this.cloneForm(this.form);
+            f.apiType = v;
+            this.form = f;
+          },
+        })
+      }
+
+      SettingsTextFieldRow({
+        label: '名称', description: '', value: this.form.name, placeholder: '如 My OpenAI',
+        password: false, busy: this.formBusy, theme: this.theme,
+        onInput: (v: string) => {
+          const f: SubscriptionForm = this.cloneForm(this.form);
+          f.name = v;
+          this.form = f;
+        },
+      })
+      SettingsTextFieldRow({
+        label: 'Base URL', description: '', value: this.form.baseUrl, placeholder: 'https://…',
+        password: false, busy: this.formBusy, theme: this.theme,
+        onInput: (v: string) => {
+          const f: SubscriptionForm = this.cloneForm(this.form);
+          f.baseUrl = v;
+          this.form = f;
+        },
+      })
+      SettingsTextFieldRow({
+        label: 'API Key',
+        description: this.formEditing ? '留空或保持掩码则保留原凭据（服务端不覆盖）' : '新增订阅必填',
+        value: this.form.apiKey, placeholder: this.formEditing ? '保持掩码则不修改' : 'sk-…',
+        password: true, busy: this.formBusy, theme: this.theme,
+        onInput: (v: string) => {
+          const f: SubscriptionForm = this.cloneForm(this.form);
+          f.apiKey = v;
+          this.form = f;
+        },
+      })
+      SettingsTextFieldRow({
+        label: '默认模型', description: '', value: this.form.model, placeholder: 'model-name',
+        password: false, busy: this.formBusy, theme: this.theme,
+        onInput: (v: string) => {
+          const f: SubscriptionForm = this.cloneForm(this.form);
+          f.model = v;
+          this.form = f;
+        },
+      })
+
+      if (!subscriptionFormValid(this.form, this.formEditing)) {
+        Text(subscriptionFormError(this.form, this.formEditing))
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().warn)
+          .width('100%')
+      }
+
+      Row({ space: SP_2 }) {
+        Text(this.formBusy ? '保存中…' : '保存')
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().onAccent)
+          .padding({ left: SP_4, right: SP_4, top: SP_2, bottom: SP_2 })
+          .backgroundColor(this.pal().accent)
+          .borderRadius(R_LG)
+          .opacity(this.formBusy || !subscriptionFormValid(this.form, this.formEditing) ? 0.5 : 1)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            void this.submitForm();
+          })
+        Text('取消')
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().textSecondary)
+          .padding({ left: SP_4, right: SP_4, top: SP_2, bottom: SP_2 })
+          .backgroundColor(this.pal().surfaceAlt)
+          .borderRadius(R_LG)
+          .border({ width: 1, color: this.pal().border })
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            this.formOpen = false;
+          })
+      }
+      .width('100%')
+    }
+    .width('100%')
+    .padding(SP_4)
+    .backgroundColor(this.pal().surface)
+    .borderRadius(R_XL)
+    .border({ width: 1, color: this.pal().border })
+  }
+
   build() {
     Column({ space: SP_3 }) {
       SettingsPanelHeader({
@@ -934,131 +1068,6 @@ export struct SettingsLlm {
         SettingsErrorBar({ message: this.error, theme: this.theme })
       }
 
-      // ── 新增 / 编辑订阅表单（web `SubFormModal`，`llm-console.tsx:403-494`）────────
-      if (this.formOpen) {
-        Column({ space: SP_1 }) {
-          Text(this.formEditing ? '编辑订阅' : '新增订阅')
-            .fontSize(FS_BODY)
-            .fontColor(this.pal().textPrimary)
-            .width('100%')
-          Text('协议、Base URL、凭据与默认模型；编辑时凭据留空或保持掩码则不改动。')
-            .fontSize(FS_CAPTION)
-            .fontColor(this.pal().textMuted)
-            .width('100%')
-
-          SettingsChipRow({
-            label: '协议',
-            description: '仅支持 OpenAI / Anthropic（其它值按 OpenAI 处理）。',
-            value: this.form.provider,
-            options: LLM_PROVIDER_IDS,
-            labels: LLM_PROVIDER_LABELS,
-            busy: this.formBusy,
-            theme: this.theme,
-            onSelect: (v: string) => {
-              const f: SubscriptionForm = this.cloneForm(this.form);
-              f.provider = v;
-              f.baseUrl = llmProviderUrl(v);   // 切协议 ⇒ base_url 重置为该协议默认（web :421-424）
-              this.form = f;
-            },
-          })
-
-          if (this.form.provider === LLM_PROVIDER_OPENAI) {
-            SettingsChipRow({
-              label: 'API 类型',
-              description: 'OpenAI 专用：Chat Completions（默认）或 Responses。',
-              value: this.form.apiType,
-              options: LLM_API_TYPES,
-              labels: LLM_API_TYPE_LABELS,
-              busy: this.formBusy,
-              theme: this.theme,
-              onSelect: (v: string) => {
-                const f: SubscriptionForm = this.cloneForm(this.form);
-                f.apiType = v;
-                this.form = f;
-              },
-            })
-          }
-
-          SettingsTextFieldRow({
-            label: '名称', description: '', value: this.form.name, placeholder: '如 My OpenAI',
-            password: false, busy: this.formBusy, theme: this.theme,
-            onInput: (v: string) => {
-              const f: SubscriptionForm = this.cloneForm(this.form);
-              f.name = v;
-              this.form = f;
-            },
-          })
-          SettingsTextFieldRow({
-            label: 'Base URL', description: '', value: this.form.baseUrl, placeholder: 'https://…',
-            password: false, busy: this.formBusy, theme: this.theme,
-            onInput: (v: string) => {
-              const f: SubscriptionForm = this.cloneForm(this.form);
-              f.baseUrl = v;
-              this.form = f;
-            },
-          })
-          SettingsTextFieldRow({
-            label: 'API Key',
-            description: this.formEditing ? '留空或保持掩码则保留原凭据（服务端不覆盖）' : '新增订阅必填',
-            value: this.form.apiKey, placeholder: this.formEditing ? '保持掩码则不修改' : 'sk-…',
-            password: true, busy: this.formBusy, theme: this.theme,
-            onInput: (v: string) => {
-              const f: SubscriptionForm = this.cloneForm(this.form);
-              f.apiKey = v;
-              this.form = f;
-            },
-          })
-          SettingsTextFieldRow({
-            label: '默认模型', description: '', value: this.form.model, placeholder: 'model-name',
-            password: false, busy: this.formBusy, theme: this.theme,
-            onInput: (v: string) => {
-              const f: SubscriptionForm = this.cloneForm(this.form);
-              f.model = v;
-              this.form = f;
-            },
-          })
-
-          if (!subscriptionFormValid(this.form, this.formEditing)) {
-            Text(subscriptionFormError(this.form, this.formEditing))
-              .fontSize(FS_CAPTION)
-              .fontColor(this.pal().warn)
-              .width('100%')
-          }
-
-          Row({ space: SP_2 }) {
-            Text(this.formBusy ? '保存中…' : '保存')
-              .constraintSize({ minHeight: HIT_TARGET_MIN })
-              .fontSize(FS_CAPTION)
-              .fontColor(this.pal().onAccent)
-              .padding({ left: SP_4, right: SP_4, top: SP_2, bottom: SP_2 })
-              .backgroundColor(this.pal().accent)
-              .borderRadius(R_LG)
-              .opacity(this.formBusy || !subscriptionFormValid(this.form, this.formEditing) ? 0.5 : 1)
-              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-              .onClick(() => {
-                void this.submitForm();
-              })
-            Text('取消')
-              .constraintSize({ minHeight: HIT_TARGET_MIN })
-              .fontSize(FS_CAPTION)
-              .fontColor(this.pal().textSecondary)
-              .padding({ left: SP_4, right: SP_4, top: SP_2, bottom: SP_2 })
-              .backgroundColor(this.pal().surfaceAlt)
-              .borderRadius(R_LG)
-              .border({ width: 1, color: this.pal().border })
-              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-              .onClick(() => {
-                this.formOpen = false;
-              })
-          }
-          .width('100%')
-        }
-        .width('100%')
-        .padding(SP_4)
-        .backgroundColor(this.pal().surface)
-        .borderRadius(R_XL)
-        .border({ width: 1, color: this.pal().border })
-      }
 
       if (this.loading) {
         Text('加载中…')
@@ -1072,6 +1081,11 @@ export struct SettingsLlm {
         // 下方 `visibleSubs().length === 0` 分支承担。
         Scroll() {
           Column({ space: SP_3 }) {
+            // ── 新增 / 编辑订阅表单（web `SubFormModal`）—— **置顶于可滚区**（见 `SubFormCard` 头注）
+            if (this.formOpen) {
+              this.SubFormCard()
+            }
+
             // ── 模型推理：思考模式 + 最大并发 ──
             // web `SettingsLLM.tsx:278-303`（thinkingMode 四档开关 + maxConcurrency −/＋ 步进）。
             // 读写走专用 RPC（`get/set_user_thinking_mode`、`get/set_llm_concurrency`）。

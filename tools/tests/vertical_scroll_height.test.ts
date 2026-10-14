@@ -267,6 +267,31 @@ for (let i = 0; i < PANEL_FILES.length; i++) {
     `根容器修饰链=${JSON.stringify(rootChain)}`);
 }
 
+// ── 规则 C：订阅表单必须在**页面纵向 Scroll 之内** ───────────────────────────────
+// 用户亲报（2026-10-14）：「你编辑订阅写的什么狗屎，表单不全且无法滚动，根本用不了」。
+// 根因：`SettingsLlm` 的 新增/编辑订阅表单原先是根 `Column` 里**与列表 `Scroll` 平级**的兄弟
+// ⇒ 表单高于剩余空间时「保存/取消」被挤出屏幕**且滚不到**（根 `Column` 不可滚）。
+// 正解（本判据钉住）＝ 表单抽成无参 `@Builder SubFormCard()` 并**置于页面 `Scroll` 内**，
+// 与列表同滚动 ⇒ 全字段与按钮可达（web 权威 `SubFormModal` 的"可滚 body + 固定 footer"）。
+console.log('\n▶ §D 规则 C：SettingsLlm 订阅表单在页面 Scroll 内（否则滚不到 = 不可用）');
+{
+  const f: string = 'SettingsLlm';
+  const s: string = sanitize(srcOf.get(f) as string);
+  const NEEDLE_CALL: string = 'this.SubFormCard()';
+  const iScroll: number = s.indexOf('Scroll() {');
+  const iCall: number = s.indexOf(NEEDLE_CALL);
+  ok('§D 零扫描判红：抽到 Scroll() 与 SubFormCard() 调用', iScroll >= 0 && iCall >= 0,
+    `scroll@${iScroll} call@${iCall}`);
+  ok('§D 订阅表单调用在 Scroll **之后**（= 落在可滚区内）', iCall > iScroll,
+    `scroll@${iScroll} call@${iCall}`);
+  ok('§D ⛔ 反向：表单不得出现在 Scroll **之前**（与 Scroll 平级 = 本次缺陷形态）', !(iCall < iScroll));
+  // mutation：把调用搬回 Scroll 之前 ⇒ 必须判红（同一条判据）
+  const moved: string = s.slice(0, iScroll) + NEEDLE_CALL + s.slice(iScroll, iCall)
+    + s.slice(iCall + NEEDLE_CALL.length);
+  ok('§D mutation：把 SubFormCard() 搬到 Scroll 之前 ⇒ 判红',
+    !(moved.indexOf(NEEDLE_CALL) > moved.indexOf('Scroll() {')));
+}
+
 console.log('\n▼ 摘要');
 console.log(`  纵向 Scroll/List：${hits.length} 个；设置分区：${PANEL_FILES.length} 个`);
 if (fail > 0) { console.log(`\n  vertical_scroll_height: ${pass} passed, ${fail} failed`); process.exit(1); }
