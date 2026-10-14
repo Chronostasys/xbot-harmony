@@ -286,6 +286,34 @@ export function composerButtonState(running: boolean, hasContent: boolean,
   return b;
 }
 
+/**
+ * 取消按钮**最短转圈驻留**（ms）—— Apple 的「最短反馈驻留」惯用法。
+ *
+ * 为什么必须有它（2026-10-16 真机量化）：`/api/cancel` 在**本地**服务端是**非阻塞派发**
+ * （`channel/web/web_rest.go:handleCancel` → `dispatchCancel` 立即返回），实测
+ * **点停止后 ≤115ms 内整个按钮已收束完毕**；而设备侧最快的截图量具周期就是 **115ms/帧**
+ * （`snapshot_display` 12 帧 = 1.380s）⇒ 用户在真实使用中**根本看不到那一下 spin**
+ * （用户要求②原文：「用户点了 cancel，那么应该 cancel 按钮 spin 一下」⇒ 看不见就等于没做）。
+ * ⇒ 请求返回后**补足**到本时长再收束。
+ *
+ * ⛔ 它**只决定按钮自己的视觉收束时刻**，**不**推迟会话 idle：乐观 idle 仍在取消请求
+ *    成功那一刻立即发生（`store.cancel()` 的 `session_running(false)` + `session(busy=false)`），
+ *    所以「请求成功立刻进入 idle」这条要求**逐字不变** —— 驻留期内列表已停流、回合已定格。
+ * ⛔ 请求本身若**更慢**（远端/网络差），驻留自动为 0 ⇒ 不会额外拖长（取 `max(实际, 最短)`）。
+ */
+export const CANCEL_SPIN_MIN_MS: number = 240;
+
+/**
+ * 取消请求返回后，按钮 spinner **还需驻留**多久（ms）；`0` ⇒ 立即可收束。
+ * @param elapsedMs 从点下按钮到请求返回的实测耗时
+ */
+export function spinHoldRemainingMs(elapsedMs: number): number {
+  const rest: number = CANCEL_SPIN_MIN_MS - elapsedMs;
+  // ⛔ 必须夹到 0：请求慢于最短驻留时绝不能返回负数（否则 `setTimeout(负数)` 变成"立刻"，
+  //    看着像没事，实际是把"最多 240ms"悄悄变成"可能提前收束"——判别力测试钉死这一条）。
+  return rest > 0 ? rest : 0;
+}
+
 // ── 候选浮层的**选中态 / 键盘导航**（对齐 web `useCompletion.ts:369-397` handleKeyDown）──────
 //
 // 为什么单列：手机上软键盘没有方向键/Tab ⇒ 键盘导航是**外接键盘 + 无障碍**的补充路径；

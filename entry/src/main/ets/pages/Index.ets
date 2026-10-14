@@ -61,7 +61,7 @@ import { TerminalInfo, terminalPrimary, terminalSubText } from '../core/termprot
 import {
   activeToken, applyCommand, applyMention, clampSel, CMD_ROWS, CommandItem, completionKeyAction,
   ComposerButton, composerButtonState, composerPlaceholder, enterSends,
-  FS_ROWS, FsEntry, joinPath, matchCommands, matchFiles, parentDir, selNext, selPrev,
+  FS_ROWS, FsEntry, joinPath, matchCommands, matchFiles, parentDir, selNext, selPrev, spinHoldRemainingMs,
 } from '../core/composer';
 import {
   clampOffset, clampScale, isZoomed, nextZoom, panLimit, saveImageName, scaleText,
@@ -790,6 +790,16 @@ struct Index {
    * busy=false 时**必须自动复位**（Web gotcha：否则用户以为在发普通消息，实际插进了别人的回合）。
    */
   @State sendMode: string = MODE_QUEUE;
+
+  /**
+   * 取消按钮的**最短转圈驻留**窗口（§21.122bs）。
+   *
+   * 真机量化：本地 `/api/cancel` 非阻塞派发 ⇒ 点停止后 ≤115ms 按钮已收束，而设备侧最快截图量具
+   * 周期就是 115ms/帧 ⇒ 用户**看不到**那一下 spin（用户要求②「cancel 按钮 spin 一下」形同没做）。
+   * ⇒ 请求返回后补足到 `CANCEL_SPIN_MIN_MS`（见 `core/composer.spinHoldRemainingMs`）。
+   * ⛔ **只**延后按钮自己的视觉收束，**不**推迟会话 idle（乐观 idle 仍在请求成功那一刻发生）。
+   */
+  @State cancelSpinHold: boolean = false;
 
   // ── P11 输入体验（多行 / 补全 / 震动）──
   /** 当前正在输入的 `/` 或 `@` token（空 = 不显示补全） */
@@ -8184,12 +8194,16 @@ struct Index {
 
   /** 主按钮是否显示**停止**（= 回合在跑 且 不可发送）；其余情况显示**发送**。 */
   private composerShowStop(): boolean {
-    return this.composerBtn().showStop;
+    // ⛔ `|| this.cancelSpinHold`：请求返回后 spinner **驻留**期内，按钮仍按"停止"档渲染
+    //    （灰底 `surfaceHi` 才与 spinner 的 `textSecondary` 对得上；见 `composerCancelling`）。
+    return this.composerBtn().showStop || this.cancelSpinHold;
   }
 
   /** 停止按钮是否**转圈**（web `:938` `cancelling && !canSend && busy`）。 */
   private composerCancelling(): boolean {
-    return this.composerBtn().cancelling;
+    // ⛔ 请求返回后的最短驻留窗口内继续转圈（§21.122bs）——仍以 `composerBtn()` 为**唯一**来源，
+    //    不新增第二个 busy 源；`cancelSpinHold` 只是把"那一下"补到肉眼可见。
+    return this.composerBtn().cancelling || this.cancelSpinHold;
   }
 
   /** 点「停止」= web `MessageInput.onCancel` ⇒ `chat.cancel()`；失败给可读提示（web 同款 toast）。 */
@@ -8198,7 +8212,22 @@ struct Index {
     if (st === null) {
       return;
     }
-    st.cancel().catch(() => {
+    if (this.cancelSpinHold) {
+      // 驻留窗口内的重复点击：忽略（会话已在请求成功那一刻进 idle，再发一次取消没有意义）。
+      return;
+    }
+    this.cancelSpinHold = true;
+    const t0: number = Date.now();
+    st.cancel().then(() => {
+      // 请求成功 ⇒ 会话**已经**进 idle（`store.cancel()` 内的乐观 idle）；这里只补按钮的视觉驻留。
+      const rest: number = spinHoldRemainingMs(Date.now() - t0);
+      if (rest === 0) {
+        this.cancelSpinHold = false;
+        return;
+      }
+      setTimeout(() => { this.cancelSpinHold = false; }, rest);
+    }).catch(() => {
+      this.cancelSpinHold = false;
       this.toast('取消失败，请重试');
     });
   }

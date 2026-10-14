@@ -7647,3 +7647,32 @@ SPA 首屏就会整体变慢；本仓**无法**从原生侧修，也不该为修
 **⛔ 量具教训（第六轮，同族第二次）**：`dumpLayout` 文本里出现 `待发队列` **不等于**面板开着 ——
 我**自己的消息正文**（会推送进列表）里就写着「待发队列 (0)」⇒ `grep` 子串恒真 ⇒ 我一度误判
 "面板关不掉"。⇒ 归因类判据**必须钉 `bounds`/结构位置或直接看截图**（§21.122bo 同款）。
+
+## §21.122bs：② 「点 cancel ⇒ 按钮 spin 一下」量化 + 最短反馈驻留（2026-10-16）
+
+**用户要求②原文**：「用户点了 cancel，那么应该 cancel 按钮 spin 一下，请求成功立刻进入 idle」。
+
+### 量化（真机模拟器，装机实测）
+
+- **服务端 `/api/cancel` 是即时派发**（`channel/web/web_rest.go:298` → `dispatchCancel`，非阻塞）⇒ 请求往返就是我方窗口。
+- **设备侧最快截图量具 = 115ms/帧**（`snapshot_display` 12 帧 = 1.380s，`date +%s.%N` 实测）。
+- 改前 Burst（点停止 + 设备侧原子连拍 21 帧）：**只有两种哈希**（`3af24a0d`=停止方格 / `0216c196`=发送纸飞机），
+  第一帧（+115ms）就已是"发送" ⇒ **spin 窗口 < 115ms，用户在真实使用中根本看不到那一下**
+  （看不见 = 用户要求②形同没做；这不是接线问题，接线由 `tools/tests/composer.test.ts:118`
+  与 `composer_button_wiring.test.ts:75` 钉死）。
+
+### 修法：Apple 式**最短反馈驻留**（只延后按钮自己的视觉收束）
+
+- `core/composer.ets`：`CANCEL_SPIN_MIN_MS = 240` + 纯函数 `spinHoldRemainingMs(elapsedMs)`（**夹到 0**，
+  请求更慢时不额外拖长 ⇒ 等价 `max(实际, 240ms)`）；判据 `tools/tests/composer.test.ts`（含 mutation 反例）。
+- `pages/Index.ets`：`@State cancelSpinHold`；`cancelTurn()` 记 `t0`，请求返回后补足剩余驻留再收束；
+  `composerCancelling()` / `composerShowStop()` 各 `|| this.cancelSpinHold`
+  （⛔ 不新增第二个 busy 源，仍以 `composerBtn()` 为唯一来源；两处判据测试用 `indexOf` 子串断言，形态不变）。
+- ⛔ **不推迟 idle**：乐观 idle 仍在取消请求**成功那一刻**立即发生（`store.cancel()` 的
+  `session_running(false)` + `session(busy=false)`），驻留期内列表已停流、回合已定格。
+
+### 改后复验（同一量具）
+
+点停止后按钮区哈希序列：`3af24a0d`(停止) → `897d1468` → `6de15869` → `725e4ab9`（**3 帧不同哈希**
+= `LoadingProgress` 三个不同旋转角 ⇒ **真在转**）→ `0216c196`(发送纸飞机) ⇒ 可见 spin ≈ 3×115ms；
+随后头部文案 = `空闲` ⇒ 会话已在请求成功时即刻进 idle（两条要求同时成立）。

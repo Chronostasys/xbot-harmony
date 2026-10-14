@@ -2,10 +2,10 @@
 declare const process: { exit: (c: number) => void };
 
 import {
-  activeToken, applyCommand, applyMention, CommandItem, ComposerButton, composerButtonState,
-  composerPlaceholder, composerPlaceholderBudgetVp,
+  activeToken, applyCommand, applyMention, CANCEL_SPIN_MIN_MS, CommandItem, ComposerButton,
+  composerButtonState, composerPlaceholder, composerPlaceholderBudgetVp,
   enterSends, estimateTextWidthVp, FsEntry, joinPath,
-  matchCommands, matchFiles, maxComposerLines, MAX_CANDIDATES, parentDir,
+  matchCommands, matchFiles, maxComposerLines, MAX_CANDIDATES, parentDir, spinHoldRemainingMs,
 } from '../../entry/src/main/ets/core/composer';
 
 let pass = 0, fail = 0;
@@ -140,5 +140,18 @@ divergent.running = false;                      // 第二个源说"不在跑"
 eq('mutation：第二个 busy 源会让 running 等式失效（判据有判别力）',
   divergent.running === composerButtonState(true, false, false, false).running, false);
 
+
+// ══ 取消按钮「最短转圈驻留」（§21.122bs）══════════════════════════════════════════════
+// 判据本体 `core/composer.spinHoldRemainingMs`。真机实测：本地 `/api/cancel` 是**非阻塞派发**，
+// 点停止后 ≤115ms 内按钮已收束，而设备侧最快截图量具周期就是 115ms/帧 ⇒ 用户看不到那一下 spin。
+eq('最小驻留 = 240ms（Apple 最短反馈量级）', CANCEL_SPIN_MIN_MS, 240);
+eq('请求瞬时返回（0ms）⇒ 驻留满额 240ms', spinHoldRemainingMs(0), 240);
+eq('请求 100ms 返回 ⇒ 补足 140ms', spinHoldRemainingMs(100), 140);
+eq('请求 239ms 返回 ⇒ 补足 1ms（边界内）', spinHoldRemainingMs(239), 1);
+eq('请求正好 240ms ⇒ 0（立即可收束）', spinHoldRemainingMs(240), 0);
+eq('请求 1s 返回 ⇒ 0（⛔ 不得返回负数；慢请求不额外拖长）', spinHoldRemainingMs(1000), 0);
+// ⭐ mutation 自证：去掉 `rest > 0 ? rest : 0` 的夹紧（直接 `return rest`）后，上面这条会得到
+//    `-760` ⇒ 必红。此处给出反例本身，证明判据有判别力（不是恒真）。
+eq('mutation：不夹紧会返回负数（判据有判别力）', CANCEL_SPIN_MIN_MS - 1000 < 0, true);
 
 process.exit(0);
