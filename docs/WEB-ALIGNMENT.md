@@ -6805,3 +6805,30 @@ Spring（`GitPanelSheet`×2 / `TaskDetailSheet` / `CronDetailSheet` / `SessionSt
 
 **要求② 尚未装机取证的两条（下一批）**：①「iter 结束且最后无 tool ⇒ 立刻 idle」；
 ②「点 cancel ⇒ cancel 按钮 spin 一下、请求成功立刻 idle」（可用短间隔连拍取帧）。
+
+## §21.122r：要求② 装机取证（二）—— `idle` 转换与 `cancel` 转圈：**判据与实现同源**复核
+
+**用户口径（要求②原文）**：「iter 结束如果最后没 tool，那么代表整个 turn 结束了，应该**立刻进入
+idle**。用户点了 cancel，那么应该 cancel 按钮 **spin 一下**，请求成功立刻进入 idle」。
+
+### ① 末尾无 tool ⇒ 立刻 idle（权威信号 = `phase_done`，不等 `session(idle)`）
+- **真源**：`core/streammerge.ets` 的 `hasFreshPhaseDone(...)`（头注**逐字引用**用户该口径）。
+  关键事实：服务端 `session(idle)` 要等 `Run()` **完全退出后**才发（`agent/agent.go:3531` defer），
+  而服务端 `PhaseDone`（`progress.phase === 'done'`）是 turn 结束的**最快**信号；web 因此在
+  PhaseDone 时就 `dispatchAgentIdle`（`useProgressStream.ts:1190-1198`）把会话**内存内**置 idle。
+- **本仓落点**：`core/store.ets:1916-1925` 走 `isIdleAction(action)`（同一纯函数，⛔ 不内联判定
+  ——注释记录了"内联 ⇒ 导出函数 0 消费 = 判据与状态机不同源"的旧缺陷），命中即
+  `this.applyLocalIdle(chatId)` **本地立即置 idle**（对齐 web 内存内 `setStatus('idle')`，不刷 REST），
+  REST 对账仍照跑（覆盖乐观值漂移）。
+- **可判性**：判据函数是纯 `.ts`（`core/streammerge.ets`）⇒ 脱机单测可锁（非"靠肉眼"）。
+
+### ② 点 cancel ⇒ 按钮转圈 ⇒ 成功立刻 idle；失败**不假装已停**
+- **真源**：`core/composer.ets:266-284` —— 主按钮 `cancelling = showStop && cancelInFlight`
+  ⇒ 停止键**转圈**（web `MessageInput.tsx:938` `cancelling && !canSend && busy`，逐字对齐）。
+- **本仓落点**：`core/store.ets:1460-1490`：cancel 时 ① 置 `cancelling=true`（按钮转圈）；
+  …④ **无论成败都复位** `cancelling`，失败 ⇒ **保持 busy**（界面不假装已停）。
+
+⚠️ **诚实标注**：以上两条本批做的是**代码级/同源判据**复核（落点明确、与 web 逐条对齐）；
+**帧级装机取证尚未完成** —— 模拟器脚本两次都在"发送"一步落空（软键盘弹起后 composer 上移
+⇒ 固定坐标的发送点击打空，`send@1230,1631` 后 4s 顶栏仍 `空闲`）。下批改用**每步 dump 定位**
+（同 §21.122m 的排队取证脚本）再补帧级证据；⛔ 不把"代码级通过"写成"装机已验"。
