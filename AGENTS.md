@@ -192,3 +192,5 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   当违规；`$VAR（`（变量紧跟全角括号）在 bash 3.2 + UTF-8 locale 下会 `unbound variable`。
   ⇒ 只取**调用片段**（`grep -o` 风格）、**剥注释**、**先 `source ~/ohos-cli/env.sh` 自证**、
   零扫描要判红、mutation 自证、**上报前逐条看上下文**。
+- **wire 测试的「函数体截取窗」对"中间一行加长"型改动脆弱（A2a 实踩，2026-10-14）**：`src.substring(i, i+500)`
+  这类定长窗断言，在中间一行被加长（`channelForChat(`→`channelForChatIndexed(this.sessions, this.channelIdx(), …`，+19 字符）时会把**后面的锚推出窗口** ⇒ 假红（实例 `status_sheet_wiring` ⑥ 的 `currentLastActive`）。修窗不修判别力（500→800，断言意图不变）；新写 wire 断言宁按函数 boundary（`\n  }`）截取，别用定长窗。
