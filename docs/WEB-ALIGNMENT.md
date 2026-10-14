@@ -7374,3 +7374,49 @@ api 加载会话"）**
 ⑨ tool 计数增长（需"正在生成参数"的在飞工具）、⑥ 编辑态失焦退出、② 压缩点位置、
 ③ 切会话 splash、④ 主题单一真源。
 ⇒ 待有**空闲会话**时按 `docs/UI-AUDIT-CHECKLIST.md` 逐条补测。
+
+## §21.122bj：要求②/④ 的**接线审计 + 装机实证**（2026-10-14，模拟器）
+
+### ④「统计插件的面板我们看不到」——**已修复并装机实证**
+
+接线链（全链 4 段，逐段有调用点，**无死消费**）：
+`PluginsSheet.ets:229-232`（`EntryRow('会话统计')` → `onOpenSessionStats()`）
+→ `Index.ets:4871`（`onOpenSessionStats: () => { … showSessionStats = true }`，`:4546` 另一入口）
+→ `Index.ets:5034`（渲染 `SessionStatsSheet`）
+⇒ 真机（模拟器）实证：抽屉「插件」键 → 插件面板「会话统计」→ 面板打开（截到入场动画中途的
+「加载中…」态）→ **随后拿到真数据**：`116.3k` / `生成 874` / `deepseek-flash since 10-10 11:42` /
+**按模型**三行（`deepseek-flash: in 4.46B · out 15.22M · cache 4.38B · 22984 iters`、
+`deepseek-v4.1-flash: in 232.14M · out 460.2k · cache 0 · 781 iters`、
+`deepseek-v4-pro: in 208.17M · out 832.2k · cache 204.05M · 951 iters`）/ 最近迭代。
+⇒ 结论：**面板可达 + 数据真、非空壳**。用户原话「看不到」的根因是**入口不可达**（旧版无该入口），
+非渲染缺陷 —— 与 §21.122e/c（任务/终端）同一形态的"入口接线"类缺陷。
+
+### ② 三项细节 —— **已实现且已接线**（判据 = 调用点计数，防「死消费」）
+
+| 用户原话 | 落点 | 调用点（实测 grep） |
+|---|---|---|
+| 「iter 结束如果最后没 tool ⇒ 立刻 idle」 | `core/store.ets:495 applyLocalIdle()` | **2**（`:1947`/`:1976`，SSE `session(idle)` 与 PhaseDone 两路；逐字移植 web `useSessionStore.ts:1697`「不要 refresh，会与 SSE 状态竞态」） |
+| 「点 cancel 按钮 spin 一下」 | `store.cancelling`（`:1512`）→ `composer.ets:284`（`b.cancelling = b.showStop && cancelInFlight`）→ `Index.ets:8186 composerCancelling()` | 渲染消费 **1**（`Index.ets:6799` 条件 `LoadingProgress`）；web 同源 `MessageInput.tsx:938` `(cancelling && !canSend && busy)` |
+| 「busy 时输入文字 ⇒ cancel 变插队/排队」 | `core/composer.ets:176-207`（`interruptMode ? interject : busy ? …`） | 装机可见：composer 显示「处理中 — 消息将排队…」+「排队」+ 停止方块 ✓ |
+
+⚠️ 三者此前**均无 `stopSpinning`/`cancelSpin` 之类命名**（我最初按名字 grep 得 0 命中 ⇒ 差点误判"未实现"）
+—— 真实命名是 `composerCancelling()`。**教训：先按语义找落点，再按命名核对**。
+
+### ③ 抽屉**外壳**审计结论：已达 Apple/web 权威口径（无需改）
+
+逐项对照 web `ui/sheet.tsx:47-89` 的 `SheetContent side="left"`（= 本仓手机抽屉的权威形态）：
+
+| 维度 | web 权威 | 本仓现状（`Index.ets:10627-10648` + 真机量测） |
+|---|---|---|
+| 宽度 | `w-[86vw] max-w-none` | `.width('88%')`（真机 1159px ≈ 86vw ✓；88% 是为标题不截断的**有意**选择，注释在案） |
+| 高度 | `inset-y-0 h-full` | `height('100%')`，实测 132→2754（= 应用窗口满高）✓ |
+| 右缘 | `border-r` | `.borderWidth({right: STROKE_HAIRLINE})` + `hairlineOf` ✓ |
+| 投影 | `shadow-lg` | `.shadow({ radius: shadowRadiusOf(pal,'drawer'), color: eff().elev3, offsetX: SPACE_XS })` ✓ |
+| 入场 | `slide-in-from-left duration-500` | `.transition(drawerTransition())`（底座唯一出口）✓ |
+| 面 | `bg-background`（实底） | `surfaceFillOf(pal,'surface.overlay')`（实底；**已去玻璃**，见 `:10637-10642` 的取证）✓ |
+| 遮罩 | `SheetOverlay bg-black/50` | 共享层 `anyModalOpen()` → `eff().elev2`（深=黑@32% / 浅=正文@10%）✓（单一真源，`:4764-4785`） |
+
+⇒ 本轮**未改**抽屉外壳：对照表逐格成立 ⇒ 改动会变成"为改而改"。
+**待查（未定性，留给下一批）**：抽屉搜索行里「筛选会话…」输入面与「搜本会话」chip 的**面语言**
+在**浅色**主题下的可见度差异（浅色 `insetHairlineOf` = transparent ⇒ chip 只剩文字、读起来像裸文本）。
+判据必须是**浅色主题下的真机取色**，不能靠看代码定结论。
