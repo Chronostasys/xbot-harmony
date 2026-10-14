@@ -2217,6 +2217,13 @@ struct Index {
       // ⛔ 同值不写：写 = 触发全站重渲（`@StorageLink` 订阅者），无变化时不产生噪声。
       if (nextTheme !== this.themeName) {
         this.themeName = nextTheme;
+        // ⛔ 主题切换**当场**强制全表重建（用户 2026-10-17 怒报「修三四次修不好」的最终根治）：
+        //    行键已含主题（themableRowKey），但 LazyForEach **只在数据源通知时重读键**——
+        //    切主题不产生 SSE 事件 ⇒ sync/applyRows 不跑 ⇒ reload 通知永不到达 ⇒ 历史行
+        //    冻结在旧色板（「iter1000 前白字、新 iter 正确」的分裂症状；重载会话 = chatId
+        //    变化走 needsFullReload ⇒ 正常——同机制的反证）。此处带新主题当场投一次 ⇒
+        //    键变 + reload 通知齐发 ⇒ 框架重读全部行键 ⇒ 全表重建（与重载会话等效，保滚动位）。
+        this.rowDs.applyRows(tailRows(this.rows, this.rowLimit), this.currentChat, nextTheme);
       }
       // md 主题**同时推给全局订阅**（`@StorageProp('appMdTheme')`，消费点 `components/MarkdownView`）：
       // md 主题只影响代码块/行内码配色，而历史行由 `LazyForEach` 承载 ⇒ 只靠 `@Prop mdTheme` 投递
