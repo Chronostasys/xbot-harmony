@@ -7154,4 +7154,55 @@ mutation：两处改回旧写法 ⇒ **各红 1 条**（其余 7 绿）；还原
 **自己的**"无值"惯用记号（同组件里 `schedule || '—'`、`nextRun || '—'` 同源），改它 = 重设计 web，
 超出「对齐 web 权威」的边界 ⇒ 记录在案、本轮不动。
 
+## §21.122bc：要求④ 核心 —— 插件视图的「两层 chrome」套娃（web 修，xbot `10c91dc6` 已推）
+
+**用户原话**：「必须真的支持 web 的所有插件和功能，现在其实**插件都打不开**，比如统计插件的
+面板我们看不到」。
+
+**本轮取到的真形态**（装机 + dump，非肉眼定性）：原生「能力面板」点插件后，WebView 载入的是
+`?xbot_view=xbot.plugin-manager.panel&xbot_view_title=%E6%8F%92%E4%BB%B6&xbot_embed=1`
+（判据：`dumpLayout` 里 `type=Web` 节点的 `text` **就是该 URL**），**面板能渲**；但屏幕上是
+**两层 chrome** —— 原生 `‹ 插件 ⟳` 之下又出现 web 自己的 `← 插件 ＋ 🔧 ⚙️` 头 + 底部
+`🏠 本机 ● ⟳` 栏。用户说的"打不开"，实况是"开了，但套娃 + 为一个视图渲了整个 SPA"。
+
+**根因（web 单点，逐行取证）**：`web/src/App.tsx` 的嵌入判定是
+`parseEmbedQuery(search) ? parsePanelQuery(search) : null` —— **只认 `xbot_panel`**，而插件
+视图只有 `xbot_view` ⇒ `null` ⇒ 回落 `<AppShell />`（**整个 SPA**）。
+
+**修法（web 侧三处，缺一不自洽）**：
+1. `workspace/panelRequest.ts`：新增纯函数 `parseEmbedTarget(search)` ⇒
+   `{kind:'panel',panelId} | {kind:'view',viewId} | null`（嵌入态 + 面板白名单命中 ⇒ panel；
+   否则有 `xbot_view` ⇒ view；都没有 ⇒ `null` 回落完整应用 —— **fail-safe 语义不变**）。
+2. `layouts/EmbedPanelShell.tsx`：`panelId` 换成 `target` 联合类型 + 新增 view 分支，只挂
+   `PluginView` 本体；**复用同一条实时通道**（嵌入态必须自建 SSE，见 §21.122u）与 `nav/ready`
+   握手 —— ⛔ 不另写第二个嵌入外壳（否则"嵌入态没订阅"那类缺陷会各修一遍）。
+   配套 `plugin-runtime/usePluginViewPanels.ts` 新增 `usePluginViewById(viewId)`（**跨容器**按 id
+   取；原生只传 viewId，不认识 container）。
+3. `App.tsx`：按 `parseEmbedTarget` 分流；view 的参数细节仍归 `pluginViewRequest.ts` 唯一真源。
+
+**判据（新增，mutation 自证）**：
+- `panelRequest.test.ts`：view 深链 ⇒ `{kind:'view'}`；**非嵌入态** ⇒ `null`（浏览器访问 `/`
+  必须仍是完整应用）；嵌入态两条都不可用 ⇒ `null`。
+- `App.test.tsx`（**新建**）：view 深链 ⇒ 渲 `EmbedPanelShell`（⛔ **不得**落 `AppShell`）；
+  panel 深链 ⇒ panel；非嵌入 ⇒ `AppShell`；无可用目标 ⇒ `AppShell`。
+  **mutation**：把分流改回"只认 `xbot_panel`" ⇒ **仅 view 那条红**（其余 3 条绿）。
+- 全量 `npx vitest run`：**185 文件 / 1945 通过**。
+
+**装机复验（模拟器，设备级判据）**：
+- dump 文本节点：修前**含** `本机`（web cwd 栏）⇒ 修后**不含**；修后仍**含** `安装` /
+  `Ambience` / `远程机器（SSH）` ⇒ 面板本体照常渲染（证明不是"把面板也一起去掉"的假修复）。
+- 截图 `/tmp/plmgr2.jpeg`：`← 插件 ＋🔧⚙️` 头与底部 `本机 ●` 栏**消失**，只剩 `‹ 插件 ⟳` +
+  `安装/刷新` + 插件列表。
+
+**顺带判定（⛔ 不是缺陷，勿"修"）**：
+1. 去掉的 `＋`/`🔧`/`⚙️` 是 **web 外壳自己的动作**（`MobileAppShell` 的
+   `BUILTIN_LAYOUT_ITEMS`：新建会话 / 工具 / 设置），底部 `本机 ●` 是外壳的工作目录切换器
+   ⇒ 原生自有对应入口（抽屉），嵌入态去掉**正确**，不丢插件功能；面板自身的 `安装/刷新`
+   工具条在**面板本体**里，照常显示。
+2. 原生「能力面板」里 `GenUI（display_html）` 显示「未声明面板」、`迭代指标` 显示「已挂载：
+   状态栏」且**无打开入口** —— 这是插件**自己**的 `contributes` 就那样（`xbot.genui` 零 view
+   贡献点、`xbot.iteration-stats` 只挂 `status_bar_right` 徽章）⇒ web 侧同样没有面板
+   ⇒ 不是本仓缺陷。权威入口是「**插件管理（Web）**」（列全部插件及其视图贡献点）。
+
+
 
