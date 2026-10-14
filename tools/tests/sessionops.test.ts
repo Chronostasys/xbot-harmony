@@ -44,6 +44,41 @@ eq('短摘要不截断', hitLine('user', 'hi', 50), '你：hi');
 
 eq('有名字用名字', sessionLabel('发布 v1', 'chat_1'), '发布 v1');
 eq('无名字回落 chat_id 末段', sessionLabel('  ', 'web/chat_9'), 'chat_9');
+// ── 2026-10-16（目标③「超越 web」）：无 label ⇒ **用末条消息预览当标题**，⛔ 不裸 id ─────────
+eq('无 label + 有预览 ⇒ 用预览当标题（⛔ 不是裸 chat_id）',
+  sessionLabel('', 'web:chat_263F7E142E0B', '帮我看看这个 bug'), '帮我看看这个 bug');
+eq('预览含换行/多空格 ⇒ 折叠成单行',
+  sessionLabel('', 'web:chat_9', '第一行\n\n  第二行'), '第一行 第二行');
+eq('预览首尾空白 ⇒ 裁掉', sessionLabel('', 'chat_9', '  hi  '), 'hi');
+eq('预览超长 ⇒ 截断到 SESSION_LABEL_MAX', sessionLabel('', 'chat_9', 'x'.repeat(100)).length, 60);
+eq('有 label 时预览**不参与**（label 优先）',
+  sessionLabel('真名', 'chat_9', '预览串'), '真名');
+eq('label 与预览都空 ⇒ 才回落 chat_id 末段（`/` 形 id 取末段）',
+  sessionLabel('   ', 'web/chat_9', '   '), 'chat_9');
+// mutation 自证（判别力）：若仍旧"裸 id 优先"（忽略预览）⇒ 上面第一条必红
+function mutatedIdFirst(label: string, chatId: string, preview: string): string {
+  const l: string = label.trim();
+  if (l.length > 0) { return l; }
+  const parts: string[] = chatId.split('/');
+  return parts.length > 0 ? parts[parts.length - 1] : chatId;
+}
+eq('mutation：忽略预览的旧写法 ⇒ 第一条「用预览当标题」必红',
+  mutatedIdFirst('', 'web:chat_263F7E142E0B', '帮我看看这个 bug') === '帮我看看这个 bug', false);
+eq('mutation：现行实现同输入 ⇒ 判绿',
+  sessionLabel('', 'web:chat_263F7E142E0B', '帮我看看这个 bug') === '帮我看看这个 bug', true);
+// ── 服务端把 label **回声成原始会话键** ⇒ 视为无名（真机实测的现场丑点）────────────
+eq('label === chat_id（回声）⇒ 视为无名 ⇒ 用预览',
+  sessionLabel('web:chat_263F7E142E0B', 'web:chat_263F7E142E0B', '排队测试'), '排队测试');
+eq('label === chat_id 末段（回声）⇒ 用预览',
+  sessionLabel('chat_9', 'web/chat_9', '排队测试'), '排队测试');
+eq('真名与 id 不同 ⇒ 仍用真名', sessionLabel('Agent-astute-cedar', 'chat_263F7E142E0B', '预览'), 'Agent-astute-cedar');
+// mutation 自证：只看"label 非空"（不识别回声）⇒ 上两条必红
+function mutatedLabelOnly(label: string, _chatId: string, _preview: string): string {
+  const l: string = label.trim();
+  return l.length > 0 ? l : _chatId;
+}
+eq('mutation：不识别回声的写法 ⇒ 「回声视为无名」必红',
+  mutatedLabelOnly('web:chat_263F7E142E0B', 'web:chat_263F7E142E0B', '排队测试') === '排队测试', false);
 
 if (fail > 0) { console.log(`  sessionops: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  sessionops: ${pass} passed, 0 failed`);

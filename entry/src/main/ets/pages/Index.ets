@@ -2823,7 +2823,8 @@ struct Index {
     const node: SessionItem | null =
       resolveSessionNode(this.sessions, channelForChat(this.sessions, chatId), chatId);
     if (node !== null) {
-      return sessionLabel(node.label !== undefined ? node.label : '', chatId);
+      return sessionLabel(node.label !== undefined ? node.label : '', chatId,
+        node.preview !== undefined ? node.preview : '');
     }
     return sessionLabel('', chatId);
   }

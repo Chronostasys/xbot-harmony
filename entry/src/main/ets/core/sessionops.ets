@@ -97,15 +97,38 @@ export function hitLine(role: string, snippet: string, maxLen: number): string {
   return `${roleLabel(role)}：${cut}`;
 }
 
-/** 会话显示名（无名字时回落到 chat_id 末段）。 */
-export function sessionLabel(label: string, chatId: string): string {
+/**
+ * 会话标题显示名（回落链：`label` → **末条消息预览** → `chat_id` 末段）。
+ *
+ * ⛔ 用户口径（2026-10-16）：「不要一比一复刻 web 排版，你是原生你要**超越** web」。
+ *    现场丑点（真机截图实锤）：**无 label** 的会话把**原始会话键**当标题 ⇒ 列表里出现
+ *    `web:chat_263F7E142E0B` 这种"看不懂的机器串"（Apple 列表绝不会这样）。
+ * ✅ 服务端会话树自带 `preview`（末条消息摘要；实测 25/61 会话非空）⇒ 用它当标题比裸 id
+ *    可读得多（仍**不是**发明数据：纯展示层选择更可读的既有字段）。
+ * ⛔ 预览也空 ⇒ 才回落 `chat_id` 末段（保持既有行为，⛔ 不制造空标题）。
+ */
+export function sessionLabel(label: string, chatId: string, preview: string = ''): string {
   const l: string = label.trim();
-  if (l.length > 0) {
+  // ⛔ 服务端会把 `label` 直接回声成**原始会话键**（真机实测：`label === "web:chat_263F7E142E0B"`
+  //    而 `preview === "排队测试"`）⇒ 若只看"label 非空"，列表里就出现一串机器串当标题
+  //    （用户口径「侧边栏丑得要死」的现场丑点）。⇒ label 与 chat_id 相同（或等于其末段）
+  //    一律**视为无名**，继续走回落链。
+  const parts: string[] = chatId.split('/');
+  const idTail: string = parts.length > 0 ? parts[parts.length - 1] : chatId;
+  const echoed: boolean = l.length > 0 && (l === chatId || l === idTail);
+  if (l.length > 0 && !echoed) {
     return l;
   }
-  const parts: string[] = chatId.split('/');
-  return parts.length > 0 ? parts[parts.length - 1] : chatId;
+  // 折叠空白（预览常含换行/多空格，标题是单行）+ 截断（列表 maxLines(1) + 省略号）。
+  const pv: string = preview.replace(/\s+/g, ' ').trim();
+  if (pv.length > 0) {
+    return pv.length > SESSION_LABEL_MAX ? pv.substring(0, SESSION_LABEL_MAX) : pv;
+  }
+  return idTail;
 }
+
+/** 预览当标题时的最大字符数（超长截断；列表本身 `maxLines(1)` + 省略号）。 */
+export const SESSION_LABEL_MAX: number = 60;
 
 // ── 消息搜索（`POST /api/search`）的**请求契约**纯逻辑 ─────────────────────────────
 //
