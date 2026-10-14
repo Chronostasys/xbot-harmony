@@ -9119,13 +9119,24 @@ struct Index {
             this.newTerminal();
           })
         }
+        // ── 2026-10-14（要求③-2「所有面板」）：由**文字「刷新」**改 **Apple 导航栏图标键**，
+        //    与 `SessionStatsSheet`（统计）/ `WebSurface`（Web 面板）的刷新**逐字段同款**
+        //    （字形 `arrow_clockwise` · `ICON_MD` · 色 `textSecondary` · 44 布局盒 · a11y '刷新'）。
+        //    理由：**同一个动作在三个面板必须是同一控件类型** —— 此前"统计=图标键 / 运行面板=文字键"
+        //    并存 ⇒ 与用户口径「控件类型不自洽」同类（同 ③-1 抽屉两修的判据）。且本行原为
+        //    「文字键 + 图标 ✕」混排，图标键后整排动作键形态收敛为字形。
+        //    ⛔ 热区仍是**真实 ≥44 布局盒**（`responseRegion` 负偏移在本机/SDK21 实测无效，见 AGENTS.md）。
+        //    ⛔ 本行**不得**改成 `SPACE_HAIR`：`status_sheet_drawer` 判据以「`SPACE_HAIR` 且后接块开头」
+        //    那行为首个锚切"抽屉分段控件轨道"，此处更早匹配会把 8916 的折叠动作卷进轨道 ⇒ 假红。
         Row() {
-          // 与「新建」同口径（`panelActionTint()`，单一来源 ⇒ B 线净减）：刷新是**动作**、不是弱化
-          // 元信息 ⇒ 用 `type.subhead`（与抽屉动作键同尺寸；此前 `caption` 比「新建」矮一档）。
-          Text('刷新').fontSize(typeOf('type.subhead').size).fontColor(this.panelActionTint())
+          SymbolGlyph($r('sys.symbol.arrow_clockwise'))
+            .fontSize(ICON_MD)
+            .fontColor([this.pal().textSecondary])
         }
-        .height(HIT_TARGET_MIN).padding({ left: SPACE_XS, right: SPACE_XS })
+        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('刷新')
         .onClick(() => {
           this.refreshPanel();
         })

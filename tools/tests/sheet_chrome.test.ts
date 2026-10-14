@@ -83,6 +83,24 @@ function read(p: string): string {
   try { return stripComments(fs.readFileSync(p, 'utf8')); } catch (e) { return ''; }
 }
 
+/**
+ * 源码里是否存在**独立的** `Text('xxx')` 元素调用。
+ *
+ * ⛔ 必须做"前邻字符非标识符"边界判定：朴素 `indexOf("Text('刷新')")` 会被 `.accessibilityText('刷新')`
+ *   **子串误匹配**（"Text(" 恰好是它的后缀）⇒ **正确实现被判红**（2026-10-14 本轮自证实测踩到）。
+ */
+function hasTextElement(src: string, label: string): boolean {
+  const needle: string = "Text('" + label + "')";
+  let from: number = 0;
+  while (true) {
+    const k: number = src.indexOf(needle, from);
+    if (k < 0) { return false; }
+    const prev: string = k > 0 ? src.charAt(k - 1) : '';
+    if (!/[A-Za-z0-9_]/.test(prev)) { return true; }
+    from = k + needle.length;
+  }
+}
+
 /** 关闭 X 字形（**非** `_fill`：`xmark_circle_fill` 是"清空/终止"等**别的**语义，不属本契约）。 */
 const NEEDLE: string = "sys.symbol.xmark')";
 
@@ -245,6 +263,41 @@ for (const rel of SHEETS) {
   ok('⑥ ⛔ 空态必须带字形（不得有 PanelEmpty(\' 形态）', src.indexOf("PanelEmpty('") < 0);
   // 反：⛔ 不得用**不存在**的 `terminal` 字形（真机渲染空白 = 静默失败）
   ok('⑥ ⛔ 不得用不存在的 sys.symbol.terminal', src.indexOf('sys.symbol.terminal') < 0);
+}
+
+// ── ⑦「同一个动作 ⇒ 同一个控件类型」：面板动作键「刷新」（2026-10-14，要求③-2）────────────────
+//   真实清点（动机）：同一个「刷新」动作在本仓有**两种控件类型** —— `SessionStatsSheet`（统计）走
+//   **图标键**（`arrow_clockwise` + a11y），而 `pages/Index.ets` 的运行面板走**文字键** `Text('刷新')`
+//   ⇒ 观感是"两个产品拼起来的"；用户在要求③里点名的正是「面板控件类型要自洽」（同 ③-1 抽屉两修）。
+//   ⇒ 判据钉：两处都必须是**图标键**（同一字形 + 同一 a11y 文案，同一条属性链内 ≤400 字符）；
+//     并**反向**钉运行面板页头区间里不得再出现**独立的 `Text('刷新')` 元素**（白绿防线）。
+//   ⛔ 断言纪律（本轮自证亲手踩到）：`indexOf("Text('刷新')")` 会被 `.accessibilityText('刷新')`
+//     **子串误匹配**（"Text(" 是其后缀）⇒ 正确实现被判红。⇒ 必须做"前邻字符非标识符"的**边界判定**
+//     （`hasTextElement`），且**限定区间**（`PanelsSheet()` → `'关闭运行面板'`），别全文件乱扫。
+//   **mutation 自证**（用 `git show HEAD:` 的旧版 Index.ets 当必红样本，实测）：旧版 ⇒ 图标键 false
+//     + 独立文字键 true ⇒ ⑦ 红两条；工作树 ⇒ 两条全绿；`SessionStatsSheet` 对照 ⇒ 绿。
+{
+  const idxSrc: string = read(path.join(ETS, 'pages/Index.ets'));
+  const statsSrc: string = read(path.join(ETS, 'components/SessionStatsSheet.ets'));
+  ok('⑦ pages/Index.ets 读到源码（零扫描判红）', idxSrc.length > 0);
+  ok('⑦ components/SessionStatsSheet.ets 读到源码（零扫描判红）', statsSrc.length > 0);
+  const GLYPH: string = "SymbolGlyph($r('sys.symbol.arrow_clockwise'))";
+  const A11Y: string = ".accessibilityText('刷新')";
+  // 运行面板页头区间（含注释已剥 ⇒ 只判代码）
+  const headStart: number = idxSrc.indexOf('PanelsSheet()');
+  const headEnd: number = idxSrc.indexOf("accessibilityText('关闭运行面板')", headStart < 0 ? 0 : headStart);
+  const head: string = headStart >= 0 && headEnd > headStart ? idxSrc.substring(headStart, headEnd) : '';
+  ok('⑦ 切到运行面板页头区间（零扫描判红）', head.length > 0);
+  const iIdx: number = head.indexOf(GLYPH);
+  const jIdx: number = iIdx < 0 ? -1 : head.indexOf(A11Y, iIdx);
+  ok('⑦ 运行面板刷新键 = 图标键（arrow_clockwise + a11y「刷新」，同链 ≤400 字符）',
+    iIdx >= 0 && jIdx > iIdx && jIdx - iIdx <= 400, `glyph@${iIdx} a11y@${jIdx}`);
+  ok('⑦ ⛔ 运行面板页头不得再有独立的文字键 Text(\'刷新\')（控件类型不自洽）',
+    !hasTextElement(head, '刷新'));
+  const iSt: number = statsSrc.indexOf(GLYPH);
+  const jSt: number = iSt < 0 ? -1 : statsSrc.indexOf(A11Y, iSt);
+  ok('⑦ 统计面板刷新键 = 图标键（同一契约，不许各写各的）',
+    iSt >= 0 && jSt > iSt && jSt - iSt <= 400, `glyph@${iSt} a11y@${jSt}`);
 }
 
 if (fail > 0) { console.log(`  sheet_chrome: ${pass} passed, ${fail} failed`); process.exit(1); }
