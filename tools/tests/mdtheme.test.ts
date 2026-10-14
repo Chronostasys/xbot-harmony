@@ -29,6 +29,15 @@ eq('默认主题 = web DEFAULT_MARKDOWN_THEME', DEFAULT_MD_THEME, 'vscode-dark')
 //   ⇒ 下面两条立刻红（第一条找不到「23 项」，第二条找到「19 项」）。
 eq('说明文案含真实项数（23 项）', mdThemePickerDescription().indexOf(`${MD_THEMES.length} 项`) >= 0, true);
 eq('说明文案不含历史硬编码的 19 项', mdThemePickerDescription().indexOf('19 项') < 0, true);
+// 2026-10-14（目标③·真机帧评审）：原文案含 **agent 自造的开发商向术语**
+// 「仅作用于 Markdown 代码高亮；与 Web 端共用同一组 id」——「共用同一组 id」是**实现细节**，
+// 出现在用户可见设置里 = 真缺陷（web 权威无此句）。
+// ★ 判别力（mutation 必红）：首句改成别的话 ⇒ 第①条红；把「与 Web 端共用同一组 id」加回来 ⇒ 第②条红。
+const MD_DESC: string = mdThemePickerDescription();
+eq('说明文案以 web 权威原文开头（zh-CN.ts:517 settings.mdThemeDesc）',
+  MD_DESC.indexOf('选择 Agent 对话区 Markdown 渲染的配色主题') === 0, true);
+eq('说明文案不含开发商向术语（共用同一组 id）',
+  MD_DESC.indexOf('共用同一组 id') < 0, true);
 eq('每套都有非空显示名', MD_THEMES.filter((t) => t.label.length === 0).length, 0);
 eq('mode 只能是 dark/light', MD_THEMES.filter((t) => t.mode !== 'dark' && t.mode !== 'light').length, 0);
 eq('浅色主题数量 = 4', MD_THEMES.filter((t) => t.mode === 'light').length, 4);

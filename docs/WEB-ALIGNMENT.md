@@ -7089,3 +7089,28 @@ cancel 留下的标记行）⇒ dump 判据 **`裸 [interrupted] 文本节点 = 
 **顺带取证（要求②第三点，装机可见）**：busy 态 composer 实拍 = 占位文案
 `处理中 — 消息将排队…` + `排队` chip + 主按钮为**停止**（截图 `/tmp/s3_chat.jpeg` 13:00 那张，
 会话 `手机NPU部署…` 运行中）⇒ 与 §21.122r 的 `composerButtonState` 判据**两侧一致**（同源）。
+
+## §21.122aa：要求③ 设置「Markdown 主题」说明文案 —— 移除**agent 自造的开发商向术语**
+
+**现象（要求③ 多面扫描首轮，真机截图 `/tmp/s3_settings.jpeg`）**：设置根里「Markdown 主题」
+下方那段说明是**面向开发者**的长句，出现在用户可见设置里。
+
+**取证（对齐 web 权威）**：
+- native 原文案（`core/mdtheme.ets:83-84`）：
+  `'仅作用于 Markdown 代码高亮；与 Web 端共用同一组 id。' + '${N} 项按明暗分组，默认展开当前主题那一组。'`
+  —— **「与 Web 端共用同一组 id」是实现细节**，用户界面不该出现（典型 agent 自造文案）。
+- web 权威（`web/src/i18n/zh-CN.ts:517 settings.mdThemeDesc`，渲染处
+  `web/src/components/settings/SettingsAppearance.tsx:107`）：
+  **`'选择 Agent 对话区 Markdown 渲染的配色主题'`**（单句、面向用户；⛔ 无 id 之类术语）。
+- 后句（`N 项按明暗分组，默认展开当前主题那一组`）是 **native 独有真实行为**（web 的选择器是
+  扁平 `flex-wrap`，native 才有「深色主题/浅色主题」可折叠组）⇒ 保留为用户提示，非发明。
+
+**修法**：首句**逐字换成 web 原文**；保留 native 独有的分组提示（数量仍**派生**，见 §上面注释：
+历史 bug 曾硬编码「19 项」）。纯文案改动，⛔ 不动任何交互/布局。
+
+**判据**：`tools/tests/mdtheme.test.ts` 新增两条 ——
+① 说明文案**以 web 原文开头**（`indexOf(...) === 0`）；② **不含**术语 `共用同一组 id`。
+**mutation 自证**：把原文案注入回去 ⇒ 新两条**立刻红**（`24 passed, 2 failed`）；还原 ⇒ 26 绿。
+
+**门禁**：`GATE_RC=0` + `✅ 真门禁全绿`（④ `BUILD SUCCESSFUL`，1m3s）。
+

@@ -80,7 +80,14 @@ export function mdThemeMode(id: string): string {
  *    ⛔ 不许再在 UI 里写死数字。
  */
 export function mdThemePickerDescription(): string {
-  return '仅作用于 Markdown 代码高亮；与 Web 端共用同一组 id。'
+  // 首句 = web 权威文案逐字（`web/src/i18n/zh-CN.ts:517 settings.mdThemeDesc`，
+  // 渲染处 `web/src/components/settings/SettingsAppearance.tsx:107`）。
+  // ⛔ 2026-10-14（目标③·真机帧评审）：原文案含 **agent 自造的开发商向术语**
+  //    「仅作用于 Markdown 代码高亮；与 Web 端共用同一组 id」——「共用同一组 id」
+  //    是**实现细节**，出现在用户可见设置里是真缺陷（web 权威里没有这句）。
+  //    后句是 native 独有的**真实**行为（按明暗分组 + 默认展开当前组，web 是扁平列表），
+  //    保留为用户提示；数量仍**派生**（见上）。
+  return '选择 Agent 对话区 Markdown 渲染的配色主题；'
     + `${MD_THEMES.length} 项按明暗分组，默认展开当前主题那一组。`;
 }
 
