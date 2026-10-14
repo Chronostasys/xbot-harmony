@@ -10395,9 +10395,16 @@ struct Index {
         .layoutWeight(1).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('终端：web 终端面板（新建/切换会话终端）')
+        .accessibilityText('终端：web 终端面板（新建/切换会话终端；离线回落原生「运行」面板终端页）')
         .onClick(() => {
-          this.openWebPanel('terminal');
+          // §21.122e 同款纪律：**每个 `openWebPanel` 调用点都要有原生回落**——拿不到基地址时
+          // `openWebPanel` 返回 false（fail-closed），无回落 = 点下去**毫无反应**（本键此前正是
+          // 如此：文件/任务两键都有 `if (!…){…}`，只有终端键裸调）。回落目标 = 原生「运行」面板的
+          // 终端页（`panelTabs()` 的 `term`），与 web 终端面板是不同能力面但同一条入口语义。
+          if (!this.openWebPanel('terminal')) {
+            this.switchPanelTab('term');
+            this.openPanels();
+          }
         })
         // ── 竖向发丝：把**销毁性**动作（退出登录）与导航项拉开 ──────────────────────
         // 2026-10-14（目标③「抽屉对标 Apple」）：Apple 不在主导航里放"等重的销毁项"——它要么收进
