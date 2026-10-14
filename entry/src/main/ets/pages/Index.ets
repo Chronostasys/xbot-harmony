@@ -2141,7 +2141,13 @@ struct Index {
     if (this.terminals !== store.terminals) {
       this.terminals = store.terminals;
     }
-    this.settings = store.settings;
+    // ⚡ A 线审计静默面 #6（2026-10-14）：同族对象写入（sessions :2035 / widgetContent :2072 /
+    //   queue :2087 / todos :2096）全有守卫，唯 settings 裸写 ⇒ 流式期每帧对**同引用**反复赋值。
+    //   若 ArkUI 对同引用赋值也标脏，settings 读取面（抽屉分组键/星标/主题等）会被每帧重评——
+    //   给 A 线「页级 build 发动机」再加一码。加 !== 守卫=纯收益（引用变照写，语义不变）。
+    if (store.settings !== this.settings) {
+      this.settings = store.settings;
+    }
     // ⛔ 主题**单一真源** = markdown 主题（服务端 `web:ui:md-theme`，与 web 同一项）。
     // web 权威 `providers/theme.tsx:101-113`：应用明暗 = `modeForTheme(mdTheme)` **派生**，
     // 没有第二套「应用主题」设置（用户 2026-10-13 拍板：「只有一种主题设置，就是你从后端接口拉的那种」）。
