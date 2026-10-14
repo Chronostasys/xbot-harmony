@@ -6471,5 +6471,56 @@ web 侧那 9+ 处 `await navigator.clipboard.writeText(...)` 会抛 TypeError �
 3. **文件面板「代理后触发原生 UI」**：在 web 文件面板里点文件 ⇒ 事件经 JS 桥回原生 ⇒
    用**原生 UI**（预览/编辑器）打开，⛔ 不是又在 WebView 里开一个 web 编辑器。
 
+---
+
+## §21.122g：嵌入模式（`xbot_embed=1`）+ 面板导航意图代理 —— 消掉"两层 chrome"
+
+> 实施 §21.122f ③ 的三条用户定向。跨两仓：web 侧出能力（`cff552af`），原生侧出 chrome 与原生 UI。
+
+### ① 真问题（截图取证，不是审美偏好）
+
+原生壳把 web **整壳**塞进 WebView ⇒ 屏幕上是**两层 chrome**：原生 `‹ 文件 ⟳` 之下又叠 web 自己的
+`← 工具` 头 + `文件/搜索/信息/任务/终端` 页签行 + 底部 InfoBar + 会话列表。用户原话：
+「这种嵌套 web view 应该**代理原 web 的导航事件**，并且**去掉多余的 ui**」
+「嵌套 webview **不要做多余的渲染**」。⇒ 这既是观感问题，也是**性能问题**（为一个面板白渲整个 SPA）。
+
+### ② 契约（两侧同源，改动必须同批）
+
+| 环节 | web（真源） | 原生（消费） |
+|---|---|---|
+| 嵌入开关 | `workspace/panelRequest.ts:parseEmbedQuery`（⛔ 只认字面量 `'1'`） | `core/pluginhost.ets:webPanelDeepLink` **恒拼** `&xbot_embed=1` |
+| 只挂本体 | `layouts/EmbedPanelShell.tsx`（`App.tsx` 分流） | `Index.ets` 的 `panelUrl` WebSurface |
+| 本体真源 | `workspace/panelRender.tsx:renderPanelBody`（与 `MobileAppShell` **共用一份**） | — |
+| 导航意图 | `workspace/hostBridge.ts:postHostNav` → `xbotNative.postMessage({type:'nav'})` | `core/webbridge.ets:parseHostNavPayload` → `WebSurface.onHostNav` → `Index.handleHostNav` |
+| `kind` 白名单 | `HostNavKind = 'ready'|'title'|'openFile'` | `HOST_NAV_KINDS`（逐字一致） |
+
+**`kind` 的语义**：
+- `ready`（text = 面板 id）—— 挂载握手。⚠️ 它是**"嵌入真的生效"的唯一正向信号**：线上产物陈旧 /
+  参数被丢时它**不会到达** ⇒ `hilog XBOT-PANEL: embed ready` 一眼分辨"面板没开"还是"开了没嵌对"。
+- `title`（text = 标题）—— 面板自述标题 ⇒ 原生 chrome 标题跟随（用户不必看 web 再画一条）。
+- `openFile`（text = 路径）—— 在 web 文件面板点文件 ⇒ **触发原生 UI**（`Index.handleHostNav`：
+  收掉 web 面板 → `openFiles()` → `openFsFile(path, fileKindOf(baseNameOf(path), false))`），
+  ⛔ 不再在 WebView 里开第二个 web 编辑器（那等于把"嵌套"再套一层）。
+
+### ③ 失败方向（有意为之，两条都是 fail-safe）
+
+- **无宿主 ⇒ 静默 no-op**：`postHostNav` 返回 `false` ⇒ 调用方**回落 web 自身行为**
+  （`FileExplorer` 照旧 `openTab`）⇒ 纯浏览器访问 `/` 行为逐字节不变。
+- **坏包 ⇒ 什么都不做**：`parseHostNavPayload` 对非 JSON / 缺字段 / 类型错 / **未知 kind** 一律
+  `null`（⛔ 不兜底成某个 kind，否则一个坏包会触发错误的原生动作）；`text` 截断 1024。
+- **`xbot_embed=1` 但面板 id 非法 ⇒ 回落完整应用**（宁可多渲 chrome，也不给宿主渲空白壳）。
+
+### ④ 判据
+
+| 判据 | 结果 |
+|---|---|
+| web `npm run build`（`tsc -b && vite build`） | ✅（途中 `tsc` 抓到 `PluginViewRef` 导入未使用 —— 只有真类型检查能抓） |
+| web 单测（`panelRequest` / `hostBridge` / sidebar / workspace 共 10 文件） | ✅ 63 passed |
+| harmony 脱机（`run-one.sh webbridge` / `plugin_view_link`） | ✅ 138 passed / 45 passed（含 `nav` 13 条 + URL 哨兵 1 条） |
+| harmony 真门禁 `bash tools/gate.sh` | 见提交信息（**④ 必须 `BUILD SUCCESSFUL`**） |
+| 部署（`scripts/deploy-web.sh --no-build`） | ✅ 线上 `assets/index-CgHjPSZn.js`（自证含 `xbot_panel`） |
+| 装机（无两层 chrome / 点文件 ⇒ 原生预览） | 见 §21.122h |
+
+
 
 

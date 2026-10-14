@@ -7,8 +7,8 @@ import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import {
   BridgeMessage, parseBridgeMessage, encodeBridgeMessage, encodeBridgeAck, makeBridgeMessage,
   BridgeHostAction, BRIDGE_ACTION_CLOSE, BRIDGE_ACTION_LOG, BRIDGE_ACTION_READY,
-  BRIDGE_ACTION_CLIPBOARD,
-  hostActionFor, bridgeInitPayload,
+  BRIDGE_ACTION_CLIPBOARD, BRIDGE_ACTION_NAV,
+  hostActionFor, bridgeInitPayload, HostNavEvent, parseHostNavPayload,
   NEW_WINDOW_EXTERNAL, NEW_WINDOW_IN_WEB, newWindowAction,
   FILE_PICK_IMAGE, FILE_PICK_MAX_COUNT, filePickKindOf,
   downloadFileNameOf, sanitizeFileName,
@@ -272,6 +272,22 @@ export struct WebSurface {
   };
 
   /**
+   * **面板导航意图**代理（§21.122f；web `src/workspace/hostBridge.ts` 的 `nav` 消息）。
+   *
+   * 为什么必须有：嵌入模式（`?xbot_panel=<id>&xbot_embed=1`）下 web 只渲**面板本体**，
+   *   面板里的"用户想往外走"的动作不再由 web 自己完成（web 已经没有那层 chrome/work 视图可跳）
+   *   —— 它们被代理给宿主，由宿主决定：chrome 标题（`title`）/ 触发**原生 UI**（`openFile`）。
+   *   用户原话：「这种嵌套 web view 应该**代理原 web 的导航事件**…然后文件面板应该
+   *   **代理后触发原生 ui**」。
+   * 链路：页面 → `xbotNative.postMessage({type:'nav',payload:'{"kind","text"}'})` →
+   *   `hostActionFor`（信封级判定）→ `parseHostNavPayload`（**纯函数**：白名单 + 截断）→ 本回调。
+   * ⛔ 只在 payload 合法（kind 在白名单）时被调用；坏包在纯函数里就被丢弃（fail-closed）。
+   * ⚠️ 普通成员而非 `@Prop`（同 `onBridgeMessage`/`onDownloadDone`：函数回调不是可观测数据）。
+   */
+  onHostNav: (ev: HostNavEvent) => void = (ev: HostNavEvent) => {
+  };
+
+  /**
    * 把 `nativeBridge` 的回调接到 `onBridgeMessage`，并执行**宿主 chrome 级动作**。
    * ⚠️ 必须在 `aboutToAppear`（早于 build / 页面加载）完成，确保页面第一次调
    *    `xbotNative.postMessage` 时回调已就位。
@@ -490,6 +506,15 @@ export struct WebSurface {
         // ⛔ 该判据与 `clipboardTextOf` 同源（`text` 已收敛/截断），组件不另判一次。
         if (action.text.length > 0) {
           this.onClipboardWrite(action.text);
+        }
+        return;
+      }
+      if (action.kind === BRIDGE_ACTION_NAV) {
+        // 面板导航意图（§21.122f）：结构化解析在纯函数里（白名单 + 截断）；
+        // 坏包（非 JSON / 未知 kind）⇒ null ⇒ **什么都不做**（fail-closed，不猜语义）。
+        const ev: HostNavEvent | null = parseHostNavPayload(action.text);
+        if (ev !== null) {
+          this.onHostNav(ev);
         }
         return;
       }

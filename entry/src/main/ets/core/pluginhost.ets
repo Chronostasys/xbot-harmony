@@ -856,12 +856,23 @@ export function webPanelTitle(panelId: string): string {
 }
 
 /**
- * 直达 web 内置面板的深链：`<base>/?xbot_panel=<id>`（web `parsePanelQuery` 消费）。
+ * 直达 web 内置面板的深链：`<base>/?xbot_panel=<id>&xbot_embed=1`（web `parsePanelQuery` 消费）。
  *
  * · `base` 末尾 `/` 归一化（避免 `//?xbot_panel`）；
  * · **白名单外 ⇒ 空串**（调用方不得把它当 URL 用 —— fail-closed：宁可什么都不开，也不要把
  *   用户丢进一个 web 端会忽略参数的空白页）；
  * · `base` 为空 ⇒ 空串。
+ *
+ * ── 为什么恒带 `xbot_embed=1`（用户定向，2026-10-14 原话）──────────────────────
+ * 「这种嵌套 web view 应该代理原 web 的导航事件，并且**去掉多余的 ui**」
+ * 「然后嵌套 webview **不要做多余的渲染**」。
+ * 真机截图取证：不带 embed 时 WebView 里渲的是 web **整壳** ⇒ 原生 `‹ 文件 ⟳` 之下又叠一层
+ * web 自己的 `← 工具` 头 + `文件/搜索/信息/任务/终端` 页签行 + 底部 InfoBar（"套娃"），
+ * 而且为一个面板白渲了会话列表/消息区/抽屉。
+ * 带 `xbot_embed=1` ⇒ web 只挂 `EmbedPanelShell`（面板本体），chrome 由**原生**提供。
+ * ⛔ 该参数必须与 `xbot_panel` **同时**出现：web 端 `App` 的判定是
+ *    `parseEmbedQuery(search) ? parsePanelQuery(search) : null`，坏 id ⇒ 回落完整应用，
+ *    所以这里只需保证 id 合法（上面已判）。
  */
 export function webPanelDeepLink(base: string, panelId: string): string {
   if (base.length === 0 || !WEB_PANEL_IDS.includes(panelId)) {
@@ -874,7 +885,7 @@ export function webPanelDeepLink(base: string, panelId: string): string {
   if (root.length === 0) {
     return '';
   }
-  return `${root}/?xbot_panel=${encodeURIComponent(panelId)}`;
+  return `${root}/?xbot_panel=${encodeURIComponent(panelId)}&xbot_embed=1`;
 }
 
 /** 「打开某插件」的目标（URL + 顶栏人类标题）。ArkTS 禁无类型对象字面量 ⇒ class。 */

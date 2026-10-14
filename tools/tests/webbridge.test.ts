@@ -23,6 +23,8 @@ import {
   BRIDGE_ACTION_CLIPBOARD, BRIDGE_MAX_CLIPBOARD_LEN, clipboardTextOf, hostActionFor,
   FILE_PICK_IMAGE, FILE_PICK_DOCUMENT, filePickKindOf, FILE_PICK_MAX_COUNT,
   DOWNLOAD_MAX_NAME_LEN, downloadFileNameOf, sanitizeFileName,
+  BRIDGE_ACTION_NAV, HOST_NAV_KINDS, HOST_NAV_READY, HOST_NAV_TITLE, HOST_NAV_OPEN_FILE,
+  HOST_NAV_MAX_TEXT_LEN, HostNavEvent, parseHostNavPayload, hostNavKindIsAllowed,
 } from '../../entry/src/main/ets/core/webbridge';
 // 跨模块同源契约：页面能一次拿到的文件数必须 == 聊天附件上限（见下方断言）。
 import { MAX_ATTACH } from '../../entry/src/main/ets/core/attach';
@@ -332,6 +334,49 @@ eq('名字里的空格保留但去首尾', sanitizeFileName('  报告 v2.pdf  ')
 // 判别力：任一侧单独改动（如把 attach.MAX_ATTACH 调大而忘了 picker 上限）必红。
 // 页面选中的文件最终多半作为附件上传，两侧不一致 ⇒ 用户「选了 N 个只上去 M 个」。
 eq('文件选择上限 = 聊天附件上限（同源契约）', FILE_PICK_MAX_COUNT, MAX_ATTACH);
+
+// ── §21.122f：面板**导航意图**代理（`nav`）────────────────────────────────────
+// 用户原话：「这种嵌套 web view 应该代理原 web 的导航事件…然后文件面板应该代理后触发原生 ui」。
+// 判别力（mutation 锚点）：① 把 kind 白名单判定去掉 ⇒ '未知 kind 拒' 红；
+//   ② 去掉 text 截断 ⇒ 'text 超长截断' 红；③ 把 `typeof k !== 'string'` 去掉 ⇒ 'kind 非字符串拒' 红。
+eq('三个 kind 与 web 侧 hostBridge.ts:HostNavKind 同源',
+  JSON.stringify(HOST_NAV_KINDS), JSON.stringify(['ready', 'title', 'openFile']));
+eq('kind 白名单判定：ready/title/openFile 可', 
+  [hostNavKindIsAllowed(HOST_NAV_READY), hostNavKindIsAllowed(HOST_NAV_TITLE),
+    hostNavKindIsAllowed(HOST_NAV_OPEN_FILE)], [true, true, true]);
+eq('⛔ 未知 kind 拒（fail-closed：不猜语义，坏包不触发任何原生动作）',
+  hostNavKindIsAllowed('nope'), false);
+eq('正常 ready（面板 id 作 text）',
+  JSON.stringify(parseHostNavPayload('{"kind":"ready","text":"files"}')),
+  JSON.stringify(new HostNavEvent(HOST_NAV_READY, 'files')));
+eq('正常 title', JSON.stringify(parseHostNavPayload('{"kind":"title","text":"src/"}')),
+  JSON.stringify(new HostNavEvent(HOST_NAV_TITLE, 'src/')));
+eq('正常 openFile（路径作 text；原生据此开原生预览）',
+  JSON.stringify(parseHostNavPayload('{"kind":"openFile","text":"/w/a.ts"}')),
+  JSON.stringify(new HostNavEvent(HOST_NAV_OPEN_FILE, '/w/a.ts')));
+eq('缺 text ⇒ 空串（不是 null：ready 本就不需要 text）',
+  JSON.stringify(parseHostNavPayload('{"kind":"ready"}')),
+  JSON.stringify(new HostNavEvent(HOST_NAV_READY, '')));
+eq('⛔ 缺 kind ⇒ null', parseHostNavPayload('{"text":"x"}'), null);
+eq('⛔ kind 非字符串 ⇒ null', parseHostNavPayload('{"kind":123,"text":"x"}'), null);
+eq('⛔ 未知 kind ⇒ null（绝不兜底成某个 kind）', parseHostNavPayload('{"kind":"nope"}'), null);
+eq('⛔ text 非字符串 ⇒ 收敛成空串（不把对象塞进标题）',
+  JSON.stringify(parseHostNavPayload('{"kind":"title","text":{"a":1}}')),
+  JSON.stringify(new HostNavEvent(HOST_NAV_TITLE, '')));
+eq('⛔ 非 JSON / 空 / null / 数组 ⇒ null 且不抛',
+  [parseHostNavPayload('not json'), parseHostNavPayload(''), parseHostNavPayload('null'),
+    parseHostNavPayload('[1,2]')], [null, null, null, null]);
+eq('⛔ text 超长 ⇒ 截断（页面不受信任，别把巨串灌进标题/日志）',
+  parseHostNavPayload(`{"kind":"title","text":"${'a'.repeat(HOST_NAV_MAX_TEXT_LEN + 50)}"}`)!.text.length,
+  HOST_NAV_MAX_TEXT_LEN);
+eq('⛔ payload 超信封上限 ⇒ null（先于 JSON.parse 挡住）',
+  parseHostNavPayload(`{"kind":"title","text":"${'a'.repeat(BRIDGE_MAX_PAYLOAD_LEN + 10)}"}`), null);
+eq('信封级判定：type=nav ⇒ 动作 nav（结构化解析留给纯函数）',
+  hostActionFor(new BridgeMessage(BRIDGE_VERSION, 'nav', 'nav', '{"kind":"ready","text":"files"}')).kind,
+  BRIDGE_ACTION_NAV);
+eq('信封级判定：nav 的 text 原样带出（⛔ 组件不二次解析/不猜语义）',
+  hostActionFor(new BridgeMessage(BRIDGE_VERSION, 'nav', 'nav', '{"kind":"ready"}')).text,
+  '{"kind":"ready"}');
 
 if (fail > 0) {
   console.log(`  webbridge: ${pass} passed, ${fail} failed`);

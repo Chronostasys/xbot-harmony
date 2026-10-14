@@ -100,7 +100,7 @@ import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msg
 import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, PluginOpenTarget, PluginViewItem, WebPluginListWire, buildPluginCatalog, embedPluginViewLink, nativeViewKind, pluginOpenTarget, pluginViewDeepLink, pluginViewTarget, primaryViewId, PLUGIN_MANAGER_VIEW_ID, webPanelDeepLink, webPanelTitle } from '../core/pluginhost';
 import { hasIterStatsBadge, iterStatsText } from '../core/pluginviews';
 import { SkillItem } from '../core/skills';
-import { FsFileEntry, FsReadResult, FsSearchEntry, fileKindOf, FK_IMAGE, fsMention, sortFsEntries, sortFsSearch } from '../core/files';
+import { FsFileEntry, FsReadResult, FsSearchEntry, fileKindOf, baseNameOf, FK_IMAGE, fsMention, sortFsEntries, sortFsSearch } from '../core/files';
 import {
   ATTACH_DONE, ATTACH_FAILED, ATTACH_UPLOADING, AttachItem, MAX_ATTACH, appendRef, attachChipText,
   attachmentRef, baseName, doneKeys, doneNames, doneRefs, doneSizes, hasRef, humanSize, mimeOf,
@@ -114,7 +114,7 @@ import { SSE_STATE_FAILED } from '../core/sse';
 // 插件 widget 数据面（页面半边）：SSE 事件名 + 载荷（判据在 `core/widgetsview.ets`）
 import { WIDGET_EVENT_WEB } from '../core/widgetsview';
 // 插件桥 page→native 的消息类型（协议权威 = `core/webbridge.ets`）
-import { BridgeMessage } from '../core/webbridge';
+import { BridgeMessage, HostNavEvent, HOST_NAV_TITLE, HOST_NAV_READY, HOST_NAV_OPEN_FILE } from '../core/webbridge';
 import { listItemCount, nextFollowBottom, shouldAutoScroll, followSuppressUntil, FOLLOW_SUPPRESS_MS, markUserScrollFrame, followAfterScrollStop, anchoredIndexAfterPrepend } from '../core/listfollow';
 import { hasOverlay, OverlayCode, OverlayState, topOverlay } from '../core/overlays';
 import {
@@ -4159,6 +4159,46 @@ struct Index {
   }
 
   /**
+   * 代理 **web 面板的导航意图**（§21.122f；真源 `web/src/workspace/hostBridge.ts:postHostNav`，
+   * 判定在 `core/webbridge.ets:parseHostNavPayload` 这个纯函数里，这里只做副作用）。
+   *
+   * 用户原话：「这种嵌套 web view 应该**代理原 web 的导航事件**，并且去掉多余的 ui。然后
+   *   **文件面板应该代理后触发原生 ui**」。
+   *
+   * 嵌入模式（`?xbot_embed=1`）下 web 只渲面板本体 ⇒ 面板里"用户想往外走"的动作没有 web 侧
+   * 落点，必须由宿主接住。三类：
+   *   · `title`    —— 面板自述标题 ⇒ 原生 chrome 标题跟随（用户不必看 web 自己再画一条标题）；
+   *   · `ready`    —— 嵌入握手 ⇒ 记日志（**这是"嵌入真的生效"的唯一正向信号**：线上产物陈旧/
+   *                   参数被丢时它不会到达 ⇒ 用 hilog 一眼分辨"面板没开"还是"开了但没嵌对"）；
+   *   · `openFile` —— 在 web 文件面板里点了文件 ⇒ **触发原生 UI**：关掉 web 面板、开原生文件面板
+   *                   并直接落到该文件的预览（复用 `openFsFile` 这唯一预览出口，⛔ 不再在
+   *                   WebView 里再开一个 web 编辑器 —— 那等于把"嵌套 webview"再套一层）。
+   */
+  private handleHostNav(ev: HostNavEvent): void {
+    if (ev.kind === HOST_NAV_TITLE) {
+      if (ev.text.length > 0) {
+        this.panelTitle = ev.text;
+      }
+      return;
+    }
+    if (ev.kind === HOST_NAV_READY) {
+      hilog.info(0x0000, 'XBOT-PANEL', 'embed ready: %{public}s', ev.text);
+      return;
+    }
+    if (ev.kind === HOST_NAV_OPEN_FILE) {
+      if (ev.text.length === 0) {
+        return;
+      }
+      // 原生 UI 占全屏 ⇒ 先收掉 web 面板（否则两层面板叠着，退回时用户会看到旧 web 页）。
+      this.panelUrl = '';
+      this.openFiles();
+      // kind 由**同一判据** `fileKindOf` 推导（⛔ 组件/代理处不另判后缀）。
+      this.openFsFile(ev.text, fileKindOf(baseNameOf(ev.text), false));
+      return;
+    }
+  }
+
+  /**
    * 打开 **GenUI（`display_html`）面板** —— 按需建分享 + 落 `WebSurface` URL。
    *
    * ── 为什么这样（完整依据见 `core/genui.ets` 头注释）────────────────────────────
@@ -5311,6 +5351,9 @@ struct Index {
           // §21.122d 余项：全屏 WebView 面板里的页面下载完成 ⇒ 可见反馈（同第一处出口）。
           hilog.info(0x0000, 'XBOT-DL', 'downloaded %{public}s -> %{public}s', name, path);
           this.toast(`已下载 ${name}`);
+        }, onHostNav: (ev: HostNavEvent) => {
+          // §21.122f：嵌入模式下面板的导航意图（标题 / 就绪握手 / 要求打开文件 ⇒ 原生 UI）。
+          this.handleHostNav(ev);
         }, onClose: () => {
           this.panelUrl = '';
         } })

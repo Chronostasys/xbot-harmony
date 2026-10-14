@@ -241,6 +241,78 @@ export const BRIDGE_ACTION_CLIPBOARD: string = 'clipboard';
 /** 动作：**不处理**（业务类型由上层接线；未接线时既不崩也不编造语义）。 */
 export const BRIDGE_ACTION_IGNORE: string = 'ignore';
 
+/** 动作：**面板导航意图**（页面把"用户想往外走"的动作代理给宿主；§21.122f）。 */
+export const BRIDGE_ACTION_NAV: string = 'nav';
+
+/**
+ * 面板导航意图的种类（⛔ 与 web `src/workspace/hostBridge.ts:HostNavKind` **同源**，
+ * 两侧改动必须同批 —— 少一个 ⇒ 该事件被静默丢弃，症状是"点了没反应"）。
+ *
+ * · `ready`    —— 嵌入面板挂载握手（`text` = 面板 id）⇒ 宿主据此确认 embed 生效/设标题；
+ * · `title`    —— 面板自述标题变化（`text` = 新标题）⇒ 宿主 chrome 标题跟随；
+ * · `openFile` —— 用户在面板里要求打开文件（`text` = 路径）⇒ 宿主**触发原生 UI**（原生预览），
+ *                 而不是让 web 在 WebView 里再开一个 web 编辑器（用户原话：
+ *                 「然后文件面板应该**代理后触发原生 ui**」）。
+ */
+export const HOST_NAV_READY: string = 'ready';
+export const HOST_NAV_TITLE: string = 'title';
+export const HOST_NAV_OPEN_FILE: string = 'openFile';
+export const HOST_NAV_KINDS: string[] = [HOST_NAV_READY, HOST_NAV_TITLE, HOST_NAV_OPEN_FILE];
+
+/** 导航意图 `text` 上限（标题/路径；页面不受信任 ⇒ 一律收敛，别让巨串进 UI/日志）。 */
+export const HOST_NAV_MAX_TEXT_LEN: number = 1024;
+
+/** 一条面板导航意图（`kind` + `text`）。ArkTS 禁无类型对象字面量 ⇒ class。 */
+export class HostNavEvent {
+  kind: string = '';
+  text: string = '';
+
+  constructor(kind: string, text: string) {
+    this.kind = kind;
+    this.text = text;
+  }
+}
+
+/** `kind` 是否在导航意图白名单内（未知 ⇒ 调用方**不编造语义**，直接丢弃）。 */
+export function hostNavKindIsAllowed(kind: string): boolean {
+  for (let i = 0; i < HOST_NAV_KINDS.length; i++) {
+    if (HOST_NAV_KINDS[i] === kind) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * `nav` 消息的 `payload`（JSON 串）→ 导航意图（纯函数，可脱机单测）。
+ *
+ * 契约（与 web `hostBridge.postHostNav` 逐字同源）：`{"kind":"…","text":"…"}`。
+ * 坏输入（非 JSON / 缺字段 / 类型错 / **kind 不在白名单**）⇒ `null` —— 调用方据此**什么都不做**
+ * （fail-closed；⛔ 不猜、不兜底成某个 kind，否则一个坏包会触发错误的原生动作）。
+ * `text` 截断到 `HOST_NAV_MAX_TEXT_LEN`（页面不受信任）。
+ */
+export function parseHostNavPayload(payload: string): HostNavEvent | null {
+  if (typeof payload !== 'string' || payload.length === 0 || payload.length > BRIDGE_MAX_PAYLOAD_LEN) {
+    return null;
+  }
+  try {
+    const raw: object = JSON.parse(payload) as object;
+    if (raw === null || raw === undefined || typeof raw !== 'object') {
+      return null;
+    }
+    const rec: Record<string, Object> = raw as Record<string, Object>;
+    const k: Object | undefined = rec.kind;
+    const t: Object | undefined = rec.text;
+    if (typeof k !== 'string' || !hostNavKindIsAllowed(k)) {
+      return null;
+    }
+    const text: string = typeof t === 'string' ? t : '';
+    return new HostNavEvent(k, text.length > HOST_NAV_MAX_TEXT_LEN ? text.substring(0, HOST_NAV_MAX_TEXT_LEN) : text);
+  } catch (e) {
+    return null;
+  }
+}
+
 /**
  * 剪贴板文本上限（**64 KiB**）：单次复制不可能更多；超大串只会白烧内存/系统调用。
  * ⛔ 与 `BRIDGE_MAX_PAYLOAD_LEN`（256 KiB，信封级）**不是**一个数：信封允许更大的 payload，
@@ -307,6 +379,12 @@ export function hostActionFor(msg: BridgeMessage): BridgeHostAction {
     // 文本由 `clipboardTextOf` 收敛；空文本 ⇒ 动作仍回 `clipboard` 但 `text=''`，
     // 上层据此**跳过写入**（⛔ 不能拿空串覆盖用户已有剪贴板）。
     return new BridgeHostAction(BRIDGE_ACTION_CLIPBOARD, clipboardTextOf(msg));
+  }
+  if (msg.type === 'nav') {
+    // 面板导航意图代理（§21.122f，嵌入模式）：结构化解析交给 `parseHostNavPayload`
+    // （纯函数，白名单 + 截断），这里只把 payload 原样带出，**不在此编造语义**。
+    const p: string = typeof msg.payload === 'string' ? msg.payload : '';
+    return new BridgeHostAction(BRIDGE_ACTION_NAV, p);
   }
   return new BridgeHostAction(BRIDGE_ACTION_IGNORE, '');
 }

@@ -1,4 +1,5 @@
 import { Palette, paletteOf } from '../core/theme';
+import { HostNavEvent } from '../core/webbridge';
 import {
   PluginCatalogGroup,
   PluginCatalogItem,
@@ -136,6 +137,14 @@ export struct PluginHost {
   onDownloadDone: (name: string, path: string) => void = (name: string, path: string) => {
   };
 
+  /**
+   * WebSurface 转来的**面板导航意图**（§21.122f：web `nav` 消息，嵌入模式）
+   * —— 透传给上层（上层据此改 chrome 标题 / **触发原生 UI**）。
+   * ⛔ 默认空 = 丢弃（与 `onOpenExternal` 同一约定：未接线时不"假装成功"）。
+   */
+  onHostNav: (ev: HostNavEvent) => void = (ev: HostNavEvent) => {
+  };
+
   build() {
     Column() {
       if (this.panelUrl.length > 0) {
@@ -155,6 +164,9 @@ export struct PluginHost {
           },
           onDownloadDone: (name: string, path: string) => {
             this.onDownloadDone(name, path);
+          },
+          onHostNav: (ev: HostNavEvent) => {
+            this.onHostNav(ev);
           },
           onClose: () => {
             this.onClose();

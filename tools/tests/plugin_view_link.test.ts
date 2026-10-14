@@ -114,11 +114,19 @@ eq('空 viewId ⇒ 空', nativeViewKind(''), '');
 //    —— 不一致的后果是"点了没反应"（web 端白名单外直接忽略）。
 eq('web 面板 id 白名单与 web 侧逐字一致（5 个）',
   JSON.stringify(WEB_PANEL_IDS), JSON.stringify(['files', 'search', 'info', 'tasks', 'terminal']));
-eq('文件面板深链', webPanelDeepLink('http://h:8082', 'files'), 'http://h:8082/?xbot_panel=files');
-eq('终端面板深链', webPanelDeepLink('http://h:8082', 'terminal'), 'http://h:8082/?xbot_panel=terminal');
+eq('文件面板深链（恒带 embed=1 ⇒ web 只渲面板本体，chrome 由原生提供）',
+  webPanelDeepLink('http://h:8082', 'files'), 'http://h:8082/?xbot_panel=files&xbot_embed=1');
+eq('终端面板深链', webPanelDeepLink('http://h:8082', 'terminal'),
+  'http://h:8082/?xbot_panel=terminal&xbot_embed=1');
 eq('尾斜杠归一化（⛔ 不出现 //?xbot_panel）',
-  webPanelDeepLink('http://h:8082/', 'tasks'), 'http://h:8082/?xbot_panel=tasks');
-eq('多个尾斜杠同样归一化', webPanelDeepLink('http://h:8082///', 'info'), 'http://h:8082/?xbot_panel=info');
+  webPanelDeepLink('http://h:8082/', 'tasks'), 'http://h:8082/?xbot_panel=tasks&xbot_embed=1');
+eq('多个尾斜杠同样归一化', webPanelDeepLink('http://h:8082///', 'info'),
+  'http://h:8082/?xbot_panel=info&xbot_embed=1');
+// ⛔ 用户原话「嵌套 webview 不要做多余的渲染」：embed 参数是"去掉整壳"的**唯一**开关
+// ⇒ 它从 URL 里消失 = 真机上又会出现"两层 chrome"套娃（web 自己的 `← 工具` 头 + 页签行回潮）。
+// 这条断言就是那个回归的哨兵（web 侧消费点：`workspace/panelRequest.ts:parseEmbedQuery`）。
+eq('⛔ embed 参数不可丢（丢了就回潮两层 chrome）',
+  webPanelDeepLink('http://h:8082', 'files').indexOf('xbot_embed=1') > 0, true);
 eq('⛔ 白名单外 ⇒ 空串（fail-closed：不把用户丢进 web 会忽略参数的空白页）',
   webPanelDeepLink('http://h:8082', 'nope'), '');
 eq('⛔ 插件视图 id 不是面板 id（两条协议互不替代）',
