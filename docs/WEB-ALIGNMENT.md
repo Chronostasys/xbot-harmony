@@ -7342,3 +7342,35 @@ api 加载会话"）**
 
 **判据**：`tools/tests/session_ux_fixes.test.ts`（20 条 + 三条零扫描防线；源码文本比对，
 ⛔ 不 import `.ets`）。**验证**：`bash tools/gate.sh` ⇒ ✅ 真门禁全绿。
+
+## §21.122bi：设备实测结论（模拟器 `127.0.0.1:5555`，HAP 含 `3c8274b`）
+
+**⛔ 更正 §21.122bh 之前的推断**：早期实测「`hilog -x | grep -cF 'LM]'` = 0 ⇒ `loadMore()` 从未被调用」
+是**未真的滑到顶**的假象（旧构建头项不在首位的边界情形）。本轮用新增的页级取证
+（`[LMP]`，`pages/Index.ets` 的 `onScrollIndex`，`3c8274b`）在**同一条会话**上复测：
+
+```
+[LMP] top start=0 hasMore=1 loading=0 head=1 hidden=0 rows=6 limit=12      ← ×11（真的滑到顶，守卫满足）
+[LM] enter hasMore=1 loading=0 oldest=44186 hist=13 rows=9
+[LM] ok    fresh=2 hasMore=1 oldest=39751 hist=15
+[LM] enter hasMore=1 loading=0 oldest=39751 hist=15 rows=10
+[LM] ok    fresh=4 hasMore=1 oldest=36369 hist=19
+```
+
+⇒ **触发链是通的**：滚到顶 ⇒ 页级守卫满足 ⇒ `store.loadMore()` 被调用 ⇒ 服务端回更早历史
+（`hist 13→15→19`、游标 `44186→39751→36369` 单调前移）。P0 的**前端侧**无需再改；
+残余风险已由 `ae989e7`（失败不静默 + `LOADMORE_ERR_NOCURSOR` 自愈）覆盖。
+`[LMP]` 日志**保留为常驻诊断锚**（一行、零行为影响）——下次再报同类问题，一条 `grep -cF '[LMP] top'`
+即可先定性"到没到顶"。
+
+**同一轮设备实证（截图 `/tmp/todo_after1.jpeg`）**：
+- ①「三处不同的加载提示」已收敛 —— 头项「更早的历史消息」与行内「更早的 1490 个迭代块」
+  现在是**同一视觉语言**（`chevron_up`(12) + `iconMuted` + `FS_META` + `textMuted`，同一行高）；
+- ⑤ todo 折叠开关**命中区真的变宽** —— 点在条**中间任意位置**即可展开/收起（旧实现只有内容固有高）；
+- 迭代指标徽章活着（`266t/s · 1.6s`），说明插件视图原生渲染通路正常。
+
+**⚠️ 未能在设备侧定性的项**（App 处在**流式**会话中，内容每帧在长 ⇒ 点按是**移动靶**，
+坐标漂移使"点铅笔→点别处"这类多步交互无法稳定复现；这些项由**代码 + 判别力判据**保证）：
+⑨ tool 计数增长（需"正在生成参数"的在飞工具）、⑥ 编辑态失焦退出、② 压缩点位置、
+③ 切会话 splash、④ 主题单一真源。
+⇒ 待有**空闲会话**时按 `docs/UI-AUDIT-CHECKLIST.md` 逐条补测。
