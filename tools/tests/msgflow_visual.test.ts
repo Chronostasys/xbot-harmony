@@ -70,8 +70,17 @@ hasNot(thinkSrc, '0.72 + 0.28',
   '⛔ 思考行不再呼吸（无 0.72+0.28 脉搏）——「同一时刻只有一个动效」的核心判据');
 hasNot(thinkSrc, 'this.emphasis',
   '思考行不再持有 emphasis 呼吸权重（动效唯一属于光球）');
-has(thinkSrc, '.fontColor(this.live ? paletteOf(this.theme).accentSoft : paletteOf(this.theme).textMuted)',
+has(thinkSrc, '.fontColor(this.live ? paletteOf(this.themeId()).accentSoft : paletteOf(this.themeId()).textMuted)',
   '领读仅以**颜色**（accentSoft）表达，不承载动效');
+// §21.124：取色通道必须是 `themeId()`（= 全局订阅 `appTheme` 优先，`@Prop theme` 仅兜底）——
+// 思考块挂在 `MessageRow` 的带参 `@Builder` 子树里，该子树**不随主题重建** ⇒ 直接读 `this.theme`
+// 会把旧行的配色永久冻在创建那刻（用户亲报「切主题后老文字颜色不变、新的才变」）。
+has(thinkSrc, "@StorageProp('appTheme') appTheme: string = '';",
+  '§21.124：思考块**自订阅** appTheme（否则切主题后旧块配色冻结）');
+has(thinkSrc, 'return this.appTheme.length > 0 ? this.appTheme : this.theme;',
+  '§21.124：themeId() 以全局订阅为唯一真源、@Prop 仅兜底（同 MessageRow.themeId()）');
+hasNot(thinkSrc, 'paletteOf(this.theme)',
+  '⛔ 思考块不许再直读 this.theme 取色（冻结通道）');
 
 // ════════════════════════════════════════════════════════════════════════════
 // ② 正文 `MarkdownView.ets`  ↔  web `MarkdownRenderer.tsx` + `index.css .markdown-body`

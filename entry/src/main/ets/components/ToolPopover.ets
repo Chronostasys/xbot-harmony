@@ -205,6 +205,21 @@ export function toolDetailVM(t: ToolProgress | undefined, statusColor: string, s
 export struct ToolPopoverCard {
   @Prop vm: ToolDetailVM;
   @Prop theme: string = 'dark';
+  /**
+   * **生效主题的全局订阅**（§21.124 用户亲报「切主题后老文字颜色不变、新的才变」）。
+   *
+   * ⛔ 本组件挂在 `MessageRow` 的**带参 `@Builder` 子树**（`AssistantBlock(this.row)`）里 ——
+   *   该子树在主题变化时**不重建**（参数是同一个 `ChatRow` 引用 ⇒ ArkUI V1 判「参数没变」，
+   *   见 `docs/ARKTS-GOTCHAS.md §4/§37`）⇒ 子树里组件在**创建那刻**拿到的 `@Prop theme`
+   *   会**永久冻结**（旧块停旧色板、新建块才用新色板 = 用户看到的「老的不变、新的才变」）。
+   * ✅ 正解 = 本仓范式（同 `MessageRow.themeId()` / `MarkdownView`）：**组件自己订阅**
+   *   `AppStorage('appTheme')` ⇒ 主题变更直接驱动本组件重绘，不经父级投递。
+   */
+  @StorageProp('appTheme') appTheme: string = '';
+  /** 生效主题：全局订阅优先，`@Prop theme` 仅兜底（同 `MessageRow.themeId()`）。 */
+  private themeId(): string {
+    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+  }
   onCopy: (text: string, what: string) => void = (text: string, what: string) => {
   };
   /**
@@ -222,7 +237,7 @@ export struct ToolPopoverCard {
   @State promotedTaskID: string = '';
 
   private pal(): Palette {
-    return paletteOf(this.theme);
+    return paletteOf(this.themeId());
   }
 
   // ── 转后台（web `ShellRender:444-445` × `ShellPromoteBar`）────────────────────
@@ -297,8 +312,8 @@ export struct ToolPopoverCard {
   private ansiPal: string[] = [];
 
   private ansiColors(): string[] {
-    if (this.ansiTheme !== this.theme) {
-      this.ansiTheme = this.theme;
+    if (this.ansiTheme !== this.themeId()) {
+      this.ansiTheme = this.themeId();
       this.ansiPal = ansiPaletteOf(this.pal());
     }
     return this.ansiPal;
@@ -618,7 +633,7 @@ export struct ToolPopoverCard {
         // 成功态：安静（不喧哗）—— 状态色勾（web `shell-promote-done` 的 CheckCircle2）
         SymbolGlyph($r('sys.symbol.checkmark_circle'))
           .fontSize(ICON_SM)
-          .fontColor([statusColorOf(ST_DONE, this.theme)])
+          .fontColor([statusColorOf(ST_DONE, this.themeId())])
       } else if (this.promoteState === 'promoting') {
         LoadingProgress().width(ICON_SM).height(ICON_SM).color(this.vm.statusColor)
       } else {
@@ -627,7 +642,7 @@ export struct ToolPopoverCard {
       }
       Text(this.promoteLabel())
         .fontSize(FS_CAPTION)
-        .fontColor(this.promoteState === 'error' ? statusColorOf(ST_ERROR, this.theme) : this.vm.statusColor)
+        .fontColor(this.promoteState === 'error' ? statusColorOf(ST_ERROR, this.themeId()) : this.vm.statusColor)
         .fontWeight(FontWeight.Medium).layoutWeight(1)
         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
       if (this.bgDone() && this.bgTaskId().length > 0) {
@@ -763,6 +778,21 @@ function tailLinesOfFile(f: DiffFile, max: number): DiffLine[] {
 export struct ToolOverflowList {
   @Prop tools: ToolProgress[] = [];
   @Prop theme: string = 'dark';
+  /**
+   * **生效主题的全局订阅**（§21.124 用户亲报「切主题后老文字颜色不变、新的才变」）。
+   *
+   * ⛔ 本组件挂在 `MessageRow` 的**带参 `@Builder` 子树**（`AssistantBlock(this.row)`）里 ——
+   *   该子树在主题变化时**不重建**（参数是同一个 `ChatRow` 引用 ⇒ ArkUI V1 判「参数没变」，
+   *   见 `docs/ARKTS-GOTCHAS.md §4/§37`）⇒ 子树里组件在**创建那刻**拿到的 `@Prop theme`
+   *   会**永久冻结**（旧块停旧色板、新建块才用新色板 = 用户看到的「老的不变、新的才变」）。
+   * ✅ 正解 = 本仓范式（同 `MessageRow.themeId()` / `MarkdownView`）：**组件自己订阅**
+   *   `AppStorage('appTheme')` ⇒ 主题变更直接驱动本组件重绘，不经父级投递。
+   */
+  @StorageProp('appTheme') appTheme: string = '';
+  /** 生效主题：全局订阅优先，`@Prop theme` 仅兜底（同 `MessageRow.themeId()`）。 */
+  private themeId(): string {
+    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+  }
   /** 这批工具是否来自**在飞块**（LiveTailView）—— 决定 live `pending` 是否按执行中着色。 */
   @Prop live: boolean = false;
   onCopy: (text: string, what: string) => void = (text: string, what: string) => {
@@ -771,12 +801,12 @@ export struct ToolOverflowList {
   @State sel: number = -1;
 
   private pal(): Palette {
-    return paletteOf(this.theme);
+    return paletteOf(this.themeId());
   }
 
   /** 状态点颜色 —— 判据**同源**：走唯一映射 `ToolVisual.statusColorOf`（判据是 `core/toolstatus.renderKind`）。 */
   private dot(t: ToolProgress): string {
-    return statusColorOf(renderKind(t.status, t.exit_code, this.live), this.theme);
+    return statusColorOf(renderKind(t.status, t.exit_code, this.live), this.themeId());
   }
 
   private vmOf(t: ToolProgress): ToolDetailVM {
@@ -807,7 +837,7 @@ export struct ToolOverflowList {
               if (this.sel === i) {
                 ToolPopoverCard({
                   vm: this.vmOf(t),
-                  theme: this.theme,
+                  theme: this.themeId(),
                   onCopy: this.onCopy,
                 })
               }

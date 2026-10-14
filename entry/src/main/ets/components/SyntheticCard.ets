@@ -37,11 +37,26 @@ export struct SyntheticCard {
   /** 假工具（含 `name` / `tool_hints` / `summary` / `detail` / `label` / `elapsed_ms`）。 */
   @Prop tool: ToolProgress;
   @Prop theme: string = 'dark';
+  /**
+   * **生效主题的全局订阅**（§21.124 用户亲报「切主题后老文字颜色不变、新的才变」）。
+   *
+   * ⛔ 本组件挂在 `MessageRow` 的**带参 `@Builder` 子树**（`AssistantBlock(this.row)`）里 ——
+   *   该子树在主题变化时**不重建**（参数是同一个 `ChatRow` 引用 ⇒ ArkUI V1 判「参数没变」，
+   *   见 `docs/ARKTS-GOTCHAS.md §4/§37`）⇒ 子树里组件在**创建那刻**拿到的 `@Prop theme`
+   *   会**永久冻结**（旧块停旧色板、新建块才用新色板 = 用户看到的「老的不变、新的才变」）。
+   * ✅ 正解 = 本仓范式（同 `MessageRow.themeId()` / `MarkdownView`）：**组件自己订阅**
+   *   `AppStorage('appTheme')` ⇒ 主题变更直接驱动本组件重绘，不经父级投递。
+   */
+  @StorageProp('appTheme') appTheme: string = '';
+  /** 生效主题：全局订阅优先，`@Prop theme` 仅兜底（同 `MessageRow.themeId()`）。 */
+  private themeId(): string {
+    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+  }
   onCopy: (text: string, what: string) => void = (text: string, what: string) => {
   };
 
   private pal(): Palette {
-    return paletteOf(this.theme);
+    return paletteOf(this.themeId());
   }
 
   private eff(): Effects {
@@ -112,8 +127,8 @@ export struct SyntheticCard {
   private ansiPal: string[] = [];
 
   private ansiColors(): string[] {
-    if (this.ansiTheme !== this.theme) {
-      this.ansiTheme = this.theme;
+    if (this.ansiTheme !== this.themeId()) {
+      this.ansiTheme = this.themeId();
       this.ansiPal = ansiPaletteOf(this.pal());
     }
     return this.ansiPal;

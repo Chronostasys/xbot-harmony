@@ -64,6 +64,21 @@ export struct ToolPill {
   @Prop selected: boolean = false;
   @Prop theme: string = 'dark';
   /**
+   * **生效主题的全局订阅**（§21.124 用户亲报「切主题后老文字颜色不变、新的才变」）。
+   *
+   * ⛔ 本组件挂在 `MessageRow` 的**带参 `@Builder` 子树**（`AssistantBlock(this.row)`）里 ——
+   *   该子树在主题变化时**不重建**（参数是同一个 `ChatRow` 引用 ⇒ ArkUI V1 判「参数没变」，
+   *   见 `docs/ARKTS-GOTCHAS.md §4/§37`）⇒ 子树里组件在**创建那刻**拿到的 `@Prop theme`
+   *   会**永久冻结**（旧块停旧色板、新建块才用新色板 = 用户看到的「老的不变、新的才变」）。
+   * ✅ 正解 = 本仓范式（同 `MessageRow.themeId()` / `MarkdownView`）：**组件自己订阅**
+   *   `AppStorage('appTheme')` ⇒ 主题变更直接驱动本组件重绘，不经父级投递。
+   */
+  @StorageProp('appTheme') appTheme: string = '';
+  /** 生效主题：全局订阅优先，`@Prop theme` 仅兜底（同 `MessageRow.themeId()`）。 */
+  private themeId(): string {
+    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+  }
+  /**
    * 标签的 ANSI span（由**调用方**用 `core/ansi` 的 `ansiSpansIfAny(text, ansiPaletteOf(pal))` 算好）。
    * 空 ⇒ 走原纯文本路径（不引入多余 Span 节点）。
    */
@@ -77,13 +92,13 @@ export struct ToolPill {
         if (markerShape(this.kind) === SHAPE_CHECK) {
           // 成功：**描边绿勾**（安静，不喧哗）
           SymbolGlyph($r('sys.symbol.checkmark_circle'))
-            .fontSize(MARKER_GLYPH).fontColor([coreStatusColorOf(this.kind, this.theme)])
+            .fontSize(MARKER_GLYPH).fontColor([coreStatusColorOf(this.kind, this.themeId())])
         } else if (markerShape(this.kind) === SHAPE_CROSS) {
           SymbolGlyph($r('sys.symbol.xmark_circle_fill'))
-            .fontSize(MARKER_GLYPH).fontColor([coreStatusColorOf(this.kind, this.theme)])
+            .fontSize(MARKER_GLYPH).fontColor([coreStatusColorOf(this.kind, this.themeId())])
         } else if (markerShape(this.kind) === SHAPE_MINUS) {
           SymbolGlyph($r('sys.symbol.minus_circle'))
-            .fontSize(MARKER_GLYPH).fontColor([coreStatusColorOf(this.kind, this.theme)])
+            .fontSize(MARKER_GLYPH).fontColor([coreStatusColorOf(this.kind, this.themeId())])
         } else if (markerShape(this.kind) === SHAPE_RING) {
           // 排队态：**静态**虚线空心圆（形态档 `SHAPE_RING`）。
           // ⛔ 批次23 裁决：**删除**原先的循环符号效果 `ScaleSymbolEffect`（用户重做指令
@@ -96,10 +111,10 @@ export struct ToolPill {
           // ⚠️ 静态标记的**最终形态**归 `design-lead` 的设计系统（`docs/REDESIGN-INPUT-PILL.md §C3`）；
           //   有机器门禁守护：`tools/lint/inflight-single-source.sh`（A 类循环动效准白名单）。
           SymbolGlyph($r('sys.symbol.circle_dashed'))
-            .fontSize(MARKER_GLYPH_DASHED).fontColor([coreStatusColorOf(this.kind, this.theme)])
+            .fontSize(MARKER_GLYPH_DASHED).fontColor([coreStatusColorOf(this.kind, this.themeId())])
         } else {
           // 运行/生成中（SHAPE_SPINNER）：**会动的**原生指示器（静态字符是 TUI 观感，用户明确否掉）
-          LoadingProgress().width(MARKER_SPINNER).height(MARKER_SPINNER).color(coreStatusColorOf(this.kind, this.theme))
+          LoadingProgress().width(MARKER_SPINNER).height(MARKER_SPINNER).color(coreStatusColorOf(this.kind, this.themeId()))
         }
       }
       .width(PILL_MARKER_SLOT).height(PILL_MARKER_SLOT)
@@ -114,19 +129,19 @@ export struct ToolPill {
           ForEach(this.labelSpans, (sp: AnsiSpan, si: number) => {
             Span(sp.text)
               .fontSize(typeOf('type.caption').size)
-              .fontColor(ansiFgOf(sp, corePillTextColorOf(this.kind, this.theme),
-                pillBgOf(this.kind, this.selected, this.theme)))
+              .fontColor(ansiFgOf(sp, corePillTextColorOf(this.kind, this.themeId()),
+                pillBgOf(this.kind, this.selected, this.themeId())))
               .fontWeight(sp.bold ? FontWeight.Bold : FontWeight.Normal)
               .fontStyle(sp.italic ? FontStyle.Italic : FontStyle.Normal)
               .decoration({
                 type: sp.strike ? TextDecorationType.LineThrough
                   : (sp.underline ? TextDecorationType.Underline : TextDecorationType.None),
-                color: ansiFgOf(sp, corePillTextColorOf(this.kind, this.theme),
-                  pillBgOf(this.kind, this.selected, this.theme)),
+                color: ansiFgOf(sp, corePillTextColorOf(this.kind, this.themeId()),
+                  pillBgOf(this.kind, this.selected, this.themeId())),
               })
               .textBackgroundStyle({
-                color: ansiBgOf(sp, corePillTextColorOf(this.kind, this.theme),
-                  pillBgOf(this.kind, this.selected, this.theme)),
+                color: ansiBgOf(sp, corePillTextColorOf(this.kind, this.themeId()),
+                  pillBgOf(this.kind, this.selected, this.themeId())),
               })
           }, (sp: AnsiSpan, si: number) => `pl${si}`)
         }
@@ -138,7 +153,7 @@ export struct ToolPill {
       } else {
         Text(this.label)
           .fontSize(typeOf('type.caption').size)
-          .fontColor(corePillTextColorOf(this.kind, this.theme))
+          .fontColor(corePillTextColorOf(this.kind, this.themeId()))
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .margin({ left: SPACE_XXS })
@@ -149,9 +164,9 @@ export struct ToolPill {
       if (this.chip.length > 0) {
         Text(this.chip)
           .fontSize(typeOf(TYPE_CHIP).size)
-          .fontColor(coreStatusColorOf(this.kind, this.theme))
+          .fontColor(coreStatusColorOf(this.kind, this.themeId()))
           // ⛔ chip 底色**恒 ≠ pill 底色**（否则选中 pill 上 chip"消失"）—— 见 `core/toolvisual.chipBgOf`
-          .backgroundColor(chipBgOf(this.kind, this.selected, this.theme))
+          .backgroundColor(chipBgOf(this.kind, this.selected, this.themeId()))
           .padding({ left: INSET_CHIP_X, right: INSET_CHIP_X, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
           .borderRadius(RADIUS_CHIP)
           .margin({ left: SPACE_XXS })
@@ -161,12 +176,12 @@ export struct ToolPill {
       }
     }
     .padding({ left: INSET_PILL_X, right: INSET_PILL_X, top: INSET_PILL_Y, bottom: INSET_PILL_Y })
-    .backgroundColor(pillBgOf(this.kind, this.selected, this.theme))
+    .backgroundColor(pillBgOf(this.kind, this.selected, this.themeId()))
     .borderRadius(RADIUS_PILL)
     .clip(true)
     .shadow({
       radius: this.live ? PILL_LIVE_GLOW_RADIUS : 0,
-      color: glowColorOf(this.kind, this.live, this.theme),
+      color: glowColorOf(this.kind, this.live, this.themeId()),
       offsetX: 0, offsetY: 0,
     })
   }

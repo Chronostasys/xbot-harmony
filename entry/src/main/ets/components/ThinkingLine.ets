@@ -67,6 +67,22 @@ export struct ThinkingLine {
   @State open: boolean = false;
   @Prop theme: string = 'dark';
   /**
+   * **生效主题的全局订阅**（§21.124：用户亲报「切主题后老文字颜色不变、新的才变」）。
+   *
+   * ⛔ 为什么思考块必须自己订阅：本组件挂在 `MessageRow` 的**带参 `@Builder` 子树**
+   *    （`AssistantBlock(this.row)`）里 —— 该子树在主题变化时**不重建**（参数是同一个
+   *    `ChatRow` 引用 ⇒ ArkUI V1 认为"参数没变"，见 `docs/ARKTS-GOTCHAS.md §4/§37`）
+   *    ⇒ 子树里组件在**创建那刻**拿到的 `@Prop theme` 会**永久冻结**（旧行停在旧色板，
+   *    新建的块才用新色板 = 用户看到的"老的不变、新的才变"）。
+   * ✅ 正解 = 本仓范式（同 `MessageRow.themeId()` / `MarkdownView`）：**组件自己订阅**
+   *    `AppStorage('appTheme')` ⇒ 主题变更直接驱动本组件重绘，不经父级投递。
+   */
+  @StorageProp('appTheme') appTheme: string = '';
+  /** 生效主题：全局订阅优先，`@Prop theme` 仅兜底（同 `MessageRow.themeId()`）。 */
+  private themeId(): string {
+    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+  }
+  /**
    * **此刻本行是不是主高亮源**（= `LiveTailView.thinkingIsPrimary()`，与光球 `secondary` 同源）。
    *
    * ⛔ 只决定**颜色**（`accentSoft`），**不承载任何动效** —— 动效唯一属于光球（见文件头）。
@@ -118,7 +134,7 @@ export struct ThinkingLine {
           // 原生把整个光球并进这一行 ⇒ 一眼读作"这一行在飞"，且同屏**唯一**动效）。
           // ⛔ 真 `@Component` + `@Prop`（带参 @Builder 会冻在首帧）。
           AssistantOrb({
-            theme: this.theme,
+            theme: this.themeId(),
             orbSize: ORB_LEAD_SIZE,
             active: true,
             paused: this.paused,
@@ -131,11 +147,11 @@ export struct ThinkingLine {
           // 光球关闭（设置项）⇒ 回落灯泡提示符；committed 迭代恒走这条。
           SymbolGlyph($r('sys.symbol.lightbulb'))
             .fontSize(FS_CAPTION)
-            .fontColor([this.live ? paletteOf(this.theme).accentSoft : colorOf(paletteOf(this.theme), 'iconMuted')])
+            .fontColor([this.live ? paletteOf(this.themeId()).accentSoft : colorOf(paletteOf(this.themeId()), 'iconMuted')])
         }
         Text(this.label)
           .fontSize(FS_CAPTION)
-          .fontColor(this.live ? paletteOf(this.theme).accentSoft : paletteOf(this.theme).textMuted)
+          .fontColor(this.live ? paletteOf(this.themeId()).accentSoft : paletteOf(this.themeId()).textMuted)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           // ⛔ **水平溢出**：与左侧图标同一 Row，标签长度不可控 ⇒ 必须能收缩（否则顶出屏宽）。
@@ -161,7 +177,7 @@ export struct ThinkingLine {
       if (this.open && this.body.length > 0) {
         Text(this.body)
           .fontSize(FS_CAPTION)
-          .fontColor(paletteOf(this.theme).textMuted)
+          .fontColor(paletteOf(this.themeId()).textMuted)
           .opacity(TEXT_DIM)
           .width('100%')
           .wordBreak(WordBreak.BREAK_WORD)
@@ -170,7 +186,7 @@ export struct ThinkingLine {
           .padding({ left: 10, right: 0, top: 0, bottom: 0 })
           // 左栅栏是**结构性边界**（承载"这是思考展开体"的信息）⇒ 走 `hairline`
           // （浅色/极简白下比 `border` 明显更清楚；深色族 `hairline ≡ border` 逐字节零变化）。
-          .border({ width: { left: STROKE_RAIL }, color: surfacesOf(paletteOf(this.theme)).hairline })
+          .border({ width: { left: STROKE_RAIL }, color: surfacesOf(paletteOf(this.themeId())).hairline })
           .copyOption(CopyOptions.LocalDevice)
           // ── 展开/收起 = **出现过渡**（对齐 web `AnimatedCollapse`：`opacity 180ms ease-out`）────
           // ⛔ 为什么用 `.transition()` 而不是"状态位 + onAppear 的 animateTo"：`if` 门控的内容

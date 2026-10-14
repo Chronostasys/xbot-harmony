@@ -74,11 +74,26 @@ struct SubAgentRowView {
   /** 是否可点开（`sessionKey` 非空且有宿主回调）。 */
   @Prop openable: boolean = false;
   @Prop theme: string = 'dark';
+  /**
+   * **生效主题的全局订阅**（§21.124 用户亲报「切主题后老文字颜色不变、新的才变」）。
+   *
+   * ⛔ 本组件挂在 `MessageRow` 的**带参 `@Builder` 子树**（`AssistantBlock(this.row)`）里 ——
+   *   该子树在主题变化时**不重建**（参数是同一个 `ChatRow` 引用 ⇒ ArkUI V1 判「参数没变」，
+   *   见 `docs/ARKTS-GOTCHAS.md §4/§37`）⇒ 子树里组件在**创建那刻**拿到的 `@Prop theme`
+   *   会**永久冻结**（旧块停旧色板、新建块才用新色板 = 用户看到的「老的不变、新的才变」）。
+   * ✅ 正解 = 本仓范式（同 `MessageRow.themeId()` / `MarkdownView`）：**组件自己订阅**
+   *   `AppStorage('appTheme')` ⇒ 主题变更直接驱动本组件重绘，不经父级投递。
+   */
+  @StorageProp('appTheme') appTheme: string = '';
+  /** 生效主题：全局订阅优先，`@Prop theme` 仅兜底（同 `MessageRow.themeId()`）。 */
+  private themeId(): string {
+    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+  }
   onOpen: () => void = () => {
   };
 
   private pal(): Palette {
-    return paletteOf(this.theme);
+    return paletteOf(this.themeId());
   }
 
   /** 本行的**全部视觉语义**（唯一真源：`core/statusvisual.ets:subagentVisual`）。 */
@@ -224,6 +239,21 @@ export struct SubAgentTree {
   onOpen: (sessionKey: string) => void = (sessionKey: string) => {
   };
   @Prop theme: string = 'dark';
+  /**
+   * **生效主题的全局订阅**（§21.124 用户亲报「切主题后老文字颜色不变、新的才变」）。
+   *
+   * ⛔ 本组件挂在 `MessageRow` 的**带参 `@Builder` 子树**（`AssistantBlock(this.row)`）里 ——
+   *   该子树在主题变化时**不重建**（参数是同一个 `ChatRow` 引用 ⇒ ArkUI V1 判「参数没变」，
+   *   见 `docs/ARKTS-GOTCHAS.md §4/§37`）⇒ 子树里组件在**创建那刻**拿到的 `@Prop theme`
+   *   会**永久冻结**（旧块停旧色板、新建块才用新色板 = 用户看到的「老的不变、新的才变」）。
+   * ✅ 正解 = 本仓范式（同 `MessageRow.themeId()` / `MarkdownView`）：**组件自己订阅**
+   *   `AppStorage('appTheme')` ⇒ 主题变更直接驱动本组件重绘，不经父级投递。
+   */
+  @StorageProp('appTheme') appTheme: string = '';
+  /** 生效主题：全局订阅优先，`@Prop theme` 仅兜底（同 `MessageRow.themeId()`）。 */
+  private themeId(): string {
+    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+  }
 
   build() {
     // 空 ⇒ 什么都不画（不留空行/占位）
@@ -236,7 +266,7 @@ export struct SubAgentTree {
             desc: r.desc,
             kind: r.kind,
             openable: r.openable,
-            theme: this.theme,
+            theme: this.themeId(),
             onOpen: () => {
               this.onOpen(r.sessionKey);
             },
