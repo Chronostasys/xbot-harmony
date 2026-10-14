@@ -236,8 +236,28 @@ for (const rel of SHEETS) {
   //    （`plus` 字形 + accentSoft 文字，与抽屉「新建」`DrawerSheet` 同款）⇒ 锚演进为**稳定 id**
   //    （`.id('xbot-panel-new')`，不再随文案/字形漂移）。⛔ 断言**不删除**：入口仍在位。
   ok('⑥ 终端 tab 保留「新建」入口（稳定 id 锚 xbot-panel-new）', src.indexOf('xbot-panel-new') >= 0);
-  ok('⑥ 入口 = 图标 + 文字（`plus` 字形 + `新建`）',
-    src.indexOf("$r('sys.symbol.plus')") >= 0 && src.indexOf("Text('新建')") >= 0);
+  // ⚠️ 2026-10-14（判据收紧 15ab）：原断言 = **全文件** `indexOf("$r('sys.symbol.plus')") >= 0
+  //    && indexOf("Text('新建')") >= 0` ⇒ 被"**另一处** `plus`"满足（`Index.ets` 有 **2 处**「新建」：
+  //    终端表头 + 抽屉 `DrawerSheet`）⇒ **抽屉那处长期是 `square_and_pencil`@`ICON_SM`(12)
+  //    （真机读成「☑ 新建」）却判绿 = 假绿实证**（本仓铁律「判据 ≠ 信号」：必须**逐站点取调用片段**）。
+  //    ⚠️ 2026-10-13 的 S2 记录本就写明终端动作键与**抽屉「新建」同款**（`plus`）+ 文字形态
+  //    ⇒ 本收紧同时把"两处真的是同款"变成**机器判据**（此前只是文档说法）。
+  //    收紧为：**每一处** `Text('新建')` 的前 240 字符片段内**必须**出现 `sys.symbol.plus`，
+  //    且**不得**出现 `square_and_pencil`。mutation 自证：把任一站点改回 `square_and_pencil` ⇒ 必红。
+  //    ⚠️ `src` 已由本文件 `read()` **剥注释** ⇒ 注释里记录 `square_and_pencil` 不会假红（本仓既有坑）。
+  const newSites: number[] = [];
+  for (let i = 0; ; ) {
+    const j: number = src.indexOf("Text('新建')", i);
+    if (j < 0) { break; }
+    newSites.push(j);
+    i = j + 1;
+  }
+  ok(`⑥ 「新建」站点数 ≥2（终端表头 + 抽屉；实测 ${newSites.length}）`, newSites.length >= 2);
+  for (const j of newSites) {
+    const frag: string = src.substring(j > 240 ? j - 240 : 0, j);
+    ok(`⑥ 「新建」@${j} 用 plus 字形（Apple 动作键形态）`, frag.indexOf("$r('sys.symbol.plus')") >= 0);
+    ok(`⑥ ⛔ 「新建」@${j} 不得用 square_and_pencil（真机读成「☑」）`, frag.indexOf('square_and_pencil') < 0);
+  }
   // 五 tab 空态在位（**逐字钉住** ⇒ 防误改/误删；措辞升级须同步改本判据）
   // ⚠️ 2026-10-13（判据演进 15z）：空态从「顶部一行小字」升级为「**大号弱化字形 + 一行说明**、
   //    且在内容区居中」⇒ 调用形态带上字形参数（`PanelEmpty($r('sys.symbol.X'), '文案')`）。

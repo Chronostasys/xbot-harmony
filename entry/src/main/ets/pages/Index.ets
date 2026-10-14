@@ -36,7 +36,7 @@ import { EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_BOOT_WORDMARK, F
 // 抽屉重排：尺度/层级/材质一律走语义令牌层（⛔ 不新增字面量；`surfaceFillOf`/`hairlineOf`/
 // `typeOf` 是唯一出口）。色值一律经 `this.pal()`（`surfaceFillOf` 的 role 是**带点**的语义面名）。
 import {
-  GAP_BLOCK, HIT_TARGET_MIN, ICON_MD, ICON_SM, ICON_XL, INSET_ROW_X,
+  GAP_BLOCK, HIT_TARGET_MIN, ICON_LG, ICON_MD, ICON_SM, ICON_XL, INSET_ROW_X,
   MARKER_GUTTER,
   PRESS_OPACITY, PRESS_SCALE, RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, RADIUS_SHEET, SHEET_ACTION_GLYPH, SPACE_HAIR, SPACE_LG, SPACE_MD,
   SPACE_SM, SPACE_XL, SPACE_XS, SPACE_XXL, SPACE_XXS, STROKE_HAIRLINE, STROKE_RAIL, colorOf, hairlineOf,
@@ -9799,11 +9799,15 @@ struct Index {
           .bindMenu(this.CollapseMenu, { placement: Placement.BottomRight, enableArrow: false })
         }
         // 「新建」= Apple 导航栏动作键形态：**图标 + accent 文字**（⛔ 不用实心色块抢占列表层级；
-        // 调色板无 accent 底档 ⇒ 上色只能走前景）。图标 `square_and_pencil`（写新会话），
-        // ⛔ 弃用全角「＋」——其字面宽度/基线与其他字形不同，真机观感是"+ 新建"被拉开成两块。
+        // 调色板无 accent 底档 ⇒ 上色只能走前景）。图标 `plus`。
+        // ⛔ 两个坑都**真机实测**过：① 全角「＋」——其字面宽度/基线与其他字形不同，观感是"+ 新建"
+        //    被拉开成两块；② `square_and_pencil` —— 本仓把它当**重命名**用（`components/MenuSheets.ets:99`），
+        //    且只给到 `ICON_SM`(12) 时方框细节糊掉 ⇒ 真机读成"☑ 新建"（勾选框），语义与观感双错。
+        //    `plus` 在本仓既有使用（本文件 `:9100`）⇒ SDK21 上确实存在；给到 `ICON_LG`(16) 才有
+        //    导航栏动作键的光学重量（Apple 的 `+` 与标题同视觉量级）。
         Row({ space: SPACE_HAIR }) {
-          SymbolGlyph($r('sys.symbol.square_and_pencil'))
-            .fontSize(ICON_SM)
+          SymbolGlyph($r('sys.symbol.plus'))
+            .fontSize(ICON_LG)
             .fontColor([this.pal().accentSoft])
           Text('新建')
             .fontSize(typeOf('type.subhead').size)
