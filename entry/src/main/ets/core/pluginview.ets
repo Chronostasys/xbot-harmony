@@ -15,10 +15,16 @@
  *      ⇒ 产出的 `colorRole` 必须是 `colorOf` 的合法角色（`docs/DESIGN-SYSTEM.md §12`）。
  */
 import { isPresent } from './guards';
-// 能力面板「列表高度」估值要用到**同一套**间距/命中区常量（⛔ 别在本文件另抄一份数字）——
+// 能力面板「列表高度」估值要用到**同一套**间距/命中区/排版常量（⛔ 别在本文件另抄一份数字）——
 // `core/*.ets` 引用 `./design` 已有先例（`splash.ets`/`mdview.ets` 等）。`design.ets` 是纯数值表，
 // 不含 ArkUI/`@ohos.*` ⇒ 本文件仍可被 `run.sh` 当纯 TS 编译。
-import { GAP_ROW_Y, HIT_TARGET_MIN, INSET_ROW_Y } from './design';
+// ⛔ 字号一律经 `typeOf(role).size` 取**真源**（2026-10-16 重标定起）——旧值抄的是间距常量，
+//    与真实行盒无关。
+import { HIT_TARGET_MIN, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, typeOf } from './design';
+// 插件行的**文本层数**判据（描述 / 打开提示）必须与组件**同源** ⇒ 直接消费目录项的判据函数。
+// 依赖方向：`pluginview → pluginhost → {types, sshrunner} → {gitpanel, panels}`，**无回边**
+// （全仓无 `core/` 文件 import 本文件）⇒ 不成环。
+import { PluginCatalogItem, pluginOpenHint } from './pluginhost';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ① 插件目录：状态徽标 / 视图徽标 / 计数 / 空态（`components/PluginHost.ets`）
@@ -419,10 +425,38 @@ export function pluginMetaText(version: string, state: string): string {
  *   ⛔ 与上面 4 → 5 同理：这里改了**必须**同批改 `components/PluginsSheet.ets` 的真实行数。
  */
 export const PANEL_FIXED_ENTRY_ROWS: number = 6;
-/** 「入口行」高度估值（vp）：单行文本，取命中区下限 + 上下内距 + 行间距。 */
-export const PANEL_ENTRY_ROW_H: number = HIT_TARGET_MIN + 2 * INSET_ROW_Y + GAP_ROW_Y;
-/** 「插件行」高度估值（vp）：入口行 + 描述那一层（两层文本）。 */
-export const PANEL_PLUGIN_ROW_H: number = PANEL_ENTRY_ROW_H + 8;
+/**
+ * ArkUI `Text` 的**默认行盒 / 字号**（本 SDK 实测，见文件头 ⑤ 实测表）：
+ * `callout`(fs 14) → 16.5vp、`caption`(fs 12) → 14.1vp、`micro`(fs 10) → 12.0vp。
+ * ⛔ 组件对这些行**没有显式 `.lineHeight()`** ⇒ 行盒由系统按字号推导（约 ×1.2），
+ *    与 `typeOf(role).lineHeight`（那是设计阶梯的"倍数"，1.2–1.55）**不是一回事**，
+ *    ⛔ 别拿 `typeOf(role).size * typeOf(role).lineHeight` 来算（会高估 25–55%）。
+ */
+export const TEXT_LINE_BOX: number = 1.2;
+
+/** 一行文本的行盒高度（vp）—— 字号取排版阶梯**真源**（`core/design.ets:typeOf`）。 */
+function textLineBox(role: string): number {
+  return typeOf(role).size * TEXT_LINE_BOX;
+}
+
+/** 插件行三层文本的排版角色（与 `components/PluginsSheet.ets` 逐处同源；⛔ 改组件须同批改这里）。 */
+export const TYPE_PLUGIN_TITLE: string = 'type.callout';
+export const TYPE_PLUGIN_DESC: string = 'type.caption';
+export const TYPE_PLUGIN_HINT: string = 'type.micro';
+
+/**
+ * 「入口行」高度（vp）—— `constraintSize({minHeight: HIT_TARGET_MIN})` + 行内发丝。
+ * ⛔ 入口行只有**一行**文本（16.5vp < 44）⇒ 行体恒为命中区下限；组件对入口行**只有水平内距**
+ *    （没有上下内距）⇒ 实测 44.7vp。
+ *
+ * ⚠️ **2026-10-16 重标定**（用户报「面板底部一大块空白 / 松散留白」）：旧值
+ *   `HIT_TARGET_MIN + 2×INSET_ROW_Y + GAP_ROW_Y`（= 66）是为"带上下内距的卡片行"写的，
+ *   但行体早在 §21.115 就改成了**扁平行 + 行内发丝** ⇒ 高估 47%。同理插件行旧值（74）
+ *   高估 44%。合起来：真实装机形态（6 入口 + 4 插件）旧式算出 **722vp**，内容只有 **511vp**
+ *   ⇒ 卡片底部空出 ≈211vp（≈屏高 1/4），正是用户看到的那块空白。
+ */
+export const PANEL_ENTRY_ROW_H: number = HIT_TARGET_MIN + STROKE_HAIRLINE;
+
 /** 列表高度**下限**（vp）——行少时保持现状观感（与旧硬编码 320 对齐，不缩水）。 */
 export const PANEL_LIST_MIN_H: number = 320;
 /**
@@ -447,25 +481,63 @@ function panelRowCount(n: number): number {
 
 /**
  * 分组头行高度估值（vp；§21.115）—— 插件卡列表前的分组头「插件」。
- * 实际 ≈ 1 行 micro 文本 + 上内距 `SPACE_SM` + 下内距 `SPACE_XS` ≈ 26vp ⇒ 取 **30**（略高、安全方向）。
+ * 实际 = 1 行 micro 文本（12.0vp） + 上内距 `SPACE_SM`(12) + 下内距 `SPACE_XS`(8) = **32vp**
+ * （装机实测 107px / 3.333 = 32.1vp ✓）—— **由真源算出**，⛔ 不再手抄 30。
  * ⛔ 只在**有插件**（分组头才渲染）时计入 —— 与组件里 `if (this.plugins.length > 0)` 同源。
  */
-export const PANEL_SECTION_HEADER_H: number = 30;
+export const PANEL_SECTION_HEADER_H: number =
+  textLineBox(TYPE_PLUGIN_HINT) + SPACE_SM + SPACE_XS;
+
+/** 插件行是否画**描述**层（与组件 `if (p.description.length > 0)` **同源**）。 */
+export function pluginRowHasDescription(item: PluginCatalogItem): boolean {
+  return item.description.length > 0;
+}
+
+/** 插件行是否画**打开提示**层（与组件 `if (pluginOpenHint(p).length > 0)` **同源**）。 */
+export function pluginRowHasHint(item: PluginCatalogItem): boolean {
+  return pluginOpenHint(item).length > 0;
+}
+
+/** 插件行的**文本层数**（标题恒 1 层 + 可选描述 + 可选提示；1–3）——高度估值的唯一输入。 */
+export function pluginRowTextLines(item: PluginCatalogItem): number {
+  let n: number = 1;
+  if (pluginRowHasDescription(item)) { n += 1; }
+  if (pluginRowHasHint(item)) { n += 1; }
+  return n;
+}
+
+/**
+ * **单个插件行**的高度（vp）—— 按它**真实会画的文本层**逐层累加（`Column.space = SPACE_XS`），
+ * 再被 `constraintSize({minHeight: HIT_TARGET_MIN})` 夹住、加行内发丝。
+ *
+ * 装机实测校验：2 层（标题+描述）= 16.5 + 8 + 14.1 = 38.6 ⇒ 夹到 **44.7vp**（实测 44.7 ✓）；
+ * 3 层（+提示）= 16.8 + 8 + 14.4 + 8 + 12.0 = 59.2 ⇒ **59.2vp**（实测 58.8 ✓）。
+ */
+export function pluginRowHeight(item: PluginCatalogItem): number {
+  let text: number = textLineBox(TYPE_PLUGIN_TITLE);
+  if (pluginRowHasDescription(item)) { text += SPACE_XS + textLineBox(TYPE_PLUGIN_DESC); }
+  if (pluginRowHasHint(item)) { text += SPACE_XS + textLineBox(TYPE_PLUGIN_HINT); }
+  const body: number = text > HIT_TARGET_MIN ? text : HIT_TARGET_MIN;
+  return body + STROKE_HAIRLINE;
+}
 
 /**
  * 能力面板列表的高度（vp）——**夹在 `[PANEL_LIST_MIN_H, PANEL_LIST_MAX_H]`**。
  *
  * @param entryRows   固定入口行数（生产恒为 `PANEL_FIXED_ENTRY_ROWS`）
- * @param pluginCount 目录里的插件数（`plugins.length`）
+ * @param plugins     目录里的插件（**逐项**按真实层数算高；空数组 = 无插件 ⇒ 不计分组头）
  * @param statusRows  三态状态行占的行数（状态行本身 + 可能的「重试」行；无状态行传 0）
  */
-export function pluginPanelListHeight(entryRows: number, pluginCount: number, statusRows: number): number {
-  const nPlugins: number = panelRowCount(pluginCount);
-  const h: number = panelRowCount(entryRows) * PANEL_ENTRY_ROW_H
-    + nPlugins * PANEL_PLUGIN_ROW_H
-    + panelRowCount(statusRows) * PANEL_ENTRY_ROW_H
-    // 分组头只在有插件时渲染（与组件 `if (this.plugins.length > 0)` 同源）。
-    + (nPlugins > 0 ? PANEL_SECTION_HEADER_H : 0);
+export function pluginPanelListHeight(
+  entryRows: number, plugins: PluginCatalogItem[], statusRows: number): number {
+  const arr: PluginCatalogItem[] = plugins !== undefined && plugins !== null ? plugins : [];
+  let h: number = panelRowCount(entryRows) * PANEL_ENTRY_ROW_H
+    + panelRowCount(statusRows) * PANEL_ENTRY_ROW_H;
+  for (let i = 0; i < arr.length; i++) {
+    h += pluginRowHeight(arr[i]);
+  }
+  // 分组头只在有插件时渲染（与组件 `if (this.plugins.length > 0)` 同源）。
+  if (arr.length > 0) { h += PANEL_SECTION_HEADER_H; }
   if (h > PANEL_LIST_MAX_H) {
     return PANEL_LIST_MAX_H;
   }

@@ -7846,3 +7846,38 @@ appear live=true  key=13:4        （仍在飞）
 
 判据 `tools/tests/sessionops.test.ts`（50 断言，含 mutation 自证：不识别回声 / 直接用
 `sessionLabel` 当显示出口 ⇒ 必红）。
+
+### §21.122cb ③「能力面板」底部一大块空白（松散留白）——高度估值重标定（2026-10-16）
+
+**用户指控**：面板底部留一大块空白（"松散留白"），观感不像苹果。
+
+**根因（实测）**：`core/pluginview.ets` 的列表高度估值按**"最坏情况"常量**算 —
+入口行 = `HIT_TARGET_MIN + 2×INSET_ROW_Y + GAP_ROW_Y`（66vp）、插件行 = 74vp。但行体早在
+§21.115 就改成了**扁平行 + 行内发丝**（`constraintSize({minHeight: HIT_TARGET_MIN})` +
+**只有水平内距**）⇒ 真实行高是 44.7 / 44.7 / 58.8vp，旧估值一律**高估 ≈45%**。
+
+装机 dump 实测（1320×2848 / density 3.333，`uitest dumpLayout` 取 clickable Row 的 bounds）：
+
+| 元素 | 实测 | 旧估值 | 真源模型 |
+|---|---|---|---|
+| 入口行 | 149px = **44.7vp** | 66 | `HIT_TARGET_MIN`(44) + 发丝(1) = **45** |
+| 插件行 · 2 层文本 | 149px = **44.7vp**（被 minHeight 夹住） | 74 | 16.8+8+14.4 = 38.6 ⇒ 夹到 44 + 发丝 = **45** |
+| 插件行 · 3 层文本 | 196px = **58.8vp** | 74 | 16.8+8+14.4+8+12 = **59.2** + 发丝 |
+| 分组头 | 107px = **32.1vp** | 30（手抄） | micro 行盒 12 + `SPACE_SM` 12 + `SPACE_XS` 8 = **32** |
+
+⇒ 真实装机形态（6 入口 + 4 插件）旧式算出 **722vp**，而内容只有 **511vp** ⇒ 卡片底部空 ≈211vp
+（≈屏高 1/4）—— 这正是用户看到的那块空白。装机对照：sheet 2460px → **1940px**（-156vp），
+卡片底缘与最后一行提示只剩正常内距。
+
+**修法（判据与渲染同源）**：
+1. 行盒改**逐层累加**：`pluginRowHeight(item)` = Σ 该行**真实会画的文本层**（标题恒 1 层 +
+   `pluginRowHasDescription` + `pluginRowHasHint`），再被 `HIT_TARGET_MIN` 夹住 + 发丝；
+2. 字号取排版阶梯**真源** `typeOf(role).size × TEXT_LINE_BOX`（`TEXT_LINE_BOX = 1.2`，
+   **本 SDK 实测**：fs 14→16.5 / 12→14.1 / 10→12.0）；⛔ 不用 `typeOf(role).lineHeight`
+   （那是设计阶梯的倍数 1.2–1.55，会再高估 25–55%）；
+3. `PluginCatalogItem[]` 直接进估值函数（旧签名收"个数"⇒ 无法知道每行的层数）；
+4. **渲染侧改用同一批谓词** `pluginRowHasDescription` / `pluginRowHasHint`
+   （⛔ 组件里不再各写一份 `p.description.length > 0`）。
+
+**判据**：`tools/tests/pluginview.test.ts` ★H（新增两条回归钉：常见形态 **≤560 且 ≥490**，
+旧式 722 直接红）+ ★K（层数模型 / 行盒倍数 / 反"最坏情况常量"，10 条）。

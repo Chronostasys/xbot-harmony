@@ -33,7 +33,7 @@
  */
 import { Palette, paletteOf, ShadowLayer, shadowLayersOf } from '../core/theme';
 import { PluginCatalogItem, pluginOpenHint } from '../core/pluginhost';
-import { PluginPanelStatus, pluginMetaText, pluginPanelStatus, pluginPanelListHeight, PANEL_FIXED_ENTRY_ROWS } from '../core/pluginview';
+import { PluginPanelStatus, pluginMetaText, pluginPanelStatus, pluginPanelListHeight, PANEL_FIXED_ENTRY_ROWS, pluginRowHasDescription, pluginRowHasHint } from '../core/pluginview';
 // 插件图标映射**唯一出口** = `PluginHost` 的 `pluginSymbol`（19/19 覆盖 web `ICON_MAP`）——
 // ⛔ 不在本面板再写一份副本（副本会腐烂 / 各写一份 ⇒ 同一插件两处图标不一致）。
 import { pluginSymbol } from './PluginHost';
@@ -143,7 +143,7 @@ export struct PluginsSheet {
   private listHeight(): number {
     const st: PluginPanelStatus = this.status();
     const statusRows: number = (st.show ? 1 : 0) + (st.canRetry ? 1 : 0);
-    return pluginPanelListHeight(PANEL_FIXED_ENTRY_ROWS, this.plugins.length, statusRows);
+    return pluginPanelListHeight(PANEL_FIXED_ENTRY_ROWS, this.plugins, statusRows);
   }
 
   /** 本弹层的两层柔影（浅色 = 贴合 + 环境；深色 = 透明 + 原值）—— `core/theme.shadowLayersOf`。 */
@@ -332,14 +332,14 @@ export struct PluginsSheet {
                         .flexShrink(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                     }
                   }.width('100%').alignItems(VerticalAlign.Center)
-                  if (p.description.length > 0) {
+                  if (pluginRowHasDescription(p)) {
                     Text(p.description)
                       .fontSize(fs('type.caption')).fontColor(this.mutedText())
                       .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
                   }
                   // ⛔ 无独立面板的插件（只声明内嵌徽章/条，或未声明 contributes）⇒ 说明它
                   //    「已经在哪儿生效了」，别让用户去找一个不存在的面板（判据 `pluginOpenHint`）。
-                  if (pluginOpenHint(p).length > 0) {
+                  if (pluginRowHasHint(p)) {
                     Text(pluginOpenHint(p))
                       .fontSize(fs('type.micro')).fontColor(this.mutedText())
                       .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')

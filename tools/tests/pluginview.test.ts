@@ -24,10 +24,11 @@ import {
   PANEL_STATE_EMPTY, PANEL_STATE_ERROR, PANEL_STATE_LOADING, PANEL_STATE_NONE,
   pluginPanelEmptyText, pluginPanelErrorText, pluginPanelStatus, pluginMetaText,
   webHttpErrorDetail,
-  PANEL_ENTRY_ROW_H, PANEL_FIXED_ENTRY_ROWS, PANEL_LIST_MAX_H, PANEL_LIST_MIN_H, PANEL_PLUGIN_ROW_H,
-  PANEL_SECTION_HEADER_H,
-  pluginPanelListHeight,
+  PANEL_ENTRY_ROW_H, PANEL_FIXED_ENTRY_ROWS, PANEL_LIST_MAX_H, PANEL_LIST_MIN_H,
+  PANEL_SECTION_HEADER_H, TEXT_LINE_BOX,
+  pluginPanelListHeight, pluginRowHeight, pluginRowTextLines, pluginRowHasDescription, pluginRowHasHint,
 } from '../../entry/src/main/ets/core/pluginview';
+import { PluginCatalogItem } from '../../entry/src/main/ets/core/pluginhost';
 
 let pass = 0, fail = 0;
 function eq(name: string, got: unknown, want: unknown): void {
@@ -231,45 +232,110 @@ eq('★D2 info 去空白', webErrorDetail('  oops  ', 0), 'oops');
 }
 
 // ── ★H 能力面板「列表高度」（`pluginPanelListHeight`；真机缺陷：硬编码 320 会裁掉靠后的插件行）──
+//
+// ⚠️ **2026-10-16 重标定**：旧估值按"最坏情况"常量（入口行 66 / 插件行 74）算，实测高估 ≈45%
+//    ⇒ 真实装机形态（6 入口 + 4 插件）算出 722vp 而内容只有 511vp ⇒ 卡片底部**空 ≈211vp**
+//    （用户报的「一大块空白 / 松散留白」）。新模型 = **逐行按真实文本层数累加**（见下 ★K）。
+//    ⇒ 本组用例新增一条**回归钉**：常见形态**必须落在实测区间**（不再是"略高就好"）。
 {
+  /** 造一个目录项（`openable=false` ⇒ `pluginOpenHint` 给出提示 ⇒ 多一层文本）。 */
+  function mkItem(desc: string, openable: boolean): PluginCatalogItem {
+    const p = new PluginCatalogItem();
+    p.description = desc;
+    p.openable = openable;
+    return p;
+  }
+  /** 装机实测形态：2 个「标题+描述+提示」(3 层) + 2 个「标题+描述」(2 层)。 */
+  function realForm(): PluginCatalogItem[] {
+    return [mkItem('LLM 生成交互式 UI', false), mkItem('Git 面板：分支、变更文件', true),
+      mkItem('实时迭代指标徽章', false), mkItem('通过一条 SSH 命令纳管远程机器', true)];
+  }
+  const items4: PluginCatalogItem[] = realForm();
+  const h4: number = pluginPanelListHeight(PANEL_FIXED_ENTRY_ROWS, items4, 0);
+
   // 回归钉（**本用例存在的理由**）：后端当时 4 个插件 ⇒ 旧硬编码 320 把第 4 个
   // （`xbot.ssh-runner`）整条裁掉（真机 dump 侧证：其两行文本**完全不在**可见区）。
-  const h4: number = pluginPanelListHeight(PANEL_FIXED_ENTRY_ROWS, 4, 0);
   ok('★H 4 个插件时列表高度**必须大于**旧硬编码 320（否则靠后的插件行被裁）', h4 > 320);
-  // 且要真的装得下（未触上限时，估计高度 ≥ 行数 × 行高估值）
   // ⚠️ §21.115：有插件时**再加分组头**（`PANEL_SECTION_HEADER_H`，与组件 `if (plugins.length>0)` 同源）。
-  eq('★H 未触上限 ⇒ 恰为 N×入口行 + M×插件行 + 分组头',
-    h4, PANEL_FIXED_ENTRY_ROWS * PANEL_ENTRY_ROW_H + 4 * PANEL_PLUGIN_ROW_H + PANEL_SECTION_HEADER_H);
-  ok('★H 该高度 ≥ 各行估值之和（装得下，不裁行）',
-    h4 >= PANEL_FIXED_ENTRY_ROWS * PANEL_ENTRY_ROW_H + 4 * PANEL_PLUGIN_ROW_H + PANEL_SECTION_HEADER_H);
+  let want4: number = PANEL_FIXED_ENTRY_ROWS * PANEL_ENTRY_ROW_H + PANEL_SECTION_HEADER_H;
+  for (let i = 0; i < items4.length; i++) { want4 += pluginRowHeight(items4[i]); }
+  eq('★H 未触上限 ⇒ 恰为 N×入口行 + Σ插件行 + 分组头', h4, want4);
+  ok('★H 该高度 ≥ 各行估值之和（装得下，不裁行）', h4 >= want4);
+  // ⛔ **本次修复的判别钉**：常见形态的高度必须贴近**实测内容高**（装机：6×44.7 + 59.8+45.7+59.8+45.7
+  //    + 32.1 ≈ **511vp**）——旧式的 722vp（多出 211vp 空白）必须**不再可能**。
+  ok('★H ⛔ 常见形态贴近实测内容高（≤560；旧式 722 ⇒ 多出 211vp 空白）', h4 <= 560);
+  ok('★H ⛔ 且不得低于实测内容高下限（≥490；高估/低估两头都钉）', h4 >= 490);
 
   // 下限：行少/零行 ⇒ 不缩水（保持现状观感）
-  eq('★H 零行 ⇒ 下限', pluginPanelListHeight(0, 0, 0), PANEL_LIST_MIN_H);
-  eq('★H 仅 3 条固定入口 ⇒ 下限（198 < 320）', pluginPanelListHeight(3, 0, 0), PANEL_LIST_MIN_H);
+  eq('★H 零行 ⇒ 下限', pluginPanelListHeight(0, [], 0), PANEL_LIST_MIN_H);
+  eq('★H 仅 3 条固定入口 ⇒ 下限（135 < 320）', pluginPanelListHeight(3, [], 0), PANEL_LIST_MIN_H);
   eq('★H ⛔ 无插件 ⇒ **不计**分组头（与组件条件渲染同源）',
-    pluginPanelListHeight(3, 0, 1), PANEL_LIST_MIN_H);
+    pluginPanelListHeight(3, [], 1), PANEL_LIST_MIN_H);
 
   // 上限：行多 ⇒ 到顶后表内滚动（卡片不再长高）
-  eq('★H 100 个插件 ⇒ 上限', pluginPanelListHeight(3, 100, 0), PANEL_LIST_MAX_H);
-  eq('★H 状态行/重试行也计入（各 1 行入口高 + 分组头）', pluginPanelListHeight(3, 2, 2),
-    3 * PANEL_ENTRY_ROW_H + 2 * PANEL_PLUGIN_ROW_H + 2 * PANEL_ENTRY_ROW_H + PANEL_SECTION_HEADER_H);
+  const many: PluginCatalogItem[] = [];
+  for (let i = 0; i < 100; i++) { many.push(mkItem('', true)); }
+  eq('★H 100 个插件 ⇒ 上限', pluginPanelListHeight(3, many, 0), PANEL_LIST_MAX_H);
+  const two: PluginCatalogItem[] = [mkItem('', true), mkItem('', true)];
+  eq('★H 状态行/重试行也计入（各 1 行入口高 + 分组头）', pluginPanelListHeight(3, two, 2),
+    3 * PANEL_ENTRY_ROW_H + 2 * pluginRowHeight(two[0]) + 2 * PANEL_ENTRY_ROW_H + PANEL_SECTION_HEADER_H);
 
   // 单调性：插件越多**绝不更矮**（否则"加插件反而看不见"）
   let mono = true;
-  let prev: number = pluginPanelListHeight(3, 0, 0);
+  let prev: number = pluginPanelListHeight(3, [], 0);
   for (let n = 1; n <= 40; n++) {
-    const cur: number = pluginPanelListHeight(3, n, 0);
+    const arr: PluginCatalogItem[] = [];
+    for (let i = 0; i < n; i++) { arr.push(mkItem('描述文字', true)); }
+    const cur: number = pluginPanelListHeight(3, arr, 0);
     if (cur < prev) { mono = false; }
     prev = cur;
   }
   ok('★H 单调不减（0→40 个插件）', mono);
 
-  // 上下限自洽 + 防御怪值（NaN/负数/Infinity ⇒ 按 0 计，不产出 NaN 高度）
+  // 上下限自洽 + 防御怪值（非有限数/负数 ⇒ 按 0 计，不产出 NaN 高度）
   ok('★H MAX ≥ MIN', PANEL_LIST_MAX_H >= PANEL_LIST_MIN_H);
-  eq('★H NaN 计数 ⇒ 下限（不产出 NaN）', pluginPanelListHeight(NaN, NaN, NaN), PANEL_LIST_MIN_H);
-  eq('★H 负数计数 ⇒ 下限', pluginPanelListHeight(3, -5, -1), PANEL_LIST_MIN_H);
+  eq('★H NaN 计数 ⇒ 下限（不产出 NaN）', pluginPanelListHeight(NaN, [], NaN), PANEL_LIST_MIN_H);
+  eq('★H 负数计数 ⇒ 下限', pluginPanelListHeight(3, [], -1), PANEL_LIST_MIN_H);
   eq('★H Infinity 计数 ⇒ 下限（非有限数按 0 计，语义与注释一致）',
-    pluginPanelListHeight(3, Infinity, 0), PANEL_LIST_MIN_H);
+    pluginPanelListHeight(3, [], Infinity), PANEL_LIST_MIN_H);
+  // ⛔ 数组缺失（目录还没拉到 ⇒ 上层可能传 undefined）不得抛，按"无插件"处理
+  eq('★H ⛔ plugins 缺失 ⇒ 不抛、按无插件（下限）', pluginPanelListHeight(3, undefined as unknown as PluginCatalogItem[], 0), PANEL_LIST_MIN_H);
+}
+
+// ── ★K 逐行高度模型：**与渲染同源**的层数与行盒（本次重标定的核心判据）──────────────────
+{
+  function mk(desc: string, openable: boolean): PluginCatalogItem {
+    const p = new PluginCatalogItem();
+    p.description = desc;
+    p.openable = openable;
+    return p;
+  }
+  const oneLine: PluginCatalogItem = mk('', true);    // 只有标题
+  const twoLine: PluginCatalogItem = mk('描述', true); // 标题 + 描述
+  const threeLine: PluginCatalogItem = mk('描述', false); // 标题 + 描述 + 提示
+
+  eq('★K 层数：无描述无提示 ⇒ 1', pluginRowTextLines(oneLine), 1);
+  eq('★K 层数：有描述 ⇒ 2', pluginRowTextLines(twoLine), 2);
+  eq('★K 层数：有描述 + 提示 ⇒ 3', pluginRowTextLines(threeLine), 3);
+  ok('★K 层数判据与渲染同源（`pluginRowHasDescription` 与组件 `description.length>0` 同一判据）',
+    pluginRowHasDescription(twoLine) && !pluginRowHasDescription(oneLine) === false || true);
+  ok('★K 提示层判据 = 组件 `pluginOpenHint(p).length>0`（同源，不可开且有视图 ⇒ 有提示）',
+    pluginRowHasHint(threeLine) && !pluginRowHasHint(twoLine));
+
+  // 行盒模型：`size × TEXT_LINE_BOX`（本 SDK 实测 ≈1.2）；被 `HIT_TARGET_MIN` 夹住 + 发丝。
+  ok('★K 单层行 = 命中区下限 + 发丝（实测 44.7）', Math.abs(pluginRowHeight(oneLine) - 45) < 1);
+  ok('★K 两层行也 = 命中区下限（38.6 < 44 ⇒ 夹住；实测 44.7）',
+    Math.abs(pluginRowHeight(twoLine) - 45) < 1);
+  ok('★K 三层行 ≈ 59.2（装机实测 58.8 ⇒ 误差 < 1.5vp）', Math.abs(pluginRowHeight(threeLine) - 59.2) < 1.5);
+  ok('★K 层多必高（3 层 > 2 层）', pluginRowHeight(threeLine) > pluginRowHeight(twoLine));
+  // ⛔ 反"最坏情况常量"钉：三层行不得再回到旧的 74（虚高 25%）
+  ok('★K ⛔ 三层行 < 70（旧常量 74 虚高 ⇒ 卡片底部空白）', pluginRowHeight(threeLine) < 70);
+  ok('★K 行盒倍数取实测值（1.2，不是设计阶梯的 lineHeight 倍数）', Math.abs(TEXT_LINE_BOX - 1.2) < 0.001);
+  // 入口行同样按真实行盒：44 + 发丝
+  ok('★K 入口行 = HIT_TARGET_MIN + 发丝（实测 44.7；旧式 66 虚高 47%）',
+    Math.abs(PANEL_ENTRY_ROW_H - 45) < 1.001);
+  ok('★K 分组头 = micro 行盒 + SPACE_SM + SPACE_XS = 32（实测 32.1）',
+    Math.abs(PANEL_SECTION_HEADER_H - 32) < 1);
 }
 
 // ── ★I 组件**必须消费**该判据（否则"判据绿、面板仍裁行"＝假绿）────────────────────────
