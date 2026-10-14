@@ -6922,3 +6922,23 @@ WebView `[0,283][1320,2754]`）—— **不是渲染出来的文字**，⛔ 别�
 ⛔ 两项都要改 web（`EmbedPanelShell`）+ 本仓（深链/桥），且 8082 是内嵌 web（§21.122p 已记：
 改 web 需重建 + 重启服务，而重启会终止本会话）⇒ **登记待裁，不擅自动**。
 ⚠️ **别再把它当排版问题修**：面板渲染（§21.122t）本身没问题，缺的是**数据通道**。
+
+### §21.122u 补：根因**闭环确认** + 修法收敛为**web 单仓一处**（无需原生改动）
+
+**闭环证据**：全仓检索 `useActiveSSESubscription`（真正建立 SSE 订阅的 hook，
+`src/hooks/useActiveSSESubscription.ts:59` `ws.addSubscription(chatID, channel)`，且其设计是
+**"面板可见才订阅、不可见即断"**）⇒ **只有唯一消费方 `src/workspace/panels/AgentPanel.tsx:154`**
+（注释 :233 自述"面板不可见时 SSE 主动断开"）。
+⇒ **SSE 订阅由「聊天面板 AgentPanel」建立**；嵌入态 `EmbedPanelShell` 只渲面板本体
+（files/search/info/tasks/terminal），**从不挂 `AgentPanel`** ⇒ 无人 `addSubscription`
+⇒ `ws.connected` 恒 `false` ⇒ 任务/终端/文件面板只吃各自 REST 的**打开那一刻**快照
+（渲染正常、数据不动）——**与 §21.122t 的"面板能打开 ✅ / 状态陈旧 ❌"两现象完全自洽**。
+
+**修法收敛（重要：比 §21.122u 原判更省）**：**不需要原生侧传参**。因为 web 在嵌入态**自己就有
+会话上下文**：`App.tsx:63` 的 `SessionStoreProvider` 在嵌入态也挂载，且
+`plugin-runtime/usePluginRuntimeHost.ts:383-388` 就是从 `session.activeSession` 派生
+`window.__xbot_session__`（git-fancy/ssh-runner 正是靠它取 channel/chatID——这也解释了技能/Git/SSH
+面板在嵌入态**能取到会话身份**）。⇒ 修法 = 在 web 的 `EmbedPanelShell` 里补一次
+`useActiveSSESubscription({ ws, chatID: activeSession?.chatID, channel: activeSession?.channel,
+active: true })`（用**它已有的** session store）⇒ SSE 起来 ⇒ 所有嵌入面板实时。
+⛔ 仍是**跨仓**（改 web）且需重建 + 重启 8082（§21.122p 已记：重启会终止本会话）⇒ **登记待裁**。
