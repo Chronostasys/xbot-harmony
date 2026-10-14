@@ -7204,5 +7204,42 @@ mutation：两处改回旧写法 ⇒ **各红 1 条**（其余 7 绿）；还原
    贡献点、`xbot.iteration-stats` 只挂 `status_bar_right` 徽章）⇒ web 侧同样没有面板
    ⇒ 不是本仓缺陷。权威入口是「**插件管理（Web）**」（列全部插件及其视图贡献点）。
 
+## §21.122bd：要求④ 续 —— 能力面板各入口**逐一装机**裁决 + 抽屉「终端」键补回落
+
+**（a）抽屉「终端」键缺原生回落（本仓缺陷，已修 `623af6e`）**
+`openWebPanel(panelId)` 拿不到基地址时 fail-closed 返回 `false`（`Index.ets:4149-4154` 注释原文
+就写着"每个调用点都有原生回落"），但四个调用点里**只有终端键裸调**：
+
+| 调用点 | 修前 | 修后 |
+|---|---|---|
+| `:5880` 顶栏文件 | `if (!…('files')) { openFiles(); }` ✓ | — |
+| `:10351` 抽屉任务 | `if (!…('tasks')) { openPanels(); }` ✓ | — |
+| `:10380` 抽屉文件 | `if (!…('files')) { openFiles(); }` ✓ | — |
+| `:10400` 抽屉终端 | `this.openWebPanel('terminal');` ✗ **点了毫无反应** | `if (!…) { switchPanelTab('term'); openPanels(); }` ✓ |
+
+**判据（形态可机检）**：`grep -rn "openWebPanel(" entry/src/main/ets/ | grep -v "private openWebPanel"`
+⇒ 4 处，**每处都必须紧跟 `if (!…)` 或本身就是 `if` 条件**（修完后 4/4 满足；修前 3/4）。
+门禁：`GATE_RC=0` + `✅ 真门禁全绿`。
+
+**（b）能力面板 7 个入口逐一装机走查**（脚本 `/tmp/plbatch.sh`：冷启 → 抽屉 → 插件 → 点该行 →
+`snapshot_display` + `uitoolkit dumpLayout`；判定一律走 dump 文本节点/URL，⛔ 不肉眼定性）
+
+| 入口 | 结果 | 判据（dump） |
+|---|---|---|
+| 插件管理（Web） | ✅ 达标 | 见 §21.122bc（修完两层 chrome 后：只有本体） |
+| 插件目录（原生） | ✅ | 原生目录列表（GenUI/Git 面板/迭代指标/远程机器） |
+| 会话统计 | ✅ 达标 | `按模型` + `deepseek-flash in 944.02M · out 2.65M · cache 931.17M · 2125 iters` / `最近迭代` |
+| 技能 | ✅ 达标 | 技能列表：`plugin-creator` / `post-dev` / `skill-creator` / `worktree` + 各自描述 |
+| Git 面板（原生） | ✅ 达标 | `Git` / `（无分支）` / `当前会话的工作目录不是 Git 仓库`（该会话 cwd = `ohos-localchat`，**确实**不是仓库 ⇒ 正确空态，非缺陷） |
+| 完整 Web UI | ✅ 达标 | 刻意嵌**整个** web 应用（含 web 自己的 chrome）—— 该入口语义就是"逃生舱"，⛔ 不是套娃 |
+| 📦 Git 面板（插件视图） | ✅ 达标 | `type=Web` 节点 URL = `?xbot_view=xbot.git-fancy.panel&…&xbot_embed=1`；本体只渲 `当前目录不是 git 仓库`；**无 web 外壳 chrome** |
+| 📦 远程机器（SSH）（插件视图） | ✅ 达标 | URL = `?xbot_view=xbot.ssh-runner.panel&…&xbot_embed=1`；本体渲 `切回本机` / `添加机器` / `本机（服务器）` / `还没有机器 —— 用一条 SSH 命令添加。`；无 web 外壳 |
+| 📦 GenUI / 📦 迭代指标 | — | 无面板视图（见 §21.122bc 末条），⛔ 无入口可走查 |
+
+**结论**：用户报的「插件都打不开／面板看不到」到本轮为止**已无一处成立** —— 每个入口都能打开
+且有真实内容；两处插件视图（第三方 `xbot.git-fancy` / `xbot.ssh-runner`）证明 §21.122bc 的
+嵌入口径扩宽对**第三方插件同样生效**（原生只传 viewId，web 侧按 id 跨容器取视图本体）。
+
+
 
 
