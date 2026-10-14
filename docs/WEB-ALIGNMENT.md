@@ -7455,3 +7455,38 @@ api 加载会话"）**
 **⛔ 量具补记（新增一条，写给下一次）**：判「web 深链到底有没有生效」必须
 ① **暖态**测（冷启动会因 base 未就绪而回落）；② 判据用 **dump 里的 `"type":"Web"`**（不是截图 ——
 原生回落面板与 web 面板在截图里可能很像：任务面板两侧都是"定时任务/后台命令"式清单，我差点读错）。
+
+## §21.122bl：设置面 IA 重构 —— 12 格标签墙 → **Apple 式分组列表 + 钻取**（2026-10-16）
+
+**病根（真机截图 `/tmp/panel_settings2.jpeg` 实锤）**：12 个分区被画成 **4 列 × 3 行的下划线标签网格**
+（`Flex(wrap)` + 指示线），占 ~250vp 才见第一项内容；且"下划线页签"是 **Material** 语言 ——
+Apple 的设置面恒为**分组列表 + 主从钻取**（根列表只回答"去哪"，内容在下一层，页头出返回箭头）。
+
+**改造**
+| 层 | 改法 |
+|---|---|
+| 纯逻辑真源 | `core/settingsplugins.ets` 新增 `SettingsGroupSpec` / `SettingsRootRow` + `settingsGroupKeys()`（组序）/ `settingsGroupTitle()`（组名）/ `settingsGroupKeyOfTab()`（id→组，未登记 ⇒ `misc`）/ `settingsRootGroups()` / `settingsRootRows()`（**扁平行序列**） |
+| 渲染 | `components/SettingsPanel.ets`：`TabBar()`（标签网格）**删除**，改 `RootList()` = 组头行 + 分区行（标签 + `chevron_right`，行命中盒 `HIT_TARGET_MIN`，分隔线 inset 且**组尾不画**）；`active` 空串 = 根列表；页头在钻入态出 `chevron_left` 返回键 + 本层标题 |
+| 页面 | `Index.ets` 的 `settingsInitialTab` 缺省由 `SETTINGS_TAB_APPEARANCE` 改 **`''`**（= 打开即根列表；`settings.open?section=<x>` 深链仍直达分区） |
+
+**分组**（`settingsGroupKeys()` 声明序）：个性化（外观/通知）· 模型与智能体（工具/模型/智能体）·
+连接与账号（消息渠道/存储/Web 账号/账号）· 高级（插件/开发者）· 关于。
+
+**⛔ 关键取舍：`ForEach` 预算（不是抬阈值）**
+首版用两层 `ForEach`（组 × 行）⇒ 真门禁红：`ForEach 处数 = 118 处（超上限 117）`。
+`tools/perf/guard.sh:98` 注明该指标是**结构性规模指示、只许减不许增** ⇒ 正解 = **扁平化**：
+`core` 直接产出**行序列**（组头行 + 成员行混排），渲染侧只留**一个** `ForEach` ⇒ 回落到 117 ✓。
+（副产物：行模型可脱机单测 —— 组头紧跟成员、`last` 标记、组不空。）
+
+**判据**
+- 新增 `tools/tests/settings_root_list.test.ts`（28 条）：并集/无重项/组序=声明序/组内保序/
+  未知 id 落 `misc`（fail-open）/空组丢弃/**跨文件一致**（组件里每个 `new SettingsTabSpec(常量,…)`
+  的常量真值都被**显式**分组 ⇒ 忘登记必红）/扁平行结构（组头+成员交替、`last` 正确）/
+  组件形态（`RootList`/`chevron_right`/`chevron_left`/`active=''`）/同源（组件不出现组 key 与组名字面量）/
+  **预算护栏**（`RootList` 内 `ForEach` **恰好 1 个**）/白绿防线（区间取不到 ⇒ 判红）。
+  mutation 自证：① 把 `misc` 兜底摘掉 ⇒ ①b 红；② 组件调用点改名 ⇒ ④ 红（实得 3 红，回退即绿）。
+- `tools/tests/settings_panel_wrap.test.ts`：旧"标签网格"断言（`TabBar`/`TAB_CHIP_W`/`Flex(wrap)`）
+  改为**反向断言**（这些形态不许回来）+ 根列表形态断言；色板/死空间两节照旧。
+
+**装机实证**（`/tmp/settings_root_v2.jpeg`）：打开设置停在根列表（5 组、11 行可见 + 可滚），
+行内 `chevron_right`、inset 分隔线、组尾无线；点「外观」⇒ 页头变 `‹ 外观`（返回 + 本层标题）✓。

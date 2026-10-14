@@ -763,6 +763,124 @@ export function fallbackTabId(all: SettingsTabSpec[], active: string): string {
   return vis.length > 0 ? vis[0].id : '';
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// ⑤ 设置**根列表**的分组规格（2026-10-16；目标③「所有面板对标 Apple」）
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// 为什么改：12 个分区原先被画成 **4 列 × 3 行的下划线标签网格**（`Flex(wrap)` + 指示线），
+//   真机截图（`/tmp/panel_settings2.jpeg`）实锤：12 枚裸文字排成三行、选中态只有一条线，
+//   **进面板要吃掉 ~250vp 才看到第一项内容**；且"下划线页签"是 Material 语言 ——
+//   Apple 的设置面是**分组列表 + 钻取**（根列表只回答"去哪"，内容在下一层，页头出返回箭头）。
+//
+// ⛔ 本函数**只做呈现分组**，不含任何门控：入参 = `visibleTabs()` 的产物（未实现的分区
+//   早已被 `shouldShowTab` 滤掉）。新增分区若忘了登记分组 ⇒ 落进尾部「其它」组
+//   ⇒ **永不丢分区**（fail-open：「不静默丢入口」）。
+// ⛔ 判据 = `tools/tests/settings_root_list.test.ts`（钉：分组并集 == 传入集合、无重项、
+//   未知 id 落 `misc`、空组丢弃、组序恒为声明序；并有组件侧形态断言 + 白绿防线）。
+
+/** 根列表的一个分组（`items` 非空才应由 `settingsRootGroups` 产出）。 */
+export class SettingsGroupSpec {
+  key: string = '';
+  title: string = '';
+  items: SettingsTabSpec[] = [];
+  constructor(key: string, title: string, items: SettingsTabSpec[]) {
+    this.key = key;
+    this.title = title;
+    this.items = items;
+  }
+}
+
+/** 组 key 的**声明顺序**（唯一真源；根列表按它排序）。 */
+export function settingsGroupKeys(): string[] {
+  return ['personal', 'model', 'connect', 'advanced', 'about', 'misc'];
+}
+
+/** 组 key → 组头文案（唯一真源；⛔ 组件不另写一份）。 */
+export function settingsGroupTitle(key: string): string {
+  if (key === 'personal') { return '个性化'; }
+  if (key === 'model') { return '模型与智能体'; }
+  if (key === 'connect') { return '连接与账号'; }
+  if (key === 'advanced') { return '高级'; }
+  if (key === 'about') { return '关于'; }
+  return '其它';
+}
+
+/** 分区 id → 组 key（**唯一真源**；未登记 ⇒ `misc` ⇒ 永不丢项）。 */
+export function settingsGroupKeyOfTab(tabId: string): string {
+  if (tabId === 'appearance' || tabId === 'notify') { return 'personal'; }
+  if (tabId === 'llm' || tabId === 'agent' || tabId === 'tools') { return 'model'; }
+  if (tabId === 'channels' || tabId === 'webusers' || tabId === 'account' || tabId === 'storage') {
+    return 'connect';
+  }
+  if (tabId === 'plugins' || tabId === 'developer') { return 'advanced'; }
+  if (tabId === 'about') { return 'about'; }
+  return 'misc';
+}
+
+/** 全部分区 → 根列表分组（**空组自动丢弃**；组内顺序 = 传入顺序）。
+ *
+ *  ⛔ 本函数**自带门控**（内部先过 `shouldShowTab`）：这样"未实现的分区 ⇒ 不出现"与
+ *    "不留空组头"是同一条不变式，调用方忘了先 `visibleTabs()` 也不会渲出空壳。
+ *    （与 `shouldShowTab` 同源，所以幂等：传 `visibleTabs()` 的结果进来也逐字节相同。）
+ */
+export function settingsRootGroups(all: SettingsTabSpec[]): SettingsGroupSpec[] {
+  const keys: string[] = settingsGroupKeys();
+  const vis: SettingsTabSpec[] = visibleTabs(all);
+  const out: SettingsGroupSpec[] = [];
+  for (let k = 0; k < keys.length; k++) {
+    const key: string = keys[k];
+    const items: SettingsTabSpec[] = [];
+    for (let i = 0; i < vis.length; i++) {
+      if (settingsGroupKeyOfTab(vis[i].id) === key) {
+        items.push(vis[i]);
+      }
+    }
+    if (items.length > 0) {
+      out.push(new SettingsGroupSpec(key, settingsGroupTitle(key), items));
+    }
+  }
+  return out;
+}
+
+/**
+ * 根列表的**一行**（扁平模型）。
+ *
+ * 为什么扁平：渲染侧因此只需**一个** `ForEach`（组头行 + 分区行混排）——
+ * `tools/perf/guard.sh` 的 `ForEach 处数` 是**结构性规模指示**、只许减不许增
+ * （⚠️ 2026-10-16 实测：两层 `ForEach`（组 × 行）会把 118 > 上限 117 ⇒ 门禁红）。
+ * ⛔ 正解是扁平化，**不是**抬阈值。
+ */
+export class SettingsRootRow {
+  /** `true` = 组头（⛔ 不可点、不参与选择）；`false` = 可钻取的分区行。 */
+  isHeader: boolean = false;
+  /** 组头 ⇒ 组 key；分区行 ⇒ 分区 id。 */
+  key: string = '';
+  /** 组头 ⇒ 组名；分区行 ⇒ 分区名。 */
+  label: string = '';
+  /** 分区行专用：是否**组内最后一行**（Apple 分组列表：组尾不画分隔线）。 */
+  last: boolean = false;
+  constructor(isHeader: boolean, key: string, label: string, last: boolean) {
+    this.isHeader = isHeader;
+    this.key = key;
+    this.label = label;
+    this.last = last;
+  }
+}
+
+/** 全部分区 → 根列表的**扁平行序列**（组头行 + 其成员行；空组不产生任何行）。 */
+export function settingsRootRows(all: SettingsTabSpec[]): SettingsRootRow[] {
+  const groups: SettingsGroupSpec[] = settingsRootGroups(all);
+  const out: SettingsRootRow[] = [];
+  for (let g = 0; g < groups.length; g++) {
+    out.push(new SettingsRootRow(true, groups[g].key, groups[g].title, false));
+    for (let i = 0; i < groups[g].items.length; i++) {
+      const isLast: boolean = i === groups[g].items.length - 1;
+      out.push(new SettingsRootRow(false, groups[g].items[i].id, groups[g].items[i].label, isLast));
+    }
+  }
+  return out;
+}
+
 /**
  * 该 number 字段是否该用**滑条**（对齐 web `SettingsPlugins.tsx:410-415` 的 `hasRange`）：
  * 声明了 `min` **且**声明了 `max` **且** `max > min` ⇒ 用滑条；否则用文本框。

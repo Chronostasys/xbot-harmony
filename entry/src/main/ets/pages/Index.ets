@@ -1110,8 +1110,13 @@ struct Index {
   /** 序号（同一条命令被再发一次时值不变，靠它察觉变化）。 */
   @StorageProp('pendingCommandSeq') @Watch('onPendingCommandChanged') pendingCommandSeq: number = 0;
 
-  /** 设置面**初始分区**（深链 `settings.open?section=<x>` 指定；面板用 `initialTab` 消费）。 */
-  @State settingsInitialTab: string = SETTINGS_TAB_APPEARANCE;
+  /**
+   * 设置面**初始分区**（深链 `settings.open?section=<x>` 指定；面板用 `initialTab` 消费）。
+   * ⚠️ 2026-10-16（目标③「所有面板对标 Apple」）：缺省由 `SETTINGS_TAB_APPEARANCE` 改为**空串**
+   *    —— 空串 = 面板停在**根列表**（分组列表 + 钻取），这才是 Apple 设置面的打开语义；
+   *    深链仍可直达某个分区（`settingsTabFrom(...)`）。
+   */
+  @State settingsInitialTab: string = '';
 
   // ── live turn 的整条 assistant 消息（同气泡：已完成迭代 + 在飞块）──
   // ⚠️ 为什么**非懒**渲染（LazyForEach 之外、@State 直驱）：虚拟列表条目在真机上

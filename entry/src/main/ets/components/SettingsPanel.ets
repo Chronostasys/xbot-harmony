@@ -30,6 +30,7 @@ import { KEY_LOCALE, settingOf } from '../core/settings';
 import {
   PRESS_OPACITY,   INSET_CARD_X, INSET_CARD_Y, INSET_ROW_X, INSET_ROW_Y, RADIUS_CARD, RADIUS_PILL,
   STROKE_HAIRLINE, STROKE_RAIL, HIT_TARGET_MIN, SPACE_HAIR, SPACE_XS, SPACE_SM, SPACE_MD, SPACE_LG,
+  ICON_MD,
   SHEET_ACTION_GLYPH,
   hairlineOf, structuralRuleOf, surfaceFillOf, colorOf,
 } from '../core/design';
@@ -44,7 +45,7 @@ import { SettingsTools } from './SettingsTools';
 import { SettingsWebUsers } from './SettingsWebUsers';
 import { SettingsPlugins } from './SettingsPlugins';
 import { SettingsChannels } from './SettingsChannels';
-import { fallbackTabId, SettingsTabSpec, visibleTabs } from '../core/settingsplugins';
+import { fallbackTabId, settingsRootRows, SettingsRootRow, SettingsTabSpec, visibleTabs } from '../core/settingsplugins';
 import { fs, fw, lh, SettingsErrorBar, SettingsPanelHeader, SettingsToolRow, tc, tk } from './SettingsRows';
 // 面板**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不在本文件自造时长/曲线；E3 统一）。
 import { sheetTransition } from './anim';
@@ -105,24 +106,23 @@ function settingsTabSpecs(): SettingsTabSpec[] {
   ];
 }
 
-/**
- * 分区芯片的**统一宽度**（vp）—— 苹果式控件网格的关键：**所有芯片同宽**，行才齐。
- *
- * 派生（⛔ 不是就地字面量）：`4 × type.caption` + 两侧内距（`INSET_ROW_X × 2`）+ 发丝
- * = "4 个全角字宽"的预算。**不变式：每个标签的视觉宽度 ≤ 4 个全角字**（见
- * `tools/tests/settings_panel_wrap.test.ts` 的 ⑤：按 CJK=1 / ASCII=0.5 逐标签算宽度并判红）。
- * 真机（1320px / 3.386）：74vp = 250px ⇒ 内容宽 1186px 一行容 4 片（4×(250+27)=1108 ≤ 1186）
- * ⇒ 12 片 = **3 行 × 4 片**（⛔ 改造前是 167/208/248/262px 四种宽度、行尾参差 215/233/644px）。
- */
-const TAB_CHIP_W: number = fs('type.caption') * 4.5 + INSET_ROW_X * 2;
+// ⚠️ 2026-10-16（目标③「所有面板对标 Apple」）：**删除了分区芯片令牌 `TAB_CHIP_W`**。
+//    它服务的是"4 列 × 3 行的下划线标签网格"——真机截图（`/tmp/panel_settings2.jpeg`）实锤
+//    该形态读作"标签墙"（12 枚裸文字排三行、选中只有一条线、吃 ~250vp 才见内容），
+//    且下划线页签是 **Material** 语言。Apple 的设置面 = **分组列表 + 钻取**：
+//    根列表放"去哪"（行 = 标签 + `chevron_right`，分 5~6 组），内容在下一层，页头出返回箭头。
+//    分组真源 = `core/settingsplugins.ets` 的 `settingsRootGroups()`（纯逻辑、可脱机单测）。
 
 @Component
 export struct SettingsPanel {
   /** HTTP 客户端（由页面注入 `store.http`）。默认空实例只为满足 ArkTS 成员初始化。 */
   http: XbotHttp = new XbotHttp('');
   @Prop theme: string = 'dark';
-  /** 初始分区（可选；默认「外观」）。 */
-  @Prop initialTab: string = SETTINGS_TAB_APPEARANCE;
+  /**
+   * 深链指定的初始分区（`settings.open?section=<x>`）。
+   * ⛔ **空串 = 根列表**（Apple 设置面的打开语义：先看到"去哪"，再钻进去）；缺省即空。
+   */
+  @Prop initialTab: string = '';
 
   // ── 注入契约（由页面注入；`Index.ets` 侧归 sidebar-ux）────────────────────────
   /** 关闭面板（页面置 `showSettingsPanel = false`）。**X 与返回都走它。** */
@@ -161,11 +161,13 @@ export struct SettingsPanel {
   onRefresh: () => void = () => {
   };
 
-  @State private active: string = SETTINGS_TAB_APPEARANCE;
+  /** 当前钻入的分区 id；**空串 = 根列表**（Apple 设置面的第一层）。 */
+  @State private active: string = '';
 
   aboutToAppear(): void {
     // ⛔ 用**规格门控**回落：`initialTab` 若指向未实现（被隐藏）的分区 ⇒ 落到首个可见分区。
-    this.active = fallbackTabId(settingsTabSpecs(), this.initialTab);
+    // ⚠️ 空串 ⇒ 停在**根列表**（不是"落到首个分区"）：那是 Apple 设置面的打开语义。
+    this.active = this.initialTab.length > 0 ? fallbackTabId(settingsTabSpecs(), this.initialTab) : '';
   }
 
   private pal(): Palette {
@@ -175,6 +177,35 @@ export struct SettingsPanel {
   /** 实际**显示**的分区 = 全量规格经 `shouldShowTab` 过滤（未实现的一律不出现）。 */
   private tabs(): SettingsTabSpec[] {
     return visibleTabs(settingsTabSpecs());
+  }
+
+  /** 根列表的**扁平行序列**（真源 = `core/settingsplugins.ets:settingsRootRows()`；
+   *  组件**不另写**分组/组头文案 —— 扁平化的另一个收益：渲染侧只需**一个** `ForEach`，
+   *  不撞 `tools/perf/guard.sh` 的 `ForEach 处数` 预算（结构性规模指示，只许减不许增）。 */
+  private rootRows(): SettingsRootRow[] {
+    return settingsRootRows(this.tabs());
+  }
+
+  /** 当前钻入分区的显示名（根列表态 ⇒ 空串，页头显示面板名）。 */
+  private activeLabel(): string {
+    if (this.active.length === 0) {
+      return '';
+    }
+    const vis: SettingsTabSpec[] = this.tabs();
+    for (let i = 0; i < vis.length; i++) {
+      if (vis[i].id === this.active) {
+        return vis[i].label;
+      }
+    }
+    return '';
+  }
+
+  /** 从根列表钻入一个分区（通知分区**首次进入**才按需拉偏好，避免每次打开设置都打服务端）。 */
+  private openSection(id: string): void {
+    this.active = id;
+    if (id === SETTINGS_TAB_NOTIFY && !this.notifyLoaded) {
+      void this.loadNotifyPrefs();
+    }
   }
 
   // ── 通知分区：通知偏好（含正文隐私开关）────────────────────────────────────────
@@ -317,8 +348,25 @@ export struct SettingsPanel {
    */
   @Builder
   Header() {
-    Row() {
-      Text('偏好设置')
+    Row({ space: SPACE_HAIR }) {
+      // 钻入分区 ⇒ 页头出**返回键**（Apple 主从式第二层 = 返回 + 本层标题）。
+      // ⚠️ 根列表态**不渲染**返回键（也⛔ 不放"占位空盒"）：标题左缘与其它面板保持同一条竖轴。
+      if (this.active.length > 0) {
+        Row() {
+          SymbolGlyph($r('sys.symbol.chevron_left'))
+            .fontSize(SHEET_ACTION_GLYPH)
+            .fontColor([colorOf(this.pal(), 'iconMuted')])
+        }
+        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center)
+        .alignItems(VerticalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('返回设置')
+        .onClick(() => {
+          this.active = '';
+        })
+      }
+      Text(this.active.length > 0 ? this.activeLabel() : '偏好设置')
         .fontSize(fs('type.headline'))
         .fontWeight(fw('type.headline'))
         .lineHeight(lh('type.headline'))
@@ -344,57 +392,70 @@ export struct SettingsPanel {
   }
 
   /**
-   * 分区切换条（与各面板的"片"同视觉语言）。
-   * ⚠️ **改 `Flex(wrap)`（2026-10-12）**：原先横向 `Scroll` + `scrollBar(Off)` + `clip(true)`
-   * 在 6 个分区时会**把末项（消息渠道）切在屏幕右缘**（无滚动提示 ⇒ 看起来"坏了"，真机截图确认）
-   * ⇒ 用换行（`FlexWrap.Wrap`）保证**任何屏宽都不切字**，且无需隐藏滚动条这一"看不见的 affordance"。
+   * 根列表（Apple「设置」的**第一层**）：组头行 + 可钻取的分区行，**扁平成一个 `ForEach`**。
+   *
+   * 为什么是列表而不是页签条（2026-10-16，目标③「所有面板对标 Apple」）：
+   *   ① **语言**：下划线页签是 Material；Apple 设置面恒为"分组列表 + 主从钻取"；
+   *   ② **空间**：12 枚页签铺成 3 行要吃 ~250vp 才见内容；列表只占它自己的行高（可滚）；
+   *   ③ **可扩展**：新增分区只是多一行（页签条还要重算换行/宽度）。
+   * 为什么**扁平**：`core` 直接给出**行序列**（组头行 + 成员行混排）⇒ 渲染侧只需**一个** `ForEach`
+   *   —— 两层 `ForEach`（组 × 行）会把 `tools/perf/guard.sh` 的 `ForEach 处数` 顶穿
+   *   （2026-10-16 实测：118 > 上限 117 ⇒ 门禁红）。⛔ 正解是扁平化，**不是**抬阈值。
+   * ⛔ 分组/组名/行序的**唯一真源** = `core/settingsplugins.ets:settingsRootRows()`
+   *   （组件不另写一份映射；未登记的新分区自动落「其它」组 ⇒ 永不丢入口）。
+   * ⛔ 行的命中盒 = `HIT_TARGET_MIN`（真机 `responseRegion` 外扩无效，见 `docs/UI-AUDIT-CHECKLIST.md`）。
    */
   @Builder
-  TabBar() {
-    Flex({ wrap: FlexWrap.Wrap }) {
-      ForEach(this.tabs(), (t: SettingsTabSpec) => {
-        // 2026-10-13（目标③「对标苹果」）：由「实心芯片网格」改 **下划线式页签**（文本强调 + 指示器）。
-        //   装机走查（设置·外观）确认：12 枚同形实心块读起来是"按钮墙"，与 iOS 的分区页签语言不符。
-        //   下划线式保住 **12 项同屏可见** 与 `HIT_TARGET_MIN` 命中下限，同时把视觉重量从
-        //   "12 个色块"降到"1 条线"（Apple：选中 = 文字加重 + 一条指示线，不是填充块）。
-        Column({ space: SPACE_HAIR }) {
-          Text(t.label)
-            .fontSize(fs('type.subhead'))
-            .fontWeight(t.id === this.active ? FontWeight.Medium : fw('type.subhead'))
-            .lineHeight(lh('type.subhead'))
-            // ⛔ `accent` **不得**直接做文字色（该角色对底仅 4.05 < 4.5，仓内铁律见
-            //    `tools/tests/accent_chrome.test.ts`）⇒ 文字走 `accentSoft`（5.57–12.0 全主题过线）。
-            .fontColor(t.id === this.active ? this.pal().accentSoft : tc(this.pal(), 'type.caption'))
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .textAlign(TextAlign.Center)
-            // ⛔ 这里**不能**给 `width('100%')`：外层 Column 是"按内容定宽"的 flex 子项，
-            //    子项要 100% ⇒ 回环解析成**整行宽** ⇒ `Flex(wrap)` 每行只放得下 1 片（装机实测：
-            //    12 个页签被排成单列）。居中由外层 Column 的 `alignItems(Center)` 负责。
-          // 指示器：**仅选中项上色**（未选中 = 透明 ⇒ 失败方向安全：绝不让"状态缺失"读成"已选中"）。
-          Row()
-            .width(SPACE_LG)
-            .height(STROKE_RAIL)
-            .borderRadius(STROKE_RAIL)
-            .backgroundColor(t.id === this.active ? this.pal().accent : this.pal().transparent)
-        }
-        // 统一宽度 + 文字居中（苹果式网格）——⛔ 必须**同时**有：只给 minWidth 而文字左对齐
-        // 会让短标签（「存储」）在宽格位里贴左，看着像错位。
-        .constraintSize({ minWidth: TAB_CHIP_W, minHeight: HIT_TARGET_MIN })
-        .justifyContent(FlexAlign.Center)
-        .alignItems(HorizontalAlign.Center)
-        .margin({ right: SPACE_XS, bottom: SPACE_XS })
-        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .onClick(() => {
-          this.active = t.id;
-          // 通知偏好**按需**拉取（首次进入该分区才发 RPC，避免每次打开设置都打服务端）
-          if (t.id === SETTINGS_TAB_NOTIFY && !this.notifyLoaded) {
-            void this.loadNotifyPrefs();
+  RootList() {
+    List() {
+      ForEach(this.rootRows(), (r: SettingsRootRow) => {
+        ListItem() {
+          if (r.isHeader) {
+            // 组头（Apple 分组列表的小号组名）：⛔ **不可点、不参与选择、无箭头**。
+            Text(r.label)
+              .fontSize(fs('type.caption'))
+              .lineHeight(lh('type.caption'))
+              .fontColor(tc(this.pal(), 'type.caption'))
+              .width('100%')
+              .padding({ left: INSET_ROW_X, top: SPACE_MD, bottom: SPACE_XS })
+          } else {
+            Column() {
+              Row() {
+                Text(r.label)
+                  .fontSize(fs('type.body'))
+                  .lineHeight(lh('type.body'))
+                  .fontColor(tc(this.pal(), 'type.body'))
+                  .layoutWeight(1)
+                SymbolGlyph($r('sys.symbol.chevron_right'))
+                  .fontSize(ICON_MD)
+                  .fontColor([colorOf(this.pal(), 'iconMuted')])
+              }
+              .width('100%')
+              .constraintSize({ minHeight: HIT_TARGET_MIN })
+              .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
+              .alignItems(VerticalAlign.Center)
+              .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+              .accessibilityText(`${r.label}：设置分区`)
+              .onClick(() => {
+                this.openSection(r.key);
+              })
+              // 行分隔线：**左缘内缩到文字起点**（Apple inset separator）——与抽屉会话行同口径。
+              // ⚠️ 组内**末行不留线**（Apple 分组列表组尾不画线，画了会在组尾形成悬空线）。
+              if (!r.last) {
+                Divider()
+                  .strokeWidth(STROKE_HAIRLINE)
+                  .color(hairlineOf(this.pal()))
+                  .margin({ left: INSET_ROW_X, right: INSET_ROW_X })
+              }
+            }
+            .width('100%')
           }
-        })
-      }, (t: SettingsTabSpec) => `tab|${t.id}`)
+        }
+      }, (r: SettingsRootRow) => `${r.isHeader ? 'h' : 'r'}|${r.key}`)
     }
     .width('100%')
+    .layoutWeight(1)
+    .scrollBar(BarState.Off)
   }
 
   build() {
@@ -405,10 +466,11 @@ export struct SettingsPanel {
     //    = 24vp。⛔ 别再往这个 Column 上加 `space`（会重新叠出死空间）。
     Column({ space: 0 }) {
       this.Header()
-      this.TabBar()
-
+      // 第一层 = 根列表（分组 + 钻取）；第二层 = 分区内容（Apple 主从式设置面）。
       // ⚠️ 各分区面板都 `height('100%')`，用 if/else 只挂一个（避免多份同时发请求）。
-      if (this.active === SETTINGS_TAB_APPEARANCE) {
+      if (this.active.length === 0) {
+        this.RootList()
+      } else if (this.active === SETTINGS_TAB_APPEARANCE) {
         SettingsAppearance({
           settings: this.settings,
           theme: this.theme,

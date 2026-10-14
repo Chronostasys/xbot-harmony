@@ -81,46 +81,21 @@ function between(src: string, a: string, b: string): string {
   return j < 0 ? src.substring(i) : src.substring(i, j);
 }
 
-const tabBar: string = between(panel, 'TabBar() {', 'build() {');
-ok('TabBar 区间可定位（非空）', tabBar.length > 0);
-has(tabBar, 'Flex({ wrap: FlexWrap.Wrap })', '设置分区条 = Flex(wrap)（多枚举不切字）');
-hasNot(tabBar, 'ScrollDirection.Horizontal', '设置分区条 ⛔ 不再横向 Scroll（会切末项且无 affordance）');
-hasNot(tabBar, 'scrollBar(BarState.Off)', '设置分区条 ⛔ 不再"关掉滚动条"');
-has(tabBar, '.margin({ right: SPACE_XS, bottom: SPACE_XS })', '设置分区条每项有 margin（wrap 的间距来源）');
-
-// ── ⑤ 芯片**同宽**（苹果式控件网格）─────────────────────────────────────────────
-//    病根（真机实测）：标签自然宽 ⇒ 芯片 167/208/248/262px **四种宽度**、行尾留白 215/233/644px
-//    ⇒ 看着"没排过"。修法 = 统一宽度令牌 + 文字居中（只给宽度不给居中 ⇒ 短标签在宽芯片里贴左）。
-has(tabBar, '.constraintSize({ minWidth: TAB_CHIP_W, minHeight: HIT_TARGET_MIN })', '⑤ 芯片用统一宽度令牌 TAB_CHIP_W');
-has(tabBar, '.textAlign(TextAlign.Center)', '⑤ 芯片文字居中（宽芯片里的短标签不贴左）');
-has(panel, 'const TAB_CHIP_W: number = fs(\'type.caption\') * 4.5 + INSET_ROW_X * 2;',
-  '⑤ TAB_CHIP_W = 4.5 全角字宽（文字预算）+ 两侧内距（⛔ 不是就地字面量）');
-
-// ⑤b **不变式**：标签视觉宽度 ≤ **4.5 全角字宽** —— 这是 TAB_CHIP_W 的全部推导前提。
-//     ⛔ 只钉"令牌存在"不判别：谁加一个 5 字标签，推导失效、文字被挤/换行（本仓血债形态）。
-//     槽位计法（**纯算术**，不依赖字体度量 ⇒ 不会漂移）：CJK = 1 · ASCII = 0.65 · 空格 = 0.5。
-//     实测校准（真机 caption=12vp）：`智能体` 37.4vp / 估 36；`Web 账号` 53.5vp / 估 53.4；
-//     `消息渠道` 49.3vp / 估 48 —— 估法**略偏小**（≤1.5vp）⇒ 留 0.05 槽位余量即可。
-{
-  const labels: string[] = [];
-  const re: RegExp = /new SettingsTabSpec\([^,]+,\s*'([^']*)'/g;
-  let m: any = re.exec(panel);
-  while (m !== null) { labels.push(String(m[1])); m = re.exec(panel); }
-  ok(`⑤b 取到全部分区标签（现 ${labels.length} 个，应 ≥ 10）`, labels.length >= 10);
-  let widest: string = '';
-  let widestSlots: number = 0;
-  for (let i: number = 0; i < labels.length; i++) {
-    const L: string = labels[i];
-    let slots: number = 0;
-    for (const ch of L) {
-      if (/[\u2e80-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch)) { slots += 1; }
-      else if (ch === ' ') { slots += 0.5; }
-      else { slots += 0.65; }
-    }
-    if (slots > widestSlots) { widestSlots = slots; widest = L; }
-  }
-  ok(`⑤b 最宽标签 ≤ 4.5 全角字宽（最宽 =「${widest}」= ${widestSlots.toFixed(2)}）`, widestSlots <= 4.5);
-}
+// ── ① 分区呈现 = **根列表（分组 + 钻取）**，⛔ 不再是页签条 ──────────────────────
+//    2026-10-16（目标③「所有面板对标 Apple」）：原「4 列 × 3 行下划线标签网格」被真机截图
+//    （`/tmp/panel_settings2.jpeg`）实锤读作"标签墙" —— 12 枚裸文字排三行、选中态只有一条线、
+//    **进面板先吃掉 ~250vp 才见第一项内容**；且下划线页签是 **Material** 语言（Apple 设置面
+//    恒为"分组列表 + 主从钻取"）⇒ 改分组列表 + 钻取。
+//    ⛔ 反向断言（判别力自证）：把页签条/芯片网格加回来 ⇒ 本组必红。
+ok('设置面不再有 TabBar 页签条', panel.indexOf('TabBar()') < 0);
+ok('设置面不再有分区芯片宽度令牌 TAB_CHIP_W', panel.indexOf('TAB_CHIP_W') < 0);
+ok('设置面不再用 Flex(wrap) 铺分区（那是标签网格的容器：多枚举控件才需要它）',
+  panel.indexOf('Flex({ wrap: FlexWrap.Wrap })') < 0);
+has(panel, 'RootList()', '设置面第一层 = 根列表（RootList）');
+has(panel, 'settingsRootRows(', '分组/行序取自 core 真源 `settingsRootRows()`（⛔ 组件不自写映射）');
+has(panel, 'sys.symbol.chevron_right', '根列表行带钻取箭头 `chevron_right`');
+has(panel, 'sys.symbol.chevron_left', '钻入分区后页头带返回箭头 `chevron_left`');
+has(panel, "this.active = '';", '返回键把 `active` 清空 ⇒ 回到根列表');
 
 // ── ⑦ 死空间（真机实测 121px = 35.7vp）──────────────────────────────────────────
 //    根因 = 三层间距叠加：芯片底 margin 8 + 根 Column `space: SPACE_SM` 12 + 分组标题自带 top 16。
