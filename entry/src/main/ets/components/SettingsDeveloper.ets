@@ -27,7 +27,9 @@ import { common } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { preferences } from '@kit.ArkData';
 import { pasteboard } from '@kit.BasicServicesKit';
+import { webview } from '@kit.ArkWeb';
 import { Palette, paletteOf } from '../core/theme';
+import { CLEAR_STEP_WEB_CACHE, CLEAR_STEP_WEB_DATA, ClearCacheResult, ClearFailure } from '../core/cacheclear';
 import { canonicalChatId, sessionDisplayKey } from '../core/sessionpick';
 import { FS_CAPTION, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5 } from '../core/tokens';
 import { SSEE_MAX_BYTES, SSEE_MAX_ENTRIES, SseRecEntry, sseRecorder } from '../core/sserec';
@@ -123,6 +125,11 @@ export struct SettingsDeveloper {
   /** 导出失败原因（可读）。 */
   @State private exportErr: string = '';
 
+  /** 「清除缓存」反馈（`core/cacheclear.ets` 三态聚合；空串 ⇒ 隐藏，⛔ 组件不自己拼串）。 */
+  @State private cacheOk: boolean = true;
+  @State private cacheNote: string = '';
+  @State private cacheDetail: string = '';
+
   private store: preferences.Preferences | null = null;
   private timer: number = -1;
 
@@ -216,6 +223,32 @@ export struct SettingsDeveloper {
     sseRecorder.clear();
     this.copyNote = '';
     this.refresh();
+  }
+
+  /**
+   * 清除 WebView 缓存与网页数据（对齐 web `SettingsGeneral.tsx:34-37` 的 clearCache；
+   * web「内存态复位」差集见 `core/cacheclear.ets` 头注——原生无对应缓存层）。
+   *
+   * 两步独立 try-catch（一步失败不阻断另一步）；三态反馈从 `core/cacheclear.ets`
+   * 聚合（判据与渲染同源，⛔ 组件不拼字符串）。⛔ 不动 Cookie（插件面板登录态）
+   * 与 preferences（主题 / 本分区开发者开关）。
+   */
+  private clearCaches(): void {
+    const failures: ClearFailure[] = [];
+    try {
+      webview.WebStorage.deleteAllData();
+    } catch (e) {
+      failures.push(new ClearFailure(CLEAR_STEP_WEB_DATA, `${(e as Error).message}`));
+    }
+    try {
+      webview.WebviewController.removeAllCache(true);
+    } catch (e) {
+      failures.push(new ClearFailure(CLEAR_STEP_WEB_CACHE, `${(e as Error).message}`));
+    }
+    const res: ClearCacheResult = new ClearCacheResult(failures);
+    this.cacheOk = res.ok;
+    this.cacheNote = res.note;
+    this.cacheDetail = res.detail;
   }
 
   private copyRec(): void {
@@ -347,6 +380,58 @@ export struct SettingsDeveloper {
     .alignItems(HorizontalAlign.Start)
   }
 
+  /**
+   * 「清除缓存」卡（web 在 General 分区；原生无 General ⇒ 维护类聚合进本分区，
+   * 差集登记 `docs/WEB-PARITY.md`）。底/字色跟随仓内危险组合先例
+   * （`SyntheticCard` / `SettingsWebUsers`：`dangerBg` + `dangerText`），⛔ 不自造色彩对。
+   */
+  @Builder
+  CacheSection() {
+    Column({ space: SP_2 }) {
+      Text('缓存')
+        .fontSize(FS_CAPTION)
+        .fontColor(this.pal().textPrimary)
+        .width('100%')
+      Text('清除 WebView 的网页数据与缓存（插件面板 / Web 设置页的加载内容）。登录态与偏好不受影响；重新打开的面板为全新加载。')
+        .fontSize(FS_CAPTION)
+        .fontColor(this.pal().textMuted)
+        .width('100%')
+      Row({ space: SP_2 }) {
+        Button('清除缓存')
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().dangerText)
+          .backgroundColor(this.pal().dangerBg)
+          .borderRadius(R_MD)
+          // ⛔ 命中区 ≥ 44（Apple HIG；与本分区「清空 / 复制 JSON」同一防线）。
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
+          .onClick(() => {
+            this.clearCaches();
+          })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+      if (this.cacheNote.length > 0) {
+        Text(this.cacheNote)
+          .fontSize(FS_CAPTION)
+          // 视觉态用 `cacheOk`（= ClearCacheResult.ok，纯逻辑真源），⛔ 不在组件里二次推断。
+          .fontColor(this.cacheOk ? this.pal().successText : this.pal().dangerText)
+          .width('100%')
+      }
+      if (this.cacheDetail.length > 0) {
+        Text(this.cacheDetail)
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().dangerText)
+          .width('100%')
+      }
+    }
+    .width('100%')
+    .padding(SP_3)
+    .backgroundColor(this.pal().surface)
+    .borderRadius(R_LG)
+    .border({ width: 1, color: this.pal().border })
+    .alignItems(HorizontalAlign.Start)
+  }
+
   @Builder
   EntryRow(e: SseRecEntry) {
     Row({ space: SP_2 }) {
@@ -398,6 +483,9 @@ export struct SettingsDeveloper {
 
       // ── 导出会话（对齐 web `SettingsDeveloper.tsx:42-...`；形态表在 `core/export.exportActions()`）──
       this.ExportSection()
+
+      // ── 清除缓存（对齐 web `SettingsGeneral` 的 clearCache；落点=本分区：维护类聚合）──
+      this.CacheSection()
 
       // ── 连接状态卡（原生增强）──
       Column({ space: SP_1 }) {

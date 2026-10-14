@@ -823,7 +823,7 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 | 8 | SessionInfo（cwd 可编辑 / 最后活跃 / 会话ID / 渠道） | `sidebar/SessionInfo.tsx:40` | ✅ **已接线**（2026-10-11 `statusinfo` `995f830`）—— `Index` 的 `StatusSheet`；⚠️「**消息数**」**非 web 渲染字段**（仅陈旧 docblock）⇒ 非缺口；3 处已裁定偏差见 §11.12.3 | — | — | ✅ **已完成** |
 | 9 | Synthetic / Interrupt 卡 | `SyntheticToolCard.tsx:393,568` | ✅ **已接线**（⚠️ 2026-10-11 目标④订正：原注「**0**」**已过时**）—— `components/SyntheticCard.ets:36` + `MessageRow.ets:801` + `LiveTailView.ets:589` | — | — | ✅ **已完成** |
 | 10 | ShellPromoteBar | `ToolRender.tsx:483` | 后端 promote-to-background RPC **已有**（`core/chattypes.ts:55`）；**UI 0** | **C**(核 RPC 契约) + **B** | 中低 | P4 |
-| 11 | 设置 General「清缓存」 | `SettingsGeneral.tsx:32` | **grep 0 命中** | **B** | 低 | P4 |
+| 11 | 设置 General「清缓存」 | `SettingsGeneral.tsx:32` | ✅ **已落地**（2026-10-14，落点=「开发者」分区维护卡）：`WebStorage.deleteAllData` + `WebviewController.removeAllCache(true)`（`@kit.ArkWeb` static，d.ts @since 9/18 实证非 systemapi）；⛔ 不动 Cookie/偏好；web 的「会话恢复态缓存」语义层原生确无对应缓存（N/A 依旧），落地的是**原生独有的 WebView 真数据面**——见 §P7 + `core/cacheclear.ets` 头注 | — | — | ✅ **已完成** |
 | 12 | 设置 Appearance「UI_MODE」外壳切换 | `SettingsAppearance.tsx:54` | `ui_mode` 已到状态机（`core/render.ets:31`）但**无 UI 消费**（死字段） | **B**(+C) | 低 | P4 |
 | 13 | 分享页（token 只读） | `SharePage.tsx:33` | **0 命中** | **A+B+D**(REST token) | 中低 | P4 |
 | 14 | FoldedToolGroup 组内分组标头 | `FoldedToolGroup.tsx:716` | 有跨迭代合并/`+N`；**缺组内按 kind 分组标头** | **B** | 低 | P4 |
@@ -901,7 +901,7 @@ SubAgent 状态归档/展平顺序；AskUser 面板状态复位与提交后清�
 |---|---|---|
 | ShimmerThinking 形态 | 🟡 有意不同 | 原生等价物 = 「思考中…」占位 + `AssistantOrb.ets`（`core/indicators.ets:96/105`），**非缺失** |
 | 移动端外壳 / 多标签 | 🟡 平台差 | 原生即移动端（抽屉 + Sheet）；多标签 = 会话池标签条 `Index.ets:4131-4134`（`poolOrder`） |
-| 设置 General 清缓存 | ⚪ N/A | 无可清对象（无 SW；md 解析缓存有界）—— §XI.3 已立论 |
+| 设置 General 清缓存 | ✅ **已落地（2026-10-14，语义收窄版）** | 旧 N/A 判据（§XI.3）只对一半：web 语义层（清会话树/恢复态缓存+reload）原生**确无对应缓存层**，该半仍 N/A；但**漏算了原生独有的 WebView 缓存面**（插件面板/设置 Web 分区经 ArkWeb 加载积累的 HTTP 缓存与网页数据）⇒ 落地 = 「开发者」分区「缓存」卡清**真数据**（`WebStorage.deleteAllData`+`removeAllCache(true)`）⇒ 非假功能；判据 `tools/tests/cacheclear.test.ts`（17 断言）+ §P7 装机实录 |
 | 设置 Appearance UI_MODE | ⚪ N/A | 单手机布局；`KEY_UI_MODE` 死字段白名单（§XI.3 / settings_keys_consumed） |
 | 设置 Language 可写 | 🟡 未排期 | `core/i18n.ets` 只读 locale；UI 文案硬编码 ~100 处 ⇒ 大重构（§3） |
 | 消息注释创建侧 | ⚪ N/A | ArkUI 无跨 `Text` 选区 API（`SelectionContainer` `@since 26.0.0` > SDK21）—— §11.10 裁决 |
@@ -1149,14 +1149,15 @@ web 的**服务端 RPC 配置面**（LLM/Storage/Channels/WebUsers/About/Agent/T
 | `xbot-ui-mode` | 3 chip | ⛔ **N/A** | 原生**单手机布局**（无 desktop shell）⇒ `KEY_UI_MODE` 死字段白名单（`tools/tests/settings_keys_consumed.test.ts:146`）。保留键只为与 web 共享 key 表 |
 | `xbot-locale` | 下拉 | ⛔ **N/A** | 原生 UI 文案中文硬编码 ~100 处 ⇒ 只读展示（§3） |
 | `xbot-theme`（legacy） | — | ⛔ **N/A** | web 的 md 主题现驱动 mode；原生用 `KEY_APP_THEME`（5 套，原生独有）替代 |
-| （清除缓存） | 按钮 | ⛔ **N/A** | web 的清缓存 = `clearWebCaches()`（会话树/进度快照/注释缓存）+ `location.reload()`；原生无 Service Worker、会话树缓存由 `core/store` 内存管理、markdown 解析缓存**有界**（`MD_CACHE_MAX_CHARS` 自动淘汰）⇒ 无对应可清对象，"清缓存"会是假功能 |
+| （清除缓存） | 按钮 | ✅ **已落地（2026-10-14 语义收窄版）** | web 语义层在原生**确无对应缓存**（无 SW、会话树缓存由 `core/store` 内存管理、md 解析缓存有界 ⇒ 该半仍 N/A）；但**漏算原生独有面**：插件面板/设置 Web 分区经 **ArkWeb** 加载的 HTTP 缓存与网页数据（随使用增长的真体积）⇒ 「开发者」分区「缓存」卡 = `WebStorage.deleteAllData` + `WebviewController.removeAllCache(true)`（d.ts @since 9/18）+ 三态反馈纯逻辑 `core/cacheclear.ets`；⛔ 不动 Cookie（保插件面板登录态）/偏好（保主题）。见 §P7 |
 | `xbot:ambience`（壁纸） | 上传 + 滑杆 | 🟡 **缺** | 玻璃 `opacity`/`blur` 的**消费**已就绪（`core/theme.ets` 消费插件环境值）；**壁纸上传 UI 缺**（需相册/文件选择）。登记待做 |
 | `xbot:recent-workdirs:v1` | 路径选择 | ✅ **已支持** | `Index.ets` 的 `NewSessionSheet`（新建会话弹层：工作目录输入 + 最近目录候选）。走**服务端键** `web:workspace:recent-workdirs`（web `userSettings.ts:44` 的映射目标，原生 `serverKey/localKey` 原样透传）⇒ 与 web 共读一份。⚠️ `PathPicker` 的**自动补全下拉**仍未迁（另立） |
 | `xbot:layout:*` / `panel-layout*` / `leftSidebar*` / `leftbar:*` | 桌面布局 | ⛔ **N/A** | Dockview/桌面外壳专属（§3 / §8.4） |
 | `xbot:session-collapsed-groups`/`unread`/`active-channel` | 列表 UI 态 | ⛔ **N/A** | 原生会话列表无"折叠组"三态同步需求（分组折叠是本地渲染态，不跨端）；`active-channel` 属 `ChannelPicker` 过滤（§11.2 证据 ⑦） |
 | `xbot:update-reminder:dismissed:v1` | 更新提示 | ⛔ **N/A** | 无 Service Worker（§11.3 PWA 行） |
 
-**净差集**：web key 级共 **18** 项 → 原生已支持 **7**、**N/A 9**、**缺 1**（`xbot:ambience` 壁纸 UI）+ 1 待做
+**净差集**：web key 级共 **18** 项 → 原生已支持 **8**（含 2026-10-14 清缓存语义收窄版落地）、
+**N/A 8**、**缺 1**（`xbot:ambience` 壁纸 UI）+ 1 待做
 （LLM `import/export_subscriptions`，属服务端面）。**无"该支持却缺"的 key 级开关**。
 
 ### XI.4 本轮**补齐**：通知分区的 ask / turn-done 开关（原生独有键的 UI 缺口）
@@ -1179,7 +1180,7 @@ web 的**服务端 RPC 配置面**（LLM/Storage/Channels/WebUsers/About/Agent/T
 
 ### XI.5 判 N/A 的依据（一句话汇总，⛔ 不许当"遗漏"）
 
-`ui-mode`（单手机布局）· `locale`（文案硬编码）· `clear-cache`（无可清对象，会是假功能）·
+`ui-mode`（单手机布局）· `locale`（文案硬编码）· ~~`clear-cache`~~（**2026-10-14 移出**：原「无可清对象」漏算 ArkWeb WebView 真数据面，已落地清缓存——见 §P7）·
 `ambience 壁纸`（需相册选择，消费层已就绪待接 UI）· `recent-workdirs` / `layout:*` /
 `panel-layout*` / `leftSidebar*` / `leftbar:*`（桌面范式，走 ArkWeb 或标签栏替代）·
 `session-collapsed-groups`/`unread`/`active-channel`（本地渲染态，不跨端）·
@@ -1434,3 +1435,42 @@ FoldedToolGroup 组内 kind 分组标头。
 **审计方法论注记**：本轮差点被我自己的取数伪影误导——解析 dump 只打印前 N 个节点 ⇒ WebSurface
 仍在树上却显示"干净 chat 根"（假结论）。判定浮层状态必须用 **marker 匹配**（`加载失败`/URL 特征串），
 不能肉眼扫自己截断的列表。
+
+### §P7 「清除缓存」落地记录（2026-10-14，④ 余项收官 + 旧 N/A 判据校准）
+
+**web 权威**（`SettingsGeneral.tsx:34-37` + `webCache.ts:251-266`）：红色 destructive 按钮「清除缓存」
+⇒ `clearWebCaches()`（epoch+localStorage 会话树+标注键+SSE 四内存 Map）+ `location.reload()`。
+
+**旧 N/A 判据校准**（本文件 §826 表行 / §8904 表行 / §XI.3 / §XI.5 已就地订正）：原判
+「无可清对象 ⇒ 假功能」**只对一半** —— web 语义层（会话恢复态缓存）原生确无对应物，该半仍 N/A；
+但**漏算了原生独有的 ArkWeb WebView 缓存面**（插件面板 / 设置 Web 分区经 WebView 加载积累的
+HTTP 缓存与网页数据，随使用增长、用户可感知）。
+
+**实现**（3 文件）：
+- `core/cacheclear.ets`（纯逻辑，判据与渲染同源）：`ClearFailure`/`ClearCacheResult`/`clearCacheNote`
+  三态聚合（双成 / 单败点名失败步骤 / 双败）+ `clearCacheDetail`（reason 原样透传）；头注写明差集与
+  ⛔ 不清 Cookie（保插件面板登录态，对齐 web 不动登录 token）/ ⛔ 不清 preferences（保主题/开关）。
+- `components/SettingsDeveloper.ets`：「缓存」卡（维护类聚合进开发者分区——原生无 General 分区，
+  单按钮不值得开新分区）；按钮色对跟仓内危险组合先例 `dangerBg`+`dangerText`
+  （`SyntheticCard`/`SettingsWebUsers` 已装机组合，⛔ 不自造色彩对）；`clearCaches()` 两步独立
+  try-catch：`WebStorage.deleteAllData` + `WebviewController.removeAllCache(true)`
+  （`@ohos.web.webview.d.ts:747/:3610` 实证 static、非 systemapi、@since 9/18 ≤ SDK 21）。
+- `tools/tests/cacheclear.test.ts`：17 断言（三态文案互异精确 / 聚合 ok·note·detail /
+  detail 空串协议 / reason 透传 / 步骤 id 常量钉死）。
+
+**验证链**：
+1. 纯逻辑 `run-one.sh cacheclear` → **17 passed, 0 failed**；
+2. 真门禁 `bash tools/gate.sh` → **全绿**（ArkTS 编译 + 性能预算 16/16 + 取色 role；
+   `ForEach` 117/117 持平——新增卡用 `@Builder` 直排不增 `ForEach` 处数）；
+3. `~/ohos-cli/deploy.sh` → `BUILD SUCCESSFUL` + 签名 8.35MB 装机成功；
+4. 深链 `xbot://settings.open?section=developer` → dump 实见「缓存」卡三行逐字
+   （标题/说明/按钮 44 命中区）；
+5. 点击「清除缓存」(312,2669) → dump 实见 note 逐字
+   「已清除 WebView 缓存与网页数据（登录态与偏好不受影响）。」 + app 进程存活
+   （两个 static API 调用无 crash）。
+
+**有意不同（诚实记账）**：
+1. 落点 = 开发者分区（web 在 General）—— 原生无 General 分区，单按钮不开新分区、不扩根列表；
+2. 无「语言切换」伴行（web General 另一半）—— 原生中文文案硬编码本仓既有裁决（`locale` N/A）；
+3. 不做「整页 reload」等价物 —— 原生无对应内存态需归零（会话按需 RPC 重拉、渲染层无恢复缓存），
+   清完无需重启。
