@@ -13,7 +13,7 @@
 declare const process: { exit: (c: number) => void };
 
 import {
-  ACTIVE_ANCHOR_ROWS, buildAnchors, NavAnchor, nearestSeq, nextSeq, prevSeq,
+  ACTIVE_ANCHOR_ROWS, AnchorsMemo, buildAnchors, NavAnchor, nearestSeq, nextSeq, prevSeq,
   rowIndexAtSeq, seqLabel, shouldShowNav, userAnchorRows, userTextOrPlaceholder,
 } from '../../entry/src/main/ets/core/msgindex';
 import { ChatRow } from '../../entry/src/main/ets/core/types';
@@ -151,6 +151,54 @@ eq('乱序 role ⇒ 按出现顺序', userAnchorRows([
   eq('0 ⇒ 00（脏输入不崩）', seqLabel(0), '00');
   eq('空 userText ⇒ (empty)', userTextOrPlaceholder(''), '(empty)');
   eq('非空 ⇒ 原样', userTextOrPlaceholder('hi'), 'hi');
+}
+
+// ── ⑨ AnchorsMemo：按 `rows` **对象恒等** 记忆化（性能修复的判别力判据）──
+{
+  // 造一行数据（含 role=user 锚点）—— 复用本文件的 `row()` 工厂（ChatRow 是类，不能用字面量）
+  const mk = (): ChatRow[] => {
+    const rows: ChatRow[] = [];
+    rows.push(row('user', 'U1'));
+    rows.push(row('assistant', 'A1'));
+    rows.push(row('user', 'U2'));
+    rows.push(row('assistant', 'A2'));
+    return rows;
+  };
+  const oracle = (rows: ChatRow[]): string => JSON.stringify(buildAnchors(rows, userAnchorRows(rows)));
+
+  const memo: AnchorsMemo = new AnchorsMemo();
+  const rows: ChatRow[] = mk();
+  const a1: NavAnchor[] = memo.of(rows);
+  // **计数判据（核心）**：滚动 N 次（`rows` 未变 ⇒ 页面每次 build 都取一次锚点）⇒ 内核只跑 1 次
+  for (let i = 0; i < 50; i++) {
+    const again: NavAnchor[] = memo.of(rows);
+    // ⛔ 同一 `rows` 必须返回**同一个数组对象**（`@Prop` 靠身份不变才不会重投递 ⇒ 不重建浮层）
+    if (again !== a1) { fail++; console.log('  ❌ 命中未返回同一数组对象'); break; }
+  }
+  eq('50 次同 rows ⇒ 内核只执行 1 次', memo.builds, 1);
+  eq('输出与 oracle 逐字节一致', JSON.stringify(memo.of(rows)), oracle(rows));
+  eq('锚点数 = 2', a1.length, 2);
+  eq('锚点 1 = U1', a1[0].userText, 'U1');
+  eq('锚点 2 = U2', a1[1].userText, 'U2');
+  eq('锚点 1 的助手预览 = A1', a1[0].assistantText, 'A1');
+
+  // 换 `rows` 对象（**同内容**也必须重算 —— ⛔ 记忆化不许按内容近似）
+  const rows2: ChatRow[] = mk();
+  const a2: NavAnchor[] = memo.of(rows2);
+  eq('换对象 ⇒ 重算（builds=2）', memo.builds, 2);
+  eq('重算结果同 oracle', JSON.stringify(a2), oracle(rows2));
+
+  // 内容真变（同对象不同内容不会发生；这里模拟 sync 后的新数组）
+  const rows3: ChatRow[] = mk();
+  rows3[0] = row('user', 'U1-changed');
+  const a3: NavAnchor[] = memo.of(rows3);
+  eq('内容变（新对象）⇒ 取到新文案', a3[0].userText, 'U1-changed');
+  eq('builds=3', memo.builds, 3);
+
+  // 空 rows：不崩，且 0 锚点
+  const memo2: AnchorsMemo = new AnchorsMemo();
+  eq('空 rows ⇒ 0 锚点', memo2.of([]).length, 0);
+  eq('空 rows 也计数一次', memo2.builds, 1);
 }
 
 console.log(`\nmsgindex.test: ${pass} passed / ${fail} failed`);

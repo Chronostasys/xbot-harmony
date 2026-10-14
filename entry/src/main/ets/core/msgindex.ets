@@ -146,6 +146,41 @@ export function buildAnchors(rows: ChatRow[], userRowIndexes: number[]): NavAnch
 }
 
 /**
+ * 锚点**按 `rows` 对象恒等**的记忆化容器（性能；沿用本仓 `liveBlocksMemo`/`blocksSignature`
+ * 的同款手法：源数组恒等 ⇒ 复用上一次结果）。
+ *
+ * 为什么必须有（真根因，2026-10-15 定位）：
+ *   `pages/Index.ets` 的 `MessageNav({ anchors: this.navAnchors(), … })` 在**页面 build** 里取锚点，
+ *   而 `onScrollIndex` 每次可见索引区间变化都写一个**页级 `@State`** ⇒ 页面 build **每次滚动**
+ *   重跑 ⇒ `buildAnchors` 每次都重建整个数组、并把**每条消息的完整正文**（`userText`/`assistantText`）
+ *   复制一遍 ⇒ 每帧工作量与**历史长度**成正比（历史越长越卡），GC 压力同步上去。
+ *   锚点只取决于 `rows`（`userAnchorRows` + `buildAnchors` 都是 `rows` 的纯函数）⇒ 只按
+ *   `rows` 恒等记忆化即可：**滚动引起的重建**与**同 `rows` 的重复 build** 都退化为 O(1)。
+ *
+ * ⛔ 语义等价：同 `rows`（同一对象）⇒ 逐字节同结果；`rows` 换了对象（新 sync / 切会话 /
+ *   加载更早）⇒ 必重算。⛔ 不引入任何「按内容比较」的近似（那会漏判"正文变了"）。
+ */
+export class AnchorsMemo {
+  private rows: ChatRow[] = [];
+  private hasKey: boolean = false;
+  private out: NavAnchor[] = [];
+  /** 内核实际执行次数（**判据用**：滚动 N 次而 `rows` 未变 ⇒ 必须仍是 1）。 */
+  public builds: number = 0;
+
+  /** 取（必要时重算）当前 `rows` 的锚点表。**O(1)**（命中）或 O(行数)（未命中一次）。 */
+  public of(rows: ChatRow[]): NavAnchor[] {
+    if (this.hasKey && this.rows === rows) {
+      return this.out;
+    }
+    this.out = buildAnchors(rows, userAnchorRows(rows));
+    this.rows = rows;
+    this.hasKey = true;
+    this.builds = this.builds + 1;
+    return this.out;
+  }
+}
+
+/**
  * 显示守卫：**< 2 个锚点 ⇒ 导航整体不渲染**（web `MessageUserNav.tsx:138`
  * `if (turns.length < 2) return null`）。组件直接用它做唯一判据（单一真源）。
  */

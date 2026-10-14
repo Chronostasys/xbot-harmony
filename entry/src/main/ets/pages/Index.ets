@@ -96,7 +96,7 @@ import {
   normalizeSessionCategory, parseAgentChatID, pathGroupTooltip, relativeTimeLabel, SESSION_CATEGORIES, SessionGroup, sessionCategoryLabel,
   sessionStatusRole,
 } from '../core/sessiongroup';
-import { buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msgindex';
+import { AnchorsMemo, buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msgindex';
 import { PluginCatalog, PluginCatalogGroup, PluginCatalogItem, PluginOpenTarget, PluginViewItem, WebPluginListWire, buildPluginCatalog, embedPluginViewLink, nativeViewKind, pluginOpenTarget, pluginViewDeepLink, pluginViewTarget, primaryViewId, PLUGIN_MANAGER_VIEW_ID, webPanelDeepLink, webPanelTitle } from '../core/pluginhost';
 import { hasIterStatsBadge, iterStatsText } from '../core/pluginviews';
 import { SkillItem } from '../core/skills';
@@ -727,8 +727,25 @@ struct Index {
    * 列表第一个**可见列表项**下标（`onScrollIndex` 的 `start`）—— 供「用户消息导航」算当前锚点。
    * ⚠️ 它是**列表项**下标（含可选的「加载更早」头项 + busy/live 尾项），不是行下标；
    *    换算见 `navActiveSeq()`。
+   *
+   * ⛔ **刻意不是 `@State`**（2026-10-15 性能修复）：它每次滚动索引变化都被写，
+   *    若是 `@State` ⇒ **每次滚动都让整页 build 重跑**（连带重算锚点/重拷正文、重跑全部
+   *    `pal()` 分配）⇒ 掉帧且随历史变长而变重（用户亲报「固定历史还会掉帧」）。
+   *    它只在**命令式**逻辑里被读（`insertRows` 的 prevTop / `navActiveSeq` 的换算），
+   *    **不参与渲染** ⇒ 普通字段即可。渲染真正需要的只有 `navSeq`（见下）。
    */
-  @State listStart: number = 0;
+  private listStart: number = 0;
+
+  /**
+   * 「用户消息导航」当前锚点序号（1-based；0 = 无）—— **渲染用**的唯一滚动状态。
+   *
+   * 与 `listStart` 的关键差别：**只在序号真的变化时**才写（`onScrollIndex` 里 `if (seq !== …)`）
+   * ⇒ 绝大多数滚动帧**零页级状态写入** ⇒ 零整页 build（滚过锚点边界才更新一次）。
+   */
+  @State navSeq: number = 0;
+
+  /** 锚点表记忆化（按 `this.rows` **对象恒等**；见 `core/msgindex.ets:AnchorsMemo`）。 */
+  private navMemo: AnchorsMemo = new AnchorsMemo();
 
   // ── 附件（web 有、原生原先没有：发文件/图片）──────────────────────────────
   /**
@@ -3715,7 +3732,10 @@ struct Index {
 
   /** 导航锚点（用户消息 + 同 turn 首个 assistant 预览）—— 与组件读**同一**纯函数。 */
   private navAnchors(): NavAnchor[] {
-    return buildAnchors(this.rows, userAnchorRows(this.rows));
+    // ⛔ 记忆化（按 `this.rows` 对象恒等）：页面每次 build 都会取它，而 build 会由滚动/其它
+    //    状态变化频繁触发 —— `buildAnchors` 是 O(总行数) 且**复制每条消息的完整正文**
+    //    ⇒ 不记忆化就是"每帧工作量随历史长度增长"（用户亲报的"固定历史掉帧"）。
+    return this.navMemo.of(this.rows);
   }
 
   /**
@@ -6134,7 +6154,16 @@ struct Index {
       // 项数 = [可选"加载更早"头项] + rows + [可选 live 行项] + [可选 busy 指示器]，
       // 故用 listItemCount() 显式算（头项判据与渲染它的 `if` 同源：`hasHeadItem()`）。
       .onScrollIndex((start: number, end: number) => {
-        this.listStart = start;   // 用户消息导航据此算当前锚点
+        this.listStart = start;   // 用户消息导航据此算当前锚点（**普通字段**：写它不触发整页 build）
+        // ⛔ **只在序号真的变化时**才写渲染状态（`navSeq` 是 `@State`）——
+        //    这样"滚动但没跨过锚点边界"的帧 = 零页级状态写入 = 零整页 build。
+        //    旧写法（每次滚都写 `listStart` 这个 @State）会让整页 build 每帧重跑：
+        //    锚点表重建 + 每条消息正文重拷 + 全部 `pal()` 重新分配 ⇒ 掉帧、
+        //    且随历史长度线性变重（用户亲报「固定历史还会掉帧」的根因）。
+        const seq: number = this.navActiveSeq();
+        if (seq !== this.navSeq) {
+          this.navSeq = seq;
+        }
         // ⛔ 跟随开关是**用户意图**，只由**用户输入**翻转：只有**本帧确属用户滚动**
         //    （`lastScrollWasUser`）且 flag 在飞时才判定 —— 程序滚动 / 内容增删引起的
         //    索引回调一律**不碰意图**（否则"点工具 pill ⇒ store 变更 ⇒ 拽到最下方"的 P0 复发，
@@ -6184,7 +6213,7 @@ struct Index {
         // 用核心纯函数派生；点击条目 ⇒ `navToRow` 纯滚动（绝不触发"加载更多"）。
         MessageNav({
           anchors: this.navAnchors(),
-          activeSeq: this.navActiveSeq(),
+          activeSeq: this.navSeq,
           theme: this.themeName,
           onNavigate: (rowIndex: number) => {
             this.navToRow(rowIndex);
