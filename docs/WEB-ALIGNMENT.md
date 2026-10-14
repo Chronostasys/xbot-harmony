@@ -6886,3 +6886,39 @@ Stack  [53,420][1267,2466]        ← 外层卡片本体（.width(SHEET_WIDTH).h
 WebView 当前 URL**（本次实测 `text='http://10.0.2.2:8082/?xbot_panel=ter…'`，bounds 就是整个
 WebView `[0,283][1320,2754]`）—— **不是渲染出来的文字**，⛔ 别把它当"界面里显示了一串 URL"去"修"。
 （前两条见 §21.122p：`accessibilityText` 不暴露；§21.122s：dump y 与截图 y 同刻也可能不一致。）
+
+## §21.122u：要求④ 根因（已定位到 web 代码，跨仓）—— 嵌入面板**从未建立 SSE** ⇒ 面板数据恒为陈旧快照
+
+**用户口径（要求④原文）**：「终端和任务管理**做的很差**」（= 状态停在旧值、不实时）。
+
+**症状实证**：任务面板底部显示 web 自己的提示 `实时连接已断开，状态可能延迟`
+（`/tmp/feat_任务.jpeg`，文案真源 `web/src/i18n/zh-CN.ts:91 sidebar.disconnectedHint`）；
+消费点 `web/src/components/sidebar/TasksPanel.tsx:275-277` 的条件是 **`!ws.connected`**
+（`ws = useWSConnection()`，:28）。
+
+**根因链（全部在 web 侧代码，已逐条读到）**：
+1. `web/src/App.tsx:62-71`：`EmbedPanelShell` **在 `WSProvider` 之内**（同一棵子树）⇒ 提供者**存在**，
+   不是"嵌入态忘了包 provider"。
+2. `web/src/providers/sseConnection.ts:200-202`：`connect()` 开头
+   `if (this.disposed || !chatID || typeof EventSource === 'undefined') return`
+   ⇒ **没有 `chatID` 就根本不开 SSE**（不是连上后掉线）。
+3. `web/src/providers/WSProvider.tsx:66-72`：`chatID` **唯一**来源 = 消费方调用
+   `WSConnection.subscribe(id, channel)`（它同时 `conn.subscribe(...)` + 置 `stateRef.chatID`）。
+4. **全仓检索（排除测试/`sseConnection.ts` 自身/`WSProvider` 定义）未找到任何 `ws.subscribe(...)`
+   的调用点** ⇒ 嵌入态（只有面板本体）**没有人建立会话上下文** ⇒ 第 2 步的 `!chatID` 恒真
+   ⇒ `ws.connected` 恒 `false` ⇒ 任务/终端/文件面板**只吃各自 REST 的首次快照**（渲染是正常的，
+   这就是为什么"面板能打开✅ 但状态陈旧❌"两件事同时成立）。
+
+**影响面（用户可感）**：所有走嵌入态的 web 面板（`tasks`/`terminal`/`files`/`info`/`search`）
+**都没有实时通道** ⇒ 后台命令 running→done、终端输出、文件变更、todo 进度**都停在打开那一刻**。
+⇒ 这才是"任务管理做的很差"的**真根因**（不是排版问题，是数据不动）。
+
+**修法方向（跨仓 + 需用户拍板，同 §21.122p 的约束）**：嵌入态必须自己建立会话上下文，二选一
+① **深链带参**：原生侧 `webPanelDeepLink()` 追加 `&xbot_chat=<当前会话 id>&xbot_channel=<ch>`
+   （宿主本来就知道当前会话），web 侧 `EmbedPanelShell` 挂载时读这两个参数并 `ws.subscribe(chat, ch)`
+   ⇒ SSE 起来、面板实时；
+② **宿主桥**：走既有 `window.xbotNative` 反向握手（新增一种 host→web 的会话上下文消息），
+   宿主面板打开/切会话时下发。
+⛔ 两项都要改 web（`EmbedPanelShell`）+ 本仓（深链/桥），且 8082 是内嵌 web（§21.122p 已记：
+改 web 需重建 + 重启服务，而重启会终止本会话）⇒ **登记待裁，不擅自动**。
+⚠️ **别再把它当排版问题修**：面板渲染（§21.122t）本身没问题，缺的是**数据通道**。
