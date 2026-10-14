@@ -7317,3 +7317,28 @@ api 加载会话"）**
 **判据** `tools/tests/loadmore_resilience.test.ts`（12 条全过；源码文本比对，⛔ 不 import `.ets`）
 ——mutation 自证口径：删 `loadMoreErr` 字段 ⇒ ①红；守卫改回 `|| this.oldestId <= 0` 且删 catch ⇒ ②③红；
 删页面哨兵分支 ⇒ ④红；源码读不到 ⇒ 零扫描防线红（绝不"没扫到就跳过"）。
+
+## §21.122bh：用户 2026-10-14 四条报障（加载提示收敛 / 压缩点位置 / 切会话 splash / 主题单一真源）
+
+1. **「怎么搞这么多不同的加载提示」**（截图：头项「加载更早消息…」+「更早的 2124 个区域」
+   +「更早的 276 个迭代块」三种形态叠加）⇒ 三处收敛到**同一视觉语言**
+   （`chevron_up`(12) + `iconMuted` + `FS_META` + `textMuted` + 居中恒定行高 =
+   `core/rowsview.MSG_BLOCK_SENTINEL_H`）；加载态同为「同一行 spinner + 正在加载…」；
+   文案统一为「更早的…」族（旧「下拉到底部自动加载更早消息」及两处过时注释已清）。
+2. **「web 的上下文已压缩出现在错误位置，一 cancel 就出现在最下方」** ⇒ 形态：
+   `afterIteration` **超出该 turn 现有末块号**（cancel/中断让 turn 重提交、迭代列表变短）
+   ⇒ 锚定 `max{n ≤ after}` 落到**末块** ⇒ 横线画在 turn 末尾。按本仓/web 同源教义
+   「不连续零容忍」补**越界挂起**（`core/compaction.ets`：`iterNums[last] < after` ⇒ 本帧不渲染，
+   迭代补齐自然归位）。⚠️ 待设备侧 `compactions` 载荷复核（若无越界案例则该守卫严格收窄、零影响）。
+   判据同步：`tools/tests/compaction.test.ts` 两条用例改为断言「越界 ⇒ 挂起」。
+3. **「切换会话请求历史时要有一个会话加载中的 splash」** ⇒ `@State switchSplash`，只在
+   `switchSession()` 的**真网络等待**路径（`!alreadyOpen`）置位，`finally` 必复位（含失败）；
+   盖满内容区的**不透明**遮罩（这期间列表可能是上一个会话残影 ⇒ 遮挡要确定）；与骨架屏互斥。
+4. **「theme 会突变一下又变回来；全局只能有一个 theme」** ⇒ 真根因：`syncFrom` 判据
+   `Object.keys(store.settings).length > 0` 太弱 —— 池里另一个 store 的 settings **部分到达**
+   （或缺 `web:ui:md-theme`）时 `appPaletteForMdTheme('')` 回落**默认色板** ⇒ 翻深再翻回。
+   ⇒ 判据收紧为**该键真的在**；缺键继承全局值（`themeName` = `@StorageLink('appTheme')` 唯一真源）；
+   同值不写；`appMdTheme` 亦由权威原值归一化推送（不再绕页面镜像）。
+
+**判据**：`tools/tests/session_ux_fixes.test.ts`（20 条 + 三条零扫描防线；源码文本比对，
+⛔ 不 import `.ets`）。**验证**：`bash tools/gate.sh` ⇒ ✅ 真门禁全绿。

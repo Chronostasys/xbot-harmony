@@ -105,8 +105,12 @@ ok('undefined ⇒ 不可展开', !hasExpandableBody(undefined));
   // 迭代 2 被工具 only 折叠吸收 ⇒ 已渲染块号 = [1, 3, 4]；after=2 ⇒ anchor=1
   const m: Map<number, WebCompaction[]> = compactionAnchors([1, 3, 4], [mk(2)]);
   eq('跳号：after=2 ⇒ anchor=1（压缩点不丢）', dump(m), '1:[2]');
-  // after=5（> 最后一个块 4）⇒ anchor=4
-  eq('after=5 超过末块 ⇒ anchor=4', dump(compactionAnchors([1, 3, 4], [mk(5)])), '4:[5]');
+  // after=5（> 最后一个块 4）⇒ **越界挂起**（不渲染）。
+  // ⛔ 2026-10-14 用户报障：「cancel 后『上下文已压缩』跑到**最下方**」的真形态就是这里
+  //    —— 旧行为把它锚到**末块**（= turn 末尾）⇒ 横线画在不存在的"后面"。
+  //    新规则（web `TurnBody.tsx:997-1003` 窗口守卫 + `derive.ts:333-344` 的「不连续零容忍」）：
+  //    `afterIteration` 超出本 turn **现有**末块 ⇒ 该压缩点属于更靠后的未下发内容 ⇒ 挂起。
+  eq('after=5 超过末块 ⇒ 挂起（不在 4 之后画线）', dump(compactionAnchors([1, 3, 4], [mk(5)])), '');
 }
 
 // ── ⑧ 窗口外挂起（web TurnBody.tsx:996-1003）：after 落在全部已渲染块之前 ⇒ 不渲染 ──
@@ -132,8 +136,8 @@ ok('undefined ⇒ 不可展开', !hasExpandableBody(undefined));
 {
   const list: WebCompaction[] = [mk(0), mk(2), mk(4), mk(9)];
   const m: Map<number, WebCompaction[]> = compactionAnchors([1, 2, 3, 4], list);
-  // after=9 超过末块 4 ⇒ anchor=4（与 after=4 同组）
-  eq('混合：0 / 2 / 4 / 9(→4)', dump(m), '0:[0] 2:[2] 4:[4,9]');
+  // after=9 超过末块 4 ⇒ **挂起**（同上：不在 turn 末尾画线）；其余三点按锚定归位。
+  eq('混合：0 / 2 / 4（9 越界挂起）', dump(m), '0:[0] 2:[2] 4:[4]');
 }
 
 // ── ⑪ 字段缺失 / 迭代号错位（脏数据不崩、判定正确）──

@@ -78,6 +78,19 @@ export function compactionAnchors(
     if (after > 0 && iterNums.length > 0 && iterNums[0] > after) {
       continue;
     }
+    // ③ **越界挂起**（2026-10-14 用户报障：cancel 后「上下文已压缩」跑到**最下方**）——
+    //    `afterIteration` 超出本 turn **现有**最后一条迭代号 ⇒ 这个压缩点指的是**比本 turn
+    //    已提交内容更靠后**的位置（典型来源：cancel/中断让该 turn 重提交，迭代列表比压缩记录
+    //    生成时更短；或折叠视图下 `after` 落在未下发区间）。此时 ① 的锚定扫描会把 anchor 落到
+    //    **末迭代** ⇒ 横线画在 turn 的**末尾**（用户看到的"出现在最下方"）。
+    //    ⛔ 判据与 ② 同源（本仓铁律「不连续零容忍」）：**绝不在不存在的两个迭代之间画分隔** ——
+    //    宁可这一帧不渲染（该 turn 一旦补齐迭代，锚定自然恢复），也不要画在错误位置。
+    //    权威：web `TurnBody.tsx:997-1003` 的窗口守卫 + `derive.ts:333-344` 的「要么完整时间线、
+    //    要么什么都不渲染」；`afterIteration === 0`（真·turn 开头压缩）**不受本条约束**（它是
+    //    合法下界，由上方 ②/`windowCompactions` 管）。
+    if (after > 0 && iterNums.length > 0 && iterNums[iterNums.length - 1] < after) {
+      continue;
+    }
     // ① anchor = max{ n ∈ iterNums | n ≤ after }（0 为下界兜底）。
     let anchor: number = 0;
     for (let j = 0; j < iterNums.length; j++) {

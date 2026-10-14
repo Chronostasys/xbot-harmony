@@ -1003,6 +1003,11 @@ export class ChatStore {
 
   /** 上拉加载更早历史（`before_id` 游标）。 */
   async loadMore(): Promise<void> {
+    // ⛔ 入口状态快照（**诊断锚**，一行）：用户亲报的「滑到顶不加载」有三种可能——① 触发点
+    //    压根没调到这里（`onScrollIndex`/`onReachStart` 未触发）② 被守卫挡住
+    //    （`hasMore` / `loadingMore` 陈旧）③ 游标失效（`oldestId <= 0`）。三者处置完全不同，
+    //    而远程无法推断 ⇒ 必须留下"到这里时三个标志各是什么"的可观测证据（`hdc hilog` 可读）。
+    console.debug(`[LM] enter hasMore=${this.hasMore ? 1 : 0} loading=${this.loadingMore ? 1 : 0} oldest=${this.oldestId} hist=${this.history.length} rows=${this.rows.length}`);
     if (!this.hasMore || this.loadingMore) {
       return;
     }
@@ -1014,6 +1019,7 @@ export class ChatStore {
     // 处置 = 哨兵码 + 页面**重拉首页**重建游标（用户口径"清除状态重新拉 api"）⇒ 自愈。
     if (this.oldestId <= 0) {
       this.loadMoreErr = LOADMORE_ERR_NOCURSOR;
+      console.debug(`[LM] nocursor oldest=${this.oldestId} hist=${this.history.length}`);
       this.onUpdate();
       return;
     }
@@ -1047,6 +1053,7 @@ export class ChatStore {
       }
       this.history = fresh.concat(this.history);
       this.applyHistoryMeta(data);
+      console.debug(`[LM] ok fresh=${fresh.length} hasMore=${this.hasMore ? 1 : 0} oldest=${this.oldestId} hist=${this.history.length}`);
       // 分页只增量喂历史（active 快照传 null —— 不得动 live turn）。
       this.pushEvent(historyToReplaced(this.history, null));
     } catch (e) {
@@ -1058,6 +1065,7 @@ export class ChatStore {
       const msg: string = err !== undefined && err !== null && err.message !== undefined
         ? err.message : '';
       this.loadMoreErr = msg.length > 0 ? msg : '加载更早失败';
+      console.debug(`[LM] fail oldest=${this.oldestId} err=${msg}`);
       this.onUpdate();
     } finally {
       this.loadingMore = false;

@@ -32,7 +32,9 @@ import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, withA
 import { MD_THEMES, appPaletteForMdTheme, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';
 import { localeLabel, normalizeLocale } from '../core/i18n';
 import { isStarred, parseStarred, serializeStarred, starredFirst, toggleStarred } from '../core/stars';
-import { EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_BOOT_WORDMARK, FS_BRAND_WORDMARK, FS_CAPTION, FS_HERO, FS_TITLE, R_2XL, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5, SP_6, SP_8 } from '../core/tokens';
+import { EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_BOOT_WORDMARK, FS_BRAND_WORDMARK, FS_CAPTION, FS_HERO, FS_META, FS_TITLE, R_2XL, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5, SP_6, SP_8 } from '../core/tokens';
+// 「更早的 N 个迭代块」哨兵的**同一份**恒定行高（①三处提示同视觉语言 ⇒ 同高，⛔ 不另写字面量）。
+import { MSG_BLOCK_SENTINEL_H } from '../core/rowsview';
 // 抽屉重排：尺度/层级/材质一律走语义令牌层（⛔ 不新增字面量；`surfaceFillOf`/`hairlineOf`/
 // `typeOf` 是唯一出口）。色值一律经 `this.pal()`（`surfaceFillOf` 的 role 是**带点**的语义面名）。
 import {
@@ -1149,6 +1151,17 @@ struct Index {
   @State liveBlocks: HistoryIteration[] = [];
   /** 历史加载中（骨架屏判据：只有"还没内容且正在拉"才展示） */
   @State historyLoading: boolean = false;
+  /**
+   * **切会话的专属加载遮罩**（用户 2026-10-14 要求：「切换会话的时候，请求历史 api 的时候要有一个
+   * 会话加载中的 splash screen」）。
+   *
+   * 与 `historyLoading` 的分工：后者只在"**还没有任何行**"时走骨架（`showsHistorySkeleton`）；
+   * 而切到**池里已有**会话时列表会立刻复用旧 store 的行、`beginSwitch` 之后行才清空 ——
+   * 这段时间用户看到的可能是**上一个会话的残影**或骨架，缺乏一个明确的"正在加载这个会话"信号。
+   * ⇒ 由 `switchSession()` 在**真正发生网络等待的那条路径**上置位（`!alreadyOpen`），
+   *   `await openSession` 收尾（含失败）必复位 ⇒ 失败方向安全（绝不永久遮挡）。
+   */
+  @State switchSplash: boolean = false;
 
   /** 运行中工具的流光位置（纯 transform，不触发布局） */
   @State sweepX: number = -80;
@@ -2149,15 +2162,32 @@ struct Index {
     //    等设置到达（开设置页 / 该 store 的 `loadSettings()` 返回）再翻回浅色 ⇒ 用户看到"抽奖"。
     //    ⇒ 与下方 `reasoningDefaultApplied` / `surfaceApplied` **同一纪律**：设置**没到达就不动它**
     //    （首帧已有缓存主题，见 `aboutToAppear` 的 `normalizeTheme(cachedTheme)`）。
-    if (Object.keys(store.settings).length > 0) {
-      this.themeName = renderThemeKey(appPaletteForMdTheme(settingOf(store.settings, KEY_MD_THEME)),
-        this.accentHex());
+    // ⛔ 主题**只在拿到权威键值时**重算（用户 2026-10-14 亲报「theme 会突变一下又变回来」）：
+    //    旧写法判据是 `Object.keys(store.settings).length > 0` —— 太弱：切到**池里另一个 store**
+    //    时它的 `settings` 可能**只到达了一部分**（或该后端没下发 `md-theme` 这一格），
+    //    此时 `appPaletteForMdTheme(settingOf(..., KEY_MD_THEME))` 收到**空串** ⇒ 回落**默认色板
+    //    （深色）** ⇒ 浅色用户看到"翻深一下"，等完整设置到达再翻回浅色 = 用户说的"突变一下又变回来"。
+    //    ⇒ 判据收紧为**该键真的在**；缺键 ⇒ **继承当前全局值**（`themeName` 本身就是
+    //    `@StorageLink('appTheme')` 的全局真源，⛔ 绝不"用默认值覆盖"）。
+    //    ⛔ 全站主题只有**一个**真源（`appTheme`），⛔ 不新增第二套"应用主题"状态。
+    const mdRaw: string = settingOf(store.settings, KEY_MD_THEME);
+    if (mdRaw.length > 0) {
+      const nextTheme: string = renderThemeKey(appPaletteForMdTheme(mdRaw), this.accentHex());
+      // ⛔ 同值不写：写 = 触发全站重渲（`@StorageLink` 订阅者），无变化时不产生噪声。
+      if (nextTheme !== this.themeName) {
+        this.themeName = nextTheme;
+      }
       // md 主题**同时推给全局订阅**（`@StorageProp('appMdTheme')`，消费点 `components/MarkdownView`）：
       // md 主题只影响代码块/行内码配色，而历史行由 `LazyForEach` 承载 ⇒ 只靠 `@Prop mdTheme` 投递
       // 会**冻结在创建那刻** ⇒ 换 md 主题后已存在行仍是旧配色（用户 2026-10-13 亲报
       // 「浅色模式字色有时对有时不对像抽奖」/「所有浅色 theme 看起来完全一样」的同一根因）。
       // 与 `appTheme` 走**同一纪律**：会变的值必须让行自己订阅，不靠列表重投递。
-      AppStorage.setOrCreate<string>('appMdTheme', this.mdThemeId());
+      // ⚠️ 直接由**权威原值**归一化（`normalizeMdTheme`），不绕 `this.settings` 的页面镜像
+      //    （镜像可能属于**别的** store，同一条"多处缓存"病根）。
+      const mdId: string = normalizeMdTheme(mdRaw);
+      if (mdId !== AppStorage.get<string>('appMdTheme')) {
+        AppStorage.setOrCreate<string>('appMdTheme', mdId);
+      }
     }
     // 系统表面跟随主题（幂等：仅主题变化时打系统 API + 写本地缓存）。
     // 冷启动 settings 到达这条路由它覆盖 EntryAbility 的缓存判定（热启动亦生效）。
@@ -2741,11 +2771,16 @@ struct Index {
       this.settleSwitchSlide();
       return;
     }
+    // ③ 会话加载 splash：本条路径**确有网络等待**（会话列表补齐 + `/api/history`）⇒ 置位遮罩。
+    this.switchSplash = true;
     try {
       await target.openSession(chatId);
     } catch (e) {
       this.loadErr = errText(e as Object);
       this.toast(`切换失败: ${this.loadErr}`);
+    } finally {
+      // ⛔ 必复位（含失败路径）⇒ 遮罩绝不永久遮挡（失败方向安全；门禁⑨ 同族纪律）。
+      this.switchSplash = false;
     }
     this.settleSwitchSlide();
   }
@@ -3703,7 +3738,7 @@ struct Index {
    * 上拉加载更早历史 —— **失败/游标失效都不静默**（P0 2026-10-15 用户亲报「加载不出更早」）。
    *
    * 旧实现只有一句 `await store.loadMore()`：`store` 侧三道闸门静默 `return`、请求失败无 catch
-   * ⇒ 头部提示（按 `hasMore` 渲染「下拉到底部自动加载更早消息」）**永远在承诺**而列表不动、
+   * ⇒ 头部提示（按 `hasMore` 渲染「更早的历史消息」）**永远在承诺**而列表不动、
    * 零反馈。这里把真结果处理成两种出口：
    *   · 游标失效（`LOADMORE_ERR_NOCURSOR`）⇒ **自愈**：重拉首页（`openSession` 走完整取数）
    *     重建 `oldest_id`（用户口径"清除状态重新拉 api"），而不是永远卡在静默 return 上；
@@ -3792,7 +3827,7 @@ struct Index {
    * 列表项下标 ⇄ 行下标换算全部读这里，杜绝三处各写一份而漂移）。
    *
    * 三个条件缺一不可：还有更早历史要拉（`hasMore`）/ 正在拉（`loadingMore`）/ 行窗口被截断
-   * （`hiddenRowCount > 0`，此时头项显示"下拉到底部自动加载更早消息 · 已到最早"）。
+   * （`hiddenRowCount > 0`，此时头项显示「更早的历史消息」/「已到最早」）。
    */
   private hasHeadItem(): boolean {
     return this.hasMore || this.loadingMore || hiddenRowCount(this.rows.length, this.rowLimit) > 0;
@@ -6086,10 +6121,31 @@ struct Index {
           '它没有独立的消息历史 —— 运行过程显示在父会话对应的轮次里')
       }
 
+      // ── ③ 切会话加载 splash（用户 2026-10-14 要求）──────────────────────────────────
+      // 只在 `switchSession()` 的**真网络等待**路径上出现（`!alreadyOpen` ⇒ 拉会话列表 + history），
+      // 拉完（或失败）立刻撤 ⇒ 静息态恒不可见（失败方向安全，⛔ 不是"不透明度由动画驱动"那种形态）。
+      // 用**不透明**遮罩而不是半透明：这期间列表里可能是**上一个会话的残影**（`beginSwitch` 之后
+      // 才清空），半透明会让用户读到错会话的内容 —— 遮挡要**确定**（与本仓"模态感"同一口径）。
+      if (this.switchSplash) {
+        Column({ space: SPACE_SM }) {
+          LoadingProgress().width(32).height(32).color(this.pal().accent)
+          Text('会话加载中…')
+            .fontSize(typeOf('type.subhead').size)
+            .fontColor(this.pal().textSecondary)
+        }
+        .width('100%').layoutWeight(1)
+        .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+        .backgroundColor(this.pal().appBg)
+        .id('xbot-session-splash')
+      }
+
       // 骨架屏：**只在"正在拉历史且还没有任何行"时**出现（判据在 `core/indicators.ets`，
       // 可脱机单测）。⛔ 曾经写成 `!historyLoading`（与 `BusySignals.loading` 契约相反）
       // ⇒ 空会话上骨架屏永久残留，且与下方空态同时渲染（真机走查抓到）。
-      if (showsHistorySkeleton(this.historyLoading, this.rows.length) && this.currentChat.length > 0) {
+      // ⚠️ 与上面的切会话 splash **互斥**（`!this.switchSplash`）：两者都是"占满内容区"的加载态，
+      //    同时渲染会得到"转圈套骨架"，语义重复。
+      if (!this.switchSplash
+        && showsHistorySkeleton(this.historyLoading, this.rows.length) && this.currentChat.length > 0) {
         Column({ space: 10 }) {
           this.SkeletonRow('72%', '46%')
           this.SkeletonRow('54%', '64%')
@@ -6101,21 +6157,28 @@ struct Index {
       }
 
       // 消息列表 —— 顶部**只有**「更早」这一类指示器（自动触发，不可点），保证其上方没有任何消息行。
-      // 外层 Stack：把「用户消息导航」（右上角悬浮按钮 + 浮层列表，components/MessageNav）
-      // 叠在消息区右上角（其自身在 < 2 个锚点时不产出任何节点）。
+      // ⚠️ 与两个**行内**「更早」哨兵（`components/MessageRow` 的「更早的 N 个区域」/「更早的 N 个
+      //    迭代块」）**同一视觉语言**（用户 2026-10-14 亲报「怎么搞这么多不同的加载提示」）：
+      //    同为 `chevron_up`(12) + `iconMuted` + `FS_META` + `textMuted` + 居中恒定行高。
+      //    ⇒ 三处读起来是**同一套控件在不同层级**（历史行 / 区域 / 迭代块），而不是三种不同的加载器。
+      //    加载中态也收敛为同一形态：**同一行**换成 spinner + 「正在加载更早…」（与行内的
+      //    「正在加载更多…」同款），而不是另起一种排版。
       Stack({ alignContent: Alignment.TopEnd }) {
       List({ scroller: this.listScroller }) {
         if (this.hasHeadItem()) {
           ListItem() {
             Row({ space: 6 }) {
-              LoadingProgress().width(14).height(14).color(this.pal().accent)
-                .visibility(this.loadingMore ? Visibility.Visible : Visibility.Hidden)
-              Text(this.loadingMore
-                ? '加载更早消息…'
-                : (this.hasMore ? '下拉到底部自动加载更早消息' : '已到最早'))
-                .fontSize(FS_CAPTION).fontColor(this.pal().textMuted)
+              if (this.loadingMore) {
+                LoadingProgress().width(13).height(13).color(this.pal().textMuted)
+                Text('正在加载更早…').fontSize(FS_META).fontColor(this.pal().textMuted)
+              } else {
+                SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(12)
+                  .fontColor([colorOf(this.pal(), 'iconMuted')])
+                Text(this.hasMore ? '更早的历史消息' : '已到最早')
+                  .fontSize(FS_META).fontColor(this.pal().textMuted)
+              }
             }
-            .width('100%').justifyContent(FlexAlign.Center).padding({ top: SP_2, bottom: SP_2 })
+            .width('100%').height(MSG_BLOCK_SENTINEL_H).justifyContent(FlexAlign.Center)
             .onClick(() => {
               // 兜底：万一自动触发没打到（例如列表未滚动），点一下也能放开窗口
               if (hiddenRowCount(this.rows.length, this.rowLimit) > 0) {
