@@ -139,6 +139,13 @@ function hasWhitespace(s: string): boolean {
  *     · `label === chatId` 的裸末段     （label 带前缀、chatId 裸：`web:chat_X` vs `chat_X`）
  *   ⇒ 判据落到**末段比对**（`:` 之后）两侧都覆盖。⛔ 前缀段必须是"无空白的渠道记号"
  *   （防把 `重构: 会话A` 这类**真标签**误判成回声 ⇒ 标题被吞）。
+ *
+ * ⛔ 2026-10-14 修复（用户亲报「侧边栏会话名字不对」，B 线审计 9/41 实锤）：旧版在
+ *   **label 无 `/`/`:` 前缀** 时也判回声（`i < 0 → return true`）⇒ 服务端给 **CLI 渠道**
+ *   起的真名（目录 basename，如 label=`xbot-harmony`、chat_id=`/Users/bobli/src/xbot-harmony`）
+ *   天然满足「末段相等」⇒ **真名被整个吞掉**，列表显示「未命名会话」或漂移的末条消息预览。
+ *   ⇒ 新规则：**label 无前缀分隔符 ⇒ 一律不是回声**（真名·CLI basename 形态）。
+ *   真回声只剩两条：①全串相等；②label 带"无空白渠道记号"前缀 + 裸末段相等。
  */
 export function isEchoLabel(label: string, chatId: string): boolean {
   const l: string = label.trim();
@@ -157,7 +164,11 @@ export function isEchoLabel(label: string, chatId: string): boolean {
   const colon: number = l.lastIndexOf(':');
   const i: number = slash > colon ? slash : colon;
   if (i < 0) {
-    return true; // label 无前缀 = 裸会话键（等于 chatId 的末段）
+    // label 无前缀 = 两种真实形态的正名之争：
+    // ① CLI 目录键：chat_id 即**工作目录全路径**（恒以 `/` 开头，服务端有意配 label=basename）
+    //    ⇒ 裸 label 是**真名**——放行（2026-10-14 用户亲报修复，B 线审计 9/41 实锤）。
+    // ② web 复合键（如 `web/chat_9`）：裸 label = 键的裸末段回声（机器串）⇒ 仍判回声（旧行为）。
+    return chatId.startsWith('/') ? false : true;
   }
   return !hasWhitespace(l.substring(0, i));
 }

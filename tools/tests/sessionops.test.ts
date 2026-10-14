@@ -93,6 +93,17 @@ eq('isEchoLabel：真名（`重构: 会话A` 有空白前缀）⇒ **不是**回
   isEchoLabel('重构: 会话A', '会话A'), false);
 eq('isEchoLabel：真名与 id 无关 ⇒ 不是回声',
   isEchoLabel('harmony-ui-dev', 'chat_B6EF'), false);
+// ── 2026-10-14 修复回归（B 线审计 9/41 实锤：CLI basename 真名被「无前缀⇒回声」误杀）──
+eq('isEchoLabel：CLI basename 真名（目录路径键）⇒ **不是**回声（名字被吞=用户亲报）',
+  isEchoLabel('xbot-harmony', '/Users/bobli/src/xbot-harmony'), false);
+eq('isEchoLabel：家目录 basename 真名 ⇒ 不是回声',
+  isEchoLabel('bobli', '/Users/bobli'), false);
+eq('isEchoLabel：复合键的裸末段 label（web/chat_9）⇒ 仍是回声（机器串，旧行为保留）',
+  isEchoLabel('chat_9', 'web/chat_9'), true);
+eq('sessionLabel：真名存活（不再被 preview/无名链吞掉）',
+  sessionLabel('xbot-harmony', '/Users/bobli/src/xbot-harmony', ''), 'xbot-harmony');
+eq('sessionTitle：CLI 会话标题出口 = 真名',
+  sessionTitle('xbot-harmony', '/Users/bobli/src/xbot-harmony'), 'xbot-harmony');
 eq('回声形态②（前缀 vs 裸 id）⇒ 用预览',
   sessionLabel('web:chat_263F7E142E0B', 'chat_263F7E142E0B', '排队测试'), '排队测试');
 eq('回声形态② + 无预览 ⇒ 才落到 id 末段',

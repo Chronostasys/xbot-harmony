@@ -990,7 +990,9 @@ export class ChatStore {
     //   （否则就是"切 A→B 后看到 A 的内容"的串台）。会话号变了 ⇒ 整个丢弃。
     const forChat: string = this.currentChatId;
     const data: HistoryData = await this.http.postAs<HistoryData>('/api/history', new HistoryReq(
-      this.channel, this.wireChatId(), 30, 0));
+      // 30 → **100**（2026-10-14，C 线审计口径对齐）：web 权威首屏一次拉 100 条
+      // （useChatMessages.ts:525 `limit: 100`）；渲染窗口（rowLimit=12 首屏）不受此影响。
+      this.channel, this.wireChatId(), 100, 0));
     if (this.currentChatId !== forChat) {
       return;
     }
@@ -1042,7 +1044,9 @@ export class ChatStore {
     this.loadingMore = true;
     try {
       const data: HistoryData = await this.http.postAs<HistoryData>('/api/history', new HistoryReq(
-        this.channel, this.wireChatId(), 30, this.oldestId));
+        // 30 → **100**（2026-10-14，C 线审计口径对齐）：web 权威每批 100 条
+        // （useChatMessages.ts:607）；渲染窗口逐步放开（12/次）的预算不受影响。
+        this.channel, this.wireChatId(), 100, this.oldestId));
       const older: ChatMessage[] = ChatStore.toChatMessages(data.messages, this.oldestId);
       // ⛔ 「全是重复 ⇒ 到底」停止条件（对齐 web `useChatMessages.ts:620-639` 的 `noExactDups`）：
       //    服务端 `has_more` 只保证「这批之后还有行」，但若这批**全部**是与本地已持有的同
