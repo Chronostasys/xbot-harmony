@@ -797,7 +797,8 @@ export class VtTerm {
     const pal: string[] = palette !== undefined ? palette : ANSI_DARK_PALETTE;
     const out: VtLine[] = [];
     for (let y = 0; y < this.rows; y++) {
-      out.push(this.renderRow(this.grid[y], pal));
+      // #7-2（2026-10-17）：光标格渲染参数化——y===cursorY 的行走 cursorX（其余 -1 不动）。
+      out.push(this.renderRow(this.grid[y], pal, y === this.cursorY ? this.cursorX : -1));
     }
     return out;
   }
@@ -842,7 +843,12 @@ export class VtTerm {
   }
 
   /** 一行 ⇒ span 列表（相邻同格样式合并；行尾默认空白裁掉）。 */
-  private renderRow(row: VtCell[] | undefined, palette: string[]): VtLine {
+  /**
+   * #7-2（2026-10-17）：`cursorAt` = 本行光标列（-1 ⇒ 无）——渲染层 `inverse` **异或**翻转
+   * （不动活 cell；原 inverse 格上光标显示为正色——xterm 同语义）。空白尾保护：光标落在
+   * 被 trim 的空白区 ⇒ `end` 保到光标列（vim/less 光标常在行尾空白，�⛔ 不能不可见）。
+   */
+  private renderRow(row: VtCell[] | undefined, palette: string[], cursorAt: number = -1): VtLine {
     const line: VtLine = new VtLine();
     if (row === undefined) { return line; }
     let end: number = this.cols;
@@ -850,13 +856,16 @@ export class VtTerm {
       const c: VtCell = row[end - 1];
       if (c.ch === ' ' && c.fg === '' && c.bg === '' && c.flags === 0) { end--; } else { break; }
     }
+    // ★ 内容终点（`line.text` 只统计到这里——光标占位不进 text：复制/测试口径与内容语义不变）。
+    const contentEnd: number = end;
+    if (cursorAt >= end && cursorAt < this.cols) { end = cursorAt + 1; }
     let i: number = 0;
     let full: string = '';
     while (i < end) {
       const c: VtCell = row[i];
       if ((c.flags & VT_WIDE_TAIL) !== 0) { i++; continue; }
       const text: string = c.ch.length > 0 ? c.ch : ' ';
-      full += text;
+      if (i < contentEnd) { full += text; }
       const sp: AnsiSpan = new AnsiSpan();
       sp.text = text;
       sp.fg = resolveSpec(c.fg, palette);
@@ -866,7 +875,7 @@ export class VtTerm {
       sp.italic = (c.flags & VT_ITALIC) !== 0;
       sp.underline = (c.flags & VT_UNDERLINE) !== 0;
       sp.strike = (c.flags & VT_STRIKE) !== 0;
-      sp.inverse = (c.flags & VT_INVERSE) !== 0;
+      sp.inverse = ((c.flags & VT_INVERSE) !== 0) !== (i === cursorAt);
       line.spans.push(sp);
       i++;
     }

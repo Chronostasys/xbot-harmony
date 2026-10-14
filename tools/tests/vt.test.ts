@@ -56,7 +56,9 @@ eq('组合记号宽度=0', vtCharWidth(0x0301), 0);
   t.feedText('中a');
   const l0 = t.screenLines()[0];
   eq('CJK 行文本', l0.text, '中a');
-  eq('CJK 尾格不产 span（2 span：中/ a）', l0.spans.length, 2);
+  // #7-2 后锁「语义」不锁「总长」：wide-tail 格不产 span（中=a 各 1 个），第 3 个 span
+  // 是光标占位（'中a' 后光标在 col3 空白区 ⇒ end 扩张）——正当新语义。
+  eq('CJK 尾格不产 span（中/a 各 1 span）', [l0.spans[0].text, l0.spans[1].text], ['中', 'a']);
 }
 
 // ── CSI 定位 / 擦除 ──────────────────────────────────────────────────────────
@@ -105,6 +107,28 @@ eq('ICH 插字符', lines('ab\x1b[1;1H\x1b[2@', 6, 2), ['  ab', '']);
   const t = new VtTerm(10, 2);
   t.feedText('\x1b[1mB\x1b[22mN');
   eq('SGR 22 关粗体', t.screenLines()[0].spans[1].bold, false);
+}
+
+// ── #7-2 光标渲染（`renderRow` cursorAt 反色，2026-10-17）────────────────
+{
+  const t = new VtTerm(10, 2);
+  t.feedText('hi'); // 光标停在 col 2
+  const spans0 = t.screenLines()[0].spans;
+  eq('光标格（col2）inverse=true（反色块可见）', spans0[2].inverse, true);
+  eq('非光标格（col0）inverse=false', spans0[0].inverse, false);
+}
+{
+  const t = new VtTerm(10, 2);
+  t.feedText('hi'); // 光标落在 trim 掉的空白尾——spans 保到光标列（text 不含占位）
+  const line0 = t.screenLines()[0];
+  eq('空白尾光标：text 语义不变（不含占位）', line0.text, 'hi');
+  eq('空白尾光标：光标格反色可见', line0.spans[2].inverse, true);
+}
+{
+  const t = new VtTerm(10, 2);
+  t.feedText('\x1b[7mA\x1b[1D'); // SGR 反色 A + 光标退回压在 A 上 ⇒ 异或回正色
+  const s = t.screenLines()[0].spans;
+  eq('原 inverse 格上光标 ⇒ 异或回正色（xterm 同语义）', s[0].inverse, false);
 }
 
 // ── 滚动 / scrollback ────────────────────────────────────────────────────────
