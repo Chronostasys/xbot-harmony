@@ -31,6 +31,42 @@ export function channelForChat(sessions: SessionItem[], chatId: string): string 
 }
 
 /**
+ * 会话渠道**预建索引**（O(n) 建一次、O(1) 回查）。
+ *
+ * ⚡ A 线 A2a（2026-10-14）：行体每行调 `isCurrentSession` ×4-5 + `tabLabel`/`tabRunning`×1-2，
+ * 每次内部都是 `channelForChat` **线性扫** ⇒ 开抽屉全量构建 = O(n²)（n≈684 ⇒ 4-5M 次字符串
+ * 比较，秒级阻塞的成分之一）。预建 Map ⇒ 全量构建 O(n)。
+ *
+ * ⛔ 语义与 `channelForChat` **逐字等价**（首命中优先 ⇒ 重复 id 时同取首个）：`!idx.has` 才
+ * set（与 `sessionIndex` 同惯例）；`channel` 缺失/空串 ⇒ `DEFAULT_CHANNEL`（与 `:24-27` 一致）。
+ */
+export function channelIndex(sessions: SessionItem[]): Map<string, string> {
+  const idx: Map<string, string> = new Map<string, string>();
+  for (let i = 0; i < sessions.length; i++) {
+    const s: SessionItem = sessions[i];
+    if (!idx.has(s.chat_id)) {
+      idx.set(s.chat_id,
+        s.channel !== undefined && s.channel.length > 0 ? s.channel : DEFAULT_CHANNEL);
+    }
+  }
+  return idx;
+}
+
+/**
+ * `channelForChat` 的**索引版**：先 O(1) 回查；未命中（真不存在 / 索引与 sessions 	View
+ * 不同源）回落原线性扫 ⇒ 语义对任意输入逐字等价。消费点：`pages/Index.ets` 的页级缓存
+ * `channelIdx()`（失效键 = `sessions` 引用恒等，同一 `loadSessions` 全换新数组惯例）。
+ */
+export function channelForChatIndexed(sessions: SessionItem[], idx: Map<string, string>,
+  chatId: string): string {
+  const hit: string | undefined = idx.get(chatId);
+  if (hit !== undefined) {
+    return hit;
+  }
+  return channelForChat(sessions, chatId);
+}
+
+/**
  * 会话 id 的**规范（裸）形态** —— 去掉**重复的渠道前缀**。
  *
  * ── 为什么必须有它（2026-10-13 服务端对照实验，铁证）───────────────────────────────

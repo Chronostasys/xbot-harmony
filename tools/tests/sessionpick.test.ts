@@ -9,7 +9,7 @@
 declare const process: { exit: (c: number) => void };
 
 import {
-  channelForChat, channelLabel, visibleRows, hiddenRowCount,
+  channelForChat, channelForChatIndexed, channelIndex, channelLabel, visibleRows, hiddenRowCount,
   MAX_ROWS_VISIBLE, DEFAULT_CHANNEL,
   canonicalChatId, hasChannelPrefix, sessionDisplayKey,
   dedupeSessionItems, sessionBodyScore,
@@ -134,6 +134,30 @@ ok('打分: last_active 加分', sessionBodyScore({ chat_id: 'chat_A', channel: 
   > sessionBodyScore({ chat_id: 'chat_B', channel: 'web', label: 'x' }));
 ok('打分: 缺 label/channel 不炸', sessionBodyScore({ chat_id: 'chat_A' }) === 0);
 
+
+// ── A2a（2026-10-14）：渠道索引（A 线审计 O(n²) 修复的纯逻辑半边）────────────────────────
+{
+  const dup: SessionItem[] = [
+    { chat_id: 'chat_D', channel: 'feishu' },
+    { chat_id: 'chat_D', channel: 'web' },
+  ];
+  const idxDup: Map<string, string> = channelIndex(dup);
+  ok('channelIndex 首命中优先（重复 id 取首个，与线性扫逐字等价）',
+    idxDup.get('chat_D') === 'feishu');
+  const idxF = channelIndex(sessions);
+  let agreeCnt = 0;
+  const probeIds: string[] = ['chat_AAA', 'oc_58ca927a', 'ou_b90fbcfd', 'chat_NOCH', 'chat_MISSING'];
+  for (let i = 0; i < probeIds.length; i++) {
+    if (channelForChatIndexed(sessions, idxF, probeIds[i])
+      === channelForChat(sessions, probeIds[i])) { agreeCnt++; }
+  }
+  ok('channelForChatIndexed 命中/未命中 = channelForChat 逐字一致（fixture 全量对照 5 id）',
+    agreeCnt === probeIds.length);
+  ok('channelForChatIndexed 空 Map ⇒ 线性兜底不 miss 成死值',
+    channelForChatIndexed(sessions, new Map<string, string>(), 'oc_58ca927a') === 'feishu');
+  const emptyIdx = channelIndex([]);
+  ok('channelIndex 空数组 ⇒ 空 Map（不炸）', emptyIdx.size === 0);
+}
 
 console.log(`  sessionpick: ${pass} passed, 0 failed`);
 process.exit(0);

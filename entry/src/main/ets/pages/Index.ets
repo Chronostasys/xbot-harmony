@@ -98,7 +98,7 @@ import { rowById } from '../core/rowquery';
 import {
   activeChannelLabel, ALL_CHANNEL_ORDER, availableChannels, channelFilterMatches,
   channelLabel, dedupeSessionItems, hiddenRowCount, sessionInChannel, visibleRows, MAX_ROWS_VISIBLE,
-  canonicalChatId, channelForChat,
+  canonicalChatId, channelForChat, channelForChatIndexed, channelIndex,
 } from '../core/sessionpick';
 import {
   applyGroupsCollapsed, collapseAllPlan, collapseKey, CollapseAllPlan, formatLastActive, groupSessionsFromItems, groupTitle,
@@ -2816,9 +2816,37 @@ struct Index {
     if (chatId === this.currentChat) {
       return true;
     }
-    const a: string = canonicalChatId(channelForChat(this.sessions, chatId), chatId);
-    const b: string = canonicalChatId(channelForChat(this.sessions, this.currentChat), this.currentChat);
+    // ⚡ A2a（2026-10-14）：a 半边走**渠道索引**（O(1) 回查）；b 半边同一次 build 内恒定
+    //    ⇒ 页级缓存 `currentCanonicalId`。原实现每行 ×2 线性扫 ⇒ 开抽屉全量构建 O(n²)
+    //    （n≈684 ⇒ 4-5M 次比较，秒级阻塞成分）。语义逐字不变（首命中优先/缺省 web）。
+    const a: string = canonicalChatId(channelForChatIndexed(this.sessions, this.channelIdx(), chatId), chatId);
+    const b: string = this.currentCanonicalId();
     return a.length > 0 && a === b;
+  }
+
+  /** 渠道索引缓存（A2a）：失效键 = `sessions` 引用恒等（loadSessions 恒换新数组 ⇒ 引用变即失效）。 */
+  private channelIdxRef: object | null = null;
+  private channelIdxCache: Map<string, string> = new Map<string, string>();
+  private channelIdx(): Map<string, string> {
+    if (this.channelIdxRef !== this.sessions) {
+      this.channelIdxCache = channelIndex(this.sessions);
+      this.channelIdxRef = this.sessions;
+    }
+    return this.channelIdxCache;
+  }
+
+  /** 当前会话的规范 id（`isCurrentSession` 的 b 半边）：同 build 恒定 ⇒ 只算一次。 */
+  private curCanRef: object | null = null;
+  private curCanChat: string = '';
+  private curCanCache: string = '';
+  private currentCanonicalId(): string {
+    if (this.curCanRef !== this.sessions || this.curCanChat !== this.currentChat) {
+      this.curCanCache = canonicalChatId(
+        channelForChatIndexed(this.sessions, this.channelIdx(), this.currentChat), this.currentChat);
+      this.curCanRef = this.sessions;
+      this.curCanChat = this.currentChat;
+    }
+    return this.curCanCache;
   }
 
   /** 标签显示名（来自会话列表的名字，取不到则用 id 末段）。 */
@@ -2827,7 +2855,7 @@ struct Index {
     //    幽灵行，而幽灵行的 label **就是原始会话键** ⇒ 顶栏标题显示 `web:chat_026B…`
     //    （真机截图实锤），真名 `harmony-ui-dev` 反而丢失。
     const node: SessionItem | null =
-      resolveSessionNode(this.sessions, channelForChat(this.sessions, chatId), chatId);
+      resolveSessionNode(this.sessions, channelForChatIndexed(this.sessions, this.channelIdx(), chatId), chatId);
     if (node !== null) {
       return sessionTitle(node.label !== undefined ? node.label : '', chatId,
         node.preview !== undefined ? node.preview : '');
@@ -2839,7 +2867,7 @@ struct Index {
   private tabRunning(chatId: string): boolean {
     // ⛔ 同 `tabLabel`：按原值比对会命中幽灵行（无 `running` 字段 ⇒ 恒 false）。
     const node: SessionItem | null =
-      resolveSessionNode(this.sessions, channelForChat(this.sessions, chatId), chatId);
+      resolveSessionNode(this.sessions, channelForChatIndexed(this.sessions, this.channelIdx(), chatId), chatId);
     if (node !== null) {
       return node.running === true;
     }
@@ -3017,7 +3045,7 @@ struct Index {
     // ⛔ 同族（§21.112）：按原值精确比对命中的是**幽灵行**（`last_active` = 幽灵创建时刻，
     //    真身的活跃时间反而丢）⇒ 状态面板的「最后活跃」会显示一个无意义的旧值。
     const node: SessionItem | null =
-      resolveSessionNode(this.sessions, channelForChat(this.sessions, id), id);
+      resolveSessionNode(this.sessions, channelForChatIndexed(this.sessions, this.channelIdx(), id), id);
     if (node !== null) {
       return node.last_active !== undefined ? node.last_active : '';
     }
@@ -3049,7 +3077,7 @@ struct Index {
     //    判定（机器串可上顶栏）、无未名占位、无 preview 兜底 ⇒ 与抽屉行/池标签不同名。
     //    收敛到**唯一出口** `sessionTitle`（判据与渲染同源 —— AGENTS.md）。
     const node: SessionItem | null =
-      resolveSessionNode(this.sessions, channelForChat(this.sessions, chatId), chatId);
+      resolveSessionNode(this.sessions, channelForChatIndexed(this.sessions, this.channelIdx(), chatId), chatId);
     if (node !== null) {
       return sessionTitle(node.label !== undefined ? node.label : '', node.chat_id,
         node.preview !== undefined ? node.preview : '');
@@ -8263,7 +8291,7 @@ struct Index {
     //    ⇒ `busySignals().freshServerRunning` 恒 false ⇒ 只剩 SSE 快路径 ⇒ 错过一条 idle
     //    就永远显示"运行中"（正是本方法存在的理由，却因为比对形态失效）。
     const node: SessionItem | null =
-      resolveSessionNode(this.sessions, channelForChat(this.sessions, this.currentChat), this.currentChat);
+      resolveSessionNode(this.sessions, channelForChatIndexed(this.sessions, this.channelIdx(), this.currentChat), this.currentChat);
     return node !== null && node.running === true;
   }
 

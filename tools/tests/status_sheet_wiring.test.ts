@@ -219,7 +219,7 @@ has(indexSrc, 'await store.loadStatus()', '⑤ 提交后拉服务端权威状态
 has(indexSrc, 'private currentLastActive(): string', '⑥ currentLastActive 定义在');
 const lastActiveBody: string = ((): string => {
   const i: number = indexSrc.indexOf('private currentLastActive(): string');
-  return i < 0 ? '' : indexSrc.substring(i, i + 500);
+  return i < 0 ? '' : indexSrc.substring(i, i + 800);
 })();
 ok('⑥ currentLastActive 可定位', lastActiveBody.length > 60);
 has(lastActiveBody, 'this.store.currentChatId', '⑥ 以当前会话 id 为键');
