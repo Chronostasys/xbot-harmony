@@ -364,6 +364,16 @@ export class ChatStore {
   hasMore: boolean = false;
   oldestId: number = 0;
   loadingMore: boolean = false;
+  /**
+   * `loadMore` 的**真结果**（空串 = 无错误；`LOADMORE_ERR_NOCURSOR` = 游标失效；其余 = 可读原因）。
+   *
+   * ⛔ 为什么必须有（2026-10-15 用户亲报「加载不出更早」）：旧实现的三道闸门
+   *    （`!hasMore || loadingMore || oldestId <= 0`）**全部静默 `return`**，且请求失败**无 catch**
+   *    （异常直接抛进 `onScrollIndex` 回调、无人接）⇒ 头部提示仍写着「下拉到底部自动加载更早消息」
+   *    （它按 `hasMore` 渲染）而列表**永远不动、零反馈**。真结果必须落成可读字段
+   *    （页面据此 toast + 自愈），⛔ 绝不静默。
+   */
+  loadMoreErr: string = '';
 
   /** 待回答的 AskUser（服务端权威：每会话至多一个） */
   askUser: AskUserPrompt | null = null;
@@ -993,8 +1003,22 @@ export class ChatStore {
 
   /** 上拉加载更早历史（`before_id` 游标）。 */
   async loadMore(): Promise<void> {
-    if (!this.hasMore || this.loadingMore || this.oldestId <= 0) {
+    if (!this.hasMore || this.loadingMore) {
       return;
+    }
+    // ── 游标失效：**不静默**，落哨兵码由页面自愈（P0 2026-10-15「加载不出更早」）─────────
+    // 旧实现此处直接 `return`（且三道闸门全部静默）⇒ 头部提示按 `hasMore` 渲染
+    // 「下拉到底部自动加载更早消息」⇒ 用户看到"还有更早"却**永远加载不出来、零反馈**。
+    // `oldest_id` 来自 `/api/history`（`applyHistoryMeta` 三态判空：服务端 nil 时不写入）
+    // ⇒ 冷启首帧缺字段 / 历史重载未回带 / 响应异常都会留下 `0`。
+    // 处置 = 哨兵码 + 页面**重拉首页**重建游标（用户口径"清除状态重新拉 api"）⇒ 自愈。
+    if (this.oldestId <= 0) {
+      this.loadMoreErr = LOADMORE_ERR_NOCURSOR;
+      this.onUpdate();
+      return;
+    }
+    if (this.loadMoreErr.length > 0) {
+      this.loadMoreErr = '';
     }
     this.loadingMore = true;
     try {
@@ -1025,6 +1049,16 @@ export class ChatStore {
       this.applyHistoryMeta(data);
       // 分页只增量喂历史（active 快照传 null —— 不得动 live turn）。
       this.pushEvent(historyToReplaced(this.history, null));
+    } catch (e) {
+      // ⛔ 失败**绝不静默**（同族缺陷：`loadLlmConfig` 曾把失败吞掉 ⇒ 面板永久转圈）：
+      //    旧实现无 catch ⇒ 异常直接抛进 `onScrollIndex` 回调（无人接）⇒ 用户只看到
+      //    "划不动、没反应"，而头部提示仍在承诺"会自动加载更早"。这里落**可读原因**，
+      //    页面据此 toast（并保留同一入口重试）。
+      const err: Error = e as Error;
+      const msg: string = err !== undefined && err !== null && err.message !== undefined
+        ? err.message : '';
+      this.loadMoreErr = msg.length > 0 ? msg : '加载更早失败';
+      this.onUpdate();
     } finally {
       this.loadingMore = false;
       this.onUpdate();
@@ -2030,6 +2064,15 @@ export class ChatStore {
 }
 
 // ── 请求体（显式字段 = 协议契约，见 channel/web/web_rest.go） ─────────────────
+
+/**
+ * `loadMoreErr` 的**哨兵码**：分页游标（`oldest_id`）失效。
+ *
+ * 语义：`store.loadMore()` 发现 `oldestId <= 0` 却不静默 return（见该方法注释），而是落本码；
+ * 页面见到本码 ⇒ **重拉首页**重建游标（用户口径"清除状态重新拉 api"）⇒ 自愈。
+ * ⛔ 与"真实请求失败（可读原因）"区分开：前者要重取游标，后者只需提示 + 可重试。
+ */
+export const LOADMORE_ERR_NOCURSOR: string = 'nocursor';
 
 
 

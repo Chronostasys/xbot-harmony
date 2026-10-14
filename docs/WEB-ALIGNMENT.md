@@ -7292,3 +7292,28 @@ api 加载会话"）**
 
 
 
+
+## §21.122bg：P0 用户亲报「加载不出更早」—— `loadMore` **三道静默闸门**（本仓修）
+
+**用户实录（2026-10-15，手机NPU 会话）**：滑到顶后头部提示仍是「下拉到底部自动加载更早消息」，
+但列表**纹丝不动、零反馈**（受控复验：连滑两次 + 3 次 `dumpLayout` 文本指纹完全一致 ⇒ 不是干扰）。
+
+**代码级定性**（判据与渲染同源核对）：
+1. 头部文案由 `pages/Index.ets` 按 **`hasMore`** 渲染 ⇒ 此文案在场 ⇔ 客户端 `hasMore === true`
+   （服务端说"还有更早"）；
+2. 触发点 `if (start === 0 && !this.loadingMore && this.hasMore) { this.loadMore(); }`；
+3. `core/store.ets:loadMore()` 旧实现 = `if (!hasMore || loadingMore || oldestId <= 0) return;`
+   —— **三道闸门全部静默 `return`**，且整段 **无 `catch`**（请求失败 ⇒ 异常直接抛进
+   `onScrollIndex` 回调、无人接）⇒ 用户看到"提示说还有、却永远加载不出来"。
+
+**修法（本仓，`bash tools/gate.sh` 全绿）**
+- `store` 增 **`loadMoreErr: string`**（真结果可见：空=无错 / 哨兵 / 可读原因）+ 导出哨兵
+  **`LOADMORE_ERR_NOCURSOR`**；
+- 游标失效分支改为**落哨兵 + `return`**（不再静默）；命中真实失败 ⇒ `catch` 落可读原因；
+- 页面 `loadMore()` **消费**真结果：哨兵 ⇒ `toast` + **重拉首页自愈**（`store.openSession(currentChat)`
+  重建 `oldest_id`/`hasMore`，即用户口径"清除状态重新拉 api"）；真实失败 ⇒ `toast` 可读原因
+  （同一入口可再试：头部项本身是点击出口）。
+
+**判据** `tools/tests/loadmore_resilience.test.ts`（12 条全过；源码文本比对，⛔ 不 import `.ets`）
+——mutation 自证口径：删 `loadMoreErr` 字段 ⇒ ①红；守卫改回 `|| this.oldestId <= 0` 且删 catch ⇒ ②③红；
+删页面哨兵分支 ⇒ ④红；源码读不到 ⇒ 零扫描防线红（绝不"没扫到就跳过"）。

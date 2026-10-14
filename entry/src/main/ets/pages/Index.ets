@@ -11,7 +11,7 @@ import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl, readCachedTheme } from '../core/config';
 import { webview } from '@kit.ArkWeb';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { ChatStore } from '../core/store';
+import { ChatStore, LOADMORE_ERR_NOCURSOR } from '../core/store';
 import { beginTurnKeepAlive, endTurnKeepAlive, ensureEnabled, notificationsEnabled, PENDING_CHAT_KEY, PENDING_CHAT_SEQ_KEY, PENDING_ACTION_KEY, isKnownNotifyAction, NOTIFY_ACTION_STOP, NOTIFY_ACTION_CONTINUE } from '../core/notify';
 // 后台对账（workScheduler 延迟任务）的取消入口（目标①：登出必须停掉它）
 import { cancelReconcileScheduled } from '../workreconcile/schedule';
@@ -3699,12 +3699,39 @@ struct Index {
     }
   }
 
+  /**
+   * 上拉加载更早历史 —— **失败/游标失效都不静默**（P0 2026-10-15 用户亲报「加载不出更早」）。
+   *
+   * 旧实现只有一句 `await store.loadMore()`：`store` 侧三道闸门静默 `return`、请求失败无 catch
+   * ⇒ 头部提示（按 `hasMore` 渲染「下拉到底部自动加载更早消息」）**永远在承诺**而列表不动、
+   * 零反馈。这里把真结果处理成两种出口：
+   *   · 游标失效（`LOADMORE_ERR_NOCURSOR`）⇒ **自愈**：重拉首页（`openSession` 走完整取数）
+   *     重建 `oldest_id`（用户口径"清除状态重新拉 api"），而不是永远卡在静默 return 上；
+   *   · 真实失败 ⇒ toast 可读原因（同一入口可再试：头部项仍是那个点击出口）。
+   */
   private async loadMore(): Promise<void> {
     const store: ChatStore | null = this.store;
     if (store === null) {
       return;
     }
-    await store.loadMore();
+    try {
+      await store.loadMore();
+      const err: string = store.loadMoreErr;
+      if (err.length === 0) {
+        return;
+      }
+      store.loadMoreErr = '';
+      if (err === LOADMORE_ERR_NOCURSOR) {
+        // 游标失效自愈：重拉首页（`openSession` 会重建 history/游标/hasMore）。
+        this.toast('分页游标失效，正在重新载入会话历史…');
+        await store.openSession(this.currentChat);
+        return;
+      }
+      this.toast(`加载更早失败：${err}`);
+    } catch (e) {
+      // 兜底（`store.loadMore` 已把失败落成 `loadMoreErr`，这里只防它自身的守卫异常）
+      this.toast(`加载更早失败：${errText(e as Object)}`);
+    }
   }
 
   /**
