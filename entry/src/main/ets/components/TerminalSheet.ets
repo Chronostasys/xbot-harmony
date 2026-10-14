@@ -84,6 +84,14 @@ const KEY_MIN_FONT: number = 9;
  * 只用于"视口 ⇒ 行数"；即使略偏，也只是多/少一行，不影响正确性。
  */
 const TERM_CHROME_VP: number = 202;
+/**
+ * 快赢 2（2026-10-17）：键栏**收起**时从 chrome 里扣回的空间（vp）——两行键帽
+ * （`HIT_TARGET_MIN` 44×2）+ 层间 `SPACE_XS`(8) + 键栏与输入行的间距 ≈ 104。
+ * 只用于「视口 ⇒ 行数」估算（与 `TERM_CHROME_VP` 同一容错口径：差一行不影响正确性）。
+ * web 对照 `TerminalPanel.tsx:88` `showAux` 收的是副键行；原生一顿到底（主+副全收），
+ * 切换锚点恒在输入行尾（收起后仍可呼回——不学 web 的 ‹/› 两级）。
+ */
+const TERM_KEYROWS_VP: number = 104;
 
 @Component
 export struct TerminalSheet {
@@ -102,6 +110,8 @@ export struct TerminalSheet {
   };
 
   @State private status: string = TERM_CONNECTING;
+  /** 键栏展开态（快赢 2，2026-10-17）：默认展开 = 现状零变化；收起 ⇒ 画布多 ≈104vp。 */
+  @State private showKeys: boolean = true;
   @State private exitCode: number = -1;
   /** 渲染上限：scrollback 尾巴 + 屏幕（摊平成一个 `Text`，见 `flatSpans`）。 */
   @State private flow: AnsiSpan[] = [];
@@ -268,7 +278,8 @@ export struct TerminalSheet {
     if (w <= 0 || h <= 0) {
       return;
     }
-    this.applySize(w * 0.94 - 2 * SPACE_MD - 2 * SPACE_XS, h * 0.82 - 2 * SPACE_MD - TERM_CHROME_VP);
+    this.applySize(w * 0.94 - 2 * SPACE_MD - 2 * SPACE_XS,
+      h * 0.82 - 2 * SPACE_MD - TERM_CHROME_VP + (this.showKeys ? 0 : TERM_KEYROWS_VP));
   }
 
   // ── WS ────────────────────────────────────────────────────────────────────
@@ -857,11 +868,30 @@ export struct TerminalSheet {
           .onSubmit(() => {
             this.submitInput();
           })
+
+        // ── 键栏开合锚点（快赢 2，2026-10-17）：恒在输入行尾 ⇒ 收起后仍一眼可呼回 ──
+        Row() {
+          if (this.showKeys) {
+            SymbolGlyph($r('sys.symbol.chevron_down'))
+              .fontSize(typeOf('type.caption').size).fontColor([this.iconMutedC()])
+          } else {
+            SymbolGlyph($r('sys.symbol.chevron_up'))
+              .fontSize(typeOf('type.caption').size).fontColor([this.iconMutedC()])
+          }
+        }
+        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText(this.showKeys ? '收起键栏' : '展开键栏')
+        .onClick(() => {
+          this.showKeys = !this.showKeys;
+        })
       }
       .width('100%')
 
-      // ── 常用键（软键盘发不出的控制序列）──
-      Column({ space: SPACE_XS }) {
+      // ── 常用键（软键盘发不出的控制序列）；快赢 2：可收起（锚点恒在输入行尾）──
+      if (this.showKeys) {
+        Column({ space: SPACE_XS }) {
         // 主键行：web `PRIMARY_KEYS` + `Ctrl` 修饰开关（Ctrl-C 保留直按，避免肌肉记忆回归）。
         // ⛔ 不包 `Scroll`（2026-10-13，见 `keyChip` 的量测）：每枚键 `layoutWeight(1)` 等分布满
         //    ⇒ 无需横向滚动，也就**不可能**再有键落在可视区之外（旧实现 8×44vp 必然溢出，
@@ -908,9 +938,11 @@ export struct TerminalSheet {
           }
         }
         .width('100%')
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Start)
+        .transition(fadeTransition())
       }
-      .width('100%')
-      .alignItems(HorizontalAlign.Start)
     }
     .width(SHEET_WIDTH)
     .height('82%')

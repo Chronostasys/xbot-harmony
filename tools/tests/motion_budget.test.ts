@@ -123,7 +123,10 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   //   —— 讲的是"**可回到底部**"这条状态关系的出现/消失（无空间含义 ⇒ 不滑入），与 `components/Toast`
   //   （同为「全屏透明容器 + 底对齐」的悬浮提示）**同一族**；此前"啪"地出现（`Toast` 早有过渡、此处漏了）。
   //   判据真源 `showsJumpToLatest` 不变（本行只加过渡）。
-  ['components/TerminalSheet.ets', 2],
+  //   ③ 2026-10-17 **+1**（快赢 2）：键栏**收起/展开** = `fadeTransition()` —— 讲的是
+  //   "两行常用键让位给画布"这条状态关系（收起 ⇒ 画布多 ≈104vp；开合锚点恒在输入行尾，
+  //   收起后仍一眼可呼回）；与 `TodoPanel` 展开块同族（静息态可见 ⇒ 门禁 ⑨ fail-safe 正向）。
+  ['components/TerminalSheet.ets', 3],
   // 会话统计面板（目标④「统计插件的面板我们看不到」）：同样走 `sheetTransition()`。
   ['components/SessionStatsSheet.ets', 1],
   // 定时任务详情（目标④「任务管理做的很差」收尾）：同样只走 `sheetTransition()`
