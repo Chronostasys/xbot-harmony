@@ -6314,6 +6314,22 @@ struct Index {
         }
         // 对齐 web：滚到顶部**自动**拉更早历史（web 用 IntersectionObserver 哨兵，同语义），
         // 不再要求用户先点一下按钮。loadingMore 自锁，避免请求风暴。
+        // ⛔ 触发点**取证日志**（P0 2026-10-15「滑到顶不加载」）：`store.loadMore()` 入口的
+        //    `[LM] enter`（`core/store.ets:1010`）在守卫**之前**，而实测 `[LM]` 计数 = 0
+        //    ⇒ 触发链**从未调到 store.loadMore()**。剩下的可能只有三种，且都必须靠设备侧
+        //    数值才能分辨（远程无法推断）：
+        //      ① 本回调压根不是 `start === 0`（没真的滑到顶 / 头项不在首位）；
+        //      ② 页级守卫被挡：`loadingMore` 或 `hasMore` 的**页面镜像**陈旧（`syncFrom` 每帧
+        //         从 store 镜像，见 `:2097`）；
+        //      ③ 头项判据 `hasHeadItem()` 为假（头项不在列表首位 ⇒ 下标 0 是消息行）。
+        //    ⇒ 凡滚到顶（含"差一行"的边界帧）都留一行三标志快照；命中 `start === 0` 时前缀
+        //    换成 `[LMP] top`，便于 `grep -c` 直接读出"触发到底有没有到过顶"。
+        if (start <= 1) {
+          console.debug(`[LMP] ${start === 0 ? 'top' : 'near'} start=${start} hasMore=${this.hasMore ? 1 : 0}`
+            + ` loading=${this.loadingMore ? 1 : 0} head=${this.hasHeadItem() ? 1 : 0}`
+            + ` hidden=${hiddenRowCount(this.rows.length, this.rowLimit)} rows=${this.rows.length}`
+            + ` limit=${this.rowLimit}`);
+        }
         if (start === 0 && !this.loadingMore && this.hasMore) {
           this.loadMore();
         }
