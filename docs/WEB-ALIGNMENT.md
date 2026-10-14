@@ -6431,4 +6431,45 @@ web 侧那 9+ 处 `await navigator.clipboard.writeText(...)` 会抛 TypeError �
   （深链协议已支持，缺的只是原生键位 —— 与"底栏键位密度"一起待设计定夺）。
 - **真机端到端取证未做**（点「文件」「任务」是否真渲出 web 面板）。
 
+---
+
+## §21.122f：装机端到端取证 + 抓手出真根因（深链**从未上线**：web 产物混合态）
+
+### ① 装机取证（模拟器 `127.0.0.1:5555`，2026-10-14 10:40）
+
+| 入口 | 判据 | 实测结果 |
+|---|---|---|
+| 顶栏「文件」 | dump 出现 `Web` + `rootWebArea`（WebView 真挂载）+ 面板真实内容 | ✅ **真渲出 web 文件面板**：`← 工具` + 页签 文件/搜索/信息/任务/终端、路径栏 `/Users/bobli/src/ohos-localchat`、目录 `AppScope/ docs/ entry/ hvigor/ oh_modules/ tools/`、文件 `AGENTS.md build-profile.json5 hvigorfile.ts local.properties oh-package.json5 README.md`（带类型角标） |
+| 抽屉「任务」 | 同上 | ✅ **真渲出 web 任务面板**：`定时任务` / `SUBAGENTS` / `后台命令` + 一条真后台任务（`ssh -i ~/.ssh/b300_spot.pem … running`） |
+
+### ② ⚠️ 同时抓出真根因（**与 harmony 侧代码无关**）：web 产物是**混合态**
+
+```
+~/.xbot/web/dist/index.html 引用 assets/index-ChXSVIHm.js   ← Oct 10（旧）
+含深链支持的        assets/index-DdNzI2dd.js                ← Oct 14（新，但**没人引用它**）
+旧 bundle 里 `xbot_panel` 出现次数 = 0
+```
+
+⇒ 服务端吐出的页面**引用旧 bundle** ⇒ `web/src/workspace/panelRequest.ts` 一行都没跑
+⇒ 深链协议**从来没生效过**。
+
+**⚠️ 诚实更正（本仓纪律「判据 ≠ 信号」的又一例）**：§21.122c ④「终端取证」的结论**不可信** ——
+那次只证明了"WebView 打开了页面"，**没有**证明"面板是被深链打开的"（当时 dump 里出现的
+「新建终端」等内容，在混合态下也可能来自 web 默认视图）。⇒ 凡"深链生效"的判据必须**同时**
+钉住「URL 带对参数」+「面板内容出现」两点，缺一即不可宣称。
+
+**修法（落在 xbot 仓，commit `2e9b3ac6`）**：新增 `scripts/deploy-web.sh` —— 整体 `mv` 替换
+（⛔ 不 merge、⛔ 不 `rm -rf`）+ **部署前后双重自证**（`index.html` 引用的 `assets/index-*.js`
+必须①存在②含探针符号，否则 `exit 1`）；mutation 自证过（探针写错 ⇒ RC=1、源产物混合态 ⇒ RC=1、
+正常 ⇒ RC=0）；中英文档各加一条 warning。
+
+### ③ 用户定向（本轮两条插话，**下一轮实施**）
+
+1. **嵌套 WebView 必须代理 web 的导航事件，并去掉多余 UI** —— 现状嵌入后是**两层 chrome**
+   （原生 `‹ 任务 ⟳` + web 自己的 `← 工具` + 页签行 + 底部 InfoBar）⇒ 去掉 web 那层。
+2. **嵌套 WebView 不做多余渲染**（不为一个面板渲整个 SPA 外壳）。
+3. **文件面板「代理后触发原生 UI」**：在 web 文件面板里点文件 ⇒ 事件经 JS 桥回原生 ⇒
+   用**原生 UI**（预览/编辑器）打开，⛔ 不是又在 WebView 里开一个 web 编辑器。
+
+
 
