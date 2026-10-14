@@ -46,7 +46,7 @@ import {
 } from '../core/design';
 import { isUnauthorized, loadErrHint, loadErrTitle, needsRelogin, needsSessionRefresh } from '../core/autherr';
 import {
-  canMove, MOVE_DOWN, MOVE_TOP, MOVE_UP, hitLine, sessionLabel, sessionMatches,
+  canMove, MOVE_DOWN, MOVE_TOP, MOVE_UP, hitLine, sessionTitle, sessionMatches,
 } from '../core/sessionops';
 import {
   BgTask, bgTaskLeadCode, bgTaskMetaText, bgTaskOutputText, bgTaskPrimary, bgTaskRunning, bgTaskStatusText, bgTaskSubText,
@@ -2823,10 +2823,10 @@ struct Index {
     const node: SessionItem | null =
       resolveSessionNode(this.sessions, channelForChat(this.sessions, chatId), chatId);
     if (node !== null) {
-      return sessionLabel(node.label !== undefined ? node.label : '', chatId,
+      return sessionTitle(node.label !== undefined ? node.label : '', chatId,
         node.preview !== undefined ? node.preview : '');
     }
-    return sessionLabel('', chatId);
+    return sessionTitle('', chatId);
   }
 
   /** 该标签的会话是否在跑（用会话列表的 running，或该池 store 的 busy）。 */
@@ -7170,7 +7170,7 @@ struct Index {
 
   private menuLabel(): string {
     const s: SessionItem | undefined = this.currentMenuSession();
-    return s === undefined ? '' : sessionLabel(s.label !== undefined ? s.label : '', s.chat_id);
+    return s === undefined ? '' : sessionTitle(s.label !== undefined ? s.label : '', s.chat_id);
   }
 
   /** 会话操作菜单项的可点状态（置顶/上移在顶部时置灰）。 */
@@ -7213,7 +7213,7 @@ struct Index {
     if (code === 'fork') {
       this.sessMenuId = '';
       const s: SessionItem | undefined = this.currentMenuSession();
-      const base: string = s !== undefined ? sessionLabel(s.label !== undefined ? s.label : '', s.chat_id) : id;
+      const base: string = s !== undefined ? sessionTitle(s.label !== undefined ? s.label : '', s.chat_id) : id;
       try {
         const newId: string = await store.forkSession(id, `${base} 分支`);
         await store.loadSessions();

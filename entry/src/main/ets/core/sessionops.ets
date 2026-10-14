@@ -107,15 +107,69 @@ export function hitLine(role: string, snippet: string, maxLen: number): string {
  *    可读得多（仍**不是**发明数据：纯展示层选择更可读的既有字段）。
  * ⛔ 预览也空 ⇒ 才回落 `chat_id` 末段（保持既有行为，⛔ 不制造空标题）。
  */
+/**
+ * 会话键的**裸 id** = 最后一个 `/` **或** `:` 之后的子串（两种真实复合形态都取：
+ * `web/chat_9`（`/` 分隔）与 `web:chat_X`（`:` 分隔）⇒ 取最后一次出现的那个分隔符）。
+ */
+function idBareTail(s: string): string {
+  const slash: number = s.lastIndexOf('/');
+  const colon: number = s.lastIndexOf(':');
+  const i: number = slash > colon ? slash : colon;
+  return i >= 0 ? s.substring(i + 1) : s;
+}
+
+/** 是否含空白（` ` / `\t` / `\n` / `\r`）—— ⛔ 不用正则（保持纯逻辑、可脱机）。 */
+function hasWhitespace(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    const c: string = s.charAt(i);
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * `label` 是否只是把**会话键原样回声**（⇒ 视为"无名"，走回落链）。
+ *
+ * ⛔ 为什么不能只比 `label === chatId`（2026-10-16 装机实测的漏网）：服务端把会话键组装成
+ *   `channel + ":" + chat_id`（48 处），而会话树里的 `chat_id` 字段**可能带前缀也可能不带**
+ *   ⇒ 两种真实形态都会出现：
+ *     · `label === chatId`            （都带前缀，如 `web:chat_263F7E142E0B`）
+ *     · `label === chatId` 的裸末段     （label 带前缀、chatId 裸：`web:chat_X` vs `chat_X`）
+ *   ⇒ 判据落到**末段比对**（`:` 之后）两侧都覆盖。⛔ 前缀段必须是"无空白的渠道记号"
+ *   （防把 `重构: 会话A` 这类**真标签**误判成回声 ⇒ 标题被吞）。
+ */
+export function isEchoLabel(label: string, chatId: string): boolean {
+  const l: string = label.trim();
+  if (l.length === 0) {
+    return false;
+  }
+  if (l === chatId) {
+    return true;
+  }
+  const lTail: string = idBareTail(l);
+  const cTail: string = idBareTail(chatId);
+  if (lTail.length === 0 || lTail !== cTail) {
+    return false;
+  }
+  const slash: number = l.lastIndexOf('/');
+  const colon: number = l.lastIndexOf(':');
+  const i: number = slash > colon ? slash : colon;
+  if (i < 0) {
+    return true; // label 无前缀 = 裸会话键（等于 chatId 的末段）
+  }
+  return !hasWhitespace(l.substring(0, i));
+}
+
 export function sessionLabel(label: string, chatId: string, preview: string = ''): string {
   const l: string = label.trim();
   // ⛔ 服务端会把 `label` 直接回声成**原始会话键**（真机实测：`label === "web:chat_263F7E142E0B"`
   //    而 `preview === "排队测试"`）⇒ 若只看"label 非空"，列表里就出现一串机器串当标题
-  //    （用户口径「侧边栏丑得要死」的现场丑点）。⇒ label 与 chat_id 相同（或等于其末段）
-  //    一律**视为无名**，继续走回落链。
-  const parts: string[] = chatId.split('/');
-  const idTail: string = parts.length > 0 ? parts[parts.length - 1] : chatId;
-  const echoed: boolean = l.length > 0 && (l === chatId || l === idTail);
+  //    （用户口径「侧边栏丑得要死」的现场丑点）。⇒ 回声（`isEchoLabel`）一律**视为无名**，
+  //    继续走回落链。`chatId` 可能是 `/` 或 `:` 形的复合 id ⇒ 末段两种分隔都取。
+  const idTail: string = idBareTail(chatId);
+  const echoed: boolean = isEchoLabel(l, chatId);
   if (l.length > 0 && !echoed) {
     return l;
   }
@@ -129,6 +183,28 @@ export function sessionLabel(label: string, chatId: string, preview: string = ''
 
 /** 预览当标题时的最大字符数（超长截断；列表本身 `maxLines(1)` + 省略号）。 */
 export const SESSION_LABEL_MAX: number = 60;
+
+/**
+ * 无名会话（无 label、无预览）的**友好占位**。
+ *
+ * ⛔ 为什么不让 `sessionLabel` 的末段（原始会话键）进列表（2026-10-16 装机截图）：那会让一行读成
+ *   `chat_263F7E142E0B`（机器串）—— 正是用户点名的丑点。会话键对用户无信息量（真实身份由
+ *   行内相对时间 + `⋯` 菜单承载）⇒ 显示层一律换成这句人话。
+ * ⚠️ 引用 web 权威：web 的 `SessionItem.tsx:88` 是 `session.label || session.chatID`（**会把键
+ *   当标题**）⇒ **本仓在此处有意超越 web**（用户定向「不要一比一复刻 web，你是原生你超越 web」）。
+ */
+export const SESSION_UNNAMED: string = '未命名会话';
+
+/**
+ * 会话标题的**显示文案**（列表/菜单/分支名 —— 唯一出口）。
+ *
+ * = `sessionLabel(...)`；仅当它回落到了**会话键**（即无名）时，换成 `SESSION_UNNAMED`。
+ * ⛔ 单一真源：本函数只包一层，⛔ 不复写回声/预览/截断逻辑（否则两处会腐烂）。
+ */
+export function sessionTitle(label: string, chatId: string, preview: string = ''): string {
+  const t: string = sessionLabel(label, chatId, preview);
+  return t.length > 0 && !isEchoLabel(t, chatId) ? t : SESSION_UNNAMED;
+}
 
 // ── 消息搜索（`POST /api/search`）的**请求契约**纯逻辑 ─────────────────────────────
 //

@@ -3,6 +3,7 @@ declare const process: { exit: (c: number) => void };
 
 import {
   canMove, hitLine, MOVE_DOWN, MOVE_TOP, MOVE_UP, moveOrders, roleLabel, sessionLabel, sessionMatches,
+  isEchoLabel, sessionTitle, SESSION_UNNAMED,
 } from '../../entry/src/main/ets/core/sessionops';
 
 let pass = 0, fail = 0;
@@ -79,6 +80,36 @@ function mutatedLabelOnly(label: string, _chatId: string, _preview: string): str
 }
 eq('mutation：不识别回声的写法 ⇒ 「回声视为无名」必红',
   mutatedLabelOnly('web:chat_263F7E142E0B', 'web:chat_263F7E142E0B', '排队测试') === '排队测试', false);
+
+// ── 回声的**第二种真实形态**（2026-10-16 装机截图实锤的漏网）：label 带**渠道前缀**、chat_id 裸 ──
+//   服务端把会话键组装成 `channel + ":" + chat_id`，而会话树的 `chat_id` 字段可能**不带前缀**
+//   ⇒ 旧判据（`label === chatId || label === 末段`）**两边都不命中** ⇒ 列表里照样显示
+//   `web:chat_263F7E142E0B` 机器串（用户再次点名的丑点）。⟹ 判据改**末段比对**。
+eq('isEchoLabel：label 带前缀 vs 裸 chat_id ⇒ 是回声',
+  isEchoLabel('web:chat_263F7E142E0B', 'chat_263F7E142E0B'), true);
+eq('isEchoLabel：双尖前缀（web:web:chat_X）也识别',
+  isEchoLabel('web:web:chat_X', 'web:chat_X'), true);
+eq('isEchoLabel：真名（`重构: 会话A` 有空白前缀）⇒ **不是**回声',
+  isEchoLabel('重构: 会话A', '会话A'), false);
+eq('isEchoLabel：真名与 id 无关 ⇒ 不是回声',
+  isEchoLabel('harmony-ui-dev', 'chat_B6EF'), false);
+eq('回声形态②（前缀 vs 裸 id）⇒ 用预览',
+  sessionLabel('web:chat_263F7E142E0B', 'chat_263F7E142E0B', '排队测试'), '排队测试');
+eq('回声形态② + 无预览 ⇒ 才落到 id 末段',
+  sessionLabel('web:chat_263F7E142E0B', 'chat_263F7E142E0B', ''), 'chat_263F7E142E0B');
+
+// ── 显示出口 `sessionTitle`：无名会话给**友好占位**（⛔ 不让机器串进列表）────────────────
+//   引用 web 权威 `SessionItem.tsx:88` = `session.label || session.chatID`（**会把键当标题**）
+//   ⇒ 本仓**有意超越 web**（用户定向「你是原生你要超越 web」）。
+eq('sessionTitle：无名（无预览）⇒ 友好占位',
+  sessionTitle('web:chat_263F7E142E0B', 'chat_263F7E142E0B'), SESSION_UNNAMED);
+eq('sessionTitle：无名且无 label ⇒ 友好占位', sessionTitle('', 'chat_B6EF'), SESSION_UNNAMED);
+eq('sessionTitle：有预览 ⇒ 预览（与 sessionLabel 同源）',
+  sessionTitle('', 'chat_9', '排队测试'), '排队测试');
+eq('sessionTitle：真名 ⇒ 真名', sessionTitle('harmony-ui-dev', 'chat_B6EF'), 'harmony-ui-dev');
+// mutation 自证：拿"会显示机器串"的 sessionLabel 当出口 ⇒ 首条必红
+eq('mutation：直接用 sessionLabel 当显示出口 ⇒ 首条「友好占位」必红',
+  sessionLabel('web:chat_263F7E142E0B', 'chat_263F7E142E0B') === SESSION_UNNAMED, false);
 
 if (fail > 0) { console.log(`  sessionops: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  sessionops: ${pass} passed, 0 failed`);

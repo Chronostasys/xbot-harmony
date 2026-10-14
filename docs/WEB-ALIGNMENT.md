@@ -7825,3 +7825,24 @@ appear live=true  key=13:4        （仍在飞）
   **修**：`openSurface(SURF_TASKS)` 先 `switchPanelTab('cron')`（任务面 = 定时 + 后台，权威落地页
   = `cron`，与 `panelTab` 初值 `'cron'` 同源）。
   判据 `tools/tests/surface_entry_tab.test.ts`（8 断言；**mutation 自证**：去掉该行 ⇒ ② 红，还原 ⇒ 绿）。
+
+## §21.122ca：③ 侧边栏 —— 回声判据补「渠道前缀」形态 + 无名会话给友好占位（2026-10-16）
+
+**现场（装机截图）**：列表里仍有一行读作 `web:chat_263F7E142E0B`（机器串当标题）。
+
+**根因（两条）**：
+1. **回声判据漏了第二种真实形态**。服务端把会话键组装成 `channel + ":" + chat_id`
+   （`web:chat_X`），而会话树的 `chat_id` 字段**可能带前缀也可能不带** ⇒ 旧判据
+   （`label === chatId || label === 末段`）在「label 带前缀、chatId 裸」时**两边都不命中**
+   ⇒ 回声没被识别 ⇒ 原样显示 `web:chat_263F7E142E0B`。
+   **修**：判据改**裸 id 尾比对**（`idBareTail` = 最后一个 `/` **或** `:` 之后的子串，
+   两种复合形态都取）；⛔ 前缀段必须是"无空白的渠道记号"（防把 `重构: 会话A` 这类真标签吞掉）。
+2. **回落链末端是原始会话键**（`chat_263F7E142E0B`）—— 对用户零信息量，仍是机器串。
+   **修**：新增显示出口 `sessionTitle()`（`core/sessionops.ets`）= `sessionLabel(...)` +
+   「落到会话键时换成 `SESSION_UNNAMED`（`未命名会话`）」；页面 4 个消费点（抽屉行/顶栏标题/
+   会话菜单/分支名）一律改走它。
+   ⚠️ **有意超越 web**：web `SessionItem.tsx:88` = `session.label || session.chatID`（**会把键
+   当标题**）—— 用户定向「不要一比一复刻 web，你是原生你超越 web」。
+
+判据 `tools/tests/sessionops.test.ts`（50 断言，含 mutation 自证：不识别回声 / 直接用
+`sessionLabel` 当显示出口 ⇒ 必红）。
