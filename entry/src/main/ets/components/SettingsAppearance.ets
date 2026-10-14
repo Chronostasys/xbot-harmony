@@ -222,18 +222,9 @@ export struct SettingsAppearance {
       // ═══ 界面 ═══════════════════════════════════════════════════════════════
       SettingsGroupHeader({ title: '界面', theme: this.theme })
 
-      SettingsChipRow({
-        label: '聊天界面',
-        description: '原生渲染，或内嵌完整 Web UI（插件 / GenUI / 终端）。',
-        value: this.surfaceWeb ? SURFACE_WEB : SURFACE_NATIVE,
-        options: [SURFACE_NATIVE, SURFACE_WEB],
-        labels: ['原生', '内嵌网页'],
-        theme: this.theme,
-        onSelect: (v: string) => {
-          this.onSetSurface(v === SURFACE_WEB);
-        },
-      })
-
+      // §21.122bu（用户定向 2026-10-16）：**「聊天界面承载」行已降级**到「维护」组末尾 ——
+      // 用户原话「保留，但是这个入口不该显眼。这个主要调试用和 fallback」。
+      // 日常形态**唯一** = 原生渲染（见 `core/surfaces.surfaceOf`，聊天面恒为 native）。
       SettingsChipRow({
         label: settingLabel(KEY_SEND_KEY),
         description: '输入框内的发送快捷键。',
@@ -265,8 +256,22 @@ export struct SettingsAppearance {
         description: '从服务端重拉全部偏好（排障用）。',
         action: '刷新',
         theme: this.theme,
-        onAction: () => {
-          this.onRefresh();
+         onAction: () => {
+         this.onRefresh();
+        },
+      })
+
+      // §21.122bu：**调试 / fallback** 专用 —— 「聊天界面承载」从「界面」组降级到这里。
+      // 用户定向：「保留，但是这个入口不该显眼。这个主要调试用和 fallback」。
+      SettingsChipRow({
+        label: '聊天界面（调试）',
+        description: '调试 / fallback：整页切成内嵌 Web UI（与 web 逐字同源）。日常请保持「原生」。',
+        value: this.surfaceWeb ? SURFACE_WEB : SURFACE_NATIVE,
+        options: [SURFACE_NATIVE, SURFACE_WEB],
+        labels: ['原生', '内嵌网页'],
+        theme: this.theme,
+        onSelect: (v: string) => {
+         this.onSetSurface(v === SURFACE_WEB);
         },
       })
     }

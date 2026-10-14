@@ -7701,3 +7701,29 @@ SPA 首屏就会整体变慢；本仓**无法**从原生侧修，也不该为修
 
 **判据**：`tools/tests/tool_pill_key.test.ts`（源码形态：两处 key 必含 `gen_chars`+`status`；
 含 **mutation 自证** —— 只含 `name#call_id` 的旧 key 必须判红）。真门禁全绿（含 ArkTS 编译）。
+
+## §21.122bu：架构统一 —— 「一个页面只有一个形态」（用户定向 2026-10-16）
+
+**用户原话**：「目前 web 和原生混杂太丑了，**如果有原生就不要搞 web**，统一，**一个页面必须只有一个形态**，
+别他妈入口不同展示的不同。架构要优秀统一」（追问后拍板：终端/任务**统一到原生**；「完整 Web UI」**保留**但
+「这个入口不该显眼。这个主要调试用和 fallback」）。
+
+**病根（代码取证）**：同一能力面有多条入口、各自决定走原生还是 `?xbot_panel=<id>` WebView ⇒
+从 A 入口看到原生面板、从 B 入口看到 web 面板（形态不同、观感割裂、能力还可能不一致）：
+
+| 能力面 | 改前 | 改后 |
+|---|---|---|
+| 文件 | 原生 `FilesSheet` **且**面板内还有「Web 版」次级入口（`openFsWeb`） | **只有原生**（`onOpenWeb` 入口与 `openFsWeb` 一并删除） |
+| 任务 | 抽屉键走 **web 任务面板**（失败才回落原生） | **只有原生运行面板**（超集：cron + 后台任务 + 子代理 + Runner + 终端） |
+| 终端 | 抽屉键走 **web 终端面板**（失败才回落原生终端页） | **只有原生终端**（`TerminalSheet` / 运行面板终端页） |
+| 插件目录 / 宿主页 / GenUI | web（**本质就是 web**） | 不变（web） |
+| 聊天界面本体 | `KEY_SURFACE` 可切「内嵌完整 Web UI」 | **保留**，但从「界面」组**降级到「维护」组末尾**并改名为「聊天界面（调试）」 |
+
+**架构落点（防复发）**：新增 `core/surfaces.ets` = **唯一承载判定表**（纯逻辑、可脱机单测）：
+
+- `surfaceOf(id)`：`files`/`tasks`/`terminal` ⇒ `native`；`plugins`/`genui`/`webui` ⇒ `web`；未知 id ⇒ `web`（fail-safe）。
+- 页面只有**一个动作出口** `openSurface(id)`（`pages/Index.ets`）⇒ 任何入口（抽屉键 / 顶栏 / 未来新入口）
+  自动拿到同一形态；⛔ 页面里不得再出现"这里原生、那里 web"的分叉判断。
+- 判据：`tools/tests/surfaces.test.ts`（12 条；含 mutation 自证：把 `files` 改回 `web` 必红）。
+
+真门禁全绿（含 ArkTS 编译 BUILD SUCCESSFUL）。

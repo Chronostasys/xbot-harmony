@@ -63,6 +63,11 @@ import {
   ComposerButton, composerButtonState, composerPlaceholder, enterSends,
   FS_ROWS, FsEntry, joinPath, matchCommands, matchFiles, parentDir, selNext, selPrev, spinHoldRemainingMs,
 } from '../core/composer';
+// §21.122bu「一个页面只有一个形态」：能力面承载判定（唯一真源）+ 入口唯一出口 `openSurface`。
+import {
+  isNativeSurface, SURFACE_NATIVE, SURFACE_WEB, SURF_FILES, SURF_GENUI, SURF_PLUGINS,
+  SURF_TASKS, SURF_TERMINAL, SURF_WEBUI, surfaceOf,
+} from '../core/surfaces';
 import {
   clampOffset, clampScale, isZoomed, nextZoom, panLimit, saveImageName, scaleText,
 } from '../core/imgops';
@@ -3539,11 +3544,40 @@ struct Index {
    * （要求④：能力可换实现，⛔ 不能凭空消失）。拿不到基地址 ⇒ 明说不可用，
    * ⛔ 不静默什么都不做（用户会以为按钮坏了）。
    */
-  private openFsWeb(): void {
-    if (this.openWebPanel('files')) {
-      this.showFiles = false;
-    } else {
-      this.toast('Web 文件面板不可用：未连接服务端');
+  /**
+   * **唯一的面板出口**（§21.122bu，用户定向「一个页面必须只有一个形态，别入口不同展示的不同」）。
+   *
+   * 形态判定**只**来自 `core/surfaces.surfaceOf`（唯一真源）；本函数是唯一的动作落点 ⇒
+   * 任何入口（抽屉键 / 顶栏 / 面板内跳转 / web 宿主导航）调它都拿到**同一形态**。
+   * ⛔ 页面里不得再出现"这里走原生、那里走 web"的分叉判断。
+   */
+  private openSurface(id: string): void {
+    if (isNativeSurface(id)) {
+      // 原生态：收掉可能开着的 web 面板（否则两层面板叠着、退回时看到旧 web 页）。
+      this.panelUrl = '';
+      if (id === SURF_FILES) {
+        this.showFiles = false;
+        this.openFiles();
+        return;
+      }
+      if (id === SURF_TASKS) {
+        this.openPanels();
+        return;
+      }
+      if (id === SURF_TERMINAL) {
+        this.switchPanelTab('term');
+        this.openPanels();
+        return;
+      }
+      return; // 未知原生态：不动（⛔ 不猜）
+    }
+    // web 态（插件目录/宿主页/GenUI/完整 Web UI + 未知 id 的 fail-safe 兜底）。
+    if (id === SURF_PLUGINS) {
+      this.openPluginManager();
+      return;
+    }
+    if (!this.openWebPanel(id)) {
+      this.toast('Web 面板不可用：未连接服务端');
     }
   }
 
@@ -4981,10 +5015,9 @@ struct Index {
             onRefresh: () => {
               this.loadFsDir(this.fmDir);
             },
-            // §21.122bg：原生面板内保留 web 版入口（能力不减 —— 见 openFsWeb 注释）。
-            onOpenWeb: () => {
-              this.openFsWeb();
-            },
+            // §21.122bu：**移除**面板内「用 web 文件面板打开」次级入口 —— 用户定向
+            // 「一个页面必须只有一个形态，别入口不同展示的不同」⇒ 文件面只保留原生一套
+            // （原生是超集：浏览/搜索/预览/加入聊天；web 版此前只是"能力不减"的双开）。
             searching: this.fsSearchActive,
             searchQuery: this.fsSearchQuery,
             searchItems: this.fsSearchItems,
@@ -10567,16 +10600,12 @@ struct Index {
         .layoutWeight(1).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        // §21.122e（用户定向「任务管理做的很差」）：抽屉键由**原生运行面板**改为 **web 任务面板**
-        // （`?xbot_panel=tasks` = web 的 `core.tasks`/`TasksPanel`：cron ⏰ + 后台任务 ▶ 含 kill/remove
-        // —— 能力自动跟随 web 演进）；⛔ 拿不到基地址时**回落**到原生运行面板（它是超集：
-        // 另有子代理/Runner/终端），所以这次改动**不减少任何可达能力**。
-        // ⚠️ 原生运行面板的入口仍在**顶栏**（同一出口 `openPanels()`）⇒ 两者不是二选一，是分工。
-        .accessibilityText('任务：web 任务面板（cron + 后台任务；离线回落原生运行面板）')
+        // §21.122bu（用户定向 2026-10-16「一个页面必须只有一个形态」）：**统一到原生运行面板**。
+        // ⛔ 不再开 `?xbot_panel=tasks`（web 任务面板）—— 同一能力面曾按入口不同渲染成两种形态。
+        // 形态判定收敛在 `surfaceOf(SURF_TASKS)`（唯一真源），动作走唯一出口 `openSurface`。
+        .accessibilityText('任务：原生运行面板（cron + 后台任务 + 子代理 + Runner + 终端）')
         .onClick(() => {
-          if (!this.openWebPanel('tasks')) {
-            this.openPanels();
-          }
+          this.openSurface(SURF_TASKS);
         })
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.puzzle'))
@@ -10621,16 +10650,11 @@ struct Index {
         .layoutWeight(1).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('终端：web 终端面板（新建/切换会话终端；离线回落原生「运行」面板终端页）')
+        .accessibilityText('终端：原生终端（新建/切换会话终端；与运行面板终端页同一实现）')
         .onClick(() => {
-          // §21.122e 同款纪律：**每个 `openWebPanel` 调用点都要有原生回落**——拿不到基地址时
-          // `openWebPanel` 返回 false（fail-closed），无回落 = 点下去**毫无反应**（本键此前正是
-          // 如此：文件/任务两键都有 `if (!…){…}`，只有终端键裸调）。回落目标 = 原生「运行」面板的
-          // 终端页（`panelTabs()` 的 `term`），与 web 终端面板是不同能力面但同一条入口语义。
-          if (!this.openWebPanel('terminal')) {
-            this.switchPanelTab('term');
-            this.openPanels();
-          }
+          // §21.122bu：**统一到原生终端**（用户定向「一个页面必须只有一个形态」）。
+          // 形态判定 = `surfaceOf(SURF_TERMINAL)`（唯一真源）；入口动作走唯一出口 `openSurface`。
+          this.openSurface(SURF_TERMINAL);
         })
         // ── 竖向发丝：把**销毁性**动作（退出登录）与导航项拉开 ──────────────────────
         // 2026-10-14（目标③「抽屉对标 Apple」）：Apple 不在主导航里放"等重的销毁项"——它要么收进
