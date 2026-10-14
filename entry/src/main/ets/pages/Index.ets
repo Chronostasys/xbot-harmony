@@ -68,6 +68,8 @@ import {
   isNativeSurface, SURFACE_NATIVE, SURFACE_WEB, SURF_FILES, SURF_GENUI, SURF_PLUGINS,
   SURF_TASKS, SURF_TERMINAL, SURF_WEBUI, surfaceOf,
 } from '../core/surfaces';
+// §21.122bx：浮层覆盖聊天区时的 live 可见态**降频**判据（纯函数，防"开浮层特别卡"）。
+import { shouldDeliverLive } from '../core/livedeliver';
 import {
   clampOffset, clampScale, isZoomed, nextZoom, panLimit, saveImageName, scaleText,
 } from '../core/imgops';
@@ -1926,7 +1928,10 @@ struct Index {
   }
 
   private syncPulse(busy: boolean): void {
-    if (busy && !this.appPaused && this.pulseTimer < 0) {
+    // §21.122bx：浮层覆盖聊天区时**停掉装饰动效**（流光扫过 live pill；被浮层盖住 ⇒ 无人看见）
+    // —— 这条 600ms 的页级 `@State` 写入会把**整页标脏**，与浮层入场动画抢帧预算。
+    // 浮层关闭后随下一帧 `sync` 自动复起（`sync` 每次都会调本方法）。
+    if (busy && !this.appPaused && !this.anyModalOpen() && this.pulseTimer < 0) {
       this.pulseTimer = setInterval(() => {
         // 同一拍顺手推进流光位置（避免为装饰再开一个定时器）
         this.sweepX = this.sweepX >= 300 ? -80 : this.sweepX + 110;
@@ -8479,6 +8484,14 @@ struct Index {
    */
   private liveToolsSig: string = '';
 
+  /**
+   * §21.122bx：上一次 live 可见态投递的时刻（`syncLiveTail` 的降频判据用）。
+   *
+   * 只在**浮层覆盖聊天区且仍在流式**时生效（最小间隔 `COVERED_DELIVER_MS`）；判据是纯函数
+   * `core/livedeliver.shouldDeliverLive`（`!covered || !busy` ⇒ 必投，⛔ 不会陈旧）。
+   */
+  private liveDeliverAtMs: number = 0;
+
   private fingerprintRows(rows: ChatRow[], chatId: string): string {
     return rowsFpOf(rows, chatId);   // 纯函数在 core/rowdiff（带会话身份，有判别测试）
   }
@@ -8560,6 +8573,17 @@ struct Index {
    * 同样按 `blocksSignature` 门控（只在结构/内容变化时赋值 ⇒ 流式期间零额外重建）。
    */
   private syncLiveTail(): void {
+    // ── §21.122bx：浮层覆盖聊天区时**降频投递**（用户亲报「打开侧边栏/菜单时主视图还在 stream
+    //    就特别卡」）── 流式期间每个 SSE 帧都把页级可见态写进 `@State` ⇒ **整页 build + live 行
+    //    重排**；浮层打开时这些帧**看不见**，却与浮层入场动画抢同一帧预算。
+    //    判据是纯函数（`core/livedeliver`，有判别力单测 + mutation 自证）：
+    //      · `covered && busy` ⇒ 最小间隔 400ms（≈2.5 次/秒，肉眼无差别）；
+    //      · **其余一律立即投**（`!covered` 或 `!busy`）—— 后者是**防陈旧的关键**：
+    //        回合结束那一帧 `busy=false` ⇒ 必投 ⇒ 最终内容不可能停在被丢弃的那一帧上。
+    if (!shouldDeliverLive(this.anyModalOpen(), this.busy, Date.now(), this.liveDeliverAtMs)) {
+      return;
+    }
+    this.liveDeliverAtMs = Date.now();
     let text: string = '';
     let reasoning: string = '';
     let tools: ToolProgress[] = [];
@@ -9646,7 +9670,9 @@ struct Index {
         wrapCodeV: this.wrapCode(),
         sweepX: this.sweepX,
         orb: this.orbOn(),
-        paused: this.appPaused,
+        // §21.122bx：浮层覆盖聊天区时**停表**（光球 30fps Canvas 是流式期唯一实测到的 CPU 地板；
+        // 被浮层盖住 ⇒ 无人看见，却与浮层入场动画抢帧预算）。语义与"后台停表"同一条通道。
+        paused: this.appPaused || this.anyModalOpen(),
         onImage: (src: string) => {
           this.openImage(src);
         },
@@ -9721,7 +9747,9 @@ struct Index {
         wrapCodeV: this.wrapCode(),
         sweepX: this.sweepX,
         orb: this.orbOn(),
-        paused: this.appPaused,
+        // §21.122bx：浮层覆盖聊天区时**停表**（光球 30fps Canvas 是流式期唯一实测到的 CPU 地板；
+        // 被浮层盖住 ⇒ 无人看见，却与浮层入场动画抢帧预算）。语义与"后台停表"同一条通道。
+        paused: this.appPaused || this.anyModalOpen(),
         onImage: (src: string) => {
           this.openImage(src);
         },

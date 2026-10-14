@@ -543,3 +543,28 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
 （被动监听；本次为单条命令内"起监听 → `aa force-stop` → `aa start`"以免前/后台竞态）。
 
 ⚠️ 口径：宿主并发占用时方差极大（文档已记 168↔1314 ms）⇒ 只作数量级判据。
+
+### 1.6g 第六轮（2026-10-16）：**浮层覆盖聊天区时不再为不可见的帧付账**（用户亲报「打开侧边栏/菜单时主视图还在 stream ⇒ 特别卡」）
+
+**用户原话**：「我知道了，打开侧边栏或者菜单的时候，如果主视图还在 stream 就会特别卡。包括别的掉帧也和
+正在 stream 有关，**必须优化**」。
+
+**机制（与 §1.6f 同族：页级 `@State` 写入 ⇒ 整页 `build()`）**：
+1. 流式期间**每个 SSE 帧**都把页级可见态写进 `@State`（`syncLiveTail`：`liveText`/`liveReasoning`/
+   `liveTools`/`liveBlocks`/`liveSubAgents`）⇒ 整页 build + live 行重排；
+2. 浮层（抽屉/面板/菜单/终端/文件…）打开时这些帧**全被盖住、完全看不见**，却与浮层的入场动画
+   **抢同一帧预算** ⇒ "开侧边栏特别卡"；
+3. 另有两条**装饰性在飞**常驻：页级 `setInterval(600ms)` 推 `sweepX`（流光扫过 live pill）——它每次写入
+   都把整页标脏；光球 **30fps Canvas**（§3③ 记为"唯一实测到的 CPU 地板"）。
+
+**修法（三条，全部"看不见就不付账"，语义零改变）**：
+
+| 靶子 | 旧 | 新 | 判据/凭据 |
+|---|---|---|---|
+| live 可见态投递 | 每个 SSE 帧都投 | 覆盖期**降频**（`covered && busy` ⇒ ≥400ms 间隔；**`!covered \|\| !busy` ⇒ 必投**） | 纯函数 `core/livedeliver.shouldDeliverLive` + `tools/tests/livedeliver.test.ts`（16 断言，含 2 组 mutation 自证） |
+| 流光脉动 | `busy && !appPaused` 起 600ms 定时器 | 再加 `&& !anyModalOpen()` | `syncPulse`（浮层关闭后随下一帧 `sync` 自动复起） |
+| 光球 30fps | `paused: appPaused` | `paused: appPaused \|\| anyModalOpen()`（沿用"后台停表"同一条通道，停时补画静息帧） | `AssistantOrb` 既有停表语义 |
+
+⛔ **防陈旧是硬约束**（不许"覆盖期完全冻结"）：`!busy` 必投 ⇒ **回合结束那一帧一定落地**，
+最终内容不可能停在被丢弃的那一帧上；`!covered` 必投 ⇒ 关掉浮层立刻恢复全速投递。
+⛔ 不新开定时器（门禁 ⑨ 计时器预算 A 级 ≤7 处）；判据是**纯函数**（判据与渲染同源）。
