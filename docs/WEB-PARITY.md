@@ -1407,3 +1407,30 @@ mutation 实测：删渲染层 sparkline 分支 → 2 红；把降级特判加�
 
 **本轮新修的真缺陷**：底栏「任务」错落终端页（`openSurface(SURF_TASKS)` 不重置页签）——见
 `docs/WEB-ALIGNMENT.md §21.122bz`。
+
+### §P4.2 「能力面板枚举插件自报面板」装机复核（2026-10-14，④ 线闭环）
+
+复核对象 = §P4「下一步」的三项公式：「固定能力 + 插件自报面板」两段式 / 数据源 = 插件注册表
+surfaces/panels / 每面板承载判定。环境：模拟器 xbot_phone（1320×2848）、app `4fb2df0`、
+服务端 8082（登录经本地 8083 中继）、浅色 one-light。
+
+| 验证项 | 证据（dump/截图实得） | 结论 |
+|---|---|---|
+| ① 两段式结构 | 面板 dump：`能力面板` + 6 固定入口（插件管理（Web）/插件目录（原生）/会话统计/技能/Git 面板（原生）/完整 Web UI）+ 分组头「插件」+ 4 条插件自报行（Ambience 被服务端过滤） | ✅ 已落地 |
+| ② openable/hint 门控 | `GenUI（display_html）`→「未声明面板」无 chevron；`迭代指标`→「已挂载：状态栏」；`Git 面板`/`远程机器（SSH）`有 chevron | ✅ 判据 `isPanelContainer`/`pluginOpenHint` 装机落位 |
+| ③ 可开行通用深链 | 点 Git 面板行 ⇒ WebSurface URL 逐字 `?xbot_view=xbot.git-fancy.panel&xbot_view_title=Git%20面板`（+`xbot_embed=1`） | ✅ 零插件特判（`pluginOpenTarget`） |
+| ④ embed 只渲插件本体 | WebView 内容 = git 插件自己的空态「当前目录不是 git 仓库」（cwd=/Users/bobli 确非仓库，**真值**）；dump 中**零** web 整壳 chrome 节点 | ✅ `webPluginViewRequest`/EmbedPanelShell 链路真机生效 |
+| ⑤ 瞬断 fail-safe + 退出 | 点击瞬间遇瞬断：错误横幅「加载失败：ERR_INCOMPLETE_CHUNKED_ENCODING」+ 重试按钮；复测直连/中继同 URL 均 200/3114B（非复现，纯瞬时）；自愈后干净渲染；**Back 键关闭浮层**回聊天根（x8 dump 零残留） | ✅ 失败方向安全 |
+| ⑥ 不可开行静默忽略 | 静态可证：`PluginsSheet.ets` 行 onClick 仅 `if (p.openable)` 才走打开 ⇒ 路径上不可能开空页；openable 判据已由 ② 装机证明 | ✅ 复合闭环 |
+
+**结论**：§P4 的「自报面板枚举缺口」在 `4fb2df0` **已完整落地，无残缺口，无需代码改动**。
+「统计插件的面板我们看不到」在能力面板内的闭环 = 描述行 + 「已挂载：状态栏」提示 + 无假 chevron
++ 顶栏原生徽章 + 固定入口「会话统计」五重覆盖。
+
+**下一批候选**（本表 :825-829 标 P4 的 backlog，均属「④ 支持 web 全部功能的余项」，下波扫描时提级）：
+设置 General「清缓存」（0 命中）/ 设置 Appearance「UI_MODE」死字段消费 / 分享页（token 只读，0 命中）/
+FoldedToolGroup 组内 kind 分组标头。
+
+**审计方法论注记**：本轮差点被我自己的取数伪影误导——解析 dump 只打印前 N 个节点 ⇒ WebSurface
+仍在树上却显示"干净 chat 根"（假结论）。判定浮层状态必须用 **marker 匹配**（`加载失败`/URL 特征串），
+不能肉眼扫自己截断的列表。
