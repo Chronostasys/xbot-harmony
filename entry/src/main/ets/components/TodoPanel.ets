@@ -29,7 +29,7 @@ import {
   PRESS_OPACITY, PROGRESS_H, PROGRESS_W, RADIUS_CHIP, STROKE_HAIRLINE, SURFACE_CARD, TYPE_CHIP,
   elevationColorOf, goalRowTintOf, hairlineOf, structuralRuleOf,
   surfaceFillOf, typeOf, colorOf, HIT_TARGET_MIN, } from '../core/design';
-import { animFast, fadeTransition } from './anim';
+import { animBase, animFast, fadeTransition } from './anim';
 import { TodoItem } from '../core/types';
 import {
   hasTodos, isGoalTodo, todoCountLabel, todoPercent, todoRowKey, todoState,
@@ -163,6 +163,15 @@ struct TodoRowView {
             this.onDraft(v);
           })
           .onSubmit(() => {
+            this.onCommit();
+          })
+          // ⛔ 失焦即收敛（2026-10-14 用户亲报「编辑 todo 进入编辑态之后，点击别的位置不会自动
+          //    回到非编辑态，这也是 bug」）：此前**只有** Enter（`onSubmit`）才会退出编辑态
+          //    ⇒ 点别的行 / 点面板空白 / 点输入框都停在编辑态，行永久是一个悬空的输入框
+          //    （用户读成"卡住了"）。Apple 语义 = 编辑态是**焦点态**：焦点一离开就落定
+          //    （`onCommit()` 内部已按 web 语义处理"空串/未变 ⇒ 不回调、保持原文本"）。
+          //    ⚠️ 与服务端写路径无关：`commitEdit()` 只在**有效且变化**时才回调 `onRenameTodo`。
+          .onBlur(() => {
             this.onCommit();
           })
       } else {
@@ -411,9 +420,29 @@ export struct TodoPanel {
           //    `List` 无空间 ⇒ **整片白屏**（真机 dump：坏态聊天区 `Stack h=0`、本 Row `h=1836`；
           //    好态 `h=1996`；无 todo 的会话不受影响 ⇒ 用户报的"切**一部分**会话必白"）。
           //    ⇒ 高度**由内容决定**（本条约 ~30vp）。
+          // ⛔ 命中区（2026-10-14 用户亲报「todo 展开和收起区域要大一点，现在展开了收起不好交互」）：
+          //    本 `Row` 是**折叠开关**，此前命中盒 = 内容固有高（≈30vp，图标/进度/文字里最高的那个）
+          //    ⇒ 展开后用户想收起时，点在文字上下的留白**没有反应**，必须瞄准那一条窄带。
+          //    ⇒ 给**真实 ≥ `HIT_TARGET_MIN`(44) 布局盒 + 占满可用宽**（`layoutWeight(1)`）：
+          //    整条横带都可点（Apple 折叠行惯例），且**不靠 `responseRegion`**（真机实测负偏移外扩无效）。
+          //    ⚠️ 纵向**仍由内容决定上限**（本 Row 在输入区的 `Column` 里，⛔ 不得 `height('100%')`
+          //    —— 那会把聊天区挤成 0 高，见下方那条 2026-10-12 白屏根因注释）。
+          .layoutWeight(1)
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
+          .justifyContent(FlexAlign.Start)
+          .alignItems(VerticalAlign.Center)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .accessibilityText(this.expanded ? '收起待办清单' : '展开待办清单')
           .onClick(() => {
-            this.expanded = !this.expanded;
+            // ── 展开/收起动效（用户 2026-10-14：「展开收起加一下动画吧」）──────────────────
+            // 走底座唯一动效出口（`components/anim.ets` 的 `animBase()` 工厂；组件内调用路径
+            // 与 `StagingTray` 同款 `this.getUIContext().animateTo(…)`）：
+            // **只把 `expanded` 的翻转包进 animateTo** ⇒ 其引发的子树增删按底座曲线过渡
+            // （列表体的 `.transition(fadeTransition())` + chevron 的 `animFast()` 旋转同时生效）。
+            // ⛔ 不新造时长/曲线、⛔ 不动不透明度作为"可读性前提"（门禁 ⑨：静息态恒可见）。
+            this.getUIContext().animateTo(animBase(), () => {
+              this.expanded = !this.expanded;
+            });
           })
 
           // 🎯「设为目标」—— 仅**无 goal** 时（web `TodoPullOut.tsx:113-121`）

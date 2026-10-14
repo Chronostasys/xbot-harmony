@@ -133,12 +133,18 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   //   （`this.getUIContext().animateTo(animFast(), …)`）—— 讲的是"同一个托盘从折叠到展开"
   //   这条状态关系（此前无此面）；⛔ 走底座 `animFast()`，**零新增曲线对象**。
   ['components/StagingTray.ets', 1],
-  ['components/TodoPanel.ets', 2],     // ① 属性动画 `.animation(animFast())`（`chevron_right` 的 `rotate 0→90`）
+  ['components/TodoPanel.ets', 3],     // ① 属性动画 `.animation(animFast())`（`chevron_right` 的 `rotate 0→90`）
                                        //   —— **必须留**（2026-10-11 动效审计逐处判）：它讲的是**展开/收起的
                                        //   **方向状态变化**，删了箭头会"跳"；web `TodoPullOut.tsx` 同款有过渡。
                                        // ② 2026-10-12：展开态清单块 `.transition(fadeTransition())` —— 讲的是
                                        //   **展开/收起**（web 同处在 `AnimatedCollapse` 内，是 `opacity 180ms`
                                        //   出现过渡）；静息态恒可见 ⇒ fail-safe（门禁 ⑨ 正向形态）。
+                                       // ③ 2026-10-14 **+1**（用户亲报「todo 展开和收起区域要大一点…还有
+                                       //   **展开收起加一下动画吧**」）：折叠开关的 `expanded` 翻转包进
+                                       //   `this.getUIContext().animateTo(animBase(), …)` —— 讲的状态关系 =
+                                       //   "同一张清单从折叠到展开"（与 `StagingTray` 那条**同款同因**）。
+                                       //   ⛔ 走既有工厂 `animBase()`（**零新增曲线对象**）；⛔ 不动不透明度语义
+                                       //   （可读性不依赖动画 ⇒ 门禁 ⑨ 正向形态）。
   // 思考区展开/收起（2026-10-12）—— 此前**硬切**（`if (this.open)` 门控的正文块瞬现瞬消），
   //   而 web `ThinkingLine.tsx:69` 把它放在 `AnimatedCollapse`（`opacity 180ms ease-out` +
   //   CSS grid 高度）里。本波补上 **opacity 那一半**（`.transition(fadeTransition())`，语义

@@ -85,7 +85,7 @@ import {
   isInterruptSend, MODE_INTERRUPT, MODE_QUEUE, modeHint, modeLabel, sendToast, toggleMode,
 } from '../core/sendmode';
 import { mdCacheStats, MdCacheStats } from '../core/markdown';
-import { completedBlocks, displayContent, displayReasoning, resolveRowReply, rowHasInFlightSignal, rowIsEmpty, streamStatsText } from '../core/streammerge';
+import { completedBlocks, displayContent, displayReasoning, resolveRowReply, rowHasInFlightSignal, rowIsEmpty, streamStatsText, toolsSignature } from '../core/streammerge';
 import { canRewindWhile } from '../core/ctxmenu';
 import { rowById } from '../core/rowquery';
 import {
@@ -8387,6 +8387,14 @@ struct Index {
    *    初值 = 空块指纹（`liveBlocks` 初值 `[]` 的指纹）⇒ 首帧不会误赋值。
    */
   private liveBlocksSig: string = EMPTY_BLOCKS_SIGNATURE;
+  /**
+   * 在飞**工具列表**的页侧副本签名（值投递门控 —— 见 `syncLiveTail`）。
+   * ⛔ 为什么不能按**数组恒等**门控（2026-10-14 用户亲报「tool 生成中 x 字，这个 x 不会更新」）：
+   *    在飞迭代的 `tools` 数组是**就地更新**的（同一引用、元素字段在变）⇒ 恒等恒成立
+   *    ⇒ 永不投递 `@Prop liveTools` ⇒ pill 的 `生成中 N 字`/耗时冻结在创建那一刻。
+   *    判据本体是纯函数 `core/streammerge.toolsSignature`（可脱机单测）。
+   */
+  private liveToolsSig: string = '';
 
   private fingerprintRows(rows: ChatRow[], chatId: string): string {
     return rowsFpOf(rows, chatId);   // 纯函数在 core/rowdiff（带会话身份，有判别测试）
@@ -8492,8 +8500,14 @@ struct Index {
     if (this.liveReasoning !== reasoning) {
       this.liveReasoning = reasoning;
     }
-    if (this.liveTools !== tools) {
-      this.liveTools = tools;
+    // ⛔ 工具列表必须按**内容签名**门控（⛔ 不是数组恒等）——2026-10-14 用户亲报
+    //    「tool 生成中 x 字，这个 x 不会更新」：在飞迭代的 `tools` 是**就地更新**的同一数组，
+    //    恒等比较恒成立 ⇒ 永不投递 `@Prop` ⇒ pill 的生成字数/耗时冻结在创建那一刻。
+    //    与 `liveBlocks` 同一门手艺（签名变化才投递**新数组** ⇒ ArkUI 看得见"值变化"）。
+    const toolsSig: string = toolsSignature(tools);
+    if (toolsSig !== this.liveToolsSig) {
+      this.liveToolsSig = toolsSig;
+      this.liveTools = tools.slice();
     }
     // 已完成块列表（值变化通道）—— 只在结构/内容变化时赋值。
     // ⛔ 双命中（目标⑤ round4）：行侧指纹按**派生行源数组对象恒等**记忆化（`liveBlocksSignature`，

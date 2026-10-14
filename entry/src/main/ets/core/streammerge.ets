@@ -370,6 +370,37 @@ export function blocksSignature(bs: HistoryIteration[]): string {
 }
 
 /**
+ * 在飞**工具列表**的内容签名（纯函数，可脱机单测）。
+ *
+ * ⛔ 为什么必须有（2026-10-14 用户亲报：「目前 tool `生成中 x 字`，这个 x 不会更新」）：
+ *    `pages/Index.syncLiveTail` 原本用**数组恒等**门控投递 `@Prop liveTools`
+ *    （`if (this.liveTools !== tools)`），而在飞迭代的 `tools` 数组是**就地更新**的
+ *    （同一引用、元素字段在变）⇒ 恒等成立 ⇒ **永不投递** ⇒ `LiveTailView` 收到的是
+ *    创建那一刻的引用 ⇒ pill 的 `生成中 N 字`（`t.gen_chars`）、耗时、参数长度全部冻结。
+ *    （同族血债见 AGENTS.md「LazyForEach + 最小通知键」与 `blocksSignature` 的门手艺：
+ *      **会变的值必须走"内容变化"而非"引用变化"**。）
+ *
+ * 计入字段 = pill 上**看得见**的一切：状态 / 生成字数 / 退出码 / 耗时 / 调用 id /
+ * 参数与输出的长度（长度足以驱动"生成中"字数与详情懒加载的存在性判断）。
+ * ⚠️ 刻意**不计** `detail` 全文：那会让每帧拼上千字符的串（`detail` 只在点开浮层时才读）。
+ */
+export function toolsSignature(ts: ToolProgress[]): string {
+  let s: string = `${ts.length}`;
+  for (let i = 0; i < ts.length; i++) {
+    const t: ToolProgress = ts[i];
+    const status: string = t.status !== undefined ? t.status : '';
+    const gen: number = t.gen_chars !== undefined ? t.gen_chars : -1;
+    const code: number = t.exit_code !== undefined ? t.exit_code : -1;
+    const ms: number = t.elapsed_ms !== undefined ? t.elapsed_ms : -1;
+    const cid: string = t.call_id !== undefined ? t.call_id : '';
+    const argLen: number = t.args !== undefined ? t.args.length : 0;
+    const detLen: number = t.detail !== undefined ? t.detail.length : 0;
+    s += `|${t.name}:${status}:${gen}:${code}:${ms}:${cid}:${argLen}:${detLen}`;
+  }
+  return s;
+}
+
+/**
  * 「尾部可见内容量」—— 本行**渲染后会真正画出来**的字符数（工具 pill 计 1）。
  *
  * ⛔ 这是「可见性判据」与「渲染内容」的**唯一同源点**（用户 2026-10-10 P0 定稿：
