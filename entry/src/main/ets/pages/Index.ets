@@ -3529,6 +3529,11 @@ struct Index {
         return;
       }
       if (id === SURF_TASKS) {
+        // ⛔ **必须重置页签**（2026-10-16 装机实测）：与 `SURF_TERMINAL` 同理，此前只 `openPanels()`
+        //    而 `panelTab` 是页面 @State ⇒ **保留上一次的页签**。用户上一轮用过「终端」再点底栏
+        //    「任务」，面板直接落在**终端**页（实测复现：点任务后文本仍是「暂无终端 / 新建终端即可…」）
+        //    ⇒ 「任务」入口名实不符。任务面 = 定时(cron) + 后台(tasks)，权威落地页 = `cron`。
+        this.switchPanelTab('cron');
         this.openPanels();
         return;
       }
