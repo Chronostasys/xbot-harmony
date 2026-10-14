@@ -28,10 +28,12 @@ import { followAfterScrollStop } from '../core/listfollow';
 // 「↓ 回到最新」的显示判据（**与消息列表同一真源**，⛔ 不在这里重写一套）
 import { showsJumpToLatest } from '../core/indicators';
 import {
-  encodeResize, encodeStdin, parseTermMsg, TERM_CLOSE_MSG, TERM_CLOSED, TERM_CONNECTED,
+  encodeResize, encodeStdin, parseTermMsg, reconnectDelayMs, TERM_CLOSE_MSG, TERM_CLOSED, TERM_CONNECTED,
   TERM_CONNECTING, TERM_ERROR, TERM_EXITED, TermMsg, TerminalInfo, terminalHeadTitle, terminalStatusRole,
   terminalStatusText, terminalTitle, termWsUrl,
 } from '../core/termproto';
+// P0-1 逐键输入的三态 diff + 回车擦除兜底（vim/REPL/ssh 密码在此之前收不到任何中间按键）
+import { eraserFor, sentThroughStep, stdinDelta } from '../core/termkey';
 import { Palette, paletteOf } from '../core/theme';
 import {
   colorOf, hairlineOf, HIT_TARGET_MIN, PRESS_OPACITY, RADIUS_CARD, RADIUS_PILL, RADIUS_SHEET,
@@ -96,6 +98,12 @@ export struct TerminalSheet {
   /** 渲染上限：scrollback 尾巴 + 屏幕（摊平成一个 `Text`，见 `flatSpans`）。 */
   @State private flow: AnsiSpan[] = [];
   @State private input: string = '';
+  /**
+   * 已逐键透传给 PTY 的行前缀长度（P0-1：`stdinDelta` 尾追段即时 `stdin` 后累加、
+   * 退格 wire 回退一格）。回车时 `eraserFor(sentThrough)` 先把这段从 PTY 行上擦掉
+   * 再整行重发 —— 双发/丢字两难的兜底，见 submitInput。
+   */
+  @State private sentThrough: number = 0;
   @State private note: string = '';
   /** `Ctrl` 修饰键开关（对齐 web `TerminalPanel` 的 `ctrlActive`）：开启后第二行换成 Ctrl 组合字母。 */
   @State private ctrlActive: boolean = false;
@@ -105,6 +113,10 @@ export struct TerminalSheet {
   private flushTimer: number = -1;
   private dirty: boolean = false;
   private userClosed: boolean = false;
+  /** 断线重连（P0-2）：第几次重连（0 起）；on('open') 成功后清零。 */
+  private reconnectAttempt: number = 0;
+  /** 挂起的重连定时器 id（-1 = 无）。Ⓐ 幂等守卫：close/error 双通道只触发一次调度。 */
+  private reconnectTimer: number = -1;
   /**
    * 是否跟随新输出（`flush()` 只在 true 时才 `scrollEdge(Bottom)`）。
    *
@@ -267,6 +279,7 @@ export struct TerminalSheet {
 
     ws.on('open', (err: BusinessError, value: Object) => {
       this.status = TERM_CONNECTED;
+      this.reconnectAttempt = 0; // P0-2：连上即清零重连计数
       this.sendResize();
       this.scheduleFlush(true);
     });
@@ -276,18 +289,27 @@ export struct TerminalSheet {
       }
     });
     ws.on('close', (err: BusinessError, value: webSocket.CloseResult) => {
-      if (this.status !== TERM_EXITED && this.status !== TERM_ERROR) {
-        // ⛔ 反例（2026-10-13 修）：曾写 `this.userClosed ? TERM_CLOSED : TERM_CLOSED` ——
-        //    三元两侧同值 ⇒ `userClosed` 是**死标志**，且"意外断开"（网络掉线 / 服务端杀 PTY
-        //    而**未**先发 `exit`）被误报成「已关闭」（像用户自己关的）。正确：只有用户主动关
-        //    才 `closed`；否则 `error`（「连接失败」）——`userClosed` 由此真正有判别力。
-        this.status = this.userClosed ? TERM_CLOSED : TERM_ERROR;
+      // P0-2 triage：**服务端语义终态**（exit⇒EXITED / onData error⇒TERM_ERROR）只归档；
+      // 用户主动关 ⇒ CLOSED；其余（掉线/服务端杀 PTY 未先 exit）⇒ backoff 重连。
+      if (this.status === TERM_EXITED || this.status === TERM_ERROR) {
+        this.cancelReconnect();
+        this.scheduleFlush(true);
+        return;
       }
+      if (this.userClosed) {
+        this.status = TERM_CLOSED;
+        this.cancelReconnect();
+        this.scheduleFlush(true);
+        return;
+      }
+      this.scheduleReconnect();
       this.scheduleFlush(true);
     });
     ws.on('error', (err: BusinessError) => {
-      this.status = TERM_ERROR;
       this.note = err.message !== undefined ? err.message : '';
+      // ⛔ 不在此设终态 TERM_ERROR（那是 onData「服务端语义错」的专属）——
+      //    传输错经随后的 close 事件统一 triage 进重连（error 常先于 close）。
+      this.scheduleReconnect();
       this.scheduleFlush(true);
     });
 
@@ -306,6 +328,7 @@ export struct TerminalSheet {
   }
 
   private teardown(): void {
+    this.cancelReconnect(); // P0-2：用户关面板 ⇒ 撤销一切挂起的重连（幂等）
     if (this.flushTimer >= 0) {
       clearTimeout(this.flushTimer);
       this.flushTimer = -1;
@@ -320,6 +343,54 @@ export struct TerminalSheet {
         // 忽略：关闭路径不应抛到 UI
       }
     }
+  }
+
+  // ── P0-2 断线重连 ────────────────────────────────────────────────────────
+  /** Ⓐ 幂等撤防：close+error 双通道、teardown、放弃路径共用；无挂起则无事发生。 */
+  private cancelReconnect(): void {
+    if (this.reconnectTimer >= 0) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = -1;
+    }
+  }
+
+  /**
+   * 重连前整屏复位：服务端 replay 是 **sess 级全量重放**（web_pty.go:646-656 无
+   * per-client 偏移）⇒ 保留旧屏会在重放后**同一输出显示两遍**。按当前尺寸新建 VT
+   * 再吃 replay（坑源：tasks-gap 审计「重连前必须 new VtTerm() 复位再吃 replay」）。
+   */
+  private resetTermForReplay(): void {
+    this.term = new VtTerm(this.term.cols, this.term.rows);
+    this.dirty = true;
+  }
+
+  /**
+   * 传输断 ⇒ backoff 重连（500ms×2ⁿ≤15s，≤6 次，对齐 web terminalWS.ts:28-31）。
+   * Ⓐ 幂等：close/error 常成对到达，`reconnectTimer >= 0` 即已有调度 ⇒ 直接返回。
+   * 放弃后落终态 TERM_ERROR（与「服务端语义错」共用文案「连接失败」+ note 记次数）。
+   */
+  private scheduleReconnect(): void {
+    if (this.userClosed) { return; }
+    if (this.reconnectTimer >= 0) { return; }
+    const delay: number = reconnectDelayMs(this.reconnectAttempt);
+    if (delay < 0) {
+      this.status = TERM_ERROR;
+      this.note = `重连失败（已试 ${this.reconnectAttempt} 次）`;
+      this.scheduleFlush(true);
+      return;
+    }
+    const nth: number = this.reconnectAttempt + 1;
+    this.reconnectAttempt++;
+    this.status = TERM_CONNECTING;
+    this.note = `已断开，重连中（第 ${nth} 次）…`;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = -1;
+      if (this.userClosed || this.status === TERM_EXITED || this.status === TERM_ERROR) { return; }
+      this.teardown(); // 关旧 socket + 清挂起 flush（cancelReconnect 幂等无害）
+      this.resetTermForReplay();
+      this.connect();
+    }, delay);
+    this.scheduleFlush(true);
   }
 
   private raw(msg: string): void {
@@ -442,11 +513,18 @@ export struct TerminalSheet {
 
   private submitInput(): void {
     const t: string = this.input;
+    const sent: number = this.sentThrough;
     this.input = '';
+    this.sentThrough = 0;
     if (this.status !== TERM_CONNECTED) {
       return;
     }
-    this.raw(encodeStdin(t.length > 0 ? `${t}\r` : '\r'));
+    // P0-1 回车兜底：已逐键透传的 sent 个字符还在 PTY 行上 —— 先发 DEL×sent 擦掉，
+    // 再整行+回车。透传越少擦得越少；全程 diff 失败（中文/粘贴）时 sent===0 ⇒ 与
+    // 旧行为（整行回车）逐字节一致，风险面为零。
+    const eraser: string = eraserFor(sent);
+    const line: string = t.length > 0 ? `${t}\r` : '\r';
+    this.raw(encodeStdin(eraser.length > 0 ? `${eraser}${line}` : line));
   }
 
   private sendResize(): void {
@@ -758,7 +836,15 @@ export struct TerminalSheet {
           .enterKeyType(EnterKeyType.Send)
           .enabled(this.status === TERM_CONNECTED)
           .onChange((v: string) => {
+            // P0-1 逐键输入：只透传「安全形态」（纯 ASCII 尾追 / 单 ASCII 尾删⇒DEL）。
+            // 其余（中间编辑、中文 IME、粘贴重排、程序回灌）diff=null —— 不透传，
+            // 由回车时 eraserFor+整行兜底补齐（既不双发也不丢字，见 submitInput）。
+            const d: string | null = stdinDelta(this.input, v);
             this.input = v;
+            if (d !== null && d.length > 0 && this.status === TERM_CONNECTED) {
+              this.sentThrough = Math.max(0, this.sentThrough + sentThroughStep(d));
+              this.raw(encodeStdin(d));
+            }
           })
           .onSubmit(() => {
             this.submitInput();

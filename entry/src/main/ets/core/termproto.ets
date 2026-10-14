@@ -174,3 +174,19 @@ export function termWsUrl(baseUrl: string, tid: string): string {
   else if (u.startsWith('http://')) { u = `ws://${u.substring(7)}`; }
   return `${u}/ws/terminal?tid=${tid}`;
 }
+
+// ── 断线重连（P0-2，2026-10-14）─────────────────────────────────────────────
+/**
+ * 第 attempt 次（0 起）重连的等待毫秒：`500 × 2^attempt`，封顶 15s；
+ * attempt ≥ 6（约 31.5s 累计后）⇒ 返回 -1 = **放弃**。
+ *
+ * 对齐 web `terminalWS.ts:28-31`（500ms×2ⁿ、cap 15s、放弃上限）——
+ * 真机已实证现状（2026-10-14 装机）：WS 断开后 `已连接`→`连接失败` 死态，
+ * 无任何重连 ⇒ 本函数 + `TerminalSheet.scheduleReconnect` 是唯一通路。
+ */
+export function reconnectDelayMs(attempt: number): number {
+  if (!Number.isFinite(attempt) || attempt < 0) { return -1; }
+  if (attempt >= 6) { return -1; }
+  const ms: number = 500 * Math.pow(2, attempt);
+  return ms > 15000 ? 15000 : ms;
+}

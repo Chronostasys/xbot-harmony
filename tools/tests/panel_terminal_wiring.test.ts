@@ -321,11 +321,18 @@ ok(`滚动停止时按"是否贴底"恢复跟随（${stopResume} == 1 / onScroll
 //   判据 = 三元两侧**必须异值**（`userClosed ? closed : error`）+ 反例（同值 `TERM_CLOSED : TERM_CLOSED`）
 //   必须 0 处 + `userClosed` 置位仍在（`= true` 1 处）⇒ 标志真有判别力。
 const closeTernary: number = countOf(termSrc, 'this.userClosed ? TERM_CLOSED : TERM_ERROR');
+// P0-2（2026-10-14）起 close 回调改 triage 分支（传输断 ⇒ backoff 重连，不再误报 error 态）：
+//   判别力随结构升格——userClosed 仍**独占** CLOSED 终态；意外断开通向 scheduleReconnect。
+const closeUserClosed: number = countOf(termSrc, 'this.status = TERM_CLOSED;');
+const closeErrArchive: number = countOf(termSrc, 'if (this.status === TERM_EXITED || this.status === TERM_ERROR) {');
+const closeReconnectCalls: number = countOf(termSrc, 'this.scheduleReconnect();');
 const closeCollapsed: number = countOf(termSrc, 'TERM_CLOSED : TERM_CLOSED');
 const userClosedSet: number = countOf(termSrc, 'this.userClosed = true');
-console.log(`  panel-scan ${TERM}(关闭): closeTernary=${closeTernary} collapsed=${closeCollapsed} userClosedSet=${userClosedSet}`);
+console.log(`  panel-scan ${TERM}(关闭): 旧三元=${closeTernary} userClosed⇒CLOSED=${closeUserClosed} 终态归档=${closeErrArchive} 重连调度=${closeReconnectCalls} collapsed=${closeCollapsed} userClosedSet=${userClosedSet}`);
 
-ok(`关闭三元两侧异值（userClosed ? closed : error = ${closeTernary} == 1）`, closeTernary === 1);
+ok(`userClosed 独占 CLOSED 终态（= ${closeUserClosed} == 1）`, closeUserClosed === 1);
+ok(`服务端语义终态归档不重连（EXITED/ERROR triage = ${closeErrArchive} == 1）`, closeErrArchive === 1);
+ok(`传输断 ⇒ 重连调度 ×2（close+error 双通道 = ${closeReconnectCalls} == 2）`, closeReconnectCalls === 2);
 ok(`⛔ 反例（同值 TERM_CLOSED : TERM_CLOSED = ${closeCollapsed} == 0）`, closeCollapsed === 0);
 ok(`userClosed 置位仍在（closeSelf 里 = true ×${userClosedSet} == 1）`, userClosedSet === 1);
 

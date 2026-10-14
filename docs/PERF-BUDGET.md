@@ -126,7 +126,7 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
 | B 线·色板**读取**总量 `this.pal()` ∨ `this.palOnce()` | — | **1268**（松界 1350，✅；含缓存命中，非成本线） | — |
 | `this.eff()` 调用点 | 57 | **35**（上限 80，✅） | — |
 | `anim*()` 调用点 | 14 | **13**（上限 20，✅） | — |
-| 常驻定时器 | `setInterval` 4 / `setTimeout` 5 | **5 / 6**（上限 6 / 7，✅） | ℹ️ `setTimeout` 的第 6 处 = 运行面板自适应轮询（`pages/Index.ets` `syncPanelPoll`，2s/30s，见 §2 第 18 条） |
+| 常驻定时器 | `setInterval` 4 / `setTimeout` 5 | **6 / 7**（上限 6 / 8，✅） | ℹ️ `setTimeout` 第 6 处 = 运行面板自适应轮询（`pages/Index.ets` `syncPanelPoll`，2s/30s，见 §2 第 18 条）；第 7 处 = 终端断线重连 backoff（`TerminalSheet.scheduleReconnect`，单发短命、幂等，见 §21 末行） |
 
 > ⛔ **订正的原因**：本表原先三条"无记忆化"的结论已被两个 perf 提交推翻（`0c0b2e3` / `e60d1f6`）。
 > 留着旧值是为了**看趋势**，但**别再据此派"给 effectsOf 加缓存"的活**——那已经做完了。
@@ -355,7 +355,7 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
 | 15b | **B 线**：色板**读取**总量 `this.pal()` ∨ `this.palOnce()` | ≤ **1350** 处（松界/防失控；现状 1268） | 静态 | 读取点无限膨胀（口径见 §1.7） |
 | 16 | `this.eff()` 调用点 | ≤ 80 处 | 静态 | 同上（eff 比 pal 贵 250×） |
 | 17 | `setInterval` 调用点 | ≤ **6** 处 | 静态（硬） | **又加一个常驻定时器** |
-| 18 | `setTimeout` 调用点 | ≤ 7 处 | 静态 | 同上 |
+| 18 | `setTimeout` 调用点 | ≤ **8** 处（7 → 8：终端重连 backoff，2026-10-14） | 静态 | 同上 |
 | 19 | `anim*()` 调用点 | ≤ 20 处 | 静态 | 每次新建曲线对象 |
 | 20 | `ForEach` 处数 | ≤ **112** 处（规模指示；107→111 Git 面板 →112 行菜单并入纯函数项集模式） | 静态（规模指示） | 列表规模失控 |
 | 21 | core 外裸 `parseMarkdown/parseInline` | **= 0** | 静态（硬） | 渲染路径里做解析（已有 lint） |
@@ -451,6 +451,7 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
 | 2026-10-13 | **ForEach 处数**（规模指示） | 112 → **113** 处 | §21.113 `components/StagingTray.ets` 的**待发队列条目列表**（逐条渲染，「插队/取消」各一枚 44 盒）—— 与 web `StagingTray.tsx` 同款。全仓其它站点一个没动；该数是"规模指示"非质量判据 | 目标④ 线 |
 | 2026-10-13 | **ForEach 处数**（规模指示） | 113 → **117** 处 | §21.117 新增 `components/SshRunnerSheet.ets`（web 内置插件 `xbot.ssh-runner`「远程机器」面板的原生落地 = ④「插件都打不开」的**最后一块**：`nativeViewKind` 此前只注册 `xbot.git-fancy.*`，`xbot.ssh-runner.panel` 无原生落地 ⇒ 点开落到**整个 web 宿主页**）。四个**必要**列表：机器行 / 诊断事实行 / 装机作业步骤 / 未纳管登记行。**⛔ 不是代码退化**：该组件取色**收敛到唯一门** `tint(role)`（内含唯一 `paletteOf`，⛔ 不逐处直读 `this.pal()`）⇒ **A 线（真分配）一处未增**；**B 线最小**；两套轮询（web 的作业 1.5s + 连接等待 1.5s）**合并成一个** `setInterval`（`setInterval` 5→6，仍 ≤6；`setTimeout` 一处未增） | 目标④ 线 |
 | 2026-10-13 | **B 线**（色板读取总量，松界/防失控） | 1352 → **1353** 处 | §21.114 新增 `components/GenuiPanelCard.ets`（GenUI/`display_html` 面板卡 —— 用户明例「统计插件的面板我们看不到」：此前该工具只画一枚 pill）。其取色**收敛到唯一门** `col(role)`（内含唯一 `this.palOnce()`）⇒ 对 B 线贡献**恒 1 处**。**⛔ 不是代码退化**：**A 线（真分配 `this.pal()`）一处未增**（走 `palOnce()`）；**ForEach 处数一个未增**（复用 MessageRow/LiveTailView 既有 ForEach）。仅新增 `tools/tests/genui.test.ts`（14 passed），**未动任何既有阈值** | 目标④ 线 |
+| 2026-10-14 | **setTimeout 调用点**（规模指示） | 7 → **8** 处 | §21.18 `components/TerminalSheet.ets` 新增断线重连 backoff 定时器（P0-2「WS 断开后终端报废」：意外断开 ⇒ 500ms×2ⁿ≤15s、≤6 次退避重连 + 重连前 `new VtTerm` 整屏复位吃服务端 sess 级全量重放，对齐 web terminalWS.ts:28-31）。**⛔ 不是代码退化**：单发短命定时器（非常驻/非轮询）；回调幂等（`reconnectTimer>=0` 守卫，close+error 双通道只调度一次）；`on('open')` 清零、`teardown` cancel ⇒ 不会叠加；`setInterval` 一处未增。配套 `tools/tests/termreconnect.test.ts`（18 passed，mutation 双向） | 终端④线 |
 
 > 规则：任何上调都必须在**本表**写明"为什么不是代码退化"（附 `bench_core.sh` 两遍输出）。
 

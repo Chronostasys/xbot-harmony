@@ -93,7 +93,13 @@ le "A 线·色板分配次数 this.pal()（未 memo；⛔ 成本线，只许减�
 le "B 线·色板读取总量 this.pal() ∨ this.palOnce()（含缓存命中；松界，防失控）" "$n_pal_all" 1353 处
 le "this.eff() 调用点" "$n_eff" 80 处
 le "setInterval 调用点（常驻定时器）" "$n_itv" 6 处
-le "setTimeout 调用点" "$n_tmo" 7 处
+# ⛔ 只许显式登记，不许超：该数是"规模指示"不是质量判据（见下方提示行），但**新增必须写明理由**才能抬。
+# 7 → **8**（2026-10-14）—— `components/TerminalSheet.ets` 的断线重连 backoff 定时器
+#   （P0-2「断线后终端报废」：WS 意外断开 ⇒ 500ms×2ⁿ≤15s≤6 次退避重连 + 重连前 `new VtTerm`
+#   整屏复位吃服务端 sess 级全量重放，对齐 web terminalWS.ts:28-31）。
+#   **⛔ 不是代码退化**：单发短命定时器（非常驻/非轮询；回调幂等——`reconnectTimer>=0` 守卫
+#   使 close+error 双通道只调度一次；on('open') 清零；teardown cancel）。
+le "setTimeout 调用点" "$n_tmo" 8 处
 le "anim*() 调用点（每次调用新建曲线对象）" "$n_anim" 20 处
 # ForEach 处数（规模指示）：107 → 111（2026-10-13）—— 原生 Git 面板 `components/GitPanelSheet.ets`
 # 的 4 个**必要**列表（diff 行 / 变更文件 / 提交历史 / 提交内文件）。
