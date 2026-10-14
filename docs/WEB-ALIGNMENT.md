@@ -7034,3 +7034,58 @@ Vite 产物文件名带内容哈希 ⇒ 旧 chunk 残留无害）。
 ⚠️ 帧级截图仍**未取到**（模拟器发送点击不稳；且本次采集暴露我方**判据写错**：`输入框=''`
 在"点击未聚焦、文字根本没输入"时也成立 ⇒ 假阳性。已改判据为"**先见文字进入输入框**、再见其清空"
 才算发出，见 `/tmp/dh.sh` 底座 + `/tmp/verify_idle2.sh`）。
+
+## §21.122y：要求③ 抽屉「新建」动作符 —— 真机读成「☑ 新建」（+ 其**假绿判据**被收紧）
+
+**现象（真机截图）**：抽屉顶栏 Apple 导航栏动作键本应是「图标 + accent 文字」，实拍却是
+**`☑ 新建`**（方框勾）—— 用户视觉上是"勾选框"。
+
+**根因**：`Index.ets` 抽屉「新建」用 `sys.symbol.square_and_pencil` 且只给 `ICON_SM`(12)
+⇒ ① 本仓自己把该符号记作**重命名**语义（`components/MenuSheets.ets:99`），用在「新建」本就不对；
+② 12vp 下该字形的方框细节糊掉，只剩一个方框。
+**修法**：`sys.symbol.plus` + `ICON_LG`(16)（`plus` 在本文件 `:9100` 既有使用 ⇒ SDK21 存在；
+16 才有导航栏动作键的光学重量）。**对齐已定稿形态**：`sheet_chrome.test.ts:235-237` 的
+2026-10-13（S2）记录本就写明**终端动作键与抽屉「新建」同款**（`plus` + accentSoft 文字）
+⇒ 实际两侧早已分叉、文档却仍自信。
+
+**为什么此前没发现（判据假绿，本仓「判据 ≠ 信号」又一例）**：原断言用**全文件** `indexOf`：
+`src.indexOf("$r('sys.symbol.plus')") >= 0 && src.indexOf("Text('新建')") >= 0`
+—— `Index.ets` 里「新建」有 **2 处**（终端表头 `:9103` + 抽屉 `:9812`），
+`plus` 亦另有 1 处 ⇒ **抽屉那处哪怕是 `square_and_pencil` 也判绿**。
+
+**判据收紧（逐站点取调用片段）**：每一处 `Text('新建')` 的**前 240 字符片段**内必须有
+`sys.symbol.plus`、且不得有 `square_and_pencil`；先钉「站点数 ≥2」。⚠️ `src` 由该文件
+`read()` **剥注释** ⇒ 改动里记录 `square_and_pencil` 的注释不会假红（本仓既有坑）。
+**mutation 自证**：把抽屉那处改回 `square_and_pencil` ⇒ 两条断言各红（@254841）；还原 ⇒ 112 绿。
+**门禁**：`GATE_RC=0` + `BUILD SUCCESSFUL`。**装机**：重开抽屉截图 ⇒ 顶栏已是 **`+ 新建`** ✓。
+⚠️ 门禁第一次真红 = 漏把 `ICON_LG` 加进 `core/design.ets` 的导入 ⇒ ArkTS `10505001`
+（"门禁全绿"必须**先拿到编译输出**才敢写，本仓血债同款）。
+
+## §21.122z：取消后**裸英文 `[interrupted]` 外显** —— 剥标记 + 空行跳过（"死消费"第 4 例）
+
+**现象（真机截图 `/tmp/s3_chat.jpeg` 修前）**：用户气泡**正下方**渲染出一行裸英文 token
+**`[interrupted]`**（中文界面漏英文、且是服务端内部中断标记）。
+
+**根因（本仓"死消费"反模式第 4 例）**：`core/chattypes.ts:247` **只声明**
+`displayOnly?: boolean`、**全仓零消费方**；而服务端 cancel 时把标记**前置进 assistant 正文**
+（`agent/interactive.go:1452` `content = "[interrupted] " + content`；无正文
+`:2296-2300` `"[interrupted] Agent was interrupted."`；亦有恰好等于标记的落库行：
+`storage/sqlite/migrations.go:3434`、`agent/turn_id_persist_test.go:100`）。
+web 权威**从不外显**：有 live 流式内容 ⇒ **优先 live**（`messageStore.ts:626-640`
+「`[interrupted]` 只是中断标记」）、纯标记行按 display_only 处理（`useChatMessages.ts:132`），
+display_only 行形态 = 内容 + 本地化小标签（`AssistantMessage.tsx:153-155` → `'仅展示'`）。
+
+**修法**：`core/streammerge.ets` 新增纯函数 `stripInterruptedMarker()`（只剥**开头**那一个
+标记 + 紧随空白；不以标记开头 ⇒ **原样返回**；其余字符**逐字保留**，⛔ 不翻译不改写）；
+`core/store.ets:toChatMessages`（历史解析唯一收口）接线：剥完**空且无迭代**的 assistant 行
+⇒ 跳过（web 规则 1/5 的纯标记行；留着只是一张空气泡卡片）。
+
+**判据**：`tools/tests/streammerge.test.ts §⑭` —— 真值表（标记+正文 / 纯标记 / 服务端原句不改写 /
+不以标记开头含正文中间同串 / 近似串 `[Interrupted]` 不误伤 / 空串安全）+ ⭐ 不变量
+（剥除后绝不以标记开头、长度单调不增）。`run-one.sh streammerge` ⇒ **92 passed / 0 failed**。
+**门禁**：`GATE_RC=0` + `BUILD SUCCESSFUL`。**装机**：切回 `hello-harmony`（该会话历史里就有
+cancel 留下的标记行）⇒ dump 判据 **`裸 [interrupted] 文本节点 = 无 ✓`**。
+
+**顺带取证（要求②第三点，装机可见）**：busy 态 composer 实拍 = 占位文案
+`处理中 — 消息将排队…` + `排队` chip + 主按钮为**停止**（截图 `/tmp/s3_chat.jpeg` 13:00 那张，
+会话 `手机NPU部署…` 运行中）⇒ 与 §21.122r 的 `composerButtonState` 判据**两侧一致**（同源）。
