@@ -6730,3 +6730,22 @@ mutation 自证：把调用搬回 Scroll 之前 ⇒ 必红。隔离跑 **33 pass
 
 **取证**：真门禁 `bash tools/gate.sh` ⇒ `BUILD SUCCESSFUL` + `✅ 真门禁全绿` + `GATE_RC=0`；
 装机（模拟器 + 真机 `9QF0226922014533`）打开「新增订阅」表单截图复核（可滚到「保存/取消」）。
+
+## §21.122o：设置分区滚动补 iOS 式回弹（`edgeEffect(EdgeEffect.Spring)`）—— 判据规则 E + mutation
+
+**用户定向（2026-10-14）**：「你要保证所有东西都流畅，**包括设置里滚动动作**」。
+
+**缺口（静态可证）**：ArkUI 的 `Scroll` **默认 `EdgeEffect.None`** —— 滚到边界**硬停**，
+观感比 iOS 的橡皮筋差一档；而 `List`/`Grid` 默认已是 `Spring`。全仓此前只有 **5 处**显式设过
+Spring（`GitPanelSheet`×2 / `TaskDetailSheet` / `CronDetailSheet` / `SessionStatsSheet` /
+`pages/Index.ets`）⇒ **11 个设置分区（最常滚、最长的列表）全部缺失**，等于"同一动作两种手感"。
+
+**改法**：给 11 处设置分区的纵向 `Scroll` 链补 `.edgeEffect(EdgeEffect.Spring)`
+（`SettingsAppearance`/`SettingsLlm`/`SettingsAgent`/`SettingsStorage`/`SettingsWebUsers`/
+`SettingsAbout`/`SettingsDeveloper`/`SettingsPlugins`/`SettingsChannels`/`SettingsTools`/
+`SettingsPanel`），与既有 5 处**同款**（⛔ 不改任何尺寸/间距 ⇒ 零视觉变化，只改手势手感）。
+
+**判据**：`tools/tests/vertical_scroll_height.test.ts` 新增 **§E 规则 E**：设置分区（`PANEL_FILES`
+＋ `SettingsPanel`）的每个**纵向 `Scroll`**（`List` 默认已有 Spring ⇒ 不判）自身修饰链必须含
+`EdgeEffect.Spring`；**零扫描判红**（一个都没核到 ⇒ 红）；mutation：抽掉 `SettingsAbout` 的那行 ⇒ 必红。
+隔离跑 **46 passed / 0 failed**；真门禁 `bash tools/gate.sh` ⇒ `BUILD SUCCESSFUL` + `✅ 真门禁全绿`。

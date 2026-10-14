@@ -292,6 +292,33 @@ console.log('\n▶ §D 规则 C：SettingsLlm 订阅表单在页面 Scroll 内�
     !(moved.indexOf(NEEDLE_CALL) > moved.indexOf('Scroll() {')));
 }
 
+// ── 规则 E：设置分区的纵向 `Scroll` 必须带 **iOS 式回弹** ─────────────────────────
+// 用户定向（2026-10-14）：「你要保证所有东西都流畅，包括设置里滚动动作」。
+// ArkUI 的 `Scroll` **默认 `EdgeEffect.None`**（滚到边界硬停）⇒ 观感与 iOS 的橡皮筋差一档
+// （`List`/`Grid` 默认已是 Spring，故本判据只管 `Scroll`）。全仓已有 5 处显式设 Spring
+// （`GitPanelSheet`/`TaskDetailSheet`/`CronDetailSheet`/`SessionStatsSheet`/`pages/Index.ets`）
+// ⇒ 本判据把这条**既有惯例**钉成不变量（设置分区是最长最常滚的列表，最该有）。
+console.log('\n▶ §E 规则 E：设置分区纵向 Scroll 有回弹（`edgeEffect(EdgeEffect.Spring)`）');
+{
+  let checkedE: number = 0;
+  for (let i = 0; i < hits.length; i++) {
+    const h: ScrollHit = hits[i];
+    if (h.name !== 'Scroll') { continue; }                       // List 默认 Spring ⇒ 不在本判据
+    const isPanel: boolean = PANEL_FILES.indexOf(h.file) >= 0 || h.file === 'SettingsPanel';
+    if (!isPanel) { continue; }
+    checkedE++;
+    ok(`回弹在位：${h.file}.ets:${h.line}`, h.ownChain.indexOf('EdgeEffect.Spring') >= 0,
+      `自身链=${JSON.stringify(h.ownChain)}`);
+  }
+  ok('§E 零扫描判红：至少核到 1 个设置分区纵向 Scroll', checkedE > 0, `checked=${checkedE}`);
+  // mutation：抽掉某一处的 `edgeEffect(EdgeEffect.Spring)` ⇒ 必须判红（同一条判据）
+  const f0: string = 'SettingsAbout';
+  const strip: string = (srcOf.get(f0) as string).split('.edgeEffect(EdgeEffect.Spring)').join('');
+  const hs: ScrollHit[] = findVerticalScrolls(f0, strip).filter((h: ScrollHit): boolean => h.name === 'Scroll');
+  ok('§E mutation：抽掉 SettingsAbout 的 edgeEffect(Spring) ⇒ 判红',
+    hs.length > 0 && hs[0].ownChain.indexOf('EdgeEffect.Spring') < 0);
+}
+
 console.log('\n▼ 摘要');
 console.log(`  纵向 Scroll/List：${hits.length} 个；设置分区：${PANEL_FILES.length} 个`);
 if (fail > 0) { console.log(`\n  vertical_scroll_height: ${pass} passed, ${fail} failed`); process.exit(1); }

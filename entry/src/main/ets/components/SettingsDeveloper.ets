@@ -504,6 +504,7 @@ export struct SettingsDeveloper {
         .backgroundColor(this.pal().surface)
         .borderRadius(R_XL)
         .border({ width: 1, color: this.pal().border })
+        .edgeEffect(EdgeEffect.Spring)
         .scrollBar(BarState.Auto)
         .align(Alignment.Top)
       }

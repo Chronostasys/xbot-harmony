@@ -375,6 +375,7 @@ export struct SettingsStorage {
         }
         .width('100%')
         .layoutWeight(1)
+        .edgeEffect(EdgeEffect.Spring)
         .scrollBar(BarState.Auto)
         .align(Alignment.Top)
       }
