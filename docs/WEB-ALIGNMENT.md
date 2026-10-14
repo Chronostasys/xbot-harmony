@@ -6613,3 +6613,20 @@ web 侧那 9+ 处 `await navigator.clipboard.writeText(...)` 会抛 TypeError �
   漏坐标 ⇒ **静默失败**（我这轮因此白跑 3 次）。
 - **发消息后 IME 自动收起、输入条落回屏幕底部**（y≈2632）；聚焦时 IME 弹起、输入条上移到 y≈1684
   ⇒ 任何"点击输入条/主按钮"的脚本**每步都要重新 dump 取坐标**（用固定坐标必落空）。
+
+### §21.122k 要求④「插件都打不开 / 统计插件的面板看不到」——装机逐条核账（2026-10-14）
+
+**结论：入口全能开；那条"统计插件"在 web 侧本来就没有面板。**
+
+| 用户感知 | 实测（模拟器 + 真源） | 判定 |
+|---|---|---|
+| 插件都打不开 | 抽屉「插件」⇒ 原生目录渲染完整（能力面板分组 + 插件区）；点插件行 ⇒ 真打开面板：`http://10.0.2.2:8082/?xbot_view=xbot.git-fancy.panel&xbot_view_title=Git%20面板&xbot_embed=1`，面板内是 web 自己的 chrome（`返回/新建会话/工具/设置`）+ 内容 | ✅ 能开 |
+| 统计插件的面板看不到 | 真源 `xbot/plugins/xbot-iteration-stats/plugin.json`：`web.contributes` **只有一条** `kind:"view"` + `container:"status_bar_right"`（状态栏徽章）⇒ **无面板可开**；目录里诚实标注「已挂载：状态栏」 | ✅ 本无面板（不是坏） |
+| （同上）那个徽章原生有没有 | **有**：`Index.ets:881 @State iterStatsBadge` ← `core/pluginviews.iterStatsText` ← SSE `stream_stats`（`pluginviews.ets:30-45` 逐字对齐插件产物的 `fmtMs`/`tps<=0 ⇒ 不显示`）⇒ 落点 = **顶栏右侧** | ✅ 已实现（装机证据：11:28 浅色截图顶栏 `63t/s · 10.2s`） |
+| 文件管理没有 / 终端任务很差 | 三入口都真打开 web 面板：`?xbot_panel=files｜terminal｜tasks` + `xbot_embed=1`（文件面板实列工作区：`AppScope/docs/entry/tools/AGENTS.md…`） | ✅ 能开（能力=web 能力，自动跟随 web 演进） |
+
+⛔ **本轮踩坑（写进 UI-AUDIT 同款）**：`uitest dumpLayout` 的 `bounds` 串是 **`[x1,y1][x2,y2]`**。
+我有一条临时脚本把它反解成 `(y1,x1,…)` ⇒ 打印出来的"x=1590"其实是 **y** ⇒ 我按错误坐标点击，
+落在 `GenUI（未声明面板）` 那一段上 ⇒ 差点得出"点插件行打不开面板"的**假结论**。
+⇒ 规矩：**解析 bounds 必须按 `x1,y1,x2,y2`**，且诊断"点不动"时先用带 `accessibilityText` 的已知元素
+（如浮层的 `关闭`）做**坐标系校准**，再点目标。
