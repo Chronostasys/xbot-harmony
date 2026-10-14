@@ -6749,3 +6749,35 @@ Spring（`GitPanelSheet`×2 / `TaskDetailSheet` / `CronDetailSheet` / `SessionSt
 ＋ `SettingsPanel`）的每个**纵向 `Scroll`**（`List` 默认已有 Spring ⇒ 不判）自身修饰链必须含
 `EdgeEffect.Spring`；**零扫描判红**（一个都没核到 ⇒ 红）；mutation：抽掉 `SettingsAbout` 的那行 ⇒ 必红。
 隔离跑 **46 passed / 0 failed**；真门禁 `bash tools/gate.sh` ⇒ `BUILD SUCCESSFUL` + `✅ 真门禁全绿`。
+
+## §21.122p：待裁项 —— 插件视图「两层 chrome」（已定位到根因与最小修法，未改 web）
+
+**实测证据（2026-10-14，模拟器装机）**：能力面板 →「远程机器（SSH）」⇒ 截图 `/tmp/w8_ssh.jpeg`
+页头**两层**：
+- **第 1 层（原生）**：`‹ 远程机器（SSH） ⟳` —— 紫色 `chevron_left` + 居中 caption 标题 +
+  紫色 `arrow_clockwise`；逐项对应 `components/WebSurface.ets:603-644`（我们的 web chrome）。
+- **第 2 层（web）**：`← 远程机器（SSH） ＋ 🔧 ⚙` —— 即 §21.122k 记的 web 自己的 chrome
+  （`返回 / 新建会话 / 工具 / 设置`），由 **web 整壳**渲染（`src/plugins/ssh-runner/index.tsx:1194`
+  的"工具条"是**第 3 行**`切回本机 / 添加机器`，**不是**这一层 ⇒ 可区分）。
+
+**根因**：`core/pluginhost.ets` 的两条深链**只有一条带嵌入开关**：
+- `webPanelDeepLink()`（内置面板 files/search/info/tasks/terminal）⇒ `?xbot_panel=<id>&xbot_embed=1`
+  ⇒ web 只挂 `EmbedPanelShell`（**无** web chrome）⇒ 单层 chrome ✓（§21.122g 已落地）；
+- `pluginViewDeepLink()`（**插件视图**）⇒ `?xbot_view=<id>&xbot_view_title=<title>` —— **没有**
+  `xbot_embed=1` ⇒ web 走完整 `AppShell`（含它自己的头部）⇒ 两层 chrome ✗。
+
+**最小修法（跨仓，需用户拍板；⛔ 不是本仓能自洽修掉的）**：web `src/App.tsx:43-47` 的嵌入判定
+目前 `parseEmbedQuery(search) ? parsePanelQuery(search) : null` —— `parsePanelQuery` 只认
+`PANEL_DEEP_LINK_IDS`（内置 5 个）白名单 ⇒ `xbot_embed=1&xbot_view=…` 会**回落完整应用**。
+改法：把嵌入判定扩成 "`xbot_embed=1` 且（`xbot_panel` 合法 **或** 有 `xbot_view`）"，后者渲染
+`EmbedPanelShell` 的插件视图分支（该壳已支持 `renderPanelBody({ kind:'pluginView' })`）；本仓侧
+`pluginViewDeepLink()` 末尾补 `&xbot_embed=1` 即可。
+**为什么本轮不直接改 web**：① 8082 是 `xbot-cli serve`（**非 vite dev**）⇒ 改 web 源码不即时生效，
+需重建 web 产物 + 重启服务，而**重启会终止本会话**；② 本轮先把**已确认、可自洽修**的项做完
+（§21.122l/m/n/o），此项按仓内纪律**显式登记、交用户裁决**（⛔ 不静默留缺口、也不擅自跨仓改）。
+⚠️ **不要**用"隐藏原生 chrome"来消两层：原生 `‹返回` 是**唯一**能关掉该浮层的出口
+（web 的 `←` 只是它自己的内部导航）⇒ 隐藏后用户会**卡在 webview 里出不来**。
+
+**顺带记一条工具纪律（本轮踩到，省后续时间）**：模拟器 `uitest dumpLayout` 的节点**不暴露
+`accessibilityText`**（实测全为空）⇒ 走查脚本**只能按 `text` 定位**；纯 `a11y` 标签的按钮
+（如各面板页头 `关闭`）**取不到**，需改用固定坐标或几何定位（本轮关闭浮层用 `(1190,260)`）。
