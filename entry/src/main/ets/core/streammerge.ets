@@ -418,6 +418,41 @@ export function rowIsEmpty(row: ChatRow): boolean {
   return rowVisibleChars(row) === 0;
 }
 
+/** 服务端中断标记的**逐字**形态（`agent/interactive.go:1452` 前置；`:2296-2300` 无正文时用它开头）。 */
+export const INTERRUPTED_MARKER: string = '[interrupted]';
+
+/**
+ * 剥掉正文**开头**的中断标记（纯函数，可脱机单测）。
+ *
+ * 为什么必须有（真机缺陷，2026-10-14）：用户点 cancel 后，服务端把中断标记**前置进 assistant
+ * 正文**（`agent/interactive.go:1452` `content = "[interrupted] " + content`；无正文时
+ * `:2296-2300` 为 `"[interrupted] Agent was interrupted."`；亦有恰好等于标记的落库行 ——
+ * 见 `storage/sqlite/migrations.go:3434` 与 `agent/turn_id_persist_test.go:100`）。
+ * web 权威**不把它当用户可见正文**：有 live 流式内容时**优先显示 live**（`messageStore.ts:626-640`
+ * 「`[interrupted]` 只是中断标记」），纯标记行按 `display_only` 语义处理
+ * （`useChatMessages.ts:132`）。本仓此前对两者**零消费**（`core/chattypes.ts:247` 只声明了
+ * `displayOnly` 字段，全仓无消费点）⇒ 中文界面里漏出一行裸英文 token `[interrupted]`
+ * （真机截图 `/tmp/s3_chat.jpeg`：用户气泡正下方）。
+ *
+ * 语义（⛔ 只剥**开头**那一个标记 + 紧随其后的空白，不改写其余内容 —— 不许发明文案）：
+ *   · 不以标记开头 ⇒ **原样返回**（零副作用）；
+ *   · 开头是标记 ⇒ 去掉标记与紧随的空格/换行；剩余正文**逐字保留**（如 `Agent was interrupted.`）。
+ */
+export function stripInterruptedMarker(content: string): string {
+  if (!content.startsWith(INTERRUPTED_MARKER)) {
+    return content;
+  }
+  let i: number = INTERRUPTED_MARKER.length;
+  while (i < content.length) {
+    const c: string = content.charAt(i);
+    if (c !== ' ' && c !== '\n' && c !== '\t') {
+      break;
+    }
+    i += 1;
+  }
+  return content.substring(i);
+}
+
 /**
  * 尾部行是否正在渲染**在飞信号**（末尾 `live:true` 块里有 思考/正文/工具）。
  *

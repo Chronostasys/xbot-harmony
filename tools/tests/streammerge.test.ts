@@ -13,7 +13,7 @@ declare const process: { exit: (c: number) => void };
 import {
   isStreamOnly, hasStructured, liveIterationOf, upsertIteration, mergeTools, toolsFromEvent,
   applyStreamFrame, applyStructured, displayContent, displayReasoning, resolveRowReply, mergeToolRuns,
-  isIdleAction, isBusyAction, shouldReloadHistory, hasFreshPhaseDone,
+  isIdleAction, isBusyAction, shouldReloadHistory, hasFreshPhaseDone, stripInterruptedMarker,
 } from '../../entry/src/main/ets/core/streammerge';
 import {
   HistoryIteration, IterList, ProgressEvent, ToolProgress,
@@ -277,6 +277,30 @@ eq('混合 [陈旧 phase_done, 无其它] ⇒ false', hasFreshPhaseDone([iterEv,
     const live: HistoryIteration = { iteration: 3 };
     live.stream_text = '流式中';
     eq('流式迭代（`stream_text`）也被取到（displayContent 语义）', resolveRowReply('', [live]), '流式中');
+  }
+}
+
+// ── ⑭ stripInterruptedMarker：取消后的 `[interrupted]` 标记**不是**用户可见正文 ──────────
+// 真机缺陷（2026-10-14）：服务端 cancel 时把标记**前置进 assistant 正文**
+//（`agent/interactive.go:1452`；无正文 `:2296-2300`；亦有恰好等于标记的落库行），
+// 本仓此前对 `displayOnly`/标记**零消费** ⇒ 中文界面漏出裸英文 token（截图 `/tmp/s3_chat.jpeg`）。
+// 判据（判别力）：① 只剥**开头**那一处；② 其余字符**逐字**保留（⛔ 不许改写/翻译服务端文案）；
+//   ③ 不以标记开头 ⇒ 原样返回（零副作用，防"误伤正常正文"）。
+{
+  eq('① 标记 + 正文 ⇒ 剥标记留正文', stripInterruptedMarker('[interrupted] 半句正文'), '半句正文');
+  eq('① 恰好等于标记 ⇒ 空串（调用方据此跳行）', stripInterruptedMarker('[interrupted]'), '');
+  eq('① 标记 + 服务端原句 ⇒ 只去标记（不翻译、不改写）',
+    stripInterruptedMarker('[interrupted] Agent was interrupted.'), 'Agent was interrupted.');
+  eq('① 标记后紧跟换行 ⇒ 换行也吃掉', stripInterruptedMarker('[interrupted]\n正文'), '正文');
+  eq('③ 不以标记开头 ⇒ 原样返回（含**正文中间**出现该串也不动）',
+    stripInterruptedMarker('前文 [interrupted] 后文'), '前文 [interrupted] 后文');
+  eq('③ 大小写/近似串不误伤', stripInterruptedMarker('[Interrupted] x'), '[Interrupted] x');
+  eq('③ 空串安全', stripInterruptedMarker(''), '');
+  // ⭐ 不变量：剥除后**绝不以标记开头**，且长度单调不增（防"越剥越长"）
+  {
+    const samples: string[] = ['[interrupted] a', '[interrupted]', 'a', '', '[interrupted]\n\nb', ' [interrupted]'];
+    eq('不变量：剥除后不以标记开头', samples.every((s) => !stripInterruptedMarker(s).startsWith('[interrupted]')), true);
+    eq('不变量：长度不减则不增', samples.every((s) => stripInterruptedMarker(s).length <= s.length), true);
   }
 }
 

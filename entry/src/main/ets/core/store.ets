@@ -12,7 +12,7 @@
  */
 import { XbotHttp } from './http';
 import { SseClient } from './sse';
-import { hasFreshPhaseDone, isIdleAction, rowIsEmpty, shouldReloadHistory } from './streammerge';
+import { hasFreshPhaseDone, isIdleAction, rowIsEmpty, shouldReloadHistory, stripInterruptedMarker } from './streammerge';
 import { arrOrEmpty, isPresent } from './guards';
 import { ChatState, DomainEvent, EventSeq, initialChatState, NonEmptyS, nonEmptyStr, UserRow } from './chat_types_full';
 import { reduce, applySessionFields } from './reduce';
@@ -1124,14 +1124,24 @@ export class ChatStore {
       // turn 内压缩点（`protocol/events.go:317`，后端早已下发 —— 本仓此前**零消费**）：
       // 空 ⇒ 不设键（保持既有行对象形状，渲染层零产出）。
       const comps: WebCompaction[] = toHistoryCompactions(m.compactions);
+      // ── 中断标记：正文**开头**的 `[interrupted]` 不是用户可见正文（web 权威同口径）───────────
+      // 语义与真机缺陷见 `core/streammerge.ets:INTERRUPTED_MARKER` 的长注释。
+      const rawContent: string = m.content !== undefined && m.content !== null ? m.content : '';
+      const content: string = stripInterruptedMarker(rawContent);
+      const iters: WebIteration[] = ChatStore.toWebIterations(m.iterations);
+      // 剥完**空**且**无迭代** ⇒ 该行没有任何可见信息（web 文档规则 1/5：跳过纯标记行）；
+      // 留着只会是一张空气泡卡片。⛔ 只可能命中 `assistant`（用户正文不含该标记）。
+      if (role === 'assistant' && content.length === 0 && iters.length === 0) {
+        continue;
+      }
       const msg: ChatMessage = {
         id: mid,
         role,
         // ⚠️ 外来 JSON（`/api/history` 的 messages 元素）：字符串/数值字段都可能是
         //    JSON null（Go nil → null）⇒ 必须**显式三态**（`isPresent` 不做类型收窄，
         //    用在赋值/成员访问位置会因 `| null` 而编译不过）
-        content: m.content !== undefined && m.content !== null ? m.content : '',
-        iterations: ChatStore.toWebIterations(m.iterations),
+        content,
+        iterations: iters,
         turnID: m.turn_id !== undefined && m.turn_id !== null ? m.turn_id : 0,
         timestamp: m.timestamp !== undefined && m.timestamp !== null ? m.timestamp : '',
         isPartial: false,
