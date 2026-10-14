@@ -6,7 +6,7 @@
  * 只有可视区附近的行会被构建，但**数据源必须准确告诉框架"哪一行变了"**：
  * 整表 reload 会丢掉滚动锚点与复用，漏通知则内容不更新。故 diff 逻辑单独抽出来钉死。
  */
-import { ChatRow } from './types';
+import { ChatRow, HistoryIteration } from './types';
 
 /** 一行的稳定键：内容每次变化 `rev` 自增（参与键 ⇒ 内容变了就重建该行）。 */
 export function rowKey(r: ChatRow): string {
@@ -112,6 +112,30 @@ export function rowsFpOf(rows: ChatRow[], chatId: string): string {
   const parts: string[] = [];
   for (let i = 0; i < rows.length; i++) {
     parts.push(rows[i].id + '#' + rows[i].rev);
+  }
+  return scopedFingerprint(chatId, parts);
+}
+
+/**
+ * 行集合的**结构**指纹 —— **不含行内容的 `rev`**：`id#isLive#迭代数#末迭代在飞` 序列 + 会话身份。
+ *
+ * ⛔ 为什么要与 `rowsFpOf` 分开（用户 2026-10-16 亲报「掉帧还是严重」+「stream 时滚历史，整个
+ *    历史窗口一直抖动」）：`rowsFpOf` 含 `rev` ⇒ **流式期每个 SSE 帧**都变 ⇒ 页面每帧
+ *    `this.rows = store.rows.slice()`（新数组）⇒ 按数组恒等记忆化的**导航锚点表每帧重建**
+ *    （O(行数) + 复制每条消息完整正文）。真机计数取证：`sync/s≈33 · anchorsBuilds/s≈33`。
+ *
+ * 结构指纹只表达"**哪些行 / 每行多少迭代 / 末迭代是否在飞**" —— 正是锚点集合与导航显示所需
+ * 的全部信息（行内在飞正文的增长不改锚点身份）。真实结构变化（新行、迭代 commit、turn 收尾）
+ * 都能被它捕获 ⇒ **既不漏刷新，也不为不可见的内容增长付账**。
+ */
+export function structRowsFpOf(rows: ChatRow[], chatId: string): string {
+  const parts: string[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r: ChatRow = rows[i];
+    const its: HistoryIteration[] | undefined = r.iterations;
+    const n: number = its !== undefined ? its.length : 0;
+    const lastLive: number = n > 0 && its[n - 1].live === true ? 1 : 0;
+    parts.push(`${r.id}#${r.isLive === true ? 1 : 0}#${n}#${lastLive}`);
   }
   return scopedFingerprint(chatId, parts);
 }

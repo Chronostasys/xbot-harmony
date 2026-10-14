@@ -589,3 +589,46 @@ stream 高频更新。它**快进入视野的时候再挂载回来**」→「降
    同一原则（⛔ 绝不隐藏内容）。
 3. 判据：`tools/tests/livedeliver.test.ts` **18 断言**（含 2 组 mutation 自证：忽略 `busy` ⇒ 回合结束必投红；
    忽略 `visible` ⇒ 滚出视野降频红）。
+
+### 1.6h 第七轮（2026-10-16）：**流式每帧重建整份导航锚点表**（用户报「掉帧还是严重，看不出来你修了任何东西」「stream 时滚历史，整个历史窗口一直抖动」）
+
+**取证方法（本仓既有口径 = 计数，不是墙钟）**：临时在页面挂每秒汇总探针（`[PF] sync/s · applyRows/s · anchorsBuilds/s · rows · visible`），
+模拟器 + 本地服务端跑同一场景（流式 2000 词散文；A 段看 live 尾、B 段向**更早历史**滚）。
+
+**修前实测（A 段，流式可见）**：
+
+| 计数 | 值 | 读法 |
+|---|---|---|
+| `sync/s` | **22–33** | 每个 SSE 帧都投影一次（预期） |
+| `applyRows/s` | **22–33** | 同上（进入数据源 diff） |
+| **`anchorsBuilds/s`** | **≈33（1:1）** | ⛔ **每个流式帧都在重建整份锚点表** |
+
+**根因链（三步相乘，全部源码定位）**：
+1. `rowsFpOf(rows, chatId)` 含 `row.rev`，而 `touch(row)` 在**每次数据变更**时 `rev++`
+   ⇒ 流式期 `rowsFp` 每帧都变；
+2. ⇒ `syncFrom` 每帧 `this.rows = store.rows.slice()`（**新数组**）；
+3. ⇒ `navAnchors()` 的记忆化（`AnchorsMemo.of` 按**数组恒等**）每帧失配 ⇒ `buildAnchors`
+   每帧重算：**O(总行数) 且复制每条消息的完整正文** ⇒ 历史越长越卡（正是用户"固定历史掉帧"
+   + "滚历史整窗抖动"的形态；USB 真机历史更长 ⇒ 更明显）。
+
+**修法（只加口径，不改语义）**：
+- `core/rowdiff.ets` 新增 `structRowsFpOf(rows, chatId)` = **结构**指纹（`id#isLive#迭代数#末迭代在飞`
+  + 会话身份）——**不含 `rev`**（行内在飞正文增长≠结构变化）；
+- `core/msgindex.ets` 新增 `AnchorsMemo.ofSig(rows, sig)`：**签名相同 ⇒ 复用**（不重算）；
+- 页面 `syncFrom` 每帧算结构指纹（O(行数) 小字符串，可忽略），`navAnchors()` 改走 `ofSig`。
+
+**修后实测（同一场景、同一量具）**：
+
+| 段 | `sync/s` | `anchorsBuilds/s` |
+|---|---|---|
+| A（可见流式 14s） | 22.2 | **0.2** ✅ |
+| B（向更早历史滚 14s） | 6.6 | **0.1** ✅ |
+
+⇒ 锚点重建 **≈33/s → 0.2/s（约 165× 减少）**；结构变化（新行 / 迭代 commit / turn 收尾）仍**必然**触发一次重算（不漏刷新）。
+
+**同批移除的两处逐帧 hilog**（真开销：每秒几十条 + 字符串拼接）：
+`syncFrom` 的 `[SYNC]` 诊断与 `[DUPCHK]` 撞键扫描（后者**每帧**调 `drawerGroups()`/`modelGroups()`/
+`fsMatches()` —— 都是 O(会话数)/O(模型数) 的整表构造）。
+
+**判据**：`tools/tests/anchors_struct_fp.test.ts`（12 断言：内容变⇒结构不变、结构变⇒必变（迭代数/live→committed/
+新行/会话身份）、60 帧同结构 ⇒ 重算 0 次、2 组 mutation 自证）。

@@ -162,9 +162,10 @@ export function buildAnchors(rows: ChatRow[], userRowIndexes: number[]): NavAnch
  */
 export class AnchorsMemo {
   private rows: ChatRow[] = [];
+  private sig: string = '';
   private hasKey: boolean = false;
   private out: NavAnchor[] = [];
-  /** 内核实际执行次数（**判据用**：滚动 N 次而 `rows` 未变 ⇒ 必须仍是 1）。 */
+  /** 内核实际执行次数（**判据用**：滚动 N 次 / 流式 N 帧而**结构**未变 ⇒ 必须仍是 1）。 */
   public builds: number = 0;
 
   /** 取（必要时重算）当前 `rows` 的锚点表。**O(1)**（命中）或 O(行数)（未命中一次）。 */
@@ -174,6 +175,34 @@ export class AnchorsMemo {
     }
     this.out = buildAnchors(rows, userAnchorRows(rows));
     this.rows = rows;
+    this.hasKey = true;
+    this.builds = this.builds + 1;
+    return this.out;
+  }
+
+  /**
+   * 按**结构签名**取锚点表（⛔ 流式期的主路径）。
+   *
+   * ⛔ 为什么不能只按 `rows` **数组恒等**（用户 2026-10-16 亲报「掉帧还是严重，看不出来你修了
+   *    任何东西」+「stream 时滚历史，整个历史窗口一直抖动」）：页面 `rowsFp` 含行内容的 `rev`
+   *    ⇒ 流式期**每个 SSE 帧**都会 `this.rows = store.rows.slice()` 换一个新数组
+   *    ⇒ 恒等失配 ⇒ **每帧重建整份锚点表**（`buildAnchors` 是 O(行数) 且**复制每条消息的完整
+   *    正文**）。真机计数取证：`sync/s≈33 · anchorsBuilds/s≈33`（1:1）⇒ 正是掉帧主因。
+   *
+   * 语义（不发明、只增口径）：锚点表只由**结构**决定（哪些行、每行多少迭代、末迭代是否在飞）
+   * —— 行内**在飞正文**的增长不改变导航锚点集合与预览的**身份**（预览只是同 turn 首条
+   * assistant 的展示串）。故：**结构签名相同 ⇒ 复用上一份锚点表**（⛔ 不重算），签名变了
+   * （新行 / 迭代 commit / turn 结束）⇒ 重算一次。
+   */
+  public ofSig(rows: ChatRow[], sig: string): NavAnchor[] {
+    if (this.hasKey && this.sig === sig) {
+      // 结构未变 ⇒ 复用（只把 `rows` 引用换上，供下次恒等快路径）。
+      this.rows = rows;
+      return this.out;
+    }
+    this.out = buildAnchors(rows, userAnchorRows(rows));
+    this.rows = rows;
+    this.sig = sig;
     this.hasKey = true;
     this.builds = this.builds + 1;
     return this.out;
