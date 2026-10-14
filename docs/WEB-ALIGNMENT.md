@@ -7114,3 +7114,44 @@ cancel 留下的标记行）⇒ dump 判据 **`裸 [interrupted] 文本节点 = 
 
 **门禁**：`GATE_RC=0` + `✅ 真门禁全绿`（④ `BUILD SUCCESSFUL`，1m3s）。
 
+## §21.122bb：要求④ 续 —— 任务/终端面板两处**真缺陷**（跨仓修复，xbot `475a78be` 已推）
+
+**背景**：这两面板 = 原生 chrome（`WebSurface`：`‹ 标题 ⟳`）+ **web 面板体**（`?xbot_panel=tasks`
+/`=terminal&xbot_embed=1`）⇒ 面板体内的缺陷**在 web 侧**，原生看不到、也改不到（同 §21.122u 的结论路径）。
+
+**本轮装机实测（模拟器；`.jpeg` + 同刻 `dumpLayout`）**：
+- 任务面板（`/tmp/bar_tasks.jpeg` 修前）：`定时任务` / **`SUBAGENTS`** / `后台命令` —— 中文界面里夹一个
+  **英文大写**标题。
+- 终端面板（`/tmp/bar_terminal.jpeg` 修前）：头部 `0 个终端`，正下方空态又写 `暂无终端`
+  ⇒ **同一事实说两遍**（观感 = 没做完）。
+
+**根因（均在 web 侧，逐行取证）**：
+1. `web/src/components/sidebar/TasksPanel.tsx:188` 的 `SubAgents` 是**硬编码字面量**（`<h3>` + CSS
+   `uppercase`），而**同面板**另两个标题走 `t('sidebar.tasksCron')` / `t('sidebar.tasksBg')`
+   ⇒ i18n 系统就在旁边、这个标题漏了（`SubAgents` 在 zh/en/ja 三语里**都不是键**）。
+2. `web/src/components/sidebar/TerminalList.tsx:43` **恒**渲染 `t('sidebar.terminalCount', {count})`
+   ⇒ `count=0` 时与 `:61-65` 的空态文案重复。
+
+**修法（最小、不发明）**：
+- 补 i18n 键 `sidebar.tasksSubAgents`（zh-CN `子代理` / en `Sub-Agents` / ja `サブエージェント`，与
+  同面板 `tasksCron`/`tasksBg` 同命名法）并接线。
+- 计数**仅在非空时**渲染（空列表只剩 `+` 动作键 + 空态）。
+
+**判据（新增，mutation 自证）**：`TasksPanel.test.tsx`（中文下标题 = `子代理`、**不含** `SubAgents`）+
+`TerminalList.test.tsx`（空 ⇒ 有 `暂无终端`、**无** `0 个终端`；2 个 ⇒ `2 个终端`、无空态）。
+mutation：两处改回旧写法 ⇒ **各红 1 条**（其余 7 绿）；还原 ⇒ 9 passed。
+⚠️ jsdom 里 i18n 按 `navigator.language` 探测（= **en**）⇒ 断言中文串必须先
+`beforeAll(async () => { await i18n.changeLanguage('zh-CN') })`（仓内惯例，见 `PanelLayout.test.tsx:30`）。
+
+**装机复验（设备级判据，非肉眼）**：
+- 任务：dump 文本节点 `SUBAGENTS` **无** / `子代理` **有**；截图 `/tmp/bar_tasks.jpeg` 已是 `子代理`。
+- 终端：dump 文本节点 `0 个终端` **无** / `暂无终端` **有**；截图只剩 `+` + 空态。
+- 服务端**无需重启**：重建 `dist` 后 `curl http://localhost:8082/` 已供新 hash
+  （`assets/index-CaIm2vnC.js`，与 `~/.xbot/web/dist/index.html` 一致）—— 再次印证 §21.122v 的
+  「产物是磁盘目录」（`channel/web/web.go:35` 明写 No go:embed）。
+
+**看着像缺陷但**⛔**不是（已判、勿改）**：任务面板空分区的裸 `—`（`TasksPanel.tsx:210` 等）是 web
+**自己的**"无值"惯用记号（同组件里 `schedule || '—'`、`nextRun || '—'` 同源），改它 = 重设计 web，
+超出「对齐 web 权威」的边界 ⇒ 记录在案、本轮不动。
+
+
