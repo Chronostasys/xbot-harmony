@@ -283,6 +283,8 @@ export class SseEventType {
   static readonly runnerStatus: string = 'runner_status';
   static readonly webWidgets: string = 'web_widgets';
   static readonly pluginWidgets: string = 'plugin_widgets';
+  /** 后台任务输出增量（web `sseConnection.ts:445` 同源；详情面板实时化——中等项 #7-1）。 */
+  static readonly bgTaskOutput: string = 'bg_task_output';
 }
 
 /**

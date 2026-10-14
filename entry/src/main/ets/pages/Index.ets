@@ -852,6 +852,8 @@ struct Index {
    * `TerminalSheet` 的 `onStatus` @Watch 上抛；列表行按此取 tone（此前恒 muted 灰点，审计病灶①）。
    */
   @State terminalLive: Map<string, string> = new Map<string, string>();
+  /** #7-1：已消费的 bg_task_output 序号（store.lastBgOutputSeq 比对——增量不漏不重）。 */
+  @State lastBgOutputSeen: number = 0;
   // 后台任务详情（用户点名「任务管理做的很差」：看不到输出、杀不掉 ⇒ 点列表行打开详情）
   @State showTaskDetail: boolean = false;
   @State taskDetailId: string = '';
@@ -860,6 +862,30 @@ struct Index {
   @State taskDetailMeta: string = '';
   @State taskDetailOutput: string = '';
   @State taskDetailRunning: boolean = false;
+
+  /**
+   * #7-1（2026-10-17）：bg_task_output SSE 增量 → 详情输出**尾追加**（web
+   * `BackgroundPanel.tsx:159-172` 同款——此前仅 2s 轮询全量刷，长命令输出滞后一拍）。
+   * 50KB 尾截断对齐 web `BackgroundPanel.tsx:97-102`；坏帧静默丢弃（SSE 主链路同口径）。
+   */
+  private appendBgOutput(raw: string): void {
+    if (!this.showTaskDetail || this.taskDetailId.length === 0) {
+      return;
+    }
+    try {
+      const obj: Record<string, Object> = JSON.parse(raw) as Record<string, Object>;
+      const tid: string = typeof obj['task_id'] === 'string' ? obj['task_id'] as string : '';
+      const delta: string = typeof obj['content'] === 'string' ? obj['content'] as string : '';
+      if (tid !== this.taskDetailId || delta.length === 0) {
+        return;
+      }
+      const merged: string = this.taskDetailOutput + delta;
+      const MAX_OUT: number = 51200;
+      this.taskDetailOutput = merged.length > MAX_OUT ? merged.substring(merged.length - MAX_OUT) : merged;
+    } catch (_e) {
+      // 坏帧静默丢弃
+    }
+  }
   // 定时任务详情（web `TasksPanel.tsx:120-172` 展开区对齐）：cron 行**点开看全文**（此前只复制一行摘要，
   // 多行提示词被主行 `maxLines(1)` 截断 ⇒ 正文永久不可见）。
   @State showCronDetail: boolean = false;
@@ -2000,6 +2026,11 @@ struct Index {
     // 状态里，但绝不能覆盖正在显示的会话（否则两个会话的事件互相打架）。
     if (store !== this.store) {
       return;
+    }
+    // #7-1（2026-10-17）：bg_task_output 增量旁路——详情面板实时化（帧内直追，不等去抖节拍）。
+    if (store.lastBgOutputSeq !== this.lastBgOutputSeen) {
+      this.lastBgOutputSeen = store.lastBgOutputSeq;
+      this.appendBgOutput(store.lastBgOutput);
     }
     this.pendingSync = store;
     if (this.syncScheduled) {

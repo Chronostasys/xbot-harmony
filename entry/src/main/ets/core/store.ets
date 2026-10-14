@@ -156,6 +156,9 @@ export class ChatStore {
    */
   lastWidgetEvent: string = '';
   lastWidgetContent: string = '';
+  /** #7-1（2026-10-17）：bg_task_output 增量的原始串（widget 同款「不解析早退」模式）+ 递增序号（防同串去重失效）。 */
+  lastBgOutput: string = '';
+  lastBgOutputSeq: number = 0;
   /** LLM 配置（订阅/可选模型/上下文上限；`GET /api/llm-config`） */
   llmConfig: LlmConfig | undefined = undefined;
   /**
@@ -1907,6 +1910,14 @@ export class ChatStore {
     if (isWidgetEvent(event)) {
       this.lastWidgetEvent = event;
       this.lastWidgetContent = data;
+      this.onUpdate();
+      return;
+    }
+    // ── #7-1：bg_task_output 增量（web `sseConnection.ts:445` 同款早退——不是 DomainEvent，
+    //    落到 reduce 只会被静默丢弃；保留原始串交 UI 层解析——详情面板实时化）。
+    if (event === SseEventType.bgTaskOutput) {
+      this.lastBgOutput = data;
+      this.lastBgOutputSeq += 1;
       this.onUpdate();
       return;
     }
