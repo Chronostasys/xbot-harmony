@@ -6856,3 +6856,33 @@ Stack  [53,420][1267,2466]        ← 外层卡片本体（.width(SHEET_WIDTH).h
 另 **`dumpLayout` 的 y 坐标与截图 y 坐标在同一时刻也可能不一致**（本次实测差约 17% 屏高）。
 **唯一可靠判据 = 祖先链 + 各方 bounds 的包含关系**（本文件 §21.122p 已记"dump 不暴露
 `accessibilityText`"，此处补第二条 dump 纪律）。
+
+## §21.122t：要求④ 装机复核 —— 用户点名的四类面板**均已能打开且有内容**（逐项实证）
+
+**用户口径（要求④原文）**：「必须真的支持 web 的所有插件和功能，**现在其实插件都打不开，比如
+统计插件的面板我们看不到。文件管理也没有，终端和任务管理做的很差**」。
+
+**本轮装机逐项复核（2026-10-14，模拟器；每项均有 `.jpeg` + 同刻 `dumpLayout`）**：
+
+| 面板 | 入口 | 实证 | 结论 |
+|---|---|---|---|
+| 会话统计（插件 `session-stats`） | 抽屉 → 插件（能力面板）→ 会话统计 | `/tmp/pv_会话统计.jpeg`：`统计` + 刷新/关闭键 + 指标卡（输入 250.6k / 输出 17.9k / 缓存命中 199.3k 79.5% / LLM 时长 2m12s / Avg TTFT/TPOT/tok·s / 上下文水位 / 当前模型）+ `最近迭代`表（T.I/In/Cache/Out/TTFT/TPOT/tok·s 逐迭代）+ `token 趋势`块 | **可见 ✓** |
+| 文件管理（内置面板 `files`） | 抽屉底栏 → 文件 | `/tmp/feat_文件.jpeg`：原生 chrome `‹ 文件 ⟳` + 路径框（`/Users/bobli/src/ohos-localchat`）+ 搜索 + 目录/文件图标 + 扩展名徽章（MD/TS）+ `..` 上级行 | **存在且可用 ✓** |
+| 终端（内置面板 `terminal`） | 抽屉底栏 → 终端 | `/tmp/feat_终端.jpeg`：`终端` + `新建终端` + `0 个终端` 空态 | **可用 ✓（空态正确）** |
+| 任务管理（内置面板 `tasks`） | 抽屉底栏 → 任务 | `/tmp/feat_任务.jpeg`：`定时任务`(—) / `SUBAGENTS`(—) / `后台命令`（1 条 `ssh -i ~/.ssh/b300_spot.pem … · running`）+ 底部提示行 | **可用 ✓（见下线索）** |
+
+⇒ **用户那条"打不开/看不到/也没有"已不成立**（这些是前几批 ④ 修复的成果：`pluginViewDeepLink`
+/`webPanelDeepLink` 通道 + 原生 chrome 由 WebSurface 提供）。
+
+**本轮新线索（下一批要查，⛔ 未定案）**：任务面板底部显示 web 自己的
+`实时连接已断开，状态可能延迟`（`web/src/i18n/zh-CN.ts:91 disconnectedHint`）⇒ **内嵌 web 的实时
+通道未建立**。**假设**（未证）：原生 App 自身已持有一条 SSE，内嵌 web 面板又开一条，服务端
+按客户端/IP 限并发 ⇒ 面板那条被顶掉；或嵌入态下 web 的 SSE 哨兵路径与宿主冲突。
+⇒ 这正好解释用户「任务管理做的很差」（状态停在旧值）。下批：先读 web 里
+`disconnectedHint` 的消费 hook + 该 hook 的连接端点，与原生 SSE 端点比对；再用
+`hdc shell hilog`（或 server 日志）看是否发生重复连接/被顶。
+
+**dump 纪律（第三条，本轮踩到）**：`uitest dumpLayout` 里 **`type=Web` 节点的 `text` 属性 = 该
+WebView 当前 URL**（本次实测 `text='http://10.0.2.2:8082/?xbot_panel=ter…'`，bounds 就是整个
+WebView `[0,283][1320,2754]`）—— **不是渲染出来的文字**，⛔ 别把它当"界面里显示了一串 URL"去"修"。
+（前两条见 §21.122p：`accessibilityText` 不暴露；§21.122s：dump y 与截图 y 同刻也可能不一致。）
