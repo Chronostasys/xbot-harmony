@@ -11204,7 +11204,7 @@ struct Index {
                       this.toast('该模型已禁用');
                       return;
                     }
-                    this.pickModel(g.subId, e.model !== undefined ? e.model : '');
+                    this.pickModel(g.subId, g.name, e.model !== undefined ? e.model : '');
                   })
                 }, (e: LlmModelEntry, i: number) => `${g.subId}#${e.model}`)
               }.width('100%')
@@ -11396,14 +11396,19 @@ struct Index {
   }
 
   /** 切模型（带 sub_id；防连点；失败把原因原样告诉用户）。 */
-  private async pickModel(subId: string, model: string): Promise<void> {
+  private async pickModel(subId: string, subName: string, model: string): Promise<void> {
     const store: ChatStore | null = this.store;
-    if (store === null || model.length === 0 || this.modelBusy.length > 0) {
+    if (store === null || model.length === 0 || subId.length === 0 || this.modelBusy.length > 0) {
       return;
     }
     this.modelBusy = `${subId}#${model}`;
     try {
-      await store.setModel(subId, model);
+      // P0（2026-10-17 用户亲报「切换模型出错」）：旧实现打 `POST /api/llm-config/model`
+      // —— 服务端**未注册**该路由（`channel/web/web.go:918` 只注册裸 `/api/llm-config`，
+      // POST 语义是配置 upsert）⇒ 恒 404 ⇒「切换失败」。web 真实通道 = 聊天命令
+      // `/set-model <订阅名> <模型名>`（`llm_config_handler.go:911 handleSetModel`——模型名
+      // 支持含空格）⇒ 原生同源走 `store.send`（与 `/continue` 同款命令消息通道）。
+      await store.send(`/set-model ${subName} ${model}`);
       this.toast(`已切换到 ${model}`);
       this.showModel = false;
     } catch (e) {

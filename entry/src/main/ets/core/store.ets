@@ -1471,12 +1471,12 @@ export class ChatStore {
    * ⚠️ 必须带 `sub_id` —— 项目铁律：绝不裸模型名解析（同名模型可能属于多个订阅）。
    * 服务端按 sender 生效，切换后立刻刷新配置与状态（用量里的模型名会变）。
    */
-  async setModel(subId: string, model: string): Promise<void> {
-    const body: Record<string, string> = { 'sub_id': subId, 'model': model };
-    await this.http.post('/api/llm-config/model', body);
-    await this.loadLlmConfig();
-    await this.loadStatus();
-  }
+  /**
+   * P0（2026-10-17 用户亲报「切换模型出错」）：`setModel` **已删** —— 它打
+   * `POST /api/llm-config/model`，服务端未注册该路由（`channel/web/web.go:918` 只注册
+   * 裸 `/api/llm-config`，POST 语义是配置 upsert）⇒ 恒 404。切换模型的正解 = 聊天命令
+   * `/set-model <订阅名> <模型名>`（`store.send`，见 `Index.pickModel`）。
+   */
 
   /** 设置上下文上限（`POST /api/llm-max-context`）。 */
   async setMaxContext(n: number): Promise<void> {
