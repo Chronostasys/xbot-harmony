@@ -7910,3 +7910,17 @@ appear live=true  key=13:4        （仍在飞）
 **附带**：`TERM_MAX_LINES` 200→**500**（终端回看扩窗；web xterm `scrollback: 10000` 的保守步进；单 Text 摊平无组件节点增长；真机帧率待验）。
 
 **量具教训（本轮新坑）**：wire 测试的「grep 正文截取窗」（`substring(i, i+N)`）对「中间一行加长」型改动脆弱——A2a 的 Indexed 版 +19 字符把 `currentLastActive` 体内锚推出 500 窗 = **假红**——修窗不修判别力（`status_sheet_wiring` 500→800，断言意图不变）。
+
+### §21.122cc P1-1 图片点开·模拟器结构级闭环（2026-10-15）
+
+**链路（全部实测坐标）**：底栏「文件」Tab `(636,2678)` 一击即开 FilesSheet（§21.122cb 先验命中，本轮无「二击」现象）→ 面包屑 `/Users/bobli` `(500,408)` 回退 → swipe `(600,2200→600,1600)` 上移 Pictures 行避开底栏 tab 带重叠区 → click `(675,2098)` 进目录 → `lightbox-probe.png` 行 `[186,836][1005,891]` click `(595,863)` → **Lightbox 打开**（特征四条见下）→ 点右上 `(1250,260)` → **关闭，回主界面**（`p1dump10`）。
+
+**结构级判据**（视觉输入当前模型未开启，screenshot 取回 94KB 不可分析——真机批「眼见」复验兜底）：
+1. 同文件名坐标体系切换：面板行 `lightbox-probe.png|[186,836][1005,891]` → Lightbox 大标题 `lightbox-probe.png|[233,226][1091,293]`；
+2. FilesSheet 列表行全部消失（`Photos Library.photoslibrary|[186,684]` 等行 0 命中）；
+3. 底栏六 Tab（设置/任务/插件/文件/终端/退出）保留在场；
+4. 往返可逆：关闭后大标题消失、面包屑无 `/Users/bobli/Pictures`、回主界面基线。
+
+**机制（代码侧复核）**：图片行点按**上抛页面**（`FilesSheet.ets:752`，P1-1 原实现 2026-10-14）→ 页面层开全屏 `Lightbox`；关闭 X=44×44 布局盒 `accessibilityText('关闭')`+`onClick=onClose()`（`Lightbox.ets:145-155`，页面实现回调）。**「一击双关」实测**：点 `(1250,260)` 既关 Lightbox 也让 FilesSheet 同步消失（直回主界面）——web 基准 Lightbox 关应回文件列表 ⇒ 真机批复眼时**复核此联动**：若属「Lightbox 全屏替换面板」设计差异则记录即可，若属回调误关面板则修复。
+
+**素材清理**：`~/Pictures/lightbox-probe.png` 为本轮验收布置（cp 自 `base/media/brand_mark_128.png`），已 `rm -f` 明文绝对路径清除（共享树禁令遵守）。
