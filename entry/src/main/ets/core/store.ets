@@ -378,6 +378,19 @@ export class ChatStore {
   /** 待回答的 AskUser（服务端权威：每会话至多一个） */
   askUser: AskUserPrompt | null = null;
 
+  /**
+   * **已答/已取消**的那个 AskUser 的 `request_id`（闪回防线）。
+   *
+   * ⛔ 用户亲报（2026-10-16）：「ask user **提交或者 cancel 后必须立刻消失**，现在消失了**还会出现一瞬间**，
+   *    严重 bug」。根因有两层，缺一不可：
+   *   ① 清除时机：旧实现 `await POST` 之后才清 ⇒ 往返期间面板仍在；
+   *   ② **回填**：往返期间任何在途 progress 载荷都带同一个 pending 问题 ⇒
+   *      `pickAskUserFromProgress` 把它**写回** `askUser` ⇒ 面板"消失又冒出来一下"。
+   *   ⇒ 记下刚答过的 `request_id`，服务端在收尾期重发**同一问题**时一律**不弹**；
+   *     模型随后问**新**问题（新 `request_id`）时照常弹（⛔ 不靠时间窗，靠身份）。
+   */
+  private answeredAskId: string = '';
+
   /** 待发队列 */
   queue: QueueItem[] = [];
   /**
@@ -1566,6 +1579,12 @@ export class ChatStore {
     if (qs.length === 0) {
       return;
     }
+    // ⛔ 闪回防线（用户 2026-10-16 亲报「取消/提交后消失了一瞬间又出现」）：收尾期服务端会重发
+    //    **同一个** pending 问题（`request_id` 相同）⇒ 一律不弹；新问题的 id 必然不同 ⇒ 照常弹。
+    const rid: string | undefined = p.request_id;
+    if (rid !== undefined && rid !== null && rid.length > 0 && rid === this.answeredAskId) {
+      return;
+    }
     const prompt: AskUserPrompt = { request_id: p.request_id, questions: qs };
     this.askUser = prompt;
   }
@@ -1584,10 +1603,25 @@ export class ChatStore {
       firstQ = firstId;
     }
     const single: string = answers[firstQ] !== undefined ? answers[firstQ] : '';
-    await this.http.post('/api/ask_user/respond', new AskRespondReq(
-      this.channel, this.currentChatId, firstQ, single, answers, cancelled));
+    // ⛔ **点击即清**（用户 2026-10-16 亲报「提交/cancel 后必须立刻消失」）：
+    //   旧实现清在 `await POST` 之后 ⇒ 往返期间面板仍在，且期间任何在途 progress 载荷都会把它
+    //   **写回** ⇒ 肉眼看到"消失了一瞬间又出现"。⇒ 先清 + 记 id 抑制回填，再发请求；
+    //   失败才把问题**还回来**（可重试，并撤销抑制）—— ⛔ 不假装成功。
+    const rid: string = prompt.request_id !== undefined && prompt.request_id !== null ? prompt.request_id : '';
+    this.answeredAskId = rid;
     this.askUser = null;
     this.onUpdate();
+    try {
+      await this.http.post('/api/ask_user/respond', new AskRespondReq(
+        this.channel, this.currentChatId, firstQ, single, answers, cancelled));
+    } catch (e) {
+      this.answeredAskId = '';
+      this.askUser = prompt;
+      this.onUpdate();
+      // ⛔ ArkTS 禁 `throw <任意类型>`（arkts-limited-throw）⇒ 包成 `Error` 再抛（调用方只读 message）。
+      const msg: string = e instanceof Error ? e.message : String(e);
+      throw new Error(msg); // 调用方（页面）负责可读提示 —— 与既有 catch 路径一致
+    }
   }
 
   // ── 待发队列 ───────────────────────────────────────────────────────────────

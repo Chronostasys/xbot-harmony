@@ -7727,3 +7727,30 @@ SPA 首屏就会整体变慢；本仓**无法**从原生侧修，也不该为修
 - 判据：`tools/tests/surfaces.test.ts`（12 条；含 mutation 自证：把 `files` 改回 `web` 必红）。
 
 真门禁全绿（含 ArkTS 编译 BUILD SUCCESSFUL）。
+
+## §21.122bv：AskUser 「提交/取消后必须立刻消失」—— 两端同源修复（2026-10-16）
+
+**用户原话**：「修一下 xbot web 的 ask user，**提交或者 cancel 后必须立刻消失**，现在消失了**还会出现一瞬间**，
+严重 bug。然后**确保原生 ask user 也是对的**」。
+
+**根因（两层，缺一不可）**：
+1. **清除时机**：两端都把"清除"挂在网络请求**之后**（web `useAskUser.ts` 的
+   `ws.send(...).then(() => clearAskUserPrompt(...))`；原生 `store.respondAsk` 的 `await POST; this.askUser = null`）
+   ⇒ 往返期间面板仍在（观感 = 没立刻消失）。
+2. **回填**：该窗口内服务端（收尾期）会**重播同一个 pending 问题**（web 侧 `ask_user` 事件 / 行驱动
+   `hydrateAskUserPrompt`；原生侧任何在途 progress 载荷 → `pickAskUserFromProgress`）⇒ 把**同一个** prompt
+   写回 store ⇒ 面板「消失了一瞬间又出现」。
+
+**修法（两端同一语义，⛔ 判据是"身份"不是"时间窗"）**：
+- **点击即清**：点击那一刻先清本地 prompt，再发请求；失败才把问题**还回来**（撤销抑制 + 可读提示）。
+- **按 `request_id` 抑制回填**：记下刚答过的 id；**同一 id** 一律不再入库；模型随后问**新**问题（新 id）照常弹；
+  `ask_user_resolved`（服务端确认不再 pending）到达时清抑制。
+
+| 侧 | 落点 |
+|---|---|
+| web | `hooks/useAskUser.ts`（respond/cancel 点击即清 + `markAskUserAnswered`）；`hooks/useSessionStore.ts`（新增 `askAnsweredRef` + 两条入库路径按身份拦截 + resolved 清抑制）；4 个 mock 测试文件补成员。提交 `86090c5c`（`fix/region-window-continuous`），`tsc -b` 干净 + `vitest` useAskUser(8)/AskUserPanel(10) 全绿 |
+| 原生 | `core/store.ets`：`answeredAskId` + `pickAskUserFromProgress` 拦截 + `respondAsk` 先清后请求（失败还原并 `throw new Error`，ArkTS 禁抛任意类型）|
+
+**真机实证（原生，模拟器）**：让模型真调 `ask_user` 弹出面板（问题含 `ZZZQ`），点「取消」后
+**连续 12 帧 dump**（≈12s）里「问题词 / 或直接输入答案 / 提交」全部 **NO** ⇒ **立刻消失且零闪回** ✓。
+判据：`tools/tests/askuser_flashback.test.ts`（8 条；含 mutation 自证 —— 把清除挪回 POST 之后必红）。
