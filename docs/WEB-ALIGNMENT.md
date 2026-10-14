@@ -6942,3 +6942,33 @@ WebView `[0,283][1320,2754]`）—— **不是渲染出来的文字**，⛔ 别�
 `useActiveSSESubscription({ ws, chatID: activeSession?.chatID, channel: activeSession?.channel,
 active: true })`（用**它已有的** session store）⇒ SSE 起来 ⇒ 所有嵌入面板实时。
 ⛔ 仍是**跨仓**（改 web）且需重建 + 重启 8082（§21.122p 已记：重启会终止本会话）⇒ **登记待裁**。
+
+## §21.122v：要求④ **真修落地** —— 嵌入面板恢复实时通道（xbot 仓 `22c1a96f`，已推）
+
+承 §21.122u（根因：嵌入态从不建立 SSE 订阅）⇒ 已修并**装机验证通过**。
+
+**落地范围（xbot 单仓，web 子目录；本仓零改动）**：
+- `web/src/layouts/EmbedPanelShell.tsx`：用**它自己的** `useSessionStore()`（取 `activeSession`）+
+  `useWSConnection()` 调一次 `useActiveSSESubscription({ws, chatID, channel})` ⇒ 嵌入态自建订阅。
+  **不需要宿主传参**（该壳本就有 `SessionStoreProvider`，`usePluginRuntimeHost.ts:383-388` 亦从
+  `session.activeSession` 派生 `window.__xbot_session__`）；`activeSession` 为空 ⇒ 传 `null`
+  ⇒ 该 hook 内部不订阅（不拿空 id 去订）。
+- `web/src/layouts/EmbedPanelShell.test.tsx`（新增，判别力判据）：
+  ① 有活跃会话 ⇒ 必须 `ws.addSubscription(chatID, channel)` 且取自该会话；② 无活跃会话 ⇒ 不得订阅。
+  **mutation 自证**：删掉组件里的调用 ⇒ ①红、②仍绿（判据非恒真）；还原后 `2 passed`。
+
+**装机实证（模拟器，重开三个嵌入面板）**：`实时连接已断开，状态可能延迟`
+（web `TasksPanel.tsx:275-277` 的 `!ws.connected` 分支）在 **任务 / 终端 / 文件** 三处**全部消失**
+⇒ `ws.connected === true` 成立 ⇒ 面板恢复实时通道。脚本 `/tmp/verify_sse.sh`，截图
+`/tmp/sse_任务.jpeg` `/tmp/sse_终端.jpeg` `/tmp/sse_文件.jpeg`。
+
+**为什么这次能"不重启服务"就生效**（纠正 §21.122p 的过保守判断）：web 产物是**磁盘目录**而非内嵌 ——
+`channel/web/web.go:35` 明写 "**No go:embed** — frontend is deployed independently"；
+`serverapp/server.go:149-164 resolveStaticDir()` 优先级 = 显式配置 → 二进制旁 `web/dist` →
+`~/.xbot/web/dist`（本机 = `~/.xbot/web/dist`）⇒ **重建 dist 即即时生效**。
+回滚点 `~/.xbot/web/dist.bak-122u-20261014123726`（同步用 `cp -r`，⛔ 未用 `rm -rf`；
+Vite 产物文件名带内容哈希 ⇒ 旧 chunk 残留无害）。
+
+⚠️ **§21.122p 的"两层 chrome"仍待裁**：那是**另一件事**（`xbot_view` 路径未带 `xbot_embed=1`
+⇒ web 渲整壳），修法要同时改 `App.tsx` 嵌入口径 + 本仓 `pluginViewDeepLink` 补参；
+本次只修了"嵌入态没有实时通道"。两项都已具名登记，⛔ 不要混为一谈。
