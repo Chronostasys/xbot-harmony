@@ -6147,7 +6147,11 @@ struct Index {
           //   弹性过滚动期间 `isAtEnd()` 不可靠（实测判假）⇒ 用"位置闸门"当暂停条件会漏；
           //   药丸的**闪现**由**渲染侧**的贴底闸门 `atEndUi` 压制（见 `showsJumpToLatest` 注释），
           //   与"暂停"职责分离。
-          this.followBottom = false;
+          // ⛔ 只在**真的变化**时写（`followBottom` 是 `@State`）：用户拖动的每一帧都会进这一支，
+          //   无论框架对同值写入是否短路，都不该在"已经暂停"后继续反复标脏（零写入最稳）。
+          if (this.followBottom) {
+            this.followBottom = false;
+          }
         }
       })
       // 跟踪"是否跟随到底部"：end 是最后一个可见项的下标，等于末项下标即在底部。

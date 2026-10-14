@@ -288,6 +288,42 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
   上面那条 mutation **逃逸**（假绿）。⇒ 改为**真 LCG 随机**并补 `*_*_`/`_*_*` 等语料后 mutation 才红。
   **教训：随机语料的"随机"本身必须可判别**（否则覆盖面是假的）。
 
+### 1.6f 第五轮（✅ 2026-10-15）：**滚动不再每帧整页 build**（用户亲报「现在很卡，固定历史还会掉帧」）
+
+> 口径：**计数**（每帧真做的重活次数），不是墙钟 —— 设备侧 `SP_daemon` 在本模拟器上取不到 app FPS
+> （`-f`/`-ohtestfps` 均不出数；`hidumper --cpuusage` 实测 idle 2.9% ≈ 滚动 2.9%，**不支持"卡在 CPU"**）。
+> 判据：`bash tools/tests/run-one.sh msgindex`（§⑨，**61 passed**；mutation ⇒ 4 条红）。
+
+| 事实（全部实测/源码定位，非推断） | 值 |
+|---|---|
+| 屏幕节点总数（真机 dump，本会话三个采样点） | **126 / 133 / 168** |
+| 可见行规模（`tools/perf/row_scale.py`） | 最重行 **76 节点 / 7 块**（节点/块 ≈ 10.9–12.0） |
+| `ListItem` 数 | 1–3 |
+| app CPU：idle（3×1s） | **2.92–2.97%** |
+| app CPU：滚动中（5×1s，12 次 swipe 期间） | **2.85–2.90%**（**未上升** ⇒ 不是"主线程被算满"） |
+| `backgroundBlurStyle`/`backdropBlur` 生产调用点 | **2**（顶栏玻璃 + 导航药丸）⇒ 非合成器瓶颈 |
+| `iterations: -1`（无限动画） | **0** |
+
+⇒ 结论：卡顿**不在**"行太重/CPU 饱和/模糊层"，而在**每个滚动索引帧都把整页标脏**：
+
+| 靶子 | 旧写法 | **现在** | 手法 |
+|---|---|---|---|
+| `onScrollIndex` 里的页级状态写入 | 每次滚都写 `listStart`（**`@State`**）⇒ **整页 `build()` 重跑** | 写 `listStart`（**普通字段**）+ `navSeq` **只在序号变化时**写 | 语义等价：`listStart` 只被命令式逻辑读（`insertRows` 的 prevTop / `navActiveSeq` 换算），**不参与渲染** |
+| `navAnchors()`（每帧被 build 取） | `buildAnchors(this.rows, userAnchorRows(this.rows))` = **O(总行数)** 且**复制每条消息完整正文** | **按 `this.rows` 对象恒等记忆化**（`core/msgindex.ets:AnchorsMemo`）⇒ 同 `rows` 的 build/滚动重建 **O(1)** | 沿用 `liveBlocksMemo`/`blocksSignature` 同款 WeakMap/恒等手法 |
+| `onWillScroll` 的 `this.followBottom = false` | 用户拖动**每帧**都写 `@State`（已暂停后仍反复标脏） | `if (this.followBottom) { … = false; }`（`Index.ets` + `TerminalSheet.ets` 两处） | 只在真变化时写 |
+
+- **为什么量到 CPU 不升才是对的**：ArkUI 的"标脏"本身不吃 CPU，代价落在**下一次 build**（JS 重跑 +
+  对象分配 + diff）。本会话只有 1–3 行 ⇒ 单次 build 便宜 ⇒ CPU 曲线看不出差；但**历史越长、
+  行越大**，每帧 build 的固定成本线性上升 ⇒ 正是用户"**固定历史**（内容不变）也掉帧、且越长越卡"的形态。
+- **判据（§⑨，计数）**：同一 `rows` 连续取锚点 **50 次** ⇒ `AnchorsMemo.builds` 必须 **1**（且每次返回
+  **同一数组对象** ⇒ `@Prop` 不重投递、浮层不重建）；换 `rows` 对象 ⇒ 必重算（⛔ 不做"按内容比较"近似）；
+  内容变（新对象）⇒ 取到新文案；空 `rows` ⇒ 0 锚点不崩；输出逐字节对齐 oracle。
+- **mutation 自证**：`AnchorsMemo.of` 的恒等判据改 `if (false)`（永不命中）⇒ §⑨ **4 条红**（builds 4/5 ≠ 1/2/3）。
+- ⚠️ **仍未销账**（诚实）：`rows` **换对象**时（每次 sync / 流式每帧都换）锚点仍会整体重算
+  （O(行数) + 全文拷贝，`buildAnchors` 拷的是**完整正文**而导航只显示预览 —— web 那边是
+  `extractTurnPreview` 出**预览串**）。下一步方向：①预览化（对齐 web，注意 Text 的 `maxLines` 语义）；
+  ②只对"新增/末行"增量更新锚点。⛔ 别在没取证前直接截断字符串（会改可见文本）。
+
 ### 1.7 TURNDROP 噪声（已修，留基线防回归）
 - 现状（`1cfad7a`）：逐 turn `console.debug` + burst 结束**一条** warn 汇总；`turndropSeen` 去重。
 - 判别测试：`tools/tests/turndrop.test.ts`（5 passed；含 3 段 mutation 说明）。

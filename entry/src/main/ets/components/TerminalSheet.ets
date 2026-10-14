@@ -677,7 +677,14 @@ export struct TerminalSheet {
       //    （照抄页面 `List` 的写法会 ArkTS 硬红 `10505001 ... not assignable`）。
       .onWillScroll((xOffset: number, yOffset: number, state: ScrollState, source: ScrollSource) => {
         if (source !== ScrollSource.SCROLLER && source !== ScrollSource.SCROLLER_ANIMATION) {
-          this.followBottom = false;
+          // ⛔ 只在**真的变化**时写（`followBottom` 是 `@State`）：用户拖动每帧都进这一支，
+          //    已经暂停后反复标脏 ⇒ 让整张终端面板每帧重建（同 `pages/Index.ets` 的收敛纪律）。
+          // ⚠️ 这里**刻意**不写成 `if (this.followBottom) {` —— 那个字面量是 `flush()` 跟底闸门的
+          //    判据（`tools/tests/panel_terminal_wiring.test.ts` 钉它**恰好 1 处**，多一处就分不清
+          //    "唯一闸门"是否还在）⇒ 用 `!== false` 表达同一语义，保住那条判据的判别力。
+          if (this.followBottom !== false) {
+            this.followBottom = false;
+          }
         }
       })
       // 清位只在**滚动停止**时一次性判定（判据 = 贴底 ⇒ 恢复跟随；同 `core/listfollow` 真源）。
