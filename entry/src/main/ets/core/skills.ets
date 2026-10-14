@@ -73,6 +73,32 @@ export function normalizeSkillSource(source: string | undefined): string {
 }
 
 /**
+ * 技能描述的**显示规范化**（真机截图 `/tmp/s_skills.jpeg` 抓到的细节缺陷，目标③「细节完美」）：
+ * 服务端 `parseSkillFrontmatter` 只做 `TrimSpace`（`agent/skills.go:623`）⇒ SKILL.md 里
+ * **带引号**的 frontmatter 值（描述含 `:` 时 YAML 必须加引号，本仓 `orchestrator`/`agent-creator`
+ * 等即是）会**连引号一起**下发；web `SkillManagerPanel.tsx:227` 直出 ⇒ 列表里出现
+ * `"Manage SubAgent roles: …` 这种引号开头。这里剥掉**成对包裹**的引号（`"` / `'` / 全角 `“”`、
+ * `‘’`），其余原样 —— ⛔ 只删真正的定界符，不碰正文里的引号（如描述里写 `xbot` 的 `"name"`）。
+ * ⛔ 用字符码比较（34/39/8220/8221/8216/8217）：避免源码里转义引号的可读性/编译坑。
+ */
+export function normalizeSkillDescription(raw: string | undefined): string {
+  if (raw === undefined || raw === null) {
+    return '';
+  }
+  const s: string = raw.trim();
+  if (s.length < 2) {
+    return s;
+  }
+  const f: number = s.charCodeAt(0);
+  const l: number = s.charCodeAt(s.length - 1);
+  const paired: boolean = (f === 34 && l === 34)       // " … "
+    || (f === 39 && l === 39)                           // ' … '
+    || (f === 8220 && l === 8221)                       // “ … ”
+    || (f === 8216 && l === 8217);                      // ‘ … ’
+  return paired ? s.substring(1, s.length - 1).trim() : s;
+}
+
+/**
  * 解析 `skill_list` 的响应。
  *
  * ⛔ **绝不抛**：非数组/条目缺 `name` ⇒ 跳过该条（面板要能显示"空"而不是崩）。
@@ -95,7 +121,7 @@ export function parseSkillList(raw: SkillWire[] | undefined): SkillItem[] {
     }
     out.push({
       name: name,
-      description: w.description !== undefined && w.description !== null ? w.description.trim() : '',
+      description: normalizeSkillDescription(w.description),
       path: w.path !== undefined && w.path !== null ? w.path : '',
       source: normalizeSkillSource(w.source),
       enabled: w.enabled === true,

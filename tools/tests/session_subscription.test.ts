@@ -180,7 +180,12 @@ has(indexSrc, 'subscription: this.store !== null ? this.store.sessionSubscriptio
 // 既有 4 项身份字段仍在（本波只加不改 ⇒ 反向守卫）。
 has(indexSrc, 'sessionId: this.store !== null ? this.store.currentChatId : \'\'', '④ 既有 sessionId 传参保留');
 has(indexSrc, 'channel: this.store !== null ? this.store.channel : \'\'', '④ 既有 channel 传参保留');
-has(indexSrc, 'lastActive: this.currentLastActive()', '④ 既有 lastActive 传参保留');
+// ⚠️ 2026-10-16（③真机审计）：原钉 `lastActive: this.currentLastActive(),`。状态面板抓到
+//    「最后活跃」**直出机器时间戳**（`2026-10-14T15:06:53+08:00`）⇒ 调用点外套了**显示规范化**
+//    `formatLastActive(...)`（真源仍是页面的 `currentLastActive()`）。
+//    ⇒ 同时钉两条（⛔ 不许只留一条 = 会放过"漏了格式化器"或"漏了真源"两种回归）。
+has(indexSrc, 'lastActive: formatLastActive(this.currentLastActive())',
+  '④ 既有 lastActive 传参保留（真源 + 展示规范化）');
 
 if (fail > 0) {
   console.log(`  session_subscription: ${pass} passed, ${fail} failed`);

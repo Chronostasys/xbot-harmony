@@ -17,6 +17,10 @@ import { Palette, paletteOf } from '../core/theme';
 import { XbotHttp } from '../core/http';
 import { FS_CAPTION, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5 } from '../core/tokens';
 import { rpc, readableRpcError } from '../core/rpc';
+// 时间**展示唯一真源**（同状态面板「最后活跃」）：`created_at` 是 SQLite `CURRENT_TIMESTAMP`
+// ⇒ 原始值带秒（`2026-10-16 04:12:33`）。web `SettingsWebUsers.tsx:162` 直出 ⇒ 原生过一遍
+// 格式化器即"比 web 干净"，且全应用只有一处时间格式口径。
+import { formatLastActive } from '../core/sessiongroup';
 import {
   isValidUsername, normalizeUsernameInput, OneTimePw, oneTimePasswordNotice, RPC_CREATE_WEB_USER,
   RPC_DELETE_WEB_USER, RPC_LIST_WEB_USERS, UsernameParams, WebUserRow, webUsersFrom, WebUsersData,
@@ -204,7 +208,7 @@ export struct SettingsWebUsers {
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                     .width('100%')
                   if (u.created_at !== undefined && u.created_at.length > 0) {
-                    Text(u.created_at)
+                    Text(formatLastActive(u.created_at))
                       .fontSize(FS_CAPTION)
                       .fontColor(this.pal().textMuted)
                       .maxLines(1)

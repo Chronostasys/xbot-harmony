@@ -180,8 +180,11 @@ has(indexSrc, "sessionId: this.store !== null ? this.store.currentChatId : ''",
   '④ 调用点真传 sessionId（store.currentChatId，权威值）');
 has(indexSrc, "channel: this.store !== null ? this.store.channel : ''",
   '④ 调用点真传 channel（store.channel）');
-has(indexSrc, 'lastActive: this.currentLastActive()',
-  '④ 调用点真传 lastActive（页面判据 currentLastActive）');
+// ⚠️ 2026-10-16（③真机审计）：原钉 `lastActive: this.currentLastActive(),`。真机图抓到「最后活跃」
+//    **直出机器时间戳**（`2026-10-14T15:06:53+08:00`）⇒ 调用点外套了**显示规范化** `formatLastActive(...)`
+//    （真源仍是页面的 `currentLastActive()`）。⇒ 钉两条（⛔ 不许只留一条）。
+has(indexSrc, 'lastActive: formatLastActive(this.currentLastActive())',
+  '④ 调用点真传 lastActive（页面判据 currentLastActive + 展示过 formatLastActive）');
 has(indexSrc, 'onSubmitCwd: (dir: string) => {',
   '④ 调用点真传 onSubmitCwd 回调');
 has(indexSrc, 'this.submitCwd(dir)', '④ onSubmitCwd 回调体真调 submitCwd(dir)');

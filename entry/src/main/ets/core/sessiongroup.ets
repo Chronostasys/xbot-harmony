@@ -572,6 +572,43 @@ export function relativeTimeLabel(lastActive: string, nowMs: number): string {
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
 }
 
+/** 测试期内只读：`[from, from+count)` 是否全是 ASCII 数字（⛔ 不用 `Number.parseInt`：`'1a'` 会被吃成 `1`）。 */
+function allDigits(a: string, from: number, count: number): boolean {
+  for (let i = from; i < from + count; i++) {
+    const c: number = a.charCodeAt(i);
+    if (c < 48 || c > 57) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * 「最后活跃」的**展示时间**（真机截图 `/tmp/s_status.jpeg` 抓到的细节缺陷，目标③「超越 web」）：
+ * 状态面板把服务端原值**直出** ⇒ 用户看到机器时间戳 `2026-10-14T15:06:53+08:00`
+ * （`T`、秒、时区偏移全裸奔；web `SessionInfo.tsx:175` 亦直出 ⇒ 这是"比 web 干净"的地方）。
+ * ⇒ 归一成 Apple 风格的 `YYYY-MM-DD HH:mm`。
+ * ⚠️ **保留原串里的墙钟时刻、不做时区换算**：服务端附带的偏移就是它的本地时间；换算成设备时区
+ *    会让同一条会话在不同设备显示不同的「最后活跃」，反而更难核对。
+ * ⛔ **fail-open**：形状不认识（纯日期/垃圾串/缺字段）⇒ **原样返回**（⛔ 不返回空串 ——
+ *    面板会因此静默少一行；"格式不完美"远好过"信息缺失"）。
+ */
+export function formatLastActive(raw: string): string {
+  const s: string = raw.trim();
+  if (s.length < 16) {
+    return s;
+  }
+  const shapeOk: boolean = s.charAt(4) === '-' && s.charAt(7) === '-'
+    && (s.charAt(10) === 'T' || s.charAt(10) === ' ')
+    && s.charAt(13) === ':'
+    && allDigits(s, 0, 4) && allDigits(s, 5, 2) && allDigits(s, 8, 2)
+    && allDigits(s, 11, 2) && allDigits(s, 14, 2);
+  if (!shapeOk) {
+    return s;
+  }
+  return `${s.substring(0, 10)} ${s.substring(11, 16)}`;
+}
+
 /** 状态组的中文标题（web `i18n/zh-CN.ts` session.status.*）。 */
 export function statusGroupLabel(key: string): string {
   const k: string = statusGroupKey(key);

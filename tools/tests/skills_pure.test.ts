@@ -13,7 +13,7 @@
  *        （本批新增 1 个列表站点靠它抵消 ⇒ 全仓 `ForEach(` 仍 107）。
  */
 import {
-  normalizeSkillSource, parseSkillList, SKILL_ROW_GROUP, SKILL_ROW_ITEM, SKILL_SOURCE_EMBEDDED,
+  normalizeSkillDescription, normalizeSkillSource, parseSkillList, SKILL_ROW_GROUP, SKILL_ROW_ITEM, SKILL_SOURCE_EMBEDDED,
   SKILL_SOURCE_GLOBAL, SKILL_SOURCE_ORDER, SKILL_SOURCE_OTHER, SKILL_SOURCE_PROJECT, SKILL_SOURCE_USER,
   SkillGroup, SkillItem, SkillRow, skillGroups, skillPathHint, skillRows, skillSummaryText,
   skillSourceLabel, skillToggleLabel,
@@ -176,6 +176,25 @@ function mk(name: string, source: string, enabled: boolean): SkillItem {
   // 性能预算 ⑦ 净额：静态骨架屏的 `ForEach([0, 1, 2, 3]` 必须已展开
   ok('★预算净额：静态骨架屏 `ForEach([0, 1, 2, 3]` 已展开为静态调用（`this.SkeletonRow(`）',
     page.indexOf('ForEach([0, 1, 2, 3]') < 0 && page.indexOf('this.SkeletonRow(') >= 0);
+}
+
+// ── ④b 描述显示规范化（真机截图抓到的细节：frontmatter 引号被直出）────────────────
+//  判据必须覆盖「删对了」与「⛔ 什么都没删」（白绿防线：未实现时成对引号必须还在 ⇒ 必红）。
+{
+  eq('★desc：成对双引号被剥（真机 `"Manage SubAgent roles: …` 那条）',
+    normalizeSkillDescription('"Manage SubAgent roles: create, view"'), 'Manage SubAgent roles: create, view');
+  eq('★desc：成对单引号被剥', normalizeSkillDescription('\'Build plans\''), 'Build plans');
+  eq('★desc：成对全角引号被剥', normalizeSkillDescription('“主 Agent 指挥模式：定约”'), '主 Agent 指挥模式：定约');
+  eq('★desc：无引号原样（含内部引号：只删定界符）',
+    normalizeSkillDescription('Use xbot "name" field'), 'Use xbot "name" field');
+  eq('★desc：⛔ 单边引号不剥（缺配对 ⇒ 不是定界符）', normalizeSkillDescription('"only-left'), '"only-left');
+  eq('★desc：⛔ 长度 <2 不炸', normalizeSkillDescription('"'), '"');
+  eq('★desc：undefined/null ⇒ 空串', [normalizeSkillDescription(undefined), normalizeSkillDescription(null as never)], ['', '']);
+  eq('★desc：首尾空白先 trim 再判配对', normalizeSkillDescription('  "hi"  '), 'hi');
+  // 与 `parseSkillList` 同源（组件只读 `SkillItem.description` ⇒ 那里必须已是干净串）
+  eq('★desc：解析链路里已生效（组件拿到的就是干净串）',
+    parseSkillList([{ name: 'orchestrator', description: '“主 Agent 指挥模式”', source: 'embedded', enabled: true }])[0].description,
+    '主 Agent 指挥模式');
 }
 
 if (fail > 0) {

@@ -25,7 +25,7 @@ import {
   isSessionCategory, normalizeSessionCategory, needsCategoryMigration, collapseKey,
   sessionKey, sameSession, parseAgentChatID, isSubAgentSession,
   timeBucket, pathBucket, sessionGroupKey, sortSessions, groupSessions,
-  groupTitle, statusGroupKey, pathGroupTooltip, basename, relativeTimeLabel,
+  groupTitle, statusGroupKey, pathGroupTooltip, basename, relativeTimeLabel, formatLastActive,
   allCollapseKeys, allGroupsCollapsed, applyGroupsCollapsed, collapseAllPlan,
   sessionStatusRole,
 } from '../../entry/src/main/ets/core/sessiongroup';
@@ -347,6 +347,23 @@ eq('合成·剔除：空 keys ⇒ 状态不变',
     sessionStatusRole('idle', false), '');
   eq('状态：未知值 ⇒ 空串（不猜色）', sessionStatusRole('mystery', false), '');
   eq('状态：undefined + 未跑 ⇒ 空串', sessionStatusRole(undefined, false), '');
+}
+
+// ── 状态面板「最后活跃」展示时间（真机截图抓到的机器时间戳泄漏）─────────────────────
+{
+  eq('★lastActive：ISO 带偏移 ⇒ `YYYY-MM-DD HH:mm`（真机 `2026-10-14T15:06:53+08:00`）',
+    formatLastActive('2026-10-14T15:06:53+08:00'), '2026-10-14 15:06');
+  eq('★lastActive：UTC `Z` 同样只取墙钟（⛔ 不换算时区：跨设备一致）',
+    formatLastActive('2026-01-02T03:04:05Z'), '2026-01-02 03:04');
+  eq('★lastActive：空格分隔的 ISO 也认（含毫秒）',
+    formatLastActive('2026-01-02 03:04:05.123'), '2026-01-02 03:04');
+  eq('★lastActive：纯日期 ⇒ 原样（fail-open，⛔ 不猜时刻）',
+    formatLastActive('2026-01-02'), '2026-01-02');
+  eq('★lastActive：垃圾串 ⇒ 原样返回（⛔ 不返回空串 ⇒ 面板不静默少一行）',
+    formatLastActive('not-a-time'), 'not-a-time');
+  eq('★lastActive：数字伪装（`1a` 位）⇒ 必须判非日期（⛔ 不用 parseInt 宽容解析）',
+    formatLastActive('20x6-10-14T15:06:53+08:00'), '20x6-10-14T15:06:53+08:00');
+  eq('★lastActive：空串 ⇒ 空串（该行不渲染由 `length>0` 决定）', formatLastActive('   '), '');
 }
 
 console.log(`sessiongroup: ${pass} passed, ${fail} failed`);
