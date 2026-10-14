@@ -9971,12 +9971,15 @@ struct Index {
           .padding({ left: SPACE_XS, right: SPACE_XS })
           .justifyContent(FlexAlign.Center)
           .alignItems(VerticalAlign.Center)
-          // ── 视觉：chip 容器 ⇒ 与搜索框并列时读成「一个字段 + 一个按钮」──────────────────
-          // 原实现是**裸文字 + 裸字形**浮在高大的搜索框右边（用户 2026-10-13 报「丑」）⇒ 同款 chip
-          // 容器（与滤波器那排同一家族）把两者拉成一对。
-          .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
-          .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
-          .borderRadius(RADIUS_CARD)
+          // ── 视觉：**幽灵动作键**（2026-10-15，目标③「对标 Apple」第三批）──────────────────
+          // 原实现是 chip 面（填充 + 内凹发丝）——与左边搜索框**同一种面**并排 ⇒ 两个等重量的
+          // 填充控件抢焦点，整条搜索带读起来"两个输入框"（真机截图实锤）。Apple 工具栏范式是
+          // **一个填充字段 + 一个裸字形文字动作**（`.searchable` 的 cancel 就是裸文字）。
+          // ⛔ 与同排下面那条筛选工具条的渠道触发器**同一口径**（那里已按 web 权威落成幽灵按钮：
+          //    `web/src/components/session/ChannelPicker.tsx:93-101` 原文「无边框、无底色…塞一个
+          //    描边方块会喧宾夺主」）⇒ 本仓同一工具栏内**只有一种动作键语言**。
+          // 激活/置灰仍靠前景色表达（`accentSoft` / `iconMuted` + `textSecondary`），承载"当前能否生效"。
+          .backgroundColor(Color.Transparent)
         }
         .height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center)
