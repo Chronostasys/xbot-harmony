@@ -7240,6 +7240,55 @@ mutation：两处改回旧写法 ⇒ **各红 1 条**（其余 7 绿）；还原
 且有真实内容；两处插件视图（第三方 `xbot.git-fancy` / `xbot.ssh-runner`）证明 §21.122bc 的
 嵌入口径扩宽对**第三方插件同样生效**（原生只传 viewId，web 侧按 id 跨容器取视图本体）。
 
+## §21.122bf：P0 —— 切回多迭代会话后「历史与最新迭代脱节」（web 修 `212e67a3`，本仓移植 `c4a346c`）
+
+**用户原话**（web 现象，权威侧修）：「有时候切回一个 iter 很多的会话，历史会显示，例如迭代
+1-1000，但是实际上最新迭代是 2000，然后此时最新迭代 2000 在迭代 1000 后渲染出来，然后迭代
+2000 结束后变回只有迭代 1-1000 能看到。」
+
+**根因（与既有 `p0-lost-mid-run-iterations` 是**同一缺陷家族的另一条形态**）**
+- 既有判据 `lostIterGapSig`（`core/reduce.ts`）只在**事件**带着跳跃的迭代号到达时才可能判出
+  （`evNumber > maxHeld + 1`，只挂在 `iteration` / `stream` 两个 case）。
+- 本例的脱节却在**一次 hydration/合并内部**形成：权威快照与本地窗口各带一段，union 之后
+  turn 的迭代计数器已到 2000、`iterations` 只到 1000 —— **没有任何事件会带出跳跃**
+  ⇒ 旧判据恒不触发 ⇒ 界面永久落后：
+  · 渲染层用 `lastIter` 合成在飞块（web `derive.ts:foldToolsIntoIterations` / live 行读
+    `lastIter`）⇒「2000 渲染在 1000 之后」；
+  · turn 结束（定格/提交）后合成块消失 ⇒「又只剩 1-1000」。
+- ⇒ 症状 100% 可解释，且与「**切回会话**」这一动作强相关：hydration 正是脱节形成的时刻。
+
+**修法（用户定向："如果 live 迭代很明显的脱节，要么 catch up gap 要么直接清除 memo 重新拉
+api 加载会话"）**
+- 新判据 `liveAheadGapSig(turnID, live)` = `live.iter > maxHeldIteration(live.iterations)
+  + LIVE_AHEAD_TOLERANCE(2)`（容差覆盖"在飞迭代尚未落进数组"的正常语义：此刻
+  `iter === maxHeld + 1`，⛔ 不许当脱节）。
+- 走**既有** gap 出口（`gapReloadToken` 自增 + 新去重字段 `liveAheadGapSig`）⇒ 面板
+  `markHistoryStale` + reset + 权威 reload（REST DB 窗口 union 补洞）—— ⛔ 不新造第二条重载
+  通道（两条重载语义必然分叉）。
+- 判据挂**三处**（脱节可在这三处进入状态）：① `history_replaced` hydration 合并（用户实测
+  触发点）；② 定格（`session(idle)` 有产出/空壳 + `text_final` fold）；③ 提交（`committed`）。
+- 新字段纳入 hydration 的**幂等短路**（否则每帧 store 回放会吞掉 token 自增信号）。
+
+**⛔ 两个坑（都实际踩到/差点踩到，写下来免得重犯）**
+1. **去重不许塞进签名函数内**：若 `liveAheadGapSig` 同形状时返回 `''`（像 `lostIterGapSig`
+   那样），调用点会把**已存签名擦成空串** ⇒ 下一帧又被当成新形状 ⇒ **重载风暴**。本仓范式：
+   形态函数**只算形状**（`''` = 无脱节，语义与 `unreachableGapSig` 一致），去重在调用点与
+   `s.liveAheadGapSig` 比较。（web 侧第一版真红过 T2，已改。）
+2. **新增导出会撞 `core_module_consumed` 台账**（门禁，⛔ 只准删不准加）：跨文件零消费的导出
+   会让基线 11→12 直接红。⇒ 本次两个新函数（`liveAheadGapSig` / `withLiveAhead`）**不导出**
+   （只在 `core/reduce.ts` 内用；判据测试只消费 `reduce`）。实测踩到并已改回。
+
+**判据（两仓同源，各 6 条）**
+- web `src/chat/p0-live-ahead-gap.test.ts`（6 passed；全量 186 文件 / **1951** 通过，修前 1945）
+- 本仓 `tools/tests/live_ahead_gap.test.ts`（**11 passed**）
+  T1 窗口 1-1000 / 计数器 2000 ⇒ `gapReloadToken`=1（修前恒 0）；T2 同形状回放不再自增
+  **且签名不许被擦空**；T3 定格路径触发（防"结束后又只剩旧窗口"）；T4 提交路径触发；
+  T5 无假阳性（`iter = maxHeld+1` 与 +2 容差内均不触发）；T6 洞补到 1500 仍脱节 ⇒ 新下界
+  `liveAheadAt1501` ⇒ 再报一次。
+- mutation 口径：① 判据恒 `''` ⇒ T1/T3/T4/T6 红；② 去掉同形状去重 ⇒ T2 红；③ 容差改 0 ⇒ T5 红。
+- 真门禁 `bash tools/gate.sh` ⇒ `✅ 真门禁全绿`（329 测试文件 / 0 失败 + ArkTS 编译 + 静态护栏 16/16）。
+
+
 
 
 
