@@ -4365,6 +4365,29 @@ struct Index {
   }
 
   /**
+   * GenUI 面板「分享」chip 的实现（web `genui/index.tsx:129-151` ShareablePanel.onShare 对等物）——
+   * 复用既有建分享链（`shareGenuiPanel`：`POST /api/share/create` → `<host>/s/<token>`）。
+   * 失败**吞成空串**（卡片自落 error 态『分享失败，重试』可重选；页面不另弹 toast——卡片文案即反馈）。
+   * 复制进系统剪贴板归卡片（`GenuiPanelCard.shareClicked` 内 pasteboard 直写，
+   * 与 `MarkdownView` 复制同 idiom）。**只建 URL 不落 WebSurface**（分享 = 拿链接转发朋友，
+   * 与 onOpen 的"本机打开面板"是两个动作）。
+   */
+  private async shareGenuiLink(code: string, title: string): Promise<string> {
+    const store: ChatStore | null = this.store;
+    if (store === null || code.length === 0) {
+      return '';
+    }
+    if (genuiPayloadTooLarge(code)) {
+      return '';
+    }
+    try {
+      return await store.shareGenuiPanel(code, title);
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /**
    * 插件视图深链导航 → 原生面板路由（「插件视图导航拦截协议」的路由端）。
    * WebSurface 的 `onLoadIntercept` 拦截到 `?xbot_view=<viewId>[&xbot_view_params=<json>]`
    * 深链后回调这里。`params` = 深链参数（如 git commit 的 `{ hash }`）。
@@ -9711,6 +9734,10 @@ struct Index {
         onOpenGenui: (code: string, title: string) => {
           this.openGenuiPanel(code, title);
         },
+        // 分享 chip（web ShareablePanel 对等物）：页面建分享链 + 回 URL（复制由卡片 pasteboard 落地）。
+        onShareGenui: (code: string, title: string): Promise<string> => {
+          return this.shareGenuiLink(code, title);
+        },
       })
     }
   }
@@ -9782,6 +9809,10 @@ struct Index {
         // GenUI（`display_html`）面板：工具卡片 → 建分享 + 落 `WebSurface` URL（层内不留 IO）。
         onOpenGenui: (code: string, title: string) => {
           this.openGenuiPanel(code, title);
+        },
+        // 分享 chip（web ShareablePanel 对等物）：页面建分享链 + 回 URL（复制由卡片 pasteboard 落地）。
+        onShareGenui: (code: string, title: string): Promise<string> => {
+          return this.shareGenuiLink(code, title);
         },
       })
     }

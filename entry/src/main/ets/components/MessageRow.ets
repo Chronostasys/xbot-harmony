@@ -185,6 +185,13 @@ export struct MessageRowView {
    */
   onOpenGenui: (code: string, title: string) => void = (code: string, title: string) => {
   };
+  /**
+   * GenUI 面板「分享」chip（web `genui/index.tsx:122-181` ShareablePanel 对等物）——
+   * 与 `onOpenGenui` 同一透传链：上层（页面）建分享并带回 URL；空串 = 失败（卡片落 error 可重试）。
+   */
+  onShareGenui: (code: string, title: string) => Promise<string> = (code: string, title: string): Promise<string> => {
+    return Promise.resolve('');
+  };
   onToggleTool: (iter: number, toolName: string) => void = (iter: number, toolName: string) => {
   };
   onRowLongPress: () => void = () => {
@@ -763,6 +770,8 @@ export struct MessageRowView {
         onPromoteShell: this.onPromoteShell,
         // GenUI（`display_html`）面板：live 在飞时也落卡片 —— 透传页面（建分享 + 落 URL）。
         onOpenGenui: this.onOpenGenui,
+        // 分享 chip（web ShareablePanel 对等物）：同链透传（页面建分享 + 返 URL）。
+        onShareGenui: this.onShareGenui,
       })
       // ── live 快照的 SubAgent 进度树（web `LiveIteration.tsx:282`：
       //    `{hasSubAgents && <SubAgentProgressTree nodes={liveSubAgents} />}` ——
@@ -900,6 +909,9 @@ export struct MessageRowView {
         theme: this.themeId(),
         onOpen: (code: string, title: string) => {
           this.onOpenGenui(code, title);
+        },
+        onShare: (code: string, title: string): Promise<string> => {
+          return this.onShareGenui(code, title);
         },
       })
       .margin(GAP_PILL)

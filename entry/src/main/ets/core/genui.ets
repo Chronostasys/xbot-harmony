@@ -222,3 +222,32 @@ export function genuiPanelUrl(host: string, path: string): string {
   }
   return `${root}/${p}`;
 }
+
+// ── 分享按钮四态（web `plugins/genui/index.tsx:122-181` ShareablePanel 的原生对等物）──
+// web 的分享按钮是**插件自己的 UI**（absolute 定位在面板右上角）：点按 → ctx.share.create
+// → clipboard.writeText(absolute URL)。zh-CN.ts 中无 share* 的 i18n key（grep 0 命中）
+// ⇒ web 线上真实显示 = t() 的 fallback 值，以下文案**逐字**照抄 fallback：
+//   idle『分享』/ busy『生成链接…』/ done『已复制链接』/ error『分享失败，重试』。
+
+/** 分享动作四态（对齐 web `genui/index.tsx:126` `useState<'idle'|'busy'|'done'|'error'>`）。 */
+export const SHARE_IDLE: string = 'idle';
+export const SHARE_BUSY: string = 'busy';
+export const SHARE_DONE: string = 'done';
+export const SHARE_ERR: string = 'error';
+
+/**
+ * 分享按钮四态文案（判据与渲染同源：组件**只**调本函数，不得内联三元）。
+ * 未知/空态回落 idle 文案（失败方向安全：宁可显示可重试的『分享』，不卡死在假状态）。
+ */
+export function shareLabelOf(state: string): string {
+  if (state === SHARE_BUSY) {
+    return '生成链接…';
+  }
+  if (state === SHARE_DONE) {
+    return '已复制链接';
+  }
+  if (state === SHARE_ERR) {
+    return '分享失败，重试';
+  }
+  return '分享';
+}

@@ -21,11 +21,14 @@
  *      `docs/ARKTS-GOTCHAS.md`；`subtitle`/`live` 会随流式变化）。
  */
 import { Palette, paletteOf } from '../core/theme';
+import { pasteboard } from '@kit.BasicServicesKit';
 import {
   HIT_TARGET_MIN, INSET_ROW_X, PRESS_OPACITY, RADIUS_CARD, SPACE_SM, SPACE_XS,
   STROKE_HAIRLINE, SURFACE_CARD, colorOf, hairlineOf, surfaceFillOf, typeOf,
 } from '../core/design';
-import { GENUI_OPEN_LABEL } from '../core/genui';
+import {
+  GENUI_OPEN_LABEL, SHARE_BUSY, SHARE_DONE, SHARE_ERR, SHARE_IDLE, shareLabelOf,
+} from '../core/genui';
 
 /** 指示器/图标尺寸（与同层 pill 视觉同档）。 */
 const GENUI_ICON: number = 14;
@@ -59,6 +62,20 @@ export struct GenuiPanelCard {
   /** 打开面板（上层负责建分享 + 落 URL）—— 只上报，不自己发请求（分层铁律）。 */
   onOpen: (code: string, title: string) => void = (code: string, title: string) => {
   };
+  /**
+   * 分享（上层负责建分享链接并带回 URL）—— 与 `onOpen` 同一分层铁律：组件不自己发请求。
+   * 对齐 web `genui/index.tsx:129-151`（`ctx.share.create` → `clipboard.writeText`）：
+   * 返回非空 URL ⇒ 组件复制进系统剪贴板 + 落 done（『已复制链接』）；空串 ⇒ error（可重按重试）。
+   */
+  onShare: (code: string, title: string) => Promise<string> = (code: string, title: string): Promise<string> => {
+    return Promise.resolve('');
+  };
+  /**
+   * 分享 chip 的四态（判据与渲染同源：文案走 `core/genui.ets` 的 `shareLabelOf`，
+   * state 字面量对齐 web `genui/index.tsx:126`）。**组件自持**（busy/done/error 是 chip
+   * 自身的交互态，上层不管视觉）——同 `ShareablePanel` 的 useState。
+   */
+  @State shareState: string = SHARE_IDLE;
 
   /**
    * 色板缓存（`theme` 变化才重算）。
@@ -93,6 +110,34 @@ export struct GenuiPanelCard {
     return colorOf(p, role);
   }
 
+  /**
+   * 分享 chip 点按（web `genui/index.tsx:129-151` ShareablePanel.onShare 的对等物）。
+   * ArkUI onClick **不冒泡**（子组件消费后不再触发整卡 onOpen）⇒ 无需 web :129 的
+   * stopPropagation 对应物。busy 守卫（:131 同款：请求回来前重复点按无效）。
+   * done **保持**（:142 同款：按钮持续『已复制链接』，无回落定时器）；error 可重按重试。
+   */
+  private shareClicked(): void {
+    if (this.shareState === SHARE_BUSY) {
+      return;
+    }
+    this.shareState = SHARE_BUSY;
+    this.onShare(this.code, this.title).then((url: string) => {
+      if (url.length === 0) {
+        this.shareState = SHARE_ERR;
+        return;
+      }
+      try {
+        const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, url);
+        pasteboard.getSystemPasteboard().setData(data);
+      } catch (e) {
+        // 剪贴板不可用（web :143-147 同款吞）：链接已建成不算失败，仍落 done。
+      }
+      this.shareState = SHARE_DONE;
+    }).catch(() => {
+      this.shareState = SHARE_ERR;
+    });
+  }
+
   build() {
     Row({ space: SPACE_SM }) {
       // ── 标记：生成中 = 会动的原生指示器；就绪 = 面板图标 ────────────────────────
@@ -124,9 +169,31 @@ export struct GenuiPanelCard {
         }
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
 
-      // ── 动作：整卡可点（无独立热区）—— 这里只是可点性提示（同 `PluginHost` 的「打开」片）。
-      Text(GENUI_OPEN_LABEL)
-        .fontSize(typeOf('type.caption').size).fontColor(this.col('accentSoft'))
+      // ── 动作：分享 chip（web ShareablePanel:122-181；⚠️ 仅历史态显示——web 的流式路径
+      //    GenUIPanel.tsx 不包 ShareablePanel，历史渲染路径 :204 才包）+「打开面板」提示。
+      //    整卡仍可点（onOpen）；chip 独立 onClick（ArkUI 不冒泡，双触发不存在）。
+      Row({ space: SPACE_XS }) {
+        if (!this.live) {
+          // 热区 = 真实 ≥44 布局盒（`responseRegion` 外扩真机无效 ⇒ 仓内铁律；hit_target_pad
+          // 判 A 类：裸可点 Text 靠 padding 撑高 <44 ⇒ 必须有布局盒承载）。
+          Row() {
+            Text(shareLabelOf(this.shareState))
+              .fontSize(typeOf('type.caption').size)
+              // done=successText / error=dangerText（web：绿底 rgba(34,197,94,.15)+字 inherit、
+              // error 字 #dc2626 —— 原生透明动作片用色字表达，色对权威 successText/dangerText 记档）
+              .fontColor(this.shareState === SHARE_DONE ? this.col('successText')
+                : (this.shareState === SHARE_ERR ? this.col('dangerText') : this.col('accentSoft')))
+          }
+          .constraintSize({ minHeight: HIT_TARGET_MIN })
+          .alignItems(VerticalAlign.Center)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            this.shareClicked();
+          })
+        }
+        Text(GENUI_OPEN_LABEL)
+          .fontSize(typeOf('type.caption').size).fontColor(this.col('accentSoft'))
+      }
     }
     .width('100%')
     .constraintSize({ minHeight: HIT_TARGET_MIN })

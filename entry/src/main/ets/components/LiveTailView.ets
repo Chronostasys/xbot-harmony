@@ -88,6 +88,13 @@ export struct LiveTailView {
    */
   onOpenGenui: (code: string, title: string) => void = (code: string, title: string) => {
   };
+  /**
+   * GenUI 面板「分享」chip（web `genui/index.tsx:122-181` ShareablePanel 对等物）——
+   * 与 `onOpenGenui` 同一透传链：上层（页面）建分享并带回 URL；空串 = 失败（卡片落 error 可重试）。
+   */
+  onShareGenui: (code: string, title: string) => Promise<string> = (code: string, title: string): Promise<string> => {
+    return Promise.resolve('');
+  };
   /** 复制反馈落地（页面品牌 toast；**透传**给内部 `MarkdownView` —— B6 落点统一）。 */
   onToast: (msg: string) => void = () => {
   };
@@ -640,6 +647,9 @@ return renderKind(t.status, t.exit_code, true);
                     theme: this.themeId(),
                     onOpen: (code: string, title: string) => {
                       this.onOpenGenui(code, title);
+                    },
+                    onShare: (code: string, title: string): Promise<string> => {
+                      return this.onShareGenui(code, title);
                     },
                   })
                   .margin(GAP_PILL)

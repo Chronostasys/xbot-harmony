@@ -1474,3 +1474,47 @@ HTTP 缓存与网页数据，随使用增长、用户可感知）。
 2. 无「语言切换」伴行（web General 另一半）—— 原生中文文案硬编码本仓既有裁决（`locale` N/A）；
 3. 不做「整页 reload」等价物 —— 原生无对应内存态需归零（会话按需 RPC 重拉、渲染层无恢复缓存），
    清完无需重启。
+
+### §P8 「分享按钮」落地记录（2026-10-14，④ 余项候选一收官）
+
+**web 权威**（`plugins/genui/index.tsx:122-181` ShareablePanel）：GenUI 面板右上角
+「分享」按钮 —— `ctx.share.create({contentType,payload,title})` → `clipboard.writeText(绝对URL)`
+→ 四态文案 idle『分享』/busy『生成链接…』/done『已复制链接』/error『分享失败，重试』
+（zh-CN.ts 无 share* i18n key ⇒ fallback 即线上真文）。**流式路径不包 ShareablePanel**
+（`:204` 只有历史渲染路径包）⇒ 面板完成落库后才有分享按钮。
+
+**实现**（6 文件，+190/-4）：
+- `core/genui.ets`：`SHARE_IDLE/BUSY/DONE/ERR` 四常量 + `shareLabelOf(state)`（判据与渲染同源；
+  未知态回落 idle 文案——失败方向安全）。
+- `components/GenuiPanelCard.ets`：分享 chip —— **真实 ≥44 布局盒**承载 onClick（hit_target_pad
+  A 类曾红：裸可点 Text 靠 padding 撑高 <44 ⇒ 修 43→44 盒后 12/12 绿）；`@State shareState`
+  组件自持；`onShare(code,title)=>Promise<string>` 上层建分享带回 URL（分层铁律：组件只上报不 IO，
+  **反向断言**钉组件内 0 处 `shareGenuiPanel`/`/api/share`）；复制 = pasteboard 直写
+  （`createData(MIMETYPE_TEXT_PLAIN)` + `getSystemPasteboard().setData`，MarkdownView 同 idiom）；
+  剪贴板失败仍落 done（web :143-147 同款吞：链接已建成不算失败）。
+- `MessageRow.ets`/`LiveTailView.ets`：`onShareGenui` 成员 + 透传（与 `onOpenGenui` 同链）。
+- `pages/Index.ets`：`shareGenuiLink(code,title)` —— 复用既有建分享链 `store.shareGenuiPanel`
+  （`POST /api/share/create` → `<host>/s/<token>`），失败吞空串（卡片自落 error 可重试）；
+  两处 `MessageRowView` 传入点接线。
+- `tools/tests/genui_share.test.ts`：8 断言（四态常量钉死/文案互异精确/回落安全 + **形态接线**
+  4 层调用点计数/爬根 idiom 取源/em... 不钉方法体防死消费假绿）。
+
+**验证链**：
+1. `run-one.sh genui_share` 8/8 绿；旧 `genui.test.ts` 回归绿（未破坏）。
+2. 全量门禁 `bash tools/gate.sh` → **全绿 EXIT=0**（ArkTS `BUILD SUCCESSFUL` + 性能预算
+   16/16 + ForEach 117/117 持平——chip 用 @Builder 直排不增计数 + 取色 role successText/dangerText
+   合法集合）。
+3. `deploy.sh` 签名装机（9s）。
+4. 真实回合生成 GenUI 面板：dump 实见「🎨 UI rendered (372 chars) · echarts/three/motion」卡 +
+   「分享」`[957,2091][1038,2138]` + 「打开面板」并列。
+5. 点击 chip (997,2114) → 复验 dump 实见 chip 文案翻转为「**已复制链接**」
+   `[835,2091][1038,2138]`（done 态）+ 进程存活（pid 存在，两个 pasteboard/静态 API 无 crash）。
+
+**有意不同（诚实记账）**：
+1. done 态色对 = `successText` 文字色（web = 绿底 `rgba(34,197,94,.15)` + 字 inherit）——
+   原生动作片无底色概念，色信息位=文字色（记档）。
+2. 流式期不显示 chip（对齐 web：流式路径不包 ShareablePanel）。
+3. web `title` 属性挂 URL 供手动复制（原生无 hover）——复制失败也落 done 的兜底读法：
+   重新点 chip 再复制（web 同为一次性动作）。
+4. URL 只建不发面板（`shareGenuiLink` 与 `openGenuiPanel` 分离——分享=拿链接转发朋友，
+   打开=本机渲染），两动作互不影响。
