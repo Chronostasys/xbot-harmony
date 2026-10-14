@@ -112,6 +112,24 @@ export function ctrlLetterByte(ch: string): string {
   return String.fromCharCode(c - 64);
 }
 
+/**
+ * 大工程-1（2026-10-17）：URL 检测（web `WebLinksAddon`（`TerminalPanel.tsx:143`）的
+ * 原生对应——Span 无 onClick ⇒ Text 容器级坐标反查：`vtUrlAt(rowText, col)`）。
+ * 返回 col 所在的完整 URL（http/https 开头才识别；不在 URL 上 ⇒ 空串）。
+ * 终止符 = 空白/引号/括号/尖括号/反引号（markdown 链接 `](url)` 的包裹符全覆盖）。
+ */
+export function vtUrlAt(rowText: string, col: number): string {
+  if (col < 0 || col >= rowText.length) { return ''; }
+  const STOP: string = ' \t"\'()[]{}<>`';
+  let s: number = col;
+  while (s > 0 && STOP.indexOf(rowText.charAt(s - 1)) < 0) { s--; }
+  let e: number = col;
+  while (e < rowText.length && STOP.indexOf(rowText.charAt(e)) < 0) { e++; }
+  const word: string = rowText.substring(s, e);
+  if (word.indexOf('http://') !== 0 && word.indexOf('https://') !== 0) { return ''; }
+  return word;
+}
+
 // ── 编解码（纯 JS 实现；core 不许 import @ohos.util）──────────────────────────
 /** code point ⇒ JS 字符串（含代理对）。 */
 export function vtCpToString(cp: number): string {

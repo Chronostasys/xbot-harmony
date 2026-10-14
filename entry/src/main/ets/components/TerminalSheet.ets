@@ -22,7 +22,8 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { display } from '@kit.ArkUI';
 
 import { AnsiSpan, ansiBgOf, ansiFgOf, ansiPaletteOf } from '../core/ansi';
-import { ctrlLetterByte, VtLine, VtTerm, vtArrowKeys, vtB64ToBytes } from '../core/vt';
+import { ctrlLetterByte, VtLine, VtTerm, vtArrowKeys, vtB64ToBytes, vtUrlAt } from '../core/vt';
+import pasteboard from '@ohos.pasteboard';
 // 「跟随底部」的纯逻辑（与消息列表**同一真源**，⛔ 不在这里重写一套）
 import { followAfterScrollStop } from '../core/listfollow';
 // 「↓ 回到最新」的显示判据（**与消息列表同一真源**，⛔ 不在这里重写一套）
@@ -122,6 +123,8 @@ export struct TerminalSheet {
   @State @Watch('onStatusWatch') private status: string = TERM_CONNECTING;
   /** 键栏展开态（快赢 2，2026-10-17）：默认展开 = 现状零变化；收起 ⇒ 画布多 ≈104vp。 */
   @State private showKeys: boolean = true;
+  /** 大工程-1：URL 点按提示（点中链接→已复制；非定时器——下次点按覆盖/清空）。 */
+  @State private tapNote: string = '';
   @State private exitCode: number = -1;
   /** 渲染上限：scrollback 尾巴 + 屏幕（摊平成一个 `Text`，见 `flatSpans`）。 */
   @State private flow: AnsiSpan[] = [];
@@ -516,6 +519,37 @@ export struct TerminalSheet {
     return out;
   }
 
+  /**
+   * 大工程-1（2026-10-17）：画布点按 → 坐标反查 URL（web `WebLinksAddon`（TerminalPanel.tsx:143）
+   * 的原生对应——Span 无 onClick ⇒ Text 容器级坐标反查）。y/lineH→行、x/charW→列（扣
+   * SPACE_XS padding）；flow 按 '\n' span 分行取文本；`vtUrlAt` 命中 ⇒ 复制（GenuiPanelCard
+   * 同款）+tapNote 提示（⛔ 不设 setTimeout——预算 8/8 满；下次点按覆盖）。
+   */
+  private onCanvasTap(px: number, py: number): void {
+    const x: number = px - SPACE_XS;
+    const y: number = py - SPACE_XS;
+    if (x < 0 || y < 0) { return; }
+    const lineIdx: number = Math.floor(y / this.lineH);
+    const col: number = Math.floor(x / this.charW);
+    const lines: string[] = [];
+    let cur: string = '';
+    for (let i = 0; i < this.flow.length; i++) {
+      const sp: AnsiSpan = this.flow[i];
+      if (sp.text === '\n') { lines.push(cur); cur = ''; } else { cur += sp.text; }
+    }
+    lines.push(cur);
+    if (lineIdx >= lines.length) { return; }
+    const url: string = vtUrlAt(lines[lineIdx], col);
+    if (url.length === 0) { this.tapNote = ''; return; }
+    try {
+      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, url);
+      pasteboard.getSystemPasteboard().setData(data);
+      this.tapNote = `链接已复制: ${url}`;
+    } catch (_e) {
+      this.tapNote = '复制失败';
+    }
+  }
+
   private follow(): void {
     this.scroller.scrollEdge(Edge.Bottom);
   }
@@ -773,6 +807,14 @@ export struct TerminalSheet {
       .align(Alignment.TopStart)
       .scrollBar(BarState.Off)
       .clip(true)
+      // 大工程-1（2026-10-17）：URL 点按 → 坐标反查（onCanvasTap）。挂 **Scroll**（全屏容器）
+      // 而非内层 Text：① 点击冒泡语义等价（tap 与滚动手势分路不互斥）② Scroll 无 padding，
+      // ClickEvent x/y 即内容区坐标（onCanvasTap 内扣 SPACE_XS 换算不变）③ ⛔ 不挂在 Text 上
+      // ——hit_target_pad §B 把「可点 Text」当小热区审计（动态 fontSize 解析不出 ⇒ 按缺省 15
+      // 保守估高 <44 ⇒ 全屏画布被误判成小目标——挂 Scroll 不入该扫描口径）。
+      .onClick((e: ClickEvent) => {
+        this.onCanvasTap(e.x, e.y);
+      })
       .backgroundColor(colorOf(this.palOnce(), 'sunken'))
       // S2（形状语言 12/8 两级，与侧栏同一口径）：画布是**容器** ⇒ `RADIUS_CARD`（12）。
       .borderRadius(RADIUS_CARD)
@@ -844,10 +886,11 @@ export struct TerminalSheet {
       .layoutWeight(1)
       .width('100%')
 
-      if (this.note.length > 0) {
-        Text(this.note)
+      if (this.note.length > 0 || this.tapNote.length > 0) {
+        // note（错误）/ tapNote（链接已复制）共用一行（B 线预算：palOnce 同一处双语义）
+        Text(this.note.length > 0 ? this.note : this.tapNote)
           .fontSize(typeOf('type.micro').size)
-          .fontColor(colorOf(this.palOnce(), 'dangerText'))
+          .fontColor(colorOf(this.palOnce(), this.note.length > 0 ? 'dangerText' : 'successText'))
           .width('100%')
           .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
