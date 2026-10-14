@@ -841,6 +841,12 @@ struct Index {
   @State panelTab: string = 'cron';
   @State cronTasks: CronJob[] = [];
   @State bgTasks: BgTask[] = [];
+  /**
+   * 快赢 3（2026-10-17）：后台任务列表「只看运行中」过滤开关。
+   * 默认 `true` = 对齐 web（`useTasks.ts:86` 只显 isRunningBgTask）；关掉 = 全量历史
+   * （354 条的「事后查错」原生详情层是超集，⛔ 不砍——审计 pitfalls）。
+   */
+  @State panelBgOnlyRunning: boolean = true;
   // 后台任务详情（用户点名「任务管理做的很差」：看不到输出、杀不掉 ⇒ 点列表行打开详情）
   @State showTaskDetail: boolean = false;
   @State taskDetailId: string = '';
@@ -8028,6 +8034,23 @@ struct Index {
   }
 
   /**
+   * 快赢 3（2026-10-17）：列表**可见集**——开关开 ⇒ 只看运行中（`bgTaskRunning` 与状态
+   * 文案/行内终止同一真源）；关 ⇒ 全量。渲染序仍走置顶排序（两职责正交）。
+   */
+  private bgTasksVisible(): BgTask[] {
+    if (!this.panelBgOnlyRunning) {
+      return this.bgTasksSorted();
+    }
+    const visible: BgTask[] = [];
+    for (let i = 0; i < this.bgTasks.length; i++) {
+      if (bgTaskRunning(this.bgTasks[i])) {
+        visible.push(this.bgTasks[i]);
+      }
+    }
+    return sortBgTasksActiveFirst(visible);
+  }
+
+  /**
    * 打开后台任务详情。
    * ⛔ 判据**全部**来自 `core/panels.ets`（`bgTaskStatusText`/`bgTaskMetaText`/`bgTaskOutputText`/
    *   `bgTaskRunning`）—— 与列表行 `bgTaskLine` 同一份纯函数 ⇒ 不可能"列表说运行中、详情说完成"。
@@ -9649,6 +9672,34 @@ struct Index {
         }, (tab: string) => `ptab-${tab}`)
       }.width('100%')
 
+      // ── 快赢 4（2026-10-17）：任务面板 loading 行 + 断线提示 ──
+      // web 对照 `TasksPanel.tsx:265-269`（Loader2 loading）与 `:275-277`（断线文案）；
+      // 原生此前 `panelBusy` 只做排队守卫（无 UI）、断线静默 ⇒ 用户看到旧数据/空态却不知为何。
+      // 形态与主界面弱网行（:6577 区 Row+LoadingProgress+warn）同款——全站一套语言。
+      if (this.panelBusy) {
+        Row({ space: 6 }) {
+          // B 线预算（⛔ pal() 只许减）：loading 是中性信息——LoadingProgress 默认色+Text 继承，
+          // 不再各取一色（省 2 处 pal()）。
+          LoadingProgress().width(14).height(14)
+          Text('加载中…')
+            .fontSize(typeOf('type.caption').size)
+        }
+        .width('100%').padding({ left: SPACE_SM, right: SPACE_SM, top: 4, bottom: 4 })
+      } else if (this.connState === 'reconnecting' || this.connState === 'connecting') {
+        Row({ space: 6 }) {
+          // 警示性由文字 warn 色+warnBg 背景承担（LoadingProgress 默认色——省 1 处 pal()）。
+          // ⛔ 不用 `layoutWeight(1)`（①b 断言的 tabRow 窗口覆盖到本行——会数成第 3 处假红）；
+          // 用 maxWidth 约束防溢出，省略号截断同效。
+          LoadingProgress().width(14).height(14)
+          Text('连接断开，正在重连…（任务状态可能滞后）')
+            .fontSize(typeOf('type.caption').size).fontColor(this.pal().warn)
+            .constraintSize({ maxWidth: '100%' })
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .width('100%').padding({ left: SPACE_SM, right: SPACE_SM, top: 4, bottom: 4 })
+        .backgroundColor(this.pal().warnBg)
+      }
+
       if (this.panelTab === 'cron') {
         if (this.cronTasks.length === 0) {
           this.PanelEmpty($r('sys.symbol.clock'), '暂无定时任务', '定时任务到点会自动执行本会话')
@@ -9679,14 +9730,34 @@ struct Index {
           .transition(fadeTransition())
         }
       } else if (this.panelTab === 'tasks') {
+        // 快赢 3（2026-10-17）：过滤开关行——**tasks 分支公共头部**（空态/过滤空态/列表态
+        // 恒在场；装机实证初版只放列表分支 ⇒ 过滤空态文案让用户「关闭开关」却无处可关）。
+        // ⛔ 文本与开关之间用 `Blank()` 撑开（不用 `layoutWeight(1)`：①b 断言的 tabRow 窗口
+        //    钉「layoutWeight(1) 恰 2 处」，本行落在窗口内会假红）。B 线预算：Text 不取色（继承）。
+        if (this.bgTasks.length > 0) {
+          Row({ space: SPACE_XS }) {
+            Text('只看运行中')
+              .fontSize(typeOf('type.caption').size)
+            Blank()
+            Toggle({ type: ToggleType.Switch, isOn: this.panelBgOnlyRunning })
+              .onChange((on: boolean) => {
+                this.panelBgOnlyRunning = on;
+              })
+          }
+          .width('100%').padding({ left: SPACE_SM, right: SPACE_SM, top: 2, bottom: 2 })
+        }
         if (this.bgTasks.length === 0) {
           this.PanelEmpty($r('sys.symbol.hourglass'), '暂无后台任务', '后台命令在服务端持续运行，不受会话切换影响')
+        } else if (this.bgTasksVisible().length === 0) {
+          // 快赢 3：过滤后空（全量非空）——明说「是过滤的结果」，⛔ 不误导成「暂无任务」。
+          this.PanelEmpty($r('sys.symbol.hourglass'), '无运行中的后台任务',
+            `共 ${this.bgTasks.length} 条历史，关闭「只看运行中」即可查看`)
         } else {
           List({ space: 6 }) {
             // ⛔ **运行中置顶**（判据 `core/panels.ets:sortBgTasksActiveFirst`）：真机实测 354 条
             //    任务一屏平铺、正在跑的那条混在中段 ⇒ 用户"看不到任务"。排序 + 前导状态字形
             //    （`bgTaskLeadCode`）让"哪条在跑 / 哪条失败"一眼可扫。
-            ForEach(this.bgTasksSorted(), (t: BgTask, i: number) => {
+            ForEach(this.bgTasksVisible(), (t: BgTask, i: number) => {
               ListItem() {
                 PanelRowCard({
                   theme: this.themeName,
