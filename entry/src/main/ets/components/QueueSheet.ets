@@ -66,16 +66,25 @@ export struct QueueSheet {
         Row() {
           Text(`待发队列 (${this.queue.length})`).fontSize(fs('type.headline')).fontWeight(fw('type.headline'))
             .fontColor(this.pal().textPrimary).layoutWeight(1)
-          Text('清空').fontSize(FS_CAPTION).fontColor(this.pal().dangerText)
-            .padding({ left: SP_2, right: SP_2, top: 6, bottom: 6 })
-            // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44, Apple HIG)：原先只靠 `padding` 撑高（≈28~32）⇒ 低于阈值。
-            //    ⚠️ 本行**零视觉变化**：同级已有 44×44 的关闭盒 ⇒ 行高已 = 44，本 `minHeight` 不改变布局。
-            .constraintSize({ minHeight: HIT_TARGET_MIN })
-            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-            .onClick(() => {
-              // 无 clear 端点（web 同款）：页面遍历逐个 cancel。
-              this.onClear();
-            })
+          // ⛔ 清空 = **图标键**（web 权威 `src/components/agent/StagingTray.tsx:617-626`：`staging-clear`
+          //    是 **Trash2 图标按钮、无文字**，`aria-label = agent.staging.clearQueue`；其注释原文
+          //    「清空队列（独立动作，Trash2 图标按钮，无文字）」+ line 20「`Clear` 是 header 里与 toggle
+          //    **不同动作**的**图标按钮**」）。此前为 `Text('清空')` **文字键** ⇒ ① 偏离 web 权威，
+          //    ② 与本仓所有弹层页头（`SessionStatsSheet`/`GitPanelSheet`/`SkillsSheet`/`FilesSheet`…）的
+          //    **图标键**形态不一致 ⇒ 统一为真 44×44 布局盒的图标键（`responseRegion` 负偏移外扩在
+          //    真机 SDK21 **无效** ⇒ 热区 = 布局盒本身）。取色 `dangerText` = 破坏性动作，
+          //    与 `TaskDetailSheet:135-146` 的「终止任务」**同通道**。
+          Row() {
+            SymbolGlyph($r('sys.symbol.trash')).fontSize(SHEET_ACTION_GLYPH).fontColor([this.pal().dangerText])
+          }
+          .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+          .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .accessibilityText('清空队列')
+          .onClick(() => {
+            // 无 clear 端点（web 同款）：页面遍历逐个 cancel。
+            this.onClear();
+          })
           // ⛔ 关闭 X：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`。
           Row() {
             SymbolGlyph($r('sys.symbol.xmark')).fontSize(SHEET_ACTION_GLYPH)

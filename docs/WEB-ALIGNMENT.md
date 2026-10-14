@@ -6662,3 +6662,40 @@ web 侧那 9+ 处 `await navigator.clipboard.writeText(...)` 会抛 TypeError �
 「前邻字符非标识符」的**边界判定** + **限定区间**（别全文件乱扫）。
 **mutation 自证**（用 `git show HEAD:entry/src/main/ets/pages/Index.ets` 当必红样本，实测）：
 旧版 ⇒ 图标键 `false` / 独立文字键 `true` ⇒ ⑦ 红；工作树 ⇒ `true`/`false` ⇒ 绿。
+
+## §21.122m：破坏性动作键跨面统一为图标键（「清空队列」）—— 判据 ⑧ + mutation 自证
+
+延续 §21.122l 的「**同一个动作 ⇒ 同一个控件类型**」清点。本轮抓到第二处异类：`QueueSheet`
+（待发队列面板）页头的「清空」原来是**文字键** `Text('清空')`。
+
+**为什么是缺陷（两条独立证据，不是我的发明）**：
+- **web 权威**（`/Users/bobli/src/xbot/web`，权威基准）：`src/components/agent/StagingTray.tsx:617-626`
+  的 `staging-clear` 明写是 **Trash2 图标按钮、无文字** —— 其注释原文
+  「`staging-clear`：清空队列（独立动作，**Trash2 图标按钮，无文字**，因此不会出现「收起」文案，
+  也不与 chevron 的收起语义重复）」+ line 20「`Clear` 是 header 里与 toggle **不同动作**的**图标按钮**」；
+  `aria-label = agent.staging.clearQueue`。⇒ harmony 用文字键 = **偏离权威**。
+- **本仓自洽性**：全部弹层页头的动作键都是**图标键**（`SessionStatsSheet` 刷新 / `GitPanelSheet` 刷新 /
+  `SkillsSheet` 刷新 / `FilesSheet` 刷新 / `TaskDetailSheet` 终止 / 各面板关闭 ✕，逐个核对过）
+  ⇒ 文字键是"两种产品拼起来"的异类。
+
+**修法**（`components/QueueSheet.ets:69-87`）：`Text('清空')` ⇒ **真 44×44 布局盒图标键**
+（`SymbolGlyph($r('sys.symbol.trash'))` · `SHEET_ACTION_GLYPH` · `dangerText` · `stateStyles` 按压 ·
+`accessibilityText('清空队列')`）。取色 `dangerText` = 破坏性动作，与 `TaskDetailSheet:135-146`
+的「终止任务」**同通道**（⛔ `responseRegion` 负偏移外扩在真机/SDK21 **实测无效** ⇒ 热区 = 布局盒本身）。
+⚠️ 顺带消掉该行唯一的**内距半档字面量** `.padding({ …: 6 … })` ⇒ `free_surface_tokens` 的
+`QueueSheet` 台账 1 → 0、合计 7 → 6（**同批**更新，⛔ 留旧值会立刻红）。
+
+**判据**：`tools/tests/sheet_chrome.test.ts` 新增 **⑧**：
+清空 = 图标键（`trash` → a11y「清空队列」同链 ≤400 字符）+ **反向**全文件不得有独立 `Text('清空')`
+元素（`hasTextElement` 边界判定，⛔ 防 `.accessibilityText('清空队列')` 子串误匹配）+ **同族对照**
+`TaskDetailSheet` 的「终止任务」也必须是图标键（同一契约，不许各写各的）。
+**mutation 自证**（用 `git show HEAD:entry/src/main/ets/components/QueueSheet.ets` 当必红样本，实测）：
+旧版 ⇒ 图标键 `false` / 独立文字键 `true` ⇒ ⑧ 红两条；工作树 ⇒ `true`/`false` ⇒ 绿；同族对照 ⇒ 绿。
+
+**同批判据演进（⛔ 形态变了 ⇒ 定位它的判据必须同批改，否则真门禁红）**：
+`tools/tests/polish_states_press.test.ts` 的 **B**（「清空」命中区 ≥ 44）原来用 `Text('清空')` 定位
+⇒ 本改动把它从**文字键**换成**图标键**后该断言**判红**（实测：真门禁 ① 报
+`✗ B. QueueSheet 「清空」命中区 ≥ HIT_TARGET_MIN(44)`）。**意图不变、只随形态演进**：改为定位
+`SymbolGlyph($r('sys.symbol.trash'))` 链并要求**真 44×44 布局盒**（`.width/.height(HIT_TARGET_MIN)`，
+比旧 `minHeight` 更严：旧形态宽度只有文字宽 ≈40 < 44）；mutation B 同步改为**只动该条链**的
+44 → 24（⛔ 别用全文件 `replace` 首个匹配，会误伤同文件其它 44 盒）。种子行同步换到 trash 字形。

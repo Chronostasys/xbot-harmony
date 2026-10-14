@@ -300,6 +300,36 @@ for (const rel of SHEETS) {
     iSt >= 0 && jSt > iSt && jSt - iSt <= 400, `glyph@${iSt} a11y@${jSt}`);
 }
 
+// ── ⑧「同一个动作 ⇒ 同一个控件类型」：破坏性动作键「清空队列」（2026-10-14，要求③-2）────────────
+//   真实清点（动机）：`QueueSheet` 页头的「清空」原来是**文字键** `Text('清空')`，而
+//   （a）**web 权威** `src/components/agent/StagingTray.tsx:617-626` 的 `staging-clear` 明写是
+//       **Trash2 图标按钮、无文字**（`aria-label = agent.staging.clearQueue`），
+//   （b）本仓**所有**弹层页头的动作键（`SessionStatsSheet`/`GitPanelSheet`/`SkillsSheet`/`FilesSheet`/
+//       `TaskDetailSheet`…）都是**图标键** ⇒ 文字键是"两种产品拼起来"的异类。
+//   ⇒ 判据钉：清空 = **图标键**（`sys.symbol.trash` + a11y「清空队列」，同链 ≤400 字符），
+//     并**反向**钉全文件不得再有**独立的 `Text('清空')` 元素**（白绿防线；`hasTextElement` 边界判定）。
+//     另钉**同族对照**：`TaskDetailSheet` 的破坏性键「终止任务」也必须是图标键（同一契约，不许各写各的）。
+//   **mutation 自证**（用 `git show HEAD:…QueueSheet.ets` 旧版当必红样本）：旧版 ⇒ 图标键 false
+//     + 独立文字键 true ⇒ ⑧ 红两条；工作树 ⇒ 两条全绿。
+{
+  const qSrc: string = read(path.join(ETS, 'components/QueueSheet.ets'));
+  const tdSrc: string = read(path.join(ETS, 'components/TaskDetailSheet.ets'));
+  ok('⑧ components/QueueSheet.ets 读到源码（零扫描判红）', qSrc.length > 0);
+  ok('⑧ components/TaskDetailSheet.ets 读到源码（零扫描判红）', tdSrc.length > 0);
+  const TRASH: string = "SymbolGlyph($r('sys.symbol.trash'))";
+  const QA11Y: string = ".accessibilityText('清空队列')";
+  const iQ: number = qSrc.indexOf(TRASH);
+  const jQ: number = iQ < 0 ? -1 : qSrc.indexOf(QA11Y, iQ);
+  ok('⑧ 队列面板清空键 = 图标键（trash + a11y「清空队列」，同链 ≤400 字符）',
+    iQ >= 0 && jQ > iQ && jQ - iQ <= 400, `glyph@${iQ} a11y@${jQ}`);
+  ok('⑧ ⛔ 队列面板不得再有独立的文字键 Text(\'清空\')（偏离 web 权威 + 控件类型不自洽）',
+    !hasTextElement(qSrc, '清空'));
+  const iT: number = tdSrc.indexOf("SymbolGlyph($r('sys.symbol.xmark_circle_fill'))");
+  const jT: number = iT < 0 ? -1 : tdSrc.indexOf(".accessibilityText('终止任务')", iT);
+  ok('⑧ 同族对照：任务详情破坏性键「终止任务」= 图标键（同一契约）',
+    iT >= 0 && jT > iT && jT - iT <= 400, `glyph@${iT} a11y@${jT}`);
+}
+
 if (fail > 0) { console.log(`  sheet_chrome: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  sheet_chrome: ${pass} passed, 0 failed`);
 process.exit(0);

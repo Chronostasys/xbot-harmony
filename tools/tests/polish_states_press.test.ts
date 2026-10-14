@@ -10,7 +10,11 @@
  *      `type.callout` + `textMuted`、无填充/无边框/无发光），且 `List` 分支**保留**。
  *      ⛔ 缺陷形态 = 只剩标题「待发队列 (0)」+ 一块 300 高的空白 `List`（"一片空"读不出含义）。
  *   B. **「清空」命中区 ≥ `HIT_TARGET_MIN`(44)**：原先只靠 `padding` 撑高（≈28~32）⇒ 低于阈值
- *      （Apple HIG）。本行**零视觉变化**（同级已有 44×44 关闭盒 ⇒ 行高已 44）。
+ *      （Apple HIG）。⚠️ 2026-10-14（要求③-2）：该键已按 web 权威（`StagingTray.tsx:617-626`
+ *      `staging-clear` = **Trash2 图标按钮、无文字**）从**文字键**演进出**图标键** ⇒ 本判据的**意图不变**
+ *      （命中区 ≥ 44），只把定位形态从 `Text('清空')` 迁到 `SymbolGlyph($r('sys.symbol.trash'))`，
+ *      并要求**真 44×44 布局盒**（`.width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)`）——原 `minHeight`
+ *      只保证高度、宽度仍是文字宽（≈40 < 44）。
  *   C. **按压值一致性**：全仓 `components/**` 的 `pressed` 不透明度**只准**是 `PRESS_OPACITY`
  *      （或既有台账里明示豁免的档）；⛔ 不得用 `DISABLED_OPACITY`（= 禁用语义）当**按压**值，
  *      ⛔ 不得写字面量 `0.6`（与 token 同值 = 纯魔数）。修的两处：
@@ -75,13 +79,14 @@ function checkQueueEmpty(src: string): boolean {
     //   `queueListHeight(...)`（判据与渲染同源）⇒ 这里改为钉**调用片段**（只取调用，别钉实参拼写）。
     && src.indexOf('.height(queueListHeight(') >= 0;
 }
-/** B. 「清空」可点文本的命中区 ≥ 44（链上有 `HIT_TARGET_MIN`）。 */
+/** B. 「清空」图标键的命中区 ≥ 44（真 44×44 布局盒：`.width/.height(HIT_TARGET_MIN)`）。 */
 function checkClearHit(src: string): boolean {
-  const a: number = src.indexOf("Text('清空')");
+  const a: number = src.indexOf("SymbolGlyph($r('sys.symbol.trash'))");
   if (a < 0) { return false; }
   const b: number = src.indexOf('.onClick(', a);
   if (b < 0) { return false; }
-  return src.slice(a, b).indexOf('HIT_TARGET_MIN') >= 0;
+  const w: string = src.slice(a, b);
+  return w.indexOf('.width(HIT_TARGET_MIN)') >= 0 && w.indexOf('.height(HIT_TARGET_MIN)') >= 0;
 }
 /** C1. `AskUserSheet` 关闭 X 的按压值 = `PRESS_OPACITY`（且链上无 `DISABLED_OPACITY`）。 */
 function checkAskPress(src: string): boolean {
@@ -127,7 +132,7 @@ ok('探测到仓库根', ROOT.length > 0);
 ok(`零扫描判红：扫到 components/*.ets（实得 ${ALL.length} > 0）`, ALL.length > 0);
 let seeds = 0;
 if (QUEUE.indexOf("Text('当前没有待发消息')") >= 0) { seeds++; }
-if (QUEUE.indexOf("Text('清空')") >= 0) { seeds++; }
+if (QUEUE.indexOf("SymbolGlyph($r('sys.symbol.trash'))") >= 0) { seeds++; }
 if (ASK.indexOf("SymbolGlyph($r('sys.symbol.xmark'))") >= 0) { seeds++; }
 if (SPLASH.indexOf("Text('轻点跳过')") >= 0) { seeds++; }
 ok(`零扫描判红：关键种子命中 ${seeds}/4（> 0）`, seeds > 0);
@@ -135,7 +140,7 @@ console.log(`  （扫描：components/*.ets=${ALL.length}，种子=${seeds}/4）
 
 // ── 正向断言（真实源码必须合规）────────────────────────────────────────────────
 ok('A. QueueSheet 有队列空态分支（一行小字，§10 口径）', checkQueueEmpty(QUEUE));
-ok('B. QueueSheet 「清空」命中区 ≥ HIT_TARGET_MIN(44)', checkClearHit(QUEUE));
+ok('B. QueueSheet 「清空」图标键命中区 ≥ HIT_TARGET_MIN(44)（真 44×44 布局盒）', checkClearHit(QUEUE));
 ok('C1. AskUserSheet 关闭 X 按压值 = PRESS_OPACITY', checkAskPress(ASK));
 ok('C2. SplashOverlay 「轻点跳过」按压值 = PRESS_OPACITY（无字面量）', checkSplashPress(SPLASH));
 ok('C3. 全仓 components 无 DISABLED_OPACITY / 字面量 0.6 作 pressed 值', checkNoBadPressValue(ALL));
@@ -144,8 +149,13 @@ ok('C3. 全仓 components 无 DISABLED_OPACITY / 字面量 0.6 作 pressed 值',
 const mQueue: string = QUEUE.replace('if (this.queue.length === 0) {', 'if (this.queue.length < 0) {');
 ok('mutation A：删掉队列空态分支 ⇒ 必红', !checkQueueEmpty(mQueue));
 
-const mClear: string = QUEUE.replace('.constraintSize({ minHeight: HIT_TARGET_MIN })', '.constraintSize({ minHeight: 32 })');
-ok('mutation B：撤回「清空」命中区 ⇒ 必红', !checkClearHit(mClear));
+// mutation B：把「清空」图标键的 44 盒缩成 24（只动该条链，别误伤同文件其它 44 盒）
+const tb: number = QUEUE.indexOf("SymbolGlyph($r('sys.symbol.trash'))");
+const tc: number = QUEUE.indexOf('.onClick(', tb);
+const mClear: string = QUEUE.slice(0, tb)
+  + QUEUE.slice(tb, tc).replace('.width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)', '.width(24).height(24)')
+  + QUEUE.slice(tc);
+ok('mutation B：撤回「清空」图标键 44 盒 ⇒ 必红', !checkClearHit(mClear));
 
 const ai: number = ASK.indexOf("SymbolGlyph($r('sys.symbol.xmark'))");
 const aj: number = ASK.indexOf('.onClick(', ai);
