@@ -7754,3 +7754,37 @@ SPA 首屏就会整体变慢；本仓**无法**从原生侧修，也不该为修
 **真机实证（原生，模拟器）**：让模型真调 `ask_user` 弹出面板（问题含 `ZZZQ`），点「取消」后
 **连续 12 帧 dump**（≈12s）里「问题词 / 或直接输入答案 / 提交」全部 **NO** ⇒ **立刻消失且零闪回** ✓。
 判据：`tools/tests/askuser_flashback.test.ts`（8 条；含 mutation 自证 —— 把清除挪回 POST 之后必红）。
+
+## §21.122bw：流式时「展开的上一迭代思考区闪烁」= commit 交接处重建 + 挂载重放过渡（2026-10-16）
+
+**用户原话**：「stream 下一个迭代的内容的时候，如果我展开上一个迭代的思考，上一个迭代展开的思考区域**可能时不时闪烁**，
+必须修复」「这闪烁是不是代表**重建渲染树**？这种对性能有大损耗的事情一定不能有」。
+
+**取证（真机 hilog 探针，`ThinkingLine.aboutToAppear/aboutToDisappear`；同一 `stateKey` 的事件序列）**：
+
+```
+appear live=true  key=13:1 → disappear live=false key=13:1 → appear live=false key=13:1
+appear live=true  key=13:2 → disappear live=false key=13:2 → appear live=false key=13:2
+appear live=true  key=13:3 → disappear live=true  key=13:3 → appear live=false key=13:3
+appear live=true  key=13:4        （仍在飞）
+```
+
+⇒ **是的，闪烁就是重建渲染树**，但**边界是"每个迭代 commit 一次"，⛔ 不是每帧**（整段流式期间同一 key 只出现一次
+`appear/disappear` 对；帧级重建 = 0）。
+
+**机制（两件事叠在一起）**：
+1. **交接换位**：live 迭代的思考块由 `LiveTailView` 渲染（live 槽），commit 后由 `MessageRow.ForEach → IterationBlock`
+   渲染（已完成槽）⇒ **两个不同的挂载位置** ⇒ 旧实例销毁 + 新实例挂载（探针实证见上）。
+2. **挂载重放过渡**：新实例挂载时 `open` 从共享 store（`core/reasoningopen`）恢复为 `true` ⇒ 展开体那条
+   `.transition(fadeTransition())` 被当"插入"**重放** ⇒ 展开区淡入一下。而"下一迭代开始 stream 的那一刻"正是
+   上一迭代刚 commit 的时刻 ⇒ 与用户描述（什么时候闪）**逐字吻合**。
+
+**修法（`components/ThinkingLine.ets`）**：过渡**只描述用户点击的开合** —— 新增 `@State animReady`，
+`aboutToAppear` 里 `setTimeout(0)` 到**下一拍**才置位；挂载那一帧 `.transition(this.animReady ? fadeTransition()
+: TransitionEffect.IDENTITY)` ⇒ 交接零闪烁（交接重建仍发生一次，但**不可见**）。
+⛔ 不用"状态位驱动 `.opacity()`"（静息态必须可见 —— 门禁 ⑨ 的正向形态）。
+
+**遗留给 ② 性能线的改进（已登记，非本轮）**：把 live 槽与已完成槽**统一到同一个 `ForEach` 条目**（键 =
+`row.id#iteration`，⛔ 不含 `L/C` 标记），让思考块的**实例跨 commit 存活** ⇒ 连那一次交接重建也消失。
+本轮未做：那要重构 live 渲染路径（`LiveTailView` 700 行承载打字机/光球/在飞 pill/GenUI 卡），
+风险与收益不成比例；且真机数据表明**每帧重建 = 0**，交接重建 = 每迭代 1 次（有界）。

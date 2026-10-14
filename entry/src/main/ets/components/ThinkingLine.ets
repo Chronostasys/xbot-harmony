@@ -119,9 +119,33 @@ export struct ThinkingLine {
   onToggle: () => void = () => {
   };
 
+  /**
+   * 是否允许**出现过渡**（commit 交接那一刻挂载 ⇒ 必须禁止，否则展开体淡入 = 用户看到的闪烁）。
+   *
+   * ⛔ 用户亲报（2026-10-16）：「stream 下一个迭代的内容的时候，如果我展开上一个迭代的思考，
+   *    上一个迭代展开的思考区域**可能时不时闪烁**」「这闪烁是不是代表**重建渲染树**？」
+   *
+   * 真机探针实证（`aboutToAppear`/`aboutToDisappear` + hilog；同一 `stateKey` 的事件序列）：
+   *   `appear live=true key=13:1 → disappear live=false key=13:1 → appear live=false key=13:1`
+   *   （13:2 / 13:3 同形）⇒ **迭代 commit 那一刻，思考块在「live 槽（`LiveTailView`）↔ 已完成槽
+   *   （`MessageRow.ForEach → IterationBlock`）」之间换了位置** ⇒ 旧实例销毁 + 新实例挂载。
+   *   新实例挂载时 `open` 从共享 store（`core/reasoningopen`）恢复为 `true` ⇒ 展开体那条
+   *   `.transition(fadeTransition())` 被当"插入"**重放** ⇒ 展开区淡入一下 = 用户看到的闪烁
+   *   （且**恰好**发生在"下一迭代开始 stream 的那一刻"——上一迭代刚 commit，与用户描述逐字吻合）。
+   *
+   * ⇒ 初次值 = `!this.open`（在 `aboutToAppear` 里定，**先于 build**）：挂载时**已是展开态**
+   *   就不播过渡（交接零闪烁）；挂载时是收起的（正常 committed 块）⇒ 允许，用户首次点开**有**动画；
+   *   用户一交互即置 `true`（此后开合都有动画）。
+   * ⛔ 不用 `setTimeout`（门禁 ⑨ 有计时器预算，A 级 ≤7 处）；⛔ 更不用"状态位驱动 `.opacity()`"
+   *   （静息态必须可见 —— 见 :190-222 与门禁 ⑨ 的正向形态）。
+   */
+  @State private animReady: boolean = false;
+
   /** remount（live → committed）时从共享 store 恢复展开态 —— 用户展开的块不自动收起。 */
   aboutToAppear(): void {
     this.open = this.storedOpen(this.stateKey);
+    // 挂载即展开（= commit 交接恢复）⇒ 挂载那一帧不播过渡（零闪烁）；否则允许（首次点击有动画）。
+    this.animReady = !this.open;
   }
 
   /** `stateKey` 变化（如 live 迭代号推进）⇒ 读新 key 的 store 值（web 每迭代一个新组件；原生同实例复用）。 */
@@ -180,6 +204,8 @@ export struct ThinkingLine {
       .onClick(() => {
         // 本地 @State 驱动本次重绘（"点一下立刻响应"）；store 承接 remount 后的恢复。
         const next: boolean = !this.open;
+        // 用户交互 ⇒ 此后开合**一律**播过渡（挂载时若已是展开态则此前为禁止，见 `animReady`）。
+        this.animReady = true;
         this.open = next;
         if (this.stateKey.length > 0) {
           setReasoningOpen(this.stateKey, next);
@@ -212,7 +238,10 @@ export struct ThinkingLine {
           //    （用现有具名工厂 `fadeTransition()`，语义本就是"内容出现/消失"，⛔ 不新造工厂/时长）。
           //    ⛔ 也不为此把结构改成"Scroll 视口量高 + 动画 height"：那是**为动画改结构**（且给每行
           //    挂一个 Scroll ⇒ 性能预算与手势嵌套双重风险），收益不抵代价。
-          .transition(fadeTransition())
+          // ── 过渡**只给用户点击的开合**（挂载那一帧 `animReady=false` ⇒ IDENTITY = 无过渡）──────
+          // ⛔ 挂载即播 = 用户亲报的「展开的思考区时不时闪烁」（commit 交接时新实例以 `open=true`
+          //    挂载）。见 `animReady` 的完整取证与论证。
+          .transition(this.animReady ? fadeTransition() : TransitionEffect.IDENTITY)
       }
     }
     .width('100%').alignItems(HorizontalAlign.Start)

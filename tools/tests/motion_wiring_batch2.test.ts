@@ -90,8 +90,19 @@ function read(p: string): string {
   const ai: number = src.indexOf(anchor);
   ok(`① ${rel} 有展开体门控 \`${anchor}\`（形态未漂移）`, ai >= 0);
   const win: string = ai >= 0 ? src.substring(ai, ai + 3000) : '';
-  ok(`① ${rel} 展开体挂着 .transition(fadeTransition())（出现过渡 = 静息态恒可见 ⇒ fail-safe）`,
-    win.indexOf('.transition(fadeTransition())') >= 0);
+  // ── 2026-10-16 升级（§21.122bw）：过渡必须**只给用户点击的开合** ────────────────────
+  // ⛔ 用户亲报「stream 下一个迭代时，展开的上一迭代思考区时不时闪烁」：真机探针实证每个迭代 commit
+  //    那一刻思考块在「live 槽 ↔ 已完成槽」换位 ⇒ 新实例以 `open=true` 挂载 ⇒ 旧写法（裸
+  //    `.transition(fadeTransition())`）把过渡当"插入"**重放** ⇒ 淡入一下 = 闪烁。
+  // ⇒ 形态升级为「`animReady` 门控」：挂载那一帧走 IDENTITY（无过渡），下一拍才允许过渡。
+  //    本判据同时钉住**门控存在**与**门控对象仍是底座出口**（⛔ 不自造就地过渡）。
+  const gated: RegExp = /\.transition\(this\.animReady \? fadeTransition\(\) : TransitionEffect\.IDENTITY\)/;
+  ok(`① ${rel} 展开体过渡由 \`animReady\` 门控（挂载那一帧 IDENTITY ⇒ commit 交接零闪烁）`, gated.test(win));
+  ok(`① ${rel} 有 \`animReady\` 状态位（\`@State private animReady: boolean = false\` = 挂载那一帧不播）`,
+    /@State\s+private\s+animReady:\s*boolean\s*=\s*false/.test(src));
+  // mutation 自证（判别力）：旧写法（裸 `.transition(fadeTransition())`）必须被本判据判红
+  ok(`① ${rel} mutation：裸 \`.transition(fadeTransition())\`（挂载即重放 ⇒ 闪烁）必红`,
+    gated.test('          .transition(fadeTransition())') === false);
   // ⛔ 反面形态：静息态不得由动画决定（旧缺陷的真根因，用户亲报正文被压到 ≈13%）
   ok(`① ${rel} ⛔ 展开体不得出现 \`animateTo(\`（静息态不得是动画的函数）`,
     win.indexOf('animateTo(') < 0);
