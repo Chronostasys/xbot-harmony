@@ -2125,6 +2125,11 @@ struct Index {
     }
     if (this.bgTasks !== store.bgTasks) {
       this.bgTasks = store.bgTasks;
+      // P0「开盖冻结」修复（2026-10-14 前后任务详情是打开那一刻的静态快照）：
+      // 列表镜像更新 ⇒ 跟随重投开着的详情页（输出持续增长、状态自然翻转、
+      // 终止钮自动消失——不再「任务跑完仍显示运行中，kill 已死进程才被动刷新」）。
+      // 轮询（`panelPollMs` 2s/30s）/ kill / promote 后的就地重拉全部经过这里。
+      this.refreshTaskDetailFrom(this.bgTasks);
     }
     if (this.runners !== store.runners) {
       this.runners = store.runners;
@@ -5008,6 +5013,11 @@ struct Index {
             },
             onClosePreview: () => {
               this.closeFsPreview();
+            },
+            // P1-1（2026-10-14）：文件面板预览大图点按 ⇒ 全屏查看器（`Lightbox`）——
+            // 与聊天图片同一条 `openImage` 通道（:4737 装载 `imagePixel` + 开壳）。
+            onOpenImage: (url: string) => {
+              void this.openImage(url);
             },
             onRefresh: () => {
               this.loadFsDir(this.fmDir);
@@ -7928,6 +7938,39 @@ struct Index {
   }
 
   /**
+   * 后台任务详情的「跟随重投」（P0 修复详情页「开盖冻结」，2026-10-14）。
+   *
+   * web 权威 `BackgroundPanel.tsx:152-172` 用 SSE 增量 + 轮询双通道保证详情实时；
+   * 原生无 SSE 支线（P1）前的最小闭环：**列表每次镜像更新**（`syncFromStore` 的
+   * bgTasks 分支 ⇐ 轮询 `panelPollMs` / kill / promote 后就地重拉）⇒ 开着的
+   * 详情页用同一组 `core/panels.ets` 纯函数重投四态：
+   * - id 命中 ⇒ Status/Meta/Output/Running 全部按最新列表重算（判据同源 ⇒
+   *   不可能「列表说运行中、详情说完成」；Output 增长 ⇒ TaskDetailSheet
+   *   `onAreaChange + running` 既有逻辑自动跟底；自然结束 ⇒ running=false ⇒
+   *   终止钮自动消失）。@State 同值赋值不触发重渲 ⇒ 无谓刷新为 0。
+   * - id 从列表消失（服务端清理）⇒ 自动关详情——不吊死在已不存在的任务上。
+   * ⛔ 不走 `openTaskDetail`：它含 `dismissKeyboard()` + `showTaskDetail=true`，
+   *   每 2s 轮询都跑会把用户在别处的键盘无端收掉。
+   */
+  private refreshTaskDetailFrom(list: BgTask[]): void {
+    if (!this.showTaskDetail) {
+      return;
+    }
+    const id: string = this.taskDetailId;
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].id === id) {
+        const t: BgTask = list[i];
+        this.taskDetailStatus = bgTaskStatusText(t);
+        this.taskDetailMeta = bgTaskMetaText(t, this.nowMs());
+        this.taskDetailOutput = bgTaskOutputText(t);
+        this.taskDetailRunning = bgTaskRunning(t);
+        return;
+      }
+    }
+    this.showTaskDetail = false;
+  }
+
+  /**
    * 打开定时任务详情。
    * ⛔ 判据**全部**来自 `core/panels.ets`（`cronMessageText`/`scheduleText`/`cronTargetText`/`fmtDateTime`）
    *   —— 与列表行 `cronPrimary`/`cronSubText` 同一份纯函数 ⇒ 不可能"行里说 A、详情说 B"。
@@ -7980,7 +8023,11 @@ struct Index {
       return;
     }
     try {
-      const tid: string = await store.createTerminal('');
+      // P1（2026-10-14）：新建终端落**会话工作目录**——对齐 web `useTerminal.ts:329-337`
+      // （fetchCwd → createTerminal(chatID, cwd)）。原生 `store.cwd` 由 `loadStatus()`
+      // （`/api/session/status`）在打开会话/每轮 idle 时拉一次；空串 = 尚未拿到（未开盘的
+      // 会话秒开终端）⇒ 服务端落沙箱默认目录（web_pty.go:550-555，与旧行为一致的兜底）。
+      const tid: string = await store.createTerminal(store.cwd);
       if (tid.length > 0) {
         this.termTid = tid;
         this.termCwd = '';
@@ -8049,14 +8096,11 @@ struct Index {
     try {
       await st.killBgTask(id);
       this.toast('已请求终止');
-      const list: BgTask[] = st.bgTasks;
-      for (let i = 0; i < list.length; i++) {
-        if (list[i].id === id) {
-          this.openTaskDetail(list[i]);
-          return;
-        }
-      }
-      this.showTaskDetail = false;
+      // kill 成功 ⇒ store 已就地重拉列表（`store.killBgTask` 内部 `loadBgTasks`），
+      // 从最新列表重投详情（与 syncFromStore 镜像分支共用 `refreshTaskDetailFrom`：
+      // running=false ⇒ 终止钮立即消失；任务从列表消失 ⇒ 片头自动关）。
+      // 旧内联「找 id → openTaskDetail / 消失 → 关」并入该方法，不再各写一份。
+      this.refreshTaskDetailFrom(st.bgTasks);
     } catch (e) {
       const err: BusinessError = e as BusinessError;
       this.toast(`终止失败: ${err.message}`);

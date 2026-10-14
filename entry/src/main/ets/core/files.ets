@@ -116,6 +116,94 @@ export function joinFsPath(dir: string, name: string): string {
   return `${d}${name}`;
 }
 
+/** 折叠路径里的 `.`/`..` 段（`/a/b/../c` → `/a/c`；`joinFsPath` 只拼接不折叠 ⇒ 此处补）。 */
+function foldDotSegs(p: string): string {
+  const abs: boolean = p.startsWith('/');
+  const parts: string[] = p.split('/');
+  const out: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const seg: string = parts[i];
+    if (seg === '' || seg === '.') {
+      continue;
+    }
+    if (seg === '..') {
+      if (out.length > 0 && out[out.length - 1] !== '..') {
+        out.pop();
+        continue;
+      }
+      if (abs) {
+        continue; // `/..` 折到根（Web 服务器语义）
+      }
+      out.push('..');
+      continue;
+    }
+    out.push(seg);
+  }
+  return abs ? `/${out.join('/')}` : out.join('/');
+}
+
+/**
+ * md 图片单条 src 的解析规则（文件面板预览 P1-2，2026-10-14）：
+ * - `http(s)://`、`data:`、`embedded:`（虚拟技能文档——web `FilePanel.tsx:73-76`
+ *   同款直传）、绝对路径（`/` 开头）⇒ 原样；
+ * - 相对 ⇒ `foldDotSegs(joinFsPath(baseDir, src))`（`../` 折叠不可少——
+ *   joinFsPath 纯拼接，不折会拼出 `/a/b/../img.png` 无效路径继续裂图）。
+ */
+function mdImageSrcAbsolute(src: string, baseDir: string): string {
+  if (src.startsWith('http://') || src.startsWith('https://')
+    || src.startsWith('data:') || src.startsWith('embedded:')
+    || src.startsWith('/')) {
+    return src;
+  }
+  if (baseDir.length === 0) {
+    return src;
+  }
+  return foldDotSegs(joinFsPath(baseDir, src));
+}
+
+/**
+ * markdown 正文里**全部相对图片引用**按 baseDir 改写为绝对路径。
+ *
+ * 背景（P1-2，2026-10-14）：web 权威 `FilePanel.tsx:71-81` 把「文件所在目录」作为
+ * baseDir 传给 md 渲染器解析 `![](imgs/x.png)` 一类相对 src；原生 `MarkdownView`
+ * 的图片面板 `src` 原样直传 `loadImage` ⇒ README 这类文档预览**裂图**。
+ * 落点选择：**宿主改写**（本函数在渲染前把文本改好），`MarkdownView` 零改动
+ * —— 它是共享组件（聊天/技能/自检多宿主），只有文件面板有「所在目录」语境；
+ * 组件侧加参数会拖无辜宿主过回归面。
+ * - baseDir 为空/正文为空 ⇒ 原样返回（聊天 markdown 无锚点场景天然成立）；
+ * - ⛔ 只改图片 `![alt](src)`；**不改链接** `[text](href)`（点击已有
+ *   `resolveOpenable(href, linkBase)` 处理，双重改写会双重拼接）；
+ * - `src "title"` 形态保留 title；空 src `![]()` 原样（不瞎拼失败方向）。
+ */
+export function resolveMdImages(text: string, baseDir: string): string {
+  if (text.length === 0 || baseDir.length === 0) {
+    return text;
+  }
+  const re: RegExp = new RegExp('!\\[([^\\]]*)\\]\\(([^)]+)\\)', 'g');
+  let out: string = '';
+  let last: number = 0;
+  let m: RegExpExecArray | null = re.exec(text);
+  while (m !== null) {
+    const whole: string = m[0];
+    const inner: string = m[2];
+    const sp: number = inner.indexOf(' ');
+    const src: string = (sp > 0 ? inner.slice(0, sp) : inner).trim();
+    const rest: string = sp > 0 ? inner.slice(sp).trim() : '';
+    const openAt: number = whole.indexOf('(', whole.indexOf(']'));
+    let newInner: string = inner;
+    if (src.length > 0) {
+      newInner = rest.length > 0
+        ? `${mdImageSrcAbsolute(src, baseDir)} ${rest}`
+        : mdImageSrcAbsolute(src, baseDir);
+    }
+    out += text.slice(last, m.index) + whole.slice(0, openAt + 1) + newInner + ')';
+    last = m.index + whole.length;
+    m = re.exec(text);
+  }
+  out += text.slice(last);
+  return out;
+}
+
 /**
  * 目录列表排序 —— 逐字对齐 web `useFileSystem.ts:96-99`：
  * 「directories first, then alphabetical」（`a.isDir !== b.isDir ⇒ a.isDir ? -1 : 1`，

@@ -20,7 +20,7 @@ import {
   fsCodeLanguage, fsCodeFence, fsMention,
   fsRelPath, fsRowsForDir, fsRowsForSearch, fsSearchBody, fsSearchEmptyText, fsSearchSub,
   fsSearchSummary, sortFsSearch, FS_SEARCH_LIMIT, FsSearchEntry,
-  FK_DIR, FK_IMAGE, FK_MARKDOWN, FK_TEXT, FsFileEntry,
+  FK_DIR, FK_IMAGE, FK_MARKDOWN, FK_TEXT, FsFileEntry, resolveMdImages,
 } from '../../entry/src/main/ets/core/files';
 
 let pass = 0;
@@ -250,6 +250,24 @@ eq('★ 搜索行：直属根下的结果副标签空', fsRowsForSearch('/r', [
 eq('★ 搜索行：key 带 s: 前缀（与目录行 key 不冲突）', rs[0].key, 's:/r/z.txt');
 eq('★ 搜索行：目录结果 kind = dir', rs[2].kind, FK_DIR);
 eq('★ 搜索行：label = 文件名（不是整个路径 ⇒ 省略号不会吃掉文件名）', rs[1].label, 'b.txt');
+
+
+// ── ⑥ resolveMdImages：文件面板 md 预览相对图片改写（P1-2，2026-10-14）──────────
+// 判别力自证：joinFsPath 不折 .. ⇒ 若删 foldDotSegs 环节，「../ 折叠」例必红；
+// 若误把链接也改写 → 「链接不改写」例红（与 resolveOpenable 双重拼接回归）。
+eq('★ md图片：相对 ⇒ baseDir 拼绝对', resolveMdImages('![](a.png)', '/x/y'), '![](/x/y/a.png)');
+eq('★ md图片：../ 折叠', resolveMdImages('![t](../img.png)', '/x/y/z'), '![t](/x/y/img.png)');
+eq('★ md图片：多次 ../ 折叠到底', resolveMdImages('![](../d/../../img.png)', '/x/y/z'), '![](/x/img.png)');
+eq('★ md图片：https/data/embedded/绝对路径直传',
+  resolveMdImages('![](https://e/x.png)![](data:i/v)![](embedded:sk/a.png)![](/abs.png)', '/x/y'),
+  '![](https://e/x.png)![](data:i/v)![](embedded:sk/a.png)![](/abs.png)');
+eq('★ md图片：空 baseDir 原样（聊天 markdown 无锚点场景）', resolveMdImages('![](a.png)', ''), '![](a.png)');
+eq('★ md图片：空正文原样返回', resolveMdImages('', '/x/y'), '');
+eq('★ md图片：链接（非图片）不改写（防与 resolveOpenable 双重拼接）',
+  resolveMdImages('[t](rel.md) ![](a.png)', '/x/y'), '[t](rel.md) ![](/x/y/a.png)');
+eq('★ md图片：title 保留', resolveMdImages('![t](a.png "ti")', '/x/y'), '![t](/x/y/a.png "ti")');
+eq('★ md图片：空 src ![]() 不匹配 ⇒ 原样（不瞎拼失败方向）', resolveMdImages('![]()', '/x/y'), '![]()');
+eq('★ md图片：正文前后内容保留', resolveMdImages('前 ![](b/c.png) 后', '/x/y'), '前 ![](/x/y/b/c.png) 后');
 
 
 if (fail > 0) {

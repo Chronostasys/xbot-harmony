@@ -23,7 +23,7 @@ import {
   fileKindOf, fsCodeFence, fsCodeLanguage,
   fsCrumbs, fsFilterEmptyText, fsFilterPlaceholder,
   fsHiddenToggleLabel, FsRow, FsSearchEntry, fsRowsForDir, fsRowsForSearch,
-  fsSearchEmptyText, fsSearchSummary, FS_SEARCH_LIMIT,
+  fsSearchEmptyText, fsSearchSummary, FS_SEARCH_LIMIT, parentPath, resolveMdImages,
 } from '../core/files';
 import {
   colorOf, hairlineOf, HIT_TARGET_MIN, INSET_ROW_X, MENU_W, PRESS_OPACITY, RADIUS_CARD, RADIUS_CHIP, RADIUS_SHEET,
@@ -204,6 +204,14 @@ export struct FilesSheet {
   onAddToChat: (filePath: string) => void = () => {
   };
   onClosePreview: () => void = () => {
+  };
+  /**
+   * 图片点按放大（P1-1，2026-10-14）：预览大图点按 ⇒ 全屏查看器（`Lightbox`）。
+   * 组件只上报 URL（分层纪律：IO/装载归页面——同聊天图片 `openImage` 一条通道），
+   * 页面接线把字节装载 + `imagePixel` 开壳全收走。缺省空实现 = 无查看器宿主（自检等）
+   * 点击无反应——**失败方向安全**。
+   */
+  onOpenImage: (url: string) => void = () => {
   };
   onRefresh: () => void = () => {
   };
@@ -741,6 +749,9 @@ export struct FilesSheet {
                   return this.loadImageBytes(s);
                 },
                 onOpen: () => {
+                  // P1-1：图片点按放大——上抛页面开全屏查看器（`Lightbox`，
+                  // 与聊天图片同一条 `openImage` 通道；此前是空实现：图片能看不能放大）。
+                  this.onOpenImage(this.previewImageUrl);
                 },
                 maxHeight: 2000,
                 theme: this.theme,
@@ -761,8 +772,12 @@ export struct FilesSheet {
           //     （宁可没有，也不做一个错的）。
           Scroll() {
             MarkdownView({
+              // P1-2（2026-10-14）：markdown ⇒ 渲染**前**把相对图片引用改写为绝对路径
+              //（baseDir = 所在目录，web `FilePanel.tsx:71-81` 的 baseDir 同语义；
+              // 详见 `core/files.ets resolveMdImages` 头注释——共享组件 MarkdownView
+              // 零改动，聊天/技能宿主零回归面）。非 md ⇒ 围栏代码（原样）。
               text: fileKindOf(baseNameOf(this.previewPath), false) === FK_MARKDOWN
-                ? this.previewText
+                ? resolveMdImages(this.previewText, parentPath(this.previewPath))
                 : fsCodeFence(baseNameOf(this.previewPath), this.previewLanguage, this.previewText),
               theme: this.theme,
               mdTheme: this.mdTheme,
