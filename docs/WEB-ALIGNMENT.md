@@ -6354,3 +6354,44 @@ web 侧那 9+ 处 `await navigator.clipboard.writeText(...)` 会抛 TypeError �
    面板（同一 `Stack` 内更高的 WebView）盖住 ⇒ **WebView 内的复制目前无可见反馈**（web 侧本就静默）。
    待办：把 toast 抬到面板之上（或面板内自带反馈条）。
 2. 本轮为定性加的 `[XBOT-CLIP]` 两行日志**有意保留**（零成本 + 下次回归可直接判定"垫片是否生效"）。
+
+---
+
+## §21.122d 余项：`<input type=file>`（页面文件选择）+ 页面下载代理
+
+### ① 为什么这两条都不是可选增强（ArkWeb 硬事实）
+
+| 能力 | 不接回调时的真实行为 | web 侧消费点（实证） |
+|---|---|---|
+| `onShowFileSelector` | ArkWeb **不会自己弹选择器**；且宿主**必须**调 `event.result.handleFileList(...)` 回话，**不回则请求永久挂着**（页面 `onChange` 永不触发） | `MessageInput.tsx:853`（聊天附件）、`SettingsLLM.tsx:264`（导入配置）、`SettingsPlugins.tsx:349`（插件图标）、`PluginManagerPanel.tsx:168`、`SkillManagerPanel.tsx:185` |
+| `onDownloadStart` | ArkWeb **不会自行下载** ⇒ 页面"导出/下载"点了没反应 | 文件面板 `/api/files/download?key=…`、插件/skill 导出 zip、会话导出 |
+
+⇒ 两条都属「宿主不代理 = 整块静默失效」，与 §21.122b（`onWindowNew`）、§21.122d（剪贴板）同族。
+
+### ② 实现（判定在纯函数，组件只执行副作用 —— 同一分层）
+
+| 纯函数（`core/webbridge.ets`，可脱机单测） | 语义 |
+|---|---|
+| `filePickKindOf(acceptTypes)` | accept → 该弹哪种选择器：**`image`**（token **全是**图片类型）/ **`document`**（其余）。⛔ 只有"全是图片"才走相册 —— 混合 accept 下相册给不出 PDF/zip（判错的代价不对称，`*/*`/空/未知一律 fail-open 到能力更广的文件选择器） |
+| `FILE_PICK_MAX_COUNT` | 页面一次能拿到的文件数 = **与聊天附件上限同源**（`core/attach.ets:MAX_ATTACH`，测试钉跨模块契约） |
+| `downloadFileNameOf(url, cd, mime)` / `sanitizeFileName(name)` | 文件名推导顺序：服务端 `Content-Disposition`（含 RFC 5987 `filename*=` 百分号解码）→ URL 路径末段 → 兜底 `xbot-download`；缺扩展名时按 mime 补。⛔ 清洗是**安全边界**（页面可给 `../../x`）：压平路径分隔符、去控制字符/非法字符、`..` 归零、截断到 96 |
+
+组件侧（`components/WebSurface.ets`）：选中的 URI **必须复制进应用沙箱**（picker 给的是 `file://docs/…`
+文档 URI，Web 引擎读不了）→ 回 `file://<cacheDir>/webpick/…`；下载走 `request.downloadFile` 落
+`<cacheDir>/webdl/`，完成回调 `onDownloadDone` → `PluginHost` 透传 → `Index.ets` ×3 调用点 toast。
+⛔ `FileOpenFolderMode` **不假装支持**（web 全仓 0 处 `webkitdirectory`）：回空列表（页面按"用户取消"）。
+
+### ③ 判据
+
+`tools/tests/webbridge.test.ts` 新增 **27 条**（95 → **122**）：accept 映射 12 条（含混合/通配/大小写/
+单 token 内含逗号/null 入参）、`FILE_PICK_MAX_COUNT == MAX_ATTACH`（跨模块同源契约）、文件名推导与清洗
+14 条（`filename=`/`filename*=` 解码、URL 百分号解码、mime 补扩展名、**不重复补**、兜底名、路径穿越
+压平、反斜杠压平、非法字符、超长截断、尾点、首尾空白）。
+
+### ④ 记账（未闭环）
+
+1. 下载落**应用沙箱**（`cacheDir/webdl/`）—— 已给 toast + `XBOT-DL` 日志（路径可 `hdc file recv` 核对），
+   但**还没有**"导出到用户可见位置/分享"的出口（`DocumentViewPicker.save()` 二段式）⇒ 待办。
+2. 选择器与下载的**真机端到端取证**（点 `<input type=file>` 弹出选择器、点下载链接落盘）尚未做
+   —— 本轮只到"真门禁编译 ✅ + 纯逻辑判据 ✅"。
+

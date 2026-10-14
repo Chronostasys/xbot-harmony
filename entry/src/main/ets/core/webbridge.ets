@@ -373,3 +373,245 @@ export function newWindowAction(targetUrl: string, pageUrl: string, base: string
   }
   return NEW_WINDOW_EXTERNAL;
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// `onShowFileSelector`（页面 `<input type=file>`）代理 —— §21.122d 事件代理第三批
+//
+// ── 为什么必须有（不是可选增强）────────────────────────────────────────────────
+// ArkWeb 的**默认行为**：页面里的 `<input type="file">` 触发「显示文件选择器」请求；宿主若
+// **不接** `onShowFileSelector`，ArkWeb **不会**自己弹任何选择器，且**必须**回调
+// `event.result.handleFileList(...)`（不回话则该请求永久挂着）⇒ 整块静默失效。
+// web 侧实证调用点：`MessageInput.tsx:853`（聊天附件）、`SettingsLLM.tsx:264`、
+//   `SettingsPlugins.tsx:349`、`PluginManagerPanel.tsx:168`、`SkillManagerPanel.tsx:185`
+//   ⇒ 不代理 = 消息里加不了附件、所有"导入插件/skill/配置"的按钮点了没反应。
+//
+// 判定 = `accept` 属性 → 该弹哪种选择器（纯函数，可脱机单测；组件只执行副作用）：
+//   · `image`    —— accept 里的 token **全是**图片类型（`image/*` / `.png` …）⇒ 相册选择器；
+//   · `document` —— 其余（空 accept / 通配 accept / 混合类型 / `.zip` 等）⇒ 文件选择器（能力最广）。
+// ⛔ 只有"全是图片"才走相册：混合 accept 下相册给不出 PDF/zip ⇒ 用户"选不到想要的文件"。
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** `accept` 全为图片 ⇒ 相册选择器。 */
+export const FILE_PICK_IMAGE: string = 'image';
+/** 其余（空 accept、通配 accept、混合类型、文档）⇒ 文件选择器。 */
+export const FILE_PICK_DOCUMENT: string = 'document';
+
+/**
+ * 一次能交给页面的文件数上限。
+ * ⛔ 必须与聊天附件上限同源（`core/attach.ets:MAX_ATTACH`）—— 页面拿到的文件最终多半要作为
+ *    附件上传，两边不一致会让用户"选了 12 个却只上去 9 个"。测试钉住这条同源契约。
+ */
+export const FILE_PICK_MAX_COUNT: number = 9;
+
+/** 相册能给出的图片扩展名（用于 `accept=".png,.jpg"` 这类按扩展名声明的情形）。 */
+const IMAGE_EXTS: string[] = [
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'heic', 'heif', 'avif', 'svg', 'ico', 'tif', 'tiff',
+];
+
+/** 一个 accept token 是否"图片"（`image/*`、`image/png`、`.jpg` ⇒ true；通配 accept、`.pdf` ⇒ false）。 */
+function acceptTokenIsImage(tok: string): boolean {
+  const t: string = tok.trim().toLowerCase();
+  if (t.length === 0) {
+    return false;
+  }
+  if (t === 'image/*' || t.indexOf('image/') === 0) {
+    return true;
+  }
+  if (t.charAt(0) === '.') {
+    return IMAGE_EXTS.indexOf(t.substring(1)) >= 0;
+  }
+  return false;
+}
+
+/**
+ * `accept` 列表 → 选择器种类（纯函数）。
+ *
+ * ⛔ 通配 accept、空串、未知类型一律判 `document`（fail-open 到能力更广的那个 —— 文件选择器能选到
+ *    图片，相册选不到 PDF；判错的代价不对称）。
+ */
+export function filePickKindOf(acceptTypes: string[]): string {
+  if (!Array.isArray(acceptTypes)) {
+    return FILE_PICK_DOCUMENT;
+  }
+  let seen: number = 0;
+  for (let i = 0; i < acceptTypes.length; i++) {
+    const raw: string = typeof acceptTypes[i] === 'string' ? acceptTypes[i] : '';
+    // 一个 token 里可能塞了多个条目（`accept="image/*,.pdf"`）—— 按逗号再切一次更稳。
+    const parts: string[] = raw.split(',');
+    for (let j = 0; j < parts.length; j++) {
+      const tok: string = parts[j].trim();
+      if (tok.length === 0) {
+        continue;
+      }
+      seen++;
+      if (!acceptTokenIsImage(tok)) {
+        return FILE_PICK_DOCUMENT;
+      }
+    }
+  }
+  return seen > 0 ? FILE_PICK_IMAGE : FILE_PICK_DOCUMENT;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// `onDownloadStart`（页面触发的下载）代理 —— 同批
+//
+// ── 为什么必须有 ────────────────────────────────────────────────────────────────
+// ArkWeb 不接 `onDownloadStart` 时**不会**自行下载 ⇒ 页面里"导出/下载"的链接点了没反应。
+// web 侧实证：文件面板下载（`/api/files/download?key=…`）、插件/skill 的"导出 zip"、
+//   会话导出等。宿主侧用 `request.downloadFile` 落进沙箱后回话给上层（toast/提示）。
+//
+// 文件名推导必须**先信服务端**（`Content-Disposition`），再退到 URL 路径，最后兜底：
+//   ⛔ 直接用 URL 最后一段当文件名会被 `?key=…&inline=1` 与 URL 编码坑到（可能得到空名、
+//      或 `%E4%B8%AD%E6%96%87.pdf` 这种乱码名）；而 `Content-Disposition` 是服务端的**意图**。
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** 推导不出名字时的兜底文件名（不含扩展名）。 */
+export const DOWNLOAD_FALLBACK_NAME: string = 'xbot-download';
+/** 文件名长度上限（含扩展名）—— 防超长 header/URL 把落盘名撑爆。 */
+export const DOWNLOAD_MAX_NAME_LEN: number = 96;
+
+/** 从 `Content-Disposition` 取值：优先 RFC 5987 `filename*=UTF-8''…`，其次 `filename="…"`。 */
+function nameFromDisposition(cd: string): string {
+  const s: string = typeof cd === 'string' ? cd : '';
+  if (s.length === 0) {
+    return '';
+  }
+  // filename*=UTF-8''%E4%B8%AD.pdf（带编码）—— 先取它，因为它才是"非 ASCII 名"的正源
+  const star: number = s.toLowerCase().indexOf("filename*=");
+  if (star >= 0) {
+    let v: string = s.substring(star + 10).trim();
+    const semi: number = v.indexOf(';');
+    if (semi >= 0) {
+      v = v.substring(0, semi);
+    }
+    v = v.trim();
+    // `UTF-8''<pct-encoded>` ⇒ 去掉 charset'lang' 前缀
+    const q: number = v.indexOf("''");
+    if (q >= 0) {
+      v = v.substring(q + 2);
+    }
+    const decoded: string = decodePct(v);
+    if (decoded.length > 0) {
+      return decoded;
+    }
+  }
+  const plain: number = s.toLowerCase().indexOf('filename=');
+  if (plain >= 0) {
+    let v: string = s.substring(plain + 9).trim();
+    const semi: number = v.indexOf(';');
+    if (semi >= 0) {
+      v = v.substring(0, semi);
+    }
+    v = v.trim();
+    if (v.length >= 2 && v.charAt(0) === '"' && v.charAt(v.length - 1) === '"') {
+      v = v.substring(1, v.length - 1);
+    }
+    return v.trim();
+  }
+  return '';
+}
+
+/** `%E4%B8%AD` → `中`（非法转义原样保留；`decodeURIComponent` 失败时退化为原文）。 */
+function decodePct(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch (e) {
+    return s;
+  }
+}
+
+/** URL 路径最后一段（去掉 query/hash 与百分号编码）。 */
+function nameFromUrlPath(url: string): string {
+  let s: string = typeof url === 'string' ? url : '';
+  if (s.length === 0) {
+    return '';
+  }
+  const hash: number = s.indexOf('#');
+  if (hash >= 0) {
+    s = s.substring(0, hash);
+  }
+  const qm: number = s.indexOf('?');
+  if (qm >= 0) {
+    s = s.substring(0, qm);
+  }
+  const slash: number = s.lastIndexOf('/');
+  if (slash >= 0) {
+    s = s.substring(slash + 1);
+  }
+  return decodePct(s).trim();
+}
+
+/** mime → 扩展名（无把握时返回空串 —— ⛔ 不要瞎猜，宁可没有扩展名）。 */
+function extensionForMime(mime: string): string {
+  const m: string = (typeof mime === 'string' ? mime : '').trim().toLowerCase();
+  const semi: number = m.indexOf(';');
+  const base: string = semi >= 0 ? m.substring(0, semi).trim() : m;
+  if (base === 'application/pdf') { return 'pdf'; }
+  if (base === 'application/zip' || base === 'application/x-zip-compressed') { return 'zip'; }
+  if (base === 'application/json') { return 'json'; }
+  if (base === 'text/plain') { return 'txt'; }
+  if (base === 'text/markdown') { return 'md'; }
+  if (base === 'text/csv') { return 'csv'; }
+  if (base === 'text/html') { return 'html'; }
+  if (base === 'image/png') { return 'png'; }
+  if (base === 'image/jpeg') { return 'jpg'; }
+  if (base === 'image/gif') { return 'gif'; }
+  if (base === 'image/webp') { return 'webp'; }
+  if (base === 'image/svg+xml') { return 'svg'; }
+  if (base === 'video/mp4') { return 'mp4'; }
+  if (base === 'audio/mpeg') { return 'mp3'; }
+  if (base.indexOf('+json') > 0) { return 'json'; }
+  if (base.indexOf('+xml') > 0) { return 'xml'; }
+  if (base === 'application/xml') { return 'xml'; }
+  return '';
+}
+
+/**
+ * 落盘文件名清洗（纯函数）：去掉路径分量/控制字符/尾点，`..` 归零，超长截断。
+ * ⛔ 这是**安全边界**（决定写哪个文件），不是美化 —— 页面完全可能给出 `../../x`。
+ */
+export function sanitizeFileName(name: string): string {
+  let s: string = typeof name === 'string' ? name : '';
+  // 路径分隔符一律压平（含 Windows 反斜杠）
+  s = s.split('/').join('_').split('\\').join('_');
+  // 控制字符 + 各平台的非法字符
+  s = s.replace(/[\u0000-\u001f\u007f]/g, '');
+  s = s.replace(/[:*?"<>|]/g, '_');
+  // 前后空白与点（`.`/`..`、`x.` 在多数文件系统上语义特殊）
+  s = s.trim();
+  s = s.replace(/^\.+/, '');
+  s = s.replace(/\.+$/, '');
+  if (s.length > DOWNLOAD_MAX_NAME_LEN) {
+    s = s.substring(0, DOWNLOAD_MAX_NAME_LEN);
+    s = s.replace(/\.+$/, '');
+  }
+  return s;
+}
+
+/** 有扩展名吗（只看最后一段，且不是纯点/数字点——`a.b.c` 算有，`x.` 不算）。 */
+function hasExtension(name: string): boolean {
+  const dot: number = name.lastIndexOf('.');
+  return dot > 0 && dot < name.length - 1;
+}
+
+/**
+ * 下载文件名（纯函数）：`Content-Disposition` → URL 路径 → 兜底；缺扩展名时按 mime 补。
+ * 返回的一定是**安全的单段文件名**（不含 `/`、非空、≤ 上限）。
+ */
+export function downloadFileNameOf(url: string, contentDisposition: string, mime: string): string {
+  let name: string = sanitizeFileName(nameFromDisposition(contentDisposition));
+  if (name.length === 0) {
+    name = sanitizeFileName(nameFromUrlPath(url));
+  }
+  if (name.length === 0) {
+    name = DOWNLOAD_FALLBACK_NAME;
+  }
+  if (!hasExtension(name)) {
+    const ext: string = extensionForMime(mime);
+    if (ext.length > 0) {
+      name = `${name}.${ext}`;
+    }
+  }
+  return name;
+}
+

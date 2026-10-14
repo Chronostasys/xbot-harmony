@@ -128,6 +128,14 @@ export struct PluginHost {
   onClipboardWrite: (text: string) => void = (text: string) => {
   };
 
+  /**
+   * WebSurface 转来的**下载完成回执**（§21.122d 余项：页面 `onDownloadStart` 代理）
+   * —— 透传给上层（上层给用户可见反馈：toast + 落盘路径）。
+   * ⛔ 默认空 = 丢弃（与 `onOpenExternal` 同一约定：未接线时不"假装成功"）。
+   */
+  onDownloadDone: (name: string, path: string) => void = (name: string, path: string) => {
+  };
+
   build() {
     Column() {
       if (this.panelUrl.length > 0) {
@@ -144,6 +152,9 @@ export struct PluginHost {
           },
           onClipboardWrite: (text: string) => {
             this.onClipboardWrite(text);
+          },
+          onDownloadDone: (name: string, path: string) => {
+            this.onDownloadDone(name, path);
           },
           onClose: () => {
             this.onClose();

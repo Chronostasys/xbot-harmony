@@ -10,6 +10,7 @@ import { KeyCode } from '@kit.InputKit';
 import { util } from '@kit.ArkTS';
 import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl, readCachedTheme } from '../core/config';
 import { webview } from '@kit.ArkWeb';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { ChatStore } from '../core/store';
 import { beginTurnKeepAlive, endTurnKeepAlive, ensureEnabled, notificationsEnabled, PENDING_CHAT_KEY, PENDING_CHAT_SEQ_KEY, PENDING_ACTION_KEY, isKnownNotifyAction, NOTIFY_ACTION_STOP, NOTIFY_ACTION_CONTINUE } from '../core/notify';
 // 后台对账（workScheduler 延迟任务）的取消入口（目标①：登出必须停掉它）
@@ -4590,6 +4591,11 @@ struct Index {
             // `navigator.clipboard`；web 侧 9+ 处复制此前**全部静默失效**）。
             // ⛔ 复用既有唯一出口 `copyText`（含 fail 提示 + toast），不另写一套。
             this.copyText(text, '');
+          }, onDownloadDone: (name: string, path: string) => {
+            // §21.122d 余项：页面下载完成 ⇒ 给用户可见反馈（⛔ 不假装成功：路径一并记日志，
+            // 应用沙箱内的落盘位置可 `hdc file recv` 核对）。沙箱导出/分享出口见 TODO。
+            hilog.info(0x0000, 'XBOT-DL', 'downloaded %{public}s -> %{public}s', name, path);
+            this.toast(`已下载 ${name}`);
           }, onClose: () => {
           } })
           Text('切回原生')
@@ -5298,6 +5304,10 @@ struct Index {
         }, onClipboardWrite: (text: string) => {
           // §21.122d：面板里的「复制」⇒ 宿主代写系统剪贴板（同 §21.122b 的出口收敛思路）。
           this.copyText(text, '');
+        }, onDownloadDone: (name: string, path: string) => {
+          // §21.122d 余项：全屏 WebView 面板里的页面下载完成 ⇒ 可见反馈（同第一处出口）。
+          hilog.info(0x0000, 'XBOT-DL', 'downloaded %{public}s -> %{public}s', name, path);
+          this.toast(`已下载 ${name}`);
         }, onClose: () => {
           this.panelUrl = '';
         } })
@@ -5420,6 +5430,11 @@ struct Index {
               onClipboardWrite: (text: string) => {
                 // §21.122d：插件 WebView 里的「复制」⇒ 宿主代写系统剪贴板（与面板同一出口）。
                 this.copyText(text, '');
+              },
+              onDownloadDone: (name: string, path: string) => {
+                // §21.122d 余项：插件 WebView 里的页面下载完成 ⇒ 可见反馈（同一出口，不另写一套）。
+                hilog.info(0x0000, 'XBOT-DL', 'downloaded %{public}s -> %{public}s', name, path);
+                this.toast(`已下载 ${name}`);
               },
               onClose: () => {
                 this.pluginPageUrl = '';

@@ -1,13 +1,20 @@
 import { webview } from '@kit.ArkWeb';
 import { Palette, paletteOf } from '../core/theme';
-import { BusinessError } from '@kit.BasicServicesKit';
+import { BusinessError, request } from '@kit.BasicServicesKit';
+import { fileIo, picker } from '@kit.CoreFileKit';
+import { common } from '@kit.AbilityKit';
+import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import {
   BridgeMessage, parseBridgeMessage, encodeBridgeMessage, encodeBridgeAck, makeBridgeMessage,
   BridgeHostAction, BRIDGE_ACTION_CLOSE, BRIDGE_ACTION_LOG, BRIDGE_ACTION_READY,
   BRIDGE_ACTION_CLIPBOARD,
   hostActionFor, bridgeInitPayload,
   NEW_WINDOW_EXTERNAL, NEW_WINDOW_IN_WEB, newWindowAction,
+  FILE_PICK_IMAGE, FILE_PICK_MAX_COUNT, filePickKindOf,
+  downloadFileNameOf, sanitizeFileName,
 } from '../core/webbridge';
+// 文件名清洗复用 `core/attach.ets` 的 `baseName`（附件与页面文件选择必须是同一套命名语义）。
+import { baseName } from '../core/attach';
 import {
   WEB_PHASE_ERROR, WEB_PHASE_IDLE, WEB_PHASE_LOADING, WEB_PHASE_READY,
   WebStatus, webChromeLabel, webErrorDetail, webHttpErrorDetail, webStatusOf,
@@ -249,6 +256,22 @@ export struct WebSurface {
   };
 
   /**
+   * 页面触发的下载已完成（§21.122d 事件代理第三批：`onDownloadStart` 的完成回执）。
+   *
+   * 为什么必须有：ArkWeb 不接 `onDownloadStart` 时**不会**自行下载 ⇒ 页面里"导出/下载"
+   *   的链接点了没反应（web 侧实证：文件面板 `/api/files/download`、插件/skill 导出 zip 等）。
+   * 链路：页面下载请求 → `onDownloadStart` → `downloadFileNameOf`（纯函数推导文件名，
+   *   ⛔ 先信服务端 `Content-Disposition`，再退 URL 路径，最后兜底）→ `request.downloadFile`
+   *   落进沙箱 → 完成后回调**本函数**（上层给用户可见反馈：toast / 提示）。
+   * ⚠️ 普通成员而非 `@Prop`（同 `onBridgeMessage`/`onClipboardWrite`：函数回调不是可观测数据）。
+   *
+   * @param name 落盘文件名（已清洗，见 `core/webbridge.ets:sanitizeFileName`）
+   * @param path 沙箱绝对路径（`<cacheDir>/webdl/<name>`），供上层展示/分享
+   */
+  onDownloadDone: (name: string, path: string) => void = (name: string, path: string) => {
+  };
+
+  /**
    * 把 `nativeBridge` 的回调接到 `onBridgeMessage`，并执行**宿主 chrome 级动作**。
    * ⚠️ 必须在 `aboutToAppear`（早于 build / 页面加载）完成，确保页面第一次调
    *    `xbotNative.postMessage` 时回调已就位。
@@ -258,6 +281,137 @@ export struct WebSurface {
    *     `ready`（握手 ⇒ 回 `init` 下发主题）；
    *   · `onBridgeMessage` —— 业务消息交给**上层**（由调用方接线；未接线时安全丢弃）。
    */
+  // ══════════════════════════════════════════════════════════════════════════════
+  // §21.122d 余项：`<input type=file>`（页面文件选择）与页面下载的**代理**
+  //
+  // 两条都属"ArkWeb 自己不做、宿主不接就整块静默失效"的能力（同 `onWindowNew`/`navigator.clipboard`）。
+  // 判定一律放在纯函数里（`core/webbridge.ets:filePickKindOf` / `downloadFileNameOf` /
+  // `sanitizeFileName`），本组件只执行**副作用**（弹选择器、复制文件、发下载任务、回话）。
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  /**
+   * 处理页面文件选择请求（`onShowFileSelector`）。
+   * ⛔ **无论成功、失败、还是用户取消，都必须回话**（`event.result.handleFileList(...)`）：
+   *    不回则该请求永久挂着，页面 `onChange` 永不触发。
+   */
+  private async handleFileSelector(event: OnShowFileSelectorEvent): Promise<void> {
+    let forWeb: string[] = [];
+    try {
+      const mode: number = event.fileSelector.getMode();
+      const accept: string[] = event.fileSelector.getAcceptType();
+      const picked: string[] = await this.pickUrisForWeb(mode, accept);
+      forWeb = await this.copyPickedToSandbox(picked);
+    } catch (e) {
+      const be: BusinessError = e as BusinessError;
+      hilog.error(0x0000, PROBE_TAG, 'file-selector fail %{public}s', be.message);
+      forWeb = [];
+    }
+    try {
+      // 取消/失败 ⇒ 空列表（页面据此走"用户取消"分支）
+      event.result.handleFileList(forWeb);
+    } catch (e) {
+      const be: BusinessError = e as BusinessError;
+      hilog.error(0x0000, PROBE_TAG, 'handleFileList fail %{public}s', be.message);
+    }
+  }
+
+  /** 按 `accept` + 模式弹选择器，返回用户选中的原始 URI（取消 ⇒ 空数组）。 */
+  private async pickUrisForWeb(mode: number, accept: string[]): Promise<string[]> {
+    const cap: number = mode === FileSelectorMode.FileOpenMultipleMode ? FILE_PICK_MAX_COUNT : 1;
+    if (mode === FileSelectorMode.FileSaveMode) {
+      // 页面要走"另存为"时给保存对话框（web 侧导出类入口用得到）。
+      const opt: picker.DocumentSaveOptions = new picker.DocumentSaveOptions();
+      opt.newFileNames = ['xbot-export'];
+      const saved: string[] = await new picker.DocumentViewPicker().save(opt);
+      return saved !== undefined ? saved : [];
+    }
+    if (mode === FileSelectorMode.FileOpenFolderMode) {
+      // ⛔ web 侧实测**没有任何** `webkitdirectory` 消费点（全仓 grep 0 处）⇒ 不假装能选目录：
+      //    回空列表（页面按"用户取消"处理）比"给一个文件却当目录"诚实。
+      hilog.info(0x0000, PROBE_TAG, 'folder-pick requested — unsupported (no web consumer)');
+      return [];
+    }
+    if (filePickKindOf(accept) === FILE_PICK_IMAGE) {
+      const opt: picker.PhotoSelectOptions = new picker.PhotoSelectOptions();
+      opt.MIMEType = picker.PhotoViewMIMETypes.IMAGE_TYPE;
+      opt.maxSelectNumber = cap;
+      const res: picker.PhotoSelectResult = await new photoAccessHelper.PhotoViewPicker().select(opt);
+      return res !== undefined ? res.photoUris : [];
+    }
+    const opt: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+    opt.maxSelectNumber = cap;
+    const res: string[] = await new picker.DocumentViewPicker().select(opt);
+    return res !== undefined ? res : [];
+  }
+
+  /**
+   * 把选中的 URI 复制进应用沙箱（`<cacheDir>/webpick/`），返回 Web 引擎能读的 `file://` 路径。
+   * ⛔ 必须复制：picker 给的是 `file://docs/…` 这类**文档 URI**，Web 引擎读不了；
+   *    文件名一律过 `sanitizeFileName`（决定写哪个文件 = 安全边界）。
+   */
+  private async copyPickedToSandbox(uris: string[]): Promise<string[]> {
+    const out: string[] = [];
+    if (uris === undefined || uris.length === 0) {
+      return out;
+    }
+    const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+    const dir: string = `${ctx.cacheDir}/webpick`;
+    try {
+      fileIo.mkdirSync(dir, true);
+    } catch (e) {
+      // 目录已存在（mkdirSync 无 ignore-existing 语义）—— 非错误，继续。
+      hilog.info(0x0000, PROBE_TAG, 'webpick dir exists');
+    }
+    const stamp: number = Date.now();
+    for (let i = 0; i < uris.length && i < FILE_PICK_MAX_COUNT; i++) {
+      const name: string = sanitizeFileName(baseName(uris[i]));
+      const dest: string = `${dir}/${stamp}_${i}_${name}`;
+      try {
+        const src: fileIo.File = fileIo.openSync(uris[i], fileIo.OpenMode.READ_ONLY);
+        fileIo.copyFileSync(src.fd, dest);
+        fileIo.closeSync(src);
+        out.push(`file://${dest}`);
+      } catch (e) {
+        const be: BusinessError = e as BusinessError;
+        hilog.error(0x0000, PROBE_TAG, 'webpick copy fail %{public}s', be.message);
+      }
+    }
+    return out;
+  }
+
+  /** 页面下载请求 ⇒ 落进沙箱 `<cacheDir>/webdl/`，完成后回调 `onDownloadDone`。 */
+  private startWebDownload(url: string, name: string): void {
+    if (url === undefined || url.length === 0) {
+      return;
+    }
+    const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+    const dir: string = `${ctx.cacheDir}/webdl`;
+    try {
+      fileIo.mkdirSync(dir, true);
+    } catch (e) {
+      // 目录已存在 —— 非错误，继续。
+      hilog.info(0x0000, PROBE_TAG, 'webdl dir exists');
+    }
+    const dest: string = `${dir}/${name}`;
+    try {
+      request.downloadFile(ctx, { url: url, filePath: dest })
+        .then((task: request.DownloadTask) => {
+          task.on('complete', () => {
+            this.onDownloadDone(name, dest);
+          });
+          task.on('fail', (code: number) => {
+            hilog.error(0x0000, PROBE_TAG, 'download fail code=%{public}d', code);
+          });
+        })
+        .catch((e: BusinessError) => {
+          hilog.error(0x0000, PROBE_TAG, 'download start fail %{public}s', e.message);
+        });
+    } catch (e) {
+      const be: BusinessError = e as BusinessError;
+      hilog.error(0x0000, PROBE_TAG, 'download throw %{public}s', be.message);
+    }
+  }
+
   aboutToAppear(): void {
     this.nativeBridge.handler = (m: BridgeMessage): void => {
       this.onBridgeMessage(m);
@@ -612,6 +766,21 @@ export struct WebSurface {
             // 代理失败不得阻断导航（宁可只拦不跳）
           }
           event.handler.setWebController(null);
+        })
+        // ── §21.122d 余项①：`<input type=file>` 代理 ──────────────────────────────
+        // ⛔ 必须处理且**必须回话**：ArkWeb 自身不弹选择器；不调
+        //    `event.result.handleFileList(...)` 该请求会永久挂着（页面 `onChange` 永不触发）。
+        // 返回值 true = 本宿主接管（异步的选择/复制/回话在 handleFileSelector 内完成）。
+        .onShowFileSelector((event) => {
+          this.handleFileSelector(event);
+          return true;
+        })
+        // ── §21.122d 余项②：页面下载代理 ────────────────────────────────────────
+        // ArkWeb 不接此回调时**不会**自行下载 ⇒ 页面"导出/下载"点了没反应。
+        // 文件名推导（Content-Disposition → URL → 兜底 + 清洗）在纯函数里，本处只发任务。
+        .onDownloadStart((event) => {
+          this.startWebDownload(event.url,
+            downloadFileNameOf(event.url, event.contentDisposition, event.mimetype));
         })
         .onPageBegin((event) => {
           // ⛔ 不再把 URL 当标题（旧实现 `this.title = event.url` 正是"顶栏显示一条丑 URL"的

@@ -21,7 +21,11 @@ import {
   encodeBridgeMessage, encodeBridgeAck, makeBridgeMessage,
   NEW_WINDOW_BLOCK, NEW_WINDOW_EXTERNAL, NEW_WINDOW_IN_WEB, newWindowAction,
   BRIDGE_ACTION_CLIPBOARD, BRIDGE_MAX_CLIPBOARD_LEN, clipboardTextOf, hostActionFor,
+  FILE_PICK_IMAGE, FILE_PICK_DOCUMENT, filePickKindOf, FILE_PICK_MAX_COUNT,
+  DOWNLOAD_MAX_NAME_LEN, downloadFileNameOf, sanitizeFileName,
 } from '../../entry/src/main/ets/core/webbridge';
+// 跨模块同源契约：页面能一次拿到的文件数必须 == 聊天附件上限（见下方断言）。
+import { MAX_ATTACH } from '../../entry/src/main/ets/core/attach';
 
 let pass = 0;
 let fail = 0;
@@ -285,6 +289,49 @@ eq('null 消息 ⇒ 空串（不抛）', clipboardTextOf(null as unknown as Brid
 }
 // 未在白名单/非法类型仍必须被拒（回归：加类型时别把校验放宽）
 eq('未知类型仍被拒（write-clipboard 不是合法 type）', parseBridgeMessage(JSON.stringify({ v: BRIDGE_VERSION, id: 'x', type: 'write-clipboard', payload: 'a' })), null);
+
+// ── §21.122d 余项：`<input type=file>` 代理（accept → 选择器种类）───────────────
+// 判别力：`*/*`/混合/未知必须落 **document**（相册给不出 PDF）；只有"全是图片"才走相册。
+eq('accept 空 ⇒ 文件选择器', filePickKindOf([]), FILE_PICK_DOCUMENT);
+eq('accept ["image/*"] ⇒ 相册', filePickKindOf(['image/*']), FILE_PICK_IMAGE);
+eq('accept ["image/png","image/jpeg"] ⇒ 相册', filePickKindOf(['image/png', 'image/jpeg']), FILE_PICK_IMAGE);
+eq('accept [".png",".jpg"] ⇒ 相册', filePickKindOf(['.png', '.jpg']), FILE_PICK_IMAGE);
+eq('accept [".heic"] ⇒ 相册', filePickKindOf(['.heic']), FILE_PICK_IMAGE);
+eq('accept ["IMAGE/PNG"] ⇒ 相册（大小写不敏感）', filePickKindOf(['IMAGE/PNG']), FILE_PICK_IMAGE);
+eq('accept ["image/*",""] ⇒ 相册（空 token 忽略）', filePickKindOf(['image/*', '']), FILE_PICK_IMAGE);
+eq('accept ["*/*"] ⇒ 文件选择器', filePickKindOf(['*/*']), FILE_PICK_DOCUMENT);
+eq('accept [".pdf"] ⇒ 文件选择器', filePickKindOf(['.pdf']), FILE_PICK_DOCUMENT);
+eq('accept ["image/*",".pdf"] ⇒ 文件选择器（混合：相册选不到 PDF）',
+  filePickKindOf(['image/*', '.pdf']), FILE_PICK_DOCUMENT);
+eq('accept 单 token 内含逗号 ⇒ 仍按混合判文件选择器',
+  filePickKindOf(['image/*,.zip']), FILE_PICK_DOCUMENT);
+eq('accept 非法入参（null）⇒ 文件选择器（不抛）',
+  filePickKindOf(null as unknown as string[]), FILE_PICK_DOCUMENT);
+
+// ── §21.122d 余项：下载文件名推导（服务端意图优先 + 路径穿越必须被清）───────────
+eq('Content-Disposition filename= 优先', downloadFileNameOf('http://h/api/files/download?key=k', 'attachment; filename="report.pdf"', ''), 'report.pdf');
+eq('RFC 5987 filename* 百分号解码',
+  downloadFileNameOf('http://h/x', "attachment; filename*=UTF-8''%E4%B8%AD%E6%96%87.pdf", ''), '中文.pdf');
+eq('无 CD ⇒ URL 路径末段（去掉 query）',
+  downloadFileNameOf('http://h/files/%E4%B8%AD%E6%96%87.pdf?inline=1', '', ''), '中文.pdf');
+eq('无 CD 且 mime 可判 ⇒ 补扩展名',
+  downloadFileNameOf('http://h/export', '', 'application/pdf'), 'export.pdf');
+eq('已有扩展名 ⇒ 不重复补', downloadFileNameOf('http://h/a.pdf', '', 'application/pdf'), 'a.pdf');
+eq('全空 ⇒ 兜底名', downloadFileNameOf('http://h/', '', ''), 'xbot-download');
+eq('兜底名 + mime ⇒ 兜底名带扩展名', downloadFileNameOf('', '', 'application/zip'), 'xbot-download.zip');
+eq('⛔ 路径穿越必须被压平（不得含 / 或前导 ..）',
+  sanitizeFileName('../../etc/passwd'), '_.._etc_passwd');
+eq('⛔ 反斜杠路径同样压平', sanitizeFileName('..\\..\\win.ini'), '_.._win.ini');
+eq('非法字符换成下划线', sanitizeFileName('a:b*c?.txt'), 'a_b_c_.txt');
+eq('超长名被截断到上限内', sanitizeFileName('x'.repeat(300)).length <= DOWNLOAD_MAX_NAME_LEN, true);
+eq('尾点被清（`x.` ⇒ `x`）', sanitizeFileName('x.'), 'x');
+eq('尾点被清后按 mime 补扩展名', downloadFileNameOf('http://h/x.', '', 'text/plain'), 'x.txt');
+eq('名字里的空格保留但去首尾', sanitizeFileName('  报告 v2.pdf  '), '报告 v2.pdf');
+
+// ── 跨模块同源契约：页面能一次拿到的文件数 == 聊天附件上限 ────────────────────
+// 判别力：任一侧单独改动（如把 attach.MAX_ATTACH 调大而忘了 picker 上限）必红。
+// 页面选中的文件最终多半作为附件上传，两侧不一致 ⇒ 用户「选了 N 个只上去 M 个」。
+eq('文件选择上限 = 聊天附件上限（同源契约）', FILE_PICK_MAX_COUNT, MAX_ATTACH);
 
 if (fail > 0) {
   console.log(`  webbridge: ${pass} passed, ${fail} failed`);
