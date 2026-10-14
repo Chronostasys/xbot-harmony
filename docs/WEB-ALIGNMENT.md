@@ -7924,3 +7924,13 @@ appear live=true  key=13:4        （仍在飞）
 **机制（代码侧复核）**：图片行点按**上抛页面**（`FilesSheet.ets:752`，P1-1 原实现 2026-10-14）→ 页面层开全屏 `Lightbox`；关闭 X=44×44 布局盒 `accessibilityText('关闭')`+`onClick=onClose()`（`Lightbox.ets:145-155`，页面实现回调）。**「一击双关」实测**：点 `(1250,260)` 既关 Lightbox 也让 FilesSheet 同步消失（直回主界面）——web 基准 Lightbox 关应回文件列表 ⇒ 真机批复眼时**复核此联动**：若属「Lightbox 全屏替换面板」设计差异则记录即可，若属回调误关面板则修复。
 
 **素材清理**：`~/Pictures/lightbox-probe.png` 为本轮验收布置（cp 自 `base/media/brand_mark_128.png`），已 `rm -f` 明文绝对路径清除（共享树禁令遵守）。
+
+### §21.122cd 目标④「插件都打不开」三线验证收官（2026-10-15，模拟器 d20c451 版）
+
+**① 统计插件（原生落地）**：能力面板「会话统计」`[238,1016]` → `SessionStatsSheet` 开+数据全量渲染（输入 440.9k/缓存命中 354.0k·80.3%/LLM 时长 1m11s·22 迭代·11 轮次/Avg TTFT 1.6s/TPOT 7ms/162 tok/s/水位 23.8k·生成 98）——「当前模型 —」与 web 真源同款（`SessionStatsPanel.tsx:750` `stats.current_model || '—'`，后端未给字段），非 bug。
+
+**② 插件管理（Web）WebView 直渲**：`/tmp/verify-plugin-web.sh` 全链一次通——汉堡钮 `(66,160)` 一击开抽屉 → 插件 Tab `(465,2678)` → 能力面板「插件管理（Web）」`[238,713]` → click `(680,740)` → **`Web|[0,283][1320,2754]` + `rootWebArea` 全屏 WebView 直渲 + 「插件」标题在场** ✅。链路（`openPluginManager :4288` → `pluginViewDeepLink`+`embedPluginViewLink` → `WebSurface` panelUrl 消费 → `syncSessionCookieToWeb` cookie 注入）全通。**用户定向「渲染小 webview+代理 web 事件」架构落地实证**。
+
+**③ 其余插件条目态**：GenUI「未声明面板」（widget 型无 panel，正常）+ 迭代指标「已挂载：状态栏」（badge 挂载 ✓）+ Git 面板 v0.3.5 / 远程机器 SSH v1.0.6（目录在场）。
+
+**工具坑（已入 GOTCHAS 批次 53）**：模拟器整机重启冷启会卡 EULA 交互确认（`Unable to start the emulator`）——**`Emulator -license accept`** 一发破局。冷启假死（双 root 遮挡+点击失效）重启后不复现 ⇒ 定性「模拟器窗口系统残留」而非 app bug（详见批次 53 补记）。
