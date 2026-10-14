@@ -119,6 +119,7 @@ import { changedByKeys, identityChanged, needsFullReload, rowKey, rowsFpOf, same
   structRowsFpOf,
   scopedFingerprint, themableRowKey, tailRows } from '../core/rowdiff';
 import { BusySignals, busyLabel, busyNow, DRAWER_EMPTY_NO_MATCH, DRAWER_EMPTY_NO_SESSIONS, DRAWER_EMPTY_NONE, drawerEmptyHint, drawerEmptyKind, showsBusyPlaceholder, showsHistorySkeleton, showsJumpToLatest } from '../core/indicators';
+import { drawerCacheHit, drawerFingerprint } from '../core/drawerfp';
 // SSE 终态（服务端明确拒绝 ⇒ 停止无限重连）——页面横幅据它显示**可解释的终态**而非"正在重连"。
 import { SSE_STATE_FAILED } from '../core/sse';
 // 插件 widget 数据面（页面半边）：SSE 事件名 + 载荷（判据在 `core/widgetsview.ets`）
@@ -3044,12 +3045,16 @@ struct Index {
     // ⛔ 规范化解析（同 §21.112）：按原值精确比对会命中幽灵行，而幽灵行的 label **就是原始
     //    会话键** ⇒ **顶栏标题**显示 `web:chat_026B…`（真机 22:09 装机实测：改完 `tabLabel`
     //    顶栏仍不见好，正是因为顶栏走的是本方法，不是 `tabLabel`）。同族漏网点必须一次扫尽。
+    // ⚡ B-F1（2026-10-14，B 线审计「同一会话三套名字」）：旧版直吐 `node.label` ⇒ 无回声
+    //    判定（机器串可上顶栏）、无未名占位、无 preview 兜底 ⇒ 与抽屉行/池标签不同名。
+    //    收敛到**唯一出口** `sessionTitle`（判据与渲染同源 —— AGENTS.md）。
     const node: SessionItem | null =
       resolveSessionNode(this.sessions, channelForChat(this.sessions, chatId), chatId);
     if (node !== null) {
-      return node.label !== undefined && node.label.length > 0 ? node.label : node.chat_id;
+      return sessionTitle(node.label !== undefined ? node.label : '', node.chat_id,
+        node.preview !== undefined ? node.preview : '');
     }
-    return chatId;
+    return sessionTitle('', chatId);
   }
 
   // ── 发送 / 取消 / 分页 ────────────────────────────────────────────────────
@@ -3778,6 +3783,13 @@ struct Index {
     }
     try {
       await store.loadMore();
+      // ⚡ C 线审计 2026-10-14：fetch 成功 ⇒ **同批立即揭示**一批（对齐 web「新行立刻进可渲染集」；
+      //   否则本批抓回的行仍被 rowLimit 窗口挡住 ⇒ 用户滚到顶「一切照旧」，得再滚一下触发
+      //   onScrollIndex 的本地揭示支——「抓了不给你看」的第二屏形态）。揭示量 12/批仍是
+      //   `widenRowWindow` 的窗口 diff 预算口径；头项常驻承担「继续滚=继续揭示」提示。
+      if (hiddenRowCount(this.rows.length, this.rowLimit) > 0) {
+        this.widenRowWindow();
+      }
       const err: string = store.loadMoreErr;
       if (err.length === 0) {
         return;
@@ -6396,8 +6408,21 @@ struct Index {
             + ` hidden=${hiddenRowCount(this.rows.length, this.rowLimit)} rows=${this.rows.length}`
             + ` limit=${this.rowLimit}`);
         }
-        if (start === 0 && !this.loadingMore && this.hasMore) {
-          this.loadMore();
+        if (start === 0) {
+          // ⚡ C 线审计 2026-10-14（用户亲报「更早的历史为什么要点击而不是自动加载？」）：
+          //   web 权威 = 滚到顶哨兵**自动 fetch + 立即揭示**（MessageList.tsx 的 IntersectionObserver）；
+          //   旧版自动路径只接 fetch ⇒ 两种「抓了不给你看」：① fetch 的行进了内存但 rowLimit 渲染窗
+          //   不动 ⇒ 屏幕零变化（长会话常态）；② hasMore=false 而 hidden>0 的**死角**（一次已拉全的
+          //   13~100 行会话，自动判据恒不触发、只能点）。
+          //   ⇒ 与头项点击双支（`hasHeadItem()`/onClick）**同源同序**：先本地揭示（零网络、行已在
+          //   内存、12 行/批保持窗口 diff 预算），没有可揭示的了才网络 fetch。头项点击保留兜底
+          //   （万一自动触发没打到，例如列表尚未滚动）。节流面：onScrollIndex 只在区间变化时回调
+          //   ⇒ 顶住不动不重发（天然 arm/disarm）；`loadingMore` 自锁防请求风暴。
+          if (hiddenRowCount(this.rows.length, this.rowLimit) > 0) {
+            this.widenRowWindow();
+          } else if (!this.loadingMore && this.hasMore) {
+            this.loadMore();
+          }
         }
       })
       // ★ 停止滚动时的**位置式**复位（用户 2026-10-12 真机亲报「滚回最下方『回到最新』不消失」；
@@ -7114,7 +7139,34 @@ struct Index {
    *   · 组内顺序：星标 → `sort_order` → `created_at` 升序
    * 前先把与搜索框一致的本地筛选过一遍（`filteredSessions`），空组不产出。
    */
+  /**
+   * A 线 2026-10-14（用户亲报「agent 工作时滚侧栏，极卡，几秒一帧」）：分组求值**签名记忆化**。
+   *
+   * 根因：流式期间页级 build 每圈重跑 ⇒ 本函数（filteredSessions O(n)×5 遍 + 3 次 JSON.parse +
+   * O(n log n) 排序，n≈684）被拖着 22-33 次/秒重算；而抽屉观察的输入在 token 帧内不变。
+   * ⇒ 同输入命中缓存 O(1) 返回；失效键 = sessions 引用恒等 + 四元指纹（星标原始串/分类/
+   * 搜索词/渠道；⛔ 折叠态不进键——它只影响组内行显隐（渲染层 `isGroupCollapsed`），
+   * 不改分组数据本身）。命中路径**零 JSON.parse**（星标串只参与指纹拼串）。判据=core/drawerfp。
+   * 手法复刻：AnchorsMemo（§1.6h）/ liveBlocksMemo（§1.6b）。
+   */
+  private drawerCacheRef: object | null = null;
+  private drawerCacheFp: string = '';
+  private drawerCache: DrawerGroup[] = [];
+
   private drawerGroups(): DrawerGroup[] {
+    const fp: string = drawerFingerprint(settingOf(this.settings, KEY_STARRED),
+      this.sessionCategory(), this.sessQuery, this.activeChannel);
+    if (drawerCacheHit(this.drawerCacheRef, this.sessions, this.drawerCacheFp, fp)) {
+      return this.drawerCache;
+    }
+    const gs: DrawerGroup[] = this.drawerGroupsCompute();
+    this.drawerCacheRef = this.sessions;
+    this.drawerCacheFp = fp;
+    this.drawerCache = gs;
+    return gs;
+  }
+
+  private drawerGroupsCompute(): DrawerGroup[] {
     const cat: string = this.sessionCategory();
     // ⚡ 每帧只算**一次** starred（原：filteredSessions 内一次 + 这里一次 ⇒ 两次 JSON 解析）。
     const starred: string[] = this.starredIds();
@@ -7203,7 +7255,8 @@ struct Index {
 
   private menuLabel(): string {
     const s: SessionItem | undefined = this.currentMenuSession();
-    return s === undefined ? '' : sessionTitle(s.label !== undefined ? s.label : '', s.chat_id);
+    return s === undefined ? '' : sessionTitle(s.label !== undefined ? s.label : '', s.chat_id,
+      s.preview !== undefined ? s.preview : '');
   }
 
   /** 会话操作菜单项的可点状态（置顶/上移在顶部时置灰）。 */
@@ -7246,7 +7299,8 @@ struct Index {
     if (code === 'fork') {
       this.sessMenuId = '';
       const s: SessionItem | undefined = this.currentMenuSession();
-      const base: string = s !== undefined ? sessionTitle(s.label !== undefined ? s.label : '', s.chat_id) : id;
+      const base: string = s !== undefined ? sessionTitle(s.label !== undefined ? s.label : '', s.chat_id,
+        s.preview !== undefined ? s.preview : '') : id;
       try {
         const newId: string = await store.forkSession(id, `${base} 分支`);
         await store.loadSessions();
@@ -7719,8 +7773,29 @@ struct Index {
     return parseStarred(settingOf(this.settings, KEY_STARRED));
   }
 
+  /**
+   * 星标集合**预解析缓存**（A 线 2026-10-14）：行体每行调 3-4 次 `isStarredChat` ⇒ 原实现
+   * 每次 `JSON.parse`（开抽屉全量构建 ≈2400+ 次解析）。同星标原始串 ⇒ 复用同一 Set；
+   * `setSetting` 恒整串替换 ⇒ 键换即失效。（行为与 `isStarred(this.starredIds(), id)` 逐字等价。）
+   */
+  private starredSetRaw: string = '\u0000';
+  private starredSetCache: Set<string> = new Set<string>();
+  private starredSetOf(): Set<string> {
+    const raw: string = settingOf(this.settings, KEY_STARRED);
+    if (raw !== this.starredSetRaw) {
+      const set: Set<string> = new Set<string>();
+      const ids: string[] = parseStarred(raw);
+      for (let i = 0; i < ids.length; i++) {
+        set.add(ids[i]);
+      }
+      this.starredSetCache = set;
+      this.starredSetRaw = raw;
+    }
+    return this.starredSetCache;
+  }
+
   private isStarredChat(chatId: string): boolean {
-    return isStarred(this.starredIds(), chatId);
+    return this.starredSetOf().has(chatId);
   }
 
   /** 切换会话星标（乐观更新 + 失败回滚由 `setSetting` 负责）。 */

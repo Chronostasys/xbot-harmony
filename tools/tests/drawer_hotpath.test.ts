@@ -18,6 +18,7 @@ declare const process: { exit: (c: number) => void };
 declare const require: (m: string) => any;
 declare const __dirname: string;
 export {};
+import { drawerCacheHit, drawerFingerprint } from '../../entry/src/main/ets/core/drawerfp';
 
 /**
  * **剥注释**（本仓约定：注释里记代码片段/色值是**允许且鼓励**的 ⇒ 判据扫源码前**必须**先剥，
@@ -49,7 +50,7 @@ if (repo.length > 0) {
     const i: number = src.indexOf(`private ${name}(`);
     return i < 0 ? '' : src.substring(i, src.indexOf('\n  }', i));
   };
-  const draw: string = body('drawerGroups');
+  const draw: string = body('drawerGroupsCompute');
   const idx: string = body('sessionIndex');
   ok('drawerGroups 可定位', draw.length > 200);
   ok('sessionIndex 可定位', idx.length > 80);
@@ -80,6 +81,31 @@ if (repo.length > 0) {
   // ── ★⑤ 调用点计数（静态）：全文件 `this.sessionById(` 调用点 = 0（方法已删）──────────
   ok('★⑤ 全文件 `this.sessionById(` 调用点 = 0（死代码已删，只剩注释）',
     (src.match(/this\.sessionById\(/g) || []).length === 0);
+  // ── ★⑥ 分组求值缓存（A 线审计 2026-10-14 用户亲报「流式期滚侧栏几秒一帧」）────────────
+  // 纯逻辑判据（core/drawerfp.ets）：首调 miss / 同引用+同指纹连取恒命中 / 任一输入换必 miss。
+  const arrA: number[] = [1, 2, 3];
+  const arrB: number[] = arrA.slice();
+  ok('★⑥ cache 首调（prevRef=null）必 miss', drawerCacheHit(null, arrA, 'x', 'x') === false);
+  {
+    let hit50 = true;
+    for (let i = 0; i < 50; i++) { hit50 = hit50 && drawerCacheHit(arrA, arrA, 'x', 'x'); }
+    ok('  · 同引用+同指纹连取 50 次恒命中', hit50 === true);
+  }
+  ok('  · 换引用（slice 新数组）必 miss', drawerCacheHit(arrA, arrB, 'x', 'x') === false);
+  ok('  · 引用同+指纹换（星标原始串变）必 miss', drawerCacheHit(arrA, arrA, 'x', 'y') === false);
+  ok('  · 指纹四元拼串（判据同源不漂移）',
+    drawerFingerprint('[1]', 'path', 'q', 'web') === drawerFingerprint('[1]', 'path', 'q', 'web')
+      && drawerFingerprint('[1]', 'path', 'q', 'web') !== drawerFingerprint('[2]', 'path', 'q', 'web'));
+
+  // ── ★⑦ 接线形态（wire）：drawerGroups 壳=缓存层，原体整体搬到 drawerGroupsCompute ──────
+  const dHit = body('drawerGroups');
+  ok('★⑦ drawerGroups 壳内 `drawerCacheHit(` 恰 1 处', (dHit.match(/drawerCacheHit\(/g) || []).length === 1);
+  ok('  · 壳内 `drawerFingerprint(` 恰 1 处（星标原始串参与指纹，命中期零 JSON.parse）',
+    (dHit.match(/drawerFingerprint\(/g) || []).length === 1);
+  ok('  · 命中返回缓存 `return this.drawerCache;`', dHit.indexOf('return this.drawerCache;') >= 0);
+  ok('  · 未命中走全量求值 `this.drawerGroupsCompute()`', dHit.indexOf('this.drawerGroupsCompute()') >= 0);
+  ok('  · 原体整体存活（drawerGroupsCompute 可定位且含全局去重契约）',
+    body('drawerGroupsCompute').indexOf('seenChat') >= 0);
 }
 
 // ── 剥注释的**判别力自证**（防"剥注释把扫描也剥没了"这类白绿）────────────────────────
