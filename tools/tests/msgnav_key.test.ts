@@ -57,7 +57,15 @@ has(src, 'this.row.active', '高亮读的是对象字段（@ObjectLink 可观测
 has(src, 'r.active = a.seq === this.activeSeq;', 'syncRows 就地写入 active（属性变更驱动重渲染）');
 has(src, 'private syncRows(): void {', '存在 syncRows 同步入口');
 has(src, "@Prop @Watch('syncRows') anchors: NavAnchor[] = [];", 'anchors 变化触发同步');
-has(src, "@Prop @Watch('syncRows') activeSeq: number = 0;", 'activeSeq 变化触发同步');
+// ⛔ 2026-10-15 变更（P0「加载完历史后滚动掉帧」）：`activeSeq` 从 `@Prop` 改 `@StorageProp` ——
+//    走 `@Prop` 页面就得把它存成**页级 `@State`**，于是"每跨一个用户消息锚点"就整页 `build()`
+//    重跑，而页面 build 里 `LazyForEach` 的重复数据源 diff 与**数据源行数（行窗口，随"加载更早"
+//    变大）**成正比 ⇒ 历史越长越掉帧。契约不变（值变仍触发 `syncRows`），只换订阅机制。
+has(src, "@StorageProp('navActiveSeq') @Watch('syncRows') activeSeq: number = 0;",
+  'activeSeq 走 AppStorage 订阅 + 变化触发同步（⛔ 不许回退成 @Prop ⇒ 会让页面持页级 @State）；'
+  + '装饰器只收字面量，字面量与 `NAV_ACTIVE_SEQ_KEY` 的相等性由 `nav_seq_storage_wiring` 钉');
+has(src, "export const NAV_ACTIVE_SEQ_KEY: string = 'navActiveSeq';", '键常量唯一出口已导出');
+hasNot(src, "@Prop @Watch('syncRows') activeSeq: number = 0;", '旧的 @Prop 形态已删除（防回退）');
 has(src, 'aboutToAppear(): void {', '首帧同步（@Prop 初值不触发 @Watch）');
 
 if (fail > 0) { console.log(`  msgnav_key: ${pass} passed, ${fail} failed`); process.exit(1); }

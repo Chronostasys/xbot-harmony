@@ -169,7 +169,7 @@ import {
   COMMAND_INPUT_FOCUS, COMMAND_SESSION_NEW, COMMAND_SETTINGS_OPEN, COMMAND_SIDEBAR_TOGGLE,
   CommandAction, PENDING_COMMAND_KEY, PENDING_COMMAND_SEQ_KEY, commandArg, commandDispatchable, parseCommandUri,
 } from '../core/command';
-import { MessageNav } from '../components/MessageNav';
+import { MessageNav, NAV_ACTIVE_SEQ_KEY } from '../components/MessageNav';
 import { PluginHost } from '../components/PluginHost';
 import { GoalBanner } from '../components/GoalBanner';
 import { WidgetDock } from '../components/WidgetDock';
@@ -742,7 +742,16 @@ struct Index {
    * 与 `listStart` 的关键差别：**只在序号真的变化时**才写（`onScrollIndex` 里 `if (seq !== …)`）
    * ⇒ 绝大多数滚动帧**零页级状态写入** ⇒ 零整页 build（滚过锚点边界才更新一次）。
    */
-  @State navSeq: number = 0;
+  /**
+   * 当前用户消息导航序号（1-based；0 = 无）—— **仅供页面做"值是否变化"的判定**（普通字段）。
+   *
+   * ⛔ 2026-10-15（用户实录「加载完毕后滚动就掉帧」「感觉是列表太长」）：**不许**把它写成
+   *    页级 `@State`。写 `@State` ⇒ 每跨过一个用户消息锚点就整页 `build()` 重跑；而页面 build
+   *    里的 `LazyForEach` 要按数据源行数（= 行窗口 `rowLimit`，**随"加载更早"逐次变大**）做
+   *    重复 diff ⇒ **历史越长、窗口越大，滚动越掉帧**。真源改为 AppStorage（键见
+   *    `MessageNav.NAV_ACTIVE_SEQ_KEY`）：`MessageNav` 用 `@StorageProp` 自己订阅 ⇒ 写入只通知它。
+   */
+  private navSeq: number = 0;
 
   /** 锚点表记忆化（按 `this.rows` **对象恒等**；见 `core/msgindex.ets:AnchorsMemo`）。 */
   private navMemo: AnchorsMemo = new AnchorsMemo();
@@ -6187,6 +6196,12 @@ struct Index {
         const seq: number = this.navActiveSeq();
         if (seq !== this.navSeq) {
           this.navSeq = seq;
+          // ⛔ 真源落 **AppStorage**（`MessageNav` 用 `@StorageProp(NAV_ACTIVE_SEQ_KEY)` 自己订阅），
+          //    **绝不写页级 `@State`**：写页级状态 ⇒ 每跨一个锚点整页 `build()` 重跑，而页面 build
+          //    里 `LazyForEach` 的重复数据源 diff 与**数据源行数（= 行窗口 `rowLimit`）**成正比；
+          //    行窗口随"加载更早"逐次变大 ⇒ **历史越长、滚动越掉帧**（用户 2026-10-15 实录
+          //    「加载完毕后滚动就掉帧」「感觉是列表太长」）。见 AGENTS.md 同源纪律。
+          AppStorage.setOrCreate<number>(NAV_ACTIVE_SEQ_KEY, seq);
         }
         // ⛔ 跟随开关是**用户意图**，只由**用户输入**翻转：只有**本帧确属用户滚动**
         //    （`lastScrollWasUser`）且 flag 在飞时才判定 —— 程序滚动 / 内容增删引起的
@@ -6237,7 +6252,8 @@ struct Index {
         // 用核心纯函数派生；点击条目 ⇒ `navToRow` 纯滚动（绝不触发"加载更多"）。
         MessageNav({
           anchors: this.navAnchors(),
-          activeSeq: this.navSeq,
+          // ⛔ 不再传 `activeSeq`：真源是 AppStorage（`MessageNav` 用 `@StorageProp` 自己订阅）⇒
+          //    滚动跨锚点时**页级 build 零参与**（传参就必须把它存成页级 `@State` ⇒ 整页重跑）。
           theme: this.themeName,
           onNavigate: (rowIndex: number) => {
             this.navToRow(rowIndex);

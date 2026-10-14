@@ -39,6 +39,12 @@ import { animFast } from './anim';
 import { NavAnchor, seqLabel, shouldShowNav, userTextOrPlaceholder } from '../core/msgindex';
 
 /**
+ * 导航高亮序号（1-based，0=无）的 **AppStorage 键** —— 详见下面 `activeSeq` 的注释。
+ * ⛔ 两端必须用**同一个常量**（页面写入 / 本组件订阅）；⛔ 不许任一端写字符串字面量。
+ */
+export const NAV_ACTIVE_SEQ_KEY: string = 'navActiveSeq';
+
+/**
  * ⛔ 视觉盒边长 = 32（web `size-8`）；**命中区**靠**真实 44×44 外层布局盒**（= `HIT_TARGET_MIN`），
  *    不再用 `responseRegion` 外扩 —— 真机实测（SDK21）负偏移外扩**无效**（见 `AGENTS.md` GOTCHAS）。
  */
@@ -191,7 +197,21 @@ export struct MessageNav {
    */
   @Prop @Watch('syncRows') anchors: NavAnchor[] = [];
   /** 当前可视锚点序号（1-based；0 = 无）—— `core/msgindex.ets:nearestSeq`。 */
-  @Prop @Watch('syncRows') activeSeq: number = 0;
+  /**
+   * 当前高亮序号（1-based；0 = 无）。
+   *
+   * ⛔ **必须是 `@StorageProp`（不是 `@Prop`）—— 这是"加载完历史后滚动掉帧"的根因修复**
+   * （2026-10-15，用户实录：「加载完毕后滚动就掉帧」「感觉是列表太长」）：
+   *   `activeSeq` 由页面在 `List.onScrollIndex` 里算（`nearestSeq(listStart, …)`）。若它走 `@Prop`，
+   *   页面就得把它存成**页级 `@State`** ⇒ 用户每**跨过一个用户消息锚点**（长历史里就是"每隔一屏"）
+   *   就写一次页级状态 ⇒ **整页 `build()` 重跑**；而页面 build 里 `LazyForEach` 的重复数据源
+   *   **按需 diff**（与数据源行数=行窗口成正比）⇒ 历史越长、窗口越大，滚动越掉帧。
+   *   `@StorageProp` 让**本组件自己订阅**该值 ⇒ 写入只通知订阅者，**页级 build 零参与**
+   *   （与本仓既有纪律同源：AGENTS.md「凡会变的值要么让行自己订阅（AppStorage+@StorageProp）」）。
+   * 键 = `NAV_ACTIVE_SEQ_KEY`（页面写入端必须 import 同一常量，⛔ 不许任一端写字面量）。
+   * ⛔ 语义不变：值变 ⇒ `@Watch('syncRows')` 照样触发（就地更新 `rows[i].active` 属性驱动重渲染）。
+   */
+  @StorageProp('navActiveSeq') @Watch('syncRows') activeSeq: number = 0;
   /** 跳转回调：页面收到行下标后 `scrollToIndex` 并解除贴底跟随。 */
   onNavigate: (rowIndex: number) => void = (rowIndex: number) => {
   };
