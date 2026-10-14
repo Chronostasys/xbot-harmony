@@ -266,6 +266,15 @@ return renderKind(t.status, t.exit_code, true);
 
   aboutToAppear(): void {
     this.onSource();
+    // ── 挂载即**显示当前全文**，只把**此后新增**的部分交给打字机（§21.122bx）───────────
+    // ⛔ 为什么：用户定向「live iter 看不见就不渲染它……**快进入视野的时候再挂载回来**」+
+    //    「重点是流畅 + **用户无感**」。`vis`/`visReason` 初值为 0 ⇒ 旧写法在**每次重新挂载**
+    //    （列表虚拟化把尾部行回收后滚回来、或视图被覆盖后重挂）都会**从零重打**：用户看到整段
+    //    文本"重播"（可感），而且那一刻要一次性追几百字（突发 CPU ⇒ 卡）。
+    // ✅ 与「安全回退：定时器未跑 ⇒ 显示全文」同一原则（⛔ 绝不隐藏内容）：挂载时可见量 = 当前
+    //    全文，后续增长照常逐字追赶 ⇒ 重挂载对用户**零感知**、且**零突发**。
+    this.vis = this.runes.length;
+    this.visReason = this.reasonRunes.length;
   }
 
   aboutToDisappear(): void {

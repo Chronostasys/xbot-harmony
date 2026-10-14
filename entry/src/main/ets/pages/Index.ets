@@ -6263,10 +6263,25 @@ struct Index {
             // —— 否则每拍会重跑整页 build，把系统 spinner 都拖到 2Hz。
             // ⛔ 走**无参** @Builder（`LiveRowBody`）：其内部直接读页面 @State
             //   （`liveRowRef`/`liveText`/`liveReasoning`/`liveTools`）—— 带参 @Builder
-            //   按值传参是「调用那一刻的快照」，参数引用不变时其内容的就地变化不驱动刷新
-            //   （官方语义，见 docs/ARKTS-GOTCHAS.md §4）；live 行必须在内容变化时重建。
+            //   按参数传值 =「调用那一刻的快照」（官方语义，见 docs/ARKTS-GOTCHAS.md §4）。
             this.LiveRowBody()
           }
+          // ── §21.122bx：live 行**可见性**（用户定向「看不见就不做高频更新，快进入视野时再更新」）──
+          // 阈值 `0.01`：哪怕只露出 1% 就算"看得见" ⇒ 一进入视野**立刻**恢复全速投递（无感知）。
+          // 只在**真变化**时写字段（⛔ 不每帧写：字段变化会触发页级同步）。
+          .onVisibleAreaChange([0.0, 0.01], (isVisible: boolean) => {
+            if (isVisible === this.liveRowVisible) {
+              return;
+            }
+            this.liveRowVisible = isVisible;
+            if (isVisible) {
+              // 回到视野 ⇒ 立刻补一次投递（否则会停在降频期的那一帧上 = 用户可感）。
+              const st: ChatStore | null = this.store;
+              if (st !== null) {
+                this.scheduleSync(st);
+              }
+            }
+          })
         }
 
         if (showsBusyPlaceholder(this.busySignals())) {
@@ -8492,6 +8507,15 @@ struct Index {
    */
   private liveDeliverAtMs: number = 0;
 
+  /**
+   * §21.122bx：live 行**此刻是否在视野内**（`onVisibleAreaChange` 维护，只在真变化时写）。
+   *
+   * 用户定向：「**一旦 live iter 看不到就不渲染它了，只记录状态**……它**快进入视野的时候再
+   * 挂载回来**」⇒ 看不见时投递降频（`core/livedeliver`），回到视野立刻补一帧（用户无感）。
+   * 初值 `true`：首帧必须投（⛔ 不能用 false 当默认 —— 那样开局就降频，内容会滞后）。
+   */
+  private liveRowVisible: boolean = true;
+
   private fingerprintRows(rows: ChatRow[], chatId: string): string {
     return rowsFpOf(rows, chatId);   // 纯函数在 core/rowdiff（带会话身份，有判别测试）
   }
@@ -8580,7 +8604,8 @@ struct Index {
     //      · `covered && busy` ⇒ 最小间隔 400ms（≈2.5 次/秒，肉眼无差别）；
     //      · **其余一律立即投**（`!covered` 或 `!busy`）—— 后者是**防陈旧的关键**：
     //        回合结束那一帧 `busy=false` ⇒ 必投 ⇒ 最终内容不可能停在被丢弃的那一帧上。
-    if (!shouldDeliverLive(this.anyModalOpen(), this.busy, Date.now(), this.liveDeliverAtMs)) {
+    if (!shouldDeliverLive(this.anyModalOpen(), this.liveRowVisible, this.busy, Date.now(),
+      this.liveDeliverAtMs)) {
       return;
     }
     this.liveDeliverAtMs = Date.now();

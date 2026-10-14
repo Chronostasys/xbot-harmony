@@ -568,3 +568,24 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
 ⛔ **防陈旧是硬约束**（不许"覆盖期完全冻结"）：`!busy` 必投 ⇒ **回合结束那一帧一定落地**，
 最终内容不可能停在被丢弃的那一帧上；`!covered` 必投 ⇒ 关掉浮层立刻恢复全速投递。
 ⛔ 不新开定时器（门禁 ⑨ 计时器预算 A 级 ≤7 处）；判据是**纯函数**（判据与渲染同源）。
+
+#### §1.6g 追加（同日，用户定向）：**看不见的 live 行一律不做高频更新**
+
+用户定向原话：「最好**一旦 live iter 看不到就不渲染它了，只记录状态**，commit 的时候更新一下而不是做
+stream 高频更新。它**快进入视野的时候再挂载回来**」→「降频也行吧，无所谓，只要**流畅**就行」→
+「用你觉得最好的方案实现，重点是**流畅 + 用户无感**」。
+
+**实现（把"看不见"扩成两类：被浮层盖住 ⊕ 滚出视野）**：
+
+1. `core/livedeliver.shouldDeliverLive(covered, visible, busy, now, last, min)` 三段式：
+   - `!busy` ⇒ **必投**（⛔ 防陈旧：回合结束那帧内容定型，必须落地）；
+   - `!covered && visible` ⇒ **必投**（可见内容不得滞后 = 正确性优先）；
+   - 其余（看不见且仍在流式）⇒ 最小间隔 400ms 降频。
+   `visible` 由 live 行的 `onVisibleAreaChange([0.0, 0.01])` 维护（⛔ 只在真变化时写字段）；
+   回到视野 ⇒ `scheduleSync` 补一帧（**立刻**看到最新，用户无感）。
+2. `LiveTailView.aboutToAppear`：**挂载即显示当前全文**（`vis = runes.length`），此后新增才逐字追赶。
+   ⛔ 必须有：`vis`/`visReason` 初值 0 ⇒ 旧写法在"列表虚拟化回收尾部行后滚回来/视图重挂"时
+   **从零重打**（用户可感 + 一次追几百字的突发 CPU）。与「安全回退：定时器未跑 ⇒ 显示全文」
+   同一原则（⛔ 绝不隐藏内容）。
+3. 判据：`tools/tests/livedeliver.test.ts` **18 断言**（含 2 组 mutation 自证：忽略 `busy` ⇒ 回合结束必投红；
+   忽略 `visible` ⇒ 滚出视野降频红）。
