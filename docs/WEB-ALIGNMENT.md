@@ -7881,3 +7881,32 @@ appear live=true  key=13:4        （仍在飞）
 
 **判据**：`tools/tests/pluginview.test.ts` ★H（新增两条回归钉：常见形态 **≤560 且 ≥490**，
 旧式 722 直接红）+ ★K（层数模型 / 行盒倍数 / 反"最坏情况常量"，10 条）。
+
+## §21.122cb：用户亲报三案根治 —— 侧栏掉帧 / 会话名 / 历史自动揭示 + 四波修复（2026-10-14）
+
+**背景（用户原话）**：①「侧边栏展开后，agent 正在工作的时候滚动侧边栏，极卡，严重掉帧，有时候几秒一帧」②「侧边栏会话名字不对」③「更早的历史消息为什么要点击而不是自动加载更多？」
+
+**方法**：三线 subagent 深审计（drawer-jank / session-name / history-load，各 9~17 分钟，审计式报告 + file:line 实锚 + 静默面）→ **判据先行**（红基线 → 接线 → mutation 双向）→ 四波 commit（`6a49ec8`→`8aef71c`→`fb59f16`→`d20c451`，均推送校验一致）。
+
+### ① 侧栏掉帧（A 线审计定罪 → 两层修复，A 线报告全文可考）
+
+| 层 | 根因（实锚） | 修复 | commit |
+|---|---|---|---|
+| 每帧级 | 流式期页级 build 每圈拖 `drawerGroups()` 全量重算（`filteredSessions` O(n)×5 + `JSON.parse`×3 + O(n log n)，n≈684、22-33 帧/s）——抽屉自身观察的输入在 token 帧内不变，但被 `rows` 每 token 帧换新数组拖着整页重跑 | **签名记忆化**：`core/drawerfp.ets`（四元指纹=星标原始串\|分类\|搜索词\|渠道 + sessions 引用恒等；命中零 JSON.parse）+ 缓存壳 + 原体整体迁 `drawerGroupsCompute`；`isStarredChat` 星标 Set 预解析（原每行 3-4 次 parse、全量构建 ≈2400+ 次） | `fb59f16` |
+| 秒级 | 开抽屉全量构建 684 行**非懒**树（≈1.2 万+节点；行内 `channelForChat` 线性扫 ×8-10/行 ⇒ O(n²) ≈4-5M 次比较） | `channelIndex`/`channelForChatIndexed` 纯函数（首命中优先、语义逐字等价）+ 页级缓存 + 7 消费点全替换 + `currentCanonicalId` b 半边缓存 | `d20c451` |
+
+判据：`drawer_hotpath` 扩 ★⑥纯逻辑 5 例+★⑦wire 5 锚（红基线 16/11 → 接线 27/0 → mutation 26/1 → 还原 27/0）；sessionpick 52/0+mutation 双向。**2b 虚拟化 / 第 3 层 livedeliver 节流视真机 FPS 实测决定**（模拟器 SP_daemon `fps=0` 空读=工具口径不通，真机复连后采）。
+
+### ② 会话名不对（B 线：41 条真实 session-tree 数据 9/41 实锤）
+
+根因：`isEchoLabel` 的「label 无前缀 + 末段相等 ⇒ 回声」通道系统性误杀 **CLI 渠道真名**（服务端对 CLI 的 chat_id=工作目录全路径、label=目录 basename——二者末段天然相等但那是**有意定名**）⇒ `xbot-harmony` 显示成「未命名会话」、`Downloads` 显示成 `[interrupted]`（末条消息预览漂移+markdown 残根）。修复：label 无 `/`/`:` 前缀时按 chatId 形态分岔——**绝对路径（CLI 工作目录）⇒ 真名放行；复合键（`web/chat_9` 形）⇒ 裸末段仍回声**（旧行为保留）。三口径收敛：顶栏 `labelOf` 改走 `sessionTitle`（原直吐 label：无回声判定/占位/preview）；`menuLabel`/fork 补传 preview。commit `8aef71c`+`fb59f16`；sessionops 55/0+mutation 双向（无条件吞回灌 ⇒ CLI 反例必红）。
+
+### ③ 历史自动揭示（C 线：真差不是「点击 vs 自动」而是「抓了不给你看」）
+
+审计：自动 fetch 链路**已接线**并装机实证过（§21.122bi）——真正差距=① fetch 回来的行被 `rowLimit` 渲染窗（12 行）挡住：滚到顶 spinner 一闪「一切照旧」；② `hasMore=false 而 hidden>0` 的**死角**（一次已拉全的 13~100 行会话，自动判据恒不触发、只能点）。修复：`onScrollIndex` 自动分支改与头项点击**同源同序双支**（`hidden>0 ⇒ widenRowWindow` 零网络先行；否则 fetch）+ 页面 `loadMore` 成功后**同批揭示**一批 + 批次口径 30→**100** 对齐 web（`useChatMessages.ts:525/:607` 权威）。commit `8aef71c`+`fb59f16`。
+
+**装机实证（模拟器 d20c451，2026-10-14）**：长会话基线顶部=「命令：sleep 45」（最近消息）→ swipe 到顶后顶部=「Shell: xbot --version 2>&1…」（更早历史 turn）——**自动揭示功能层全通**（§21.122bi 从未实证过的「局面①（hidden>0 揭示）」闭环）。
+
+**附带**：`TERM_MAX_LINES` 200→**500**（终端回看扩窗；web xterm `scrollback: 10000` 的保守步进；单 Text 摊平无组件节点增长；真机帧率待验）。
+
+**量具教训（本轮新坑）**：wire 测试的「grep 正文截取窗」（`substring(i, i+N)`）对「中间一行加长」型改动脆弱——A2a 的 Indexed 版 +19 字符把 `currentLastActive` 体内锚推出 500 窗 = **假红**——修窗不修判别力（`status_sheet_wiring` 500→800，断言意图不变）。
