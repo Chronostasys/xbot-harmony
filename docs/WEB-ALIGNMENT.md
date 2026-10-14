@@ -7788,3 +7788,20 @@ appear live=true  key=13:4        （仍在飞）
 `row.id#iteration`，⛔ 不含 `L/C` 标记），让思考块的**实例跨 commit 存活** ⇒ 连那一次交接重建也消失。
 本轮未做：那要重构 live 渲染路径（`LiveTailView` 700 行承载打字机/光球/在飞 pill/GenUI 卡），
 风险与收益不成比例；且真机数据表明**每帧重建 = 0**，交接重建 = 每迭代 1 次（有界）。
+
+## §21.122by：目标②细节复核 —— 「iter 末尾无 tool ⇒ 立刻 idle」真机量化（2026-10-16）
+
+**用户原始要求**：「iter 结束如果最后没 tool，那么代表整个 turn 结束了，**应该立刻进入 idle**」。
+
+**判据链（代码，非推断）**：
+- 服务端最快权威信号 = `progress.phase === 'done'`（`agent/agent.go` 的 `PhaseDone`）——`session(idle)`
+  要等 `Run()` 完全退出后才发（defer），所以**不能**只等它。
+- 原生落点 = `core/store.ets:hasFreshPhaseDone(...)` ⇒ `applyLocalIdle(currentChatId)`
+  （`:508`，2026-10-12 落地）：**同帧**做两件事 —— ① 会话树内存置 `running=false`（页面下帧即转
+  `serverRunning()=false`）；② 状态机 `session_running(false)` ⇒ 清权威闸门 + 把在飞 turn 定格收尾
+  （`reduce.ts:515-533`，内容保留、`streaming=false`）。`session(idle)` 分支（`:2002` 走
+  `core/streammerge.isIdleAction`）走同一条落点。
+
+**真机量化（模拟器，无工具回合）**：SSE 抓包确认该回合**只有一个** `phase:done` 帧；
+设备侧逐帧（≈0.8s/帧）轮询头部 `运行中… / 空闲` ⇒ **发送后首帧仍 `运行中`，第 2 帧（+0.78s）已 `空闲`**
+= 在量具分辨率内即刻翻转（⛔ 不是等 REST 往返的那种"拖后"）。
