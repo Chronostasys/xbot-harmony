@@ -834,14 +834,17 @@ export struct MessageRowView {
               this.onCopy(text, what);
             },
           })
-        }, (t: ToolProgress) => `syn#${this.toolKey(this.row.turnID, it.iteration, t.name)}#${t.call_id !== undefined ? t.call_id : ''}`)
+        }, (t: ToolProgress) => `syn#${this.toolKey(this.row.turnID, it.iteration, t.name)}#${t.call_id !== undefined ? t.call_id : ''}#${t.status !== undefined ? t.status : ''}`)
         // ── 真工具：**每工具一枚 pill**，塞进一个 flex-wrap 行；>8 枚时前 7 枚 + "+N" ──
         // （逐字对齐 web `FoldedToolGroup.tsx:541-574` 的 `MergedPills`；假工具已摘出）。
         if (this.shownPills(it).length > 0 || this.hideCount(it) > 0) {
           Flex({ wrap: FlexWrap.Wrap }) {
             ForEach(this.shownPills(it), (t: ToolProgress, ti: number) => {
               this.ToolItem(it, t, this.origIndex(it, t))
-            }, (t: ToolProgress, ti: number) => `${this.toolKey(this.row.turnID, it.iteration, t.name)}#${t.call_id !== undefined ? t.call_id : ''}#${this.origIndex(it, t)}`)
+            }, (t: ToolProgress, ti: number) => `${this.toolKey(this.row.turnID, it.iteration, t.name)}#${t.call_id !== undefined ? t.call_id : ''}#${this.origIndex(it, t)}`
+              // ⛔ 同 `LiveTailView` 的 live pill：key 必须含**会变的可见内容**（`status`+`gen_chars`），
+              //    否则条目子树不随值重建 ⇒ 状态/字数冻在创建那一刻（AGENTS「最小通知键」同族）。
+              + `#${t.status !== undefined ? t.status : ''}#${t.gen_chars !== undefined ? t.gen_chars : 0}`)
             if (this.hideCount(it) > 0) {
               this.OverflowBadge(it)
             }

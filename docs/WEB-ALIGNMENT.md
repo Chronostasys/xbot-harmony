@@ -7676,3 +7676,28 @@ SPA 首屏就会整体变慢；本仓**无法**从原生侧修，也不该为修
 点停止后按钮区哈希序列：`3af24a0d`(停止) → `897d1468` → `6de15869` → `725e4ab9`（**3 帧不同哈希**
 = `LoadingProgress` 三个不同旋转角 ⇒ **真在转**）→ `0216c196`(发送纸飞机) ⇒ 可见 spin ≈ 3×115ms；
 随后头部文案 = `空闲` ⇒ 会话已在请求成功时即刻进 idle（两条要求同时成立）。
+
+## §21.122bt：② 「tool 生成中 X 字，这个 X 不更新」**真根因**（ForEach key）+ 修复（2026-10-16）
+
+**用户原话（第二次报同一个症状）**：「我说了那个工具的生成x字这个x不更新的问题吧，你要修一下保证它随着sse更新」。
+
+上一轮（§21.122bd 系列）修的是**投递门控**（`liveTools !== tools` 恒等 ⇒ 改 `toolsSignature` 内容签名）。
+本轮用**三段式取证**证明断点其实在**渲染层 ForEach 的 key**：
+
+| 量具 | 证据 | 结论 |
+|---|---|---|
+| **服务端 SSE 原始帧**（curl 登录取 cookie，`/api/sse?chat_id=…`，70s） | `gen_chars` 出现 **3163 次**，值为 **1→5748 逐帧增长**（帧里 `streaming_tools[0].gen_chars`） | 服务端**每帧都下发**增长中的字数 ⇒ 不是服务端问题 |
+| **应用内探针**（临时 hilog：页侧 `[GCS] page <toolsSignature>` + 组件侧 `@Prop @Watch('onToolsWatch') tools`） | 页侧 `FileCreate:generating:4340→4369→4455→…→5748`；组件侧 `[GCS] view FileCreate:4340→…→5748` **同值** | 投递链**没断**（页 → 组件全程同步） |
+| **同一窗口的设备侧药丸文案**（dump 配对 name+chip） | `FileCreate → 生成中 39 字` **连续 14 帧（≈20s）不变**，而组件侧同期收到 4xxx–5xxx | ⇒ 冻结点在 **ForEach 条目**：key 不含会变字段 ⇒ ArkUI 判"条目未变" ⇒ **条目子树不重建** |
+
+**根因**：`components/LiveTailView.ets` 在飞 pill 的 `ForEach` key 只有
+`lt-${i}#${t.name}#${t.call_id}` —— 参数流式期间（`generating`）key **恒定**，于是 chip 冻在创建那一刻的值
+（同族血债：AGENTS.md「LazyForEach + 最小通知键 ⇒ 已存在行永不更新」；`MessageRow` 的 committed pill key 同病）。
+
+**修法**：两处 key 补上**会变的可见内容** `status` + `gen_chars`（key 变化 ⇒ 条目重建 ⇒ chip 重绘）。
+
+**改后同一量具复验**：`FileCreate → 生成中 574 字 → 1748 → 2520 → 3634 → 5101 → 6085 → 6288`（连续采样递增）
+⇒ 字数**随 SSE 实时增长** ✓。
+
+**判据**：`tools/tests/tool_pill_key.test.ts`（源码形态：两处 key 必含 `gen_chars`+`status`；
+含 **mutation 自证** —— 只含 `name#call_id` 的旧 key 必须判红）。真门禁全绿（含 ArkTS 编译）。
