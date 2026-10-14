@@ -9766,15 +9766,14 @@ struct Index {
               //    2×10vp 双箭头挤在 44 盒中央，真机观感像**渲染故障**。改用平台标准「更多动作」
               //    原语 `ellipsis_circle` + `bindMenu` ⇒ 语义自解释，⛔ 不必再"猜字形"。
               SymbolGlyph($r('sys.symbol.ellipsis_circle'))
-                .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
+                // ⚠️ 2026-10-14（目标③「侧边栏对标 Apple」· 控件类型自洽）：字形 `ICON_MD`(14)
+                //    与**同一导航行**的 `新建`(`ICON_SM` 图标)/`✕`(`SHEET_ACTION_GLYPH`) 不同档，
+                //    再叠一层灰底方块 ⇒ 这一行里出现"唯一一枚填充控件"，读起来像**误留的按钮**。
+                //    Apple 导航栏的"更多动作"是**裸字形**（无底、无描边），与创建/关闭同权 ⇒ 走到 `ICON_XL`。
+                .fontSize(ICON_XL).fontColor([colorOf(this.pal(), 'iconMuted')])
             }
-            .width(SEG_TRACK_H)
-            .height(SEG_TRACK_H)
             .justifyContent(FlexAlign.Center)
             .alignItems(VerticalAlign.Center)
-            .backgroundColor(surfaceFillOf(this.pal(), 'surface.chip'))
-            .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
-            .borderRadius(RADIUS_CARD)
           }
           // ⛔ 真机实测：`responseRegion` 负偏移外扩**无效** ⇒ 热区靠**真实 ≥44 布局盒**。
           .width(HIT_TARGET_MIN)
@@ -10013,11 +10012,16 @@ struct Index {
           .padding({ left: SPACE_XS, right: SPACE_XS })
           .justifyContent(FlexAlign.Center)
           .alignItems(VerticalAlign.Center)
-          .backgroundColor(surfaceFillOf(this.pal(),
-            this.activeChannel.length === 0 ? 'surface.pillSelected' : 'surface.chip'))
-          // §15：**只给 chip 支**补内凹发丝；选中态（pillSelected）保持无边框。
-          .border({ width: STROKE_HAIRLINE, color: this.activeChannel.length === 0 ? Color.Transparent : insetHairlineOf(this.pal()) })
-          .borderRadius(RADIUS_CARD)
+          // ── 控件类型自洽（2026-10-14，目标③「侧边栏对标 Apple」）────────────────────────
+          // **权威 = web**（本仓铁律：不许发明）：`web/src/components/session/ChannelPicker.tsx:93-101`
+          // 的触发器是**幽灵按钮** —— 注释原文「幽灵按钮：与面板标题行/工具条的极简风格一致
+          // （无边框、无底色，hover 才浮起）」，并记录了用户原话：「**之前做成带 border+bg 的方形
+          // 按钮**，用户 2026-09-15：「你觉得这好看？」—— 标题行里只有图标+文字，塞一个描边方块会喧宾夺主」。
+          // ⛔ 本仓此前把它做成 `surface.pillSelected` 填充（+内凹发丝）—— **正是 web 已否决的形态**，
+          //    且 `pillSelected` 是**左侧分段轨道**同族凹槽面 ⇒ 真机观感"分段控件有**第 4 段**"。
+          // ⇒ 回到 web 口径：**无底、无边框**（只保留 44 命中层与「当前值」文字；激活时用
+          //    `accentSoft` 文字表达"正在按渠道过滤"，⛔ 不新造第三种面）。
+          .backgroundColor(Color.Transparent)
         }
         .height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center)

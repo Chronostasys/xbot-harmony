@@ -1200,8 +1200,12 @@ session uses background highlight."*；`:332-347 relativeTime` 给出五档文�
 
 **改后（一行）**：`[分段控件 (layoutWeight 1)] [全部折叠/展开 44] [渠道触发器 ▾]`
 - 分段控件**只装互斥选项**；折叠动作移出轨道（判据：轨道块内不得出现 `collapseAllPlanNow`）。
-- 渠道 chips 行**删除**，改**平台菜单** `bindMenu`（触发器显示**当前值**⇒ 信息不减：选中「全部」= 凹槽面
-  `surface.pillSelected`、选中具体渠道 = 中性 chip + 内凹发丝；菜单项当前值走 `accentText`）。
+- 渠道 chips 行**删除**，改**平台菜单** `bindMenu`（触发器显示**当前值**⇒ 信息不减；⛔ 触发器形态见下条：**幽灵按钮**）。
+  ⚠️ 2026-10-14 更正（目标③）：下面这两处"面口径"已被 **web 权威**推翻 ——
+  `web/src/components/session/ChannelPicker.tsx:93-101` 的触发器是**幽灵按钮**（原文「无边框、无底色，hover 才浮起」，
+  并记录用户原话：「之前做成带 border+bg 的方形按钮，用户 2026-09-15：「你觉得这好看？」」）⇒
+  本仓原填 `surface.pillSelected`/`surface.chip` **正是 web 已否决的形态**，且与左侧分段轨道同族面
+  ⇒ 真机读成"分段控件第 4 段"。现改为 `Color.Transparent` + 无边框（激活时用 `accentSoft` 文字表达过滤中）。
 - 真机实测：`全部/Web/CLI` 三行、200vp 宽、右对齐触发器；点项即选中且**自动收起**；连点 5 次开合 5/5 正确。
 
 **为什么不是 `bindPopup`**（⚠️ 这是**修缺陷**不是换风格，细节见 `ARKTS-GOTCHAS.md` 批次 43）：
@@ -1211,7 +1215,9 @@ session uses background highlight."*；`:332-347 relativeTime` 给出五档文�
 
 **判据（判别力已 mutation 自证）**：`tools/tests/status_sheet_drawer.test.ts` 新增靶子4c 四条 ——
 ① 折叠动作不在轨道内（注入回轨道 ⇒ 红）；② `bindMenu(this.ChannelPickerMenu` 在（换回 bindPopup ⇒ 红）；
-③ `chfilter-` 键消失（注回 ⇒ 红）；④ 触发器保留既有面口径 `activeChannel.length === 0 ? 'surface.pillSelected' : 'surface.chip'`。
+③ `chfilter-` 键消失（注回 ⇒ 红）；④ 触发器 = **幽灵按钮**（web 权威口径）：`hasNot` 旧填充形态
+   `activeChannel.length === 0 ? 'surface.pillSelected' : 'surface.chip'` + `hasNot` `surface.chip`/`border(` +
+   `has` `Color.Transparent`（注回填充或描边 ⇒ 红）。
 
 **自证**：`status_sheet_drawer` 24/0 · 全量 `✅ 纯逻辑测试通过` · `typecheck` 95 文件 ✅ ·
 `render-path` ✅ · **`BUILD SUCCESSFUL in 8 s 286 ms`** · 真机：抽屉单行筛选条 + 平台菜单开/选/收全通。
@@ -4591,8 +4597,9 @@ dynamic 视图行也深链。mutation 自证：深链分支失效 ⇒ 6 条红�
   （`insetHairlineOf`）+ `RADIUS_CHIP`。
 - **「分组显示」`ellipsis_circle`**：加**同款 chip 容器**（此前是裸字形）⇒ 该排成为
   「[分段轨道][chip][chip]」，三种形状收敛成两种、**三控件同高 36**。
-- **渠道触发器「全部 ⌄」**：同款两层结构（视觉层 36）；选中「全部」= `surface.pillSelected` 凹槽面、
-  选中具体渠道 = `surface.chip` + 内凹发丝（**面口径逐字不变**，只改高度）。
+- **渠道触发器「全部 ⌄」**：同款两层结构（视觉层 36）；⚠️ 2026-10-14 起面口径**改为幽灵按钮**
+  （透明底 + 无边框）—— 权威 = `web/src/components/session/ChannelPicker.tsx:93-101`（无边框无底色，
+  用户 2026-09-15 已否决"描边/填充方块"）；激活过滤时用 `accentSoft` 文字表达。
 - **底部 5 键图标**：`ICON_MD`(14) → `ICON_XL`(20)（**已有令牌**，"大图标档"）⇒ 图标/文字比 1.4 → 2.0，
   向 Apple tab bar 的 2.5 靠拢；文字档与热区**不动**。
 
@@ -6573,3 +6580,36 @@ web 侧那 9+ 处 `await navigator.clipboard.writeText(...)` 会抛 TypeError �
 原生按 HIG 保命中区 ⇒ 这是**有意偏离**，记账在此。
 
 判据：装机 `dumpLayout` 复测几何（见提交信息）。
+
+### §21.122i 侧边抽屉「控件类型自洽」两修（2026-10-14，目标③「侧边栏对标 Apple」）
+
+用户口径：「不要一比一复刻 web 排版，你是原生你要超越 web；我只说了侧边栏但是你要考虑**所有的面板**」。
+本轮**只改控件类型不自洽处**（不改判据、不改 IA、不动已被用户反馈定型的面语言）：
+
+1. **导航行的「分组显示」（⋯）去掉灰底方块** —— 同一导航行里 `新建`(裸字形+accent 文字) 与 `✕`(裸字形)
+   都是**无底**动作键，只有 ⋯ 带 `surface.chip` 填充 + 内凹发丝 + 圆角 ⇒ 行内出现"唯一一枚填充控件"，
+   真机读起来像**误留的按钮**。Apple 导航栏的"更多动作"本身就是裸字形 ⇒ 去掉填充，字形 `ICON_MD`→`ICON_XL`
+   （与同行其它动作键同视觉重），44×44 真实命中盒**不动**。
+2. **筛选行「渠道选择器」改描边控件（透明底 + 发丝边）** —— 原实现在"未过滤"时给它填 `surface.pillSelected`，
+   **而那正是左侧分段轨道的同族凹槽面**（`surface.chip`/`pillSelected`）⇒ 两枚同面同高的控件并排，真机观感是
+   「分段控件有**第 4 段**」。按 Apple 工具栏惯例 **主控件填充 / 次控件描边**（`UISegmentedControl` + 描边按钮）：
+   本键 = 次级筛选 ⇒ `Color.Transparent` + `hairlineOf` 描边；**当前值仍显示在键上**（信息不减）；激活时不换面，
+   只用 `accentSoft` 文字表达"正在过滤"（⛔ 不引入第二种填充面，避免又回到同面问题）。
+
+⛔ 未动的部分（都是前几轮按用户反馈定型的，回退 = 打脸）：搜索框 + 「搜本会话」**同面成对**（2026-10-13 用户报「裸文字浮在高搜索框旁 = 丑」后的定案）、
+分段控件选中芯 `surface.pillSelected`、组头吸顶 + 内缩发丝、行体两行（标题 + 相对时间）、底栏单行 6 键（4 导航 + 竖发丝 + 危险）。
+
+### §21.122j 要求②四条细节的**装机实证**（2026-10-14，模拟器）
+
+| 细节 | 判据（离线） | 装机实证 |
+|---|---|---|
+| ②-1 iter 无 tool ⇒ 立刻 idle | `local_idle_wiring` ✅ | 回合结束 ≈1.5s 内头部回「空闲」、输入条回静息（`t2.jpeg`） |
+| ②-2 cancel ⇒ spin ⇒ 立刻 idle | `composer_button_wiring` ✅ | 转圈是**单帧**视觉；`hdc` 截图单次 ~1s ⇒ 抓不到该帧（诚实记账：未 frame 取证） |
+| ②-3 busy + 输入文字 ⇒ 按钮翻成插队/排队 | `composer_button_wiring` ✅ | ✅ **已取证**：忙态（`思考 3290 字` 流式中）输入「谢谢」⇒ 主按钮由**方形停止**翻成**紫色纸飞机（发送）**、同行「**排队**」chip 可见（`u3.jpeg`，`dumpLayout` 同帧 `chip=排队 draft=谢谢`） |
+| ②-4 streaming 时上滚不拉回 | `scroll_follow_wiring` + `listfollow` ✅ | 上滚后 3.5s 内可见文本与 y **逐字节不动**（未回底）；⚠️ 该窗口内内容未增长 ⇒ 不足以单独证明"流式仍在跑"，故只作辅助证据 |
+
+**装机操作的两条硬教训**（写进 `docs/UI-AUDIT-CHECKLIST.md` 同款）：
+- `uitest uiInput inputText` **必须带坐标**（`inputText <x> <y> <text>`）；只打已聚焦处要用 `uiInput text <text>`。
+  漏坐标 ⇒ **静默失败**（我这轮因此白跑 3 次）。
+- **发消息后 IME 自动收起、输入条落回屏幕底部**（y≈2632）；聚焦时 IME 弹起、输入条上移到 y≈1684
+  ⇒ 任何"点击输入条/主按钮"的脚本**每步都要重新 dump 取坐标**（用固定坐标必落空）。

@@ -197,8 +197,9 @@ ok("§4 ✓ 未选中底 = 'surface.overlay'（RUNG_CARD；与浮层面齐平）
     `got ${JSON.stringify(foundSorted)}`);
   ok("§4 Index.ets 里 `surfaceFillOf(p,'surface.overlayRowHover')` 恰好 1 处（会话行底）",
     aSrc.split("surfaceFillOf(this.pal(), 'surface.overlayRowHover')").length - 1 === 1);
-  ok("§4 Index.ets 里 `surface.pillSelected` 的面名**只**出现在渠道 chip（其 fg 是条件支）",
-    aSrc.indexOf("this.activeChannel.length === 0 ? 'surface.pillSelected' : 'surface.chip'") >= 0);
+  ok("§4 `surface.pillSelected` 只留给**分段控件选中芯**（渠道触发器已改幽灵按钮 —— web `ChannelPicker.tsx:93-101` 权威）",
+    aSrc.indexOf("surfaceFillOf(this.pal(), 'surface.pillSelected')") >= 0
+      && aSrc.indexOf("this.activeChannel.length === 0 ? 'surface.pillSelected' : 'surface.chip'") < 0);
 }
 
 // ════════════════════════════════════════════════════════════════════════════

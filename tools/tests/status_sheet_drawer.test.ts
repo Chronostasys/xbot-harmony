@@ -138,8 +138,16 @@ ok('分段控件轨道块可定位（零扫描判红）', track.length > 100);
 hasNot(track, 'collapseAllPlanNow', '⛔ 折叠动作不在分段控件轨道内（控制类型不混用）');
 has(indexSrc, 'bindMenu(this.ChannelPickerMenu', '渠道筛选走平台菜单原语 bindMenu（自管开合）');
 hasNot(indexSrc, 'chfilter-', '⛔ 旧渠道 chips 行已删（两条并列筛选条 ⇒ 单条）');
-has(indexSrc, 'this.activeChannel.length === 0 ? \'surface.pillSelected\' : \'surface.chip\'',
-  '触发器保留「选中全部 = 凹槽面」的既有面口径（⛔ 未新造面名）');
+hasNot(indexSrc, "this.activeChannel.length === 0 ? 'surface.pillSelected' : 'surface.chip'",
+  '⛔ 渠道触发器**不再**填凹槽/芯片面（web 权威 `ChannelPicker.tsx:93-101` = 幽灵按钮：无边框无底色；'
+  + '本仓原填充形态正是 web 2026-09-15 用户已否决的"描边/填充方块"，且与分段轨道同面 ⇒ 读成"第 4 段"）');
+// 正向形态（防"删掉填充"被判据漏掉 ⇒ 变成随便什么形态都绿）：幽灵按钮 = 透明底 + 无边框。
+const chTrigger: string = between(indexSrc, 'Text(activeChannelLabel(this.activeChannel))',
+  '.bindMenu(this.ChannelPickerMenu');
+ok('渠道触发器块可定位（零扫描判红）', chTrigger.length > 100);
+has(chTrigger, 'Color.Transparent', '触发器**无底色**（幽灵按钮；web `ChannelPicker.tsx:99` 静息无底、hover 才浮起）');
+hasNot(chTrigger, 'surface.chip', '⛔ 也不填 chip 面（与左侧分段轨道同族 ⇒ 读成"分段控件第 4 段"）');
+hasNot(chTrigger, 'border(', '⛔ 幽灵按钮**不描边**（web 原文：塞描边方块会喧宾夺主）');
 
 // ── 靶子4d：分组头节奏 · 行密度 · 搜索框（2026-10-12 目标③ 第三批）─────────────────
 // ① 分组头 **居中 + 仅非首组显式留白**（2026-10-12 第二次修，原实现 = 「44vp 盒**底对齐**」）：
