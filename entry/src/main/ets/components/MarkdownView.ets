@@ -266,10 +266,9 @@ export struct MarkdownView {
     // 块级节奏 = `MD_BLOCK_GAP`(8)（`core/design.ets`；旧凹口值 6）。web 靠 margin 折叠、原生
     // `Column.space` 不折叠 ⇒ 8 是与下方各块自身 margin 相加后最接近 `MarkdownRenderer` 的节奏。
     Column({ space: MD_BLOCK_GAP }) {
-      // ⚠️ 临时诊断：显示当前 MarkdownView 实例读到的 themeId()——切主题后看历史迭代
-      // 标签是 'light' 还是 'dark' 即可定性「读对了渲染错」vs「读错了」
-      Text('[DBG] ' + this.themeId())
-        .fontSize(10).fontColor(Color.Red).backgroundColor(Color.Yellow)
+      // ⚠️ 临时诊断：显示 MarkdownView 实例读到的所有主题源——对比哪个对哪个错
+      Text('[DBG] prop=' + this.theme + ' id=' + this.themeId() + ' sp=' + this.appTheme + ' tick=' + this.themeTick)
+        .fontSize(8).fontColor(Color.Red).backgroundColor(Color.Yellow)
         .padding(2).borderRadius(2)
       // 走缓存：流式期间整行会反复重建，没缓存就要反复解析几百 KB（见 core/markdown.ets 注释）
       ForEach(parseMarkdownCached(this.text), (b: MdBlock, idx: number) => {
