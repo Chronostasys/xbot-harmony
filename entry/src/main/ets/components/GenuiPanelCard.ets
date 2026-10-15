@@ -29,6 +29,7 @@ import {
 import {
   GENUI_OPEN_LABEL, SHARE_BUSY, SHARE_DONE, SHARE_ERR, SHARE_IDLE, shareLabelOf,
 } from '../core/genui';
+import { animBase } from './anim';
 
 /** 指示器/图标尺寸（与同层 pill 视觉同档）。 */
 const GENUI_ICON: number = 14;
@@ -179,6 +180,8 @@ export struct GenuiPanelCard {
           Row() {
             Text(shareLabelOf(this.shareState))
               .fontSize(typeOf('type.caption').size)
+              // ⚡ 2026-10-20 丝滑动画：分享状态切换时文字颜色缓动
+              .animation(animBase())
               // done=successText / error=dangerText（web：绿底 rgba(34,197,94,.15)+字 inherit、
               // error 字 #dc2626 —— 原生透明动作片用色字表达，色对权威 successText/dangerText 记档）
               .fontColor(this.shareState === SHARE_DONE ? this.col('successText')
