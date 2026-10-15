@@ -7934,3 +7934,27 @@ appear live=true  key=13:4        （仍在飞）
 **③ 其余插件条目态**：GenUI「未声明面板」（widget 型无 panel，正常）+ 迭代指标「已挂载：状态栏」（badge 挂载 ✓）+ Git 面板 v0.3.5 / 远程机器 SSH v1.0.6（目录在场）。
 
 **工具坑（已入 GOTCHAS 批次 53）**：模拟器整机重启冷启会卡 EULA 交互确认（`Unable to start the emulator`）——**`Emulator -license accept`** 一发破局。冷启假死（双 root 遮挡+点击失效）重启后不复现 ⇒ 定性「模拟器窗口系统残留」而非 app bug（详见批次 53 补记）。
+
+### §21.122ce P0 批量修复 + 侧边栏重设计（2026-10-17）
+
+**P0 修复**：
+- 打字机人机对抗：offset 保存/恢复（5695aed）——流式时用户向上滚不被拽回底部
+- 掉帧：syncLiveTail 无条件降频 100ms（cca8fe9）——减少整页 build 频率
+- theme 展开互斥：双布尔独立 toggle（5c02168）
+- header tok/s 插件位置：移到内置按钮之前（5695aed）
+- LLM 模型切换：直接调 HTTP API POST /api/llm-config（16baeab）——不发 /set-model 聊天消息
+- 打字机光标去掉（403209b）——用户要求：光标单独占一行闪烁→去掉
+- 长按迭代复制 bug：传 iteration 而非 turnID（85e5d4b）
+- 更早消息加载视角稳定：scrollToIndex 保持视角（e139dbd）——loadingMoreRows 标志让 syncFrom 跳过 savedOffset 恢复
+- 切会话变回深色：@StorageProp('currentChatId') @Watch（0353695）——切会话时 themeTick++ → Block 全重建
+
+**侧边栏重设计（对标 Apple）**：
+- 底栏精简 6→4 键（67b6a25）——「任务」「插件」移至顶栏 ⋯ 菜单
+- 选中态左指示条（2f0fc1f）——Apple Notes 风格 accent 色 3px 竖条
+- 长按会话行→操作菜单（7384656）——Apple 列表标准交互
+- 搜索时自动展开所有分组（340e83f）——搜索结果不藏在折叠组里
+- 左指示条入场动画（1de9af7）——.transition(OPACITY) 淡入
+
+**性能优化**：
+- syncLiveTail 降频 100ms（cca8fe9）——无条件降频，减少整页 build
+- llmCfg 引用门控（905e1aa）——避免同值 @State 写入触发整页 build
