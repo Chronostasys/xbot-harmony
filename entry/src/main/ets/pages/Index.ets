@@ -11019,6 +11019,12 @@ struct Index {
                       : Color.Transparent)
                     .borderRadius(RADIUS_PILL)
                     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+                    .gesture(LongPressGesture().onAction(() => {
+                      this.anim(() => {
+                        this.sessMenuId = s.chat_id;
+                      });
+                      this.sessConfirmDelete = '';
+                    }))
                     .onClick(() => {
                       if (s.chat_id !== undefined && this.renamingId.length === 0) {
                         this.switchSession(s.chat_id);
