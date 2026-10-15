@@ -37,7 +37,7 @@ import { FS_CAPTION, R_LG, SP_1, SP_5 } from '../core/tokens';
 import { PRESS_OPACITY, RADIUS_PILL, SPACE_HAIR, STROKE_RAIL, colorOf, } from '../core/design';
 import { getReasoningOpen, setReasoningOpen } from '../core/reasoningopen';
 import { AssistantOrb, ORB_MODE_THINKING } from './AssistantOrb';
-import { fadeTransition } from './anim';
+import { fadeTransition, animBase } from './anim';
 
 /** 前导光球直径 = 尺度 token `SP_5`（20vp）—— 与 `LiveTailView` 块首的独立光球**同值**。 */
 const ORB_LEAD_SIZE: number = SP_5;
@@ -184,10 +184,14 @@ export struct ThinkingLine {
           // 光球关闭（设置项）⇒ 回落灯泡提示符；committed 迭代恒走这条。
           SymbolGlyph($r('sys.symbol.lightbulb'))
             .fontSize(FS_CAPTION)
+            // ⚡ 2026-10-20 丝滑动画：live 状态切换时图标颜色缓动
+            .animation(animBase())
             .fontColor([this.live ? paletteOf(this.themeId()).accentSoft : colorOf(paletteOf(this.themeId()), 'iconMuted')])
         }
         Text(this.label)
           .fontSize(FS_CAPTION)
+          // ⚡ 2026-10-20 丝滑动画：live 状态切换时文字颜色缓动
+          .animation(animBase())
           .fontColor(this.live ? paletteOf(this.themeId()).accentSoft : paletteOf(this.themeId()).textMuted)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
