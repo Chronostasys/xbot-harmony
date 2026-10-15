@@ -633,7 +633,7 @@ export struct MessageRowView {
             CompactionDividerRow({ body: splitMarker(c.content).body, theme: this.themeId() })
           }, (c: WebCompaction, ci: number) => `${this.row.id}#cpt#${it.iteration}#${ci}`)
         }
-      }, (it: HistoryIteration) => `${this.row.id}#${it.iteration}#${it.live === true ? 'L' : ('C#' + (it.tools ? it.tools.length : 0))}`)
+      }, (it: HistoryIteration) => `${this.row.id}#${it.iteration}#${it.live === true ? 'L' : 'C'}`)
       // ── 在飞迭代块：**同一气泡内的最后一块**（对齐 web TurnBody 的 LiveIteration）──
       // 真机 bug ② 根治点：live 迭代不再是自己一个气泡/一个 ListItem，而是这条
       // assistant 消息气泡里的最后一块，与已完成迭代共用同一套块渲染（仅带打字机）。
@@ -789,7 +789,7 @@ export struct MessageRowView {
               this.onCopy(text, what);
             },
           })
-        }, (t: ToolProgress) => `syn#${this.toolKey(this.row.turnID, it.iteration, t.name)}#${t.call_id !== undefined ? t.call_id : ''}#${t.status !== undefined ? t.status : ''}`)
+        }, (t: ToolProgress) => `syn#${this.toolKey(this.row.turnID, it.iteration, t.name)}#${t.call_id !== undefined ? t.call_id : ''}`)
         // ── 真工具：**每工具一枚 pill**，塞进一个 flex-wrap 行；>8 枚时前 7 枚 + "+N" ──
         // （逐字对齐 web `FoldedToolGroup.tsx:541-574` 的 `MergedPills`；假工具已摘出）。
         if (this.shownPills(it).length > 0 || this.hideCount(it) > 0) {
