@@ -8029,6 +8029,15 @@ struct Index {
       // 的代码块/行内码配色停在旧 md 主题（同 `themeName` 的那条注释，用户亲报的"抽奖"）。
       AppStorage.setOrCreate<string>('appMdTheme', this.mdThemeId());
       this.syncSystemTheme();
+      // ⛔ 2026-10-17 P0 第五修（用户五连怒报「不能有哪怕一秒看不清」）：本路径此前**只写
+      //    themeName、不投 rowDs** ⇒ LazyForEach 收不到 reload 通知、键（含 `@theme`）不被
+      //    重读 ⇒ 历史行**冻结在旧色板**（浅色下白字）；直到下一次 SSE 事件驱动 `syncFrom`
+      //    的常规投递（:8845，即"一个迭代结束"）才重建恢复 —— 用户症状「切换后、迭代结束前
+      //    看不清」的唯一根因。修法与 :2256/:8845 **完全同款**：当场带新主题强制投一次 ⇒
+      //    `structural`（theme 变）⇒ `onDataReloaded` ⇒ 框架同帧重读全部行键 ⇒ 整窗重建。
+      //    成本 O(窗口)：`tailRows` 只切尾窗、`onDataReloaded` 一发、重建仅已实例化项 ——
+      //    ⛔ 不触碰全历史（2026-10-17 性能红线「整个窗口没有任何 O(n)，无论历史多长」）。
+      this.rowDs.applyRows(tailRows(this.rows, this.rowLimit), this.currentChat, this.themeName);
     }
     try {
       await store.saveSettings(pairs);
@@ -8045,6 +8054,16 @@ struct Index {
       }
       rollback[key] = prev;
       this.settings = rollback;
+      // 主题/强调色保存失败：乐观值已上屏、settings 却滚回旧值 —— themeName 必须当场一并
+      // 滚回（并同款强制投 rowDs），否则主题停在乐观新值、行冻结到下一次 sync 才翻回
+      // （期间历史行不可读 —— 同 P0 的「秒级不可读」红线）。
+      if (key === KEY_MD_THEME || key === KEY_ACCENT) {
+        this.themeName = renderThemeKey(
+          appPaletteForMdTheme(settingOf(this.settings, KEY_MD_THEME)), this.accentHex());
+        AppStorage.setOrCreate<string>('appMdTheme', this.mdThemeId());
+        this.syncSystemTheme();
+        this.rowDs.applyRows(tailRows(this.rows, this.rowLimit), this.currentChat, this.themeName);
+      }
       this.toast(`保存失败: ${errText(e as Object)}`);
     }
   }
