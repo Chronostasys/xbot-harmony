@@ -1383,6 +1383,8 @@ export struct SettingsLlm {
                     Text(this.deleteId === s.id ? '确认删除' : '删除')
                       .constraintSize({ minHeight: HIT_TARGET_MIN })
                       .fontSize(FS_CAPTION)
+                      // ⚡ 2026-10-20 丝滑动画：确认态切换时文字/背景颜色缓动
+                      .animation(animBase())
                       .fontColor(this.deleteId === s.id ? this.pal().onAccent : this.pal().dangerText)
                       .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
                       .backgroundColor(this.deleteId === s.id ? this.pal().statusError : this.pal().surfaceAlt)
