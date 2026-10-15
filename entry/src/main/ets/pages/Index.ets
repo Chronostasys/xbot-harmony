@@ -9910,6 +9910,8 @@ struct Index {
               .fontWeight(this.panelTab === tab ? FontWeight.Medium : typeOf('type.subhead').weight)
               // ⛔ `accent` **不得**直接做文字色（对底仅 4.05 < 4.5，仓内铁律 `accent_chrome.test.ts`）
               //    ⇒ 选中文字走 `accentSoft`（5.57–12.0 全主题过线），与设置页签同一口径。
+              // ⚡ 2026-10-20 丝滑动画：tab 切换时文字颜色缓动（与指示器缓动同步）
+              .animation(animBase())
               .fontColor(this.panelTab === tab ? this.pal().accentSoft : this.pal().textSecondary)
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
