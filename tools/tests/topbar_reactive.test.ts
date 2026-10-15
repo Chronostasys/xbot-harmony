@@ -40,8 +40,8 @@ describe('顶栏「迭代指标」徽章：必须经 @State 投影（否则恒�
   // 徽章渲染点：`if (this.iterStatsBadge.length > 0) { Text(this.iterStatsBadge) … }`
   const badgeAnchor: number = src.indexOf('Text(this.iterStatsBadge)');
   const badgeStart: number = badgeAnchor > 0 ? src.lastIndexOf('if (this.iterStatsBadge', badgeAnchor) : -1;
-  // 右侧界 = 紧邻的下一个兄弟节点（队列 chip）
-  const badgeStop: number = badgeAnchor > 0 ? src.indexOf('if (this.queue', badgeAnchor) : -1;
+  // 右侧界 = 紧邻的下一个兄弟节点（2026-10-17 顶栏队列 chip 删除后 ⇒ 顶栏收尾 id）
+  const badgeStop: number = badgeAnchor > 0 ? src.indexOf(".id('xbot-header')", badgeAnchor) : -1;
   const badgeSlice: string = badgeStart > 0 && badgeStop > badgeStart ? src.slice(badgeStart, badgeStop) : '';
 
   // 投影点：更新通路里 `const … = this.computeIterStatsBadge(store);` + 赋给 @State

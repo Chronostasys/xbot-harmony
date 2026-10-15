@@ -6162,27 +6162,9 @@ struct Index {
         // ⇒ 代码层核查：面板本身**都在且都接线**（门禁 ⑤：67 组件 0 孤儿；`FilesSheet` 有搜索/预览/
         //   图片/隐藏文件/失败重试全套），入口却只在**抽屉底栏**（要先开侧边栏）⇒ 真病根是**可达性**，
         //   与上面「运行」入口同源 ⇒ 同修法：落到顶栏（图标 = 抽屉同一枚，处理器 = 抽屉同一个）。
-        Row() {
-          SymbolGlyph($r('sys.symbol.folder'))
-            .fontSize(ICON_XL)
-            .fontColor([this.panelActionTint()])
-        }
-        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
-        .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
-        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('文件管理：原生文件面板（浏览/搜索/预览/加入聊天）')
-        .onClick(() => {
-          // §21.122bg（用户 2026-10-15 定向：「文件不需要用 web，可以用原生的」）：**原生优先**。
-          // 原文由 web 文件面板承担（`?xbot_panel=files`），但实测两条硬伤：
-          //   ① web 服务不可达/懒加载时它长时间停在「正在加载…」（真机截图为证）；
-          //   ② 文件管理是**宿主侧能力**（`core.files` 的原生 RPC（fs 端点）直接可达，
-          //      不依赖 webview、不依赖 web 资源是否已就绪）⇒ 拿它换一次 webview 往返 + 一屏
-          //      白屏不值得。
-          // ⛔ 「插件默认走 webview」这条纪律**只约束插件**，不约束宿主自有面板。
-          // web 版未被删除：原生面板头部的「Web 版」动作仍显式可达（能力不减）。
-          this.openFiles();
-        })
-
+        // ── 钮序（2026-10-17 用户亲报「自带按钮应该在最右边，而不是被插件挤压到左边去」）：
+        //    插件钮在前、文件钮（宿主自带）在后 ⇒ 自带入口钉右。两钮结构/热区/处理器完全不变，
+        //    只换位（图标 = 抽屉同一枚，处理器 = 抽屉同一个的约定不动）。
         Row() {
           SymbolGlyph($r('sys.symbol.puzzle'))
             .fontSize(ICON_XL)
@@ -6194,6 +6176,19 @@ struct Index {
         .accessibilityText('插件与 Web UI：插件目录、宿主页、完整 Web UI')
         .onClick(() => {
           this.openPlugins();
+        })
+
+        Row() {
+          SymbolGlyph($r('sys.symbol.folder'))
+            .fontSize(ICON_XL)
+            .fontColor([this.panelActionTint()])
+        }
+        .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('文件管理：原生文件面板（浏览/搜索/预览/加入聊天）')
+        .onClick(() => {
+          this.openFiles();
         })
 
         // ── 原生「迭代指标」徽章（插件 `xbot.iteration-stats` 的 `status_bar_right` 视图）──
@@ -6212,19 +6207,9 @@ struct Index {
             .margin({ right: SP_1 })
         }
 
-        if (this.queue.length > 0) {
-          Text(`队列 ${this.queue.length}`)
-            .fontSize(FS_CAPTION).fontColor(this.pal().warn)
-            .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
-            .backgroundColor(this.eff().glassBg)
-            .borderRadius(R_MD)
-            .border({ width: 1, color: this.eff().glassBorder })
-            .margin({ right: SP_1 })
-            .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
-            .onClick(() => {
-              this.showQueue = true;
-            })
-        }
+        // ── 队列 chip（2026-10-17 删除）：队列信息已由对话窗口的排队/插队条承载（goal 细节
+        //    「busy 时 cancel 钮自动变插队/排队钮」），顶栏再放一颗 ⇒ 双份冗余 + head 拥挤
+        //    （用户亲报「head 太挤…队列渲染在对话窗口那么 header 就不该有了」）。
       }
       .width('100%').constraintSize({ minHeight: 56 }).padding({ left: SP_2, right: SP_2 })
       .backgroundColor(this.pal().appBg)
