@@ -206,9 +206,13 @@ struct SshNotice {
     Column({ space: SPACE_SM }) {
       SymbolGlyph(this.glyph)
         .fontSize(typeOf('type.display').size)
+        // ⚡ 2026-10-20 丝滑动画：danger 模式切换时图标颜色缓动
+        .animation(animBase())
         .fontColor([this.tc(this.danger ? 'danger' : 'icon')])
       Text(this.text)
         .fontSize(typeOf('type.callout').size)
+        // ⚡ 2026-10-20 丝滑动画：danger 模式切换时文字颜色缓动
+        .animation(animBase())
         .fontColor(this.tc(this.danger ? 'danger' : 'muted'))
         .width('100%')
         .textAlign(TextAlign.Center)
