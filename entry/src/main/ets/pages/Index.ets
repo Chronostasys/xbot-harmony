@@ -11053,6 +11053,8 @@ struct Index {
                               // 选中态 = 填充 + **中黑**（Apple 列表选中项的字重提升；深色下仅靠
                               // `surface.overlayRowHover` 填充区分度不足）。⛔ 不改字号/字形 ⇒ 行高不变。
                               .fontWeight(this.isCurrentSession(s.chat_id) ? FontWeight.Medium : FontWeight.Regular)
+                              // ⚡ 2026-10-20 丝滑动画：选中态文字颜色缓动（与背景色缓动同步）
+                              .animation(animBase())
                               .fontColor(this.isCurrentSession(s.chat_id) ? this.palOnce().accentText : this.palOnce().textPrimary)
                               .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                               .width('100%').textAlign(TextAlign.Start)
