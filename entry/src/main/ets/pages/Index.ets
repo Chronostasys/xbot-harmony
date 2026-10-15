@@ -2144,10 +2144,14 @@ struct Index {
       // 需要主动 scrollTo 保持用户视口（web DOM scroll 不会因底部增长而自动滚动）。
       const savedOffset: number = (!this.followBottom && !this.loadingMoreRows) ? this.listScroller.currentOffset().yOffset : 0;
       // live 行整条（已完成迭代 + 末尾在飞块）在 syncRowDs 里抽出为非懒尾项
-      this.syncRowDs();
-      // ⛔ loadingMoreRows 期间不执行 scrollTo——savedOffset=0 会把列表滚到顶部（P0 "视角被拉到最上方"）。
-      //   loadMore() 中的 scrollToIndex + widenRowWindow() 的三连补偿负责保持视角稳定。
-      if (!this.followBottom && !this.loadingMoreRows) {
+      const dsReloaded: boolean = this.syncRowDs();
+      // ⛔ 2026-10-20 滚动人机对抗终极修复：
+      //   只有 syncRowDs 真正调了 applyRows（可能触发 onDataReloaded → List 跳顶）
+      //   才需要 scrollTo 恢复用户视口。流式期行数不变时 syncRowDs 返回 false
+      //   （未触发 onDataReloaded）⇒ List 滚动位置自然保持 ⇒
+      //   ⛔ **绝不** scrollTo（旧像素偏移在新内容高度下指向错误位置 → 视角跳跃）。
+      //   loadingMoreRows 期间也跳过——loadMore() 的 scrollToIndex 负责保位。
+      if (dsReloaded && !this.followBottom && !this.loadingMoreRows) {
         delay(() => {
           try { this.listScroller.scrollTo({ xOffset: 0, yOffset: savedOffset }); } catch (e) { }
         }, 0);
@@ -8961,7 +8965,7 @@ struct Index {
   }
 
   /** 把「当前该显示的行」推给数据源（行窗口 + 真虚拟化两层叠加）。 */
-  private syncRowDs(): void {
+  private syncRowDs(): boolean {
     // ⛔ 2026-10-15 streaming 掉帧终极修复：busy 且历史行数量不变时——
     //   只从末尾找 live 行——不遍历整个数组分离 rest——省 O(rows) 遍历+分配。
     if (this.busy && this.rowDs.count() > 0) {
@@ -8981,7 +8985,10 @@ struct Index {
       this.syncLiveTail();
       // 历史行数量 = this.rowDs.count()（不变）⇒ 跳过 applyRows + tailRows + 遍历
       if (this.rows.length - (live !== undefined ? 1 : 0) === this.rowDs.count()) {
-        return;
+        // ⛔ 2026-10-20 滚动人机对抗修复：流式期行数不变 ⇒ 未调 applyRows ⇒
+        //   未触发 onDataReloaded ⇒ List 滚动位置自然保持 ⇒ 返回 false 告知 syncFrom
+        //   **不要** scrollTo（旧像素偏移在新内容高度下指向错误位置 → 视角跳跃）。
+        return false;
       }
     }
     // ── live 行**整条**交给非懒尾项渲染（同气泡：已完成迭代 + 末尾在飞块）──
@@ -9012,6 +9019,8 @@ struct Index {
     // LazyForEach 保留上一个会话的条目（真机「所有会话都显示第一个会话的内容」）。
     const tail: ChatRow[] = tailRows(rest, this.rowLimit);
     this.rowDs.applyRows(tail, this.currentChat, this.themeName);
+    // applyRows 已调 ⇒ 可能触发 onDataReloaded ⇒ syncFrom 需要 scrollTo 恢复
+    return true;
   }
 
   /**
