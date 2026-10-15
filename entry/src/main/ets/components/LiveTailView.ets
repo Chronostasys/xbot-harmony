@@ -22,7 +22,7 @@ import {
   SPACE_HAIR, SPACE_XXS, STROKE_RAIL, elevationColorOf, surfaceFillOf, SURFACE_CHIP, HIT_TARGET_MIN,
 } from '../core/design';
 import { orbBreath } from '../core/orb';
-import { MOTION_BEAT_MS } from './anim';
+import { MOTION_BEAT_MS, animBase } from './anim';
 import { MarkdownView } from './MarkdownView';
 import { ThinkingLine } from './ThinkingLine';
 import { AssistantOrb, ORB_MODE_THINKING, ORB_MODE_TOOL, ORB_MODE_SECONDARY } from './AssistantOrb';
@@ -486,6 +486,8 @@ return renderKind(t.status, t.exit_code, true);
       // porcelain 下 `textSecondary` 压它仅 **4.337 < AA 4.5**（文字 role，FS_CAPTION=12）。
       // `surface.raised` porcelain = **4.696 ✓**（light/dark/aurora/nebula 均达标）。
       // 语义 = 比常态 `surface.chip`(sunken) **抬升一档**；⛔ 不再用 `surfaceHi`（porcelain 不达标）。
+      // ⚡ 2026-10-20 丝滑动画：展开/收起时背景色缓动
+      .animation(animBase())
       .backgroundColor(this.overOpen ? surfaceFillOf(this.pal(), 'surface.raised') : surfaceFillOf(this.pal(), SURFACE_CHIP))
       .borderRadius(RADIUS_PILL)
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
