@@ -708,7 +708,7 @@ export struct MessageRowView {
           return this.loadImage(src);
         },
         onToolLongPress: (name: string) => {
-          this.onOpenCtx(this.row.turnID, name);
+          this.onOpenCtx(liveIterationNo(this.row.iterations), name);
         },
         // B6：live 在飞正文里的代码块复制 —— 落点**透传**页面品牌 toast。
         onToast: this.onToast,
