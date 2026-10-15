@@ -729,10 +729,14 @@ export struct TerminalSheet {
     //    见 `keyRoleColor(active, 'bg')`）—— `Ctrl ✓` 是 6 字宽，在等分键宽里会溢出错行。
     Text('Ctrl')
       .fontSize(typeOf('type.caption').size)
+      // ⚡ 2026-10-20 丝滑动画：Ctrl 激活/取消时键帽颜色缓动
+      .animation(animBase())
       .fontColor(this.keyRoleColor(this.ctrlActive, 'text'))
       .padding({ left: KEY_PAD_X, right: KEY_PAD_X, top: 14, bottom: 14 })
+      .animation(animBase())
       .backgroundColor(this.keyRoleColor(this.ctrlActive, 'bg'))
       // 同上：未激活时也要有发丝边才看得见键帽（激活态是实心 accent ⇒ 自带对比，不必描边）。
+      .animation(animBase())
       .border({ width: STROKE_HAIRLINE, color: this.keyRoleColor(this.ctrlActive, 'border') })
       .borderRadius(RADIUS_PILL)
       // 与 `keyChip` 同一处置（内容宽 + 最小宽）：`Ctrl` 取自身字宽（≈37vp）⇒ 标签恒完整。
