@@ -329,6 +329,8 @@ struct SshIconButton {
     Row() {
       SymbolGlyph(this.glyph)
         .fontSize(this.danger ? typeOf('type.caption').size : SHEET_ACTION_GLYPH)
+        // ⚡ 2026-10-20 丝滑动画：danger 模式切换时图标颜色缓动
+        .animation(animBase())
         .fontColor([this.tc(this.danger ? 'danger' : 'icon')])
     }
     .width(HIT_TARGET_MIN)
