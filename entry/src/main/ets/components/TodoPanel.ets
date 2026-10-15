@@ -249,6 +249,8 @@ struct TodoRowView {
     .alignItems(VerticalAlign.Top)
     .padding({ left: SP_1, right: SP_1, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
     .borderRadius(RADIUS_CHIP)
+    // ⚡ 2026-10-20 丝滑动画：目标切换时背景色缓动
+    .animation(animBase())
     .backgroundColor(this.isGoal ? this.goalTint() : this.pal().transparent)
     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
   }
