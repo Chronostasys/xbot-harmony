@@ -2164,6 +2164,11 @@ struct Index {
       endTurnKeepAlive();
     }
     this.currentChat = store.currentChatId;
+    // 把当前会话写入 AppStorage——MarkdownView 的 @StorageProp('currentChatId') @Watch
+    // 在切会话时触发 themeTick++ → Block 全重建，避免 LazyForEach 已存在行残留旧 theme。
+    if (store.currentChatId !== AppStorage.get<string>('currentChatId')) {
+      AppStorage.setOrCreate<string>('currentChatId', store.currentChatId);
+    }
     this.hasMore = store.hasMore;
     this.loadingMore = store.loadingMore;
     const queueFp: string = this.fingerprintQueue(store.queue, store.currentChatId);

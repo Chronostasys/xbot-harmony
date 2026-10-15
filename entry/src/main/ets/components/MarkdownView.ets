@@ -206,6 +206,9 @@ export struct MarkdownView {
   @StorageProp('appMdTheme') @Watch('onMdThemeChange') appMdThemeGlobal: string = '';
   @State mdThemeTick: number = 0;
   onMdThemeChange(): void { this.mdThemeTick++; }
+  /** 切会话时强制 Block 全重建——避免 LazyForEach 已存在行残留旧 theme。 */
+  @StorageProp('currentChatId') @Watch('onChatChange') chatIdForTick: string = '';
+  onChatChange(): void { this.themeTick++; this.mdThemeTick++; }
   /**
    * 链接相对地址的解析基准（服务端地址）。空 = 只放行绝对地址（`http/https/mailto`）。
    * 对齐 web 的浏览器行为：相对链接按**同源**解析（`MarkdownRenderer.tsx:311-321` 是真 `<a href>`）。
