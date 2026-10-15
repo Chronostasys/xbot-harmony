@@ -11076,6 +11076,8 @@ struct Index {
                           // 非当前会话底 = `transparent`（画布）⇒ 仍用 `textSecondary`（porcelain 5.07 ✓）。
                           Text('⋯')
                             .fontSize(typeOf('type.headline').size)
+                            // ⚡ 2026-10-20 丝滑动画：选中态 ⋯ 按钮颜色缓动
+                            .animation(animBase())
                             .fontColor(this.isCurrentSession(s.chat_id) ? this.palOnce().textPrimary : this.palOnce().textSecondary)
                             .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).textAlign(TextAlign.Center)
                             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
