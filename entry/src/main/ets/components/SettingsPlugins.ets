@@ -58,6 +58,7 @@ import {
 import { PRESS_OPACITY, CONTROL_INPUT_H, colorOf, hairlineOf, HIT_TARGET_MIN } from '../core/design';
 import { SettingsErrorBar, SettingsPanelHeader } from './SettingsRows';
 import { AuthImage } from './AuthImage';
+import { animBase } from './anim';
 
 /** 单字段的行高/内边距常量（与各设置面板同视觉语言）。 */
 const FIELD_PAD_T: number = SP_2;
@@ -172,6 +173,8 @@ struct PluginFieldRow {
             Text(this.optLabels[oi >= 0 && oi < this.optLabels.length ? oi : 0])
               .constraintSize({ minHeight: HIT_TARGET_MIN })
               .fontSize(FS_CAPTION)
+              // ⚡ 2026-10-20 丝滑动画：选中态文字/背景/边框颜色缓动
+              .animation(animBase())
               .fontColor(this.imgValue === ov ? this.pal().onAccent : this.pal().textSecondary)
               .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
               .margin(2)
@@ -361,6 +364,8 @@ struct PluginFieldRow {
             Text(this.optLabels[oi >= 0 && oi < this.optLabels.length ? oi : 0])
               .constraintSize({ minHeight: HIT_TARGET_MIN })
               .fontSize(FS_CAPTION)
+              // ⚡ 2026-10-20 丝滑动画：选中态文字/背景/边框颜色缓动
+              .animation(animBase())
               .fontColor(this.isChipOn(ov) ? this.pal().onAccent : this.pal().textSecondary)
               .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
               .margin(2)
