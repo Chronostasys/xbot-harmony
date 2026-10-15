@@ -811,12 +811,14 @@ export class VtTerm {
    *   由**渲染层**传入（`ansiPaletteOf(paletteOf(theme))`）⇒ 终端内容随应用主题变色，
    *   且**无需**重建模拟器（重调本函数即可）。缺省 = web 的 xterm 深色原值。
    */
-  screenLines(palette?: string[]): VtLine[] {
+  screenLines(palette?: string[], cursorVisible: boolean = true): VtLine[] {
     const pal: string[] = palette !== undefined ? palette : ANSI_DARK_PALETTE;
     const out: VtLine[] = [];
     for (let y = 0; y < this.rows; y++) {
       // #7-2（2026-10-17）：光标格渲染参数化——y===cursorY 的行走 cursorX（其余 -1 不动）。
-      out.push(this.renderRow(this.grid[y], pal, y === this.cursorY ? this.cursorX : -1));
+      // #7-4（2026-10-20）：cursorVisible 闸门——blink off 时传 false ⇒ 光标隐去（xterm cursorBlink 同语义）。
+      const cursorAt: number = cursorVisible && y === this.cursorY ? this.cursorX : -1;
+      out.push(this.renderRow(this.grid[y], pal, cursorAt));
     }
     return out;
   }

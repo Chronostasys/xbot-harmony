@@ -144,6 +144,9 @@ export struct TerminalSheet {
   private ws: webSocket.WebSocket | null = null;
   private flushTimer: number = -1;
   private dirty: boolean = false;
+  /** 光标 blink 闸门（xterm cursorBlink 同语义）：~530ms 间隔翻转。 */
+  private cursorBlink: boolean = true;
+  private blinkTimer: number = -1;
   private userClosed: boolean = false;
   /** 断线重连（P0-2）：第几次重连（0 起）；on('open') 成功后清零。 */
   private reconnectAttempt: number = 0;
@@ -315,6 +318,7 @@ export struct TerminalSheet {
       this.reconnectAttempt = 0; // P0-2：连上即清零重连计数
       this.sendResize();
       this.scheduleFlush(true);
+      this.startBlink(); // #7-4：光标 blink 随连接启动
     });
     ws.on('message', (err: BusinessError, value: string | ArrayBuffer) => {
       if (typeof value === 'string') {
@@ -322,6 +326,7 @@ export struct TerminalSheet {
       }
     });
     ws.on('close', (err: BusinessError, value: webSocket.CloseResult) => {
+      this.stopBlink(); // #7-4：连接关 ⇒ 光标 blink 随停（重连成功后 on('open') 复起）
       // P0-2 triage：**服务端语义终态**（exit⇒EXITED / onData error⇒TERM_ERROR）只归档；
       // 用户主动关 ⇒ CLOSED；其余（掉线/服务端杀 PTY 未先 exit）⇒ backoff 重连。
       if (this.status === TERM_EXITED || this.status === TERM_ERROR) {
@@ -362,6 +367,7 @@ export struct TerminalSheet {
 
   private teardown(): void {
     this.cancelReconnect(); // P0-2：用户关面板 ⇒ 撤销一切挂起的重连（幂等）
+    this.stopBlink(); // #7-4：光标 blink 随连接一起停
     if (this.flushTimer >= 0) {
       clearTimeout(this.flushTimer);
       this.flushTimer = -1;
@@ -376,6 +382,28 @@ export struct TerminalSheet {
         // 忽略：关闭路径不应抛到 UI
       }
     }
+  }
+
+  // ── #7-4 光标 blink（xterm cursorBlink 同语义）──────────────────────────────
+  /** 启动光标 blink（~530ms 翻转一次，与 xterm.js 默认一致）。幂等。 */
+  private startBlink(): void {
+    if (this.blinkTimer >= 0) {
+      return;
+    }
+    this.blinkTimer = setInterval(() => {
+      this.cursorBlink = !this.cursorBlink;
+      this.dirty = true;
+      this.flush();
+    }, 530);
+  }
+
+  /** 停止光标 blink（连接断/面板关时调）。幂等。 */
+  private stopBlink(): void {
+    if (this.blinkTimer >= 0) {
+      clearInterval(this.blinkTimer);
+      this.blinkTimer = -1;
+    }
+    this.cursorBlink = true; // 重置为可见
   }
 
   // ── P0-2 断线重连 ────────────────────────────────────────────────────────
@@ -487,7 +515,7 @@ export struct TerminalSheet {
     const pal: Palette = this.palOnce();
     const colors: string[] = ansiPaletteOf(pal);
     const sb: VtLine[] = this.term.scrollbackLines(TERM_MAX_LINES, colors);
-    const sc: VtLine[] = this.term.screenLines(colors);
+    const sc: VtLine[] = this.term.screenLines(colors, this.cursorBlink);
     const all: VtLine[] = sb.concat(sc);
     const cut: VtLine[] = all.length > TERM_MAX_LINES ? all.slice(all.length - TERM_MAX_LINES) : all;
     this.flow = this.flatSpans(cut);
