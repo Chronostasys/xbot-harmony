@@ -2112,7 +2112,9 @@ struct Index {
     //   非 busy 时仍走指纹比较（检测内容是否变化）。
     const rowsFp: string = this.busy ? '' : this.fingerprintRows(store.rows, store.currentChatId);
     const contentGrew: boolean = this.busy || rowsFp !== this.rowsFp;
-    const structFp: string = structRowsFpOf(store.rows, store.currentChatId);
+    // ⛔ 2026-10-15 streaming 掉帧修复：busy 时跳过 O(n) structRowsFpOf 计算——
+    //   streaming 时结构不变（只有 live 行走非懒路径）⇒ structFp 不变 ⇒ 跳过省 O(n)。
+    const structFp: string = this.busy ? '' : structRowsFpOf(store.rows, store.currentChatId);
     this.structFp = structFp;   // 供 `navAnchors()` 结构记忆化（见字段注释）
     if (contentGrew) {
       if (!this.busy) {
