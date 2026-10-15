@@ -6210,10 +6210,15 @@ struct Index {
             // ⚠️ 不用 `Circle().fill()`：其声明在本 SDK 标 @since 26（工程 pin 21）⇒
             //    改用通用属性画同形圆点（观感等价）。
             Row().width(6).height(6).borderRadius(6 / 2)
+              // ⚡ 2026-10-20 丝滑动画：busy/idle 切换时圆点颜色缓动
+              .animation(animBase())
               .backgroundColor(this.busy ? this.pal().accent : this.pal().textMuted)
             // ⛔ 状态点不再呼吸（第二处"在飞"）——唯一在飞动效 = 光球；状态只由**颜色**表达。
             Text(this.busy ? '运行中…' : '空闲')
-              .fontSize(typeOf('type.caption').size).fontColor(this.busy ? this.pal().accentSoft : this.pal().textMuted)
+              .fontSize(typeOf('type.caption').size)
+              // ⚡ 2026-10-20 丝滑动画：busy/idle 切换时文字颜色缓动
+              .animation(animBase())
+              .fontColor(this.busy ? this.pal().accentSoft : this.pal().textMuted)
           }
           // ⚠️ 状态块可点 = 打开会话状态面板（与 5682 状态栏「详情」同源）：无 goal/todo/usage
           //   数据时 5682 状态栏不渲染 ⇒ 此处是**唯一常驻入口**（用户随时可查 cwd/会话信息/订阅）。
