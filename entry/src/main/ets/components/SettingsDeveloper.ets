@@ -43,6 +43,7 @@ import {
 } from '../core/rpc';
 import { HIT_TARGET_MIN } from '../core/design';
 import { SettingsPanelHeader, SettingsToolRow } from './SettingsRows';
+import { animBase } from './anim';
 
 /** 本地偏好（**不同步服务端**；对齐 web 的 localStorage 语义）。 */
 const DEV_STORE: string = 'xbot_devtools';
@@ -338,6 +339,8 @@ export struct SettingsDeveloper {
         Row({ space: SP_2 }) {
           Button(this.exportBusy === a.id ? '导出中…' : a.title)
             .fontSize(FS_CAPTION)
+            // ⚡ 2026-10-20 丝滑动画：可用态切换时文字/背景颜色缓动
+            .animation(animBase())
             .fontColor(this.chatID.length > 0 ? this.pal().onAccent : this.pal().textMuted)
             .backgroundColor(this.chatID.length > 0 ? this.pal().accent : this.pal().surfaceAlt)
             .borderRadius(R_MD)
