@@ -10842,6 +10842,8 @@ struct Index {
               // ⇒ 两个并列筛选控件的标签竟不同档（真机量测：分段文字高 47px、chip 文字高 40px）。
               // 同排控件标签**必须同档**（Apple：工具栏上的并列控件共用一个字阶）⇒ 提 caption(12)。
               .fontSize(typeOf('type.caption').size)
+              // ⚡ 2026-10-20 丝滑动画：渠道切换时文字颜色缓动
+              .animation(animBase())
               .fontColor(this.activeChannel.length === 0 ? this.pal().textPrimary : this.pal().textSecondary)
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
