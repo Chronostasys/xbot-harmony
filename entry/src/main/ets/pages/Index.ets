@@ -115,7 +115,7 @@ import {
   attachmentRef, baseName, doneKeys, doneNames, doneRefs, doneSizes, hasRef, humanSize, mimeOf,
   patchByUid, pendingCount, removeByUid,
 } from '../core/attach';
-import { changedByKeys, identityChanged, needsFullReload, rowKey, rowsFpOf, sameRowIds,
+import { identityChanged, needsFullReload, rowKey, rowsFpOf, sameRowIds,
   structRowsFpOf,
   scopedFingerprint, themableRowKey, tailRows } from '../core/rowdiff';
 import { BusySignals, busyLabel, busyNow, DRAWER_EMPTY_NO_MATCH, DRAWER_EMPTY_NO_SESSIONS, DRAWER_EMPTY_NONE, drawerEmptyHint, drawerEmptyKind, showsBusyPlaceholder, showsHistorySkeleton, showsJumpToLatest } from '../core/indicators';
@@ -11614,9 +11614,11 @@ class ChatRowDataSource implements IDataSource {
     const structural: boolean = needsFullReload(this.rows, next, this.chatId, chatId)
       || theme !== this.theme;
     this.theme = theme;
-    // ⚠️ 变更判定用**上一帧键快照**（不是 changedRowIndices(this.rows, next) ——
-    //    行对象是就地更新的，新貌旧貌同一引用 ⇒ 永远判"没变" ⇒ 零通知）。
-    const changed: number[] = structural ? [] : changedByKeys(this.keys, next);
+    // ⚠️ 2026-10-17 键去 rev 后：**内容更新不再走 onDataChange**（同键 item 被
+    //    LazyForEach 用 onDataChange 触发重建 = 闪烁根源）—— @Observed 属性刷新接管：
+    //    ChatRow 是 @Observed、render.applyRow 对 iterations 等赋值替换引用 ⇒
+    //    @ObjectLink 组件自动重渲（与 web 的 React 状态更新同语义）。changed 恒空。
+    const changed: number[] = [];
     this.rows = next;
     this.chatId = chatId;
     const keys: string[] = [];

@@ -75,7 +75,13 @@ export function tailRows(rows: ChatRow[], limit: number): ChatRow[] {
  * **逐字相同**的裸键。`LazyForEach` 以键认条目, 第二会话的行会被当成同一条复用已渲染的旧条目。
  */
 export function sessionScopedRowKey(chatId: string, r: ChatRow): string {
-  return chatId + '#' + r.id + '#' + r.rev;
+  // ⛔ 2026-10-17 照抄 web（用户亲证「web 没有闪烁，照抄都抄好了」）：键**不含 rev** ——
+  //    迭代 commit（rev++）不再换键 ⇒ 行**不重建** ⇒ 已渲染的块纹丝不动（ForEach 按稳定键
+  //    diff，新块追加）。行内容更新走 **@Observed 属性刷新**：ChatRow 是 @Observed、
+  //    render.applyRow 对 iterations/rev 等**赋值替换引用** ⇒ @ObjectLink 组件自动重渲 ——
+  //    与 web 的 React 状态更新同语义。rev 仍留在 applyRows 的键快照里做「行变了」的
+  //    内部判据，但不再进框架键（同键重建正是闪烁的根源）。
+  return chatId + '#' + r.id;
 }
 
 /**

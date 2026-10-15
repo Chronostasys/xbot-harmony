@@ -54,6 +54,7 @@ function sliceBetween(src: string, from: string, to: string): string {
 
 const REPO: string = path.resolve(__dirname, '../../../..');
 const store: string = stripComments(fs.readFileSync(path.join(REPO, 'entry/src/main/ets/core/store.ets'), 'utf8'));
+const rowdiff: string = stripComments(fs.readFileSync(path.join(REPO, 'entry/src/main/ets/core/rowdiff.ets'), 'utf8'));
 const row: string = stripComments(fs.readFileSync(path.join(REPO, 'entry/src/main/ets/components/MessageRow.ets'), 'utf8'));
 const idx: string = stripComments(fs.readFileSync(path.join(REPO, 'entry/src/main/ets/pages/Index.ets'), 'utf8'));
 
@@ -65,14 +66,16 @@ console.log(`  flicker: 对账守卫=${guard} 旧裸对账=${barePush} rowLimit=
 ok('① 对账守卫存在（字段缺失 ≠ false，== 1）', guard === 1);
 ok('① 旧裸对账（缺失即 false）已移除（== 0）', barePush === 0);
 
-// ── ② P0-A 纵深：块窗口外置到行对象 ────────────────────────────────────────────────
-const widenRow: number = countOf(row, 'this.row.blockLimit = next');
-const rowLimitUses: number = countOf(row, 'this.rowLimit()');
-const stateWiden: number = countOf(row, 'this.blockLimit = next');
-ok('② widen 写**行对象**（== 1）', widenRow === 1);
-ok('② rowLimit() 被消费（>= 3：定义兜底+shownIters+hiddenBlocks+widen）', rowLimitUses >= 3);
-ok('② 旧 @State 写入已移除（== 0）', stateWiden === 0);
-ok('② ChatRow 行字段存在（types.ets）', countOf(stripComments(fs.readFileSync(path.join(REPO, 'entry/src/main/ets/core/types.ets'), 'utf8')), 'blockLimit: number = 0;') === 1);
+// ── ② P0-A 照抄 web：无窗口/无哨兵/键无 rev ──────────────────────────────────────
+const noWindow: number = countOf(row, 'visibleBlocks') + countOf(row, 'hiddenBlockCount') + countOf(row, 'widenBlocks') + countOf(row, 'MSG_BLOCK_SENTINEL_H');
+const noSentinel: number = countOf(row, '更早的 ${this.hiddenBlocks()}');
+const keyNoRev: number = countOf(rowdiff, "return chatId + '#' + r.id;");
+const keyWithRev: number = countOf(rowdiff, "return chatId + '#' + r.id + '#' + r.rev;");
+ok('② 窗口函数族已从 MessageRow 移除（== 0）', noWindow === 0);
+ok('② 哨兵行已删除（== 0）', noSentinel === 0);
+ok('② 行键不含 rev（== 1）', keyNoRev === 1);
+ok('② 旧含 rev 键已移除（== 0）', keyWithRev === 0);
+ok('② shownIters 直返全部（>= 1）', countOf(row, 'return this.itersFor();') >= 1);
 
 // ── ③ P0-B：loadSessions 并发去重 ──────────────────────────────────────────────────
 const dedup: number = countOf(store, 'fetchSessionsOnce');
@@ -87,7 +90,7 @@ ok('④ 8s 自愈重拉 history 存在（== 1）', countOf(switchSeg, 'st.loadHi
 ok('④ 自愈挂在 delay 8000（>= 1）', countOf(switchSeg, '}, 8000);') >= 1);
 
 // ── 零扫描判红 ─────────────────────────────────────────────────────────────────────
-ok('零扫描判红：守卫证据合计 > 0', guard + widenRow + rowLimitUses + dedup > 0);
+ok('零扫描判红：守卫证据合计 > 0', guard + noWindow + keyNoRev + dedup > 0);
 
 console.log(`  flicker_guard: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

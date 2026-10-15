@@ -40,7 +40,6 @@ import { looksLikeLlmError } from '../core/llmerror';
 import { isInFlight, renderKind, statusChip } from '../core/toolstatus';
 import { AnsiSpan, ansiPaletteOf, ansiSpansIfAny } from '../core/ansi';
 import {
-  MSG_BLOCK_WINDOW, MSG_BLOCK_SENTINEL_H, visibleBlocks, hiddenBlockCount, widenBlocks,
 } from '../core/rowsview';
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
 import { SubAgentTree } from './SubAgentTree';
@@ -224,20 +223,6 @@ export struct MessageRowView {
   @State popKey: string = '';
   /** 当前 "+N" 溢出浮层对应的迭代（`>= 0` ⇒ 打开；对齐 web `OverflowPillsMenu`）。 */
   @State overIter: number = -1;
-  /**
-   * **行内块窗口**：本行只渲染末尾 `blockLimit` 个迭代块，更早的折叠成**一行恒定高哨兵**
-   * （可见即自动放宽一批）。判据/常量/纯函数在 `core/rowsview.ets`（有判别力单测）。
-   *
-   * 为什么必须有：`LazyForEach` 只做**行级**虚拟化，**行内不虚拟化** ⇒ 一行 = 一个 ListItem
-   * 里的 N 个块**全部实例化**。真实服务端实测单行最多 **340 块**（稳定 fixture 108 块），
-   * 按真机实测 5.7 节点/块折算 ≈1938 节点，超单行预算 600 的 3.2×（`docs/PERF-BUDGET.md §3①`）。
-   *
-   * ⚠️ 关于 `@Reusable`：本组件是复用条目，`blockLimit` 会**跨行残留**。这是**安全**的 ——
-   *    它只在 `MSG_BLOCK_WINDOW` 基础上单调增长、且 `widenBlocks` 封顶到 n，
-   *    残留只会让另一些行"少折叠几块"（**绝不会多折叠**，即**不可能少渲染内容**）。
-   *    故不引入 `aboutToReuse` 复位（少一处状态契约、少一份风险）。
-   */
-  @State blockLimit: number = MSG_BLOCK_WINDOW;
 
   /**
    * 生效主题：**生产走全局订阅**（`appTheme`），订阅缺失时（测试/独立预览）回落到显式 `@Prop theme`。
@@ -403,57 +388,23 @@ export struct MessageRowView {
   }
 
   /**
-   * 本行生效的**块窗口**：行对象字段 > 0 用它（重建后恢复），否则回落默认（未初始化/live 兜底）。
-   * ⛔ 窗口住在 **@Observed 行对象**上（`ChatRow.blockLimit`）而非组件 @State：行键含 `rev`，
-   *   迭代 commit ⇒ 整行重建 ⇒ @State 回落默认 ⇒ 已渲染的迭代块瞬间折叠消失（用户亲报 P0）。
-   *   外置到行数据后窗口只增不减 —— 渲染过的迭代绝不消失（单向增长）。
-   */
-  private rowLimit(): number {
-    return this.row.blockLimit > 0 ? this.row.blockLimit : MSG_BLOCK_WINDOW;
-  }
-
-  /**
    * 该行要渲染的**全部**已完成块。
    *
-   * ⛔ 不再「只显示最近 8 个 + 点击展开全部」（原生自创）：web `TurnBody` 渲染**全部**迭代，
-   *    靠 `content-visibility` 做窗口化，**没有"点击展开"这种交互**（用户 2026-10-10 明确
-   *    禁止）。历史过长时的性能由 ArkUI 的 `LazyForEach`/`@Reusable` 承担。
+   * ⛔ 照抄 web `TurnBody`（用户 2026-10-17 亲证「web 是没有这个 bug 的，照抄都抄好了」）：
+   *    web **渲染全部迭代**（`content-visibility` 只做绘制窗口化，DOM 全在）——**没有**
+   *    「折叠+哨兵+自动放宽」这套原生自创。它的「末尾 N 块」语义在每次 commit 时会把
+   *    **已渲染的块挤出窗口**（消失几秒、widen 又出现）= 用户亲报的闪烁之一，**整段删除**。
+   *    历史过长的性能由 `LazyForEach` 行级虚拟化 + `mergeToolRuns` 合并承担。
    */
   private itersFor(): HistoryIteration[] {
     return this.mergedBlocks();
   }
 
   /**
-   * 该行此刻**真正交给 `ForEach`** 的块（= `itersFor()` 的末尾 `rowLimit()` 块）。
-   *
-   * ⛔ 与 `itersFor()` 分开是**刻意的**：`itersFor()` 必须保持"全部块"的语义 ——
-   *   `compactionMap()`（压缩锚点）与"隐藏块数"都基于**全量**，若在这里裁剪会让
-   *   压缩点定位错位、且丢失"还有 N 块"的判据（= 静默丢内容，用户规则不允许）。
+   * 交给 `ForEach` 的块 = **全部**（无窗口裁剪；保留独立方法名以稳定调用点）。
    */
   private shownIters(): HistoryIteration[] {
-    return visibleBlocks(this.itersFor(), this.rowLimit());
-  }
-
-  /** 被折叠（隐藏）的块数 —— `> 0` 时必须渲染哨兵行（可见提示，不许静默丢内容）。 */
-  private hiddenBlocks(): number {
-    return hiddenBlockCount(this.itersFor().length, this.rowLimit());
-  }
-
-  /**
-   * 哨兵可见 ⇒ 放宽一批。
-   *
-   * ⛔ **绝不做"点击展开"**（用户 2026-10-10 明确禁止）：本行与上方「更早区域」分隔条
-   *   （`regionsBefore`）**同构** —— 可见性即触发。也**绝不逐块 +1**（那会每跨一次阈值就
-   *   重建该行）；一次放开 `MSG_BLOCK_BATCH`。
-   */
-  private widen(): void {
-    const n: number = this.itersFor().length;
-    const next: number = widenBlocks(this.rowLimit(), n);
-    if (next !== this.rowLimit()) {
-      // ⛔ 写**行对象**（@Observed ⇒ 属性变化自动刷新）：窗口随行数据持久，
-      //    行重建（rev++ 换键）后从行字段恢复 ⇒ 已渲染的迭代块绝不因重建折叠消失。
-      this.row.blockLimit = next;
-    }
+    return this.itersFor();
   }
 
   /** 压缩锚点缓存（按 `row.rev` 失效）—— 见 `compactionMap()`。 */
@@ -665,30 +616,6 @@ export struct MessageRowView {
       // ⛔ key 必须含 `live` 标记：在飞块可能与某个**已提交迭代同号**（服务端把
       //   在飞迭代记进 iteration_history 的场景 —— 见 core/render.ets.inFlightBlock），
       //   只按 `row.id#iteration` 会撞 key ⇒ ArkUI 复用错位（渲染错乱）。
-      // ── 行内块窗口的**哨兵行**（更早的块被折叠）──────────────────────────────────
-      // 与上方「更早区域」分隔条（`regionsBefore`）**同构**：
-      //   · **恒定行高**（`MSG_BLOCK_SENTINEL_H`）⇒ 三态不改布局、不抖、滚动条长度不失真
-      //     （同一门手艺见上面 `REGION_ROW_H` 的注释）
-      //   · 只有 `hidden > 0` 才产出节点（其余行**零开销**、零视觉变化）
-      //   · 文案显示**还有多少块** ⇒ 满足"块数封顶必须有可见提示，不许静默丢内容"
-      //   · ⛔ **可见即自动放宽**，绝不做"点击展开/折叠"（用户 2026-10-10 明确禁止；
-      //     同上方 `autoLoadRegions` 的纪律）。一次放开 `MSG_BLOCK_BATCH` 块。
-      if (this.hiddenBlocks() > 0) {
-        Row({ space: 6 }) {
-          // 图标取色走 `iconMuted`（弱图标专用；porcelain 下 `textMuted` < 3:1）
-          SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(12).fontColor([colorOf(this.pal(), 'iconMuted')])
-          Text(`更早的 ${this.hiddenBlocks()} 个迭代块`).fontSize(FS_META).fontColor(this.pal().textMuted)
-        }
-        .width('100%')
-        .height(MSG_BLOCK_SENTINEL_H)
-        .justifyContent(FlexAlign.Center)
-        .margin({ top: BUBBLE.iterGap })
-        .onVisibleAreaChange([0.0, 0.5], (isVisible: boolean) => {
-          if (isVisible) {
-            this.widen();
-          }
-        })
-      }
       ForEach(this.shownIters(), (it: HistoryIteration) => {
         this.IterationBlock(it)
         // ── 该迭代**之后**的压缩点（迭代之间、与迭代同级内联）──────────────────────
