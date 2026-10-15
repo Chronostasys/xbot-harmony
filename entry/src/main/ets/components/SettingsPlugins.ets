@@ -832,6 +832,8 @@ export struct SettingsPlugins {
                     .fontSize(FS_CAPTION)
                     .fontColor(this.pal().warn)
                     .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
+                    // ⚡ 2026-10-20 丝滑动画：确认态切换时背景色缓动
+                    .animation(animBase())
                     .backgroundColor(this.confirmReload === e.id ? this.pal().warnBg : this.pal().transparent)
                     .borderRadius(R_LG)
                     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
@@ -981,6 +983,8 @@ export struct SettingsPlugins {
                 .fontSize(FS_CAPTION)
                 .fontColor(this.pal().warn)
                 .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
+                // ⚡ 2026-10-20 丝滑动画：确认态切换时背景色缓动
+                .animation(animBase())
                 .backgroundColor(this.confirmReload === e.id ? this.pal().warnBg : this.pal().transparent)
                 .borderRadius(R_LG)
                 .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
