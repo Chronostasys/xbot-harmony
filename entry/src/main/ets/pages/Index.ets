@@ -578,6 +578,10 @@ struct Index {
    *   ⇒ 同值短路 + 显式 `if (!this.userScrolling)` 防反复标脏。
    */
   @State userScrolling: boolean = false;
+  // ⚡ 2026-10-20 P0：延迟恢复 userScrolling——onScrollStop 可能在拖拽与惯性之间提前触发，
+  //   立即恢复 → 打字机/stream 重新开始 → re-render 杀惯性。用 150ms 延迟 + onWillScroll 取消：
+  //   惯性开始 ⇒ onWillScroll 取消定时器 ⇒ userScrolling 保持 true；惯性真正结束 ⇒ 定时器触发恢复。
+  private scrollResumeTimer: number = -1;
   @State queue: QueueItem[] = [];
 
   /**
@@ -6577,6 +6581,11 @@ struct Index {
             this.followBottom = false;
           }
           // ⚡ 2026-10-20 P0：暂停打字机定时器（20Hz @State 更新与滚动手势争抢主线程 → 粘滞）
+          //   取消待恢复定时器：惯性开始时 onWillScroll 取消 onScrollStop 的延迟恢复 ⇒ 保持暂停。
+          if (this.scrollResumeTimer >= 0) {
+            clearTimeout(this.scrollResumeTimer);
+            this.scrollResumeTimer = -1;
+          }
           if (!this.userScrolling) {
             this.userScrolling = true;
           }
@@ -6668,10 +6677,18 @@ struct Index {
         const atEnd: boolean = this.listScroller.isAtEnd();
         this.followBottom = followAfterScrollStop(this.followBottom, atEnd);
         this.atEndUi = atEnd;
-        // ⚡ 2026-10-20 P0：滚动停止（含惯性结束）⇒ 恢复打字机定时器
-        if (this.userScrolling) {
-          this.userScrolling = false;
+        // ⚡ 2026-10-20 P0：延迟恢复打字机/stream——onScrollStop 可能在拖拽与惯性之间提前触发，
+        //   立即恢复 → re-render 杀惯性。150ms 延迟：惯性开始则 onWillScroll 取消定时器；
+        //   惯性真正结束则定时器触发恢复。用户要求"惯性滚动停止后再继续"。
+        if (this.scrollResumeTimer >= 0) {
+          clearTimeout(this.scrollResumeTimer);
         }
+        this.scrollResumeTimer = setTimeout(() => {
+          this.scrollResumeTimer = -1;
+          if (this.userScrolling) {
+            this.userScrolling = false;
+          }
+        }, 150);
       })
       .onReachStart(() => {
         if (!this.loadingMore && this.hasMore) {
