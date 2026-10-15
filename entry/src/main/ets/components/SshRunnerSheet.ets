@@ -32,7 +32,7 @@ import {
   RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, SHEET_ACTION_GLYPH, SHEET_WIDTH, SPACE_MD,
   SPACE_SM, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD, structuralRuleOf, surfaceFillOf, typeOf,
 } from '../core/design';
-import { sheetTransition } from './anim';
+import { sheetTransition, animBase } from './anim';
 import { RPC_PLUGIN_CONFIG, RPC_PLUGIN_CONFIG_SET, RPC_RUNNER_LIST } from '../core/rpc';
 import {
   CONN_CONNECTED, CONN_DISCONNECTED, CONN_RECONNECTING, CONNECT_POLL_MAX_ATTEMPTS, JOB_POLL_INTERVAL_MS,
@@ -276,6 +276,8 @@ struct SshChip {
     .padding({ left: SPACE_SM, right: SPACE_SM })
     .justifyContent(FlexAlign.Center)
     .alignItems(VerticalAlign.Center)
+    // ⚡ 2026-10-20 丝滑动画：tone 切换时背景色缓动
+    .animation(animBase())
     .backgroundColor(this.tone === 'accent' ? this.tc('accentFill') : Color.Transparent)
     .borderRadius(RADIUS_PILL)
     .border({ width: STROKE_HAIRLINE, color: this.tc('rule') })
