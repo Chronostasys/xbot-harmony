@@ -138,6 +138,8 @@ struct NavItemView {
           //    实算 porcelain 仅 **4.10**、dark 仅 **4.05** ⇒ 不足 ⇒ 改走文字 role `accentText`
           //    （porcelain 6.00 / dark 10.16 / light 7.59 / aurora 11.29 / nebula 9.27，全 ≥4.5）。
           //    非激活分支的 `textMuted` 属元信息档（AA_MUTED 2.0），不在本次越界范围。
+          // ⚡ 2026-10-20 丝滑动画：当前项切换时序号文字颜色缓动
+          .animation(animBase())
           .fontColor(this.row.active ? this.pal().accentText : this.pal().textMuted)
           .fontWeight(this.row.active ? FontWeight.Medium : FontWeight.Normal)
         Text(userTextOrPlaceholder(this.row.userText))
