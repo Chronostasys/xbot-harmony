@@ -604,7 +604,7 @@ struct Index {
   @State rewindEditRowId: string = '';
 
   // ── 弹层 ──────────────────────────────────────────────────────────────────
-  @State showDrawer: boolean = false;
+  @State @Watch('onDrawerChanged') showDrawer: boolean = false;
   // ── 新建会话（web `NewSessionDialog` 等价弹层：工作目录 + 最近目录候选）─────────
   /** 弹层开关。 */
   @State showNewSession: boolean = false;
@@ -2033,6 +2033,13 @@ struct Index {
       this.appendBgOutput(store.lastBgOutput);
     }
     this.pendingSync = store;
+    // ── 抽屉冻结（2026-10-17 用户亲报「busy 时侧边栏滚动掉帧」）────────────────────
+    //    流式期每帧 syncFrom ⇒ 整棵树重渲与抽屉滚动抢帧 ⇒ 掉帧。抽屉开着：**不进 16ms
+    //    派发**（连 delay 都不排——最省），数据停留在 pendingSync 积累；关闭瞬间由
+    //    onDrawerChanged 一次性刷回（「关闭一瞬间刷回来」= 用户给的方案）。
+    if (this.showDrawer) {
+      return;
+    }
     if (this.syncScheduled) {
       return;
     }
@@ -2045,6 +2052,20 @@ struct Index {
         this.syncFrom(s);
       }
     }, 16);
+  }
+
+  /**
+   * 抽屉关闭瞬间：把冻结期间积累的 pendingSync **一次性刷回**（见 scheduleSync 的冻结注释）。
+   * ⚠️ 只在关（false 转变）时刷——打开时不动（打开那一刻本来就没有冻结数据）。
+   */
+  onDrawerChanged(): void {
+    if (!this.showDrawer && this.pendingSync !== null) {
+      const s: ChatStore | null = this.pendingSync;
+      this.pendingSync = null;
+      if (s !== null) {
+        this.syncFrom(s);
+      }
+    }
   }
 
   private attach(store: ChatStore): void {
