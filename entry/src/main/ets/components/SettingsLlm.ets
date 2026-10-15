@@ -1446,10 +1446,14 @@ export struct SettingsLlm {
                           Row({ space: SP_2 }) {
                             Text(modelStatusLabel(e.status))
                               .fontSize(FS_CAPTION)
+                              // ⚡ 2026-10-20 丝滑动画：模型禁用/可用状态切换时颜色缓动
+                              .animation(animBase())
                               .fontColor(isModelDisabled(e.status) ? this.pal().textMuted : this.pal().successText)
                             Text(e.model)
                               .fontSize(FS_CAPTION)
                               .fontFamily('monospace')
+                              // ⚡ 2026-10-20 丝滑动画：模型禁用/可用状态切换时颜色缓动
+                              .animation(animBase())
                               .fontColor(isModelDisabled(e.status) ? this.pal().textMuted : this.pal().textPrimary)
                               .layoutWeight(1)
                               .maxLines(1)
