@@ -8928,9 +8928,13 @@ struct Index {
     // 必须把**会话身份**一起交给数据源：否则两个会话同形时它会判「骨架未变」=> 零通知 =>
     // LazyForEach 保留上一个会话的条目（真机「所有会话都显示第一个会话的内容」）。
     const tail: ChatRow[] = tailRows(rest, this.rowLimit);
-    // ⛔ 每帧 hilog 是**真开销**（流式期可达 ~45 帧/秒 ⇒ 每秒几十条 debug 写入 + 字符串拼接）。
-    //   此处原先每条 sync 都打一行 `[DS] …` 诊断（2026-10-12 P0 期临时件）⇒ 已移除；
-    //   需要诊断时用页面级**按需**探针（`[PF]` 汇总/秒），⛔ 不再逐帧打点。
+    // ⛔ 2026-10-15 streaming 掉帧修复（用户亲报「streaming content 时滚动掉帧」）：
+    //   streaming 时每帧 syncRowDs → applyRows 的 O(n) 键生成+重复键检测导致掉帧。
+    //   streaming 时历史行不变（只有 live 行走非懒路径）⇒ 历史行数量不变时跳过 applyRows，
+    //   只保留 syncLiveTail（已降频 100ms）。历史行数量变化时（新迭代完成/加载更多）仍走 applyRows。
+    if (this.busy && rest.length === this.rowDs.count()) {
+      return;
+    }
     this.rowDs.applyRows(tail, this.currentChat, this.themeName);
   }
 
@@ -11724,17 +11728,12 @@ class ChatRowDataSource implements IDataSource {
       }
       return;
     }
+    // ⛔ 2026-10-15 闪烁终极修复（用户亲报「上下文闪烁偶现，本质是突然重建某iter的单元」）：
+    //   逐行 onDataChange(i) 强制框架重建每个可见 item ⇒ 闪烁。现在所有组件都有
+    //   @StorageProp('appTheme') 全局订阅 ⇒ theme 变化时 @StorageProp 变化 ⇒ build() 重跑
+    //   ⇒ 色板更新 ⇒ 不需要逐行 onDataChange。去掉逐行 onDataChange 彻底消除闪烁。
     if (themeChanged) {
-      // ⛔ 2026-10-17 白底白字终极修复（hilog keygen 实证：onDataReloaded 不重建可见 item
-      //   ——键生成器被调用+键含正确 @theme+但 build 没重跑 ⇒ MarkdownView 持旧色板）：
-      //   逐行发 onDataChange(i) 强制框架重建每个可见 item ⇒ build 重跑 ⇒ AppStorage.get
-      //   读最新主题 ⇒ 正确色板 ⇒ 正确文字色。
-      console.debug('[THEME5] applyRows themeChanged → onDataChange 逐行 chat=' + chatId + ' theme=' + theme + ' n=' + next.length);
-      for (let i = 0; i < next.length; i++) {
-        for (let j = 0; j < this.listeners.length; j++) {
-          this.listeners[j].onDataChange(i);
-        }
-      }
+      console.debug('[THEME5] applyRows themeChanged → skip onDataChange (rely on @StorageProp) chat=' + chatId + ' theme=' + theme + ' n=' + next.length);
       return;
     }
     for (let i = 0; i < changed.length; i++) {
