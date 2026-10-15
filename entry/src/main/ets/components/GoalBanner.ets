@@ -38,6 +38,7 @@ import {
   TYPE_CHIP, TYPE_GOAL,
   goalBadgeBgOf, goalBorderOf, typeOf, colorOf, PILL_MAX_W, HIT_TARGET_MIN, } from '../core/design';
 import { goalDisplay, GoalDisplay, goalEditCommit, goalEditable } from '../core/statusfmt';
+import { animBase } from './anim';
 
 // ── 尺寸/取色一律走语义令牌（`7841978` §4.7/§4.8）─────────────────────────────
 // 旧魔数（PAD_X/PAD_Y=10/6、ICON=14、BORDER_ALPHA 深浅分叉、BADGE_TINT=0.15）已收进
@@ -114,6 +115,8 @@ export struct GoalBanner {
             ? $r('sys.symbol.checkmark')
             : $r('sys.symbol.dart_target'))
             .fontSize(ICON_MD)
+            // ⚡ 2026-10-20 丝滑动画：完成态切换时图标颜色缓动
+            .animation(animBase())
             .fontColor([this.display().completed ? this.pal().success : this.pal().accent])
         }
         .width(ICON_MD).height(ICON_MD).alignContent(Alignment.Center)
@@ -167,6 +170,8 @@ export struct GoalBanner {
           Text(this.display().objective)
             .constraintSize({ minHeight: HIT_TARGET_MIN })
             .fontSize(typeOf(TYPE_GOAL).size)
+            // ⚡ 2026-10-20 丝滑动画：完成态切换时文字颜色缓动
+            .animation(animBase())
             .fontColor(this.display().completed ? this.pal().textMuted : this.pal().textPrimary)
             .decoration(this.display().completed
               ? { type: TextDecorationType.LineThrough, color: this.pal().textMuted }
@@ -196,6 +201,8 @@ export struct GoalBanner {
             //    （3.0）⇒ 压 `goalBadgeBgOf`(= accent@15% over `surface`) porcelain 仅 **3.83**
             //    （dark 3.84 亦不足）⇒ 进行中分支改走文字 role `accentText`（porcelain 5.60 ✓）。
             //    `success` 分支保留（`success` 在 porcelain 已按 4.5 档取值，非本次越界项）。
+            // ⚡ 2026-10-20 丝滑动画：完成态切换时徽标文字颜色缓动
+            .animation(animBase())
             .fontColor(this.display().completed ? this.pal().success : this.pal().accentText)
             .backgroundColor(goalBadgeBgOf(this.pal(), this.display().completed))
             .borderRadius(R_SM)
