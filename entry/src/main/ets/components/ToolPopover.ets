@@ -31,6 +31,7 @@ import {
   DIFF_ADD, DIFF_CTX, DIFF_DEL, DIFF_HUNK, DiffFile, DiffLine, HunkParts,
   extractDiffSource, hasDiffBody, parseUnifiedDiff, splitHunk,
 } from '../core/diffparse';
+import { animBase } from './anim';
 
 /** 内容区最大高度（vp）—— 屏 ≈844vp；限制在 ~1/3 ⇒ 浮层朝上朝下都放得下。 */
 const BODY_MAX_H: number = 260;
@@ -642,6 +643,8 @@ export struct ToolPopoverCard {
       }
       Text(this.promoteLabel())
         .fontSize(FS_CAPTION)
+        // ⚡ 2026-10-20 丝滑动画：错误态切换时文字颜色缓动
+        .animation(animBase())
         .fontColor(this.promoteState === 'error' ? statusColorOf(ST_ERROR, this.themeId()) : this.vm.statusColor)
         .fontWeight(FontWeight.Medium).layoutWeight(1)
         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -741,6 +744,8 @@ export struct ToolPopoverCard {
       if (this.vm.hasExit) {
         Text(`退出码 ${this.vm.exitCode}`)
           .fontSize(typeOf(TYPE_CHIP).size)
+          // ⚡ 2026-10-20 丝滑动画：退出码颜色缓动
+          .animation(animBase())
           .fontColor(this.vm.exitCode !== 0 ? this.pal().dangerText : this.pal().textMuted)
       }
       if (!this.vm.hasAny) {
