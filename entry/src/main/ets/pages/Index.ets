@@ -11623,8 +11623,8 @@ class ChatRowDataSource implements IDataSource {
     // ⛔ 还必须含**主题**：`LazyForEach` 的键含主题（`themableRowKey`）⇒ 主题变了键全变，
     //    必须走整表 reload 让框架重读键/重建条目；否则键已变而只发 `onDataChange` ⇒
     //    已存在行仍冻结在旧色板（用户亲报「深色看不清字」的同一根因）。
-    const structural: boolean = needsFullReload(this.rows, next, this.chatId, chatId)
-      || theme !== this.theme;
+    const fullReload: boolean = needsFullReload(this.rows, next, this.chatId, chatId);
+    const themeChanged: boolean = theme !== this.theme;
     this.theme = theme;
     // ⚠️ 2026-10-17 键去 rev 后：**内容更新不再走 onDataChange**（同键 item 被
     //    LazyForEach 用 onDataChange 触发重建 = 闪烁根源）—— @Observed 属性刷新接管：
@@ -11657,12 +11657,22 @@ class ChatRowDataSource implements IDataSource {
       }
     }
     this.keys = keys;
-    if (structural) {
-      const k0: string = keys.length > 0 ? keys[0] : '';
-      const frameKey: string = next.length > 0 ? themableRowKey(chatId, theme, next[0]) : '';
-      console.debug('[THEME5] applyRows structural=true chat=' + chatId + ' theme=' + theme + ' n=' + next.length + ' key0=' + k0 + ' frameKey=' + frameKey);
+    if (fullReload) {
       for (let i = 0; i < this.listeners.length; i++) {
         this.listeners[i].onDataReloaded();
+      }
+      return;
+    }
+    if (themeChanged) {
+      // ⛔ 2026-10-17 白底白字终极修复（hilog keygen 实证：onDataReloaded 不重建可见 item
+      //   ——键生成器被调用+键含正确 @theme+但 build 没重跑 ⇒ MarkdownView 持旧色板）：
+      //   逐行发 onDataChange(i) 强制框架重建每个可见 item ⇒ build 重跑 ⇒ AppStorage.get
+      //   读最新主题 ⇒ 正确色板 ⇒ 正确文字色。
+      console.debug('[THEME5] applyRows themeChanged → onDataChange 逐行 chat=' + chatId + ' theme=' + theme + ' n=' + next.length);
+      for (let i = 0; i < next.length; i++) {
+        for (let j = 0; j < this.listeners.length; j++) {
+          this.listeners[j].onDataChange(i);
+        }
       }
       return;
     }
