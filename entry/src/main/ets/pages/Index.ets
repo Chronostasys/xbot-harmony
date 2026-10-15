@@ -578,10 +578,6 @@ struct Index {
    *   ⇒ 同值短路 + 显式 `if (!this.userScrolling)` 防反复标脏。
    */
   @State userScrolling: boolean = false;
-  // ⚡ 2026-10-20 P0：延迟恢复 userScrolling——onScrollStop 可能在拖拽与惯性之间提前触发，
-  //   立即恢复 → 打字机/stream 重新开始 → re-render 杀惯性。用 150ms 延迟 + onWillScroll 取消：
-  //   惯性开始 ⇒ onWillScroll 取消定时器 ⇒ userScrolling 保持 true；惯性真正结束 ⇒ 定时器触发恢复。
-  private scrollResumeTimer: number = -1;
   @State queue: QueueItem[] = [];
 
   /**
@@ -2112,6 +2108,12 @@ struct Index {
   }
 
   private syncFrom(store: ChatStore): void {
+    // ⚡ 2026-10-20 P0：用户滚动时跳过整个 syncFrom——避免任何 @State 更新触发 re-render
+    //   杀死惯性滚动。store 已自行处理 SSE 事件，页面 @State 只是投影；滚动停止后下一帧
+    //   syncFrom 自然补上。会话切换必须立即处理（否则跨会话渲染错乱）。
+    if (this.userScrolling && this.currentChat === store.currentChatId) {
+      return;
+    }
     // 自愈：not busy 却残留空 live 行（迟到事件造的）⇒ 先删掉再投影，避免 busy 被钉死
     store.pruneEmptyLiveRowIfIdle();
     // ── ⛔ 真机严重事故（"所有会话都渲染了第一个打开的会话的迭代"）的顺序契约 ──
@@ -6581,11 +6583,6 @@ struct Index {
             this.followBottom = false;
           }
           // ⚡ 2026-10-20 P0：暂停打字机定时器（20Hz @State 更新与滚动手势争抢主线程 → 粘滞）
-          //   取消待恢复定时器：惯性开始时 onWillScroll 取消 onScrollStop 的延迟恢复 ⇒ 保持暂停。
-          if (this.scrollResumeTimer >= 0) {
-            clearTimeout(this.scrollResumeTimer);
-            this.scrollResumeTimer = -1;
-          }
           if (!this.userScrolling) {
             this.userScrolling = true;
           }
@@ -6677,18 +6674,12 @@ struct Index {
         const atEnd: boolean = this.listScroller.isAtEnd();
         this.followBottom = followAfterScrollStop(this.followBottom, atEnd);
         this.atEndUi = atEnd;
-        // ⚡ 2026-10-20 P0：延迟恢复打字机/stream——onScrollStop 可能在拖拽与惯性之间提前触发，
-        //   立即恢复 → re-render 杀惯性。150ms 延迟：惯性开始则 onWillScroll 取消定时器；
-        //   惯性真正结束则定时器触发恢复。用户要求"惯性滚动停止后再继续"。
-        if (this.scrollResumeTimer >= 0) {
-          clearTimeout(this.scrollResumeTimer);
+        // ⚡ 2026-10-20 P0：滚动停止 → 恢复 stream 渲染（syncFrom 不再跳过）。
+        //   无需延迟：syncFrom 的早退闸门直接由 userScrolling 控制，onWillScroll 的 FLING 帧
+        //   会保持 userScrolling=true（isUserScrollSource 含 FLING），惯性期间 syncFrom 不跑。
+        if (this.userScrolling) {
+          this.userScrolling = false;
         }
-        this.scrollResumeTimer = setTimeout(() => {
-          this.scrollResumeTimer = -1;
-          if (this.userScrolling) {
-            this.userScrolling = false;
-          }
-        }, 150);
       })
       .onReachStart(() => {
         if (!this.loadingMore && this.hasMore) {
