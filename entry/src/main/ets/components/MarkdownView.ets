@@ -160,8 +160,22 @@ export struct MarkdownView {
   @Prop wrapCode: boolean = true;
   /** 消息字号缩放（1 = 默认；由设置面板控制，范围 0.85–1.4 已在上游夹取） */
   @Prop fontScale: number = 1;
-  /** 显式主题覆盖（测试/独立预览）；生产走 `appTheme` 全局订阅（页面不传）。 */
-  @Prop theme: string = 'dark';
+  /**
+  /** 生效主题：**直读 AppStorage 当前值**（绕过缓存 item 的 @Prop/@StorageProp 不重投不重渲坑）。
+   *
+   * ⛔ 2026-10-17 白底白字终极修复：用户实测「前四个 commit 迭代白字、stream 迭代黑字」+
+   *   「切回黑后黑底黑字」= C 块 MarkdownView 的色板**没有随主题切换**。根因：
+   *   MarkdownView 在虚拟列表**缓存 item** 里，@Prop theme 与 @StorageProp appTheme
+   *   **都不触发重渲/不重投**（0152795 亲证的平台坑；本轮插桩实证：
+   *   reload/键变/@Observed themeGen 全部执行但 MarkdownView 仍持旧色板）。
+   *   唯一绕法：build 重跑时**直读 AppStorage.get()**（不建订阅、不依赖重投）——
+   *   配合 rowDs structural 的 row.themeGen++（@Observed 赋值强制行重渲），
+   *   行重渲时此处必读到最新主题值。
+   */
+  private themeId(): string {
+    const live: string = AppStorage.get<string>('appTheme') ?? '';
+    return live.length > 0 ? live : (this.appTheme.length > 0 ? this.appTheme : this.theme);
+  }
   /**
    * 全局主题**订阅**（生产唯一真源）—— 正文实际取色点。历史行由 `LazyForEach` 承载，主题变更
    * 不改变行键 ⇒ 只靠 `@Prop` 投递会**冻结在创建那刻**（浅色主题下取深色板 = 白底白字）。
