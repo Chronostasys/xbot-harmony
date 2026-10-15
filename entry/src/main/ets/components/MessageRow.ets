@@ -1238,6 +1238,8 @@ struct EmptyNotice {
       }
       Text(this.failed() ? FAILED_NOTICE_TEXT : EMPTY_NOTICE_TEXT)
         .fontSize(FS_CAPTION)
+        // ⚡ 2026-10-20 丝滑动画：失败/空态切换时文字颜色缓动
+        .animation(animBase())
         .fontColor(this.failed() ? this.pal().dangerText : this.pal().textMuted)
         .wordBreak(WordBreak.BREAK_WORD)
         .layoutWeight(1)
