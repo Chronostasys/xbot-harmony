@@ -181,6 +181,7 @@ import {
   CommandAction, PENDING_COMMAND_KEY, PENDING_COMMAND_SEQ_KEY, commandArg, commandDispatchable, parseCommandUri,
 } from '../core/command';
 import { MessageNav, NAV_ACTIVE_SEQ_KEY } from '../components/MessageNav';
+import { SearchHit as RowHit, rowSearchHits } from '../core/rowsearch';
 import { PluginHost } from '../components/PluginHost';
 import { GoalBanner } from '../components/GoalBanner';
 import { WidgetDock } from '../components/WidgetDock';
@@ -799,6 +800,11 @@ struct Index {
    * busy=false 时**必须自动复位**（Web gotcha：否则用户以为在发普通消息，实际插进了别人的回合）。
    */
   @State sendMode: string = MODE_QUEUE;
+
+  // 输出搜索结果（MessageNav 搜索框的回填）：只在打字时写（rowSearchHits 纯函数）。
+  // ⛔ 与服务端搜索（:925 searchHits/SearchHitsSheet）是**两条链**：本地即时过滤 vs 网络 API
+  //    —— 独立状态（rowHits），绝不共写（共写会互相污染对方面板）。
+  @State rowHits: RowHit[] = [];
 
   /**
    * 取消按钮的**最短转圈驻留**窗口（§21.122bs）。
@@ -6561,6 +6567,15 @@ struct Index {
           //    滚动跨锚点时**页级 build 零参与**（传参就必须把它存成页级 `@State` ⇒ 整页重跑）。
           theme: this.themeName,
           onNavigate: (rowIndex: number) => {
+            this.navToRow(rowIndex);
+          },
+          // ── 输出搜索（web 没有——原生超越）：页面持有全行 ⇒ 在这里算 hits 回填。──
+          // searchHits 只在**打字时**写（非滚动路径）⇒ 无 LazyForEach 掉帧风险（对比 activeSeq 教训）。
+          hits: this.rowHits,
+          onSearch: (q: string) => {
+            this.rowHits = rowSearchHits(this.rows, q);
+          },
+          onPickHit: (rowIndex: number) => {
             this.navToRow(rowIndex);
           },
         })

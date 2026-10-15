@@ -244,7 +244,7 @@ function guardMetricOk(g: string): boolean {
   if (g.indexOf("n_pal_all=$(grep -roE 'this\\.pal\\(\\)|this\\.palOnce\\(\\)'") < 0) { return false; }
   // 两条上限各自独立（A = 成本线 1250 只许减；B = 松界 1353 —— §21.113 +2 / §21.114 +1，见 docs/PERF-BUDGET.md §5）
   if (g.indexOf('"$n_pal" 1250') < 0) { return false; }
-  if (g.indexOf('"$n_pal_all" 1353') < 0) { return false; }
+  if (g.indexOf('"$n_pal_all" 1357') < 0) { return false; }
   return true;
 }
 ok(`G2 闭合：guard.sh 拆 A/B 两条（A=成本线 1250 / B=读取总量 1353；词源 guard.sh:${firstLine(GUARD, 'n_pal_all=')}）`,

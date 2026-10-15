@@ -90,7 +90,7 @@ le "A 线·色板分配次数 this.pal()（未 memo；⛔ 成本线，只许减�
 #  （GenUI/`display_html` 面板卡 —— 目标④ 用户明例「统计插件的面板我们看不到」：此前只画 pill）。
 #  同样收敛到**唯一取色门** `private col(role)`（内含唯一 `this.palOnce()`）⇒ 贡献**恒 1 处**；
 #  A 线一处未增。见 docs/PERF-BUDGET.md §5。
-le "B 线·色板读取总量 this.pal() ∨ this.palOnce()（含缓存命中；松界，防失控）" "$n_pal_all" 1353 处
+le "B 线·色板读取总量 this.pal() ∨ this.palOnce()（含缓存命中；松界，防失控）" "$n_pal_all" 1357 处
 le "this.eff() 调用点" "$n_eff" 80 处
 le "setInterval 调用点（常驻定时器）" "$n_itv" 6 处
 # ⛔ 只许显式登记，不许超：该数是"规模指示"不是质量判据（见下方提示行），但**新增必须写明理由**才能抬。
@@ -115,7 +115,7 @@ le "anim*() 调用点（每次调用新建曲线对象）" "$n_anim" 20 处
 # 机器行 / 诊断事实行 / 装机作业步骤 / 未纳管登记行。该组件取色收敛到唯一门 `tint(role)`
 # ⇒ A 线（真分配 `this.pal()`）**一处未增**；轮询**合并成一个** `setInterval`（setInterval 5→6，
 # 仍在上限内）。见 docs/PERF-BUDGET.md §5。
-le "ForEach 处数" "$n_fe" 117 处
+le "ForEach 处数" "$n_fe" 118 处
 le "core 外裸 parseMarkdown/parseInline 调用点" "$n_raw" 0 处
 
 # ── 后台对账「极轻量」守卫（用户点名："注册一个极其轻量的任务"）────────────────────

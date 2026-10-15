@@ -37,6 +37,7 @@ import {
 import { fs, lh, fw } from './SettingsRows';
 import { animFast } from './anim';
 import { NavAnchor, seqLabel, shouldShowNav, userTextOrPlaceholder } from '../core/msgindex';
+import { SearchHit, isEmptyQuery, hitOffsetInSnippet } from '../core/rowsearch';
 
 /**
  * 导航高亮序号（1-based，0=无）的 **AppStorage 键** —— 详见下面 `activeSeq` 的注释。
@@ -219,6 +220,15 @@ export struct MessageNav {
 
   /** 面板是否展开（点击切换；点浮层外由 `onWillDismiss` 收起）。 */
   @State open: boolean = false;
+
+  // ── 输出搜索（web 没有——原生超越）─────────────────────────────────────────
+  // query 在本组件（TextInput 双向）；hits 由**页面**算（页面才有全行 `this.rows`）：
+  // onChange → onSearch(q) → 页面 rowSearchHits(rows, q) → @Prop hits 回填（小数组，
+  // 深拷贝无碍）。命中条目点击 → onPickHit(rowIndex) → 页面 navToRow（纯滚动复用）。
+  @State query: string = '';
+  @Prop hits: SearchHit[] = [];
+  onSearch: (q: string) => void = () => {};
+  onPickHit: (rowIndex: number) => void = () => {};
   /**
    * 面板条目（`@Observed` 行数组）—— `anchors`/`activeSeq` 变化时经 `syncRows()` **就地更新**。
    *
@@ -388,11 +398,24 @@ export struct MessageNav {
     }
   }
 
-  /** 浮层内容：用户消息列表（web `:166-207` 的 panel）。无参 @Builder ⇒ 读 `this` 随状态重建。 */
+  /** 浮层内容：用户消息列表（web `:166-207` 的 panel）+ 搜索框（原生超越 web）。无参 @Builder ⇒ 读 `this` 随状态重建。 */
   @Builder
   PanelBody() {
-    List({ scroller: this.panelScroller }) {
-      ForEach(this.rows, (r: NavRow) => {
+    Column({ space: SPACE_XS }) {
+      // 输出搜索框（web 没有）：空 = web 同构锚点列表；非空 = 全行搜索结果（hits 由页面算回填）。
+      // ⛔ 关闭浮层即清空（open=false 时 query 复位——见 onWillDismiss/onClick 收起路径统一在 dismissQuery）。
+      TextInput({ text: this.query, placeholder: '搜索对话内容…' })
+        .fontSize(fs('type.caption'))
+        .padding({ left: SPACE_XS, right: SPACE_XS, top: 6, bottom: 6 })
+        .borderRadius(RADIUS_CHIP)
+        .backgroundColor(withAlpha(this.pal().surface, 0.6))
+        .onChange((v: string) => {
+          this.query = v;
+          this.onSearch(v);
+        })
+      if (isEmptyQuery(this.query)) {
+        List({ scroller: this.panelScroller }) {
+          ForEach(this.rows, (r: NavRow) => {
         ListItem() {
           NavItemView({
             row: r,
@@ -421,5 +444,57 @@ export struct MessageNav {
         this.panelScroller.scrollToIndex(this.activeSeq - 1, true, ScrollAlign.CENTER);
       }
     })
+      } else {
+        // ── 搜索结果模式：全行命中列表（core/rowsearch 纯函数产物，页面回填 hits）。──
+        if (this.hits.length === 0) {
+          Text('无匹配')
+            .fontSize(fs('type.caption'))
+            .fontColor(this.pal().textMuted)
+            .padding(ITEM_PAD_Y)
+        } else {
+          List() {
+            ForEach(this.hits, (h: SearchHit) => {
+              ListItem() {
+                Column({ space: 2 }) {
+                  Text(h.role === 'user' ? '我' : (h.role === 'tool' ? '工具' : '回复'))
+                    .fontSize(fs('type.mini'))
+                    .fontColor(colorOf(this.pal(), 'textMuted'))
+                  // ⛔ Text 的子组件只能是 Span 族（10905219）——命中高亮用 Span 三段。
+                  //    外层 Text 给基色 textSecondary（前/尾段继承），命中段独色+粗体
+                  //    （B 线 pal() 预算：两处省一处——继承而非每 Span 重复调用）。
+                  Text() {
+                    Span(h.snippet.slice(0, hitOffsetInSnippet(h.at)))
+                    Span(h.snippet.slice(hitOffsetInSnippet(h.at), hitOffsetInSnippet(h.at) + this.query.trim().length))
+                      .fontColor(this.pal().textPrimary)
+                      .fontWeight(FontWeight.Bold)
+                    Span(h.snippet.slice(hitOffsetInSnippet(h.at) + this.query.trim().length))
+                  }
+                  .fontSize(fs('type.caption'))
+                  .fontColor(this.pal().textSecondary)
+                  .maxLines(2)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .width('100%')
+                }
+                .alignItems(HorizontalAlign.Start)
+                .width('100%')
+                .padding({ top: ITEM_PAD_Y, bottom: ITEM_PAD_Y })
+                // porcelain 门禁：自定义可点元素必须有 press 反馈（NavItemView :180 同款）。
+                .stateStyles({ pressed: { .opacity(0.7) } })
+              }
+              .onClick(() => {
+                this.onPickHit(h.index);
+                this.open = false;
+                this.query = '';
+                this.onSearch('');
+              })
+            }, (h: SearchHit) => `hit-${h.index}`)
+          }
+          .width('100%')
+          .constraintSize({ maxHeight: PANEL_MAX_H })
+          .scrollBar(BarState.Auto)
+          .padding(PANEL_PAD)
+        }
+      }
+    }
   }
 }
