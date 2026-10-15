@@ -610,16 +610,7 @@ return renderKind(t.status, t.exit_code, true);
               mdTheme: this.mdTheme,
             })
           }
-          if (this.typingText() || this.typingReason()) {
-            // 打字机光标 = "**正在写入**"的局部标记（分工见 `docs/DESIGN-SYSTEM.md §8`）：
-            //   · 不再有彩色外发光（发光体**只允许光球一个**；且白底上彩色光晕会读成"脏"）；
-            //   · 不再 10Hz 硬闪，改为按 `MOTION_BEAT_MS`（2×D_SLOW=640ms）呼吸 ⇒ 与整组同刻度。
-            Row()
-              .width(STROKE_RAIL).height(14)
-              .backgroundColor(this.pal().accent)
-              .borderRadius(1)
-              .opacity(this.caretAlpha)
-          }
+          // 打字机光标已移除（用户要求：光标单独占一行闪烁→去掉光标，打字机逐字显示即效果）
         }
         .width('100%')
         .alignItems(HorizontalAlign.Start)
