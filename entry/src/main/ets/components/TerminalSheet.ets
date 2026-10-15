@@ -767,6 +767,8 @@ export struct TerminalSheet {
             // 状态圆点：用 `Circle()`（ToolPopover 的状态点同款）⇒ ⛔ 零数值 borderRadius。
             Circle()
               .width(8).height(8)
+              // ⚡ 2026-10-20 丝滑动画：连接状态切换时圆点颜色缓动
+              .animation(animBase())
               .fill(colorOf(this.palOnce(), terminalStatusRole(this.status)))
             Text(terminalStatusText(this.status, this.exitCode))
               .fontSize(typeOf('type.micro').size)
