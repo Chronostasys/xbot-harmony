@@ -56,7 +56,7 @@
 | **按分组/按 id 清理** | `cancelGroup`（`:644-665`）、`cancel(id,label?)`（`:234`，缺 label 命中我们的通知） | ✅ 登出 `cancelGroup`；进会话 `cancel(id)` |
 | **授权（读真值 + 请求）** | `isNotificationEnabled`（`:501-536`）、`requestEnableNotification(ctx)`（`:752-799`） | ✅ 设置开关反映**系统真值** |
 | **免打扰（DND）** | `NotificationSlot.bypassDnd`（默认 false） | ⛔ **刻意不设** —— 尊重系统免打扰（不绕过） |
-| **大图 / 实况窗（LiveView）** | `NotificationPictureContent`（`notificationContent.d.ts:196-221`）；`NOTIFICATION_CONTENT_SYSTEM_LIVE_VIEW`（`:1171-1179`，"三方不能直接创建"） | ➖ **不适用**：聊天提醒无合适大图；LiveView 三方受限 |
+| **大图 / 实况窗（LiveView）/ 灵动岛** | 通知通道：`NotificationPictureContent`（`notificationContent.d.ts:196-221`）；`NOTIFICATION_CONTENT_SYSTEM_LIVE_VIEW`（`:1171-1179`，"三方不能直接创建"）。**2026-10-17 复验（用户问「灵动岛为什么不支持」）**：HMS 侧确有独立 `@kit.LiveViewKit`（`@since 4.1.0(11)`，本工程 SDK21 满足）——`startLiveView/updateLiveView/stopLiveView` 三 API；**但 `LiveView.event` 是场景白名单枚举**（`liveViewManager.d.ts:390-425`：TAXI 打车/DELIVERY 外卖/FLIGHT 航班/TRAIN 火车/QUEUE 叫号/PICK_UP 取餐/SCORE 比分/RENT 租赁/TIMER 计时/WORKOUT 运动/NAVIGATION 导航/CHECK_IN 打卡/EXPRESS 快递/PROGRESS 进度/TRADE 金融）——**全垂类、无 CHAT/AI 助手类目**；且原文明示"To use specific scenarios, you need to apply for corresponding permissions"（AGC 白名单审核，个人 debug 签名不可行） | ➖ **平台性不可行**：聊天场景不在 event 白名单 + AGC 权限申请制。语义最接近的 QUEUE/PROGRESS/TIMER 是叫号/下载进度语义，滥用有审核风险。锁屏/通知中心的丰富形态已由本表各行覆盖（长文本 3072B+动作按钮+分组） |
 
 ## 3.9 后台对账（`workScheduler` 延迟任务）—— 客户端上限方案（2026-10-11 落地）
 
