@@ -565,6 +565,8 @@ struct Index {
   @State draft: string = '';
   @State hasMore: boolean = false;
   @State loadingMore: boolean = false;
+  /** loadMore 期间标志：syncFrom 跳过 savedOffset 恢复（前面追加新行 → scrollToIndex 代替） */
+  private loadingMoreRows: boolean = false;
   @State queue: QueueItem[] = [];
 
   /**
@@ -2117,7 +2119,7 @@ struct Index {
       // 用户在阅读历史时保持视口不变——内容增长不应把用户拽回底部。
       // syncRowDs → applyRows → LazyForEach onDataReloaded 可能导致 List 自动跟随，
       // 需要主动 scrollTo 保持用户视口（web DOM scroll 不会因底部增长而自动滚动）。
-      const savedOffset: number = !this.followBottom ? this.listScroller.currentOffset().yOffset : 0;
+      const savedOffset: number = (!this.followBottom && !this.loadingMoreRows) ? this.listScroller.currentOffset().yOffset : 0;
       // live 行整条（已完成迭代 + 末尾在飞块）在 syncRowDs 里抽出为非懒尾项
       this.syncRowDs();
       if (!this.followBottom) {
@@ -3929,6 +3931,9 @@ struct Index {
     if (store === null) {
       return;
     }
+    // 加载前记录第一行的 id——保持视角不变（新行追加到前面）
+    const savedFirstId: string = this.rows.length > 0 ? this.rows[0].id : '';
+    this.loadingMoreRows = true;
     try {
       await store.loadMore();
       // ⚡ C 线审计 2026-10-14：fetch 成功 ⇒ **同批立即揭示**一批（对齐 web「新行立刻进可渲染集」；
@@ -3938,6 +3943,14 @@ struct Index {
       if (hiddenRowCount(this.rows.length, this.rowLimit) > 0) {
         this.widenRowWindow();
       }
+      // 保持视角不变：定位到加载前的第一行——新行在它上方
+      if (savedFirstId.length > 0) {
+        const newIdx: number = this.rows.findIndex((r: ChatRow) => r.id === savedFirstId);
+        if (newIdx > 0) {
+          delay(() => { try { this.listScroller.scrollToIndex(newIdx); } catch (e) { } }, 0);
+        }
+      }
+      this.loadingMoreRows = false;
       const err: string = store.loadMoreErr;
       if (err.length === 0) {
         return;
@@ -3952,6 +3965,7 @@ struct Index {
       this.toast(`加载更早失败：${err}`);
     } catch (e) {
       // 兜底（`store.loadMore` 已把失败落成 `loadMoreErr`，这里只防它自身的守卫异常）
+      this.loadingMoreRows = false;
       this.toast(`加载更早失败：${errText(e as Object)}`);
     }
   }
