@@ -183,7 +183,10 @@ export struct MarkdownView {
    * 不改变行键 ⇒ 只靠 `@Prop` 投递会**冻结在创建那刻**（浅色主题下取深色板 = 白底白字）。
    * 本组件**自己订阅** AppStorage ⇒ 主题变更时每个已存在实例各自重渲染（与列表键语义无关）。
    */
-  @StorageProp('appTheme') appTheme: string = '';
+  @StorageProp('appTheme') @Watch('onAppThemeChange') appTheme: string = '';
+  /** @Watch 触发 @State 变化 → 强制 build 重跑（绕缓存 item 的 @StorageProp 不触发重渲坑）。 */
+  @State themeTick: number = 0;
+  onAppThemeChange(): void { this.themeTick++; }
   /** Markdown 主题 id（与 web 共享 `web:ui:md-theme`；只影响代码块/行内码配色）。 */
   @Prop mdTheme: string = 'vscode-dark';
   /**
@@ -200,7 +203,9 @@ export struct MarkdownView {
    *   ⛔ 与 `@Prop` 的差别：`@StorageProp` 是**组件级订阅**，不经列表重投递 ⇒ 每个已存在实例
    *      各自重渲染（同 `appTheme` 的既有做法，见 `docs/ARKTS-GOTCHAS.md` 的 `LazyForEach` 族）。
    */
-  @StorageProp('appMdTheme') appMdThemeGlobal: string = '';
+  @StorageProp('appMdTheme') @Watch('onMdThemeChange') appMdThemeGlobal: string = '';
+  @State mdThemeTick: number = 0;
+  onMdThemeChange(): void { this.mdThemeTick++; }
   /**
    * 链接相对地址的解析基准（服务端地址）。空 = 只放行绝对地址（`http/https/mailto`）。
    * 对齐 web 的浏览器行为：相对链接按**同源**解析（`MarkdownRenderer.tsx:311-321` 是真 `<a href>`）。
