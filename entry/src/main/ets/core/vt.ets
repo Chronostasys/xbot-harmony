@@ -233,7 +233,7 @@ export class VtTerm {
 
   private grid: VtCell[][] = [];
   private scrollback: VtCell[][] = [];
-  private maxScrollback: number = 1000;
+  private maxScrollback: number = 3000;
 
   private state: number = ST_NORMAL;
   private params: number[] = [];

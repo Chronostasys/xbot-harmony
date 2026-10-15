@@ -52,10 +52,11 @@ import { fadeTransition, sheetTransition } from './anim';
  * **单组件**排版（无组件节点增长）；buffer 数据永远充足（VtTerm `maxScrollback=1000`
  * > 500，core/vt.ets:218）。⚠️ 若真机滚动掉帧 ⇒ 回落 300 或改视口窗口渲染。
  *
- * 500 → **1000**（2026-10-17，#7-3）：对齐 `VtTerm maxScrollback=1000` **整 buffer 上限**
- * （此前只用一半——「buffer 数据永远充足」口径顺带升级为「全量」）。掉帧回落预案同上不变。
+ * 1000 → **3000**（2026-10-20）：web 权威 = xterm.js `scrollback: 10000`；1000 行回看太短
+ * （用户运行长命令时看不到前面输出）。3000 是性能与回看的平衡点——单 Text 摊平仍可控，
+ * 且对齐 `VtTerm maxScrollback=3000` 整 buffer 上限。若真机滚动掉帧 ⇒ 回落 2000。
  */
-const TERM_MAX_LINES: number = 1000;
+const TERM_MAX_LINES: number = 3000;
 /** 合并刷新间隔（ms）：≈10fps，够流畅且不会把 UI 线程打满。 */
 const TERM_FLUSH_MS: number = 100;
 /**
