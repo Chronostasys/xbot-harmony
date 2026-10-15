@@ -7153,6 +7153,8 @@ struct Index {
       // **聚焦才描边 `accent`**（⛔ 静息不描 accent）。圆角 = `RADIUS_CARD`（对齐样张 ①）。
       .backgroundColor(surfaceFillOf(this.pal(), 'surface.input'))
       .borderRadius(RADIUS_CARD)
+      // ⚡ 2026-10-20 丝滑动画：获焦时边框 accent 色缓动（与侧边栏搜索框聚焦动画同语义）
+      .animation(animBase())
       .border({
         width: STROKE_HAIRLINE,
         color: this.composerFocused ? this.pal().accent : hairlineOf(this.pal()),
