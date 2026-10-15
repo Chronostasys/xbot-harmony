@@ -10553,6 +10553,9 @@ struct Index {
     .alignItems(VerticalAlign.Center)
     // 吸顶底：与抽屉根**同材质**（实底 overlay，见上方注释）。
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
+    // ⚡ 2026-10-20 视觉分隔：吸顶时底缘发丝线（Apple 列表吸顶头同款）——与内容同底色时
+    //    无分隔线会让用户看不出"内容滚到头了"；发丝线 = 清晰但不喧宾夺主的视觉边界。
+    .border({ width: { bottom: STROKE_HAIRLINE }, color: hairlineOf(this.palOnce()) })
     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
     .onClick(() => {
       this.toggleGroup(this.sessionCategory(), g.key);
