@@ -567,6 +567,17 @@ struct Index {
   @State loadingMore: boolean = false;
   /** loadMore 期间标志：syncFrom 跳过 savedOffset 恢复（前面追加新行 → scrollToIndex 代替） */
   private loadingMoreRows: boolean = false;
+  /**
+   * 用户正在滚动（含惯性）——暂停打字机定时器。
+   *
+   * ⛔ 2026-10-20 P0 滚动粘滞修复：打字机 50ms setInterval（20Hz @State 更新）在流式期间
+   *   持续运行 → 每 tick 重渲染 ListItem 内的 LiveTailView → 与滚动手势争抢主线程 → 粘滞+掉帧。
+   *   修复：用户一动手滚动 ⇒ `userScrolling=true` ⇒ `paused` 变 true ⇒ 定时器停 → 滚动顺滑；
+   *   `onScrollStop`（含惯性结束）⇒ `userScrolling=false` ⇒ 定时器恢复 → 打字机续上。
+   *   ⚠️ 只在**真的变化**时写（`@State` 写入触发页级 build）：用户拖动每帧都进 `onWillScroll`
+   *   ⇒ 同值短路 + 显式 `if (!this.userScrolling)` 防反复标脏。
+   */
+  @State userScrolling: boolean = false;
   @State queue: QueueItem[] = [];
 
   /**
@@ -6565,6 +6576,10 @@ struct Index {
           if (this.followBottom) {
             this.followBottom = false;
           }
+          // ⚡ 2026-10-20 P0：暂停打字机定时器（20Hz @State 更新与滚动手势争抢主线程 → 粘滞）
+          if (!this.userScrolling) {
+            this.userScrolling = true;
+          }
         }
       })
       // 跟踪"是否跟随到底部"：end 是最后一个可见项的下标，等于末项下标即在底部。
@@ -6653,6 +6668,10 @@ struct Index {
         const atEnd: boolean = this.listScroller.isAtEnd();
         this.followBottom = followAfterScrollStop(this.followBottom, atEnd);
         this.atEndUi = atEnd;
+        // ⚡ 2026-10-20 P0：滚动停止（含惯性结束）⇒ 恢复打字机定时器
+        if (this.userScrolling) {
+          this.userScrolling = false;
+        }
       })
       .onReachStart(() => {
         if (!this.loadingMore && this.hasMore) {
@@ -10202,7 +10221,8 @@ struct Index {
         orb: this.orbOn(),
         // §21.122bx：浮层覆盖聊天区时**停表**（光球 30fps Canvas 是流式期唯一实测到的 CPU 地板；
         // 被浮层盖住 ⇒ 无人看见，却与浮层入场动画抢帧预算）。语义与"后台停表"同一条通道。
-        paused: this.appPaused || this.anyModalOpen(),
+        // ⚡ 2026-10-20 P0：用户滚动时也停表（20Hz @State 更新与滚动手势争抢主线程 → 粘滞+掉帧）。
+        paused: this.appPaused || this.anyModalOpen() || this.userScrolling,
         onImage: (src: string) => {
           this.openImage(src);
         },
@@ -10283,7 +10303,8 @@ struct Index {
         orb: this.orbOn(),
         // §21.122bx：浮层覆盖聊天区时**停表**（光球 30fps Canvas 是流式期唯一实测到的 CPU 地板；
         // 被浮层盖住 ⇒ 无人看见，却与浮层入场动画抢帧预算）。语义与"后台停表"同一条通道。
-        paused: this.appPaused || this.anyModalOpen(),
+        // ⚡ 2026-10-20 P0：用户滚动时也停表（20Hz @State 更新与滚动手势争抢主线程 → 粘滞+掉帧）。
+        paused: this.appPaused || this.anyModalOpen() || this.userScrolling,
         onImage: (src: string) => {
           this.openImage(src);
         },
