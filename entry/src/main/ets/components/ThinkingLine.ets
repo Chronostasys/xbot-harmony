@@ -193,25 +193,28 @@ export struct ThinkingLine {
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           // ⛔ **水平溢出**：与左侧图标同一 Row，标签长度不可控 ⇒ 必须能收缩（否则顶出屏宽）。
           .layoutWeight(1)
+          // ⛔ 2026-10-17（用户定向）：展开/收起的**热区必须精确到「思考 N 字」文字块**——
+          //    原实现 onClick 挂在整条头部 Row（图标+文字+两侧空白全可点）⇒ 点行尾空白也
+          //    展开（用户实测「不要点那一行就展开」）。修：onClick+按压反馈移到 **Text**，
+          //    Row 仅保留视觉（padding/pill 底）。
+          .borderRadius(RADIUS_PILL)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) } })
+          .onClick(() => {
+            // 本地 @State 驱动本次重绘（"点一下立刻响应"）；store 承接 remount 后的恢复。
+            const next: boolean = !this.open;
+            // 用户交互 ⇒ 此后开合**一律**播过渡（挂载时若已是展开态则此前为禁止，见 `animReady`）。
+            this.animReady = true;
+            this.open = next;
+            if (this.stateKey.length > 0) {
+              setReasoningOpen(this.stateKey, next);
+            }
+            this.onToggle();
+          })
       }
       // ⛔ 本行**静态**（不写任何随时间的 `.opacity()`）：同一时刻只有一个"在飞"动效 = 光球。
       //    仅以颜色（`accentSoft`）表达"此刻它在领读"，不引入第二个脉动源。
-      //    静息态**不写** `stateStyles.normal`（`normal` 会接管属性、盖掉动态值）——本行已无动态值，
-      //    仍只写 `pressed`，与 web 的按钮一致（web 静息态无 opacity 规则）。
       .padding({ left: SP_1, right: SP_1, top: SPACE_HAIR, bottom: SPACE_HAIR })
       .borderRadius(RADIUS_PILL)
-      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) } })
-      .onClick(() => {
-        // 本地 @State 驱动本次重绘（"点一下立刻响应"）；store 承接 remount 后的恢复。
-        const next: boolean = !this.open;
-        // 用户交互 ⇒ 此后开合**一律**播过渡（挂载时若已是展开态则此前为禁止，见 `animReady`）。
-        this.animReady = true;
-        this.open = next;
-        if (this.stateKey.length > 0) {
-          setReasoningOpen(this.stateKey, next);
-        }
-        this.onToggle();
-      })
 
       if (this.open && this.body.length > 0) {
         Text(this.body)
