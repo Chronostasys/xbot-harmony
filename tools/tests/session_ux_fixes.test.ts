@@ -82,7 +82,10 @@ ok(indexSrc.indexOf('if (!this.switchSplash\n        && showsHistorySkeleton(') 
 // ── ④ 主题全局单一真源 ────────────────────────────────────────────────────────
 ok(indexSrc.indexOf('const mdRaw: string = settingOf(store.settings, KEY_MD_THEME);') >= 0,
   '主题判据取自**权威原值**（mdRaw）');
-ok(indexSrc.indexOf('if (mdRaw.length > 0) {') >= 0, '缺该键 ⇒ 不动主题（继承全局值）');
+// 2026-10-17 单会话主题回退 p0：判定收紧为「缺该键 **或** settings 未确认（旧缓存）都不动」
+//（store.settingsFresh——loadSettings 完成才 true；池里 store 的旧深值不再覆盖全局
+// themeName——「切部分会话突然变回深色，开设置又变浅」的根治）。
+ok(indexSrc.indexOf('if (mdRaw.length > 0 && store.settingsFresh) {') >= 0, '缺该键/未确认 ⇒ 不动主题（继承全局值）');
 ok(indexSrc.indexOf('this.themeName = renderThemeKey(appPaletteForMdTheme(settingOf(store.settings, KEY_MD_THEME))') < 0,
   '旧的「settings 非空就重算」写法已消失（那正是"突变又变回"的根因）');
 

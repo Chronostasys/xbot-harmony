@@ -2233,7 +2233,10 @@ struct Index {
     //    `@StorageLink('appTheme')` 的全局真源，⛔ 绝不"用默认值覆盖"）。
     //    ⛔ 全站主题只有**一个**真源（`appTheme`），⛔ 不新增第二套"应用主题"状态。
     const mdRaw: string = settingOf(store.settings, KEY_MD_THEME);
-    if (mdRaw.length > 0) {
+    // 单会话主题回退 p0（2026-10-17）：mdRaw 来自**会话 store 的 settings 副本**——池里
+    // store 的旧缓存（深色时代的旧值）非空但过期 ⇒ 曾把 themeName 写成深色。只信
+    // loadSettings 确认过的 fresh 副本（store.settingsFresh）。
+    if (mdRaw.length > 0 && store.settingsFresh) {
       const nextTheme: string = renderThemeKey(appPaletteForMdTheme(mdRaw), this.accentHex());
       // ⛔ 同值不写：写 = 触发全站重渲（`@StorageLink` 订阅者），无变化时不产生噪声。
       if (nextTheme !== this.themeName) {

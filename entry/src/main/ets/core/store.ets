@@ -557,6 +557,14 @@ export class ChatStore {
    * `POST /api/settings`（空体）→ `{settings:{服务端键:值}}` ⇒ `toLocalSettings` 本地化。
    */
   settings: Record<string, string> = {};
+  /**
+   * 单会话主题回退 p0（2026-10-17 用户亲报「切部分会话突然变回深色，只有那个会话深色，
+   * 开设置又变浅」）：settings 副本是否经 loadSettings 确认——新建/切身份时 false
+   *（旧缓存不算数），loadSettings 完成才 true。页面主题块只信 fresh 的 settings
+   *（旧深值不再覆盖全局 themeName——此前只治了「空串」没治「旧值」，:2213 注释的
+   * 2026-10-13 同症状修复的补刀）。
+   */
+  settingsFresh: boolean = false;
 
   async loadSettings(): Promise<void> {
     const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>(
@@ -565,6 +573,7 @@ export class ChatStore {
     // 服务端 nil map → JSON null；只判 undefined 会把 null 交下去（toLocalSettings(null) 崩）。
     const map: Record<string, string> = isPresent(srv) ? srv as Record<string, string> : {};
     this.settings = toLocalSettings(map);
+    this.settingsFresh = true;
     this.syncAppAccent();
     this.syncNotifyPrefs();
     this.onUpdate();
@@ -860,6 +869,8 @@ export class ChatStore {
     this.oldestId = 0;
     this.historyError = '';
     this.historyLoading = true;
+    // 切会话身份：settings 旧缓存「不算数」——loadSettings 完成前主题不动（防旧深值回写）。
+    this.settingsFresh = false;
     this.onUpdate();
   }
 
