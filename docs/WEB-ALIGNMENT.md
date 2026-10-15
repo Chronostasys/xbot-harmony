@@ -7958,3 +7958,4 @@ appear live=true  key=13:4        （仍在飞）
 **性能优化**：
 - syncLiveTail 降频 100ms（cca8fe9）——无条件降频，减少整页 build
 - llmCfg 引用门控（905e1aa）——避免同值 @State 写入触发整页 build
+- header tok/s 徽章加背景色+圆角（d6a1dcd）——对标 Apple 状态栏徽章
