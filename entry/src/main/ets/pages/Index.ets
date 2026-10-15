@@ -6868,6 +6868,8 @@ struct Index {
                   // 选中态底色是**浅填充** `accentDeep`（浅色系 = 强调色 lighten(0.78)）⇒ 字色必须用
                   // `accentText`（角色定义即"强调色浅底上的文字"）；`onAccent` 是为**实心** accent 底
                   // 设计的白字，压在浅填充上浅色主题仅 1.1x（见对比度台账 B）
+                  // ⚡ 2026-10-20 丝滑动画：选中态文字颜色缓动
+                  .animation(animBase())
                   .fontColor(cid === this.currentChat ? this.pal().accentText : this.pal().textSecondary)
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                   .constraintSize({ maxWidth: 90 })
@@ -6881,6 +6883,8 @@ struct Index {
                   })
               }
               .padding({ left: SPACE_XS, right: 6, top: SPACE_XXS, bottom: SPACE_XXS })
+              // ⚡ 2026-10-20 丝滑动画：选中态背景色缓动
+              .animation(animBase())
               .backgroundColor(cid === this.currentChat ? this.pal().accentDeep : this.pal().surfaceAlt)
               .borderRadius(RADIUS_CHIP)
               .onClick(() => {
