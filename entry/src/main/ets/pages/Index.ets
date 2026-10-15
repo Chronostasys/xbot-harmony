@@ -3952,13 +3952,21 @@ struct Index {
       } catch (e) {
         // 首帧尚未布局：交给下一帧的补偿
       }
-      setTimeout(() => {
-        try {
-          this.listScroller.scrollToIndex(target, false, ScrollAlign.START);
-        } catch (e) {
-          // 仍未布局：放弃（下一次用户滚动会自然对齐）
-        }
-      }, 0);
+      // ⛔ 2026-10-17 用户再报「加载更多视角被拉到最上方」（真机双帧补偿曾失效的复发）：
+      //    setTimeout(0) 的「下一帧」与 onDataReloaded 的布局生效（下一个 vsync，~16ms）
+      //    同周期 ⇒ 补偿仍落在旧布局。改为**三连补偿**（0/32/96ms——跨过 vsync 的幂等重试）：
+      //    已对齐时 scrollToIndex 无害；布局就绪的那一跳必中其一。
+      const retries: number[] = [0, 32, 96];
+      for (let r = 0; r < retries.length; r++) {
+        const wait: number = retries[r];
+        setTimeout(() => {
+          try {
+            this.listScroller.scrollToIndex(target, false, ScrollAlign.START);
+          } catch (e) {
+            // 未布局：交给下一跳
+          }
+        }, wait);
+      }
     }
   }
 
