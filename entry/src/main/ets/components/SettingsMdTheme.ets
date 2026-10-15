@@ -149,7 +149,8 @@ export struct SettingsMdThemePicker {
   onSelect: (id: string) => void = () => {
   };
 
-  @State private openMode: string = '';
+  @State private darkExpanded: boolean = false;
+  @State private lightExpanded: boolean = false;
 
   private pal(): Palette {
     return paletteOf(this.theme);
@@ -159,8 +160,12 @@ export struct SettingsMdThemePicker {
     return codeTone(this.value);
   }
 
-  private effectiveOpenMode(): string {
-    return this.openMode.length > 0 ? this.openMode : mdThemeMode(this.value);
+  aboutToAppear(): void {
+    if (mdThemeMode(this.value) === MD_MODE_DARK) {
+      this.darkExpanded = true;
+    } else {
+      this.lightExpanded = true;
+    }
   }
 
   private idsOf(mode: string): string[] {
@@ -205,10 +210,10 @@ export struct SettingsMdThemePicker {
         label: '深色主题',
         ids: this.idsOf(MD_MODE_DARK),
         selected: this.value,
-        expanded: this.effectiveOpenMode() === MD_MODE_DARK,
+        expanded: this.darkExpanded,
         theme: this.theme,
         onToggle: () => {
-          this.openMode = MD_MODE_DARK;
+          this.darkExpanded = !this.darkExpanded;
         },
         onPick: (id: string) => {
           this.onSelect(id);
@@ -220,10 +225,10 @@ export struct SettingsMdThemePicker {
         label: '浅色主题',
         ids: this.idsOf(MD_MODE_LIGHT),
         selected: this.value,
-        expanded: this.effectiveOpenMode() === MD_MODE_LIGHT,
+        expanded: this.lightExpanded,
         theme: this.theme,
         onToggle: () => {
-          this.openMode = MD_MODE_LIGHT;
+          this.lightExpanded = !this.lightExpanded;
         },
         onPick: (id: string) => {
           this.onSelect(id);
