@@ -54,12 +54,16 @@ export struct ContextRing {
   @Prop label: string = '';
   /** 当前主题（色板来源）。 */
   @Prop theme: string = 'dark';
+  @StorageProp('appTheme') appTheme: string = '';
+  private themeId(): string {
+    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+  }
 
   /** 浮层开关（点环 = 开/关，对齐 web 的 hover 提示）。 */
   @State detailOpen: boolean = false;
 
   private pal(): Palette {
-    return paletteOf(this.theme);
+    return paletteOf(this.themeId());
   }
 
   /**

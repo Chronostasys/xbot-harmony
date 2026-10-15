@@ -53,6 +53,10 @@ export struct GoalBanner {
   /** 目标状态（web `goal.status`；只认 `'completed'` 为完成）。 */
   @Prop status: string = '';
   @Prop theme: string = 'dark';
+  @StorageProp('appTheme') appTheme: string = '';
+  private themeId(): string {
+    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+  }
   /** 保存编辑后的目标（**已 trim、非空、且与原值不同**才会回调）。 */
   onEditGoal: (objective: string) => void = (objective: string) => {
   };
@@ -66,7 +70,7 @@ export struct GoalBanner {
   @State draft: string = '';
 
   private pal(): Palette {
-    return paletteOf(this.theme);
+    return paletteOf(this.themeId());
   }
 
   private display(): GoalDisplay {

@@ -36,10 +36,14 @@ export struct AuthImage {
   maxHeight: number = 340;
   /** 主题（由上层透传；语义色板见 core/theme.ets） */
   @Prop theme: string = 'dark';
+  @StorageProp('appTheme') appTheme: string = '';
+  private themeId(): string {
+    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+  }
 
   /** 当前语义色板 */
   private pal(): Palette {
-    return paletteOf(this.theme);
+    return paletteOf(this.themeId());
   }
   @State pm: image.PixelMap | undefined = undefined;
   @State failed: boolean = false;

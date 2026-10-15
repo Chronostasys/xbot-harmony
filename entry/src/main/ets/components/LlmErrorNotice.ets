@@ -26,10 +26,14 @@ export struct LlmErrorNotice {
   /** 助手正文原文（含失败详情）。 */
   @Prop text: string = '';
   @Prop theme: string = 'dark';
+  @StorageProp('appTheme') appTheme: string = '';
+  private themeId(): string {
+    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+  }
   @State open: boolean = false;
 
   private pal(): Palette {
-    return paletteOf(this.theme);
+    return paletteOf(this.themeId());
   }
 
   private err(): LlmError | null {
