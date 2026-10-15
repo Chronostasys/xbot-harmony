@@ -2214,7 +2214,13 @@ struct Index {
     //   queue :2087 / todos :2096）全有守卫，唯 settings 裸写 ⇒ 流式期每帧对**同引用**反复赋值。
     //   若 ArkUI 对同引用赋值也标脏，settings 读取面（抽屉分组键/星标/主题等）会被每帧重评——
     //   给 A 线「页级 build 发动机」再加一码。加 !== 守卫=纯收益（引用变照写，语义不变）。
-    if (store.settings !== this.settings) {
+    // ⛔ 2026-10-17 P0（用户模拟器复现白底白字，截图实证）：切会话后 `this.settings`
+    //    被目标 store 的**旧缓存**覆盖（深色时代的 settings，settingsFresh 曾为 true 的
+    //    陈旧态）⇒ `mdThemeId()` 读到深 md 主题 ⇒ MarkdownView 用深 md 配色（浅色文字）
+    //    渲染在浅底上 = **白底白字**；「重载会话正常/打开设置又变浅」皆因 loadSettings
+    //    到达后 settings 才刷新 —— 与主题守卫同一纪律：**设置没到达（settingsFresh=false）
+    //    就不动页面镜像**，沿用上一会话已确认的浅色值。
+    if (store.settingsFresh && store.settings !== this.settings) {
       this.settings = store.settings;
     }
     // ⛔ 主题**单一真源** = markdown 主题（服务端 `web:ui:md-theme`，与 web 同一项）。
@@ -8970,7 +8976,12 @@ struct Index {
    * 会话隔离由 `syncRowDs` 保证（`this.rows` 只来自**当前** store）。
    */
   private liveTailHasContent(): boolean {
-    return this.hasLiveRow && rowHasInFlightSignal(this.liveRowRef);
+    // ⛔ 2026-10-17（用户亲报「占位→思考 streaming 高度闪烁：行突然消失，0.x 秒后才出现
+    //   思考x字」）：让位判据原来只看 store 的在飞信号 —— 占位让位的**同一帧**，页面投递
+    //   给 MessageRow 的 `@State liveBlocks` 可能还没到达（值传递晚一帧）⇒ 占位已删、思考块
+    //   未渲染 = 空白一帧（高度塌了再涨）。加 **liveBlocks 已到达** 前置：占位与思考块
+    //   同帧无缝交接，绝不出现间隙。
+    return this.hasLiveRow && this.liveBlocks.length > 0 && rowHasInFlightSignal(this.liveRowRef);
   }
 
   /** 打字机可见正文（安全回退：定时器未跑 ⇒ 显示全文，绝不让内容不可见）。 */
