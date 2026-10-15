@@ -49,7 +49,7 @@ import {
   SPACE_LG, SPACE_SM, SPACE_XS, SPACE_XXS, STROKE_HAIRLINE, colorOf, hairlineOf, surfaceFillOf,
 } from '../core/design';
 import { fs, fw, lh, tc } from './SettingsRows';
-import { sheetTransition } from './anim';
+import { sheetTransition, animBase } from './anim';
 
 /** 浮层档（`overlay`）的两层柔影（浅色 = 贴合 + 环境；深色 = 透明 + 原值）—— `core/theme.shadowLayersOf`。 */
 function overlayLayers(p: Palette): ShadowLayer[] {
@@ -141,11 +141,15 @@ export struct SessSheet {
     Row({ space: SPACE_SM }) {
       SymbolGlyph(this.iconOf(code))
         .fontSize(ICON_MD)
+        // ⚡ 2026-10-20 丝滑动画：danger 项切换时图标颜色缓动
+        .animation(animBase())
         .fontColor([this.dangerOf(code) ? colorOf(this.pal(), 'dangerText') : colorOf(this.pal(), 'iconMuted')])
       Text(label)
         .fontSize(fs('type.callout'))
         .fontWeight(fw('type.callout'))
         .lineHeight(lh('type.callout'))
+        // ⚡ 2026-10-20 丝滑动画：danger 项切换时文字颜色缓动
+        .animation(animBase())
         .fontColor(this.dangerOf(code) ? colorOf(this.pal(), 'dangerText') : this.pal().textPrimary)
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
