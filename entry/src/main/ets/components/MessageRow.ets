@@ -626,7 +626,7 @@ export struct MessageRowView {
             CompactionDividerRow({ body: splitMarker(c.content).body, theme: this.themeId() })
           }, (c: WebCompaction, ci: number) => `${this.row.id}#cpt#${it.iteration}#${ci}`)
         }
-      }, (it: HistoryIteration) => `${this.row.id}#${it.iteration}#${it.live === true ? 'L' : 'C'}`)
+      }, (it: HistoryIteration) => `${this.row.id}#${it.iteration}#${it.live === true ? 'L' : ('C#' + (it.tools ? it.tools.length : 0))}`)
       // ── 在飞迭代块：**同一气泡内的最后一块**（对齐 web TurnBody 的 LiveIteration）──
       // 真机 bug ② 根治点：live 迭代不再是自己一个气泡/一个 ListItem，而是这条
       // assistant 消息气泡里的最后一块，与已完成迭代共用同一套块渲染（仅带打字机）。
