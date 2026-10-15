@@ -2130,7 +2130,9 @@ struct Index {
       const savedOffset: number = (!this.followBottom && !this.loadingMoreRows) ? this.listScroller.currentOffset().yOffset : 0;
       // live 行整条（已完成迭代 + 末尾在飞块）在 syncRowDs 里抽出为非懒尾项
       this.syncRowDs();
-      if (!this.followBottom) {
+      // ⛔ loadingMoreRows 期间不执行 scrollTo——savedOffset=0 会把列表滚到顶部（P0 "视角被拉到最上方"）。
+      //   loadMore() 中的 scrollToIndex + widenRowWindow() 的三连补偿负责保持视角稳定。
+      if (!this.followBottom && !this.loadingMoreRows) {
         delay(() => {
           try { this.listScroller.scrollTo({ xOffset: 0, yOffset: savedOffset }); } catch (e) { }
         }, 0);
