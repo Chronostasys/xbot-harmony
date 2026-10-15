@@ -6206,9 +6206,6 @@ struct Index {
             .fontWeight(typeOf('type.micro').weight)
             .fontFamily('monospace')
             .fontColor(colorOf(this.pal(), 'successText'))
-            .backgroundColor(surfaceFillOf(this.pal(), 'surfaceAlt'))
-            .borderRadius(RADIUS_CHIP)
-            .padding({ left: SPACE_XS, right: SPACE_XS, top: 2, bottom: 2 })
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .margin({ right: SP_1 })
@@ -7544,6 +7541,8 @@ struct Index {
       v = p.dangerText;
     } else if (role === 'rule') {
       v = hairlineOf(p);
+    } else if (role === 'accent') {
+      v = p.accent;
     }
     this.barMemoRole = role;
     this.barMemoTheme = t;
@@ -10936,7 +10935,7 @@ struct Index {
                           if (this.isCurrentSession(s.chat_id)) {
                             Row()
                               .width(3).height(20)
-                              .backgroundColor(this.pal().accent)
+                              .backgroundColor(this.barTint('accent'))
                               .borderRadius(1.5)
                               .transition(TransitionEffect.OPACITY.animation(animFast()))
                           }
