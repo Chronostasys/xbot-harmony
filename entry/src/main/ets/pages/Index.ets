@@ -6908,11 +6908,15 @@ struct Index {
             Row({ space: 6 }) {
               Text(attachChipText(it))
                 .fontSize(typeOf('type.caption').size)
+                // ⚡ 2026-10-20 丝滑动画：附件状态切换时文字颜色缓动
+                .animation(animBase())
                 .fontColor(it.status === ATTACH_FAILED ? this.pal().dangerText : this.pal().accentSoft)
                 .layoutWeight(1).maxLines(1).wordBreak(WordBreak.BREAK_ALL)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
               Text(it.status === ATTACH_FAILED ? '重试' : '移除')
                 .fontSize(typeOf('type.caption').size)
+                // ⚡ 2026-10-20 丝滑动画：附件状态切换时按钮文字颜色缓动
+                .animation(animBase())
                 .fontColor(it.status === ATTACH_FAILED ? this.pal().warn : this.pal().dangerText)
                 .padding(6)
                 .onClick(() => {
