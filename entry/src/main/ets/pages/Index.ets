@@ -2120,7 +2120,10 @@ struct Index {
       if (!this.busy) {
         this.rowsFp = rowsFp;
       }
-      this.rows = store.rows.slice();
+      // ⛔ 2026-10-15 streaming 掉帧修复：busy 时跳过 O(n) slice——
+      //   syncRowDs 在 busy 时跳过 applyRows ⇒ 不需要 @State 变化触发 LazyForEach 重建。
+      //   直接用 store.rows 引用（syncRowDs 只读 liveRowRef，不依赖 @State 变化）。
+      this.rows = this.busy ? store.rows : store.rows.slice();
       // 用户在阅读历史时保持视口不变——内容增长不应把用户拽回底部。
       // syncRowDs → applyRows → LazyForEach onDataReloaded 可能导致 List 自动跟随，
       // 需要主动 scrollTo 保持用户视口（web DOM scroll 不会因底部增长而自动滚动）。
