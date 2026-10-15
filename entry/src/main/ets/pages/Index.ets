@@ -11422,6 +11422,8 @@ struct Index {
                 ForEach(g.entries, (e: LlmModelEntry, i: number) => {
                   Row({ space: 8 }) {
                     Text(this.labelOfModel(e)).fontSize(typeOf('type.subhead').size)
+                      // ⚡ 2026-10-20 丝滑动画：可选/不可选状态文字颜色缓动
+                      .animation(animBase())
                       .fontColor(this.modelSelectable(e) ? this.pal().textPrimary : this.pal().textMuted)
                       .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                     if (this.modelBusy === `${g.subId}#${e.model}`) {
