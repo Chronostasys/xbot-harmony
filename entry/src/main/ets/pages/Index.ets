@@ -2900,6 +2900,14 @@ struct Index {
     this.failedSend = '';
     this.draft = this.config.draftFor(chatId);
     if (alreadyOpen) {
+      // ⛔ P0 修复（用户反复报告"切换部分会话突然又变回深色"）：
+      //   alreadyOpen 分支不调 beginSwitch ⇒ settingsFresh 不会被重置 ⇒ 如果池里 store 的
+      //   settings 是旧值（深色时代的旧缓存），syncFrom 中的 theme 重算逻辑会把 themeName
+      //   写成深色。修法：重置 settingsFresh=false（防止旧值回写）+ 异步刷新 settings
+      //   （完成后 settingsFresh=true，syncFrom 会用正确的 settings 重算——若服务端 theme
+      //   确实没变则 nextTheme===themeName，不产生噪声）。
+      target.settingsFresh = false;
+      target.loadSettings().catch(() => {});
       // 池里这个会话一直开着：直接把已累积的状态映到界面（不发生任何网络等待）
       this.syncFrom(target);
       // ⛔ 这条路径**没有 await**（同帧同步返回）⇒ 必须照样收尾，否则入场位移永远停在起点
