@@ -7117,6 +7117,8 @@ struct Index {
                 ? $r('sys.symbol.square_fill')
                 : (this.composerBtn().interject ? $r('sys.symbol.bolt_fill') : $r('sys.symbol.paperplane_fill')))
                 .fontSize(typeOf('type.callout').size)
+                // ⚡ 2026-10-20 丝滑动画：图标颜色缓动（与按钮底色缓动同步）
+                .animation(animBase())
                 .fontColor([this.composerShowStop() ? this.pal().textSecondary : this.pal().onAccent])
                 // ── 状态过渡：**同一个主按钮**的语义在「发送 → 插话 → 停止」之间切换 ────────────
                 // 用户要求「busy 时输入了文字 ⇒ cancel 按钮自动变成插队/排队按钮」的**视觉**落点；
