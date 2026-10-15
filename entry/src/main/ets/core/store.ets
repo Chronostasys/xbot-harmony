@@ -654,6 +654,16 @@ export class ChatStore {
     this.onUpdate();
   }
 
+  /** 直接调后端 HTTP API 切换模型（POST /api/llm-config action=set_model）——不发 /set-model 聊天消息。 */
+  async setModel(subId: string, model: string): Promise<void> {
+    const body: Record<string, string> = {};
+    body['action'] = 'set_model';
+    body['sub_id'] = subId;
+    body['model'] = model;
+    await this.http.post('/api/llm-config', body);
+    this.onUpdate();
+  }
+
   /**
    * 列目录（`POST /api/fs/list {path, show_hidden?}` → `{entries:[{name,isDir,size,mode,modTime}]}`）。
    * 输入框 `@` 文件补全用；文件管理面板用（`showHidden` 来自面板的隐藏文件开关）。

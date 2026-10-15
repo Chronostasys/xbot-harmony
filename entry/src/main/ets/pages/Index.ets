@@ -11505,12 +11505,9 @@ struct Index {
     }
     this.modelBusy = `${subId}#${model}`;
     try {
-      // P0（2026-10-17 用户亲报「切换模型出错」）：旧实现打 `POST /api/llm-config/model`
-      // —— 服务端**未注册**该路由（`channel/web/web.go:918` 只注册裸 `/api/llm-config`，
-      // POST 语义是配置 upsert）⇒ 恒 404 ⇒「切换失败」。web 真实通道 = 聊天命令
-      // `/set-model <订阅名> <模型名>`（`llm_config_handler.go:911 handleSetModel`——模型名
-      // 支持含空格）⇒ 原生同源走 `store.send`（与 `/continue` 同款命令消息通道）。
-      await store.send(`/set-model ${subName} ${model}`);
+      // 直接调后端 HTTP API（POST /api/llm-config action=set_model）——
+      // 不发 /set-model 聊天消息（会在聊天历史里产生一条命令消息）。
+      await store.setModel(subId, model);
       this.toast(`已切换到 ${model}`);
       this.showModel = false;
     } catch (e) {
