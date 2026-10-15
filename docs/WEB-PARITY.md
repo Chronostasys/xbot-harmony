@@ -675,7 +675,7 @@ web 设置弹窗 14 分区中，**偏好层**（appearance/interaction/language�
 | 7 | **Developer 模式 + SSE REC** | 排障/复现 bug 的刚需（契合「真机点击是移动靶」痛点）；纯本地偏好，S 级 | 新增 `components/SettingsDeveloper.ets` + `SettingsPanel.ets` 加 tab |
 | 8 | **Channels 设置分区** | web 14 分区中原生**唯一整块缺席**的服务端配置面，落地即 13/14 | 新增 `components/SettingsChannels.ets` + `SettingsPanel.ets` 加 tab（契约见 §9.2.1；⚠️ 飞书 secret 服务端未打码，见 §9.3） |
 | 9 | **会话导出（`json`/`jsonl`/`txt`，⛔ 无 markdown）** | 🟡 **纯逻辑已交付 `a7e6ffc`**；UI 入口缺（手机端分享/上报会话常用） | `core/export.ets`（就绪）+ `Index.ets` 入口 + `SettingsDeveloper`/分享 |
-| 10 | **最近工作目录 + PathPicker** | ✅ **已接线**（2026-10-11，目标④）：`core/recentdirs.ets` + `NewSessionDialog` 等价弹层（`Index.ets` `NewSessionSheet`）。⚠️ `PathPicker` 自动补全下拉仍未迁 | — |
+| 10 | **最近工作目录 + PathPicker** | ✅ **已接线**（2026-10-11，目标④）：`core/recentdirs.ets` + `NewSessionDialog` 等价弹层（`Index.ets` `NewSessionSheet`）。✅ **PathPicker 自动补全已接线**（`Index.ets:3054-3071` `store.listFs(dir)` + 前缀过滤 + `nsPathDirs` 候选渲染） | — |
 
 > 次优先（形态差异，非硬缺口）：FoldedToolGroup 组内分组标头、ShimmerThinking 骨架、ThinkingModeControl 位置、
 > 消息注释/高亮、选区工具条、分享页。**不建议迁**：Ambience（与「玻璃必须锁深色」及无 CSS 级联冲突）、
