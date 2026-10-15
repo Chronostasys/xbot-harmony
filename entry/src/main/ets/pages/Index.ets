@@ -606,6 +606,8 @@ struct Index {
 
   // ── 弹层 ──────────────────────────────────────────────────────────────────
   @State @Watch('onDrawerChanged') showDrawer: boolean = false;
+  /** 切主题时 false→true 强制 LazyForEach 物理销毁重建（绕缓存 item 响应式失效）。 */
+  @State listVisible: boolean = true;
   // ── 新建会话（web `NewSessionDialog` 等价弹层：工作目录 + 最近目录候选）─────────
   /** 弹层开关。 */
   @State showNewSession: boolean = false;
@@ -6393,11 +6395,13 @@ struct Index {
         // 行窗口：`List` + `ForEach` 会**一次性构建全部行**（每行 ≤16 个迭代块 × Markdown）
         // ⇒ 几十行就是几千个节点（真机"很卡、交互差"的主因之一）。只渲染末尾 rowLimit 行，
         // 更早的按批放开（滚到顶时自动放开，见上面的 onScrollIndex/onReachStart）。
-        LazyForEach(this.rowDs, (row: ChatRow) => {
-          ListItem() {
-            this.ChatRowBody(row)
-          }
-        }, (row: ChatRow) => { const k = themableRowKey(this.currentChat, this.themeName, row); console.debug('[THEME5] keygen id=' + row.id + ' themeName=' + this.themeName + ' key=' + k); return k; })
+        if (this.listVisible) {
+          LazyForEach(this.rowDs, (row: ChatRow) => {
+            ListItem() {
+              this.ChatRowBody(row)
+            }
+          }, (row: ChatRow) => themableRowKey(this.currentChat, this.themeName, row))
+        }
 
         // ── live turn 的整条 assistant 消息（LazyForEach 之外，@State 直驱）──
         // 真机 bug ② 根治点：live 迭代不再是"单独的气泡/单独的 ListItem"，而是这条
@@ -8056,8 +8060,16 @@ struct Index {
       //    `structural`（theme 变）⇒ `onDataReloaded` ⇒ 框架同帧重读全部行键 ⇒ 整窗重建。
       //    成本 O(窗口)：`tailRows` 只切尾窗、`onDataReloaded` 一发、重建仅已实例化项 ——
       //    ⛔ 不触碰全历史（2026-10-17 性能红线「整个窗口没有任何 O(n)，无论历史多长」）。
-      this.rowDs.applyRows(tailRows(this.rows, this.rowLimit), this.currentChat, this.themeName);
-      console.debug('[THEME5] setSetting 乐观 applyRows theme=' + this.themeName + ' rows=' + this.rows.length + ' chat=' + this.currentChat);
+      // 条件渲染强制销毁重建：listVisible=false → LazyForEach 从 List 移除（item 全销毁）
+      // → 16ms 后 listVisible=true → LazyForEach 重新挂载 → 全部新建 → MarkdownView 全新实例
+      // → @StorageProp 初始=最新主题 → 正确色板。七次响应式修复（onDataReloaded/onDataChange/
+      // @Watch/AppStorage 直读/themeGen）全部无效后的终极方案——物理重建绕过 ArkUI LazyForEach
+      // 缓存 item 的全部响应式限制。List 本身不销毁 ⇒ scroller 不变 ⇒ 滚动位置保留。
+      this.listVisible = false;
+      setTimeout(() => {
+        this.rowDs.applyRows(tailRows(this.rows, this.rowLimit), this.currentChat, this.themeName);
+        this.listVisible = true;
+      }, 16);
     }
     try {
       await store.saveSettings(pairs);
