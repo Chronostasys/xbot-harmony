@@ -9065,11 +9065,6 @@ struct Index {
     if (this.busy && Date.now() - this.lastNonFollowLiveMs < 100) {
       return;
     }
-    // ⚡ 2026-10-20 P0：用户滚动时跳过 live 内容投递——页级 @State 更新（liveText 等）
-    //   触发整页 build 与滚动手势争抢主线程 → 粘滞/掉帧。滚动停止后下一帧 SSE 自然补上。
-    if (this.userScrolling) {
-      return;
-    }
     this.lastNonFollowLiveMs = Date.now();
     // ── §21.122bx：浮层覆盖聊天区时**降频投递**（用户亲报「打开侧边栏/菜单时主视图还在 stream
     //    就特别卡」）── 流式期间每个 SSE 帧都把页级可见态写进 `@State` ⇒ **整页 build + live 行
@@ -9083,37 +9078,42 @@ struct Index {
       return;
     }
     this.liveDeliverAtMs = Date.now();
-    let text: string = '';
-    let reasoning: string = '';
-    let tools: ToolProgress[] = [];
-    if (this.hasLiveRow) {
-      const its: HistoryIteration[] = this.liveRowRef.iterations;
-      for (let i = its.length - 1; i >= 0; i--) {
-        if (its[i].live === true) {
-          text = displayContent(its[i]);
-          reasoning = displayReasoning(its[i]);
-          const t: ToolProgress[] | undefined = its[i].tools;
-          if (t !== undefined) {
-            tools = t;
+    // ⚡ 2026-10-20 P0：用户滚动时只跳过**高频内容**投递（liveText/liveReasoning/liveTools），
+    //   保留**低频结构**更新（liveBlocks/liveSubAgents）——后者用签名门控，只在迭代结构变化
+    //   时触发 re-render，不影响滚动流畅度，但保证滚动期间迭代结束能正确渲染已完成块。
+    if (!this.userScrolling) {
+      let text: string = '';
+      let reasoning: string = '';
+      let tools: ToolProgress[] = [];
+      if (this.hasLiveRow) {
+        const its: HistoryIteration[] = this.liveRowRef.iterations;
+        for (let i = its.length - 1; i >= 0; i--) {
+          if (its[i].live === true) {
+            text = displayContent(its[i]);
+            reasoning = displayReasoning(its[i]);
+            const t: ToolProgress[] | undefined = its[i].tools;
+            if (t !== undefined) {
+              tools = t;
+            }
+            break;
           }
-          break;
         }
       }
-    }
-    if (this.liveText !== text) {
-      this.liveText = text;
-    }
-    if (this.liveReasoning !== reasoning) {
-      this.liveReasoning = reasoning;
-    }
-    // ⛔ 工具列表必须按**内容签名**门控（⛔ 不是数组恒等）——2026-10-14 用户亲报
-    //    「tool 生成中 x 字，这个 x 不会更新」：在飞迭代的 `tools` 是**就地更新**的同一数组，
-    //    恒等比较恒成立 ⇒ 永不投递 `@Prop` ⇒ pill 的生成字数/耗时冻结在创建那一刻。
-    //    与 `liveBlocks` 同一门手艺（签名变化才投递**新数组** ⇒ ArkUI 看得见"值变化"）。
-    const toolsSig: string = toolsSignature(tools);
-    if (toolsSig !== this.liveToolsSig) {
-      this.liveToolsSig = toolsSig;
-      this.liveTools = tools.slice();
+      if (this.liveText !== text) {
+        this.liveText = text;
+      }
+      if (this.liveReasoning !== reasoning) {
+        this.liveReasoning = reasoning;
+      }
+      // ⛔ 工具列表必须按**内容签名**门控（⛔ 不是数组恒等）——2026-10-14 用户亲报
+      //    「tool 生成中 x 字，这个 x 不会更新」：在飞迭代的 `tools` 是**就地更新**的同一数组，
+      //    恒等比较恒成立 ⇒ 永不投递 `@Prop` ⇒ pill 的生成字数/耗时冻结在创建那一刻。
+      //    与 `liveBlocks` 同一门手艺（签名变化才投递**新数组** ⇒ ArkUI 看得见"值变化"）。
+      const toolsSig: string = toolsSignature(tools);
+      if (toolsSig !== this.liveToolsSig) {
+        this.liveToolsSig = toolsSig;
+        this.liveTools = tools.slice();
+      }
     }
     // 已完成块列表（值变化通道）—— 只在结构/内容变化时赋值。
     // ⛔ 双命中（目标⑤ round4）：行侧指纹按**派生行源数组对象恒等**记忆化（`liveBlocksSignature`，
