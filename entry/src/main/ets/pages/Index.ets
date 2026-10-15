@@ -7085,6 +7085,8 @@ struct Index {
         if (this.composerBtn().running) {
           Text(modeLabel(this.sendMode))
             .fontSize(FS_CAPTION)
+            // ⚡ 2026-10-20 丝滑动画：插话/排队模式切换时文字颜色缓动
+            .animation(animBase())
             .fontColor(this.sendMode === MODE_INTERRUPT ? this.pal().warn : this.pal().textMuted)
             .padding({ left: SP_2, right: SP_2 })
             .stateStyles({ pressed: { .opacity(0.5) }, normal: { .opacity(1) } })
