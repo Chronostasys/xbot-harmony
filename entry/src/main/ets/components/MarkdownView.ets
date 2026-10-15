@@ -273,7 +273,7 @@ export struct MarkdownView {
       // 走缓存：流式期间整行会反复重建，没缓存就要反复解析几百 KB（见 core/markdown.ets 注释）
       ForEach(parseMarkdownCached(this.text), (b: MdBlock, idx: number) => {
         this.Block(b, idx)
-      }, (b: MdBlock, idx: number) => b.key)
+      }, (b: MdBlock, idx: number) => b.key + '@' + this.themeTick + '@' + this.mdThemeTick)
     }
     // 撑满父宽（助手正文）；`fitContent` ⇒ 随内容收窄（用户气泡，见该 @Prop 注释）。
     .width(this.fitContent ? LayoutPolicy.wrapContent : '100%')
