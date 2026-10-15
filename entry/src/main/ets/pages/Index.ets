@@ -11089,6 +11089,8 @@ struct Index {
                     // **178px → 149px**（density 3.386），同屏多约 18% 行数
                     // （用户 2026-10-12 亲报「只有那么一点点区域真的用于会话，用户要频繁的滚动」）。
                     .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
+                    // ⚡ 2026-10-20 丝滑动画：选中态背景色变化走缓动（原瞬变 ⇒ 选中会话时"啪"一下）
+                    .animation(animBase())
                     .backgroundColor(this.isCurrentSession(s.chat_id)
                       ? surfaceFillOf(this.pal(), 'surface.overlayRowHover')
                       : Color.Transparent)
