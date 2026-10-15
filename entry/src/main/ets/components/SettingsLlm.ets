@@ -57,6 +57,7 @@ import {
   SettingsToolRow,
 } from './SettingsRows';
 import { PRESS_OPACITY, surfaceFillOf, HIT_TARGET_MIN } from '../core/design';
+import { animBase } from './anim';
 
 /**
  * S12：订阅导出 / 导入的 RPC 方法名 + 参数体。
@@ -1108,6 +1109,8 @@ export struct SettingsLlm {
                   Text(thinkLabel(mode))
                     .constraintSize({ minHeight: HIT_TARGET_MIN })
                     .fontSize(FS_CAPTION)
+                    // ⚡ 2026-10-20 丝滑动画：选中态文字/背景/边框颜色缓动
+                    .animation(animBase())
                     .fontColor(mode === this.thinking ? this.pal().onAccent : this.pal().textSecondary)
                     .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
                     .backgroundColor(mode === this.thinking ? this.pal().accent : this.pal().surfaceAlt)
