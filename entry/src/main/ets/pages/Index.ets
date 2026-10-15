@@ -10421,6 +10421,8 @@ struct Index {
         .width('100%')
         .constraintSize({ minHeight: HIT_TARGET_MIN })
         .fontSize(typeOf('type.subhead').size)
+        // ⚡ 2026-10-20 丝滑动画：选中态文字颜色缓动
+        .animation(animBase())
         .fontColor(this.activeChannel.length === 0 ? this.pal().accentText : this.pal().textSecondary)
         .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_XS, bottom: SPACE_XS })
         .borderRadius(RADIUS_CHIP)
@@ -10436,6 +10438,8 @@ struct Index {
           .width('100%')
           .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(typeOf('type.subhead').size)
+          // ⚡ 2026-10-20 丝滑动画：选中态文字颜色缓动
+          .animation(animBase())
           .fontColor(this.activeChannel === ch ? this.pal().accentText : this.pal().textSecondary)
           .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_XS, bottom: SPACE_XS })
           .borderRadius(RADIUS_CHIP)
