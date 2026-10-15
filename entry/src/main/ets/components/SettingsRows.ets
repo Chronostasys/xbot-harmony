@@ -25,6 +25,7 @@
  */
 import { Palette, paletteOf } from '../core/theme';
 import { SP_1 } from '../core/tokens';
+import { animBase } from './anim';
 import {
   PRESS_OPACITY, INSET_CARD_X, INSET_CARD_Y, INSET_CHIP_X, INSET_CHIP_Y, INSET_ROW_X, INSET_ROW_Y,
   RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, STROKE_HAIRLINE, HIT_TARGET_MIN, SURFACE_COMPOSER,
@@ -335,6 +336,8 @@ export struct SettingsChipRow {
           Text(this.labelOf(opt))
             .fontSize(fs('type.caption'))
             .fontWeight(fw('type.caption'))
+            // ⚡ 2026-10-20 丝滑动画：选中态文字/背景/边框颜色缓动
+            .animation(animBase())
             .fontColor(opt === this.value ? this.pal().onAccent : this.pal().textSecondary)
             .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
             .backgroundColor(opt === this.value ? this.pal().accent : this.pal().surfaceAlt)
