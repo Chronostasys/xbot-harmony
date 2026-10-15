@@ -600,6 +600,87 @@ export function defaultNotifyBody(kind: string): string {
   return kind === NOTIFY_KIND_ASK ? '智能体在等待你的输入' : '本轮回复已完成';
 }
 
+/**
+ * **Markdown 清洗**（纯函数）：把 assistant 回复的 raw markdown 洗成**通知可读的纯文本**。
+ *
+ * 为什么需要它（2026-10-20，用户亲报「通知一点信息量都没有太垃圾了」）：
+ *   `lastAssistantDigest` 返回的是 `r.content`——**原始 markdown**。系统通知不渲染 markdown，
+ *   原样塞进去用户看到的是 `## 标题\n\n**粗体**\n\n\`\`\`python\nprint()\n\`\`\``，
+ *   这些标记字符喧宾夺主，真正信息被淹没 ⇒ 通知读起来就是"一堆符号"。
+ *
+ * 处理顺序（先处理大块、再处理行内、最后清空白）：
+ *   ① 代码块（\`\`\`...\`\`\`）→ 取**首行语言标识后的第一行代码**（而非整块——通知面容不下整段代码，
+ *      一行代码已足够表达"用了代码"的语义）；
+ *   ② 行内代码（`...`）→ 去掉反引号，保留内容；
+ *   ③ 图片（![alt](url)）→ 去掉（通知里看不到图）；
+ *   ④ 链接（[text](url)）→ 只保留 text；
+ *   ⑤ HTML 标签（<...>）→ 去掉；
+ *   ⑥ 标题标记（# / ## / ### ...）→ 去掉井号；
+ *   ⑦ 粗体/斜体（**...** / *...* / __...__ / _..._）→ 去掉标记符，保留内容；
+ *   ⑧ 列表标记（- / * / 1. / 数字.）→ 去掉；
+ *   ⑨ 引用（> ...）→ 去掉 >；
+ *   ⑩ 水平线（--- / *** / ___）→ 去掉；
+ *   ⑪ 连续空白/换行 → 压缩为单个换行（多行形态按换行切段，干净的分段 ⇒ 通知 3 行更有信息量）。
+ */
+export function stripMarkdownForNotify(raw: string): string {
+  const s: string = raw !== undefined && raw !== null ? raw : '';
+  if (s.length === 0) {
+    return '';
+  }
+  // ① 代码块：保留首行代码（非语言标识行）
+  let out: string = s.replace(/```[\s\S]*?```/g, (match: string): string => {
+    const lines: string[] = match.split('\n');
+    // 首行是 ```language，跳过；取第二行（如果有）
+    if (lines.length >= 3) {
+      const firstCode: string = lines[1].trim();
+      return firstCode.length > 0 ? ` ${firstCode}` : '';
+    }
+    return '';
+  });
+  // ② 行内代码
+  out = out.replace(/`([^`]+)`/g, '$1');
+  // ③ 图片 ![alt](url) → 去掉
+  out = out.replace(/!\[([^\]]*)\]\([^)]*\)/g, '');
+  // ④ 链接 [text](url) → text
+  out = out.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
+  // ⑤ HTML 标签
+  out = out.replace(/<[^>]+>/g, '');
+  // ⑥ 标题标记（行首 1-6 个 # 后跟空格）
+  out = out.replace(/^#{1,6}\s+/gm, '');
+  // ⑦ 粗体/斜体
+  out = out.replace(/\*\*([^*]+)\*\*/g, '$1');
+  out = out.replace(/__([^_]+)__/g, '$1');
+  out = out.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '$1');
+  out = out.replace(/(?<!_)_([^_]+)_(?!_)/g, '$1');
+  // ⑧ 列表标记（行首 - / * / + / 数字. 后跟空格）
+  out = out.replace(/^[\s]*[-*+]\s+/gm, '');
+  out = out.replace(/^[\s]*\d+\.\s+/gm, '');
+  // ⑨ 引用标记
+  out = out.replace(/^[\s]*>\s*/gm, '');
+  // ⑩ 水平线
+  out = out.replace(/^[\s]*([-*_])\1{2,}[\s]*$/gm, '');
+  // ⑪ 压缩连续空行为单行，去行首尾空白
+  out = out.replace(/\n{3,}/g, '\n\n').split('\n').map((l: string): string => l.trim()).filter((l: string): boolean => l.length > 0).join('\n');
+  return out.trim();
+}
+
+/**
+ * **通知摘要**（纯函数）：从 assistant 回复中提取**最有信息量的前 N 个字符**。
+ *
+ * 与 `stripMarkdownForNotify` 的区别：前者洗全量（给多行/长文本形态用，保留行结构），
+ * 本函数取**折叠态摘要**（`normal.text` / `briefText`，单行）——
+ * 先取第一段（\n\n 切的第一段），再压空白截到 `maxChars`。
+ */
+export function notifyDigestPreview(raw: string, maxChars: number): string {
+  const cleaned: string = stripMarkdownForNotify(raw);
+  if (cleaned.length === 0) {
+    return '';
+  }
+  // 取第一段（通知折叠态只显示一行，第一段最有代表性）
+  const firstPara: string = cleaned.split('\n')[0];
+  return summarizeBody(firstPara, maxChars);
+}
+
 /** 文本的 UTF-8 字节数（纯函数）。系统上限都以**字节**计（title 1024 / text 3072 / 行 1024）。 */
 export function utf8Bytes(text: string): number {
   const s: string = text !== undefined && text !== null ? text : '';

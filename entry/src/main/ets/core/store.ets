@@ -60,6 +60,7 @@ import {
   cancelLiveView,
   shouldNotify,
   withinDedupeWindow,
+  stripMarkdownForNotify,
 } from './notify';
 import {
   AskRespondReq,
@@ -2192,7 +2193,9 @@ export class ChatStore {
       const r: ChatRow | undefined = rows[i];
       if (r !== undefined && r !== null && r.role === 'assistant'
         && r.content !== undefined && r.content.length > 0) {
-        return r.content;
+        // ⚡ 2026-10-20：洗 markdown（原返回 raw content ⇒ 通知里全是 ## ** 等标记字符，
+        //   用户亲报「一点信息量都没有太垃圾了」）。洗后通知可读、信息量保留。
+        return stripMarkdownForNotify(r.content);
       }
     }
     return '';
