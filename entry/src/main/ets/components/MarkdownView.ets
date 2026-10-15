@@ -192,14 +192,23 @@ export struct MarkdownView {
    */
   @Prop linkBase: string = '';
 
-  /** 生效主题：生产走订阅，缺失时回落显式覆盖（单一口径，不产生两个真源）。 */
+  /** 生效主题：**直读 AppStorage 当前值**（绕过缓存 item 的 @Prop/@StorageProp 不重投坑）。
+   *
+   * ⛔ 2026-10-17 白底白字终极修复：此前走 `@StorageProp('appTheme') appTheme` —— 但
+   *   MarkdownView 是虚拟列表缓存 item 的孙组件，**@StorageProp 在缓存 item 上不触发
+   *   重渲**（0152795 亲证 + 本轮插桩实证：reload/键变/themeGen++ 全部执行但 MarkdownView
+   *   仍持旧色板 ⇒ 白底白字/黑底黑字）。唯一绕法：build 重跑时**直读 AppStorage 当前值**
+   *   （不建订阅），配合 rowDs structural 的 row.themeGen++（@Observed 赋值强制行重渲）
+   *   ⇒ 行重渲时此处必读到最新主题 ⇒ 正确色板。 */
   private themeId(): string {
-    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+    const live: string = AppStorage.get<string>('appTheme') ?? '';
+    return live.length > 0 ? live : (this.appTheme.length > 0 ? this.appTheme : this.theme);
   }
 
-  /** 生效 md 主题：生产走订阅，缺失时回落显式 `@Prop`（单一口径，不产生两个真源）。 */
+  /** 生效 md 主题：同款直读 AppStorage（绕同坑）。 */
   private mdThemeNow(): string {
-    return this.appMdThemeGlobal.length > 0 ? this.appMdThemeGlobal : this.mdTheme;
+    const live: string = AppStorage.get<string>('appMdTheme') ?? '';
+    return live.length > 0 ? live : (this.appMdThemeGlobal.length > 0 ? this.appMdThemeGlobal : this.mdTheme);
   }
 
   /** 当前语义色板（深浅两套，换主题只换取值） */

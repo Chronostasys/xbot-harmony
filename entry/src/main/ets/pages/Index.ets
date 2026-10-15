@@ -11658,7 +11658,9 @@ class ChatRowDataSource implements IDataSource {
     }
     this.keys = keys;
     if (structural) {
-      console.debug('[THEME5] applyRows structural=true chat=' + chatId + ' theme=' + theme + ' n=' + next.length + ' key0=' + (keys.length > 0 ? keys[0] : ''));
+      const k0: string = keys.length > 0 ? keys[0] : '';
+      const frameKey: string = next.length > 0 ? themableRowKey(chatId, theme, next[0]) : '';
+      console.debug('[THEME5] applyRows structural=true chat=' + chatId + ' theme=' + theme + ' n=' + next.length + ' key0=' + k0 + ' frameKey=' + frameKey);
       for (let i = 0; i < this.listeners.length; i++) {
         this.listeners[i].onDataReloaded();
       }
