@@ -43,6 +43,7 @@ import {
   buildPluginCatalog,
 } from './pluginhost';
 import {
+  NOTIFY_KIND_NONE,
   NOTIFY_KIND_ASK,
   NOTIFY_KIND_TURN_DONE,
   TURN_DONE_DEDUPE_MS,
@@ -55,6 +56,8 @@ import {
   notifyTitle,
   noteForegroundSeen,
   publishTurn,
+  publishLiveView,
+  cancelLiveView,
   shouldNotify,
   withinDedupeWindow,
 } from './notify';
@@ -1962,6 +1965,8 @@ export class ChatStore {
       this.lastWidgetEvent = event;
       this.lastWidgetContent = data;
       this.onUpdate();
+      // server push 通知插件：检查 widget 中是否有 "notify" 标记的 span
+      this.checkServerNotify(data);
       return;
     }
     // ── #7-1：bg_task_output 增量（web `sseConnection.ts:445` 同款早退——不是 DomainEvent，
@@ -2105,6 +2110,14 @@ export class ChatStore {
   private notifyOnSse(event: string, sessionAction: string, evs: readonly DomainEvent[] | null): void {
     try {
       const kind: string = notifyKindForSse(event, sessionAction, evs);
+      // 实况窗（灵动岛）更新——不受 shouldNotify 限制（busy 时持续显示）
+      if (kind === NOTIFY_KIND_TURN_DONE || kind === NOTIFY_KIND_NONE) {
+        cancelLiveView().catch(() => {});
+      } else {
+        const lvStatus: string = kind === NOTIFY_KIND_ASK ? '等待你的回答…' : '思考中…';
+        const lvCapsule: string = kind === NOTIFY_KIND_ASK ? '等待' : '思考';
+        publishLiveView(this.currentChatId, lvStatus, lvCapsule, 0).catch(() => {});
+      }
       if (!shouldNotify(appIsForeground(), kind)) {
         return;
       }
@@ -2124,6 +2137,43 @@ export class ChatStore {
         notifyBody(kind, detail), this.currentChatId);
     } catch (e) {
       // 通知是旁路：静默（主链路不受影响）
+    }
+  }
+
+  /**
+   * server push 通知插件：检查 widget 事件中是否有 "notify" 标记的 span。
+   * 如果有——调用 publishTurn 发布系统通知。
+   * ⚠️ 解析失败 ⇒ 静默忽略（通知是旁路，不影响主链路）。
+   */
+  private checkServerNotify(data: string): void {
+    try {
+      const parsed: Record<string, Object> = JSON.parse(data) as Record<string, Object>;
+      const spansObj: Object | undefined = parsed.spans;
+      if (spansObj === undefined || spansObj === null) {
+        return;
+      }
+      const spans: Object[] = spansObj as Object[];
+      if (spans.length === 0) {
+        return;
+      }
+      for (let i = 0; i < spans.length; i++) {
+        const span: Record<string, Object> = spans[i] as Record<string, Object>;
+        const notify: Object | undefined = span.notify;
+        if (notify === true) {
+          const titleObj: Object | undefined = span.notifyTitle;
+          const title: string = titleObj !== undefined && titleObj !== null
+            ? (titleObj as string) : 'xbot';
+          const bodyObj: Object | undefined = span.notifyBody;
+          const textObj: Object | undefined = span.text;
+          const body: string = bodyObj !== undefined && bodyObj !== null
+            ? (bodyObj as string)
+            : (textObj !== undefined && textObj !== null ? (textObj as string) : '通知');
+          publishTurn(title, body, this.currentChatId).catch(() => {});
+          return;
+        }
+      }
+    } catch (e) {
+      // 解析失败 ⇒ 静默忽略
     }
   }
 

@@ -43,43 +43,30 @@ eq('命中行压平换行', hitLine('user', 'a\nb\r\nc', 50), '你：a b  c');
 eq('命中行截断', hitLine('assistant', 'x'.repeat(20), 5), 'xbot：xxxxx…');
 eq('短摘要不截断', hitLine('user', 'hi', 50), '你：hi');
 
+// ── sessionLabel：与 web 对齐（label || chatID，不做回声/preview/未命名）────────────
 eq('有名字用名字', sessionLabel('发布 v1', 'chat_1'), '发布 v1');
-eq('无名字回落 chat_id 末段', sessionLabel('  ', 'web/chat_9'), 'chat_9');
-// ── 2026-10-16（目标③「超越 web」）：无 label ⇒ **用末条消息预览当标题**，⛔ 不裸 id ─────────
-eq('无 label + 有预览 ⇒ 用预览当标题（⛔ 不是裸 chat_id）',
-  sessionLabel('', 'web:chat_263F7E142E0B', '帮我看看这个 bug'), '帮我看看这个 bug');
-eq('预览含换行/多空格 ⇒ 折叠成单行',
-  sessionLabel('', 'web:chat_9', '第一行\n\n  第二行'), '第一行 第二行');
-eq('预览首尾空白 ⇒ 裁掉', sessionLabel('', 'chat_9', '  hi  '), 'hi');
-eq('预览超长 ⇒ 截断到 SESSION_LABEL_MAX', sessionLabel('', 'chat_9', 'x'.repeat(100)).length, 60);
-eq('有 label 时预览**不参与**（label 优先）',
+eq('无名字用完整 chatId（与 web 对齐）', sessionLabel('  ', 'web/chat_9'), 'web/chat_9');
+eq('label 空 + 有预览 ⇒ 仍用 chatId（与 web 对齐，不用预览）',
+  sessionLabel('', 'web:chat_263F7E142E0B', '帮我看看这个 bug'), 'web:chat_263F7E142E0B');
+eq('有 label 时预览不参与（label 优先）',
   sessionLabel('真名', 'chat_9', '预览串'), '真名');
-eq('label 与预览都空 ⇒ 才回落 chat_id 末段（`/` 形 id 取末段）',
-  sessionLabel('   ', 'web/chat_9', '   '), 'chat_9');
-// mutation 自证（判别力）：若仍旧"裸 id 优先"（忽略预览）⇒ 上面第一条必红
-function mutatedIdFirst(label: string, chatId: string, preview: string): string {
-  const l: string = label.trim();
-  if (l.length > 0) { return l; }
-  const parts: string[] = chatId.split('/');
-  return parts.length > 0 ? parts[parts.length - 1] : chatId;
-}
-eq('mutation：忽略预览的旧写法 ⇒ 第一条「用预览当标题」必红',
-  mutatedIdFirst('', 'web:chat_263F7E142E0B', '帮我看看这个 bug') === '帮我看看这个 bug', false);
-eq('mutation：现行实现同输入 ⇒ 判绿',
-  sessionLabel('', 'web:chat_263F7E142E0B', '帮我看看这个 bug') === '帮我看看这个 bug', true);
-// ── 服务端把 label **回声成原始会话键** ⇒ 视为无名（真机实测的现场丑点）────────────
-eq('label === chat_id（回声）⇒ 视为无名 ⇒ 用预览',
-  sessionLabel('web:chat_263F7E142E0B', 'web:chat_263F7E142E0B', '排队测试'), '排队测试');
-eq('label === chat_id 末段（回声）⇒ 用预览',
-  sessionLabel('chat_9', 'web/chat_9', '排队测试'), '排队测试');
+eq('label === chatId（回声）⇒ 仍显示 label（与 web 对齐）',
+  sessionLabel('web:chat_263F7E142E0B', 'web:chat_263F7E142E0B', '排队测试'), 'web:chat_263F7E142E0B');
+eq('label 是 id 末段（回声）⇒ 仍显示 label（与 web 对齐）',
+  sessionLabel('chat_9', 'web/chat_9', '排队测试'), 'chat_9');
 eq('真名与 id 不同 ⇒ 仍用真名', sessionLabel('Agent-astute-cedar', 'chat_263F7E142E0B', '预览'), 'Agent-astute-cedar');
-// mutation 自证：只看"label 非空"（不识别回声）⇒ 上两条必红
-function mutatedLabelOnly(label: string, _chatId: string, _preview: string): string {
+eq('CLI basename 真名 ⇒ 显示真名',
+  sessionLabel('xbot-harmony', '/Users/bobli/src/xbot-harmony', ''), 'xbot-harmony');
+// mutation 自证：旧写法（回声检测+preview回退）与 web 不一致
+function mutatedOldWay(label: string, chatId: string, _preview: string): string {
   const l: string = label.trim();
-  return l.length > 0 ? l : _chatId;
+  if (l.length === 0) { return chatId; }
+  return l === chatId ? chatId : l; // 旧写法会把回声当无名
 }
-eq('mutation：不识别回声的写法 ⇒ 「回声视为无名」必红',
-  mutatedLabelOnly('web:chat_263F7E142E0B', 'web:chat_263F7E142E0B', '排队测试') === '排队测试', false);
+eq('mutation：旧写法把回声 label 变成 preview/无名 ⇒ 与 web 不一致必红',
+  mutatedOldWay('web:chat_263F7E142E0B', 'web:chat_263F7E142E0B', '排队测试') === 'web:chat_263F7E142E0B', false);
+eq('现行实现与 web 对齐 ⇒ 判绿',
+  sessionLabel('web:chat_263F7E142E0B', 'web:chat_263F7E142E0B', '排队测试') === 'web:chat_263F7E142E0B', true);
 
 // ── 回声的**第二种真实形态**（2026-10-16 装机截图实锤的漏网）：label 带**渠道前缀**、chat_id 裸 ──
 //   服务端把会话键组装成 `channel + ":" + chat_id`，而会话树的 `chat_id` 字段可能**不带前缀**
@@ -100,27 +87,19 @@ eq('isEchoLabel：家目录 basename 真名 ⇒ 不是回声',
   isEchoLabel('bobli', '/Users/bobli'), false);
 eq('isEchoLabel：复合键的裸末段 label（web/chat_9）⇒ 仍是回声（机器串，旧行为保留）',
   isEchoLabel('chat_9', 'web/chat_9'), true);
-eq('sessionLabel：真名存活（不再被 preview/无名链吞掉）',
+eq('sessionLabel：CLI basename 真名 ⇒ 显示真名',
   sessionLabel('xbot-harmony', '/Users/bobli/src/xbot-harmony', ''), 'xbot-harmony');
-eq('sessionTitle：CLI 会话标题出口 = 真名',
-  sessionTitle('xbot-harmony', '/Users/bobli/src/xbot-harmony'), 'xbot-harmony');
-eq('回声形态②（前缀 vs 裸 id）⇒ 用预览',
-  sessionLabel('web:chat_263F7E142E0B', 'chat_263F7E142E0B', '排队测试'), '排队测试');
-eq('回声形态② + 无预览 ⇒ 才落到 id 末段',
-  sessionLabel('web:chat_263F7E142E0B', 'chat_263F7E142E0B', ''), 'chat_263F7E142E0B');
 
-// ── 显示出口 `sessionTitle`：无名会话给**友好占位**（⛔ 不让机器串进列表）────────────────
-//   引用 web 权威 `SessionItem.tsx:88` = `session.label || session.chatID`（**会把键当标题**）
-//   ⇒ 本仓**有意超越 web**（用户定向「你是原生你要超越 web」）。
-eq('sessionTitle：无名（无预览）⇒ 友好占位',
-  sessionTitle('web:chat_263F7E142E0B', 'chat_263F7E142E0B'), SESSION_UNNAMED);
-eq('sessionTitle：无名且无 label ⇒ 友好占位', sessionTitle('', 'chat_B6EF'), SESSION_UNNAMED);
-eq('sessionTitle：有预览 ⇒ 预览（与 sessionLabel 同源）',
-  sessionTitle('', 'chat_9', '排队测试'), '排队测试');
+// ── sessionTitle：与 web 对齐（= sessionLabel，不做未命名占位）────────────────────
+eq('sessionTitle：CLI 会话标题 = 真名',
+  sessionTitle('xbot-harmony', '/Users/bobli/src/xbot-harmony'), 'xbot-harmony');
+eq('sessionTitle：回声 label ⇒ 显示 label（与 web 对齐，不用未命名占位）',
+  sessionTitle('web:chat_263F7E142E0B', 'chat_263F7E142E0B'), 'web:chat_263F7E142E0B');
+eq('sessionTitle：无 label ⇒ 显示 chatId（与 web 对齐）',
+  sessionTitle('', 'chat_B6EF'), 'chat_B6EF');
+eq('sessionTitle：有预览但无 label ⇒ 显示 chatId（与 web 对齐，不用预览）',
+  sessionTitle('', 'chat_9', '排队测试'), 'chat_9');
 eq('sessionTitle：真名 ⇒ 真名', sessionTitle('harmony-ui-dev', 'chat_B6EF'), 'harmony-ui-dev');
-// mutation 自证：拿"会显示机器串"的 sessionLabel 当出口 ⇒ 首条必红
-eq('mutation：直接用 sessionLabel 当显示出口 ⇒ 首条「友好占位」必红',
-  sessionLabel('web:chat_263F7E142E0B', 'chat_263F7E142E0B') === SESSION_UNNAMED, false);
 
 if (fail > 0) { console.log(`  sessionops: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  sessionops: ${pass} passed, 0 failed`);

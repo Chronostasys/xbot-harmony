@@ -174,22 +174,14 @@ export function isEchoLabel(label: string, chatId: string): boolean {
 }
 
 export function sessionLabel(label: string, chatId: string, preview: string = ''): string {
+  // 与 web 对齐（2026-10-15 用户亲报「侧边栏会话名显示不对，要和 web 对齐」）：
+  // web 的 `SessionItem.tsx:88` 是 `session.label || session.chatID`——
+  // label 非空就显示 label，否则显示 chatID。不做回声检测、不做 preview 回退、不做"未命名"占位。
   const l: string = label.trim();
-  // ⛔ 服务端会把 `label` 直接回声成**原始会话键**（真机实测：`label === "web:chat_263F7E142E0B"`
-  //    而 `preview === "排队测试"`）⇒ 若只看"label 非空"，列表里就出现一串机器串当标题
-  //    （用户口径「侧边栏丑得要死」的现场丑点）。⇒ 回声（`isEchoLabel`）一律**视为无名**，
-  //    继续走回落链。`chatId` 可能是 `/` 或 `:` 形的复合 id ⇒ 末段两种分隔都取。
-  const idTail: string = idBareTail(chatId);
-  const echoed: boolean = isEchoLabel(l, chatId);
-  if (l.length > 0 && !echoed) {
+  if (l.length > 0) {
     return l;
   }
-  // 折叠空白（预览常含换行/多空格，标题是单行）+ 截断（列表 maxLines(1) + 省略号）。
-  const pv: string = preview.replace(/\s+/g, ' ').trim();
-  if (pv.length > 0) {
-    return pv.length > SESSION_LABEL_MAX ? pv.substring(0, SESSION_LABEL_MAX) : pv;
-  }
-  return idTail;
+  return chatId;
 }
 
 /** 预览当标题时的最大字符数（超长截断；列表本身 `maxLines(1)` + 省略号）。 */
@@ -213,8 +205,8 @@ export const SESSION_UNNAMED: string = '未命名会话';
  * ⛔ 单一真源：本函数只包一层，⛔ 不复写回声/预览/截断逻辑（否则两处会腐烂）。
  */
 export function sessionTitle(label: string, chatId: string, preview: string = ''): string {
-  const t: string = sessionLabel(label, chatId, preview);
-  return t.length > 0 && !isEchoLabel(t, chatId) ? t : SESSION_UNNAMED;
+  // 与 web 对齐：直接返回 sessionLabel（label || chatID），不做回声检测/未命名占位。
+  return sessionLabel(label, chatId, preview);
 }
 
 // ── 消息搜索（`POST /api/search`）的**请求契约**纯逻辑 ─────────────────────────────

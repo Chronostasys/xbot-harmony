@@ -88,6 +88,12 @@ export const NOTIFY_ID_FALLBACK: number = 0x7862;
  */
 export const NOTIFY_ID_MAX: number = 0x7FFFFFFF;
 
+/** 实况窗（灵动岛）固定通知 ID —— 独立 ID 空间，不按会话派生（只有一个实况窗）。 */
+export const LIVE_VIEW_ID: number = 0x78640001;
+
+/** 实况窗自动删除时间（3 小时）——以防应用崩溃后实况窗残留。 */
+export const LIVE_VIEW_AUTO_DELETE_MS: number = 3 * 60 * 60 * 1000;
+
 /**
  * 全部聊天提醒共用的**分组名**（系统会把同组通知折叠展示，而不是拉成一长条）。
  * 依据（SDK）：`NotificationRequest.groupName?: string` —— "When different notifications have the
@@ -1252,6 +1258,75 @@ export async function publishTurn(title: string, text: string, chatId: string): 
 }
 
 /**
+ * 发布/更新实况窗（灵动岛）——busy 时持续显示当前状态。
+ *
+ * 使用 `NOTIFICATION_CONTENT_SYSTEM_LIVE_VIEW` 类型——SDK 注释说"第三方应用不能直接创建"
+ * （`notificationContent.d.ts:503-506`），但模拟器上可能可用。publish 失败 ⇒ 静默忽略。
+ *
+ * @param chatId 会话 ID（用于 wantAgent 回前台）
+ * @param statusText 状态文本（"思考中…" / "工具运行中: xxx"）
+ * @param capsuleTitle 胶囊标题（"思考" / "工具"）
+ * @param elapsedMs 已用时间（毫秒）——用于计时器
+ */
+export async function publishLiveView(
+  chatId: string,
+  statusText: string,
+  capsuleTitle: string,
+  elapsedMs: number
+): Promise<boolean> {
+  try {
+    const agent: Object = await startAbilityAgent({ 'chat_id': chatId });
+    const safeStatus: string = statusText.length > 0 ? statusText : '运行中…';
+    const content: notificationManager.NotificationContent = {
+      notificationContentType: notificationManager.ContentType.NOTIFICATION_CONTENT_SYSTEM_LIVE_VIEW,
+      normal: { title: 'xbot', text: safeStatus },
+      systemLiveView: {
+        title: 'xbot',
+        text: safeStatus,
+        typeCode: 1,
+        capsule: { title: capsuleTitle },
+        time: { initialTime: elapsedMs, isCountDown: false, isInTitle: false },
+      },
+    };
+    const request: notificationManager.NotificationRequest = {
+      id: LIVE_VIEW_ID,
+      content: content,
+      wantAgent: agent,
+      notificationSlotType: notificationManager.SlotType.LIVE_VIEW,
+      autoDeletedTime: Date.now() + LIVE_VIEW_AUTO_DELETE_MS,
+      tapDismissed: false,
+      isOngoing: true,
+    };
+    if (notifyDecorator !== null) {
+      try {
+        notifyDecorator(request);
+      } catch (e) {
+        // 装饰是旁路：失败 ⇒ 不设该字段 ⇒ 回落系统默认图标
+      }
+    }
+    await notificationManager.publish(request);
+    return true;
+  } catch (e) {
+    console.warn(`xbot notify: publishLiveView 失败（忽略）: ${describeError(e as Object)}`);
+    return false;
+  }
+}
+
+/**
+ * 取消实况窗（灵动岛）——idle 时移除。
+ * 通知不存在时 SDK 抛 1600007 —— 不是错误。
+ */
+export async function cancelLiveView(): Promise<boolean> {
+  try {
+    await notificationManager.cancel(LIVE_VIEW_ID);
+    return true;
+  } catch (e) {
+    const err: BusinessError = e as BusinessError;
+    return err !== undefined && err.code === 1600007;
+  }
+}
+
+/**
  * 直接设置角标（低层入口，一般不用）。
  * ⚠️ 正常路径请走"通知增/减 → `syncBadge()`"：角标与通知必须同生共死，
  *    单独调它会出现"通知还在、角标已清零"的不一致。
@@ -1280,6 +1355,7 @@ export async function clearAll(): Promise<boolean> {
   // ⛔ 不再用 cancelGroup(全局名)：per-chat 分组下它匹配不到任何通知（静默失效）。
   try {
     await notificationManager.cancelAll();
+    await cancelLiveView();
     ok = true;
   } catch (e) {
     console.warn(`xbot notify: cancelAll 失败（忽略）: ${describeError(e as Object)}`);
@@ -1321,6 +1397,8 @@ export async function clearForChat(chatId: string): Promise<boolean> {
       console.warn(`xbot notify: cancel 失败（忽略）: ${describeError(e as Object)}`);
     }
   }
+  // 同时取消实况窗（灵动岛）——切会话时移除上一个会话的实况窗
+  await cancelLiveView();
   if (chatId !== undefined && chatId !== null && chatId.length > 0) {
     unread.remove(chatId);
   }

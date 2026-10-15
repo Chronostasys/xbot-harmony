@@ -35,6 +35,37 @@ declare module '@ohos.notificationManager' {
       text: string;
       additionalText?: string;
     }
+    /** 实况窗胶囊（SDK `notification/notificationContent.d.ts:284-311`）。 */
+    export interface NotificationCapsule {
+      title?: string;
+      icon?: Object;
+      backgroundColor?: string;
+    }
+    /** 实况窗计时器（SDK `notification/notificationContent.d.ts:363-402`）。 */
+    export interface NotificationTime {
+      initialTime?: number;
+      isCountDown?: boolean;
+      isPaused?: boolean;
+      isInTitle?: boolean;
+    }
+    /** 实况窗按钮（SDK `notification/notificationContent.d.ts:322-352`）。 */
+    export interface NotificationButton {
+      names?: Array<string>;
+    }
+    /** 实况窗进度（SDK `notification/notificationContent.d.ts:413-438`）。 */
+    export interface NotificationProgress {
+      maxValue?: number;
+      currentValue?: number;
+      isPercentage?: boolean;
+    }
+    /** 系统实况窗内容（SDK `notification/notificationContent.d.ts:236-282`）。 */
+    export interface NotificationSystemLiveViewContent extends NotificationBasicContent {
+      typeCode: number;
+      capsule?: NotificationCapsule;
+      button?: NotificationButton;
+      time?: NotificationTime;
+      progress?: NotificationProgress;
+    }
     /** 多行正文（SDK `notification/notificationContent.d.ts:146-175`；lines ≤ 3 行）。 */
     export interface NotificationMultiLineContent extends NotificationBasicContent {
       briefText: string;
@@ -52,6 +83,7 @@ declare module '@ohos.notificationManager' {
       normal?: NotificationBasicContent;
       multiLine?: NotificationMultiLineContent;
       longText?: NotificationLongTextContent;
+      systemLiveView?: NotificationSystemLiveViewContent;
     }
     export interface NotificationLongTextContent extends NotificationBasicContent {
       longText: string;

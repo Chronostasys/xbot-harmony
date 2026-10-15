@@ -1,0 +1,34 @@
+{
+  "id": "xbot.server-notify",
+  "name": "Server Push Notify",
+  "version": "1.0.0",
+  "description": "Server proactive push notification plugin — sends system notifications to the native client when background events occur (build complete, cron fired, long-running task finished, etc.)",
+  "author": "xbot",
+  "runtime": "script",
+  "entry": "bash notify.sh",
+  "permissions": ["ui.contribute", "hooks.subscribe"],
+  "contributes": {
+    "ui": [
+      {
+        "id": "server-notify",
+        "slot": "infoBar",
+        "priority": 50,
+        "description": "Server push notifications — shows proactive server-side alerts",
+        "refreshInterval": "30s",
+        "triggers": [
+          "PostToolUse:Shell*",
+          "PostToolUse:CronRun*",
+          "SessionStart",
+          "SessionEnd"
+        ]
+      }
+    ],
+    "hooks": [
+      {
+        "event": "PostToolUse",
+        "filter": "Shell*",
+        "description": "After shell commands complete, check for build/task completion signals"
+      }
+    ]
+  }
+}
