@@ -229,7 +229,14 @@ export struct MessageRowView {
    * 单一真源：有 `appTheme` 时它是唯一来源，`@Prop theme` 不再参与（避免"两个真源"）。
    */
   private themeId(): string {
-    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+    // ⛔ 2026-10-17 白底白字终极修复：@StorageProp('appTheme') 在虚拟列表缓存 item 上
+    //   **不触发重渲**（0152795+本轮插桩实证：frameKey 含 @theme、structural=true、reload
+    //   全部执行但缓存 item 仍持旧色板）⇒ themeId() 读旧值 ⇒ 投给所有子组件
+    //   （MarkdownView/ThinkingLine/ToolPill...）的 theme=旧 ⇒ 白字/黑字。
+    //   唯一绕法：build 重跑时**直读 AppStorage.get()**（不建订阅）——配合 row.themeGen++
+    //   （@Observed 赋值强制行重渲）⇒ 行重渲时此处必读到最新主题。
+    const live: string = AppStorage.get<string>('appTheme') ?? '';
+    return live.length > 0 ? live : (this.appTheme.length > 0 ? this.appTheme : this.theme);
   }
 
   private pal(): Palette {
@@ -1078,7 +1085,14 @@ struct CompactionDividerRow {
 
   /** 生效主题：生产走订阅，缺失时回落显式覆盖（单一口径，不产生两个真源）。 */
   private themeId(): string {
-    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+    // ⛔ 2026-10-17 白底白字终极修复：@StorageProp('appTheme') 在虚拟列表缓存 item 上
+    //   **不触发重渲**（0152795+本轮插桩实证：frameKey 含 @theme、structural=true、reload
+    //   全部执行但缓存 item 仍持旧色板）⇒ themeId() 读旧值 ⇒ 投给所有子组件
+    //   （MarkdownView/ThinkingLine/ToolPill...）的 theme=旧 ⇒ 白字/黑字。
+    //   唯一绕法：build 重跑时**直读 AppStorage.get()**（不建订阅）——配合 row.themeGen++
+    //   （@Observed 赋值强制行重渲）⇒ 行重渲时此处必读到最新主题。
+    const live: string = AppStorage.get<string>('appTheme') ?? '';
+    return live.length > 0 ? live : (this.appTheme.length > 0 ? this.appTheme : this.theme);
   }
   /** 展开态（真 @State ⇒ 点击可切换、子树重建）。 */
   @State open: boolean = false;
@@ -1192,7 +1206,14 @@ struct EmptyNotice {
 
   /** 生效主题：生产走订阅，缺失时回落显式覆盖（单一口径，不产生两个真源）。 */
   private themeId(): string {
-    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+    // ⛔ 2026-10-17 白底白字终极修复：@StorageProp('appTheme') 在虚拟列表缓存 item 上
+    //   **不触发重渲**（0152795+本轮插桩实证：frameKey 含 @theme、structural=true、reload
+    //   全部执行但缓存 item 仍持旧色板）⇒ themeId() 读旧值 ⇒ 投给所有子组件
+    //   （MarkdownView/ThinkingLine/ToolPill...）的 theme=旧 ⇒ 白字/黑字。
+    //   唯一绕法：build 重跑时**直读 AppStorage.get()**（不建订阅）——配合 row.themeGen++
+    //   （@Observed 赋值强制行重渲）⇒ 行重渲时此处必读到最新主题。
+    const live: string = AppStorage.get<string>('appTheme') ?? '';
+    return live.length > 0 ? live : (this.appTheme.length > 0 ? this.appTheme : this.theme);
   }
 
   private pal(): Palette {
