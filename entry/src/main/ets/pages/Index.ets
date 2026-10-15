@@ -2107,14 +2107,17 @@ struct Index {
       this.sessionsFp = sessFp;
       this.sessions = store.sessions.slice();
     }
-    const rowsFp: string = this.fingerprintRows(store.rows, store.currentChatId);
-    const contentGrew: boolean = rowsFp !== this.rowsFp;
-    // ⛔ 每帧 hilog 是真开销（流式期 ~33 帧/秒 × 字符串拼接 + 设备侧日志写入）⇒ 原先逐帧的
-    //    `[SYNC]` / `[DUPCHK]` 诊断（2026-10-12 P0 临时件）已移除；需要诊断时用按需汇总探针。
+    // ⛔ 2026-10-15 streaming 掉帧修复：busy 时跳过 O(n) fingerprintRows 计算——
+    //   streaming 时内容总是在增长 ⇒ contentGrew 恒 true ⇒ 跳过指纹比较省 O(n)。
+    //   非 busy 时仍走指纹比较（检测内容是否变化）。
+    const rowsFp: string = this.busy ? '' : this.fingerprintRows(store.rows, store.currentChatId);
+    const contentGrew: boolean = this.busy || rowsFp !== this.rowsFp;
     const structFp: string = structRowsFpOf(store.rows, store.currentChatId);
     this.structFp = structFp;   // 供 `navAnchors()` 结构记忆化（见字段注释）
     if (contentGrew) {
-      this.rowsFp = rowsFp;
+      if (!this.busy) {
+        this.rowsFp = rowsFp;
+      }
       this.rows = store.rows.slice();
       // 用户在阅读历史时保持视口不变——内容增长不应把用户拽回底部。
       // syncRowDs → applyRows → LazyForEach onDataReloaded 可能导致 List 自动跟随，
