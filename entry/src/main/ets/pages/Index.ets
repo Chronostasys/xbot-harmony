@@ -11495,6 +11495,8 @@ struct Index {
                   Text(label)
                     .fontSize(typeOf('type.caption').size)
                     .fontWeight(i === this.thinkStep ? FontWeight.Medium : FontWeight.Regular)
+                    // ⚡ 2026-10-20 丝滑动画：选中态文字颜色缓动（与选中芯背景色缓动同步）
+                    .animation(animBase())
                     .fontColor(i === this.thinkStep ? this.palOnce().textPrimary : this.palOnce().textSecondary)
                     // ⛔ 横向约束（`horizontal_overflow_gate` H1：`label` 是**变量**、长度无上限
                     //    ⇒ 必须给收缩能力，否则该站点判红）。`layoutWeight(1)` + `textAlign(Center)`
