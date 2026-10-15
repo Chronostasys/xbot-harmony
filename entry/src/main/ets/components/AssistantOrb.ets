@@ -248,6 +248,10 @@ class OrbPaint {
 export struct AssistantOrb {
   /** 主题名（决定语义色板；未知值在 `paletteOf` 内回落深色）。 */
   @Prop @Watch('onInputChange') theme: string = 'dark';
+  @StorageProp('appTheme') appTheme: string = '';
+  private themeId(): string {
+    return this.appTheme.length > 0 ? this.appTheme : this.theme;
+  }
   /**
    * 直径（vp）。
    *
@@ -361,7 +365,7 @@ export struct AssistantOrb {
   private vitalCur: number = ORB_VITAL_INIT;
 
   private pal(): Palette {
-    return paletteOf(this.theme);
+    return paletteOf(this.themeId());
   }
 
   private eff(): Effects {
