@@ -2075,12 +2075,37 @@ export class ChatStore {
         }
         this.lastTurnDoneNotifyAt = now;
       }
-      const detail: string = kind === NOTIFY_KIND_ASK ? ChatStore.askDetailOf(this.askUser) : '';
+      // 通知信息量（2026-10-17）：ask 档带问题文本；turn_done 档带**最后 assistant 回复**
+      // （此前恒空串 ⇒ 「回合已完成」零信息文案——用户亲报「一点信息量都没有」）。
+      const detail: string = kind === NOTIFY_KIND_ASK
+        ? ChatStore.askDetailOf(this.askUser)
+        : (kind === NOTIFY_KIND_TURN_DONE ? ChatStore.lastAssistantDigest(this.rows) : '');
       publishTurn(notifyTitle(kind, ChatStore.chatLabelOf(this.sessions, this.currentChatId)),
         notifyBody(kind, detail), this.currentChatId);
     } catch (e) {
       // 通知是旁路：静默（主链路不受影响）
     }
+  }
+
+  /**
+   * 回合完成通知的正文（纯函数）：取 rows 尾最近的 assistant 行 content。
+   * 病根修复（2026-10-17 用户亲报「通知一点信息量都没有」）：此前 turn_done 的
+   * detail 恒空串 ⇒ 走 defaultNotifyBody 的「回合已完成」零信息文案——而长文本
+   * 3072B/多行/直达会话的管道全现成，只是没喂内容。喂上后通知直接可读回复核心。
+   * 静态纯函数（与 askDetailOf 同款）：rows 由外来事件构造，脱机可直接断言。
+   */
+  static lastAssistantDigest(rows: readonly ChatRow[]): string {
+    if (rows === undefined || rows === null) {
+      return '';
+    }
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const r: ChatRow | undefined = rows[i];
+      if (r !== undefined && r !== null && r.role === 'assistant'
+        && r.content !== undefined && r.content.length > 0) {
+        return r.content;
+      }
+    }
+    return '';
   }
 
   /** 待回答的 `request_id`（通知去重用）：没有 pending 或缺失 ⇒ 空串。 */
