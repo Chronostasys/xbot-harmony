@@ -45,7 +45,7 @@ import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from '.
 import { SubAgentTree } from './SubAgentTree';
 import { flattenSubAgents } from '../core/subagent';
 import { SweepBand, sweepBandOf } from '../core/sweep';
-import { animFast, animMsgIn } from './anim';
+import { animFast, animMsgIn, animBase } from './anim';
 import { entryAnimates, entryStartDy, entryRestOpacity } from '../core/msgentry';
 import { reasoningKey, liveIterationNo } from '../core/reasoningopen';
 
@@ -946,6 +946,8 @@ export struct MessageRowView {
       // porcelain 下 `textSecondary` 压它仅 **4.337 < AA 4.5**（文字 role，FS_CAPTION=12）。
       // `surface.card` porcelain = **5.071 ✓**（light/dark/aurora/nebula 均达标）。
       // 语义 = 比常态 `surfaceAlt`(raised) **抬升一档**；⛔ 不再用 `surfaceHi`（porcelain 不达标）。
+      // ⚡ 2026-10-20 丝滑动画：展开/收起时背景色缓动
+      .animation(animBase())
       .backgroundColor(this.overIter === it.iteration ? surfaceFillOf(this.pal(), 'surface.card') : this.pal().surfaceAlt)
       .borderRadius(R_LG)
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
