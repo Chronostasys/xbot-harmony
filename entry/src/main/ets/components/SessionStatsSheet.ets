@@ -25,7 +25,7 @@ import {
   structuralRuleOf,
   SHEET_WIDTH, SURFACE_CARD, surfaceFillOf, typeOf,
 } from '../core/design';
-import { sheetTransition } from './anim';
+import { sheetTransition, animBase } from './anim';
 
 @Component
 export struct SessionStatsSheet {
@@ -215,6 +215,8 @@ export struct SessionStatsSheet {
   granChip(g: string) {
     Text(granularityLabel(g))
       .fontSize(typeOf('type.caption').size)
+      // ⚡ 2026-10-20 丝滑动画：选中态文字/背景颜色缓动
+      .animation(animBase())
       .fontColor(this.granularity === g ? colorOf(this.palOnce(), 'onAccent') : this.cSecondary())
       .textAlign(TextAlign.Center)
       .width(56).height(HIT_TARGET_MIN)
