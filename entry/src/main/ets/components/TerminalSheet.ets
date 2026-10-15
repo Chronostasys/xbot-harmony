@@ -41,7 +41,7 @@ import {
   SHEET_ACTION_GLYPH, SPACE_HAIR, SPACE_MD,
   SHEET_WIDTH, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, surfaceFillOf, typeOf,
 } from '../core/design';
-import { fadeTransition, sheetTransition } from './anim';
+import { fadeTransition, sheetTransition, animBase } from './anim';
 
 /**
  * 渲染上限：scrollback 尾巴 + 屏幕。⛔ 别无限增长（Text 的 span 段数 = 性能）。
@@ -919,6 +919,8 @@ export struct TerminalSheet {
         // note（错误）/ tapNote（链接已复制）共用一行（B 线预算：palOnce 同一处双语义）
         Text(this.note.length > 0 ? this.note : this.tapNote)
           .fontSize(typeOf('type.micro').size)
+          // ⚡ 2026-10-20 丝滑动画：note 状态切换时文字颜色缓动
+          .animation(animBase())
           .fontColor(colorOf(this.palOnce(), this.note.length > 0 ? 'dangerText' : 'successText'))
           .width('100%')
           .maxLines(2)
