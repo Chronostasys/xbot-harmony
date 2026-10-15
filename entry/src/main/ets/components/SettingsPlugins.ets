@@ -760,6 +760,8 @@ export struct SettingsPlugins {
         Text(this.installBusy ? '安装中…' : '安装插件（.zip）')
           .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(FS_CAPTION)
+          // ⚡ 2026-10-20 丝滑动画：安装状态切换时文字颜色缓动
+          .animation(animBase())
           .fontColor(this.installBusy ? this.pal().textMuted : this.pal().accentSoft)
           .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
           .backgroundColor(this.pal().surfaceAlt)

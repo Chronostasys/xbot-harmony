@@ -1228,6 +1228,8 @@ export struct SettingsLlm {
                       ? tierDisplayText(this.tierRaw(tier), this.entries, this.subs)
                       : TIER_UNSET_TEXT)
                       .fontSize(FS_CAPTION)
+                      // ⚡ 2026-10-20 丝滑动画：tier 设置/未设置状态切换时颜色缓动
+                      .animation(animBase())
                       .fontColor(this.tierRaw(tier).length > 0 ? this.pal().accentSoft : this.pal().textMuted)
                       .maxLines(1)
                       .textOverflow({ overflow: TextOverflow.Ellipsis })

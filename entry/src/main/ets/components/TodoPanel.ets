@@ -409,6 +409,8 @@ export struct TodoPanel {
               .fontSize(FS_CAPTION)
               // ⛔ 单次取板：`colorOf(p, role)` + 计算型 role —— 原本写成
               //    `cond ? this.pal().textPrimary : this.pal().textMuted` ⇒ **两次读板**（性能预算⑦按**调用点**计数）
+              // ⚡ 2026-10-20 丝滑动画：有/无待办状态切换时颜色缓动
+              .animation(animBase())
               .fontColor(colorOf(this.pal(), this.state().currentText.length > 0 ? 'textPrimary' : 'textMuted'))
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
