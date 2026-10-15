@@ -2063,10 +2063,23 @@ struct Index {
   }
 
   /**
-   * 抽屉关闭瞬间：把冻结期间积累的 pendingSync **一次性刷回**（见 scheduleSync 的冻结注释）。
+   * 抽屉开/关回调（`@Watch`）。
+   *
+   * ⚡ 2026-10-20 P0 掉帧修复（用户亲报「busy 时侧边栏滚动掉帧」）：
+   *   打开瞬间**停掉 pulse 定时器**——`syncPulse` 只在 `syncFrom` 里调，而抽屉冻结
+   *   期间 `syncFrom` 被跳过 ⇒ pulse timer 在 drawer 打开前已启动的话会**继续跑**，
+   *   每 600ms 写 `@State sweepX` ⇒ 整页重渲 ⇒ DrawerSheet builder 重跑 ⇒ 掉帧。
+   *   关闭瞬间由 `pendingSync` 刷回的 `syncFrom` → `syncPulse` 自动复起（busy 时）。
+   *
+   * 关闭瞬间：把冻结期间积累的 pendingSync **一次性刷回**（见 scheduleSync 的冻结注释）。
    * ⚠️ 只在关（false 转变）时刷——打开时不动（打开那一刻本来就没有冻结数据）。
    */
   onDrawerChanged(): void {
+    // ⚡ 打开时停掉 pulse timer（防止 600ms @State 写入导致掉帧）
+    if (this.showDrawer && this.pulseTimer >= 0) {
+      clearInterval(this.pulseTimer);
+      this.pulseTimer = -1;
+    }
     if (!this.showDrawer && this.pendingSync !== null) {
       const s: ChatStore | null = this.pendingSync;
       this.pendingSync = null;
@@ -7586,24 +7599,31 @@ struct Index {
    *      ⛔ 不是"绕过判据"：memo 后**真实重复分配更少**，开销只会更低。
    */
   private palOnce(): Palette {
-    const t: string = this.themeName;
-    const a: string = this.accentHex();
-    if (this.palMemoVal === null || this.palMemoTheme !== t || this.palMemoAccent !== a) {
-      this.palMemoVal = this.pal();
-      this.palMemoTheme = t;
-      this.palMemoAccent = a;
-    }
-    return this.palMemoVal;
+    // ⚡ 2026-10-20 性能修复：`pal()` 本身已记忆化 ⇒ `palOnce()` 直接转发（语义逐字节一致）。
+    //   原先 `pal()` 未记忆化，每次 `withAccent` 重新分配色板 ⇒ 流式期 DrawerSheet builder
+    //   每帧 20+ 次 `pal()` 调用 = 20+ 次新对象分配 ⇒ GC 压力 + 掉帧。
+    //   记忆化后 `pal()` / `palOnce()` 同值同对象，零重复分配。
+    return this.pal();
   }
 
   private pal(): Palette {
-    // 强调色叠加在主题色板之上（**只覆盖 accent 家族**，亮度阶梯保持不变）。
-    // 对齐 web：`providers/theme.tsx` 把 accentColor 写进 --accent* CSS 变量。
-    // ⚠️ 未显式设置时必须**原样返回主题色板**（不能回落 web 的默认强调色 ——
-    //    那会把主题自己的强调色顶掉，整套配色的身份就没了）。
-    const base: Palette = paletteOf(this.themeName);
+    // ⚡ 2026-10-20 性能修复：`pal()` 自身记忆化（原仅 `palOnce()` 记忆化 ⇒ `pal()` 每次
+    //   `withAccent` 重新分配色板对象）。流式期 DrawerSheet builder 每帧 20+ 次 `pal()` 调用
+    //   = 20+ 次新 Palette 分配 ⇒ GC 压力 + 掉帧。记忆化后同（主题|强调色）只算一次。
+    //   语义不变：键 = `主题|强调色`，换主题/换强调色自动失效重算（与原 `palOnce()` 逐字节一致）。
+    const t: string = this.themeName;
     const a: string = this.accentHex();
-    return a.length === 0 ? base : withAccent(base, a, !isLightPalette(base));
+    if (this.palMemoVal === null || this.palMemoTheme !== t || this.palMemoAccent !== a) {
+      // 强调色叠加在主题色板之上（**只覆盖 accent 家族**，亮度阶梯保持不变）。
+      // 对齐 web：`providers/theme.tsx` 把 accentColor 写进 --accent* CSS 变量。
+      // ⚠️ 未显式设置时必须**原样返回主题色板**（不能回落 web 的默认强调色 ——
+      //    那会把主题自己的强调色顶掉，整套配色的身份就没了）。
+      const base: Palette = paletteOf(t);
+      this.palMemoVal = a.length === 0 ? base : withAccent(base, a, !isLightPalette(base));
+      this.palMemoTheme = t;
+      this.palMemoAccent = a;
+    }
+    return this.palMemoVal as Palette;
   }
 
   /** 视觉效果 token（玻璃/光晕/渐变/层级阴影）—— 由当前色板派生，换主题即换效果。 */
