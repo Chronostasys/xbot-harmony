@@ -7230,6 +7230,10 @@ struct Index {
 
   /** 某分组是否已折叠（键**必须**带分类前缀 —— 见 `core/sessiongroup.ets:collapseKey`）。 */
   private isGroupCollapsed(cat: string, key: string): boolean {
+    // 搜索时自动展开所有分组——搜索结果不应藏在折叠组里
+    if (this.sessQuery.length > 0) {
+      return false;
+    }
     const ck: string = collapseKey(cat, key);
     for (let i = 0; i < this.collapsedGroups.length; i++) {
       if (this.collapsedGroups[i] === ck) {
