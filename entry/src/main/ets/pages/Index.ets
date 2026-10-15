@@ -10929,6 +10929,7 @@ struct Index {
                               .width(3).height(20)
                               .backgroundColor(this.pal().accent)
                               .borderRadius(1.5)
+                              .transition(TransitionEffect.OPACITY.animation(animFast()))
                           }
                           // 前导**标记槽**（`MARKER_GUTTER`）：恒定占位、内容可空。
                           // 为什么：标记此前是**条件渲染** ⇒ 「有状态的会话」标题被顶右、「无状态的」贴左，
