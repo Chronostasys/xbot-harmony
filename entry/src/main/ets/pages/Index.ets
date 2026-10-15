@@ -7132,6 +7132,8 @@ struct Index {
           // 视觉 32vp（`SPACE_XXL`；⛔ 无 `control.send` token，见交付缺 token 清单）
           .width(SPACE_XXL).height(SPACE_XXL)
           .borderRadius(RADIUS_SHEET)   // = 32/2 ⇒ 正圆
+          // ⚡ 2026-10-20 丝滑动画：发送→停止按钮底色缓动（accent → surfaceHi）
+          .animation(animBase())
           .backgroundColor(this.composerShowStop() ? this.pal().surfaceHi : this.pal().accent)
           .shadow({ radius: this.composerShowStop() ? 0 : shadowRadiusOf(this.pal(), 'pill'), color: this.composerShowStop() ? this.pal().transparent : shadowColorOf(this.pal(), 'raised'), offsetX: 0, offsetY: 0 })
         }
