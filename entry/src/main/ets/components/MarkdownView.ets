@@ -160,7 +160,9 @@ export struct MarkdownView {
   @Prop wrapCode: boolean = true;
   /** 消息字号缩放（1 = 默认；由设置面板控制，范围 0.85–1.4 已在上游夹取） */
   @Prop fontScale: number = 1;
-  /**
+  /** 显式主题覆盖（测试/独立预览）；生产走 AppStorage 直读（见 `themeId()`）。 */
+  @Prop theme: string = 'dark';
+
   /** 生效主题：**直读 AppStorage 当前值**（绕过缓存 item 的 @Prop/@StorageProp 不重投不重渲坑）。
    *
    * ⛔ 2026-10-17 白底白字终极修复：用户实测「前四个 commit 迭代白字、stream 迭代黑字」+
@@ -205,19 +207,6 @@ export struct MarkdownView {
    * 原生端由页面把服务端地址透传进来（未透传时相对链接会被白名单拒绝 —— 宁可拒绝也不猜地址）。
    */
   @Prop linkBase: string = '';
-
-  /** 生效主题：**直读 AppStorage 当前值**（绕过缓存 item 的 @Prop/@StorageProp 不重投坑）。
-   *
-   * ⛔ 2026-10-17 白底白字终极修复：此前走 `@StorageProp('appTheme') appTheme` —— 但
-   *   MarkdownView 是虚拟列表缓存 item 的孙组件，**@StorageProp 在缓存 item 上不触发
-   *   重渲**（0152795 亲证 + 本轮插桩实证：reload/键变/themeGen++ 全部执行但 MarkdownView
-   *   仍持旧色板 ⇒ 白底白字/黑底黑字）。唯一绕法：build 重跑时**直读 AppStorage 当前值**
-   *   （不建订阅），配合 rowDs structural 的 row.themeGen++（@Observed 赋值强制行重渲）
-   *   ⇒ 行重渲时此处必读到最新主题 ⇒ 正确色板。 */
-  private themeId(): string {
-    const live: string = AppStorage.get<string>('appTheme') ?? '';
-    return live.length > 0 ? live : (this.appTheme.length > 0 ? this.appTheme : this.theme);
-  }
 
   /** 生效 md 主题：同款直读 AppStorage（绕同坑）。 */
   private mdThemeNow(): string {
