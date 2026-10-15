@@ -8057,6 +8057,7 @@ struct Index {
       //    成本 O(窗口)：`tailRows` 只切尾窗、`onDataReloaded` 一发、重建仅已实例化项 ——
       //    ⛔ 不触碰全历史（2026-10-17 性能红线「整个窗口没有任何 O(n)，无论历史多长」）。
       this.rowDs.applyRows(tailRows(this.rows, this.rowLimit), this.currentChat, this.themeName);
+      console.debug('[THEME5] setSetting 乐观 applyRows theme=' + this.themeName + ' rows=' + this.rows.length + ' chat=' + this.currentChat);
     }
     try {
       await store.saveSettings(pairs);
@@ -11657,6 +11658,7 @@ class ChatRowDataSource implements IDataSource {
     }
     this.keys = keys;
     if (structural) {
+      console.debug('[THEME5] applyRows structural=true chat=' + chatId + ' theme=' + theme + ' n=' + next.length + ' key0=' + (keys.length > 0 ? keys[0] : ''));
       for (let i = 0; i < this.listeners.length; i++) {
         this.listeners[i].onDataReloaded();
       }
