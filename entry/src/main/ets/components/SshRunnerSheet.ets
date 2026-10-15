@@ -2199,6 +2199,8 @@ export struct SshRunnerSheet {
           LoadingProgress().width(ICON_MD).height(ICON_MD).color(this.tc('accent'))
           Text(this.addError.length > 0 ? '连接未建立' : '正在通过 SSH 建立连接…')
             .fontSize(typeOf('type.subhead').size)
+            // ⚡ 2026-10-20 丝滑动画：连接错误态切换时文字颜色缓动
+            .animation(animBase())
             .fontColor(this.addError.length > 0 ? this.tc('danger') : this.tc('text'))
             .layoutWeight(1)
             .maxLines(2)
