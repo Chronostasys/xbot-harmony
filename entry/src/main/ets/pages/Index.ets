@@ -8824,6 +8824,8 @@ struct Index {
    * `core/livedeliver.shouldDeliverLive`（`!covered || !busy` ⇒ 必投，⛔ 不会陈旧）。
    */
   private liveDeliverAtMs: number = 0;
+  /** 用户在阅读历史时降低 live tail 更新频率——减少整页 build + LazyForEach diff */
+  private lastNonFollowLiveMs: number = 0;
 
   /**
    * §21.122bx：live 行**此刻是否在视野内**（`onVisibleAreaChange` 维护，只在真变化时写）。
@@ -8915,6 +8917,11 @@ struct Index {
    * 同样按 `blocksSignature` 门控（只在结构/内容变化时赋值 ⇒ 流式期间零额外重建）。
    */
   private syncLiveTail(): void {
+    // 用户在阅读历史时降低 live tail 更新频率——减少整页 build + LazyForEach diff
+    if (!this.followBottom && this.busy && Date.now() - this.lastNonFollowLiveMs < 200) {
+      return;
+    }
+    this.lastNonFollowLiveMs = Date.now();
     // ── §21.122bx：浮层覆盖聊天区时**降频投递**（用户亲报「打开侧边栏/菜单时主视图还在 stream
     //    就特别卡」）── 流式期间每个 SSE 帧都把页级可见态写进 `@State` ⇒ **整页 build + live 行
     //    重排**；浮层打开时这些帧**看不见**，却与浮层入场动画抢同一帧预算。
