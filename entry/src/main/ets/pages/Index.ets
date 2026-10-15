@@ -6206,6 +6206,9 @@ struct Index {
             .fontWeight(typeOf('type.micro').weight)
             .fontFamily('monospace')
             .fontColor(colorOf(this.pal(), 'successText'))
+            .backgroundColor(this.barTint('surfaceAlt'))
+            .borderRadius(RADIUS_CHIP)
+            .padding({ left: SPACE_XS, right: SPACE_XS, top: 2, bottom: 2 })
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .margin({ right: SP_1 })
@@ -7543,6 +7546,8 @@ struct Index {
       v = hairlineOf(p);
     } else if (role === 'accent') {
       v = p.accent;
+    } else if (role === 'surfaceAlt') {
+      v = p.surfaceAlt;
     }
     this.barMemoRole = role;
     this.barMemoTheme = t;
