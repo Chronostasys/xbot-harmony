@@ -11700,7 +11700,7 @@ class ChatRowDataSource implements IDataSource {
     this.chatId = chatId;
     const keys: string[] = [];
     for (let i = 0; i < next.length; i++) {
-      keys.push(rowKey(next[i]));
+      keys.push(themableRowKey(chatId, theme, next[i]));
     }
     // ⛔ 重复键检测（2026-10-12 真机 P0：`AceLazyForEach: Use repeat key for index: 0 / 9`
     //    ⇒ LazyForEach 因键重复不建项 ⇒ **列表不渲染（整片空白）**。键 = `chatId#id#rev`

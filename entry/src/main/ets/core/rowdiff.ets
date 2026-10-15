@@ -85,22 +85,24 @@ export function sessionScopedRowKey(chatId: string, r: ChatRow): string {
 }
 
 /**
- * 行的**渲染键**：`chatId#id#rev@theme`。
+ * 行的**渲染键**：`chatId#id`（不含 theme，不含 rev）。
  *
- * ⛔ 主题**必须**在键里（用户两轮亲报的真病灶，本轮第二次修）：
- *   `LazyForEach` 的 item builder **只在键变化时**重建；主题变更不改键 ⇒ 已存在行**冻结在创建
- *   那刻的色板** ⇒ 浅色下白字（`theme_row_delivery.test.ts` S3）／深色下暗字（2026-10-13 用户
- *   亲报「深色 theme 看不清字」，像素实测对比度 1.19–1.57:1）。行内**任何**取色点（含第三方
- *   子组件、带参 `@Builder` 子树 —— 后者参数是快照，父级重建也不会更新）都因此躲不掉 ⇒ 与其
- *   逐个组件补订阅，不如让**主题变更本身就是一次行身份变更**：一次性、无遗漏。
+ * ⛔ 2026-10-15 闪烁终极修复（用户亲报「上下文闪烁偶现，本质是突然重建某iter的单元」）：
+ *   主题在键里 ⇒ theme 变化时 key 变化 ⇒ LazyForEach 销毁旧 item + 创建新 item ⇒ 闪烁。
+ *   现在所有组件都有 @StorageProp('appTheme') 全局订阅 ⇒ theme 变化时 @StorageProp 变化
+ *   ⇒ build() 重跑 ⇒ 色板更新 ⇒ 不需要 theme 在键里。去掉 theme 彻底消除闪烁。
+ *
+ * ⚠️ rev 也不在键里（2026-10-17 照抄 web）：迭代 commit（rev++）不换键 ⇒ 行不重建。
+ *   行内容更新走 @Observed 属性刷新（ChatRow 是 @Observed、render.applyRow 赋值替换引用
+ *   ⇒ @ObjectLink 组件自动重渲——与 web 的 React 状态更新同语义）。
  *
  * ⚠️ 两处必须**同源**（否则 `changedByKeys` 的 diff 与框架实键不一致 ⇒ 零通知或误通知）：
  *   · 数据源快照（`ChatRowDataSource.applyRows` 内部）
  *   · `LazyForEach` 的 key 生成器（页面）
- *   ⇒ 都调本函数，别再各写一份（历史上曾一份 `rowKey` 一份 `sessionScopedRowKey`）。
+ *   ⇒ 都调本函数，别再各写一份。
  */
 export function themableRowKey(chatId: string, theme: string, r: ChatRow): string {
-  return sessionScopedRowKey(chatId, r) + '@' + theme;
+  return sessionScopedRowKey(chatId, r);
 }
 
 /**
