@@ -8909,6 +8909,28 @@ struct Index {
 
   /** 把「当前该显示的行」推给数据源（行窗口 + 真虚拟化两层叠加）。 */
   private syncRowDs(): void {
+    // ⛔ 2026-10-15 streaming 掉帧终极修复：busy 且历史行数量不变时——
+    //   只从末尾找 live 行——不遍历整个数组分离 rest——省 O(rows) 遍历+分配。
+    if (this.busy && this.rowDs.count() > 0) {
+      let live: ChatRow | undefined = undefined;
+      for (let i = this.rows.length - 1; i >= 0; i--) {
+        if (this.rows[i].isLive) {
+          live = this.rows[i];
+          break;
+        }
+      }
+      if (live !== undefined) {
+        this.liveRowRef = live;
+        this.hasLiveRow = true;
+      } else {
+        this.hasLiveRow = false;
+      }
+      this.syncLiveTail();
+      // 历史行数量 = this.rowDs.count()（不变）⇒ 跳过 applyRows + tailRows + 遍历
+      if (this.rows.length - (live !== undefined ? 1 : 0) === this.rowDs.count()) {
+        return;
+      }
+    }
     // ── live 行**整条**交给非懒尾项渲染（同气泡：已完成迭代 + 末尾在飞块）──
     // 为什么整条排除（而不是只排除"在飞那一块"）：① 在飞迭代现在是该消息气泡内的
     // 最后一块，与已完成迭代必须同一气泡 ⇒ 不能跨 LazyForEach 边界；② 虚拟列表条目
@@ -8936,13 +8958,6 @@ struct Index {
     // 必须把**会话身份**一起交给数据源：否则两个会话同形时它会判「骨架未变」=> 零通知 =>
     // LazyForEach 保留上一个会话的条目（真机「所有会话都显示第一个会话的内容」）。
     const tail: ChatRow[] = tailRows(rest, this.rowLimit);
-    // ⛔ 2026-10-15 streaming 掉帧修复（用户亲报「streaming content 时滚动掉帧」）：
-    //   streaming 时每帧 syncRowDs → applyRows 的 O(n) 键生成+重复键检测导致掉帧。
-    //   streaming 时历史行不变（只有 live 行走非懒路径）⇒ 历史行数量不变时跳过 applyRows，
-    //   只保留 syncLiveTail（已降频 100ms）。历史行数量变化时（新迭代完成/加载更多）仍走 applyRows。
-    if (this.busy && rest.length === this.rowDs.count()) {
-      return;
-    }
     this.rowDs.applyRows(tail, this.currentChat, this.themeName);
   }
 
