@@ -10792,6 +10792,8 @@ struct Index {
                   Text(sessionCategoryLabel(c))
                     .fontSize(typeOf('type.caption').size)
                     .fontWeight(c === this.sessionCategory() ? FontWeight.Medium : FontWeight.Regular)
+                    // ⚡ 2026-10-20 丝滑动画：选中态文字颜色缓动（与选中芯背景色缓动同步）
+                    .animation(animBase())
                     .fontColor(c === this.sessionCategory() ? this.pal().textPrimary : this.pal().textSecondary)
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
