@@ -40,8 +40,13 @@ export function shouldDeliverLive(covered: boolean, visible: boolean, busy: bool
     // 回合结束 ⇒ 内容定型 ⇒ **必投**（⛔ 即使看不见也必须落地，否则关浮层后是旧内容）。
     return true;
   }
-  if (!covered && visible) {
-    // 用户看得见 ⇒ **必投**（正确性：可见内容不得滞后）。
+  if (!covered) {
+    // ⛔ 2026-10-17 P0（用户亲报「上滚一点滚回来，看到的 stream 和打字机就不正常了，
+    //   判定逻辑有严重错误」）：原判据把「live 行滚出视口（visible=false）」与「浮层
+    //   完全覆盖（covered）」混同 ⇒ 滚出视口时 400ms 限频 ⇒ @State 冻结在旧值 ⇒
+    //   打字机/流式内容与实际进度脱节；滚回来后还要等下一次 delta 才恢复（错乱窗口）。
+    //   修：**只有浮层完全覆盖才限频**（覆盖时整块区域看不见，400ms 降频肉眼无差别）；
+    //   滚出视口照常投 —— 数据永远新鲜，滚回即正确（正确性 > 不可见时的少量 CPU）。
     return true;
   }
   return nowMs - lastMs >= minMs;
