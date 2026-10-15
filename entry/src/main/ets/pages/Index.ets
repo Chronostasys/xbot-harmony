@@ -9065,6 +9065,11 @@ struct Index {
     if (this.busy && Date.now() - this.lastNonFollowLiveMs < 100) {
       return;
     }
+    // ⚡ 2026-10-20 P0：用户滚动时跳过 live 内容投递——页级 @State 更新（liveText 等）
+    //   触发整页 build 与滚动手势争抢主线程 → 粘滞/掉帧。滚动停止后下一帧 SSE 自然补上。
+    if (this.userScrolling) {
+      return;
+    }
     this.lastNonFollowLiveMs = Date.now();
     // ── §21.122bx：浮层覆盖聊天区时**降频投递**（用户亲报「打开侧边栏/菜单时主视图还在 stream
     //    就特别卡」）── 流式期间每个 SSE 帧都把页级可见态写进 `@State` ⇒ **整页 build + live 行
