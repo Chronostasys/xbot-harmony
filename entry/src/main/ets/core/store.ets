@@ -449,9 +449,31 @@ export class ChatStore {
 
   // ── 会话 ───────────────────────────────────────────────────────────────────
 
+  /**
+   * `loadSessions` 的**并发去重**底座（2026-10-17 P0-B）：快速频繁切会话 ⇒ 多个 openSession
+   * 并发进 `loadSessions` ⇒ N 个重复 `/api/session-tree` 请求在飞（模拟器 relay backlog=8
+   * 易被打满 ⇒ 请求挂死）+ 响应乱序互相覆盖。in-flight 复用：先到的请求挂 Promise，后到者
+   * 直接 await 同一份；成败都会清 inflight（失败绝不缓存 ⇒ 下次重试是新请求）。
+   */
+  private sessionsInflight: Promise<SessionTreeData> | null = null;
+
+  private fetchSessionsOnce(): Promise<SessionTreeData> {
+    if (this.sessionsInflight !== null) {
+      return this.sessionsInflight;
+    }
+    const p: Promise<SessionTreeData> = this.http.postAs<SessionTreeData>('/api/session-tree', new EmptyReq());
+    this.sessionsInflight = p.then((d: SessionTreeData): SessionTreeData => {
+      this.sessionsInflight = null;
+      return d;
+    }).catch((e: Object): Promise<SessionTreeData> => {
+      this.sessionsInflight = null;
+      throw e as Error;
+    });
+    return this.sessionsInflight;
+  }
+
   async loadSessions(): Promise<void> {
-    const data: SessionTreeData = await this.http.postAs<SessionTreeData>(
-      '/api/session-tree', new EmptyReq());
+    const data: SessionTreeData = await this.fetchSessionsOnce();
     // sessions/chats 同为服务端返回 ⇒ 均可能为 null（曾 `sessions !== undefined && sessions.length` 崩溃）。
     const sessionList: SessionItem[] = arrOrEmpty(data.sessions);
     const list: SessionItem[] = sessionList.length > 0 ? sessionList : arrOrEmpty(data.chats);
@@ -486,7 +508,15 @@ export class ChatStore {
     //  ⛔ 与子代理同一解析器（`resolveSessionNode`）：按原值精确比对会命中幽灵行
     //     （`running` 字段缺失 ⇒ 恒 false）⇒ 真身 `running=true` 永远丢。
     const runNode: SessionItem | null = resolveSessionNode(list, this.channel, this.currentChatId);
-    this.pushEvent({ type: 'session_running', running: runNode !== null && runNode.running === true });
+    // ⛔ 2026-10-17 P0（用户亲报「busy 会话时不时变 idle 又迅速变回 busy + 历史消息闪烁」）：
+    //    服务端 /api/session-tree 实测不回 running 字段（curl 全文 0 次）——
+    //    runNode.running === true 对 undefined 恒 false ⇒ 每次 loadSessions 都发
+    //    session_running(false) ⇒ 状态机把仍 live 的 turn 定格（行键变整行重建）⇒
+    //    下一帧 SSE delta 又翻回 busy ⇒ 双重翻转 = 闪烁。修：字段缺失 ≠ false——
+    //    只有服务端显式给出 boolean 才对账；缺失 ⇒ 跳过（SSE session(idle) 是唯一 idle 来源）。
+    if (runNode !== null && typeof runNode.running === 'boolean') {
+      this.pushEvent({ type: 'session_running', running: runNode.running });
+    }
     this.onUpdate();
   }
 

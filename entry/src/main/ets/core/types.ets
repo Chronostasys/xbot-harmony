@@ -350,6 +350,16 @@ export class ChatRow implements IterList {
    * `components/SubAgentTree`；空数组 ⇒ **零产出**。
    */
   subAgents: WebSubAgentProgress[] = [];
+  /**
+   * 该行的**块窗口**（用户已放宽到的块数；0 = 未初始化 ⇒ 渲染层回落 `MSG_BLOCK_WINDOW`）。
+   *
+   * ⛔ 2026-10-17 P0（用户亲报「渲染过的迭代一定不能消失」）：此前块窗口是 MessageRow 的
+   *   `@State blockLimit` —— 行键含 `rev`，**迭代 commit ⇒ rev++ ⇒ 整行重建** ⇒ 新实例的
+   *   @State 回落默认小窗口 ⇒ **已渲染的迭代块瞬间折叠消失**（随后 widen 又出现）。
+   *   把窗口外置到 **@Observed 行对象**上：widen 写行字段、重建后从行数据恢复 ⇒
+   *   折叠窗口只增不减（O(1)，⛔ 不触碰全历史）。
+   */
+  blockLimit: number = 0;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -2838,6 +2838,19 @@ struct Index {
     // 同款——chatID 变化即拉；此前仅建/删后拉 ⇒ 别的端建的终端要等手动刷新才出现）。
     // fire-and-forget：不阻塞切换（结果经 store.onUpdate 泵回界面）。
     void target.loadTerminals();
+    // ⛔ 8s 自愈（2026-10-17 P0-B：用户亲报「快速频繁切会话 ⇒ 整个应用全空且无法自动恢复，
+    //   侧栏也空」）：beginSwitch 置 historyLoading=true 后若 **loadSessions/loadHistory 因
+    //   竞态/网络挂死**，loading 永不复位 ⇒ 会话加载中… 永久卡死（截图实锤）。此守卫在
+    //   8s 后检查：仍 loading 且仍是这个会话 ⇒ 自动重拉一次 history（fire-and-forget；
+    //   重试仍失败由下次事件/手动兜底 —— 但**绝不永久卡死**）。
+    delay((): void => {
+      const st: ChatStore | null = this.store;
+      if (st !== null && st.historyLoading && st.currentChatId === chatId) {
+        st.loadHistory().catch((): void => {
+          // 重试失败不影响主链路（下次切会话/事件再兜底）
+        });
+      }
+    }, 8000);
     // ⛔ 切会话**不再**用"整张列表 opacity 0.001 → 1"来遮旧会话：
     //    那是"可读性成了动画的函数"（动画被打断/未跑 ⇒ 整列表近不可见，用户亲报的同类缺陷）。
     //    现在由 **行级 `entryRestOpacity()` + `.transition` 出现过渡**（`core/msgentry.ets`）负责观感：

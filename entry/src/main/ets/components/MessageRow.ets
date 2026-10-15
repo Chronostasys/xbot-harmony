@@ -403,6 +403,16 @@ export struct MessageRowView {
   }
 
   /**
+   * 本行生效的**块窗口**：行对象字段 > 0 用它（重建后恢复），否则回落默认（未初始化/live 兜底）。
+   * ⛔ 窗口住在 **@Observed 行对象**上（`ChatRow.blockLimit`）而非组件 @State：行键含 `rev`，
+   *   迭代 commit ⇒ 整行重建 ⇒ @State 回落默认 ⇒ 已渲染的迭代块瞬间折叠消失（用户亲报 P0）。
+   *   外置到行数据后窗口只增不减 —— 渲染过的迭代绝不消失（单向增长）。
+   */
+  private rowLimit(): number {
+    return this.row.blockLimit > 0 ? this.row.blockLimit : MSG_BLOCK_WINDOW;
+  }
+
+  /**
    * 该行要渲染的**全部**已完成块。
    *
    * ⛔ 不再「只显示最近 8 个 + 点击展开全部」（原生自创）：web `TurnBody` 渲染**全部**迭代，
@@ -414,19 +424,19 @@ export struct MessageRowView {
   }
 
   /**
-   * 该行此刻**真正交给 `ForEach`** 的块（= `itersFor()` 的末尾 `blockLimit` 块）。
+   * 该行此刻**真正交给 `ForEach`** 的块（= `itersFor()` 的末尾 `rowLimit()` 块）。
    *
    * ⛔ 与 `itersFor()` 分开是**刻意的**：`itersFor()` 必须保持"全部块"的语义 ——
    *   `compactionMap()`（压缩锚点）与"隐藏块数"都基于**全量**，若在这里裁剪会让
    *   压缩点定位错位、且丢失"还有 N 块"的判据（= 静默丢内容，用户规则不允许）。
    */
   private shownIters(): HistoryIteration[] {
-    return visibleBlocks(this.itersFor(), this.blockLimit);
+    return visibleBlocks(this.itersFor(), this.rowLimit());
   }
 
   /** 被折叠（隐藏）的块数 —— `> 0` 时必须渲染哨兵行（可见提示，不许静默丢内容）。 */
   private hiddenBlocks(): number {
-    return hiddenBlockCount(this.itersFor().length, this.blockLimit);
+    return hiddenBlockCount(this.itersFor().length, this.rowLimit());
   }
 
   /**
@@ -438,9 +448,11 @@ export struct MessageRowView {
    */
   private widen(): void {
     const n: number = this.itersFor().length;
-    const next: number = widenBlocks(this.blockLimit, n);
-    if (next !== this.blockLimit) {
-      this.blockLimit = next;
+    const next: number = widenBlocks(this.rowLimit(), n);
+    if (next !== this.rowLimit()) {
+      // ⛔ 写**行对象**（@Observed ⇒ 属性变化自动刷新）：窗口随行数据持久，
+      //    行重建（rev++ 换键）后从行字段恢复 ⇒ 已渲染的迭代块绝不因重建折叠消失。
+      this.row.blockLimit = next;
     }
   }
 
