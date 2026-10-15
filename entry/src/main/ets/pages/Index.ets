@@ -2114,8 +2114,20 @@ struct Index {
     if (contentGrew) {
       this.rowsFp = rowsFp;
       this.rows = store.rows.slice();
+      // 用户在阅读历史时保持视口不变——内容增长不应把用户拽回底部。
+      // syncRowDs → applyRows → LazyForEach onDataReloaded 可能导致 List 自动跟随，
+      // 需要主动 scrollTo 保持用户视口（web DOM scroll 不会因底部增长而自动滚动）。
+      const savedOffset: number = !this.followBottom ? this.listScroller.currentOffset().yOffset : 0;
       // live 行整条（已完成迭代 + 末尾在飞块）在 syncRowDs 里抽出为非懒尾项
       this.syncRowDs();
+      if (!this.followBottom) {
+        delay(() => {
+          try { this.listScroller.scrollTo({ xOffset: 0, yOffset: savedOffset }); } catch (e) { }
+        }, 0);
+      }
+    } else {
+      // 非 contentGrew 路径也需要 syncRowDs（主题切换等）
+      // （原逻辑：contentGrew=false 时不调 syncRowDs——保持不变）
     }
     // ⛔ 底部跟随（真机："看不到任何进度/思考打字机看不到"，2026-10-10）：
     //   live 尾块在**生长**（思考/正文打字机、工具 pill 增加）⇒ 若用户仍在底部，
@@ -6157,6 +6169,23 @@ struct Index {
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
 
+        // ── 原生「迭代指标」徽章（插件 `xbot.iteration-stats` 的 `status_bar_right` 视图）──
+        // ⭐ 这正是"插件视图原生渲染"的落点：数据来自宿主自己的实时指标（与 web 侧插件同源），
+        //    **不打开任何 web UI**。文案判据 `core/pluginviews.ets:iterStatsText`（空 ⇒ 不渲染）。
+        // ⛔ 只读 `@State iterStatsBadge`（在 `sync()` 投影）——不得在此直调 `store.liveProgress()`，
+        //    否则回合开始后 stat 到达时**不会重渲**（真机实锤缺陷，见该 `@State` 的注释）。
+        // 钮序（2026-10-15）：插件徽章放在内置按钮**之前**——内置按钮钉右，插件被挤到中间。
+        if (this.iterStatsBadge.length > 0) {
+          Text(this.iterStatsBadge)
+            .fontSize(typeOf('type.micro').size)
+            .fontWeight(typeOf('type.micro').weight)
+            .fontFamily('monospace')
+            .fontColor(colorOf(this.pal(), 'successText'))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .margin({ right: SP_1 })
+        }
+
         // ── 常驻「运行面板」入口（对标 web 移动壳的**常驻面板按钮条**，`MobileAppShell.tsx:701-731`）──
         // 用户亲报：「运行面板入口不方便，要打开侧边栏才能进入」。原实现只有抽屉底栏那 5 键
         // （`DrawerSheet` 里），必须**先开侧边栏**才点得到；而 web 的移动壳把面板入口做成**常驻**
@@ -6215,22 +6244,6 @@ struct Index {
         .onClick(() => {
           this.openFiles();
         })
-
-        // ── 原生「迭代指标」徽章（插件 `xbot.iteration-stats` 的 `status_bar_right` 视图）──
-        // ⭐ 这正是"插件视图原生渲染"的落点：数据来自宿主自己的实时指标（与 web 侧插件同源），
-        //    **不打开任何 web UI**。文案判据 `core/pluginviews.ets:iterStatsText`（空 ⇒ 不渲染）。
-        // ⛔ 只读 `@State iterStatsBadge`（在 `sync()` 投影）——不得在此直调 `store.liveProgress()`，
-        //    否则回合开始后 stat 到达时**不会重渲**（真机实锤缺陷，见该 `@State` 的注释）。
-        if (this.iterStatsBadge.length > 0) {
-          Text(this.iterStatsBadge)
-            .fontSize(typeOf('type.micro').size)
-            .fontWeight(typeOf('type.micro').weight)
-            .fontFamily('monospace')
-            .fontColor(colorOf(this.pal(), 'successText'))
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .margin({ right: SP_1 })
-        }
 
         // ── 队列 chip（2026-10-17 删除）：队列信息已由对话窗口的排队/插队条承载（goal 细节
         //    「busy 时 cancel 钮自动变插队/排队钮」），顶栏再放一颗 ⇒ 双份冗余 + head 拥挤
