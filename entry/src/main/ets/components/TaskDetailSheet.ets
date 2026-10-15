@@ -23,7 +23,7 @@ import {
   colorOf, hairlineOf, HIT_TARGET_MIN, ICON_MD, PRESS_OPACITY, RADIUS_SHEET, SHEET_ACTION_GLYPH, SPACE_MD,
   SHEET_WIDTH, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD, structuralRuleOf, surfaceFillOf, typeOf,
 } from '../core/design';
-import { sheetTransition } from './anim';
+import { sheetTransition, animBase } from './anim';
 
 @Component
 export struct TaskDetailSheet {
@@ -118,6 +118,8 @@ export struct TaskDetailSheet {
             Row({ space: SPACE_XS }) {
               Text(this.statusText)
                 .fontSize(typeOf('type.caption').size)
+                // ⚡ 2026-10-20 丝滑动画：运行/空闲状态切换时文字颜色缓动
+                .animation(animBase())
                 .fontColor(this.running ? this.palOnce().accent : this.palOnce().textSecondary)
               Text(this.metaText)
                 .fontSize(typeOf('type.caption').size)
