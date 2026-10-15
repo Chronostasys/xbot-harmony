@@ -35,6 +35,7 @@ import {
 import { drawerTransition } from './anim';
 import { MarkdownView } from './MarkdownView';
 import { AuthImage } from './AuthImage';
+import { animBase } from './anim';
 
 /**
  * 列表数据源（`LazyForEach` 行级虚拟化 —— 大目录不炸节点）。
@@ -471,6 +472,8 @@ export struct FilesSheet {
           Row({ space: SPACE_XS }) {
             Text('隐藏文件')
               .fontSize(typeOf('type.caption').size)
+              // ⚡ 2026-10-20 丝滑动画：开关切换时文字颜色缓动
+              .animation(animBase())
               .fontColor(this.tint(this.showHidden ? 'onAccent' : 'secondary'))
             if (this.showHidden) {
               SymbolGlyph($r('sys.symbol.checkmark'))
@@ -482,6 +485,8 @@ export struct FilesSheet {
           .padding({ left: SPACE_XS, right: SPACE_XS })
           .justifyContent(FlexAlign.Center)
           .alignItems(VerticalAlign.Center)
+          // ⚡ 2026-10-20 丝滑动画：开关切换时背景色缓动
+          .animation(animBase())
           .backgroundColor(this.tint(this.showHidden ? 'accent' : 'input'))
           .borderRadius(RADIUS_CHIP)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
