@@ -8936,8 +8936,8 @@ struct Index {
    * 同样按 `blocksSignature` 门控（只在结构/内容变化时赋值 ⇒ 流式期间零额外重建）。
    */
   private syncLiveTail(): void {
-    // 用户在阅读历史时降低 live tail 更新频率——减少整页 build + LazyForEach diff
-    if (!this.followBottom && this.busy && Date.now() - this.lastNonFollowLiveMs < 200) {
+    // 无条件降频到 100ms（10 次/秒）——减少整页 build 频率，避免侧边栏/列表掉帧
+    if (this.busy && Date.now() - this.lastNonFollowLiveMs < 100) {
       return;
     }
     this.lastNonFollowLiveMs = Date.now();
