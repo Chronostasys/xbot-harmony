@@ -11852,6 +11852,32 @@ class ChatRowDataSource implements IDataSource {
         }
         return;
       }
+      // ⛔ 2026-10-20 视角跳顶修复：如果只是头部前插行（prev 是 next 的后缀）——
+      //   用 onDataAdd(0..newCount-1) 逐条通知插入——不用 onDataReloaded()——
+      //   onDataReloaded 会全表重建⇒List 跳到 index 0⇒用户视角被拉到最上方。
+      //   onDataAdd 告知 LazyForEach「在开头插入了 N 行」⇒框架自动下移旧条目、
+      //   保持用户当前视口不变（新内容在视口上方，用户需继续上滚才能看到）。
+      //   ⚠️ 逐条 onDataAdd(i) 从 0 到 newCount-1：每次插入后旧条目下移 1 位，
+      //   与 `this.rows = next` 的实际排列一致。
+      let suffixMatch: boolean = prevRows.length > 0 && prevRows.length < next.length;
+      if (suffixMatch) {
+        const offset: number = next.length - prevRows.length;
+        for (let i = 0; i < prevRows.length; i++) {
+          if (prevRows[i].id !== next[offset + i].id) {
+            suffixMatch = false;
+            break;
+          }
+        }
+      }
+      if (suffixMatch) {
+        const newCount: number = next.length - prevRows.length;
+        for (let i = 0; i < newCount; i++) {
+          for (let j = 0; j < this.listeners.length; j++) {
+            this.listeners[j].onDataAdd(i);
+          }
+        }
+        return;
+      }
       for (let i = 0; i < this.listeners.length; i++) {
         this.listeners[i].onDataReloaded();
       }
