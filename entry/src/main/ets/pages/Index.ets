@@ -2205,10 +2205,16 @@ struct Index {
     if (this.busyPhase !== ph) {
       this.busyPhase = ph;
     }
-    this.llmCfg = store.llmConfig;
+    if (this.llmCfg !== store.llmConfig) {
+      this.llmCfg = store.llmConfig;
+    }
     // 模型列表三态：镜像既有取数路径（`store.loadLlmConfig`）的**真结果**（`llmConfigState`/`llmConfigError`）。
-    this.llmCfgState = store.llmConfigState;
-    this.llmCfgError = store.llmConfigError;
+    if (this.llmCfgState !== store.llmConfigState) {
+      this.llmCfgState = store.llmConfigState;
+    }
+    if (this.llmCfgError !== store.llmConfigError) {
+      this.llmCfgError = store.llmConfigError;
+    }
     if (this.cronTasks !== store.cronTasks) {
       this.cronTasks = store.cronTasks;
     }
