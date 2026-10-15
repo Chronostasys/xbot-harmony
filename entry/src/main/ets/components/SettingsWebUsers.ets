@@ -27,6 +27,7 @@ import {
 } from '../core/settings';
 import { SettingsErrorBar, SettingsPanelHeader } from './SettingsRows';
 import { colorOf, PRESS_OPACITY, HIT_TARGET_MIN } from '../core/design';
+import { animBase } from './anim';
 
 /** `create_web_user` 的 data（服务端 `map[string]string{"password": ...}`）。 */
 interface CreatedUser {
@@ -227,6 +228,8 @@ export struct SettingsWebUsers {
                   .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
                   .borderRadius(R_LG)
                   // 确认态用**危险底**强化（同一「武装」视觉，避免误触）
+                  // ⚡ 2026-10-20 丝滑动画：确认态切换时背景色缓动
+                  .animation(animBase())
                   .backgroundColor(this.confirmDelete === u.username ? this.pal().dangerBg : this.pal().transparent)
                   .border({ width: 1, color: this.confirmDelete === u.username ? this.pal().dangerText : this.pal().borderStrong })
                   .opacity(this.deleting.length === 0 ? 1 : 0.5)
