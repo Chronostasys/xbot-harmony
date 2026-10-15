@@ -921,6 +921,8 @@ struct Index {
   // ── P7 会话管理（搜索 / 排序 / 分支）──
   /** 抽屉里的本地筛选词（只过滤显示，不打断会话） */
   @State sessQuery: string = '';
+  /** 搜索框是否获得焦点（驱动边框高亮动画） */
+  @State searchFocused: boolean = false;
   /** 打开「⋯」操作菜单的会话 id（空=关闭） */
   @State sessMenuId: string = '';
   /** 删除二次确认的目标 id */
@@ -10670,6 +10672,9 @@ struct Index {
               .onChange((v: string) => {
                 this.sessQuery = v;
               })
+              .onEditChange((isEditing: boolean) => {
+                this.searchFocused = isEditing;
+              })
               .layoutWeight(1)
               .backgroundColor(Color.Transparent)
               .fontColor(this.palOnce().textPrimary)
@@ -10696,7 +10701,9 @@ struct Index {
           .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlayRow'))
           // 与右侧「搜本会话」chip **同一面语言**：填充 + 内凹发丝。此前只有 chip 有边框、搜索框裸填充
           // ⇒ 同排两种"面"读起来一个像输入框一个像按钮（`insetHairlineOf` 深色才有值、浅色透明）。
-          .border({ width: STROKE_HAIRLINE, color: insetHairlineOf(this.pal()) })
+          // ⚡ 2026-10-20 丝滑动画：获焦时边框变 accent 色（Apple 搜索框聚焦反馈）。
+          .animation(animBase())
+          .border({ width: STROKE_HAIRLINE, color: this.searchFocused ? this.palOnce().accent : insetHairlineOf(this.pal()) })
           .borderRadius(RADIUS_CARD)
           .alignItems(VerticalAlign.Center)
         }
