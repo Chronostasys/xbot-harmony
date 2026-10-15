@@ -10381,6 +10381,29 @@ struct Index {
         .onClick(() => {
           this.applyCollapseAll();
         })
+      Divider().strokeWidth(STROKE_HAIRLINE).color(hairlineOf(this.pal())).margin({ top: SPACE_HAIR, bottom: SPACE_HAIR })
+      Text('任务面板')
+        .width('100%')
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .fontSize(typeOf('type.subhead').size)
+        .fontColor(this.pal().textPrimary)
+        .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_XS, bottom: SPACE_XS })
+        .borderRadius(RADIUS_CHIP)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          this.openSurface(SURF_TASKS);
+        })
+      Text('插件管理')
+        .width('100%')
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .fontSize(typeOf('type.subhead').size)
+        .fontColor(this.pal().textPrimary)
+        .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_XS, bottom: SPACE_XS })
+        .borderRadius(RADIUS_CHIP)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          this.openPlugins();
+        })
     }
     .padding(SPACE_HAIR)
     // 菜单宽度**显式给**（同 `ChannelPickerMenu`：不给会被 ArkUI 按浮层最大宽解析 ⇒ 撑到 ~375vp）。
@@ -11049,35 +11072,7 @@ struct Index {
         .onClick(() => {
           this.openSettingsPanel();
         })
-        Column({ space: 2 }) {
-          SymbolGlyph($r('sys.symbol.list_bullet'))
-            .fontSize(ICON_XL).fontColor([this.barTint('muted')])
-          Text('任务')
-            .fontSize(typeOf('type.micro').size).fontColor(this.barTint('text'))
-        }
-        .layoutWeight(1).height(HIT_TARGET_MIN)
-        .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
-        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        // §21.122bu（用户定向 2026-10-16「一个页面必须只有一个形态」）：**统一到原生运行面板**。
-        // ⛔ 不再开 `?xbot_panel=tasks`（web 任务面板）—— 同一能力面曾按入口不同渲染成两种形态。
-        // 形态判定收敛在 `surfaceOf(SURF_TASKS)`（唯一真源），动作走唯一出口 `openSurface`。
-        .accessibilityText('任务：原生运行面板（cron + 后台任务 + 子代理 + Runner + 终端）')
-        .onClick(() => {
-          this.openSurface(SURF_TASKS);
-        })
-        Column({ space: 2 }) {
-          SymbolGlyph($r('sys.symbol.puzzle'))
-            .fontSize(ICON_XL).fontColor([this.barTint('muted')])
-          Text('插件')
-            .fontSize(typeOf('type.micro').size).fontColor(this.barTint('text'))
-        }
-        .layoutWeight(1).height(HIT_TARGET_MIN)
-        .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
-        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('插件与 Web UI：插件目录、宿主页、完整 Web UI')
-        .onClick(() => {
-          this.openPlugins();
-        })
+        // 「任务」「插件」已移至顶栏 ⋯ 菜单（对标 Apple：底栏只保留 4 导航键）
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.folder'))
             .fontSize(ICON_XL).fontColor([this.barTint('muted')])
