@@ -11692,6 +11692,7 @@ class ChatRowDataSource implements IDataSource {
     //    必须走整表 reload 让框架重读键/重建条目；否则键已变而只发 `onDataChange` ⇒
     //    已存在行仍冻结在旧色板（用户亲报「深色看不清字」的同一根因）。
     const fullReload: boolean = needsFullReload(this.rows, next, this.chatId, chatId);
+    const prevRows: ChatRow[] = this.rows;
     const themeChanged: boolean = theme !== this.theme;
     this.theme = theme;
     // ⚠️ 2026-10-17 键去 rev 后：**内容更新不再走 onDataChange**（同键 item 被
@@ -11726,6 +11727,26 @@ class ChatRowDataSource implements IDataSource {
     }
     this.keys = keys;
     if (fullReload) {
+      // ⛔ 2026-10-15 闪烁修复：如果只是末尾新增行（prev 是 next 的前缀）——
+      //   用 onDataAdd() 通知新增行——不用 onDataReloaded()——避免整表重建闪烁。
+      //   切会话/骨架变化仍走 onDataReloaded()。
+      let prefixMatch: boolean = prevRows.length > 0 && prevRows.length < next.length;
+      if (prefixMatch) {
+        for (let i = 0; i < prevRows.length; i++) {
+          if (prevRows[i].id !== next[i].id) {
+            prefixMatch = false;
+            break;
+          }
+        }
+      }
+      if (prefixMatch) {
+        for (let i = prevRows.length; i < next.length; i++) {
+          for (let j = 0; j < this.listeners.length; j++) {
+            this.listeners[j].onDataAdd(i);
+          }
+        }
+        return;
+      }
       for (let i = 0; i < this.listeners.length; i++) {
         this.listeners[i].onDataReloaded();
       }
