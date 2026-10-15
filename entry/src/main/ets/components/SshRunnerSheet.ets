@@ -2148,6 +2148,8 @@ export struct SshRunnerSheet {
           Row({ space: SPACE_XS }) {
             Text(s.ok === true ? '✓' : '·')
               .fontSize(typeOf('type.caption').size)
+              // ⚡ 2026-10-20 丝滑动画：步骤完成状态切换时颜色缓动
+              .animation(animBase())
               .fontColor(this.tc(s.ok === true ? 'success' : 'muted'))
             Text(s.name !== undefined ? s.name : '')
               .fontSize(typeOf('type.caption').size)
