@@ -10737,11 +10737,15 @@ struct Index {
               // 这是第二个搜索框。`text_and_magnifyingglass`（"搜索正文"）语义精确、外形可辨。
               SymbolGlyph($r('sys.symbol.text_and_magnifyingglass'))
                 .fontSize(ICON_SM)
+                // ⚡ 2026-10-20 丝滑动画：查询有/无内容时图标颜色缓动
+                .animation(animBase())
                 .fontColor([this.sessQuery.trim().length > 0
                   ? this.palOnce().accentSoft
                   : colorOf(this.palOnce(), 'iconMuted')])
               Text('搜本会话')
                 .fontSize(typeOf('type.caption').size)
+                // ⚡ 2026-10-20 丝滑动画：查询有/无内容时文字颜色缓动
+                .animation(animBase())
                 .fontColor(this.sessQuery.trim().length > 0 ? this.palOnce().accentSoft : this.palOnce().textSecondary)
             }
           }
