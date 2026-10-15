@@ -10919,6 +10919,13 @@ struct Index {
                         // 却各占视线（原实现第二行恒显示 `Web` + `chat_026B326DE4C4`）。
                         // 超越 web：行内动作收进**尾部拇指区**（星标 + ⋯），各自真实 44×44 布局盒。
                         Row({ space: SPACE_XS }) {
+                          // 选中态左指示条（Apple Notes 风格——accent 色 3px 竖条）
+                          if (this.isCurrentSession(s.chat_id)) {
+                            Row()
+                              .width(3).height(20)
+                              .backgroundColor(this.pal().accent)
+                              .borderRadius(1.5)
+                          }
                           // 前导**标记槽**（`MARKER_GUTTER`）：恒定占位、内容可空。
                           // 为什么：标记此前是**条件渲染** ⇒ 「有状态的会话」标题被顶右、「无状态的」贴左，
                           // 真机同屏量到标题左缘 **80px vs 134px（差 16vp）** ⇒ 整列参差（Apple 列表的
