@@ -2133,6 +2133,8 @@ export struct SshRunnerSheet {
           LoadingProgress().width(ICON_MD).height(ICON_MD).color(this.tc('accent'))
           Text(this.addError.length > 0 ? SSH_INSTALL_FAILED_TEXT : '正在安装 xbot-runner（只安装二进制）…')
             .fontSize(typeOf('type.subhead').size)
+            // ⚡ 2026-10-20 丝滑动画：错误态切换时文字颜色缓动
+            .animation(animBase())
             .fontColor(this.addError.length > 0 ? this.tc('danger') : this.tc('text'))
             .layoutWeight(1)
             .maxLines(2)
@@ -2232,6 +2234,8 @@ export struct SshRunnerSheet {
       } else {
         Text(this.addConnected ? '已安装并连接' : '已安装并保存（尚未连接）')
           .fontSize(typeOf('type.subhead').size)
+          // ⚡ 2026-10-20 丝滑动画：连接状态切换时文字颜色缓动
+          .animation(animBase())
           .fontColor(this.addConnected ? this.tc('success') : this.tc('text'))
           .width('100%')
         SshChip({
