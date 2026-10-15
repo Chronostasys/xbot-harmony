@@ -6397,7 +6397,7 @@ struct Index {
           ListItem() {
             this.ChatRowBody(row)
           }
-        }, (row: ChatRow) => themableRowKey(this.currentChat, this.themeName, row))
+        }, (row: ChatRow) => { const k = themableRowKey(this.currentChat, this.themeName, row); console.debug('[THEME5] keygen id=' + row.id + ' themeName=' + this.themeName + ' key=' + k); return k; })
 
         // ── live turn 的整条 assistant 消息（LazyForEach 之外，@State 直驱）──
         // 真机 bug ② 根治点：live 迭代不再是"单独的气泡/单独的 ListItem"，而是这条
