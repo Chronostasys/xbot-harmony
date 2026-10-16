@@ -78,6 +78,19 @@ export const SSE_WATCHDOG_TICK_MS: number = 5000;
 export const SSE_ATTEMPT_STALL_MS: number = 20000;
 
 /**
+ * 退避计时器**迟到宽限**（ms）—— 判定"计时器是否真的在跑"。
+ *
+ * 为什么必须有它（2026-10-16 用户 P0「回前台永远卡在重新连接」，实测根因）：
+ * `scheduleReconnect` 用 `setTimeout` 布防退避，并把 `reconnectTimer >= 0` 当作
+ * "退避在跑"（`watchdogDecision` 的 `retryPending` 据此**一律 IDLE**，不许看门狗抢方向盘）。
+ * 但**切后台时系统会挂起/丢弃 JS 定时器** ⇒ `reconnectTimer` 永远留在 `>= 0`（回调永不执行、
+ * 也不复位）⇒ 看门狗**永久 IDLE**、`forceReconnect` 又因 `state !== 'open'` 早退 ⇒ **永久重连中**。
+ * ⇒ 记录"这个计时器**本应**在何时触发"（`reconnectDueAt`），迟到超过本宽限即判定它已丢失
+ * （`retryPending = false`）⇒ 看门狗/D RESTART 可接管。宽限覆盖"事件循环短暂繁忙"的合法迟到。
+ */
+export const SSE_RECONNECT_TIMER_GRACE_MS: number = 3000;
+
+/**
  * 是否该**强制重连**（纯函数）。
  *
  * 只有"**看着已连上、但久无帧**"才值得动手：
@@ -292,6 +305,11 @@ export class SseClient {
   private retry: number = 0;
   private listener: SseListener | null = null;
   private reconnectTimer: number = -1;
+  /**
+   * 退避计时器**本应**触发时刻（`0` = 无计时器）。见 `SSE_RECONNECT_TIMER_GRACE_MS`：
+   * 切后台挂起会丢计时器回调，靠它把"标志还在、其实早该响"识别出来 ⇒ 看门狗可接管。
+   */
+  private reconnectDueAt: number = 0;
   /** 最后一帧（含心跳）到达时刻 —— 强制探活的**静默判据**。0 = 本次订阅以来从未收到。 */
   private lastFrameAt: number = 0;
   /** 上次强制探活的发起时刻（节流用）。0 = 从未。 */
@@ -387,6 +405,24 @@ export class SseClient {
    * @param nowMs 注入的当前时刻（脱机测试/页面可显式驱动；真实巡检传 `Date.now()`）
    * @returns 实际采取的动作（`WATCHDOG_IDLE`/`WATCHDOG_RECONNECT`/`WATCHDOG_RESTART`）
    */
+  /**
+   * 退避计时器是否**真的**在跑。
+   *
+   * ⛔ 判据**必须**含到期时刻（不是只看 `reconnectTimer >= 0`）：切后台挂起会丢 `setTimeout`
+   *    回调 ⇒ 标志永远留在 `>= 0`。若只看标志，`watchdogDecision` 的 `retryPending` 恒真 ⇒
+   *    看门狗**永久 IDLE**、`forceReconnect` 又因 `state !== 'open'` 早退 ⇒ **永久"重新连接中"**
+   *    （用户 2026-10-16 P0）。迟到超过 `SSE_RECONNECT_TIMER_GRACE_MS` ⇒ 视为已丢失（可被接管）。
+   */
+  private retryPending(nowMs: number): boolean {
+    if (this.reconnectTimer < 0) {
+      return false;
+    }
+    if (this.reconnectDueAt <= 0) {
+      return true;
+    }
+    return nowMs < this.reconnectDueAt + SSE_RECONNECT_TIMER_GRACE_MS;
+  }
+
   probeNow(nowMs: number): string {
     try {
       if (this.stopped) {
@@ -401,7 +437,7 @@ export class SseClient {
         nowMs,
         SSE_SILENCE_THRESHOLD_MS,
         SSE_ATTEMPT_STALL_MS,
-        this.reconnectTimer >= 0,
+        this.retryPending(nowMs),
       );
       if (action !== WATCHDOG_IDLE) {
         // ⛔ 排障埋点（**必须**保留）：看门狗是"流静默死掉"时**唯一**的被动接管者
@@ -505,6 +541,7 @@ export class SseClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = -1;
     }
+    this.reconnectDueAt = 0;
     if (this.req !== null) {
       const r: http.HttpRequest = this.req;
       this.req = null;
@@ -515,7 +552,24 @@ export class SseClient {
     }
   }
 
+  /** 包装：把 `openStreamRaw` 的**同步抛错**转成退避重连（否则 `state` 停在 `reconnecting` ⇒ 永久卡）。 */
   private openStream(): void {
+    if (this.stopped) {
+      return;
+    }
+    // ⛔ 每次尝试都显式回到 `connecting`：`openStream` 被 timer 回调 / 看门狗 RESTART 调用时
+    //    `state` 可能仍是 `reconnecting`；若本轮请求同步抛错，就永远停在 `reconnecting`
+    //    （用户 2026-10-16 P0「永久卡在重新连接」的第二处死点）。
+    this.setState('connecting');
+    try {
+      this.openStreamRaw();
+    } catch (e) {
+      console.warn(`xbot sse: openStream 抛错（转退避重连）: ${(e as Error).message}`);
+      this.scheduleReconnect();
+    }
+  }
+
+  private openStreamRaw(): void {
     if (this.stopped) {
       return;
     }
@@ -653,8 +707,10 @@ export class SseClient {
     if (this.reconnectTimer >= 0) {
       clearTimeout(this.reconnectTimer);
     }
+    this.reconnectDueAt = Date.now() + delay;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = -1;
+      this.reconnectDueAt = 0;
       this.openStream();
     }, delay);
   }

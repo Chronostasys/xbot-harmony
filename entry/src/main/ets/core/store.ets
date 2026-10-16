@@ -10,7 +10,7 @@
  * 为什么不用 ArkUI 的 @Observed：跨页面共享一个普通类 + 回调通知更简单可控，
  * 页面把它同步进 @State（见 pages/Index.ets 的 syncFrom）。
  */
-import { XbotHttp } from './http';
+import { XbotHttp, HTTP_SEND_READ_TIMEOUT_MS } from './http';
 import { SseClient } from './sse';
 import { hasFreshPhaseDone, isIdleAction, rowIsEmpty, shouldReloadHistory, stripInterruptedMarker } from './streammerge';
 import { arrOrEmpty, isPresent } from './guards';
@@ -1524,9 +1524,12 @@ export class ChatStore {
       }
     }
     try {
+      // ⛔ 发送走**短读超时**（`HTTP_SEND_READ_TIMEOUT_MS`，非默认 120s）：切后台后半开连接会让
+      //    乐观行无反馈地挂 2 分钟（用户 2026-10-16 P0「显示已发、实际没发」）。短超时 ⇒
+      //    快速抛错 ⇒ `sendDraft` 回滚乐观行 + 明确报错（而不是静默挂着）。
       const raw: string = await this.http.post('/api/message', new MessageReq(
         this.channel, this.currentChatId, text, uploadKeys, fileNames, fileSizes, isInterrupt,
-        requestID));
+        requestID), HTTP_SEND_READ_TIMEOUT_MS);
       if (isInterrupt) {
         // 对齐 web（`sseConnection.ts:473` → 服务端 `web_rest.go:95-104`）：插话成功的**唯一判据**是
         // 响应里的 `interrupted === true`。旧实现无条件 `return true` ⇒ 服务端在"会话已空闲"时

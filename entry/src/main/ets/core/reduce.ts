@@ -383,7 +383,15 @@ function hasOutput(live: LiveSnapshot): boolean {
     live.content !== '' ||
     live.reasoning !== '' ||
     live.iterations.length > 0 ||
-    live.genui !== ''
+    live.genui !== '' ||
+    // ⛔ **在飞工具**也算产出（2026-10-16 用户 P0「正在执行的 tool 迭代切后台后彻底消失」）：
+    //   在飞工具只活在 `activeTools`/`streamingTools`（**不在** `iterations` —— 那是已完成的）。
+    //   此前本函数不数它们，而渲染侧同源判据 `derive.hasVisibleOutput` **数** ⇒ **判据分叉**
+    //   （违反本仓「判据与渲染必须同源」）：一个「迭代刚开始、LLM 还没吐字就调工具」的 turn
+    //   会被 `history_replaced` 的 step2（`keep = frozen && hasOutput`）与空壳清除逻辑误删
+    //   ⇒ 整行消失。收敛到同一语义（含在飞工具）。
+    live.activeTools.length > 0 ||
+    live.streamingTools.length > 0
   )
 }
 
@@ -1983,7 +1991,17 @@ function foldInFlightToIterations(
  * committed 是渲染等价的安全形态。
  */
 function mergeTurnData(cur: Turn, h: Turn): Turn {
-  const curIts = cur.phase.kind === 'committed' ? cur.phase.payload.iterations : cur.phase.data.iterations
+  let curIts = cur.phase.kind === 'committed' ? cur.phase.payload.iterations : cur.phase.data.iterations
+  // ⛔ **在飞工具折叠**（2026-10-16 用户 P0「正在执行的 tool 迭代切后台后彻底消失」）：
+  //   非 committed 的 cur（live/frozen）带 `activeTools`/`streamingTools`（在飞），而 DB 侧 h
+  //   **没有**它们（不在 `iteration_history`）⇒ 下面构造 committed phase 前若不把它们折进
+  //   `iterations`，就**永久丢**（committed 渲染只读 iterations，不看 activeTools）。
+  //   与 `foldPhase`（turn_started 收尸）**共用同一 `foldInFlightToIterations`** ⇒ 两条收尸路同语义。
+  if (cur.phase.kind !== 'committed') {
+    curIts = foldInFlightToIterations(
+      cur.phase.data.activeTools, cur.phase.data.streamingTools,
+      curIts, cur.phase.data.iter, cur.phase.data.content, cur.phase.data.reasoning)
+  }
   const incIts = h.phase.kind === 'committed' ? h.phase.payload.iterations : h.phase.data.iterations
   const curContent = cur.phase.kind === 'committed' ? cur.phase.payload.content : cur.phase.data.content
   const incContent = h.phase.kind === 'committed' ? h.phase.payload.content : h.phase.data.content

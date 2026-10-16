@@ -14,6 +14,20 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { ApiEnvelope } from './types';
 import { isPresent } from './guards';
 
+/** 默认**读**超时（普通 REST）——只对**长耗时**端点（历史/会话树）合适。 */
+export const HTTP_READ_TIMEOUT_MS: number = 120000;
+
+/**
+ * **发送消息**（`/api/message`）的读超时（较短）。
+ *
+ * ⛔ 为什么必须单独短化（2026-10-16 用户 P0「应用显示发出去了、实际根本没发」）：
+ *   切后台后底层连接可能**半开**（socket 被中间设备静默掐死，`readTimeout:0` 的 SSE 收不到
+ *   `dataEnd`，普通请求则写进本地缓冲**永不投递**）⇒ 只有**读超时**能兜底。默认 120s
+ *   ⇒ 乐观行在屏 **2 分钟**、无任何失败反馈，用户以为已发。发送端点只做"入队 + 落库"，
+ *   正常 < 1s ⇒ 用短超时**快速失败** ⇒ `user_fail` 回滚乐观行 + 明确报错（见 `store.send`）。
+ */
+export const HTTP_SEND_READ_TIMEOUT_MS: number = 20000;
+
 /** 响应头里取 Set-Cookie（ArkTS 限制动态取键 ⇒ 只按已知两种拼写直查）。 */
 
 /**
@@ -199,14 +213,14 @@ export class XbotHttp {
    * POST `/api/<path>`，返回信封里的 `data`（原始 JSON 字符串，调用方自行 parse 成 interface）。
    * @throws Error 网络失败 / HTTP 非 2xx / 信封 ok=false
    */
-  async post(path: string, body: object): Promise<string> {
+  async post(path: string, body: object, readTimeoutMs: number = HTTP_READ_TIMEOUT_MS): Promise<string> {
     let bodyText: string;
     try {
       bodyText = JSON.stringify(body);
     } catch (e) {
       throw new Error(`[body 序列化] ${describeError(e as Object)}`);
     }
-    return this.sendJson(http.RequestMethod.POST, path, bodyText);
+    return this.sendJson(http.RequestMethod.POST, path, bodyText, readTimeoutMs);
   }
 
   /** GET `/api/<path>`，返回信封里的 `data`（原始 JSON 字符串）。 */
@@ -226,7 +240,8 @@ export class XbotHttp {
    * 每个子步骤单独兜底并标注产地：真机一旦抛错，错误文案直接指出是哪一步的哪个 API
    * （2026-10-09 教训：只有一句 "undefined is not callable" 时无法定位）。
    */
-  private async sendJson(method: http.RequestMethod, path: string, bodyText: string | undefined): Promise<string> {
+  private async sendJson(method: http.RequestMethod, path: string, bodyText: string | undefined,
+    readTimeoutMs: number = HTTP_READ_TIMEOUT_MS): Promise<string> {
     let req: http.HttpRequest;
     try {
       req = http.createHttp();
@@ -253,7 +268,7 @@ export class XbotHttp {
           extraData: bodyText,
           expectDataType: http.HttpDataType.STRING,
           connectTimeout: 15000,
-          readTimeout: 120000,
+          readTimeout: readTimeoutMs,
         });
       } catch (e) {
         throw new Error(`[发送 ${path}] ${describeError(e as Object)}`);

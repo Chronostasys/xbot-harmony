@@ -548,6 +548,12 @@ struct Index {
   @State showSplash: boolean = false;
   /** 自绘 in-app toast（单槽；`msg` 非空 = 可见）。唯一判据来源 = `core/toast.ets`（⛔ 不另立）。 */
   @State toastState: ToastState = emptyToast();
+  /**
+   * 底部栏（composer；含 `WidgetDock` 信息栏）的实测高度（vp）—— 供 `Toast` 让位，
+   * 使提示浮在**输入框上方**而不是压住它（用户 2026-10-16 P0）。由 composer 容器
+   * 的 `onAreaChange` 更新；初值给一个保守估计（首帧未布局时 toast 也不压输入框）。
+   */
+  @State composerBottomH: number = 76;
   /** 开屏阶段（T1→T2→T3）；唯一消费方是 `SplashOverlay` 的 `@Watch`。 */
   @State splashPhase: string = SPLASH_T1;
 
@@ -1852,6 +1858,12 @@ struct Index {
     // 绝不放进 build()/高频回调（避免重连风暴）。
     const store: ChatStore | null = this.store;
     if (store !== null) {
+      // ⛔ 回前台**必须**显式驱动一次看门狗：`forceReconnect` 只在 `state === 'open'` 时动手
+      //   （防双连接）⇒ 若切后台时停在 `connecting`/`reconnecting`（退避计时器随后被系统挂起丢弃），
+      //   它就**永远 no-op** ⇒ 永久"重新连接中"（用户 2026-10-16 P0）。
+      //   `probeNow` 覆盖三种卡死态：①`open`+久无帧；②尝试挂死（无帧超 stall）；③**计时器丢失**
+      //   （`retryPending` 已按 `reconnectDueAt` 到期判定，见 `core/sse.ets`）⇒ 直接重开。
+      store.sse.probeNow(Date.now());
       store.sse.forceReconnect();
     }
   }
@@ -5956,7 +5968,7 @@ struct Index {
       // ── 自绘 in-app toast（C4）—— **末子**（`Stack` 后入子的在上层；`hitTestBehavior(None)` 不吃点击）──
       //    可见性 = 状态的函数（`toastVisible`）⇒ 动画被打断也不会"永久不可读"（门禁 ⑨ 的正向形态）。
       if (toastVisible(this.toastState)) {
-        Toast({ theme: this.themeName, msg: this.toastState.msg })
+        Toast({ theme: this.themeName, msg: this.toastState.msg, bottomOffset: this.composerBottomH })
       }
     }
     .width('100%')
@@ -7249,6 +7261,13 @@ struct Index {
       })
       .margin({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
       .id('xbot-composer')
+      // ⛔ 实测底部栏高度 ⇒ 供 `Toast` 让位（提示浮在输入框上方，不压住用户正在打的字）。
+      .onAreaChange((oldArea: Area, newArea: Area) => {
+        const h: number = newArea.height as number;
+        if (h > 0 && h !== this.composerBottomH) {
+          this.composerBottomH = h;
+        }
+      })
       }   // ← 关闭「子代理会话不渲染输入区」的 `if (!this.isSubAgentChat())`（见该块头注）
 
       // ── 常驻信息栏（插件**声明式 widget** 的落点）────────────────────────────────

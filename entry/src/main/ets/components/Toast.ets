@@ -39,6 +39,15 @@ export struct Toast {
   @Prop theme: string = 'dark';
   /** 已算好的**展示文案**（由 `core/toast.ets: toastLabel` 统一产出；空 ⇒ 页面不该挂载本组件）。 */
   @Prop msg: string = '';
+  /**
+   * **底部让位高度**（vp）—— 页面传入的"输入区（composer + InfoBar）总高"。
+   *
+   * ⛔ 为什么必须要有它（2026-10-16 用户 P0「popup 提示直接遮挡用户输入框」）：本组件是
+   *   **全屏 overlay + 贴底对齐**（`justifyContent(FlexAlign.End)`），而输入框就在页面底部 ⇒
+   *   任何 toast（含点「排队/插队」的 `modeHint`）都**正好压在输入框上** ⇒ 挡住用户正在打的字。
+   *   页面测出底部栏高度后从这里传入，toast 便浮在输入框**上方**。
+   */
+  @Prop bottomOffset: number = 0;
 
   private pal(): Palette {
     return paletteOf(this.theme);
@@ -91,7 +100,9 @@ export struct Toast {
     .height('100%')
     .justifyContent(FlexAlign.End)
     .alignItems(HorizontalAlign.Center)
-    .padding({ bottom: SPACE_XL })
+    // ⛔ 浮在**输入框上方**（`bottomOffset` = 页面测出的底部栏总高）—— 贴底会正好压在用户
+    //    正在打的字上（2026-10-16 用户 P0）。
+    .padding({ bottom: SPACE_XL + this.bottomOffset })
     .hitTestBehavior(HitTestMode.None)
     // 出入场 = 装饰（静息态不靠它）—— 具名工厂，时长/曲线/位移全部来自底座。
     .transition(toastTransition())
