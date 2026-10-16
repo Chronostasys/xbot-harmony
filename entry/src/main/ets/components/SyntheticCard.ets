@@ -31,6 +31,15 @@ import {
 
 /** 头像直径（web `size-6` = 24px；手机端同号）。 */
 const AVATAR: number = 24;
+/**
+ * 正文折叠阈值（字符数）—— 对齐 web `SyntheticToolCard.tsx:426` 的 `clipped = body.length > 1500`。
+ * ⛔ 用户亲报：默认把完整内容一次性渲染 ⇒ 卡片占屏过高。改成**默认折叠 + 点击展开**。
+ */
+const CLIP_CHARS: number = 1500;
+/** 折叠态可视高（vp）—— 对齐 web `max-h-24`（96px）。 */
+const CLIP_H: number = 120;
+/** 展开态可视高（vp）—— 对齐 web `max-h-[420px]`。 */
+const EXPANDED_H: number = 420;
 
 @Component
 export struct SyntheticCard {
@@ -54,6 +63,16 @@ export struct SyntheticCard {
   }
   onCopy: (text: string, what: string) => void = (text: string, what: string) => {
   };
+  /**
+   * 正文是否展开 —— **默认折叠**（对齐 web `SyntheticToolCard.tsx:345/396` 的 `useState(false)`）。
+   * ⛔ 用户亲报：subagent 完成等通知默认把完整内容一次性渲染 ⇒ 卡片占屏过高。
+   */
+  @State private open: boolean = false;
+
+  /** 正文是否需要折叠（字符数超阈值 —— 同 web `clipped`）。 */
+  private clipped(): boolean {
+    return this.body().length > CLIP_CHARS;
+  }
 
   private pal(): Palette {
     return paletteOf(this.themeId());
@@ -206,6 +225,46 @@ export struct SyntheticCard {
     return shadowLayersOf(this.pal(), 'card');
   }
 
+  /** 正文内容（ANSI 着色 / 纯文本两分支）—— 抽出为 @Builder：折叠/展开两条路复用同一内容。 */
+  @Builder
+  BodyContent() {
+    if (hasAnsi(this.body())) {
+      // 含终端 SGR 颜色码 ⇒ 逐 span 上色（对齐 web `AnsiText.tsx:205` 的消费点；
+      // `core/ansi` 唯一入口、判据与渲染同源、颜色零字面量）。
+      Text() {
+        ForEach(this.bodySpans(), (sp: AnsiSpan, si: number) => {
+          Span(sp.text)
+            .fontSize(this.form() === FORM_BG_TASK ? FS_CAPTION : FS_BODY)
+            .fontColor(ansiFgOf(sp, this.bodyColor(), this.cardBgC()))
+            .fontWeight(sp.bold ? FontWeight.Bold : FontWeight.Normal)
+            .fontStyle(sp.italic ? FontStyle.Italic : FontStyle.Normal)
+            .decoration({
+              type: sp.strike ? TextDecorationType.LineThrough
+                : (sp.underline ? TextDecorationType.Underline : TextDecorationType.None),
+              color: ansiFgOf(sp, this.bodyColor(), this.cardBgC()),
+            })
+            .textBackgroundStyle({ color: ansiBgOf(sp, this.bodyColor(), this.cardBgC()) })
+        }, (sp: AnsiSpan, si: number) => `sb${si}`)
+      }
+      .fontSize(this.form() === FORM_BG_TASK ? FS_CAPTION : FS_BODY)
+      .fontFamily(this.form() === FORM_BG_TASK ? 'monospace' : 'sans-serif')
+      .fontColor(this.bodyColor())
+      .width('100%')
+      .wordBreak(WordBreak.BREAK_ALL)
+      .textAlign(TextAlign.Start)
+      .copyOption(CopyOptions.LocalDevice)
+    } else {
+      Text(this.body())
+        .fontSize(this.form() === FORM_BG_TASK ? FS_CAPTION : FS_BODY)
+        .fontFamily(this.form() === FORM_BG_TASK ? 'monospace' : 'sans-serif')
+        .fontColor(this.form() === FORM_BG_TASK ? this.pal().textSecondary : this.pal().textPrimary)
+        .width('100%')
+        .wordBreak(WordBreak.BREAK_ALL)
+        .textAlign(TextAlign.Start)
+        .copyOption(CopyOptions.LocalDevice)
+    }
+  }
+
   build() {
     // ── 多层柔影（C3）：`shadowLayersOf` 恒返 [near, far] ──────────────────────────────
     // 浅色：near = 贴合影（小半径/1vp）、far = 环境影（大半径）⇒ 苹果式"落在纸面上"的层次；
@@ -261,41 +320,42 @@ export struct SyntheticCard {
         .wordBreak(WordBreak.BREAK_WORD)
 
       // ── 正文：结构化 output/message 优先；无 ⇒ 坦白说明（绝不空卡）────────────────
+      // ⚡ 2026-10-20：**默认折叠**（对齐 web `clipped = body.length > 1500` + `max-h-24`）——
+      //   用户亲报「subagent 完成等通知默认把完整内容一次性渲染 ⇒ 占屏过高」。
+      //   折叠态：`clip` 到 CLIP_H；展开态：`Scroll`（`max-h-[420px]`）；点击「显示更多」切换。
       if (this.body().length > 0) {
-        if (hasAnsi(this.body())) {
-          // 含终端 SGR 颜色码 ⇒ 逐 span 上色（对齐 web `AnsiText.tsx:205` 的消费点；
-          // `core/ansi` 唯一入口、判据与渲染同源、颜色零字面量）。
-          Text() {
-            ForEach(this.bodySpans(), (sp: AnsiSpan, si: number) => {
-              Span(sp.text)
-                .fontSize(this.form() === FORM_BG_TASK ? FS_CAPTION : FS_BODY)
-                .fontColor(ansiFgOf(sp, this.bodyColor(), this.cardBgC()))
-                .fontWeight(sp.bold ? FontWeight.Bold : FontWeight.Normal)
-                .fontStyle(sp.italic ? FontStyle.Italic : FontStyle.Normal)
-                .decoration({
-                  type: sp.strike ? TextDecorationType.LineThrough
-                    : (sp.underline ? TextDecorationType.Underline : TextDecorationType.None),
-                  color: ansiFgOf(sp, this.bodyColor(), this.cardBgC()),
-                })
-                .textBackgroundStyle({ color: ansiBgOf(sp, this.bodyColor(), this.cardBgC()) })
-            }, (sp: AnsiSpan, si: number) => `sb${si}`)
+        if (this.clipped() && !this.open) {
+          Column() {
+            this.BodyContent()
           }
-          .fontSize(this.form() === FORM_BG_TASK ? FS_CAPTION : FS_BODY)
-          .fontFamily(this.form() === FORM_BG_TASK ? 'monospace' : 'sans-serif')
-          .fontColor(this.bodyColor())
+          .constraintSize({ maxHeight: CLIP_H })
+          .clip(true)
           .width('100%')
-          .wordBreak(WordBreak.BREAK_ALL)
-          .textAlign(TextAlign.Start)
-          .copyOption(CopyOptions.LocalDevice)
+        } else if (this.clipped()) {
+          Scroll() {
+            this.BodyContent()
+          }
+          .constraintSize({ maxHeight: EXPANDED_H })
+          .scrollBar(BarState.Auto)
+          .width('100%')
+          .align(Alignment.TopStart)
         } else {
-          Text(this.body())
-            .fontSize(this.form() === FORM_BG_TASK ? FS_CAPTION : FS_BODY)
-            .fontFamily(this.form() === FORM_BG_TASK ? 'monospace' : 'sans-serif')
-            .fontColor(this.form() === FORM_BG_TASK ? this.pal().textSecondary : this.pal().textPrimary)
-            .width('100%')
-            .wordBreak(WordBreak.BREAK_ALL)
-            .textAlign(TextAlign.Start)
-            .copyOption(CopyOptions.LocalDevice)
+          this.BodyContent()
+        }
+        if (this.clipped()) {
+          Row({ space: 2 }) {
+            Text(this.open ? '收起' : '显示更多')
+              .fontSize(typeOf(TYPE_CHIP).size)
+              .fontColor(this.pal().accentText)
+            SymbolGlyph(this.open ? $r('sys.symbol.chevron_up') : $r('sys.symbol.chevron_down'))
+              .fontSize(MARKER_GLYPH)
+              .fontColor([this.pal().accentText])
+          }
+          .padding({ top: SPACE_HAIR })
+          .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            this.open = !this.open;
+          })
         }
       } else {
         Text('历史记录未包含结构化详情')

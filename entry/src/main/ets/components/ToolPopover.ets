@@ -207,6 +207,12 @@ export struct ToolPopoverCard {
   @Prop vm: ToolDetailVM;
   @Prop theme: string = 'dark';
   /**
+   * **嵌入模式**（"+N" 溢出浮层内）—— ⛔ 不再自带外层 `Scroll`/限高：
+   *   溢出浮层**本身**已是单一纵向 `Scroll`（对齐 web `ToolPopoverContent`），
+   *   嵌入再套一层会导致嵌套滚动冲突 + 排版错乱（用户亲报「在 +x 里展开详情有严重排版 bug」）。
+   */
+  @Prop embedded: boolean = false;
+  /**
    * **生效主题的全局订阅**（§21.124 用户亲报「切主题后老文字颜色不变、新的才变」）。
    *
    * ⛔ 本组件挂在 `MessageRow` 的**带参 `@Builder` 子树**（`AssistantBlock(this.row)`）里 ——
@@ -457,13 +463,14 @@ export struct ToolPopoverCard {
         // ⛔ 不设 `width('100%')`：列宽 = 最长行宽 ⇒ 长行溢出即横向滚动（web 卡片 `overflow-auto`）
         .alignItems(HorizontalAlign.Start)
       }
-      .scrollable(ScrollDirection.Free)
+      // ⚡ 2026-10-20 浮层滚动修复：块内**只横滑**（⛔ 不再纵向限高）——
+      //   整卡改为**单一纵向 Scroll**（对齐 web 根 `overflow-y-auto`）⇒ 纵向只一个滚动源、
+      //   嵌套滚动冲突消除；代码长行仍横滑（内层 `Column` 不设宽 ⇒ 列宽 = 最长行）。
+      .scrollable(ScrollDirection.Horizontal)
       .scrollBar(BarState.Auto)
       .width('100%')
-      // ⛔ 输出块**必须**把超宽内容**裁在块内**（长行/长 JSON/长路径 ⇒ 否则撑宽父级 ⇒ "字超出屏幕"）。
-      // 设计 = **块内横滑**（内层 `Column` 不设宽 ⇒ 列宽 = 最长行 ⇒ 由本 `Scroll` 横滑）。
+      // ⛔ 超宽内容**裁在块内**（长行/长 JSON/长路径 ⇒ 否则撑宽父级 ⇒ "字超出屏幕"）。
       .clip(true)
-      .constraintSize({ maxHeight: BODY_MAX_H, maxWidth: '100%' })
       // 内边距对齐 web `ToolCallBlock.tsx:66`（JSON 参数块 `px-2.5 py-1.5` = 左右 10 / 上下 6）
       .padding({ left: 10, right: 10, top: 6, bottom: 6 })
       .backgroundColor(surfaceFillOf(this.pal(), 'surface.well'))
@@ -479,6 +486,7 @@ export struct ToolPopoverCard {
   OutBlock(label: string, body: string, what: string) {
     Column({ space: SP_1 }) {
       this.SectionHead(label, body, what)
+      // ⚡ 2026-10-20：去掉内层 Scroll（整卡已是单一纵向 Scroll）；块内只横滑长行。
       Scroll() {
         Column({ space: 1 }) {
           ForEach(tailLines(body, MAX_LINES), (ln: string, li: number) => {
@@ -486,11 +494,13 @@ export struct ToolPopoverCard {
             this.PlainLine(ln, li, this.lineColor(classifyLine(ln)))
           }, (ln: string, li: number) => `o${li}`)
         }
-        .width('100%').alignItems(HorizontalAlign.Start)
+        // ⛔ 不设 width('100%')：列宽 = 最长行 ⇒ 长行溢出即横向滚动
+        .alignItems(HorizontalAlign.Start)
       }
+      .scrollable(ScrollDirection.Horizontal)
       .scrollBar(BarState.Auto)
       .width('100%')
-      .constraintSize({ maxHeight: BODY_MAX_H })
+      .clip(true)
       // 内边距对齐 web `ToolCallBlock.tsx:98`（终端输出块 `px-2.5 py-1.5` = 左右 10 / 上下 6）
       .padding({ left: 10, right: 10, top: 6, bottom: 6 })
       .backgroundColor(surfaceFillOf(this.pal(), 'surface.well'))
@@ -601,13 +611,12 @@ export struct ToolPopoverCard {
         // ⛔ 不设 width('100%')：列宽 = 最宽的一行 ⇒ 长行整体横向滚动（web 卡片 `overflow-auto`）
         .alignItems(HorizontalAlign.Start)
       }
-      .scrollable(ScrollDirection.Free)
+      .scrollable(ScrollDirection.Horizontal)
       .scrollBar(BarState.Auto)
       .width('100%')
-      // ⛔ 同 `CodeBlock`：**含横向的 `ScrollDirection.Free`** 必须把超宽内容**裁在块内**
+      // ⛔ 同 `CodeBlock`：**含横向滚动**必须把超宽内容**裁在块内**
       // （长行/长 JSON/长路径 ⇒ 否则撑宽父级 ⇒ "字超出屏幕"）。
       .clip(true)
-      .constraintSize({ maxHeight: BODY_MAX_H, maxWidth: '100%' })
     }
     .width('100%').alignItems(HorizontalAlign.Start)
   }
@@ -667,7 +676,9 @@ export struct ToolPopoverCard {
     })
   }
 
-  build() {
+  /** 卡片内容（抽出为 @Builder：嵌入（+N 浮层）/ 独立浮层两条路复用同一内容）。 */
+  @Builder
+  CardBody() {
     Column({ space: SP_2 }) {
       // header：状态色点 + 名字 + 状态徽标 + 耗时
       Row({ space: SP_2 }) {
@@ -755,8 +766,25 @@ export struct ToolPopoverCard {
     .width('100%').alignItems(HorizontalAlign.Start)
     // ⛔ 卡片内边距：没有它内容会贴死边框（真机反馈"一点 padding 没有"）。
     .padding(SP_3)
-    // 整卡限高：内容再长也不出屏幕（与内部 Scroll 组成"卡内滚动"）
-    .constraintSize({ maxHeight: BODY_MAX_H + 150 })
+  }
+
+  build() {
+    // ⚡ 2026-10-20 浮层滚动修复：独立浮层 = 整卡**单一纵向 Scroll**（对齐 web 根
+    //   `overflow-y-auto max-h-[min(60vh,480px)]`）。此前整卡不可滚 ⇒ 参数 + 输出等多块时
+    //   下方内容被裁掉，用户无法查看完整参数/输出（用户亲报）。
+    // ⛔ 嵌入模式（"+N" 溢出浮层内）**不再自带** Scroll/限高：外层浮层已是单一纵向 Scroll，
+    //   再套一层 = 嵌套滚动冲突 + 排版错乱（用户亲报「在 +x 里展开详情有严重排版 bug」）。
+    if (this.embedded) {
+      this.CardBody()
+    } else {
+      Scroll() {
+        this.CardBody()
+      }
+      .scrollBar(BarState.Auto)
+      .width('100%')
+      .constraintSize({ maxHeight: BODY_MAX_H + 220 })
+      .align(Alignment.TopStart)
+    }
   }
 }
 
@@ -843,6 +871,7 @@ export struct ToolOverflowList {
                 ToolPopoverCard({
                   vm: this.vmOf(t),
                   theme: this.themeId(),
+                  embedded: true,
                   onCopy: this.onCopy,
                 })
               }
@@ -854,7 +883,8 @@ export struct ToolOverflowList {
       }
       .scrollBar(BarState.Auto)
       .width('100%')
-      .constraintSize({ maxHeight: BODY_MAX_H })
+      // 与独立工具浮层同口径（web 根 `max-h-[min(60vh,480px)]`）——单一纵向滚动源。
+      .constraintSize({ maxHeight: BODY_MAX_H + 220 })
       .padding(SP_3)
     }
     .width('100%').alignItems(HorizontalAlign.Start)
