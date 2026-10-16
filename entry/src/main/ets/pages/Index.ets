@@ -1540,7 +1540,7 @@ struct Index {
     if (action.id === COMMAND_SIDEBAR_TOGGLE) {
       // ⛔ 唯一开抽屉入口 = `openDrawer()`（它做浮层互斥）；关才直接置 false。
       if (this.showDrawer) {
-        this.showDrawer = false;
+        this.closeDrawer();
       } else {
         this.openDrawer();
       }
@@ -1981,8 +1981,14 @@ struct Index {
 
   /** 收起会话抽屉（web backdrop 点击 / 返回键同款语义：一并复位改名态）。 */
   private closeDrawer(): void {
-    this.showDrawer = false;
-    this.renamingId = '';
+    // ⚡ 2026-10-20 P0 动画修复：**必须**用 `animateTo` 包裹状态变更 ——
+    //   ArkUI 的 `if` 条件删除**只有**在动画上下文里才会播放子树的 `transition`
+    //   （裸赋值 ⇒ 瞬间移除，实测"收起无动画"：连拍两帧从"全开"直接跳到"已消失"）。
+    //   时长/曲线取自各自 `transition`（`drawerTransition()`/`fadeTransition()`）。
+    this.anim(() => {
+      this.showDrawer = false;
+      this.renamingId = '';
+    });
   }
 
   private syncPulse(busy: boolean): void {
@@ -2457,7 +2463,7 @@ struct Index {
       this.openDrawer();
       await this.wait(700);
       parts.push(`# 会话抽屉\n${this.collectGeometry()}`);
-      this.showDrawer = false;
+      this.closeDrawer();
       this.anim(() => {
             this.showSettingsPanel = true;
           });
@@ -2478,7 +2484,7 @@ struct Index {
     } catch (e) {
       this.geoText = `采集失败: ${errText(e as Object)}`;
     } finally {
-      this.showDrawer = false;
+      this.closeDrawer();
       this.showSettingsPanel = false;
       this.showQueue = false;
       this.showPlugins = false;
@@ -2585,7 +2591,7 @@ struct Index {
         done.push(`02-drawer=FAILED:${errText(e as Object)}`);
       }
       geo.push(`--- 02-drawer ---\n${this.collectGeometry()}`);
-      this.showDrawer = false;
+      this.closeDrawer();
       // 设置
       this.anim(() => {
             this.showSettingsPanel = true;
@@ -2769,7 +2775,7 @@ struct Index {
     this.rows = [];
     this.syncRowDs();
     this.sessions = [];
-    this.showDrawer = false;
+    this.closeDrawer();
   }
 
   // ── 会话 ──────────────────────────────────────────────────────────────────
@@ -2891,7 +2897,7 @@ struct Index {
    * 这与 Web 端的 MultiSSEManager 同思路：可见会话保持连接与状态，切回是 0 等待。
    */
   private async switchSession(chatId: string): Promise<void> {
-    this.showDrawer = false;
+    this.closeDrawer();
     // ── 会话面切换动效（用户 2026-10-12 亲报「侧边栏点击切换会话后要有动画，现在没有」）──────
     // ① 本帧先把整面**下沉一格**（`switchSlide=1`；静息态是 0 ⇒ 不动时与原先逐字节一致）；
     // ② 内容就位后由 `settleSwitchSlide()` 在**下一帧**动画归零 ⇒ 新会话"从下方落位"。
@@ -3082,7 +3088,7 @@ struct Index {
     if (store === null) {
       return;
     }
-    this.showDrawer = false;
+    this.closeDrawer();
     try {
       await store.createSession();
     } catch (e) {
@@ -3100,7 +3106,7 @@ struct Index {
    * `createSession` 签名，超出本次改动面 ⇒ 不碰）。
    */
   private openNewSession(): void {
-    this.showDrawer = false;
+    this.closeDrawer();
     // 打开那刻读一次（对齐 web `NewSessionDialog.tsx:42-50` 的 useEffect）。
     this.newSessionDirs = parseRecentWorkDirs(settingOf(this.settings, RECENT_WORKDIRS_SERVER_KEY));
     // 预填最近一条（web `:47` `recent[0] || '/'`）；原生**无候选则留空 = 不设 cwd**（不改既有默认行为的兜底）。
@@ -3181,7 +3187,7 @@ struct Index {
     // 会话名称：trim 后非空才发（web `NewSessionDialog.tsx:54` `label.trim() || undefined`）。
     const label: string = this.newSessionLabel.trim();
     this.showNewSession = false;
-    this.showDrawer = false;
+    this.closeDrawer();
     try {
       await store.createSession(label.length > 0 ? label : undefined);
     } catch (e) {
@@ -4371,7 +4377,7 @@ struct Index {
    */
   private async openPlugins(): Promise<void> {
     // 浮层互斥：能力面板由抽屉进入 ⇒ 先收抽屉（同一时刻只允许一个半屏/全屏浮层；同 `openPanels`）
-    this.showDrawer = false;
+    this.closeDrawer();
     this.pluginPanelError = '';
     this.pluginPanelLoading = true;
     const store0: ChatStore | null = this.store;
@@ -4466,7 +4472,7 @@ struct Index {
    */
   private async openPluginHost(): Promise<void> {
     // 浮层互斥：从抽屉/能力面板进入 ⇒ 先收它们
-    this.showDrawer = false;
+    this.closeDrawer();
     this.showPlugins = false;
     this.panelUrl = '';
     this.pluginPageUrl = '';
@@ -4505,7 +4511,7 @@ struct Index {
    */
   private openPluginManager(): void {
     this.showPlugins = false;
-    this.showDrawer = false;
+    this.closeDrawer();
     this.panelUrl = '';
     const store: ChatStore | null = this.store;
     if (store !== null) {
@@ -4532,7 +4538,7 @@ struct Index {
    *    ⛔ 不渲染一个 web 端会忽略参数、看着像"点了没反应"的空白页）。
    */
   private openWebPanel(panelId: string): boolean {
-    this.showDrawer = false;
+    this.closeDrawer();
     this.panelUrl = '';
     const store: ChatStore | null = this.store;
     if (store !== null) {
@@ -4625,7 +4631,7 @@ struct Index {
       // 浮层互斥：收掉其它浮层，再落 `panelUrl`（WebSurface 由既有分支渲染）。
       this.showPlugins = false;
       this.showPluginHost = false;
-      this.showDrawer = false;
+      this.closeDrawer();
       this.panelTitle = title.length > 0 ? title : '交互式面板';
       this.panelUrl = url;
     } catch (e) {
@@ -4693,7 +4699,7 @@ struct Index {
 
   /** 打开原生「远程机器」面板（浮层互斥：从抽屉/能力面板进来先收它们）。 */
   private openSshPanel(): void {
-    this.showDrawer = false;
+    this.closeDrawer();
     this.showPlugins = false;
     this.panelUrl = '';
     this.showSsh = true;
@@ -4721,7 +4727,7 @@ struct Index {
 
   /** 打开原生 Git 面板（浮层互斥：从抽屉/能力面板进来先收它们）+ 首次取数。 */
   private openGitPanel(): void {
-    this.showDrawer = false;
+    this.closeDrawer();
     this.showPlugins = false;
     this.panelUrl = '';
     this.showGit = true;
@@ -4854,7 +4860,7 @@ struct Index {
    * 浮层互斥：从能力面板/抽屉进入 ⇒ 先收它们（同一时刻只允许一个半屏/全屏浮层）。
    */
   private openSessionStats(): void {
-    this.showDrawer = false;
+    this.closeDrawer();
     this.showPlugins = false;
     this.dismissKeyboard();
     this.anim(() => {
@@ -8179,7 +8185,7 @@ struct Index {
    */
   private async openSettingsPanel(): Promise<void> {
     // 浮层互斥：由抽屉进入时**先收抽屉**（否则两个浮层叠加，顶部既没被压暗也没被盖住）
-    this.showDrawer = false;
+    this.closeDrawer();
     this.anim(() => {
       this.showSettingsPanel = true;
     });
@@ -8834,7 +8840,10 @@ struct Index {
     //   Apple 语义：打开新浮层 ⇒ 旧上下文的输入焦点一并撤销。
     this.dismissKeyboard();
     this.closeOverlaysAboveDrawer();
-    this.showDrawer = true;
+    // ⚡ 2026-10-20 P0 动画修复：同上，`if` 插入**必须**在 `animateTo` 上下文里才播 `transition`。
+    this.anim(() => {
+      this.showDrawer = true;
+    });
     const store: ChatStore | null = this.store;
     if (store !== null) {
       store.loadSessions().catch(() => {
@@ -8883,7 +8892,7 @@ struct Index {
 
   private openPanels(): void {
     // 浮层互斥：面板由抽屉进入 ⇒ 先收抽屉（同一时刻只允许一个半屏/全屏浮层）
-    this.showDrawer = false;
+    this.closeDrawer();
     // ⛔ 面板内容（终端 / 任务列表）绝不能被**软键盘**压住（2026-10-12 真机实证：键盘弹起时
     //   「终端」tab 只剩标题+芯片可见，正文与输入行全在键盘之下）⇒ 开面板前先收键盘。
     this.dismissKeyboard();
@@ -10750,7 +10759,7 @@ struct Index {
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
         .accessibilityText('关闭')
         .onClick(() => {
-          this.showDrawer = false;
+          this.closeDrawer();
           this.renamingId = '';
         })
       }
