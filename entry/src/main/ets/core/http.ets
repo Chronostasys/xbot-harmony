@@ -201,6 +201,16 @@ export class XbotHttp {
   onUnauthorized: () => void = () => {
   };
 
+  /**
+   * **重要 API 错误回调**（用户 2026-10-16 要求：「所有大的、重要的 API 错误都要弹出提示」）。
+   *
+   * 由页面在 `attach()` 时接到 `toast()`（带节流/去重，避免轮询类失败刷屏）。
+   * ⛔ 只报"用户发起、结果可见"的失败（发消息 / rewind / 建删改会话 / 拉历史 / 拉状态）——
+   *   `noisy` 的轮询端点（面板心跳等）由调用方传 `notify=false` 静默。
+   */
+  onApiError: (path: string, message: string) => void = (path: string, message: string) => {
+  };
+
   hasSession(): boolean {
     return this.cookies.has('xbot_session');
   }
@@ -271,7 +281,9 @@ export class XbotHttp {
           readTimeout: readTimeoutMs,
         });
       } catch (e) {
-        throw new Error(`[发送 ${path}] ${describeError(e as Object)}`);
+        const netMsg: string = `[发送 ${path}] ${describeError(e as Object)}`;
+        this.onApiError(path, netMsg);
+        throw new Error(netMsg);
       }
 
       try {
@@ -286,12 +298,11 @@ export class XbotHttp {
         this.onUnauthorized();
         throw new Error(`HTTP 401: ${text.substring(0, 200)}`);
       }
-      if (resp.responseCode === 401) {
-          this.clearSession();
-          this.onUnauthorized();
-        }
-if (resp.responseCode !== 200) {
-        throw new Error(`HTTP ${resp.responseCode}: ${text.substring(0, 200)}`);
+      // ⛔ 此处原有**重复的 401 分支**（第二段无注释、缩进错乱 ⇒ 死代码）——已删。
+      if (resp.responseCode !== 200) {
+        const httpMsg: string = `HTTP ${resp.responseCode}: ${text.substring(0, 200)}`;
+        this.onApiError(path, httpMsg);
+        throw new Error(httpMsg);
       }
       // ── 信封解包（外来 JSON 边界）─────────────────────────────────────────────
       // 服务端 `apiResponse{OK bool; Data any; Error *apiError}` **三个键恒存在**（无 omitempty）：
@@ -313,6 +324,7 @@ if (resp.responseCode !== 200) {
         // `error:null`（或 error 是裸字符串）时**不得**取 `.message` —— null 穿透即崩。
         const msg: string = isPresent(env.error) && isPresent(env.error.message)
           ? env.error.message : 'request failed';
+        this.onApiError(path, msg);
         throw new Error(msg);
       }
       // `data:null` 与 `data:undefined`（键缺失）都表示"服务端无可用载荷"：

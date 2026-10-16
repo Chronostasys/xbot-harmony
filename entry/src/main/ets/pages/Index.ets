@@ -172,6 +172,7 @@ import {
 } from '../core/toast';
 import { MessageRowView } from '../components/MessageRow';
 import { UserBubbleView } from '../components/UserBubble';
+import { appLog, log, logLineText, LogLine, logLinesNewestFirst } from '../core/applog';
 import { MarkdownView } from '../components/MarkdownView';
 import { WebSurface } from '../components/WebSurface';
 import { ContextRing } from '../components/ContextRing';
@@ -548,6 +549,10 @@ struct Index {
   @State showSplash: boolean = false;
   /** 自绘 in-app toast（单槽；`msg` 非空 = 可见）。唯一判据来源 = `core/toast.ets`（⛔ 不另立）。 */
   @State toastState: ToastState = emptyToast();
+  /** 「应用日志」浮层开关（用户 2026-10-16 要求「给一个看应用日志的窗口」）。 */
+  @State showLog: boolean = false;
+  /** 日志刷新计数（打开/清空时自增 ⇒ 让 `LogSheet` 的 ForEach key 变化、重建列表）。 */
+  @State logTick: number = 0;
   /**
    * 底部栏（composer；含 `WidgetDock` 信息栏）的实测高度（vp）—— 供 `Toast` 让位，
    * 使提示浮在**输入框上方**而不是压住它（用户 2026-10-16 P0）。由 composer 容器
@@ -2126,7 +2131,87 @@ struct Index {
 
   private attach(store: ChatStore): void {
     this.store = store;
+    // ⛔ **重要 API 错误 ⇒ 弹提示**（用户 2026-10-16 明确要求）。`XbotHttp` 在
+    //   网络失败 / 非 2xx / 信封 `ok=false` 时回调本钩子；401 走 `onUnauthorized` 单独处理。
+    //   去重：同一条文案 4s 内只弹一次（轮询/并发重复失败不刷屏）。
+    store.http.onApiError = (path: string, message: string) => {
+      this.toastApiError(message);
+    };
     this.syncFrom(store);
+  }
+
+  /** 上一次 API 错误提示的文案与时刻（`toastApiError` 去重用）。 */
+  private lastApiErrMsg: string = '';
+  private lastApiErrAt: number = 0;
+
+  /** API 错误 toast（同文案 4s 去重）。 */
+  private toastApiError(message: string): void {
+    const now: number = Date.now();
+    if (message === this.lastApiErrMsg && now - this.lastApiErrAt < 4000) {
+      return;
+    }
+    this.lastApiErrMsg = message;
+    this.lastApiErrAt = now;
+    log('api', message);
+    this.toast(`请求失败：${message}`);
+  }
+
+  /** 日志快照（新→旧）。 */
+  private logLines(): LogLine[] {
+    return logLinesNewestFirst();
+  }
+
+  /** 「应用日志」浮层（用户 2026-10-16 要求）——全屏面板：标题 + 可滚动日志 + 清空/关闭。 */
+  @Builder
+  LogSheet() {
+    Column({ space: SP_2 }) {
+      Row() {
+        Text('应用日志')
+          .fontSize(typeOf('type.body').size)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.pal().textPrimary)
+          .layoutWeight(1)
+        Text('清空')
+          .fontSize(FS_CAPTION).fontColor(this.pal().accent)
+          .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+          .onClick(() => {
+            appLog.clear();
+            this.logTick++;
+          })
+        Text('关闭')
+          .fontSize(FS_CAPTION).fontColor(this.pal().textSecondary)
+          .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+          .onClick(() => {
+            this.showLog = false;
+          })
+      }
+      .width('100%').alignItems(VerticalAlign.Center)
+
+      Scroll() {
+        Column({ space: SP_1 }) {
+          if (this.logLines().length === 0) {
+            Text('暂无日志')
+              .fontSize(FS_CAPTION).fontColor(this.pal().textMuted)
+              .width('100%').textAlign(TextAlign.Start)
+          }
+          ForEach(this.logLines(), (l: LogLine, i: number) => {
+            Text(logLineText(l))
+              .fontSize(FS_CAPTION)
+              .fontFamily('monospace')
+              .fontColor(this.pal().textSecondary)
+              .width('100%')
+              .textAlign(TextAlign.Start)
+              .copyOption(CopyOptions.LocalDevice)
+          }, (l: LogLine, i: number) => `lg#${i}#${l.at}#${this.logTick}`)
+        }
+        .width('100%').alignItems(HorizontalAlign.Start)
+      }
+      .layoutWeight(1).width('100%').align(Alignment.TopStart)
+      .scrollBar(BarState.Auto)
+    }
+    .width('100%').height('100%')
+    .padding({ left: SP_3, right: SP_3, top: SP_3, bottom: SP_3 })
+    .backgroundColor(this.pal().appBg)
   }
 
   private syncFrom(store: ChatStore): void {
@@ -3592,6 +3677,16 @@ struct Index {
     const store: ChatStore | null = this.store;
     const text: string = this.draft.trim();
     if (store === null || this.anyUploading()) {
+      return;
+    }
+    // ⛔ **未连接禁止发送**（用户 2026-10-16 明确指示）：SSE 未 `open` 时发出去也收不到
+    //   `turn_started`（不进 busy、回复永不来，用户看到「显示已发、实际没发」）⇒ 明确拦下并
+    //   提示，顺手踢一次探活（覆盖"看着连着、其实早死"的半开连接）。
+    if (this.connState !== 'open') {
+      this.toast(this.connState === SSE_STATE_FAILED
+        ? '连接已断开，请稍后重试'
+        : '未连接，正在重连…请稍候再发');
+      store.sse.probeNow(Date.now());
       return;
     }
     // rewind 编辑态：发送 = 回退并重发（不走普通发送路径 —— rewind → reset → reload → send
@@ -5969,6 +6064,11 @@ struct Index {
       //    可见性 = 状态的函数（`toastVisible`）⇒ 动画被打断也不会"永久不可读"（门禁 ⑨ 的正向形态）。
       if (toastVisible(this.toastState)) {
         Toast({ theme: this.themeName, msg: this.toastState.msg, bottomOffset: this.composerBottomH })
+      }
+
+      // ── 应用日志浮层（用户 2026-10-16 要求「给一个看应用日志的窗口」）──────────────
+      if (this.showLog) {
+        this.LogSheet()
       }
     }
     .width('100%')
@@ -11358,6 +11458,21 @@ struct Index {
           // §21.122bu：**统一到原生终端**（用户定向「一个页面必须只有一个形态」）。
           // 形态判定 = `surfaceOf(SURF_TERMINAL)`（唯一真源）；入口动作走唯一出口 `openSurface`。
           this.openSurface(SURF_TERMINAL);
+        })
+        // 应用日志（用户 2026-10-16 要求「给一个看应用日志的窗口」）—— 导航项，与设置/文件/终端同排。
+        Column({ space: 2 }) {
+          SymbolGlyph($r('sys.symbol.doc_text'))
+            .fontSize(ICON_XL).fontColor([this.barTint('muted')])
+          Text('日志')
+            .fontSize(typeOf('type.micro').size).fontColor(this.barTint('text'))
+        }
+        .layoutWeight(1).height(HIT_TARGET_MIN)
+        .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .accessibilityText('应用日志')
+        .onClick(() => {
+          this.showLog = true;
+          this.closeDrawer();
         })
         // ── 竖向发丝：把**销毁性**动作（退出登录）与导航项拉开 ──────────────────────
         // 2026-10-14（目标③「抽屉对标 Apple」）：Apple 不在主导航里放"等重的销毁项"——它要么收进

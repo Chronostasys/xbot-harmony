@@ -11,6 +11,7 @@
  * 页面把它同步进 @State（见 pages/Index.ets 的 syncFrom）。
  */
 import { XbotHttp, HTTP_SEND_READ_TIMEOUT_MS } from './http';
+import { log } from './applog';
 import { SseClient } from './sse';
 import { hasFreshPhaseDone, isIdleAction, rowIsEmpty, shouldReloadHistory, stripInterruptedMarker } from './streammerge';
 import { arrOrEmpty, isPresent } from './guards';
@@ -455,6 +456,8 @@ export class ChatStore {
     this.sse = new SseClient(baseUrl);
     this.sse.onState = (state: string) => {
       this.connState = state;
+      // 应用日志（用户要求）：连接态变化是排障第一条线索（重连风暴 / 静默死一眼可辨）。
+      log('sse', state);
       if (state === 'open') {
         // 重连后必须对账：断线期间可能错过 idle/busy 事件（错过 idle ⇒ 永远"运行中"）
         this.loadSessions().catch(() => {
@@ -568,7 +571,16 @@ export class ChatStore {
    *
    * 幂等：会话树已 false + `sessionRunning` 已 false 时，reduce 返回原 state（零渲染变化）。
    */
-  private applyLocalIdle(chatId: string): void {
+  private applyLocalIdle(chatId: string, authoritative: boolean = false): void {
+    // ⛔ 非权威（coarse `session(idle)` / `agent-idle`）且状态机**仍认为会话在跑 + 有 live turn**
+    //   ⇒ 这条 idle 陈旧/错传 ⇒ **绝不**冻结在跑 turn（对齐 reduce `session_idle` 的
+    //   `if (s.sessionRunning) return s` 闸门）。本函数此前走了**唯一没闸门**的
+    //   `session_running(false)` 分支 —— 正是用户 2026-10-16 P0「长工具被误标失败 / 迭代整行
+    //   消失」的根因：冻结后 `foldInFlightToIterations` 把在飞工具标 `error`，下一条事件又提回 live。
+    //   权威路径（本帧 `hasFreshPhaseDone` 命中，已按 turnID 归属校验）才允许即刻收尾。
+    if (!authoritative && this.state.sessionRunning && this.state.activeTurn !== null) {
+      return;
+    }
     // ⛔ ArkTS 禁对象展开（`arkts-no-spread`，门禁 ④ 实测抓到 `store.ets` 的对象字面量展开）
     //    ⇒ 原地改字段（`SessionItem` 字段可写）。页面按 `fingerprintSessions`（含 running）
     //    的**值**变化识别 ⇒ `this.sessions = store.sessions.slice()` 换新数组引用 ⇒ 重渲。
@@ -2168,7 +2180,8 @@ export class ChatStore {
     //  composer 的 busy 拖后（用户 2026-10-12：*"iter 结束如果最后没 tool … 应该立刻
     //  进入 idle"*）。新鲜性守卫见 `hasFreshPhaseDone`（防回放的上一回合 PhaseDone 误伤）。
     if (hasFreshPhaseDone(evs, lastSeqBefore, this.state.activeTurn)) {
-      this.applyLocalIdle(this.currentChatId);
+      // 权威路径（已按 turnID 归属校验）⇒ 允许即刻收尾（`authoritative=true`）。
+      this.applyLocalIdle(this.currentChatId, true);
     }
     // 通知旁路（新增；不改状态机语义）：回合结束取**上面同一份**归一化结果
     // （`phase_done`）——判据与状态机同源，不二次解析载荷。

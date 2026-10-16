@@ -754,6 +754,15 @@ export function hasFreshPhaseDone(
     if (ev.turnID !== null && activeTurn !== null && ev.turnID !== activeTurn) {
       continue; // 属别的 turn
     }
+    // ⛔ 收紧（2026-10-16 用户 P0「长工具突然变成失败、过一会又恢复执行中」+「迭代整行消失」）：
+    //   有 live turn 时，`phase_done` **必须**能归属到它（带有效 turnID）才允许触发本地 idle。
+    //   turnID 缺失（`null`/`0` —— 服务端某些中间相位不带）时，"宽容放行"会把**正在跑**的
+    //   turn 误置 idle ⇒ 冻结 ⇒ `foldInFlightToIterations` 把在飞工具标 `error`（用户看到
+    //   「失败」）⇒ 下一条事件又把它提回 live（「恢复执行中」）。宁可慢一步等权威
+    //   `session(idle)` 收尾，也绝不误冻在跑 turn。
+    if (activeTurn !== null && (ev.turnID === null || ev.turnID <= 0)) {
+      continue;
+    }
     return true;
   }
   return false;
