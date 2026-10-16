@@ -2939,6 +2939,10 @@ struct Index {
     //    静息态恒为 1（fail-safe），过渡只是锦上添花。`rekeyPool(target, chatId)` 已负责换行。
     // 切会话即换草稿（每个会话各自一份；弱网下也能恢复）
     this.failedSend = '';
+    // ⛔ rewind 编辑态**必须随会话作废**：否则在 A 会话长按「编辑并重发」后切到 B，
+    //    `rewindEditRowId` 仍是 A 的行 id ⇒ B 里发送会走 rewind 路径 → `rowById` 找不到
+    //    该行 → `cancelRewindEdit` **静默返回**（用户症状「消息发不出去」）。
+    this.rewindEditRowId = '';
     this.draft = this.config.draftFor(chatId);
     if (alreadyOpen) {
       // ⛔ P0 修复（用户反复报告"切换部分会话突然又变回深色"）：

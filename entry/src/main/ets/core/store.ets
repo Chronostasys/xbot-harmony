@@ -109,6 +109,26 @@ import {
   WebPluginListData,
 } from './types';
 
+/**
+ * **全局**（跨 store 实例共享）单调序号 —— 用于生成**全局唯一**的 `requestID`。
+ *
+ * ⛔ 为什么不能复用 per-store 的 `idSeq`（血债，2026-10-16 用户 P0「有个会话消息根本发不出去」）：
+ *   服务端 `dispatchUserMessageOnce`（`channel/web/web_inbound.go:287`）按
+ *   `{senderID, channel, chatID, requestID}` **去重**（`inboundRequestRetention = 10min`）——
+ *   同一 requestID 在 10 分钟内**第二次**到达会被**静默吞掉**（返回上一次的缓存结果）。
+ *   而 per-store 计数器在 **store 重建（池淘汰 / 重启）后重置** ⇒ 同一会话可能再次生成
+ *   `req-2` ⇒ 服务端去重 ⇒ **消息未真正发送**（原生乐观行因拿到缓存回执而"看起来成功"，
+ *   但 web/DB 都没有）——正是用户症状「原生显示发了、web 显示没发、重开就没了」。
+ *   Web 端用 `req-${Date.now()}-${random}`（全局唯一）⇒ 原生对齐。
+ */
+let globalReqSeq: number = 0;
+
+/** 全局唯一的 requestID（对齐 web `newMessageRequestID`：时间戳 + 序号 + 随机）。 */
+function newRequestID(): string {
+  globalReqSeq++;
+  return `req-${Date.now()}-${globalReqSeq}-${Math.floor(Math.random() * 1000000)}`;
+}
+
 export class ChatStore {
   /** resync 重载的最小间隔（ms）——**合并**冗余的 `resync_required`（见 SSE 分支的注释）。 */
   private static readonly RESYNC_MIN_MS: number = 2000;
@@ -1477,7 +1497,9 @@ export class ChatStore {
     interrupt?: boolean): Promise<boolean> {
     const isInterrupt: boolean = interrupt === true;
     this.lastSendAt = Date.now();
-    const requestID: string = this.nextRowID('req');
+    // ⛔ **全局唯一** requestID（对齐 web `newMessageRequestID`）—— 根治服务端静默去重
+    //   （per-store 计数器在 store 重建后会复用 `req-N`，见 `newRequestID` 头注）。
+    const requestID: string = newRequestID();
     console.info(`[SEND] enter: textLen=${text.length} channel=${this.channel} chatId=${this.currentChatId} interrupt=${isInterrupt} rid=${requestID}`);
     if (!isInterrupt) {
       const c: NonEmptyS | null = nonEmptyStr(text);
