@@ -1139,6 +1139,11 @@ export class ChatStore {
         isNotification: false,
         timestamp: '',
         isPartial: false,
+        // ⛔ **合成 dbID 必填**（血债，2026-10-16）：`historyToReplaced`（`core/integrate.ts:57`）
+        //   对 `dbID === undefined` 的行**全部 `continue`**（过滤乐观/echo 副本）⇒ 不给 dbID
+        //   会导致**整批子代理消息被丢弃** ⇒ 历史仍空。子代理会话不需要 rewind/分页，
+        //   故合成一个递增 id（唯一即可）安全。
+        dbID: i + 1,
       });
     }
     return out;
