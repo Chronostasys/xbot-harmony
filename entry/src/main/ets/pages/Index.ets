@@ -1707,19 +1707,15 @@ struct Index {
         this.authExpiredHandled = false;
         this.loggedIn = true;
         this.errMsg = '';
-        // 环境（插件）值：**在首帧之前**落到 `core/theme`（主界面由 `booted` 闸门放行 ⇒ 首次 build 必吃新值；
-        //   ⛔ 若像 `loadSettings()` 那样 fire-and-forget，首帧玻璃会是旧值 ⇒ 观感闪一下）。
-        // 背景：`xbot.ambience` 的 `glassOpacity`/`glassBlur` **此前从没人应用**（值早就在 `plugin_config`
-        //   返回里 —— 原注释误以为"到不了客户端"，见 `core/theme.ets` 的 2026-10-13 订正）。
-        // ⛔ 解析器**逐键比对 schema 默认值**：用户没动过 ⇒ `null` ⇒ 观感**逐字节不变**（⛔ 绝不把 web 的
-        //   0.82/0/1 当缺省 —— 那会让深色玻璃 0.62→0.82、柔焦 18→0）。
-        // 非关键路径：插件系统不可用 / 无该插件 ⇒ 保持现状，**绝不因它拖死启动**（同 `loadPluginCatalog`）。
-        try {
-          const ambRaw: Object = await rpc<Object>(store.http, RPC_PLUGIN_CONFIG, new PluginConfigParams(AMBIENCE_PLUGIN_ID));
+        // 环境（插件）值：**非关键路径** —— fire-and-forget（不再 await 阻塞启动）。
+        // ⚡ 2026-10-20 启动加速：原 `await rpc(...)` 阻塞 `booted=true` ⇒ 启动等 RPC 往返。
+        //   改为 fire-and-forget：值到达后 `setAmbience` 应用；未到达时用默认值（用户没改过 ⇒ null ⇒ 无变化）。
+        //   用户没动过 ambience ⇒ `null` ⇒ 观感逐字节不变（只有改过的用户会看到玻璃参数晚一帧收敛）。
+        rpc<Object>(store.http, RPC_PLUGIN_CONFIG, new PluginConfigParams(AMBIENCE_PLUGIN_ID)).then((ambRaw: Object) => {
           setAmbience(ambienceFromPluginConfig(ambRaw));
-        } catch (e) {
+        }).catch(() => {
           setAmbience(null);
-        }
+        });
         // ⚠️ 打开首个会话**必须**单独兜住：它有网络等待（history/queue/status/subscribe）。
         //    若让它抛出到 bootstrap 外层，`booted` 永远不置位 ⇒ **无限启动页**（真机实测过）。
         //    失败只是"这个会话没打开"，用户可在界面上另选，不该拖死整个启动。
