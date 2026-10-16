@@ -11248,6 +11248,14 @@ struct Index {
         .scrollBar(BarState.Off)
         // 组头吸顶：⛔ 只有 `ListItemGroup.header` 才吸，普通 `ListItem` 写了**静默无效**。
         .sticky(StickyStyle.Header)
+        // ⚡ P0：侧边栏滚动时也跳过 syncFrom（与主列表同源修复）
+        .onTouch((event: TouchEvent) => {
+          if (event.type === TouchType.Down) {
+            this.userTouchActive = true;
+          } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+            this.userTouchActive = false;
+          }
+        })
       }
 
       // ── 底部动作：**紧凑工具栏**（单行 4 键；图标 + micro 标签）──────────────────
