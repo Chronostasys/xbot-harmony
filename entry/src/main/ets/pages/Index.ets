@@ -578,6 +578,8 @@ struct Index {
    *   ⇒ 同值短路 + 显式 `if (!this.userScrolling)` 防反复标脏。
    */
   @State userScrolling: boolean = false;
+  /** 用户手指在列表上（onTouch Down→Up/Cancel）—— 用于在 scrollEdge(Bottom) 之前预判用户即将滚动 */
+  userTouchActive: boolean = false;
   @State queue: QueueItem[] = [];
 
   /**
@@ -2111,7 +2113,15 @@ struct Index {
     // ⚡ 2026-10-20 P0：用户滚动时跳过整个 syncFrom——避免任何 @State 更新触发 re-render
     //   杀死惯性滚动。store 已自行处理 SSE 事件，页面 @State 只是投影；滚动停止后下一帧
     //   syncFrom 自然补上。会话切换必须立即处理（否则跨会话渲染错乱）。
-    if (this.userScrolling && this.currentChat === store.currentChatId) {
+    // ⚡ 2026-10-20 P0：用户报告「streaming 时滚动会很明显卡一下再变流畅」。
+    //   根因：onWillScroll 在首帧滚动才设 userScrolling=true，但在此之前 syncFrom
+    //   仍在每帧跑（~50fps SSE 事件驱动）→ @State 更新触发 re-render → 与用户手势争
+    //   主线程 → 首帧卡顿（用户可感知，不止一帧）。
+    //   修法：onTouch Down 时立刻置 userTouchActive=true → busy 时整条 syncFrom
+    //   早退 → 手指在屏上时主线程全给手势 → 首帧不卡。
+    //   ⛔ 只在 busy 时跳过（非 busy 时 onTouch 不影响——避免普通 tap 丢一帧内容）。
+    //   store 仍独立处理 SSE 事件，手指抬起后下一帧 syncFrom 自然补上。
+    if ((this.userScrolling || (this.userTouchActive && this.busy)) && this.currentChat === store.currentChatId) {
       return;
     }
     // 自愈：not busy 却残留空 live 行（迟到事件造的）⇒ 先删掉再投影，避免 busy 被钉死
@@ -2184,7 +2194,7 @@ struct Index {
     //      用户"点击最后一个迭代里的工具就自动滚到最下方" —— 点 pill ⇒ toggleTool ⇒
     //      fetchIterationDetail ⇒ store 变更 ⇒ 旧代码无条件 scrollEdge 把刚点的 pill 顶出视口）。
     //      判据本体是纯函数 `core/listfollow.shouldAutoScroll`（脱机单测 + mutation 自证）。
-    if (shouldAutoScroll(this.followBottom, contentGrew, Date.now(), this.followSuppressUntilMs)) {
+    if (shouldAutoScroll(this.followBottom, contentGrew, Date.now(), this.followSuppressUntilMs) && !this.userTouchActive) {
       this.listScroller.scrollEdge(Edge.Bottom);
     }
     this.busy = store.busy;
@@ -6557,6 +6567,18 @@ struct Index {
       //      在 DS 通知生效前会打到旧布局，`navToRow` 的 `try/catch` 注释已记该竞态），
       //      而本属性由框架在**布局阶段**完成，无竞态。
       .maintainVisibleContentPosition(true)
+      // ⚡ 2026-10-20 P0：用户报告「streaming 时滚动会卡一下再变流畅」。
+      //   根因：onWillScroll 在首帧滚动才设 userScrolling=true，但在此之前可能有一个
+      //   syncFrom（SSE 帧）调了 scrollEdge(Bottom) → 与用户手势争主线程 → 首帧卡顿。
+      //   修法：onTouch Down 时立刻置 userTouchActive=true → syncFrom 的 scrollEdge
+      //   在手指在屏上时跳过 → 首帧不再与手势争 → 不卡。
+      .onTouch((event: TouchEvent) => {
+        if (event.type === TouchType.Down) {
+          this.userTouchActive = true;
+        } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+          this.userTouchActive = false;
+        }
+      })
       // ⛔ 记录的**只有**"这一帧的滚动是不是用户干的"（ScrollSource 由 Scroll 框架给出，
       //    `SCROLLER`/`SCROLLER_ANIMATION` = 程序滚动与内容钳位 ⇒ 绝不算用户输入）。
       .onWillScroll((offset: number, state: ScrollState, source: ScrollSource) => {

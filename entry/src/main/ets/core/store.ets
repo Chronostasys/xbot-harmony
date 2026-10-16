@@ -147,6 +147,8 @@ export class ChatStore {
    *   无任何提示"。失败必须**落地成状态**（页面据此显示可读原因 + 重试），⛔ 不许静默。
    */
   historyError: string = '';
+  /** 上次打印 [SWITCH] 日志的 sid —— 避免每帧 rebuildRows 刷屏 */
+  private lastLoggedSid: number = -1;
   /** SSE 连接状态（`idle|connecting|open|reconnecting`）——弱网提示用 */
   connState: string = 'idle';
   /**
@@ -356,8 +358,11 @@ export class ChatStore {
     }
     this.rows = next;
     this.onUpdate();
-    // ⛔ 切会话诊断（用户点名要的）：历史落地后把"真结果"打出来 —— 行数 / 错误 / 会话身份。
-    console.debug(`[SWITCH] loaded sid=${this.sid} chatId=${this.currentChatId} channel=${this.channel} rows=${this.rows.length} histErr=${this.historyError}`);
+    // ⛔ 切会话诊断：只在真正切会话时打日志，避免 rebuildRows 每帧刷屏淹没关键日志
+    if (this.sid !== this.lastLoggedSid) {
+      console.debug(`[SWITCH] loaded sid=${this.sid} chatId=${this.currentChatId} channel=${this.channel} rows=${this.rows.length} histErr=${this.historyError}`);
+      this.lastLoggedSid = this.sid;
+    }
   }
 
   /** 清空行缓存（切会话 / 整体复位时）。 */
@@ -1391,6 +1396,7 @@ export class ChatStore {
     const isInterrupt: boolean = interrupt === true;
     this.lastSendAt = Date.now();
     const requestID: string = this.nextRowID('req');
+    console.debug(`[SEND] enter: textLen=${text.length} channel=${this.channel} chatId=${this.currentChatId} interrupt=${isInterrupt} rid=${requestID}`);
     if (!isInterrupt) {
       const c: NonEmptyS | null = nonEmptyStr(text);
       if (c !== null) {
