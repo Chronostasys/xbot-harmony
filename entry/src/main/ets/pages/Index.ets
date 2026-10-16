@@ -6414,19 +6414,15 @@ struct Index {
         .id('xbot-empty-state')
       }
 
-      // ── 子代理会话的**专属空态**（与上面通用空态互斥：条件加了 `!this.isSubAgentChat()`）──────
-      // 为什么必须分开：子代理会话**没有独立消息历史** —— 服务端 `/api/history` 实测回
-      // `messages:null`、DB `session_messages` 对其 `channel=agent` 租户 `msgs=0`（它的内容只以
-      // `sub_agents` 进度挂在**父轮次**里，见 `isSubAgentChat()` 头注）⇒ 通用「开始对话 + 用 / 选命令、@ 提文件」
-      // 对该类会话**是误导**（那边没有可对话的东西、输入区也已按 web 语义不渲染）。
-      // ⚠️ 复用页面既有 `@Builder PanelEmpty`（图标 + 主行 + 提示行，居中）—— ⛔ 不新写取色：
-      //    性能预算 B 线（`pal()∨palOnce()` 读取总量）余量为 **0**（1350/1350），而 `PanelEmpty`
-      //    内部只读一次 `palOnce()`、已是既有站点 ⇒ **调用它不加计数**（新增取色会立刻顶穿门禁）。
+      // ── 子代理会话的**专属空态**（与上面通用空态互斥）──
+      // ⚡ 2026-10-20：子代理会话现在通过 RPC `get_agent_session_dump` / `get_session_messages`
+      //   加载历史内容（对齐 web `useChatMessages.ts:489-522`）。空态只在**历史加载完成且确实无内容**
+      //   时显示（不再无条件显示"没有历史"）。
       if (this.rows.length === 0 && this.loadErr.length === 0 && this.currentChat.length > 0
         && !this.loadingMore && this.isSubAgentChat()
-        && !showsHistorySkeleton(this.historyLoading, this.rows.length)) {
+        && !this.historyLoading && !showsHistorySkeleton(this.historyLoading, this.rows.length)) {
         this.PanelEmpty($r('sys.symbol.person_2'), '子代理会话',
-          '它没有独立的消息历史 —— 运行过程显示在父会话对应的轮次里')
+          '此子代理暂无历史记录')
       }
 
       // ── ③ 切会话加载 splash（用户 2026-10-14 要求）──────────────────────────────────

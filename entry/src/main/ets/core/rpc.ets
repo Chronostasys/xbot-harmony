@@ -197,6 +197,38 @@ export function normalizeMaxContext(v: number | null | undefined): number {
  *  `rpc_table.go:817-835`；web `agent/api.ts:803`。 */
 export const RPC_GET_SESSION_SUBSCRIPTION: string = 'get_session_subscription';
 
+// ── 子代理历史加载（web `useChatMessages.ts:489-522`）──
+/** `get_agent_session_dump`（内存 registry，含 iterations）→ `{messages, iterations}`。 */
+export const RPC_GET_AGENT_SESSION_DUMP: string = 'get_agent_session_dump';
+/** `get_session_messages`（兜底，只返回 role/content）→ `SubAgentMsg[]`。 */
+export const RPC_GET_SESSION_MESSAGES: string = 'get_session_messages';
+
+/** `get_agent_session_dump` / `get_session_messages` 的参数。 */
+export class SubAgentHistoryParams {
+  channel: string = '';
+  chat_id: string = '';
+  role: string = '';
+  instance: string = '';
+  constructor(channel: string, chatId: string, role: string, instance: string) {
+    this.channel = channel;
+    this.chat_id = chatId;
+    this.role = role;
+    this.instance = instance;
+  }
+}
+
+/** `get_agent_session_dump` 的回包（服务端内存 registry）。 */
+export class AgentSessionDump {
+  messages: Object[] | undefined = undefined;
+  iterations: Object[] | undefined = undefined;
+}
+
+/** `get_session_messages` 的单条（简单 role/content 对）。 */
+export class SubAgentMsg {
+  role: string = '';
+  content: string = '';
+}
+
 /**
  * `get_session_subscription` 的回包（服务端 `map[string]string`；两字段都可能缺）。
  *

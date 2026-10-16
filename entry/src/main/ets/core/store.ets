@@ -24,6 +24,7 @@ import { ChatMessage, ChatMessageRole, EMPTY_PROGRESS_SNAPSHOT, ProgressSnapshot
 import { toHistoryCompactions } from './compaction';
 import { normalizeWebIteration } from './agent_normalize';
 import { canonicalChatId, channelForChat } from './sessionpick';
+import { parseAgentChatID, ParsedAgentChatID } from './sessiongroup';
 import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
 import { moveOrders, parseSearchHits, searchBody, SEARCH_LIMIT_DEFAULT, SearchBody, chatSwitchPath, chatSwitchChannel, ChatSwitchResult, parseChatSwitch } from './sessionops';
 import { RewindReq, RewindTarget, gapTopBefore, rewindTargetDBID } from './msgops';
@@ -36,7 +37,7 @@ import { FsEntry } from './composer';
 import { FsListBody, FsReadResult, FsSearchBody, FsSearchEntry, fsListBody, fsSearchBody } from './files';
 import { GenuiShareBody, genuiPanelUrl, genuiShareBody } from './genui';
 import { SkillItem, SkillWire, parseSkillList } from './skills';
-import { MaxContextParams, RPC_GET_SESSION_SUBSCRIPTION, RPC_GET_USER_MAX_CONTEXT, RPC_LIST_ALL_MODEL_ENTRIES, RPC_SET_USER_MAX_CONTEXT, RPC_SKILL_GET_CONTENT, RPC_SKILL_LIST, RPC_SKILL_SET_ENABLED, RPC_WEB_PLUGIN_LIST, SessionSelectorParams, SessionSubscription, SkillContentWire, SkillGetContentParams, SkillListParams, SkillSetEnabledAck, SkillSetEnabledParams, normalizeMaxContext, readableRpcError, rpc, sessionSubscriptionId } from './rpc';
+import { MaxContextParams, RPC_GET_SESSION_SUBSCRIPTION, RPC_GET_USER_MAX_CONTEXT, RPC_LIST_ALL_MODEL_ENTRIES, RPC_SET_USER_MAX_CONTEXT, RPC_SKILL_GET_CONTENT, RPC_SKILL_LIST, RPC_SKILL_SET_ENABLED, RPC_WEB_PLUGIN_LIST, RPC_GET_AGENT_SESSION_DUMP, RPC_GET_SESSION_MESSAGES, SubAgentHistoryParams, AgentSessionDump, SubAgentMsg, SessionSelectorParams, SessionSubscription, SkillContentWire, SkillGetContentParams, SkillListParams, SkillSetEnabledAck, SkillSetEnabledParams, normalizeMaxContext, readableRpcError, rpc, sessionSubscriptionId } from './rpc';
 import {
   PluginCatalog,
   WebPluginListWire,
@@ -1048,9 +1049,86 @@ export class ChatStore {
     }
   }
 
+  /**
+   * 子代理会话历史加载（逐字对齐 web `useChatMessages.ts:489-522`）。
+   *
+   * Live SubAgent（`parseAgentChatID` 命中）从后端**内存 registry** 取数据：
+   *   ① `get_agent_session_dump`（含 iterations） → ② 兜底 `get_session_messages`（只 role/content）
+   * Persisted Agent Tab（`channel=agent`）走正常 `/api/history`（由 `loadHistoryInner` 处理）。
+   */
+  private async loadSubAgentHistory(): Promise<void> {
+    const forChat: string = this.currentChatId;
+    const parsed: ParsedAgentChatID | undefined = parseAgentChatID(this.currentChatId);
+    if (parsed === undefined) {
+      return;
+    }
+    const params: SubAgentHistoryParams = new SubAgentHistoryParams(
+      parsed.parentChannel, parsed.parentChatID, parsed.role, parsed.instance);
+    // ① 先试 get_agent_session_dump（内存 registry，含 iterations）
+    let messages: Object[] = [];
+    try {
+      const dump: AgentSessionDump = await rpc<AgentSessionDump>(this.http, RPC_GET_AGENT_SESSION_DUMP, params);
+      if (this.currentChatId !== forChat) { return; }
+      const dumpMsgs: Object[] = dump !== null && dump.messages !== undefined ? dump.messages : [];
+      const dumpIts: Object[] = dump !== null && dump.iterations !== undefined ? dump.iterations : [];
+      if (dumpMsgs.length > 0 || dumpIts.length > 0) {
+        messages = dumpMsgs;
+        // TODO: iterations 处理（web `parseSubAgentMessages` 挂到最后一条 assistant 消息）
+      }
+    } catch (e) {
+      // 降级到 get_session_messages
+    }
+    // ② 兜底：get_session_messages（只 role/content）
+    if (messages.length === 0) {
+      try {
+        const msgs: SubAgentMsg[] = await rpc<SubAgentMsg[]>(this.http, RPC_GET_SESSION_MESSAGES, params);
+        if (this.currentChatId !== forChat) { return; }
+        messages = msgs !== null && Array.isArray(msgs) ? msgs as Object[] : [];
+      } catch (e) {
+        // 两条路径都失败 ⇒ 历史为空（不炸：降级为空态）
+      }
+    }
+    if (this.currentChatId !== forChat) { return; }
+    // 解析 SubAgentMsg[] → ChatMessage[]（逐字对齐 web `parseSubAgentMessages`）
+    const chatMsgs: ChatMessage[] = this.parseSubAgentMessages(messages);
+    this.history = chatMsgs;
+    this.pushEvent(historyToReplaced(chatMsgs, null));
+    this.onUpdate();
+  }
+
+  /** 把 SubAgentMsg[]（简单 role/content 对）转成 ChatMessage[]。 */
+  private parseSubAgentMessages(raw: Object[]): ChatMessage[] {
+    const out: ChatMessage[] = [];
+    for (let i = 0; i < raw.length; i++) {
+      const m: Object = raw[i];
+      const role: string = (m as Record<string, Object>)['role'] as string;
+      const content: string = (m as Record<string, Object>)['content'] as string;
+      if (role === undefined || content === undefined) {
+        continue;
+      }
+      out.push({
+        id: `sa-${i}`,
+        role: role === 'assistant' ? 'assistant' : 'user',
+        content: content,
+        iterations: [],
+        turnID: 0,
+        isNotification: false,
+        timestamp: '',
+        isPartial: false,
+      });
+    }
+    return out;
+  }
+
   private async loadHistoryInner(): Promise<void> {
     // ⛔ 切会话竞态：`await` 期间用户可能已切走 ⇒ 旧响应**绝不能**写进新会话
     //   （否则就是"切 A→B 后看到 A 的内容"的串台）。会话号变了 ⇒ 整个丢弃。
+    // ⚡ 2026-10-20 子代理历史：Live SubAgent（parseAgentChatID 命中）走 RPC 路径，
+    //   不走 /api/history（服务端对 channel=agent 租户返回 messages:null）。
+    if (parseAgentChatID(this.currentChatId) !== undefined) {
+      await this.loadSubAgentHistory();
+      return;
+    }
     const forChat: string = this.currentChatId;
     const data: HistoryData = await this.http.postAs<HistoryData>('/api/history', new HistoryReq(
       // 30 → **100**（2026-10-14，C 线审计口径对齐）：web 权威首屏一次拉 100 条
