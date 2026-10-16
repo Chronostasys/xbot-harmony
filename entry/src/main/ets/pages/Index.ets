@@ -5102,6 +5102,8 @@ struct Index {
             Blank()
           }
           .width('100%').height('100%')
+          // ⚡ 丝滑动画：scrim 淡入淡出
+          .transition(TransitionEffect.OPACITY)
           .onClick(() => {
             this.closeDrawer();
           })
