@@ -13,7 +13,7 @@
 import { ChatRow, HistoryIteration, ToolProgress } from '../core/types';
 import { WebCompaction, WebSubAgentProgress } from '../core/chattypes';
 import {
-  completedBlocks, displayContent, displayReasoning, foldPills, mergeToolRuns, rowIsEmpty,
+  completedBlocks, displayContent, displayReasoning, foldPills, mergeToolRuns, rowIsEmpty, PillSlice,
 } from '../core/streammerge';
 import { runeCount } from '../core/typewriter';
 import { Palette, paletteOf, Effects, effectsOf, shadowRadiusOf } from '../core/theme';
@@ -476,6 +476,23 @@ export struct MessageRowView {
    * 改渲染为卡片（对齐 web `ToolRender.tsx:136`（interrupt）/`:154-155`（其余假工具））。
    * 判据 `isSyntheticToolName` 在 `core/synthhints.ets`（判据与渲染同源）。
    */
+  /** 按原始顺序分组：连续真工具 → 一组；合成工具 → 单独一组。保持相对顺序。 */
+  private toolGroupsOf(it: HistoryIteration): ToolProgress[][] {
+    const all: ToolProgress[] = it.tools !== undefined ? it.tools : [];
+    const groups: ToolProgress[][] = [];
+    let current: ToolProgress[] = [];
+    for (let i = 0; i < all.length; i++) {
+      if (isSyntheticToolName(all[i].name)) {
+        if (current.length > 0) { groups.push(current); current = []; }
+        groups.push([all[i]]);
+      } else {
+        current.push(all[i]);
+      }
+    }
+    if (current.length > 0) { groups.push(current); }
+    return groups;
+  }
+
   private synthToolsOf(it: HistoryIteration): ToolProgress[] {
     const all: ToolProgress[] = it.tools !== undefined ? it.tools : [];
     const out: ToolProgress[] = [];
@@ -483,6 +500,16 @@ export struct MessageRowView {
       if (isSyntheticToolName(all[i].name)) { out.push(all[i]); }
     }
     return out;
+  }
+
+  /** 真工具组内直出的 pill（foldPills 作用于单组，不是全迭代）。 */
+  private groupShownPills(group: ToolProgress[]): ToolProgress[] {
+    return foldPills(group).shown;
+  }
+
+  /** 真工具组内被收进 +N 的枚数。 */
+  private groupHideCount(group: ToolProgress[]): number {
+    return foldPills(group).hideCount;
   }
 
   /** 真工具（非假工具）—— pill 折叠/`+N` 只作用于它们（假工具已走卡片）。 */
@@ -778,39 +805,60 @@ export struct MessageRowView {
       }
 
       if (it.tools !== undefined && it.tools.length > 0) {
-        // ── 假工具（注入型通知：bg_task/subagent/interrupt…）⇒ 渲染为**卡片** ──────────
-        // 对齐 web `ToolRender.tsx:136`（interrupt）/`:154-155`（其余假工具）：注入事件
-        // 渲染成"看得懂的系统卡"，而不是一枚看不懂的 pill。判据 = `isSyntheticToolName`。
-        ForEach(this.synthToolsOf(it), (t: ToolProgress) => {
-          SyntheticCard({
-            tool: t,
-            theme: this.themeId(),
-            onCopy: (text: string, what: string) => {
-              this.onCopy(text, what);
-            },
-          })
-        }, (t: ToolProgress) => `syn#${this.toolKey(this.row.turnID, it.iteration, t.name)}#${t.call_id !== undefined ? t.call_id : ''}`)
-        // ── 真工具：**每工具一枚 pill**，塞进一个 flex-wrap 行；>8 枚时前 7 枚 + "+N" ──
-        // （逐字对齐 web `FoldedToolGroup.tsx:541-574` 的 `MergedPills`；假工具已摘出）。
-        if (this.shownPills(it).length > 0 || this.hideCount(it) > 0) {
-          Flex({ wrap: FlexWrap.Wrap }) {
-            ForEach(this.shownPills(it), (t: ToolProgress, ti: number) => {
-              this.ToolItem(it, t, this.origIndex(it, t))
-            }, (t: ToolProgress, ti: number) => `${this.toolKey(this.row.turnID, it.iteration, t.name)}#${t.call_id !== undefined ? t.call_id : ''}#${this.origIndex(it, t)}`
-              // ⛔ 同 `LiveTailView` 的 live pill：key 必须含**会变的可见内容**（`status`+`gen_chars`），
-              //    否则条目子树不随值重建 ⇒ 状态/字数冻在创建那一刻（AGENTS「最小通知键」同族）。
-              + `#${t.status !== undefined ? t.status : ''}#${t.gen_chars !== undefined ? t.gen_chars : 0}`)
-            if (this.hideCount(it) > 0) {
-              this.OverflowBadge(it)
+        // ⚡ 2026-10-20 修复：按原始顺序渲染工具（合成卡片 + 真工具 pill 交替）。
+        //   旧实现把所有合成卡片渲染在真工具前面，破坏了相对顺序。
+        //   现在按 `toolGroupsOf` 分组：连续真工具 → Flex 容器；合成工具 → 卡片。
+        //   对齐 web `ToolRender.tsx`：工具按原始位置渲染，合成工具内联为卡片。
+        ForEach(this.toolGroupsOf(it), (group: ToolProgress[], gi: number) => {
+          if (group.length === 1 && isSyntheticToolName(group[0].name)) {
+            // 合成工具 → 卡片
+            SyntheticCard({
+              tool: group[0],
+              theme: this.themeId(),
+              onCopy: (text: string, what: string) => {
+                this.onCopy(text, what);
+              },
+            })
+          } else {
+            // 真工具组 → Flex pill 行（>8 枚时前 7 枚 + "+N"）
+            if (this.groupShownPills(group).length > 0 || this.groupHideCount(group) > 0) {
+              Flex({ wrap: FlexWrap.Wrap }) {
+                ForEach(this.groupShownPills(group), (t: ToolProgress, ti: number) => {
+                  this.ToolItem(it, t, this.origIndex(it, t))
+                }, (t: ToolProgress, ti: number) => `${this.toolKey(this.row.turnID, it.iteration, t.name)}#${t.call_id !== undefined ? t.call_id : ''}#${this.origIndex(it, t)}`
+                  + `#${t.status !== undefined ? t.status : ''}#${t.gen_chars !== undefined ? t.gen_chars : 0}`)
+                if (this.groupHideCount(group) > 0) {
+                  Text(`+${this.groupHideCount(group)}`)
+                    .fontSize(FS_CAPTION)
+                    .fontColor(this.pal().textSecondary)
+                    .padding({ left: SP_2, right: SP_2, top: INSET_PILL_Y, bottom: INSET_PILL_Y })
+                    .margin(GAP_PILL)
+                    .animation(animBase())
+                    .backgroundColor(this.overIter === it.iteration ? surfaceFillOf(this.pal(), 'surface.card') : this.pal().surfaceAlt)
+                    .borderRadius(R_LG)
+                    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+                    .onClick(() => {
+                      this.overIter = this.overIter === it.iteration ? -1 : it.iteration;
+                    })
+                    .bindPopup(this.overIter === it.iteration, {
+                      builder: this.OverflowPopBody,
+                      placement: Placement.Bottom,
+                      enableArrow: false,
+                      mask: false,
+                      popupColor: surfaceFillOf(this.pal(), 'surface.overlay'),
+                      radius: RADIUS_CARD,
+                      shadow: { radius: shadowRadiusOf(this.pal(), 'overlay'), color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 },
+                      width: POPOVER_W_OVERFLOW,
+                    })
+                }
+              }
+              .width('100%')
+              .gesture(LongPressGesture().onAction(() => {
+                this.onOpenToolsCtx(it.iteration);
+              }))
             }
           }
-          .width('100%')
-          // 组级长按（**手势分层**：内层单枚 pill 的 `LongPressGesture` 先命中并消费 ⇒
-          // 只有落在 pill **间隙**的长按才到这里 ⇒ 弹"工具组"菜单，绝不双触发。
-          .gesture(LongPressGesture().onAction(() => {
-            this.onOpenToolsCtx(it.iteration);
-          }))
-        }
+        }, (group: ToolProgress[], gi: number) => `grp#${this.row.id}#${it.iteration}#${gi}`)
       }
 
       // ── 该迭代 spawn 的 SubAgent 进度树（web `TurnBody.tsx:222-224`：
@@ -936,7 +984,6 @@ export struct MessageRowView {
   @Builder
   OverflowBadge(it: HistoryIteration) {
     Text(`+${this.hideCount(it)}`)
-      .constraintSize({ minHeight: HIT_TARGET_MIN })
       .fontSize(FS_CAPTION)
       // 可点（点开溢出全量浮层）⇒ 弱档 `textMuted` 压 overlay 仅 2.37:1 < 3 ⇒ 用达标档 `textSecondary`
       .fontColor(this.pal().textSecondary)

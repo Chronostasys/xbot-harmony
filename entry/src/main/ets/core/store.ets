@@ -1060,8 +1060,10 @@ export class ChatStore {
     const forChat: string = this.currentChatId;
     const parsed: ParsedAgentChatID | undefined = parseAgentChatID(this.currentChatId);
     if (parsed === undefined) {
+      console.info(`[SUBAGENT] loadSubAgentHistory: parseAgentChatID returned undefined for ${this.currentChatId}`);
       return;
     }
+    console.info(`[SUBAGENT] loadSubAgentHistory: chatId=${this.currentChatId} parentChannel=${parsed.parentChannel} parentChatID=${parsed.parentChatID} role=${parsed.role} instance=${parsed.instance}`);
     const params: SubAgentHistoryParams = new SubAgentHistoryParams(
       parsed.parentChannel, parsed.parentChatID, parsed.role, parsed.instance);
     // ① 先试 get_agent_session_dump（内存 registry，含 iterations）
@@ -1069,28 +1071,30 @@ export class ChatStore {
     try {
       const dump: AgentSessionDump = await rpc<AgentSessionDump>(this.http, RPC_GET_AGENT_SESSION_DUMP, params);
       if (this.currentChatId !== forChat) { return; }
-      const dumpMsgs: Object[] = dump !== null && dump.messages !== undefined ? dump.messages : [];
-      const dumpIts: Object[] = dump !== null && dump.iterations !== undefined ? dump.iterations : [];
+      console.info(`[SUBAGENT] get_agent_session_dump response: dump=${dump !== null ? 'non-null' : 'null'} messages=${dump !== null && dump.messages !== undefined ? dump.messages.length : 0} iterations=${dump !== null && dump.iterations !== undefined ? dump.iterations.length : 0}`);
+      const dumpMsgs: Object[] = dump !== null && dump.messages !== undefined && dump.messages !== null ? dump.messages : [];
+      const dumpIts: Object[] = dump !== null && dump.iterations !== undefined && dump.iterations !== null ? dump.iterations : [];
       if (dumpMsgs.length > 0 || dumpIts.length > 0) {
         messages = dumpMsgs;
-        // TODO: iterations 处理（web `parseSubAgentMessages` 挂到最后一条 assistant 消息）
       }
     } catch (e) {
-      // 降级到 get_session_messages
+      console.info(`[SUBAGENT] get_agent_session_dump failed: ${(e as Error).message}`);
     }
     // ② 兜底：get_session_messages（只 role/content）
     if (messages.length === 0) {
       try {
         const msgs: SubAgentMsg[] = await rpc<SubAgentMsg[]>(this.http, RPC_GET_SESSION_MESSAGES, params);
         if (this.currentChatId !== forChat) { return; }
-        messages = msgs !== null && Array.isArray(msgs) ? msgs as Object[] : [];
+        console.info(`[SUBAGENT] get_session_messages response: msgs=${msgs !== null ? (Array.isArray(msgs) ? msgs.length : 'not-array') : 'null'}`);
+        messages = msgs !== null && msgs !== undefined && Array.isArray(msgs) ? msgs as Object[] : [];
       } catch (e) {
-        // 两条路径都失败 ⇒ 历史为空（不炸：降级为空态）
+        console.info(`[SUBAGENT] get_session_messages failed: ${(e as Error).message}`);
       }
     }
     if (this.currentChatId !== forChat) { return; }
     // 解析 SubAgentMsg[] → ChatMessage[]（逐字对齐 web `parseSubAgentMessages`）
     const chatMsgs: ChatMessage[] = this.parseSubAgentMessages(messages);
+    console.info(`[SUBAGENT] parsed ${chatMsgs.length} messages from ${messages.length} raw`);
     this.history = chatMsgs;
     this.pushEvent(historyToReplaced(chatMsgs, null));
     this.onUpdate();
