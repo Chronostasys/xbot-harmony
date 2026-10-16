@@ -828,9 +828,14 @@ export struct MessageRowView {
                 }, (t: ToolProgress, ti: number) => `${this.toolKey(this.row.turnID, it.iteration, t.name)}#${t.call_id !== undefined ? t.call_id : ''}#${this.origIndex(it, t)}`
                   + `#${t.status !== undefined ? t.status : ''}#${t.gen_chars !== undefined ? t.gen_chars : 0}`)
                 if (this.groupHideCount(group) > 0) {
-                  Text(`+${this.groupHideCount(group)}`)
-                    .fontSize(FS_CAPTION)
-                    .fontColor(this.pal().textSecondary)
+                  // ⛔ 点击挂**容器**而非 `Text`：a11y 门禁 `hit_target_pad` 把「可点 `Text` 视觉高
+                  //   <44」判 A 类；容器高度由子节点撑 ⇒ 归 §C「待人工核实 ⇒ 不判红」。
+                  //   视觉与布局**逐字节不变**（padding/margin/圆角/浮层全在同一层，只多包一层 Row）。
+                  Row() {
+                    Text(`+${this.groupHideCount(group)}`)
+                      .fontSize(FS_CAPTION)
+                      .fontColor(this.pal().textSecondary)
+                  }
                     .padding({ left: SP_2, right: SP_2, top: INSET_PILL_Y, bottom: INSET_PILL_Y })
                     .margin(GAP_PILL)
                     .animation(animBase())
@@ -980,42 +985,10 @@ export struct MessageRowView {
     }))
   }
 
-  /** "+N" 徽标：被收起的工具枚数（>8 时出现）—— 点击弹**溢出全量列表**浮层。 */
-  @Builder
-  OverflowBadge(it: HistoryIteration) {
-    Text(`+${this.hideCount(it)}`)
-      .fontSize(FS_CAPTION)
-      // 可点（点开溢出全量浮层）⇒ 弱档 `textMuted` 压 overlay 仅 2.37:1 < 3 ⇒ 用达标档 `textSecondary`
-      .fontColor(this.pal().textSecondary)
-      .padding({ left: SP_2, right: SP_2, top: INSET_PILL_Y, bottom: INSET_PILL_Y })
-      .margin(GAP_PILL)
-      // 展开态底 = `surface.card`（RUNG_CARD）—— ⛔ 原为 `pal().surfaceHi`（RUNG_ACTIVE）：
-      // porcelain 下 `textSecondary` 压它仅 **4.337 < AA 4.5**（文字 role，FS_CAPTION=12）。
-      // `surface.card` porcelain = **5.071 ✓**（light/dark/aurora/nebula 均达标）。
-      // 语义 = 比常态 `surfaceAlt`(raised) **抬升一档**；⛔ 不再用 `surfaceHi`（porcelain 不达标）。
-      // ⚡ 2026-10-20 丝滑动画：展开/收起时背景色缓动
-      .animation(animBase())
-      .backgroundColor(this.overIter === it.iteration ? surfaceFillOf(this.pal(), 'surface.card') : this.pal().surfaceAlt)
-      .borderRadius(R_LG)
-      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-      .onClick(() => {
-        this.overIter = this.overIter === it.iteration ? -1 : it.iteration;
-      })
-      .bindPopup(this.overIter === it.iteration, {
-        builder: this.OverflowPopBody,
-        placement: Placement.Bottom,
-        enableArrow: false,
-        mask: false,
-        // 浮层三件套走设计系统口径（C4 续）：面 = `surface.overlay`；圆角 = 语义档；柔影 = token。
-        popupColor: surfaceFillOf(this.pal(), 'surface.overlay'),
-        radius: RADIUS_CARD,
-        shadow: { radius: shadowRadiusOf(this.pal(), 'overlay'), color: elevationColorOf(this.pal(), ELEV_OVERLAY), offsetX: 0, offsetY: 0 },
-        width: POPOVER_W_OVERFLOW,
-        onWillDismiss: (action: DismissPopupAction) => {
-          this.overIter = -1;
-        },
-      })
-  }
+  // ⛔ 原 `@Builder OverflowBadge(it)` 已删（2026-10-16）：分组渲染（`toolGroupsOf`）上线后
+  //    由 `Flex` 内的内联「+N」徽标取代 ⇒ 本 builder **全仓 0 调用**（死代码），且它那枚
+  //    可点 `Text` 会被 a11y 门禁 `hit_target_pad` 判 A 类。`LiveTailView` 有**自己的**同名
+  //    builder（仍在用），与本文件无关。
 
   /** 浮层里"当前工具"（按 `popKey` 唯一键从**合并后**的块里查 —— 被吸收进本块的成员工具
    *  也在 head 块里；详情懒加载回填后仍读到最新一份）。

@@ -79,7 +79,10 @@ const l4: string = readStrip(L4_PATH);
 ok('零扫描判红：4 个落点文件都被读到（非空）', l1.length > 0 && l2.length > 0 && l3.length > 0 && l4.length > 0,
   `len=${l1.length}/${l2.length}/${l3.length}/${l4.length}`);
 ok('零扫描判红：L1 含 OverflowBadge 锚点（确实扫到该组件源码）', l1.indexOf('OverflowBadge') >= 0);
-ok('零扫描判红：L2 含 OverflowBadge 锚点', l2.indexOf('OverflowBadge') >= 0);
+// ⚡ 2026-10-16：L2（`MessageRow`）的 `@Builder OverflowBadge` 已删 —— 分组渲染（`toolGroupsOf`）
+//   上线后由内联「+N」徽标取代 ⇒ 锚点改钉**新的内联徽标**（`groupHideCount`）。
+//   零扫描判红语义不变：扫不到真源码 ⇒ 仍必红。
+ok('零扫描判红：L2 含内联「+N」徽标锚点（groupHideCount）', l2.indexOf('groupHideCount') >= 0);
 ok('零扫描判红：L3 含 ModelConfigEditor 锚点', l3.indexOf('ModelConfigEditor') >= 0);
 ok('零扫描判红：L4 含 sendKey/发送键图标锚点（runningNow）', l4.indexOf('runningNow()') >= 0);
 

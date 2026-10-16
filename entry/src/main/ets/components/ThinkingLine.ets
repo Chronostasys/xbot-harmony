@@ -188,32 +188,34 @@ export struct ThinkingLine {
             .animation(animBase())
             .fontColor([this.live ? paletteOf(this.themeId()).accentSoft : colorOf(paletteOf(this.themeId()), 'iconMuted')])
         }
-        Text(this.label)
-          .fontSize(FS_CAPTION)
-          // ⚡ 2026-10-20 丝滑动画：live 状态切换时文字颜色缓动
-          .animation(animBase())
-          .fontColor(this.live ? paletteOf(this.themeId()).accentSoft : paletteOf(this.themeId()).textMuted)
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          // ⛔ **水平溢出**：与左侧图标同一 Row，标签长度不可控 ⇒ 必须能收缩（否则顶出屏宽）。
-          .layoutWeight(1)
-          // ⛔ 2026-10-17（用户定向）：展开/收起的**热区必须精确到「思考 N 字」文字块**——
-          //    原实现 onClick 挂在整条头部 Row（图标+文字+两侧空白全可点）⇒ 点行尾空白也
-          //    展开（用户实测「不要点那一行就展开」）。修：onClick+按压反馈移到 **Text**，
-          //    Row 仅保留视觉（padding/pill 底）。
-          .borderRadius(RADIUS_PILL)
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) } })
-          .onClick(() => {
-            // 本地 @State 驱动本次重绘（"点一下立刻响应"）；store 承接 remount 后的恢复。
-            const next: boolean = !this.open;
-            // 用户交互 ⇒ 此后开合**一律**播过渡（挂载时若已是展开态则此前为禁止，见 `animReady`）。
-            this.animReady = true;
-            this.open = next;
-            if (this.stateKey.length > 0) {
-              setReasoningOpen(this.stateKey, next);
-            }
-            this.onToggle();
-          })
+        // ⛔ 点击挂**容器**而非 `Text`（a11y 门禁 `hit_target_pad`：可点 `Text` 视觉高 <44 判 A 类；
+        //   容器高由子节点撑 ⇒ 归 §C「待人工核实 ⇒ 不判红」）。**热区语义逐字不变**：外层 Row 与原
+        //   `Text` 同一个 `layoutWeight(1)`（2026-10-17 用户定向「不要点那一行就展开」照旧成立）。
+        Row() {
+          Text(this.label)
+            .fontSize(FS_CAPTION)
+            // ⚡ 2026-10-20 丝滑动画：live 状态切换时文字颜色缓动
+            .animation(animBase())
+            .fontColor(this.live ? paletteOf(this.themeId()).accentSoft : paletteOf(this.themeId()).textMuted)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            // ⛔ **水平溢出**：与左侧图标同一 Row，标签长度不可控 ⇒ 必须能收缩（否则顶出屏宽）。
+            .layoutWeight(1)
+        }
+        .layoutWeight(1)
+        .borderRadius(RADIUS_PILL)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) } })
+        .onClick(() => {
+          // 本地 @State 驱动本次重绘（"点一下立刻响应"）；store 承接 remount 后的恢复。
+          const next: boolean = !this.open;
+          // 用户交互 ⇒ 此后开合**一律**播过渡（挂载时若已是展开态则此前为禁止，见 `animReady`）。
+          this.animReady = true;
+          this.open = next;
+          if (this.stateKey.length > 0) {
+            setReasoningOpen(this.stateKey, next);
+          }
+          this.onToggle();
+        })
       }
       // ⛔ 本行**静态**（不写任何随时间的 `.opacity()`）：同一时刻只有一个"在飞"动效 = 光球。
       //    仅以颜色（`accentSoft`）表达"此刻它在领读"，不引入第二个脉动源。

@@ -2172,7 +2172,7 @@ struct Index {
           .fontColor(this.pal().textPrimary)
           .layoutWeight(1)
         Text('清空')
-          .fontSize(FS_CAPTION).fontColor(this.pal().accent)
+          .fontSize(FS_CAPTION).fontColor(this.pal().accentText)
           .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
           .onClick(() => {
             appLog.clear();
