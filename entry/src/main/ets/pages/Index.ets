@@ -1991,6 +1991,12 @@ struct Index {
     // 浮层关闭后随下一帧 `sync` 自动复起（`sync` 每次都会调本方法）。
     if (busy && !this.appPaused && !this.anyModalOpen() && this.pulseTimer < 0) {
       this.pulseTimer = setInterval(() => {
+        // ⚡ 2026-10-20 P0 掉帧修复：用户滚动/触摸时**跳过本拍**——`sweepX` 是**页级 `@State`**，
+        //   每拍写入 ⇒ 整页 build() 重跑 ⇒ 与滚动手势争主线程 ⇒ 用户可感知的周期性掉帧。
+        //   本拍跳过只是装饰流光暂停（无人盯着扫光看），抬手/停滚后下一拍自然续上。
+        if (this.userScrolling || this.userTouchActive) {
+          return;
+        }
         // 同一拍顺手推进流光位置（避免为装饰再开一个定时器）
         this.sweepX = this.sweepX >= 300 ? -80 : this.sweepX + 110;
       }, 600);
@@ -2106,17 +2112,17 @@ struct Index {
   }
 
   private syncFrom(store: ChatStore): void {
-    // ⚡ 2026-10-20 P0：用户滚动时跳过整个 syncFrom——避免任何 @State 更新触发 re-render
-    //   杀死惯性滚动。store 已自行处理 SSE 事件，页面 @State 只是投影；滚动停止后下一帧
-    //   syncFrom 自然补上。会话切换必须立即处理（否则跨会话渲染错乱）。
-    // ⚡ 2026-10-20 P0：用户报告「streaming 时滚动会很明显卡一下再变流畅」。
-    //   根因：onWillScroll 在首帧滚动才设 userScrolling=true，但在此之前 syncFrom
-    //   仍在每帧跑（~50fps SSE 事件驱动）→ @State 更新触发 re-render → 与用户手势争
-    //   主线程 → 首帧卡顿（用户可感知，不止一帧）。
-    //   修法：userScrolling 时整条早退（惯性期间不需要任何更新）。
-    //   userTouchActive 只跳过 scrollEdge（防程序滚动与手势争），保留 syncLiveTail
-    //   （⛔ 不能丢字——stream 过程中文本必须持续更新）。
-    if (this.userScrolling && this.currentChat === store.currentChatId) {
+    // ⚡ 2026-10-20 P0：用户滚动/触摸时跳过整个 syncFrom——避免任何 @State 更新触发
+    //   re-render 与用户手势争主线程（streaming ~50fps SSE 驱动 ⇒ 逐帧整页 build ⇒ 掉帧）。
+    //   store 已自行处理 SSE 事件，页面 @State 只是投影；手势结束后的下一帧 syncFrom 自然补上。
+    //   会话切换必须立即处理（否则跨会话渲染错乱）。
+    //   · `userScrolling`（onWillScroll 置位，含 FLING）：惯性期间不需要任何更新；
+    //   · `userTouchActive`（onTouch Down 置位，**早于** onWillScroll）：覆盖"手指刚按下、
+    //     滚动还没开始"的那几帧 —— 否则那几帧仍逐帧 build，用户可感知"卡一下"。
+    //   ⛔ `userTouchActive` 只在 **busy**（流式）时跳过：非 busy 无高频帧，无需牺牲即时性。
+    //   ⚠️ 丢字与"跳过 syncFrom"**无关**（真因是 MarkdownView 列表 ForEach key 不含内容，
+    //      已单独修）：本早退只在手指在屏上时生效，抬手后立即恢复，文本不会丢。
+    if ((this.userScrolling || (this.userTouchActive && this.busy)) && this.currentChat === store.currentChatId) {
       return;
     }
     // 自愈：not busy 却残留空 live 行（迟到事件造的）⇒ 先删掉再投影，避免 busy 被钉死
@@ -6701,6 +6707,11 @@ struct Index {
         if (this.userScrolling) {
           this.userScrolling = false;
         }
+        // 安全网：滚动停止 ⇒ 一并清触摸标志（正常由 onTouch Up/Cancel 清；此处兜住
+        //   「Up 事件丢失/被父容器吞掉」⇒ userTouchActive 卡 true ⇒ busy 时 syncFrom 永久早退）。
+        if (this.userTouchActive) {
+          this.userTouchActive = false;
+        }
       })
       .onReachStart(() => {
         if (!this.loadingMore && this.hasMore) {
@@ -10256,7 +10267,7 @@ struct Index {
         // §21.122bx：浮层覆盖聊天区时**停表**（光球 30fps Canvas 是流式期唯一实测到的 CPU 地板；
         // 被浮层盖住 ⇒ 无人看见，却与浮层入场动画抢帧预算）。语义与"后台停表"同一条通道。
         // ⚡ 2026-10-20 P0：用户滚动时也停表（20Hz @State 更新与滚动手势争抢主线程 → 粘滞+掉帧）。
-        paused: this.appPaused || this.anyModalOpen() || this.userScrolling,
+        paused: this.appPaused || this.anyModalOpen() || this.userScrolling || (this.userTouchActive && this.busy),
         onImage: (src: string) => {
           this.openImage(src);
         },
@@ -10338,7 +10349,7 @@ struct Index {
         // §21.122bx：浮层覆盖聊天区时**停表**（光球 30fps Canvas 是流式期唯一实测到的 CPU 地板；
         // 被浮层盖住 ⇒ 无人看见，却与浮层入场动画抢帧预算）。语义与"后台停表"同一条通道。
         // ⚡ 2026-10-20 P0：用户滚动时也停表（20Hz @State 更新与滚动手势争抢主线程 → 粘滞+掉帧）。
-        paused: this.appPaused || this.anyModalOpen() || this.userScrolling,
+        paused: this.appPaused || this.anyModalOpen() || this.userScrolling || (this.userTouchActive && this.busy),
         onImage: (src: string) => {
           this.openImage(src);
         },
