@@ -2113,11 +2113,10 @@ struct Index {
     //   根因：onWillScroll 在首帧滚动才设 userScrolling=true，但在此之前 syncFrom
     //   仍在每帧跑（~50fps SSE 事件驱动）→ @State 更新触发 re-render → 与用户手势争
     //   主线程 → 首帧卡顿（用户可感知，不止一帧）。
-    //   修法：onTouch Down 时立刻置 userTouchActive=true → busy 时整条 syncFrom
-    //   早退 → 手指在屏上时主线程全给手势 → 首帧不卡。
-    //   ⛔ 只在 busy 时跳过（非 busy 时 onTouch 不影响——避免普通 tap 丢一帧内容）。
-    //   store 仍独立处理 SSE 事件，手指抬起后下一帧 syncFrom 自然补上。
-    if ((this.userScrolling || (this.userTouchActive && this.busy)) && this.currentChat === store.currentChatId) {
+    //   修法：userScrolling 时整条早退（惯性期间不需要任何更新）。
+    //   userTouchActive 只跳过 scrollEdge（防程序滚动与手势争），保留 syncLiveTail
+    //   （⛔ 不能丢字——stream 过程中文本必须持续更新）。
+    if (this.userScrolling && this.currentChat === store.currentChatId) {
       return;
     }
     // 自愈：not busy 却残留空 live 行（迟到事件造的）⇒ 先删掉再投影，避免 busy 被钉死
@@ -3570,6 +3569,7 @@ struct Index {
     // rewind 编辑态：发送 = 回退并重发（不走普通发送路径 —— rewind → reset → reload → send
     // 的铁律顺序封装在 store.rewindTo 内）。
     if (this.rewindEditRowId.length > 0) {
+      console.info(`[SENDDRAFT] REWIND path: rewindEditRowId=${this.rewindEditRowId}`);
       if (text.length === 0) {
         this.toast('内容不能为空');
         return;
@@ -3577,6 +3577,7 @@ struct Index {
       await this.submitRewind(text);
       return;
     }
+    console.info(`[SENDDRAFT] NORMAL send path: textLen=${text.length}`);
     const keys: string[] = doneKeys(this.attachments);
     const names: string[] = doneNames(this.attachments);
     const sizes: number[] = doneSizes(this.attachments);

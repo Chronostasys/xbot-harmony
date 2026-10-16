@@ -371,7 +371,7 @@ export struct MarkdownView {
           .alignItems(VerticalAlign.Top)
           // 逐项嵌套级别（不再用 `b.level` 首项级别 ⇒ 嵌套子列表真正缩进，对齐 web）
           .padding({ left: this.liLevel(b, k) * MD_LIST_INDENT })
-        }, (item: string, k: number) => `${b.key}-li${k}`)
+        }, (item: string, k: number) => `${b.key}-li${k}#${item.length}#${item.length > 0 ? item.charAt(item.length - 1) : ''}`)
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)

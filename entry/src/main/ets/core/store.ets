@@ -1478,7 +1478,7 @@ export class ChatStore {
     const isInterrupt: boolean = interrupt === true;
     this.lastSendAt = Date.now();
     const requestID: string = this.nextRowID('req');
-    console.debug(`[SEND] enter: textLen=${text.length} channel=${this.channel} chatId=${this.currentChatId} interrupt=${isInterrupt} rid=${requestID}`);
+    console.info(`[SEND] enter: textLen=${text.length} channel=${this.channel} chatId=${this.currentChatId} interrupt=${isInterrupt} rid=${requestID}`);
     if (!isInterrupt) {
       const c: NonEmptyS | null = nonEmptyStr(text);
       if (c !== null) {
