@@ -6435,9 +6435,10 @@ struct Index {
 
       // ── ③ 切会话加载 splash（用户 2026-10-14 要求）──────────────────────────────────
       // 只在 `switchSession()` 的**真网络等待**路径上出现（`!alreadyOpen` ⇒ 拉会话列表 + history），
-      // 拉完（或失败）立刻撤 ⇒ 静息态恒不可见（失败方向安全，⛔ 不是"不透明度由动画驱动"那种形态）。
-      // 用**不透明**遮罩而不是半透明：这期间列表里可能是**上一个会话的残影**（`beginSwitch` 之后
-      // 才清空），半透明会让用户读到错会话的内容 —— 遮挡要**确定**（与本仓"模态感"同一口径）。
+      // 拉完（或失败）立刻撤 ⇒ 静息态恒不可见（失败方向安全）。
+      // ⚡ 2026-10-20 修复：不再用全屏不透明遮罩——beginSwitch() 在 openSession() 内同步执行
+      //   （第一个 await 之前），到 splash 渲染时旧行已清空 ⇒ 不需要遮挡旧内容。
+      //   全屏遮罩会遮住思考光球（用户亲报）⇒ 改用骨架屏（与历史加载同款）。
       if (this.switchSplash) {
         Column({ space: SPACE_SM }) {
           LoadingProgress().width(32).height(32).color(this.pal().accent)
@@ -6445,19 +6446,18 @@ struct Index {
             .fontSize(typeOf('type.subhead').size)
             .fontColor(this.pal().textSecondary)
         }
-        .width('100%').layoutWeight(1)
+        .width('100%')
         .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
-        .backgroundColor(this.pal().appBg)
+        .padding({ top: SPACE_XXL })
         .id('xbot-session-splash')
       }
 
       // 骨架屏：**只在"正在拉历史且还没有任何行"时**出现（判据在 `core/indicators.ets`，
       // 可脱机单测）。⛔ 曾经写成 `!historyLoading`（与 `BusySignals.loading` 契约相反）
       // ⇒ 空会话上骨架屏永久残留，且与下方空态同时渲染（真机走查抓到）。
-      // ⚠️ 与上面的切会话 splash **互斥**（`!this.switchSplash`）：两者都是"占满内容区"的加载态，
-      //    同时渲染会得到"转圈套骨架"，语义重复。
-      if (!this.switchSplash
-        && showsHistorySkeleton(this.historyLoading, this.rows.length) && this.currentChat.length > 0) {
+      // ⚡ 2026-10-20：移除 `!this.switchSplash` 互斥——splash 不再全屏遮挡，
+      //   骨架屏与 splash 可共存（splash 在顶部转圈，骨架屏在下方占位）。
+      if (showsHistorySkeleton(this.historyLoading, this.rows.length) && this.currentChat.length > 0) {
         Column({ space: 10 }) {
           this.SkeletonRow('72%', '46%')
           this.SkeletonRow('54%', '64%')
