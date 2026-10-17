@@ -123,6 +123,8 @@ for (let i = 0; i < NON_ACTIVE.length; i++) {
 // §2 落点 A —— Index.ets 会话重命名行「取消」：当前会话支 fg 不再是 textSecondary
 // ════════════════════════════════════════════════════════════════════════════
 const A_NEW: string = '.fontColor(this.isCurrentSession(s.chat_id) ? this.pal().textPrimary : this.pal().textSecondary)';
+// 2026-10-20：调用点改用 `palOnce()`（性能优化，语义相同）⇒ 两种写法都接受。
+const A_NEW_PALONCE: string = '.fontColor(this.isCurrentSession(s.chat_id) ? this.palOnce().textPrimary : this.palOnce().textSecondary)';
 // ① 形态：旧的无条件用法**已消失**（mutation 锚：回退成旧单行 ⇒ 本行红）
 ok('§2 ⛔ 旧形态（`取消` 无条件 textSecondary 单行链）已消失',
   aSrc.indexOf("Text('取消').fontSize(typeOf('type.subhead').size).fontColor(this.pal().textSecondary)") < 0);
@@ -160,11 +162,12 @@ ok("§2 ✓ 会话行补 `surface.overlayRowHover` 的调用点仍在（未被�
   ok('§3 ⛔ 旧形态（`⋯` 无条件 textSecondary 单行链）已消失',
     aSrc.indexOf("Text('⋯').fontSize(typeOf('type.headline').size).fontColor(this.pal().textSecondary)") < 0);
   ok('§3 ✓ 新形态：`⋯` 的 fg = 当前会话支 `textPrimary` / 其余 `textSecondary`',
-    aSrc.indexOf(A_NEW) >= 0);
+    aSrc.indexOf(A_NEW) >= 0 || aSrc.indexOf(A_NEW_PALONCE) >= 0);
   // 该行**不再是**无条件 textSecondary（防"把条件去掉"这种更弱的回退）
   // ⚠️ 2026-10-13：条件判据从 `s.chat_id === this.currentChat` 收成**唯一助手**
   //    `this.isCurrentSession(s.chat_id)`（规范化比较，见 docs §21.112）⇒ 断言随形态更新，意图不变。
-  const ellChain: string = lines.slice(ellLine, ellLine + 4).join('\n');
+  // 链可能因新增 `.animation(...)`（2026-10-20 颜色缓动）而多一行 ⇒ 取 8 行窗口
+  const ellChain: string = lines.slice(ellLine, ellLine + 8).join('\n');
   ok('§3 ✓ 该链含条件（非无条件 `textSecondary`）', ellChain.indexOf('?') >= 0 && ellChain.indexOf('isCurrentSession') >= 0);
 }
 

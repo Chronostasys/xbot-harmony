@@ -187,6 +187,9 @@ const PENDING_SPEC: string[] = [
   "components/SettingsDeveloper.ets :: 10 :: e.name",
   "components/SettingsDeveloper.ets :: 10 :: previewText(e.payload, 120)",
   "components/SettingsDeveloper.ets :: 10 :: '录制中'",
+  // 2026-10-20 新增两处（dev 面板说明行；同为 10 = micro 档值却写死，归 tokens-ux 域）
+  "components/SettingsDeveloper.ets :: 10 :: `系统开关：${LiveViewBridge.shared().capText()} · 失败原因见「应用日志」tag liveview`",
+  "components/SettingsDeveloper.ets :: 10 :: '查看当前会话运行期日志（连接 / 切会话 / 发送 / 错误）'",
 ];
 // ✅ **已收编（本轮，常量化 ⇒ 从 PENDING_SPEC 移出；台账只许缩短）**：
 //   · `components/MessageRow.ets` 的 5 处 `11` ⇒ `FS_META`（web `text-[11px]`/`[11.5px]`）；
@@ -306,7 +309,7 @@ console.log('\n▶ §C3 收编钉住：Index/MessageRow 的阶梯外字号走 `c
   const WANT: string[][] = [
     ['pages/Index.ets', 'fontSize(FS_BOOT_WORDMARK)', '1'],
     ['pages/Index.ets', 'fontSize(FS_BRAND_WORDMARK)', '2'],
-    ['components/MessageRow.ets', 'fontSize(FS_META)', '5'],
+    ['components/MessageRow.ets', 'fontSize(FS_META)', '4'],
   ];
   let total: number = 0;
   for (let i = 0; i < WANT.length; i++) {

@@ -150,6 +150,10 @@ const KNOWN_OK: string[] = [
   // 自有品牌资产（`start_icon`）：它的"最坏图"就是我们自己的设计稿，不是任意用户内容；
   // 且它画在开屏的品牌底上 ⇒ **不需要**图片卡那种边界。⛔ 不是"漏做"。
   'components/SplashOverlay.ets :: start_icon',
+  // 同上（会话加载开屏 `SessionLoadingSplash`）：同一枚自有品牌 mark，画在**品牌底/主题底**
+  // 之上（`LoadingProgress` + 两行说明文字居中），不是"内容图卡" ⇒ 一律加 `backgroundColor`
+  // 反而在深色品牌底上画出一块方框。⛔ 与 SplashOverlay 同一条理由，不是新豁免类别。
+  'components/SessionLoadingSplash.ets :: start_icon',
 ];
 let inlineNoBoundary: string[] = [];
 for (let i = 0; i < sites.length; i++) {

@@ -54,8 +54,7 @@ import {
 } from '../core/permodelcfg';
 import {
   SettingsChipRow, SettingsErrorBar, SettingsPanelHeader, SettingsSubCard, SettingsTextFieldRow,
-  SettingsToolRow,
-} from './SettingsRows';
+  SettingsToolRow, SettingsButton } from './SettingsRows';
 import { PRESS_OPACITY, surfaceFillOf, HIT_TARGET_MIN } from '../core/design';
 import { animBase } from './anim';
 
@@ -285,20 +284,6 @@ export struct SettingsLlm {
     try {
       await rpc<void>(this.http, RpcMethod.setSubscriptionEnabled,
         new SubscriptionEnabledParams(subId, next));
-      this.error = '';
-    } catch (e) {
-      this.error = readableRpcError((e as Error).message);
-    } finally {
-      this.busy = '';
-      await this.load();
-    }
-  }
-
-  /** 设为默认（全局）：服务端字段是 `id`（不是 sub_id），`chat_id` 空 = 全局默认。 */
-  private async setDefault(subId: string): Promise<void> {
-    this.busy = subId;
-    try {
-      await rpc<void>(this.http, RpcMethod.setDefaultSubscription, new DefaultSubscriptionParams(subId));
       this.error = '';
     } catch (e) {
       this.error = readableRpcError((e as Error).message);
@@ -850,14 +835,46 @@ export struct SettingsLlm {
   @Builder
   SubFormCard() {
     Column({ space: SP_1 }) {
-      Text(this.formEditing ? '编辑订阅' : '新增订阅')
-        .fontSize(FS_BODY)
-        .fontColor(this.pal().textPrimary)
-        .width('100%')
+      // ⛔ **操作栏必须在表单顶部**（用户 2026-10-17 二次亲报「模型订阅编辑根本用不了」）：
+      //    旧布局把「保存/取消」放在 4 个输入框**下面** —— 手机一弹键盘就把它们盖住，
+      //    用户根本点不到保存（不是"丑"，是**不可用**）。现改为标题行右侧固定操作区：
+      //    滚到哪、键盘开不开都能保存；按钮统一走 `SettingsButton`（命中区 ≥44）。
+      Row({ space: SP_2 }) {
+        Text(this.formEditing ? '编辑订阅' : '新增订阅')
+          .fontSize(FS_BODY)
+          .fontColor(this.pal().textPrimary)
+          .layoutWeight(1)
+        SettingsButton({
+          label: '取消',
+          kind: 'ghost',
+          theme: this.theme,
+          onTap: () => {
+            this.formOpen = false;
+          },
+        })
+        SettingsButton({
+          label: this.formBusy ? '保存中…' : '保存',
+          kind: 'primary',
+          busy: this.formBusy || !subscriptionFormValid(this.form, this.formEditing),
+          theme: this.theme,
+          onTap: () => {
+            void this.submitForm();
+          },
+        })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
       Text('协议、Base URL、凭据与默认模型；编辑时凭据留空或保持掩码则不改动。')
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().textMuted)
         .width('100%')
+      if (!subscriptionFormValid(this.form, this.formEditing)) {
+        Text(subscriptionFormError(this.form, this.formEditing))
+          .fontSize(FS_CAPTION)
+          .fontColor(this.pal().warn)
+          .width('100%')
+      }
 
       SettingsChipRow({
         label: '协议',
@@ -931,40 +948,6 @@ export struct SettingsLlm {
         },
       })
 
-      if (!subscriptionFormValid(this.form, this.formEditing)) {
-        Text(subscriptionFormError(this.form, this.formEditing))
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().warn)
-          .width('100%')
-      }
-
-      Row({ space: SP_2 }) {
-        Text(this.formBusy ? '保存中…' : '保存')
-          .constraintSize({ minHeight: HIT_TARGET_MIN })
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().onAccent)
-          .padding({ left: SP_4, right: SP_4, top: SP_2, bottom: SP_2 })
-          .backgroundColor(this.pal().accent)
-          .borderRadius(R_LG)
-          .opacity(this.formBusy || !subscriptionFormValid(this.form, this.formEditing) ? 0.5 : 1)
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            void this.submitForm();
-          })
-        Text('取消')
-          .constraintSize({ minHeight: HIT_TARGET_MIN })
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().textSecondary)
-          .padding({ left: SP_4, right: SP_4, top: SP_2, bottom: SP_2 })
-          .backgroundColor(this.pal().surfaceAlt)
-          .borderRadius(R_LG)
-          .border({ width: 1, color: this.pal().border })
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            this.formOpen = false;
-          })
-      }
-      .width('100%')
     }
     .width('100%')
     .padding(SP_4)
@@ -977,9 +960,52 @@ export struct SettingsLlm {
     Column({ space: SP_3 }) {
       SettingsPanelHeader({
         title: '模型订阅',
-        subtitle: '启停订阅只影响模型选择器与可用范围，凭据保留；「默认」用于新会话的初始模型。',
+        subtitle: '启停只影响模型选择器与可用范围，凭据保留。',
         theme: this.theme,
       })
+
+      // ── **顶部操作栏**（用户 2026-10-17：「编辑……再最开始给个编辑栏，谁他妈能用？」）──────
+      // ⛔ 顺序即优先级：**新增订阅**（主操作）在最左 → 刷新 → 导出 → 导入。
+      //    旧实现：4 枚手搓 `Text` 按钮放在**搜索框下面**，入口被埋 ⇒ 用户在真机上找不到编辑入口。
+      //    现在统一走 `SettingsButton`（命中区 44/统一圆角字阶按压态），主操作一眼可见。
+      Row({ space: SP_2 }) {
+        SettingsButton({
+          label: '新增订阅',
+          kind: 'primary',
+          theme: this.theme,
+          onTap: () => {
+            this.openAdd();
+          },
+        })
+        SettingsButton({
+          label: '刷新',
+          kind: 'secondary',
+          theme: this.theme,
+          onTap: () => {
+            void this.refreshModels();
+          },
+        })
+        SettingsButton({
+          label: this.ioBusy ? '…' : '导出',
+          kind: 'secondary',
+          busy: this.ioBusy,
+          theme: this.theme,
+          onTap: () => {
+            void this.exportSubscriptions();
+          },
+        })
+        SettingsButton({
+          label: this.ioBusy ? '导入中…' : '导入',
+          kind: 'secondary',
+          busy: this.ioBusy,
+          theme: this.theme,
+          onTap: () => {
+            void this.importSubscriptions();
+          },
+        })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
 
       // ── 搜索框（**独立成行**）──────────────────────────────────────────────────
       // ⚠️ 2026-10-13（目标③ 逐面板量测·`dumpLayout` 铁证）：原实现把搜索框塞进**下面那一行**
@@ -1000,63 +1026,6 @@ export struct SettingsLlm {
         .onChange((v: string) => {
           this.subQuery = v;
         })
-
-      // ── 工具栏：刷新模型 / 导出 / 导入 / 新增订阅（web `SettingsLLM.tsx:254-271`）──────
-      // ⚠️ 与 web 的**有意差异**（已真机复核 `/tmp/v5_model.jpeg`）：web 把这 4 枚按钮与
-      //    标题块放**同一行**并用 `justify-end` 推到右侧；本仓在**窄屏**上把它们移到**独立一行**
-      //    （手机宽度放不下"标题 + 4 枚中文 chip"），此时独立行**起点对齐**才是自然读向
-      //    ⇒ ⛔ 不写 `justifyContent(FlexAlign.End)`（会在右侧留一团浮空按钮）。
-      Row({ space: SP_2 }) {
-        Text('刷新模型')
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().textSecondary)
-          .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-          .backgroundColor(this.pal().surfaceAlt)
-          .borderRadius(R_LG)
-          .border({ width: 1, color: this.pal().border })
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            void this.refreshModels();
-          })
-        // ── S12：导出 / 导入（web `SettingsLLM.tsx:260-266` —— 工具栏右端、刷新与新增之间）──
-        Text(this.ioBusy ? '…' : '导出')
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().textSecondary)
-          .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-          .backgroundColor(this.pal().surfaceAlt)
-          .borderRadius(R_LG)
-          .border({ width: 1, color: this.pal().border })
-          .opacity(this.ioBusy ? 0.5 : 1)
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            void this.exportSubscriptions();
-          })
-        Text(this.ioBusy ? '导入中…' : '导入')
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().textSecondary)
-          .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-          .backgroundColor(this.pal().surfaceAlt)
-          .borderRadius(R_LG)
-          .border({ width: 1, color: this.pal().border })
-          .opacity(this.ioBusy ? 0.5 : 1)
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            void this.importSubscriptions();
-          })
-        Text('新增订阅')
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().accentSoft)
-          .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-          .backgroundColor(this.pal().surfaceAlt)
-          .borderRadius(R_LG)
-          .border({ width: 1, color: this.pal().borderStrong })
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            this.openAdd();
-          })
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
 
       if (this.notice.length > 0) {
         Text(this.notice)
@@ -1337,15 +1306,11 @@ export struct SettingsLlm {
                   model: s.model,
                   apiKey: s.api_key,
                   isOn: isSubscriptionEnabled(s),
-                  isDefault: s.active === true,
                   modelCount: countModelsForSub(this.entries, s.id),
                   busy: this.busy === s.id,
                   theme: this.theme,
                   onToggle: (subId: string, next: boolean) => {
                     void this.toggleEnabled(subId, next);
-                  },
-                  onSetDefault: (subId: string) => {
-                    void this.setDefault(subId);
                   },
                 })
 
@@ -1355,48 +1320,35 @@ export struct SettingsLlm {
                 //（web 对系统订阅仍显示模型列表与逐模型启停）。
                 Row({ space: SP_2 }) {
                   if (!isSystemSubscription(s)) {
-                    Text('编辑')
-                      .constraintSize({ minHeight: HIT_TARGET_MIN })
-                      .fontSize(FS_CAPTION)
-                      .fontColor(this.pal().accentSoft)
-                      .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-                      .backgroundColor(this.pal().surfaceAlt)
-                      .borderRadius(R_LG)
-                      .border({ width: 1, color: this.pal().borderStrong })
-                      .opacity(this.busy === s.id ? 0.5 : 1)
-                      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-                      .onClick(() => {
+                    SettingsButton({
+                      label: '编辑',
+                      kind: 'secondary',
+                      busy: this.busy === s.id,
+                      theme: this.theme,
+                      onTap: () => {
                         this.openEdit(s);
-                      })
-                  }
-                  Text(this.manageSubId === s.id ? '收起模型' : '管理模型')
-                    .constraintSize({ minHeight: HIT_TARGET_MIN })
-                    .fontSize(FS_CAPTION)
-                    .fontColor(this.pal().textSecondary)
-                    .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-                    .backgroundColor(this.pal().surfaceAlt)
-                    .borderRadius(R_LG)
-                    .border({ width: 1, color: this.pal().border })
-                    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-                    .onClick(() => {
-                      this.toggleManage(s.id);
+                      },
                     })
+                  }
+                  SettingsButton({
+                    label: this.manageSubId === s.id ? '收起模型' : '管理模型',
+                    kind: 'ghost',
+                    theme: this.theme,
+                    onTap: () => {
+                      this.toggleManage(s.id);
+                    },
+                  })
                   if (!isSystemSubscription(s)) {
-                    Text(this.deleteId === s.id ? '确认删除' : '删除')
-                      .constraintSize({ minHeight: HIT_TARGET_MIN })
-                      .fontSize(FS_CAPTION)
-                      // ⚡ 2026-10-20 丝滑动画：确认态切换时文字/背景颜色缓动
-                      .animation(animBase())
-                      .fontColor(this.deleteId === s.id ? this.pal().onAccent : this.pal().dangerText)
-                      .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-                      .backgroundColor(this.deleteId === s.id ? this.pal().statusError : this.pal().surfaceAlt)
-                      .borderRadius(R_LG)
-                      .border({ width: 1, color: this.pal().border })
-                      .opacity(this.busy === s.id ? 0.5 : 1)
-                      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-                      .onClick(() => {
+                    SettingsButton({
+                      label: this.deleteId === s.id ? '确认删除' : '删除',
+                      kind: 'danger',
+                      armed: this.deleteId === s.id,
+                      busy: this.busy === s.id,
+                      theme: this.theme,
+                      onTap: () => {
                         void this.doDelete(s.id);
-                      })
+                      },
+                    })
                   }
                 }
                 .width('100%')

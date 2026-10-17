@@ -33,7 +33,7 @@
  *   **图标只是提示符，不承载状态**（光球关闭时才出现）。
  */
 import { paletteOf, surfacesOf, thinkingBodyColor } from '../core/theme';
-import { FS_CAPTION, R_LG, SP_1, SP_5 } from '../core/tokens';
+import { FS_CAPTION, R_LG, SP_1, SP_5, THINK_ROW_H } from '../core/tokens';
 import { PRESS_OPACITY, RADIUS_PILL, SPACE_HAIR, STROKE_RAIL, colorOf, } from '../core/design';
 import { getReasoningOpen, setReasoningOpen } from '../core/reasoningopen';
 import { AssistantOrb, ORB_MODE_THINKING } from './AssistantOrb';
@@ -219,7 +219,11 @@ export struct ThinkingLine {
       }
       // ⛔ 本行**静态**（不写任何随时间的 `.opacity()`）：同一时刻只有一个"在飞"动效 = 光球。
       //    仅以颜色（`accentSoft`）表达"此刻它在领读"，不引入第二个脉动源。
-      .padding({ left: SP_1, right: SP_1, top: SPACE_HAIR, bottom: SPACE_HAIR })
+      // ⛔ 与「思考中…」占位行**同高**（`THINK_ROW_H`）⇒ 交接/字数变化都不改高度
+      //    （用户 2026-10-17：「本质是历史高度抖动，不能有任何抖动」）。
+      .height(THINK_ROW_H)
+      .alignItems(VerticalAlign.Center)
+      .padding({ left: SP_1, right: SP_1 })
       .borderRadius(RADIUS_PILL)
 
       if (this.open && this.body.length > 0) {

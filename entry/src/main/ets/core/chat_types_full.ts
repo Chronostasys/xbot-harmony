@@ -386,7 +386,15 @@ export type DomainEvent =
        *  时丢失导致 phase='compressing' 的压缩提示永不渲染（本次修复）。
        *  可选：未携带（旧事件/mock）= undefined，reduce 保留 prev。 */
       readonly phase?: string
-      readonly iter: IterNum
+      /**
+       * 后端 structuredProgress 的迭代号。**null = 事件未携带**（不是"迭代 1"）。
+       *
+       * ⛔ 旧实现 `iterNum(p.iteration ?? 1)` 把缺失号伪造成 1：一条不带 `iteration`
+       * 的结构化事件会被当成第 1 迭代应用（覆盖/合并 1 号块，或让 `advanced=false`、
+       * `committedNow` 误判）⇒ 迭代内容跳变 / 同号重复。缺失必须是"无迭代信息"，
+       * reducer 保留 prev.iter，且不参与 gap 判据。
+       */
+      readonly iter: IterNum | null
       /** null = 事件未携带 seq（E2E mock 省略）—— I5 基准不推进（无重放检测）。 */
       readonly seq: EventSeq | null
       readonly content: string | undefined

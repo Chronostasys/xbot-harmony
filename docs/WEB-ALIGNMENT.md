@@ -7959,3 +7959,75 @@ appear live=true  key=13:4        （仍在飞）
 - syncLiveTail 降频 100ms（cca8fe9）——无条件降频，减少整页 build
 - llmCfg 引用门控（905e1aa）——避免同值 @State 写入触发整页 build
 - header tok/s 徽章加背景色+圆角（d6a1dcd）——对标 Apple 状态栏徽章
+
+### §21.122cf P0：mid-turn idle 冻结（真根因 = 缺 web 的「发送乐观置 running」）（2026-10-17）
+
+**症状**：turn 进行中，live 进度突然消失且**永不再更新**（同迭代 stream 被静默丢弃；
+`noteTurndrop('idleFroze')` 形态）。用户感知为「少了一些迭代」。
+
+**为什么不是 reduce.ts 的错（关键判据）**：`core/reduce.ts` 的粗粒度 idle 分支
+`if (s.sessionRunning) return s`（`session` 的 idle 分支 + `session_idle` 分支）与 web
+`web/src/chat/reduce.ts:527/1300` **逐字一致**，且该闸门**本来就对**——它要求
+**turn 进行中 `state.sessionRunning === true`**。真正缺的是喂给它的信号：
+
+- web 权威（`web/src/workspace/panels/AgentPanel.tsx:177-180`）：发送成功后
+  `store.setStatus(selector,'running')`（受 `sendStartsTurn` 门控，命令 `!cmd`/slash 不置位）
+  ⇒ `sessionRunning` 在 turn 中即为 **true** ⇒ 迟到/回放的 `session(idle)` 被闸门忽略。
+- 本仓**没有**这一步 ⇒ `sessionRunning` 在整个 turn 中恒为 false ⇒ 闸门恒失效 ⇒
+  一条迟到 idle 就把在飞 turn 冻结（`reduce` 的 `session{busy:false}` 分支，
+  `sessionRunning=false` 时不再短路），同迭代 stream 随后被整批丢弃。
+- 服务端 `/api/session-tree` 的 `running` 是 `omitempty`（false 时**缺字段**、只有处理中才回 true）
+  ⇒ 落库对账是**慢路径**，不能替代发送时的乐观置位。
+
+**修法（wiring 层，保持状态机为 web 逐字移植 —— 不重写逻辑）**：
+1. `core/streammerge.ets` 新增纯函数 `sendStartsTurn(turnID, queued)`（移植 web
+   `src/lib/sendTurn.ts`）：`queued===true || turnID>0` ⇒ 会开启 turn。
+2. `core/store.ets` 的 `send()`：回执解析后、`user_ack` 之前，按 `sendStartsTurn` 乐观
+   `pushEvent({type:'session_running', running:true})`。真结束仍由权威路径收尾
+   （`PhaseDone` ⇒ `applyLocalIdle(true)` ⇒ `session_running(false)`）。
+
+**判别力测试**（`tools/tests/send_optimistic_running.test.ts`，端到端真实 store 流水线）：
+① 发送成功后 `serverRunning===true`；② mid-turn 迟到 `session(idle)`/`agent-idle`
+**不得**冻结在飞 turn（`hasLiveTurn()` 仍 true）；③ 同迭代 stream 仍能更新 live 内容；
+④ 命令回执（无 turn_id）不置位、排队回执（queued）置位。**mutation 自证**：把乐观置位
+改 `false &&` ⇒ 6 条断言转红。
+
+**顺带修一处 HEAD 既红（非本次引入）**：`12ee5cf` 给 `hasFreshPhaseDone` 加了「有 live turn
+时 turnID 缺失不得宽容放行」的收紧（9 行），却**漏改** `tools/tests/streammerge.test.ts`
+里断言旧「宽容放行」的那条 ⇒ 该断言在 HEAD 就是红的。已按实现（有明确用户 P0 依据）
+把陈旧断言改为同源，并补两条反向判据（`turnID` 缺失/为 0 但有 live turn ⇒ false）。
+
+**⚠️ 仍待办（需真机验证）**：`store.ets` 的 `lastSendAt`/`sessionsFetchedAt` 是**只写不读**的
+死字段 —— 注释里「刚发送 3 秒内不对账」的窗口**从未接线**。当前靠 9410868 的
+「session-tree 缺 `running` 字段 ⇒ 跳过对账」避免闪烁，副作用是 `sessionRunning`
+**一旦为 true 就没有对账清除路径**（只能靠 `PhaseDone` 权威收尾）。是否恢复 web 的
+`absent⇒false` + 发送窗口保护，需真机对照实验后拍板。
+
+### §21.122cg 用户 2026-10-16 三连：splash 期泄漏「思考中」/ 日志入口与内容 / 灵动岛（2026-10-16）
+
+**① splash 未消失就渲染「思考中」（用户亲报「严重」）**——真机截图实证：同一屏并存
+「开始对话」空态 +「会话加载中…」+「思考中…」。根因：`switchSplash` 那条路径
+（约 2026-10-20 的改动）**取消了全屏不透明遮罩**（注释理由是"遮住思考光球"），
+但用户要的恰是**相反**——splash 期间不该渲染"进行中"指示。
+修法（`splashUp()` 单闸，纯判据入 `core/indicators.ets`）：
+- `BusySignals` 增 `splashUp`；`showsBusyPlaceholder` 加 `!splashUp`；
+- 页面 `busySignals()` 投 `splashUp: this.splashUp()`（= `showSplash || switchSplash`）；
+- live 行（思考光球）与空态「开始对话」各自加 `!this.splashUp()`。
+⚠️ **只抑制列表侧**：composer 的 cancel 不受影响 ——「在跑 ⟹ 有信号」这条不变量在
+splash 期间由 **splash 自身**承担。测试：`busy_indicator` 加两条（splash 期抑制 / 撤下恢复）。
+
+**② 应用日志入口太显眼 + 内容太少 + 无复制按钮**（用户插话）：
+- 入口从**侧边栏主导航**（与设置/文件/终端同排）移入 **设置 → 开发者**（二级菜单）；
+  回调链 `Index.onOpenLog → SettingsPanel.onOpenLog → SettingsDeveloper.onOpenLog`。
+- 标题补**条数**；新增**「复制」**（`copyText(logAllText())`，⛔ 复用全站唯一剪贴板出口）。
+- 补三处高价值埋点：`send`（发送/插话 + len + rid）、`idle`（回合结束 + 权威来源）、
+  `resync`（服务端要求校准 + rows）。
+
+**③ 灵动岛**：~~**平台性不可行**~~ —— ⛔ **此结论 2026-10-17 已作废（我判错了）**：`LiveView.event` 的
+15 个场景是**逐场景申请权限**制（SDK 原文 "To use specific scenarios, you need to apply for corresponding
+permissions"），并非封闭白名单；且 `LayoutType` 有 `LAYOUT_TYPE_CUSTOM=100` + `CustomLayout`。
+**已落地**：`core/liveview.ets`（纯逻辑）+ `components/LiveViewBridge.ets`（唯一 `@kit.LiveViewKit`
+引用点）+ `pages/Index.ets:syncLiveView`（每帧投影，起/止恒推）；只需在 AGC 开通实况窗权益（场景
+`PROGRESS`）+ 正式签名即可生效，**无需改代码**。详见 `docs/NOTIFY.md § 实况窗 / 灵动岛 —— 已落地`。
+
+

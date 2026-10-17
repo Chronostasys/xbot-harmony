@@ -32,7 +32,7 @@ import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, withA
 import { MD_THEMES, appPaletteForMdTheme, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';
 import { localeLabel, normalizeLocale } from '../core/i18n';
 import { isStarred, parseStarred, serializeStarred, starredFirst, toggleStarred } from '../core/stars';
-import { EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_BOOT_WORDMARK, FS_BRAND_WORDMARK, FS_CAPTION, FS_HERO, FS_META, FS_TITLE, R_2XL, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5, SP_6, SP_8 } from '../core/tokens';
+import { EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_BOOT_WORDMARK, FS_BRAND_WORDMARK, FS_CAPTION, FS_HERO, FS_META, FS_TITLE, R_2XL, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5, SP_6, SP_8, THINK_ROW_H } from '../core/tokens';
 // 「更早的 N 个迭代块」哨兵的**同一份**恒定行高（①三处提示同视觉语言 ⇒ 同高，⛔ 不另写字面量）。
 import { MSG_BLOCK_SENTINEL_H } from '../core/rowsview';
 // 抽屉重排：尺度/层级/材质一律走语义令牌层（⛔ 不新增字面量；`surfaceFillOf`/`hairlineOf`/
@@ -92,7 +92,7 @@ import {
   isInterruptSend, MODE_INTERRUPT, MODE_QUEUE, modeHint, modeLabel, sendToast, toggleMode,
 } from '../core/sendmode';
 import { mdCacheStats, MdCacheStats } from '../core/markdown';
-import { completedBlocks, displayContent, displayReasoning, resolveRowReply, rowHasInFlightSignal, rowIsEmpty, streamStatsText, toolsSignature } from '../core/streammerge';
+import { displayContent, displayReasoning, resolveRowReply, rowHasInFlightSignal, rowIsEmpty, streamStatsText } from '../core/streammerge';
 import { canRewindWhile } from '../core/ctxmenu';
 import { rowById } from '../core/rowquery';
 import {
@@ -133,7 +133,7 @@ import {
 } from '../core/statusfmt';
 import { ctxHasUsage, ctxLabel, ctxPercent } from '../core/ctxring';
 import {
-  contextPresets, contextText, currentModelText, groupModels, LlmConfig, LlmModelEntry, ModelGroup,
+  contextPresets, contextText, currentModelText, modelBadgeText, groupModels, LlmConfig, LlmModelEntry, ModelGroup,
   MODEL_PANEL_EMPTY, MODEL_PANEL_ERROR, MODEL_PANEL_LOADING, ModelPanelStatus, modelLabel,
   modelPanelStatus, parseContext, selectable,
 } from '../core/llmfmt';
@@ -164,6 +164,7 @@ import {
   shouldShowSplash, shouldStartSplash,
 } from '../core/splash';
 import { SplashOverlay } from '../components/SplashOverlay';
+import { SessionLoadingSplash } from '../components/SessionLoadingSplash';
 import { Lightbox } from '../components/Lightbox';
 import { Toast } from '../components/Toast';
 import {
@@ -225,8 +226,16 @@ import { parseSessionUsage, SessionUsage, SessionUsageWire, parseUserUsage, pars
 import { TodoPayloadRow, removeTodoAt, renameTodoAt, todoPayloadRows, toggleTodoAt } from '../core/todos';
 import { genuiPayloadTooLarge } from '../core/genui';
 import { WebSubAgentProgress } from '../core/chattypes';
-import { EMPTY_BLOCKS_SIGNATURE, liveBlocksSignature, subAgentsFingerprint } from '../core/render';
+import { EMPTY_BLOCKS } from '../core/render';
 import { withAlpha } from '../core/bubble';
+// 实况窗（Live View Kit）：判据/文案在 `core/liveview.ets`（纯逻辑，可脱机单测），
+// 系统调用在 `components/LiveViewBridge.ets`（全仓唯一 `@kit.LiveViewKit` 引用点）。
+import { LiveViewInput } from '../core/liveview';
+import { LiveViewBridge } from '../components/LiveViewBridge';
+// 本机 Push Token 静默登记（推送 Token 只能端侧取；设置界面由插件的
+// `contributes.configuration` 经**通用渲染**生成 —— 这里**不写**任何设置 UI）。
+import { PushRegState, registerPushToken } from '../core/pushreg';
+import { isToolInProgress, toolStatusKind } from '../core/toolstatus';
 
 /** 一个问题当前选中的答案（用类而非 Map/Record：ArkTS 下最稳，且能整体替换触发重渲染）。 */
 class AskSelection {
@@ -331,6 +340,8 @@ const RPC_SET_CWD: string = 'set_cwd';
  * （见 xbot 仓库 docs/agent/gotchas-web-frontend.md）。这里先用**上限 + 手动展开**做等价保护。
  */
 const MAX_ITER_VISIBLE: number = 16;
+/** `cancelSpinHold` 的硬上限（ms）：底层 promise 无论如何都必须在此时限内收尾 spinner。 */
+const CANCEL_HOLD_MAX_MS: number = 12000;
 
 /**
  * 空态星形**圆形辉光**的直径（vp）。
@@ -841,6 +852,8 @@ struct Index {
    * ⛔ **只**延后按钮自己的视觉收束，**不**推迟会话 idle（乐观 idle 仍在请求成功那一刻发生）。
    */
   @State cancelSpinHold: boolean = false;
+  /** `cancelSpinHold` 的**硬看门狗**（-1 = 无）。保证底层 promise 永不 settle 时按钮也会退出转圈。 */
+  private cancelHoldTimer: number = -1;
 
   // ── P11 输入体验（多行 / 补全 / 震动）──
   /** 当前正在输入的 `/` 或 `@` token（空 = 不显示补全） */
@@ -1071,6 +1084,12 @@ struct Index {
   @State showSsh: boolean = false;
   /** `list` | `diff` | `commit`（详情形态由它决定，⛔ 不靠"猜有没有 diff 文本"）。 */
   @State gitMode: string = 'list';
+  /**
+   * 本次原生 diff 面板是否由 **web 插件**请求打开（`{type:'diff'}` 桥消息）。
+   * 语义差别（用户要求）：从 web 面板进来 ⇒ 返回**回 web view**（面板是覆盖层）；
+   * 从原生列表进来 ⇒ 返回回原生列表。⛔ 只影响返回目标，不影响面板渲染。
+   */
+  @State gitFromWeb: boolean = false;
   @State gitStatus: GitStatus = new GitStatus();
   @State gitLog: GitLog = new GitLog();
   @State gitLoading: boolean = false;
@@ -1231,6 +1250,10 @@ struct Index {
   @State liveText: string = '';
   @State liveReasoning: string = '';
   @State liveTools: ToolProgress[] = [];
+  /** 实况窗（Live View）用：本 turn 开始时刻（0 = 当前无 turn）。 */
+  private lvStartedAt: number = 0;
+  /** 本机 Push Token 登记状态（幂等上报；失败原因只落日志，不弹窗）。 */
+  private pushReg: PushRegState = new PushRegState();
   /**
    * live 行**已完成迭代块列表**的页面 `@State` 镜像 —— 由 `syncLiveTail()` 从
    * **同一个** live 行（`completedBlocks(liveRowRef)`，渲染层读同一函数）派生并赋值。
@@ -1717,6 +1740,8 @@ struct Index {
         });
         this.authExpiredHandled = false;
         this.loggedIn = true;
+        // 本机 Push Token 登记（静默、幂等；SDK 建议应用启动时报一次）
+        this.syncPushReg();
         this.errMsg = '';
         // 环境（插件）值：**非关键路径** —— fire-and-forget（不再 await 阻塞启动）。
         // ⚡ 2026-10-20 启动加速：原 `await rpc(...)` 阻塞 `booted=true` ⇒ 启动等 RPC 往返。
@@ -1871,6 +1896,8 @@ struct Index {
       store.sse.probeNow(Date.now());
       store.sse.forceReconnect();
     }
+    // 回前台补一次 Push Token 登记（静默、幂等：token 变了才真报，见 core/pushreg.pushShouldRegister）
+    this.syncPushReg();
   }
 
   /** 当前所有浮层的状态投影（给 core/overlays 的纯函数用）。 */
@@ -1918,6 +1945,7 @@ struct Index {
       || this.showFiles || this.showSkills || this.showSessionStats || this.showSelfCheck
       || this.showStatus || this.showModel || this.showPanels || this.showTaskDetail
       || this.showCronDetail || this.showGit || this.showSsh || this.showTerminal || this.showSettingsPanel
+      || this.showLog
       || this.showPluginHost || this.sessMenuId.length > 0 || this.showSearchHits
       || this.ctxOpen || this.imagePixel !== null || this.imageBusy
       || this.panelUrl.length > 0 || this.askUser !== null;
@@ -1958,6 +1986,13 @@ struct Index {
     }
     // 原生 Git 面板（顶层浮层）：**详情形态先回列表**，列表形态才关面板（与组件内返回键同序）
     if (this.showGit) {
+      // ⛔ 例外（用户 2026-10-17 要求的返回栈）：本次 diff 是 **web 插件**请求的覆盖层
+      // ⇒ 系统返回必须**回 web view**（关面板），不能落进原生列表（列表此时也没有上下文数据，
+      //   实测会显示"当前会话的工作目录不是 Git 仓库"，纯误导）。
+      if (this.gitFromWeb) {
+        this.closeGitPanel();
+        return true;
+      }
       if (this.gitMode !== 'list') {
         this.gitMode = 'list';
       } else {
@@ -2161,16 +2196,33 @@ struct Index {
     return logLinesNewestFirst();
   }
 
-  /** 「应用日志」浮层（用户 2026-10-16 要求）——全屏面板：标题 + 可滚动日志 + 清空/关闭。 */
+  /** 全部日志（旧→新，逐行）——「复制」按钮导出用（⛔ 与列表渲染同源）。 */
+  private logAllText(): string {
+    const newest: LogLine[] = this.logLines();
+    const out: string[] = [];
+    for (let i = newest.length - 1; i >= 0; i--) {
+      out.push(logLineText(newest[i]));
+    }
+    return out.join('\n');
+  }
+
+  /** 「应用日志」浮层（用户 2026-10-16 要求；入口在「设置 → 开发者」）——
+   *  全屏面板：标题 + 可滚动日志 + 复制/清空/关闭。 */
   @Builder
   LogSheet() {
     Column({ space: SP_2 }) {
       Row() {
-        Text('应用日志')
+        Text(`应用日志（${this.logLines().length}）`)
           .fontSize(typeOf('type.body').size)
           .fontWeight(FontWeight.Bold)
           .fontColor(this.pal().textPrimary)
           .layoutWeight(1)
+        Text('复制')
+          .fontSize(FS_CAPTION).fontColor(this.pal().accentText)
+          .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+          .onClick(() => {
+            void this.copyText(this.logAllText(), '全部日志');
+          })
         Text('清空')
           .fontSize(FS_CAPTION).fontColor(this.pal().accentText)
           .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -2226,6 +2278,11 @@ struct Index {
     //   ⚠️ 丢字与"跳过 syncFrom"**无关**（真因是 MarkdownView 列表 ForEach key 不含内容，
     //      已单独修）：本早退只在手指在屏上时生效，抬手后立即恢复，文本不会丢。
     if ((this.userScrolling || (this.userTouchActive && this.busy)) && this.currentChat === store.currentChatId) {
+      // ⛔ 只跳过**重活**（行投影/指纹/LazyForEach diff），但 O(1) 的**按钮真源**必须
+      //   继续同步：否则滚动期间 `this.busy` / `connState` 冻结 ⇒ 回合结束后输入框
+      //   仍显示「停止」/ 发送被陈旧连接态拦死（用户症状：点停止/发送无反应）。
+      this.busy = store.busy;
+      this.connState = store.connState;
       return;
     }
     // 自愈：not busy 却残留空 live 行（迟到事件造的）⇒ 先删掉再投影，避免 busy 被钉死
@@ -2247,6 +2304,26 @@ struct Index {
       this.queueFp = '';
       this.todosFp = '';   // 逐一会话作废（见下）
       this.pendingTodos.discard();   // 乐观覆盖层随会话作废（否则会挡住新会话的快照）
+      // ⛔ live 投递的**整数代际**也必须随身份复位：两个 store 的行计数器可以从相同值
+      //   开始（`liveRevision` 都从 0/1 起）⇒ 不复位会把**上一个会话**的
+      //   liveText/liveBlocks 当成"未变化"继续投给新会话的行（跨会话串内容）。
+      this.liveRevision = -1;
+      this.liveContentRev = -1;
+      if (this.liveBlocks !== EMPTY_BLOCKS) {
+        this.liveBlocks = EMPTY_BLOCKS;
+      }
+      if (this.liveSubAgents.length > 0) {
+        this.liveSubAgents = [];
+      }
+      if (this.liveText.length > 0) {
+        this.liveText = '';
+      }
+      if (this.liveReasoning.length > 0) {
+        this.liveReasoning = '';
+      }
+      if (this.liveTools.length > 0) {
+        this.liveTools = [];
+      }
     }
     const sessFp: string = this.fingerprintSessions(store.sessions, store.currentChatId);
     if (sessFp !== this.sessionsFp) {
@@ -2284,7 +2361,9 @@ struct Index {
       //   loadingMoreRows 期间也跳过——loadMore() 的 scrollToIndex 负责保位。
       if (dsReloaded && !this.followBottom && !this.loadingMoreRows) {
         delay(() => {
-          try { this.listScroller.scrollTo({ xOffset: 0, yOffset: savedOffset }); } catch (e) { }
+          try { this.listScroller.scrollTo({ xOffset: 0, yOffset: savedOffset }); } catch (e) {
+            // 保位滚动是**尽力而为**：视口未挂载/越界时静默失败，下一帧会重新对齐
+          }
         }, 0);
       }
     } else {
@@ -2302,6 +2381,8 @@ struct Index {
       this.listScroller.scrollEdge(Edge.Bottom);
     }
     this.busy = store.busy;
+    // ── 实况窗投影（每帧一次；内部按纯逻辑差分/节流，起止恒推）──────────────────────
+    this.syncLiveView();
     // 插件 `xbot.iteration-stats` 的原生徽章文案 —— ⛔ **必须在这里投影成 `@State`**：
     // 头部若直读 `store.liveProgress()`（非响应式），徽章会在回合开始那一刻（stat 尚为 0）
     // 渲染成空，之后**永不重渲** ⇒ 徽章恒空（真机实锤，见 `computeIterStatsBadge` 注释）。
@@ -2814,6 +2895,8 @@ struct Index {
       return;
     }
     this.loggedIn = true;
+    // 本机 Push Token 登记（静默、幂等）：登录成功后立即上报一次
+    this.syncPushReg();
     const first: SessionItem | undefined = this.sessions.length > 0 ? this.sessions[0] : undefined;
     if (first !== undefined && first.chat_id !== undefined) {
       try {
@@ -3061,7 +3144,9 @@ struct Index {
       //   （完成后 settingsFresh=true，syncFrom 会用正确的 settings 重算——若服务端 theme
       //   确实没变则 nextTheme===themeName，不产生噪声）。
       target.settingsFresh = false;
-      target.loadSettings().catch(() => {});
+      target.loadSettings().catch(() => {
+        // settings 刷新失败：保持旧值（下一次 openSession/轮询会再试），不打断切会话
+      });
       // 池里这个会话一直开着：直接把已累积的状态映到界面（不发生任何网络等待）
       this.syncFrom(target);
       // ⛔ 这条路径**没有 await**（同帧同步返回）⇒ 必须照样收尾，否则入场位移永远停在起点
@@ -4142,7 +4227,11 @@ struct Index {
       if (savedFirstId.length > 0) {
         const newIdx: number = this.rows.findIndex((r: ChatRow) => r.id === savedFirstId);
         if (newIdx > 0) {
-          delay(() => { try { this.listScroller.scrollToIndex(newIdx); } catch (e) { } }, 0);
+          delay(() => {
+            try { this.listScroller.scrollToIndex(newIdx); } catch (e) {
+              // 分页保位是尽力而为：列表尚未挂载/索引失效时静默失败，不阻断分页
+            }
+          }, 0);
         }
       }
       this.loadingMoreRows = false;
@@ -4846,11 +4935,32 @@ struct Index {
   private closeGitPanel(): void {
     this.showGit = false;
     this.gitMode = 'list';
+    this.gitFromWeb = false;
+  }
+
+  /**
+   * **web 插件请求原生 diff**（桥消息 `{type:'diff', payload:{path,commit}}`，通用协议）。
+   *
+   * 为什么不能直接只调 `openGitDiff`（真机实测踩过）：它只设 `gitMode='diff'` 等状态，
+   * 而**呈现**判据是 `showGit`（只有 `openGitPanel()` 会置 true，且它会清 `panelUrl` 把
+   * web view 关掉）。⇒ 只调 `openGitDiff` 的后果是：桥消息到了、状态也设了，**界面没反应**
+   * （模拟器实测 `[bridge] diff …` 有日志、画面无变化）。
+   * ⇒ 这里置 `showGit` 但**保留 `panelUrl`**：原生 diff 以覆盖层盖在 web view 上，
+   *   返回即回到 web view；再返回才退出整个面板（用户要求的返回栈）。
+   */
+  private openDiffFromWeb(path: string, commit: string): void {
+    this.closeDrawer();
+    this.showPlugins = false;
+    this.gitFromWeb = true;
+    this.showGit = true;
+    void this.openGitDiff(path, commit);
   }
 
   /** 详情形态 → 列表。 */
   private gitBackToList(): void {
     this.gitMode = 'list';
+    // 离开 commit 详情 ⇒ 清掉 commit 作用域（否则从列表点工作区文件会**错带**上一个 commit）。
+    this.gitCommitHash = '';
   }
 
   /**
@@ -4937,6 +5047,13 @@ struct Index {
       return;
     }
     this.gitMode = 'commit';
+    // ⛔ **必须记住本次 commit**（用户 2026-10-16 真机亲报「随便点一个 commit 的文件进去
+    //   diff 都是 0，只显示权限变更或二进制」）：
+    //   点 commit 内文件走 `openGitDiff(path, this.gitMode === 'commit' ? this.gitCommitHash : '')`
+    //   （`:5774`），而 `gitCommitHash` 此前**全仓从未赋值**（恒 `''`）⇒ 服务端按**工作区**
+    //   作用域算 diff（`git diff -- path`）⇒ 已提交文件在工作区无改动 ⇒ 内容恒空 ⇒ 前端
+    //   落到「没有可显示的文本改动（二进制文件或仅权限变更）」空态。这里是它**唯一**的产生点。
+    this.gitCommitHash = hash;
     this.gitCommitMeta = '';
     this.gitCommitMessage = '';
     this.gitCommitFiles = [];
@@ -5153,7 +5270,11 @@ struct Index {
       } else if (this.useWebUI && this.webUiUrl.length > 0) {
         // ArkWeb 承载完整 web UI（设置里可切换；右下角按钮一键切回原生）
         Stack() {
-          WebSurface({ url: this.webUiUrl, theme: this.themeName, chrome: false, sessionCookie: this.cookie, onBridgeMessage: (m: BridgeMessage) => {
+          WebSurface({ url: this.webUiUrl, theme: this.themeName, chrome: false, sessionCookie: this.cookie, chatId: this.currentChat, channel: 'web', onOpenDiff: (path: string, commit: string) => {
+            // 通用：web 插件请求原生 diff（`{type:'diff', payload:{path,commit}}`）⇒
+            // 复用既有原生 diff 面板（覆盖层 ⇒ 返回关掉它回 web view，再返回才退出面板）。
+            this.openDiffFromWeb(path, commit);
+          }, onBridgeMessage: (m: BridgeMessage) => {
             this.handleBridgeMessage(m);
           }, onOpenView: (viewId: string, title: string, url: string, params: Record<string, string>) => {
             this.routePluginView(viewId, title, url, params);
@@ -5222,8 +5343,8 @@ struct Index {
             Blank()
           }
           .width('100%').height('100%')
-          // ⚡ 丝滑动画：scrim 淡入淡出
-          .transition(TransitionEffect.OPACITY)
+          // ⚡ 丝滑动画：scrim 淡入淡出（走 anim.ets 唯一工厂 `fadeTransition()`）
+          .transition(fadeTransition())
           .onClick(() => {
             this.closeDrawer();
           })
@@ -5759,10 +5880,21 @@ struct Index {
               this.openGitCommit(hash);
             },
             onBack: () => {
-              this.gitBackToList();
+              // 来自 web 插件的 diff ⇒ 返回**回 web view**（覆盖层关闭）；否则回原生列表。
+              if (this.gitFromWeb) {
+                this.closeGitPanel();
+              } else {
+                this.gitBackToList();
+              }
             },
           })
-        }.width('100%').height('100%')
+        }
+        .width('100%').height('100%')
+        // ⛔ **层级**（真机/模拟器实测）：`panelUrl` 的全屏 WebView 在 build 顺序上排在本块**之后**
+        // ⇒ 同级 Stack 里它盖住本面板 ⇒ 桥消息到了、状态也设了，**界面毫无反应**。
+        // 来自 web 插件的 diff 是**覆盖层**语义（必须盖在 web view 上）⇒ 只在该形态抬高 zIndex，
+        // 其它形态保持 0（逐字节维持既有层级，避免影响既有详情/面板）。
+        .zIndex(this.gitFromWeb ? 20 : 0)
       }
       // 原生「远程机器」面板（web 内置插件 `xbot.ssh-runner`）——⛔ 渲染顺序同 Git 面板：
       // 必须在各详情 sheet 之后（ArkUI 层级 = build 先后），别往上挪。
@@ -5883,7 +6015,11 @@ struct Index {
       }
       // ArkWeb 逃生舱（插件 UI / GenUI / 终端 / 编辑器 / 完整 Web UI）
       if (this.panelUrl.length > 0) {
-        WebSurface({ url: this.panelUrl, theme: this.themeName, sessionCookie: this.cookie, chromeLabel: this.panelTitle, onBridgeMessage: (m: BridgeMessage) => {
+        WebSurface({ url: this.panelUrl, theme: this.themeName, sessionCookie: this.cookie, chatId: this.currentChat, channel: 'web', onOpenDiff: (path: string, commit: string) => {
+            // 通用：web 插件请求原生 diff（`{type:'diff', payload:{path,commit}}`）⇒
+            // 复用既有原生 diff 面板（覆盖层 ⇒ 返回关掉它回 web view，再返回才退出面板）。
+            this.openDiffFromWeb(path, commit);
+          }, chromeLabel: this.panelTitle, onBridgeMessage: (m: BridgeMessage) => {
           this.handleBridgeMessage(m);
         }, onOpenView: (viewId: string, title: string, url: string, params: Record<string, string>) => {
           this.routePluginView(viewId, title, url, params);
@@ -5923,6 +6059,13 @@ struct Index {
                 // 「开发者 → 导出会话」要会话选择器（`{channel, chat_id}`）；空 ⇒ 按钮禁用
                 channel: this.store.channel,
                 chatID: this.store.wireChatId(),
+                // 「设置 → 开发者 → 应用日志」入口（用户 2026-10-16：日志是纯 debug，收进二级菜单）
+                // 先关设置面板再开日志浮层（两个全屏浮层不同时叠加）
+                onOpenLog: (): void => {
+                  this.showSettingsPanel = false;
+                  this.showLog = true;
+                  this.logTick++;
+                },
                 onClose: () => {
                   this.showSettingsPanel = false;
                 },
@@ -6513,6 +6656,7 @@ struct Index {
       if (this.rows.length === 0 && this.loadErr.length === 0 && !busyNow(this.busySignals())
         && !this.loadingMore && this.currentChat.length > 0
         && !this.isSubAgentChat()          // ⛔ 子代理会话**不**走通用「开始对话」空态（走下方专属空态）
+        && !this.splashUp()                // ⛔ splash 期间不渲染空态（用户 2026-10-16：同屏「开始对话」+「加载中」矛盾）
         && !showsHistorySkeleton(this.historyLoading, this.rows.length)) {
         Column({ space: SP_3 }) {
           // ⛔ 星形不再用 `.shadow`：它按**字形包围盒**渲染 ⇒ 深色底上星形外面是一圈
@@ -6557,20 +6701,15 @@ struct Index {
       // ── ③ 切会话加载 splash（用户 2026-10-14 要求）──────────────────────────────────
       // 只在 `switchSession()` 的**真网络等待**路径上出现（`!alreadyOpen` ⇒ 拉会话列表 + history），
       // 拉完（或失败）立刻撤 ⇒ 静息态恒不可见（失败方向安全）。
-      // ⚡ 2026-10-20 修复：不再用全屏不透明遮罩——beginSwitch() 在 openSession() 内同步执行
-      //   （第一个 await 之前），到 splash 渲染时旧行已清空 ⇒ 不需要遮挡旧内容。
-      //   全屏遮罩会遮住思考光球（用户亲报）⇒ 改用骨架屏（与历史加载同款）。
-      if (this.switchSplash) {
-        Column({ space: SPACE_SM }) {
-          LoadingProgress().width(32).height(32).color(this.pal().accent)
-          Text('会话加载中…')
-            .fontSize(typeOf('type.subhead').size)
-            .fontColor(this.pal().textSecondary)
-        }
-        .width('100%')
-        .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
-        .padding({ top: SPACE_XXL })
-        .id('xbot-session-splash')
+      // ⛔ 用户 2026-10-16 亲报「只有个光球+加载中、还没竖直居中、丑的要死」+「加载完毕后光球
+      //   消失比黑色遮罩慢」⇒ 三处修：
+      //   ① **不与冷启动遮罩叠**（`!this.showSplash`）：冷启动时 `openSession` 也会置 switchSplash，
+      //      两层叠 ⇒ 冷遮罩先撤、本层后撤 = 「光球比遮罩慢」。冷启动由 `SplashOverlay` 全权承担。
+      //   ② **真·竖直居中**：`layoutWeight(1)` 占满剩余区 + 内容居中（原先 `padding top` 顶在顶部）。
+      //   ③ **加元素**：品牌标记 + 主文案 + 副文案（不再只有一个 spinner + 一行字）。
+      //   同帧互斥：骨架屏/空态在 switchSplash 期间一律让位（只留本层，见下方骨架屏闸门）。
+      if (this.switchSplash && !this.showSplash) {
+        SessionLoadingSplash({ theme: this.themeName })
       }
 
       // 骨架屏：**只在"正在拉历史且还没有任何行"时**出现（判据在 `core/indicators.ets`，
@@ -6578,7 +6717,8 @@ struct Index {
       // ⇒ 空会话上骨架屏永久残留，且与下方空态同时渲染（真机走查抓到）。
       // ⚡ 2026-10-20：移除 `!this.switchSplash` 互斥——splash 不再全屏遮挡，
       //   骨架屏与 splash 可共存（splash 在顶部转圈，骨架屏在下方占位）。
-      if (showsHistorySkeleton(this.historyLoading, this.rows.length) && this.currentChat.length > 0) {
+      if (showsHistorySkeleton(this.historyLoading, this.rows.length) && this.currentChat.length > 0
+        && !this.switchSplash) {
         Column({ space: 10 }) {
           this.SkeletonRow('72%', '46%')
           this.SkeletonRow('54%', '64%')
@@ -6637,7 +6777,7 @@ struct Index {
         // assistant 消息气泡内的**最后一块**（MessageRowView 内部渲染：
         // 已完成迭代 ⊕ 末尾在飞块，共用同一套块渲染）。整条非懒渲染是可靠性要求
         // （虚拟列表条目在真机不可靠重建 = 流式期间什么都看不到）。
-        if (this.hasLiveRow) {
+        if (this.hasLiveRow && !this.splashUp()) {
           ListItem() {
             // ⚠️ 打字机（20Hz）状态在 **LiveTailView 子组件内部**（MessageRowView 里）
             // —— 否则每拍会重跑整页 build，把系统 spinner 都拖到 2Hz。
@@ -6671,7 +6811,12 @@ struct Index {
               // ⛔ 只读 `@State busyPhase`（在 `sync()` 投影）——不得在此直调 `store.liveProgress()`，
               //    否则压缩开始时**不会重渲**（真机同类缺陷，见该 `@State` 的注释）。
               Text(busyLabel(this.busyPhase)).fontSize(typeOf('type.subhead').size).fontColor(this.pal().textSecondary)
-            }.padding({ left: 14, top: SPACE_XS, bottom: SPACE_XS })
+            }
+            // ⛔ 与思考行**同高**（`THINK_ROW_H`）⇒ 「思考中…」↔「思考 N 字」交接时列表不位移
+            //    （用户 2026-10-17：「本质是历史高度抖动，不能有任何抖动」）。
+            .height(THINK_ROW_H)
+            .alignItems(VerticalAlign.Center)
+            .padding({ left: 14 })
           }
         }
       }
@@ -6830,6 +6975,13 @@ struct Index {
         if (this.userTouchActive) {
           this.userTouchActive = false;
         }
+        // 手势结束后**立刻补一次投影**（不等下一帧 SSE）：滚动期间 `syncFrom` 跳过的
+        // 行/内容/忙碌态在这里一次补齐 —— 否则回合恰好在滚动期间结束，界面会一直
+        // 停在旧内容/旧按钮（用户症状：滚完不动了）。成本 = 一次（每个手势仅一次）。
+        const st: ChatStore | null = this.store;
+        if (st !== null) {
+          this.syncFrom(st);
+        }
       })
       .onReachStart(() => {
         if (!this.loadingMore && this.hasMore) {
@@ -6907,8 +7059,14 @@ struct Index {
       // ⇒ 与原先逐字节一致；切换瞬间由 `switchSession()` 置 1、下一帧经 `this.anim()` 归零。
       // ⛔ 只动 `translate`：**不碰不透明度** ⇒ 动画即使被打断，内容也只是偏移若干 vp、完全可读
       //    （本仓血债「可读性不能是动画的函数」；门禁 ⑨ / `tools/lint/anim-opacity-gate.sh`）。
+      // ⛔ 切会话加载期间**让位**（用户 2026-10-16 真机亲报「加载完的一瞬间有重叠渲染」）：
+      //   本 Stack 与 `SessionLoadingSplash` 都是 `layoutWeight(1)` 的**兄弟** ⇒ 二者**平分**
+      //   竖向空间 ⇒ 旧会话的行/横幅在下半屏露出并与加载态文字叠印。
+      //   `Visibility.None`（**退出布局**；不是 `Hidden` 仍占位、也不是改不透明度 ⇒ 不受门禁⑨约束）
+      //   ⇒ 加载态独占整块区域，切换期间屏幕上只有它一件事。
+      .visibility(this.switchSplash ? Visibility.None : Visibility.Visible)
       .translate({ y: this.switchSlide * MOTION_SESSION_SWITCH_SLIDE_VP })
-      if (this.statusBarText().length > 0) {
+      if (this.statusBarText().length > 0 && !this.switchSplash) {
         Row({ space: 8 }) {
           // 上下文用量环（web `ContextRing.tsx` 同构）：常驻可视，≥80% 变告警色。
           // ⛔ 无服务端用量时**不挂载**（web 画空轨道；这里整环不出现，绝不显示 "0%" 假值）。
@@ -7135,17 +7293,20 @@ struct Index {
       // ── Goal 横幅（web `MessageInput.tsx:694`：`{goal ? <GoalBanner goal={goal} onEdit
       //    onClear/> : null}` —— 挂在输入胶囊**正上方**）。组件自身以 `goalDisplay().visible`
       //    短路（无目标 ⇒ 零节点）⇒ 无条件挂载 == web 的条件挂载（同一显示判据）。
-      GoalBanner({
-        objective: this.goalObjective,
-        status: this.goalStatus,
-        theme: this.themeName,
-        onEditGoal: (v: string) => {
-          this.handleSetGoal(v);
-        },
-        onClearGoal: () => {
-          this.handleClearGoal();
-        },
-      })
+      // ⛔ 切会话加载期间不挂载（用户 2026-10-16：旧会话横幅在下半屏与加载态叠印）。
+      if (!this.switchSplash) {
+        GoalBanner({
+          objective: this.goalObjective,
+          status: this.goalStatus,
+          theme: this.themeName,
+          onEditGoal: (v: string) => {
+            this.handleSetGoal(v);
+          },
+          onClearGoal: () => {
+            this.handleClearGoal();
+          },
+        })
+      }
 
       // ── 「添加目标」内联输入（web `MessageInput.tsx:695-726` 的 `addingGoal` 分支 ——
       //    位置在 GoalBanner 与 TodoPullOut **之间**，同一列）。由 TodoPanel 的 🎯 打开。
@@ -8783,6 +8944,22 @@ struct Index {
     return r.length > 0 ? r : '连接被拒绝';
   }
 
+  /**
+   * 开屏/会话加载 splash **是否正在展示**（冷启动 T1/T2 = `showSplash`；切会话 = `switchSplash`）。
+   *
+   * ⛔ 用户 2026-10-16 亲报（严重）：「splash screen 还没消失，那个**小的『思考中』**就渲染了」。
+   *    真机截图实证：同一屏并存「开始对话」+「会话加载中…」+「思考中…」。
+   *    语义上 splash 自己就是"正在准备"的反馈 ⇒ 期间**列表侧任何"进行中/空态"渲染让位**：
+   *      · busy 占位（「思考中…」）—— 经 `BusySignals.splashUp` 进 `showsBusyPlaceholder`；
+   *      · live 行（思考光球/在飞块）—— 两个渲染点各自加闸；
+   *      · 空态「开始对话」—— 同一屏既"开始对话"又"加载中"是矛盾 UI。
+   *    ⚠️ **只抑制列表侧**：composer 的 cancel（会话确实在跑）**不受影响** ——「在跑 ⟹ 有信号」
+   *    这条不变量在 splash 期间由 **splash 自身**承担（它就是那个"进行中"信号）。
+   */
+  private splashUp(): boolean {
+    return this.showSplash || this.switchSplash;
+  }
+
   private busySignals(): BusySignals {
     const store: ChatStore | null = this.store;
     const fresh: boolean = store !== null && Date.now() - store.sessionsFetchedAt <= 20000;
@@ -8793,10 +8970,17 @@ struct Index {
       //   绝不是「行非空」—— 后者含**已提交（历史）迭代块**。迭代刚 commit、下一迭代
       //   首个 delta 未到时行非空 ⇒ 旧判据抑制占位 ⇒ 空隙里什么都没有。见
       //   core/streammerge.rowHasInFlightSignal 与 docs/WEB-ALIGNMENT.md §10。
-      tailShowsIndicator: this.hasLiveRow && rowHasInFlightSignal(this.liveRowRef),
+      // ⛔ 还必须乘 `store.busy`：权威 idle 只停流、保留 activeTurn ⇒ 若只看"行里有
+      //   在飞内容"，idle 之后 composer 会永久 cancel（见 hasLiveRowWithContent 同注）。
+      //    注意**顺序**：`this.hasLiveRow && rowHasInFlightSignal(...)` 必须连续，
+      //    判据测试（iter_gap_indicator G1）按此形态扫描；busy 门放在其后。
+      tailShowsIndicator: this.hasLiveRow && rowHasInFlightSignal(this.liveRowRef)
+        && store !== null && store.busy,
       freshServerRunning: fresh && this.serverRunning(),
       loading: this.historyLoading,
       rowsLen: this.rows.length,
+      // splash 展示期间 ⇒ 列表侧"进行中"指示器一律让位（见 `splashUp()` / `BusySignals.splashUp`）。
+      splashUp: this.splashUp(),
     };
   }
 
@@ -8843,16 +9027,17 @@ struct Index {
 
   /** 主按钮是否显示**停止**（= 回合在跑 且 不可发送）；其余情况显示**发送**。 */
   private composerShowStop(): boolean {
-    // ⛔ `|| this.cancelSpinHold`：请求返回后 spinner **驻留**期内，按钮仍按"停止"档渲染
-    //    （灰底 `surfaceHi` 才与 spinner 的 `textSecondary` 对得上；见 `composerCancelling`）。
-    return this.composerBtn().showStop || this.cancelSpinHold;
+    // ⛔ **绝不** `|| cancelSpinHold`：那会把「有内容 ⇒ 应该是发送」的按钮伪装成停止，
+    //   而 `cancelTurn` 在 hold 窗口内直接 return ⇒ 用户点发送**没有任何请求**
+    //   （用户症状：特殊状态下发消息无效）。驻留视觉由 `composerCancelling` 单独负责。
+    return this.composerBtn().showStop;
   }
 
   /** 停止按钮是否**转圈**（web `:938` `cancelling && !canSend && busy`）。 */
   private composerCancelling(): boolean {
-    // ⛔ 请求返回后的最短驻留窗口内继续转圈（§21.122bs）——仍以 `composerBtn()` 为**唯一**来源，
-    //    不新增第二个 busy 源；`cancelSpinHold` 只是把"那一下"补到肉眼可见。
-    return this.composerBtn().cancelling || this.cancelSpinHold;
+    // 只在不**可发送**（输入框为空）时把驻留窗口画成 spinner；一旦用户输入了内容，
+    // 主按钮必须立即回到"发送"语义（否则点击会被 hold 吃掉）。
+    return this.composerBtn().cancelling || (this.cancelSpinHold && !this.composerCanSend());
   }
 
   /** 点「停止」= web `MessageInput.onCancel` ⇒ `chat.cancel()`；失败给可读提示（web 同款 toast）。 */
@@ -8867,16 +9052,33 @@ struct Index {
     }
     this.cancelSpinHold = true;
     const t0: number = Date.now();
+    // ⛔ **硬看门狗**：即使底层 promise 永不 settle（半开连接/桥接异常），驻留窗口
+    //   也必须在 12s 内收尾 —— 否则按钮永久转圈、且重复点击被上面的 return 吃掉
+    //   （用户症状「cancel 后按钮永久卡死」）。正常路径会在 then/catch 里先清掉它。
+    if (this.cancelHoldTimer !== -1) {
+      clearTimeout(this.cancelHoldTimer);
+    }
+    this.cancelHoldTimer = setTimeout(() => {
+      this.cancelHoldTimer = -1;
+      this.cancelSpinHold = false;
+    }, CANCEL_HOLD_MAX_MS);
+    const done = (): void => {
+      this.cancelSpinHold = false;
+      if (this.cancelHoldTimer !== -1) {
+        clearTimeout(this.cancelHoldTimer);
+        this.cancelHoldTimer = -1;
+      }
+    };
     st.cancel().then(() => {
       // 请求成功 ⇒ 会话**已经**进 idle（`store.cancel()` 内的乐观 idle）；这里只补按钮的视觉驻留。
       const rest: number = spinHoldRemainingMs(Date.now() - t0);
       if (rest === 0) {
-        this.cancelSpinHold = false;
+        done();
         return;
       }
-      setTimeout(() => { this.cancelSpinHold = false; }, rest);
+      setTimeout(done, rest);
     }).catch(() => {
-      this.cancelSpinHold = false;
+      done();
       this.toast('取消失败，请重试');
     });
   }
@@ -9087,23 +9289,23 @@ struct Index {
   private sessionsFp: string = '';
   private queueFp: string = '';
   private todosFp: string = '';
-  /** live SubAgent 树指纹（值投递门控 —— 见 `syncLiveTail`）。 */
-  private liveSubAgentsFp: string = '-';
+  /** live 行**高频内容**的已投递代际（整数；`-1` = 从未投递）。见 `syncLiveTail`。 */
+  private liveContentRev: number = -1;
   /**
-   * live 行**已完成块指纹**的页侧副本（值投递门控 —— 见 `syncLiveTail`）。
-   * ⛔ 与 `liveBlocks` 同步写入：`liveBlocksSig` 是"当初赋给 `liveBlocks` 的那份指纹"，
-   *    下一帧只须把它与行侧指纹（`liveBlocksSignature(liveRowRef)`，O(1)）比一次即可。
-   *    初值 = 空块指纹（`liveBlocks` 初值 `[]` 的指纹）⇒ 首帧不会误赋值。
+   * live 行**内容代际**的页侧副本 —— `ChatRow.liveRevision`（整数）的镜像。
+   * ⛔ 变化判据是**整数比较**（O(1)），不再拼 `blocksSignature`/`toolsSignature`/
+   *    `subAgentsFingerprint` 字符串（O(内容)，且违反"禁止用字符串比较内容去重"）。
+   *   行对象每次真正更新（`applyRow` 返回 true）都会 +1；引用不变的帧恒等 ⇒ 零投递。
    */
-  private liveBlocksSig: string = EMPTY_BLOCKS_SIGNATURE;
+  private liveRevision: number = 0;
   /**
-   * 在飞**工具列表**的页侧副本签名（值投递门控 —— 见 `syncLiveTail`）。
-   * ⛔ 为什么不能按**数组恒等**门控（2026-10-14 用户亲报「tool 生成中 x 字，这个 x 不会更新」）：
-   *    在飞迭代的 `tools` 数组是**就地更新**的（同一引用、元素字段在变）⇒ 恒等恒成立
-   *    ⇒ 永不投递 `@Prop liveTools` ⇒ pill 的 `生成中 N 字`/耗时冻结在创建那一刻。
-   *    判据本体是纯函数 `core/streammerge.toolsSignature`（可脱机单测）。
+   * 高频内容投递的**尾随补偿**定时器（-1 = 无）。
+   *
+   * 100ms 降频只允许**推迟**投递，绝不丢最后一次：被闸门挡下时置 `liveDeliverPending`，
+   * 并在剩余时间后补投一次（`syncLiveTail` 自调用）。⇒ 即使此后没有任何 SSE 帧，
+   * 屏幕也必然收敛到最新内容（旧实现会永久停在被丢弃的那一帧）。
    */
-  private liveToolsSig: string = '';
+  private liveDeliverTimer: number = -1;
 
   /**
    * §21.122bx：上一次 live 可见态投递的时刻（`syncLiveTail` 的降频判据用）。
@@ -9228,78 +9430,176 @@ struct Index {
    * 已完成块区必须走**值变化**通道，否则冻结在创建那一瞬（见 `liveBlocks` 的注释）。
    * 同样按 `blocksSignature` 门控（只在结构/内容变化时赋值 ⇒ 流式期间零额外重建）。
    */
-  private syncLiveTail(): void {
-    // 无条件降频到 100ms（10 次/秒）——减少整页 build 频率，避免侧边栏/列表掉帧
-    if (this.busy && Date.now() - this.lastNonFollowLiveMs < 100) {
-      return;
+  /**
+   * **实况窗**（Live View Kit）投影 —— 每帧一次（幂等、可重入安全、⛔ 绝不抛）。
+   *
+   * 数据源与**渲染同源**：`this.busy`（在飞）+ 在飞块（迭代号 / 在飞工具）+ `liveText`/
+   * `liveReasoning`（字数）。折叠/差分/节流全在 `core/liveview.ets`（纯函数，39 条判别力单测）；
+   * 系统调用在 `LiveViewBridge`。本方法只负责"把页面已经有的真实信号喂过去"。
+   */
+  private syncLiveView(): void {
+    const now: number = Date.now();
+    if (this.busy && this.lvStartedAt === 0) {
+      this.lvStartedAt = now;
     }
-    this.lastNonFollowLiveMs = Date.now();
-    // ── §21.122bx：浮层覆盖聊天区时**降频投递**（用户亲报「打开侧边栏/菜单时主视图还在 stream
-    //    就特别卡」）── 流式期间每个 SSE 帧都把页级可见态写进 `@State` ⇒ **整页 build + live 行
-    //    重排**；浮层打开时这些帧**看不见**，却与浮层入场动画抢同一帧预算。
-    //    判据是纯函数（`core/livedeliver`，有判别力单测 + mutation 自证）：
-    //      · `covered && busy` ⇒ 最小间隔 400ms（≈2.5 次/秒，肉眼无差别）；
-    //      · **其余一律立即投**（`!covered` 或 `!busy`）—— 后者是**防陈旧的关键**：
-    //        回合结束那一帧 `busy=false` ⇒ 必投 ⇒ 最终内容不可能停在被丢弃的那一帧上。
-    if (!shouldDeliverLive(this.anyModalOpen(), this.liveRowVisible, this.busy, Date.now(),
-      this.liveDeliverAtMs)) {
-      return;
+    if (!this.busy && this.lvStartedAt === 0) {
+      return;   // 空闲且从未起过 ⇒ 不打扰桥接层（零成本）
     }
-    this.liveDeliverAtMs = Date.now();
-    // ⚡ 2026-10-20 P0：用户滚动时只跳过**高频内容**投递（liveText/liveReasoning/liveTools），
-    //   保留**低频结构**更新（liveBlocks/liveSubAgents）——后者用签名门控，只在迭代结构变化
-    //   时触发 re-render，不影响滚动流畅度，但保证滚动期间迭代结束能正确渲染已完成块。
-    if (!this.userScrolling) {
-      let text: string = '';
-      let reasoning: string = '';
-      let tools: ToolProgress[] = [];
-      if (this.hasLiveRow) {
-        const its: HistoryIteration[] = this.liveRowRef.iterations;
-        for (let i = its.length - 1; i >= 0; i--) {
-          if (its[i].live === true) {
-            text = displayContent(its[i]);
-            reasoning = displayReasoning(its[i]);
-            const t: ToolProgress[] | undefined = its[i].tools;
-            if (t !== undefined) {
-              tools = t;
-            }
-            break;
-          }
+    const i: LiveViewInput = new LiveViewInput();
+    i.busy = this.busy;
+    if (this.hasLiveRow) {
+      const its: HistoryIteration[] = this.liveRowRef.iterations;
+      for (let k: number = its.length - 1; k >= 0; k--) {
+        if (its[k].live === true) {
+          i.iteration = its[k].iteration;
+          break;
         }
       }
-      if (this.liveText !== text) {
-        this.liveText = text;
+    }
+    // 在飞工具：优先**仍在进行中**的那一枚（判据与 pill 观感同源 = `core/toolstatus`）；
+    // 全完成了就报第一枚（让"最后一个动作"在实况窗里可见，而不是空白）。
+    let fallbackLabel: string = '';
+    let fallbackStatus: string = '';
+    for (let k: number = 0; k < this.liveTools.length; k++) {
+      const t: ToolProgress = this.liveTools[k];
+      const status: string = t.status !== undefined ? t.status : '';
+      const kind: string = toolStatusKind(t.status, t.exit_code);
+      if (isToolInProgress(kind)) {
+        i.toolLabel = t.label !== undefined && t.label.length > 0 ? t.label : t.name;
+        i.toolStatus = status;
+        break;
       }
-      if (this.liveReasoning !== reasoning) {
-        this.liveReasoning = reasoning;
-      }
-      // ⛔ 工具列表必须按**内容签名**门控（⛔ 不是数组恒等）——2026-10-14 用户亲报
-      //    「tool 生成中 x 字，这个 x 不会更新」：在飞迭代的 `tools` 是**就地更新**的同一数组，
-      //    恒等比较恒成立 ⇒ 永不投递 `@Prop` ⇒ pill 的生成字数/耗时冻结在创建那一刻。
-      //    与 `liveBlocks` 同一门手艺（签名变化才投递**新数组** ⇒ ArkUI 看得见"值变化"）。
-      const toolsSig: string = toolsSignature(tools);
-      if (toolsSig !== this.liveToolsSig) {
-        this.liveToolsSig = toolsSig;
-        this.liveTools = tools.slice();
+      if (k === 0) {
+        fallbackLabel = t.label !== undefined && t.label.length > 0 ? t.label : t.name;
+        fallbackStatus = status;
       }
     }
-    // 已完成块列表（值变化通道）—— 只在结构/内容变化时赋值。
-    // ⛔ 双命中（目标⑤ round4）：行侧指纹按**派生行源数组对象恒等**记忆化（`liveBlocksSignature`，
-    //    见 `core/render.ets`），页侧指纹随赋值一起记进 `liveBlocksSig` ⇒ 本判定每帧 **O(1)**：
-    //    不再每帧 `completedBlocks`（O(块数) 过滤分配）+ `buildBlocksSignature`（O(块数) 拼串）。
-    //    旧写法 `blocksSignature(this.liveBlocks) !== blocksSignature(blocks)` 的右侧每帧新数组 ⇒ 必 miss。
-    const blocksSig: string = this.hasLiveRow ? liveBlocksSignature(this.liveRowRef) : EMPTY_BLOCKS_SIGNATURE;
-    if (blocksSig !== this.liveBlocksSig) {
-      this.liveBlocksSig = blocksSig;
-      this.liveBlocks = this.hasLiveRow ? completedBlocks(this.liveRowRef) : [];
+    if (i.toolLabel.length === 0) {
+      i.toolLabel = fallbackLabel;
+      i.toolStatus = fallbackStatus;
     }
-    // live SubAgent 树（值变化通道）—— 用 render 的**同一份**指纹门控（判据与渲染同源）：
-    // 只在树内容真变了才投递新引用（applyRow 每次都会换新数组 ⇒ 不门控会逐帧重建）。
-    const subs: WebSubAgentProgress[] = this.hasLiveRow ? this.liveRowRef.subAgents : [];
-    if (subAgentsFingerprint(subs) !== this.liveSubAgentsFp) {
-      this.liveSubAgentsFp = subAgentsFingerprint(subs);
-      this.liveSubAgents = subs.slice();
+    i.runes = runeCount(this.liveText) + runeCount(this.liveReasoning);
+    i.startedAtMs = this.lvStartedAt;
+    LiveViewBridge.shared().sync(i, now);
+    if (!this.busy) {
+      this.lvStartedAt = 0;   // turn 完结 ⇒ 计时清零；下一次 busy 重新起算
     }
+  }
+
+  /**
+   * 本机 **Push Token 静默登记**（无 UI、幂等；取时机与 SDK 建议一致：应用启动/回前台）。
+   *
+   * ⛔ 这里**不写任何设置界面**：推送插件的全部配置项由它的 `contributes.configuration`
+   *    声明，后端就有对应设置接口（`plugin_config` 描述字段 / `plugin_config_set` 回写），
+   *    App 的通用设置页自动渲染 —— 端侧只负责"HarmonyOS 才能做的那件事"：取 Token 并上报。
+   * ⛔ 不弹 toast：未申请推送权益前它**必然**失败，弹窗会变噪音；结论落应用日志（tag `push`）。
+   */
+  private syncPushReg(): void {
+    const st: ChatStore | null = this.store;
+    if (st === null || !this.loggedIn) {
+      return;
+    }
+    registerPushToken(st.http, this.pushReg).then((note: string) => {
+      if (note.length > 0) {
+        console.debug(`[PUSH] ${note}`);
+      }
+    }).catch(() => {
+      // 桥接层已自吞并记日志；此处仅为不让异常逃逸
+    });
+  }
+
+  private syncLiveTail(): void {
+    const rev: number = this.hasLiveRow ? this.liveRowRef.liveRevision : -1;
+    // ── ① 结构投递（O(1) 引用比较；不拼任何字符串）──────────────────────────────
+    if (rev !== this.liveRevision) {
+      this.liveRevision = rev;
+      if (!this.hasLiveRow) {
+        if (this.liveBlocks !== EMPTY_BLOCKS) {
+          this.liveBlocks = EMPTY_BLOCKS;
+        }
+        if (this.liveSubAgents.length > 0) {
+          this.liveSubAgents = [];
+        }
+      } else {
+        // `row.completedBlocks` 由 `convertedBlocksMemo` 按源数组恒等缓存 ⇒
+        // 同一份已完成块在流式帧之间是**同一个数组引用** ⇒ 这里赋值是 no-op。
+        if (this.liveBlocks !== this.liveRowRef.completedBlocks) {
+          this.liveBlocks = this.liveRowRef.completedBlocks;
+        }
+        const subs: WebSubAgentProgress[] = this.liveRowRef.subAgents;
+        if (this.liveSubAgents !== subs) {
+          this.liveSubAgents = subs;
+        }
+      }
+    }
+    // ── ② 高频内容：**整数代际**判变化，100ms/浮层 400ms 只做降频、不丢最后一帧 ──
+    if (rev === this.liveContentRev) {
+      return;
+    }
+    if (!this.hasLiveRow) {
+      this.liveContentRev = rev;
+      if (this.liveText.length > 0) {
+        this.liveText = '';
+      }
+      if (this.liveReasoning.length > 0) {
+        this.liveReasoning = '';
+      }
+      if (this.liveTools.length > 0) {
+        this.liveTools = [];
+      }
+      return;
+    }
+    const now: number = Date.now();
+    const throttled: boolean = this.busy && now - this.lastNonFollowLiveMs < 100;
+    const covered: boolean = !shouldDeliverLive(this.anyModalOpen(), this.liveRowVisible,
+      this.busy, now, this.liveDeliverAtMs);
+    if (throttled || covered) {
+      // ⛔ **尾随补偿**：只推迟、绝不丢弃。否则回合结束前最后一帧被闸门挡掉后
+      //   若再无 SSE 帧，屏幕会永久停在被丢弃的那一帧（用户症状：内容不再更新）。
+      this.scheduleLiveDeliver(throttled ? 100 - (now - this.lastNonFollowLiveMs) : 100);
+      return;
+    }
+    if (this.liveDeliverTimer !== -1) {
+      clearTimeout(this.liveDeliverTimer);
+      this.liveDeliverTimer = -1;
+    }
+    this.lastNonFollowLiveMs = now;
+    this.liveDeliverAtMs = now;
+    this.liveContentRev = rev;
+    let text: string = '';
+    let reasoning: string = '';
+    let tools: ToolProgress[] = [];
+    const its: HistoryIteration[] = this.liveRowRef.iterations;
+    for (let i = its.length - 1; i >= 0; i--) {
+      if (its[i].live === true) {
+        text = displayContent(its[i]);
+        reasoning = displayReasoning(its[i]);
+        const t: ToolProgress[] | undefined = its[i].tools;
+        if (t !== undefined) {
+          tools = t;
+        }
+        break;
+      }
+    }
+    // 直接赋值（值投递）：不再用 `blocksSignature`/`toolsSignature` 之类的内容字符串
+    // 比较 —— 变化信号就是 `liveRevision` 整数（O(1)）。
+    this.liveText = text;
+    this.liveReasoning = reasoning;
+    this.liveTools = tools;
+  }
+
+  /** 高频内容投递的**尾随补偿**：只推迟、不丢弃（见 `syncLiveTail` 的注释）。 */
+  private scheduleLiveDeliver(delayMs: number): void {
+    if (this.liveDeliverTimer !== -1) {
+      return;
+    }
+    const wait: number = delayMs > 0 ? delayMs : 0;
+    this.liveDeliverTimer = setTimeout(() => {
+      this.liveDeliverTimer = -1;
+      if (this.currentChat.length > 0) {
+        this.syncLiveTail();
+      }
+    }, wait);
   }
 
   /**
@@ -11247,7 +11547,9 @@ struct Index {
                               .width(3).height(20)
                               .backgroundColor(this.barTint('accent'))
                               .borderRadius(1.5)
-                              .transition(TransitionEffect.OPACITY.animation(animFast()))
+                              // 选中态左指示条（Apple Notes 风格——accent 色 3px 竖条）
+                              // 走 anim.ets 唯一工厂 `fadeTransition()`（⛔ 不就地构造过渡）
+                              .transition(fadeTransition())
                           }
                           // 前导**标记槽**（`MARKER_GUTTER`）：恒定占位、内容可空。
                           // 为什么：标记此前是**条件渲染** ⇒ 「有状态的会话」标题被顶右、「无状态的」贴左，
@@ -11458,21 +11760,6 @@ struct Index {
           // §21.122bu：**统一到原生终端**（用户定向「一个页面必须只有一个形态」）。
           // 形态判定 = `surfaceOf(SURF_TERMINAL)`（唯一真源）；入口动作走唯一出口 `openSurface`。
           this.openSurface(SURF_TERMINAL);
-        })
-        // 应用日志（用户 2026-10-16 要求「给一个看应用日志的窗口」）—— 导航项，与设置/文件/终端同排。
-        Column({ space: 2 }) {
-          SymbolGlyph($r('sys.symbol.doc_text'))
-            .fontSize(ICON_XL).fontColor([this.barTint('muted')])
-          Text('日志')
-            .fontSize(typeOf('type.micro').size).fontColor(this.barTint('text'))
-        }
-        .layoutWeight(1).height(HIT_TARGET_MIN)
-        .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
-        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('应用日志')
-        .onClick(() => {
-          this.showLog = true;
-          this.closeDrawer();
         })
         // ── 竖向发丝：把**销毁性**动作（退出登录）与导航项拉开 ──────────────────────
         // 2026-10-14（目标③「抽屉对标 Apple」）：Apple 不在主导航里放"等重的销毁项"——它要么收进
@@ -11888,8 +12175,9 @@ struct Index {
     }
     this.modelBusy = `${subId}#${model}`;
     try {
-      // 直接调后端 HTTP API（POST /api/llm-config action=set_model）——
-      // 不发 /set-model 聊天消息（会在聊天历史里产生一条命令消息）。
+      // 对齐 web：RPC `select_model {sub_id, model, chat_id, channel}`（`store.setModel`）。
+      // ⛔ 旧实现打 `POST /api/llm-config {action:'set_model'}`（配置 upsert 路由）⇒ 静默无效；
+      //    2026-10-17 P0 已改走 RPC（见 `store.setModel` 注释与 `tools/tests/model_switch.test.ts`）。
       await store.setModel(subId, model);
       this.toast(`已切换到 ${model}`);
       this.showModel = false;
@@ -11917,9 +12205,14 @@ struct Index {
 
   // ── @Builder 可用的包装（ArkUI 的 @Builder 里裸标识符会被解析为类成员 ⇒ 必须经 this） ──
 
-  /** 当前生效的模型名（优先服务端 llm-config，回落状态里的 usage.model）。 */
+  /**
+   * 当前生效的模型名：**会话级优先**（`store.sessionModel` → 用户级 llm-config → usage）。
+   * 判据收敛在 `core/llmfmt.modelBadgeText`（可脱机单测，与渲染同源）。
+   */
   private currentModelName(): string {
-    return currentModelText(this.llmCfg, modelText(this.usage));
+    const store: ChatStore | null = this.store;
+    const sess: string = store !== null ? store.sessionModel : '';
+    return modelBadgeText(sess, this.llmCfg, modelText(this.usage));
   }
 
   /** 上下文上限文本（拿不到则空串）。 */

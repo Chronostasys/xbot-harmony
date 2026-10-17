@@ -21,7 +21,7 @@
  *   · set_subscription_enabled `{sub_id,enabled}` → void —— `rpc_table.go:672-677`
  *   · set_default_subscription `{id,chat_id?,channel?}` → void —— `rpc_table.go:2696-2705`
  */
-import { XbotHttp } from './http';
+import { HTTP_READ_TIMEOUT_MS, XbotHttp } from './http';
 import { DemoRecord, EXPORT_BENCHMARK } from './export';
 
 // ── 请求构造 ──────────────────────────────────────────────────────────────────
@@ -145,6 +145,17 @@ export const RPC_REFRESH_MODEL_ENTRIES: string = 'refresh_model_entries';
 /** `get_user_max_context`（无参）→ `int`（用户级上下文上限；0/负 = 未设置）。 */
 export const RPC_GET_USER_MAX_CONTEXT: string = 'get_user_max_context';
 /** `set_user_max_context`（`rpc1void`）`{max_context}` → void。 */
+/**
+ * `select_model`（`rpc1void`）`{sub_id, model, chat_id, channel}` → void
+ * （`rpc_table.go:598-612`；web `api.ts:796 selectModel`，调用点 `ModelSelector.tsx:73`）。
+ *
+ * ⛔ **会话切模型的唯一正解**：服务端按 (channel, chat_id) 落到该会话的模型；
+ *    旧实现打 `POST /api/llm-config {action:'set_model'}` —— 那条路由是**配置 upsert**，
+ *    不认 `action` ⇒ 静默无效（用户 2026-10-17 亲报「所有会话里切换模型都是无效的」）。
+ */
+export const RPC_SELECT_MODEL: string = 'select_model';
+
+// 与 `RPC_SET_USER_MAX_CONTEXT` 同文件相邻，便于对照两边契约。
 export const RPC_SET_USER_MAX_CONTEXT: string = 'set_user_max_context';
 
 /**
@@ -152,6 +163,26 @@ export const RPC_SET_USER_MAX_CONTEXT: string = 'set_user_max_context';
  *
  * ⚠️ 字段名**必须**是 `max_context`（服务端 `rpc_table.go:679-681` 的 json tag）。
  */
+/**
+ * `select_model` 的 params（服务端 `rpc_table.go:598-605`）。
+ *
+ * ⛔ 必须带 `chat_id`：服务端缺它直接报错 "select_model requires a chat_id"
+ *   （用户级默认值是另一个 RPC `set_default_model`，别混用）。
+ */
+export class SelectModelParams {
+  sub_id: string = '';
+  model: string = '';
+  chat_id: string = '';
+  channel: string = '';
+
+  constructor(subId: string, model: string, chatId: string, channel: string) {
+    this.sub_id = subId;
+    this.model = model;
+    this.chat_id = chatId;
+    this.channel = channel;
+  }
+}
+
 export class MaxContextParams {
   max_context: number = 0;
 
@@ -684,9 +715,11 @@ export class UpdatePerModelConfigParams {
  * 信封 `ok=false` 均抛 `Error`，401 额外触发 `onUnauthorized`。此处不做二次包装，
  * 避免把「admin only」这类服务端可读原因吞掉（组件需要它来显示权限提示）。
  */
-export async function rpc<T>(http: XbotHttp, method: string, params?: Object): Promise<T> {
+export async function rpc<T>(http: XbotHttp, method: string, params?: Object,
+  notify: boolean = true): Promise<T> {
   const body: RpcParamsReq = new RpcParamsReq(method, params);
-  const raw: string = await http.post(RPC_PATH, body);
+  // `notify=false` ⇒ 失败**不弹全局 toast**（后台静默调用的唯一开关，见 http.post 第 4 参）。
+  const raw: string = await http.post(RPC_PATH, body, HTTP_READ_TIMEOUT_MS, notify);
   return JSON.parse(raw) as T;
 }
 

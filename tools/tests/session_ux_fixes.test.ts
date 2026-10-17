@@ -22,6 +22,8 @@ const path: { join(...parts: string[]): string } = require('path');
 
 const root: string = path.join(__dirname, '..', '..', '..', '..');
 const indexSrc: string = fs.readFileSync(path.join(root, 'entry/src/main/ets/pages/Index.ets'), 'utf8');
+const splashSrc: string = fs.readFileSync(
+  path.join(root, 'entry/src/main/ets/components/SessionLoadingSplash.ets'), 'utf8');
 const msgRowSrc: string = fs.readFileSync(
   path.join(root, 'entry/src/main/ets/components/MessageRow.ets'), 'utf8');
 const compactionSrc: string = fs.readFileSync(
@@ -41,6 +43,7 @@ console.log('session_ux_fixes:');
 
 // ── 零扫描防线（路径写错 ⇒ 立刻红，防"全绿假象"）────────────────────────────────
 ok(indexSrc.length > 50000, 'Index.ets 真读到了内容（零扫描防线）');
+ok(splashSrc.length > 2000, 'SessionLoadingSplash.ets 真读到了内容（零扫描防线）');
 ok(msgRowSrc.length > 20000, 'MessageRow.ets 真读到了内容（零扫描防线）');
 ok(compactionSrc.length > 3000, 'compaction.ets 真读到了内容（零扫描防线）');
 
@@ -51,17 +54,18 @@ ok(indexSrc.indexOf("'下拉底部自动加载更早消息'") < 0
 ok(indexSrc.indexOf("Text(this.hasMore ? '更早的历史消息' : '已到最早')") >= 0,
   '头项改用与行内哨兵同族的「更早的…」文案');
 ok(indexSrc.indexOf("Text('正在加载更早…')") >= 0, '头项加载态与行内同为「正在加载……」形态');
-// 三处的字形/字号/取色必须一致（两处行内哨兵 + 页面头项）
-ok(msgRowSrc.indexOf("Text(`更早的 ${this.row.regionsBefore} 个区域`)") >= 0
-  && msgRowSrc.indexOf("Text(`更早的 ${this.hiddenBlocks()} 个迭代块`)") >= 0,
-  '两处行内哨兵在位（区域 / 迭代块）');
+// 2026-10-17：迭代块窗口已整体移除（见 flicker_guard ②：无 blockLimit/hiddenBlocks 哨兵）
+// ⇒ 「更早」只剩**两处**：行内「更早的 N 个区域」+ 页面头项。
+ok(msgRowSrc.indexOf("Text(`更早的 ${this.row.regionsBefore} 个区域`)") >= 0,
+  '行内「更早的 N 个区域」哨兵在位');
+ok(msgRowSrc.indexOf('hiddenBlocks') < 0, '迭代块哨兵已随窗口移除（与 flicker_guard 同口径）');
 const chevronUp: number = (
   msgRowSrc.split("$r('sys.symbol.chevron_up')").length - 1
 ) + (indexSrc.split("$r('sys.symbol.chevron_up')").length - 1);
-ok(chevronUp >= 3, `三处「更早」都用同一枚 chevron_up 字形（实测 ${chevronUp} 处）`);
-ok(msgRowSrc.indexOf("Text(`更早的 ${this.hiddenBlocks()} 个迭代块`).fontSize(FS_META)") >= 0
+ok(chevronUp >= 2, `两处「更早」都用同一枚 chevron_up 字形（实测 ${chevronUp} 处）`);
+ok(msgRowSrc.indexOf("Text(`更早的 ${this.row.regionsBefore} 个区域`).fontSize(FS_META)") >= 0
   && indexSrc.indexOf("Text(this.hasMore ? '更早的历史消息' : '已到最早')\n                  .fontSize(FS_META)") >= 0,
-  '三处同字号（FS_META）');
+  '两处同字号（FS_META）');
 
 // ── ② 压缩点越界挂起（不在不存在的两迭代之间画线）──────────────────────────────
 ok(compactionSrc.indexOf('iterNums[iterNums.length - 1] < after') >= 0,
@@ -74,10 +78,16 @@ ok(compactionSrc.indexOf('anchor = n') >= 0, '锚定扫描（max{n ≤ after}）
 ok(indexSrc.indexOf('@State switchSplash: boolean = false;') >= 0, 'switchSplash 状态位已声明');
 ok(indexSrc.indexOf('this.switchSplash = true;') >= 0, '真网络等待路径上置位');
 ok(indexSrc.indexOf('this.switchSplash = false;') >= 0, '收尾（含失败）复位');
-ok(indexSrc.indexOf("Text('会话加载中…')") >= 0, 'splash 文案在位');
-ok(indexSrc.indexOf(".id('xbot-session-splash')") >= 0, 'splash 有稳定 id（装机 dump 可判）');
-ok(indexSrc.indexOf('if (!this.switchSplash\n        && showsHistorySkeleton(') >= 0,
-  'splash 与骨架屏互斥（不同时渲染两套加载态）');
+// 2026-10-17：splash 抽成独立组件（`SessionLoadingSplash.ets`，真机走查后加了品牌/双行文案）
+// ⇒ 文案与稳定 id 的判据落在组件文件上（Index 只负责 `if (switchSplash) SessionLoadingSplash(...)`）。
+ok(splashSrc.indexOf("Text('会话加载中…')") >= 0, 'splash 文案在位（SessionLoadingSplash）');
+ok(splashSrc.indexOf(".id('xbot-session-splash')") >= 0, 'splash 有稳定 id（装机 dump 可判）');
+ok(indexSrc.indexOf('SessionLoadingSplash({ theme: this.themeName })') >= 0
+  && indexSrc.indexOf('if (this.switchSplash && !this.showSplash)') >= 0,
+  'splash 由独立组件渲染，且不与冷启动遮罩叠加');
+ok(indexSrc.indexOf('showsHistorySkeleton(this.historyLoading, this.rows.length)') >= 0
+  && indexSrc.indexOf('&& !this.switchSplash) {') >= 0,
+  '骨架屏在 switchSplash 期间让位（互斥）');
 
 // ── ④ 主题全局单一真源 ────────────────────────────────────────────────────────
 ok(indexSrc.indexOf('const mdRaw: string = settingOf(store.settings, KEY_MD_THEME);') >= 0,

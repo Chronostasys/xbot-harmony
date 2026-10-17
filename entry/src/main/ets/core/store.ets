@@ -10,15 +10,16 @@
  * 为什么不用 ArkUI 的 @Observed：跨页面共享一个普通类 + 回调通知更简单可控，
  * 页面把它同步进 @State（见 pages/Index.ets 的 syncFrom）。
  */
-import { XbotHttp, HTTP_SEND_READ_TIMEOUT_MS } from './http';
+import { XbotHttp, HTTP_SEND_READ_TIMEOUT_MS, HTTP_CANCEL_READ_TIMEOUT_MS } from './http';
 import { log } from './applog';
 import { SseClient } from './sse';
-import { hasFreshPhaseDone, isIdleAction, rowIsEmpty, shouldReloadHistory, stripInterruptedMarker } from './streammerge';
+/** SSE 意图的竞态窗口（web `useSessionStore.ts` 同值 15s）。 */
+import { hasFreshPhaseDone, isIdleAction, runningAfterReconcile, rowIsEmpty, sendStartsTurn, shouldReloadHistory, stripInterruptedMarker } from './streammerge';
 import { arrOrEmpty, isPresent } from './guards';
 import { ChatState, DomainEvent, EventSeq, initialChatState, NonEmptyS, nonEmptyStr, UserRow } from './chat_types_full';
 import { reduce, applySessionFields } from './reduce';
 import { deriveRows, Row } from './derive';
-import { normalizeEvent } from './normalize';
+import { extractEventChatID, normalizeEvent } from './normalize';
 import { historyToReplaced, liveProgressFromState } from './integrate';
 import { applyRow } from './render';
 import { ChatMessage, ChatMessageRole, EMPTY_PROGRESS_SNAPSHOT, ProgressSnapshot, WebCompaction, WebIteration } from './chattypes';
@@ -38,7 +39,7 @@ import { FsEntry } from './composer';
 import { FsListBody, FsReadResult, FsSearchBody, FsSearchEntry, fsListBody, fsSearchBody } from './files';
 import { GenuiShareBody, genuiPanelUrl, genuiShareBody } from './genui';
 import { SkillItem, SkillWire, parseSkillList } from './skills';
-import { MaxContextParams, RPC_GET_SESSION_SUBSCRIPTION, RPC_GET_USER_MAX_CONTEXT, RPC_LIST_ALL_MODEL_ENTRIES, RPC_SET_USER_MAX_CONTEXT, RPC_SKILL_GET_CONTENT, RPC_SKILL_LIST, RPC_SKILL_SET_ENABLED, RPC_WEB_PLUGIN_LIST, RPC_GET_AGENT_SESSION_DUMP, RPC_GET_SESSION_MESSAGES, SubAgentHistoryParams, AgentSessionDump, SubAgentMsg, SessionSelectorParams, SessionSubscription, SkillContentWire, SkillGetContentParams, SkillListParams, SkillSetEnabledAck, SkillSetEnabledParams, normalizeMaxContext, readableRpcError, rpc, sessionSubscriptionId } from './rpc';
+import { MaxContextParams, RPC_GET_SESSION_SUBSCRIPTION, RPC_GET_USER_MAX_CONTEXT, RPC_LIST_ALL_MODEL_ENTRIES, RPC_SELECT_MODEL, RPC_SET_USER_MAX_CONTEXT, SelectModelParams, RPC_SKILL_GET_CONTENT, RPC_SKILL_LIST, RPC_SKILL_SET_ENABLED, RPC_WEB_PLUGIN_LIST, RPC_GET_AGENT_SESSION_DUMP, RPC_GET_SESSION_MESSAGES, SubAgentHistoryParams, AgentSessionDump, SubAgentMsg, SessionSelectorParams, SessionSubscription, SkillContentWire, SkillGetContentParams, SkillListParams, SkillSetEnabledAck, SkillSetEnabledParams, normalizeMaxContext, readableRpcError, rpc, sessionSubscriptionId } from './rpc';
 import {
   PluginCatalog,
   WebPluginListWire,
@@ -88,6 +89,7 @@ import {
 } from './reqbody';
 import { LlmConfig, LlmConfigEntries, LlmModelEntry } from './llmfmt';
 import {
+
   AskQuestion,
   AskUserPrompt,
   ChatRow,
@@ -109,6 +111,9 @@ import {
   WebPluginInfo,
   WebPluginListData,
 } from './types';
+
+/** SSE 意图的竞态窗口（web `useSessionStore.ts` 同值 15s）。 */
+const SSE_INTENT_TTL_MS: number = 15000;
 
 /**
  * **全局**（跨 store 实例共享）单调序号 —— 用于生成**全局唯一**的 `requestID`。
@@ -158,6 +163,17 @@ export class ChatStore {
   /** 历史是否正在加载（骨架屏判据：只有"还没内容且正在拉"才展示骨架） */
   /** 会话树最近一次拉取时刻（busy 对账的新鲜度判据） */
   sessionsFetchedAt: number = 0;
+
+  /**
+   * **SSE 意图时间戳**（web `useSessionStore.ts:1012-1027` 的 `sseIntentsRef` 逐字移植）：
+   * SSE 的 busy/idle 只是**有界 15s 竞态窗口提示**；HTTP（session-tree）是**持久权威**。
+   * · 新鲜 busy 意图（≤15s）⇒ 可覆盖"矛盾的 HTTP"（刚发送/刚起跑，树数据落后一个 RTT）；
+   * · 意图过期或缺失 ⇒ **HTTP 说了算**（保证即使所有 SSE 都丢也能收敛）。
+   */
+  private intentBusyAt: number = 0;
+  private intentIdleAt: number = 0;
+  /** 会话树对账轮询句柄（`-1` = 未排程）。 */
+  private sessionPollTimer: number = -1;
   /** 最近一次发送时刻（乐观 busy 的保护窗口，见 loadSessions 的对账） */
   lastSendAt: number = 0;
   historyLoading: boolean = false;
@@ -203,6 +219,15 @@ export class ChatStore {
    */
   sessionSubscription: string = '';
   /**
+   * **会话级当前模型**（`get_session_subscription.model` 的权威投影）。
+   *
+   * ⛔ 为什么必须单独存（用户 2026-10-17 亲报「提示成功但后端其实都没切」）：
+   *   徽章原先读 `llmCfg.model`（**用户级**配置）⇒ 即便会话切成功，徽章也**不变**
+   *   ⇒ 用户看着像"没切"。web 的读法同样是**会话级优先**
+   *   （`SessionInfo.tsx:79`：`dump.modelName || sub.model || settings.model`）。
+   */
+  sessionModel: string = '';
+  /**
    * 订阅查询的**三态**（`idle|loading|ready|error`）—— 与 `llmConfigState` 同口径。
    * ⛔ 现仅面板可读；失败态/加载态由 `sessionSubState`/`sessionSubError` 承载（非静默吞）。
    */
@@ -233,6 +258,13 @@ export class ChatStore {
    * busy 由 AgentPanel 三元公式得出。打开会话时**整体复位**（会话隔离，见 openSession）。
    */
   private state: ChatState = initialChatState('');
+
+  /**
+   * 「无法追赶的 gap」重载令牌的**观察点**（web `AgentPanel.tsx:446-462` 的
+   * `gapReloadSeenRef` 逐字移植：key 变 ⇒ 只记录；token 变 ⇒ 重载）。
+   */
+  private gapReloadSeenKey: string = '';
+  private gapReloadSeenToken: number = 0;
 
   /** 行对象缓存（id → ChatRow）——就地更新，保住 @ObjectLink 恒等。 */
   private rowCache: Map<string, ChatRow> = new Map();
@@ -276,8 +308,12 @@ export class ChatStore {
    */
   get busy(): boolean {
     const snap: ProgressSnapshot = liveProgressFromState(this.state);
-    const busyFallback: boolean = this.state.activeTurn !== null;
-    return (this.state.sessionRunning || snap.streaming || busyFallback) && this.askUser === null;
+    // ⛔ `activeTurn !== null` **不再**计入 busy：权威 idle 现在只把 live 的
+    //   `streaming` 置 false（不再转 frozen/清 activeTurn）⇒ 若仍用 activeTurn
+    //   当 busy 兜底，权威 idle 之后会**永久卡 busy**。`snap.streaming` 本身就是
+    //   "live turn 仍在产出"的唯一同源判据（EMPTY_LIVE.streaming=true，
+    //   任何被应用的事件都会把它恢复 true），足以覆盖 REST ack→turn_started 窗口。
+    return (this.state.sessionRunning || snap.streaming) && this.askUser === null;
   }
 
   /** 服务端会话树给出的权威 running（`sessions[i].running`，经 session_running 入状态机）。 */
@@ -296,6 +332,12 @@ export class ChatStore {
       return false;
     }
     const snap: ProgressSnapshot = liveProgressFromState(this.state);
+    // ⛔ 必须要求 `streaming`：权威 idle 现在只停流、保留 activeTurn（为了不丢同迭代
+    //   后续帧）⇒ 若仍以"有内容"当 busy 信号，idle 之后 composer 会永久显示 cancel
+    //   （用户症状：cancel 无效/卡死）。`sessionRunning` 由 `get busy` 单独覆盖。
+    if (!snap.streaming) {
+      return false;
+    }
     return snap.streamContent.length > 0 || snap.reasoningStreamContent.length > 0
       || snap.activeTools.length > 0 || snap.streamingTools.length > 0
       || snap.iterationHistory.length > 0;
@@ -305,6 +347,41 @@ export class ChatStore {
    *  idle 分支收尾；此处仅保留旧接口名给页面调用（对齐 web 无此步 —— 见对照表）。 */
   pruneEmptyLiveRowIfIdle(): boolean {
     return false;
+  }
+
+  /**
+   * **「无法追赶的 gap」⇒ 重新加载该会话**（web `AgentPanel.tsx:446-462` 逐字移植）。
+   *
+   * ⛔ 2026-10-17 P0（用户亲报）：历史停在 `迭代1 迭代2`、在飞已到 50 时"看起来正常"，
+   *   50 一结束合成块消失 ⇒ "又只剩旧窗口"。根因不是判据缺失（`reduce.ts:liveAheadGapSig`
+   *   一直在自增 `gapReloadToken`），而是**原生侧 0 消费方**——判据触发、没人重载 ⇒
+   *   洞永久补不上（典型"死消费"）。web 侧消费方：`markHistoryStale` + `reset` + `reloadChat`。
+   *
+   * 计数器语义（与 web 同款）：同一缺口形状只触发一次 ⇒ 不可能重载风暴；
+   * 重载后状态机归零（token 回 0），**新的**缺口形状才会再次触发。
+   */
+  private watchGapReload(): void {
+    const key: string = `${this.channel}:${this.currentChatId}`;
+    const token: number = this.state.gapReloadToken;
+    if (this.gapReloadSeenKey !== key) {
+      // 新会话首帧只记录（否则切会话会因历史 token 立刻重载一次）
+      this.gapReloadSeenKey = key;
+      this.gapReloadSeenToken = token;
+      return;
+    }
+    if (token === this.gapReloadSeenToken) {
+      return;
+    }
+    this.gapReloadSeenToken = token;
+    console.debug(`[SESSION_RELOAD] 出现无法追赶的 gap ⇒ 重新加载会话 chat=${this.currentChatId} token=${token}`);
+    // ① 丢弃带洞的本地窗口（web `agentChat.reset()` —— 同一出口 `initialChatState`）
+    this.resetStateMachine();
+    this.state = initialChatState(this.currentChatId);
+    this.gapReloadSeenToken = this.state.gapReloadToken;
+    this.rebuildRows();
+    // ② 权威重载（web `reloadChat()`）；失败态由 `loadHistory` 自身三态暴露，不静默吞
+    this.loadHistory().catch(() => {
+    });
   }
 
   /** 把一批 DomainEvent 依次喂给状态机，然后重建渲染行。 */
@@ -318,12 +395,16 @@ export class ChatStore {
     }
     this.state = next;
     this.rebuildRows();
+    // ⛔ 洞检测的**唯一消费点**（见 `watchGapReload`）
+    this.watchGapReload();
   }
 
   /** 单个 DomainEvent（内部便捷）。 */
   private pushEvent(ev: DomainEvent): void {
     this.state = reduce(this.state, ev);
     this.rebuildRows();
+    // ⛔ 洞检测的**唯一消费点**（见 `watchGapReload`）
+    this.watchGapReload();
   }
 
   /** `ChatState → rows`：`deriveRows` + 就地适配（对象恒等）。 */
@@ -547,8 +628,22 @@ export class ChatStore {
     //    session_running(false) ⇒ 状态机把仍 live 的 turn 定格（行键变整行重建）⇒
     //    下一帧 SSE delta 又翻回 busy ⇒ 双重翻转 = 闪烁。修：字段缺失 ≠ false——
     //    只有服务端显式给出 boolean 才对账；缺失 ⇒ 跳过（SSE session(idle) 是唯一 idle 来源）。
-    if (runNode !== null && typeof runNode.running === 'boolean') {
-      this.pushEvent({ type: 'session_running', running: runNode.running });
+    // ⛔ 2026-10-17 P0（用户亲报「卡在 busy 态」）——上一版这里写的是
+    //    `typeof runNode.running === 'boolean'` 才对账（把"缺字段"当 unknown 跳过），
+    //    但**服务端 `/api/session-tree` 的 `running` 是 `omitempty`**（实测：running 行有
+    //    `running:true`，idle 行**没有该字段**）⇒ 缺字段**就是 false**（AGENTS.md 已记此契约）。
+    //    按旧写法 ⇒ idle 永远灌不回去 ⇒ 一旦某条 idle 被闸门挡掉/丢失 ⇒ **busy 永久卡住**
+    //    （截图实证：最后工具已完成，界面还挂「思考中…」+ 输入框排队）。
+    //    对齐 web：HTTP 是权威（缺字段=false），但**新鲜 busy 意图(≤15s)** 可覆盖矛盾的 HTTP
+    //    （刚发送时树数据落后一个 RTT ⇒ 否则会"刚发就变 idle"再翻回 = 闪烁）。
+    if (runNode !== null) {
+      // ⛔ 判据收敛到 `core/streammerge.runningAfterReconcile`（与状态机同源、可脱机单测）。
+      //    服务端 `running` 是 omitempty ⇒ 缺字段**就是 false**（已折好再传入）。
+      this.pushEvent({
+        type: 'session_running',
+        running: runningAfterReconcile(runNode.running === true, this.intentBusyAt,
+          this.intentIdleAt, Date.now(), SSE_INTENT_TTL_MS),
+      });
     }
     this.onUpdate();
   }
@@ -572,6 +667,8 @@ export class ChatStore {
    * 幂等：会话树已 false + `sessionRunning` 已 false 时，reduce 返回原 state（零渲染变化）。
    */
   private applyLocalIdle(chatId: string, authoritative: boolean = false): void {
+    // ② SSE 意图：idle 证据时刻（对账时用于压住"矛盾的旧 busy"）
+    log('idle', `回合结束 chat=${chatId} 权威=${authoritative ? 'PhaseDone' : 'SSE idle'}`);
     // ⛔ 非权威（coarse `session(idle)` / `agent-idle`）且状态机**仍认为会话在跑 + 有 live turn**
     //   ⇒ 这条 idle 陈旧/错传 ⇒ **绝不**冻结在跑 turn（对齐 reduce `session_idle` 的
     //   `if (s.sessionRunning) return s` 闸门）。本函数此前走了**唯一没闸门**的
@@ -581,6 +678,9 @@ export class ChatStore {
     if (!authoritative && this.state.sessionRunning && this.state.activeTurn !== null) {
       return;
     }
+    // ⛔ 只有**真正被接受**的 idle 才写意图窗口：写在闸门之前会让一条被拒绝的陈旧 idle
+    //   污染 `runningAfterReconcile`（下一轮对账把 running 判 false ⇒ 短暂假 idle 再翻回）。
+    this.intentIdleAt = Date.now();
     // ⛔ ArkTS 禁对象展开（`arkts-no-spread`，门禁 ④ 实测抓到 `store.ets` 的对象字面量展开）
     //    ⇒ 原地改字段（`SessionItem` 字段可写）。页面按 `fingerprintSessions`（含 running）
     //    的**值**变化识别 ⇒ `this.sessions = store.sessions.slice()` 换新数组引用 ⇒ 重渲。
@@ -696,13 +796,25 @@ export class ChatStore {
     this.onUpdate();
   }
 
-  /** 直接调后端 HTTP API 切换模型（POST /api/llm-config action=set_model）——不发 /set-model 聊天消息。 */
+  /**
+   * 切**当前会话**的模型（RPC `select_model`）——对齐 web `ModelSelector.handleSelect`
+   * （`ModelSelector.tsx:73` → `api.ts:796 selectModel`）。
+   *
+   * ⛔ 2026-10-17 P0 修复：旧实现打 `POST /api/llm-config {action:'set_model'}`，
+   *    那条路由只在 `channel/web/web.go:918` 注册为**配置 upsert**、不认 `action`
+   *    ⇒ 请求 200 但**什么都没切**（用户亲报「所有会话里切换模型都是无效的」）。
+   *    正解是 RPC `select_model {sub_id, model, chat_id, channel}` —— 服务端按
+   *    (channel, chat_id) 落到该会话；`chat_id` 缺失会被服务端直接拒。
+   * 切换后刷新 llm 配置与用量（模型名显示 = `currentModelText(llmCfg, modelText(usage))`）。
+   */
   async setModel(subId: string, model: string): Promise<void> {
-    const body: Record<string, string> = {};
-    body['action'] = 'set_model';
-    body['sub_id'] = subId;
-    body['model'] = model;
-    await this.http.post('/api/llm-config', body);
+    const chatId: string = this.currentChatId;
+    await rpc<void>(this.http, RPC_SELECT_MODEL,
+      new SelectModelParams(subId, model, chatId, this.channel));
+    await this.loadLlmConfig();
+    await this.loadStatus();
+    // ⛔ 会话订阅（含 `model`）**必须**一起刷：徽章的权威源是它（见 `sessionModel` 注释）
+    await this.loadSessionSubscription();
     this.onUpdate();
   }
 
@@ -945,8 +1057,20 @@ export class ChatStore {
    */
   beginSwitch(chatId: string): void {
     this.currentChatId = chatId;
+    // ⛔ **立刻整体复位状态机**（不是只清 rows）：从 beginSwitch 到 openSession 复位之间
+    //   有一段窗口，旧实现仍持有**上一个会话**的 turns/busy/sessionRunning ⇒ 页面读到
+    //   旧值（切会话瞬间按钮/进度错乱），且旧会话的迟到事件会落进"新会话身份"。            
+    this.state = initialChatState(chatId);
+    this.gapReloadSeenKey = '';
+    this.gapReloadSeenToken = 0;
+    // 上一会话的 SSE 意图窗口不属于新会话：不清会让 `runningAfterReconcile` 把
+    // **空闲的新会话**误判 running（最长 15s 显示 cancel）。
+    this.intentBusyAt = 0;
+    this.intentIdleAt = 0;
     this.rows = [];
     this.rowCache = new Map();
+    // 分页累积也必须清：否则切会话后 `loadMore` 会把旧会话的 history 与新会话混在一起。
+    this.history = [];
     this.hasMore = false;
     this.oldestId = 0;
     this.historyError = '';
@@ -1012,6 +1136,13 @@ export class ChatStore {
     this.lastWidgetEvent = '';
     this.lastWidgetContent = '';
     this.onUpdate();
+    // ⛔ **先订阅、后拉历史**（顺序不可反）：
+    //   ① 拉历史是网络往返；期间到达的 turn_started/stream 若无人接收 ⇒ 打字机/迭代
+    //      永久缺一段（旧实现把 subscribe 放在两次 await 之后）。
+    //   ② 旧实现 `await loadHistory()` 抛错时**永不 subscribe** ⇒ 新会话永远收不到
+    //      任何事件（用户症状：有网但发消息无效/cancel 无效）。
+    //   先订阅后，事件与 history merge 由状态机处理（history_replaced 不覆盖 live）。
+    this.subscribe();
     await this.loadHistory();
     await this.loadQueue();
     this.loadStatus().catch(() => {
@@ -1021,7 +1152,6 @@ export class ChatStore {
     this.loadSessionSubscription().catch(() => {
       // 订阅查询非关键路径
     });
-    this.subscribe();
   }
 
   /**
@@ -1224,11 +1354,17 @@ export class ChatStore {
       this.loadMoreErr = '';
     }
     this.loadingMore = true;
+    const forChat: string = this.currentChatId;
     try {
       const data: HistoryData = await this.http.postAs<HistoryData>('/api/history', new HistoryReq(
         // 30 → **100**（2026-10-14，C 线审计口径对齐）：web 权威每批 100 条
         // （useChatMessages.ts:607）；渲染窗口逐步放开（12/次）的预算不受影响。
         this.channel, this.wireChatId(), 100, this.oldestId));
+      // ⛔ 切会话竞态：`await` 期间用户可能已切走 ⇒ 旧分页响应**绝不能**写进新会话
+      //   （否则旧会话的更早消息会被 pushEvent 到新会话状态 = 串台）。
+      if (this.currentChatId !== forChat) {
+        return;
+      }
       const older: ChatMessage[] = ChatStore.toChatMessages(data.messages, this.oldestId);
       // ⛔ 「全是重复 ⇒ 到底」停止条件（对齐 web `useChatMessages.ts:620-639` 的 `noExactDups`）：
       //    服务端 `has_more` 只保证「这批之后还有行」，但若这批**全部**是与本地已持有的同
@@ -1447,7 +1583,7 @@ export class ChatStore {
       return;
     }
     const data: RegionsData = await this.http.postAs<RegionsData>('/api/regions', new RegionsReq(
-      this.channel, this.currentChatId, row.turnID, before, 100));
+      this.channel, this.wireChatId(), row.turnID, before, 100));
     const older: HistoryIteration[] = arrOrEmpty(data.iterations);
     // 段边界去重后经 `iterations_loaded` 交给状态机 —— reduce 做 union 合并（同号权威
     // 覆盖、轻字段永不覆盖完整数据），与 web `iterations_loaded` 同一语义。
@@ -1477,7 +1613,7 @@ export class ChatStore {
     try {
       const data: IterationDetailData = await this.http.postAs<IterationDetailData>(
         '/api/iteration_detail', new IterationDetailReq(
-          this.channel, this.currentChatId, turnID, iteration));
+          this.channel, this.wireChatId(), turnID, iteration));
       const it: HistoryIteration | undefined = data.iteration;
       if (it === undefined) {
         return null;
@@ -1518,6 +1654,7 @@ export class ChatStore {
     //   （per-store 计数器在 store 重建后会复用 `req-N`，见 `newRequestID` 头注）。
     const requestID: string = newRequestID();
     console.info(`[SEND] enter: textLen=${text.length} channel=${this.channel} chatId=${this.currentChatId} interrupt=${isInterrupt} rid=${requestID}`);
+    log('send', `发送 chat=${this.currentChatId} len=${text.length}${isInterrupt ? ' (插话)' : ''} rid=${requestID}`);
     if (!isInterrupt) {
       const c: NonEmptyS | null = nonEmptyStr(text);
       if (c !== null) {
@@ -1536,11 +1673,19 @@ export class ChatStore {
       }
     }
     try {
+      // ⛔ **出网会话键必须规范化**（与 cancel/history/queue 同一 `wireChatId()`）：
+      //   旧实现用 `currentChatId` 原值 —— 当它是全键（`web:chat_X`）时服务端按
+      //   `channel + ':' + chat_id` 组键 ⇒ 落到 `web:web:chat_X` **幽灵会话**
+      //   （send 与 cancel 打不同会话；用户症状：有网但发消息无效 / cancel 无效）。
+      const wireID: string = this.wireChatId();
+      if (wireID.length === 0) {
+        throw new Error('会话未就绪（chat_id 为空）');
+      }
       // ⛔ 发送走**短读超时**（`HTTP_SEND_READ_TIMEOUT_MS`，非默认 120s）：切后台后半开连接会让
       //    乐观行无反馈地挂 2 分钟（用户 2026-10-16 P0「显示已发、实际没发」）。短超时 ⇒
       //    快速抛错 ⇒ `sendDraft` 回滚乐观行 + 明确报错（而不是静默挂着）。
       const raw: string = await this.http.post('/api/message', new MessageReq(
-        this.channel, this.currentChatId, text, uploadKeys, fileNames, fileSizes, isInterrupt,
+        this.channel, wireID, text, uploadKeys, fileNames, fileSizes, isInterrupt,
         requestID), HTTP_SEND_READ_TIMEOUT_MS);
       if (isInterrupt) {
         // 对齐 web（`sseConnection.ts:473` → 服务端 `web_rest.go:95-104`）：插话成功的**唯一判据**是
@@ -1560,6 +1705,21 @@ export class ChatStore {
         ack = JSON.parse(raw) as SendAck;
       } catch (e) {
         ack = {};
+      }
+      // ★ 乐观置 running（**根因修复**，用户 2026-10-17 P0「mid-turn idle 冻结」）——
+      //   逐字对齐 web `AgentPanel.tsx:177-180` 的 `store.setStatus(selector,'running')`：
+      //   发送成功后**立刻**把会话标为 running（`state.sessionRunning=true`）。
+      //   必要性：服务端 `/api/session-tree` 的 `running` 字段是 `omitempty`（false 缺字段、
+      //   只有**处理中**才回 true）⇒ 落库对账是**慢路径**；不乐观置位时，整个 turn 期间
+      //   `sessionRunning` 恒为 false ⇒ 状态机的粗粒度 idle 闸门（`reduce.ts`
+      //   `if (s.sessionRunning) return s`；`store.ets` `applyLocalIdle` 的非权威闸门）
+      //   **恒失效** ⇒ 一条迟到/回放的 `session(idle)`/`agent-idle` 就把在飞 turn 冻结，
+      //   同迭代 stream 紧接着被静默丢弃（用户症状：「live 进度消失且永不再更新」）。
+      //   真结束由权威路径收尾（PhaseDone ⇒ `applyLocalIdle(true)` ⇒ `session_running(false)`）。
+      //   ⛔ 命令（`!cmd`/slash）无 turn 生命周期 ⇒ 不置位（`sendStartsTurn` 门控 —— 否则永久卡 busy）。
+      if (sendStartsTurn(ack.turn_id, ack.queued)) {
+        this.intentBusyAt = Date.now();
+        this.pushEvent({ type: 'session_running', running: true });
       }
       this.pushEvent({
         type: 'user_ack',
@@ -1640,6 +1800,8 @@ export class ChatStore {
         this.http, RPC_GET_SESSION_SUBSCRIPTION,
         new SessionSelectorParams(this.channel, this.wireChatId()));
       this.sessionSubscription = sessionSubscriptionId(sub);
+      // 会话级模型（可能只有 `model` 没有 `subscription_id` —— 服务端两个分支，见 rpc.ets:272）
+      this.sessionModel = (sub.model !== undefined && sub.model !== null) ? sub.model : '';
       this.sessionSubState = 'ready';
       this.onUpdate();
     } catch (e) {
@@ -1738,7 +1900,14 @@ export class ChatStore {
     this.cancelling = true;
     this.onUpdate();
     try {
-      await this.http.post('/api/cancel', new SessionReq(this.channel, this.wireChatId()));
+      // ⛔ **短超时**（8s，非默认 120s）：取消请求挂死时 `cancelling` 会锁住两层
+      //   spinner 闸门（本字段 + 页面 `cancelSpinHold`）⇒ 用户看到"永久转圈"，
+      //   且重复点击被静默 return（用户症状）。有界超时 ⇒ finally 必然复位。
+      await this.http.post('/api/cancel', new SessionReq(this.channel, this.wireChatId()),
+        HTTP_CANCEL_READ_TIMEOUT_MS);
+      // 取消成功 = 权威 idle 证据（与 applyLocalIdle 同一字段）：15s 意图窗内
+      // session-tree 对账不得因"发送时的 fresh busy 意图"把 busy 翻回来。
+      this.intentIdleAt = Date.now();
       this.pushEvents([
         { type: 'session_running', running: false },
         { type: 'session', busy: false },
@@ -1805,7 +1974,7 @@ export class ChatStore {
     this.onUpdate();
     try {
       await this.http.post('/api/ask_user/respond', new AskRespondReq(
-        this.channel, this.currentChatId, firstQ, single, answers, cancelled));
+        this.channel, this.wireChatId(), firstQ, single, answers, cancelled));
     } catch (e) {
       this.answeredAskId = '';
       this.askUser = prompt;
@@ -2068,18 +2237,99 @@ export class ChatStore {
     } catch (e) {
       // 关闭失败不影响释放语义
     }
+    // ⛔ 会话树轮询必须随 store 一起停：被池淘汰的 store 仍持有非空 currentChatId ⇒
+    //   旧实现每 30s（busy 5s）继续打 `/api/session-tree`，永不停止（定时器泄漏）。
+    if (this.sessionPollTimer !== -1) {
+      clearTimeout(this.sessionPollTimer);
+      this.sessionPollTimer = -1;
+    }
     this.onUpdate = () => {
     };
   }
 
   subscribe(): void {
-    if (this.currentChatId.length === 0) {
+    const wireID: string = this.wireChatId();
+    if (wireID.length === 0) {
       return;
     }
-    this.sse.connect(this.currentChatId, this.channel, this.http.cookieHeaderForStream(),
+    // ⛔ SSE 订阅也必须用**规范键**（与 send/cancel/history 同源）：全键（`web:chat_X`）
+    //   会让服务端把连接挂到 `web:web:chat_X` 幽灵会话 ⇒ 本会话的事件一条都收不到
+    //   （用户症状：历史正常、发消息无效、cancel 无效）。
+    this.sse.connect(wireID, this.channel, this.http.cookieHeaderForStream(),
       (event: string, data: string) => {
         this.onSse(event, data);
       });
+    // ⛔ **无条件会话树轮询**（web `useSessionStore.ts:1012-1014` 原文：
+    //   "HTTP (session-tree) is the persistent authority, and the unconditional 30s poll
+    //    guarantees convergence even when every SSE event is missed"）。
+    //   这是"丢了一条 idle 就永久卡 busy"的唯一解药；本地 SSE 仍是快路径。
+    this.scheduleSessionPoll();
+  }
+
+  /**
+   * 轮询间隔：在飞 5s（收敛快，与 `useTasks` 的"running 时 2s"同族）、空闲 30s（web 基线）。
+   * ⛔ 这不是"写死的假延迟"——它是**权威对账周期**，不参与任何业务判定。
+   */
+  private sessionPollDelayMs(): number {
+    return this.busy ? 5000 : 30000;
+  }
+
+  private scheduleSessionPoll(): void {
+    if (this.sessionPollTimer !== -1) {
+      clearTimeout(this.sessionPollTimer);
+    }
+    this.sessionPollTimer = setTimeout(() => {
+      this.sessionPollTimer = -1;
+      if (this.currentChatId.length === 0) {
+        return;
+      }
+      this.loadSessions().catch(() => {
+        // 对账失败不阻断；下一轮继续
+      }).then(() => {
+        this.scheduleSessionPoll();
+      });
+    }, this.sessionPollDelayMs());
+  }
+
+  /**
+   * 原始 SSE 串的**会话归属**快速判定（不做完整 JSON 解析）。
+   *
+   * ⛔ 为什么需要它：widget / `bg_task_output` 在 `JSON.parse` **之前**早退，若不先过滤，
+   *   别的会话的载荷会覆盖本 store 的会话态字段（widget/bg 都按 chat 推送）⇒ 跨会话串台。
+   *   只做一次轻量正则（`"chat_id"` 在顶层与 `session/progress` 嵌套里都能命中），
+   *   **只用于这两个低频早退分支**（流式帧仍走下面的完整解析 + `extractEventChatID`）。
+   *   抓不到 chat_id ⇒ 放行（legacy 控制消息）。
+   */
+  private rawChatMatches(data: string): boolean {
+    const marker: string = '"chat_id"';
+    const i: number = data.indexOf(marker);
+    if (i < 0) {
+      return true;
+    }
+    let j: number = i + marker.length;
+    while (j < data.length && (data[j] === ' ' || data[j] === '\t' || data[j] === '\n' || data[j] === '\r')) {
+      j++;
+    }
+    if (j >= data.length || data[j] !== ':') {
+      return true;
+    }
+    j++;
+    while (j < data.length && (data[j] === ' ' || data[j] === '\t' || data[j] === '\n' || data[j] === '\r')) {
+      j++;
+    }
+    if (j >= data.length || data[j] !== '"') {
+      return true;
+    }
+    j++;
+    let end: number = j;
+    while (end < data.length && data[end] !== '"' && data[end] !== '\\') {
+      end++;
+    }
+    if (end >= data.length || end === j) {
+      return true;
+    }
+    const chat: string = data.substring(j, end);
+    return canonicalChatId(this.channel, chat) === this.wireChatId();
   }
 
   private onSse(event: string, data: string): void {
@@ -2093,6 +2343,9 @@ export class ChatStore {
     //    （`PluginWidgets` 会显式降级成"插件数据无效"），而不是在这里吞掉；且不解析 ⇒ 不可能抛。
     // ③ 只设字段 + `onUpdate()`（页面据此重渲），**不做任何业务解释**（判据在 core/widgetsview）。
     if (isWidgetEvent(event)) {
+      if (!this.rawChatMatches(data)) {
+        return;
+      }
       this.lastWidgetEvent = event;
       this.lastWidgetContent = data;
       this.onUpdate();
@@ -2103,6 +2356,9 @@ export class ChatStore {
     // ── #7-1：bg_task_output 增量（web `sseConnection.ts:445` 同款早退——不是 DomainEvent，
     //    落到 reduce 只会被静默丢弃；保留原始串交 UI 层解析——详情面板实时化）。
     if (event === SseEventType.bgTaskOutput) {
+      if (!this.rawChatMatches(data)) {
+        return;
+      }
       this.lastBgOutput = data;
       this.lastBgOutputSeq += 1;
       this.onUpdate();
@@ -2112,6 +2368,16 @@ export class ChatStore {
     try {
       raw = JSON.parse(data) as Record<string, Object>;
     } catch (e) {
+      return;
+    }
+    // ⛔ **会话归属过滤必须在这里（任何副作用之前）**：
+    //   `normalizeEvent` 的过滤只保护走状态机的那条路；而 `ask_user` /
+    //   `ask_user_resolved` / `resync_required` / `session` 四个分支**绕过**它
+    //   （用户级 fan-out 会把别的会话的 idle 送到本连接）。旧实现直接执行 ⇒
+    //   A 的 idle 会把 B 的在飞 turn 收尾（跨会话污染）。用与 normalize 同一份
+    //   三层提取（顶层/session/progress）+ 规范键比较。
+    const msgChat: string | undefined = extractEventChatID(raw);
+    if (msgChat !== undefined && canonicalChatId(this.channel, msgChat) !== this.wireChatId()) {
       return;
     }
     if (event === SseEventType.askUser) {
@@ -2155,6 +2421,7 @@ export class ChatStore {
       this.resyncAt = now;
       this.resyncInFlight = true;
       console.debug(`[SWITCH] resyncRequired sid=${this.sid} chatId=${this.currentChatId} rows=${this.rows.length}`);
+      log('resync', `服务端要求校准 chat=${this.currentChatId} rows=${this.rows.length}`);
       // `loadHistory` 自带 try/catch（不抛）⇒ 两个回调都释放闸门
       this.loadHistory().then(() => {
         this.resyncInFlight = false;
@@ -2198,7 +2465,15 @@ export class ChatStore {
       if (shouldReloadHistory(action)) {
         // 外部 rewind（别的客户端 / 本机编辑确定后服务端广播 `history_rewound`）⇒
         // 历史已被截断，必须重载（复用 core/streammerge.ets 的判据，与 web 同源）。
+        // ⛔ **必须先复位状态机**：`history_replaced` 是 merge 语义（本地 content
+        //   非空优先），带着旧 committed 直接重载会让**被撤销的内容继续显示**
+        //   （用户症状：rewind 后旧消息不消失）。与本地 `rewindTo` 的
+        //   `resetStateMachine()` 同一处置。
         console.debug(`[SWITCH] historyRewound sid=${this.sid} chatId=${this.currentChatId} action=${action}`);
+        this.state = initialChatState(this.currentChatId);
+        this.rowCache = new Map();
+        this.rows = [];
+        this.rebuildRows();
         this.loadHistory().catch(() => {
           // 重载失败不影响主链路；下一次事件/切会话会再兜底
         });

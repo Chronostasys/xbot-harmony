@@ -148,6 +148,13 @@ declare module '@kit.BasicServicesKit' {
     message: string;
     name?: string;
   }
+  // 设备信息（真源 `@ohos.deviceInfo.d.ts`；`core/pushreg.ets` 用它拼设备显示名/版本）。
+  export namespace deviceInfo {
+    const brand: string;
+    const marketName: string;
+    const productModel: string;
+    const osFullName: string;
+  }
 }
 
 declare module '@kit.PerformanceAnalysisKit' {
@@ -164,5 +171,16 @@ declare module '@kit.ArkWeb' {
       refresh(): void;
       loadUrl(url: string): void;
     }
+  }
+}
+
+// ── Push Kit（`core/pushreg.ets` 用）：仅声明我们用到的面 ──────────────────────────
+// 真源：`$SDK/default/hms/ets/api/@hms.core.push.pushService.d.ts`（`@since 4.0.0(10)`）。
+// ⛔ 只声明 `getToken`：App 侧只用它（本机 Push Token 只能端侧取，见 pushreg.ets 文件头）。
+declare module '@kit.PushKit' {
+  export namespace pushService {
+    export function getToken(): Promise<string>;
+    export function getToken(callback: (err: Object, token: string) => void): void;
+    export function deleteToken(): Promise<void>;
   }
 }

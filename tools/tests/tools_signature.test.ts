@@ -50,12 +50,12 @@ for (const field of ['t.status', 't.gen_chars', 't.exit_code', 't.elapsed_ms', '
 ok(coreSrc.indexOf('t.detail.length') >= 0 && coreSrc.indexOf('|${t.name}:${status}:${gen}:${code}:${ms}:${cid}:${argLen}:${detLen}') >= 0,
   '签名**只取 detail 长度**（⛔ 不拼全文：避免每帧上千字符的串）');
 
-// ── 页面接线：必须按签名门控投递 `.slice()`（新数组）──────────────────────────
-ok(pageSrc.indexOf('const toolsSig: string = toolsSignature(tools);') >= 0,
-  'syncLiveTail 用签名门控');
-ok(pageSrc.indexOf('if (toolsSig !== this.liveToolsSig) {') >= 0, '签名变化才投递');
-ok(pageSrc.indexOf('this.liveTools = tools.slice();') >= 0,
-  '投递的是**新数组**（ArkUI 才看得见"值变化"）');
+// ── 页面接线：2026-10-17 起改**整数代际**门控（⛔ 字符串签名已从生产移除）────────
+ok(pageSrc.indexOf('if (rev === this.liveContentRev)') >= 0,
+  'syncLiveTail 用整数代际门控（liveContentRev）');
+ok(pageSrc.indexOf('this.liveContentRev = rev;') >= 0, '代际变化才投递');
+ok(pageSrc.indexOf('this.liveTools = tools;') >= 0,
+  '投递工具列表（渲染层每次更新已产新数组；⛔ 零字符串内容比较）');
 ok(pageSrc.indexOf('if (this.liveTools !== tools) {') < 0,
   '旧的「数组恒等」门控已消失（正是本 bug 的根因）');
 

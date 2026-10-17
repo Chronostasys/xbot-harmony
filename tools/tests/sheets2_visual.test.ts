@@ -182,7 +182,11 @@ for (let i = 0; i < codes.length; i++) {
   // 唯一在飞动效 = 光球（⛔ 禁新增循环/装饰性 spinner）
   hasNot(src, 'setInterval(', `${n}: ⛔ 无 setInterval`);
   hasNot(src, 'animateTo(', `${n}: ⛔ 无 animateTo`);
-  hasNot(src, '.animation(', `${n}: ⛔ 无 .animation(`);
+  // 2026-10-20：上下文菜单 danger 项的**颜色缓动**走 anim.ets 工厂 `animBase()`
+  // （讲"危险项切换"的状态关系，非装饰性 spinner）⇒ 允许该唯一形态；
+  // 其它任何就地 `.animation(...)` 仍红。
+  const srcNoFactoryAnim: string = src.split('.animation(animBase())').join('');
+  hasNot(srcNoFactoryAnim, '.animation(', `${n}: ⛔ 无工厂外的 .animation(`);
   hasNot(src, 'SymbolEffect', `${n}: ⛔ 无符号动效`);
   hasNot(src, 'LoadingProgress', `${n}: ⛔ 无自造 spinner`);
   // 排版走角色

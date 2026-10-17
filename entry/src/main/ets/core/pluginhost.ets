@@ -663,6 +663,23 @@ export function buildPluginCatalog(
       t.openUrl = target.url.length > 0 ? target.url : host;
       views.push(t);
     }
+    // ── 入口去重（用户 2026-10-17：「有**原生**入口的内置插件就不要再给 web 入口」）────
+    // 一个插件两种入口 ⇒ 用户困惑（同一个 git 面板存在"原生"与"web view"两个点）。
+    // ⛔ 允许对**入口清单**特判（用户明确许可）；但**运行时**（渲染/数据/桥）仍走通用路径，
+    //    绝不按插件 id 分支 —— 新增插件只要声明视图就会被自动归类。
+    let nativeCount: number = 0;
+    for (let k = 0; k < views.length; k++) {
+      if (nativeViewKind(views[k].id).length > 0) {
+        nativeCount++;
+      }
+    }
+    // ⛔ 有原生落地的插件**整条不进 web 目录**（用户 2026-10-17：「有原生入口的就不要再给
+    //   web 入口了……不要一个插件多种入口造成困扰」）。真机实测反例：能力面板里同时出现
+    //   「Git 面板（原生）」与一条「Git 面板」web 卡片 ⇒ 用户不知道该点哪个。
+    //   ⭐ 允许对**入口清单**特判；运行时（渲染/数据/桥）仍走通用路径，绝不按插件 id 分支。
+    if (nativeCount > 0) {
+      continue;
+    }
     item.views = views;
     // 可开性 = 存在「面板类容器 + 非 dynamic」的视图（⛔ 见 `isPanelContainer` 注释：
     // 只声明内嵌徽章/条（`status_bar_right`/`info_bar`/`iteration`）或无 contributes 的插件
@@ -766,6 +783,66 @@ export function primaryViewId(views: PluginViewItem[]): string {
  * · 参数一律 `encodeURIComponent`（中文标题 / 视图中含点号都必须安全）；
  * · `base` 为空 ⇒ 返回空串（调用方不得把它当 URL 用）。
  */
+/**
+ * **插件 WebView 的会话注入脚本**（在页面脚本之前执行：`runJavaScriptOnDocumentStart`）。
+ *
+ * ── 为什么必须有（用户 2026-10-17 P0：「他们拿到的 pwd/cwd 都是错的」）──────────────
+ *  web 插件的 cwd **不是**由插件自己决定的：它们经 **plugin RPC** 取 `cwd`，而 RPC 的会话身份
+ *  来自宿主注入的全局 `window.__xbot_session__ = {channel, chatID}`
+ *  （真源：`web/src/plugin-runtime/usePluginRuntimeHost.ts:373-390`、"插件 RPC 通过
+ *  resolveChat() 读取此值注入 cwd"）。
+ *  ⛔ 原生 WebView 此前**从未注入**它 ⇒ 插件要么报"会话身份未就绪"，要么落到错的取 cwd 路径
+ *  （用户在真机上看到的就是"pwd/cwd 全是错的"）。注入后**所有** web 插件（git-fancy /
+ *  ssh-runner / …）不需要任何原生特判就能拿到当前会话的 cwd。
+ *
+ * @param channel 会话渠道（本仓恒为 `web`）
+ * @param chatId  当前会话 id（空 ⇒ 不注入，见 WebSurface 的判据）
+ */
+export function sessionBootstrapJs(channel: string, chatId: string): string {
+  const ch: string = JSON.stringify(channel.length > 0 ? channel : 'web');
+  const id: string = JSON.stringify(chatId);
+  return `(function(){try{window.__xbot_session__={channel:${ch},chatID:${id}};}catch(e){}})()`;
+}
+
+/** `type:'diff'` 桥消息的载荷（原生 diff 面板请求）。 */
+export class DiffBridgeRequest {
+  path: string = '';
+  commit: string = '';
+}
+
+/**
+ * 解析 `{path, commit}`（**纯函数 + fail-closed**）。
+ *
+ * ⛔ 坏包（非 JSON / 非对象 / `path` 为空）一律 `null` ⇒ 上层**什么都不做**，
+ *   绝不用猜的语义去开一个"空 diff"（那会让用户看到一片空白还以为文件没改动）。
+ */
+export function parseDiffBridgePayload(payload: string): DiffBridgeRequest | null {
+  if (payload.length === 0 || payload.length > 8192) {
+    return null;
+  }
+  try {
+    const raw: Record<string, Object> | null = JSON.parse(payload) as Record<string, Object> | null;
+    if (raw === null || raw === undefined) {
+      return null;
+    }
+    const pathV: Object | undefined = raw['path'];
+    const commitV: Object | undefined = raw['commit'];
+    if (pathV === undefined || pathV === null || typeof pathV !== 'string') {
+      return null;
+    }
+    const path: string = (pathV as string).trim();
+    if (path.length === 0) {
+      return null;
+    }
+    const req: DiffBridgeRequest = new DiffBridgeRequest();
+    req.path = path;
+    req.commit = commitV !== undefined && commitV !== null && typeof commitV === 'string' ? commitV as string : '';
+    return req;
+  } catch (e) {
+    return null;
+  }
+}
+
 export function pluginViewDeepLink(base: string, viewId: string, title: string): string {
   if (base.length === 0 || viewId.length === 0) {
     return '';

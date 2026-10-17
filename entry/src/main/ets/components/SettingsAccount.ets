@@ -23,7 +23,7 @@ import { Palette, paletteOf, isLightPalette } from '../core/theme';
 import { XbotHttp } from '../core/http';
 import { FS_BODY, FS_CAPTION, R_LG, R_MD, R_XL, SP_2, SP_3, SP_4, SP_5 } from '../core/tokens';
 import { accountDisplayName } from '../core/settings';
-import { SettingsPanelHeader } from './SettingsRows';
+import { SettingsPanelHeader, SettingsButton } from './SettingsRows';
 import { PRESS_OPACITY, HIT_TARGET_MIN } from '../core/design';
 
 @Component
@@ -73,7 +73,10 @@ export struct SettingsAccount {
   }
 
   build() {
-    Column({ space: SP_3 }) {
+    // ⛔ **整页唯一滚动容器**（用户 2026-10-17：「别的设置二级面板也丑、也有交互问题」——
+    //    根因之一是面板内容超出屏幕却**没有滚动**，底部条目永远够不到）。
+    Scroll() {
+      Column({ space: SP_3 }) {
       SettingsPanelHeader({
         title: '账号',
         subtitle: '当前登录到本服务端的账号。退出后需要重新登录。',
@@ -113,31 +116,23 @@ export struct SettingsAccount {
               .width('100%')
             Row({ space: SP_2 }) {
               Blank()
-              Text('取消')
-                .constraintSize({ minHeight: HIT_TARGET_MIN })
-                .fontSize(FS_CAPTION)
-                .fontColor(this.pal().textPrimary)
-                .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-                .backgroundColor(this.pal().surfaceAlt)
-                .borderRadius(R_LG)
-                .border({ width: 1, color: this.pal().borderStrong })
-                .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-                .onClick(() => {
+              SettingsButton({
+                label: '取消',
+                kind: 'secondary',
+                theme: this.theme,
+                onTap: () => {
                   this.confirming = false;
-                })
-              Text(this.busy ? '退出中…' : '确认退出')
-                .constraintSize({ minHeight: HIT_TARGET_MIN })
-                .fontSize(FS_CAPTION)
-                .fontColor(this.pal().dangerText)
-                .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-                .backgroundColor(this.pal().surfaceAlt)
-                .borderRadius(R_LG)
-                .border({ width: 1, color: this.pal().borderStrong })
-                .opacity(this.busy ? 0.5 : 1)
-                .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-                .onClick(() => {
+                },
+              })
+              SettingsButton({
+                label: this.busy ? '退出中…' : '确认退出',
+                kind: 'danger',
+                busy: this.busy,
+                theme: this.theme,
+                onTap: () => {
                   void this.doLogout();
-                })
+                },
+              })
             }
             .width('100%')
           }
@@ -172,10 +167,15 @@ export struct SettingsAccount {
       .border({ width: 1, color: this.pal().border })
 
       Blank()
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+      .padding({ left: SP_5, right: SP_5, top: SP_4, bottom: SP_4 })
     }
     .width('100%')
     .layoutWeight(1)
-    .alignItems(HorizontalAlign.Start)
-    .padding({ left: SP_5, right: SP_5, top: SP_4, bottom: SP_4 })
+    .edgeEffect(EdgeEffect.Spring)
+    .scrollBar(BarState.Auto)
+    .align(Alignment.Top)
   }
 }

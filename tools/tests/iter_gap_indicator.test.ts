@@ -196,6 +196,7 @@ function pageSignals(store: ChatStore, w: Wiring): BusySignals {
     freshServerRunning: false,
     loading: false,
     rowsLen: store.rows.length,
+    splashUp: false,
   };
 }
 

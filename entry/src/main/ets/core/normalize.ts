@@ -313,7 +313,10 @@ function normalizeProgress(env: Record<string, unknown>): readonly DomainEvent[]
     type: 'iteration',
     turnID: turn !== null ? turnID(turn) : null,
     phase: optStr(p.phase),
-    iter: iterNum(typeof p.iteration === 'number' && p.iteration >= 1 ? p.iteration : 1),
+    // ⛔ **缺失 ≠ 迭代 1**：伪造 1 会把无迭代号的结构化事件应用/覆盖到第 1 迭代
+    //   （迭代内容跳变/同号重复的真根因之一）。null ⇒ reducer 保留 prev.iter，
+    //   且不参与 `advanced` / gap 判据。
+    iter: typeof p.iteration === 'number' && p.iteration >= 1 ? iterNum(p.iteration) : null,
     seq,
     content: optStr(p.content),
     reasoning: optStr(p.reasoning),
@@ -446,12 +449,12 @@ function normalizeUserEcho(env: Record<string, unknown>): readonly DomainEvent[]
 /**
  * 按 iteration 号去重（**渲染层防线**）。
  *
- * 场景（用户 2026-09-17）：等待用户回答（WaitingUser）期间，同一个 turn 的
- * assistant 会同时存在「committed 占位行（正文空、迭代来自 iteration_history）」
- * 与「live（流式/进行中迭代）」两种表示，刷新后两路都可能喂进渲染层 ⇒
- * **同一段 CoT 渲染两次**；一旦用户回答（WaitingUser 结束、Run 续跑并收敛），
- * 重复消失。这里以 iteration 号为唯一键收敛：同号保留"更有内容的一条"
- * （content/reasoning 非空优先），否则保留**最后**一条，并按号升序输出。
+ * 判据只用 **O(1) 的非空性 + 完整度**，⛔ 不做全文字符串比较：
+ *   · 有正文/思考的一条**永不**被同号空壳（committed 占位行）覆盖；
+ *   · 两条都有或都没有正文 ⇒ **后者胜**（事件内后者 = 更晚到达的增量）；
+ *   · 完整字段（`toolsFolded !== true`）不被轻字段覆盖；
+ *   · 输出按号升序。
+ * 真正的跨事件合并（引用稳定/轻完整四象限）在 `reduce.mergeIterations`。
  */
 export function dedupeIterationsByNumber(iters: readonly WebIteration[]): WebIteration[] {
   if (iters.length <= 1) return iters as WebIteration[]
@@ -462,9 +465,26 @@ export function dedupeIterationsByNumber(iters: readonly WebIteration[]): WebIte
       byNum.set(it.iteration, it)
       continue
     }
-    const prevHas = (prev.content ?? '') !== '' || (prev.reasoning ?? '') !== ''
-    const curHas = (it.content ?? '') !== '' || (it.reasoning ?? '') !== ''
-    if (curHas || !prevHas) byNum.set(it.iteration, it)
+    const prevFolded = prev.toolsFolded === true
+    const curFolded = it.toolsFolded === true
+    const prevHas = (prev.content ?? '').length > 0 || (prev.reasoning ?? '').length > 0
+    const curHas = (it.content ?? '').length > 0 || (it.reasoning ?? '').length > 0
+    // 空壳不得覆盖有内容的；有内容的更新（同号修正）应当生效。
+    if (curHas && !prevHas) {
+      byNum.set(it.iteration, it)
+      continue
+    }
+    if (!curHas && prevHas) {
+      continue
+    }
+    // 同"有无内容"：轻字段不得覆盖完整字段；同完整度后者胜。
+    if (prevFolded && !curFolded) {
+      byNum.set(it.iteration, it)
+    } else if (!prevFolded && curFolded) {
+      // keep prev
+    } else {
+      byNum.set(it.iteration, it)
+    }
   }
   return [...byNum.values()].sort((a, b) => a.iteration - b.iteration)
 }

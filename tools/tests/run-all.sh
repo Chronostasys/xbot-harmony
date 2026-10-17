@@ -75,6 +75,18 @@ mkdir -p "$OUT/js/node_modules/@kit.NetworkKit"
 cp "$HERE/mocks/NetworkKit.js" "$OUT/js/node_modules/@kit.NetworkKit/index.js"
 mkdir -p "$OUT/js/node_modules/@kit.ArkTS"
 cp "$HERE/mocks/ArkTS.js" "$OUT/js/node_modules/@kit.ArkTS/index.js"
+# core/pushreg.ets 在模块顶层 import @kit.PushKit（2026-10-17 新增）⇒ 聚合 harness 也必须装，
+# 否则 pushreg 测试 MODULE_NOT_FOUND（run.sh / run-one.sh 早已有，run-all.sh 漏了）。
+mkdir -p "$OUT/js/node_modules/@kit.PushKit"
+cp "$HERE/mocks/PushKit.js" "$OUT/js/node_modules/@kit.PushKit/index.js"
+cat > "$OUT/js/node_modules/@kit.PushKit/package.json" <<'PKGPUSH'
+{ "name": "@kit.PushKit", "version": "0.0.0", "main": "index.js" }
+PKGPUSH
+mkdir -p "$OUT/js/node_modules/@kit.BasicServicesKit"
+cp "$HERE/mocks/BasicServicesKit.js" "$OUT/js/node_modules/@kit.BasicServicesKit/index.js"
+cat > "$OUT/js/node_modules/@kit.BasicServicesKit/package.json" <<'PKGBSK'
+{ "name": "@kit.BasicServicesKit", "version": "0.0.0", "main": "index.js" }
+PKGBSK
 cat > "$OUT/js/node_modules/@kit.ArkTS/package.json" <<'PKG2'
 { "name": "@kit.ArkTS", "version": "0.0.0", "main": "index.js" }
 PKG2

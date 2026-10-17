@@ -62,6 +62,8 @@ export const BRIDGE_MAX_JSON_LEN: number = BRIDGE_MAX_PAYLOAD_LEN + 4096;
 export const BRIDGE_TYPES: string[] = [
   'ready', 'call', 'notify', 'log', 'resize', 'openExternal', 'close',
   'clipboard',
+  // 页面请求宿主弹出**原生 diff**（通用协议：任何 web 插件都能用，零插件特判）
+  'diff',
   'init', 'result', 'event', 'theme',
 ];
 
@@ -232,6 +234,8 @@ export function makeBridgeMessage(id: string, type: string, payload: string): Br
 
 /** 动作：请求关闭承载页面（页面调用 `xbotNative.postMessage({type:'close'})`）。 */
 export const BRIDGE_ACTION_CLOSE: string = 'close';
+/** 动作：页面请求**原生 diff 面板**（payload = `{path, commit}` JSON）。 */
+export const BRIDGE_ACTION_DIFF: string = 'diff';
 /** 动作：把页面日志转写到原生日志（hilog/console）。 */
 export const BRIDGE_ACTION_LOG: string = 'log';
 /** 动作：页面就绪握手 ⇒ 宿主回一条 `init`（下发主题等能力）。 */
@@ -379,6 +383,12 @@ export function hostActionFor(msg: BridgeMessage): BridgeHostAction {
     // 文本由 `clipboardTextOf` 收敛；空文本 ⇒ 动作仍回 `clipboard` 但 `text=''`，
     // 上层据此**跳过写入**（⛔ 不能拿空串覆盖用户已有剪贴板）。
     return new BridgeHostAction(BRIDGE_ACTION_CLIPBOARD, clipboardTextOf(msg));
+  }
+  if (msg.type === 'diff') {
+    // 原生 diff 代理（通用）：结构化解析交给 `parseDiffBridgePayload`（纯函数、fail-closed），
+    // 这里只把 payload 原样带出。⛔ 不做任何"按插件 id"的分支 —— 所有 web 插件同一出口。
+    const p: string = typeof msg.payload === 'string' ? msg.payload : '';
+    return new BridgeHostAction(BRIDGE_ACTION_DIFF, p);
   }
   if (msg.type === 'nav') {
     // 面板导航意图代理（§21.122f，嵌入模式）：结构化解析交给 `parseHostNavPayload`

@@ -34,6 +34,7 @@ import { canonicalChatId, sessionDisplayKey } from '../core/sessionpick';
 import { FS_CAPTION, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5 } from '../core/tokens';
 import { SSEE_MAX_BYTES, SSEE_MAX_ENTRIES, SseRecEntry, sseRecorder } from '../core/sserec';
 import { XbotHttp } from '../core/http';
+import { LiveViewBridge } from './LiveViewBridge';
 import {
   ExportAction, ExportClock, demoRecordsFrom, exportActionFilename, exportActions, exportedSessionFrom,
   renderExportText, toBenchmarkJsonl,
@@ -41,8 +42,8 @@ import {
 import {
   RPC_EXPORT_SESSION, RPC_EXPORT_SESSION_JSONL, SessionSelectorParams, readableRpcError, rpc,
 } from '../core/rpc';
-import { HIT_TARGET_MIN } from '../core/design';
-import { SettingsPanelHeader, SettingsToolRow } from './SettingsRows';
+import { colorOf, HIT_TARGET_MIN, PRESS_OPACITY } from '../core/design';
+import { SettingsPanelHeader, SettingsToolRow, SettingsButton } from './SettingsRows';
 import { animBase } from './anim';
 
 /** 本地偏好（**不同步服务端**；对齐 web 的 localStorage 语义）。 */
@@ -106,6 +107,13 @@ export struct SettingsDeveloper {
   @Prop channel: string = '';
   /** 当前会话 id（`store.currentChatId`）。 */
   @Prop chatID: string = '';
+  /**
+   * 打开「应用日志」面板（由页面经 `SettingsPanel` 注入）。
+   *
+   * ⛔ 用户 2026-10-16 要求：应用日志是**纯 debug 功能**，不该占侧边栏主导航的显眼位置
+   *   （原实现把它与"设置/文件/终端"同排）⇒ 收进本分区（设置 → 开发者）作二级入口。
+   */
+  onOpenLog: () => void = () => {};
 
   @State private devEnabled: boolean = false;
   @State private rows: SseRecEntry[] = [];
@@ -324,6 +332,72 @@ export struct SettingsDeveloper {
   }
 
   @Builder
+  /**
+   * 实况窗（Live View Kit）**自检 + 一键测试**。
+   *
+   * 为什么放这里：实况窗能不能用由**系统侧**决定（应用实况窗权益 / 调试白名单设备 / 系统开关
+   * 「设置 > 通知与状态栏 > 实况窗 > 本 App」），**不是代码能保证的** ⇒ 给一条自证路径：
+   * 点「测试」就起一条演示实况窗（看状态栏胶囊），失败原因同时落**应用日志**（tag `liveview`）。
+   */
+  @Builder
+  LiveViewSection() {
+    Column({ space: SP_2 }) {
+      Row({ space: SP_2 }) {
+        SymbolGlyph($r('sys.symbol.rectangle_on_rectangle'))
+          .fontSize(18)
+          .fontColor([this.pal().textSecondary])
+        Column({ space: 2 }) {
+          Text('实况窗（Live View）')
+            .fontSize(FS_CAPTION)
+            .fontColor(this.pal().textPrimary)
+          // 能力判定读桥接层（探测结果缓存；进入本页时刷新一次，之后每次重渲都取最新）
+          Text(`系统开关：${LiveViewBridge.shared().capText()} · 失败原因见「应用日志」tag liveview`)
+            .fontSize(10)
+            .fontColor(this.pal().textMuted)
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+      Row({ space: SP_2 }) {
+        Row() {
+          Text('测试实况窗')
+            .fontSize(FS_CAPTION)
+            .fontColor(this.pal().textPrimary)
+        }
+          .padding({ left: SP_3, right: SP_3 })
+          .height(HIT_TARGET_MIN)
+          .justifyContent(FlexAlign.Center)
+          .borderRadius(R_MD)
+          .backgroundColor(this.pal().surfaceAlt)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            LiveViewBridge.shared().testStart();
+          })
+        Row() {
+          Text('结束')
+            .fontSize(FS_CAPTION)
+            .fontColor(this.pal().textPrimary)
+        }
+          .padding({ left: SP_3, right: SP_3 })
+          .height(HIT_TARGET_MIN)
+          .justifyContent(FlexAlign.Center)
+          .borderRadius(R_MD)
+          .backgroundColor(this.pal().surfaceAlt)
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+          .onClick(() => {
+            LiveViewBridge.shared().testStop();
+          })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
   ExportSection() {
     Column({ space: SP_2 }) {
       Text('导出会话')
@@ -400,16 +474,14 @@ export struct SettingsDeveloper {
         .fontColor(this.pal().textMuted)
         .width('100%')
       Row({ space: SP_2 }) {
-        Button('清除缓存')
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().dangerText)
-          .backgroundColor(this.pal().dangerBg)
-          .borderRadius(R_MD)
-          // ⛔ 命中区 ≥ 44（Apple HIG；与本分区「清空 / 复制 JSON」同一防线）。
-          .constraintSize({ minHeight: HIT_TARGET_MIN })
-          .onClick(() => {
+        SettingsButton({
+          label: '清除缓存',
+          kind: 'danger',
+          theme: this.theme,
+          onTap: () => {
             this.clearCaches();
-          })
+          },
+        })
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
@@ -462,7 +534,11 @@ export struct SettingsDeveloper {
   }
 
   build() {
-    Column({ space: SP_3 }) {
+    // ⛔ **整页唯一滚动容器**（用户 2026-10-17：「开发者二级菜单甚至无法滚动看不到所有功能」）：
+    //    此前只有内层事件列表有 Scroll，面板其余内容（开关/按钮/日志入口）超出屏幕即被裁掉、
+    //    无从触达。整页一个 Scroll 后所有条目都可滚到；内层列表另给定高（见其 .height）。
+    Scroll() {
+      Column({ space: SP_3 }) {
       SettingsPanelHeader({
         title: '开发者',
         subtitle: '排障工具：录制 SSE 事件流并查看连接状态。录制内容会自动脱敏（api_key / token 等）。',
@@ -483,6 +559,38 @@ export struct SettingsDeveloper {
           this.onToggleDev(next);
         },
       })
+
+      // ── 应用日志（二级入口；用户 2026-10-16：日志是纯 debug 功能，不该占侧边栏主导航）──
+      Row({ space: SP_2 }) {
+        SymbolGlyph($r('sys.symbol.doc_text'))
+          .fontSize(18)
+          .fontColor([this.pal().textSecondary])
+        Column({ space: 2 }) {
+          Text('应用日志')
+            .fontSize(FS_CAPTION)
+            .fontColor(this.pal().textPrimary)
+          Text('查看当前会话运行期日志（连接 / 切会话 / 发送 / 错误）')
+            .fontSize(10)
+            .fontColor(this.pal().textMuted)
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+        SymbolGlyph($r('sys.symbol.chevron_right'))
+          .fontSize(14)
+          // ⛔ 图标弱色必须走计算型 role `iconMuted`（porcelain 下 textMuted < 3:1 不达非文本门槛）
+          .fontColor([colorOf(this.pal(), 'iconMuted')])
+      }
+      .width('100%')
+      .height(HIT_TARGET_MIN)
+      .alignItems(VerticalAlign.Center)
+      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+      .accessibilityText('打开应用日志')
+      .onClick(() => {
+        this.onOpenLog();
+      })
+
+      // ── 实况窗（Live View Kit）自检 + 手动测试 ──
+      this.LiveViewSection()
 
       // ── 导出会话（对齐 web `SettingsDeveloper.tsx:42-...`；形态表在 `core/export.exportActions()`）──
       this.ExportSection()
@@ -539,26 +647,22 @@ export struct SettingsDeveloper {
 
       // ── 操作：清空 / 复制（原生增强）──
       Row({ space: SP_2 }) {
-        Button('清空')
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().textSecondary)
-          .backgroundColor(this.pal().surfaceAlt)
-          .borderRadius(R_MD)
-          // ⛔ 命中区 ≥ 44（Apple HIG）：32 低于阈值（审计命中）。
-          .constraintSize({ minHeight: HIT_TARGET_MIN })
-          .onClick(() => {
+        SettingsButton({
+          label: '清空',
+          kind: 'secondary',
+          theme: this.theme,
+          onTap: () => {
             this.clearRec();
-          })
-        Button('复制 JSON')
-          .fontSize(FS_CAPTION)
-          .fontColor(this.pal().onAccent)
-          .backgroundColor(this.pal().accent)
-          .borderRadius(R_MD)
-          // ⛔ 命中区 ≥ 44（Apple HIG）：32 低于阈值（审计命中）。
-          .constraintSize({ minHeight: HIT_TARGET_MIN })
-          .onClick(() => {
+          },
+        })
+        SettingsButton({
+          label: '复制 JSON',
+          kind: 'primary',
+          theme: this.theme,
+          onTap: () => {
             this.copyRec();
-          })
+          },
+        })
         if (this.copyNote.length > 0) {
           Text(this.copyNote)
             .fontSize(FS_CAPTION)
@@ -590,7 +694,9 @@ export struct SettingsDeveloper {
           .width('100%')
         }
         .width('100%')
-        .layoutWeight(1)
+        // ⛔ 内层列表**定高**（外层已是整页 Scroll）：`layoutWeight(1)` 在"外层可滚 + 内容自适应"
+        //    下会与外层争高 ⇒ 两者都滚不动（用户亲报「开发者面板无法滚动」的同一族根因）。
+        .height(280)
         .padding(SP_3)
         .backgroundColor(this.pal().surface)
         .borderRadius(R_XL)
@@ -599,11 +705,16 @@ export struct SettingsDeveloper {
         .scrollBar(BarState.Auto)
         .align(Alignment.Top)
       }
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+      .padding({ left: SP_5, right: SP_5, top: SP_4, bottom: SP_4 })
     }
     .width('100%')
     .layoutWeight(1)
-    .alignItems(HorizontalAlign.Start)
-    .padding({ left: SP_5, right: SP_5, top: SP_4, bottom: SP_4 })
+    .edgeEffect(EdgeEffect.Spring)
+    .scrollBar(BarState.Auto)
+    .align(Alignment.Top)
   }
 }
 

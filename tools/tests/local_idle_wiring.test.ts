@@ -84,6 +84,23 @@ const cancelOptimistic: number = countOf(storeSrc, "{ type: 'session', busy: fal
 console.log(`  idle-scan ${STORE}: cancel 乐观 idle push=${cancelOptimistic}`);
 ok(`store.cancel 乐观 idle push（session busy=false）≥ 1（实测 ${cancelOptimistic}）`, cancelOptimistic >= 1);
 
+// ── ⑤ **乐观置 running**（用户 2026-10-17 P0「mid-turn idle 冻结」的根因接线）──────────────
+//    判据：`send()` 回执后按 `sendStartsTurn` 门控推 `session_running(true)`（对齐 web
+//    `AgentPanel.tsx:177-180` 的 `setStatus(selector,'running')`）。缺它 ⇒ turn 行进中
+//    `sessionRunning` 恒 false ⇒ 粗粒度 idle 闸门（reduce/store 两处）恒失效 ⇒ 迟到 idle
+//    冻结在飞 turn。⛔ 钉**调用点**（判据存在但没人调 = 静默无效）—— 判据在
+//    `tools/tests/send_optimistic_running.test.ts`（端到端）。
+const smSendStartsTurnExport: number = countOf(smSrc, 'export function sendStartsTurn(');
+const storeSendStartsTurnName: number = countOf(storeSrc, 'sendStartsTurn');
+const storeSendStartsTurnCall: number = countOf(storeSrc, 'sendStartsTurn(ack.turn_id');
+const storeOptRunningPush: number = countOf(storeSrc, "'session_running', running: true");
+console.log(`  idle-scan ${STORE}: sendStartsTurn name=${storeSendStartsTurnName} call=${storeSendStartsTurnCall} optRunning=${storeOptRunningPush}`);
+console.log(`  idle-scan ${SM}: export sendStartsTurn(=${smSendStartsTurnExport}`);
+ok(`streammerge 导出 sendStartsTurn 定义（${smSendStartsTurnExport} ≥ 1）`, smSendStartsTurnExport >= 1);
+ok(`store 真用 sendStartsTurn（import + 调用 ≥2；实测 ${storeSendStartsTurnName}）`, storeSendStartsTurnName >= 2);
+ok(`store.send 按 sendStartsTurn 门控（调用点 ${storeSendStartsTurnCall} ≥ 1）`, storeSendStartsTurnCall >= 1);
+ok(`store.send 乐观推 session_running(true)（调用点 ${storeOptRunningPush} ≥ 1）`, storeOptRunningPush >= 1);
+
 // ── 零扫描判红：链接线调用点合计必须 > 0（扫描器与真源脱节 ⇒ 红）──────────────────
 ok('零扫描判红：本地置 idle 接线调用点合计 > 0',
   storeSmImport + storeCall + storeIdleCalls + smDef > 0);

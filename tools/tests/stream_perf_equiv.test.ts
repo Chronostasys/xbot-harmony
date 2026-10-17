@@ -15,7 +15,7 @@
 declare const process: { exit: (c: number) => void };
 
 import { toRunes, runeCount, clipRunes } from '../../entry/src/main/ets/core/typewriter';
-import { applyRow, inFlightBlock, liveBlocksSignature, EMPTY_BLOCKS_SIGNATURE } from '../../entry/src/main/ets/core/render';
+import { applyRow, inFlightBlock } from '../../entry/src/main/ets/core/render';
 import {
   completedBlocks, mergeToolRuns, blocksSignature, toolKey,
 } from '../../entry/src/main/ets/core/streammerge';
@@ -487,40 +487,37 @@ console.log('\n▶ §10 「双命中」：live 行已完成块指纹（O(1)）==
     }
     throw new Error('§10 无 live 行 —— 构造器坏了（零扫描防线）');
   };
-  let eqAll = true, changedDetected = true, stableHit = true, sawNonEmpty = false;
+  let idempotent = true, changeDetected = true, memoHit = true, sawNonEmpty = false, ignoreSignature = true;
   for (const K of [0, 8, 24, 108]) {
     const base = buildLive10(K);
     const row: ChatRow = new ChatRow();
-    const frames: ChatState[] = [base];
-    let s: ChatState = base;
-    for (let f = 0; f < 6; f++) { s = reduce(s, streamEv10(K, 'x'.repeat(f + 1))); frames.push(s); }
-    frames.push(reduce(s, itEv10(K + 1)));
-    for (const st of frames) {
-      applyRow(row, liveView10(st));
-      if (liveBlocksSignature(row) !== blocksSignature(completedBlocks(row))) { eqAll = false; }
+    // ① 同一个派生 Row 对象重复 applyRow ⇒ 必须 false（O(1) 对象恒等 no-op）
+    const view = liveView10(base);
+    if (applyRow(row, view) !== true) { changeDetected = false; }
+    if (applyRow(row, view) !== false) { idempotent = false; }
+    const cb = completedBlocks(row);
+    if (cb !== completedBlocks(row)) { memoHit = false; }
+    if (cb.length !== row.completedBlocks.length) { memoHit = false; }
+    for (let i = 0; i < cb.length; i++) {
+      if (cb[i] !== row.completedBlocks[i]) { memoHit = false; }
     }
-    if (completedBlocks(row).length > 0) { sawNonEmpty = true; }
-    // 纯 stream 帧 ⇒ 指纹稳定（缓存可命中）；commit 帧 ⇒ 必变（不陈旧）
-    const rowB: ChatRow = new ChatRow();
-    applyRow(rowB, liveView10(base));
-    const a = liveBlocksSignature(rowB);
-    const sB1 = reduce(base, streamEv10(K, 'q'));
-    applyRow(rowB, liveView10(sB1));
-    const b = liveBlocksSignature(rowB);
-    const sB2 = reduce(sB1, streamEv10(K, 'qq'));
-    applyRow(rowB, liveView10(sB2));
-    if (!(a === b && b === liveBlocksSignature(rowB))) { stableHit = false; }
-    const sC = reduce(sB2, itEv10(K + 1));
-    applyRow(rowB, liveView10(sC));
-    if (liveBlocksSignature(rowB) === b) { changedDetected = false; }
+    if (cb.length > 0) { sawNonEmpty = true; }
+    // ② 新状态 ⇒ 新派生 Row 对象 ⇒ 必须 true（即使行对象的旧 signature 被伪造也不影响）
+    row.signature = 'stale-poison';
+    const s1 = reduce(base, streamEv10(K, 'x'));
+    if (applyRow(row, liveView10(s1)) !== true) { changeDetected = false; }
+    if (row.signature !== 'stale-poison') { ignoreSignature = false; } // 新实现不再读写 signature
+    // ③ commit 帧 ⇒ liveRevision 必增（页面据此投递，绝不陈旧）
+    const rev0 = row.liveRevision;
+    applyRow(row, liveView10(reduce(s1, itEv10(K + 1))));
+    if (row.liveRevision <= rev0) { changeDetected = false; }
   }
-  ok('★10 逐帧（含 commit）：liveBlocksSignature == oracle blocksSignature(completedBlocks(row))', eqAll);
-  ok('★10 纯 stream 帧 ⇒ 指纹不变（记忆化可命中）', stableHit);
-  ok('★10 commit 帧 ⇒ 指纹必变（记忆化不陈旧）', changedDetected);
+  ok('★10 同一 Row 对象 ⇒ applyRow 幂等（false）', idempotent);
+  ok('★10 新 Row 对象 ⇒ applyRow 必更新（true；不依赖旧字符串 signature）', changeDetected && ignoreSignature);
+  ok('★10 live 行 completedBlocks === completedBlocks(row)（同一引用，零重算）', memoHit);
   ok('★10 零扫描防线：K>0 时确实有已完成块（判据不是"两边都空"的假绿）', sawNonEmpty);
   const fresh: ChatRow = new ChatRow();
-  eq('★10 新建行（未 applyRow）⇒ 空块指纹', liveBlocksSignature(fresh), EMPTY_BLOCKS_SIGNATURE);
-  eq('★10 EMPTY_BLOCKS_SIGNATURE == blocksSignature([])', EMPTY_BLOCKS_SIGNATURE, blocksSignature([]));
+  eq('★10 新建行（未 applyRow）⇒ completedBlocks 为空', completedBlocks(fresh).length, 0);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

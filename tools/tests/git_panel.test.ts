@@ -193,6 +193,21 @@ ok('⑥ 「加载更多」只在还有时出现', comp.indexOf('if (this.hasMore
 ok('⑥ 三形态分支齐', comp.indexOf("this.mode === 'diff'") >= 0 && comp.indexOf("this.mode === 'commit'") >= 0
   && comp.indexOf('this.ListBody()') >= 0);
 
+// ── ⑦ commit 作用域接线（2026-10-16 真机 bug：「点 commit 的文件 diff 都是 0」）──────────
+// 病根：`gitCommitHash` **只声明、从不赋值**（恒 `''`）⇒ `openGitDiff(path,
+//   this.gitMode === 'commit' ? this.gitCommitHash : '')`（`:5774`）恒传空 ⇒ 服务端退化成
+//   **工作区**作用域（`git diff -- path`）⇒ 已提交文件在工作区无改动 ⇒ `content` 为空 ⇒
+//   前端落到空态文案「没有可显示的文本改动（二进制文件或仅权限变更）」。
+// ⇒ 判据必须钉**赋值调用点**：只钉"声明存在"必假绿（原 bug 的形态恰恰是声明齐全）。
+const commitScopeWrites: number = countOf(page, 'this.gitCommitHash = ');
+eq('⑦ gitCommitHash 赋值点恰 2 处（写入本次 hash + 回列表清理）', commitScopeWrites, 2);
+ok('⑦ commit 详情打开时写入本次 hash（⛔ 只声明不写 = 原 bug）',
+  /this\.gitCommitHash\s*=\s*hash\s*;/.test(page));
+ok('⑦ 回列表时清掉作用域（⛔ 否则工作区文件错带上一个 commit）',
+  /this\.gitCommitHash\s*=\s*''\s*;/.test(page));
+ok('⑦ 点文件时真把 commit 作用域传下去（⛔ 不许写死空串）',
+  page.indexOf("this.openGitDiff(path, this.gitMode === 'commit' ? this.gitCommitHash : '')") >= 0);
+
 if (fail > 0) { console.log(`  git_panel: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  git_panel: ${pass} passed, 0 failed`);
 process.exit(0);

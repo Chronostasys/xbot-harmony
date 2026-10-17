@@ -210,25 +210,31 @@ eq('thinkingStepLabel 越界钳位', [thinkingStepLabel(-5), thinkingStepLabel(9
 function palOnceClosed(index: string): boolean {
   // ① 声明 ∧ 消费（⛔ 只钉"方法存在"是假绿；必须有真实调用点，否则指标退化）
   if (index.indexOf('private palOnce(): Palette {') < 0) { return false; }
-  const i: number = index.indexOf('private palOnce(): Palette {');
-  const body: string = index.slice(i, i + 900);
   if ((index.split('this.palOnce()').length - 1) < 1) { return false; }
-  // ② 记忆键覆盖 `pal()` 的两项依赖
+  // ② 记忆键覆盖 `pal()` 的两项依赖。
+  //    2026-10-20 性能修复：memo 从 `palOnce()` 搬到 `pal()`（`palOnce()` 直接转发）
+  //    ⇒ 判据按"任一处承载 memo 即可"，但**必须**仍是同一份两项键（不许退化成单键）。
+  const onceIdx: number = index.indexOf('private palOnce(): Palette {');
+  const palIdx: number = index.indexOf('private pal(): Palette {');
+  if (palIdx < 0) { return false; }
+  const onceBody: string = index.slice(onceIdx, onceIdx + 900);
+  const palBody: string = index.slice(palIdx, palIdx + 1400);
+  const body: string = onceBody.indexOf('palMemoTheme !==') >= 0 ? onceBody : palBody;
   if (body.indexOf('this.themeName') < 0) { return false; }
   if (body.indexOf('this.accentHex()') < 0) { return false; }
   // ③ 失效判据必须**同时**比两项（主题 ∧ 强调色）
   if (body.indexOf('palMemoTheme !==') < 0) { return false; }
   if (body.indexOf('palMemoAccent !==') < 0) { return false; }
-  // ④ 未命中必须**重算并回填**，命中必须**返回缓存值**（不是每次都 `pal()`）
-  if (body.indexOf('this.palMemoVal = this.pal()') < 0) { return false; }
+  // ④ 未命中必须**重算并回填**，命中必须**返回缓存值**
+  if (body.indexOf('this.palMemoVal =') < 0) { return false; }
   if (body.indexOf('return this.palMemoVal') < 0) { return false; }
   return true;
 }
 ok(`G 闭合：palOnce 声明 ∧ 消费 ≥1 ∧ 失效键含 主题+强调色（Index.ets:${firstLine(INDEX, 'private palOnce(): Palette {')}）`,
   palOnceClosed(INDEX));
-// ⛔ 反证：`pal()` 仍是"记忆化之外"的唯一实现（⛔ 别把它也 memo 掉 —— 那会让本契约失去意义）
-ok('G 反证：`pal()` 本体未被记忆化（不存在 `palMemo` 之外的缓存返回）',
-  INDEX.indexOf('private pal(): Palette {') >= 0);
+// ⛔ 反证：memo 只能有一份（2026-10-20 起在 `pal()`；`palOnce()` 必须直接转发）。
+ok('G 反证：`pal()` 是唯一记忆化实现、`palOnce()` 直接转发',
+  INDEX.indexOf('private pal(): Palette {') >= 0 && INDEX.indexOf('return this.pal();') >= 0);
 
 // ── G2：perf 指标**不得退化/合并**（防"改了尺子就把刻度放宽"· 编排者裁决）────────────
 //
@@ -279,7 +285,9 @@ ok('mutation G2：抽掉**主题**键（只比强调色）⇒ 换主题返回陈
 ok('mutation G3：把失效判据变成恒真（每次都重算 ⇒ memo 失效）⇒ 必红',
   !palOnceClosed(INDEX.replace('this.palMemoVal === null || this.palMemoTheme !== t || this.palMemoAccent !== a', 'true')));
 ok('mutation G4：命中时不返回缓存值 ⇒ 必红',
-  !palOnceClosed(INDEX.replace('return this.palMemoVal;', 'return this.pal();')));
+  !palOnceClosed(INDEX
+    .replace('return this.palMemoVal as Palette;', 'return this.pal();')
+    .replace('return this.palMemoVal;', 'return this.pal();')));
 ok('mutation G5：把消费点全抽掉（指标退化 ⇒ 白绿）⇒ 必红',
   !palOnceClosed(INDEX.split('this.palOnce()').join('this.pal()')));
 // G2：指标不许退化/合并

@@ -1,3 +1,42 @@
+import { ChatRow, HistoryIteration, IterList, ProgressEvent, ToolProgress } from './types';
+import { DomainEvent, EventSeq, TurnID } from './chat_types_full';
+import { ST_GENERATING } from './toolstatus';
+import { nonEmpty } from './guards';
+// ⛔ ArkTS `arkts-no-misplaced-imports`：**所有 import 必须在文件顶部**（不能放中间）。
+//    `toolmerge` 是**纯 `.ts`**（`reduce.ts` 也要用它，而 `core/*.ts` 禁 import `.ets`）。
+import { mergeActiveStatus, toolRank } from './toolmerge';
+
+/**
+ * **会话树对账后的权威 running**（web `useSessionStore.ts:1012-1027` 语义逐字移植）。
+ *
+ * 来源与判据（原文）：*"HTTP (session-tree) is the persistent authority, and the
+ * unconditional 30s poll guarantees convergence even when every SSE event is missed.
+ * A FRESH intent overrides a contradicting HTTP response; an expired (or absent)
+ * intent means HTTP ALWAYS wins."*
+ *
+ * ⛔ 服务端 `/api/session-tree` 的 `running` 是 **`omitempty`**（false 缺字段）⇒ 调用方
+ *   传进来的 `serverRunning` 必须已把"缺字段"折成 `false`（**不是** unknown！）。
+ *   上一版把它当 unknown 跳过对账 ⇒ 丢一条 idle 就 **busy 永久卡住**（用户 2026-10-17 P0
+ *   「卡在 busy 态、最后工具都做完了还挂思考中」）。
+ *
+ * @param serverRunning 会话树给出的权威 running（缺字段已折成 false）
+ * @param intentBusyAt  最近一次 **busy 型 SSE 证据**的时刻（发送回执/进度帧）
+ * @param intentIdleAt  最近一次 **idle 型 SSE 证据**的时刻（PhaseDone / session(idle)）
+ * @param nowMs         当前时刻
+ * @param ttlMs         意图竞态窗口（web 同值 15s）
+ * @return 是否应把 session 判为 running
+ */
+export function runningAfterReconcile(serverRunning: boolean, intentBusyAt: number,
+  intentIdleAt: number, nowMs: number, ttlMs: number): boolean {
+  if (serverRunning) {
+    return true;
+  }
+  // 新鲜 busy 意图（且不早于最近一次 idle）⇒ 覆盖矛盾的 HTTP（刚发送/刚起跑，树落后一个 RTT，
+  // 否则会"刚发就变 idle"再翻回 = 用户 2026-10-17 报的历史闪烁）。过期 ⇒ HTTP 说了算。
+  const freshBusy: boolean = intentBusyAt > 0 && nowMs - intentBusyAt < ttlMs && intentBusyAt >= intentIdleAt;
+  return freshBusy;
+}
+
 /**
  * 流式（stream_content）与结构化（progress_structured）两类进度事件的**合并语义**。
  *
@@ -18,13 +57,6 @@
  *
  * 本模块是**纯函数**（不依赖 SDK），由 `tools/tests/streammerge.test.ts` 守护。
  */
-import { ChatRow, HistoryIteration, IterList, ProgressEvent, ToolProgress } from './types';
-import { DomainEvent, EventSeq, TurnID } from './chat_types_full';
-import { ST_GENERATING } from './toolstatus';
-import { nonEmpty } from './guards';
-// ⛔ ArkTS `arkts-no-misplaced-imports`：**所有 import 必须在文件顶部**（不能放中间）。
-//    `toolmerge` 是**纯 `.ts`**（`reduce.ts` 也要用它，而 `core/*.ts` 禁 import `.ets`）。
-import { mergeActiveStatus, toolRank } from './toolmerge';
 
 /** 该事件是否"只带流式字段"（与 服务端 isStreamOnlyProgress 同判据，但更宽松：不要求 iteration==0）。 */
 export function isStreamOnly(e: ProgressEvent): boolean {
@@ -311,12 +343,17 @@ export function liveBlockOf(row: ChatRow): HistoryIteration | undefined {
  *   函数 —— 投递源与判据/渲染同源，杜绝"投递的内容与画的内容分叉"。
  */
 export function completedBlocks(row: ChatRow): HistoryIteration[] {
+  const hit: HistoryIteration[] | undefined = completedBlocksMemo.get(row.iterations);
+  if (hit !== undefined) {
+    return hit;
+  }
   const out: HistoryIteration[] = [];
   for (let i = 0; i < row.iterations.length; i++) {
     if (row.iterations[i].live !== true) {
       out.push(row.iterations[i]);
     }
   }
+  completedBlocksMemo.set(row.iterations, out);
   return out;
 }
 
@@ -621,6 +658,10 @@ function mergeIntoHead(head: HistoryIteration, tools: ToolProgress[], blockFolde
     reasoning: head.reasoning,
     tools,
     tools_folded: head.tools_folded === true || blockFolded,
+    // 合并后内容变了 ⇒ 换一个新的**整数**版本（内层 ForEach key 用它）。
+    // ⛔ 不用内容哈希/字符串比较；`mergeToolRuns` 按输入数组恒等记忆化 ⇒
+    //   同一输入只合并一次，rev 稳定，不会每帧重建。
+    rev: ++mergedRevSeq,
   };
   // 保留 head 的其它渲染字段（live / 流式缓冲 / 创建时间）——渲染层仍要读它们。
   if (head.created_at !== undefined) {
@@ -638,6 +679,9 @@ function mergeIntoHead(head: HistoryIteration, tools: ToolProgress[], blockFolde
   return out;
 }
 
+/** 已完成块过滤结果按**源数组对象恒等**记忆化（引用不变 ⇒ 不重算、不重投）。 */
+const completedBlocksMemo = new WeakMap<object, HistoryIteration[]>();
+
 /**
  * 连续「纯工具」迭代合并进前一个含工具的迭代 —— **逐字移植** web `TurnBody.mergeToolRuns`
  * （`TurnBody.tsx:942-967`）。
@@ -652,7 +696,14 @@ function mergeIntoHead(head: HistoryIteration, tools: ToolProgress[], blockFolde
  * ⚠️ 无工具迭代原样透传（**不做**跨文本合并）。返回新数组；未合并的 head 保持**对象恒等**
  *   （ArkUI ForEach 复用友好）。
  */
+let mergedRevSeq: number = 0;
+const mergedRunsMemo = new WeakMap<object, HistoryIteration[]>();
+
 export function mergeToolRuns(iters: HistoryIteration[]): HistoryIteration[] {
+  const hit: HistoryIteration[] | undefined = mergedRunsMemo.get(iters);
+  if (hit !== undefined) {
+    return hit;
+  }
   const out: HistoryIteration[] = [];
   let i: number = 0;
   while (i < iters.length) {
@@ -706,6 +757,30 @@ export function isIdleAction(action: string): boolean {
 
 export function isBusyAction(action: string): boolean {
   return action === 'busy' || action === 'agent-busy';
+}
+
+/**
+ * 这次发送是否会**开启一个 turn**（`/api/message` 回执判定）—— 逐字移植 web
+ * `src/lib/sendTurn.ts` 的 `sendStartsTurn`。用途：**乐观置 running** 的适用条件。
+ *
+ * 为什么需要它（用户 2026-10-17 P0「mid-turn idle 冻结」的真根因）：
+ *   web 在发送成功后 `store.setStatus(selector,'running')`（`AgentPanel.tsx:177-180`，
+ *   受本函数门控）⇒ `sessionRunning` 在 turn 进行中即为 **true** ⇒ 状态机的**粗粒度
+ *   idle 闸门**（`reduce.ts` 的 `if (s.sessionRunning) return s`）生效，迟到/回放的
+ *   `session(idle)` 不得冻结在飞 turn。原生此前**没有**这一步 ⇒ `sessionRunning` 在
+ *   整个 turn 中恒为 false ⇒ 闸门恒失效 ⇒ 一条迟到 idle 就把在飞 turn 冻结（同迭代
+ *   stream 随后被静默丢弃，"live 进度消失"）。
+ *
+ * ⛔ 只对"会开启 turn"的发送置位：命令（`!cmd` / slash）后端按设计**没有** turn 生命周期
+ *   （无 `turn_started`、无 `session(idle)`）⇒ 乐观置位**永远清不掉** ⇒ 会话卡 busy
+ *   （且命令不产生 live 行 ⇒ 列表底部多出一个"思考中"占位符）。
+ *
+ * @param turnID 服务端分配的本轮 turn_id（命令/失败缺省）
+ * @param queued 消息入队（chat 忙，排队等待执行 —— 终将开启 turn）
+ */
+export function sendStartsTurn(turnID: number | undefined | null, queued: boolean | undefined): boolean {
+  if (queued === true) return true;
+  return typeof turnID === 'number' && turnID > 0;
 }
 
 /** 历史被回退（rewind）⇒ 必须重载历史，否则界面停留在被撤销的内容上。 */

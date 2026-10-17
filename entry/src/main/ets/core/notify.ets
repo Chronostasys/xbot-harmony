@@ -1028,6 +1028,8 @@ export function appIsForeground(): boolean {
 export const NOTIFY_SLOT_SOCIAL: string = 'social';
 /** slot 标签：内容资讯（LEVEL_MIN = 静默，仅在通知中心/角标可见）。 */
 export const NOTIFY_SLOT_CONTENT: string = 'content';
+/** slot 标签：实况窗（LIVE_VIEW，仅 `turn_live` 这类持续显示用）。 */
+export const NOTIFY_SLOT_LIVE: string = 'live';
 
 /** 档位 → slot 标签（纯函数；SDK 枚举映射见 `slotTypeOf`）。 */
 export function slotTagFor(kind: string): string {
@@ -1036,9 +1038,13 @@ export function slotTagFor(kind: string): string {
 
 /** slot 标签 → SDK 枚举（**唯一**把纯标签翻成 SDK 值的地方）。 */
 function slotTypeOf(tag: string): notificationManager.SlotType {
-  return tag === NOTIFY_SLOT_SOCIAL
-    ? notificationManager.SlotType.SOCIAL_COMMUNICATION
-    : notificationManager.SlotType.CONTENT_INFORMATION;
+  if (tag === NOTIFY_SLOT_SOCIAL) {
+    return notificationManager.SlotType.SOCIAL_COMMUNICATION;
+  }
+  if (tag === NOTIFY_SLOT_LIVE) {
+    return notificationManager.SlotType.LIVE_VIEW;
+  }
+  return notificationManager.SlotType.CONTENT_INFORMATION;
 }
 
 // ── SDK 封装（全部 try/catch + 返回 boolean；失败绝不外抛）───────────────────
@@ -1373,7 +1379,7 @@ export async function publishLiveView(
       id: LIVE_VIEW_ID,
       content: content,
       wantAgent: agent,
-      notificationSlotType: notificationManager.SlotType.LIVE_VIEW,
+      notificationSlotType: slotTypeOf(NOTIFY_SLOT_LIVE),
       autoDeletedTime: Date.now() + LIVE_VIEW_AUTO_DELETE_MS,
       tapDismissed: false,
       isOngoing: true,

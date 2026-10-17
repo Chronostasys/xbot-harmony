@@ -555,27 +555,18 @@ export function parseMarkdownCached(src: string): MdBlock[] {
     return hit;
   }
   mdCacheMisses++;
+  // ⛔ **每次源串变化 ⇒ 全量重新解析**（用户 2026-10-17 亲报「SSE 更新时列表渲染漏字」，
+  //    web 无此 bug）。
+  //    旧实现做了"按块增量复用"：只从**最后一个块**起点重解析尾部（流式省字符）。
+  //    但"追加只会改最后一个块"这个前提**不成立**：
+  //      · 代码围栏闭合（``` 落行）会把**前面**的段落并入代码块；
+  //      · 列表续行 / 嵌套、表格补行、Setext 标题（`---` 落行）、引用块延续……
+  //    都会改写**更早**的块 ⇒ 复用旧前缀 ⇒ 前缀与新后缀拼在**同一份块表**里
+  //    ⇒ 文本错位/**漏字**（用户所见）。
+  //    web `MarkdownView` 每次都对**完整字符串**解析，故无此问题 ⇒ 对齐 web：
+  //    只有**源串逐字相同**才复用上一次结果（`mdBlockCache` 命中），否则全量解析。
   let blocks: MdBlock[];
-  if (mdLastBlocks.length > 1 && src.length > mdLastSrc.length && src.startsWith(mdLastSrc)) {
-    // ── 按块增量复用（流式：src 是上一个 src 的**超集**）────────────────────────────
-    // 解析器是**逐行顺序**的，且除**最后一个块**之外，每个块都由空行/构造终止符封闭
-    // ⇒ 追加文本只可能改动"最后一个（仍在生长的）块"。故只从它的起点重解析尾部。
-    // 效果：喂给解析器的字符量从"前缀求和（近二次）"降到 ≈ 文档规模。
-    // 正确性由 `tools/tests/md_cache.test.ts`（内容一致）+ `mdview_perf.test.ts`（比值）守护。
-    const stable: number = mdLastBlocks.length - 1;
-    const rewind: number = mdLastBlocks[stable].start;
-    const tail: MdBlock[] = parseMarkdown(src.substring(rewind));
-    for (let k = 0; k < tail.length; k++) {
-      tail[k].start += rewind;
-    }
-    blocks = mdLastBlocks.slice(0, stable).concat(tail);
-    // ⛔ 只对**尾部**重编号（`from = stable`）：头部 `0..stable-1` 的块在上一拍已按
-    //    **同一 (内容, 下标)** 写过 key ⇒ 跳过它们**逐字不变**。旧写法 `assignKeys(blocks)`
-    //    每拍对**全体**块重编号 ⇒ O(总块数)/拍（随文档增长 = O(n²)，实测占流式 120 拍的 38%）。
-    assignKeys(blocks, stable);
-  } else {
-    blocks = parseMarkdown(src);
-  }
+  blocks = parseMarkdown(src);
   mdLastSrc = src;
   mdLastBlocks = blocks;
   mdBlockCache.set(src, blocks);

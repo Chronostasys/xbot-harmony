@@ -56,7 +56,7 @@
 | **按分组/按 id 清理** | `cancelGroup`（`:644-665`）、`cancel(id,label?)`（`:234`，缺 label 命中我们的通知） | ✅ 登出 `cancelGroup`；进会话 `cancel(id)` |
 | **授权（读真值 + 请求）** | `isNotificationEnabled`（`:501-536`）、`requestEnableNotification(ctx)`（`:752-799`） | ✅ 设置开关反映**系统真值** |
 | **免打扰（DND）** | `NotificationSlot.bypassDnd`（默认 false） | ⛔ **刻意不设** —— 尊重系统免打扰（不绕过） |
-| **大图 / 实况窗（LiveView）/ 灵动岛** | 通知通道：`NotificationPictureContent`（`notificationContent.d.ts:196-221`）；`NOTIFICATION_CONTENT_SYSTEM_LIVE_VIEW`（`:1171-1179`，"三方不能直接创建"）。**2026-10-17 复验（用户问「灵动岛为什么不支持」）**：HMS 侧确有独立 `@kit.LiveViewKit`（`@since 4.1.0(11)`，本工程 SDK21 满足）——`startLiveView/updateLiveView/stopLiveView` 三 API；**但 `LiveView.event` 是场景白名单枚举**（`liveViewManager.d.ts:390-425`：TAXI 打车/DELIVERY 外卖/FLIGHT 航班/TRAIN 火车/QUEUE 叫号/PICK_UP 取餐/SCORE 比分/RENT 租赁/TIMER 计时/WORKOUT 运动/NAVIGATION 导航/CHECK_IN 打卡/EXPRESS 快递/PROGRESS 进度/TRADE 金融）——**全垂类、无 CHAT/AI 助手类目**；且原文明示"To use specific scenarios, you need to apply for corresponding permissions"（AGC 白名单审核，个人 debug 签名不可行） | ➖ **平台性不可行**：聊天场景不在 event 白名单 + AGC 权限申请制。语义最接近的 QUEUE/PROGRESS/TIMER 是叫号/下载进度语义，滥用有审核风险。锁屏/通知中心的丰富形态已由本表各行覆盖（长文本 3072B+动作按钮+分组） |
+| **实况窗（LiveView）/ 灵动岛** | **已落地（2026-10-17）**：HMS `@kit.LiveViewKit`（`@since 4.1.0(11)`，本工程 SDK21 满足）—— `isLiveViewEnabled`/`startLiveView`/`updateLiveView`/`stopLiveView`；`LiveView.event` 15 个场景是**逐场景申请权限**制（不是封闭白名单；SDK 原文 "To use specific scenarios, you need to apply for corresponding permissions"），且 `LayoutType` 有 **`LAYOUT_TYPE_CUSTOM=100`+`CustomLayout`**；本仓用 `event='PROGRESS'` + `LAYOUT_TYPE_DEFAULT`（标题/两行内容/文字胶囊/系统计时器），落地件见 § 实况窗 / 灵动岛（`core/liveview.ets` + `components/LiveViewBridge.ets` + `pages/Index.ets:syncLiveView`） | ✅ **已实现并接线**（⛔ 2026-10-16 我曾判"平台性不可行"**是错的**，依据错在只读了样例的场景工具类、没读 SDK 枚举真源）。**待用户侧**：AGC 开通推送+实况窗权益（场景 `PROGRESS`）+ 正式签名 ⇒ 无需改代码即生效；未开通时自动降级并落一行应用日志 |
 
 ## 3.9 后台对账（`workScheduler` 延迟任务）—— 客户端上限方案（2026-10-11 落地）
 
@@ -133,3 +133,129 @@
 | 动作按钮「停止 / 继续」 | **未发射** | deep-link 通道就绪（`notify_action` 参数已投递），但"执行"在 `pages/Index.ets`（**他线持有**）⇒ 页面接线后把 `notifyActionsFor` 改一行即可 |
 | B 档长时任务 / C 档 WorkScheduler 落地 | **仅文档 patch** | 需用户同意（改 `module.json5` 权限面），见 `docs/PATCHES/background-notify.md` |
 | 真机验收 | **未做** | 设备在跑用户会话，⛔ 不碰 |
+
+---
+
+## § 服务端主动推送（Push Kit 插件 `xbot.harmony-push`）—— 2026-10-17 落地
+
+**一句话**：服务端可以**主动**把通知推到装了 xbot 的华为手机上，用户不打开应用也能收到；
+实现方式是**纯非侵入插件**（源码在本仓 `plugins/xbot-harmony-push/`，只把二进制投进
+`${XBOT_HOME:-~/.xbot}/plugins/xbot.harmony-push/`，**服务端源码一行未改**，删目录即完全回原状）。
+
+| 面 | 落地件 |
+|---|---|
+| 全渠道工具 | `push_harmony_noti`（`title/body` 必填；`level` info·warn·error、`category`、`ttl`、`silent`、`notifyId`（覆盖式进度更新）、`data`、`dryRun`）；回执 JSON 带 `sent/failed/devices/code/hint`，**失败给可执行中文** |
+| 上下文注入 | enricher `harmony-push-hint`：提示 AI 在**长任务**（>60s / 多轮工具）收尾时主动通知；设置里可关 |
+| 前端 RPC（11） | `status` `register_token` `unregister_token` `list_devices` `rename_device` `clear_devices` `send` `send_test` `log_recent` `settings_get` `settings_set` |
+| 设置（13 项） | 走**配置协议**（`contributes.configuration`）⇒ 后端 `plugin_config{id}` 描述字段、`plugin_config_set{id,key,value}` 回写；App 的通用设置页**自动渲染**（⛔ 未写死任何 UI）。实测：协议写入后插件进程**立刻**看到（mtime 热读） |
+| 可靠性 | 设备台账（幂等登记/原子落盘 0600）、投递日志（环形 200）、滑动窗口限流、同内容合并窗口、分批发送（100/批）、OAuth 令牌缓存（提前 5 分钟刷新） |
+| 隐私 | 真 Push Token 只在插件 `data.json`；日志/RPC 回执/错误串**一律掩码**（前6…后4）；`client_secret` 从不明文下发 |
+
+### 前置（缺一不可）
+
+1. **AGC 开通「推送服务」权益**；**profile 必须含 `com.huawei.service.push.base_service`**
+   （`openssl smime -verify -inform DER -in xxx.p7b -noverify` 可直接查；
+   DevEco `File → Project Structure → Signing Configs → ☑ Automatically generate signature` 会重新生成）。
+2. ⛔ **重新生成 profile 后开发证书指纹会变** ⇒ 覆盖安装报 `9568332 install sign info inconsistent`，
+   必须 **先卸载再装**（会清应用数据：服务器地址 + 登录态；会话在服务端不丢）。
+3. `module.json5` 无需额外权限（只需 `ohos.permission.INTERNET`，已有）。
+4. ⛔ **`push_harmony_noti` 进入 LLM 工具表需重启一次后端**：
+   host 的 `WirePluginToolsForTenant` 按租户**只挂一次**（`IsTenantWired/MarkTenantWired`），
+   插件在启动后才装 ⇒ 老租户不会再挂。
+
+### 客户端（App）侧只做「鸿蒙才做得了的那件事」
+
+`core/pushreg.ets`：`pushService.getToken()` 取 Token → 经 `web_plugin_rpc` 调插件的
+`register_token` 上报。接线在**登录成功后**与 **`onPageShow`（回前台）**，fire-and-forget。
+
+- ⛔ **先判插件 active 再请求**：用 `plugin_status` 探活（结果按 120s TTL 缓存；每启动最多一次，
+  **不进启动关键路径**）⇒ 后端重启窗口里**不发请求**，也就不会撞 `plugin not active` 的 500。
+- ⛔ **失败不弹 toast**：`http.post` 第 4 参 `notify=false`（该开关此前**只在注释里承诺**、
+  无人遵守 ⇒ 后台静默调用失败也会弹红条，用户亲报「一进去就 500」；2026-10-17 补实现，
+  默认 `true` ⇒ 既有调用点行为逐字节不变）。失败原因落应用日志（tag `push`）。
+- 判据：`pushShouldRegister` —— token 变了**必报**、上次失败**必重试**、其余 ≥10 分钟一次。
+
+### 实测证据（2026-10-17，本应用真实凭证，勿凭文档臆断）
+
+| 接口版本 | 凭证组合 | 华为应答 | 结论 |
+|---|---|---|---|
+| **V1** | 应用级 appId + appSecret | `80300007` 全部 Push Token 无效 | **鉴权✓ 载荷✓ 已受理**（唯一失败项是"登记的 token 不是真 HMS token"——模拟器拿不到真 token） |
+| V3 | 应用级 | `80200001` 访问令牌无效 | 本应用这套凭证不适用 V3 ⇒ **默认 V1** |
+| V3 | 项目级 clientId+secret | HTTP 400 parameter invalid | 不适用 |
+| 任一 | appId + 项目 secret / 项目 clientId + app secret | HTTP 400 invalid client_secret / parameter invalid | 交叉用一律 400 |
+
+另两条硬证据（都踩过）：
+- `payload.notification.category` **必填**：留空 ⇒ `80100003 Illegal payload, payload.notification.category should not empty`（插件已兜底 `IM`）。
+- token 放置位置随版本变：V1 必须放 **`message.token`**（放 `target.token` ⇒ `80300010 token count should within 1 and 1,000`）；V3 才是 `target.token`。插件已按版本分别构造。
+
+⛔ **模拟器不能作为推送验收对象**：OpenHarmony 模拟器可拿到一个 token（会成功登记进台账），但那不是真实 HMS 推送 token ⇒ 华为回 `80300007`。验收必须在**真机**上（真机 App 启动/回前台会自动登记）。
+
+### 排障（按错误码走）
+
+| 现象/错误 | 处置 |
+|---|---|
+| `1000900012`（取 Token） | 推送权益未开通 ⇒ 回前置 1、2 步 |
+| `1000900010` | 应用身份非法：签名 profile 与包名不匹配 ⇒ 用该包名重签 |
+| `plugin not active: xbot.harmony-push.*` | 后端在重启窗口 / 插件未激活（`plugin_status` 看 state）；`plugin_reload{id}` 或重启后端 |
+| Push REST `80300002` | 无权限发送 ⇒ 权益 + `category` 与已开通场景不一致 |
+| Push REST `80300007` | 全部 Token 无效 ⇒ 应用重装/清数据后 Token 会变，手机端重新登记 |
+| Push REST `80200001/80200003` | 访问令牌失效 ⇒ 查 Client Secret / 系统时间 |
+
+探针（不依赖 App）：
+```bash
+curl -s -b ck.txt -X POST -H 'Content-Type: application/json' \
+  -d '{"method":"web_plugin_rpc","params":{"method":"xbot.harmony-push.send_test","params":{}}}' \
+  http://127.0.0.1:8082/api/rpc
+```
+
+### 未做（诚实台账）
+
+- **服务端远程更新实况窗**（Push Kit 的 `LiveViewPayload`）：本次只做通知类；实况窗走端侧
+  `liveViewManager`（见上一节）。若日后要服务端驱动实况窗，需 AGC 侧另开实况窗权益并走 Push REST。
+- **多用户隔离**：设备台账目前是"单操作者"模型（与当前 xbot 单用户身份一致）；
+  多租户场景需按 `tenantID` 分账（插件协议当前只在工具调用里给 `toolName/input`，拿不到租户）。
+
+
+
+> ⛔ **纠错**：我在 2026-10-16 判"平台性不可行"，**依据错了** —— 我只读了**样例仓库里按场景
+> 写的工具类**（Delivery/Taxi/Flight/…），就把它当成"封闭白名单"，**没读 SDK 枚举与接口真源**。
+> 用户 2026-10-16 深夜亲报并给了官方样例链接后，逐条重读 SDK：
+> **① `LiveView.event` 的 15 个场景是"逐场景申请权限"制（不是封闭），SDK 原文即
+> "To use specific scenarios, you need to apply for corresponding permissions"；
+> ② `LayoutType` 里有 `LAYOUT_TYPE_CUSTOM = 100` + `CustomLayout`（自定义卡片）；
+> ⇒ "AI chat 能做"是对的，我之前的判决作废。**
+
+**真源（逐条读，非转述）**：`$SDK/default/hms/ets/api/@hms.core.liveview.liveViewManager.d.ts`
+- 三 API：`isLiveViewEnabled(): Promise<boolean>`（`:172`）、`startLiveView`（`:200`）、
+  `updateLiveView`（`:227`）、`stopLiveView`（`:256`），返回 `LiveViewResult{resultCode,message}`。
+- `LiveView{ id, event, sequence?, isMute?, timer?, liveViewData }`（`:378`）；`sequence` 在 update/stop
+  时必须**严格递增**否则被拒；`timer` 由**系统每秒自刷**（`isCountdown:false` ⇒ 正计时）。
+- `PrimaryData{ title?, content: RichText[], layoutData?, keepTime?, clickAction? }`（`:608`）；
+  `layoutData?: ProgressLayout | PickupLayout | FlightLayout | ScoreLayout | NavigationLayout | CustomLayout`（`:717`）。
+- `LayoutType{ DEFAULT=-1, PROGRESS=3, PICKUP=4, FLIGHT=5, SCORE=7, NAVIGATION=8, **CUSTOM=100** }`（`:749`）。
+
+**本仓落地（2026-10-17）**：
+| 件 | 职责 |
+|---|---|
+| `core/liveview.ets` | **纯逻辑**：`liveViewSnapshotOf`（turn 状态 → 标题/两行内容/胶囊文案）+ `shouldPushLiveView`（**起/止恒推**、内容按 1s 节流）+ `fmtClock`/`lvStatusWord`。⛔ 不 import `@kit.*`（`core/**` 被 run.sh 当纯 TS 编译） |
+| `components/LiveViewBridge.ets` | **全仓唯一** `@kit.LiveViewKit` 引用点：探测 `isLiveViewEnabled` + start/update/stop + `sequence` 自增 + 可重入闸 + **降级** + 应用日志 |
+| `pages/Index.ets` | `syncFrom()` 每帧 → `syncLiveView()`：从**已有真实信号**折入参（`busy`/在飞块迭代号/在飞工具/字数/本 turn 起算时刻） |
+| `tools/tests/liveview.test.ts` | 39 条判别力单测（未知状态不许说成"执行中"、结束态不带内容、**起止恒推不受节流**、逐字段差分） |
+
+**场景选择**：`event = 'PROGRESS'`（进度展示）——一轮 agent turn 就是"一个进行中的服务"；
+`layoutData = LAYOUT_TYPE_DEFAULT`（标题 + 两行内容 + 文字胶囊 + 系统计时器）。
+⛔ **不画假进度条**：`ProgressLayout.progress` 必填，而 LLM 一轮的剩余量**不可知**，编百分比是骗人。
+（想要完全自定义外观 ⇒ `LAYOUT_TYPE_CUSTOM` + 自建 `LiveViewCardExtensionAbility`，属下一步。）
+
+**降级（fail-safe，不是失败）**：`1003500004`（LiveView is not enabled：未申请场景权益 / 用户关了
+系统开关）与 `1003500003`（连不上服务）⇒ 一次即置 `cap=NO`，此后**零成本不再调用**，
+**只落一行应用日志**（设置→开发者→应用日志，tag `liveview`）说明原因；其余错误码逐条记录、照常重试。
+
+**要生效需要你（用户）做的**（我做不到的部分，其余我都做完了）：
+1. 在 AGC 为 `com.chronostasys.xbot` 开通**推送服务权益 + 实况窗权益**，场景选 **PROGRESS（进度展示）**
+   —— 官方步骤：`developer.huawei.com/consumer/cn/doc/harmonyos-guides/liveview-preparations`；
+2. 用**该包名对应的正式签名**打包（官方样例 `README.md:92` 同款要求）；
+`module.json5` 无需额外权限（只需 `ohos.permission.INTERNET`，已具备）。
+申请下来后**无需改一行代码**：下一轮 turn 会自动出现在状态栏胶囊里（日志会从"未启用"变成"已启用"）。
+
+

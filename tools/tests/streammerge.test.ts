@@ -14,6 +14,7 @@ import {
   isStreamOnly, hasStructured, liveIterationOf, upsertIteration, mergeTools, toolsFromEvent,
   applyStreamFrame, applyStructured, displayContent, displayReasoning, resolveRowReply, mergeToolRuns,
   isIdleAction, isBusyAction, shouldReloadHistory, hasFreshPhaseDone, stripInterruptedMarker,
+  sendStartsTurn,
 } from '../../entry/src/main/ets/core/streammerge';
 import {
   HistoryIteration, IterList, ProgressEvent, ToolProgress,
@@ -137,6 +138,17 @@ ok('user_msg 不改变忙碌态', !isIdleAction('user_msg') && !isBusyAction('us
 ok('空 action 不作判定', !isIdleAction('') && !isBusyAction(''));
 ok('rewound 不等价于忙碌/空闲', !isIdleAction('history_rewound') && !isBusyAction('history_rewound'));
 
+// ── ⑩b sendStartsTurn：**乐观置 running** 的适用条件（移植 web `src/lib/sendTurn.ts`）──
+// 用户 2026-10-17 P0「mid-turn idle 冻结」的根因判据：只有"会开启 turn"的发送才可乐观置
+// running（否则命令 `!cmd` 的乐观置位永远清不掉 ⇒ 永久卡 busy）。
+ok('turn_id>0 ⇒ 开启 turn', sendStartsTurn(5, false));
+ok('queued=true ⇒ 终将开启 turn', sendStartsTurn(undefined, true));
+ok('turn_id 缺省且未排队 ⇒ 不置位（命令/失败）', !sendStartsTurn(undefined, false));
+ok('turn_id=0 且未排队 ⇒ 不置位', !sendStartsTurn(0, false));
+ok('turn_id=null 且未排队 ⇒ 不置位', !sendStartsTurn(null, false));
+ok('负 turn_id ⇒ 不置位', !sendStartsTurn(-1, false));
+ok('queued=false 显式给出仍是 turn_id 单独决定', !sendStartsTurn(undefined, false));
+
 // ── ⑪ 工具去重：**终态优先**（移植 web `dedupTools`，用户 2026-09-14 / 2026-10-11 P0）──
 // ⛔ 症状①「正在执行的工具被标排队」的根因：陈旧快照（仍 running/pending）后写入会把新状态盖掉。
 //    修法 = rank 终态优先（error/done=3 > running=2 > pending=1 > 其它=0）。
@@ -245,7 +257,12 @@ eq('seq 缺失 ⇒ 宽容放行 true', hasFreshPhaseDone([pd(TID, null)], eventS
 eq('水位缺失（null）⇒ 宽容放行 true', hasFreshPhaseDone([pd(TID, eventSeq(10))], null, TID), true);
 // 守卫③：属别的 turn ⇒ 不动本会话
 eq('phase_done 属别的 turn ⇒ false', hasFreshPhaseDone([pd(OTHER, eventSeq(10))], eventSeq(5), TID), false);
-eq('turnID 缺失 ⇒ 回退 activeTurn ⇒ true', hasFreshPhaseDone([pd(null, eventSeq(10))], eventSeq(5), TID), true);
+// 守卫③b：**有 live turn 时 turnID 缺失 ⇒ 不得宽容放行**（2026-10-16 收紧，见 impl 注释）——
+// 缺失 turnID 的 phase_done 会把在跑的 turn 误置 idle ⇒ 冻结 ⇒ 在飞工具被标 error（用户 P0
+// 「长工具突然变成失败、过一会又恢复执行中」）。
+eq('turnID 缺失但有 live turn ⇒ false（收紧：不得误冻在跑 turn）', hasFreshPhaseDone([pd(null, eventSeq(10))], eventSeq(5), TID), false);
+eq('turnID=0 但有 live turn ⇒ false（同上，0 视为缺失）', hasFreshPhaseDone([pd(0 as TurnID, eventSeq(10))], eventSeq(5), TID), false);
+eq('turnID 缺失且无 live turn ⇒ 宽容放行 true（无 turn 可误伤）', hasFreshPhaseDone([pd(null, eventSeq(10))], eventSeq(5), null), true);
 eq('activeTurn 为 null（无法证伪）⇒ true', hasFreshPhaseDone([pd(TID, eventSeq(10))], eventSeq(5), null), true);
 // 混合批：前面的 iteration 不干扰，找到 phase_done 即判
 eq('混合 [iteration, 新鲜 phase_done] ⇒ true', hasFreshPhaseDone([iterEv, pd(TID, eventSeq(11))], eventSeq(5), TID), true);

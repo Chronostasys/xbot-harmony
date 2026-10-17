@@ -26,6 +26,17 @@ export const SP_2: number = 8;
 export const SP_3: number = 12;
 export const SP_4: number = 16;
 export const SP_5: number = 20;
+
+/**
+ * **思考行统一高度**（`思考中…` 占位行 ↔ live「思考 N 字」行 ↔ committed 思考行）。
+ *
+ * ⛔ 为什么必须有（用户 2026-10-17 亲报「思考中变成思考x字，历史会闪烁一下，本质是历史高度抖动」）：
+ *   占位行 = 16 图标 + `SPACE_XS`×2；思考行 = 20 光球 + `SPACE_HAIR`×2 ⇒ **两行高度不同**，
+ *   live 行挂载/占位卸载那一下列表底部内容整体位移 ⇒ 读作"历史闪一下"。
+ *   ⇒ 两处**都用本令牌固定高度**（判据：`tools/tests/think_row_height.test.ts` 钉"同源"）。
+ *   取值 = `SP_6`(24) ≥ 最大前导图元（`ORB_LEAD_SIZE = SP_5`=20）+ 呼吸余量。
+ */
+export const THINK_ROW_H: number = 24;
 export const SP_6: number = 24;
 export const SP_7: number = 28;
 export const SP_8: number = 32;

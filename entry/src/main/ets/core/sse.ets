@@ -505,7 +505,14 @@ export class SseClient {
 
   /** 订阅（chatId 变化时必须重新订阅 —— 服务端按 route 单订阅）。 */
   connect(chatId: string, channel: string, cookie: string, listener: SseListener): void {
+    // ⛔ **换会话必须复位续传游标**：`lastEventId` 是**上一个 chat/channel** 的
+    //   水位；带旧游标去订阅新会话会被服务端当成"从 k 之后续传" ⇒ 新会话更早的
+    //   事件被跳过（或错放）。旧实现只 close 不清游标（真机症状：切会话后迭代缺段）。
+    const targetChanged: boolean = this.chatId !== chatId || this.channel !== channel;
     this.close();
+    if (targetChanged) {
+      this.lastEventId = '';
+    }
     this.chatId = chatId;
     this.channel = channel;
     this.cookie = cookie;

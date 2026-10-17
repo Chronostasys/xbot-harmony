@@ -70,6 +70,7 @@ const KNOWN_DUP: Map<string, string> = new Map<string, string>([
   ['hairlineOf', '⚠️候选：core/design.ets 与 core/theme.ets 各一份发丝色 ⇒ 应单一出口；两文件均他人域 ⇒ spec'],
   ['isStarred', '⚠️候选待核：core/sessiongroup.ets 与 core/stars.ets 是否算同一个"该会话已星标"'],
   ['strListOf', '通用小工具同名不同域（channelscfg vs settingsplugins，非同一事实）⇒ 低价值'],
+  ['fmtClock', '同名不同域：core/liveview.ets（live 时长格式化）与 components/SettingsDeveloper.ets（设置页时钟）不是同一事实'],
 ]);
 // ✅ **已收敛（台账只许缩短；收敛一条即从此表删一条 —— 本判据的 `stale` 断言会盯着）**：
 //   · `roleColorOf`（我）：components/PluginWidgets 的本地同名不同义 ⇒ 改名 `widgetRoleColorOf`；

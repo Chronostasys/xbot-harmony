@@ -102,12 +102,14 @@ ok('可开性：未声明 contributes 的插件 ⇒ 不可开（视图由宿主�
   catGenui.items[0].openable === false);
 eq('提示：无视图贡献点 ⇒ 「未声明面板」', pluginOpenHint(catGenui.items[0]), '未声明面板');
 
+// 2026-10-17：`xbot.git-fancy` 已有**原生入口** ⇒ `buildPluginCatalog` 会整条跳过它
+// （用户要求"有原生入口就不要再给 web 入口"）⇒ 可开性判据改用**非原生**的第三方插件 id。
 const catGit: PluginCatalog = buildPluginCatalog({
   plugins: [{
-    id: 'xbot.git-fancy', name: 'Git', entry: 'index.js', version: '0.3.5',
+    id: 'xbot.demo-panel', name: 'Demo', entry: 'index.js', version: '0.3.5',
     contributes: [
-      { kind: 'view', id: 'xbot.git-fancy.panel', container: 'right_sidebar', entry: 'index.js' },
-      { kind: 'view', id: 'xbot.git-fancy.commit', container: 'main', dynamic: true, entry: 'commit.js' },
+      { kind: 'view', id: 'xbot.demo-panel.panel', container: 'right_sidebar', entry: 'index.js' },
+      { kind: 'view', id: 'xbot.demo-panel.commit', container: 'main', dynamic: true, entry: 'commit.js' },
     ],
   }],
 } as unknown as WebPluginListWire, 'zh-CN', 'http://x:8082');
@@ -125,10 +127,10 @@ ok('可开性：只有 main+dynamic 视图 ⇒ 不可开（dynamic 只能由宿�
 
 const catSsh: PluginCatalog = buildPluginCatalog({
   plugins: [{
-    id: 'xbot.ssh-runner', name: '远程机器', entry: 'index.js', version: '1.0.6',
+    id: 'xbot.demo-ssh', name: '远程机器', entry: 'index.js', version: '1.0.6',
     contributes: [
-      { kind: 'view', id: 'xbot.ssh-runner.panel', container: 'right_sidebar', icon: 'server', entry: 'index.js' },
-      { kind: 'view', id: 'xbot.ssh-runner.bar', container: 'info_bar', icon: 'server', entry: 'bar.js' },
+      { kind: 'view', id: 'xbot.demo-ssh.panel', container: 'right_sidebar', icon: 'server', entry: 'index.js' },
+      { kind: 'view', id: 'xbot.demo-ssh.bar', container: 'info_bar', icon: 'server', entry: 'bar.js' },
     ],
   }],
 } as unknown as WebPluginListWire, 'zh-CN', 'http://x:8082');

@@ -104,6 +104,7 @@ function pageSignals(store: ChatStore): BusySignals {
     freshServerRunning: false,
     loading: false,
     rowsLen: store.rows.length,
+    splashUp: false,
   };
 }
 

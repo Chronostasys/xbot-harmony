@@ -57,6 +57,9 @@ const SETTINGS_PARTS: string[] = [
   'components/SettingsAgent.ets', 'components/SettingsLlm.ets', 'components/SettingsStorage.ets',
   'components/SettingsChannels.ets', 'components/SettingsTools.ets', 'components/SettingsWebUsers.ets',
   'components/SettingsPlugins.ets', 'components/SettingsDeveloper.ets', 'components/SettingsAccount.ets',
+  // 2026-10-17：订阅卡（含 `onSetDefault` 写入口）已抽到 SettingsRows（共用行组件）
+  // ⇒ 必须纳入扫描面，否则形态判据 0 命中（假红）。
+  'components/SettingsRows.ets',
 ];
 function settingsSource(): string {
   let s: string = '';

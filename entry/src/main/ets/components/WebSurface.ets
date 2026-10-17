@@ -7,7 +7,7 @@ import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import {
   BridgeMessage, parseBridgeMessage, encodeBridgeMessage, encodeBridgeAck, makeBridgeMessage,
   BridgeHostAction, BRIDGE_ACTION_CLOSE, BRIDGE_ACTION_LOG, BRIDGE_ACTION_READY,
-  BRIDGE_ACTION_CLIPBOARD, BRIDGE_ACTION_NAV,
+  BRIDGE_ACTION_CLIPBOARD, BRIDGE_ACTION_NAV, BRIDGE_ACTION_DIFF,
   hostActionFor, bridgeInitPayload, HostNavEvent, parseHostNavPayload,
   NEW_WINDOW_EXTERNAL, NEW_WINDOW_IN_WEB, newWindowAction,
   FILE_PICK_IMAGE, FILE_PICK_MAX_COUNT, filePickKindOf,
@@ -19,7 +19,7 @@ import {
   WEB_PHASE_ERROR, WEB_PHASE_IDLE, WEB_PHASE_LOADING, WEB_PHASE_READY,
   WebStatus, webChromeLabel, webErrorDetail, webHttpErrorDetail, webStatusOf,
 } from '../core/pluginview';
-import { hostPageUrl, isEmbeddedViewLink, nativeViewKind, parseXbotViewLink } from '../core/pluginhost';
+import { DiffBridgeRequest, hostPageUrl, isEmbeddedViewLink, nativeViewKind, parseXbotViewLink, parseDiffBridgePayload, sessionBootstrapJs } from '../core/pluginhost';
 // 「新窗口代理」复用**消息层同一个**外链解析（⛔ 不另写白名单，避免两份分叉）。
 import { resolveOpenable } from '../core/msgops';
 import {
@@ -44,6 +44,15 @@ const PROBE_JS: string =
   + 'hasHead:!!document.head,hasBody:!!document.body,'
   + 'nativeType:(typeof window.xbotNative),xbotKeys:keys};'
   + 'console.log("[XBOT-PROBE] xbotKeys="+JSON.stringify(keys));'
+  // 会话身份三次采样（0.8s/2.5s/6s）：用于判定「原生注入到底有没有到页面、有没有被 web 覆盖」
+  // ⇒ 真机 `hdc shell hilog | grep XBOTPROBE`。⛔ 只读，不改任何状态。
+  + 'var rep=function(tag){try{console.log("[XBOT-SESSION] "+tag'
+  + '+ " sess="+JSON.stringify(window.__xbot_session__||null)'
+  + '+ " search="+location.search + " hash="+location.hash'
+  + '+ " native="+(typeof window.xbotNative));}catch(e){/* probe only */}};'
+  + 'setTimeout(function(){rep("t0.8");},800);'
+  + 'setTimeout(function(){rep("t2.5");},2500);'
+  + 'setTimeout(function(){rep("t6");},6000);'
   + '}catch(e){console.log("[XBOT-PROBE] fail "+e);}})();';
 
 // ── 剪贴板垫片（`navigator.clipboard` polyfill；§21.122d 事件代理第二批）──────────────
@@ -178,6 +187,18 @@ export struct WebSurface {
    *   ArkWeb 侧唯一出口是 `WebCookieManager.configCookieSync(url, value)`（@since 11）。
    */
   @Prop sessionCookie: string = '';
+
+  /**
+   * **当前会话 id**（插件面板的 cwd 由此决定）。
+   *
+   * ⛔ 用户 2026-10-17 P0「他们拿到的 pwd/cwd 都是错的」：web 插件的 cwd 来自 plugin RPC，
+   *    而 RPC 的会话身份读的是宿主注入的 `window.__xbot_session__={channel,chatID}`
+   *    （`web/src/plugin-runtime/usePluginRuntimeHost.ts:373-390`）。原生此前**从不注入**它。
+   *    ⇒ 页面脚本之前注入本值；**会话切换**时（@Watch）原地重注入，不重载页面。
+   */
+  @Prop @Watch('onChatIdChanged') chatId: string = '';
+  /** 会话渠道（本仓恒为 `web`；注入脚本用）。 */
+  @Prop channel: string = 'web';
   /**
    * 顶栏的**人类标题**（调用方给的语义标签：插件名 / 「完整 Web UI」…）。
    *
@@ -253,6 +274,16 @@ export struct WebSurface {
    * ⚠️ 普通成员而非 `@Prop`（同 `onBridgeMessage`/`onOpenExternal`：函数回调不是可观测数据）。
    */
   onClipboardWrite: (text: string) => void = (text: string) => {
+  };
+
+  /**
+   * 页面请求**原生 diff 面板**（`{type:'diff', payload:'{"path","commit"}'}`）。
+   *
+   * ⛔ 通用协议：**零插件特判** —— git-fancy 也好、未来的任何 web 插件也好，同一出口；
+   *    原生只要实现"能按 path(+commit) 打开自己的 diff 面板"就够了。
+   *    返回栈语义（用户要求）：原生 diff 是覆盖层 ⇒ 返回关掉它回到 web view；再返回才退出面板。
+   */
+  onOpenDiff: (path: string, commit: string) => void = (path: string, commit: string) => {
   };
 
   /**
@@ -428,6 +459,20 @@ export struct WebSurface {
     }
   }
 
+  /**
+   * 会话切换 ⇒ **原地重注入** `__xbot_session__`（不重载页面）。
+   * ⛔ 漏了这一步，插件面板会继续用上一个会话的 chatID 取 cwd ⇒ 显示错会话的 git 状态。
+   */
+  onChatIdChanged(): void {
+    if (this.chatId.length === 0) {
+      return;
+    }
+    this.controller.runJavaScript(sessionBootstrapJs(this.channel, this.chatId)).catch((e: Error) => {
+      // 注入失败不影响承载面（下一帧/下次切换会再试）；不弹错。
+      console.warn(`[web-host] session inject failed: ${e.message}`);
+    });
+  }
+
   aboutToAppear(): void {
     this.nativeBridge.handler = (m: BridgeMessage): void => {
       this.onBridgeMessage(m);
@@ -506,6 +551,14 @@ export struct WebSurface {
         // ⛔ 该判据与 `clipboardTextOf` 同源（`text` 已收敛/截断），组件不另判一次。
         if (action.text.length > 0) {
           this.onClipboardWrite(action.text);
+        }
+        return;
+      }
+      if (action.kind === BRIDGE_ACTION_DIFF) {
+        // 原生 diff 代理（通用协议）：坏包 ⇒ null ⇒ **什么都不做**（绝不开空 diff 骗用户）。
+        const req: DiffBridgeRequest | null = parseDiffBridgePayload(action.text);
+        if (req !== null) {
+          this.onOpenDiff(req.path, req.commit);
         }
         return;
       }
@@ -757,6 +810,12 @@ export struct WebSurface {
         .runJavaScriptOnDocumentStart([
           { script: CLIPBOARD_SHIM_JS, scriptRules: ['*'] },
           { script: PROBE_JS, scriptRules: ['*'] },
+          // ③ **会话身份注入**（用户 2026-10-17 P0「pwd/cwd 都是错的」）：必须在**页面脚本之前**，
+          //    否则插件首次 RPC 就已经按"未就绪"走了兜底路径。会话 id 为空时注入空串（无害）。
+          {
+            script: this.chatId.length > 0 ? sessionBootstrapJs(this.channel, this.chatId) : '',
+            scriptRules: ['*'],
+          },
         ])
         // 页面 `console.*` → 原生日志（tag = PROBE_TAG）⇒ 真机 `hdc shell hilog` 可观测注入是否发生。
         // 返回 false = 不消费（不阻断页面自身的 console 行为）。
@@ -831,6 +890,18 @@ export struct WebSurface {
           // 失败后再来的 onPageEnd 不得把错误态刷成就绪（错误条要保持到用户重试/换页）
           if (this.phase !== WEB_PHASE_ERROR) {
             this.phase = WEB_PHASE_READY;
+          }
+          // ── **宿主身份再断言**（宿主权威；幂等）──────────────────────────────
+          // 用户 2026-10-17 真机 P0「web 版 git 面板说不是 git 目录」：web 侧会话 store 启动时
+          // 会按**缓存的会话树**自动选中一个 activeSession 并写回 `window.__xbot_session__`
+          // （`useSessionStore.ts:945-949` + `usePluginRuntimeHost.ts`）⇒ **覆盖宿主身份** ⇒
+          // 插件 RPC 带错会话 ⇒ 后端注入错 cwd（非 repo）。
+          // web 侧已修成"嵌入 + 宿主已注入 ⇒ 不覆盖"，这里再加一道：页面加载完成后**再断言一次**
+          // （任何第三方脚本在我们之后改写全局都会被拉回宿主身份）。⛔ 幂等、只写这一个全局。
+          if (this.chatId.length > 0) {
+            this.controller.runJavaScript(sessionBootstrapJs(this.channel, this.chatId)).catch((e: Error) => {
+              hilog.warn(0x0000, PROBE_TAG, 'session re-assert fail %{public}s', e.message);
+            });
           }
           // ── 探针回读（只观测）──────────────────────────────────────────────
           // 证明 `window.__xbotProbe` **真的留在了页面上**（含注入时机信号：readyState/hasHead/hasBody

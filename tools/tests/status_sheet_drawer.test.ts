@@ -178,7 +178,11 @@ hasNot(between(indexSrc, 'this.renamingId === s.chat_id', 'Divider()'), 'top: SP
 //    ⚠️ 区间起点取 `if (this.sessQuery.length > 0) {`（= **注释之后**）：若起点取 TextInput，会把我写在
 //    清空键上方的注释（里面**就写着** `responseRegion` 字样）卷进区间 ⇒ `hasNot` **假红**
 //    （本仓既有教训：形态/缺席断言必须只在**剥注释后的代码**上做）。
-const sbox: string = between(indexSrc, 'if (this.sessQuery.length > 0) {', "Text('搜本会话')");
+// ⛔ 用**最后一个** `if (this.sessQuery.length > 0)`（渲染块）；文件前面还有同名守卫的 helper
+//    （`groupCollapsed` 等）⇒ 取第一个会把整页都切进来（把别处的 responseRegion 误判进来）。
+const qIdx: number = indexSrc.lastIndexOf('if (this.sessQuery.length > 0) {');
+const qEnd: number = qIdx >= 0 ? indexSrc.indexOf("Text('搜本会话')", qIdx) : -1;
+const sbox: string = qIdx >= 0 && qEnd > qIdx ? indexSrc.substring(qIdx, qEnd) : '';
 ok('搜索框清空键块可定位（零扫描判红）', sbox.length > 100);
 has(between(indexSrc, 'SymbolGlyph($r(\'sys.symbol.magnifyingglass\'))', "Text('搜本会话')"),
   "TextInput({ placeholder: '筛选会话…'", '放大镜在搜索框**之前**（同块内、视觉上"在框里"）');

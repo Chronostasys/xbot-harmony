@@ -21,7 +21,7 @@ import { AnsiSpan, ansiBgOf, ansiFgOf, ansiPaletteOf, ansiSpansIfAny, hasAnsi } 
 import { FS_BODY, FS_CAPTION, R_LG, R_XL, SP_1, SP_2, SP_3 } from '../core/tokens';
 import {
   RADIUS_CHIP, SPACE_HAIR, SURFACE_CHIP, SURFACE_PILL, TYPE_CHIP,
-  colorOf, hairlineOf, structuralRuleOf, STROKE_HAIRLINE, surfaceFillOf, typeOf, MARKER_GLYPH } from '../core/design';
+  colorOf, hairlineOf, structuralRuleOf, STROKE_HAIRLINE, surfaceFillOf, typeOf, MARKER_GLYPH, PRESS_OPACITY } from '../core/design';
 import {
   FORM_BG_TASK, FORM_GENERIC, FORM_INTERRUPT, FORM_SUBAGENT, SyntheticHints,
   formatDuration, parseSyntheticHints, syntheticBodyOf, syntheticContinuityOf, syntheticForm,
@@ -352,7 +352,7 @@ export struct SyntheticCard {
               .fontColor([this.pal().accentText])
           }
           .padding({ top: SPACE_HAIR })
-          .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
+          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           .onClick(() => {
             this.open = !this.open;
           })

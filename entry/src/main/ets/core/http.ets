@@ -18,6 +18,16 @@ import { isPresent } from './guards';
 export const HTTP_READ_TIMEOUT_MS: number = 120000;
 
 /**
+ * `/api/cancel` 的读超时（**短**，8s）。
+ *
+ * ⛔ 为什么必须单独一条（用户 2026-10-17 P0）：cancel 走默认 120s ⇒ 请求挂死时
+ *   `store.cancelling` + 页面 `cancelSpinHold` 两层 spinner 闸门锁死近 2 分钟，
+ *   期间重复点击被静默 return（"点了没反应"）。取消是幂等且低风险的短请求，
+ *   有界超时才能保证 UI 一定退出转圈（失败给 toast，用户可重试）。
+ */
+export const HTTP_CANCEL_READ_TIMEOUT_MS: number = 8000;
+
+/**
  * **发送消息**（`/api/message`）的读超时（较短）。
  *
  * ⛔ 为什么必须单独短化（2026-10-16 用户 P0「应用显示发出去了、实际根本没发」）：
@@ -207,6 +217,9 @@ export class XbotHttp {
    * 由页面在 `attach()` 时接到 `toast()`（带节流/去重，避免轮询类失败刷屏）。
    * ⛔ 只报"用户发起、结果可见"的失败（发消息 / rewind / 建删改会话 / 拉历史 / 拉状态）——
    *   `noisy` 的轮询端点（面板心跳等）由调用方传 `notify=false` 静默。
+   * ⚠️ 2026-10-17 补实现：该开关此前**只在注释里**（无人遵守）⇒ 后台静默调用（如 Push Token 登记）
+   *   失败也会弹 toast（用户亲报「一进去就500」）。现 `post()` 第 4 参 `notify` 真正生效，
+   *   默认 true ⇒ 既有调用点行为**逐字节不变**。
    */
   onApiError: (path: string, message: string) => void = (path: string, message: string) => {
   };
@@ -223,14 +236,16 @@ export class XbotHttp {
    * POST `/api/<path>`，返回信封里的 `data`（原始 JSON 字符串，调用方自行 parse 成 interface）。
    * @throws Error 网络失败 / HTTP 非 2xx / 信封 ok=false
    */
-  async post(path: string, body: object, readTimeoutMs: number = HTTP_READ_TIMEOUT_MS): Promise<string> {
+  async post(path: string, body: object, readTimeoutMs: number = HTTP_READ_TIMEOUT_MS,
+    notify: boolean = true): Promise<string> {
     let bodyText: string;
     try {
       bodyText = JSON.stringify(body);
     } catch (e) {
       throw new Error(`[body 序列化] ${describeError(e as Object)}`);
     }
-    return this.sendJson(http.RequestMethod.POST, path, bodyText, readTimeoutMs);
+    // `notify=false` ⇒ 三处失败上报（网络/非 2xx/信封 ok=false）全部静音（后台静默调用用）
+    return this.sendJson(http.RequestMethod.POST, path, bodyText, readTimeoutMs, notify);
   }
 
   /** GET `/api/<path>`，返回信封里的 `data`（原始 JSON 字符串）。 */
@@ -251,7 +266,8 @@ export class XbotHttp {
    * （2026-10-09 教训：只有一句 "undefined is not callable" 时无法定位）。
    */
   private async sendJson(method: http.RequestMethod, path: string, bodyText: string | undefined,
-    readTimeoutMs: number = HTTP_READ_TIMEOUT_MS): Promise<string> {
+    readTimeoutMs: number = HTTP_READ_TIMEOUT_MS,
+    notify: boolean = true): Promise<string> {
     let req: http.HttpRequest;
     try {
       req = http.createHttp();
@@ -282,7 +298,9 @@ export class XbotHttp {
         });
       } catch (e) {
         const netMsg: string = `[发送 ${path}] ${describeError(e as Object)}`;
-        this.onApiError(path, netMsg);
+        if (notify) {
+          this.onApiError(path, netMsg);
+        }
         throw new Error(netMsg);
       }
 
@@ -301,7 +319,9 @@ export class XbotHttp {
       // ⛔ 此处原有**重复的 401 分支**（第二段无注释、缩进错乱 ⇒ 死代码）——已删。
       if (resp.responseCode !== 200) {
         const httpMsg: string = `HTTP ${resp.responseCode}: ${text.substring(0, 200)}`;
-        this.onApiError(path, httpMsg);
+        if (notify) {
+          this.onApiError(path, httpMsg);
+        }
         throw new Error(httpMsg);
       }
       // ── 信封解包（外来 JSON 边界）─────────────────────────────────────────────
@@ -324,7 +344,9 @@ export class XbotHttp {
         // `error:null`（或 error 是裸字符串）时**不得**取 `.message` —— null 穿透即崩。
         const msg: string = isPresent(env.error) && isPresent(env.error.message)
           ? env.error.message : 'request failed';
-        this.onApiError(path, msg);
+        if (notify) {
+          this.onApiError(path, msg);
+        }
         throw new Error(msg);
       }
       // `data:null` 与 `data:undefined`（键缺失）都表示"服务端无可用载荷"：

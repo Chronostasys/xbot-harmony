@@ -38,6 +38,7 @@ function sig(over: Partial<BusySignals>): BusySignals {
     freshServerRunning: false,
     loading: false,
     rowsLen: 3,
+    splashUp: false,
     ...over,
   };
 }
@@ -81,6 +82,20 @@ describe('P0 不变量：composer busy ⟹ 列表有可见"进行中"信号', ()
   it('骨架屏期间不叠加占位符（loading 且 0 行）', () => {
     const o: BusySignals = sig({ localBusy: true, loading: true, rowsLen: 0 });
     expect(showsBusyPlaceholder(o), '空态骨架屏承担反馈').toBe(false);
+  });
+
+  // ── splash 期间抑制（用户 2026-10-16 亲报：「splash 还没消失『思考中』就渲染了」）──
+  // 真机截图实证同屏并存「开始对话」+「会话加载中…」+「思考中…」。splash 自身即"进行中"信号
+  // ⇒ 期间列表侧"进行中"指示器一律让位；composer 的 cancel 不受影响（会话确实在跑）。
+  it('splash 展示期间不渲染占位符（即便 busy）', () => {
+    const o: BusySignals = sig({ localBusy: true, splashUp: true });
+    expect(busyNow(o), 'splash 期间会话确实在跑（composer 仍 cancel）').toBe(true);
+    expect(showsBusyPlaceholder(o), 'splash 未消失 ⇒ 不得渲染「思考中…」').toBe(false);
+  });
+
+  it('splash 结束后占位符恢复（闸门是状态函数，不是一次性）', () => {
+    const o: BusySignals = sig({ localBusy: true, splashUp: false });
+    expect(showsBusyPlaceholder(o), 'splash 撤下后必须恢复占位符（失败方向相反）').toBe(true);
   });
 });
 
@@ -128,6 +143,7 @@ function signalsOf(store: ChatStore, freshServerRunning: boolean): BusySignals {
     freshServerRunning,
     loading: false,
     rowsLen: store.rows.length,
+    splashUp: false,
   };
 }
 

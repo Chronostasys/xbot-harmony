@@ -118,10 +118,10 @@ has(orbSrc, 'if (mode === ORB_MODE_SECONDARY) {', 'orbStateOf 认 secondary');
 
 // ── (c) 分工不重叠：**发光体只允许光球一个** ────────────────────────────────────
 hasNot(tailSrc, 'caretOn', '打字机光标不再 10Hz 硬闪（caretOn 已移除）');
-has(tailSrc, 'this.caretAlpha = this.reduceMotion() ? 1 : 0.35 + 0.65 * orbBreath(now, MOTION_BEAT_MS);',
-  '光标改为按 MOTION_BEAT_MS 呼吸（同刻度家族）');
+// 2026-10-17：光标整体移除（用户要求「逐字显示即效果，不要单独闪」）⇒ 呼吸权重也删除。
+hasNot(tailSrc, 'caretAlpha', '打字机光标已整体移除（不再有第二个呼吸源）');
+hasNot(tailSrc, '.opacity(this.caretAlpha)', '不再有光标呼吸权重上屏');
 hasNot(tailSrc, 'shadow(', 'LiveTailView 内不再有任何 shadow（彩色外发光只归光球）');
-has(tailSrc, '.opacity(this.caretAlpha)', '光标用呼吸权重上屏');
 // 思考行：**恒静态**（不得私自发光/加动效）—— 动效唯一属于光球（2026-10-11「一个动效」）
 hasNot(thinkSrc, '0.72 + 0.28', '⛔ 思考行不再呼吸（去掉第二个脉动源）');
 hasNot(thinkSrc, 'this.emphasis', '思考行不再持有 emphasis 呼吸权重');
@@ -137,8 +137,10 @@ has(tailSrc, '} else if (this.orb) {', '无思考行时光球独占块首一行�
 has(tailSrc, 'private reduceMotion(): boolean {', 'reduceMotion 是 LiveTailView 的单一来源');
 has(tailSrc, 'reduceMotion: this.reduceMotion(),', '开关 ①：光球（停表）');
 hasNot(tailSrc, 'MOTION_BREATH_MS', '思考行呼吸已移除 ⇒ LiveTailView 不再引用主呼吸刻度（无第二处脉动）');
-has(tailSrc, 'this.caretAlpha = this.reduceMotion() ? 1 : 0.35 + 0.65 * orbBreath(now, MOTION_BEAT_MS);',
-  '开关 ②：打字机光标（降级 ⇒ 常亮不呼吸）');
+// 2026-10-17：打字机光标已整体移除（用户要求「逐字显示即效果」）⇒ 降级只剩光球一处。
+// 反向钉住"没有第二处呼吸源"：beat 刻度与 caretAlpha 都必须不在。
+hasNot(tailSrc, 'MOTION_BEAT_MS', 'LiveTailView 不再引用 beat 刻度（光标呼吸已移除）');
+hasNot(tailSrc, 'caretAlpha', '光标呼吸状态已删除（无第二个脉动源）');
 has(orbSrc, 'this.ready && this.active && !this.paused && !this.reduceMotion && this.visible;',
   '光球 shouldRun() 含 reduceMotion（另含 visible：不可见 ⇒ 停表）');
 // 降级来源的真实性：API 21 拿不到系统值（@since 23）—— 断言注释/理由留在代码里，防止被"顺手接上"

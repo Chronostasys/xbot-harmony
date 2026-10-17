@@ -32,6 +32,15 @@ export interface BusySignals {
   loading: boolean;
   /** 列表已有行数 */
   rowsLen: number;
+  /**
+   * 开屏/会话加载 splash 是否**正在展示**（冷启动 `showSplash` ∥ 切会话 `switchSplash`）。
+   *
+   * ⛔ 用户 2026-10-16 亲报（严重）：「splash screen 还没消失，那个**小的『思考中』**就渲染了」。
+   *    splash 自身已经是"正在准备"的反馈 ⇒ 再叠一个「思考中…/思考光球」既**语义矛盾**
+   *   （同一屏既"开始/加载中"又"思考中"）又廉价。splash 展示期间 ⇒ **列表侧一切
+   *   "进行中"指示器一律让位**（composer 的 cancel **不受影响** —— 会话确实在跑）。
+   */
+  splashUp: boolean;
 }
 
 /**
@@ -52,9 +61,11 @@ export function busyNow(o: BusySignals): boolean {
  *
  * ⚠️ 必须由 `busyNow` 驱动（**不能**用 `localBusy`）—— 否则与 composer 的按钮分叉。
  * `loading && rowsLen===0` 时不叠加（骨架屏承担空态反馈）。
+ * `splashUp` 时**一律不渲染**（用户 2026-10-16 亲报：splash 未消失就渲染「思考中」）——
+ * splash 自己就是"正在准备"的反馈，见 `BusySignals.splashUp`。
  */
 export function showsBusyPlaceholder(o: BusySignals): boolean {
-  return busyNow(o) && !(o.loading && o.rowsLen === 0) && !o.tailShowsIndicator;
+  return !o.splashUp && busyNow(o) && !(o.loading && o.rowsLen === 0) && !o.tailShowsIndicator;
 }
 
 /**

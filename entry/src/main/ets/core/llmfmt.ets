@@ -134,6 +134,21 @@ export function currentModelText(cfg: LlmConfig | undefined, fallback: string): 
   return fallback;
 }
 
+/**
+ * **徽章模型名**（会话级优先）—— 判据与渲染同源，可脱机单测。
+ *
+ * ⛔ 优先级对齐 web `SessionInfo.tsx:79`：`dump.modelName || sub.model || settings.model`。
+ *   本仓：**会话级 `sessionModel`** → 用户级 `cfg.model` → 用量里的 `usage.model`。
+ *   缺了第一档，会话内切模型后徽章**不会变**（用户 2026-10-17 亲报"像没切"）。
+ */
+export function modelBadgeText(sessionModel: string, cfg: LlmConfig | undefined,
+  usageModel: string): string {
+  if (sessionModel.length > 0) {
+    return sessionModel;
+  }
+  return currentModelText(cfg, usageModel);
+}
+
 /** 上下文上限显示（1.0M / 200k）。 */
 export function contextText(maxContext: number | undefined): string {
   if (maxContext === undefined || maxContext <= 0) {

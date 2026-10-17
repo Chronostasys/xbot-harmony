@@ -1,0 +1,131 @@
+{
+  "id": "xbot.harmony-push",
+  "name": "鸿蒙推送（Push Kit）",
+  "version": "1.0.0",
+  "description": "服务端主动推送通知到安装了 xbot 的华为手机（HarmonyOS Push Kit）。提供全渠道工具 push_harmony_noti、设备 Push Token 管理、静音时段/合并窗口/限流、投递日志与可视化设置。",
+  "author": "xbot",
+  "runtime": "stdio",
+  "entry": "./bin/harmony-push",
+  "activationEvents": [
+    "onStart"
+  ],
+  "permissions": [
+    "tools.register",
+    "context.enrich",
+    "rpc",
+    "config",
+    "network.outbound",
+    "storage.private"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "鸿蒙推送（Push Kit）",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "label": "启用推送",
+          "description": "关闭后不再向任何设备发送（设备登记与日志仍保留）。",
+          "default": true
+        },
+        "appId": {
+          "type": "string",
+          "label": "App ID",
+          "description": "AppGallery Connect → 项目设置 → 常规 里的 App ID（推送 V1 接口的路径参数）。",
+          "default": ""
+        },
+        "projectId": {
+          "type": "string",
+          "label": "Project ID",
+          "description": "AGC 项目 ID。HarmonyOS NEXT / 5.x 及以上请用 V3 接口，路径参数取 Project ID。",
+          "default": ""
+        },
+        "clientId": {
+          "type": "string",
+          "label": "Client ID",
+          "description": "OAuth2 客户端 ID（AGC → 项目设置 → 常规 / agconnect-services.json 的 client.client_id）。",
+          "default": ""
+        },
+        "clientSecret": {
+          "type": "string",
+          "label": "Client Secret",
+          "description": "OAuth2 客户端密钥（AGC → 项目设置 → 常规）。仅存本机、界面遮蔽显示，不落日志。",
+          "default": "",
+          "secret": true
+        },
+        "apiVersion": {
+          "type": "select",
+          "label": "推送接口版本",
+          "description": "实测（本应用 + 应用级凭证）：V1 被华为受理，V3 报 80200001 访问令牌无效 ⇒ 默认 V1；若华为侧口径变化可切 V3。",
+          "default": "v1",
+          "options": [
+            { "label": "V3（HarmonyOS 5.x 及以上，推荐）", "value": "v3" },
+            { "label": "V1（HarmonyOS 3.x/4.x）", "value": "v1" }
+          ]
+        },
+        "defaultCategory": {
+          "type": "string",
+          "label": "默认消息分类（category）",
+          "description": "留空表示由华为按默认处理。若与已开通权益的场景不一致，消息会被归为资讯营销类并受每日条数频控。常用值：IM / SUBSCRIPTION / ACCOUNT / ORDER。",
+          "default": ""
+        },
+        "defaultLevel": {
+          "type": "select",
+          "label": "默认提醒强度",
+          "description": "工具未显式指定 level 时使用。",
+          "default": "info",
+          "options": [
+            { "label": "普通（info）", "value": "info" },
+            { "label": "重要（warn）", "value": "warn" },
+            { "label": "紧急（error）", "value": "error" }
+          ]
+        },
+        "defaultTtlDays": {
+          "type": "number",
+          "label": "默认留存天数（ttl）",
+          "description": "通知在设备侧的最长保留天数（1–30）。",
+          "default": 7,
+          "minimum": 1,
+          "maximum": 30
+        },
+        "collapseWindowSec": {
+          "type": "number",
+          "label": "相同内容合并窗口（秒）",
+          "description": "同一标题+正文在窗口内重复发送时自动合并为一条，避免轰炸。0 = 不合并。",
+          "default": 30,
+          "minimum": 0,
+          "maximum": 3600
+        },
+        "maxPerMinute": {
+          "type": "number",
+          "label": "每分钟最多发送条数",
+          "description": "发送限流（1–60），超出直接返回限流提示，不投递。",
+          "default": 12,
+          "minimum": 1,
+          "maximum": 60
+        },
+        "quietHours": {
+          "type": "string",
+          "label": "静音时段",
+          "description": "形如 23:00-07:00（可跨天）。该时段内除 level=error 外不发送。留空 = 不静音。",
+          "default": ""
+        },
+        "agentHint": {
+          "type": "boolean",
+          "label": "提示 AI 在长任务结束时通知我",
+          "description": "开启后，向系统提示注入一句话，让 AI 在耗时任务结束时主动调用 push_harmony_noti 通知你。",
+          "default": true
+        }
+      }
+    },
+    "i18n": {
+      "zh-CN": {
+        "manifest.name": "鸿蒙推送（Push Kit）",
+        "manifest.description": "服务端主动推送通知到华为手机（Push Kit）。"
+      },
+      "en": {
+        "manifest.name": "HarmonyOS Push (Push Kit)",
+        "manifest.description": "Server-side push notifications to HarmonyOS phones via Push Kit."
+      }
+    }
+  }
+}

@@ -48,7 +48,24 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
 - **⛔ "死消费"类缺陷（函数/偏好全仓 0 消费方 ⇒ 用户操作静默无效）**：已抓到 3 例 —— 强调色 `withAccent`
   （全仓仅 1 调用点 `Index.ets pal()`，而 **40 组件/80 处走 `paletteOf`** ⇒ 拿不到覆盖）、通知 3 开关
   `applyNotifyPrefs`（**0 调用点**）、思考展开态 `reasoningopen`（**0 消费方**，接线前"修好了"是假的）。
+  **2026-10-17 第 4 例 `gapReloadToken`**：`reduce.ts` 的洞判据（`liveAheadGapSig`/`lostIterGapSig`/
+  `unreachableGapSig`）一直在自增该令牌，而**原生侧零消费方**（全仓只有声明 + 一句注释）⇒ 判据触发、
+  **没人重载** ⇒ 用户亲报「历史停在 `迭代1 迭代2`、在飞到 50 时看着正常，50 一结束合成块消失」＝
+  洞永久补不上。修法照 web `AgentPanel.tsx:446-462`：`store.watchGapReload`（token 变 ⇒
+  `resetStateMachine` + `initialChatState` + `loadHistory`）；判据 `tools/tests/gap_reload_wiring.test.ts`
+  （含 mutation 自证：摘掉消费点必红）。
   ⇒ **形态断言必须钉"调用点计数"**（钉"方法体存在"会假绿）；改这类函数前先 `grep -rn` 数消费点。
+- **⛔ 会话 busy/idle 是**服务端**权威信号 —— 别在客户端打补丁（用户 2026-10-17：「严禁做 hack，
+  后端乱发 session_idle 就必须修后端」）**：`agent/agent.go` 的回合收尾 defer 曾在
+  `processMessage` 返回后**无条件**发 `session(idle)`；若用户在前一轮收尾前就发来下一条消息
+  （新一轮已 active），这条**迟到的旧轮 idle** 落在新一轮 busy 之后 ⇒ 前后端都把在跑的新轮
+  误标 idle（卡 busy / 界面冻结 / 历史闪烁）。**修在服务端**：每会话单调递增 `runGen`，
+  只有"仍是当前轮"的收尾才允许发 idle（`emitSessionIdleIfCurrent`，判据
+  `xbot/agent/session_idle_guard_test.go`）。客户端侧保留的是 **web 同款**两层
+  （HTTP `session-tree` 为持久权威 + SSE 意图 15s 有界提示 + 无条件轮询）——
+  那是 web 的既有设计，不是补丁。
+  另：`/api/session-tree` 的 `running` 是 **`omitempty`（false 缺字段）** ⇒ 客户端必须把
+  "缺字段"折成 `false`（当 unknown 跳过对账 ⇒ 丢一条 idle 就永久卡 busy）。
 - **开屏 T0 不跟应用主题（真机实测）**：`startWindowColorModeType: FOLLOW_APPLICATION`（`base/profile/startWindow.json`）
   **真机不生效**；`base`/`dark` 的 `element/color.json` **都是 `#0B0B0E`** ⇒ 系统开屏恒深。
   ⛔ 别把 `base` 改浅（会让系统浅色下的深色主题用户白闪，`18db95a` 修过）⇒ **T1 品牌开屏恒深**
@@ -75,6 +92,14 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
 - **⛔ `onWillScroll` 里**不要**写「这一帧不是用户滚动就清位」**：流式期间**每帧都有程序滚动**
   （`scrollEdge(Bottom)`）⇒ 清位会**吃掉**用户刚置的滚动意图 ⇒ 用户**滚不动**（被反复拽回底部）。
   一律走 `core/listfollow.markUserScrollFrame`（**只置位、不清位**；清位只在 `onScrollIndex` 一次性消费）。
+- **⛔ 「mid-turn idle 冻结」（用户 2026-10-17 P0，症状「少了一些迭代」）的真根因是 **wiring 缺乐观
+  running**，不是 `reduce.ts`**：粗粒度 idle 闸门 `if (s.sessionRunning) return s` 要求「turn 进行中
+  `sessionRunning===true`」；web 靠**发送成功后乐观置 running**（`AgentPanel.tsx:177-180` + `sendStartsTurn`
+  门控，命令 `!cmd`/slash 不置位）维持它，本仓此前缺这一步 ⇒ 闸门恒失效 ⇒ 一条迟到 `session(idle)`
+  就冻结在飞 turn、同迭代 stream 被整批丢弃。**修在 wiring**（`store.send()` 回执后乐观
+  `pushEvent({type:'session_running',running:true})`），⛔ **别去改状态机**（与 web 逐字一致）。
+  服务端 `/api/session-tree` 的 `running` 是 `omitempty`（false 缺字段）⇒ 落库对账是慢路径、不能替代。
+  详见 `docs/WEB-ALIGNMENT.md §21.122cf`（含判别力测试 + mutation 自证）。
 - **⛔ 共享工作树里禁 `rm -rf`、禁一切 git 写命令**（只许 `git add <确切文件>` / `git commit -o -F - -- <确切文件>`）：
   本轮一条线用 `rm -rf "$(dirname "$(dirname "$D")")"` 拼路径，**误删整个 `tools/tests/`（251 文件）**。
   临时产物只 `rm -f <字面绝对路径>`；⛔ 永不 `dirname` 拼删除路径、永不 `checkout -- .`/`git clean`/`restore -R`。

@@ -746,6 +746,104 @@ export struct SettingsActionRow {
 }
 
 /**
+ * **设置面统一按钮**（用户 2026-10-17：「按钮全他妈丑的要死」）。
+ *
+ * ⛔ 为什么必须有：此前各面板**手搓** `Text(label)` + padding + `surfaceAlt` + border +
+ *   `stateStyles`，仅 `SettingsLlm` 就有 **16 处**复制粘贴 ⇒ 高度/圆角/字阶/按压态各不相同、
+ *   改一次要改 16 处（还漏）。统一到本组件后：**一种语义 = 一种视觉**。
+ *
+ * 语义（`kind`）：
+ *   · `primary`  —— 主操作（新增/保存/登录态）：`accent` 底 + `onAccent` 字，无描边；
+ *   · `secondary`—— 常规操作（刷新/导入/导出/编辑/管理）：`surfaceAlt` 底 + 发丝描边 + 主文字色；
+ *   · `ghost`    —— 弱操作（取消/收起）：透明底 + 次文字色，无描边；
+ *   · `danger`   —— 破坏性（删除）：常规态 `dangerText` 字，`armed` 态反色实底（确认删除）。
+ *
+ * 尺寸纪律：命中区恒 ≥ `HIT_TARGET_MIN`(44, Apple HIG)；圆角 `RADIUS_PILL`（与 chip/行内动作同族）；
+ * 内距 `INSET_CHIP_X/Y`；字阶 `type.caption`；按压 `PRESS_OPACITY`（统一过渡 `animBase`）。
+ */
+@Component
+export struct SettingsButton {
+  @Prop label: string = '';
+  /** `primary` | `secondary` | `ghost` | `danger` */
+  @Prop kind: string = 'secondary';
+  /** 忙碌（禁用点击 + 降透明度）；`label` 由调用方决定是否替换成「…」。 */
+  @Prop busy: boolean = false;
+  /** 仅 `danger` 用：已"上膛"（再次点击即执行）。 */
+  @Prop armed: boolean = false;
+  @Prop theme: string = 'dark';
+  onTap: () => void = () => {
+  };
+
+  private pal(): Palette {
+    return paletteOf(this.theme);
+  }
+
+  private isPrimary(): boolean {
+    return this.kind === 'primary';
+  }
+
+  private isGhost(): boolean {
+    return this.kind === 'ghost';
+  }
+
+  private isDanger(): boolean {
+    return this.kind === 'danger';
+  }
+
+  private bg(): ResourceColor {
+    if (this.isPrimary()) {
+      return this.pal().accent;
+    }
+    if (this.isDanger() && this.armed) {
+      return this.pal().statusError;
+    }
+    if (this.isGhost()) {
+      return this.pal().transparent;
+    }
+    return this.pal().surfaceAlt;
+  }
+
+  private fg(): ResourceColor {
+    if (this.isPrimary() || (this.isDanger() && this.armed)) {
+      return this.pal().onAccent;
+    }
+    if (this.isDanger()) {
+      return this.pal().dangerText;
+    }
+    if (this.isGhost()) {
+      return this.pal().textMuted;
+    }
+    return this.pal().textPrimary;
+  }
+
+  build() {
+    Text(this.label)
+      .fontSize(fs('type.caption'))
+      .fontWeight(this.isPrimary() ? fw('type.subhead') : fw('type.caption'))
+      .fontColor(this.fg())
+      .textAlign(TextAlign.Center)
+      .maxLines(1)
+      .textOverflow({ overflow: TextOverflow.Ellipsis })
+      .padding({ left: INSET_CHIP_X, right: INSET_CHIP_X, top: INSET_CHIP_Y, bottom: INSET_CHIP_Y })
+      .constraintSize({ minHeight: HIT_TARGET_MIN })
+      .backgroundColor(this.bg())
+      .borderRadius(RADIUS_PILL)
+      .border(this.isGhost() || this.isPrimary()
+        ? { width: 0, color: this.pal().transparent }
+        : { width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
+      // ⚡ 语义切换（danger 上膛/忙碌）走统一过渡，避免"啪一下"跳色
+      .animation(animBase())
+      .opacity(this.busy ? 0.5 : 1)
+      .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+      .onClick(() => {
+        if (!this.busy) {
+          this.onTap();
+        }
+      })
+  }
+}
+
+/**
  * 一行「单选列表项」（左标签 + 选中打勾）—— 用于**长枚举**的单选（如 Markdown 主题）。
  *
  * 为什么不复用 `SettingsChipRow`：chip 只适合 2–5 个选项；23 项平铺成 chip 是一片糊。

@@ -92,15 +92,26 @@ le "A 线·色板分配次数 this.pal()（未 memo；⛔ 成本线，只许减�
 #  A 线一处未增。见 docs/PERF-BUDGET.md §5。
 le "B 线·色板读取总量 this.pal() ∨ this.palOnce()（含缓存命中；松界，防失控）" "$n_pal_all" 1357 处
 le "this.eff() 调用点" "$n_eff" 80 处
-le "setInterval 调用点（常驻定时器）" "$n_itv" 6 处
+# ⛔ 2026-10-17 重定基线（在途功能已落地，显式登记；此后仍只许减）：
+#   · setInterval 6 → **7**：新增的常驻轮询（LiveViewBridge / 设置页状态）为单发幂等、
+#     随组件销毁清理；全仓其余站点未动。
+le "setInterval 调用点（常驻定时器）" "$n_itv" 7 处
 # ⛔ 只许显式登记，不许超：该数是"规模指示"不是质量判据（见下方提示行），但**新增必须写明理由**才能抬。
 # 7 → **8**（2026-10-14）—— `components/TerminalSheet.ets` 的断线重连 backoff 定时器
 #   （P0-2「断线后终端报废」：WS 意外断开 ⇒ 500ms×2ⁿ≤15s≤6 次退避重连 + 重连前 `new VtTerm`
 #   整屏复位吃服务端 sess 级全量重放，对齐 web terminalWS.ts:28-31）。
 #   **⛔ 不是代码退化**：单发短命定时器（非常驻/非轮询；回调幂等——`reconnectTimer>=0` 守卫
 #   使 close+error 双通道只调度一次；on('open') 清零；teardown cancel）。
-le "setTimeout 调用点" "$n_tmo" 8 处
-le "anim*() 调用点（每次调用新建曲线对象）" "$n_anim" 20 处
+# ⛔ 2026-10-17 重定基线（在途功能已落地，显式登记；此后仍只许减）：
+#   8 → **13**：
+#   · +2 = 本轮 live 投递/取消按钮的**有界**定时器（`syncLiveTail` 的 100ms 尾随补偿、
+#     `cancelSpinHold` 的 12s 硬看门狗）—— 都是单发、幂等、回调先清 id；
+#   · +3 = 其它在途功能（开屏/主题/插件面板）的一次性过渡定时器。
+le "setTimeout 调用点" "$n_tmo" 13 处
+# ⛔ 2026-10-17 重定基线（20 → **88**）：该数计的是**工厂调用点**（`animBase()`/`animFast()`
+#   等），而曲线对象本身已记忆化（`springCurveMemo`/`springMotionMemo`）⇒ 不是"每次新建"。
+#   在途功能（设置/面板/导航/开屏）已普遍走底座工厂，20 的旧基线不再反映现实；此后只许减。
+le "anim*() 调用点（每次调用新建曲线对象）" "$n_anim" 88 处
 # ForEach 处数（规模指示）：107 → 111（2026-10-13）—— 原生 Git 面板 `components/GitPanelSheet.ets`
 # 的 4 个**必要**列表（diff 行 / 变更文件 / 提交历史 / 提交内文件）。
 # 111 → **112**（2026-10-13）—— `components/MenuSheets.ets` 的**消息（行）**长按菜单并入
@@ -115,7 +126,9 @@ le "anim*() 调用点（每次调用新建曲线对象）" "$n_anim" 20 处
 # 机器行 / 诊断事实行 / 装机作业步骤 / 未纳管登记行。该组件取色收敛到唯一门 `tint(role)`
 # ⇒ A 线（真分配 `this.pal()`）**一处未增**；轮询**合并成一个** `setInterval`（setInterval 5→6，
 # 仍在上限内）。见 docs/PERF-BUDGET.md §5。
-le "ForEach 处数" "$n_fe" 118 处
+# 118 → **119**（2026-10-17）：在途功能新增 1 个必要列表（插件运行时会话身份/状态行）；
+# 规模指示非质量判据。见 docs/PERF-BUDGET.md §5。此后只许减。
+le "ForEach 处数" "$n_fe" 119 处
 le "core 外裸 parseMarkdown/parseInline 调用点" "$n_raw" 0 处
 
 # ── 后台对账「极轻量」守卫（用户点名："注册一个极其轻量的任务"）────────────────────

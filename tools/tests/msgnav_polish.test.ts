@@ -82,7 +82,8 @@ ok('快路径在重建之前（先判定再决定是否重建）',
 // ── G. 无颜色字面量 / 不自造动效 ─────────────────────────────────────────────
 ok('无颜色字面量（禁硬编码 hex）', !/#[0-9a-fA-F]{3,8}\b/.test(src));
 ok('不引入 @ohos.curves（动效只走 anim.ets 工厂）', src.indexOf('@ohos.curves') < 0);
-has(src, "import { animFast } from './anim';", '动效走既有 animFast() 工厂');
+has(src, 'animFast', '动效走既有 animFast() 工厂');
+has(src, "from './anim';", '动效工厂从 ./anim 引入（允许与 animBase 同批导入）');
 
 if (fail > 0) { console.log(`  msgnav_polish: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  msgnav_polish: ${pass} passed, 0 failed`);

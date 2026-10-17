@@ -98,13 +98,19 @@ ok('零扫描白绿防线：Index 源码读到了', index.length > 100000);
 
 eq("MarkdownView 订阅 appMdTheme 恰好 1 处", countOf(mdView, "@StorageProp('appMdTheme')"), 1);
 // ⛔ 钉**消费点**：取色必须走订阅版 `mdThemeNow()`；裸 `this.mdTheme` 只允许出现在回落表达式里（1 处）
-const bareMdTheme = countOf(mdView, 'this.mdTheme') - countOf(mdView, 'this.mdThemeNow()');
+// ⛔ 计数是**子串**：`this.mdThemeTick`（@Watch 触发滴答）也含 `this.mdTheme` 前缀，
+//    必须一并扣除（2026-10-20 新增的订阅刷新机制），否则假红。
+const bareMdTheme = countOf(mdView, 'this.mdTheme')
+  - countOf(mdView, 'this.mdThemeNow()')
+  - countOf(mdView, 'this.mdThemeTick');
 eq('MarkdownView 裸 this.mdTheme 只剩回落那 1 处', bareMdTheme, 1);
 ok('MarkdownView 取色点全部走订阅版（≥6 处）', countOf(mdView, 'this.mdThemeNow()') >= 6);
 
 // 页面必须**写**这个键（否则订阅永远收不到变化 = 死订阅）
-eq("Index 写 appMdTheme 恰好 2 处（syncFrom 落点 + 乐观切换）",
-  countOf(index, "AppStorage.setOrCreate<string>('appMdTheme'"), 2);
+// 3 处：syncFrom 落点 + 乐观切换成功 + 保存失败回滚（2026-10-20 新增回滚路径，
+// 否则 md 主题停在乐观新值、历史行冻结在旧色板）。
+eq("Index 写 appMdTheme 恰好 3 处（syncFrom + 乐观成功 + 失败回滚）",
+  countOf(index, "AppStorage.setOrCreate<string>('appMdTheme'"), 3);
 ok('Index 用 renderThemeKey 组装标识（≥2 处）', countOf(index, 'renderThemeKey(') >= 2);
 
 console.log('');

@@ -56,7 +56,7 @@ import {
   pluginStatusMetaText, pluginStatusSummaryText, ambienceFromPluginConfig,
 } from '../core/settingsplugins';
 import { PRESS_OPACITY, CONTROL_INPUT_H, colorOf, hairlineOf, HIT_TARGET_MIN } from '../core/design';
-import { SettingsErrorBar, SettingsPanelHeader } from './SettingsRows';
+import { SettingsErrorBar, SettingsPanelHeader, SettingsButton } from './SettingsRows';
 import { AuthImage } from './AuthImage';
 import { animBase } from './anim';
 
@@ -743,6 +743,14 @@ export struct SettingsPlugins {
         theme: this.theme,
       })
 
+      // ⭐ 整页**唯一**滚动容器（2026-10-17 修）：配置区与「全部插件」列表同处一个 Scroll。
+      //   ⛔ 原先配置区自带 `Scroll().layoutWeight(1)`，与下方列表同处根 Column ⇒ 权重子节点
+      //      被压成 **0 高** ⇒ 真机/模拟器上截图只有"安装插件 + 搜索框 + 全部插件列表"，
+      //      **一个配置字段都看不见**（用户亲报「设置里的插件就是一个插件管理面板而已，没有设置」，
+      //      模拟器截图实证：搜索框下只剩一条细线）。整页一个 Scroll 后两者都能滚到。
+      Scroll() {
+        Column({ space: SP_3 }) {
+
       if (this.error.length > 0) {
         SettingsErrorBar({ message: this.error, theme: this.theme, canRetry: this.canRetry, onRetry: this.onRetry })
       }
@@ -804,7 +812,7 @@ export struct SettingsPlugins {
             this.query = v;
           })
 
-        Scroll() {
+        Column() {
           Column({ space: SP_3 }) {
             if (this.filtered().entries.length === 0) {
               Text('没有匹配的配置项。')
@@ -926,10 +934,7 @@ export struct SettingsPlugins {
           .width('100%')
         }
         .width('100%')
-        .layoutWeight(1)
-        .edgeEffect(EdgeEffect.Spring)
-        .scrollBar(BarState.Auto)
-        .align(Alignment.Top)
+        .alignItems(HorizontalAlign.Start)
       }
 
       // ── 全部插件（后端**全量**，`plugin_status`）—— 对齐 web `PluginManagerPanel.tsx:206-256` ──
@@ -942,16 +947,14 @@ export struct SettingsPlugins {
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().textPrimary)
             .layoutWeight(1)
-          Text('刷新')
-            .fontSize(FS_CAPTION)
-            .fontColor(this.pal().accentSoft)
-            .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
-            // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44, Apple HIG)：原先只靠 padding 撑高（≈24）⇒ 低于阈值。
-            .constraintSize({ minHeight: HIT_TARGET_MIN })
-            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-            .onClick(() => {
+          SettingsButton({
+            label: '刷新',
+            kind: 'ghost',
+            theme: this.theme,
+            onTap: () => {
               void this.loadBackend();
-            })
+            },
+          })
         }
         .width('100%')
         .alignItems(VerticalAlign.Center)
@@ -1014,6 +1017,15 @@ export struct SettingsPlugins {
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Start)
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .edgeEffect(EdgeEffect.Spring)
+      .scrollBar(BarState.Auto)
+      .align(Alignment.Top)
     }
     .width('100%')
     .layoutWeight(1)

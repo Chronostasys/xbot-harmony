@@ -80,13 +80,16 @@ ok('真实：xbot.genui 无 web.contributes（视图由宿主内置渲染）⇒ 
 // ══════════════════════════════════════════════════════════════════════════════
 const CAT: PluginCatalog = buildPluginCatalog(WIRE, 'zh-CN', REMOTE);
 
-eq('目录：4 个插件条目', CAT.items.length, 4);
+// 2026-10-17：有**原生入口**的插件（git-fancy / ssh-runner）按入口去重策略
+// **整条不进 web 目录**（用户要求"一个插件只给一个入口"）⇒ 只余 genui + iteration-stats。
+eq('目录：2 个 web 插件条目（git/ssh 已有原生入口 ⇒ 不进 web 目录）', CAT.items.length, 2);
+ok('目录：git-fancy / ssh-runner 不出现（原生入口接管）',
+  CAT.items.map((p) => p.id).indexOf('xbot.git-fancy') < 0
+  && CAT.items.map((p) => p.id).indexOf('xbot.ssh-runner') < 0);
 
 // ── parity 点 A：i18n 解析（name/title 不再是字面量 key）────────────────────
 eq('目录：genui 名从 i18n key 解析', CAT.items[0].name, 'GenUI（display_html）');
-eq('目录：git-fancy 名从 i18n key 解析', CAT.items[1].name, 'Git 面板');
-eq('目录：iteration-stats 名从 i18n key 解析', CAT.items[2].name, '迭代指标');
-eq('目录：ssh-runner 名从 i18n key 解析', CAT.items[3].name, '远程机器（SSH）');
+eq('目录：iteration-stats 名从 i18n key 解析', CAT.items[1].name, '迭代指标');
 
 let anyLiteralKey = false;
 for (let i = 0; i < CAT.items.length; i++) {
@@ -98,25 +101,11 @@ for (let i = 0; i < CAT.items.length; i++) {
 }
 ok('不变量：目录里 name/title **绝不**残留 i18n key 字面量', !anyLiteralKey);
 
-eq('目录：git-fancy 描述从 manifest.description 解析',
-  CAT.items[1].description.startsWith('Git 面板：分支、变更文件'), true);
 eq('目录：genui 描述从 manifest.description 解析',
   CAT.items[0].description.startsWith('LLM 生成交互式 UI'), true);
 
 // ── parity 点 A（续）：视图标题也按 key 解析 ────────────────────────────────
-const git: PluginCatalogItem = CAT.items[1];
-eq('目录：git-fancy 两个视图', git.views.length, 2);
-eq('目录：git-fancy.panel 标题解析', git.views[0].title, 'Git');
-eq('目录：git-fancy.panel 容器', `${git.views[0].container}/${git.views[0].containerLabel}`,
-  'right_sidebar/侧栏');
-eq('目录：git-fancy.commit 标题解析', git.views[1].title, 'Commit');
-eq('目录：git-fancy.commit dynamic ⇔ 参数化视图', git.views[1].dynamic, true);
-const ssh: PluginCatalogItem = CAT.items[3];
-eq('目录：ssh-runner 名 + 两视图', `${ssh.name}/${ssh.views.length}`, '远程机器（SSH）/2');
-eq('目录：ssh-runner.bar 标题解析', ssh.views[1].title, '远程机器（状态栏）');
-eq('目录：ssh-runner.bar 容器', `${ssh.views[1].container}/${ssh.views[1].containerLabel}`,
-  'info_bar/信息栏');
-const iter: PluginCatalogItem = CAT.items[2];
+const iter: PluginCatalogItem = CAT.items[1];
 eq('目录：iteration-stats.badge 标题解析 = 插件名', iter.views[0].title, '迭代指标');
 eq('目录：iteration-stats.badge 容器', iter.views[0].containerLabel, '状态栏');
 
@@ -126,11 +115,9 @@ ok('目录：不含纯后端插件 xbot.ambience', ids.indexOf('xbot.ambience') 
 ok('目录：不含纯后端插件 xbot.qq', ids.indexOf('xbot.qq') < 0);
 
 // ── parity 点 C：module_url（相对路径）⇒ 绝对（拼当前会话 baseUrl）─────────
-eq('目录：git-fancy moduleUrl 补绝对',
-  git.moduleUrl, 'https://xbot.pivotlang.tech/plugins/xbot.git-fancy/web/index.js');
 eq('目录：genui moduleUrl 补绝对',
   CAT.items[0].moduleUrl, 'https://xbot.pivotlang.tech/plugins/xbot.genui/web/index.js');
-ok('目录：moduleUrl 确为绝对 URL（带 scheme）', git.moduleUrl.indexOf('https://') === 0);
+ok('目录：moduleUrl 确为绝对 URL（带 scheme）', CAT.items[0].moduleUrl.indexOf('https://') === 0);
 
 // 不变量：可打开 URL 永远不是模块资源（波1b 缺陷不复发）
 let openUrlSafe = true;
@@ -146,9 +133,6 @@ for (let i = 0; i < CAT.items.length; i++) {
 ok('不变量：所有 url/openUrl 都是权威宿主页根（不是 ESM 资源、不是 module_url）', openUrlSafe);
 
 // ── parity 点 D：图标名归一化（web pluginIcons.ts:63 同规则）───────────────
-eq('图标：真实 git-fancy.panel 图标', git.views[0].icon, 'git-branch');
-eq('图标：真实 git-fancy.commit 图标', git.views[1].icon, 'git-commit-horizontal');
-eq('图标：真实 ssh-runner 图标', ssh.views[0].icon, 'server');
 eq('图标：iteration-stats 未声明 ⇒ 空串（组件回落通用符号）', iter.views[0].icon, '');
 eq('图标：归一化去空白', normalizePluginIcon('  Server  '), 'server');
 eq('图标：归一化小写（"Git-Branch" ⇒ "git-branch"，与 web 同）',
@@ -166,24 +150,19 @@ eq('图标：目录里大小写混写的 icon 被归一化（否则原生掉进�
 
 // ── 语言回退：同一真实 payload 换 locale ⇒ 换语言的字面量 ──────────────────
 const EN: PluginCatalog = buildPluginCatalog(WIRE, 'en', REMOTE);
-eq('i18n 回退：en ⇒ git-fancy = Git Fancy', EN.items[1].name, 'Git Fancy');
-eq('i18n 回退：en ⇒ ssh-runner = Remote Machines (SSH)', EN.items[3].name, 'Remote Machines (SSH)');
+eq('i18n 回退：en ⇒ iteration-stats = Iteration Stats', EN.items[1].name, 'Iteration Stats');
 eq('i18n 回退：en ⇒ genui = GenUI (display_html)', EN.items[0].name, 'GenUI (display_html)');
 const JA: PluginCatalog = buildPluginCatalog(WIRE, 'ja', REMOTE);
-eq('i18n 回退：ja ⇒ git-fancy = Git パネル', JA.items[1].name, 'Git パネル');
-eq('i18n 回退：ja ⇒ ssh-runner = リモートマシン（SSH）', JA.items[3].name, 'リモートマシン（SSH）');
-eq('i18n 回退：未知语言（fr）⇒ 回落 en', buildPluginCatalog(WIRE, 'fr', REMOTE).items[1].name, 'Git Fancy');
+eq('i18n 回退：ja ⇒ iteration-stats = イテレーション統計', JA.items[1].name, 'イテレーション統計');
+eq('i18n 回退：未知语言（fr）⇒ 回落 en',
+  buildPluginCatalog(WIRE, 'fr', REMOTE).items[1].name, 'Iteration Stats');
 eq('i18n 回退：语言前缀（zh-Hans 命中 zh-CN 表）',
-  buildPluginCatalog(WIRE, 'zh-Hans', REMOTE).items[1].name, 'Git 面板');
+  buildPluginCatalog(WIRE, 'zh-Hans', REMOTE).items[1].name, '迭代指标');
 
-// ── 分组：按容器聚合（与 web ViewContainer 同一集合）───────────────────────
-eq('分组：4 个容器（侧栏/主区/信息栏/状态栏）', CAT.groups.length, 4);
-eq('分组：序（侧栏最前）', CAT.groups[0].container, 'right_sidebar');
-eq('分组：序（状态栏最后）', CAT.groups[CAT.groups.length - 1].container, 'status_bar_right');
-eq('分组：侧栏聚合 git-fancy.panel + ssh-runner.panel', CAT.groups[0].views.length, 2);
-eq('分组：主区只有 git-fancy.commit', CAT.groups[1].views.length, 1);
-eq('分组：信息栏只有 ssh-runner.bar', CAT.groups[2].views.length, 1);
-eq('分组：状态栏只有 iteration-stats.badge', CAT.groups[3].views.length, 1);
+// ── 分组：按容器聚合（原生入口去重后只剩 non-native 的 iteration-stats 徽章）──
+eq('分组：1 个容器（状态栏；git/ssh 已由原生入口接管）', CAT.groups.length, 1);
+eq('分组：状态栏', CAT.groups[0].container, 'status_bar_right');
+eq('分组：状态栏只有 iteration-stats.badge', CAT.groups[0].views.length, 1);
 
 // ── 与 web+服务端同构的拼法（守住 baseUrl 不被本地映射污染：远程地址即权威）──
 eq('拼法：绝对化不会把远程地址换成别的 host',

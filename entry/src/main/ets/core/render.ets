@@ -16,7 +16,7 @@
 import { ChatRow, HistoryIteration, IterList, ToolProgress } from './types';
 import { WebCompaction, WebIteration, WebSubAgentProgress, WebToolProgress } from './chattypes';
 import type { LiveRowView, Row } from './derive';
-import { buildBlocksSignature, mergeTools, toolKey } from './streammerge';
+import { mergeTools, toolKey } from './streammerge';
 
 /** WebToolProgress（web 形状）→ 原生 ToolProgress（渲染层形状）。 */
 export function toToolProgress(t: WebToolProgress): ToolProgress {
@@ -96,39 +96,28 @@ function toSubAgents(ws: readonly WebSubAgentProgress[] | undefined): WebSubAgen
 }
 
 /**
- * SubAgent 树指纹（**live 行签名**用）—— 树变化必须让 `applyRow` 认为行变了，
- * 否则行上的 `subAgents` 会冻结在首帧（聊天树不更新）。
- *
- * 递归覆盖 children（树很小：几只 agent）；无 ⇒ `'-'`。
- * ⚠️ 只读**结构/状态**字段：desc 逐字进指纹会让长描述抖动，但那是"内容变了"的正当信号
- *    （与 `rowSignature` 里其它 `.length` 同款 —— 只求"变了就变指纹"）。
+ * ⛔ **已删除 `subAgentSig` / `subAgentsFingerprint`（字符串指纹）**：
+ * 页面投递 `liveSubAgents` 改为比较 `ChatRow.liveRevision`（整数，见 applyRow）
+ * —— 变化判据是 Row 对象恒等，不再拼树描述字符串（O(子代理数×描述长度)/帧）。
  */
-function subAgentSig(ws: readonly WebSubAgentProgress[] | undefined): string {
-  if (ws === undefined || ws.length === 0) {
-    return '-';
-  }
-  const parts: string[] = [];
-  for (let i = 0; i < ws.length; i++) {
-    const n: WebSubAgentProgress = ws[i];
-    const inst: string = n.instance !== undefined ? n.instance : '';
-    parts.push(`${n.role}:${inst}:${n.status}:${n.desc !== undefined ? n.desc.length : 0}`
-      + `[${subAgentSig(n.children)}]`);
-  }
-  return parts.join(',');
-}
 
 /**
- * 公开的 SubAgent 树指纹 —— **同一份判据供页面做值投递门控**（live 行的
- * `subAgents` 由 `applyRow` 就地替换成新数组 ⇒ 引用每帧都可能变；页面据此
- * 指纹判定"内容真的变了"才把新值投给 `MessageRowView`，避免逐帧重建 SubAgentTree）。
- * ⛔ 与 `rowSignature` 的 live 分支**同源**（同一函数）⇒ 判据与渲染不分叉。
+ * 渲染块的**整数版本号分配器**。
+ *
+ * ⛔ 只用单调整数，**绝不**拼内容字符串/比较正文：源 `WebIteration` 对象不变 ⇒
+ * 复用同一个 `HistoryIteration`（连同 rev）⇒ 内层 ForEach key 不变 ⇒ 零重建。
  */
-export function subAgentsFingerprint(ws: readonly WebSubAgentProgress[] | undefined): string {
-  return subAgentSig(ws);
-}
+let iterRevSeq: number = 0;
+
+/** 源 `WebIteration` → 渲染块（按**对象恒等**记忆化）。 */
+const iterBlockBySource = new WeakMap<object, HistoryIteration>();
 
 /** WebIteration（web 形状）→ HistoryIteration（渲染层形状）。 */
 export function toHistoryIteration(w: WebIteration): HistoryIteration {
+  const hit: HistoryIteration | undefined = iterBlockBySource.get(w);
+  if (hit !== undefined) {
+    return hit;
+  }
   const tools: ToolProgress[] = [];
   for (let i = 0; i < w.tools.length; i++) {
     tools.push(toToolProgress(w.tools[i]));
@@ -139,12 +128,14 @@ export function toHistoryIteration(w: WebIteration): HistoryIteration {
     reasoning: w.reasoning,
     tools,
     tools_folded: w.toolsFolded === true,
+    rev: ++iterRevSeq,
   };
   // SubAgent 树：**只在有值时新增键**（无 SubAgent 的迭代保持既有形状不变 —— 零回归）。
   const subs: WebSubAgentProgress[] = toSubAgents(w.subAgents);
   if (subs.length > 0) {
     out.subAgents = subs;
   }
+  iterBlockBySource.set(w, out);
   return out;
 }
 
@@ -185,16 +176,13 @@ export function toHistoryIterations(ws: readonly WebIteration[]): HistoryIterati
  * ⇒ 置空，避免同一段文本在历史块与在飞块各渲染一份（双渲染）。
  */
 export function inFlightBlock(r: LiveRowView, completed: HistoryIteration[]): HistoryIteration | null {
-  let content: string = r.content;
-  let reasoning: string = r.reasoning;
-  for (let i = 0; i < completed.length; i++) {
-    if (content.length > 0 && completed[i].content === content) {
-      content = '';
-    }
-    if (reasoning.length > 0 && completed[i].reasoning === reasoning) {
-      reasoning = '';
-    }
-  }
+  // ⛔ **禁止用字符串比较内容去重**：旧实现在这里把 `r.content` 与每条已完成迭代的
+  //   `content` 逐字比较（O(总字数)/帧），既慢又违反"禁止内容比较去重"。
+  //   正确性由**调用条件**保证：只有 `lastIter > maxCompleted`（新迭代，必无同号块）
+  //   或 `shellSameNum`（同号已完成块是**空壳**——无正文/思考/工具）才进入本函数 ⇒
+  //   同号块即使存在也没有可重复的内容。因此无需任何正文比较。
+  const content: string = r.content;
+  const reasoning: string = r.reasoning;
   const tools: ToolProgress[] = [];
   // ── live 工具列表 = web `LiveIteration.tsx` `toolDeriv` 的**三步**（本仓曾缺第 ① 步）──
   // ① **按 `iteration` 滤掉陈旧工具**（web 逐字：`t.iteration > maxCompletedIter`）；
@@ -289,84 +277,20 @@ function isShell(it: HistoryIteration): boolean {
   return true;
 }
 
-// ── live 行**已完成块**的转换记忆化（按源数组**对象恒等**）─────────────────────────
+// ── live 行**已完成块**的转换记忆化（按源数组对象恒等）─────────────────────────
 /**
  * `LiveSnapshot.iterations`（WebIteration[]）→ `HistoryIteration[]` 的**按源数组记忆化**。
  *
- * ⛔ 为什么（可离线量化的「每帧工作量」）：
- *   流式期间**每一帧**都会重建 live 行的 `ChatRow.iterations`（`applyRow` 的 live 分支），
- *   而其中的**已完成**部分（`r.iterations`）在该帧里**根本没变** —— 状态机的流式/结构化帧
- *   是字段级合并（`core/reduce.ts` 的 `{ ...prev, content, … }`），`iterations` 直接沿用
- *   `prev.iterations`（**同一数组对象**；判据 `tools/tests/perf_live_frame.test.ts` §A 直接断言）。
- *   旧实现每帧对它整份重新转换 ⇒ 每帧重新分配 N 个 `HistoryIteration` + K 个 `ToolProgress`
- *   + N 个 tools 数组（实测 N=108：`toHistoryIterations` ≈2.9 µs/帧、162 个对象/帧）。
- *   真实服务端单行可达 **108+** 已完成块 ⇒ 这是**随 turn 长度线性增长**的每帧分配（GC 压力）。
- *   ⇒ 按源数组对象恒等记忆化：键不变（内容也没变）⇒ 复用上次结果，每帧 **0 分配**。
+ * 流式期间 `r.iterations` 是同一数组对象（reducer 字段级合并直接沿用 prev）⇒
+ * 命中缓存 ⇒ **每帧 0 分配**。变化信号是**源数组引用**，不是任何字符串指纹。
  *
- * ⚠️ 不变量（缓存正确性的前提 —— 判据在 `tools/tests/perf_live_frame.test.ts`）：
- *   · 源数组一律**整体替换、绝不就地改**（每个 commit/fold 路径都产新数组：
- *     `mergeIterations` / `foldInFlightToIterations`）⇒ 换数组即换键 ⇒ **结构上不可能陈旧**；
- *   · 缓存值是**共享**的 ⇒ 调用方**只许读**，要改必须先 `slice()`（`liveIterations` 已如此）。
- *     转换结果（`HistoryIteration`）仓内只被只读消费 —— 会就地改它的 `applyStreamFrame` /
- *     `applyStructured`（`core/streammerge.ets`）在**全仓没有任何调用点**（已 grep 核实）；
- *   · WeakMap 键 ⇒ 源数组被 GC 时条目一并回收（**无容量上限、无泄漏**）—— 与
- *     `core/derive.ts` 的 `assistantRowByTurn` / `core/markdown.ets` 的 mdCache 同一手法。
+ * ⚠️ 不变量：源数组一律整体替换、绝不就地改（`mergeIterations` /
+ * `foldInFlightToIterations` 都产新数组）⇒ 换数组即换键 ⇒ 结构上不可能陈旧。
  */
 const liveBlocksMemo = new WeakMap<object, HistoryIteration[]>();
 let liveConvHits = 0;
 let liveConvMisses = 0;
 let liveConvBlocks = 0;      // 累计**转换过的块数**（= 每帧真实工作量；命中不计）
-
-// ── live 行**已完成块指纹**（供页面 O(1) 门控「值投递」）────────────────────────────
-/**
- * 已完成块指纹 = `buildBlocksSignature(convertedBlocksMemo(src))`。
- *
- * ⛔ 为什么（目标⑤ 第四轮，「双命中」）：
- *   页面 `syncLiveTail` 每帧判「live 行的已完成块是否变化」，旧写法是
- *   `blocksSignature(this.liveBlocks) !== blocksSignature(completedBlocks(liveRowRef))`。
- *   · `this.liveBlocks` 侧：稳定数组 ⇒ 命中记忆化（≈0）；
- *   · `completedBlocks(liveRowRef)` 侧：**每帧新数组**（`liveIterations` 里的 `.slice()`
- *     ＋可能 push 在飞块）⇒ `blocksSignature` 每帧**未命中** ⇒ O(块数) 拼串 + O(块数) 过滤分配。
- *   ⇒ 两端都 O(1)：本函数按**派生行源数组对象恒等**记忆化（流式帧之间 `r.iterations`
- *     是同一数组对象 —— 判据 `tools/tests/perf_live_frame.test.ts` §A 直接断言），
- *     命中即复用上次算出的指纹字符串（不可变、可共享）。
- *
- * ⚠️ 正确性前提（与 `convertedBlocksMemo` 同一不变量）：源数组**整体替换、绝不就地改**；
- *   只按对象恒等取缓存 ⇒ ① 输出逐字节不变（纯函数，判据 `stream_perf_equiv` §10 用
- *   独立 oracle `blocksSignature(completedBlocks(row))` 比对）；② 换源数组（commit/fold）
- *   必重算（同 §10 的变更检测断言）。WeakMap 键 ⇒ 源数组 GC 时条目一并回收。
- */
-const completedSigMemo = new WeakMap<object, string>();
-/** 行对象 → 该行当前「已完成块指纹」（`applyRow` 的 live 分支写入；页面读）。 */
-const liveRowSigMemo = new WeakMap<object, string>();
-
-/** 空块列表的指纹（页面在无 live 行时用它当"期望值"）。 = `buildBlocksSignature([])`。 */
-export const EMPTY_BLOCKS_SIGNATURE: string = buildBlocksSignature([]);
-
-function completedSigOf(src: readonly WebIteration[]): string {
-  const hit: string | undefined = completedSigMemo.get(src);
-  if (hit !== undefined) {
-    return hit;
-  }
-  const s: string = buildBlocksSignature(convertedBlocksMemo(src));
-  completedSigMemo.set(src, s);
-  return s;
-}
-
-/**
- * 某渲染行当前 **live 行已完成块** 的指纹（**O(1)**）—— 页面据此门控 `@State liveBlocks`
- * 的值投递（只在变化时赋值）。由 `applyRow` 的 live 分支在每次重算该行时写入。
- *
- * ⛔ 与「页面算 `blocksSignature(completedBlocks(row))`」**逐字节等价**：`row.iterations`
- *   在 live 下 = 已完成转换块 ⊕ （可选）末尾在飞块（`live:true`）；`completedBlocks` 只滤掉
- *   在飞块 ⇒ 元素集合与顺序 = `convertedBlocksMemo(r.iterations)` ⇒ 指纹相同（§10 断言）。
- *   行对象从未被 `applyRow` 写过（如新建后首帧前调用）⇒ 指纹取空值（`EMPTY_BLOCKS_SIGNATURE`），
- *   与"该行尚无已完成块"一致（`row.iterations` 为空）。
- */
-export function liveBlocksSignature(row: ChatRow): string {
-  const hit: string | undefined = liveRowSigMemo.get(row);
-  return hit !== undefined ? hit : EMPTY_BLOCKS_SIGNATURE;
-}
 
 /** 按源数组对象恒等取「已完成块」的转换结果（**共享**数组 —— 调用方只读）。 */
 function convertedBlocksMemo(src: readonly WebIteration[]): HistoryIteration[] {
@@ -381,6 +305,9 @@ function convertedBlocksMemo(src: readonly WebIteration[]): HistoryIteration[] {
   liveBlocksMemo.set(src, conv);
   return conv;
 }
+
+/** 页面投递 `liveBlocks` 用的 O(1) 引用（live 行 = `row.completedBlocks`，否则空）。 */
+export const EMPTY_BLOCKS: HistoryIteration[] = [];
 
 /**
  * `liveBlocksConvStats()` 的返回形状。
@@ -443,7 +370,72 @@ function liveIterations(r: LiveRowView): HistoryIteration[] {
   }
   const block: HistoryIteration | null = inFlightBlock(r, out);
   if (block !== null) {
-    out.push(block);
+    // ⛔ **同号 = 同一迭代** ⇒ 已存在同号块时必须**就地合并**，绝不 append 第二个
+    //   （用户 2026-10-17 P0：迭代完成后突然出现两个一模一样的 iter，下一迭代恢复）。
+    //   合并语义：工具按 `toolKey` 并集（已提交优先，保持顺序）；正文/思考**非空者胜**
+    //   （在飞带新文本时以在飞为准 —— `inFlightBlock` 已把"与已提交逐字相同"的文本清空，
+    //   所以这里非空即"有新内容"）。合并后仍标 `live: true`（它在飞、要走在飞渲染）。
+    let idx: number = -1;
+    for (let i = 0; i < out.length; i++) {
+      if (out[i].iteration === block.iteration) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx >= 0) {
+      const prevIt: HistoryIteration = out[idx];
+      const prevTools: ToolProgress[] = prevIt.tools !== undefined ? prevIt.tools : [];
+      out[idx] = {
+        iteration: prevIt.iteration,
+        content: (block.content !== undefined && block.content.length > 0)
+          ? block.content : (prevIt.content !== undefined ? prevIt.content : ''),
+        reasoning: (block.reasoning !== undefined && block.reasoning.length > 0)
+          ? block.reasoning : (prevIt.reasoning !== undefined ? prevIt.reasoning : ''),
+        tools: mergeTools(prevTools, block.tools),
+        tools_folded: prevIt.tools_folded,
+        live: true,
+      };
+    } else {
+      out.push(block);
+    }
+  }
+  return collapseSameNumberBlocks(out);
+}
+
+/**
+ * **渲染边界不变量**：同一 `iteration` 号在渲染列表里**只能出现一次**。
+ *
+ * ⛔ 为什么要有（用户 2026-10-17 P0「完成后突然变成两个一模一样的 iter」）：
+ *   上游（状态机 merge / fold / finalizer / 增量 delta）任何一条路径只要让同一个号
+ *   出现两次，UI 就会并排画出两块——而"同一个号"在语义上**永远是同一个迭代**。
+ *   这里做**兜底收敛**（工具按 `toolKey` 并集、正文/思考非空者胜、`live` 取或），
+ *   让"同号重复"这类缺陷在渲染层**不可能**露出到屏幕上。
+ *   判据与渲染同源：`tools/tests/live_iter_dedupe.test.ts` 直接喂重复输入断言收敛。
+ */
+export function collapseSameNumberBlocks(list: HistoryIteration[]): HistoryIteration[] {
+  if (list.length < 2) {
+    return list;
+  }
+  const seen: Map<number, number> = new Map<number, number>();   // 号 → 结果下标
+  const out: HistoryIteration[] = [];
+  for (let i = 0; i < list.length; i++) {
+    const it: HistoryIteration = list[i];
+    const at: number | undefined = seen.get(it.iteration);
+    if (at === undefined) {
+      seen.set(it.iteration, out.length);
+      out.push(it);
+      continue;
+    }
+    const prevIt: HistoryIteration = out[at];
+    const prevTools: ToolProgress[] = prevIt.tools !== undefined ? prevIt.tools : [];
+    out[at] = {
+      iteration: prevIt.iteration,
+      content: it.content !== undefined && it.content.length > 0 ? it.content : (prevIt.content !== undefined ? prevIt.content : ''),
+      reasoning: it.reasoning !== undefined && it.reasoning.length > 0 ? it.reasoning : (prevIt.reasoning !== undefined ? prevIt.reasoning : ''),
+      tools: mergeTools(prevTools, it.tools !== undefined ? it.tools : []),
+      tools_folded: prevIt.tools_folded,
+      live: prevIt.live === true || it.live === true,
+    };
   }
   return out;
 }
@@ -461,76 +453,16 @@ function liveIterations(r: LiveRowView): HistoryIteration[] {
  * 只取**离散**字段（`name`/`status`/`exit_code`/`gen_chars`）——⛔ 不含 `elapsed_ms`
  * （running 时长是每帧变的连续量，纳入会让 live 行每帧重建，得不偿失）。
  */
-/** 工具状态摘要可消费的最小结构面（原生 `ToolProgress` 与 web `WebToolProgress` 都满足）。 */
-interface StatusSigTool {
-  name?: string;
-  status?: string;
-  exit_code?: number;
-  exitCode?: number;
-  gen_chars?: number;
-  genChars?: number;
-}
-
-function toolsStatusSig(tools: readonly StatusSigTool[] | undefined): string {
-  if (tools === undefined || tools.length === 0) {
-    return '-';
-  }
-  const parts: string[] = [];
-  for (let i = 0; i < tools.length; i++) {
-    const t: StatusSigTool = tools[i];
-    const ec: number | undefined = t.exit_code !== undefined ? t.exit_code : t.exitCode;
-    const gc: number | undefined = t.gen_chars !== undefined ? t.gen_chars : t.genChars;
-    parts.push(`${t.name !== undefined ? t.name : ''}:${t.status !== undefined ? t.status : ''}`
-      + `:${ec !== undefined ? ec : ''}:${gc !== undefined ? gc : ''}`);
-  }
-  return parts.join(',');
-}
-
-/** 行内容变化指纹 —— 变了才自增 `rev`（参与 ForEach key）。 */
-function rowSignature(r: Row): string {
-  switch (r.kind) {
-    case 'user':
-      return `u#${r.content.length}#${r.turnID}#${r.sending ? 1 : 0}#${r.queued ? 1 : 0}#${r.isNotification ? 1 : 0}`;
-    case 'live': {
-      const last: WebIteration | undefined = r.iterations.length > 0
-        ? r.iterations[r.iterations.length - 1] : undefined;
-      const lastSig: string = last !== undefined
-        ? `${last.iteration}:${last.content.length}:${last.reasoning.length}:${last.tools.length}`
-          + `:${toolsStatusSig(last.tools)}` : '-';
-      // ⚠️ 必须含**在飞字段**（content/reasoning/tools/lastIter）：在飞迭代块
-      // 是由它们折叠出的最后一个迭代块，其内容每帧都变 —— 指纹不含它则
-      // 行内容不刷新（"流式只在尾块更新、行内静止"）。含它 ⇒ 每帧 rev 自增、
-      // 非懒尾行重渲染（打字机靠 @Prop 增量，不受 rev 影响）。
-      return `l#${r.turnID}#${r.iterations.length}#${lastSig}#${r.streaming ? 1 : 0}`
-        + `#${r.regionsBefore !== undefined ? r.regionsBefore : 0}`
-        + `#${r.lastIter}#${r.content.length}#${r.reasoning.length}`
-        + `#${r.activeTools.length}#${r.streamingTools.length}`
-        // ⛔ **工具状态摘要**（2026-10-12 P0，用户原话「running 绝不能变回 pending」）：
-        //    live 块是由 `r.activeTools`/`r.streamingTools` **即时折叠**出的（**不在**
-        //    `r.iterations` 里 ⇒ 上面 `lastSig` 对它无效）。只含**长度**时，同一工具
-        //    `pending→running` 指纹不变 ⇒ `applyRow` 跳过 ⇒ 行内 tools 冻结在首帧的
-        //    `pending` ⇒ pill 永远「排队」。加状态摘要后每次状态变化都改指纹。
-        + `#${toolsStatusSig(r.activeTools)}#${toolsStatusSig(r.streamingTools)}`
-        // SubAgent 树（live 快照）：变了必须让行重建，否则行上的 subAgents 冻结在首帧
-        + `#${subAgentSig(r.subAgents)}`;
-    }
-    case 'frozen': {
-      const last: WebIteration | undefined = r.iterations.length > 0
-        ? r.iterations[r.iterations.length - 1] : undefined;
-      const lastSig: string = last !== undefined
-        ? `${last.iteration}:${last.content.length}:${last.reasoning.length}:${last.tools.length}`
-          + `:${toolsStatusSig(last.tools)}` : '-';
-      return `f#${r.turnID}#${r.iterations.length}#${lastSig}#${r.content.length}#${r.reasoning.length}`;
-    }
-    case 'committed': {
-      const last: WebIteration | undefined = r.iterations.length > 0
-        ? r.iterations[r.iterations.length - 1] : undefined;
-      const lastSig: string = last !== undefined
-        ? `${last.iteration}:${last.content.length}:${last.tools.length}` : '-';
-      return `c#${r.turnID}#${r.iterations.length}#${lastSig}#${r.content.length}#${r.regionsBefore !== undefined ? r.regionsBefore : 0}#${r.compactions !== undefined ? r.compactions.length : 0}`;
-    }
-  }
-}
+/**
+ * ⛔ **已删除字符串指纹**（`toolsStatusSig` / `rowSignature`）。
+ *
+ * 旧实现每帧把 `content.length`/工具状态/SubAgent 描述拼成字符串再比较 ——
+ * 既是 O(内容) 的每帧成本，也违反「禁止用字符串比较内容来去重」。
+ * 现在变化判据 = **派生 Row 的对象恒等**：`deriveRows` 对未变化的 turn 复用同一个
+ * `Row` 对象（`assistantRowByTurn` WeakMap），reducer 只对变化的 turn 产生新对象
+ * ⇒ `applyRow` 用 `WeakMap<ChatRow, Row>` 记「上次应用的 Row」，引用相同即 no-op。
+ * 这是 O(1)、零分配、零字符串比较的**完备**变化信号（Row 的所有字段都来自 state）。
+ */
 
 /**
  * `WebCompaction[]`（readonly）→ 渲染层可变数组（**新增对象、不就地改源**）。
@@ -548,26 +480,157 @@ function toCompactions(cs: readonly WebCompaction[] | undefined): WebCompaction[
   return out;
 }
 
+/** 工具结构比较可消费的最小面（原生 `ToolProgress` 与 web `WebToolProgress` 都满足）。
+ * ⛔ 两套字段名（snake_case / camelCase）都要读 —— live 派生行的工具是 **web 形状**
+ *    （`WebToolProgress`：exitCode/genChars/callID/uiMode/toolHints），若只读 snake_case
+ *    会把「退出码/生成字数/调用 id」的变化全部当成"无变化" ⇒ pill 冻帧。
+ */
+interface EssenceTool {
+  name?: string;
+  label?: string;
+  status?: string;
+  exit_code?: number;
+  exitCode?: number;
+  gen_chars?: number;
+  genChars?: number;
+  call_id?: string;
+  callID?: string;
+  ui_mode?: string;
+  uiMode?: string;
+  summary?: string;
+  args?: string;
+  detail?: string;
+  tool_hints?: string;
+  toolHints?: string;
+}
+
+/** 工具数组的**结构等价**（只用离散元数据 + 正文/参数的**长度**；⛔ 不做全文字符串比较）。
+ *
+ * 目的：`elapsed_ms` 是每帧变化的连续量 —— 它单独变化**不得**触发行重建
+ * （否则流式期每帧重建，掉帧）。旧实现用字符串指纹排除它；现在用 O(n) 整数/元数据比较。
+ */
+function sameToolEssence(a: EssenceTool, b: EssenceTool): boolean {
+  if (a === b) return true
+  const aExit: number | undefined = a.exit_code !== undefined ? a.exit_code : a.exitCode
+  const bExit: number | undefined = b.exit_code !== undefined ? b.exit_code : b.exitCode
+  const aGen: number | undefined = a.gen_chars !== undefined ? a.gen_chars : a.genChars
+  const bGen: number | undefined = b.gen_chars !== undefined ? b.gen_chars : b.genChars
+  const aCall: string | undefined = a.call_id !== undefined ? a.call_id : a.callID
+  const bCall: string | undefined = b.call_id !== undefined ? b.call_id : b.callID
+  const aMode: string | undefined = a.ui_mode !== undefined ? a.ui_mode : a.uiMode
+  const bMode: string | undefined = b.ui_mode !== undefined ? b.ui_mode : b.uiMode
+  const aHints: string | undefined = a.tool_hints !== undefined ? a.tool_hints : a.toolHints
+  const bHints: string | undefined = b.tool_hints !== undefined ? b.tool_hints : b.toolHints
+  if (a.name !== b.name || a.status !== b.status || a.label !== b.label) return false
+  if (aExit !== bExit || aGen !== bGen || aCall !== bCall || aMode !== bMode) return false
+  if ((a.summary ?? '').length !== (b.summary ?? '').length) return false
+  if ((a.args ?? '').length !== (b.args ?? '').length) return false
+  if ((a.detail ?? '').length !== (b.detail ?? '').length) return false
+  if ((aHints ?? '').length !== (bHints ?? '').length) return false
+  return true
+}
+
+function sameToolArr(a: readonly EssenceTool[] | undefined, b: readonly EssenceTool[] | undefined): boolean {
+  if (a === b) return true
+  const A: readonly EssenceTool[] = a !== undefined ? a : []
+  const B: readonly EssenceTool[] = b !== undefined ? b : []
+  if (A.length !== B.length) return false
+  for (let i = 0; i < A.length; i++) {
+    if (!sameToolEssence(A[i], B[i])) return false
+  }
+  return true
+}
+
+/** 逐元素**引用**相等（空数组合并视为相等）。用于 SubAgent 等不可变源对象数组。 */
+function sameRefArr<T>(a: readonly T[] | undefined, b: readonly T[] | undefined): boolean {
+  if (a === b) return true
+  const A: readonly T[] = a !== undefined ? a : []
+  const B: readonly T[] = b !== undefined ? b : []
+  if (A.length !== B.length) return false
+  for (let i = 0; i < A.length; i++) {
+    if (A[i] !== B[i]) return false
+  }
+  return true
+}
+
+/**
+ * 两个派生 Row 是否**渲染等价**（O(n) 离散比较，无字符串拼接、无全文比较）。
+ *
+ * ⛔ 为什么需要它（而不是只靠对象恒等）：
+ *   `elapsed_ms` 是流式期每帧变化的连续量；`deriveRows` 会因底层 Turn 变化产出新 Row
+ *   对象。若把"新对象"一律当变化，live 行会**逐帧重建**（掉帧）。
+ *   旧实现用 `rowSignature` 字符串排除 elapsed；本函数等价地排除它，但：
+ *     · 不拼任何字符串（零分配）；
+ *     · 更早迭代的变化靠 `iterations` **逐元素引用**判出（旧签名只看最后一个迭代 ⇒ 会漏）；
+ *     · 工具状态/退出码/生成字数都参与（旧签名有，不能退化）。
+ *   正文/参数只比**长度**（用户明确禁止用字符串比较内容去重）；真实更新几乎都会改长度。
+ */
+function sameRowEssence(a: Row, b: Row): boolean {
+  if (a === b) return true
+  if (a.kind !== b.kind) return false
+  if (a.kind === 'user' && b.kind === 'user') {
+    return a.id === b.id && a.turnID === b.turnID && a.content.length === b.content.length
+      && a.timestamp === b.timestamp && a.isNotification === b.isNotification
+      && a.queued === b.queued && a.sending === b.sending
+  }
+  if (a.kind === 'live' && b.kind === 'live') {
+    return a.turnID === b.turnID && a.streaming === b.streaming && a.lastIter === b.lastIter
+      && a.regionsBefore === b.regionsBefore
+      && a.content.length === b.content.length && a.reasoning.length === b.reasoning.length
+      && a.genui.length === b.genui.length
+      && sameRefArr(a.iterations, b.iterations)
+      && sameRefArr(a.subAgents, b.subAgents)
+      && sameToolArr(a.activeTools, b.activeTools)
+      && sameToolArr(a.streamingTools, b.streamingTools)
+      && sameToolArr(a.completedTools, b.completedTools)
+  }
+  if (a.kind === 'frozen' && b.kind === 'frozen') {
+    return a.turnID === b.turnID && a.lastIter === b.lastIter && a.regionsBefore === b.regionsBefore
+      && a.content.length === b.content.length && a.reasoning.length === b.reasoning.length
+      && a.genui.length === b.genui.length
+      && sameRefArr(a.iterations, b.iterations)
+      && sameToolArr(a.activeTools, b.activeTools)
+  }
+  if (a.kind === 'committed' && b.kind === 'committed') {
+    return a.turnID === b.turnID && a.content.length === b.content.length
+      && a.iterationsTruncated === b.iterationsTruncated
+      && a.regionsBefore === b.regionsBefore
+      && sameRefArr(a.iterations, b.iterations)
+      && sameRefArr(a.compactions, b.compactions)
+  }
+  return false
+}
+
+/** 行 → 上次应用的派生 Row（**对象恒等 + 渲染等价**判据；O(n) 无字符串）。 */
+const appliedRowByRow = new WeakMap<ChatRow, Row>();
+
 /**
  * 把一个派生 Row 落到既有的 `ChatRow` 对象上（就地更新）。
  *
  * 就地更新（而非每帧 new）保住 `@ObjectLink` 的对象恒等 —— 未变化的行为 ArkUI
  * 复用同一组件实例（对齐 web `rowsToChatMessages` 的对象恒等 memo）。
  *
+ * 变化判据 = **`Row` 对象恒等**（`deriveRows` 对未变 turn 复用同一 Row 对象）。
+ * ⛔ 不再拼字符串指纹：那既是每帧 O(内容) 成本，也会因"只看最后一个迭代/只看长度"
+ * 漏掉更早迭代/工具状态/等长替换（用户症状：迭代内容不更新）。
+ *
  * @returns 行内容是否变化（true ⇒ 调用方应自增 rev）
  */
 export function applyRow(row: ChatRow, r: Row): boolean {
-  const sig: string = rowSignature(r);
-  if (row.signature === sig) {
-    return false;
+  const prev: Row | undefined = appliedRowByRow.get(row)
+  // 对象恒等（O(1)）+ 渲染等价（O(n) 整数/元数据；排除 elapsed 这类连续量）。
+  // 等价 ⇒ 保留上一次的 Row 引用，不更新字段、不自增 liveRevision（零重建）。
+  if (prev !== undefined && sameRowEssence(prev, r)) {
+    return false
   }
-  row.signature = sig;
+  appliedRowByRow.set(row, r);
   switch (r.kind) {
     case 'user':
       row.role = 'user';
       row.turnID = r.turnID;
       row.content = r.content;
       row.iterations = [];
+      row.completedBlocks = [];
       row.isLive = false;
       // 通知注入的 user 行（web `UserMessage.isNotification`）—— 渲染层据此分流：通知类**原样呈现**，
       // 普通用户消息走与助手同一条 markdown（web `UserMessage.tsx:4-5`）。
@@ -581,9 +644,10 @@ export function applyRow(row: ChatRow, r: Row): boolean {
       row.turnID = r.turnID;
       row.content = r.content;
       row.iterations = liveIterations(r);
-      // 「已完成块指纹」按**派生行源数组对象恒等**记忆化（流式帧命中 ⇒ O(1)，见 `completedSigOf`）。
-      // 页面用它门控 `@State liveBlocks` 的值投递（旧写法每帧 O(块数) 拼串 + 过滤分配）。
-      liveRowSigMemo.set(row, completedSigOf(r.iterations));
+      // 已完成块 = 源数组的转换结果（**按源数组对象恒等**记忆化；不含在飞块）。
+      // 页面直接投这个引用（引用不变 ⇒ 不重投）——零字符串比较、零过滤分配。
+      row.completedBlocks = convertedBlocksMemo(r.iterations);
+      row.liveRevision = row.liveRevision + 1;
       row.isLive = true;
       row.regionsBefore = r.regionsBefore !== undefined ? r.regionsBefore : 0;
       // live 行不承载压缩点（压缩只在**已提交** turn 的迭代边界上定位）⇒ 清空。
@@ -596,6 +660,7 @@ export function applyRow(row: ChatRow, r: Row): boolean {
       row.turnID = r.turnID;
       row.content = r.content;
       row.iterations = toHistoryIterations(r.iterations);
+      row.completedBlocks = [];
       row.isLive = false;
       row.regionsBefore = r.regionsBefore !== undefined ? r.regionsBefore : 0;
       row.compactions = [];
@@ -606,6 +671,7 @@ export function applyRow(row: ChatRow, r: Row): boolean {
       row.turnID = r.turnID;
       row.content = r.content;
       row.iterations = toHistoryIterations(r.iterations);
+      row.completedBlocks = [];
       row.isLive = false;
       row.regionsBefore = r.regionsBefore !== undefined ? r.regionsBefore : 0;
       // turn 内压缩点（迭代之间内联渲染）——派生行 → 渲染行透传（无则空数组）。

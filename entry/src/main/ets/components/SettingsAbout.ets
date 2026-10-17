@@ -56,7 +56,7 @@ import {
   RESTART_TIMEOUT, RestartResultRow, restartBusy, restartErrorText, restartHintText, restartReducer,
   restartShowConfirm, restartSucceeded, restartSucceededText, RPC_APPLY_UPDATE, RPC_RESTART_SERVER,
 } from '../core/aboutops';
-import { SettingsErrorBar, SettingsPanelHeader } from './SettingsRows';
+import { SettingsErrorBar, SettingsPanelHeader, SettingsButton } from './SettingsRows';
 import { PRESS_OPACITY, HIT_TARGET_MIN } from '../core/design';
 
 @Component
@@ -424,30 +424,22 @@ export struct SettingsAbout {
                   .width('100%')
                 Row({ space: SP_2 }) {
                   Blank()
-                  Text('取消')
-                    .constraintSize({ minHeight: HIT_TARGET_MIN })
-                    .fontSize(FS_CAPTION)
-                    .fontColor(this.pal().textPrimary)
-                    .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-                    .backgroundColor(this.pal().surfaceAlt)
-                    .borderRadius(R_LG)
-                    .border({ width: 1, color: this.pal().borderStrong })
-                    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-                    .onClick(() => {
+                  SettingsButton({
+                    label: '取消',
+                    kind: 'secondary',
+                    theme: this.theme,
+                    onTap: () => {
                       this.cancelApply();
-                    })
-                  Text('确认更新')
-                    .constraintSize({ minHeight: HIT_TARGET_MIN })
-                    .fontSize(FS_CAPTION)
-                    .fontColor(this.pal().dangerText)
-                    .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-                    .backgroundColor(this.pal().surfaceAlt)
-                    .borderRadius(R_LG)
-                    .border({ width: 1, color: this.pal().dangerText })
-                    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-                    .onClick(() => {
+                    },
+                  })
+                  SettingsButton({
+                    label: '确认更新',
+                    kind: 'danger',
+                    theme: this.theme,
+                    onTap: () => {
                       void this.doApply();
-                    })
+                    },
+                  })
                 }
                 .width('100%')
               }
@@ -533,31 +525,23 @@ export struct SettingsAbout {
                   .width('100%')
                 Row({ space: SP_2 }) {
                   Blank()
-                  Text('取消')
-                    .constraintSize({ minHeight: HIT_TARGET_MIN })
-                    .fontSize(FS_CAPTION)
-                    .fontColor(this.pal().textPrimary)
-                    .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-                    .backgroundColor(this.pal().surfaceAlt)
-                    .borderRadius(R_LG)
-                    .border({ width: 1, color: this.pal().borderStrong })
-                    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-                    .onClick(() => {
+                  SettingsButton({
+                    label: '取消',
+                    kind: 'secondary',
+                    theme: this.theme,
+                    onTap: () => {
                       this.cancelRestart();
-                    })
-                  Text(restartBusy(this.restartState) ? '重启中…' : '确认重启')
-                    .constraintSize({ minHeight: HIT_TARGET_MIN })
-                    .fontSize(FS_CAPTION)
-                    .fontColor(this.pal().dangerText)
-                    .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-                    .backgroundColor(this.pal().surfaceAlt)
-                    .borderRadius(R_LG)
-                    .border({ width: 1, color: this.pal().dangerText })
-                    .enabled(!restartBusy(this.restartState))
-                    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-                    .onClick(() => {
+                    },
+                  })
+                  SettingsButton({
+                    label: restartBusy(this.restartState) ? '重启中…' : '确认重启',
+                    kind: 'danger',
+                    busy: restartBusy(this.restartState),
+                    theme: this.theme,
+                    onTap: () => {
                       void this.doRestart();
-                    })
+                    },
+                  })
                 }
                 .width('100%')
               }

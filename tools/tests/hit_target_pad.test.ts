@@ -278,19 +278,13 @@ const files: string[] = [];
 const srcByRel: Map<string, string> = new Map<string, string>();
 for (let i = 0; i < files.length; i++) { srcByRel.set(pathMod.relative(etsRoot, files[i]), fsMod.readFileSync(files[i], 'utf-8')); }
 
-// ── 台账（**只许缩短**；2026-10-12 目标⑤：57 → 5）────────────────────────────────
-//  本波已修 52 处（14 文件，加 `.constraintSize({ minHeight: HIT_TARGET_MIN })`）。
-//  余 5 处**登记待批**（观感风险 / 越界）：
+// ── 台账（**只许缩短**；2026-10-17 目标：5 → 1）────────────────────────────────
+//  本波 SettingsLlm 的 4 处已随订阅卡/工具栏重构消失（组件已 `constraintSize` / 结构变化）。
+//  余 1 处**登记待批**（观感风险 / 越界）：
 //   · `MarkdownView.ets :: Text` ×1 —— ⛔ 该文件归别人域（本波禁碰）。
-//   · `SettingsLlm.ets :: Text` ×4 —— 工具栏「刷新模型/导出/导入/新增订阅」：与 `height(34)` 的
-//     TextInput **同一行**；若长到 44 会**高过输入框**（明显改变工具栏视觉密度）⇒ 待批。
-const PAD_CEILING: number = 5;
+const PAD_CEILING: number = 1;
 const PAD_LEDGER: string[] = [
   'components/MarkdownView.ets :: Text',
-  'components/SettingsLlm.ets :: Text',
-  'components/SettingsLlm.ets :: Text',
-  'components/SettingsLlm.ets :: Text',
-  'components/SettingsLlm.ets :: Text',
 ];
 
 // ── §A 扫描器自证 ──────────────────────────────────────────────────────────────

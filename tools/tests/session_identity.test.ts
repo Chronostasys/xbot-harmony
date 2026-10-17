@@ -19,8 +19,10 @@ function row(id: string, rev: number): ChatRow {
 const a = row('live-1', 1), b = row('live-1', 1);
 ok('判别前提：裸 rowKey 同形必碰撞（说明为何必须加会话维度）', rowKey(a) === rowKey(b));
 ok('会话作用域键：同形行跨会话必须不同', sessionScopedRowKey('A', a) !== sessionScopedRowKey('B', b));
-ok('会话作用域键：同会话内仍随 rev 变化（不能反向失效）',
-   sessionScopedRowKey('A', row('live-1', 1)) !== sessionScopedRowKey('A', row('live-1', 2)));
+// 2026-10-17 口径（照抄 web）：**rev 不进外层键**——内容更新走 @Observed 属性刷新，
+// 换键会销毁/重建整行 ⇒ 闪烁。rev 仍进 `rowsFpOf`（页面投影判据）。
+ok('会话作用域键：同会话内 rev 不进键（内容更新走 @Observed，避免整行重建闪烁）',
+   sessionScopedRowKey('A', row('live-1', 1)) === sessionScopedRowKey('A', row('live-1', 2)));
 
 // ── ② 指纹：两个会话同形 rows 必须得到不同指纹（旧实现只由 id#rev 组成 => 相等 => 切会话不刷新）──
 const shape: ChatRow[] = [row('u-1', 1), row('a-2', 1)];

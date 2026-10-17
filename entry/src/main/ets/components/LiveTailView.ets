@@ -21,8 +21,7 @@ import {
   ELEV_OVERLAY, GAP_PILL, INSET_PILL_Y, POPOVER_W_OVERFLOW, PRESS_OPACITY, RADIUS_CARD, RADIUS_PILL,
   SPACE_HAIR, SPACE_XXS, STROKE_RAIL, elevationColorOf, surfaceFillOf, SURFACE_CHIP, HIT_TARGET_MIN,
 } from '../core/design';
-import { orbBreath } from '../core/orb';
-import { MOTION_BEAT_MS, animBase } from './anim';
+import { animBase } from './anim';
 import { MarkdownView } from './MarkdownView';
 import { ThinkingLine } from './ThinkingLine';
 import { AssistantOrb, ORB_MODE_THINKING, ORB_MODE_TOOL, ORB_MODE_SECONDARY } from './AssistantOrb';
@@ -126,8 +125,9 @@ export struct LiveTailView {
   @State popIdx: number = -1;
   /** "+N" 溢出浮层开关。 */
   @State overOpen: boolean = false;
-  /** 打字机光标不透明度（按 `MOTION_BEAT_MS` 呼吸；**不再** 10Hz 硬闪）。 */
-  @State caretAlpha: number = 1;
+  // 2026-10-17：打字机光标已整体移除（用户要求：不单独闪；逐字显示即效果）
+  // ⇒ `caretAlpha` 状态与每拍计算一并删除（否则是"算了但没人消费"的死代码，
+  //   仍会让判据误以为存在第二个呼吸源）。
   private runes: string[] = [];
   private reasonRunes: string[] = [];
   private timer: number = -1;
@@ -354,12 +354,7 @@ return renderKind(t.status, t.exit_code, true);
     }
     const skip: boolean = this.skip;
     this.skip = !this.skip;
-    // ── 打字机光标呼吸（整组唯一动效是光球；光标是"正在写入"的局部标记）──────────────
-    // 相位只由 `Date.now()` + `anim.ets` 的刻度决定（无本地累加器）⇒ 与光球同源同步。
-    // 打字机追平后本定时器会停 ⇒ 呼吸值**停在当前相位**（定格）；下一批 token 到达即续上。
-    // 这是刻意的：**有动静才呼吸**（与光球"静默即 idle"同一哲学）。
-    const now: number = Date.now();
-    this.caretAlpha = this.reduceMotion() ? 1 : 0.35 + 0.65 * orbBreath(now, MOTION_BEAT_MS);
+    // 2026-10-17：光标已移除 ⇒ 这里不再有第二个呼吸权重（整组唯一动效是光球）。
     // 思考：展开时逐字（纯 Text，便宜）
     if (this.typingReason()) {
       const rc: number = this.reasonRunes.length > 0

@@ -95,7 +95,7 @@ function readWiring(): Wiring {
     rowKeyHasTheme: /themableRowKey\(\s*this\.currentChat\s*,\s*this\.themeName\s*,\s*row\s*\)/.test(indexSrc),
     // 数据源必须在主题变化时整表 reload（键变了 ⇒ 必须让框架重读键/重建条目）
     dsReloadsOnTheme: /applyRows\(\s*next:\s*ChatRow\[\]\s*,\s*chatId:\s*string\s*,\s*theme:\s*string\s*\)/.test(indexSrc)
-      && /\|\|\s*theme\s*!==\s*this\.theme/.test(indexSrc),
+      && /(const\s+themeChanged\s*:\s*boolean\s*=\s*theme\s*!==\s*this\.theme|\|\|\s*theme\s*!==\s*this\.theme)/.test(indexSrc),
     // 应用色板必须**派生**自 md 主题（唯一主题设置），而不是读第二套 KEY_APP_THEME
     // 2026-10-13：标识改由 `renderThemeKey(色板名, 强调色)` 组装（强调色必须进**可观察真源**，
     // 否则改强调色全站零重渲染 —— 用户亲报「配色根本没起作用」）。仍**唯一派生自 md 主题**。

@@ -272,25 +272,24 @@ const REAL_WIRE: WebPluginListWire = {
 } as unknown as WebPluginListWire;
 
 const CAT = buildPluginCatalog(REAL_WIRE, 'zh-CN', BASE);
-eq('目录：4 个插件（含无 views 的 genui）', CAT.items.length, 4);
-const git = CAT.items[0];
-eq('目录：name 从 i18n key 解析（不显示 manifest.name）', git.name, 'Git 面板');
-eq('目录：description 从 manifest.description 解析', git.description.startsWith('Git 面板：分支'), true);
-eq('目录：version/state 元数据', `${git.version}/${git.state}`, '0.3.5/active');
-eq('目录：url = 宿主页（不是 ESM 资源）', git.url, BASE);
-eq('目录：moduleUrl = ESM 元数据', git.moduleUrl, 'http://192.168.1.9:8082/plugins/xbot.git-fancy/web/index.js');
-eq('目录：git-fancy 两个视图', git.views.length, 2);
-eq('目录：view 标题按 key 解析', git.views[0].title, 'Git');
-eq('目录：view 容器 + 分组名', `${git.views[0].container}/${git.views[0].containerLabel}`, 'right_sidebar/侧栏');
-eq('目录：view 图标元数据', git.views[0].icon, 'git-branch');
-eq('目录：view.entry 相对插件包根', git.views[1].entry, 'commit.js');
-eq('目录：dynamic 视图被标注', `${git.views[1].dynamic}`, 'true');
-eq('目录：view 带所属插件名（分组里要显示"来自哪个插件"）', git.views[0].pluginName, 'Git 面板');
-eq('目录：view 打开方式 = 进宿主页', git.views[0].openMode, PLUGIN_OPEN_HOST);
-eq('目录：view 打开 URL = 宿主页', git.views[0].openUrl, BASE);
-eq('目录：iteration-stats 无 icon ⇒ 空串（组件侧回落通用符号）', CAT.items[2].views[0].icon, '');
-eq('目录：genui 无 contributes ⇒ 0 视图（不是错误）', CAT.items[3].views.length, 0);
-eq('目录：ssh-runner 名称解析', CAT.items[1].name, '远程机器（SSH）');
+// 2026-10-17：git-fancy / ssh-runner 已有原生入口 ⇒ 按入口去重策略整条不进 web 目录。
+eq('目录：2 个 web 插件（native 入口接管 git/ssh；含无 views 的 genui）', CAT.items.length, 2);
+const iter = CAT.items[0];
+eq('目录：name 从 i18n key 解析（不显示 manifest.name）', iter.name, '迭代指标');
+eq('目录：version/state 元数据', `${iter.version}/${iter.state}`, '1.0.0/active');
+eq('目录：url = 宿主页（不是 ESM 资源）', iter.url, BASE);
+eq('目录：moduleUrl = ESM 元数据', iter.moduleUrl, 'http://192.168.1.9:8082/plugins/xbot.iteration-stats/web/index.js');
+eq('目录：iteration-stats 一个视图', iter.views.length, 1);
+eq('目录：view 标题按 key 解析', iter.views[0].title, '迭代指标');
+eq('目录：view 容器 + 分组名', `${iter.views[0].container}/${iter.views[0].containerLabel}`, 'status_bar_right/状态栏');
+eq('目录：iteration-stats 无 icon ⇒ 空串（组件侧回落通用符号）', iter.views[0].icon, '');
+eq('目录：view 带所属插件名（分组里要显示"来自哪个插件"）', iter.views[0].pluginName, '迭代指标');
+eq('目录：view 打开方式 = 进宿主页', iter.views[0].openMode, PLUGIN_OPEN_HOST);
+eq('目录：view 打开 URL = 宿主页', iter.views[0].openUrl, BASE);
+eq('目录：genui 无 contributes ⇒ 0 视图（不是错误）', CAT.items[1].views.length, 0);
+ok('目录：git-fancy / ssh-runner 不出现（原生入口接管）',
+  CAT.items.map((p) => p.id).indexOf('xbot.git-fancy') < 0
+  && CAT.items.map((p) => p.id).indexOf('xbot.ssh-runner') < 0);
 eq('目录：名称是 key 但表里没有 ⇒ 回落 id（绝不把 manifest.name 当显示名）',
   buildPluginCatalog({
     plugins: [{ id: 'x.no-i18n', name: 'manifest.name', entry: 'index.js', module_url: '/plugins/x.no-i18n/web/index.js' }],
@@ -313,14 +312,11 @@ eq('目录：非 kind:view 的贡献点不进目录（command/toolbar/… 是宿
     }],
   } as unknown as WebPluginListWire, 'zh-CN', BASE).items[0].views.length, 1);
 
-// ── 目录分组（按容器，跨插件聚合，顺序稳定）────────────────────────────────
-eq('分组：3 个容器（侧栏/主区/信息栏/状态栏）', CAT.groups.length, 4);
-eq('分组序：侧栏在最前', CAT.groups[0].label, '侧栏');
-eq('分组序：状态栏在最后', CAT.groups[CAT.groups.length - 1].label, '状态栏');
-eq('分组：侧栏聚合两个插件的视图（git-fancy + ssh-runner）', CAT.groups[0].views.length, 2);
-eq('分组：侧栏第一项来自 git-fancy', CAT.groups[0].views[0].pluginId, 'xbot.git-fancy');
-eq('分组：侧栏第二项来自 ssh-runner', CAT.groups[0].views[1].pluginId, 'xbot.ssh-runner');
-eq('分组：信息栏只有 ssh-runner.bar', CAT.groups[2].views.length, 1);
+// ── 目录分组（按容器聚合；native 入口去重后只剩非原生插件）────────────────
+eq('分组：1 个容器（状态栏；git/ssh 已由原生入口接管）', CAT.groups.length, 1);
+eq('分组：状态栏', CAT.groups[0].label, '状态栏');
+eq('分组：状态栏只有 iteration-stats.badge', CAT.groups[0].views.length, 1);
+eq('分组：唯一视图来自 iteration-stats', CAT.groups[0].views[0].pluginId, 'xbot.iteration-stats');
 eq('空目录：无插件 ⇒ 零条目零分组', (() => {
   const c = buildPluginCatalog({ plugins: [] } as unknown as WebPluginListWire, 'zh-CN', BASE);
   return `${c.items.length}/${c.groups.length}`;

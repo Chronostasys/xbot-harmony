@@ -41,7 +41,12 @@ if (repo.length > 0) {
   const tp: string = src('ToolPopover.ets');
   // ★① 输出容器：width 100% + clip(true) + maxWidth 100% 三件套（零扫描判红）
   ok('★① ToolPopover 输出块容器有 clip(true)', count(tp, '.clip(true)') >= 1);
-  ok('★① 且有 constraintSize({ maxHeight: BODY_MAX_H, maxWidth: \'100%\' })', count(tp, "maxWidth: '100%'") >= 1);
+  // ★① 输出容器三件套。2026-10-20 起 ToolPopover 改为**单一纵向 Scroll**
+  //   （无 `ScrollDirection.Free` 横向容器）⇒ `maxWidth` 只在存在横向容器时才是必需
+  //   （没有横向滚动就没有"内容越界撑宽"这条风险）。
+  const freeTp0: number = count(tp, 'ScrollDirection.Free');
+  ok('★① 且有 constraintSize({ maxHeight: BODY_MAX_H, maxWidth: \'100%\' })',
+    freeTp0 === 0 || count(tp, "maxWidth: '100%'") >= 1);
   ok('★① 且容器 .width(\'100%\')（内层列不设宽 ⇒ 横向滚动）', count(tp, ".width('100%')") >= 1);
   // ★② wordBreak 枚举**必须限定名**（tokens-ux 那课）；裸枚举名 = 编译红
   ok('★② 无裸 `BREAK_ALL`/`BREAK_WORD`（必须 `WordBreak.<X>`）',
@@ -76,7 +81,7 @@ if (repo.length > 0) {
   const clipTp: number = count(tp, '.clip(true)');
   const maxTp: number = count(tp, "maxWidth: '100%'");
   ok(`★⑤ ToolPopover 的横向容器（Free）都锁宽+裁剪：Free=${freeTp} ≤ clip=${clipTp} 且 ≤ maxW=${maxTp}`,
-    freeTp > 0 && clipTp >= freeTp && maxTp >= freeTp);
+    freeTp === 0 || (clipTp >= freeTp && maxTp >= freeTp));
   const freePh: number = count(src('PluginHost.ets'), 'ScrollDirection.Free');   // 预期 0（无横向容器）
   ok(`★⑤ PluginHost 无横向容器（Free=${freePh}）—— 零扫描判红由上一行承担`, freePh === 0);
 }

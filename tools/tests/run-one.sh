@@ -118,6 +118,10 @@ mkdir -p "$OUT/js/node_modules/@kit.NetworkKit"
 cp "$HERE/mocks/NetworkKit.js" "$OUT/js/node_modules/@kit.NetworkKit/index.js"
 mkdir -p "$OUT/js/node_modules/@kit.ArkTS"
 cp "$HERE/mocks/ArkTS.js" "$OUT/js/node_modules/@kit.ArkTS/index.js"
+mkdir -p "$OUT/js/node_modules/@kit.PushKit"
+cp "$HERE/mocks/PushKit.js" "$OUT/js/node_modules/@kit.PushKit/index.js"
+mkdir -p "$OUT/js/node_modules/@kit.BasicServicesKit"
+cp "$HERE/mocks/BasicServicesKit.js" "$OUT/js/node_modules/@kit.BasicServicesKit/index.js"
 cat > "$OUT/js/node_modules/@kit.ArkTS/package.json" <<'PKG2'
 { "name": "@kit.ArkTS", "version": "0.0.0", "main": "index.js" }
 PKG2

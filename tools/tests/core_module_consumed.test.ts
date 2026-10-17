@@ -158,7 +158,7 @@ if (zero.length > 0) {
 //    本判据用"符号名在其它文件的词边界出现"做消费代理 ⇒ 对**只在自身模块内使用**、
 //    或**经别名/包装导出**、或**仅为测试而导出**的符号会**误报**（19 条里应含不少这类）。
 //    ⇒ 下一步（下轮）：逐条 triage ⇒ 真·死代码报调度者；有意/假阳性进 DELIBERATE_ZERO_USE 附理由。
-const KNOWN_ZERO_USE_COUNT: number = 11;
+const KNOWN_ZERO_USE_COUNT: number = 10;   // 11 → 10：`extractEventChatID` 已被 store 的 SSE 前置 chat 过滤消费
 eq(`零消费导出数 = 台账（首版基线；⛔ 只准删不准加）实测 ${zero.length}`, zero.length, KNOWN_ZERO_USE_COUNT);
 
 if (fail > 0) { console.log(`  ✗ core_module_consumed: ${pass} passed, ${fail} failed`); process.exit(1); }

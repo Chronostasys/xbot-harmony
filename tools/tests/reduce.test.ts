@@ -21,6 +21,8 @@ import {
   Turn,
 } from '../../entry/src/main/ets/core/chat_types_full'
 import type { WebIteration } from '../../entry/src/main/ets/core/chattypes'
+import { applyRow } from '../../entry/src/main/ets/core/render'
+import { ChatRow } from '../../entry/src/main/ets/core/types'
 
 // ─── 测试 DSL ─────────────────────────────────────────────────
 
@@ -410,8 +412,10 @@ describe('TDSM reduce — 历史 P0 回归', () => {
     if (t1Rows[0].kind === 'committed') expect(t1Rows[0].content).toBe('旧 turn 内容')
   })
 
-  it('session(idle) 兜底：live 有产出 → frozen 定格；无产出 → 删槽（幽灵行灭绝）', () => {
-    // 有产出的 live：PhaseDone + text 都丢 → idle → frozen 定格。
+  it('session(idle) 兜底：live 有产出 → 保持 live 但停流（不丢后续帧）；无产出 → 删槽', () => {
+    // 有产出的 live：PhaseDone + text 都丢 → idle ⇒ **保持 live**（streaming=false）。
+    // ⛔ 不能转 frozen：frozen 会丢弃同迭代后续 stream/iteration（`ev.iter > maxIter`
+    //    才解冻）⇒ 一条迟到/陈旧 idle 就能让长迭代永久冻结（用户 P0）。
     const sA = run([
       started(T1),
       { type: 'stream', turnID: T1, seq: null, iteration: null, content: '已产出内容', reasoning: undefined, streamingTools: undefined, genui: undefined, streamStats: undefined },
@@ -419,11 +423,23 @@ describe('TDSM reduce — 历史 P0 回归', () => {
     ])
     assertInvariants(sA)
     const t1 = sA.turns.get(T1)!
-    expect(t1.phase.kind).toBe('frozen')
-    if (t1.phase.kind === 'frozen') expect(t1.phase.data.content).toBe('已产出内容')
-    // frozen 行渲染（isPartial 保留 activeTools 通道）。
-    const rowsA = deriveRows(sA)
-    expect(rowsA.filter((r) => r.turnID === 1)).toHaveLength(1)
+    expect(t1.phase.kind).toBe('live')
+    if (t1.phase.kind === 'live') {
+      expect(t1.phase.data.content).toBe('已产出内容')
+      expect(t1.phase.data.streaming).toBe(false)
+    }
+    // 同一迭代后续帧必须仍被应用（这就是不转 frozen 的目的）。
+    const sA2 = run([
+      started(T1),
+      { type: 'stream', turnID: T1, seq: null, iteration: null, content: '已产出内容', reasoning: undefined, streamingTools: undefined, genui: undefined, streamStats: undefined },
+      { type: 'session', busy: false },
+      { type: 'stream', turnID: T1, seq: null, iteration: null, content: '已产出内容+续写', reasoning: undefined, streamingTools: undefined, genui: undefined, streamStats: undefined },
+    ])
+    const t1b = sA2.turns.get(T1)!
+    expect(t1b.phase.kind).toBe('live')
+    if (t1b.phase.kind === 'live') expect(t1b.phase.data.content).toBe('已产出内容+续写')
+    // 渲染仍有该 turn 的 assistant 行
+    expect(deriveRows(sA).filter((r) => r.turnID === 1)).toHaveLength(1)
 
     // 无产出的 live：idle → 删槽。
     const sB = run([started(T1), { type: 'session', busy: false }])
@@ -1269,11 +1285,11 @@ describe('Loop2 — in-flight 工具折叠（frozen / 收尸 / text_final 三路
     name, label: '', status: 'generating', elapsedMs: 0, summary: '', detail: '', args: '', toolHints: '',
   })
 
-  it('F1: frozen 行渲染折入 streamingTools（generating 工具 cancel/idle 定格不消失）', () => {
+  it('F1: idle 后 live 行仍折入 streamingTools（generating 工具不消失）', () => {
     // stream 事件带 streamingTools（参数生成中）+ content（hasOutput 成立）→
-    // session(idle) 定格 frozen（text/PhaseDone 丢失的兜底路径）→ deriveRows。
+    // session(idle) 只停 streaming、**保持 live**（避免冻结后丢同迭代帧）→ deriveRows。
     // 修复前：errTools 只折 activeTools（空）→ generating 工具从 frozen 行消失
-    // （违反"已渲染内容永不消失"）。
+    // （违反"已渲染内容永不消失"）；现在它留在 live 在飞块里（状态仍 generating）。
     const s = run([
       started(T1),
       {
@@ -1285,22 +1301,24 @@ describe('Loop2 — in-flight 工具折叠（frozen / 收尸 / text_final 三路
       { type: 'session', busy: false },
     ])
     const t1 = s.turns.get(T1)!
-    if (t1.phase.kind !== 'frozen') throw new Error(`must be frozen, got ${t1.phase.kind}`)
-    // frozen 的 LiveSnapshot 保留 streamingTools（session idle freeze 全保留）。
+    if (t1.phase.kind !== 'live') throw new Error(`must stay live, got ${t1.phase.kind}`)
+    expect(t1.phase.data.streaming).toBe(false)
     expect(t1.phase.data.streamingTools.map((t) => t.name)).toContain('Read')
 
     const rows = deriveRows(s)
-    const frozenRow = rows.find((r) => r.kind === 'frozen' && r.turnID === 1)
-    if (!frozenRow || frozenRow.kind !== 'frozen') throw new Error('frozen row must render')
-    // 修复后：streamingTools 折进最后迭代（标 error —— generating → error）。
-    const folded = frozenRow.iterations.flatMap((it) => it.tools)
+    const liveRow = rows.find((r) => r.kind === 'live' && r.turnID === 1)
+    if (!liveRow || liveRow.kind !== 'live') throw new Error('live row must render')
+    // 在飞块由 render 层折叠（LiveRowView.iterations 只是已完成块）⇒ 必须 applyRow。
+    const chatRow: ChatRow = new ChatRow()
+    applyRow(chatRow, liveRow)
+    const folded = chatRow.iterations.flatMap((it) => it.tools !== undefined ? it.tools : [])
     const readTool = folded.find((t) => t.name === 'Read')
     expect(readTool).toBeDefined()
-    expect(readTool?.status).toBe('error')
+    expect(readTool?.status).toBe('generating')
   })
 
-  it('F1（对照）: frozen 行仍折入 activeTools（running 工具，既有行为不回归）', () => {
-    // activeTools（running）经 session(idle) frozen 后折入 —— 修复不得破坏。
+  it('F1（对照）: live 行仍折入 activeTools（running 工具，既有行为不回归）', () => {
+    // activeTools（running）经 session(idle) 后仍是 live ⇒ 在飞块保留 running。
     const s = run([
       started(T1),
       {
@@ -1313,11 +1331,13 @@ describe('Loop2 — in-flight 工具折叠（frozen / 收尸 / text_final 三路
       { type: 'session', busy: false },
     ])
     const rows = deriveRows(s)
-    const frozenRow = rows.find((r) => r.kind === 'frozen' && r.turnID === 1)
-    if (!frozenRow || frozenRow.kind !== 'frozen') throw new Error('frozen row must render')
-    const folded = frozenRow.iterations.flatMap((it) => it.tools)
+    const liveRow = rows.find((r) => r.kind === 'live' && r.turnID === 1)
+    if (!liveRow || liveRow.kind !== 'live') throw new Error('live row must render')
+    const chatRow: ChatRow = new ChatRow()
+    applyRow(chatRow, liveRow)
+    const folded = chatRow.iterations.flatMap((it) => it.tools !== undefined ? it.tools : [])
     expect(folded.map((t) => t.name)).toContain('Shell')
-    expect(folded.find((t) => t.name === 'Shell')?.status).toBe('error')
+    expect(folded.find((t) => t.name === 'Shell')?.status).toBe('running')
   })
 
   it('F2: turn_started 收尸（foldPhase）折 in-flight 工具 —— activeTools+streamingTools 标 error 进最后迭代', () => {
@@ -1527,7 +1547,7 @@ describe('REPRO: session 事件嵌套 chat_id 过滤（跨 session 污染根治�
     expect(busy).toEqual([{ type: 'session', busy: true }])
   })
 
-  it('端到端：B 的 idle 不再冻结 A 的 live turn；A 自己的 idle 正常收尾', () => {
+  it('端到端：B 的 idle 不会影响 A 的 live turn；A 自己的 idle 也只停流（不再冻结）', () => {
     // A 的 live turn（streaming reasoning 中，有产出）。
     let s = run([started(T1)], initialChatState('chat-A'))
     s = reduce(s, {
@@ -1542,20 +1562,23 @@ describe('REPRO: session 事件嵌套 chat_id 过滤（跨 session 污染根治�
     const evs = normalizeEvent(bIdleFanout, 'chat-A')
     expect(evs).toBeNull()
 
-    // 修复前（事件直接进 reduce）的对照 —— A 的 live turn 被冻结（症状）：
+    // 即使（错误地）把 B 的 idle 直接喂给 reduce，现在也**不会**冻结 A 的 live turn
+    // —— 权威 idle 只停 streaming，保持 live（避免丢同迭代后续帧）。
     const polluted = reduce(s, { type: 'session', busy: false })
-    expect(polluted.activeTurn).toBeNull() // ← 被 B 的 idle 冻结（这就是 bug）
-    expect(polluted.turns.get(T1)?.phase.kind).toBe('frozen')
+    expect(polluted.activeTurn).toBe(T1)
+    expect(polluted.turns.get(T1)?.phase.kind).toBe('live')
 
-    // A 自己的 idle 才收尾 A 的 turn。
+    // A 自己的 idle 才停流（不再冻结：真正收尾由 text_final / 下一 turn_started）。
     const own = normalizeEvent(
       { type: 'session', session: { channel: 'web', chat_id: 'chat-A', action: 'idle' } },
       'chat-A',
     )
     expect(own).toEqual([{ type: 'session', busy: false }])
     const s2 = reduce(s, own![0])
-    expect(s2.activeTurn).toBeNull()
-    expect(s2.turns.get(T1)?.phase.kind).toBe('frozen') // A 自己的 idle：正常收尾
+    expect(s2.activeTurn).toBe(T1)
+    const t2 = s2.turns.get(T1)!
+    expect(t2.phase.kind).toBe('live')
+    if (t2.phase.kind === 'live') expect(t2.phase.data.streaming).toBe(false)
   })
 })
 
@@ -2232,28 +2255,29 @@ describe('P0(2026-09-18): iteration boundary keeps already-rendered tools', () =
   })
 })
 
-// ─── P0（2026-09-18）：权威 idle 必须清 activeTurn ──────────────────────────
+// ─── P0（2026-09-18）：权威 idle 必须让「忙碌」结束 ──────────────────────────
 // 现象：后端 idle，前端仍渲染 busy（输入框 "Agent is busy"，只能整页刷新）。
-// 根因：busy 三路 OR 里的 busyFallback = activeTurn !== null 没有任何权威 idle
-// 清除路径 ⇒ 任何一次 turn 结束事件丢失都会永久卡 busy。
-// 契约：session_idle（agent-idle/session(idle) 派发）⇒ activeTurn=null，活跃 turn
-// 转 frozen（**内容保留**，与 cancel 同语义），且幂等（无活跃 turn 时原引用返回）。
-describe('P0(2026-09-18): session_idle 清 activeTurn（后端 idle ⇒ 前端不卡 busy）', () => {
-  it('session_idle ⇒ activeTurn=null；活跃 turn 转 frozen 且内容保留（不 wipe）', () => {
+// 契约（2026-10-17 修订）：session_idle **只停 streaming、保持 live**（activeTurn 保留）
+// —— frozen 会丢弃同迭代后续帧（长迭代永久冻结）。busy 现在由
+// sessionRunning || streaming 计算（不再用 activeTurn），所以停流即退出 busy；
+// 且幂等（重复 idle 返回原引用）。
+describe('P0(2026-09-18): session_idle 停流（后端 idle ⇒ 前端退出 busy）', () => {
+  it('session_idle ⇒ streaming=false、内容保留；activeTurn 保留（不冻结、不丢后续帧）', () => {
     const s0 = run([started(T1), iteration1(T1, '完成的工作', 1) as DomainEvent])
     expect(s0.activeTurn).toBe(T1)
 
     const s1 = run([{ type: 'session_idle' } as DomainEvent], s0)
-    expect(s1.activeTurn).toBeNull()
+    // activeTurn 保留：后续同迭代的 stream/iteration 必须仍能落到这个 turn。
+    expect(s1.activeTurn).toBe(T1)
     const t = s1.turns.get(T1)
-    expect(t?.phase.kind).toBe('frozen')
-    if (t?.phase.kind === 'frozen') {
+    expect(t?.phase.kind).toBe('live')
+    if (t?.phase.kind === 'live') {
       expect(t.phase.data.content).toBe('完成的工作')
       expect(t.phase.data.streaming).toBe(false)
     }
   })
 
-  it('幂等：无活跃 turn 时返回原 state 引用（零渲染，防重放抖动）', () => {
+  it('幂等：重复 idle 返回原 state 引用（零渲染，防重放抖动）', () => {
     const s0 = run([started(T1), iteration1(T1, 'x', 1) as DomainEvent])
     const s1 = run([{ type: 'session_idle' } as DomainEvent], s0)
     const s2 = run([{ type: 'session_idle' } as DomainEvent], s1)

@@ -124,3 +124,5 @@ if (fail > 0) {
 }
 console.log(`  one_inflight_motion: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

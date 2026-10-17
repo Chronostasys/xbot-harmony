@@ -58,10 +58,11 @@ eq('真名与 id 不同 ⇒ 仍用真名', sessionLabel('Agent-astute-cedar', 'c
 eq('CLI basename 真名 ⇒ 显示真名',
   sessionLabel('xbot-harmony', '/Users/bobli/src/xbot-harmony', ''), 'xbot-harmony');
 // mutation 自证：旧写法（回声检测+preview回退）与 web 不一致
-function mutatedOldWay(label: string, chatId: string, _preview: string): string {
+function mutatedOldWay(label: string, chatId: string, preview: string): string {
   const l: string = label.trim();
   if (l.length === 0) { return chatId; }
-  return l === chatId ? chatId : l; // 旧写法会把回声当无名
+  // 旧写法：回声 label 被当成无名 ⇒ 回退 preview（或空）—— 与 web 不一致
+  return l === chatId ? preview : l;
 }
 eq('mutation：旧写法把回声 label 变成 preview/无名 ⇒ 与 web 不一致必红',
   mutatedOldWay('web:chat_263F7E142E0B', 'web:chat_263F7E142E0B', '排队测试') === 'web:chat_263F7E142E0B', false);

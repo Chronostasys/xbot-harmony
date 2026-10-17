@@ -51,7 +51,7 @@ import {
   RPC_FEISHU_BIND_START, RPC_FEISHU_BIND_STATUS, RPC_GET_CHANNEL_CONFIG, RPC_SET_CHANNEL_CONFIG,
   BIND_STATE_WAITING, BIND_STATE_DONE, FeishuBind, FeishuGuide, ChannelField,
 } from '../core/channelscfg';
-import { SettingsErrorBar, SettingsPanelHeader } from './SettingsRows';
+import { SettingsErrorBar, SettingsPanelHeader, SettingsButton } from './SettingsRows';
 import { PRESS_OPACITY, HIT_TARGET_MIN } from '../core/design';
 
 /** 「即时反馈」时长（已保存徽标 / 复制提示**共用**）——web `SettingsChannels.tsx:243` 为 2000ms。 */
@@ -493,17 +493,14 @@ struct FeishuBindPanel {
             .onClick(() => {
               this.onConfirmBind();
             })
-          Text('取消')
-            .constraintSize({ minHeight: HIT_TARGET_MIN })
-            .fontSize(FS_CAPTION)
-            .fontColor(this.pal().textSecondary)
-            .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
-            .backgroundColor(this.pal().surfaceAlt)
-            .borderRadius(R_LG)
-            .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-            .onClick(() => {
+          SettingsButton({
+            label: '取消',
+            kind: 'ghost',
+            theme: this.theme,
+            onTap: () => {
               this.onCancelBind();
-            })
+            },
+          })
         }
         .width('100%')
       } else {

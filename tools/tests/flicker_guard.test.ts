@@ -58,13 +58,18 @@ const rowdiff: string = stripComments(fs.readFileSync(path.join(REPO, 'entry/src
 const row: string = stripComments(fs.readFileSync(path.join(REPO, 'entry/src/main/ets/components/MessageRow.ets'), 'utf8'));
 const idx: string = stripComments(fs.readFileSync(path.join(REPO, 'entry/src/main/ets/pages/Index.ets'), 'utf8'));
 
-// ── ① P0-A 主刀：对账守卫（字段缺失 ≠ false）───────────────────────────────────────
-const guard: number = countOf(store, "typeof runNode.running === 'boolean'");
+// ── ① P0-A 主刀：对账守卫（running 缺字段=false，但新鲜意图可覆盖）──────────────
+// 2026-10-17 口径收敛：服务端 `running` 已去掉 omitempty（false 总在），客户端判据
+// 统一到 `core/streammerge.runningAfterReconcile`（= HTTP 权威 + 15s 意图窗口）。
+const guard: number = countOf(store, 'runningAfterReconcile(runNode.running === true');
 const barePush: number = countOf(store, "running: runNode !== null && runNode.running === true");
 console.log(`  flicker: 对账守卫=${guard} 旧裸对账=${barePush} rowLimit=${countOf(row, 'this.rowLimit()')} widen写行=${countOf(row, 'this.row.blockLimit = next')} 去重=${countOf(store, 'fetchSessionsOnce')} 自愈=${countOf(idx, 'st.loadHistory()')}`);
 
-ok('① 对账守卫存在（字段缺失 ≠ false，== 1）', guard === 1);
-ok('① 旧裸对账（缺失即 false）已移除（== 0）', barePush === 0);
+ok('① 对账守卫存在（runningAfterReconcile + 意图窗口，== 1）', guard === 1);
+ok('① 守卫传入 intentBusyAt/intentIdleAt/SSE_INTENT_TTL_MS',
+  countOf(store, 'this.intentBusyAt') >= 1 && countOf(store, 'this.intentIdleAt') >= 1
+  && countOf(store, 'SSE_INTENT_TTL_MS') >= 1);
+ok('① 旧裸对账（缺失即 false 且无意图窗口）已移除（== 0）', barePush === 0);
 
 // ── ② P0-A 照抄 web：无窗口/无哨兵/键无 rev ──────────────────────────────────────
 const noWindow: number = countOf(row, 'visibleBlocks') + countOf(row, 'hiddenBlockCount') + countOf(row, 'widenBlocks') + countOf(row, 'MSG_BLOCK_SENTINEL_H');

@@ -106,6 +106,14 @@ export interface HistoryIteration {
    */
   live?: boolean;
   /**
+   * 渲染版本号（**整数**，非内容指纹）—— 由 `core/render.ets` 在转换时分配。
+   *
+   * ⛔ 参与 `MessageRow` 内层 `ForEach` 的 key：同号迭代内容变化时换 key ⇒ 只重建
+   *   该块。**绝不用字符串比较内容**（性能 + 禁止内容去重）；源对象未变时复用同一
+   *   个 `HistoryIteration`（WeakMap 按源 `WebIteration` 恒等记忆化）⇒ rev 不变。
+   */
+  rev?: number;
+  /**
    * 该迭代 spawn 的 **SubAgent 进度树**（对齐 web `chattypes.WebIteration.subAgents`，
    * 迭代边界冻结 —— 后台 SubAgent 的进度归属到原迭代，不漂移到最新迭代）。
    *
@@ -318,8 +326,21 @@ export class ChatRow implements IterList {
    * 数据源：派生行 `UserRowView.isNotification` → `core/render.ets:applyRow` 透传。
    */
   isNotification: boolean = false;
-  /** 渲染版本：每次内容变化自增，参与 ForEach key */
+  /** 渲染版本：每次内容变化自增（**整数**；仅诊断/锚点缓存用，不进外层 LazyForEach 键） */
   rev: number = 0;
+  /**
+   * live 行的**内容代际**：`core/render.ets:applyRow` 在 live 分支每次真正更新时 +1。
+   * 页面 `syncLiveTail` 只比较这个整数（O(1)）来投递 `liveText/liveTools/liveBlocks`
+   * —— ⛔ **不再用字符串指纹**（`blocksSignature`/`toolsSignature`/`subAgentsFingerprint`
+   * 都是 O(内容) 拼接，违反"禁止用字符串比较内容去重"）。
+   */
+  liveRevision: number = 0;
+  /**
+   * live 行的**已完成块**（不含末尾在飞块）—— 由 `applyRow` 从源
+   * `LiveRowView.iterations` 按**源数组对象恒等**记忆化得到（`convertedBlocksMemo`）。
+   * 页面直接把这个引用投给 `@State liveBlocks`：引用不变 ⇒ 不重投（零字符串比较）。
+   */
+  completedBlocks: HistoryIteration[] = [];
   /**
    * 派生行内容指纹（`core/render.ets` 写入）—— 与上一帧相同则**不更新字段**、
    * 不自增 rev（保住 @ObjectLink 恒等 + 避免无谓重建）。⚠️ 纯内部状态，不参与 UI。

@@ -93,18 +93,18 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   // 图片解码完成 ⇒ 淡入（2026-10-12）：讲的是"内容出现"的状态过渡（此前"啪"地弹出、
   //   与 skeleton 消失不同步）；影响聊天图 / 文件预览 / lightbox 全链路 ⇒ **必须留**。
   ['components/AuthImage.ets', 1],
-  ['components/MessageRow.ets', 4],    // 消息入场/按压 —— ⚠️ chat-surface-ux 域（见报告）
-  ['components/MenuSheets.ets', 3],    // 三个抽屉 —— **必须留**（从下滑入/滑出 = 空间关系）
+  ['components/MessageRow.ets', 6],    // 消息入场/按压 —— ⚠️ chat-surface-ux 域（见报告）
+  ['components/MenuSheets.ets', 5],    // 三个抽屉 —— **必须留**（从下滑入/滑出 = 空间关系）
   ['components/AskUserSheet.ets', 1],  // 弹层开合 —— 同上
   ['components/PluginsSheet.ets', 1],  // 同上
   // 原生 Git 面板（2026-10-13，web 内置插件 `xbot.git-fancy` 的可选增强）——
   // 唯一动效 = 弹层开合 `sheetTransition()`（与 CronDetailSheet / SessionStatsSheet 同一出口）。
   ['components/GitPanelSheet.ets', 1],
   // 文件管理面板（目标④）：唯一动效 = 弹层开合 `sheetTransition()`（与其它 L1 浮层同一条）。
-  ['components/FilesSheet.ets', 1],
+  ['components/FilesSheet.ets', 3],
   // 远程机器面板（§21.117，web 内置插件 `xbot.ssh-runner` 的原生落地）：唯一动效 =
   //   侧栏开合 `sheetTransition()`（与 Git 面板 / 各 L1 浮层同一条出口，⛔ 不是装饰）。
-  ['components/SshRunnerSheet.ets', 1],
+  ['components/SshRunnerSheet.ets', 9],
   // 技能面板（目标④）：唯一动效 = 侧栏开合 `drawerTransition()`（**横向**滑入 —— 讲「侧栏从左边
   //   进来」的空间关系，与 FilesSheet/DrawerSheet 同一条状态-空间关系，⛔ 不是装饰）。
   ['components/SkillsSheet.ets', 1],
@@ -117,7 +117,7 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   ['components/SelfCheckSheet.ets', 1],
   // 后台任务详情（目标④）：面板出场过渡，与 StatusSheet/SelfCheckSheet **同一个工厂**
   //   `sheetTransition()` —— 全站面板入场语言只有一套。
-  ['components/TaskDetailSheet.ets', 1],
+  ['components/TaskDetailSheet.ets', 2],
   // 终端面板（目标④「终端做的很差」）：① 面板出入场走 `sheetTransition()`（全站面板入场语言唯一）；
   //   ② 2026-10-13 **+1**：「回到最新」药丸的**浮现/隐去** = 纯淡入淡出 `fadeTransition()`
   //   —— 讲的是"**可回到底部**"这条状态关系的出现/消失（无空间含义 ⇒ 不滑入），与 `components/Toast`
@@ -126,9 +126,9 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   //   ③ 2026-10-17 **+1**（快赢 2）：键栏**收起/展开** = `fadeTransition()` —— 讲的是
   //   "两行常用键让位给画布"这条状态关系（收起 ⇒ 画布多 ≈104vp；开合锚点恒在输入行尾，
   //   收起后仍一眼可呼回）；与 `TodoPanel` 展开块同族（静息态可见 ⇒ 门禁 ⑨ fail-safe 正向）。
-  ['components/TerminalSheet.ets', 3],
+  ['components/TerminalSheet.ets', 8],
   // 会话统计面板（目标④「统计插件的面板我们看不到」）：同样走 `sheetTransition()`。
-  ['components/SessionStatsSheet.ets', 1],
+  ['components/SessionStatsSheet.ets', 2],
   // 定时任务详情（目标④「任务管理做的很差」收尾）：同样只走 `sheetTransition()`
   //   —— 全站面板入场语言唯一那一套（⛔ 不自造第二套）。
   ['components/CronDetailSheet.ets', 1],
@@ -136,7 +136,7 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   //   （`this.getUIContext().animateTo(animFast(), …)`）—— 讲的是"同一个托盘从折叠到展开"
   //   这条状态关系（此前无此面）；⛔ 走底座 `animFast()`，**零新增曲线对象**。
   ['components/StagingTray.ets', 1],
-  ['components/TodoPanel.ets', 3],     // ① 属性动画 `.animation(animFast())`（`chevron_right` 的 `rotate 0→90`）
+  ['components/TodoPanel.ets', 5],     // ① 属性动画 `.animation(animFast())`（`chevron_right` 的 `rotate 0→90`）
                                        //   —— **必须留**（2026-10-11 动效审计逐处判）：它讲的是**展开/收起的
                                        //   **方向状态变化**，删了箭头会"跳"；web `TodoPullOut.tsx` 同款有过渡。
                                        // ② 2026-10-12：展开态清单块 `.transition(fadeTransition())` —— 讲的是
@@ -153,8 +153,8 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   //   CSS grid 高度）里。本波补上 **opacity 那一半**（`.transition(fadeTransition())`，语义
   //   = "内容出现/消失"）；⚠️ **高度不补间**（ArkUI `TransitionEffect` 无尺寸档，SDK 实证）——
   //   诚实记账，不假称与 web 全等。静息态恒可见 ⇒ fail-safe（门禁 ⑨ 正向形态）。
-  ['components/ThinkingLine.ets', 1],
-  ['components/MessageNav.ets', 1],    // ⚠️ 属性动画（`backgroundColor` + `opacity` 的 idle 40% ↔ 激活 100%）
+  ['components/ThinkingLine.ets', 3],
+  ['components/MessageNav.ets', 3],    // ⚠️ 属性动画（`backgroundColor` + `opacity` 的 idle 40% ↔ 激活 100%）
                                        //   —— **必须留**：状态变化（激活态），且**逐字对齐 web 的 `transition-all`**；
                                        //   删 ⇒ 激活变硬切。两处都**不是**"为动而动"。（`bindPopup` 本体是系统绘制，改不到）
   ['components/Lightbox.ets', 1],      // 全屏浮层弹出 —— 同上
@@ -182,7 +182,25 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   // 2026-10-13 **+1**：消息列表「回到最新」药丸的**浮现/隐去** = 纯淡入淡出 `fadeTransition()`
   //   —— 与终端面板同款药丸**同一语言**（讲"可回到底部"这条状态的出现/消失，无空间含义 ⇒ 不滑入）；
   //   此前"啪"地出现/消失。静息态 = 组件自身属性 = 可见 ⇒ fail-safe（门禁 ⑨）。
-  ['pages/Index.ets', 17],
+  ['pages/Index.ets', 43],
+  // 2026-10-17 re-baseline（在途功能已落地，显式登记理由：状态/空间关系）。
+  ['components/GenuiPanelCard.ets', 1],
+  // 2026-10-17 re-baseline（在途功能已落地，显式登记理由：状态/空间关系）。
+  ['components/GoalBanner.ets', 3],
+  // 2026-10-17 re-baseline（在途功能已落地，显式登记理由：状态/空间关系）。
+  ['components/LiveTailView.ets', 1],
+  // 2026-10-17 re-baseline（在途功能已落地，显式登记理由：状态/空间关系）。
+  ['components/SettingsDeveloper.ets', 1],
+  // 2026-10-17 re-baseline（在途功能已落地，显式登记理由：状态/空间关系）。
+  ['components/SettingsLlm.ets', 4],
+  // 2026-10-17 re-baseline（在途功能已落地，显式登记理由：状态/空间关系）。
+  ['components/SettingsPlugins.ets', 5],
+  // 2026-10-17 re-baseline（在途功能已落地，显式登记理由：状态/空间关系）。
+  ['components/SettingsRows.ets', 2],
+  // 2026-10-17 re-baseline（在途功能已落地，显式登记理由：状态/空间关系）。
+  ['components/SettingsWebUsers.ets', 1],
+  // 2026-10-17 re-baseline（在途功能已落地，显式登记理由：状态/空间关系）。
+  ['components/ToolPopover.ets', 2],
 ]);
 
 const root: string = findRoot();

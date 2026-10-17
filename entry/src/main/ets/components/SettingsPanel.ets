@@ -148,6 +148,13 @@ export struct SettingsPanel {
   //    由父组件在构造时注入（回调无需响应式更新）。
   onRetrySettings: () => void = () => {};
   onRetryPluginCatalog: () => void = () => {};
+  /**
+   * 打开「应用日志」面板（由页面注入：关设置面板 + `showLog = true`）。
+   *
+   * ⛔ 用户 2026-10-16 要求：日志是**纯 debug 功能**，不该占侧边栏主导航的显眼位置
+   *   ⇒ 收进「设置 → 开发者」的二级入口。
+   */
+  onOpenLog: () => void = () => {};
   /** 写一项设置（页面 `setSetting`）。 */
   onSetSetting: (key: string, value: string) => void = () => {
   };
@@ -498,7 +505,7 @@ export struct SettingsPanel {
         SettingsAccount({ http: this.http, theme: this.theme, username: this.username })
       } else if (this.active === SETTINGS_TAB_DEVELOPER) {
         // 开发者分区：SSE 录制 + 连接状态 + **导出会话**（导出要 http 与会话选择器 ⇒ 一并透传）
-        SettingsDeveloper({ http: this.http, theme: this.theme, channel: this.channel, chatID: this.chatID })
+        SettingsDeveloper({ http: this.http, theme: this.theme, channel: this.channel, chatID: this.chatID, onOpenLog: this.onOpenLog })
       } else if (this.active === SETTINGS_TAB_PLUGINS) {
         // 插件分区：配置读写（写后回读）+ 启停 + 重载（对齐 web SettingsPlugins/PluginManagerPanel）
         SettingsPlugins({ http: this.http, theme: this.theme, canRetry: true, onRetry: this.onRetryPluginCatalog, locale: normalizeLocale(settingOf(this.settings, KEY_LOCALE)) })

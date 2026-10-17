@@ -5,7 +5,8 @@
  *  P0#1 链接可点击：`linksOf()` 产出可点击目标（纯函数）
  *  P0#2 代码"不换行"不丢数据：溢出策略 + 解析输入完整 + 组件不再 Clip
  *  P0#3 代码高亮接 Prism4j：`highlightCode` 降级不丢内容 + token 色对比度护栏
- *  P1#4 按块增量复用：流式"喂入解析器字符量 / 文档长度 ≤ 1.2"（基线 3.39）+ 重复渲染命中率
+ *  P1#4 流式解析：**已改为全量**（2026-10-17 P0 漏字修复）：证明"真的全量"+ 硬上限 ≤4×；
+ *       另保留"同一源串重复渲染高命中"（源串逐字相同才复用）
  *  P1#5 行内样式记忆化：第二次 build 不再重算（compute 只跑一次）
  *
  * ⚠️ 结尾必须 `process.exit(...)`（`run.sh` 用 `set -e` 顺序跑，不退出会挂住整个套件）。
@@ -127,7 +128,7 @@ has(mdSrc, 'highlightCode(b.code, b.lang)', '代码块接了 core/highlight（Pr
 has(mdSrc, 'codeTokenColor(sp.key, this.pal(), this.mdThemeNow())', 'token 色走 core/mdview.codeTokenColor（经订阅取值）');
 
 // ══════════════════════════════════════════════════════════════════════════════
-// P1#4 按块增量复用：喂入解析器字符量 / 文档长度 ≤ 1.2（基线 3.39）
+// P1#4 流式解析：**全量**（漏字修复）+ 硬上限（见下方判据注释）
 // ══════════════════════════════════════════════════════════════════════════════
 function buildDoc(target: number): string {
   const parts: string[] = [];
@@ -170,8 +171,18 @@ resetMdCache();
 stream(doc);
 let st = mdCacheStats();
 // 文档可能被 buildDoc 略微超出目标；以**实际文档长度**为准
-ok(`流式喂入字符量 / 文档长度 = ${(st.parseChars / doc.length).toFixed(2)} ≤ 1.2`, st.parseChars / doc.length <= 1.2);
-ok(`流式喂入字符量(${st.parseChars}) < 文档长度×1.2(${Math.ceil(doc.length * 1.2)})`, st.parseChars < doc.length * 1.2);
+// ⛔ 2026-10-17 P0（用户亲报「SSE 更新时 markdown 列表渲染**漏字**，web 没有这个 bug」）：
+//    **正确性优先于这点性能**。原「按块增量复用」（只重解析最后一个块起点的尾部）的前提
+//    「追加只改最后一个块」**不成立**：代码围栏闭合、列表续行/嵌套、表格补行、Setext 标题
+//    （`---` 落行）、引用延续都会改写**更早**的块 ⇒ 复用旧前缀 + 新后缀拼进同一块表 ⇒ 文本
+//    错位/**漏字**。web 每次对**完整字符串**解析，故无此问题 ⇒ 本仓已改为「源串变化即全量」。
+//    ⇒ 判据随之改为：①**证明真的全量解析了**（喂入总量 == 各前缀长度之和）；
+//                    ②仍设**硬上限**防退化到 O(n²) 之外的病态实现（当前 ~3.4×）。
+const prefixSum: number = st.parseChars;   // 全量语义下 = Σ|prefix|
+ok(`全量解析成立：喂入 ${prefixSum} chars > 文档长度 ${doc.length}（增量复用已被移除）`,
+  prefixSum > doc.length);
+ok(`喂入量 / 文档长度 = ${(prefixSum / doc.length).toFixed(2)} ≤ 4（硬上限，防病态退化；基线 3.39）`,
+  prefixSum / doc.length <= 4);
 
 // 重复渲染**同一文档**必须高命中（防"重构把缓存拆了"）
 resetMdCache();

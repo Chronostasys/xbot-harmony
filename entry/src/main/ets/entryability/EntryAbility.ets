@@ -74,6 +74,10 @@ export default class EntryAbility extends UIAbility {
     this.captureOpenChat(want);
     // 深链命令（`xbot://<command>?…`）——`core/command.ets` 的**生产消费点**（冷启动）。
     this.captureCommandUri(want);
+    // **仅调试**：`--ps dbgPage splash` ⇒ 首屏换成开屏预览页（生产不带该参数）。
+    const wp: Record<string, Object> | undefined = want.parameters;
+    const dp: Object | undefined = wp !== undefined ? wp['dbgPage'] : undefined;
+    this.dbgPage = typeof dp === 'string' ? dp : '';
     // 后台对账（延迟任务）：把 NotifyReconcileAbility 排进队列（幂等）。
     // ⛔ 旁路：失败只记日志（见 workreconcile/schedule.ets）；不改通知主链路的任何语义。
     // 品牌小图标（通知 smallIcon）：启动时解一次并注册装饰器。
@@ -96,6 +100,16 @@ export default class EntryAbility extends UIAbility {
     });
     hilog.info(DOMAIN, TAG, 'EntryAbility onCreate');
   }
+
+  /**
+   * **仅调试**：由 want 参数 `dbgPage` 指定的替代首屏（空串 = 正常 `pages/Index`）。
+   *
+   * 用途（用户 2026-10-16 要求）：开屏/加载态是**时序 + 层级**强相关的 UI，靠真机连拍
+   * "碰运气截图"既慢又不确定 ⇒ 提供一个**确定性预览页** `pages/SplashPreview`：
+   *   `hdc shell aa start -a EntryAbility -b com.chronostasys.xbot --ps dbgPage splash`
+   * ⛔ 生产路径不带该参数 ⇒ 恒为 `pages/Index`（零影响）。
+   */
+  private dbgPage: string = '';
 
   onDestroy(): void {
     hilog.info(DOMAIN, TAG, 'EntryAbility onDestroy');
@@ -273,7 +287,9 @@ export default class EntryAbility extends UIAbility {
    * **屏幕上什么都没有**，而日志只有一行 error ⇒ 现场无法归因、用户只会说"打不开"。
    */
   private loadContentWithRetry(windowStage: window.WindowStage, attempt: number): void {
-    windowStage.loadContent('pages/Index', (err: BusinessError) => {
+    // **仅调试**：`--ps dbgPage splash` ⇒ 直接载入开屏预览页（确定性渲染，不靠真机连拍碰运气）。
+    const page: string = this.dbgPage === 'splash' ? 'pages/SplashPreview' : 'pages/Index';
+    windowStage.loadContent(page, (err: BusinessError) => {
       if (err.code === 0) {
         hilog.info(DOMAIN, TAG, 'loadContent succeeded');
         // 通知授权必须**在 UI 就绪之后**请求（授权框需要一个已加载好的 UIAbility 上下文）；
