@@ -173,6 +173,13 @@ export class ChatStore {
   private intentBusyAt: number = 0;
   private intentIdleAt: number = 0;
   /** 会话树对账轮询句柄（`-1` = 未排程）。 */
+  /**
+   * 会话代数：**每次 `beginSwitch` 自增**。所有异步回包（history/status/queue/sessions/
+   * settings/terminals/subscription）在 await 之后必须比对它（+ currentChatId）——
+   * 同一个 ChatStore 可以被重新 open 到另一个 chat（新建/切池），没有代数就会把
+   * A 的响应写进 B（跨会话状态污染）。判据：`tools/tests/session_isolation_wiring.test.ts`。
+   */
+  private chatGen: number = 0;
   private sessionPollTimer: number = -1;
   /** 最近一次发送时刻（乐观 busy 的保护窗口，见 loadSessions 的对账） */
   lastSendAt: number = 0;
@@ -587,7 +594,15 @@ export class ChatStore {
   }
 
   async loadSessions(): Promise<void> {
+    // 会话代数 + 身份快照：await 期间 store 可能被重开到另一个 chat（新建/池 rekey）⇒
+    // 旧会话树的 running/subagents 绝不能写进新会话（会冻结新会话在飞的 turn）。
+    const gen: number = this.chatGen;
+    const forChat: string = this.currentChatId;
+    const forChannel: string = this.channel;
     const data: SessionTreeData = await this.fetchSessionsOnce();
+    if (gen !== this.chatGen || forChat !== this.currentChatId) {
+      return;
+    }
     // sessions/chats 同为服务端返回 ⇒ 均可能为 null（曾 `sessions !== undefined && sessions.length` 崩溃）。
     const sessionList: SessionItem[] = arrOrEmpty(data.sessions);
     const list: SessionItem[] = sessionList.length > 0 ? sessionList : arrOrEmpty(data.chats);
@@ -739,8 +754,13 @@ export class ChatStore {
   settingsFresh: boolean = false;
 
   async loadSettings(): Promise<void> {
+    const gen: number = this.chatGen;
+    const forChat: string = this.currentChatId;
     const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>(
       '/api/settings', new EmptyReq());
+    if (gen !== this.chatGen || forChat !== this.currentChatId) {
+      return;
+    }
     const srv: Object | undefined = raw['settings'];
     // 服务端 nil map → JSON null；只判 undefined 会把 null 交下去（toLocalSettings(null) 崩）。
     const map: Record<string, string> = isPresent(srv) ? srv as Record<string, string> : {};
@@ -941,9 +961,14 @@ export class ChatStore {
    * 服务端既有事实（`channel/web/web_pty.go` 的 `terminalListReq` / `terminalCreateReq`），照抄别"统一"。
    */
   async loadTerminals(): Promise<void> {
+    const gen: number = this.chatGen;
+    const forChat: string = this.currentChatId;
     const body: Record<string, string> = { 'chat_id': this.wireChatId() };
     const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>(
       '/api/terminal/list', body);
+    if (gen !== this.chatGen || forChat !== this.currentChatId) {
+      return;
+    }
     const arr: Object | undefined = raw['terminals'];
     this.terminals = arrOrEmpty(arr as TerminalInfo[]);
     this.onUpdate();
@@ -1057,6 +1082,9 @@ export class ChatStore {
    */
   beginSwitch(chatId: string): void {
     this.currentChatId = chatId;
+    // ⛔ 会话代数自增：所有在飞异步回包（history/status/queue/sessions/settings/terminals）
+    //   在 await 之后都会因代数不符而丢弃（同一个 store 被重开到另一个 chat 的串台根因）。
+    this.chatGen++;
     // ⛔ **立刻整体复位状态机**（不是只清 rows）：从 beginSwitch 到 openSession 复位之间
     //   有一段窗口，旧实现仍持有**上一个会话**的 turns/busy/sessionRunning ⇒ 页面读到
     //   旧值（切会话瞬间按钮/进度错乱），且旧会话的迟到事件会落进"新会话身份"。            
@@ -1075,6 +1103,22 @@ export class ChatStore {
     this.oldestId = 0;
     this.historyError = '';
     this.historyLoading = true;
+    // 会话级**非状态机**字段也要在“身份切换那一刻”清：openSession 里清是更晚一步，
+    // 中间窗口会让 B 短暂看到 A 的队列/AskUser/用量/cwd/子代理/widget（用户反馈过的串台形态）。
+    this.askUser = null;
+    this.queue = [];
+    this.usage = undefined;
+    this.cwd = '';
+    this.subagents = [];
+    this.lastWidgetEvent = '';
+    this.lastWidgetContent = '';
+    // 会话级订阅（模型/上下文徽章）与终端列表同属会话态 ⇒ 身份切换时清掉，
+    // 否则 B 会短暂显示 A 的模型徽章/终端（load* 的代数守卫负责迟到的回包）。
+    this.sessionSubState = 'idle';
+    this.sessionSubError = '';
+    this.sessionSubscription = '';
+    this.sessionModel = '';
+    this.terminals = [];
     // 切会话身份：settings 旧缓存「不算数」——loadSettings 完成前主题不动（防旧深值回写）。
     this.settingsFresh = false;
     this.onUpdate();
@@ -1087,6 +1131,9 @@ export class ChatStore {
     //    （页面据此立刻渲染历史骨架 `showsHistorySkeleton`），网络回来只是把内容填进来。
     //    幂等：页面池中已开路径不经此处；下面 loadHistory 还会再置一次。
     this.beginSwitch(chatId);
+    // 本次 open 的代数：任何 await 之后若已被新的 openSession/beginSwitch 取代，
+    // 立即放弃（否则旧请求回来会把 currentChatId/state 改回旧会话 = 串台）。
+    const gen: number = this.chatGen;
     // 否则 /api/history 会返回 404 session not found（真机实测，见 core/sessionpick.ets）。
     //
     // ⚠️ 而渠道解析**依赖会话列表**：列表为空时 channelForChat 会回落默认渠道 ⇒ 非 web 会话
@@ -1094,6 +1141,9 @@ export class ChatStore {
     // 所以这里先确保列表就绪 —— 把"渠道解析的前置条件"在**使用点**落实，而不是期待调用方记得。
     if (this.sessions.length === 0) {
       await this.loadSessions();
+      if (gen !== this.chatGen) {
+        return;
+      }
     }
     this.channel = channelForChat(this.sessions, chatId);
     this.currentChatId = chatId;
@@ -1144,7 +1194,13 @@ export class ChatStore {
     //   先订阅后，事件与 history merge 由状态机处理（history_replaced 不覆盖 live）。
     this.subscribe();
     await this.loadHistory();
+    if (gen !== this.chatGen) {
+      return;
+    }
     await this.loadQueue();
+    if (gen !== this.chatGen) {
+      return;
+    }
     this.loadStatus().catch(() => {
       // 状态非关键路径
     });
@@ -1301,11 +1357,12 @@ export class ChatStore {
       return;
     }
     const forChat: string = this.currentChatId;
+    const gen: number = this.chatGen;
     const data: HistoryData = await this.http.postAs<HistoryData>('/api/history', new HistoryReq(
       // 30 → **100**（2026-10-14，C 线审计口径对齐）：web 权威首屏一次拉 100 条
       // （useChatMessages.ts:525 `limit: 100`）；渲染窗口（rowLimit=12 首屏）不受此影响。
       this.channel, this.wireChatId(), 100, 0));
-    if (this.currentChatId !== forChat) {
+    if (gen !== this.chatGen || this.currentChatId !== forChat) {
       return;
     }
     this.applyHistoryMeta(data);
@@ -1355,6 +1412,7 @@ export class ChatStore {
     }
     this.loadingMore = true;
     const forChat: string = this.currentChatId;
+    const gen: number = this.chatGen;
     try {
       const data: HistoryData = await this.http.postAs<HistoryData>('/api/history', new HistoryReq(
         // 30 → **100**（2026-10-14，C 线审计口径对齐）：web 权威每批 100 条
@@ -1362,7 +1420,7 @@ export class ChatStore {
         this.channel, this.wireChatId(), 100, this.oldestId));
       // ⛔ 切会话竞态：`await` 期间用户可能已切走 ⇒ 旧分页响应**绝不能**写进新会话
       //   （否则旧会话的更早消息会被 pushEvent 到新会话状态 = 串台）。
-      if (this.currentChatId !== forChat) {
+      if (gen !== this.chatGen || this.currentChatId !== forChat) {
         return;
       }
       const older: ChatMessage[] = ChatStore.toChatMessages(data.messages, this.oldestId);
@@ -1792,6 +1850,8 @@ export class ChatStore {
     if (this.currentChatId.length === 0) {
       return;
     }
+    const gen: number = this.chatGen;
+    const forChat: string = this.currentChatId;
     this.sessionSubState = 'loading';
     this.sessionSubError = '';
     this.onUpdate();
@@ -1799,12 +1859,18 @@ export class ChatStore {
       const sub: SessionSubscription = await rpc<SessionSubscription>(
         this.http, RPC_GET_SESSION_SUBSCRIPTION,
         new SessionSelectorParams(this.channel, this.wireChatId()));
+      if (gen !== this.chatGen || forChat !== this.currentChatId) {
+        return;
+      }
       this.sessionSubscription = sessionSubscriptionId(sub);
       // 会话级模型（可能只有 `model` 没有 `subscription_id` —— 服务端两个分支，见 rpc.ets:272）
       this.sessionModel = (sub.model !== undefined && sub.model !== null) ? sub.model : '';
       this.sessionSubState = 'ready';
       this.onUpdate();
     } catch (e) {
+      if (gen !== this.chatGen || forChat !== this.currentChatId) {
+        return;
+      }
       // 非关键路径：失败不打断主链路，但**记下真结果**（面板据此可显示失败态/可读原因）。
       this.sessionSubState = 'error';
       this.sessionSubError = readableRpcError((e as Error).message);
@@ -1845,9 +1911,14 @@ export class ChatStore {
     if (this.currentChatId.length === 0) {
       return;
     }
+    const gen: number = this.chatGen;
+    const forChat: string = this.currentChatId;
     try {
       const st: SessionStatus = await this.http.postAs<SessionStatus>(
         '/api/session/status', new SessionReq(this.channel, this.wireChatId()));
+      if (gen !== this.chatGen || forChat !== this.currentChatId) {
+        return;
+      }
       // ⚠️ 外来 JSON：`token_usage` 可能是 JSON null（无用量时服务端给 nil 指针）⇒ 必须在这里
       //    收口成 `undefined`，否则 null 会落进 `usage: TokenUsage | undefined` 字段，
       //    下游 `usage !== undefined` 判真 ⇒ 取 `usage.prompt_tokens` 炸（同类缺陷的典型形态）。
@@ -1988,9 +2059,14 @@ export class ChatStore {
   // ── 待发队列 ───────────────────────────────────────────────────────────────
 
   async loadQueue(): Promise<void> {
+    const gen: number = this.chatGen;
+    const forChat: string = this.currentChatId;
     try {
       const data: QueueListData = await this.http.postAs<QueueListData>(
         '/api/queue/list', new SessionReq(this.channel, this.wireChatId()));
+      if (gen !== this.chatGen || forChat !== this.currentChatId) {
+        return;
+      }
       const items: QueueItem[] = arrOrEmpty(data.items);
       const list: QueueItem[] = items.length > 0 ? items : arrOrEmpty(data.queue);
       this.queue = list;

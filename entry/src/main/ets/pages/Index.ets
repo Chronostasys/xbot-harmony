@@ -1832,6 +1832,14 @@ struct Index {
       return;
     }
     this.authExpiredHandled = true;
+    // 延迟投影/取消驻留也一并作废：旧 store 的 16ms flush 或 12s 看门狗不得在登录页触发。
+    this.pendingSync = null;
+    this.syncScheduled = false;
+    this.cancelSpinHold = false;
+    if (this.cancelHoldTimer !== -1) {
+      clearTimeout(this.cancelHoldTimer);
+      this.cancelHoldTimer = -1;
+    }
     this.disposeAllStores();
     this.cookie = '';
     this.config.save(this.serverUrl, this.username, '').catch(() => {
@@ -2136,7 +2144,7 @@ struct Index {
       this.syncScheduled = false;
       const s: ChatStore | null = this.pendingSync;
       this.pendingSync = null;
-      if (s !== null) {
+      if (s !== null && s === this.store) {
         this.syncFrom(s);
       }
     }, 16);
@@ -2163,7 +2171,7 @@ struct Index {
     if (!this.showDrawer && this.pendingSync !== null) {
       const s: ChatStore | null = this.pendingSync;
       this.pendingSync = null;
-      if (s !== null) {
+      if (s !== null && s === this.store) {
         this.syncFrom(s);
       }
     }
@@ -2171,6 +2179,9 @@ struct Index {
 
   private attach(store: ChatStore): void {
     this.store = store;
+    // 换 store 即作废旧 store 的延迟投影（登录/切换路径）。
+    this.pendingSync = null;
+    this.syncScheduled = false;
     // ⛔ **重要 API 错误 ⇒ 弹提示**（用户 2026-10-16 明确要求）。`XbotHttp` 在
     //   网络失败 / 非 2xx / 信封 `ok=false` 时回调本钩子；401 走 `onUnauthorized` 单独处理。
     //   去重：同一条文案 4s 内只弹一次（轮询/并发重复失败不刷屏）。
@@ -2272,6 +2283,13 @@ struct Index {
   }
 
   private syncFrom(store: ChatStore): void {
+    // ⛔ **投影身份闸**（2026-10-17 跨会话污染 P0）：延迟 flush / 旧 store 回调可能在任何
+    //   时刻到达；`syncFrom` 是页面唯一投影入口，必须先确认“你还是当前 store”。
+    //   否则旧 store 的 `currentChatId` 会把 `this.currentChat` 改回旧会话（页面显示 A、
+    //   this.store 却是 B ⇒ 发送/取消打到 B = 状态污染）。
+    if (store !== this.store) {
+      return;
+    }
     // ⚡ 2026-10-20 P0：用户滚动/触摸时跳过整个 syncFrom——避免任何 @State 更新触发
     //   re-render 与用户手势争主线程（streaming ~50fps SSE 驱动 ⇒ 逐帧整页 build ⇒ 掉帧）。
     //   store 已自行处理 SSE 事件，页面 @State 只是投影；手势结束后的下一帧 syncFrom 自然补上。
@@ -2962,6 +2980,14 @@ struct Index {
     this.poolOrder = [];
     this.store = null;
     this.loggedIn = false;
+    // 登出同样清掉延迟投影与取消驻留（否则登录页仍可能被旧 store 的 timer 驱动）。
+    this.pendingSync = null;
+    this.syncScheduled = false;
+    this.cancelSpinHold = false;
+    if (this.cancelHoldTimer !== -1) {
+      clearTimeout(this.cancelHoldTimer);
+      this.cancelHoldTimer = -1;
+    }
     this.rows = [];
     this.syncRowDs();
     this.sessions = [];
@@ -3109,6 +3135,17 @@ struct Index {
     const target: ChatStore = this.storeFor(chatId);
     const alreadyOpen: boolean = target.currentChatId === chatId;
     this.store = target;
+    // ⛔ 切 store 时**丢弃旧 store 的延迟投影**（`pendingSync` 的 16ms 定时器/抽屉 flush）：
+    //   否则旧 timer 到点后可能把 `this.currentChat` 改回旧会话（跨会话污染 P0）。
+    this.pendingSync = null;
+    this.syncScheduled = false;
+    // 取消 spinner/错误是页面级瞬态，绝不能跨会话残留（B 的输入框不该继承 A 的取消转圈）。
+    this.cancelSpinHold = false;
+    if (this.cancelHoldTimer !== -1) {
+      clearTimeout(this.cancelHoldTimer);
+      this.cancelHoldTimer = -1;
+    }
+    this.loadErr = '';
     this.rekeyPool(target, chatId);
     // ⛔ **点击即刻可见**（用户 2026-10-13 亲报「切换会话点击后立刻要 loading，不能看起来没变」）：
     //    `openSession()` 在能拉到历史之前有**两次网络往返**（会话列表 + `/api/history`）；期间界面若
@@ -9539,6 +9576,13 @@ struct Index {
   }
 
   private syncLiveTail(): void {
+    // ⛔ 2026-10-17 用户 P0「流式期滚动掉帧到像卡死」：滚动/触摸期**一律不写任何页面 @State**
+    //   （结构或内容）。流式期每 100ms 写 `liveText/liveBlocks/liveTools` 都会触发整页 rebuild，
+    //   与滚动手势抢主线程 ⇒ 刷新率骤降。内容不会丢：`onScrollStop` 复位标志后
+    //   `syncFrom` 会一次性补齐最新（结构 + 内容）。
+    if (this.userScrolling || (this.userTouchActive && this.busy)) {
+      return;
+    }
     const rev: number = this.hasLiveRow ? this.liveRowRef.liveRevision : -1;
     // ── ① 结构投递（O(1) 引用比较；不拼任何字符串）──────────────────────────────
     if (rev !== this.liveRevision) {

@@ -91,6 +91,16 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   把刚重新登录成功的页面**再次踢回登录页**，每个轮询周期重复一次（用户 2026-10-17 亲报
   「模拟器每过几秒就退出到登录显示登录过期」）。判据 `tools/tests/auth_expiry_dispose.test.ts`
   （dispose 清 timer + 摘 4 个回调；doLogin 先 `disposeAllStores()` 并置 `authExpiredHandled=true`）。
+- **⛔ 流式期滚动不得写页面 `@State`**：`syncLiveTail` 的**顶部**必须早退
+  （`userScrolling || (userTouchActive && busy)`）——尾随定时器会绕过 `syncFrom` 的滚动早退，
+  每 100ms 写 `liveText/liveBlocks/liveTools` ⇒ 整页 rebuild 与手势抢主线程 ⇒ 刷新率骤降
+  （用户 2026-10-17 亲报「滚动时像卡死」）。滚动停止由 `onScrollStop → syncFrom` 一次补齐；
+  判据 `tools/tests/session_isolation_wiring.test.ts`（mutation：删守卫必红）。
+- **⛔ 跨会话投影/异步回包必须有身份/代数守卫**：`syncFrom` 首行 `if (store !== this.store) return;`
+  （否则旧 store 的 16ms flush 会把 `currentChat` 改回旧会话 = 界面 A、`this.store` B）；
+  `ChatStore.chatGen` 在 `beginSwitch` 自增，所有异步回包（history/status/queue/sessions/
+  settings/terminals/subscription）await 后比对 `gen !== this.chatGen || forChat !== currentChatId`
+  ⇒ 丢弃旧回包（同一个 store 被重开到另一 chat 的串台根因）。同一判据文件覆盖。
 - **⛔ 服务端 `active_tools` 整批先标 `pending`**（`agent/engine_run_tools.go:49-64`，到 goroutine 启动才翻
   `running`），且这些条目会**残留进后续帧**；服务端**明确要求前端按 `iteration` 过滤**
   （`agent/engine_wire.go:2436-2445` 原文 "the frontend cannot filter it"）⇒ 渲染 live 工具列表时**必须**照
