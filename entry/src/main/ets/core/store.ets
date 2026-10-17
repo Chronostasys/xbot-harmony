@@ -180,6 +180,16 @@ export class ChatStore {
    * A 的响应写进 B（跨会话状态污染）。判据：`tools/tests/session_isolation_wiring.test.ts`。
    */
   private chatGen: number = 0;
+  /**
+   * UI 行重建挂起（滚动/触摸期由页面置 true）。
+   *
+   * ⛔ 2026-10-17 用户 P0「流式期滚动高度不断抖动」：`rebuildRows` 会把新的 `Row` **就地**写进
+   * `rowCache` 里的 `ChatRow`，而该对象已被 `LazyForEach` 的 `MessageRowView` 以 `@ObjectLink`
+   * 订阅 ⇒ **绕过了页面的 `syncFrom` 早退**：每帧 SSE 都改一次 content/iterations ⇒ 行高变化 ⇒
+   * 用户滚动时高度抖动。修法：滚动/触摸期挂起 `rebuildRows`（状态机照常累加），
+   * `onScrollStop/onTouchUp` 恢复后**一次性**重建 + 投影（不丢内容）。
+   */
+  private uiSuspended: boolean = false;
   private sessionPollTimer: number = -1;
   /** 最近一次发送时刻（乐观 busy 的保护窗口，见 loadSessions 的对账） */
   lastSendAt: number = 0;
@@ -416,6 +426,11 @@ export class ChatStore {
 
   /** `ChatState → rows`：`deriveRows` + 就地适配（对象恒等）。 */
   private rebuildRows(): void {
+    // ⛔ 滚动/触摸期挂起：状态机继续累加，但**不碰** `rowCache` 里的 ChatRow（@ObjectLink
+    //   会绕过页面 syncFrom 早退，每帧改 content/iterations ⇒ 行高抖动）。恢复时一次重建。
+    if (this.uiSuspended) {
+      return;
+    }
     const derived: readonly Row[] = deriveRows(this.state);
     const next: ChatRow[] = [];
     const alive: Set<string> = new Set();
@@ -1082,6 +1097,8 @@ export class ChatStore {
    */
   beginSwitch(chatId: string): void {
     this.currentChatId = chatId;
+    // 新会话从“不挂起”开始（旧 store 可能停在滚动挂起态）。
+    this.uiSuspended = false;
     // ⛔ 会话代数自增：所有在飞异步回包（history/status/queue/sessions/settings/terminals）
     //   在 await 之后都会因代数不符而丢弃（同一个 store 被重开到另一个 chat 的串台根因）。
     this.chatGen++;
@@ -1208,6 +1225,23 @@ export class ChatStore {
     this.loadSessionSubscription().catch(() => {
       // 订阅查询非关键路径
     });
+  }
+
+  /**
+   * 挂起/恢复 UI 行重建（页面在滚动/触摸期调用）。
+   *
+   * 恢复时必须立即 `rebuildRows()` 一次（把挂起期间累积的 state 一次性落到行对象），
+   * 再 `onUpdate()` 让页面重新投影 + 投递 live 内容。挂起只影响**渲染**，不影响状态机/网络。
+   */
+  suspendUiUpdates(suspend: boolean): void {
+    if (this.uiSuspended === suspend) {
+      return;
+    }
+    this.uiSuspended = suspend;
+    if (!suspend) {
+      this.rebuildRows();
+      this.onUpdate();
+    }
   }
 
   /**

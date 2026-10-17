@@ -12,6 +12,24 @@
  */
 
 /**
+ * 全局“用户正在滚动”标志（模块级、非响应式）。
+ *
+ * ⛔ 为什么必须有它（2026-10-17 用户 P0「流式期滚动高度不断抖动」）：
+ *   `LazyForEach` 的 item builder 只在**新建**时执行 ⇒ 页面把 `paused` 作为参数传给
+ *   已有 `LiveTailView` 条目时，`userScrolling` 变化**不会**重新投递 `@Prop` ⇒ 打字机定时器
+ *   继续每 50ms 推进 `vis/visReason` ⇒ 在飞行高度持续变化（即使用户在滚动）。
+ *   `LiveTailView.tick` 直接读本标志（定时器本来就每 50ms 跑一次），零响应式开销；
+ *   滚动停止后自动恢复（不 stopTimer，避免“没人再拉起”）。
+ */
+let uiScrollActive: boolean = false;
+export function setUiScrolling(active: boolean): void {
+  uiScrollActive = active;
+}
+export function uiIsScrolling(): boolean {
+  return uiScrollActive;
+}
+
+/**
  * 「是否跟随到底部」状态机的下一步（纯函数）。
  *
  * @param prev      当前开关（true = 跟随；用户往上滚之后为 false）

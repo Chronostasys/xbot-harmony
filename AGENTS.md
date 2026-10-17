@@ -96,6 +96,13 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   每 100ms 写 `liveText/liveBlocks/liveTools` ⇒ 整页 rebuild 与手势抢主线程 ⇒ 刷新率骤降
   （用户 2026-10-17 亲报「滚动时像卡死」）。滚动停止由 `onScrollStop → syncFrom` 一次补齐；
   判据 `tools/tests/session_isolation_wiring.test.ts`（mutation：删守卫必红）。
+  **但这还不够**（同一天用户再报「高度不断抖动」）：① `store.rebuildRows` 会**就地**改
+  `rowCache` 里的 `ChatRow`，而 LazyForEach 的 `MessageRowView` 用 `@ObjectLink` 订阅它 ⇒
+  **绕过**页面 `syncFrom` 早退、每帧改行高；② LazyForEach 的 item builder 只在新建时执行 ⇒
+  页面传的 `paused` 对**已有条目**不会更新 ⇒ `LiveTailView` 打字机继续推进。⇒ 滚动/触摸期
+  必须同时 `ChatStore.suspendUiUpdates(true)`（挂起 `rebuildRows`，恢复时一次重建）**且**
+  `setUiScrolling(true)`（模块级标志；`LiveTailView.tick` 直接读 `uiIsScrolling()`）。
+  判据同上（mutation：删 `uiSuspended`/`uiIsScrolling`/`setUiScrolling` 任一处必红）。
 - **⛔ 跨会话投影/异步回包必须有身份/代数守卫**：`syncFrom` 首行 `if (store !== this.store) return;`
   （否则旧 store 的 16ms flush 会把 `currentChat` 改回旧会话 = 界面 A、`this.store` B）；
   `ChatStore.chatGen` 在 `beginSwitch` 自增，所有异步回包（history/status/queue/sessions/

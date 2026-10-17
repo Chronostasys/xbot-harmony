@@ -33,6 +33,7 @@ import { LlmErrorNotice } from './LlmErrorNotice';
 import { isSyntheticToolName } from '../core/synthhints';
 import { looksLikeLlmError } from '../core/llmerror';
 import { reasoningKey } from '../core/reasoningopen';
+import { uiIsScrolling } from '../core/listfollow';
 import { isLiveStatus, isToolInProgress, renderKind, statusChip } from '../core/toolstatus';
 import { AnsiSpan, ansiPaletteOf, ansiSpansIfAny } from '../core/ansi';
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
@@ -348,8 +349,11 @@ return renderKind(t.status, t.exit_code, true);
   }
 
   private tick(): void {
-    if (this.paused) {
-      this.stopTimer();
+    // ⛔ `LazyForEach` 的 item builder 只在新建时执行 ⇒ 页面传进来的 `paused` 对**已有条目**
+    //   不会随 `userScrolling` 更新（2026-10-17 高度抖动根因）。因此额外读模块级滚动标志：
+    //   滚动期间**不推进** vis/visReason（行高不变），滚动结束自动继续（不 stopTimer，
+    //   否则没有事件再拉起它）。
+    if (this.paused || uiIsScrolling()) {
       return;
     }
     const skip: boolean = this.skip;

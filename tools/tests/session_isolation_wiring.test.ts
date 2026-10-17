@@ -25,6 +25,8 @@ const index: string = fs.readFileSync(
   path.join(root, 'entry/src/main/ets/pages/Index.ets'), 'utf8');
 const store: string = fs.readFileSync(
   path.join(root, 'entry/src/main/ets/core/store.ets'), 'utf8');
+const tail: string = fs.readFileSync(
+  path.join(root, 'entry/src/main/ets/components/LiveTailView.ets'), 'utf8');
 
 let pass = 0;
 let fail = 0;
@@ -68,11 +70,44 @@ function pageSafe(idx: string): boolean {
   const guardAt: number = ltBody.indexOf('if (this.userScrolling || (this.userTouchActive && this.busy))');
   const revAt: number = ltBody.indexOf('const rev: number =');
   if (guardAt < 0 || revAt < 0 || guardAt > revAt) { return false; }
+  // ⑥ 滚动/触摸期**挂起 store 行重建**（@ObjectLink 会绕过页面早退；否则行高抖动）
+  const touch0: number = idx.indexOf('.onTouch((event: TouchEvent) => {');
+  if (touch0 < 0) { return false; }
+  const touchBody: string = idx.substring(touch0, touch0 + 1400);
+  if (touchBody.indexOf('suspendUiUpdates(true)') < 0) { return false; }
+  if (touchBody.indexOf('suspendUiUpdates(false)') < 0) { return false; }
+  const ws0: number = idx.indexOf('.onWillScroll((offset: number, state: ScrollState, source: ScrollSource) => {');
+  if (ws0 < 0) { return false; }
+  const wsBody: string = idx.substring(ws0, ws0 + 2200);
+  if (wsBody.indexOf('suspendUiUpdates(true)') < 0) { return false; }
+  const stop0: number = idx.indexOf('.onScrollStop(() => {');
+  if (stop0 < 0) { return false; }
+  const stopBody: string = idx.substring(stop0, stop0 + 1800);
+  if (stopBody.indexOf('suspendUiUpdates(false)') < 0) { return false; }
+  // 看门狗：onScrollStop 丢失时不能永久挂起
+  if (idx.indexOf('lastUserScrollAtMs') < 0) { return false; }
+  // 模块级滚动标志：LazyForEach 已有条目拿不到新的 paused @Prop ⇒ LiveTailView 必须直接读它
+  if (idx.indexOf('setUiScrolling(true)') < 0 || idx.indexOf('setUiScrolling(false)') < 0) { return false; }
   return true;
+}
+
+/** LiveTailView 打字机必须在滚动期停止推进（否则行高继续变）。 */
+function tailSafe(t: string): boolean {
+  if (t.indexOf("import { uiIsScrolling } from '../core/listfollow';") < 0) { return false; }
+  const tick0: number = t.indexOf('private tick(): void {');
+  if (tick0 < 0) { return false; }
+  const tickBody: string = t.substring(tick0, tick0 + 700);
+  return tickBody.indexOf('uiIsScrolling()') >= 0;
 }
 
 function storeSafe(s: string): boolean {
   if (s.indexOf('private chatGen: number = 0;') < 0) { return false; }
+  // UI 行重建挂起（滚动期高度抖动 P0）
+  if (s.indexOf('private uiSuspended: boolean = false;') < 0) { return false; }
+  const rb0: number = s.indexOf('private rebuildRows(): void {');
+  if (rb0 < 0) { return false; }
+  if (s.substring(rb0, rb0 + 900).indexOf('if (this.uiSuspended)') < 0) { return false; }
+  if (s.indexOf('suspendUiUpdates(suspend: boolean): void') < 0) { return false; }
   // beginSwitch 自增代数
   const bs0: number = s.indexOf('beginSwitch(chatId: string): void {');
   if (bs0 < 0) { return false; }
@@ -118,6 +153,7 @@ ok('零扫描防线：Index/store 真读到内容', index.length > 50000 && stor
 ok('页面：syncFrom 首行身份闸 + 延迟 flush 二次校验 + 切 store 清 pending + 滚动期不写 live @State',
   pageSafe(index));
 ok('store：chatGen 自增 + 8+ 处异步回包守卫 + openSession 三处守卫', storeSafe(store));
+ok('LiveTailView：打字机 tick 读模块级滚动标志（LazyForEach 旧条目也能停）', tailSafe(tail));
 
 // ── mutation 自证（必红）──────────────────────────────────────────────────────
 ok('mutation A：删 syncFrom 身份闸 ⇒ 必红',
@@ -135,6 +171,19 @@ ok('mutation D：删 loadStatus 的代数守卫 ⇒ 必红',
 ok('mutation E：删 beginSwitch 的 chatGen++ ⇒ 必红',
   !storeSafe(replaceInMethod(store, 'beginSwitch(chatId: string): void {',
     'this.chatGen++;', '')));
+ok('mutation F：删 rebuildRows 的 uiSuspended 守卫 ⇒ 必红',
+  !storeSafe(replaceInMethod(store, 'private rebuildRows(): void {',
+    'if (this.uiSuspended) {', 'if (false) {')));
+ok('mutation G：删 onWillScroll 的挂起调用 ⇒ 必红',
+  !pageSafe(replaceInMethod(index, '.onWillScroll((offset: number, state: ScrollState, source: ScrollSource) => {',
+    'st.suspendUiUpdates(true);', '')));
+ok('mutation H：删 onScrollStop 的恢复调用 ⇒ 必红',
+  !pageSafe(replaceInMethod(index, '.onScrollStop(() => {',
+    'st.suspendUiUpdates(false);', '')));
+ok('mutation I：删 LiveTailView 的滚动标志读取 ⇒ 必红',
+  !tailSafe(replaceInMethod(tail, 'private tick(): void {', 'uiIsScrolling()', 'false')));
+ok('mutation J：删页面 setUiScrolling(true) ⇒ 必红',
+  !pageSafe(index.split('setUiScrolling(true);').join('')));
 
 console.log(fail === 0 ? 'session_isolation_wiring: ALL PASS' : `session_isolation_wiring: ${fail} FAILED`);
 process.exit(fail === 0 ? 0 : 1);

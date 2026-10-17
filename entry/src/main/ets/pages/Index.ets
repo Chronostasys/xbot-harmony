@@ -126,7 +126,7 @@ import { SSE_STATE_FAILED } from '../core/sse';
 import { WIDGET_EVENT_WEB } from '../core/widgetsview';
 // 插件桥 page→native 的消息类型（协议权威 = `core/webbridge.ets`）
 import { BridgeMessage, HostNavEvent, HOST_NAV_TITLE, HOST_NAV_READY, HOST_NAV_OPEN_FILE } from '../core/webbridge';
-import { listItemCount, nextFollowBottom, shouldAutoScroll, followSuppressUntil, FOLLOW_SUPPRESS_MS, markUserScrollFrame, followAfterScrollStop, anchoredIndexAfterPrepend } from '../core/listfollow';
+import { listItemCount, nextFollowBottom, shouldAutoScroll, followSuppressUntil, FOLLOW_SUPPRESS_MS, markUserScrollFrame, followAfterScrollStop, anchoredIndexAfterPrepend, setUiScrolling } from '../core/listfollow';
 import { hasOverlay, OverlayCode, OverlayState, topOverlay } from '../core/overlays';
 import {
   currentTodo, modelText, todoProgress, usageText,
@@ -600,6 +600,8 @@ struct Index {
    *   ⇒ 同值短路 + 显式 `if (!this.userScrolling)` 防反复标脏。
    */
   @State userScrolling: boolean = false;
+  /** 最近一次**用户**滚动帧的时间（看门狗：onScrollStop 丢失时 2s 后强制恢复）。 */
+  private lastUserScrollAtMs: number = 0;
   /** 用户手指在列表上（onTouch Down→Up/Cancel）—— 用于在 scrollEdge(Bottom) 之前预判用户即将滚动 */
   userTouchActive: boolean = false;
   @State queue: QueueItem[] = [];
@@ -2290,6 +2292,16 @@ struct Index {
     if (store !== this.store) {
       return;
     }
+    // 看门狗：`onScrollStop` 若被丢（App 切后台/列表替换），`userScrolling` 会永久 true
+    // ⇒ 行重建永久挂起（界面看起来卡死）。超过 2s 没有新的用户滚动帧就强制恢复一次。
+    if (this.userScrolling && Date.now() - this.lastUserScrollAtMs > 2000) {
+      this.userScrolling = false;
+      setUiScrolling(false);
+      const s: ChatStore | null = this.store;
+      if (s !== null) {
+        s.suspendUiUpdates(false);
+      }
+    }
     // ⚡ 2026-10-20 P0：用户滚动/触摸时跳过整个 syncFrom——避免任何 @State 更新触发
     //   re-render 与用户手势争主线程（streaming ~50fps SSE 驱动 ⇒ 逐帧整页 build ⇒ 掉帧）。
     //   store 已自行处理 SSE 事件，页面 @State 只是投影；手势结束后的下一帧 syncFrom 自然补上。
@@ -3135,6 +3147,8 @@ struct Index {
     const target: ChatStore = this.storeFor(chatId);
     const alreadyOpen: boolean = target.currentChatId === chatId;
     this.store = target;
+    // 目标 store 可能停在上一轮的滚动挂起态（切走时 onScrollStop 未必触发）⇒ 先恢复。
+    target.suspendUiUpdates(false);
     // ⛔ 切 store 时**丢弃旧 store 的延迟投影**（`pendingSync` 的 16ms 定时器/抽屉 flush）：
     //   否则旧 timer 到点后可能把 `this.currentChat` 改回旧会话（跨会话污染 P0）。
     this.pendingSync = null;
@@ -6908,10 +6922,24 @@ struct Index {
       //   修法：onTouch Down 时立刻置 userTouchActive=true → syncFrom 的 scrollEdge
       //   在手指在屏上时跳过 → 首帧不再与手势争 → 不卡。
       .onTouch((event: TouchEvent) => {
+        const st: ChatStore | null = this.store;
         if (event.type === TouchType.Down) {
           this.userTouchActive = true;
+          setUiScrolling(true);
+          // 手指一落地就挂起行重建：否则 16ms 内的 SSE 帧仍会就地改 ChatRow（@ObjectLink）
+          // ⇒ 行高变化 ⇒ 用户拖动时高度抖动。
+          if (st !== null) {
+            st.suspendUiUpdates(true);
+          }
         } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
           this.userTouchActive = false;
+          // 没进入滚动（只是点按）⇒ 抬手即恢复；滚动中则等 onScrollStop（惯性结束）再恢复。
+          if (!this.userScrolling) {
+            setUiScrolling(false);
+            if (st !== null) {
+              st.suspendUiUpdates(false);
+            }
+          }
         }
       })
       // ⛔ 记录的**只有**"这一帧的滚动是不是用户干的"（ScrollSource 由 Scroll 框架给出，
@@ -6942,6 +6970,17 @@ struct Index {
           // ⚡ 2026-10-20 P0：暂停打字机定时器（20Hz @State 更新与滚动手势争抢主线程 → 粘滞）
           if (!this.userScrolling) {
             this.userScrolling = true;
+          }
+          this.lastUserScrollAtMs = Date.now();
+          // 同时置模块级滚动标志：`LazyForEach` 已有条目拿不到新的 `paused` @Prop，
+          // `LiveTailView.tick` 直接读它来停止打字机推进（否则行高继续变）。
+          setUiScrolling(true);
+          // ⛔ 同时挂起 store 的行重建：仅靠页面 syncFrom 早退挡不住 `@ObjectLink` ——
+          //   `rebuildRows` 就地改的是 LazyForEach 里同一个 ChatRow，每帧 SSE 都会改行高
+          //   （用户 2026-10-17「滚动时高度不断抖动」的真根因）。
+          const st: ChatStore | null = this.store;
+          if (st !== null) {
+            st.suspendUiUpdates(true);
           }
         }
       })
@@ -7047,6 +7086,9 @@ struct Index {
         // 停在旧内容/旧按钮（用户症状：滚完不动了）。成本 = 一次（每个手势仅一次）。
         const st: ChatStore | null = this.store;
         if (st !== null) {
+          // 恢复 store 行重建（挂起期间累积的 state 一次性落到 ChatRow）→ 再投影到页面。
+          setUiScrolling(false);
+          st.suspendUiUpdates(false);
           this.syncFrom(st);
         }
       })
