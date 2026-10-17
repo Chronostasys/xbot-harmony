@@ -2243,6 +2243,19 @@ export class ChatStore {
       clearTimeout(this.sessionPollTimer);
       this.sessionPollTimer = -1;
     }
+    // ⛔ **解除所有外部回调**（登录/登出死循环的根因）：
+    //   dispose 只 close SSE 不清回调时，**已 dispose 的 store 的 in-flight 请求/重连**
+    //   仍会把 401 送回页面 → 用户重新登录成功后，又一条迟到 401 触发
+    //   `handleAuthExpired`（清 cookie + 回登录页）→ 每隔一个轮询周期重复一次。
+    //   这里把 401/API 错误/状态更新全部摘掉（幂等；之后再触发也只是 noop）。
+    this.http.onUnauthorized = () => {
+    };
+    this.http.onApiError = () => {
+    };
+    this.sse.onUnauthorized = () => {
+    };
+    this.onAuthExpired = () => {
+    };
     this.onUpdate = () => {
     };
   }

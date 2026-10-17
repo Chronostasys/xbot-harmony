@@ -1809,11 +1809,8 @@ struct Index {
    * ⚠️ 绝不能把它当成网络故障（真机事故：web 会话有效，客户端却提示"网络不通"）。
    * 这里做三件事：清池（关掉所有已失效连接）、清本地凭据、回到登录页并写明原因。
    */
-  private handleAuthExpired(): void {
-    if (this.authExpiredHandled) {
-      return;
-    }
-    this.authExpiredHandled = true;
+  /** 关掉并清空所有 store（池 + 当前）。⚠️ 幂等；dispose 会摘掉 401 回调并停轮询。 */
+  private disposeAllStores(): void {
     const poolKeys: string[] = Array.from(this.pools.keys());
     for (let i = 0; i < poolKeys.length; i++) {
       const ps: ChatStore | undefined = this.pools.get(poolKeys[i]);
@@ -1828,6 +1825,14 @@ struct Index {
       cur.dispose();
     }
     this.store = null;
+  }
+
+  private handleAuthExpired(): void {
+    if (this.authExpiredHandled) {
+      return;
+    }
+    this.authExpiredHandled = true;
+    this.disposeAllStores();
     this.cookie = '';
     this.config.save(this.serverUrl, this.username, '').catch(() => {
       // 清凭据失败不影响退回登录
@@ -2865,6 +2870,11 @@ struct Index {
 
   private async doLogin(): Promise<void> {
     this.errMsg = '';
+    // ⛔ 登录期间忽略**旧 store 的迟到 401**（in-flight 请求 / 重连回调）：
+    //   否则用户刚输完密码、登录成功的一瞬间又被旧回调踢回登录页（死循环）。
+    //   成功后（保存 cookie 处）清零；失败保持 true（人已在登录页，无需再弹）。
+    this.authExpiredHandled = true;
+    this.disposeAllStores();
     const url: string = this.takeServerUrl();
     if (url.length === 0) {
       this.errMsg = this.testMsg;

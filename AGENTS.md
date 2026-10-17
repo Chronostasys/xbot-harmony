@@ -85,6 +85,12 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   ⇒ 已存在行永远用创建那一刻的快照** ⇒ 真机症状「切浅色后**历史**消息仍白字/live 正常」、「（过去迭代的）tool
   永远显示排队」。⇒ **凡"会变的值"要么让行自己订阅（`AppStorage`+`@StorageProp`），要么在变更路径显式发通知**；
   ⛔ 别靠 ForEach 重投 `@Prop`。细节见 `docs/ARKTS-GOTCHAS.md`。
+- **⛔ 401 后 `ChatStore` 必须真正停掉**：`dispose()` 只 `sse.close()` 不清 `sessionPollTimer`、
+  不摘 `http/sse.onUnauthorized` / `onAuthExpired` ⇒ 后端重启（`web_auth.go` 的会话是**内存 map**，
+  一重启全失效）后，被清池的旧 store 仍每 5s/30s 带旧 cookie 打 `/api/session-tree` → 401 →
+  把刚重新登录成功的页面**再次踢回登录页**，每个轮询周期重复一次（用户 2026-10-17 亲报
+  「模拟器每过几秒就退出到登录显示登录过期」）。判据 `tools/tests/auth_expiry_dispose.test.ts`
+  （dispose 清 timer + 摘 4 个回调；doLogin 先 `disposeAllStores()` 并置 `authExpiredHandled=true`）。
 - **⛔ 服务端 `active_tools` 整批先标 `pending`**（`agent/engine_run_tools.go:49-64`，到 goroutine 启动才翻
   `running`），且这些条目会**残留进后续帧**；服务端**明确要求前端按 `iteration` 过滤**
   （`agent/engine_wire.go:2436-2445` 原文 "the frontend cannot filter it"）⇒ 渲染 live 工具列表时**必须**照
