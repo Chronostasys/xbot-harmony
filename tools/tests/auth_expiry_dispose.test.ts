@@ -66,3 +66,5 @@ has('handleAuthExpired 复用 disposeAllStores', index, 'this.disposeAllStores()
 
 console.log(fail === 0 ? 'auth_expiry_dispose: ALL PASS' : `auth_expiry_dispose: ${fail} FAILED`);
 process.exit(fail === 0 ? 0 : 1);
+
+export {};

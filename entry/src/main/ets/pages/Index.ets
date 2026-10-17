@@ -6006,11 +6006,31 @@ struct Index {
       }
       // 图片查看（E5）：真 @Component `Lightbox`（旧 `@Builder ImageViewer()` 已删 —— 它缺「下滑关闭」
       //   与「按角色分别处置的 press」；容器也从「94%×80% 卡片」改为**全屏浮层**，对齐 web `Lightbox.tsx`）
-      if (this.imagePixel !== null || this.imageBusy) {
+      // ⛔ 2026-10-17 P0（点图卡死整 App）：`Lightbox.pixel` **不能是 `@Prop`** —— `@Prop` 对对象做
+      //   深拷贝（ARKTS-GOTCHAS §3），而 PixelMap 是原生位图；流式期父级每次重渲都会再深拷贝整张
+      //   位图 ⇒ UI 线程钉死。改成普通成员后，必须用**互斥分支**在“就绪”那一刻重建组件（普通成员
+      //   只在构造时赋值），否则 busy=true 的实例被复用、永远看不到图。
+      if (this.imagePixel !== null) {
         Lightbox({
           theme: this.themeName,
           pixel: this.imagePixel,
-          busy: this.imageBusy,
+          busy: false,
+          label: '',
+          onClose: () => {
+            this.closeViewer();
+          },
+          onSave: () => {
+            void this.saveToAlbum();
+          },
+          onToast: (m: string) => {
+            this.toast(m);
+          },
+        })
+      } else if (this.imageBusy) {
+        Lightbox({
+          theme: this.themeName,
+          pixel: null,
+          busy: true,
           label: '',
           onClose: () => {
             this.closeViewer();

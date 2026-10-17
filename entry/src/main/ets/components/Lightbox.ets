@@ -43,12 +43,21 @@ const TYPE_META: string = 'type.caption';
 export struct Lightbox {
   /** 应用主题名（与全仓组件同口径）。 */
   @Prop theme: string = 'dark';
-  /** 已解码位图（页面负责取字节 + 解码）；`null` 且 `busy=false` ⇒ 页面不该挂载本组件。 */
-  @Prop pixel: image.PixelMap | null = null;
+  /**
+   * 已解码位图（页面负责取字节 + 解码）。
+   *
+   * ⛔ **不能是 `@Prop`**（2026-10-17 用户 P0：点开聊天里的图片 ⇒ 整个 App 卡死）：
+   *   `@Prop` 对**对象**做深拷贝（`docs/ARKTS-GOTCHAS.md` §3），而 `PixelMap` 是原生位图
+   *   （整块像素缓冲）。深拷贝会复制/遍历整张位图；更糟的是页面流式期每次重渲都会再拷贝一次
+   *   ⇒ UI 线程被钉死。改成**普通成员**：构造时拿引用（零拷贝），页面用互斥 `if` 分支
+   *   在 pixel 就绪时**重建**本组件（见 `Index.ets` 的 `if (imagePixel !== null) … else if (imageBusy)`）。
+   *   `busy`/`label` 同理走普通成员（分支切换时重新构造，不需要响应式深拷贝）。
+   */
+  pixel: image.PixelMap | null = null;
   /** 解码中（显示 loading + 文案）。 */
-  @Prop busy: boolean = false;
+  busy: boolean = false;
   /** 说明行（文件名 / alt；空 ⇒ 只留工具栏）。 */
-  @Prop label: string = '';
+  label: string = '';
   /** 关闭（页面据此收起：`pixel=null; busy=false`）。 */
   onClose: () => void = () => {
   };

@@ -419,6 +419,13 @@ Usage of standard library is restricted (arkts-limited-stdlib)
 行对象含上百迭代，用 `@Prop` 传会持续深拷贝。正解：`types.ets` 里
 `@Observed export class ChatRow` + 行组件 `@ObjectLink row: ChatRow`（不拷贝、可观测）。
 
+⛔ **2026-10-17 同类事故：`@Prop` 不能传 `image.PixelMap`**。`Lightbox` 曾写
+`@Prop pixel: image.PixelMap | null` —— 点击聊天/文件里的图片时，`@Prop` 深拷贝整张原生位图
+（页面流式期每次重渲还会再拷贝一次）⇒ **整个 App 卡死**。正解：`pixel`/`busy` 用**普通成员**
+（构造时零拷贝），页面用**互斥 `if` 分支**（`imagePixel !== null` / `imageBusy`）在位图就绪时
+**重建**组件（普通成员只在构造时赋值；复用 busy 实例会永远看不到图）。判据
+`tools/tests/lightbox_pixel_prop.test.ts`（含 mutation：改回 `@Prop` 必红）。
+
 ### 4. `@Reusable` 只对 **LazyForEach 的条目**生效
 把气泡/pill 抽成 `@Reusable` **没有收益**（它们不是 LazyForEach 条目）。
 真正的复用目标是**整行**：`components/MessageRow.ets`（`@Component @Reusable struct MessageRowView`）。
