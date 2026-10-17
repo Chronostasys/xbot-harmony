@@ -53,6 +53,7 @@ import { KEY_NOTIFY_ASK, KEY_NOTIFY_DETAIL, KEY_NOTIFY_TURN_DONE, NotifyPrefs, n
 import {
   GetSettingsParams, readableRpcError, rpc, RPC_GET_SETTINGS, RPC_SET_SETTING, SETTINGS_NS_CLI, SetSettingParams,
 } from '../core/rpc';
+import { t as i18nT } from '../core/i18n';
 
 /** 分区 id（tab 顺序 = 此顺序）。 */
 export const SETTINGS_TAB_APPEARANCE: string = 'appearance';
@@ -368,7 +369,7 @@ export struct SettingsPanel {
         .justifyContent(FlexAlign.Center)
         .alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('返回设置')
+        .accessibilityText(i18nT('返回设置'))
         .onClick(() => {
           this.active = '';
         })
@@ -385,7 +386,7 @@ export struct SettingsPanel {
         .fontColor([colorOf(this.pal(), 'iconMuted')])
         .padding(SPACE_MD)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('关闭')
+        .accessibilityText(i18nT('关闭'))
         .onClick(() => {
           this.onClose();
         })

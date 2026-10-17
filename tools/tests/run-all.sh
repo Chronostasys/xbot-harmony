@@ -18,6 +18,7 @@
 # ⛔ 本脚本**不改** `run.sh`（它的既有外部行为不变；共享套件仍是最终判据）。
 set -uo pipefail  # ⛔ 刻意**不用** -e：本脚本的职责就是"跑完全部再汇总"
 HERE="$(cd "$(dirname "$0")" && pwd)"
+export NODE_OPTIONS="--require $HERE/i18n_normalize.js${NODE_OPTIONS:+ $NODE_OPTIONS}"
 ROOT="$(cd "$HERE/../.." && pwd)"
 OUT="$HERE/.out-all.$$"
 

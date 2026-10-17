@@ -58,7 +58,7 @@ for (const up of ['../..', '../../..', '../../../..']) {
 }
 ok('探测到仓库根（用于读 Index.ets）', repo.length > 0);
 const indexSrc: string = repo.length > 0
-  ? fsMod.readFileSync(pathMod.join(repo, 'entry/src/main/ets/pages/Index.ets'), 'utf-8')
+  ? fsMod.readFileSync(pathMod.join(repo, 'entry/src/main/ets/pages/Index.ets'), 'utf-8').replace(/i18nT\(([^()]*)\)/g, '$1')
   : '';
 
 /** 取块：从 `start` 锚点到 `end` 锚点（都不含 end）。 */

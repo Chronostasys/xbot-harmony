@@ -28,6 +28,7 @@ import {
 } from '../core/design';
 import { fs, fw, lh } from './SettingsRows';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { t as i18nT } from '../core/i18n';
 
 // ── 早期注入探针（`runJavaScriptOnDocumentStart`）────────────────────────────────
 // 目的：在不改 web 仓的前提下，验证**原生能否在页面脚本之前**往页面注入自己的 JS
@@ -661,7 +662,7 @@ export struct WebSurface {
             .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
             .justifyContent(FlexAlign.Center)
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-            .accessibilityText('返回')
+            .accessibilityText(i18nT('返回'))
             .onClick(() => {
               this.onClose();
             })
@@ -691,7 +692,7 @@ export struct WebSurface {
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .accessibilityText('刷新')
+          .accessibilityText(i18nT('刷新'))
           .onClick(() => {
             this.refresh();
           })
@@ -723,7 +724,7 @@ export struct WebSurface {
             .maxLines(2)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
           if (this.status().canRetry) {
-            Text('重试')
+            Text(i18nT('重试'))
               .fontSize(fs('type.caption'))
               .fontWeight(fw('type.caption'))
               .lineHeight(lh('type.caption'))
@@ -743,7 +744,7 @@ export struct WebSurface {
           //    否则坏 URL（404/401/离线且页面无自带返回）会把用户**困在空白 Web 里**，
           //    错误条上只有「重试」⇒ 只能杀进程。有 chrome 时顶部已有「‹ 返回」，不重复。
           if (!this.chrome) {
-            Text('返回')
+            Text(i18nT('返回'))
               .fontSize(fs('type.caption'))
               .fontWeight(fw('type.caption'))
               .lineHeight(lh('type.caption'))

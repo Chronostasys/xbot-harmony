@@ -55,7 +55,7 @@ const root: string = findRoot();
 ok('探测到仓库根（含 core/design.ets）', root.length > 0);
 
 const IDX: string = path.join(root, 'entry/src/main/ets/pages/Index.ets');
-const src: string = fs.readFileSync(IDX, 'utf8');
+const src: string = fs.readFileSync(IDX, 'utf8').replace(/i18nT\(([^()]*)\)/g, '$1');
 ok(`Index.ets 读到源码（零扫描判红，len=${src.length}）`, src.length > 1000);
 
 /**

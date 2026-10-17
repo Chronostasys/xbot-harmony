@@ -39,6 +39,7 @@ import {
   EMPHASIS_MEDIUM, MARK_CIRCLE_CHECK, MARK_CIRCLE_DASHED, StatusVisual,
   roleColorOf, todoVisual,
 } from '../core/statusvisual';
+import { t as i18nT } from '../core/i18n';
 
 // ── 尺寸/取色一律走语义令牌（`7841978`），组件不再自写魔数 ──────────────────────
 // 旧魔数：HEADER_H=28、BAR_W/H=48/6、LIST_MAX_H=240、ICON=14、GOAL_TINT 深浅分叉、
@@ -226,7 +227,7 @@ struct TodoRowView {
             .fontColor([this.pal().textSecondary])
         }
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
-        .accessibilityText('更多操作')
+        .accessibilityText(i18nT('更多操作'))
         .onClick(() => {
           this.menuOpen = !this.menuOpen;
         })
@@ -261,7 +262,7 @@ struct TodoRowView {
     Column() {
       // 「设为目标」仅当宿主提供回调（web `:300` 的 `{onSetGoalTodo && (…)}`）
       if (this.canSetGoal) {
-        Text('设为目标')
+        Text(i18nT('设为目标'))
           .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textPrimary)
@@ -273,7 +274,7 @@ struct TodoRowView {
             this.onSetGoal();
           })
       }
-      Text('编辑')
+      Text(i18nT('编辑'))
         .constraintSize({ minHeight: HIT_TARGET_MIN })
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().textPrimary)
@@ -284,7 +285,7 @@ struct TodoRowView {
           this.menuOpen = false;
           this.onStartEdit();
         })
-      Text('删除')
+      Text(i18nT('删除'))
         .constraintSize({ minHeight: HIT_TARGET_MIN })
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().dangerText)
@@ -460,7 +461,7 @@ export struct TodoPanel {
             }
             .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-            .accessibilityText('设为目标')
+            .accessibilityText(i18nT('设为目标'))
             .onClick(() => {
               this.onSetGoal();
             })

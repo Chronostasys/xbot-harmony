@@ -17,6 +17,7 @@
 #    core/*.ets ⇒ .ts + core/*.ts + 测试 + stubs + `sed` 路径改写 + @kit.*/prism4j/notify mock + 同款 find_tsc。
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+export NODE_OPTIONS="--require $HERE/i18n_normalize.js${NODE_OPTIONS:+ $NODE_OPTIONS}"
 ROOT="$(cd "$HERE/../.." && pwd)"
 # ⚠️ 目录名带 PID：并发跑互不干扰（与 run.sh 同思路；另一个名字避免与 .out.$$ 撞）
 OUT="$HERE/.out-one.$$"

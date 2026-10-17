@@ -42,6 +42,7 @@ import {
   SHEET_WIDTH, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, surfaceFillOf, typeOf,
 } from '../core/design';
 import { fadeTransition, sheetTransition, animBase } from './anim';
+import { t as i18nT } from '../core/i18n';
 
 /**
  * 渲染上限：scrollback 尾巴 + 屏幕。⛔ 别无限增长（Text 的 span 段数 = 性能）。
@@ -798,7 +799,7 @@ export struct TerminalSheet {
         .justifyContent(FlexAlign.Center)
         .borderRadius(RADIUS_PILL)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('关闭终端')
+        .accessibilityText(i18nT('关闭终端'))
         .onClick(() => {
           this.closeSelf();
         })
@@ -893,7 +894,7 @@ export struct TerminalSheet {
       //   真机实测负偏移外扩**无效**，见 `AGENTS.md` GOTCHAS）。
       if (showsJumpToLatest(this.followBottom, this.flow.length, this.atEndUi)) {
         Row() {
-          Text('回到最新')
+          Text(i18nT('回到最新'))
             .fontSize(typeOf('type.caption').size)
             .fontColor(this.textPrimaryC())
             .padding({ left: SPACE_SM, right: SPACE_SM, top: 7, bottom: 7 })
@@ -935,7 +936,7 @@ export struct TerminalSheet {
 
       // ── 输入行 ──
       Row({ space: SPACE_XS }) {
-        TextInput({ text: this.input, placeholder: '输入命令，回车发送' })
+        TextInput({ text: this.input, placeholder: i18nT('输入命令，回车发送') })
           .layoutWeight(1)
           .fontSize(this.fs())
           .fontFamily('monospace')

@@ -55,7 +55,7 @@ function stripComments(raw: string): string {
 }
 function readOrDie(p: string): string {
   try {
-    return fs.readFileSync(p, 'utf8');
+    return fs.readFileSync(p, 'utf8').replace(/i18nT\(([^()]*)\)/g, '$1');
   } catch (e) {
     console.log(`  ✗ 读不到 ${p}`);
     process.exit(1);

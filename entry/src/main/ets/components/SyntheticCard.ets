@@ -28,6 +28,7 @@ import {
   syntheticKindOf, syntheticRoleOf, syntheticStatusOf, syntheticStatusRoleOf, syntheticSubject,
   syntheticTitleOf,
 } from '../core/synthhints';
+import { t as i18nT } from '../core/i18n';
 
 /** 头像直径（web `size-6` = 24px；手机端同号）。 */
 const AVATAR: number = 24;
@@ -358,7 +359,7 @@ export struct SyntheticCard {
           })
         }
       } else {
-        Text('历史记录未包含结构化详情')
+        Text(i18nT('历史记录未包含结构化详情'))
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .width('100%')

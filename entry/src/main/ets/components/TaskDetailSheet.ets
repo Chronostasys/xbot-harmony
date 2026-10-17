@@ -24,6 +24,7 @@ import {
   SHEET_WIDTH, SPACE_SM, SPACE_XS, STROKE_HAIRLINE, SURFACE_CARD, structuralRuleOf, surfaceFillOf, typeOf,
 } from '../core/design';
 import { sheetTransition, animBase } from './anim';
+import { t as i18nT } from '../core/i18n';
 
 @Component
 export struct TaskDetailSheet {
@@ -142,7 +143,7 @@ export struct TaskDetailSheet {
             .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
             .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-            .accessibilityText('终止任务')
+            .accessibilityText(i18nT('终止任务'))
             .onClick(() => {
               this.onKill();
             })
@@ -155,7 +156,7 @@ export struct TaskDetailSheet {
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .accessibilityText('关闭任务详情')
+          .accessibilityText(i18nT('关闭任务详情'))
           .onClick(() => {
             this.onClose();
           })

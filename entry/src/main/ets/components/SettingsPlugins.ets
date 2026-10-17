@@ -59,6 +59,7 @@ import { PRESS_OPACITY, CONTROL_INPUT_H, colorOf, hairlineOf, HIT_TARGET_MIN } f
 import { SettingsErrorBar, SettingsPanelHeader, SettingsButton } from './SettingsRows';
 import { AuthImage } from './AuthImage';
 import { animBase } from './anim';
+import { t as i18nT } from '../core/i18n';
 
 /** 单字段的行高/内边距常量（与各设置面板同视觉语言）。 */
 const FIELD_PAD_T: number = SP_2;
@@ -228,7 +229,7 @@ struct PluginFieldRow {
       }
       .width('100%')
       if (pluginImageValueKind(this.imgValue) === PLUGIN_IMG_UPLOADED) {
-        Text('当前值 = 本站上传的图片。')
+        Text(i18nT('当前值 = 本站上传的图片。'))
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .width('100%')
@@ -239,7 +240,7 @@ struct PluginFieldRow {
           .fontColor(this.pal().dangerText)
           .width('100%')
       }
-      Text('兜底：也可在「完整 Web UI」的设置 → 插件 里设置。')
+      Text(i18nT('兜底：也可在「完整 Web UI」的设置 → 插件 里设置。'))
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().textMuted)
         .width('100%')
@@ -271,7 +272,7 @@ struct PluginFieldRow {
       Row({ space: SP_2 }) {
         this.LabelCol()
         if (this.controlKind() === PLUGIN_CTRL_STATIC) {
-          Text('暂不支持编辑')
+          Text(i18nT('暂不支持编辑'))
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().textMuted)
         } else if (this.kind === PLUGIN_FIELD_BOOLEAN) {
@@ -789,18 +790,18 @@ export struct SettingsPlugins {
       }
 
       if (this.loading) {
-        Text('加载中…')
+        Text(i18nT('加载中…'))
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .width('100%')
       } else if (this.catalog.entries.length === 0) {
-        Text('没有带配置声明的插件。')
+        Text(i18nT('没有带配置声明的插件。'))
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .width('100%')
       } else {
         // ── 搜索框（对齐 web `SettingsPlugins.tsx:160-169`；过滤判据 = core `filterPluginCatalog`）──
-        TextInput({ text: this.query, placeholder: '搜索配置项（key / 名称 / 说明）' })
+        TextInput({ text: this.query, placeholder: i18nT('搜索配置项（key / 名称 / 说明）') })
           .placeholderColor(colorOf(this.pal(), 'textMuted'))
           .fontColor(colorOf(this.pal(), 'textPrimary'))
           .backgroundColor(colorOf(this.pal(), 'surfaceAlt'))
@@ -815,7 +816,7 @@ export struct SettingsPlugins {
         Column() {
           Column({ space: SP_3 }) {
             if (this.filtered().entries.length === 0) {
-              Text('没有匹配的配置项。')
+              Text(i18nT('没有匹配的配置项。'))
                 .fontSize(FS_CAPTION)
                 .fontColor(colorOf(this.pal(), 'textMuted'))
                 .width('100%')
@@ -965,7 +966,7 @@ export struct SettingsPlugins {
             .fontColor(this.pal().dangerText)
             .width('100%')
         } else if (this.backend.entries.length === 0) {
-          Text('后端没有插件（插件系统未启用，或插件目录为空）。')
+          Text(i18nT('后端没有插件（插件系统未启用，或插件目录为空）。'))
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().textMuted)
             .width('100%')

@@ -87,8 +87,8 @@ const OVERRIDES: Map<string, string> = new Map<string, string>();
   }
 }
 function readRel(rel: string): string {
-  if (OVERRIDES.has(rel)) { return fsMod.readFileSync(OVERRIDES.get(rel) as string, 'utf-8'); }
-  return fsMod.readFileSync(pathMod.join(etsRoot, rel), 'utf-8');
+  if (OVERRIDES.has(rel)) { return fsMod.readFileSync(OVERRIDES.get(rel) as string, 'utf-8').replace(/i18nT\(([^()]*)\)/g, '$1'); }
+  return fsMod.readFileSync(pathMod.join(etsRoot, rel), 'utf-8').replace(/i18nT\(([^()]*)\)/g, '$1');
 }
 
 function walkEts(dir: string): string[] {

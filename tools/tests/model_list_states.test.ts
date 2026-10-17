@@ -57,7 +57,7 @@ function stripComments(s: string): string {
 }
 function read(rel: string): string {
   const p: string = pathMod.join(ROOT, rel);
-  return fsMod.existsSync(p) ? stripComments(fsMod.readFileSync(p, 'utf-8')) : '';
+  return fsMod.existsSync(p) ? stripComments(fsMod.readFileSync(p, 'utf-8').replace(/i18nT\(([^()]*)\)/g, '$1')) : '';
 }
 
 // ── ① 纯逻辑真源（`core/llmfmt.ets:modelPanelStatus`）────────────────────────────

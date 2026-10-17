@@ -56,6 +56,7 @@ import { fs, fw, lh, tc, tk } from './SettingsRows';
 //    由 `busy` 门控），不是"它出现的速度"；挂载时机仍由页面 `if (askUser !== null)` 决定（判据不入组件）。
 //    ⇒ 与其它弹层同一开合观感（滑入 + 淡入）。
 import { sheetTransition } from './anim';
+import { t as i18nT } from '../core/i18n';
 
 /**
  * 关闭 X 的视觉边长 —— 统一走 `SHEET_ACTION_GLYPH`（2026-10-12）。
@@ -312,7 +313,7 @@ export struct AskUserSheet {
       Column({ space: SPACE_SM }) {
         // ── 头部：标题 +（多问）序号徽标 + 关闭 X（**真实 44 布局盒**，非 responseRegion 外扩）──
         Row({ space: SPACE_XS }) {
-          Text('xbot 需要你确认')
+          Text(i18nT('xbot 需要你确认'))
             .fontSize(fs('type.headline'))
             .fontWeight(fw('type.headline'))
             .lineHeight(lh('type.headline'))
@@ -347,7 +348,7 @@ export struct AskUserSheet {
           //    `SelfCheckSheet` 的关闭 X 同款）。此前误用 `DISABLED_OPACITY`(0.4，= **禁用态**语义)
           //    当按压值 ⇒ 本弹层 X 的按压比其它弹层深一档（不一致）。
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .accessibilityText('关闭')
+          .accessibilityText(i18nT('关闭'))
           .onClick(() => {
             this.onClose();
           })
@@ -363,7 +364,7 @@ export struct AskUserSheet {
               .fontSize(fs('type.display'))
               // ⛔ 图标弱色走 `colorOf(p,'iconMuted')`（非文本档 ≥3；`textMuted` 的批准档是文本 2）。
               .fontColor([colorOf(this.palOnce(), 'iconMuted')])
-            Text('没有待确认的问题')
+            Text(i18nT('没有待确认的问题'))
               .fontSize(fs('type.callout'))
               .fontWeight(fw('type.callout'))
               .lineHeight(lh('type.callout'))
@@ -597,7 +598,7 @@ export struct AskUserSheet {
 
               // 多选提示（web `:269-271`）
               if (this.curMulti()) {
-                Text('可多选')
+                Text(i18nT('可多选'))
                   .fontSize(fs('type.caption'))
                   .fontWeight(fw('type.caption'))
                   .lineHeight(lh('type.caption'))
@@ -609,7 +610,7 @@ export struct AskUserSheet {
 
               // 「其他」输入框（**选中开关后才展开**；web `:276-294`）
               if (this.curOtherSelected()) {
-                TextInput({ text: this.otherDraft, placeholder: '请输入自定义答案' })
+                TextInput({ text: this.otherDraft, placeholder: i18nT('请输入自定义答案') })
                   .onChange((v: string) => {
                     this.otherDraft = v;
                     this.setOther(this.curQid(), v);
@@ -627,7 +628,7 @@ export struct AskUserSheet {
               // ── 自由文本（**每题恒有**；web `:296-332`）────────────────────────────
               // ⛔ 这是 web 头注 `:5-7` 的第一条保证：用户可以无视选项直接写。
               //    合并优先级最高（free > other > labels，`core/msgops.mergeAskAnswers`）。
-              Text('或直接输入答案')
+              Text(i18nT('或直接输入答案'))
                 .fontSize(fs('type.caption'))
                 .fontWeight(fw('type.caption'))
                 .lineHeight(lh('type.caption'))
@@ -661,7 +662,7 @@ export struct AskUserSheet {
 
         // ── 底部动作：取消 | ‹ 上一步 | 下一步 › | 提交（web `:336-359`；全部 ≥44 命中区）──
         Row({ space: SPACE_XS }) {
-          Button('取消')
+          Button(i18nT('取消'))
             .layoutWeight(1)
             .constraintSize({ minHeight: HIT_TARGET_MIN })
             .fontSize(fs('type.subhead'))
@@ -674,28 +675,28 @@ export struct AskUserSheet {
             })
           // 上一步（**仅多问且非首步**；web `:342-346`）
           if (this.isMulti() && this.stepIdx() > 0) {
-            Button('上一步')
+            Button(i18nT('上一步'))
               .constraintSize({ minHeight: HIT_TARGET_MIN })
               .fontSize(fs('type.subhead'))
               .fontWeight(fw('type.subhead'))
               .fontColor(this.btnFg(false))
               .backgroundColor(this.btnBg(false))
               .borderRadius(RADIUS_PILL)
-              .accessibilityText('上一步')
+              .accessibilityText(i18nT('上一步'))
               .onClick(() => {
                 this.step = this.stepIdx() - 1;
               })
           }
           // 下一步（**仅多问且非末步**；web `:347-354`）
           if (this.isMulti() && this.stepIdx() < this.questions.length - 1) {
-            Button('下一步')
+            Button(i18nT('下一步'))
               .constraintSize({ minHeight: HIT_TARGET_MIN })
               .fontSize(fs('type.subhead'))
               .fontWeight(fw('type.subhead'))
               .fontColor(this.btnFg(true))
               .backgroundColor(this.btnBg(true))
               .borderRadius(RADIUS_PILL)
-              .accessibilityText('下一步')
+              .accessibilityText(i18nT('下一步'))
               .onClick(() => {
                 this.step = this.stepIdx() + 1;
               })

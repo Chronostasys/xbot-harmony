@@ -35,6 +35,7 @@ import {
   GitChange, GitCommitRow, GitLog, gitDiffFiles, gitFileDir, gitFileName, gitStatText,
   gitStatusLetter, gitStatusTone,
 } from '../core/gitpanel';
+import { t as i18nT } from '../core/i18n';
 
 /** diff 行数上限（超出的部分**截断并显式告知**，⛔ 不静默丢内容）。 */
 const MAX_DIFF_LINES: number = 400;
@@ -457,7 +458,7 @@ export struct GitPanelSheet {
       .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
       .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-      .accessibilityText('刷新 Git 状态')
+      .accessibilityText(i18nT('刷新 Git 状态'))
       .onClick(() => {
         this.onRefresh();
       })
@@ -469,7 +470,7 @@ export struct GitPanelSheet {
       .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
       .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-      .accessibilityText('关闭 Git 面板')
+      .accessibilityText(i18nT('关闭 Git 面板'))
       .onClick(() => {
         this.onClose();
       })
@@ -488,7 +489,7 @@ export struct GitPanelSheet {
       .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
       .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-      .accessibilityText('返回列表')
+      .accessibilityText(i18nT('返回列表'))
       .onClick(() => {
         this.onBack();
       })
@@ -601,7 +602,7 @@ export struct GitPanelSheet {
             Column({ space: SPACE_XS }) {
               SymbolGlyph($r('sys.symbol.doc_text'))
                 .fontSize(typeOf('type.display').size).fontColor([this.skin().icon])
-              Text('没有可显示的文本改动（二进制文件或仅权限变更）')
+              Text(i18nT('没有可显示的文本改动（二进制文件或仅权限变更）'))
                 .fontSize(fs('type.caption')).fontColor(this.skin().sub)
                 .textAlign(TextAlign.Center)
                 .wordBreak(WordBreak.BREAK_ALL)

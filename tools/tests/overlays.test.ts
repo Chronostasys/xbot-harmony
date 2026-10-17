@@ -128,7 +128,7 @@ describe('「回到最新」= 悬浮提示（叠层；不占布局行、不挤�
     root = path.join(root, '..');
   }
   const idxPath: string = path.join(root, 'entry', 'src', 'main', 'ets', 'pages', 'Index.ets');
-  const raw: string = fs.existsSync(idxPath) ? fs.readFileSync(idxPath, 'utf-8') : '';
+  const raw: string = fs.existsSync(idxPath) ? fs.readFileSync(idxPath, 'utf-8').replace(/i18nT\(([^()]*)\)/g, '$1') : '';
   // 剥注释：只认**真实代码形态**（注释里的说明/历史不算）
   const src: string = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const anchor: number = src.indexOf("Text('回到最新')");

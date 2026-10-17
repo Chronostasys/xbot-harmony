@@ -23,6 +23,7 @@ import {
 } from '../core/design';
 import { fs, fw, lh } from './SettingsRows';
 import { TONE_ERROR, TONE_MUTED, TONE_SUCCESS, LEAD_CRON, LEAD_FAIL, LEAD_KILLED, LEAD_OK, LEAD_RUNNING } from '../core/panels';
+import { t as i18nT } from '../core/i18n';
 
 /**
  * 尾部动作码 —— ⛔ 用**码**（字符串）而不是 `Resource`：`@Prop` 传 `Resource` 在 ArkTS 上要
@@ -195,7 +196,7 @@ export struct PanelRowCard {
         .justifyContent(FlexAlign.Center)
         .alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('终止任务')
+        .accessibilityText(i18nT('终止任务'))
         .onClick(() => {
           this.onTrailing();
         })

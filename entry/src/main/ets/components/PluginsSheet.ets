@@ -44,6 +44,7 @@ import {
 import { fs, fw, lh } from './SettingsRows';
 // 弹层**开合**过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造时长/曲线；E3 统一）。
 import { sheetTransition } from './anim';
+import { t as i18nT } from '../core/i18n';
 
 /**
  * 关闭 X 的命中盒 —— ⛔ 热区**不靠** `responseRegion` 负偏移外扩（真机实测（SDK21）**无效**，
@@ -187,7 +188,7 @@ export struct PluginsSheet {
     Stack() {
       Column({ space: SPACE_XS }) {
         Row() {
-          Text('能力面板').fontSize(fs('type.headline')).fontWeight(fw('type.headline'))
+          Text(i18nT('能力面板')).fontSize(fs('type.headline')).fontWeight(fw('type.headline'))
             .fontColor(this.pal().textPrimary).layoutWeight(1)
           // ⛔ 关闭 X：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`。
           Row() {
@@ -197,7 +198,7 @@ export struct PluginsSheet {
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .accessibilityText('关闭')
+          .accessibilityText(i18nT('关闭'))
           .onClick(() => {
             this.onClose();
           })
@@ -266,7 +267,7 @@ export struct PluginsSheet {
                   .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
                 if (this.status().canRetry) {
                   Row() {
-                    Text('重试').fontSize(fs('type.caption')).fontWeight(fw('type.caption'))
+                    Text(i18nT('重试')).fontSize(fs('type.caption')).fontWeight(fw('type.caption'))
                       .fontColor(this.pal().accentSoft)
                   }
                   .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
@@ -292,7 +293,7 @@ export struct PluginsSheet {
           // `PANEL_FIXED_ENTRY_ROWS` —— 它只数上面那 5 条入口行）。
           if (this.plugins.length > 0) {
             ListItem() {
-              Text('插件')
+              Text(i18nT('插件'))
                 .fontSize(fs('type.micro'))
                 .fontWeight(fw('type.micro'))
                 .fontColor(this.mutedText())

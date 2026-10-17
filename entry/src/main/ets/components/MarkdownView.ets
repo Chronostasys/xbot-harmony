@@ -24,6 +24,7 @@ import {
 } from '../core/mdview';
 import { HlSpan, highlightCode } from '../core/highlight';
 import { resolveOpenable } from '../core/msgops';
+import { t as i18nT } from '../core/i18n';
 
 /**
  * 行内样式的**模块级记忆化容器**（P1#5）。
@@ -515,7 +516,7 @@ export struct MarkdownView {
           .fontFamily('monospace')
           .fontColor(this.pal().textMuted)
           .layoutWeight(1)
-        Text('复制')
+        Text(i18nT('复制'))
           .fontSize(11)
           .fontColor(this.codeStripAction())
           // press 反馈：全 App 统一口径 `PRESS_OPACITY`（此前**点了像没反应**——无任何反馈）

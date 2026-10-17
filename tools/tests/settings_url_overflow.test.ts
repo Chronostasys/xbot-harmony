@@ -18,6 +18,9 @@ declare const __dirname: string;
 declare const process: { exit: (c: number) => void };
 
 const fs = require('fs');
+const __origRead = fs.readFileSync;
+fs.readFileSync = (p: string, e: string): string => __origRead(p, e).replace(/i18nT\(([^()]*)\)/g, '$1');
+
 const path = require('path');
 
 let pass = 0, fail = 0;

@@ -45,6 +45,7 @@ import {
   SHEET_WIDTH, SPACE_XS, STROKE_HAIRLINE, hairlineOf, surfaceFillOf, colorOf, } from '../core/design';
 import { fs, fw, lh, tc, tk } from './SettingsRows';
 import { sheetTransition } from './anim';
+import { t as i18nT } from '../core/i18n';
 
 /**
  * 关闭 X 的视觉边长 —— 统一走 `SHEET_ACTION_GLYPH`（2026-10-12，与 `AskUserSheet` 同一 token）。
@@ -109,7 +110,7 @@ struct StatusInfoRow {
         .textOverflow({ overflow: TextOverflow.Ellipsis })
       if (this.editable && this.editing) {
         // ── 编辑态（web `:139-155`）：单行输入（等宽）+ 确认；Enter 提交 ───────────────
-        TextInput({ text: this.draft, placeholder: '工作路径' })
+        TextInput({ text: this.draft, placeholder: i18nT('工作路径') })
           .fontSize(fs('type.callout'))
           .fontColor(tc(this.pal(), 'type.body'))
           .placeholderColor(this.pal().textMuted)
@@ -135,7 +136,7 @@ struct StatusInfoRow {
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('保存工作路径')
+        .accessibilityText(i18nT('保存工作路径'))
         .onClick(() => {
           this.commit();
         })
@@ -241,7 +242,7 @@ export struct StatusSheet {
       Column({ space: 0 }) {
         // ── 头部：标题（`type.headline`）+ 关闭 X（真实 44 布局盒）────────────────────
         Row({ space: SPACE_XS }) {
-          Text('会话状态')
+          Text(i18nT('会话状态'))
             .fontSize(fs('type.headline'))
             .fontWeight(fw('type.headline'))
             .lineHeight(lh('type.headline'))
@@ -258,7 +259,7 @@ export struct StatusSheet {
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .accessibilityText('关闭')
+          .accessibilityText(i18nT('关闭'))
           .onClick(() => {
             this.onClose();
           })
@@ -275,7 +276,7 @@ export struct StatusSheet {
               .fontSize(fs('type.display'))
               // ⛔ 图标弱色走 `colorOf(p,'iconMuted')`（非文本档 ≥3；`textMuted` 的批准档是文本 2）。
               .fontColor([colorOf(paletteOf(this.theme), 'iconMuted')])
-            Text('暂无会话状态')
+            Text(i18nT('暂无会话状态'))
               .fontSize(fs('type.subhead'))
               .fontWeight(fw('type.subhead'))
               .lineHeight(lh('type.subhead'))
@@ -285,7 +286,7 @@ export struct StatusSheet {
               .width('100%')
               .textAlign(TextAlign.Center)
             // S2（对标 Apple 空态层级）：补**提示行**（怎么说才会有）——与运行面板 `PanelEmpty` 同形。
-            Text('会话信息加载后会显示在这里')
+            Text(i18nT('会话信息加载后会显示在这里'))
               .fontSize(fs('type.caption'))
               .fontWeight(fw('type.caption'))
               .lineHeight(lh('type.caption'))
@@ -368,7 +369,7 @@ export struct StatusSheet {
             .color(hairlineOf(this.pal()))
             .margin({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XS, bottom: SPACE_XS })
           Row({ space: SPACE_XS }) {
-            Text('切换模型 / 上下文上限')
+            Text(i18nT('切换模型 / 上下文上限'))
               .fontSize(fs('type.subhead'))
               .fontWeight(fw('type.subhead'))
               .lineHeight(lh('type.subhead'))

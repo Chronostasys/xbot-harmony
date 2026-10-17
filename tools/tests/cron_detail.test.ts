@@ -67,8 +67,8 @@ function sliceBetween(src: string, from: string, to: string): string {
 
 const IDX: string = 'Index.ets';
 const SHEET: string = 'CronDetailSheet.ets';
-const idxSrc: string = stripComments(fs.readFileSync(path.join(PAGES, IDX), 'utf8'));
-const sheetSrc: string = stripComments(fs.readFileSync(path.join(COMPONENTS, SHEET), 'utf8'));
+const idxSrc: string = stripComments(fs.readFileSync(path.join(PAGES, IDX), 'utf8').replace(/i18nT\(([^()]*)\)/g, '$1'));
+const sheetSrc: string = stripComments(fs.readFileSync(path.join(COMPONENTS, SHEET), 'utf8').replace(/i18nT\(([^()]*)\)/g, '$1'));
 
 console.log(`  cron-detail-scan dir=${PAGES}`);
 console.log(`  cron-detail-scan files: ${IDX}, ${SHEET}`);

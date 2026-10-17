@@ -74,7 +74,7 @@ ok('① 旧裸对账（缺失即 false 且无意图窗口）已移除（== 0）'
 // ── ② P0-A 照抄 web：无窗口/无哨兵/键无 rev ──────────────────────────────────────
 const noWindow: number = countOf(row, 'visibleBlocks') + countOf(row, 'hiddenBlockCount') + countOf(row, 'widenBlocks') + countOf(row, 'MSG_BLOCK_SENTINEL_H');
 const noSentinel: number = countOf(row, '更早的 ${this.hiddenBlocks()}');
-const keyNoRev: number = countOf(rowdiff, "return chatId + '#' + r.id;");
+const keyNoRev: number = countOf(rowdiff, "return chatId + '#' + r.id");
 const keyWithRev: number = countOf(rowdiff, "return chatId + '#' + r.id + '#' + r.rev;");
 ok('② 窗口函数族已从 MessageRow 移除（== 0）', noWindow === 0);
 ok('② 哨兵行已删除（== 0）', noSentinel === 0);

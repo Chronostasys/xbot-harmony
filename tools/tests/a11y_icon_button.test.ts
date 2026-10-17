@@ -205,7 +205,7 @@ function loadDir(relDir: string): void {
     const nm: string = names[i];
     if (nm.length > 4 && nm.substring(nm.length - 4) === '.ets') {
       const rel: string = relDir + '/' + nm;
-      try { srcByRel.set(rel, fsMod.readFileSync(pathMod.join(etsRoot, rel), 'utf-8')); } catch (e) { /* 跳过 */ }
+      try { srcByRel.set(rel, fsMod.readFileSync(pathMod.join(etsRoot, rel), 'utf-8').replace(/i18nT\(([^()]*)\)/g, '$1')); } catch (e) { /* 跳过 */ }
     }
   }
 }

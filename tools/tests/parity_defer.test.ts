@@ -51,7 +51,7 @@ ok('探测到仓库根', repo.length > 0);
 
 function readSrc(rel: string): string {
   try {
-    return fsMod.readFileSync(pathMod.join(repo, rel), 'utf-8');
+    return fsMod.readFileSync(pathMod.join(repo, rel), 'utf-8').replace(/i18nT\(([^()]*)\)/g, '$1');
   } catch (e) {
     return '';
   }

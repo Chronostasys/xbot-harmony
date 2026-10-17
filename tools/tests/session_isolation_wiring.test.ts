@@ -133,9 +133,11 @@ function storeSafe(s: string): boolean {
   // openSession 自身也要代数守卫（loadSessions/history/queue 后）
   const os0: number = s.indexOf('async openSession(chatId: string): Promise<void> {');
   if (os0 < 0) { return false; }
-  const osBody: string = s.substring(os0, os0 + 3500);
+  const osBody: string = s.substring(os0, os0 + 7000);
   if (osBody.indexOf('const gen: number = this.chatGen;') < 0) { return false; }
-  if (countOf(osBody, 'gen !== this.chatGen') < 3) { return false; }
+  // ⚠️ 2026-10-17：`loadSessions` 改为**后台补齐**（不再 await，避免会话列表挂住导致首屏永久
+  //    splash）⇒ openSession 的 await 后守卫只剩 loadHistory / loadQueue 两处。
+  if (countOf(osBody, 'gen !== this.chatGen') < 2) { return false; }
   return true;
 }
 

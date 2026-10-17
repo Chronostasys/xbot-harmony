@@ -21,13 +21,13 @@ const fs: { readFileSync(p: string, e: string): string } = require('fs');
 const path: { join(...parts: string[]): string } = require('path');
 
 const root: string = path.join(__dirname, '..', '..', '..', '..');
-const indexSrc: string = fs.readFileSync(path.join(root, 'entry/src/main/ets/pages/Index.ets'), 'utf8');
+const indexSrc: string = fs.readFileSync(path.join(root, 'entry/src/main/ets/pages/Index.ets'), 'utf8').replace(/i18nT\(([^()]*)\)/g, '$1');
 const splashSrc: string = fs.readFileSync(
-  path.join(root, 'entry/src/main/ets/components/SessionLoadingSplash.ets'), 'utf8');
+  path.join(root, 'entry/src/main/ets/components/SessionLoadingSplash.ets'), 'utf8').replace(/i18nT\(([^()]*)\)/g, '$1');
 const msgRowSrc: string = fs.readFileSync(
-  path.join(root, 'entry/src/main/ets/components/MessageRow.ets'), 'utf8');
+  path.join(root, 'entry/src/main/ets/components/MessageRow.ets'), 'utf8').replace(/i18nT\(([^()]*)\)/g, '$1');
 const compactionSrc: string = fs.readFileSync(
-  path.join(root, 'entry/src/main/ets/core/compaction.ets'), 'utf8');
+  path.join(root, 'entry/src/main/ets/core/compaction.ets'), 'utf8').replace(/i18nT\(([^()]*)\)/g, '$1');
 
 let failed: number = 0;
 function ok(cond: boolean, msg: string): void {

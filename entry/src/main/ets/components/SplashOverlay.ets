@@ -52,6 +52,7 @@ import {
   splashBrandCanvas,
 } from '../core/splash';
 import { animBase, animEaseOut, animEaseOutDelayed } from './anim';
+import { t as i18nT } from '../core/i18n';
 
 // ⛔ 原先此处有私有的 `withTiming(p, delayMs, durationMs)`（就地改 `AnimateParam` 时序字段）——
 //    2026-10-11 动效「单一来源」收敛：已上移为底座具名工厂 `animEaseOutDelayed(delayMs, durationMs)`
@@ -169,7 +170,7 @@ export struct SplashOverlay {
       //    ② 本提示的**父容器**（下方 `Column` 与本组件根 `Column`）已整栏 `onClick(跳过)`
       //       ⇒ 热区天然 = 整屏，Text 自身的 `onClick` 只是"原地兜底"，无需外扩。
       Column() {
-        Text('轻点跳过')
+        Text(i18nT('轻点跳过'))
           .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(typeOf('type.caption').size)
           .fontWeight(typeOf('type.caption').weight)

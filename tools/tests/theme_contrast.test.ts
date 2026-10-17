@@ -414,6 +414,9 @@ const ALL_ROLE_NAMES: string[] = [
 
 function listEts(dir: string): string[] {
   const fs = require('fs');
+const __origRead = fs.readFileSync;
+fs.readFileSync = (p: string, e: string): string => __origRead(p, e).replace(/i18nT\(([^()]*)\)/g, '$1');
+
   const path = require('path');
   const out: string[] = [];
   const entries = fs.readdirSync(dir, { withFileTypes: true });

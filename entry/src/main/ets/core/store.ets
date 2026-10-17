@@ -28,6 +28,8 @@ import { normalizeWebIteration } from './agent_normalize';
 import { canonicalChatId, channelForChat } from './sessionpick';
 import { parseAgentChatID, ParsedAgentChatID } from './sessiongroup';
 import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
+import type { GoalInfo as ChatGoalInfo } from './chattypes';
+import { normalizeLocale, setLocale } from './i18n';
 import { moveOrders, parseSearchHits, searchBody, SEARCH_LIMIT_DEFAULT, SearchBody, chatSwitchPath, chatSwitchChannel, ChatSwitchResult, parseChatSwitch } from './sessionops';
 import { RewindReq, RewindTarget, gapTopBefore, rewindTargetDBID } from './msgops';
 import { activeSubAgentNodes, BgTask, CronJob, resolveSessionNode, KillBgTaskParams, RunnerRow, SubAgentRow, subAgentRowOf, isWidgetEvent } from './panels';
@@ -315,6 +317,20 @@ export class ChatStore {
       return;
     }
     this.state = applySessionFields(this.state, undefined, null);
+    this.onUpdate();
+  }
+
+  /**
+   * **本地乐观设置/更新目标** —— `set_goal` RPC 成功后由页面调用（与 `clearGoalLocal` 对称）。
+   *
+   * ⛔ 为什么必须有：服务端在 `set_goal` 成功后**不保证**立即推结构化 progress；只等推送时，
+   *   编辑保存后 banner 仍显示旧 objective（用户 2026-10-17 亲报「goal 编辑保存后文字不变」）。
+   *   web `AgentPanel.tsx` 的 `goalEditRef.commit(...)` 就是本地先覆盖（推送到达即同值收敛）。
+   * ⛔ 走 reduce 的**同一个** `applySessionFields`：不另写 state 更新语义。
+   */
+  setGoalLocal(objective: string): void {
+    const goal: ChatGoalInfo = { objective: objective, status: 'active' };
+    this.state = applySessionFields(this.state, undefined, goal);
     this.onUpdate();
   }
 
@@ -780,6 +796,8 @@ export class ChatStore {
     // 服务端 nil map → JSON null；只判 undefined 会把 null 交下去（toLocalSettings(null) 崩）。
     const map: Record<string, string> = isPresent(srv) ? srv as Record<string, string> : {};
     this.settings = toLocalSettings(map);
+    // 服务端设置里的语言是权威：启动/刷新设置时同步运行时语言（与 web `xbot-locale` 同键）。
+    setLocale(normalizeLocale(this.settings['xbot-locale']));
     this.settingsFresh = true;
     this.syncAppAccent();
     this.syncNotifyPrefs();
@@ -1153,16 +1171,19 @@ export class ChatStore {
     const gen: number = this.chatGen;
     // 否则 /api/history 会返回 404 session not found（真机实测，见 core/sessionpick.ets）。
     //
-    // ⚠️ 而渠道解析**依赖会话列表**：列表为空时 channelForChat 会回落默认渠道 ⇒ 非 web 会话
-    // 被当成 web ⇒ 404。多会话池引入后这一点会真实发生（池里新 store 从没拉过列表，真机复现），
-    // 所以这里先确保列表就绪 —— 把"渠道解析的前置条件"在**使用点**落实，而不是期待调用方记得。
+    // ⚠️ 渠道解析**依赖会话列表**：列表为空时 channelForChat 会回落默认渠道 ⇒ 非 web 会话
+    // 被当成 web ⇒ 404。但 **绝不能 await 会话列表**：`/api/session-tree` 一旦挂住，
+    // `openSession` 永不返回 ⇒ 页面 `switchSplash` 永久停在“会话加载中…”（用户 2026-10-17
+    // 真机截图实锤）。会话列表只是**渠道推断的优化** ⇒ 后台补齐；先用已有信息/全键前缀推断。
     if (this.sessions.length === 0) {
-      await this.loadSessions();
-      if (gen !== this.chatGen) {
-        return;
-      }
+      this.loadSessions().catch((): void => {
+        // 列表拉取失败不阻塞首屏（渠道已按前缀/默认推断；后续 onUpdate 会校正）
+      });
     }
-    this.channel = channelForChat(this.sessions, chatId);
+    const colon: number = chatId.indexOf(':');
+    this.channel = this.sessions.length > 0
+      ? channelForChat(this.sessions, chatId)
+      : (colon > 0 ? chatId.substring(0, colon) : 'web');
     this.currentChatId = chatId;
     // ⛔ 切会话诊断（用户点名要的）：入口就把"切到谁 / 什么渠道 / 列表里有没有它"打出来 ——
     //    渠道解析依赖会话列表（列表为空/不含该会话 ⇒ 回落默认渠道 ⇒ `/api/history` 404）。

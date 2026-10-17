@@ -70,7 +70,7 @@ function guarded(body: string): boolean {
   return body.indexOf("constraintSize({ maxWidth: '100%' })") >= 0 && body.indexOf('.clip(true)') >= 0;
 }
 
-const raw: string = fs.readFileSync(path.join(REPO, MV), 'utf8');
+const raw: string = fs.readFileSync(path.join(REPO, MV), 'utf8').replace(/i18nT\(([^()]*)\)/g, '$1');
 const body: string = codeBlockBody(stripComments(raw));
 console.log(`  scan file=${MV} builderBodyLen=${body.length}`);
 ok('零扫描判红：抽到 CodeBlock builder 体（长度 > 0，否则正则/真源脱节 ⇒ 白绿）', body.length > 0);

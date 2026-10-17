@@ -37,7 +37,7 @@ import {
 } from '../core/settings';
 import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, normalizeAccentOrNull } from '../core/accent';
 import { mdThemePickerDescription, normalizeMdTheme } from '../core/mdtheme';
-import { localeLabel, normalizeLocale } from '../core/i18n';
+import { LOCALES, localeLabel, normalizeLocale } from '../core/i18n';
 import {
   PRESS_OPACITY,   CONTROL_INPUT_H, HIT_TARGET_MIN, RADIUS_CHIP, SPACE_HAIR, SPACE_SM, SPACE_XS, SPACE_LG,
   STROKE_HAIRLINE, colorOf, hairlineOf,
@@ -46,6 +46,7 @@ import {
   fs, fw, lh, SettingsActionRow, SettingsChipRow, SettingsGroupHeader, SettingsToolRow, SettingsValueRow, tc,
 } from './SettingsRows';
 import { SettingsMdThemePicker } from './SettingsMdTheme';
+import { t as i18nT } from '../core/i18n';
 
 /** 承载方式（`KEY_SURFACE`）的两个取值（与页面 `setSurface` 同源）。 */
 const SURFACE_NATIVE: string = 'native';
@@ -132,6 +133,17 @@ export struct SettingsAppearance {
     return out;
   }
 
+  private localeOptions(): string[] {
+    const out: string[] = [];
+    for (let i = 0; i < LOCALES.length; i++) { out.push(LOCALES[i].id); }
+    return out;
+  }
+  private localeLabels(): string[] {
+    const out: string[] = [];
+    for (let i = 0; i < LOCALES.length; i++) { out.push(LOCALES[i].label); }
+    return out;
+  }
+
   build() {
     // 内容长（12 项 + 5 个分组头）⇒ **必须可滚动**，否则超出部分被裁切
     // （与其余分区同款：`Scroll` 承载 + `layoutWeight(1)`）。
@@ -166,9 +178,18 @@ export struct SettingsAppearance {
 
       SettingsValueRow({
         label: settingLabel(KEY_LOCALE),
-        description: '界面文案语言（当前随 Web 端设置；原生端暂只读展示）。',
+        description: '界面文案语言（与 Web 端共用同一份 i18n 表）。',
         value: localeLabel(this.localeId()),
         theme: this.theme,
+      })
+      SettingsChipRow({
+        label: '语言 / Language',
+        description: '切换后立即生效；写入 `xbot-locale`，与 Web 端同步。',
+        value: this.localeId(),
+        options: this.localeOptions(),
+        labels: this.localeLabels(),
+        theme: this.theme,
+        onSelect: (v: string) => { this.onSetSetting(KEY_LOCALE, normalizeLocale(v)); },
       })
 
       // ═══ 文字与阅读 ═════════════════════════════════════════════════════════
@@ -315,7 +336,7 @@ export struct SettingsAppearance {
         })
         .margin({ bottom: SPACE_XS })
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('强调色 ' + hex)
+        .accessibilityText(i18nT('强调色 ') + hex)
         .onClick(() => {
           this.onSetSetting(KEY_ACCENT, hex);
         })
@@ -333,7 +354,7 @@ export struct SettingsAppearance {
       .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
       .margin({ bottom: SPACE_XS })
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-      .accessibilityText('跟随主题')
+      .accessibilityText(i18nT('跟随主题'))
       .onClick(() => {
         this.onSetSetting(KEY_ACCENT, '');
       })
@@ -361,13 +382,13 @@ export struct SettingsAppearance {
   AccentCustomInput() {
     Column({ space: SPACE_HAIR }) {
       // web `SettingsAppearance.tsx:164-168` 的 `settings.accentCustom`（同译法「自定义颜色」）
-      Text('自定义颜色')
+      Text(i18nT('自定义颜色'))
         .fontSize(fs('type.caption'))
         .fontWeight(fw('type.caption'))
         .fontColor(colorOf(this.pal(), 'textMuted'))
         .width('100%')
       Row({ space: SPACE_XS }) {
-        TextInput({ text: this.hexDraft, placeholder: '#RRGGBB（如 #7C3AED）' })   // allow-color-literal: 占位文案里的**格式示例**，不是取色（唯一取色入口仍是 colorOf）
+        TextInput({ text: this.hexDraft, placeholder: i18nT('#RRGGBB（如 #7C3AED）') })   // allow-color-literal: 占位文案里的**格式示例**，不是取色（唯一取色入口仍是 colorOf）
           .placeholderColor(colorOf(this.pal(), 'textMuted'))
           .fontColor(colorOf(this.pal(), 'textPrimary'))
           .backgroundColor(colorOf(this.pal(), 'surfaceAlt'))
@@ -385,7 +406,7 @@ export struct SettingsAppearance {
           .onSubmit(() => {
             this.commitHex();
           })
-        Text('应用')
+        Text(i18nT('应用'))
           .fontSize(fs('type.subhead'))
           .fontWeight(fw('type.subhead'))
           .fontColor(colorOf(this.pal(), 'onAccent'))
@@ -402,7 +423,7 @@ export struct SettingsAppearance {
       .width('100%')
 
       if (this.hexErr) {
-        Text('颜色无效：支持 #RGB / #RRGGBB（可省略 #）')
+        Text(i18nT('颜色无效：支持 #RGB / #RRGGBB（可省略 #）'))
           .fontSize(fs('type.caption'))
           .fontWeight(fw('type.caption'))
           .lineHeight(lh('type.caption'))

@@ -38,6 +38,7 @@ import { fs, lh, fw } from './SettingsRows';
 import { animFast, animBase } from './anim';
 import { NavAnchor, seqLabel, shouldShowNav, userTextOrPlaceholder } from '../core/msgindex';
 import { SearchHit, isEmptyQuery, hitOffsetInSnippet } from '../core/rowsearch';
+import { t as i18nT } from '../core/i18n';
 
 /**
  * 导航高亮序号（1-based，0=无）的 **AppStorage 键** —— 详见下面 `activeSeq` 的注释。
@@ -381,7 +382,7 @@ export struct MessageNav {
           .opacity(1)
         },
       })
-      .accessibilityText('消息目录')
+      .accessibilityText(i18nT('消息目录'))
       .onClick(() => {
         this.open = !this.open;
       })
@@ -408,7 +409,7 @@ export struct MessageNav {
     Column({ space: SPACE_XS }) {
       // 输出搜索框（web 没有）：空 = web 同构锚点列表；非空 = 全行搜索结果（hits 由页面算回填）。
       // ⛔ 关闭浮层即清空（open=false 时 query 复位——见 onWillDismiss/onClick 收起路径统一在 dismissQuery）。
-      TextInput({ text: this.query, placeholder: '搜索对话内容…' })
+      TextInput({ text: this.query, placeholder: i18nT('搜索对话内容…') })
         .fontSize(fs('type.caption'))
         .padding({ left: SPACE_XS, right: SPACE_XS, top: 6, bottom: 6 })
         .borderRadius(RADIUS_CHIP)
@@ -451,7 +452,7 @@ export struct MessageNav {
       } else {
         // ── 搜索结果模式：全行命中列表（core/rowsearch 纯函数产物，页面回填 hits）。──
         if (this.hits.length === 0) {
-          Text('无匹配')
+          Text(i18nT('无匹配'))
             .fontSize(fs('type.caption'))
             .fontColor(this.pal().textMuted)
             .padding(ITEM_PAD_Y)

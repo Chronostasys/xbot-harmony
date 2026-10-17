@@ -32,6 +32,7 @@ import {
   SPACE_HAIR, SPACE_XS, SPACE_SM, SPACE_MD, SPACE_XL,
   typeOf, colorOf, hairlineOf, surfaceFillOf, structuralRuleOf, } from '../core/design';
 import { displayApiKey, providerLine, stripScheme } from '../core/rpc';
+import { t as i18nT } from '../core/i18n';
 
 // ── 排版令牌 → ArkUI 属性（**唯一映射**；组件只读角色名，不写数值）──────────────
 // `core/design.ets` 只存数字（400/500/600），字重→`FontWeight` 的映射是 **UI 层职责**（本处）。
@@ -103,7 +104,7 @@ export struct SettingsToolRow {
           this.onToggle(this.names, isOn);
         })
       Column({ space: SPACE_HAIR }) {
-        Text(this.label)
+        Text(i18nT(this.label))
           .fontSize(fs('type.subhead'))
           .fontWeight(fw('type.subhead'))
           .lineHeight(lh('type.subhead'))
@@ -114,7 +115,7 @@ export struct SettingsToolRow {
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
         if (this.description.length > 0) {
-          Text(this.description)
+          Text(i18nT(this.description))
             .fontSize(fs('type.callout'))
             .fontWeight(fw('type.callout'))
             .lineHeight(lh('type.callout'))
@@ -175,10 +176,10 @@ export struct SettingsMcpHead {
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
         Text(`${this.count} 个工具`)
-          .fontSize(fs('type.caption'))
-          .fontWeight(fw('type.caption'))
-          .lineHeight(lh('type.caption'))
-          .fontColor(tc(this.pal(), 'type.caption'))
+          .fontSize(fs('type.subhead'))
+          .fontWeight(fw('type.subhead'))
+          .lineHeight(lh('type.subhead'))
+          .fontColor(tc(this.pal(), 'type.subhead'))
           .width('100%')
       }
       .alignItems(HorizontalAlign.Start)
@@ -213,7 +214,7 @@ export struct SettingsNumberRow {
   build() {
     Row({ space: SPACE_SM }) {
       Column({ space: SPACE_HAIR }) {
-        Text(this.label)
+        Text(i18nT(this.label))
           .fontSize(fs('type.subhead'))
           .fontWeight(fw('type.subhead'))
           .lineHeight(lh('type.subhead'))
@@ -222,7 +223,7 @@ export struct SettingsNumberRow {
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
         if (this.description.length > 0) {
-          Text(this.description)
+          Text(i18nT(this.description))
             .fontSize(fs('type.callout'))
             .fontWeight(fw('type.callout'))
             .lineHeight(lh('type.callout'))
@@ -253,7 +254,7 @@ export struct SettingsNumberRow {
           })
         if (this.suffix.length > 0) {
           Text(this.suffix)
-            .fontSize(fs('type.caption'))
+            .fontSize(fs('type.subhead'))
             .fontColor(tc(this.pal(), 'type.caption'))
             // H1（contrast-ux）：`Row` 内的**可变长值**（后缀/单位/状态值）必须有宽度上限
             // ⇒ `constraintSize` 上限 + 截断。
@@ -317,14 +318,14 @@ export struct SettingsChipRow {
 
   build() {
     Column({ space: SPACE_HAIR }) {
-      Text(this.label)
+      Text(i18nT(this.label))
         .fontSize(fs('type.subhead'))
         .fontWeight(fw('type.subhead'))
         .lineHeight(lh('type.subhead'))
         .fontColor(tc(this.pal(), 'type.subhead'))
         .width('100%')
       if (this.description.length > 0) {
-        Text(this.description)
+        Text(i18nT(this.description))
           .fontSize(fs('type.callout'))
           .fontWeight(fw('type.callout'))
           .lineHeight(lh('type.callout'))
@@ -334,8 +335,8 @@ export struct SettingsChipRow {
       Flex({ wrap: FlexWrap.Wrap }) {
         ForEach(this.chips(), (opt: string) => {
           Text(this.labelOf(opt))
-            .fontSize(fs('type.caption'))
-            .fontWeight(fw('type.caption'))
+            .fontSize(fs('type.subhead'))
+            .fontWeight(fw('type.subhead'))
             // ⚡ 2026-10-20 丝滑动画：选中态文字/背景/边框颜色缓动
             .animation(animBase())
             .fontColor(opt === this.value ? this.pal().onAccent : this.pal().textSecondary)
@@ -382,14 +383,14 @@ export struct SettingsTextFieldRow {
 
   build() {
     Column({ space: SPACE_HAIR }) {
-      Text(this.label)
+      Text(i18nT(this.label))
         .fontSize(fs('type.subhead'))
         .fontWeight(fw('type.subhead'))
         .lineHeight(lh('type.subhead'))
         .fontColor(tc(this.pal(), 'type.subhead'))
         .width('100%')
       if (this.description.length > 0) {
-        Text(this.description)
+        Text(i18nT(this.description))
           .fontSize(fs('type.callout'))
           .fontWeight(fw('type.callout'))
           .lineHeight(lh('type.callout'))
@@ -456,7 +457,7 @@ export struct SettingsSubCard {
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
             if (this.isDefault) {
-              Text('默认')
+              Text(i18nT('默认'))
                 .fontSize(fs('type.micro'))
                 .fontWeight(fw('type.micro'))
                 .fontColor(this.pal().accentText)
@@ -466,9 +467,9 @@ export struct SettingsSubCard {
             }
           }
           Text(`${providerLine(this.provider, '')} · ${stripScheme(this.baseUrl)}`)
-            .fontSize(fs('type.caption'))
-            .fontWeight(fw('type.caption'))
-            .lineHeight(lh('type.caption'))
+            .fontSize(fs('type.subhead'))
+            .fontWeight(fw('type.subhead'))
+            .lineHeight(lh('type.subhead'))
             .fontColor(tc(this.pal(), 'type.caption'))
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -490,17 +491,17 @@ export struct SettingsSubCard {
       // 第二行：模型 + 模型数
       Row({ space: SPACE_XS }) {
         Text(this.model.length > 0 ? this.model : '未指定默认模型')
-          .fontSize(fs('type.caption'))
-          .fontWeight(fw('type.caption'))
-          .lineHeight(lh('type.caption'))
+          .fontSize(fs('type.subhead'))
+          .fontWeight(fw('type.subhead'))
+          .lineHeight(lh('type.subhead'))
           .fontColor(this.pal().textSecondary)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .layoutWeight(1)
         Text(`${this.modelCount} 个模型`)
-          .fontSize(fs('type.caption'))
-          .fontWeight(fw('type.caption'))
-          .lineHeight(lh('type.caption'))
+          .fontSize(fs('type.subhead'))
+          .fontWeight(fw('type.subhead'))
+          .lineHeight(lh('type.subhead'))
           .fontColor(tc(this.pal(), 'type.caption'))
       }
       .width('100%')
@@ -508,16 +509,16 @@ export struct SettingsSubCard {
       // 第三行：掩码密钥（只读）+ 设默认
       Row({ space: SPACE_XS }) {
         Column({ space: SPACE_HAIR }) {
-          Text('API Key（服务端掩码，只读）')
-            .fontSize(fs('type.caption'))
-            .fontWeight(fw('type.caption'))
-            .lineHeight(lh('type.caption'))
+          Text(i18nT('API Key（服务端掩码，只读）'))
+            .fontSize(fs('type.subhead'))
+            .fontWeight(fw('type.subhead'))
+            .lineHeight(lh('type.subhead'))
             .fontColor(tc(this.pal(), 'type.caption'))
             .width('100%')
           Text(displayApiKey(this.apiKey))
-            .fontSize(fs('type.caption'))
-            .fontWeight(fw('type.caption'))
-            .lineHeight(lh('type.caption'))
+            .fontSize(fs('type.subhead'))
+            .fontWeight(fw('type.subhead'))
+            .lineHeight(lh('type.subhead'))
             .fontFamily('monospace')
             .fontColor(this.pal().textSecondary)
             .maxLines(1)
@@ -528,9 +529,9 @@ export struct SettingsSubCard {
         .layoutWeight(1)
 
         if (!this.isDefault) {
-          Text('设为默认')
-            .fontSize(fs('type.caption'))
-            .fontWeight(fw('type.caption'))
+          Text(i18nT('设为默认'))
+            .fontSize(fs('type.subhead'))
+            .fontWeight(fw('type.subhead'))
             .fontColor(this.pal().accentSoft)
             .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
             .borderRadius(RADIUS_PILL)
@@ -572,7 +573,7 @@ export struct SettingsPanelHeader {
 
   build() {
     Column({ space: SPACE_HAIR }) {
-      Text(this.title)
+      Text(i18nT(this.title))
         .fontSize(fs('type.headline'))
         .fontWeight(fw('type.headline'))
         .lineHeight(lh('type.headline'))
@@ -610,11 +611,11 @@ export struct SettingsGroupHeader {
 
   build() {
     Column({ space: SPACE_XS }) {
-      Text(this.title)
-        .fontSize(fs('type.caption'))
-        .fontWeight(fw('type.caption'))
-        .lineHeight(lh('type.caption'))
-        .letterSpacing(tk('type.caption'))
+      Text(i18nT(this.title))
+        .fontSize(fs('type.subhead'))
+        .fontWeight(fw('type.subhead'))
+        .lineHeight(lh('type.subhead'))
+        .letterSpacing(tk('type.subhead'))
         .fontColor(tc(this.pal(), 'type.caption'))
         .width('100%')
       Divider()
@@ -653,14 +654,14 @@ export struct SettingsValueRow {
   build() {
     Row({ space: SPACE_SM }) {
       Column({ space: SPACE_HAIR }) {
-        Text(this.label)
+        Text(i18nT(this.label))
           .fontSize(fs('type.subhead'))
           .fontWeight(fw('type.subhead'))
           .lineHeight(lh('type.subhead'))
           .fontColor(tc(this.pal(), 'type.subhead'))
           .width('100%')
         if (this.description.length > 0) {
-          Text(this.description)
+          Text(i18nT(this.description))
             .fontSize(fs('type.callout'))
             .fontColor(tc(this.pal(), 'type.callout'))
             .maxLines(2)
@@ -672,9 +673,9 @@ export struct SettingsValueRow {
       .layoutWeight(1)
 
       Text(this.value)
-        .fontSize(fs('type.caption'))
-        .fontWeight(fw('type.caption'))
-        .lineHeight(lh('type.caption'))
+        .fontSize(fs('type.subhead'))
+        .fontWeight(fw('type.subhead'))
+        .lineHeight(lh('type.subhead'))
         .fontColor(this.pal().textMuted)
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -704,14 +705,14 @@ export struct SettingsActionRow {
   build() {
     Row({ space: SPACE_SM }) {
       Column({ space: SPACE_HAIR }) {
-        Text(this.label)
+        Text(i18nT(this.label))
           .fontSize(fs('type.subhead'))
           .fontWeight(fw('type.subhead'))
           .lineHeight(lh('type.subhead'))
           .fontColor(tc(this.pal(), 'type.subhead'))
           .width('100%')
         if (this.description.length > 0) {
-          Text(this.description)
+          Text(i18nT(this.description))
             .fontSize(fs('type.callout'))
             .fontColor(tc(this.pal(), 'type.callout'))
             .width('100%')
@@ -721,8 +722,8 @@ export struct SettingsActionRow {
       .layoutWeight(1)
 
       Text(this.action)
-        .fontSize(fs('type.caption'))
-        .fontWeight(fw('type.caption'))
+        .fontSize(fs('type.subhead'))
+        .fontWeight(fw('type.subhead'))
         .fontColor(this.pal().accentSoft)
         .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: INSET_ROW_Y, bottom: INSET_ROW_Y })
         // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44, Apple HIG)：原先只靠 padding 撑高（≈32）⇒ 低于阈值。
@@ -817,9 +818,9 @@ export struct SettingsButton {
   }
 
   build() {
-    Text(this.label)
-      .fontSize(fs('type.caption'))
-      .fontWeight(this.isPrimary() ? fw('type.subhead') : fw('type.caption'))
+    Text(i18nT(this.label))
+      .fontSize(fs('type.subhead'))
+      .fontWeight(this.isPrimary() ? fw('type.subhead') : fw('type.subhead'))
       .fontColor(this.fg())
       .textAlign(TextAlign.Center)
       .maxLines(1)
@@ -864,7 +865,7 @@ export struct SettingsRadioRow {
 
   build() {
     Row({ space: SPACE_SM }) {
-      Text(this.label)
+      Text(i18nT(this.label))
         .fontSize(fs('type.subhead'))
         .fontWeight(fw('type.subhead'))
         .lineHeight(lh('type.subhead'))
@@ -874,7 +875,7 @@ export struct SettingsRadioRow {
         .textOverflow({ overflow: TextOverflow.Ellipsis })
       if (this.isSelected) {
         SymbolGlyph($r('sys.symbol.checkmark'))
-          .fontSize(fs('type.caption'))
+          .fontSize(fs('type.subhead'))
           .fontColor([this.pal().accent])
       }
     }
@@ -912,9 +913,9 @@ export struct SettingsErrorBar {
   build() {
     Column({ space: SPACE_HAIR }) {
       Text(this.message)
-        .fontSize(fs('type.caption'))
-        .fontWeight(fw('type.caption'))
-        .lineHeight(lh('type.caption'))
+        .fontSize(fs('type.subhead'))
+        .fontWeight(fw('type.subhead'))
+        .lineHeight(lh('type.subhead'))
         .fontColor(this.pal().dangerText)
         .width('100%')
       // 重试入口（2026-10-11）：三态模板照 `PluginsSheet.ets:155-170`。
@@ -922,9 +923,9 @@ export struct SettingsErrorBar {
       //    另断"目标分区必须把 onRetry 透传进来"（回调由页面经 SettingsPanel 注入）。
       if (this.canRetry) {
         Row() {
-          Text('重试')
-            .fontSize(fs('type.caption'))
-            .fontWeight(fw('type.caption'))
+          Text(i18nT('重试'))
+            .fontSize(fs('type.subhead'))
+            .fontWeight(fw('type.subhead'))
             .fontColor(colorOf(this.pal(), 'accentSoft'))
         }
         .width('100%')

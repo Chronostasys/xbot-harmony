@@ -45,6 +45,7 @@ import {
 import { colorOf, HIT_TARGET_MIN, PRESS_OPACITY } from '../core/design';
 import { SettingsPanelHeader, SettingsToolRow, SettingsButton } from './SettingsRows';
 import { animBase } from './anim';
+import { t as i18nT } from '../core/i18n';
 
 /** 本地偏好（**不同步服务端**；对齐 web 的 localStorage 语义）。 */
 const DEV_STORE: string = 'xbot_devtools';
@@ -347,7 +348,7 @@ export struct SettingsDeveloper {
           .fontSize(18)
           .fontColor([this.pal().textSecondary])
         Column({ space: 2 }) {
-          Text('实况窗（Live View）')
+          Text(i18nT('实况窗（Live View）'))
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().textPrimary)
           // 能力判定读桥接层（探测结果缓存；进入本页时刷新一次，之后每次重渲都取最新）
@@ -362,7 +363,7 @@ export struct SettingsDeveloper {
       .alignItems(VerticalAlign.Center)
       Row({ space: SP_2 }) {
         Row() {
-          Text('测试实况窗')
+          Text(i18nT('测试实况窗'))
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().textPrimary)
         }
@@ -376,7 +377,7 @@ export struct SettingsDeveloper {
             LiveViewBridge.shared().testStart();
           })
         Row() {
-          Text('结束')
+          Text(i18nT('结束'))
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().textPrimary)
         }
@@ -400,7 +401,7 @@ export struct SettingsDeveloper {
   @Builder
   ExportSection() {
     Column({ space: SP_2 }) {
-      Text('导出会话')
+      Text(i18nT('导出会话'))
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().textPrimary)
         .width('100%')
@@ -465,11 +466,11 @@ export struct SettingsDeveloper {
   @Builder
   CacheSection() {
     Column({ space: SP_2 }) {
-      Text('缓存')
+      Text(i18nT('缓存'))
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().textPrimary)
         .width('100%')
-      Text('清除 WebView 的网页数据与缓存（插件面板 / Web 设置页的加载内容）。登录态与偏好不受影响；重新打开的面板为全新加载。')
+      Text(i18nT('清除 WebView 的网页数据与缓存（插件面板 / Web 设置页的加载内容）。登录态与偏好不受影响；重新打开的面板为全新加载。'))
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().textMuted)
         .width('100%')
@@ -566,10 +567,10 @@ export struct SettingsDeveloper {
           .fontSize(18)
           .fontColor([this.pal().textSecondary])
         Column({ space: 2 }) {
-          Text('应用日志')
+          Text(i18nT('应用日志'))
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().textPrimary)
-          Text('查看当前会话运行期日志（连接 / 切会话 / 发送 / 错误）')
+          Text(i18nT('查看当前会话运行期日志（连接 / 切会话 / 发送 / 错误）'))
             .fontSize(10)
             .fontColor(this.pal().textMuted)
         }
@@ -584,7 +585,7 @@ export struct SettingsDeveloper {
       .height(HIT_TARGET_MIN)
       .alignItems(VerticalAlign.Center)
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-      .accessibilityText('打开应用日志')
+      .accessibilityText(i18nT('打开应用日志'))
       .onClick(() => {
         this.onOpenLog();
       })
@@ -601,18 +602,18 @@ export struct SettingsDeveloper {
       // ── 连接状态卡（原生增强）──
       Column({ space: SP_1 }) {
         Row({ space: SP_2 }) {
-          Text('SSE 连接状态')
+          Text(i18nT('SSE 连接状态'))
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().textPrimary)
             .layoutWeight(1)
           if (this.devEnabled) {
-            // ⛔ 图标一致性：原先 `Text('● 录制中')` 把**符号当图标**直写在文案里（审计命中）。
+            // ⛔ 图标一致性：原先 `Text(i18nT('● 录制中'))` 把**符号当图标**直写在文案里（审计命中）。
             //    拆成「symbol 点 + 文案」两个兄弟节点（父容器已是 `Row(space: SP_2)` ⇒ 布局不变）。
             //    用本仓既有 `circle_fill`（别处已在用 ⇒ 命名安全）。
             SymbolGlyph($r('sys.symbol.circle_fill'))
               .fontSize(8)
               .fontColor([this.pal().dangerText])
-            Text('录制中')
+            Text(i18nT('录制中'))
               .fontSize(10)
               .fontColor(this.pal().dangerText)
           }

@@ -39,6 +39,9 @@ function hasNot(src: string, needle: string, name: string): void {
 }
 
 const fsMod = require('fs');
+const __origRead = fsMod.readFileSync;
+fsMod.readFileSync = (p: string, e: string): string => __origRead(p, e).replace(/i18nT\(([^()]*)\)/g, '$1');
+
 const pathMod = require('path');
 const repoRoot = pathMod.join(__dirname, '..', '..', '..', '..');
 // mutation 自证：可用 SSD_INDEX_SRC / SSD_STATUS_SRC 指向**副本**（⛔ 不改真树即可证红）。

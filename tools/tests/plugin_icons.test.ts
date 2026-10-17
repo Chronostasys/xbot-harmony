@@ -73,7 +73,7 @@ function stripComments(s: string): string {
     .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 }
 function readRaw(p: string): string {
-  return p.length > 0 && fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : '';
+  return p.length > 0 && fs.existsSync(p) ? fs.readFileSync(p, 'utf-8').replace(/i18nT\(([^()]*)\)/g, '$1') : '';
 }
 function readOr(p: string): string {
   return stripComments(readRaw(p));
@@ -230,7 +230,7 @@ function liveSymbolNames(): Record<string, boolean> {
   const out: Record<string, boolean> = {};
   for (const c of cands) {
     if (fs.existsSync(c)) {
-      const txt: string = fs.readFileSync(c, 'utf-8');
+      const txt: string = fs.readFileSync(c, 'utf-8').replace(/i18nT\(([^()]*)\)/g, '$1');
       const re: RegExp = /'0x[0-9A-Fa-f]+' '([a-z0-9_]+)'/g;
       let m: RegExpExecArray | null = re.exec(txt);
       while (m !== null) { out[m[1]] = true; m = re.exec(txt); }

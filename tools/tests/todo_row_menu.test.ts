@@ -43,6 +43,9 @@ function ok(name: string, cond: boolean, extra?: string): void {
 }
 
 const fsMod = require('fs');
+const __origRead = fsMod.readFileSync;
+fsMod.readFileSync = (p: string, e: string): string => __origRead(p, e).replace(/i18nT\(([^()]*)\)/g, '$1');
+
 const pathMod = require('path');
 
 /** 仓库根（harness 把测试编译到 `tools/tests/.out-<pid>/` ⇒ 逐级上探；同 `panel_surface_consistency`）。 */

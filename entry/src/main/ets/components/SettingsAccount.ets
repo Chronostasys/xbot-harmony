@@ -25,6 +25,7 @@ import { FS_BODY, FS_CAPTION, R_LG, R_MD, R_XL, SP_2, SP_3, SP_4, SP_5 } from '.
 import { accountDisplayName } from '../core/settings';
 import { SettingsPanelHeader, SettingsButton } from './SettingsRows';
 import { PRESS_OPACITY, HIT_TARGET_MIN } from '../core/design';
+import { t as i18nT } from '../core/i18n';
 
 @Component
 export struct SettingsAccount {
@@ -95,7 +96,7 @@ export struct SettingsAccount {
 
       Column({ space: SP_3 }) {
         Row({ space: SP_2 }) {
-          Text('账号')
+          Text(i18nT('账号'))
             .fontSize(FS_CAPTION)
             .fontColor(this.secondaryText())
           Text(accountDisplayName(this.username))
@@ -110,7 +111,7 @@ export struct SettingsAccount {
 
         if (this.confirming) {
           Column({ space: SP_2 }) {
-            Text('确认退出登录？退出后需要重新输入账号密码。')
+            Text(i18nT('确认退出登录？退出后需要重新输入账号密码。'))
               .fontSize(FS_CAPTION)
               .fontColor(this.secondaryText())
               .width('100%')
@@ -144,7 +145,7 @@ export struct SettingsAccount {
         } else {
           Row() {
             Blank()
-            Text('退出登录')
+            Text(i18nT('退出登录'))
               .constraintSize({ minHeight: HIT_TARGET_MIN })
               .fontSize(FS_CAPTION)
               .fontColor(this.pal().dangerText)

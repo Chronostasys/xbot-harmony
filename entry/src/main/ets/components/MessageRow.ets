@@ -48,6 +48,7 @@ import { SweepBand, sweepBandOf } from '../core/sweep';
 import { animFast, animMsgIn, animBase } from './anim';
 import { entryAnimates, entryStartDy, entryRestOpacity } from '../core/msgentry';
 import { reasoningKey, liveIterationNo } from '../core/reasoningopen';
+import { t as i18nT } from '../core/i18n';
 
 /** 压缩摘要正文的最大高度（web `max-h-[40vh] overflow-y-auto`；手机取 ~48% 视口）。 */
 const COMPACT_BODY_MAX_H: number = 420;
@@ -578,12 +579,12 @@ export struct MessageRowView {
         Row({ space: 6 }) {
           if (this.regionStatus === 'loading') {
             LoadingProgress().width(13).height(13).color(this.pal().textMuted)
-            Text('正在加载更多…').fontSize(FS_META).fontColor(this.pal().textMuted)
+            Text(i18nT('正在加载更多…')).fontSize(FS_META).fontColor(this.pal().textMuted)
           } else if (this.regionStatus === 'error') {
             // 失败**不自动重试**（对齐 web `useRegionWindow`：避免弱网下的自动请求循环），
             // 只在此处提供手动重试（web `RegionsDivider` 的 error 态同样是可点按钮）。
             SymbolGlyph($r('sys.symbol.arrow_counterclockwise')).fontSize(12).fontColor([this.pal().warn])
-            Text('加载失败 · 重试').fontSize(FS_META).fontColor(this.pal().warn)
+            Text(i18nT('加载失败 · 重试')).fontSize(FS_META).fontColor(this.pal().warn)
           } else {
             // 图标取色走 `iconMuted`（弱图标专用角色；porcelain 下 `textMuted` 压 chip 仅 2.27:1 < 3）
             SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(12).fontColor([colorOf(this.pal(), 'iconMuted')])

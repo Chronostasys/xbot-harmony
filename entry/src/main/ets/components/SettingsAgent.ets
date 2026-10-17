@@ -30,6 +30,7 @@ import {
 } from '../core/rpc';
 import { SettingsChipRow, SettingsErrorBar, SettingsNumberRow, SettingsPanelHeader, SettingsToolRow } from './SettingsRows';
 import { PRESS_OPACITY, HIT_TARGET_MIN } from '../core/design';
+import { t as i18nT } from '../core/i18n';
 
 @Component
 export struct SettingsAgent {
@@ -177,11 +178,11 @@ export struct SettingsAgent {
             .border({ width: 1, color: this.pal().border })
 
             // ── 视觉 / 图片处理 ──
-            Text('视觉 / 图片处理')
+            Text(i18nT('视觉 / 图片处理'))
               .fontSize(FS_CAPTION)
               .fontColor(this.pal().textSecondary)
               .width('100%')
-            Text('控制发给 LLM API 的图片如何预处理（缩放 / 重编码）。只影响已开启 vision 的模型。')
+            Text(i18nT('控制发给 LLM API 的图片如何预处理（缩放 / 重编码）。只影响已开启 vision 的模型。'))
               .fontSize(FS_CAPTION)
               .fontColor(this.pal().textMuted)
               .width('100%')

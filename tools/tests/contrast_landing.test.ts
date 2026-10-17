@@ -61,7 +61,7 @@ function stripSrc(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, (m: string) => m.replace(/[^\n]/g, ' '))
     .replace(/(^|[^:])\/\/[^\n]*/g, (m: string, p: string) => p + ' '.repeat(m.length - p.length));
 }
-function readStrip(p: string): string { return stripSrc(fsMod.readFileSync(rel(p), 'utf-8')); }
+function readStrip(p: string): string { return stripSrc(fsMod.readFileSync(rel(p), 'utf-8').replace(/i18nT\(([^()]*)\)/g, '$1')); }
 
 // 三个被修的落点组件（L4 的 Index.ets 单列，见 §5）
 const L1_PATH: string = 'components/LiveTailView.ets';

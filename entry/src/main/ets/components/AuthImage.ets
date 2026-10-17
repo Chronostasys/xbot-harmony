@@ -14,6 +14,7 @@ import {
 import { fs, lh, fw, tc } from './SettingsRows';
 // 动效唯一出口（⛔ 不自造时长/曲线）。
 import { fadeTransition } from './anim';
+import { t as i18nT } from '../core/i18n';
 
 const PM_CACHE: Map<string, image.PixelMap> = new Map<string, image.PixelMap>();
 const PM_ORDER: string[] = [];
@@ -115,7 +116,7 @@ export struct AuthImage {
       // 一行骨架 = 系统 spinner + 文案；字号/行高/字色走 `type.caption` 角色（不再各写 11）。
       Row({ space: SPACE_XS }) {
         LoadingProgress().width(14).height(14).color(colorOf(this.pal(), 'accent'))
-        Text('图片加载中…')
+        Text(i18nT('图片加载中…'))
           .fontSize(fs('type.caption'))
           .fontWeight(fw('type.caption'))
           .lineHeight(lh('type.caption'))

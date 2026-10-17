@@ -39,6 +39,7 @@ import {
   goalBadgeBgOf, goalBorderOf, typeOf, colorOf, PILL_MAX_W, HIT_TARGET_MIN, } from '../core/design';
 import { goalDisplay, GoalDisplay, goalEditCommit, goalEditable } from '../core/statusfmt';
 import { animBase } from './anim';
+import { t as i18nT } from '../core/i18n';
 
 // ── 尺寸/取色一律走语义令牌（`7841978` §4.7/§4.8）─────────────────────────────
 // 旧魔数（PAD_X/PAD_Y=10/6、ICON=14、BORDER_ALPHA 深浅分叉、BADGE_TINT=0.15）已收进
@@ -135,7 +136,7 @@ export struct GoalBanner {
             .onSubmit(() => {
               this.commit();
             })
-          Text('保存')
+          Text(i18nT('保存'))
             .fontSize(typeOf(TYPE_GOAL).size)
             // ⛔ 目标⑤：`accent` 是**非文本/图形** role（AA_NON_TEXT 3.0，供弧/环/图标用），
             //    此处是 12 的 **normal 字号文字** ⇒ 需 AA_TEXT 4.5。实算 porcelain 压
@@ -152,7 +153,7 @@ export struct GoalBanner {
             .onClick(() => {
               this.commit();
             })
-          Text('取消')
+          Text(i18nT('取消'))
             .fontSize(typeOf(TYPE_GOAL).size)
             // ⛔ **B 类可见度**（2026-10-11 系统性审计）：这是**可点**元素，门槛是**非文本 3:1**；
             //    而 `textMuted` 在 porcelain 下**所有面**只有 2.17–2.54（它的批准档是 `AA_MUTED`=**2.0**，
@@ -231,7 +232,7 @@ export struct GoalBanner {
               }
               .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
               .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-              .accessibilityText('编辑目标')
+              .accessibilityText(i18nT('编辑目标'))
               .onClick(() => {
                 this.draft = this.objective;
                 this.editing = true;
@@ -249,7 +250,7 @@ export struct GoalBanner {
             }
             .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-            .accessibilityText('清除目标')
+            .accessibilityText(i18nT('清除目标'))
             .onClick(() => {
               this.onClearGoal();
             })

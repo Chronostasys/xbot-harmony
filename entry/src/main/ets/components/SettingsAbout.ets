@@ -58,6 +58,7 @@ import {
 } from '../core/aboutops';
 import { SettingsErrorBar, SettingsPanelHeader, SettingsButton } from './SettingsRows';
 import { PRESS_OPACITY, HIT_TARGET_MIN } from '../core/design';
+import { t as i18nT } from '../core/i18n';
 
 @Component
 export struct SettingsAbout {
@@ -278,7 +279,7 @@ export struct SettingsAbout {
       }
 
       if (this.loading) {
-        Text('加载中…')
+        Text(i18nT('加载中…'))
           .fontSize(FS_CAPTION)
           // web 口径：同句一律 `text-text-muted`（`SharePage.tsx:111` / `ssh-runner:1565`/`:1759` /
           // `git-fancy:248`/`:415`、`commit.tsx:60`；token `index.css:163/269`）⇒ 原生 = `textMuted`。
@@ -296,7 +297,7 @@ export struct SettingsAbout {
             // ── 版本主卡：版本号徽标 + 元信息行 ──
             Column({ space: SP_2 }) {
               Row({ space: SP_2 }) {
-                Text('版本')
+                Text(i18nT('版本'))
                   .fontSize(FS_CAPTION)
                   .fontColor(this.secondaryText())
                 Text(this.versionBadge())
@@ -339,7 +340,7 @@ export struct SettingsAbout {
 
             // ── 更新卡（检查 + 应用内更新）──
             Column({ space: SP_2 }) {
-              Text('更新')
+              Text(i18nT('更新'))
                 .fontSize(FS_BODY)
                 .fontColor(this.pal().textPrimary)
                 .width('100%')
@@ -356,7 +357,7 @@ export struct SettingsAbout {
                     .fontSize(FS_CAPTION)
                     .fontColor(this.secondaryText())
                   if (releaseNotesUrl(this.check).length > 0) {
-                    Text('发布说明')
+                    Text(i18nT('发布说明'))
                       .constraintSize({ minHeight: HIT_TARGET_MIN })
                       .fontSize(FS_CAPTION)
                       // ⛔ 目标⑤：这是**链接/可点文字**（FS_CAPTION=12，normal 字号）⇒ 需 AA_TEXT 4.5。
@@ -418,7 +419,7 @@ export struct SettingsAbout {
 
               // 二次确认（apply 也是不可撤销动作）
               if (applyShowConfirm(this.applyState)) {
-                Text('确认更新到最新版本？此操作会在服务端原子替换二进制 / 网页资源 / 内置插件，不可撤销。')
+                Text(i18nT('确认更新到最新版本？此操作会在服务端原子替换二进制 / 网页资源 / 内置插件，不可撤销。'))
                   .fontSize(FS_CAPTION)
                   .fontColor(this.pal().dangerText)
                   .width('100%')
@@ -446,7 +447,7 @@ export struct SettingsAbout {
 
               // 进行中（可见 + 防连点）
               if (this.applyState === APPLY_APPLYING) {
-                Text('更新中…（下载并校验，请勿关闭应用）')
+                Text(i18nT('更新中…（下载并校验，请勿关闭应用）'))
                   .fontSize(FS_CAPTION)
                   .fontColor(this.pal().warn)
                   .width('100%')
@@ -476,7 +477,7 @@ export struct SettingsAbout {
                     .fontColor(this.secondaryText())
                     .width('100%')
                 }, (w: string) => `warn|${w}`)
-                Text('需要重启服务以生效。')
+                Text(i18nT('需要重启服务以生效。'))
                   .fontSize(FS_CAPTION)
                   .fontColor(this.pal().textPrimary)
                   .width('100%')
@@ -490,7 +491,7 @@ export struct SettingsAbout {
 
             // ── 重启卡（两步确认 + 40s 轮询 + 可见失败/超时）──
             Column({ space: SP_2 }) {
-              Text('重启服务')
+              Text(i18nT('重启服务'))
                 .fontSize(FS_BODY)
                 .fontColor(this.pal().textPrimary)
                 .width('100%')
@@ -519,7 +520,7 @@ export struct SettingsAbout {
                 }
                 .width('100%')
               } else {
-                Text('确认重启服务？重启期间连接会短暂中断，且不可撤销。')
+                Text(i18nT('确认重启服务？重启期间连接会短暂中断，且不可撤销。'))
                   .fontSize(FS_CAPTION)
                   .fontColor(this.pal().dangerText)
                   .width('100%')
@@ -548,7 +549,7 @@ export struct SettingsAbout {
 
               // 轮询等待（进行中可见）
               if (restartBusy(this.restartState)) {
-                Text('等待服务恢复（每 1.5 秒探测一次，最多 40 秒）…')
+                Text(i18nT('等待服务恢复（每 1.5 秒探测一次，最多 40 秒）…'))
                   .fontSize(FS_CAPTION)
                   .fontColor(this.pal().warn)
                   .width('100%')

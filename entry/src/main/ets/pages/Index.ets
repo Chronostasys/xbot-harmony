@@ -30,7 +30,7 @@ import { AMBIENCE_PLUGIN_ID, ambienceFromPluginConfig } from '../core/settingspl
 import { brandAccentFor } from '../core/brand';
 import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, withAccent } from '../core/accent';
 import { MD_THEMES, appPaletteForMdTheme, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';
-import { localeLabel, normalizeLocale } from '../core/i18n';
+import { getLocale, localeLabel, normalizeLocale, onLocaleChanged, setLocale } from '../core/i18n';
 import { isStarred, parseStarred, serializeStarred, starredFirst, toggleStarred } from '../core/stars';
 import { EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_BOOT_WORDMARK, FS_BRAND_WORDMARK, FS_CAPTION, FS_HERO, FS_META, FS_TITLE, R_2XL, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5, SP_6, SP_8, THINK_ROW_H } from '../core/tokens';
 // 「更早的 N 个迭代块」哨兵的**同一份**恒定行高（①三处提示同视觉语言 ⇒ 同高，⛔ 不另写字面量）。
@@ -236,6 +236,7 @@ import { LiveViewBridge } from '../components/LiveViewBridge';
 // `contributes.configuration` 经**通用渲染**生成 —— 这里**不写**任何设置 UI）。
 import { PushRegState, registerPushToken } from '../core/pushreg';
 import { isToolInProgress, toolStatusKind } from '../core/toolstatus';
+import { t as i18nT } from '../core/i18n';
 
 /** 一个问题当前选中的答案（用类而非 Map/Record：ArkTS 下最稳，且能整体替换触发重渲染）。 */
 class AskSelection {
@@ -1172,6 +1173,9 @@ struct Index {
    *   自动同步到 AppStorage，无需另加 @Watch。
    * ⚠️ 装饰器参数是**字面量** `'appTheme'`，与各组件的 `@StorageProp('appTheme')` 逐字一致。
    */
+  /** 当前语言（热切换：locale 变化 ⇒ row 键/设置面重建）。 */
+  @State appLocale: string = getLocale();
+  private localeWired: boolean = false;
   @StorageLink('appTheme') themeName: string = 'dark';
   /** SSE 连接状态（来自 store：idle|connecting|open|reconnecting） */
   @State connState: string = 'idle';
@@ -1352,6 +1356,16 @@ struct Index {
   // ── 生命周期 ──────────────────────────────────────────────────────────────
 
   aboutToAppear(): void {
+    if (!this.localeWired) {
+      this.localeWired = true;
+      onLocaleChanged(() => {
+        this.appLocale = getLocale();
+        const st: ChatStore | null = this.store;
+        if (st !== null) {
+          this.syncFrom(st);
+        }
+      });
+    }
     // 应用内开屏的 T1 底色 + 页面首帧底色都取自 `themeName`；而系统开屏（`startWindow`）/
     // 应用级 colorMode 已由 `EntryAbility.onCreate` 按**缓存主题**在首帧前定下（见其 onCreate）。
     // ⇒ 这里**同步**读回同一份缓存，让 `themeName` 在首帧前就与那两者**同源**：开屏 T1 与
@@ -2235,20 +2249,20 @@ struct Index {
           .fontWeight(FontWeight.Bold)
           .fontColor(this.pal().textPrimary)
           .layoutWeight(1)
-        Text('复制')
+        Text(i18nT('复制'))
           .fontSize(FS_CAPTION).fontColor(this.pal().accentText)
           .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
           .onClick(() => {
             void this.copyText(this.logAllText(), '全部日志');
           })
-        Text('清空')
+        Text(i18nT('清空'))
           .fontSize(FS_CAPTION).fontColor(this.pal().accentText)
           .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
           .onClick(() => {
             appLog.clear();
             this.logTick++;
           })
-        Text('关闭')
+        Text(i18nT('关闭'))
           .fontSize(FS_CAPTION).fontColor(this.pal().textSecondary)
           .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
           .onClick(() => {
@@ -2260,7 +2274,7 @@ struct Index {
       Scroll() {
         Column({ space: SP_1 }) {
           if (this.logLines().length === 0) {
-            Text('暂无日志')
+            Text(i18nT('暂无日志'))
               .fontSize(FS_CAPTION).fontColor(this.pal().textMuted)
               .width('100%').textAlign(TextAlign.Start)
           }
@@ -2782,7 +2796,7 @@ struct Index {
     // 这里直接拦住并说明原因，避免产生无法判读的证据。
     if (!this.loggedIn) {
       this.auditLog = '未登录：走查只能拍到登录页，已跳过（请先登录再走查）';
-      this.toast('未登录：请先登录再走查（否则只能拍到登录页）');
+      this.toast(i18nT('未登录：请先登录再走查（否则只能拍到登录页）'));
       return;
     }
     this.auditing = true;
@@ -2855,7 +2869,7 @@ struct Index {
       }
       geo.push(`--- 07-chat-back ---\n${this.collectGeometry()}`);
       this.auditLog = done.join('  ');
-      this.toast('走查完成，已上传 7 张截图 + 1 份版面几何');
+      this.toast(i18nT('走查完成，已上传 7 张截图 + 1 份版面几何'));
     } catch (e) {
       const err: BusinessError = e as BusinessError;
       this.auditLog = `失败: ${err.message}（已完成: ${done.join(' ') }）`;
@@ -3217,6 +3231,17 @@ struct Index {
     }
     // ③ 会话加载 splash：本条路径**确有网络等待**（会话列表补齐 + `/api/history`）⇒ 置位遮罩。
     this.switchSplash = true;
+    delay((): void => {
+      if (!this.switchSplash || this.currentChat !== chatId) { return; }
+      this.switchSplash = false;
+      const st: ChatStore | null = this.store;
+      if (st !== null && st.currentChatId === chatId && st.historyLoading) {
+        st.historyLoading = false;
+        st.historyError = '加载超时，请重试';
+        st.onUpdate();
+      }
+      this.toast(i18nT('会话加载超时，请重试'));
+    }, 12000);
     try {
       await target.openSession(chatId);
     } catch (e) {
@@ -3664,7 +3689,7 @@ struct Index {
       }
     }
     if (target === undefined || target.uri.length === 0) {
-      this.toast('无法重试：本地文件已不可用');
+      this.toast(i18nT('无法重试：本地文件已不可用'));
       return;
     }
     this.attachments = patchByUid(this.attachments, uid, '', 0, ATTACH_UPLOADING, '');
@@ -3733,6 +3758,7 @@ struct Index {
     try {
       await rpc<Object>(store.http, 'set_goal',
         new SetGoalParams(store.channel, store.wireChatId(), objective));
+      store.setGoalLocal(objective);
     } catch (e) {
       this.toast(`设置目标失败: ${errText(e as Object)}`);
     }
@@ -3840,7 +3866,7 @@ struct Index {
     if (this.rewindEditRowId.length > 0) {
       console.info(`[SENDDRAFT] REWIND path: rewindEditRowId=${this.rewindEditRowId}`);
       if (text.length === 0) {
-        this.toast('内容不能为空');
+        this.toast(i18nT('内容不能为空'));
         return;
       }
       await this.submitRewind(text);
@@ -4051,7 +4077,7 @@ struct Index {
       return;
     }
     if (!this.openWebPanel(id)) {
-      this.toast('Web 面板不可用：未连接服务端');
+      this.toast(i18nT('Web 面板不可用：未连接服务端'));
     }
   }
 
@@ -4205,7 +4231,7 @@ struct Index {
     const base: string = this.draft;
     this.draft = base.length === 0 ? mention : `${base} ${mention}`;
     this.showFiles = false;
-    this.toast('已加入聊天输入框');
+    this.toast(i18nT('已加入聊天输入框'));
   }
 
   /**
@@ -4218,7 +4244,7 @@ struct Index {
       return;
     }
     this.loadErr = '';
-    this.toast('该会话已不存在，正在刷新会话列表…');
+    this.toast(i18nT('该会话已不存在，正在刷新会话列表…'));
     try {
       await store.loadSessions();
       const first: SessionItem | undefined = this.sessions.length > 0 ? this.sessions[0] : undefined;
@@ -4303,7 +4329,7 @@ struct Index {
       store.loadMoreErr = '';
       if (err === LOADMORE_ERR_NOCURSOR) {
         // 游标失效自愈：重拉首页（`openSession` 会重建 history/游标/hasMore）。
-        this.toast('分页游标失效，正在重新载入会话历史…');
+        this.toast(i18nT('分页游标失效，正在重新载入会话历史…'));
         await store.openSession(this.currentChat);
         return;
       }
@@ -4776,7 +4802,7 @@ struct Index {
     }
     const url: string = pluginViewDeepLink(this.serverUrl, PLUGIN_MANAGER_VIEW_ID, '插件');
     if (url.length === 0) {
-      this.toast('服务器地址未配置，无法打开插件管理');
+      this.toast(i18nT('服务器地址未配置，无法打开插件管理'));
       return;
     }
     this.panelTitle = '插件';
@@ -4873,7 +4899,7 @@ struct Index {
       return;
     }
     if (genuiPayloadTooLarge(code)) {
-      this.toast('面板过大，无法打开');
+      this.toast(i18nT('面板过大，无法打开'));
       return;
     }
     // 内嵌 webview 打开**服务端页面**前必须注入会话 cookie，否则 401 落登录页
@@ -4882,7 +4908,7 @@ struct Index {
     try {
       const url: string = await store.shareGenuiPanel(code, title);
       if (url.length === 0) {
-        this.toast('面板链接生成失败');
+        this.toast(i18nT('面板链接生成失败'));
         return;
       }
       // 浮层互斥：收掉其它浮层，再落 `panelUrl`（WebSurface 由既有分支渲染）。
@@ -5283,7 +5309,7 @@ struct Index {
       const buf: ArrayBuffer = await packer.packing(pm, { format: 'image/png', quality: 100 });
       await fileIo.write(f.fd, buf);
       await fileIo.close(f);
-      this.toast('已保存到相册');
+      this.toast(i18nT('已保存到相册'));
     } catch (e) {
       this.toast(`保存失败: ${errText(e as Object)}`);
     }
@@ -5299,7 +5325,7 @@ struct Index {
     try {
       const buf: ArrayBuffer | null = await store.http.getBinary(src);
       if (buf === null) {
-        this.toast('图片加载失败（可能已过期或未登录）');
+        this.toast(i18nT('图片加载失败（可能已过期或未登录）'));
         return;
       }
       const source: image.ImageSource = image.createImageSource(buf);
@@ -5355,7 +5381,7 @@ struct Index {
             this.toast(`已下载 ${name}`);
           }, onClose: () => {
           } })
-          Text('切回原生')
+          Text(i18nT('切回原生'))
             .fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary)
             .padding({ left: 10, right: 10, top: 5, bottom: 5 })
             .backgroundColor(this.pal().surfaceAlt)
@@ -6180,7 +6206,7 @@ struct Index {
               })
             }.width('100%').layoutWeight(1)
           } else {
-            Text('未连接服务端').fontSize(FS_CAPTION).fontColor(this.pal().textMuted).padding(SP_4)
+            Text(i18nT('未连接服务端')).fontSize(FS_CAPTION).fontColor(this.pal().textMuted).padding(SP_4)
           }
         }
         .width('100%').height('100%')
@@ -6194,7 +6220,7 @@ struct Index {
       if (this.showPluginHost) {
         Column() {
           Row() {
-            Text('插件').fontSize(typeOf('type.headline').size).fontWeight(typeOf('type.headline').weight).fontColor(this.pal().textPrimary).layoutWeight(1)
+            Text(i18nT('插件')).fontSize(typeOf('type.headline').size).fontWeight(typeOf('type.headline').weight).fontColor(this.pal().textPrimary).layoutWeight(1)
             // 关闭（页头 X）—— 统一 token + 弱色 role；⚠️ 原实现 `.fontSize(17).padding(SPACE_XS)`
             //   命中盒仅 17+2×8 = 33vp **< 44**（真机可点性不足）⇒ 改真实 44×44 布局盒承载 onClick。
             Row() {
@@ -6205,7 +6231,7 @@ struct Index {
             .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
             .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-            .accessibilityText('关闭')
+            .accessibilityText(i18nT('关闭'))
             .onClick(() => {
               this.showPluginHost = false;
               this.pluginPageUrl = '';
@@ -6386,11 +6412,11 @@ struct Index {
           .shadow({ radius: shadowRadiusOf(this.pal(), 'hero'), color: shadowColorOf(this.pal(), 'raised'), offsetX: 0, offsetY: 10 })
           .justifyContent(FlexAlign.Center)
         }
-        Text('连接你的 xbot 服务端 · 原生鸿蒙客户端')
+        Text(i18nT('连接你的 xbot 服务端 · 原生鸿蒙客户端'))
           .fontSize(FS_CAPTION).fontColor(this.pal().textMuted)
           .margin({ bottom: SP_4 })
 
-        TextInput({ placeholder: '服务端地址，如 192.168.1.10:16000', text: this.serverUrl })
+        TextInput({ placeholder: i18nT('服务端地址，如 192.168.1.10:16000'), text: this.serverUrl })
           .onChange((v: string) => {
             this.serverUrl = v;
             this.testMsg = '';
@@ -6440,7 +6466,7 @@ struct Index {
             .width('100%')
         }
 
-        TextInput({ placeholder: '用户名', text: this.username })
+        TextInput({ placeholder: i18nT('用户名'), text: this.username })
           .onChange((v: string) => {
             this.username = v;
           })
@@ -6449,7 +6475,7 @@ struct Index {
           .constraintSize({ minHeight: 48 }).borderRadius(R_XL)
           .border({ width: 1, color: this.eff().glassBorder })
           .padding({ left: SP_3, right: SP_3 })
-        TextInput({ placeholder: '密码' })
+        TextInput({ placeholder: i18nT('密码') })
           .type(InputType.Password)
           .onChange((v: string) => {
             this.password = v;
@@ -6468,7 +6494,7 @@ struct Index {
         // 主 CTA：渐变 + 光晕
         // G1（加性多层柔影）：外层 `Stack` 承载贴合层 near；按钮保留原 far（offsetY 6 逐字节不变）。
         Stack() {
-          Button('登录').width('100%').constraintSize({ minHeight: 50 })
+          Button(i18nT('登录')).width('100%').constraintSize({ minHeight: 50 })
             .fontSize(FS_TITLE).fontWeight(typeOf('type.subhead').weight)
             .borderRadius(R_XL)
             .fontColor(this.pal().onAccent)
@@ -6489,7 +6515,7 @@ struct Index {
         .shadow({ radius: this.contactLayer('raised').radius, color: this.contactLayer('raised').color, offsetX: 0, offsetY: this.contactLayer('raised').offsetY })
         .margin({ top: SP_2 })
         // 次 CTA：幽灵按钮
-        Button('注册（仅服务端允许时）').width('100%').constraintSize({ minHeight: 44 })
+        Button(i18nT('注册（仅服务端允许时）')).width('100%').constraintSize({ minHeight: 44 })
           .fontSize(FS_BODY)
           .fontColor(this.pal().textSecondary)
           .backgroundColor(Color.Transparent)
@@ -6500,7 +6526,7 @@ struct Index {
             this.doRegister();
           })
         // 无需登录/无需网络：直接打开渲染自检页（截图发我即可定位构件级问题）
-        Text('渲染自检（排查渲染问题用）')
+        Text(i18nT('渲染自检（排查渲染问题用）'))
           .fontSize(FS_CAPTION).fontColor(this.pal().accentSoft)
           .margin({ top: SP_3 })
           .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
@@ -6531,10 +6557,10 @@ struct Index {
   RewindEditBar() {
     Row({ space: SP_2 }) {
       SymbolGlyph($r('sys.symbol.square_and_pencil')).fontSize(ICON_MD).fontColor([this.pal().warn])
-      Text('编辑并重发：将回退此消息及其后的回复')
+      Text(i18nT('编辑并重发：将回退此消息及其后的回复'))
         .fontSize(FS_CAPTION).fontColor(this.pal().warn).layoutWeight(1)
         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-      Text('取消').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary)
+      Text(i18nT('取消')).fontSize(FS_CAPTION).fontColor(this.pal().textSecondary)
         .padding({ left: SP_2, right: SP_2, top: SPACE_XXS, bottom: SPACE_XXS })
         .stateStyles({ pressed: { .opacity(0.6) }, normal: { .opacity(1) } })
         .onClick(() => {
@@ -6578,7 +6604,7 @@ struct Index {
           .padding(SPACE_SM)
           .borderRadius(RADIUS_CHIP)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .accessibilityText('打开侧栏')
+          .accessibilityText(i18nT('打开侧栏'))
           .onClick(() => {
             this.openDrawer();
           })
@@ -6653,7 +6679,7 @@ struct Index {
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('运行面板：定时任务、后台任务、子代理、Runner、终端')
+        .accessibilityText(i18nT('运行面板：定时任务、后台任务、子代理、Runner、终端'))
         .onClick(() => {
           this.openPanels();
         })
@@ -6675,7 +6701,7 @@ struct Index {
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('插件与 Web UI：插件目录、宿主页、完整 Web UI')
+        .accessibilityText(i18nT('插件与 Web UI：插件目录、宿主页、完整 Web UI'))
         .onClick(() => {
           this.openPlugins();
         })
@@ -6688,7 +6714,7 @@ struct Index {
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('文件管理：原生文件面板（浏览/搜索/预览/加入聊天）')
+        .accessibilityText(i18nT('文件管理：原生文件面板（浏览/搜索/预览/加入聊天）'))
         .onClick(() => {
           this.openFiles();
         })
@@ -6758,9 +6784,9 @@ struct Index {
             SymbolGlyph($r('sys.symbol.star_fill')).fontSize(52).fontColor([this.pal().accent])
           }
           .width(STAR_GLOW_SIZE).height(STAR_GLOW_SIZE)
-          Text('开始对话').fontSize(FS_HERO).fontWeight(typeOf('type.subhead').weight)
+          Text(i18nT('开始对话')).fontSize(FS_HERO).fontWeight(typeOf('type.subhead').weight)
             .fontColor(this.pal().textPrimary)
-          Text('直接说需求；也可以用 / 选命令、@ 提文件、加附件')
+          Text(i18nT('直接说需求；也可以用 / 选命令、@ 提文件、加附件'))
             .fontSize(FS_CAPTION).fontColor(this.pal().textMuted).textAlign(TextAlign.Center)
             .padding({ left: SP_8, right: SP_8 })
         }
@@ -6824,7 +6850,7 @@ struct Index {
             Row({ space: 6 }) {
               if (this.loadingMore) {
                 LoadingProgress().width(13).height(13).color(this.pal().textMuted)
-                Text('正在加载更早…').fontSize(FS_META).fontColor(this.pal().textMuted)
+                Text(i18nT('正在加载更早…')).fontSize(FS_META).fontColor(this.pal().textMuted)
               } else {
                 SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(12)
                   .fontColor([colorOf(this.pal(), 'iconMuted')])
@@ -7129,7 +7155,7 @@ struct Index {
         if (showsJumpToLatest(this.followBottom, this.rows.length, this.atEndUi)) {
           Column() {
             Row() {
-              Text('回到最新').fontSize(typeOf('type.caption').size).fontColor(this.pal().textPrimary)
+              Text(i18nT('回到最新')).fontSize(typeOf('type.caption').size).fontColor(this.pal().textPrimary)
                 .padding({ left: SPACE_SM, right: SPACE_SM, top: 7, bottom: 7 })
                 .backgroundColor(this.pal().accentDeep)
                 .borderRadius(RADIUS_SHEET)
@@ -7194,7 +7220,7 @@ struct Index {
               .fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary).layoutWeight(1)
               .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
             if (this.todoCount() > 0 || this.goalLine().length > 0) {
-              Text('详情').fontSize(typeOf('type.caption').size).fontColor(this.pal().accentSoft).padding({ left: 6, right: 6 })
+              Text(i18nT('详情')).fontSize(typeOf('type.caption').size).fontColor(this.pal().accentSoft).padding({ left: 6, right: 6 })
             }
           }
           .layoutWeight(1)
@@ -7212,7 +7238,7 @@ struct Index {
       if (this.connState === 'reconnecting' || this.connState === 'connecting') {
         Row({ space: 6 }) {
           LoadingProgress().width(14).height(14).color(this.pal().warn)
-          Text('连接断开，正在重连…（恢复后自动补齐消息）')
+          Text(i18nT('连接断开，正在重连…（恢复后自动补齐消息）'))
             .fontSize(typeOf('type.caption').size).fontColor(this.pal().warn).layoutWeight(1)
             .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         }
@@ -7228,7 +7254,7 @@ struct Index {
           Text(`连接被服务端拒绝：${this.sseTerminalReason()}`)
             .fontSize(typeOf('type.caption').size).fontColor(this.pal().dangerText).layoutWeight(1)
             .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
-          Text('重试').fontSize(typeOf('type.caption').size).fontColor(this.pal().accentSoft).padding(6)
+          Text(i18nT('重试')).fontSize(typeOf('type.caption').size).fontColor(this.pal().accentSoft).padding(6)
             .stateStyles({ pressed: { .opacity(0.7) }, normal: { .opacity(1) } })
             .onClick(() => {
               const st: ChatStore | null = this.store;
@@ -7244,8 +7270,8 @@ struct Index {
       // 上次发送失败 ⇒ 一键重试（不必重新打字）
       if (this.failedSend.length > 0) {
         Row({ space: 8 }) {
-          Text('上次发送失败').fontSize(typeOf('type.caption').size).fontColor(this.pal().dangerText).layoutWeight(1)
-          Text('重试').fontSize(typeOf('type.caption').size).fontColor(this.pal().warn).padding(6)
+          Text(i18nT('上次发送失败')).fontSize(typeOf('type.caption').size).fontColor(this.pal().dangerText).layoutWeight(1)
+          Text(i18nT('重试')).fontSize(typeOf('type.caption').size).fontColor(this.pal().warn).padding(6)
             .stateStyles({ pressed: { .opacity(0.7) }, normal: { .opacity(1) } })
             .onClick(() => {
               const t: string = this.failedSend;
@@ -7253,7 +7279,7 @@ struct Index {
               this.draft = t;
               this.sendDraft();
             })
-          Text('丢弃').fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary).padding(6)
+          Text(i18nT('丢弃')).fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary).padding(6)
             .onClick(() => {
               this.failedSend = '';
             })
@@ -7325,7 +7351,7 @@ struct Index {
                   Row().width(6).height(6).borderRadius(6 / 2).backgroundColor(this.pal().successText)
                 }
                 SymbolGlyph($r('sys.symbol.xmark')).fontSize(11).fontColor([colorOf(this.pal(), 'iconMuted')])
-                  .accessibilityText('关闭标签页')
+                  .accessibilityText(i18nT('关闭标签页'))
                   .onClick(() => {
                     this.closeTab(cid);
                   })
@@ -7422,7 +7448,7 @@ struct Index {
       if (this.addingGoal) {
         Row({ space: SP_2 }) {
           SymbolGlyph($r('sys.symbol.dart_target')).fontSize(ICON_MD).fontColor([this.pal().accent])
-          TextInput({ text: this.goalDraft, placeholder: '输入目标…' })
+          TextInput({ text: this.goalDraft, placeholder: i18nT('输入目标…') })
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().textPrimary)
             .placeholderColor(this.pal().textMuted)
@@ -7436,7 +7462,7 @@ struct Index {
             .onSubmit(() => {
               this.commitAddingGoal();
             })
-          Text('回车保存')
+          Text(i18nT('回车保存'))
             .fontSize(typeOf('type.micro').size).fontColor(this.pal().textMuted)
         }
         .width('100%')
@@ -7493,14 +7519,14 @@ struct Index {
         SymbolGlyph($r('sys.symbol.paperclip')).fontSize(22).fontColor([this.pal().textSecondary])
           .padding({ left: SP_3, right: SP_1, top: SP_2, bottom: SP_2 })
           .stateStyles({ pressed: { .opacity(0.5) }, normal: { .opacity(1) } })
-          .accessibilityText('添加附件')
+          .accessibilityText(i18nT('添加附件'))
           .onClick(() => {
             this.pickFiles();
           })
         SymbolGlyph($r('sys.symbol.picture')).fontSize(22).fontColor([this.pal().textSecondary])
           .padding({ left: SP_1, right: SP_1, top: SP_2, bottom: SP_2 })
           .stateStyles({ pressed: { .opacity(0.5) }, normal: { .opacity(1) } })
-          .accessibilityText('添加图片')
+          .accessibilityText(i18nT('添加图片'))
           .onClick(() => {
             this.pickImages();
           })
@@ -7980,7 +8006,7 @@ struct Index {
       this.sessConfirmDelete = '';
       try {
         await store.deleteSession(id);
-        this.toast('会话已删除');
+        this.toast(i18nT('会话已删除'));
       } catch (e) {
         this.toast(`删除失败: ${errText(e as Object)}`);
       }
@@ -8553,12 +8579,12 @@ struct Index {
         await ensureEnabled(ctx);
         this.notifyOn = await notificationsEnabled();
         if (!this.notifyOn) {
-          this.toast('未获得通知权限，可在系统设置中开启');
+          this.toast(i18nT('未获得通知权限，可在系统设置中开启'));
         }
       } else {
         // 应用无权关闭自身通知 ⇒ 以系统真值覆盖回去，避免开关显示与系统不一致
         this.notifyOn = await notificationsEnabled();
-        this.toast('如需关闭，请在系统设置中关闭本应用的通知');
+        this.toast(i18nT('如需关闭，请在系统设置中关闭本应用的通知'));
       }
     } catch (e) {
       this.notifyOn = await notificationsEnabled();
@@ -8602,6 +8628,7 @@ struct Index {
     const pairs: Record<string, string> = {};
     pairs[key] = value;
     this.settings[key] = value;   // 乐观：界面立刻变
+    if (key === KEY_LOCALE) { setLocale(value); }
     // ⛔ 主题切换必须**同步**更新 themeName（`@StorageLink('appTheme')` 唯一真源）——
     //    原实现只在 `syncFrom` 从 `store.settings` 重算（依赖 saveSettings 异步返回），
     //    乐观更新只写了 `settings`、没写 `themeName` ⇒ 切换后色板**冻结在旧主题**
@@ -8870,7 +8897,7 @@ struct Index {
         // 面板已收起 ⇒ 撤防轮询（同 `openTerminal`）
         this.syncPanelPoll();
       } else {
-        this.toast('新建终端失败');
+        this.toast(i18nT('新建终端失败'));
       }
     } catch (e) {
       this.toast(`新建终端失败: ${errText(e as Object)}`);
@@ -8915,7 +8942,7 @@ struct Index {
     }
     try {
       await st.killBgTask(id);
-      this.toast('已请求终止');
+      this.toast(i18nT('已请求终止'));
     } catch (e) {
       this.toast(`终止失败: ${errText(e as Object)}`);
     }
@@ -8929,7 +8956,7 @@ struct Index {
     }
     try {
       await st.killBgTask(id);
-      this.toast('已请求终止');
+      this.toast(i18nT('已请求终止'));
       // kill 成功 ⇒ store 已就地重拉列表（`store.killBgTask` 内部 `loadBgTasks`），
       // 从最新列表重投详情（与 syncFromStore 镜像分支共用 `refreshTaskDetailFrom`：
       // running=false ⇒ 终止钮立即消失；任务从列表消失 ⇒ 片头自动关）。
@@ -9188,7 +9215,7 @@ struct Index {
       setTimeout(done, rest);
     }).catch(() => {
       done();
-      this.toast('取消失败，请重试');
+      this.toast(i18nT('取消失败，请重试'));
     });
   }
 
@@ -9348,7 +9375,7 @@ struct Index {
     }
     try {
       await store.removeCronTask(jobId);
-      this.toast('定时任务已删除');
+      this.toast(i18nT('定时任务已删除'));
     } catch (e) {
       this.toast(`删除失败: ${errText(e as Object)}`);
     }
@@ -9373,7 +9400,7 @@ struct Index {
             this.showSearchHits = true;
           });
       if (hits.length === 0) {
-        this.toast('当前会话里没有匹配的消息');
+        this.toast(i18nT('当前会话里没有匹配的消息'));
       }
     } catch (e) {
       this.toast(`搜索失败: ${errText(e as Object)}`);
@@ -9949,7 +9976,7 @@ struct Index {
   /** 复制到系统剪贴板（失败原样报错）。 */
   private async copyText(text: string, what: string): Promise<void> {
     if (text.trim().length === 0) {
-      this.toast('没有可复制的内容');
+      this.toast(i18nT('没有可复制的内容'));
       return;
     }
     try {
@@ -9967,7 +9994,7 @@ struct Index {
     const base: string = store !== null ? store.http.baseUrl : normalizeServerUrl(this.serverUrl);
     const abs: string = resolveOpenable(href, base);
     if (abs.length === 0) {
-      this.toast('该链接不能打开（仅支持 http/https/mailto）');
+      this.toast(i18nT('该链接不能打开（仅支持 http/https/mailto）'));
       return;
     }
     try {
@@ -10112,7 +10139,7 @@ struct Index {
       this.ctxOpen = false;
     });
     this.scheduleDraftSave(row.content);
-    this.toast('编辑后发送 = 回退此消息及其后的回复，并重发');
+    this.toast(i18nT('编辑后发送 = 回退此消息及其后的回复，并重发'));
   }
 
   /** 退出 rewind 编辑态（取消）。 */
@@ -10142,11 +10169,11 @@ struct Index {
     try {
       const done: boolean = await store.rewindToMessage(target, text);
       if (!done) {
-        this.toast('暂时无法回退这条消息（尚未落库）');
+        this.toast(i18nT('暂时无法回退这条消息（尚未落库）'));
         return;
       }
       this.buzz(HAPTIC_EVENT_CONFIRM);
-      this.toast('已回退并重发');
+      this.toast(i18nT('已回退并重发'));
     } catch (e) {
       this.draft = text;
       this.toast(`回退失败: ${errText(e as Object)}`);
@@ -10178,7 +10205,7 @@ struct Index {
     Column({ space: SPACE_SM }) {
       // 头部：标题 + 关闭（44 命中区）
       Row() {
-        Text('新建会话')
+        Text(i18nT('新建会话'))
           .fontSize(typeOf('type.headline').size)
           .fontWeight(typeOf('type.headline').weight)
           .fontColor(this.pal().textPrimary)
@@ -10191,7 +10218,7 @@ struct Index {
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('关闭')
+        .accessibilityText(i18nT('关闭'))
         .onClick(() => {
           this.closeNewSession();
         })
@@ -10200,11 +10227,11 @@ struct Index {
       .alignItems(VerticalAlign.Center)
 
       // 会话名称（web `NewSessionDialog.tsx:72-80`：Label「会话名称」+ Input，placeholder「留空则自动生成」）
-      Text('会话名称')
+      Text(i18nT('会话名称'))
         .fontSize(typeOf('type.micro').size)
         .fontColor(this.palOnce().textSecondary)
         .width('100%')
-      TextInput({ placeholder: '留空则自动生成', text: this.newSessionLabel })
+      TextInput({ placeholder: i18nT('留空则自动生成'), text: this.newSessionLabel })
         .onChange((v: string) => {
           this.newSessionLabel = v;
         })
@@ -10217,11 +10244,11 @@ struct Index {
         .padding({ left: SPACE_SM, right: SPACE_SM })
 
       // 工作目录（web `PathPicker`：输入面 + **自动补全下拉**，`PathPicker.tsx:135-192`）
-      Text('工作路径')
+      Text(i18nT('工作路径'))
         .fontSize(typeOf('type.micro').size)
         .fontColor(this.palOnce().textSecondary)
         .width('100%')
-      TextInput({ placeholder: '输入绝对路径，例如 /root/Code/xbot', text: this.newSessionPath })
+      TextInput({ placeholder: i18nT('输入绝对路径，例如 /root/Code/xbot'), text: this.newSessionPath })
         .onChange((v: string) => {
           this.newSessionPath = v;
           this.refreshPathDirs();
@@ -10244,14 +10271,14 @@ struct Index {
           if (this.nsPathLoading) {
             Row({ space: SPACE_XS }) {
               LoadingProgress().width(14).height(14).color(this.palOnce().accent)
-              Text('加载中…')
+              Text(i18nT('加载中…'))
                 .fontSize(typeOf('type.micro').size).fontColor(this.palOnce().textMuted)
             }
             .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
             .padding({ left: SPACE_SM, right: SPACE_SM })
             .alignItems(VerticalAlign.Center)
           } else if (this.nsPathDirs.length === 0) {
-            Text('无匹配结果')
+            Text(i18nT('无匹配结果'))
               .fontSize(typeOf('type.micro').size).fontColor(this.palOnce().textMuted)
               .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
               .padding({ left: SPACE_SM, right: SPACE_SM })
@@ -10286,7 +10313,7 @@ struct Index {
       // chrome 噪点大（web 侧本就是**纯列表**）。改 **iOS inset grouped**：一个圆角容器承载所有行、
       // 行间用**发丝线**分隔 —— 与本抽屉列表同一套结构语言（结构靠发丝，不靠卡片）。
       if (this.newSessionDirs.length > 0) {
-        Text('最近使用的工作路径')
+        Text(i18nT('最近使用的工作路径'))
           .fontSize(typeOf('type.micro').size)
           .fontColor(this.pal().textSecondary)
           .width('100%')
@@ -10324,7 +10351,7 @@ struct Index {
               .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
               .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
               .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-              .accessibilityText('删除')
+              .accessibilityText(i18nT('删除'))
               .onClick(() => {
                 this.removeRecentDir(path);
               })
@@ -10343,7 +10370,7 @@ struct Index {
       // 取消 / 创建（自绘行按钮，各占一半、命中区 ≥44）
       Row({ space: SPACE_SM }) {
         Row() {
-          Text('取消')
+          Text(i18nT('取消'))
             .fontSize(typeOf('type.subhead').size)
             .fontColor(this.pal().textSecondary)
         }
@@ -10355,7 +10382,7 @@ struct Index {
           this.closeNewSession();
         })
         Row() {
-          Text('创建')
+          Text(i18nT('创建'))
             .fontSize(typeOf('type.subhead').size)
             .fontColor(this.pal().onAccent)
         }
@@ -10449,7 +10476,7 @@ struct Index {
       // ⚠️ 2026-10-12（目标③）：`刷新` / `✕` 原先只靠 `padding(SPACE_XS)` 撑热区（≈32 < 44，
       //    违反 Apple HIG）⇒ 改**真实 ≥44 布局盒**（⛔ 不用 `responseRegion` 负偏移外扩 —— 真机实测无效）。
       Row({ space: SPACE_XS }) {
-        Text('运行面板').fontSize(typeOf('type.headline').size).fontWeight(typeOf('type.headline').weight).fontColor(this.pal().textPrimary).layoutWeight(1)
+        Text(i18nT('运行面板')).fontSize(typeOf('type.headline').size).fontWeight(typeOf('type.headline').weight).fontColor(this.pal().textPrimary).layoutWeight(1)
         if (this.panelBusy) {
           LoadingProgress().width(16).height(16).color(this.pal().accent)
         }
@@ -10468,7 +10495,7 @@ struct Index {
             SymbolGlyph($r('sys.symbol.plus'))
               .fontSize(ICON_SM)
               .fontColor([this.panelActionTint()])
-            Text('新建')
+            Text(i18nT('新建'))
               .fontSize(typeOf('type.subhead').size)
               .fontColor(this.panelActionTint())
           }
@@ -10482,7 +10509,7 @@ struct Index {
           .padding({ left: SPACE_XS, right: SPACE_XS })
           .alignItems(VerticalAlign.Center)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .accessibilityText('新建终端')
+          .accessibilityText(i18nT('新建终端'))
           .onClick(() => {
             this.newTerminal();
           })
@@ -10504,7 +10531,7 @@ struct Index {
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('刷新')
+        .accessibilityText(i18nT('刷新'))
         .onClick(() => {
           this.refreshPanel();
         })
@@ -10514,7 +10541,7 @@ struct Index {
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('关闭运行面板')
+        .accessibilityText(i18nT('关闭运行面板'))
         .onClick(() => {
           this.showPanels = false;
         })
@@ -10575,7 +10602,7 @@ struct Index {
           // B 线预算（⛔ pal() 只许减）：loading 是中性信息——LoadingProgress 默认色+Text 继承，
           // 不再各取一色（省 2 处 pal()）。
           LoadingProgress().width(14).height(14)
-          Text('加载中…')
+          Text(i18nT('加载中…'))
             .fontSize(typeOf('type.caption').size)
         }
         .width('100%').padding({ left: SPACE_SM, right: SPACE_SM, top: 4, bottom: 4 })
@@ -10585,7 +10612,7 @@ struct Index {
           // ⛔ 不用 `layoutWeight(1)`（①b 断言的 tabRow 窗口覆盖到本行——会数成第 3 处假红）；
           // 用 maxWidth 约束防溢出，省略号截断同效。
           LoadingProgress().width(14).height(14)
-          Text('连接断开，正在重连…（任务状态可能滞后）')
+          Text(i18nT('连接断开，正在重连…（任务状态可能滞后）'))
             .fontSize(typeOf('type.caption').size).fontColor(this.pal().warn)
             .constraintSize({ maxWidth: '100%' })
             .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -10630,7 +10657,7 @@ struct Index {
         //    钉「layoutWeight(1) 恰 2 处」，本行落在窗口内会假红）。B 线预算：Text 不取色（继承）。
         if (this.bgTasks.length > 0) {
           Row({ space: SPACE_XS }) {
-            Text('只看运行中')
+            Text(i18nT('只看运行中'))
               .fontSize(typeOf('type.caption').size)
             Blank()
             Toggle({ type: ToggleType.Switch, isOn: this.panelBgOnlyRunning })
@@ -11104,7 +11131,7 @@ struct Index {
           this.applyCollapseAll();
         })
       Divider().strokeWidth(STROKE_HAIRLINE).color(hairlineOf(this.pal())).margin({ top: SPACE_HAIR, bottom: SPACE_HAIR })
-      Text('任务面板')
+      Text(i18nT('任务面板'))
         .width('100%')
         .constraintSize({ minHeight: HIT_TARGET_MIN })
         .fontSize(typeOf('type.subhead').size)
@@ -11115,7 +11142,7 @@ struct Index {
         .onClick(() => {
           this.openSurface(SURF_TASKS);
         })
-      Text('插件管理')
+      Text(i18nT('插件管理'))
         .width('100%')
         .constraintSize({ minHeight: HIT_TARGET_MIN })
         .fontSize(typeOf('type.subhead').size)
@@ -11221,7 +11248,7 @@ struct Index {
         //    读起来"没有比自己打开的面板更高一级"。21 是本仓排版阶梯里**唯一**达 large 的页头档
         //    （`design.ets:864`），且仍 **bold/≥18.66px** ⇒ 对比度地板语义不变（走 `textPrimary`）。
         //    ⛔ 不是新造档：`Fallback.ets` 的页标题已用同一档。
-        Text('会话')
+        Text(i18nT('会话'))
           .fontSize(typeOf('type.title').size)
           .fontWeight(typeOf('type.title').weight)
           .fontColor(this.pal().textPrimary)
@@ -11255,7 +11282,7 @@ struct Index {
           .alignItems(VerticalAlign.Center)
           // a11y：**图标-only、无可见文案** ⇒ 必须给读屏文案（对齐 web `SessionViewBar.tsx:39`
           // 的 `aria-label`/`title`；动作文案逐字对齐 web `i18n/zh-CN.ts:108-109`）。
-          .accessibilityText('分组显示')
+          .accessibilityText(i18nT('分组显示'))
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
           // ⛔ `bindMenu` 由 ArkUI 自管开合 ⇒ **不写 `onClick`**（写了会与锚点处理竞态）。
           .bindMenu(this.CollapseMenu, { placement: Placement.BottomRight, enableArrow: false })
@@ -11271,7 +11298,7 @@ struct Index {
           SymbolGlyph($r('sys.symbol.plus'))
             .fontSize(ICON_LG)
             .fontColor([this.pal().accentSoft])
-          Text('新建')
+          Text(i18nT('新建'))
             .fontSize(typeOf('type.subhead').size)
             .fontColor(this.pal().accentSoft)
         }
@@ -11292,7 +11319,7 @@ struct Index {
         .justifyContent(FlexAlign.Center)
         .alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('关闭')
+        .accessibilityText(i18nT('关闭'))
         .onClick(() => {
           this.closeDrawer();
           this.renamingId = '';
@@ -11317,7 +11344,7 @@ struct Index {
             SymbolGlyph($r('sys.symbol.magnifyingglass'))
               .fontSize(ICON_MD).fontColor([colorOf(this.pal(), 'iconMuted')])
               .margin({ left: SPACE_SM })
-            TextInput({ placeholder: '筛选会话…', text: this.sessQuery })
+            TextInput({ placeholder: i18nT('筛选会话…'), text: this.sessQuery })
               .onChange((v: string) => {
                 this.sessQuery = v;
               })
@@ -11339,7 +11366,7 @@ struct Index {
               .justifyContent(FlexAlign.Center)
               .alignItems(VerticalAlign.Center)
               .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-              .accessibilityText('清空筛选')
+              .accessibilityText(i18nT('清空筛选'))
               .onClick(() => {
                 this.sessQuery = '';
               })
@@ -11378,7 +11405,7 @@ struct Index {
                 .fontColor([this.sessQuery.trim().length > 0
                   ? this.palOnce().accentSoft
                   : colorOf(this.palOnce(), 'iconMuted')])
-              Text('搜本会话')
+              Text(i18nT('搜本会话'))
                 .fontSize(typeOf('type.caption').size)
                 // ⚡ 2026-10-20 丝滑动画：查询有/无内容时文字颜色缓动
                 .animation(animBase())
@@ -11403,7 +11430,7 @@ struct Index {
         .justifyContent(FlexAlign.Center)
         .alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('在当前会话的消息中搜索（服务端）')
+        .accessibilityText(i18nT('在当前会话的消息中搜索（服务端）'))
         .onClick(() => {
           if (!this.searchBusy) {
             this.runSearch();
@@ -11556,12 +11583,12 @@ struct Index {
             // ⛔ H3：提示文案可能含不可断长串（路径/命令）⇒ 词内断行（⛔ 必须**限定名** WordBreak.BREAK_ALL）
             .wordBreak(WordBreak.BREAK_ALL)
           if (this.drawerEmpty() === DRAWER_EMPTY_NO_SESSIONS) {
-            Text('新建一个会话，开始对话')
+            Text(i18nT('新建一个会话，开始对话'))
               .fontSize(typeOf('type.caption').size)
               .fontColor(this.pal().textSecondary)
               .textAlign(TextAlign.Center)
             Row() {
-              Text('＋ 新建会话')
+              Text(i18nT('＋ 新建会话'))
                 .fontSize(typeOf('type.subhead').size)
                 .fontColor(this.pal().onAccent)
             }
@@ -11577,7 +11604,7 @@ struct Index {
             })
           } else {
             Row() {
-              Text('清除筛选')
+              Text(i18nT('清除筛选'))
                 .fontSize(typeOf('type.subhead').size)
                 .fontColor(this.pal().accentSoft)
             }
@@ -11630,14 +11657,14 @@ struct Index {
                             .fontColor(this.palOnce().textPrimary)
                             .fontSize(typeOf('type.body').size)
                             .borderRadius(RADIUS_PILL)
-                          Text('保存').fontSize(typeOf('type.subhead').size).fontColor(this.palOnce().accentSoft).padding(SPACE_XS).onClick(() => {
+                          Text(i18nT('保存')).fontSize(typeOf('type.subhead').size).fontColor(this.palOnce().accentSoft).padding(SPACE_XS).onClick(() => {
                             const store: ChatStore | null = this.store;
                             if (store !== null && s.chat_id !== undefined) {
                               store.renameSession(s.chat_id, this.renameText);
                             }
                             this.renamingId = '';
                           })
-                          Text('取消')
+                          Text(i18nT('取消'))
                             .fontSize(typeOf('type.subhead').size)
                             // ⛔ 不做无条件 `textSecondary`：本行底 = **当前会话**时 `surface.overlayRowHover`
                             // （= `RUNG_ACTIVE` = `surfaceHi`，语义别名掩盖的落点）——porcelain 下
@@ -11740,7 +11767,7 @@ struct Index {
                             .fontColor(this.isCurrentSession(s.chat_id) ? this.palOnce().textPrimary : this.palOnce().textSecondary)
                             .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).textAlign(TextAlign.Center)
                             .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-                            .accessibilityText('更多操作')
+                            .accessibilityText(i18nT('更多操作'))
                             .onClick(() => {
                               this.anim(() => {
                                 this.sessMenuId = s.chat_id;
@@ -11830,13 +11857,13 @@ struct Index {
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.gearshape'))
             .fontSize(ICON_XL).fontColor([this.barTint('muted')])
-          Text('设置')
+          Text(i18nT('设置'))
             .fontSize(typeOf('type.micro').size).fontColor(this.barTint('text'))
         }
         .layoutWeight(1).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('设置')
+        .accessibilityText(i18nT('设置'))
         .onClick(() => {
           this.openSettingsPanel();
         })
@@ -11844,13 +11871,13 @@ struct Index {
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.folder'))
             .fontSize(ICON_XL).fontColor([this.barTint('muted')])
-          Text('文件')
+          Text(i18nT('文件'))
             .fontSize(typeOf('type.micro').size).fontColor(this.barTint('text'))
         }
         .layoutWeight(1).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('文件管理：原生文件面板（浏览/搜索/预览/加入聊天）')
+        .accessibilityText(i18nT('文件管理：原生文件面板（浏览/搜索/预览/加入聊天）'))
         .onClick(() => {
           // §21.122bg：与顶栏「文件」同一出口（用户定向「文件不需要用 web」）⇒ **原生优先**。
           // 收掉可能开着的 web 面板，否则两层面板叠着、退回时用户看到旧 web 页。
@@ -11865,13 +11892,13 @@ struct Index {
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.code'))
             .fontSize(ICON_XL).fontColor([this.barTint('muted')])
-          Text('终端')
+          Text(i18nT('终端'))
             .fontSize(typeOf('type.micro').size).fontColor(this.barTint('text'))
         }
         .layoutWeight(1).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('终端：原生终端（新建/切换会话终端；与运行面板终端页同一实现）')
+        .accessibilityText(i18nT('终端：原生终端（新建/切换会话终端；与运行面板终端页同一实现）'))
         .onClick(() => {
           // §21.122bu：**统一到原生终端**（用户定向「一个页面必须只有一个形态」）。
           // 形态判定 = `surfaceOf(SURF_TERMINAL)`（唯一真源）；入口动作走唯一出口 `openSurface`。
@@ -11890,13 +11917,13 @@ struct Index {
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.power'))
             .fontSize(ICON_XL).fontColor([this.barTint('danger')])
-          Text('退出')
+          Text(i18nT('退出'))
             .fontSize(typeOf('type.micro').size).fontColor(this.barTint('danger'))
         }
         .layoutWeight(1).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('退出登录')
+        .accessibilityText(i18nT('退出登录'))
         .onClick(() => {
           this.doLogout();
         })
@@ -11951,7 +11978,7 @@ struct Index {
     Stack() {
     Column({ space: 10 }) {
       Row() {
-        Text('模型与上下文').fontSize(typeOf('type.headline').size).fontWeight(typeOf('type.headline').weight).fontColor(this.pal().textPrimary).layoutWeight(1)
+        Text(i18nT('模型与上下文')).fontSize(typeOf('type.headline').size).fontWeight(typeOf('type.headline').weight).fontColor(this.pal().textPrimary).layoutWeight(1)
         // ⛔ 用户 2026-10-11 报「关闭**不好点到**」。**真机装机实测（08:35）结论**：
         //    ① 点 X **视觉中心** ⇒ 关闭 ✓；② 点它**框外 11px（上方）/ 15px（左侧，仍在父 Row 内）**
         //       ⇒ **不关闭** ✗ ⇒ **`responseRegion` 的负偏移外扩在真机（SDK21）上不生效**
@@ -11964,7 +11991,7 @@ struct Index {
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center)
         .stateStyles({ pressed: { .opacity(0.75) }, normal: { .opacity(1) } })
-        .accessibilityText('关闭')
+        .accessibilityText(i18nT('关闭'))
         .onClick(() => {
           this.showModel = false;
         })
@@ -11998,7 +12025,7 @@ struct Index {
       }.width('100%')
 
       Row({ space: 6 }) {
-        TextInput({ placeholder: '自定义，如 200k / 1m', text: this.ctxInput })
+        TextInput({ placeholder: i18nT('自定义，如 200k / 1m'), text: this.ctxInput })
           .onChange((v: string) => {
             this.ctxInput = v;
           })
@@ -12006,7 +12033,7 @@ struct Index {
           .backgroundColor(this.pal().surfaceAlt).fontColor(this.pal().textPrimary).fontSize(typeOf('type.caption').size)
         // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44)：原仅靠 `padding(…SPACE_XS)` 撑到 ≈28 ⇒ 低于阈值。
         Row() {
-          Text('应用').fontSize(typeOf('type.caption').size).fontColor(this.pal().onAccent)
+          Text(i18nT('应用')).fontSize(typeOf('type.caption').size).fontColor(this.pal().onAccent)
         }
         .constraintSize({ minHeight: HIT_TARGET_MIN })
         .padding({ left: SPACE_SM, right: SPACE_SM })
@@ -12016,7 +12043,7 @@ struct Index {
         .onClick(() => {
             const n: number = parseContext(this.ctxInput);
             if (n <= 0) {
-              this.toast('上下文上限格式不对（示例：200k / 1m / 200000）');
+              this.toast(i18nT('上下文上限格式不对（示例：200k / 1m / 200000）'));
               return;
             }
             this.applyMaxContext(n);
@@ -12037,7 +12064,7 @@ struct Index {
           // 错误态标准样式 = 一行语义色小字 + 「重试」（同 `SettingsErrorBar` / `PluginsSheet`）。
           // 重试走**既有取数入口**（`reloadModelList` → `store.loadLlmConfig`）；真实 ≥44 布局盒。
           Row() {
-            Text('重试').fontSize(typeOf('type.caption').size).fontColor(colorOf(this.pal(), 'accentSoft'))
+            Text(i18nT('重试')).fontSize(typeOf('type.caption').size).fontColor(colorOf(this.pal(), 'accentSoft'))
           }
           .width('100%').constraintSize({ minHeight: HIT_TARGET_MIN })
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
@@ -12075,7 +12102,7 @@ struct Index {
                     if (this.modelBusy === `${g.subId}#${e.model}`) {
                       LoadingProgress().width(14).height(14).color(this.pal().accent)
                     } else if (e.model === this.currentModelName()) {
-                      Text('当前').fontSize(typeOf('type.caption').size).fontColor(this.pal().successText)
+                      Text(i18nT('当前')).fontSize(typeOf('type.caption').size).fontColor(this.pal().successText)
                     }
                   }
                   // ⛔ 命中区 ≥44（原 `padding(SPACE_XS)` 仅撑到 ≈29）⇒ 行真实 ≥44 布局盒（Apple 列表行口径）。
@@ -12087,7 +12114,7 @@ struct Index {
                   .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                   .onClick(() => {
                     if (!this.modelSelectable(e)) {
-                      this.toast('该模型已禁用');
+                      this.toast(i18nT('该模型已禁用'));
                       return;
                     }
                     this.pickModel(g.subId, g.name, e.model !== undefined ? e.model : '');
@@ -12118,7 +12145,7 @@ struct Index {
       // ⛔ 行**真实 ≥44 布局盒**（`HIT_TARGET_MIN`，不靠 `responseRegion`）；写库走 `set_user_thinking_mode` 裸值。
       Column({ space: SPACE_XS }) {
         Row() {
-          Text('思考模式')
+          Text(i18nT('思考模式'))
             .fontSize(typeOf('type.micro').size).fontColor(this.palOnce().textMuted)
             .layoutWeight(1)
           Text(thinkingStepLabel(this.thinkStep))
@@ -12259,7 +12286,7 @@ struct Index {
     try {
       await rpc<void>(store.http, RpcMethod.setUserThinkingMode,
         new ThinkingModeParams(thinkingStepToMode(step)));
-      this.toast('已保存');
+      this.toast(i18nT('已保存'));
     } catch (e) {
       this.thinkStep = prev;
       this.toast(`保存失败: ${errText(e as Object)}`);

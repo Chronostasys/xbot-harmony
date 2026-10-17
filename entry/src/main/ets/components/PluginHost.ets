@@ -26,6 +26,7 @@ import { fs, fw, lh, SettingsGroupHeader, tc } from './SettingsRows';
 import { WIDGET_EVENT_WEB } from '../core/widgetsview';
 import { PluginWidgets } from './PluginWidgets';
 import { WebSurface } from './WebSurface';
+import { t as i18nT } from '../core/i18n';
 
 /**
  * PluginHost —— **插件目录 + 宿主页承载**（可注入组件）。
@@ -326,7 +327,7 @@ struct PluginOpenAffordance {
   }
 
   build() {
-    Text('打开')
+    Text(i18nT('打开'))
       .fontSize(fs('type.caption'))
       .fontWeight(fw('type.caption'))
       .lineHeight(lh('type.caption'))
@@ -514,7 +515,7 @@ struct PluginViewRow {
       } else {
         // 内嵌徽章/条（`status_bar_right`/`info_bar`/`iteration`）**没有独立页** ——
         // 由宿主就地渲染；这里只陈述状态，不给"可进入"暗示（点了也不会开空页）。
-        Text('内嵌渲染')
+        Text(i18nT('内嵌渲染'))
           .fontSize(fs('type.micro'))
           .fontWeight(fw('type.micro'))
           .lineHeight(lh('type.micro'))

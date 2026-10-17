@@ -57,7 +57,7 @@ function stripComments(s: string): string {
 }
 function read(rel: string): string {
   const p: string = pathMod.join(ROOT, rel);
-  return fsMod.existsSync(p) ? stripComments(fsMod.readFileSync(p, 'utf-8')) : '';
+  return fsMod.existsSync(p) ? stripComments(fsMod.readFileSync(p, 'utf-8').replace(/i18nT\(([^()]*)\)/g, '$1')) : '';
 }
 
 // ── 检查函数（纯函数：给定源码 ⇒ 是否合规；mutation 直接喂改过的副本）────────────
@@ -123,7 +123,7 @@ const SPLASH: string = read('entry/src/main/ets/components/SplashOverlay.ets');
 const ALL: string[] = [];
 if (fsMod.existsSync(COMPONENTS)) {
   for (const f of fsMod.readdirSync(COMPONENTS)) {
-    if (f.endsWith('.ets')) { ALL.push(stripComments(fsMod.readFileSync(pathMod.join(COMPONENTS, f), 'utf-8'))); }
+    if (f.endsWith('.ets')) { ALL.push(stripComments(fsMod.readFileSync(pathMod.join(COMPONENTS, f), 'utf-8').replace(/i18nT\(([^()]*)\)/g, '$1'))); }
   }
 }
 

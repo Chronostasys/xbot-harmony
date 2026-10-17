@@ -28,6 +28,7 @@ import {
 import { SettingsErrorBar, SettingsPanelHeader } from './SettingsRows';
 import { colorOf, PRESS_OPACITY, HIT_TARGET_MIN } from '../core/design';
 import { animBase } from './anim';
+import { t as i18nT } from '../core/i18n';
 
 /** `create_web_user` 的 data（服务端 `map[string]string{"password": ...}`）。 */
 interface CreatedUser {
@@ -144,7 +145,7 @@ export struct SettingsWebUsers {
             .fontColor(this.pal().textPrimary)
             .fontFamily('monospace')
             .width('100%')
-          Text('请立即复制保存。该密码不会再次显示，也不会保存在本机。')
+          Text(i18nT('请立即复制保存。该密码不会再次显示，也不会保存在本机。'))
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().textMuted)
             .width('100%')
@@ -158,7 +159,7 @@ export struct SettingsWebUsers {
 
       // 新建
       Row({ space: SP_2 }) {
-        TextInput({ text: this.newUsername, placeholder: '新账号用户名' })
+        TextInput({ text: this.newUsername, placeholder: i18nT('新账号用户名') })
           .enabled(!this.creating)
           .layoutWeight(1)
           .fontSize(FS_CAPTION)
@@ -187,12 +188,12 @@ export struct SettingsWebUsers {
       .width('100%')
 
       if (this.loading) {
-        Text('加载中…')
+        Text(i18nT('加载中…'))
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .width('100%')
       } else if (this.users.length === 0 && this.error.length === 0) {
-        Text('还没有 Web 账号。')
+        Text(i18nT('还没有 Web 账号。'))
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .width('100%')
@@ -271,7 +272,7 @@ export struct SettingsWebUsers {
           // ⇒ 走**图标专用计算型 role** `iconMuted`（浅色 = `textSecondary` 5.07 ✓；深色 = `textMuted` 逐字节）。
           // ⚠️ `iconMuted` **不是** `Palette` 字段（`pal().iconMuted` 会 ArkTS 硬红 10505001）——唯一出口是 `colorOf`。
           .fontColor([colorOf(this.pal(), 'iconMuted')])
-        Text('删除账号不会强制登出已有会话（Cookie 保持有效直到过期）。移除访问 = 删除账号。')
+        Text(i18nT('删除账号不会强制登出已有会话（Cookie 保持有效直到过期）。移除访问 = 删除账号。'))
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .layoutWeight(1)

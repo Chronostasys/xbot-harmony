@@ -152,7 +152,7 @@ export class LiveViewBridge {
       const code: number = err !== undefined && err !== null ? err.code : -1;
       // 1003500004 = LiveView is not enabled（未申请场景权限 / 用户关了开关 / 系统不支持）
       // 1003500003 = 连不上服务；1003500001/2 = 内部/编解码错。前两类**不是**我们的 bug ⇒ 降级。
-      if (code === 1003500004 || code === 1003500003) {
+      if (code === 1003500004 || code === 1003500003 || code === 401) {
         if (this.cap !== LV_CAP_NO) {
           log('liveview', `实况窗不可用（code=${code}），已降级不再尝试：${err.message}`);
         }
@@ -160,6 +160,9 @@ export class LiveViewBridge {
         this.live = false;
       } else {
         log('liveview', `实况窗调用失败 code=${code}: ${err.message}`);
+        // 非降级错误也记下“本次已尝试”，避免每秒重复推同一份内容（日志洪水）。
+        this.last = next;
+        this.lastPushMs = nowMs;
       }
     } finally {
       this.inFlight = false;

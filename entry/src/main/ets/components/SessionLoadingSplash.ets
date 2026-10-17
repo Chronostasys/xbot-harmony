@@ -22,6 +22,7 @@
 import { Palette, paletteOf, effectsOf } from '../core/theme';
 import { SP_1, SP_2, SP_4, SP_8 } from '../core/tokens';
 import { typeOf } from '../core/design';
+import { t as i18nT } from '../core/i18n';
 
 /**
  * 品牌标记边长（vp）—— 视觉锚点。
@@ -68,12 +69,12 @@ export struct SessionLoadingSplash {
       // ── 指示器 + 文案 ──
       Column({ space: SP_2 }) {
         LoadingProgress().width(24).height(24).color(this.pal().accent)
-        Text('会话加载中…')
+        Text(i18nT('会话加载中…'))
           .fontSize(typeOf('type.subhead').size)
           .fontWeight(typeOf('type.subhead').weight)
           .fontColor(this.pal().textPrimary)
           .margin({ top: SP_1 })
-        Text('正在同步历史与运行状态')
+        Text(i18nT('正在同步历史与运行状态'))
           .fontSize(typeOf('type.caption').size)
           .fontColor(this.pal().textMuted)
       }

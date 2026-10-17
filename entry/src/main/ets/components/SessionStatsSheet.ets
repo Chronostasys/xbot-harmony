@@ -26,6 +26,7 @@ import {
   SHEET_WIDTH, SURFACE_CARD, surfaceFillOf, typeOf,
 } from '../core/design';
 import { sheetTransition, animBase } from './anim';
+import { t as i18nT } from '../core/i18n';
 
 @Component
 export struct SessionStatsSheet {
@@ -284,7 +285,7 @@ export struct SessionStatsSheet {
       Column({ space: SPACE_XS }) {
         // ── 头部：标题 + 刷新 + 关闭 ──────────────────────────────────────────
         Row({ space: SPACE_XS }) {
-          Text('统计')
+          Text(i18nT('统计'))
             .fontSize(typeOf('type.headline').size)
             .fontWeight(typeOf('type.headline').weight)
             .fontColor(this.cPrimary())
@@ -298,7 +299,7 @@ export struct SessionStatsSheet {
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .accessibilityText('刷新')
+          .accessibilityText(i18nT('刷新'))
           .onClick(() => {
             this.onRetry();
           })
@@ -310,7 +311,7 @@ export struct SessionStatsSheet {
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .accessibilityText('关闭统计')
+          .accessibilityText(i18nT('关闭统计'))
           .onClick(() => {
             this.onClose();
           })
@@ -340,7 +341,7 @@ export struct SessionStatsSheet {
               })
             } else if (this.loading && !this.hasData()) {
               // 加载态 = 一行小字（⛔ 不是 spinner —— 全局同一时刻只允许一个在飞动效）
-              Text('加载中…')
+              Text(i18nT('加载中…'))
                 .fontSize(typeOf('type.caption').size)
                 .fontColor(this.cMuted())
                 .width('100%').padding(SPACE_SM)
@@ -352,7 +353,7 @@ export struct SessionStatsSheet {
                   .fontSize(typeOf('type.display').size)
                   // ⛔ 图标弱色走 `colorOf(p,'iconMuted')`（非文本档 ≥3）。
                   .fontColor([colorOf(this.palOnce(), 'iconMuted')])
-                Text('暂无数据')
+                Text(i18nT('暂无数据'))
                   .fontSize(typeOf('type.subhead').size)
                   .fontColor(this.cSecondary())
                   .width('100%')
@@ -364,7 +365,7 @@ export struct SessionStatsSheet {
                   .textAlign(TextAlign.Center)
                 // S2（对标 Apple 空态层级）：补**提示行**（怎么说才会有）——与运行面板 `PanelEmpty` 同形。
                 // ⚠️ 走既有 memo 入口 `this.cMuted()`（其内部已是 `palOnce()`）⇒ **不新增**读取点。
-                Text('本会话产生用量后会显示在这里')
+                Text(i18nT('本会话产生用量后会显示在这里'))
                   .fontSize(typeOf('type.caption').size)
                   .fontColor(this.cMuted())
                   .width('100%')

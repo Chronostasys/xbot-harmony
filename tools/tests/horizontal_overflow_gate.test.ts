@@ -104,7 +104,7 @@ for (const d of ['components', 'pages']) {
     for (let i = 0; i < ents.length; i++) {
       const p: string = pathMod.join(dir, ents[i]);
       if (fsMod.statSync(p).isDirectory()) { walk(p); }
-      else if (ents[i].endsWith('.ets')) { srcByRel.set(pathMod.relative(etsRoot, p), fsMod.readFileSync(p, 'utf-8')); }
+      else if (ents[i].endsWith('.ets')) { srcByRel.set(pathMod.relative(etsRoot, p), fsMod.readFileSync(p, 'utf-8').replace(/i18nT\(([^()]*)\)/g, '$1')); }
     }
   };
   walk(base);

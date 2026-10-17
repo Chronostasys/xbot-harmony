@@ -36,6 +36,7 @@ import { drawerTransition } from './anim';
 import { MarkdownView } from './MarkdownView';
 import { AuthImage } from './AuthImage';
 import { animBase } from './anim';
+import { t as i18nT } from '../core/i18n';
 
 /**
  * 列表数据源（`LazyForEach` 行级虚拟化 —— 大目录不炸节点）。
@@ -416,7 +417,7 @@ export struct FilesSheet {
             this.onOpenFile(filePath, fileKindOf(baseNameOf(filePath), false));
           }
         })
-      Text('加入聊天')
+      Text(i18nT('加入聊天'))
         .fontSize(typeOf('type.callout').size)
         .fontColor(this.tint('text'))
         .width('100%')
@@ -426,7 +427,7 @@ export struct FilesSheet {
         .onClick(() => {
           this.onAddToChat(filePath);
         })
-      Text('复制路径')
+      Text(i18nT('复制路径'))
         .fontSize(typeOf('type.callout').size)
         .fontColor(this.tint('text'))
         .width('100%')
@@ -453,7 +454,7 @@ export struct FilesSheet {
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .accessibilityText('返回目录')
+          .accessibilityText(i18nT('返回目录'))
           .onClick(() => {
             this.onClosePreview();
           })
@@ -470,7 +471,7 @@ export struct FilesSheet {
           // 形态：胶囊壳；**开启 = accent 实心态底 + onAccent 字**，另有 `checkmark` + `accessibilityText`
           // 的可读状态（⛔ 不许只靠颜色表达状态）。
           Row({ space: SPACE_XS }) {
-            Text('隐藏文件')
+            Text(i18nT('隐藏文件'))
               .fontSize(typeOf('type.caption').size)
               // ⚡ 2026-10-20 丝滑动画：开关切换时文字颜色缓动
               .animation(animBase())
@@ -504,7 +505,7 @@ export struct FilesSheet {
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .accessibilityText('刷新目录')
+          .accessibilityText(i18nT('刷新目录'))
           .onClick(() => {
             this.onRefresh();
           })
@@ -516,7 +517,7 @@ export struct FilesSheet {
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('关闭文件面板')
+        .accessibilityText(i18nT('关闭文件面板'))
         .onClick(() => {
           this.onClose();
         })
@@ -648,7 +649,7 @@ export struct FilesSheet {
               theme: this.theme, icon: $r('sys.symbol.exclamationmark_triangle'),
               text: this.errText(), tone: 'danger',
             })
-            Text('重试')
+            Text(i18nT('重试'))
               .fontSize(typeOf('type.callout').size)
               .fontColor(this.tint('accentSoft'))
               .padding({ left: SPACE_MD, right: SPACE_MD })

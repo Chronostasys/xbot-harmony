@@ -17,6 +17,7 @@ import { colorOf, typeOf } from '../core/design';
 import { SPLASH_T1, SPLASH_T2, SPLASH_T3 } from '../core/splash';
 import { SplashOverlay } from '../components/SplashOverlay';
 import { SessionLoadingSplash } from '../components/SessionLoadingSplash';
+import { t as i18nT } from '../core/i18n';
 
 @Entry
 @Component
@@ -54,7 +55,7 @@ struct SplashPreview {
     Stack() {
       Scroll() {
         Column({ space: SP_4 }) {
-          Text('开屏预览')
+          Text(i18nT('开屏预览'))
             .fontSize(typeOf('type.title').size)
             .fontWeight(FontWeight.Bold)
             .fontColor(this.pal().textPrimary)

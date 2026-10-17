@@ -2,6 +2,7 @@
 # 跑纯逻辑测试（无需鸿蒙 SDK）：把 .ets 当 TS 编译后用 node 执行。
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+export NODE_OPTIONS="--require $HERE/i18n_normalize.js${NODE_OPTIONS:+ $NODE_OPTIONS}"
 ROOT="$(cd "$HERE/../.." && pwd)"
 # ⚠️ 目录名带 PID：多条线（subagent）并发跑本套件时，共享目录会互相 `rm -rf`
 # ⇒ 假绿/假红（A 的产物被 B 清掉，报出与源码无关的错）。各跑各的目录，彻底解耦。

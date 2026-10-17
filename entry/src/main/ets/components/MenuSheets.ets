@@ -50,6 +50,7 @@ import {
 } from '../core/design';
 import { fs, fw, lh, tc } from './SettingsRows';
 import { sheetTransition, animBase } from './anim';
+import { t as i18nT } from '../core/i18n';
 
 /** 浮层档（`overlay`）的两层柔影（浅色 = 贴合 + 环境；深色 = 透明 + 原值）—— `core/theme.shadowLayersOf`。 */
 function overlayLayers(p: Palette): ShadowLayer[] {
@@ -316,7 +317,7 @@ export struct SearchHitsSheet {
 
         if (this.hits.length === 0) {
           // ── 空态：一行小字（无填充/无边框/无发光；§10）─────────────────────────
-          Text('当前会话里没有匹配的消息')
+          Text(i18nT('当前会话里没有匹配的消息'))
             .fontSize(fs('type.callout'))
             .fontWeight(fw('type.callout'))
             .lineHeight(lh('type.callout'))

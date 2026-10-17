@@ -36,6 +36,7 @@ import {
   WIDGET_UNSUPPORTED_LABEL, widgetDegradeDetail, widgetDeltaRole, widgetLabel, widgetPercent,
 } from '../core/pluginview';
 import { fs, fw, lh } from './SettingsRows';
+import { t as i18nT } from '../core/i18n';
 
 /** 进度条高度（vp）——纯几何常量（非颜色/时长，不进 design token）。 */
 const BAR_H: number = 6;
@@ -449,7 +450,7 @@ export struct PluginWidgets {
           if (!this.view.ok) {
             // 坏载荷（非空）⇒ **显式降级行**（绝不静默丢）。
             Row({ space: SPACE_HAIR }) {
-              Text('插件数据无效')
+              Text(i18nT('插件数据无效'))
                 .fontSize(fs('type.micro'))
                 .fontWeight(fw('type.micro'))
                 .lineHeight(lh('type.micro'))

@@ -25,6 +25,7 @@ import {
 import { SettingsErrorBar, SettingsMcpHead, SettingsPanelHeader, SettingsToolRow } from './SettingsRows';
 // 「工具」统计行的**唯一文案真源**（对齐 web `settings.tools.summary`）—— 组件只渲染，不各写一份。
 import { toolsPanelSummary } from '../core/settings';
+import { t as i18nT } from '../core/i18n';
 
 /** MCP 分组区块与内置列表之间的间距留白。 */
 const GAP: number = SP_2;
@@ -144,12 +145,12 @@ export struct SettingsTools {
       }
 
       if (this.loading) {
-        Text('加载中…')
+        Text(i18nT('加载中…'))
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .width('100%')
       } else if (this.rows.length === 0 && this.error.length === 0) {
-        Text('没有可配置的工具。')
+        Text(i18nT('没有可配置的工具。'))
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .width('100%')

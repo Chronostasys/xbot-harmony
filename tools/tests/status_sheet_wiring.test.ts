@@ -86,6 +86,9 @@ function stripComments(src: string): string {
 }
 
 const fsMod = require('fs');
+const __origRead = fsMod.readFileSync;
+fsMod.readFileSync = (p: string, e: string): string => __origRead(p, e).replace(/i18nT\(([^()]*)\)/g, '$1');
+
 const pathMod = require('path');
 const repoRoot = pathMod.join(__dirname, '..', '..', '..', '..');
 function srcPath(envName: string, rel: string): string {

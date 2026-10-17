@@ -50,6 +50,7 @@ import {
   sshMethod, statusFacts, targetMetaText, unmanagedEntries, unmanagedStateText, validateNewTarget,
   viewFromEntries, jobErrorText,
 } from '../core/sshrunner';
+import { t as i18nT } from '../core/i18n';
 
 /** 面板 RPC 通道（页面注入；未注入 ⇒ 一切调用以可读错误失败，⛔ 不静默假成功）。 */
 type SshRpc = (method: string, params: Object) => Promise<Object>;
@@ -419,7 +420,7 @@ struct SshTargetRow {
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .layoutWeight(1)
         if (this.row.isCurrent) {
-          Text('当前')
+          Text(i18nT('当前'))
             .fontSize(typeOf('type.micro').size)
             .fontColor(this.tc('onAccent'))
             .padding({ left: SPACE_XS, right: SPACE_XS })
@@ -605,7 +606,7 @@ struct SshTargetRow {
           if (this.row.diagLoading) {
             Row({ space: SPACE_XS }) {
               LoadingProgress().width(ICON_MD).height(ICON_MD).color(this.tc('icon'))
-              Text('加载中…').fontSize(typeOf('type.caption').size).fontColor(this.tc('muted'))
+              Text(i18nT('加载中…')).fontSize(typeOf('type.caption').size).fontColor(this.tc('muted'))
             }
             .width('100%')
             .alignItems(VerticalAlign.Center)
@@ -1949,7 +1950,7 @@ export struct SshRunnerSheet {
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
-      Text('没有对应 SSH 目标的注册记录（中途中止的纳管 / 旧版本残留）。它们不会出现在「切换执行目标」里，可以在这里删除。')
+      Text(i18nT('没有对应 SSH 目标的注册记录（中途中止的纳管 / 旧版本残留）。它们不会出现在「切换执行目标」里，可以在这里删除。'))
         .fontSize(typeOf('type.micro').size)
         .fontColor(this.tc('muted'))
         .width('100%')
@@ -2002,12 +2003,12 @@ export struct SshRunnerSheet {
   AddWizard() {
     Column({ space: SPACE_XS }) {
       if (this.addPhase === 'form') {
-        Text('添加远程机器')
+        Text(i18nT('添加远程机器'))
           .fontSize(typeOf('type.subhead').size)
           .fontWeight(typeOf('type.subhead').weight)
           .fontColor(this.tc('text'))
           .width('100%')
-        Text('名称')
+        Text(i18nT('名称'))
           .fontSize(typeOf('type.micro').size)
           .fontColor(this.tc('muted'))
           .width('100%')
@@ -2021,7 +2022,7 @@ export struct SshRunnerSheet {
           .onChange((v: string) => {
             this.formName = v;
           })
-        Text('SSH 命令')
+        Text(i18nT('SSH 命令'))
           .fontSize(typeOf('type.micro').size)
           .fontColor(this.tc('muted'))
           .width('100%')
@@ -2036,7 +2037,7 @@ export struct SshRunnerSheet {
           .onChange((v: string) => {
             this.formSsh = v;
           })
-        Text('连接方式')
+        Text(i18nT('连接方式'))
           .fontSize(typeOf('type.micro').size)
           .fontColor(this.tc('muted'))
           .width('100%')
@@ -2064,7 +2065,7 @@ export struct SshRunnerSheet {
             this.formAuto = !this.formAuto;
           },
         })
-        Text('tunnel：远端无需能访问 server（ssh -R 反向隧道）；direct：runner 直连 server。runner 跑在 SSH 会话前台，断开管道即结束。')
+        Text(i18nT('tunnel：远端无需能访问 server（ssh -R 反向隧道）；direct：runner 直连 server。runner 跑在 SSH 会话前台，断开管道即结束。'))
           .fontSize(typeOf('type.micro').size)
           .fontColor(this.tc('muted'))
           .width('100%')
@@ -2096,7 +2097,7 @@ export struct SshRunnerSheet {
       } else if (this.addPhase === 'probing') {
         Row({ space: SPACE_XS }) {
           LoadingProgress().width(ICON_MD).height(ICON_MD).color(this.tc('accent'))
-          Text('正在探测远端环境…')
+          Text(i18nT('正在探测远端环境…'))
             .fontSize(typeOf('type.callout').size)
             .fontColor(this.tc('text'))
             .layoutWeight(1)
@@ -2104,7 +2105,7 @@ export struct SshRunnerSheet {
         .width('100%')
         .alignItems(VerticalAlign.Center)
       } else if (this.addPhase === 'confirm') {
-        Text('远端环境')
+        Text(i18nT('远端环境'))
           .fontSize(typeOf('type.subhead').size)
           .fontWeight(typeOf('type.subhead').weight)
           .fontColor(this.tc('text'))

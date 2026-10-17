@@ -15,6 +15,7 @@
  */
 import { darkPalette } from '../core/theme';
 import { SPACE_MD, SPACE_SM, SPACE_XL, colorOf, typeOf } from '../core/design';
+import { t as i18nT } from '../core/i18n';
 
 @Entry
 @Component
@@ -26,11 +27,11 @@ struct Fallback {
         .fontWeight(typeOf('type.title').weight)
         .fontColor(colorOf(darkPalette(), 'textPrimary'))
 
-      Text('页面加载失败')
+      Text(i18nT('页面加载失败'))
         .fontSize(typeOf('type.body').size)
         .fontColor(colorOf(darkPalette(), 'textSecondary'))
 
-      Text('请退出应用后重新打开。若仍然失败，请在「开发者」里反馈日志（tag: xbot）。')
+      Text(i18nT('请退出应用后重新打开。若仍然失败，请在「开发者」里反馈日志（tag: xbot）。'))
         .fontSize(typeOf('type.caption').size)
         .fontColor(colorOf(darkPalette(), 'textMuted'))
         .textAlign(TextAlign.Center)

@@ -118,6 +118,9 @@ function stripComments(src: string): string {
 }
 
 const fsMod = require('fs');
+const __origRead = fsMod.readFileSync;
+fsMod.readFileSync = (p: string, e: string): string => __origRead(p, e).replace(/i18nT\(([^()]*)\)/g, '$1');
+
 const pathMod = require('path');
 const repoRoot = pathMod.join(__dirname, '..', '..', '..', '..');
 // mutation 自证：可用 SHEETS2_COMP_DIR 指向**副本**目录（⛔ 不改真树即可证红）

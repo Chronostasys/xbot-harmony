@@ -27,6 +27,7 @@ import {
 import { fs, fw, lh } from './SettingsRows';
 import { animFast } from './anim';
 import { stagingCountLabel, stagingHeadPreview, stagingItemId, stagingListHeight, stagingPreview, stagingText } from '../core/staging';
+import { t as i18nT } from '../core/i18n';
 
 /** 折叠态「下一条」预览的最大码点数（单行，够辨识即可）。 */
 const HEAD_PREVIEW_CP: number = 40;
@@ -121,7 +122,7 @@ export struct StagingTray {
             Blank()
           }
           // 「管理」= 打开 QueueSheet（重排/清空是它独有的能力，⛔ 不在托盘里重造一份）。
-          Text('管理')
+          Text(i18nT('管理'))
             .fontSize(fs('type.caption'))
             .fontColor(this.trayColor('accentSoft'))
             .padding({ left: SPACE_XS, right: SPACE_XS })
@@ -169,7 +170,7 @@ export struct StagingTray {
                   }
                   .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
                   .justifyContent(FlexAlign.Center)
-                  .accessibilityText('插队发送')
+                  .accessibilityText(i18nT('插队发送'))
                   .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                   .onClick(() => {
                     this.onInterject(stagingItemId(q), stagingText(q));
@@ -182,7 +183,7 @@ export struct StagingTray {
                   }
                   .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
                   .justifyContent(FlexAlign.Center)
-                  .accessibilityText('取消这一条')
+                  .accessibilityText(i18nT('取消这一条'))
                   .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                   .onClick(() => {
                     this.onCancel(stagingItemId(q));

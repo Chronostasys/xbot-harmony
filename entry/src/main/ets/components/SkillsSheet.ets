@@ -35,6 +35,7 @@ import {
 // 本面板是**侧栏**（不是底部面板）⇒ 横向滑入（与 `DrawerSheet`/`FilesSheet` 同语义）。
 import { drawerTransition } from './anim';
 import { MarkdownView } from './MarkdownView';
+import { t as i18nT } from '../core/i18n';
 
 @Component
 export struct SkillsSheet {
@@ -86,7 +87,7 @@ export struct SkillsSheet {
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .accessibilityText('返回技能列表')
+          .accessibilityText(i18nT('返回技能列表'))
           .onClick(() => {
             this.onClosePreview();
           })
@@ -106,7 +107,7 @@ export struct SkillsSheet {
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .accessibilityText('刷新技能列表')
+          .accessibilityText(i18nT('刷新技能列表'))
           .onClick(() => {
             this.onRefresh();
           })
@@ -118,7 +119,7 @@ export struct SkillsSheet {
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText('关闭技能面板')
+        .accessibilityText(i18nT('关闭技能面板'))
         .onClick(() => {
           this.onClose();
         })
@@ -135,7 +136,7 @@ export struct SkillsSheet {
           .padding({ bottom: SPACE_XS })
 
         if (this.loading) {
-          Text('读取技能…')
+          Text(i18nT('读取技能…'))
             .fontSize(typeOf('type.subhead').size)
             .fontColor(paletteOf(this.theme).textSecondary)
             .width('100%')
@@ -148,7 +149,7 @@ export struct SkillsSheet {
               .layoutWeight(1)
               .maxLines(3)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
-            Text('重试')
+            Text(i18nT('重试'))
               .fontSize(typeOf('type.subhead').size)
               .fontColor(paletteOf(this.theme).accentSoft)
               .padding({ left: SPACE_SM, right: SPACE_SM })
@@ -170,13 +171,13 @@ export struct SkillsSheet {
               // ⛔ 图标弱色**只能**走 `colorOf(p,'iconMuted')`（`textMuted` 的批准档是
               // 「非交互元信息文本」=2，图标是**非文本** ⇒ 需 ≥3；仓内铁律见 AGENTS.md）。
               .fontColor([colorOf(paletteOf(this.theme), 'iconMuted')])
-            Text('暂无技能')
+            Text(i18nT('暂无技能'))
               .fontSize(typeOf('type.subhead').size)
               .fontColor(paletteOf(this.theme).textSecondary)
               .width('100%')
               .textAlign(TextAlign.Center)
             // S2（对标 Apple 空态层级）：补**提示行**（怎么说才会有）——与运行面板 `PanelEmpty` 同形。
-            Text('技能由服务端技能目录提供')
+            Text(i18nT('技能由服务端技能目录提供'))
               .fontSize(typeOf('type.caption').size)
               .fontColor(paletteOf(this.theme).textMuted)
               .width('100%')
@@ -260,7 +261,7 @@ export struct SkillsSheet {
       } else {
         // ── SKILL.md 阅读视图（复用聊天正文同一渲染器）──────────────────────────
         if (this.viewLoading) {
-          Text('读取技能说明…')
+          Text(i18nT('读取技能说明…'))
             .fontSize(typeOf('type.subhead').size)
             .fontColor(paletteOf(this.theme).textSecondary)
             .width('100%')

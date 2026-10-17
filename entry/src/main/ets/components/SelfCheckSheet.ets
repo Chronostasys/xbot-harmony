@@ -18,6 +18,7 @@ import {
 import { fs, fw } from './SettingsRows';
 import { MarkdownView } from './MarkdownView';
 import { sheetTransition } from './anim';
+import { t as i18nT } from '../core/i18n';
 
 @Component
 export struct SelfCheckSheet {
@@ -50,7 +51,7 @@ export struct SelfCheckSheet {
     Stack() {
       Column() {
         Row() {
-          Text('渲染自检').fontSize(fs('type.headline')).fontWeight(fw('type.headline'))
+          Text(i18nT('渲染自检')).fontSize(fs('type.headline')).fontWeight(fw('type.headline'))
             .fontColor(this.pal().textPrimary).layoutWeight(1)
           // ⛔ 关闭 X：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`；
           //    图标视觉尺寸不变（仍 16，盒内居中）。
@@ -61,7 +62,7 @@ export struct SelfCheckSheet {
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .accessibilityText('关闭')
+          .accessibilityText(i18nT('关闭'))
           .onClick(() => {
             this.onClose();
           })
@@ -73,7 +74,7 @@ export struct SelfCheckSheet {
           .onClick(() => {
             this.onCollect();
           })
-        Text('下方这一段可【长按复制】后直接粘贴给对方 —— 不必截图（零网络也能取证）')
+        Text(i18nT('下方这一段可【长按复制】后直接粘贴给对方 —— 不必截图（零网络也能取证）'))
           .fontSize(fs('type.caption')).fontColor(this.pal().warn).width('100%').wordBreak(WordBreak.BREAK_WORD)
         Text(this.auditText)
           .fontSize(fs('type.caption')).fontColor(this.pal().successText).fontFamily('monospace')
@@ -86,37 +87,37 @@ export struct SelfCheckSheet {
         Scroll() {
           Column({ space: 10 }) {
             Column({ space: 6 }) {
-              Text('A 纯文本（自动换行）').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_WORD)
+              Text(i18nT('A 纯文本（自动换行）')).fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_WORD)
               MarkdownView({ text: '这是一段用于自检的普通中文文本，应当自动换行并且左右不溢出。' })
             }.width('100%').padding(SP_2).backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD)).borderRadius(R_LG)
             .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
 
             Column({ space: 6 }) {
-              Text('B 行内样式（粗/斜/删除/行内码/链接）').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_WORD)
+              Text(i18nT('B 行内样式（粗/斜/删除/行内码/链接）')).fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_WORD)
               MarkdownView({ text: '这里有 **粗体**、*斜体*、~~删除线~~、`inlineCode()` 与 [一个链接](https://example.com)。' })
             }.width('100%').padding(SP_2).backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD)).borderRadius(R_LG)
             .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
 
             Column({ space: 6 }) {
-              Text('C 标题 + 列表').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_WORD)
+              Text(i18nT('C 标题 + 列表')).fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_WORD)
               MarkdownView({ text: '## 二级标题\n- 列表项一\n- 列表项二\n\n1. 有序一\n2. 有序二' })
             }.width('100%').padding(SP_2).backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD)).borderRadius(R_LG)
             .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
 
             Column({ space: 6 }) {
-              Text('D 代码块（含超长行）').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_WORD)
+              Text(i18nT('D 代码块（含超长行）')).fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_WORD)
               MarkdownView({ text: '```ts\nconst veryLongVariableName: string = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";\n```' })
             }.width('100%').padding(SP_2).backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD)).borderRadius(R_LG)
             .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
 
             Column({ space: 6 }) {
-              Text('E 表格').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%')
+              Text(i18nT('E 表格')).fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%')
               MarkdownView({ text: '| 列一 | 列二 |\n| --- | --- |\n| 值一 | 值二 |\n| 更长的值 | 另一个值 |' })
             }.width('100%').padding(SP_2).backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD)).borderRadius(R_LG)
             .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
 
             Column({ space: 6 }) {
-              Text('F 工具 pill 行（Flex 换行）').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_WORD)
+              Text(i18nT('F 工具 pill 行（Flex 换行）')).fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_WORD)
               Flex({ wrap: FlexWrap.Wrap }) {
                 ForEach(['已完成 Read', '已完成 Shell', '运行中 Grep', '已完成 Edit', '失败 Fetch'], (t: string) => {
                   Text(t).fontSize(FS_CAPTION).fontColor(this.pal().successText)
@@ -131,18 +132,18 @@ export struct SelfCheckSheet {
             .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
 
             Column({ space: 6 }) {
-              Text('G 长 URL（不可断词）').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_WORD)
+              Text(i18nT('G 长 URL（不可断词）')).fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%').wordBreak(WordBreak.BREAK_WORD)
               Text('https://xbot.pivotlang.tech/api/files/download?key=uploads%2F4%2Faaef9711-1349-420d-97ea-94e70e2401e7.jpg&inline=1')
                 .fontSize(FS_CAPTION).fontColor(this.pal().accentSoft).width('100%')
             }.width('100%').padding(SP_2).backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD)).borderRadius(R_LG)
             .border({ width: STROKE_HAIRLINE, color: structuralRuleOf(this.pal()) })
 
             Column({ space: 6 }) {
-              Text('H 顶栏内联布局').fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%')
+              Text(i18nT('H 顶栏内联布局')).fontSize(FS_CAPTION).fontColor(this.pal().textSecondary).width('100%')
               Row() {
                 SymbolGlyph($r('sys.symbol.line_3_horizontal')).fontSize(ICON_XL)
                   .fontColor([this.pal().textPrimary]).padding(10)
-                Text('标题文本').fontSize(fs('type.body')).fontColor(this.pal().textPrimary).layoutWeight(1)
+                Text(i18nT('标题文本')).fontSize(fs('type.body')).fontColor(this.pal().textPrimary).layoutWeight(1)
                 SymbolGlyph($r('sys.symbol.square_grid_2x2')).fontSize(ICON_XL)
                   .fontColor([this.pal().textPrimary]).padding(10)
                 SymbolGlyph($r('sys.symbol.gearshape')).fontSize(ICON_XL)

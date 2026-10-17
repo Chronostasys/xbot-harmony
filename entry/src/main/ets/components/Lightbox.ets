@@ -34,6 +34,7 @@ import {
   clampOffset, clampScale, isZoomed, nextZoom, panLimit, scaleText, shouldDismissBySwipe,
 } from '../core/imgops';
 import { lightboxTransition } from './anim';
+import { t as i18nT } from '../core/i18n';
 
 /** 工具栏/说明的字型角色（`docs/DESIGN-SYSTEM.md §12` 合法表内）。 */
 const TYPE_LABEL: string = 'type.body';
@@ -124,7 +125,7 @@ export struct Lightbox {
           .fontColor(colorOf(this.pal(), 'textSecondary'))
           // 兜底不溢出（本值恒短如 "250%"，但**判据要求每个 Text 都有兜底**；`BREAK_ALL` 对短串是 no-op）
           .wordBreak(WordBreak.BREAK_ALL)
-        Text('复位')
+        Text(i18nT('复位'))
           .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(typeOf(TYPE_META).size)
           .fontColor(colorOf(this.pal(), 'accentSoft'))
@@ -160,7 +161,7 @@ export struct Lightbox {
       .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
       .justifyContent(FlexAlign.Center)
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-      .accessibilityText('关闭')
+      .accessibilityText(i18nT('关闭'))
       .onClick(() => {
         this.onClose();
       })
@@ -184,7 +185,7 @@ export struct Lightbox {
     if (this.busy) {
       Column() {
         LoadingProgress().width(32).height(32).color(colorOf(this.pal(), 'accent'))
-        Text('加载图片…')
+        Text(i18nT('加载图片…'))
           .fontSize(typeOf(TYPE_META).size)
           .fontColor(colorOf(this.pal(), 'textSecondary'))
           .margin({ top: SPACE_XS })

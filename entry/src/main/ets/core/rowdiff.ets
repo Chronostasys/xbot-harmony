@@ -7,6 +7,7 @@
  * 整表 reload 会丢掉滚动锚点与复用，漏通知则内容不更新。故 diff 逻辑单独抽出来钉死。
  */
 import { ChatRow, HistoryIteration } from './types';
+import { getLocale } from './i18n';
 
 /** 一行的稳定键：内容每次变化 `rev` 自增（参与键 ⇒ 内容变了就重建该行）。 */
 export function rowKey(r: ChatRow): string {
@@ -81,7 +82,7 @@ export function sessionScopedRowKey(chatId: string, r: ChatRow): string {
   //    render.applyRow 对 iterations/rev 等**赋值替换引用** ⇒ @ObjectLink 组件自动重渲 ——
   //    与 web 的 React 状态更新同语义。rev 仍留在 applyRows 的键快照里做「行变了」的
   //    内部判据，但不再进框架键（同键重建正是闪烁的根源）。
-  return chatId + '#' + r.id;
+  return chatId + '#' + r.id + '#' + getLocale();
 }
 
 /**

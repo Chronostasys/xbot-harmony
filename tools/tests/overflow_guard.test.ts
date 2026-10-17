@@ -129,7 +129,7 @@ for (const rel of MY_FILES) {
   }
   dist.push(`${rel}: Text ×${n}`);
 }
-function stropRaw(p: string): string { return fs.readFileSync(p, 'utf8'); }
+function stropRaw(p: string): string { return fs.readFileSync(p, 'utf8').replace(/i18nT\(([^()]*)\)/g, '$1'); }
 
 console.log('▶ 溢出防线扫描（我域 5 文件）：');
 for (const d of dist) { console.log(`    · ${d}`); }

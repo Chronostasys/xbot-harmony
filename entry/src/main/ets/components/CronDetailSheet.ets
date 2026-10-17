@@ -39,6 +39,7 @@ import {
 import { fs, fw, lh } from './SettingsRows';
 // 弹层开合过渡：唯一出口 = 底座 `sheetTransition()`（⛔ 不自造第二套入场语言）。
 import { sheetTransition } from './anim';
+import { t as i18nT } from '../core/i18n';
 
 /** 消息块高度上限（vp）—— `SPACE_SM × 35` = 280：约三分之一屏，超出在其内滚动。 */
 const CRON_MSG_MAX_H: number = SPACE_SM * 35;
@@ -170,7 +171,7 @@ export struct CronDetailSheet {
       Column({ space: SPACE_SM }) {
         // ── 头部：标题 + 关闭 ────────────────────────────────────────────────
         Row({ space: SPACE_XS }) {
-          Text('定时任务')
+          Text(i18nT('定时任务'))
             .fontSize(fs('type.headline'))
             .fontWeight(fw('type.headline'))
             .fontColor(this.skin().text)
@@ -184,7 +185,7 @@ export struct CronDetailSheet {
           .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
           .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .accessibilityText('关闭定时任务详情')
+          .accessibilityText(i18nT('关闭定时任务详情'))
           .onClick(() => {
             this.onClose();
           })

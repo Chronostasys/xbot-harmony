@@ -33,6 +33,7 @@ import {
   SettingsChipRow, SettingsErrorBar, SettingsPanelHeader, SettingsTextFieldRow, SettingsToolRow,
 } from './SettingsRows';
 import { PRESS_OPACITY, HIT_TARGET_MIN } from '../core/design';
+import { t as i18nT } from '../core/i18n';
 
 /** 不可变写入（换引用 ⇒ 触发 @State 重建；ArkTS 对对象字面量取值有约束故手抄）。 */
 function withValue(map: Record<string, string>, key: string, value: string): Record<string, string> {
@@ -298,12 +299,12 @@ export struct SettingsStorage {
       }
 
       if (this.loading) {
-        Text('加载中…')
+        Text(i18nT('加载中…'))
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .width('100%')
       } else if (this.schema.length === 0 && this.error.length === 0) {
-        Text('服务端未下发存储 schema，暂无可配置项。')
+        Text(i18nT('服务端未下发存储 schema，暂无可配置项。'))
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .width('100%')
@@ -312,7 +313,7 @@ export struct SettingsStorage {
           Column({ space: SP_3 }) {
             // 正在生效的 provider（`_active`，可能与已保存值短暂不同）
             Row({ space: SP_2 }) {
-              Text('当前生效')
+              Text(i18nT('当前生效'))
                 .fontSize(FS_CAPTION)
                 .fontColor(this.pal().textMuted)
               Text(this.activeLabel())

@@ -57,6 +57,7 @@ import {
   SettingsToolRow, SettingsButton } from './SettingsRows';
 import { PRESS_OPACITY, surfaceFillOf, HIT_TARGET_MIN } from '../core/design';
 import { animBase } from './anim';
+import { t as i18nT } from '../core/i18n';
 
 /**
  * S12：订阅导出 / 导入的 RPC 方法名 + 参数体。
@@ -801,7 +802,7 @@ export struct SettingsLlm {
               void this.saveModelConfig(sub, model);
             }
           })
-        Text('取消')
+        Text(i18nT('取消'))
           .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textSecondary)
@@ -865,7 +866,7 @@ export struct SettingsLlm {
       .width('100%')
       .alignItems(VerticalAlign.Center)
 
-      Text('协议、Base URL、凭据与默认模型；编辑时凭据留空或保持掩码则不改动。')
+      Text(i18nT('协议、Base URL、凭据与默认模型；编辑时凭据留空或保持掩码则不改动。'))
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().textMuted)
         .width('100%')
@@ -910,7 +911,7 @@ export struct SettingsLlm {
       }
 
       SettingsTextFieldRow({
-        label: '名称', description: '', value: this.form.name, placeholder: '如 My OpenAI',
+        label: '名称', description: '', value: this.form.name, placeholder: i18nT('如 My OpenAI'),
         password: false, busy: this.formBusy, theme: this.theme,
         onInput: (v: string) => {
           const f: SubscriptionForm = this.cloneForm(this.form);
@@ -1014,7 +1015,7 @@ export struct SettingsLlm {
       //    「搜索订阅 / 模型」**根本看不见**、字段不可用，真机上读作"一枚空的黑药丸"。
       //    web 权威 `SettingsLLM.tsx:248-271`：那一行**只有 4 枚按钮**（`justify-end`），
       //    搜索框**不在这行** ⇒ 本仓改为搜索框独立成行（也是 Apple 设置页的形态）。
-      TextInput({ text: this.subQuery, placeholder: '搜索订阅 / 模型' })
+      TextInput({ text: this.subQuery, placeholder: i18nT('搜索订阅 / 模型') })
         .width('100%')
         .height(34)
         .fontSize(FS_CAPTION)
@@ -1040,7 +1041,7 @@ export struct SettingsLlm {
 
 
       if (this.loading) {
-        Text('加载中…')
+        Text(i18nT('加载中…'))
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .width('100%')
@@ -1060,12 +1061,12 @@ export struct SettingsLlm {
             // web `SettingsLLM.tsx:278-303`（thinkingMode 四档开关 + maxConcurrency −/＋ 步进）。
             // 读写走专用 RPC（`get/set_user_thinking_mode`、`get/set_llm_concurrency`）。
             Column({ space: SP_2 }) {
-              Text('模型推理')
+              Text(i18nT('模型推理'))
                 .fontSize(FS_BODY)
                 .fontColor(this.pal().textPrimary)
                 .width('100%')
 
-              Text('思考模式')
+              Text(i18nT('思考模式'))
                 .fontSize(FS_CAPTION)
                 .fontColor(this.pal().textPrimary)
                 .width('100%')
@@ -1099,7 +1100,7 @@ export struct SettingsLlm {
 
               Row({ space: SP_2 }) {
                 Column({ space: 2 }) {
-                  Text('最大并发')
+                  Text(i18nT('最大并发'))
                     .fontSize(FS_CAPTION)
                     .fontColor(this.pal().textPrimary)
                     .width('100%')
@@ -1124,7 +1125,7 @@ export struct SettingsLlm {
                     .border({ width: 1, color: this.pal().borderStrong })
                     .opacity(this.inferenceBusy || this.concurrency <= LLM_CONCURRENCY_MIN ? 0.4 : 1)
                     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-                    .accessibilityText('减少并发数')
+                    .accessibilityText(i18nT('减少并发数'))
                     .onClick(() => {
                       if (!this.inferenceBusy && this.concurrency > LLM_CONCURRENCY_MIN) {
                         void this.commitConcurrency(concurrencyStep(this.concurrency, -1));
@@ -1146,7 +1147,7 @@ export struct SettingsLlm {
                     .border({ width: 1, color: this.pal().borderStrong })
                     .opacity(this.inferenceBusy || this.concurrency >= LLM_CONCURRENCY_MAX ? 0.4 : 1)
                     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-                    .accessibilityText('增加并发数')
+                    .accessibilityText(i18nT('增加并发数'))
                     .onClick(() => {
                       if (!this.inferenceBusy && this.concurrency < LLM_CONCURRENCY_MAX) {
                         void this.commitConcurrency(concurrencyStep(this.concurrency, 1));
@@ -1167,11 +1168,11 @@ export struct SettingsLlm {
             // web `SettingsLLM.tsx:307-327`（tier 区块）+ `llm-console.tsx:353-398`（选择弹窗）；
             // 读写复用**既有** `get_settings` / `set_setting`（`useLLMSettings.ts:111,428`）。
             Column({ space: SP_2 }) {
-              Text('子代理模型档位')
+              Text(i18nT('子代理模型档位'))
                 .fontSize(FS_BODY)
                 .fontColor(this.pal().textPrimary)
                 .width('100%')
-              Text('按档位给子代理挑模型（跨订阅）；留空则由系统默认决定。')
+              Text(i18nT('按档位给子代理挑模型（跨订阅）；留空则由系统默认决定。'))
                 .fontSize(FS_CAPTION)
                 .fontColor(this.pal().textMuted)
                 .width('100%')
@@ -1214,7 +1215,7 @@ export struct SettingsLlm {
 
                   if (this.pickTier === tier) {
                     Column({ space: SP_1 }) {
-                      TextInput({ text: this.tierQuery, placeholder: '搜索模型 / 订阅' })
+                      TextInput({ text: this.tierQuery, placeholder: i18nT('搜索模型 / 订阅') })
                         .enabled(!this.tierBusy)
                         .width('100%')
                         .fontSize(FS_CAPTION)
@@ -1227,7 +1228,7 @@ export struct SettingsLlm {
                           this.tierQuery = v;
                         })
                       if (this.pickerEntries().length === 0) {
-                        Text('没有匹配的模型')
+                        Text(i18nT('没有匹配的模型'))
                           .fontSize(FS_CAPTION)
                           .fontColor(this.pal().textMuted)
                           .width('100%')
@@ -1254,7 +1255,7 @@ export struct SettingsLlm {
                             .layoutWeight(1)
 
                             if (isTierEntryCurrent(this.tierRaw(tier), e)) {
-                              Text('当前')
+                              Text(i18nT('当前'))
                                 .fontSize(FS_CAPTION)
                                 .fontColor(this.pal().onAccent)
                                 .padding({ left: SP_2, right: SP_2, top: 1, bottom: 1 })
@@ -1358,7 +1359,7 @@ export struct SettingsLlm {
                 if (this.manageSubId === s.id) {
                   Column({ space: SP_2 }) {
                     Row({ space: SP_2 }) {
-                      TextInput({ text: this.modelDraft, placeholder: '模型名，如 gpt-5.2-turbo' })
+                      TextInput({ text: this.modelDraft, placeholder: i18nT('模型名，如 gpt-5.2-turbo') })
                         .layoutWeight(1)
                         .height(34)
                         .fontSize(FS_CAPTION)
@@ -1371,7 +1372,7 @@ export struct SettingsLlm {
                           this.modelDraft = v;
                         })
                       if (!isSystemSubscription(s)) {
-                        Text('登记')
+                        Text(i18nT('登记'))
                           .constraintSize({ minHeight: HIT_TARGET_MIN })
                           .fontSize(FS_CAPTION)
                           .fontColor(this.pal().accentSoft)
@@ -1390,7 +1391,7 @@ export struct SettingsLlm {
                     .alignItems(VerticalAlign.Center)
 
                     if (modelsForSub(this.entries, s.id).length === 0) {
-                      Text('该订阅下还没有模型，先「刷新模型」或手动登记。')
+                      Text(i18nT('该订阅下还没有模型，先「刷新模型」或手动登记。'))
                         .fontSize(FS_CAPTION)
                         .fontColor(this.pal().textMuted)
                         .width('100%')
@@ -1424,7 +1425,7 @@ export struct SettingsLlm {
                               })
                             // 逐模型配置入口（**接在既有模型行上** ⇒ 同屏不给"模型"第二个入口）。
                             // ⛔ 拿不到既有配置 ⇒ 灰显 + 不可点（原因见下一行说明），绝不"用默认值提交"。
-                            Text('配置')
+                            Text(i18nT('配置'))
                               .constraintSize({ minHeight: HIT_TARGET_MIN })
                               .fontSize(FS_CAPTION)
                               .fontColor(perModelEditReason(s, e.model).length > 0
@@ -1437,7 +1438,7 @@ export struct SettingsLlm {
                                   this.openModelConfig(s, e.model);
                                 }
                               })
-                            Text('删除')
+                            Text(i18nT('删除'))
                               .constraintSize({ minHeight: HIT_TARGET_MIN })
                               .fontSize(FS_CAPTION)
                               .fontColor(this.pal().dangerText)

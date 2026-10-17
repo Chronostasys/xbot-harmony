@@ -36,6 +36,9 @@ declare const require: (m: string) => any;
 declare const __dirname: string;
 const path = require('path');
 const fs = require('fs');
+const __origRead = fs.readFileSync;
+fs.readFileSync = (p: string, e: string): string => __origRead(p, e).replace(/i18nT\(([^()]*)\)/g, '$1');
+
 // ⛔ 有 `export {}`（⇒ TS 模块），避免与"无 import 的全局脚本"测试在聚合编译里撞名（本仓已入库 GOTCHA）。
 export {};
 

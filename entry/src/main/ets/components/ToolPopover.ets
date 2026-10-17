@@ -32,6 +32,7 @@ import {
   extractDiffSource, hasDiffBody, parseUnifiedDiff, splitHunk,
 } from '../core/diffparse';
 import { animBase } from './anim';
+import { t as i18nT } from '../core/i18n';
 
 /** 内容区最大高度（vp）—— 屏 ≈844vp；限制在 ~1/3 ⇒ 浮层朝上朝下都放得下。 */
 const BODY_MAX_H: number = 260;
@@ -356,7 +357,7 @@ export struct ToolPopoverCard {
       }
       .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-      .accessibilityText('复制')
+      .accessibilityText(i18nT('复制'))
       .onClick(() => {
         this.onCopy(body, what);
       })
@@ -760,7 +761,7 @@ export struct ToolPopoverCard {
           .fontColor(this.vm.exitCode !== 0 ? this.pal().dangerText : this.pal().textMuted)
       }
       if (!this.vm.hasAny) {
-        Text('暂无详情').fontSize(FS_CAPTION).fontColor(this.pal().textMuted)
+        Text(i18nT('暂无详情')).fontSize(FS_CAPTION).fontColor(this.pal().textMuted)
       }
     }
     .width('100%').alignItems(HorizontalAlign.Start)

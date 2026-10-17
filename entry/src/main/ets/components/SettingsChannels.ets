@@ -53,6 +53,7 @@ import {
 } from '../core/channelscfg';
 import { SettingsErrorBar, SettingsPanelHeader, SettingsButton } from './SettingsRows';
 import { PRESS_OPACITY, HIT_TARGET_MIN } from '../core/design';
+import { t as i18nT } from '../core/i18n';
 
 /** 「即时反馈」时长（已保存徽标 / 复制提示**共用**）——web `SettingsChannels.tsx:243` 为 2000ms。 */
 const FLASH_MS: number = 2500;
@@ -224,7 +225,7 @@ struct ChannelCard {
 
       // 启用开关（web `:345-351`）
       Row({ space: SP_2 }) {
-        Text('启用')
+        Text(i18nT('启用'))
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textPrimary)
           .layoutWeight(1)
@@ -282,7 +283,7 @@ struct ChannelCard {
             }
           })
         if (this.saved) {
-          Text('已保存')
+          Text(i18nT('已保存'))
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().successText)
         }
@@ -323,7 +324,7 @@ struct GuideListRow {
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textPrimary)
           .layoutWeight(1)
-        Text('复制全部')
+        Text(i18nT('复制全部'))
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().accentSoft)
           // ⛔ 命中区 ≥ `HIT_TARGET_MIN`(44, Apple HIG)：原先无竖直内距（视觉高≈16）⇒ 低于阈值。
@@ -408,23 +409,23 @@ struct FeishuBindPanel {
 
   build() {
     Column({ space: SP_2 }) {
-      Text('创建飞书应用（全新安装引导）')
+      Text(i18nT('创建飞书应用（全新安装引导）'))
         .fontSize(FS_BODY)
         .fontColor(this.pal().textPrimary)
         .width('100%')
 
       Column({ space: SP_1 }) {
-        Text('1. 点下面的按钮生成链接（链接 10 分钟内有效）')
+        Text(i18nT('1. 点下面的按钮生成链接（链接 10 分钟内有效）'))
           .fontSize(FS_CAPTION).fontColor(this.pal().textMuted).width('100%')
-        Text('2. 在飞书里打开它并确认 —— 应用会按下方清单自动创建')
+        Text(i18nT('2. 在飞书里打开它并确认 —— 应用会按下方清单自动创建'))
           .fontSize(FS_CAPTION).fontColor(this.pal().textMuted).width('100%')
-        Text('3. App ID / Secret 自动写入并启用本渠道，回来即可直接对话')
+        Text(i18nT('3. App ID / Secret 自动写入并启用本渠道，回来即可直接对话'))
           .fontSize(FS_CAPTION).fontColor(this.pal().textMuted).width('100%')
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
 
-      Text('在飞书中打开下面的链接确认后，当前应用会获得智能体权限、事件订阅与卡片回调。')
+      Text(i18nT('在飞书中打开下面的链接确认后，当前应用会获得智能体权限、事件订阅与卡片回调。'))
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().textMuted)
         .width('100%')
@@ -465,7 +466,7 @@ struct FeishuBindPanel {
           .width('100%')
           // 2026-10-11 用户报"字超出屏幕"：URL 无空格断点 => 必须 BREAK_ALL，否则顶出屏。
           .wordBreak(WordBreak.BREAK_ALL)
-        Text('也可以在飞书开放平台手动创建应用 →')
+        Text(i18nT('也可以在飞书开放平台手动创建应用 →'))
           .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().accentSoft)
@@ -482,7 +483,7 @@ struct FeishuBindPanel {
           .fontColor(this.pal().warn)
           .width('100%')
         Row({ space: SP_2 }) {
-          Text('确认重新生成')
+          Text(i18nT('确认重新生成'))
             .constraintSize({ minHeight: HIT_TARGET_MIN })
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().onAccent)
@@ -533,7 +534,7 @@ struct FeishuBindPanel {
               })
           }
           if (showBound(this.bindOrNull())) {
-            Text('已绑定')
+            Text(i18nT('已绑定'))
               .fontSize(FS_CAPTION)
               .fontColor(this.pal().textSecondary)
               .padding({ left: SP_2, right: SP_2, top: SP_1, bottom: SP_1 })
@@ -552,7 +553,7 @@ struct FeishuBindPanel {
           .width('100%')
       }
       if (showWaitingHint(this.bindOrNull(), this.expired)) {
-        Text('等待你在飞书中确认…（应用会自动创建并写回凭据）')
+        Text(i18nT('等待你在飞书中确认…（应用会自动创建并写回凭据）'))
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .width('100%')
@@ -1009,12 +1010,12 @@ export struct SettingsChannels {
       }
 
       if (this.loading) {
-        Text('加载中…')
+        Text(i18nT('加载中…'))
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .width('100%')
       } else if (this.names().length === 0) {
-        Text('没有可配置的渠道。')
+        Text(i18nT('没有可配置的渠道。'))
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .width('100%')
