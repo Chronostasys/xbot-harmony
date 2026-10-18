@@ -1941,6 +1941,9 @@ struct Index {
     }
     this.appPaused = false;
     setUiScrolling(false);
+    // 回前台默认看最新 turn：恢复跟随意图；若休眠期间追加了新 turn，syncFrom 的
+    // contentGrew + followBottom 会滚到末尾（否则新行在视口下方，看起来仍停在旧 turn）。
+    this.followBottom = true;
     this.syncPulse(this.busy);
     this.syncPanelPoll();
     store.sse.probeNow(Date.now());
@@ -1953,6 +1956,8 @@ struct Index {
     // 后台可能把滚动挂起标志留在 true（触摸/滚动的恢复定时器也被系统冻结）⇒
     // 回前台必须先解除，否则同步逻辑会永远早退、行内容停留在旧 turn。
     setUiScrolling(false);
+    // 回前台默认看最新 turn（休眠期间可能已追加新 turn；不恢复跟随就会停在旧内容）。
+    this.followBottom = true;
     this.syncPulse(this.busy);
     this.syncPanelPoll();
     // 回前台强制探活（旁路，仅此处一处调用）：`readTimeout:0` ⇒ 连接被中间设备静默掐死时
