@@ -352,7 +352,15 @@ export class ChatStore {
     //   当 busy 兜底，权威 idle 之后会**永久卡 busy**。`snap.streaming` 本身就是
     //   "live turn 仍在产出"的唯一同源判据（EMPTY_LIVE.streaming=true，
     //   任何被应用的事件都会把它恢复 true），足以覆盖 REST ack→turn_started 窗口。
-    return (this.state.sessionRunning || snap.streaming) && this.askUser === null;
+    // ★ 发送意图窗（用户 2026-10-18 P0「有概率发送后不立刻出现思考中」）：
+    //   `turn_started`/ack 是网络往返，ack 还可能没有 turn_id；用户点发送后的**本地
+    //   即时反馈**不能等它。发送前先置 `intentBusyAt`，get busy 立刻为 true。
+    return (this.state.sessionRunning || snap.streaming || this.sendIntentActive()) && this.askUser === null;
+  }
+
+  /** 发送意图窗（≤8s）：在 REST ack/turn_started 到达前给 composer/占位符即时反馈。 */
+  private sendIntentActive(): boolean {
+    return this.intentBusyAt > 0 && Date.now() - this.intentBusyAt < 8000;
   }
 
   /** 服务端会话树给出的权威 running（`sessions[i].running`，经 session_running 入状态机）。 */
@@ -1820,6 +1828,23 @@ export class ChatStore {
     interrupt?: boolean): Promise<boolean> {
     const isInterrupt: boolean = interrupt === true;
     this.lastSendAt = Date.now();
+    // ★ 用户 P0（2026-10-18）「有概率发送后不立刻出现思考中」：在**任何网络 await 之前**
+    //   置本地发送意图窗（非命令、非插话）。旧实现只在 ack 且 ack.turn_id>0 后才乐观置
+    //   running ⇒ ack 慢/缺 turn_id 时用户点了发送却毫无反馈，直到 turn_started。
+    //   命令（!cmd / slash）没有 turn 生命周期，不得进入该窗口。
+    const commandLike: boolean = text.startsWith('!') || text.startsWith('/');
+    const intentStamp: number = Date.now();
+    if (!isInterrupt && !commandLike) {
+      this.intentBusyAt = intentStamp;
+      this.onUpdate();
+      // 兜底止损：8s 内既没有 turn_started 也没有 ack 的 running ⇒ 不永久卡 busy。
+      setTimeout(() => {
+        if (this.intentBusyAt === intentStamp) {
+          this.intentBusyAt = 0;
+          this.onUpdate();
+        }
+      }, 8500);
+    }
     // ⛔ **全局唯一** requestID（对齐 web `newMessageRequestID`）—— 根治服务端静默去重
     //   （per-store 计数器在 store 重建后会复用 `req-N`，见 `newRequestID` 头注）。
     const requestID: string = newRequestID();
@@ -1890,6 +1915,9 @@ export class ChatStore {
       if (sendStartsTurn(ack.turn_id, ack.queued)) {
         this.intentBusyAt = Date.now();
         this.pushEvent({ type: 'session_running', running: true });
+      } else if (ack.command === true) {
+        // 命令无 turn：清发送意图，避免 composer 假 busy。
+        this.intentBusyAt = 0;
       }
       this.pushEvent({
         type: 'user_ack',
@@ -1902,6 +1930,10 @@ export class ChatStore {
       });
       return ack.interrupted === true;
     } catch (e) {
+      // 失败：清掉本次发送意图窗（成功路径由 turn_started/8s 兜底接管）。
+      if (this.intentBusyAt === intentStamp) {
+        this.intentBusyAt = 0;
+      }
       this.pushEvent({ type: 'user_fail', requestID });
       throw e as Error;
     }

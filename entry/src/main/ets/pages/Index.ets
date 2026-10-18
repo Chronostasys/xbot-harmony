@@ -9165,7 +9165,9 @@ struct Index {
     const sameChat: boolean = store !== null && store.currentChatId === this.currentChat;
     const fresh: boolean = sameChat && store !== null && Date.now() - store.sessionsFetchedAt <= 20000;
     return {
-      localBusy: sameChat && this.busy,
+      // 页面 `busy` 可能因滚动/触摸 early-return 而滞后一帧；直接并上 store 的同步 getter
+      // （含发送意图窗），保证"按下发送"同帧就有思考中反馈。
+      localBusy: sameChat && (this.busy || (store !== null && store.busy)),
       liveHasContent: sameChat && store !== null && store.hasLiveRowWithContent(),
       // ⛔ 用户 2026-10-10 ①：尾部**在飞信号**才让位（末尾在飞块有 正文/思考/工具），
       //   绝不是「行非空」—— 后者含**已提交（历史）迭代块**。迭代刚 commit、下一迭代
