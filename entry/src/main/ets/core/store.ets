@@ -1930,13 +1930,17 @@ export class ChatStore {
         // 命令无 turn：清发送意图，避免 composer 假 busy。
         this.intentBusyAt = 0;
       } else if (!isInterrupt) {
-        // ⛔ 200 但既没有 turn_id 也没有 queued：服务端**没有受理/启动**这条普通消息。
-        // 旧实现仍发 user_ack（sending=false）⇒ 乐观行留在列表里像“已发送”，而会话
-        // 永远 idle、没有回复、也没有错误（用户 2026-10-18 亲报）。
-        // 这不是成功，必须回滚乐观行并让 sendDraft 走失败交互。
-        this.intentBusyAt = 0;
-        this.pushEvent({ type: 'user_fail', requestID });
-        throw new Error('发送未被服务端受理（没有 turn_id，也未排队）');
+        // ⛔ 200 但没有 turn_id/queued 不等于“服务端没受理”：该服务的普通消息回执可能
+        // 只返回 ok，而真正的回合由 agent worker 异步启动（2026-10-18 远端实测：
+        // user 行已落库、assistant 9 iterations 已产出，但客户端没收到 SSE）。
+        // 不能在这里直接 user_fail（会误删已成功的消息）；改为短延迟权威 history 对账，
+        // 由 `resyncAfterResume` 把服务端真实回合拉回来。HTTP 失败/超时才走 catch。
+        const chatAtSend: string = this.currentChatId;
+        setTimeout(() => {
+          if (this.currentChatId === chatAtSend) {
+            this.resyncAfterResume('send-ack-sync');
+          }
+        }, 2500);
       }
       this.pushEvent({
         type: 'user_ack',
