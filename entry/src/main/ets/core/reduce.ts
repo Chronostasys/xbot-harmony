@@ -686,7 +686,10 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
       if (idx >= 0) {
         // B1 修复：排队消息开始处理时清除 queued 标记（turn_started 是权威
         // "开始处理"信号 —— 排队中的 pendingUser 不再排队）。
-        user = { ...s.pendingUsers[idx], queued: false }
+        // ⛔ 同时必须清 `sending`：REST ack 可能**永远不到**（用户 2026-10-18 实证：
+        //   第一个迭代已经在跑，气泡仍显示「发送中…」）。turn_started 本身就是消息
+        //   已送达并开始处理的权威证据，不能在等 ack。
+        user = { ...s.pendingUsers[idx], queued: false, sending: false }
         pending = s.pendingUsers.filter((_, i) => i !== idx)
       }
       // v3 staging-tray fallback: queued message was removed from pendingUsers
@@ -742,10 +745,13 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
       const existing = next.turns.get(ev.turnID)
       const turns = new Map(next.turns)
       if (existing) {
+        const deliveredUser = existing.user !== null && existing.user.sending
+          ? { ...existing.user, sending: false }
+          : existing.user
         if (existing.phase.kind === 'live') {
           turns.set(ev.turnID, {
             id: ev.turnID,
-            user: existing.user ?? user,
+            user: deliveredUser ?? user,
             phase: existing.phase,
             requestID: existing.requestID,
           })
@@ -755,7 +761,7 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
           // 空壳占位 → 升级为 live（turn_started 是权威开始信号）。
           turns.set(ev.turnID, {
             id: ev.turnID,
-            user: existing.user ?? user,
+            user: deliveredUser ?? user,
             phase: { kind: 'live', data: existing.phase.data },
             requestID: existing.requestID,
           })
@@ -763,7 +769,7 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
         }
         // committed / 有输出 frozen：嫁接 user，不动 phase（I3：指针只指
         // live，保持原值 —— next 已被预改，须显式回滚 activeTurn/lastSeq）。
-        turns.set(ev.turnID, existing.user ? existing : { ...existing, user: user ?? existing.user })
+        turns.set(ev.turnID, existing.user ? { ...existing, user: deliveredUser ?? existing.user } : { ...existing, user: user ?? existing.user })
         return { ...next, turns, pendingUsers: pending, activeTurn: s.activeTurn, lastSeq: s.lastSeq }
       }
       turns.set(ev.turnID, {
