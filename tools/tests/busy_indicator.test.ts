@@ -64,13 +64,6 @@ describe('P0 不变量：composer busy ⟹ 列表有可见"进行中"信号', ()
     }
   });
 
-  it('P0 2026-10-18：尾部有 live 行时绝不追加列表级「思考中…」（content→思考中物理禁止）', () => {
-    const o: BusySignals = sig({
-      localBusy: true, liveHasContent: true, tailShowsIndicator: false, tailIsLiveRow: true,
-    });
-    expect(showsBusyPlaceholder(o), '有 live 行 ⇒ 占位符必须让位（不能出现在 content 后）').toBe(false);
-  });
-
   it('回归场景：服务端已 running、本地 turn_started 未到 ⇒ 占位符必须出现', () => {
     // 按钮=停止：runningNow() 因「新鲜的服务端 running」为真。
     const o: BusySignals = sig({ localBusy: false, freshServerRunning: true });

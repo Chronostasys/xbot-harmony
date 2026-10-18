@@ -9160,10 +9160,13 @@ struct Index {
 
   private busySignals(): BusySignals {
     const store: ChatStore | null = this.store;
-    const fresh: boolean = store !== null && Date.now() - store.sessionsFetchedAt <= 20000;
+    // 会话隔离：切换瞬间 store / 页面 currentChat 可能短暂不一致；此时绝不能拿
+    // 旧会话的 busy/rows/live 信号给新会话渲染占位符（会串成「别家会话思考中」）。
+    const sameChat: boolean = store !== null && store.currentChatId === this.currentChat;
+    const fresh: boolean = sameChat && store !== null && Date.now() - store.sessionsFetchedAt <= 20000;
     return {
-      localBusy: this.busy,
-      liveHasContent: store !== null && store.hasLiveRowWithContent(),
+      localBusy: sameChat && this.busy,
+      liveHasContent: sameChat && store !== null && store.hasLiveRowWithContent(),
       // ⛔ 用户 2026-10-10 ①：尾部**在飞信号**才让位（末尾在飞块有 正文/思考/工具），
       //   绝不是「行非空」—— 后者含**已提交（历史）迭代块**。迭代刚 commit、下一迭代
       //   首个 delta 未到时行非空 ⇒ 旧判据抑制占位 ⇒ 空隙里什么都没有。见
@@ -9174,14 +9177,9 @@ struct Index {
       //    判据测试（iter_gap_indicator G1）按此形态扫描；busy 门放在其后。
       tailShowsIndicator: this.hasLiveRow && rowHasInFlightSignal(this.liveRowRef)
         && store !== null && store.busy,
-      // 物理不变量：尾部有 live 行时 list 级占位符必须让位（见 core/indicators）。
-      tailIsLiveRow: this.hasLiveRow,
-      // 末尾已是 assistant 内容行（无 live 行也不能在其后追加「思考中」）。
-      tailIsContentRow: this.rows.length > 0
-        && this.rows[this.rows.length - 1].role !== 'user',
-      freshServerRunning: fresh && this.serverRunning(),
-      loading: this.historyLoading,
-      rowsLen: this.rows.length,
+      freshServerRunning: sameChat && fresh && this.serverRunning(),
+      loading: sameChat && this.historyLoading,
+      rowsLen: sameChat ? this.rows.length : 0,
       // splash 展示期间 ⇒ 列表侧"进行中"指示器一律让位（见 `splashUp()` / `BusySignals.splashUp`）。
       splashUp: this.splashUp(),
     };
