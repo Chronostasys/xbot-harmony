@@ -39,7 +39,12 @@ interface CreatedUser {
 export struct SettingsWebUsers {
   // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
   // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
+  @StorageProp('appLocale') @Watch('onLocaleStamp') localeStamp: string = '';
+  /** 语言切换 -> @State 变化，强制本组件 build（@StorageProp 未在 build 直接读取时也能重渲）。 */
+  @State private localeRev: number = 0;
+  private onLocaleStamp(): void {
+    this.localeRev++;
+  }
   /** HTTP 客户端（由页面注入 `store.http`）。默认空实例只为满足 ArkTS 成员初始化。 */
   http: XbotHttp = new XbotHttp('');
   @Prop theme: string = 'dark';

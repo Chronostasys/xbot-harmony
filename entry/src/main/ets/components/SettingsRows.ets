@@ -77,7 +77,12 @@ const INPUT_W: number = 96;
 export struct SettingsToolRow {
   // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
   // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
+  @StorageProp('appLocale') @Watch('onLocaleStamp') localeStamp: string = '';
+  /** 语言切换 -> @State 变化，强制本组件 build（@StorageProp 未在 build 直接读取时也能重渲）。 */
+  @State private localeRev: number = 0;
+  private onLocaleStamp(): void {
+    this.localeRev++;
+  }
   @Prop label: string = '';
   @Prop description: string = '';
   /** ⛔ 不能叫 `enabled` —— ArkUI `CustomComponent` 的基类成员（`.enabled()` 修饰符），
@@ -149,7 +154,12 @@ export struct SettingsToolRow {
 export struct SettingsMcpHead {
   // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
   // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
+  @StorageProp('appLocale') @Watch('onLocaleStamp') localeStamp: string = '';
+  /** 语言切换 -> @State 变化，强制本组件 build（@StorageProp 未在 build 直接读取时也能重渲）。 */
+  @State private localeRev: number = 0;
+  private onLocaleStamp(): void {
+    this.localeRev++;
+  }
   @Prop server: string = '';
   @Prop count: number = 0;
   @Prop allEnabled: boolean = false;
@@ -203,7 +213,12 @@ export struct SettingsMcpHead {
 export struct SettingsNumberRow {
   // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
   // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
+  @StorageProp('appLocale') @Watch('onLocaleStamp') localeStamp: string = '';
+  /** 语言切换 -> @State 变化，强制本组件 build（@StorageProp 未在 build 直接读取时也能重渲）。 */
+  @State private localeRev: number = 0;
+  private onLocaleStamp(): void {
+    this.localeRev++;
+  }
   @Prop label: string = '';
   @Prop description: string = '';
   /** 当前输入值（空串 = 未填，界面显示 placeholder）。 */
@@ -297,7 +312,12 @@ export struct SettingsNumberRow {
 export struct SettingsChipRow {
   // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
   // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
+  @StorageProp('appLocale') @Watch('onLocaleStamp') localeStamp: string = '';
+  /** 语言切换 -> @State 变化，强制本组件 build（@StorageProp 未在 build 直接读取时也能重渲）。 */
+  @State private localeRev: number = 0;
+  private onLocaleStamp(): void {
+    this.localeRev++;
+  }
   @Prop label: string = '';
   @Prop description: string = '';
   /** 当前选中值。 */
@@ -380,7 +400,12 @@ export struct SettingsChipRow {
 export struct SettingsTextFieldRow {
   // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
   // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
+  @StorageProp('appLocale') @Watch('onLocaleStamp') localeStamp: string = '';
+  /** 语言切换 -> @State 变化，强制本组件 build（@StorageProp 未在 build 直接读取时也能重渲）。 */
+  @State private localeRev: number = 0;
+  private onLocaleStamp(): void {
+    this.localeRev++;
+  }
   @Prop label: string = '';
   @Prop description: string = '';
   @Prop value: string = '';
@@ -439,7 +464,12 @@ export struct SettingsTextFieldRow {
 export struct SettingsSubCard {
   // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
   // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
+  @StorageProp('appLocale') @Watch('onLocaleStamp') localeStamp: string = '';
+  /** 语言切换 -> @State 变化，强制本组件 build（@StorageProp 未在 build 直接读取时也能重渲）。 */
+  @State private localeRev: number = 0;
+  private onLocaleStamp(): void {
+    this.localeRev++;
+  }
   @Prop subId: string = '';
   @Prop name: string = '';
   @Prop provider: string = '';
@@ -583,7 +613,12 @@ export struct SettingsSubCard {
 export struct SettingsPanelHeader {
   // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
   // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
+  @StorageProp('appLocale') @Watch('onLocaleStamp') localeStamp: string = '';
+  /** 语言切换 -> @State 变化，强制本组件 build（@StorageProp 未在 build 直接读取时也能重渲）。 */
+  @State private localeRev: number = 0;
+  private onLocaleStamp(): void {
+    this.localeRev++;
+  }
   @Prop title: string = '';
   @Prop subtitle: string = '';
   @Prop theme: string = 'dark';
@@ -625,7 +660,12 @@ export struct SettingsPanelHeader {
 export struct SettingsGroupHeader {
   // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
   // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
+  @StorageProp('appLocale') @Watch('onLocaleStamp') localeStamp: string = '';
+  /** 语言切换 -> @State 变化，强制本组件 build（@StorageProp 未在 build 直接读取时也能重渲）。 */
+  @State private localeRev: number = 0;
+  private onLocaleStamp(): void {
+    this.localeRev++;
+  }
   @Prop title: string = '';
   @Prop theme: string = 'dark';
 
@@ -668,7 +708,12 @@ export struct SettingsGroupHeader {
 export struct SettingsValueRow {
   // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
   // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
+  @StorageProp('appLocale') @Watch('onLocaleStamp') localeStamp: string = '';
+  /** 语言切换 -> @State 变化，强制本组件 build（@StorageProp 未在 build 直接读取时也能重渲）。 */
+  @State private localeRev: number = 0;
+  private onLocaleStamp(): void {
+    this.localeRev++;
+  }
   @Prop label: string = '';
   @Prop value: string = '';
   @Prop description: string = '';
@@ -719,7 +764,12 @@ export struct SettingsValueRow {
 export struct SettingsActionRow {
   // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
   // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
+  @StorageProp('appLocale') @Watch('onLocaleStamp') localeStamp: string = '';
+  /** 语言切换 -> @State 变化，强制本组件 build（@StorageProp 未在 build 直接读取时也能重渲）。 */
+  @State private localeRev: number = 0;
+  private onLocaleStamp(): void {
+    this.localeRev++;
+  }
   @Prop label: string = '';
   @Prop action: string = '';
   @Prop description: string = '';
@@ -796,7 +846,12 @@ export struct SettingsActionRow {
 export struct SettingsButton {
   // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
   // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
+  @StorageProp('appLocale') @Watch('onLocaleStamp') localeStamp: string = '';
+  /** 语言切换 -> @State 变化，强制本组件 build（@StorageProp 未在 build 直接读取时也能重渲）。 */
+  @State private localeRev: number = 0;
+  private onLocaleStamp(): void {
+    this.localeRev++;
+  }
   @Prop label: string = '';
   /** `primary` | `secondary` | `ghost` | `danger` */
   @Prop kind: string = 'secondary';
@@ -887,7 +942,12 @@ export struct SettingsButton {
 export struct SettingsRadioRow {
   // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
   // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
+  @StorageProp('appLocale') @Watch('onLocaleStamp') localeStamp: string = '';
+  /** 语言切换 -> @State 变化，强制本组件 build（@StorageProp 未在 build 直接读取时也能重渲）。 */
+  @State private localeRev: number = 0;
+  private onLocaleStamp(): void {
+    this.localeRev++;
+  }
   @Prop label: string = '';
   /** ⛔ 不叫 `selected`（避免与 ArkUI 基类成员潜在同名，同 `isOn` 之于 `enabled`）。 */
   @Prop isSelected: boolean = false;
@@ -936,7 +996,12 @@ export struct SettingsRadioRow {
 export struct SettingsErrorBar {
   // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
   // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
+  @StorageProp('appLocale') @Watch('onLocaleStamp') localeStamp: string = '';
+  /** 语言切换 -> @State 变化，强制本组件 build（@StorageProp 未在 build 直接读取时也能重渲）。 */
+  @State private localeRev: number = 0;
+  private onLocaleStamp(): void {
+    this.localeRev++;
+  }
   @Prop message: string = '';
   @Prop theme: string = 'dark';
   /** 是否给「重试」入口（**由页面经 SettingsPanel 注入的真回调**驱动，⛔ 不是状态位）。 */
