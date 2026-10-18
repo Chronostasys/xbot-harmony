@@ -636,6 +636,19 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
     }
 
     case 'turn_started': {
+      // ⛔ 2026-10-18 P0（用户截图：两条 user msg 邻接；turn 结束后卡 busy）：
+      //   **notification turn 不得在已有 live turn 时抢 `activeTurn`**。
+      //   后端可能在主 turn 仍在跑时注入 `turn_started(trigger=notification)`（后台任务完成）；
+      //   旧实现无条件 `activeTurn := 通知 turn` ⇒ ① 主 turn 被收尸成空壳（user 行留在原位），
+      //   ② 随后无 turn_id 的 stream/text 回落到 activeTurn=通知 turn ⇒ 助手的回答被渲染到
+      //   **通知 user 行之后**（视觉上两条 user 消息粘在一起），③ 主 turn 的 text_final
+      //   到达通知 turn 后无法收尾通知 turn ⇒ live/streaming 永久残留 ⇒ composer 卡 busy。
+      //   通知只应是一条 user-only 行：插成 **frozen 空壳 turn**（derive 跳过空 assistant），
+      //   绝不改 activeTurn/lastSeq/sessionRunning —— 主 turn 的事件归属保持正确。
+      const activeLive: Turn | undefined = s.activeTurn !== null ? s.turns.get(s.activeTurn) : undefined
+      if (ev.trigger === 'notification' && activeLive !== undefined && activeLive.phase.kind === 'live') {
+        return attachNotificationWhileLive(s, ev)
+      }
       // I5：seq 属于 per-run —— 新 turn 重置。
       let next: ChatState = { ...s, activeTurn: ev.turnID, lastSeq: null }
 
@@ -1333,11 +1346,17 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
 
       const turns = new Map(s.turns)
       turns.set(target, { ...t, phase: { kind: 'committed', payload } })
-      // commit 后：若这是 active turn，活动指针清空（turn 结束）。
-      const activeTurn = s.activeTurn === target ? null : s.activeTurn
+      // commit 后：若这是 active turn，活动指针清空（turn 结束）。同时清 `sessionRunning`
+      // —— text_final 是**权威 finalizer**，此时 turn 已结束；否则一条丢失的 session(idle)/
+      // session_running(false) 会让 composer 永久卡 busy（用户 2026-10-18 截图）。
+      const endedActive: boolean = s.activeTurn === target
+      const activeTurn = endedActive ? null : s.activeTurn
       // ⛔ 提交时刻复核同一判据（提交行的 iterations 就是这份窗口 —— 若它落后于计数器，
       //    界面会在 turn 结束后退回旧窗口，必须触发权威重载）。
-      return withLiveAhead({ ...s, turns, activeTurn }, target, live)
+      return withLiveAhead({
+        ...s, turns, activeTurn,
+        sessionRunning: endedActive ? false : s.sessionRunning,
+      }, target, live)
     }
 
     // ── session_fields：会话级字段的本地水合（get_goal RPC 兜底） ──
@@ -1997,6 +2016,56 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
       return { ...s, queue: ev.queue }
     }
   }
+}
+
+/**
+ * 已有 live turn 时收到 notification `turn_started` —— **只加 user 行，不抢 activeTurn**。
+ *
+ * 通知 turn 通常没有 assistant 产出（后端只注入 user 行）；把它做成 frozen 空壳 ⇒ derive
+ * 只渲染 user 行、跳过 assistant；主 turn 的 activeTurn/lastSeq/sessionRunning 原样保留，
+ * 后续事件（含无 turn_id 的 stream/text）仍归属主 turn。若通知被注入到**当前 turn**
+ * 本身（turnID 相同），不能占用唯一 user 槽 ⇒ 作为 pending 沉底。
+ */
+function attachNotificationWhileLive(
+  s: ChatState,
+  ev: Extract<DomainEvent, { type: 'turn_started' }>,
+): ChatState {
+  const content = nonEmptyStr(ev.content)
+  if (content === null) {
+    return s
+  }
+  const row: NonNullable<Turn['user']> = {
+    id: `notif-${ev.turnID}`,
+    content,
+    timestamp: new Date().toISOString(),
+    isNotification: true,
+    queued: false,
+    sending: false,
+    requestID: null,
+    turnHint: undefined,
+    dbID: undefined,
+  }
+  if (ev.turnID === s.activeTurn) {
+    // 注入到当前 turn：保留其真实 user（唯一槽）—— 通知作为 pending 沉底。
+    return { ...s, pendingUsers: [...s.pendingUsers, row] }
+  }
+  const existing = s.turns.get(ev.turnID)
+  if (existing !== undefined) {
+    if (existing.user !== null) {
+      return s
+    }
+    const turns = new Map(s.turns)
+    turns.set(ev.turnID, { ...existing, user: row })
+    return { ...s, turns }
+  }
+  const turns = new Map(s.turns)
+  turns.set(ev.turnID, {
+    id: ev.turnID,
+    user: row,
+    phase: { kind: 'frozen', data: { ...EMPTY_LIVE, streaming: false } },
+    requestID: ev.requestID,
+  })
+  return { ...s, turns }
 }
 
 /** in-flight 工具折叠（"已渲染内容永不消失"）—— foldPhase（turn_started 收尸）

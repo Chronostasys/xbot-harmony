@@ -2324,6 +2324,60 @@ describe('P1-1 — standalone 只认显式命令回复标记', () => {
     expect(row, 'standalone 行必须能在派生结果里找到').toBeTruthy()
     expect(row!.turnID, 'standalone 行的 turnID 必须保持 0（虚拟键回落 row.id）').toBe(0)
   })
+  it('REPRO 2026-10-18：已有 live turn 时 notification turn_started 不得抢 activeTurn / 卡 busy', () => {
+    // 真实时序（用户截图）：主 turn T1 正在跑 → 后台任务完成注入
+    // turn_started(trigger=notification, T2) → 旧实现把 activeTurn 改成 T2、
+    // 把 T1 收尸成空壳；随后无 turn_id 的 stream 落到 T2（回答渲染在通知 user 行后
+    // = 两条 user msg 邻接）；text_final(T1) 也收不了 T2 ⇒ live/streaming 永久残留。
+    let s = run([
+      {
+        type: 'turn_started', turnID: T1, requestID: 'r-main', trigger: 'user',
+        content: '主问题',
+      },
+      iteration1(T1, '主回答前半'),
+      { type: 'session_running', running: true },
+      {
+        type: 'turn_started', turnID: T2, requestID: null, trigger: 'notification',
+        content: '[System Notification] Background task completed',
+      },
+      {
+        type: 'stream', turnID: null, seq: null, iteration: null,
+        content: '，后半' as never, reasoning: undefined,
+        streamingTools: undefined, genui: undefined, streamStats: undefined,
+      },
+    ])
+    expect(s.activeTurn, '主 turn 必须仍是 active（通知不得抢指针）').toBe(T1)
+    expect(s.turns.get(T2)?.user?.isNotification, '通知 user 行必须保留').toBe(true)
+    expect(s.turns.get(T2)?.phase.kind, '通知 turn 必须是 frozen 空壳（不产生 live/思考中）').toBe('frozen')
+    const t1After = s.turns.get(T1)
+    expect(t1After?.phase.kind, '主 turn 必须仍是 live').toBe('live')
+    const t1Content = t1After !== undefined && t1After.phase.kind === 'live' ? t1After.phase.data.content : ''
+    expect(
+      String(t1Content),
+      '无 turn_id 的 stream 必须仍归属主 turn',
+    ).toContain('后半')
+
+    // 主 turn 收尾：text_final 是权威 finalizer，必须同时清 activeTurn + sessionRunning
+    // （否则一条丢失的 idle 会让 composer 永久 busy）。
+    s = run([textFinal(T1, '主回答前半，后半')], s)
+    expect(s.activeTurn).toBeNull()
+    expect(s.sessionRunning, 'text_final 收尾后不得残留 sessionRunning').toBe(false)
+
+    // 渲染顺序：user(T1) → assistant(T1) → notification user(T2)，不得两条 user 邻接。
+    const rows = deriveRows(s)
+    let iUser1 = -1
+    let iAssistant = -1
+    let iUser2 = -1
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i]
+      if (r.kind === 'user' && r.turnID === 1) iUser1 = i
+      if ((r.kind === 'committed' || r.kind === 'live' || r.kind === 'frozen') && r.turnID === 1) iAssistant = i
+      if (r.kind === 'user' && r.turnID === 2) iUser2 = i
+    }
+    expect(iUser1, 'user T1 必须存在').toBeGreaterThanOrEqual(0)
+    expect(iAssistant, 'assistant T1 必须存在').toBeGreaterThan(iUser1)
+    expect(iUser2, 'notification user T2 必须存在').toBeGreaterThan(iAssistant)
+  })
 })
 
 

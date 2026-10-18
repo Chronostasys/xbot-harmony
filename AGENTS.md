@@ -103,6 +103,13 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   必须同时 `ChatStore.suspendUiUpdates(true)`（挂起 `rebuildRows`，恢复时一次重建）**且**
   `setUiScrolling(true)`（模块级标志；`LiveTailView.tick` 直接读 `uiIsScrolling()`）。
   判据同上（mutation：删 `uiSuspended`/`uiIsScrolling`/`setUiScrolling` 任一处必红）。
+- **⛔ notification `turn_started` 不得在已有 live turn 时抢 `activeTurn`**（2026-10-18 用户截图：
+  两条 user msg 邻接 + turn 结束卡 busy）：后台任务完成可能在主 turn 仍在跑时注入
+  `turn_started(trigger=notification)`。旧实现无条件 `activeTurn := 通知 turn` ⇒ 主 turn 被收尸成空壳、
+  无 turn_id 的 stream/text 落到通知 turn（回答渲染在通知 user 行后）、通知 turn 永不收尾 ⇒ busy。
+  修法见 `core/reduce.ts:attachNotificationWhileLive`（只插 frozen user-only 空壳，不动
+  activeTurn/lastSeq/sessionRunning）+ `text_final` 权威收尾时清 sessionRunning；web 同源修法在
+  `web/src/chat/reduce.ts`；判据 `tools/tests/reduce.test.ts`（REPRO 2026-10-18）。
 - **⛔ 跨会话投影/异步回包必须有身份/代数守卫**：`syncFrom` 首行 `if (store !== this.store) return;`
   （否则旧 store 的 16ms flush 会把 `currentChat` 改回旧会话 = 界面 A、`this.store` B）；
   `ChatStore.chatGen` 在 `beginSwitch` 自增，所有异步回包（history/status/queue/sessions/
