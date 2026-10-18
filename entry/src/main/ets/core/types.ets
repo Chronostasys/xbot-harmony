@@ -326,6 +326,10 @@ export class ChatRow implements IterList {
    * 数据源：派生行 `UserRowView.isNotification` → `core/render.ets:applyRow` 透传。
    */
   isNotification: boolean = false;
+  /** 乐观 user 行：REST ack 前为 true（web `UserMessage.sending`）。 */
+  sending: boolean = false;
+  /** 已排队等待当前 turn 结束。 */
+  queued: boolean = false;
   /** 渲染版本：每次内容变化自增（**整数**；仅诊断/锚点缓存用，不进外层 LazyForEach 键） */
   rev: number = 0;
   /**

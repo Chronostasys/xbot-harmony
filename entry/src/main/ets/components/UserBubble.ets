@@ -24,7 +24,8 @@ import { MarkdownView } from './MarkdownView';
 import { GAP_ROW_Y, INSET_BUBBLE_X, INSET_BUBBLE_Y, RADIUS_BUBBLE, typeOf } from '../core/design';
 import { annotatedMessagePlainText } from '../core/annotations';
 import { MdBlock, MdBlockKind, parseMarkdownCached } from '../core/markdown';
-import { tNotification } from '../core/i18n';
+import { tNotification, t as i18nT } from '../core/i18n';
+import { FS_META } from '../core/tokens';
 
 /**
  * 批注展示的**文案表**（逐字对齐 web `i18n/zh-CN.ts:451-461` 的 `agent.annotations.*`）。
@@ -65,6 +66,10 @@ export struct UserBubbleView {
    * Agent output … ensuring identical markdown rendering"*）。
    */
   @Prop isNotification: boolean = false;
+  /** REST `/api/message` 尚未返回（乐观行）—— 与 web `UserMessage.sending` 同义。 */
+  @Prop sending: boolean = false;
+  /** 已排队，等待当前 turn 结束（web `UserMessage.queued`）。 */
+  @Prop queued: boolean = false;
   /** Markdown 主题 id（与助手侧**同一口径**，由页面透传；只影响代码块/行内码配色）。 */
   @Prop mdTheme: string = 'vscode-dark';
   /** 点击图片（页面打开 Lightbox）—— 与助手侧**同一回调**。 */
@@ -135,6 +140,7 @@ export struct UserBubbleView {
   }
 
   build() {
+    Column() {
     Row() {
       Blank()
       // 内容分支（**web 同源判据**，见文件头 props 注释）：
@@ -229,5 +235,27 @@ export struct UserBubbleView {
     .gesture(LongPressGesture().onAction(() => {
       this.onLongPress();
     }))
+      // 发送中/排队中：用户点发送后**本地即刻**可见，不等 REST ack 或 SSE。
+      // 这是 web `UserMessage.tsx:293-299` 同一语义；此前 data 层有 sending/queued，
+      // 但原生 UI 从未消费 ⇒ 用户看到的只有"消息已出现"，没有发送中特效。
+      if (this.sending) {
+        Row({ space: 4 }) {
+          LoadingProgress().width(12).height(12).color(this.pal().textMuted)
+          Text(i18nT('发送中…')).fontSize(FS_META).fontColor(this.pal().textMuted)
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.End)
+        .padding({ right: BUBBLE.assistantPadX, bottom: GAP_ROW_Y })
+      } else if (this.queued) {
+        Row({ space: 4 }) {
+          Text('⏳').fontSize(FS_META).fontColor(this.pal().textMuted)
+          Text(i18nT('排队中…')).fontSize(FS_META).fontColor(this.pal().textMuted)
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.End)
+        .padding({ right: BUBBLE.assistantPadX, bottom: GAP_ROW_Y })
+      }
+    }
+    .alignItems(HorizontalAlign.End)
   }
 }

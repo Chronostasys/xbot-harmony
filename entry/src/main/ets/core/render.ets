@@ -635,6 +635,8 @@ export function applyRow(row: ChatRow, r: Row): boolean {
       // 通知注入的 user 行（web `UserMessage.isNotification`）—— 渲染层据此分流：通知类**原样呈现**，
       // 普通用户消息走与助手同一条 markdown（web `UserMessage.tsx:4-5`）。
       row.isNotification = r.isNotification === true;
+      row.sending = r.sending === true;
+      row.queued = r.queued === true;
       row.regionsBefore = 0;
       row.compactions = [];
       row.subAgents = [];

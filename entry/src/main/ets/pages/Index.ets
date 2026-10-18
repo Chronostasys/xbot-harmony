@@ -10881,6 +10881,8 @@ struct Index {
         // 通知类 user 行**原样呈现**（web `UserMessage.notification.test.tsx:13/23`）；其余走
         // 与助手同一条 markdown 渲染（web `UserMessage.tsx:4-5`）—— 追加的图片引用因此成图。
         isNotification: row.isNotification === true,
+        sending: row.sending === true,
+        queued: row.queued === true,
         mdTheme: this.mdThemeId(),
         onImage: (src: string) => {
           this.openImage(src);
