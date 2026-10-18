@@ -304,6 +304,10 @@ export struct Lightbox {
     }
     .width('100%')
     .height('100%')
+    // 图片查看器必须是**最高层**：页面里 Lightbox 之后还有 WebSurface / splash / toast 等
+    // 全屏兄弟；只要其中任一个在 z 序上更高，视觉上仍看到图片，但所有点击都被它吃掉
+    //（用户 2026-10-19：X/保存图片全无反应）。显式抬到最高层，不依赖插入顺序。
+    .zIndex(1000)
     // 出入场 = 装饰（静息态不靠它）：具名工厂，时长/曲线/缩放起点全部来自底座。
     .transition(lightboxTransition())
   }
