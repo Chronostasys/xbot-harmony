@@ -1858,18 +1858,8 @@ export class ChatStore {
       }, 8500);
     }
     // 全局唯一 requestID...
-    const requestID: string = newRequestID();
-    // 最后一道保险：若 ack/turn_started/iteration 全都丢失，15s 后把乐观 sending 清掉，
-    // 气泡不会再永久「发送中」（这里用合成的 user_ack；真实 ack 到达会再覆盖 dbID/queued）。
-    if (!isInterrupt && !commandLike) {
-      setTimeout(() => {
-        this.pushEvent({
-          type: 'user_ack', requestID, dbID: 0, turnHint: undefined,
-          queued: false, command: false,
-        })
-      }, 15000)
-    }
-    console.info(`[SEND] enter: textLen=${text.length} channel=${this.channel} chatId=${this.currentChatId} interrupt=${isInterrupt} rid=${requestID}`);
+    const requestID: string = newRequestID()
+    console.info(`[SEND] enter: textLen=${text.length} channel=${this.channel} chatId=${this.currentChatId} interrupt=${isInterrupt} rid=${requestID}`)
     log('send', `发送 chat=${this.currentChatId} len=${text.length}${isInterrupt ? ' (插话)' : ''} rid=${requestID}`);
     if (!isInterrupt) {
       const c: NonEmptyS | null = nonEmptyStr(text);
@@ -1939,6 +1929,14 @@ export class ChatStore {
       } else if (ack.command === true) {
         // 命令无 turn：清发送意图，避免 composer 假 busy。
         this.intentBusyAt = 0;
+      } else if (!isInterrupt) {
+        // ⛔ 200 但既没有 turn_id 也没有 queued：服务端**没有受理/启动**这条普通消息。
+        // 旧实现仍发 user_ack（sending=false）⇒ 乐观行留在列表里像“已发送”，而会话
+        // 永远 idle、没有回复、也没有错误（用户 2026-10-18 亲报）。
+        // 这不是成功，必须回滚乐观行并让 sendDraft 走失败交互。
+        this.intentBusyAt = 0;
+        this.pushEvent({ type: 'user_fail', requestID });
+        throw new Error('发送未被服务端受理（没有 turn_id，也未排队）');
       }
       this.pushEvent({
         type: 'user_ack',
