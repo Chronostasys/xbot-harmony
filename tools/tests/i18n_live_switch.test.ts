@@ -11,6 +11,7 @@
  */
 declare const require: (name: string) => any;
 declare const process: { cwd: () => string; exit: (c: number) => void };
+export {};
 const fsMod = require('fs');
 const pathMod = require('path');
 const cpMod = require('child_process');

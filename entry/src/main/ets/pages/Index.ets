@@ -1175,6 +1175,14 @@ struct Index {
    */
   /** 当前语言（热切换：locale 变化 ⇒ row 键/设置面重建）。 */
   @State appLocale: string = getLocale();
+  /**
+   * 应用回到前台的**代数**（EntryAbility.onForeground 写入）。
+   *
+   * 为什么不能只靠 `onPageShow`：休眠/后台恢复时页面不一定重新 show（尤其被系统冻结后
+   * 直接恢复），但 SSE 可能仍是 `open`、休眠期间的通知/回合已处理完并 idle ⇒ 必须
+   * **主动 poll + history 重载**，否则永远看不到新消息（用户 2026-10-18 P0）。
+   */
+  @StorageProp('appResumedAt') @Watch('onAppResumed') appResumedAt: number = 0;
   private localeWired: boolean = false;
   @StorageLink('appTheme') themeName: string = 'dark';
   /** SSE 连接状态（来自 store：idle|connecting|open|reconnecting） */
@@ -1922,6 +1930,23 @@ struct Index {
     this.syncPanelPoll();
   }
 
+  /**
+   * EntryAbility.onForeground 的代数变化（即使页面没有重新 show 也触发）。
+   * 与 onPageShow 同一套动作；store 内部 1.2s 节流，避免双触发。
+   */
+  private onAppResumed(): void {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    this.appPaused = false;
+    this.syncPulse(this.busy);
+    this.syncPanelPoll();
+    store.sse.probeNow(Date.now());
+    store.sse.forceReconnect();
+    store.resyncAfterResume('ability-foreground');
+  }
+
   onPageShow(): void {
     this.appPaused = false;
     this.syncPulse(this.busy);
@@ -1941,6 +1966,10 @@ struct Index {
       //   （`retryPending` 已按 `reconnectDueAt` 到期判定，见 `core/sse.ets`）⇒ 直接重开。
       store.sse.probeNow(Date.now());
       store.sse.forceReconnect();
+      // ⛔ 连接状态 `open` 不代表数据没丢：休眠期间服务端可能已处理通知/回合并 idle，
+      //   SSE ring 也可能已淘汰。回前台必须做一次权威 poll（session-tree + history），
+      //   否则用户不重新打开 App 就永远看不到最新内容（用户 2026-10-18 P0）。
+      store.resyncAfterResume('page-show');
     }
     // 回前台补一次 Push Token 登记（静默、幂等：token 变了才真报，见 core/pushreg.pushShouldRegister）
     this.syncPushReg();

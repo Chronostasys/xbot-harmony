@@ -193,6 +193,12 @@ export class ChatStore {
    */
   private uiSuspended: boolean = false;
   private sessionPollTimer: number = -1;
+  /** SSE 是否曾 open 过（用于区分"首次连接"与"断线重连"）。 */
+  private sseOpenedOnce: boolean = false;
+  /** 本次 open 之前是否发生过断线 —— 重连后必须做一次权威历史重载。 */
+  private sseHadDisconnect: boolean = false;
+  /** 回前台/重连后的权威 resync 节流（避免 onPageShow + onState 双触发打爆 history）。 */
+  private lastResumeResyncAt: number = 0;
   /** 最近一次发送时刻（乐观 busy 的保护窗口，见 loadSessions 的对账） */
   lastSendAt: number = 0;
   historyLoading: boolean = false;
@@ -577,11 +583,22 @@ export class ChatStore {
       this.connState = state;
       // 应用日志（用户要求）：连接态变化是排障第一条线索（重连风暴 / 静默死一眼可辨）。
       log('sse', state);
+      if (state !== 'open' && this.sseOpenedOnce) {
+        this.sseHadDisconnect = true;
+      }
       if (state === 'open') {
+        const reconnected: boolean = this.sseHadDisconnect;
+        this.sseOpenedOnce = true;
+        this.sseHadDisconnect = false;
         // 重连后必须对账：断线期间可能错过 idle/busy 事件（错过 idle ⇒ 永远"运行中"）
         this.loadSessions().catch(() => {
           // 对账失败不影响连接本身
         });
+        if (reconnected) {
+          // 断线期间还可能错过**已完成的通知/回合**（SSE ring 淘汰后仅靠 session-tree
+          // 不会带消息正文）⇒ 重连后必须做一次权威 history 重载，不能只看连接状态。
+          this.resyncAfterResume('sse-reopen');
+        }
       }
       this.onUpdate();
     };
@@ -1320,6 +1337,42 @@ export class ChatStore {
       this.historyLoading = false;
       this.onUpdate();
     }
+  }
+
+  /**
+   * **回前台 / SSE 重连后的权威重载**（用户 2026-10-18 P0：后台休眠期间通知被处理并恢复 idle，
+   * 回前台后不重新打开 App 看不到新消息）。
+   *
+   * 为什么不能只 `probeNow/forceReconnect`：
+   *   · SSE 可能仍是 `open`（半开/后台被系统冻结但状态没变），probe 阈值未到 ⇒ 不重连；
+   *   · 即使重连，服务端 ring 里的事件可能已被淘汰，`session-tree` 也只有 running 没有正文；
+   *   · 休眠期间服务端可能又跑完一个 notification turn 并 idle ⇒ 本地必须用 `/api/history`
+   *     重新对齐，才能看到新的 user/notification 行与 assistant 输出。
+   *
+   * 语义：先 `loadSessions`（running 权威 + 会话列表），再 `loadHistory`（正文权威）。
+   * 节流 1.2s（`onPageShow` 与 `onState(open)` 可能同帧双触发）；失败静默（旁路，不阻断 UI）。
+   */
+  resyncAfterResume(reason: string = ''): void {
+    if (this.currentChatId.length === 0) {
+      return;
+    }
+    const now: number = Date.now();
+    if (now - this.lastResumeResyncAt < 1200) {
+      return;
+    }
+    this.lastResumeResyncAt = now;
+    log('resume', `权威重载 chat=${this.currentChatId} reason=${reason}`);
+    // 先会话树（running/子代理），再历史正文；两步都按 chatGen/currentChatId 守卫（loadHistory 内部）。
+    this.loadSessions().catch(() => {
+      // 会话树失败不阻断历史重载（历史失败会落 historyError，页面可重试）
+    }).then(() => {
+      if (this.currentChatId.length === 0) {
+        return;
+      }
+      this.loadHistory().catch(() => {
+        // loadHistory 已把可读错误写进 historyError；这里只防未处理 rejection
+      });
+    });
   }
 
   /**

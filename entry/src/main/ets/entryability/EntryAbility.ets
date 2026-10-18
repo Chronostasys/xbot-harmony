@@ -183,6 +183,9 @@ export default class EntryAbility extends UIAbility {
   onForeground(): void {
     // ── "三档状态"的前台档：写标志（store 据此**抑制**通知）+ 回前台对账 ──
     setAppForeground(true);
+    // 页面即使没有重新 show（系统直接恢复冻结进程），也用它触发一次权威 poll/history 重载：
+    // 休眠期间通知可能已被服务端处理并 idle，SSE 连接状态却仍是 open。
+    AppStorage.setOrCreate<number>('appResumedAt', Date.now());
     // 用户已经回来了：短时任务不再需要（幂等），角标/通知一并清掉。
     endTurnKeepAlive();
     reconcileOnForeground();
