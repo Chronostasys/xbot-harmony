@@ -63,6 +63,8 @@ ok('mutation：恢复旧单分支形态 ⇒ 必红',
   !pixelIsPlain(lb, index.replace('if (this.imagePixel !== null) {',
     'if (this.imagePixel !== null || this.imageBusy) {')));
 
+ok('Lightbox 内容层不得 HitTestMode.Block（会连 Toolbar 子按钮一起挡掉）',
+  lb.indexOf('hitTestBehavior(HitTestMode.Block)') < 0);
 console.log(fail === 0 ? 'lightbox_pixel_prop: ALL PASS' : `lightbox_pixel_prop: ${fail} FAILED`);
 process.exit(fail === 0 ? 0 : 1);
 
