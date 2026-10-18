@@ -1930,17 +1930,9 @@ export class ChatStore {
         // 命令无 turn：清发送意图，避免 composer 假 busy。
         this.intentBusyAt = 0;
       } else if (!isInterrupt) {
-        // ⛔ 200 但没有 turn_id/queued 不等于“服务端没受理”：该服务的普通消息回执可能
-        // 只返回 ok，而真正的回合由 agent worker 异步启动（2026-10-18 远端实测：
-        // user 行已落库、assistant 9 iterations 已产出，但客户端没收到 SSE）。
-        // 不能在这里直接 user_fail（会误删已成功的消息）；改为短延迟权威 history 对账，
-        // 由 `resyncAfterResume` 把服务端真实回合拉回来。HTTP 失败/超时才走 catch。
-        const chatAtSend: string = this.currentChatId;
-        setTimeout(() => {
-          if (this.currentChatId === chatAtSend) {
-            this.resyncAfterResume('send-ack-sync');
-          }
-        }, 2500);
+        // 200 但没有 turn_id/queued 不等于“服务端没受理”：普通消息可能由 worker 异步
+        // 启动（远端实测 user 已落库、assistant 已产出，但客户端没收到 SSE）。
+        // 不在这里 user_fail；统一由下方的 post-ack history 对账拉回真实回合。
       }
       this.pushEvent({
         type: 'user_ack',
@@ -1951,6 +1943,17 @@ export class ChatStore {
         queued: ack.queued === true,
         command: ack.command === true,
       });
+      // ★ 所有普通发送：短延迟做一次权威 history 对账。SSE 可能半开/丢 turn_started，
+      //   只靠事件会让 user 行永远停在“已发送但无回复”；history 是服务端真实回合的兜底。
+      //   （命令无 turn；插话由 interrupted 响应路径处理。）
+      if (!isInterrupt && !commandLike) {
+        const chatAtSend: string = this.currentChatId;
+        setTimeout(() => {
+          if (this.currentChatId === chatAtSend) {
+            this.resyncAfterResume('send-ack-sync');
+          }
+        }, 3000);
+      }
       return ack.interrupted === true;
     } catch (e) {
       // 失败：清掉本次发送意图窗（成功路径由 turn_started/8s 兜底接管）。

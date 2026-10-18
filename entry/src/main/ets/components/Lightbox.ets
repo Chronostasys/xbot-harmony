@@ -298,11 +298,9 @@ export struct Lightbox {
       .height('100%')
       .padding({ left: SPACE_SM, right: SPACE_SM, top: SPACE_SM, bottom: SPACE_SM })
       .translate({ y: this.dragY })
-      // ⛔ 用 **`HitTestMode.Block`** 表达 `stopPropagation`（挡住背板的命中测试）——**不是**可点元素：
-      //    原先写 `onClick(() => {})` 会被 `interactive_feedback` ⑦ 当成"自定义可点元素却无 press"，
-      //    而给它加 press 又会让**每次点图片（缩放/拖动）都整层闪一下**（错反馈）。
-      //    Block = "自己参与命中、挡住其后的兄弟" ⇒ 语义精确、且不引入假 affordance。
-      .hitTestBehavior(HitTestMode.Block)
+      // 内容层使用默认命中测试：**Block 会连子节点（Toolbar 的保存/关闭/复位）一起挡掉**，
+      // 真机实测整页打开后所有按钮都点不动（用户 2026-10-19 P0）。默认模式已是顶层
+      // 命中、天然挡住背板兄弟；不要再加 Block。
     }
     .width('100%')
     .height('100%')
