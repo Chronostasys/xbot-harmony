@@ -636,19 +636,11 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
     }
 
     case 'turn_started': {
-      // ⛔ 2026-10-18 P0（用户截图：两条 user msg 邻接；turn 结束后卡 busy）：
-      //   **notification turn 不得在已有 live turn 时抢 `activeTurn`**。
-      //   后端可能在主 turn 仍在跑时注入 `turn_started(trigger=notification)`（后台任务完成）；
-      //   旧实现无条件 `activeTurn := 通知 turn` ⇒ ① 主 turn 被收尸成空壳（user 行留在原位），
-      //   ② 随后无 turn_id 的 stream/text 回落到 activeTurn=通知 turn ⇒ 助手的回答被渲染到
-      //   **通知 user 行之后**（视觉上两条 user 消息粘在一起），③ 主 turn 的 text_final
-      //   到达通知 turn 后无法收尾通知 turn ⇒ live/streaming 永久残留 ⇒ composer 卡 busy。
-      //   通知只应是一条 user-only 行：插成 **frozen 空壳 turn**（derive 跳过空 assistant），
-      //   绝不改 activeTurn/lastSeq/sessionRunning —— 主 turn 的事件归属保持正确。
-      const activeLive: Turn | undefined = s.activeTurn !== null ? s.turns.get(s.activeTurn) : undefined
-      if (ev.trigger === 'notification' && activeLive !== undefined && activeLive.phase.kind === 'live') {
-        return attachNotificationWhileLive(s, ev)
-      }
+      // ⚠️ notification / queued user 都是**服务端在上一回合收尾后**才 dequeue 的新 turn
+      //（`drainAndProcessNotifications` 只在 idle/回合结束调用；运行中通知走 tool message）。
+      // ⇒ 必须走正常 turn_started：收尸旧 live、物化新 turn 的 user 行、把 activeTurn 指到
+      // 新 turn。⛔ 不要在这里 defer（旧实现会把通知冻成 user-only 空壳、丢掉它的 assistant
+      // 输出，旧 turn 又留在 active 里显示假「思考中」——用户 2026-10-18 亲报）。
       // I5：seq 属于 per-run —— 新 turn 重置。
       let next: ChatState = { ...s, activeTurn: ev.turnID, lastSeq: null }
 
