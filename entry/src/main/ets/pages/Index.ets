@@ -1940,6 +1940,7 @@ struct Index {
       return;
     }
     this.appPaused = false;
+    setUiScrolling(false);
     this.syncPulse(this.busy);
     this.syncPanelPoll();
     store.sse.probeNow(Date.now());
@@ -1949,6 +1950,9 @@ struct Index {
 
   onPageShow(): void {
     this.appPaused = false;
+    // 后台可能把滚动挂起标志留在 true（触摸/滚动的恢复定时器也被系统冻结）⇒
+    // 回前台必须先解除，否则同步逻辑会永远早退、行内容停留在旧 turn。
+    setUiScrolling(false);
     this.syncPulse(this.busy);
     this.syncPanelPoll();
     // 回前台强制探活（旁路，仅此处一处调用）：`readTimeout:0` ⇒ 连接被中间设备静默掐死时
@@ -9165,6 +9169,11 @@ struct Index {
       //    判据测试（iter_gap_indicator G1）按此形态扫描；busy 门放在其后。
       tailShowsIndicator: this.hasLiveRow && rowHasInFlightSignal(this.liveRowRef)
         && store !== null && store.busy,
+      // 物理不变量：尾部有 live 行时 list 级占位符必须让位（见 core/indicators）。
+      tailIsLiveRow: this.hasLiveRow,
+      // 末尾已是 assistant 内容行（无 live 行也不能在其后追加「思考中」）。
+      tailIsContentRow: this.rows.length > 0
+        && this.rows[this.rows.length - 1].role !== 'user',
       freshServerRunning: fresh && this.serverRunning(),
       loading: this.historyLoading,
       rowsLen: this.rows.length,

@@ -1361,6 +1361,10 @@ export class ChatStore {
       return;
     }
     this.lastResumeResyncAt = now;
+    // ⛔ 休眠/后台可能停在"滚动挂起"（uiSuspended）状态：那时 rebuildRows 被早退，
+    //   服务端已有新 turn 也不会落到行对象 ⇒ 界面永远显示旧内容（用户 2026-10-18
+    //   亲报「截图不是最新 turn，最新 turn 早就有了」）。回前台先解除挂起并立即重建。
+    this.suspendUiUpdates(false);
     log('resume', `权威重载 chat=${this.currentChatId} reason=${reason}`);
     // 先会话树（running/子代理），再历史正文；两步都按 chatGen/currentChatId 守卫（loadHistory 内部）。
     this.loadSessions().catch(() => {

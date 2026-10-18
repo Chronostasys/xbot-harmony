@@ -26,6 +26,23 @@ export interface BusySignals {
   liveHasContent: boolean;
   /** 尾部 live 行自身已在渲染在飞信号（`hasLiveRow` 且该行非空） */
   tailShowsIndicator: boolean;
+  /**
+   * 尾部是否**存在 live 行**（即使它当前没有在飞块/正文）。
+   *
+   * ⛔ 用户 2026-10-18 P0：`思考中…` 直接出现在 content 之后。根因是这里只判
+   * `!tailShowsIndicator`，漏了 web 的 `!tailIsLiveRow` ⇒ live 行已有正文、只是
+   * 暂时没有在飞块时，列表又在它后面追加一个 busy 占位。占位符只能在**没有 live 行**
+   * 时承担反馈；有 live 行时绝不追加（否则物理上就可能 content→思考中）。
+   */
+  tailIsLiveRow?: boolean;
+  /**
+   * 列表末尾是否已经是**assistant 可见内容行**（committed/frozen/live 的正文/迭代）。
+   *
+   * ⛔ 用户 2026-10-18 P0：「思考中」直接出现在 content 后，最新 turn 看不到。
+   * 即使没有 live 行，只要末尾是 assistant 内容，也绝不允许再追加列表级占位符
+   * （占位符只能在空列表 / 末尾是 user 时承担反馈）。触发时 `warnInvariant` 报警。
+   */
+  tailIsContentRow?: boolean;
   /** 服务端会话树 `running` 且快照新鲜（≤20s 内拉过会话树） */
   freshServerRunning: boolean;
   /** 历史加载中（骨架屏判据：只有"还没内容且正在拉"才用骨架，不与占位叠加） */
@@ -65,7 +82,28 @@ export function busyNow(o: BusySignals): boolean {
  * splash 自己就是"正在准备"的反馈，见 `BusySignals.splashUp`。
  */
 export function showsBusyPlaceholder(o: BusySignals): boolean {
-  return !o.splashUp && busyNow(o) && !(o.loading && o.rowsLen === 0) && !o.tailShowsIndicator;
+  const base: boolean = !o.splashUp && busyNow(o) && !(o.loading && o.rowsLen === 0) && !o.tailShowsIndicator;
+  if (base && (o.tailIsLiveRow === true || o.tailIsContentRow === true)) {
+    // ⛔ 物理不变量：末尾已有 assistant 内容/live 行时**绝不**追加列表级「思考中…」。
+    // 这正是用户截图里的 content→思考中（旧判据漏了 web 的 `!tailIsLiveRow`）。
+    warnInvariant(o);
+    return false;
+  }
+  return base;
+}
+
+/** 物理不变量被触发时的报警（节流，避免流式每帧刷屏；保留原因便于定位）。 */
+let lastInvariantWarnAt: number = 0;
+function warnInvariant(o: BusySignals): void {
+  const now: number = Date.now();
+  if (now - lastInvariantWarnAt < 2000) {
+    return;
+  }
+  lastInvariantWarnAt = now;
+  console.warn('[INVARIANT] busy placeholder suppressed after live row: '
+    + `localBusy=${o.localBusy} liveHasContent=${o.liveHasContent}`
+    + ` tailShowsIndicator=${o.tailShowsIndicator} freshServerRunning=${o.freshServerRunning}`
+    + ` rows=${o.rowsLen} loading=${o.loading}`);
 }
 
 /**
