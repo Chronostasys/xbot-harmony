@@ -26,6 +26,12 @@ export interface BusySignals {
   liveHasContent: boolean;
   /** 尾部 live 行自身已在渲染在飞信号（`hasLiveRow` 且该行非空） */
   tailShowsIndicator: boolean;
+  /**
+   * 当前有乐观 user 行仍 `sending=true`（REST ack/turn_started 前）。
+   * ⛔ 此时只能显示气泡下的「发送中…」，**不得同时显示思考中**；
+   *   发送成功（ack 或 turn_started 清 sending）后才进入思考态。
+   */
+  sending?: boolean;
   /** 服务端会话树 `running` 且快照新鲜（≤20s 内拉过会话树） */
   freshServerRunning: boolean;
   /** 历史加载中（骨架屏判据：只有"还没内容且正在拉"才用骨架，不与占位叠加） */
@@ -65,7 +71,8 @@ export function busyNow(o: BusySignals): boolean {
  * splash 自己就是"正在准备"的反馈，见 `BusySignals.splashUp`。
  */
 export function showsBusyPlaceholder(o: BusySignals): boolean {
-  return !o.splashUp && busyNow(o) && !(o.loading && o.rowsLen === 0) && !o.tailShowsIndicator;
+  return !o.splashUp && busyNow(o) && !(o.loading && o.rowsLen === 0)
+    && !o.tailShowsIndicator && o.sending !== true;
 }
 
 /**

@@ -90,7 +90,7 @@ it('REPRO 2026-10-18：ack 永不到时 turn_started 绑定 pending user 必须�
   })
   // 服务端已开始执行（turn_started），但 REST ack 永远没回来。
   const s = reduce(sent, {
-    type: 'turn_started', turnID: turnID(1), requestID: 'req-send-1',
+    type: 'turn_started', turnID: turnID(1), requestID: null,
     trigger: 'user', content: '华为的X90芯片打得过自己的9050 Pro吗' as never,
   })
   const userRow = deriveRows(s).find((r) => r.kind === 'user')
@@ -98,6 +98,24 @@ it('REPRO 2026-10-18：ack 永不到时 turn_started 绑定 pending user 必须�
   expect(userRow !== undefined && userRow.kind === 'user' ? userRow.sending : true,
     'turn_started 是送达权威信号 ⇒ 不能再显示发送中').toBe(false)
   expect(s.pendingUsers.length, 'pending 必须被收编').toBe(0)
+})
+
+it('REPRO 2026-10-18：turn 结束（text_final/idle）也必须清掉残留 sending', () => {
+  const sent = reduce(initialChatState('chat-1'), {
+    type: 'user_sent',
+    row: {
+      id: 'u-pending-2', content: '发了但 ack 永远没回来' as never,
+      timestamp: 't0', isNotification: false, queued: false, sending: true,
+      requestID: 'req-send-2', turnHint: undefined, dbID: undefined,
+    },
+  })
+  // 没有 turn_started，直接收到回合结束（真实弱网路径）。
+  const s = reduce(sent, {
+    type: 'session_idle', turnID: null, reason: 'sse-idle',
+  } as never)
+  const userRow = deriveRows(s).find((r) => r.kind === 'user')
+  expect(userRow !== undefined && userRow.kind === 'user' ? userRow.sending : true,
+    '回合结束是送达证据 ⇒ 不得永久发送中').toBe(false)
 })
 
 it('REPRO: !cmd 完整时序（ack 无 turn_id + 历史刷新）不得让 user 行/回复消失', () => {

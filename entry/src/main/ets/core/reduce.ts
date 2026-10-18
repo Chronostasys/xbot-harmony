@@ -559,6 +559,7 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
     // 清 activeTurn 的同时把活跃 turn 定格为 frozen —— **保留已渲染内容**
     // （与 cancel 的 freeze 同语义，绝不 wipe），并把 streaming 置 false。
     case 'session_idle': {
+      s = settlePendingSending(s, true)
       // ⛔ 权威按 `sessionRunning` 判定（不变量：输入框 = cancel ⇒ 上面必须显示
       // 进行中信号）。`session(idle)` / `agent-idle` 是 **coarse 会话级**信号
       //（不带 turn 身份），可能来自 SSE 重连的 last_event_id 回放窗口或
@@ -683,6 +684,19 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
       if (idx < 0) {
         idx = s.pendingUsers.findIndex((u) => u.turnHint !== undefined && u.turnHint === ev.turnID)
       }
+      // ⛔ REST ack 实际**可能永远不返回**，且 turn_started 有时不带 requestID/turnHint
+      //（用户 2026-10-18 真机：第一迭代已跑、气泡永久「发送中」）。此时把**唯一一条
+      // 未排队、仍在 sending 的 pending** 收编为当前 turn 的 user；turn_started 已是
+      // 送达的权威证据，不能因为缺 requestID 就把它留在 pending 里。
+      if (idx < 0 && ev.trigger === 'user') {
+        for (let i = s.pendingUsers.length - 1; i >= 0; i--) {
+          const u = s.pendingUsers[i]
+          if (u.sending && !u.queued) {
+            idx = i
+            break
+          }
+        }
+      }
       if (idx >= 0) {
         // B1 修复：排队消息开始处理时清除 queued 标记（turn_started 是权威
         // "开始处理"信号 —— 排队中的 pendingUser 不再排队）。
@@ -783,6 +797,7 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
 
     // ── iteration：仅 active turn；迭代 append-only（I4） ──
     case 'iteration': {
+      s = settlePendingSending(s, false)
       // ⛔ `ev.iter === null` = 事件未携带迭代号（**不是迭代 1**）。保留 prev.iter，
       //   不触发 `advanced`、不参与 gap 判据、也**不解除** committed/frozen 遮蔽
       //   （后者需要"更大迭代号"作为活动证据）。
@@ -995,6 +1010,7 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
     //   失败）时从 stream 事件重建 live turn —— 否则事件永远被丢弃
     //   （"切回来看不到任何新进度"）。
     case 'stream': {
+      s = settlePendingSending(s, false)
       const target = ev.turnID !== null ? ev.turnID : s.activeTurn
       if (target === null) return s
       if (s.turns.has(target)) {
@@ -1160,6 +1176,7 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
 
     // ── text_final：权威 finalizer —— live/frozen → committed（I2 构造） ──
     case 'text_final': {
+      s = settlePendingSending(s, true)
       // ⚠️ turnID 为 null 的 text_final = **命令回复**（`!cmd` bang / slash 命令）：
       // 后端命令分发（chatWorker 的 Concurrent 分支）按设计**不分配 turn**
       // （无 turn_started、无 turn_id），输出以独立消息形式 sendMessage 回来。
@@ -2016,9 +2033,61 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
   }
 }
 
+function settlePendingSending(s: ChatState, atTurnEnd: boolean): ChatState {
+  // 任何 iteration/stream 都是「消息已送达并在跑」的证据：即使 activeTurn 丢了/
+  // turn_id 缺失，也先把 pending 的 sending 清掉，避免气泡永久「发送中」。
+  if (!atTurnEnd && s.pendingUsers.length > 0) {
+    s = { ...s, pendingUsers: s.pendingUsers.map((u) => (u.sending ? { ...u, sending: false } : u)) }
+  }
+  // 回合结束：不只清 active turn，清**所有** turn 的 user.sending —— turn_started 可能
+  // 早于 sending 置位，或 activeTurn 已被 idle 清掉，只清 active 会漏掉那条永久发送中。
+  if (atTurnEnd) {
+    let changed = false
+    const turns = new Map(s.turns)
+    for (const [id, t] of turns) {
+      if (t.user !== null && t.user.sending) {
+        turns.set(id, { ...t, user: { ...t.user, sending: false } })
+        changed = true
+      }
+    }
+    if (changed) s = { ...s, turns }
+  }
+  // 先清 active turn 自己的 user：turn_started 可能早于 sending 被置位，或 user_echo
+  // 已经把 pending 收编进 turn，但 sending 仍为 true（用户 2026-10-18：turn 结束了
+  // 气泡还永久显示「发送中」）。任何 iteration/stream/text_final/idle 都是送达证据。
+  if (s.activeTurn !== null) {
+    const cur = s.turns.get(s.activeTurn)
+    if (cur !== undefined && cur.user !== null && cur.user.sending) {
+      const turns = new Map(s.turns)
+      turns.set(cur.id, { ...cur, user: { ...cur.user, sending: false } })
+      s = { ...s, turns }
+    }
+  }
+  if (s.pendingUsers.length === 0) return s
+  // 回合已结束：所有未排队 pending 不可能再等 ack 才能显示；清掉发送中。
+  if (s.activeTurn === null) {
+    if (!atTurnEnd) return s
+    return { ...s, pendingUsers: s.pendingUsers.map((u) => (u.sending ? { ...u, sending: false } : u)) }
+  }
+  const t = s.turns.get(s.activeTurn)
+  if (t === undefined) return s
+  let idx = -1
+  for (let i = s.pendingUsers.length - 1; i >= 0; i--) {
+    const u = s.pendingUsers[i]
+    if (u.sending && !u.queued) { idx = i; break }
+  }
+  if (idx < 0) return s
+  if (t.user === null) {
+    // turn_started 丢了/没带 requestID：第一迭代就是送达证据 ⇒ 直接收编为 turn user。
+    const turns = new Map(s.turns)
+    turns.set(t.id, { ...t, user: { ...s.pendingUsers[idx], sending: false } })
+    return { ...s, turns, pendingUsers: s.pendingUsers.filter((_, i) => i !== idx) }
+  }
+  // 已有 user：只清发送中（保留排队/异常 pending 行，避免丢消息）。
+  return { ...s, pendingUsers: s.pendingUsers.map((u, i) => (i === idx ? { ...u, sending: false } : u)) }
+}
+
 /**
- * 已有 live turn 时收到 notification `turn_started` —— **只加 user 行，不抢 activeTurn**。
- *
  * 通知 turn 通常没有 assistant 产出（后端只注入 user 行）；把它做成 frozen 空壳 ⇒ derive
  * 只渲染 user 行、跳过 assistant；主 turn 的 activeTurn/lastSeq/sessionRunning 原样保留，
  * 后续事件（含无 turn_id 的 stream/text）仍归属主 turn。若通知被注入到**当前 turn**

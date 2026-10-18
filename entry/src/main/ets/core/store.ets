@@ -373,6 +373,18 @@ export class ChatStore {
     return this.state.activeTurn !== null;
   }
 
+  /** 当前是否有尚未被 ack/turn_started 确认的乐观 user 行（发送中）。 */
+  hasSendingUser(): boolean {
+    for (let i = 0; i < this.state.pendingUsers.length; i++) {
+      if (this.state.pendingUsers[i].sending) return true;
+    }
+    if (this.state.activeTurn !== null) {
+      const t = this.state.turns.get(this.state.activeTurn);
+      if (t !== undefined && t.user !== null && t.user.sending) return true;
+    }
+    return false;
+  }
+
   /** 当前是否持有带产出的 live 行（尾块/占位符让位判据）。 */
   hasLiveRowWithContent(): boolean {
     if (this.state.activeTurn === null) {
@@ -1845,9 +1857,18 @@ export class ChatStore {
         }
       }, 8500);
     }
-    // ⛔ **全局唯一** requestID（对齐 web `newMessageRequestID`）—— 根治服务端静默去重
-    //   （per-store 计数器在 store 重建后会复用 `req-N`，见 `newRequestID` 头注）。
+    // 全局唯一 requestID...
     const requestID: string = newRequestID();
+    // 最后一道保险：若 ack/turn_started/iteration 全都丢失，15s 后把乐观 sending 清掉，
+    // 气泡不会再永久「发送中」（这里用合成的 user_ack；真实 ack 到达会再覆盖 dbID/queued）。
+    if (!isInterrupt && !commandLike) {
+      setTimeout(() => {
+        this.pushEvent({
+          type: 'user_ack', requestID, dbID: 0, turnHint: undefined,
+          queued: false, command: false,
+        })
+      }, 15000)
+    }
     console.info(`[SEND] enter: textLen=${text.length} channel=${this.channel} chatId=${this.currentChatId} interrupt=${isInterrupt} rid=${requestID}`);
     log('send', `发送 chat=${this.currentChatId} len=${text.length}${isInterrupt ? ' (插话)' : ''} rid=${requestID}`);
     if (!isInterrupt) {

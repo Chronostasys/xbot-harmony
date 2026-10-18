@@ -1299,6 +1299,8 @@ struct Index {
   @State sweepX: number = -80;
   /** 上次发送失败的正文（提供一键重试） */
   @State failedSend: string = '';
+  /** 上次发送失败的原因（显示在重试条内；不吞错）。 */
+  @State failedSendReason: string = '';
   private draftTimer: number = -1;
   /**
    * 运行脉冲（P13）：只在有回合在跑时用 600ms 定时器翻转一次 opacity。
@@ -3976,6 +3978,7 @@ struct Index {
       }
       console.info('xbot send: await 已 resolve');
       this.failedSend = '';
+      this.failedSendReason = '';
       const note: string = sendToast(interrupted, busyBefore);
       if (note.length > 0) {
         this.toast(note);
@@ -3990,6 +3993,7 @@ struct Index {
       this.draft = text;
       this.attachments = keep;
       this.failedSend = text;
+      this.failedSendReason = errText(e as Object);
       this.toast(`发送失败: ${errText(e as Object)}`);
     }
   }
@@ -7326,6 +7330,10 @@ struct Index {
       if (this.failedSend.length > 0) {
         Row({ space: 8 }) {
           Text(i18nT('上次发送失败')).fontSize(typeOf('type.caption').size).fontColor(this.pal().dangerText).layoutWeight(1)
+          if (this.failedSendReason.length > 0) {
+            Text(this.failedSendReason).fontSize(typeOf('type.caption').size)
+              .fontColor(this.pal().textMuted).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
           Text(i18nT('重试')).fontSize(typeOf('type.caption').size).fontColor(this.pal().warn).padding(6)
             .stateStyles({ pressed: { .opacity(0.7) }, normal: { .opacity(1) } })
             .onClick(() => {
@@ -7337,6 +7345,7 @@ struct Index {
           Text(i18nT('丢弃')).fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary).padding(6)
             .onClick(() => {
               this.failedSend = '';
+              this.failedSendReason = '';
             })
         }
         .width('100%').padding({ left: 10, right: 6, top: 6, bottom: SPACE_HAIR })
@@ -9168,6 +9177,7 @@ struct Index {
       // 页面 `busy` 可能因滚动/触摸 early-return 而滞后一帧；直接并上 store 的同步 getter
       // （含发送意图窗），保证"按下发送"同帧就有思考中反馈。
       localBusy: sameChat && (this.busy || (store !== null && store.busy)),
+      sending: sameChat && store !== null && store.hasSendingUser(),
       liveHasContent: sameChat && store !== null && store.hasLiveRowWithContent(),
       // ⛔ 用户 2026-10-10 ①：尾部**在飞信号**才让位（末尾在飞块有 正文/思考/工具），
       //   绝不是「行非空」—— 后者含**已提交（历史）迭代块**。迭代刚 commit、下一迭代
@@ -12536,11 +12546,22 @@ class ChatRowDataSource implements IDataSource {
     //    ChatRow 是 @Observed、render.applyRow 对 iterations 等赋值替换引用 ⇒
     //    @ObjectLink 组件自动重渲（与 web 的 React 状态更新同语义）。changed 恒空。
     const changed: number[] = [];
+    const prevKeys: string[] = this.keys;
     this.rows = next;
     this.chatId = chatId;
     const keys: string[] = [];
     for (let i = 0; i < next.length; i++) {
       keys.push(themableRowKey(chatId, theme, next[i]));
+    }
+    // ⛔ 键里现在含 sending/queued（见 sessionScopedRowKey）：ack/turn_started 清发送中
+    //   只改变这两个布尔，`needsFullReload` 仍为 false（只比 id）且 changed 原本恒空 ⇒
+    //   LazyForEach **收不到任何通知** ⇒ 已存在 item 永远停在使用旧键创建的
+    //   UserBubbleView(sending=true) = 用户看到的「永久发送中」。
+    //   因此必须把**键变化的下标**显式 onDataChange；内容/rev 更新仍不走这条路（防闪烁）。
+    if (!fullReload && !themeChanged && prevKeys.length === keys.length) {
+      for (let i = 0; i < keys.length; i++) {
+        if (prevKeys[i] !== keys[i]) changed.push(i);
+      }
     }
     // ⛔ 重复键检测（2026-10-12 真机 P0：`AceLazyForEach: Use repeat key for index: 0 / 9`
     //    ⇒ LazyForEach 因键重复不建项 ⇒ **列表不渲染（整片空白）**。键 = `chatId#id#rev`

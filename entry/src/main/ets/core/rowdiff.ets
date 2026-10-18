@@ -82,7 +82,13 @@ export function sessionScopedRowKey(chatId: string, r: ChatRow): string {
   //    render.applyRow 对 iterations/rev 等**赋值替换引用** ⇒ @ObjectLink 组件自动重渲 ——
   //    与 web 的 React 状态更新同语义。rev 仍留在 applyRows 的键快照里做「行变了」的
   //    内部判据，但不再进框架键（同键重建正是闪烁的根源）。
-  return chatId + '#' + r.id + '#' + getLocale();
+  // 发送中/排队中状态会**就地**改变 `sending/queued`；UserBubbleView 只接 @Prop 原始值，
+  // LazyForEach 的 item builder 不会因父级字段变化重跑（只有 @ObjectLink 组件才会）。
+  // ⇒ 把这两个布尔放进键：ack/turn_started 清 sending 时该行重建一次，彻底消除
+  // 「第一个迭代都跑了还永久显示发送中」（用户 2026-10-18 真机 P0）。
+  // 其余时间键稳定（不含 rev/theme），不引入流式闪烁。
+  return chatId + '#' + r.id + '#' + getLocale()
+    + (r.sending ? '#sending' : '') + (r.queued ? '#queued' : '');
 }
 
 /**
