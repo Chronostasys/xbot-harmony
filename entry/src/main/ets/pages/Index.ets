@@ -2270,7 +2270,7 @@ struct Index {
           .fontSize(FS_CAPTION).fontColor(this.pal().accentText)
           .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
           .onClick(() => {
-            void this.copyText(this.logAllText(), '全部日志');
+            void this.copyText(this.logAllText(), i18nT('全部日志'));
           })
         Text(i18nT('清空'))
           .fontSize(FS_CAPTION).fontColor(this.pal().accentText)
@@ -3947,7 +3947,7 @@ struct Index {
       this.keepAliveTurn = true;
       beginTurnKeepAlive();
     } catch (e) {
-      console.info('xbot send: 发送失败/异常（' + errText(e as Object) + '）');
+      console.info(i18nT('xbot send: 发送失败/异常（') + errText(e as Object) + '）');
       // 失败：草稿与附件都还给用户（store 已回滚那条乐观行，界面不会留幽灵消息）
       this.draft = text;
       this.attachments = keep;
@@ -4230,7 +4230,7 @@ struct Index {
 
   /** 文件行菜单「复制路径」——走全站唯一剪贴板出口 `copyText`（⛔ 不另开 pasteboard 调用）。 */
   private copyFsPath(filePath: string): void {
-    void this.copyText(filePath, '路径');
+    void this.copyText(filePath, i18nT('路径'));
   }
 
   /**
@@ -6054,7 +6054,7 @@ struct Index {
             theme: this.themeName,
             hits: this.searchHits,
             onPickHit: (snippet: string) => {
-              this.copyText(snippet, '片段');
+              this.copyText(snippet, i18nT('片段'));
               this.showSearchHits = false;
             },
             onItem: (code: string) => {
@@ -6639,7 +6639,7 @@ struct Index {
               .animation(animBase())
               .backgroundColor(this.busy ? this.pal().accent : this.pal().textMuted)
             // ⛔ 状态点不再呼吸（第二处"在飞"）——唯一在飞动效 = 光球；状态只由**颜色**表达。
-            Text(this.busy ? '运行中…' : '空闲')
+            Text(this.busy ? i18nT('运行中…') : i18nT('空闲'))
               .fontSize(typeOf('type.caption').size)
               // ⚡ 2026-10-20 丝滑动画：busy/idle 切换时文字颜色缓动
               .animation(animBase())
@@ -6871,7 +6871,7 @@ struct Index {
               } else {
                 SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(12)
                   .fontColor([colorOf(this.pal(), 'iconMuted')])
-                Text(this.hasMore ? '更早的历史消息' : '已到最早')
+                Text(this.hasMore ? i18nT('更早的历史消息') : i18nT('已到最早'))
                   .fontSize(FS_META).fontColor(this.pal().textMuted)
               }
             }
@@ -7327,7 +7327,7 @@ struct Index {
           if (this.fsMatches().length > 0) {
             ForEach(this.fsMatches().slice(0, FS_ROWS), (e: FsEntry, i: number) => {
               Row({ space: 8 }) {
-                Text(e.isDir ? '目录' : '文件').fontSize(typeOf('type.caption').size)
+                Text(e.isDir ? i18nT('目录') : i18nT('文件')).fontSize(typeOf('type.caption').size)
                 Text(e.name).fontSize(typeOf('type.subhead').size).fontColor(this.pal().textPrimary).layoutWeight(1)
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                 Text(this.fsDir).fontSize(typeOf('type.micro').size).fontColor(this.pal().textMuted)
@@ -7404,7 +7404,7 @@ struct Index {
                 .fontColor(it.status === ATTACH_FAILED ? this.pal().dangerText : this.pal().accentSoft)
                 .layoutWeight(1).maxLines(1).wordBreak(WordBreak.BREAK_ALL)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
-              Text(it.status === ATTACH_FAILED ? '重试' : '移除')
+              Text(it.status === ATTACH_FAILED ? i18nT('重试') : i18nT('移除'))
                 .fontSize(typeOf('type.caption').size)
                 // ⚡ 2026-10-20 丝滑动画：附件状态切换时按钮文字颜色缓动
                 .animation(animBase())
@@ -7650,7 +7650,7 @@ struct Index {
         }
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY).scale({ x: PRESS_SCALE, y: PRESS_SCALE }) }, normal: { .opacity(1).scale({ x: 1, y: 1 }) } })
-        .accessibilityText(this.composerShowStop() ? '停止' : '发送')
+        .accessibilityText(this.composerShowStop() ? i18nT('停止') : i18nT('发送'))
         .onClick(() => {
           if (this.composerShowStop()) {
             this.cancelTurn();
@@ -9007,7 +9007,7 @@ struct Index {
     }
     try {
       const taskId: string = await st.promoteShell(callId);
-      this.toast(taskId.length > 0 ? `已转入后台：${taskId}` : '已转入后台');
+      this.toast(taskId.length > 0 ? `已转入后台：${taskId}` : i18nT('已转入后台'));
       return taskId;
     } catch (e) {
       const err: BusinessError = e as BusinessError;
@@ -10067,7 +10067,7 @@ struct Index {
       const idx: number = Number.parseInt(code.substring(10), 10);
       const ls: string[] = this.ctxLinks();
       if (idx >= 0 && idx < ls.length) {
-        this.copyText(ls[idx], '链接地址');
+        this.copyText(ls[idx], i18nT('链接地址'));
       }
       return;
     }
@@ -10103,14 +10103,14 @@ struct Index {
         segs.push(toolCopyText(tw.name, tw.args !== undefined ? tw.args : '',
           tw.detail !== undefined ? tw.detail : ''));
       }
-      this.copyText(segs.join('\n\n'), '全部工具输出');
+      this.copyText(segs.join('\n\n'), i18nT('全部工具输出'));
       return;
     }
     if (row === undefined) {
       return;
     }
     if (code === 'user-text') {
-      this.copyText(row.content, '文本');
+      this.copyText(row.content, i18nT('文本'));
       return;
     }
     if (code === 'user-rewind') {
@@ -10118,7 +10118,7 @@ struct Index {
       return;
     }
     if (code.indexOf('row-') === 0) {
-      this.copyText(composeCopy(this.partsForRow(row), this.variantOf(code)), '消息');
+      this.copyText(composeCopy(this.partsForRow(row), this.variantOf(code)), i18nT('消息'));
       return;
     }
     if (code.indexOf('iter-') === 0) {
@@ -10126,7 +10126,7 @@ struct Index {
       if (it === undefined) {
         return;
       }
-      this.copyText(composeCopy(this.partsForIteration(it), this.variantOf(code)), '该迭代');
+      this.copyText(composeCopy(this.partsForIteration(it), this.variantOf(code)), i18nT('该迭代'));
       return;
     }
     if (code.indexOf('tool-') === 0) {
@@ -10137,11 +10137,11 @@ struct Index {
       const args: string = t.args !== undefined ? t.args : '';
       const out: string = t.detail !== undefined ? t.detail : '';
       if (code === 'tool-out') {
-        this.copyText(toolResultOnly(out), '工具输出');
+        this.copyText(toolResultOnly(out), i18nT('工具输出'));
       } else if (code === 'tool-args') {
-        this.copyText(toolArgsOnly(args), '工具参数');
+        this.copyText(toolArgsOnly(args), i18nT('工具参数'));
       } else {
-        this.copyText(toolCopyText(t.name, args, out), '工具内容');
+        this.copyText(toolCopyText(t.name, args, out), i18nT('工具内容'));
       }
     }
   }
@@ -11143,7 +11143,7 @@ struct Index {
   @Builder
   CollapseMenu() {
     Column() {
-      Text(this.collapseAllPlanNow().allCollapsed ? '全部展开' : '全部折叠')
+      Text(this.collapseAllPlanNow().allCollapsed ? i18nT('全部展开') : i18nT('全部折叠'))
         .width('100%')
         .constraintSize({ minHeight: HIT_TARGET_MIN })
         .fontSize(typeOf('type.subhead').size)
@@ -12026,7 +12026,7 @@ struct Index {
         .wordBreak(WordBreak.BREAK_ALL)
 
       // 上下文上限
-      Text(`上下文上限：${this.ctxText().length > 0 ? this.ctxText() : '未设置'}`)
+      Text(`上下文上限：${this.ctxText().length > 0 ? this.ctxText() : i18nT('未设置')}`)
         .fontSize(typeOf('type.caption').size).fontColor(this.pal().textSecondary).width('100%')
       Row({ space: 6 }) {
         ForEach(this.ctxPresets(), (p: number, i: number) => {

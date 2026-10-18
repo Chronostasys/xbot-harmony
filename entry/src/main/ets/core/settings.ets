@@ -8,6 +8,7 @@
  * **原生端读写同一份 ⇒ 两端偏好天然一致**（项目要求「两边数据统一」）。
  */
 import { ModelEntryRow, SubscriptionRow } from './rpc';
+import { t } from './i18n';
 
 // 本地键名（与服务端名一一对应；与 web `userSettings.ts` 的映射表一致）
 export const KEY_MD_THEME: string = 'xbot-md-theme';
@@ -1128,16 +1129,16 @@ export const THINK_OPTIONS: string[] = [THINK_AUTO, THINK_THINK, THINK_THINK_MAX
 /** 档位中文名。未知值原样透传（服务端将来加枚举不至于显示空白）。 */
 export function thinkLabel(mode: string): string {
   if (mode === THINK_AUTO) {
-    return '自动';
+    return t('自动');
   }
   if (mode === THINK_THINK) {
-    return '思考';
+    return t('思考');
   }
   if (mode === THINK_THINK_MAX) {
-    return '最大思考';
+    return t('最大思考');
   }
   if (mode === THINK_DISABLED) {
-    return '关闭';
+    return t('关闭');
   }
   return mode;
 }
@@ -1145,16 +1146,16 @@ export function thinkLabel(mode: string): string {
 /** 档位说明。 */
 export function thinkHint(mode: string): string {
   if (mode === THINK_AUTO) {
-    return '由服务端与模型自行决定';
+    return t('由服务端与模型自行决定');
   }
   if (mode === THINK_THINK) {
-    return '开启推理（多数模型默认档）';
+    return t('开启推理（多数模型默认档）');
   }
   if (mode === THINK_THINK_MAX) {
-    return '最大推理预算，适合难题，较慢';
+    return t('最大推理预算，适合难题，较慢');
   }
   if (mode === THINK_DISABLED) {
-    return '关闭推理，最快';
+    return t('关闭推理，最快');
   }
   return '';
 }
@@ -1217,7 +1218,7 @@ export function thinkingStepLabel(step: number): string {
   if (s >= THINKING_STEP_LABELS.length) {
     s = THINKING_STEP_LABELS.length - 1;
   }
-  return THINKING_STEP_LABELS[s];
+  return t(THINKING_STEP_LABELS[s]);
 }
 
 /**

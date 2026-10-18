@@ -291,7 +291,7 @@ struct SshChip {
     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
     // ⛔ a11y 文案必须含**中文动作说明**（`a11y_icon_button` 硬判：`this.label` 是 @Prop、
     //    静态扫描解析为空 ⇒ 红）。兜底方向安全：宁可给通用说明，也绝不留无标签的按钮。
-    .accessibilityText(this.label.length > 0 ? this.label : '操作按钮')
+    .accessibilityText(this.label.length > 0 ? this.label : i18nT('操作按钮'))
     .onClick(() => {
       if (!this.disabled) {
         this.onTap();
@@ -344,7 +344,7 @@ struct SshIconButton {
     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
     // ⛔ a11y 文案必须含**中文动作说明**（`a11y_icon_button` 硬判：`this.label` 是 @Prop、
     //    静态扫描解析为空 ⇒ 红）。兜底方向安全：宁可给通用说明，也绝不留无标签的按钮。
-    .accessibilityText(this.label.length > 0 ? this.label : '操作按钮')
+    .accessibilityText(this.label.length > 0 ? this.label : i18nT('操作按钮'))
     .onClick(() => {
       if (!this.disabled) {
         this.onTap();
@@ -569,7 +569,7 @@ struct SshTargetRow {
       if (this.row.deleting) {
         Row({ space: SPACE_XS }) {
           LoadingProgress().width(ICON_MD).height(ICON_MD).color(this.tc('icon'))
-          Text(this.row.deleteStep.length > 0 ? `移除中… ${this.row.deleteStep}` : '移除中…')
+          Text(this.row.deleteStep.length > 0 ? `移除中… ${this.row.deleteStep}` : i18nT('移除中…'))
             .fontSize(typeOf('type.caption').size)
             .fontColor(this.tc('muted'))
             .layoutWeight(1)
@@ -667,7 +667,7 @@ struct SshTargetRow {
               },
             })
             if (this.row.logsSource.length > 0) {
-              Text(this.row.logsSource === 'ssh-session' ? '来源：SSH 会话输出' : '来源：远端日志文件')
+              Text(this.row.logsSource === 'ssh-session' ? i18nT('来源：SSH 会话输出') : i18nT('来源：远端日志文件'))
                 .fontSize(typeOf('type.micro').size)
                 .fontColor(this.tc('muted'))
                 .maxLines(1)
@@ -738,9 +738,6 @@ struct SshTargetRow {
 
 @Component
 export struct SshRunnerSheet {
-  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
-  // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
   @Prop theme: string = 'dark';
   /** 会话身份（页面注入；未就绪 ⇒ 会话相关动作禁用，⛔ 绝不伪造 chatID）。 */
   @Prop sessionChannel: string = '';
@@ -2137,7 +2134,7 @@ export struct SshRunnerSheet {
       } else if (this.addPhase === 'provisioning') {
         Row({ space: SPACE_XS }) {
           LoadingProgress().width(ICON_MD).height(ICON_MD).color(this.tc('accent'))
-          Text(this.addError.length > 0 ? SSH_INSTALL_FAILED_TEXT : '正在安装 xbot-runner（只安装二进制）…')
+          Text(this.addError.length > 0 ? SSH_INSTALL_FAILED_TEXT : i18nT('正在安装 xbot-runner（只安装二进制）…'))
             .fontSize(typeOf('type.subhead').size)
             // ⚡ 2026-10-20 丝滑动画：错误态切换时文字颜色缓动
             .animation(animBase())
@@ -2201,7 +2198,7 @@ export struct SshRunnerSheet {
       } else if (this.addPhase === 'connecting') {
         Row({ space: SPACE_XS }) {
           LoadingProgress().width(ICON_MD).height(ICON_MD).color(this.tc('accent'))
-          Text(this.addError.length > 0 ? '连接未建立' : '正在通过 SSH 建立连接…')
+          Text(this.addError.length > 0 ? i18nT('连接未建立') : i18nT('正在通过 SSH 建立连接…'))
             .fontSize(typeOf('type.subhead').size)
             // ⚡ 2026-10-20 丝滑动画：连接错误态切换时文字颜色缓动
             .animation(animBase())
@@ -2242,7 +2239,7 @@ export struct SshRunnerSheet {
         }
         .width('100%')
       } else {
-        Text(this.addConnected ? '已安装并连接' : '已安装并保存（尚未连接）')
+        Text(this.addConnected ? i18nT('已安装并连接') : i18nT('已安装并保存（尚未连接）'))
           .fontSize(typeOf('type.subhead').size)
           // ⚡ 2026-10-20 丝滑动画：连接状态切换时文字颜色缓动
           .animation(animBase())

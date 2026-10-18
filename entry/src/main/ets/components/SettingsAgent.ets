@@ -151,7 +151,7 @@ export struct SettingsAgent {
       }
 
       if (!this.loaded) {
-        Text(this.error.length > 0 ? '设置读取失败，开关暂不可用。' : '加载中…')
+        Text(this.error.length > 0 ? i18nT('设置读取失败，开关暂不可用。') : i18nT('加载中…'))
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .width('100%')
@@ -245,7 +245,7 @@ export struct SettingsAgent {
               })
 
               Row() {
-                Text(this.savingVision ? '保存中…' : '保存')
+                Text(this.savingVision ? i18nT('保存中…') : i18nT('保存'))
                   .constraintSize({ minHeight: HIT_TARGET_MIN })
                   .fontSize(FS_CAPTION)
                   .fontColor(this.pal().onAccent)

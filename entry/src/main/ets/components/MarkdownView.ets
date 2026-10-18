@@ -156,9 +156,6 @@ function computeInlineStyles(text: string, pal: Palette, mdTheme: string, baseCo
 
 @Component
 export struct MarkdownView {
-  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
-  // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
   @Prop text: string = '';
   /** 代码块是否换行（设置里可切） */
   @Prop wrapCode: boolean = true;
@@ -534,7 +531,7 @@ export struct MarkdownView {
               // ⛔ 文案**不变**（`copyLabel('复制', true)` = 「已复制」）—— 本单**只改落点**，不改文案。
               // ⛔ 不再用系统 `promptAction.showToast`（不跟设计系统）；⛔ 不用组件内 `setTimeout`
               //    （性能预算 ⑦ 的 `setTimeout` 调用点已用满 7，见 `docs/PERF-BUDGET.md §2-18`）。
-              this.onToast(copyLabel('复制', true));
+              this.onToast(copyLabel(i18nT('复制'), true));
             } catch (e) {
               // 失败：**不撒谎**（不弹「已复制」），只记日志（与既有"失败静默"一致）
               console.error('copy failed');

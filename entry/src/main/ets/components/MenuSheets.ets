@@ -72,9 +72,6 @@ const HITS_MAX_H: number = 420;
 /** 会话操作菜单（贴底；删除需二次确认）。 */
 @Component
 export struct SessSheet {
-  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
-  // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
   @Prop theme: string = 'dark';
   /** 菜单标题（页面 `menuLabel()` 的产物）。 */
   @Prop title: string = '';
@@ -243,9 +240,6 @@ export struct SessSheet {
 /** 会话内消息搜索结果（点一条复制该片段；只覆盖当前会话）。 */
 @Component
 export struct SearchHitsSheet {
-  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
-  // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
   @Prop theme: string = 'dark';
   /** 当前会话的搜索命中（页面 `searchHits`）。 */
   @Prop hits: SearchHit[] = [];
@@ -400,9 +394,6 @@ export struct SearchHitsSheet {
 /** 长按操作菜单（底部弹出，贴手指易点区）。 */
 @Component
 export struct ContextSheet {
-  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
-  // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
   @Prop theme: string = 'dark';
   /** 长按目标类型（页面 `ctxKind`：`'user'` / `'tool'` / `'iter'` / 其余=消息）。 */
   @Prop ctxKind: string = '';

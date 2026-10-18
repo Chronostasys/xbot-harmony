@@ -67,9 +67,6 @@ import { t as i18nT } from '../core/i18n';
  */
 @Component
 export struct PluginHost {
-  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
-  // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
   /** 插件条目（`store.loadPluginCatalog()` 产出；`@Prop` 承载整表 ⇒ 变化即重建）。 */
   @Prop items: PluginCatalogItem[] = [];
   /** 按容器聚合的视图分组（目录的"分区"）。 */

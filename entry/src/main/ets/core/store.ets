@@ -29,7 +29,7 @@ import { canonicalChatId, channelForChat } from './sessionpick';
 import { parseAgentChatID, ParsedAgentChatID } from './sessiongroup';
 import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
 import type { GoalInfo as ChatGoalInfo } from './chattypes';
-import { normalizeLocale, setLocale } from './i18n';
+import { normalizeLocale, setLocale, t as i18nT } from './i18n';
 import { moveOrders, parseSearchHits, searchBody, SEARCH_LIMIT_DEFAULT, SearchBody, chatSwitchPath, chatSwitchChannel, ChatSwitchResult, parseChatSwitch } from './sessionops';
 import { RewindReq, RewindTarget, gapTopBefore, rewindTargetDBID } from './msgops';
 import { activeSubAgentNodes, BgTask, CronJob, resolveSessionNode, KillBgTaskParams, RunnerRow, SubAgentRow, subAgentRowOf, isWidgetEvent } from './panels';
@@ -2665,8 +2665,8 @@ export class ChatStore {
       if (kind === NOTIFY_KIND_TURN_DONE || kind === NOTIFY_KIND_NONE) {
         cancelLiveView().catch(() => {});
       } else {
-        const lvStatus: string = kind === NOTIFY_KIND_ASK ? '等待你的回答…' : '思考中…';
-        const lvCapsule: string = kind === NOTIFY_KIND_ASK ? '等待' : '思考';
+        const lvStatus: string = kind === NOTIFY_KIND_ASK ? i18nT('等待你的回答…') : i18nT('思考中…');
+        const lvCapsule: string = kind === NOTIFY_KIND_ASK ? i18nT('等待') : i18nT('思考');
         publishLiveView(this.currentChatId, lvStatus, lvCapsule, 0).catch(() => {});
       }
       if (!shouldNotify(appIsForeground(), kind)) {

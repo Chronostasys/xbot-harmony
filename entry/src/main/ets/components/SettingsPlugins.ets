@@ -205,14 +205,14 @@ struct PluginFieldRow {
           .borderRadius(R_LG)
           .border({ width: 1, color: this.pal().border })
       }
-      Text(this.imgValue.length > 0 ? this.imgValue : '未设置图片')
+      Text(this.imgValue.length > 0 ? this.imgValue : i18nT('未设置图片'))
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().textSecondary)
         .maxLines(2)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .width('100%')
       Row({ space: SP_2 }) {
-        Text(this.uploading ? '上传中…' : '选择图片并上传')
+        Text(this.uploading ? i18nT('上传中…') : i18nT('选择图片并上传'))
           .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().onAccent)
@@ -252,7 +252,7 @@ struct PluginFieldRow {
   @Builder
   LabelCol() {
     Column({ space: 2 }) {
-      Text(this.label.length > 0 ? this.label : '未命名')
+      Text(this.label.length > 0 ? this.label : i18nT('未命名'))
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().textPrimary)
         .width('100%')
@@ -294,7 +294,7 @@ struct PluginFieldRow {
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textSecondary)
           .width('100%')
-        Text(this.kind === PLUGIN_FIELD_IMAGE ? '该类型需上传文件，原生端本期暂不支持编辑（请在 Web UI 中设置）。'
+        Text(this.kind === PLUGIN_FIELD_IMAGE ? i18nT('该类型需上传文件，原生端本期暂不支持编辑（请在 Web UI 中设置）。')
           : '该类型原生端暂不支持编辑。')
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
@@ -345,7 +345,7 @@ struct PluginFieldRow {
             .onChange((v: string) => {
               this.onText(v);
             })
-          Text(this.busy ? '…' : '保存')
+          Text(this.busy ? '…' : i18nT('保存'))
             .constraintSize({ minHeight: HIT_TARGET_MIN })
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().onAccent)
@@ -769,7 +769,7 @@ export struct SettingsPlugins {
       // ⛔ 放在三态分支**之前**：目录为空（还没有任何插件）时也**必须**能装第一个插件
       //    —— web 的安装按钮同样常驻（不随列表空/满出现消失）。
       Row() {
-        Text(this.installBusy ? '安装中…' : '安装插件（.zip）')
+        Text(this.installBusy ? i18nT('安装中…') : i18nT('安装插件（.zip）'))
           .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(FS_CAPTION)
           // ⚡ 2026-10-20 丝滑动画：安装状态切换时文字颜色缓动
@@ -841,7 +841,7 @@ export struct SettingsPlugins {
                   .alignItems(HorizontalAlign.Start)
                   .layoutWeight(1)
 
-                  Text(this.confirmReload === e.id ? '确认重载？' : '重载')
+                  Text(this.confirmReload === e.id ? i18nT('确认重载？') : i18nT('重载'))
                     .constraintSize({ minHeight: HIT_TARGET_MIN })
                     .fontSize(FS_CAPTION)
                     .fontColor(this.pal().warn)
@@ -987,7 +987,7 @@ export struct SettingsPlugins {
                 .fontColor(this.pal().textMuted)
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
-              Text(this.confirmReload === e.id ? '确认重载？' : '重载')
+              Text(this.confirmReload === e.id ? i18nT('确认重载？') : i18nT('重载'))
                 .constraintSize({ minHeight: HIT_TARGET_MIN })
                 .fontSize(FS_CAPTION)
                 .fontColor(this.pal().warn)

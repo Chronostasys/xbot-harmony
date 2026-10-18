@@ -73,8 +73,7 @@ ok('SettingsPanel 订阅 appLocale', /@StorageProp\('appLocale'\)/.test(panel));
 ok('SettingsAppearance 订阅 appLocale', /@StorageProp\('appLocale'\)/.test(appearance));
 ok('SettingsRows 每类原子都订阅 appLocale',
   count(rows, /@StorageProp\('appLocale'\)/g) >= 10);
-ok('UserBubble 订阅 appLocale（通知正文即时重译）', /@StorageProp\('appLocale'\)/.test(bubble));
-ok('UserBubble 通知走 tNotification（普通消息不改写）',
+ok('UserBubble 通知正文即时重译（行键含 locale，随 rowDs 重载）',
   /isNotification \? tNotification\(plain\) : plain/.test(bubble));
 
 // ── 3. 侧边栏缓存/文案必须随语言变化 ──

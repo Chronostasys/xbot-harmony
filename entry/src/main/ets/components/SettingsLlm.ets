@@ -788,7 +788,7 @@ export struct SettingsLlm {
         })
       }
       Row({ space: SP_2 }) {
-        Text(this.pmBusy ? '保存中…' : '保存')
+        Text(this.pmBusy ? i18nT('保存中…') : i18nT('保存'))
           .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().accentSoft)
@@ -844,7 +844,7 @@ export struct SettingsLlm {
       //    用户根本点不到保存（不是"丑"，是**不可用**）。现改为标题行右侧固定操作区：
       //    滚到哪、键盘开不开都能保存；按钮统一走 `SettingsButton`（命中区 ≥44）。
       Row({ space: SP_2 }) {
-        Text(this.formEditing ? '编辑订阅' : '新增订阅')
+        Text(this.formEditing ? i18nT('编辑订阅') : i18nT('新增订阅'))
           .fontSize(FS_BODY)
           .fontColor(this.pal().textPrimary)
           .layoutWeight(1)
@@ -914,7 +914,7 @@ export struct SettingsLlm {
       }
 
       SettingsTextFieldRow({
-        label: '名称', description: '', value: this.form.name, placeholder: i18nT('如 My OpenAI'),
+        label: i18nT('名称'), description: '', value: this.form.name, placeholder: i18nT('如 My OpenAI'),
         password: false, busy: this.formBusy, theme: this.theme,
         onInput: (v: string) => {
           const f: SubscriptionForm = this.cloneForm(this.form);
@@ -934,7 +934,7 @@ export struct SettingsLlm {
       SettingsTextFieldRow({
         label: 'API Key',
         description: this.formEditing ? '留空或保持掩码则保留原凭据（服务端不覆盖）' : '新增订阅必填',
-        value: this.form.apiKey, placeholder: this.formEditing ? '保持掩码则不修改' : 'sk-…',
+        value: this.form.apiKey, placeholder: this.formEditing ? i18nT('保持掩码则不修改') : 'sk-…',
         password: true, busy: this.formBusy, theme: this.theme,
         onInput: (v: string) => {
           const f: SubscriptionForm = this.cloneForm(this.form);
@@ -943,7 +943,7 @@ export struct SettingsLlm {
         },
       })
       SettingsTextFieldRow({
-        label: '默认模型', description: '', value: this.form.model, placeholder: 'model-name',
+        label: i18nT('默认模型'), description: '', value: this.form.model, placeholder: 'model-name',
         password: false, busy: this.formBusy, theme: this.theme,
         onInput: (v: string) => {
           const f: SubscriptionForm = this.cloneForm(this.form);
@@ -1295,7 +1295,7 @@ export struct SettingsLlm {
             .border({ width: 1, color: this.pal().border })
 
             if (this.visibleSubs().length === 0) {
-              Text(this.subQuery.length > 0 ? '没有匹配的订阅' : '还没有任何订阅。')
+              Text(this.subQuery.length > 0 ? i18nT('没有匹配的订阅') : i18nT('还没有任何订阅。'))
                 .fontSize(FS_CAPTION)
                 .fontColor(this.pal().textMuted)
                 .width('100%')
@@ -1416,7 +1416,7 @@ export struct SettingsLlm {
                               .layoutWeight(1)
                               .maxLines(1)
                               .textOverflow({ overflow: TextOverflow.Ellipsis })
-                            Text(isModelDisabled(e.status) ? '启用' : '禁用')
+                            Text(isModelDisabled(e.status) ? i18nT('启用') : i18nT('禁用'))
                               .constraintSize({ minHeight: HIT_TARGET_MIN })
                               .fontSize(FS_CAPTION)
                               .fontColor(this.pal().accentSoft)

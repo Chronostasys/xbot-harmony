@@ -37,6 +37,7 @@ import { uiIsScrolling } from '../core/listfollow';
 import { isLiveStatus, isToolInProgress, renderKind, statusChip } from '../core/toolstatus';
 import { AnsiSpan, ansiPaletteOf, ansiSpansIfAny } from '../core/ansi';
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
+import { t as i18nT } from '../core/i18n';
 
 /** 单工具浮层宽度（对齐 web 浮层 430px；手机端收窄）。 */
 const LT_POP_W: number = 320;
@@ -555,7 +556,7 @@ return renderKind(t.status, t.exit_code, true);
         //    其子树**不随参数重建**（docs/ARKTS-GOTCHAS §4）⇒ 症状正是用户 2026-10-10 报的：
         //    字数卡住不变、打字机不推进、**点它无法展开**。
         ThinkingLine({
-          label: `思考 ${this.reasonCount()} 字`,
+          label: i18nT('思考 {{count}} 字').replace('{{count}}', String(this.reasonCount())),
           body: this.shownReason(),
           stateKey: reasoningKey(this.turnID, this.iteration),
           theme: this.themeId(),

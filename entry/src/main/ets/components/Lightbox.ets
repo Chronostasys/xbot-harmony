@@ -42,9 +42,6 @@ const TYPE_META: string = 'type.caption';
 
 @Component
 export struct Lightbox {
-  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
-  // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
   /** 应用主题名（与全仓组件同口径）。 */
   @Prop theme: string = 'dark';
   /**
@@ -115,7 +112,7 @@ export struct Lightbox {
   @Builder
   Toolbar() {
     Row({ space: SPACE_XS }) {
-      Text(this.label.length > 0 ? this.label : '图片')
+      Text(this.label.length > 0 ? this.label : i18nT('图片'))
         .fontSize(typeOf(TYPE_LABEL).size)
         .fontWeight(typeOf(TYPE_LABEL).weight)
         .fontColor(colorOf(this.pal(), 'textPrimary'))

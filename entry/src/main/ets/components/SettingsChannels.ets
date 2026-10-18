@@ -93,7 +93,7 @@ struct ChannelFieldRow {
           .fontColor(this.pal().textPrimary)
           .layoutWeight(1)
         if (this.secret) {
-          Text(this.revealed ? '隐藏' : '显示')
+          Text(this.revealed ? i18nT('隐藏') : i18nT('显示'))
             .constraintSize({ minHeight: HIT_TARGET_MIN })
             .fontSize(FS_CAPTION)
             .fontColor(this.pal().accentSoft)

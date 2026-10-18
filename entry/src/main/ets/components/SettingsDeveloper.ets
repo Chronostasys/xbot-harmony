@@ -408,7 +408,7 @@ export struct SettingsDeveloper {
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().textPrimary)
         .width('100%')
-      Text(this.chatID.length > 0 ? `当前会话：${sessionDisplayKey(this.channel, this.chatID)}` : '未打开会话（导出按钮禁用）。')
+      Text(this.chatID.length > 0 ? `当前会话：${sessionDisplayKey(this.channel, this.chatID)}` : i18nT('未打开会话（导出按钮禁用）。'))
         .fontSize(FS_CAPTION)
         .fontColor(this.pal().textMuted)
         .width('100%')
@@ -623,7 +623,7 @@ export struct SettingsDeveloper {
         }
         .width('100%')
 
-        SettingsDevStatLine({ label: '状态', value: devStateLabel(this.connState), valueColor: this.pal().textSecondary, theme: this.theme })
+        SettingsDevStatLine({ label: i18nT('状态'), value: devStateLabel(this.connState), valueColor: this.pal().textSecondary, theme: this.theme })
         SettingsDevStatLine({ label: '请求协议', value: this.connHttpVer, valueColor: this.pal().textSecondary, theme: this.theme })
         SettingsDevStatLine({
           label: '上次错误码',
@@ -680,7 +680,7 @@ export struct SettingsDeveloper {
 
       // ── 事件列表（最新在前）──
       if (this.rows.length === 0) {
-        Text(this.devEnabled ? '暂无事件（等待 SSE 活动…）' : '开发者工具已关闭。')
+        Text(this.devEnabled ? i18nT('暂无事件（等待 SSE 活动…）') : i18nT('开发者工具已关闭。'))
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().textMuted)
           .width('100%')

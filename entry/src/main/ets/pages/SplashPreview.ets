@@ -60,7 +60,7 @@ struct SplashPreview {
             .fontWeight(FontWeight.Bold)
             .fontColor(this.pal().textPrimary)
 
-          this.Label('① 冷启动品牌开屏（SplashOverlay）——点「播放」全屏重放，点「T2」看让位淡出')
+          this.Label(i18nT('① 冷启动品牌开屏（SplashOverlay）——点「播放」全屏重放，点「T2」看让位淡出'))
           Row({ space: SP_2 }) {
             this.Btn('播放 T1', () => {
               this.phase = SPLASH_T1;
@@ -77,7 +77,7 @@ struct SplashPreview {
 
           Divider().color(colorOf(this.pal(), 'hairline'))
 
-          this.Label('② 切会话加载态（SessionLoadingSplash，与 Index.ets 同一组件）')
+          this.Label(i18nT('② 切会话加载态（SessionLoadingSplash，与 Index.ets 同一组件）'))
           Column() {
             SessionLoadingSplash({ theme: this.theme })
           }
@@ -88,7 +88,7 @@ struct SplashPreview {
 
           Divider().color(colorOf(this.pal(), 'hairline'))
 
-          this.Label('③ 对比主题（浅/深）')
+          this.Label(i18nT('③ 对比主题（浅/深）'))
           Row({ space: SP_2 }) {
             this.Btn('深色', () => {
               this.theme = 'dark';

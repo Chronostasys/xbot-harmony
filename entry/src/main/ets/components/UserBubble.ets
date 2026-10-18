@@ -56,7 +56,6 @@ export struct UserBubbleView {
    */
   @StorageProp('appTheme') appTheme: string = '';
   /** 语言切换订阅（通知正文的协议标签按当前语言即时重译）。 */
-  @StorageProp('appLocale') localeStamp: string = '';
   /**
    * 该 user 行是否为**后台通知注入**（web `UserMessage.tsx:45` 的 `isNotification`）。
    *

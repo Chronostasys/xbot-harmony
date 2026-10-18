@@ -43,6 +43,8 @@
 // ══════════════════════════════════════════════════════════════════════════════
 
 /** 单条迭代明细（`rpc.ts:286-298 UsageIterationRow`）。 */
+import { t } from './i18n';
+
 export interface UsageIterationWire {
   turn_id?: number;
   iteration?: number;
@@ -335,12 +337,12 @@ export class StatCell {
 export function overviewCells(u: SessionUsage): StatCell[] {
   const rate: number | undefined = cacheRatio(u);
   return [
-    new StatCell('输入', formatTokenCount(u.inputTokens), ''),
-    new StatCell('输出', formatTokenCount(u.outputTokens), ''),
+    new StatCell(t('输入'), formatTokenCount(u.inputTokens), ''),
+    new StatCell(t('输出'), formatTokenCount(u.outputTokens), ''),
     // ⚠️ 有意优于 web：web 传了 `{rate}` 但 i18n 表无占位符 ⇒ 死文案；原生渲染实际命中率。
-    new StatCell('缓存命中', formatTokenCount(u.cachedTokens), `命中率 ${formatRatio(rate, 1)}`),
+    new StatCell(t('缓存命中'), formatTokenCount(u.cachedTokens), `命中率 ${formatRatio(rate, 1)}`),
     // ⚠️ 有意优于 web：同上（web 的副标题是死文案）。
-    new StatCell('LLM 时长', statMs(u.llmTotalMs), `${u.iterationCount} 迭代 · ${u.turnCount} 轮次`),
+    new StatCell(t('LLM 时长'), statMs(u.llmTotalMs), `${u.iterationCount} 迭代 · ${u.turnCount} 轮次`),
   ];
 }
 
@@ -360,8 +362,8 @@ export function perfCells(u: SessionUsage): StatCell[] {
 export function contextCells(u: SessionUsage): StatCell[] {
   const model: string = u.currentModel.length > 0 ? u.currentModel : '—';
   return [
-    new StatCell('上下文水位', formatTokenCount(u.lastPromptTokens), `生成 ${formatTokenCount(u.lastCompletionTokens)}`),
-    new StatCell('当前模型', model, sinceText(u.sessionCreatedAt)),
+    new StatCell(t('上下文水位'), formatTokenCount(u.lastPromptTokens), `生成 ${formatTokenCount(u.lastCompletionTokens)}`),
+    new StatCell(t('当前模型'), model, sinceText(u.sessionCreatedAt)),
   ];
 }
 
@@ -801,7 +803,7 @@ export function trendSummaryText(buckets: UsageBucket[], granularity: string): s
 /** 用户累计卡（总 token / 会话 / LLM 调用 / 缓存）。 */
 export function userCells(u: UserUsage): StatCell[] {
   return [
-    new StatCell('累计 token', formatTokenCount(u.totalTokens), `${formatCount(u.llmCallCount)} 次调用`),
+    new StatCell(t('累计 token'), formatTokenCount(u.totalTokens), `${formatCount(u.llmCallCount)} 次调用`),
     new StatCell('会话数', formatCount(u.conversationCount), ''),
     new StatCell('缓存 token', formatTokenCount(u.cachedTokens),
       `命中率 ${fmtPct(u.cachedTokens, u.inputTokens)}`),

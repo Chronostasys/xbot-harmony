@@ -101,9 +101,6 @@ const TERM_KEYROWS_VP: number = 104;
 
 @Component
 export struct TerminalSheet {
-  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
-  // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
   /** 主题名（只用于取语义色板）。 */
   @Prop theme: string = 'dark';
   /** 服务端终端 id（`POST /api/terminal/create` 返回的 `tid`）。 */
@@ -981,7 +978,7 @@ export struct TerminalSheet {
         .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
         .justifyContent(FlexAlign.Center)
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText(this.showKeys ? '收起键栏' : '展开键栏')
+        .accessibilityText(this.showKeys ? i18nT('收起键栏') : i18nT('展开键栏'))
         .onClick(() => {
           this.showKeys = !this.showKeys;
         })

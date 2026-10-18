@@ -103,9 +103,6 @@ function commitSubOf(r: GitCommitRow): string {
 
 @Component
 export struct GitPanelSheet {
-  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
-  // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
   @Prop theme: string = 'dark';
   /** 取数在飞（列表空 ⇒ 顶部 spinner）。 */
   @Prop loading: boolean = false;
@@ -548,7 +545,7 @@ export struct GitPanelSheet {
           // 「加载更多」：只在**确认还有**时出现（⛔ 不做永远点不动的按钮）。
           if (this.hasMore) {
             Row() {
-              Text(this.logLoading ? '加载中…' : '加载更多')
+              Text(this.logLoading ? i18nT('加载中…') : i18nT('加载更多'))
                 .fontSize(fs('type.callout'))
                 .fontColor(this.skin().accent)
             }

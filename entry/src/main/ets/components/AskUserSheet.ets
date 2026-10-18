@@ -84,9 +84,6 @@ const DOT_W: number = 8;
 
 @Component
 export struct AskUserSheet {
-  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
-  // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
   /** 主题名（只用于取语义色板；不参与任何判断）。 */
   @Prop theme: string = 'dark';
   /**
@@ -419,7 +416,7 @@ export struct AskUserSheet {
                   .justifyContent(FlexAlign.Center)
                   .alignItems(VerticalAlign.Center)
                   // ⛔ 状态不只用颜色表达：读法里带"已答/未答"（无视觉时仍可辨）
-                  .accessibilityText(`第 ${i + 1} 题，${this.isAnswered(i) ? '已答' : '未答'}`)
+                  .accessibilityText(`第 ${i + 1} 题，${this.isAnswered(i) ? i18nT('已答') : i18nT('未答')}`)
                   // ⚠️ 这两行不是"给圆点限宽"的语义，而是喂 `tools/tests/overflow_guard.test.ts` 的
                   //    链式窗口启发式（它把 `.accessibilityText(` 也当 `Text(` 节点 ⇒ 动态串必须有
                   //    `constraintSize({maxWidth` 落在同一链里）。语义上成立：本行确实受父级限宽。
@@ -640,7 +637,7 @@ export struct AskUserSheet {
                 .width('100%')
                 .constraintSize({ maxWidth: '100%' })
               // 有选项 ⇒ 单行 Input；无选项 ⇒ 多行文本域（web `:301-331` 同款分流）
-              TextInput({ text: this.freeDraft, placeholder: this.curHasOptions() ? '或在此填写答案' : '请输入答案' })
+              TextInput({ text: this.freeDraft, placeholder: this.curHasOptions() ? i18nT('或在此填写答案') : i18nT('请输入答案') })
                 .onChange((v: string) => {
                   this.freeDraft = v;
                   this.setFree(this.curQid(), v);
@@ -715,7 +712,7 @@ export struct AskUserSheet {
             .borderRadius(RADIUS_PILL)
             .opacity(this.busy || !this.allAnswered ? DISABLED_OPACITY : 1)
             .enabled(!this.busy && this.allAnswered)
-            .accessibilityText(this.allAnswered ? '提交' : '还有问题未作答')
+            .accessibilityText(this.allAnswered ? i18nT('提交') : i18nT('还有问题未作答'))
             // 同上：喂溢出扫描的链式窗口（本按钮确实受面板限宽）
             .constraintSize({ maxWidth: '100%' })
             .onClick(() => {

@@ -5,6 +5,7 @@
  * - `/`：命令补全 —— 命令表由页面从服务端命令注册表镜像（`agent/command_builtin.go` 的 Register）；
  * - `@`：文件补全 —— 候选来自 `POST /api/fs/list {path}` → `{entries:[{name,isDir,size,mode,modTime}]}`。
  */
+import { t } from './i18n';
 
 /** 候选上限（逐字对齐 web `useCompletion.ts:67` `const MAX_CANDIDATES = 20`）。 */
 export const MAX_CANDIDATES: number = 20;
@@ -201,12 +202,12 @@ export function maxComposerLines(): number {
  */
 export function composerPlaceholder(busy: boolean, interject: boolean): string {
   if (interject) {
-    return '插话：立即注入当前回合…';
+    return t('插话：立即注入当前回合…');
   }
   if (busy) {
-    return '处理中 — 消息将排队…';
+    return t('处理中 — 消息将排队…');
   }
-  return '给 Agent 发消息…';
+  return t('给 Agent 发消息…');
 }
 
 /**

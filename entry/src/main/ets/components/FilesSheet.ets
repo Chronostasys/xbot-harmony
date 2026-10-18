@@ -143,9 +143,6 @@ struct FsNotice {
 
 @Component
 export struct FilesSheet {
-  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
-  // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
   @Prop theme: string = 'dark';
   /** 当前目录绝对路径。 */
   @Prop path: string = '/';
@@ -406,7 +403,7 @@ export struct FilesSheet {
   @Builder
   rowMenu(filePath: string, isDir: boolean) {
     Column() {
-      Text(isDir ? '打开' : '预览')
+      Text(isDir ? i18nT('打开') : i18nT('预览'))
         .fontSize(typeOf('type.callout').size)
         .fontColor(this.tint('text'))
         .width('100%')
@@ -462,7 +459,7 @@ export struct FilesSheet {
             this.onClosePreview();
           })
         }
-        Text(this.previewPath.length > 0 ? baseNameOf(this.previewPath) : '文件')
+        Text(this.previewPath.length > 0 ? baseNameOf(this.previewPath) : i18nT('文件'))
           .fontSize(typeOf('type.headline').size)
           .fontWeight(typeOf('type.headline').weight)
           .fontColor(this.tint('text'))
@@ -602,7 +599,7 @@ export struct FilesSheet {
               .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN)
               .justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
               .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-              .accessibilityText(this.searching ? '退出搜索' : '清除过滤')
+              .accessibilityText(this.searching ? i18nT('退出搜索') : i18nT('清除过滤'))
               .onClick(() => {
                 // 搜索态下清空 = **退出搜索**（回到目录浏览）；否则只是清过滤词。
                 this.filterQuery = '';

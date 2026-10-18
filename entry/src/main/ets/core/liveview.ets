@@ -24,6 +24,8 @@
  */
 
 /** 实况窗场景（AGC 需申请该场景权限；`@hms.core.liveview.liveViewManager.d.ts:378`.event）。 */
+import { t } from './i18n';
+
 export const LV_EVENT: string = 'PROGRESS';
 
 /** 本应用的实况窗 id（`LiveView.id`，值域 int32）。同一时刻至多一个 turn 在飞 ⇒ 固定值即可。 */
@@ -84,17 +86,17 @@ export function lvStatusWord(status: string): string {
   switch (status) {
     case 'running':
     case 'executing':
-      return '正在执行';
+      return t('正在执行');
     case 'pending':
-      return '等待调度';
+      return t('等待调度');
     case 'generating':
-      return '生成参数中';
+      return t('生成参数中');
     case 'done':
-      return '已完成';
+      return t('已完成');
     case 'error':
-      return '失败';
+      return t('失败');
     case '':
-      return '思考中';
+      return t('思考中');
     default:
       return status;
   }
@@ -132,7 +134,7 @@ export function liveViewSnapshotOf(i: LiveViewInput, nowMs: number): LiveViewSna
   const word: string = lvStatusWord(i.toolStatus);
   s.line2 = i.runes > 0 ? `${word} · 已生成 ${i.runes} 字` : word;
   const short: string = lvToolShort(i.toolLabel);
-  s.capsuleText = short.length > 0 ? short : (i.iteration > 0 ? `第 ${i.iteration} 轮` : 'xbot');
+  s.capsuleText = short.length > 0 ? short : (i.iteration > 0 ? `${t('第')} ${i.iteration} ${t('轮')}` : 'xbot');
   return s;
 }
 

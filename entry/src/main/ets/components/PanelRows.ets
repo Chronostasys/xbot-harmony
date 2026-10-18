@@ -47,9 +47,6 @@ export const ROW_TRAIL_STOP: string = 'stop';
 
 @Component
 export struct PanelRowCard {
-  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
-  // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
   @Prop theme: string = 'dark';
   /** 主行（标识）——单行截断。 */
   @Prop primary: string = '';
@@ -217,7 +214,7 @@ export struct PanelRowCard {
         .alignItems(VerticalAlign.Center)
         // ⛔ 嵌套可点元素**必须自带** press（`interactive_feedback` ⑦ 口径；与 `QueueSheet` 行内移除同款）
         .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-        .accessibilityText(this.trailing === ROW_TRAIL_DELETE ? '删除' : '关闭')
+        .accessibilityText(this.trailing === ROW_TRAIL_DELETE ? i18nT('删除') : i18nT('关闭'))
         .onClick(() => {
           this.onTrailing();
         })

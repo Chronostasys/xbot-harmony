@@ -205,9 +205,6 @@ export function toolDetailVM(t: ToolProgress | undefined, statusColor: string, s
 
 @Component
 export struct ToolPopoverCard {
-  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
-  // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
   @Prop vm: ToolDetailVM;
   @Prop theme: string = 'dark';
   /**
@@ -573,7 +570,7 @@ export struct ToolPopoverCard {
       Row({ space: SP_1 }) {
         // ⛔ **图标可见度**：同上 —— `textMuted` → `iconMuted`（图标专用档，≥3:1）。
         SymbolGlyph($r('sys.symbol.doc_text')).fontSize(ICON_SM).fontColor([colorOf(this.pal(), 'iconMuted')])
-        Text(f.path.length > 0 ? f.path : '未命名文件')
+        Text(f.path.length > 0 ? f.path : i18nT('未命名文件'))
           .fontSize(typeOf(TYPE_CHIP).size).fontFamily('monospace').fontColor(this.pal().textSecondary)
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
         Text(`+${f.adds}`).fontSize(typeOf(TYPE_CHIP).size).fontColor(this.pal().successText)
@@ -687,7 +684,7 @@ export struct ToolPopoverCard {
       // header：状态色点 + 名字 + 状态徽标 + 耗时
       Row({ space: SP_2 }) {
         Circle().width(8).height(8).fill(this.vm.statusColor)
-        Text(this.vm.title.length > 0 ? this.vm.title : '工具')
+        Text(this.vm.title.length > 0 ? this.vm.title : i18nT('工具'))
           .fontSize(FS_BODY).fontColor(this.pal().textPrimary).fontWeight(FontWeight.Medium)
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
           .layoutWeight(1)
@@ -748,16 +745,16 @@ export struct ToolPopoverCard {
       // 有内容时**不再重复**显示 `参数`（args 里就是同一份 content，重复即噪音；对齐 web
       // 的 `hideArgs`）。
       if (this.vm.content.length > 0) {
-        this.CodeBlock(this.vm.contentLang.length > 0 ? `内容 · ${this.vm.contentLang}` : '内容',
+        this.CodeBlock(this.vm.contentLang.length > 0 ? `${i18nT('内容')} · ${this.vm.contentLang}` : i18nT('内容'),
           this.vm.content, 'content', this.vm.contentLang)
       } else if (this.vm.args.length > 0) {
-        this.CodeBlock('参数', this.vm.args, 'args', this.vm.argsLang)
+        this.CodeBlock(i18nT('参数'), this.vm.args, 'args', this.vm.argsLang)
       }
       if (this.vm.detail.length > 0) {
-        this.OutBlock('输出', this.vm.detail, 'output')
+        this.OutBlock(i18nT('输出'), this.vm.detail, 'output')
       }
       if (this.vm.hasExit) {
-        Text(`退出码 ${this.vm.exitCode}`)
+        Text(`${i18nT('退出码')} ${this.vm.exitCode}`)
           .fontSize(typeOf(TYPE_CHIP).size)
           // ⚡ 2026-10-20 丝滑动画：退出码颜色缓动
           .animation(animBase())
@@ -813,9 +810,6 @@ function tailLinesOfFile(f: DiffFile, max: number): DiffLine[] {
  */
 @Component
 export struct ToolOverflowList {
-  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
-  // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
   @Prop tools: ToolProgress[] = [];
   @Prop theme: string = 'dark';
   /**

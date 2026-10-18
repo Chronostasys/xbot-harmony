@@ -197,9 +197,6 @@ struct NavItemView {
  */
 @Component
 export struct MessageNav {
-  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
-  // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
   /**
    * 用户消息锚点（由页面用 `core/msgindex.ets:buildAnchors(rows, userAnchorRows(rows))` 生成）。
    * 长度 < 2 ⇒ **不渲染任何节点**。
@@ -464,7 +461,7 @@ export struct MessageNav {
             ForEach(this.hits, (h: SearchHit) => {
               ListItem() {
                 Column({ space: 2 }) {
-                  Text(h.role === 'user' ? '我' : (h.role === 'tool' ? '工具' : '回复'))
+                  Text(h.role === 'user' ? i18nT('我') : (h.role === 'tool' ? i18nT('工具') : i18nT('回复')))
                     .fontSize(fs('type.mini'))
                     .fontColor(colorOf(this.pal(), 'textMuted'))
                   // ⛔ Text 的子组件只能是 Span 族（10905219）——命中高亮用 Span 三段。

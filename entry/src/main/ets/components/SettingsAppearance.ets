@@ -163,7 +163,7 @@ export struct SettingsAppearance {
       SettingsValueRow({
         label: settingLabel(KEY_ACCENT),
         description: '只覆盖强调色家族，亮度阶梯不变。',
-        value: this.accentHex().length > 0 ? accentLabel(this.accentHex()) : '跟随主题',
+        value: this.accentHex().length > 0 ? accentLabel(this.accentHex()) : i18nT('跟随主题'),
         theme: this.theme,
       })
       this.AccentSwatches()

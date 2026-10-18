@@ -17,6 +17,7 @@ import { LlmError, llmErrorRepeatLabel, parseLlmError } from '../core/llmerror';
 import { Palette, paletteOf } from '../core/theme';
 import { FS_CAPTION, R_LG, R_MD, SP_1, SP_2 } from '../core/tokens';
 import { PRESS_OPACITY, RADIUS_CHIP, SPACE_HAIR, TYPE_CHIP, colorOf, typeOf, wellOf } from '../core/design';
+import { t as i18nT } from '../core/i18n';
 
 /** 展开后的详情框最大高度（vp）—— 限高内滚，绝不把屏幕撑满。 */
 const DETAIL_MAX_H: number = 260;
@@ -78,7 +79,7 @@ export struct LlmErrorNotice {
             .borderRadius(RADIUS_CHIP)
             .flexShrink(0)
         }
-        Text(this.open ? '收起' : '详情')
+        Text(this.open ? i18nT('收起') : i18nT('详情'))
           .fontSize(typeOf(TYPE_CHIP).size)
           .fontColor(colorOf(this.pal(), 'accentSoft'))
           .flexShrink(0)

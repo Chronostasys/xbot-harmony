@@ -377,7 +377,7 @@ export struct SettingsPanel {
           this.active = '';
         })
       }
-      Text(i18nT(this.active.length > 0 ? this.activeLabel() : '偏好设置'))
+      Text(i18nT(this.active.length > 0 ? this.activeLabel() : i18nT('偏好设置')))
         .fontSize(fs('type.headline'))
         .fontWeight(fw('type.headline'))
         .lineHeight(lh('type.headline'))

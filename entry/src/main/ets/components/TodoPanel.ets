@@ -146,7 +146,7 @@ struct TodoRowView {
           .fontColor([this.iconColor()])
       }
       .width(HIT_TARGET_MIN).height(HIT_TARGET_MIN).justifyContent(FlexAlign.Center)
-      .accessibilityText(this.struck() ? '标记未完成' : '标记完成')
+      .accessibilityText(this.struck() ? i18nT('标记未完成') : i18nT('标记完成'))
       .onClick(() => {
         this.onToggle();
       })
@@ -310,9 +310,6 @@ struct TodoRowView {
  */
 @Component
 export struct TodoPanel {
-  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
-  // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
   /** 清单（空 ⇒ **不产出任何节点**，web `TodoPullOut.tsx:56`）。 */
   @Prop todos: TodoItem[] = [];
   /** 当前 goal 文本（用于行尾徽标；空 ⇒ 不标）—— web `TodoPullOut.tsx:24,128`。 */
@@ -409,7 +406,7 @@ export struct TodoPanel {
             Text(todoCountLabel(this.state()))
               .fontSize(FS_CAPTION)
               .fontColor(this.pal().textSecondary)
-            Text(this.state().currentText.length > 0 ? this.state().currentText : '全部完成')
+            Text(this.state().currentText.length > 0 ? this.state().currentText : i18nT('全部完成'))
               .fontSize(FS_CAPTION)
               // ⛔ 单次取板：`colorOf(p, role)` + 计算型 role —— 原本写成
               //    `cond ? this.pal().textPrimary : this.pal().textMuted` ⇒ **两次读板**（性能预算⑦按**调用点**计数）
@@ -440,7 +437,7 @@ export struct TodoPanel {
           .justifyContent(FlexAlign.Start)
           .alignItems(VerticalAlign.Center)
           .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .accessibilityText(this.expanded ? '收起待办清单' : '展开待办清单')
+          .accessibilityText(this.expanded ? i18nT('收起待办清单') : i18nT('展开待办清单'))
           .onClick(() => {
             // ── 展开/收起动效（用户 2026-10-14：「展开收起加一下动画吧」）──────────────────
             // 走底座唯一动效出口（`components/anim.ets` 的 `animBase()` 工厂；组件内调用路径

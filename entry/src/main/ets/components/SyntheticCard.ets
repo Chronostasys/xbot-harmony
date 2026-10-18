@@ -44,9 +44,6 @@ const EXPANDED_H: number = 420;
 
 @Component
 export struct SyntheticCard {
-  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
-  // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
   /** 假工具（含 `name` / `tool_hints` / `summary` / `detail` / `label` / `elapsed_ms`）。 */
   @Prop tool: ToolProgress;
   @Prop theme: string = 'dark';
@@ -348,7 +345,7 @@ export struct SyntheticCard {
         }
         if (this.clipped()) {
           Row({ space: 2 }) {
-            Text(this.open ? '收起' : '显示更多')
+            Text(this.open ? i18nT('收起') : i18nT('显示更多'))
               .fontSize(typeOf(TYPE_CHIP).size)
               .fontColor(this.pal().accentText)
             SymbolGlyph(this.open ? $r('sys.symbol.chevron_up') : $r('sys.symbol.chevron_down'))

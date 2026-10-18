@@ -290,7 +290,7 @@ export struct SettingsAbout {
           .fontColor(this.pal().textMuted)
           .width('100%')
       } else if (this.info === undefined) {
-        Text(this.error.length > 0 ? '版本信息读取失败。' : '服务端未返回版本信息。')
+        Text(this.error.length > 0 ? i18nT('版本信息读取失败。') : i18nT('服务端未返回版本信息。'))
           .fontSize(FS_CAPTION)
           .fontColor(this.secondaryText())
           .width('100%')
@@ -383,7 +383,7 @@ export struct SettingsAbout {
               // 检查更新按钮
               Row() {
                 Blank()
-                Text(this.checking ? '检查中…' : '检查更新')
+                Text(this.checking ? i18nT('检查中…') : i18nT('检查更新'))
                   .fontSize(FS_CAPTION)
                   .fontColor(this.pal().textPrimary)
                   .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -458,7 +458,7 @@ export struct SettingsAbout {
 
               // 失败（不静默）
               if (this.applyState === APPLY_FAILED) {
-                Text(this.applyDetail.length > 0 ? this.applyDetail : '更新失败。')
+                Text(this.applyDetail.length > 0 ? this.applyDetail : i18nT('更新失败。'))
                   .fontSize(FS_CAPTION)
                   .fontColor(this.pal().dangerText)
                   .width('100%')
@@ -506,7 +506,7 @@ export struct SettingsAbout {
               if (!restartShowConfirm(this.restartState)) {
                 Row() {
                   Blank()
-                  Text(restartBusy(this.restartState) ? '重启中…' : '重启服务')
+                  Text(restartBusy(this.restartState) ? i18nT('重启中…') : i18nT('重启服务'))
                     .constraintSize({ minHeight: HIT_TARGET_MIN })
                     .fontSize(FS_CAPTION)
                     .fontColor(this.pal().textPrimary)

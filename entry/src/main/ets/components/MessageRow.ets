@@ -85,9 +85,6 @@ export const NOTICE_KIND_FAILED: string = 'failed';
 
 @Component
 export struct MessageRowView {
-  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
-  // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
   @ObjectLink row: ChatRow;
   /**
    * 显式主题覆盖（**测试 / 独立预览**用）。生产页面**不传**（留空）⇒ 走下面的 `appTheme` 订阅。

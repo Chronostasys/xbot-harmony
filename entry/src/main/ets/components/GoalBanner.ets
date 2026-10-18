@@ -50,9 +50,6 @@ import { t as i18nT } from '../core/i18n';
  */
 @Component
 export struct GoalBanner {
-  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
-  // 不依赖父级 ForEach/LazyForEach 重投递）。
-  @StorageProp('appLocale') localeStamp: string = '';
   /** 目标原文（web `goal.objective`）。空 ⇒ 零渲染。 */
   @Prop objective: string = '';
   /** 目标状态（web `goal.status`；只认 `'completed'` 为完成）。 */
