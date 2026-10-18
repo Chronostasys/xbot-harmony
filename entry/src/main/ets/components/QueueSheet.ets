@@ -26,6 +26,9 @@ import { t as i18nT } from '../core/i18n';
 
 @Component
 export struct QueueSheet {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop theme: string = 'dark';
   /** 待发队列（页面 `store.queue` 的镜像；判据与顺序都由页面负责）。 */
   @Prop queue: QueueItem[] = [];

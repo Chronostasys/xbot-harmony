@@ -156,6 +156,9 @@ function computeInlineStyles(text: string, pal: Palette, mdTheme: string, baseCo
 
 @Component
 export struct MarkdownView {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop text: string = '';
   /** 代码块是否换行（设置里可切） */
   @Prop wrapCode: boolean = true;

@@ -24,6 +24,9 @@ const PM_CACHE_MAX: number = 24;
 
 @Component
 export struct AuthImage {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   /** 图片地址（服务端返回的引用 URL） */
   src: string = '';
   /** 取字节（带鉴权） */

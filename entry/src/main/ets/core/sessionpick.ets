@@ -5,6 +5,7 @@
  * 且只能在真机上撞见（真机实测：切到飞书会话报 `HTTP 404 session not found`）。
  */
 import { SessionItem } from './types';
+import { t } from './i18n';
 
 /** 创建新会话时使用的渠道（Web 端新建的都是 web）。 */
 export const DEFAULT_CHANNEL: string = 'web';
@@ -373,7 +374,7 @@ export function sessionInChannel(s: SessionItem, active: string): boolean {
 
 /** 当前筛选的展示名（空 = 「全部」；否则复用 `channelLabel` 与抽屉标注同源）。 */
 export function activeChannelLabel(active: string): string {
-  return active.length === 0 ? '全部' : channelLabel(active);
+  return active.length === 0 ? t('全部') : t(channelLabel(active));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

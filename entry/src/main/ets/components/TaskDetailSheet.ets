@@ -28,6 +28,9 @@ import { t as i18nT } from '../core/i18n';
 
 @Component
 export struct TaskDetailSheet {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   /** 主题名（只用于取语义色板；不参与任何判断）。 */
   @Prop theme: string = 'dark';
   /** 命令（空串 ⇒ 显示「后台任务」）。 */
@@ -105,7 +108,7 @@ export struct TaskDetailSheet {
         // ── 头部：命令 + 关闭 ─────────────────────────────────────────────────
         Row({ space: SPACE_XS }) {
           Column({ space: 2 }) {
-            Text(this.title.length > 0 ? this.title : '后台任务')
+            Text(this.title.length > 0 ? this.title : i18nT('后台任务'))
               .fontSize(typeOf('type.headline').size)
               .fontWeight(typeOf('type.headline').weight)
               .fontColor(this.palOnce().textPrimary)
@@ -168,7 +171,7 @@ export struct TaskDetailSheet {
         Scroll(this.scroller) {
           Column() {
             if (this.output.length === 0) {
-              Text(this.running ? '暂无输出' : '无输出')
+              Text(this.running ? i18nT('暂无输出') : i18nT('无输出'))
                 .fontSize(typeOf('type.caption').size)
                 .fontColor(colorOf(this.palOnce(), 'iconMuted'))
                 .width('100%')

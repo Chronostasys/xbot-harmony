@@ -24,6 +24,10 @@ const KEY_COOKIE: string = 'session_cookie';
 // 主题本地缓存（**原生独有副本**）：主题的业务真值在服务端 settings（登录后才拿到），
 // 而系统表面（应用级 colorMode / 状态栏前景）必须在**进程最早**锁定 ⇒ EntryAbility 从这里同步读。
 const KEY_THEME: string = 'app_theme';
+// 界面语言本地缓存（原生独有副本）：服务端 settings 的 `xbot-locale` 是跨设备真值，
+// 但登录后一次往返才到；冷启动首帧（侧边栏/设置）必须**同步**拿到上次语言，否则
+// 先渲染中文再异步切换（用户 2026-10-18：「切日文后重启，侧边栏还是中文」）。
+const KEY_LOCALE_LOCAL: string = 'app_locale';
 // 离线草稿（弱网/杀进程不丢正在写的内容；只保最近一个会话）
 const KEY_DRAFT_CHAT: string = 'draft_chat_id';
 const KEY_DRAFT_TEXT: string = 'draft_text';
@@ -39,6 +43,8 @@ export class AppConfig {
   sessionCookie: string = '';
   /** 主题名本地缓存（`''` = 未存过 ⇒ 系统表面回落深色）。 */
   theme: string = '';
+  /** 界面语言本地缓存（`''` = 未存过 ⇒ 用默认 `zh-CN`）。 */
+  locale: string = '';
   /** 草稿所属会话与内容（空 = 没有草稿） */
   draftChatId: string = '';
   draftText: string = '';
@@ -60,6 +66,7 @@ export class ConfigStore {
     this.data.username = s.getSync(KEY_USER, '') as string;
     this.data.sessionCookie = s.getSync(KEY_COOKIE, '') as string;
     this.data.theme = s.getSync(KEY_THEME, '') as string;
+    this.data.locale = s.getSync(KEY_LOCALE_LOCAL, '') as string;
     this.data.draftChatId = s.getSync(KEY_DRAFT_CHAT, '') as string;
     this.data.draftText = s.getSync(KEY_DRAFT_TEXT, '') as string;
     // 渠道过滤：读盘后立刻归一化（纯函数 —— 与写盘同一口径，键名/默认/回落单点）
@@ -86,6 +93,22 @@ export class ConfigStore {
       return;
     }
     s.putSync(KEY_THEME, theme);
+    await s.flush();
+  }
+
+  /** 本地缓存的界面语言（`''` = 未存过）。 */
+  cachedLocale(): string {
+    return this.data.locale;
+  }
+
+  /** 保存界面语言到本地（冷启动首帧用；服务端 `xbot-locale` 仍是跨设备真值）。 */
+  async saveLocale(locale: string): Promise<void> {
+    this.data.locale = locale;
+    const s: preferences.Preferences | null = this.store;
+    if (s === null) {
+      return;
+    }
+    s.putSync(KEY_LOCALE_LOCAL, locale);
     await s.flush();
   }
 
@@ -199,6 +222,17 @@ export function readCachedTheme(context: common.Context): string {
     const options: preferences.Options = { name: STORE_NAME };
     const s: preferences.Preferences = preferences.getPreferencesSync(context, options);
     return s.getSync(KEY_THEME, '') as string;
+  } catch (e) {
+    return '';
+  }
+}
+
+/** **同步**读语言缓存（同 `readCachedTheme` 的理由：首帧前定下 `activeLocale`）。 */
+export function readCachedLocale(context: common.Context): string {
+  try {
+    const options: preferences.Options = { name: STORE_NAME };
+    const s: preferences.Preferences = preferences.getPreferencesSync(context, options);
+    return s.getSync(KEY_LOCALE_LOCAL, '') as string;
   } catch (e) {
     return '';
   }

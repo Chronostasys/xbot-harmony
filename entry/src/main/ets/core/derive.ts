@@ -312,12 +312,19 @@ function assistantRow(t: Turn): Row | null {
   switch (t.phase.kind) {
     case 'live': {
       const d = t.phase.data
+      // ⛔ 用户不变量（2026-10-18 真机截图）：「思考中」必须出现在 user msg 或 tool call
+      //   之后。compaction/resume 会开一个 **user=null 的内部续跑 turn**；它还没有任何
+      //   可见产出时，若照样把 `streaming` 传到行上，界面会在上一条 assistant 正文后
+      //   凭空多一个「思考中…」（用户亲报「压缩完进入下一个 turn，但看不到新 user msg/新 turn」）。
+      //   ⇒ 行保留（既有 live 行契约/性能测试依赖它），但**空 user-less live 不显示在飞信号**；
+      //   一旦有内容/工具/迭代，`streaming` 恢复，照常出现（不丢后续输出）。
+      const noUserEmpty: boolean = t.user === null && !hasVisibleOutput(d)
       return {
         kind: 'live',
         id: `turn-${t.id}-live`,
         turnID: t.id,
         isPartial: true,
-        streaming: d.streaming,
+        streaming: noUserEmpty ? false : d.streaming,
         content: d.content,
         reasoning: d.reasoning,
         iterations: d.iterations,
@@ -448,7 +455,8 @@ function hasVisibleOutput(d: LiveSnapshot): boolean {
     d.iterations.length > 0 ||
     d.genui !== '' ||
     d.activeTools.length > 0 ||
-    d.streamingTools.length > 0
+    d.streamingTools.length > 0 ||
+    d.completedTools.length > 0
   )
 }
 

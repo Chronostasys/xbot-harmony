@@ -160,6 +160,9 @@ const CHROME_GLYPH: number = 20;
  */
 @Component
 export struct WebSurface {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   /** 要加载的 URL（通常就是 xbot 服务端根地址，带完整 web UI）。 */
   // ⚠️ 必须是 @Prop + @Watch：面板从插件 A 切到插件 B 时组件实例不会重建，
   // 若 url 只是普通成员，ArkWeb 仍停留在旧页面（表现为"点了没反应/显示上一个页面"）。

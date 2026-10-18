@@ -738,6 +738,9 @@ struct SshTargetRow {
 
 @Component
 export struct SshRunnerSheet {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop theme: string = 'dark';
   /** 会话身份（页面注入；未就绪 ⇒ 会话相关动作禁用，⛔ 绝不伪造 chatID）。 */
   @Prop sessionChannel: string = '';

@@ -110,6 +110,15 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   修法见 `core/reduce.ts:attachNotificationWhileLive`（只插 frozen user-only 空壳，不动
   activeTurn/lastSeq/sessionRunning）+ `text_final` 权威收尾时清 sessionRunning；web 同源修法在
   `web/src/chat/reduce.ts`；判据 `tools/tests/reduce.test.ts`（REPRO 2026-10-18）。
+- **⛔ i18n 不是“把字符串包上 `i18nT`”就完了**（2026-10-18 用户三连报）：
+  ① 冷启动首帧必须**同步**读本地语言（`core/config.readCachedLocale` + `EntryAbility.onCreate`
+  的 `initLocale`），只靠登录后 `loadSettings` 异步到达 ⇒ 侧边栏先中文；
+  ② 切换语言必须让**组件自己重建**（`@StorageProp('appLocale')`，组件级订阅；仅父级 state
+  变化不会重投 `@Prop`）——设置面板/已存在行都要；
+  ③ 抽屉 `drawerGroups()` 的缓存指纹必须含 `getLocale()`，且组标题/分类/渠道/相对时间
+  的唯一出口（core 纯函数）内部翻译；否则缓存/直出中文；
+  ④ 服务端生成的通知正文不是 i18n key ⇒ `tNotification` 只翻协议标签（任务 ID/命令/输出
+  原样）；⛔ 别把用户内容当文案改写。
 - **⛔ 跨会话投影/异步回包必须有身份/代数守卫**：`syncFrom` 首行 `if (store !== this.store) return;`
   （否则旧 store 的 16ms flush 会把 `currentChat` 改回旧会话 = 界面 A、`this.store` B）；
   `ChatStore.chatGen` 在 `beginSwitch` 自增，所有异步回包（history/status/queue/sessions/

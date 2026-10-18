@@ -75,6 +75,9 @@ const INPUT_W: number = 96;
  */
 @Component
 export struct SettingsToolRow {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop label: string = '';
   @Prop description: string = '';
   /** ⛔ 不能叫 `enabled` —— ArkUI `CustomComponent` 的基类成员（`.enabled()` 修饰符），
@@ -144,6 +147,9 @@ export struct SettingsToolRow {
 /** 一个 MCP server 的组头（总开关 = 批量启停该组全部工具）。 */
 @Component
 export struct SettingsMcpHead {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop server: string = '';
   @Prop count: number = 0;
   @Prop allEnabled: boolean = false;
@@ -195,6 +201,9 @@ export struct SettingsMcpHead {
 /** 一行「标题 + 说明 + 数字输入 + 单位」。 */
 @Component
 export struct SettingsNumberRow {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop label: string = '';
   @Prop description: string = '';
   /** 当前输入值（空串 = 未填，界面显示 placeholder）。 */
@@ -286,6 +295,9 @@ export struct SettingsNumberRow {
  */
 @Component
 export struct SettingsChipRow {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop label: string = '';
   @Prop description: string = '';
   /** 当前选中值。 */
@@ -366,6 +378,9 @@ export struct SettingsChipRow {
 /** 一行「标题 + 说明 + 单行输入（可选密码遮显）」。 */
 @Component
 export struct SettingsTextFieldRow {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop label: string = '';
   @Prop description: string = '';
   @Prop value: string = '';
@@ -422,6 +437,9 @@ export struct SettingsTextFieldRow {
 /** 一张订阅卡（名称 / 提供方 / base_url / 默认徽标 / 启用开关 / 掩码密钥 / 设默认）。 */
 @Component
 export struct SettingsSubCard {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop subId: string = '';
   @Prop name: string = '';
   @Prop provider: string = '';
@@ -490,7 +508,7 @@ export struct SettingsSubCard {
 
       // 第二行：模型 + 模型数
       Row({ space: SPACE_XS }) {
-        Text(this.model.length > 0 ? this.model : '未指定默认模型')
+        Text(this.model.length > 0 ? this.model : i18nT('未指定默认模型'))
           .fontSize(fs('type.subhead'))
           .fontWeight(fw('type.subhead'))
           .lineHeight(lh('type.subhead'))
@@ -498,7 +516,7 @@ export struct SettingsSubCard {
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .layoutWeight(1)
-        Text(`${this.modelCount} 个模型`)
+        Text(`${this.modelCount} ${i18nT('个模型')}`)
           .fontSize(fs('type.subhead'))
           .fontWeight(fw('type.subhead'))
           .lineHeight(lh('type.subhead'))
@@ -563,6 +581,9 @@ export struct SettingsSubCard {
 /** 面板顶部「标题 + 副标题」——所有面板统一用它，保证版式一致。 */
 @Component
 export struct SettingsPanelHeader {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop title: string = '';
   @Prop subtitle: string = '';
   @Prop theme: string = 'dark';
@@ -581,7 +602,7 @@ export struct SettingsPanelHeader {
         .fontColor(tc(this.pal(), 'type.headline'))
         .width('100%')
       if (this.subtitle.length > 0) {
-        Text(this.subtitle)
+        Text(i18nT(this.subtitle))
           .fontSize(fs('type.callout'))
           .fontWeight(fw('type.callout'))
           .lineHeight(lh('type.callout'))
@@ -602,6 +623,9 @@ export struct SettingsPanelHeader {
  */
 @Component
 export struct SettingsGroupHeader {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop title: string = '';
   @Prop theme: string = 'dark';
 
@@ -642,6 +666,9 @@ export struct SettingsGroupHeader {
  */
 @Component
 export struct SettingsValueRow {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop label: string = '';
   @Prop value: string = '';
   @Prop description: string = '';
@@ -672,7 +699,7 @@ export struct SettingsValueRow {
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
 
-      Text(this.value)
+      Text(i18nT(this.value))
         .fontSize(fs('type.subhead'))
         .fontWeight(fw('type.subhead'))
         .lineHeight(lh('type.subhead'))
@@ -690,6 +717,9 @@ export struct SettingsValueRow {
 /** 一行「标题 + 可点动作」（例：重新读取设置）。命中区 ≥44。 */
 @Component
 export struct SettingsActionRow {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop label: string = '';
   @Prop action: string = '';
   @Prop description: string = '';
@@ -764,6 +794,9 @@ export struct SettingsActionRow {
  */
 @Component
 export struct SettingsButton {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop label: string = '';
   /** `primary` | `secondary` | `ghost` | `danger` */
   @Prop kind: string = 'secondary';
@@ -852,6 +885,9 @@ export struct SettingsButton {
  */
 @Component
 export struct SettingsRadioRow {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop label: string = '';
   /** ⛔ 不叫 `selected`（避免与 ArkUI 基类成员潜在同名，同 `isOn` 之于 `enabled`）。 */
   @Prop isSelected: boolean = false;
@@ -898,6 +934,9 @@ export struct SettingsRadioRow {
  */
 @Component
 export struct SettingsErrorBar {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop message: string = '';
   @Prop theme: string = 'dark';
   /** 是否给「重试」入口（**由页面经 SettingsPanel 注入的真回调**驱动，⛔ 不是状态位）。 */

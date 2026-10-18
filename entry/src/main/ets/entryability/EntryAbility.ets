@@ -26,7 +26,8 @@ import {
   parseCommandUri,
   registeredCommands,
 } from '../core/command';
-import { readCachedTheme } from '../core/config';
+import { readCachedLocale, readCachedTheme } from '../core/config';
+import { initLocale } from '../core/i18n';
 import { ensureReconcileScheduled, cancelReconcileScheduled } from '../workreconcile/schedule';
 import { markForegroundSeen } from '../workreconcile/memo';
 import { installNotifyIcon } from '../workreconcile/icons';
@@ -63,6 +64,10 @@ export default class EntryAbility extends UIAbility {
     //   ⛔ 判据必须是**色板亮度**（`isLightPalette(paletteOf(t))`），**不按主题名硬判**
     //   （`docs/DESIGN-SYSTEM.md §12`/铁律：深浅只走亮度口径 ⇒ 将来"主题名 ↔ appBg 亮度"脱钩也不会错）。
     const cachedTheme: string = readCachedTheme(this.context);
+    // 首帧前定下界面语言（与主题同理）：本地缓存是上次选择；服务端 `xbot-locale`
+    // 到达后会覆盖（`ChatStore.loadSettings`）。否则冷启动先渲染中文再异步切日文
+    //（用户 2026-10-18：「切日文后重启，侧边栏还是中文」）。
+    initLocale(readCachedLocale(this.context));
     this.darkSystem = cachedTheme.length === 0 || !isLightPalette(paletteOf(cachedTheme));
     this.context.getApplicationContext().setColorMode(this.darkSystem
       ? ConfigurationConstant.ColorMode.COLOR_MODE_DARK

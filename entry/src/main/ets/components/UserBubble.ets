@@ -24,6 +24,7 @@ import { MarkdownView } from './MarkdownView';
 import { GAP_ROW_Y, INSET_BUBBLE_X, INSET_BUBBLE_Y, RADIUS_BUBBLE, typeOf } from '../core/design';
 import { annotatedMessagePlainText } from '../core/annotations';
 import { MdBlock, MdBlockKind, parseMarkdownCached } from '../core/markdown';
+import { tNotification } from '../core/i18n';
 
 /**
  * 批注展示的**文案表**（逐字对齐 web `i18n/zh-CN.ts:451-461` 的 `agent.annotations.*`）。
@@ -54,6 +55,8 @@ export struct UserBubbleView {
    * 白字）。⇒ 行**自己订阅** AppStorage，主题变更时每个已存在实例各自重渲染（与列表键语义无关）。
    */
   @StorageProp('appTheme') appTheme: string = '';
+  /** 语言切换订阅（通知正文的协议标签按当前语言即时重译）。 */
+  @StorageProp('appLocale') localeStamp: string = '';
   /**
    * 该 user 行是否为**后台通知注入**（web `UserMessage.tsx:45` 的 `isNotification`）。
    *
@@ -88,7 +91,10 @@ export struct UserBubbleView {
    * `annotatedMessagePlainText(` **调用点恒为 1**（两条渲染分支都消费同一出口）。
    */
   private displayText(): string {
-    return annotatedMessagePlainText(this.text, annotationLabel);
+    const plain: string = annotatedMessagePlainText(this.text, annotationLabel);
+    // 后台通知正文（服务端模板）不是 i18n key ⇒ 按当前语言翻译协议标签/前后缀；
+    // 普通用户消息逐字原样（绝不改写用户内容）。
+    return this.isNotification ? tNotification(plain) : plain;
   }
 
   /**

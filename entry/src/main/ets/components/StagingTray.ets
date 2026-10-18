@@ -36,6 +36,9 @@ const ITEM_PREVIEW_CP: number = 120;
 
 @Component
 export struct StagingTray {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop theme: string = 'dark';
   /** 待发队列（页面 `store.queue` 的镜像；顺序与 id 判据都在页面/core）。 */
   @Prop queue: QueueItem[] = [];

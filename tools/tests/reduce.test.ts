@@ -2378,6 +2378,35 @@ describe('P1-1 — standalone 只认显式命令回复标记', () => {
     expect(iAssistant, 'assistant T1 必须存在').toBeGreaterThan(iUser1)
     expect(iUser2, 'notification user T2 必须存在').toBeGreaterThan(iAssistant)
   })
+  it('REPRO 2026-10-18：compaction/resume 的 user-less 空 live turn 不得凭空渲染「思考中」', () => {
+    // 用户截图：压缩完成后进入内部续跑 turn（无 user 消息），旧 derive 照样产出
+    // live 行 ⇒ 上一条 assistant 正文后凭空出现「思考中…」，且看不到新 turn/user。
+    let s = run([
+      {
+        type: 'turn_started', turnID: T1, requestID: 'r1', trigger: 'user', content: '旧问题',
+      },
+      iteration1(T1, '旧回答'),
+      textFinal(T1, '旧回答'),
+      // 内部续跑（resume）：无 user、无产出
+      { type: 'turn_started', turnID: T2, requestID: null, trigger: 'resume', content: null },
+    ])
+    expect(s.activeTurn, 'resume turn 仍是 active（事件归属不能丢）').toBe(T2)
+    let rows = deriveRows(s)
+    const resumeRows = rows.filter((r) => r.turnID === 2)
+    expect(resumeRows.every((r) => r.kind !== 'live' || !r.streaming),
+      '空 user-less live turn 不得显示「思考中」在飞信号').toBe(true)
+    expect(rows.some((r) => String(r.content ?? '') === '旧回答'), '上一条已完成回答必须保留').toBe(true)
+
+    // 一旦续跑产出内容，行必须出现（不丢后续输出）。
+    s = reduce(s, {
+      type: 'stream', turnID: T2, seq: null, iteration: null,
+      content: '续跑输出' as never, reasoning: undefined,
+      streamingTools: undefined, genui: undefined, streamStats: undefined,
+    })
+    rows = deriveRows(s)
+    expect(rows.some((r) => r.turnID === 2 && String(r.content ?? '').includes('续跑输出')),
+      '续跑有内容后必须出现 live 行').toBe(true)
+  })
 })
 
 

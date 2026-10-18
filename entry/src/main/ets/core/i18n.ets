@@ -112,6 +112,111 @@ export function tKey(key: string): string {
   return i === undefined ? key : valueAt(i);
 }
 
+/**
+ * 后台通知正文的**运行时本地化**（服务端 `FormatBgTaskCompletion` / cron / 合并通知生成，
+ * 内容本身不是 i18n key，无法走 `t()`）。只翻译**协议标签/前后缀**；任务 ID、命令、
+ * 输出正文原样保留（⛔ 不能把 shell 输出当文案改写）。
+ *
+ * 覆盖：`[System Notification] Background task … completed/failed/killed`、`Command/Status/
+ * Elapsed/Exit Code/Error/Output`、`(no output)`、`⏰ [定时任务触发]`、`🔔 合并通知 ×N`、
+ * 分节来源 `后台任务/子代理/定时任务/异步消息`。
+ */
+export function tNotification(text: string): string {
+  if (text.length === 0) {
+    return text;
+  }
+  let out: string = text;
+  const pairs: string[][] = activeLocale === 'en'
+    ? NOTIFICATION_EN
+    : (activeLocale === 'ja' ? NOTIFICATION_JA : NOTIFICATION_ZH);
+  for (let i = 0; i < pairs.length; i++) {
+    const from: string = pairs[i][0];
+    if (out.indexOf(from) >= 0) {
+      out = out.split(from).join(pairs[i][1]);
+    }
+  }
+  return out;
+}
+
+/** 中文通知 → 英文。 */
+const NOTIFICATION_EN: string[][] = [
+  ['[系统通知]', '[System Notification]'],
+  ['后台子代理', 'Background subagent'],
+  ['后台任务', 'Background task'],
+  ['已完成。', 'completed.'],
+  ['失败。', 'failed.'],
+  ['被用户终止。', 'killed by user.'],
+  ['定时任务触发', 'Scheduled task triggered'],
+  ['合并通知', 'Merged notifications'],
+  ['子代理', 'Subagent'],
+  ['定时任务', 'Scheduled task'],
+  ['异步消息', 'Async message'],
+  ['命令：', 'Command: '],
+  ['状态：', 'Status: '],
+  ['耗时：', 'Elapsed: '],
+  ['退出码：', 'Exit Code: '],
+  ['错误：', 'Error: '],
+  ['输出：', 'Output: '],
+  ['输出（已截断', 'Output (truncated'],
+  ['（无输出）', '(no output)'],
+];
+
+/** 英文/中文通知 → 日文。 */
+const NOTIFICATION_JA: string[][] = [
+  ['[System Notification]', '[システム通知]'],
+  ['[系统通知]', '[システム通知]'],
+  ['Background subagent', 'バックグラウンドサブエージェント'],
+  ['Background task', 'バックグラウンドタスク'],
+  ['后台子代理', 'バックグラウンドサブエージェント'],
+  ['后台任务', 'バックグラウンドタスク'],
+  [' completed.', ' が完了しました。'],
+  [' failed.', ' が失敗しました。'],
+  [' killed by user.', ' はユーザーにより停止されました。'],
+  ['已完成。', ' が完了しました。'],
+  ['失败。', ' が失敗しました。'],
+  ['被用户终止。', ' はユーザーにより停止されました。'],
+  ['[定时任务触发]', '[定期タスク実行]'],
+  ['定时任务触发', '定期タスク実行'],
+  ['合并通知', '統合通知'],
+  ['子代理', 'サブエージェント'],
+  ['定时任务', '定期タスク'],
+  ['异步消息', '非同期メッセージ'],
+  ['Command:', 'コマンド:'],
+  ['命令：', 'コマンド:'],
+  ['Status:', 'ステータス:'],
+  ['状态：', 'ステータス:'],
+  ['Elapsed:', '経過:'],
+  ['耗时：', '経過:'],
+  ['Exit Code:', '終了コード:'],
+  ['退出码：', '終了コード:'],
+  ['Error:', 'エラー:'],
+  ['错误：', 'エラー:'],
+  ['Output (truncated', '出力（切り詰め'],
+  ['输出（已截断', '出力（切り詰め'],
+  ['Output:', '出力:'],
+  ['输出：', '出力:'],
+  ['(no output)', '（出力なし）'],
+  ['（无输出）', '（出力なし）'],
+];
+
+/** 英文/日文通知 → 中文（中文用户看到服务端英文模板时）。 */
+const NOTIFICATION_ZH: string[][] = [
+  ['[System Notification]', '[系统通知]'],
+  ['Background subagent', '后台子代理'],
+  ['Background task', '后台任务'],
+  [' completed.', ' 已完成。'],
+  [' failed.', ' 失败。'],
+  [' killed by user.', ' 已被用户终止。'],
+  ['Command:', '命令：'],
+  ['Status:', '状态：'],
+  ['Elapsed:', '耗时：'],
+  ['Exit Code:', '退出码：'],
+  ['Error:', '错误：'],
+  ['Output (truncated', '输出（已截断'],
+  ['Output:', '输出：'],
+  ['(no output)', '（无输出）'],
+];
+
 export function getLocale(): string {
   return activeLocale;
 }

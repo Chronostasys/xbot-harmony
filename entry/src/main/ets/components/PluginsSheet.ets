@@ -56,6 +56,9 @@ const PLUGIN_ICON: number = 18;
 
 @Component
 export struct PluginsSheet {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop theme: string = 'dark';
   /** 插件面板列表（页面 `pluginItems`；`PluginCatalogItem` 才有 description/version/state）。 */
   @Prop plugins: PluginCatalogItem[] = [];

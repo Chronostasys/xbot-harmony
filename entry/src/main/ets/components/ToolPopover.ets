@@ -205,6 +205,9 @@ export function toolDetailVM(t: ToolProgress | undefined, statusColor: string, s
 
 @Component
 export struct ToolPopoverCard {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop vm: ToolDetailVM;
   @Prop theme: string = 'dark';
   /**
@@ -810,6 +813,9 @@ function tailLinesOfFile(f: DiffFile, max: number): DiffLine[] {
  */
 @Component
 export struct ToolOverflowList {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop tools: ToolProgress[] = [];
   @Prop theme: string = 'dark';
   /**

@@ -30,7 +30,7 @@ import { AMBIENCE_PLUGIN_ID, ambienceFromPluginConfig } from '../core/settingspl
 import { brandAccentFor } from '../core/brand';
 import { ACCENT_PRESETS, accentLabel, contrastForeground, normalizeAccent, withAccent } from '../core/accent';
 import { MD_THEMES, appPaletteForMdTheme, mdThemeLabel, normalizeMdTheme } from '../core/mdtheme';
-import { getLocale, localeLabel, normalizeLocale, onLocaleChanged, setLocale } from '../core/i18n';
+import { getLocale, initLocale, localeLabel, normalizeLocale, onLocaleChanged, setLocale } from '../core/i18n';
 import { isStarred, parseStarred, serializeStarred, starredFirst, toggleStarred } from '../core/stars';
 import { EASE_SPRING_DAMPING, EASE_SPRING_RESPONSE, FS_BODY, FS_BOOT_WORDMARK, FS_BRAND_WORDMARK, FS_CAPTION, FS_HERO, FS_META, FS_TITLE, R_2XL, R_LG, R_MD, R_XL, SP_1, SP_2, SP_3, SP_4, SP_5, SP_6, SP_8, THINK_ROW_H } from '../core/tokens';
 // 「更早的 N 个迭代块」哨兵的**同一份**恒定行高（①三处提示同视觉语言 ⇒ 同高，⛔ 不另写字面量）。
@@ -1356,10 +1356,20 @@ struct Index {
   // ── 生命周期 ──────────────────────────────────────────────────────────────
 
   aboutToAppear(): void {
+    // 组件级订阅的**首值**：所有 `@StorageProp('appLocale')` 的文本组件靠它同步刷新。
+    // EntryAbility 已在首帧前 `initLocale(本地缓存)`，这里只是把同一值放进 AppStorage。
+    AppStorage.setOrCreate<string>('appLocale', getLocale());
     if (!this.localeWired) {
       this.localeWired = true;
       onLocaleChanged(() => {
-        this.appLocale = getLocale();
+        const loc: string = getLocale();
+        this.appLocale = loc;
+        AppStorage.setOrCreate<string>('appLocale', loc);
+        // 本地持久化（冷启动首帧）：服务端 `xbot-locale` 是跨设备真值，这里只是镜像。
+        // 写盘失败不影响语言切换（下次 setLocale 会重试；服务端仍是权威）。
+        this.config.saveLocale(loc).catch(() => {
+          // 有意吞：本地镜像失败不阻断语言切换（服务端仍是权威）
+        });
         const st: ChatStore | null = this.store;
         if (st !== null) {
           this.syncFrom(st);
@@ -1706,6 +1716,13 @@ struct Index {
     if (saved.serverUrl.length > 0) {
       this.serverUrl = saved.serverUrl;
     }
+    // 本地语言镜像：EntryAbility 首帧前已 initLocale；这里在本地存储可用后再次对齐
+    // （保存值缺失时保留 EntryAbility 的缓存值，不把日文打回中文）。
+    if (saved.locale.length > 0) {
+      initLocale(saved.locale);
+    }
+    this.appLocale = getLocale();
+    AppStorage.setOrCreate<string>('appLocale', this.appLocale);
     this.username = saved.username;
     // 渠道过滤：读回持久化值（`config.init` 已用 `normalizeActiveChannel` 归一化，回落单点）
     // ⇒ 用户上次选的渠道**重启后还在**（对齐 web `useSessionStore` 的 `xbot:active-channel`）。
@@ -7880,7 +7897,7 @@ struct Index {
 
   private drawerGroups(): DrawerGroup[] {
     const fp: string = drawerFingerprint(settingOf(this.settings, KEY_STARRED),
-      this.sessionCategory(), this.sessQuery, this.activeChannel);
+      this.sessionCategory(), this.sessQuery, this.activeChannel, getLocale());
     if (drawerCacheHit(this.drawerCacheRef, this.sessions, this.drawerCacheFp, fp)) {
       return this.drawerCache;
     }
@@ -8628,7 +8645,14 @@ struct Index {
     const pairs: Record<string, string> = {};
     pairs[key] = value;
     this.settings[key] = value;   // 乐观：界面立刻变
-    if (key === KEY_LOCALE) { setLocale(value); }
+    if (key === KEY_LOCALE) {
+      setLocale(value);
+      // 本地镜像（冷启动首帧）；listener 也会写，双保险且幂等。
+      // 写盘失败不影响当前切换（服务端 `xbot-locale` 仍是跨设备权威）。
+      this.config.saveLocale(normalizeLocale(value)).catch(() => {
+        // 有意吞：本地镜像失败不阻断当前切换
+      });
+    }
     // ⛔ 主题切换必须**同步**更新 themeName（`@StorageLink('appTheme')` 唯一真源）——
     //    原实现只在 `syncFrom` 从 `store.settings` 重算（依赖 saveSettings 异步返回），
     //    乐观更新只写了 `settings`、没写 `themeName` ⇒ 切换后色板**冻结在旧主题**

@@ -32,6 +32,9 @@ const GAP: number = SP_2;
 
 @Component
 export struct SettingsTools {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   /**
    * HTTP 客户端（由页面注入 `store.http`）。默认空实例只为满足 ArkTS 成员初始化，
    * 未注入时任何调用都会失败并显示可读错误 —— 不静默。

@@ -84,6 +84,9 @@ const DOT_W: number = 8;
 
 @Component
 export struct AskUserSheet {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   /** 主题名（只用于取语义色板；不参与任何判断）。 */
   @Prop theme: string = 'dark';
   /**

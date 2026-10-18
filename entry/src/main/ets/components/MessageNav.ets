@@ -197,6 +197,9 @@ struct NavItemView {
  */
 @Component
 export struct MessageNav {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   /**
    * 用户消息锚点（由页面用 `core/msgindex.ets:buildAnchors(rows, userAnchorRows(rows))` 生成）。
    * 长度 < 2 ⇒ **不渲染任何节点**。

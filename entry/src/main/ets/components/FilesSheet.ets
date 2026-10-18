@@ -143,6 +143,9 @@ struct FsNotice {
 
 @Component
 export struct FilesSheet {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   @Prop theme: string = 'dark';
   /** 当前目录绝对路径。 */
   @Prop path: string = '/';

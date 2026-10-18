@@ -68,6 +68,9 @@ const PERSIST_BUDGET: Map<string, number> = new Map<string, number>([
   // 业务真值在服务端 `web:session:category`；本地盘只做**冷启首帧**镜像（服务端值到达后服务端胜）
   // ⇒ 读 1（`init`）/ 写 1（`saveSessionCategory`），共 2。
   ['KEY_SESSION_CATEGORY_LOCAL', 2],
+  // 界面语言本地镜像（2026-10-18，用户「切日文后重启侧边栏仍是中文」）：
+  // 读 2（`init` + 首帧 `readCachedLocale`）/ 写 1（`saveLocale`）。
+  ['KEY_LOCALE_LOCAL', 3],
 ]);
 
 const root: string = findRoot();

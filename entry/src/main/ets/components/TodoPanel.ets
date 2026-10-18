@@ -310,6 +310,9 @@ struct TodoRowView {
  */
 @Component
 export struct TodoPanel {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   /** 清单（空 ⇒ **不产出任何节点**，web `TodoPullOut.tsx:56`）。 */
   @Prop todos: TodoItem[] = [];
   /** 当前 goal 文本（用于行尾徽标；空 ⇒ 不标）—— web `TodoPullOut.tsx:24,128`。 */

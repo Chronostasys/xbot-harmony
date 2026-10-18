@@ -421,6 +421,9 @@ struct WidgetComponentCard {
  */
 @Component
 export struct PluginWidgets {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   /** 最近一次 widget 载荷原文（`{zones?,components?,revision?}`；空 = 尚未收到）。 */
   @Prop @Watch('syncView') content: string = '';
   /** 事件名（`web_widgets` / `plugin_widgets`）——复用 `core/panels.isWidgetEvent` 判据。 */

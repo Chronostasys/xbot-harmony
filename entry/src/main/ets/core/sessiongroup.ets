@@ -17,6 +17,7 @@
 // ⚠️ 只 import **纯类型/纯逻辑**（本文件被 `tools/tests/run.sh` 当纯 TS 编译 ⇒ 仍禁 ArkUI/@ohos）。
 //    `core/types.ets` 是纯接口声明、无反向依赖，不构成环。
 import { SessionItem } from './types';
+import { t } from './i18n';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. 分类（category）常量与归一化
@@ -555,18 +556,18 @@ export function relativeTimeLabel(lastActive: string, nowMs: number): string {
   const diff: number = nowMs - ts;
   const min: number = Math.floor(diff / 60000);
   if (min < 1) {
-    return '刚刚';
+    return t('刚刚');
   }
   if (min < 60) {
-    return `${min} 分钟前`;
+    return t('{{n}} 分钟前').replace('{{n}}', String(min));
   }
   const hr: number = Math.floor(min / 60);
   if (hr < 24) {
-    return `${hr} 小时前`;
+    return t('{{n}} 小时前').replace('{{n}}', String(hr));
   }
   const day: number = Math.floor(hr / 24);
   if (day < 30) {
-    return `${day} 天前`;
+    return t('{{n}} 天前').replace('{{n}}', String(day));
   }
   const d: Date = new Date(ts);
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
@@ -655,12 +656,12 @@ export function basename(path: string): string {
  */
 export function groupTitle(key: string, category: string): string {
   if (category === SESSION_CATEGORY_TIME) {
-    return timeBucketLabel(key);
+    return t(timeBucketLabel(key));
   }
   if (category === SESSION_CATEGORY_STATUS) {
-    return statusGroupLabel(key);
+    return t(statusGroupLabel(key));
   }
-  return key === UNSET_WORK_PATH ? '未设置工作路径' : basename(key);
+  return key === UNSET_WORK_PATH ? t('未设置工作路径') : basename(key);
 }
 
 /** path 组的完整路径 tooltip（web `SessionGroup.tsx:82`：仅 path 分类且非 unset 时给出）。 */
@@ -671,12 +672,12 @@ export function pathGroupTooltip(key: string, category: string): string {
 /** 分类的**界面标签**（web `SessionViewBar.tsx:23-31` labelForCategory + i18n `zh-CN.ts:105-107`）。 */
 export function sessionCategoryLabel(category: string): string {
   if (category === SESSION_CATEGORY_TIME) {
-    return '时间';
+    return t('时间');
   }
   if (category === SESSION_CATEGORY_STATUS) {
-    return '状态';
+    return t('状态');
   }
-  return '项目';
+  return t('项目');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

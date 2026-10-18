@@ -37,6 +37,9 @@ interface CreatedUser {
 
 @Component
 export struct SettingsWebUsers {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   /** HTTP 客户端（由页面注入 `store.http`）。默认空实例只为满足 ArkTS 成员初始化。 */
   http: XbotHttp = new XbotHttp('');
   @Prop theme: string = 'dark';
@@ -172,7 +175,7 @@ export struct SettingsWebUsers {
           .onChange((v: string) => {
             this.newUsername = v;
           })
-        Text(this.creating ? '创建中…' : '创建')
+        Text(this.creating ? i18nT('创建中…') : i18nT('创建'))
           .constraintSize({ minHeight: HIT_TARGET_MIN })
           .fontSize(FS_CAPTION)
           .fontColor(this.pal().onAccent)

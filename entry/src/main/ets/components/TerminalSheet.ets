@@ -101,6 +101,9 @@ const TERM_KEYROWS_VP: number = 104;
 
 @Component
 export struct TerminalSheet {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   /** 主题名（只用于取语义色板）。 */
   @Prop theme: string = 'dark';
   /** 服务端终端 id（`POST /api/terminal/create` 返回的 `tid`）。 */

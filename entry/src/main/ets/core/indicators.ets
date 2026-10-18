@@ -18,7 +18,7 @@
  *   ⇒ 不变量被破坏。修法：两者共用下面这个 `busyNow`（= web 的单一 busy 语义）。
  */
 
-/** 判定「是否在跑」所需的全部信号（页面从 store + 会话树采集后传入）。 */
+import { t } from './i18n';
 export interface BusySignals {
   /** 本地事件驱动的 busy（`store.busy`：sessionRunning ∥ streaming ∥ activeTurn） */
   localBusy: boolean;
@@ -136,7 +136,7 @@ export const BUSY_LABEL_THINKING: string = '思考中…';
  * @param phase 服务端 `ProgressSnapshot.phase`（`undefined`/`''` ⇒ 当作普通思考，与 web 同）
  */
 export function busyLabel(phase: string | undefined): string {
-  return phase === PHASE_COMPRESSING ? BUSY_LABEL_COMPRESSING : BUSY_LABEL_THINKING;
+  return t(phase === PHASE_COMPRESSING ? BUSY_LABEL_COMPRESSING : BUSY_LABEL_THINKING);
 }
 
 // ── 会话抽屉（侧边栏）空态判据 ────────────────────────────────────────────────
@@ -166,7 +166,7 @@ export function drawerEmptyKind(total: number, filtered: number): string {
 
 /** 抽屉**空态**文案（单一真源；`title` 主行 + `hint` 副行）。空态无文案 ⇒ 返回空串。 */
 export function drawerEmptyHint(kind: string): string {
-  if (kind === DRAWER_EMPTY_NO_SESSIONS) { return '还没有会话'; }
-  if (kind === DRAWER_EMPTY_NO_MATCH) { return '没有匹配的会话'; }
+  if (kind === DRAWER_EMPTY_NO_SESSIONS) { return t('还没有会话'); }
+  if (kind === DRAWER_EMPTY_NO_MATCH) { return t('没有匹配的会话'); }
   return '';
 }

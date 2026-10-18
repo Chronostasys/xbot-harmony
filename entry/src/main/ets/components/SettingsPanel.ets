@@ -116,6 +116,9 @@ function settingsTabSpecs(): SettingsTabSpec[] {
 
 @Component
 export struct SettingsPanel {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   /** HTTP 客户端（由页面注入 `store.http`）。默认空实例只为满足 ArkTS 成员初始化。 */
   http: XbotHttp = new XbotHttp('');
   @Prop theme: string = 'dark';
@@ -374,7 +377,7 @@ export struct SettingsPanel {
           this.active = '';
         })
       }
-      Text(this.active.length > 0 ? this.activeLabel() : '偏好设置')
+      Text(i18nT(this.active.length > 0 ? this.activeLabel() : '偏好设置'))
         .fontSize(fs('type.headline'))
         .fontWeight(fw('type.headline'))
         .lineHeight(lh('type.headline'))
@@ -420,7 +423,7 @@ export struct SettingsPanel {
         ListItem() {
           if (r.isHeader) {
             // 组头（Apple 分组列表的小号组名）：⛔ **不可点、不参与选择、无箭头**。
-            Text(r.label)
+            Text(i18nT(r.label))
               .fontSize(fs('type.caption'))
               .lineHeight(lh('type.caption'))
               .fontColor(tc(this.pal(), 'type.caption'))
@@ -429,7 +432,7 @@ export struct SettingsPanel {
           } else {
             Column() {
               Row() {
-                Text(r.label)
+                Text(i18nT(r.label))
                   .fontSize(fs('type.body'))
                   .lineHeight(lh('type.body'))
                   .fontColor(tc(this.pal(), 'type.body'))
@@ -443,7 +446,7 @@ export struct SettingsPanel {
               .padding({ left: INSET_ROW_X, right: INSET_ROW_X })
               .alignItems(VerticalAlign.Center)
               .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-              .accessibilityText(`${r.label}：设置分区`)
+              .accessibilityText(`${i18nT(r.label)}：设置分区`)
               .onClick(() => {
                 this.openSection(r.key);
               })

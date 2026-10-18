@@ -54,6 +54,9 @@ const SURFACE_WEB: string = 'web';
 
 @Component
 export struct SettingsAppearance {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   /** 服务端权威设置镜像（页面 `store.settings`）——显示值**只**从这里派生。 */
   @Prop settings: Record<string, string> = {};
   /** 当前**已应用**的主题 id（页面 `themeName`）——也是本组件的取色色板。 */

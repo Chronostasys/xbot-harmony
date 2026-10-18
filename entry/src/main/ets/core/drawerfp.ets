@@ -25,8 +25,8 @@
  * 搜索词与渠道（filteredSessions 的两个过滤判据）。
  */
 export function drawerFingerprint(starredRaw: string, category: string, query: string,
-  channel: string): string {
-  return `${starredRaw}|${category}|${query}|${channel}`;
+  channel: string, locale: string = ''): string {
+  return `${starredRaw}|${category}|${query}|${channel}|${locale}`;
 }
 
 /**

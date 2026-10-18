@@ -404,6 +404,9 @@ struct PluginFieldRow {
 
 @Component
 export struct SettingsPlugins {
+  // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
+  // 不依赖父级 ForEach/LazyForEach 重投递）。
+  @StorageProp('appLocale') localeStamp: string = '';
   /** 是否给错误态「重试」入口（真值由页面经 SettingsPanel 注入）。 */
   @Prop canRetry: boolean = false;
   /** 点「重试」时调用 —— 重发**本分区自己的**请求（⛔ 空实现 = 假重试）。 */
