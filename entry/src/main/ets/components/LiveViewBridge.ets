@@ -25,6 +25,7 @@ import { log } from '../core/applog';
 import {
   LiveViewInput, LiveViewSnapshot, liveViewSnapshotOf, shouldPushLiveView, LV_EVENT, LV_ID,
 } from '../core/liveview';
+import { startAbilityAgent } from '../core/notify';
 
 /** 能力探测三态。 */
 export const LV_CAP_UNKNOWN: number = 0;
@@ -57,6 +58,8 @@ export class LiveViewBridge {
   /** 一次系统调用在飞（防重入：SSE 帧很密）。 */
   private inFlight: boolean = false;
   /** 已 stop 的实况窗 id 集合不需要 —— id 固定，用 `live` 标记是否在展示。 */
+  /** 点击卡片/胶囊拉起本应用的 WantAgent（`primary.clickAction` 必填）。 */
+  private clickAction: Object | null = null;
 
   /** 诊断文本（设置→开发者 展示；⛔ 只读，不改行为）。 */
   capText(): string {
@@ -134,6 +137,19 @@ export class LiveViewBridge {
         this.lastPushMs = nowMs;
         return;
       }
+      // 401 real-device: primary.clickAction must be WantAgent [or mandatory].
+      // LiveViewKit 的 PROGRESS 卡片要求可点击动作；没有 WantAgent 直接 401。
+      if (this.clickAction === null) {
+        try {
+          this.clickAction = await startAbilityAgent({});
+        } catch (e) {
+          const err: BusinessError = e as BusinessError;
+          log('liveview', `构造 clickAction WantAgent 失败 code=${err.code}: ${err.message} ⇒ 降级`);
+          this.cap = LV_CAP_NO;
+          this.live = false;
+          return;
+        }
+      }
       // ⛔ 每次推送都必须换一个新的 sequence（系统侧要求严格递增，否则 update 被拒）。
       this.seq = this.seq + 1;
       const v: liveViewManager.LiveView = this.build(next);
@@ -176,6 +192,11 @@ export class LiveViewBridge {
     }
     this.probing = true;
     try {
+      if (!canIUse('SystemCapability.LiveView.LiveViewService')) {
+        log('liveview', '设备不支持 LiveViewKit 能力 ⇒ 已降级');
+        this.cap = LV_CAP_NO;
+        return false;
+      }
       const ok: boolean = await liveViewManager.isLiveViewEnabled();
       this.cap = ok ? LV_CAP_OK : LV_CAP_NO;
       if (ok) {
@@ -229,6 +250,9 @@ export class LiveViewBridge {
         primary: {
           title: snap.title,
           content: content,
+          // 必须：真实设备上缺 clickAction 直接 401（Parameter error:
+          // primary.clickAction must be WantAgent [or the parameter is mandatory]）。
+          clickAction: this.clickAction === null ? undefined : this.clickAction,
           layoutData: { layoutType: liveViewManager.LayoutType.LAYOUT_TYPE_DEFAULT },
         },
         capsule: {

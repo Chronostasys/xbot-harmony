@@ -245,6 +245,13 @@ curl -s -b ck.txt -X POST -H 'Content-Type: application/json' \
 **场景选择**：`event = 'PROGRESS'`（进度展示）——一轮 agent turn 就是"一个进行中的服务"；
 `layoutData = LAYOUT_TYPE_DEFAULT`（标题 + 两行内容 + 文字胶囊 + 系统计时器）。
 ⛔ **不画假进度条**：`ProgressLayout.progress` 必填，而 LLM 一轮的剩余量**不可知**，编百分比是骗人。
+
+**2026-10-19 真机 401 修复**：`startLiveView` 报
+`Parameter error. The type of primary.clickAction must be WantAgent` ⇒ PROGRESS 卡片的
+`primary.clickAction` 是必填项。`LiveViewBridge` 现在首次推送前用
+`notify.startAbilityAgent({})` 预热 WantAgent，并写入 `primary.clickAction`；点击胶囊/卡片
+会拉起 `EntryAbility`。WantAgent 构造失败则一次性降级，不刷屏。
+
 （想要完全自定义外观 ⇒ `LAYOUT_TYPE_CUSTOM` + 自建 `LiveViewCardExtensionAbility`，属下一步。）
 
 **降级（fail-safe，不是失败）**：`1003500004`（LiveView is not enabled：未申请场景权益 / 用户关了
@@ -257,5 +264,20 @@ curl -s -b ck.txt -X POST -H 'Content-Type: application/json' \
 2. 用**该包名对应的正式签名**打包（官方样例 `README.md:92` 同款要求）；
 `module.json5` 无需额外权限（只需 `ohos.permission.INTERNET`，已具备）。
 申请下来后**无需改一行代码**：下一轮 turn 会自动出现在状态栏胶囊里（日志会从"未启用"变成"已启用"）。
+
+**2026-10-19 14:07 已就绪（新 profile）**：
+
+```text
+profile: default_xbot-harmony_...p7b  mtime 2026-10-19 14:07:20
+包含：
+  com.huawei.service.liveView.entry
+  com.huawei.service.push.base_service
+```
+
+`agconnect-services.json` 已同时放在项目根目录与 `entry/`（package/app_id 与 `com.chronostasys.xbot` 一致）。
+HAP 已用新签名构建成功；真机当前 USB Offline，待重连后**卸载旧 App → 安装新 HAP**，
+再在「设置 → 开发者 → 实况窗测试」确认系统胶囊出现、日志 tag `liveview` 为已启用。
+
+
 
 

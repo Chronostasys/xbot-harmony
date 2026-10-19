@@ -1146,7 +1146,7 @@ export async function notificationsEnabled(): Promise<boolean> {
  *
  * → 点击时以 `wants[0].parameters` 拉起目标 ability（EntryAbility.onCreate / onNewWant 收到）。
  */
-async function startAbilityAgent(params: Record<string, Object>): Promise<Object> {
+export async function startAbilityAgent(params: Record<string, Object>): Promise<Object> {
   const info: wantAgent.WantAgentInfo = {
     wants: [
       {
