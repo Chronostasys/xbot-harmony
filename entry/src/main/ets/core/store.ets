@@ -203,6 +203,8 @@ export class ChatStore {
   private resumeResyncInFlight: boolean = false;
   /** resume resync 的 fail-safe 释放定时器（网络挂死也必须恢复 UI 渲染）。 */
   private resumeResyncTimer: number = -1;
+  /** 当前在飞的 `/api/history` 所属 chatGen（同一代最多一份，跨代允许切换重载）。 */
+  private historyLoadGen: number = -1;
   /** 是否当前页面正在展示这个 store（后台 tab 的 SSE 重连不得触发 history 重载） */
   private resumeActive: boolean = false;
 
@@ -641,9 +643,8 @@ export class ChatStore {
         this.sseOpenedOnce = true;
         this.sseHadDisconnect = false;
         // 重连后必须对账：断线期间可能错过 idle/busy 事件（错过 idle ⇒ 永远"运行中"）
-        this.loadSessions().catch(() => {
-          // 对账失败不影响连接本身
-        });
+        // ⛔ 不能先 loadSessions 再 resyncAfterResume：后者内部**已经**先 loadSessions
+        //    ⇒ 同一轮重连打两次会话树（resume 预算 = 最多一次 reopen 的成本）。
         if (reconnected && this.resumeActive) {
           // 断线期间还可能错过**已完成的通知/回合**（SSE ring 淘汰后仅靠 session-tree
           // 不会带消息正文）⇒ 重连后必须做一次权威 history 重载，不能只看连接状态。
@@ -651,6 +652,10 @@ export class ChatStore {
           // 同时 loadHistory 会在 UI 线程上解析 N 份大历史 ⇒ 恢复休眠时整页冻死
           //（用户 2026-10-19 实测）。后台 store 切回来时 openSession 会自己加载。
           this.resyncAfterResume('sse-reopen');
+        } else {
+          this.loadSessions().catch(() => {
+            // 对账失败不影响连接本身
+          });
         }
       }
       this.onUpdate();
@@ -1376,6 +1381,13 @@ export class ChatStore {
   // ── 历史（含上拉分页） ─────────────────────────────────────────────────────
 
   async loadHistory(): Promise<void> {
+    // ⛔ 同一 chatGen 最多一份在飞：resume / resync_required / gap reload / 页面重试
+    //    可能同帧撞车，重复请求只会重复解析 + 重建（resume 预算 = 最多一次 reopen）。
+    const gen: number = this.chatGen;
+    if (this.historyLoading && this.historyLoadGen === gen) {
+      return;
+    }
+    this.historyLoadGen = gen;
     this.historyLoading = true;
     this.onUpdate();
     try {
@@ -1388,6 +1400,9 @@ export class ChatStore {
       this.historyError = readableRpcError((e as Error).message);
     } finally {
       this.historyLoading = false;
+      if (this.historyLoadGen === gen) {
+        this.historyLoadGen = -1;
+      }
       this.onUpdate();
     }
   }

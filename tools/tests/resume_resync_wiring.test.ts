@@ -29,6 +29,8 @@ ok('store 暴露 resyncAfterResume', /resyncAfterResume\s*\(/.test(store));
 ok('resync 先 loadSessions 再 loadHistory', /resyncAfterResume[\s\S]{0,2200}loadSessions\(\)[\s\S]{0,500}loadHistory\(\)/.test(store));
 ok('resume resync 在飞守卫（三路触发只跑一份）', /resumeResyncInFlight/.test(store));
 ok('resume resync 期间挂起行重建并在结束后释放', /resumeResyncInFlight[\s\S]{0,1600}suspendUiUpdates\(true\)[\s\S]{0,2200}suspendUiUpdates\(false\)/.test(store));
+ok('loadHistory 同一 chatGen 在飞合并（不重复请求/解析）', /historyLoading\s*&&\s*this\.historyLoadGen === gen/.test(store));
+ok('SSE reconnect 不再先 loadSessions 再 resync 重复会话树', /if \(reconnected && this\.resumeActive\)[\s\S]{0,500}resyncAfterResume\(['"]sse-reopen['"]\)[\s\S]{0,500}else[\s\S]{0,300}loadSessions\(\)/.test(store));
 ok('SSE 重连（open 且断线过）触发 resync', /state === 'open'[\s\S]{0,900}resyncAfterResume\(['"]sse-reopen['"]\)/.test(store));
 ok('断线标记只在曾 open 后置位', /sseOpenedOnce[\s\S]{0,200}sseHadDisconnect\s*=\s*true/.test(store));
 ok('onPageShow 调用 resyncAfterResume(page-show)', /resyncAfterResume\(['"]page-show['"]\)/.test(index));
