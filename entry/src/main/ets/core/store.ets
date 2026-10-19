@@ -199,7 +199,13 @@ export class ChatStore {
   private sseHadDisconnect: boolean = false;
   /** 回前台/重连后的权威 resync 节流（避免 onPageShow + onState 双触发打爆 history）。 */
   private lastResumeResyncAt: number = 0;
-  /** 最近一次发送时刻（乐观 busy 的保护窗口，见 loadSessions 的对账） */
+  /** 是否当前页面正在展示这个 store（后台 tab 的 SSE 重连不得触发 history 重载） */
+  private resumeActive: boolean = false;
+
+  /** 页面切到/离开本 store 时设置；只有 active store 才允许在 SSE 重连时做 history resync。 */
+  setResumeActive(active: boolean): void {
+    this.resumeActive = active;
+  }
   lastSendAt: number = 0;
   historyLoading: boolean = false;
   /**
@@ -614,9 +620,12 @@ export class ChatStore {
         this.loadSessions().catch(() => {
           // 对账失败不影响连接本身
         });
-        if (reconnected) {
+        if (reconnected && this.resumeActive) {
           // 断线期间还可能错过**已完成的通知/回合**（SSE ring 淘汰后仅靠 session-tree
           // 不会带消息正文）⇒ 重连后必须做一次权威 history 重载，不能只看连接状态。
+          // ⛔ 只有当前展示中的 store 才做：后台 tab 的 store 也会重连，N 个 store
+          // 同时 loadHistory 会在 UI 线程上解析 N 份大历史 ⇒ 恢复休眠时整页冻死
+          //（用户 2026-10-19 实测）。后台 store 切回来时 openSession 会自己加载。
           this.resyncAfterResume('sse-reopen');
         }
       }

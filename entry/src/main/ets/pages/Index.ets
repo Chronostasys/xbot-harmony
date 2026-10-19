@@ -1865,6 +1865,7 @@ struct Index {
     this.poolOrder = [];
     const cur: ChatStore | null = this.store;
     if (cur !== null) {
+      cur.setResumeActive(false);
       cur.dispose();
     }
     this.store = null;
@@ -2251,6 +2252,11 @@ struct Index {
   }
 
   private attach(store: ChatStore): void {
+    const prev: ChatStore | null = this.store;
+    if (prev !== null && prev !== store) {
+      prev.setResumeActive(false);
+    }
+    store.setResumeActive(true);
     this.store = store;
     // 换 store 即作废旧 store 的延迟投影（登录/切换路径）。
     this.pendingSync = null;
@@ -3056,11 +3062,15 @@ struct Index {
     for (let i = 0; i < poolKeys.length; i++) {
       const ps: ChatStore | undefined = this.pools.get(poolKeys[i]);
       if (ps !== undefined) {
+        ps.setResumeActive(false);
         ps.dispose();
       }
     }
     this.pools.clear();
     this.poolOrder = [];
+    if (this.store !== null) {
+      this.store.setResumeActive(false);
+    }
     this.store = null;
     this.loggedIn = false;
     // 登出同样清掉延迟投影与取消驻留（否则登录页仍可能被旧 store 的 timer 驱动）。
@@ -3181,6 +3191,9 @@ struct Index {
       if (next.length > 0) {
         this.switchSession(next);
       } else {
+        if (this.store !== null) {
+          this.store.setResumeActive(false);
+        }
         this.store = null;
         this.currentChat = '';
         this.rows = [];
@@ -3217,6 +3230,11 @@ struct Index {
     this.goalDraft = '';
     const target: ChatStore = this.storeFor(chatId);
     const alreadyOpen: boolean = target.currentChatId === chatId;
+    const prevStore: ChatStore | null = this.store;
+    if (prevStore !== null && prevStore !== target) {
+      prevStore.setResumeActive(false);
+    }
+    target.setResumeActive(true);
     this.store = target;
     // 目标 store 可能停在上一轮的滚动挂起态（切走时 onScrollStop 未必触发）⇒ 先恢复。
     target.suspendUiUpdates(false);
