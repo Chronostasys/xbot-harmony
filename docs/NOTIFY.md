@@ -307,6 +307,14 @@ profile: default_xbot-harmony_...p7b  mtime 2026-10-19 14:07:20
   `bm dump` 显示真机 `appProvisionType=debug`；当前 `p7b` 也是 `type:"debug"`。
   模拟器接受 debug profile，真机不认 ⇒ **下一步必须用 AGC release 证书 + release profile
   （含 Live View Kit capability）重新签名**；release HAP + debug profile 仍然不会出现该开关。
+- **2026-10-19 16:47 release 侧载实测**：
+  - 纯「发布」`xbot-release-2026Release.p7b`（无 device-ids）手动 `sign-app` 后
+    `hdc install` 报 `9568322 signature verification failed due to not trusted app source`
+    ⇒ 纯发布 profile **不能** hdc 侧载。
+  - 改用 AGC **「指定设备发布」** `release-meRelease.p7b`（`type=release` +
+    `debug-info.device-ids` 含真机 UDID，含 `com.huawei.service.liveView.entry`）后：
+    `sign-app` / `verify-app` 成功，`hdc install` **install bundle successfully**。
+  - 待复测真机应用信息页是否出现「实况窗」开关与 `startLiveView`。
 
 
 
