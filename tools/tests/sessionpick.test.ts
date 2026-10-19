@@ -31,12 +31,14 @@ const sessions: SessionItem[] = [
   { chat_id: 'ou_b90fbcfd', channel: 'feishu', label: '飞书私聊' },
   { chat_id: 'chat_NOCH' },                       // 缺 channel 字段
   { chat_id: 'chat_EMPTY', channel: '' },         // 空 channel
+  { chat_id: '/Users/bobli:Agent-swift-brook', channel: 'cli', label: 'CLI 会话' },
 ];
 
 // ① 核心：飞书会话必须解析成 feishu（旧实现恒返回 'web' ⇒ 本组全红）
 eq('web 会话 → web', channelForChat(sessions, 'chat_AAA'), 'web');
 eq('飞书群会话 → feishu', channelForChat(sessions, 'oc_58ca927a'), 'feishu');
 eq('飞书私聊 → feishu', channelForChat(sessions, 'ou_b90fbcfd'), 'feishu');
+eq('CLI 路径 id（自带冒号）→ cli', channelForChat(sessions, '/Users/bobli:Agent-swift-brook'), 'cli');
 eq('缺 channel 字段 → 回落 web', channelForChat(sessions, 'chat_NOCH'), 'web');
 eq('空 channel → 回落 web', channelForChat(sessions, 'chat_EMPTY'), 'web');
 eq('未知会话 → 回落 web', channelForChat(sessions, 'chat_UNKNOWN'), 'web');

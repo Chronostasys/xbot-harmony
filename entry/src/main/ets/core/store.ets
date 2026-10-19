@@ -828,7 +828,7 @@ export class ChatStore {
     // ⚠️ 外来 JSON：字段可能是 null（服务端 nil → null）⇒ 三态判空，否则 `.length` 会炸
     const newId: string | null | undefined = created.chat_id;
     if (newId !== undefined && newId !== null && newId.length > 0) {
-      await this.openSession(newId);
+      await this.openSession(newId, this.channel);
     }
   }
 
@@ -1234,7 +1234,7 @@ export class ChatStore {
     this.onUpdate();
   }
 
-  async openSession(chatId: string): Promise<void> {
+  async openSession(chatId: string, channelHint: string = ''): Promise<void> {
     // ⛔ **点击即刻可见**（用户 2026-10-13 亲报「切换会话点击后立刻要 loading，不能看起来没变」）：
     //    `openSession()` 在拉到历史之前有**两次网络往返**（会话列表 + `/api/history`）；期间界面若
     //    原封不动仍是**上一个会话**的内容 ⇒ 用户以为"点了没反应"。⇒ 先当场切身份 + 清空 + 进 loading
@@ -1255,10 +1255,17 @@ export class ChatStore {
         // 列表拉取失败不阻塞首屏（渠道已按前缀/默认推断；后续 onUpdate 会校正）
       });
     }
-    const colon: number = chatId.indexOf(':');
-    this.channel = this.sessions.length > 0
-      ? channelForChat(this.sessions, chatId)
-      : (colon > 0 ? chatId.substring(0, colon) : 'web');
+    // ⛔ 不能按 `chatId.indexOf(':')` 猜 channel：CLI 会话 id 本身带冒号
+    //    （`/Users/bobli:Agent-swift-brook`）⇒ 会把 `/Users/bobli` 当 channel，
+    //    `/api/history`/SSE 直接 404「session not found」。页面在点击会话时
+    //    已经拿到 `SessionItem.channel` ⇒ 用显式 hint；列表仍作为无 hint 时的回退。
+    const parsedAgent: ParsedAgentChatID | undefined = parseAgentChatID(chatId);
+    const agentChannel: string = parsedAgent !== undefined ? parsedAgent.parentChannel : '';
+    const listedChannel: string = this.sessions.length > 0
+      ? channelForChat(this.sessions, chatId) : '';
+    this.channel = channelHint.length > 0
+      ? channelHint
+      : (agentChannel.length > 0 ? agentChannel : (listedChannel.length > 0 ? listedChannel : 'web'));
     this.currentChatId = chatId;
     // ⛔ 切会话诊断（用户点名要的）：入口就把"切到谁 / 什么渠道 / 列表里有没有它"打出来 ——
     //    渠道解析依赖会话列表（列表为空/不含该会话 ⇒ 回落默认渠道 ⇒ `/api/history` 404）。

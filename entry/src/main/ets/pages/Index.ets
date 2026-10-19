@@ -102,7 +102,7 @@ import {
 } from '../core/sessionpick';
 import {
   applyGroupsCollapsed, collapseAllPlan, collapseKey, CollapseAllPlan, formatLastActive, groupSessionsFromItems, groupTitle,
-  normalizeSessionCategory, parseAgentChatID, pathGroupTooltip, relativeTimeLabel, SESSION_CATEGORIES, SessionGroup, sessionCategoryLabel,
+  normalizeSessionCategory, parseAgentChatID, ParsedAgentChatID, pathGroupTooltip, relativeTimeLabel, SESSION_CATEGORIES, SessionGroup, sessionCategoryLabel,
   sessionStatusRole,
 } from '../core/sessiongroup';
 import { AnchorsMemo, buildAnchors, NavAnchor, nearestSeq, userAnchorRows } from '../core/msgindex';
@@ -1801,7 +1801,7 @@ struct Index {
         try {
           const first: SessionItem | undefined = this.sessions.length > 0 ? this.sessions[0] : undefined;
           if (first !== undefined && first.chat_id !== undefined) {
-            await store.openSession(first.chat_id);
+            await store.openSession(first.chat_id, first.channel !== undefined ? first.channel : '');
             // 启动 store 也入池并按它真正打开的会话建索引（否则切回该会话会再建一个 ⇒ 双订阅）
             this.rekeyPool(store, first.chat_id);
           }
@@ -3017,7 +3017,7 @@ struct Index {
     const first: SessionItem | undefined = this.sessions.length > 0 ? this.sessions[0] : undefined;
     if (first !== undefined && first.chat_id !== undefined) {
       try {
-        await store.openSession(first.chat_id);
+        await store.openSession(first.chat_id, first.channel !== undefined ? first.channel : '');
       } catch (e) {
         this.errMsg = `[打开会话] ${errText(e)}`;
       }
@@ -3208,7 +3208,7 @@ struct Index {
    *
    * 这与 Web 端的 MultiSSEManager 同思路：可见会话保持连接与状态，切回是 0 等待。
    */
-  private async switchSession(chatId: string): Promise<void> {
+  private async switchSession(chatId: string, channelHint: string = ''): Promise<void> {
     this.closeDrawer();
     // ── 会话面切换动效（用户 2026-10-12 亲报「侧边栏点击切换会话后要有动画，现在没有」）──────
     // ① 本帧先把整面**下沉一格**（`switchSlide=1`；静息态是 0 ⇒ 不动时与原先逐字节一致）；
@@ -3229,6 +3229,14 @@ struct Index {
     this.addingGoal = false;
     this.goalDraft = '';
     const target: ChatStore = this.storeFor(chatId);
+    // 页面持有会话树，渠道解析在这里做（子页/store 里 `sessions` 可能为空）；
+    // 非 web 会话（尤其 CLI id 自带冒号）必须把真实 channel 带进 openSession。
+    const parsedAgent: ParsedAgentChatID | undefined = parseAgentChatID(chatId);
+    const chHint: string = channelHint.length > 0
+      ? channelHint
+      : (parsedAgent !== undefined
+        ? parsedAgent.parentChannel
+        : channelForChatIndexed(this.sessions, this.channelIdx(), chatId));
     const alreadyOpen: boolean = target.currentChatId === chatId;
     const prevStore: ChatStore | null = this.store;
     if (prevStore !== null && prevStore !== target) {
@@ -3318,7 +3326,7 @@ struct Index {
       this.toast(i18nT('会话加载超时，请重试'));
     }, 12000);
     try {
-      await target.openSession(chatId);
+      await target.openSession(chatId, chHint);
     } catch (e) {
       this.loadErr = errText(e as Object);
       this.toast(`切换失败: ${this.loadErr}`);
@@ -4326,7 +4334,7 @@ struct Index {
       await store.loadSessions();
       const first: SessionItem | undefined = this.sessions.length > 0 ? this.sessions[0] : undefined;
       if (first !== undefined && first.chat_id !== undefined && first.chat_id.length > 0) {
-        await this.switchSession(first.chat_id);
+        await this.switchSession(first.chat_id, first.channel !== undefined ? first.channel : '');
       } else {
         this.currentChat = '';
         this.rows = [];
@@ -4349,10 +4357,10 @@ struct Index {
         await store.loadSessions();
         const first: SessionItem | undefined = this.sessions.length > 0 ? this.sessions[0] : undefined;
         if (first !== undefined && first.chat_id !== undefined) {
-          await store.openSession(first.chat_id);
+          await store.openSession(first.chat_id, first.channel !== undefined ? first.channel : '');
         }
       } else {
-        await store.openSession(this.currentChat);
+        await store.openSession(this.currentChat, store.channel);
       }
     } catch (e) {
       this.loadErr = errText(e as Object);
@@ -4407,7 +4415,7 @@ struct Index {
       if (err === LOADMORE_ERR_NOCURSOR) {
         // 游标失效自愈：重拉首页（`openSession` 会重建 history/游标/hasMore）。
         this.toast(i18nT('分页游标失效，正在重新载入会话历史…'));
-        await store.openSession(this.currentChat);
+        await store.openSession(this.currentChat, store.channel);
         return;
       }
       this.toast(`加载更早失败：${err}`);
@@ -11913,7 +11921,7 @@ struct Index {
                     }))
                     .onClick(() => {
                       if (s.chat_id !== undefined && this.renamingId.length === 0) {
-                        this.switchSession(s.chat_id);
+                        this.switchSession(s.chat_id, s.channel !== undefined ? s.channel : '');
                       }
                     })
                     // 结构性发丝（⛔ 不是装饰描边）：行与行之间的唯一分隔。
