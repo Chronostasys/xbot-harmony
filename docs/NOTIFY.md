@@ -315,6 +315,13 @@ profile: default_xbot-harmony_...p7b  mtime 2026-10-19 14:07:20
     `debug-info.device-ids` 含真机 UDID，含 `com.huawei.service.liveView.entry`）后：
     `sign-app` / `verify-app` 成功，`hdc install` **install bundle successfully**。
   - 待复测真机应用信息页是否出现「实况窗」开关与 `startLiveView`。
+- **2026-10-19 17:19 调测设备管理实测**：
+  - 已把 90 Pro Max 的 **Push Token**（从本地 `xbot.harmony-push/data.json` 读出的
+    `HUAWEI Mate 90 Pro Max`）加入 AGC **增长 → 推送服务 → 配置 → 实况窗 → 调测设备管理**
+    （不是「证书」页的设备 Token；该页示例是 `IQAAAAC...,别名` 格式）。
+  - 真机 `startLiveView` 仍报 `1003500005`。官方文档明确：调测设备名单
+    **系统将在 24 小时内处理并生效** ⇒ 刚添加后不会立即生效，不能据此判代码失败。
+  - 等名单生效后再复测；当前 release 包（release-me profile）已安装，代码侧无需再改。
 
 
 
