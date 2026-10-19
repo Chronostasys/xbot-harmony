@@ -239,6 +239,9 @@ export struct StatusSheet {
     // 深色：near **透明**（零成本、不渲染）、far = 该档原值 ⇒ 净观感**逐字节不变**。
     // ⛔ ArkUI 每元素只能挂一层 `.shadow()` ⇒ 外层 `Stack` 承载 far（同 `SyntheticCard` 范例）。
     Stack() {
+      // 内容可能超过可用高度（尤其键盘弹起时）⇒ 必须滚动，否则上下被裁
+      // （用户截图：订阅/上下文上限/工作路径行顶出屏幕、底下「切换模型」压到聊天内容上）。
+      Scroll() {
       Column({ space: 0 }) {
         // ── 头部：标题（`type.headline`）+ 关闭 X（真实 44 布局盒）────────────────────
         Row({ space: SPACE_XS }) {
@@ -400,9 +403,15 @@ export struct StatusSheet {
         color: this.sheetLayers()[0].color,
         offsetX: 0, offsetY: this.sheetLayers()[0].offsetY,
       })
+      }
+      .width('100%')
+      .align(Alignment.TopStart)
+      .scrollBar(BarState.Off)
     }
     // 环境层（far）：浅色 = 大半径环境柔影；深色 = 该档原值（`elev3`/`glow`，逐字节不变）。
     .width(SHEET_WIDTH)
+    .constraintSize({ maxHeight: '82%' })
+    .clip(true)
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .borderRadius(RADIUS_CARD)
     .shadow({

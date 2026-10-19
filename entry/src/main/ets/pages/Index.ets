@@ -10321,6 +10321,11 @@ struct Index {
       .width('100%')
       .alignItems(VerticalAlign.Center)
 
+      // ⚠️ 内容区必须可滚动 + 有最大高度：
+      // 最近目录候选是**多条列表**；此前整张 sheet 无高度约束，条目一多就顶出屏幕
+      // （头部/尾部按钮被裁、候选行画到面板外）。头尾固定，中间滚动。
+      Scroll() {
+        Column({ space: SPACE_SM }) {
       // 会话名称（web `NewSessionDialog.tsx:72-80`：Label「会话名称」+ Input，placeholder「留空则自动生成」）
       Text(i18nT('会话名称'))
         .fontSize(typeOf('type.micro').size)
@@ -10462,6 +10467,14 @@ struct Index {
         .clip(true)
       }
 
+        }
+        .width('100%')
+      }
+      .width('100%')
+      .constraintSize({ maxHeight: '68%' })
+      .align(Alignment.TopStart)
+      .scrollBar(BarState.Off)
+
       // 取消 / 创建（自绘行按钮，各占一半、命中区 ≥44）
       Row({ space: SPACE_SM }) {
         Row() {
@@ -10494,6 +10507,8 @@ struct Index {
       .width('100%')
     }
     .width('100%').padding(SPACE_MD)
+    .constraintSize({ maxHeight: '86%' })
+    .clip(true)
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .borderRadius({ topLeft: R_2XL, topRight: R_2XL })
     .border({ width: STROKE_HAIRLINE, color: hairlineOf(this.pal()) })
@@ -12073,6 +12088,9 @@ struct Index {
     //    + **两层柔影**（同 `StatusSheet`/`QueueSheet`/`SelfCheckSheet`/`AskUserSheet` 同通道；
     //    此前是**裸 `pal().appBg` + 裸 `border`**，与同层级弹层割裂 ⇒ 本轮补齐。
     Stack() {
+    // 内容（上下文/模型列表/思考模式）可能超过可用高度（键盘弹起时更明显）
+    // ⇒ 外层滚动 + 最大高度；否则顶部/底部被裁（用户截图：面板顶出屏幕、聊天内容透出）。
+    Scroll() {
     Column({ space: 10 }) {
       Row() {
         Text(i18nT('模型与上下文')).fontSize(typeOf('type.headline').size).fontWeight(typeOf('type.headline').weight).fontColor(this.pal().textPrimary).layoutWeight(1)
@@ -12324,7 +12342,13 @@ struct Index {
       offsetX: 0, offsetY: this.contactLayer('overlay').offsetY,
     })
     }
+    .width('100%')
+    .align(Alignment.TopStart)
+    .scrollBar(BarState.Off)
+    }
     .width(SHEET_WIDTH)
+    .constraintSize({ maxHeight: '86%' })
+    .clip(true)
     .backgroundColor(surfaceFillOf(this.pal(), 'surface.overlay'))
     .borderRadius(RADIUS_CARD)
     // 环境层（far）：浅色 = 大半径环境柔影；深色 = 该档原值。
