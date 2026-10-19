@@ -204,7 +204,27 @@ export class ChatStore {
 
   /** 页面切到/离开本 store 时设置；只有 active store 才允许在 SSE 重连时做 history resync。 */
   setResumeActive(active: boolean): void {
+    if (this.resumeActive === active) {
+      return;
+    }
     this.resumeActive = active;
+    if (!active) {
+      // 后台 tab 不再持有一条 SSE / 轮询；只保留状态，切回时再订阅。
+      try {
+        this.sse.close();
+      } catch (e) {
+        // close 幂等，失败不影响释放语义
+      }
+      if (this.sessionPollTimer !== -1) {
+        clearTimeout(this.sessionPollTimer);
+        this.sessionPollTimer = -1;
+      }
+      return;
+    }
+    if (this.currentChatId.length > 0) {
+      // 切回池里已有会话：openSession 的 alreadyOpen 分支不会再 subscribe，这里补上。
+      this.subscribe();
+    }
   }
   lastSendAt: number = 0;
   historyLoading: boolean = false;
@@ -2516,8 +2536,19 @@ export class ChatStore {
   }
 
   subscribe(): void {
+    if (!this.resumeActive) {
+      // 物理约束：只有页面当前 active 的 store 允许建立 SSE。
+      // 后台 tab 的 store 只保留历史/草稿，一条连接都不许有。
+      return;
+    }
     const wireID: string = this.wireChatId();
     if (wireID.length === 0) {
+      return;
+    }
+    // 一次只能连一个 SSE：active store 已处于 open/connecting/reconnecting 时不要重开。
+    // （setResumeActive(true) 与 openSession 都会调用本方法；不设闸会在切回池中会话时
+    //  同一 store 连两条，后台旧连接还抢事件。）
+    if (this.sse.state === 'open' || this.sse.state === 'connecting' || this.sse.state === 'reconnecting') {
       return;
     }
     // ⛔ SSE 订阅也必须用**规范键**（与 send/cancel/history 同源）：全键（`web:chat_X`）
