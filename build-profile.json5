@@ -11,11 +11,11 @@
         "material": {
           "certpath": "/Users/bobli/.ohos/config/default_xbot-harmony_mY232WjY-IQHMDmsbe9aCw25X4ZjM1Ijj-DDZ6rn2cQ=.cer",
           "keyAlias": "debugKey",
-          "keyPassword": "0000001B5EC2E2AADF36A33CD6E22EF69AB1AC7DA9EC6895FE21D37685E482C25BD4729F8EB4B21D4B295F",
+          "keyPassword": "0000001B5CF6A59E463CEDFA9A18968F25F7FECDD14E11180BE612B19B8A2CECF967DCA8E02E209178DE32",
           "profile": "/Users/bobli/.ohos/config/default_xbot-harmony_mY232WjY-IQHMDmsbe9aCw25X4ZjM1Ijj-DDZ6rn2cQ=.p7b",
           "signAlg": "SHA256withECDSA",
           "storeFile": "/Users/bobli/.ohos/config/default_xbot-harmony_mY232WjY-IQHMDmsbe9aCw25X4ZjM1Ijj-DDZ6rn2cQ=.p12",
-          "storePassword": "0000001B33DE75B91EE44C9B98E01FC3D2A9A2A649C54BFDBCC0623E56CF9ECBE333DC9042CBD29B1F13AD"
+          "storePassword": "0000001BF52826ADF68375F441BE5083D9B7AEFCCB41E37D952B76A062CF134BF9E01E16735806C8337239"
         }
       }
     ],
@@ -46,6 +46,17 @@
       },
       {
         "name": "release"
+      }
+    ],
+    "capabilities": [
+      {
+        "bundleName": "com.chronostasys.xbot",
+        "config": [
+          {
+            "name": "Live View Kit",
+            "capability": "com.huawei.service.liveView.entry"
+          }
+        ]
       }
     ]
   },

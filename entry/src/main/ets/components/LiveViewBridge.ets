@@ -32,6 +32,12 @@ export const LV_CAP_UNKNOWN: number = 0;
 export const LV_CAP_OK: number = 1;
 export const LV_CAP_NO: number = 2;
 
+/** 胶囊图标（必须是 `resources/rawfile` 里的文件名；缺省 ⇒ 401）。 */
+const LV_ICON: string = 'liveview_icon.png';
+/** 胶囊底色（#ARGB；缺省同样 401）。用品牌深底，避免系统推荐的纯黑/纯白。 */
+// allow-color-literal: LiveViewKit 只接受 #ARGB 字符串（无 design token 入参），运行期无法取 Palette
+const LV_CAPSULE_BG: string = '#FF0B0B0E';
+
 export class LiveViewBridge {
   private static inst: LiveViewBridge | null = null;
 
@@ -261,6 +267,10 @@ export class LiveViewBridge {
           // 编一个百分比违背「与应用内任务进度与信息一致」的准入要求。
           type: liveViewManager.CapsuleType.CAPSULE_TYPE_PROGRESS,
           status: 1,
+          // 必须：真机/模拟器缺 icon 直接 401（Parameter error: capsule.icon must be
+          // string | image.PixelMap [or mandatory]）。string = `resources/rawfile` 文件名。
+          icon: LV_ICON,
+          backgroundColor: LV_CAPSULE_BG,
           indeterminate: true,
           content: snap.capsuleText,
         },
@@ -281,7 +291,10 @@ export class LiveViewBridge {
         primary: { title: 'xbot', content: content },
         capsule: {
           type: liveViewManager.CapsuleType.CAPSULE_TYPE_PROGRESS,
-          status: 1,
+          // -1 = 胶囊结束/收起（1 是"展示中"，结束态继续传 1 会让胶囊挂着不走）。
+          status: -1,
+          icon: LV_ICON,
+          backgroundColor: LV_CAPSULE_BG,
           indeterminate: false,
           content: '',
         },

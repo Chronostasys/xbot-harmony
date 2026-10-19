@@ -246,11 +246,22 @@ curl -s -b ck.txt -X POST -H 'Content-Type: application/json' \
 `layoutData = LAYOUT_TYPE_DEFAULT`（标题 + 两行内容 + 文字胶囊 + 系统计时器）。
 ⛔ **不画假进度条**：`ProgressLayout.progress` 必填，而 LLM 一轮的剩余量**不可知**，编百分比是骗人。
 
-**2026-10-19 真机 401 修复**：`startLiveView` 报
-`Parameter error. The type of primary.clickAction must be WantAgent` ⇒ PROGRESS 卡片的
-`primary.clickAction` 是必填项。`LiveViewBridge` 现在首次推送前用
-`notify.startAbilityAgent({})` 预热 WantAgent，并写入 `primary.clickAction`；点击胶囊/卡片
-会拉起 `EntryAbility`。WantAgent 构造失败则一次性降级，不刷屏。
+**2026-10-19 真机 / 模拟器 401 修复（三个必填字段）**：`startLiveView` 依次报
+1. `primary.clickAction must be WantAgent` ⇒ 首次推送前用 `notify.startAbilityAgent({})`
+   预热 WantAgent，并写入 `primary.clickAction`；点击胶囊/卡片会拉起 `EntryAbility`。
+2. `capsule.icon must be string | image.PixelMap` ⇒ 图标必须是 **`resources/rawfile` 文件名**
+   （本仓 `entry/src/main/resources/rawfile/liveview_icon.png`，取品牌 mark；≤30KB）。
+3. `capsule.backgroundColor must be string` ⇒ 传 `#ARGB`（本仓 `#FF0B0B0E`；避开系统不推荐的
+   纯黑/纯白/#FFF1F3F5）。
+WantAgent 构造失败则一次性降级，不刷屏。结束载荷 `capsule.status = -1`（收胶囊）。
+
+**2026-10-19 模拟器实测通过**（1320×2848，`127.0.0.1:5555`）：
+- 日志：`[liveview] startLiveView 成功 code=0 id=20261017 event=PROGRESS`；
+- 通知中心可见实况窗卡片：`xbot · 已用 0:55` + 实时内容（`第 49 轮迭代思考中 · 已生成 582 字`），
+  系统计时器自刷、内容随 turn 更新；
+- 日志：`[liveview] stopLiveView 已结束 id=20261017`（开发者面板「结束」按钮验证）。
+- 实况窗内容与页面渲染**同源**（`syncLiveView` 消费 `busy`/在飞迭代/在飞工具/字数），
+  未新增任何服务端接口。
 
 （想要完全自定义外观 ⇒ `LAYOUT_TYPE_CUSTOM` + 自建 `LiveViewCardExtensionAbility`，属下一步。）
 
@@ -275,8 +286,8 @@ profile: default_xbot-harmony_...p7b  mtime 2026-10-19 14:07:20
 ```
 
 `agconnect-services.json` 已同时放在项目根目录与 `entry/`（package/app_id 与 `com.chronostasys.xbot` 一致）。
-HAP 已用新签名构建成功；真机当前 USB Offline，待重连后**卸载旧 App → 安装新 HAP**，
-再在「设置 → 开发者 → 实况窗测试」确认系统胶囊出现、日志 tag `liveview` 为已启用。
+HAP 已用新签名构建成功；**2026-10-19 14:47 模拟器安装并实测通过**（见上节）。
+真机 `9QF0226922014533` 同样已卸载旧 App → 安装新 HAP；待解锁屏幕复测。
 
 
 
