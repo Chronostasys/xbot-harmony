@@ -333,6 +333,30 @@ class SetCwdParams {
 const RPC_SET_CWD: string = 'set_cwd';
 
 /**
+ * **单个 live 迭代**的投递状态（生命周期严格等于一个迭代）。
+ *
+ * 旧实现把 `contentRev / lastDeliverAt / lastNonFollowAt / timer` 放在页面全局字段里，
+ * 新迭代靠"重置"这些字段续命；一旦漏掉一次重置，新迭代就继承旧限频状态。
+ * 这里改为**对象所有权**：迭代 key 变化 = 旧 lane 销毁（timer 一并 dispose），
+ * 新 lane 是新对象，旧时间戳在物理上不存在，无法跨迭代存活。
+ */
+class LiveDeliveryLane {
+  key: string = '';
+  /** 已投递的内容代际（-1 = 尚未投递）。 */
+  contentRev: number = -1;
+  /** 可见态 400ms 限频的上次投递时刻。 */
+  lastDeliverAtMs: number = 0;
+  /** 100ms 高频限频的上次投递时刻。 */
+  lastNonFollowAtMs: number = 0;
+  /** 尾随补偿 timer；-1 = 无。 */
+  timer: number = -1;
+
+  constructor(key: string) {
+    this.key = key;
+  }
+}
+
+/**
  * 单个 turn 默认最多渲染多少个迭代。
  *
  * ⛔ 为什么必须限制：一个 turn 可能有**上千个迭代**（每次工具调用一个），若全部渲染 ——
@@ -2446,7 +2470,8 @@ struct Index {
       //   开始（`liveRevision` 都从 0/1 起）⇒ 不复位会把**上一个会话**的
       //   liveText/liveBlocks 当成"未变化"继续投给新会话的行（跨会话串内容）。
       this.liveRevision = -1;
-      this.liveContentRev = -1;
+      // lane 的所有权随 store 身份结束：旧 lane 的 timer/时间戳不可跨会话。
+      this.disposeLiveLane();
       if (this.liveBlocks !== EMPTY_BLOCKS) {
         this.liveBlocks = EMPTY_BLOCKS;
       }
@@ -9554,14 +9579,6 @@ struct Index {
   private sessionsFp: string = '';
   private queueFp: string = '';
   private todosFp: string = '';
-  /** live 行**高频内容**的已投递代际（整数；`-1` = 从未投递）。见 `syncLiveTail`。 */
-  private liveContentRev: number = -1;
-  /**
-   * 当前 live **迭代边界**（`rowId#iteration`）。新迭代必须把下面两个降频时间戳清零，
-   * 否则上一迭代刚投递过 ⇒ 新迭代的前 100/400ms 被错误限频（用户 2026-10-20：极短迭代
-   * 也出现打字机低频）。这是 `syncLiveTail` 低更新频率逻辑的**唯一重置点**。
-   */
-  private liveIterationKey: string = '';
   /**
    * live 行**内容代际**的页侧副本 —— `ChatRow.liveRevision`（整数）的镜像。
    * ⛔ 变化判据是**整数比较**（O(1)），不再拼 `blocksSignature`/`toolsSignature`/
@@ -9570,24 +9587,10 @@ struct Index {
    */
   private liveRevision: number = 0;
   /**
-   * 高频内容投递的**尾随补偿**定时器（-1 = 无）。
-   *
-   * 100ms 降频只允许**推迟**投递，绝不丢最后一次：被闸门挡下时置 `liveDeliverPending`，
-   * 并在剩余时间后补投一次（`syncLiveTail` 自调用）。⇒ 即使此后没有任何 SSE 帧，
-   * 屏幕也必然收敛到最新内容（旧实现会永久停在被丢弃的那一帧）。
+   * **当前 live 迭代的投递状态**。生命周期严格 = 一个迭代；迭代 key 变化时旧 lane
+   * 连同 timer 一起被销毁，新 lane 是全新对象（不是把全局时间戳 reset 一遍）。
    */
-  private liveDeliverTimer: number = -1;
-
-  /**
-   * §21.122bx：上一次 live 可见态投递的时刻（`syncLiveTail` 的降频判据用）。
-   *
-   * 只在**浮层覆盖聊天区且仍在流式**时生效（最小间隔 `COVERED_DELIVER_MS`）；判据是纯函数
-   * `core/livedeliver.shouldDeliverLive`（`!covered || !busy` ⇒ 必投，⛔ 不会陈旧）。
-   */
-  private liveDeliverAtMs: number = 0;
-  /** 用户在阅读历史时降低 live tail 更新频率——减少整页 build + LazyForEach diff */
-  private lastNonFollowLiveMs: number = 0;
-
+  private liveLane: LiveDeliveryLane | null = null;
   /**
    * §21.122bx：live 行**此刻是否在视野内**（`onVisibleAreaChange` 维护，只在真变化时写）。
    *
@@ -9792,6 +9795,19 @@ struct Index {
     return `${this.liveRowRef.id}#?`;
   }
 
+  /** 销毁当前 lane；旧 timer 一并取消，旧状态对象从此不可达（生命周期结束）。 */
+  private disposeLiveLane(): void {
+    const lane: LiveDeliveryLane | null = this.liveLane;
+    this.liveLane = null;
+    if (lane === null) {
+      return;
+    }
+    if (lane.timer !== -1) {
+      clearTimeout(lane.timer);
+      lane.timer = -1;
+    }
+  }
+
   private syncLiveTail(): void {
     // ⛔ 2026-10-17 用户 P0「流式期滚动掉帧到像卡死」：滚动/触摸期**一律不写任何页面 @State**
     //   （结构或内容）。流式期每 100ms 写 `liveText/liveBlocks/liveTools` 都会触发整页 rebuild，
@@ -9799,20 +9815,6 @@ struct Index {
     //   `syncFrom` 会一次性补齐最新（结构 + 内容）。
     if (this.userScrolling || (this.userTouchActive && this.busy)) {
       return;
-    }
-    // ⛔ 新迭代/新 live 行必须**重置低更新频率闸门**：上一迭代刚投递过，
-    //    `lastNonFollowLiveMs`/`liveDeliverAtMs` 会让新迭代的前 100/400ms 被错误限频
-    //    （用户实测：极短迭代也会打字机低频）。这是用户要求钉死的"新迭代重置"。
-    const iterKey: string = this.liveIterationKeyNow();
-    if (iterKey !== this.liveIterationKey) {
-      this.liveIterationKey = iterKey;
-      this.liveContentRev = -1;
-      this.liveDeliverAtMs = 0;
-      this.lastNonFollowLiveMs = 0;
-      if (this.liveDeliverTimer !== -1) {
-        clearTimeout(this.liveDeliverTimer);
-        this.liveDeliverTimer = -1;
-      }
     }
     const rev: number = this.hasLiveRow ? this.liveRowRef.liveRevision : -1;
     // ── ① 结构投递（O(1) 引用比较；不拼任何字符串）──────────────────────────────
@@ -9837,12 +9839,9 @@ struct Index {
         }
       }
     }
-    // ── ② 高频内容：**整数代际**判变化，100ms/浮层 400ms 只做降频、不丢最后一帧 ──
-    if (rev === this.liveContentRev) {
-      return;
-    }
     if (!this.hasLiveRow) {
-      this.liveContentRev = rev;
+      // 没有 live 行 ⇒ 必须没有 lane（状态不能活过所属行）。
+      this.disposeLiveLane();
       if (this.liveText.length > 0) {
         this.liveText = '';
       }
@@ -9854,23 +9853,34 @@ struct Index {
       }
       return;
     }
+    // ── ② lane 身份 = rowId#iteration；key 变化即旧对象销毁、新对象构造 ──
+    const laneKey: string = this.liveIterationKeyNow();
+    let lane: LiveDeliveryLane | null = this.liveLane;
+    if (lane === null || lane.key !== laneKey) {
+      this.disposeLiveLane();
+      lane = new LiveDeliveryLane(laneKey);
+      this.liveLane = lane;
+    }
+    if (rev === lane.contentRev) {
+      return;
+    }
     const now: number = Date.now();
-    const throttled: boolean = this.busy && now - this.lastNonFollowLiveMs < 100;
+    const throttled: boolean = this.busy && now - lane.lastNonFollowAtMs < 100;
     const covered: boolean = !shouldDeliverLive(this.anyModalOpen(), this.liveRowVisible,
-      this.busy, now, this.liveDeliverAtMs);
+      this.busy, now, lane.lastDeliverAtMs);
     if (throttled || covered) {
       // ⛔ **尾随补偿**：只推迟、绝不丢弃。否则回合结束前最后一帧被闸门挡掉后
       //   若再无 SSE 帧，屏幕会永久停在被丢弃的那一帧（用户症状：内容不再更新）。
-      this.scheduleLiveDeliver(throttled ? 100 - (now - this.lastNonFollowLiveMs) : 100);
+      this.scheduleLiveDeliver(throttled ? 100 - (now - lane.lastNonFollowAtMs) : 100);
       return;
     }
-    if (this.liveDeliverTimer !== -1) {
-      clearTimeout(this.liveDeliverTimer);
-      this.liveDeliverTimer = -1;
+    if (lane.timer !== -1) {
+      clearTimeout(lane.timer);
+      lane.timer = -1;
     }
-    this.lastNonFollowLiveMs = now;
-    this.liveDeliverAtMs = now;
-    this.liveContentRev = rev;
+    lane.lastNonFollowAtMs = now;
+    lane.lastDeliverAtMs = now;
+    lane.contentRev = rev;
     let text: string = '';
     let reasoning: string = '';
     let tools: ToolProgress[] = [];
@@ -9895,12 +9905,17 @@ struct Index {
 
   /** 高频内容投递的**尾随补偿**：只推迟、不丢弃（见 `syncLiveTail` 的注释）。 */
   private scheduleLiveDeliver(delayMs: number): void {
-    if (this.liveDeliverTimer !== -1) {
+    const lane: LiveDeliveryLane | null = this.liveLane;
+    if (lane === null || lane.timer !== -1) {
       return;
     }
     const wait: number = delayMs > 0 ? delayMs : 0;
-    this.liveDeliverTimer = setTimeout(() => {
-      this.liveDeliverTimer = -1;
+    lane.timer = setTimeout(() => {
+      // lane 已被销毁/被新迭代替换 ⇒ 旧 timer 不得触碰新状态。
+      if (this.liveLane !== lane) {
+        return;
+      }
+      lane.timer = -1;
       if (this.currentChat.length > 0) {
         this.syncLiveTail();
       }
