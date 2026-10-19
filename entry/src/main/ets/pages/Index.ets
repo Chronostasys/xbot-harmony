@@ -2395,6 +2395,16 @@ struct Index {
         s.suspendUiUpdates(false);
       }
     }
+    // ⛔ 休眠/手势丢失会把 `uiSuspended`/`uiIsScrolling` 留成 true；新迭代来了也必须
+    //    能立刻恢复，不能等下一次 onScrollStop（它可能永远不会来）。没有滚动/触摸/后台时，
+    //    每次投影都清一次（`suspendUiUpdates(false)` 在已恢复时是 O(1) 空操作）。
+    if (!this.userScrolling && !this.userTouchActive && !this.appPaused) {
+      setUiScrolling(false);
+      const s2: ChatStore | null = this.store;
+      if (s2 !== null) {
+        s2.suspendUiUpdates(false);
+      }
+    }
     // ⚡ 2026-10-20 P0：用户滚动/触摸时跳过整个 syncFrom——避免任何 @State 更新触发
     //   re-render 与用户手势争主线程（streaming ~50fps SSE 驱动 ⇒ 逐帧整页 build ⇒ 掉帧）。
     //   store 已自行处理 SSE 事件，页面 @State 只是投影；手势结束后的下一帧 syncFrom 自然补上。
@@ -9547,6 +9557,12 @@ struct Index {
   /** live 行**高频内容**的已投递代际（整数；`-1` = 从未投递）。见 `syncLiveTail`。 */
   private liveContentRev: number = -1;
   /**
+   * 当前 live **迭代边界**（`rowId#iteration`）。新迭代必须把下面两个降频时间戳清零，
+   * 否则上一迭代刚投递过 ⇒ 新迭代的前 100/400ms 被错误限频（用户 2026-10-20：极短迭代
+   * 也出现打字机低频）。这是 `syncLiveTail` 低更新频率逻辑的**唯一重置点**。
+   */
+  private liveIterationKey: string = '';
+  /**
    * live 行**内容代际**的页侧副本 —— `ChatRow.liveRevision`（整数）的镜像。
    * ⛔ 变化判据是**整数比较**（O(1)），不再拼 `blocksSignature`/`toolsSignature`/
    *    `subAgentsFingerprint` 字符串（O(内容)，且违反"禁止用字符串比较内容去重"）。
@@ -9763,6 +9779,19 @@ struct Index {
     });
   }
 
+  private liveIterationKeyNow(): string {
+    if (!this.hasLiveRow) {
+      return '';
+    }
+    const its: HistoryIteration[] = this.liveRowRef.iterations;
+    for (let i = its.length - 1; i >= 0; i--) {
+      if (its[i].live === true) {
+        return `${this.liveRowRef.id}#${its[i].iteration}`;
+      }
+    }
+    return `${this.liveRowRef.id}#?`;
+  }
+
   private syncLiveTail(): void {
     // ⛔ 2026-10-17 用户 P0「流式期滚动掉帧到像卡死」：滚动/触摸期**一律不写任何页面 @State**
     //   （结构或内容）。流式期每 100ms 写 `liveText/liveBlocks/liveTools` 都会触发整页 rebuild，
@@ -9770,6 +9799,20 @@ struct Index {
     //   `syncFrom` 会一次性补齐最新（结构 + 内容）。
     if (this.userScrolling || (this.userTouchActive && this.busy)) {
       return;
+    }
+    // ⛔ 新迭代/新 live 行必须**重置低更新频率闸门**：上一迭代刚投递过，
+    //    `lastNonFollowLiveMs`/`liveDeliverAtMs` 会让新迭代的前 100/400ms 被错误限频
+    //    （用户实测：极短迭代也会打字机低频）。这是用户要求钉死的"新迭代重置"。
+    const iterKey: string = this.liveIterationKeyNow();
+    if (iterKey !== this.liveIterationKey) {
+      this.liveIterationKey = iterKey;
+      this.liveContentRev = -1;
+      this.liveDeliverAtMs = 0;
+      this.lastNonFollowLiveMs = 0;
+      if (this.liveDeliverTimer !== -1) {
+        clearTimeout(this.liveDeliverTimer);
+        this.liveDeliverTimer = -1;
+      }
     }
     const rev: number = this.hasLiveRow ? this.liveRowRef.liveRevision : -1;
     // ── ① 结构投递（O(1) 引用比较；不拼任何字符串）──────────────────────────────

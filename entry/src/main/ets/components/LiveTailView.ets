@@ -155,6 +155,8 @@ export struct LiveTailView {
   private timer: number = -1;
   private skip: boolean = false;
   private advanceTick: number = 0;
+  /** 最近一次 tick 的时间；用于识别"定时器被系统冻结后，新迭代来了却仍沿用旧 timer"。 */
+  private lastTickAtMs: number = 0;
   private lastTextLen: number = -1;
   private lastReasonLen: number = -1;
 
@@ -342,6 +344,12 @@ return renderKind(t.status, t.exit_code, true);
     if (this.reasonRunes.length - this.visReason > LT_MAX_CATCHUP) {
       this.visReason = this.reasonRunes.length - LT_MAX_CATCHUP;
     }
+    // 新迭代/恢复后：timer 句柄可能仍是系统冻结前的旧值；它不会再 tick，但 syncTimer
+    // 看到 handle>=0 会误判“已在跑”而不重建 ⇒ 更新频率永久变低。用最后 tick 时间
+    // 判定失活，强制换新 timer（新迭代来了必须重置这个条件）。
+    if (this.timer >= 0 && this.lastTickAtMs > 0 && Date.now() - this.lastTickAtMs > 500) {
+      this.stopTimer();
+    }
     this.syncTimer();
   }
 
@@ -409,6 +417,7 @@ return renderKind(t.status, t.exit_code, true);
     if (tailIsPaused()) {
       return;
     }
+    this.lastTickAtMs = Date.now();
     const skip: boolean = this.skip;
     this.skip = !this.skip;
     // 2026-10-17：光标已移除 ⇒ 这里不再有第二个呼吸权重（整组唯一动效是光球）。

@@ -31,6 +31,9 @@ ok('LiveTailView 大跳变快进（休眠回放不逐字追）', /LT_MAX_CATCHUP
 ok('打字机上屏固定 20Hz（不再按总字数放大间隔）', /renderEvery: number = 1/.test(tail));
 ok('onTailEpoch 先 stopTimer 再 syncTimer（换掉被冻结的 timer）',
   /onTailEpoch\(\): void \{[\s\S]{0,300}stopTimer\(\);[\s\S]{0,100}syncTimer\(\)/.test(tail));
+ok('新迭代/恢复时按 lastTick 失活重建 timer',
+  /lastTickAtMs = Date\.now\(\)/.test(tail)
+  && /Date\.now\(\) - this\.lastTickAtMs > 500/.test(tail));
 ok('页面 pause/resume 都会 bumpTailEpoch',
   (index.match(/bumpTailEpoch\(\)/g) || []).length >= 3);
 ok('onPageHide 置 setAppPaused(true)', /onPageHide\(\)[\s\S]{0,200}setAppPaused\(true\)/.test(index));
