@@ -300,6 +300,13 @@ profile: default_xbot-harmony_...p7b  mtime 2026-10-19 14:07:20
   并加 metadata，重新构建安装，待解锁后复测。
 - 下一步确认 AGC **`PROGRESS`（进度展示）场景权限**是否也单独申请/通过；代码用的是
   `event='PROGRESS'`。
+- **2026-10-19 16:23 关键对比（用户截图）**：
+  - 模拟器「应用信息 → 允许 xbot 访问」里有 **「实况窗」开关且已打开**；
+  - 真机同一页面**根本没有「实况窗」这一行**（只有通知 / 应用联网）。
+  ⇒ 真机系统没有把 LiveView 能力授予该安装包（不是应用内开关问题）。
+  `bm dump` 显示真机 `appProvisionType=debug`；当前 `p7b` 也是 `type:"debug"`。
+  模拟器接受 debug profile，真机不认 ⇒ **下一步必须用 AGC release 证书 + release profile
+  （含 Live View Kit capability）重新签名**；release HAP + debug profile 仍然不会出现该开关。
 
 
 
