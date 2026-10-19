@@ -199,6 +199,10 @@ export class ChatStore {
   private sseHadDisconnect: boolean = false;
   /** 回前台/重连后的权威 resync 节流（避免 onPageShow + onState 双触发打爆 history）。 */
   private lastResumeResyncAt: number = 0;
+  /** resume resync 在飞守卫：onPageShow / onAppResumed / SSE reopen 三路只允许一份全量重载。 */
+  private resumeResyncInFlight: boolean = false;
+  /** resume resync 的 fail-safe 释放定时器（网络挂死也必须恢复 UI 渲染）。 */
+  private resumeResyncTimer: number = -1;
   /** 是否当前页面正在展示这个 store（后台 tab 的 SSE 重连不得触发 history 重载） */
   private resumeActive: boolean = false;
 
@@ -1409,21 +1413,46 @@ export class ChatStore {
     if (now - this.lastResumeResyncAt < 1200) {
       return;
     }
+    // 回前台可能同时收到 onPageShow / onAppResumed / SSE reopen 三路触发；在飞期间
+    // 直接丢弃，避免**两次全量 history**叠在一起（每份都会触发 deriveRows/行重建）。
+    if (this.resumeResyncInFlight) {
+      return;
+    }
     this.lastResumeResyncAt = now;
-    // ⛔ 休眠/后台可能停在"滚动挂起"（uiSuspended）状态：那时 rebuildRows 被早退，
-    //   服务端已有新 turn 也不会落到行对象 ⇒ 界面永远显示旧内容（用户 2026-10-18
-    //   亲报「截图不是最新 turn，最新 turn 早就有了」）。回前台先解除挂起并立即重建。
-    this.suspendUiUpdates(false);
+    this.resumeResyncInFlight = true;
+    // ⛔ 回前台瞬时**挂起行重建**：休眠期间 SSE ring / loadHistory 可能一次回放大量事件，
+    //    每个事件都 rebuildRows + onUpdate 会连续标脏整页 ⇒ 用户看到的「打开卡死、严重掉帧」。
+    //    状态机/网络照常推进，两路 authoritative 数据落完后只 rebuild 一次。
+    this.suspendUiUpdates(true);
+    let released: boolean = false;
+    const release = (): void => {
+      if (released) {
+        return;
+      }
+      released = true;
+      if (this.resumeResyncTimer >= 0) {
+        clearTimeout(this.resumeResyncTimer);
+        this.resumeResyncTimer = -1;
+      }
+      this.resumeResyncInFlight = false;
+      // 网络挂死也必须恢复渲染（fail-safe）：不能把 UI 永久留在挂起态。
+      this.suspendUiUpdates(false);
+    };
+    // 旁路超时：正常请求远小于 15s；超时仍释放并 rebuild 当前已到的状态。
+    this.resumeResyncTimer = setTimeout(release, 15000);
     log('resume', `权威重载 chat=${this.currentChatId} reason=${reason}`);
     // 先会话树（running/子代理），再历史正文；两步都按 chatGen/currentChatId 守卫（loadHistory 内部）。
     this.loadSessions().catch(() => {
       // 会话树失败不阻断历史重载（历史失败会落 historyError，页面可重试）
     }).then(() => {
       if (this.currentChatId.length === 0) {
+        release();
         return;
       }
       this.loadHistory().catch(() => {
         // loadHistory 已把可读错误写进 historyError；这里只防未处理 rejection
+      }).then(() => {
+        release();
       });
     });
   }
