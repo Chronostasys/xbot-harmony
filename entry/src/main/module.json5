@@ -32,6 +32,12 @@
       { "name": "ohos.permission.GET_NETWORK_INFO" },
       { "name": "ohos.permission.VIBRATE" }
     ],
+    "metadata": [
+      {
+        "name": "com.huawei.hms.client.appid",
+        "value": "appid=6917619242332815107"
+      }
+    ],
     "extensionAbilities": [
       {
         "name": "NotifyReconcileAbility",
