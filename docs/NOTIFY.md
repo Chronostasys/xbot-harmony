@@ -286,8 +286,19 @@ profile: default_xbot-harmony_...p7b  mtime 2026-10-19 14:07:20
 ```
 
 `agconnect-services.json` 已同时放在项目根目录与 `entry/`（package/app_id 与 `com.chronostasys.xbot` 一致）。
-HAP 已用新签名构建成功；**2026-10-19 14:47 模拟器安装并实测通过**（见上节）。
-真机 `9QF0226922014533` 同样已卸载旧 App → 安装新 HAP；待解锁屏幕复测。
+**2026-10-19 真机复测（未通过，已定位到 AGC 权益）**：
+- 真机 `9QF0226922014533` 已**卸载 → 全新安装** f0d5039 HAP，`startLiveView` 仍报
+  `1003500005 The right of liveView is not enabled`。
+- 已逐项排除代码/签名/设备侧问题：
+  - `hap-sign-tool verify-app` 解出 HAP 内 profile，确含 `com.huawei.service.liveView.entry`；
+  - 真机 UDID `C156EEE5…9C57` 在 profile 的 `debug-info.device-ids` 中；
+  - `appIdentifier=6917619242332815107` 与 `agconnect-services.json` 的 `app_id` 一致；
+  - `isLiveViewEnabled()` 返回 true（应用级实况窗开关已开）。
+- ⇒ 剩余唯一未满足项是 **AGC 的「实况窗服务权益」（场景 PROGRESS）**：
+  仅把 capability 写进签名 profile **不等于** AGC 已为应用开通服务权益；真机系统服务会按
+  AGC 权益判定，模拟器不校验这一层（所以模拟器能通过）。
+- 待用户在 AGC 开通后，建议用**正式（release）证书/profile**重新打包；当前
+  `default_xbot-harmony…p7b` 的 `type` 是 `debug`。
 
 
 
