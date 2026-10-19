@@ -48,6 +48,18 @@ export function appIsPaused(): boolean {
 }
 
 /**
+ * 打字机**唯一**的动态暂停真源（跨 LazyForEach 旧行可达）。
+ * 页面在触摸/滚动/前后台切换时直接写它；`LiveTailView` 不再依赖可能过期的 `paused` @Prop。
+ */
+let tailPausedActive: boolean = false;
+export function setTailPaused(active: boolean): void {
+  tailPausedActive = active;
+}
+export function tailIsPaused(): boolean {
+  return tailPausedActive || appPausedActive || uiScrollActive;
+}
+
+/**
  * 「是否跟随到底部」状态机的下一步（纯函数）。
  *
  * @param prev      当前开关（true = 跟随；用户往上滚之后为 false）

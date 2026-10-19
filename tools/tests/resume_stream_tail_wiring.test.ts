@@ -20,12 +20,19 @@ const follow = raw('entry/src/main/ets/core/listfollow.ets');
 const tail = raw('entry/src/main/ets/components/LiveTailView.ets');
 const index = raw('entry/src/main/ets/pages/Index.ets');
 
-ok('listfollow 提供模块级 setAppPaused/appIsPaused',
-  /export function setAppPaused\(/.test(follow) && /export function appIsPaused\(/.test(follow));
-ok('LiveTailView 引入 appIsPaused', /appIsPaused/.test(tail));
-ok('LiveTailView syncTimer 受 appIsPaused 门控',
-  /!this\.paused && !appIsPaused\(\)/.test(tail));
-ok('LiveTailView tick 受 appIsPaused 门控', /this\.paused \|\| appIsPaused\(\)/.test(tail));
+ok('listfollow 提供模块级 setAppPaused/appIsPaused/tailIsPaused',
+  /export function setAppPaused\(/.test(follow) && /export function appIsPaused\(/.test(follow)
+  && /export function tailIsPaused\(/.test(follow));
+ok('LiveTailView 引入 tailIsPaused', /tailIsPaused/.test(tail));
+ok('LiveTailView syncTimer 受 tailIsPaused 门控', /!tailIsPaused\(\)/.test(tail));
+ok('LiveTailView tick 受 tailIsPaused 门控', /if \(tailIsPaused\(\)\)/.test(tail));
+ok('LiveTailView 订阅 xbotTailEpoch', /@StorageLink\('xbotTailEpoch'\)/.test(tail));
+ok('LiveTailView 大跳变快进（休眠回放不逐字追）', /LT_MAX_CATCHUP/.test(tail) && /runes\.length - this\.vis > LT_MAX_CATCHUP/.test(tail));
+ok('打字机上屏固定 20Hz（不再按总字数放大间隔）', /renderEvery: number = 1/.test(tail));
+ok('onTailEpoch 先 stopTimer 再 syncTimer（换掉被冻结的 timer）',
+  /onTailEpoch\(\): void \{[\s\S]{0,300}stopTimer\(\);[\s\S]{0,100}syncTimer\(\)/.test(tail));
+ok('页面 pause/resume 都会 bumpTailEpoch',
+  (index.match(/bumpTailEpoch\(\)/g) || []).length >= 3);
 ok('onPageHide 置 setAppPaused(true)', /onPageHide\(\)[\s\S]{0,200}setAppPaused\(true\)/.test(index));
 ok('onPageShow/onAppResumed 置 setAppPaused(false)',
   (index.match(/setAppPaused\(false\)/g) || []).length >= 2);

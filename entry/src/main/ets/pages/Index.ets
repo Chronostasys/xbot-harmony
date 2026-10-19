@@ -1930,8 +1930,15 @@ struct Index {
     // 进后台：停掉脉冲与打字机的所有定时器（降功耗；回前台自动恢复）
     this.appPaused = true;
     setAppPaused(true);
+    this.bumpTailEpoch();
     this.syncPulse(false);
     this.syncPanelPoll();
+  }
+
+  /** 通知所有 LiveTailView 重建打字机 setInterval（后台被系统冻结后必须换一个新 timer）。 */
+  private bumpTailEpoch(): void {
+    const v: number | undefined = AppStorage.get<number>('xbotTailEpoch');
+    AppStorage.setOrCreate('xbotTailEpoch', (v === undefined ? 0 : v) + 1);
   }
 
   /**
@@ -1945,6 +1952,9 @@ struct Index {
     }
     this.appPaused = false;
     setAppPaused(false);
+    this.userScrolling = false;
+    this.userTouchActive = false;
+    this.bumpTailEpoch();
     setUiScrolling(false);
     // 回前台默认看最新 turn：恢复跟随意图；若休眠期间追加了新 turn，syncFrom 的
     // contentGrew + followBottom 会滚到末尾（否则新行在视口下方，看起来仍停在旧 turn）。
@@ -1959,6 +1969,9 @@ struct Index {
   onPageShow(): void {
     this.appPaused = false;
     setAppPaused(false);
+    this.userScrolling = false;
+    this.userTouchActive = false;
+    this.bumpTailEpoch();
     // 后台可能把滚动挂起标志留在 true（触摸/滚动的恢复定时器也被系统冻结）⇒
     // 回前台必须先解除，否则同步逻辑会永远早退、行内容停留在旧 turn。
     setUiScrolling(false);

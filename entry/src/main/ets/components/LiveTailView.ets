@@ -33,7 +33,7 @@ import { LlmErrorNotice } from './LlmErrorNotice';
 import { isSyntheticToolName } from '../core/synthhints';
 import { looksLikeLlmError } from '../core/llmerror';
 import { reasoningKey } from '../core/reasoningopen';
-import { uiIsScrolling, appIsPaused } from '../core/listfollow';
+import { uiIsScrolling, appIsPaused, tailIsPaused } from '../core/listfollow';
 import { isLiveStatus, isToolInProgress, renderKind, statusChip } from '../core/toolstatus';
 import { AnsiSpan, ansiPaletteOf, ansiSpansIfAny } from '../core/ansi';
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
@@ -53,6 +53,20 @@ const LT_OVER_W: number = 300;
 const LT_ORB_SIZE: number = SP_5;
 /** 光球相位种子：与同屏其它实例错开（本波同屏至多一枚，为多实例预留）。 */
 const LT_ORB_SEED: number = 7;
+/**
+ * 单次打字机**追赶上限**（码点）。
+ *
+ * 休眠/后台期间 SSE 会一次回放大量文本；若从旧 `vis` 逐字追（50ms/字）会边追边渲染
+ * 越来越长的 Markdown ⇒ 用户看到「恢复后打字机卡顿、和刚启动完全不一样」。
+ * 超过上限直接快进到末尾附近，只让最后一段走打字机。
+ */
+const LT_MAX_CATCHUP: number = 240;
+/**
+ * 打字机**长度上限**：live 正文/思考超过该码点数后直接全量显示。
+ * 原因：每 50ms 推进一个字并重新解析整段 Markdown，文本越长单帧越贵；一个长回合/休眠
+ * 回放后会出现「打字机卡顿、和刚启动完全不一样」，而重启 App 走 committed 历史所以正常。
+ */
+const LT_TYPEWRITER_MAX_RUNES: number = 2000;
 
 @Component
 export struct LiveTailView {
@@ -63,6 +77,12 @@ export struct LiveTailView {
   @Prop tools: ToolProgress[] = [];
   /** 应用是否在后台（官方性能规范 §3：后台必须挂起非必要定时器/动画） */
   @Prop @Watch('onSource') paused: boolean = false;
+  /**
+   * 回前台代数（AppStorage）—— 休眠期间系统会冻结 setInterval；已有 LazyForEach 行又拿不到
+   * 新的 `paused` @Prop。页面每次 pause/resume 递增，本组件收到后重建/停止 timer，
+   * 否则会出现"休眠后打字机卡顿、重启 App 才恢复"（用户 2026-10-20 亲报）。
+   */
+  @StorageLink('xbotTailEpoch') @Watch('onTailEpoch') tailEpoch: number = 0;
   /** 显式主题覆盖（测试/独立预览）；生产走 `appTheme` 全局订阅（页面不传）。 */
   @Prop theme: string = 'dark';
   /**
@@ -300,6 +320,36 @@ return renderKind(t.status, t.exit_code, true);
       this.lastReasonLen = this.reasoning.length;
       this.reasonRunes = toRunes(this.reasoning);
     }
+    // 休眠回放/长回合：文本超过打字机上限 ⇒ 直接全量显示，避免每 50ms 重解析整段 Markdown。
+    if (this.runes.length > LT_TYPEWRITER_MAX_RUNES || this.reasonRunes.length > LT_TYPEWRITER_MAX_RUNES) {
+      this.vis = this.runes.length;
+      this.visReason = this.reasonRunes.length;
+      this.stopTimer();
+      return;
+    }
+    // 新回合文本可能变短；避免 vis 越界。
+    if (this.vis > this.runes.length) {
+      this.vis = this.runes.length;
+    }
+    if (this.visReason > this.reasonRunes.length) {
+      this.visReason = this.reasonRunes.length;
+    }
+    // 休眠回放的**大跳变**：不要从旧 vis 逐字追（50ms/字 + 每拍重渲染长 Markdown ⇒ 卡顿）。
+    // 快进到末尾附近；正常流式增长通常只有几个码点，不受影响。
+    if (this.runes.length - this.vis > LT_MAX_CATCHUP) {
+      this.vis = this.runes.length - LT_MAX_CATCHUP;
+    }
+    if (this.reasonRunes.length - this.visReason > LT_MAX_CATCHUP) {
+      this.visReason = this.reasonRunes.length - LT_MAX_CATCHUP;
+    }
+    this.syncTimer();
+  }
+
+  /** 后台/回前台切换：系统可能冻结过 setInterval ⇒ 必须 stop/start 一个新 timer。 */
+  private onTailEpoch(): void {
+    // ⛔ 不能只 syncTimer：旧 timer 句柄仍 >=0（系统冻结了回调）⇒ syncTimer 会认为
+    //    “已在跑”而直接 return，于是恢复后仍是那个被节流的定时器（用户实测打字机卡顿）。
+    this.stopTimer();
     this.syncTimer();
   }
 
@@ -330,7 +380,9 @@ return renderKind(t.status, t.exit_code, true);
     // ⛔ 打字机**绝不能**被"工具是否非终态"门控（原 `liveNow()`）：纯文本/思考回复
     //   （没有工具，最常见）会让 on=false ⇒ 定时器永不启动 ⇒ shownText() 走"安全回退"
     //   直接显示全文 ⇒ **没有打字机特效**（真机症状，2026-10-10）。只有"追赶未完成"决定开关。
-    const on: boolean = !this.paused && !appIsPaused() && (this.typingText() || this.typingReason());
+    const over: boolean = this.runes.length > LT_TYPEWRITER_MAX_RUNES
+      || this.reasonRunes.length > LT_TYPEWRITER_MAX_RUNES;
+    const on: boolean = !tailIsPaused() && !over && (this.typingText() || this.typingReason());
     if (on && this.timer < 0) {
       this.timer = setInterval(() => {
         this.tick();
@@ -354,7 +406,7 @@ return renderKind(t.status, t.exit_code, true);
     //   不会随 `userScrolling` 更新（2026-10-17 高度抖动根因）。因此额外读模块级滚动标志：
     //   滚动期间**不推进** vis/visReason（行高不变），滚动结束自动继续（不 stopTimer，
     //   否则没有事件再拉起它）。
-    if (this.paused || appIsPaused() || uiIsScrolling()) {
+    if (tailIsPaused()) {
       return;
     }
     const skip: boolean = this.skip;
@@ -372,7 +424,7 @@ return renderKind(t.status, t.exit_code, true);
         ? this.runes[Math.min(this.vis, this.runes.length - 1)].codePointAt(0) as number : 0;
       const next: number = advanceVisible(this.vis, this.runes.length, skip && isCJK(tc));
       this.advanceTick = this.advanceTick + 1;
-      const renderEvery: number = Math.max(1, Math.ceil(this.runes.length / 300));
+      const renderEvery: number = 1; // 固定 20Hz；旧实现按总字数放大间隔 ⇒ 长文本"打字机变卡顿"
       if (this.advanceTick >= renderEvery || next >= this.runes.length) {
         this.advanceTick = 0;
         this.vis = next;
