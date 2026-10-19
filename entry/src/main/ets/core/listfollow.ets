@@ -30,6 +30,24 @@ export function uiIsScrolling(): boolean {
 }
 
 /**
+ * 应用是否在后台（模块级）。
+ *
+ * ⛔ 为什么不能只靠 `LiveTailView` 的 `paused` @Prop：`LazyForEach` 的 item builder 只在
+ *   **新建**时执行 ⇒ 页面把 `appPaused` 作为 prop 传给已有条目时，休眠再恢复**不会**
+ *   重新投递 @Prop ⇒ 该行永远停在 `paused=true`，打字机定时器不再推进 ⇒ 用户看到
+ *   「跑久/休眠后 stream 更新频率变低，重启 App 才恢复」。
+ *   与 `uiIsScrolling` 同款：组件 tick 直接读模块级标志，零响应式开销；
+ *   onPageHide/onPageShow 切换即可，现有行也能立即恢复。
+ */
+let appPausedActive: boolean = false;
+export function setAppPaused(active: boolean): void {
+  appPausedActive = active;
+}
+export function appIsPaused(): boolean {
+  return appPausedActive;
+}
+
+/**
  * 「是否跟随到底部」状态机的下一步（纯函数）。
  *
  * @param prev      当前开关（true = 跟随；用户往上滚之后为 false）

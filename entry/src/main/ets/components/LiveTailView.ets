@@ -33,7 +33,7 @@ import { LlmErrorNotice } from './LlmErrorNotice';
 import { isSyntheticToolName } from '../core/synthhints';
 import { looksLikeLlmError } from '../core/llmerror';
 import { reasoningKey } from '../core/reasoningopen';
-import { uiIsScrolling } from '../core/listfollow';
+import { uiIsScrolling, appIsPaused } from '../core/listfollow';
 import { isLiveStatus, isToolInProgress, renderKind, statusChip } from '../core/toolstatus';
 import { AnsiSpan, ansiPaletteOf, ansiSpansIfAny } from '../core/ansi';
 import { ToolDetailVM, toolDetailVM, ToolOverflowList, ToolPopoverCard } from './ToolPopover';
@@ -330,7 +330,7 @@ return renderKind(t.status, t.exit_code, true);
     // ⛔ 打字机**绝不能**被"工具是否非终态"门控（原 `liveNow()`）：纯文本/思考回复
     //   （没有工具，最常见）会让 on=false ⇒ 定时器永不启动 ⇒ shownText() 走"安全回退"
     //   直接显示全文 ⇒ **没有打字机特效**（真机症状，2026-10-10）。只有"追赶未完成"决定开关。
-    const on: boolean = !this.paused && (this.typingText() || this.typingReason());
+    const on: boolean = !this.paused && !appIsPaused() && (this.typingText() || this.typingReason());
     if (on && this.timer < 0) {
       this.timer = setInterval(() => {
         this.tick();
@@ -354,7 +354,7 @@ return renderKind(t.status, t.exit_code, true);
     //   不会随 `userScrolling` 更新（2026-10-17 高度抖动根因）。因此额外读模块级滚动标志：
     //   滚动期间**不推进** vis/visReason（行高不变），滚动结束自动继续（不 stopTimer，
     //   否则没有事件再拉起它）。
-    if (this.paused || uiIsScrolling()) {
+    if (this.paused || appIsPaused() || uiIsScrolling()) {
       return;
     }
     const skip: boolean = this.skip;

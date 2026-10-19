@@ -126,7 +126,7 @@ import { SSE_STATE_FAILED } from '../core/sse';
 import { WIDGET_EVENT_WEB } from '../core/widgetsview';
 // 插件桥 page→native 的消息类型（协议权威 = `core/webbridge.ets`）
 import { BridgeMessage, HostNavEvent, HOST_NAV_TITLE, HOST_NAV_READY, HOST_NAV_OPEN_FILE } from '../core/webbridge';
-import { listItemCount, nextFollowBottom, shouldAutoScroll, followSuppressUntil, FOLLOW_SUPPRESS_MS, markUserScrollFrame, followAfterScrollStop, anchoredIndexAfterPrepend, setUiScrolling } from '../core/listfollow';
+import { listItemCount, nextFollowBottom, shouldAutoScroll, followSuppressUntil, FOLLOW_SUPPRESS_MS, markUserScrollFrame, followAfterScrollStop, anchoredIndexAfterPrepend, setUiScrolling, setAppPaused } from '../core/listfollow';
 import { hasOverlay, OverlayCode, OverlayState, topOverlay } from '../core/overlays';
 import {
   currentTodo, modelText, todoProgress, usageText,
@@ -1929,6 +1929,7 @@ struct Index {
   onPageHide(): void {
     // 进后台：停掉脉冲与打字机的所有定时器（降功耗；回前台自动恢复）
     this.appPaused = true;
+    setAppPaused(true);
     this.syncPulse(false);
     this.syncPanelPoll();
   }
@@ -1943,6 +1944,7 @@ struct Index {
       return;
     }
     this.appPaused = false;
+    setAppPaused(false);
     setUiScrolling(false);
     // 回前台默认看最新 turn：恢复跟随意图；若休眠期间追加了新 turn，syncFrom 的
     // contentGrew + followBottom 会滚到末尾（否则新行在视口下方，看起来仍停在旧 turn）。
@@ -1956,6 +1958,7 @@ struct Index {
 
   onPageShow(): void {
     this.appPaused = false;
+    setAppPaused(false);
     // 后台可能把滚动挂起标志留在 true（触摸/滚动的恢复定时器也被系统冻结）⇒
     // 回前台必须先解除，否则同步逻辑会永远早退、行内容停留在旧 turn。
     setUiScrolling(false);
@@ -10958,7 +10961,7 @@ struct Index {
         // §21.122bx：浮层覆盖聊天区时**停表**（光球 30fps Canvas 是流式期唯一实测到的 CPU 地板；
         // 被浮层盖住 ⇒ 无人看见，却与浮层入场动画抢帧预算）。语义与"后台停表"同一条通道。
         // ⚡ 2026-10-20 P0：用户滚动时也停表（20Hz @State 更新与滚动手势争抢主线程 → 粘滞+掉帧）。
-        paused: this.appPaused || this.anyModalOpen() || this.userScrolling || (this.userTouchActive && this.busy),
+        paused: this.anyModalOpen() || this.userScrolling || (this.userTouchActive && this.busy),
         onImage: (src: string) => {
           this.openImage(src);
         },
@@ -11040,7 +11043,7 @@ struct Index {
         // §21.122bx：浮层覆盖聊天区时**停表**（光球 30fps Canvas 是流式期唯一实测到的 CPU 地板；
         // 被浮层盖住 ⇒ 无人看见，却与浮层入场动画抢帧预算）。语义与"后台停表"同一条通道。
         // ⚡ 2026-10-20 P0：用户滚动时也停表（20Hz @State 更新与滚动手势争抢主线程 → 粘滞+掉帧）。
-        paused: this.appPaused || this.anyModalOpen() || this.userScrolling || (this.userTouchActive && this.busy),
+        paused: this.anyModalOpen() || this.userScrolling || (this.userTouchActive && this.busy),
         onImage: (src: string) => {
           this.openImage(src);
         },
