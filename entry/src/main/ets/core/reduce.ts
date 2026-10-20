@@ -901,19 +901,11 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       //（用户 2026-10-18 真机：第一迭代已跑、气泡永久「发送中」）。此时把**唯一一条
       // 未排队、仍在 sending 的 pending** 收编为当前 turn 的 user；turn_started 已是
       // 送达的权威证据，不能因为缺 requestID 就把它留在 pending 里。
-      if (idx < 0 && ev.trigger === 'user') {
-        for (let i = s.pendingUsers.length - 1; i >= 0; i--) {
-          const u = s.pendingUsers[i]
-          if (u.sending && !u.queued) {
-            idx = i
-            break
-          }
-        }
-      }
-      // ⛔ 排队消息**出队**形态（`agent/agent.go:4647-4668`：queued 消息出队时
-      //   `trigger=user` 且 `content` 携带正文；前端此刻的 pending 行还是 `queued=true`）
-      //   ⇒ 上面那条"只收编 !queued"的兜底会漏 ⇒ 该行永久留在 pending（发送中）。
-      //   这里按**内容**再兜一次（仅当事件带 content，且内容完全一致）。
+      // ⛔ 审计确证（F9）：**内容匹配必须早于位置启发式** —— 旧顺序是
+      //   requestID → turnHint → "最后一条 sending && !queued" → 内容，而真机常见
+      //   `turn_started` **不带 requestID** ⇒ 位置启发式先命中（可能绑到**后发的那条**）
+      //   ⇒ 两条在飞消息内容/顺序对调；被跳过的那条继续"发送中"。
+      //   内容匹配也是「排队出队」形态（`trigger=user` + `content`）的唯一判据。
       if (idx < 0 && ev.trigger === 'user') {
         const content = nonEmptyStr(ev.content)
         if (content !== null) {
@@ -922,6 +914,16 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
               idx = i
               break
             }
+          }
+        }
+      }
+      // 最后兜底：唯一一条未排队、仍在 sending 的 pending（缺 requestID/turnHint/content 时）。
+      if (idx < 0 && ev.trigger === 'user') {
+        for (let i = s.pendingUsers.length - 1; i >= 0; i--) {
+          const u = s.pendingUsers[i]
+          if (u.sending && !u.queued) {
+            idx = i
+            break
           }
         }
       }
