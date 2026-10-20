@@ -262,17 +262,16 @@ export class LiveViewBridge {
           layoutData: { layoutType: liveViewManager.LayoutType.LAYOUT_TYPE_DEFAULT },
         },
         capsule: {
-          // 「进度类型（PROGRESS）」场景的**官方胶囊形态**：进度胶囊 + `indeterminate: true`
-          // （不确定进度 = 进行中转圈）。⛔ 不给 `progress` 数字：LLM 一轮的剩余量不可知，
-          // 编一个百分比违背「与应用内任务进度与信息一致」的准入要求。
-          type: liveViewManager.CapsuleType.CAPSULE_TYPE_PROGRESS,
+          // ⛔ 不能用 ProgressCapsule：`indeterminate: true` 的语义是**按百分比显示**
+          //    `(progress/max)*100%`（SDK d.ts:1150-1156），不是“不确定进度转圈”。
+          //    不带 progress 时系统默认 0 ⇒ 用户看到「0%」。我们本来就不该编造进度
+          //    ⇒ 改用文字胶囊（短工具名/第 N 轮），彻底没有百分比。
+          type: liveViewManager.CapsuleType.CAPSULE_TYPE_TEXT,
           status: 1,
-          // 必须：真机/模拟器缺 icon 直接 401（Parameter error: capsule.icon must be
-          // string | image.PixelMap [or mandatory]）。string = `resources/rawfile` 文件名。
+          // 必须：真机/模拟器缺 icon 直接 401。
           icon: LV_ICON,
           backgroundColor: LV_CAPSULE_BG,
-          indeterminate: true,
-          content: snap.capsuleText,
+          title: snap.capsuleText.length > 0 ? snap.capsuleText : 'xbot',
         },
       },
     };

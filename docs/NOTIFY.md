@@ -255,6 +255,11 @@ curl -s -b ck.txt -X POST -H 'Content-Type: application/json' \
    纯黑/纯白/#FFF1F3F5）。
 WantAgent 构造失败则一次性降级，不刷屏。结束载荷 `capsule.status = -1`（收胶囊）。
 
+**⛔ 不能把 `ProgressCapsule.indeterminate=true` 当“不确定进度转圈”**：SDK d.ts 明确
+`indeterminate=true` 是**按 `(progress/max)*100%` 显示百分比**；不带 `progress` 时系统
+默认 0/1 ⇒ 真机/模拟器显示「0%」。本应用不知道 LLM 剩余量，不能编百分比 ⇒ 胶囊必须是
+`CAPSULE_TYPE_TEXT`（`title` = 工具短名/第 N 轮），不是 `CAPSULE_TYPE_PROGRESS`。
+
 **2026-10-19 模拟器实测通过**（1320×2848，`127.0.0.1:5555`）：
 - 日志：`[liveview] startLiveView 成功 code=0 id=20261017 event=PROGRESS`；
 - 通知中心可见实况窗卡片：`xbot · 已用 0:55` + 实时内容（`第 49 轮迭代思考中 · 已生成 582 字`），
