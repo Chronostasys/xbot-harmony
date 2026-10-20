@@ -79,10 +79,14 @@ function optTodos(v: unknown): TodoItem[] | undefined {
  */
 function optGoal(v: unknown): GoalInfo | null | undefined {
   const r = asRecord(v)
-  if (!r || typeof r.objective !== 'string') return undefined
-  // 显式清除标记：ClearGoal 推送（objective:"" 的 cleared 状态）
-  if (r.objective === '' || r.status === 'cleared') return null
-  if (!r.objective) return undefined
+  // ⛔ 字段**缺失**（`goal` 键不存在）⇒ undefined = "不动"，绝不当成"清空"。
+  if (!r) return undefined
+  // ⛔ 用户 2026-10-21 P0（goal 横幅来回抽搐）：**只有 `status === 'cleared'` 才是显式清除**。
+  //   旧实现把 `objective === ''` 也当清除 —— 而很多帧会带一个**零值/占位**的 goal 对象
+  //   （`objective: ''`、status 缺省），于是每来一帧就把目标清空、下一帧又恢复 ⇒ 抽搐。
+  //   语义收紧：空 objective **且**没有 cleared 标记 ⇒ 视为"本帧不携带有效目标" ⇒ 不动状态。
+  if (r.status === 'cleared') return null
+  if (typeof r.objective !== 'string' || r.objective === '') return undefined
   return {
     objective: r.objective,
     status: typeof r.status === 'string' && r.status ? r.status : 'active',

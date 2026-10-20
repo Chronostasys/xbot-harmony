@@ -240,6 +240,12 @@ import { PushRegState, registerPushToken } from '../core/pushreg';
 import { isToolInProgress, toolStatusKind } from '../core/toolstatus';
 import { t as i18nT } from '../core/i18n';
 
+/**
+ * stall 看门狗的"事件静默"阈值：超过它**没有任何 store 更新**才算真断流
+ * （见 `checkLiveSignalStall`）。⛔ 不要用"有没有在飞内容"判 stall —— 迭代之间必然没有。
+ */
+const LIVE_STALL_SILENT_MS: number = 3000;
+
 /** 一个问题当前选中的答案（用类而非 Map/Record：ArkTS 下最稳，且能整体替换触发重渲染）。 */
 class AskSelection {
   qid: string = '';
@@ -2253,6 +2259,12 @@ struct Index {
       return;
     }
     this.liveWaitTicks = this.liveWaitTicks + 1;
+    // ⛔ 只有"**事件流停了**"才算 stall：最近 LIVE_STALL_SILENT_MS 内没有任何 store 更新。
+    //   否则（事件在动、只是此刻没有在飞内容）**绝不** resync —— 那会把 busy 闪成 idle。
+    const silentMs: number = Date.now() - this.lastStoreUpdateAtMs;
+    if (silentMs < LIVE_STALL_SILENT_MS) {
+      return;
+    }
     if (this.liveWaitTicks >= 3 && !this.liveWaitResynced) {
       this.liveWaitResynced = true;
       const st: ChatStore | null = this.store;
@@ -9673,6 +9685,16 @@ struct Index {
    *   两者必须分开（旧实现是同一个布尔，既想省整页 rebuild 又想保住跟随）。
    */
   private rowsRevMirror: number = -1;
+  /**
+   * 最后一次 `syncFrom`（= store 有任何更新/事件）的时刻。
+   *
+   * ⛔ 用户 2026-10-21 规则：「busy 变 IDLE 只能是**收到一个没有 toolcall 的迭代**，或
+   *   **后端说 idle**；别的任何情况都不能」。而 stall 看门狗（`checkLiveSignalStall`）此前
+   *   只看"有没有在飞内容"——回合**在两次迭代之间**必然短暂没有在飞内容 ⇒ 3 拍（1.8s）就误判
+   *   stall ⇒ resync ⇒ 闪一下 idle ⇒ 下一帧 SSE 又 busy ⇒ **busy/idle 抽搐**。
+   *   真 stall 的定义是"**事件流停了**"，不是"某一刻没有在飞内容" ⇒ 必须用本时刻做闸门。
+   */
+  private lastStoreUpdateAtMs: number = 0;
   /**
    * 行集合的**结构**指纹（`core/rowdiff.structRowsFpOf`：`id#isLive#迭代数#末迭代在飞`）。
    *

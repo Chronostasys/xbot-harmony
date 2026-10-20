@@ -2095,7 +2095,12 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
         chatID: s.chatID, turns, legacy, activeTurn, lastSeq,
         busy: authoritativeRunning ? s.busy : false,
         pendingUsers, queue: s.queue, todos, goal: s.goal,
-        sessionRunning: authoritativeRunning,
+        // ⛔ 用户 2026-10-21 规则（原话）：「busy 变 IDLE 必须是**收到了一个没有 toolcall 的
+        //   迭代**，或者**后端告诉你它 idle**；别的任何情况都不能让 busy 变 IDLE」。
+        //   历史快照是"某一刻的 DB 视图"，**滞后**于 SSE（turn 正在跑时 DB 还没有 assistant 行）
+        //   ⇒ 它只能**打开** running（快照里有 active turn），**绝不能**关掉（否则流式期
+        //   每次 reload/重连都闪一下 idle，再被下一帧 SSE 拉回 busy ⇒ busy/idle 抽搐）。
+        sessionRunning: s.sessionRunning || authoritativeRunning,
         // 命令行（`!cmd`）落库行：事件带 standalone 时**采纳**它（刷新后状态是空的，
         // DB 权威行必须进渲染）；事件未带（手写事件/旧路径）则保留现有。
         standalone: ev.standalone ?? s.standalone,
