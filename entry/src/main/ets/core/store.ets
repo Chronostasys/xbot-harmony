@@ -704,6 +704,11 @@ export class ChatStore {
 
   /** 单事件便捷。 */
   private pushEvent(ev: DomainEvent): void {
+    // ⛔ 审计确证（state-audit-8）：`lastEventAtMs` 曾是**死字段**（只读不写）⇒ 两处
+    //   "事件静默 ≥3s"闸门恒成立（`Date.now() - 0` 永远很大）⇒
+    //   ① `watchBusyWithoutLiveTurn` 的静默判据失效；② 探针的"服务端明确 idle 才收尾"
+    //   在事件正流时也会生效（会误关 busy）。必须在这里（所有事件的唯一入口）刷新。
+    this.lastEventAtMs = Date.now();
     const prev: ChatState = this.state;
     const wasRunning: boolean = prev.sessionRunning;
     this.settleIntentOnAuthoritative(ev);
