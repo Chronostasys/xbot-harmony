@@ -58,6 +58,12 @@ ok('品牌 + 型号', pushDeviceName('HUAWEI', 'Mate 70') === 'HUAWEI Mate 70');
 ok('只有品牌', pushDeviceName('HUAWEI', '  ') === 'HUAWEI');
 ok('只有型号', pushDeviceName('', 'Mate 70') === 'Mate 70');
 ok('都空 ⇒ 兜底名（不让台账出现空名）', pushDeviceName('', '') === 'HarmonyOS 设备');
+// ⛔ 华为 marketName/productModel 常已以品牌开头；再拼一次会变成
+//    `HUAWEI HUAWEI Mate 90 Pro Max`（用户 2026-10-20 亲报）。
+ok('型号已含品牌 ⇒ 不重复品牌', pushDeviceName('HUAWEI', 'HUAWEI Mate 90 Pro Max') === 'HUAWEI Mate 90 Pro Max');
+ok('型号已含品牌（大小写不敏感）', pushDeviceName('HUAWEI', 'huawei Mate 90') === 'huawei Mate 90');
+ok('型号只是品牌 ⇒ 不重复', pushDeviceName('HUAWEI', 'HUAWEI') === 'HUAWEI');
+ok('HUAWEIxxx 不是完整品牌词 ⇒ 仍拼接', pushDeviceName('HUAWEI', 'HUAWEIX Mate') === 'HUAWEI HUAWEIX Mate');
 ok('短 token 只显示 ***', maskTokenForLog('abcdefgh') === '***');
 const long: string = maskTokenForLog('MOCK_PUSH_TOKEN_0123456789');
 ok('长 token 掩码为 前6…后4', long === 'MOCK_P…6789');

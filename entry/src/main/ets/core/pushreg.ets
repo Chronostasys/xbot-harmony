@@ -49,6 +49,13 @@ interface PluginStatusData {
   plugins?: PluginStatusEntry[];
 }
 
+/** `register_token` 的返回（插件 `registerToken` 的 `success/reason`）。 */
+interface RegisterTokenResult {
+  success?: boolean;
+  reason?: string;
+  added?: boolean;
+}
+
 /** 探活缓存：0 未探测 / 1 已就绪 / 2 暂不可用（带时刻，超 TTL 允许重探 ⇒ 后端重启后自愈）。 */
 let pluginActiveState: number = 0;
 let pluginActiveAt: number = 0;
@@ -172,7 +179,21 @@ export function pushDeviceName(brand: string, model: string): string {
   if (b.length === 0 && m.length === 0) {
     return 'HarmonyOS 设备';
   }
-  return b.length > 0 && m.length > 0 ? `${b} ${m}` : (b.length > 0 ? b : m);
+  if (b.length === 0) {
+    return m;
+  }
+  if (m.length === 0) {
+    return b;
+  }
+  // ⛔ 华为的 marketName 往往已经以品牌开头（`HUAWEI Mate 90 Pro Max`），
+  //    再拼一次 brand 会得到 `HUAWEI HUAWEI Mate 90 Pro Max`（用户亲报）。
+  //    大小写不敏感，且只认"完整品牌词"前缀，避免把 HUAWEIxxx 误判。
+  const lowerM: string = m.toLowerCase();
+  const lowerB: string = b.toLowerCase();
+  if (lowerM === lowerB || lowerM.startsWith(`${lowerB} `)) {
+    return m;
+  }
+  return `${b} ${m}`;
 }
 
 /**
@@ -255,13 +276,22 @@ export async function registerPushToken(http: XbotHttp, st: PushRegState): Promi
     const res: Object = await rpc<Object>(http, RPC_WEB_PLUGIN,
       new WebPluginRpcParams(`${PUSH_PLUGIN_ID}.register_token`,
         new PushRegParams(token, deviceName, version)), false);
-    const raw: string = JSON.stringify(res);
+    // ⛔ RPC 返回 200 只代表"请求到达"，不代表插件**接受了登记**。
+    //   插件业务失败时返回 `{"success":false,"reason":...}`（例如缺 token），
+    //   旧代码不看这个字段，直接写 `reportedToken` 并打「已上报」⇒ 用户看到已上报、
+    //   服务端台账却没有/仍不更新，实际推送失败（2026-10-20 用户亲报）。
+    const rr: RegisterTokenResult = res as RegisterTokenResult;
+    if (rr === undefined || rr === null || rr.success !== true) {
+      const why: string = rr !== undefined && rr !== null && rr.reason !== undefined && rr.reason.length > 0
+        ? rr.reason : '插件未确认登记成功';
+      throw new Error(why);
+    }
     st.reportedToken = token;
     st.reportedAt = now;
     st.failCount = 0;
     st.lastError = '';
     // ⛔ 只记掩码后的形态（前 6 后 4），绝不把真 token 写进日志
-    log('push', `已上报本机 Push Token（${maskTokenForLog(token)}）name=${deviceName} ${raw.length > 0 ? '' : ''}`);
+    log('push', `已上报本机 Push Token（${maskTokenForLog(token)}）name=${deviceName}`);
     return '本机推送已登记';
   } catch (e) {
     const reason: string = readableRpcError((e as Error).message);

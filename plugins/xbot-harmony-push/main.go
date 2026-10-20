@@ -315,36 +315,32 @@ func doSend(req PushRequest, kind string) sendOutcome {
 		return out
 	}
 
-	// ⑤ 分批发送
+	// ⑤ 逐 token 发送（⛔ 不能整批发）
+	//
+	// 华为 messages:send 的 token 校验是**整批 all-or-nothing**：一批里只要有一个
+	// 失效 Token（旧设备/重装过的模拟器），整批就回 80300007「全部 Token 无效」，
+	// 连完全有效的真机 Token 也一起被吞掉。台账里长期保留历史设备时这必然发生。
+	// ⇒ 每个 token 单独请求、单独记账，坏 token 只影响它自己。
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 	totalOK, totalFail := 0, 0
 	var lastCode, lastHint string
-	for start := 0; start < len(tokens); start += batchTokens {
-		end := start + batchTokens
-		if end > len(tokens) {
-			end = len(tokens)
-		}
-		res, err := pusher.send(ctx, cfg, tokens[start:end], req)
+	for _, tk := range tokens {
+		res, err := pusher.send(ctx, cfg, []string{tk}, req)
 		if err != nil {
-			totalFail += end - start
+			totalFail++
 			lastHint = err.Error()
+			ledger.MarkResult(tk, false, err.Error())
 			continue
 		}
 		if res.OK {
-			totalOK += end - start
-		} else {
-			totalFail += end - start
-			lastCode, lastHint = res.Code, res.Hint
-			for _, tk := range tokens[start:end] {
-				ledger.MarkResult(tk, false, res.Code+" "+res.Hint)
-			}
-		}
-	}
-	if totalOK > 0 {
-		for _, tk := range tokens {
+			totalOK++
 			ledger.MarkResult(tk, true, "")
+			continue
 		}
+		totalFail++
+		lastCode, lastHint = res.Code, res.Hint
+		ledger.MarkResult(tk, false, res.Code+" "+res.Hint)
 	}
 	out := sendOutcome{
 		Success: totalFail == 0,
@@ -504,6 +500,20 @@ func settingsPayload() map[string]any {
 	}
 }
 
+// normalizeDeviceName 去掉重复的品牌前缀。
+//
+// 华为设备 `brand=HUAWEI`，而 `marketName/productModel` 往往已经是
+// `HUAWEI Mate 90 Pro Max` ⇒ 直接拼接会得到 `HUAWEI HUAWEI Mate 90 Pro Max`。
+// 台账里出现重复名字不是"显示小瑕疵"：用户无法区分设备，且每次重报都会把
+// 错误名字回写。这里在**入口**收敛，历史记录也会在下一次上报时被修正。
+func normalizeDeviceName(name string) string {
+	fields := strings.Fields(strings.TrimSpace(name))
+	for len(fields) > 1 && strings.EqualFold(fields[0], fields[1]) {
+		fields = append(fields[:1], fields[2:]...)
+	}
+	return strings.Join(fields, " ")
+}
+
 func registerToken(params map[string]any) map[string]any {
 	token := strings.TrimSpace(str(params["token"]))
 	if token == "" {
@@ -512,7 +522,7 @@ func registerToken(params map[string]any) map[string]any {
 	added := ledger.UpsertDevice(Device{
 		Token:     token,
 		ProfileID: str(params["profileId"]),
-		Name:      str(params["name"]),
+		Name:      normalizeDeviceName(str(params["name"])),
 		Platform:  str(params["platform"]),
 		Version:   str(params["version"]),
 	})
@@ -592,8 +602,10 @@ func okRPC(payload any) *protocol.WebPluginRPCResult {
 // errRPC 返回**业务失败**（⛔ 不是协议错误）。
 //
 // ⛔ 为什么不设 `protocol.Error`：host `plugin/manager.go:938` 一旦看到 `resp.Error != ""` 就把它
-//   升级成 host 级错误 ⇒ 客户端拿到 **HTTP 500**（用户亲报「一进去就 500」就是这么来的）。
-//   业务失败必须是"**成功的 RPC + success:false + 可读 reason**"，让界面能正常展示。
+//
+//	升级成 host 级错误 ⇒ 客户端拿到 **HTTP 500**（用户亲报「一进去就 500」就是这么来的）。
+//	业务失败必须是"**成功的 RPC + success:false + 可读 reason**"，让界面能正常展示。
+//
 // ⛔ 键名不用 `ok`/`error`：它们是 host 信封保留键，会被剥掉（见 sendOutcome 注释）。
 func errRPC(msg string) *protocol.WebPluginRPCResult {
 	buf, _ := json.Marshal(map[string]any{"success": false, "reason": msg})

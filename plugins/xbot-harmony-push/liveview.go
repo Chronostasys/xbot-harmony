@@ -19,20 +19,20 @@ import (
 // ⛔ 不缓存任何实况窗历史；每次调用都是一次权威 request。
 
 type LiveViewRequest struct {
-	ActivityID int    `json:"activityId"`
-	Operation  int    `json:"operation"` // 1 update / 2 end（0 create 仅 FLIGHT/TAXI/TRAIN）
-	Event      string `json:"event"`
-	Status     string `json:"status,omitempty"`
-	Title      string `json:"title,omitempty"`
-	Content    string `json:"content,omitempty"`
+	ActivityID     int    `json:"activityId"`
+	Operation      int    `json:"operation"` // 1 update / 2 end（0 create 仅 FLIGHT/TAXI/TRAIN）
+	Event          string `json:"event"`
+	Status         string `json:"status,omitempty"`
+	Title          string `json:"title,omitempty"`
+	Content        string `json:"content,omitempty"`
 	CapsuleTitle   string `json:"capsuleTitle,omitempty"`
 	CapsuleContent string `json:"capsuleContent,omitempty"`
 	CapsuleIcon    string `json:"capsuleIcon,omitempty"`
 	CapsuleBG      string `json:"capsuleBg,omitempty"`
-	Version    int    `json:"version,omitempty"`
-	Mute       *bool  `json:"mute,omitempty"`
-	Test       bool   `json:"test,omitempty"`
-	DryRun     bool   `json:"dryRun,omitempty"`
+	Version        int    `json:"version,omitempty"`
+	Mute           *bool  `json:"mute,omitempty"`
+	Test           bool   `json:"test,omitempty"`
+	DryRun         bool   `json:"dryRun,omitempty"`
 }
 
 const defaultLiveViewActivityID = 20261017
@@ -77,16 +77,16 @@ func buildLiveViewPayload(req LiveViewRequest) map[string]any {
 	notif := map[string]any{
 		"type":         3,
 		"contentTitle": req.Title,
-		"contentText": []map[string]any{{"text": req.Content}},
-		"clickAction": map[string]any{"actionType": 0},
+		"contentText":  []map[string]any{{"text": req.Content}},
+		"clickAction":  map[string]any{"actionType": 0},
 	}
 	capsule := map[string]any{
-		"type":     1,
-		"status":   1,
-		"icon":     req.CapsuleIcon,
-		"bgColor":  req.CapsuleBG,
-		"title":    req.CapsuleTitle,
-		"content":  req.CapsuleContent,
+		"type":    1,
+		"status":  1,
+		"icon":    req.CapsuleIcon,
+		"bgColor": req.CapsuleBG,
+		"title":   req.CapsuleTitle,
+		"content": req.CapsuleContent,
 	}
 	lv := map[string]any{
 		"activityId": req.ActivityID,
@@ -149,20 +149,36 @@ func doLiveView(req LiveViewRequest, kind string) sendOutcome {
 	if req.DryRun {
 		return sendOutcome{Success: true, Devices: names, DryRun: true, Title: req.Title}
 	}
+	// ⛔ 与通知一样逐 token 发送：华为对 token 的校验是整批 all-or-nothing，
+	//    一个历史失效 token 会让整批回 80300007，有效真机也收不到。
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
-	res, err := pusher.sendLiveView(ctx, cfg, tokens, req)
-	if err != nil {
-		ledger.AppendLog(LogEntry{Kind: kind, Title: "实况窗", OK: 0})
-		return sendOutcome{Devices: names, Reason: err.Error()}
+	totalOK, totalFail := 0, 0
+	var lastCode, lastHint string
+	for _, tk := range tokens {
+		res, err := pusher.sendLiveView(ctx, cfg, []string{tk}, req)
+		if err != nil {
+			totalFail++
+			lastHint = err.Error()
+			ledger.MarkResult(tk, false, err.Error())
+			continue
+		}
+		if res.OK {
+			totalOK++
+			ledger.MarkResult(tk, true, "")
+			continue
+		}
+		totalFail++
+		lastCode, lastHint = res.Code, res.Hint
+		ledger.MarkResult(tk, false, res.Code+" "+res.Hint)
 	}
 	out := sendOutcome{
-		Success: res.OK, Sent: len(tokens), Failed: 0, Devices: names,
-		Code: res.Code, Hint: res.Hint, Title: req.Title,
+		Success: totalOK > 0 && totalFail == 0, Sent: totalOK, Failed: totalFail, Devices: names,
+		Code: lastCode, Hint: lastHint, Title: req.Title,
 	}
-	if !res.OK {
-		out.Sent, out.Failed = 0, len(tokens)
+	if totalOK == 0 && lastHint != "" {
+		out.Reason = lastHint
 	}
-	ledger.AppendLog(LogEntry{Kind: kind, Title: "实况窗", OK: out.Sent, Err: out.Hint})
+	ledger.AppendLog(LogEntry{Kind: kind, Title: "实况窗", OK: totalOK, Fail: totalFail, Code: lastCode, Err: lastHint})
 	return out
 }

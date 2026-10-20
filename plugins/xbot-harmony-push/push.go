@@ -350,7 +350,9 @@ func pushErrorHint(r sendResult) string {
 	case "80200001", "80200003":
 		return "访问令牌无效/已失效（检查 Client Secret，或系统时间）"
 	case "80300002":
-		return "无权限发送：请确认已开通推送服务权益，且消息分类(category)与已开通场景一致"
+		// ⛔ 这个码**不是 Token 无效**：Token 已被华为识别，是应用侧没有下发权限。
+		//    常见原因：AGC 没开通「推送服务」，或 OAuth 的 client_id 不是**应用级 Client ID**。
+		return "当前应用无权限下发推送消息（80300002）：Token 有效，但 AGC 未开通推送服务，或 ClientId 不是应用级 ClientId"
 	case "80300007":
 		return "全部 Push Token 无效（App 重新安装/清数据后 Token 会变，请在应用里重新登记）"
 	case "80300008":

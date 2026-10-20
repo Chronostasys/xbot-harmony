@@ -179,7 +179,8 @@
 
 | 接口版本 | 凭证组合 | 华为应答 | 结论 |
 |---|---|---|---|
-| **V1** | 应用级 appId + appSecret | `80300007` 全部 Push Token 无效 | **鉴权✓ 载荷✓ 已受理**（唯一失败项是"登记的 token 不是真 HMS token"——模拟器拿不到真 token） |
+| **V1** | 应用级 appId + appSecret，路由 **App ID** | `80300007` 全部 Push Token 无效 | ⛔ 路由参数错了：HarmonyOS 的 V1 路由是 **Project ID**；用 App ID 会把真机有效 Token 误判无效 |
+| **V1** | 应用级 appId + appSecret，路由 **Project ID** | `80300002` 无权限 | Token 已被识别（不是无效）；剩下是 AGC 推送服务/应用级 ClientId 权限 |
 | V3 | 应用级 | `80200001` 访问令牌无效 | 本应用这套凭证不适用 V3 ⇒ **默认 V1** |
 | V3 | 项目级 clientId+secret | HTTP 400 parameter invalid | 不适用 |
 | 任一 | appId + 项目 secret / 项目 clientId + app secret | HTTP 400 invalid client_secret / parameter invalid | 交叉用一律 400 |

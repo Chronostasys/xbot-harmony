@@ -40,7 +40,7 @@ type Settings struct {
 	AgentHint         bool
 	// AutoLiveView：后端在 agent 生命周期 hook 上自动推送实况窗 update/end。
 	// 默认 true；没有活动实况窗时华为会返回 265/失败，不降级、只记日志。
-	AutoLiveView      bool
+	AutoLiveView       bool
 	LiveViewActivityID int
 }
 
@@ -51,18 +51,18 @@ const lvFallbackCategory = "IM"
 
 func defaultSettings() Settings {
 	return Settings{
-		Enabled:           true,
-		DefaultCategory:   lvFallbackCategory,
+		Enabled:         true,
+		DefaultCategory: lvFallbackCategory,
 		// ⛔ 实测判据（2026-10-17，本应用 com.chronostasys.xbot + 应用级凭证）：
 		//   v1 → 华为受理（只报 token 无效：那是设备侧问题）；v3 → 80200001 访问令牌无效。
 		//   ⇒ 默认 v1；华为后续口径变化时可在设置里切回 v3。
-		APIVersion:        "v1",
-		DefaultLevel:      "info",
-		DefaultTTLDays:    7,
-		CollapseWindowSec: 30,
-		MaxPerMinute:      12,
-		AgentHint:         true,
-		AutoLiveView:      true,
+		APIVersion:         "v1",
+		DefaultLevel:       "info",
+		DefaultTTLDays:     7,
+		CollapseWindowSec:  30,
+		MaxPerMinute:       12,
+		AgentHint:          true,
+		AutoLiveView:       true,
 		LiveViewActivityID: 20261017,
 	}
 }
@@ -202,10 +202,20 @@ func (s Settings) tokenClientID() string {
 	return s.AppID
 }
 
-// routeID 取推送接口 URL 的路径参数：V3 = Project ID，V1 = App ID。
+// routeID 取推送接口 URL 的路径参数。
+//
+// ⛔ 实测（2026-10-20，真机 Mate 90 Pro Max + HarmonyOS NEXT）：
+//   - `/v1/{AppId}/messages:send` ⇒ 80300007「All the tokens are invalid」
+//   - `/v1/{ProjectId}/messages:send` ⇒ 80300002「No permission ...」（Token 已被识别）
+//     ⇒ HarmonyOS NEXT 的 v1 路由参数是 **Project ID**，不是 App ID；用 App ID 会把
+//     完全有效的真机 Token 误判成无效。V3 同样用 Project ID。
+//     旧版 HMS Core（Android）才用 App ID；本插件服务的是 HarmonyOS 客户端，故优先 Project ID。
 func (s Settings) routeID() string {
-	if s.APIVersion == "v3" {
+	if s.ProjectID != "" {
 		return s.ProjectID
+	}
+	if s.APIVersion == "v3" {
+		return ""
 	}
 	return s.AppID
 }

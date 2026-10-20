@@ -243,7 +243,9 @@ func TestBuildPushPayload(t *testing.T) {
 }
 
 // TestPayloadShapePerAPIVersion 钉住"token 放在哪"这条实测差异：
-//   v1（HMSCore 代）⇒ message.token；v3（NEXT）⇒ target.token。
+//
+//	v1（HMSCore 代）⇒ message.token；v3（NEXT）⇒ target.token。
+//
 // 放错位置会被华为回 80300010（token count should within 1 and 1,000）——实测踩过。
 func TestPayloadShapePerAPIVersion(t *testing.T) {
 	cfg := defaultSettings()
@@ -386,10 +388,11 @@ func TestStoreLogRing(t *testing.T) {
 
 type fakeHTTP struct {
 	calls       []string
-	status      int    // push 响应状态码（0 ⇒ 200）
-	body        string // push 响应体（空 ⇒ 80000000 成功）
-	tokenStatus int    // oauth 响应状态码（0 ⇒ 200）
-	tokenBody   string // oauth 响应体（空 ⇒ 正常令牌）
+	status      int                      // push 响应状态码（0 ⇒ 200）
+	body        string                   // push 响应体（空 ⇒ 80000000 成功）
+	tokenStatus int                      // oauth 响应状态码（0 ⇒ 200）
+	tokenBody   string                   // oauth 响应体（空 ⇒ 正常令牌）
+	respond     func(body string) string // 按请求体定制 push 应答（空 ⇒ body/默认成功）
 	failNext    bool
 }
 
@@ -419,6 +422,9 @@ func (f *fakeHTTP) Do(req *http.Request) (*http.Response, error) {
 		return mk(f.tokenStatus, body), nil
 	}
 	body := f.body
+	if f.respond != nil {
+		body = f.respond(string(b))
+	}
 	if body == "" {
 		body = `{"code":"80000000","msg":"Success"}`
 	}
@@ -525,6 +531,33 @@ func readyConfig(extra map[string]any) map[string]any {
 	return cfg
 }
 
+func TestNormalizeDeviceName(t *testing.T) {
+	cases := map[string]string{
+		"HUAWEI HUAWEI Mate 90 Pro Max": "HUAWEI Mate 90 Pro Max",
+		"HUAWEI HUAWEI HUAWEI Mate":     "HUAWEI Mate",
+		"HUAWEI Mate 90 Pro Max":        "HUAWEI Mate 90 Pro Max",
+		"  HUAWEI   HUAWEI  Mate  ":     "HUAWEI Mate",
+		"":                              "",
+	}
+	for in, want := range cases {
+		if got := normalizeDeviceName(in); got != want {
+			t.Fatalf("normalizeDeviceName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestRouteIDUsesProjectForHarmonyOS(t *testing.T) {
+	cfg := defaultSettings()
+	cfg.AppID, cfg.ProjectID, cfg.APIVersion = "app", "proj", "v1"
+	if got := cfg.routeID(); got != "proj" {
+		t.Fatalf("HarmonyOS v1 必须用 Project ID（App ID 会把有效 Token 判 80300007），实际 %q", got)
+	}
+	cfg.ProjectID = ""
+	if got := cfg.routeID(); got != "app" {
+		t.Fatalf("缺 Project ID 才回退 App ID，实际 %q", got)
+	}
+}
+
 func TestDoSendEndToEnd(t *testing.T) {
 	setupPluginDir(t, readyConfig(nil))
 	fake := &fakeHTTP{body: `{"code":"80000000","msg":"Success"}`}
@@ -579,6 +612,39 @@ func TestDoSendEndToEnd(t *testing.T) {
 	}
 	if len(fake.calls)-before < 2 {
 		t.Fatal("超过单批上限应分批发送")
+	}
+}
+
+// ⛔ 判据（用户 2026-10-20 亲报「token 必定有效」）：
+// 华为对一次请求里的 token 列表是整批 all-or-nothing；只要台账里有一个历史失效
+// token，整批就回 80300007。必须逐 token 发送，坏 token 不能拖死有效真机。
+func TestDoSendIsolatesInvalidToken(t *testing.T) {
+	setupPluginDir(t, readyConfig(nil))
+	fake := &fakeHTTP{respond: func(body string) string {
+		if strings.Contains(body, "bad-token") {
+			return `{"code":"80300007","msg":"All the tokens are invalid"}`
+		}
+		return `{"code":"80000000","msg":"Success"}`
+	}}
+	pusher = newPushClient(fake)
+	ledger.UpsertDevice(Device{Token: "good-token-1234", Name: "真机"})
+	ledger.UpsertDevice(Device{Token: "bad-token-1234", Name: "旧模拟器"})
+
+	out := doSend(PushRequest{Title: "隔离测试", Body: "有效真机必须收到"}, "tool")
+	if out.Sent != 1 || out.Failed != 1 {
+		t.Fatalf("应逐 token 发送：1 成功 + 1 失败，实际 %+v", out)
+	}
+	if len(fake.calls) < 2 {
+		t.Fatalf("两个 token 应各发一次（不能整批），实际请求 %d", len(fake.calls))
+	}
+	ds := ledger.Devices()
+	for _, d := range ds {
+		if d.Token == "good-token-1234" && d.SendOK != 1 {
+			t.Fatalf("有效 token 应记成功：%+v", d)
+		}
+		if d.Token == "bad-token-1234" && d.SendFail == 0 {
+			t.Fatalf("失效 token 应只记失败：%+v", d)
+		}
 	}
 }
 
