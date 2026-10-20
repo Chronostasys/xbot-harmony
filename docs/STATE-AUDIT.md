@@ -173,6 +173,8 @@
 | F5 | `hasLiveTurn()` 与看门狗判据不同源（"live 但已停流"被当在飞 ⇒ 幽灵「思考中…」） | 统一为 `streaming === true` |
 | F6 | `resetStateMachine` 丢 `sessionRunning` ⇒ 断洞重载/rewind 顺手关 busy（违反"只有两种证据能关"） | 同一会话保留 running（`withSessionRunning`，.ts 提供唯一出口避开 .ets 的 spread 禁令） |
 | F7 | `evIter < prev.iter ⇒ return s` 把 **gap 修复 delta** 一起丢掉 ⇒ 缺失迭代永远补不上 | 改为"**没有新迭代信息才丢**"；旧迭代帧只 union，不覆盖 live 正文/思考（`olderIter`） |
+| F10 | `session_idle` 事件（同样属"后端明确 idle"）在 `sessionRunning` 为 true 时被忽略 | 与 F9 同一条规则：复位 running；只停 `streaming`，不删不冻 |
+| F11 | 迟到/旧轮 idle 可能把 busy 关掉（服务端 `emitSessionIdleIfNoActiveRun` 的窄竞争窗口） | **running 自愈不变量**：`reduce` 出口检查「live 且 `streaming===true` ⇒ sessionRunning 必为 true」（活动类事件才生效，`session*` 事件豁免以免堵死 idle 闸门）⇒ 下一帧 `stream`/`iteration` 立刻把 busy 拉回 |
 | F9 | `session(idle)` 在 `sessionRunning` 为 true 时被**直接忽略**（旧 hack）⇒ 服务端只发 coarse idle 时 busy 永不复位 | 删掉该 hack：**后端 idle 必须复位 busy**；只把 live 的 `streaming` 置 false（不删不冻，下一帧自愈）。服务端根因由 `session_idle_guard_test.go`（runGen）覆盖 |
 | F8 | 转后台时上一迭代的思考重复渲染两段 | 只在**渲染层**去重（`render.ets:inFlightBlock`：与**任一**已提交块等长且全等 ⇒ 置空）。⛔ reduce 侧等长丢弃已撤销（会把合法的 gap 修复/AskUser 收尾文本清掉，`reduce.test.ts` 两条 REPRO 实证） |
 

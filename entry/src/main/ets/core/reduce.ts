@@ -693,7 +693,35 @@ function settleSendingInvariant(s: ChatState): ChatState {
 
 /** 状态机入口（web `reduce` 的逐字移植 + 出口不变量收敛，见 `settleSendingInvariant`）。 */
 export function reduce(s: ChatState, ev: DomainEvent): ChatState {
-  return settleSendingInvariant(reduceInner(s, ev));
+  return satisfyRunningInvariant(settleSendingInvariant(reduceInner(s, ev)), ev);
+}
+
+/**
+ * **running 自愈不变量**：`live` 且 `streaming === true` 的 turn ⇒ 会话必然在跑。
+ *
+ * ⛔ 判据依据（用户 2026-10-21 规则）：`busy → idle` 只允许「无 toolcall 迭代 / 后端 idle」两种
+ *   证据；反过来，**只要还有在飞内容，busy 就必须是 true**。这条不变量把两类抖动都收敛掉：
+ *   · 服务端**迟到的旧轮 idle**（`emitSessionIdleIfNoActiveRun` 的极窄竞争窗口）落到新一轮上
+ *     ⇒ 下一帧 `stream`/`iteration`（会把 `streaming` 置回 true）**立刻**把 busy 拉回来；
+ *   · 任何漏掉 `busy` 事件的路径。
+ *   反向安全：`phase_done`/`text_final` 之后 turn 已 committed/frozen、`activeTurn` 为 null ⇒
+ *   本不变量不会把已结束的回合重新标成 busy。
+ */
+function satisfyRunningInvariant(s: ChatState, ev: DomainEvent): ChatState {
+  // ⛔ 只对**活动类**事件生效：`session*` 是 idle/busy 的权威信号，必须在它们之后保持原样
+  //   （否则本不变量会把 sessionRunning 置 true，反过来把 `session_idle` 的粗粒度闸门
+  //   `if (s.sessionRunning) return s` 堵死 —— 实测会让 idle 永远不生效）。
+  if (ev.type === 'session' || ev.type === 'session_idle' || ev.type === 'session_running') {
+    return s
+  }
+  if (s.sessionRunning || s.activeTurn === null) {
+    return s
+  }
+  const t = s.turns.get(s.activeTurn)
+  if (t === undefined || t.phase.kind !== 'live' || t.phase.data.streaming !== true) {
+    return s
+  }
+  return { ...s, sessionRunning: true, busy: true }
 }
 
 function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
@@ -707,13 +735,15 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
     // （与 cancel 的 freeze 同语义，绝不 wipe），并把 streaming 置 false。
     case 'session_idle': {
       s = settlePendingSending(s, true)
-      // ⛔ 权威按 `sessionRunning` 判定（不变量：输入框 = cancel ⇒ 上面必须显示
-      // 进行中信号）。`session(idle)` / `agent-idle` 是 **coarse 会话级**信号
-      //（不带 turn 身份），可能来自 SSE 重连的 last_event_id 回放窗口或
-      // restoreActiveProgress 竞态 —— 与"真 idle"无法区分。服务端 reconcile 后
-      // 的 running 仍为 true 时，这条 idle 必然是陈旧/误传的 ⇒ **不得**收尾运行中的 turn。
-      if (s.sessionRunning) return s
-      if (s.activeTurn === null) return s // 幂等：无活跃 turn ⇒ 原 state（零渲染）
+      // ⛔ 审计（2026-10-21，与 `session(idle)` 的 F9 同一条规则）：`session_idle`
+      //   就是**后端明确 idle**（用户规则允许的两种 idle 证据之一）⇒ **必须**复位 busy。
+      //   旧实现在 `sessionRunning` 为 true 时直接 return（当时为绕服务端"旧轮迟到 idle"
+      //   的 bug；根因已由 `agent/session_idle_guard_test.go` 的 runGen 守卫修掉）。
+      //   安全边界：只把 `streaming` 置 false、**不删不冻**；且 `satisfyRunningInvariant`
+      //   会在下一帧活动事件（stream/iteration）把 busy 拉回 ⇒ 迟到 idle 最多一次极短抖动。
+      if (s.activeTurn === null) {
+        return s.sessionRunning ? { ...s, sessionRunning: false, busy: false } : s
+      }
       const t = s.turns.get(s.activeTurn)
       if (!t || t.phase.kind !== 'live') return s
       // 无产出 = 真空壳：收尾（保留 user 行；无 user 行则删槽）。
@@ -724,11 +754,13 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
         } else {
           turns.delete(t.id)
         }
-        return { ...s, turns, activeTurn: null }
+        return { ...s, turns, activeTurn: null, sessionRunning: false, busy: false }
       }
       const liveData = t.phase.data
-      // 幂等：已经停流 ⇒ 原 state（反复 idle/对账零渲染、零对象分配）
-      if (!liveData.streaming) return s
+      // 幂等：已经停流 ⇒ 只清 running（反复 idle/对账零对象分配，但 busy 必须复位）
+      if (!liveData.streaming) {
+        return s.sessionRunning ? { ...s, sessionRunning: false, busy: false } : s
+      }
       // ⛔ **有产出时绝不转 frozen**（本次修复的核心）：
       //   frozen 会让后续 `stream`/`iteration` 因 `ev.iter > maxIter` 不成立被整批
       //   丢弃（`reduce.ts` 的遮蔽解除门槛）⇒ 一条迟到/陈旧 idle 就能让长迭代
@@ -742,7 +774,7 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       }))
       // 停流时刻复核「live 是否明显领先于已持有窗口」——落后窗口一旦停流，渲染层的
       // 在飞合成块会消失（用户实录："turn 结束后又只剩旧窗口"）⇒ 必须触发权威重载。
-      return withLiveAhead(next, t.id, liveData)
+      return withLiveAhead({ ...next, sessionRunning: false, busy: false }, t.id, liveData)
     }
 
     // ── session_running：会话 running（服务端 reconcile 权威）─────────────
