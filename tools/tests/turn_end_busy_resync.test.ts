@@ -75,6 +75,14 @@ async function main(): Promise<void> {
   ok('正常 finalizer 后权威 sessionRunning=false', store.serverRunning === false);
   const base = historyPosts;
 
+  // 用户截图里的真实形态：上一 turn 已结束，用户又发/排队下一条消息；
+  // sessionRunning 被乐观置 true，但新 turn_started 还没到（或丢了）。
+  // 此时 sendIntentActive=true，旧守卫的 `sendIntentActive()` 豁免会吞掉 resync。
+  const queuedBase = historyPosts;
+  await store.send('排队消息');
+  await new Promise<void>((resolve) => { setTimeout(resolve, 30); });
+  ok('⛔ 已 finalizer + 排队发送 + 无 live turn ⇒ 必须 resync', historyPosts > queuedBase);
+
   // 模拟服务端还报 running（用户看到 busy），而 turn 已 committed。
   // 这是“迟到的 text_final / 已提交 turn 重放”会留下的不一致状态。
   (store as unknown as {

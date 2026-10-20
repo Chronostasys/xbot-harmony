@@ -404,6 +404,18 @@ export class ChatStore {
     return this.intentBusyAt > 0 && Date.now() - this.intentBusyAt < 8000;
   }
 
+  /**
+   * 是否已经收到某个 turn 的 finalizer，但还没看到下一个 turn_started。
+   *
+   * ⛔ 这是「content 后接思考中」在 **排队发送** 场景的漏网之鱼：
+   *   旧 `watchBusyWithoutLiveTurn` 用 `sendIntentActive()` 直接豁免所有发送窗口；
+   *   但上一 turn 已 `text_final`、用户又发/排队下一条消息时，`sessionRunning`
+   *   可能已被乐观置 true，而新 turn 的 `turn_started` 丢失 ⇒ activeTurn=null +
+   *   sendIntentActive=true ⇒ 旧守卫直接 return ⇒ 永远不 resync。
+   *   只有「刚发送、还没有任何 turn 结束」才允许豁免。
+   */
+  private finalizedAwaitingTurnStart: boolean = false;
+
   /** 服务端会话树给出的权威 running（`sessions[i].running`，经 session_running 入状态机）。 */
   get serverRunning(): boolean {
     return this.state.sessionRunning;
@@ -527,7 +539,17 @@ export class ChatStore {
    * 不能 resync（否则每次发送都会多打一次 history）。
    */
   private watchBusyWithoutLiveTurn(next: ChatState): void {
-    if (!next.sessionRunning || this.sendIntentActive()) {
+    if (!next.sessionRunning) {
+      // ⛔ 不能在这里清 `finalizedAwaitingTurnStart`：排队发送会先发 `user_sent`，
+      //   此时 `sessionRunning` 仍为 false；若清掉，紧接着 ack 的
+      //   `session_running(true)` 就被 sendIntentActive 豁免吞掉 ⇒ 永不 resync。
+      //   只在权威 `turn_started` / `session_running(false)` 时清（见 settle）。
+      return;
+    }
+    // 普通发送窗（还没有任何 turn 结束）是合法的本地即时反馈；但**上一 turn 已
+    // finalizer、用户又发/排队下一条消息**时不能豁免——截图里的「content 后思考中」
+    // 正是这个状态：sessionRunning=true + activeTurn=null + sendIntentActive=true。
+    if (this.sendIntentActive() && !this.finalizedAwaitingTurnStart) {
       return;
     }
     let hasLive: boolean = false;
@@ -593,11 +615,26 @@ export class ChatStore {
    * 都必须终止它，否则 ack 里续期后 turn 在 8s 内收尾 ⇒ busy 幽灵（页面显示思考中）。
    */
   private settleIntentOnAuthoritative(ev: DomainEvent): void {
-    if (ev.type === 'turn_started' || ev.type === 'text_final' || ev.type === 'phase_done') {
+    if (ev.type === 'turn_started') {
+      // 新 turn 真正开始了：之前 finalizer 留下的“等待新 turn”窗口结束。
+      this.finalizedAwaitingTurnStart = false;
+      this.intentBusyAt = 0;
+      return;
+    }
+    if (ev.type === 'text_final') {
+      // 正常 turn 的权威收尾。命令回复（commandReply）不属于 turn 生命周期。
+      if (ev.commandReply !== true) {
+        this.finalizedAwaitingTurnStart = true;
+      }
+      this.intentBusyAt = 0;
+      return;
+    }
+    if (ev.type === 'phase_done') {
       this.intentBusyAt = 0;
       return;
     }
     if (ev.type === 'session' && ev.busy === false) {
+      this.finalizedAwaitingTurnStart = false;
       this.intentBusyAt = 0;
     }
   }
