@@ -29,6 +29,7 @@ import { normalizeWebIteration } from './agent_normalize';
 import { canonicalChatId, channelForChat } from './sessionpick';
 import { parseAgentChatID, ParsedAgentChatID } from './sessiongroup';
 import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
+import { liveProbeVerdict, probePhaseActive, PROBE_STALL } from './liveprobe';
 import type { GoalInfo as ChatGoalInfo } from './chattypes';
 import { normalizeLocale, setLocale, t as i18nT } from './i18n';
 import { moveOrders, parseSearchHits, searchBody, SEARCH_LIMIT_DEFAULT, SearchBody, chatSwitchPath, chatSwitchChannel, ChatSwitchResult, parseChatSwitch } from './sessionops';
@@ -42,7 +43,7 @@ import { FsEntry } from './composer';
 import { FsListBody, FsReadResult, FsSearchBody, FsSearchEntry, fsListBody, fsSearchBody } from './files';
 import { GenuiShareBody, genuiPanelUrl, genuiShareBody } from './genui';
 import { SkillItem, SkillWire, parseSkillList } from './skills';
-import { GoalReq, RPC_GET_GOAL, MaxContextParams, RPC_GET_SESSION_SUBSCRIPTION, RPC_GET_USER_MAX_CONTEXT, RPC_LIST_ALL_MODEL_ENTRIES, RPC_SELECT_MODEL, RPC_SET_USER_MAX_CONTEXT, SelectModelParams, RPC_SKILL_GET_CONTENT, RPC_SKILL_LIST, RPC_SKILL_SET_ENABLED, RPC_WEB_PLUGIN_LIST, RPC_GET_AGENT_SESSION_DUMP, RPC_GET_SESSION_MESSAGES, SubAgentHistoryParams, AgentSessionDump, SubAgentMsg, SessionSelectorParams, SessionSubscription, SkillContentWire, SkillGetContentParams, SkillListParams, SkillSetEnabledAck, SkillSetEnabledParams, normalizeMaxContext, readableRpcError, rpc, sessionSubscriptionId } from './rpc';
+import { ActiveProgressReq, GoalReq, RPC_GET_ACTIVE_PROGRESS, RPC_GET_GOAL, MaxContextParams, RPC_GET_SESSION_SUBSCRIPTION, RPC_GET_USER_MAX_CONTEXT, RPC_LIST_ALL_MODEL_ENTRIES, RPC_SELECT_MODEL, RPC_SET_USER_MAX_CONTEXT, SelectModelParams, RPC_SKILL_GET_CONTENT, RPC_SKILL_LIST, RPC_SKILL_SET_ENABLED, RPC_WEB_PLUGIN_LIST, RPC_GET_AGENT_SESSION_DUMP, RPC_GET_SESSION_MESSAGES, SubAgentHistoryParams, AgentSessionDump, SubAgentMsg, SessionSelectorParams, SessionSubscription, SkillContentWire, SkillGetContentParams, SkillListParams, SkillSetEnabledAck, SkillSetEnabledParams, normalizeMaxContext, readableRpcError, rpc, sessionSubscriptionId } from './rpc';
 import {
   PluginCatalog,
   WebPluginListWire,
@@ -2508,6 +2509,58 @@ export class ChatStore {
       this.onUpdate();
     } catch (e) {
       // 状态拉取失败不影响主链路（历史/发送优先）
+    }
+  }
+
+  /**
+   * **轻量 liveness 探针**（用户 2026-10-21 定向：切回前台必须立刻查一次是否 stall）。
+   *
+   * 打一枪 `get_active_progress`（服务端最近一次 `ProgressEvent` 快照；O(1) 级，不读 DB），
+   * 用 `core/liveprobe.liveProbeVerdict` 判定本地视图是否已落后/幽灵 busy；
+   * 判 stall ⇒ 立刻 `resyncAfterResume(force=true)`（**绕过节流**：stall 是硬故障）。
+   *
+   * ⛔ 三条纪律：
+   *   · **不**把快照直接写进状态机（快照是"事实来源之一"，写入要经过 normalize/reduce 的
+   *     同一套语义）——本探针只做**判定与触发**，真投影一律交给权威重载；
+   *   · 失败静默（弱网/旧服务端没有该 RPC）⇒ 不影响任何主链路；
+   *   · `phase === 'done'` = 服务端明确"回合已结束"（`GetActiveProgress` 的空快照语义）
+   *     ⇒ 折成"无在飞"，否则每次切回来都会误判。
+   */
+  async probeActiveStall(reason: string = 'probe'): Promise<void> {
+    if (this.currentChatId.length === 0 || this.demoMode) {
+      return;
+    }
+    const gen: number = this.chatGen;
+    const forChat: string = this.currentChatId;
+    let snap: ProgressEvent | null = null;
+    try {
+      snap = await rpc<ProgressEvent | null>(this.http, RPC_GET_ACTIVE_PROGRESS,
+        new ActiveProgressReq(this.channel, this.wireChatId()), false);
+    } catch (e) {
+      return;   // 旧服务端/弱网：静默（不是 stall 的证据）
+    }
+    if (gen !== this.chatGen || forChat !== this.currentChatId) {
+      return;
+    }
+    const hasActive: boolean = snap !== null && snap !== undefined && probePhaseActive(snap.phase);
+    const serverTurn: number = snap !== null && snap.turn_id !== undefined ? snap.turn_id : 0;
+    const serverIter: number = snap !== null && snap.iteration !== undefined ? snap.iteration : 0;
+    // 本地 live turn/迭代
+    let localTurn: number = 0;
+    let localIter: number = 0;
+    if (this.state.activeTurn !== null) {
+      localTurn = this.state.activeTurn;
+      const t = this.state.turns.get(this.state.activeTurn);
+      if (t !== undefined && t.phase.kind === 'live') {
+        localIter = t.phase.data.iter;
+      }
+    }
+    const verdict: string = liveProbeVerdict(this.busy, localTurn, localIter,
+      hasActive, serverTurn, serverIter);
+    if (verdict === PROBE_STALL) {
+      log('probe', `stall chat=${this.currentChatId} local(busy=${this.busy ? 1 : 0},turn=${localTurn},iter=${localIter})`
+        + ` server(active=${hasActive ? 1 : 0},turn=${serverTurn},iter=${serverIter}) reason=${reason}`);
+      this.resyncAfterResume(`probe-${reason}`, true);
     }
   }
 

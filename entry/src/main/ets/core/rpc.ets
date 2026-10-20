@@ -436,6 +436,29 @@ export class DefaultSubscriptionParams {
  *   结构化 progress 事件流入 ⇒ 切后台/换设备后**回前台不重取**，banner 停在旧值或空白，
  *   与真实状态不同步。resync（回前台/重连/权威重载）必须像 todos 一样拉一次权威值。
  */
+/**
+ * `get_active_progress`（**轻量**）—— 服务端最近一次 `ProgressEvent` 快照
+ * （`serverapp/rpc_table.go:1651` → `agent/agent_backend_methods.go:181`）。
+ *
+ * 用途：切回前台/怀疑卡死时**立刻**判断本地视图是否 stall（`core/liveprobe.ets`），
+ * 不必先付一次完整 `loadHistory`（那是重路径，还有节流/合并）。
+ * `from_iteration: -1` ⇒ 要**完整快照**（服务端：`ToFromIter() >= 0` 才是增量）。
+ */
+export const RPC_GET_ACTIVE_PROGRESS: string = 'get_active_progress';
+
+/** `get_active_progress` 的入参。 */
+export class ActiveProgressReq {
+  channel: string = '';
+  chat_id: string = '';
+  from_iteration: number = -1;
+
+  constructor(channel: string, chatID: string, fromIteration: number = -1) {
+    this.channel = channel;
+    this.chat_id = chatID;
+    this.from_iteration = fromIteration;
+  }
+}
+
 export const RPC_GET_GOAL: string = 'get_goal';
 
 /** `get_goal` / `set_goal` / `clear_goal` 的会话定位入参（服务端按 `{channel, chat_id}` 解析）。 */

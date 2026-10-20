@@ -1994,6 +1994,13 @@ struct Index {
     this.followBottom = true;
     this.restartPulse();
     this.syncPanelPoll();
+    // ⛔ **第一件事**：轻量 liveness 探针（`get_active_progress`，不读 DB）——
+    //   用户 2026-10-21 定向「切回来必须立刻检查会话状态……每次切回来必须要调这种轻量接口
+    //   检查自己是否 stall」。判 stall 时它会**立刻**触发权威重载（绕过节流）。
+    //   放在 `loadHistory` 之前：重历史可能慢/被节流，但 stall 必须第一时间被发现。
+    store.probeActiveStall('foreground').catch(() => {
+      // 探针失败静默（弱网/旧服务端）
+    });
     store.sse.probeNow(Date.now());
     store.sse.forceReconnect();
     store.resyncAfterResume('ability-foreground');
@@ -2002,6 +2009,13 @@ struct Index {
   onPageShow(): void {
     this.appPaused = false;
     setAppPaused(false);
+    // 同一枪（与 onAppResumed 幂等：探针只读 + 判定，重复调用无副作用）
+    const probeStore: ChatStore | null = this.store;
+    if (probeStore !== null) {
+      probeStore.probeActiveStall('pageshow').catch(() => {
+        // 静默
+      });
+    }
     this.userScrolling = false;
     this.userTouchActive = false;
     this.bumpTailEpoch();
@@ -2198,12 +2212,15 @@ struct Index {
         // ⚡ 2026-10-20 P0 掉帧修复：用户滚动/触摸时**跳过本拍**——`sweepX` 是**页级 `@State`**，
         //   每拍写入 ⇒ 整页 build() 重跑 ⇒ 与滚动手势争主线程 ⇒ 用户可感知的周期性掉帧。
         //   本拍跳过只是装饰流光暂停（无人盯着扫光看），抬手/停滚后下一拍自然续上。
+        // ⛔ 顺序：**先**做 stall 检测（正确性），**再**跳过装饰性写（性能）。
+        //   旧实现在滚动/触摸时整拍 return ⇒ 手指按在屏上/标志卡住时**永不检测 stall**
+        //   ⇒ busy 永久卡死（用户 2026-10-21 亲报「一直显示 busy，为什么不触发 resync」）。
+        this.checkLiveSignalStall();
         if (this.userScrolling || this.userTouchActive) {
           return;
         }
         // 同一拍顺手推进流光位置（避免为装饰再开一个定时器）
         this.sweepX = this.sweepX >= 300 ? -80 : this.sweepX + 110;
-        this.checkLiveSignalStall();
       }, 600);
       return;
     }
