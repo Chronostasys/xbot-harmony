@@ -1,0 +1,125 @@
+/**
+ * perf_frame_bounded_wiring.test.ts —— **接线判据**：钉住"每帧 O(1)（与迭代块数 N 无关）"
+ * 的**调用点**，而不是"某个方法存在"（否则假绿）。
+ *
+ * 纪律（AGENTS.md「死消费」条）：形态断言必须钉**调用点计数**与**方向**（谁读谁写、
+ * 哪条路径被禁用），并对每条断言给一个 mutation（摘掉/写反必红）。
+ *
+ * 判据清单：
+ *  ① `streammerge.ets`：`mergeToolRuns` 必须真的**写**记忆化表（`mergedRunsMemo.set`）——
+ *     历史 bug：只有 `get` 没有 `set` ⇒ 每次渲染都 O(N) 重算 + 新对象 + rev 漂移。
+ *  ② `core/render.ets`：块列表持有者只在**引用变化**时赋值（`holder.blocks !== merged`）。
+ *  ③ `MessageRowView`：**不再**自己 `ForEach` 全部块（那是 O(N)/帧）；改为把持有者交给
+ *     `IterBlocksView`（`iters: this.row.iterBlocks`）。
+ *  ④ `IterBlocksView`：`ForEach` 的源必须是 `this.iters.blocks`（持有者），且订阅是 `@ObjectLink`。
+ *  ⑤ `LiveTailView`：在飞内容是 `@ObjectLink tail: LiveTailState`（**不是** `@Prop text`）。
+ *  ⑥ `pages/Index.ets`：`syncLiveTail` 写持有者；全文件**不得**再有 `this.liveText` 之类的
+ *     页面 @State 逐帧写入；`syncFrom` 的结构判据必须是 `store.rowsGen`（O(1)），
+ *     且 busy 期不能再"无条件重投 rows"。
+ */
+declare const require: (m: string) => any;
+declare const process: { cwd: () => string; exit: (c: number) => void };
+const fs = require('fs');
+const path = require('path');
+
+let pass = 0, fail = 0;
+function ok(name: string, cond: boolean): void {
+  if (cond) { pass++; console.log(`  ✓ ${name}`); }
+  else { fail++; console.log(`  ✗ ${name}`); }
+}
+function read(rel: string): string {
+  return fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
+}
+function count(hay: string, needle: string): number {
+  let n = 0, i = 0;
+  while (true) {
+    const k = hay.indexOf(needle, i);
+    if (k < 0) { return n; }
+    n++; i = k + needle.length;
+  }
+}
+
+const streammerge = read('entry/src/main/ets/core/streammerge.ets');
+const render = read('entry/src/main/ets/core/render.ets');
+const rowView = read('entry/src/main/ets/components/MessageRow.ets');
+const iterView = read('entry/src/main/ets/components/IterBlocksView.ets');
+const liveView = read('entry/src/main/ets/components/LiveTailView.ets');
+const page = read('entry/src/main/ets/pages/Index.ets');
+
+console.log('\n▶ §A 记忆化必须真的"写"（历史根因：只读不写）');
+{
+  ok('★A `mergeToolRuns` 里存在 `mergedRunsMemo.set(`（没有它 ⇒ 每帧 O(N) 重算）',
+    count(streammerge, 'mergedRunsMemo.set(') >= 1);
+  ok('★A 且 `get`/`set` 成对（同文件内各 1 处以上，不多写第二份缓存）',
+    count(streammerge, 'mergedRunsMemo.get(') === 1 && count(streammerge, 'mergedRunsMemo.set(') === 1);
+  ok('★A `completedBlocks` 也写记忆化（同一契约）',
+    count(streammerge, 'completedBlocksMemo.set(') === 1);
+}
+
+console.log('\n▶ §B 块列表持有者：只在**引用**变化时赋值（O(1) 判据，零比较）');
+{
+  ok('★B `syncIterBlocks` 用引用比较守卫 `holder.blocks !== merged`',
+    /holder\.blocks !== merged/.test(render));
+  ok('★B 且块列表来源是 `mergeToolRuns(blocks)`（与发送/序列化同源）',
+    /const merged: HistoryIteration\[\] = mergeToolRuns\(blocks\);/.test(render));
+  ok('★B live 行取 `row.completedBlocks`（不含末尾在飞块）',
+    /syncIterBlocks\(row, row\.completedBlocks, NO_COMPACTIONS, r\.turnID\)/.test(render));
+  ok('★B 用户行也清空持有者（切行不复用旧块）',
+    /syncIterBlocks\(row, EMPTY_BLOCKS, NO_COMPACTIONS, r\.turnID\)/.test(render));
+}
+
+console.log('\n▶ §C 行组件不再自己遍历全部块（每帧 O(N) 的旧形态）');
+{
+  ok('★C `MessageRow.ets` 里**没有** `shownIters()`（旧的全块 ForEach 入口）',
+    count(rowView, 'shownIters(') === 0);
+  ok('★C `MessageRow.ets` 里**没有** `ForEach(this.shownIters` / `ForEach(this.itersFor`',
+    count(rowView, 'ForEach(this.shownIters') === 0 && count(rowView, 'ForEach(this.itersFor') === 0);
+  ok('★C 且它把持有者交给独立组件（`iters: this.row.iterBlocks`）',
+    count(rowView, 'iters: this.row.iterBlocks') === 1);
+  ok('★C `MessageRow.ets` 里**没有** `mergedBlocks()`/`itersFor()`（合并已移入 core 的持有者维护）',
+    count(rowView, 'mergedBlocks(') === 0 && count(rowView, 'itersFor(') === 0);
+}
+
+console.log('\n▶ §D 独立块组件的订阅语义（必须是 @ObjectLink，不是 @Prop 深拷贝）');
+{
+  ok('★D `IterBlocksView` 声明 `@ObjectLink iters: IterBlocks`',
+    /@ObjectLink iters: IterBlocks;/.test(iterView));
+  ok('★D 它 `ForEach` 的源 = 持有者 `this.iters.blocks`（唯一一处）',
+    count(iterView, 'ForEach(this.iters.blocks') === 1);
+}
+
+console.log('\n▶ §E 在飞内容：@ObjectLink 持有者（页面/行不重建）');
+{
+  ok('★E `LiveTailView` 声明 `@ObjectLink tail: LiveTailState`',
+    /@ObjectLink tail: LiveTailState;/.test(liveView));
+  ok('★E 且**没有** `@Prop` 正文/思考/工具三项（旧的高频 @Prop 通道）',
+    count(liveView, '@Prop text:') === 0 && count(liveView, '@Prop reasoning:') === 0
+    && count(liveView, '@Prop tools:') === 0);
+  ok('★E 页面**不再**持有 `liveText/liveReasoning/liveTools` 三项 @State',
+    count(page, '@State liveText:') === 0 && count(page, '@State liveReasoning:') === 0
+    && count(page, '@State liveTools:') === 0);
+  ok('★E 页面投递写的是持有者（`liveTail`）且推进代数',
+    /lt\.rev = lt\.rev \+ 1;/.test(page));
+  ok('★E 页面在飞内容读取走持有者（`syncLiveView` 用 `liveTail.tools`）',
+    /const lt: LiveTailState = this\.liveRowRef\.liveTail;/.test(page));
+}
+
+console.log('\n▶ §F 页面结构判据：O(1) 整数（不再逐帧 O(rows) 指纹/重投）');
+{
+  ok('★F `syncFrom` 用 `store.rowsGen !== this.rowsGenMirror` 判结构',
+    /const structural: boolean = store\.rowsGen !== this\.rowsGenMirror;/.test(page));
+  ok('★F 且 busy 期不再无条件重投：`contentGrew` 只认 structural（+ 非 busy 的指纹）',
+    /const contentGrew: boolean = structural \|\| \(!this\.busy && rowsFp !== this\.rowsFp\);/.test(page));
+  ok('★F 但切会话必须强制重投（代数镜像置 -1）',
+    /this\.rowsGenMirror = -1;/.test(page));
+}
+
+console.log('\n▶ §G mutation 自证（由外部脚本注入，逐条必红）');
+console.log('   · 删掉 `mergedRunsMemo.set(iters, out);` ⇒ §A 必红');
+console.log('   · `holder.blocks !== merged` 改成 `true`（无条件赋值）⇒ perf_frame_bounded §A 必红');
+console.log('   · `MessageRow` 里恢复 `ForEach(this.shownIters(), …)` ⇒ §C 必红');
+console.log('   · `IterBlocksView` 的 `@ObjectLink` 改 `@Prop` ⇒ §D 必红');
+console.log('   · `contentGrew` 改回 `this.busy || …` ⇒ §F 必红');
+
+console.log(`\n  perf_frame_bounded_wiring: ${pass} passed, ${fail} failed`);
+process.exit(fail > 0 ? 1 : 0);

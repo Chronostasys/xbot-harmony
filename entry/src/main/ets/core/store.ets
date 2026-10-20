@@ -312,12 +312,27 @@ export class ChatStore {
   demoMode: boolean = false;
   private demoTurnSeq: number = 1000;
   private demoSeq: number = 1;
+  /** 已 dispose 的 store 不再允许任何轮询/重连/重载（防止切会话后的旧 store 定时器泄漏）。 */
+  private disposed: boolean = false;
+  /** busy-without-live-turn 的权威重载节流（避免长工具/异常态每 1.2s 重拉整段 history）。 */
+  private lastBusyResyncAt: number = 0;
 
   /**
    * 渲染行（`ChatRow`）—— **由状态机派生**，对齐 web `useChatMessages`：
    * `rows = applyRow(deriveRows(state))`。不再手写维护（手写近似 = 全部 bug 的源头）。
    */
   rows: ChatRow[] = [];
+  /**
+   * 行**集合结构**代数（行增删/换序时 +1；内容变化**不**自增）。
+   *
+   * ⛔ 为什么要它（2026-10-20 流式掉帧根因之一）：页面 `syncFrom` 每帧都会判断
+   *   "要不要重投 `@State rows`"。旧判据在 busy 时恒为"要"（`contentGrew = busy || …`）
+   *   ⇒ 每个 SSE 事件都写一次 @State ⇒ **整页 rebuild**（页面 build 是万行级函数）。
+   *   而内容变化本来就由 `@Observed ChatRow` + `@ObjectLink` 直接送达行组件，
+   *   根本不需要重投数组 ⇒ 只有**结构**变化才需要。判据是 O(1) 整数比较
+   *   （docs/PERF-BOUNDS.md §3）。
+   */
+  rowsGen: number = 0;
 
   /**
    * 单会话**唯一事实源**：`ChatState`（逐字移植 web `chat/types.ts` / `reduce.ts`）。
@@ -727,6 +742,18 @@ export class ChatStore {
       for (let i = 0; i < stale.length; i++) {
         this.rowCache.delete(stale[i]);
       }
+    }
+    // ── 结构代数：行集合（id 序列/行对象身份）变了才 +1 ──
+    // ⛔ 只比**指针**（`applyRow` 就地更新同一个 ChatRow ⇒ 内容变化不改身份）⇒ O(rows) 次
+    //   指针比较，与 `deriveRows`/`applyRow` 同阶，不引入新的复杂度类。
+    let structural: boolean = this.rows.length !== next.length;
+    if (!structural) {
+      for (let i = 0; i < next.length; i++) {
+        if (this.rows[i] !== next[i]) { structural = true; break; }
+      }
+    }
+    if (structural) {
+      this.rowsGen = this.rowsGen + 1;
     }
     this.rows = next;
     this.onUpdate();

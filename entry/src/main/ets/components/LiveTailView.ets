@@ -11,7 +11,7 @@
  *   · 正文是 Markdown，逐字裁剪要按拍重解析整段文本（贵）⇒ 推进每拍做，
  *     **上屏节奏按文本长度自适应**（≤300 码点每拍；更长每 N 拍，N=ceil(len/300)）。
  */
-import { ToolProgress } from '../core/types';
+import { LiveTailState, ToolProgress } from '../core/types';
 import { advanceVisible, clipRunes, isCJK, isTyping, runeCount, toRunes } from '../core/typewriter';
 import { foldPills } from '../core/streammerge';
 import { Palette, paletteOf, Effects, effectsOf, shadowRadiusOf } from '../core/theme';
@@ -70,11 +70,17 @@ const LT_TYPEWRITER_MAX_RUNES: number = 2000;
 
 @Component
 export struct LiveTailView {
-  /** 已收到的正文（流式累积；未裁剪） */
-  @Prop @Watch('onSource') text: string = '';
-  /** 已收到的思考 */
-  @Prop @Watch('onSource') reasoning: string = '';
-  @Prop tools: ToolProgress[] = [];
+  /**
+   * 在飞内容（正文/思考/工具）的**可观察持有者**（`@Observed LiveTailState`）。
+   *
+   * ⛔ 为什么是 `@ObjectLink` 而不是 `@Prop text/reasoning/tools`（2026-10-20 性能根因）：
+   *   旧实现由**页面 `@State`** 持有这三项、逐帧投递 ⇒ **每次投递都让整页 rebuild**
+   *   （页面 build 是万行级函数）⇒ 与滚动/手势抢主线程；且行组件也要跟着重建。
+   *   现在：页面只写这个对象的属性 ⇒ **只有本组件**收到通知（`@ObjectLink` 订阅），
+   *   页面/行组件零重建 ⇒ 每帧 O(1)（docs/PERF-BOUNDS.md §3）。
+   *   变更触发：本组件 `onDidBuild()` 里同步码点表/打字机（等价旧的 `@Watch('onSource')`）。
+   */
+  @ObjectLink tail: LiveTailState;
   /** 应用是否在后台（官方性能规范 §3：后台必须挂起非必要定时器/动画） */
   @Prop @Watch('onSource') paused: boolean = false;
   /**
@@ -200,8 +206,8 @@ return isLiveStatus(this.kind(t));
 
   /** 是否有工具在飞（稳定信号：整段工具执行期不变）。 */
   private hasLiveTool(): boolean {
-    for (let i = 0; i < this.tools.length; i++) {
-      if (this.live(this.tools[i])) {
+    for (let i = 0; i < this.tail.tools.length; i++) {
+      if (this.live(this.tail.tools[i])) {
         return true;
       }
     }
@@ -218,8 +224,8 @@ return isLiveStatus(this.kind(t));
    *    ⇒ pending 窗口的领读身份与 web **相反**。
    */
   private hasToolInProgress(): boolean {
-    for (let i = 0; i < this.tools.length; i++) {
-      if (isToolInProgress(this.kind(this.tools[i]))) {
+    for (let i = 0; i < this.tail.tools.length; i++) {
+      if (isToolInProgress(this.kind(this.tail.tools[i]))) {
         return true;
       }
     }
@@ -235,7 +241,7 @@ return isLiveStatus(this.kind(t));
    * 只有这种"机器只在想、还没开始写"的窗口，眼睛才该落在思考行的字数上；其余时刻光球领读。
    */
   private thinkingIsPrimary(): boolean {
-    return !this.hasToolInProgress() && this.reasoning.length > 0 && this.text.length === 0;
+    return !this.hasToolInProgress() && this.tail.reasoning.length > 0 && this.tail.text.length === 0;
   }
 
   /**
@@ -312,15 +318,26 @@ return renderKind(t.status, t.exit_code, true);
     this.stopTimer();
   }
 
+  /**
+   * 每帧（本组件 rebuild 后）同步源文本 —— 等价于旧实现的 `@Prop @Watch('onSource')`。
+   *
+   * ⛔ 为什么用 `onDidBuild`：`@ObjectLink` 的 `@Watch` 只在**引用**变化时触发，
+   *   而持有者是「同一个对象、属性在变」⇒ 必须在这里按**内容长度**判定（`onSource` 自身
+   *   有不变化的早退 ⇒ 恒等帧零成本）。
+   */
+  onDidBuild(): void {
+    this.onSource();
+  }
+
   /** 源文本变化：重算码点表 + 按需启动追赶。 */
   onSource(): void {
-    if (this.text.length !== this.lastTextLen) {
-      this.lastTextLen = this.text.length;
-      this.runes = toRunes(this.text);
+    if (this.tail.text.length !== this.lastTextLen) {
+      this.lastTextLen = this.tail.text.length;
+      this.runes = toRunes(this.tail.text);
     }
-    if (this.reasoning.length !== this.lastReasonLen) {
-      this.lastReasonLen = this.reasoning.length;
-      this.reasonRunes = toRunes(this.reasoning);
+    if (this.tail.reasoning.length !== this.lastReasonLen) {
+      this.lastReasonLen = this.tail.reasoning.length;
+      this.reasonRunes = toRunes(this.tail.reasoning);
     }
     // 休眠回放/长回合：文本超过打字机上限 ⇒ 直接全量显示，避免每 50ms 重解析整段 Markdown。
     if (this.runes.length > LT_TYPEWRITER_MAX_RUNES || this.reasonRunes.length > LT_TYPEWRITER_MAX_RUNES) {
@@ -454,16 +471,16 @@ return renderKind(t.status, t.exit_code, true);
   /** 可见正文（安全回退：定时器未跑 ⇒ 全文，绝不让内容不可见）。 */
   private shownText(): string {
     if (this.timer < 0 || this.vis >= this.runes.length) {
-      return this.text;
+      return this.tail.text;
     }
-    return clipRunes(this.text, this.vis);
+    return clipRunes(this.tail.text, this.vis);
   }
 
   private shownReason(): string {
     if (this.timer < 0 || this.visReason >= this.reasonRunes.length) {
-      return this.reasoning;
+      return this.tail.reasoning;
     }
-    return clipRunes(this.reasoning, this.visReason);
+    return clipRunes(this.tail.reasoning, this.visReason);
   }
 
   /**
@@ -482,8 +499,8 @@ return renderKind(t.status, t.exit_code, true);
   /** 假工具（注入型通知）—— 摘出 pill 行，改渲染为卡片（判据在 `core/synthhints`）。 */
   private synthList(): ToolProgress[] {
     const out: ToolProgress[] = [];
-    for (let i = 0; i < this.tools.length; i++) {
-      if (isSyntheticToolName(this.tools[i].name)) { out.push(this.tools[i]); }
+    for (let i = 0; i < this.tail.tools.length; i++) {
+      if (isSyntheticToolName(this.tail.tools[i].name)) { out.push(this.tail.tools[i]); }
     }
     return out;
   }
@@ -491,8 +508,8 @@ return renderKind(t.status, t.exit_code, true);
   /** 真工具（非假工具）—— pill 折叠只作用于它们。 */
   private realList(): ToolProgress[] {
     const out: ToolProgress[] = [];
-    for (let i = 0; i < this.tools.length; i++) {
-      if (!isSyntheticToolName(this.tools[i].name)) { out.push(this.tools[i]); }
+    for (let i = 0; i < this.tail.tools.length; i++) {
+      if (!isSyntheticToolName(this.tail.tools[i].name)) { out.push(this.tail.tools[i]); }
     }
     return out;
   }
@@ -612,7 +629,7 @@ return renderKind(t.status, t.exit_code, true);
       //     `if` 与 `@Prop` ⇒ 复用既有节点，画布不受打扰（思考行内的光球同理：`@Prop label`
       //     每拍变化驱动 ThinkingLine 重建，但光球的 `@Prop` 同值 ⇒ 复用节点）。
       //   · 后台（`paused`）⇒ 光球按契约**立即停表**并画一帧静息态（官规 §3）。
-      if (this.reasoning.length > 0) {
+      if (this.tail.reasoning.length > 0) {
         // ⛔ 必须是**组件**（`@Prop` 值变化通道）——带参 `@Builder` 的参数是"调用那一刻的快照"，
         //    其子树**不随参数重建**（docs/ARKTS-GOTCHAS §4）⇒ 症状正是用户 2026-10-10 报的：
         //    字数卡住不变、打字机不推进、**点它无法展开**。
@@ -655,7 +672,7 @@ return renderKind(t.status, t.exit_code, true);
         }
         .padding({ left: SP_1 })
       }
-      if (this.text.length > 0) {
+      if (this.tail.text.length > 0) {
         Column({ space: SPACE_HAIR }) {
           if (looksLikeLlmError(this.shownText())) {
             // 在飞正文已是 LLM 失败文本 ⇒ 摘要行 + 可展开详情（判据与渲染同源，同 MessageRow）。
@@ -678,7 +695,7 @@ return renderKind(t.status, t.exit_code, true);
         .width('100%')
         .alignItems(HorizontalAlign.Start)
       }
-      if (this.tools.length > 0) {
+      if (this.tail.tools.length > 0) {
         Column({ space: SPACE_XXS }) {
           // ── 假工具（注入型通知）⇒ 卡片（在飞时尤其可能是 `user_interrupt`）─────────
           ForEach(this.synthList(), (t: ToolProgress) => {

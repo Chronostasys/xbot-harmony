@@ -13,10 +13,42 @@
  * 两种承载**：任何迭代都只被渲染一次（列表 or 尾块），不存在尾块"占用最后一个迭代"
  * 的重叠（这正是 bug1「一个 running turn 被渲染两遍」的根治点）。
  */
-import { ChatRow, HistoryIteration, IterList, ToolProgress } from './types';
+import { ChatRow, HistoryIteration, IterBlocks, IterList, ToolProgress } from './types';
 import { WebCompaction, WebIteration, WebSubAgentProgress, WebToolProgress } from './chattypes';
 import type { LiveRowView, Row } from './derive';
-import { mergeTools, toolKey } from './streammerge';
+import { completedBlocks, mergeToolRuns, mergeTools, toolKey } from './streammerge';
+
+/** 共享空压缩点列表（live/user 行无压缩点 ⇒ 零分配）。 */
+const NO_COMPACTIONS: WebCompaction[] = [];
+
+/**
+ * 维护「已完成块列表」持有者（`ChatRow.iterBlocks`，`@Observed`）。
+ *
+ * ⛔ 判据/不变量（见 `docs/PERF-BOUNDS.md §3`）：**只在块列表/压缩点真正变化时赋值**。
+ *   订阅者 `IterBlocksView` 因此**零重建**地跨越整个流式回合 —— 每帧成本与块数 N 无关。
+ *   等价性是**引用判等**（`mergeToolRuns` / `completedBlocks` 都按源数组恒等记忆化）
+ *   ⇒ 没有字符串指纹、没有 O(N) 比较。
+ */
+function syncIterBlocks(row: ChatRow, blocks: HistoryIteration[], comps: WebCompaction[],
+  turnID: number): void {
+  const holder: IterBlocks = row.iterBlocks;
+  const merged: HistoryIteration[] = mergeToolRuns(blocks);
+  if (holder.blocks !== merged) {
+    holder.blocks = merged;
+    holder.rev = holder.rev + 1;
+  }
+  if (holder.compactions !== comps) {
+    holder.compactions = comps;
+    holder.rev = holder.rev + 1;
+  }
+  if (holder.rowID !== row.id) {
+    holder.rowID = row.id;
+  }
+  if (holder.turnID !== turnID) {
+    holder.turnID = turnID;
+  }
+}
+
 
 /** WebToolProgress（web 形状）→ 原生 ToolProgress（渲染层形状）。 */
 export function toToolProgress(t: WebToolProgress): ToolProgress {
@@ -706,6 +738,20 @@ export function applyRow(row: ChatRow, r: Row): boolean {
       // 不合并到行级 —— 与 web 逐迭代渲染同源）⇒ 行级清空。
       row.subAgents = [];
       break;
+  }
+  // ── 块列表持有者（独立 @Observed ⇒ 只通知 `IterBlocksView`，行/页面不重建）──
+  // ⛔ 必须在 `row.iterations` 落定之后：`completedBlocks` / `mergeToolRuns` 都按源数组
+  //   恒等记忆化 ⇒ 未变化时返回**同一引用** ⇒ 这里不赋值 ⇒ 订阅者零重建。
+  if (r.kind === 'user') {
+    syncIterBlocks(row, EMPTY_BLOCKS, NO_COMPACTIONS, r.turnID);
+  } else if (r.kind === 'live') {
+    // live 行的已完成块 = `applyRow` 上面按源数组记忆化得到的 `row.completedBlocks`
+    //（**不含**末尾在飞块 —— 在飞内容由 `LiveTailState` 承载）。
+    syncIterBlocks(row, row.completedBlocks, NO_COMPACTIONS, r.turnID);
+  } else if (r.kind === 'frozen') {
+    syncIterBlocks(row, completedBlocks(row), NO_COMPACTIONS, r.turnID);
+  } else {
+    syncIterBlocks(row, completedBlocks(row), row.compactions, r.turnID);
   }
   return true;
 }

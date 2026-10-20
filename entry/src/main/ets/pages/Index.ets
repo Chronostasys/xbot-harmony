@@ -150,6 +150,7 @@ import {
   AskUserPrompt,
   ChatRow,
   HistoryIteration,
+  LiveTailState,
   QueueItem,
   SearchHit,
   SessionItem,
@@ -1275,22 +1276,26 @@ struct Index {
   @State hasLiveRow: boolean = false;
   @State liveRowRef: ChatRow = new ChatRow();
   /**
-   * live 行「在飞内容」的**页面 @State 镜像** —— 由 `syncLiveTail()` 在每次 store 更新时
-   * 从**同一个** live 行（其末尾在飞块，与 `rowIsEmpty` 判据同源）派生并赋值。
+   * live 行**是否有在飞内容**（正文/思考/工具非空）—— 决定末尾在飞块是否挂载。
    *
-   * ⛔ 为什么必须要有（P55→P58 回归根因）：ArkUI V1 组件只在**收到的状态值发生变化**时
-   *   重建。`ChatRow` 是**就地更新**的（保 @ObjectLink 恒等）⇒ 引用恒定 ⇒ **不构成值变化**；
-   *   P55 把 live 行改成「非懒尾项 + 只从行对象读在飞内容」后，整个流式期间 live 组件
-   *   **一次都不重建**（渲染输入冻结在创建那一瞬 = 空）⇒ 占位让位却画不出任何东西
-   *   （真机「第一条 SSE 到达就消失、中间全空、commit 才一次性出现」）。
-   *   这三项提供了「值变化」这个唯一可靠的重建驱动（= 回归前 P54 的机制，web 亦是把
-   *   live 快照当 prop 往下传）。
+   * ⛔ 这里**只放一个布尔**，逐帧正文/思考/工具走 `ChatRow.liveTail`
+   *   （`@Observed LiveTailState`，只有 `LiveTailView` 订阅）—— 见 `docs/PERF-BOUNDS.md §3`。
+   *   历史（两次回归的根因，别再走回去）：
+   *   · 「只从行对象读在飞内容」⇒ 行是就地更新的（引用恒定）⇒ ArkUI 看不到值变化 ⇒
+   *     流式期间渲染输入冻结（P55：第一条 SSE 到达就消失、commit 才一次性出现）；
+   *   · 「三项页面 @State + @Prop 投递」⇒ 值变化有了，但**每次投递整页 rebuild**
+   *     （页面 build 是万行级函数，含会话列表/抽屉/浮层分支）⇒ 2026-10-17 用户亲报
+   *     「像卡死」；后台回来内容更长时更明显。
+   *   ⇒ 现在：布尔只在 0↔1 翻转时写（每迭代至多两次），内容走持有者（零页面重建）。
    */
-  @State liveText: string = '';
-  @State liveReasoning: string = '';
-  @State liveTools: ToolProgress[] = [];
+  @State liveActive: boolean = false;
   /** 实况窗（Live View）用：本 turn 开始时刻（0 = 当前无 turn）。 */
   private lvStartedAt: number = 0;
+  /** 实况窗字数缓存的键（串恒等）与值 —— 见 `syncLiveView`（O(1) 记忆化）。 */
+  private lvTextMemo: string = '';
+  private lvReasonMemo: string = '';
+  private lvTextRunes: number = 0;
+  private lvReasonRunes: number = 0;
   /** 本机 Push Token 登记状态（幂等上报；失败原因只落日志，不弹窗）。 */
   private pushReg: PushRegState = new PushRegState();
   /**
@@ -2499,6 +2504,7 @@ struct Index {
       this.followBottom = true;   // 切会话：用户预期"看到最新" ⇒ 意图重置为跟随
       this.rowLimit = MAX_ROWS_VISIBLE;   // 切会话重置行窗口（否则行数会无限累积增长）
       this.rowsFp = '';
+      this.rowsGenMirror = -1;   // 换 store ⇒ 代数不可比，下一次必重投
       this.sessionsFp = '';
       this.queueFp = '';
       this.todosFp = '';   // 逐一会话作废（见下）
@@ -2515,15 +2521,7 @@ struct Index {
       if (this.liveSubAgents.length > 0) {
         this.liveSubAgents = [];
       }
-      if (this.liveText.length > 0) {
-        this.liveText = '';
-      }
-      if (this.liveReasoning.length > 0) {
-        this.liveReasoning = '';
-      }
-      if (this.liveTools.length > 0) {
-        this.liveTools = [];
-      }
+      this.clearLiveTail();
     }
     const sessFp: string = this.fingerprintSessions(store.sessions, store.currentChatId);
     if (sessFp !== this.sessionsFp) {
@@ -2533,8 +2531,12 @@ struct Index {
     // ⛔ 2026-10-15 streaming 掉帧修复：busy 时跳过 O(n) fingerprintRows 计算——
     //   streaming 时内容总是在增长 ⇒ contentGrew 恒 true ⇒ 跳过指纹比较省 O(n)。
     //   非 busy 时仍走指纹比较（检测内容是否变化）。
+    const structural: boolean = store.rowsGen !== this.rowsGenMirror;
+    this.rowsGenMirror = store.rowsGen;
     const rowsFp: string = this.busy ? '' : this.fingerprintRows(store.rows, store.currentChatId);
-    const contentGrew: boolean = this.busy || rowsFp !== this.rowsFp;
+    // ⛔ 流式期（busy）：**只有行集合结构变了**才重投数组；内容变化走 @ObjectLink。
+    //   旧实现 `busy || …` 在每个 SSE 事件都重投 ⇒ 整页 rebuild ⇒ 与手势/滚动抢主线程。
+    const contentGrew: boolean = structural || (!this.busy && rowsFp !== this.rowsFp);
     // ⛔ 2026-10-15 streaming 掉帧修复：busy 时跳过 O(n) structRowsFpOf 计算——
     //   streaming 时结构不变（只有 live 行走非懒路径）⇒ structFp 不变 ⇒ 跳过省 O(n)。
     const structFp: string = this.busy ? '' : structRowsFpOf(store.rows, store.currentChatId);
@@ -2567,8 +2569,13 @@ struct Index {
         }, 0);
       }
     } else {
-      // 非 contentGrew 路径也需要 syncRowDs（主题切换等）
-      // （原逻辑：contentGrew=false 时不调 syncRowDs——保持不变）
+      // ── 内容变化但结构未变（流式期的主路径）──
+      // ⛔ 不重投 `@State rows`、不跑 `applyRows` diff（那是 O(rows)）——内容由
+      //   `@Observed ChatRow` + `@ObjectLink` 直接送达行组件。**但仍必须**跑一次
+      //   `syncRowDs()` 的轻量段：它负责（a）`liveRowRef/hasLiveRow` 身份，
+      //   （b）把在飞内容写进 `LiveTailState` 持有者 —— 否则流式内容不再前进。
+      //   该段在 busy 且行数未变时是 O(1) 早退（见 `syncRowDs` 顶部）。
+      this.syncRowDs();
     }
     // ⛔ 底部跟随（真机："看不到任何进度/思考打字机看不到"，2026-10-10）：
     //   live 尾块在**生长**（思考/正文打字机、工具 pill 增加）⇒ 若用户仍在底部，
@@ -9617,6 +9624,14 @@ struct Index {
   // 所以"指纹没变就不赋值"既省渲染又不可能漏更新。
   private rowsFp: string = '';
   /**
+   * `ChatStore.rowsGen` 的页面镜像（**结构代数**，O(1) 整数比较）。
+   *
+   * ⛔ 流式期**绝不能**按"内容变了"重投 `@State rows`：那会让整页 build 每个 SSE 事件跑一遍
+   *   （页面 build 是万行级函数）。内容变化由 `@Observed ChatRow` + `@ObjectLink` 直接送达
+   *   行组件 ⇒ 只有**行集合结构**变化（增删/换序/切会话）才需要重投（docs/PERF-BOUNDS.md §3）。
+   */
+  private rowsGenMirror: number = -1;
+  /**
    * 行集合的**结构**指纹（`core/rowdiff.structRowsFpOf`：`id#isLive#迭代数#末迭代在飞`）。
    *
    * 用途：`navAnchors()` 的记忆化键 —— ⛔ **不能**用含 `rev` 的 `rowsFp`（流式每帧都变 ⇒ 每帧
@@ -9785,8 +9800,9 @@ struct Index {
     // 全完成了就报第一枚（让"最后一个动作"在实况窗里可见，而不是空白）。
     let fallbackLabel: string = '';
     let fallbackStatus: string = '';
-    for (let k: number = 0; k < this.liveTools.length; k++) {
-      const t: ToolProgress = this.liveTools[k];
+    const lt: LiveTailState = this.liveRowRef.liveTail;
+    for (let k: number = 0; k < lt.tools.length; k++) {
+      const t: ToolProgress = lt.tools[k];
       const status: string = t.status !== undefined ? t.status : '';
       const kind: string = toolStatusKind(t.status, t.exit_code);
       if (isToolInProgress(kind)) {
@@ -9803,7 +9819,17 @@ struct Index {
       i.toolLabel = fallbackLabel;
       i.toolStatus = fallbackStatus;
     }
-    i.runes = runeCount(this.liveText) + runeCount(this.liveReasoning);
+    // ⛔ runeCount 是 O(文本长度)：本函数每个 SSE 事件都会跑一次，而两次投递之间文本
+    //   通常没变 ⇒ 按**串恒等**记忆化（字符串是不可变的，`===` 即内容恒等）⇒ O(1)。
+    if (lt.text !== this.lvTextMemo) {
+      this.lvTextMemo = lt.text;
+      this.lvTextRunes = runeCount(lt.text);
+    }
+    if (lt.reasoning !== this.lvReasonMemo) {
+      this.lvReasonMemo = lt.reasoning;
+      this.lvReasonRunes = runeCount(lt.reasoning);
+    }
+    i.runes = this.lvTextRunes + this.lvReasonRunes;
     i.startedAtMs = this.lvStartedAt;
     LiveViewBridge.shared().sync(i, now);
     if (!this.busy) {
@@ -9844,6 +9870,25 @@ struct Index {
       }
     }
     return `${this.liveRowRef.id}#?`;
+  }
+
+  /**
+   * 清空在飞内容持有者 + 挂载判据（切会话 / 无 live 行时）。
+   *
+   * ⛔ 必须**同时**清：持有者里残留着上一回合的正文时，新回合的 `LiveTailView`
+   *   一挂载就会先画出旧内容（跨回合串内容）。`liveActive` 归 false ⇒ 在飞块卸载。
+   */
+  private clearLiveTail(): void {
+    const lt: LiveTailState = this.liveRowRef.liveTail;
+    if (lt.text.length > 0 || lt.reasoning.length > 0 || lt.tools.length > 0 || lt.rev > 0) {
+      lt.text = '';
+      lt.reasoning = '';
+      lt.tools = [];
+      lt.rev = 0;
+    }
+    if (this.liveActive) {
+      this.liveActive = false;
+    }
   }
 
   /** 销毁当前 lane；旧 timer 一并取消，旧状态对象从此不可达（生命周期结束）。 */
@@ -9893,15 +9938,7 @@ struct Index {
     if (!this.hasLiveRow) {
       // 没有 live 行 ⇒ 必须没有 lane（状态不能活过所属行）。
       this.disposeLiveLane();
-      if (this.liveText.length > 0) {
-        this.liveText = '';
-      }
-      if (this.liveReasoning.length > 0) {
-        this.liveReasoning = '';
-      }
-      if (this.liveTools.length > 0) {
-        this.liveTools = [];
-      }
+      this.clearLiveTail();
       return;
     }
     // ── ② lane 身份 = rowId#iteration；key 变化即旧对象销毁、新对象构造 ──
@@ -9947,11 +9984,18 @@ struct Index {
         break;
       }
     }
-    // 直接赋值（值投递）：不再用 `blocksSignature`/`toolsSignature` 之类的内容字符串
-    // 比较 —— 变化信号就是 `liveRevision` 整数（O(1)）。
-    this.liveText = text;
-    this.liveReasoning = reasoning;
-    this.liveTools = tools;
+    // 直接写**持有者**（`@Observed` ⇒ 只通知 `LiveTailView`；页面与行组件零重建）：
+    // 不再用 `blocksSignature`/`toolsSignature` 之类的内容字符串比较 —— 变化信号就是
+    // `liveRevision` 整数（O(1)）。页面自身只维护一个布尔（挂载判据），且只在翻转时写。
+    const lt: LiveTailState = this.liveRowRef.liveTail;
+    lt.text = text;
+    lt.reasoning = reasoning;
+    lt.tools = tools;
+    lt.rev = lt.rev + 1;
+    const active: boolean = text.length > 0 || reasoning.length > 0 || tools.length > 0;
+    if (this.liveActive !== active) {
+      this.liveActive = active;
+    }
   }
 
   /** 高频内容投递的**尾随补偿**：只推迟、不丢弃（见 `syncLiveTail` 的注释）。 */
@@ -11078,7 +11122,6 @@ struct Index {
         mdTheme: this.mdThemeId(),
         fontScaleV: this.fontScale(),
         wrapCodeV: this.wrapCode(),
-        sweepX: this.sweepX,
         orb: this.orbOn(),
         // §21.122bx：浮层覆盖聊天区时**停表**（光球 30fps Canvas 是流式期唯一实测到的 CPU 地板；
         // 被浮层盖住 ⇒ 无人看见，却与浮层入场动画抢帧预算）。语义与"后台停表"同一条通道。
@@ -11152,15 +11195,11 @@ struct Index {
     if (!rowIsEmpty(this.liveRowRef)) {
       MessageRowView({
         row: this.liveRowRef,
-        liveText: this.liveText,
-        liveReasoning: this.liveReasoning,
-        liveTools: this.liveTools,
-        liveBlocks: this.liveBlocks,
+        liveActive: this.liveActive,
         liveSubAgents: this.liveSubAgents,
         mdTheme: this.mdThemeId(),
         fontScaleV: this.fontScale(),
         wrapCodeV: this.wrapCode(),
-        sweepX: this.sweepX,
         orb: this.orbOn(),
         // §21.122bx：浮层覆盖聊天区时**停表**（光球 30fps Canvas 是流式期唯一实测到的 CPU 地板；
         // 被浮层盖住 ⇒ 无人看见，却与浮层入场动画抢帧预算）。语义与"后台停表"同一条通道。

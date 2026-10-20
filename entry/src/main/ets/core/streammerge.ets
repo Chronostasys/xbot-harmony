@@ -713,6 +713,20 @@ export function mergeToolRuns(iters: HistoryIteration[]): HistoryIteration[] {
   if (hit !== undefined) {
     return hit;
   }
+  const out: HistoryIteration[] = mergeToolRunsUncached(iters);
+  // ⛔ 2026-10-20 修（**性能根因**）：这里此前**漏了 `set`** —— memo 只有 `get`，永不为空
+  //   ⇒ 每次渲染都真的重跑整段 O(N) 合并，并且每次都 `mergeIntoHead` 生成**新的**合并块对象
+  //   （`rev: ++mergedRevSeq`）⇒ 内层 `ForEach` 的 key 逐帧变化 ⇒ 整块子树逐帧重建。
+  //   症状：单个 turn 的迭代越多越卡（真实会话单行可达 340 块），切会话/重启（N 归零）后恢复。
+  //   ⚠️ 正确性前提与 `completedBlocksMemo` 同一契约：输入数组**整体替换、绝不就地改**
+  //   （`convertedBlocksMemo` / `toHistoryIterations` / `mergeIterations` 均产新数组）。
+  //   `WeakMap` 键 ⇒ 数组被 GC 时条目一并回收（无容量上限、无泄漏）。
+  mergedRunsMemo.set(iters, out);
+  return out;
+}
+
+/** `mergeToolRuns` 的**未记忆化**内核（导出仅供基准/判据对照，生产一律走带缓存的入口）。 */
+export function mergeToolRunsUncached(iters: HistoryIteration[]): HistoryIteration[] {
   const out: HistoryIteration[] = [];
   let i: number = 0;
   while (i < iters.length) {
