@@ -3299,7 +3299,10 @@ struct Index {
     // 「添加目标」输入行也随会话清空（否则在 A 会话敲了一半的目标会带到 B 会话）
     this.addingGoal = false;
     this.goalDraft = '';
-    const target: ChatStore = this.storeFor(chatId);
+    // AppGallery demo：所有 demo 会话共用同一个本地 store，绝不 new 一个会走
+    // HTTP/SSE 的真实 store（否则切会话会拉 /api/history → “连接断开”）。
+    const demo: boolean = this.store !== null && this.store.demoMode;
+    const target: ChatStore = demo && this.store !== null ? this.store : this.storeFor(chatId);
     // 页面持有会话树，渠道解析在这里做（子页/store 里 `sessions` 可能为空）；
     // 非 web 会话（尤其 CLI id 自带冒号）必须把真实 channel 带进 openSession。
     const parsedAgent: ParsedAgentChatID | undefined = parseAgentChatID(chatId);
@@ -3344,7 +3347,10 @@ struct Index {
     // #7-4（2026-10-17）：切会话自动对账终端列表（web `useTerminal.ts:315-317` restoreFromBackend
     // 同款——chatID 变化即拉；此前仅建/删后拉 ⇒ 别的端建的终端要等手动刷新才出现）。
     // fire-and-forget：不阻塞切换（结果经 store.onUpdate 泵回界面）。
-    void target.loadTerminals();
+    // demo 模式没有真实终端，不能打 HTTP（否则 UI 弹“连接断开”）。
+    if (!demo) {
+      void target.loadTerminals();
+    }
     // ⛔ 8s 自愈（2026-10-17 P0-B：用户亲报「快速频繁切会话 ⇒ 整个应用全空且无法自动恢复，
     //   侧栏也空」）：beginSwitch 置 historyLoading=true 后若 **loadSessions/loadHistory 因
     //   竞态/网络挂死**，loading 永不复位 ⇒ 会话加载中… 永久卡死（截图实锤）。此守卫在
@@ -3387,9 +3393,11 @@ struct Index {
       //   （完成后 settingsFresh=true，syncFrom 会用正确的 settings 重算——若服务端 theme
       //   确实没变则 nextTheme===themeName，不产生噪声）。
       target.settingsFresh = false;
-      target.loadSettings().catch(() => {
-        // settings 刷新失败：保持旧值（下一次 openSession/轮询会再试），不打断切会话
-      });
+      if (!demo) {
+        target.loadSettings().catch(() => {
+          // settings 刷新失败：保持旧值（下一次 openSession/轮询会再试），不打断切会话
+        });
+      }
       // 池里这个会话一直开着：直接把已累积的状态映到界面（不发生任何网络等待）
       this.syncFrom(target);
       // ⛔ 这条路径**没有 await**（同帧同步返回）⇒ 必须照样收尾，否则入场位移永远停在起点

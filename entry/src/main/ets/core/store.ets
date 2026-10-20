@@ -1437,6 +1437,7 @@ export class ChatStore {
     this.queue = [];
     this.hasMore = false;
     this.oldestId = 0;
+    this.historyLoading = false;
     this.historyError = '';
     this.lastWidgetEvent = '';
     this.lastWidgetContent = '';
