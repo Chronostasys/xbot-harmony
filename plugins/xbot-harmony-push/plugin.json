@@ -11,6 +11,7 @@
   ],
   "permissions": [
     "tools.register",
+    "hooks.subscribe",
     "context.enrich",
     "rpc",
     "config",
@@ -114,6 +115,19 @@
           "label": "提示 AI 在长任务结束时通知我",
           "description": "开启后，向系统提示注入一句话，让 AI 在耗时任务结束时主动调用 push_harmony_noti 通知你。",
           "default": true
+        },
+        "autoLiveView": {
+          "type": "boolean",
+          "label": "服务端自动更新实况窗",
+          "description": "开启后，服务端在 UserPromptSubmit / PostToolUse / PreTurnEnd 生命周期自动推送实况窗 update/end（App 不在前台也能更新）。",
+          "default": true
+        },
+        "liveviewActivityId": {
+          "type": "number",
+          "label": "实况窗 Activity ID",
+          "description": "必须与客户端本地创建的实况窗 id 一致（默认 20261017）。",
+          "default": 20261017,
+          "minimum": 1
         }
       }
     },

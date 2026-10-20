@@ -38,6 +38,10 @@ type Settings struct {
 	MaxPerMinute      int
 	QuietHours        string
 	AgentHint         bool
+	// AutoLiveView：后端在 agent 生命周期 hook 上自动推送实况窗 update/end。
+	// 默认 true；没有活动实况窗时华为会返回 265/失败，不降级、只记日志。
+	AutoLiveView      bool
+	LiveViewActivityID int
 }
 
 // lvFallbackCategory 华为推送接口要求 `payload.notification.category` **非空**
@@ -58,6 +62,8 @@ func defaultSettings() Settings {
 		CollapseWindowSec: 30,
 		MaxPerMinute:      12,
 		AgentHint:         true,
+		AutoLiveView:      true,
+		LiveViewActivityID: 20261017,
 	}
 }
 
@@ -125,6 +131,12 @@ func parseSettings(raw map[string]any) Settings {
 	s.QuietHours = asString(raw["quietHours"], s.QuietHours)
 	if v, ok := raw["agentHint"]; ok {
 		s.AgentHint = asBool(v, s.AgentHint)
+	}
+	if v, ok := raw["autoLiveView"]; ok {
+		s.AutoLiveView = asBool(v, s.AutoLiveView)
+	}
+	if v, ok := raw["liveviewActivityId"]; ok {
+		s.LiveViewActivityID = asInt(v, s.LiveViewActivityID)
 	}
 	return s.normalized()
 }

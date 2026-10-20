@@ -56,6 +56,7 @@ func main() {
 	protocol.Run(&protocol.Handler{
 		Activate:     activate,
 		ExecuteTool:  executeTool,
+		Hook:         hook,
 		Enrich:       enrich,
 		WebPluginRPC: webRPC,
 		Deactivate:   func() {},
@@ -134,6 +135,11 @@ func activate(params *protocol.ActivateParams) (*protocol.ActivateResult, error)
 			},
 		}},
 		Enrichers: []protocol.EnricherReg{{Name: enricherHint}},
+		Hooks: []protocol.HookReg{
+			{Event: "UserPromptSubmit"},
+			{Event: "PostToolUse"},
+			{Event: "PreTurnEnd"},
+		},
 	}, nil
 }
 
@@ -166,6 +172,50 @@ func executeTool(params *protocol.ExecuteToolParams) (*protocol.ExecuteToolResul
 		return &protocol.ExecuteToolResult{Result: string(buf)}, nil
 	}
 	return &protocol.ExecuteToolResult{Result: string(buf)}, nil
+}
+
+// ── hook：前端不在前台时，由服务端生命周期事件驱动实况窗 ─────────────────────
+
+func hook(params *protocol.HookParams) (*protocol.HookResult, error) {
+	cfg := settings.Load()
+	if !cfg.Enabled || !cfg.AutoLiveView || len(ledger.Devices()) == 0 {
+		return &protocol.HookResult{}, nil
+	}
+	var req LiveViewRequest
+	switch params.Event {
+	case "UserPromptSubmit":
+		req = LiveViewRequest{
+			ActivityID: cfg.LiveViewActivityID, Operation: 1, Event: "PROGRESS",
+			Title: "xbot", Content: "已接收，正在思考",
+			CapsuleTitle: "xbot", CapsuleContent: "思考中",
+		}
+	case "PostToolUse":
+		name := strings.TrimSpace(params.ToolName)
+		if name == "" {
+			name = "工具"
+		}
+		req = LiveViewRequest{
+			ActivityID: cfg.LiveViewActivityID, Operation: 1, Event: "PROGRESS",
+			Title: "xbot", Content: "正在执行 · " + name,
+			CapsuleTitle: name, CapsuleContent: "执行中",
+		}
+	case "PreTurnEnd":
+		req = LiveViewRequest{
+			ActivityID: cfg.LiveViewActivityID, Operation: 2, Event: "PROGRESS",
+			Title: "xbot", Content: "本轮已完成",
+			CapsuleTitle: "xbot", CapsuleContent: "已完成",
+		}
+	default:
+		return &protocol.HookResult{}, nil
+	}
+	// Hook 不能阻塞 agent 主链；实况窗更新是旁路。doLiveView 内部有 25s 超时。
+	go func(r LiveViewRequest) {
+		out := doLiveView(r, "liveview-hook")
+		if !out.Success {
+			ledger.AppendLog(LogEntry{Kind: "liveview-hook", Title: r.Title, Err: out.Reason + out.Hint})
+		}
+	}(req)
+	return &protocol.HookResult{}, nil
 }
 
 // ── enrich：长任务结束提醒（设置可关）──────────────────────────────────────────
