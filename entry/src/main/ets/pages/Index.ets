@@ -1983,7 +1983,7 @@ struct Index {
     // 回前台默认看最新 turn：恢复跟随意图；若休眠期间追加了新 turn，syncFrom 的
     // contentGrew + followBottom 会滚到末尾（否则新行在视口下方，看起来仍停在旧 turn）。
     this.followBottom = true;
-    this.syncPulse(this.busy);
+    this.restartPulse();
     this.syncPanelPoll();
     store.sse.probeNow(Date.now());
     store.sse.forceReconnect();
@@ -2001,7 +2001,7 @@ struct Index {
     setUiScrolling(false);
     // 回前台默认看最新 turn（休眠期间可能已追加新 turn；不恢复跟随就会停在旧内容）。
     this.followBottom = true;
-    this.syncPulse(this.busy);
+    this.restartPulse();
     this.syncPanelPoll();
     // 回前台强制探活（旁路，仅此处一处调用）：`readTimeout:0` ⇒ 连接被中间设备静默掐死时
     // **收不到 `dataEnd`**，`dataEnd→scheduleReconnect` 那条路根本不走 ⇒ 界面看着在连、其实早死
@@ -2170,6 +2170,16 @@ struct Index {
     });
   }
 
+  /** 回前台必须**换掉**可能被系统冻结的 pulse 定时器；否则 `pulseTimer>=0` 会让
+   *  `syncPulse` 直接 return，`checkLiveSignalStall` 永不运行 ⇒ 卡在「思考中」且不 resync。 */
+  private restartPulse(): void {
+    if (this.pulseTimer >= 0) {
+      clearInterval(this.pulseTimer);
+      this.pulseTimer = -1;
+    }
+    this.syncPulse(this.busy);
+  }
+
   private syncPulse(busy: boolean): void {
     // §21.122bx：浮层覆盖聊天区时**停掉装饰动效**（流光扫过 live pill；被浮层盖住 ⇒ 无人看见）
     // —— 这条 600ms 的页级 `@State` 写入会把**整页标脏**，与浮层入场动画抢帧预算。
@@ -2184,12 +2194,45 @@ struct Index {
         }
         // 同一拍顺手推进流光位置（避免为装饰再开一个定时器）
         this.sweepX = this.sweepX >= 300 ? -80 : this.sweepX + 110;
+        this.checkLiveSignalStall();
       }, 600);
       return;
     }
     if (!busy && this.pulseTimer >= 0) {
       clearInterval(this.pulseTimer);
       this.pulseTimer = -1;
+    }
+    if (!busy) {
+      this.liveWaitTicks = 0;
+      this.liveWaitResynced = false;
+    }
+  }
+
+  /**
+   * busy 状态机的不变量：**busy ⟹ 必须有 live 信号**。
+   * 若连续 3 拍没有任何 live 行/在飞内容，说明 SSE 事件/行投影断了 ⇒ 请求一次权威 resync。
+   * 这不是"到期重置"：不变量本身要求进入 resync 状态；live 信号恢复后立即退出等待态。
+   */
+  private checkLiveSignalStall(): void {
+    if (!this.busy) {
+      this.liveWaitTicks = 0;
+      this.liveWaitResynced = false;
+      return;
+    }
+    const sig: BusySignals = this.busySignals();
+    const hasLiveSignal: boolean = sig.tailShowsIndicator || sig.liveHasContent;
+    if (hasLiveSignal) {
+      this.liveWaitTicks = 0;
+      this.liveWaitResynced = false;
+      return;
+    }
+    this.liveWaitTicks = this.liveWaitTicks + 1;
+    if (this.liveWaitTicks >= 3 && !this.liveWaitResynced) {
+      this.liveWaitResynced = true;
+      const st: ChatStore | null = this.store;
+      if (st !== null) {
+        st.resyncAfterResume('live-stall');
+      }
     }
   }
 
@@ -9599,6 +9642,10 @@ struct Index {
    * 初值 `true`：首帧必须投（⛔ 不能用 false 当默认 —— 那样开局就降频，内容会滞后）。
    */
   private liveRowVisible: boolean = true;
+  /** busy 且无 live 信号的连续 pulse 拍数（用于缺失事件时触发一次权威 resync）。 */
+  private liveWaitTicks: number = 0;
+  /** 本轮 busy 是否已经为 live 信号缺失请求过 resync（一轮只请求一次）。 */
+  private liveWaitResynced: boolean = false;
 
   private fingerprintRows(rows: ChatRow[], chatId: string): string {
     return rowsFpOf(rows, chatId);   // 纯函数在 core/rowdiff（带会话身份，有判别测试）

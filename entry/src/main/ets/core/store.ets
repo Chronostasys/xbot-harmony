@@ -201,6 +201,8 @@ export class ChatStore {
   private lastResumeResyncAt: number = 0;
   /** resume resync 在飞守卫：onPageShow / onAppResumed / SSE reopen 三路只允许一份全量重载。 */
   private resumeResyncInFlight: boolean = false;
+  /** 在飞期间到达的 resync 请求排队一次；不得静默丢弃（live-stall / 新迭代都靠它恢复）。 */
+  private resumeResyncPending: boolean = false;
   /** resume resync 的 fail-safe 释放定时器（网络挂死也必须恢复 UI 渲染）。 */
   private resumeResyncTimer: number = -1;
   /** 当前在飞的 `/api/history` 所属 chatGen（同一代最多一份，跨代允许切换重载）。 */
@@ -1436,8 +1438,9 @@ export class ChatStore {
       return;
     }
     // 回前台可能同时收到 onPageShow / onAppResumed / SSE reopen 三路触发；在飞期间
-    // 直接丢弃，避免**两次全量 history**叠在一起（每份都会触发 deriveRows/行重建）。
+    // **排队一次**（不能静默丢弃：live-stall / 新迭代的恢复请求都靠它）。
     if (this.resumeResyncInFlight) {
+      this.resumeResyncPending = true;
       return;
     }
     this.lastResumeResyncAt = now;
@@ -1459,6 +1462,12 @@ export class ChatStore {
       this.resumeResyncInFlight = false;
       // 网络挂死也必须恢复渲染（fail-safe）：不能把 UI 永久留在挂起态。
       this.suspendUiUpdates(false);
+      if (this.resumeResyncPending) {
+        this.resumeResyncPending = false;
+        // 排队的请求已经晚于节流窗口，直接放行。
+        this.lastResumeResyncAt = 0;
+        this.resyncAfterResume(`${reason}-queued`);
+      }
     };
     // 旁路超时：正常请求远小于 15s；超时仍释放并 rebuild 当前已到的状态。
     this.resumeResyncTimer = setTimeout(release, 15000);
