@@ -85,7 +85,12 @@ function optGoal(v: unknown): GoalInfo | null | undefined {
   //   旧实现把 `objective === ''` 也当清除 —— 而很多帧会带一个**零值/占位**的 goal 对象
   //   （`objective: ''`、status 缺省），于是每来一帧就把目标清空、下一帧又恢复 ⇒ 抽搐。
   //   语义收紧：空 objective **且**没有 cleared 标记 ⇒ 视为"本帧不携带有效目标" ⇒ 不动状态。
-  if (r.status === 'cleared') return null
+  // ⛔ 用户 2026-10-21 P0（「我们要杜绝闪烁，所以它必须一直显示，只要有就必须一直显示」
+  //   「不显示已经完成的 goal」）：**服务端帧里的 cleared 也不清空本地横幅** ——
+  //   完成/收尾时后端会推 `{objective:"", status:"cleared"}`（`agent_backend_methods.go:598`），
+  //   于是刚显示出来的目标在 idle 那一刻被抹掉。现在**只有用户手动清空**
+  //   （`ChatStore.clearGoalLocal()`，即点 ✕）才消失；服务端 cleared 帧按"未携带"处理。
+  if (r.status === 'cleared') return undefined
   if (typeof r.objective !== 'string' || r.objective === '') return undefined
   return {
     objective: r.objective,

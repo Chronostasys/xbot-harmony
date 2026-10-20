@@ -2678,11 +2678,12 @@ struct Index {
       this.todos = store.todos.slice();
     }
     // ── Goal 横幅数据源（web `MessageInput.tsx:694` 的 `goal.objective`/`goal.status`）──
-    // ⛔ 必须读**归一化进度快照**的 goal（`core/chattypes.GoalInfo{objective,status}`），
-    //    而不是 `store.goal`（`core/types.GoalInfo{text,status}`，字段名不符协议 ⇒ 永远空）。
-    const g = store.liveProgress().goal;
-    const gObj: string = g !== null && g !== undefined ? g.objective : '';
-    const gSt: string = g !== null && g !== undefined ? g.status : '';
+    // ⛔ 必须读**会话级** goal（`store.sessionGoal()`，由 `applySessionFields`/`get_goal` 维护）。
+    //    旧实现读 `liveProgress().goal` —— 那是**当前 turn 的 live 快照**（短命）：
+    //    发消息后新 turn 快照从空开始 ⇒ 横幅消失；下一帧 progress 带 goal ⇒ 又出现 ⇒ 抽搐
+    //    （用户 2026-10-21 亲报「发一条消息 goal 立马消失，过一会又显示」）。
+    const gObj: string = store.goalText();
+    const gSt: string = store.goalStatusText();
     if (this.goalObjective !== gObj) {
       this.goalObjective = gObj;
     }

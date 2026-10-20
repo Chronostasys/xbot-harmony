@@ -14,12 +14,13 @@
  *    ⇒ `history_replaced`（DB 快照，**滞后**于 SSE）**绝不允许**把 running 关掉 ——
  *      它只能"打开"（快照里有 active turn 时）。
  */
-declare const process: { exit: (c: number) => void };
+declare const require: (m: string) => any;
+declare const process: { cwd: () => string; exit: (c: number) => void };
 
 import { normalizeEvent } from '../../entry/src/main/ets/core/normalize';
 import { reduce } from '../../entry/src/main/ets/core/reduce';
 import {
-  ChatState, DomainEvent, initialChatState, turnID, eventSeq,
+  ChatState, DomainEvent, initialChatState, turnID, eventSeq, iterNum,
 } from '../../entry/src/main/ets/core/chat_types_full';
 import type { GoalInfo } from '../../entry/src/main/ets/core/types';
 
@@ -85,6 +86,49 @@ console.log('\n▶ §C busy：DB 快照（history_replaced）不得把 running �
     lastSeq: 0, todos: [], goal: undefined, standalone: [],
   } as unknown as DomainEvent);
   ok('★C 无 active 的快照**不得**把 running 关掉（旧实现会 ⇒ busy 抽搐）', s.sessionRunning);
+}
+
+console.log('\n▶ §E goal 是**会话级**状态：回合开始/结束都不影响它（横幅数据源必须是它）');
+{
+  let s: ChatState = reduce(initialChatState('c'), {
+    type: 'session_fields', todos: [], goal: { objective: '目标A', status: 'active' } as GoalInfo,
+  } as unknown as DomainEvent);
+  // 发消息 ⇒ turn_started ⇒ 新 turn 的 live 快照是空的（没有 goal 字段）
+  s = reduce(s, {
+    type: 'turn_started', turnID: T, requestID: 'r1', trigger: 'user', content: null,
+  } as unknown as DomainEvent);
+  ok('★E turn_started 之后 goal 仍在（会话级，不随 turn 清空）',
+    s.goal !== null && s.goal !== undefined);
+  // 没有任何 goal 字段的 iteration 帧
+  s = reduce(s, {
+    type: 'iteration', turnID: T, iter: iterNum(1), seq: eventSeq(9), content: '', reasoning: '',
+    activeTools: [], completedTools: [], iterationsDelta: [], todos: undefined, goal: undefined,
+    subAgents: undefined, tokenUsage: undefined, streamStats: undefined,
+  } as unknown as DomainEvent);
+  ok('★E 不带 goal 字段的 iteration 帧之后 goal 仍在', s.goal !== null && s.goal !== undefined);
+  // 回合结束
+  s = reduce(s, {
+    type: 'text_final', turnID: T, content: 'ok', seq: eventSeq(20), progressHistory: [], reasoning: '',
+  } as unknown as DomainEvent);
+  ok('★E 回合结束之后 goal 仍在（横幅不得因此消失）', s.goal !== null && s.goal !== undefined);
+}
+
+console.log('\n▶ §F 接线：横幅必须读 `store.sessionGoal()`（会话级），⛔ 不得读 turn 快照的 goal');
+{
+  const rawPage = require('fs').readFileSync(require('path').join(process.cwd(),
+    'entry/src/main/ets/pages/Index.ets'), 'utf8') as string;
+  // 只看**代码**（剥掉注释行）：注释里会引用旧写法作为历史说明
+  const page = rawPage.split('\n')
+    .filter((ln: string) => !ln.trim().startsWith('//') && !ln.trim().startsWith('*')
+      && !ln.trim().startsWith('/*'))
+    .join('\n');
+  const store = require('fs').readFileSync(require('path').join(process.cwd(),
+    'entry/src/main/ets/core/store.ets'), 'utf8');
+  ok('★F 页面读 `store.sessionGoal()`', /const g = store\.sessionGoal\(\);/.test(page));
+  ok('★F 页面**不再**读 `store.liveProgress().goal`（旧抽搐根因）',
+    !/store\.liveProgress\(\)\.goal/.test(page));
+  ok('★F store 暴露 `sessionGoal()` 且读 `this.state.goal`',
+    /sessionGoal\(\): ChatGoalInfo \| null/.test(store) && /const g: GoalInfo \| null = this\.state\.goal;/.test(store));
 }
 
 console.log('\n▶ §D mutation 自证（外部注入）');

@@ -344,6 +344,8 @@ export class ChatStore {
    *   `@State rows`）= 行集合变了。二者不再混用，O(1) 整数比较。
    */
   rowsRev: number = 0;
+  /** 最近一次 SSE/store 事件时刻（毫秒）—— 非权威 idle 的"事件静默"闸门用。 */
+  lastEventAtMs: number = 0;
 
   /**
    * 单会话**唯一事实源**：`ChatState`（逐字移植 web `chat/types.ts` / `reduce.ts`）。
@@ -379,6 +381,32 @@ export class ChatStore {
   /** 当前会话的 live 进度快照（对齐 web `liveProgressFromState`）。页面 live 尾块读它。 */
   liveProgress(): ProgressSnapshot {
     return liveProgressFromState(this.state);
+  }
+
+  /**
+   * **会话级 goal**（横幅的唯一真源）—— 映射成协议形状 `{objective, status}`。
+   *
+   * ⛔ 用户 2026-10-21 P0（「发一条消息 goal 立马消失，过一会又出来」）：横幅此前读
+   *   `liveProgress().goal` —— 那是**当前 live turn 快照的** goal，**回合级、短命**：
+   *   发消息 ⇒ 新 turn 的 live 快照从空开始（首帧 progress 还没带 goal）⇒ 横幅消失；
+   *   下一帧 progress 带上 goal ⇒ 又出现 ⇒ **抽搐**。而 `state.goal` 是**会话级**权威
+   *   （`applySessionFields` 维护，跨回合存活，`get_goal` 兜底刷新）⇒ 必须读它。
+   *   字段映射：`types.GoalInfo{text,status}` → `chattypes.GoalInfo{objective,status}`。
+   */
+  goalText(): string {
+    const g = this.state.goal;
+    if (g === null || g === undefined || g.objective === undefined) {
+      return '';
+    }
+    return g.objective;
+  }
+
+  goalStatusText(): string {
+    const g2 = this.state.goal;
+    if (g2 === null || g2 === undefined || g2.status === undefined || g2.status.length === 0) {
+      return 'active';
+    }
+    return g2.status;
   }
 
   /**
@@ -1021,6 +1049,12 @@ export class ChatStore {
    * 幂等：会话树已 false + `sessionRunning` 已 false 时，reduce 返回原 state（零渲染变化）。
    */
   private applyLocalIdle(chatId: string, authoritative: boolean = false): void {
+    // ⛔ 用户 2026-10-21 P0（「busy 途中会突然 IDLE 一下然后又变回来」）：
+    //   非权威 idle 只有在**事件流已经静默**时才可以收尾。否则（SSE 正在推帧）一条
+    //   迟到/回放的 coarse idle 就会把 busy 闪成 idle，下一帧又拉回 busy ⇒ 抽搐。
+    if (!authoritative && Date.now() - this.lastEventAtMs < 2000) {
+      return;
+    }
     // ② SSE 意图：idle 证据时刻（对账时用于压住"矛盾的旧 busy"）
     log('idle', `回合结束 chat=${chatId} 权威=${authoritative ? 'PhaseDone' : 'SSE idle'}`);
     // ⛔ 非权威（coarse `session(idle)` / `agent-idle`）且状态机**仍认为会话在跑 + 有 live turn**
@@ -2590,14 +2624,26 @@ export class ChatStore {
       if (gen !== this.chatGen || forChat !== this.currentChatId) {
         return;
       }
-      // 外来 JSON：`null` = 服务端明确"无目标"（显式清除）；对象 = 覆盖。
-      // ⚠️ 线上两个 GoalInfo 形状不同（`types.GoalInfo` 是 `{text,status}`，
-      //   `chattypes.GoalInfo` 是 `{objective,status}`）⇒ 显式映射，⛔ 不做 spread。
-      const nextGoal: ChatGoalInfo | null = g === null ? null : {
+      // ⛔ 用户 2026-10-21 P0（「IDLE 状态下就不显示 goal 了」「已完成的 goal 只要返回了
+      //   就要显示，不能消失」）：`get_goal` 返回 `null` **不是**"用户清除了目标"——
+      //   它只代表"这次没查到"（无目标 / 服务端该 RPC 对已完成目标返回 nil / 竞态）。
+      //   ⇒ 本函数**只做补写，绝不删除**：`null` 一律忽略；
+      //   真正的"显式清除"唯一来源是结构化帧里的 `{objective:"", status:"cleared"}`
+      //   （`core/normalize.ets:optGoal` → `applySessionFields(..., null)`）+ 用户手点清空
+      //   （`clearGoalLocal`）。这样横幅不可能因为一次轮询而消失。
+      if (g === null || g === undefined) {
+        return;
+      }
+      // ⚠️ 线上两个 GoalInfo 形状不同：`state.goal` 用 `{objective,status}`（协议形状）。
+      const cur = this.state.goal;
+      if (cur !== null && cur !== undefined && cur.objective === g.text
+        && cur.status === g.status) {
+        return;   // 同值 ⇒ 零通知
+      }
+      this.state = applySessionFields(this.state, undefined, {
         objective: g.text !== undefined ? g.text : '',
-        status: g.status !== undefined ? g.status : '',
-      } as ChatGoalInfo;
-      this.state = applySessionFields(this.state, undefined, nextGoal);
+        status: g.status !== undefined && g.status.length > 0 ? g.status : 'active',
+      });
       this.onUpdate();
     } catch (e) {
       // 非关键路径：保留本地值（⛔ 失败绝不当作"目标已删除"）
