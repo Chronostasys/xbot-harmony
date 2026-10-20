@@ -234,7 +234,12 @@ export class ChatStore {
     }
     if (this.currentChatId.length > 0) {
       // 切回池里已有会话：openSession 的 alreadyOpen 分支不会再 subscribe，这里补上。
-      this.subscribe();
+      // ⛔ 审计确证（F5）：`subscribe()` 在 `sse.state ∈ {open,connecting,reconnecting}` 时直接
+    //   return，且**不比对目标 chat**；`beginSwitch` 不 close ⇒ 新建/切换会话后 SSE 仍订阅
+    //   **旧 chat**（事件按 currentChatId 过滤后全丢）⇒ 新会话收不到 live 事件，而 ack 又把
+    //   busy 置 true ⇒ 输入框常驻"思考中"。⇒ 先 close，再让 subscribe 用新 chat 重连。
+    this.sse.close();
+    this.subscribe();
     }
   }
   lastSendAt: number = 0;
@@ -1050,6 +1055,10 @@ export class ChatStore {
     // sessions/chats 同为服务端返回 ⇒ 均可能为 null（曾 `sessions !== undefined && sessions.length` 崩溃）。
     const sessionList: SessionItem[] = arrOrEmpty(data.sessions);
     const list: SessionItem[] = sessionList.length > 0 ? sessionList : arrOrEmpty(data.chats);
+    // ⛔ 审计确证（F12）：Go nil slice → JSON `null`；旧实现把它当"没有会话" ⇒ 侧栏瞬时清空。
+    if (data.sessions === null || data.sessions === undefined) {
+      return;   // 缺字段/ null = 未携带 ⇒ 保留旧列表（与 todos 三态同纪律）
+    }
     this.sessions = list;
     // 子代理 = **当前会话节点的 children**（只取活跃者）—— web `TasksPanel.tsx:36-40` 同源。
     //  ⛔ 15h 实锤（用户「任务管理做的很差」的第二处）：旧实现取 `orphan_subagents`（孤立根），
