@@ -220,18 +220,31 @@ export function inFlightBlock(r: LiveRowView, completed: HistoryIteration[]): Hi
   //   在飞文字若与**最新已提交块**同名字段等长 ⇒ 它已经在历史块里渲染过 ⇒ 置空。
   //   只比长度（与 `sameRowEssence` 同一纪律，禁止全文比较）；误判代价只是晚一拍
   //   （下一帧 delta 会带来新长度），绝不丢内容（历史块那份额度还在）。
-  let lastIts: HistoryIteration | null = null;
-  for (let i = 0; i < completed.length; i++) {
-    if (lastIts === null || completed[i].iteration >= lastIts.iteration) {
-      lastIts = completed[i];
-    }
+  // ⛔ 兜底判据：与**任意**已提交块的同名字段等长 ⇒ 视为重复（不能只比最后一页：
+  //   真实形态是「B 迭代有 1400 字思考 → C 迭代只有工具没有思考 → 在飞块继承了 1400」，
+  //   只比 C（长度 0）会漏判）。从**末尾往前**找第一个非空者，通常一步命中 ⇒ 常态 O(1)。
+  let committedReasonLen: number = -1;
+  let committedContentLen: number = -1;
+  let committedReasoning: string = '';
+  let committedContent: string = '';
+  for (let i = completed.length - 1; i >= 0; i--) {
+    const blk: HistoryIteration = completed[i];
+    const rr: string = blk.reasoning !== undefined ? blk.reasoning : '';
+    const cc: string = blk.content !== undefined ? blk.content : '';
+    if (committedReasonLen < 0 && rr.length > 0) { committedReasonLen = rr.length; committedReasoning = rr; }
+    if (committedContentLen < 0 && cc.length > 0) { committedContentLen = cc.length; committedContent = cc; }
+    if (committedReasonLen >= 0 && committedContentLen >= 0) { break; }
   }
-  const lastReasonLen: number = lastIts !== null && lastIts.reasoning !== undefined ? lastIts.reasoning.length : -1;
-  const lastContentLen: number = lastIts !== null && lastIts.content !== undefined ? lastIts.content.length : -1;
   const rawContent: string = r.content;
   const rawReasoning: string = r.reasoning;
-  const content: string = rawContent.length > 0 && rawContent.length === lastContentLen ? '' : rawContent;
-  const reasoning: string = rawReasoning.length > 0 && rawReasoning.length === lastReasonLen ? '' : rawReasoning;
+  // ⛔ 先比长度（O(1) 快路），**长度相等时才做一次字符串全等**（极少命中）——这样既不会
+  //   把"恰好同长的**新**思考"误删（假阳性），又不需要每帧全文比较（性能纪律）。
+  const dupContent: boolean = rawContent.length > 0 && rawContent.length === committedContentLen
+    && committedContent === rawContent;
+  const dupReasoning: boolean = rawReasoning.length > 0 && rawReasoning.length === committedReasonLen
+    && committedReasoning === rawReasoning;
+  const content: string = dupContent ? '' : rawContent;
+  const reasoning: string = dupReasoning ? '' : rawReasoning;
   const tools: ToolProgress[] = [];
   // ── live 工具列表 = web `LiveIteration.tsx` `toolDeriv` 的**三步**（本仓曾缺第 ① 步）──
   // ① **按 `iteration` 滤掉陈旧工具**（web 逐字：`t.iteration > maxCompletedIter`）；

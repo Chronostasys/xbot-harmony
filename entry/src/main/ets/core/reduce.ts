@@ -219,6 +219,15 @@ function isCommittedCopy(next: string | undefined, committedLen: number): boolea
   return next !== undefined && next.length > 0 && committedLen >= 0 && next.length === committedLen
 }
 
+/**
+ * 同上，但**长度相等后再做一次字符串全等**（极少命中）——避免"恰好同长的新思考"被误删。
+ * 只有等长才比较内容 ⇒ 常态仍是 O(1)，不是每帧全文比较。
+ */
+function isCommittedCopyText(next: string | undefined, committedText: string): boolean {
+  return next !== undefined && next.length > 0 && committedText.length > 0
+    && next.length === committedText.length && next === committedText
+}
+
 function maxHeldIteration(iterations: readonly WebIteration[]): number {
   let max = 0
   for (const it of iterations) if (it.iteration > max) max = it.iteration
