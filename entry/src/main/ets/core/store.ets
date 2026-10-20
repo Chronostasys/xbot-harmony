@@ -16,7 +16,7 @@ import { SseClient } from './sse';
 /** SSE 意图的竞态窗口（web `useSessionStore.ts` 同值 15s）。 */
 import { hasFreshPhaseDone, isIdleAction, runningAfterReconcile, rowIsEmpty, sendStartsTurn, shouldReloadHistory, stripInterruptedMarker } from './streammerge';
 import { arrOrEmpty, isPresent } from './guards';
-import { ChatState, DomainEvent, EventSeq, initialChatState, NonEmptyS, nonEmptyStr, UserRow } from './chat_types_full';
+import { ChatState, DomainEvent, EventSeq, initialChatState, NonEmptyS, nonEmptyStr, TurnID, UserRow } from './chat_types_full';
 import { reduce, applySessionFields } from './reduce';
 import { deriveRows, Row } from './derive';
 import { extractEventChatID, normalizeEvent } from './normalize';
@@ -484,27 +484,102 @@ export class ChatStore {
     });
   }
 
+  /**
+   * 不变量：**一个已结束的 turn 不可能继续持有 busy**。
+   *
+   * `text_final` 是该 turn 的权威 finalizer；如果它结束时 `sessionRunning` 仍为 true，
+   * 只允许两种解释：① 服务端已有**下一个** turn（`activeTurn` 指向别的 turn）；
+   * ② 前端状态机丢了事件，当前 busy 是幽灵。②不能等下一个 idle/轮询慢慢自愈——
+   * 用户看到的就是「回复已经结束，输入框还在转圈/思考中」。这里直接请求一次权威
+   * resync（`resyncAfterResume` 自带 in-flight 合并，不会风暴）。
+   *
+   * ⛔ 不能把「`sessionRunning` 为 true」直接清零：它可能是后一个 turn 的权威 busy；
+   * 判据必须是 **结束的 turn 是否仍是 activeTurn（或已无 activeTurn）**。
+   */
+  private watchTurnEndedWhileBusy(prev: ChatState, next: ChatState, ev: DomainEvent): void {
+    if (ev.type !== 'text_final') {
+      return;
+    }
+    if (ev.commandReply === true || !next.sessionRunning) {
+      return;
+    }
+    const ended: TurnID | null = ev.turnID !== null ? ev.turnID : prev.activeTurn;
+    if (ended === null) {
+      return;
+    }
+    // 已有后续 turn 占有 busy（activeTurn 指向另一个 turn）⇒ 合法。
+    if (next.activeTurn !== null && next.activeTurn !== ended) {
+      return;
+    }
+    log('resync', `turn 已结束但仍 busy chat=${this.currentChatId} turn=${String(ended)} active=${String(next.activeTurn)}`);
+    this.resyncAfterResume('turn-end-while-busy', true);
+  }
+
+  /**
+   * 兜底不变量：**busy=true 时必须有 live turn 承载它**。
+   *
+   * 用户 2026-10-20 原话：「一个 turn 已经结束了，会话还是 busy ⇒ 一定要 resync；
+   * busy 只能是之后的 turn。」若 finalizer/事件丢失导致 `sessionRunning` 残留，
+   * `activeTurn` 已为 null（或指向 committed/frozen）⇒ 本地没有任何 turn 能解释
+   * 这个 busy ⇒ 请求权威 history 校准。
+   *
+   * ⛔ 发送意图窗内 activeTurn 尚未由 turn_started 建立，这是合法的本地反馈，
+   * 不能 resync（否则每次发送都会多打一次 history）。
+   */
+  private watchBusyWithoutLiveTurn(next: ChatState): void {
+    if (!next.sessionRunning || this.sendIntentActive()) {
+      return;
+    }
+    let hasLive: boolean = false;
+    if (next.activeTurn !== null) {
+      const t = next.turns.get(next.activeTurn);
+      hasLive = t !== undefined && t.phase.kind === 'live';
+    }
+    if (!hasLive) {
+      log('resync', `会话 busy 但没有 live turn chat=${this.currentChatId} active=${String(next.activeTurn)}`);
+      this.resyncAfterResume('busy-without-live-turn');
+    }
+  }
+
   /** 把一批 DomainEvent 依次喂给状态机，然后重建渲染行。 */
   private pushEvents(evs: readonly DomainEvent[] | null): void {
     if (evs === null) {
       return;
     }
     let next: ChatState = this.state;
+    let lastEndedTurn: TurnID | null = null;
     for (let i = 0; i < evs.length; i++) {
+      const prev: ChatState = next;
       this.settleIntentOnAuthoritative(evs[i]);
       next = reduce(next, evs[i]);
+      // 记录本批最后一个 turn finalizer；最终统一用 next 的 activeTurn 判定
+      // 「busy 是否属于后续 turn」，避免一批里 turn A 结束 + turn B 启动时误 resync。
+      // ⛔ 必须先落成局部变量：`evs[i]` 的重复索引访问在 TS 里不做判别联合收窄。
+      const ev: DomainEvent = evs[i];
+      if (ev.type === 'text_final' && ev.commandReply !== true) {
+        lastEndedTurn = ev.turnID !== null ? ev.turnID : prev.activeTurn;
+      }
     }
     this.state = next;
     this.rebuildRows();
+    if (lastEndedTurn !== null && next.sessionRunning
+      && (next.activeTurn === null || next.activeTurn === lastEndedTurn)) {
+      log('resync', `turn 已结束但仍 busy chat=${this.currentChatId} turn=${String(lastEndedTurn)} active=${String(next.activeTurn)}`);
+      this.resyncAfterResume('turn-end-while-busy', true);
+    }
+    this.watchBusyWithoutLiveTurn(next);
     // ⛔ 洞检测的**唯一消费点**（见 `watchGapReload`）
     this.watchGapReload();
   }
 
   /** 单事件便捷。 */
   private pushEvent(ev: DomainEvent): void {
+    const prev: ChatState = this.state;
     this.settleIntentOnAuthoritative(ev);
     this.state = reduce(this.state, ev);
     this.rebuildRows();
+    this.watchTurnEndedWhileBusy(prev, this.state, ev);
+    this.watchBusyWithoutLiveTurn(this.state);
     // ⛔ 洞检测的**唯一消费点**（见 `watchGapReload`）
     this.watchGapReload();
   }
@@ -1484,12 +1559,14 @@ export class ChatStore {
    * 语义：先 `loadSessions`（running 权威 + 会话列表），再 `loadHistory`（正文权威）。
    * 节流 1.2s（`onPageShow` 与 `onState(open)` 可能同帧双触发）；失败静默（旁路，不阻断 UI）。
    */
-  resyncAfterResume(reason: string = ''): void {
+  resyncAfterResume(reason: string = '', force: boolean = false): void {
     if (this.currentChatId.length === 0) {
       return;
     }
     const now: number = Date.now();
-    if (now - this.lastResumeResyncAt < 1200) {
+    // 回前台双触发做节流；但「turn 已结束却仍 busy」是状态机不变量被破坏，
+    // 必须立刻校准，不能被上一次 send-ack 的 1.2s 节流吞掉（短 turn 会卡思考中）。
+    if (!force && now - this.lastResumeResyncAt < 1200) {
       return;
     }
     // 回前台可能同时收到 onPageShow / onAppResumed / SSE reopen 三路触发；在飞期间

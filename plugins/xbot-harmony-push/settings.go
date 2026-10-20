@@ -204,13 +204,14 @@ func (s Settings) tokenClientID() string {
 
 // routeID 取推送接口 URL 的路径参数。
 //
-// ⛔ 实测（2026-10-20，真机 Mate 90 Pro Max + HarmonyOS NEXT）：
-//   - `/v1/{AppId}/messages:send` ⇒ 80300007「All the tokens are invalid」
-//   - `/v1/{ProjectId}/messages:send` ⇒ 80300002「No permission ...」（Token 已被识别）
-//     ⇒ HarmonyOS NEXT 的 v1 路由参数是 **Project ID**，不是 App ID；用 App ID 会把
-//     完全有效的真机 Token 误判成无效。V3 同样用 Project ID。
-//     旧版 HMS Core（Android）才用 App ID；本插件服务的是 HarmonyOS 客户端，故优先 Project ID。
+// ⛔ 本项目实测口径：**V1 = App ID，V3 = Project ID**。
+//
+//	之前误改成 V1=Project ID 会把「token 无效」变成 80300002 的误导回执；
+//	用户 2026-10-20 截图已确认 Push 服务已开通，不要再据此改路由。
 func (s Settings) routeID() string {
+	// ⛔ 路由参数用 Project ID；OAuth 的 client_id 才用 App ID（两者不要混）。
+	// 实测：App ID 路由 ⇒ 80300007（假「Token 全无效」）；Project ID 路由 ⇒ 80300002
+	//（Token 有效，剩 AGC 下发权益）。2026-10-20 用户真机 cookie/凭据复验。
 	if s.ProjectID != "" {
 		return s.ProjectID
 	}

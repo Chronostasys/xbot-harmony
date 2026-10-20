@@ -546,11 +546,11 @@ func TestNormalizeDeviceName(t *testing.T) {
 	}
 }
 
-func TestRouteIDUsesProjectForHarmonyOS(t *testing.T) {
+func TestRouteIDPerAPIVersion(t *testing.T) {
 	cfg := defaultSettings()
 	cfg.AppID, cfg.ProjectID, cfg.APIVersion = "app", "proj", "v1"
 	if got := cfg.routeID(); got != "proj" {
-		t.Fatalf("HarmonyOS v1 必须用 Project ID（App ID 会把有效 Token 判 80300007），实际 %q", got)
+		t.Fatalf("V1 路由必须是 Project ID（App ID ⇒ 80300007 假无效），实际 %q", got)
 	}
 	cfg.ProjectID = ""
 	if got := cfg.routeID(); got != "app" {
