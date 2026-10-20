@@ -348,6 +348,8 @@ export class ChatStore {
   lastEventAtMs: number = 0;
   /** **最近一次 busy/running 迁移的原因**（事件类型或路径名）—— 页面迁移日志用它。 */
   lastBusyCause: string = '';
+  /** `busy-without-live-turn` 只读重载的冷却时间戳（30s 一次，防与重载形成抽搐）。 */
+  private busyWithoutLiveReloadAt: number = 0;
 
   /**
    * 单会话**唯一事实源**：`ChatState`（逐字移植 web `chat/types.ts` / `reduce.ts`）。
@@ -614,7 +616,14 @@ export class ChatStore {
     // 普通发送窗（还没有任何 turn 结束）是合法的本地即时反馈；但**上一 turn 已
     // finalizer、用户又发/排队下一条消息**时不能豁免——截图里的「content 后思考中」
     // 正是这个状态：sessionRunning=true + activeTurn=null + sendIntentActive=true。
-    if (this.sendIntentActive() && !this.finalizedAwaitingTurnStart) {
+    // ⛔ 用户 2026-10-21 P0（日志实证 busy/idle 每 2s 抽搐）：这里原本
+    //   `sendIntentActive() && !finalizedAwaitingTurnStart` —— 上一回合刚 finalize 后用户
+    //   **立刻再发**一条时 `finalizedAwaitingTurnStart` 仍为 true ⇒ 豁免失效 ⇒ 看门狗在
+    //   **意图窗口内**（turn_started 还没到）就判"busy 但没有 live turn" ⇒ 权威重载 ⇒
+    //   对账把 running 关掉 ⇒ 下一帧快照又打开 ⇒ 抽搐。
+    //   正确语义：**用户刚发消息的意图窗口内，没有 live turn 是正常的**（在等 turn_started），
+    //   与上一回合是否 finalize 无关。幽灵 busy 由另一条（无意图窗口时）判据拦截。
+    if (this.sendIntentActive()) {
       return;
     }
     let hasLive: boolean = false;
@@ -627,8 +636,23 @@ export class ChatStore {
       hasLive = t !== undefined && t.phase.kind === 'live' && t.phase.data.streaming === true;
     }
     if (!hasLive) {
-      log('resync', `会话 busy 但没有 live turn chat=${this.currentChatId} active=${String(next.activeTurn)}`);
-      this.resyncAfterResume('busy-without-live-turn');
+      // ⛔ 用户 2026-10-21（「busy without live turn 看起来完全是错的，这个判断是防什么的」）：
+      //   它只防"**漏收事件**"⇒ 动作必须是**只读重载**，且：
+      //   ① **绝不写状态机**（busy 只能由两种证据改变，看门狗一律不许改 —— 所以这里只能
+      //      调 `resyncAfterResume`，而后者内部的 `applyLocalIdle` 已加发送意图窗守卫、
+      //      对账轮询已完全不写状态机）；
+      //   ② **必须事件静默**才触发（`Date.now() - lastEventAtMs >= 3000`）—— 否则两次迭代
+      //      之间"没有在飞内容"会被误判（旧实现每 3 拍触发一次 ⇒ 与重载形成 2s 抽搐）；
+      //   ③ **有冷却**（30s 一次）—— 漏事件是低频故障，重载是重操作，不能成轮询。
+      const silent: boolean = Date.now() - this.lastEventAtMs >= 3000;
+      const cooled: boolean = Date.now() - this.busyWithoutLiveReloadAt >= 30000;
+      if (silent && cooled) {
+        this.busyWithoutLiveReloadAt = Date.now();
+        log('resync', `会话 busy 但没有 live turn chat=${this.currentChatId} active=${String(next.activeTurn)}`
+          + ` silent=${silent ? 1 : 0}（只读重载，不改 busy）`);
+        this.resyncAfterResume('busy-without-live-turn');
+      }
+      return;
     }
   }
 
@@ -1031,11 +1055,15 @@ export class ChatStore {
     if (runNode !== null) {
       // ⛔ 判据收敛到 `core/streammerge.runningAfterReconcile`（与状态机同源、可脱机单测）。
       //    服务端 `running` 是 omitempty ⇒ 缺字段**就是 false**（已折好再传入）。
-      this.pushEvent({
-        type: 'session_running',
-        running: runningAfterReconcile(runNode.running === true, this.intentBusyAt,
-          this.intentIdleAt, Date.now(), SSE_INTENT_TTL_MS),
-      });
+      // ⛔ 用户 2026-10-21 规则（原话）：「**session tree 是整体的粗粒度状态，它根本就不能
+      //   影响单个会话的状态**，你不能让它影响，**变 busy 也不行**」。
+      //   所以这里**完全不写状态机**：会话树的 `running` 只用于侧边栏列表的视觉（`sessions[i]`），
+      //   单会话 busy 的唯一来源是本会话的 SSE 事件（turn_started / stream / iteration /
+      //   PhaseDone / session(idle)）。
+      //   历史教训：这里曾经无条件 push ⇒ 轮询快照（滞后一个 RTT、omitempty⇒false）把正在
+      //   跑的会话关成 idle，下一帧 SSE 又打开 ⇒ busy/idle 每 2s 抽搐（用户 2026-10-21 日志实证）。
+      //   `runningAfterReconcile` 仍保留给**别的**消费点（若将来需要），此处不再使用。
+      void runningAfterReconcile;
     }
     this.onUpdate();
   }
@@ -1059,6 +1087,12 @@ export class ChatStore {
    * 幂等：会话树已 false + `sessionRunning` 已 false 时，reduce 返回原 state（零渲染变化）。
    */
   private applyLocalIdle(chatId: string, authoritative: boolean = false): void {
+    // ⛔ 发送意图窗口内绝不收尾：重载/对账在 turn_started 之前看到的 running=false 是
+    //   **滞后证据**（用户 2026-10-21 日志：`resume(send-ack-sync)` 之后紧跟
+    //   `running 1→0 cause=ev:session_running`，再被 `history_replaced` 拉回 ⇒ 抽搐）。
+    if (this.sendIntentActive()) {
+      return;
+    }
     // ⛔ 用户 2026-10-21 P0（「busy 途中会突然 IDLE 一下然后又变回来」）：
     //   非权威 idle 只有在**事件流已经静默**时才可以收尾。否则（SSE 正在推帧）一条
     //   迟到/回放的 coarse idle 就会把 busy 闪成 idle，下一帧又拉回 busy ⇒ 抽搐。
@@ -2980,10 +3014,24 @@ export class ChatStore {
    * 与 `openSession` 的复位同源（`initialChatState` —— 杜绝"漏重置某个字段"）。
    */
   private resetStateMachine(): void {
+    // ⛔ 用户 2026-10-21 P0（日志实证）：「发消息后 goal 抽搐」的真根因 ——
+    //   `send-ack-sync` 会走权威重载 → `resetStateMachine()` → `resetRows()` →
+    //   `initialChatState()`，把**会话级**状态（goal/todos）当消息状态一起清空；
+    //   而 `history_replaced` 里的 goal 取自**已清空的新 state** ⇒ 横幅空着，
+    //   直到第一个 progress 帧（第一次 toolcall）把 goal 带回来 ⇒ 「先不显示，之后才出来」。
+    //   语义：goal/todos 是**会话属性**，不是消息状态 ⇒ 同一会话内重置消息状态机时**必须保留**。
+    //   （切到**另一个**会话时不保留 —— 由 `state.chatID !== currentChatId` 判定。）
+    const sameChat: boolean = this.state.chatID === this.currentChatId;
+    const keepGoal = this.state.goal;
+    const keepTodos = this.state.todos;
     this.resetRows();
     this.history = [];
     this.hasMore = false;
     this.oldestId = 0;
+    if (sameChat && (keepGoal !== null || keepTodos.length > 0)) {
+      this.state = applySessionFields(this.state, keepTodos, keepGoal);
+      log('state', `reset 保留会话级状态 goal=${keepGoal !== null ? 1 : 0} todos=${keepTodos.length}`);
+    }
   }
 
   // ── 插件面板 / 插件目录 ────────────────────────────────────────────────────

@@ -2483,6 +2483,8 @@ struct Index {
   }
 
   private syncFrom(store: ChatStore): void {
+    // 事件流活跃时间戳：stall 看门狗的唯一判据是**静默**（>=3s 无任何更新），不是“没有在飞内容”。
+    this.lastStoreUpdateAtMs = Date.now();
     // ⛔ **投影身份闸**（2026-10-17 跨会话污染 P0）：延迟 flush / 旧 store 回调可能在任何
     //   时刻到达；`syncFrom` 是页面唯一投影入口，必须先确认“你还是当前 store”。
     //   否则旧 store 的 `currentChatId` 会把 `this.currentChat` 改回旧会话（页面显示 A、
