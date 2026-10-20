@@ -321,7 +321,9 @@ func (c *pushClient) sendLiveView(ctx context.Context, cfg Settings, tokens []st
 	}
 	hreq.Header.Set("Content-Type", "application/json; charset=UTF-8")
 	hreq.Header.Set("Authorization", "Bearer "+token)
-	hreq.Header.Set("push-type", "0")
+	// ⛔ 实况窗是**场景化消息**，push-type 必须为 7（不是普通通知的 0）。
+	//    用 0 发 liveView 会被华为按错误场景拒绝（80300002/80100003）。
+	hreq.Header.Set("push-type", "7")
 	resp, err := c.http.Do(hreq)
 	if err != nil {
 		return sendResult{}, fmt.Errorf("发送实况窗失败（网络）：%w", err)
@@ -338,6 +340,11 @@ func (c *pushClient) sendLiveView(ctx context.Context, cfg Settings, tokens []st
 	}
 	if !res.OK {
 		res.Hint = pushErrorHint(res)
+		// ⛔ LiveView 没有 category/自分类权益；80300002 在实况窗链路上是
+		//    「实况窗场景正式权益未开通」。官方明确：不能靠调测白名单绕过。
+		if res.Code == "80300002" {
+			res.Hint = "实况窗权益未正式开通（80300002）：调试中/调测设备不等于正式权益；需在 AGC 申请 Live View 正式权益"
+		}
 	}
 	return res, nil
 }
@@ -350,9 +357,11 @@ func pushErrorHint(r sendResult) string {
 	case "80200001", "80200003":
 		return "访问令牌无效/已失效（检查 Client Secret，或系统时间）"
 	case "80300002":
-		// ⛔ 这个码**不是 Token 无效**：Token 已被华为识别，是应用侧没有下发权限。
-		//    常见原因：AGC 没开通「推送服务」，或 OAuth 的 client_id 不是**应用级 Client ID**。
-		return "当前应用无权限下发推送消息（80300002）：Token 有效，但 AGC 未开通推送服务，或 ClientId 不是应用级 ClientId"
+		// ⛔ 这个码**不是 Token 无效**，也不是 OAuth 凭据错误：Token 已被华为识别。
+		//    用户 2026-10-20 的 AGC 推送页实证：项目正常、精准推送已开，但
+		//    「自分类权益」仍为未申请 ⇒ 没有对应 category 的下发权益。
+		//    不要再让用户重复开通推送服务/换 OAuth。
+		return "当前应用无权限下发推送消息（80300002）：Token 有效；请检查 AGC 的「精准推送能力」和「自分类权益」是否已对该 category 生效"
 	case "80300007":
 		return "全部 Push Token 无效（App 重新安装/清数据后 Token 会变，请在应用里重新登记）"
 	case "80300008":

@@ -18,6 +18,11 @@ func TestBuildLiveViewPayload(t *testing.T) {
 	if capsule["icon"] == "" || capsule["bgColor"] == "" || capsule["title"] != "Shell" {
 		t.Fatalf("capsule fields wrong: %+v", capsule)
 	}
+	notif := data["notificationData"].(map[string]any)
+	rp, ok := notif["richProgress"].(map[string]any)
+	if !ok || rp["progress"] == nil || rp["indicatorType"] == nil {
+		t.Fatalf("type=3 必须带可校验的 richProgress（否则 80100003）：%+v", notif)
+	}
 }
 
 func TestBuildLiveViewPushBody(t *testing.T) {

@@ -79,6 +79,17 @@ func buildLiveViewPayload(req LiveViewRequest) map[string]any {
 		"contentTitle": req.Title,
 		"contentText":  []map[string]any{{"text": req.Content}},
 		"clickAction":  map[string]any{"actionType": 0},
+		// ⛔ type=3（进度可视化）在 Push Kit 侧强制要求 richProgress；
+		//    缺字段会回 80100003「richProgress can't be null」，不是权限错误。
+		//    progress/nodeIcons/indicatorIcon 由端侧本地实况窗决定；远端更新只传
+		//    最低可校验集合，端侧会保留原有进度图形。
+		"richProgress": map[string]any{
+			"type":          0,
+			"progress":      0,
+			"indicatorType": 1,
+			"color":         req.CapsuleBG,
+			"bgColor":       "#19000000",
+		},
 	}
 	capsule := map[string]any{
 		"type":    1,
@@ -115,8 +126,12 @@ func buildLiveViewPushBody(cfg Settings, req LiveViewRequest, tokens []string) m
 	if cfg.APIVersion == "v1" {
 		return map[string]any{"message": map[string]any{"liveView": lv, "token": tokens}}
 	}
+	// ⛔ 华为 V3 的 liveView 是**场景化消息 payload 本体**，不是
+	//    `{"payload":{"liveView":...}}`：正确形状是
+	//    `{"payload":{"activityId":...},"target":{"token":[...]}}`。
+	//    套一层 liveView 会被回 80100003 payload null（2026-10-20 文档/实测）。
 	return map[string]any{
-		"payload": map[string]any{"liveView": lv},
+		"payload": lv,
 		"target":  map[string]any{"token": tokens},
 	}
 }
