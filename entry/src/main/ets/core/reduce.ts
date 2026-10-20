@@ -2016,6 +2016,22 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
           )
         }
       }
+      // ⛔ ack 是**权威送达证据**；requestID 可能被 user_echo/turn_started 折叠丢失
+      //   （旧实现这里直接 return s ⇒ 乐观行永久「发送中」，用户 2026-10-20 实测）。
+      //   FIFO 选最早仍未发送的 pending（顺序发送语义），或清掉唯一无 requestID 的 turn user。
+      const fallbackPending = s.pendingUsers.findIndex((u) => u.sending)
+      if (fallbackPending >= 0) {
+        const pendingUsers = s.pendingUsers.slice()
+        pendingUsers[fallbackPending] = { ...pendingUsers[fallbackPending], sending: false }
+        return { ...s, pendingUsers }
+      }
+      for (const t of s.turns.values()) {
+        if (t.user !== null && t.user.sending) {
+          return withTurn(s, t.id, (tt) =>
+            tt.user ? { ...tt, user: { ...tt.user, sending: false } } : tt,
+          )
+        }
+      }
       return s
     }
 
