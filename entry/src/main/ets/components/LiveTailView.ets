@@ -751,12 +751,9 @@ return renderKind(t.status, t.exit_code, true);
                 }))
                 }
               }, (t: ToolProgress, i: number) => `lt-${i}#${t.name}#${t.call_id !== undefined ? t.call_id : ''}`
-                // ⛔ key 必须含**会变的可见内容**（`status` + `gen_chars`）：2026-10-16 用户第二次亲报
-                //    「tool 生成中 x 字，x 不更新」的**真根因** —— 旧 key 只有 `name#call_id`，
-                //    参数流式（`generating`）期间 key 恒定 ⇒ ForEach 判"条目未变" ⇒ **条目子树不重建**
-                //    ⇒ chip 冻在创建那一刻的值（真机双量具对齐实证：组件侧 `@Prop` 收到
-                //    `FileCreate:4340→5748` 逐帧增长，而 chip 连续 14 帧停在「生成中 39 字」）。
-                //    同族血债见 AGENTS.md「LazyForEach + 最小通知键」。
+                // ⛔ key 必须含**会变的可见内容**（`status` + `gen_chars`）：`ForEach` 对同 key
+                //    条目不重跑 item builder，`ToolPill` 的 `@Prop` 永远停在创建那一刻 ⇒ chip
+                //    文字冻结（2026-10-16 用户亲报「生成中 x 字不更新」）。
                 + `#${t.status !== undefined ? t.status : ''}#${t.gen_chars !== undefined ? t.gen_chars : 0}`)
               if (this.hideN() > 0) {
                 this.OverflowBadge()
