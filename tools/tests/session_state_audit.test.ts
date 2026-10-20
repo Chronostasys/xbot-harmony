@@ -43,6 +43,8 @@ const switchBody = switchStart >= 0 ? index.substring(switchStart, switchStart +
 ok('切会话清 attachments', /this\.attachments = \[\]/.test(switchBody));
 ok('切会话清 goalDraft', /this\.goalDraft = ''/.test(switchBody));
 ok('切会话取消旧 draft 防抖 timer', /this\.draftTimer = -1/.test(switchBody));
+ok('busySignals 不再用页面 session-tree running 作为第二真源',
+  /freshServerRunning: false/.test(index) && !/freshServerRunning: sameChat/.test(index));
 
 console.log(`session_state_audit: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

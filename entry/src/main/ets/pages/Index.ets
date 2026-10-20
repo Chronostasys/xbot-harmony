@@ -9302,7 +9302,6 @@ struct Index {
     // 会话隔离：切换瞬间 store / 页面 currentChat 可能短暂不一致；此时绝不能拿
     // 旧会话的 busy/rows/live 信号给新会话渲染占位符（会串成「别家会话思考中」）。
     const sameChat: boolean = store !== null && store.currentChatId === this.currentChat;
-    const fresh: boolean = sameChat && store !== null && Date.now() - store.sessionsFetchedAt <= 20000;
     return {
       // 页面 `busy` 可能因滚动/触摸 early-return 而滞后一帧；直接并上 store 的同步 getter
       // （含发送意图窗），保证"按下发送"同帧就有思考中反馈。
@@ -9319,7 +9318,11 @@ struct Index {
       //    判据测试（iter_gap_indicator G1）按此形态扫描；busy 门放在其后。
       tailShowsIndicator: this.hasLiveRow && rowHasInFlightSignal(this.liveRowRef)
         && store !== null && store.busy,
-      freshServerRunning: sameChat && fresh && this.serverRunning(),
+      // ⛔ 不能再用页面 `sessions` 的 running 作为 busy 的第二真源：它是慢轮询快照，
+      //    text_final/phase_done 收尾后仍可能停在 true（下次轮询才翻）⇒ 正文完整后
+      //    凭空「思考中」数秒（用户 2026-10-20 P0）。唯一 busy 真源 = store（SSE/意图/
+      //    权威会话树对账）；页面 session tree 只用于抽屉展示。
+      freshServerRunning: false,
       loading: sameChat && this.historyLoading,
       rowsLen: sameChat ? this.rows.length : 0,
       // splash 展示期间 ⇒ 列表侧"进行中"指示器一律让位（见 `splashUp()` / `BusySignals.splashUp`）。
