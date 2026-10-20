@@ -432,7 +432,10 @@ export type DomainEvent =
       /** 实时流式时序（stream_stats：tokens/sec / TTFT）。每个 stream SSE
        *  帧都携带，live 据此实时更新 tkps。 */
       readonly streamStats: NonNullable<LiveSnapshot['streamStats']> | undefined
-    }
+          /** 会话级字段（与流式载荷无关；turn 进行中也要立刻生效）。 */
+      readonly todos?: TodoItem[]
+      readonly goal?: GoalInfo | null | undefined
+}
   | {
       readonly type: 'phase_done'
       /** null = turn_id 缺失/为 0 → reduce 回退 activeTurn。 */

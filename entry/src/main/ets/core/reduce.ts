@@ -1249,6 +1249,9 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
     //   失败）时从 stream 事件重建 live turn —— 否则事件永远被丢弃
     //   （"切回来看不到任何新进度"）。
     case 'stream': {
+      // ⛔ 会话级字段（todos/goal）必须在任何闸门之前应用 —— 流式帧也一样
+      //   （用户 2026-10-21：todo_write 那个迭代就该更新，不能等 turn end）。
+      s = applySessionFields(s, ev.todos, ev.goal)
       s = settlePendingSending(s, false)
       const target = ev.turnID !== null ? ev.turnID : s.activeTurn
       if (target === null) return s

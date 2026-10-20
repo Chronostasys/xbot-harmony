@@ -213,6 +213,13 @@ function streamEventFrom(
       : undefined,
     genui: optStr(p.genui_content),
     streamStats: parseStreamStats(p),
+    // ⛔ 用户 2026-10-21 P0（「todo_write 之后 todo 不立刻更新，turn end 才更新」）：
+    //   会话级字段（todos/goal）**与"这一帧带不带流式载荷"无关** —— 而 turn 进行中几乎
+    //   每帧都带 `stream_content` ⇒ 全走本分支；本分支此前**不带** todos/goal ⇒ 只有
+    //   回合末尾的 `phase_done`（无流式载荷）才把 todos 带进状态机 ⇒ 面板要等 turn end。
+    //   ⇒ 流式帧同样携带（缺字段仍是 undefined = 不动）。
+    todos: optTodos(p.todos),
+    goal: optGoal(p.goal),
   }
 }
 
