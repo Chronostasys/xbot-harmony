@@ -22,8 +22,22 @@
  *   滚动停止后自动恢复（不 stopTimer，避免“没人再拉起”）。
  */
 let uiScrollActive: boolean = false;
+/**
+ * 最近一次"用户滚动帧"的时刻（`setUiScrolling(true)` 的每帧都会刷新）。
+ *
+ * ⛔ 为什么需要（2026-10-21 用户亲报「打新迭代一定显示『思考 3 字』，直到该迭代结束才正常；
+ *   卡死总在打字时出现、不能稳定复现」）：`onScrollStop` 在**键盘改变列表高度**等场景会**丢**
+ *   ⇒ `uiScrollActive` 永久 true ⇒ `tailIsPaused()` 永久 true ⇒ 打字机定时器永不启动
+ *   （`vis` 停在首帧的 3 个字，`reasonCount()` 就一直报 3），要等该迭代结束、在飞块卸载
+ *   （改由已提交块显示真实字数）才"变正常"。
+ *   ⇒ 滚动标志必须**自愈**：只有"最近 500ms 内确实有滚动帧"才算在滚。
+ */
+let uiScrollMarkedAt: number = 0;
 export function setUiScrolling(active: boolean): void {
   uiScrollActive = active;
+  if (active) {
+    uiScrollMarkedAt = Date.now();
+  }
 }
 export function uiIsScrolling(): boolean {
   return uiScrollActive;
@@ -55,8 +69,25 @@ let tailPausedActive: boolean = false;
 export function setTailPaused(active: boolean): void {
   tailPausedActive = active;
 }
+/** 滚动标志的自愈窗口（毫秒）：超过它没有新滚动帧 ⇒ 视为已停止。 */
+export const UI_SCROLL_STALE_MS: number = 500;
+
+/**
+ * 「此刻真的在滚」—— `uiScrollActive` **且** 最近 `UI_SCROLL_STALE_MS` 内有滚动帧。
+ * ⛔ 丢 `onScrollStop`（键盘改高度 / 手势被父容器吞）时**不会永久卡住**打字机（见上面注释）。
+ */
+export function uiIsScrollingFresh(nowMs: number = Date.now(),
+  windowMs: number = UI_SCROLL_STALE_MS): boolean {
+  if (!uiScrollActive) {
+    return false;
+  }
+  return nowMs - uiScrollMarkedAt < windowMs;
+}
+
 export function tailIsPaused(): boolean {
-  return tailPausedActive || appPausedActive || uiScrollActive;
+  // ⛔ 用**自愈**判据（不是裸标志）：否则一次丢失的 `onScrollStop` 会让打字机永久停摆
+  //   （症状：新迭代恒显示「思考 3 字」，到该迭代结束才正常）。
+  return tailPausedActive || appPausedActive || uiIsScrollingFresh();
 }
 
 /**

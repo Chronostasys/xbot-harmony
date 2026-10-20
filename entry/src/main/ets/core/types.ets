@@ -341,6 +341,31 @@ export class LiveTailState {
   hasContent(): boolean {
     return this.text.length > 0 || this.reasoning.length > 0 || this.tools.length > 0;
   }
+
+  /**
+   * **一次性**写入在飞内容（页面投递的唯一入口）。
+   *
+   * ⛔ 为什么必须聚合成一个方法（2026-10-21 P0「思考动画/字数卡死 5 秒」）：
+   *   `@Observed` 的每个属性赋值都会通知订阅者 ⇒ 逐个写 `text`/`reasoning`/`tools`/`rev`
+   *   会让 `LiveTailView` **连续重建 3–4 次**（每次都重跑 `onDidBuild → onSource → toRunes`
+   *   + MarkdownView 重建）；叠加 20Hz 打字机与 600ms 脉冲，主线程被成串重建塞满 ⇒
+   *   光球动画（Canvas）与「思考 N 字」一起静止数秒。
+   *   ⇒ 聚合成**一次**方法调用：内容与代数在同一"写事务"里落定，订阅者只重建一次。
+   *   内容没变时不写任何字段（零通知）。
+   */
+  setContent(text: string, reasoning: string, tools: ToolProgress[]): boolean {
+    const sameText: boolean = this.text === text;
+    const sameReason: boolean = this.reasoning === reasoning;
+    const sameTools: boolean = this.tools === tools;
+    if (sameText && sameReason && sameTools) {
+      return false;
+    }
+    if (!sameText) { this.text = text; }
+    if (!sameReason) { this.reasoning = reasoning; }
+    if (!sameTools) { this.tools = tools; }
+    this.rev = this.rev + 1;
+    return true;
+  }
 }
 
 /**

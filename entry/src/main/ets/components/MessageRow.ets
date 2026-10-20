@@ -10,7 +10,7 @@
  *   · 与页面解耦：只接原始类型 + 回调，避免组件持有 store/页面引用；
  *   · 三个 @Builder（Assistant/Iteration/ToolPill）与 7 个 helper 由页面**整块搬入**（原样语义）。
  */
-import { ChatRow, LiveTailState } from '../core/types';
+import { ChatRow, ToolProgress } from '../core/types';
 import { WebSubAgentProgress } from '../core/chattypes';
 import { rowIsEmpty } from '../core/streammerge';
 import { Palette, paletteOf, Effects, effectsOf } from '../core/theme';
@@ -100,6 +100,10 @@ export struct MessageRowView {
    * （起首 / 收尾），不参与逐帧路径。判据与 `rowHasInFlightSignal` 同源。
    */
   @Prop liveActive: boolean = false;
+  /** 在飞正文/思考/工具（页面按投递节流写 `@State` 后以 @Prop 投递；见 LiveTailView 的回滚说明）。 */
+  @Prop liveText: string = '';
+  @Prop liveReasoning: string = '';
+  @Prop liveTools: ToolProgress[] = [];
   @Prop liveSubAgents: WebSubAgentProgress[] = [];
   /**
    * 宿主是否提供「点开 SubAgent 会话」能力（决定展平行上 `openable`）。
@@ -464,8 +468,12 @@ export struct MessageRowView {
   LiveIterationBlock() {
     Column({ space: BUBBLE.blockInnerGap }) {
       LiveTailView({
-        // 逐帧内容走**可观察持有者**（`@Observed` ⇒ 只通知本组件，页面/行不重建）
-        tail: this.row.liveTail,
+        // ⛔ 2026-10-21 回滚：在飞内容回到 **@Prop 值投递**（此前长期验证过的通道）。
+        //   持有者（@ObjectLink + onDidBuild）实测导致「光球与『思考 N 字』一起静止数秒」
+        //   （用户 P0）⇒ 不再用。
+        text: this.liveText,
+        reasoning: this.liveReasoning,
+        tools: this.liveTools,
         paused: this.paused,
         theme: this.themeId(),
         fontScale: this.fontScaleV,

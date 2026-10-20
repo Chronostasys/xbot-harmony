@@ -1289,6 +1289,16 @@ struct Index {
    *   ⇒ 现在：布尔只在 0↔1 翻转时写（每迭代至多两次），内容走持有者（零页面重建）。
    */
   @State liveActive: boolean = false;
+  /**
+   * 在飞正文/思考/工具（**值投递**给 `MessageRowView → LiveTailView`）。
+   *
+   * ⛔ 2026-10-21 回滚：曾改成写 `LiveTailState` 持有者（@ObjectLink）以避免整页 rebuild，
+   *   但实测出现「光球与『思考 N 字』一起静止数秒、N 卡在 3/39」的 P0（用户亲报）。
+   *   ⇒ 回到这组经过长期验证的 `@State`：**多一点 rebuild，换正确与流畅**。
+   */
+  @State liveText: string = '';
+  @State liveReasoning: string = '';
+  @State liveTools: ToolProgress[] = [];
   /** 实况窗（Live View）用：本 turn 开始时刻（0 = 当前无 turn）。 */
   private lvStartedAt: number = 0;
   /** 实况窗字数缓存的键（串恒等）与值 —— 见 `syncLiveView`（O(1) 记忆化）。 */
@@ -9815,9 +9825,8 @@ struct Index {
     // 全完成了就报第一枚（让"最后一个动作"在实况窗里可见，而不是空白）。
     let fallbackLabel: string = '';
     let fallbackStatus: string = '';
-    const lt: LiveTailState = this.liveRowRef.liveTail;
-    for (let k: number = 0; k < lt.tools.length; k++) {
-      const t: ToolProgress = lt.tools[k];
+    for (let k: number = 0; k < this.liveTools.length; k++) {
+      const t: ToolProgress = this.liveTools[k];
       const status: string = t.status !== undefined ? t.status : '';
       const kind: string = toolStatusKind(t.status, t.exit_code);
       if (isToolInProgress(kind)) {
@@ -9836,13 +9845,13 @@ struct Index {
     }
     // ⛔ runeCount 是 O(文本长度)：本函数每个 SSE 事件都会跑一次，而两次投递之间文本
     //   通常没变 ⇒ 按**串恒等**记忆化（字符串是不可变的，`===` 即内容恒等）⇒ O(1)。
-    if (lt.text !== this.lvTextMemo) {
-      this.lvTextMemo = lt.text;
-      this.lvTextRunes = runeCount(lt.text);
+    if (this.liveText !== this.lvTextMemo) {
+      this.lvTextMemo = this.liveText;
+      this.lvTextRunes = runeCount(this.liveText);
     }
-    if (lt.reasoning !== this.lvReasonMemo) {
-      this.lvReasonMemo = lt.reasoning;
-      this.lvReasonRunes = runeCount(lt.reasoning);
+    if (this.liveReasoning !== this.lvReasonMemo) {
+      this.lvReasonMemo = this.liveReasoning;
+      this.lvReasonRunes = runeCount(this.liveReasoning);
     }
     i.runes = this.lvTextRunes + this.lvReasonRunes;
     i.startedAtMs = this.lvStartedAt;
@@ -9894,13 +9903,9 @@ struct Index {
    *   一挂载就会先画出旧内容（跨回合串内容）。`liveActive` 归 false ⇒ 在飞块卸载。
    */
   private clearLiveTail(): void {
-    const lt: LiveTailState = this.liveRowRef.liveTail;
-    if (lt.text.length > 0 || lt.reasoning.length > 0 || lt.tools.length > 0 || lt.rev > 0) {
-      lt.text = '';
-      lt.reasoning = '';
-      lt.tools = [];
-      lt.rev = 0;
-    }
+    if (this.liveText.length > 0) { this.liveText = ''; }
+    if (this.liveReasoning.length > 0) { this.liveReasoning = ''; }
+    if (this.liveTools.length > 0) { this.liveTools = []; }
     if (this.liveActive) {
       this.liveActive = false;
     }
@@ -10002,11 +10007,10 @@ struct Index {
     // 直接写**持有者**（`@Observed` ⇒ 只通知 `LiveTailView`；页面与行组件零重建）：
     // 不再用 `blocksSignature`/`toolsSignature` 之类的内容字符串比较 —— 变化信号就是
     // `liveRevision` 整数（O(1)）。页面自身只维护一个布尔（挂载判据），且只在翻转时写。
-    const lt: LiveTailState = this.liveRowRef.liveTail;
-    lt.text = text;
-    lt.reasoning = reasoning;
-    lt.tools = tools;
-    lt.rev = lt.rev + 1;
+    // 值投递（内容未变时不赋值 ⇒ 不产生多余重建）
+    if (this.liveText !== text) { this.liveText = text; }
+    if (this.liveReasoning !== reasoning) { this.liveReasoning = reasoning; }
+    if (this.liveTools !== tools) { this.liveTools = tools; }
     const active: boolean = text.length > 0 || reasoning.length > 0 || tools.length > 0;
     if (this.liveActive !== active) {
       this.liveActive = active;
@@ -11211,6 +11215,9 @@ struct Index {
       MessageRowView({
         row: this.liveRowRef,
         liveActive: this.liveActive,
+        liveText: this.liveText,
+        liveReasoning: this.liveReasoning,
+        liveTools: this.liveTools,
         liveSubAgents: this.liveSubAgents,
         mdTheme: this.mdThemeId(),
         fontScaleV: this.fontScale(),

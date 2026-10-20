@@ -88,20 +88,23 @@ console.log('\n▶ §D 独立块组件的订阅语义（必须是 @ObjectLink，
     count(iterView, 'ForEach(this.iters.blocks') === 1);
 }
 
-console.log('\n▶ §E 在飞内容：@ObjectLink 持有者（页面/行不重建）');
+console.log('\n▶ §E 在飞内容：**@Prop 值投递**（2026-10-21 回滚后的事实口径）');
 {
-  ok('★E `LiveTailView` 声明 `@ObjectLink tail: LiveTailState`',
-    /@ObjectLink tail: LiveTailState;/.test(liveView));
-  ok('★E 且**没有** `@Prop` 正文/思考/工具三项（旧的高频 @Prop 通道）',
-    count(liveView, '@Prop text:') === 0 && count(liveView, '@Prop reasoning:') === 0
-    && count(liveView, '@Prop tools:') === 0);
-  ok('★E 页面**不再**持有 `liveText/liveReasoning/liveTools` 三项 @State',
-    count(page, '@State liveText:') === 0 && count(page, '@State liveReasoning:') === 0
-    && count(page, '@State liveTools:') === 0);
-  ok('★E 页面投递写的是持有者（`liveTail`）且推进代数',
-    /lt\.rev = lt\.rev \+ 1;/.test(page));
-  ok('★E 页面在飞内容读取走持有者（`syncLiveView` 用 `liveTail.tools`）',
-    /const lt: LiveTailState = this\.liveRowRef\.liveTail;/.test(page));
+  // ⛔ 历史：曾改成 `@ObjectLink LiveTailState` + `onDidBuild`，实测出现「光球与
+  //   『思考 N 字』一起静止数秒、N 卡在 3/39」的 P0 ⇒ 回滚到此前长期验证过的值投递通道。
+  //   本段锁的是**回滚后**的形态：⛔ 不要再改回持有者（除非能复现并证明不卡）。
+  ok('★E `LiveTailView` 用 `@Prop @Watch(\'onSource\') text/reasoning`（值投递）',
+    /@Prop @Watch\('onSource'\) text: string = '';/.test(liveView)
+    && /@Prop @Watch\('onSource'\) reasoning: string = '';/.test(liveView));
+  ok('★E 且**没有** `@ObjectLink tail: LiveTailState`（已回滚）',
+    count(liveView, '@ObjectLink tail:') === 0);
+  ok('★E 页面持有 `liveText/liveReasoning/liveTools` 三项 @State（投递源）',
+    count(page, '@State liveText:') === 1 && count(page, '@State liveReasoning:') === 1
+    && count(page, '@State liveTools:') === 1);
+  ok('★E 页面把三项以 @Prop 投给行组件（`liveText: this.liveText`）',
+    /liveText: this\.liveText,[\s\S]{0,120}liveReasoning: this\.liveReasoning,/.test(page));
+  ok('★E `MessageRowView` 也声明了这三项 @Prop 并透传给 `LiveTailView`',
+    /@Prop liveText: string = '';/.test(rowView) && /text: this\.liveText,/.test(rowView));
 }
 
 console.log('\n▶ §F 页面结构判据：O(1) 整数（不再逐帧 O(rows) 指纹/重投）');

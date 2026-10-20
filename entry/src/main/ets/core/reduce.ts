@@ -153,6 +153,23 @@ function mergeIterations(
     // 四象限：incoming 轻 ⇒ prev 胜（prev 轻=引用稳定；prev 完整=★不倒退）；
     // incoming 完整 ⇒ incoming 胜（浮层/区域段 hydrate 与既有权威方向一致）。
     if (prev !== undefined && isFolded(it)) continue
+    // ⛔ **已渲染的工具绝不消失**（用户 2026-10-21 P0「两个迭代进入执行中然后消失了，
+    //   重启后又出现」）：服务端提交某迭代时**可能不带它的工具**（工具的权威副本在
+    //   `active_tools`/`completed_tools` 里，或提交帧只补了迭代壳），而客户端按
+    //   「`iteration > maxCompletedIter` 才渲染在飞工具」把陈旧工具滤掉 ⇒ 该迭代的
+    //   pill **两处都不画** ⇒ 整个迭代看起来消失了（重启后从 DB 重新水合才回来）。
+    //   ⇒ 同号覆盖时**保留** prev 已有工具（并集去重）；其余字段仍按 incoming 权威。
+    if (prev !== undefined) {
+      const prevTools: WebToolProgress[] = prev.tools !== undefined ? prev.tools as WebToolProgress[] : []
+      const nextTools: WebToolProgress[] = it.tools !== undefined ? it.tools as WebToolProgress[] : []
+      if (prevTools.length > 0 && nextTools.length < prevTools.length) {
+        const tools: WebToolProgress[] = mergeToolUnion(prevTools, nextTools)
+        if (tools.length !== nextTools.length) {
+          byNum.set(it.iteration, { ...it, tools, toolCount: tools.length } as WebIteration)
+          continue
+        }
+      }
+    }
     byNum.set(it.iteration, it)
   }
   const merged = [...byNum.values()].sort((a, b) => a.iteration - b.iteration)
@@ -169,6 +186,51 @@ function mergeIterations(
     if (identical) return base
   }
   return merged
+}
+
+/**
+ * 把「客户端此刻已知、且属于刚提交迭代」的工具折进提交块（**只增不减**）。
+ *
+ * ⛔ 不变量（用户 2026-10-21 P0，两张截图对照）：**已渲染过的工具绝不允许消失**。
+ *   服务端提交迭代时可能只带迭代壳（不带 tools）—— 工具的权威副本在 `active_tools` /
+ *   `completed_tools` / `streaming_tools` 里，而渲染层对在飞工具按
+ *   `iteration > maxCompletedIter` 过滤（防陈旧残留）⇒ 该迭代的工具**两处都不画**
+ *   ⇒ 用户看到"迭代进入执行中后消失"，重启（DB 重新水合）才回来。
+ *
+ * 判据：只对**本次新提交**的迭代号补；只补该迭代自己的工具（`tool.iteration === 号`，
+ *   缺 iteration 字段的旧协议条目按**当前**迭代号归属）；已有工具时走 `mergeTools`
+ *   去重（成员以当帧为准、只增不减）。
+ */
+function foldKnownToolsIntoCommitted(
+  merged: readonly WebIteration[],
+  delta: readonly WebIteration[],
+  prev: { activeTools: readonly WebToolProgress[]; streamingTools: readonly WebToolProgress[];
+    completedTools?: readonly WebToolProgress[] },
+): readonly WebIteration[] {
+  const known: WebToolProgress[] = [
+    ...prev.streamingTools, ...prev.activeTools,
+    ...(prev.completedTools !== undefined ? prev.completedTools : []),
+  ]
+  if (known.length === 0) return merged
+  let out: readonly WebIteration[] = merged
+  for (const d of delta) {
+    const num: number = d.iteration
+    const have: WebToolProgress[] = d.tools !== undefined ? d.tools as WebToolProgress[] : []
+    const mine: WebToolProgress[] = []
+    for (const t of known) {
+      const ti: number = t.iteration !== undefined ? t.iteration : num
+      if (ti === num) mine.push(t)
+    }
+    if (mine.length === 0) continue
+    const tools: WebToolProgress[] = mergeToolUnion(have, mine)
+    if (tools.length === have.length) continue
+    const idx: number = out.findIndex((it) => it.iteration === num)
+    if (idx < 0) continue
+    const patched: WebIteration[] = out.slice() as WebIteration[]
+    patched[idx] = { ...out[idx], tools, toolCount: tools.length } as WebIteration
+    out = patched
+  }
+  return out
 }
 
 /**
@@ -190,6 +252,34 @@ function mergeIterations(
  *   ⚠️ 只比长度（与 `sameRowEssence` 同一纪律：禁止用全文比较去重，那是 O(文本)/帧）。
  *   误判代价：新迭代首段恰与旧文等长 ⇒ 本帧不上屏，下一帧 delta 即补齐（不会丢内容）。
  */
+/**
+ * 工具数组的**并集**（同调用键以 `next` 为准、位置沿用 `prev`）—— 只增不减。
+ *
+ * ⛔ 为什么在本文件里自带一份（而不是 import `core/streammerge.ets` 的 `mergeTools`）：
+ *   `core/reduce.ts` 是**纯 TS 端口件**，ArkTS 硬禁 `.ts` import `.ets`
+ *   （`10605999 Importing ArkTS files in JS and TS files is forbidden`，真编译才抓得到）。
+ *   语义与 `mergeTools` 的同键去重一致（按 `callID`，缺省退回 `name#label`）；区别只是
+ *   本函数**只做并集**（`prev` 独有条目不会被丢），这正是「已渲染的工具绝不消失」所需。
+ */
+function mergeToolUnion(prev: readonly WebToolProgress[], next: readonly WebToolProgress[]): WebToolProgress[] {
+  const key = (t: WebToolProgress): string => {
+    const cid: string = t.callID !== undefined && t.callID.length > 0 ? t.callID : ''
+    return cid.length > 0 ? cid : `${t.name}#${t.label !== undefined ? t.label : ''}`
+  }
+  const out: WebToolProgress[] = []
+  const idx: Map<string, number> = new Map<string, number>()
+  for (const t of prev) {
+    const k: string = key(t)
+    if (!idx.has(k)) { idx.set(k, out.length); out.push(t) }
+  }
+  for (const t of next) {
+    const k: string = key(t)
+    const at: number | undefined = idx.get(k)
+    if (at === undefined) { idx.set(k, out.length); out.push(t) } else { out[at] = t }
+  }
+  return out
+}
+
 function isLeftoverText(next: string | undefined, prev: string): boolean {
   return next !== undefined && next.length > 0 && next.length === prev.length
 }
@@ -955,7 +1045,17 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
       // "每次新的 iter 完成都要闪烁一下"）。防护：gap 修复 delta 可能携带旧迭代
       // 而 live 已在流式更新的迭代 —— 仅当 live 属于刚 commit 的迭代
       // （ev.iter <= appendedMax）才清。
-      const merged = mergeIterations(prev.iterations, ev.iterationsDelta)
+      let merged = mergeIterations(prev.iterations, ev.iterationsDelta)
+      // ⛔ P0（用户 2026-10-21，截图对比）：「迭代进入**执行中**然后**消失了**，重启后
+      //   （从 DB 重新水合）才回来」。根因：服务端提交某迭代时**不带它的工具**（工具的
+      //   权威副本此刻在 `active_tools`/`completed_tools` 里），而渲染层按
+      //   「`iteration > maxCompletedIter` 才画在飞工具」把该迭代的工具滤掉 ⇒ 该迭代
+      //   的 pill **两处都不画** ⇒ 整条迭代看起来消失（**数据还在状态机里，只是没人画**）。
+      //   ⇒ 提交边界上把"客户端此刻已知的、属于该迭代的工具"**折进**提交块（若它没带）。
+      //   这是 R1「已渲染的工具绝不消失」在**迭代提交边界**上的同一不变量。
+      if (ev.iterationsDelta.length > 0) {
+        merged = foldKnownToolsIntoCommitted(merged, ev.iterationsDelta, prev)
+      }
       const appendedNew = merged.length > prev.iterations.length
       const appendedMax = ev.iterationsDelta.length > 0
         ? Math.max(...ev.iterationsDelta.map((it) => it.iteration))
