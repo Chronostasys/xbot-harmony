@@ -618,6 +618,19 @@ const appliedRowByRow = new WeakMap<ChatRow, Row>();
  */
 export function applyRow(row: ChatRow, r: Row): boolean {
   const prev: Row | undefined = appliedRowByRow.get(row)
+  // ⛔ user 行的 `sending/queued` 是**就地可变**的投递状态（ack/turn_started 清 sending）。
+  //    若 deriveRows 复用了同一个 Row 对象（a===b），sameRowEssence 的 no-op 早退会让
+  //    ChatRow 永远停在 sending=true（用户 2026-10-20：「发送成功了但还显示发送中」）。
+  //    先用 ChatRow 上一值比对这两个布尔；只刷新布尔，不触发内容重建。
+  if (prev !== undefined && prev === r && row.role === 'user' && r.kind === 'user') {
+    const nextSending: boolean = r.sending === true
+    const nextQueued: boolean = r.queued === true
+    if (row.sending !== nextSending || row.queued !== nextQueued) {
+      row.sending = nextSending
+      row.queued = nextQueued
+      return true
+    }
+  }
   // 对象恒等（O(1)）+ 渲染等价（O(n) 整数/元数据；排除 elapsed 这类连续量）。
   // 等价 ⇒ 保留上一次的 Row 引用，不更新字段、不自增 liveRevision（零重建）。
   if (prev !== undefined && sameRowEssence(prev, r)) {

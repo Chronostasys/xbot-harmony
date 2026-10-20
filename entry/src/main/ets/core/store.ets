@@ -2261,10 +2261,23 @@ export class ChatStore {
    *   · `session(busy=false)`：清 coarse busy（`reduce.ts:1220-1229`）。
    *   ⛔ 顺序不可反：`session` 的 idle 分支在 `sessionRunning` 仍为 true 时是 **no-op**（`:1226`）。
    */
-  async cancel(): Promise<void> {
-    if (this.cancelling) {
-      return;
+  private cancelInFlight: Promise<void> | null = null;
+
+  cancel(): Promise<void> {
+    // ⛔ 重复点击必须**复用同一个在飞 Promise**，不能静默 return：
+    //   UI 的 `cancelSpinHold` 会把"立即 resolve"当成取消成功、停止转圈，
+    //   但请求其实没发/没完成（用户亲报：按钮不转圈、点很多次都没用）。
+    if (this.cancelInFlight !== null) {
+      return this.cancelInFlight;
     }
+    const p: Promise<void> = this.performCancel();
+    this.cancelInFlight = p;
+    return p;
+  }
+
+  private async performCancel(): Promise<void> {
+    const chatAt: string = this.currentChatId;
+    const genAt: number = this.chatGen;
     this.cancelling = true;
     this.onUpdate();
     try {
@@ -2275,6 +2288,10 @@ export class ChatStore {
         HTTP_CANCEL_READ_TIMEOUT_MS);
       // 取消成功 = 权威 idle 证据（与 applyLocalIdle 同一字段）：15s 意图窗内
       // session-tree 对账不得因"发送时的 fresh busy 意图"把 busy 翻回来。
+      // ⛔ 但若期间已切到别的会话/代数，旧回包绝不能把新会话标 idle。
+      if (genAt !== this.chatGen || chatAt !== this.currentChatId) {
+        return;
+      }
       this.intentIdleAt = Date.now();
       this.pushEvents([
         { type: 'session_running', running: false },
@@ -2282,6 +2299,7 @@ export class ChatStore {
       ]);
     } finally {
       this.cancelling = false;
+      this.cancelInFlight = null;
       this.onUpdate();
     }
   }

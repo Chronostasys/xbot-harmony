@@ -3383,6 +3383,16 @@ struct Index {
     //    静息态恒为 1（fail-safe），过渡只是锦上添花。`rekeyPool(target, chatId)` 已负责换行。
     // 切会话即换草稿（每个会话各自一份；弱网下也能恢复）
     this.failedSend = '';
+    // ⛔ 会话级瞬态/草稿必须随身份切换作废，不能是页面全局残留：
+    //    附件、goal 编辑草稿、旧会话的防抖落盘 timer 都属于该会话。
+    if (this.draftTimer >= 0) {
+      clearTimeout(this.draftTimer);
+      this.draftTimer = -1;
+    }
+    this.attachments = [];
+    this.goalDraft = '';
+    this.goalObjective = '';
+    this.goalStatus = '';
     // ⛔ rewind 编辑态**必须随会话作废**：否则在 A 会话长按「编辑并重发」后切到 B，
     //    `rewindEditRowId` 仍是 A 的行 id ⇒ B 里发送会走 rewind 路径 → `rowById` 找不到
     //    该行 → `cancelRewindEdit` **静默返回**（用户症状「消息发不出去」）。
