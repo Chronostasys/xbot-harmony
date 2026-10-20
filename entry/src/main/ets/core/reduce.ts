@@ -692,7 +692,64 @@ function isStaleSeq(
 
 // ─── reduce：8 case 穷尽（never 检查由 TS 判别联合保证） ───────
 
+/**
+ * **兜底不变量**：会话**不 busy**（`sessionRunning === false`）时，**任何** user 行都不得
+ * 仍带 `sending: true`。
+ *
+ * ⛔ 用户 2026-10-21 真机 P0（截图，且**只有那个会话**复现）：「都已空闲了，user 气泡还挂着
+ *   发送中…」。根因是 `sending` 只在若干"已知路径"里被结算（turn_started / iteration /
+ *   stream / text_final / idle / 历史快照），而**排队消息被出队**这条路径（`trigger=user` +
+ *   `content` 携带文本，见 `agent/agent.go:4647-4668` 的注释）会留下一条 pending 行。
+ *   ⇒ 与其逐条补路径（永远会漏），不如钉成**状态不变量**：idle 没有任何在飞证据
+ *   ⇒ 不可能还有"正在发送"的行。放在 `reduce` 的唯一出口，任何未来路径都不会再漏。
+ *
+ * 代价：只在"确实有 sending 且已 idle"时重建对象；否则原样返回（零渲染）。
+ */
+function settleSendingInvariant(s: ChatState): ChatState {
+  // ① **有迭代/有产出 ⇒ 该 user 行绝不允许还挂着「发送中」**（用户 2026-10-21 原话：
+  //   「只要他有迭代了那就是不应该发送中啊」）。这是比"idle 才收敛"更强的判据，
+  //   也是正确的语义：迭代 = 服务端已经受理并开始产出 = 消息一定送达了。
+  const turns = new Map(s.turns);
+  let touched: boolean = false;
+  for (const [id, t] of s.turns) {
+    if (t.user === null || !t.user.sending) {
+      continue;
+    }
+    const hasOutput: boolean = t.phase.kind === 'committed'
+      ? (t.phase.payload.iterations.length > 0 || t.phase.payload.content.length > 0)
+      : t.phase.kind === 'frozen'
+        ? (t.phase.data.iterations.length > 0 || t.phase.data.content.length > 0)
+        : (t.phase.data.iterations.length > 0 || t.phase.data.content.length > 0
+          || t.phase.data.reasoning.length > 0);
+    if (hasOutput) {
+      turns.set(id, { ...t, user: { ...t.user, sending: false } });
+      touched = true;
+    }
+  }
+  let pendingUsers = s.pendingUsers;
+  // ② 会话 idle ⇒ 连 pending 行也不可能有"正在发送"的（没有任何在飞证据）。
+  if (!s.sessionRunning) {
+    let anyPendingSending: boolean = false;
+    for (let i = 0; i < pendingUsers.length; i++) {
+      if (pendingUsers[i].sending) { anyPendingSending = true; break; }
+    }
+    if (anyPendingSending) {
+      pendingUsers = pendingUsers.map((u) => (u.sending ? { ...u, sending: false } : u));
+      touched = true;
+    }
+  }
+  if (!touched) {
+    return s;
+  }
+  return { ...s, turns, pendingUsers };
+}
+
+/** 状态机入口（web `reduce` 的逐字移植 + 出口不变量收敛，见 `settleSendingInvariant`）。 */
 export function reduce(s: ChatState, ev: DomainEvent): ChatState {
+  return settleSendingInvariant(reduceInner(s, ev));
+}
+
+function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
   switch (ev.type) {
     // ── turn_started：收尸旧 active + 新 turn 进 live + 绑定 user ──
     // ── 权威 idle（session(idle) / agent-idle）───────────────────────────────
@@ -837,6 +894,21 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
           if (u.sending && !u.queued) {
             idx = i
             break
+          }
+        }
+      }
+      // ⛔ 排队消息**出队**形态（`agent/agent.go:4647-4668`：queued 消息出队时
+      //   `trigger=user` 且 `content` 携带正文；前端此刻的 pending 行还是 `queued=true`）
+      //   ⇒ 上面那条"只收编 !queued"的兜底会漏 ⇒ 该行永久留在 pending（发送中）。
+      //   这里按**内容**再兜一次（仅当事件带 content，且内容完全一致）。
+      if (idx < 0 && ev.trigger === 'user') {
+        const content = nonEmptyStr(ev.content)
+        if (content !== null) {
+          for (let i = s.pendingUsers.length - 1; i >= 0; i--) {
+            if (s.pendingUsers[i].content === content) {
+              idx = i
+              break
+            }
           }
         }
       }

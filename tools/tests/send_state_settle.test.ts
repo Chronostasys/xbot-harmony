@@ -86,9 +86,9 @@ function countUserRows(s: ChatState): number { return userRows(s).length; }
 console.log('\n▶ §A 正常路径（requestID 精确绑定）：回复到达后不得残留「发送中」');
 {
   let s: ChatState = initialChatState('c');
+  s = sessionRunning(s, true);          // 合法窗口：会话在跑
   s = userSent(s, pendingRow('你好', true, RID));
-  ok('★A 乐观行在 pending 里时**确实**显示发送中（前置条件）', anySending(s));
-  s = sessionRunning(s, true);
+  ok('★A busy 窗口里乐观行**确实**显示发送中（前置条件）', anySending(s));
   s = turnStarted(s, RID);
   s = streamEv(s, '你好');
   ok('★A 第一帧 stream 到达后**不再**显示发送中（用户的原话：SSE 到了就代表发送成功）', !anySending(s));
@@ -101,8 +101,8 @@ console.log('\n▶ §A 正常路径（requestID 精确绑定）：回复到达�
 console.log('\n▶ §B ack 丢失路径（turn_started 不带 requestID）：同样必须清掉');
 {
   let s: ChatState = initialChatState('c');
-  s = userSent(s, pendingRow('你好', true, null));
   s = sessionRunning(s, true);
+  s = userSent(s, pendingRow('你好', true, null));
   s = turnStarted(s, null);                 // 真机常见：ack 没回来
   s = streamEv(s, '你好');
   ok('★B 送达证据到达后不再显示发送中', !anySending(s));
@@ -115,8 +115,8 @@ console.log('\n▶ §B ack 丢失路径（turn_started 不带 requestID）：同
 console.log('\n▶ §C 连续发两条（第二条排队）：第一条必须已结算，第二条只允许"排队"不算发送中');
 {
   let s: ChatState = initialChatState('c');
-  s = userSent(s, pendingRow('第一条', true, 'req-a'));
   s = sessionRunning(s, true);
+  s = userSent(s, pendingRow('第一条', true, 'req-a'));
   s = turnStarted(s, 'req-a');
   s = streamEv(s, '收到');
   ok('★C 第一条在第二条入队前已结算', !anySending(s));
@@ -160,6 +160,36 @@ console.log('\n▶ §E **权威历史快照**到达（DB 里已有该消息与�
   s = reduce(s, hist);
   ok('★E 快照到达后不再显示「发送中」', !anySending(s));
   ok('★E 且不出现重复的 user 行（DB 行取代乐观行）', countUserRows(s) === 1);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n▶ §F **排队出队**形态（后端 agent.go:4647-4668：queued 消息出队时 trigger=user + content）');
+{
+  // 真机形态（只有该会话复现）：busy 期间连发两条同内容「你好」→ 都进队列 ⇒
+  // 出队时 turn_started 带 trigger=user + content，而本地 pending 行是 queued=true。
+  let s: ChatState = initialChatState('c');
+  const queuedRow: UserRow = {
+    id: 'u-q', content: '你好', timestamp: '2026-10-21T01:16:17Z',
+    isNotification: false, queued: true, sending: true,
+    requestID: 'req-q', turnHint: undefined, dbID: undefined,
+  } as unknown as UserRow;
+  s = userSent(s, queuedRow);
+  // 出队：turn_started 只带 content（不带 requestID 的匹配）
+  s = reduce(s, {
+    type: 'turn_started', turnID: T, requestID: null, trigger: 'user', content: '你好',
+  } as unknown as DomainEvent);
+  ok('★F 出队后不再显示发送中（内容兜底收编）', !anySending(s));
+  ok('★F 且只有一条 user 行（没有幽灵 pending 副本）', countUserRows(s) === 1);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n▶ §G **出口不变量**：会话 idle ⇒ 任何 user 行都不得 sending（任何未来路径都不会漏）');
+{
+  let s: ChatState = initialChatState('c');
+  s = userSent(s, pendingRow('你好', true, 'req-x'));
+  // 一条与送达无关的事件（queue 变更）之后仍然是 idle ⇒ sending 必须被收敛
+  s = reduce(s, { type: 'session_fields', todos: [], goal: undefined } as unknown as DomainEvent);
+  ok('★G idle 下 sending 被收敛为 false（不变量兜底）', !anySending(s));
 }
 
 console.log('\n▶ §D mutation 自证（外部注入）');
