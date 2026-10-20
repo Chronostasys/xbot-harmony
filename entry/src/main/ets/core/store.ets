@@ -16,7 +16,8 @@ import { SseClient } from './sse';
 /** SSE 意图的竞态窗口（web `useSessionStore.ts` 同值 15s）。 */
 import { hasFreshPhaseDone, isIdleAction, runningAfterReconcile, rowIsEmpty, sendStartsTurn, shouldReloadHistory, stripInterruptedMarker } from './streammerge';
 import { arrOrEmpty, isPresent } from './guards';
-import { ChatState, DomainEvent, EventSeq, initialChatState, NonEmptyS, nonEmptyStr, TurnID, UserRow } from './chat_types_full';
+import { ChatState, DomainEvent, EventSeq, initialChatState, iterNum, NonEmptyS, nonEmptyStr, turnID, TurnID, UserRow } from './chat_types_full';
+import { DEMO_ANSWER, DEMO_REASONING, demoSeedPrompt, demoSessions } from './demo';
 import { reduce, applySessionFields } from './reduce';
 import { deriveRows, Row } from './derive';
 import { extractEventChatID, normalizeEvent } from './normalize';
@@ -303,6 +304,14 @@ export class ChatStore {
   goal: GoalInfo | undefined = undefined;
 
   sessions: SessionItem[] = [];
+
+  /**
+   * AppGallery 审核用**纯本地演示模式**。由登录页 `isDemoLogin()` 打开：
+   * 不建 SSE、不发 HTTP、不走真实会话；`send()` 只生成固定演示事件。
+   */
+  demoMode: boolean = false;
+  private demoTurnSeq: number = 1000;
+  private demoSeq: number = 1;
 
   /**
    * 渲染行（`ChatRow`）—— **由状态机派生**，对齐 web `useChatMessages`：
@@ -865,7 +874,19 @@ export class ChatStore {
     return this.sessionsInflight;
   }
 
+  /** 打开 AppGallery 本地演示模式（不连任何真实服务端）。 */
+  enableDemo(): void {
+    this.demoMode = true;
+    this.sessions = demoSessions();
+    this.onUpdate();
+  }
+
   async loadSessions(): Promise<void> {
+    if (this.demoMode) {
+      this.sessions = demoSessions();
+      this.onUpdate();
+      return;
+    }
     // 会话代数 + 身份快照：await 期间 store 可能被重开到另一个 chat（新建/池 rekey）⇒
     // 旧会话树的 running/subagents 绝不能写进新会话（会冻结新会话在飞的 turn）。
     const gen: number = this.chatGen;
@@ -1405,7 +1426,56 @@ export class ChatStore {
     this.onUpdate();
   }
 
+  /** Demo session: local state only, no `/api/history`, no SSE. */
+  private openDemoSession(chatId: string): void {
+    this.currentChatId = chatId;
+    this.channel = 'web';
+    this.state = initialChatState(chatId);
+    this.rowCache = new Map();
+    this.rows = [];
+    this.askUser = null;
+    this.queue = [];
+    this.hasMore = false;
+    this.oldestId = 0;
+    this.historyError = '';
+    this.lastWidgetEvent = '';
+    this.lastWidgetContent = '';
+    this.onUpdate();
+    // 每个 demo 会话自动带一条固定示例，打开即可看到内容。
+    this.demoRunTurn(demoSeedPrompt(chatId), true);
+  }
+
+  /**
+   * 固定演示事件流：无论用户输入什么，正文/思考/迭代完全相同。
+   * ⛔ 不走网络；仅复用真实状态机的 DomainEvent，保证 UI 与线上同构。
+   */
+  private demoRunTurn(text: string, seeded: boolean = false): void {
+    const turn = turnID(this.demoTurnSeq++);
+    const seq = this.demoSeq++;
+    this.pushEvent({
+      type: 'turn_started', turnID: turn, requestID: `demo-${turn}`,
+      trigger: 'user', content: text,
+    });
+    this.pushEvent({
+      type: 'iteration', turnID: turn, iter: iterNum(1), seq: seq as never,
+      content: seeded ? DEMO_ANSWER as never : undefined,
+      reasoning: DEMO_REASONING as never,
+      activeTools: [], completedTools: [], iterationsDelta: [],
+      todos: undefined, goal: undefined, subAgents: undefined,
+      tokenUsage: undefined, streamStats: undefined,
+    });
+    this.pushEvent({
+      type: 'text_final', turnID: turn, content: DEMO_ANSWER as never,
+      progressHistory: [], cancelled: false,
+    });
+    this.pushEvent({ type: 'session_running', running: false });
+  }
+
   async openSession(chatId: string, channelHint: string = ''): Promise<void> {
+    if (this.demoMode) {
+      this.openDemoSession(chatId);
+      return;
+    }
     // ⛔ **点击即刻可见**（用户 2026-10-13 亲报「切换会话点击后立刻要 loading，不能看起来没变」）：
     //    `openSession()` 在拉到历史之前有**两次网络往返**（会话列表 + `/api/history`）；期间界面若
     //    原封不动仍是**上一个会话**的内容 ⇒ 用户以为"点了没反应"。⇒ 先当场切身份 + 清空 + 进 loading
@@ -2102,6 +2172,11 @@ export class ChatStore {
    */
   async send(text: string, uploadKeys?: string[], fileNames?: string[], fileSizes?: number[],
     interrupt?: boolean): Promise<boolean> {
+    if (this.demoMode) {
+      this.lastSendAt = Date.now();
+      this.demoRunTurn(text, false);
+      return false;
+    }
     const isInterrupt: boolean = interrupt === true;
     this.lastSendAt = Date.now();
     // ★ 用户 P0（2026-10-18）「有概率发送后不立刻出现思考中」：在**任何网络 await 之前**
@@ -2789,6 +2864,9 @@ export class ChatStore {
   }
 
   subscribe(): void {
+    if (this.demoMode) {
+      return;
+    }
     if (!this.resumeActive) {
       // 物理约束：只有页面当前 active 的 store 允许建立 SSE。
       // 后台 tab 的 store 只保留历史/草稿，一条连接都不许有。

@@ -12,6 +12,7 @@ import { AppConfig, ConfigStore, isValidServerUrl, normalizeServerUrl, readCache
 import { webview } from '@kit.ArkWeb';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { ChatStore, LOADMORE_ERR_NOCURSOR } from '../core/store';
+import { DEMO_PASSWORD, DEMO_USERNAME, isDemoLogin } from '../core/demo';
 import { beginTurnKeepAlive, endTurnKeepAlive, ensureEnabled, notificationsEnabled, PENDING_CHAT_KEY, PENDING_CHAT_SEQ_KEY, PENDING_ACTION_KEY, isKnownNotifyAction, NOTIFY_ACTION_STOP, NOTIFY_ACTION_CONTINUE } from '../core/notify';
 // 后台对账（workScheduler 延迟任务）的取消入口（目标①：登出必须停掉它）
 import { cancelReconcileScheduled } from '../workreconcile/schedule';
@@ -3069,6 +3070,21 @@ struct Index {
     //   成功后（保存 cookie 处）清零；失败保持 true（人已在登录页，无需再弹）。
     this.authExpiredHandled = true;
     this.disposeAllStores();
+    // AppGallery 审核账号：纯本地演示模式，不连接任何真实服务器，也不需要 URL。
+    if (isDemoLogin(this.username, this.password)) {
+      const demoStore: ChatStore = this.makeStore('https://demo.local', '');
+      demoStore.enableDemo();
+      await demoStore.loadSessions();
+      this.attach(demoStore);
+      this.loggedIn = true;
+      this.cookie = 'demo';
+      this.errMsg = '';
+      const first: SessionItem | undefined = this.sessions.length > 0 ? this.sessions[0] : undefined;
+      if (first !== undefined) {
+        await demoStore.openSession(first.chat_id, first.channel !== undefined ? first.channel : 'web');
+      }
+      return;
+    }
     const url: string = this.takeServerUrl();
     if (url.length === 0) {
       this.errMsg = this.testMsg;
@@ -6639,6 +6655,8 @@ struct Index {
           .constraintSize({ minHeight: 48 }).borderRadius(R_XL)
           .border({ width: 1, color: this.eff().glassBorder })
           .padding({ left: SP_3, right: SP_3 })
+        Text(`演示账号：${DEMO_USERNAME} / ${DEMO_PASSWORD}`)
+          .fontSize(FS_CAPTION).fontColor(this.pal().textMuted).width('100%')
 
         if (this.errMsg.length > 0) {
           Text(this.errMsg).fontSize(FS_CAPTION).fontColor(this.pal().dangerText).width('100%')
