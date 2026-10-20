@@ -1661,6 +1661,13 @@ export class ChatStore {
     this.loadStatus().catch(() => {
       // 状态非关键路径
     });
+    // ⛔ 用户 2026-10-21 P0（「有一个**已完成的** goal，发消息后一开始根本不显示，第一个 toolcall
+    //   被生成时才出来」）：`state.goal` 的**唯一**写入点是 progress 帧（第一次 toolcall 才有）
+    //   + `loadGoal()`（我们只在回前台/resync/idle 调）⇒ **打开会话时横幅是空的**。
+    //   打开会话必须像 todos 一样把 goal 也拉一次（同一个 `get_goal`，非关键路径、失败静默）。
+    this.loadGoal().catch(() => {
+      // 目标非关键路径
+    });
     // 会话级订阅（`get_session_subscription`）：与 loadStatus 同档触发（打开会话 + 回合结束）。
     this.loadSessionSubscription().catch(() => {
       // 订阅查询非关键路径
