@@ -301,7 +301,46 @@ func (c *pushClient) send(ctx context.Context, cfg Settings, tokens []string, re
 	return res, nil
 }
 
-// pushErrorHint 把华为错误码翻译成可执行的中文建议（工具回执/日志都用它）。
+// sendLiveView 下发一条实况窗更新/结束（operation=1/2；远程创建仅 0+FLIGHT/TAXI/TRAIN）。
+func (c *pushClient) sendLiveView(ctx context.Context, cfg Settings, tokens []string, req LiveViewRequest) (sendResult, error) {
+	endpoint, err := pushEndpoint(cfg)
+	if err != nil {
+		return sendResult{}, err
+	}
+	token, err := c.accessToken(ctx, cfg)
+	if err != nil {
+		return sendResult{}, err
+	}
+	body, err := json.Marshal(buildLiveViewPushBody(cfg, req, tokens))
+	if err != nil {
+		return sendResult{}, err
+	}
+	hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return sendResult{}, err
+	}
+	hreq.Header.Set("Content-Type", "application/json; charset=UTF-8")
+	hreq.Header.Set("Authorization", "Bearer "+token)
+	hreq.Header.Set("push-type", "0")
+	resp, err := c.http.Do(hreq)
+	if err != nil {
+		return sendResult{}, fmt.Errorf("发送实况窗失败（网络）：%w", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	var pr pushResponse
+	_ = json.Unmarshal(raw, &pr)
+	res := sendResult{
+		OK:         resp.StatusCode == http.StatusOK && (pr.Code == "" || pr.Code == "80000000"),
+		HTTPStatus: resp.StatusCode,
+		Code:       pr.Code,
+		Msg:        pr.Msg,
+	}
+	if !res.OK {
+		res.Hint = pushErrorHint(res)
+	}
+	return res, nil
+}
 func pushErrorHint(r sendResult) string {
 	switch r.Code {
 	case "80000000":

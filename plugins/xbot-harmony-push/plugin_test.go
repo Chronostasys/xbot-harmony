@@ -697,7 +697,8 @@ func TestExecuteToolAndEnrichAndActivate(t *testing.T) {
 	}
 	// activate：工具名 + enricher
 	act, err := activate(&protocol.ActivateParams{PluginID: pluginID})
-	if err != nil || len(act.Tools) != 1 || act.Tools[0].Name != toolPushNoti {
+	if err != nil || len(act.Tools) != 2 ||
+		act.Tools[0].Name != toolPushNoti || act.Tools[1].Name != toolLiveView {
 		t.Fatalf("activate 未声明工具：%+v %v", act, err)
 	}
 	if len(act.Enrichers) != 1 || act.Enrichers[0].Name != enricherHint {

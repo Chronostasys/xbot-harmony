@@ -32,6 +32,7 @@ import (
 const (
 	pluginID     = "xbot.harmony-push"
 	toolPushNoti = "push_harmony_noti"
+	toolLiveView = "push_harmony_liveview"
 	enricherHint = "harmony-push-hint"
 	// 单次请求携带的 token 上限（超出的分批发送；华为对单次 token 数有限制）
 	batchTokens = 100
@@ -114,6 +115,23 @@ func activate(params *protocol.ActivateParams) (*protocol.ActivateResult, error)
 				{Name: "data", Type: "string", Description: "附加 JSON 字符串（应用内可解析，如 {\"kind\":\"task\"}）", Required: false},
 				{Name: "dryRun", Type: "boolean", Description: "只校验与回执，不真正发送（排查用）", Required: false},
 			},
+		}, {
+			Name: toolLiveView,
+			Description: "通过 Push Kit 远程更新/结束一条**实况窗**（服务器直推；App 进程被杀也能刷新）。" +
+				"activityId 必须与客户端本地已创建的实况窗 id 一致；PROGRESS 场景远端只支持 operation=1/2。",
+			Parameters: []protocol.ToolParam{
+				{Name: "activityId", Type: "number", Description: "实况窗 id（默认 20261017）", Required: false},
+				{Name: "operation", Type: "number", Description: "1=更新（默认），2=结束；0=远程创建（仅 FLIGHT/TAXI/TRAIN）", Required: false},
+				{Name: "event", Type: "string", Description: "场景 event（默认 PROGRESS；远程创建仅 FLIGHT/TAXI/TRAIN）", Required: false},
+				{Name: "status", Type: "string", Description: "场景状态（可选，按场景取值）", Required: false},
+				{Name: "title", Type: "string", Description: "卡片标题", Required: false},
+				{Name: "content", Type: "string", Description: "卡片正文", Required: false},
+				{Name: "capsuleTitle", Type: "string", Description: "胶囊标题", Required: false},
+				{Name: "capsuleContent", Type: "string", Description: "胶囊副文本", Required: false},
+				{Name: "version", Type: "number", Description: "更新版本号（大于上次）", Required: false},
+				{Name: "test", Type: "boolean", Description: "测试消息", Required: false},
+				{Name: "dryRun", Type: "boolean", Description: "只校验，不投递", Required: false},
+			},
 		}},
 		Enrichers: []protocol.EnricherReg{{Name: enricherHint}},
 	}, nil
@@ -122,6 +140,16 @@ func activate(params *protocol.ActivateParams) (*protocol.ActivateResult, error)
 // ── execute_tool ─────────────────────────────────────────────────────────────
 
 func executeTool(params *protocol.ExecuteToolParams) (*protocol.ExecuteToolResult, error) {
+	if params.ToolName == toolLiveView {
+		var lv LiveViewRequest
+		if strings.TrimSpace(params.Input) != "" {
+			if err := json.Unmarshal([]byte(params.Input), &lv); err != nil {
+				return &protocol.ExecuteToolResult{Error: "实况窗参数不是合法 JSON：" + err.Error()}, nil
+			}
+		}
+		buf, _ := json.Marshal(doLiveView(lv, "liveview-tool"))
+		return &protocol.ExecuteToolResult{Result: string(buf)}, nil
+	}
 	if params.ToolName != toolPushNoti {
 		return &protocol.ExecuteToolResult{Error: "未知工具：" + params.ToolName}, nil
 	}
@@ -347,6 +375,11 @@ func webRPCDispatch(p *protocol.WebPluginRPCParams) *protocol.WebPluginRPCResult
 			Level: "info", Test: true,
 		}
 		return okRPC(doSend(req, "test"))
+	case "liveview_send":
+		var lv LiveViewRequest
+		raw, _ := json.Marshal(params)
+		_ = json.Unmarshal(raw, &lv)
+		return okRPC(doLiveView(lv, "liveview-rpc"))
 	case "log_recent":
 		n := intVal(params["limit"])
 		if n <= 0 {
