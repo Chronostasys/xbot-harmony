@@ -20,7 +20,7 @@ declare const process: {
 
 import { paletteOf, effectsOf, surfacesOf, THEME_DARK } from '../../entry/src/main/ets/core/theme';
 import {
-  mergeTools, mergeToolRuns, completedBlocks, blocksSignature, buildBlocksSignature,
+  mergeTools, mergeToolRuns, mergeToolRunsUncached, completedBlocks, blocksSignature, buildBlocksSignature,
 } from '../../entry/src/main/ets/core/streammerge';
 import { parseMarkdown, parseMarkdownCached, parseInline, mdCacheStats } from '../../entry/src/main/ets/core/markdown';
 import { runeCount, clipRunes } from '../../entry/src/main/ets/core/typewriter';
@@ -177,9 +177,15 @@ metric('completedBlocks_340_us', benchUs(() => { completedBlocks({ iterations: b
 //    为量到**真 build** 成本（口径与历史可比、且无 `.slice()` 的 GC 噪声），这里直接调**未缓存内核**
 //    `buildBlocksSignature`（`core/streammerge.ets`）。调用点形态（含记忆化收益）见下方 callerpat 行。
 metric('blocksSignature_340_us', benchUs(() => { buildBlocksSignature(blocksWorst); }, 2000), 'us/call');
-metric('mergeToolRuns_340_us', benchUs(() => { mergeToolRuns(blocksWorst); }, 2000), 'us/call');
+// ⚠️ 口径：`mergeToolRuns` 现在带记忆化（同一数组第二次≈0）⇒ 量"真合并"必须走未缓存内核，
+//    否则线性度护栏会量到 0（假绿）。生产调用点一律走带缓存的 `mergeToolRuns`。
+metric('mergeToolRuns_340_us', benchUs(() => { mergeToolRunsUncached(blocksWorst); }, 2000), 'us/call');
+// ⛔ 2026-10-20 修的真根因的**收益口径**：`mergeToolRuns` 的记忆化表此前**只有 get 没有 set**
+//   ⇒ 上面那条"每次都是真算"。修好后：**同一数组**重复调用命中缓存 ⇒ ≈0（下面这条）。
+//   ⇒ 渲染路径（`applyRow → syncIterBlocks → IterBlocksView`）在块未变时**每帧 0 次合并**。
+metric('mergeToolRuns_cached_340_us', benchUs(() => { mergeToolRuns(blocksWorst); }, 2000), 'us/call');
 metric('blocksSignature_24_us', benchUs(() => { buildBlocksSignature(blocksSmall); }, 2000), 'us/call');
-metric('mergeToolRuns_24_us', benchUs(() => { mergeToolRuns(blocksSmall); }, 2000), 'us/call');
+metric('mergeToolRuns_24_us', benchUs(() => { mergeToolRunsUncached(blocksSmall); }, 2000), 'us/call');
 // 页面**真实调用点形态**：`blocksSignature(稳定对象) !== blocksSignature(每帧新数组)`（`pages/Index.ets`）
 //   ⇒ 稳定侧命中缓存（省一次 O(块数) 拼串）。这是本波 `blocksSignature` 记忆化的收益口径。
 const sigStable = blocksWorst.slice();
@@ -218,7 +224,7 @@ const sig340 = blocksSignature(blocksWorst).length;
 const sig24 = blocksSignature(blocksSmall).length;
 metric('signature_len_ratio_340_24', sig340 / (sig24 > 0 ? sig24 : 1), 'x');
 metric('mergeToolRuns_time_ratio_340_24',
-  benchUs(() => { mergeToolRuns(blocksWorst); }, 500) / (benchUs(() => { mergeToolRuns(blocksSmall); }, 500) || 1), 'x');
+  benchUs(() => { mergeToolRunsUncached(blocksWorst); }, 500) / (benchUs(() => { mergeToolRunsUncached(blocksSmall); }, 500) || 1), 'x');
 
 // ── 4. 一个完整事件：history → reduce → deriveRows → applyRow（340 块）────────
 function histMessage(nBlocks: number): HistoryMessage {
