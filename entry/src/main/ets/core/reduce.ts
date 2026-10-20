@@ -1570,20 +1570,26 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
 
     // ── session：busy/idle —— idle 是 live 的收尾兜底（幽灵行灭绝） ──
     case 'session': {
-      if (ev.busy) return s.busy ? s : { ...s, busy: true }
-      // idle：active live 的兜底收尾。
-      // ⛔ 同 session_idle：coarse 会话级 idle 在服务端 reconcile 的 running 仍为
-      // true 时必然陈旧/误传 ⇒ 不得冻结运行中的 turn（不变量：cancel ⇒ 进行中
-      // 可见）。真结束由 `session_running(false)` 权威收尾。
-      if (s.sessionRunning) return s
-      if (s.activeTurn === null) return s.busy ? { ...s, busy: false } : s
+      // ⛔ 审计（2026-10-21）：「busy 变 IDLE 只能是**收到没有 toolcall 的迭代**或
+      //   **后端明确 idle**」—— `session(idle)` 正是后者 ⇒ **必须**让 busy 复位。
+      //   旧实现在 `sessionRunning` 为 true 时直接 return（当时是为了绕服务端"旧轮迟到
+      //   idle"的 bug）⇒ 一旦服务端只发 coarse idle，busy 永不复位（幽灵 busy）。
+      //   **服务端根因已在 `agent/session_idle_guard_test.go`（runGen）修掉**，客户端不再
+      //   需要这层 hack。这里保留的只是**不破坏内容**：idle 只停 `streaming`，绝不删/冻有产出的
+      //   live（下一帧 stream/iteration 会重新把 running/streaming 拉起来 ⇒ 自愈）。
+      if (ev.busy) return s.sessionRunning ? s : { ...s, sessionRunning: true, busy: true }
+      if (s.activeTurn === null) {
+        return s.sessionRunning ? { ...s, sessionRunning: false, busy: false } : s
+      }
       const t = s.turns.get(s.activeTurn)
-      if (!t || t.phase.kind !== 'live') return s.busy ? { ...s, busy: false } : s
+      if (!t || t.phase.kind !== 'live') {
+        return { ...s, sessionRunning: false, busy: false }
+      }
       const live = t.phase.data
       if (hasOutput(live)) {
-        // 幂等：已经停流 ⇒ 只清 busy（不重建 turn）
+        // 幂等：已经停流 ⇒ 只清 running（不重建 turn）
         if (!live.streaming) {
-          return s.busy ? { ...s, busy: false } : s
+          return { ...s, sessionRunning: false, busy: false }
         }
         // ⛔ 与 session_idle/session_running(false) 同一新语义：**有产出时不转 frozen**
         //   （frozen 会丢弃后续同迭代帧 ⇒ 长迭代永久冻结）。只停 streaming，
@@ -1592,7 +1598,7 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
           ...tt,
           phase: { kind: 'live', data: { ...live, streaming: false } },
         }))
-        return { ...withLiveAhead(next, t.id, live), busy: false }
+        return { ...withLiveAhead(next, t.id, live), sessionRunning: false, busy: false }
       }
       // 无产出：**必须区分两种空壳**（P0#2，2026-09-16 用户报告：「切会话后两个 turn
       // 之间的 notification（user 形式）不渲染，两侧 assistant 消息粘连」）：
@@ -1605,7 +1611,7 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       if (t.user !== null && t.user !== undefined) {
         const hollowTurns = new Map(s.turns)
         hollowTurns.set(t.id, { ...t, phase: { kind: 'frozen', data: { ...live, streaming: false } } })
-        return withLiveAhead({ ...s, turns: hollowTurns, activeTurn: null, busy: false }, t.id, live)
+        return withLiveAhead({ ...s, turns: hollowTurns, activeTurn: null, sessionRunning: false, busy: false }, t.id, live)
       }
       // [TURNDROP] 诊断：mid-turn idle 删除无产出且无 user 行的 live（空壳行灭绝）。
       // reasoning-only streaming 若 reasoning 已被迭代边界清空（advanced 清流式字段后
@@ -1617,7 +1623,7 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       })
       const turns = new Map(s.turns)
       turns.delete(t.id)
-      return { ...s, turns, activeTurn: null, busy: false }
+      return { ...s, turns, activeTurn: null, sessionRunning: false, busy: false }
     }
 
     // ── history_replaced：merge 语义（reload / hydration / rewind —— 同一转移） ──

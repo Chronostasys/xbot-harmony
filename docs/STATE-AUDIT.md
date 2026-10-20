@@ -85,6 +85,14 @@
 
 ⛔ **禁止**：会话树轮询（`/api/session-tree` 的 `running`，粗粒度全局态）、`history_replaced`
 （DB 快照滞后）、任何看门狗（busy-without-live-turn / live-stall / probe）**写** busy。
+
+**2026-10-21 定稿补充（F9）**：`session(idle)` 属于"②后端明确 idle" ⇒ **必须**让 busy 复位。
+旧实现在 `sessionRunning` 为 true 时直接 `return s`（为绕服务端"旧轮迟到 idle"的 bug）——
+一旦服务端只发 coarse idle，busy 就永不复位（幽灵 busy）。**服务端根因已修**
+（`agent/session_idle_guard_test.go` 的 runGen 守卫）⇒ 客户端不再需要该 hack。
+保留的安全边界：idle 只把 live 的 `streaming` 置 false，**绝不删除/冻结有产出的 live**
+（下一帧 `stream`/`iteration` 会重新拉起 running/streaming ⇒ 自愈），因此"迟到 idle"最多造成
+一次极短的 busy 抖动，不会再冻结内容。
 （2026-10-21 修：对账不再 `pushEvent(session_running)`；`history_replaced` 只 `||` 打开；
 `applyLocalIdle` 在发送意图窗口内直接 return。）
 
@@ -165,6 +173,7 @@
 | F5 | `hasLiveTurn()` 与看门狗判据不同源（"live 但已停流"被当在飞 ⇒ 幽灵「思考中…」） | 统一为 `streaming === true` |
 | F6 | `resetStateMachine` 丢 `sessionRunning` ⇒ 断洞重载/rewind 顺手关 busy（违反"只有两种证据能关"） | 同一会话保留 running（`withSessionRunning`，.ts 提供唯一出口避开 .ets 的 spread 禁令） |
 | F7 | `evIter < prev.iter ⇒ return s` 把 **gap 修复 delta** 一起丢掉 ⇒ 缺失迭代永远补不上 | 改为"**没有新迭代信息才丢**"；旧迭代帧只 union，不覆盖 live 正文/思考（`olderIter`） |
+| F9 | `session(idle)` 在 `sessionRunning` 为 true 时被**直接忽略**（旧 hack）⇒ 服务端只发 coarse idle 时 busy 永不复位 | 删掉该 hack：**后端 idle 必须复位 busy**；只把 live 的 `streaming` 置 false（不删不冻，下一帧自愈）。服务端根因由 `session_idle_guard_test.go`（runGen）覆盖 |
 | F8 | 转后台时上一迭代的思考重复渲染两段 | 只在**渲染层**去重（`render.ets:inFlightBlock`：与**任一**已提交块等长且全等 ⇒ 置空）。⛔ reduce 侧等长丢弃已撤销（会把合法的 gap 修复/AskUser 收尾文本清掉，`reduce.test.ts` 两条 REPRO 实证） |
 
 **判据**：`todos_live_update`(3) · `send_state_settle`(16) · `goal_busy_stability`(16) ·
