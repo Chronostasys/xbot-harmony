@@ -213,8 +213,25 @@ export function inFlightBlock(r: LiveRowView, completed: HistoryIteration[]): Hi
   //   正确性由**调用条件**保证：只有 `lastIter > maxCompleted`（新迭代，必无同号块）
   //   或 `shellSameNum`（同号已完成块是**空壳**——无正文/思考/工具）才进入本函数 ⇒
   //   同号块即使存在也没有可重复的内容。因此无需任何正文比较。
-  const content: string = r.content;
-  const reasoning: string = r.reasoning;
+  // ⛔ 2026-10-21 P0 兜底（用户截图：同一段「思考 1400 字」在历史块与在飞块各渲染一次）：
+  //   转后台等场景下，服务端的**推进事件**会把刚提交那一迭代的正文/思考再带一遍，
+  //   reduce 侧的等长判据（`isCommittedCopy`）在"提交与推进分属两条事件"时可能漏
+  //   （事件的 `iter` 已经先前进、delta 又晚到）。这里在**渲染层**再加一道**等长**判据：
+  //   在飞文字若与**最新已提交块**同名字段等长 ⇒ 它已经在历史块里渲染过 ⇒ 置空。
+  //   只比长度（与 `sameRowEssence` 同一纪律，禁止全文比较）；误判代价只是晚一拍
+  //   （下一帧 delta 会带来新长度），绝不丢内容（历史块那份额度还在）。
+  let lastIts: HistoryIteration | null = null;
+  for (let i = 0; i < completed.length; i++) {
+    if (lastIts === null || completed[i].iteration >= lastIts.iteration) {
+      lastIts = completed[i];
+    }
+  }
+  const lastReasonLen: number = lastIts !== null && lastIts.reasoning !== undefined ? lastIts.reasoning.length : -1;
+  const lastContentLen: number = lastIts !== null && lastIts.content !== undefined ? lastIts.content.length : -1;
+  const rawContent: string = r.content;
+  const rawReasoning: string = r.reasoning;
+  const content: string = rawContent.length > 0 && rawContent.length === lastContentLen ? '' : rawContent;
+  const reasoning: string = rawReasoning.length > 0 && rawReasoning.length === lastReasonLen ? '' : rawReasoning;
   const tools: ToolProgress[] = [];
   // ── live 工具列表 = web `LiveIteration.tsx` `toolDeriv` 的**三步**（本仓曾缺第 ① 步）──
   // ① **按 `iteration` 滤掉陈旧工具**（web 逐字：`t.iteration > maxCompletedIter`）；

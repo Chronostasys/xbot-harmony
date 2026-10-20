@@ -2533,9 +2533,14 @@ struct Index {
     //   非 busy 时仍走指纹比较（检测内容是否变化）。
     const structural: boolean = store.rowsGen !== this.rowsGenMirror;
     this.rowsGenMirror = store.rowsGen;
+    // 内容代数（O(1)）：任何一行内容变化 / 结构变化都会 +1 ⇒ 用来驱动**自动跟随底部**
+    const contentRev: number = store.rowsRev;
+    const grew: boolean = structural || contentRev !== this.rowsRevMirror;
+    this.rowsRevMirror = contentRev;
     const rowsFp: string = this.busy ? '' : this.fingerprintRows(store.rows, store.currentChatId);
-    // ⛔ 流式期（busy）：**只有行集合结构变了**才重投数组；内容变化走 @ObjectLink。
+    // ⛔ 流式期（busy）：**只有行集合结构变了**才重投 `@State rows`；内容变化走 @ObjectLink。
     //   旧实现 `busy || …` 在每个 SSE 事件都重投 ⇒ 整页 rebuild ⇒ 与手势/滚动抢主线程。
+    //   ⚠️ 但"重投数组"与"要不要跟到底部"是**两件事**（见 rowsRevMirror 的注释）。
     const contentGrew: boolean = structural || (!this.busy && rowsFp !== this.rowsFp);
     // ⛔ 2026-10-15 streaming 掉帧修复：busy 时跳过 O(n) structRowsFpOf 计算——
     //   streaming 时结构不变（只有 live 行走非懒路径）⇒ structFp 不变 ⇒ 跳过省 O(n)。
@@ -2584,7 +2589,7 @@ struct Index {
     //      用户"点击最后一个迭代里的工具就自动滚到最下方" —— 点 pill ⇒ toggleTool ⇒
     //      fetchIterationDetail ⇒ store 变更 ⇒ 旧代码无条件 scrollEdge 把刚点的 pill 顶出视口）。
     //      判据本体是纯函数 `core/listfollow.shouldAutoScroll`（脱机单测 + mutation 自证）。
-    if (shouldAutoScroll(this.followBottom, contentGrew, Date.now(), this.followSuppressUntilMs) && !this.userTouchActive) {
+    if (shouldAutoScroll(this.followBottom, grew, Date.now(), this.followSuppressUntilMs) && !this.userTouchActive) {
       this.listScroller.scrollEdge(Edge.Bottom);
     }
     this.busy = store.busy;
@@ -2776,7 +2781,7 @@ struct Index {
     }
     // 只有用户意图为"跟随"**且尾部内容真的变了**才跟随；用户往上滚后意图被翻掉就不再抢滚动位置
     // （否则"阅读中被打断"）；用户就地展开/折叠（抑制窗内）也不抢（真机 P0，2026-10-11）。
-    if (shouldAutoScroll(this.followBottom, contentGrew, Date.now(), this.followSuppressUntilMs)) {
+    if (shouldAutoScroll(this.followBottom, grew, Date.now(), this.followSuppressUntilMs)) {
       delay(() => {
         // ⛔ **派发后复查意图**：这 30ms 内用户可能已经动手（`onWillScroll` 立即置
         //    `followBottom=false`）⇒ 若此处不复查，一个"用户动手前刚排上队"的程序滚动
@@ -9631,6 +9636,16 @@ struct Index {
    *   行组件 ⇒ 只有**行集合结构**变化（增删/换序/切会话）才需要重投（docs/PERF-BOUNDS.md §3）。
    */
   private rowsGenMirror: number = -1;
+  /**
+   * `ChatStore.rowsRev` 的镜像（**内容**代数）。
+   *
+   * ⛔ 2026-10-21 P0：`contentGrew` 一度被收窄成"只有结构变化"⇒ 流式期**不再自动跟随底部**
+   *   （用户亲报「视角无法跟随最新消息，怎么滑都追不上」）。正确语义：
+   *   · `grew`（内容代数变了）⇒ 决定**要不要跟到底部**（`shouldAutoScroll`）；
+   *   · `structural`（行集合变了）⇒ 决定**要不要重投 `@State rows`**。
+   *   两者必须分开（旧实现是同一个布尔，既想省整页 rebuild 又想保住跟随）。
+   */
+  private rowsRevMirror: number = -1;
   /**
    * 行集合的**结构**指纹（`core/rowdiff.structRowsFpOf`：`id#isLive#迭代数#末迭代在飞`）。
    *
