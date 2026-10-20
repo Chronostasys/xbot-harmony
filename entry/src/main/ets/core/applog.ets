@@ -51,6 +51,10 @@ export const appLog: AppLog = new AppLog();
 /** 便捷追加。 */
 export function log(tag: string, msg: string): void {
   appLog.push(tag, msg);
+  // ⛔ 用户 2026-10-21 要求：「每次状态变化必须要打印日志还有原因」——
+  //   环形缓冲只在应用内可见，排障必须能 `hdc shell hilog` 抓 ⇒ 同步打到系统日志。
+  //   只用于**低频**事件（状态迁移/错误），⛔ 不要放进逐帧路径。
+  console.info(`[xbot][${tag}] ${msg}`);
 }
 
 /** 渲染用：**新→旧**（最新在最上）。 */

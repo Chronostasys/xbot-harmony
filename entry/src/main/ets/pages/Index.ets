@@ -2668,6 +2668,12 @@ struct Index {
       this.queueFp = queueFp;
       this.queue = store.queue.slice();
     }
+    // ⛔ busy 迁移日志（含原因）—— 用户 2026-10-21 要求，用来抓「busy/idle 抽搐」
+    const wasBusy: boolean = this.busy;
+    if (wasBusy !== store.busy) {
+      log('state', `busy ${wasBusy ? 1 : 0}→${store.busy ? 1 : 0} cause=${store.lastBusyCause}`
+        + ` running=${store.busy ? 1 : 0} busyPhase=${store.liveProgress().phase}`);
+    }
     this.usage = store.usage;
     this.cwd = store.cwd;
     const todosFp: string = todosFpOf(store.todos);
@@ -2684,6 +2690,10 @@ struct Index {
     //    （用户 2026-10-21 亲报「发一条消息 goal 立马消失，过一会又显示」）。
     const gObj: string = store.goalText();
     const gSt: string = store.goalStatusText();
+    if (this.goalObjective !== gObj) {
+      log('state', `goal ${this.goalObjective.length}→${gObj.length}字 status=${gSt}`
+        + ` cause=sessionGoal state=${this.currentChat}`);
+    }
     if (this.goalObjective !== gObj) {
       this.goalObjective = gObj;
     }

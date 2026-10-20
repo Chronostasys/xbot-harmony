@@ -346,6 +346,8 @@ export class ChatStore {
   rowsRev: number = 0;
   /** 最近一次 SSE/store 事件时刻（毫秒）—— 非权威 idle 的"事件静默"闸门用。 */
   lastEventAtMs: number = 0;
+  /** **最近一次 busy/running 迁移的原因**（事件类型或路径名）—— 页面迁移日志用它。 */
+  lastBusyCause: string = '';
 
   /**
    * 单会话**唯一事实源**：`ChatState`（逐字移植 web `chat/types.ts` / `reduce.ts`）。
@@ -664,8 +666,16 @@ export class ChatStore {
   /** 单事件便捷。 */
   private pushEvent(ev: DomainEvent): void {
     const prev: ChatState = this.state;
+    const wasRunning: boolean = prev.sessionRunning;
     this.settleIntentOnAuthoritative(ev);
     this.state = reduce(this.state, ev);
+    // ⛔ 状态迁移日志（用户 2026-10-21：「每次状态变化必须要打印日志还有原因」）：
+    //   任何 running 0↔1 都必须留下"是哪条事件/哪条路径"的证据，否则抽搐无法归因。
+    if (wasRunning !== this.state.sessionRunning) {
+      this.lastBusyCause = `ev:${ev.type}`;
+      log('state', `running ${wasRunning ? 1 : 0}→${this.state.sessionRunning ? 1 : 0}`
+        + ` cause=${this.lastBusyCause} turn=${this.state.activeTurn !== null ? this.state.activeTurn : 0}`);
+    }
     this.rebuildRows();
     this.watchTurnEndedWhileBusy(prev, this.state, ev);
     this.watchBusyWithoutLiveTurn(this.state);
@@ -1057,6 +1067,7 @@ export class ChatStore {
     }
     // ② SSE 意图：idle 证据时刻（对账时用于压住"矛盾的旧 busy"）
     log('idle', `回合结束 chat=${chatId} 权威=${authoritative ? 'PhaseDone' : 'SSE idle'}`);
+    this.lastBusyCause = `local-idle:${authoritative ? 'auth' : 'sse'}`;
     // ⛔ 非权威（coarse `session(idle)` / `agent-idle`）且状态机**仍认为会话在跑 + 有 live turn**
     //   ⇒ 这条 idle 陈旧/错传 ⇒ **绝不**冻结在跑 turn（对齐 reduce `session_idle` 的
     //   `if (s.sessionRunning) return s` 闸门）。本函数此前走了**唯一没闸门**的
