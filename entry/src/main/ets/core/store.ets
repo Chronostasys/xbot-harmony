@@ -491,6 +491,7 @@ export class ChatStore {
     }
     let next: ChatState = this.state;
     for (let i = 0; i < evs.length; i++) {
+      this.settleIntentOnAuthoritative(evs[i]);
       next = reduce(next, evs[i]);
     }
     this.state = next;
@@ -499,12 +500,27 @@ export class ChatStore {
     this.watchGapReload();
   }
 
-  /** 单个 DomainEvent（内部便捷）。 */
+  /** 单事件便捷。 */
   private pushEvent(ev: DomainEvent): void {
+    this.settleIntentOnAuthoritative(ev);
     this.state = reduce(this.state, ev);
     this.rebuildRows();
     // ⛔ 洞检测的**唯一消费点**（见 `watchGapReload`）
     this.watchGapReload();
+  }
+
+  /**
+   * 发送意图窗（8s）只用于 ack/turn_started 到达前的本地反馈；**任何权威回合事件**
+   * 都必须终止它，否则 ack 里续期后 turn 在 8s 内收尾 ⇒ busy 幽灵（页面显示思考中）。
+   */
+  private settleIntentOnAuthoritative(ev: DomainEvent): void {
+    if (ev.type === 'turn_started' || ev.type === 'text_final' || ev.type === 'phase_done') {
+      this.intentBusyAt = 0;
+      return;
+    }
+    if (ev.type === 'session' && ev.busy === false) {
+      this.intentBusyAt = 0;
+    }
   }
 
   /** `ChatState → rows`：`deriveRows` + 就地适配（对象恒等）。 */

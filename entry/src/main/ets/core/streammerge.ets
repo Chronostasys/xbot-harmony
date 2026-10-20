@@ -28,6 +28,15 @@ import { mergeActiveStatus, toolRank } from './toolmerge';
  */
 export function runningAfterReconcile(serverRunning: boolean, intentBusyAt: number,
   intentIdleAt: number, nowMs: number, ttlMs: number): boolean {
+  // ⛔ web Case2（2026-10-20 审计）：**新鲜 idle 意图压过矛盾的 HTTP running**。
+  //   旧实现先 `if (serverRunning) return true` ⇒ 回合结束后的迟到 session-tree 快照
+  //   （running=true）会把 busy 复活，页面凭空出现「思考中」。
+  const freshIdle: boolean = intentIdleAt > 0
+    && nowMs - intentIdleAt < ttlMs
+    && intentIdleAt >= intentBusyAt;
+  if (freshIdle) {
+    return false;
+  }
   if (serverRunning) {
     return true;
   }
