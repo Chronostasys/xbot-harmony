@@ -17,7 +17,7 @@ import { SseClient } from './sse';
 import { hasFreshPhaseDone, isIdleAction, runningAfterReconcile, rowIsEmpty, sendStartsTurn, shouldReloadHistory, stripInterruptedMarker } from './streammerge';
 import { arrOrEmpty, isPresent } from './guards';
 import { ChatState, DomainEvent, EventSeq, initialChatState, iterNum, NonEmptyS, nonEmptyStr, turnID, TurnID, UserRow } from './chat_types_full';
-import { DEMO_ANSWER, DEMO_REASONING, demoSeedPrompt, demoSessions } from './demo';
+import { demoAnswerFor, demoFirstIteration, demoReasoningFor, demoSeedPrompt, demoSessions, demoToolFor } from './demo';
 import { reduce, applySessionFields } from './reduce';
 import { deriveRows, Row } from './derive';
 import { extractEventChatID, normalizeEvent } from './normalize';
@@ -877,6 +877,9 @@ export class ChatStore {
   /** 打开 AppGallery 本地演示模式（不连任何真实服务端）。 */
   enableDemo(): void {
     this.demoMode = true;
+    // demo 没有真实 SSE；页面 sendDraft 的闸门是 connState==='open'，
+    // 否则用户输入会被拦成「未连接，正在重连」。
+    this.connState = 'open';
     this.sessions = demoSessions();
     this.onUpdate();
   }
@@ -1453,20 +1456,35 @@ export class ChatStore {
   private demoRunTurn(text: string, seeded: boolean = false): void {
     const turn = turnID(this.demoTurnSeq++);
     const seq = this.demoSeq++;
+    const chatId: string = this.currentChatId;
+    const answer: string = demoAnswerFor(chatId);
+    const reasoning: string = demoReasoningFor(chatId);
+    const tool = demoToolFor(chatId);
+    const first = demoFirstIteration(chatId);
     this.pushEvent({
       type: 'turn_started', turnID: turn, requestID: `demo-${turn}`,
       trigger: 'user', content: text,
     });
+    // 迭代 1：思考 + 一个已完成工具；让 demo 会话能展示 tool pill 和迭代历史。
     this.pushEvent({
       type: 'iteration', turnID: turn, iter: iterNum(1), seq: seq as never,
-      content: seeded ? DEMO_ANSWER as never : undefined,
-      reasoning: DEMO_REASONING as never,
+      content: first.content as never,
+      reasoning: reasoning as never,
+      activeTools: [tool], completedTools: [tool],
+      iterationsDelta: [first],
+      todos: undefined, goal: undefined, subAgents: undefined,
+      tokenUsage: undefined, streamStats: undefined,
+    });
+    // 迭代 2：最终回复（Markdown 标题/列表/链接由 MarkdownView 渲染）。
+    this.pushEvent({
+      type: 'iteration', turnID: turn, iter: iterNum(2), seq: (seq + 1) as never,
+      content: answer as never, reasoning: reasoning as never,
       activeTools: [], completedTools: [], iterationsDelta: [],
       todos: undefined, goal: undefined, subAgents: undefined,
       tokenUsage: undefined, streamStats: undefined,
     });
     this.pushEvent({
-      type: 'text_final', turnID: turn, content: DEMO_ANSWER as never,
+      type: 'text_final', turnID: turn, content: answer as never,
       progressHistory: [], cancelled: false,
     });
     this.pushEvent({ type: 'session_running', running: false });
