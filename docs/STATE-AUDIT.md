@@ -129,6 +129,23 @@
 
 ---
 
+### §3.6 **空值 vs 无值**（严格三态，2026-10-21 用户硬要求）
+
+每一处会写 `todos` / `goal` 的入口都必须回答"字段缺失"与"明确的空"的差别，⛔ 不得把二者混用：
+
+| 入口 | 字段缺失 / `undefined` | 明确的空 | 有值 |
+|---|---|---|---|
+| `normalize.optTodos` | `undefined`（不动） | `[]`（清空） | 覆盖 |
+| `normalize.optGoal` | `undefined`（不动） | `status:'cleared'` ⇒ `null`（用户显式删除） | 覆盖 |
+| `applySessionFields` | 不动 | `[]` / `null` 清除 | 覆盖 |
+| `history_replaced`（DB 快照） | `todosAuthoritative:false` 或 `goal:undefined` ⇒ **保留本地** | `todosAuthoritative:true + todos:[]` / `goal:null` ⇒ 清除 | 覆盖（**仅当无 live turn**） |
+| `store.loadStatus`（REST） | `todos` 字段缺失 ⇒ `undefined`（保留） | `[]` ⇒ 清空 | 覆盖 |
+| `store.loadGoal`（`get_goal`） | `null`/失败 ⇒ **不动**（不是"删除"） | 只有 progress 帧的 `cleared` 或用户手点 ✕ | 覆盖 |
+
+**快照覆盖的第二判据（同一事实的"新旧"）**：`history_replaced` 是**持久化权威但可能滞后**——
+只有当**没有 live turn**（即本地不可能有更新的编辑）时才采信快照的三态；有 live turn 时
+本地更新（`todo_write` 刚发生）优先，否则面板会闪回旧列表（既有 REPRO 用例钉住）。
+
 ## §4 对账与看门狗清点
 
 | 路径 | 位置 | 动作 | 是否写状态机 |
