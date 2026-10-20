@@ -20,7 +20,7 @@ import { ChatState, DomainEvent, EventSeq, initialChatState, iterNum, NonEmptyS,
 import { demoAnswerFor, demoFirstIteration, demoReasoningFor, demoSeedPrompt, demoSessions, demoToolFor } from './demo';
 import { reduce, applySessionFields } from './reduce';
 import { withSessionRunning } from './chat_types_full';
-import type { TodoItem as ChatTodoItem } from './chattypes';
+import type { GoalInfo as ChatGoalInfo, TodoItem as ChatTodoItem } from './chattypes';
 import { deriveRows, Row } from './derive';
 import { extractEventChatID, normalizeEvent } from './normalize';
 import { historyToReplaced, liveProgressFromState } from './integrate';
@@ -32,7 +32,6 @@ import { canonicalChatId, channelForChat } from './sessionpick';
 import { parseAgentChatID, ParsedAgentChatID } from './sessiongroup';
 import { ForkResult, GoalInfo, SearchHit, SessionStatus, TodoItem, TokenUsage, UploadResult } from './types';
 import { liveProbeVerdict, probePhaseActive, PROBE_STALL } from './liveprobe';
-import type { GoalInfo as ChatGoalInfo } from './chattypes';
 import { normalizeLocale, setLocale, t as i18nT } from './i18n';
 import { moveOrders, parseSearchHits, searchBody, SEARCH_LIMIT_DEFAULT, SearchBody, chatSwitchPath, chatSwitchChannel, ChatSwitchResult, parseChatSwitch } from './sessionops';
 import { RewindReq, RewindTarget, gapTopBefore, rewindTargetDBID } from './msgops';
@@ -2680,6 +2679,19 @@ export class ChatStore {
         localIter = t.phase.data.iter;
       }
     }
+    // ⛔ 审计确证（2026-10-21，state-audit-9）：删掉"会话树对账写状态"后，一旦**唯一那条
+    //   `session(idle)` 事件丢失**（SSE 抖动/切换），busy 就只能靠"用户再发一条消息"才关得掉。
+    //   这不是"对账兜底"，而是**用户规则 (b)：后端明确告诉你 idle** —— `get_active_progress`
+    //   是**本会话**的权威快照（不是会话树的粗粒度全局态）。判据三重收紧：
+    //     ① 服务端明确"无在飞"（phase=done / 空快照）；
+    //     ② 本地以为在跑；
+    //     ③ **事件流已静默 ≥3s**（有新鲜事件说明只是快照滞后，绝不能据此关 busy）。
+    const silentNow: boolean = Date.now() - this.lastEventAtMs >= 3000;
+    if (!hasActive && this.busy && silentNow) {
+      log('state', `探针：服务端明确 idle（${reason}）⇒ 收尾 busy（事件静默已满 3s）`);
+      this.applyLocalIdle(this.currentChatId, true);
+      return;
+    }
     const verdict: string = liveProbeVerdict(this.busy, localTurn, localIter,
       hasActive, serverTurn, serverIter);
     if (verdict === PROBE_STALL) {
@@ -2710,7 +2722,12 @@ export class ChatStore {
     const gen: number = this.chatGen;
     const forChat: string = this.currentChatId;
     try {
-      const g: GoalInfo | null = await rpc<GoalInfo | null>(
+      // ⛔ 审计确证（2026-10-21，子代理发现）：服务端 `get_goal` 返回的是**协议形状**
+      //   `{objective, status}`（`protocol.GoalInfo`），而这里此前按 `types.GoalInfo{text}`
+      //   读 ⇒ `g.text` 恒 `undefined` ⇒ 每次打开会话 / idle / 回前台都把 goal 写成**空串**
+      //   ⇒ 横幅消失（用户亲报「IDLE 状态下不显示 goal」的直接原因）。
+      //   ⇒ 按协议形状（`chattypes.GoalInfo`）解析。
+      const g: ChatGoalInfo | null = await rpc<ChatGoalInfo | null>(
         this.http, RPC_GET_GOAL, new GoalReq(this.channel, this.wireChatId()), false);
       if (gen !== this.chatGen || forChat !== this.currentChatId) {
         return;
@@ -2725,14 +2742,17 @@ export class ChatStore {
       if (g === null || g === undefined) {
         return;
       }
-      // ⚠️ 线上两个 GoalInfo 形状不同：`state.goal` 用 `{objective,status}`（协议形状）。
+      // 空 objective（服务端没给有效目标）⇒ **不动**（不能写成空串清掉横幅）。
+      if (g.objective === undefined || g.objective.length === 0) {
+        return;
+      }
       const cur = this.state.goal;
-      if (cur !== null && cur !== undefined && cur.objective === g.text
+      if (cur !== null && cur !== undefined && cur.objective === g.objective
         && cur.status === g.status) {
-        return;   // 同值 ⇒ 零通知
+        return;   // 同值 ⇒ 零通知（不产生"频繁状态变化"）
       }
       this.state = applySessionFields(this.state, undefined, {
-        objective: g.text !== undefined ? g.text : '',
+        objective: g.objective,
         status: g.status !== undefined && g.status.length > 0 ? g.status : 'active',
       });
       this.onUpdate();

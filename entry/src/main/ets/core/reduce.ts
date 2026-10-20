@@ -265,6 +265,40 @@ function mergeToolUnion(prev: readonly WebToolProgress[], next: readonly WebTool
   return out
 }
 
+/**
+ * 「推进帧回带的**刚提交迭代副本**」—— 精确判据（2026-10-21 审计后定稿）。
+ *
+ * 形态（转后台 100% 复现）：`advanced === true`（迭代号前进）+ `iterationsDelta` **为空**
+ * （这条帧不携带任何新迭代数据）+ 帧上的正文/思考与**刚提交那一迭代**（`prev.iter`）逐字相同
+ * ⇒ 它是服务端把上一迭代的文字**回带**了一遍，不属于新迭代 ⇒ 丢弃（否则在飞块会重复渲染）。
+ *
+ * ⛔ 三个必须条件缺一不可（否则误伤合法内容，实测会打红 `reduce.test.ts` 的
+ *   「gap 修复 delta 携带旧迭代」与「AskUser cancel 收尾」两条 REPRO）：
+ *   ① 有 delta 的帧绝不判副本（gap 修复/AskUser 收尾都靠 delta）；
+ *   ② 必须**逐字相同**（不是仅等长）；
+ *   ③ 只与刚提交那一迭代比（不是任意历史块）。
+ */
+function advanceCarriesCommittedCopy(advanced: boolean, deltaLen: number,
+  incoming: string | undefined, committed: string | undefined): boolean {
+  if (!advanced || deltaLen > 0 || incoming === undefined || incoming.length === 0) {
+    return false
+  }
+  if (committed === undefined || committed.length !== incoming.length) {
+    return false
+  }
+  return committed === incoming
+}
+
+/** 取 `iters` 中指定迭代号的字段（缺失返回 undefined）。 */
+function iterFieldOf(iters: readonly WebIteration[], iter: number, wantReasoning: boolean): string | undefined {
+  for (let i = 0; i < iters.length; i++) {
+    if (iters[i].iteration === iter) {
+      return wantReasoning ? iters[i].reasoning : iters[i].content
+    }
+  }
+  return undefined
+}
+
 function maxHeldIteration(iterations: readonly WebIteration[]): number {
   let max = 0
   for (const it of iterations) if (it.iteration > max) max = it.iteration
@@ -1144,9 +1178,15 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
         // ⛔ 前进事件自带的正文/思考可能是**刚提交那一迭代**的残留副本（转后台场景 100% 复现，
         //   见 isLeftoverText 的注释）⇒ 等长即丢弃，新迭代从空开始。
         content: olderIter ? prev.content
-          : advanced ? (ev.content ?? '') : committedNow ? '' : (ev.content ?? prev.content),
+          : advanced
+            ? (advanceCarriesCommittedCopy(true, ev.iterationsDelta.length, ev.content,
+              iterFieldOf(merged, prev.iter, false)) ? '' : (ev.content ?? ''))
+            : committedNow ? '' : (ev.content ?? prev.content),
         reasoning: olderIter ? prev.reasoning
-          : advanced ? (ev.reasoning ?? '') : committedNow ? '' : (ev.reasoning ?? prev.reasoning),
+          : advanced
+            ? (advanceCarriesCommittedCopy(true, ev.iterationsDelta.length, ev.reasoning,
+              iterFieldOf(merged, prev.iter, true)) ? '' : (ev.reasoning ?? ''))
+            : committedNow ? '' : (ev.reasoning ?? prev.reasoning),
         // I4：append-only 合并（dedup by iteration#，同号权威覆盖）
         iterations: merged,
         // ⛔ 已渲染的工具绝不消失（线性一致性，用户 2026-09-18 P0）：

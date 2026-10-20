@@ -9801,10 +9801,11 @@ struct Index {
           break;
         }
       }
+      // ⛔ 只在**真变化**时写 `@State`（每帧无条件写会让页级 build 跟着 SSE 帧率重跑）
       if (live !== undefined) {
-        this.liveRowRef = live;
-        this.hasLiveRow = true;
-      } else {
+        if (this.liveRowRef !== live) { this.liveRowRef = live; }
+        if (!this.hasLiveRow) { this.hasLiveRow = true; }
+      } else if (this.hasLiveRow) {
         this.hasLiveRow = false;
       }
       this.syncLiveTail();
@@ -9832,9 +9833,9 @@ struct Index {
       }
     }
     if (live !== undefined) {
-      this.liveRowRef = live;
-      this.hasLiveRow = true;
-    } else {
+      if (this.liveRowRef !== live) { this.liveRowRef = live; }
+      if (!this.hasLiveRow) { this.hasLiveRow = true; }
+    } else if (this.hasLiveRow) {
       this.hasLiveRow = false;
     }
     // live 行「在飞内容」→ 页面 @State 镜像（**必须**：见 `liveText` 的注释 ——

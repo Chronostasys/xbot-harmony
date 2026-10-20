@@ -223,26 +223,33 @@ export function inFlightBlock(r: LiveRowView, completed: HistoryIteration[]): Hi
   // ⛔ 兜底判据：与**任意**已提交块的同名字段等长 ⇒ 视为重复（不能只比最后一页：
   //   真实形态是「B 迭代有 1400 字思考 → C 迭代只有工具没有思考 → 在飞块继承了 1400」，
   //   只比 C（长度 0）会漏判）。从**末尾往前**找第一个非空者，通常一步命中 ⇒ 常态 O(1)。
-  let committedReasonLen: number = -1;
-  let committedContentLen: number = -1;
-  let committedReasoning: string = '';
-  let committedContent: string = '';
-  for (let i = completed.length - 1; i >= 0; i--) {
+  // ⛔ 用户 2026-10-21（`ui-state` 审计）：判据范围必须是**同号迭代**，不能是"任意已提交块"——
+  //   否则新一轮输出与某个更早的已提交块逐字相同（重试同一条回答、短答「好的」）时，
+  //   在飞块会被整块判成"重复" ⇒ `return null` ⇒ **该页在飞期永久不可见**（只看到「思考中…」）。
+  //   真实重复形态只有一种：**刚提交的那一迭代**（转后台/推进帧回带它的正文或思考），
+  //   其迭代号 = `r.lastIter`（同号提交）。⇒ 只跟 `iteration === r.lastIter` 的块比。
+  let sameNumReasonLen: number = -1;
+  let sameNumContentLen: number = -1;
+  let sameNumReasoning: string = '';
+  let sameNumContent: string = '';
+  for (let i = 0; i < completed.length; i++) {
     const blk: HistoryIteration = completed[i];
-    const rr: string = blk.reasoning !== undefined ? blk.reasoning : '';
-    const cc: string = blk.content !== undefined ? blk.content : '';
-    if (committedReasonLen < 0 && rr.length > 0) { committedReasonLen = rr.length; committedReasoning = rr; }
-    if (committedContentLen < 0 && cc.length > 0) { committedContentLen = cc.length; committedContent = cc; }
-    if (committedReasonLen >= 0 && committedContentLen >= 0) { break; }
+    if (blk.iteration !== r.lastIter) {
+      continue;
+    }
+    sameNumReasoning = blk.reasoning !== undefined ? blk.reasoning : '';
+    sameNumContent = blk.content !== undefined ? blk.content : '';
+    sameNumReasonLen = sameNumReasoning.length;
+    sameNumContentLen = sameNumContent.length;
+    break;
   }
   const rawContent: string = r.content;
   const rawReasoning: string = r.reasoning;
-  // ⛔ 先比长度（O(1) 快路），**长度相等时才做一次字符串全等**（极少命中）——这样既不会
-  //   把"恰好同长的**新**思考"误删（假阳性），又不需要每帧全文比较（性能纪律）。
-  const dupContent: boolean = rawContent.length > 0 && rawContent.length === committedContentLen
-    && committedContent === rawContent;
-  const dupReasoning: boolean = rawReasoning.length > 0 && rawReasoning.length === committedReasonLen
-    && committedReasoning === rawReasoning;
+  // 先比长度（O(1) 快路），**等长且全等**才判重复（极少命中）⇒ 不是每帧全文比较。
+  const dupContent: boolean = rawContent.length > 0 && rawContent.length === sameNumContentLen
+    && sameNumContent === rawContent;
+  const dupReasoning: boolean = rawReasoning.length > 0 && rawReasoning.length === sameNumReasonLen
+    && sameNumReasoning === rawReasoning;
   const content: string = dupContent ? '' : rawContent;
   const reasoning: string = dupReasoning ? '' : rawReasoning;
   const tools: ToolProgress[] = [];
