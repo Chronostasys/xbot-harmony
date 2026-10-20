@@ -815,7 +815,9 @@ export class ChatStore {
           // ⛔ 只有当前展示中的 store 才做：后台 tab 的 store 也会重连，N 个 store
           // 同时 loadHistory 会在 UI 线程上解析 N 份大历史 ⇒ 恢复休眠时整页冻死
           //（用户 2026-10-19 实测）。后台 store 切回来时 openSession 会自己加载。
-          this.resyncAfterResume('sse-reopen');
+          // 重连是状态可能已分叉的边界：不能被 1.2s 节流吞掉（否则只更新
+          // session-tree，正文/live 永远不重新对齐）。
+          this.resyncAfterResume('sse-reopen', true);
         } else {
           this.loadSessions().catch(() => {
             // 对账失败不影响连接本身

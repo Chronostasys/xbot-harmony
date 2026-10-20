@@ -114,6 +114,18 @@ async function main(): Promise<void> {
   w2.emit('text', { chat_id: CHAT, turn_id: 5, seq: 5, content: '旧回合补发' });
   ok('已有后续 turn 时，旧 finalizer 不得误触发 resync', historyPosts === before2);
 
+  // 重连/权威 history 快照没有 active，必须清掉幽灵 sessionRunning；
+  // 否则 API 调用了、行也换了，页面仍画「思考中」。
+  const store3 = new ChatStore('http://127.0.0.1:9');
+  wire(store3);
+  (store3 as unknown as { pushEvent: (ev: object) => void })
+    .pushEvent({ type: 'session_running', running: true });
+  ok('前置：权威 running=true', store3.serverRunning === true);
+  (store3 as unknown as { pushEvent: (ev: object) => void }).pushEvent({
+    type: 'history_replaced', legacy: [], turns: [], active: null, lastSeq: null, todos: [],
+  });
+  ok('history 快照 active=null ⇒ 必须清 sessionRunning（否则 resync 无效）', store3.serverRunning === false);
+
   if (fail > 0) {
     console.log(`  turn_end_busy_resync: ${pass} passed, ${fail} failed`);
     process.exit(1);

@@ -1782,6 +1782,17 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
         const at = turns.get(activeTurn)
         if (at && at.phase.kind === 'live') liveAhead = liveAheadGapSig(at.id, at.phase.data)
       }
+      // ⛔ history_replaced 是权威快照：必须用它校准会话 running。
+      //    旧实现 `sessionRunning: s.sessionRunning` 会把「重连前的幽灵 busy」原样
+      //    保留 ⇒ 即使 resync 真的调用了 /api/history，消息行更新了，页面仍因
+      //    sessionRunning=true 一直画「思考中」（用户 2026-10-20 截图）。
+      //    只有快照带 active，或本地仍有真正 live turn，才算 running。
+      let hasLiveTurn: boolean = false;
+      if (activeTurn !== null) {
+        const at = turns.get(activeTurn)
+        hasLiveTurn = at !== undefined && at.phase.kind === 'live';
+      }
+      const authoritativeRunning: boolean = ev.active !== null || hasLiveTurn;
 
       if (
         sameTurnMap(turns, s.turns) &&
@@ -1789,6 +1800,7 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
         sameItems(pendingUsers, s.pendingUsers) &&
         activeTurn === s.activeTurn &&
         lastSeq === s.lastSeq &&
+        authoritativeRunning === s.sessionRunning &&
         sameItems(todos, s.todos) &&
         // 「无法追赶的 gap」形状变化时必须返回新 state（否则 gapReloadToken 的自增被
         // 短路吞掉，面板拿不到"重载该会话"的信号）。
@@ -1808,8 +1820,9 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
       // 占位符承担（MessageList 的 tailShowsIndicator）。
       return {
         chatID: s.chatID, turns, legacy, activeTurn, lastSeq,
-        busy: s.busy, pendingUsers, queue: s.queue, todos, goal: s.goal,
-        sessionRunning: s.sessionRunning,
+        busy: authoritativeRunning ? s.busy : false,
+        pendingUsers, queue: s.queue, todos, goal: s.goal,
+        sessionRunning: authoritativeRunning,
         // 命令行（`!cmd`）落库行：事件带 standalone 时**采纳**它（刷新后状态是空的，
         // DB 权威行必须进渲染）；事件未带（手写事件/旧路径）则保留现有。
         standalone: ev.standalone ?? s.standalone,
