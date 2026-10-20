@@ -533,7 +533,11 @@ export class ChatStore {
     let hasLive: boolean = false;
     if (next.activeTurn !== null) {
       const t = next.turns.get(next.activeTurn);
-      hasLive = t !== undefined && t.phase.kind === 'live';
+      // ⛔ 只有**仍在 streaming** 的 live turn 才能解释 busy；`session_idle`/
+      //   `session_running(false)` 只停流、保留 activeTurn（为了不丢同迭代后续帧），
+      //   若这里把“live 但已停流”也算作有效 busy，turn 已结束却仍 busy 的幽灵
+      //   会再次出现（用户 2026-10-20 亲报）。
+      hasLive = t !== undefined && t.phase.kind === 'live' && t.phase.data.streaming === true;
     }
     if (!hasLive) {
       log('resync', `会话 busy 但没有 live turn chat=${this.currentChatId} active=${String(next.activeTurn)}`);
