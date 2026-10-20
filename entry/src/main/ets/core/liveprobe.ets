@@ -58,8 +58,11 @@ export function liveProbeVerdict(localBusy: boolean, localTurn: number, localIte
  * 服务端在回合结束/无快照时会返回 `phase: "done"`（见 `GetActiveProgress` 的注释），
  * ⇒ 必须把 `done` 折成"没有在飞"，否则每次切回来都会误判成 stall（白白重载一次历史）。
  */
-export function probePhaseActive(phase: string | undefined): boolean {
-  if (phase === undefined || phase.length === 0) {
+export function probePhaseActive(phase: string | undefined | null): boolean {
+  // ⛔ 审计确证（确证-13）：服务端指针字段可能是 JSON `null`（不是 undefined）⇒ 旧实现
+  //   直接读 `phase.length` 抛异常，而调用点在 try 之外、调用方一律 `.catch(()=>{})`
+  //   ⇒ 探针**静默完全失效**（stall 永远发现不了）。
+  if (phase === undefined || phase === null || phase.length === 0) {
     // 缺 phase：保守当"有在飞"（只会多一次判定，不会漏 stall）。
     return true;
   }

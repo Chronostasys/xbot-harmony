@@ -569,8 +569,10 @@ export class ChatStore {
     this.gapReloadSeenToken = token;
     console.debug(`[SESSION_RELOAD] 出现无法追赶的 gap ⇒ 重新加载会话 chat=${this.currentChatId} token=${token}`);
     // ① 丢弃带洞的本地窗口（web `agentChat.reset()` —— 同一出口 `initialChatState`）
-    this.resetStateMachine();
-    this.state = initialChatState(this.currentChatId);
+    // ⛔ 审计确证（确证-3）：`resetStateMachine()` 内部**已经**用 `initialChatState` 重建，
+    //   并**保留**同会话的 sessionRunning/goal/todos；紧跟其后的这行 `initialChatState` 会把
+    //   那份保留**全部抹掉**（gap 重载恰好发生在长 turn/切回落后会话时 ⇒ goal 横幅消失、
+    //   todo 清空、composer 从 cancel 变 send）。⇒ 删除该行，只用单一出口。
     this.gapReloadSeenToken = this.state.gapReloadToken;
     this.rebuildRows();
     // ② 权威重载（web `reloadChat()`）；失败态由 `loadHistory` 自身三态暴露，不静默吞
@@ -673,6 +675,12 @@ export class ChatStore {
 
   /** 把一批 DomainEvent 依次喂给状态机，然后重建渲染行。 */
   private pushEvents(evs: readonly DomainEvent[] | null): void {
+    // ⛔ 审计确证（确证-1）：主 SSE 入口是**批量** `pushEvents`（单条 `pushEvent` 只是其中一支）。
+    //   此前只有单条入口刷新 `lastEventAtMs` ⇒ 三处「事件静默」闸门（探针/看门狗/迟到 idle）
+    //   在事件正在流时也恒判"静默" ⇒ 会误关 busy、每 30s 重拉整段 history。
+    if (evs !== null && evs.length > 0) {
+      this.lastEventAtMs = Date.now();
+    }
     if (evs === null) {
       return;
     }
@@ -2726,6 +2734,10 @@ export class ChatStore {
     }
     const gen: number = this.chatGen;
     const forChat: string = this.currentChatId;
+    // ⛔ 审计确证（确证-5）：`get_goal` 的返回值是**请求发起时刻的旧快照**，本函数有三个发起
+    //   点（打开会话 / resync / idle）⇒ 在飞期间用户点 ✕ 清空或保存编辑，回包会把旧目标
+    //   **覆盖回来**（用户亲报"删掉的目标又出来"）。⇒ 记录发起时引用，变了就丢弃。
+    const seenGoal = this.state.goal;
     try {
       // ⛔ 审计确证（2026-10-21，子代理发现）：服务端 `get_goal` 返回的是**协议形状**
       //   `{objective, status}`（`protocol.GoalInfo`），而这里此前按 `types.GoalInfo{text}`
@@ -2745,6 +2757,10 @@ export class ChatStore {
       //   （`core/normalize.ets:optGoal` → `applySessionFields(..., null)`）+ 用户手点清空
       //   （`clearGoalLocal`）。这样横幅不可能因为一次轮询而消失。
       if (g === null || g === undefined) {
+        return;
+      }
+      // 期间本地已改（清空/编辑/被事件覆盖）⇒ 旧回包作废（本地更新优先）。
+      if (this.state.goal !== seenGoal) {
         return;
       }
       // 空 objective（服务端没给有效目标）⇒ **不动**（不能写成空串清掉横幅）。
@@ -3806,7 +3822,10 @@ function toStateTodos(src: readonly TodoItem[] | undefined): ChatTodoItem[] | un
   // ⛔ 用户 2026-10-21（严格区分空值和无值）：REST **缺字段** ⇒ `undefined`（状态机=保留本地）；
   //   `[]`（明确空数组）⇒ `[]`（显式清空）。旧实现把 undefined 折成 `[]` ⇒ 一次
   //   `/api/session/status` 没带 todos 就把面板清空（**空值当成无值**的典型）。
-  if (src === undefined) {
+  // ⛔ 审计确证（确证-4）：`/api/session/status` 可能回 `"todos": null`（Go nil slice）。
+  //   旧实现只判 `undefined`，随后读 `src.length` 抛 TypeError，被调用点的空 catch 吞掉
+  //   ⇒ todo 面板**永不更新**且同批的 cwd/usage 也不 onUpdate（静默失效）。
+  if (src === undefined || src === null) {
     return undefined;
   }
   const out: ChatTodoItem[] = [];
