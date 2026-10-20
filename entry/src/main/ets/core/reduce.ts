@@ -1903,11 +1903,41 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
       const lastSeq = activeTurn !== null ? s.lastSeq : ev.lastSeq
 
       // 5. pendingUsers：已被合并 turns 绑定的（turnHint/requestID 命中）剔除。
-      const pendingUsers = s.pendingUsers.filter(
-        (u) =>
-          !(u.turnHint !== undefined && turns.has(turnID(u.turnHint))) &&
-          !(u.requestID !== null && [...turns.values()].some((t) => t.user?.requestID === u.requestID)),
-      )
+      // ⛔ 用户 2026-10-21 真机 P0（截图）：回复已经渲染，user 气泡却永久挂着「发送中…」，
+      //   而且**同一条消息出现两次**（DB 行 + 乐观行）。根因：乐观行（`pendingUsers`）
+      //   只按 `requestID` / `turnHint` 退役，而**权威快照**里的 DB user 行这两个字段都没有
+      //   ⇒ 快照到达后乐观行**永远留在 pending**（`sending:true` 不结算 + 渲染成重复气泡）。
+      //   `history_replaced` 是**持久化权威**：快照里已经有**内容相同**的 user 消息 ⇒ 那条
+      //   乐观行已经落地 ⇒ 必须退役（`sending` 随之消失，也不会重复渲染）。
+      //   只处理 `!queued`（排队行本来就不在 DB 快照里，仍必须留在队列）；
+      //   用**计数配对**（incoming 有多少条同内容就退役多少条），避免同文多条时误删。
+      const incomingUserCount: Map<string, number> = new Map<string, number>()
+      for (const t of turns.values()) {
+        if (t.user !== null && !t.user.isNotification) {
+          const k: string = t.user.content
+          incomingUserCount.set(k, (incomingUserCount.get(k) !== undefined ? incomingUserCount.get(k) as number : 0) + 1)
+        }
+      }
+      for (const l of ev.legacy) {
+        if (l.role === 'user') {
+          const k: string = l.content
+          incomingUserCount.set(k, (incomingUserCount.get(k) !== undefined ? incomingUserCount.get(k) as number : 0) + 1)
+        }
+      }
+      const pendingUsers = s.pendingUsers.filter((u) => {
+        if (u.turnHint !== undefined && turns.has(turnID(u.turnHint))) return false
+        if (u.requestID !== null && [...turns.values()].some((t) => t.user?.requestID === u.requestID)) return false
+        // 权威快照里已有同内容 user 消息 ⇒ 该乐观行已落地（计数配对）
+        if (!u.queued) {
+          const n: number = incomingUserCount.get(u.content) !== undefined
+            ? incomingUserCount.get(u.content) as number : 0
+          if (n > 0) {
+            incomingUserCount.set(u.content, n - 1)
+            return false
+          }
+        }
+        return true
+      })
 
       // legacy 合并（不替换）：旧 legacy 消息不在新快照里也保留 —— tab 切换 →
       // SSE 重连 → reload → fetchHistory 可能返回更短的 legacy（分页窗口不含旧消息
