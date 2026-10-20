@@ -193,6 +193,12 @@ export interface ProgressEvent {
   chat_id?: string;
   channel?: string;
   turn_id?: number;
+  /**
+   * 服务端**明确要求重载**（`protocol.ProgressEvent.ResyncRequired`）。
+   * 触发条件：增量 gap 超过上限（`agent/active_progress_json.go` ⇒ 返回空 `iteration_history`
+   * + 本标记）。客户端必须据此走一次权威重载 —— 否则永远缺那一段历史。
+   */
+  resync_required?: boolean;
   /** ask_user 事件的载荷字段（服务端 ProgressEvent 的 Questions/RequestID） */
   questions?: AskQuestion[];
   request_id?: string;

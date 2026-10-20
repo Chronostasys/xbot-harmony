@@ -238,28 +238,13 @@ function foldKnownToolsIntoCommitted(
  * 跳变检测的「本地基准」——判「到达的迭代号是否接上了已持有的连续窗口」。
  */
 /**
- * 迭代**前进**事件自带的正文/思考，是不是**上一迭代的残留副本**。
+ * 工具数组的**并集**（同调用键以 `next` 为准、位置沿用 `prev`）—— **只增不减**。
  *
- * ⛔ 用户 2026-10-21 亲报（100% 复现）：「把前台长 shell 手动『转后台』之后，被我转到后台的
- *   那个迭代的思考直接跑到了下一个迭代，出现**两段完全一样的思考**（思考 406 字 ×2），
- *   直到下一个迭代的真实 SSE 到达才恢复」。
- *   根因：转后台 ⇒ 该工具调用立即返回 ⇒ 服务端提交该迭代并推进到下一迭代，而**推进事件
- *   自带的 `content`/`reasoning` 仍是刚提交那一迭代的文本**（与 `active_tools` 残留同族的
- *   服务端行为）。旧实现 `advanced ? (ev.reasoning ?? '')` 直接采信 ⇒ 新迭代的在飞块
- *   把上一迭代的思考再画一遍（历史块里已有一份）。
- *
- * 判据：与**上一帧**的同名字段**等长** ⇒ 视为残留（新迭代的文本必然是新的增长）。
- *   ⚠️ 只比长度（与 `sameRowEssence` 同一纪律：禁止用全文比较去重，那是 O(文本)/帧）。
- *   误判代价：新迭代首段恰与旧文等长 ⇒ 本帧不上屏，下一帧 delta 即补齐（不会丢内容）。
- */
-/**
- * 工具数组的**并集**（同调用键以 `next` 为准、位置沿用 `prev`）—— 只增不减。
- *
- * ⛔ 为什么在本文件里自带一份（而不是 import `core/streammerge.ets` 的 `mergeTools`）：
+ * ⛔ 为什么本文件自带一份（而不是 import `core/streammerge.ets` 的 `mergeTools`）：
  *   `core/reduce.ts` 是**纯 TS 端口件**，ArkTS 硬禁 `.ts` import `.ets`
- *   （`10605999 Importing ArkTS files in JS and TS files is forbidden`，真编译才抓得到）。
- *   语义与 `mergeTools` 的同键去重一致（按 `callID`，缺省退回 `name#label`）；区别只是
- *   本函数**只做并集**（`prev` 独有条目不会被丢），这正是「已渲染的工具绝不消失」所需。
+ *   （`10605999 Importing ArkTS files in JS and TS files is forbidden`，只有真编译能抓）。
+ * 用途：迭代**提交边界**保留客户端已知的工具（`已渲染的工具绝不消失`，见
+ * `foldKnownToolsIntoCommitted`）与同号覆盖时的并集。
  */
 function mergeToolUnion(prev: readonly WebToolProgress[], next: readonly WebToolProgress[]): WebToolProgress[] {
   const key = (t: WebToolProgress): string => {
@@ -278,44 +263,6 @@ function mergeToolUnion(prev: readonly WebToolProgress[], next: readonly WebTool
     if (at === undefined) { idx.set(k, out.length); out.push(t) } else { out[at] = t }
   }
   return out
-}
-
-function isLeftoverText(next: string | undefined, prev: string): boolean {
-  return next !== undefined && next.length > 0 && next.length === prev.length
-}
-
-/**
- * 「刚提交那一迭代」的同名字段长度（`wantReasoning=false` ⇒ 取正文）。
- *
- * ⛔ 转后台场景里，推进事件自带的文字是**刚提交那一迭代**的副本 —— 而那次提交
- *   已经把 live 快照的 `content/reasoning` 清空了（`committedNow`）⇒ 只跟 `prev`
- *   比会漏判（`prev` 此刻是空串）。必须跟**已提交的迭代块**比。
- *   只在迭代前进时调用（每迭代一次）⇒ O(块数) 但不在每帧路径上。
- */
-function committedTextLen(iters: readonly WebIteration[], iter: number, wantReasoning: boolean): number {
-  for (let i = 0; i < iters.length; i++) {
-    if (iters[i].iteration === iter) {
-      const txt: string = wantReasoning
-        ? (iters[i].reasoning !== undefined ? iters[i].reasoning : '')
-        : (iters[i].content !== undefined ? iters[i].content : '');
-      return txt.length
-    }
-  }
-  return -1
-}
-
-/** 前进事件自带的文字是否为「刚提交那一迭代」的副本（等长 ⇒ 是）。 */
-function isCommittedCopy(next: string | undefined, committedLen: number): boolean {
-  return next !== undefined && next.length > 0 && committedLen >= 0 && next.length === committedLen
-}
-
-/**
- * 同上，但**长度相等后再做一次字符串全等**（极少命中）——避免"恰好同长的新思考"被误删。
- * 只有等长才比较内容 ⇒ 常态仍是 O(1)，不是每帧全文比较。
- */
-function isCommittedCopyText(next: string | undefined, committedText: string): boolean {
-  return next !== undefined && next.length > 0 && committedText.length > 0
-    && next.length === committedText.length && next === committedText
 }
 
 function maxHeldIteration(iterations: readonly WebIteration[]): number {
@@ -1103,7 +1050,12 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       //   iteration/stream 帧仍可能到达。旧实现 `advanced=false` 会把它的
       //   content/reasoning 写进当前 (N+1) live 快照 ⇒ 上一迭代的「思考」被
       //   重复渲染到下一迭代，直到真正的 N+1 帧到达。绝不能用旧迭代覆盖新迭代。
-      if (evIter !== null && evIter < prev.iter) return s
+      // ⛔ 审计（2026-10-21）：这条守卫原本无条件丢"迭代号落后"的帧 —— 但它同时丢掉了
+      //   **gap 修复 delta**（前端缺 3、4，后端补发 iter=3 的迭代）⇒ 该迭代永远补不上。
+      //   正确规则：**没有新迭代信息才丢**；带 `iterationsDelta` 的帧必须 union（append-only），
+      //   只是**不允许**把它的正文/思考写进更靠前的 live 快照（见下方 `older`）。
+      const olderIter: boolean = evIter !== null && evIter < prev.iter
+      if (olderIter && ev.iterationsDelta.length === 0) return s
       // I5：重放丢弃（seq ≤ 水位 **且** 无新迭代信息 —— 见 isStaleSeq 的 Run 重启说明）。
       if (isStaleSeq(s.lastSeq, ev.seq, prev, { iter: ev.iter, iterationsDelta: ev.iterationsDelta })) return s
       // ⛔ `ev.iter === null` = 事件未携带迭代号（**不是迭代 1**）。此时保留 prev.iter，
@@ -1159,18 +1111,10 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
         // iterations 权威版本）；非前进非 commit 则替换。
         // ⛔ 前进事件自带的正文/思考可能是**刚提交那一迭代**的残留副本（转后台场景 100% 复现，
         //   见 isLeftoverText 的注释）⇒ 等长即丢弃，新迭代从空开始。
-        content: advanced
-          ? ((isCommittedCopy(ev.content, committedTextLen(merged, prev.iter, false))
-            || isLeftoverText(ev.content, prev.content)) ? '' : (ev.content ?? ''))
-          : committedNow
-            ? ''
-            : (ev.content ?? prev.content),
-        reasoning: advanced
-          ? ((isCommittedCopy(ev.reasoning, committedTextLen(merged, prev.iter, true))
-            || isLeftoverText(ev.reasoning, prev.reasoning)) ? '' : (ev.reasoning ?? ''))
-          : committedNow
-            ? ''
-            : (ev.reasoning ?? prev.reasoning),
+        content: olderIter ? prev.content
+          : advanced ? (ev.content ?? '') : committedNow ? '' : (ev.content ?? prev.content),
+        reasoning: olderIter ? prev.reasoning
+          : advanced ? (ev.reasoning ?? '') : committedNow ? '' : (ev.reasoning ?? prev.reasoning),
         // I4：append-only 合并（dedup by iteration#，同号权威覆盖）
         iterations: merged,
         // ⛔ 已渲染的工具绝不消失（线性一致性，用户 2026-09-18 P0）：
@@ -1322,15 +1266,8 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
         // 流式帧 = 活动证据 ⇒ streaming 恢复 true（见 iteration case 同注）。
         streaming: true,
         iter: advanced ? ev.iteration : prev.iter,
-        // 同 iteration case：前进帧自带的文字若与**刚提交那一迭代**等长 ⇒ 残留副本，丢弃（转后台场景）。
-        content: advanced
-          ? ((isCommittedCopy(ev.content, committedTextLen(prev.iterations, prev.iter, false))
-            || isLeftoverText(ev.content, prev.content)) ? '' : (ev.content ?? ''))
-          : (ev.content !== undefined ? ev.content : prev.content),
-        reasoning: advanced
-          ? ((isCommittedCopy(ev.reasoning, committedTextLen(prev.iterations, prev.iter, true))
-            || isLeftoverText(ev.reasoning, prev.reasoning)) ? '' : (ev.reasoning ?? ''))
-          : (ev.reasoning !== undefined ? ev.reasoning : prev.reasoning),
+        content: advanced ? (ev.content ?? '') : (ev.content !== undefined ? ev.content : prev.content),
+        reasoning: advanced ? (ev.reasoning ?? '') : (ev.reasoning !== undefined ? ev.reasoning : prev.reasoning),
         // 工具去重（同名双渲染根治）：streamingTools 是流式检测中的工具
         // （generating，参数不全），activeTools 是结构化事件的执行中工具
         // （running，参数全）。同名共存 → 同一工具渲染两个（用户报告

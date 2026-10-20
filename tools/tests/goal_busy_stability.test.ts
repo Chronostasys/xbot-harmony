@@ -55,7 +55,7 @@ console.log('\n▶ §A goal 三态：缺失 ⇒ 不动；零值占位 ⇒ 不动
   ok('★A `{}` ⇒ undefined（不动）', goalOf(progress({}, true)) === undefined);
   ok('★A `objective:""` 且无 cleared 标记 ⇒ undefined（**旧实现这里是 null ⇒ 抽搐**）',
     goalOf(progress({ objective: '', status: 'active' }, true)) === undefined);
-  ok('★A `status:"cleared"` ⇒ null（显式清除）',
+  ok('★A `status:"cleared"` ⇒ null（**用户显式删除**，区别于"未携带"）',
     goalOf(progress({ objective: '', status: 'cleared' }, true)) === null);
   const got = goalOf(progress({ objective: '重构状态机', status: 'active' }, true)) as unknown as { objective?: string };
   ok('★A 有效目标 ⇒ 覆盖', got !== null && got !== undefined && got.objective === '重构状态机');
@@ -124,11 +124,16 @@ console.log('\n▶ §F 接线：横幅必须读 `store.sessionGoal()`（会话�
     .join('\n');
   const store = require('fs').readFileSync(require('path').join(process.cwd(),
     'entry/src/main/ets/core/store.ets'), 'utf8');
-  ok('★F 页面读 `store.sessionGoal()`', /const g = store\.sessionGoal\(\);/.test(page));
+  ok('★F 页面读会话级 `store.goalText()/goalStatusText()`',
+    /const gObj: string = store\.goalText\(\);/.test(page)
+    && /const gSt: string = store\.goalStatusText\(\);/.test(page));
   ok('★F 页面**不再**读 `store.liveProgress().goal`（旧抽搐根因）',
     !/store\.liveProgress\(\)\.goal/.test(page));
-  ok('★F store 暴露 `sessionGoal()` 且读 `this.state.goal`',
-    /sessionGoal\(\): ChatGoalInfo \| null/.test(store) && /const g: GoalInfo \| null = this\.state\.goal;/.test(store));
+  ok('★F store 暴露 `goalText()/goalStatusText()` 且读 `this.state.goal`',
+    /goalText\(\): string/.test(store) && /goalStatusText\(\): string/.test(store)
+    && /this\.state\.goal/.test(store));
+  ok('★F 打开会话即拉 goal（否则 idle 会话的已完成目标要等第一个 toolcall）',
+    /await this\.loadHistory\(\);[\s\S]{0,2000}this\.loadGoal\(\)\.catch/.test(store));
 }
 
 console.log('\n▶ §D mutation 自证（外部注入）');

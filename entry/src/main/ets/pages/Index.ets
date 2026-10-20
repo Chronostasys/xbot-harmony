@@ -245,6 +245,8 @@ import { t as i18nT } from '../core/i18n';
  * （见 `checkLiveSignalStall`）。⛔ 不要用"有没有在飞内容"判 stall —— 迭代之间必然没有。
  */
 const LIVE_STALL_SILENT_MS: number = 3000;
+/** 本地 todo 编辑覆盖的存活时间：超过它一律以服务端快照为准（防无限期闩锁）。 */
+const TODO_PENDING_TTL_MS: number = 3000;
 
 /** 一个问题当前选中的答案（用类而非 Map/Record：ArkTS 下最稳，且能整体替换触发重渲染）。 */
 class AskSelection {
@@ -509,7 +511,7 @@ function selectionsFor(ask: AskUserPrompt | null): AskSelection[] {
  * todos 指纹（乐观覆盖层与同步**共用同一口径** —— 两处必须逐字一致，否则永不收敛）。
  * 模块级函数：ArkUI struct 的静态成员在真机上是 undefined。
  */
-function todosFpOf(todos: TodoItem[]): string {
+function todosFpOf(todos: readonly TodoItem[]): string {
   const parts: string[] = [];
   for (let i = 0; i < todos.length; i++) {
     parts.push(`${todos[i].status}#${todos[i].text}`);
@@ -2678,12 +2680,18 @@ struct Index {
     }
     this.usage = store.usage;
     this.cwd = store.cwd;
-    const todosFp: string = todosFpOf(store.todos);
+    const todosFp: string = todosFpOf(store.todosNow());
+    if (this.pendingTodos.isPending() && Date.now() - this.pendingTodosAtMs > TODO_PENDING_TTL_MS) {
+      this.pendingTodos.discard();
+      log('todos', `本地编辑闸超时放弃（>${TODO_PENDING_TTL_MS}ms 未收敛）⇒ 以服务端快照为权威`);
+    }
     if (this.pendingTodos.accepts(todosFp)) {
+      log('todos', `页面投影**被本地编辑闸拦住** n=${store.todosNow().length}（服务端快照被忽略）`);
       // 本地乐观编辑尚未收敛：忽略（可能更旧的）服务端快照，保持本地覆盖（web usePendingEdit）。
     } else if (todosFp !== this.todosFp) {
       this.todosFp = todosFp;
-      this.todos = store.todos.slice();
+      this.todos = store.todosNow().slice();
+      log('todos', `页面投影更新 n=${this.todos.length} src=store.todos`);
     }
     // ── Goal 横幅数据源（web `MessageInput.tsx:694` 的 `goal.objective`/`goal.status`）──
     // ⛔ 必须读**会话级** goal（`store.sessionGoal()`，由 `applySessionFields`/`get_goal` 维护）。
@@ -4034,6 +4042,7 @@ struct Index {
     // 乐观覆盖（web `usePendingEdit`）：立即本地生效 + 记 pending，挡住在途的**更旧**快照。
     const seq: number = this.pendingSeq.begin(); // ① 提交序号（乱序防护）
     this.pendingTodos.commit(todosFpOf(next));
+    this.pendingTodosAtMs = Date.now();
     this.todos = next;
     this.todosFp = todosFpOf(next);
     try {
@@ -9708,6 +9717,16 @@ struct Index {
    *   真 stall 的定义是"**事件流停了**"，不是"某一刻没有在飞内容" ⇒ 必须用本时刻做闸门。
    */
   private lastStoreUpdateAtMs: number = 0;
+  /**
+   * 本地 todo 编辑闸的**最后提交时刻**。
+   *
+   * ⛔ 用户 2026-10-21 P0（「我调了 todo_write，为什么我的 todo 没有立刻更新」）：
+   *   `PendingEdit.accepts()` 是**无 TTL 的闩锁** —— 只有"服务端快照 == 本地期望指纹"才解锁。
+   *   服务端会**重排/规整** todo（顺序、空白、状态词），本地期望指纹可能**永远**匹配不上
+   *   ⇒ 之后**所有**服务端快照都被丢弃 ⇒ 面板停在旧值，看起来"todo_write 没生效"。
+   *   修：本地覆盖只允许短期存在（`TODO_PENDING_TTL_MS`），过期即放弃覆盖、以服务端为权威。
+   */
+  private pendingTodosAtMs: number = 0;
   /**
    * 行集合的**结构**指纹（`core/rowdiff.structRowsFpOf`：`id#isLive#迭代数#末迭代在飞`）。
    *

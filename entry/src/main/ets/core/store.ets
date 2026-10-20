@@ -19,6 +19,8 @@ import { arrOrEmpty, isPresent } from './guards';
 import { ChatState, DomainEvent, EventSeq, initialChatState, iterNum, NonEmptyS, nonEmptyStr, turnID, TurnID, UserRow } from './chat_types_full';
 import { demoAnswerFor, demoFirstIteration, demoReasoningFor, demoSeedPrompt, demoSessions, demoToolFor } from './demo';
 import { reduce, applySessionFields } from './reduce';
+import { withSessionRunning } from './chat_types_full';
+import type { TodoItem as ChatTodoItem } from './chattypes';
 import { deriveRows, Row } from './derive';
 import { extractEventChatID, normalizeEvent } from './normalize';
 import { historyToReplaced, liveProgressFromState } from './integrate';
@@ -383,6 +385,17 @@ export class ChatStore {
   currentChatId: string = '';
 
   /** 当前会话的 live 进度快照（对齐 web `liveProgressFromState`）。页面 live 尾块读它。 */
+  /**
+   * **todo 列表唯一真源** = `state.todos`（progress 事件 + `/api/session/status` 都汇入它）。
+   *
+   * ⛔ 审计（2026-10-21）：此前页面读 `store.todos`（一个独立字段，只由 REST 赋值），
+   *   而事件驱动的 `state.todos` **没有任何出口** ⇒ 「todo_write 立刻更新」那条修复
+   *   在界面上完全看不见。现在两者合一：REST 的快照也经 `applySessionFields` 写进状态机。
+   */
+  todosNow(): readonly TodoItem[] {
+    return this.state.todos;
+  }
+
   liveProgress(): ProgressSnapshot {
     return liveProgressFromState(this.state);
   }
@@ -490,7 +503,10 @@ export class ChatStore {
 
   /** 是否有一条在飞的 live turn（会话隔离判据：只读当前 store 的 state）。 */
   hasLiveTurn(): boolean {
-    return this.state.activeTurn !== null;
+    // ⛔ 审计：与 `watchBusyWithoutLiveTurn` 的判据统一 —— 「live 但已停流」
+    //   （粗粒度 idle 只停流、保留 activeTurn）**不算**在飞，否则页面会一直画「思考中…」。
+    const t = this.state.activeTurn !== null ? this.state.turns.get(this.state.activeTurn) : undefined;
+    return t !== undefined && t.phase.kind === 'live' && t.phase.data.streaming === true;
   }
 
   /** 当前是否有尚未被 ack/turn_started 确认的乐观 user 行（发送中）。 */
@@ -695,6 +711,21 @@ export class ChatStore {
     this.state = reduce(this.state, ev);
     // ⛔ 状态迁移日志（用户 2026-10-21：「每次状态变化必须要打印日志还有原因」）：
     //   任何 running 0↔1 都必须留下"是哪条事件/哪条路径"的证据，否则抽搐无法归因。
+    // todos 变化日志（用户 2026-10-21：「todo_write 之后 todo 没立刻更新」—— 必须能看出
+    // 到底是**状态机没收到**、还是**页面投影被拦**）。
+    let todosChanged: boolean = prev.todos.length !== this.state.todos.length;
+    if (!todosChanged) {
+      for (let ti = 0; ti < this.state.todos.length; ti++) {
+        if (prev.todos[ti].text !== this.state.todos[ti].text
+          || prev.todos[ti].status !== this.state.todos[ti].status) {
+          todosChanged = true;
+          break;
+        }
+      }
+    }
+    if (todosChanged) {
+      log('todos', `state.todos ${prev.todos.length}→${this.state.todos.length} cause=ev:${ev.type}`);
+    }
     if (wasRunning !== this.state.sessionRunning) {
       this.lastBusyCause = `ev:${ev.type}`;
       log('state', `running ${wasRunning ? 1 : 0}→${this.state.sessionRunning ? 1 : 0}`
@@ -1660,7 +1691,7 @@ export class ChatStore {
     this.notifyServerSwitch(chatId).then((res: ChatSwitchResult) => {
       // 切会话即刻恢复 TODO —— 仅当**仍是当前会话**时套用（用户已切走 ⇒ 丢弃，避免串台）。
       if (this.currentChatId === chatId && res.todos.length > 0) {
-        this.todos = res.todos;
+        this.state = applySessionFields(this.state, toStateTodos(res.todos), undefined);
         this.onUpdate();
       }
     }).catch(() => {
@@ -2591,7 +2622,7 @@ export class ChatStore {
       //    下游 `usage !== undefined` 判真 ⇒ 取 `usage.prompt_tokens` 炸（同类缺陷的典型形态）。
       this.usage = st.token_usage !== undefined && st.token_usage !== null ? st.token_usage : undefined;
       this.cwd = st.cwd !== undefined && st.cwd !== null ? st.cwd : '';
-      this.todos = arrOrEmpty(st.todos);
+      this.state = applySessionFields(this.state, toStateTodos(st.todos), undefined);
       this.onUpdate();
     } catch (e) {
       // 状态拉取失败不影响主链路（历史/发送优先）
@@ -2626,6 +2657,14 @@ export class ChatStore {
       return;   // 旧服务端/弱网：静默（不是 stall 的证据）
     }
     if (gen !== this.chatGen || forChat !== this.currentChatId) {
+      return;
+    }
+    // ⛔ 审计发现：`resync_required` 是服务端**唯一**的"你必须重载"信号
+    //   （增量 gap 超上限时返回空 iteration_history + 本标记，见 `agent/active_progress_json.go`）。
+    //   客户端此前**完全没读**该字段 ⇒ 那段历史永远缺失。这里优先处理。
+    if (snap !== null && snap !== undefined && snap.resync_required === true) {
+      log('resync', `服务端要求重载（resync_required）chat=${this.currentChatId} reason=${reason}`);
+      this.resyncAfterResume(`server-required-${reason}`, true);
       return;
     }
     const hasActive: boolean = snap !== null && snap !== undefined && probePhaseActive(snap.phase);
@@ -3024,10 +3063,17 @@ export class ChatStore {
     const sameChat: boolean = this.state.chatID === this.currentChatId;
     const keepGoal = this.state.goal;
     const keepTodos = this.state.todos;
+    const keepRunning = this.state.sessionRunning;
     this.resetRows();
     this.history = [];
     this.hasMore = false;
     this.oldestId = 0;
+    if (sameChat && keepRunning) {
+      // ⛔ 审计：busy→idle 只允许「无 toolcall 迭代 / 后端 idle」两种证据；
+      //   消息状态机重置（断洞重载、rewind）**不得**顺手把 busy 关掉。
+      this.state = withSessionRunning(this.state, true);
+      log('state', 'reset 保留 running（同一会话）');
+    }
     if (sameChat && (keepGoal !== null || keepTodos.length > 0)) {
       this.state = applySessionFields(this.state, keepTodos, keepGoal);
       log('state', `reset 保留会话级状态 goal=${keepGoal !== null ? 1 : 0} todos=${keepTodos.length}`);
@@ -3722,4 +3768,23 @@ export function queueItemId(item: QueueItem): string {
     return qid;
   }
   return '';
+}
+
+/**
+ * REST `/api/session/status` 的 `todos`（`types.TodoItem{id?,text?,status?}`）→
+ * 状态机形状（`chattypes.TodoItem{text,status}`，两者字段必填）。
+ *
+ * ⛔ 审计（2026-10-21）：`state.todos` 是**唯一真源**，REST 快照也必须经 `applySessionFields`
+ *   写入；两套同名 `TodoItem` 字段可选性不同 ⇒ 必须显式映射（ArkTS 禁结构类型断言）。
+ */
+function toStateTodos(src: readonly TodoItem[] | undefined): ChatTodoItem[] {
+  const out: ChatTodoItem[] = [];
+  if (src === undefined) {
+    return out;
+  }
+  for (let i = 0; i < src.length; i++) {
+    const it: TodoItem = src[i];
+    out.push({ text: it.text !== undefined ? it.text : '', status: it.status !== undefined ? it.status : 'pending' });
+  }
+  return out;
 }

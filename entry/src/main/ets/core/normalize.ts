@@ -1,4 +1,5 @@
 import { asRecord } from './guards';
+
 // 逐字移植自 xbot web `web/src/chat/normalize.ts`（逻辑一比一：同一份规则，不做重写）
 /**
  * ⛔ 迭代历史**不许在客户端截断**（用户 2026-09-21 定稿：「不能有任何 gap，任何 gap 都是
@@ -85,12 +86,10 @@ function optGoal(v: unknown): GoalInfo | null | undefined {
   //   旧实现把 `objective === ''` 也当清除 —— 而很多帧会带一个**零值/占位**的 goal 对象
   //   （`objective: ''`、status 缺省），于是每来一帧就把目标清空、下一帧又恢复 ⇒ 抽搐。
   //   语义收紧：空 objective **且**没有 cleared 标记 ⇒ 视为"本帧不携带有效目标" ⇒ 不动状态。
-  // ⛔ 用户 2026-10-21 P0（「我们要杜绝闪烁，所以它必须一直显示，只要有就必须一直显示」
-  //   「不显示已经完成的 goal」）：**服务端帧里的 cleared 也不清空本地横幅** ——
-  //   完成/收尾时后端会推 `{objective:"", status:"cleared"}`（`agent_backend_methods.go:598`），
-  //   于是刚显示出来的目标在 idle 那一刻被抹掉。现在**只有用户手动清空**
-  //   （`ChatStore.clearGoalLocal()`，即点 ✕）才消失；服务端 cleared 帧按"未携带"处理。
-  if (r.status === 'cleared') return undefined
+  // `cleared` = **用户显式删除**（`ClearGoal` RPC / 另一客户端删除）⇒ 必须清除。
+  // ⛔ 与「不能消失」区分：后者指**不能被轮询/重载/回合切换清掉**，不是忽略显式删除。
+  //   清零的唯一两个来源：本帧 cleared 标记 + 本地手点 ✕（`clearGoalLocal`）。
+  if (r.status === 'cleared') return null
   if (typeof r.objective !== 'string' || r.objective === '') return undefined
   return {
     objective: r.objective,
@@ -258,7 +257,13 @@ function normalizeProgress(env: Record<string, unknown>): readonly DomainEvent[]
     const rawTrigger = optStr(ts?.trigger)
     const trigger: 'user' | 'resume' | 'notification' =
       rawTrigger === 'resume' ? 'resume' : rawTrigger === 'notification' ? 'notification' : 'user'
-    return [{ type: 'turn_started', turnID: turnID(turn), requestID: optStr(ts?.request_id) ?? null, trigger, content: optStr(ts?.content) ?? null }]
+    const started: DomainEvent = {
+      type: 'turn_started', turnID: turnID(turn),
+      requestID: optStr(ts?.request_id) ?? null, trigger, content: optStr(ts?.content) ?? null,
+    }
+    // ⛔ 审计：本分支此前直接 return，**丢掉并存的流式载荷**（与 done / iteration 分支不对称）。
+    //   服务端在"turn_started + 第一段流式内容"合帧时会因此丢字。现在按同一规则：先 stream 后 start。
+    return streamPayload ? [streamEventFrom(p, turn, seq), started] : [started]
   }
 
   // ── 纯流式帧（打字机/genui 流）──
@@ -378,6 +383,9 @@ function normalizeStream(env: Record<string, unknown>): readonly DomainEvent[] |
         : undefined,
       genui: optStr(p.genui_content),
       streamStats: parseStreamStats(p),
+      // ⛔ 与 `streamEventFrom` 同源（审计发现两条流式入口曾不同源：这条漏了会话级字段）
+      todos: optTodos(p.todos),
+      goal: optGoal(p.goal),
     },
   ]
 }
@@ -414,8 +422,21 @@ function normalizeText(env: Record<string, unknown>): readonly DomainEvent[] | n
 function normalizeSession(env: Record<string, unknown>): readonly DomainEvent[] | null {
   const s = asRecord(env.session)
   const action = optStr(s?.action)
-  if (action !== 'busy' && action !== 'idle') return null
-  return [{ type: 'session', busy: action === 'busy' }]
+  // ⛔ 审计（2026-10-21）：此前只认 `busy`/`idle`，把服务端同样会发的
+  //   `agent-busy` / `agent-idle`（`core/streammerge.ets:isIdleAction/isBusyAction` 已承认）
+  //   全部丢弃 ⇒ 粗粒度 idle **到不了状态机**（只剩 store.applyLocalIdle 一条路，
+  //   而它在 `sessionRunning` 已 false 时是幂等 no-op）⇒ 出现"有产出但 busy 永不复位"的死角。
+  //   现在四个取值都归一（判据复用同一对纯函数，与渲染/状态机同源）。
+  // ⛔ `normalize.ts` 是**纯 TS 端口件**，ArkTS 硬禁 `.ts` import `.ets`
+  //   （`10605999 Importing ArkTS files in JS and TS files is forbidden`）⇒ 这里内联同一份集合
+  //   （与 `core/streammerge.ets:isIdleAction/isBusyAction` **逐字对应**，改动必须两处同步）。
+  if (action === 'idle' || action === 'agent-idle' || action === 'session-idle') {
+    return [{ type: 'session', busy: false }]
+  }
+  if (action === 'busy' || action === 'agent-busy' || action === 'session-busy') {
+    return [{ type: 'session', busy: true }]
+  }
+  return null
 }
 
 // ─── user_echo / inject_user → user_echo ──

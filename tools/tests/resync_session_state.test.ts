@@ -55,8 +55,10 @@ console.log('\n▶ §B loadGoal 的实现语义（RPC 名常量 / null 清除 / 
   ok('★B 方法存在（零扫描防线）', body.length > 200);
   ok('★B 走 `RPC_GET_GOAL` 常量（⛔ 不在调用点写裸字符串）',
     body.indexOf('RPC_GET_GOAL') >= 0 && body.indexOf("'get_goal'") < 0);
-  ok('★B `null` ⇒ 显式清除（把 null 交给 applySessionFields）',
-    /g === null \? null :/.test(body) && /applySessionFields\(this\.state, undefined, nextGoal\)/.test(body));
+  // ⛔ 语义已收紧（2026-10-21 用户 P0「IDLE 下 goal 消失」）：`get_goal` 的 `null`
+  //   只代表"这次没查到"，**不是**用户删除 ⇒ 只补写、绝不清除。
+  ok('★B `null` ⇒ **忽略**（只补写，绝不清空横幅）',
+    /if \(g === null \|\| g === undefined\) \{\s*\n\s*return;/.test(body));
   ok('★B catch 分支里**没有** applySessionFields（失败 ≠ 目标被删）',
     !/catch[\s\S]{0,300}applySessionFields/.test(body));
   ok('★B 有 chatGen/currentChat 身份守卫（跨会话回包必须丢弃）',

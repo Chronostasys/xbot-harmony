@@ -244,6 +244,11 @@ export interface LegacyRow {
  *   4 个 ref guard（finalizedRef/phaseDoneRef/turnCommittedRef/
  *   finalizedTurnIDRef，共 70 处引用）。
  */
+/** 只改 running 的状态拷贝（.ets 里禁 spread，这里用 .ts 提供唯一出口）。 */
+export function withSessionRunning(s: ChatState, running: boolean): ChatState {
+  return { ...s, sessionRunning: running }
+}
+
 export interface ChatState {
   readonly chatID: string
   readonly turns: ReadonlyMap<TurnID, Turn>
@@ -280,6 +285,8 @@ export interface ChatState {
    *  `session(idle)`（不带 turn 身份、可能是回放/迟到事件）在 running=true 时
    *  **不得**冻结运行中的 turn；running=false 时才允许冻结（内容保留）。 */
   readonly sessionRunning: boolean
+  /** 服务端要求重载（增量 gap 超上限时返回空 history + 本标记）。 */
+  readonly resync_required?: boolean
   /** **会话重载信号**（单调计数器）—— 出现**无法追赶的 gap** 时自增。
    *
    *  判据（`reduce.ts` 的 `hasUnreachableGap`）：本地迭代与权威窗口合并后仍有洞，
