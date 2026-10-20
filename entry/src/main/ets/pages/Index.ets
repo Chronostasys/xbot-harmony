@@ -1376,7 +1376,7 @@ struct Index {
    * 池化后**切回已打开的会话是瞬时的**（状态一直在累积），后台会话的进度也不丢
    * （后端仍在推，它自己的 store 一直在收）。超出上限按 LRU 驱逐并 dispose（关 SSE）。
    */
-  private pools: Map<string, ChatStore> = new Map<string, ChatStore>();
+  /** 打开标签的顺序（**仅 UI**；不再缓存 ChatStore，切换会话必须重新拉历史）。 */
   private poolOrder: string[] = [];
   private syncScheduled: boolean = false;
   private config: ConfigStore = new ConfigStore();
@@ -1878,14 +1878,7 @@ struct Index {
    */
   /** 关掉并清空所有 store（池 + 当前）。⚠️ 幂等；dispose 会摘掉 401 回调并停轮询。 */
   private disposeAllStores(): void {
-    const poolKeys: string[] = Array.from(this.pools.keys());
-    for (let i = 0; i < poolKeys.length; i++) {
-      const ps: ChatStore | undefined = this.pools.get(poolKeys[i]);
-      if (ps !== undefined) {
-        ps.dispose();
-      }
-    }
-    this.pools.clear();
+    // 不缓存 store：只 dispose 当前这个；标签顺序清空。
     this.poolOrder = [];
     const cur: ChatStore | null = this.store;
     if (cur !== null) {
@@ -3150,20 +3143,12 @@ struct Index {
     // （幂等 + 失败静默，见 `workreconcile/schedule.ets:cancelReconcileScheduled`）。
     // ⚠️ 不能靠 `core/notify.clearAll` 兜：它只清**通知**，而 `doLogout` 现行为**不调**它
     //    （401/换账号路径由 `clearAll → sessionClearedHook` 覆盖，显式登出这条没有）。
+    // 不缓存 store：只 dispose 当前；标签顺序清空（旧会话连接随切走/登出关闭）。
     cancelReconcileScheduled();
-    // 清空多会话池（每个 store 都要关 SSE，否则会留下后台连接）
-    const poolKeys: string[] = Array.from(this.pools.keys());
-    for (let i = 0; i < poolKeys.length; i++) {
-      const ps: ChatStore | undefined = this.pools.get(poolKeys[i]);
-      if (ps !== undefined) {
-        ps.setResumeActive(false);
-        ps.dispose();
-      }
-    }
-    this.pools.clear();
     this.poolOrder = [];
     if (this.store !== null) {
       this.store.setResumeActive(false);
+      this.store.dispose();
     }
     this.store = null;
     this.loggedIn = false;
@@ -3192,17 +3177,13 @@ struct Index {
     return 8;
   }
 
-  /** 取会话对应的 store（池里有就复用；没有就建 + 入池 + 必要时驱逐）。 */
+  /** 取会话对应的 store：**每次新建**（前端不缓存任何会话历史/状态）。 */
   private storeFor(chatId: string): ChatStore {
-    const hit: ChatStore | undefined = this.pools.get(chatId);
-    if (hit !== undefined) {
-      this.touchPool(chatId);
-      return hit;
-    }
-    // 池里的 store 也必须带上会话凭据（否则它发出的每个请求都是 401）
+    // ⛔ 用户令：session 历史缓存全部删除。旧实现 LRU 复用 ChatStore，切回会话直接
+    //    复用旧 state/history/rowCache ⇒ 前端状态与权威历史分叉（iter/tool 消失、
+    //    思考中残留）。这里每次构造新 store；切走时由 switchSession dispose 旧 store。
     const store: ChatStore = this.makeStore(this.serverUrl, this.cookie);
-    this.pools.set(chatId, store);
-    this.poolOrder.push(chatId);
+    this.touchPool(chatId);
     this.evictPools();
     return store;
   }
@@ -3215,23 +3196,7 @@ struct Index {
    * ② 旧键指向一个已经打开别的会话的 store ⇒ 切回去时白白重拉。
    */
   private rekeyPool(store: ChatStore, chatId: string): void {
-    const stale: string[] = [];
-    const keys: string[] = Array.from(this.pools.keys());
-    for (let i = 0; i < keys.length; i++) {
-      const k: string = keys[i];
-      const v: ChatStore | undefined = this.pools.get(k);
-      if (v === store && k !== chatId) {
-        stale.push(k);
-      }
-    }
-    for (let i = 0; i < stale.length; i++) {
-      this.pools.delete(stale[i]);
-      const oi: number = this.poolOrder.indexOf(stale[i]);
-      if (oi >= 0) {
-        this.poolOrder.splice(oi, 1);
-      }
-    }
-    this.pools.set(chatId, store);
+    // 不缓存 store：只维护打开标签顺序（旧 store 已在切换时 dispose）。
     this.touchPool(chatId);
   }
 
@@ -3244,7 +3209,7 @@ struct Index {
     this.poolOrder.push(chatId);
   }
 
-  /** 超出上限：从最久未用的开始驱逐（**不能驱逐当前会话**）。 */
+  /** 标签上限：只裁标签顺序，**不持有/不 dispose任何 ChatStore**。 */
   private evictPools(): void {
     while (this.poolOrder.length > this.poolMax()) {
       let victim: string = '';
@@ -3257,11 +3222,6 @@ struct Index {
       if (victim.length === 0) {
         return;
       }
-      const store: ChatStore | undefined = this.pools.get(victim);
-      if (store !== undefined) {
-        store.dispose();
-      }
-      this.pools.delete(victim);
       const idx: number = this.poolOrder.indexOf(victim);
       if (idx >= 0) {
         this.poolOrder.splice(idx, 1);
@@ -3271,11 +3231,12 @@ struct Index {
 
   /** 关掉一个标签（若是当前会话，先切到别的；没有别的就清空视图）。 */
   private closeTab(chatId: string): void {
-    const store: ChatStore | undefined = this.pools.get(chatId);
-    if (store !== undefined) {
-      store.dispose();
+    // 不缓存 store：只有当前会话实际持有 store；关当前标签时 dispose 它。
+    if (chatId === this.currentChat && this.store !== null) {
+      this.store.setResumeActive(false);
+      this.store.dispose();
+      this.store = null;
     }
-    this.pools.delete(chatId);
     const i: number = this.poolOrder.indexOf(chatId);
     if (i >= 0) {
       this.poolOrder.splice(i, 1);
@@ -3338,6 +3299,10 @@ struct Index {
     }
     target.setResumeActive(true);
     this.store = target;
+    // ⛔ 不缓存旧 store：切走即销毁（关 SSE/轮询，状态/history 不跨会话复用）。
+    if (prevStore !== null && prevStore !== target) {
+      prevStore.dispose();
+    }
     // 目标 store 可能停在上一轮的滚动挂起态（切走时 onScrollStop 未必触发）⇒ 先恢复。
     target.suspendUiUpdates(false);
     // ⛔ 切 store 时**丢弃旧 store 的延迟投影**（`pendingSync` 的 16ms 定时器/抽屉 flush）：
@@ -3534,8 +3499,8 @@ struct Index {
     if (node !== null) {
       return node.running === true;
     }
-    const st: ChatStore | undefined = this.pools.get(chatId);
-    return st !== undefined && st.busy;
+    // 只有当前会话持有 store（不缓存其它会话）；历史标签用会话树 running。
+    return chatId === this.currentChat && this.store !== null && this.store.busy;
   }
 
   private async newSession(): Promise<void> {

@@ -57,12 +57,15 @@ function pageSafe(idx: string): boolean {
   // ③ 抽屉 flush 二次校验
   if (idx.indexOf('if (!this.showDrawer && this.pendingSync !== null)') < 0) { return false; }
   // ④ switchSession 切 store 时丢弃旧延迟投影 / 取消驻留
-  const sw0: number = idx.indexOf('private async switchSession(chatId: string): Promise<void> {');
+  const sw0: number = idx.indexOf('private async switchSession(chatId: string');
   if (sw0 < 0) { return false; }
-  const swBody: string = idx.substring(sw0, sw0 + 2200);
+  const swBody: string = idx.substring(sw0, sw0 + 2600);
   if (swBody.indexOf('this.pendingSync = null;') < 0) { return false; }
   if (swBody.indexOf('this.syncScheduled = false;') < 0) { return false; }
   if (swBody.indexOf('this.cancelSpinHold = false;') < 0) { return false; }
+  // store 池已彻底删除：切走必须 dispose 旧 store（不再复用 session 历史缓存）。
+  if (swBody.indexOf('prevStore.dispose()') < 0) { return false; }
+  if (idx.indexOf('private pools: Map<string, ChatStore>') >= 0) { return false; }
   // ⑤ 滚动期不写任何 live @State（性能 P0）：守卫必须在 `const rev` 之前
   const lt0: number = idx.indexOf('private syncLiveTail(): void {');
   if (lt0 < 0) { return false; }
@@ -93,11 +96,11 @@ function pageSafe(idx: string): boolean {
 
 /** LiveTailView 打字机必须在滚动期停止推进（否则行高继续变）。 */
 function tailSafe(t: string): boolean {
-  if (t.indexOf("import { uiIsScrolling } from '../core/listfollow';") < 0) { return false; }
+  if (!/from '\.\.\/core\/listfollow'/.test(t)) { return false; }
   const tick0: number = t.indexOf('private tick(): void {');
   if (tick0 < 0) { return false; }
-  const tickBody: string = t.substring(tick0, tick0 + 700);
-  return tickBody.indexOf('uiIsScrolling()') >= 0;
+  const tickBody: string = t.substring(tick0, tick0 + 900);
+  return tickBody.indexOf('tailIsPaused()') >= 0 || tickBody.indexOf('uiIsScrolling()') >= 0;
 }
 
 function storeSafe(s: string): boolean {
@@ -131,7 +134,7 @@ function storeSafe(s: string): boolean {
     if (body.indexOf('gen !== this.chatGen') < 0) { return false; }
   }
   // openSession 自身也要代数守卫（loadSessions/history/queue 后）
-  const os0: number = s.indexOf('async openSession(chatId: string): Promise<void> {');
+  const os0: number = s.indexOf('async openSession(chatId: string');
   if (os0 < 0) { return false; }
   const osBody: string = s.substring(os0, os0 + 7000);
   if (osBody.indexOf('const gen: number = this.chatGen;') < 0) { return false; }
@@ -182,8 +185,8 @@ ok('mutation G：删 onWillScroll 的挂起调用 ⇒ 必红',
 ok('mutation H：删 onScrollStop 的恢复调用 ⇒ 必红',
   !pageSafe(replaceInMethod(index, '.onScrollStop(() => {',
     'st.suspendUiUpdates(false);', '')));
-ok('mutation I：删 LiveTailView 的滚动标志读取 ⇒ 必红',
-  !tailSafe(replaceInMethod(tail, 'private tick(): void {', 'uiIsScrolling()', 'false')));
+ok('mutation I：删 LiveTailView 的暂停标志读取 ⇒ 必红',
+  !tailSafe(replaceInMethod(tail, 'private tick(): void {', 'tailIsPaused()', 'false')));
 ok('mutation J：删页面 setUiScrolling(true) ⇒ 必红',
   !pageSafe(index.split('setUiScrolling(true);').join('')));
 
