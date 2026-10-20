@@ -3777,11 +3777,14 @@ export function queueItemId(item: QueueItem): string {
  * ⛔ 审计（2026-10-21）：`state.todos` 是**唯一真源**，REST 快照也必须经 `applySessionFields`
  *   写入；两套同名 `TodoItem` 字段可选性不同 ⇒ 必须显式映射（ArkTS 禁结构类型断言）。
  */
-function toStateTodos(src: readonly TodoItem[] | undefined): ChatTodoItem[] {
-  const out: ChatTodoItem[] = [];
+function toStateTodos(src: readonly TodoItem[] | undefined): ChatTodoItem[] | undefined {
+  // ⛔ 用户 2026-10-21（严格区分空值和无值）：REST **缺字段** ⇒ `undefined`（状态机=保留本地）；
+  //   `[]`（明确空数组）⇒ `[]`（显式清空）。旧实现把 undefined 折成 `[]` ⇒ 一次
+  //   `/api/session/status` 没带 todos 就把面板清空（**空值当成无值**的典型）。
   if (src === undefined) {
-    return out;
+    return undefined;
   }
+  const out: ChatTodoItem[] = [];
   for (let i = 0; i < src.length; i++) {
     const it: TodoItem = src[i];
     out.push({ text: it.text !== undefined ? it.text : '', status: it.status !== undefined ? it.status : 'pending' });
