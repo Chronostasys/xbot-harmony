@@ -136,9 +136,15 @@ export class LiveViewBridge {
         }
       }
       if (!next.active) {
-        if (this.live) {
+        // ⛔ 进程重启/旧版本可能在系统里留下同一 LV_ID 的实况窗；`this.live` 是本进程
+        //    状态，不能作为"系统里一定没有"的依据。结束请求必须无条件发一次（无实例时
+        //    系统报错在 stop 内吞掉），否则旧 banner 会永久挂着旧 title/timer。
+        try {
           await this.stop();
+        } catch (e) {
+          // 无旧实况窗：正常
         }
+        this.live = false;
         this.last = next;
         this.lastPushMs = nowMs;
         return;
@@ -154,6 +160,17 @@ export class LiveViewBridge {
           this.cap = LV_CAP_NO;
           this.live = false;
           return;
+        }
+      }
+      // ⛔ 进程重启后旧 live view 可能仍挂在系统（同一 LV_ID）：直接 startLiveView
+      //    会被拒/或继续显示旧标题与旧 timer（用户实测「左只有 logo、计时不走」）。
+      //    首次 start 前先 stop 一次旧实例；无实例时系统报错忽略即可。
+      if (!this.live) {
+        this.seq = this.seq + 1;
+        try {
+          await liveViewManager.stopLiveView(this.buildStopped());
+        } catch (e) {
+          // 无旧实况窗 / 已结束：正常路径，不降级
         }
       }
       // ⛔ 每次推送都必须换一个新的 sequence（系统侧要求严格递增，否则 update 被拒）。
@@ -251,7 +268,7 @@ export class LiveViewBridge {
       event: LV_EVENT,
       sequence: this.seq,
       isMute: true,
-      timer: { isCountdown: false },
+      timer: { time: snap.timerMs, isCountdown: false },
       liveViewData: {
         primary: {
           title: snap.title,
@@ -262,16 +279,16 @@ export class LiveViewBridge {
           layoutData: { layoutType: liveViewManager.LayoutType.LAYOUT_TYPE_DEFAULT },
         },
         capsule: {
-          // ⛔ 不能用 ProgressCapsule：`indeterminate: true` 的语义是**按百分比显示**
-          //    `(progress/max)*100%`（SDK d.ts:1150-1156），不是“不确定进度转圈”。
-          //    不带 progress 时系统默认 0 ⇒ 用户看到「0%」。我们本来就不该编造进度
-          //    ⇒ 改用文字胶囊（短工具名/第 N 轮），彻底没有百分比。
-          type: liveViewManager.CapsuleType.CAPSULE_TYPE_TEXT,
+          // ⛔ TextCapsule 在部分真机灵动岛只显示图标（title/content 不进紧凑区）；
+          //    用户要求「左侧不要只有 logo + 计时必须动」⇒ 用 TimerCapsule：
+          //    content = 短工具名/轮次，time = 本 turn 已用 ms（系统每秒自增）。
+          type: liveViewManager.CapsuleType.CAPSULE_TYPE_TIMER,
           status: 1,
-          // 必须：真机/模拟器缺 icon 直接 401。
           icon: LV_ICON,
           backgroundColor: LV_CAPSULE_BG,
-          title: snap.capsuleText.length > 0 ? snap.capsuleText : 'xbot',
+          content: snap.capsuleText.length > 0 ? snap.capsuleText : 'xbot',
+          time: snap.timerMs,
+          isCountdown: false,
         },
       },
     };
@@ -289,13 +306,14 @@ export class LiveViewBridge {
       liveViewData: {
         primary: { title: 'xbot', content: content },
         capsule: {
-          type: liveViewManager.CapsuleType.CAPSULE_TYPE_PROGRESS,
-          // -1 = 胶囊结束/收起（1 是"展示中"，结束态继续传 1 会让胶囊挂着不走）。
+          // 与 active 的 TimerCapsule 对齐；end 态 status=-1 收胶囊。
+          type: liveViewManager.CapsuleType.CAPSULE_TYPE_TIMER,
           status: -1,
           icon: LV_ICON,
           backgroundColor: LV_CAPSULE_BG,
-          indeterminate: false,
-          content: '',
+          content: 'xbot',
+          time: 0,
+          isCountdown: false,
         },
       },
     };

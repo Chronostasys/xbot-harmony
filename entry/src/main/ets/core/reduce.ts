@@ -797,6 +797,11 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
 
     // ── iteration：仅 active turn；迭代 append-only（I4） ──
     case 'iteration': {
+      // ⛔ 会话级字段（todos/goal）必须先应用，**不能等 turn/迭代闸门**：
+      //   后端的 `emitTodosProgress` 是 phase="" / iteration=0 的轻量 progress，
+      //   若 activeTurn 已 committed/被收尸，后面的 replay 分支会直接 return s
+      //   ⇒ TodoWrite 成功但 todo 列表永远不出现（用户 2026-10-20 P0）。
+      s = applySessionFields(s, ev.todos, ev.goal)
       s = settlePendingSending(s, false)
       // ⛔ `ev.iter === null` = 事件未携带迭代号（**不是迭代 1**）。保留 prev.iter，
       //   不触发 `advanced`、不参与 gap 判据、也**不解除** committed/frozen 遮蔽

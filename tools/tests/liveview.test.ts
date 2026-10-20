@@ -54,7 +54,8 @@ eq('⛔ 结束态不携带内容（title/line1/line2/capsule 全空）',
   [idle.title, idle.line1, idle.line2, idle.capsuleText], ['', '', '', '']);
 
 const live: LiveViewSnapshot = liveViewSnapshotOf(mk(true, 3, 'Shell: sleep 90; echo DONE', 'running', 120, 65000), NOW);
-eq('标题带真实耗时', live.title, 'xbot · 已用 1:05');
+eq('标题固定为品牌名（耗时交给系统 timer）', live.title, 'xbot');
+eq('系统 timer 初值 = 本 turn 已用 65s', live.timerMs, 65000);
 eq('第一行 = 轮次 + 在飞工具', live.line1, '第 3 轮迭代 · Shell: sleep 90; echo DONE');
 eq('第二行 = 状态 + 字数', live.line2, '正在执行 · 已生成 120 字');
 eq('胶囊 = 工具短名', live.capsuleText, 'Shell');

@@ -62,6 +62,8 @@ export class LiveViewSnapshot {
   line2: string = '';
   /** 状态栏胶囊文字（`TextCapsule.content`）。 */
   capsuleText: string = '';
+  /** 系统计时器初值（ms；本 turn 起算）。系统每秒自增，⛔ 不再把耗时拼进 title。 */
+  timerMs: number = 0;
 }
 
 /** `ms` → `m:ss`（<1h）或 `h:mm:ss`。`<= 0` ⇒ 空串（不显示）。 */
@@ -127,8 +129,8 @@ export function liveViewSnapshotOf(i: LiveViewInput, nowMs: number): LiveViewSna
   if (!i.busy) {
     return s;
   }
-  const used: string = i.startedAtMs > 0 ? fmtClock(nowMs - i.startedAtMs) : '';
-  s.title = used.length > 0 ? `xbot · 已用 ${used}` : 'xbot';
+  s.title = 'xbot';
+  s.timerMs = i.startedAtMs > 0 ? Math.max(0, nowMs - i.startedAtMs) : 0;
   const iterPart: string = i.iteration > 0 ? `第 ${i.iteration} 轮迭代` : '准备中';
   s.line1 = i.toolLabel.length > 0 ? `${iterPart} · ${i.toolLabel}` : iterPart;
   const word: string = lvStatusWord(i.toolStatus);
