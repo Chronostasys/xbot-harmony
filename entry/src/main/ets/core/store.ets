@@ -21,7 +21,7 @@ import { reduce, applySessionFields } from './reduce';
 import { deriveRows, Row } from './derive';
 import { extractEventChatID, normalizeEvent } from './normalize';
 import { historyToReplaced, liveProgressFromState } from './integrate';
-import { applyRow } from './render';
+import { applyRow, invalidateAppliedRow } from './render';
 import { ChatMessage, ChatMessageRole, EMPTY_PROGRESS_SNAPSHOT, ProgressSnapshot, WebCompaction, WebIteration } from './chattypes';
 import { toHistoryCompactions } from './compaction';
 import { normalizeWebIteration } from './agent_normalize';
@@ -508,17 +508,13 @@ export class ChatStore {
   }
 
   /** `ChatState → rows`：`deriveRows` + 就地适配（对象恒等）。 */
-  /** 清空 live 行缓存；turn/iteration 生命周期结束后旧 ChatRow 不得复用。 */
+  /** 使 live 行的 applied-Row 缓存失效；**保留 ChatRow 身份**（删对象会破坏 LazyForEach 同键渲染）。 */
   private invalidateLiveRowCache(): void {
-    const stale: string[] = [];
-    this.rowCache.forEach((r: ChatRow, k: string) => {
+    this.rowCache.forEach((r: ChatRow) => {
       if (r.isLive) {
-        stale.push(k);
+        invalidateAppliedRow(r);
       }
     });
-    for (let i = 0; i < stale.length; i++) {
-      this.rowCache.delete(stale[i]);
-    }
   }
 
   private rebuildRows(): void {

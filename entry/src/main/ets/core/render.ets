@@ -605,6 +605,17 @@ function sameRowEssence(a: Row, b: Row): boolean {
 const appliedRowByRow = new WeakMap<ChatRow, Row>();
 
 /**
+ * 让某个 `ChatRow` 的「上次应用 Row」缓存失效，但**保留 ChatRow 身份**。
+ *
+ * ⛔ 不能直接删 `rowCache` 里的 ChatRow：LazyForEach 的键不含 rev，删除后新建的同键
+ *    ChatRow 不会触发 item 重建 ⇒ 切换会话/新迭代时整行消失或停在旧内容（2026-10-20 P0）。
+ *    身份稳定 + 重新 applyRow 才是正确语义。
+ */
+export function invalidateAppliedRow(row: ChatRow): void {
+  appliedRowByRow.delete(row);
+}
+
+/**
  * 把一个派生 Row 落到既有的 `ChatRow` 对象上（就地更新）。
  *
  * 就地更新（而非每帧 new）保住 `@ObjectLink` 的对象恒等 —— 未变化的行为 ArkUI
