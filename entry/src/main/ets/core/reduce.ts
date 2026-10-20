@@ -175,6 +175,50 @@ function mergeIterations(
  * 已持有迭代窗口的最大迭代号（'' 前置条件：调用方已确认 `iterations.length > 0`）。
  * 跳变检测的「本地基准」——判「到达的迭代号是否接上了已持有的连续窗口」。
  */
+/**
+ * 迭代**前进**事件自带的正文/思考，是不是**上一迭代的残留副本**。
+ *
+ * ⛔ 用户 2026-10-21 亲报（100% 复现）：「把前台长 shell 手动『转后台』之后，被我转到后台的
+ *   那个迭代的思考直接跑到了下一个迭代，出现**两段完全一样的思考**（思考 406 字 ×2），
+ *   直到下一个迭代的真实 SSE 到达才恢复」。
+ *   根因：转后台 ⇒ 该工具调用立即返回 ⇒ 服务端提交该迭代并推进到下一迭代，而**推进事件
+ *   自带的 `content`/`reasoning` 仍是刚提交那一迭代的文本**（与 `active_tools` 残留同族的
+ *   服务端行为）。旧实现 `advanced ? (ev.reasoning ?? '')` 直接采信 ⇒ 新迭代的在飞块
+ *   把上一迭代的思考再画一遍（历史块里已有一份）。
+ *
+ * 判据：与**上一帧**的同名字段**等长** ⇒ 视为残留（新迭代的文本必然是新的增长）。
+ *   ⚠️ 只比长度（与 `sameRowEssence` 同一纪律：禁止用全文比较去重，那是 O(文本)/帧）。
+ *   误判代价：新迭代首段恰与旧文等长 ⇒ 本帧不上屏，下一帧 delta 即补齐（不会丢内容）。
+ */
+function isLeftoverText(next: string | undefined, prev: string): boolean {
+  return next !== undefined && next.length > 0 && next.length === prev.length
+}
+
+/**
+ * 「刚提交那一迭代」的同名字段长度（`wantReasoning=false` ⇒ 取正文）。
+ *
+ * ⛔ 转后台场景里，推进事件自带的文字是**刚提交那一迭代**的副本 —— 而那次提交
+ *   已经把 live 快照的 `content/reasoning` 清空了（`committedNow`）⇒ 只跟 `prev`
+ *   比会漏判（`prev` 此刻是空串）。必须跟**已提交的迭代块**比。
+ *   只在迭代前进时调用（每迭代一次）⇒ O(块数) 但不在每帧路径上。
+ */
+function committedTextLen(iters: readonly WebIteration[], iter: number, wantReasoning: boolean): number {
+  for (let i = 0; i < iters.length; i++) {
+    if (iters[i].iteration === iter) {
+      const txt: string = wantReasoning
+        ? (iters[i].reasoning !== undefined ? iters[i].reasoning : '')
+        : (iters[i].content !== undefined ? iters[i].content : '');
+      return txt.length
+    }
+  }
+  return -1
+}
+
+/** 前进事件自带的文字是否为「刚提交那一迭代」的副本（等长 ⇒ 是）。 */
+function isCommittedCopy(next: string | undefined, committedLen: number): boolean {
+  return next !== undefined && next.length > 0 && committedLen >= 0 && next.length === committedLen
+}
+
 function maxHeldIteration(iterations: readonly WebIteration[]): number {
   let max = 0
   for (const it of iterations) if (it.iteration > max) max = it.iteration
@@ -932,13 +976,17 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
         progressPhase: ev.phase !== undefined ? ev.phase : prev.progressPhase,
         // 迭代边界：清空流式字段（新迭代从零开始）；commit 同样清空（已进
         // iterations 权威版本）；非前进非 commit 则替换。
+        // ⛔ 前进事件自带的正文/思考可能是**刚提交那一迭代**的残留副本（转后台场景 100% 复现，
+        //   见 isLeftoverText 的注释）⇒ 等长即丢弃，新迭代从空开始。
         content: advanced
-          ? (ev.content ?? '')
+          ? ((isCommittedCopy(ev.content, committedTextLen(merged, prev.iter, false))
+            || isLeftoverText(ev.content, prev.content)) ? '' : (ev.content ?? ''))
           : committedNow
             ? ''
             : (ev.content ?? prev.content),
         reasoning: advanced
-          ? (ev.reasoning ?? '')
+          ? ((isCommittedCopy(ev.reasoning, committedTextLen(merged, prev.iter, true))
+            || isLeftoverText(ev.reasoning, prev.reasoning)) ? '' : (ev.reasoning ?? ''))
           : committedNow
             ? ''
             : (ev.reasoning ?? prev.reasoning),
@@ -1090,8 +1138,15 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
         // 流式帧 = 活动证据 ⇒ streaming 恢复 true（见 iteration case 同注）。
         streaming: true,
         iter: advanced ? ev.iteration : prev.iter,
-        content: advanced ? (ev.content ?? '') : (ev.content !== undefined ? ev.content : prev.content),
-        reasoning: advanced ? (ev.reasoning ?? '') : (ev.reasoning !== undefined ? ev.reasoning : prev.reasoning),
+        // 同 iteration case：前进帧自带的文字若与**刚提交那一迭代**等长 ⇒ 残留副本，丢弃（转后台场景）。
+        content: advanced
+          ? ((isCommittedCopy(ev.content, committedTextLen(prev.iterations, prev.iter, false))
+            || isLeftoverText(ev.content, prev.content)) ? '' : (ev.content ?? ''))
+          : (ev.content !== undefined ? ev.content : prev.content),
+        reasoning: advanced
+          ? ((isCommittedCopy(ev.reasoning, committedTextLen(prev.iterations, prev.iter, true))
+            || isLeftoverText(ev.reasoning, prev.reasoning)) ? '' : (ev.reasoning ?? ''))
+          : (ev.reasoning !== undefined ? ev.reasoning : prev.reasoning),
         // 工具去重（同名双渲染根治）：streamingTools 是流式检测中的工具
         // （generating，参数不全），activeTools 是结构化事件的执行中工具
         // （running，参数全）。同名共存 → 同一工具渲染两个（用户报告

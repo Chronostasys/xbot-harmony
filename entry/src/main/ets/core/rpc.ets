@@ -428,6 +428,27 @@ export class DefaultSubscriptionParams {
  * 逐字对齐 web `agent/api.ts:663-669 sessionBody`：`{ channel: session.channel, chat_id: session.chatID }`。
  * ⚠️ 键名是 **`chat_id`（下划线）**，不是 `chatID` —— 服务端 `json:"chat_id"`（`rpc_table.go:1489/1546/1580/1609`）。
  */
+/**
+ * `get_goal` → `Goal | null` 的入参（服务端 `serverapp/rpc_table.go:1716-1727`：
+ * `{channel, chat_id}`；返回 `*Goal`，无目标时为 JSON `null`）。
+ *
+ * ⛔ 为什么客户端必须能**主动读**目标（用户 2026-10-21）：目标状态此前只从
+ *   结构化 progress 事件流入 ⇒ 切后台/换设备后**回前台不重取**，banner 停在旧值或空白，
+ *   与真实状态不同步。resync（回前台/重连/权威重载）必须像 todos 一样拉一次权威值。
+ */
+export const RPC_GET_GOAL: string = 'get_goal';
+
+/** `get_goal` / `set_goal` / `clear_goal` 的会话定位入参（服务端按 `{channel, chat_id}` 解析）。 */
+export class GoalReq {
+  channel: string = '';
+  chat_id: string = '';
+
+  constructor(channel: string, chatID: string) {
+    this.channel = channel;
+    this.chat_id = chatID;
+  }
+}
+
 export class SessionSelectorParams {
   channel: string = '';
   chat_id: string = '';

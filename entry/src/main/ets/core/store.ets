@@ -42,7 +42,7 @@ import { FsEntry } from './composer';
 import { FsListBody, FsReadResult, FsSearchBody, FsSearchEntry, fsListBody, fsSearchBody } from './files';
 import { GenuiShareBody, genuiPanelUrl, genuiShareBody } from './genui';
 import { SkillItem, SkillWire, parseSkillList } from './skills';
-import { MaxContextParams, RPC_GET_SESSION_SUBSCRIPTION, RPC_GET_USER_MAX_CONTEXT, RPC_LIST_ALL_MODEL_ENTRIES, RPC_SELECT_MODEL, RPC_SET_USER_MAX_CONTEXT, SelectModelParams, RPC_SKILL_GET_CONTENT, RPC_SKILL_LIST, RPC_SKILL_SET_ENABLED, RPC_WEB_PLUGIN_LIST, RPC_GET_AGENT_SESSION_DUMP, RPC_GET_SESSION_MESSAGES, SubAgentHistoryParams, AgentSessionDump, SubAgentMsg, SessionSelectorParams, SessionSubscription, SkillContentWire, SkillGetContentParams, SkillListParams, SkillSetEnabledAck, SkillSetEnabledParams, normalizeMaxContext, readableRpcError, rpc, sessionSubscriptionId } from './rpc';
+import { GoalReq, RPC_GET_GOAL, MaxContextParams, RPC_GET_SESSION_SUBSCRIPTION, RPC_GET_USER_MAX_CONTEXT, RPC_LIST_ALL_MODEL_ENTRIES, RPC_SELECT_MODEL, RPC_SET_USER_MAX_CONTEXT, SelectModelParams, RPC_SKILL_GET_CONTENT, RPC_SKILL_LIST, RPC_SKILL_SET_ENABLED, RPC_WEB_PLUGIN_LIST, RPC_GET_AGENT_SESSION_DUMP, RPC_GET_SESSION_MESSAGES, SubAgentHistoryParams, AgentSessionDump, SubAgentMsg, SessionSelectorParams, SessionSubscription, SkillContentWire, SkillGetContentParams, SkillListParams, SkillSetEnabledAck, SkillSetEnabledParams, normalizeMaxContext, readableRpcError, rpc, sessionSubscriptionId } from './rpc';
 import {
   PluginCatalog,
   WebPluginListWire,
@@ -1774,6 +1774,16 @@ export class ChatStore {
       this.loadHistory().catch(() => {
         // loadHistory 已把可读错误写进 historyError；这里只防未处理 rejection
       }).then(() => {
+        // ⛔ 权威**会话状态**也必须一起对齐（用户 2026-10-21：切后台回来 todo/goal 常不同步）：
+        //   todos / token 用量走 `/api/session/status`，goal 走 `get_goal` RPC。两者都非关键路径
+        //   （失败保留本地值），但**必须**在每次 resync 时发一次，否则后台期间的目标/todo 变更
+        //   永远补不回来（旧实现只有 idle 事件时才拉 todos，且 goal 完全没有主动读取路径）。
+        this.loadStatus().catch(() => {
+          // 状态非关键路径
+        });
+        this.loadGoal().catch(() => {
+          // 目标非关键路径
+        });
         release();
       });
     });
@@ -2487,6 +2497,46 @@ export class ChatStore {
   }
 
   /**
+   * 拉取**权威 goal**（RPC `get_goal` → `Goal | null`）。
+   *
+   * ⛔ 用户 2026-10-21：「切到别的应用再回来，todo/目标常常和真实状态不同步 ⇒ **每次
+   *   resync 都要同步一下会话的 todo 啊，包括 goal 的状态**」。
+   *   背景：goal 此前**只**从结构化 progress 事件流入 ⇒ 后台期间错过的事件（或服务端在同
+   *   一回合内被别的客户端改过目标）永远不会补 ⇒ banner 停在旧值/空白，直到下一个带
+   *   `goal` 的事件（可能整个回合都没有）。
+   *   语义三态（与 `core/reduce.applySessionFields` 同源）：
+   *     · 返回对象 ⇒ 覆盖；
+   *     · 返回 `null` ⇒ **显式清除**（服务端无目标）；
+   *     · 请求失败 ⇒ `undefined`（**不动**本地值：网络问题不能当"目标被删"）。
+   *   与 `loadStatus` 同一档：非关键路径，失败静默（不影响历史/发送）。
+   */
+  async loadGoal(): Promise<void> {
+    if (this.currentChatId.length === 0) {
+      return;
+    }
+    const gen: number = this.chatGen;
+    const forChat: string = this.currentChatId;
+    try {
+      const g: GoalInfo | null = await rpc<GoalInfo | null>(
+        this.http, RPC_GET_GOAL, new GoalReq(this.channel, this.wireChatId()), false);
+      if (gen !== this.chatGen || forChat !== this.currentChatId) {
+        return;
+      }
+      // 外来 JSON：`null` = 服务端明确"无目标"（显式清除）；对象 = 覆盖。
+      // ⚠️ 线上两个 GoalInfo 形状不同（`types.GoalInfo` 是 `{text,status}`，
+      //   `chattypes.GoalInfo` 是 `{objective,status}`）⇒ 显式映射，⛔ 不做 spread。
+      const nextGoal: ChatGoalInfo | null = g === null ? null : {
+        objective: g.text !== undefined ? g.text : '',
+        status: g.status !== undefined ? g.status : '',
+      } as ChatGoalInfo;
+      this.state = applySessionFields(this.state, undefined, nextGoal);
+      this.onUpdate();
+    } catch (e) {
+      // 非关键路径：保留本地值（⛔ 失败绝不当作"目标已删除"）
+    }
+  }
+
+  /**
    * 上传一个附件，返回服务端给的 `upload_key`（发消息时放进 `upload_keys`）。
    *
    * 服务端契约（`channel/web/web_file.go` 的 writeJSON）：`{upload_key, name, size}` ——
@@ -3164,6 +3214,10 @@ export class ChatStore {
         this.applyLocalIdle(this.currentChatId);
         this.loadStatus().catch(() => {
           // 状态非关键路径
+        });
+        // 回合收尾 = 目标可能刚被置为 completed/cancelled ⇒ 同一档补一次权威 goal。
+        this.loadGoal().catch(() => {
+          // 目标非关键路径
         });
         this.loadSessionSubscription().catch(() => {
           // 订阅查询非关键路径
