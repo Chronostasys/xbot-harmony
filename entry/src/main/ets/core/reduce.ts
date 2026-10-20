@@ -2015,7 +2015,14 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       }
       for (const l of ev.legacy) legacyById.set(l.id, l)
       const legacy = [...legacyById.values()].sort((a, b) => (a.dbID ?? 0) - (b.dbID ?? 0))
-      const todos = s.todos.length > 0 ? s.todos : ev.todos
+      // ⛔ 用户 2026-10-21（「严格区分空值和无值」「不能有任何闪烁/频繁状态变化」）：
+      //   两个方向都必须对，判据是**快照是否可能比本地旧**（不是"空/非空"）：
+      //     · **有 live turn**（回合在跑）⇒ 本地 todos 一定比 DB 快照新（todo_write 刚落库，
+      //       快照还是旧的）⇒ **保留本地**（否则面板会闪回旧列表，既有 REPRO 用例钉住这点）；
+      //     · **无 live turn**（idle/刚打开会话）⇒ 快照即权威 ⇒ **明确携带就以它为准**
+      //       （`[]` = 服务端清空，`todosAuthoritative !== false`）；**未携带**才保留本地。
+      const snapshotIsAuthoritative: boolean = s.activeTurn === null && ev.todosAuthoritative !== false
+      const todos = snapshotIsAuthoritative ? ev.todos : s.todos
 
       // 幂等回放短路：逐项恒等（turns 每个 Turn 对象 / legacy / pendingUsers 元素
       // 引用 + activeTurn/lastSeq/todos）⇒ 返回原 state。
@@ -2072,7 +2079,10 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       return {
         chatID: s.chatID, turns, legacy, activeTurn, lastSeq,
         busy: authoritativeRunning ? s.busy : false,
-        pendingUsers, queue: s.queue, todos, goal: s.goal,
+        pendingUsers, queue: s.queue, todos,
+        // goal 同一条"快照可能比本地旧"判据：无 live turn 时才采信快照的三态
+        // （undefined = 未携带/保留；null = 显式清除；对象 = 覆盖）。
+        goal: (s.activeTurn === null && ev.goal !== undefined) ? ev.goal : s.goal,
         // ⛔ 用户 2026-10-21 规则（原话）：「busy 变 IDLE 必须是**收到了一个没有 toolcall 的
         //   迭代**，或者**后端告诉你它 idle**；别的任何情况都不能让 busy 变 IDLE」。
         //   历史快照是"某一刻的 DB 视图"，**滞后**于 SSE（turn 正在跑时 DB 还没有 assistant 行）

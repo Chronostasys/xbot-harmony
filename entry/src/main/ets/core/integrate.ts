@@ -19,6 +19,7 @@ import {
 import {
   EMPTY_PROGRESS_SNAPSHOT,
   type ChatMessage,
+  type GoalInfo,
   type ProgressSnapshot,
   type TodoItem,
   type WebCompaction,
@@ -202,7 +203,28 @@ export function historyToReplaced(
       }))
     : []
 
-  return { type: 'history_replaced', legacy, turns, standalone, active, lastSeq: null, todos: snapshotTodos }
+  // ⛔ 严格区分"空值 vs 无值"（用户 2026-10-21）：`Array.isArray(hp.todos)` = 快照**明确携带**
+  //   （`[]` 表示服务端清空）；缺字段 = 未携带 ⇒ 客户端保留本地（不能误清）。
+  const todosAuthoritative: boolean = Array.isArray(hp?.todos)
+  // goal 同语义：对象 = 覆盖；`{status:'cleared'}` = 显式清除；缺字段 = 未携带。
+  let snapshotGoal: GoalInfo | null | undefined = undefined
+  const rawGoal = (hp as unknown as { goal?: unknown } | undefined)?.goal
+  if (rawGoal !== null && typeof rawGoal === 'object') {
+    const g = rawGoal as { objective?: unknown; status?: unknown; summary?: unknown }
+    if (g.status === 'cleared') {
+      snapshotGoal = null
+    } else if (typeof g.objective === 'string' && g.objective.length > 0) {
+      snapshotGoal = {
+        objective: g.objective,
+        status: typeof g.status === 'string' && g.status ? g.status : 'active',
+        summary: typeof g.summary === 'string' && g.summary ? g.summary : undefined,
+      }
+    }
+  }
+  return {
+    type: 'history_replaced', legacy, turns, standalone, active, lastSeq: null,
+    todos: snapshotTodos, todosAuthoritative, goal: snapshotGoal,
+  }
 }
 
 function snapshotToLive(live: ProgressSnapshot): LiveSnapshot {

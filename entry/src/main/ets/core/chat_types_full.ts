@@ -502,6 +502,14 @@ export type DomainEvent =
       /** 会话级 todos（active_progress 快照携带 —— 含 phase=done 的快照，
        *  turn 已结束但 todos 存活渲染）。 */
       readonly todos: readonly TodoItem[]
+      /**
+       * 快照是否**明确携带** todos（`todos` 字段存在）。
+       * ⛔ 严格区分（用户 2026-10-21）：`true + todos:[]` = 服务端**清空**（必须清）；
+       *   `false`/缺失 = 未携带 ⇒ **保留本地**（老服务端/轻快照不得误清）。
+       */
+      readonly todosAuthoritative?: boolean
+      /** 快照携带的会话级 goal 三态：`undefined` = 未携带（保留）；`null` = 显式清除；对象 = 覆盖。 */
+      readonly goal?: GoalInfo | null | undefined
     }
   | {
       /**
