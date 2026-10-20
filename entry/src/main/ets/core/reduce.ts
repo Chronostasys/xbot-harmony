@@ -884,6 +884,11 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
       if (!t || t.phase.kind !== 'live') return s
 
       const prev = t.phase.data
+      // ⛔ SSE 也可能**乱序**：当前 live 已经到 iter N+1，但一条 iter N 的迟到
+      //   iteration/stream 帧仍可能到达。旧实现 `advanced=false` 会把它的
+      //   content/reasoning 写进当前 (N+1) live 快照 ⇒ 上一迭代的「思考」被
+      //   重复渲染到下一迭代，直到真正的 N+1 帧到达。绝不能用旧迭代覆盖新迭代。
+      if (evIter !== null && evIter < prev.iter) return s
       // I5：重放丢弃（seq ≤ 水位 **且** 无新迭代信息 —— 见 isStaleSeq 的 Run 重启说明）。
       if (isStaleSeq(s.lastSeq, ev.seq, prev, { iter: ev.iter, iterationsDelta: ev.iterationsDelta })) return s
       // ⛔ `ev.iter === null` = 事件未携带迭代号（**不是迭代 1**）。此时保留 prev.iter，
@@ -1074,6 +1079,8 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
       const t = s.turns.get(target)
       if (!t || t.phase.kind !== 'live') return s
       const prev = t.phase.data
+      // ⛔ 迟到的旧迭代 stream 绝不能覆盖当前迭代（同一乱序问题见 iteration case）。
+      if (ev.iteration !== null && ev.iteration < prev.iter) return s
       // 迭代前进（后端 stamp 的 iteration > 当前 iter）：清空流式字段 —— 否则
       // 迭代 N+1 的 stream 到达时，若 content 尚未产出，迭代 N 的旧 content
       // /reasoning 残留到新迭代（"老 content 到新迭代"竞态，用户报告）。
