@@ -327,6 +327,13 @@ export class ChatStore {
 
   /** 行对象缓存（id → ChatRow）——就地更新，保住 @ObjectLink 恒等。 */
   private rowCache: Map<string, ChatRow> = new Map();
+  /**
+   * live 行缓存的**生命周期键**（turn 代数/迭代号）。
+   * ⛔ 行 id 可能跨 turn 复用（缺 turn id 时 `turn-0-live`）；若只按 id 命中 `rowCache`，
+   *    新 turn/新迭代会拿到**旧 ChatRow**，`applyRow` 的 `appliedRowByRow` 会误判未变化
+   *    ⇒ 新迭代的 reasoning 不落行，页面停在「思考中…」。key 变 ⇒ 删除所有 live 缓存行。
+   */
+  private liveCacheKey: string = '';
 
   /** 已拉取的历史消息累积（对齐 web `useChatMessages` 的 messages 数组）——
    *  分页只追加更早段，每次派发 `history_replaced(全量)` 让 reduce 做 merge。 */
@@ -501,6 +508,19 @@ export class ChatStore {
   }
 
   /** `ChatState → rows`：`deriveRows` + 就地适配（对象恒等）。 */
+  /** 清空 live 行缓存；turn/iteration 生命周期结束后旧 ChatRow 不得复用。 */
+  private invalidateLiveRowCache(): void {
+    const stale: string[] = [];
+    this.rowCache.forEach((r: ChatRow, k: string) => {
+      if (r.isLive) {
+        stale.push(k);
+      }
+    });
+    for (let i = 0; i < stale.length; i++) {
+      this.rowCache.delete(stale[i]);
+    }
+  }
+
   private rebuildRows(): void {
     // ⛔ 滚动/触摸期挂起：状态机继续累加，但**不碰** `rowCache` 里的 ChatRow（@ObjectLink
     //   会绕过页面 syncFrom 早退，每帧改 content/iterations ⇒ 行高抖动）。恢复时一次重建。
@@ -508,6 +528,20 @@ export class ChatStore {
       return;
     }
     const derived: readonly Row[] = deriveRows(this.state);
+    // ⛔ live 行缓存的 key 必须含 turn/iteration 生命周期：行 id 会跨 turn 复用，
+    //    只按 id 命中会让新迭代拿到旧 ChatRow（appliedRowByRow 误判）⇒ 思考中卡死。
+    let liveCacheKey: string = '';
+    for (let i = 0; i < derived.length; i++) {
+      const dr: Row = derived[i];
+      if (dr.kind === 'live') {
+        liveCacheKey = `${this.state.turns.size}#${dr.turnID}#${dr.lastIter}`;
+        break;
+      }
+    }
+    if (liveCacheKey !== this.liveCacheKey) {
+      this.liveCacheKey = liveCacheKey;
+      this.invalidateLiveRowCache();
+    }
     const next: ChatRow[] = [];
     const alive: Set<string> = new Set();
     // ⛔ **行 id 必须唯一**（血债，2026-10-12 真机 P0）：ArkUI 的 `ForEach`/`LazyForEach` key 一旦重复
@@ -1398,6 +1432,10 @@ export class ChatStore {
     }
     this.historyLoadGen = gen;
     this.historyLoading = true;
+    // 权威 history 重载 ⇒ 旧 live 行的缓存必须整体失效（不只按 id 命中）。
+    // 否则 resync 后 `rowCache` 仍返回旧 ChatRow，`appliedRowByRow` 会误判未变化。
+    this.liveCacheKey = '';
+    this.invalidateLiveRowCache();
     this.onUpdate();
     try {
       await this.loadHistoryInner();
