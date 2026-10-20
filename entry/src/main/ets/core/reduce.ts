@@ -2002,7 +2002,10 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       //   只处理 `!queued`（排队行本来就不在 DB 快照里，仍必须留在队列）；
       //   用**计数配对**（incoming 有多少条同内容就退役多少条），避免同文多条时误删。
       const incomingUserCount: Map<string, number> = new Map<string, number>()
-      for (const t of turns.values()) {
+      // ⛔ 审计确证（F7）：此前遍历的是**合并后**的 `turns`（含状态机里尚未落库的本地 live turn）
+      //   ⇒ 连发两条同内容时，第二条 pending 会被"本地数据"当成"快照里已有"而退役 ⇒ 气泡消失。
+      //   权威证据必须只来自**本次快照** `ev.turns`。
+      for (const t of ev.turns) {
         if (t.user !== null && !t.user.isNotification) {
           const k: string = t.user.content
           incomingUserCount.set(k, (incomingUserCount.get(k) !== undefined ? incomingUserCount.get(k) as number : 0) + 1)
@@ -2377,7 +2380,21 @@ function settlePendingSending(s: ChatState, atTurnEnd: boolean): ChatState {
   // 任何 iteration/stream 都是「消息已送达并在跑」的证据：即使 activeTurn 丢了/
   // turn_id 缺失，也先把 pending 的 sending 清掉，避免气泡永久「发送中」。
   if (!atTurnEnd && s.pendingUsers.length > 0) {
-    s = { ...s, pendingUsers: s.pendingUsers.map((u) => (u.sending ? { ...u, sending: false } : u)) }
+    // ⛔ 审计确证（F8）：送达证据是 **per-request** 的 ——「A 的回合已产出」不能证明「B 已送达」
+    //   （B 可能还在 POST 途中）。旧实现 map 全清 ⇒ B 立刻从"发送中"变普通气泡；若随后 POST
+    //   失败，`user_fail` 会把它整行删掉 ⇒ 用户看到消息**静默消失**。
+    //   ⇒ 只结算**最先发出的那条未排队行**（FIFO，对应刚开始的 turn）。
+    let cleared = false
+    s = {
+      ...s,
+      pendingUsers: s.pendingUsers.map((u) => {
+        if (!cleared && u.sending && !u.queued) {
+          cleared = true
+          return { ...u, sending: false }
+        }
+        return u
+      }),
+    }
   }
   // 回合结束：不只清 active turn，清**所有** turn 的 user.sending —— turn_started 可能
   // 早于 sending 置位，或 activeTurn 已被 idle 清掉，只清 active 会漏掉那条永久发送中。

@@ -1702,7 +1702,7 @@ export class ChatStore {
     //   ⛔ 失败**绝不影响**切会话主流程（与下方 `loadStatus` 同款吞异常）。
     this.notifyServerSwitch(chatId).then((res: ChatSwitchResult) => {
       // 切会话即刻恢复 TODO —— 仅当**仍是当前会话**时套用（用户已切走 ⇒ 丢弃，避免串台）。
-      if (this.currentChatId === chatId && res.todos.length > 0) {
+      if (this.currentChatId === chatId && res.todos.length >= 0) {
         this.state = applySessionFields(this.state, toStateTodos(res.todos), undefined);
         this.onUpdate();
       }
@@ -2634,7 +2634,9 @@ export class ChatStore {
       //    下游 `usage !== undefined` 判真 ⇒ 取 `usage.prompt_tokens` 炸（同类缺陷的典型形态）。
       this.usage = st.token_usage !== undefined && st.token_usage !== null ? st.token_usage : undefined;
       this.cwd = st.cwd !== undefined && st.cwd !== null ? st.cwd : '';
-      this.state = applySessionFields(this.state, toStateTodos(st.todos), undefined);
+      // ⛔ 审计确证（F3）：REST 快照是**请求发起时刻**的旧值；有 live turn 时事件流每帧都在
+      //   更新 todos ⇒ 采信 REST 会把面板**回跳**旧列表（可见振荡）。无 live turn 才采信。
+      this.state = applySessionFields(this.state, this.hasLiveTurn() ? undefined : toStateTodos(st.todos), undefined);
       this.onUpdate();
     } catch (e) {
       // 状态拉取失败不影响主链路（历史/发送优先）
@@ -3198,6 +3200,9 @@ export class ChatStore {
    * 不清数据 —— 池里被驱逐后若用户再切回，重新 openSession 拉一次权威历史即可。
    */
   dispose(): void {
+    // ⛔ 审计确证（F6）：`disposed` 此前**只声明不赋值** ⇒ 已释放的 store 仍会每 5s/30s 打
+    //   `/api/session-tree`（在飞 `loadSessions` 的 `.then` 会无条件重新排程轮询）。
+    this.disposed = true;
     try {
       this.sse.close();
     } catch (e) {

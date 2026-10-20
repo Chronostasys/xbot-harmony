@@ -2673,8 +2673,10 @@ struct Index {
       this.queue = store.queue.slice();
     }
     // ⛔ busy 迁移日志（含原因）—— 用户 2026-10-21 要求，用来抓「busy/idle 抽搐」
-    const wasBusy: boolean = this.busy;
+    // ⛔ F10：必须与**上一次记录值**比较（`this.busy` 在 2638 行已被赋成新值）。
+    const wasBusy: boolean = this.lastLoggedBusy;
     if (wasBusy !== store.busy) {
+      this.lastLoggedBusy = store.busy;
       log('state', `busy ${wasBusy ? 1 : 0}→${store.busy ? 1 : 0} cause=${store.lastBusyCause}`
         + ` running=${store.busy ? 1 : 0} busyPhase=${store.liveProgress().phase}`);
     }
@@ -9717,6 +9719,8 @@ struct Index {
    *   真 stall 的定义是"**事件流停了**"，不是"某一刻没有在飞内容" ⇒ 必须用本时刻做闸门。
    */
   private lastStoreUpdateAtMs: number = 0;
+  /** busy 迁移日志的上一次值（⛔ F10：`wasBusy` 曾在 `this.busy = store.busy` **之后**读 ⇒ 恒相等 ⇒ 日志永不触发）。 */
+  private lastLoggedBusy: boolean = false;
   /**
    * 本地 todo 编辑闸的**最后提交时刻**。
    *
