@@ -1108,6 +1108,11 @@ export class ChatStore {
     const res: PromoteShellResult = await rpc<PromoteShellResult>(
       this.http, 'promote_shell', new PromoteShellParams(key, toolCallId));
     await this.loadBgTasks();
+    // ⛔ 转后台是**服务端状态变更**：随后到达的 progress/snapshot 可能不再携带这个前台
+    //    shell tool（它已变成 bg task），只靠增量 event 会让 pill 从历史里消失；用户实测
+    //    「重新加载 session 才出现」。这里立即做一次权威 history 对账，把服务端已落库的
+    //    tool 行拉回来，不依赖下一次手动切会话。
+    await this.loadHistory();
     return res.task_id !== undefined && res.task_id !== null ? res.task_id : '';
   }
 
