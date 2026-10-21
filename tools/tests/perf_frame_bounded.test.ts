@@ -16,7 +16,8 @@
  *   · 本文件：**渲染驱动**不重跑（块列表持有者 + 在飞持有者的替换次数）；
  *   · `perf_frame_bounded_wiring.test.ts`：钉住**调用点**（组件/页面里谁读谁写）。
  */
-declare const process: { exit: (c: number) => void };
+declare const require: (m: string) => any;
+declare const process: { cwd: () => string; exit: (c: number) => void };
 
 import { applyRow } from '../../entry/src/main/ets/core/render';
 import { liveBlocksConvStats } from '../../entry/src/main/ets/core/render';
@@ -143,18 +144,18 @@ console.log('\n▶ §C 身份/压缩点：持有者由 core 维护（组件不�
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n▶ §D 在飞内容持有者：是"每帧只通知 LiveTailView"的载体');
+console.log('\n▶ §D 在飞内容：**@Prop 值投递**（2026-10-21 回滚后的事实口径）');
 {
-  const row: ChatRow = new ChatRow();
-  applyTo(row, buildLive(2));
-  const holder = row.liveTail;
-  ok('★D 持有者初始为空（页面未投递前不画出旧内容）',
-    holder.text.length === 0 && holder.reasoning.length === 0 && holder.tools.length === 0);
-  // 模拟页面投递（与 `pages/Index.ets:syncLiveTail` 同形）
-  holder.text = 'hello';
-  holder.rev = holder.rev + 1;
-  ok('★D 投递后 hasContent() 为真（挂载判据同源）', holder.hasContent());
-  ok('★D 投递会推进代数（@Observed 通知 ⇒ 只重建 LiveTailView）', holder.rev === 1);
+  // ⛔ 历史：曾用独立 @Observed 持有者（`LiveTailState` + `@ObjectLink`）承载在飞内容，
+  //   实测导致「光球与『思考 N 字』一起静止数秒、N 卡在 3/39」的 P0 ⇒ 回滚到 @Prop 值投递，
+  //   死代码已删除（`ChatRow.liveTail` 不再存在）。本段钉住**回滚后**的形态。
+  const req = require('fs');
+  const path = require('path');
+  const types = req.readFileSync(path.join(process.cwd(), 'entry/src/main/ets/core/types.ets'), 'utf8') as string;
+  const live = req.readFileSync(path.join(process.cwd(), 'entry/src/main/ets/components/LiveTailView.ets'), 'utf8') as string;
+  ok('★D `ChatRow.liveTail` 已删除（死代码清理后不得复活）', types.indexOf('liveTail: LiveTailState') < 0);
+  ok('★D `LiveTailView` 用 `@Prop @Watch(\'onSource\') text` 值投递',
+    /@Prop @Watch\('onSource'\) text: string = '';/.test(live));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -112,7 +112,7 @@ console.log('\n▶ §F 页面结构判据：O(1) 整数（不再逐帧 O(rows) �
   ok('★F `syncFrom` 用 `store.rowsGen !== this.rowsGenMirror` 判结构',
     /const structural: boolean = store\.rowsGen !== this\.rowsGenMirror;/.test(page));
   ok('★F 且 busy 期不再无条件重投：`contentGrew` 只认 structural（+ 非 busy 的指纹）',
-    /const contentGrew: boolean = structural \|\| \(!this\.busy && rowsFp !== this\.rowsFp\);/.test(page));
+    /const contentGrew: boolean = structural \|\| \(!store\.busy && rowsFp !== this\.rowsFp\);/.test(page));
   ok('★F 但切会话必须强制重投（代数镜像置 -1）',
     /this\.rowsGenMirror = -1;/.test(page));
 }
