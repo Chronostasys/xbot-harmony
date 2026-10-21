@@ -1463,7 +1463,10 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
     case 'phase_done': {
       // turnID null（turn_id=0 缺失）→ 回退 activeTurn；todos 会话级不丢弃。
       const target = ev.turnID !== null ? ev.turnID : s.activeTurn
-      if (target === null) return applySessionFields(s, ev.todos, ev.goal)
+      // ⛔ 审计确证（state-gate-8-6 C1）：`phase_done` 的两条早退分支此前**不过水位闸门**就写
+      //   会话级 todos/goal —— 与其它三条路径不同源 ⇒ 回放/乱序的旧收尾帧能把 todo/goal 写回旧值。
+      const pdStale: boolean = ev.seq !== null && s.lastSeq !== null && ev.seq <= s.lastSeq
+      if (target === null) return pdStale ? s : applySessionFields(s, ev.todos, ev.goal)
       if (target !== s.activeTurn) {
         // ── P0 同类修复（2026-09-16）──────────────────────────────────────
         // finalIteration 是"最后迭代"的另一个唯一权威载体（后端 recordFinalIteration）。
