@@ -80,7 +80,9 @@ ok(`streammerge 导出 hasFreshPhaseDone 定义（${smDef} ≥ 1）`, smDef >= 1
 //    判据（web `useChatMessages.ts:870-884`）：成功后立即 push 两条状态机事件 ——
 //    `session_running(false)`（清权威闸门 + 定格）与 `session(busy=false)`（清 coarse busy）。
 //    ⛔ 钉调用点：这两条**必须**在 cancel 生效路径里（否则 composer 要等 SSE session(idle)）。
-const cancelOptimistic: number = countOf(storeSrc, "{ type: 'session', busy: false }");
+// ⛔ 锚点修正（2026-10-21）：cancel 的乐观 idle 现在**带 turn 身份**（`turnID`），
+//   否则取消 A 轮会把已 dequeue 的 B 轮标 idle。⇒ 只钉"push 了一个 session idle"这个事实。
+const cancelOptimistic: number = countOf(storeSrc, "type: 'session', busy: false");
 console.log(`  idle-scan ${STORE}: cancel 乐观 idle push=${cancelOptimistic}`);
 ok(`store.cancel 乐观 idle push（session busy=false）≥ 1（实测 ${cancelOptimistic}）`, cancelOptimistic >= 1);
 

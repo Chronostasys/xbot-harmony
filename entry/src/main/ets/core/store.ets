@@ -3028,8 +3028,11 @@ export class ChatStore {
       if (genAt !== this.chatGen || chatAt !== this.currentChatId) {
         return;
       }
-      // 已经有新一轮占住 activeTurn ⇒ 这次取消与它无关，绝不把它标 idle。
-      if (this.state.activeTurn !== cancelTurn) {
+      // 只有**新一轮**占住 activeTurn 时才跳过（那次取消与它无关）。activeTurn 变 null
+      // （本轮已自行收尾）不该阻止推乐观 idle —— 那是幂等的，且 `cancel()` 的手感要求
+      // "请求成功即进 idle"。
+      const curTurn: TurnID | null = this.state.activeTurn;
+      if (curTurn !== null && cancelTurn !== null && curTurn !== cancelTurn) {
         return;
       }
       this.intentIdleAt = Date.now();

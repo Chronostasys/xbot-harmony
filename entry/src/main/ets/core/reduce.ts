@@ -734,7 +734,16 @@ function settleSendingInvariant(s: ChatState, ev: DomainEvent): ChatState {
   //   running）⇒ 旧实现当帧就把刚入队那条的 `sending` 抹掉 ⇒ **空闲后发的第一条气泡不显示
   //   「发送中…」**（busy 中发的第二条却显示），连带 `hasSendingUser`/FIFO 兜底/唯一行绑定全失效。
   //   `user_sent` 正是「唯一允许 sending=true 的窗口」⇒ 本帧跳过该清理。
-  if (!s.sessionRunning && ev.type !== 'user_sent') {
+  // ⛔ 审计确证（state-gate-7-8 C1，★最严重）：判据必须是「**送达/回合收尾证据**」，不是
+  //   「任何事件」。旧写法只要 `!sessionRunning` 就把所有 pending 的 `sending` 抹掉 —— 而
+  //   `user_sent` 落地时 `sessionRunning` 必为 false ⇒ 紧接着**任何**一条迟到事件
+  //   （idle/text_final/别的帧）都会把**仍在 POST 途中**的气泡标成"已发送"；若 POST 随后失败，
+  //   `user_fail` 会整行删掉 ⇒ **消息静默消失**（用户以为已发出）。
+  //   ⇒ 只允许回合生命周期事件作为"兜底收敛"的触发点（正常收敛仍由 ack/fail/回合收尾负责）。
+  const sendingSettleEvidence: boolean = ev.type === 'turn_started' || ev.type === 'text_final'
+    || ev.type === 'session' || ev.type === 'session_fields' || ev.type === 'user_ack'
+    || ev.type === 'session_running';
+  if (!s.sessionRunning && sendingSettleEvidence) {
     let anyPendingSending: boolean = false;
     for (let i = 0; i < pendingUsers.length; i++) {
       if (pendingUsers[i].sending) { anyPendingSending = true; break; }
