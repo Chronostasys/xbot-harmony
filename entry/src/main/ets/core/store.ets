@@ -989,6 +989,34 @@ export class ChatStore {
       this.shadowDiff++;
       // 投影一次（同时验证 ArkTS 桥接可用；只在差异时做，避免每帧开销）
       const rows = applyModel(this.shadow, this.shadowRows);
+      // ── 行级对照（W2 切换行源前的**最后一道证据**）──────────────────────────────
+      //   比较旧 deriveRows 与新 applyModel 的 (id, role, turnID, 块数, 正文长度) 序列；
+      //   不一致就记日志（只记前 20 次，避免刷屏）。零差异 = 可以安全切换行源。
+      if (this.shadowRowDiff < 20) {
+        const oldRows: readonly Row[] = deriveRows(this.state);
+        let same: boolean = oldRows.length === rows.length;
+        if (same) {
+          for (let i = 0; i < oldRows.length; i++) {
+            const o: Row = oldRows[i];
+            const n: ChatRow = rows[i];
+            const oBlocks: number = o.kind === 'committed' ? o.iterations.length
+              : (o.kind === 'live' || o.kind === 'frozen' ? o.iterations.length : 0);
+            const oTurn: number = o.kind === 'user' ? o.turnID : o.turnID;
+            const oContent: number = o.kind === 'user' ? o.content.length
+              : (o.kind === 'committed' ? o.content.length : 0);
+            if (n.id !== o.id || n.turnID !== oTurn || n.iterations.length !== oBlocks
+              || (o.kind === 'user' && n.content.length !== oContent)) {
+              same = false;
+              break;
+            }
+          }
+        }
+        if (!same) {
+          this.shadowRowDiff++;
+          log('model', `ROWDIFF#${this.shadowRowDiff} ev=${ev.type} oldRows=${oldRows.length}`
+            + ` newRows=${rows.length}`);
+        }
+      }
       log('model', `DIFF#${this.shadowDiff} ev=${ev.type} blocks=${oldBlocks}->${newBlocks}`
         + ` live=${liveOld}->${liveNew} iter=${liveIterOld}->${liveIterNew}`
         + ` tools=${toolCountNew} rows=${rows.length}`);
@@ -1196,6 +1224,7 @@ export class ChatStore {
   /** 影子行的复用缓存（身份稳定；只在 DIFF 时投影一次，成本可忽略）。 */
   private shadowRows: Map<string, ChatRow> = new Map<string, ChatRow>();
   private shadowDiff: number = 0;
+  private shadowRowDiff: number = 0;
 
   onUpdate: () => void = () => {
   };
