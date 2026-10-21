@@ -1417,8 +1417,14 @@ export class ChatStore {
   }
 
   async loadCronTasks(): Promise<void> {
+    const gen: number = this.chatGen;
+    const forChat: string = this.currentChatId;
     const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>(
       '/api/cron/list', new SessionReq(this.channel, this.wireChatId()));
+    // ⛔ 审计确证：await 后无身份守卫 ⇒ 切会话时旧回包写进新会话（面板串台）。
+    if (gen !== this.chatGen || forChat !== this.currentChatId) {
+      return;
+    }
     const arr: Object | undefined = raw['tasks'];
     this.cronTasks = arrOrEmpty(arr as CronJob[]);
     this.onUpdate();
@@ -1434,8 +1440,13 @@ export class ChatStore {
   }
 
   async loadBgTasks(): Promise<void> {
+    const gen: number = this.chatGen;
+    const forChat: string = this.currentChatId;
     const raw: Record<string, Object> = await this.http.postAs<Record<string, Object>>(
       '/api/tasks/list', new SessionReq(this.channel, this.wireChatId()));
+    if (gen !== this.chatGen || forChat !== this.currentChatId) {
+      return;
+    }
     const arr: Object | undefined = raw['background_tasks'];
     this.bgTasks = arrOrEmpty(arr as BgTask[]);
     this.onUpdate();
@@ -3126,13 +3137,24 @@ export class ChatStore {
     if (historyId <= 0 || editedContent.length === 0) {
       return false;
     }
+    // ⛔ 审计确证（state-check-4/6/8）：本函数四步全是"当前会话"语义，而中间有 3 次 await ⇒
+    //   期间切会话会**清掉新会话的历史并把编辑内容发进错会话**（数据写错，不只是显示问题）。
+    //   ⇒ 入口捕获身份，每次 await 后校验，不符立即放弃。
+    const rwGen: number = this.chatGen;
+    const rwChat: string = this.currentChatId;
     // ① rewind（先删服务端消息）
     await this.http.post('/api/history/rewind',
       new RewindReq(this.channel, this.wireChatId(), historyId));
+    if (rwGen !== this.chatGen || rwChat !== this.currentChatId || this.disposed) {
+      return false;
+    }
     // ② reset 状态机（漏了 ⇒ 被删的 assistant 回放）
     this.resetStateMachine();
     // ③ reload 必须在 send 之前（否则乐观行被新历史抹掉）
     await this.loadHistory();
+    if (rwGen !== this.chatGen || rwChat !== this.currentChatId || this.disposed) {
+      return false;
+    }
     // ④ 发送编辑后的内容
     await this.send(editedContent);
     return true;
