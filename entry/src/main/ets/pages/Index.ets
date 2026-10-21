@@ -2579,14 +2579,18 @@ struct Index {
     const contentRev: number = store.rowsRev;
     const grew: boolean = structural || contentRev !== this.rowsRevMirror;
     this.rowsRevMirror = contentRev;
-    const rowsFp: string = this.busy ? '' : this.fingerprintRows(store.rows, store.currentChatId);
+    // ⛔ 审计确证（audit-render 1.1）：这里用**页面缓存** `this.busy` 判定"是否流式"，而它的
+    //   刷新是有条件的（抽屉打开/滚动期不同步）⇒ 与消费者（`busyNow` 用 store.busy）**两个口径**，
+    //   同一函数内混用会造出"页面以为在流、store 已 idle"的窗口 ⇒ 指纹跳过/整表重算错位。
+    //   ⇒ 统一用 `store.busy`（唯一真源）。
+    const rowsFp: string = store.busy ? '' : this.fingerprintRows(store.rows, store.currentChatId);
     // ⛔ 流式期（busy）：**只有行集合结构变了**才重投 `@State rows`；内容变化走 @ObjectLink。
     //   旧实现 `busy || …` 在每个 SSE 事件都重投 ⇒ 整页 rebuild ⇒ 与手势/滚动抢主线程。
     //   ⚠️ 但"重投数组"与"要不要跟到底部"是**两件事**（见 rowsRevMirror 的注释）。
-    const contentGrew: boolean = structural || (!this.busy && rowsFp !== this.rowsFp);
+    const contentGrew: boolean = structural || (!store.busy && rowsFp !== this.rowsFp);
     // ⛔ 2026-10-15 streaming 掉帧修复：busy 时跳过 O(n) structRowsFpOf 计算——
     //   streaming 时结构不变（只有 live 行走非懒路径）⇒ structFp 不变 ⇒ 跳过省 O(n)。
-    const structFp: string = this.busy ? '' : structRowsFpOf(store.rows, store.currentChatId);
+    const structFp: string = store.busy ? '' : structRowsFpOf(store.rows, store.currentChatId);
     this.structFp = structFp;   // 供 `navAnchors()` 结构记忆化（见字段注释）
     if (contentGrew) {
       if (!this.busy) {
