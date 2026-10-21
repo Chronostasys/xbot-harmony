@@ -167,10 +167,14 @@ function markAbsent(s: State, turn: TurnID, iteration: IterNum): State {
 
 // ─── 守卫 ────────────────────────────────────────────────────
 
-function envelope(s: State, f: Frame): { apply: boolean; effects: Effect[] } {
+function envelope(s: State, f: Frame, sameEvent: boolean): { apply: boolean; effects: Effect[] } {
   if (f.chat !== s.chat) return { apply: false, effects: [] };            // 别的会话
   if (f.epoch !== s.epoch) return { apply: false, effects: [{ kind: 'snapshot', chat: s.chat }] };
-  if (f.seq <= s.seq) return { apply: false, effects: [] };               // 重复 / 被跳过的号后到
+  // ⛔ **同一个 wire 事件可以派生多帧**（`iteration` ⇒ tick + 多个 done）。它们共享同一个
+  //   transport seq；若按"`seq ≤` 即重复"处理，除第一帧外全被丢 ⇒ 工具/块整批消失
+  //   （`model_diff_prop` 随机差分钓出：末迭代工具丢失）。⇒ 同批（同 seq）放行。
+  if (f.seq < s.seq) return { apply: false, effects: [] };                // 严格更旧 ⇒ 重复/后到
+  if (f.seq === s.seq && !sameEvent) return { apply: false, effects: [] };
   // 跳号（f.seq > s.seq + 1）**照常应用并把水位推到最大** —— 不重放、不补帧。
   return { apply: true, effects: [] };
 }
@@ -289,10 +293,36 @@ function onFinal(s: State, f: FinalFrame): StepResult {
   const effects: Effect[] = [];
   let blocks: readonly Block[] = t.blocks;
   if (f.blocks !== undefined) {
-    // 整体替换（服务端权威；可能头部截断）—— 唯一允许的"回填"
+    // 整体替换（服务端权威；可能头部截断）—— 唯一允许的"回填"。
+    // ⛔ **缺字段 = 未携带（P5）**：老 wire 的 `progressHistory` 元素可能省略 `tools`/`content`
+    //   （后端 P4 完备性尚未上线）⇒ 同号块的"空工具/空正文"不得覆盖本地已有的值，
+    //   否则提交瞬间工具/正文整批消失（`model_diff_prop` 判据当场钓出）。
+    const prevByIter: Map<number, Block> = new Map<number, Block>();
+    for (let i = 0; i < t.blocks.length; i++) {
+      prevByIter.set(t.blocks[i].iteration, t.blocks[i]);
+    }
+    // ⛔ 还要查 `pending` 缓冲：缺口期间已到达但尚未入账的块也在"本地已有值"里
+    //   （否则 `final` 用空工具的 progressHistory 覆盖它 ⇒ 提交瞬间工具消失）。
+    const pend: ReadonlyMap<IterNum, Block> | undefined = s.pending.get(f.turn);
+    if (pend !== undefined) {
+      pend.forEach((v: Block, k: IterNum) => {
+        if (!prevByIter.has(k)) {
+          prevByIter.set(k, v);
+        }
+      });
+    }
     const stamped: Block[] = [];
     for (let i = 0; i < f.blocks.length; i++) {
-      stamped.push(stampBlock(f.blocks[i]));
+      const inc: Block = f.blocks[i];
+      const prev: Block | undefined = prevByIter.get(inc.iteration);
+      let merged: Block = inc;
+      if (prev !== undefined) {
+        const tools = inc.tools.length === 0 && prev.tools.length > 0 ? prev.tools : inc.tools;
+        const content = inc.content.length === 0 && prev.content.length > 0 ? prev.content : inc.content;
+        const reasoning = inc.reasoning.length === 0 && prev.reasoning.length > 0 ? prev.reasoning : inc.reasoning;
+        merged = { ...inc, tools, content, reasoning };
+      }
+      stamped.push(stampBlock(merged));
     }
     blocks = stamped;
   } else {
@@ -373,9 +403,9 @@ function isFrame(x: Frame | { kind: string }): x is Frame {
  * 唯一转移函数。
  * @param ts 本机时间戳（仅 `send` 需要；由调用方提供 ⇒ `step` 保持纯）
  */
-export function step(s: State, input: Frame | SendIntent | AckIntent | FailIntent | { kind: 'resync' } | { kind: 'absent'; turn: TurnID; iteration: IterNum }, ts: string): StepResult {
+export function step(s: State, input: Frame | SendIntent | AckIntent | FailIntent | { kind: 'resync' } | { kind: 'absent'; turn: TurnID; iteration: IterNum }, ts: string, allowSameSeq: boolean = false): StepResult {
   if (isFrame(input)) {
-    const g = envelope(s, input);
+    const g = envelope(s, input, allowSameSeq);
     if (!g.apply) return { state: s, effects: g.effects };
     switch (input.kind) {
       case 'open': return onOpen(s, input);
@@ -402,8 +432,15 @@ export function stepAll(s: State, inputs: readonly (Frame | SendIntent | AckInte
   let cur = s;
   const seen: Set<string> = new Set<string>();
   const effects: Effect[] = [];
+  let lastSeq: number = -1;
   for (let i = 0; i < inputs.length; i++) {
-    const r = step(cur, inputs[i], ts);
+    const inp = inputs[i];
+    const seqOf: number = isFrame(inp) ? inp.seq : -1;
+    const sameEvent: boolean = seqOf >= 0 && seqOf === lastSeq && seqOf === cur.seq;
+    const r = step(cur, inp, ts, sameEvent);
+    if (seqOf >= 0) {
+      lastSeq = seqOf;
+    }
     cur = r.state;
     for (let k = 0; k < r.effects.length; k++) {
       const e = r.effects[k];

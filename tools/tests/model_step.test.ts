@@ -196,5 +196,18 @@ function fin(turn: number, content: string, seq: number, blocks?: Block[]): Fina
   eq('⑩ 同一 (turn,iter) 只请求一次', r.effects.length, 2);
 }
 
+// ── ⑬ 同一 wire 事件派生多帧（共享 seq）必须**全部生效** ─────────────────────
+{
+  let s = st(0);
+  s = step(s, open(1, 1), '').state;
+  // 一个 `iteration` 事件 ⇒ tick(seq=2) + done(seq=2)（同一 transport seq）
+  const r = stepAll(s, [tick(1, 1, 2, 'text', [tool('c1', 'done')]), done(1, blk(1, [tool('c1', 'done')], 'text'), 2)], '');
+  eq('⑬ 同批 tick+done 都生效（1 块）', r.state.turns.get(1)?.blocks.length, 1);
+  eq('⑬ 块内工具不丢', r.state.turns.get(1)?.blocks[0].tools.length, 1);
+  // 跨批同号仍按重复丢弃（幂等）
+  const again = step(r.state, done(1, blk(2, [], 'x'), 2), '');
+  eq('⑬ 跨批同 seq 仍判重复', again.state.turns.get(1)?.blocks.length, 1);
+}
+
 console.log(`\nmodel_step: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

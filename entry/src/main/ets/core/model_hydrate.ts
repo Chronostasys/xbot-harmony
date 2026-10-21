@@ -34,7 +34,7 @@ export interface WireHistoryIteration {
   readonly subAgents?: readonly never[];
 }
 
-export interface WireHistoryTool {
+interface WireHistoryTool {
   readonly name: string;
   readonly label?: string;
   readonly status?: string;
@@ -172,13 +172,4 @@ export function hydrate(prev: State, messages: readonly WireHistoryMessage[], se
     });
   }
   return { ...prev, seq, turns, legacy };
-}
-
-/** 某回合的**权威**块（供"拉权威"端点回灌时复用同一映射）。 */
-export function blocksOf(iters: readonly WireHistoryIteration[]): readonly Block[] {
-  const out: Block[] = [];
-  for (let i = 0; i < iters.length; i++) {
-    out.push(toBlock(iters[i]));
-  }
-  return out;
 }
