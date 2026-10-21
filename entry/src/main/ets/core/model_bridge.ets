@@ -138,6 +138,8 @@ function fillAssistant(row: ChatRow, r: PAssistantRow, isLive: boolean): void {
  * 投影 + 落地：把模型状态映射成 `ChatRow[]`（复用 `cache` 里的行对象 ⇒ 身份稳定）。
  * **未变化的行不写字段**（`PRow` 引用相同 ⇒ 直接复用）。
  */
+const appliedByRow: WeakMap<Object, PRow> = new WeakMap<Object, PRow>();
+
 export function applyModel(state: State, cache: RowCache): ChatRow[] {
   const rows: PRow[] = project(state) as PRow[];
   const out: ChatRow[] = [];
@@ -152,10 +154,16 @@ export function applyModel(state: State, cache: RowCache): ChatRow[] {
       row.id = key;
       cache.set(key, row);
     }
-    if (r.kind === 'user') {
-      fillUser(row, r as PUserRow);
-    } else {
-      fillAssistant(row, r as PAssistantRow, (r as PAssistantRow).finalized === false);
+    // ⛔ **身份稳定**（旧 `applyRow` 的 `sameRowEssence` 早退等价语义）：同一 `PRow` 对象
+    //   ⇒ 什么都不写（`project` 在内容未变时返回同一对象）。否则每帧整表重排 ⇒ 高度抖动。
+    const prevRow: PRow | undefined = appliedByRow.get(row as Object);
+    if (prevRow !== r) {
+      appliedByRow.set(row as Object, r);
+      if (r.kind === 'user') {
+        fillUser(row, r as PUserRow);
+      } else {
+        fillAssistant(row, r as PAssistantRow, (r as PAssistantRow).finalized === false);
+      }
     }
     out.push(row);
   }

@@ -60,7 +60,9 @@ function assistantRow(t: TurnRec, live: LiveIter | null): PAssistantRow {
   const inflight = liveHere === null ? null : blockOfLive(liveHere);
   const row: PAssistantRow = {
     kind: 'assistant',
-    id: `turn-${t.id}-assistant`,
+    // ⛔ 行 id 与旧 `derive` 逐字一致（页面用 id 找导航锚点/滚动目标）：
+    //   live ⇒ `turn-N-live`；committed ⇒ `turn-N`；cancelled ⇒ `turn-N-c`
+    id: t.final === null ? `turn-${t.id}-live` : (t.final.cancelled ? `turn-${t.id}-c` : `turn-${t.id}`),
     turnID: t.id,
     content: t.final !== null ? t.final.content : (liveHere !== null ? liveHere.content : ''),
     cancelled: t.final !== null && t.final.cancelled,
