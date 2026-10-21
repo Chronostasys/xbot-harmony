@@ -4224,6 +4224,11 @@ struct Index {
     } catch (e) {
       // 首帧尚未布局：忽略（下一步 store 变更后的 syncFrom 仍会跟随到底）
     }
+    // ⛔ 2026-10-21（state-gate-12-7 P3）：发送是跨 await 的操作，失败回填必须带身份 ——
+    //   旧实现无条件把 `text`/`keep` 写回输入框 ⇒ A 的正文与附件在切到 B 之后落进 **B 的输入框**
+    //   （用户接着按发送就把 A 的文件发到 B：跨会话串内容，已超出"显示错"）。
+    const sendGen: number = store.gen;
+    const sendChat: string = store.currentChatId;
     try {
       let interrupted: boolean = false;
       console.info('xbot send: 进入发送路径（await 前）');
@@ -4245,6 +4250,11 @@ struct Index {
       beginTurnKeepAlive();
     } catch (e) {
       console.info(i18nT('xbot send: 发送失败/异常（') + errText(e as Object) + '）');
+      // 身份不符（期间已切会话/同一 store 重开）⇒ 只提示，**不回填**（绝不把 A 的内容写进 B）。
+      if (this.store !== store || store.gen !== sendGen || store.currentChatId !== sendChat) {
+        this.toast(`发送失败: ${errText(e as Object)}`);
+        return;
+      }
       // 失败：草稿与附件都还给用户（store 已回滚那条乐观行，界面不会留幽灵消息）
       this.draft = text;
       this.attachments = keep;
@@ -4646,7 +4656,6 @@ struct Index {
           }, 0);
         }
       }
-      this.loadingMoreRows = false;
       const err: string = store.loadMoreErr;
       if (err.length === 0) {
         return;
@@ -4661,8 +4670,12 @@ struct Index {
       this.toast(`加载更早失败：${err}`);
     } catch (e) {
       // 兜底（`store.loadMore` 已把失败落成 `loadMoreErr`，这里只防它自身的守卫异常）
-      this.loadingMoreRows = false;
       this.toast(`加载更早失败：${errText(e as Object)}`);
+    } finally {
+      // ⛔ 2026-10-21（state-gate-12-7 P1）：**必须**无条件复位 —— 旧实现只在两条正常出口复位，
+      //   而"身份已变"的早退是第三条出口（切会话瞬间触发上拉就会命中）⇒ 标志永久 true
+      //   ⇒ `syncFrom` 的视口保位分支永久跳过（之后每次内容增长都把视口拽走，直到重启页面）。
+      this.loadingMoreRows = false;
     }
   }
 
@@ -9551,7 +9564,16 @@ struct Index {
       this.cancelHoldTimer = -1;
       this.cancelSpinHold = false;
     }, CANCEL_HOLD_MAX_MS);
+    // ⛔ 2026-10-21（state-gate-12-7 P2）：页面的 `done()` 必须带身份 —— store 层已有守卫，
+    //   但这里无条件写页面全局 `cancelSpinHold` 并清 `cancelHoldTimer`：A 的取消在飞时切到 B、
+    //   在 B 点停止（布了新 timer），A 的迟到 resolve 会清掉 **B 的 12s 看门狗**并提前熄灭
+    //   B 的 spinner（请求仍在飞，重复点击被上面的 return 吃掉）。
+    const cGen: number = st.gen;
+    const cChat: string = st.currentChatId;
     const done = (): void => {
+      if (this.store !== st || st.gen !== cGen || st.currentChatId !== cChat) {
+        return;
+      }
       this.cancelSpinHold = false;
       if (this.cancelHoldTimer !== -1) {
         clearTimeout(this.cancelHoldTimer);
@@ -10649,6 +10671,10 @@ struct Index {
     const target: RewindTarget = new RewindTarget(row.turnID, row.content);
     this.rewindEditRowId = '';
     this.draft = '';
+    // ⛔ 2026-10-21（state-gate-12-7 P4）：失败回填必须带身份（同 sendDraft）——
+    //   否则 A 的编辑稿会在切到 B 之后落进 B 的输入框。
+    const rwGen: number = store.gen;
+    const rwChat: string = store.currentChatId;
     try {
       const done: boolean = await store.rewindToMessage(target, text);
       if (!done) {
@@ -10658,7 +10684,9 @@ struct Index {
       this.buzz(HAPTIC_EVENT_CONFIRM);
       this.toast(i18nT('已回退并重发'));
     } catch (e) {
-      this.draft = text;
+      if (this.store === store && store.gen === rwGen && store.currentChatId === rwChat) {
+        this.draft = text;
+      }
       this.toast(`回退失败: ${errText(e as Object)}`);
     }
   }

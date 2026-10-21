@@ -558,6 +558,18 @@ export class ChatStore {
   }
 
   /**
+   * **身份判据（唯一）**：`await` 之后判断"这个回包还属于发起时的那个会话吗"。
+   *
+   * ⛔ 2026-10-21 第十二轮审计确证：全仓的异步回包守卫写法不统一 —— 有的只比 `currentChatId`
+   *   （**同 chat 重开**这条真实路径下失效：游标自愈/`openSession(同一 chat)` 会 `beginSwitch`
+   *   使 gen++ 而 chat 不变），有的写在正路径却漏了 `finally`/`catch`，有的干脆没有。
+   *   ⇒ 统一走本函数（gen + chat 双判），新增回包一律 `if (!this.stillSame(gen0, chat0)) return;`。
+   */
+  private stillSame(gen: number, chat: string): boolean {
+    return gen === this.chatGen && chat === this.currentChatId;
+  }
+
+  /**
    * 是否已经收到某个 turn 的 finalizer，但还没看到下一个 turn_started。
    *
    * ⛔ 这是「content 后接思考中」在 **排队发送** 场景的漏网之鱼：
@@ -1721,9 +1733,15 @@ export class ChatStore {
     await this.http.post('/api/chats/' + encodeURIComponent(chatId) + '/delete',
       new ChannelReq(this.channel));
     if (chatId === this.currentChatId) {
-      this.currentChatId = '';
-      this.rows = [];
-      this.sse.close();
+      // ⛔ 2026-10-21（state-gate-12-7 S4）：删**当前**会话必须走统一身份闸 ——
+      //   旧实现只 `currentChatId=''` + 清 rows + 关 SSE，**不自增 chatGen、不复位状态机、
+      //   不清 rowCache** ⇒ 任何一次 onUpdate 的 `rebuildRows()` 都会从旧 state 回填 ⇒
+      //   **已删会话的消息重新出现**（rowCache 还持有旧 ChatRow）；若随后打开的会话同 id
+      //   （fork/同名），旧 turn 直接被继承。
+      //   ⇒ 身份变更只有一条路：`beginSwitch`（自增代数 + `initialChatState` + 清缓存/队列/游标）。
+      this.beginSwitch('');
+    } else {
+      // 删的是别的会话：不动身份。
     }
     await this.loadSessions();
   }
@@ -2067,6 +2085,12 @@ export class ChatStore {
   // ── 历史（含上拉分页） ─────────────────────────────────────────────────────
 
   async loadHistory(): Promise<void> {
+    // ⛔ 2026-10-21（state-gate-12-7 S6）：已释放的 store 不得再发任何权威重载
+    //   （`dispose()` 的契约如此，而主入口此前没判 —— 切会话 dispose 后，在飞的 resync
+    //   链仍会打 `/api/history` + `/api/status` + `get_goal`）。
+    if (this.disposed) {
+      return;
+    }
     // ⛔ 同一 chatGen 最多一份在飞：resume / resync_required / gap reload / 页面重试
     //    可能同帧撞车，重复请求只会重复解析 + 重建（resume 预算 = 最多一次 reopen）。
     const gen: number = this.chatGen;
@@ -2209,6 +2233,11 @@ export class ChatStore {
    */
   private async loadSubAgentHistory(): Promise<void> {
     const forChat: string = this.currentChatId;
+    // ⛔ 2026-10-21（state-gate-12-7 S3）：子代理路径是 `loadHistoryInner` 的分支出口，
+    //   它只比 chat（主流是 gen+chat 双判）⇒「同 chat 重开」（游标自愈/`openSession(同一 chat)`
+    //   会 beginSwitch 使 gen++ 而 chat 不变）时旧回包仍通过 ⇒ `this.history = chatMsgs`
+    //   **硬覆盖**新一代历史并串入 `oldestId/hasMore` 游标。⇒ 与主流同一条纪律。
+    const gen: number = this.chatGen;
     const parsed: ParsedAgentChatID | undefined = parseAgentChatID(this.currentChatId);
     if (parsed === undefined) {
       console.info(`[SUBAGENT] loadSubAgentHistory: parseAgentChatID returned undefined for ${this.currentChatId}`);
@@ -2221,7 +2250,7 @@ export class ChatStore {
     let messages: Object[] = [];
     try {
       const dump: AgentSessionDump = await rpc<AgentSessionDump>(this.http, RPC_GET_AGENT_SESSION_DUMP, params);
-      if (this.currentChatId !== forChat) { return; }
+      if (!this.stillSame(gen, forChat)) { return; }
       console.info(`[SUBAGENT] get_agent_session_dump response: dump=${dump !== null ? 'non-null' : 'null'} messages=${dump !== null && dump.messages !== undefined ? dump.messages.length : 0} iterations=${dump !== null && dump.iterations !== undefined ? dump.iterations.length : 0}`);
       const dumpMsgs: Object[] = dump !== null && dump.messages !== undefined && dump.messages !== null ? dump.messages : [];
       const dumpIts: Object[] = dump !== null && dump.iterations !== undefined && dump.iterations !== null ? dump.iterations : [];
@@ -2235,14 +2264,14 @@ export class ChatStore {
     if (messages.length === 0) {
       try {
         const msgs: SubAgentMsg[] = await rpc<SubAgentMsg[]>(this.http, RPC_GET_SESSION_MESSAGES, params);
-        if (this.currentChatId !== forChat) { return; }
+        if (!this.stillSame(gen, forChat)) { return; }
         console.info(`[SUBAGENT] get_session_messages response: msgs=${msgs !== null ? (Array.isArray(msgs) ? msgs.length : 'not-array') : 'null'}`);
         messages = msgs !== null && msgs !== undefined && Array.isArray(msgs) ? msgs as Object[] : [];
       } catch (e) {
         console.info(`[SUBAGENT] get_session_messages failed: ${(e as Error).message}`);
       }
     }
-    if (this.currentChatId !== forChat) { return; }
+    if (!this.stillSame(gen, forChat)) { return; }
     // 解析 SubAgentMsg[] → ChatMessage[]（逐字对齐 web `parseSubAgentMessages`）
     const chatMsgs: ChatMessage[] = this.parseSubAgentMessages(messages);
     console.info(`[SUBAGENT] parsed ${chatMsgs.length} messages from ${messages.length} raw`);
@@ -2387,6 +2416,12 @@ export class ChatStore {
       //    旧实现无 catch ⇒ 异常直接抛进 `onScrollIndex` 回调（无人接）⇒ 用户只看到
       //    "划不动、没反应"，而头部提示仍在承诺"会自动加载更早"。这里落**可读原因**，
       //    页面据此 toast（并保留同一入口重试）。
+      // ⛔ 2026-10-21（state-gate-12-7 S2）：catch 也必须带身份 —— 否则 A 的分页失败
+      //   会在切到 B 之后把错误写进 **B** 的 `loadMoreErr`（B 头部立刻显示 A 的失败提示，
+      //   或哨兵码触发页面对 B 重开），正路径有守卫、catch 没有 = 同一规则漏了一处。
+      if (!this.stillSame(gen, forChat)) {
+        return;
+      }
       const err: Error = e as Error;
       const msg: string = err !== undefined && err !== null && err.message !== undefined
         ? err.message : '';
@@ -2394,8 +2429,12 @@ export class ChatStore {
       console.debug(`[LM] fail oldest=${this.oldestId} err=${msg}`);
       this.onUpdate();
     } finally {
-      this.loadingMore = false;
-      this.onUpdate();
+      // ⛔ 同上（S1）：`finally` 无条件清 `loadingMore` 会清掉**新会话**的在飞标志
+      //   （B 可以在上一批未回时再发一批 ⇒ 重复请求 + 两批 oldestId 竞争 = 分页错乱）。
+      if (this.stillSame(gen, forChat)) {
+        this.loadingMore = false;
+        this.onUpdate();
+      }
     }
   }
 
@@ -3354,8 +3393,16 @@ export class ChatStore {
    *    边遍历边取消会漏项。
    */
   async clearQueue(): Promise<void> {
+    // ⛔ 2026-10-21（state-gate-12-7 S7）：逐项 await 必须带身份 —— 旧实现循环内不校验，
+    //   而 `cancelQueued` 用**当前** `wireChatId()` 发请求 ⇒ 中途切到 B 时后续请求会带
+    //   A 的 `msg_id` 打到 **B 的队列**（服务端不可逆）。
+    const gen: number = this.chatGen;
+    const forChat: string = this.currentChatId;
     const ids: string[] = this.queuedMsgIds();
     for (let i = 0; i < ids.length; i++) {
+      if (!this.stillSame(gen, forChat)) {
+        break;
+      }
       await this.cancelQueued(ids[i]);
     }
   }
