@@ -2381,8 +2381,16 @@ export class ChatStore {
     if (before <= 0) {
       return;
     }
+    // ⛔ 审计确证（state-check-6/8）：await 之后**无任何身份守卫** ⇒ 切会话后旧回包会把
+    //   `iterations_loaded(turnID=旧)` 推进**新会话**状态机；turn_id 是小整数，极易撞号 ⇒
+    //   按"同号 incoming 权威"覆盖 ⇒ 新会话的块显示成别的会话的内容。
+    const rgGen: number = this.chatGen;
+    const rgChat: string = this.currentChatId;
     const data: RegionsData = await this.http.postAs<RegionsData>('/api/regions', new RegionsReq(
       this.channel, this.wireChatId(), row.turnID, before, 100));
+    if (rgGen !== this.chatGen || rgChat !== this.currentChatId) {
+      return;
+    }
     const older: HistoryIteration[] = arrOrEmpty(data.iterations);
     // 段边界去重后经 `iterations_loaded` 交给状态机 —— reduce 做 union 合并（同号权威
     // 覆盖、轻字段永不覆盖完整数据），与 web `iterations_loaded` 同一语义。
@@ -2409,10 +2417,18 @@ export class ChatStore {
 
   /** 按需拉取某迭代的完整工具详情（折叠视图下 summary/args/detail 默认不下发）。 */
   async fetchIterationDetail(turnID: number, iteration: number): Promise<HistoryIteration | null> {
+    // ⛔ 审计确证：本函数本身只返回数据，但其调用方会把结果 push 进状态机 ⇒ 这里在 await 后
+    //   校验身份，跨会话一律返回 null（调用方按"未取到"处理，不会污染当前会话）。
+    const fdGen: number = this.chatGen;
+    const fdChat: string = this.currentChatId;
     try {
       const data: IterationDetailData = await this.http.postAs<IterationDetailData>(
         '/api/iteration_detail', new IterationDetailReq(
           this.channel, this.wireChatId(), turnID, iteration));
+      // ⛔ 身份守卫：跨会话回包一律按"未取到"处理（调用方本就会跳过 null）。
+      if (fdGen !== this.chatGen || fdChat !== this.currentChatId) {
+        return null;
+      }
       const it: HistoryIteration | undefined = data.iteration;
       if (it === undefined) {
         return null;
