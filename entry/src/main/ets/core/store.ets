@@ -1938,6 +1938,11 @@ export class ChatStore {
    * 节流 1.2s（`onPageShow` 与 `onState(open)` 可能同帧双触发）；失败静默（旁路，不阻断 UI）。
    */
   resyncAfterResume(reason: string = '', force: boolean = false): void {
+    // ⛔ 审计确证（store-audit 3）：已释放的 store 不得再发任何权威重载
+    //   （401 清池后旧 store 仍会打一次 session-tree + history）。
+    if (this.disposed) {
+      return;
+    }
     if (this.currentChatId.length === 0) {
       return;
     }
