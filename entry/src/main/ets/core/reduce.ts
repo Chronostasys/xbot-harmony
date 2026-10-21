@@ -744,7 +744,12 @@ function settleSendingInvariant(s: ChatState): ChatState {
 
 /** 状态机入口（web `reduce` 的逐字移植 + 出口不变量收敛，见 `settleSendingInvariant`）。 */
 export function reduce(s: ChatState, ev: DomainEvent): ChatState {
-  return satisfyRunningInvariant(settleSendingInvariant(reduceInner(s, ev)), ev);
+  // ⛔ 审计确证（state-final-8 C1）：顺序必须**先补 running 再结算 sending** ——
+  //   `settleSendingInvariant` 的第②条只看 `sessionRunning`；而 `stream` 帧只把 streaming 置回
+  //   true、不碰 sessionRunning，后者要等出口的 `satisfyRunningInvariant` 才补。
+  //   旧顺序 ⇒ 一次迟到 idle 之后的下一帧会把**所有**在飞 pending 的「发送中」清掉
+  //   （B 还在 POST 途中就显示已发；失败后被 user_fail 整行删 ⇒ 消息静默消失）。
+  return settleSendingInvariant(satisfyRunningInvariant(reduceInner(s, ev), ev));
 }
 
 /**
@@ -796,7 +801,11 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
         return s.sessionRunning ? { ...s, sessionRunning: false, busy: false } : s
       }
       const t = s.turns.get(s.activeTurn)
-      if (!t || t.phase.kind !== 'live') return s
+      if (!t || t.phase.kind !== 'live') {
+        // ⛔ 审计确证（C2）：与 `session` case 不对称 —— 旧实现在这里原样返回，`sessionRunning`
+        //   仍是 true ⇒ composer 永久停在 cancel/「思考中」，直到下一个 turn 或整页重载。
+        return { ...s, sessionRunning: false, busy: false }
+      }
       // 无产出 = 真空壳：收尾（保留 user 行；无 user 行则删槽）。
       if (!hasOutput(t.phase.data)) {
         const turns = new Map(s.turns)

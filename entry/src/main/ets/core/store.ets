@@ -2768,7 +2768,10 @@ export class ChatStore {
     const silentNow: boolean = Date.now() - this.lastEventAtMs >= 3000;
     if (!hasActive && this.busy && silentNow) {
       log('state', `探针：服务端明确 idle（${reason}）⇒ 收尾 busy（事件静默已满 3s）`);
-      this.applyLocalIdle(this.currentChatId, true);
+      // ⛔ 审计确证（C4）：`authoritative=true` 会**绕过** live-turn 闸 ⇒ 长工具执行期（没有新帧）
+      //   一次"快照缺失"就把 busy 关掉，下一帧又拉回（抽搐）。REST 快照缺失 ≠ 权威 idle 事件
+      //   ⇒ 走非权威路径，让它受「live && 在跑 ⇒ 不收尾」保护。
+      this.applyLocalIdle(this.currentChatId, false);
       return;
     }
     const verdict: string = liveProbeVerdict(this.busy, localTurn, localIter,
@@ -3543,7 +3546,10 @@ export class ChatStore {
         //   （用户症状：rewind 后旧消息不消失）。与本地 `rewindTo` 的
         //   `resetStateMachine()` 同一处置。
         console.debug(`[SWITCH] historyRewound sid=${this.sid} chatId=${this.currentChatId} action=${action}`);
-        this.state = initialChatState(this.currentChatId);
+        // ⛔ 审计确证（state-final-8 C3）：这里用 `initialChatState` **整体重建** ⇒ 顺手清掉
+        //   goal/todos/sessionRunning，绕过同文件 `resetStateMachine` 的保留契约
+        //   （另一台设备 rewind 一次，本机横幅/面板清空、busy 丢失）。消息状态机重置走唯一出口。
+        this.resetStateMachine();
         this.rowCache = new Map();
         this.rows = [];
         this.rebuildRows();
