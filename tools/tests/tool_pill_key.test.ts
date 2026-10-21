@@ -51,8 +51,10 @@ function keyCoversLiveFields(keyExpr: string): boolean {
 
 const liveSrc: string = stripComments(
   fs.readFileSync(path.join(root, 'entry/src/main/ets/components/LiveTailView.ets'), 'utf8'));
+// ⛔ 落点修正（2026-10-21）：committed pill 的 `ForEach` 随分组渲染迁到 `IterBlocksView`
+//   （`groupShownPills` + `this.toolKey(...)`）；`MessageRow` 只做消息壳 ⇒ 旧锚恒空 ⇒ 假红。
 const rowSrc: string = stripComments(
-  fs.readFileSync(path.join(root, 'entry/src/main/ets/components/MessageRow.ets'), 'utf8'));
+  fs.readFileSync(path.join(root, 'entry/src/main/ets/components/IterBlocksView.ets'), 'utf8'));
 
 // ── live pill（LiveTailView，在飞迭代块）────────────────────────────────────────────
 const liveKey: string = bodyAfter(liveSrc, '}, (t: ToolProgress, i: number) => `lt-', 520);
@@ -61,7 +63,7 @@ ok(liveKey.indexOf('gen_chars') >= 0, 'live pill key 含 `gen_chars`（否则字
 ok(liveKey.indexOf('status') >= 0, 'live pill key 含 `status`（否则 pending→running 不重绘）');
 
 // ── committed pill（MessageRow，迭代块）───────────────────────────────────────────
-const rowKey: string = bodyAfter(rowSrc, '(t: ToolProgress, ti: number) => `${this.toolKey(', 620);
+const rowKey: string = bodyAfter(rowSrc, '(t: ToolProgress, ti: number) => `${this.toolKey(', 700);
 ok(rowKey.length > 0, 'committed pill 的 ForEach key 锚点仍存在（⛔ 改结构需同步本判据）');
 ok(rowKey.indexOf('gen_chars') >= 0, 'committed pill key 含 `gen_chars`');
 ok(rowKey.indexOf('status') >= 0, 'committed pill key 含 `status`');
