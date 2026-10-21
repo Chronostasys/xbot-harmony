@@ -1575,7 +1575,17 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       const target = ev.turnID !== null ? ev.turnID : s.activeTurn
       if (target === null) return s
       const t = s.turns.get(target)
-      if (!t) return s
+      if (!t) {
+        // ⛔ 审计确证（state-gate-8-2 C2）：`text_final` 是 turn 的**唯一权威 finalizer**，而
+        //   "没有槽"此前被当成"与我无关的重放"整帧丢弃 ⇒ 若 `turn_started` 丢了（SSE 半开/
+        //   重连回放从回合中途开始），这一轮回复**永远不显示**（DB 有、界面没有），要等用户
+        //   再发一条消息才被 3s 的 ack-sync 补上。⇒ 有正文的收尾帧不允许静默丢弃：借既有的
+        //   `gapReloadToken` 触发一次权威重载（唯一出口，不新造机制）。
+        if (ev.content !== null && ev.content.length > 0) {
+          return { ...s, gapReloadToken: s.gapReloadToken + 1 }
+        }
+        return s
+      }
 
       // [TURNDROP] 诊断：text_final 到达时 target 已 frozen（session-idle mid-flight
       // 冻结 / turn_started 收尸后 text 迟到恢复的证据链 —— 与上面两条配对看）。
