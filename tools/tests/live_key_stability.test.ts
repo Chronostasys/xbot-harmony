@@ -15,7 +15,12 @@ function ok(name: string, cond: boolean): void {
 }
 const row = fs.readFileSync(path.join(process.cwd(), 'entry/src/main/ets/components/MessageRow.ets'), 'utf8');
 const tail = fs.readFileSync(path.join(process.cwd(), 'entry/src/main/ets/components/LiveTailView.ets'), 'utf8');
-const rowKey = row.match(/\(it: HistoryIteration\) => `\$\{this\.row\.id\}#\$\{it\.iteration\}[^`]*`/);
+// ⛔ 落点修正（2026-10-21）：迭代块的 `ForEach` 已随分组渲染迁到 `IterBlocksView`
+//   （key 前缀是 `${this.iters.rowID}` 而不是 `${this.row.id}`）⇒ 旧正则扫 `MessageRow` 恒空
+//   ⇒ 两条断言假红。改为在**两个**文件里找同一形态，语义不变（扫不到 ⇒ 仍红）。
+const iterBlocks = fs.readFileSync(path.join(process.cwd(), 'entry/src/main/ets/components/IterBlocksView.ets'), 'utf8');
+const rowKey = row.match(/\(it: HistoryIteration\) => `\$\{this\.row\.id\}#\$\{it\.iteration\}[^`]*`/)
+  || iterBlocks.match(/\(it: HistoryIteration\) => `\$\{this\.iters\.rowID\}#\$\{it\.iteration\}[^`]*`/);
 const keyText = rowKey ? rowKey[0] : '';
 ok('迭代块 key 不含 it.rev（稳定身份）', keyText.length > 0 && !keyText.includes('it.rev'));
 ok('迭代块 key 仍区分 live/committed', keyText.includes("it.live === true ? 'L' : 'C'"));

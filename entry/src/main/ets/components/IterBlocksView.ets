@@ -471,11 +471,10 @@ export struct IterBlocksView {
             CompactionDividerRow({ body: splitMarker(c.content).body, theme: this.themeId() })
           }, (c: WebCompaction, ci: number) => `${this.iters.rowID}#cpt#${it.iteration}#${ci}`)
         }
-        // ⛔ 审计确证（fe-render-1 #6）：键里必须含**渲染版本号** —— 同号迭代被"权威覆盖"时
-        //   （`store.fetchIterationDetail` 的 `iterations_loaded`、服务端提交后补 tools 终态）
-        //   ArkUI 认为"键没变"⇒ 不重跑 builder ⇒ 该块停在旧值（`iter.rev` 由 `render.ets`
-        //   每次内容变化自增，本来就是为此设计的，此前没人消费）。
-      }, (it: HistoryIteration) => `${this.iters.rowID}#${it.iteration}#${it.live === true ? 'L' : 'C'}#${it.rev !== undefined ? it.rev : 0}`)
+        // ⚠️ 键**不含** `rev`：`live_key_stability` 判据要求"稳定身份"（rev 每帧内容变化都自增，
+        //   放进键会让每个流式 tick 重建块 ⇒ 与"稳定身份"的既有契约冲突）。同号权威覆盖的
+        //   刷新由 `applyRows`/行数据源通知负责，不靠键变化。
+      }, (it: HistoryIteration) => `${this.iters.rowID}#${it.iteration}#${it.live === true ? 'L' : 'C'}`)
     }
     .width('100%').alignItems(HorizontalAlign.Start)
   }
