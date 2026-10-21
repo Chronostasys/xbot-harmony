@@ -243,6 +243,25 @@ export function inFlightBlock(r: LiveRowView, completed: HistoryIteration[]): Hi
     sameNumContentLen = sameNumContent.length;
     break;
   }
+  // ⛔ 审计确证（fe-render-audit 1.1）：还有一种回带形态 —— **推进帧**（iter 已到 N+1）
+  //   同时带 `iterationsDelta` 与**上一迭代**的正文（`reduce` 的 `advanceCarriesCommittedCopy`
+  //   要求 `deltaLen === 0` 才判副本 ⇒ 这种帧不被去重）。此时 live 块号是 N+1，而同号比较
+  //   找不到 N 的那块 ⇒ 同一段文字在**已完成块 N** 与**在飞块 N+1** 各出现一次。
+  //   ⇒ 同号没命中时再比**上一号**（仍然只比"刚提交那一迭代"，不做"任意历史块"比较 ——
+  //   否则重试同一答案时在飞块会被整块判重、永久不可见）。
+  if (sameNumContentLen < 0 && sameNumReasonLen < 0 && r.lastIter > 1) {
+    for (let i = 0; i < completed.length; i++) {
+      const blk: HistoryIteration = completed[i];
+      if (blk.iteration !== r.lastIter - 1) {
+        continue;
+      }
+      sameNumReasoning = blk.reasoning !== undefined ? blk.reasoning : '';
+      sameNumContent = blk.content !== undefined ? blk.content : '';
+      sameNumReasonLen = sameNumReasoning.length;
+      sameNumContentLen = sameNumContent.length;
+      break;
+    }
+  }
   const rawContent: string = r.content;
   const rawReasoning: string = r.reasoning;
   // 先比长度（O(1) 快路），**等长且全等**才判重复（极少命中）⇒ 不是每帧全文比较。
