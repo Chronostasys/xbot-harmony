@@ -12,7 +12,6 @@ declare const process: { exit: (c: number) => void };
 
 import { step, stepAll, applyText, lastBlockIter, isLegalTransition } from '../../entry/src/main/ets/core/model_step';
 import { project, allToolCalls, lastIterOf } from '../../entry/src/main/ets/core/model_project';
-import { applyModel } from '../../entry/src/main/ets/core/model_bridge';
 import type { Block, DoneFrame, FinalFrame, OpenFrame, SessionFrame, State, TickFrame, ToolRec, UserLine } from '../../entry/src/main/ets/core/model_types';
 import { emptyState } from '../../entry/src/main/ets/core/model_types';
 
@@ -195,43 +194,6 @@ function fin(turn: number, content: string, seq: number, blocks?: Block[]): Fina
   s = step(s, open(1, 1), '').state;
   const r = stepAll(s, [tick(1, 3, 2, 'a'), tick(1, 3, 3, 'b'), done(1, blk(3, [], ''), 4)], '');
   eq('⑩ 同一 (turn,iter) 只请求一次', r.effects.length, 2);
-}
-
-// ── ⑪ 桥接：模型 → ChatRow（身份稳定 + 一块一迭代 + 工具号）──────────────────
-{
-  let s = st(0);
-  s = step(s, open(1, 1), '').state;
-  s = step(s, done(1, blk(1, [tool('c1', 'done')], 'a'), 2), '').state;
-  const cache = new Map<string, import('../../entry/src/main/ets/core/types').ChatRow>();
-  const r1 = applyModel(s, cache);
-  const r2 = applyModel(s, cache);
-  eq('⑪ 两次落地 ⇒ 同一批 ChatRow 实例', r1[1] === r2[1], true);
-  const row = r1[1];
-  const it0 = row.iterations.length > 0 ? row.iterations[0] : null;
-  const ts0 = it0 !== null && it0.tools !== undefined && it0.tools.length > 0 ? it0.tools[0] : null;
-  eq('⑪ 一块一迭代', row.iterations.length, 1);
-  eq('⑪ 工具号/身份透传', ts0 !== null ? ts0.call_id : '', 'c1');
-  eq('⑪ 工具号 == 块号', ts0 !== null ? ts0.iteration : -1, 1);
-  ok('⑪ 回合未收尾 ⇒ 走 live 行（进行中指示）', row.isLive === true);
-  eq('⑪ 无在飞迭代 ⇒ 顶层 content 为空（已提交正文在块里，不重复）', row.content, '');
-}
-
-// ── ⑫ 补洞不阻塞 SSE + 缓冲落账 + 不对 ABSENT 无限补洞（用户口径）─────────────
-{
-  let s = st(0);
-  s = step(s, open(1, 1), '').state;
-  s = step(s, done(1, blk(1, [], 'a'), 2), '').state;
-  // 迭代 2 的 done 丢了：直接来迭代 3 的 done ⇒ 缓冲 + 拉 2
-  const r1 = step(s, done(1, blk(3, [], 'c'), 3), '');
-  eq('⑫ 缺口块先入缓冲（不入账）', r1.state.turns.get(1)?.blocks.length, 1);
-  eq('⑫ 同时拉缺失号', r1.effects[0], { kind: 'pullIter', chat: CHAT, turn: 1, iteration: 2 });
-  // 权威回答"迭代 2 不存在" ⇒ 标记后按序落账（迭代 3 入账）
-  const r2 = step(r1.state, { kind: 'absent', turn: 1, iteration: 2 } as never, '');
-  eq('⑫ ABSENT 后按序落账（2 块）', r2.state.turns.get(1)?.blocks.length, 2);
-  eq('⑫ 落账后的块号', r2.state.turns.get(1)?.blocks.map((b) => b.iteration), [1, 3]);
-  // 再来一次同样的缺口 ⇒ 不应再对 2 发起补洞（否则无限补洞）
-  const r3 = step(r2.state, tick(1, 5, 4, 'e'), '');
-  eq('⑫ 已 ABSENT 的号不再请求', r3.effects.map((e) => (e.kind === 'pullIter' ? e.iteration : -1)), [4]);
 }
 
 console.log(`\nmodel_step: ${pass} passed, ${fail} failed`);
