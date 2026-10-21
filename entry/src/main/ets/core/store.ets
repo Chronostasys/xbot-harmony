@@ -401,6 +401,10 @@ export class ChatStore {
    */
   private gapReloadSeenKey: string = '';
   private gapReloadSeenToken: number = 0;
+  /** 本地乐观改 goal 后的**抑制窗**（同 `pendingTodos` 的 TTL 纪律）：窗内把本地提交值盖回去，
+   *  否则"点 ✕ / 保存"后横幅会"消失→又出现→再消失"（旧帧把它顶回去，至少 1 个 RTT）。
+   *  ⛔ 类型必须用 `chattypes.GoalInfo`（= `ChatState.goal` 的类型），否则 ArkTS 报结构不兼容。 */
+  private pendingGoalUntilMs: number = 0;
   /** todos 的内容签名（`text#status` 串联）：跨 `initialChatState` 重建仍可比（引用会变）。 */
   private todosSig(): string {
     let out: string = '';
@@ -483,6 +487,7 @@ export class ChatStore {
    * ⚠️ 只在**成功**后调用：失败时保留 banner（配合页面的 toast，用户能分清"没删掉"）。
    */
   clearGoalLocal(): void {
+    this.pendingGoalUntilMs = Date.now() + 3000;
     if (this.state.goal === null) {
       return;
     }
@@ -499,6 +504,7 @@ export class ChatStore {
    * ⛔ 走 reduce 的**同一个** `applySessionFields`：不另写 state 更新语义。
    */
   setGoalLocal(objective: string): void {
+    this.pendingGoalUntilMs = Date.now() + 3000;
     const goal: ChatGoalInfo = { objective: objective, status: 'active' };
     this.state = applySessionFields(this.state, undefined, goal);
     this.onUpdate();
@@ -741,6 +747,8 @@ export class ChatStore {
     }
     let next: ChatState = this.state;
     let lastEndedTurn: TurnID | null = null;
+    const goalSuppressed: boolean = this.pendingGoalUntilMs > Date.now();
+    const goalLocal: ChatGoalInfo | null = this.state.goal;
     for (let i = 0; i < evs.length; i++) {
       const prev: ChatState = next;
       this.settleIntentOnAuthoritative(evs[i]);
@@ -752,6 +760,9 @@ export class ChatStore {
       if (ev.type === 'text_final' && ev.commandReply !== true) {
         lastEndedTurn = ev.turnID !== null ? ev.turnID : prev.activeTurn;
       }
+    }
+    if (goalSuppressed) {
+      next = applySessionFields(next, undefined, goalLocal);
     }
     this.state = next;
     this.rebuildRows();
