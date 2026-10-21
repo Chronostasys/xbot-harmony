@@ -405,6 +405,60 @@
 | `historyLoading/hasMore/loadingMore` 镜像在滚动早退**之后** ⇒ 冻结副本 | 三项移进早退块（O(1) 布尔） | 滚动期历史已到但骨架屏不退/头项文案不更新 |
 | `row.themeGen` 是**零写入者**的死字段（组件注释却宣称靠它重渲） | 删字段 + 删 `themableRowKey` 的死 `theme` 形参（-20 行） | 注释承诺的"切主题强制重渲"其实不存在 |
 
+### 第十轮（10 份盲审）后**结构性**修掉的项
+
+| 缺陷 | 结构性修法 | 症状 |
+|---|---|---|
+| `text_final` 的回合单调门**整帧丢弃**旧轮收尾 | 门只作用于 `settlePendingSending`（新鲜才结算），提交/并入逐字照 web | 迟到 idle 冻住的老回合**永不提交**（assistant 行缺失）；发下条消息后上一回合消失 |
+| `history_replaced` 在回合中用 `hasLiveTurn(streaming)` 判 running | 加硬条件：仅当 `activeTurn === null` 才允许降级 | 每次重载把 busy 打回 idle 再拉回 ⇒ 抽搐；`text_final` 丢失时永久半死 |
+| 入口水位闸门在"无活动轮次"时不可比 ⇒ 放行旧轮帧 | 目标轮更旧 ⇒ 陈旧零写入；更新 ⇒ 新一轮放行 | 回放的 `phase_done` 把 todos/goal 写回旧值 |
+| **`hasOutput` 有 4 份互相矛盾实现** | 收敛为 `chat_types_full.liveHasOutput`（含 `completedTools`），reduce/derive/state_invariants 共用 | 工具全完成但正文未产出时被权威 idle 误删 turn ⇒ 工具整排消失再闪回 |
+| `lastSeq` 三处直接赋值（`null` 清空、乱序倒退） | 唯一出口 `advanceSeq`（只进不退） | 重放闸门时开时关 ⇒ 正文回跳 |
+| `phase_done` 的 `target≠activeTurn` 分支绕过 `pdStale` | 三条分支统一 `pdStale ? s : applySessionFields(...)` | 回放旧收尾帧让 goal 复活/todo 回跳 |
+| ack 无条件乐观推 `session_running(true)` | 该轮已 committed/frozen 或本会话有在飞取消 ⇒ 不点亮 | 发送后立刻取消/极短回合：迟到 ack 把 busy 拉回 ⇒ 按钮回弹「停止」 |
+| `SEND_INTENT_MS=8s` < 发送读超时 20s | `SEND_INTENT_WINDOW_MS = max(8s, HTTP_SEND_READ_TIMEOUT_MS)` | 弱网 ack 落在两者之间 ⇒ 输入框显示空闲但气泡仍发送中 ⇒ 用户再点一次 ⇒ 同内容发两遍 |
+| `scheduleIdleRetry` 算了 `wait` 却写死 2100 | 用 `wait`（窗内不消耗预算、按窗剩多久等） | 窗内权威 idle 被丢 ⇒ 输入框长期卡「停止/思考中」 |
+| `rewindToMessage` 无 gen+chat 快照 | await 前后比对身份，不符即放弃 | 切换会话时用另一 chat 的 history 解 dbID ⇒ **服务端删掉别的会话的消息** |
+| `beginSwitch` 漏复位会话级字段 | 补齐 `loadingMore/loadMoreErr/historyReloadPending/lastBgOutput(Seq)/pendingGoalUntilMs/answeredAskId` | B 头项卡"正在加载更早…"、弹 A 的错误、goal 3s 不刷新、同 ask 不再弹 |
+| 抽屉打开冻结**整个** `syncFrom` | 行投影冻结、会话树仍 `mirrorSessions()` | 抽屉里删会话后行还在（再点它报错）、别人的新会话看不见 |
+| 主题强刷自拼 `tailRows(this.rows,…)`（含 live 行） | 唯一出口 `feedRowDs(theme)`（排除 live） | 切主题那刻最后一条 assistant 渲染两份 |
+| `row.themeGen` 零写入者的死字段 | 删除字段 + `themableRowKey` 的死 `theme` 形参；主题变化 ⇒ `fullReload` | 注释宣称的"切主题强制重渲"其实不存在 |
+| 后端 `Agent.GetTodos` 把 `nil` 折成 `[]` | 三态：无记录 ⇒ nil；记录为空 ⇒ `[]` | 清空后的 todo 又冒回来 / 面板闪空 |
+| AskUser 取消后 `activeTurnID` 残留挡住 idle | 取消分支先清活动轮次，再发**带该轮 id** 的 idle | 取消 ask 后输入框卡「停止/思考中」而侧栏已 idle |
+| `emitSessionIdleIfNoActiveRun` 的"钉轮次"是死代码 | 删除（守卫已保证 `activeTurnID==0`），语义回到诚实的会话级 idle | 客户端"旧轮迟到达 idle 丢弃"判据拿不到身份 |
+
+### 判据自身的反白绿（第十轮 gates-audit 确证）
+
+| 判据 | 缺陷 | 修法 |
+|---|---|---|
+| `state-single-writer.sh` | **从未接入 gate.sh**，且只认字面量（`state.X =`）⇒ helper 写入（`applySessionFields`/`withSessionRunning`）全绿 | 接入 gate.sh ⑧b（硬红 + `--self-test`）；新增规则 R3 + 台账（**只许缩短**，存量 `store.ets` 11 处已登记待收敛） |
+| `state_fuzz.project()` | 只投影少数字段 ⇒ "陈旧帧零写入"看不到其它字段变化 | 补全 user/turn/live/completedTools/todos/goal/queue/resync 全字段 |
+| `protocol_coverage` | 只判 `case 'x'` 存在 ⇒ 事件类型 15→11 也静默 | C0 硬钉声明集指纹（名字+数量逐字一致） |
+
+## §4.10 第十二轮：**残余清单（明账）** 与收敛口径
+
+第十二轮（10 份盲审）共报 **20+ 条确证**，其中 **13 条是同一类**（`await` 后身份校验缺失/只比
+chat）⇒ 已按**单一机制**收敛（store `stillSame(gen, chat)`、页面 `gen+chat` 快照、身份变更统一走
+`beginSwitch`），并修掉 7 条状态项（`isStaleSeq` 逃生舱取 `max(maxKnown, live.iter)`、
+`phase_done` 陈旧零写入、意图窗覆盖真正的 `session(busy=false)`、补判等待用真窗、
+乐观行按 id 身份退役、goal 抑制窗下沉到单条入口、busy 快路径先比行键签名）。
+
+**以下是本轮确认、但本轮未改的项**（分级 + 复现条件 + 修法；按用户要求：到此不再继续改代码，
+只明账）：
+
+| # | 级别 | 位置 | 缺陷 / 复现条件 | 修法 |
+|---|---|---|---|---|
+| R1 | P1 | `agent/agent.go` AskUser 取消分支 | "被暂停轮"取自 `pending.TurnID`，而**没有任何路径写它** ⇒ 身份比对恒不成立（死守卫） | `storePendingAskUserOutbound` 落 `askPayload.TurnID`（metadata 带 turn_id + replay 回填），并用 `clearActiveTurnIf(key, turn)` CAS |
+| R2 | P1 | `agent/agent.go` 纯 `/cancel` 空闲期 | 无注册 + `activeTurn==0` 时仍 `pendingCancel.Store`，无 TTL ⇒ 连按两次停止/客户端重试会取消**下一条**消息 | 豁免条件推广为"无注册 + activeTurn==0 + 无 pending ⇒ 忽略"，或 pendingCancel 记时间戳 + 极短 TTL |
+| R3 | P2 | `core/reduce.ts` `settleSendingInvariant` | 出口不变量对**任何**同类事件运行（含被判陈旧后 `return s0` 的帧），且清**全部** pending（web 只按 `user_ack` 结算那一条） | ② 移入内层、与 `freshFinalizer`/`turn_started` 单调门同源；"清全部"改为"只清 `ev.requestID`" |
+| R4 | P2 | `pages/Index.ets` `liveBlocks` | 每帧被赋值但**零消费方**（占位让位判据已由 `rowHasInFlightSignal` 承担）⇒ 每帧一次页级 `@State` 写、渲染收益为零 | 删字段与三处写入（`liveRevision` 整数门控已足够），并把钉死该写入的形态断言一并改掉 |
+| R5 | P2 | `pages/Index.ets` `UserBubble` / 附件面板 | 不消费字号/换行；上传/文件面板 `await` 后写页面 `@State` 无身份校验（观感级） | 与行同源订阅 AppStorage；面板写入加身份快照 |
+| R6 | P2 | `core/reduce.ts` `mergeIterations` | 工具列表单向并集（从不移除）—— 当前无可见症状（工具只增） | 保持现状，登记为已知取舍 |
+
+> **收敛口径（与用户确认）**：机制层（不变量 I1–I9 / fuzz 穷举 / 单写入源门禁 / 事件闭包 /
+> 行键签名）已机器化并可 mutation 自证；**不再新增机制**。后续若再有确证项，先进本表按级排序，
+> 只有 P0/P1 才动代码，且每条必须带"单测 + 门禁 + mutation 自证"。
+
 ## §5 审计结论与本轮修复
 
 ### §5.1 后端（`fix/state-protocol-audit` 分支）
