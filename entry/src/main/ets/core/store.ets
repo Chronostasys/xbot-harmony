@@ -215,6 +215,11 @@ export class ChatStore {
   //   直接 new 的）按定义就是 active；只有"进池/退到后台"才由调用方显式 `setResumeActive(false)`
   //   （`Index.ets` 的池化与挂起路径都会显式置 false）。默认 false 会造成"谁忘了置 true 就永远
   //   收不到 SSE"这一类静默失败（判据层要额外知道池的存在才能写测试 = 隐式耦合）。
+  /** 会话代数（**只读**对外）：页面在定时器/异步回调里需要判断"这条回调还属不属于同一代会话"，
+   *  与 store 内部守卫用同一个事实（⛔ 页面自己数一遍 = 第二个真源）。 */
+  get gen(): number {
+    return this.chatGen;
+  }
   private resumeActive: boolean = true;
 
   /** 页面切到/离开本 store 时设置；只有 active store 才允许在 SSE 重连时做 history resync。 */

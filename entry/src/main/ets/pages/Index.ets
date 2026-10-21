@@ -3497,10 +3497,16 @@ struct Index {
     }
     // ③ 会话加载 splash：本条路径**确有网络等待**（会话列表补齐 + `/api/history`）⇒ 置位遮罩。
     this.switchSplash = true;
+    // ⛔ 审计确证（state-gate-7-7）：页面定时器**直接写 store 字段**且只比对 chatId ——
+    //   A→B→A 快速切回时代数已变（A 的加载仍在正常进行），这条 12s 兜底会把**正常加载**
+    //   判成"加载超时"（骨架屏提前退场 + 红字），还打掉 store 的在飞闸门 ⇒ 并发重载。
+    //   ⇒ 快照代数，不符则什么都不做。
+    const splashGen: number = target.gen;
     delay((): void => {
       if (!this.switchSplash || this.currentChat !== chatId) { return; }
-      this.switchSplash = false;
       const st: ChatStore | null = this.store;
+      if (st !== null && (st !== target || st.gen !== splashGen)) { return; }
+      this.switchSplash = false;
       if (st !== null && st.currentChatId === chatId && st.historyLoading) {
         st.historyLoading = false;
         st.historyError = '加载超时，请重试';
