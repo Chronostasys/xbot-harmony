@@ -254,6 +254,15 @@ export class ChatStore {
    */
   private historyReloadPending: boolean = false;
   /**
+   * 最近一次「消息状态机重置但保留 busy」的时刻。
+   *
+   * ⛔ 审计确证（store-audit 4）：`resetStateMachine` 保留 `sessionRunning` 却清掉 `activeTurn`
+   *   ⇒ 短暂进入"busy 但没有 live turn"这一**已知状态**；而 `watchBusyWithoutLiveTurn` 把它
+   *   当成"漏收 turn_started"⇒ 在等 turn_started 的这段时间里每 30s 重拉整段 history
+   *   （用户可见：长回合期间周期性整表重建/掉帧）。⇒ 重置后的 15s 内豁免该看门狗。
+   */
+  private resetAwaitingTurnStartAt: number = 0;
+  /**
    * 被"发送意图窗 / 事件静默窗"挡下的 idle —— **排队补发**，不是丢弃。
    * ⛔ 审计确证（state-final-1 确证-3）：这些闸门此前直接 `return` ⇒ 权威 idle 落进窗口就
    *   永久失效，而兜底（`watchBusyWithoutLiveTurn` / `resyncAfterResume`）**都不能关 busy**
@@ -651,6 +660,11 @@ export class ChatStore {
       //   此时 `sessionRunning` 仍为 false；若清掉，紧接着 ack 的
       //   `session_running(true)` 就被 sendIntentActive 豁免吞掉 ⇒ 永不 resync。
       //   只在权威 `turn_started` / `session_running(false)` 时清（见 settle）。
+      return;
+    }
+    // ⛔ 重置后的 15s 内豁免：这是"已知的 busy 等待 turn_started"状态，不是漏事件，
+    //   重载整段 history 纯属浪费（store-audit 4）。
+    if (Date.now() - this.resetAwaitingTurnStartAt < 15000) {
       return;
     }
     // 普通发送窗（还没有任何 turn 结束）是合法的本地即时反馈；但**上一 turn 已
@@ -3246,6 +3260,7 @@ export class ChatStore {
       // ⛔ 审计：busy→idle 只允许「无 toolcall 迭代 / 后端 idle」两种证据；
       //   消息状态机重置（断洞重载、rewind）**不得**顺手把 busy 关掉。
       this.state = withSessionRunning(this.state, true);
+      this.resetAwaitingTurnStartAt = Date.now();
       log('state', 'reset 保留 running（同一会话）');
     }
     if (sameChat && (keepGoal !== null || keepTodos.length > 0)) {
