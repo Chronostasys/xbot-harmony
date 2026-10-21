@@ -2908,6 +2908,18 @@ export class ChatStore {
       if (this.state.goal !== seenGoal) {
         return;
       }
+      // ⛔ 结构性（state-gate-6-5 C2）：服务端把"已清除"表达成**墓碑**
+      //   `{objective:"", status:"cleared"}`（`GoalManager.Tombstone()`；`GetGoal` 也回填它）。
+      //   三态：`cleared` ⇒ **清除**；空 objective 且非 cleared ⇒ 不动；有 objective ⇒ 覆盖。
+      //   缺这条，别的客户端清了目标，本端重连/回前台后横幅**永远**不会消失。
+      if (g.status === 'cleared') {
+        if (this.state.goal === null || this.state.goal === undefined) {
+          return;   // 已经是清除态 ⇒ 零通知（不产生"频繁状态变化"）
+        }
+        this.state = applySessionFields(this.state, undefined, null);
+        this.onUpdate();
+        return;
+      }
       // 空 objective（服务端没给有效目标）⇒ **不动**（不能写成空串清掉横幅）。
       if (g.objective === undefined || g.objective.length === 0) {
         return;
