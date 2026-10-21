@@ -1182,6 +1182,13 @@ export class ChatStore {
     if (this.pendingIdleTimer >= 0 || this.disposed) {
       return;
     }
+    // ⛔ 审计确证（state-gate-7-9）：注释写"只补一次"，但被守卫再次挡下时会**无条件重排自己**
+    //   ⇒ 陈旧 live 在场时每 2.1s 永久唤醒、idle 永不落地（busy 卡死 + 无谓耗电）。
+    //   ⇒ 有界：最多补 3 次（约 6s）；仍挡下就交给探针/会话树那条权威路径。
+    if (this.idleRetryAttempts >= 3) {
+      return;
+    }
+    this.idleRetryAttempts++;
     this.pendingIdleTimer = setTimeout(() => {
       this.pendingIdleTimer = -1;
       if (this.disposed || this.currentChatId !== chatId) {
@@ -1208,6 +1215,7 @@ export class ChatStore {
       return;
     }
     // ② SSE 意图：idle 证据时刻（对账时用于压住"矛盾的旧 busy"）
+    this.idleRetryAttempts = 0;
     log('idle', `回合结束 chat=${chatId} 权威=${authoritative ? 'PhaseDone' : 'SSE idle'}`);
     this.lastBusyCause = `local-idle:${authoritative ? 'auth' : 'sse'}`;
     // ⛔ 非权威（coarse `session(idle)` / `agent-idle`）且状态机**仍认为会话在跑 + 有 live turn**
@@ -2983,6 +2991,8 @@ export class ChatStore {
    *   ⛔ 顺序不可反：`session` 的 idle 分支在 `sessionRunning` 仍为 true 时是 **no-op**（`:1226`）。
    */
   private cancelInFlight: Promise<void> | null = null;
+  /** `scheduleIdleRetry` 的补判次数（有界，防止"被守卫挡下 ⇒ 再排一次"的永久循环）。 */
+  private idleRetryAttempts: number = 0;
   /** 在飞取消请求**属于哪个会话/代数**（⛔ 否则跨会话早退会把 B 的取消静默吞掉）。 */
   private cancelInFlightChat: string = '';
   private cancelInFlightGen: number = 0;
@@ -3318,6 +3328,10 @@ export class ChatStore {
       this.resetAwaitingTurnStartAt = Date.now();
       log('state', 'reset 保留 running（同一会话）');
     }
+    // ⛔ 审计确证（state-gate-7-9）：`resetStateMachine` 把 `gapReloadToken` 归 0，却**没有**同步
+    //   复位 `gapReloadSeenToken`（仍为 N）⇒ `watchGapReload` 认为"已处理过" ⇒ 该洞永远补不上
+    //   （会话被清空/骨架屏来回、`[SESSION_RELOAD]` 连打）。两者是同一个事实的两半，必须同进退。
+    this.gapReloadSeenToken = 0;
     if (sameChat && (keepGoal !== null || keepTodos.length > 0)) {
       this.state = applySessionFields(this.state, keepTodos, keepGoal);
       log('state', `reset 保留会话级状态 goal=${keepGoal !== null ? 1 : 0} todos=${keepTodos.length}`);
