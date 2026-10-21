@@ -302,6 +302,30 @@ function normalizeProgress(env: Record<string, unknown>): readonly DomainEvent[]
     return streamPayload ? [streamEventFrom(p, turn, seq), done] : [done]
   }
 
+  // ── 会话级字段帧（todos / goal）—— **不得**被当成 turn 活动事件 ──────────────
+  // ⛔ 审计确证（state-final-9 / 3：「会话级字段帧被当成 turn 活动事件」）：后端的
+  //   `emitTodosProgress` / `emitGoalProgress` / `ClearGoal` 发的是
+  //   `Phase:"" / Iteration:0 / 只有 Todos(+Goal)` 的轻量帧；若落进下面的 `iteration` 分支，
+  //   reduce 会把它当成"该迭代的结构帧" ⇒ **清空在飞工具列表**、把 `streaming` 置 true
+  //   ⇒ 复活 busy（用户看到：编辑 todo 时工具 pill 消失 / 已结束的回合又变「思考中」）。
+  //   ⇒ 这类帧单独归一成 `session_fields`（只应用会话级三态，不碰 turn/工具）。
+  const hasIterationPayload: boolean = (typeof p.iteration === 'number' && p.iteration > 0)
+    || Array.isArray(p.iteration_history) || Array.isArray(p.active_tools)
+    || Array.isArray(p.completed_tools) || Array.isArray(p.streaming_tools)
+    || typeof p.content === 'string' || typeof p.reasoning === 'string'
+    || streamPayload === true
+  if (!hasIterationPayload) {
+    const onlyTodos = Array.isArray(p.todos)
+    const onlyGoal = p.goal !== undefined && p.goal !== null
+    if (onlyTodos || onlyGoal) {
+      return [{
+        type: 'session_fields',
+        todos: optTodos(p.todos),
+        goal: optGoal(p.goal),
+      }]
+    }
+  }
+
   // ── iteration（普通结构化事件：thinking / tool_exec / …） ──
   // seq 缺失（E2E mock 省略）宽容：事件照常产出（reduce 的 I5 对 null seq
   // 不推进基准 —— `ev.seq <= s.lastSeq` 对 null 恒 false，不误杀）。
