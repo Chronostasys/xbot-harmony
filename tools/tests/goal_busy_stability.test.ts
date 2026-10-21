@@ -85,7 +85,11 @@ console.log('\n▶ §C busy：DB 快照（history_replaced）不得把 running �
     type: 'history_replaced', turns: [], legacy: [], pendingUsers: [], active: null,
     lastSeq: 0, todos: [], goal: undefined, standalone: [],
   } as unknown as DomainEvent);
-  ok('★C 无 active 的快照**不得**把 running 关掉（旧实现会 ⇒ busy 抽搐）', s.sessionRunning);
+  // ⛔ 规则更新（state-check-10 C1）：快照是**本会话权威**，无 active 且本地没有
+  //   live **且 streaming** 的 turn ⇒ 必须允许**关闭** running（否则丢了 text_final/idle
+  //   之后幽灵 busy 数学上不可收敛：`true || x = true`）。
+  //   防迟滞由 hasLiveTurn 的 `streaming === true` 判据保证（流式中的回合不会被快照关掉）。
+  ok('★C 无 active 且无 live-streaming 的快照 ⇒ 关闭 running（可收敛）', !s.sessionRunning);
 }
 
 console.log('\n▶ §E goal 是**会话级**状态：回合开始/结束都不影响它（横幅数据源必须是它）');

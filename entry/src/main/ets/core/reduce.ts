@@ -2231,7 +2231,12 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
         //   历史快照是"某一刻的 DB 视图"，**滞后**于 SSE（turn 正在跑时 DB 还没有 assistant 行）
         //   ⇒ 它只能**打开** running（快照里有 active turn），**绝不能**关掉（否则流式期
         //   每次 reload/重连都闪一下 idle，再被下一帧 SSE 拉回 busy ⇒ busy/idle 抽搐）。
-        sessionRunning: s.sessionRunning || authoritativeRunning,
+        // ⛔ 审计确证（state-check-10 C1）：这里曾是**单调 OR**（`|| s.sessionRunning`）⇒
+        //   数学上不可收敛（`true || x = true`）：一旦丢了 `text_final`/`session(idle)`，
+        //   幽灵 busy 永远关不掉，而看门狗每 30s 重载一次也只会再走这条 OR ⇒ 永久「思考中」。
+        //   快照是**本会话**的权威：没有 active 快照、且本地没有 live **且 streaming** 的 turn
+        //   ⇒ 会话确实不在跑 ⇒ 必须允许**关闭**（`hasLiveTurn` 已要求 streaming，见 Z1）。
+        sessionRunning: authoritativeRunning,
         // 命令行（`!cmd`）落库行：事件带 standalone 时**采纳**它（刷新后状态是空的，
         // DB 权威行必须进渲染）；事件未带（手写事件/旧路径）则保留现有。
         standalone: ev.standalone ?? s.standalone,
