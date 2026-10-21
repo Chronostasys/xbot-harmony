@@ -612,6 +612,7 @@ export struct SettingsDeveloper {
             .fontSize(typeOf('type.caption').size)
             .fontColor(this.pal().textMuted)
             .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)

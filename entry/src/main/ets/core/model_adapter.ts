@@ -19,7 +19,7 @@
 import type { AckIntent, Block, DoneFrame, FailIntent, FinalFrame, Frame, IterNum, OpenFrame, SendIntent,
   SessionFrame, State, SubAgentNode, TextPatch, TickFrame, ToolMeta, ToolRec, ToolStatus, ToolTick, TurnID,
   TurnRec, UserLine, LegacyLine, Compaction } from './model_types';
-import { newTurn } from './model_types';
+import { newTurn, toolStatusOf } from './model_types';
 
 // ─── 老 wire 的最小结构面（结构化类型；避免 import 旧类型文件造成的循环）──
 
@@ -84,6 +84,8 @@ export interface WireEvent {
   readonly seq?: number | null;
   readonly turnID?: number | null;
   readonly iter?: number | null;
+  /** `stream` DomainEvent 用这个字段名（`normalize.ts:207/412`）；与 `iter` 同义。 */
+  readonly iteration?: number | null;
   readonly phase?: string;
   readonly content?: string | undefined | null;
   readonly reasoning?: string | undefined;
@@ -109,13 +111,6 @@ export interface WireEvent {
 
 const NO_TOOLS: readonly ToolRec[] = [];
 
-function statusOf(s: string | undefined): ToolStatus {
-  if (s === 'done' || s === 'error') return 'done';
-  if (s === 'failed') return 'failed';
-  if (s === 'running') return 'running';
-  if (s === 'generating') return 'generating';
-  return 'pending';
-}
 
 /** 线格式工具 → 模型工具（身份只认 `callID`；缺 id 时用**位置**兜底 `iter#idx`，不猜内容）。 */
 function toToolRec(t: WireTool, iteration: IterNum, idx: number): ToolRec {
@@ -131,12 +126,19 @@ function toToolRec(t: WireTool, iteration: IterNum, idx: number): ToolRec {
     detail: t.detail,
     summary: t.summary,
   };
+  // ⛔ 工具**自己**的迭代号优先于承载它的帧号：服务端 `active_tools` 会**整批先标 pending**
+  //   并把陈条目带进后续帧（`agent/engine_run_tools.go:49-64`，其注释明确要求前端按
+  //   `iteration` 过滤）⇒ 若按帧号重盖章，上一迭代残留的 shell 会在新迭代里重新变成
+  //   「排队」（用户 2026-10-11 P0「所有 tool 都渲染为排队」）。按自身号入账 ⇒ 它落到
+  //   自己那一块（已提交）⇒ live 列表里自然不再出现。
+  const ownIter: IterNum = t.iteration !== undefined && t.iteration !== null && t.iteration > 0
+    ? t.iteration : iteration;
   return {
     call,
-    iteration,
+    iteration: ownIter,
     meta,
     state: {
-      status: statusOf(t.status),
+      status: toolStatusOf(t.status),
       label: t.label !== undefined ? t.label : t.name,
       genChars: t.genChars !== undefined ? t.genChars : 0,
       elapsedMs: t.elapsedMs !== undefined ? t.elapsedMs : 0,
@@ -195,6 +197,7 @@ export function adapt(ev: WireEvent, chat: string, epoch: number): readonly (Fra
       const user: UserLine = {
         id: `turn-${turn}-user`, content, timestamp: '', isNotification: trigger === 'notification',
         queued: false, sending: false, requestID: ev.requestID !== undefined ? ev.requestID : null,
+        isResume: trigger === 'resume',
       };
       const out: (Frame | SendIntent | AckIntent | FailIntent)[] = [];
       // 会话级字段随 open 到达（与老语义一致：turn_started 携带 todos/goal）
@@ -210,7 +213,12 @@ export function adapt(ev: WireEvent, chat: string, epoch: number): readonly (Fra
     case 'iteration':
     case 'stream': {
       const turn: TurnID = ev.turnID !== undefined && ev.turnID !== null ? ev.turnID : 0;
-      const iteration: number = ev.iter !== undefined && ev.iter !== null ? ev.iter : 0;
+      // ⛔ 两种字段名都要认：结构化帧用 `iter`，而 `normalize` 产出的 **`stream` DomainEvent
+      //   用的是 `iteration`**（`normalize.ts:207/412`）。只读 `iter` ⇒ stream 帧的迭代号恒为 0
+      //   ⇒ 不产生 tick ⇒ 正文/思考/streamingTools 全丢（判据 `stream_frame_enters_model`）。
+      const rawIter: number | null | undefined = ev.iter !== undefined && ev.iter !== null
+        ? ev.iter : ev.iteration;
+      const iteration: number = rawIter !== undefined && rawIter !== null ? rawIter : 0;
       const out: (Frame | SendIntent | AckIntent | FailIntent)[] = [];
       if (ev.todos !== undefined || ev.goal !== undefined) {
         out.push({ kind: 'session', epoch, seq, chat, todos: ev.todos, goal: ev.goal } as SessionFrame);
@@ -221,7 +229,9 @@ export function adapt(ev: WireEvent, chat: string, epoch: number): readonly (Fra
           if (list === undefined) return;
           for (let i = 0; i < list.length; i++) {
             const r = toToolRec(list[i], iteration, i);
-            tools.push({ call: r.call, iteration, state: r.state, meta: r.meta });
+            // ⛔ 用工具**自己**的迭代号（陈旧条目自带更小的号 ⇒ 它会落回自己那一块，
+            //   而不是在当前 live 块里重新变「排队」）。
+            tools.push({ call: r.call, iteration: r.iteration, state: r.state, meta: r.meta });
           }
         };
         push(ev.streamingTools);
@@ -231,8 +241,11 @@ export function adapt(ev: WireEvent, chat: string, epoch: number): readonly (Fra
           kind: 'tick', epoch, seq, chat, turn, iteration,
           phase: ev.phase !== undefined ? ev.phase : 'thinking',
           streaming: true,
-          content: fullText(ev.content),
-          reasoning: fullText(ev.reasoning),
+          // ⛔ 字段缺省 ≠ 空串：web 的合并语义是 `ev.content !== undefined ? ev.content : prev`
+          //   ⇒ 只带推理的帧（`reasoning_stream_content`）绝不能把正文冲成空
+          //   （判据 `p0_tail_visibility` 第四条 SSE：可见内容 6 → 1 的回退）。
+          content: ev.content !== undefined && ev.content !== null ? fullText(ev.content) : undefined,
+          reasoning: ev.reasoning !== undefined ? fullText(ev.reasoning) : undefined,
           tools,
           genui: ev.genui !== undefined ? ev.genui : '',
         } as TickFrame);

@@ -30,6 +30,19 @@ export type Seq = number;
 
 export type ToolStatus = 'generating' | 'pending' | 'running' | 'done' | 'failed';
 
+/**
+ * 线格式工具状态 → 模型状态（**唯一实现**：adapter 与 hydrate 必须同源，
+ * 否则"同一 status 字符串"在两个入口被翻译成两种语义）。
+ * `error` 与 `done` 同义（服务端两种拼写）；未知 ⇒ `pending`。
+ */
+export function toolStatusOf(s: string | undefined): ToolStatus {
+  if (s === 'done' || s === 'error') return 'done';
+  if (s === 'failed') return 'failed';
+  if (s === 'running') return 'running';
+  if (s === 'generating') return 'generating';
+  return 'pending';
+}
+
 /** **不可变**部分（只在"首次出现"那一帧携带；`args`/`detail` 在参数生成完成后一次性）。 */
 export interface ToolMeta {
   readonly name: string;
@@ -116,6 +129,8 @@ export interface Usage {
 
 /** 乐观 user 行（本机意图；绑定后交给 turns）。 */
 export interface UserLine {
+  /** 内部续跑（`trigger=resume`）的合成 user 行：**不是用户输入** ⇒ 不驱动"进行中"渲染。 */
+  readonly isResume?: boolean;
   readonly id: string;
   readonly content: string;
   readonly timestamp: string;
@@ -236,8 +251,9 @@ export interface TickFrame {
   readonly iteration: IterNum;
   readonly phase: string;
   readonly streaming: boolean;
-  readonly content: TextPatch;
-  readonly reasoning: TextPatch;
+  /** 缺省 = 本帧**不带**正文补丁 ⇒ 保留上一帧的值（web 同源：`ev.content !== undefined ? … : prev`）。 */
+  readonly content?: TextPatch;
+  readonly reasoning?: TextPatch;
   readonly tools: readonly ToolTick[];
   readonly genui: string;
   readonly stats?: Stats;

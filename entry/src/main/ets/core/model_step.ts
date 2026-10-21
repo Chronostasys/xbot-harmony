@@ -73,7 +73,10 @@ function applyToolTicks(prev: readonly ToolRec[], ticks: readonly ToolTick[],
     const tk = ticks[i];
     const known = byCall.get(tk.call);
     const meta: ToolMeta = tk.meta !== undefined ? tk.meta : (known !== undefined ? known.meta : { name: tk.call });
-    out.push({ call: tk.call, iteration, meta, state: tk.state });
+    // ⛔ 工具归属 = **它自己的**迭代号（陈旧条目自带更小的号）：用帧号重盖章会让服务端
+    //   残留的 `active_tools` 条目在下一迭代里重新出现（用户 2026-10-11 P0「所有 tool 都排队」）。
+    const ownIter: IterNum = tk.iteration !== undefined && tk.iteration > 0 ? tk.iteration : iteration;
+    out.push({ call: tk.call, iteration: ownIter, meta, state: tk.state });
   }
   return out;
 }
@@ -218,8 +221,12 @@ function onTick(s: State, f: TickFrame): StepResult {
     return { state: { ...s, seq: seqAfter(s, f) }, effects: [{ kind: 'pullTurn', chat: s.chat, turn: f.turn }] };
   }
   const last = lastBlockIter(t);
-  if (f.iteration <= last) {
-    // 已提交迭代的迟到帧 ⇒ 丢弃（权威块已在，且 `done` 完备）
+  const lastIsShell: boolean = last > 0
+    && isShellBlock((t.blocks[indexOfBlock(t.blocks, last)] as Block));
+  if (f.iteration < last || (f.iteration === last && !lastIsShell)) {
+    // 已提交迭代的迟到帧 ⇒ 丢弃（权威块已在，且 `done` 完备）。
+    // ⛔ 例外：末块只是**空壳**（服务端迭代边界的在飞快照）⇒ 同号流式帧必须能把它顶成 live，
+    //   否则打字机/工具 pill 永远不出现（判据 `p0_tail_visibility`）。
     return { state: { ...s, seq: seqAfter(s, f) }, effects: [] };
   }
   const missing: number[] = [];
@@ -261,6 +268,21 @@ function onTick(s: State, f: TickFrame): StepResult {
   return { state: { ...s, seq: seqAfter(s, f), turns, live }, effects: missingEffects(s.chat, f.turn, missing) };
 }
 
+
+/** 块是否**空壳**（无正文/思考/工具/子代理且未取消）——"在飞快照"的占位形态。 */
+function isShellBlock(b: Block): boolean {
+  return !b.cancelled && b.content.length === 0 && b.reasoning.length === 0
+    && b.tools.length === 0 && b.subAgents.length === 0;
+}
+
+/** 块列表里指定迭代号的下标（找不到 −1）。 */
+function indexOfBlock(bs: readonly Block[], iteration: IterNum): number {
+  for (let i = 0; i < bs.length; i++) {
+    if (bs[i].iteration === iteration) return i;
+  }
+  return -1;
+}
+
 function onDone(s: State, f: DoneFrame): StepResult {
   const t = s.turns.get(f.turn);
   if (t === undefined) {
@@ -268,6 +290,23 @@ function onDone(s: State, f: DoneFrame): StepResult {
   }
   const last = lastBlockIter(t);
   if (f.block.iteration <= last) {
+    // ⛔ 同号**空壳**可被真提交升级：服务端在迭代边界把**在飞快照**（空）并入
+    //   `iteration_history`，真正的产出随后才到。空壳被升级不是"回退提交"——它本来就没有
+    //   任何可渲染内容（`p0_tail_visibility` 的"内容 0 → commit 才跳变"就死在这里）。
+    if (!isShellBlock(f.block) && !f.block.cancelled) {
+      const idx: number = indexOfBlock(t.blocks, f.block.iteration);
+      if (idx >= 0 && isShellBlock(t.blocks[idx])) {
+        const blocks: Block[] = t.blocks.slice();
+        blocks[idx] = stampBlock(f.block);
+        const turns = new Map<TurnID, TurnRec>(s.turns);
+        turns.set(f.turn, { ...t, blocks });
+        // ⛔ 升级也是**该迭代的收尾** ⇒ 同号 live 必须清（否则行里留着一个内容为空的
+        //   `live` 块 ⇒ `rowHasInFlightSignal` 假阳性 ⇒ 空隙的「思考中」占位被吞，
+        //   判据 `iter_gap_indicator` G2）。
+        const live = liveAt(s, f.turn, f.block.iteration) !== null ? null : s.live;
+        return { state: { ...s, seq: seqAfter(s, f), turns, live }, effects: [] };
+      }
+    }
     return { state: { ...s, seq: seqAfter(s, f) }, effects: [] };       // 已提交/回退 ⇒ 丢弃
   }
   if (f.block.iteration > last + 1) {
@@ -379,15 +418,31 @@ function onSend(s: State, f: SendIntent, ts: string): StepResult {
 function onAck(s: State, f: AckIntent): StepResult {
   const pending = s.local.pending.filter((u) => u.requestID !== f.requestID);
   const local = pending.length === s.local.pending.length ? s.local : { pending };
+  if (f.how === 'delivered' && f.turn === undefined) {
+    // ⛔ 已送达但**回包没带 turn_id**：不能把行退役掉（否则用户刚发的消息在 ack 后消失，
+    //   直到 `turn_started` 才回来）。保留该行并标 `sending=false`，等 `onOpen` 绑定/清除。
+    const kept: UserLine[] = [];
+    for (let i = 0; i < s.local.pending.length; i++) {
+      const u = s.local.pending[i];
+      kept.push(u.requestID === f.requestID ? { ...u, sending: false } : u);
+    }
+    return { state: { ...s, local: { pending: kept } }, effects: [] };
+  }
   if (f.how === 'delivered' && f.turn !== undefined) {
-    const t = s.turns.get(f.turn);
-    if (t !== undefined) {
-      const bound = s.local.pending.find((u) => u.requestID === f.requestID);
-      if (bound !== undefined) {
-        const turns = new Map<TurnID, TurnRec>(s.turns);
-        turns.set(f.turn, { ...t, user: { ...bound, sending: false, dbID: f.dbID !== undefined ? f.dbID : bound.dbID } });
-        return { state: { ...s, turns, local }, effects: [] };
+    // ⛔ 已送达 = 该消息**属于 turn N**（权威）⇒ 即使 `turn_started` 还没到，也必须立刻落成
+    //   该回合的 user 行：只退役 pending 而不建行 ⇒ 用户自己刚发的消息在 ack 后**消失**，
+    //   直到 turn_started 才回来（闪烁；判据 `rowids`「乐观 user 行各一行」）。
+    const bound = s.local.pending.find((u) => u.requestID === f.requestID);
+    if (bound !== undefined) {
+      const user: UserLine = { ...bound, sending: false, dbID: f.dbID !== undefined ? f.dbID : bound.dbID };
+      const turns = new Map<TurnID, TurnRec>(s.turns);
+      const t = s.turns.get(f.turn);
+      if (t !== undefined) {
+        turns.set(f.turn, { ...t, user });
+      } else {
+        turns.set(f.turn, newTurn(f.turn, user, f.requestID));
       }
+      return { state: { ...s, turns, local }, effects: [] };
     }
   }
   return { state: { ...s, local }, effects: [] };

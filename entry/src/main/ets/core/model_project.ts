@@ -50,6 +50,28 @@ export type PRow = PUserRow | PAssistantRow;
 /** 投影 memo：键 = `TurnRec`（未变的 turn 直接复用上一帧的 Row）。 */
 const rowByTurn: WeakMap<TurnRec, PAssistantRow> = new WeakMap<TurnRec, PAssistantRow>();
 
+/**
+ * 「空壳块过滤」的结果 memo：键 = 源 `blocks` 数组。
+ * ⛔ 为什么必须 memo：`filter` 每次都返**新数组** ⇒ 指纹/引用判据全失效 ⇒ 页面每帧重建块列表
+ *   （用户硬约束：每帧成本与块数 N 无关）。同源数组 ⇒ 同一结果引用 ⇒ 下游零重建。
+ */
+const nonEmptyMemo: WeakMap<readonly Block[], readonly Block[]> = new WeakMap<readonly Block[], readonly Block[]>();
+
+function nonEmptyBlocks(blocks: readonly Block[]): readonly Block[] {
+  const hit: readonly Block[] | undefined = nonEmptyMemo.get(blocks);
+  if (hit !== undefined) {
+    return hit;
+  }
+  // ⛔ **空壳块不渲染**（旧管线 `[ITER-DROP]` 同源规则）：无正文/无思考/无工具/无子代理的块
+  //   只是一条没有任何可见信息的记录；渲染它会得到一张"空气卡"（真机实测：整屏空白 +
+  //   一个悬浮 pill）。这是**投影规则**，不是去重/合并。
+  const out: readonly Block[] = blocks.filter((b) => b.cancelled
+    || b.content.length > 0 || b.reasoning.length > 0
+    || b.tools.length > 0 || b.subAgents.length > 0);
+  nonEmptyMemo.set(blocks, out);
+  return out;
+}
+
 function assistantRow(t: TurnRec, live: LiveIter | null): PAssistantRow {
   const hit = rowByTurn.get(t);
   const liveHere: LiveIter | null = live !== null && live.turn === t.id ? live : null;
@@ -69,15 +91,17 @@ function assistantRow(t: TurnRec, live: LiveIter | null): PAssistantRow {
     // ⛔ **空壳块不渲染**（旧管线 `[ITER-DROP]` 同源规则）：无正文/无思考/无工具/无子代理的块
     //   只是一条没有任何可见信息的记录；渲染它会得到一张"空气卡"（真机实测：整屏空白 +
     //   一个悬浮 pill）。这是**投影规则**，不是去重/合并。
-    blocks: t.blocks.filter((b) => b.cancelled
-      || b.content.length > 0 || b.reasoning.length > 0
-      || b.tools.length > 0 || b.subAgents.length > 0),
+    blocks: nonEmptyBlocks(t.blocks),
     inflight,
     phase: t.phase,
     streaming: t.streaming,
     stats: t.streamStats,
     usage: t.tokenUsage,
-    compactions: t.compactions,
+    // 压缩点：窗口化（`regionsBefore > 0`）时**丢掉落在外面的 `afterIteration=0`**
+    // （它属于更早那段，渲染会浮在缺口上；与 `core/compaction.ets:toHistoryCompactions` 同源规则）。
+    compactions: t.regionsBefore > 0
+      ? t.compactions.filter((c) => c.afterIteration > 0)
+      : t.compactions,
     droppedBefore: t.droppedBefore,
     regionsBefore: t.regionsBefore,
     finalized: t.final !== null,
@@ -104,8 +128,15 @@ function blockOfLive(l: LiveIter): Block {
   return b;
 }
 
+/** user 行投影 memo：键 = `UserLine`（未变 ⇒ 复用同一 PRow ⇒ `applyModel` 零写入、页面零重建）。 */
+const userRowByLine: WeakMap<UserLine, PUserRow> = new WeakMap<UserLine, PUserRow>();
+
 function userRow(turnID: number, u: UserLine, standalone?: boolean): PUserRow {
-  return {
+  const hit: PUserRow | undefined = userRowByLine.get(u);
+  if (hit !== undefined && hit.turnID === turnID && hit.standalone === standalone) {
+    return hit;
+  }
+  const row: PUserRow = {
     kind: 'user',
     id: u.id,
     turnID,
@@ -117,22 +148,32 @@ function userRow(turnID: number, u: UserLine, standalone?: boolean): PUserRow {
     dbID: u.dbID,
     standalone,
   };
+  userRowByLine.set(u, row);
+  return row;
 }
 
+/** legacy 行投影 memo：键 = `LegacyLine`（只读历史前缀，未变即复用）。 */
+const legacyRowByLine: WeakMap<LegacyLine, PRow> = new WeakMap<LegacyLine, PRow>();
+
 function legacyRow(l: LegacyLine): PRow {
-  if (l.role === 'user') {
-    return {
+  const hit: PRow | undefined = legacyRowByLine.get(l);
+  if (hit !== undefined) {
+    return hit;
+  }
+  const row: PRow = l.role === 'user'
+    ? {
       kind: 'user', id: l.id, turnID: 0, content: l.content, timestamp: l.timestamp,
       isNotification: false, queued: false, sending: false, dbID: l.dbID,
       standalone: l.standalone === true, anchorTurnID: l.anchorTurn,
+    }
+    : {
+      kind: 'assistant', id: l.id, turnID: 0, content: l.content, cancelled: false, blocks: l.blocks,
+      inflight: null, phase: 'done', streaming: false, stats: null, usage: null,
+      compactions: [], droppedBefore: l.droppedBefore !== undefined ? l.droppedBefore : 0,
+      regionsBefore: l.regionsBefore !== undefined ? l.regionsBefore : 0, finalized: true,
     };
-  }
-  return {
-    kind: 'assistant', id: l.id, turnID: 0, content: l.content, cancelled: false, blocks: l.blocks,
-    inflight: null, phase: 'done', streaming: false, stats: null, usage: null,
-    compactions: [], droppedBefore: l.droppedBefore !== undefined ? l.droppedBefore : 0,
-    regionsBefore: l.regionsBefore !== undefined ? l.regionsBefore : 0, finalized: true,
-  };
+  legacyRowByLine.set(l, row);
+  return row;
 }
 
 /**
@@ -157,8 +198,17 @@ export function project(s: State): readonly PRow[] {
     const hideUser = t.regionsBefore > 0;
     if (t.user !== null && !hideUser) out.push(userRow(t.id, t.user));
     const row = assistantRow(t, s.live);
-    // 空 turn（无 user、无块、无在飞、无最终文本）不产 assistant 行（"幽灵行"由投影过滤）
-    const hasAny = t.user !== null || t.blocks.length > 0 || row.inflight !== null
+    // 空 turn 不产 assistant 行（"幽灵行"）：无块、无在飞、无最终正文 ⇒ 跳过。
+    // ⛔ 不能把「有 user 行」无条件算作"有内容"—— cron/通知 turn 只有 user 行且**已收尾**
+    //   （`final` 非空），那样会给它们画一条**空白助手气泡**（旧 derive 的 `hasVisibleOutput` 会跳过）。
+    //   反过来**未收尾且有 user** 的 turn（刚 turn_started、还没产出）必须留行 —— 它是
+    //   spinner / 打字机的挂载点（判据 `live_iteration_inline` §3）。
+    // ⛔ **user-less** 的空 turn 一律不渲染（compaction/resume 的合成 turn，判据
+    //   `reduce` 的 REPRO 2026-10-18：凭空一条「思考中」空白助手行）。
+    //    ⛔ 判"有真实 user"看**内容非空**：`trigger=resume` 的内部续跑 turn 也带一条空 user 行，
+    //      它不是用户输入 ⇒ 不许因此凭空画一条「思考中」空白助手行（`reduce` REPRO 2026-10-18）。
+    const openWithUser: boolean = t.final === null && t.user !== null && t.user.isResume !== true;
+    const hasAny = t.blocks.length > 0 || row.inflight !== null || openWithUser
       || (t.final !== null && t.final.content.length > 0);
     if (hasAny) out.push(row);
   }

@@ -79,6 +79,15 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   `.transition(...)`、静息态恒为可见值；门禁 **⑨**（`tools/lint/anim-opacity-gate.sh`）硬红拦 A 级形态、
   警告 B 级（不透明度由 `animateTo`/`anim` 驱动）；失败方向安全的一次性过渡（初值可见、动画到 0，
   如开屏退出淡出）登记 `tools/lint/anim-opacity-allowlist.txt` 并写明理由。
+- **⛔ 行源已是模型（W3 之后）：判据必须走 `tools/tests/model_harness.ts` 的 `ModelFeed`**。
+  旧的 `deriveRows + applyRow`（`core/derive.ts` / `render.ets` 的 apply 路径）**已删除** ——
+  还在用它写判据 = 判据与真机不同源（"判据绿、真机红"）。
+  ⛔ **在飞块必须带 `live: true`**：页面 `syncLiveTail` 靠 `iterations[last].live === true`
+  找到它并把正文/思考/工具投给打字机（`Index.ets:10320-10341`）；漏标记 ⇒ 流式内容只在收尾出现。
+  ⛔ **「有产出」的判定必须与 `liveHasOutput` 同源**（content **或 reasoning 或 tools 或 genui**）：
+  只看 content/tools 会漏掉"只有思考流"的帧 ⇒ 行里没有在飞块 ⇒ **页面停在「思考中…」**
+  （用户 2026-10-20 亲报现场，2026-10-21 在桥接层复现并修复）。判据
+  `tools/tests/live_cache_lifecycle.test.ts`（①b/② 必红形态）+ `tool_status_rowrebuild.test.ts`（①d）。
 - **⛔ `LazyForEach` + 「最小通知键」⇒ 已存在行永不更新**（本轮两起事故的同一根因，我各踩一次）：
   `LazyForEach(ds, …)` 的 item builder **只在新建时执行**；此后父级 `@State` 变化**不会**重新投递 `@Prop`。
   若数据源按 `id#rev` 之类的键做最小通知（`ChatRowDataSource.applyRows`），**主题变更不改变任何键 ⇒ 零通知

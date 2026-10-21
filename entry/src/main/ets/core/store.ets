@@ -23,12 +23,10 @@ import { reduce, applySessionFields } from './reduce';
 //   为什么先影子：新引擎要替换 reduce/render/streammerge（≈5k 行），先在同一事件流上
 //   并行跑、只做**结构比对**（回合数/每回合块数/工具数），差异写日志。比对为零差异后
 //   才允许切换写者（W2/W3）。⛔ 影子路径**绝不写** `this.state`、绝不发网络。
-import { adapt } from './model_adapter';
-import { stepAll } from './model_step';
 import { emptyState } from './model_types';
 import type { State as ModelState } from './model_types';
 import { allToolCalls } from './model_project';
-import { applyModel } from './model_bridge';
+import { applyModel, stepEvent } from './model_bridge';
 import { hydrate } from './model_hydrate';
 import type { WireHistoryMessage, WireHistoryIteration } from './model_hydrate';
 import { invariantViolations } from './state_invariants';
@@ -37,9 +35,6 @@ import { liveRunningIn, withSessionRunning } from './chat_types_full';
 import type { GoalInfo as ChatGoalInfo, TodoItem as ChatTodoItem } from './chattypes';
 import { extractEventChatID, normalizeEvent } from './normalize';
 import { historyToReplaced, liveProgressFromState } from './integrate';
-import { applyRow, invalidateAppliedRow } from './render';
-import { deriveRows } from './derive';
-import type { Row } from './derive';
 import { ChatMessage, ChatMessageRole, EMPTY_PROGRESS_SNAPSHOT, ProgressSnapshot, WebCompaction, WebIteration } from './chattypes';
 import { toHistoryCompactions } from './compaction';
 import { normalizeWebIteration } from './agent_normalize';
@@ -948,60 +943,7 @@ export class ChatStore {
    * 结构比对（回合数 / 每回合块数 / 工具数）。**只记日志，不写状态、不发网络**。
    * ⛔ effects 只在这里被**记录**（`pullIter`/`pullTurn`/`snapshot`）——接线期由 W2 落地。
    */
-  /** `WebIteration[] → WireHistoryIteration[]`（逐字段搬运；⛔ 不用 unknown 断言，ArkTS 禁）。 */
-  private toWireIters(its: readonly WebIteration[]): WireHistoryIteration[] {
-    const out: WireHistoryIteration[] = [];
-    for (let i = 0; i < its.length; i++) {
-      const it: WebIteration = its[i];
-      out.push({
-        iteration: it.iteration,
-        content: it.content,
-        reasoning: it.reasoning,
-        tools: it.tools,
-      });
-    }
-    return out;
-  }
-
-  /** `history_replaced` → 水合输入（结构面；`Turn.phase` 的 committed/live 都摊平成块）。 */
-  private historyToWire(ev: DomainEvent): WireHistoryMessage[] {
-    const out: WireHistoryMessage[] = [];
-    if (ev.type !== 'history_replaced') {
-      return out;
-    }
-    const legacy: readonly LegacyRow[] = ev.legacy !== undefined ? ev.legacy : [];
-    for (let i = 0; i < legacy.length; i++) {
-      const l: LegacyRow = legacy[i];
-      out.push({
-        id: l.id, role: l.role, content: l.content,
-        iterations: this.toWireIters(l.iterations),
-        timestamp: l.timestamp, dbID: l.dbID,
-        regionsBefore: l.regionsBefore,
-      });
-    }
-    const turns: readonly Turn[] = ev.turns !== undefined ? ev.turns : [];
-    for (let i = 0; i < turns.length; i++) {
-      const t: Turn = turns[i];
-      if (t.user !== undefined && t.user !== null) {
-        out.push({
-          id: `turn-${t.id}-user`, role: 'user', content: t.user.content, turnID: t.id,
-          timestamp: t.user.timestamp, isNotification: t.user.isNotification,
-        });
-      }
-      const its: readonly WebIteration[] = t.phase.kind === 'committed'
-        ? t.phase.payload.iterations : t.phase.data.iterations;
-      const text: string = t.phase.kind === 'committed' ? t.phase.payload.content : t.phase.data.content;
-      const rb: number | undefined = t.phase.kind === 'committed' ? t.phase.payload.regionsBefore : undefined;
-      out.push({
-        id: `turn-${t.id}-assistant`, role: 'assistant', content: text, turnID: t.id,
-        iterations: this.toWireIters(its), regionsBefore: rb,
-      });
-    }
-    return out;
-  }
-
   private runShadowModel(ev: DomainEvent): void {
-    // ── 诊断（临时）：确认历史/在飞态走的是哪条事件、`active` 是否随事件到达 ──
     if (ev.type === 'history_replaced') {
       const ids: number[] = [];
       for (let i = 0; i < ev.turns.length; i++) { ids.push(ev.turns[i].id as number); }
@@ -1022,17 +964,9 @@ export class ChatStore {
       this.shadow = emptyState(this.currentChatId, 1, 0);
       this.shadowRows = new Map<string, ChatRow>();
     }
-    if (ev.type === 'history_replaced') {
-      // 权威历史 = **水合**（构造），不是帧（§3.5）。旧管线的 history_replaced 是 merge 语义，
-      // 这里走 `hydrate` 的**权威替换**：turns/legacy 重建，会话级字段与 live 保留。
-      const act = ev.active;
-      this.shadow = hydrate(this.shadow, this.historyToWire(ev), ev.lastSeq !== null && ev.lastSeq !== undefined
-        ? (ev.lastSeq as number) : this.shadow.seq,
-        act === null || act === undefined ? null : { turnID: act.turnID, snapshot: act.snapshot as never });
-    } else {
-      const inputs = adapt(ev as never, this.currentChatId, this.shadow.epoch);
-      const res = stepAll(this.shadow, inputs as never, new Date().toISOString());
-      this.shadow = res.state;
+    // ⛔ 唯一入口 `stepEvent`：`history_replaced` = 权威水合（构造），其余 = wire 帧。
+    const res = stepEvent(this.shadow, ev, this.currentChatId);
+    this.shadow = res.state;
     for (let i = 0; i < res.effects.length; i++) {
       const e = res.effects[i];
       if (e.kind === 'pullIter') {
@@ -1041,7 +975,6 @@ export class ChatStore {
         log('model', `effect=pullTurn turn=${e.turn}`);
       } else {
         log('model', 'effect=snapshot（整体不可信）');
-      }
       }
     }
     // ── 结构比对（零差异才算通过 W1）──
@@ -1105,16 +1038,6 @@ export class ChatStore {
       this.finalizedAwaitingTurnStart = false;
       this.intentBusyAt = 0;
     }
-  }
-
-  /** `ChatState → rows`：`deriveRows` + 就地适配（对象恒等）。 */
-  /** 使 live 行的 applied-Row 缓存失效；**保留 ChatRow 身份**（删对象会破坏 LazyForEach 同键渲染）。 */
-  private invalidateLiveRowCache(): void {
-    this.rowCache.forEach((r: ChatRow) => {
-      if (r.isLive) {
-        invalidateAppliedRow(r);
-      }
-    });
   }
 
   private rebuildRows(): void {
@@ -2222,10 +2145,9 @@ export class ChatStore {
     }
     this.historyLoadGen = gen;
     this.historyLoading = true;
-    // 权威 history 重载 ⇒ 旧 live 行的缓存必须整体失效（不只按 id 命中）。
-    // 否则 resync 后 `rowCache` 仍返回旧 ChatRow，`appliedRowByRow` 会误判未变化。
+    // 权威 history 重载 ⇒ 模型侧 `hydrate` 会重建 `PRow` 对象 ⇒ `applyModel` 按源对象
+    // 恒等自动重填（不再需要按行 invalidate 缓存）。
     this.liveCacheKey = '';
-    this.invalidateLiveRowCache();
     this.onUpdate();
     try {
       await this.loadHistoryInner();
@@ -2700,20 +2622,59 @@ export class ChatStore {
    * 与页面渲染同一条路径（不再是独立的手写映射）。live 诊断测试用。
    */
   static rowsFromHistory(messages: HistoryMessage[]): ChatRow[] {
-    // ⛔ 压缩点（`compactions`）**不在 `HistoryMessage` 里**（本仓协议没有该字段），
-    //   只能经旧链路的 `historyToReplaced` 从原始消息重建 ⇒ 这里仍走 reduce+derive+applyRow。
-    //   （新模型的 `hydrate` 已支持 compactions 输入，等协议下发后再切。）
-    const ev: DomainEvent = historyToReplaced(ChatStore.toChatMessages(messages, 0), null);
-    const state: ChatState = reduce(initialChatState(''), ev);
-    const derived: readonly Row[] = deriveRows(state);
-    const out: ChatRow[] = [];
-    for (let i = 0; i < derived.length; i++) {
-      const row: ChatRow = new ChatRow();
-      row.id = derived[i].id;
-      applyRow(row, derived[i]);
-      out.push(row);
+    // ⛔ **走新模型**：历史 = 权威水合（`hydrate`，含块/压缩点）→ 投影（`project`）→ 桥接。
+    const wire: WireHistoryMessage[] = [];
+    // 已有的 user 行 id 集合（`turn_user` 只在**该行确实没被单独下发**时才补 —— 否则同一
+    //  user 会渲染两行：判据 `user_row_integrity`「历史合并后仍恰 1 条 user 行」）。
+    const userIds: Set<string> = new Set<string>();
+    for (let i = 0; i < messages.length; i++) {
+      const mm: HistoryMessage = messages[i];
+      if (mm.role === 'user') {
+        userIds.add(`${mm.id}`);
+      }
+      const tu0: HistoryMessage | undefined = mm.turn_user;
+      if (tu0 !== undefined && tu0 !== null) {
+        userIds.add(`${tu0.id}`);
+      }
     }
-    return out;
+    for (let i = 0; i < messages.length; i++) {
+      const m: HistoryMessage = messages[i];
+      // ⛔ `turn_user` 边缘还原（后端 `5c3aec7b`，对齐 web `hooks/useChatMessages.ts:200-221`）：
+      //   窗口化历史把该 turn 的 user 行挂 assistant 行上 ⇒ 水合时必须**摘下来当独立的 user 行**，
+      //   否则 `regions_before` 归零后时间线里没有 user（判据 `turn_user_restore` G3/G4/G5）。
+      const tu: HistoryMessage | undefined = m.turn_user;
+      // ⛔ `turn_user` 只为"窗口把 user 行挤掉了"服务：本批**已经有任何 user 行**就说明没被挤掉，
+      //   再补一条就是重复渲染（判据 `user_row_integrity`「历史合并后仍恰 1 条 user 行」）。
+      const alreadyListed: boolean = tu !== undefined && tu !== null && ChatStore.batchHasUserRow(messages);
+      if (tu !== undefined && tu !== null && !alreadyListed) {
+        wire.push({
+          id: `${tu.id}`, role: 'user', content: tu.content === undefined ? '' : tu.content,
+          turnID: m.turn_id === undefined ? 0 : m.turn_id,
+          timestamp: tu.timestamp === undefined ? '' : tu.timestamp,
+          dbID: typeof tu.id === 'number' ? tu.id as number : undefined,
+        });
+      }
+      wire.push({
+        id: `${m.id}`, role: m.role, content: m.content === undefined ? '' : m.content,
+        turnID: m.turn_id === undefined ? 0 : m.turn_id,
+        timestamp: m.timestamp === undefined ? '' : m.timestamp,
+        iterations: ChatStore.toWireIters(m.iterations),
+        regionsBefore: m.regions_before,
+        compactions: m.compactions,
+      });
+    }
+    const st: ModelState = hydrate(emptyState('history', 1, 0), wire, 0, null);
+    return applyModel(st, new Map<string, ChatRow>());
+  }
+
+  /** 该批历史里是否**存在任何 user 行**（存在 ⇒ `turn_user` 无需再补；⛔ 不比内容）。 */
+  private static batchHasUserRow(messages: HistoryMessage[]): boolean {
+    for (let i = 0; i < messages.length; i++) {
+      if (messages[i].role === 'user') {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** `HistoryIteration[] → WireHistoryIteration[]`（逐字段搬运；⛔ ArkTS 禁 unknown 断言）。 */
@@ -2723,7 +2684,12 @@ export class ChatStore {
       return out;
     }
     for (let i = 0; i < its.length; i++) {
-      out.push({ iteration: its[i].iteration, content: its[i].content, reasoning: its[i].reasoning, tools: its[i].tools });
+      out.push({
+        iteration: its[i].iteration, content: its[i].content, reasoning: its[i].reasoning,
+        tools: its[i].tools,
+        // ⛔ 子代理树一起水合（逐迭代冻结）：漏了它，历史重载后卡片全丢。
+        subAgents: its[i].subAgents,
+      });
     }
     return out;
   }

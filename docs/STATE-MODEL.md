@@ -11,7 +11,7 @@
 ## 0. 结论摘要（先看这一节）
 
 **现状的真实体量**：`pages/Index.ets` 13 214 行、`core/store.ets` 4 348 行、`core/reduce.ts` 2 850 行、
-`core/streammerge.ets` 884 行、`core/render.ets` 836 行、`core/normalize.ts` 579 行、`core/derive.ts` 484 行
+`core/streammerge.ets` 884 行、`core/render.ets` 836 行、`core/normalize.ts` 579 行、`derive.ts`（W3 已删除） 484 行
 （合计 23 195 行，另有 395 个测试文件）。**其中"决定屏幕上画什么"的判据，被分散在 20+ 个互相兜底的函数里**。
 
 **新模型的体量**（估算，不含 UI 组件本体）：一个 200 行的事件适配器 + 一个 350 行的 `step` + 一个 250 行的
@@ -85,7 +85,7 @@
 |---|---|
 | `core/reduce.ts:237-238`（`foldKnownToolsIntoCommitted`） | `t.iteration ?? 当前提交号` |
 | `core/reduce.ts:2718`（`foldInFlightToIterations`） | `t.iteration > 0 ? t.iteration : lastIter` |
-| `core/derive.ts:473`（`foldToolsIntoIterations`，frozen 行） | **一律折进 `lastIter`**（不读 `tool.iteration`）← 与 reduce 侧不同源 |
+| `derive.ts（W3 已删除）:473`（`foldToolsIntoIterations`，frozen 行） | **一律折进 `lastIter`**（不读 `tool.iteration`）← 与 reduce 侧不同源 |
 | `core/agent_normalize.ts:191-210`（`historyProgressToLive`） | 按 `tool.iteration` 并回历史块，对不上留 live |
 | `core/toolmerge.ts:109`（`detailIterationOf`） | `toolIter > 0 ? toolIter : blockIter` |
 | `pages/Index.ets:4870 / 4888-4901`（详情/开关） | `detailIterationOf` + `it.iteration === want` + **名字全表兜底** |
@@ -1030,6 +1030,32 @@ apply(next: Row[]):
 | **W5** | web 同源化：`web/src/chat/reduce.ts` 换成同一转移表；删 web 的 `mergeIterations`/`dedupe*`/`completedIterKeys`/`shellSameNum` | `model_parity.test.ts`：同一录制集，两端投影逐字段相等 |
 
 **双跑期纪律**：W1–W3 期间新模型**只旁听不写**（shadow），任何不一致都先修模型，**不允许**在旧实现上打补丁。
+
+### 8.1 落地记录（2026-10-21）
+
+| 波 | 状态 | 事实 |
+|---|---|---|
+| W1 | ✅ 完成 | `core/model_{types,adapter,step,project,hydrate}.ts` + `core/model_bridge.ets`；影子引擎在生产事件流上跑，差分日志零不一致 |
+| W2 | ✅ 完成 | `store.rebuildRows` 行源切 `applyModel`（真机验证：正文/工具/思考/高度全对，提交 `59d5556`）；随后下线逐帧 ROWDIFF（`8259d2a`） |
+| W3 | ✅ 完成 | 见下 |
+
+**W3 落地（删旧层）**
+
+1. **唯一入口收口**：`model_bridge.stepEvent(state, ev, chat)`（`history_replaced` 走 `hydrate` 水合，其余 `adapt → stepAll`）
+   + `applyModel`。实时（`store.runShadowModel`/`rebuildRows`）与录制重放（`pages/SseReplay`）走**同一个函数**，
+   不再各写一份事件翻译。
+2. **删除**：`derive.ts`（W3 已删除）（`deriveRows`/`Row` 判别联合）、`core/render.ets` 的 `applyRow`/`rowSignature`
+   家族（`sameRowEssence`/`sameToolEssence`/`sameToolArr`/`sameRefArr`/`appliedRowByRow`/`invalidateAppliedRow`）、
+   `core/integrate.ts` 的 `rowsToChatMessages`/`rowToChatMessage`（零消费）。turndrop 诊断搬到 `core/turndrop.ts`。
+3. **判据迁移**：所有 `deriveRows + applyRow` 的测试改为 `tools/tests/model_harness.ts` 的 `ModelFeed`
+   （→ `stepEvent` → `applyModel`），**断言实质不变**；旧/新等价判据（`model_row_equiv`、`model_diff_prop`）随旧实现删除。
+4. **桥接修正（真机等价面）**：在飞块必须带 `live: true`（页面 `syncLiveTail` 靠它找打字机块，
+   `Index.ets:10320-10341`）；迭代块必须带 `subAgents`（子代理树）；行 `rev` 自增（诊断）。
+   ⇒ 判据 `tools/tests/tool_status_rowrebuild.test.ts` 的 ①d/①e 钉住 live 标记。
+5. **`/compress` 之后会话必须继续**：turn-less 命令（`/compress`、`/settings`…）从不进入 Run 循环，
+   而 goal 的续跑只在 Run 内部（PreTurnEnd）⇒ 有 active goal 时命令执行完会永久 idle
+   （用户 2026-10-21 亲报）。修在后端命令分发（`agent/agent.go` + `goal.resumeRunAfterCommand`）。
+
 
 **硬前置（盲审得出，必须写进排期）**：
 

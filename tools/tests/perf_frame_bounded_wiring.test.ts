@@ -60,12 +60,16 @@ console.log('\n▶ §B 块列表持有者：只在**引用**变化时赋值（O(
 {
   ok('★B `syncIterBlocks` 用引用比较守卫 `holder.blocks !== merged`',
     /holder\.blocks !== merged/.test(render));
-  ok('★B 且块列表来源是 `mergeToolRuns(blocks)`（与发送/序列化同源）',
-    /const merged: HistoryIteration\[\] = mergeToolRuns\(blocks\);/.test(render));
+  // ⛔ 2026-10-21 用户决策：「**每个 tool 是一个单独的迭代**」⇒ 渲染层**不再吸收**
+  //   相邻纯工具迭代（`mergeToolRuns`）。mutation：把这里改回 `mergeToolRuns(blocks)`
+  //   并让页面按合并后块渲染 ⇒ 用户读作"后面两个迭代消失了"，本条必须红。
+  ok('★B 块列表**原样**交给渲染（不 absorption；每个迭代一块）',
+    /const merged: HistoryIteration\[\] = blocks;/.test(render)
+    && count(render, 'mergeToolRuns(') === 0);
   ok('★B live 行取 `row.completedBlocks`（不含末尾在飞块）',
-    /syncIterBlocks\(row, row\.completedBlocks, NO_COMPACTIONS, r\.turnID\)/.test(render));
+    /syncIterBlocks\(row, row\.completedBlocks, NO_COMPACTIONS, turnID\)/.test(render));
   ok('★B 用户行也清空持有者（切行不复用旧块）',
-    /syncIterBlocks\(row, EMPTY_BLOCKS, NO_COMPACTIONS, r\.turnID\)/.test(render));
+    /row\.iterBlocks\.blocks = \[\]/.test(read('entry/src/main/ets/core/model_bridge.ets')));
 }
 
 console.log('\n▶ §C 行组件不再自己遍历全部块（每帧 O(N) 的旧形态）');

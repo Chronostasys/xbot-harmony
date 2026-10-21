@@ -12,10 +12,17 @@
 import { ChatRow, HistoryIteration, ToolProgress } from './types';
 import { syncRowBlocks } from './render';
 import { WebCompaction } from './chattypes';
+import type { WebIteration, WebSubAgentProgress } from './chattypes';
+import type { DomainEvent, LegacyRow, Turn } from './chat_types_full';
 import type { PRow, PAssistantRow, PUserRow } from './model_project';
 import type { Block } from './model_types';
 import type { State, ToolRec, SubAgentNode } from './model_types';
+import type { Effect } from './model_types';
+import type { WireHistoryMessage, WireHistoryIteration } from './model_hydrate';
 import { project } from './model_project';
+import { adapt } from './model_adapter';
+import { stepAll } from './model_step';
+import { hydrate } from './model_hydrate';
 
 /** `ToolRec` → `ToolProgress`（按源对象记忆化）。 */
 const toolByRec: WeakMap<Object, ToolProgress> = new WeakMap<Object, ToolProgress>();
@@ -46,8 +53,39 @@ export function toToolProgress(t: ToolRec): ToolProgress {
 let revCounter: number = 0;
 const blockByBlock: WeakMap<Object, HistoryIteration> = new WeakMap<Object, HistoryIteration>();
 
-/** `Block` → `HistoryIteration`（**一块一迭代**；按源对象恒等）。 */
-export function toHistoryIteration(b: Block): HistoryIteration {
+/** `SubAgentNode` → `WebSubAgentProgress`（按源对象记忆化；子代理树逐层搬运）。 */
+const subByNode: WeakMap<Object, WebSubAgentProgress> = new WeakMap<Object, WebSubAgentProgress>();
+
+export function toSubAgentProgress(n: SubAgentNode): WebSubAgentProgress {
+  const hit: WebSubAgentProgress | undefined = subByNode.get(n as Object);
+  if (hit !== undefined) {
+    return hit;
+  }
+  const out: WebSubAgentProgress = {
+    role: n.role,
+    instance: n.instance,
+    status: n.status,
+    desc: n.desc,
+    iteration: n.iteration,
+  };
+  const kids: readonly SubAgentNode[] = n.children !== undefined ? n.children : [];
+  if (kids.length > 0) {
+    const cs: WebSubAgentProgress[] = [];
+    for (let i = 0; i < kids.length; i++) {
+      cs.push(toSubAgentProgress(kids[i]));
+    }
+    out.children = cs;
+  }
+  subByNode.set(n as Object, out);
+  return out;
+}
+
+/** `Block` → `HistoryIteration`（**一块一迭代**；按源对象恒等）。
+ *
+ *  `live=true` 只给 **在飞块**（`PAssistantRow.inflight`）：页面 `syncLiveTail` 靠
+ *  `iterations[i].live === true` 找到它并把正文/思考/工具投递给打字机
+ *  （`Index.ets:10320-10341`）。⛔ 漏这个标记 ⇒ 流式内容只在收尾时出现（无打字机）。 */
+export function toHistoryIteration(b: Block, live: boolean = false): HistoryIteration {
   const hit: HistoryIteration | undefined = blockByBlock.get(b as Object);
   if (hit !== undefined) {
     return hit;
@@ -64,6 +102,16 @@ export function toHistoryIteration(b: Block): HistoryIteration {
     tools_folded: false,
     rev: ++revCounter,
   };
+  if (live) {
+    out.live = true;
+  }
+  if (b.subAgents.length > 0) {
+    const subs: WebSubAgentProgress[] = [];
+    for (let i = 0; i < b.subAgents.length; i++) {
+      subs.push(toSubAgentProgress(b.subAgents[i]));
+    }
+    out.subAgents = subs;
+  }
   blockByBlock.set(b as Object, out);
   return out;
 }
@@ -74,6 +122,102 @@ function toHistoryIterations(bs: readonly Block[]): HistoryIteration[] {
     out.push(toHistoryIteration(bs[i]));
   }
   return out;
+}
+
+// ─── 帧 → 模型：**唯一入口** ────────────────────────────────────────────────
+// 实时喂帧（store）与录制重放（pages/SseReplay）必须走同一个函数，否则
+// 「重放看起来对、真机不对」这类分歧无法归因。
+
+function wireIters(its: readonly WebIteration[]): WireHistoryIteration[] {
+  const out: WireHistoryIteration[] = [];
+  for (let i = 0; i < its.length; i++) {
+    out.push({
+      iteration: its[i].iteration,
+      content: its[i].content,
+      reasoning: its[i].reasoning,
+      tools: its[i].tools,
+      // ⛔ 子代理树必须一起水合：历史重载后卡片不能凭空消失（逐迭代冻结，与 web 同源）。
+      subAgents: its[i].subAgents,
+    });
+  }
+  return out;
+}
+
+/** `history_replaced` → 水合输入（结构面：committed/live 都摊平成块，live 身份由 `active` 表达）。 */
+export function historyEventToWire(ev: DomainEvent): WireHistoryMessage[] {
+  const out: WireHistoryMessage[] = [];
+  if (ev.type !== 'history_replaced') {
+    return out;
+  }
+  const legacy: readonly LegacyRow[] = ev.legacy !== undefined ? ev.legacy : [];
+  for (let i = 0; i < legacy.length; i++) {
+    const l: LegacyRow = legacy[i];
+    out.push({
+      id: l.id, role: l.role, content: l.content,
+      iterations: wireIters(l.iterations),
+      timestamp: l.timestamp, dbID: l.dbID,
+      regionsBefore: l.regionsBefore,
+    });
+  }
+  const turns: readonly Turn[] = ev.turns !== undefined ? ev.turns : [];
+  for (let i = 0; i < turns.length; i++) {
+    const t: Turn = turns[i];
+    if (t.user !== undefined && t.user !== null) {
+      out.push({
+        id: `turn-${t.id}-user`, role: 'user', content: t.user.content, turnID: t.id,
+        timestamp: t.user.timestamp, isNotification: t.user.isNotification,
+      });
+    }
+    const its: readonly WebIteration[] = t.phase.kind === 'committed'
+      ? t.phase.payload.iterations : t.phase.data.iterations;
+    const text: string = t.phase.kind === 'committed' ? t.phase.payload.content : t.phase.data.content;
+    const rb: number | undefined = t.phase.kind === 'committed' ? t.phase.payload.regionsBefore : undefined;
+    out.push({
+      id: `turn-${t.id}-assistant`, role: 'assistant', content: text, turnID: t.id,
+      iterations: wireIters(its), regionsBefore: rb,
+    });
+  }
+  return out;
+}
+
+/** 一帧的模型步进结果（`state` 供下一帧/投影；`effects` 由调用方处置——实时侧拉权威）。 */
+export interface ModelStep {
+  readonly state: State;
+  readonly effects: readonly Effect[];
+}
+
+/**
+ * 单帧喂进模型。`history_replaced` 是**权威历史**（走 `hydrate` 构造，不是增量帧）；
+ * 其余事件按 wire 语义 `adapt → stepAll`。⛔ 绝不在这里做去重/兜底——语义全在 `model_step`。
+ */
+export function stepEvent(st: State, ev: DomainEvent, chat: string): ModelStep {
+  if (ev.type === 'history_replaced') {
+    const act = ev.active;
+    const seq: number = ev.lastSeq === null || ev.lastSeq === undefined ? st.seq : ev.lastSeq;
+    const next: State = hydrate(st, historyEventToWire(ev), seq,
+      act === null || act === undefined ? null : { turnID: act.turnID, snapshot: act.snapshot as never });
+    return { state: next, effects: [] };
+  }
+  // ⛔ `inject_user` 是服务端把"注入的 user 消息"**回显**给客户端（WSMessage 四字段，无 id/turn）：
+  //   通知 turn 的 user 行已经由 `turn_started(trigger=notification)` 建好了 ⇒ 有在飞回合时
+  //   这条回显不得再落一行（判据 `user_row_integrity`「通知 turn 恰 1 条」，用户 2026-10-18 截图）。
+  //   判定只用**状态**（有没有在飞回合），不比字符串内容。
+  if (ev.type === 'user_echo') {
+    // 已有**在飞/未收尾且有 user 行**的回合 ⇒ 这条回显是那条 user 消息的副本（单端场景的常态：
+    // 通知 turn 的 user 行由 `turn_started` 建、本地发送的行由 `user_sent` 建）。
+    // ⛔ 判定只看状态（有没有未收尾回合 + 有没有 user 行），不比内容、不比 id。
+    let openWithUser: boolean = false;
+    st.turns.forEach((t) => {
+      if (t.final === null && t.user !== null) {
+        openWithUser = true;
+      }
+    });
+    if (openWithUser) {
+      return { state: st, effects: [] };
+    }
+  }
+  const res = stepAll(st, adapt(ev as never, chat, st.epoch) as never, new Date().toISOString());
+  return { state: res.state, effects: res.effects };
 }
 
 
@@ -109,8 +253,12 @@ function fillAssistant(row: ChatRow, r: PAssistantRow, isLive: boolean): void {
   for (let i = 0; i < committed.length; i++) {
     blocks.push(committed[i]);
   }
-  if (r.inflight !== null && (r.inflight.content.length > 0 || r.inflight.tools.length > 0)) {
-    blocks.push(toHistoryIteration(r.inflight));
+  // ⛔ 判定必须与 `liveHasOutput` 同源（content/reasoning/tools/genui 任一有产出即算）：
+  //   只看 content/tools 会漏掉「只有思考流」的帧 ⇒ 行里没有在飞块 ⇒ 页面停在「思考中…」
+  //   （这正是用户 2026-10-20 报的现场）。
+  if (r.inflight !== null && (r.inflight.content.length > 0 || r.inflight.reasoning.length > 0
+    || r.inflight.tools.length > 0 || r.inflight.genui.length > 0)) {
+    blocks.push(toHistoryIteration(r.inflight, true));
   }
   row.iterations = blocks;
   row.completedBlocks = committed;
@@ -126,13 +274,12 @@ function fillAssistant(row: ChatRow, r: PAssistantRow, isLive: boolean): void {
   }
   row.compactions = comps;
   row.subAgents = [];
-  if (row.iterBlocks.blocks !== blocks) {
-    row.iterBlocks.blocks = blocks;
-    row.iterBlocks.rev = row.iterBlocks.rev + 1;
-  }
+  // ⛔ 块列表的**唯一写者**是 `syncRowBlocks`（同一份 `syncIterBlocks` 逻辑，不复制）：
+  //   这里再写一次只会让 `IterBlocksView` 每帧多收一次通知（rev 双跳）。
   if (isLive) {
     row.liveRevision = row.liveRevision + 1;
   }
+  row.rev = row.rev + 1;
 }
 
 /**

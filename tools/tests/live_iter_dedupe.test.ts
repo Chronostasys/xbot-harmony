@@ -2,24 +2,29 @@
  * live_iter_dedupe —— P0（用户 2026-10-17 亲报）：**迭代完成后突然变成两个一模一样的 iter，
  * 再下一个迭代时恢复正常**。
  *
- * ── 定位（渲染层，非状态机）────────────────────────────────────────────────────
- *  "同一个 iteration 号"在语义上**永远是同一个迭代**。原实现里两处会并排渲染两次：
- *   ① `liveIterations` 在「已提交同号块是空壳」分支（`shellSameNum`）直接 **append**
- *      一个 `iteration = r.lastIter` 的在飞块 ⇒ 同号两块；
- *   ② 上游任何路径（状态机 merge / fold / finalizer / 增量 delta）让同一个号出现两次，
- *      渲染层**当时没有任何兜底**。
- *  ⇒ 修在渲染边界：同号就地**合并**（工具按 key 并集、正文/思考非空者胜），并加
- *    `collapseSameNumberBlocks` 兜底收敛（导出、可脱机断言）。
- *  下一迭代 `lastIter` 前进后不再同号 ⇒ 现象"自动恢复" ✓（与用户描述一致）。
+ * ── 旧链路（已废弃）─────────────────────────────────────────────────────────────
+ *  "同一个 iteration 号"在语义上**永远是同一个迭代**。旧渲染层两处会并排渲染两次：
+ *   ① `liveIterations` 在「已提交同号块是空壳」分支直接 **append** 在飞块 ⇒ 同号两块；
+ *   ② 上游任何路径（reduce merge / fold / finalizer / 增量 delta）让同一个号出现两次时，
+ *      渲染层**没有任何兜底** ⇒ 修法是在渲染边界**就地合并且兜底收敛**
+ *      （`collapseSameNumberBlocks`：工具按 key 并集、正文非空者胜、live 取或）。
  *
- * ⛔ 为什么不改 `reduce.ts`：它是 web 逐字移植（铁律）⇒ 只能改渲染层。
+ * ── 新链路（本判据）────────────────────────────────────────────────────────────
+ *  同号块**在模型里不可表示**（T5(a)：`blocks` 迭代号**严格递增**）：
+ *   · `onDone` 对 `iteration <= 最后块号` 的块**整块丢弃**（不覆盖、不追加）；
+ *   · 提交某迭代 ⇒ `live` 若同号即清空（`liveAt(...) !== null ⇒ live = null`）；
+ *   · 投影「一块一迭代」原样交出（不合并/不去重）。
+ *  ⇒ 旧的"合并语义"（工具并集 / 正文非空者胜）**整体消失** —— 不是被本测试放弃，而是
+ *    不再需要：同号重复**根本进不来**，且提交块是权威（`docs/STATE-MODEL.md` T4/T5(a)）。
+ *    本文件因此改钉**更强**的保证：同号重复输入 ⇒ 只有一个块，且**首块（权威）不被改写**。
+ *
+ * ⛔ mutation 自证：让 `onDone` 接受同号块（去掉 `iteration <= last ⇒ 丢弃`）⇒ ①② 必红。
  */
 declare const process: { exit: (c: number) => void };
 
-import { ChatStore } from '../../entry/src/main/ets/core/store';
-import { ChatRow, HistoryIteration, ToolProgress } from '../../entry/src/main/ets/core/types';
-import { collapseSameNumberBlocks } from '../../entry/src/main/ets/core/render';
-import type { SseListener } from '../../entry/src/main/ets/core/sse';
+import { ModelFeed } from './model_harness';
+import type { ChatRow, HistoryIteration, ToolProgress } from '../../entry/src/main/ets/core/types';
+import type { Block, TurnRec } from '../../entry/src/main/ets/core/model_types';
 
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean): void {
@@ -30,139 +35,165 @@ function eq(name: string, got: unknown, want: unknown): void {
   if (g === w) { pass++; } else { fail++; console.log(`  ✗ ${name}\n      got  ${g}\n      want ${w}`); }
 }
 
-// ── ① 纯判据：同号重复 ⇒ 收敛为一块（工具并集 / 正文非空者胜 / live 取或）────────────
+const TURN = 1;
 
-// ⛔ `ToolProgress`/`HistoryIteration` 在 types 里是**类型**（interface）⇒ 不能 `new`；
-//    用字面量 + 断言（harness 以 TS 编译，字面量合法）。
-const tool = (callId: string, label: string): ToolProgress => ({
-  name: 'Shell', label, status: 'done', call_id: callId,
-} as unknown as ToolProgress);
+function tw(name: string, status: string, callId: string): Record<string, Object> {
+  return { name, label: name, status, callID: callId, iteration: 0, elapsedMs: 0, summary: '', detail: '', args: '' };
+}
 
-const block = (n: number, content: string, reasoning: string,
-  tools: ToolProgress[], live: boolean): HistoryIteration => ({
-  iteration: n, content, reasoning, tools, tools_folded: false, live,
-} as unknown as HistoryIteration);
-
-console.log('\n▶ ① 同号收敛（collapseSameNumberBlocks）');
-const dup1 = collapseSameNumberBlocks([
-  block(3, '', '', [], false),                       // 空壳（早提交）
-  block(3, '真正文', '真思考', [tool('c1', 'Shell: a')], true),  // 在飞（真内容）
-]);
-eq('同号两块 ⇒ 收敛成 1 块', dup1.length, 1);
-eq('正文取自非空者（不丢）', dup1[0].content, '真正文');
-eq('思考取自非空者', dup1[0].reasoning, '真思考');
-eq('工具保留', (dup1[0].tools ?? []).length, 1);
-eq('live 取或（合并后仍在飞）', dup1[0].live, true);
-
-const dup2 = collapseSameNumberBlocks([
-  block(7, '旧正文', '', [tool('c1', 'Shell: a')], false),
-  block(7, '', '', [tool('c2', 'Shell: b')], false),
-]);
-eq('同号两块（都有工具）⇒ 1 块', dup2.length, 1);
-eq('工具并集（不同 callId 两次调用都要在）', (dup2[0].tools ?? []).length, 2);
-eq('并集顺序：已提交优先', (dup2[0].tools ?? [])[0].call_id, 'c1');
-eq('正文不被空串覆盖', dup2[0].content, '旧正文');
-
-const dup3 = collapseSameNumberBlocks([
-  block(1, 'A', '', [], false),
-  block(1, 'A', '', [tool('c9', 'Shell: x')], true),
-  block(1, 'A', '', [tool('c9', 'Shell: x')], true),
-]);
-eq('三块同号 ⇒ 1 块', dup3.length, 1);
-eq('同一 callId 不因合并而重复（toolKey 去重）', (dup3[0].tools ?? []).length, 1);
-
-const keep = collapseSameNumberBlocks([
-  block(1, 'a', '', [], false), block(2, 'b', '', [], false), block(3, 'c', '', [], false),
-]);
-eq('不同号原样保留（顺序不变）', keep.map((i: HistoryIteration) => i.iteration), [1, 2, 3]);
-eq('空表恒等', collapseSameNumberBlocks([]).length, 0);
-
-// ── ② 黑盒：喂完一帧"完成态"后，渲染出的 live 行不得同号 ─────────────────────────
-
-const CHAT = 'chat-iter-dedupe';
-function wire(store: ChatStore): { emit: (e: string, p: object) => void } {
-  const box: { listener: SseListener | null } = { listener: null };
-  const httpAny = store.http as unknown as { post: (p: string, b: object) => Promise<string> };
-  httpAny.post = (path: string, _b: object): Promise<string> => {
-    if (path === '/api/history') {
-      return Promise.resolve(JSON.stringify({
-        chat_id: CHAT, channel: 'web', messages: [], has_more: false, oldest_id: 0,
-      }));
-    }
-    return Promise.resolve(JSON.stringify({ message_id: 7, turn_id: 5, queued: false }));
-  };
-  const sseAny = store.sse as unknown as {
-    connect: (c: string, ch: string, ck: string, l: SseListener) => void;
-  };
-  sseAny.connect = (_c: string, _ch: string, _ck: string, l: SseListener): void => {
-    box.listener = l;
-  };
-  store.currentChatId = CHAT;
-  store.subscribe();
+function tick(seq: number, iter: number, content: string, active: Record<string, Object>[]): Record<string, unknown> {
   return {
-    emit: (e: string, p: object): void => {
-      const l = box.listener;
-      if (l === null) { throw new Error('SSE listener 未捕获'); }
-      l(e, JSON.stringify(p));
-    },
+    type: 'iteration', turnID: TURN, iter, seq, phase: 'tool_exec',
+    content, reasoning: '', activeTools: active, completedTools: [], streamingTools: [],
+    iterationsDelta: [], todos: undefined, subAgents: undefined, tokenUsage: undefined, streamStats: undefined,
   };
 }
-const P = (progress: object): object => ({ chat_id: CHAT, progress });
-function liveRowOf(store: ChatStore): ChatRow | undefined {
-  for (let i = 0; i < store.rows.length; i++) {
-    if (store.rows[i].isLive) { return store.rows[i]; }
-  }
-  return undefined;
+
+function commit(seq: number, iter: number, content: string, tools: Record<string, Object>[]): Record<string, unknown> {
+  return {
+    type: 'iteration', turnID: TURN, iter, seq, phase: 'tool_exec',
+    content: '', reasoning: '', activeTools: [], completedTools: [], streamingTools: [],
+    iterationsDelta: [{ iteration: iter, content, reasoning: '', tools, toolCount: tools.length }],
+    todos: undefined, subAgents: undefined, tokenUsage: undefined, streamStats: undefined,
+  };
 }
-function maxSameNumber(row: ChatRow | undefined): number {
+
+function started(seq: number, turn: number = TURN): Record<string, unknown> {
+  return { type: 'turn_started', turnID: turn, requestID: null, trigger: 'user', content: '', seq };
+}
+
+function blocksOf(f: ModelFeed, turn: number = TURN): Block[] {
+  const t: TurnRec | undefined = f.state.turns.get(turn);
+  return t === undefined ? [] : t.blocks.slice();
+}
+
+/** 渲染行里同号块的最大重复次数（>1 ⇒ 用户会看到两块一模一样的 iter）。 */
+function maxSameNumber(rows: ChatRow[]): number {
   const m: Map<number, number> = new Map<number, number>();
-  if (row === undefined) { return 0; }
-  for (let i = 0; i < row.iterations.length; i++) {
-    const n: number = row.iterations[i].iteration;
-    m.set(n, (m.get(n) ?? 0) + 1);
+  for (let r = 0; r < rows.length; r++) {
+    const its: HistoryIteration[] = rows[r].iterations;
+    for (let i = 0; i < its.length; i++) {
+      const n: number = its[i].iteration;
+      m.set(n, (m.get(n) ?? 0) + 1);
+    }
   }
   let mx = 0;
   m.forEach((v: number) => { if (v > mx) { mx = v; } });
   return mx;
 }
 
-async function main(): Promise<void> {
-  console.log('\n▶ ② 黑盒：完成帧之后 live 行不得出现同号重复');
-  const store = new ChatStore('http://127.0.0.1:9');
-  const w = wire(store);
-  await store.send('触发一轮');
-  w.emit('progress_structured', P({
-    turn_id: 5, phase: 'turn_started', seq: 2,
-    turn_start: { trigger: 'user', content: '触发一轮', request_id: 'r1' },
-  }));
-  w.emit('progress_structured', P({
-    turn_id: 5, phase: 'iteration', iteration: 1, seq: 10, stream_content: '第一轮正文ABC',
-  }));
-  ok('流式期无同号', maxSameNumber(liveRowOf(store)) <= 1);
-  // "完成"帧：同号迭代被提交（空壳/早提交形态）+ live 行仍持有该迭代内容
-  w.emit('progress_structured', P({
-    turn_id: 5, phase: 'iteration', iteration: 1, seq: 11,
-    stream_content: '第一轮正文ABC',
-    iteration_history: [{ iteration: 1, content: '', reasoning: '', tools: [] }],
-  }));
-  w.emit('text_final', {
-    chat_id: CHAT, turn_id: 5, seq: 12,
-    final_iteration: { iteration: 1, content: '', reasoning: '', tools: [] },
-  });
-  ok('⛔ 完成帧之后仍无同号（P0 回归判据）', maxSameNumber(liveRowOf(store)) <= 1);
-  w.emit('progress_structured', P({
-    turn_id: 5, phase: 'iteration', iteration: 2, seq: 13, stream_content: '第二轮…',
-  }));
-  ok('下一迭代推进后无同号', maxSameNumber(liveRowOf(store)) <= 1);
-
-  if (fail > 0) {
-    console.log(`  live_iter_dedupe: ${pass} passed, ${fail} failed`);
-    process.exit(1);
+function rowOf(f: ModelFeed): ChatRow | undefined {
+  const rows: ChatRow[] = f.rows();
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].role === 'assistant') { return rows[i]; }
   }
-  console.log(`  live_iter_dedupe: ${pass} passed, 0 failed`);
-  process.exit(0);
+  return undefined;
 }
 
-main();
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n▶ ① 同号块不可表示（替代旧的 collapseSameNumberBlocks 兜底）');
+{
+  // ①-a 提交块带工具 + 在飞同号 ⇒ 提交后只剩一块
+  const f = new ModelFeed('chat-iter-dedupe');
+  f.push(started(1));
+  f.push(tick(2, 1, 'A', [tw('Shell', 'running', 'c1')]));
+  f.push(commit(3, 1, 'A', [tw('Shell', 'done', 'c1')]));
+  eq('①a 提交后只有 1 块', blocksOf(f).length, 1);
+  eq('①a 渲染行同号重复数 ≤ 1', maxSameNumber(f.rows()), 1);
+  eq('①a live 已清（不与提交块并排）', f.state.live, null);
+  eq('①a 正文来自提交块', blocksOf(f)[0].content, 'A');
+  eq('①a 工具数 = 1', blocksOf(f)[0].tools.length, 1);
+
+  // ①-b 同号重发（更少工具/不同正文）⇒ 整块丢弃，**首块不被改写**（不丢正文、不丢工具）
+  f.push(commit(4, 1, 'B', [tw('Shell', 'done', 'c2')]));
+  eq('①b 同号重发后仍只有 1 块', blocksOf(f).length, 1);
+  eq('①b 正文未被改写', blocksOf(f)[0].content, 'A');
+  eq('①b 工具未被改写（仍 c1，不并集、不覆盖）', blocksOf(f)[0].tools.map((t: { call: string }) => t.call), ['c1']);
+  eq('①b 渲染行同号重复数 ≤ 1', maxSameNumber(f.rows()), 1);
+
+  // ①-c 不同号原样保留（顺序不变）
+  const g = new ModelFeed('chat-iter-dedupe2');
+  g.push(started(1));
+  g.push(commit(2, 1, 'a', []));
+  g.push(commit(3, 2, 'b', []));
+  g.push(commit(4, 3, 'c', []));
+  eq('①c 不同号原样保留（顺序不变）', blocksOf(g).map((b) => b.iteration), [1, 2, 3]);
+  eq('①c 渲染行同号重复数 = 1', maxSameNumber(g.rows()), 1);
+
+  // ①-d 在飞与提交同号（转后台/推进帧带上一迭代正文的形态）⇒ 不并排两块
+  const h = new ModelFeed('chat-iter-dedupe3');
+  h.push(started(1));
+  h.push(tick(2, 1, '真正文', []));
+  h.push(commit(3, 1, '真正文', []));
+  const row = rowOf(h);
+  const its: HistoryIteration[] = row === undefined ? [] : row.iterations;
+  eq('①d live 行只 1 块', its.length, 1);
+  eq('①d 同号重复数 ≤ 1', maxSameNumber(h.rows()), 1);
+  eq('①d 正文不丢', its.length > 0 ? its[0].content : '', '真正文');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n▶ ② 黑盒：完成帧（提交 + text_final）前后，渲染行都不得出现同号重复');
+{
+  const f = new ModelFeed('chat-iter-dedupe4');
+  const T = 5;
+  f.push(started(2, T));
+  f.push({
+    type: 'iteration', turnID: T, iter: 1, seq: 10, phase: 'tool_exec',
+    content: '第一轮正文ABC', reasoning: '', activeTools: [], completedTools: [], streamingTools: [],
+    iterationsDelta: [], todos: undefined, subAgents: undefined, tokenUsage: undefined, streamStats: undefined,
+  });
+  ok('流式期无同号', maxSameNumber(f.rows()) <= 1);
+  // "完成"帧：同号迭代被提交（delta 带正文）
+  f.push({
+    type: 'iteration', turnID: T, iter: 1, seq: 11, phase: 'tool_exec',
+    content: '第一轮正文ABC', reasoning: '', activeTools: [], completedTools: [], streamingTools: [],
+    iterationsDelta: [{ iteration: 1, content: '第一轮正文ABC', reasoning: '', tools: [], toolCount: 0 }],
+    todos: undefined, subAgents: undefined, tokenUsage: undefined, streamStats: undefined,
+  });
+  // 权威收尾（progressHistory 再带一遍同一块）
+  f.push({
+    type: 'text_final', turnID: T, seq: 12, content: '第一轮正文ABC', cancelled: false,
+    progressHistory: [{ iteration: 1, content: '第一轮正文ABC', reasoning: '', tools: [] }],
+  });
+  ok('⛔ 完成帧之后仍无同号（P0 回归判据）', maxSameNumber(f.rows()) <= 1);
+  f.push({
+    type: 'iteration', turnID: T, iter: 2, seq: 13, phase: 'tool_exec',
+    content: '第二轮…', reasoning: '', activeTools: [], completedTools: [], streamingTools: [],
+    iterationsDelta: [], todos: undefined, subAgents: undefined, tokenUsage: undefined, streamStats: undefined,
+  });
+  ok('下一迭代推进后无同号', maxSameNumber(f.rows()) <= 1);
+  ok('已完成迭代正文仍在（收尾不吞内容）',
+    f.rows().some((r: ChatRow) => r.iterations.some((b: HistoryIteration) => String(b.content).indexOf('第一轮正文ABC') >= 0)));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n▶ ③ 结构自证：模型层面**不存在**同号块（与渲染无关）');
+{
+  const f = new ModelFeed('chat-iter-dedupe5');
+  f.push(started(1));
+  f.push(tick(2, 1, 'x', []));
+  f.push(commit(3, 1, 'x', []));
+  f.push(commit(4, 1, 'y', []));
+  f.push(commit(5, 2, 'z', []));
+  f.push(commit(6, 2, 'w', []));
+  const nums: number[] = blocksOf(f).map((b) => b.iteration);
+  let strictlyIncreasing = true;
+  for (let i = 1; i < nums.length; i++) {
+    if (nums[i] <= nums[i - 1]) { strictlyIncreasing = false; }
+  }
+  ok('③ 块号严格递增（T5a ⇒ 同号不可表示）', strictlyIncreasing);
+  eq('③ 块号 = [1,2]', nums, [1, 2]);
+  // 工具列表里也不允许有重复 call（一块内位置状态按 call 唯一）
+  const ts: ToolProgress[] = [];
+  const bs = blocksOf(f);
+  for (let i = 0; i < bs.length; i++) {
+    for (let k = 0; k < bs[i].tools.length; k++) { ts.push(bs[i].tools[k] as unknown as ToolProgress); }
+  }
+  ok('③ 行内工具 call 不重复', new Set(ts.map((t) => t.call_id)).size === ts.length);
+}
+
+console.log(`\n  live_iter_dedupe: ${pass} passed, ${fail} failed`);
+process.exit(fail > 0 ? 1 : 0);
 
 export {};

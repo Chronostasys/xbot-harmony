@@ -13,17 +13,14 @@ import http from '@ohos.net.http';
 import util from '@ohos.util';
 import router from '@ohos.router';
 import { normalizeEvent } from '../core/normalize';
-import { reduce } from '../core/reduce';
-import { initialChatState } from '../core/chat_types_full';
-import type { ChatState, DomainEvent } from '../core/chat_types_full';
-import { deriveRows } from '../core/derive';
-import { applyRow } from '../core/render';
-import { colorOf } from '../core/design';
+import type { DomainEvent } from '../core/chat_types_full';
+import { stepEvent, applyModel } from '../core/model_bridge';
+import { emptyState } from '../core/model_types';
+import type { State as ModelState } from '../core/model_types';
+import { colorOf, typeOf } from '../core/design';
 import { paletteOf } from '../core/theme';
-import { mergeToolRuns } from '../core/streammerge';
 import { ChatRow } from '../core/types';
 import type { HistoryIteration, ToolProgress } from '../core/types';
-import type { WebIteration } from '../core/chattypes';
 
 interface Envelope {
   type?: string;
@@ -119,7 +116,7 @@ struct SseReplay {
     this.picked = name;
     const text: string = readText(`${dir}/${name}`);
     const rawLines: string[] = text.split('\n');
-    let state: ChatState = initialChatState('replay');
+    let state: ModelState = emptyState('replay', 1, 0);
     let frames: number = 0;
     let events: number = 0;
     for (let i = 0; i < rawLines.length; i++) {
@@ -165,35 +162,35 @@ struct SseReplay {
         continue;
       }
       for (let k = 0; k < evs.length; k++) {
-        state = reduce(state, evs[k]);
+        const res = stepEvent(state, evs[k] as DomainEvent, chatId);
+        state = res.state;
         events++;
       }
     }
-    // ── 结果：状态 vs 渲染 ──────────────────────────────────────────────
+    // ── 结果：模型 → 渲染行（与实时页面**同一条**路径：`applyModel`）──
     const out: DumpLine[] = [];
-    const rows = deriveRows(state);
+    const rows: ChatRow[] = applyModel(state, new Map<string, ChatRow>());
     let liveSeen: number = 0;
     for (let i = 0; i < rows.length; i++) {
-      const r = rows[i];
-      if (r.kind === 'live') {
+      const r: ChatRow = rows[i];
+      if (r.role !== 'assistant') {
+        continue;
+      }
+      if (r.isLive) {
         liveSeen++;
-        const its: readonly WebIteration[] = r.iterations;
-        out.push({ key: `live-hdr-${i}`, text: `== LIVE turn=${r.turnID} iter=${r.lastIter} streaming=${r.streaming} stateIterations=${its.length}` });
-        for (let k = 0; k < its.length; k++) {
-          out.push({ key: `live-it-${i}-${k}`, text: `  STATE iter${its[k].iteration}: ${toolList(its[k].tools)}` });
-        }
-        const cr = new ChatRow();
-        cr.id = `replay-${i}`;
-        applyRow(cr, r);
-        const blocks: HistoryIteration[] = mergeToolRuns(cr.iterations);
-        out.push({ key: `live-blk-${i}`, text: `  → RENDER blocks=${blocks.length}` });
-        for (let k = 0; k < blocks.length; k++) {
-          out.push({ key: `live-bk-${i}-${k}`, text: `    BLOCK iter${blocks[k].iteration}: ${toolList(blocks[k].tools)}` });
-        }
+      }
+      const blocks: HistoryIteration[] = r.iterBlocks.blocks;
+      out.push({ key: `row-hdr-${i}`, text: `== ${r.isLive ? 'LIVE' : 'TURN'} turn=${r.turnID} blocks=${blocks.length}`
+        + ` text=${r.content.length}ch` });
+      if (r.compactions !== undefined && r.compactions.length > 0) {
+        out.push({ key: `row-cmp-${i}`, text: `  COMPACTIONS=${r.compactions.length}` });
+      }
+      for (let k = 0; k < blocks.length; k++) {
+        out.push({ key: `row-bk-${i}-${k}`, text: `    BLOCK iter${blocks[k].iteration}: ${toolList(blocks[k].tools)}` });
       }
     }
     this.summary = `file=${name} frames=${frames} events=${events} liveRows=${liveSeen}`
-      + ` turns=${state.turns.size} active=${state.activeTurn}`;
+      + ` turns=${state.turns.size} live=${state.live !== null ? state.live.turn : -1}`;
     this.lines = out;
   }
 
@@ -237,16 +234,16 @@ struct SseReplay {
   build() {
     Column({ space: 8 }) {
       Row({ space: 8 }) {
-        Text('SSE REPLAY').fontSize(18).fontWeight(FontWeight.Bold).layoutWeight(1)
+        Text('SSE REPLAY').fontSize(typeOf('type.title').size).fontWeight(FontWeight.Bold).layoutWeight(1)
         Button('下一个').onClick(() => this.run(Math.min(this.curPick + 1, 20)))
         Button('关闭').onClick(() => router.back())
       }
-      Text(this.summary).fontSize(12)
-      Text(`file=${this.picked}`).fontSize(11).opacity(0.7)
+      Text(this.summary).fontSize(typeOf('type.caption').size)
+      Text(`file=${this.picked}`).fontSize(typeOf('type.caption').size).opacity(0.7)
       List({ space: 2 }) {
         ForEach(this.lines, (l: DumpLine) => {
           ListItem() {
-            Text(l.text).fontSize(11).width('100%').wordBreak(WordBreak.BREAK_ALL)
+            Text(l.text).fontSize(typeOf('type.caption').size).width('100%').wordBreak(WordBreak.BREAK_ALL)
           }
         }, (l: DumpLine) => l.key)
       }

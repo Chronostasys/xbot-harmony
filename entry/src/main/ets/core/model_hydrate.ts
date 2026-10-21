@@ -8,8 +8,8 @@
  *
  * 适配层形状：输入是**结构**接口（不 import `.ets`），由调用方（store）传 `ChatMessage[]`。
  */
-import type { Block, LegacyLine, LiveIter, State, ToolRec, TurnRec, UserLine } from './model_types';
-import { newTurn } from './model_types';
+import type { Block, Compaction, LegacyLine, LiveIter, State, SubAgentNode, ToolRec, TurnRec, UserLine } from './model_types';
+import { newTurn, toolStatusOf } from './model_types';
 
 /** 历史行（结构面；与 `core/types.ChatMessage` 同形，避免 `.ts` import `.ets`）。 */
 export interface WireHistoryMessage {
@@ -23,6 +23,8 @@ export interface WireHistoryMessage {
   readonly iterations?: readonly WireHistoryIteration[];
   readonly regionsBefore?: number;
   readonly droppedBefore?: number;
+  /** turn 内压缩点（`HistoryCompaction`：`after_iteration`/`content`/`timestamp`）。 */
+  readonly compactions?: readonly { readonly after_iteration?: number; readonly content?: string }[];
 }
 
 export interface WireHistoryIteration {
@@ -31,7 +33,17 @@ export interface WireHistoryIteration {
   readonly reasoning?: string;
   readonly tools?: readonly WireHistoryTool[];
   readonly genui?: string;
-  readonly subAgents?: readonly never[];
+  readonly subAgents?: readonly WireSubAgent[];
+}
+
+/** 子代理进度（`SubAgentNode` 的线格式；历史迭代里逐迭代下发）。 */
+export interface WireSubAgent {
+  readonly role: string;
+  readonly instance?: string;
+  readonly status: string;
+  readonly desc?: string;
+  readonly iteration?: number;
+  readonly children?: readonly WireSubAgent[];
 }
 
 /** `history_replaced.active.snapshot` 的结构面（在飞快照）。 */
@@ -61,13 +73,6 @@ interface WireHistoryTool {
   readonly tool_hints?: string;
 }
 
-function statusOf(s: string | undefined): 'generating' | 'pending' | 'running' | 'done' | 'failed' {
-  if (s === 'done' || s === 'error') return 'done';
-  if (s === 'failed') return 'failed';
-  if (s === 'running') return 'running';
-  if (s === 'generating') return 'generating';
-  return 'pending';
-}
 
 function toToolRecOf(t: WireHistoryTool, iteration: number, idx: number): ToolRec {
   const rawCall: string | undefined = t.call_id !== undefined && t.call_id !== ''
@@ -77,7 +82,7 @@ function toToolRecOf(t: WireHistoryTool, iteration: number, idx: number): ToolRe
     iteration,
     meta: { name: t.name, uiMode: t.ui_mode, args: t.args, detail: t.detail, summary: t.summary, toolHints: t.tool_hints },
     state: {
-      status: statusOf(t.status),
+      status: toolStatusOf(t.status),
       label: t.label !== undefined ? t.label : t.name,
       genChars: t.gen_chars !== undefined ? t.gen_chars : 0,
       elapsedMs: t.elapsed_ms !== undefined ? t.elapsed_ms : 0,
@@ -85,7 +90,7 @@ function toToolRecOf(t: WireHistoryTool, iteration: number, idx: number): ToolRe
   };
 }
 
-function toBlock(w: WireHistoryIteration): Block {
+function wireIterToBlock(w: WireHistoryIteration): Block {
   const tools: ToolRec[] = [];
   const src: readonly WireHistoryTool[] = w.tools === undefined ? [] : w.tools;
   for (let i = 0; i < src.length; i++) {
@@ -104,7 +109,7 @@ function toBlock(w: WireHistoryIteration): Block {
         toolHints: t.tool_hints,
       },
       state: {
-        status: statusOf(t.status),
+        status: toolStatusOf(t.status),
         label: t.label !== undefined ? t.label : t.name,
         genChars: t.gen_chars !== undefined ? t.gen_chars : 0,
         elapsedMs: t.elapsed_ms !== undefined ? t.elapsed_ms : 0,
@@ -116,10 +121,30 @@ function toBlock(w: WireHistoryIteration): Block {
     content: w.content !== undefined ? w.content : '',
     reasoning: w.reasoning !== undefined ? w.reasoning : '',
     tools,
-    subAgents: [],
+    subAgents: toSubAgentNodes(w.subAgents),
     genui: w.genui !== undefined ? w.genui : '',
     cancelled: false,
   };
+}
+
+/** `WireSubAgent[] → SubAgentNode[]`（逐层搬运；缺失 = 空数组）。 */
+function toSubAgentNodes(ws: readonly WireSubAgent[] | undefined): readonly SubAgentNode[] {
+  if (ws === undefined || ws.length === 0) {
+    return [];
+  }
+  const out: SubAgentNode[] = [];
+  for (let i = 0; i < ws.length; i++) {
+    const w: WireSubAgent = ws[i];
+    out.push({
+      role: w.role,
+      instance: w.instance,
+      status: w.status,
+      desc: w.desc,
+      iteration: w.iteration,
+      children: toSubAgentNodes(w.children),
+    });
+  }
+  return out;
 }
 
 function toUserLine(m: WireHistoryMessage): UserLine {
@@ -161,7 +186,7 @@ export function hydrate(prev: State, messages: readonly WireHistoryMessage[], se
         const blocks: Block[] = [];
         const its: readonly WireHistoryIteration[] = m.iterations === undefined ? [] : m.iterations;
         for (let k = 0; k < its.length; k++) {
-          blocks.push(toBlock(its[k]));
+          blocks.push(wireIterToBlock(its[k]));
         }
         legacy.push({
           id: m.id, role: 'assistant', content: m.content, blocks,
@@ -184,7 +209,7 @@ export function hydrate(prev: State, messages: readonly WireHistoryMessage[], se
     const add: Block[] = [];
     const its: readonly WireHistoryIteration[] = m.iterations === undefined ? [] : m.iterations;
     for (let k = 0; k < its.length; k++) {
-      add.push(toBlock(its[k]));
+      add.push(wireIterToBlock(its[k]));
     }
     const blocks: Block[] = rec.blocks.length === 0 ? add : [...rec.blocks, ...add];
     // ⛔ **在跑的回合不能被水合成"已收尾"**：`active.turnID` 指向的那一轮仍在飞
@@ -197,9 +222,20 @@ export function hydrate(prev: State, messages: readonly WireHistoryMessage[], se
     //   若只看 ①，就会把正在跑的回合重新定型成"已收尾" ⇒ live 行消失、界面空白。
     const running: boolean = (active !== undefined && active !== null && active.turnID === turn)
       || (prev.live !== null && prev.live.turn === turn);
+    // 压缩点（turn 级，渲染成迭代之间的横线）
+    const comps: Compaction[] = [];
+    if (m.compactions !== undefined) {
+      for (let i = 0; i < m.compactions.length; i++) {
+        const hc = m.compactions[i];
+        const after: number = hc.after_iteration === undefined ? 0 : hc.after_iteration;
+        const text: string = hc.content === undefined ? '' : hc.content;
+        comps.push({ afterIteration: after, content: text });
+      }
+    }
     turns.set(turn, {
       ...rec,
       blocks,
+      compactions: comps.length > 0 ? comps : rec.compactions,
       final: running ? null : { content: m.content, cancelled: false },
       streaming: running,
       phase: running ? 'tool_exec' : 'done',
@@ -236,6 +272,29 @@ export function hydrate(prev: State, messages: readonly WireHistoryMessage[], se
       tools,
       genui: snap.genui !== undefined ? snap.genui : '',
     };
+  }
+  // ⛔ **在飞回合不能被"迟到的空/滞后历史"抹掉**：历史重载是权威，但它只描述**已落库**的行；
+  //   正在跑的回合还没落库（服务端 `history` 里没有它）⇒ 若整表替换后 `live.turn` 不在
+  //   `turns` 里，模型就有一条指向空气的 live（投影遍历 `turns` ⇒ 无行 ⇒ 页面"正文全没了"）。
+  //   修法：把上一帧的那一轮**原样保留**（它的块/live 由 tick 继续驱动），仅当历史确实包含该
+  //   回合时才以历史为准。
+  // ⛔ **历史滞后不得丢刚收尾的回合**：`/api/history` 可能还没落库刚结束的 turn（服务端写入延迟，
+  //   或本端先收到 `text_final`）。整表替换会把用户刚看到的消息**抹掉**（判据 `user_row_integrity`
+  //   「历史合并后仍恰 1 条 user 行」）。判据只用**回合号**（历史里最大的 turn）——不比内容。
+  let maxHistoryTurn: number = 0;
+  turns.forEach((_t, id) => {
+    if (id > maxHistoryTurn) maxHistoryTurn = id;
+  });
+  prev.turns.forEach((t, id) => {
+    if (t.final !== null && id > maxHistoryTurn) {
+      turns.set(id, t);
+    }
+  });
+  if (live !== null && !turns.has(live.turn)) {
+    const kept: TurnRec | undefined = prev.turns.get(live.turn);
+    if (kept !== undefined) {
+      turns.set(live.turn, kept.final === null ? kept : { ...kept, final: null, phase: 'tool_exec', streaming: true });
+    }
   }
   return { ...prev, seq, turns, legacy, live };
 }

@@ -112,7 +112,13 @@ if (oldTurn === undefined || newTurn === undefined) {
   const oldContent = oldIts.map((it) => (it.content === undefined ? '' : it.content));
   const newContent = newTurn.blocks.map((b) => b.content);
   eq('③ 块正文一致', newContent, oldContent);
-  const oldCalls = oldIts.map((it) => (it.tools === undefined ? [] : it.tools.map((t) => t.callID)));
+  // ⛔ 老管线的 `ToolProgress` 用 snake_case（`call_id`），新模型内部用 `call`：
+  //   两边都按"身份键"取值，避免把字段拼写差异误判成身份不一致。
+  const oldCalls = oldIts.map((it) => (it.tools === undefined ? []
+    : it.tools.map((t) => {
+      const raw = t as unknown as { callID?: string; call_id?: string };
+      return raw.callID !== undefined ? raw.callID : raw.call_id;
+    })));
   const newCalls = newTurn.blocks.map((b) => b.tools.map((t) => t.call));
   eq('④ 每块的工具体一致（按 call_id）', newCalls, oldCalls);
   eq('⑤ 最终正文一致', newTurn.final === null ? null : newTurn.final.content,
