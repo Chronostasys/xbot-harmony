@@ -1,0 +1,349 @@
+/**
+ * core/model/step.ts —— 会话状态机的**唯一转移函数**（纯 TS，⛔ 无 ArkUI/无 `.ets` import）。
+ *
+ * `step(S, f) → { state, effects }`
+ *   · **总函数**：任何输入都有定义（守卫 + 六个构造子穷尽）；
+ *   · **纯**：无时钟/无随机/无全局可变状态（`ts` 由调用方传入）；
+ *   · **唯一外行为**：需要读权威时**只产出 effect**（`pullIter`/`pullTurn`/`snapshot`），
+ *     由驱动层执行后以帧形式回灌 —— 客户端**从不**在本地重建内容。
+ *
+ * 不变量（`docs/STATE-MODEL.md` §4）：
+ *   T2 幂等：`seq ≤ S.seq` ⇒ 状态不变（被跳过的号后到也走这一条）；
+ *   T3 工具恰好一次：工具只存在于 `live.tools`（未提交）或某个 `block.tools`（已提交），二者互斥；
+ *   T4 提交不可回退：`blocks` 只追加，或由 `final.blocks` 整体替换（权威）；
+ *   T5 良构：(a) 块号严格递增；(b) `live.iteration > 最后已提交块号`；(c) 块内工具号 == 块号；
+ *   T7 全函数：违反前置 ⇒ 丢弃（已过时）或拉权威（缺口），**不猜测**。
+ */
+import type {
+  AckIntent, Block, ChatID, DoneFrame, Effect, FailIntent, FinalFrame, Frame, IterNum, KeepaliveFrame,
+  LiveIter, OpenFrame, SendIntent, SessionFrame, State, StepResult, TickFrame, ToolMeta, ToolRec, ToolStatus,
+  ToolTick, TurnID, TurnRec, UserLine, TextPatch,
+} from './model_types';
+import { newTurn } from './model_types';
+
+// ─── 小工具（纯函数）─────────────────────────────────────────
+
+const EMPTY_BLOCKS: readonly Block[] = [];
+const EMPTY_TOOLS: readonly ToolRec[] = [];
+
+/** 已提交块的最大号（0 = 还没有块）。 */
+export function lastBlockIter(t: TurnRec): number {
+  return t.blocks.length === 0 ? 0 : t.blocks[t.blocks.length - 1].iteration;
+}
+
+/** 工具号盖章（T5-c）：块内工具恒带块号；这是"恰好一次"判据能成立的前提。 */
+function stampTools(tools: readonly ToolRec[], iteration: IterNum): readonly ToolRec[] {
+  let changed = false;
+  const out: ToolRec[] = [];
+  for (let i = 0; i < tools.length; i++) {
+    const t = tools[i];
+    if (t.iteration === iteration) {
+      out.push(t);
+    } else {
+      out.push({ ...t, iteration });
+      changed = true;
+    }
+  }
+  return changed ? out : tools;
+}
+
+function stampBlock(b: Block): Block {
+  const tools = stampTools(b.tools === undefined ? EMPTY_TOOLS : b.tools, b.iteration);
+  return tools === b.tools ? b : { ...b, tools };
+}
+
+/** 应用文本补丁：`full` 覆盖；`delta` 要求锚接上（否则丢弃 ⇒ 返回 null，不拼接）。 */
+export function applyText(cur: string, p: TextPatch | undefined): string | null {
+  if (p === undefined) return cur;
+  if (p.kind === 'full') return p.text;
+  if (p.chunk.length === 0) return cur;
+  if (p.base !== cur.length) return null;      // 锚不匹配 ⇒ DROP（由下一帧/权威修正）
+  return cur + p.chunk;
+}
+
+/** 位置状态：`ticks` 是**当前迭代工具的全集**；meta 缺省时沿用已知（按 call 查）。 */
+function applyToolTicks(prev: readonly ToolRec[], ticks: readonly ToolTick[],
+  iteration: IterNum): readonly ToolRec[] {
+  const byCall: Map<string, ToolRec> = new Map<string, ToolRec>();
+  for (let i = 0; i < prev.length; i++) {
+    byCall.set(prev[i].call, prev[i]);
+  }
+  const out: ToolRec[] = [];
+  for (let i = 0; i < ticks.length; i++) {
+    const tk = ticks[i];
+    const known = byCall.get(tk.call);
+    const meta: ToolMeta = tk.meta !== undefined ? tk.meta : (known !== undefined ? known.meta : { name: tk.call });
+    out.push({ call: tk.call, iteration, meta, state: tk.state });
+  }
+  return out;
+}
+
+/** `live` 是否就是 (turn, iteration)。 */
+function liveAt(s: State, turn: TurnID, iteration: IterNum): LiveIter | null {
+  const l = s.live;
+  return l !== null && l.turn === turn && l.iteration === iteration ? l : null;
+}
+
+function withTurn(s: State, id: TurnID, patch: (t: TurnRec) => TurnRec): State {
+  const cur = s.turns.get(id);
+  if (cur === undefined) return s;
+  const next = patch(cur);
+  if (next === cur) return s;
+  const turns = new Map<TurnID, TurnRec>(s.turns);
+  turns.set(id, next);
+  return { ...s, turns };
+}
+
+function pullRange(chat: ChatID, turn: TurnID, from: number, to: number): Effect[] {
+  const out: Effect[] = [];
+  for (let i = from; i <= to; i++) {
+    out.push({ kind: 'pullIter', chat, turn, iteration: i });
+  }
+  return out;
+}
+
+// ─── 守卫 ────────────────────────────────────────────────────
+
+function envelope(s: State, f: Frame): { apply: boolean; effects: Effect[] } {
+  if (f.chat !== s.chat) return { apply: false, effects: [] };            // 别的会话
+  if (f.epoch !== s.epoch) return { apply: false, effects: [{ kind: 'snapshot', chat: s.chat }] };
+  if (f.seq <= s.seq) return { apply: false, effects: [] };               // 重复 / 被跳过的号后到
+  // 跳号（f.seq > s.seq + 1）**照常应用并把水位推到最大** —— 不重放、不补帧。
+  return { apply: true, effects: [] };
+}
+
+// ─── 构造子 ──────────────────────────────────────────────────
+
+function onOpen(s: State, f: OpenFrame): StepResult {
+  const cur = s.turns.get(f.turn);
+  let next: State;
+  if (cur !== undefined) {
+    // ⛔ 幂等（§4 F-1）：只绑 user/requestID，**保留** blocks/final/phase（否则历史被清空）。
+    const patched: TurnRec = { ...cur, user: f.user, requestID: f.requestID };
+    const turns = new Map<TurnID, TurnRec>(s.turns);
+    turns.set(f.turn, patched);
+    next = { ...s, turns, live: null };
+  } else {
+    const turns = new Map<TurnID, TurnRec>(s.turns);
+    turns.set(f.turn, newTurn(f.turn, f.user, f.requestID));
+    next = { ...s, turns, live: null };
+  }
+  // 乐观行交给 turns（按 requestID 精确退役；⛔ 不做内容匹配）
+  if (f.requestID !== null) {
+    const pending = next.local.pending.filter((u) => u.requestID !== f.requestID && u.id !== f.user.id);
+    if (pending.length !== next.local.pending.length) {
+      next = { ...next, local: { pending } };
+    }
+  }
+  return { state: { ...next, seq: f.seq }, effects: [] };
+}
+
+function onTick(s: State, f: TickFrame): StepResult {
+  const t = s.turns.get(f.turn);
+  if (t === undefined) {
+    // 未知 turn（丢了 open）⇒ 取权威回合，不凭空造。
+    return { state: { ...s, seq: f.seq }, effects: [{ kind: 'pullTurn', chat: s.chat, turn: f.turn }] };
+  }
+  const last = lastBlockIter(t);
+  if (f.iteration <= last) {
+    // 已提交迭代的迟到帧 ⇒ 丢弃（权威块已在，且 `done` 完备）
+    return { state: { ...s, seq: f.seq }, effects: [] };
+  }
+  if (f.iteration > last + 1) {
+    // ⛔ **绝不跳过**：迭代前进了但上一迭代还不完整 ⇒ 先拉齐；本帧不应用（下一帧会带回最新样子）
+    const effects = pullRange(s.chat, f.turn, last + 1, f.iteration - 1);
+    return { state: { ...s, seq: f.seq }, effects };
+  }
+  const prevLive = liveAt(s, f.turn, f.iteration);
+  const baseCur = prevLive !== null ? prevLive.content : '';
+  const baseRea = prevLive !== null ? prevLive.reasoning : '';
+  const content = applyText(baseCur, f.content);
+  const reasoning = applyText(baseRea, f.reasoning);
+  if (content === null || reasoning === null) {
+    // 锚不匹配 ⇒ 丢弃本帧内容（不拼接、不清空）；其余字段照常（位置状态）
+    const live0 = prevLive !== null ? prevLive : {
+      turn: f.turn, iteration: f.iteration, content: baseCur, reasoning: baseRea, tools: EMPTY_TOOLS, genui: '',
+    };
+    return { state: { ...s, seq: f.seq, live: live0 }, effects: [] };
+  }
+  const prevTools = prevLive !== null ? prevLive.tools : EMPTY_TOOLS;
+  const live: LiveIter = {
+    turn: f.turn,
+    iteration: f.iteration,
+    content,
+    reasoning,
+    tools: applyToolTicks(prevTools, f.tools, f.iteration),
+    genui: f.genui,
+  };
+  const turns = new Map<TurnID, TurnRec>(s.turns);
+  turns.set(f.turn, {
+    ...t,
+    phase: f.phase,
+    streaming: f.streaming,
+    streamStats: f.stats !== undefined ? f.stats : t.streamStats,
+    tokenUsage: f.usage !== undefined ? f.usage : t.tokenUsage,
+  });
+  return { state: { ...s, seq: f.seq, turns, live }, effects: [] };
+}
+
+function onDone(s: State, f: DoneFrame): StepResult {
+  const t = s.turns.get(f.turn);
+  if (t === undefined) {
+    return { state: { ...s, seq: f.seq }, effects: [{ kind: 'pullTurn', chat: s.chat, turn: f.turn }] };
+  }
+  const last = lastBlockIter(t);
+  if (f.block.iteration <= last) {
+    return { state: { ...s, seq: f.seq }, effects: [] };       // 已提交/回退 ⇒ 丢弃
+  }
+  if (f.block.iteration > last + 1) {
+    // ⛔ 缺口：中间迭代没提交 ⇒ 拉齐后再说（本块**不入账**）
+    const effects = pullRange(s.chat, f.turn, last + 1, f.block.iteration - 1);
+    return { state: { ...s, seq: f.seq }, effects };
+  }
+  const block = stampBlock(f.block);
+  const turns = new Map<TurnID, TurnRec>(s.turns);
+  turns.set(f.turn, { ...t, blocks: [...t.blocks, block] });
+  const live = liveAt(s, f.turn, block.iteration) !== null ? null : s.live;
+  return { state: { ...s, seq: f.seq, turns, live }, effects: [] };
+}
+
+function onFinal(s: State, f: FinalFrame): StepResult {
+  const t = s.turns.get(f.turn);
+  if (t === undefined) {
+    return { state: { ...s, seq: f.seq }, effects: [{ kind: 'pullTurn', chat: s.chat, turn: f.turn }] };
+  }
+  const effects: Effect[] = [];
+  let blocks: readonly Block[] = t.blocks;
+  if (f.blocks !== undefined) {
+    // 整体替换（服务端权威；可能头部截断）—— 唯一允许的"回填"
+    const stamped: Block[] = [];
+    for (let i = 0; i < f.blocks.length; i++) {
+      stamped.push(stampBlock(f.blocks[i]));
+    }
+    blocks = stamped;
+  } else {
+    // 完备性：`final` 必须覆盖**所有**已开始的迭代（`live` 的那一轮也算已开始）
+    const liveIter = s.live !== null && s.live.turn === f.turn ? s.live.iteration : 0;
+    const last = blocks.length === 0 ? 0 : blocks[blocks.length - 1].iteration;
+    const maxSeen = Math.max(last, liveIter);
+    if (last < maxSeen) {
+      effects.push(...pullRange(s.chat, f.turn, last + 1, maxSeen));
+    }
+  }
+  const turns = new Map<TurnID, TurnRec>(s.turns);
+  turns.set(f.turn, {
+    ...t,
+    blocks,
+    final: { content: f.content, cancelled: f.cancelled },
+    phase: f.phase,
+    streaming: false,
+    droppedBefore: f.droppedBefore !== undefined ? f.droppedBefore : t.droppedBefore,
+  });
+  const live = s.live !== null && s.live.turn === f.turn ? null : s.live;
+  return { state: { ...s, seq: f.seq, turns, live }, effects };
+}
+
+function onSession(s: State, f: SessionFrame): StepResult {
+  const sess = s.sess;
+  const next = {
+    running: f.running !== undefined ? f.running : sess.running,
+    todos: f.todos !== undefined ? f.todos : sess.todos,
+    goal: f.goal === undefined ? sess.goal : (f.goal === null ? { kind: 'cleared' as const } : { kind: 'value' as const, objective: f.goal.objective, status: f.goal.status, summary: f.goal.summary }),
+    queue: f.queue !== undefined ? f.queue : sess.queue,
+  };
+  return { state: { ...s, seq: f.seq, sess: next }, effects: [] };
+}
+
+function onKeepalive(s: State, f: KeepaliveFrame): StepResult {
+  return { state: { ...s, seq: f.seq }, effects: [] };
+}
+
+// ─── 本机意图 ────────────────────────────────────────────────
+
+function onSend(s: State, f: SendIntent, ts: string): StepResult {
+  const row: UserLine = f.row.timestamp !== '' ? f.row : { ...f.row, timestamp: ts };
+  return { state: { ...s, local: { pending: [...s.local.pending, row] } }, effects: [] };
+}
+
+function onAck(s: State, f: AckIntent): StepResult {
+  const pending = s.local.pending.filter((u) => u.requestID !== f.requestID);
+  const local = pending.length === s.local.pending.length ? s.local : { pending };
+  if (f.how === 'delivered' && f.turn !== undefined) {
+    const t = s.turns.get(f.turn);
+    if (t !== undefined) {
+      const bound = s.local.pending.find((u) => u.requestID === f.requestID);
+      if (bound !== undefined) {
+        const turns = new Map<TurnID, TurnRec>(s.turns);
+        turns.set(f.turn, { ...t, user: { ...bound, sending: false, dbID: f.dbID !== undefined ? f.dbID : bound.dbID } });
+        return { state: { ...s, turns, local }, effects: [] };
+      }
+    }
+  }
+  return { state: { ...s, local }, effects: [] };
+}
+
+function onFail(s: State, f: FailIntent): StepResult {
+  const pending = s.local.pending.filter((u) => u.requestID !== f.requestID);
+  return pending.length === s.local.pending.length ? { state: s, effects: [] } : { state: { ...s, local: { pending } }, effects: [] };
+}
+
+// ─── 入口 ────────────────────────────────────────────────────
+
+function isFrame(x: Frame | { kind: string }): x is Frame {
+  const k = (x as { kind: string }).kind;
+  return k === 'open' || k === 'tick' || k === 'done' || k === 'final' || k === 'session' || k === 'keepalive';
+}
+
+/**
+ * 唯一转移函数。
+ * @param ts 本机时间戳（仅 `send` 需要；由调用方提供 ⇒ `step` 保持纯）
+ */
+export function step(s: State, input: Frame | SendIntent | AckIntent | FailIntent | { kind: 'resync' }, ts: string): StepResult {
+  if (isFrame(input)) {
+    const g = envelope(s, input);
+    if (!g.apply) return { state: s, effects: g.effects };
+    switch (input.kind) {
+      case 'open': return onOpen(s, input);
+      case 'tick': return onTick(s, input);
+      case 'done': return onDone(s, input);
+      case 'final': return onFinal(s, input);
+      case 'session': return onSession(s, input);
+      case 'keepalive': return onKeepalive(s, input);
+      default: return { state: s, effects: [] };
+    }
+  }
+  switch (input.kind) {
+    case 'send': return onSend(s, input, ts);
+    case 'ack': return onAck(s, input);
+    case 'fail': return onFail(s, input);
+    case 'resync': return { state: s, effects: [{ kind: 'snapshot', chat: s.chat }] };
+    default: return { state: s, effects: [] };
+  }
+}
+
+/** 应用一批输入（同一批内 effect 去重：同一 (kind,turn,iteration) 只请求一次）。 */
+export function stepAll(s: State, inputs: readonly (Frame | SendIntent | AckIntent | FailIntent | { kind: 'resync' })[], ts: string): StepResult {
+  let cur = s;
+  const seen: Set<string> = new Set<string>();
+  const effects: Effect[] = [];
+  for (let i = 0; i < inputs.length; i++) {
+    const r = step(cur, inputs[i], ts);
+    cur = r.state;
+    for (let k = 0; k < r.effects.length; k++) {
+      const e = r.effects[k];
+      const key = e.kind === 'pullIter' ? `i:${e.turn}:${e.iteration}` : e.kind === 'pullTurn' ? `t:${e.turn}` : 's';
+      if (seen.has(key)) continue;
+      seen.add(key);
+      effects.push(e);
+    }
+  }
+  return { state: cur, effects };
+}
+
+/** 工具状态是否合法迁移（只前进；`generating→pending→running→done|failed`）。 */
+export function isLegalTransition(from: ToolStatus, to: ToolStatus): boolean {
+  const rank: Map<ToolStatus, number> = new Map<ToolStatus, number>([
+    ['generating', 1], ['pending', 2], ['running', 3], ['done', 4], ['failed', 4],
+  ]);
+  return (rank.get(to) as number) >= (rank.get(from) as number);
+}
