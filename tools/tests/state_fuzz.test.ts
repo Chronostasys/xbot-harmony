@@ -373,12 +373,20 @@ class Gen {
 
 // ─── 深比较用的状态投影（Map/数组 → 可 JSON 化的形状）──────────────
 function project(s: ChatState): string {
+  // ⛔ 必须**投影全部会被判据读取的字段**（gates-audit 确证：投影漏投 ⇒ "陈旧帧零写入"
+  //   断言看不到那些字段的变化 ⇒ 白绿）。新增字段时同步加进来。
   const turns: string[] = []
   for (const [k, t] of s.turns) {
-    turns.push(`${k}|${t.user === null ? '-' : t.user.id + ':' + t.user.sending}|${t.phase.kind}`
-      + (t.phase.kind === 'live'
-        ? `|s=${t.phase.data.streaming}|i=${t.phase.data.iter}|c=${t.phase.data.content.length}`
-        : ''))
+    const u = t.user === null
+      ? '-'
+      : `${t.user.id}:${t.user.sending}:${t.user.queued}:${t.user.dbID ?? '-'}:${t.user.content}`
+    turns.push(`${k}|${u}|${t.phase.kind}|${t.requestID ?? '-'}`
+      + (t.phase.kind === 'committed'
+        ? `|c=${t.phase.payload.content}:${t.phase.payload.iterations.length}`
+        : `|s=${t.phase.data.streaming}|i=${t.phase.data.iter}|c=${t.phase.data.content.length}`
+          + `|r=${t.phase.data.reasoning.length}|a=${t.phase.data.activeTools.length}`
+          + `|st=${t.phase.data.streamingTools.length}|ct=${t.phase.data.completedTools.length}`
+          + `|g=${t.phase.data.genui.length}|it=${t.phase.data.iterations.length}`))
   }
   turns.sort()
   return JSON.stringify({
@@ -388,11 +396,13 @@ function project(s: ChatState): string {
     run: s.sessionRunning,
     seq: s.lastSeq,
     turns,
-    pending: s.pendingUsers.map((u) => `${u.id}:${u.sending}`),
-    todos: s.todos.length,
-    goal: s.goal === null ? null : s.goal.objective,
+    pending: s.pendingUsers.map((u) => `${u.id}:${u.sending}:${u.queued}:${u.content}`),
+    todos: s.todos.map((t) => `${t.text}:${t.status}`),
+    goal: s.goal === null ? null : `${s.goal.objective}:${s.goal.status}`,
     legacy: s.legacy.length,
     standalone: s.standalone.length,
+    queue: s.queue.length,
+    resync: s.resync_required === true,
     gap: `${s.gapReloadToken}|${s.unreachableGapSig}|${s.lostIterGapSig}|${s.liveAheadGapSig}`,
   })
 }

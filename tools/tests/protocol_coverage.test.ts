@@ -142,6 +142,16 @@ console.log(`  · DomainEvent 声明 ${declared.length} 种：${declared.join(' 
 console.log(`  · reduce 分支 ${reduceCases.length} 种：${reduceCases.join(' ')}`)
 
 // ── 白绿防线：扫到 0 处必须判红（否则判据空转）──────────────────
+// ⛔ 并且**硬钉声明集**（名字 + 数量）：只判"case 存在"无法发现"声明集漂移"
+//   （gates-audit 确证：事件类型 15→11 也静默）。新增/删除事件必须同时改这里。
+const EXPECTED_TYPES: readonly string[] = [
+  'history_replaced', 'iteration', 'iterations_loaded', 'phase_done', 'queue_state',
+  'session', 'session_fields', 'session_running', 'stream', 'text_final',
+  'turn_started', 'user_ack', 'user_echo', 'user_fail', 'user_sent',
+]
+ok('C0 声明集指纹与台账逐字一致（新增/删除事件必须同步更新判据）',
+  JSON.stringify(declared) === JSON.stringify(EXPECTED_TYPES.slice().sort()),
+  `实测 ${declared.length}：${declared.join(' ')} ｜ 期望 ${EXPECTED_TYPES.length}：${EXPECTED_TYPES.slice().sort().join(' ')}`)
 ok('C0 扫到了事件类型（非空扫描）', declared.length >= 10, `declared=${declared.length}`)
 ok('C0 扫到了 reduce 分支（非空扫描）', reduceCases.length >= 10, `cases=${reduceCases.length}`)
 
