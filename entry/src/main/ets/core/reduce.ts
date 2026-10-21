@@ -1105,7 +1105,10 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       // todos 是会话级状态，不因 turn 缺失而丢弃。
       const target = ev.turnID !== null ? ev.turnID : s.activeTurn
       if (target === null) {
-        return applySessionFields(s, ev.todos, ev.goal)
+        // ⛔ 审计确证（state-gate-8-4）：这条早退此前**绕过**水位闸门 ⇒ 断线回放/迟到帧会把
+        //   todo/goal 打回旧值（一次可见回跳）。与 `phase_done` 的那条早退同源处理。
+        const itStale: boolean = ev.seq !== null && s.lastSeq !== null && ev.seq <= s.lastSeq
+        return itStale ? s : applySessionFields(s, ev.todos, ev.goal)
       }
       if (target !== s.activeTurn) {
         const t0 = s.turns.get(target)
