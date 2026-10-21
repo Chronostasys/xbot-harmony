@@ -1324,6 +1324,14 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       // delta 没有接上已持有窗口（min(delta) > maxHeld+1）⇒ 中间迭代的完成 delta
       // 已在链路上丢失（增量 feed 无人回头补）⇒ 触发会话重载信号；restore 快照自带
       // 的补洞 delta（min = maxHeld+1，区间完整）天然不触发。同洞去重见 helper。
+      // ── 诊断（用户 2026-10-21「漏迭代」）：实时 delta 到底带了什么 ──────────
+      // Δiterations 每条的 (号:工具数) + 本帧工具数组长度 —— 若某个纯工具迭代的
+      // delta 从未出现（或工具数为 0），这里立刻可见。
+      console.info(`[ITER-APPLY] turn=${target} evIter=${ev.iter}`
+        + ` delta=[${ev.iterationsDelta.map((it) => `${it.iteration}:${it.tools.length}`).join(',')}]`
+        + ` carried=${ev.toolsCarried} activeN=${ev.activeTools.length} completedN=${ev.completedTools.length}`
+        + ` heldMax=${prev.iterations.length > 0 ? prev.iterations[prev.iterations.length - 1].iteration : 0}`
+        + ` seq=${ev.seq}`);
       const iterGapSig = lostIterGapSig(
         s,
         target,

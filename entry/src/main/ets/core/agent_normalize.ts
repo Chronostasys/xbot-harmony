@@ -26,6 +26,18 @@ export function normalizeWebIteration(raw: unknown): WebIteration | null {
   const r = raw as Record<string, unknown>
   const rawTools = Array.isArray(r.tools) ? r.tools : Array.isArray(r.completed_tools) ? r.completed_tools : []
   const tools = rawTools.map(normalizeWebTool).filter(Boolean) as WebToolProgress[]
+  // ── 诊断（用户 2026-10-21 亲报「漏迭代」；只打计数，不含正文，低频）──────────
+  // 目的：区分"条目到客户端时就空了"与"到了但渲染被判空"。
+  //   hasToolsField=true 且 toolsFieldLen=0 ⇒ 线上给了**空数组**（会把 completed_tools 回退吞掉）。
+  //   toolsField 缺字段 ⇒ 走 completed_tools 回退（正常路径）。
+  console.info(`[ITER] iter=${typeof r.iteration === 'number' ? r.iteration : -1}`
+    + ` src=history hasToolsField=${Array.isArray(r.tools)}`
+    + ` toolsFieldLen=${Array.isArray(r.tools) ? (r.tools as unknown[]).length : -1}`
+    + ` completedLen=${Array.isArray(r.completed_tools) ? (r.completed_tools as unknown[]).length : -1}`
+    + ` activeLen=${Array.isArray(r.active_tools) ? (r.active_tools as unknown[]).length : -1}`
+    + ` outTools=${tools.length}`
+    + ` contentLen=${typeof r.content === 'string' ? r.content.length : 0}`
+    + ` reasonLen=${typeof r.reasoning === 'string' ? r.reasoning.length : 0}`)
   // Per-iteration LLM metrics. Two sources:
   //  - stream_stats (live progress event): { ttft_ms, tokens_per_sec, total_ms }
   //  - tokens (DB persisted iteration record): per-iteration completion tokens

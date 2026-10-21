@@ -338,6 +338,10 @@ export function inFlightBlock(r: LiveRowView, completed: HistoryIteration[]): Hi
     }
   }
   if (content.length === 0 && reasoning.length === 0 && tools.length === 0) {
+    // ── 诊断（用户 2026-10-21「漏迭代」）：整块空 ⇒ 这里丢弃。若日志出现本行而
+    // 同一 iter 在 [ITER] 里 outTools>0，说明中间某跳把工具弄丢了（问题在合并），
+    // 若 [ITER] 里就是 outTools=0，则问题在线上载荷/回退判据。
+    console.info(`[ITER-DROP] iter=${r.lastIter} content=0 reason=0 tools=0 (block dropped)`);
     return null;
   }
   const out: HistoryIteration = {
