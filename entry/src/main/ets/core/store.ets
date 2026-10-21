@@ -595,6 +595,12 @@ export class ChatStore {
     //   那份保留**全部抹掉**（gap 重载恰好发生在长 turn/切回落后会话时 ⇒ goal 横幅消失、
     //   todo 清空、composer 从 cancel 变 send）。⇒ 删除该行，只用单一出口。
     this.gapReloadSeenToken = this.state.gapReloadToken;
+    // ⛔ 审计确证（state-final-7 #1）：这里**必须**真正丢弃带洞的本地窗口 —— 此前注释声称
+    //   "只用 `resetStateMachine()` 单一出口"，但函数体里**根本没有调用它** ⇒ `history_replaced`
+    //   对本地窗口是 **union** ⇒ 带洞的旧迭代一个都不会被丢 ⇒ 历史依旧停在洞处；且同一缺口
+    //   形状签名不再变化 ⇒ 不会再次触发 ⇒ 只有切会话才能恢复。
+    //   （`resetStateMachine` 内部保留同会话的 running/goal/todos，见其注释。）
+    this.resetStateMachine();
     this.rebuildRows();
     // ② 权威重载（web `reloadChat()`）；失败态由 `loadHistory` 自身三态暴露，不静默吞
     this.loadHistory().catch(() => {
