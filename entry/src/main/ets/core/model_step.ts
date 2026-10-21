@@ -190,11 +190,28 @@ function envelope(s: State, f: Frame, sameEvent: boolean): { apply: boolean; eff
 
 // ─── 构造子 ──────────────────────────────────────────────────
 
+/** 已知最大 turn 号（0 = 无）。**turn 号必须单调递增** —— 逆序的帧一律拒绝。 */
+function maxTurnOf(s: State): TurnID {
+  let m: TurnID = 0;
+  s.turns.forEach((_t: TurnRec, id: TurnID) => { if (id > m) { m = id; } });
+  return m;
+}
+
 function onOpen(s: State, f: OpenFrame): StepResult {
   // ⛔ **turn 号必须合法**：0/负数是"没有归属"的帧（缺 turn_id）。宁可丢帧也不许建 turn 0
   //   —— 否则一串无归属帧会聚成一个幽灵回合，页面看起来就是"上一个 turn 的迭代跑到新 turn"。
   if (f.turn <= 0) {
     return { state: { ...s, seq: seqAfter(s, f) }, effects: [] };
+  }
+  const maxT: TurnID = maxTurnOf(s);
+  if (f.turn < maxT) {
+    // ⛔ **turn 号单调递增**（用户 2026-10-22）：比已知最大值更小的 turn_started 只允许
+    //   是"同一仍在飞回合的重放"；否则就是**旧号复活/逆序**（上一 turn 的内容被重新拉起），
+    //   一收下就会把已渲染内容挪位置。拒绝它，别在渲染层排序掩盖。
+    const curLow: TurnRec | undefined = s.turns.get(f.turn);
+    if (curLow === undefined || curLow.final !== null) {
+      return { state: { ...s, seq: seqAfter(s, f) }, effects: [] };
+    }
   }
   const cur = s.turns.get(f.turn);
   // ⛔ **同一 turn 号已收尾 ⇒ 号码被复用 ⇒ 这是新回合**（用户 2026-10-22：cancel 后重新发消息，
@@ -227,6 +244,7 @@ function onTick(s: State, f: TickFrame): StepResult {
   if (f.turn <= 0) {
     return { state: { ...s, seq: seqAfter(s, f) }, effects: [] };
   }
+  if (f.turn < maxTurnOf(s) && !s.turns.has(f.turn)) { return { state: { ...s, seq: seqAfter(s, f) }, effects: [] }; }
   const t = s.turns.get(f.turn);
   if (t === undefined) {
     // 未知 turn（丢了 open）⇒ 取权威回合，不凭空造。
@@ -299,6 +317,7 @@ function onDone(s: State, f: DoneFrame): StepResult {
   if (f.turn <= 0) {
     return { state: { ...s, seq: seqAfter(s, f) }, effects: [] };
   }
+  if (f.turn < maxTurnOf(s) && !s.turns.has(f.turn)) { return { state: { ...s, seq: seqAfter(s, f) }, effects: [] }; }
   const t = s.turns.get(f.turn);
   if (t === undefined) {
     return { state: { ...s, seq: seqAfter(s, f) }, effects: [{ kind: 'pullTurn', chat: s.chat, turn: f.turn }] };

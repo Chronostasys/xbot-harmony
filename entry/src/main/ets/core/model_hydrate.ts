@@ -247,6 +247,19 @@ export function hydrate(prev: State, messages: readonly WireHistoryMessage[], se
   //   是"这一轮正在跑"的权威快照；不恢复 ⇒ 打字机/工具 pill/迭代进度在打开会话时消失
   //   （真机 `[MODEL-DIFF]` 直接钓出：`live=1→0`、`iter=288→0`）。
   let live: LiveIter | null = prev.live;
+  // ⛔ **turn 一结束，快照必须作废**（用户 2026-10-22 点破的根因：一个 turn 结束了快照没干掉
+  //   ⇒ 上一 turn 的迭代被挂到下一 turn 上，渲染成 `user1 user2 agent2 agent1`）。
+  //   判据只看**回合是否已收尾**（`final !== null`），历史与本地任一处判定收尾即算：
+  //   已收尾的回合不可能再在飞 ⇒ 它带来的 active 快照是**过期货**，绝不能复活成 live。
+  if (live !== null) {
+    const lt = turns.get(live.turn);
+    const lpt = prev.turns.get(live.turn);
+    const liveEnded: boolean = (lt !== undefined && lt.final !== null)
+      || (lt === undefined && lpt !== undefined && lpt.final !== null);
+    if (liveEnded) {
+      live = null;
+    }
+  }
   if (active !== undefined && active !== null) {
     const snap: WireLiveSnapshot = active.snapshot;
     const tools: ToolRec[] = [];
@@ -264,14 +277,22 @@ export function hydrate(prev: State, messages: readonly WireHistoryMessage[], se
     push(snap.streamingTools);
     push(snap.activeTools);
     push(snap.completedTools);
-    live = {
-      turn: active.turnID,
-      iteration: snap.iter,
-      content: snap.content !== undefined ? snap.content : '',
-      reasoning: snap.reasoning !== undefined ? snap.reasoning : '',
-      tools,
-      genui: snap.genui !== undefined ? snap.genui : '',
-    };
+    const at = turns.get(active.turnID);
+    const pat = prev.turns.get(active.turnID);
+    const snapEnded: boolean = (at !== undefined && at.final !== null)
+      || (at === undefined && pat !== undefined && pat.final !== null);
+    if (snapEnded) {
+      // 过期快照：丢弃（turn 已收尾，它不可能还在飞）
+    } else {
+      live = {
+        turn: active.turnID,
+        iteration: snap.iter,
+        content: snap.content !== undefined ? snap.content : '',
+        reasoning: snap.reasoning !== undefined ? snap.reasoning : '',
+        tools,
+        genui: snap.genui !== undefined ? snap.genui : '',
+      };
+    }
   }
   // ⛔ **历史是权威替换**（不是合并）：本函数只负责"这份快照描述的状态"。
   //   「快照是否过时」由**调用方**用单调性判据拒绝（`model_bridge.isStaleSnapshot`：

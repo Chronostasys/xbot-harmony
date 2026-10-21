@@ -185,12 +185,12 @@ export function project(s: State): readonly PRow[] {
   // legacy：DB 历史前缀（只读）
   for (let i = 0; i < s.legacy.length; i++) out.push(legacyRow(s.legacy[i]));
 
-  // turns：Map 插入序在真实事件流里已按 turn 单调；异常时按号排序（O(T log T) 仅此一次）
+  // turns：**严格按插入序**输出（Map 插入序 = turn 号单调 —— 由 `model_step` 在入口保证：
+  //   逆序 turn 一律拒绝）。⛔ 这里**绝不排序**：排序会在渲染层"事后修补"，一旦上游漏收一个
+  //   逆序帧，用户看到的就是**已渲染内容被挪位置**（用户 2026-10-22：「已渲染内容只要不重载
+  //   就不能变」）。有问题就在入口丢帧，不在出口掩盖。
   const ids: TurnID[] = [];
   for (const id of s.turns.keys()) ids.push(id);
-  let ordered = true;
-  for (let i = 1; i < ids.length; i++) if (ids[i] < ids[i - 1]) ordered = false;
-  if (!ordered) ids.sort((a, b) => a - b);
 
   for (let i = 0; i < ids.length; i++) {
     const t = s.turns.get(ids[i]) as TurnRec;
