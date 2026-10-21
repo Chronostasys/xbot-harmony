@@ -2110,7 +2110,14 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       //     · **无 live turn**（idle/刚打开会话）⇒ 快照即权威 ⇒ **明确携带就以它为准**
       //       （`[]` = 服务端清空，`todosAuthoritative !== false`）；**未携带**才保留本地。
       // ⛔ 确证-1：用"真在飞"（live && streaming），不是 `activeTurn === null`。
-      const snapshotIsAuthoritative: boolean = !liveRunningIn(s) && ev.todosAuthoritative !== false
+      // ⛔ 审计确证（state-final-5 F5）：这里必须用**本次合并后**的 `activeTurn`/`turns`
+      //   （`ev.active` 可能在本帧新建一个 live turn），而不是旧的 `s` —— 否则"先订阅后拉历史"
+      //   （`store.ets` 的顺序）会让**旧 HTTP 快照覆盖刚到的 SSE 新值**（切回运行中会话时
+      //   goal/todos 闪一下旧值再跳回）。
+      const mergedLive = activeTurn !== null ? turns.get(activeTurn) : undefined
+      const mergedRunning: boolean = mergedLive !== undefined && mergedLive.phase.kind === 'live'
+        && mergedLive.phase.data.streaming === true
+      const snapshotIsAuthoritative: boolean = !mergedRunning && ev.todosAuthoritative !== false
       const todos = snapshotIsAuthoritative ? ev.todos : s.todos
 
       // 幂等回放短路：逐项恒等（turns 每个 Turn 对象 / legacy / pendingUsers 元素
@@ -2171,11 +2178,15 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       // 占位符承担（MessageList 的 tailShowsIndicator）。
       return {
         chatID: s.chatID, turns, legacy, activeTurn, lastSeq,
-        busy: authoritativeRunning ? s.busy : false,
+        // ⛔ 审计确证（F6）：`busy` 与 `sessionRunning` 是**同一事实**的两个字段，旧实现
+        //   在 `authoritativeRunning=false` 时把 busy 写 false、却把 sessionRunning 写成
+        //   `s.sessionRunning || authoritativeRunning`（可能 true）⇒ 造出 `busy=false ∧ running=true`
+        //   ⇒ 之后权威 busy 事件被幂等键（用 sessionRunning）吞掉。两者必须同值。
+        busy: s.sessionRunning || authoritativeRunning,
         pendingUsers, queue: s.queue, todos,
         // goal 同一条"快照可能比本地旧"判据：无 live turn 时才采信快照的三态
         // （undefined = 未携带/保留；null = 显式清除；对象 = 覆盖）。
-        goal: (!liveRunningIn(s) && ev.goal !== undefined) ? ev.goal : s.goal,
+        goal: (!mergedRunning && ev.goal !== undefined) ? ev.goal : s.goal,
         // ⛔ 用户 2026-10-21 规则（原话）：「busy 变 IDLE 必须是**收到了一个没有 toolcall 的
         //   迭代**，或者**后端告诉你它 idle**；别的任何情况都不能让 busy 变 IDLE」。
         //   历史快照是"某一刻的 DB 视图"，**滞后**于 SSE（turn 正在跑时 DB 还没有 assistant 行）
