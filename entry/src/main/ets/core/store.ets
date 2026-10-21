@@ -27,7 +27,8 @@ import { adapt } from './model_adapter';
 import { stepAll } from './model_step';
 import { emptyState } from './model_types';
 import type { State as ModelState } from './model_types';
-import { project as projectModel, allToolCalls } from './model_project';
+import { allToolCalls } from './model_project';
+import { applyModel } from './model_bridge';
 import { invariantViolations } from './state_invariants';
 import { setDiagSink } from './diag';
 import { liveRunningIn, withSessionRunning } from './chat_types_full';
@@ -947,6 +948,7 @@ export class ChatStore {
     }
     if (this.shadow.chat !== this.currentChatId) {
       this.shadow = emptyState(this.currentChatId, 1, 0);
+      this.shadowRows = new Map<string, ChatRow>();
     }
     const inputs = adapt(ev as never, this.currentChatId, this.shadow.epoch);
     const res = stepAll(this.shadow, inputs as never, new Date().toISOString());
@@ -985,8 +987,8 @@ export class ChatStore {
     const toolCountNew: number = allToolCalls(this.shadow).length;
     if (oldBlocks !== newBlocks || liveOld !== liveNew || liveIterOld !== liveIterNew) {
       this.shadowDiff++;
-      // 投影一次（验证 project 可用；只在差异时做，避免每帧开销）
-      const rows = projectModel(this.shadow);
+      // 投影一次（同时验证 ArkTS 桥接可用；只在差异时做，避免每帧开销）
+      const rows = applyModel(this.shadow, this.shadowRows);
       log('model', `DIFF#${this.shadowDiff} ev=${ev.type} blocks=${oldBlocks}->${newBlocks}`
         + ` live=${liveOld}->${liveNew} iter=${liveIterOld}->${liveIterNew}`
         + ` tools=${toolCountNew} rows=${rows.length}`);
@@ -1191,6 +1193,8 @@ export class ChatStore {
   /** 变更通知（页面接到 @State 上） */
   /** 新模型影子状态（每 chat 代数重开；⛔ 只读比对，不驱动 UI）。 */
   private shadow: ModelState = emptyState('', 1, 0);
+  /** 影子行的复用缓存（身份稳定；只在 DIFF 时投影一次，成本可忽略）。 */
+  private shadowRows: Map<string, ChatRow> = new Map<string, ChatRow>();
   private shadowDiff: number = 0;
 
   onUpdate: () => void = () => {
@@ -1886,6 +1890,7 @@ export class ChatStore {
     //   旧值（切会话瞬间按钮/进度错乱），且旧会话的迟到事件会落进"新会话身份"。            
     this.state = initialChatState(chatId);
     this.shadow = emptyState(chatId, 1, 0);
+    this.shadowRows = new Map<string, ChatRow>();
     this.gapReloadSeenKey = '';
     this.gapReloadSeenToken = 0;
     // 上一会话的 SSE 意图窗口不属于新会话：不清会让 `runningAfterReconcile` 把
