@@ -80,8 +80,13 @@ async function main(): Promise<void> {
   // 此时 sendIntentActive=true，旧守卫的 `sendIntentActive()` 豁免会吞掉 resync。
   const queuedBase = historyPosts;
   await store.send('排队消息');
-  await new Promise<void>((resolve) => { setTimeout(resolve, 30); });
-  ok('⛔ 已 finalizer + 排队发送 + 无 live turn ⇒ 必须 resync', historyPosts > queuedBase);
+  // ⛔ 判据修正（2026-10-21）：用户刚发消息的**意图窗口内**没有 live turn 是**正常**的
+  //   （在等 turn_started；此窗口内触发对账正是 busy/idle 每 2s 抽搐的根因，见 store 的内联
+  //   注释与 P0 记录）。真实保证是：ack 之后**必定**排一次权威 resync（send-ack-sync，3s）。
+  //   ⇒ 判据等这个排程完成，而不是要求"30ms 内立刻重载"（那会与意图窗豁免互相矛盾）。
+  await new Promise<void>((resolve) => { setTimeout(resolve, 3300); });
+  ok('⛔ 已 finalizer + 排队发送 + 无 live turn ⇒ 必须 resync（ack-sync 排程内）',
+    historyPosts > queuedBase);
 
   // 模拟服务端还报 running（用户看到 busy），而 turn 已 committed。
   // 这是“迟到的 text_final / 已提交 turn 重放”会留下的不一致状态。
