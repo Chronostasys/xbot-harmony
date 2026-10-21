@@ -2593,13 +2593,15 @@ struct Index {
     const structFp: string = store.busy ? '' : structRowsFpOf(store.rows, store.currentChatId);
     this.structFp = structFp;   // 供 `navAnchors()` 结构记忆化（见字段注释）
     if (contentGrew) {
-      if (!this.busy) {
+      // ⛔ 审计确证（fe-render-1 #2）：本函数其余 3 处都用 `store.busy`，这里却用页面缓存
+      //   `this.busy`（要到函数末尾才刷新 ⇒ 回合起止帧用的是**上一帧的值**）⇒ 统一真源。
+      if (!store.busy) {
         this.rowsFp = rowsFp;
       }
       // ⛔ 2026-10-15 streaming 掉帧修复：busy 时跳过 O(n) slice——
       //   syncRowDs 在 busy 时跳过 applyRows ⇒ 不需要 @State 变化触发 LazyForEach 重建。
       //   直接用 store.rows 引用（syncRowDs 只读 liveRowRef，不依赖 @State 变化）。
-      this.rows = this.busy ? store.rows : store.rows.slice();
+      this.rows = store.busy ? store.rows : store.rows.slice();
       // 用户在阅读历史时保持视口不变——内容增长不应把用户拽回底部。
       // syncRowDs → applyRows → LazyForEach onDataReloaded 可能导致 List 自动跟随，
       // 需要主动 scrollTo 保持用户视口（web DOM scroll 不会因底部增长而自动滚动）。

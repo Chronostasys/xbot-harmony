@@ -160,6 +160,12 @@ export struct LiveTailView {
   private runes: string[] = [];
   private reasonRunes: string[] = [];
   private timer: number = -1;
+  // ⛔ 审计确证（fe-render-1 #1）：`shownText()` 的"安全回退"判据必须是
+  //   **"打字机从未启动过"**，不能是 **"此刻没有定时器"** —— 暂停（滚动/浮层/后台）此前会
+  //   stopTimer ⇒ 回退分支立刻把正文换成**全文**（行高跳涨）⇒ 恢复后 vis 仍是旧值
+  //   ⇒ 正文又**缩回去重打**。这就是用户亲报的「滚动时高度不断抖动」。
+  private startedText: boolean = false;
+  private startedReason: boolean = false;
   private skip: boolean = false;
   private advanceTick: number = 0;
   /** 最近一次 tick 的时间；用于识别"定时器被系统冻结后，新迭代来了却仍沿用旧 timer"。 */
@@ -406,8 +412,21 @@ return renderKind(t.status, t.exit_code, true);
     //   直接显示全文 ⇒ **没有打字机特效**（真机症状，2026-10-10）。只有"追赶未完成"决定开关。
     const over: boolean = this.runes.length > LT_TYPEWRITER_MAX_RUNES
       || this.reasonRunes.length > LT_TYPEWRITER_MAX_RUNES;
-    const on: boolean = !tailIsPaused() && !over && (this.typingText() || this.typingReason());
+    // ⛔ 不再把 `tailIsPaused()` 写进开关（fe-render-1 #1）：暂停的语义是"不推进"，
+    //   由 `tick()` 早退表达即可；停表会让 `shownText()` 回退到全文 ⇒ 行高跳涨再回退。
+    if (over) {
+      // 超长文本放弃打字机（直接全文）：此时必须让回退分支生效，否则会卡在 vis 处截断。
+      this.startedText = false;
+      this.startedReason = false;
+    }
+    const on: boolean = !over && (this.typingText() || this.typingReason());
     if (on && this.timer < 0) {
+      if (this.typingText()) {
+        this.startedText = true;
+      }
+      if (this.typingReason()) {
+        this.startedReason = true;
+      }
       this.timer = setInterval(() => {
         this.tick();
       }, 50);
@@ -469,14 +488,14 @@ return renderKind(t.status, t.exit_code, true);
 
   /** 可见正文（安全回退：定时器未跑 ⇒ 全文，绝不让内容不可见）。 */
   private shownText(): string {
-    if (this.timer < 0 || this.vis >= this.runes.length) {
+    if (!this.startedText || this.vis >= this.runes.length) {
       return this.text;
     }
     return clipRunes(this.text, this.vis);
   }
 
   private shownReason(): string {
-    if (this.timer < 0 || this.visReason >= this.reasonRunes.length) {
+    if (!this.startedReason || this.visReason >= this.reasonRunes.length) {
       return this.reasoning;
     }
     return clipRunes(this.reasoning, this.visReason);
