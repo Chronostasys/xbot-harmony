@@ -300,28 +300,8 @@ function iterFieldOf(iters: readonly WebIteration[], iter: number, wantReasoning
 }
 
 /**
- * 「回合**真在飞**」的判据 = `activeTurn` 指向一个 **live 且 streaming** 的 turn。
- *
- * ⛔ 审计确证（state-final-1 确证-1）：权威 idle（`session(idle)` / `session_idle` /
- *   `session_running(false)`）**有意保留 `activeTurn`**（只把 `streaming` 置 false）。
- *   因此"`activeTurn === null`"**不等价于**"没在飞" —— 用它做"本地是否更新"的仲裁，
- *   会在"回合已停但指针仍在"时**永久拒绝**权威快照里的 todos/goal（另一台设备改的永远看不到）。
- *   与 `store.hasLiveTurn()` 同一判据，两处必须同源。
- */
-function liveRunningIn(s: ChatState): boolean {
-  if (s.activeTurn === null) {
-    return false
-  }
-  const t = s.turns.get(s.activeTurn)
-  return t !== undefined && t.phase.kind === 'live' && t.phase.data.streaming === true
-}
-
-/**
- * todos 的**结构等价比**（长度 + 每项 text/status）。
- *
- * ⛔ 审计确证（state-check-5 C2）：`history_replaced` 的幂等短路用 `sameItems`（逐元素**引用**），
- *   而 `integrate.historyToReplaced` 每次快照都 `.map(...)` 新建对象 ⇒ 短路几乎恒不成立
- *   ⇒ 内容没变也返回新 state ⇒ 整表行重建（"每发一条消息/每次 ack 抖一下"）。
+ * todos 的**结构等价比**（长度 + 每项 text/status）—— 用于 `history_replaced` 的幂等短路。
+ * ⛔ 快照每帧都 `.map(...)` 新建对象 ⇒ 引用比较恒不成立 ⇒ 会白重建整表（"每次 ack 抖一下"）。
  */
 function sameTodos(a: readonly TodoItem[], b: readonly TodoItem[]): boolean {
   if (a === b) return true

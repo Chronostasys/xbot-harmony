@@ -245,6 +245,22 @@ export interface LegacyRow {
  *   finalizedTurnIDRef，共 70 处引用）。
  */
 /** 只改 running 的状态拷贝（.ets 里禁 spread，这里用 .ts 提供唯一出口）。 */
+/**
+ * 「回合**真在飞**」= `activeTurn` 指向 **live 且 streaming** 的 turn。
+ *
+ * ⛔ 审计反复确证（2026-10-21）：同一判据曾在三处各写一份（`reduce.liveRunningIn` 有 streaming、
+ *   `history_replaced` 的局部 `hasLiveTurn` **漏 streaming**、`store.hasLiveTurn` 有 streaming）
+ *   ⇒ 漏的那份会让"权威 idle 已停流但保留 activeTurn"被当成"仍在跑" ⇒ 幽灵 busy / 快照永不采信。
+ *   ⇒ 唯一实现放这里（纯 TS，reduce/store 共用）。
+ */
+export function liveRunningIn(s: ChatState): boolean {
+  if (s.activeTurn === null) {
+    return false
+  }
+  const t = s.turns.get(s.activeTurn)
+  return t !== undefined && t.phase.kind === 'live' && t.phase.data.streaming === true
+}
+
 export function withSessionRunning(s: ChatState, running: boolean): ChatState {
   return { ...s, sessionRunning: running }
 }

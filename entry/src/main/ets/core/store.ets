@@ -19,7 +19,7 @@ import { arrOrEmpty, isPresent } from './guards';
 import { ChatState, DomainEvent, EventSeq, initialChatState, iterNum, NonEmptyS, nonEmptyStr, turnID, TurnID, UserRow } from './chat_types_full';
 import { demoAnswerFor, demoFirstIteration, demoReasoningFor, demoSeedPrompt, demoSessions, demoToolFor } from './demo';
 import { reduce, applySessionFields } from './reduce';
-import { withSessionRunning } from './chat_types_full';
+import { liveRunningIn, withSessionRunning } from './chat_types_full';
 import type { GoalInfo as ChatGoalInfo, TodoItem as ChatTodoItem } from './chattypes';
 import { deriveRows, Row } from './derive';
 import { extractEventChatID, normalizeEvent } from './normalize';
@@ -525,8 +525,8 @@ export class ChatStore {
   hasLiveTurn(): boolean {
     // ⛔ 审计：与 `watchBusyWithoutLiveTurn` 的判据统一 —— 「live 但已停流」
     //   （粗粒度 idle 只停流、保留 activeTurn）**不算**在飞，否则页面会一直画「思考中…」。
-    const t = this.state.activeTurn !== null ? this.state.turns.get(this.state.activeTurn) : undefined;
-    return t !== undefined && t.phase.kind === 'live' && t.phase.data.streaming === true;
+    // ⛔ 唯一实现（与 reduce 同源）：见 `chat_types_full.liveRunningIn` 的注释。
+    return liveRunningIn(this.state);
   }
 
   /** 当前是否有尚未被 ack/turn_started 确认的乐观 user 行（发送中）。 */
