@@ -100,7 +100,7 @@ it('REPRO 2026-10-18：ack 永不到时 turn_started 绑定 pending user 必须�
   expect(s.pendingUsers.length, 'pending 必须被收编').toBe(0)
 })
 
-it('REPRO 2026-10-18：turn 结束（text_final/idle）也必须清掉残留 sending', () => {
+it('REPRO 2026-10-21（用户拍板）：POST 成功 = 送达 ⇒ 只有 ack/回合生命周期能结算 sending', () => {
   const sent = reduce(initialChatState('chat-1'), {
     type: 'user_sent',
     row: {
@@ -109,14 +109,20 @@ it('REPRO 2026-10-18：turn 结束（text_final/idle）也必须清掉残留 sen
       requestID: 'req-send-2', turnHint: undefined, dbID: undefined,
     },
   })
-  // 没有 turn_started，直接收到回合结束/权威 idle（真实弱网路径）。
-  // ⛔ 2026-10-21：这里原本用 `session_idle`，该类型已删除（零生产者 + 违反
-  //   「粗粒度 idle 不是送达证据」契约）。真正带送达语义的权威信号是
-  //   `session_running(false)`（store 的对账/乐观状态，实际会发）。
-  const s = reduce(sent, { type: 'session_running', running: false })
-  const userRow = deriveRows(s).find((r) => r.kind === 'user')
-  expect(userRow !== undefined && userRow.kind === 'user' ? userRow.sending : true,
-    '回合结束是送达证据 ⇒ 不得永久发送中').toBe(false)
+  // ⛔ 契约（用户 2026-10-21 拍板）：「只要发送请求成功了、没报错，就应该认为发送成功了」
+  //   ⇒ **送达证据只来自 POST 的 2xx 回执（`user_ack`）与回合生命周期**（turn_started /
+  //   text_final）。`session_running` 是**客户端本地合成**的状态（后端从不发它），
+  //   既不能证明"这条消息已送达"，在 POST 在飞时用它结算还会让失败后 `user_fail` 删行
+  //   ⇒ 消息静默消失。⇒ 单独一条 `session_running(false)` **不得**结算 sending。
+  const afterRunning = reduce(sent, { type: 'session_running', running: false })
+  const stillSending = deriveRows(afterRunning).find((r) => r.kind === 'user')
+  expect(stillSending !== undefined && stillSending.kind === 'user' ? stillSending.sending : false,
+    '`session_running` 不是送达证据 ⇒ 不得把在途气泡标成已发送').toBe(true)
+  // POST 2xx 回执（ack）⇒ 立刻结算。
+  const afterAck = reduce(afterRunning, { type: 'user_ack', requestID: 'req-send-2', dbID: 1 })
+  const settled = deriveRows(afterAck).find((r) => r.kind === 'user')
+  expect(settled !== undefined && settled.kind === 'user' ? settled.sending : true,
+    'POST 成功（ack）即送达 ⇒ 立刻不再显示发送中').toBe(false)
 })
 
 it('REPRO: !cmd 完整时序（ack 无 turn_id + 历史刷新）不得让 user 行/回复消失', () => {

@@ -3208,8 +3208,15 @@ export class ChatStore {
         { type: 'session', busy: false, turnID: cancelTurn !== null ? cancelTurn : undefined },
       ]);
     } finally {
-      this.cancelling = false;
-      this.cancelInFlight = null;
+      // ⛔ 2026-10-21（state-gate-11-7 确证）：`finally` 必须带身份 —— 旧实现无条件
+      //   `cancelling=false; cancelInFlight=null`，而 `beginSwitch` 已把三元组清空并交给
+      //   新会话 ⇒ A 的迟到 finally 会清掉 **B** 的取消态：B 的停止按钮 spinner 提前熄灭
+      //   （请求仍在飞），且 `cancelInFlightHere()` 变 false ⇒ B 迟到的 ack 又把
+      //   `session_running(true)` 推上去（busy 回弹）。⇒ 只在"仍是同一会话同一代"时收尾。
+      if (genAt === this.chatGen && chatAt === this.currentChatId) {
+        this.cancelling = false;
+        this.cancelInFlight = null;
+      }
       this.onUpdate();
     }
   }

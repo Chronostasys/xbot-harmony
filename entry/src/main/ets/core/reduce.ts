@@ -744,8 +744,14 @@ function settleSendingInvariant(s: ChatState, ev: DomainEvent): ChatState {
   //   （随后 POST 失败 ⇒ `user_fail` 删行 ⇒ **消息凭空消失**）。
   //   ⇒ 证据集只保留回合生命周期与 ack：`turn_started` / `text_final` / `user_ack` /
   //   `session_running`（权威 busy 状态机信号）。卡住的 sending 由 store 的意图窗 + 超时兜。
+  // ⛔ 2026-10-21（用户拍板）：「只要发送请求成功了、没报错，就应该认为发送成功了」
+  //   ⇒ **POST 的 2xx 回执本身就是送达证据**（store 在 ack 处推 `user_ack`，按 requestID
+  //     精确结算那一条）。这里只保留**回合生命周期**证据：`turn_started` / `text_final`。
+  //   `session_running` 被移出：它**后端从不发**，全是客户端本地合成（PhaseDone 判定/
+  //   探针/取消/乐观置位）⇒ 用它当"送达证据"等于让客户端自证（既可能提前显示已发送、也可能
+  //   在 POST 在飞时误清 ⇒ 失败后 `user_fail` 删行 = 消息静默消失）。
   const sendingSettleEvidence: boolean = ev.type === 'turn_started' || ev.type === 'text_final'
-    || ev.type === 'user_ack' || ev.type === 'session_running';
+    || ev.type === 'user_ack';
   if (!s.sessionRunning && sendingSettleEvidence) {
     let anyPendingSending: boolean = false;
     for (let i = 0; i < pendingUsers.length; i++) {
@@ -763,98 +769,22 @@ function settleSendingInvariant(s: ChatState, ev: DomainEvent): ChatState {
 }
 
 /**
- * 事件自带的**水位**（`lastSeq` 闸门的输入）。只有增量帧带 seq；粗粒度权威帧
- * （`session`/`session_idle`/`session_running`）与终局帧（`text_final`）按契约不带
- * ⇒ 它们**不受**水位闸门约束（"陈旧"对它们无定义）。
- */
-function eventSeqOf(ev: DomainEvent): number | null {
-  switch (ev.type) {
-    case 'iteration':
-      return ev.seq
-    case 'stream':
-      return ev.seq
-    case 'phase_done':
-      return ev.seq
-    case 'session_fields':
-      return ev.seq === undefined ? null : ev.seq
-    default:
-      return null
-  }
-}
-
-/**
- * 事件声明的**归属轮次**（`iteration`/`stream`/`phase_done` 带 turnID；其余为 null）。
- * 水位是 **per-run** 的（`turn_started` / lazy 采纳都把 `lastSeq` 重置为 null —— 见
- * `chat_types_full.ts` I5 注释）⇒ 跨轮比较 seq 是**无意义**的，必须带上归属轮次一起判。
- */
-function eventTurnOf(ev: DomainEvent): number | null {
-  switch (ev.type) {
-    case 'iteration':
-      return ev.turnID
-    case 'stream':
-      return ev.turnID
-    case 'phase_done':
-      return ev.turnID
-    default:
-      return null
-  }
-}
-
-/**
- * **水位闸门（唯一陈旧判据）**：带 seq 的帧若 `seq ≤ 已应用水位` ⇒ 整帧零写入。
+ * **陈旧判据只在 case 内**（web 权威：`web/src/chat/reduce.ts` 的 `stream` 根本不做 seq 门，
+ * `iteration`/`phase_done` 用 `isStaleSeq(...)` 且带"迭代号前进 ⇒ 不是重放"的逃生舱）。
  *
- * ⛔ 为什么必须在**入口统一**判，而不是每个 case 自己判（前八轮反复踩的同一坑）：
- *   `iteration` / `stream` / `phase_done` / `session_fields` 各自有一份 `xxxStale`
- *   局部变量，规则一样却各写一遍 ⇒ 每新增一条路径就多一个漏点（第 8 轮就抓到
- *   `phase_done` 的两条早退分支"不过水位闸门就写 todos/goal"）。本函数是**一条规则**，
- *   新增事件类型只要在 `eventSeqOf` 里登记就自动受保护。
- *
- * ⛔ 闸门必须**带轮次**（实测踩中）：`lastSeq` 是 per-run（每个 turn 从 1 重新计数），
- *   而它跨轮残留 —— 第一版比较"全局 seq ≤ 全局水位"，把**新一轮的第一帧**（seq=10 对
- *   上一轮的 10）判成陈旧整帧丢弃 ⇒ 断连双丢（turn_started+echo 全丢）后的 lazy 采纳
- *   永远建立不起 live turn（`reduce.test.ts:834` 直接红）。
- *   ⇒ 规则：目标轮 ≠ 当前轮 ⇒ **不是同一个 run**，水位不可比（目标更旧才判陈旧）；
- *   目标轮为空且当前无活动轮 ⇒ 也不可比（水位属于已收尾的那轮）。
- *
- * 语义依据：`stream` 的 content 是**覆盖语义的前缀**，应用一条更旧的帧 = 正文倒退。
- *   "重放帧只更新内容"是 web 的旧行为，但它与"陈旧帧零写入"直接冲突，且实测会造成
- *   文字回跳（`state_fuzz` seed=40150：seq=37 的陈旧 stream 把 c=0 写成 c=5 再被覆盖）。
+ * ⛔ 2026-10-21 结构性回退（state-gate-11-9 / 11-8 确证）：我曾把陈旧判据提到 `reduce()`
+ *   **入口**整帧丢弃，结果制造了两个真问题：
+ *   ① 入口只看 `seq ≤ lastSeq`，使 case 内 `isStaleSeq` 的**逃生舱永不可达** ⇒ 同一 turn
+ *      换 Run（熄屏恢复/服务端重启 resume，seq 重新计数）时新一轮帧被整批吞掉 ⇒
+ *      新迭代不出现、live 不前进、历史卡死；
+ *   ② 服务端"新内容旧水位"的帧（心跳/重连快照复用 `lastProgressSnapshot.Seq`，内容由
+ *      `mergeStreamState` 更新）会被判陈旧丢弃 ⇒ 流式卡死，且心跳恰恰救不回来。
+ *   ⇒ 回到 web 语义：**内容帧按迭代号判陈旧（有逃生舱）**，会话级字段各自带水位闸门
+ *      （`phase_done` 的 `pdStale`、`session_fields` 的 `sfSeq`），水位只由 `advanceSeq` 推进。
  */
-function isStaleBySeq(s: ChatState, ev: DomainEvent): boolean {
-  const seq: number | null = eventSeqOf(ev)
-  if (seq === null || s.lastSeq === null) {
-    return false
-  }
-  const tgt: number | null = eventTurnOf(ev)
-  if (tgt !== null) {
-    // ⛔ 回合进行中：目标轮 ≠ 当前轮 ⇒ 不是同一个 run（更旧才判陈旧，更新则放行并重置水位）。
-    if (s.activeTurn !== null) {
-      if (tgt !== s.activeTurn) {
-        return tgt < s.activeTurn
-      }
-    } else {
-      // 没有活动轮次（回合刚收尾 / 权威 idle 只清了 streaming）：水位仍残留上一轮。
-      //   · 目标轮**更旧** ⇒ 回放/补发帧（后端每帧必带会话级字段）⇒ 陈旧，零写入；
-      //   · 目标轮**更新** ⇒ 这是**新一轮**（lazy 采纳，`turn_started` 丢了）⇒ per-run seq
-      //     重置 ⇒ 不可比，放行（`lazyAdoptLive` 会把水位清 null）。
-      const lastTurn: number = lastTurnIDOf(s)
-      if (tgt < lastTurn) {
-        return true
-      }
-      if (tgt > lastTurn) {
-        return false
-      }
-    }
-  }
-  return seq <= s.lastSeq
-}
 
 /** 状态机入口（web `reduce` 的逐字移植 + 出口不变量收敛，见 `settleSendingInvariant`）。 */
 export function reduce(s: ChatState, ev: DomainEvent): ChatState {
-  // ── 入口闸门：陈旧帧**逐字段零写入**（返回入参原引用 ⇒ 零渲染）──────────────
-  if (isStaleBySeq(s, ev)) {
-    return s
-  }
   // ⛔ 审计确证（state-final-8 C1）：顺序必须**先补 running 再结算 sending** ——
   //   `settleSendingInvariant` 的第②条只看 `sessionRunning`；而 `stream` 帧只把 streaming 置回
   //   true、不碰 sessionRunning，后者要等出口的 `satisfyRunningInvariant` 才补。
@@ -1496,6 +1426,11 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
         // 只有**新鲜**帧才是活动证据；重放帧只更新内容，不得复活 streaming（否则 busy 抽搐）。
         streaming: freshFrame ? true : prev.streaming,
         iter: advanced ? ev.iteration : prev.iter,
+        // ⛔ 2026-10-21（我自己的回归，已回退）：我曾把这里改成"只许变长"以防正文回跳，
+        //   但长度不是新鲜度 —— hydration/重连后的流式内容**可以更短**
+        //   （`reduce.test.ts` 的「history_replaced hydration」用例直接红）。
+        //   ⇒ 恢复 web 的覆盖语义（新鲜度只能由 **seq** 判，而 seq 的可靠性要服务端保证
+        //   「每帧新盖 seq」；见 docs/STATE-AUDIT.md 的"服务端 seq 契约"）。
         content: advanced ? (ev.content ?? '') : (ev.content !== undefined ? ev.content : prev.content),
         reasoning: advanced ? (ev.reasoning ?? '') : (ev.reasoning !== undefined ? ev.reasoning : prev.reasoning),
         // 工具去重（同名双渲染根治）：streamingTools 是流式检测中的工具
@@ -1607,7 +1542,12 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       //   发下一条消息后上一回合的最后迭代/最后回复消失（= web 2026-09-16 P0 原形）。
       //   ⇒ 单调门**只作用于结算**（settle 是"用户回合终态"的副作用，必须新鲜），
       //     提交/并入逻辑逐字照 web，不设门。
-      const freshFinalizer: boolean = ev.turnID === null || ev.turnID >= lastTurnIDOf(s)
+      // ⛔ 2026-10-21（state-gate-11-8 确证）：结算门必须是**严格更新**（`>`）——
+      //   回放/重放的**上一轮** `text_final`（turnID == 当前最大 turn）用 `>=` 会被判"新鲜"
+      //   ⇒ `settlePendingSending` 把刚发出、仍在 POST 途中的气泡标成"已发送"
+      //   （POST 失败后 `user_fail` 删行 = 消息静默消失）。`text_final` 无 seq，入口没有
+      //   水位可依 ⇒ 这一条是它唯一的重放防线。
+      const freshFinalizer: boolean = ev.turnID === null || ev.turnID > lastTurnIDOf(s)
       // ⛔ 2026-10-21（state-gate-9-5 确证）：结算必须放在**命令回复早退之后** ——
       //   `!cmd`/slash 的命令回复不是"用户回合收尾"（后端命令分发不分配 turn、
       //   与在途 POST 无关），旧顺序会在命令输出到达的瞬间把**仍在 POST 途中**的

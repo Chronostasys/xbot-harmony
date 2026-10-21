@@ -373,7 +373,7 @@ export struct MessageRowView {
             // B6：复制反馈落点**透传**页面品牌 toast（与 live 侧、LiveTailView 同一落点）。
             onToast: this.onToast,
             fontScale: this.fsNow(),
-            wrapCode: this.wrapCodeV,
+            wrapCode: this.wrapNow(),
             theme: this.themeId(),
             mdTheme: this.mdTheme,
           })
@@ -488,7 +488,7 @@ export struct MessageRowView {
         paused: this.paused,
         theme: this.themeId(),
         fontScale: this.fsNow(),
-        wrapCode: this.wrapCodeV,
+        wrapCode: this.wrapNow(),
         orb: this.orb,
         // live 在飞迭代的归属（与 committed 侧同构 ⇒ `reasoningKey(turnID, iteration)` 同键）。
         turnID: this.row.turnID,

@@ -137,42 +137,55 @@ class Gen {
     const staleSeq: number = Math.max(1, (lastSeq === null ? 1 : lastSeq) - 1 - this.rng.int(5))
     switch (this.rng.int(5)) {
       case 0:
-        this.trace.push('stale iteration')
+        // 陈旧帧**不得携带新信息**（新 delta / 新 todos / 迭代号前进都会被"不是重放"放行 ——
+        // 那是 web 的正当语义；把它们放进"零写入"家族 = 判据自己错）。
+        this.trace.push('stale iteration(no info)')
         return {
           type: 'iteration',
           turnID: active === null ? null : turnID(active),
-          iter: iterNum(Math.max(1, this.nextIter - 1)),
+          iter: iterNum(1),
           seq: eventSeq(staleSeq),
-          content: 'STALE',
+          content: undefined,
           reasoning: undefined,
           activeTools: [],
           completedTools: [],
-          iterationsDelta: [this.iterObj(1)],
-          todos: [{ id: 'x', text: 'STALE', done: false } as never],
+          iterationsDelta: [],
+          todos: undefined,
           subAgents: undefined,
           tokenUsage: undefined,
           streamStats: undefined,
         }
       case 1:
-        this.trace.push('stale stream')
+        // ⛔ `stream` **不在**"零写入"断言范围内（web 权威：`stream` 不做 seq 门 —— 它必须
+        //   能应用"新内容 + 旧水位"的心跳/重连快照，否则流式卡死）。它的正确判据是
+        //   **正文只许变长**（见下面的 monotonic stream 用例）。
+        //   这里改成一条"无新信息的 iteration"（旧迭代号 + 无 delta）—— 它必须零写入。
+        this.trace.push('stale iteration(no info)')
         return {
-          type: 'stream',
+          type: 'iteration',
           turnID: active === null ? null : turnID(active),
+          iter: iterNum(1),
           seq: eventSeq(staleSeq),
-          iteration: iterNum(Math.max(1, this.nextIter - 1)),
-          content: 'STALE',
+          content: undefined,
           reasoning: undefined,
-          streamingTools: [],
-          genui: undefined,
+          activeTools: [],
+          completedTools: [],
+          iterationsDelta: [],
+          todos: undefined,
+          subAgents: undefined,
+          tokenUsage: undefined,
           streamStats: undefined,
         }
       case 2:
+        // 陈旧帧**不得携带新信息**（否则按 web 语义它就不是重放，写是合法的 ——
+        // 我第一版这里给了 `finalIteration`，被 `isStaleSeq` 的"新迭代号逃生舱"放行，
+        // 于是"零写入"断言把自己判红 = 判据错，不是代码错）。
         this.trace.push('stale phase_done')
         return {
           type: 'phase_done',
           turnID: active === null ? null : turnID(active),
           seq: eventSeq(staleSeq),
-          finalIteration: this.iterObj(1),
+          finalIteration: null,
           todos: [],
         }
       case 3:

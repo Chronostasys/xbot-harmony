@@ -2792,13 +2792,23 @@ struct Index {
     //    渲染在浅底上 = **白底白字**；「重载会话正常/打开设置又变浅」皆因 loadSettings
     //    到达后 settings 才刷新 —— 与主题守卫同一纪律：**设置没到达（settingsFresh=false）
     //    就不动页面镜像**，沿用上一会话已确认的浅色值。
-    if (store.settingsFresh && store.settings !== this.settings) {
-      this.settings = store.settings;
-      // ⛔ 审计确证（ui-state-audit）：`fontScaleV`/`wrapCodeV` 是以 `@Prop` 投进 LazyForEach 的
-      //   item builder 的 ⇒ 已存在行**永远不会**更新（改字号/换行只影响输入框，历史消息不动）。
-      //   ⇒ 与主题同一条纪律：**组件自己订阅** AppStorage（值变化 ⇒ 每个实例各自重渲染）。
-      AppStorage.setOrCreate('appFontScale', this.fontScale());
-      AppStorage.setOrCreate('appWrapCode', this.wrapCode());
+    if (store.settingsFresh) {
+      if (store.settings !== this.settings) {
+        this.settings = store.settings;
+      }
+      // ⛔ 2026-10-21（state-gate-11-5 确证）：发布**不能**放在上面那个引用相等守卫里 ——
+      //   页面镜像与 store 是**同一个对象**、两侧都只就地改属性 ⇒ `store.settings !== this.settings`
+      //   恒 false ⇒ 发布永不执行 ⇒ 改字号/换行对**已存在行**永不生效（只有之后新建的行才对），
+      //   正是这段注释宣称已修的那条缺陷的残形。⇒ 与赋值解耦，只在**值变化**时写 AppStorage
+      //   （值不变不写，避免流式期每帧噪声）。
+      const fs: number = this.fontScale();
+      if (AppStorage.get<number>('appFontScale') !== fs) {
+        AppStorage.setOrCreate('appFontScale', fs);
+      }
+      const wc: boolean = this.wrapCode();
+      if (AppStorage.get<boolean>('appWrapCode') !== wc) {
+        AppStorage.setOrCreate('appWrapCode', wc);
+      }
     }
     // ⛔ 主题**单一真源** = markdown 主题（服务端 `web:ui:md-theme`，与 web 同一项）。
     // web 权威 `providers/theme.tsx:101-113`：应用明暗 = `modeForTheme(mdTheme)` **派生**，
@@ -4603,11 +4613,21 @@ struct Index {
     if (store === null) {
       return;
     }
+    // ⛔ 2026-10-21（state-gate-11-7 确证）：`loadMore` 只快照了 store，await 之后却用
+    //   **新页面状态**：切会话瞬间触发上拉分页 ⇒ A 的分页结果去 `widenRowWindow()`
+    //   （读写的是 B 的 `rows/rowLimit`）⇒ B 的行窗口被莫名拉大（滚动手感/性能变化）；
+    //   NOCURSOR 自愈分支还会对**已 dispose 的旧 store** 调 `openSession` ⇒ 在旧 store 上
+    //   重建一份 B 的影子状态并实打网络请求。⇒ 与 `syncFrom` 同一条纪律：await 前后比身份。
+    const gen: number = store.gen;
+    const atChat: string = store.currentChatId;
     // 加载前记录第一行的 id——保持视角不变（新行追加到前面）
     const savedFirstId: string = this.rows.length > 0 ? this.rows[0].id : '';
     this.loadingMoreRows = true;
     try {
       await store.loadMore();
+      if (this.store !== store || store.gen !== gen || store.currentChatId !== atChat) {
+        return; // 身份已变：这一批属于上一个会话，丢弃（store 侧已按自身代数落地）
+      }
       // ⚡ C 线审计 2026-10-14：fetch 成功 ⇒ **同批立即揭示**一批（对齐 web「新行立刻进可渲染集」；
       //   否则本批抓回的行仍被 rowLimit 窗口挡住 ⇒ 用户滚到顶「一切照旧」，得再滚一下触发
       //   onScrollIndex 的本地揭示支——「抓了不给你看」的第二屏形态）。揭示量 12/批仍是
@@ -13006,7 +13026,10 @@ class ChatRowDataSource implements IDataSource {
       // ⛔ 2026-10-15 闪烁修复：如果只是末尾新增行（prev 是 next 的前缀）——
       //   用 onDataAdd() 通知新增行——不用 onDataReloaded()——避免整表重建闪烁。
       //   切会话/骨架变化仍走 onDataReloaded()。
-      let prefixMatch: boolean = prevRows.length > 0 && prevRows.length < next.length;
+      // ⛔ 2026-10-21（state-gate-11-5 确证）：主题变化时**不得**走"末尾新增行"快路径 ——
+      //   那条路径只发 `onDataAdd`，框架不重建已存在条目 ⇒ 历史行停在旧色板，
+      //   而 `this.theme` 已落定 ⇒ **永不重试**（切主题恰逢追加行时最易命中）。
+      let prefixMatch: boolean = !themeChanged && prevRows.length > 0 && prevRows.length < next.length;
       if (prefixMatch) {
         for (let i = 0; i < prevRows.length; i++) {
           if (prevRows[i].id !== next[i].id) {
