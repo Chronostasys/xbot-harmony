@@ -187,13 +187,17 @@ export function hydrate(prev: State, messages: readonly WireHistoryMessage[], se
       add.push(toBlock(its[k]));
     }
     const blocks: Block[] = rec.blocks.length === 0 ? add : [...rec.blocks, ...add];
-    const lastIter: number = blocks.length === 0 ? 0 : blocks[blocks.length - 1].iteration;
+    // ⛔ **在跑的回合不能被水合成"已收尾"**：`active.turnID` 指向的那一轮仍在飞
+    //   （该轮的历史 assistant 行只是"到目前为止的正文"）⇒ `final` 保持 null，
+    //   由 `live`（来自 `active.snapshot`）继续驱动 typewriter / 工具 pill。
+    //   真机对照实证：否则行 id 从 `turn-N-live` 变成 `turn-N`、`isLive` 1→0 ⇒ 界面空白。
+    const running: boolean = active !== undefined && active !== null && active.turnID === turn;
     turns.set(turn, {
       ...rec,
       blocks,
-      final: { content: m.content, cancelled: false },
-      streaming: false,
-      phase: 'done',
+      final: running ? null : { content: m.content, cancelled: false },
+      streaming: running,
+      phase: running ? 'tool_exec' : 'done',
       droppedBefore: m.droppedBefore !== undefined ? m.droppedBefore : rec.droppedBefore,
       regionsBefore: m.regionsBefore !== undefined ? m.regionsBefore : rec.regionsBefore,
     });
