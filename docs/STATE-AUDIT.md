@@ -274,6 +274,20 @@
 5. 第五轮其余报告（fe-render-1 / fe-store-1 / be-state-1 / backend-state / gate-1/2/4/5/7/8/9/10）
    的窄边界条目尚未逐条落地 —— 每条都需要先写复现实验再改（用户要求不再"叠补丁"）。
 
+## §4.5 后端状态字段审计（be-state-1）已修
+
+| 缺陷 | 修法 | 判据 |
+|---|---|---|
+| `clone` 路径把 `[]` 折成 `nil`：`channel/cli/cli.go`（TUI 转发副本）、`agent/progress.go:StructuredProgress.Clone()` | 显式区分 nil / 空数组（`make`+`copy`） | `go test ./channel/cli/ ./agent/` |
+| `turn_started` / `refreshStructuredTodos` 无 goal 墓碑 ⇒ 清除后帧里**没有 goal 键**，客户端学不到"已清除" | 两处补 `Tombstone()` 回退 | `go test ./agent/` |
+| `notifyProgress` 的 todos 刷新在 `autoNotify` 早退**之后** ⇒ Web/CLI（`autoNotify=false`）的结构化帧永远带旧 todos | 刷新提到早退之前（仍在 `progressMu` 内） | 同上 |
+| `ClearGoal` 帧携带 `GetTodos()` ⇒ 该键无 todos 时返回 `[]` ⇒ 客户端按「`[]`=清空」**清空 todo 面板** | 该帧不再携带 `todos` | 同上 |
+| `emitBuiltinProgressDone` 是**唯一不 clone** 的 fan-out 点，而 CLI 的 `SendProgress` **就地改写** payload ⇒ 跨渠道污染 + 数据竞争 | 补 `cloneProgressEvent` | 同上 |
+| goal 读取键有**三个来源**（`ch:chatID` / `todoKey()` / `s.sessionKey`）⇒ 跨渠道浏览时系统提醒读不到 goal | 统一 `s.todoKey()` | 同上 |
+| `GetActiveProgress` 直接返回快照的 todos（副本）⇒ 重连后可能下发旧列表 | 以 `TodoManager` 刷新；管理器为空且快照非空时保留 | 同上 |
+
+⚠️ **这些后端修复需要重启后端才生效**（本地 launchd 托管）。客户端修复无需。
+
 ## §5 审计结论与本轮修复
 
 ### §5.1 后端（`fix/state-protocol-audit` 分支）
