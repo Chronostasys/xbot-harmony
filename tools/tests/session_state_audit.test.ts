@@ -34,7 +34,9 @@ ok('发送成功后 ChatRow.sending 必须变 false', row.sending === false);
 
 // ② cancel 在飞复用同一个 Promise，不能 silent return。
 ok('cancel 使用 cancelInFlight 复用 Promise',
-  /cancelInFlight[\s\S]{0,120}return this\.cancelInFlight/.test(store));
+  // ⛔ 锚点放宽（2026-10-21）：cancel 的早退现在带**会话/代数身份**守卫，返回的是局部变量
+  //   `inFlight`（否则跨会话会把 B 的取消静默吞掉）⇒ 只钉"复用在飞 Promise"这个事实。
+  /cancelInFlight[\s\S]{0,240}return (this\.cancelInFlight|inFlight)/.test(store));
 ok('cancel 在 finally 清理 cancelInFlight', /cancelInFlight = null/.test(store));
 
 // ③ 会话隔离：切会话清理页面级会话态。
