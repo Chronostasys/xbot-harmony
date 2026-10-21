@@ -660,8 +660,12 @@ function isStaleSeq(
   },
 ): boolean {
   if (lastSeq === null || seq === null || seq > lastSeq) return false
-  if (extra.iter !== undefined && extra.iter !== null && extra.iter > live.iter) return false
   const maxKnown = live.iterations.reduce((m, it) => Math.max(m, it.iteration), 0)
+  // ⛔ 2026-10-21（state-gate-12-8 确证）：逃生舱必须与**已持有窗口**比较，不能只看 `live.iter`
+  //   （进行中计数器）。`history_replaced` 的 live-wins union 只并 `iterations`、不动 `iter`，
+  //   两者可背离 ⇒ 已应用过的旧帧会重新满足 `iter > live.iter` 被当新帧：清空 live 正文
+  //   （advanced）、`streaming:true` 复活 busy、并把 todos 写回旧值。
+  if (extra.iter !== undefined && extra.iter !== null && extra.iter > Math.max(maxKnown, live.iter)) return false
   if (extra.iterationsDelta?.some((it) => it.iteration > maxKnown)) return false
   // phase_done 的 finalIteration 是**进行中迭代**的收尾快照（可能 = live.iter）——
   // "是否新信息"看它是否已落进 iterations（`> maxKnown`），不看 live.iter。
@@ -1509,11 +1513,16 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
         return pdStale ? s : applySessionFields(s, ev.todos, ev.goal)
       }
       const t = s.turns.get(target)
-      if (!t || t.phase.kind !== 'live') return applySessionFields(s, ev.todos, ev.goal)
+      if (!t || t.phase.kind !== 'live') {
+        // ⛔ 2026-10-21（state-gate-12-8 确证）：目标非 live 的收尾帧是**重放/无关帧** ⇒
+        //   与同 case 的三个出口（`pdStale ? s : …`）同语义：陈旧则一个字段都不写。
+        return pdStale ? s : applySessionFields(s, ev.todos, ev.goal)
+      }
       const prev = t.phase.data
       // I5：重放丢弃（seq ≤ 水位 **且** 无新迭代信息 —— 见 isStaleSeq 的 Run 重启说明）。
       if (isStaleSeq(s.lastSeq, ev.seq, prev, { finalIteration: ev.finalIteration })) {
-        return applySessionFields(s, ev.todos, ev.goal)
+        // 陈旧 ⇒ 零写入（含会话级字段：回放帧的 todos 是旧值）。
+        return s
       }
       // I4：finalIteration（后端 recordFinalIteration 补记的最后迭代）fold 进
       // iterations —— text 到达前它已在 committed 路径的数据里（不依赖 text 重建）。
@@ -2186,9 +2195,21 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
         }
       }
       const pendingUsers = s.pendingUsers.filter((u) => {
+        // ⛔ 身份优先（state-gate-12-8 机器抓到 I6）：**同一个 id** 已经在某个 turn 里绑定
+        //   ⇒ 这条 pending 就是那只 user 行的旧副本（同一行只有一个家）⇒ 必须退役。
+        //   这条是"按内容退役"（下面那条）之外的身份判据：内容相同 ≠ 同一行。
+        for (const t of turns.values()) {
+          if (t.user !== null && t.user.id === u.id) {
+            return false
+          }
+        }
         if (u.turnHint !== undefined && turns.has(turnID(u.turnHint))) return false
         if (u.requestID !== null && [...turns.values()].some((t) => t.user?.requestID === u.requestID)) return false
         // 权威快照里已有同内容 user 消息 ⇒ 该乐观行已落地（计数配对）
+        // ⛔ 2026-10-21：这里**允许**退役仍在 `sending` 的行 —— 权威快照里出现同内容 user
+        //   行 = 服务端库里已有这条消息 = 送达证据（`send_state_settle` §E 的判据）。
+        //   计数配对（`incomingUserCount`）保证退役条数不超过快照里实际存在的条数；
+        //   同 id 的行由上面的**身份判据**优先退役（内容相同 ≠ 同一行）。
         if (!u.queued) {
           const n: number = incomingUserCount.get(u.content) !== undefined
             ? incomingUserCount.get(u.content) as number : 0

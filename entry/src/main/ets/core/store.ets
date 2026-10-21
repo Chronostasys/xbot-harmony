@@ -784,7 +784,20 @@ export class ChatStore {
    *   真实收尾不会丢：窗结束后 ack/turn_started/text_final/对账都会再来。
    */
   private staleRunningFrame(ev: DomainEvent): boolean {
-    return ev.type === 'session_running' && !ev.running && this.sendIntentActive();
+    // ⛔ 2026-10-21（state-gate-12-2 确证）：服务端真正的 idle 归一为 **`session(busy=false)`**
+    //   （`normalize.ts`），而不是 `session_running(false)`（后者前后端都由客户端合成）
+    //   ⇒ 只拦前者的旧实现把真正的 idle 放行，且 `settleIntentOnAuthoritative` 还会**把窗清零**
+    //   ⇒ 发送后 1 个 RTT 内一条上一轮/重放的 coarse idle 就把刚点亮的 busy 关掉（输入框
+    //   「停止」→「发送」、气泡仍「发送中」），随后 ack 又点亮 ⇒ 2s 级抽搐；窗被销毁后
+    //   所有窗内守卫全部失效。⇒ 两种形态都在窗内丢弃（idle 只是滞后证据，回合真结束会有
+    //   ack/turn_started/text_final/对账再来）。
+    if (ev.type === 'session_running') {
+      return !ev.running && this.sendIntentActive();
+    }
+    if (ev.type === 'session') {
+      return !ev.busy && this.sendIntentActive();
+    }
+    return false;
   }
 
   private pushEvents(evs: readonly DomainEvent[] | null): void {
@@ -864,8 +877,17 @@ export class ChatStore {
     this.lastEventAtMs = Date.now();
     const prev: ChatState = this.state;
     const wasRunning: boolean = prev.sessionRunning;
+    const goalSuppressed: boolean = this.pendingGoalUntilMs > Date.now();
+    const goalLocal: ChatGoalInfo | null = this.state.goal;
     this.settleIntentOnAuthoritative(ev);
     this.state = reduce(this.state, ev);
+    // ⛔ 2026-10-21（state-gate-12-6 确证-2）：goal 乐观抑制窗此前只写在**批量**入口
+    //   `pushEvents`，而 `historyToReplaced` 走**单条** `pushEvent` ⇒ 用户点 ✕ 之后，
+    //   一条在清除前发起的 `/api/history` 回包（落在 3s 窗内）会把旧目标写回 state
+    //   ⇒ **已删除的目标横幅重新出现**。⇒ 两条入口同一条规则（窗内把本地 goal 盖回去）。
+    if (goalSuppressed) {
+      this.state = applySessionFields(this.state, undefined, goalLocal);
+    }
     // ⛔ 状态迁移日志（用户 2026-10-21：「每次状态变化必须要打印日志还有原因」）：
     //   任何 running 0↔1 都必须留下"是哪条事件/哪条路径"的证据，否则抽搐无法归因。
     // todos 变化日志（用户 2026-10-21：「todo_write 之后 todo 没立刻更新」—— 必须能看出
@@ -1302,8 +1324,11 @@ export class ChatStore {
       return;
     }
     this.idleRetryAttempts++;
+    // ⛔ 2026-10-21（state-gate-12-2 确证）：必须用**真窗**（`SEND_INTENT_WINDOW_MS`）。
+    //   用 8s 时，`elapsed ∈ (8s,20s]` 段算出的 wait 退化成 100ms ⇒ 每次重排都消耗预算
+    //   ⇒ 8 次硬闸在 ~0.8s 内耗尽 ⇒ **窗内到达的权威 idle 被丢弃**（输入框卡「停止/思考中」）。
     const wait: number = inWindow
-      ? Math.max(100, SEND_INTENT_MS - (Date.now() - this.intentBusyAt) + 50)
+      ? Math.max(100, SEND_INTENT_WINDOW_MS - (Date.now() - this.intentBusyAt) + 50)
       : 2100;
     this.pendingIdleTimer = setTimeout(() => {
       this.pendingIdleTimer = -1;
