@@ -703,7 +703,7 @@ function isStaleSeq(
  *
  * 代价：只在"确实有 sending 且已 idle"时重建对象；否则原样返回（零渲染）。
  */
-function settleSendingInvariant(s: ChatState): ChatState {
+function settleSendingInvariant(s: ChatState, ev: DomainEvent): ChatState {
   // ① **有迭代/有产出 ⇒ 该 user 行绝不允许还挂着「发送中」**（用户 2026-10-21 原话：
   //   「只要他有迭代了那就是不应该发送中啊」）。这是比"idle 才收敛"更强的判据，
   //   也是正确的语义：迭代 = 服务端已经受理并开始产出 = 消息一定送达了。
@@ -726,7 +726,11 @@ function settleSendingInvariant(s: ChatState): ChatState {
   }
   let pendingUsers = s.pendingUsers;
   // ② 会话 idle ⇒ 连 pending 行也不可能有"正在发送"的（没有任何在飞证据）。
-  if (!s.sessionRunning) {
+  // ⛔ 审计确证（state-final-2 C1）：`user_sent` 落地时 `sessionRunning` 仍是 false（ack 才置
+  //   running）⇒ 旧实现当帧就把刚入队那条的 `sending` 抹掉 ⇒ **空闲后发的第一条气泡不显示
+  //   「发送中…」**（busy 中发的第二条却显示），连带 `hasSendingUser`/FIFO 兜底/唯一行绑定全失效。
+  //   `user_sent` 正是「唯一允许 sending=true 的窗口」⇒ 本帧跳过该清理。
+  if (!s.sessionRunning && ev.type !== 'user_sent') {
     let anyPendingSending: boolean = false;
     for (let i = 0; i < pendingUsers.length; i++) {
       if (pendingUsers[i].sending) { anyPendingSending = true; break; }
@@ -749,7 +753,7 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
   //   true、不碰 sessionRunning，后者要等出口的 `satisfyRunningInvariant` 才补。
   //   旧顺序 ⇒ 一次迟到 idle 之后的下一帧会把**所有**在飞 pending 的「发送中」清掉
   //   （B 还在 POST 途中就显示已发；失败后被 user_fail 整行删 ⇒ 消息静默消失）。
-  return settleSendingInvariant(satisfyRunningInvariant(reduceInner(s, ev), ev));
+  return settleSendingInvariant(satisfyRunningInvariant(reduceInner(s, ev), ev), ev);
 }
 
 /**
@@ -2140,6 +2144,10 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
         lastSeq === s.lastSeq &&
         authoritativeRunning === s.sessionRunning &&
         sameItems(todos, s.todos) &&
+        // ⛔ 审计确证（C2）：短路漏比 `goal`/`standalone` ⇒ 只要其它字段逐项相同，
+        //   快照里的**目标更新/清除**与 `standalone` 新行会被静默吞掉（横幅停旧值）。
+        (ev.goal === undefined ? s.goal === s.goal : (ev.goal === s.goal))
+        && sameItems(ev.standalone ?? s.standalone, s.standalone) &&
         // 「无法追赶的 gap」形状变化时必须返回新 state（否则 gapReloadToken 的自增被
         // 短路吞掉，面板拿不到"重载该会话"的信号）。
         gapSig === s.unreachableGapSig &&
