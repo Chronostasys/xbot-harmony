@@ -155,11 +155,36 @@
 | `applyLocalIdle` | `store` | 仅 PhaseDone / SSE idle 两处调用 | ✅（合法） |
 | `watchBusyWithoutLiveTurn` | `store` | 只读重载（静默 ≥3s + 30s 冷却） | ❌ |
 | `checkLiveSignalStall` | `pages/Index` | 只读重载（静默 ≥3s） | ❌ |
-| `probeActiveStall` | `store`（`core/liveprobe`） | 轻量 `get_active_progress` 判定 stall → 强制重载 | ❌ |
+| `probeActiveStall` | `store`（`core/liveprobe`） | 轻量 `get_active_progress` 判定 stall → 强制重载 | ⚠️ **仅在**「服务端明确无在飞 + 本地 busy + 事件静默 ≥3s」三条同时成立时收尾 busy（= 用户规则里的"后端明确 idle"，且是**本会话**权威快照，不是会话树） |
 
-**原则**：对账只能带来「**更新内容**」，永远不能带来「**状态降级**」。
+**原则**：对账只能带来「**更新内容**」，永远不能带来「**状态降级**」（唯一例外：**本会话**权威
+快照 `get_active_progress` 明确说"无在飞" **且** 事件静默 ≥3s ⇒ 等价于"后端明确 idle"）。
+
+⚠️ **已知失效契约（2026-10-21 审计）**：`intentIdleAt` 与 `runningAfterReconcile` 目前在
+`loadSessions` 里被 `void` 掉（不再写状态机）—— 文中"15s SSE 意图窗抑制对账"的描述**已不适用**；
+保留字段仅作后续可能的只读判定输入。
 
 ---
+
+## §4.1 第三轮复验新增的修复（2026-10-21 夜间，均带判据）
+
+| 编号 | 缺陷（代码可逐行验证） | 修法 |
+|---|---|---|
+| F1 | `lastEventAtMs` 只在单条 `pushEvent` 刷新，而主 SSE 入口是**批量** `pushEvents` | 批量入口也刷新 |
+| F2 | `watchGapReload` 在 `resetStateMachine()`（内部已保留 running/goal/todos）后**又** `initialChatState()`；且其 `loadHistory()` 被自身在飞闸门丢弃 | 删除重复重建；在飞闸门改为**排队**并在 `finally` 消费 |
+| F3 | `loadStatus` 无条件用 REST 快照覆盖 `state.todos`（REST 是请求发起时刻的旧值） | `hasLiveTurn()` 时不写 todos |
+| F4 | `send` 的 ack 回包无身份守卫 ⇒ 跨会话把新会话标 busy | 回包落状态前校验 `chatGen + chatId` |
+| F5 | `subscribe()` 在 `sse.state=open` 时直接 return 且不比对目标 chat ⇒ 新建/切会话仍订阅旧 chat | 订阅前 `sse.close()` |
+| F6 | `disposed` 只声明不赋值 ⇒ 已淘汰 store 仍每 5/30s 轮询 | dispose 置位 + 轮询链自检 |
+| F7 | 退役乐观行的"快照已有"计数取自**合并后** turns（含本地 live turn） | 只从 `ev.turns` 计数 |
+| F8 | 任一 iteration/stream 清掉**所有** pending 的 `sending`（A 送达 ≠ B 送达） | 只结算 FIFO 第一条 |
+| F9 | `turn_started` 绑定顺序让位置启发式优先于内容匹配 ⇒ 两条在飞消息内容对调 | 内容匹配提前 |
+| F10 | busy 迁移日志 `wasBusy` 在赋值**之后**读 ⇒ 恒不触发 | 与 `lastLoggedBusy` 比较 |
+| F11 | 切会话恢复 todos 的 `length > 0` 把"服务端明确清空"当"没有" | 按三态 |
+| F12 | `sessions: null`（Go nil slice）被折成 `[]` ⇒ 侧栏瞬时清空 | null = 未携带，保留旧列表 |
+| F13/F14 | 后端 goal/内置命令帧**整对象替换**权威快照；内置命令帧把 **nil** 写进快照（反向清掉 todos/goal） | 字段级 `updateSnapshotFields` + 填权威值 |
+| F15 | 后端 `activeTurnID` 只写不复位 ⇒ 回合外事件带旧 turn 归属 | 收尾 `clearActiveTurn()` |
+| F16 | goal 的 cleared 只在一次性事件，快照无 tombstone ⇒ 跨客户端/重载后清不掉 | `GoalManager` 墓碑 + 快照回填 |
 
 ## §5 审计结论与本轮修复
 
