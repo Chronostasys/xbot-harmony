@@ -35,10 +35,11 @@ import { invariantViolations } from './state_invariants';
 import { setDiagSink } from './diag';
 import { liveRunningIn, withSessionRunning } from './chat_types_full';
 import type { GoalInfo as ChatGoalInfo, TodoItem as ChatTodoItem } from './chattypes';
-import { deriveRows, Row } from './derive';
 import { extractEventChatID, normalizeEvent } from './normalize';
 import { historyToReplaced, liveProgressFromState } from './integrate';
 import { applyRow, invalidateAppliedRow } from './render';
+import { deriveRows } from './derive';
+import type { Row } from './derive';
 import { ChatMessage, ChatMessageRole, EMPTY_PROGRESS_SNAPSHOT, ProgressSnapshot, WebCompaction, WebIteration } from './chattypes';
 import { toHistoryCompactions } from './compaction';
 import { normalizeWebIteration } from './agent_normalize';
@@ -2699,6 +2700,9 @@ export class ChatStore {
    * 与页面渲染同一条路径（不再是独立的手写映射）。live 诊断测试用。
    */
   static rowsFromHistory(messages: HistoryMessage[]): ChatRow[] {
+    // ⛔ 压缩点（`compactions`）**不在 `HistoryMessage` 里**（本仓协议没有该字段），
+    //   只能经旧链路的 `historyToReplaced` 从原始消息重建 ⇒ 这里仍走 reduce+derive+applyRow。
+    //   （新模型的 `hydrate` 已支持 compactions 输入，等协议下发后再切。）
     const ev: DomainEvent = historyToReplaced(ChatStore.toChatMessages(messages, 0), null);
     const state: ChatState = reduce(initialChatState(''), ev);
     const derived: readonly Row[] = deriveRows(state);
@@ -2708,6 +2712,18 @@ export class ChatStore {
       row.id = derived[i].id;
       applyRow(row, derived[i]);
       out.push(row);
+    }
+    return out;
+  }
+
+  /** `HistoryIteration[] → WireHistoryIteration[]`（逐字段搬运；⛔ ArkTS 禁 unknown 断言）。 */
+  private static toWireIters(its: readonly HistoryIteration[] | undefined): WireHistoryIteration[] {
+    const out: WireHistoryIteration[] = [];
+    if (its === undefined) {
+      return out;
+    }
+    for (let i = 0; i < its.length; i++) {
+      out.push({ iteration: its[i].iteration, content: its[i].content, reasoning: its[i].reasoning, tools: its[i].tools });
     }
     return out;
   }
