@@ -1000,7 +1000,21 @@ export class ChatStore {
   }
 
   private runShadowModel(ev: DomainEvent): void {
-    if (this.demoMode || this.currentChatId.length === 0) {
+    // ── 诊断（临时）：确认历史/在飞态走的是哪条事件、`active` 是否随事件到达 ──
+    if (ev.type === 'history_replaced') {
+      const ids: number[] = [];
+      for (let i = 0; i < ev.turns.length; i++) { ids.push(ev.turns[i].id as number); }
+      log('diag', `HR act=${ev.active === null || ev.active === undefined ? -1 : (ev.active.turnID as number)}`
+        + ` turns=${ids.length} ids=${ids.length > 0 ? `${ids[0]}..${ids[ids.length - 1]}` : '-'}`
+        + ` legacy=${ev.legacy.length}`);
+    } else if (ev.type === 'iterations_loaded') {
+      log('diag', `IL turn=${ev.turnID as number} its=${ev.iterations.length} activeTurn=${this.state.activeTurn === null ? -1 : this.state.activeTurn as number}`);
+    } else if (ev.type === 'turn_started') {
+      log('diag', `TS turn=${ev.turnID as number}`);
+    }
+
+    // ⛔ demo 模式也必须喂影子：行源是模型 ⇒ 不喂则 demo 会话空白（判据 `demo_account` 抓）。
+    if (this.currentChatId.length === 0) {
       return;
     }
     if (this.shadow.chat !== this.currentChatId) {
@@ -1010,8 +1024,10 @@ export class ChatStore {
     if (ev.type === 'history_replaced') {
       // 权威历史 = **水合**（构造），不是帧（§3.5）。旧管线的 history_replaced 是 merge 语义，
       // 这里走 `hydrate` 的**权威替换**：turns/legacy 重建，会话级字段与 live 保留。
+      const act = ev.active;
       this.shadow = hydrate(this.shadow, this.historyToWire(ev), ev.lastSeq !== null && ev.lastSeq !== undefined
-        ? (ev.lastSeq as number) : this.shadow.seq);
+        ? (ev.lastSeq as number) : this.shadow.seq,
+        act === null || act === undefined ? null : { turnID: act.turnID, snapshot: act.snapshot as never });
     } else {
       const inputs = adapt(ev as never, this.currentChatId, this.shadow.epoch);
       const res = stepAll(this.shadow, inputs as never, new Date().toISOString());
@@ -1132,75 +1148,15 @@ export class ChatStore {
     if (this.uiSuspended) {
       return;
     }
-    const derived: readonly Row[] = deriveRows(this.state);
-    // ⛔ live 行缓存的 key 必须含 turn/iteration 生命周期：行 id 会跨 turn 复用，
-    //    只按 id 命中会让新迭代拿到旧 ChatRow（appliedRowByRow 误判）⇒ 思考中卡死。
-    let liveCacheKey: string = '';
-    for (let i = 0; i < derived.length; i++) {
-      const dr: Row = derived[i];
-      if (dr.kind === 'live') {
-        liveCacheKey = `${this.state.turns.size}#${dr.turnID}#${dr.lastIter}`;
-        break;
-      }
-    }
-    if (liveCacheKey !== this.liveCacheKey) {
-      this.liveCacheKey = liveCacheKey;
-      this.invalidateLiveRowCache();
-    }
-    const next: ChatRow[] = [];
-    const alive: Set<string> = new Set();
-    let anyChanged: boolean = false;
-    const seenIds: Set<string> = new Set();
-    for (let i = 0; i < derived.length; i++) {
-      const r: Row = derived[i];
-      let rid: string = r.id;
-      if (seenIds.has(rid)) {
-        let n: number = 2;
-        let cand: string = `${rid}~${n}`;
-        while (seenIds.has(cand)) {
-          n = n + 1;
-          cand = `${rid}~${n}`;
-        }
-        rid = cand;
-      }
-      seenIds.add(rid);
-      alive.add(rid);
-      let row: ChatRow | undefined = this.rowCache.get(rid);
-      if (row === undefined) {
-        row = new ChatRow();
-        row.id = rid;
-        this.rowCache.set(rid, row);
-      }
-      const changed: boolean = applyRow(row, r);
-      if (changed) {
-        this.touch(row);
-        anyChanged = true;
-      }
-      next.push(row);
-    }
-    if (this.rowCache.size > alive.size) {
-      const stale: string[] = [];
-      this.rowCache.forEach((_v: ChatRow, k: string) => {
-        if (!alive.has(k)) {
-          stale.push(k);
-        }
-      });
-      for (let i = 0; i < stale.length; i++) {
-        this.rowCache.delete(stale[i]);
-      }
-    }
+    const next: ChatRow[] = applyModel(this.shadow, this.rowCache);
     let structural: boolean = this.rows.length !== next.length;
     if (!structural) {
       for (let i = 0; i < next.length; i++) {
         if (this.rows[i] !== next[i]) { structural = true; break; }
       }
     }
-    if (structural) {
-      this.rowsGen = this.rowsGen + 1;
-    }
-    if (structural || anyChanged) {
-      this.rowsRev = this.rowsRev + 1;
-    }
+    if (structural) { this.rowsGen = this.rowsGen + 1; }
+    this.rowsRev = this.rowsRev + 1;
     this.rows = next;
     this.onUpdate();
     // ⛔ 切会话诊断：只在真正切会话时打日志，避免 rebuildRows 每帧刷屏淹没关键日志

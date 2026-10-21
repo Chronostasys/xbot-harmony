@@ -191,7 +191,12 @@ export function hydrate(prev: State, messages: readonly WireHistoryMessage[], se
     //   （该轮的历史 assistant 行只是"到目前为止的正文"）⇒ `final` 保持 null，
     //   由 `live`（来自 `active.snapshot`）继续驱动 typewriter / 工具 pill。
     //   真机对照实证：否则行 id 从 `turn-N-live` 变成 `turn-N`、`isLive` 1→0 ⇒ 界面空白。
-    const running: boolean = active !== undefined && active !== null && active.turnID === turn;
+    // ⛔ 判定"仍在跑"有两个来源（缺一不可，真机 `[diag]` 实证）：
+    //   ① 本事件携带 `active.turnID`；② **本地已知在飞**（`prev.live.turn`，来自更早的
+    //   `history_replaced`/`tick`）。后发的历史重载**不携带** `active`（`act=-1`），
+    //   若只看 ①，就会把正在跑的回合重新定型成"已收尾" ⇒ live 行消失、界面空白。
+    const running: boolean = (active !== undefined && active !== null && active.turnID === turn)
+      || (prev.live !== null && prev.live.turn === turn);
     turns.set(turn, {
       ...rec,
       blocks,
