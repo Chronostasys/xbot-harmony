@@ -13,6 +13,9 @@
 declare const process: { exit: (c: number) => void };
 
 import { inFlightBlock, isCurrentIterTool } from '../../entry/src/main/ets/core/render';
+import { historyProgressToLive } from '../../entry/src/main/ets/core/agent_normalize';
+import type { HistProgress } from '../../entry/src/main/ets/core/progress_types';
+import type { ProgressSnapshot, WebIteration } from '../../entry/src/main/ets/core/chattypes';
 import { HistoryIteration, ToolProgress } from '../../entry/src/main/ets/core/types';
 import { LiveRowView } from '../../entry/src/main/ets/core/derive';
 import { WebToolProgress } from '../../entry/src/main/ets/core/chattypes';
@@ -229,6 +232,27 @@ if (fail > 0) { // ── ⑧ P0（2026-10-21 用户实机，原话）：「live
 }
 
 console.log(`  render_inflight: ${pass} passed, ${fail} failed`); process.exit(1); }
+// ── ⑩ P0（2026-10-21 用户更正：scp / cd 是**独立迭代**，各自只有工具）──────────
+//   `historyProgressToLive` 的"迭代边界守卫"假设"迭代必有正文"：
+//     active.length===0 && completed.length>0 ⇒ content='' 且 completed=[]
+//   而纯工具迭代**刚完成**的形态正是 active=[] && completed=[t] ⇒ 工具被整批丢弃。
+//   ⇒ 断言：已完成工具必须仍可达（并回同号历史块，或保留在 completedTools）。
+{
+  const snap: HistProgress = {
+    phase: 'running', turn_id: 7, iteration: 4, seq: 9,
+    active_tools: [],
+    completed_tools: [{ name: 'Shell', label: 'Shell', status: 'done', iteration: 4, call_id: 'cd-1' } as unknown as never],
+    iteration_history: [{ iteration: 4, content: '', reasoning: '', tools: [] } as unknown as never],
+  } as unknown as HistProgress;
+  const live: ProgressSnapshot = historyProgressToLive(snap);
+  const inHist: number = live.iterationHistory
+    .filter((b: WebIteration) => b.iteration === 4)
+    .reduce((n: number, b: WebIteration) => n + b.tools.length, 0);
+  const inCompleted: number = live.completedTools.length;
+  eq('★⑩ 纯工具迭代的已完成工具不得被丢弃（历史块或 live 快照至少一处可达）',
+    inHist + inCompleted >= 1, true);
+}
+
 console.log(`  render_inflight: ${pass} passed, 0 failed`);
 process.exit(0);
 

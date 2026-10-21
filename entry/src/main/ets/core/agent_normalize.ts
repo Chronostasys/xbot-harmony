@@ -6,6 +6,7 @@
  * Shared by useChatMessages (history hydration) and useProgressStream (live
  * events) so the two paths never diverge on how a tool/iteration is parsed.
  */
+import { diag } from './diag'
 import {
   normalizeWebSubAgents,
   normalizeWebTool,
@@ -30,7 +31,7 @@ export function normalizeWebIteration(raw: unknown): WebIteration | null {
   // 目的：区分"条目到客户端时就空了"与"到了但渲染被判空"。
   //   hasToolsField=true 且 toolsFieldLen=0 ⇒ 线上给了**空数组**（会把 completed_tools 回退吞掉）。
   //   toolsField 缺字段 ⇒ 走 completed_tools 回退（正常路径）。
-  console.info(`[ITER] iter=${typeof r.iteration === 'number' ? r.iteration : -1}`
+  diag('iter', `iter=${typeof r.iteration === 'number' ? r.iteration : -1}`
     + ` src=history hasToolsField=${Array.isArray(r.tools)}`
     + ` toolsFieldLen=${Array.isArray(r.tools) ? (r.tools as unknown[]).length : -1}`
     + ` completedLen=${Array.isArray(r.completed_tools) ? (r.completed_tools as unknown[]).length : -1}`
@@ -181,8 +182,50 @@ export function historyProgressToLive(p: HistProgress | null): ProgressSnapshot 
   // will deliver the correct data in order when the next iteration starts.
   let content = p.content ?? ''
   if (active.length === 0 && completed.length > 0) {
+    // ⛔ 2026-10-21 P0（用户更正：scp / cd 是**独立迭代**，各自只有工具）：
+    //   旧实现在这里 `completed = []` —— 假设"迭代必有正文"，把纯工具迭代刚完成时的
+    //   已完成工具**整批丢掉**（形态正好是 active=[] && completed=[t]）⇒ 该迭代变空块 ⇒
+    //   渲染层丢弃 ⇒ 界面上"这个只有工具的迭代消失了"（重启读 DB 才回来）。
+    //   ⇒ 正确语义：**工具归属它自己的 `iteration`**。能对上历史块就并回那一块；
+    //     对不上（尚未记录）就留在 live 快照里，交给 live 渲染，绝不丢。
     content = ''
-    completed = []
+    const kept: WebToolProgress[] = []
+    for (let ci = 0; ci < completed.length; ci++) {
+      const t: WebToolProgress = completed[ci]
+      const tn: number | undefined = t.iteration
+      let merged: boolean = false
+      if (tn !== undefined && tn > 0) {
+        for (let bi = 0; bi < iterHistory.length; bi++) {
+          const b: WebIteration = iterHistory[bi]
+          if (b.iteration !== tn) {
+            continue
+          }
+          const key: string = `${t.name}#${t.label !== undefined ? t.label : ''}#${t.callID !== undefined ? t.callID : ''}`
+          let has: boolean = false
+          for (let ti = 0; ti < b.tools.length; ti++) {
+            const bt = b.tools[ti]
+            const bk: string = `${bt.name}#${bt.label !== undefined ? bt.label : ''}#${bt.callID !== undefined ? bt.callID : ''}`
+            if (bk === key) { has = true; break }
+          }
+          if (!has) {
+            const tools = b.tools.slice()
+            tools.push(t)
+            iterHistory[bi] = {
+              iteration: b.iteration, content: b.content, reasoning: b.reasoning,
+              tools, toolCount: tools.length, tokens: b.tokens, ttftMs: b.ttftMs,
+              tokensPerSec: b.tokensPerSec, toolMs: b.toolMs, subAgents: b.subAgents,
+              toolsFolded: b.toolsFolded,
+            }
+          }
+          merged = true
+          break
+        }
+      }
+      if (!merged) {
+        kept.push(t)
+      }
+    }
+    completed = kept
   }
 
   return {
