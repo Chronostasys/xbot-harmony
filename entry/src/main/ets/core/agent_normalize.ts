@@ -180,7 +180,11 @@ export function historyProgressToLive(p: HistProgress | null): ProgressSnapshot 
     streamContent: p.stream_content ?? '',
     content,
     reasoningStreamContent: p.reasoning_stream_content ?? '',
-    streaming: true,
+    // ⛔ 审计确证（state-gate-7-2 A3）：此前**无条件** `streaming: true` —— 而 `history_replaced`
+    //   会用这个快照把本地**已 committed** 的 turn 升级回 live（那是"熄屏回来恢复 live"的刻意
+    //   修复）⇒ 一张**已结束**的快照也能复活它，且此后 `hasLiveTurn()` 恒 true ⇒ busy 关不掉。
+    //   修：只有"服务端声明它**正在跑**"的快照才算在流式（`turn_started`/空相位都不算）。
+    streaming: String(p.phase) === 'running',
     activeTools: active,
     completedTools: completed,
     iterationHistory: iterHistory,
