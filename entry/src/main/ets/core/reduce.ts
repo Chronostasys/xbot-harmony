@@ -2509,25 +2509,9 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
 }
 
 function settlePendingSending(s: ChatState, atTurnEnd: boolean): ChatState {
-  // 任何 iteration/stream 都是「消息已送达并在跑」的证据：即使 activeTurn 丢了/
-  // turn_id 缺失，也先把 pending 的 sending 清掉，避免气泡永久「发送中」。
-  if (!atTurnEnd && s.pendingUsers.length > 0) {
-    // ⛔ 审计确证（F8）：送达证据是 **per-request** 的 ——「A 的回合已产出」不能证明「B 已送达」
-    //   （B 可能还在 POST 途中）。旧实现 map 全清 ⇒ B 立刻从"发送中"变普通气泡；若随后 POST
-    //   失败，`user_fail` 会把它整行删掉 ⇒ 用户看到消息**静默消失**。
-    //   ⇒ 只结算**最先发出的那条未排队行**（FIFO，对应刚开始的 turn）。
-    let cleared = false
-    s = {
-      ...s,
-      pendingUsers: s.pendingUsers.map((u) => {
-        if (!cleared && u.sending && !u.queued) {
-          cleared = true
-          return { ...u, sending: false }
-        }
-        return u
-      }),
-    }
-  }
+  // 调用点只有两处（turn_started / text_final），都传 `true` ⇒ 下面的"回合结束"分支是**唯一**
+  // 语义。（`atTurnEnd=false` 那条 FIFO 分支从未被调用 —— 死代码，已删；`sending` 的送达证据
+  // 现在只剩「ack / fail / 回合收尾」三处，见 `docs/STATE-AUDIT.md §4.6`。）
   // 回合结束：不只清 active turn，清**所有** turn 的 user.sending —— turn_started 可能
   // 早于 sending 置位，或 activeTurn 已被 idle 清掉，只清 active 会漏掉那条永久发送中。
   if (atTurnEnd) {
