@@ -1909,8 +1909,12 @@ export class ChatStore {
       //    必定加载不出历史"）。⇒ 失败必须**落地成可读原因 + 可重试**（fail-safe）。
       this.historyError = readableRpcError((e as Error).message);
     } finally {
-      this.historyLoading = false;
+      // ⛔ 审计确证（store-audit 2）：`historyLoading` 曾是**跨代无条件清除** —— 若本次在飞
+      //   期间新一代已开始（切会话/重载排队），旧代的 finally 会把**新一代**的"在飞"标志清掉
+      //   ⇒ 骨架屏提前退场、并发重载叠加、页面 8s/12s 超时误判（"加载中"闪一下就没了）。
+      //   ⇒ 只有"仍是当代"时才清。
       if (this.historyLoadGen === gen) {
+        this.historyLoading = false;
         this.historyLoadGen = -1;
       }
       this.onUpdate();
