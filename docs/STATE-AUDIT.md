@@ -341,6 +341,70 @@
 （`emitSessionIdleIfCurrent` 已带；`emitSessionIdleIfNoActiveRun` 按定义没有在跑轮次），
 而不是在客户端放宽降级条件。已登记为服务端后续项。
 
+## §4.8 **结构性收敛方案**（2026-10-21：把「不出新问题」从承诺变成机器判据）
+
+背景（用户的原始质问：「为什么每次改完都有新 bug」）：前八轮都是**同一类**缺陷 ——
+"某个路径忘了写 X"。根因不是修得少，而是**规则的存在形式**错了：
+
+> 规则是**分散在几十个 handler/异步回包里的纪律**，每个新路径都必须重新记住全部规则。
+> 只要"记住"依赖人，就必然会有下一个漏点。**盲审（10 个人读代码）是有限枚举，天花板就是
+> 审计者的想象力。**
+
+⇒ 结构性解法不是"再修一轮"，而是让**错误的形态不可表达**、让**漏点由机器穷举发现**。
+四道机制（前三道已落地并已各自抓到确证缺陷）：
+
+| # | 机制 | 落点 | 消灭的缺陷类 | 判据 |
+|---|---|---|---|---|
+| S1 | **不变量可执行化**：把"正确"写成纯函数，返回违反清单 | `core/state_invariants.ts`（I1–I9） | "某条规则没人执行/没人验" | `tools/tests/state_fuzz.test.ts` 每步断言 + 全部历史回归终态断言 |
+| S2 | **机器穷举**（固定种子 fuzz，混合合法/非法帧） | `tools/tests/state_fuzz.test.ts` | "人想不到的组合"（乱序/迟到/重复/交错生命周期） | 每步 reduce 后 `invariantViolations` 必须为空；失败打印最短前缀 ⇒ 固化成回归 |
+| S3 | **派生量不落库**：`busy` 只是 `sessionRunning` 的出口，不是第二个真源 | `reduce.ts` 唯一出口（R4） | "两处各写一半"（`busy=true / run=false`） | I1 + mutation（删出口归一必红） |
+| S4 | **入口统一闸门**：带 seq 的帧在位次上落后 ⇒ **整帧零写入** | `reduce.ts: isStaleBySeq` | "新增一条路径就多一个陈旧帧漏点"（4 份 per-case `xxxStale` 各自写一遍） | fuzz 的「陈旧帧零写入」族（5 类帧、逐字段比较） |
+
+### S1–S4 已抓到的确证缺陷（机器先于人）
+
+| 来源 | 缺陷 | 修法 | 用户可见症状 |
+|---|---|---|---|
+| fuzz seed=32220 step=10 | `text_final` 只清 `sessionRunning`、不清 `busy` ⇒ 终态 `busy=true / run=false` | S3：出口把 `busy` 由 `sessionRunning` 派生 | **回复已显示完，输入框还挂着 cancel** |
+| fuzz seed=32220 step=25 | goal 墓碑 `{objective:'',status:'cleared'}` 经 `session_fields` **漏进 state** | S4 同源：在 `applySessionFields`（写 goal 的**唯一**通道，6 条路径全覆盖）折成 `null` | GoalBanner 渲染一个空目标 |
+| fuzz seed=40150 | **陈旧 `stream` 帧写正文**（覆盖语义的前缀 ⇒ 正文倒退） | S4：入口水位闸门，陈旧帧整帧丢弃 | 文字回跳/闪烁 |
+
+### 尚未实施的两道（本方案的剩余部分）
+
+| # | 机制 | 判据 |
+|---|---|---|
+| S5 | **单写入源门禁**：`busy/sessionRunning/sending/cancelling/todos/goal/activeTurn` 只允许在 `core/reduce.ts`（及 `store` 的**显式**入口）被赋值；新增第二写入点 ⇒ 门禁红 | `tools/lint/state-single-writer.sh` + allowlist（现状：`store.ets` 有 32 处直写，逐条收敛） |
+| S6 | **协议双向覆盖**：`protocol/events.go` 的事件/字段集合 ⇔ `normalize.ts` 的解析分支，差集必须为空（新增后端字段而前端不解析 ⇒ 红） | `tools/tests/protocol_coverage.test.ts`（读 Go 源码的字面量 + 前端 switch 分支，双向差集） |
+
+> 验收口径随之改变：**不再只依赖"10 份盲审零确证"**（有限枚举），而是
+> `state_fuzz`（穷举）+ 全部不变量 + 盲审（语义/设计层）**三者同时绿**。
+> 前者的天花板是机器的算力，后者是人的想象力 —— 只有前者能给出"不可能再出新问题"的
+> 可信度承诺。
+
+### S5/S6 落地（本轮完成）
+
+| # | 机制 | 落点 | 判据 |
+|---|---|---|---|
+| S5 | **单写入源门禁**：会话生命周期字段（busy/sessionRunning/activeTurn/todos/goal/cancelling）只允许 `core/reduce.ts` 写 | `tools/lint/state-single-writer.sh` | 现状 187 文件 / 0 违规；`--self-test` 做 mutation 自证（注入 `state.busy = true` 必红） |
+| S6 | **事件联合闭合覆盖**：DomainEvent ⇔ reduce 分支 ⇔ normalize 生产者的三方闭包 + 台账卫生 | `tools/tests/protocol_coverage.test.ts` | C1 闭包 / C2 生产者 / C3 反孤儿 / C4 台账不腐烂；扫到 0 处判红 |
+
+> S6 第一次跑就抓到 **`session_idle` 是零生产者事件类型**：全仓没有任何生产路径会发它
+> （后端 `agent-idle` 经 normalize 走的是 `session(busy=false)`），而它的分支里还有一条
+> 与现行契约冲突的 `settlePendingSending(s, true)`（第 7-8 轮已判定「粗粒度 idle 不是送达
+> 证据」）。⇒ **整个类型 + 分支删除**（-53 行），idle 只剩一个入口（`session(busy=false)`）。
+
+### 第九轮（10 份盲审）后**结构性**修掉的项（不是补丁，都是单点收敛）
+
+| 缺陷 | 结构性修法 | 症状 |
+|---|---|---|
+| `text_final` 在命令回复早退**之前**全局清 `sending` | 调到早退之后（唯一"用户回合终态"调用点） | `!cmd` 输出到达瞬间把在途消息标"已发送"，POST 失败后删行 = 消息消失 |
+| idle 补判预算 3×2.1s **短于** 8s 发送意图窗 ⇒ 窗内权威 idle 被丢 | 窗内不消耗预算、等待按"窗剩多久"算（`SEND_INTENT_MS` 单源） | 极短回合/发送后立刻取消：输入框长期停在「停止/思考中」 |
+| `GetTodos` 三条分支形状不一致（`[]` vs `nil`） | 一条契约：有记录（含空）⇒ 非 nil；无记录 ⇒ nil | 服务重启后 todo 面板**时清时不清** |
+| `GetActiveProgress` 把「用户清空 todos」当「未水合」⇒ 回吐快照 | 判据改 `TodosHydrated`（管理器是否有记录） | 清空的列表又冒回来 |
+| AskUser 取消后 `activeTurnID` 残留 ⇒ 守卫把 idle 挡掉 | 取消分支先清活动轮次，再发**带该轮 id** 的 idle | 取消 ask 后输入框停在「停止/思考中」，侧栏已是 idle |
+| 点**当前会话**也走 dispose+重载（`storeFor` 每次新建） | `switchSession` 首行同会话早退 | 回合中在抽屉点自己：splash 一闪、按钮从「停止」翻回「发送」 |
+| `historyLoading/hasMore/loadingMore` 镜像在滚动早退**之后** ⇒ 冻结副本 | 三项移进早退块（O(1) 布尔） | 滚动期历史已到但骨架屏不退/头项文案不更新 |
+| `row.themeGen` 是**零写入者**的死字段（组件注释却宣称靠它重渲） | 删字段 + 删 `themableRowKey` 的死 `theme` 形参（-20 行） | 注释承诺的"切主题强制重渲"其实不存在 |
+
 ## §5 审计结论与本轮修复
 
 ### §5.1 后端（`fix/state-protocol-audit` 分支）

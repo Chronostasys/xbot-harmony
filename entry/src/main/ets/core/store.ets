@@ -19,6 +19,7 @@ import { arrOrEmpty, isPresent } from './guards';
 import { ChatState, DomainEvent, EventSeq, initialChatState, iterNum, NonEmptyS, nonEmptyStr, turnID, TurnID, UserRow } from './chat_types_full';
 import { demoAnswerFor, demoFirstIteration, demoReasoningFor, demoSeedPrompt, demoSessions, demoToolFor } from './demo';
 import { reduce, applySessionFields } from './reduce';
+import { invariantViolations } from './state_invariants';
 import { liveRunningIn, withSessionRunning } from './chat_types_full';
 import type { GoalInfo as ChatGoalInfo, TodoItem as ChatTodoItem } from './chattypes';
 import { deriveRows, Row } from './derive';
@@ -119,6 +120,18 @@ import {
 
 /** SSE 意图的竞态窗口（web `useSessionStore.ts` 同值 15s）。 */
 const SSE_INTENT_TTL_MS: number = 15000;
+
+/**
+ * **发送意图窗**（唯一真源）：从 `intentBusyAt` 起这段时间内，"用户刚点发送" 的
+ * 本地即时 busy 必须压住一切**滞后证据**（重载/对账看到的 running=false 早于 ack）。
+ *
+ * ⛔ 2026-10-21（state-gate-9-2 确证）：这个窗与 `scheduleIdleRetry` 的预算**必须同源**。
+ *   旧代码窗是 8s、补判预算却是 3×2.1s≈6.3s ⇒ 窗内到达的**权威 idle** 在补判次数
+ *   耗尽后被丢弃（注释承诺"排队不丢"）⇒ 极短回合/发送后立刻取消时输入框长期停在
+ *   「停止/思考中」，要等探针或 30s 冷却才自愈。
+ *   ⇒ 补判的**等待时长**由"窗还剩多久"算，次数上界只是防死循环的硬闸。
+ */
+const SEND_INTENT_MS: number = 8000;
 
 /**
  * **全局**（跨 store 实例共享）单调序号 —— 用于生成**全局唯一**的 `requestID`。
@@ -530,7 +543,7 @@ export class ChatStore {
 
   /** 发送意图窗（≤8s）：在 REST ack/turn_started 到达前给 composer/占位符即时反馈。 */
   private sendIntentActive(): boolean {
-    return this.intentBusyAt > 0 && Date.now() - this.intentBusyAt < 8000;
+    return this.intentBusyAt > 0 && Date.now() - this.intentBusyAt < SEND_INTENT_MS;
   }
 
   /**
@@ -765,6 +778,7 @@ export class ChatStore {
       next = applySessionFields(next, undefined, goalLocal);
     }
     this.state = next;
+    this.checkStateInvariants('batch');
     this.rebuildRows();
     if (lastEndedTurn !== null && next.sessionRunning
       && (next.activeTurn === null || next.activeTurn === lastEndedTurn)) {
@@ -774,6 +788,23 @@ export class ChatStore {
     this.watchBusyWithoutLiveTurn(next);
     // ⛔ 洞检测的**唯一消费点**（见 `watchGapReload`）
     this.watchGapReload();
+  }
+
+  /**
+   * **生产侧不变量体检** —— 把 `core/state_invariants.ts` 的同一份判据接进运行时。
+   *
+   * 为什么（用户 2026-10-21：「状态变化必打日志 + 原因」，「不许再出新问题」）：
+   *   `tools/tests/state_fuzz.test.ts` 只在 CI 里穷举；真机上如果某个**没被穷举到的**
+   *   路径写出非法状态，现场只能靠肉眼。把判据接到唯一出口 ⇒ 真机日志里直接出现
+   *   `不变量违反(I1): busy=true 与 sessionRunning=false 相反`，可归因、可复现。
+   *   ⛔ 与测试同一份函数：两处判据永不漂移（结构/成本都只有一份）。
+   *   成本：只在**生命周期类**事件后跑（O(回合数)），不进入流式热路径。
+   */
+  private checkStateInvariants(tag: string): void {
+    const v: string[] = invariantViolations(this.state);
+    if (v.length > 0) {
+      log('state', `不变量违反(${tag}) chat=${this.currentChatId} :: ${v.join(' | ')}`);
+    }
   }
 
   /** 单事件便捷。 */
@@ -1209,11 +1240,21 @@ export class ChatStore {
     }
     // ⛔ 审计确证（state-gate-7-9）：注释写"只补一次"，但被守卫再次挡下时会**无条件重排自己**
     //   ⇒ 陈旧 live 在场时每 2.1s 永久唤醒、idle 永不落地（busy 卡死 + 无谓耗电）。
-    //   ⇒ 有界：最多补 3 次（约 6s）；仍挡下就交给探针/会话树那条权威路径。
-    if (this.idleRetryAttempts >= 3) {
+    // ⛔ 审计确证（state-gate-9-2）：预算 3×2.1s≈6.3s **短于**发送意图窗 8s ⇒ 窗内到达的
+    //   权威 idle 在补判次数耗尽后被丢弃（本函数上方注释承诺"不是丢弃"）。
+    //   ⇒ 结构性判据：**窗内不消耗预算**、等待时长按"窗还剩多久"算（跨过窗口只需一次），
+    //     窗过后最多再补 2 次；`>= 8` 只是防死循环的硬闸（与窗无关）。
+    const inWindow: boolean = this.sendIntentActive();
+    if (!inWindow && this.idleRetryAttempts >= 2) {
+      return;
+    }
+    if (this.idleRetryAttempts >= 8) {
       return;
     }
     this.idleRetryAttempts++;
+    const wait: number = inWindow
+      ? Math.max(100, SEND_INTENT_MS - (Date.now() - this.intentBusyAt) + 50)
+      : 2100;
     this.pendingIdleTimer = setTimeout(() => {
       this.pendingIdleTimer = -1;
       if (this.disposed || this.currentChatId !== chatId) {

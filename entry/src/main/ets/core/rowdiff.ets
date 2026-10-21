@@ -92,27 +92,6 @@ export function sessionScopedRowKey(chatId: string, r: ChatRow): string {
 }
 
 /**
- * 行的**渲染键**：`chatId#id`（不含 theme，不含 rev）。
- *
- * ⛔ 2026-10-15 闪烁终极修复（用户亲报「上下文闪烁偶现，本质是突然重建某iter的单元」）：
- *   主题在键里 ⇒ theme 变化时 key 变化 ⇒ LazyForEach 销毁旧 item + 创建新 item ⇒ 闪烁。
- *   现在所有组件都有 @StorageProp('appTheme') 全局订阅 ⇒ theme 变化时 @StorageProp 变化
- *   ⇒ build() 重跑 ⇒ 色板更新 ⇒ 不需要 theme 在键里。去掉 theme 彻底消除闪烁。
- *
- * ⚠️ rev 也不在键里（2026-10-17 照抄 web）：迭代 commit（rev++）不换键 ⇒ 行不重建。
- *   行内容更新走 @Observed 属性刷新（ChatRow 是 @Observed、render.applyRow 赋值替换引用
- *   ⇒ @ObjectLink 组件自动重渲——与 web 的 React 状态更新同语义）。
- *
- * ⚠️ 两处必须**同源**（否则 `changedByKeys` 的 diff 与框架实键不一致 ⇒ 零通知或误通知）：
- *   · 数据源快照（`ChatRowDataSource.applyRows` 内部）
- *   · `LazyForEach` 的 key 生成器（页面）
- *   ⇒ 都调本函数，别再各写一份。
- */
-export function themableRowKey(chatId: string, theme: string, r: ChatRow): string {
-  return sessionScopedRowKey(chatId, r);
-}
-
-/**
  * **会话作用域指纹**：`chatId|n|p1,p2,…`（rows / sessions / queue / todos 同一契约）。
  *
  * ⛔ 同一事故的第二处：指纹用于判「要不要把 store 的数据重新投影到界面」。不含会话身份时,

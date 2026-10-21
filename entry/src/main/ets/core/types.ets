@@ -396,17 +396,6 @@ export class ChatRow implements IterList {
    */
   subAgents: WebSubAgentProgress[] = [];
   /**
-   * **主题代际**触发器（2026-10-17 P0 白底白字的独立修复线）。
-   *
-   * ⛔ 背景：`MarkdownView` 的色链（`@StorageProp('appTheme')`）在虚拟列表**缓存 item** 上
-   *   **不触发重渲**（0152795 亲证的平台坑）⇒ 切浅色后 C 块 MarkdownView 持有深色配色 = 白字；
-   *   `applyRows` 的 `onDataReloaded`（键含 @theme）理论上会重建 item，但实测仍有窗口。
-   * 修：主题 structural reload 时对每行 **@Observed 赋值**（`themeGen++`）⇒ @ObjectLink 组件
-   *   **强制刷新**（绕过 @StorageProp 订阅坑）⇒ MarkdownView @Prop 重投 ⇒ pal() 更新 ⇒ 黑字。
-   * 字段本身无 UI 语义（纯触发器）；赋值即通知，无需被 build 读取。
-   */
-  themeGen: number = 0;
-  /**
    * **已完成块列表**持有者（`@Observed`）—— 只通知订阅它的 `IterBlocksView`。
    * 由 `core/render.ets:applyRow` 维护（仅在块列表/压缩点真正变化时替换）。
    */

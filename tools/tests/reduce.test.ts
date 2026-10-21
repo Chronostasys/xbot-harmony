@@ -109,10 +109,11 @@ it('REPRO 2026-10-18：turn 结束（text_final/idle）也必须清掉残留 sen
       requestID: 'req-send-2', turnHint: undefined, dbID: undefined,
     },
   })
-  // 没有 turn_started，直接收到回合结束（真实弱网路径）。
-  const s = reduce(sent, {
-    type: 'session_idle', turnID: null, reason: 'sse-idle',
-  } as never)
+  // 没有 turn_started，直接收到回合结束/权威 idle（真实弱网路径）。
+  // ⛔ 2026-10-21：这里原本用 `session_idle`，该类型已删除（零生产者 + 违反
+  //   「粗粒度 idle 不是送达证据」契约）。真正带送达语义的权威信号是
+  //   `session_running(false)`（store 的对账/乐观状态，实际会发）。
+  const s = reduce(sent, { type: 'session_running', running: false })
   const userRow = deriveRows(s).find((r) => r.kind === 'user')
   expect(userRow !== undefined && userRow.kind === 'user' ? userRow.sending : true,
     '回合结束是送达证据 ⇒ 不得永久发送中').toBe(false)
@@ -2301,12 +2302,12 @@ describe('P0(2026-09-18): iteration boundary keeps already-rendered tools', () =
 // —— frozen 会丢弃同迭代后续帧（长迭代永久冻结）。busy 现在由
 // sessionRunning || streaming 计算（不再用 activeTurn），所以停流即退出 busy；
 // 且幂等（重复 idle 返回原引用）。
-describe('P0(2026-09-18): session_idle 停流（后端 idle ⇒ 前端退出 busy）', () => {
-  it('session_idle ⇒ streaming=false、内容保留；activeTurn 保留（不冻结、不丢后续帧）', () => {
+describe('P0(2026-09-18): 权威 idle（session busy=false）停流（后端 idle ⇒ 前端退出 busy）', () => {
+  it('session(busy=false) ⇒ streaming=false、内容保留；activeTurn 保留（不冻结、不丢后续帧）', () => {
     const s0 = run([started(T1), iteration1(T1, '完成的工作', 1) as DomainEvent])
     expect(s0.activeTurn).toBe(T1)
 
-    const s1 = run([{ type: 'session_idle' } as DomainEvent], s0)
+    const s1 = run([{ type: 'session', busy: false } as DomainEvent], s0)
     // activeTurn 保留：后续同迭代的 stream/iteration 必须仍能落到这个 turn。
     expect(s1.activeTurn).toBe(T1)
     const t = s1.turns.get(T1)
@@ -2319,8 +2320,8 @@ describe('P0(2026-09-18): session_idle 停流（后端 idle ⇒ 前端退出 bus
 
   it('幂等：重复 idle 返回原 state 引用（零渲染，防重放抖动）', () => {
     const s0 = run([started(T1), iteration1(T1, 'x', 1) as DomainEvent])
-    const s1 = run([{ type: 'session_idle' } as DomainEvent], s0)
-    const s2 = run([{ type: 'session_idle' } as DomainEvent], s1)
+    const s1 = run([{ type: 'session', busy: false } as DomainEvent], s0)
+    const s2 = run([{ type: 'session', busy: false } as DomainEvent], s1)
     expect(s2).toBe(s1)
   })
 })

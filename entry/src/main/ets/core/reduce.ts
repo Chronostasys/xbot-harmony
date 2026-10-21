@@ -96,7 +96,16 @@ export function applySessionFields(
 ): ChatState {
   let next = s
   if (todos !== undefined) next = { ...next, todos }
-  if (goal !== undefined) next = { ...next, goal }
+  if (goal !== undefined) {
+    // ⛔ 墓碑是**线协议**的编码，绝不能漏进 state（否则 GoalBanner 渲染一个空目标）：
+    //   机器发现（`state_fuzz` seed=32220 step=25，`session_fields`）—— 本函数是**唯一**
+    //   把 goal 写进 state 的地方，所以折在这里就是"全事件类型一次修好"
+    //   （iteration/stream/phase_done/session_fields/turn_started/history_replaced 全走它）。
+    //   ⚠️ 判据必须带 `status === 'cleared'`：`{objective:'', status:'active'}` 是后端
+    //   异常但不等于"已清除"，三态语义要求**保持原样**（`state_invariants.test` ★C 守着）。
+    const tombstone: boolean = goal !== null && goal.status === 'cleared'
+    next = { ...next, goal: tombstone ? null : goal }
+  }
   return next
 }
 
@@ -763,14 +772,101 @@ function settleSendingInvariant(s: ChatState, ev: DomainEvent): ChatState {
   return { ...s, turns, pendingUsers };
 }
 
+/**
+ * 事件自带的**水位**（`lastSeq` 闸门的输入）。只有增量帧带 seq；粗粒度权威帧
+ * （`session`/`session_idle`/`session_running`）与终局帧（`text_final`）按契约不带
+ * ⇒ 它们**不受**水位闸门约束（"陈旧"对它们无定义）。
+ */
+function eventSeqOf(ev: DomainEvent): number | null {
+  switch (ev.type) {
+    case 'iteration':
+      return ev.seq
+    case 'stream':
+      return ev.seq
+    case 'phase_done':
+      return ev.seq
+    case 'session_fields':
+      return ev.seq === undefined ? null : ev.seq
+    default:
+      return null
+  }
+}
+
+/**
+ * 事件声明的**归属轮次**（`iteration`/`stream`/`phase_done` 带 turnID；其余为 null）。
+ * 水位是 **per-run** 的（`turn_started` / lazy 采纳都把 `lastSeq` 重置为 null —— 见
+ * `chat_types_full.ts` I5 注释）⇒ 跨轮比较 seq 是**无意义**的，必须带上归属轮次一起判。
+ */
+function eventTurnOf(ev: DomainEvent): number | null {
+  switch (ev.type) {
+    case 'iteration':
+      return ev.turnID
+    case 'stream':
+      return ev.turnID
+    case 'phase_done':
+      return ev.turnID
+    default:
+      return null
+  }
+}
+
+/**
+ * **水位闸门（唯一陈旧判据）**：带 seq 的帧若 `seq ≤ 已应用水位` ⇒ 整帧零写入。
+ *
+ * ⛔ 为什么必须在**入口统一**判，而不是每个 case 自己判（前八轮反复踩的同一坑）：
+ *   `iteration` / `stream` / `phase_done` / `session_fields` 各自有一份 `xxxStale`
+ *   局部变量，规则一样却各写一遍 ⇒ 每新增一条路径就多一个漏点（第 8 轮就抓到
+ *   `phase_done` 的两条早退分支"不过水位闸门就写 todos/goal"）。本函数是**一条规则**，
+ *   新增事件类型只要在 `eventSeqOf` 里登记就自动受保护。
+ *
+ * ⛔ 闸门必须**带轮次**（实测踩中）：`lastSeq` 是 per-run（每个 turn 从 1 重新计数），
+ *   而它跨轮残留 —— 第一版比较"全局 seq ≤ 全局水位"，把**新一轮的第一帧**（seq=10 对
+ *   上一轮的 10）判成陈旧整帧丢弃 ⇒ 断连双丢（turn_started+echo 全丢）后的 lazy 采纳
+ *   永远建立不起 live turn（`reduce.test.ts:834` 直接红）。
+ *   ⇒ 规则：目标轮 ≠ 当前轮 ⇒ **不是同一个 run**，水位不可比（目标更旧才判陈旧）；
+ *   目标轮为空且当前无活动轮 ⇒ 也不可比（水位属于已收尾的那轮）。
+ *
+ * 语义依据：`stream` 的 content 是**覆盖语义的前缀**，应用一条更旧的帧 = 正文倒退。
+ *   "重放帧只更新内容"是 web 的旧行为，但它与"陈旧帧零写入"直接冲突，且实测会造成
+ *   文字回跳（`state_fuzz` seed=40150：seq=37 的陈旧 stream 把 c=0 写成 c=5 再被覆盖）。
+ */
+function isStaleBySeq(s: ChatState, ev: DomainEvent): boolean {
+  const seq: number | null = eventSeqOf(ev)
+  if (seq === null || s.lastSeq === null) {
+    return false
+  }
+  const tgt: number | null = eventTurnOf(ev)
+  if (tgt !== null) {
+    if (s.activeTurn === null) {
+      return false
+    }
+    if (tgt !== s.activeTurn) {
+      return tgt < s.activeTurn
+    }
+  }
+  return seq <= s.lastSeq
+}
+
 /** 状态机入口（web `reduce` 的逐字移植 + 出口不变量收敛，见 `settleSendingInvariant`）。 */
 export function reduce(s: ChatState, ev: DomainEvent): ChatState {
+  // ── 入口闸门：陈旧帧**逐字段零写入**（返回入参原引用 ⇒ 零渲染）──────────────
+  if (isStaleBySeq(s, ev)) {
+    return s
+  }
   // ⛔ 审计确证（state-final-8 C1）：顺序必须**先补 running 再结算 sending** ——
   //   `settleSendingInvariant` 的第②条只看 `sessionRunning`；而 `stream` 帧只把 streaming 置回
   //   true、不碰 sessionRunning，后者要等出口的 `satisfyRunningInvariant` 才补。
   //   旧顺序 ⇒ 一次迟到 idle 之后的下一帧会把**所有**在飞 pending 的「发送中」清掉
   //   （B 还在 POST 途中就显示已发；失败后被 user_fail 整行删 ⇒ 消息静默消失）。
-  return settleSendingInvariant(satisfyRunningInvariant(reduceInner(s, ev), ev), ev);
+  const out: ChatState = settleSendingInvariant(satisfyRunningInvariant(reduceInner(s, ev), ev), ev);
+  // ── R4（I1）`busy` 是 `sessionRunning` 的**派生出口**，不是第二个真源 ──────
+  // ⛔ 2026-10-21 机器发现（`tools/tests/state_fuzz.test.ts`，seed=32220 step=10）：
+  //   `text_final` 只清了 `sessionRunning`、没清 `busy` ⇒ 终态 `busy=true / run=false`
+  //   （会话：`[1:committed]`）⇒ **回复已经显示完，输入框还挂着 cancel**。这正是
+  //   "两处各写一半"的形状 —— 与其逐条 handler 补写（永远会漏下一个），不如在**唯一出口**
+  //   把它们钉成同值：任何 handler 只写其中一个都不会分叉。
+  //   判据：`state_invariants.ts` 的 I1 + fuzz 每步断言 + mutation（删本行必红）。
+  return out.busy === out.sessionRunning ? out : { ...out, busy: out.sessionRunning };
 }
 
 /**
@@ -786,9 +882,8 @@ export function reduce(s: ChatState, ev: DomainEvent): ChatState {
  */
 function satisfyRunningInvariant(s: ChatState, ev: DomainEvent): ChatState {
   // ⛔ 只对**活动类**事件生效：`session*` 是 idle/busy 的权威信号，必须在它们之后保持原样
-  //   （否则本不变量会把 sessionRunning 置 true，反过来把 `session_idle` 的粗粒度闸门
-  //   `if (s.sessionRunning) return s` 堵死 —— 实测会让 idle 永远不生效）。
-  if (ev.type === 'session' || ev.type === 'session_idle' || ev.type === 'session_running') {
+  //   （否则本不变量会把 sessionRunning 置 true，把关掉 busy 的唯一入口堵死）。
+  if (ev.type === 'session' || ev.type === 'session_running') {
     return s
   }
   if (s.sessionRunning || s.activeTurn === null) {
@@ -812,53 +907,15 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
     // **永久**卡住，直到整页刷新（用户 2026-09-18 P0：后端 idle、前端 busy）。
     // 清 activeTurn 的同时把活跃 turn 定格为 frozen —— **保留已渲染内容**
     // （与 cancel 的 freeze 同语义，绝不 wipe），并把 streaming 置 false。
-    case 'session_idle': {
-      s = settlePendingSending(s, true)
-      // ⛔ 审计（2026-10-21，与 `session(idle)` 的 F9 同一条规则）：`session_idle`
-      //   就是**后端明确 idle**（用户规则允许的两种 idle 证据之一）⇒ **必须**复位 busy。
-      //   旧实现在 `sessionRunning` 为 true 时直接 return（当时为绕服务端"旧轮迟到 idle"
-      //   的 bug；根因已由 `agent/session_idle_guard_test.go` 的 runGen 守卫修掉）。
-      //   安全边界：只把 `streaming` 置 false、**不删不冻**；且 `satisfyRunningInvariant`
-      //   会在下一帧活动事件（stream/iteration）把 busy 拉回 ⇒ 迟到 idle 最多一次极短抖动。
-      if (s.activeTurn === null) {
-        return s.sessionRunning ? { ...s, sessionRunning: false, busy: false } : s
-      }
-      const t = s.turns.get(s.activeTurn)
-      if (!t || t.phase.kind !== 'live') {
-        // ⛔ 审计确证（C2）：与 `session` case 不对称 —— 旧实现在这里原样返回，`sessionRunning`
-        //   仍是 true ⇒ composer 永久停在 cancel/「思考中」，直到下一个 turn 或整页重载。
-        return { ...s, sessionRunning: false, busy: false }
-      }
-      // 无产出 = 真空壳：收尾（保留 user 行；无 user 行则删槽）。
-      if (!hasOutput(t.phase.data)) {
-        const turns = new Map(s.turns)
-        if (t.user !== null && t.user !== undefined) {
-          turns.set(t.id, { ...t, phase: { kind: 'frozen', data: { ...t.phase.data, streaming: false } } })
-        } else {
-          turns.delete(t.id)
-        }
-        return { ...s, turns, activeTurn: null, sessionRunning: false, busy: false }
-      }
-      const liveData = t.phase.data
-      // 幂等：已经停流 ⇒ 只清 running（反复 idle/对账零对象分配，但 busy 必须复位）
-      if (!liveData.streaming) {
-        return s.sessionRunning ? { ...s, sessionRunning: false, busy: false } : s
-      }
-      // ⛔ **有产出时绝不转 frozen**（本次修复的核心）：
-      //   frozen 会让后续 `stream`/`iteration` 因 `ev.iter > maxIter` 不成立被整批
-      //   丢弃（`reduce.ts` 的遮蔽解除门槛）⇒ 一条迟到/陈旧 idle 就能让长迭代
-      //   **永久冻结**（用户症状：工具跑着跑着界面不动 / 工具变失败）。
-      //   新语义：只把 `streaming` 置 false（停止"进行中"视觉），**保持 live** ——
-      //   后续任何同迭代帧都照常应用；真正收尾由 `text_final` / 下一 `turn_started`
-      //   完成。`lastSeq` 保留（防重放），`activeTurn` 保留（事件归属不变）。
-      const next = withTurn(s, t.id, (tt) => ({
-        ...tt,
-        phase: { kind: 'live', data: { ...liveData, streaming: false } },
-      }))
-      // 停流时刻复核「live 是否明显领先于已持有窗口」——落后窗口一旦停流，渲染层的
-      // 在飞合成块会消失（用户实录："turn 结束后又只剩旧窗口"）⇒ 必须触发权威重载。
-      return withLiveAhead({ ...next, sessionRunning: false, busy: false }, t.id, liveData)
-    }
+    // ⛔ 2026-10-21 结构性删除：`session_idle` 是一个**零生产者**的事件类型
+    //   （`tools/tests/protocol_coverage.test.ts` 的 C2 抓到）—— 全仓没有任何一条
+    //   生产路径会发出它，后端的 `agent-idle` 经 `normalize` 走的是 `session(busy=false)`。
+    //   语义上两者**完全重复**（同一规则写两遍 = 两份必然漂移的真相），而且它还违反
+    //   现行契约：它无条件 `settlePendingSending(s, true)`，而第 7-8 轮已判定
+    //   「粗粒度 idle 不是送达证据」⇒ 一旦有人把它接线，就会把 POST 途中的气泡
+    //   标成"已发送"（POST 失败后 `user_fail` 删行 = 消息静默消失）。
+    //   ⇒ 删除分支与类型（见 `chat_types_full.ts` 的 DomainEvent），唯一 idle 入口
+    //   收敛到下面的 `session` case（`busy=false`）。
 
     // ── session_running：会话 running（服务端 reconcile 权威）─────────────
     // 唯一职责：让 turn 的 live-ness 服从它 —— running=true 且 store 里没有
@@ -1530,7 +1587,11 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       if (ev.turnID !== null && ev.turnID < lastTurnIDOf(s)) {
         return s
       }
-      s = settlePendingSending(s, true)
+      // ⛔ 2026-10-21（state-gate-9-5 确证）：结算必须放在**命令回复早退之后** ——
+      //   `!cmd`/slash 的命令回复不是"用户回合收尾"（后端命令分发不分配 turn、
+      //   与在途 POST 无关），旧顺序会在命令输出到达的瞬间把**仍在 POST 途中**的
+      //   pending 标成"已发送"，POST 失败后 `user_fail` 删行 ⇒ 消息静默消失。
+      //   结构性判据：`settlePendingSending` 只属于"用户回合的终态"，见下方调用点。
       // ⚠️ turnID 为 null 的 text_final = **命令回复**（`!cmd` bang / slash 命令）：
       // 后端命令分发（chatWorker 的 Concurrent 分支）按设计**不分配 turn**
       // （无 turn_started、无 turn_id），输出以独立消息形式 sendMessage 回来。
@@ -1575,6 +1636,8 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       // 非命令回复：turnID 缺失时按 master 语义回落到 `s.activeTurn`
       //（后端 gap / 重启恢复丢 turn_id 的普通回复必须并入正在跑的 turn，而不是
       // 变成底部独立行 —— 见上方 P1-1 注释）。
+      // ⇒ 到这里才是**用户回合的终态**：此时才允许把 pending 的「发送中」结算掉。
+      s = settlePendingSending(s, true)
       const target = ev.turnID !== null ? ev.turnID : s.activeTurn
       if (target === null) return s
       const t = s.turns.get(target)
@@ -1777,15 +1840,16 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       }
       const t = s.turns.get(s.activeTurn)
       if (!t || t.phase.kind !== 'live') {
-        return { ...s, sessionRunning: false, busy: false }
+        // 幂等（零渲染）：已经不在跑 ⇒ 返回原引用（重复 idle 不得重建对象）。
+        return s.sessionRunning ? { ...s, sessionRunning: false, busy: false } : s
       }
       const live = t.phase.data
       if (hasOutput(live)) {
-        // 幂等：已经停流 ⇒ 只清 running（不重建 turn）
+        // 幂等：已经停流 ⇒ 只清 running（不重建 turn；已 idle 时返回原引用）
         if (!live.streaming) {
-          return { ...s, sessionRunning: false, busy: false }
+          return s.sessionRunning ? { ...s, sessionRunning: false, busy: false } : s
         }
-        // ⛔ 与 session_idle/session_running(false) 同一新语义：**有产出时不转 frozen**
+        // ⛔ 与 session_running(false) 同一新语义：**有产出时不转 frozen**
         //   （frozen 会丢弃后续同迭代帧 ⇒ 长迭代永久冻结）。只停 streaming，
         //   保持 live，等待 text_final / 下一 turn_started 收尾。
         const next = withTurn(s, t.id, (tt) => ({

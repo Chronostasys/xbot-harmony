@@ -48,8 +48,6 @@ console.log('\n▶ §A busy：只允许「无 toolcall 迭代 / 后端 idle」�
 
   const viaIdle = reduce(streamOnce(s), { type: 'session', busy: false } as unknown as DomainEvent);
   ok('★A 后端 session(idle) ⇒ busy=false', !viaIdle.sessionRunning);
-  const viaIdle2 = reduce(streamOnce(s), { type: 'session_idle' } as unknown as DomainEvent);
-  ok('★A 后端 session_idle ⇒ busy=false', !viaIdle2.sessionRunning);
 
   // ⛔ 快照（DB 滞后）绝不能关 busy
   const snap = reduce(s, hist({}));

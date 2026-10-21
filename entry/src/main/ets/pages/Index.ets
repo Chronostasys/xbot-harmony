@@ -118,7 +118,7 @@ import {
 } from '../core/attach';
 import { identityChanged, needsFullReload, rowKey, rowsFpOf, sameRowIds,
   structRowsFpOf,
-  scopedFingerprint, themableRowKey, tailRows } from '../core/rowdiff';
+  scopedFingerprint, sessionScopedRowKey, tailRows } from '../core/rowdiff';
 import { BusySignals, busyLabel, busyNow, DRAWER_EMPTY_NO_MATCH, DRAWER_EMPTY_NO_SESSIONS, DRAWER_EMPTY_NONE, drawerEmptyHint, drawerEmptyKind, showsBusyPlaceholder, showsHistorySkeleton, showsJumpToLatest } from '../core/indicators';
 import { drawerCacheHit, drawerFingerprint } from '../core/drawerfp';
 // SSE 终态（服务端明确拒绝 ⇒ 停止无限重连）——页面横幅据它显示**可解释的终态**而非"正在重连"。
@@ -2540,6 +2540,13 @@ struct Index {
       //   仍显示「停止」/ 发送被陈旧连接态拦死（用户症状：点停止/发送无反应）。
       this.busy = store.busy;
       this.connState = store.connState;
+      // ⛔ 2026-10-21（state-gate-9-3 确证）：`historyLoading` / `hasMore` / `loadingMore`
+      //   的镜像在早退之后 ⇒ 滚动或按住屏幕期间这三项是**冻结副本**：历史已到但骨架屏不退
+      //   （或该出不出现），头项一直写"更早的历史消息"而不是"正在加载更早…"。
+      //   三者都是 O(1) 布尔读取（真源在 store）⇒ 与 busy/connState 同批同步，零渲染代价。
+      this.historyLoading = store.historyLoading;
+      this.hasMore = store.hasMore;
+      this.loadingMore = store.loadingMore;
       return;
     }
     // 自愈：not busy 却残留空 live 行（迟到事件造的）⇒ 先删掉再投影，避免 busy 被钉死
@@ -3380,6 +3387,15 @@ struct Index {
    */
   private async switchSession(chatId: string, channelHint: string = ''): Promise<void> {
     this.closeDrawer();
+    // ⛔ 2026-10-21（state-gate-9-2 确证）：点**当前会话**必须是 no-op。
+    //   旧实现里 `storeFor()` 每次都 new 一个 store（池中没有可复用），而 `alreadyOpen`
+    //   是在**刚新建的空 store** 上算的 ⇒ 恒为 false ⇒ 走"切走 + dispose + beginSwitch
+    //   重载"整条路径。于是回合进行中在抽屉点一下自己：splash 闪一下、busy 消失、
+    //   按钮从「停止」翻回「发送」—— 用户看到的就是"像被取消了"（服务端其实还在跑）。
+    //   结构性判据：会话身份没变 ⇒ 不做任何会话级动作（SSE/turn/busy 全保持）。
+    if (this.store !== null && !this.store.demoMode && this.store.currentChatId === chatId) {
+      return;
+    }
     // ── 会话面切换动效（用户 2026-10-12 亲报「侧边栏点击切换会话后要有动画，现在没有」）──────
     // ① 本帧先把整面**下沉一格**（`switchSlide=1`；静息态是 0 ⇒ 不动时与原先逐字节一致）；
     // ② 内容就位后由 `settleSwitchSlide()` 在**下一帧**动画归零 ⇒ 新会话"从下方落位"。
@@ -7163,7 +7179,7 @@ struct Index {
           ListItem() {
             this.ChatRowBody(row)
           }
-        }, (row: ChatRow) => themableRowKey(this.currentChat, this.themeName, row))
+        }, (row: ChatRow) => sessionScopedRowKey(this.currentChat, row))
 
         // ── live turn 的整条 assistant 消息（LazyForEach 之外，@State 直驱）──
         // 真机 bug ② 根治点：live 迭代不再是"单独的气泡/单独的 ListItem"，而是这条
@@ -12881,15 +12897,26 @@ class ChatRowDataSource implements IDataSource {
     return this.rows.length;
   }
 
-  /** 用新行集替换（骨架不变则只通知变更行，避免整表重建丢滚动锚点）。 */
+  /**
+   * 用新行集替换（骨架不变则只通知变更行，避免整表重建丢滚动锚点）。
+   *
+   * ⛔ 主题变化必须走**整表 reload**（`themeChanged` ⇒ fullReload 分支）：键里**不含**主题
+   *   （含主题会让切主题销毁/重建全部 item = 闪烁，2026-10-15 修），所以"键变了"不能作为
+   *   重建依据；行色板由每个组件的 `@StorageProp('appTheme')` + build 内 `AppStorage.get()`
+   *   直读解决。整表 reload 只是让框架重新走一遍 item builder 的**兜底**。
+   *   （`themeGen` 那个"赋值即通知"的触发器是死字段：全仓零写入者 ⇒ 已删除。）
+   */
   applyRows(next: ChatRow[], chatId: string, theme: string): void {
     // 骨架重建判据必须含**会话身份**（见 core/rowdiff.needsFullReload 的事故注释）
-    // ⛔ 还必须含**主题**：`LazyForEach` 的键含主题（`themableRowKey`）⇒ 主题变了键全变，
-    //    必须走整表 reload 让框架重读键/重建条目；否则键已变而只发 `onDataChange` ⇒
-    //    已存在行仍冻结在旧色板（用户亲报「深色看不清字」的同一根因）。
-    const fullReload: boolean = needsFullReload(this.rows, next, this.chatId, chatId);
-    const prevRows: ChatRow[] = this.rows;
     const themeChanged: boolean = theme !== this.theme;
+    // ⛔ 主题变化必须**强制整表 reload**（2026-10-21 结构性收口）：键里不含主题（含主题会
+    //   让切主题销毁/重建全部 item = 闪烁），所以"键变了"不能当重建依据；而缓存 item 上的
+    //   `@StorageProp('appTheme')` 实测不可靠（正是 `theme_row_delivery` 的 F7 守着的那条）。
+    //   ⇒ 唯一可靠路径就是这里显式重建（切主题是用户主动、低频操作，重建代价可接受；
+    //   流式期的高频闪烁是另一条判据，二者不冲突）。
+    //   （旧机制 `row.themeGen++` 是死字段：全仓零写入者 ⇒ 已删除，别再复活。）
+    const fullReload: boolean = needsFullReload(this.rows, next, this.chatId, chatId) || themeChanged;
+    const prevRows: ChatRow[] = this.rows;
     this.theme = theme;
     // ⚠️ 2026-10-17 键去 rev 后：**内容更新不再走 onDataChange**（同键 item 被
     //    LazyForEach 用 onDataChange 触发重建 = 闪烁根源）—— @Observed 属性刷新接管：
@@ -12901,7 +12928,7 @@ class ChatRowDataSource implements IDataSource {
     this.chatId = chatId;
     const keys: string[] = [];
     for (let i = 0; i < next.length; i++) {
-      keys.push(themableRowKey(chatId, theme, next[i]));
+      keys.push(sessionScopedRowKey(chatId, next[i]));
     }
     // ⛔ 键里现在含 sending/queued（见 sessionScopedRowKey）：ack/turn_started 清发送中
     //   只改变这两个布尔，`needsFullReload` 仍为 false（只比 id）且 changed 原本恒空 ⇒

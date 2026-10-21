@@ -59,7 +59,10 @@ function pageSafe(idx: string): boolean {
   // ④ switchSession 切 store 时丢弃旧延迟投影 / 取消驻留
   const sw0: number = idx.indexOf('private async switchSession(chatId: string');
   if (sw0 < 0) { return false; }
-  const swBody: string = idx.substring(sw0, sw0 + 2600);
+  // ⚠️ 定长窗（2600→3200）：2026-10-21 在 switchSession **开头**新增了"同一会话直接
+  //   早退"的守卫（含注释约 9 行）⇒ 原来的 2600 窗把后面的 `prevStore.dispose()` 推出窗口
+  //   ⇒ 假红。只放大窗口、不改断言意图（AGENTS.md「修窗不修判别力」）。
+  const swBody: string = idx.substring(sw0, sw0 + 3200);
   if (swBody.indexOf('this.pendingSync = null;') < 0) { return false; }
   if (swBody.indexOf('this.syncScheduled = false;') < 0) { return false; }
   if (swBody.indexOf('this.cancelSpinHold = false;') < 0) { return false; }

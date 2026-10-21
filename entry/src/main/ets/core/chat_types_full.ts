@@ -367,14 +367,6 @@ export function initialChatState(chatID: string): ChatState {
  */
 export type DomainEvent =
   | {
-      /** 权威 idle（SSE `session(idle)` / `agent-idle` 事件；后端说这个会话没在跑）。
-       *  **必须**清 `activeTurn`：`busyFallback = activeTurn !== null` 是 AgentPanel
-       *  busy 三路 OR 之一，缺少权威清除路径时会**永久卡 busy**（用户 2026-09-18 P0：
-       *  后端 idle、前端渲染成 busy，只能整页刷新恢复）。
-       *  **不丢内容**：活跃 turn 转 frozen（与 cancel 的 freeze 同语义）。 */
-      readonly type: 'session_idle'
-    }
-  | {
       /** 会话 running 状态（**服务端 reconcile 后的权威**：`currentSession.running`，
        *  来自 session-tree/status 的 REST 对账，而非单条 SSE 事件）。
        *
