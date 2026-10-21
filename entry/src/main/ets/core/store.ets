@@ -1178,7 +1178,7 @@ export class ChatStore {
    * 把被时间窗挡下的 idle 排到窗口之后**补判一次**（不是丢弃）。
    * 只补一次、且校验 disposed / 仍同一会话（跨会话不补）。
    */
-  private scheduleIdleRetry(chatId: string): void {
+  private scheduleIdleRetry(chatId: string, authoritative: boolean = false): void {
     if (this.pendingIdleTimer >= 0 || this.disposed) {
       return;
     }
@@ -1194,7 +1194,10 @@ export class ChatStore {
       if (this.disposed || this.currentChatId !== chatId) {
         return;
       }
-      this.applyLocalIdle(chatId, false);
+      // ⛔ 审计确证（fe-store-audit）：补判**不能降级**权威证据 —— `PhaseDone` 是"回合已结束"
+      //   的权威事实，若在这条路径上被当成非权威（`false`），2.1s 后又会因 `hasLiveTurn` 被
+      //   无限期推迟 ⇒ 回合已结束但输入框仍 cancel/「思考中」。
+      this.applyLocalIdle(chatId, authoritative);
     }, 2100);
   }
 
@@ -1203,7 +1206,7 @@ export class ChatStore {
     //   **滞后证据**（用户 2026-10-21 日志：`resume(send-ack-sync)` 之后紧跟
     //   `running 1→0 cause=ev:session_running`，再被 `history_replaced` 拉回 ⇒ 抽搐）。
     if (this.sendIntentActive()) {
-      this.scheduleIdleRetry(chatId);
+      this.scheduleIdleRetry(chatId, authoritative);
       return;
     }
     // ⛔ 用户 2026-10-21 P0（「busy 途中会突然 IDLE 一下然后又变回来」）：
@@ -1211,7 +1214,7 @@ export class ChatStore {
     //   迟到/回放的 coarse idle 就会把 busy 闪成 idle，下一帧又拉回 busy ⇒ 抽搐。
     if (!authoritative && Date.now() - this.lastEventAtMs < 2000) {
       // ⛔ 确证-3：窗口内不能**丢**，排队到窗口结束后再判一次（否则永久 busy）。
-      this.scheduleIdleRetry(chatId);
+      this.scheduleIdleRetry(chatId, authoritative);
       return;
     }
     // ② SSE 意图：idle 证据时刻（对账时用于压住"矛盾的旧 busy"）
@@ -1230,7 +1233,8 @@ export class ChatStore {
     //   ⇒ 判据收敛到「live 且 streaming」（与 hasLiveTurn / watchBusyWithoutLiveTurn 同源），
     //   被挡下时也排队补判。
     if (!authoritative && this.hasLiveTurn()) {
-      this.scheduleIdleRetry(chatId);
+      // （权威路径不会走到这里的排队分支，见 scheduleIdleRetry 的透传）
+      this.scheduleIdleRetry(chatId, authoritative);
       return;
     }
     // ⛔ 只有**真正被接受**的 idle 才写意图窗口：写在闸门之前会让一条被拒绝的陈旧 idle
@@ -1814,8 +1818,13 @@ export class ChatStore {
       const stillSame = this.currentChatId === chatId;
       const todosUnchanged = this.state.todos === switchTodosSeen;
       // 有 live turn = 更权威的流式帧正在写 todos ⇒ 不采信这条旧快照。
-      if (stillSame && !switchHadLive && !this.hasLiveTurn() && todosUnchanged && res.todos.length > 0) {
-        this.state = applySessionFields(this.state, toStateTodos(res.todos), undefined);
+      // ⛔ 审计确证（state-gate-7-5）：`res.todos.length > 0` 把服务端**显式清空**（`[]`）当
+      //   "没有"，且 Go 的 nil slice 会序列化成 `null` ⇒ `.length` 抛 TypeError 被 `.catch` 静默吞掉。
+      //   三态：`null`/缺失 = 未携带（不动）；`[]` = 显式清空；有值 = 覆盖。
+      const switchTodos = Array.isArray(res.todos) ? toStateTodos(res.todos) : undefined;
+      if (stillSame && !switchHadLive && !this.hasLiveTurn() && todosUnchanged
+        && switchTodos !== undefined) {
+        this.state = applySessionFields(this.state, switchTodos, undefined);
         this.onUpdate();
       }
     }).catch(() => {
