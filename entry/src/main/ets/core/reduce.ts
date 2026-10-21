@@ -28,6 +28,7 @@ import {
   commitViaFold,
   commitViaText,
   initialChatState,
+  liveHasOutput,
   nonEmptyArr,
   nonEmptyStr,
   turnID,
@@ -553,22 +554,11 @@ function mergeStreamStats(
   }
 }
 
-/** turn 是否有实质产出（决定收尸方式：fold commit / 空壳清除）。 */
+/** turn 是否有实质产出 —— **唯一判据**在 `chat_types_full.liveHasOutput`（本文件此前另有一份，
+ *  与 derive/state_invariants 互相矛盾 ⇒ state-gate-10-1 确证「工具全完成但正文未产出」时
+ *  权威 idle 会误删 turn ⇒ 工具整排消失）。这里只做转发，禁止再写第四份。 */
 function hasOutput(live: LiveSnapshot): boolean {
-  return (
-    live.content !== '' ||
-    live.reasoning !== '' ||
-    live.iterations.length > 0 ||
-    live.genui !== '' ||
-    // ⛔ **在飞工具**也算产出（2026-10-16 用户 P0「正在执行的 tool 迭代切后台后彻底消失」）：
-    //   在飞工具只活在 `activeTools`/`streamingTools`（**不在** `iterations` —— 那是已完成的）。
-    //   此前本函数不数它们，而渲染侧同源判据 `derive.hasVisibleOutput` **数** ⇒ **判据分叉**
-    //   （违反本仓「判据与渲染必须同源」）：一个「迭代刚开始、LLM 还没吐字就调工具」的 turn
-    //   会被 `history_replaced` 的 step2（`keep = frozen && hasOutput`）与空壳清除逻辑误删
-    //   ⇒ 整行消失。收敛到同一语义（含在飞工具）。
-    live.activeTools.length > 0 ||
-    live.streamingTools.length > 0
-  )
+  return liveHasOutput(live)
 }
 
 const withTurn = (s: ChatState, id: TurnID, patch: (t: Turn) => Turn): ChatState => {
@@ -906,6 +896,22 @@ function satisfyRunningInvariant(s: ChatState, ev: DomainEvent): ChatState {
     return s
   }
   return { ...s, sessionRunning: true, busy: true }
+}
+
+/**
+ * **水位推进的唯一出口**（state-gate-10-8 确证）：旧实现三处直接 `lastSeq: ev.seq` ⇒
+ *   ① `ev.seq === null` 时把水位**清空**（重放闸门失效，旧帧可被重新应用）；
+ *   ② 乱序帧经"新迭代号逃生"放行后把水位**倒退**（后续帧被误判陈旧/新鲜）。
+ * ⇒ 只进不退：null 保持原值，否则取 max。新增写入点必须走它。
+ */
+function advanceSeq(last: EventSeq | null, seq: number | null): EventSeq | null {
+  if (seq === null) {
+    return last
+  }
+  if (last === null) {
+    return seq as EventSeq
+  }
+  return seq > last ? (seq as EventSeq) : last
 }
 
 function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
@@ -1393,7 +1399,7 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       return applySessionFields(
         {
           ...next,
-          lastSeq: ev.seq,
+          lastSeq: advanceSeq(s.lastSeq, ev.seq),
           ...(iterGapSig !== ''
             ? { gapReloadToken: s.gapReloadToken + 1, lostIterGapSig: iterGapSig }
             : {}),
@@ -1562,10 +1568,10 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
                 phase: { ...tt.phase, data: { ...tt.phase.data, iterations: mergedIts } },
               })
             }
-            return applySessionFields({ ...s, turns: turnsPatched }, ev.todos, ev.goal)
+            return pdStale ? s : applySessionFields({ ...s, turns: turnsPatched }, ev.todos, ev.goal)
           }
         }
-        return applySessionFields(s, ev.todos, ev.goal)
+        return pdStale ? s : applySessionFields(s, ev.todos, ev.goal)
       }
       const t = s.turns.get(target)
       if (!t || t.phase.kind !== 'live') return applySessionFields(s, ev.todos, ev.goal)
@@ -1586,7 +1592,7 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       }
       // I5 基准推进。会话级 todos：事件携带时同步（turn 结束后存活）。
       const next = withTurn(s, target, (tt) => ({ ...tt, phase: { kind: 'live', data } }))
-      return applySessionFields({ ...next, lastSeq: ev.seq }, ev.todos ?? s.todos, ev.goal)
+      return applySessionFields({ ...next, lastSeq: advanceSeq(s.lastSeq, ev.seq) }, ev.todos ?? s.todos, ev.goal)
     }
 
     // ── text_final：权威 finalizer —— live/frozen → committed（I2 构造） ──
@@ -1830,7 +1836,7 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       const sfSeq = ev.seq !== undefined && ev.seq !== null ? ev.seq : null
       if (sfSeq !== null) {
         if (s.lastSeq !== null && sfSeq <= s.lastSeq) return s
-        return applySessionFields({ ...s, lastSeq: sfSeq }, ev.todos, ev.goal)
+        return applySessionFields({ ...s, lastSeq: advanceSeq(s.lastSeq, sfSeq) }, ev.todos, ev.goal)
       }
       return applySessionFields(s, ev.todos, ev.goal)
     }

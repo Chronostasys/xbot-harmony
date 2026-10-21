@@ -16,16 +16,17 @@
  *     不会出现"某处又坏了但说不清是哪条规则"。
  */
 
-import { ChatState, Turn } from './chat_types_full'
+import { ChatState, Turn, liveHasOutput } from './chat_types_full'
 
-/** live/frozen data 或 committed payload 是否已有产出（送达/开始工作的证据）。 */
+/** live/frozen data 或 committed payload 是否已有产出（送达/开始工作的证据）。
+ *  ⛔ 唯一判据在 `chat_types_full.liveHasOutput`（本文件此前是第三份实现且不计工具 ——
+ *  state-gate-10-1 确证它与 reduce/derive 互相矛盾）。 */
 function turnHasOutput(t: Turn): boolean {
   if (t.phase.kind === 'committed') {
     const p = t.phase.payload
     return p.content.length > 0 || p.iterations.length > 0
   }
-  const d = t.phase.data
-  return d.content.length > 0 || d.reasoning.length > 0 || d.iterations.length > 0
+  return liveHasOutput(t.phase.data)
 }
 
 /**

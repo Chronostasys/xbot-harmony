@@ -184,6 +184,29 @@ export interface UserRow {
   readonly dbID: number | undefined
 }
 
+/**
+ * **唯一**"有无产出"判据 —— live 快照是否已经产出过任何用户可见的东西。
+ *
+ * ⛔ 为什么必须唯一（state-gate-10-1 确证）：本仓曾同时存在 **4 份**互相矛盾的实现
+ *   （`reduce.hasOutput` 不计 completedTools；`derive.hasVisibleOutput` 计；
+ *   `state_invariants.turnHasOutput` 连工具都不计；`reduce` 内还有第四版）。
+ *   后果：某迭代"工具全部执行完（移入 `completed_tools`、`active_tools` 空）而正文尚未产出"
+ *   时，权威 idle 用 `hasOutput=false` 判定 ⇒ 无 user 行的 turn 被**删槽** ⇒ 用户刚看到的
+ *   工具整排消失；下一帧 stream 又把 turn 提回 live ⇒ 工具闪回/「工具变失败又恢复」。
+ *   ⇒ 收敛到这里（reduce / derive / state_invariants 共用），且**必须计 completedTools**。
+ */
+export function liveHasOutput(d: LiveSnapshot): boolean {
+  return (
+    d.content !== ''
+    || d.reasoning !== ''
+    || d.iterations.length > 0
+    || d.genui !== ''
+    || d.activeTools.length > 0
+    || d.streamingTools.length > 0
+    || d.completedTools.length > 0
+  )
+}
+
 export interface Turn {
   readonly id: TurnID
   /** 触发本次 turn 的 user 行（乐观行绑定后移入；通知 turn 可为 null）。 */

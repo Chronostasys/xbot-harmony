@@ -65,6 +65,27 @@ scan_spread() { # ② 状态 spread 里的生命周期字段
   echo "$out"
 }
 
+scan_helpers() { # ③ 会话级 helper 的**跨文件**写入点（台账只许缩短）
+  local ledger="$HERE/state-single-writer.txt"
+  local out=0 f rel n max reason
+  while IFS= read -r f; do
+    [ "$f" = "$REDUCE" ] && continue
+    [ "$f" = "$TYPES" ] && continue
+    n="$(strip "$f" | grep -cE '(applySessionFields|withSessionRunning)\(' || true)"
+    [ "${n:-0}" -eq 0 ] && continue
+    rel="${f#$SRC/}"
+    max="$(awk -F'\t' -v p="$rel" '$1==p{print $2}' "$ledger" 2>/dev/null | head -1)"
+    if [ -z "${max:-}" ]; then
+      echo "  ✗ ${rel}：${n} 处 applySessionFields/withSessionRunning（**未登记**：写会话级字段必须经 reduce，或写进台账附理由）"
+      out=$((out + n))
+    elif [ "$n" -gt "$max" ]; then
+      echo "  ✗ ${rel}：${n} 处 > 台账上限 ${max}（台账**只许缩短**）"
+      out=$((out + n - max))
+    fi
+  done < <(find "$SRC" -type f \( -name '*.ets' -o -name '*.ts' \) | sort)
+  echo "$out"
+}
+
 run_check() {
   local total_files
   total_files="$(find "$SRC" -type f \( -name '*.ets' -o -name '*.ts' \) | wc -l | tr -d ' ')"
@@ -85,6 +106,7 @@ run_check() {
   local bad=0
   bad=$((bad + $(scan_direct | tail -1)))
   bad=$((bad + $(scan_spread | tail -1)))
+  bad=$((bad + $(scan_helpers | tail -1)))
 
   if [ "$bad" -gt 0 ]; then
     echo "❌ 单写入源：$bad 处违规（生命周期字段只能在 core/reduce.ts 写）"

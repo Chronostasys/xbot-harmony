@@ -157,6 +157,14 @@ echo "（⑦ 耗时 ${perf_dt}s）"
 echo "===== ⑧ core/ 未消费模块（警告级，不影响退出码）====="
 bash "$HERE/lint/orphan-core.sh" || true
 
+# ⚠️ 新增（2026-10-21 第十轮审计确证）：**会话生命周期字段的单写入源**（**硬红**）。
+#    事故：判据写好了却**从未接入门禁**，而且只认字面量（`state.X =`），看不见
+#    `applySessionFields(...)`/`withSessionRunning(...)` 这类 helper 写入 ⇒ 判据双重空转
+#    （第十轮 audit 现场列出 8 处"已绕过 reduce"的写入全绿）。现在接入 + 加 helper 规则（台账只许缩短）。
+echo "===== ⑧b 生命周期字段单写入源（硬红）====="
+bash "$HERE/lint/state-single-writer.sh" || fail=1
+bash "$HERE/lint/state-single-writer.sh" --self-test || fail=1
+
 # ⚠️ 新增（波10）：**「可读性不得是动画的函数」**（用户亲报"白主题正文看不清"的根因类）。
 #    A 级（静息态被写成隐藏：`.opacity(x ? 1 : 0)`）⇒ **硬红**；B 级（不透明度由动画驱动）⇒ 警告。
 #    事故与 web 权威对照见 `tools/lint/anim-opacity-gate.sh` 头注释 / `docs/ARKTS-GOTCHAS.md` 批次 33d。

@@ -132,6 +132,10 @@ const SSE_INTENT_TTL_MS: number = 15000;
  *   ⇒ 补判的**等待时长**由"窗还剩多久"算，次数上界只是防死循环的硬闸。
  */
 const SEND_INTENT_MS: number = 8000;
+/** 意图窗的实际下限：**不得短于发送读超时** —— 否则弱网下 ack 落在 [窗, 超时] 之间时
+ *  输入框已显示空闲、气泡仍「发送中」⇒ 用户会再点一次（新 requestID 不被服务端去重）
+ *  ⇒ 同一条内容发两遍、收两条回复（state-gate-10-2 确证）。 */
+const SEND_INTENT_WINDOW_MS: number = Math.max(SEND_INTENT_MS, HTTP_SEND_READ_TIMEOUT_MS);
 
 /**
  * **全局**（跨 store 实例共享）单调序号 —— 用于生成**全局唯一**的 `requestID`。
@@ -541,9 +545,16 @@ export class ChatStore {
     return (this.state.sessionRunning || snap.streaming || this.sendIntentActive()) && this.askUser === null;
   }
 
-  /** 发送意图窗（≤8s）：在 REST ack/turn_started 到达前给 composer/占位符即时反馈。 */
+  /** 发送意图窗（≥8s 且 ≥ 发送读超时）：在 REST ack/turn_started 到达前给 composer/占位符即时反馈。 */
   private sendIntentActive(): boolean {
-    return this.intentBusyAt > 0 && Date.now() - this.intentBusyAt < SEND_INTENT_MS;
+    return this.intentBusyAt > 0 && Date.now() - this.intentBusyAt < SEND_INTENT_WINDOW_MS;
+  }
+
+  /** 本会话是否有在飞取消（身份三元组：chat + gen + promise）。 */
+  private cancelInFlightHere(): boolean {
+    return this.cancelInFlight !== null
+      && this.cancelInFlightChat === this.currentChatId
+      && this.cancelInFlightGen === this.chatGen;
   }
 
   /**
@@ -2742,8 +2753,19 @@ export class ChatStore {
       //   真结束由权威路径收尾（PhaseDone ⇒ `applyLocalIdle(true)` ⇒ `session_running(false)`）。
       //   ⛔ 命令（`!cmd`/slash）无 turn 生命周期 ⇒ 不置位（`sendStartsTurn` 门控 —— 否则永久卡 busy）。
       if (sendStartsTurn(ack.turn_id, ack.queued)) {
-        this.intentBusyAt = Date.now();
-        this.pushEvent({ type: 'session_running', running: true });
+        // ⛔ 2026-10-21（state-gate-10-2 确证）：迟到的 ack **不得**把已结束/已取消的回合
+        //   重新点亮 —— 旧实现无条件乐观置 running ⇒ 发送后立刻点停止、或回合 <2s 时，
+        //   迟到的 ack 把 busy 又拉回 true（输入框从「发送」回弹成「停止·思考中」），
+        //   只能靠 3s 后的 ack-sync 重载纠正；该重载失败则前台常驻不再自愈。
+        //   判据：① 该轮在状态机里已不是 live（committed/frozen）⇒ 不点亮；
+        //        ② 本会话有在飞取消 ⇒ 不点亮。
+        const ackTurn: number = ack.turn_id !== undefined && ack.turn_id !== null ? ack.turn_id : 0;
+        const t = ackTurn > 0 ? this.state.turns.get(turnID(ackTurn)) : undefined;
+        const alreadyEnded: boolean = t !== undefined && t.phase.kind !== 'live';
+        if (!alreadyEnded && !this.cancelInFlightHere()) {
+          this.intentBusyAt = Date.now();
+          this.pushEvent({ type: 'session_running', running: true });
+        }
       } else if (ack.command === true) {
         // 命令无 turn：清发送意图，避免 composer 假 busy。
         this.intentBusyAt = 0;

@@ -1,0 +1,9 @@
+# state-single-writer 台账（**只许缩短**，每行 <相对路径><TAB><上限><TAB><理由>）
+#
+# 规则 R3：`applySessionFields(` / `withSessionRunning(`（写会话级字段的 helper）只允许出现在
+# `core/reduce.ts`（状态机本体）与 `core/chat_types_full.ts`（构造器/工厂）。
+# 其余文件每出现一次就是**一个绕过 reduce 的写入点**（绕水位闸门 / turn 归属 / running 守卫）。
+#
+# ⛔ 这些是**已知存量**（2026-10-21 第十轮审计确证），不是"允许"：上限只许下调，
+#   正确方向是把它们逐个改成"经 reduce 的 `session_fields` 事件"或"由 store 的命名出口收敛"。
+core/store.ets	11	本地会话级状态出口（reset 保留 goal/todos、running 标记、ack 后的乐观状态）；存量待收敛

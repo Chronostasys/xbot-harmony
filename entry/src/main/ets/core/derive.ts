@@ -13,6 +13,7 @@
 
 import type { TodoItem, WebCompaction, WebIteration, WebSubAgentProgress, WebToolProgress } from './chattypes'
 import type { ChatState, LegacyRow, LiveSnapshot, Turn, TurnID } from './chat_types_full'
+import { liveHasOutput } from './chat_types_full'
 
 // ─── TURNDROP 诊断（降噪：逐 turn 走 debug + burst 结束打**一条** warn 汇总） ───
 // 背景（perf-audit #5）：冷启动加载「cron/通知 turn」时，DB 快照里只有 user 行、
@@ -449,15 +450,8 @@ function userRowView(u: ChatState['pendingUsers'][number]): UserRowView {
 }
 
 function hasVisibleOutput(d: LiveSnapshot): boolean {
-  return (
-    d.content !== '' ||
-    d.reasoning !== '' ||
-    d.iterations.length > 0 ||
-    d.genui !== '' ||
-    d.activeTools.length > 0 ||
-    d.streamingTools.length > 0 ||
-    d.completedTools.length > 0
-  )
+  // 唯一判据（含 completedTools）—— 见 `chat_types_full.liveHasOutput` 的注释。
+  return liveHasOutput(d)
 }
 
 /** frozen 的进行中工具标 error（cancel 语义 —— "已渲染内容永不误导"）。 */
