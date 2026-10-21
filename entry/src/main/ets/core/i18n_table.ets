@@ -1036,6 +1036,7 @@ export const I18N_KEYS: string[] = [
   "workspace.terminal",
   "workspace.terminalNotAvailable",
   "workspace.viewUnavailable",
+  "排队中…",
 ];
 export const I18N_ZH: string[] = [
   "批注操作",
@@ -2070,6 +2071,7 @@ export const I18N_ZH: string[] = [
   "终端",
   "终端暂不可用",
   "插件未激活或已被卸载",
+  "排队中…",
 ];
 export const I18N_EN: string[] = [
   "Comment actions",
@@ -3104,6 +3106,7 @@ export const I18N_EN: string[] = [
   "Terminal",
   "Terminal not available",
   "Plugin not active or uninstalled",
+  "Queued…",
 ];
 export const I18N_JA: string[] = [
   "コメントの操作",
@@ -4138,4 +4141,5 @@ export const I18N_JA: string[] = [
   "ターミナル",
   "ターミナルは利用できません",
   "プラグインが無効、またはアンインストールされています",
+  "待機中…",
 ];
