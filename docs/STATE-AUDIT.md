@@ -285,6 +285,7 @@
 | `emitBuiltinProgressDone` 是**唯一不 clone** 的 fan-out 点，而 CLI 的 `SendProgress` **就地改写** payload ⇒ 跨渠道污染 + 数据竞争 | 补 `cloneProgressEvent` | 同上 |
 | goal 读取键有**三个来源**（`ch:chatID` / `todoKey()` / `s.sessionKey`）⇒ 跨渠道浏览时系统提醒读不到 goal | 统一 `s.todoKey()` | 同上 |
 | `GetActiveProgress` 直接返回快照的 todos（副本）⇒ 重连后可能下发旧列表 | 以 `TodoManager` 刷新；管理器为空且快照非空时保留 | 同上 |
+| `ActiveTools`/`CompletedTools` 是 `omitempty`，nil 时**键消失** ⇒ 「无工具」与「未携带」无法区分（同迭代内 promote/取消后 pill 一直转圈） | 恒发非 nil（空即 `[]`） | 同上 |
 
 ⚠️ **这些后端修复需要重启后端才生效**（本地 launchd 托管）。客户端修复无需。
 
