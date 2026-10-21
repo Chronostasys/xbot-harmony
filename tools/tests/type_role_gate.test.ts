@@ -309,7 +309,10 @@ console.log('\n▶ §C3 收编钉住：Index/MessageRow 的阶梯外字号走 `c
   const WANT: string[][] = [
     ['pages/Index.ets', 'fontSize(FS_BOOT_WORDMARK)', '1'],
     ['pages/Index.ets', 'fontSize(FS_BRAND_WORDMARK)', '2'],
-    ['components/MessageRow.ets', 'fontSize(FS_META)', '4'],
+    // ⛔ 台账下调（2026-10-21，只准降不准升）：实测 3 处（第 4 处随"更早区域"分隔条一起迁到
+    //   `IterBlocksView`，那边计 1 处 —— 见下行）。降级 ≠ 放宽：仍是"语义常量"判据，变号即红。
+    ['components/MessageRow.ets', 'fontSize(FS_META)', '3'],
+    ['components/IterBlocksView.ets', 'fontSize(FS_META)', '1'],
   ];
   let total: number = 0;
   for (let i = 0; i < WANT.length; i++) {
