@@ -68,7 +68,13 @@ export function appIsPaused(): boolean {
 let tailPausedActive: boolean = false;
 export function setTailPaused(active: boolean): void {
   tailPausedActive = active;
+  tailPausedAt = active ? Date.now() : 0;
 }
+/** 暂停标志的**自愈窗口**：唯一的复位点是 `onTouch Up|Cancel`；浮层弹出/来电/手势被吞都可能
+ *  吞掉抬手指 ⇒ 裸布尔会永久 true ⇒ 打字机永久停在首帧（"思考 3 字"不变）直到该迭代结束。
+ *  ⇒ 超过该窗口视为已失效（state-gate-7-7）。取 10s：正常"按住停读"够用，lost-Up 也能自愈。 */
+export const TAIL_PAUSE_STALE_MS: number = 10000;
+let tailPausedAt: number = 0;
 /** 滚动标志的自愈窗口（毫秒）：超过它没有新滚动帧 ⇒ 视为已停止。 */
 export const UI_SCROLL_STALE_MS: number = 500;
 
@@ -87,7 +93,9 @@ export function uiIsScrollingFresh(nowMs: number = Date.now(),
 export function tailIsPaused(): boolean {
   // ⛔ 用**自愈**判据（不是裸标志）：否则一次丢失的 `onScrollStop` 会让打字机永久停摆
   //   （症状：新迭代恒显示「思考 3 字」，到该迭代结束才正常）。
-  return tailPausedActive || appPausedActive || uiIsScrollingFresh();
+  const tailFresh: boolean = tailPausedActive && tailPausedAt > 0
+    && Date.now() - tailPausedAt <= TAIL_PAUSE_STALE_MS;
+  return tailFresh || appPausedActive || uiIsScrollingFresh();
 }
 
 /**
