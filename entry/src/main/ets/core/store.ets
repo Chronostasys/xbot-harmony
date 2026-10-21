@@ -401,6 +401,15 @@ export class ChatStore {
    */
   private gapReloadSeenKey: string = '';
   private gapReloadSeenToken: number = 0;
+  /** todos 的内容签名（`text#status` 串联）：跨 `initialChatState` 重建仍可比（引用会变）。 */
+  private todosSig(): string {
+    let out: string = '';
+    const list = this.state.todos;
+    for (let i = 0; i < list.length; i++) {
+      out += `${list[i].text}#${list[i].status};`;
+    }
+    return out;
+  }
 
   /** 行对象缓存（id → ChatRow）——就地更新，保住 @ObjectLink 恒等。 */
   private rowCache: Map<string, ChatRow> = new Map();
@@ -1692,6 +1701,9 @@ export class ChatStore {
     //   否则 B 会继承 A 的"取消中"（按钮一直转圈，且 B 的停止请求被跨会话早退吞掉）。
     this.cancelling = false;
     this.cancelInFlight = null;
+    // ⛔ 审计确证（state-gate-8-9）：补判预算是**每会话**的；跨会话共享会让"A 用尽 3 次后
+    //   B 的迟到 idle 直接被丢弃、不排队" ⇒ B 卡 busy 直到探针/重载。
+    this.idleRetryAttempts = 0;
     this.cancelInFlightChat = '';
     this.cancelInFlightGen = 0;
     // 会话级订阅（模型/上下文徽章）与终端列表同属会话态 ⇒ 身份切换时清掉，
@@ -1816,12 +1828,16 @@ export class ChatStore {
     //   **请求发起那一刻**的快照；SSE 可能已在它之前推了更新的 `todos`（`session_fields`/
     //   `iteration` 帧）⇒ 旧值会覆盖新值（todo 面板"先新后旧"跳一次）。兄弟路径 `loadStatus`
     //   有 `seenTodos` + `hasLiveTurn()` 守卫、`loadGoal` 有 `seenGoal`，这里漏了 ⇒ 补齐同源守卫。
-    const switchTodosSeen = this.state.todos;
+    // ⛔ 我上一版用**引用**比较（`this.state.todos`），但 `openSession` 会 `initialChatState`
+    //   重建 state（`todos: []`）⇒ 引用恒变 ⇒ `todosUnchanged` 恒 false ⇒ **整段是死代码**
+    //   （切到有 todo 的会话时面板先空，要等 `loadStatus` 回来才填）。⇒ 改**内容签名**比较
+    //   （空数组也算一个确定的签名 —— "期间没被任何事件改过"才是守卫要表达的意思）。
+    const switchTodosSeen = this.todosSig();
     const switchHadLive = this.hasLiveTurn();
     this.notifyServerSwitch(chatId).then((res: ChatSwitchResult) => {
       // 切会话即刻恢复 TODO —— 仅当**仍是当前会话**时套用（用户已切走 ⇒ 丢弃，避免串台）。
       const stillSame = this.currentChatId === chatId;
-      const todosUnchanged = this.state.todos === switchTodosSeen;
+      const todosUnchanged = this.todosSig() === switchTodosSeen;
       // 有 live turn = 更权威的流式帧正在写 todos ⇒ 不采信这条旧快照。
       // ⛔ 审计确证（state-gate-7-5）：`res.todos.length > 0` 把服务端**显式清空**（`[]`）当
       //   "没有"，且 Go 的 nil slice 会序列化成 `null` ⇒ `.length` 抛 TypeError 被 `.catch` 静默吞掉。
