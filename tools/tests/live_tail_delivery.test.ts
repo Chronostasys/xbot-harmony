@@ -267,7 +267,7 @@ async function main(): Promise<void> {
   frame('send');
   w.emit('progress_structured', P({ turn_id: 5, phase: 'turn_started', seq: 2, turn_start: { trigger: 'user', content: '跑个长任务', request_id: 'r1' } }));
   frame('turn_started');
-  w.emit('progress_structured', P({ turn_id: 5, phase: 'iteration', seq: 3, iteration: 1, iteration_history: [] }));
+  w.emit('progress_structured', P({ turn_id: 5, phase: 'iteration', seq: 3, iteration: 1, iteration_history: [{ iteration: 1, content: '', reasoning: '', tools: [] }] }));
   frame('iter1-shell');
   w.emit('progress_structured', P({ turn_id: 5, seq: 4, iteration: 1, stream_content: '思考一' }));
   frame('stream-1');

@@ -13,9 +13,9 @@
  *        （内容到达那一刻就必须可见）。
  *
  * 为什么用真实 store 流水线而不是直接调 reduce：
- *   SSE → `normalizeEvent` → `reduce` → `deriveRows` → `applyRow`（对象恒等缓存）
- *   才是设备上真正跑的链；判据（`rowIsEmpty`）与 `MessageRowView` 的渲染决策都读
- *   这条链的产物。只测 reduce 测不出"判据/渲染分叉"。
+ *   SSE → `normalizeEvent` → `model_bridge.stepEvent`（旧 `reduce` 状态机仍在跑会话级
+ *   字段）+ `applyModel`（行源）才是设备上真正跑的链；判据（`rowIsEmpty`）与
+ *   `MessageRowView` 的渲染决策都读这条链的产物。只测 reduce 测不出"判据/渲染分叉"。
  *
  * ⚠️ `renderVisibleChars` 是**独立 oracle**：逐条复刻 `components/MessageRow.ets`
  *   的 `AssistantBlock` 与 `components/LiveTailView.ets` 的 `build()`"到底画出多少

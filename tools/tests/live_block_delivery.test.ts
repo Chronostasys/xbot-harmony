@@ -7,7 +7,7 @@
  *   P58 修好了「在飞块」的投递（页面 @State liveText/liveReasoning/liveTools + 无参
  *   `LiveRowBody()` + `@Prop`）。但 live 行的**已完成迭代**仍走**带参 @Builder**
  *   `AssistantBlock(this.row)` 里的 `ForEach(this.itersFor(row))` —— 参数是**同一个
- *   `ChatRow` 引用**（`core/render.ets:applyRow` 就地改它）。ArkUI V1 的「按值传参
+ *   `ChatRow` 引用**（`core/model_bridge.ets:applyModel` 就地改它）。ArkUI V1 的「按值传参
  *   @Builder」参数不变 ⇒ 其内 UI **不重建**（docs/ARKTS-GOTCHAS.md §4）。
  *
  * ── 为什么这会「iter1 消失」而不是「不刷新」（机制，逐帧） ─────────────────
@@ -22,7 +22,7 @@
  * ── 本测试（投递层判据，不是模型判据）────────────────────────────────────
  *   「模型全对、画面不对」的 bug 必须在**投递层**写判据：本用例
  *   ① 读**真实源码**判定「已完成块」的投递形态（值变化通道 vs. 就地改的对象）；
- *   ② 用真实 store（SSE → normalize → reduce → deriveRows → applyRow）跑一条
+ *   ② 用真实 store（SSE → normalize → `model_bridge.stepEvent` → `applyModel`）跑一条
  *      「iter1 流式 → 工具 generating/running → 工具完成 + iter1 commit → iter2 流式」
  *      的真实事件序列；
  *   ③ 以**真实接线形态**重建「组件每帧渲染出的块列表」，断言：
