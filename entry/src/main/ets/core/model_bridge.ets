@@ -10,6 +10,7 @@
  *     未变化的行/块 ⇒ 引用不变 ⇒ 组件零重建（不需要任何字符串指纹）。
  */
 import { ChatRow, HistoryIteration, ToolProgress } from './types';
+import { WebCompaction } from './chattypes';
 import type { PRow, PAssistantRow, PUserRow } from './model_project';
 import type { Block } from './model_types';
 import type { State, ToolRec, SubAgentNode } from './model_types';
@@ -116,9 +117,12 @@ function fillAssistant(row: ChatRow, r: PAssistantRow, isLive: boolean): void {
   row.sending = false;
   row.queued = false;
   row.regionsBefore = r.regionsBefore;
-  // ⚠️ 压缩点（`Compaction` → `WebCompaction`）在 W2 切换行源时再映射；
-  //    当前只服务影子比对（不显示），置空以免引入未导出类型的依赖。
-  row.compactions = [];
+  // 压缩点（`Compaction` → `WebCompaction`，字段同形，逐字段搬运）
+  const comps: WebCompaction[] = [];
+  for (let i = 0; i < r.compactions.length; i++) {
+    comps.push({ afterIteration: r.compactions[i].afterIteration, content: r.compactions[i].content });
+  }
+  row.compactions = comps;
   row.subAgents = [];
   if (row.iterBlocks.blocks !== blocks) {
     row.iterBlocks.blocks = blocks;
