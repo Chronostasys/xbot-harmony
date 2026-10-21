@@ -2722,6 +2722,8 @@ export class ChatStore {
     }
     const gen: number = this.chatGen;
     const forChat: string = this.currentChatId;
+    // ⛔ 旧回包作废判据（见下方 `seenTodos`）
+    const seenTodos = this.state.todos;
     try {
       const st: SessionStatus = await this.http.postAs<SessionStatus>(
         '/api/session/status', new SessionReq(this.channel, this.wireChatId()));
@@ -2735,7 +2737,14 @@ export class ChatStore {
       this.cwd = st.cwd !== undefined && st.cwd !== null ? st.cwd : '';
       // ⛔ 审计确证（F3）：REST 快照是**请求发起时刻**的旧值；有 live turn 时事件流每帧都在
       //   更新 todos ⇒ 采信 REST 会把面板**回跳**旧列表（可见振荡）。无 live turn 才采信。
-      this.state = applySessionFields(this.state, this.hasLiveTurn() ? undefined : toStateTodos(st.todos), undefined);
+      // ⛔ 审计确证（store-audit 1.1）：判据用的是**回包到达时**的 live 状态，而快照是**请求
+      //   发起时刻**的值 ⇒ 请求在 turn 结束前发出、回包在提交后到达时，`hasLiveTurn()` 已为
+      //   false ⇒ 采信旧快照 ⇒ todo 面板"回跳"到旧列表（照抄 `loadGoal` 的 `seenGoal` 守卫）。
+      if (this.state.todos !== seenTodos) {
+        // 期间已有更新（事件/另一路 REST）⇒ 旧回包作废
+      } else {
+        this.state = applySessionFields(this.state, this.hasLiveTurn() ? undefined : toStateTodos(st.todos), undefined);
+      }
       this.onUpdate();
     } catch (e) {
       // 状态拉取失败不影响主链路（历史/发送优先）
