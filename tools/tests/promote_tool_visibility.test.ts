@@ -180,7 +180,10 @@ async function main(): Promise<void> {
     // 2026-10-17：结构投递改为**引用投递**（`row.completedBlocks`，整数 rev 门控），
     // 且不再有 `if (!this.userScrolling)` 分支（滚动期内容也不丢，只有 100ms/浮层降频）。
     const iStruct: number = body.indexOf('this.liveBlocks = this.liveRowRef.completedBlocks;');
-    const iThrottle: number = body.indexOf('this.lastNonFollowLiveMs < 100');
+    // ⛔ 锚点修正（2026-10-21）：100ms 闸门的表达式已演进为**按 lane 记录**的
+    //   `now - lane.lastNonFollowAtMs < 100`（旧字段 `lastNonFollowLiveMs` 已不存在）⇒
+    //   旧锚恒 -1 ⇒ 假红。只钉"存在 100ms 比较"，不钉字段名（字段重命名不该判红）。
+    const iThrottle: number = body.indexOf('lastNonFollowAtMs < 100');
     const iDeliver: number = body.indexOf('shouldDeliverLive(');
     const iGate: number = body.indexOf('if (throttled || covered)');
     ok('② 四个调用点都扫到（零扫描判红 —— 白绿防线）',

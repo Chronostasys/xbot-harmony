@@ -87,7 +87,10 @@ ok(pageSrc.indexOf('import { ChatStore, LOADMORE_ERR_NOCURSOR }') >= 0,
   '页面 import 了 LOADMORE_ERR_NOCURSOR（判据与动作同源）');
 ok(pageSrc.indexOf('if (err === LOADMORE_ERR_NOCURSOR) {') >= 0,
   '页面区分哨兵：游标失效走自愈分支');
-ok(/await store\.openSession\(this\.currentChat\);/.test(pageSrc),
+// ⛔ 锚点修正（2026-10-21）：`openSession` 现在带 channel（规范键必需，`web:chat_X` 否则成
+//   幽灵会话）⇒ 旧正则（无参形态）恒不匹配 ⇒ 假红。只钉"await 调用 openSession 且以
+//   `this.currentChat` 开头"，参数个数不作判据。
+ok(/await store\.openSession\(\s*this\.currentChat\b/.test(pageSrc),
   '自愈分支重拉首页（openSession 重建游标）');
 ok(pageSrc.indexOf('加载更早失败：${err}') >= 0,
   '真实失败给可读 toast（⛔ 不静默）');

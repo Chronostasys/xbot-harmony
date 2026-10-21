@@ -30,12 +30,23 @@ ok('resync 先 loadSessions 再 loadHistory', /resyncAfterResume[\s\S]{0,2200}lo
 ok('resume resync 在飞守卫（三路触发只跑一份）', /resumeResyncInFlight/.test(store));
 ok('resume resync 期间挂起行重建并在结束后释放', /resumeResyncInFlight[\s\S]{0,1600}suspendUiUpdates\(true\)[\s\S]{0,2200}suspendUiUpdates\(false\)/.test(store));
 ok('loadHistory 同一 chatGen 在飞合并（不重复请求/解析）', /historyLoading\s*&&\s*this\.historyLoadGen === gen/.test(store));
-ok('SSE reconnect 不再先 loadSessions 再 resync 重复会话树', /if \(reconnected && this\.resumeActive\)[\s\S]{0,500}resyncAfterResume\(['"]sse-reopen['"]\)[\s\S]{0,500}else[\s\S]{0,300}loadSessions\(\)/.test(store));
-ok('SSE 重连（open 且断线过）触发 resync', /state === 'open'[\s\S]{0,900}resyncAfterResume\(['"]sse-reopen['"]\)/.test(store));
+// ⛔ 锚点修正（2026-10-21）：`resyncAfterResume` 现在有**第二参**（authoritative）⇒ 旧正则要求
+//   `resyncAfterResume('sse-reopen')` 后紧跟 `)` 恒不匹配 ⇒ 三条假红。改成"允许可选第二参"。
+const RS = (tag: string): string => `resyncAfterResume\\(['"]${tag}['"](?:\\s*,\\s*[^)]*)?\\)`;
+ok('SSE reconnect 不再先 loadSessions 再 resync 重复会话树',
+  new RegExp(`if \\(reconnected && this\\.resumeActive\\)[\\s\\S]{0,500}${RS('sse-reopen')}[\\s\\S]{0,500}else[\\s\\S]{0,300}loadSessions\\(\\)`).test(store));
+ok('SSE 重连（open 且断线过）触发 resync',
+  new RegExp(`state === 'open'[\\s\\S]{0,900}${RS('sse-reopen')}`).test(store));
 ok('断线标记只在曾 open 后置位', /sseOpenedOnce[\s\S]{0,200}sseHadDisconnect\s*=\s*true/.test(store));
 ok('onPageShow 调用 resyncAfterResume(page-show)', /resyncAfterResume\(['"]page-show['"]\)/.test(index));
 ok('页面订阅 appResumedAt 并 @Watch', /@StorageProp\('appResumedAt'\)\s*@Watch\('onAppResumed'\)/.test(index));
-ok('onAppResumed 走同一 resync', /onAppResumed\(\)[\s\S]{0,800}resyncAfterResume\(['"]ability-foreground['"]\)/.test(index));
+// 用**函数边界**截取（⛔ 不用定长窗：中间插几行注释就会把锚推出窗口 —— AGENTS 的教训）。
+const appResumedStart: number = index.indexOf('private onAppResumed()');
+const appResumedNext: number = appResumedStart >= 0 ? index.indexOf('private ', appResumedStart + 30) : -1;
+const appResumedBody: string = (appResumedStart >= 0 && appResumedNext > appResumedStart)
+  ? index.slice(appResumedStart, appResumedNext) : '';
+ok('onAppResumed 走同一 resync',
+  new RegExp(RS('ability-foreground')).test(appResumedBody));
 ok('EntryAbility.onForeground 写 appResumedAt', /onForeground\(\)[\s\S]{0,400}AppStorage\.setOrCreate<number>\('appResumedAt'/.test(ability));
 
 console.log(`resume_resync_wiring: ${pass} passed, ${fail} failed`);

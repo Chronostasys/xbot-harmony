@@ -424,8 +424,9 @@ export struct IterBlocksView {
             [this.sweepBand().sheen, 0.5], [this.sweepBand().core, 0.65], [this.sweepBand().fade, 1.0],
           ] })
           .opacity(0.45)
-          // 已提交块里的扫光不推进（运行中那一枚属于 live 块）—— 恒定相位，零动画成本。
-          .translate({ x: 0 })
+          // 已提交块里的扫光不推进（运行中那一枚属于 live 块）：恒定相位 = **不加 translate**
+          // 就是零位移（原先写 `.translate({ x: 0 })` 是空操作，还引入了裸数字位移面 ——
+          // motion_uniform 明确要求位移只能来自底座档常量）。
           .hitTestBehavior(HitTestMode.None)
       }
     }

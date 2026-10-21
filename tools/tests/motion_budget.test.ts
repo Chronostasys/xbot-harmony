@@ -94,6 +94,10 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   //   与 skeleton 消失不同步）；影响聊天图 / 文件预览 / lightbox 全链路 ⇒ **必须留**。
   ['components/AuthImage.ets', 1],
   ['components/MessageRow.ets', 6],    // 消息入场/按压 —— ⚠️ chat-surface-ux 域（见报告）
+  // 迭代块（2026-10-21 登记）：pill 状态切换（running→done）与 `+N` 徽标展开的**值过渡**——
+  //   讲的是"工具状态变化"，不是装饰；两处都用底座档（`animBase()`/`animFast()`），
+  //   不新建曲线。**必须留**：去掉会让 pill 从 running 到 done 硬跳（与 web 的 transition 不对齐）。
+  ['components/IterBlocksView.ets', 2],
   ['components/MenuSheets.ets', 5],    // 三个抽屉 —— **必须留**（从下滑入/滑出 = 空间关系）
   ['components/AskUserSheet.ets', 1],  // 弹层开合 —— 同上
   ['components/PluginsSheet.ets', 1],  // 同上
