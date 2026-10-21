@@ -1778,9 +1778,18 @@ export class ChatStore {
     //   会话树（`:1443`）、终端（`web_pty.go:557`）、WS 缺省路由/cancel 的**唯一**输入；
     //   不发 ⇒ 服务端仍指向上一次（web/别人）设的会话 ⇒ 搜消息查错会话（真机：`CI` 0 命中）。
     //   ⛔ 失败**绝不影响**切会话主流程（与下方 `loadStatus` 同款吞异常）。
+    // ⛔ 审计确证（state-gate-6-5 C1）：这是旁路 RPC（无 await），回包里的 `todos` 是
+    //   **请求发起那一刻**的快照；SSE 可能已在它之前推了更新的 `todos`（`session_fields`/
+    //   `iteration` 帧）⇒ 旧值会覆盖新值（todo 面板"先新后旧"跳一次）。兄弟路径 `loadStatus`
+    //   有 `seenTodos` + `hasLiveTurn()` 守卫、`loadGoal` 有 `seenGoal`，这里漏了 ⇒ 补齐同源守卫。
+    const switchTodosSeen = this.state.todos;
+    const switchHadLive = this.hasLiveTurn();
     this.notifyServerSwitch(chatId).then((res: ChatSwitchResult) => {
       // 切会话即刻恢复 TODO —— 仅当**仍是当前会话**时套用（用户已切走 ⇒ 丢弃，避免串台）。
-      if (this.currentChatId === chatId && res.todos.length > 0) {
+      const stillSame = this.currentChatId === chatId;
+      const todosUnchanged = this.state.todos === switchTodosSeen;
+      // 有 live turn = 更权威的流式帧正在写 todos ⇒ 不采信这条旧快照。
+      if (stillSame && !switchHadLive && !this.hasLiveTurn() && todosUnchanged && res.todos.length > 0) {
         this.state = applySessionFields(this.state, toStateTodos(res.todos), undefined);
         this.onUpdate();
       }
