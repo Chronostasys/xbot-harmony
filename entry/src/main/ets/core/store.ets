@@ -3196,8 +3196,10 @@ export class ChatStore {
     if (rwGen !== this.chatGen || rwChat !== this.currentChatId || this.disposed) {
       return false;
     }
-    // ② reset 状态机（漏了 ⇒ 被删的 assistant 回放）
-    this.resetStateMachine();
+    // ② 不再 `resetStateMachine()`：`loadHistory()` 会用 `history_replaced` **整体替换**
+    //   turns/legacy（`historyToReplaced`），reset 只是把列表**先清空一帧**（可见闪烁），
+    //   且会顺手丢掉同会话的 goal/todos（虽然 resetStateMachine 已保留它们，但多一层不必要的
+    //   状态写入 = 多一处可能分叉的地方）。语义等价、少一层。
     // ③ reload 必须在 send 之前（否则乐观行被新历史抹掉）
     await this.loadHistory();
     if (rwGen !== this.chatGen || rwChat !== this.currentChatId || this.disposed) {
