@@ -65,7 +65,10 @@ function readStrip(p: string): string { return stripSrc(fsMod.readFileSync(rel(p
 
 // 三个被修的落点组件（L4 的 Index.ets 单列，见 §5）
 const L1_PATH: string = 'components/LiveTailView.ets';
-const L2_PATH: string = 'components/MessageRow.ets';
+// ⛔ 落点修正（2026-10-21，代码事实优先）：`OverflowBadge` 原在 `MessageRow`，随"分组渲染 +
+//   内联「+N」徽标"迁到 `IterBlocksView`（`groupHideCount`/`overIter` 都在那里）⇒ L2 扫错文件
+//   ⇒ §3 四条全假红（锚点扫不到真源码）。零扫描判红语义不变。
+const L2_PATH: string = 'components/IterBlocksView.ets';
 const L3_PATH: string = 'components/SettingsLlm.ets';
 const L4_PATH: string = 'pages/Index.ets';
 const l1: string = readStrip(L1_PATH);
