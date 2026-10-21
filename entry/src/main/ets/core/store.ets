@@ -245,6 +245,15 @@ export class ChatStore {
   lastSendAt: number = 0;
   historyLoading: boolean = false;
   /**
+   * 在飞期间又被要求重载（gap reload / resync / 页面重试）。
+   * ⛔ 审计确证（F2 后半）：`gapReloadToken` 是**在 `loadHistoryInner` 内部**由
+   *   `history_replaced` 事件自增的（gap 判据在 reduce 里）⇒ 那一刻 `historyLoading===true`
+   *   且 gen 相同 ⇒ `watchGapReload` 立即调用的 `loadHistory()` **必定被在飞闸门丢弃**
+   *   ⇒ 会话被清空后**没有任何重载请求**（用户看到"空会话 + 空 todo + idle"）。
+   *   现改为排队：在飞闸门的 finally 里消费一次。
+   */
+  private historyReloadPending: boolean = false;
+  /**
    * 最近一次历史加载的**失败原因**（已可读化；空 = 无错）。
    *
    * ⛔ 2026-10-12 P0 根因之一：`loadHistory` 之前**只有 try/finally、没有 catch** ⇒
@@ -1833,6 +1842,9 @@ export class ChatStore {
     //    可能同帧撞车，重复请求只会重复解析 + 重建（resume 预算 = 最多一次 reopen）。
     const gen: number = this.chatGen;
     if (this.historyLoading && this.historyLoadGen === gen) {
+      // ⛔ F2 后半：在飞期间的重载请求**排队**（尤其 gap reload —— 它正是在
+      //   `loadHistoryInner` 内部被触发的），否则"清空后无人重载"。
+      this.historyReloadPending = true;
       return;
     }
     this.historyLoadGen = gen;
@@ -1856,6 +1868,13 @@ export class ChatStore {
         this.historyLoadGen = -1;
       }
       this.onUpdate();
+      // ⛔ F2 后半：消费排队的重载（gap reload / 在飞期间的重试）。
+      if (this.historyReloadPending && !this.disposed) {
+        this.historyReloadPending = false;
+        this.loadHistory().catch(() => {
+          // 失败态由 loadHistory 自身三态暴露（historyError）
+        });
+      }
     }
   }
 
@@ -2427,6 +2446,11 @@ export class ChatStore {
         this.pushEvent({ type: 'user_sent', row });
       }
     }
+    // ⛔ 审计确证（F4）：await 期间 store 可能被**重开到另一个 chat**（新建会话 / 切换 /
+    //   池 rekey）⇒ ack 的 `turn_id` 会把**新会话**乐观标成 busy；而 `history_replaced` 只
+    //   `||` 打开 running（不会关）⇒ 新会话出现幽灵 busy，只能等它自己的 SSE idle。
+    const sendGen: number = this.chatGen;
+    const sendChat: string = this.currentChatId;
     try {
       // ⛔ **出网会话键必须规范化**（与 cancel/history/queue 同一 `wireChatId()`）：
       //   旧实现用 `currentChatId` 原值 —— 当它是全键（`web:chat_X`）时服务端按
@@ -2442,6 +2466,10 @@ export class ChatStore {
       const raw: string = await this.http.post('/api/message', new MessageReq(
         this.channel, wireID, text, uploadKeys, fileNames, fileSizes, isInterrupt,
         requestID), HTTP_SEND_READ_TIMEOUT_MS);
+      // ⛔ F4：回包落状态前必须校验身份（跨会话回包一律丢弃，不写任何状态）。
+      if (sendGen !== this.chatGen || sendChat !== this.currentChatId) {
+        return false;
+      }
       if (isInterrupt) {
         // 对齐 web（`sseConnection.ts:473` → 服务端 `web_rest.go:95-104`）：插话成功的**唯一判据**是
         // 响应里的 `interrupted === true`。旧实现无条件 `return true` ⇒ 服务端在"会话已空闲"时
