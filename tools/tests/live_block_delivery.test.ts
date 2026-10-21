@@ -96,10 +96,17 @@ function readWiring(): Wiring {
     path.join(root, 'entry', 'src', 'main', 'ets', 'pages', 'Index.ets'), 'utf-8'));
   const rowSrc: string = stripSrc(fs.readFileSync(
     path.join(root, 'entry', 'src', 'main', 'ets', 'components', 'MessageRow.ets'), 'utf-8'));
+  // ⛔ 接线形态修订（2026-10-21，代码事实优先）：`liveBlocks`/`blocksFor()` 那套（页面 @State →
+  //   行 @Prop）**已被回滚**；当前生产形态是：页面 `applyRows(...)` 通知行数据源 + `MessageRow`
+  //   用**无参** `@Builder` 直接读 `this.row.iterations`（无参 ⇒ 组件每次重建都读最新值，
+  //   不存在"按值参数快照"的冻结）。判据钉住**这两条**，并反向钉住"没有参数化读行对象的旧形态"。
+  const paramlessBlocks: boolean = /@Builder\s*\n\s*AssistantBlock\(\s*\)\s*\{/.test(rowSrc)
+    && /this\.row\.iterations/.test(rowSrc);
+  const noParamBuilderFromRow: boolean = !/\(\s*it:\s*HistoryIteration\s*\)\s*\{/.test(rowSrc);
   return {
-    pageBlocksState: /@State\s+liveBlocks\s*:\s*HistoryIteration\[\]/.test(indexSrc),
-    rowBlocksProp: /@Prop\s+liveBlocks\s*:\s*HistoryIteration\[\]/.test(rowSrc),
-    rendersBlocksFromValue: /blocksFor\s*\(\s*\)/.test(rowSrc) && /this\.liveBlocks/.test(rowSrc),
+    pageBlocksState: /applyRows\s*\(/.test(indexSrc),
+    rowBlocksProp: paramlessBlocks && noParamBuilderFromRow,
+    rendersBlocksFromValue: paramlessBlocks,
   };
 }
 
@@ -175,11 +182,12 @@ class LiveRowComponentModel {
         this.refreshes++;
       }
     } else {
-      if (row !== this.capturedRowRef) {
-        this.completed = now;              // 创建/换引用那一次
-        this.capturedRowRef = row;
-        this.refreshes++;
-      }
+      // 无参 `@Builder` 读 `this.row`：组件每次重建（@ObjectLink 变更 / 父级 @Prop 投递）都会
+      // **重读**，不存在"参数快照"。所以这里每帧重算 —— 旧模型"只在换引用时捕获一次"复刻的是
+      // 已被回滚的**带参** Builder 时代，会把正常路径误判成"丢块"。
+      this.completed = now;
+      this.capturedRowRef = row;
+      this.refreshes++;
     }
     // ── 在飞块区（@Prop 直驱，与页面 syncLiveTail 同源）──
     const live: HistoryIteration | undefined = liveBlockOf(row);
