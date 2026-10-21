@@ -262,7 +262,11 @@ export function liveRunningIn(s: ChatState): boolean {
 }
 
 export function withSessionRunning(s: ChatState, running: boolean): ChatState {
-  return { ...s, sessionRunning: running }
+  // ⛔ 审计确证（state-gate-3 C2 / gate-7 C1）：`ChatState.busy` 是**零读取者**的镜像字段，
+  //   但它是唯一只写一半的入口（其余写入点都同时写两个）⇒ 会造出
+  //   `busy=false ∧ sessionRunning=true` 这种"同一事实两个相反值"。这里强制同值，
+  //   让镜像**在任何路径下都不会分叉**（保留字段是为不动 14 处调用点，属于最小改动）。
+  return { ...s, sessionRunning: running, busy: running }
 }
 
 export interface ChatState {
