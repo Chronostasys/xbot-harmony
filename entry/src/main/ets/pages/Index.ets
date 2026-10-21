@@ -2214,7 +2214,11 @@ struct Index {
     // §21.122bx：浮层覆盖聊天区时**停掉装饰动效**（流光扫过 live pill；被浮层盖住 ⇒ 无人看见）
     // —— 这条 600ms 的页级 `@State` 写入会把**整页标脏**，与浮层入场动画抢帧预算。
     // 浮层关闭后随下一帧 `sync` 自动复起（`sync` 每次都会调本方法）。
-    if (busy && !this.appPaused && !this.anyModalOpen() && this.pulseTimer < 0) {
+    // ⛔ 审计确证（ui-state-audit #5）：此前把 `anyModalOpen()` 写进**开关** ⇒ 浮层打开
+    //   定时器被清，而"关浮层"不是 `sync` 的必然触发点 ⇒ 流式中开过面板再断流，可能**永久**
+    //   停在「思考中…/停止」（stall 检测也一起停了）。⇒ 开关只看 busy/后台；
+    //   浮层期只跳过**装饰性写**（`sweepX`），正确性检测（stall）照跑。
+    if (busy && !this.appPaused && this.pulseTimer < 0) {
       this.pulseTimer = setInterval(() => {
         // ⚡ 2026-10-20 P0 掉帧修复：用户滚动/触摸时**跳过本拍**——`sweepX` 是**页级 `@State`**，
         //   每拍写入 ⇒ 整页 build() 重跑 ⇒ 与滚动手势争主线程 ⇒ 用户可感知的周期性掉帧。
@@ -2223,7 +2227,8 @@ struct Index {
         //   旧实现在滚动/触摸时整拍 return ⇒ 手指按在屏上/标志卡住时**永不检测 stall**
         //   ⇒ busy 永久卡死（用户 2026-10-21 亲报「一直显示 busy，为什么不触发 resync」）。
         this.checkLiveSignalStall();
-        if (this.userScrolling || this.userTouchActive) {
+        // 浮层/滚动/触摸期：只跳过装饰性写（`sweepX` 是页级 @State，写它会把整页标脏）。
+        if (this.anyModalOpen() || this.userScrolling || this.userTouchActive) {
           return;
         }
         // 同一拍顺手推进流光位置（避免为装饰再开一个定时器）
