@@ -16,7 +16,7 @@ import { SseClient } from './sse';
 /** SSE 意图的竞态窗口（web `useSessionStore.ts` 同值 15s）。 */
 import { hasFreshPhaseDone, isIdleAction, runningAfterReconcile, rowIsEmpty, sendStartsTurn, shouldReloadHistory, stripInterruptedMarker } from './streammerge';
 import { arrOrEmpty, isPresent } from './guards';
-import { ChatState, DomainEvent, EventSeq, initialChatState, iterNum, NonEmptyS, nonEmptyStr, turnID, TurnID, UserRow } from './chat_types_full';
+import { ChatState, DomainEvent, EventSeq, initialChatState, iterNum, LegacyRow, NonEmptyS, nonEmptyStr, Turn, turnID, TurnID, UserRow } from './chat_types_full';
 import { demoAnswerFor, demoFirstIteration, demoReasoningFor, demoSeedPrompt, demoSessions, demoToolFor } from './demo';
 import { reduce, applySessionFields } from './reduce';
 // ── 新模型（docs/STATE-MODEL.md）**影子引擎**（W1：旁听不写）───────────────────
@@ -29,6 +29,8 @@ import { emptyState } from './model_types';
 import type { State as ModelState } from './model_types';
 import { allToolCalls } from './model_project';
 import { applyModel } from './model_bridge';
+import { hydrate } from './model_hydrate';
+import type { WireHistoryMessage, WireHistoryIteration } from './model_hydrate';
 import { invariantViolations } from './state_invariants';
 import { setDiagSink } from './diag';
 import { liveRunningIn, withSessionRunning } from './chat_types_full';
@@ -942,6 +944,56 @@ export class ChatStore {
    * 结构比对（回合数 / 每回合块数 / 工具数）。**只记日志，不写状态、不发网络**。
    * ⛔ effects 只在这里被**记录**（`pullIter`/`pullTurn`/`snapshot`）——接线期由 W2 落地。
    */
+  /** `WebIteration[] → WireHistoryIteration[]`（逐字段搬运；⛔ 不用 unknown 断言，ArkTS 禁）。 */
+  private toWireIters(its: readonly WebIteration[]): WireHistoryIteration[] {
+    const out: WireHistoryIteration[] = [];
+    for (let i = 0; i < its.length; i++) {
+      const it: WebIteration = its[i];
+      out.push({
+        iteration: it.iteration,
+        content: it.content,
+        reasoning: it.reasoning,
+        tools: it.tools,
+      });
+    }
+    return out;
+  }
+
+  /** `history_replaced` → 水合输入（结构面；`Turn.phase` 的 committed/live 都摊平成块）。 */
+  private historyToWire(ev: DomainEvent): WireHistoryMessage[] {
+    const out: WireHistoryMessage[] = [];
+    if (ev.type !== 'history_replaced') {
+      return out;
+    }
+    const legacy: readonly LegacyRow[] = ev.legacy !== undefined ? ev.legacy : [];
+    for (let i = 0; i < legacy.length; i++) {
+      const l: LegacyRow = legacy[i];
+      out.push({
+        id: l.id, role: l.role, content: l.content,
+        iterations: this.toWireIters(l.iterations),
+        timestamp: l.timestamp, dbID: l.dbID,
+      });
+    }
+    const turns: readonly Turn[] = ev.turns !== undefined ? ev.turns : [];
+    for (let i = 0; i < turns.length; i++) {
+      const t: Turn = turns[i];
+      if (t.user !== undefined && t.user !== null) {
+        out.push({
+          id: `turn-${t.id}-user`, role: 'user', content: t.user.content, turnID: t.id,
+          timestamp: t.user.timestamp, isNotification: t.user.isNotification,
+        });
+      }
+      const its: readonly WebIteration[] = t.phase.kind === 'committed'
+        ? t.phase.payload.iterations : t.phase.data.iterations;
+      const text: string = t.phase.kind === 'committed' ? t.phase.payload.content : t.phase.data.content;
+      out.push({
+        id: `turn-${t.id}-assistant`, role: 'assistant', content: text, turnID: t.id,
+        iterations: this.toWireIters(its),
+      });
+    }
+    return out;
+  }
+
   private runShadowModel(ev: DomainEvent): void {
     if (this.demoMode || this.currentChatId.length === 0) {
       return;
@@ -950,9 +1002,15 @@ export class ChatStore {
       this.shadow = emptyState(this.currentChatId, 1, 0);
       this.shadowRows = new Map<string, ChatRow>();
     }
-    const inputs = adapt(ev as never, this.currentChatId, this.shadow.epoch);
-    const res = stepAll(this.shadow, inputs as never, new Date().toISOString());
-    this.shadow = res.state;
+    if (ev.type === 'history_replaced') {
+      // 权威历史 = **水合**（构造），不是帧（§3.5）。旧管线的 history_replaced 是 merge 语义，
+      // 这里走 `hydrate` 的**权威替换**：turns/legacy 重建，会话级字段与 live 保留。
+      this.shadow = hydrate(this.shadow, this.historyToWire(ev), ev.lastSeq !== null && ev.lastSeq !== undefined
+        ? (ev.lastSeq as number) : this.shadow.seq);
+    } else {
+      const inputs = adapt(ev as never, this.currentChatId, this.shadow.epoch);
+      const res = stepAll(this.shadow, inputs as never, new Date().toISOString());
+      this.shadow = res.state;
     for (let i = 0; i < res.effects.length; i++) {
       const e = res.effects[i];
       if (e.kind === 'pullIter') {
@@ -961,6 +1019,7 @@ export class ChatStore {
         log('model', `effect=pullTurn turn=${e.turn}`);
       } else {
         log('model', 'effect=snapshot（整体不可信）');
+      }
       }
     }
     // ── 结构比对（零差异才算通过 W1）──
