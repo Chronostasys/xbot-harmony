@@ -2226,7 +2226,11 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
         //   在 `authoritativeRunning=false` 时把 busy 写 false、却把 sessionRunning 写成
         //   `s.sessionRunning || authoritativeRunning`（可能 true）⇒ 造出 `busy=false ∧ running=true`
         //   ⇒ 之后权威 busy 事件被幂等键（用 sessionRunning）吞掉。两者必须同值。
-        busy: s.sessionRunning || authoritativeRunning,
+        // ⛔ 审计确证（state-gate-7-6 C1）：`busy` 与 `sessionRunning` 是**同一事实**，必须同值。
+        //   旧实现这里是 `s.sessionRunning || authoritativeRunning`，而下方 `sessionRunning:
+        //   authoritativeRunning` ⇒ 会造出 `busy=true ∧ sessionRunning=false`（自相矛盾，且正是
+        //   "两个字段分叉"的病灶）。⇒ 两者都取**同一个**权威值。
+        busy: authoritativeRunning,
         pendingUsers, queue: s.queue, todos,
         // goal 同一条"快照可能比本地旧"判据：无 live turn 时才采信快照的三态
         // （undefined = 未携带/保留；null = 显式清除；对象 = 覆盖）。
