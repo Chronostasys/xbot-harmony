@@ -248,6 +248,32 @@
 `store.ts:applyLocalIdle`（唯一"关 busy"路径，含排队补判）、
 `normalize.ts`（唯一三态归一：缺失=undefined / 空=清空 / 值=覆盖）。
 
+## §4.4 第五轮（10 个同题盲审，2026-10-21 深夜）已修 / 未修
+
+**已修**（按用户"做减法、不叠补丁"）：
+
+| 项 | 缺陷 | 修法 |
+|---|---|---|
+| s0 | 被判陈旧的帧仍先写了 todos/goal（随后整帧丢弃）⇒ 回放帧打回旧值 | `reduceInner` 捕获入参 `s0`，丢弃帧返回 `s0`；会话级字段移到闸门之后 |
+| 异步串台 | `rewindTo` / `loadEarlierRegions` / `fetchIterationDetail` / `loadCronTasks` / `loadBgTasks` await 后无身份校验 | 统一 `chatGen + currentChatId` 守卫 |
+| dispose | 漏 15s fail-safe 定时器与 `sse.onState` | 补清理 + onState 置空 |
+| seenTodos | REST todos 用"到达时"的 live 判据采信"请求时"的旧值 | 加 `seenTodos` 引用守卫（同 `seenGoal`） |
+| historyLoading | 跨代无条件清标志 ⇒ 骨架屏提前退场 / 并发重载 | 只在"仍是当代"时清 |
+| syncFrom | 页面缓存 `this.busy` 与 `store.busy` 两个口径 | 三处判定统一用 `store.busy` |
+| 棘轮（后端） | 陈旧 `active_progress` 可作为 active 返回 ⇒ 已结束 turn 被复活成 live ⇒ busy 关不掉 | 服务端一条规则：快照 TurnID 必须仍是当前 turn，否则降级 `done` |
+| 死代码 | `attachNotificationWhileLive`（零调用 + 语义与 REPRO 相反）、`LiveTailState`/`ChatRow.liveTail`/store 死字段 | 全部删除（-133 行），`AGENTS.md` 旧指引标注作废 |
+| reset 看门狗 | `resetStateMachine` 保留 running 却清 activeTurn ⇒ 每 30s 重拉整段 history | 重置后 15s 内豁免看门狗（已知状态） |
+| busy 镜像 | `withSessionRunning` 只写 `sessionRunning` ⇒ 与 `busy` 分叉 | 同写两者 |
+
+**未修（明账，均有明确判据/复现路径）**：
+1. `ChatState.busy` 字段本身未删（需改 14 处写点 + 测试夹具；已保证不分叉）。
+2. `rewindTo` 的 `resetStateMachine` 在 send 之前仍会清掉本地乐观行（依赖 loadHistory 重灌）。
+3. 后端 `emitSessionIdleIfNoActiveRun` 的检查/发送仍非原子（客户端有 turn_started 单调门 +
+   freshFrame + 探针三重兜底，最坏一次极短抖动）。
+4. `stream_delta` / `reasoning_stream_delta` 仍不消费（后端 `delta_push` 默认关且恒发全量）。
+5. 第五轮其余报告（fe-render-1 / fe-store-1 / be-state-1 / backend-state / gate-1/2/4/5/7/8/9/10）
+   的窄边界条目尚未逐条落地 —— 每条都需要先写复现实验再改（用户要求不再"叠补丁"）。
+
 ## §5 审计结论与本轮修复
 
 ### §5.1 后端（`fix/state-protocol-audit` 分支）
