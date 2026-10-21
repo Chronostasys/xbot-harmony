@@ -841,6 +841,9 @@ export class ChatStore {
         continue;
       }
       next = reduce(next, evs[i]);
+      // ⛔ 影子引擎必须**与主路径同源**：主 SSE 入口是**批量** `pushEvents`（单条 `pushEvent`
+      //   只是一支），此前只在单条路径喂影子 ⇒ 影子缺绝大多数事件（行级对照会假红、切行源必丢）。
+      this.runShadowModel(evs[i]);
       // 记录本批最后一个 turn finalizer；最终统一用 next 的 activeTurn 判定
       // 「busy 是否属于后续 turn」，避免一批里 turn A 结束 + turn B 启动时误 resync。
       // ⛔ 必须先落成局部变量：`evs[i]` 的重复索引访问在 TS 里不做判别联合收窄。
