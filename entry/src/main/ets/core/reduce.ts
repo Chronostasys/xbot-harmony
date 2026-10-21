@@ -740,9 +740,13 @@ function settleSendingInvariant(s: ChatState, ev: DomainEvent): ChatState {
   //   （idle/text_final/别的帧）都会把**仍在 POST 途中**的气泡标成"已发送"；若 POST 随后失败，
   //   `user_fail` 会整行删掉 ⇒ **消息静默消失**（用户以为已发出）。
   //   ⇒ 只允许回合生命周期事件作为"兜底收敛"的触发点（正常收敛仍由 ack/fail/回合收尾负责）。
+  // ⛔ 审计确证（state-gate-8-2 C1）：粗粒度 idle 与 todos/goal **轻帧**对"这条 POST 是否送达"
+  //   没有任何证明力 —— 把它们当证据，会让"空闲时发送、POST 在飞"的气泡提前显示"已发送"
+  //   （随后 POST 失败 ⇒ `user_fail` 删行 ⇒ **消息凭空消失**）。
+  //   ⇒ 证据集只保留回合生命周期与 ack：`turn_started` / `text_final` / `user_ack` /
+  //   `session_running`（权威 busy 状态机信号）。卡住的 sending 由 store 的意图窗 + 超时兜。
   const sendingSettleEvidence: boolean = ev.type === 'turn_started' || ev.type === 'text_final'
-    || ev.type === 'session' || ev.type === 'session_fields' || ev.type === 'user_ack'
-    || ev.type === 'session_running';
+    || ev.type === 'user_ack' || ev.type === 'session_running';
   if (!s.sessionRunning && sendingSettleEvidence) {
     let anyPendingSending: boolean = false;
     for (let i = 0; i < pendingUsers.length; i++) {

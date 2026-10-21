@@ -188,7 +188,11 @@ console.log('\n▶ §G **出口不变量**：会话 idle ⇒ 任何 user 行都�
   let s: ChatState = initialChatState('c');
   s = userSent(s, pendingRow('你好', true, 'req-x'));
   // 一条与送达无关的事件（queue 变更）之后仍然是 idle ⇒ sending 必须被收敛
-  s = reduce(s, { type: 'session_fields', todos: [], goal: undefined } as unknown as DomainEvent);
+  // ⛔ 判据修正（state-gate-8-2 C1）：**轻帧（session_fields/粗粒度 idle）不是送达证据** ——
+  //   拿它当兜底会把"POST 在飞"的气泡标成已发送（随后失败 ⇒ 整行删除 = 消息凭空消失）。
+  //   兜底证据只保留回合生命周期与 ack ⇒ 这里用 `text_final`（真正的收尾事件）验证兜底仍生效。
+  s = reduce(s, { type: 'text_final', commandReply: false, turnID: T, content: 'x',
+    progressHistory: [], cancelled: false } as unknown as DomainEvent);
   ok('★G idle 下 sending 被收敛为 false（不变量兜底）', !anySending(s));
 }
 
