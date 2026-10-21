@@ -110,6 +110,33 @@ console.log('\n▶ §E 无对账写状态（形态判据）');
   ok('★E `applyLocalIdle` 在发送意图窗口内直接返回（不因请求关 busy）', idleGuarded);
 }
 
+console.log('\n▶ §F 第三轮修复的接线判据（防回归）');
+{
+  const req2 = require('fs');
+  const path2 = require('path');
+  const st = req2.readFileSync(path2.join(process.cwd(), 'entry/src/main/ets/core/store.ets'), 'utf8') as string;
+  const rd = req2.readFileSync(path2.join(process.cwd(), 'entry/src/main/ets/core/reduce.ts'), 'utf8') as string;
+  const pg = req2.readFileSync(path2.join(process.cwd(), 'entry/src/main/ets/pages/Index.ets'), 'utf8') as string;
+  ok('★F1 批量入口 `pushEvents` 也刷新 lastEventAtMs',
+    /private pushEvents\(evs[\s\S]{0,600}lastEventAtMs = Date\.now\(\)/.test(st));
+  ok('★F2b 在飞闸门排队重载（historyReloadPending）且在 finally 消费',
+    /historyReloadPending = true/.test(st) && /if \(this\.historyReloadPending && !this\.disposed\)/.test(st));
+  ok('★F3 loadStatus 有 live turn 时不写 todos',
+    /this\.hasLiveTurn\(\) \? undefined : toStateTodos\(st\.todos\)/.test(st));
+  ok('★F4 send 回包有身份守卫（sendGen/sendChat）',
+    /const sendGen: number = this\.chatGen/.test(st) && /sendGen !== this\.chatGen \|\| sendChat !== this\.currentChatId/.test(st));
+  ok('★F5 订阅前先关旧 SSE（sse.close）', /this\.sse\.close\(\);\s*\n\s*this\.subscribe\(\);/.test(st));
+  ok('★F6 dispose 置 disposed + 轮询链自检',
+    /this\.disposed = true;/.test(st)
+    && /if \(this\.disposed\) \{\s*\n\s*return;/.test(st));
+  ok('★F7 退役计数只来自快照 ev.turns', /for \(const t of ev\.turns\)/.test(rd));
+  ok('★F9 内容匹配先于位置启发式',
+    rd.indexOf('s.pendingUsers[i].content === content') < rd.indexOf('if (u.sending && !u.queued)'));
+  ok('★F10 busy 日志与 lastLoggedBusy 比较', /const wasBusy: boolean = this\.lastLoggedBusy;/.test(pg));
+  ok('★F12 sessions 缺字段/null 时保留旧列表',
+    /if \(data\.sessions === null \|\| data\.sessions === undefined\) \{\s*\n\s*return;/.test(st));
+}
+
 console.log(`\n  state_invariants: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
 export {};
