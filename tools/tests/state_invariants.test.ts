@@ -137,6 +137,37 @@ console.log('\n▶ §F 第三轮修复的接线判据（防回归）');
     /if \(data\.sessions === null \|\| data\.sessions === undefined\) \{\s*\n\s*return;/.test(st));
 }
 
+console.log('\n▶ §H 回合结束后的「会话级轻帧」不得复活 busy / 不得清工具（final-6 C1/C2）');
+{
+  // 一个"已 idle 但 activeTurn 仍指向 live 且 streaming=false"的回合（权威 idle 的形态）。
+  let s: ChatState = started();
+  s = reduce(s, { type: 'session', busy: false } as unknown as DomainEvent);
+  const afterIdle = s;
+  // 服务端回合收尾后改 todo：轻帧 = Phase:"" / Iteration:0 / 只有 todos（无 iteration 载荷）
+  const evs = normalizeEvent({ type: 'progress_structured', progress: {
+    chat_id: 'c', phase: '', turn_id: 0, seq: 50,
+    todos: [{ text: 'a', status: 'pending' }],
+  } }, 'c');
+  let s2 = afterIdle;
+  if (evs !== null) { for (const e of evs) { s2 = reduce(s2, e); } }
+  ok('★H1 轻帧被归一成 `session_fields`（不是 iteration）',
+    evs !== null && evs.length === 1 && evs[0].type === 'session_fields');
+  ok('★H2 轻帧不得复活 busy', s2.sessionRunning === false);
+  ok('★H3 轻帧仍应用 todos 三态', s2.todos.length === 1);
+  // 工具列表不得被轻帧清空
+  const withTools = reduce(s2, { type: 'stream', turnID: T, seq: eventSeq(60), iteration: iterNum(1),
+    content: 'x', reasoning: '', streamingTools: [{ name: 'Shell', status: 'running' }],
+    genui: undefined, streamStats: undefined } as unknown as DomainEvent);
+  const evs2 = normalizeEvent({ type: 'progress_structured', progress: {
+    chat_id: 'c', phase: '', turn_id: 0, seq: 61, todos: [{ text: 'b', status: 'pending' }],
+  } }, 'c');
+  let s3 = withTools;
+  if (evs2 !== null) { for (const e of evs2) { s3 = reduce(s3, e); } }
+  const t3 = s3.activeTurn !== null ? s3.turns.get(s3.activeTurn) : undefined;
+  const tools3 = t3 !== undefined && t3.phase.kind === 'live' ? t3.phase.data.streamingTools.length : -1;
+  ok('★H4 轻帧不得清空在飞工具', tools3 === 1);
+}
+
 console.log(`\n  state_invariants: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
 export {};
