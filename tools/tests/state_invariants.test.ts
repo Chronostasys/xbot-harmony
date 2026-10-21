@@ -168,6 +168,38 @@ console.log('\n▶ §H 回合结束后的「会话级轻帧」不得复活 busy 
   ok('★H4 轻帧不得清空在飞工具', tools3 === 1);
 }
 
+console.log('\n▶ §I 显式空工具列表 = 清空；缺失 = 未携带（be-state-1 §1 契约）');
+{
+  // 后端已改为恒发非 nil（空即 `[]`）⇒ 客户端必须把「携带但为空」当**显式空**，
+  // 否则同一迭代内 promote/取消后的 pill 会一直转圈。
+  let s: ChatState = started();
+  const liveTools = (): number => {
+    const t = s.activeTurn !== null ? s.turns.get(s.activeTurn) : undefined;
+    return t !== undefined && t.phase.kind === 'live' ? t.phase.data.activeTools.length : -1;
+  };
+  const e1 = normalizeEvent({ type: 'progress_structured', progress: {
+    chat_id: 'c', phase: 'running', turn_id: 1, seq: 70, iteration: 2,
+    active_tools: [{ name: 'Shell', label: 'Shell', status: 'running', iteration: 2 }],
+  } }, 'c');
+  if (e1 !== null) { for (const e of e1) { s = reduce(s, e); } }
+  ok('★I1 帧带 active_tools ⇒ 在飞工具 1 条', liveTools() === 1);
+  const e2 = normalizeEvent({ type: 'progress_structured', progress: {
+    chat_id: 'c', phase: 'running', turn_id: 1, seq: 71, iteration: 2, active_tools: [],
+  } }, 'c');
+  if (e2 !== null) { for (const e of e2) { s = reduce(s, e); } }
+  ok('★I2 显式空数组 ⇒ 清空（"无工具"可表达）', liveTools() === 0);
+  // 对照组：字段**缺失** ⇒ 未携带 ⇒ 保持原值（不得清空）
+  let s2: ChatState = started();
+  if (e1 !== null) { for (const e of e1) { s2 = reduce(s2, e); } }
+  const e3 = normalizeEvent({ type: 'progress_structured', progress: {
+    chat_id: 'c', phase: 'running', turn_id: 1, seq: 72, iteration: 2, content: 'y',
+  } }, 'c');
+  if (e3 !== null) { for (const e of e3) { s2 = reduce(s2, e); } }
+  const t2 = s2.activeTurn !== null ? s2.turns.get(s2.activeTurn) : undefined;
+  const n2 = t2 !== undefined && t2.phase.kind === 'live' ? t2.phase.data.activeTools.length : -1;
+  ok('★I3 字段缺失 ⇒ 未携带 ⇒ 保持（不清空）', n2 === 1);
+}
+
 console.log(`\n  state_invariants: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
 export {};
