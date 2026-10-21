@@ -88,6 +88,14 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   只看 content/tools 会漏掉"只有思考流"的帧 ⇒ 行里没有在飞块 ⇒ **页面停在「思考中…」**
   （用户 2026-10-20 亲报现场，2026-10-21 在桥接层复现并修复）。判据
   `tools/tests/live_cache_lifecycle.test.ts`（①b/② 必红形态）+ `tool_status_rowrebuild.test.ts`（①d）。
+- **⛔ cancel / idle 那一刻，回合就是 committed**（`core/model_step.ts: foldLive`）：收尾时
+  必须把**在飞迭代折成已提交块**（`cancelled: true`，内容不丢）+ 置 `final` + 清 `live`，
+  **不能只把 `live` 置空**。否则两宗罪同时发生：① 该 turn 的块列表**少几个迭代**
+  （用户："历史里少几个迭代"）；② `live` 是**全局单例**，渲染层按"最新在飞"投递
+  ⇒ 那几个迭代被画到**最新 turn** 上（用户："上一 turn 的迭代跑到下一个 turn"）。
+  同理 `text_final` 也必须折（`onFinal` 调同一个 `foldLive`）。
+  ⇒ 且 **cancel 成功后必须 resync 一次**（`store.performCancel` → `reloadHistoryNow()`）：
+  取消是"回合状态切换"的权威事件，只做本地乐观收尾保证不了状态准。
 - **⛔ 行 id 不得编码状态（`turn-N-live` / `turn-N-c` 是错的设计）**：页面用
   `LazyForEach` + 数据源**按 key 最小通知**（`id#rev`，`core/rowdiff.ets`）。若 turn 收尾
   （cancel / `text_final`）把行 id 从 `turn-N-live` 改成 `turn-N-c`，数据源会认为

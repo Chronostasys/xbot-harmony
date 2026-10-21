@@ -3399,6 +3399,13 @@ export class ChatStore {
         { type: 'session_running', running: false },
         { type: 'session', busy: false, turnID: cancelTurn !== null ? cancelTurn : undefined },
       ]);
+      // ⛔ **cancel 之后必须 resync 一次**（用户 2026-10-22）：取消是"回合状态切换"的权威事件，
+      //   本地只做乐观收尾不够 —— 服务端此时才把该轮落库为 committed（含最后几个迭代）。
+      //   不重载就无法保证状态准（"历史里少几个迭代"正是本地猜测的结果）。
+      //   fire-and-forget + 身份守卫（`loadHistory` 内部 gen/chat 校验）；失败不影响取消手感。
+      this.reloadHistoryNow().catch((): void => {
+        // 重载失败：下一次事件/手动刷新补
+      });
     } finally {
       // ⛔ 2026-10-21（state-gate-11-7 确证）：`finally` 必须带身份 —— 旧实现无条件
       //   `cancelling=false; cancelInFlight=null`，而 `beginSwitch` 已把三元组清空并交给

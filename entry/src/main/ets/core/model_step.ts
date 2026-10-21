@@ -190,36 +190,10 @@ function envelope(s: State, f: Frame, sameEvent: boolean): { apply: boolean; eff
 
 // ─── 构造子 ──────────────────────────────────────────────────
 
-/** 已知最大 turn 号（0 = 无）。**turn 号必须单调递增** —— 逆序的帧一律拒绝。 */
-function maxTurnOf(s: State): TurnID {
-  let m: TurnID = 0;
-  s.turns.forEach((_t: TurnRec, id: TurnID) => { if (id > m) { m = id; } });
-  return m;
-}
-
 function onOpen(s: State, f: OpenFrame): StepResult {
-  // ⛔ **turn 号必须合法**：0/负数是"没有归属"的帧（缺 turn_id）。宁可丢帧也不许建 turn 0
-  //   —— 否则一串无归属帧会聚成一个幽灵回合，页面看起来就是"上一个 turn 的迭代跑到新 turn"。
-  if (f.turn <= 0) {
-    return { state: { ...s, seq: seqAfter(s, f) }, effects: [] };
-  }
-  const maxT: TurnID = maxTurnOf(s);
-  if (f.turn < maxT) {
-    // ⛔ **turn 号单调递增**（用户 2026-10-22）：比已知最大值更小的 turn_started 只允许
-    //   是"同一仍在飞回合的重放"；否则就是**旧号复活/逆序**（上一 turn 的内容被重新拉起），
-    //   一收下就会把已渲染内容挪位置。拒绝它，别在渲染层排序掩盖。
-    const curLow: TurnRec | undefined = s.turns.get(f.turn);
-    if (curLow === undefined || curLow.final !== null) {
-      return { state: { ...s, seq: seqAfter(s, f) }, effects: [] };
-    }
-  }
   const cur = s.turns.get(f.turn);
-  // ⛔ **同一 turn 号已收尾 ⇒ 号码被复用 ⇒ 这是新回合**（用户 2026-10-22：cancel 后重新发消息，
-  //   上一个 turn 的迭代跑到下一个 turn）。`turn_started` 是"新回合开始"的权威信号：
-  //   只有"仍在飞"的同号 turn 才是幂等重放（保留 blocks），已收尾的一律重置。
-  const reuse: boolean = cur !== undefined && cur.final !== null;
   let next: State;
-  if (cur !== undefined && !reuse) {
+  if (cur !== undefined) {
     // ⛔ 幂等（§4 F-1）：只绑 user/requestID，**保留** blocks/final/phase（否则历史被清空）。
     const patched: TurnRec = { ...cur, user: f.user, requestID: f.requestID };
     const turns = new Map<TurnID, TurnRec>(s.turns);
@@ -241,10 +215,6 @@ function onOpen(s: State, f: OpenFrame): StepResult {
 }
 
 function onTick(s: State, f: TickFrame): StepResult {
-  if (f.turn <= 0) {
-    return { state: { ...s, seq: seqAfter(s, f) }, effects: [] };
-  }
-  if (f.turn < maxTurnOf(s) && !s.turns.has(f.turn)) { return { state: { ...s, seq: seqAfter(s, f) }, effects: [] }; }
   const t = s.turns.get(f.turn);
   if (t === undefined) {
     // 未知 turn（丢了 open）⇒ 取权威回合，不凭空造。
@@ -314,10 +284,6 @@ function indexOfBlock(bs: readonly Block[], iteration: IterNum): number {
 }
 
 function onDone(s: State, f: DoneFrame): StepResult {
-  if (f.turn <= 0) {
-    return { state: { ...s, seq: seqAfter(s, f) }, effects: [] };
-  }
-  if (f.turn < maxTurnOf(s) && !s.turns.has(f.turn)) { return { state: { ...s, seq: seqAfter(s, f) }, effects: [] }; }
   const t = s.turns.get(f.turn);
   if (t === undefined) {
     return { state: { ...s, seq: seqAfter(s, f) }, effects: [{ kind: 'pullTurn', chat: s.chat, turn: f.turn }] };
@@ -362,6 +328,51 @@ function onDone(s: State, f: DoneFrame): StepResult {
   const live = liveAt(s, f.turn, block.iteration) !== null ? null : s.live;
   const applied = drain({ ...s, seq: seqAfter(s, f), turns, live }, f.turn);
   return { state: applied, effects: [] };
+}
+
+/**
+ * 把**在飞迭代**折成**已提交块**并收尾该回合。
+ *
+ * ⛔ 用户 2026-10-22 点破的根因：「**会话被 cancel 的那一刻它就是 committed 了**」。
+ *   旧实现收尾时只 `live = null`，在飞迭代**没有折成块** ⇒ ① 该 turn 的块列表少几个迭代
+ *   （"历史里少几个迭代"）；② `live` 是**全局单例**，渲染层按"最新在飞行"把它画出来 ⇒
+ *   那几个迭代**出现在最新 turn**（"上一 turn 的迭代跑到下一 turn"）。
+ * ⛔ 只写 `live.turn` **自己**（绝不碰别的 turn）；同号块已存在就只补 `cancelled` 标记，不重建。
+ */
+function foldLive(s: State, turn: TurnID, cancelled: boolean, finalContent: string = ''): State {
+  const live: LiveIter | null = s.live;
+  if (live === null || live.turn !== turn) {
+    return s;
+  }
+  const t: TurnRec | undefined = s.turns.get(turn);
+  if (t === undefined) {
+    return { ...s, live: null };
+  }
+  const hasContent: boolean = live.content.length > 0 || live.reasoning.length > 0
+    || live.tools.length > 0 || live.genui.length > 0;
+  let blocks: readonly Block[] = t.blocks;
+  const idx: number = indexOfBlock(t.blocks, live.iteration);
+  if (idx < 0) {
+    if (hasContent) {
+      blocks = [...t.blocks, {
+        iteration: live.iteration, content: live.content, reasoning: live.reasoning,
+        tools: live.tools, subAgents: [], genui: live.genui, cancelled,
+      }];
+    }
+  } else if (cancelled && !t.blocks[idx].cancelled) {
+    const copy: Block[] = t.blocks.slice();
+    copy[idx] = { ...copy[idx], cancelled: true };
+    blocks = copy;
+  }
+  const turns = new Map<TurnID, TurnRec>(s.turns);
+  turns.set(turn, {
+    ...t,
+    blocks,
+    final: t.final !== null ? t.final : { content: finalContent.length > 0 ? finalContent : live.content, cancelled },
+    phase: 'done',
+    streaming: false,
+  });
+  return { ...s, turns, live: null };
 }
 
 function onFinal(s: State, f: FinalFrame): StepResult {
@@ -422,8 +433,10 @@ function onFinal(s: State, f: FinalFrame): StepResult {
     streaming: false,
     droppedBefore: f.droppedBefore !== undefined ? f.droppedBefore : t.droppedBefore,
   });
-  const live = s.live !== null && s.live.turn === f.turn ? null : s.live;
-  const applied = drain({ ...s, seq: seqAfter(s, f), turns, live }, f.turn);
+  // ⛔ 收尾即 committed：在飞迭代必须折成块（否则该 turn 少几个迭代，而 `live` 会在
+  //   渲染层被当作"最新在飞"画到最新 turn 上）。
+  const closed = foldLive({ ...s, seq: seqAfter(s, f), turns, live: s.live }, f.turn, f.cancelled, f.content);
+  const applied = drain(closed, f.turn);
   return { state: applied, effects };
 }
 
@@ -435,41 +448,12 @@ function onSession(s: State, f: SessionFrame): StepResult {
     goal: f.goal === undefined ? sess.goal : (f.goal === null ? { kind: 'cleared' as const } : { kind: 'value' as const, objective: f.goal.objective, status: f.goal.status, summary: f.goal.summary }),
     queue: f.queue !== undefined ? f.queue : sess.queue,
   };
-  const base: State = { ...s, seq: seqAfter(s, f), sess: next };
-  // ⛔ **idle / cancel 必须在本地收尾在飞回合**（用户 2026-10-22：「cancel 后重新发消息，
-  //   上一个 turn 的所有迭代直接跑到下一个 turn 里来了」）。否则旧 turn 永远 `final === null`
-  //   ⇒ 它的行恒为 live 行、`s.live` 仍指着它 ⇒ 页面把**新 turn** 的 live 内容投给旧行/反之。
-  //   收尾语义：已收到的内容折成**取消态块**（不丢），回合置 `done`，live 清空。
+  const closed: State = { ...s, seq: seqAfter(s, f), sess: next };
+  // ⛔ **cancel / idle 那一刻该 turn 就是 committed**（用户 2026-10-22）：折块 + 收尾 + 清 live。
   if (f.running === false && s.live !== null) {
-    return { state: closeLive(base, s.live), effects: [] };
+    return { state: foldLive(closed, s.live.turn, true), effects: [] };
   }
-  return { state: base, effects: [] };
-}
-
-/** 把在飞迭代折成**取消态**块并收尾该回合（内容不丢、live 清空）。 */
-function closeLive(s: State, live: LiveIter): State {
-  const t = s.turns.get(live.turn);
-  if (t === undefined) {
-    return { ...s, live: null };
-  }
-  const hasContent: boolean = live.content.length > 0 || live.reasoning.length > 0
-    || live.tools.length > 0 || live.genui.length > 0;
-  let blocks: readonly Block[] = t.blocks;
-  if (hasContent && indexOfBlock(t.blocks, live.iteration) < 0) {
-    blocks = [...t.blocks, {
-      iteration: live.iteration, content: live.content, reasoning: live.reasoning,
-      tools: live.tools, subAgents: [], genui: live.genui, cancelled: true,
-    }];
-  }
-  const turns = new Map<TurnID, TurnRec>(s.turns);
-  turns.set(live.turn, {
-    ...t,
-    blocks,
-    final: t.final !== null ? t.final : { content: live.content, cancelled: true },
-    phase: 'done',
-    streaming: false,
-  });
-  return { ...s, turns, live: null };
+  return { state: closed, effects: [] };
 }
 
 function onKeepalive(s: State, f: KeepaliveFrame): StepResult {
