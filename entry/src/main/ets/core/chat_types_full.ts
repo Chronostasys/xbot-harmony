@@ -384,6 +384,14 @@ export type DomainEvent =
     }
   | {
       readonly type: 'iteration'
+
+      /**
+       * 本帧是否**携带**工具列表（`active_tools`/`completed_tools` 至少一个存在）。
+       * ⛔ 审计确证（state-final-5 F1）：`normalize` 把"缺失"折成 `[]` 会与"权威空集合"混淆 ——
+       * 一旦某帧不带工具字段却进入 iteration 分支，就会**清空在飞/已完成工具**。缺省（undefined）
+       * 保持既有行为（= 携带），只有显式 `false` 才表示"未携带 ⇒ 沿用上一帧"。
+       */
+      readonly toolsCarried?: boolean
       /** null = turn_id 缺失/为 0（后端某些路径 cfg.TurnID=0）→ reduce 回退
        *  activeTurn（与 stream 事件一致）。todos 是会话级状态，不因 turn 缺失
        *  而丢弃。 */

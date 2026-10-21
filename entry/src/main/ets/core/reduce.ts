@@ -1241,8 +1241,11 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
         //    （画面「正在执行的工具显示排队」，严重时「一个迭代所有 tool 都排队」）。
         //    ⇒ 走 `mergeActiveStatus`：成员仍以当帧为准，但**同键状态只升不降**
         //    （web `progressStore.dedupTools:339-364` 的 `rank` 语义，等价移植）。
-        activeTools:
-          (advanced || committedNow) && ev.activeTools.length === 0
+        // ⛔ 审计确证（state-final-5 F1）：`toolsCarried === false` = 本帧**未携带**工具列表
+        //   ⇒ 沿用上一帧（绝不能当成"权威空集合"把在飞/已完成工具清空）。
+        activeTools: ev.toolsCarried === false
+          ? prev.activeTools
+          : (advanced || committedNow) && ev.activeTools.length === 0
             ? markToolsCompleted(prev.activeTools)
             : (advanced || committedNow)
               ? ev.activeTools
@@ -1252,18 +1255,22 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
         // 否则同一工具渲染两个（一个 executing 带参数 + 一个 generating 无
         // 参数，用户报告 100% 复现）。规则：streamingTools ∩ activeTools = ∅。
         // 迭代前进或 commit 时全部清空（流式字段随迭代边界重置 —— 旧语义）。
-        streamingTools: advanced || committedNow
-          ? []
-          : prev.streamingTools.filter(
-              (t) => !ev.activeTools.some((a) => a.name === t.name),
-            ),
+        streamingTools: ev.toolsCarried === false
+          ? prev.streamingTools
+          : advanced || committedNow
+            ? []
+            : prev.streamingTools.filter(
+                (t) => !ev.activeTools.some((a) => a.name === t.name),
+              ),
         // 当前迭代**已完成**的工具（web `LiveIteration.toolDeriv` 的第三个数组）——
         // 服务端把完成的从 active_tools 移入 completed_tools；⛔ 不存/不渲染它 ⇒ 迭代内
         // 先完成的工具（如 FileReplace 之后还有 Shell）在提交前从 live 列表**消失**。
         // 同 activeTools：迭代边界/commit 以当帧为准，否则按 toolKey 合并（同键状态只升不降）。
-        completedTools: advanced || committedNow
-          ? ev.completedTools
-          : mergeActiveStatus(prev.completedTools, ev.completedTools) as WebToolProgress[],
+        completedTools: ev.toolsCarried === false
+          ? prev.completedTools
+          : advanced || committedNow
+            ? ev.completedTools
+            : mergeActiveStatus(prev.completedTools, ev.completedTools) as WebToolProgress[],
         genui: advanced || committedNow ? '' : prev.genui,
         todos: ev.todos ?? prev.todos,
         subAgents: ev.subAgents ?? prev.subAgents,
@@ -2489,8 +2496,11 @@ function settlePendingSending(s: ChatState, atTurnEnd: boolean): ChatState {
   }
   const t = s.turns.get(s.activeTurn)
   if (t === undefined) return s
+  // ⛔ 审计确证（state-final-10 C3）：本函数**清**的是"第一条"（FIFO）、这里**收编**的却是
+  //   "最后一条"（反向循环）—— 同一函数两个相反顺序 ⇒ 两条同发时会把**新**消息收编成本轮
+  //   user、旧消息留在 pending（顺序错乱）。送达证据是 FIFO 的：刚开始的 turn 对应最早那条。
   let idx = -1
-  for (let i = s.pendingUsers.length - 1; i >= 0; i--) {
+  for (let i = 0; i < s.pendingUsers.length; i++) {
     const u = s.pendingUsers[i]
     if (u.sending && !u.queued) { idx = i; break }
   }

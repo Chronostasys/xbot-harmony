@@ -366,6 +366,8 @@ function normalizeProgress(env: Record<string, unknown>): readonly DomainEvent[]
     content: optStr(p.content),
     reasoning: optStr(p.reasoning),
     // Go nil slice → JSON null → []（I6：normalize 之后无 null 数组）
+    // ⛔ F1：显式携带标记（`undefined`=沿用旧行为），供 reduce 区分"缺失"与"权威空"。
+    toolsCarried: Array.isArray(p.active_tools) || Array.isArray(p.completed_tools),
     activeTools: normalizeWebTools(Array.isArray(p.active_tools) ? p.active_tools : []),
     completedTools: normalizeWebTools(Array.isArray(p.completed_tools) ? p.completed_tools : []),
     iterationsDelta: dedupeIterationsByNumber(
