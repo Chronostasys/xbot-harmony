@@ -62,6 +62,14 @@ function wire(store: ChatStore, msgAck: object): { emit: (e: string, p: object) 
   };
 }
 
+/** turn 对象仍在（live 相位、内容保留）—— 与 `hasLiveTurn()`（= 仍在 streaming，busy 证据）
+ *  **解耦**：`idle` 的契约是"只停 streaming、保留 turn"（不冻结、不丢后续同迭代帧）。 */
+function turnKept(store: ChatStore): boolean {
+  const st = (store as unknown as { state: ChatState }).state;
+  const t = st.activeTurn !== null ? st.turns.get(st.activeTurn) : undefined;
+  return t !== undefined && t.phase.kind === 'live';
+}
+
 /** 直接从状态机快照取 live 流式内容（不依赖行派生的滞后）。 */
 function streamContentOf(store: ChatStore): string {
   const st = (store as unknown as { state: ChatState }).state;
@@ -101,12 +109,22 @@ async function main(): Promise<void> {
 
   // 迟到/回放的 coarse 会话级 `session(idle)` —— 它会产出 `session{busy:false}` 事件，
   // 命中 reduce 的粗粒度 idle 分支（`if (s.sessionRunning) return s`）—— turn 仍在跑 ⇒ 必须被忽略。
+  // 契约（2026-10-21 修订）：`idle` 是**后端权威** ⇒ busy 必须降级；但**turn 内容必须保留**
+  // （只停 streaming，不删/不冻结）⇒ 后续同迭代帧仍可应用（③ 验证）。
+  // 旧判据要求"busy 仍为 true"，那是当年为了绕服务端迟到 idle 的客户端 hack —— 根因已在
+  // 服务端 `runGen` + 本轮 `turn_id` 归属规则修掉，不该再把 busy 钉成 false 也当 bug。
   w.emit('session', { chat_id: CHAT, session: { channel: 'web', chat_id: CHAT, action: 'idle' } });
-  ok('② mid-turn 迟到 idle 不得冻结在飞 turn（仍 live）', store.hasLiveTurn() === true);
-  ok('② 迟到 idle 后 busy 仍为 true（闸门生效）', store.busy === true);
-  // 同样：coarse `agent-idle`（走 applyLocalIdle）也不得冻结在飞 turn。
+  ok('② 后端明确 idle ⇒ busy 降级（与后端同步）', store.busy === false);
+  ok('② idle 只停 streaming：turn 与内容保留（不冻结、不丢帧）',
+    turnKept(store) && streamContentOf(store).includes('初始输出'));
+  // ⛔ 新规则判别力：**旧轮**的迟到 idle（turn_id ≠ activeTurn）不得把本轮降成 idle。
+  w.emit('session', { chat_id: CHAT, session: { channel: 'web', chat_id: CHAT, action: 'busy', turn_id: 5 } });
+  ok('②c 本轮 busy 生效（turn_id=5 = activeTurn）', store.busy === true);
+  w.emit('session', { chat_id: CHAT, session: { channel: 'web', chat_id: CHAT, action: 'idle', turn_id: 4 } });
+  ok('②d 旧轮 idle（turn_id=4 ≠ activeTurn=5）不得降级本轮 busy', store.busy === true);
+  // 同样：coarse `agent-idle`（走 applyLocalIdle）也不得删/冻 turn。
   w.emit('session', { chat_id: CHAT, session: { channel: 'web', chat_id: CHAT, action: 'agent-idle' } });
-  ok('②b agent-idle 同样不得冻结在飞 turn', store.hasLiveTurn() === true);
+  ok('②b agent-idle 同样只停 streaming、不删 turn', turnKept(store));
 
   // ③ 同迭代 stream 必须仍能更新 live 内容（否则就是"进度消失且永不再更新"）。
   w.emit('progress_structured', stream(5, 1, '继续输出'));
@@ -134,7 +152,7 @@ async function main(): Promise<void> {
   ok('⑤ 权威 idle 前 busy=true', store4.busy === true);
   await store4.cancel();
   ok('⑤ cancel（权威 idle）后 busy=false（不卡 cancel）', store4.busy === false);
-  ok('⑤b live turn 仍保留（同迭代后续帧仍可应用）', store4.hasLiveTurn() === true);
+  ok('⑤b turn 对象仍保留（同迭代后续帧仍可应用）', turnKept(store4));
   w4.emit('progress_structured', stream(7, 1, '进行中+续写'));
   ok('⑤c 停流后同迭代 stream 仍被应用（不冻结丢帧）', streamContentOf(store4).includes('续写'));
 
