@@ -289,6 +289,35 @@
 
 ⚠️ **这些后端修复需要重启后端才生效**（本地 launchd 托管）。客户端修复无需。
 
+## §4.6 第六/七轮：门禁断言层修复 + 结构性收敛（2026-10-21）
+
+**最重要的发现（根因级）**：`tools/tests/run.sh:56` 用**一个 tsc program** 编译全部测试副本，
+而 **203 个 `*.test.ts` 没有 `export {}`**（是脚本不是模块）⇒ 顶层 `const fail/pass/require`
+全落同一全局作用域、两两重名 ⇒ **编译失败** ⇒ 真门禁 ① 打印"共 0 个测试文件，0 个失败
+（但编译失败 ⇒ 判红）"：**断言层从未执行**。补齐模块作用域后一次暴露 29 个失败文件。
+
+结构性收敛（全部"减判据/减特例"，不是加守卫）：
+
+| 改动 | 结构含义 | 判据 |
+|---|---|---|
+| 会话级字段（todos/goal）移到 `iteration`/`stream` 的**所有闸门之后** | 陈旧帧**零写入**；删掉"轻帧特例"（`normalize` 已把轻帧分流成 `session_fields`） | reduce 82 / state_invariants 36 |
+| `sending` 只有 `user_ack`/`user_fail`/回合收尾三个证据 | 一条别的 turn 的帧不再结算"发送中" | send_state_settle 16 / send_optimistic_running 16 |
+| 后端 `SessionEvent.turn_id` + 前端"idle 只对**它指向的那一轮**生效" | 旧轮迟到 idle 不再把新一轮降成 idle（同一个规则同时消除"卡 busy"与"idle 抽搐"） | 新增 ②c/②d 判据 |
+| `GoalManager.Tombstone()` 用于 `turn_started`/`refreshStructuredTodos`/`GetActiveProgress`/**`GetGoal`** | "已清除"在协议上可表达；前端三态（`cleared` ⇒ 清除） | goal_busy_stability 16 |
+| `resumeActive` 默认 **true** | standalone store 按定义 active；进池才显式置 false（少一个"必须记得置位"的隐式契约） | gap_reload_wiring / store_null / send_optimistic_running 转绿 |
+| `syncLiveTail` 投递门控只留**整数代际**（`liveRevision`） | 删掉 `liveBlocks`/`liveTools` 的"数组恒等"第二道判据（正是"生成中 x 字不更新"的根因） | tools_signature ALL PASS |
+| `LiveTailView`：暂停停表 **且** 回退判据改为"打字机从未启动" | 两个条件同时成立 ⇒ 暂停不再把正文打回全文（"滚动高度抖动"） | render_inflight 26 / resume_stream_tail_wiring 13 |
+| `setTailPaused` 接通（onTouch） | 消除死消费（声明三路暂停、实际只接两路） | fe-render-1 #3 |
+| `IterBlocksView` 删 `.translate({ x: 0 })` 空操作 | 位移只来自底座档常量 | motion_uniform 8 |
+
+**判据漂移清单**（代码已迁移，判据没跟，全部改钉真实渲染者/函数边界，零扫描仍判红）：
+`bubble_style` / `contrast_landing` / `reasoning_wiring` / `genui` / `live_key_stability` /
+`flicker_guard` / `tool_pill_key` / `live_block_delivery` / `sidebar_view_state` /
+`resume_resync_wiring` / `promote_tool_visibility` / `loadmore_resilience` / `tools_signature` /
+`core_module_consumed`（台账改**上界**语义）/ `type_role_gate`（台账下调 4→3）。
+
+**当前状态**：全量 388 个测试文件 **0 失败**；`bash tools/gate.sh` ⇒ `GATE_EXIT=0`（全绿）。
+
 ## §5 审计结论与本轮修复
 
 ### §5.1 后端（`fix/state-protocol-audit` 分支）
