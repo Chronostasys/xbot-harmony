@@ -102,6 +102,69 @@ function pullRange(chat: ChatID, turn: TurnID, from: number, to: number): Effect
   return out;
 }
 
+/** 需要拉取的号（跳过权威已回答"不存在"的号 ⇒ ⛔ 不会对同一号无限补洞）。 */
+function rangeOf(s: State, turn: TurnID, from: number, to: number): number[] {
+  const abs = s.absent.get(turn);
+  const out: number[] = [];
+  for (let i = from; i <= to; i++) {
+    if (abs === undefined || !abs.has(i)) out.push(i);
+  }
+  return out;
+}
+
+function missingEffects(chat: ChatID, turn: TurnID, list: readonly number[]): Effect[] {
+  const out: Effect[] = [];
+  for (let i = 0; i < list.length; i++) out.push({ kind: 'pullIter', chat, turn, iteration: list[i] });
+  return out;
+}
+
+/**
+ * **按序落账**：`pending` 缓冲里"接得上的"块依次追加；`absent` 里的号视为合法跳过。
+ * ⛔ 只在这里改 `blocks`（除 `final` 的整体替换）⇒ 块序恒严格递增、永不出现洞。
+ */
+function drain(s: State, turn: TurnID): State {
+  const t = s.turns.get(turn);
+  if (t === undefined) return s;
+  const buf = s.pending.get(turn);
+  if (buf === undefined || buf.size === 0) return s;
+  const abs = s.absent.get(turn);
+  let blocks = t.blocks;
+  let last = blocks.length === 0 ? 0 : blocks[blocks.length - 1].iteration;
+  const rest = new Map<number, Block>();
+  buf.forEach((v, k) => rest.set(k, v));
+  let appended = false;
+  for (;;) {
+    const next = rest.get(last + 1);
+    if (next !== undefined) {
+      blocks = [...blocks, next];
+      last = last + 1;
+      rest.delete(last);
+      appended = true;
+      continue;
+    }
+    if (abs !== undefined && abs.has(last + 1)) { last = last + 1; continue; }
+    break;
+  }
+  if (!appended) return s;
+  const turns = new Map<TurnID, TurnRec>(s.turns);
+  turns.set(turn, { ...t, blocks });
+  const pending = new Map<TurnID, ReadonlyMap<IterNum, Block>>(s.pending);
+  if (rest.size === 0) pending.delete(turn); else pending.set(turn, rest);
+  const live = s.live !== null && s.live.turn === turn && s.live.iteration <= last ? null : s.live;
+  return { ...s, turns, pending, live };
+}
+
+/** 驱动层拿到权威 `ABSENT` ⇒ 标记该号不存在（合法跳号），随后 drain。 */
+export function markAbsent(s: State, turn: TurnID, iteration: IterNum): State {
+  const cur = s.absent.get(turn);
+  const set = new Set<IterNum>();
+  if (cur !== undefined) cur.forEach((v) => set.add(v));
+  set.add(iteration);
+  const absent = new Map<TurnID, ReadonlySet<IterNum>>(s.absent);
+  absent.set(turn, set);
+  return drain({ ...s, absent }, turn);
+}
+
 // ─── 守卫 ────────────────────────────────────────────────────
 
 function envelope(s: State, f: Frame): { apply: boolean; effects: Effect[] } {
@@ -149,10 +212,12 @@ function onTick(s: State, f: TickFrame): StepResult {
     // 已提交迭代的迟到帧 ⇒ 丢弃（权威块已在，且 `done` 完备）
     return { state: { ...s, seq: f.seq }, effects: [] };
   }
+  const missing: number[] = [];
   if (f.iteration > last + 1) {
-    // ⛔ **绝不跳过**：迭代前进了但上一迭代还不完整 ⇒ 先拉齐；本帧不应用（下一帧会带回最新样子）
-    const effects = pullRange(s.chat, f.turn, last + 1, f.iteration - 1);
-    return { state: { ...s, seq: f.seq }, effects };
+    // ⛔ **绝不 commit 不完整迭代**，但**也不能放弃 SSE 进度**（用户口径）：
+    //   缺口只触发 `pullIter`，**本帧照常应用**到 live（打字机/工具继续跑）；
+    //   已完成的块由 `done` 进来后按序入账（`pending` 缓冲，见 `drain`）。
+    missing.push(...rangeOf(s, f.turn, last + 1, f.iteration - 1));
   }
   const prevLive = liveAt(s, f.turn, f.iteration);
   const baseCur = prevLive !== null ? prevLive.content : '';
@@ -164,7 +229,7 @@ function onTick(s: State, f: TickFrame): StepResult {
     const live0 = prevLive !== null ? prevLive : {
       turn: f.turn, iteration: f.iteration, content: baseCur, reasoning: baseRea, tools: EMPTY_TOOLS, genui: '',
     };
-    return { state: { ...s, seq: f.seq, live: live0 }, effects: [] };
+    return { state: { ...s, seq: f.seq, live: live0 }, effects: missingEffects(s.chat, f.turn, missing) };
   }
   const prevTools = prevLive !== null ? prevLive.tools : EMPTY_TOOLS;
   const live: LiveIter = {
@@ -183,7 +248,7 @@ function onTick(s: State, f: TickFrame): StepResult {
     streamStats: f.stats !== undefined ? f.stats : t.streamStats,
     tokenUsage: f.usage !== undefined ? f.usage : t.tokenUsage,
   });
-  return { state: { ...s, seq: f.seq, turns, live }, effects: [] };
+  return { state: { ...s, seq: f.seq, turns, live }, effects: missingEffects(s.chat, f.turn, missing) };
 }
 
 function onDone(s: State, f: DoneFrame): StepResult {
@@ -196,15 +261,24 @@ function onDone(s: State, f: DoneFrame): StepResult {
     return { state: { ...s, seq: f.seq }, effects: [] };       // 已提交/回退 ⇒ 丢弃
   }
   if (f.block.iteration > last + 1) {
-    // ⛔ 缺口：中间迭代没提交 ⇒ 拉齐后再说（本块**不入账**）
+    // ⛔ 缺口：本块**暂不入账**（绝不让 blocks 出现洞），进 `pending` 缓冲；
+    //   同时拉缺失号。补到（或权威回答"不存在"）后由 `drain` 按序落地 ——
+    //   ⛔ 不阻塞后续 SSE 帧（位置状态照常推进）。
+    const buf = new Map<number, Block>();
+    const prevBuf = s.pending.get(f.turn);
+    if (prevBuf !== undefined) prevBuf.forEach((v, k) => buf.set(k, v));
+    buf.set(f.block.iteration, stampBlock(f.block));
+    const pending = new Map(s.pending);
+    pending.set(f.turn, buf);
     const effects = pullRange(s.chat, f.turn, last + 1, f.block.iteration - 1);
-    return { state: { ...s, seq: f.seq }, effects };
+    return { state: { ...s, seq: f.seq, pending }, effects };
   }
   const block = stampBlock(f.block);
   const turns = new Map<TurnID, TurnRec>(s.turns);
   turns.set(f.turn, { ...t, blocks: [...t.blocks, block] });
   const live = liveAt(s, f.turn, block.iteration) !== null ? null : s.live;
-  return { state: { ...s, seq: f.seq, turns, live }, effects: [] };
+  const applied = drain({ ...s, seq: f.seq, turns, live }, f.turn);
+  return { state: applied, effects: [] };
 }
 
 function onFinal(s: State, f: FinalFrame): StepResult {
@@ -240,7 +314,8 @@ function onFinal(s: State, f: FinalFrame): StepResult {
     droppedBefore: f.droppedBefore !== undefined ? f.droppedBefore : t.droppedBefore,
   });
   const live = s.live !== null && s.live.turn === f.turn ? null : s.live;
-  return { state: { ...s, seq: f.seq, turns, live }, effects };
+  const applied = drain({ ...s, seq: f.seq, turns, live }, f.turn);
+  return { state: applied, effects };
 }
 
 function onSession(s: State, f: SessionFrame): StepResult {
@@ -298,7 +373,7 @@ function isFrame(x: Frame | { kind: string }): x is Frame {
  * 唯一转移函数。
  * @param ts 本机时间戳（仅 `send` 需要；由调用方提供 ⇒ `step` 保持纯）
  */
-export function step(s: State, input: Frame | SendIntent | AckIntent | FailIntent | { kind: 'resync' }, ts: string): StepResult {
+export function step(s: State, input: Frame | SendIntent | AckIntent | FailIntent | { kind: 'resync' } | { kind: 'absent'; turn: TurnID; iteration: IterNum }, ts: string): StepResult {
   if (isFrame(input)) {
     const g = envelope(s, input);
     if (!g.apply) return { state: s, effects: g.effects };
@@ -317,6 +392,7 @@ export function step(s: State, input: Frame | SendIntent | AckIntent | FailInten
     case 'ack': return onAck(s, input);
     case 'fail': return onFail(s, input);
     case 'resync': return { state: s, effects: [{ kind: 'snapshot', chat: s.chat }] };
+    case 'absent': return { state: markAbsent(s, (input as { turn: TurnID }).turn, (input as { iteration: IterNum }).iteration), effects: [] };
     default: return { state: s, effects: [] };
   }
 }

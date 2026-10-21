@@ -94,7 +94,8 @@ function fin(turn: number, content: string, seq: number, blocks?: Block[]): Fina
   const r = step(s, tick(1, 3, 4, 'b'), '');
   eq('② 迭代缺口 ⇒ 只拉缺失那一号', r.effects.length, 1);
   eq('② effect 类型/参数', r.effects[0], { kind: 'pullIter', chat: CHAT, turn: 1, iteration: 2 });
-  eq('② 缺口帧不应用（live 仍为空）', r.state.live, null);
+  // ⛔ 用户口径：**补洞不能停 SSE 进度** ⇒ 缺口帧照常应用到 live
+  eq('② 缺口帧仍推进 live（SSE 不停）', r.state.live === null ? null : r.state.live.iteration, 3);
 
   // done 直接跳到迭代 3 ⇒ pullIter(2)，**不入账**
   const r2 = step(s, done(1, blk(3, [], 'c'), 5), '');
@@ -213,6 +214,24 @@ function fin(turn: number, content: string, seq: number, blocks?: Block[]): Fina
   eq('⑪ 工具号 == 块号', ts0 !== null ? ts0.iteration : -1, 1);
   ok('⑪ 回合未收尾 ⇒ 走 live 行（进行中指示）', row.isLive === true);
   eq('⑪ 无在飞迭代 ⇒ 顶层 content 为空（已提交正文在块里，不重复）', row.content, '');
+}
+
+// ── ⑫ 补洞不阻塞 SSE + 缓冲落账 + 不对 ABSENT 无限补洞（用户口径）─────────────
+{
+  let s = st(0);
+  s = step(s, open(1, 1), '').state;
+  s = step(s, done(1, blk(1, [], 'a'), 2), '').state;
+  // 迭代 2 的 done 丢了：直接来迭代 3 的 done ⇒ 缓冲 + 拉 2
+  const r1 = step(s, done(1, blk(3, [], 'c'), 3), '');
+  eq('⑫ 缺口块先入缓冲（不入账）', r1.state.turns.get(1)?.blocks.length, 1);
+  eq('⑫ 同时拉缺失号', r1.effects[0], { kind: 'pullIter', chat: CHAT, turn: 1, iteration: 2 });
+  // 权威回答"迭代 2 不存在" ⇒ 标记后按序落账（迭代 3 入账）
+  const r2 = step(r1.state, { kind: 'absent', turn: 1, iteration: 2 } as never, '');
+  eq('⑫ ABSENT 后按序落账（2 块）', r2.state.turns.get(1)?.blocks.length, 2);
+  eq('⑫ 落账后的块号', r2.state.turns.get(1)?.blocks.map((b) => b.iteration), [1, 3]);
+  // 再来一次同样的缺口 ⇒ 不应再对 2 发起补洞（否则无限补洞）
+  const r3 = step(r2.state, tick(1, 5, 4, 'e'), '');
+  eq('⑫ 已 ABSENT 的号不再请求', r3.effects.map((e) => (e.kind === 'pullIter' ? e.iteration : -1)), [4]);
 }
 
 console.log(`\nmodel_step: ${pass} passed, ${fail} failed`);

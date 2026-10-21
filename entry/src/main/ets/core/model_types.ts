@@ -200,6 +200,10 @@ export interface State {
   readonly legacy: readonly LegacyLine[];
   /** 无 turn 归属的**实时**回复（命令 `!cmd`/slash）：排在 turns 之后。 */
   readonly standalone: readonly LegacyLine[];
+  /** 已到达但**尚不可入账**的完成块（迭代缺口）：等缺的那几号补齐后按序 drain。 */
+  readonly pending: ReadonlyMap<TurnID, ReadonlyMap<IterNum, Block>>;
+  /** 权威回答"该号不存在"（合法跳号）——避免对同一号无限补洞。 */
+  readonly absent: ReadonlyMap<TurnID, ReadonlySet<IterNum>>;
 }
 
 // ─── 帧（服务端 → 客户端，6 个构造子）────────────────────────
@@ -343,6 +347,8 @@ export function emptyState(chat: ChatID, epoch: number, seq: Seq): State {
     local: { pending: [] },
     legacy: [],
     standalone: [],
+    pending: new Map<TurnID, ReadonlyMap<IterNum, Block>>(),
+    absent: new Map<TurnID, ReadonlySet<IterNum>>(),
   };
 }
 
