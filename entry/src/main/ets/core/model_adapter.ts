@@ -182,7 +182,10 @@ function fullText(t: string | undefined | null): TextPatch {
  * ⛔ 不消费 `stats/usage` 的具体形状（`unknown` ⇒ 保持 undefined），由驱动层按需透传。
  */
 export function adapt(ev: WireEvent, chat: string, epoch: number): readonly (Frame | SendIntent | AckIntent | FailIntent)[] {
-  const seq: number = ev.seq !== undefined && ev.seq !== null ? ev.seq : 0;
+  // ⛔ `seq` 是 **transport** 序号（每帧必有）。缺 seq 的输入（demo / 本地合成 / 部分测试）
+  //   不得伪造 0 —— 否则会与真实水位冲突（`seq < last ⇒ 丢弃`），把 `text_final` 当迟到帧丢掉。
+  //   用 -1 表示"无信封"：`step` 对它跳过 seq 守卫、不推进水位。
+  const seq: number = ev.seq !== undefined && ev.seq !== null ? ev.seq : -1;
   switch (ev.type) {
     case 'turn_started': {
       const turn: TurnID = ev.turnID !== undefined && ev.turnID !== null ? ev.turnID : 0;

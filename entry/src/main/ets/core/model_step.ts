@@ -17,7 +17,7 @@
 import type {
   AckIntent, Block, ChatID, DoneFrame, Effect, FailIntent, FinalFrame, Frame, IterNum, KeepaliveFrame,
   LiveIter, OpenFrame, SendIntent, SessionFrame, State, StepResult, TickFrame, ToolMeta, ToolRec, ToolStatus,
-  ToolTick, TurnID, TurnRec, UserLine, TextPatch,
+  Seq, ToolTick, TurnID, TurnRec, UserLine, TextPatch,
 } from './model_types';
 import { newTurn } from './model_types';
 
@@ -82,6 +82,11 @@ function applyToolTicks(prev: readonly ToolRec[], ticks: readonly ToolTick[],
 function liveAt(s: State, turn: TurnID, iteration: IterNum): LiveIter | null {
   const l = s.live;
   return l !== null && l.turn === turn && l.iteration === iteration ? l : null;
+}
+
+/** 应用后的水位：无信封输入（`seq < 0`）不推进。 */
+function seqAfter(s: State, f: Frame): Seq {
+  return f.seq >= 0 ? f.seq : s.seq;
 }
 
 function withTurn(s: State, id: TurnID, patch: (t: TurnRec) => TurnRec): State {
@@ -173,6 +178,7 @@ function envelope(s: State, f: Frame, sameEvent: boolean): { apply: boolean; eff
   // ⛔ **同一个 wire 事件可以派生多帧**（`iteration` ⇒ tick + 多个 done）。它们共享同一个
   //   transport seq；若按"`seq ≤` 即重复"处理，除第一帧外全被丢 ⇒ 工具/块整批消失
   //   （`model_diff_prop` 随机差分钓出：末迭代工具丢失）。⇒ 同批（同 seq）放行。
+  if (f.seq < 0) return { apply: true, effects: [] };                     // 无信封：不判新旧
   if (f.seq < s.seq) return { apply: false, effects: [] };                // 严格更旧 ⇒ 重复/后到
   if (f.seq === s.seq && !sameEvent) return { apply: false, effects: [] };
   // 跳号（f.seq > s.seq + 1）**照常应用并把水位推到最大** —— 不重放、不补帧。
@@ -202,19 +208,19 @@ function onOpen(s: State, f: OpenFrame): StepResult {
       next = { ...next, local: { pending } };
     }
   }
-  return { state: { ...next, seq: f.seq }, effects: [] };
+  return { state: { ...next, seq: seqAfter(s, f) }, effects: [] };
 }
 
 function onTick(s: State, f: TickFrame): StepResult {
   const t = s.turns.get(f.turn);
   if (t === undefined) {
     // 未知 turn（丢了 open）⇒ 取权威回合，不凭空造。
-    return { state: { ...s, seq: f.seq }, effects: [{ kind: 'pullTurn', chat: s.chat, turn: f.turn }] };
+    return { state: { ...s, seq: seqAfter(s, f) }, effects: [{ kind: 'pullTurn', chat: s.chat, turn: f.turn }] };
   }
   const last = lastBlockIter(t);
   if (f.iteration <= last) {
     // 已提交迭代的迟到帧 ⇒ 丢弃（权威块已在，且 `done` 完备）
-    return { state: { ...s, seq: f.seq }, effects: [] };
+    return { state: { ...s, seq: seqAfter(s, f) }, effects: [] };
   }
   const missing: number[] = [];
   if (f.iteration > last + 1) {
@@ -233,7 +239,7 @@ function onTick(s: State, f: TickFrame): StepResult {
     const live0 = prevLive !== null ? prevLive : {
       turn: f.turn, iteration: f.iteration, content: baseCur, reasoning: baseRea, tools: EMPTY_TOOLS, genui: '',
     };
-    return { state: { ...s, seq: f.seq, live: live0 }, effects: missingEffects(s.chat, f.turn, missing) };
+    return { state: { ...s, seq: seqAfter(s, f), live: live0 }, effects: missingEffects(s.chat, f.turn, missing) };
   }
   const prevTools = prevLive !== null ? prevLive.tools : EMPTY_TOOLS;
   const live: LiveIter = {
@@ -252,17 +258,17 @@ function onTick(s: State, f: TickFrame): StepResult {
     streamStats: f.stats !== undefined ? f.stats : t.streamStats,
     tokenUsage: f.usage !== undefined ? f.usage : t.tokenUsage,
   });
-  return { state: { ...s, seq: f.seq, turns, live }, effects: missingEffects(s.chat, f.turn, missing) };
+  return { state: { ...s, seq: seqAfter(s, f), turns, live }, effects: missingEffects(s.chat, f.turn, missing) };
 }
 
 function onDone(s: State, f: DoneFrame): StepResult {
   const t = s.turns.get(f.turn);
   if (t === undefined) {
-    return { state: { ...s, seq: f.seq }, effects: [{ kind: 'pullTurn', chat: s.chat, turn: f.turn }] };
+    return { state: { ...s, seq: seqAfter(s, f) }, effects: [{ kind: 'pullTurn', chat: s.chat, turn: f.turn }] };
   }
   const last = lastBlockIter(t);
   if (f.block.iteration <= last) {
-    return { state: { ...s, seq: f.seq }, effects: [] };       // 已提交/回退 ⇒ 丢弃
+    return { state: { ...s, seq: seqAfter(s, f) }, effects: [] };       // 已提交/回退 ⇒ 丢弃
   }
   if (f.block.iteration > last + 1) {
     // ⛔ 缺口：本块**暂不入账**（绝不让 blocks 出现洞），进 `pending` 缓冲；
@@ -275,20 +281,20 @@ function onDone(s: State, f: DoneFrame): StepResult {
     const pending = new Map(s.pending);
     pending.set(f.turn, buf);
     const effects = pullRange(s.chat, f.turn, last + 1, f.block.iteration - 1);
-    return { state: { ...s, seq: f.seq, pending }, effects };
+    return { state: { ...s, seq: seqAfter(s, f), pending }, effects };
   }
   const block = stampBlock(f.block);
   const turns = new Map<TurnID, TurnRec>(s.turns);
   turns.set(f.turn, { ...t, blocks: [...t.blocks, block] });
   const live = liveAt(s, f.turn, block.iteration) !== null ? null : s.live;
-  const applied = drain({ ...s, seq: f.seq, turns, live }, f.turn);
+  const applied = drain({ ...s, seq: seqAfter(s, f), turns, live }, f.turn);
   return { state: applied, effects: [] };
 }
 
 function onFinal(s: State, f: FinalFrame): StepResult {
   const t = s.turns.get(f.turn);
   if (t === undefined) {
-    return { state: { ...s, seq: f.seq }, effects: [{ kind: 'pullTurn', chat: s.chat, turn: f.turn }] };
+    return { state: { ...s, seq: seqAfter(s, f) }, effects: [{ kind: 'pullTurn', chat: s.chat, turn: f.turn }] };
   }
   const effects: Effect[] = [];
   let blocks: readonly Block[] = t.blocks;
@@ -344,7 +350,7 @@ function onFinal(s: State, f: FinalFrame): StepResult {
     droppedBefore: f.droppedBefore !== undefined ? f.droppedBefore : t.droppedBefore,
   });
   const live = s.live !== null && s.live.turn === f.turn ? null : s.live;
-  const applied = drain({ ...s, seq: f.seq, turns, live }, f.turn);
+  const applied = drain({ ...s, seq: seqAfter(s, f), turns, live }, f.turn);
   return { state: applied, effects };
 }
 
@@ -356,11 +362,11 @@ function onSession(s: State, f: SessionFrame): StepResult {
     goal: f.goal === undefined ? sess.goal : (f.goal === null ? { kind: 'cleared' as const } : { kind: 'value' as const, objective: f.goal.objective, status: f.goal.status, summary: f.goal.summary }),
     queue: f.queue !== undefined ? f.queue : sess.queue,
   };
-  return { state: { ...s, seq: f.seq, sess: next }, effects: [] };
+  return { state: { ...s, seq: seqAfter(s, f), sess: next }, effects: [] };
 }
 
 function onKeepalive(s: State, f: KeepaliveFrame): StepResult {
-  return { state: { ...s, seq: f.seq }, effects: [] };
+  return { state: { ...s, seq: seqAfter(s, f) }, effects: [] };
 }
 
 // ─── 本机意图 ────────────────────────────────────────────────
