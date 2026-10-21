@@ -353,7 +353,7 @@ web 与新模型是**同一语义**（本仓的状态机本来就是 web 的逐�
 `web/src/chat/reduce.ts` 与新 `step` **一一对应**（同名、同转移、同前置/后置），
 差别只在**语言与 UI 层**。web 侧同样删除 `mergeIterations`/`dedupeIterationsByNumber`/
 `completedIterKeys`/`shellSameNum` 等分支 ⇒ 两端由"语义同源"变成"**转移表同源**"。
-> 判据：`tools/tests/model_parity.test.ts` 用同一份录制的 SSE 日志分别喂两端，比对投影（见 §9.3）。
+> 判据：用同一份录制的 SSE 日志分别喂两端、比对投影（W5 的判据，见 §9.3；判据文件在 W5 落地时创建）。
 
 ---
 
@@ -1092,7 +1092,7 @@ apply(next: Row[]):
 | 门禁 | 判据 |
 |---|---|
 | `tools/lint/state-single-writer.sh`（已有，**扩展**） | `core/**` 里能构造/改写 `ChatState`（现 `State`）的**只有** `model/step.ts` 与 `snapshot`；其它文件出现 `state.turns =` / `{...s, ` 之类即红 |
-| `tools/lint/no-content-compare.sh`（新） | 禁止对 `content`/`reasoning`/`detail`/`output`/`label`/`summary` 使用 `===`/`!==`/`.length ===`/`localeCompare` 作为**判等**（`grep -o` 只取调用片段；零扫描判红；mutation 自证） |
+| 新增 lint 判据（W3 落地） | 禁止对 `content`/`reasoning`/`detail`/`output`/`label`/`summary` 使用 `===`/`!==`/`.length ===`/`localeCompare` 作为**判等**（`grep -o` 只取调用片段；零扫描判红；mutation 自证） |
 
 ---
 

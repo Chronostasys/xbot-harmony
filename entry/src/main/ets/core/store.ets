@@ -19,6 +19,16 @@ import { arrOrEmpty, isPresent } from './guards';
 import { ChatState, DomainEvent, EventSeq, initialChatState, iterNum, NonEmptyS, nonEmptyStr, turnID, TurnID, UserRow } from './chat_types_full';
 import { demoAnswerFor, demoFirstIteration, demoReasoningFor, demoSeedPrompt, demoSessions, demoToolFor } from './demo';
 import { reduce, applySessionFields } from './reduce';
+// ── 新模型（docs/STATE-MODEL.md）**影子引擎**（W1：旁听不写）───────────────────
+//   为什么先影子：新引擎要替换 reduce/render/streammerge（≈5k 行），先在同一事件流上
+//   并行跑、只做**结构比对**（回合数/每回合块数/工具数），差异写日志。比对为零差异后
+//   才允许切换写者（W2/W3）。⛔ 影子路径**绝不写** `this.state`、绝不发网络。
+import { adapt } from './model_adapter';
+import { stepAll } from './model_step';
+import { emptyState } from './model_types';
+import type { State as ModelState } from './model_types';
+import { applyModel } from './model_bridge';
+import { allToolCalls } from './model_project';
 import { invariantViolations } from './state_invariants';
 import { setDiagSink } from './diag';
 import { liveRunningIn, withSessionRunning } from './chat_types_full';
@@ -887,6 +897,7 @@ export class ChatStore {
     const goalLocal: ChatGoalInfo | null = this.state.goal;
     this.settleIntentOnAuthoritative(ev);
     this.state = reduce(this.state, ev);
+    this.runShadowModel(ev);
     // ⛔ 2026-10-21（state-gate-12-6 确证-2）：goal 乐观抑制窗此前只写在**批量**入口
     //   `pushEvents`，而 `historyToReplaced` 走**单条** `pushEvent` ⇒ 用户点 ✕ 之后，
     //   一条在清除前发起的 `/api/history` 回包（落在 3s 窗内）会把旧目标写回 state
@@ -926,8 +937,67 @@ export class ChatStore {
   }
 
   /**
+   * **新模型影子引擎**（`docs/STATE-MODEL.md` §8 W1）。
+   * 同一事件流并行跑 `adapt → stepAll`，把结果投影成行（`applyModel`），与旧管线的
+   * 结构比对（回合数 / 每回合块数 / 工具数）。**只记日志，不写状态、不发网络**。
+   * ⛔ effects 只在这里被**记录**（`pullIter`/`pullTurn`/`snapshot`）——接线期由 W2 落地。
+   */
+  private runShadowModel(ev: DomainEvent): void {
+    if (this.demoMode || this.currentChatId.length === 0) {
+      return;
+    }
+    if (this.shadow.chat !== this.currentChatId) {
+      this.shadow = emptyState(this.currentChatId, 1, 0);
+      this.shadowCache = new Map();
+    }
+    const inputs = adapt(ev as never, this.currentChatId, this.shadow.epoch);
+    const res = stepAll(this.shadow, inputs as never, new Date().toISOString());
+    this.shadow = res.state;
+    for (let i = 0; i < res.effects.length; i++) {
+      const e = res.effects[i];
+      if (e.kind === 'pullIter') {
+        log('model', `effect=pullIter turn=${e.turn} iter=${e.iteration}`);
+      } else if (e.kind === 'pullTurn') {
+        log('model', `effect=pullTurn turn=${e.turn}`);
+      } else {
+        log('model', 'effect=snapshot（整体不可信）');
+      }
+    }
+    // ── 结构比对（零差异才算通过 W1）──
+    let oldBlocks: number = 0;
+    this.state.turns.forEach((t) => {
+      oldBlocks += t.phase.kind === 'committed' ? t.phase.payload.iterations.length
+        : (t.phase.kind === 'live' ? t.phase.data.iterations.length : 0);
+    });
+    let newBlocks: number = 0;
+    this.shadow.turns.forEach((t) => {
+      newBlocks += t.blocks.length;
+    });
+    const liveNew: number = this.shadow.live !== null ? 1 : 0;
+    const liveOld: number = this.state.activeTurn !== null ? 1 : 0;
+    // 迭代号水位 + 工具数：能把"块数相同但内容错位"也钓出来（只读诊断）
+    let liveIterOld: number = 0;
+    if (this.state.activeTurn !== null) {
+      const t0 = this.state.turns.get(this.state.activeTurn);
+      if (t0 !== undefined && t0.phase.kind === 'live') {
+        liveIterOld = t0.phase.data.iter;
+      }
+    }
+    const liveIterNew: number = this.shadow.live !== null ? this.shadow.live.iteration : 0;
+    const toolCountNew: number = allToolCalls(this.shadow).length;
+    if (oldBlocks !== newBlocks || liveOld !== liveNew || liveIterOld !== liveIterNew) {
+      this.shadowDiff++;
+      // 投影一次（同时验证桥接可用；只在差异时做，避免每帧开销）
+      const rows = applyModel(this.shadow, this.shadowCache);
+      log('model', `DIFF#${this.shadowDiff} ev=${ev.type} blocks=${oldBlocks}->${newBlocks}`
+        + ` live=${liveOld}->${liveNew} iter=${liveIterOld}->${liveIterNew}`
+        + ` tools=${toolCountNew} rows=${rows.length}`);
+    }
+  }
+
+  /**
    * 发送意图窗（8s）只用于 ack/turn_started 到达前的本地反馈；**任何权威回合事件**
-   * 都必须终止它，否则 ack 里续期后 turn 在 8s 内收尾 ⇒ busy 幽灵（页面显示思考中）。
+   * 都必须终止它，否则 ack 里续期后 turn 在 8s 内收尾 ⇒ 幽灵 busy（页面显示思考中）。
    */
   private settleIntentOnAuthoritative(ev: DomainEvent): void {
     if (ev.type === 'turn_started') {
@@ -1121,6 +1191,11 @@ export class ChatStore {
 
 
   /** 变更通知（页面接到 @State 上） */
+  /** 新模型影子状态（每 chat 代数重开；⛔ 只读比对，不驱动 UI）。 */
+  private shadow: ModelState = emptyState('', 1, 0);
+  private shadowCache: Map<string, ChatRow> = new Map();
+  private shadowDiff: number = 0;
+
   onUpdate: () => void = () => {
   };
 
@@ -1813,6 +1888,8 @@ export class ChatStore {
     //   有一段窗口，旧实现仍持有**上一个会话**的 turns/busy/sessionRunning ⇒ 页面读到
     //   旧值（切会话瞬间按钮/进度错乱），且旧会话的迟到事件会落进"新会话身份"。            
     this.state = initialChatState(chatId);
+    this.shadow = emptyState(chatId, 1, 0);
+    this.shadowCache = new Map();
     this.gapReloadSeenKey = '';
     this.gapReloadSeenToken = 0;
     // 上一会话的 SSE 意图窗口不属于新会话：不清会让 `runningAfterReconcile` 把

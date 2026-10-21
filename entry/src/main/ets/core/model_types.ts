@@ -42,7 +42,7 @@ export interface ToolMeta {
 }
 
 /** **可变**部分（每帧覆盖）：`label` 会随参数生成而增长（= name + 参数截断）。 */
-export interface ToolState {
+interface ToolState {
   readonly status: ToolStatus;
   readonly label: string;
   readonly genChars: number;
@@ -95,7 +95,7 @@ export interface Block {
   readonly cancelled: boolean;
 }
 
-export interface Final {
+interface Final {
   readonly content: string;
   readonly cancelled: boolean;
 }
@@ -218,12 +218,6 @@ export interface OpenFrame {
   readonly requestID: string | null;
 }
 
-/** 增量文本 + 整数锚：`base` 必须等于已累积长度（否则丢弃该 chunk，不拼接）。 */
-export interface Chunk {
-  readonly base: number;
-  readonly chunk: string;
-}
-
 /**
  * 文本补丁：两种**位置状态**表达
  *  · `full`：整段覆盖（老 wire 的全量累积语义、快照恢复）；
@@ -315,7 +309,7 @@ export interface FailIntent {
   readonly requestID: string;
 }
 
-export interface ResyncIntent {
+interface ResyncIntent {
   readonly kind: 'resync';
 }
 

@@ -155,7 +155,7 @@ function drain(s: State, turn: TurnID): State {
 }
 
 /** 驱动层拿到权威 `ABSENT` ⇒ 标记该号不存在（合法跳号），随后 drain。 */
-export function markAbsent(s: State, turn: TurnID, iteration: IterNum): State {
+function markAbsent(s: State, turn: TurnID, iteration: IterNum): State {
   const cur = s.absent.get(turn);
   const set = new Set<IterNum>();
   if (cur !== undefined) cur.forEach((v) => set.add(v));

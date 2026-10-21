@@ -73,7 +73,7 @@ function toolList(ts: ToolProgress[] | undefined): string {
 @Entry
 @Component
 struct SseReplay {
-  @State private summary: string = '（loading…）';
+  @State private summary: string = 'loading…';
   @State private lines: DumpLine[] = [];
   @State private picked: string = '';
   /** 主题名（与全站同一真源；调试页也要跟随主题，⛔ 不写死色值）。 */
@@ -246,7 +246,7 @@ struct SseReplay {
       List({ space: 2 }) {
         ForEach(this.lines, (l: DumpLine) => {
           ListItem() {
-            Text(l.text).fontSize(11).width('100%')
+            Text(l.text).fontSize(11).width('100%').wordBreak(WordBreak.BREAK_ALL)
           }
         }, (l: DumpLine) => l.key)
       }

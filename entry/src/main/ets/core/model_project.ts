@@ -172,11 +172,6 @@ export function lastIterOf(s: State, turn: TurnID): number {
   return Math.max(lastBlock, live);
 }
 
-/** 该回合的渲染块数（诊断/判据用）。 */
-export function blockCount(s: State, turn: TurnID): number {
-  const t = s.turns.get(turn);
-  return t === undefined ? 0 : t.blocks.length;
-}
 
 /** 所有工具（诊断用：断言"每个 call 恰好出现一次"）。 */
 export function allToolCalls(s: State): readonly string[] {
@@ -193,7 +188,3 @@ export function allToolCalls(s: State): readonly string[] {
   return out;
 }
 
-/** 会话 id（便于驱动层断言"投影只属于本会话"）。 */
-export function chatOf(s: State): ChatID {
-  return s.chat;
-}

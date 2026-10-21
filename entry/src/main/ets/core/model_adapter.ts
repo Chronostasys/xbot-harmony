@@ -23,7 +23,7 @@ import { newTurn } from './model_types';
 
 // ─── 老 wire 的最小结构面（结构化类型；避免 import 旧类型文件造成的循环）──
 
-export interface WireTool {
+interface WireTool {
   readonly name: string;
   readonly label?: string;
   readonly status?: string;
@@ -40,7 +40,7 @@ export interface WireTool {
   readonly summary?: string;
 }
 
-export interface WireIteration {
+interface WireIteration {
   readonly iteration: number;
   readonly content?: string;
   readonly reasoning?: string;
@@ -50,7 +50,7 @@ export interface WireIteration {
   readonly toolsFolded?: boolean;
 }
 
-export interface WireLive {
+interface WireLive {
   readonly iter: number;
   readonly streaming: boolean;
   readonly progressPhase?: string;
@@ -66,7 +66,7 @@ export interface WireLive {
   readonly streamStats?: unknown;
 }
 
-export interface WireUser {
+interface WireUser {
   readonly id: string;
   readonly content: string;
   readonly timestamp: string;
@@ -117,7 +117,7 @@ function statusOf(s: string | undefined): ToolStatus {
 }
 
 /** 线格式工具 → 模型工具（身份只认 `callID`；缺 id 时用**位置**兜底 `iter#idx`，不猜内容）。 */
-export function toToolRec(t: WireTool, iteration: IterNum, idx: number): ToolRec {
+function toToolRec(t: WireTool, iteration: IterNum, idx: number): ToolRec {
   const call: string = t.callID !== undefined && t.callID !== '' ? t.callID : `${iteration}#${idx}`;
   const meta: ToolMeta = {
     name: t.name,
@@ -150,7 +150,7 @@ function toToolRecs(list: readonly WireTool[] | undefined, iteration: IterNum): 
 }
 
 /** 线格式迭代 → 提交块（工具号**一律盖成块号**：T5-c）。 */
-export function toBlock(w: WireIteration): Block {
+function toBlock(w: WireIteration): Block {
   return {
     iteration: w.iteration,
     content: w.content !== undefined ? w.content : '',
@@ -163,7 +163,7 @@ export function toBlock(w: WireIteration): Block {
 }
 
 /** 线格式 user → 模型 user 行。 */
-export function toUser(u: WireUser): UserLine {
+function toUser(u: WireUser): UserLine {
   return {
     id: u.id, content: u.content, timestamp: u.timestamp, isNotification: u.isNotification,
     queued: u.queued, sending: u.sending, requestID: u.requestID, dbID: u.dbID,
@@ -296,31 +296,4 @@ export function adapt(ev: WireEvent, chat: string, epoch: number): readonly (Fra
     default:
       return [];
   }
-}
-
-/** 命令回复（无 turn）→ standalone 行（`text_final` 的 commandReply 分支）。 */
-export function commandLine(ev: WireEvent, id: string, ts: string): LegacyLine | null {
-  const content: string = ev.content !== undefined && ev.content !== null ? ev.content : '';
-  if (content === '') return null;
-  const blocks: Block[] = [];
-  const hist: readonly WireIteration[] = ev.progressHistory !== undefined ? ev.progressHistory : [];
-  for (let i = 0; i < hist.length; i++) blocks.push(toBlock(hist[i]));
-  return {
-    id, role: 'assistant', content, blocks, timestamp: ts, standalone: true,
-  };
-}
-
-/** 老 `CommittedPayload.compactions` → 模型压缩点（形状一致，直接透传字段）。 */
-export function toCompactions(list: readonly Compaction[] | undefined): readonly Compaction[] {
-  return list === undefined ? [] : list;
-}
-
-/** 老 live 快照 → 模型 live（只用于**水合**；线上帧走 `tick`）。 */
-export function toLive(l: WireLive | null, turn: TurnID): TurnRec['blocks'] | null {
-  return null;
-}
-
-/** 空回合（供水合使用）。 */
-export function freshTurn(turn: TurnID, user: UserLine | null, requestID: string | null): TurnRec {
-  return newTurn(turn, user, requestID);
 }
