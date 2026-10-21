@@ -461,11 +461,17 @@ function normalizeSession(env: Record<string, unknown>): readonly DomainEvent[] 
   // ⛔ `normalize.ts` 是**纯 TS 端口件**，ArkTS 硬禁 `.ts` import `.ets`
   //   （`10605999 Importing ArkTS files in JS and TS files is forbidden`）⇒ 这里内联同一份集合
   //   （与 `core/streammerge.ets:isIdleAction/isBusyAction` **逐字对应**，改动必须两处同步）。
+  // `turn_id` 把 busy/idle 钉到具体一轮（服务端 `SessionEvent.TurnID`）；缺省 = 未指定。
+  const rawTurn = s?.turn_id
+  const sessTurn: ReturnType<typeof turnID> | null = typeof rawTurn === 'number' && rawTurn > 0
+    ? turnID(rawTurn) : null
+  // ⚠️ 只有真的有 turn_id 时才带 `turnID` 键（缺省 = 未指定）：形状保持与既有事件逐字一致，
+  //   避免"多一个 null 键"改变归一结果的深比较（既有判据依赖完全相同的形状）。
   if (action === 'idle' || action === 'agent-idle' || action === 'session-idle') {
-    return [{ type: 'session', busy: false }]
+    return [sessTurn !== null ? { type: 'session', busy: false, turnID: sessTurn } : { type: 'session', busy: false }]
   }
   if (action === 'busy' || action === 'agent-busy' || action === 'session-busy') {
-    return [{ type: 'session', busy: true }]
+    return [sessTurn !== null ? { type: 'session', busy: true, turnID: sessTurn } : { type: 'session', busy: true }]
   }
   return null
 }

@@ -520,6 +520,9 @@ export type DomainEvent =
   | {
       readonly type: 'session'
       readonly busy: boolean
+      /** 这条 busy/idle 指向**哪一轮**（服务端 `SessionEvent.turn_id`；缺省 = 未指定）。
+       *  结构性：客户端据此丢弃"旧轮迟到 idle"，而不是靠 `sessionRunning` 猜。 */
+      readonly turnID?: TurnID | null
     }
   | {
       readonly type: 'history_replaced'

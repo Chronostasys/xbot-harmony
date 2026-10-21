@@ -1725,6 +1725,14 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       //   需要这层 hack。这里保留的只是**不破坏内容**：idle 只停 `streaming`，绝不删/冻有产出的
       //   live（下一帧 stream/iteration 会重新把 running/streaming 拉起来 ⇒ 自愈）。
       if (ev.busy) return s.sessionRunning ? s : { ...s, sessionRunning: true, busy: true }
+      // ⛔ 结构性（唯一规则）：idle 只对**它指向的那一轮**生效。
+      //   旧轮的迟到 idle（服务端 runGen 守卫之外，网络/重放仍可能延迟）落到新一轮上时，
+      //   若照单全收就会把在跑的新轮降成 idle（"卡 busy"/"idle 抽搐"两个方向的共同根因）。
+      //   `turnID` 缺省（旧发射点/会话级 idle）= 未指定 ⇒ 按当前轮处理。
+      const idleTurn = ev.turnID !== undefined && ev.turnID !== null ? ev.turnID : null
+      if (idleTurn !== null && s.activeTurn !== null && idleTurn !== s.activeTurn) {
+        return s
+      }
       if (s.activeTurn === null) {
         return s.sessionRunning ? { ...s, sessionRunning: false, busy: false } : s
       }
