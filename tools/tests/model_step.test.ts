@@ -12,6 +12,7 @@ declare const process: { exit: (c: number) => void };
 
 import { step, stepAll, applyText, lastBlockIter, isLegalTransition } from '../../entry/src/main/ets/core/model_step';
 import { project, allToolCalls, lastIterOf } from '../../entry/src/main/ets/core/model_project';
+import { applyModel } from '../../entry/src/main/ets/core/model_bridge';
 import type { Block, DoneFrame, FinalFrame, OpenFrame, SessionFrame, State, TickFrame, ToolRec, UserLine } from '../../entry/src/main/ets/core/model_types';
 import { emptyState } from '../../entry/src/main/ets/core/model_types';
 
@@ -193,6 +194,25 @@ function fin(turn: number, content: string, seq: number, blocks?: Block[]): Fina
   s = step(s, open(1, 1), '').state;
   const r = stepAll(s, [tick(1, 3, 2, 'a'), tick(1, 3, 3, 'b'), done(1, blk(3, [], ''), 4)], '');
   eq('⑩ 同一 (turn,iter) 只请求一次', r.effects.length, 2);
+}
+
+// ── ⑪ 桥接：模型 → ChatRow（身份稳定 + 一块一迭代 + 工具号）──────────────────
+{
+  let s = st(0);
+  s = step(s, open(1, 1), '').state;
+  s = step(s, done(1, blk(1, [tool('c1', 'done')], 'a'), 2), '').state;
+  const cache = new Map<string, import('../../entry/src/main/ets/core/types').ChatRow>();
+  const r1 = applyModel(s, cache);
+  const r2 = applyModel(s, cache);
+  eq('⑪ 两次落地 ⇒ 同一批 ChatRow 实例', r1[1] === r2[1], true);
+  const row = r1[1];
+  const it0 = row.iterations.length > 0 ? row.iterations[0] : null;
+  const ts0 = it0 !== null && it0.tools !== undefined && it0.tools.length > 0 ? it0.tools[0] : null;
+  eq('⑪ 一块一迭代', row.iterations.length, 1);
+  eq('⑪ 工具号/身份透传', ts0 !== null ? ts0.call_id : '', 'c1');
+  eq('⑪ 工具号 == 块号', ts0 !== null ? ts0.iteration : -1, 1);
+  ok('⑪ 回合未收尾 ⇒ 走 live 行（进行中指示）', row.isLive === true);
+  eq('⑪ 无在飞迭代 ⇒ 顶层 content 为空（已提交正文在块里，不重复）', row.content, '');
 }
 
 console.log(`\nmodel_step: ${pass} passed, ${fail} failed`);
