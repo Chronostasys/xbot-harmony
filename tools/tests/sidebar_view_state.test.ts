@@ -166,7 +166,11 @@ eq('④ 视觉芯那层画底色恰 1 处', countIn(segPill, '.backgroundColor('
 eq('⑤ 底座位移档派生自 SP_4 恰 1 处', countIn(mo, 'export const MOTION_SESSION_SWITCH_SLIDE_VP: number = SP_4;'), 1);
 eq('⑤ Index 恰 1 处 import 该令牌', countIn(pg, 'import { MOTION_SESSION_SWITCH_SLIDE_VP } from \'../core/motion\''), 1);
 eq('⑤ 位移消费点恰 1 处（消息面）', countIn(pg, '.translate({ y: this.switchSlide * MOTION_SESSION_SWITCH_SLIDE_VP })'), 1);
-const sw: string = slice(pg, 'private async switchSession(chatId: string): Promise<void> {', '\n  }');
+// ⛔ 锚点修正（2026-10-21）：签名已加 `channelHint`（规范键必需）⇒ 旧锚（无参形态）恒空 ⇒ 假红。
+//   改用**函数边界**截取（起点 = 函数名，终点 = 下一个同缩进成员），不钉参数列表。
+const swStart: number = pg.indexOf('private async switchSession(');
+const swNext: number = swStart >= 0 ? pg.indexOf('\n  private ', swStart + 20) : -1;
+const sw: string = (swStart >= 0 && swNext > swStart) ? pg.slice(swStart, swNext) : '';
 ok('⑤ 切换函数切片非空（零扫描判红）', sw.length > 400, `len=${sw.length}`);
 eq('⑤ 切换函数内置位移起点恰 1 处', countIn(sw, 'this.switchSlide = 1;'), 1);
 ok('⑤ 切换函数内**不许**直接归零（必须跨帧收尾）', countIn(sw, 'this.switchSlide = 0') === 0, `got ${countIn(sw, 'this.switchSlide = 0')}`);
