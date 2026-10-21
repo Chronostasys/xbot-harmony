@@ -1645,6 +1645,13 @@ export class ChatStore {
     // ⛔ 会话代数自增：所有在飞异步回包（history/status/queue/sessions/settings/terminals）
     //   在 await 之后都会因代数不符而丢弃（同一个 store 被重开到另一个 chat 的串台根因）。
     this.chatGen++;
+    // ⛔ 审计确证（fe-store-audit）：`beginSwitch` 此前**不 close** SSE，而 `subscribe()` 只看
+    //   `sse.state ∈ {open,connecting,reconnecting}` 就早退（**不比对目标 chat**）⇒ 同一个 store
+    //   被重开到新会话（`createSession` 就是这条路径）时，SSE 仍订阅**旧 chat** ⇒ 新会话的事件
+    //   一条都收不到：没有流式/打字机/工具 pill，「思考中」只能靠探针/看门狗收（用户症状）。
+    //   ⇒ 身份切换那一刻关闭连接；随后 `openSession` 的 `subscribe()` 会用新 chat 重连
+    //   （`connect` 内部负责 lastEventId 复位）。
+    this.sse.close();
     // ⛔ **立刻整体复位状态机**（不是只清 rows）：从 beginSwitch 到 openSession 复位之间
     //   有一段窗口，旧实现仍持有**上一个会话**的 turns/busy/sessionRunning ⇒ 页面读到
     //   旧值（切会话瞬间按钮/进度错乱），且旧会话的迟到事件会落进"新会话身份"。            
