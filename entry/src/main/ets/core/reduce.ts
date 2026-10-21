@@ -1373,10 +1373,15 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       // 迭代 N+1 的 stream 到达时，若 content 尚未产出，迭代 N 的旧 content
       // /reasoning 残留到新迭代（"老 content 到新迭代"竞态，用户报告）。
       const advanced = ev.iteration !== null && ev.iteration > prev.iter
+      // ⛔ 审计确证（state-final-5 F3）：web 权威有 `freshFrame` 守卫
+      //   （`web/src/chat/reduce.ts:1013-1016`：`seq===null || lastSeq===null || seq>lastSeq`）。
+      //   缺它时 SSE 重连**重放**的旧 stream 帧也会把 `streaming` 拉回 true ⇒ 出口的
+      //   `satisfyRunningInvariant` 把 busy 复活 ⇒ "回复已显示完、输入框又变 cancel + 思考中"。
+      const freshFrame: boolean = ev.seq === null || s.lastSeq === null || ev.seq > s.lastSeq
       const data: LiveSnapshot = {
         ...prev,
-        // 流式帧 = 活动证据 ⇒ streaming 恢复 true（见 iteration case 同注）。
-        streaming: true,
+        // 只有**新鲜**帧才是活动证据；重放帧只更新内容，不得复活 streaming（否则 busy 抽搐）。
+        streaming: freshFrame ? true : prev.streaming,
         iter: advanced ? ev.iteration : prev.iter,
         content: advanced ? (ev.content ?? '') : (ev.content !== undefined ? ev.content : prev.content),
         reasoning: advanced ? (ev.reasoning ?? '') : (ev.reasoning !== undefined ? ev.reasoning : prev.reasoning),
