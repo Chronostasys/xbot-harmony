@@ -254,6 +254,13 @@ export class ChatStore {
    */
   private historyReloadPending: boolean = false;
   /**
+   * 被"发送意图窗 / 事件静默窗"挡下的 idle —— **排队补发**，不是丢弃。
+   * ⛔ 审计确证（state-final-1 确证-3）：这些闸门此前直接 `return` ⇒ 权威 idle 落进窗口就
+   *   永久失效，而兜底（`watchBusyWithoutLiveTurn` / `resyncAfterResume`）**都不能关 busy**
+   *   ⇒ 用户看到"输入框一直是 cancel / 思考中不消失"，直到再发一条消息或切前后台。
+   */
+  private pendingIdleTimer: number = -1;
+  /**
    * 最近一次历史加载的**失败原因**（已可读化；空 = 无错）。
    *
    * ⛔ 2026-10-12 P0 根因之一：`loadHistory` 之前**只有 try/finally、没有 catch** ⇒
@@ -1147,17 +1154,37 @@ export class ChatStore {
    *
    * 幂等：会话树已 false + `sessionRunning` 已 false 时，reduce 返回原 state（零渲染变化）。
    */
+  /**
+   * 把被时间窗挡下的 idle 排到窗口之后**补判一次**（不是丢弃）。
+   * 只补一次、且校验 disposed / 仍同一会话（跨会话不补）。
+   */
+  private scheduleIdleRetry(chatId: string): void {
+    if (this.pendingIdleTimer >= 0 || this.disposed) {
+      return;
+    }
+    this.pendingIdleTimer = setTimeout(() => {
+      this.pendingIdleTimer = -1;
+      if (this.disposed || this.currentChatId !== chatId) {
+        return;
+      }
+      this.applyLocalIdle(chatId, false);
+    }, 2100);
+  }
+
   private applyLocalIdle(chatId: string, authoritative: boolean = false): void {
     // ⛔ 发送意图窗口内绝不收尾：重载/对账在 turn_started 之前看到的 running=false 是
     //   **滞后证据**（用户 2026-10-21 日志：`resume(send-ack-sync)` 之后紧跟
     //   `running 1→0 cause=ev:session_running`，再被 `history_replaced` 拉回 ⇒ 抽搐）。
     if (this.sendIntentActive()) {
+      this.scheduleIdleRetry(chatId);
       return;
     }
     // ⛔ 用户 2026-10-21 P0（「busy 途中会突然 IDLE 一下然后又变回来」）：
     //   非权威 idle 只有在**事件流已经静默**时才可以收尾。否则（SSE 正在推帧）一条
     //   迟到/回放的 coarse idle 就会把 busy 闪成 idle，下一帧又拉回 busy ⇒ 抽搐。
     if (!authoritative && Date.now() - this.lastEventAtMs < 2000) {
+      // ⛔ 确证-3：窗口内不能**丢**，排队到窗口结束后再判一次（否则永久 busy）。
+      this.scheduleIdleRetry(chatId);
       return;
     }
     // ② SSE 意图：idle 证据时刻（对账时用于压住"矛盾的旧 busy"）
@@ -3240,6 +3267,10 @@ export class ChatStore {
     // ⛔ 审计确证（F6）：`disposed` 此前**只声明不赋值** ⇒ 已释放的 store 仍会每 5s/30s 打
     //   `/api/session-tree`（在飞 `loadSessions` 的 `.then` 会无条件重新排程轮询）。
     this.disposed = true;
+    if (this.pendingIdleTimer >= 0) {
+      clearTimeout(this.pendingIdleTimer);
+      this.pendingIdleTimer = -1;
+    }
     try {
       this.sse.close();
     } catch (e) {
@@ -3310,17 +3341,24 @@ export class ChatStore {
   }
 
   private scheduleSessionPoll(): void {
+    // ⛔ 审计确证（F6）：已释放的 store 不得再武装轮询（`disposed` 此前只声明不赋值）。
+    if (this.disposed) {
+      return;
+    }
     if (this.sessionPollTimer !== -1) {
       clearTimeout(this.sessionPollTimer);
     }
     this.sessionPollTimer = setTimeout(() => {
       this.sessionPollTimer = -1;
-      if (this.currentChatId.length === 0) {
+      if (this.disposed || this.currentChatId.length === 0) {
         return;
       }
       this.loadSessions().catch(() => {
         // 对账失败不阻断；下一轮继续
       }).then(() => {
+        if (this.disposed) {
+          return;   // 在飞期间被 dispose ⇒ 不再复活轮询链（F6）
+        }
         this.scheduleSessionPoll();
       });
     }, this.sessionPollDelayMs());

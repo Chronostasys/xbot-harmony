@@ -299,6 +299,23 @@ function iterFieldOf(iters: readonly WebIteration[], iter: number, wantReasoning
   return undefined
 }
 
+/**
+ * 「回合**真在飞**」的判据 = `activeTurn` 指向一个 **live 且 streaming** 的 turn。
+ *
+ * ⛔ 审计确证（state-final-1 确证-1）：权威 idle（`session(idle)` / `session_idle` /
+ *   `session_running(false)`）**有意保留 `activeTurn`**（只把 `streaming` 置 false）。
+ *   因此"`activeTurn === null`"**不等价于**"没在飞" —— 用它做"本地是否更新"的仲裁，
+ *   会在"回合已停但指针仍在"时**永久拒绝**权威快照里的 todos/goal（另一台设备改的永远看不到）。
+ *   与 `store.hasLiveTurn()` 同一判据，两处必须同源。
+ */
+function liveRunningIn(s: ChatState): boolean {
+  if (s.activeTurn === null) {
+    return false
+  }
+  const t = s.turns.get(s.activeTurn)
+  return t !== undefined && t.phase.kind === 'live' && t.phase.data.streaming === true
+}
+
 function maxHeldIteration(iterations: readonly WebIteration[]): number {
   let max = 0
   for (const it of iterations) if (it.iteration > max) max = it.iteration
@@ -850,6 +867,14 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
     }
 
     case 'turn_started': {
+      // ⛔ 审计确证（state-final-1 确证-2）：`turn_started` 是**唯一指定 turn 身份**的事件，
+      //   却没有单调性闸门（它没有 seq 字段，I5 重放门禁对它不适用）⇒ 断线重连的**回放**里
+      //   只要含上一回合的 `turn_started`，就会把正在跑的 live 回合 `foldPhase` 掉
+      //   （用户看到"文字定格、思考中消失"），甚至先造出一个空白假 busy。
+      //   回合号在状态机里是按单调量使用的 ⇒ 这里必须丢弃"比已知最大更旧"的 turn_started。
+      if (ev.turnID < lastTurnIDOf(s)) {
+        return s
+      }
       // ⚠️ notification / queued user 都是**服务端在上一回合收尾后**才 dequeue 的新 turn
       //（`drainAndProcessNotifications` 只在 idle/回合结束调用；运行中通知走 tool message）。
       // ⇒ 必须走正常 turn_started：收尸旧 live、物化新 turn 的 user 行、把 activeTurn 指到
@@ -2066,7 +2091,8 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       //       快照还是旧的）⇒ **保留本地**（否则面板会闪回旧列表，既有 REPRO 用例钉住这点）；
       //     · **无 live turn**（idle/刚打开会话）⇒ 快照即权威 ⇒ **明确携带就以它为准**
       //       （`[]` = 服务端清空，`todosAuthoritative !== false`）；**未携带**才保留本地。
-      const snapshotIsAuthoritative: boolean = s.activeTurn === null && ev.todosAuthoritative !== false
+      // ⛔ 确证-1：用"真在飞"（live && streaming），不是 `activeTurn === null`。
+      const snapshotIsAuthoritative: boolean = !liveRunningIn(s) && ev.todosAuthoritative !== false
       const todos = snapshotIsAuthoritative ? ev.todos : s.todos
 
       // 幂等回放短路：逐项恒等（turns 每个 Turn 对象 / legacy / pendingUsers 元素
@@ -2127,7 +2153,7 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
         pendingUsers, queue: s.queue, todos,
         // goal 同一条"快照可能比本地旧"判据：无 live turn 时才采信快照的三态
         // （undefined = 未携带/保留；null = 显式清除；对象 = 覆盖）。
-        goal: (s.activeTurn === null && ev.goal !== undefined) ? ev.goal : s.goal,
+        goal: (!liveRunningIn(s) && ev.goal !== undefined) ? ev.goal : s.goal,
         // ⛔ 用户 2026-10-21 规则（原话）：「busy 变 IDLE 必须是**收到了一个没有 toolcall 的
         //   迭代**，或者**后端告诉你它 idle**；别的任何情况都不能让 busy 变 IDLE」。
         //   历史快照是"某一刻的 DB 视图"，**滞后**于 SSE（turn 正在跑时 DB 还没有 assistant 行）
