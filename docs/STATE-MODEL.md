@@ -40,7 +40,8 @@
 
 **"没有任何兜底"的含义（本文的定义）**：客户端**不存在**"如果 A 不成立就走 B"的分支。
 所有曾经的"B"要么被证明在协议前提下不可达（⇒ 删除），要么被提升为协议前提（⇒ 由服务端保证）。
-唯一的例外行为是 **`seq` 不连续 ⇒ 恢复**（`replay` 优先、`snapshot` 兜底到权威，
+唯一的例外行为是 **按对象/整体取权威**：迭代不完整 ⇒ `pullIter`；回合未收尾 ⇒ `pullTurn`；
+整体不可信（`epoch` 变化 / 断线）⇒ `snapshot`。`seq` 跳号**不触发恢复**（以最大为准、被跳号后到即丢），
 `epoch` 变化 ⇒ 直接 `snapshot`）：它是模型对**所有**非法输入的唯一响应（单一出口），
 不是补丁，且**不猜测**任何缺失内容。
 
@@ -67,7 +68,7 @@
 ```
 
 每帧成本：`adapter` O(载荷) → `step` O(1) → `project` O(1) → `applyRows` O(1)（只有一行变化）。
-恢复路径：`replay(since)`（便宜）/ `snapshot`（完整）——**二者都取权威，客户端零重建**。
+恢复路径：**按对象拉权威** —— `pullIter(turn, iter)`（缺某迭代）/ `pullTurn(turn)`（缺收尾）/ `snapshot`（整体不可信）；客户端零重建。
 
 ---
 
@@ -200,8 +201,9 @@
 >   同一会话可能同时挂在 `web\0X` 与 `agent\0X` 两条 route 上（`web.go:656-665`）⇒ 两个计数器各自编号。
 >   **必须改成 per-chat 单计数器**，否则客户端看到的序号必然重号/跳号。
 > - **盖了号的帧不得被删除**：现有"stateless 帧 later-wins 合并"会把旧帧从环形缓冲里删掉
->   （`web_eventstream.go:114-127` + `:143-152 removeAt`）⇒ 重连补发时序号**天然有洞**（`replayAfter :220-257`）。
->   ⇒ 规则：**合并只能发生在盖章之前**；一旦盖章，该帧必须在环形缓冲里存活（否则 seq 稠密性不成立）。
+>   （`web_eventstream.go:114-127` + `:143-152 removeAt`）。⚠️ 客户端**不再依赖**"序号稠密"
+>   （跳号即取最大，§3.4），但仍有一条硬约束：**合并必须有顺序保证**，即"先合并、后盖章"——
+>   否则同一 chat 会被写入两条相同/更小的序号 ⇒ 客户端把新状态当迟到帧丢弃（§14 契约 C-2）。
 > - `session` 事件的 `SessionEvent`（`events.go:500-522`）**结构体里没有 `seq`/`turn_id`**。
 > - **seq 只在单次进程生命周期内单调**（重启归零，`web_sse.go:142-145` 已显式处理）⇒ 与 `epoch` 一起用。
 
@@ -235,10 +237,10 @@
 | 情形 | 检测手段 | 修复手段（都是"取权威"，不是本地重建） |
 |---|---|---|
 | 中间丢帧 | 下一帧 `seq ≠ last+1` | `GET /api/frames?chat&since=last` **重放缺失帧**（服务端每会话保留环形帧日志） |
-| **迭代最后一帧丢**（`done` 丢） | ① 同回合的 `final` 到达时 seq 跳号；② 该回合若还有下一迭代，其 `tick` 跳号 | 同上（重放该 `done`） |
-| `final` 也丢（回合末尾连续丢） | **保活帧**：连接级每 15s 一帧 `{epoch, seq}`（**不推进 seq**）；客户端 `last ≠ server.seq` ⇒ 发现 | 重放 / 快照 |
-| 会话彻底静默（长时间无帧） | 同上（保活帧仍走） | 同上 |
-| 断线 | 重连 + `Last-Event-ID: last` | `GET /api/frames?since=last`；超出环形缓冲 ⇒ 返回 `baseline_seq` ⇒ **快照** |
+| **迭代最后一帧丢**（`done` 丢） | ① 该回合若还有下一迭代，其 `tick` 带 `iter > last+1`；② 同回合 `final` 的 `blocks` 与本地不一致；③ `session{running=false}` 时该 turn 的 `last < 已见过的最大 iter` | **`pullIter(turn, last+1 …)`** 取权威块 |
+| `final` 也丢（回合末尾连续丢） | `session{running=false}` 且该 turn `final = ⊥`；或下一 turn 已 `open` | **`pullTurn(turn)`** |
+| 会话彻底静默（长时间无帧） | 保活帧 `{epoch, seq}` 仍走（**不推进 seq**） | 不需要动作（无缺口可判）；用户再次交互时先 `snapshot` 亦可 |
+| 断线 | 重连后序号不可续 | **`snapshot(chat)`**（整体权威；不依赖任何帧日志） |
 | 服务端重启（帧日志丢失、seq 归零） | `epoch` 变化 | 快照 |
 | 重复帧 / 乱序 | `seq ≤ last` ⇒ 丢弃；乱序由"服务端单写者串行盖章"从根上排除 | — |
 
@@ -283,6 +285,18 @@ else                       → snapshot(chat)   （慢路径，正确性兜底 �
 > 改造后：**一个 `tools[]`，服务端按当前迭代过滤**，`status` 枚举覆盖
 > `generating | pending | running | done | failed`（现 `streaming_tools` 的语义 = `generating`）。
 
+**P3′（生成期的工具：会"慢慢长出来"）**：工具的**参数**是流式生成的（`gen_chars` 递增、`label` 是
+`name + 参数截断`⇒ **也会增长**），而且 **`call_id` 在生成初期可能还没拿到**（provider 的 id 也是分片到达的）。
+因此：
+
+- `call_id` 由**服务端在"该工具第一次出现在任何帧之前"分配**，**此后永不改变**（provider 后来给出的 id
+  只能作为 meta 字段，**不能**当身份）。⇒ 生成期的身份也稳定，客户端不需要 `name`/`name#label` 退化键。
+- 工具的**展示字段分两类**：
+  - **可变（每帧发）**：`status`、`label`（含随参数增长的部分）、`genChars`、`elapsedMs`；
+  - **不可变（只在"首次出现"那一帧发一次）**：`name`、`uiMode`、`uiLibs`、`toolHints`，
+    以及 **`args`/`detail`/`summary`（参数生成完成之后才发一次，此后不变）**。
+- ⛔ 不许"先发一个占位 id、拿到真 id 再换"——那会让同一枚工具在 UI 上**重建/闪烁**。
+
 **P4（提交唯一且完备）**：
 - 每个**已开始**的迭代，最终**恰好有一条** `done(turn, iter, block)`，`block` 含该迭代**全部**可见内容
   （正文 / 思考 / 工具终态）。取消/失败的迭代同样有 `done`（带 `cancelled`/`error` 标志）。
@@ -316,7 +330,7 @@ REST 只提供**带 `seq` 的快照**（`GET /api/session-state?chat=…` 返回
 |---|---|---|
 | **信封唯一化** | `protocol/ws.go:102`（`seq,omitempty`）→ 必填；`progress.seq`（`events.go:117-201`）**删除**其判重语义 | 只剩一套 seq |
 | **每帧盖章 + per-chat 单写者锁** | `web_hub.go:305-313 sequenceEventLocked` 现在是 **per-route**（`web_eventstream.go:21-26 sessionRouteKey(channel, chatID)`）且 `seqMu` 是**全局单锁**（`web_hub.go:27`）⇒ 改成 **per-chat** 计数器 + per-chat 锁；`agent/engine_wire.go:2309-2312 withLiveStats`（`stream_content`/`stream_tokens`/`streaming_tools` 的唯一出口）与 `:2079-2086` checkpoint **当前完全不盖章**，必须补 | 消除 `seq=0` 与重号（A6/A10） |
-| **合并只在盖章前** | `web_eventstream.go:114-127`（stateless later-wins 合并）+ `:143-152 removeAt` 会把**已编号**的帧从环形缓冲删掉 ⇒ `replayAfter :220-257` 返回的 suffix 天然有洞 | 保证 seq 稠密（R1） |
+| **合并必须在盖章前** | `web_eventstream.go:114-127`（stateless later-wins 合并）+ `:143-152 removeAt`：合并会**丢弃旧帧** | 只需保证"同一 chat 不出现序号回退/重号"（C-1/C-2）；客户端不再需要序号稠密 |
 | **epoch** | 新增：进程启动时自增并持久化；随帧与快照下发 | 重启可检测（A8） |
 | **chat_id 补齐** | `user_echo`（`web_inbound.go:268-286`）、`runner_status`（`web.go:1277-1290`）、`sync_progress`（`1293-1300`）、`group.message`（`web_group.go:215-220`）、插件广播（`rpc_table.go:113/135`） | 帧可归属（P1） |
 | **删心跳快照** | `sendHeartbeatLive`（`web_sse.go:752-775`）、`heartbeat` 裸帧（`728-741`）⇒ 改为 `keepalive{epoch,seq}` | 消除"旧快照重发" |
@@ -329,7 +343,7 @@ REST 只提供**带 `seq` 的快照**（`GET /api/session-state?chat=…` 返回
 | **会话字段归 `session` 帧** | `emitTodosProgress`/`emitGoalProgress`/`ClearGoal`/`emitBuiltinProgress`（`agent.go:4697-4711`、`4732-4751`、`4760-4790`；`agent_backend_methods.go:538-556`、`582-605`）现在写死 `Iteration:0` 混在 progress 里 ⇒ 改为不带 turn 的 `session` 帧 | 消除 `iteration=0` 帧 |
 | **`omitempty` → 显式三态** | `goal`（`events.go:24-28`）⇒ `*GoalInfo` + 清除用 `null`（删 `{status:"cleared"}` 墓碑，`agent_backend_methods.go:598-601`）；`active_tools/completed_tools/iteration_history/questions`（全 `omitempty`）⇒ 恒出现或显式 `null` | 三态显式（P5） |
 | **快照端点 + `(epoch, seq)`** | ⛔ `GET /api/session-state` **目前不存在**（全仓零命中）；`/api/session-tree`（`web_api.go:1566-1607`）是**侧边栏树**，不含 `(turns, live, sess)`；现成的状态权威是 `GetActiveProgress`（`agent_backend_methods.go:181-310`）+ `serverapp/callbacks.go:412-413/463-519` ⇒ **需新建端点**。⚠️ 不能用现有全局 `seqMu`（`web_hub.go:27`）包住 DB 读：`web_hub.go:192-195` 明写"prepare 不得获取应用锁"，且全局锁 + DB 读 = **全服帧被一次查询阻塞**（R2）⇒ 采用 **两阶段**：先在锁外读快照得 `(state, version)`，再在 **per-chat 锁**内取 `seq` 并校验 `version` 未变（变了重读） | REST 可作 `S0`（P6），且不拖慢流式 |
-| **帧日志 + 重放** | 现有 `resync_required{baseline_seq}`（`web_sse.go:519-527`、`785-801`）⇒ 扩展为 `GET /api/frames?chat&since=`（环形缓冲，超界返回 `baseline`） | 单帧丢失的精确修复（A1/A2） |
+| **按对象拉权威的端点** | 现有 `resync_required{baseline_seq}`（`web_sse.go:519-527`、`785-801`）只是"要重载"的粗粒度信号 ⇒ 改为 **`GET /api/iteration?chat&turn&iter`**（单迭代权威，供 `pullIter`）与 **`GET /api/turn?chat&turn`**（回合权威），**不需要**帧环形日志/重放 | 缺迭代/缺收尾的精确修复（A3/A4） |
 | **runGen 收尾守卫** | 已有（`agent.go:1677-1710`、`3583`/`3612`；判据 `agent/session_idle_guard_test.go`） | 保留（**权威信号仍在服务端**） |
 | **迭代号强制** | `engine_run.go:555-573` 现在只 `log`（`ITER_ID_INVARIANT_VIOLATION`/`ITER_ID_GAP`）⇒ 升级为强制"同 turn 内严格递增" | T5(a) |
 
@@ -389,12 +403,14 @@ Block = { iter: IterNum, content: string, reasoning: string, tools: Tool[],
         -- subAgents / genui：该迭代**冻结**的副产物（历史回合也要能展示）
 
 Tool  = { call: CallID, iter: IterNum,
-          meta  : ToolMeta,            -- **不可变**：name/label/args/detail/summary/uiMode/uiLibs/toolHints
-          state : ToolState }          -- **可变**：status/elapsedMs/genChars
+          meta  : ToolMeta,            -- **不可变**：name / uiMode / uiLibs / toolHints
+                                       --            + args / detail / summary（参数生成完成后**一次性**）
+          state : ToolState }          -- **每帧覆盖**：status / label / genChars / elapsedMs
         -- status ∈ generating | pending | running | done | failed
-        -- ⛔ 取消/失败时，running 工具**必须**落成 `failed`（否可见内容会凭空消失）
+        -- ⛔ label **会随参数增长**（= name + 参数截断）⇒ 属于 state，不属于 meta
+        -- ⛔ 取消/失败时，running 工具**必须**落成 `failed`（否则可见内容会凭空消失）
         -- ⛔ 恒有 tool.iter == 所属 Block.iter（构造时校验，见 T5）
-        -- ⛔ meta 只在"首次出现"那一帧携带（之后不再重发，见 §12 带宽）；state 每帧全量（覆盖）
+        -- ⛔ `call` 在"首次出现前"已由服务端分配且终身不变（P3′）；meta 只在该帧携带
 
 LiveIter = { turn: TurnID, iter: IterNum,     -- 恒 > turns[turn].blocks.last.iter（I3′）
              content: string, reasoning: string,   -- 客户端累积结果（帧里传增量 + base）
@@ -435,8 +451,11 @@ Frame = open   { env, turn, user: UserLine, requestID, ts }
       | session{ env, running?, todos?, goal?, queue? }        -- 字段级三态（P5）
       | keepalive { env }                                      -- 不推进 seq；仅用于暴露丢帧
 
-ToolTick = { call: CallID, iter: IterNum, state: ToolState, meta?: ToolMeta }
+ToolTick = { call: CallID, iter: IterNum,
+             state: ToolState,                 -- status/label/genChars/elapsedMs（每帧覆盖）
+             meta?: ToolMeta }                 -- 仅"首次出现"那一帧携带（含生成完成后的 args/detail）
            -- ⛔ meta 必须在"该工具首次出现"的那一帧携带（无论 tick 还是 done），之后不再重发
+           -- ⛔ `label` 每帧都发（它随参数增长）；客户端**不**缓存"第一次的 label"
 ```
 
 **客户端本地意图（5 个，不经网络）**：
@@ -466,13 +485,16 @@ Intent = send  { requestID, content, ts }        -- 乐观行入 local.pending
 ### 3.4 转移 `step`
 
 ```
-step : (S, Frame) → S ∪ { RECOVER }
+step : (S, Frame) → S ∪ { PULL, SNAPSHOT }
 
 前置（**总函数，无例外分支**）：
-  if f.chat ≠ S.chat            → S            -- 别的会话的帧（多会话：每 chat 一个 S）
-  if f.epoch ≠ S.epoch          → SNAPSHOT     -- 服务端重启/日志重置（A8）
-  if f.seq  ≤ S.seq             → S            -- 重复/过期（幂等，T2）
-  if f.seq  ≠ S.seq + 1         → RECOVER      -- 唯一的外行为：replay 优先，超出日志则 snapshot（T7）
+  if f.chat ≠ S.chat      → S                     -- 别的会话的帧
+  if f.epoch ≠ S.epoch    → SNAPSHOT              -- 服务端重启/日志重置
+  if f.seq  ≤ S.seq       → S                     -- 重复 / 迟到（含"被跳过的号"）⇒ 一律丢弃
+  if f.seq  > S.seq + 1   → **照常应用**，S.seq := f.seq
+                            -- ⛔ **跳号以最大为准**：不重放、不补帧、不因此重同步
+                            --    理由：帧是位置状态 ⇒ 被跳的号只承载"更旧的状态"，新帧已包含其结果
+                            --    真正"唯一完整副本"的丢失，靠**对象级完整性**发现（见 tick/done 的 PULL）
 
 后置（逐构造子，S' = S[seq := f.seq] 后应用一条规则）：
 
@@ -484,8 +506,11 @@ step : (S, Frame) → S ∪ { RECOVER }
            live := ⊥                            -- 新回合开启 ⇒ 无在飞迭代
            local.pending := local.pending \ {requestID = f.requestID}   -- 绑定（乐观行交给 turns）
 
-  tick:    if f.iter ≤ turns[f.turn].blocks.last.iter → DROP   -- ⛔ 已提交迭代的迟到帧：丢弃，**不** recover
-           if live ≠ ⊥ ∧ f.iter < live.iter → DROP             -- 更旧迭代的迟到帧（整数比较）
+  tick:    if f.iter ≤ turns[f.turn].blocks.last.iter → DROP    -- 已提交迭代的迟到帧
+           if f.iter > turns[f.turn].blocks.last.iter + 1 → PULL  -- ⛔ 迭代前进了但**上一迭代还没提交**
+                                              PULL(turn, blocks.last.iter+1 … f.iter-1)
+                                              -- 本帧**不应用**（位置状态 ⇒ 下一帧会带回最新样子）
+           if live ≠ ⊥ ∧ f.iter < live.iter → DROP              -- 更旧迭代的迟到帧（整数比较）
            if live = ⊥ ∨ live.turn ≠ f.turn ∨ f.iter > live.iter
              then live := { turn: f.turn, iter: f.iter, content: '', reasoning: '', tools: [], genui: '' }
            if f.content.base = len(live.content) then live.content += f.content.chunk else DROP
@@ -499,14 +524,15 @@ step : (S, Frame) → S ∪ { RECOVER }
 
   done:    t := turns[f.turn]
            if f.iter ≤ t.blocks.last.iter then DROP        -- 已提交/回退（T7-i）
-           else t.blocks := t.blocks ++ [f.block]           -- 允许跳号（T7-ii）；`f.block` **完备**
+           if f.iter > t.blocks.last.iter + 1 then PULL    -- ⛔ **不许跳过**：先把中间迭代拉齐
+           else t.blocks := t.blocks ++ [f.block]          -- 只接受"紧邻"的完备块
            t.phase := f.block.phase ?? t.phase
            if live ≠ ⊥ ∧ live.turn = f.turn ∧ live.iter = f.iter then live := ⊥  -- 该迭代已提交
 
   final:   t := turns[f.turn]
            -- ⛔ 完备性：`final` 必须覆盖**所有**已开始的迭代
            if f.blocks ≠ ⊥ then t.blocks := f.blocks        -- 整体替换（服务端权威，含被取消的迭代）
-           else assert t.blocks.last.iter ≥ 最后一次 tick 的 iter   -- 否则视为协议违反 ⇒ RECOVER
+           else t.blocks.last.iter < 最后一次 tick 的 iter ⇒ **pullIter 补齐**（不许静默结束）
            t.final := { content: f.content, cancelled: f.cancelled }
            t.phase := f.phase; t.streaming := false
            t.droppedBefore := f.droppedBefore ?? 0
@@ -532,23 +558,30 @@ step : (S, Frame) → S ∪ { RECOVER }
 - `step` 只依赖 `S` 与 `f`，**无隐藏状态、无时间、无随机** ⇒ 可重放、可差分测试。
 - `tick` 是**幂等覆盖**：同一 `tick` 应用两次结果相同（因为它是位置状态，不是增量）。
 - `done` 是**单调追加**：块的迭代号严格递增 ⇒ 历史只增不改 ⇒ "提交块权威"是**类型性质**。
-- `live` 的存在条件是 `live.iter = last(blocks).iter + 1`（在 `done`/`open`/`final` 处维持）⇒
-  **在飞块与已提交块不可能同号**（现状需要 `collapseSameNumberBlocks`/`isShell`/三空特例，全部删除）。
+- `live` 存在 ⇒ `live.iter > last(blocks).iter`；由于 `tick` 门控（`iter > last+1` 不建 live），实际上恒为 `= last+1`。
+  `pullIter` 补齐后若出现 `live.iter ≤ last` ⇒ **清 live**（该迭代已被权威块覆盖）。
+  ⇒ **在飞块与已提交块不可能同号**（现状需要 `collapseSameNumberBlocks`/`isShell`/三空特例，全部删除）。
 
-### 3.5 恢复：`replay` 与 `snapshot`（两个构造点，都取权威）
+### 3.5 恢复：**按对象拉权威**（一个概念，三种粒度）
 
 ```
-snapshot : ChatID → { S0, epoch, seq0 }   -- GET /api/session-state?chat=…（P6，带 epoch+seq）
-replay   : (ChatID, since) → Frame[] | { baseline: seq }   -- GET /api/frames?chat&since=…
+snapshot   : ChatID → { S0, epoch, seq0 }                    -- GET /api/session-state?chat=…
+pullIter   : (ChatID, turn, iter) → { block: Block } | ABSENT -- GET /api/iteration?chat&turn&iter
+pullTurn   : (ChatID, turn) → { blocks, final, ... } | ABSENT -- GET /api/turn?chat&turn
 ```
 
-- 首次进入会话：`S := snapshot(chat)`；随后只应用 `seq > seq0` 的帧。
-- **任何 `seq` 不连续**：
-  - 帧日志仍覆盖 ⇒ `replay(since = last+1)`（**等价于这些帧从未丢过**，最便宜、最精确）；
-  - 否则（返回 `baseline`）⇒ `snapshot(chat)`（慢路径，仍取权威）。
-- **`epoch` 变化**（服务端重启/日志重置）⇒ 直接 `snapshot`。
-- 断线重连：`Last-Event-ID: (epoch, last)` 续传；同上两级。
-- ⇒ 不需要 `gapReloadToken`、"只触发一次"的签名、`resync_required`、重试退避、轮询。
+**触发与出口**（不设"帧重放"——跳号以最大为准，见 §3.4 前置）：
+
+| 缺口类型 | 发现方式 | 出口 |
+|---|---|---|
+| 迭代不完整（**核心**） | `tick/done` 的 `iter > blocks.last + 1`（迭代前进了但上一迭代没提交） | `pullIter(turn, last+1 … iter-1)`：**逐个**取权威块；`ABSENT` ⇒ 该号不存在（合法跳号，如 resume 续号），记下并前移；存在 ⇒ 当作 `done` 应用 |
+| 回合未收尾 | `session{running=false}` 且该 turn `final = ⊥`；或 `open` 了下一个 turn | `pullTurn(turn)` ⇒ 补 `blocks` + `final` |
+| 整体不可信 | `epoch` 变化 / 首次进入 / 断线后无法判断 | `snapshot(chat)`（完整原子快照，两阶段读取，见 §2.1） |
+
+- `pullIter` 与 `snapshot` 都是**权威读取**；`ABSENT` 是**权威的"不存在"回答**，不是客户端的猜测。
+- ⇒ 客户端**不需要**帧环形日志、不需要 `replay(since)`、不需要 `Last-Event-ID` 续传语义；
+  `seq` 只用于**丢弃迟到帧**（幂等/乱序防护），不承担"检测丢包"的职责。
+- ⇒ 也不再需要 `gapReloadToken`、"只触发一次"的签名、`resync_required`、重试退避、轮询。
 
 **快照自洽性归一（盲审 P0-5）**：快照由两套存储拼出（内存态 `lastProgressSnapshot` +
 DB `iteration_history`，`agent_backend_methods.go:181-232` 与 `engine_run_tools.go:527-537`），
@@ -557,14 +590,14 @@ DB `iteration_history`，`agent_backend_methods.go:181-232` 与 `engine_run_tool
 
 ```
 if live ≠ ⊥ ∧ live.iter ≤ blocks.last.iter      → live := ⊥        -- 与已提交同号 ⇒ 丢弃（不可表示）
-if live ≠ ⊥ ∧ live.iter > blocks.last.iter + 1  → 记洞 ⇒ RECOVER    -- 中间迭代缺失
+if live ≠ ⊥ ∧ live.iter > blocks.last.iter + 1  → pullIter 补齐中间迭代
 ```
 
-并把它写进后端 CI（"快照自洽"断言：`live.iter > blocks.last.iter` 且 `blocks` 的号连续/已知跳号有记录）。
+并把它写进后端 CI（"快照自洽"断言：`live.iter > blocks.last.iter` 且 `blocks` 的号连续/跳号有记录）。
 
-> **为什么这不是兜底**：`replay`/`snapshot` 取的都是**同一权威**（服务端）在某个序号处的**完整状态**；
-> 模型对"序号不连续"只有这两个出口（一大一小，同一语义）。兜底的定义是"用本地推断掩盖未知"；
-> 这里恰恰相反：**丢弃本地推断，取权威**。同理，模型**从不**把 `tick` 升格为提交块。
+> **为什么这不是兜底**：三种出口全是**读权威**（`pullIter` / `pullTurn` / `snapshot`），
+> 且**都不构造内容**。兜底的定义是"用本地推断掩盖未知"；这里恰恰相反：**丢弃本地推断，取权威**。
+> 模型**从不**把 `tick` 升格为提交块，也**从不**在"上一迭代不完整"时提交下一迭代。
 
 ### 3.6 投影 `project`
 
@@ -692,8 +725,8 @@ apply(next: Row[]):
 (c) `call` 由服务端保证唯一（P2），且**生成态即有 id**；`tool.iter` 由服务端盖章，`step` 在 `done` 时
 校验并**丢弃**不一致项（T7）。
 ⇒ 三条都是归纳不变量。∎
-> 注意：**迭代号跳号是合法的**（resume 续号 `engine.go:708-712`、触顶早退）。"是否丢帧"只由 `seq` 判定，
-> **绝不用迭代号连续性推断**（现状 `lostIterGapSig` 用 `ev > maxHeld+1` 判丢包，会把合法跳号误判成丢包）。
+> 注意：**迭代号跳号**（resume 续号 `engine.go:708-712`、触顶早退）客户端**不假设、也不拒绝** ——
+> 一律先 `pullIter` 逐个补齐，权威 `ABSENT` 才算合法跳号（§3.5 / B1）。
 
 ### T6（收敛 / 有界）
 **命题**：对任意有限帧序列，状态在最后一帧后**不再变化**（无挂起的定时器、无延迟写入）。
@@ -707,8 +740,8 @@ apply(next: Row[]):
 **证明**：守卫四分支（异会话 / epoch 变化 / 过期 / 不连续）与六个构造子的后置条件穷尽了所有输入；
 构造子内部的前置条件违反（如 `done.iter ≤ last`、`tick` 的 `base` 不匹配）被**两条统一规则**处理：
 （i）**已过时**（`iter ≤ last`、`seq ≤ last`、更旧迭代的 `tick`）⇒ **丢弃**（权威值已存在 ⇒ 丢弃不丢信息）；
-（ii）**有缺口**（`seq ≠ last+1`）⇒ **RECOVER**（`replay` 优先，超出帧日志 ⇒ `snapshot`）。
-迭代号**跳号不在此列**：它合法（B1），不触发任何恢复动作。
+（ii）**迭代不完整 / 收尾缺失**（`iter > last+1`、`final` 缺失）⇒ **按对象拉权威**（`pullIter`/`pullTurn`），
+`ABSENT` 才算合法跳号；**`seq` 跳号本身不触发任何动作**（以最大为准，被跳号后到即丢弃）。
 ⇒ 没有"部分应用"的状态，也没有"猜测式修补"。∎
 > 这就是"零兜底"的形式化：不存在"如果缺失就构造一个占位"的分支；缺失只有"重新取权威"一条路。
 
@@ -845,7 +878,7 @@ apply(next: Row[]):
 | `iteration_history`（全量）+ `iterationsDelta`（增量）双通道 | 同一事实两条路，客户端必须"合并"（`mergeIterations` 的来源） | **合成** `done` 帧（每迭代一条） |
 | `goal:{objective:"",status:"cleared"}` 墓碑（`agent_backend_methods.go:598-601`、`events.go:30-34`） | 表达"清除" | **删**，用显式 `null` |
 | `emitGoalProgress`/`emitTodosProgress`/`emitBuiltinProgress` 里的 `Iteration: 0`（`agent.go:4697-4711` 等） | 无 turn 的 progress 帧 | **改**为 `session` 帧 |
-| `resync_required` + `baseline_seq`（`web_sse.go:519-527`、`785-801`） | 粗粒度"要重载" | **改**为 `frames?since=` 重放 + `baseline` 语义（保留一个概念，删掉另一个） |
+| `resync_required` + `baseline_seq`（`web_sse.go:519-527`、`785-801`） | 粗粒度"要重载" | **删**；改由 `pullIter` / `pullTurn` / `snapshot` 三个权威读取承担（§3.5），不再需要"整会话重载"信号 |
 
 ### 5.8 净账（估算）
 
@@ -989,7 +1022,8 @@ apply(next: Row[]):
    或触发重同步（用户可见："取消后刚跑完的内容消失"）。**W2/W3 期间由适配层负责**：把现有
    `iteration_history`/`phase_done`/最后一条 progress **合成** `done`（这是适配层的形状转换职责，
    不是模型兜底；W4 之后该合成分支随之删除）。
-2. **seq 稠密性是 W4 的硬前置**：先修"合并只在盖章前"（R1），否则弱网重连几乎必然触发整会话快照。
+2. **`seq` 只需"不许回退/重号"（C-1）**，不再需要"稠密"：客户端跳号即取最大（§3.4 前置）。
+   因此 W4 的这项改动比早前版本小得多（缺的是 per-chat 计数器 + 所有出站路径盖章）。
 3. **`call_id` 从 generating 起就有（R3）必须与"工具数组归一"同批上线**：只做归一不补 id ⇒
    同名工具误杀会原样复发（这正是本轮 P0 的根因）。
 
@@ -1001,7 +1035,9 @@ apply(next: Row[]):
 
 1. **幂等**：同一帧应用两次 ⇒ `S` 不变（T2）。
 2. **乱序/重复**：`f.seq ≤ S.seq` ⇒ `S` 不变；乱序到达不改变状态。
-3. **gap**：`f.seq = S.seq + 2` ⇒ 唯一响应是**恢复**（`replay(last+1)`，超出日志则 `snapshot`），且只请求一次。
+3. **seq 跳号**：`f.seq = S.seq + 2` ⇒ **照常应用并把水位推到 `S.seq+2`**（唯一响应就是这一条）；
+   随后到达的 `seq = S.seq+1` 被丢弃（幂等）。**不发起任何恢复请求**。
+8. **迭代不完整**：`done(iter = last+3)` ⇒ 触发 `pullIter(turn, last+1 … last+2)`；`ABSENT` 即合法跳号。
 4. **单调追加**：任意帧序列后 `blocks` 的 `iter` **严格递增**（T5a）。
 5. **单 live**：`live ≠ ⊥ ⇒ live.iter > 已提交最大号`（T5b）。
 6. **`done` 提升工具**：`done` 后同一 `call` 不在 `live.tools` 中（T3）。
@@ -1072,17 +1108,14 @@ apply(next: Row[]):
 
 ### 10.2 前提不成立时的行为（不兜底，但也不能打爆服务器）
 
-- **行为**：`RESYNC` ⇒ 请求快照。若服务端**持续**违反前提，系统进入"重同步振荡"——这是**缺陷显性化**，
-  不是被掩盖（现状是"悄悄画错"，更难查）。
-- **唯一抑制**：对**同一个触发**（`(chat, gen, 触发时的 seq)`）只发**一次**恢复请求——这是
+- **行为**：缺迭代 ⇒ `pullIter`；缺收尾 ⇒ `pullTurn`；整体不可信 ⇒ `snapshot`。
+  若服务端**持续**违反前提（例如永远不发 `done`），恢复请求会被"同一事实只请求一次"的幂等去重挡住 ⇒
+  界面停在"部分内容"，**缺陷显性化**（现状是"悄悄画错"，更难查）。
+- **唯一抑制**：对**同一个触发**（`(chat, gen, turn, iter)`）只发**一次**恢复请求——这是
   "同一事实只请求一次"的**幂等去重**，不是时间退避，也不是兜底。
 - **并发陷阱（盲审）**：绝不把"读快照"放进全局锁。现有 `web_hub.go:27 seqMu` 是全局单锁，且
   `:192-195` 明写"prepare 不得获取应用锁"⇒ 快照端点用**两阶段**（锁外读快照 + per-chat 锁内取 seq + 版本校验）。
-- **后端 CI 必须新增 3 条判据**（把义务变成红灯）：
-  1. 每一帧 `seq` 连续（同一连接内 `seq_{i+1} = seq_i + 1`）；
-  2. 每个已开始的迭代**恰好一条** `done`（含取消路径）；
-  3. 每个 turn **恰好一条** `final`，且 `final.blocks` 的 `iter` 严格递增；
-  4. （第 4 条，盲审补充）**盖章后的帧不得从环形缓冲删除**（`replay` 的 suffix 必须稠密）。
+- **后端发包义务与 CI 判据**：见 **§14**（契约 C-1…C-14 / 判据 G-1…G-11）。
 
 ### 10.3 已知边界（模型不管、但必须保留的东西）
 
@@ -1125,26 +1158,25 @@ apply(next: Row[]):
 
 | # | 情况 | 检测 | 修复 | 本地重建 |
 |---|---|---|---|---|
-| A1 | 中间丢一帧 | 下一帧 `seq ≠ last+1` | `replay(since=last+1)` | ❌ 无 |
-| A2 | **迭代最后一帧丢**（唯一完整副本 = `done`） | ① 同回合 `final` 的 seq；② 下一迭代 `tick` 的 seq；③ keepalive | replay 该 `done` | ❌ 无 |
-| A3 | 回合末尾连续丢（`done` + `final` 都丢） | keepalive（15s 内必达，带 `{epoch, seq}`） | replay / snapshot | ❌ 无 |
-| A4 | 会话长时间静默 | keepalive 仍走 | 若 seq 一致 ⇒ 无需动作 | — |
-| A5 | 重复帧 | `seq ≤ last` ⇒ 丢弃 | — | — |
-| A6 | 乱序 | 服务端**单写者串行盖章**（同一把锁）⇒ 线上不会乱序；客户端仍以 `seq` 为准 | replay（若真的乱了） | ❌ |
-| A7 | 断线 / 切后台 / 网络半开 | 连接状态 + `Last-Event-ID` | `replay(since=last)`；超缓冲 ⇒ snapshot | ❌ |
-| A8 | 服务端重启（seq 归零、帧日志丢失） | `epoch` 变化 | snapshot；**服务端在启动时对所有"未收尾"的 turn 补发 `final(cancelled, recovered=true)`**（P4 义务的一部分），使快照里不存在永久 live 的 turn | ❌ |
-| A13 | 服务端崩溃时正在跑的 turn（客户端手里有 live 迭代） | epoch 变化 / 重连快照 | 同上（`final(recovered)`）⇒ 界面从"进行中"转为"已中断"，**不会永久转圈** | ❌ |
-| A14 | 服务端"同键帧合并"（stateless later-wins）把**已编号**的帧从环形缓冲删掉 | `replay` 返回的 suffix 序号有洞 ⇒ 客户端判为"持续丢帧" | 规则：**合并只能发生在盖章之前**；盖章后该帧必须在缓冲存活（否则 seq 稠密性不成立，弱网会陷入"重连—重同步"抖动） | ❌ |
-| A9 | 帧日志超期（长离线） | replay 返回 `baseline` | snapshot | ❌ |
-| A10 | 多路并发推帧（主 agent / 子代理 / 通知 / 队列） | — | 全部经同一把锁 + 同一计数器 | — |
-| A11 | 代理/CDN 缓冲导致"批量延迟到达" | 客户端看 `seq` 连续性（**延迟**不是**丢失**，不需要修复） | — | — |
-| A12 | 未知帧类型（协议演进） | type 不认识 | **推进 `seq`+忽略载荷 + 记日志**（唯一允许的"忽略"：它是前向兼容的标准做法，不是兜底） | — |
+| A1 | **`seq` 跳号**（任意原因） | `f.seq > last + 1` | **以最大为准**：`S.seq := f.seq`，本帧照常应用；**不重放、不补帧、不重同步** | — |
+| A2 | 被跳过的号**后到**了 | `f.seq ≤ last` | **丢弃**（位置状态：新帧已包含其结果） | — |
+| A3 | **迭代最后一帧丢**（唯一完整副本 = `done`） | 下一帧带 `iter > blocks.last + 1`（无论 tick 还是 done）；或 `final` 缺块 | `pullIter(turn, last+1 …)` 取权威块 | ❌ 无 |
+| A4 | 回合收尾帧丢（`final`） | `session{running=false}` 且该 turn `final = ⊥`；或出现下一 turn 的 `open` | `pullTurn(turn)` | ❌ 无 |
+| A5 | 重复帧 | `seq ≤ last` | 丢弃 | — |
+| A6 | 乱序 | 服务端**单写者串行盖章**（per-chat 锁）⇒ 线上不会乱序；客户端仍以 `seq` 为准 | 迟到者按 A2 丢弃 | — |
+| A7 | 断线 / 切后台 / 半开连接 | 连接状态；重连后 **`seq` 无法续** | `snapshot(chat)`（整体权威；不依赖帧日志） | ❌ |
+| A8 | 服务端重启（seq 归零） | `epoch` 变化 | `snapshot`；**服务端启动时对所有"未收尾"的 turn 补发 `final(cancelled, recovered=true)`** | ❌ |
+| A9 | 服务端崩溃时正在跑的 turn（客户端手里有 live） | epoch 变化 / 重连 | 同上 ⇒ 界面从"进行中"转"已中断"，**不会永久转圈** | ❌ |
+| A10 | 多路并发推帧（主 agent / 子代理 / 通知 / 队列） | — | 全部经同一把 per-chat 锁 + 同一计数器 | — |
+| A11 | 代理/CDN 批量延迟到达 | 客户端只看 `seq` 单调性（**延迟 ≠ 丢失**） | 无需动作 | — |
+| A12 | 未知帧类型（协议演进） | type 不认识 | 推进 `seq` + 忽略载荷 + 记日志（前向兼容，不是兜底） | — |
+| A13 | 服务端"同键帧合并"导致序号不稠密 | 已不再需要"稠密"这个性质（A1 以最大为准） | **无需修复**；但合并**仍必须在盖章前**完成（否则客户端会看到序号回退，见 §14 契约 C-2） | — |
 
 ### B. 回合 / 迭代
 
 | # | 情况 | 处理 |
 |---|---|---|
-| B1 | **迭代号跳号**（resume 续号 `engine.go:708-712`、触顶早退） | **合法**。丢包只由 `seq` 判，**不得**用号差推断（现状 `lostIterGapSig` 用 `ev > maxHeld+1` 判丢包 ⇒ 误判） |
+| B1 | **迭代号跳号**（resume 续号 `engine.go:708-712`、触顶早退） | 客户端**不假设**它合法：任何 `iter > last+1` 都先 `pullIter` 逐个补齐；权威回答 `ABSENT` ⇒ 该号确实不存在（合法跳号）⇒ 接受并前移。**绝不用号差直接判"丢包"或"合法"** |
 | B2 | 取消（用户 stop）：进行中的迭代没有完成态 | P4：取消也发 `done`（partial），随后 `final(cancelled)` |
 | B3 | 取消后立刻发新消息 | 顺序保证：`final(旧)` 必在 `open(新)` 之前（同一 seq 流，单写者） |
 | B4 | 空回合（无任何输出） | `final` 必发；**投影**过滤空 assistant 行（§3.6） |
@@ -1157,9 +1189,10 @@ apply(next: Row[]):
 | B11 | 工具在 `tick` 与 `done` 之间切换 | `state` 覆盖；`meta` 沿用 |
 | B12 | 迭代内工具集合**变少**（服务端移出某工具） | 位置状态：数组即全集 ⇒ 变少即消失（服务端只在"该工具被撤销"时这么做） |
 | B13 | 超大工具参数（KB 级 args / detail） | meta 只发一次；快照发全量（一次性） |
-| B14 | 发送失败（HTTP/WS 写失败） | 本机意图 `fail` ⇒ 行标记失败、`local.pending` 移除。**不重试、不超时**（重试由用户决定） |
+| B14 | 发送失败（HTTP/WS 写失败） | 本机意图 `fail` ⇒ **整行移除**（与现状 `user_fail` 删行一致）；**不重试、不超时**（重试由用户决定） |
 | B15 | 服务端排队（staging tray）后消息被丢弃 | `session{queue}` 全量替换 ⇒ 该行从队列消失；`local.pending` 以 `turnHint/requestID` 精确退役（不做内容匹配） |
-| B16 | 同一 turn 的 `open` 再次到达（重复调度 / resume 复用 id） | **幂等**：`turns[turn]` 已存在 ⇒ 只绑 user 与 `requestID`，**保留** `blocks/final/phase`（§3.4）。⚠️ 后端 resume **复用 turn id**（`agent.go:3481-3485`）与 P2"永不复用"冲突 ⇒ 要么强制新 id，要么把 resume 建模为"续同 turn、不发 `open`" |
+| B17 | **工具在 generating 期陆续出现、参数慢慢增长**（用户点名） | 位置状态：`tools[]` 每帧是**全集** ⇒ 数组变长是正常的（不是缺口）；`label`/`genChars` 每帧覆盖（看起来就是"边生成边长"）；`call_id` 在首次出现前已分配且终身不变（P3′）；`meta.args` 在参数生成完成后一次性给出 |
+| B18 | **迭代前进了，但上一迭代还不完整**（用户点名） | ⛔ **不许 commit**：`tick/done` 的 `iter > blocks.last + 1` ⇒ `pullIter(turn, last+1 … iter-1)` 拉权威；权威 `ABSENT` 才算合法跳号。期间**不应用**该帧（下一帧会带回最新位置状态） |
 
 ### C. 会话级
 
@@ -1204,7 +1237,7 @@ apply(next: Row[]):
 | # | 措施 | 效果 |
 |---|---|---|
 | W1 | 正文/思考走**增量 + 整数锚** `{base, chunk}` | 每帧 O(新增字节)；100 帧共 1 400 字的思考 ≈ **1.4 KB** 而非 140 KB（100×） |
-| W2 | 工具 **meta 只发一次**（`name/label/args/detail/summary/ui*`），每帧只发 `state`（`status/elapsed/gen_chars`） | 工具体从"每帧 ~200–2 000 B × 工具数"降到"首次一次 + 每帧 ~40 B × 工具数" |
+| W2 | 工具 **meta 只发一次**（`name`/`ui*`/`toolHints` + 参数生成完成后一次性的 `args`/`detail`/`summary`），每帧只发 `state`（`status`/`label`/`genChars`/`elapsedMs`） | 工具体从"每帧 ~200–2 000 B × 工具数"降到"首次一次 + 每帧 ~40–120 B × 工具数"（`label` 会随参数增长，但它是**短截断**，远小于 `args`） |
 | W3 | `session` 帧**只在字段变化时**发（字段级 LWW，服务端合并） | todos/goal/queue 抖动不再产生帧 |
 | W4 | 服务端可**任意合并/节流 `tick`**（位置状态 ⇒ 合并语义无损）；建议 30–60 ms 合并窗 | token 速率高时限流，正确性不受影响 |
 | W5 | 快照只发**窗口 + 计数**（`droppedBefore`/`regionsBefore`），不发全历史 | 2 000 迭代的会话也能秒开 |
@@ -1219,9 +1252,10 @@ apply(next: Row[]):
 | 工具 | ≈ 100 × Σ(meta ≈ 数百 B) ⇒ 数百 KB | ≈ 8 × meta（一次性）+ 100 × 8 × 40 B ≈ 32 KB |
 | 合计 | 数百 KB 量级 | **≈ 35 KB 量级**（收敛到 O(内容) + O(状态变化)） |
 
-**代价与边界**：增量文本的**安全**依赖 P1（`seq` 连续）+ replay —— 丢帧则重放该帧，`base` 自然对齐；
-若重放不可用 ⇒ `snapshot`（快照携带 **live 的完整正文**，一次性的 O(len)，用于重建）。
-`base` 不匹配时**丢弃该帧**（不拼接、不猜测），由 replay/snapshot 修正。
+**代价与边界**：增量文本的**安全**依赖"同一迭代的 chunk 序列不乱序"（C-9：`base` 必须接上）——
+服务端按 per-chat 顺序发帧即天然成立；若某帧丢失，`base` 对不上 ⇒ **DROP 该帧**（不清空、不拼接），
+该迭代的**权威内容**在 `done` 或 `pullIter` 里（一次性的 O(len)）。
+⇒ 直播期最多"打字机少跳一格"，提交后一定完整。
 
 ---
 
@@ -1276,3 +1310,82 @@ P1 级（性能与零差异表）也全部采纳：
 | web 端是否依赖"迭代边界 `content` 非空" | 决定 §12 的增量正文能否与现状同语义（若 web 依赖"上一迭代尾巴还在 content 里"，则增量必须带上一迭代的尾部） | 一份真 SSE 录制（含迭代推进边界），看边界帧的 `progress.content` |
 | `writeSSEEvent*` 是否严格单 goroutine | 决定 P1 的"每帧盖章"是否需要额外加锁；否则 `client.lastSentSeq` 有数据竞争 | `grep` 全部调用点 + 一次 race 测试 |
 | `ProgressEvent.Seq` 是否被复制进 `iteration_history`（`events.go:162`） | 若被复制，历史里的 seq 是**旧值**，客户端若拿它当水位会倒流 | 一次录制：看 `iteration_history[].seq` 与顶层 `id:` 的关系 |
+
+### 13.4 用户口径修订（2026-10-21 20:0x，四次追加）
+
+> 这一轮是**产品口径**，优先于前两轮盲审：模型的"检测丢包"方式被推翻，改为**以最大 seq 为准 + 按对象拉权威**。
+
+| # | 用户要求 | 已落进正文 |
+|---|---|---|
+| U-1 | **工具在 generating 期会慢慢增加**（参数逐步生成、label 也随之变长） | §2 P3′、§3.2 `Tool`（`label` 归 state）、§3.3 `ToolTick`、§11 B17、§12 W2 |
+| U-2 | **绝不能 commit 不完整的迭代**：发现迭代进步但上一迭代不完整 ⇒ **用拉 gap 的接口拉上一迭代权威内容** | §3.4 `tick`/`done` 的 `iter > last+1 ⇒ PULL`；§3.5 `pullIter`（`ABSENT` 才算合法跳号）；§11 B18、B1 |
+| U-3 | **SSE 跳号以最大为准**，之后遇到被跳的号**直接丢弃** | §3.4 前置（`seq > last+1 ⇒ 照常应用 + 推进水位`；`seq ≤ last ⇒ 丢弃`）；§11 A1/A2；**删除整条 `replay(since)` 帧重放路径**（§3.5 重写） |
+| U-4 | **系统强依赖后端正确性**：要保证后端不会乱发包导致闪烁 | 新增 **§14 后端发包契约 + 客户端防闪烁结构 + CI 判据** |
+
+⚠️ 由此产生的**简化**（比之前更少的概念）：
+- 不再需要"每会话帧环形日志"与 `GET /api/frames?since=` 重放（少一个组件、少一组 CI 判据）。
+- 不再需要"`seq` 必须稠密"这个性质 ⇒ 合并/节流的位置约束降级为"不许序号回退"。
+- `RECOVER` 这个笼统出口被拆成三个**按对象**的权威读取（`pullIter` / `pullTurn` / `snapshot`），
+  每个都只说"取哪个对象"，不说"怎么补"。
+
+---
+
+## 14. 后端发包契约（防闪烁）与 CI 判据
+
+> **前提**：本模型的正确性与"不闪烁"完全依赖服务端**只发合法帧**。
+> 本节把这些义务写成**可执行判据**（后端 CI + review checklist），客户端**不为违例做补偿**。
+
+### 14.1 契约条目（每条都对应一种"会闪烁/会丢内容"的违例）
+
+| # | 契约 | 违例后果 |
+|---|---|---|
+| **C-1** | 每 chat **单写者、单计数器**：`seq` 严格 +1，**不许回退/重号**（同一 chat 挂在多条 route/连接上也共用一个计数器） | 序号回退 ⇒ 客户端把新状态当"迟到帧"丢弃 ⇒ 界面停在旧状态 |
+| **C-2** | 帧的**合并/节流只允许发生在盖章之前**（合并后的帧才拿 seq） | 盖章后被合并丢弃 ⇒ 序号出现"合法空洞"（客户端容忍，但历史回放类工具会误判） |
+| **C-3** | 每帧必带 `(epoch, seq, chat)`；**回合级帧必带 `turn`**；**迭代级帧必带 `iter`** | 缺字段 ⇒ 帧无法归属（模型里不可表示） |
+| **C-4** | 同一 turn 内 `iter` **严格递增**；**不许改小、不许复用**；跳号只允许由 resume 造成，并会被 `pullIter` 的 `ABSENT` 确认 | 改小 ⇒ 被当迟到帧丢弃；复用 ⇒ 两段内容混进同一块 |
+| **C-5** | `turn` 每 chat 单调 +1、**永不复用**（resume 要么"续同 turn 且不发 `open`"，要么分配**新** turn） | 复用 ⇒ `open` 幂等会把两次运行混成一个回合（历史内容被覆盖） |
+| **C-6** | **每个已开始的迭代恰好一条完备 `done`**（含取消/失败/触顶）；`done.block.tools` 必须含该迭代**全部**工具 —— 被中断的 `running` 一律落成 `failed` | 缺 `done` ⇒ 客户端按 U-2 去拉权威（多一次 RTT）；`block` 不完整 ⇒ 工具在提交瞬间"消失" |
+| **C-7** | **每个 turn 恰好一条 `final`**（含空 turn、取消、被重启回收的 turn），且 `final.blocks`（若携带）覆盖**全部**已开始迭代 | 缺 `final` ⇒ 回合永远"进行中"（转圈） |
+| **C-8** | `tick.tools` 是该迭代当前工具的**全集**：`call_id` 从**首次出现前**分配、**终身不变**；同帧不重复；工具只增不减（除非明确撤销）；`status` **只前进**（generating→pending→running→done/failed），**不许倒退** | 换 id ⇒ pill 重建（闪烁）；status 倒退 ⇒ "执行中"变回"排队"（用户已报过的形态） |
+| **C-9** | `tick.content/reasoning` 是**本迭代内**的增量 `{base, chunk}`：`base` 必须等于该迭代已推送的长度；**不许回退、不许重发同一段、不许把上一迭代的尾巴塞进新迭代** | `base` 不匹配 ⇒ 客户端 DROP 该帧 ⇒ 打字机卡一下；回带 ⇒ 同一段文字出现两次 |
+| **C-10** | **不许把已 `done` 的迭代内容再作为 `tick` 发回**（"回带"是历史闪烁的根源） | 同一内容"提交块一次 + 在飞块一次" |
+| **C-11** | 会话级帧**只在字段变化时**发；`goal` 清除用 `null`；`todos: []` 是**值**；`queue.items` 恒出现 | 反复发同一值 ⇒ 客户端无谓重建；三态混淆 ⇒ 状态错 |
+| **C-12** | 快照**自洽**（`live.iter > blocks.last.iter`），并与发帧**共用 per-chat 临界区**（两阶段读 + 版本校验，**不得**用全局锁包 DB 读） | 同号块双画 / 全服帧被一次 DB 查询阻塞 |
+| **C-13** | 服务端重启：`epoch + 1`，并对所有"未收尾"turn 补 `final(cancelled, recovered=true)` | 客户端永久转圈或误判"全是过期帧" |
+| **C-14** | **不许交错两个 turn 的帧**（同一 chat 内按 turn 串行）。通知 turn 的 `open` 必须在该 chat 上一条 `final` **之后**入队（或干脆由 `open` 幂等吸收，见 §3.4） | 两个回合的行交错 ⇒ 内容串台 |
+
+### 14.2 客户端侧的防闪烁结构（结构上不可能闪，而不是"闪了再修"）
+
+| # | 规则 | 作用 |
+|---|---|---|
+| A-1 | `done` 应用时，**同一次 `step`** 内完成"追加块 + 清同号 live" ⇒ 投影看到的是一次原子替换 | 不会出现"先消失、再出现" |
+| A-2 | `blocks` 与 `inflight` **分 holder**，但 UI **同一批** apply（同一次 `applyRows`） | 不会出现中间帧"既无块也无在飞" |
+| A-3 | 内容只增长（`{base, chunk}` 校验），不匹配即 DROP（**不清空、不拼接**） | 不会闪白/回退 |
+| A-4 | 已渲染块按**源对象恒等**复用（`rev` 不变 ⇒ 不重建） | 历史块零重建（性能 + 视觉稳定） |
+| A-5 | 工具行按 `call_id` 做稳定 key；`label`/`genChars` 变化只更新**文本字段**，不重建 pill | 参数增长时"边生成边长"，不是"重画一个新 pill" |
+| A-6 | 会话级字段（todos/goal/queue）与会话级指示（busy/phase/上下文环）走**独立 holder**，不进消息行 | 改 todo / 切 phase 不触发消息行重建 |
+| A-7 | 主题/字号/语言/徽标由组件自订阅（R-UI1） | 非内容变化不重建行 |
+
+### 14.3 后端 CI 判据（可执行，任一红 ⇒ 不允许合并）
+
+| # | 判据 | 对应契约 |
+|---|---|---|
+| G-1 | 同一 chat 的帧流：`seq` 严格 +1、无重号；跨 route/连接共享计数器（构造"两条 route 同时订阅"的用例） | C-1 |
+| G-2 | 合并/节流之后才盖章（断言"盖章后的帧不消失"；或至少在客户端视角"无序号回退"） | C-2 |
+| G-3 | 枚举**所有**退出路径（正常/取消/触顶/panic/重启），断言"每个已开始迭代恰好一条 `done`" | C-6 |
+| G-4 | 断言"每个 turn 恰好一条 `final`"，含空 turn 与取消 | C-7 |
+| G-5 | `done.block.tools` 的 `call_id` 集合 = 该迭代出现过的 `call_id` 集合；取消时 `running ⇒ failed` | C-6 |
+| G-6 | 同一 `call_id` 在连续帧中不变；`status` 序列**单调**（生成一条合法序列白名单，非白名单即红） | C-8 |
+| G-7 | `tick.content.base` == 该迭代已推送长度（服务端自检）；每迭代第一次 `base = 0` | C-9 |
+| G-8 | `tick.iter` 不得 `≤` 该 turn 已 `done` 的最大号（禁止回带） | C-10 |
+| G-9 | 并发测试：一边推帧一边取快照（1 000 次），断言快照自洽 + 无死锁 + 延迟上界 | C-12 |
+| G-10 | 重启测试：`epoch` 变化 + 未收尾 turn 收到 `final(recovered)` | C-13 |
+| G-11 | 交错测试：通知 turn 与主 turn 并发触发，断言帧不交错 | C-14 |
+
+### 14.4 契约违例时客户端做什么（唯一出口，不是兜底）
+
+- **能定位到对象**（缺迭代 / 缺收尾）⇒ `pullIter` / `pullTurn`（读权威）。
+- **定位不到**（epoch 变化、快照自洽被破坏）⇒ `snapshot`。
+- **其余一律 DROP**（迟到帧、`base` 不匹配、`iter ≤ last`）——**不修补、不猜测、不重试**。
+- ⇒ 违例的表现是"多一次 RTT 或一次快照"，而不是"屏幕上的错误内容"。**缺陷显性化**在 CI（G-1…G-11），
+  不留给用户。
