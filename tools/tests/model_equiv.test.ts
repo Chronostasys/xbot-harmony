@@ -38,14 +38,14 @@ const EVS: WireEvent[] = [
   {
     type: 'iteration', turnID: 1, iter: 1, phase: 'tool_exec',
     content: '', reasoning: 'thinking1',
-    activeTools: [{ name: 'Shell', label: 'Shell: ls', status: 'running', callID: 'c1', iteration: 1 }],
+    activeTools: [{ name: 'Shell', label: 'Shell: ls', status: 'running', call_id: 'c1', iteration: 1 }],
     completedTools: [], streamingTools: [],
   },
   {
     type: 'iteration', turnID: 1, iter: 1,
-    activeTools: [], completedTools: [{ name: 'Shell', label: 'Shell: ls', status: 'done', callID: 'c1', iteration: 1 }],
+    activeTools: [], completedTools: [{ name: 'Shell', label: 'Shell: ls', status: 'done', call_id: 'c1', iteration: 1 }],
     streamingTools: [],
-    iterationsDelta: [{ iteration: 1, content: '', reasoning: 'thinking1', tools: [{ name: 'Shell', label: 'Shell: ls', status: 'done', callID: 'c1', iteration: 1 }] }],
+    iterationsDelta: [{ iteration: 1, content: '', reasoning: 'thinking1', tools: [{ name: 'Shell', label: 'Shell: ls', status: 'done', call_id: 'c1', iteration: 1 }] }],
   },
   {
     type: 'iteration', turnID: 1, iter: 2, phase: 'thinking',
@@ -56,7 +56,7 @@ const EVS: WireEvent[] = [
   {
     type: 'text_final', turnID: 1, content: 'answer',
     progressHistory: [
-      { iteration: 1, content: '', reasoning: 'thinking1', tools: [{ name: 'Shell', label: 'Shell: ls', status: 'done', callID: 'c1', iteration: 1 }] },
+      { iteration: 1, content: '', reasoning: 'thinking1', tools: [{ name: 'Shell', label: 'Shell: ls', status: 'done', call_id: 'c1', iteration: 1 }] },
       { iteration: 2, content: 'answer', reasoning: '', tools: [] },
     ],
   },

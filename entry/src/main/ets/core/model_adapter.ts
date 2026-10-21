@@ -30,6 +30,7 @@ interface WireTool {
   readonly elapsedMs?: number;
   readonly exitCode?: number;
   readonly genChars?: number;
+  readonly call_id?: string;
   readonly callID?: string;
   readonly iteration?: number;
   readonly uiMode?: string;
@@ -118,7 +119,9 @@ function statusOf(s: string | undefined): ToolStatus {
 
 /** 线格式工具 → 模型工具（身份只认 `callID`；缺 id 时用**位置**兜底 `iter#idx`，不猜内容）。 */
 function toToolRec(t: WireTool, iteration: IterNum, idx: number): ToolRec {
-  const call: string = t.callID !== undefined && t.callID !== '' ? t.callID : `${iteration}#${idx}`;
+  const rawCall: string | undefined = t.call_id !== undefined && t.call_id !== ''
+    ? t.call_id : (t.callID !== undefined && t.callID !== '' ? t.callID : undefined);
+  const call: string = rawCall !== undefined ? rawCall : `${iteration}#${idx}`;
   const meta: ToolMeta = {
     name: t.name,
     uiMode: t.uiMode,
