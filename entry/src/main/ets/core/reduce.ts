@@ -2148,10 +2148,16 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       //    保留 ⇒ 即使 resync 真的调用了 /api/history，消息行更新了，页面仍因
       //    sessionRunning=true 一直画「思考中」（用户 2026-10-20 截图）。
       //    只有快照带 active，或本地仍有真正 live turn，才算 running。
+      // ⛔ 审计确证（state-final-3 Z1）：此处判据不含 `streaming`，而权威 idle **有意保留**
+      //   `activeTurn`（只把 streaming 置 false）⇒ 权威 idle 已到、`text_final` 未到的窗口里，
+      //   **任何一次历史重载**（send-ack-sync / 回前台 / 探针 / gap）都会把 running 重新打开
+      //   ⇒ 输入框从「发送」变回 cancel +「思考中」，形成约 30s 周期的 busy 抽搐。
+      //   必须与 `liveRunningIn()`/`store.hasLiveTurn()` 同源（live **且** streaming）。
       let hasLiveTurn: boolean = false;
       if (activeTurn !== null) {
         const at = turns.get(activeTurn)
-        hasLiveTurn = at !== undefined && at.phase.kind === 'live';
+        hasLiveTurn = at !== undefined && at.phase.kind === 'live'
+          && at.phase.data.streaming === true;
       }
       const authoritativeRunning: boolean = ev.active !== null || hasLiveTurn;
 
