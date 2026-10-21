@@ -2698,6 +2698,10 @@ struct Index {
     }
     this.usage = store.usage;
     this.cwd = store.cwd;
+    // ⛔ 审计确证（state-gate-8-4）：页面 `@State historyLoading` 此前**零写入者**（真源只在
+    //   `store.historyLoading`）⇒ 骨架屏永不出现、`busySignals().loading` 恒 false，
+    //   重载期「开始对话」空态与正在拉历史可以同屏。⇒ 在这里镜像（单一真源，页面只读）。
+    this.historyLoading = store.historyLoading;
     const todosFp: string = todosFpOf(store.todosNow());
     if (this.pendingTodos.isPending() && Date.now() - this.pendingTodosAtMs > TODO_PENDING_TTL_MS) {
       this.pendingTodos.discard();
