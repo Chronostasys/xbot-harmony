@@ -8,7 +8,7 @@
  *
  * 适配层形状：输入是**结构**接口（不 import `.ets`），由调用方（store）传 `ChatMessage[]`。
  */
-import type { Block, LegacyLine, State, ToolRec, TurnRec, UserLine } from './model_types';
+import type { Block, LegacyLine, LiveIter, State, ToolRec, TurnRec, UserLine } from './model_types';
 import { newTurn } from './model_types';
 
 /** 历史行（结构面；与 `core/types.ChatMessage` 同形，避免 `.ts` import `.ets`）。 */
@@ -34,6 +34,17 @@ export interface WireHistoryIteration {
   readonly subAgents?: readonly never[];
 }
 
+/** `history_replaced.active.snapshot` 的结构面（在飞快照）。 */
+export interface WireLiveSnapshot {
+  readonly iter: number;
+  readonly content: string;
+  readonly reasoning: string;
+  readonly activeTools?: readonly WireHistoryTool[];
+  readonly completedTools?: readonly WireHistoryTool[];
+  readonly streamingTools?: readonly WireHistoryTool[];
+  readonly genui?: string;
+}
+
 interface WireHistoryTool {
   readonly name: string;
   readonly label?: string;
@@ -56,6 +67,22 @@ function statusOf(s: string | undefined): 'generating' | 'pending' | 'running' |
   if (s === 'running') return 'running';
   if (s === 'generating') return 'generating';
   return 'pending';
+}
+
+function toToolRecOf(t: WireHistoryTool, iteration: number, idx: number): ToolRec {
+  const rawCall: string | undefined = t.call_id !== undefined && t.call_id !== ''
+    ? t.call_id : (t.callID !== undefined && t.callID !== '' ? t.callID : undefined);
+  return {
+    call: rawCall !== undefined ? rawCall : `${iteration}#${idx}`,
+    iteration,
+    meta: { name: t.name, uiMode: t.ui_mode, args: t.args, detail: t.detail, summary: t.summary, toolHints: t.tool_hints },
+    state: {
+      status: statusOf(t.status),
+      label: t.label !== undefined ? t.label : t.name,
+      genChars: t.gen_chars !== undefined ? t.gen_chars : 0,
+      elapsedMs: t.elapsed_ms !== undefined ? t.elapsed_ms : 0,
+    },
+  };
 }
 
 function toBlock(w: WireHistoryIteration): Block {
@@ -118,7 +145,7 @@ function toUserLine(m: WireHistoryMessage): UserLine {
  *  · 同一 turnID 多行 assistant ⇒ 后行的块**追加**（历史分片），文本取最后一行的 content；
  *  · `live` **不动**（在飞态由 `snapshot`/`tick` 负责，历史不能覆盖）。
  */
-export function hydrate(prev: State, messages: readonly WireHistoryMessage[], seq: number): State {
+export function hydrate(prev: State, messages: readonly WireHistoryMessage[], seq: number, active?: { readonly turnID: number; readonly snapshot: WireLiveSnapshot } | null): State {
   const turns: Map<number, TurnRec> = new Map<number, TurnRec>();
   const legacy: LegacyLine[] = [];
   for (let i = 0; i < messages.length; i++) {
@@ -171,5 +198,35 @@ export function hydrate(prev: State, messages: readonly WireHistoryMessage[], se
       regionsBefore: m.regionsBefore !== undefined ? m.regionsBefore : rec.regionsBefore,
     });
   }
-  return { ...prev, seq, turns, legacy };
+  // ⛔ **在飞态必须从 `active` 恢复**（老管线同源）：`history_replaced` 的 `active.snapshot`
+  //   是"这一轮正在跑"的权威快照；不恢复 ⇒ 打字机/工具 pill/迭代进度在打开会话时消失
+  //   （真机 `[MODEL-DIFF]` 直接钓出：`live=1→0`、`iter=288→0`）。
+  let live: LiveIter | null = prev.live;
+  if (active !== undefined && active !== null) {
+    const snap: WireLiveSnapshot = active.snapshot;
+    const tools: ToolRec[] = [];
+    const push = (list: readonly WireHistoryTool[] | undefined): void => {
+      if (list === undefined) return;
+      for (let i = 0; i < list.length; i++) {
+        const t = toToolRecOf(list[i], snap.iter, tools.length);
+        let dup = false;
+        for (let k = 0; k < tools.length; k++) {
+          if (tools[k].call === t.call) { dup = true; break; }
+        }
+        if (!dup) tools.push(t);
+      }
+    };
+    push(snap.streamingTools);
+    push(snap.activeTools);
+    push(snap.completedTools);
+    live = {
+      turn: active.turnID,
+      iteration: snap.iter,
+      content: snap.content !== undefined ? snap.content : '',
+      reasoning: snap.reasoning !== undefined ? snap.reasoning : '',
+      tools,
+      genui: snap.genui !== undefined ? snap.genui : '',
+    };
+  }
+  return { ...prev, seq, turns, legacy, live };
 }

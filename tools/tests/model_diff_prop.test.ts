@@ -132,7 +132,9 @@ function sigOld(rows: readonly Row[]): string[] {
     for (let k = 0; k < its.length; k++) {
       calls.push(`${its[k].iteration}(${ids((its[k] as { tools?: { call_id?: string }[] }).tools)})`);
     }
-    out.push(`assistant|${r.turnID}|0|${calls.join(';')}`);
+    // 回合级正文：旧行 `content` = 该 turn 的最终文本；新行同名字段（commit 后同源）
+    const turnText: string = r.kind === 'committed' ? r.content : (r.kind === 'live' ? r.content : '');
+    out.push(`assistant|${r.turnID}|${turnText.length}|${calls.join(';')}`);
   }
   return out;
 }
