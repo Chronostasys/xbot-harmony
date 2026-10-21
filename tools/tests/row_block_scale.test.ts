@@ -167,3 +167,5 @@ if (fail > 0) {
   process.exit(1);
 }
 console.log(`  row_block_scale: ${pass} passed, 0 failed`);
+
+export {};

@@ -97,3 +97,5 @@ eq('删除不存在的 uid', removeByUid(list, 'nope').length, 3);
 if (fail > 0) { console.log(`  attach: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  attach: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

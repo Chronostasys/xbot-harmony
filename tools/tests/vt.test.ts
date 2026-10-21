@@ -270,3 +270,5 @@ eq('Home/End：DECCKM 开 ⇒ SS3', [vtArrowKeys(true, 'H'), vtArrowKeys(true, '
 
 console.log(`vt.test: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

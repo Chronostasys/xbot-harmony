@@ -129,3 +129,5 @@ eq('slot: 两个标签不同（保证 ask 比 turn_done 醒目）', NOTIFY_SLOT_
 if (fail > 0) { console.log(`  notify_prefs: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  notify_prefs: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

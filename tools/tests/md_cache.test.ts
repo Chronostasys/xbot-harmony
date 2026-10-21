@@ -85,3 +85,5 @@ if (fail > 0) {
   process.exit(1);
 }
 console.log(`  md_cache: ${pass} passed, 0 failed`);
+
+export {};

@@ -45,3 +45,5 @@ eq('写路径归一（空白 ⇒ 默认）', normalizeActiveChannel('  '), '');
 if (fail > 0) { console.log(`  active_channel_pref: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  active_channel_pref: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

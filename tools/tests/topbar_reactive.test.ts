@@ -76,3 +76,5 @@ describe('顶栏「迭代指标」徽章：必须经 @State 投影（否则恒�
 });
 
 process.exit(summary('topbar_reactive'));
+
+export {};

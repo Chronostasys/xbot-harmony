@@ -155,3 +155,5 @@ ok('porcelain 有可见发丝边框（面板 card 的 border 非透明）',
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} settings about/account 契约测试：${pass} 通过 / ${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);
+
+export {};

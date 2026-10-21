@@ -191,3 +191,5 @@ eq('支持集 = 7 种（与 web `components.tsx:236-259` 一一对应）', SUPPO
 if (fail > 0) { console.log(`  widgets_view: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  widgets_view: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

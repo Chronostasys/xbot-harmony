@@ -149,3 +149,5 @@ eq('duration 65000 ⇒ 1m 5s', formatDuration(65000), '1m 5s');
 
 console.log(`  synthhints: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

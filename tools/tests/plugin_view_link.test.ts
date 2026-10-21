@@ -140,3 +140,5 @@ eq('标题：未知 id ⇒ 空串（调用方兜底文案）', webPanelTitle('no
 if (fail > 0) { console.log(`  plugin_view_link: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  plugin_view_link: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

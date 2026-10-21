@@ -173,3 +173,5 @@ check('fitWidth 判据 = 全段落（含块级时撑满，防 wrapContent 折叠
 
 console.log(`\n  bubble_style: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

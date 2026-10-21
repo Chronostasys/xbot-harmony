@@ -111,3 +111,5 @@ if (fail > 0) {
   process.exit(1);
 }
 console.log(`  rowsview: ${pass} passed, 0 failed`);
+
+export {};

@@ -224,3 +224,5 @@ if (fail > 0) {
 }
 console.log(`  collapse_all_wiring: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

@@ -51,3 +51,5 @@ main().catch((e: Error) => {
   console.log(`  demo_account: 异常 ${e.message}`);
   process.exit(1);
 });
+
+export {};

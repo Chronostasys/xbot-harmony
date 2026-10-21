@@ -113,3 +113,5 @@ eq('思考键显示名', settingLabel(KEY_REASONING_DEFAULT), '思考默认展�
 if (fail > 0) { console.log(`  settings: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  settings: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

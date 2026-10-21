@@ -40,3 +40,5 @@ eq('无 live 行时任何迭代都是新信息', isStaleSeqEvent(12, 1, 0, ev({ 
 if (fail > 0) { console.log(`  seqgate: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  seqgate: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

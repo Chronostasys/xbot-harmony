@@ -71,3 +71,5 @@ eq('data=null ⇒ 全默认', parseChatSwitch(null as unknown as Object), { ok: 
 
 console.log(fail === 0 ? `✅ chat_switch: ${pass} passed` : `❌ chat_switch: ${fail} failed / ${pass} passed`);
 process.exit(fail === 0 ? 0 : 1);
+
+export {};

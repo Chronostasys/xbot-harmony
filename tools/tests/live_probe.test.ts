@@ -77,3 +77,5 @@ console.log('   · 把 `checkLiveSignalStall()` 放回早退之后 ⇒ §C 必�
 
 console.log(`\n  live_probe: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

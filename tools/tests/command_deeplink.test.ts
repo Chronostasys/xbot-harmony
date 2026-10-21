@@ -215,3 +215,5 @@ function stripComments(src: string): string {
 if (fail > 0) { console.log(`  command_deeplink: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  command_deeplink: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

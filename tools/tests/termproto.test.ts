@@ -109,3 +109,5 @@ eq('https ⇒ wss', termWsUrl('https://a.example', 't-9'), 'wss://a.example/ws/t
 
 console.log(`termproto.test: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

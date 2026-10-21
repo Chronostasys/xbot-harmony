@@ -143,3 +143,5 @@ eq('只剥**前缀**（中间的不动）', shellCommandOfLabel('Shell: a Shell:
 
 console.log(`\n  toolshell: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

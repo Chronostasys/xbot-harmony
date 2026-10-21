@@ -364,3 +364,5 @@ ok('目录条目仍是 PluginPanelInfo 子类（Index.ets 的既有消费不受�
 if (fail > 0) { console.log(`  pluginpanel: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  pluginpanel: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

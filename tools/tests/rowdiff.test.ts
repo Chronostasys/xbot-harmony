@@ -47,3 +47,5 @@ eq('窗口不改原数组', tailRows([row('a', 1), row('b', 1)], 1).length + 2, 
 if (fail > 0) { console.log(`  rowdiff: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  rowdiff: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

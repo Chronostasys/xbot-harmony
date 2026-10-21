@@ -106,3 +106,5 @@ eq('④ 缺失渠道 + 指定 active ⇒ 不命中', sessionInChannel(sess({ cha
 if (fail > 0) { console.log(`  channel_filter: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  channel_filter: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

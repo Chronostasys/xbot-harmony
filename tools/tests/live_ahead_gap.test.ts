@@ -129,3 +129,5 @@ function running(d: LiveSnapshot): ChatState {
 console.log(`\nlive_ahead_gap.test: ${pass} passed / ${fail} failed`);
 if (fail > 0) { process.exit(1); }
 process.exit(0);
+
+export {};

@@ -155,3 +155,5 @@ ok('undefined ⇒ 不可展开', !hasExpandableBody(undefined));
 console.log(`\ncompaction.test: ${pass} passed / ${fail} failed`);
 if (fail > 0) { process.exit(1); }
 process.exit(0);
+
+export {};

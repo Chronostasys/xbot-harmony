@@ -63,3 +63,5 @@ eq('长链接截断', linkLabel(`https://a.com/${'x'.repeat(60)}`).length <= 46,
 if (fail > 0) { console.log(`  msgops: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  msgops: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

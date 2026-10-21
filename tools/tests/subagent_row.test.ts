@@ -180,3 +180,5 @@ describe('subAgents 落到行模型（SubAgentTree 接线前置）', () => {
 });
 
 process.exit(summary('subagent_row'));
+
+export {};

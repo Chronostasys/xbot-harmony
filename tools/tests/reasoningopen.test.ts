@@ -122,3 +122,5 @@ eq('live/committed 同键', reasoningKey(42, liveIterationNo([it(1), it(2, true)
 
 console.log(fail === 0 ? `✅ reasoningopen: ${pass} passed` : `❌ reasoningopen: ${fail} failed / ${pass} passed`);
 process.exit(fail === 0 ? 0 : 1);
+
+export {};

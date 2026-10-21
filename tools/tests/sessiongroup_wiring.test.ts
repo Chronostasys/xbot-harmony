@@ -216,3 +216,5 @@ if (fail > 0) {
 }
 console.log(`  sessiongroup_wiring: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

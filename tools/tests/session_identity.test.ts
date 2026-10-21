@@ -45,3 +45,5 @@ ok('身份变化：空 -> 首个会话 => true', identityChanged('', 'A') === tr
 
 console.log('session_identity: ' + pass + ' passed, ' + fail + ' failed');
 if (fail > 0) { process.exit(1); }
+
+export {};

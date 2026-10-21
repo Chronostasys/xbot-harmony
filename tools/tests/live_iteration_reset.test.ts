@@ -31,3 +31,5 @@ ok('全局降频字段已删除', !/private (liveContentRev|liveDeliverAtMs|last
 ok('不存在全局 liveContentRev = -1 的 reset 形态', !/this\.liveContentRev = -1/.test(src));
 console.log(`live_iteration_reset: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

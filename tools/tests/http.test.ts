@@ -130,3 +130,5 @@ main();
 // 显式退出：node 的事件循环可能被 mock 网络句柄/定时器拉住，不退出会让
 // run.sh（set -e 顺序执行）永远卡在本文件，后续测试根本不跑。
 process.exit(0);
+
+export {};

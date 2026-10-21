@@ -313,3 +313,5 @@ eq('★O 无数据小结 ⇒ 空串', trendSummaryText([], 'hour'), '');
 
 console.log(`sessionstats.test: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
+
+export {};

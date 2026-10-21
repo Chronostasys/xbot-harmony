@@ -120,3 +120,5 @@ function plugin(name: string, views: PluginViewItem[]): PluginCatalogItem {
 
 console.log(`\nplugin_open_target: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
+
+export {};

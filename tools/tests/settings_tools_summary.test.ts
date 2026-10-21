@@ -126,3 +126,5 @@ eq('⑥ 不残留模板占位符', /\{\{/.test(toolsPanelSummary(1, 2)), false);
 if (fail > 0) { console.log(`  ✗ settings_tools_summary: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  ✅ settings_tools_summary: ${pass} passed, 0 failed（声明 ∧ 消费 1 ∧ 渲染落点 ∧ 旧文案消失 ∧ 逐字对齐 web:728）`);
 process.exit(0);
+
+export {};

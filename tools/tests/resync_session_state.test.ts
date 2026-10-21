@@ -89,3 +89,7 @@ console.log('   · 在 catch 里补 `applySessionFields(state, undefined, null)`
 
 console.log(`\n  resync_session_state: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+// 显式模块作用域（聚合门禁把全部 *.test.ts 编进同一 program；缺它 ⇒ 顶层 const/fn 与
+// 其它文件重名会 TS2451/TS2393，整条 ① 判"编译失败"，断言层不执行）。
+export {};

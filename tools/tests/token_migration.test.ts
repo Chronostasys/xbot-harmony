@@ -118,3 +118,5 @@ ok('GoalBanner 不再自判深浅（无 isLightPalette）', !gb.includes('isLigh
 console.log(`\n  token_migration: ${pass} passed, ${fail} failed`);
 if (fail > 0) { process.exit(1); }
 process.exit(0);
+
+export {};

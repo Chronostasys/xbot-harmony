@@ -54,3 +54,5 @@ eq('负数非法', parseContext('-5'), 0);
 if (fail > 0) { console.log(`  llmfmt: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  llmfmt: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

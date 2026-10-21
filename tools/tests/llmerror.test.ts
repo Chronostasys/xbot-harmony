@@ -92,3 +92,5 @@ eq('未知 ⇒ 调用失败', llmErrorReasonOf('something weird'), '调用失败
 
 console.log(`  llmerror: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

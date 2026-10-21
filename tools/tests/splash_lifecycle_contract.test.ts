@@ -157,3 +157,5 @@ const R = (p: string): string => path.join(root, p);
 if (fail > 0) { console.log(`  splash_lifecycle_contract: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  splash_lifecycle_contract: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

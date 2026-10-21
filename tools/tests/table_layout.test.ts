@@ -56,3 +56,5 @@ eq('空表头回落 列1', f5[0].label, '列1');
 
 if (fail > 0) { console.log(`  table_layout: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  table_layout: ${pass} passed, 0 failed`);
+
+export {};

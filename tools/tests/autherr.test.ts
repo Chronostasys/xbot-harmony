@@ -43,3 +43,5 @@ eq('网络错误不需要刷新列表', needsSessionRefresh('connect timeout'), 
 if (fail > 0) { console.log(`  autherr: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  autherr: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

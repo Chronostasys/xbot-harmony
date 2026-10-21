@@ -85,3 +85,5 @@ ok('组件不再用 .onAccent 作字色', !/\.onAccent\b/.test(userCode));
 console.log(`\n  bubbleview: ${pass} passed, ${fail} failed`);
 if (fail > 0) { process.exit(1); }
 process.exit(0);
+
+export {};

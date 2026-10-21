@@ -191,3 +191,5 @@ ok('design.ets 不 import @ohos.*（core 纯 TS 铁律）', designSrc.indexOf("f
 if (fail > 0) { console.log(`  design_wave_tokens: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  design_wave_tokens: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

@@ -86,3 +86,5 @@ eq('failed 且无底层连接也不 RESTART',
 if (fail > 0) { console.log(`  sse_terminal: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  sse_terminal: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

@@ -92,3 +92,5 @@ ok(
 
 console.log(`\ntermreconnect: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

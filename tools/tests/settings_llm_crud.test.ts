@@ -195,3 +195,5 @@ eq('副标题：anthropic 忽略 api_type', subCardSubtitle('https://api.anthrop
 
 console.log(`\n设置 llm CRUD：${pass} 通过 / ${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);
+
+export {};

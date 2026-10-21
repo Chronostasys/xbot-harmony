@@ -40,3 +40,5 @@ eq('抽屉指纹含语言（切语言必 miss）',
 
 console.log(`locale: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

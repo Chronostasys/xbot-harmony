@@ -228,3 +228,5 @@ eq('组合：后台 + session busy ⇒ 不发', decide(false, 'session', 'busy',
 if (fail > 0) { console.log(`  notify: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  notify: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

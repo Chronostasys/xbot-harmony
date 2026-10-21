@@ -188,3 +188,5 @@ describe('TURNDROP ③ 日志收敛', () => {
 
 declare const process: { exit: (c: number) => void }
 process.exit(summary('turndrop'))
+
+export {};

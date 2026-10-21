@@ -161,3 +161,5 @@ eq('规划: 只有空白的细节 ⇒ 走默认文案', notifyBodyPlan(NOTIFY_KI
 if (fail > 0) { console.log(`  notify_content: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  notify_content: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

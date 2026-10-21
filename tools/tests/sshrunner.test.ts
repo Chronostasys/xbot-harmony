@@ -219,3 +219,5 @@ eq('git 的两个既有注册未被回归', [nativeViewKind('xbot.git-fancy.pane
 
 console.log(`\nsshrunner: ${pass} passed / ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
+
+export {};

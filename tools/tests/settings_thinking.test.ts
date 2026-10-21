@@ -163,3 +163,5 @@ function fakeHttp(response: string): XbotHttp {
   console.log(`\n${fail === 0 ? '✅' : '❌'} settings 推理（思考/并发）契约测试：${pass} 通过 / ${fail} 失败`);
   process.exit(fail === 0 ? 0 : 1);
 })();
+
+export {};

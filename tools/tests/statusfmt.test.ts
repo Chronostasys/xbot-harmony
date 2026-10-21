@@ -54,3 +54,5 @@ eq('模型名', modelText({ model: 'glm-5.3-flash' }), 'glm-5.3-flash');
 if (fail > 0) { console.log(`  statusfmt: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  statusfmt: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

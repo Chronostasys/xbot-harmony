@@ -381,3 +381,5 @@ if (fail > 0) {
 }
 console.log(`  sheets2_visual: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

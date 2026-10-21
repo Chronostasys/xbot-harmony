@@ -131,3 +131,5 @@ ok('入口体内确实写了表（`HL_MEMO.set(key, out)`）', countOf(entryBody
 console.log('');
 console.log(`highlight_memo: ${pass} 通过 / ${fail} 失败`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

@@ -112,3 +112,5 @@ if (fail > 0) {
 }
 console.log(`  liveview: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

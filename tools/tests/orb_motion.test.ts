@@ -299,3 +299,5 @@ if (fail > 0) {
 }
 console.log(`  orb_motion: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

@@ -195,3 +195,5 @@ const total = pass + fail;
 console.log(`\nstatusvisual.test: ${pass} passed / ${fail} failed (${total})`);
 if (fail > 0) { process.exit(1); }
 process.exit(0);
+
+export {};

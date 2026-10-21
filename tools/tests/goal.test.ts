@@ -74,3 +74,5 @@ function eq(name: string, got: unknown, want: unknown): void {
 console.log(`\ngoal.test: ${pass} passed / ${fail} failed`);
 if (fail > 0) { process.exit(1); }
 process.exit(0);
+
+export {};

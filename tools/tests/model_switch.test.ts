@@ -99,3 +99,5 @@ if (fail > 0) {
 }
 console.log(`  model_switch: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

@@ -174,3 +174,5 @@ describe('分组不改变工具顺序（顺序不变量）', () => {
 
 const code = summary('toolgroup');
 process.exit(code);
+
+export {};

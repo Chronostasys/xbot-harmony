@@ -179,3 +179,5 @@ function node(role: string, status: string, instance?: string, desc?: string,
 console.log(`\nsubagent.test: ${pass} passed / ${fail} failed`);
 if (fail > 0) { process.exit(1); }
 process.exit(0);
+
+export {};

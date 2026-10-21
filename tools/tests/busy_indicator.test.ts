@@ -213,3 +213,5 @@ describe('骨架屏判据（与空态互斥）', () => {
 });
 
 process.exit(summary('busy_indicator'));
+
+export {};

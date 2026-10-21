@@ -186,3 +186,5 @@ describe('GenUI 面板接线形态（目标④「面板我们看不到」）', (
 });
 
 process.exit(summary('genui'));
+
+export {};

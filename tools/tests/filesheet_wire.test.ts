@@ -75,3 +75,5 @@ describe('#5 新建终端落会话 cwd——接线形态（Index）', () => {
 });
 
 summary('filesheet_wire');
+
+export {};

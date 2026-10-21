@@ -82,3 +82,5 @@ eq('设置体', keysOf(new SettingsReq({})), ['settings']);
 if (fail > 0) { console.log(`  reqbody: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  reqbody: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

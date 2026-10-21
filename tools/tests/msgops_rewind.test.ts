@@ -62,3 +62,5 @@ eq('rewind body 值', JSON.stringify(req),
 if (fail > 0) { console.log(`  msgops_rewind: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  msgops_rewind: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

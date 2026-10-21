@@ -86,3 +86,5 @@ describe('live 行：已完成迭代在列表、在飞快照在尾块（互不�
 });
 
 process.exit(summary('streammerge_row'));
+
+export {};

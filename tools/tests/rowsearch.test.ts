@@ -94,3 +94,5 @@ const e2eOff: number = hitOffsetInSnippet(hits[0].at);
 expect(hits[0].snippet.slice(e2eOff, e2eOff + 1) === '5', '端到端偏移指向命中段');
 
 process.exit(fail === 0 ? 0 : 1);
+
+export {};

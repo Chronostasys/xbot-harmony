@@ -200,3 +200,5 @@ eq('一次性密码对象', JSON.stringify(new OneTimePw('alice', 'pw')), '{"use
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} settings 配置面契约测试：${pass} 通过 / ${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);
+
+export {};

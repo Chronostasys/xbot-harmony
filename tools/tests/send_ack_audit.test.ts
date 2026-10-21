@@ -21,3 +21,5 @@ async function main(): Promise<void> {
   process.exit(fail > 0 ? 1 : 0);
 }
 main().catch((e) => { console.log('EXCEPTION', e); process.exit(2); });
+
+export {};

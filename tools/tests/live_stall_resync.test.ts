@@ -25,3 +25,5 @@ ok('in-flight resync 请求排队而不是丢弃', /resumeResyncPending = true/.
 ok('release 后跑排队的 resync', /resumeResyncPending[\s\S]{0,300}resyncAfterResume/.test(store));
 console.log(`live_stall_resync: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

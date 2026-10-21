@@ -489,3 +489,5 @@ const componentPath = pathMod.join(
 if (fail > 0) { console.log(`  settingsplugins: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  settingsplugins: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

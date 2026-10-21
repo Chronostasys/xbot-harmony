@@ -167,3 +167,5 @@ describe('live 迭代 = 同气泡内最后一个迭代块（真机 bug ①/②�
 });
 
 process.exit(summary('live_iteration_inline'));
+
+export {};

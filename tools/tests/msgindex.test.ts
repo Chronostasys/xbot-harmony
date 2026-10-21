@@ -204,3 +204,5 @@ eq('乱序 role ⇒ 按出现顺序', userAnchorRows([
 console.log(`\nmsgindex.test: ${pass} passed / ${fail} failed`);
 if (fail > 0) { process.exit(1); }
 process.exit(0);
+
+export {};

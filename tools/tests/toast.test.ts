@@ -136,3 +136,5 @@ eq('未知类别 ⇒ 2560（保守，宁可多留）', toastDurationMs('mystery-
 // ⛔ **新纪律**：汇总**无条件打印**、退出码由 `fail` 决定（下两行）—— 别再把它包进 `if`。
 console.log(`  toast: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

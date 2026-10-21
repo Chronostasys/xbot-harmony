@@ -97,3 +97,5 @@ eq('角色枚举存在（danger/success/muted/accent 四档）',
 
 console.log(`  toolvisual: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

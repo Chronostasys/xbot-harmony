@@ -99,3 +99,5 @@ eq('无语言名零丢失', rejoin(highlightCode('任何文本\n第二行', ''))
 
 console.log(`  highlight: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

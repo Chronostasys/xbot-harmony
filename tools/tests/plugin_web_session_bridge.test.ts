@@ -123,3 +123,5 @@ if (fail > 0) {
 }
 console.log(`  plugin_web_session_bridge: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

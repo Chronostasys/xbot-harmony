@@ -73,3 +73,5 @@ const URL = 'http://127.0.0.1:8082/?xbot_view=xbot.git-fancy.panel&xbot_view_tit
 
 console.log(`\nweb_chrome_label: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
+
+export {};

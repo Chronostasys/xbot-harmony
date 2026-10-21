@@ -323,3 +323,5 @@ eq('混合 [陈旧 phase_done, 无其它] ⇒ false', hasFreshPhaseDone([iterEv,
 
 if (fail > 0) { console.log(`  streammerge: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  streammerge: ${pass} passed, 0 failed`);
+
+export {};

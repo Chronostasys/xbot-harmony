@@ -22,3 +22,5 @@ ok('requestID 失配时 ack 仍必须清掉最早的 sending（FIFO 权威）',
   s.pendingUsers.length === 1 && s.pendingUsers[0].sending === false);
 console.log(`send_ack_fallback: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

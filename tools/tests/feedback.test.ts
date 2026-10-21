@@ -25,3 +25,5 @@ eq('copyLabel 反馈恒定（与 base 无关）', copyLabel('任意', true), '�
 
 console.log(`  feedback: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

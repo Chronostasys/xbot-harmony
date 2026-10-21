@@ -156,3 +156,5 @@ function joinSet(s: Set<string>): string {
 
 console.log(`\nloadmore_batch_tag: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
+
+export {};

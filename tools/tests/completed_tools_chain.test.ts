@@ -112,3 +112,5 @@ describe('completed_tools_chain（用户亲报 bug 的端到端链路）', () =>
 })
 
 summary('completed_tools_chain')
+
+export {};

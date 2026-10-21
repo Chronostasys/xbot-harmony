@@ -350,3 +350,5 @@ for (const t of ALL_THEMES) {
 if (fail > 0) { console.log(`  design: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  design: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

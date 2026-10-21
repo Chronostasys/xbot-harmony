@@ -147,3 +147,5 @@ eq('参数解析: 空串 ⇒ 空串', notifyActionFromParam(''), '');
 if (fail > 0) { console.log(`  notify_actions: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  notify_actions: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

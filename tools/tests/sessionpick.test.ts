@@ -163,3 +163,5 @@ ok('打分: 缺 label/channel 不炸', sessionBodyScore({ chat_id: 'chat_A' }) =
 
 console.log(`  sessionpick: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

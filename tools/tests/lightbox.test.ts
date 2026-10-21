@@ -113,3 +113,5 @@ function stripComments(src: string): string {
 if (fail > 0) { console.log(`  lightbox: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  lightbox: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

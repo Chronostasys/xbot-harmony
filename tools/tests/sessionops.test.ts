@@ -105,3 +105,5 @@ eq('sessionTitle：真名 ⇒ 真名', sessionTitle('harmony-ui-dev', 'chat_B6EF
 if (fail > 0) { console.log(`  sessionops: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  sessionops: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

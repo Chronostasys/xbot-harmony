@@ -132,3 +132,5 @@ eq('elapsed 不得影响 done', statusChip(ST_DONE, 0, 0, 1234), '');
 
 console.log(`  toolstatus: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

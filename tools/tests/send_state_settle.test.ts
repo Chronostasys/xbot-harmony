@@ -199,3 +199,5 @@ console.log('   · `turn_started` 收编时不写 `sending: false` ⇒ §A 前�
 
 console.log(`\n  send_state_settle: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

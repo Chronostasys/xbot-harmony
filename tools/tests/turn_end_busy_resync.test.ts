@@ -138,3 +138,5 @@ main().catch((e: Error) => {
   console.log(`  turn_end_busy_resync: 异常 ${e.message}`);
   process.exit(1);
 });
+
+export {};

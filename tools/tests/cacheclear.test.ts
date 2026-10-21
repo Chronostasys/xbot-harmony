@@ -62,3 +62,5 @@ eq('const: WEB_CACHE', CLEAR_STEP_WEB_CACHE, 'webcache');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

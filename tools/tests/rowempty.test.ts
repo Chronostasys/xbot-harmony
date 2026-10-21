@@ -34,3 +34,5 @@ eq('其一有内容不算空', rowIsEmpty(row('', [it(1, '', ''), it(2, '有', '
 if (fail > 0) { console.log(`  rowempty: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  rowempty: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

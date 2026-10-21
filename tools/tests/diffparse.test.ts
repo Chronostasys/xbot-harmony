@@ -100,3 +100,5 @@ eq('无 @@ 时整体作 marker', splitHunk('plain line').marker, 'plain line');
 
 console.log(`  diffparse: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

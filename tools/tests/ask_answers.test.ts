@@ -90,3 +90,5 @@ eq('ASK_OTHER_LABEL 文案与页面/组件同源', ASK_OTHER_LABEL, '其他（�
 if (fail > 0) { console.log(`  ask_answers: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  ask_answers: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

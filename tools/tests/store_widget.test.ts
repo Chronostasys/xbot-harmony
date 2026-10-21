@@ -170,3 +170,5 @@ main().then(() => {
   console.log(`  ✗ 未捕获异常：${e}`);
   process.exit(1);
 });
+
+export {};

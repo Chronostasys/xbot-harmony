@@ -149,3 +149,5 @@ eq('两条口径对合法值一致', normalizeAccentOrNull('#abc'), normalizeAcc
 
 console.log(`accent: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

@@ -199,3 +199,5 @@ if (fail > 0) {
 }
 console.log(`  minimal_chrome: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

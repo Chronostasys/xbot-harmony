@@ -170,3 +170,5 @@ describe('「回到最新」= 悬浮提示（叠层；不占布局行、不挤�
 });
 
 process.exit(summary('overlays'));
+
+export {};

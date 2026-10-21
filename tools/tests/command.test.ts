@@ -93,3 +93,5 @@ eq('action 校验：合法真', commandActionValid(parseCommandUri('xbot://setti
 
 console.log(`  command: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

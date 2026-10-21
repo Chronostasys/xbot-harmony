@@ -41,3 +41,5 @@ eq('是否放大（1）', isZoomed(1), false);
 if (fail > 0) { console.log(`  imgops: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  imgops: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

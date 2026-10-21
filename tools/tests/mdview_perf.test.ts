@@ -239,3 +239,5 @@ if (fail > 0) {
 }
 console.log(`  mdview_perf: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

@@ -355,3 +355,5 @@ const ON_ACCENT = brandOnAccent();
 if (fail > 0) { console.log(`  brand: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  brand: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

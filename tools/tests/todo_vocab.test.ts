@@ -63,3 +63,5 @@ function td(text: string, status: string): TodoItem {
 console.log(`\ntodo_vocab.test: ${pass} passed / ${fail} failed`);
 if (fail > 0) { process.exit(1); }
 process.exit(0);
+
+export {};

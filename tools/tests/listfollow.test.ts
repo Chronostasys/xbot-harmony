@@ -248,3 +248,5 @@ describe('恢复跟随用精确位置判据 isAtEnd（索引判据在"高 live �
 
 console.log(`  listfollow: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

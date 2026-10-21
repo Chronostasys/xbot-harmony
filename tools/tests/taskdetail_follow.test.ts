@@ -99,3 +99,5 @@ describe('任务详情跟随重投——接线形态（Index.ets）', () => {
 });
 
 summary('taskdetail_follow');
+
+export {};

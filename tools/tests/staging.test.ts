@@ -134,3 +134,5 @@ describe('StagingTray 接线形态（目标④）', () => {
 });
 
 process.exit(summary('staging'));
+
+export {};

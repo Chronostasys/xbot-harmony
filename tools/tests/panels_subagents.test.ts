@@ -148,3 +148,5 @@ ok('零扫描判红：树节点数 > 0（扫描器与 fixture 脱节 ⇒ 红）'
 if (fail > 0) { console.log(`  panels_subagents: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  panels_subagents: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

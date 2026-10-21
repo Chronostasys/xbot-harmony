@@ -48,3 +48,5 @@ ok('busySignals 不再用页面 session-tree running 作为第二真源',
 
 console.log(`session_state_audit: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

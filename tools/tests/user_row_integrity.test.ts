@@ -170,3 +170,5 @@ main().catch((e: Error) => {
   console.log(`  ✗ user_row_integrity 运行异常: ${e.message}`)
   process.exit(1)
 })
+
+export {};

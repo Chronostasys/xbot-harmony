@@ -101,3 +101,5 @@ eq('mime：jsonl 组', [mimeForFormat(EXPORT_CODEX), mimeForFormat(EXPORT_MULTIC
 
 console.log(fail === 0 ? `✅ export_rpc: ${pass} passed` : `❌ export_rpc: ${fail} failed / ${pass} passed`);
 process.exit(fail === 0 ? 0 : 1);
+
+export {};

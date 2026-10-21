@@ -32,3 +32,5 @@ eq('普通发送无回执', sendToast(false, false), '');
 if (fail > 0) { console.log(`  sendmode: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  sendmode: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

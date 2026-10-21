@@ -73,3 +73,5 @@ eq('undefined ⇒ 状态条空', todoProgress(undefined), '');
 if (fail > 0) { console.log(`  todo_visibility: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  todo_visibility: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

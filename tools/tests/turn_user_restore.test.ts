@@ -178,3 +178,5 @@ function windowedHistory(regionsBefore: number): HistoryMessage[] {
 
 console.log(`\nturn_user_restore: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
+
+export {};

@@ -88,3 +88,5 @@ eq('0% 也照实显示（有数据就是有数据）', ctxLabel({ available: tru
 if (fail > 0) { console.log(`  ctxring: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  ctxring: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

@@ -72,3 +72,5 @@ eq('在飞空壳 ⇒ 无在飞信号', rowHasInFlightSignal(cases[3].row), false
 if (fail > 0) { console.log(`  in_flight_signal: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  in_flight_signal: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

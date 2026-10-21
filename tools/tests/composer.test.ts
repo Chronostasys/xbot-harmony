@@ -155,3 +155,5 @@ eq('请求 1s 返回 ⇒ 0（⛔ 不得返回负数；慢请求不额外拖长�
 eq('mutation：不夹紧会返回负数（判据有判别力）', CANCEL_SPIN_MIN_MS - 1000 < 0, true);
 
 process.exit(0);
+
+export {};

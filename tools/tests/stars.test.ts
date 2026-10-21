@@ -50,3 +50,5 @@ eq('不丢项也不多项', starredFirst(['a', 'b', 'c'], ['b']).length, 3);
 
 console.log(`stars: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

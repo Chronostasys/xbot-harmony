@@ -50,3 +50,5 @@ eq('单元素 ⇒ 自身', gapTopBefore(iters([7])), 7);
 if (fail > 0) { console.log(`  regions_cursor: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  regions_cursor: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

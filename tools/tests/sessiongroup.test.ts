@@ -368,3 +368,5 @@ eq('合成·剔除：空 keys ⇒ 状态不变',
 
 console.log(`sessiongroup: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

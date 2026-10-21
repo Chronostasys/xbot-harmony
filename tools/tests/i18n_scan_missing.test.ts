@@ -67,3 +67,5 @@ for (const s of rawUi.slice(0, 40)) console.log('RAW ' + s);
 if (lits.size < 300) { console.log('i18n scan: 零扫描防线失败（i18nT 字面量过少）'); process.exit(1); }
 if (missingEn.length > 0 || missingJa.length > 0 || rawUi.length > 0) process.exit(1);
 process.exit(0);
+
+export {};

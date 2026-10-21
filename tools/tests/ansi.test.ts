@@ -289,3 +289,5 @@ eq('ansiSpansIfAny: 无转义（tab/中文）⇒ null', ansiSpansIfAny('a\tb 中
 
 console.log(`  ansi: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

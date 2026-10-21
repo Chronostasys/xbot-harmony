@@ -159,3 +159,5 @@ ok('springMotion overlap ≥0', EASE_SPRING_OVERLAP >= 0);
 if (fail > 0) { console.log(`  theme_tokens: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  theme_tokens: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

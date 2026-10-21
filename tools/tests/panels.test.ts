@@ -245,3 +245,5 @@ eq('轮询：常量与 web 字面量一致（2s/30s，⛔ 不许自造周期）'
 if (fail > 0) { console.log(`  panels: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  panels: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

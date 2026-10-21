@@ -81,3 +81,5 @@ ok("'compressing ' 不误判为压缩期", busyLabel('compressing ') === BUSY_LA
 if (fail > 0) { console.log(`  busy_label: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  busy_label: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

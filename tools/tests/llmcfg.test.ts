@@ -166,3 +166,5 @@ describe('S12：订阅导出/导入（往返等价 + 校验可见失败）', () 
 })
 
 process.exit(summary('llmcfg'));
+
+export {};

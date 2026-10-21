@@ -31,3 +31,5 @@ ok('失效 applied-Row 但保留 ChatRow 身份（禁止在 invalidate 里 rowCa
 ok('history 重载使 live 缓存失效', /this\.liveCacheKey = ''[\s\S]{0,120}this\.invalidateLiveRowCache\(\)/.test(src));
 console.log(`live_cache_lifecycle: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

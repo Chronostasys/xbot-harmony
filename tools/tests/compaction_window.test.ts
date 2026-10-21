@@ -165,3 +165,5 @@ function withCompactions(regionsBefore: number): HistoryMessage[] {
 
 console.log(`\ncompaction_window: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
+
+export {};

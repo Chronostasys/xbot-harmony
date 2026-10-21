@@ -106,3 +106,5 @@ describe('sheets：源码里每个浮层 @Builder 的 X 关闭 flag == closeFlag
 });
 
 process.exit(summary('sheets'));
+
+export {};

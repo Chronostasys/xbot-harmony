@@ -1157,3 +1157,5 @@ if (fail > 0) {
 }
 console.log(`\n  theme_contrast: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

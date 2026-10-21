@@ -197,3 +197,5 @@ eq('含 4 个反引号 ⇒ 围栏 5', literalBlock('```` x').substring(0, 5), '`
 
 console.log(`  annotations: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

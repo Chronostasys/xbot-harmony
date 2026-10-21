@@ -384,3 +384,5 @@ if (fail > 0) {
 }
 console.log(`  webbridge: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

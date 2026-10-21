@@ -224,3 +224,5 @@ function on(): SseRecorder {
 if (fail > 0) { console.log(`  sserec: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  sserec: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

@@ -352,3 +352,5 @@ main().catch((e: Error): void => {
   console.log(`  ✗ null_boundary 主流程异常：${e.message}`);
   process.exit(1);
 });
+
+export {};

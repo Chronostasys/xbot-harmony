@@ -180,3 +180,5 @@ describe('permodelcfg：预填判据（★A–★D，防静默覆盖）', () => 
 });
 
 process.exit(summary('permodelcfg'));
+
+export {};

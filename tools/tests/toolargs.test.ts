@@ -72,3 +72,5 @@ eq('空名不是', isFileTool(''), false);
 
 console.log(`  toolargs: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

@@ -473,3 +473,5 @@ eq('benchmark: 空数组 ⇒ 空串（无换行）', toBenchmarkJsonl([]), '');
 
 console.log(fail === 0 ? `✅ export: ${pass} passed` : `❌ export: ${fail} failed / ${pass} passed`);
 process.exit(fail === 0 ? 0 : 1);
+
+export {};

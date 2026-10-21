@@ -151,3 +151,5 @@ for (let ti = 0; ti < ALL_THEMES.length; ti++) {
 
 console.log(`  tool_legibility: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

@@ -117,3 +117,5 @@ eq('切换回来', toggleTheme(THEME_DARK), THEME_LIGHT);
 if (fail > 0) { console.log(`  theme: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  theme: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

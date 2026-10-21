@@ -2446,3 +2446,5 @@ describe('P1-1 — standalone 只认显式命令回复标记', () => {
 
 declare const process: { exit: (c: number) => void };
 process.exit(summary('reduce'));
+
+export {};

@@ -23,3 +23,5 @@ ok('ToolPill key 保留流式 chip 更新字段（status/gen_chars）',
   /t\.gen_chars/.test(tail) && /t\.status/.test(tail));
 console.log(`live_key_stability: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

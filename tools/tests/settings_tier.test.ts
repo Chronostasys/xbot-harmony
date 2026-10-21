@@ -138,3 +138,5 @@ eq('取三档：undefined 载荷 ⇒ 全空', tierValues(undefined),
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} settings tier 契约测试：${pass} 通过 / ${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);
+
+export {};

@@ -173,3 +173,5 @@ eq('拼法：容器名回落容器自身（协议新增值不静默吞掉）', c
 if (fail > 0) { console.log(`  plugin_remote_parity: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  plugin_remote_parity: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

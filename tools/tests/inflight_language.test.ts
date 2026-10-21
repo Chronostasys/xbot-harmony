@@ -170,3 +170,5 @@ if (fail > 0) {
 }
 console.log(`  inflight_language: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

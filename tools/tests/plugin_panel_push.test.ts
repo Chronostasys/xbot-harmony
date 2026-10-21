@@ -132,3 +132,5 @@ if (fail > 0) {
 }
 console.log(`  plugin_panel_push: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

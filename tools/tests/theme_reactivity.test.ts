@@ -116,3 +116,5 @@ ok('Index 用 renderThemeKey 组装标识（≥2 处）', countOf(index, 'render
 console.log('');
 console.log(`theme_reactivity: ${pass} 通过 / ${fail} 失败`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

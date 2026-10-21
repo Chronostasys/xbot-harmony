@@ -204,3 +204,5 @@ eq('commit: 都没有 ⇒ 空串（⛔ 不留孤立分隔符）', gitCommitMetaT
 if (fail > 0) { console.log(`  gitpanel: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  gitpanel: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

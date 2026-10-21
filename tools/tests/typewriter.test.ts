@@ -63,3 +63,5 @@ eq('gap=0 无需追赶', catchUpTicks(0), 0);
 if (fail > 0) { console.log(`  typewriter: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  typewriter: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

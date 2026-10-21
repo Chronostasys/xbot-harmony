@@ -395,3 +395,5 @@ function f(key: string, type?: string, label?: string): ChannelField {
 }
 
 process.exit(summary('channelscfg'));
+
+export {};

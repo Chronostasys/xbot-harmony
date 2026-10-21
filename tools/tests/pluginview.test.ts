@@ -361,3 +361,5 @@ eq('★D2 info 去空白', webErrorDetail('  oops  ', 0), 'oops');
 
 console.log(`\npluginview.test.ts: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
+
+export {};

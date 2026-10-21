@@ -7,3 +7,5 @@ ok('新鲜 busy（晚于 idle）仍可覆盖 HTTP idle', runningAfterReconcile(f
 ok('过期 idle 不压 HTTP running', runningAfterReconcile(true, 0, 0, 20000, 15000) === true);
 console.log(`busy_reconcile: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+export {};

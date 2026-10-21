@@ -58,3 +58,5 @@ function eq(name: string, got: unknown, want: unknown): void {
 if (fail > 0) { console.log(`  pending_edit: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  pending_edit: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

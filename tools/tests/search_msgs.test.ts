@@ -77,3 +77,5 @@ eq('data 为 null ⇒ []', parseSearchHits(null as unknown as Object), []);
 
 console.log(fail === 0 ? `✅ search_msgs: ${pass} passed` : `❌ search_msgs: ${fail} failed / ${pass} passed`);
 process.exit(fail === 0 ? 0 : 1);
+
+export {};

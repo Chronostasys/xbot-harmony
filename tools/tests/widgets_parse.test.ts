@@ -112,3 +112,5 @@ eq('★ WIDGETS_RENDERABLE=true（渲染层已接线）', WIDGETS_RENDERABLE, tr
 if (fail > 0) { console.log(`  widgets_parse: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  widgets_parse: ${pass} passed, 0 failed`);
 process.exit(0);
+
+export {};

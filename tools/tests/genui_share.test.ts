@@ -125,3 +125,5 @@ describe('分享 chip 接线形态（钉「调用点计数」，⛔ 不钉方法
 });
 
 process.exit(summary('genui_share'));
+
+export {};
