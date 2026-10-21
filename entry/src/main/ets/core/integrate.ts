@@ -28,7 +28,6 @@ import {
   type WebToolProgress,
 } from './chattypes'
 import { commitViaFold, commitViaText, iterNum, nonEmptyArr, nonEmptyStr, turnID as mkTurnID, type ChatState, type DomainEvent, type LegacyRow, type LiveSnapshot, type Turn } from './chat_types_full'
-import type { Row } from './derive'
 
 // ─── history → history_replaced ───────────────────────────────
 
@@ -266,115 +265,6 @@ const EMPTY_SNAPSHOT: LiveSnapshot = {
   todos: [],
   tokenUsage: null,
   streamStats: null,
-}
-
-// ─── rows → ChatMessage[]（渲染数据源） ────────────────────────
-
-/**
- * Row → ChatMessage 的**对象恒等 memo**（长 turn 卡顿回归的根因修复）。
- *
- * PERF 不变量：Row 引用不变 ⇒ 输出 ChatMessage 必须恒等。
- * MessageList 的 `MessageItem`（memo）以 `message` 引用为边界；每帧新建对象会让
- * **全部可见行**逐帧重渲染 —— 而每个 assistant 行内部又是该 turn 的整棵迭代树，
- * 于是流式帧代价重新变成 O(turn 迭代数)。旧 MessageStore.toRows() 对未变更行
- * 直接 `rows.push(slot.assistant)`（对象恒等），本 memo 是新状态机管线上的等价保证。
- *
- * ⚠️ 配套契约：派生出的 ChatMessage 视为**只读**（渲染层不得就地 mutate）——
- * bindTurnIDs/orderMessageRows 需要改动时都先拷贝对象。
- */
-const msgByRow = new WeakMap<Row, ChatMessage>()
-
-export function rowsToChatMessages(rows: readonly Row[]): ChatMessage[] {
-  const out: ChatMessage[] = []
-  for (const r of rows) {
-    let msg = msgByRow.get(r)
-    if (msg === undefined) {
-      msg = rowToChatMessage(r)
-      msgByRow.set(r, msg)
-    }
-    out.push(msg)
-  }
-  return out
-}
-
-function rowToChatMessage(r: Row): ChatMessage {
-  switch (r.kind) {
-    case 'user':
-      return {
-        id: r.id,
-        role: 'user',
-        content: r.content,
-        iterations: [],
-        timestamp: r.timestamp,
-        isPartial: false,
-        // pendingUsers 行的 turnID 是 MAX_SAFE_INTEGER（deriveRows 排序用）——
-        // 保持原值不改为 0：MessageList 按 turnID 排序时大值在底部（发送中
-        // 行出现在最后，与 deriveRows 的排列一致）。改为 0 会让它排到所有
-        // turn 前面（0 最小）→ 发送中行出现在最上方，发送完毕绑定真实
-        // turnID 后"瞬移"回底部（用户报告的闪烁）。
-        turnID: r.turnID,
-        persisted: r.turnID !== Number.MAX_SAFE_INTEGER,
-        isNotification: r.isNotification,
-        queued: r.queued,
-        sending: r.sending,
-        dbID: r.dbID,
-        // 命令行（turn-less）的时间锚点必须透传到渲染层 —— `sortTurnKey` 据此把它
-        // 插回所属 turn 之后（否则与 turns 的排列顺序相反、固定沉底）。
-        anchorTurnID: r.anchorTurnID,
-        // 「无 turn」标记同样必须透传：命令输入行也是 turn-less，缺了它
-        // `bindTurnIDs` 会把它绑到最近的**后续** turn（渲染到自己的输出之后）。
-        standalone: r.standalone,
-      }
-    case 'live':
-      return {
-        id: r.id,
-        role: 'assistant',
-        content: r.content,
-        // 透传引用（不拷贝）：iterations 的引用稳定性是 TurnBody→CommittedTurn
-        // memo 生效的前提（详见 rowsToChatMessages 的 memo 契约）。
-        iterations: r.iterations as WebIteration[],
-        iterationsTruncated: r.iterationsTruncated ?? 0,
-        timestamp: '',
-        isPartial: true,
-        turnID: r.turnID,
-        regionsBefore: r.regionsBefore,
-      }
-    case 'frozen':
-      return {
-        id: r.id,
-        role: 'assistant',
-        content: r.content,
-        iterations: r.iterations as WebIteration[],
-        iterationsTruncated: r.iterationsTruncated ?? 0,
-        timestamp: '',
-        isPartial: true,
-        // frozen ≠ live：见 ChatMessage.frozen 的注释（不变量：busy ⇒ 必须有
-        // 进行中信号；frozen 行不得占用 live 槽位 / 抑制 busy 占位符）。
-        frozen: true,
-        turnID: r.turnID,
-        regionsBefore: r.regionsBefore,
-      }
-    case 'committed':
-      return {
-        id: r.id,
-        role: 'assistant',
-        content: r.content,
-        iterations: r.iterations as WebIteration[],
-        // turn 内压缩点（迭代之间内联渲染）——透传引用（memo 契约同上）。
-        compactions: r.compactions as WebCompaction[] | undefined,
-        iterationsTruncated: r.iterationsTruncated ?? 0,
-        timestamp: '',
-        isPartial: false,
-        turnID: r.turnID,
-        persisted: true,
-        regionsBefore: r.regionsBefore,
-        // 命令回复（standalone 段）的「无 turn」标记必须透传到渲染层 ——
-        // `bindTurnIDs` 据此跳过绑定，避免与 live 行撞虚拟列表 key（CI 实证尺寸缓存
-        // 串味 → 总高翻倍 → 命令输出被推到可视区之上）。
-        standalone: r.standalone,
-        anchorTurnID: r.anchorTurnID,
-      }
-  }
 }
 
 // ─── ChatState → liveProgress（ProgressSnapshot 兼容） ────────

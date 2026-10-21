@@ -193,7 +193,7 @@ grep -roE 'anim(Fast|Base|Slow|Spring|MsgIn)\(\)' entry/src/main/ets/{components
 - **语义等价**（不是"为省调用改可见行为"）：`toHistoryIteration` 是源对象的**纯函数**；只按源数组
   **对象恒等**取缓存 ⇒ ① 输出逐字节不变（`perf_live_frame` **§D** 用 oracle `toHistoryIterations` 比对）；
   ② 换源数组（commit/fold）**必重算**（**§C**）。WeakMap 键 ⇒ 源数组 GC 时条目一并回收，
-  **无容量上限 / 无泄漏**（与 `core/derive.ts` 的 `assistantRowByTurn`、`core/markdown.ets` 的 mdCache 同手法）。
+  **无容量上限 / 无泄漏**（与 `derive.ts`（W3 已删除） 的 `assistantRowByTurn`、`core/markdown.ets` 的 mdCache 同手法）。
 - ⚠️ **仍未销账**（下一步，⛔ 别在没有恒等前提处直接套缓存）：
   · `blocksSignature`（`pages/Index.ets` 每次 sync 调 **2 次**）仍是最大单项（≈6.7 µs/次 @340 块）；
   · ~~`inFlightBlock` 每帧仍重建 `completedKeys`（O(已提交工具数)，≈1.8 µs/帧 @K=54）~~ ⇒ **已销账，见 §1.6c**。

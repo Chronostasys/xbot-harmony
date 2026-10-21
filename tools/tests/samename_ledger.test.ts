@@ -15,8 +15,8 @@
  *   · `roleColorOf` ⇒ ✅ **已消失为"同名"案件**：`components/PluginWidgets.ets` 的那份**已被移除**
  *       （2026-10-11 实测：全仓只剩 `core/statusvisual.ets:171` 一个定义 ⇒ 不再入表）。
  *       ⚠️ 若将来又出现第二份 ⇒ 实测 > 台账 ⇒ 本判据会红 ⇒ 逼作者收敛或登记理由。
- *   · `strListOf` ⇒ **语义不同**：`core/channelscfg.ets` 只收 `string[]`；
- *       `core/settingsplugins.ets` 更宽（标量也归成 `[s]`）。
+ *   · `strListOf` ⇒ **已收敛**（2026-10-21）：`core/channelscfg.ets` 那份改名为 `strListOfArr`
+ *       （语义本来就不同）⇒ 全仓只剩 `core/settingsplugins.ets` 一个定义 ⇒ 不再入表。
  *   · `isStarred` ⇒ **接口不同**：`core/sessiongroup.ets` 收 `GroupSession`；
  *       `core/stars.ets` 收 `chatId: string`。
  *
@@ -50,7 +50,6 @@ const LEDGER: Record<string, string[]> = {
   'statusColorOf': ['ToolVisual.ets', 'toolvisual.ets'],        // 转发壳 + 实现（有意）
   'pillTextColorOf': ['ToolVisual.ets', 'toolvisual.ets'],     // 同上
   'hairlineOf': ['theme.ets', 'design.ets'],                   // 配方 + 出口（有意分层）
-  'strListOf': ['channelscfg.ets', 'settingsplugins.ets'],     // 宽窄不同（语义不同）
   'isStarred': ['sessiongroup.ets', 'stars.ets'],              // GroupSession vs chatId（接口不同）
 };
 

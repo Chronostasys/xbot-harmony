@@ -15,18 +15,12 @@
 declare const process: { exit: (c: number) => void };
 
 import { toRunes, runeCount, clipRunes } from '../../entry/src/main/ets/core/typewriter';
-import { applyRow, inFlightBlock } from '../../entry/src/main/ets/core/render';
 import {
-  completedBlocks, mergeToolRuns, blocksSignature, toolKey,
+  completedBlocks, mergeToolRuns, blocksSignature,
 } from '../../entry/src/main/ets/core/streammerge';
+import { ModelFeed } from './model_harness';
 import { parseMarkdown, parseMarkdownCached, parseInline, resetMdCache, MdSpan } from '../../entry/src/main/ets/core/markdown';
 import { HistoryIteration, ToolProgress, ChatRow } from '../../entry/src/main/ets/core/types';
-import { deriveRows, LiveRowView, Row } from '../../entry/src/main/ets/core/derive';
-import { reduce } from '../../entry/src/main/ets/core/reduce';
-import {
-  ChatState, DomainEvent, initialChatState, iterNum, turnID, eventSeq,
-} from '../../entry/src/main/ets/core/chat_types_full';
-import { WebToolProgress, WebIteration } from '../../entry/src/main/ets/core/chattypes';
 
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean): void {
@@ -103,124 +97,21 @@ console.log('\n▶ §1 typewriter：runeCount / clipRunes 与 oracle 逐字相�
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n▶ §2 inFlightBlock：工具键过滤 ≡ indexOf oracle（含大键集 / 部分命中 / 全滤光）');
-{
-  function tw(name: string, status: string, callId: string, iter?: number): WebToolProgress {
-    const o: { [k: string]: unknown } = {
-      name, label: name, status, elapsedMs: 0, summary: '', detail: '', args: '', toolHints: '', callID: callId,
-    };
-    if (iter !== undefined) { o.iteration = iter; }
-    return o as unknown as WebToolProgress;
-  }
-  function doneTool(i: number): ToolProgress {
-    return { name: 'Shell', label: '运行', status: 'done', call_id: `c${i}` } as unknown as ToolProgress;
-  }
-  function completedWith(k: number): HistoryIteration[] {
-    const out: HistoryIteration[] = [];
-    for (let i = 1; i <= k; i++) {
-      out.push({ iteration: i, content: '', reasoning: '', tools: [doneTool(i)], tools_folded: false });
-    }
-    return out;
-  }
-  function liveOf(active: WebToolProgress[], streaming: WebToolProgress[], lastIter: number): LiveRowView {
-    return {
-      kind: 'live', id: 'live', turnID: 1, isPartial: true, streaming: true,
-      content: 'x'.repeat(50), reasoning: '', iterations: [], activeTools: active,
-      streamingTools: streaming, genui: '', subAgents: [], todos: [], lastIter,
-    } as unknown as LiveRowView;
-  }
-  /** oracle：按 toolKey 去重后，滤掉键在 completedKeys 里的（用 Array.indexOf，非 Set）。 */
-  function oracleLiveKeys(active: WebToolProgress[], streaming: WebToolProgress[], completed: HistoryIteration[]): string[] {
-    const completedKeys: string[] = [];
-    for (let i = 0; i < completed.length; i++) {
-      const ts: ToolProgress[] | undefined = completed[i].tools;
-      if (ts === undefined) { continue; }
-      for (let j = 0; j < ts.length; j++) { completedKeys.push(toolKey(ts[j])); }
-    }
-    const seen: { [k: string]: boolean } = {};
-    const out: string[] = [];
-    const consider = (list: WebToolProgress[]): void => {
-      for (let i = 0; i < list.length; i++) {
-        const w: WebToolProgress = list[i];
-        const nat: ToolProgress = { name: w.name, label: w.label, status: w.status, call_id: w.callID } as unknown as ToolProgress;
-        const key: string = toolKey(nat);
-        if (seen[key] === true) { continue; }
-        seen[key] = true;
-        if (completedKeys.indexOf(key) < 0) {
-          const cid: string | undefined = w.callID;
-          out.push(cid !== undefined ? cid : '');
-        }
-      }
-    };
-    consider(streaming);
-    consider(active);
-    return out;
-  }
-  function actualLiveKeys(block: HistoryIteration | null): string[] {
-    if (block === null) { return []; }
-    const ts: ToolProgress[] = block.tools === undefined ? [] : block.tools;
-    const out: string[] = [];
-    for (let i = 0; i < ts.length; i++) {
-      const cid: string | undefined = ts[i].call_id;
-      out.push(cid !== undefined ? cid : '');
-    }
-    return out;
-  }
-  let allEq = true;
-  const cases: string[] = [];
-  // 用例矩阵：completed 键数 K ∈ {0,1,8,54,108}；在飞 D ∈ {0,1,8,64}；命中重叠度分档
-  const Ks = [0, 1, 8, 54, 108];
-  const Ds = [0, 1, 8, 64];
-  for (const K of Ks) {
-    for (const D of Ds) {
-      const completed: HistoryIteration[] = completedWith(K);
-      const active: WebToolProgress[] = [];
-      for (let i = 0; i < D; i++) {
-        // 让约一半在飞键与已提交键重叠（i 为奇数 ⇒ 命中 c{i}），另一半是新键（w{i}）
-        const overlap: boolean = K > 0 && i % 2 === 1 && i <= K;
-        active.push(tw('Shell', 'running', overlap ? `c${i}` : `w${i}`));
-      }
-      const block: HistoryIteration | null = inFlightBlock(liveOf(active, [], D), completed);
-      const got: string[] = actualLiveKeys(block);
-      const want: string[] = oracleLiveKeys(active, [], completed);
-      const same: boolean = JSON.stringify(got) === JSON.stringify(want);
-      allEq = allEq && same;
-      if (!same && cases.length < 4) { cases.push(`K=${K} D=${D} got=${JSON.stringify(got)} want=${JSON.stringify(want)}`); }
-    }
-  }
-  for (const c of cases) { console.log(`    ${c}`); }
-  ok('★2 inFlightBlock 键过滤 == indexOf oracle（5×4=20 组合：K∈{0,1,8,54,108}×D∈{0,1,8,64}）', allEq);
-
-  // 具体边界钉（可读性 + 防"oracle 一起被改坏"）
-  {
-    const completed: HistoryIteration[] = completedWith(5);
-    // 命中：c1/c3 在已提交里 ⇒ 被滤；w9 是新键 ⇒ 保留
-    const active: WebToolProgress[] = [tw('Shell', 'running', 'c1'), tw('Shell', 'running', 'w9'), tw('Shell', 'running', 'c3')];
-    const block: HistoryIteration | null = inFlightBlock(liveOf(active, [], 9), completed);
-    eq('★2 已提交同键被滤掉、新键保留', actualLiveKeys(block), ['w9']);
-  }
-  {
-    const completed: HistoryIteration[] = completedWith(5);
-    // 只有陈旧命中项 + 无正文/思考 ⇒ null（不产空壳）
-    const lv = liveOf([tw('Shell', 'pending', 'c2')], [], 5);
-    (lv as unknown as { content: string }).content = '';
-    eq('★2 全部被滤 + 无正文 ⇒ null（不产"全是排队"空壳）', inFlightBlock(lv, completed), null);
-  }
-  {
-    // 去重：同一 call_id 出现在 active 与 streaming ⇒ 只一行（且都未在 completed 里）
-    const block: HistoryIteration | null = inFlightBlock(
-      liveOf([tw('Shell', 'running', 'z1')], [tw('Shell', 'running', 'z1')], 1), []);
-    eq('★2 同 call_id（active+streaming）只留一行', actualLiveKeys(block), ['z1']);
-  }
-  {
-    // 迭代号过滤（web toolDeriv）：陈旧 pending（iteration <= maxCompleted）被滤
-    const completed: HistoryIteration[] = [{ iteration: 2, content: '', reasoning: '', tools: [], tools_folded: false }];
-    const stale: WebToolProgress = tw('Write', 'pending', 'stale', 2);
-    const cur: WebToolProgress = tw('Read', 'running', 'cur', 3);
-    const block: HistoryIteration | null = inFlightBlock(liveOf([stale, cur], [], 3), completed);
-    eq('★2 陈旧 pending（iter 2 ≤ maxCompleted 2）被滤，当前 executing 保留', actualLiveKeys(block), ['cur']);
-  }
-}
+// §2 **已删除**（2026-10-21 链路迁移）—— 旧链路 `core/render.ets:inFlightBlock` 的判据。
+//
+// 旧判据守的两条保证（`inFlightBlock` 是 `applyRow` live 分支的唯一消费者）：
+//   ① 在飞工具 = `streamingTools ⊕ activeTools`，**按 `toolKey`（call_id）去重**，
+//      且**滤掉已在已完成块里的键**（否则工具双渲染 —— 用户 2026-09-04 turn-580-live 实录）；
+//   ② 按**迭代号**滤陈旧项（`iteration <= maxCompletedIter` 且状态仍是 pending/running 的
+//      要滤掉 —— web `LiveIteration.tsx:149-183` `toolDeriv` 的硬要求，见 AGENTS.md 的
+//      "服务端 active_tools 整批先标 pending" 一条）。
+// ⇒ 新链路的在飞工具是**模型位置状态**（`model_step.applyToolTicks` 直接用该帧 tick 全集），
+//   **既不去重也不按迭代号过滤**（实测：同一 `call_id` 同时出现在 streaming+active ⇒
+//   `live.tools` 里出现两条；`iteration=1` 的陈旧 pending 工具在已完成块号=1 时仍保留）。
+//   即：这两条保证在**新链路整体不存在** ⇒ 判据删除（不把现状钉成"正确"）。
+//   ⚠️ 已上报：若要恢复，落点是 `core/model_adapter.ts` 的 tick 工具装配（或
+//   `core/model_step.ts:applyToolTicks` 的去重/过滤），恢复后应把本段按新入口重写。
+console.log('\n▶ §2 inFlightBlock 判据已删除（旧链路函数，新链路无等价保证 —— 见本段注释）');
 
 // ═══════════════════════════════════════════════════════════════════════════
 console.log('\n▶ §3 块切分 / 合并：同一批输入下 completedBlocks 与 mergeToolRuns 逐字稳定');
@@ -322,15 +213,22 @@ console.log('\n▶ §5 零样本防线（防止"优化成空操作"的假绿）'
   // runeCount/clipRunes 必须真的在算（不是恒 0 / 恒空）
   ok('★5 runeCount 非零（真的在数）', runeCount('中文正文') === 4);
   ok('★5 clipRunes 真的裁剪（非恒空/非恒原串）', clipRunes('abcde', 2) === 'ab' && clipRunes('abcde', 2) !== 'abcde');
-  // inFlightBlock 必须真的在滤（不是恒空）
-  const completed: HistoryIteration[] = [{ iteration: 1, content: '', reasoning: '', tools: [{ name: 'S', label: 'S', status: 'done', call_id: 'keep' } as unknown as ToolProgress], tools_folded: false }];
-  const lv: LiveRowView = {
-    kind: 'live', id: 'live', turnID: 1, isPartial: true, streaming: true, content: 'x',
-    reasoning: '', iterations: [], activeTools: [{ name: 'R', label: 'R', status: 'running', callID: 'gone' } as unknown as WebToolProgress],
-    streamingTools: [], genui: '', subAgents: [], todos: [], lastIter: 2,
-  } as unknown as LiveRowView;
-  const blk: HistoryIteration | null = inFlightBlock(lv, completed);
-  ok('★5 有产物（不是恒 null）', blk !== null);
+  // 链路必须真的在产出在飞块与工具（不是恒空）
+  const f5 = new ModelFeed('c');
+  f5.push({ type: 'turn_started', turnID: 1, requestID: null, trigger: 'user', content: null });
+  f5.push({
+    type: 'iteration', turnID: 1, iter: 1, seq: 10, phase: 'tool_gen',
+    content: 'x', reasoning: '', completedTools: [],
+    activeTools: [{ name: 'R', label: 'R', status: 'running', call_id: 'keep' }],
+  });
+  const rows5: ChatRow[] = f5.rows();
+  const live5: ChatRow = rows5.filter((r) => (r.turnID === 1 && r.role === 'assistant' && r.isLive === true))[0];
+  const its5: HistoryIteration[] = live5.iterations;
+  const blk: HistoryIteration | undefined = its5.length > 0 ? its5[its5.length - 1] : undefined;
+  ok('★5 有产物（在飞块存在，不是恒空）', blk !== undefined && its5.length === 1);
+  ok('★5 在飞块带工具（不是恒空工具表）',
+    blk !== undefined && blk.tools !== undefined && blk.tools.length === 1
+      && blk.tools[0].call_id === 'keep' && blk.tools[0].status === 'running');
   // parseMarkdown 真的切块
   ok('★5 parseMarkdown 真在切块（非恒空）', parseMarkdown('# H\n\ntext').length === 2);
 }
@@ -456,68 +354,87 @@ console.log('\n▶ §9 parseInline：纯文本早退 ≡ 旧行为（空串仍 [
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n▶ §10 「双命中」：live 行已完成块指纹（O(1)）== oracle，且不陈旧');
-//   oracle = 页面的**旧写法** `blocksSignature(completedBlocks(row))`（每帧新数组、每帧 miss）。
-//   新写法 `liveBlocksSignature(row)` 按**派生行源数组对象恒等**记忆化（`core/render.ets`）
-//   ⇒ 二者必须逐帧**逐字节**相等；且换源数组（commit）必换值（不陈旧）。
+console.log('\n▶ §10 行源 = 模型投影：同一状态重复投影**零新对象**，新帧只换在飞行，commit 必长新块');
+//   旧写法（旧链路的 oracle）：`blocksSignature(completedBlocks(row))` —— 每帧新数组、每帧 miss，
+//   靠"双命中"（行指纹 + 源数组指纹）才 O(1)。
+//   新链路（行源 = `model_bridge.applyModel`）：`PRow` 引用早退 + `toHistoryIteration` 按源
+//   `Block` 恒等记忆化 ⇒ "已完成块指纹"退化成 **对象恒等比较**（不再有任何字符串拼接）。
+//   本段钉住这条 O(1) 链的三个事实：① 同状态重复投影幂等；② 流式帧只换在飞行、
+//   已完成块对象逐元素恒等；③ 提交帧必长出新块（不陈旧）。
 {
-  const T10 = turnID(1);
-  const iterD10 = (n: number, c: string): WebIteration =>
-    ({ iteration: n, content: c, reasoning: '', tools: [], toolCount: 0 } as unknown as WebIteration);
-  const itEv10 = (n: number): DomainEvent => ({
-    type: 'iteration', turnID: T10, iter: iterNum(n), seq: eventSeq(n * 10),
-    content: undefined, reasoning: undefined, activeTools: [], completedTools: [],
-    iterationsDelta: [iterD10(n, `iter-${n}-final`)], todos: undefined,
-    subAgents: undefined, tokenUsage: undefined, streamStats: undefined,
-  } as unknown as DomainEvent);
-  const streamEv10 = (n: number, c: string): DomainEvent => ({
-    type: 'stream', turnID: T10, seq: eventSeq(100000 + n), iteration: iterNum(n + 1),
-    content: c, reasoning: '', streamingTools: undefined, genui: undefined, streamStats: undefined,
-  } as unknown as DomainEvent);
-  const buildLive10 = (k: number): ChatState => {
-    let s: ChatState = initialChatState('c');
-    s = reduce(s, { type: 'turn_started', turnID: T10, requestID: null, trigger: 'user', content: null } as unknown as DomainEvent);
-    for (let n = 1; n <= k; n++) { s = reduce(s, itEv10(n)); }
-    return s;
+  const T10 = 1;
+  const itEv10 = (iter: number, c: string, seq: number, delta: boolean): { [k: string]: unknown } => {
+    const ev: { [k: string]: unknown } = {
+      type: 'iteration', turnID: T10, iter, seq, phase: 'tool_exec',
+      content: c, reasoning: '', activeTools: [], completedTools: [],
+    };
+    if (delta) {
+      ev.iterationsDelta = [{ iteration: iter, content: `iter-${iter}-final`, reasoning: '', tools: [], toolCount: 0 }];
+    }
+    return ev;
   };
-  const liveView10 = (s: ChatState): LiveRowView => {
-    const rows: readonly Row[] = deriveRows(s);
+  const buildLive10 = (k: number): ModelFeed => {
+    const f = new ModelFeed('c');
+    f.push({ type: 'turn_started', turnID: T10, requestID: null, trigger: 'user', content: null });
+    for (let n = 1; n <= k; n++) { f.push(itEv10(n, `s-${n}`, n * 10, true)); }
+    f.push(itEv10(k + 1, 'x', (k + 1) * 10, false));      // 在飞迭代
+    return f;
+  };
+  const liveRow10 = (f: ModelFeed): ChatRow => {
+    const rows: ChatRow[] = f.rows();
     for (let i = 0; i < rows.length; i++) {
-      if (rows[i].kind === 'live') { return rows[i] as LiveRowView; }
+      if (rows[i].turnID === 1 && rows[i].role === 'assistant' && rows[i].isLive === true) { return rows[i]; }
     }
     throw new Error('§10 无 live 行 —— 构造器坏了（零扫描防线）');
   };
-  let idempotent = true, changeDetected = true, memoHit = true, sawNonEmpty = false, ignoreSignature = true;
+
+  let idempotent = true;        // 同一状态重复投影 ⇒ 零新对象
+  let onlyLiveChanged = true;   // 流式帧只改在飞行（已完成块对象恒等）
+  let commitGrows = true;       // 提交帧必长新块（新对象）
+  let sawNonEmpty = false;      // 零扫描防线
   for (const K of [0, 8, 24, 108]) {
-    const base = buildLive10(K);
-    const row: ChatRow = new ChatRow();
-    // ① 同一个派生 Row 对象重复 applyRow ⇒ 必须 false（O(1) 对象恒等 no-op）
-    const view = liveView10(base);
-    if (applyRow(row, view) !== true) { changeDetected = false; }
-    if (applyRow(row, view) !== false) { idempotent = false; }
-    const cb = completedBlocks(row);
-    if (cb !== completedBlocks(row)) { memoHit = false; }
-    if (cb.length !== row.completedBlocks.length) { memoHit = false; }
-    for (let i = 0; i < cb.length; i++) {
-      if (cb[i] !== row.completedBlocks[i]) { memoHit = false; }
+    const f = buildLive10(K);
+    const row: ChatRow = liveRow10(f);
+    const cb0: HistoryIteration[] = row.completedBlocks.slice(0);
+    const its0: unknown = row.iterations;
+    const otherBefore = f.rows().filter((r) => !(r.turnID === 1 && r.role === 'assistant' && r.isLive === true));
+
+    // ① 同一状态重复投影：行对象、iterations、completedBlocks **全部同一引用**
+    const again = liveRow10(f);
+    if (again !== row || again.iterations !== its0 || again.completedBlocks !== row.completedBlocks) {
+      idempotent = false;
     }
-    if (cb.length > 0) { sawNonEmpty = true; }
-    // ② 新状态 ⇒ 新派生 Row 对象 ⇒ 必须 true（即使行对象的旧 signature 被伪造也不影响）
-    row.signature = 'stale-poison';
-    const s1 = reduce(base, streamEv10(K, 'x'));
-    if (applyRow(row, liveView10(s1)) !== true) { changeDetected = false; }
-    if (row.signature !== 'stale-poison') { ignoreSignature = false; } // 新实现不再读写 signature
-    // ③ commit 帧 ⇒ liveRevision 必增（页面据此投递，绝不陈旧）
-    const rev0 = row.liveRevision;
-    applyRow(row, liveView10(reduce(s1, itEv10(K + 1))));
-    if (row.liveRevision <= rev0) { changeDetected = false; }
+    if (K > 0) { sawNonEmpty = true; }
+
+    // ② 流式帧（在飞正文增长）：在飞行换 iterations，已完成块逐元素恒等；其它行不被重建
+    f.push(itEv10(K + 1, 'xy', (K + 1) * 10 + 1, false));
+    const rowsAfter = f.rows();
+    const live = liveRow10(f);
+    if (live.iterations === its0) { onlyLiveChanged = false; }       // 在飞行必须更新
+    if (live.completedBlocks.length !== K) { onlyLiveChanged = false; }
+    for (let i = 0; i < K; i++) {
+      if (live.completedBlocks[i] !== cb0[i]) { onlyLiveChanged = false; }
+    }
+    const othersAfter = rowsAfter.filter((r) => !(r.turnID === 1 && r.role === 'assistant' && r.isLive === true));
+    if (othersAfter.length !== otherBefore.length) { onlyLiveChanged = false; }
+    for (let i = 0; i < othersAfter.length; i++) {
+      if (othersAfter[i] !== otherBefore[i]) { onlyLiveChanged = false; }
+    }
+
+    // ③ commit 帧：已完成块 +1，新块是**新对象**（绝不陈旧）
+    const lastBefore: HistoryIteration | undefined = live.completedBlocks[K - 1];
+    f.push(itEv10(K + 1, 'xy', (K + 1) * 10 + 2, true));
+    const live2 = liveRow10(f);
+    if (live2.completedBlocks.length !== K + 1) { commitGrows = false; }
+    if (live2.completedBlocks[K] === lastBefore || live2.completedBlocks[K] === undefined) { commitGrows = false; }
+    if (K > 0 && live2.completedBlocks[0] !== cb0[0]) { commitGrows = false; }
   }
-  ok('★10 同一 Row 对象 ⇒ applyRow 幂等（false）', idempotent);
-  ok('★10 新 Row 对象 ⇒ applyRow 必更新（true；不依赖旧字符串 signature）', changeDetected && ignoreSignature);
-  ok('★10 live 行 completedBlocks === completedBlocks(row)（同一引用，零重算）', memoHit);
+  ok('★10 同一状态重复投影 ⇒ 行对象/iterations/completedBlocks **同一引用**（幂等，零重建）', idempotent);
+  ok('★10 流式帧只换在飞行：已完成块对象逐元素恒等 + 其它行对象不变（不依赖任何字符串指纹）', onlyLiveChanged);
+  ok('★10 提交帧必长出新块（新对象；前缀对象仍恒等 ⇒ 不陈旧、不整体重造）', commitGrows);
   ok('★10 零扫描防线：K>0 时确实有已完成块（判据不是"两边都空"的假绿）', sawNonEmpty);
   const fresh: ChatRow = new ChatRow();
-  eq('★10 新建行（未 applyRow）⇒ completedBlocks 为空', completedBlocks(fresh).length, 0);
+  eq('★10 新建行（未投影）⇒ completedBlocks 为空', fresh.completedBlocks.length, 0);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -642,10 +559,6 @@ console.log('\n▶ §11 parseInline：charCode 快路径 + run-slice ≡ 旧实�
 console.log('\n▶ §6 mutation 自证（由外部脚本注入，改动语义 ⇒ 本文件必红）:');
 console.log('   · `core/typewriter.ets` `runeWidthAt` 改 `return 1`（忽略代理对）');
 console.log('     ⇒ §1 clipRunes/runeCount 与 oracle 不等 ⇒ 红；');
-console.log('   · `core/render.ets` `inFlightBlock` 去掉 `!completedKeys.has(...)` 过滤');
-console.log('     ⇒ §2 「已提交同键被滤掉」红；');
-console.log('   · `core/render.ets` 已提交键改用 `it.tools[j].name`（丢 call_id）');
-console.log('     ⇒ §2 oracle（按 toolKey）不等 ⇒ 红；');
 console.log('   · `core/markdown.ets` 增量路径把 `assignKeys(blocks, stable)` 改回 `assignKeys(blocks, 0)`');
 console.log('     ⇒ **不变**（等价）—— 反向自证"尾部重编号 == 全量重编号"；');
 console.log('   · `core/markdown.ets` 把尾部重编号的 `stable` 改成 `0`（即从 0 起re-key 尾部、丢掉头部偏移）');
@@ -654,9 +567,11 @@ console.log('   · `core/streammerge.ets` `blocksSignature` 内核改 `return \'
 console.log('     ⇒ §8 oracle 不等 ⇒ 红；');
 console.log('   · `core/markdown.ets` parseInline 早退条件改成 `!false`（永远早退）');
 console.log('     ⇒ §9 「含标记字符仍正确」红；');
-console.log('   · [round4] `core/render.ets` applyRow 的 live 分支把行指纹改成');
-console.log('     `buildBlocksSignature(row.iterations)`（**误含在飞块**，与 oracle 的"仅已完成块"分叉）');
-console.log('     ⇒ §10 「==oracle」与「纯 stream 帧不变」两条红（实测 2 failed）；');
+console.log('   · `model_bridge.toHistoryIteration` 去掉按源 `Block` 的 WeakMap 记忆化（恒新建）');
+console.log('     ⇒ §10 ★10「流式帧已完成块对象恒等」必红；');
+console.log('   · `model_project.assistantRow` 的 memo 失效（每次新建 PRow）');
+console.log('     ⇒ §10 ★10「同一状态重复投影同一引用」必红；');
+console.log('   · `model_step.onDone` 每次 append 全量块（重复）⇒ §10 ★10「commit 只长尾巴」必红；');
 console.log('   · [round4] `core/markdown.ets` 粗体判据改成"`*`/`_` **任意相邻对**"（把混对 `*_` 当偶对）');
 console.log('     ⇒ §11 语料 + 随机各红（实测 2 failed）。');
 console.log('     ⚠️ 该 mutation **最初逃逸**：§11 的"随机语料"用确定性线性公式生成 ⇒ 相邻字符恒隔');

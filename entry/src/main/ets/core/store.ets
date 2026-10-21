@@ -16,17 +16,25 @@ import { SseClient } from './sse';
 /** SSE 意图的竞态窗口（web `useSessionStore.ts` 同值 15s）。 */
 import { hasFreshPhaseDone, isIdleAction, runningAfterReconcile, rowIsEmpty, sendStartsTurn, shouldReloadHistory, stripInterruptedMarker } from './streammerge';
 import { arrOrEmpty, isPresent } from './guards';
-import { ChatState, DomainEvent, EventSeq, initialChatState, iterNum, NonEmptyS, nonEmptyStr, turnID, TurnID, UserRow } from './chat_types_full';
+import { ChatState, DomainEvent, EventSeq, initialChatState, iterNum, LegacyRow, NonEmptyS, nonEmptyStr, Turn, turnID, TurnID, UserRow } from './chat_types_full';
 import { demoAnswerFor, demoFirstIteration, demoReasoningFor, demoSeedPrompt, demoSessions, demoToolFor } from './demo';
 import { reduce, applySessionFields } from './reduce';
+// ── 新模型（docs/STATE-MODEL.md）**影子引擎**（W1：旁听不写）───────────────────
+//   为什么先影子：新引擎要替换 reduce/render/streammerge（≈5k 行），先在同一事件流上
+//   并行跑、只做**结构比对**（回合数/每回合块数/工具数），差异写日志。比对为零差异后
+//   才允许切换写者（W2/W3）。⛔ 影子路径**绝不写** `this.state`、绝不发网络。
+import { emptyState } from './model_types';
+import type { State as ModelState } from './model_types';
+import { allToolCalls } from './model_project';
+import { applyModel, stepEvent } from './model_bridge';
+import { hydrate } from './model_hydrate';
+import type { WireHistoryMessage, WireHistoryIteration } from './model_hydrate';
 import { invariantViolations } from './state_invariants';
 import { setDiagSink } from './diag';
 import { liveRunningIn, withSessionRunning } from './chat_types_full';
 import type { GoalInfo as ChatGoalInfo, TodoItem as ChatTodoItem } from './chattypes';
-import { deriveRows, Row } from './derive';
 import { extractEventChatID, normalizeEvent } from './normalize';
 import { historyToReplaced, liveProgressFromState } from './integrate';
-import { applyRow, invalidateAppliedRow } from './render';
 import { ChatMessage, ChatMessageRole, EMPTY_PROGRESS_SNAPSHOT, ProgressSnapshot, WebCompaction, WebIteration } from './chattypes';
 import { toHistoryCompactions } from './compaction';
 import { normalizeWebIteration } from './agent_normalize';
@@ -829,6 +837,9 @@ export class ChatStore {
         continue;
       }
       next = reduce(next, evs[i]);
+      // ⛔ 影子引擎必须**与主路径同源**：主 SSE 入口是**批量** `pushEvents`（单条 `pushEvent`
+      //   只是一支），此前只在单条路径喂影子 ⇒ 影子缺绝大多数事件（行级对照会假红、切行源必丢）。
+      this.runShadowModel(evs[i]);
       // 记录本批最后一个 turn finalizer；最终统一用 next 的 activeTurn 判定
       // 「busy 是否属于后续 turn」，避免一批里 turn A 结束 + turn B 启动时误 resync。
       // ⛔ 必须先落成局部变量：`evs[i]` 的重复索引访问在 TS 里不做判别联合收窄。
@@ -887,6 +898,7 @@ export class ChatStore {
     const goalLocal: ChatGoalInfo | null = this.state.goal;
     this.settleIntentOnAuthoritative(ev);
     this.state = reduce(this.state, ev);
+    this.runShadowModel(ev);
     // ⛔ 2026-10-21（state-gate-12-6 确证-2）：goal 乐观抑制窗此前只写在**批量**入口
     //   `pushEvents`，而 `historyToReplaced` 走**单条** `pushEvent` ⇒ 用户点 ✕ 之后，
     //   一条在清除前发起的 `/api/history` 回包（落在 3s 窗内）会把旧目标写回 state
@@ -926,8 +938,82 @@ export class ChatStore {
   }
 
   /**
+   * **新模型影子引擎**（`docs/STATE-MODEL.md` §8 W1）。
+   * 同一事件流并行跑 `adapt → stepAll`，把结果投影成行（`applyModel`），与旧管线的
+   * 结构比对（回合数 / 每回合块数 / 工具数）。**只记日志，不写状态、不发网络**。
+   * ⛔ effects 只在这里被**记录**（`pullIter`/`pullTurn`/`snapshot`）——接线期由 W2 落地。
+   */
+  private runShadowModel(ev: DomainEvent): void {
+    if (ev.type === 'history_replaced') {
+      const ids: number[] = [];
+      for (let i = 0; i < ev.turns.length; i++) { ids.push(ev.turns[i].id as number); }
+      log('diag', `HR act=${ev.active === null || ev.active === undefined ? -1 : (ev.active.turnID as number)}`
+        + ` turns=${ids.length} ids=${ids.length > 0 ? `${ids[0]}..${ids[ids.length - 1]}` : '-'}`
+        + ` legacy=${ev.legacy.length}`);
+    } else if (ev.type === 'iterations_loaded') {
+      log('diag', `IL turn=${ev.turnID as number} its=${ev.iterations.length} activeTurn=${this.state.activeTurn === null ? -1 : this.state.activeTurn as number}`);
+    } else if (ev.type === 'turn_started') {
+      log('diag', `TS turn=${ev.turnID as number}`);
+    }
+
+    // ⛔ demo 模式也必须喂影子：行源是模型 ⇒ 不喂则 demo 会话空白（判据 `demo_account` 抓）。
+    if (this.currentChatId.length === 0) {
+      return;
+    }
+    if (this.shadow.chat !== this.currentChatId) {
+      this.shadow = emptyState(this.currentChatId, 1, 0);
+      this.shadowRows = new Map<string, ChatRow>();
+    }
+    // ⛔ 唯一入口 `stepEvent`：`history_replaced` = 权威水合（构造），其余 = wire 帧。
+    const res = stepEvent(this.shadow, ev, this.currentChatId);
+    this.shadow = res.state;
+    for (let i = 0; i < res.effects.length; i++) {
+      const e = res.effects[i];
+      if (e.kind === 'pullIter') {
+        log('model', `effect=pullIter turn=${e.turn} iter=${e.iteration}`);
+      } else if (e.kind === 'pullTurn') {
+        log('model', `effect=pullTurn turn=${e.turn}`);
+      } else {
+        log('model', 'effect=snapshot（整体不可信）');
+      }
+    }
+    // ── 结构比对（零差异才算通过 W1）──
+    let oldBlocks: number = 0;
+    this.state.turns.forEach((t) => {
+      oldBlocks += t.phase.kind === 'committed' ? t.phase.payload.iterations.length
+        : (t.phase.kind === 'live' ? t.phase.data.iterations.length : 0);
+    });
+    let newBlocks: number = 0;
+    this.shadow.turns.forEach((t) => {
+      newBlocks += t.blocks.length;
+    });
+    const liveNew: number = this.shadow.live !== null ? 1 : 0;
+    const liveOld: number = this.state.activeTurn !== null ? 1 : 0;
+    // 迭代号水位 + 工具数：能把"块数相同但内容错位"也钓出来（只读诊断）
+    let liveIterOld: number = 0;
+    if (this.state.activeTurn !== null) {
+      const t0 = this.state.turns.get(this.state.activeTurn);
+      if (t0 !== undefined && t0.phase.kind === 'live') {
+        liveIterOld = t0.phase.data.iter;
+      }
+    }
+    const liveIterNew: number = this.shadow.live !== null ? this.shadow.live.iteration : 0;
+    const toolCountNew: number = allToolCalls(this.shadow).length;
+    if (oldBlocks !== newBlocks || liveOld !== liveNew || liveIterOld !== liveIterNew) {
+      this.shadowDiff++;
+      // 投影一次（同时验证 ArkTS 桥接可用；只在差异时做，避免每帧开销）
+      const rows = applyModel(this.shadow, this.shadowRows);
+      // ⛔ 行级对照（ROWDIFF）已完成使命：行源已切到模型并在真机验证通过，
+      //   这里不再每帧跑旧 `deriveRows`（省 O(rows)/帧 的诊断开销）。
+      log('model', `DIFF#${this.shadowDiff} ev=${ev.type} blocks=${oldBlocks}->${newBlocks}`
+        + ` live=${liveOld}->${liveNew} iter=${liveIterOld}->${liveIterNew}`
+        + ` tools=${toolCountNew} rows=${rows.length}`);
+    }
+  }
+
+  /**
    * 发送意图窗（8s）只用于 ack/turn_started 到达前的本地反馈；**任何权威回合事件**
-   * 都必须终止它，否则 ack 里续期后 turn 在 8s 内收尾 ⇒ busy 幽灵（页面显示思考中）。
+   * 都必须终止它，否则 ack 里续期后 turn 在 8s 内收尾 ⇒ 幽灵 busy（页面显示思考中）。
    */
   private settleIntentOnAuthoritative(ev: DomainEvent): void {
     if (ev.type === 'turn_started') {
@@ -954,103 +1040,21 @@ export class ChatStore {
     }
   }
 
-  /** `ChatState → rows`：`deriveRows` + 就地适配（对象恒等）。 */
-  /** 使 live 行的 applied-Row 缓存失效；**保留 ChatRow 身份**（删对象会破坏 LazyForEach 同键渲染）。 */
-  private invalidateLiveRowCache(): void {
-    this.rowCache.forEach((r: ChatRow) => {
-      if (r.isLive) {
-        invalidateAppliedRow(r);
-      }
-    });
-  }
-
   private rebuildRows(): void {
     // ⛔ 滚动/触摸期挂起：状态机继续累加，但**不碰** `rowCache` 里的 ChatRow（@ObjectLink
     //   会绕过页面 syncFrom 早退，每帧改 content/iterations ⇒ 行高抖动）。恢复时一次重建。
     if (this.uiSuspended) {
       return;
     }
-    const derived: readonly Row[] = deriveRows(this.state);
-    // ⛔ live 行缓存的 key 必须含 turn/iteration 生命周期：行 id 会跨 turn 复用，
-    //    只按 id 命中会让新迭代拿到旧 ChatRow（appliedRowByRow 误判）⇒ 思考中卡死。
-    let liveCacheKey: string = '';
-    for (let i = 0; i < derived.length; i++) {
-      const dr: Row = derived[i];
-      if (dr.kind === 'live') {
-        liveCacheKey = `${this.state.turns.size}#${dr.turnID}#${dr.lastIter}`;
-        break;
-      }
-    }
-    if (liveCacheKey !== this.liveCacheKey) {
-      this.liveCacheKey = liveCacheKey;
-      this.invalidateLiveRowCache();
-    }
-    const next: ChatRow[] = [];
-    const alive: Set<string> = new Set();
-    let anyChanged: boolean = false;
-    // ⛔ **行 id 必须唯一**（血债，2026-10-12 真机 P0）：ArkUI 的 `ForEach`/`LazyForEach` key 一旦重复
-    //    会抛**应用级错误** `Ids generated by the ForEach id gen function must be unique`
-    //    ⇒ **该列表子树整体不渲染** ⇒ 切到这种会话就是**白屏**（`hilog` 实证：`AceStateMgmt` 报
-    //    `Duplicated index: [45,273,316,...]`、`AceLazyForEach: Use repeat key for index: 7/9/10`）。
-    //    来源：派生行 id 是 `turn-${t.id}`（/`-live`/`-c`）形状 —— **两个 turn 的 id 相同**
-    //    （历史里缺 turn id ⇒ 都是 0）时同 id ⇒ `rowCache.get(同 id)` 拿到**同一个对象被 push 两次**
-    //    ⇒ LazyForEach key 重复。⇒ 这里给**重复出现的** id 补序号：首个仍是规范 id（既有
-    //    `rowById`/导航锚点照常命中），只有病态重复项被改名（它们本就没有合法身份）。
-    const seenIds: Set<string> = new Set();
-    for (let i = 0; i < derived.length; i++) {
-      const r: Row = derived[i];
-      let rid: string = r.id;
-      if (seenIds.has(rid)) {
-        let n: number = 2;
-        let cand: string = `${rid}~${n}`;
-        while (seenIds.has(cand)) {
-          n = n + 1;
-          cand = `${rid}~${n}`;
-        }
-        rid = cand;
-      }
-      seenIds.add(rid);
-      alive.add(rid);
-      let row: ChatRow | undefined = this.rowCache.get(rid);
-      if (row === undefined) {
-        row = new ChatRow();
-        row.id = rid;
-        this.rowCache.set(rid, row);
-      }
-      const changed: boolean = applyRow(row, r);
-      if (changed) {
-        this.touch(row);
-        anyChanged = true;
-      }
-      next.push(row);
-    }
-    // 淘汰已消失的行（turn 被删/切会话）
-    if (this.rowCache.size > alive.size) {
-      const stale: string[] = [];
-      this.rowCache.forEach((_v: ChatRow, k: string) => {
-        if (!alive.has(k)) {
-          stale.push(k);
-        }
-      });
-      for (let i = 0; i < stale.length; i++) {
-        this.rowCache.delete(stale[i]);
-      }
-    }
-    // ── 结构代数：行集合（id 序列/行对象身份）变了才 +1 ──
-    // ⛔ 只比**指针**（`applyRow` 就地更新同一个 ChatRow ⇒ 内容变化不改身份）⇒ O(rows) 次
-    //   指针比较，与 `deriveRows`/`applyRow` 同阶，不引入新的复杂度类。
+    const next: ChatRow[] = applyModel(this.shadow, this.rowCache);
     let structural: boolean = this.rows.length !== next.length;
     if (!structural) {
       for (let i = 0; i < next.length; i++) {
         if (this.rows[i] !== next[i]) { structural = true; break; }
       }
     }
-    if (structural) {
-      this.rowsGen = this.rowsGen + 1;
-    }
-    if (structural || anyChanged) {
-      this.rowsRev = this.rowsRev + 1;
-    }
+    if (structural) { this.rowsGen = this.rowsGen + 1; }
+    this.rowsRev = this.rowsRev + 1;
     this.rows = next;
     this.onUpdate();
     // ⛔ 切会话诊断：只在真正切会话时打日志，避免 rebuildRows 每帧刷屏淹没关键日志
@@ -1121,6 +1125,12 @@ export class ChatStore {
 
 
   /** 变更通知（页面接到 @State 上） */
+  /** 新模型影子状态（每 chat 代数重开；⛔ 只读比对，不驱动 UI）。 */
+  private shadow: ModelState = emptyState('', 1, 0);
+  /** 影子行的复用缓存（身份稳定；只在 DIFF 时投影一次，成本可忽略）。 */
+  private shadowRows: Map<string, ChatRow> = new Map<string, ChatRow>();
+  private shadowDiff: number = 0;
+
   onUpdate: () => void = () => {
   };
 
@@ -1813,6 +1823,8 @@ export class ChatStore {
     //   有一段窗口，旧实现仍持有**上一个会话**的 turns/busy/sessionRunning ⇒ 页面读到
     //   旧值（切会话瞬间按钮/进度错乱），且旧会话的迟到事件会落进"新会话身份"。            
     this.state = initialChatState(chatId);
+    this.shadow = emptyState(chatId, 1, 0);
+    this.shadowRows = new Map<string, ChatRow>();
     this.gapReloadSeenKey = '';
     this.gapReloadSeenToken = 0;
     // 上一会话的 SSE 意图窗口不属于新会话：不清会让 `runningAfterReconcile` 把
@@ -1963,7 +1975,13 @@ export class ChatStore {
     //    `/api/history`/SSE 直接 404「session not found」。页面在点击会话时
     //    已经拿到 `SessionItem.channel` ⇒ 用显式 hint；列表仍作为无 hint 时的回退。
     const parsedAgent: ParsedAgentChatID | undefined = parseAgentChatID(chatId);
-    const agentChannel: string = parsedAgent !== undefined ? parsedAgent.parentChannel : '';
+    // ⛔ 子代理会话的渠道是 **`agent`**（web `AgentPanel.tsx:140`:
+    //   `messageChannel = params.agentChatID ? 'agent' : …`）——**不是**父会话的 parentChannel。
+    //   写错 ⇒ `/api/history` 与 SSE 都去查 `web:<agentKey>` 这个不存在的租户 ⇒ 子代理窗口
+    //   **只看到 user 行、任何 agent 消息都看不到**（用户 2026-10-22 亲报）。
+    //   服务端 `canonicalChatID('agent', 'agent:web:chatX/explore:inst')` 会剥掉 `agent:` 前缀
+    //   得到真实 tenant chatID，与 web 逐字一致。
+    const agentChannel: string = parsedAgent !== undefined ? 'agent' : '';
     const listedChannel: string = this.sessions.length > 0
       ? channelForChat(this.sessions, chatId) : '';
     this.channel = channelHint.length > 0
@@ -2133,10 +2151,9 @@ export class ChatStore {
     }
     this.historyLoadGen = gen;
     this.historyLoading = true;
-    // 权威 history 重载 ⇒ 旧 live 行的缓存必须整体失效（不只按 id 命中）。
-    // 否则 resync 后 `rowCache` 仍返回旧 ChatRow，`appliedRowByRow` 会误判未变化。
+    // 权威 history 重载 ⇒ 模型侧 `hydrate` 会重建 `PRow` 对象 ⇒ `applyModel` 按源对象
+    // 恒等自动重填（不再需要按行 invalidate 缓存）。
     this.liveCacheKey = '';
-    this.invalidateLiveRowCache();
     this.onUpdate();
     try {
       await this.loadHistoryInner();
@@ -2279,12 +2296,15 @@ export class ChatStore {
       parsed.parentChannel, parsed.parentChatID, parsed.role, parsed.instance);
     // ① 先试 get_agent_session_dump（内存 registry，含 iterations）
     let messages: Object[] = [];
+    // ⛔ 子代理的**正文在 `iterations` 里**（v55 数据模型：assistant.content 常为空）⇒
+    //   它在 dump 里必须一起取出来并交给 parse（否则窗口只剩 user 行，用户 2026-10-22 亲报）。
+    let dumpIts: Object[] = [];
     try {
       const dump: AgentSessionDump = await rpc<AgentSessionDump>(this.http, RPC_GET_AGENT_SESSION_DUMP, params);
       if (!this.stillSame(gen, forChat)) { return; }
       console.info(`[SUBAGENT] get_agent_session_dump response: dump=${dump !== null ? 'non-null' : 'null'} messages=${dump !== null && dump.messages !== undefined ? dump.messages.length : 0} iterations=${dump !== null && dump.iterations !== undefined ? dump.iterations.length : 0}`);
       const dumpMsgs: Object[] = dump !== null && dump.messages !== undefined && dump.messages !== null ? dump.messages : [];
-      const dumpIts: Object[] = dump !== null && dump.iterations !== undefined && dump.iterations !== null ? dump.iterations : [];
+      dumpIts = dump !== null && dump.iterations !== undefined && dump.iterations !== null ? dump.iterations : [];
       if (dumpMsgs.length > 0 || dumpIts.length > 0) {
         messages = dumpMsgs;
       }
@@ -2304,39 +2324,82 @@ export class ChatStore {
     }
     if (!this.stillSame(gen, forChat)) { return; }
     // 解析 SubAgentMsg[] → ChatMessage[]（逐字对齐 web `parseSubAgentMessages`）
-    const chatMsgs: ChatMessage[] = this.parseSubAgentMessages(messages);
+    const chatMsgs: ChatMessage[] = this.parseSubAgentMessages(messages, dumpIts);
     console.info(`[SUBAGENT] parsed ${chatMsgs.length} messages from ${messages.length} raw`);
     this.history = chatMsgs;
     this.pushEvent(historyToReplaced(chatMsgs, null));
     this.onUpdate();
   }
 
-  /** 把 SubAgentMsg[]（简单 role/content 对）转成 ChatMessage[]。 */
-  private parseSubAgentMessages(raw: Object[]): ChatMessage[] {
+  /**
+   * `SubAgentMsg[]`（role/content 对）+ dump 的 `iterations` → `ChatMessage[]`。
+   *
+   * ⛔ 逐字对齐 web `useChatMessages.ts:303-326 parseSubAgentMessages`：
+   *   ① **空正文行不渲染**（工具调用行等 `content === ''` 的消息）；
+   *   ② 角色：`user` 保持 user，其余（assistant/agent/…）一律 assistant；
+   *   ③ `turnID: 0` —— 子代理会话没有 turn 概念，整批走 `historyToReplaced` 的 legacy 段；
+   *   ④ **`iterations` 挂到最后一条 assistant 行**；没有任何 assistant 行 ⇒ 追加一条
+   *      只带 iterations 的行（`content: ''`）。
+   *   ⛔ ④ 是「子代理窗口只看得到 user 行」的根因（用户 2026-10-22 亲报）：v55 数据模型里
+   *      子代理的正文/思考/工具都在 `iterations`，`messages[].content` 常常为空 —— 丢掉
+   *      iterations 就等于把 agent 的全部输出丢了。
+   */
+  private parseSubAgentMessages(raw: Object[], rawIterations?: Object[]): ChatMessage[] {
+    const iters: WebIteration[] = [];
+    const srcIts: Object[] = rawIterations !== undefined && rawIterations !== null ? rawIterations : [];
+    for (let i = 0; i < srcIts.length; i++) {
+      const w: WebIteration | null = normalizeWebIteration(srcIts[i] as HistoryIteration);
+      if (w !== null) {
+        iters.push(w);
+      }
+    }
     const out: ChatMessage[] = [];
     for (let i = 0; i < raw.length; i++) {
-      const m: Object = raw[i];
-      const role: string = (m as Record<string, Object>)['role'] as string;
-      const content: string = (m as Record<string, Object>)['content'] as string;
-      if (role === undefined || content === undefined) {
+      const m: Record<string, Object> = raw[i] as Record<string, Object>;
+      const role: string = m['role'] !== undefined && m['role'] !== null ? m['role'] as string : '';
+      const content: string = m['content'] !== undefined && m['content'] !== null ? m['content'] as string : '';
+      if (content.trim().length === 0) {
         continue;
       }
       out.push({
         id: `sa-${i}`,
-        role: role === 'assistant' ? 'assistant' : 'user',
+        role: role === 'user' ? 'user' : 'assistant',
         content: content,
         iterations: [],
         turnID: 0,
         isNotification: false,
         timestamp: '',
         isPartial: false,
-        // ⛔ **合成 dbID 必填**（血债，2026-10-16）：`historyToReplaced`（`core/integrate.ts:57`）
-        //   对 `dbID === undefined` 的行**全部 `continue`**（过滤乐观/echo 副本）⇒ 不给 dbID
-        //   会导致**整批子代理消息被丢弃** ⇒ 历史仍空。子代理会话不需要 rewind/分页，
-        //   故合成一个递增 id（唯一即可）安全。
+        // ⛔ 合成 dbID 必填（血债，2026-10-16）：`historyToReplaced` 对 `dbID === undefined`
+        //   的行**全部 continue**（过滤乐观/echo 副本）⇒ 不给 dbID 会导致整批消息被丢弃。
         dbID: i + 1,
       });
     }
+    if (iters.length === 0) {
+      return out;
+    }
+    let lastAssistant: number = -1;
+    for (let i = out.length - 1; i >= 0; i--) {
+      if (out[i].role === 'assistant') {
+        lastAssistant = i;
+        break;
+      }
+    }
+    if (lastAssistant >= 0) {
+      out[lastAssistant].iterations = iters;
+      return out;
+    }
+    out.push({
+      id: 'sub-iterations',
+      role: 'assistant',
+      content: '',
+      iterations: iters,
+      turnID: 0,
+      isNotification: false,
+      timestamp: '',
+      isPartial: false,
+      dbID: 900000 + out.length,
+    });
     return out;
   }
 
@@ -2611,15 +2674,74 @@ export class ChatStore {
    * 与页面渲染同一条路径（不再是独立的手写映射）。live 诊断测试用。
    */
   static rowsFromHistory(messages: HistoryMessage[]): ChatRow[] {
-    const ev: DomainEvent = historyToReplaced(ChatStore.toChatMessages(messages, 0), null);
-    const state: ChatState = reduce(initialChatState(''), ev);
-    const derived: readonly Row[] = deriveRows(state);
-    const out: ChatRow[] = [];
-    for (let i = 0; i < derived.length; i++) {
-      const row: ChatRow = new ChatRow();
-      row.id = derived[i].id;
-      applyRow(row, derived[i]);
-      out.push(row);
+    // ⛔ **走新模型**：历史 = 权威水合（`hydrate`，含块/压缩点）→ 投影（`project`）→ 桥接。
+    const wire: WireHistoryMessage[] = [];
+    // 已有的 user 行 id 集合（`turn_user` 只在**该行确实没被单独下发**时才补 —— 否则同一
+    //  user 会渲染两行：判据 `user_row_integrity`「历史合并后仍恰 1 条 user 行」）。
+    const userIds: Set<string> = new Set<string>();
+    for (let i = 0; i < messages.length; i++) {
+      const mm: HistoryMessage = messages[i];
+      if (mm.role === 'user') {
+        userIds.add(`${mm.id}`);
+      }
+      const tu0: HistoryMessage | undefined = mm.turn_user;
+      if (tu0 !== undefined && tu0 !== null) {
+        userIds.add(`${tu0.id}`);
+      }
+    }
+    for (let i = 0; i < messages.length; i++) {
+      const m: HistoryMessage = messages[i];
+      // ⛔ `turn_user` 边缘还原（后端 `5c3aec7b`，对齐 web `hooks/useChatMessages.ts:200-221`）：
+      //   窗口化历史把该 turn 的 user 行挂 assistant 行上 ⇒ 水合时必须**摘下来当独立的 user 行**，
+      //   否则 `regions_before` 归零后时间线里没有 user（判据 `turn_user_restore` G3/G4/G5）。
+      const tu: HistoryMessage | undefined = m.turn_user;
+      // ⛔ `turn_user` 只为"窗口把 user 行挤掉了"服务：本批**已经有任何 user 行**就说明没被挤掉，
+      //   再补一条就是重复渲染（判据 `user_row_integrity`「历史合并后仍恰 1 条 user 行」）。
+      const alreadyListed: boolean = tu !== undefined && tu !== null && ChatStore.batchHasUserRow(messages);
+      if (tu !== undefined && tu !== null && !alreadyListed) {
+        wire.push({
+          id: `${tu.id}`, role: 'user', content: tu.content === undefined ? '' : tu.content,
+          turnID: m.turn_id === undefined ? 0 : m.turn_id,
+          timestamp: tu.timestamp === undefined ? '' : tu.timestamp,
+          dbID: typeof tu.id === 'number' ? tu.id as number : undefined,
+        });
+      }
+      wire.push({
+        id: `${m.id}`, role: m.role, content: m.content === undefined ? '' : m.content,
+        turnID: m.turn_id === undefined ? 0 : m.turn_id,
+        timestamp: m.timestamp === undefined ? '' : m.timestamp,
+        iterations: ChatStore.toWireIters(m.iterations),
+        regionsBefore: m.regions_before,
+        compactions: m.compactions,
+      });
+    }
+    const st: ModelState = hydrate(emptyState('history', 1, 0), wire, 0, null);
+    return applyModel(st, new Map<string, ChatRow>());
+  }
+
+  /** 该批历史里是否**存在任何 user 行**（存在 ⇒ `turn_user` 无需再补；⛔ 不比内容）。 */
+  private static batchHasUserRow(messages: HistoryMessage[]): boolean {
+    for (let i = 0; i < messages.length; i++) {
+      if (messages[i].role === 'user') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** `HistoryIteration[] → WireHistoryIteration[]`（逐字段搬运；⛔ ArkTS 禁 unknown 断言）。 */
+  private static toWireIters(its: readonly HistoryIteration[] | undefined): WireHistoryIteration[] {
+    const out: WireHistoryIteration[] = [];
+    if (its === undefined) {
+      return out;
+    }
+    for (let i = 0; i < its.length; i++) {
+      out.push({
+        iteration: its[i].iteration, content: its[i].content, reasoning: its[i].reasoning,
+        tools: its[i].tools,
+        // ⛔ 子代理树一起水合（逐迭代冻结）：漏了它，历史重载后卡片全丢。
+        subAgents: its[i].subAgents,
+      });
     }
     return out;
   }
@@ -3277,6 +3399,13 @@ export class ChatStore {
         { type: 'session_running', running: false },
         { type: 'session', busy: false, turnID: cancelTurn !== null ? cancelTurn : undefined },
       ]);
+      // ⛔ **cancel 之后必须 resync 一次**（用户 2026-10-22）：取消是"回合状态切换"的权威事件，
+      //   本地只做乐观收尾不够 —— 服务端此时才把该轮落库为 committed（含最后几个迭代）。
+      //   不重载就无法保证状态准（"历史里少几个迭代"正是本地猜测的结果）。
+      //   fire-and-forget + 身份守卫（`loadHistory` 内部 gen/chat 校验）；失败不影响取消手感。
+      this.reloadHistoryNow().catch((): void => {
+        // 重载失败：下一次事件/手动刷新补
+      });
     } finally {
       // ⛔ 2026-10-21（state-gate-11-7 确证）：`finally` 必须带身份 —— 旧实现无条件
       //   `cancelling=false; cancelInFlight=null`，而 `beginSwitch` 已把三元组清空并交给
@@ -3520,14 +3649,30 @@ export class ChatStore {
     //   不是 replace ⇒ 不回退掉的消息会**留在列表里**（用户症状：编辑并重发后，被回退的几条
     //   回复仍在、时间线错乱，刷新才消失）。见 state-gate-7-7。）
     this.resetStateMachine();
-    // ③ reload 必须在 send 之前（否则乐观行被新历史抹掉）
-    await this.loadHistory();
+    // ③ reload 必须在 send 之前（否则乐观行被新历史抹掉）。
+    //    ⛔ 必须**强制**：`loadHistory()` 在"同一代已有一份在飞"时只置 `historyReloadPending`
+    //    然后 return ⇒ rewind 之后历史压根没重拉 ⇒ 被删掉的消息仍在屏幕上
+    //    （用户 2026-10-22：「被我 rewind 掉的消息还显示」）。
+    await this.reloadHistoryNow();
     if (rwGen !== this.chatGen || rwChat !== this.currentChatId || this.disposed) {
       return false;
     }
     // ④ 发送编辑后的内容
     await this.send(editedContent);
     return true;
+  }
+
+  /**
+   * **强制**权威重载（破坏性重置后用：rewind）。
+   *
+   * 与 `loadHistory()` 的唯一区别：清掉"同一代最多一份在飞"的去重态，保证**这一次真的发请求**。
+   * 「破坏性操作之后必须重新对齐权威」——用户 2026-10-22 点名要求（不许靠合并/补丁原地修）。
+   */
+  private async reloadHistoryNow(): Promise<void> {
+    this.historyLoading = false;
+    this.historyReloadPending = false;
+    this.historyLoadGen = -1;
+    await this.loadHistory();
   }
 
   /**
@@ -3585,6 +3730,13 @@ export class ChatStore {
     const keepTodos = this.state.todos;
     const keepRunning = this.state.sessionRunning;
     this.resetRows();
+    // ⛔ **模型影子必须一起清**（用户 2026-10-22：「rewind 提交之后历史居然没有刷新，被我
+    //   rewind 掉的消息还显示」/「不要打补丁，确保状态对」）：影子是行源的唯一状态，
+    //   只清旧管线（`resetRows`）等于**状态没重置** —— `hydrate` 的 prev 仍带着被删回合，
+    //   任何"保留在飞/保留本地"的判据都会把它们救回来。
+    //   推进 `epoch`：旧世的迟到帧/live 判据一律失效（位置帧幂等的前提）。
+    this.shadow = emptyState(this.currentChatId, this.shadow.epoch + 1, 0);
+    this.shadowRows = new Map<string, ChatRow>();
     this.history = [];
     this.hasMore = false;
     this.oldestId = 0;

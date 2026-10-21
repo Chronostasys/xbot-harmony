@@ -179,7 +179,9 @@ export struct GoalBanner {
               : { type: TextDecorationType.None })
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .wordBreak(WordBreak.BREAK_ALL)
+            // ⛔ 目标是**散文**（用户写的一句话）：`BREAK_ALL` 会在任意两字符间断 ⇒ 英文被劈词
+            //   （`docs/REDESIGN.md:326` 明确禁止）。`BREAK_WORD` 按词断，超长无空格串由 Ellipsis 兜。
+            .wordBreak(WordBreak.BREAK_WORD)
             .layoutWeight(1)
             .textAlign(TextAlign.Start)
             // press 反馈（统一口径 `PRESS_OPACITY`）——目标文本可点进编辑，此前**无任何按压回应**

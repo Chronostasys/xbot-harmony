@@ -1037,6 +1037,8 @@ export const I18N_KEYS: string[] = [
   "workspace.terminalNotAvailable",
   "workspace.viewUnavailable",
   "排队中…",
+  "agent.iterationBadge",
+  "agent.iterationBadgeHint",
 ];
 export const I18N_ZH: string[] = [
   "批注操作",
@@ -2072,6 +2074,8 @@ export const I18N_ZH: string[] = [
   "终端暂不可用",
   "插件未激活或已被卸载",
   "排队中…",
+  "显示迭代号",
+  "在每个迭代块左上角显示 #号、是否在飞、工具数（排障用）",
 ];
 export const I18N_EN: string[] = [
   "Comment actions",
@@ -3107,6 +3111,8 @@ export const I18N_EN: string[] = [
   "Terminal not available",
   "Plugin not active or uninstalled",
   "Queued…",
+  "Show iteration numbers",
+  "Show #iteration, in-flight state and tool count at the top-left of each iteration block (debug)",
 ];
 export const I18N_JA: string[] = [
   "コメントの操作",
@@ -4142,4 +4148,6 @@ export const I18N_JA: string[] = [
   "ターミナルは利用できません",
   "プラグインが無効、またはアンインストールされています",
   "待機中…",
+  "イテレーション番号を表示",
+  "各イテレーションブロックの左上に #番号・実行中かどうか・ツール数を表示（デバッグ用）",
 ];

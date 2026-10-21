@@ -169,7 +169,7 @@ export class BindPollResult {
 
 // ── 工具 ──────────────────────────────────────────────────────────────────────
 
-function strListOf(raw: string[] | null | undefined): string[] {
+function strListOfArr(raw: string[] | null | undefined): string[] {
   const out: string[] = [];
   if (!Array.isArray(raw)) {
     return out;
@@ -551,9 +551,9 @@ export function parseGuide(raw: Object | null | undefined): FeishuGuide | null {
     return null;
   }
   const g: FeishuGuide = new FeishuGuide();
-  g.scopes = strListOf(w.scopes);
-  g.events = strListOf(w.events);
-  g.callbacks = strListOf(w.callbacks);
+  g.scopes = strListOfArr(w.scopes);
+  g.events = strListOfArr(w.events);
+  g.callbacks = strListOfArr(w.callbacks);
   g.createAppUrl = nonEmpty(w.create_app_url) ? (w.create_app_url as string) : FEISHU_DEFAULT_CREATE_URL;
   g.needsPublicUrl = w.needs_public_url === true;
   return g;

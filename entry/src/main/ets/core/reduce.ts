@@ -40,7 +40,7 @@ import {
   type Turn,
   type TurnID,
 } from './chat_types_full'
-import { noteTurndrop } from './derive'
+import { noteTurndrop } from './turndrop'
 // ⛔ 从**纯 `.ts`** 导入（`core/` 下的 `.ts` 禁止 import `.ets` —— ArkTS 硬红 10605999；
 //    `streammerge` 是 `.ets`）。实现只有一份（`toolmerge.ts`），`streammerge.ets` 也用它。
 import { mergeActiveStatus } from './toolmerge'

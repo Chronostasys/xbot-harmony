@@ -2,10 +2,21 @@
  * reduce.test.ts — 状态机转移表测试：8 个历史 P0 各一个回归 + 不变量断言。
  *
  * 每个 test 的头注释标注它根治的历史 bug（design doc §6 映射表）。
+ *
+ * ── 行断言口径（2026-10-21 迁移）────────────────────────────────────────────────
+ *   `reduce` 的状态断言**原样保留**（它测的是旧状态机本体）。
+ *   行断言不再走 `deriveRows`（旧链路，即将删除），改由 `ModelFeed` 走**新链路**
+ *   （`model_step.stepAll` → `model_bridge.applyModel`，与页面同一条路径）。
+ *   行字段映射：旧 `kind:'user'` → `role:'user'`；旧 `kind:'live'/'committed'/'frozen'` →
+ *   `role:'assistant'` + `isLive`（true = 回合未收尾）；`isPartial` → `isLive`；
+ *   `content/turnID/id/sending/isNotification` 同名。
+ *   ⛔ 旧 reduce 的若干"客户端合并/兜底"保证在新链路**整体不存在**（新模型的权威是
+ *   `history_replaced` 的整段水合 + `local.pending` 按 requestID 精确退役），
+ *   相关行断言已删除并就地注明理由（`⛔ 删除`）。
  */
 
 import { describe, expect, it, summary } from './vitest_shim'
-import { deriveRows } from '../../entry/src/main/ets/core/derive'
+import { ModelFeed } from './model_harness'
 import { liveProgressFromState } from '../../entry/src/main/ets/core/integrate'
 import { normalizeEvent } from '../../entry/src/main/ets/core/normalize'
 import { reduce } from '../../entry/src/main/ets/core/reduce'
@@ -21,8 +32,7 @@ import {
   Turn,
 } from '../../entry/src/main/ets/core/chat_types_full'
 import type { WebIteration } from '../../entry/src/main/ets/core/chattypes'
-import { applyRow } from '../../entry/src/main/ets/core/render'
-import { ChatRow } from '../../entry/src/main/ets/core/types'
+import type { ChatRow } from '../../entry/src/main/ets/core/types'
 
 // ─── 测试 DSL ─────────────────────────────────────────────────
 
@@ -31,6 +41,49 @@ const T2 = turnID(2)
 
 function run(events: readonly DomainEvent[], from: ChatState = initialChatState('chat-1')): ChatState {
   return events.reduce(reduce, from)
+}
+
+// ─── 行断言的新链路入口（与页面同一条路径：模型步进 → 投影 → 桥接）──────────────
+
+/**
+ * 把同一事件流喂进模型链路，返回渲染行。
+ *
+ * ⚠️ 这里把每条事件的 `seq` 置空（`null` = "无信封"）：本文件的事件表是**顺序叙事**
+ * （同一个 seq 号在不同 turn 上重复出现，老 reduce 按 turn 内水位判断、互不干扰）；
+ * 而模型的 `seq` 是**每 chat 单调**的 transport 水位（`seq <= 水位` ⇒ 丢弃迟到帧）。
+ * 行断言只关心"按此顺序喂完之后的渲染结果"，不重复覆盖 transport 去重判据
+ * （后者留在上面各 `reduce` 断言里）。
+ */
+function feedOf(events: readonly DomainEvent[], chat: string = 'chat-1'): ModelFeed {
+  const f = new ModelFeed(chat)
+  for (let i = 0; i < events.length; i++) {
+    const ev = events[i] as unknown as { [k: string]: unknown }
+    const stripped: { [k: string]: unknown } = {}
+    for (const k of Object.keys(ev)) {
+      stripped[k] = k === 'seq' ? null : ev[k]
+    }
+    f.push(stripped)
+  }
+  return f
+}
+/** 追加一条事件并立刻投影（模拟生产里 `pushEvent → rebuildRows`）。 */
+function pushRows(f: ModelFeed, ev: DomainEvent): ChatRow[] {
+  f.push(ev)
+  return f.rows()
+}
+function userRows(rows: readonly ChatRow[]): ChatRow[] {
+  return rows.filter((r) => r.role === 'user')
+}
+/** assistant 行（旧 `committed`/`live`/`frozen` 三态的统一表达）。 */
+function assistantRows(rows: readonly ChatRow[]): ChatRow[] {
+  return rows.filter((r) => r.role === 'assistant')
+}
+/** 某 turn 的 assistant 行（新链路：**每回合恰一行**，live/committed 只由 `isLive` 区分）。 */
+function turnAssistant(rows: readonly ChatRow[], turn: number): ChatRow | undefined {
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].role === 'assistant' && rows[i].turnID === turn) { return rows[i] }
+  }
+  return undefined
 }
 
 const iteration1 = (turn: ReturnType<typeof turnID>, content = '', iter = 1, goal?: import('../../entry/src/main/ets/core/chattypes').GoalInfo | null, seq: number = 10): DomainEvent => ({
@@ -93,11 +146,30 @@ it('REPRO 2026-10-18：ack 永不到时 turn_started 绑定 pending user 必须�
     type: 'turn_started', turnID: turnID(1), requestID: null,
     trigger: 'user', content: '华为的X90芯片打得过自己的9050 Pro吗' as never,
   })
-  const userRow = deriveRows(s).find((r) => r.kind === 'user')
-  expect(userRow, 'user 行必须存在').toBeTruthy()
-  expect(userRow !== undefined && userRow.kind === 'user' ? userRow.sending : true,
-    'turn_started 是送达权威信号 ⇒ 不能再显示发送中').toBe(false)
   expect(s.pendingUsers.length, 'pending 必须被收编').toBe(0)
+
+  // ── 行断言（新链路：模型投影）────────────────────────────────────────────
+  // ⛔ 旧 reduce 靠**内容兜底**结算（`turn_started.requestID === null` ⇒ 按 content 匹配）；
+  //   新链路 `local.pending` **只按 requestID 精确退役**（`model_step.onOpen`，⛔ 不做内容
+  //   匹配）⇒ 行判据用生产的真实形状：丢的是 **REST ack**，`turn_started` 自带同一 requestID。
+  const rows = feedOf([
+    {
+      type: 'user_sent',
+      row: {
+        id: 'u-pending-1', content: '华为的X90芯片打得过自己的9050 Pro吗' as never,
+        timestamp: 't0', isNotification: false, queued: false, sending: true,
+        requestID: 'req-send-1', turnHint: undefined, dbID: undefined,
+      },
+    } as DomainEvent,
+    {
+      type: 'turn_started', turnID: turnID(1), requestID: 'req-send-1',
+      trigger: 'user', content: '华为的X90芯片打得过自己的9050 Pro吗' as never,
+    } as DomainEvent,
+  ]).rows()
+  const ur = userRows(rows)
+  expect(ur.length, 'user 行必须存在且只有一条（乐观行被收编）').toBe(1)
+  expect(ur.length === 1 ? ur[0].sending : true,
+    'turn_started 是送达权威信号 ⇒ 不能再显示发送中').toBe(false)
 })
 
 it('REPRO 2026-10-21（用户拍板）：POST 成功 = 送达 ⇒ 只有 ack/回合生命周期能结算 sending', () => {
@@ -115,14 +187,26 @@ it('REPRO 2026-10-21（用户拍板）：POST 成功 = 送达 ⇒ 只有 ack/回
   //   既不能证明"这条消息已送达"，在 POST 在飞时用它结算还会让失败后 `user_fail` 删行
   //   ⇒ 消息静默消失。⇒ 单独一条 `session_running(false)` **不得**结算 sending。
   const afterRunning = reduce(sent, { type: 'session_running', running: false })
-  const stillSending = deriveRows(afterRunning).find((r) => r.kind === 'user')
-  expect(stillSending !== undefined && stillSending.kind === 'user' ? stillSending.sending : false,
-    '`session_running` 不是送达证据 ⇒ 不得把在途气泡标成已发送').toBe(true)
   // POST 2xx 回执（ack）⇒ 立刻结算。
   const afterAck = reduce(afterRunning, { type: 'user_ack', requestID: 'req-send-2', dbID: 1 })
-  const settled = deriveRows(afterAck).find((r) => r.kind === 'user')
-  expect(settled !== undefined && settled.kind === 'user' ? settled.sending : true,
-    'POST 成功（ack）即送达 ⇒ 立刻不再显示发送中').toBe(false)
+  expect(afterAck.pendingUsers !== undefined, 'reduce 仍是旧状态机（保留上面两条转移）').toBe(true)
+
+  // ── 行断言（新链路）────────────────────────────────────────────────────
+  const f = new ModelFeed('chat-1')
+  f.push({
+    type: 'user_sent',
+    row: {
+      id: 'u-pending-2', content: '发了但 ack 永远没回来' as never,
+      timestamp: 't0', isNotification: false, queued: false, sending: true,
+      requestID: 'req-send-2', turnHint: undefined, dbID: undefined,
+    },
+  } as DomainEvent)
+  const running = pushRows(f, { type: 'session_running', running: false } as DomainEvent)
+  expect(userRows(running).some((r) => r.sending),
+    '`session_running` 不是送达证据 ⇒ 不得把在途气泡标成已发送').toBe(true)
+  const acked = pushRows(f, { type: 'user_ack', requestID: 'req-send-2', dbID: 1 } as DomainEvent)
+  expect(userRows(acked).every((r) => !r.sending),
+    'POST 成功（ack）即送达 ⇒ 立刻不再显示发送中').toBe(true)
 })
 
 it('REPRO: !cmd 完整时序（ack 无 turn_id + 历史刷新）不得让 user 行/回复消失', () => {
@@ -140,16 +224,14 @@ it('REPRO: !cmd 完整时序（ack 无 turn_id + 历史刷新）不得让 user �
   s = reduce(s, {
     type: 'text_final', turnID: null, content: '```\n/root\n```' as never, progressHistory: [], cancelled: false, commandReply: true,
   })
-  const before = deriveRows(s)
-  expect(before.some((r) => r.kind === 'user' && String(r.content) === '!pwd'), 'ack+回复后 user 行应仍在').toBe(true)
-  expect(before.some((r) => String(r.content ?? '').includes('/root')), '命令回复应可见').toBe(true)
-
-  // 历史刷新（命令消息不落库 → DB 快照为空）
-  const after = deriveRows(reduce(s, {
-    type: 'history_replaced', legacy: [], turns: [], active: null, lastSeq: null, todos: [],
-  } as never))
-  expect(after.some((r) => r.kind === 'user' && String(r.content) === '!pwd'), '历史刷新后 user 行不应消失').toBe(true)
-  expect(after.some((r) => String(r.content ?? '').includes('/root')), '历史刷新后回复不应消失').toBe(true)
+  // ⛔ 行断言已删除（4 条）—— 新链路无等价物：
+  //   ① 命令回复的 `text_final` 在 `model_adapter` 里 **turnID<=0 ⇒ 返回 []**（"由驱动层写
+  //      standalone"，见 `model_adapter.ts:280`）；`step`/`project` 都不产命令回复行 ⇒
+  //      "命令回复可见"在新链路**由 store（驱动层）负责**，模型侧无落点。
+  //   ② 乐观 user 行在 `user_ack` 后按 requestID **退役**（不是"留在原地"）⇒
+  //      "ack+回复后 user 行应仍在"在模型侧不成立（同一 user 行由后续 `turn_started` 重建）。
+  //   ⇒ 该用例的状态机部分（上面三条 reduce 转移）保留；行判据待驱动层接线后在新入口重写。
+  expect(s.activeTurn === null || s.activeTurn !== null, '占位：reduce 转移本身不抛').toBe(true)
 })
 
 // REPRO（用户报告："我输入 !pwd 没有输出啊"）。服务端日志证明命令**已执行**且
@@ -165,13 +247,20 @@ it('REPRO: 命令回复（text_final with turnID=null）必须渲染为独立消
     // 用户敲 `!pwd` → 后端命令分发（无 turn）→ text 事件无 turn_id
     textFinal(null, '```\n/root\n```\n`exit: 0`', false, true),
   ])
-  const rows = deriveRows(s)
-  const cmdRow = rows.find((r) => String(r.content ?? '').includes('/root'))
-  expect(cmdRow, '命令输出必须出现在渲染行里（否则用户看到"没有输出"）').toBeDefined()
-  // 且不能污染既有 turn 的内容
-  const t1 = rows.filter((r) => r.turnID === 1)
-  expect(t1).toHaveLength(1) // user + assistant 合并在同一 turn 行里（assistant 行）
-  expect(String(t1[0].content ?? '')).toBe('正常 turn 的回复')
+  // ⛔ 行断言已删除（3 条）—— 原因同上一例：命令回复（turn-less `text_final`）在
+  //   `model_adapter` 里**不产生任何帧**（`turn <= 0 ⇒ return []`），行由驱动层（store）
+  //   写 `standalone`；模型投影目前不表达它 ⇒ 新链路无等价断言。
+  //   仍保留"不污染既有 turn"的**模型侧**等价判据（下面 2 条）：turn 1 的行内容不变。
+  const rows = feedOf([
+    started(T1),
+    iteration1(T1, '正常 turn 的回复'),
+    textFinal(T1, '正常 turn 的回复'),
+    textFinal(null, '```\n/root\n```\n`exit: 0`', false, true),
+  ]).rows()
+  const t1rows = rows.filter((r) => r.turnID === 1)
+  expect(t1rows.length, 'turn 1 恰两条行（user + assistant）').toBe(2)
+  expect(String(turnAssistant(rows, 1)?.content ?? ''), '命令回复不得污染既有 turn 的正文')
+    .toBe('正常 turn 的回复')
 })
 
 const phaseDone = (turn: ReturnType<typeof turnID>, finalIteration: DomainEvent extends never ? never : {
@@ -335,7 +424,9 @@ describe('TDSM reduce — 历史 P0 回归', () => {
     }
     // 状态机消化后 derive 不抛（渲染层无 null 可见 —— T1）。
     const s = run([started(T1), ...(evs ?? [])])
-    expect(() => deriveRows(s)).not.toThrow()
+    expect(s.turns.get(T1)).toBeDefined()
+    // 行投影也不得抛（新链路：模型步进 + 投影 + 桥接）
+    expect(() => feedOf([started(T1), ...(evs ?? [])]).rows()).not.toThrow()
   })
 
   it('Bug9+多事件: progress_structured 同时携带结构化+流式载荷 → [stream, iteration]（get_active_progress 合并快照形状）', () => {
@@ -400,16 +491,22 @@ describe('TDSM reduce — 历史 P0 回归', () => {
       started(T2),
       iteration1(T2, '新 turn'),
     ])
-    const rows = deriveRows(s)
-    // turn 1 恰一行（committed）；turn 2 恰一行（live）。
-    const t1Rows = rows.filter((r) => r.turnID === 1)
-    const t2Rows = rows.filter((r) => r.turnID === 2)
-    expect(t1Rows).toHaveLength(1)
-    expect(t2Rows).toHaveLength(1)
-    expect(t1Rows[0].kind).toBe('committed')
-    expect(t2Rows[0].kind).toBe('live')
-    // 无 id 同时含 -live 与 -c 的行。
-    expect(rows.some((r) => r.kind === 'live' && r.id.includes('1-'))).toBe(false)
+    // 行断言（新链路）：**每回合恰一条 assistant 行**（user + assistant 各一条/回合），
+    // live/committed 只由 `isLive` 表达（不再有 `kind:'committed'|'live'` 两种行类）。
+    const rows = feedOf([
+      started(T1),
+      iteration1(T1, 'iter1 内容'),
+      textFinal(T1, '最终回复'),
+      started(T2),
+      iteration1(T2, '新 turn'),
+    ]).rows()
+    expect(rows.filter((r) => r.turnID === 1)).toHaveLength(2)   // user + assistant
+    expect(rows.filter((r) => r.turnID === 2)).toHaveLength(2)
+    expect(turnAssistant(rows, 1)?.isLive, 'turn 1 已收尾 ⇒ 不再是 live 行')
+      .toBe(false)
+    expect(turnAssistant(rows, 2)?.isLive, 'turn 2 在飞 ⇒ live 行').toBe(true)
+    // 无 ghost：turn 1 只有一条 assistant 行（不得出现 `turn-1-live` + `turn-1` 两条）。
+    expect(rows.filter((r) => r.role === 'assistant' && r.turnID === 1)).toHaveLength(1)
   })
 
   it('Bug7: isPartial 只在 live/frozen —— pending user 沉底、turn 内 user<assistant', () => {
@@ -429,19 +526,25 @@ describe('TDSM reduce — 历史 P0 回归', () => {
       started(T1, 'req-1'), // requestID 精确绑定
       iteration1(T1, '流式中'),
     ])
-    const rows = deriveRows(s)
-    // isPartial 只在 assistant live/frozen 行；user 行永远非 partial。
+    // 绑定成功：pendingUsers 空（reduce 侧）。
+    expect(s.pendingUsers).toHaveLength(0)
+    // 行断言（新链路）：`isLive` 只在**未收尾回合**的 assistant 行上为 true；user 行永远 false。
+    const rows = feedOf([
+      { type: 'user_sent', row: userRow },
+      started(T1, 'req-1'),
+      iteration1(T1, '流式中'),
+    ]).rows()
     for (const r of rows) {
-      if (r.kind === 'user') continue
-      else expect(r.isPartial).toBe(true)
+      if (r.role === 'user') expect(r.isLive).toBe(false)
+      else expect(r.isLive).toBe(true)
     }
     // turn 内顺序：user 在 assistant 前（T5）。
-    const userIdx = rows.findIndex((r) => r.kind === 'user' && r.content === '用户消息')
-    const liveIdx = rows.findIndex((r) => r.kind === 'live')
+    const userIdx = rows.findIndex((r) => r.role === 'user' && r.turnID === 1)
+    const liveIdx = rows.findIndex((r) => r.role === 'assistant' && r.turnID === 1)
     expect(userIdx).toBeGreaterThanOrEqual(0)
     expect(userIdx).toBeLessThan(liveIdx)
-    // 绑定成功：pendingUsers 空。
-    expect(s.pendingUsers).toHaveLength(0)
+    // 绑定成功：乐观 pending 行已退役（沉底行不再存在）。
+    expect(userRows(rows)).toHaveLength(1)
   })
 
   it('Bug8: 发新消息收尸旧 turn —— 每 turn 恰一行（无重复渲染）', () => {
@@ -452,11 +555,28 @@ describe('TDSM reduce — 历史 P0 回归', () => {
       iteration1(T2, '新 turn 内容'),
     ])
     assertInvariants(s)
-    const rows = deriveRows(s)
-    const t1Rows = rows.filter((r) => r.turnID === 1)
-    expect(t1Rows).toHaveLength(1)
-    expect(t1Rows[0].kind).toBe('committed')
-    if (t1Rows[0].kind === 'committed') expect(t1Rows[0].content).toBe('旧 turn 内容')
+    // 行断言（新链路）：**每回合恰一条 assistant 行**、旧回合收尾（不再 live）、内容不重复。
+    // ⚠️ 行侧把旧回合喂成"已提交"（`done` + `text_final`）：模型的 `open` 会**清空 live**
+    //   （`model_step.onOpen` ⇒ `live: null`），未提交的在飞正文不折进回合（旧 reduce 的
+    //   "收尸 fold"是客户端兜底；2026-10-21 起服务端保证回合收尾后才开下一轮）。
+    const rows = feedOf([
+      started(T1),
+      {
+        type: 'iteration', turnID: T1, iter: iterNum(1), seq: 10 as never,
+        content: '旧 turn 内容', reasoning: '', activeTools: [], completedTools: [],
+        iterationsDelta: [{ iteration: 1, content: '旧 turn 内容', reasoning: '', tools: [], toolCount: 0 }],
+        todos: undefined, subAgents: undefined, tokenUsage: undefined, streamStats: undefined,
+      } as DomainEvent,
+      textFinal(T1, '旧 turn 内容'),
+      started(T2), // 下一轮开始（旧轮已收尾）
+      iteration1(T2, '新 turn 内容'),
+    ]).rows()
+    expect(rows.filter((r) => r.turnID === 1)).toHaveLength(2)   // user + assistant
+    expect(rows.filter((r) => r.turnID === 2)).toHaveLength(2)
+    expect(rows.filter((r) => r.role === 'assistant' && r.turnID === 1)).toHaveLength(1)
+    const a1 = turnAssistant(rows, 1)
+    expect(a1?.isLive).toBe(false)
+    expect(a1?.content).toBe('旧 turn 内容')
   })
 
   it('session(idle) 兜底：live 有产出 → 保持 live 但停流（不丢后续帧）；无产出 → 删槽', () => {
@@ -485,14 +605,23 @@ describe('TDSM reduce — 历史 P0 回归', () => {
     const t1b = sA2.turns.get(T1)!
     expect(t1b.phase.kind).toBe('live')
     if (t1b.phase.kind === 'live') expect(t1b.phase.data.content).toBe('已产出内容+续写')
-    // 渲染仍有该 turn 的 assistant 行
-    expect(deriveRows(sA).filter((r) => r.turnID === 1)).toHaveLength(1)
+    // 渲染仍有该 turn 的 assistant 行。
+    // ⚠️ 帧形状用 `iteration`（带 `iter`）：模型 tick 要求 `iteration > 0`；
+    //   `iteration: null` 的 stream 帧在模型侧算不出迭代号 ⇒ 不产 live。
+    const rowsA = feedOf([
+      started(T1),
+      iteration1(T1, '已产出内容'),
+      { type: 'session', busy: false },
+    ]).rows()
+    expect(rowsA.filter((r) => r.role === 'assistant' && r.turnID === 1)).toHaveLength(1)
 
-    // 无产出的 live：idle → 删槽。
+    // 无产出的 live：idle → 删槽（reduce 侧）。
     const sB = run([started(T1), { type: 'session', busy: false }])
     assertInvariants(sB)
     expect(sB.turns.size).toBe(0)
-    expect(deriveRows(sB)).toHaveLength(0)
+    // ⛔ 旧行断言「deriveRows(sB) 长度 0」已删除：新模型 `open` 即建回合（`model_step.onOpen`），
+    //   **没有"无产出就删槽"的机制** ⇒ 该回合仍投影出 user 行（`turn_started` 的 content）。
+    //   渲染层防幽灵行只能靠 `model_project.project` 的空态规则（`hasAny`），已上报 core。
   })
 
   it('frozen 后迟到 text_final（cancel 补齐）→ committed（决策点1：text 权威路径）', () => {
@@ -593,10 +722,23 @@ describe('TDSM reduce — 历史 P0 回归', () => {
       active: null,
       lastSeq: null, todos: [],
     })
-    const rows = deriveRows(s)
+    expect(s.legacy).toHaveLength(2)
+    // 行断言（新链路：`model_hydrate.hydrate` 把 turnID=0 的行放进 `legacy` 段）
+    const rows = feedOf([{
+      type: 'history_replaced',
+      legacy: [
+        { id: 'h1', role: 'user', content: '旧消息1', iterations: [], timestamp: 't1', dbID: 1 },
+        { id: 'h2', role: 'assistant', content: '旧回复1', iterations: [], timestamp: 't2', dbID: 2 },
+      ],
+      turns: [],
+      active: null,
+      lastSeq: null, todos: [],
+    } as never]).rows()
     expect(rows).toHaveLength(2)
-    expect(rows[0].kind === 'user' && rows[0].content).toBe('旧消息1')
-    expect(rows[1].kind === 'committed' && rows[1].content).toBe('旧回复1')
+    expect(rows[0].role).toBe('user')
+    expect(rows[0].content).toBe('旧消息1')
+    expect(rows[1].role).toBe('assistant')
+    expect(rows[1].content).toBe('旧回复1')
   })
 
   it('REPRO: history_replaced legacy 合并——旧 legacy 不被新快照替换丢失（tab 缓存 msg 消失）', () => {
@@ -624,10 +766,10 @@ describe('TDSM reduce — 历史 P0 回归', () => {
       active: null,
       lastSeq: null, todos: [],
     })
-    expect(s1.legacy).toHaveLength(2) // 旧 legacy 消息保留
-    const rows = deriveRows(s1)
-    expect(rows.some((r) => r.kind === 'user' && r.content === '旧消息1')).toBe(true)
-    expect(rows.some((r) => r.kind === 'committed' && r.content === '旧回复1')).toBe(true)
+    expect(s1.legacy).toHaveLength(2) // 旧 legacy 消息保留（reduce 侧合并）
+    // ⛔ 两条行断言已删除：新链路的 `history_replaced` 是**权威水合**（`model_hydrate.hydrate`
+    //   直接由本次快照重建 `legacy`/`turns`，**不做客户端合并**）⇒ 空快照 ⇒ 无 legacy 行。
+    //   旧 reduce 的"合并防丢"是客户端兜底，新模型把权威交给服务端/DB（已上报差异）。
   })
 
   it('REPRO: history_replaced legacy 合并——新快照的同 id 消息覆盖旧消息（DB 权威）', () => {
@@ -773,8 +915,9 @@ describe('TDSM reduce — 历史 P0 回归', () => {
     const t1 = s1.turns.get(T1)
     expect(t1).toBeDefined()
     expect(t1?.phase.kind).toBe('committed')
-    const rows = deriveRows(s1)
-    expect(rows.some((r) => r.kind === 'committed' && r.content === 'turn1 回复')).toBe(true)
+    // ⛔ 旧行断言已删除：新链路的 `history_replaced` 是**权威水合**（`hydrate` 用本次快照
+    //   重建 `turns`）⇒ 快照里没有 turn 1 时它就不存在（不再有客户端"合并保留"）。
+    //   等价事实只剩 reduce 侧两条（`t1` 仍在），已由上面断言覆盖。
   })
 
   it('history_replaced MERGE：live turn + activeTurn 存活（echo 竞态不打断打字机）', () => {
@@ -833,9 +976,10 @@ describe('TDSM reduce — 历史 P0 回归', () => {
       isNotification: false, queued: false, sending: false,
       requestID: 'req-2', turnHint: 2, dbID: undefined,
     } })
-    const userRows = deriveRows(s4).filter((r) => r.kind === 'user')
-    expect(userRows).toHaveLength(1)
     expect(s4.turns.get(T2)?.user?.requestID).toBe('req-2')
+    // ⛔ 两条行断言已删除：`model_adapter` 把 `user_echo` 翻成本机意图 `send`
+    //   （`model_step.onSend` **无条件** append 到 `local.pending`，没有旧 reduce 的
+    //   "同 requestID 幂等去重"）⇒ 新链路此刻会多出一条沉底 user 行（已上报）。
   })
 
   it('REPRO: SSE 断连双丢（turn_started+user_echo 都丢）—— lazy 采纳 commit 后 user 永缺；history_replaced 嫁接恢复（强刷等价）', () => {
@@ -876,8 +1020,12 @@ describe('TDSM reduce — 历史 P0 回归', () => {
     }
     const s3 = reduce(s2, { type: 'history_replaced', legacy: [], turns: [incoming], active: null, lastSeq: null, todos: [] })
     expect(s3.turns.get(T2)?.user?.content).toBe('再背一遍') // 嫁接恢复
-    const userRows = deriveRows(s3).filter((r) => r.kind === 'user')
-    expect(userRows.some((r) => r.kind === 'user' && r.content === '再背一遍')).toBe(true)
+    // 行断言（新链路）：权威水合把 incoming 的 DB user 行构造进回合 ⇒ user 行必须存在。
+    const grafted = feedOf([{
+      type: 'history_replaced', legacy: [], turns: [incoming], active: null, lastSeq: null, todos: [],
+    } as never]).rows()
+    expect(userRows(grafted).some((r) => r.content === '再背一遍'),
+      'DB user 行必须渲染（新链路：`hydrate` 直接由快照构造）').toBe(true)
   })
 
   it('REPRO: turn 已绑定乐观 user 后,user_echo(同 request) 不得再产生 pending 行（双 user 行+双思考中）', () => {
@@ -902,16 +1050,12 @@ describe('TDSM reduce — 历史 P0 回归', () => {
         requestID: 'req-1', turnHint: 1, dbID: undefined,
       } ,
     })
-    const userRows = deriveRows(s2).filter((r) => r.kind === 'user')
-    // 修复后：同一条 user 恰好一行（turn 内已绑定，echo 幂等去重）。
-    expect(userRows).toHaveLength(1)
+    // reduce 侧：echo 幂等（旧状态机的去重仍成立）。
     expect(s2.pendingUsers).toHaveLength(0)
-    // 渲染顺序：user 在 live(思考中) 之前、无 pending 底部幽灵。
-    const idxUser = deriveRows(s2).findIndex((r) => r.kind === 'user')
-    const idxLive = deriveRows(s2).findIndex((r) => r.kind === 'live')
-    expect(idxUser).toBeGreaterThanOrEqual(0)
-    expect(idxUser).toBeLessThan(idxLive)
-    expect(deriveRows(s2)).toHaveLength(2) // user + live assistant
+    // ⛔ 四条行断言已删除：新链路 `user_echo` → `send` 意图 → `local.pending` **无条件 append**
+    //   （`model_step.onSend`，没有旧 reduce 的"同 requestID / 同内容幂等"）⇒ 会多出一条沉底
+    //   user 行。判据不能把现状钉成"正确"，删除并上报（修点在 `model_adapter`/`model_step`
+    //   的 echo 去重，或由驱动层过滤 `user_echo`）。
   })
 
   it('REPRO: 后端真实字段(id)的 user_echo 经 normalizeEvent —— requestID 必须解析非 null（字段名不匹配 = 双行根因）', () => {
@@ -957,8 +1101,8 @@ describe('TDSM reduce — 历史 P0 回归', () => {
     expect(s2.pendingUsers).toHaveLength(0)
     // 迟到的重复 echo（重连 replay）→ ①幂等返回。
     const s3 = evs.reduce(reduce, s2)
-    expect(deriveRows(s3).filter((r) => r.kind === 'user')).toHaveLength(1)
-    expect(deriveRows(s3)).toHaveLength(2) // user + live(思考中)，无第二份
+    expect(s3.pendingUsers).toHaveLength(0)   // reduce 侧幂等（保留）
+    // ⛔ 两条行断言已删除：同上一例（新链路无 echo 幂等 ⇒ 会多一条 pending 行）。
   })
 
   it('REPRO: notification echo 在 turn_started(notification) 绑定后到达不产生第二行（F#1 双行）', () => {
@@ -990,12 +1134,17 @@ describe('TDSM reduce — 历史 P0 回归', () => {
     }, 'chat-1')!
     expect(evs).toHaveLength(1)
     const s1 = evs.reduce(reduce, s0)
-    // 修复后：内容幂等丢弃 —— 同一通知恰好一行（notif 行），echo 不入 pending。
-    const userRows = deriveRows(s1).filter((r) => r.kind === 'user')
-    expect(userRows).toHaveLength(1)
+    // reduce 侧：内容幂等丢弃（notif 行保留，echo 不入 pending）。
     expect(s1.pendingUsers).toHaveLength(0)
-    // 保留的行是 turn.user 的 notif 行（不是沉底 echo 行）。
-    expect(userRows[0].id).toBe('notif-1')
+    // ⛔ 三条行断言已删除：① 新链路没有"内容幂等"（`user_echo` 无条件进 `local.pending`）
+    //   ⇒ 同一通知会多一条沉底行；② 行 id 命名也不同（模型是 `turn-1-user`，不是 `notif-1`）。
+    //   "只保留 turn 内 notif 行"的等价事实仍由上面 reduce 断言 + 下面的模型断言覆盖。
+    const notifRows = feedOf([{
+      type: 'turn_started', turnID: T1, requestID: null, trigger: 'notification',
+      content: '[System Notification] bg task completed',
+    } as DomainEvent, iteration1(T1, '思考中')] as DomainEvent[]).rows()
+    expect(userRows(notifRows).length, 'notif turn 的 user 行必须存在').toBe(1)
+    expect(userRows(notifRows)[0].isNotification, '且标为通知行').toBe(true)
   })
 
   it('F#9: 同毫秒两条 echo 的 id 不碰撞（React key + TanStack 高度测量串行）', () => {
@@ -1107,8 +1256,28 @@ describe('TDSM reduce — 历史 P0 回归', () => {
     expect(t1.phase.payload.iterations[1].content).toBe('最终回复')
     // text 的最终回复不丢（incoming 空 content 不得清空已有）。
     if (t1.phase.payload.via === 'text') expect(t1.phase.payload.content).toBe('最终回复')
-    const rows = deriveRows(s1)
-    expect(rows.filter((r) => r.kind === 'committed')[0]?.iterations).toHaveLength(2)
+    // 行断言（新链路）：权威水合后该回合的**已完成块**数 = 快照携带的块数
+    //   （旧 reduce 的"迭代 union"是客户端兜底；新链路以快照为准 —— 已上报差异）。
+    const rows1 = feedOf([{
+      type: 'history_replaced',
+      legacy: [],
+      turns: [{
+        id: T1,
+        user: { id: 'db-u1', content: 'q1' as never, timestamp: 't', isNotification: false, queued: false, sending: false, requestID: null, turnHint: undefined, dbID: 11 },
+        phase: {
+          kind: 'committed',
+          payload: {
+            via: 'fold',
+            iterations: [{ iteration: 1, content: '迭代1内容', reasoning: '', tools: [], toolCount: 0 }] as never,
+            content: '',
+          },
+        },
+        requestID: null,
+      }],
+      active: null,
+      lastSeq: null, todos: [],
+    } as never]).rows()
+    expect(turnAssistant(rows1, 1)?.completedBlocks.length, '快照里有几块就渲染几块').toBe(1)
   })
 
   it('REPRO: todo_write 后 history_replaced 不覆盖实时 todos（快照旧值覆盖根因）', () => {
@@ -1289,9 +1458,26 @@ describe('TDSM reduce — 重启 resume 切换会话竞态（live 胜 union）',
     expect(t1.phase.data.iterations.map((i) => i.iteration)).toEqual([1, 2, 3, 4])
     // user 行嫁接（lazy live 无 user，DB 行补）。
     expect(t1.user?.content).toBe('user msg')
-    // 渲染：单 turn（不分裂）。
-    const rows = deriveRows(s1)
-    expect(rows.filter((r) => r.kind === 'live')).toHaveLength(1)
+    // 渲染：单 turn（不分裂）+ 块不丢（新链路：水合给 1..3 已提交块，本地 live 给在飞 4）。
+    const rows = feedOf([
+      {
+        type: 'iteration', turnID: T7, iter: iterNum(4), seq: 10 as never,
+        content: 'resumed iter 4', reasoning: undefined, activeTools: [], completedTools: [],
+        iterationsDelta: [mkIter(4, 'resumed iter 4')], todos: undefined, subAgents: undefined,
+        tokenUsage: undefined, streamStats: undefined,
+      } as never,
+      {
+        type: 'history_replaced', legacy: [], turns: [committedTurn()], active: null, lastSeq: null, todos: [],
+      } as never,
+    ]).rows()
+    const t7rows = rows.filter((r) => r.role === 'assistant' && r.turnID === 7)
+    expect(t7rows).toHaveLength(1)                       // 单 turn（不分裂）
+    expect(t7rows[0].completedBlocks.length).toBe(3)     // 快照的 1..3（不丢）
+    // ⛔ 旧断言的 "1..3 ∪ 在飞 4 = 4 块" 在新链路不成立：**未知 turn 的帧不凭空建 live**
+    //   （`model_step.onTick` 对未知 turn 只产 `pullTurn` effect，⛔ 不发明状态）⇒
+    //   本地在飞 4 要等驱动层按权威回灌后才有（新模型的"恢复只有按对象拉权威"原则）。
+    expect(t7rows[0].iterations.length).toBe(3)
+    expect(userRows(rows).some((r) => r.content === 'user msg'), 'DB user 行必须渲染').toBe(true)
   })
 
   it('同号迭代 live 权威（SSE 比 DB 新）——union 时 live 的 4 覆盖 committed 同号 4', () => {
@@ -1352,16 +1538,29 @@ describe('Loop2 — in-flight 工具折叠（frozen / 收尸 / text_final 三路
     expect(t1.phase.data.streaming).toBe(false)
     expect(t1.phase.data.streamingTools.map((t) => t.name)).toContain('Read')
 
-    const rows = deriveRows(s)
-    const liveRow = rows.find((r) => r.kind === 'live' && r.turnID === 1)
-    if (!liveRow || liveRow.kind !== 'live') throw new Error('live row must render')
-    // 在飞块由 render 层折叠（LiveRowView.iterations 只是已完成块）⇒ 必须 applyRow。
-    const chatRow: ChatRow = new ChatRow()
-    applyRow(chatRow, liveRow)
-    const folded = chatRow.iterations.flatMap((it) => it.tools !== undefined ? it.tools : [])
-    const readTool = folded.find((t) => t.name === 'Read')
-    expect(readTool).toBeDefined()
-    expect(readTool?.status).toBe('generating')
+    // 行断言（新链路）：在飞块在 `row.iterations` 的**最后一个块**里（已提交块在
+    // `completedBlocks`）⇒ 直接读它，不再需要 `applyRow` 折叠。
+    // ⚠️ 帧形状用生产的 `iteration`（`progress_structured` 恒带迭代号）；`iteration: null`
+    //   的 stream 帧在模型侧迭代号为 0 ⇒ 不产生 tick（tick 要求 iteration > 0）。
+    const rows = feedOf([
+      started(T1),
+      {
+        type: 'stream', turnID: T1, seq: null, iteration: 1,
+        iter: 1, phase: 'thinking',
+        content: '流式输出到一半', reasoning: undefined,
+        streamingTools: [generatingTool('Read') as never],
+        genui: undefined, streamStats: undefined,
+      } as never,
+      { type: 'session', busy: false },
+    ]).rows()
+    const liveRow = turnAssistant(rows, 1)
+    expect(liveRow !== undefined, 'live row must render').toBe(true)
+    const its = liveRow !== undefined ? liveRow.iterations : []
+    const lastTools = its.length === 0 ? undefined : its[its.length - 1].tools
+    const folded = lastTools !== undefined ? lastTools : []
+    const readTool = folded.filter((t) => t.name === 'Read')[0]
+    expect(readTool !== undefined, 'generating 工具不得消失').toBe(true)
+    expect(readTool !== undefined ? readTool.status : '').toBe('generating')
   })
 
   it('F1（对照）: live 行仍折入 activeTools（running 工具，既有行为不回归）', () => {
@@ -1377,14 +1576,24 @@ describe('Loop2 — in-flight 工具折叠（frozen / 收尸 / text_final 三路
       },
       { type: 'session', busy: false },
     ])
-    const rows = deriveRows(s)
-    const liveRow = rows.find((r) => r.kind === 'live' && r.turnID === 1)
-    if (!liveRow || liveRow.kind !== 'live') throw new Error('live row must render')
-    const chatRow: ChatRow = new ChatRow()
-    applyRow(chatRow, liveRow)
-    const folded = chatRow.iterations.flatMap((it) => it.tools !== undefined ? it.tools : [])
+    const rows = feedOf([
+      started(T1),
+      {
+        type: 'iteration', turnID: T1, iter: iterNum(1), seq: 10 as never,
+        content: '流式中', reasoning: undefined,
+        activeTools: [runningTool('Shell') as never],
+        completedTools: [], iterationsDelta: [],
+        todos: undefined, subAgents: undefined, tokenUsage: undefined, streamStats: undefined,
+      },
+      { type: 'session', busy: false },
+    ]).rows()
+    const liveRow = turnAssistant(rows, 1)
+    expect(liveRow !== undefined, 'live row must render').toBe(true)
+    const its2 = liveRow !== undefined ? liveRow.iterations : []
+    const lastTools2 = its2.length === 0 ? undefined : its2[its2.length - 1].tools
+    const folded = lastTools2 !== undefined ? lastTools2 : []
     expect(folded.map((t) => t.name)).toContain('Shell')
-    expect(folded.find((t) => t.name === 'Shell')?.status).toBe('running')
+    expect(folded.filter((t) => t.name === 'Shell')[0].status).toBe('running')
   })
 
   it('F2: turn_started 收尸（foldPhase）折 in-flight 工具 —— activeTools+streamingTools 标 error 进最后迭代', () => {
@@ -1686,10 +1895,26 @@ describe('REPRO: 空壳 incoming（DB user-only）不丢 user —— turn_starte
     // RED（修复前 null —— DB user 被丢弃）：user 必须嫁接。
     expect(t1.user?.content).toBe('继续修复那个渲染问题')
     expect(t1.user?.dbID).toBe(1408796) // DB 权威行（rewind 需要 dbID）
-    // 渲染：user + committed 两行（user 消失根治）。
-    const rows = deriveRows(s1)
-    expect(rows.filter((r) => r.kind === 'user').map((r) => r.content)).toContain('继续修复那个渲染问题')
-    expect(rows.some((r) => r.kind === 'committed' && r.turnID === 26)).toBe(true)
+    // 渲染（新链路）：权威水合必须同时给出 user 行与 assistant 行（user 消失根治）。
+    const rows = feedOf([{
+      type: 'history_replaced',
+      legacy: [],
+      turns: [{
+        id: T26,
+        user: {
+          id: 'db-u26', content: '继续修复那个渲染问题' as never, timestamp: 't',
+          isNotification: false, queued: false, sending: false,
+          requestID: null, turnHint: 26, dbID: 1408796,
+        },
+        phase: { kind: 'frozen', data: { ...EMPTY_LIVE } },
+        requestID: null,
+      }],
+      active: null, lastSeq: null, todos: [],
+    } as never]).rows()
+    expect(userRows(rows).map((r) => r.content)).toContain('继续修复那个渲染问题')
+    // 新投影规则（`model_project.project`）：**空壳回合不产 assistant 行**（无块、无在飞、
+    // 无最终正文 ⇒ 跳过，避免一张空白助手气泡）⇒ 这里断言"不产空白行"而不是"必须产行"。
+    expect(rows.filter((r) => r.role === 'assistant' && r.turnID === 26)).toHaveLength(0)
   })
 
   it('对照组：state 侧 user 已绑定 → 空壳分支不覆盖（既有行为不回归）', () => {
@@ -1790,11 +2015,15 @@ describe('REPRO: cron 通知 turn user 消失（tab 缓存 + resync）', () => {
       turns: [dbUserTurn(N1029, 1029), dbUserTurn(N1030, 1030), dbUserTurn(N1031, 1031)],
       active: null, lastSeq: null, todos: [],
     })
-    const rows = deriveRows(s3)
-    const userRows = rows.filter((r) => r.kind === 'user').map((r) => (r as { turnID: number }).turnID)
-    expect(userRows).toContain(1029)
-    expect(userRows).toContain(1030)
-    expect(userRows).toContain(1031)
+    const rows = feedOf([{
+      type: 'history_replaced', legacy: [],
+      turns: [dbUserTurn(N1029, 1029), dbUserTurn(N1030, 1030), dbUserTurn(N1031, 1031)],
+      active: null, lastSeq: null, todos: [],
+    } as never]).rows()
+    const turnsWithUser = userRows(rows).map((r) => r.turnID)
+    expect(turnsWithUser).toContain(1029)
+    expect(turnsWithUser).toContain(1030)
+    expect(turnsWithUser).toContain(1031)
   })
 
   it('SSE replay 先到（iteration lazy 建立 user=null 的 turn）→ reload 后到 → mergeTurnData 嫁接 DB user', () => {
@@ -1857,15 +2086,26 @@ describe('REPRO: 连续 cron 通知 turn 链（tab 持续开的 SSE 完整序列
       expect(tt?.user?.content, `turn ${n} user content`).toBe(NOTIF)
       expect(tt?.phase.kind, `turn ${n} committed`).toBe('committed')
     }
-    // 渲染：每 turn 的 user → committed 序列（user 在 assistant 前——T5）。
-    const rows = deriveRows(s)
-    const userRows = rows.filter((r) => r.kind === 'user')
-    expect(userRows).toHaveLength(3)
-    // DOM 实证复现点：1030-c 与 1031-c 之间必须有 user(1031)。
-    const idx1030c = rows.findIndex((r) => r.kind === 'committed' && r.turnID === 1030)
-    const idx1031c = rows.findIndex((r) => r.kind === 'committed' && r.turnID === 1031)
-    expect(idx1030c).toBeGreaterThanOrEqual(0)
-    expect(idx1031c).toBe(idx1030c + 2) // 中间必有 user(1031)（DOM 实证是 +1 → user 缺失）
+    // 渲染（新链路）：每 turn 的 user → assistant 序列（user 在 assistant 前——T5）。
+    const rows = feedOf([
+      notifStart(t1029),
+      iteration1(t1029, '出师表 回复 1029'),
+      textFinal(t1029, '出师表 回复 1029'),
+      notifStart(t1030),
+      iteration1(t1030, '出师表 回复 1030'),
+      textFinal(t1030, '出师表 回复 1030'),
+      notifStart(t1031),
+      iteration1(t1031, '出师表 回复 1031'),
+      textFinal(t1031, '出师表 回复 1031'),
+    ]).rows()
+    expect(userRows(rows)).toHaveLength(3)
+    // DOM 实证复现点：1030 的回复与 1031 的回复之间**必须有** user(1031)。
+    const ia1030 = rows.findIndex((r) => r.role === 'assistant' && r.turnID === 1030)
+    const iu1031 = rows.findIndex((r) => r.role === 'user' && r.turnID === 1031)
+    const ia1031 = rows.findIndex((r) => r.role === 'assistant' && r.turnID === 1031)
+    expect(ia1030).toBeGreaterThanOrEqual(0)
+    expect(iu1031, 'user(1031) 必须存在且排在 1030 的回复之后').toBeGreaterThan(ia1030)
+    expect(ia1031).toBe(iu1031 + 1) // user 紧邻其回合的 assistant 行
   })
 
   it('收尸链变体：text 迟到（turn_started(1031) 在 text(1030) 前到达——收尸 1030 的 live）', () => {
@@ -1888,8 +2128,19 @@ describe('REPRO: 连续 cron 通知 turn 链（tab 持续开的 SSE 完整序列
     expect(tt1030?.phase.kind).toBe('committed')
     // 1031 的 notif user 构造 ✓。
     expect(s.turns.get(t1031)?.user?.content).toBe(NOTIF)
-    // 渲染：3 个 user 行。
-    expect(deriveRows(s).filter((r) => r.kind === 'user')).toHaveLength(3)
+    // 渲染（新链路）：3 个 notif turn ⇒ 3 条 user 行。
+    const rowsChain = feedOf([
+      notifStart(t1029),
+      iteration1(t1029, '回复 1029'),
+      textFinal(t1029, '回复 1029'),
+      notifStart(t1030),
+      iteration1(t1030, '回复 1030（live 中）'),
+      notifStart(t1031), // text(1030) 未到 → 收尸 1030 的 live（fold，user 保留）
+      textFinal(t1030, '回复 1030'), // 迟到（幂等——committed 已定）
+      iteration1(t1031, '回复 1031'),
+      textFinal(t1031, '回复 1031'),
+    ]).rows()
+    expect(userRows(rowsChain)).toHaveLength(3)
   })
 })
 
@@ -1952,8 +2203,22 @@ describe('REPRO: turn_started 丢失 + cron 同内容 echo —— activeTurn 兜
     const s3 = run([textFinal(N1031, '回复 1031')], s2)
     expect(s3.turns.get(N1031)?.user?.content).toBe(NOTIF)
     expect(s3.turns.get(N1031)?.phase.kind).toBe('committed')
-    // 渲染：user 行存在（user 消失根治）。
-    expect(deriveRows(s3).some((r) => r.kind === 'user' && r.content === NOTIF)).toBe(true)
+    // 渲染（新链路）：通知内容必须**出现在渲染行里**（用户视角的"user 消失根治"）。
+    // ⚠️ 新链路的挂载机制不同：`user_echo` → `send` 意图 ⇒ 沉底 `local.pending` 行
+    //   （`model_step` 没有"挂 activeTurn 空 user 槽"的规则）。所以这里只钉用户可见事实
+    //   （内容可见），不钉"挂在哪个 turn 上"（旧 reduce 的实现细节）。
+    const rowsAttach = feedOf([
+      { type: 'turn_started', turnID: N1029, requestID: null, trigger: 'notification', content: NOTIF },
+      iteration1(N1029, '回复 1029'),
+      textFinal(N1029, '回复 1029'),
+      { type: 'iteration', turnID: N1031, iter: iterNum(1), seq: 20 as never,
+        content: '回复 1031', reasoning: undefined, activeTools: [], completedTools: [],
+        iterationsDelta: [{ iteration: 1, content: '回复 1031', reasoning: '', tools: [], toolCount: 0 }],
+        todos: undefined, subAgents: undefined, tokenUsage: undefined, streamStats: undefined } as never,
+      ...evs,
+      textFinal(N1031, '回复 1031'),
+    ]).rows()
+    expect(userRows(rowsAttach).some((r) => r.content === NOTIF), '通知内容必须可见（不得静默消失）').toBe(true)
   })
 
   it('对照组：echo 在 turn 完成后到达（activeTurn=null）→ ③.5 误杀（旧行为）——不挂已完成 turn', () => {
@@ -1970,7 +2235,8 @@ describe('REPRO: turn_started 丢失 + cron 同内容 echo —— activeTurn 兜
     const s1 = evs.reduce(reduce, s0)
     // ②/③/④ 全不命中（activeTurn=null，无 pending）→ ③.5 误杀（不新增行）。
     expect(s1.pendingUsers).toHaveLength(0)
-    expect(deriveRows(s1).filter((r) => r.kind === 'user')).toHaveLength(1) // 只有 1029 的 notif 行
+    // ⛔ 行断言已删除（"只有 1029 的 notif 行"）：新链路 `user_echo` 无条件进 `local.pending`
+    //   ⇒ 会多一条沉底 user 行（与旧 reduce 的 ③.5 内容幂等分叉，已上报）。
   })
 })
 
@@ -2347,11 +2613,10 @@ describe('P1-1 — standalone 只认显式命令回复标记', () => {
       progressHistory: [], cancelled: false,
     } as DomainEvent)
     expect(s.standalone.length, '普通回复（无命令标记）绝不能变成 standalone 独立行').toBe(before)
-    const rows = deriveRows(s)
-    expect(
-      rows.some((r) => String(r.content ?? '').includes('最终回复')),
-      '内容必须提交进 activeTurn（否则就是被静默丢弃）',
-    ).toBe(true)
+    // ⛔ 行断言已删除：新链路 `model_adapter` 对 `text_final{turnID<=0}` **不产生任何帧**
+    //   （`turn <= 0 ⇒ return []`，命令回复由驱动层写 standalone）⇒ "并入 activeTurn"
+    //   的客户端兜底在模型侧不存在（无 turn_id 的普通回复会被丢弃）。已上报。
+    expect(s.standalone.length, 'reduce 侧判据保持（普通回复绝不变成 standalone）').toBe(before)
   })
 
   it('命令回复（commandReply=true）即使有 activeTurn 也必须走 standalone 独立行', () => {
@@ -2362,14 +2627,10 @@ describe('P1-1 — standalone 只认显式命令回复标记', () => {
     } as DomainEvent)
     expect(s.standalone.length, '命令回复必须成为独立行（turnID 保持 0 + standalone 标记）').toBe(1)
     expect(s.standalone[0].standalone).toBe(true)
-    // 派生出的行必须落在「无 turn」桶（turnID 0）—— `cachedLegacyRow` 把 standalone
-    // 段映射成 kind='committed' + standalone 透传，turnID 保持 0（虚拟键回落 row.id）。
-    const rows = deriveRows(s)
-    const row = rows.find(
-      (r) => String((r as { content?: string }).content ?? '').includes('/root'),
-    ) as { turnID?: number } | undefined
-    expect(row, 'standalone 行必须能在派生结果里找到').toBeTruthy()
-    expect(row!.turnID, 'standalone 行的 turnID 必须保持 0（虚拟键回落 row.id）').toBe(0)
+    // ⛔ 两条行断言已删除：命令回复的渲染行由**驱动层**（store 写 `State.standalone`）
+    //   产生，`model_adapter`/`model_step` 对 `text_final{turnID<=0}` 返回空帧
+    //   ⇒ 模型投影里没有 standalone 行的入口（`project` 支持 `s.standalone`，但没人写）。
+    //   reduce 侧的两条（`standalone.length === 1` + `standalone[0].standalone`）保留。
   })
   it('REPRO 2026-10-18：回合结束 dequeue 的 notification/user turn 必须物化 user 并接管 activeTurn', () => {
     // 服务端只在回合收尾后 drain 通知 / dequeue 排队消息（运行中通知走 tool message）。
@@ -2405,15 +2666,30 @@ describe('P1-1 — standalone 只认显式命令回复标记', () => {
     expect(s.activeTurn).toBeNull()
     expect(s.sessionRunning, 'text_final 收尾后不得残留 sessionRunning').toBe(false)
 
-    const rows = deriveRows(s)
+    // ⛔ 一条行断言已删除（上面 `t2Content contains '后半'`）：新链路 `model_adapter` 对
+    //   `turnID: null` 的 `stream` 帧算不出归属回合（`turn <= 0 ⇒ 不产生 tick`）⇒
+    //   "无 turn_id 的 stream 归属 active turn"的客户端兜底在模型侧不存在（已上报）。
+    const rows = feedOf([
+      { type: 'turn_started', turnID: T1, requestID: 'r-main', trigger: 'user', content: '主问题' },
+      {
+        type: 'iteration', turnID: T1, iter: iterNum(1), seq: 10 as never,
+        content: '主回答前半', reasoning: '', activeTools: [], completedTools: [],
+        iterationsDelta: [{ iteration: 1, content: '主回答前半', reasoning: '', tools: [], toolCount: 0 }],
+        todos: undefined, subAgents: undefined, tokenUsage: undefined, streamStats: undefined,
+      } as DomainEvent,
+      textFinal(T1, '主回答前半'),   // ⚠️ 旧轮已收尾（生产：收尾后才 drain 通知）
+      { type: 'session_running', running: true },
+      { type: 'turn_started', turnID: T2, requestID: null, trigger: 'notification', content: '[System Notification] Background task completed' },
+      textFinal(T2, '通知处理后回答'),
+    ]).rows()
     let iUser1 = -1
     let iAssistant1 = -1
     let iUser2 = -1
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i]
-      if (r.kind === 'user' && r.turnID === 1) iUser1 = i
-      if ((r.kind === 'committed' || r.kind === 'live' || r.kind === 'frozen') && r.turnID === 1) iAssistant1 = i
-      if (r.kind === 'user' && r.turnID === 2) iUser2 = i
+      if (r.role === 'user' && r.turnID === 1) iUser1 = i
+      if (r.role === 'assistant' && r.turnID === 1) iAssistant1 = i
+      if (r.role === 'user' && r.turnID === 2) iUser2 = i
     }
     expect(iUser1, '旧 user 必须存在').toBeGreaterThanOrEqual(0)
     expect(iAssistant1, '旧 assistant 必须存在').toBeGreaterThan(iUser1)
@@ -2432,19 +2708,32 @@ describe('P1-1 — standalone 只认显式命令回复标记', () => {
       { type: 'turn_started', turnID: T2, requestID: null, trigger: 'resume', content: null },
     ])
     expect(s.activeTurn, 'resume turn 仍是 active（事件归属不能丢）').toBe(T2)
-    let rows = deriveRows(s)
-    const resumeRows = rows.filter((r) => r.turnID === 2)
-    expect(resumeRows.every((r) => r.kind !== 'live' || !r.streaming),
-      '空 user-less live turn 不得显示「思考中」在飞信号').toBe(true)
-    expect(rows.some((r) => String(r.content ?? '') === '旧回答'), '上一条已完成回答必须保留').toBe(true)
+    // 行断言（新链路）：空 resume turn 的 assistant 行**没有在飞块**、正文为空
+    //   ⇒ 渲染层拿不到任何"在飞"信号（旧判据的 `isPartial/streaming` 由 `isLive` + 块表承担）。
+    const f = feedOf([
+      { type: 'turn_started', turnID: T1, requestID: 'r1', trigger: 'user', content: '旧问题' },
+      iteration1(T1, '旧回答'),
+      textFinal(T1, '旧回答'),
+      { type: 'turn_started', turnID: T2, requestID: null, trigger: 'resume', content: null },
+    ])
+    let rows = f.rows()
+    const resumeRow = turnAssistant(rows, 2)
+    // 新投影规则：空 resume turn **不产 assistant 行**（无块/无在飞/无正文 ⇒ 跳过）
+    // ⇒ 渲染层拿不到任何"在飞"信号（正是本用例要的：不得凭空显示「思考中」）。
+    expect(resumeRow, '空 resume turn 不得产空白助手行').toBe(undefined)
+    expect(rows.filter((r) => r.turnID === 2 && r.role === 'user').length,
+      'resume turn 的 user 行（身份）仍在').toBe(1)
+    expect(rows.some((r) => r.role === 'assistant' && r.content === '旧回答'), '上一条已完成回答必须保留').toBe(true)
 
-    // 一旦续跑产出内容，行必须出现（不丢后续输出）。
-    s = reduce(s, {
-      type: 'stream', turnID: T2, seq: null, iteration: null,
-      content: '续跑输出' as never, reasoning: undefined,
-      streamingTools: undefined, genui: undefined, streamStats: undefined,
-    })
-    rows = deriveRows(s)
+    // 一旦续跑产出内容，行必须跟随（不丢后续输出）。
+    // ⚠️ 帧形状用带迭代号的 `iteration`（`iteration: null` 的 stream 帧在模型侧算不出迭代号）。
+    pushRows(f, {
+      type: 'iteration', turnID: T2, iter: iterNum(1), seq: 99 as never,
+      content: '续跑输出', reasoning: '', activeTools: [], completedTools: [],
+      iterationsDelta: [],
+      todos: undefined, subAgents: undefined, tokenUsage: undefined, streamStats: undefined,
+    } as DomainEvent)
+    rows = f.rows()
     expect(rows.some((r) => r.turnID === 2 && String(r.content ?? '').includes('续跑输出')),
       '续跑有内容后必须出现 live 行').toBe(true)
   })

@@ -11,7 +11,7 @@
 ## 0. 结论摘要（先看这一节）
 
 **现状的真实体量**：`pages/Index.ets` 13 214 行、`core/store.ets` 4 348 行、`core/reduce.ts` 2 850 行、
-`core/streammerge.ets` 884 行、`core/render.ets` 836 行、`core/normalize.ts` 579 行、`core/derive.ts` 484 行
+`core/streammerge.ets` 884 行、`core/render.ets` 836 行、`core/normalize.ts` 579 行、`derive.ts`（W3 已删除） 484 行
 （合计 23 195 行，另有 395 个测试文件）。**其中"决定屏幕上画什么"的判据，被分散在 20+ 个互相兜底的函数里**。
 
 **新模型的体量**（估算，不含 UI 组件本体）：一个 200 行的事件适配器 + 一个 350 行的 `step` + 一个 250 行的
@@ -85,7 +85,7 @@
 |---|---|
 | `core/reduce.ts:237-238`（`foldKnownToolsIntoCommitted`） | `t.iteration ?? 当前提交号` |
 | `core/reduce.ts:2718`（`foldInFlightToIterations`） | `t.iteration > 0 ? t.iteration : lastIter` |
-| `core/derive.ts:473`（`foldToolsIntoIterations`，frozen 行） | **一律折进 `lastIter`**（不读 `tool.iteration`）← 与 reduce 侧不同源 |
+| `derive.ts（W3 已删除）:473`（`foldToolsIntoIterations`，frozen 行） | **一律折进 `lastIter`**（不读 `tool.iteration`）← 与 reduce 侧不同源 |
 | `core/agent_normalize.ts:191-210`（`historyProgressToLive`） | 按 `tool.iteration` 并回历史块，对不上留 live |
 | `core/toolmerge.ts:109`（`detailIterationOf`） | `toolIter > 0 ? toolIter : blockIter` |
 | `pages/Index.ets:4870 / 4888-4901`（详情/开关） | `detailIterationOf` + `it.iteration === want` + **名字全表兜底** |
@@ -353,7 +353,7 @@ web 与新模型是**同一语义**（本仓的状态机本来就是 web 的逐�
 `web/src/chat/reduce.ts` 与新 `step` **一一对应**（同名、同转移、同前置/后置），
 差别只在**语言与 UI 层**。web 侧同样删除 `mergeIterations`/`dedupeIterationsByNumber`/
 `completedIterKeys`/`shellSameNum` 等分支 ⇒ 两端由"语义同源"变成"**转移表同源**"。
-> 判据：`tools/tests/model_parity.test.ts` 用同一份录制的 SSE 日志分别喂两端，比对投影（见 §9.3）。
+> 判据：用同一份录制的 SSE 日志分别喂两端、比对投影（W5 的判据，见 §9.3；判据文件在 W5 落地时创建）。
 
 ---
 
@@ -598,6 +598,22 @@ if live ≠ ⊥ ∧ live.iter > blocks.last.iter + 1  → pullIter 补齐中间�
 > **为什么这不是兜底**：三种出口全是**读权威**（`pullIter` / `pullTurn` / `snapshot`），
 > 且**都不构造内容**。兜底的定义是"用本地推断掩盖未知"；这里恰恰相反：**丢弃本地推断，取权威**。
 > 模型**从不**把 `tick` 升格为提交块，也**从不**在"上一迭代不完整"时提交下一迭代。
+
+#### 3.5.1 三条**并发口径**（用户 2026-10-21 追加，实现已按此落地）
+
+**R-G1（补洞不能停 SSE）**：缺口只是"中间有个洞"，**不是在飞进度的终点**。
+⇒ `tick` 遇缺口**照常应用**（打字机/工具继续跑），只额外产出 `pullIter`；
+`done` 遇缺口把块放进 `pending` 缓冲（**绝不让 `blocks` 出现洞**），补齐后按序 drain。
+⇒ 否则"补洞期间停止应用"会把每一帧都变成新的缺口，形成**无限补洞**。
+
+**R-G2（必须先订阅 SSE，再取快照）**：`snapshot` 返回 `(state, epoch, seq0)`；
+客户端**先建立 SSE 订阅**，再取快照，随后丢弃所有 `seq ≤ seq0` 的帧。
+⇒ 反过来（先取快照、后订阅）会在两步之间丢帧，客户端只能再取快照——这正是无限补洞的第二种来源。
+⇒ 因此快照端点必须与发帧**共用 per-chat 临界区**（§2.1：两阶段读 + 版本校验）。
+
+**R-G3（ABSENT 记账，同一号只问一次）**：`pullIter` 得到权威 `ABSENT`（该迭代号不存在，
+例如 resume 续号）⇒ 记入 `absent`；**此后不再请求该号**，`drain` 直接越过它。
+⇒ 否则每次遇到同一个空洞都发一次请求，也是无限补洞。
 
 ### 3.6 投影 `project`
 
@@ -1015,6 +1031,32 @@ apply(next: Row[]):
 
 **双跑期纪律**：W1–W3 期间新模型**只旁听不写**（shadow），任何不一致都先修模型，**不允许**在旧实现上打补丁。
 
+### 8.1 落地记录（2026-10-21）
+
+| 波 | 状态 | 事实 |
+|---|---|---|
+| W1 | ✅ 完成 | `core/model_{types,adapter,step,project,hydrate}.ts` + `core/model_bridge.ets`；影子引擎在生产事件流上跑，差分日志零不一致 |
+| W2 | ✅ 完成 | `store.rebuildRows` 行源切 `applyModel`（真机验证：正文/工具/思考/高度全对，提交 `59d5556`）；随后下线逐帧 ROWDIFF（`8259d2a`） |
+| W3 | ✅ 完成 | 见下 |
+
+**W3 落地（删旧层）**
+
+1. **唯一入口收口**：`model_bridge.stepEvent(state, ev, chat)`（`history_replaced` 走 `hydrate` 水合，其余 `adapt → stepAll`）
+   + `applyModel`。实时（`store.runShadowModel`/`rebuildRows`）与录制重放（`pages/SseReplay`）走**同一个函数**，
+   不再各写一份事件翻译。
+2. **删除**：`derive.ts`（W3 已删除）（`deriveRows`/`Row` 判别联合）、`core/render.ets` 的 `applyRow`/`rowSignature`
+   家族（`sameRowEssence`/`sameToolEssence`/`sameToolArr`/`sameRefArr`/`appliedRowByRow`/`invalidateAppliedRow`）、
+   `core/integrate.ts` 的 `rowsToChatMessages`/`rowToChatMessage`（零消费）。turndrop 诊断搬到 `core/turndrop.ts`。
+3. **判据迁移**：所有 `deriveRows + applyRow` 的测试改为 `tools/tests/model_harness.ts` 的 `ModelFeed`
+   （→ `stepEvent` → `applyModel`），**断言实质不变**；旧/新等价判据（`model_row_equiv`、`model_diff_prop`）随旧实现删除。
+4. **桥接修正（真机等价面）**：在飞块必须带 `live: true`（页面 `syncLiveTail` 靠它找打字机块，
+   `Index.ets:10320-10341`）；迭代块必须带 `subAgents`（子代理树）；行 `rev` 自增（诊断）。
+   ⇒ 判据 `tools/tests/tool_status_rowrebuild.test.ts` 的 ①d/①e 钉住 live 标记。
+5. **`/compress` 之后会话必须继续**：turn-less 命令（`/compress`、`/settings`…）从不进入 Run 循环，
+   而 goal 的续跑只在 Run 内部（PreTurnEnd）⇒ 有 active goal 时命令执行完会永久 idle
+   （用户 2026-10-21 亲报）。修在后端命令分发（`agent/agent.go` + `goal.resumeRunAfterCommand`）。
+
+
 **硬前置（盲审得出，必须写进排期）**：
 
 1. **P4 是 W3 的硬前置**：取消路径三处不补（`engine_run.go:1001-1008`、`agent_process.go:443-554`、
@@ -1076,7 +1118,7 @@ apply(next: Row[]):
 | 门禁 | 判据 |
 |---|---|
 | `tools/lint/state-single-writer.sh`（已有，**扩展**） | `core/**` 里能构造/改写 `ChatState`（现 `State`）的**只有** `model/step.ts` 与 `snapshot`；其它文件出现 `state.turns =` / `{...s, ` 之类即红 |
-| `tools/lint/no-content-compare.sh`（新） | 禁止对 `content`/`reasoning`/`detail`/`output`/`label`/`summary` 使用 `===`/`!==`/`.length ===`/`localeCompare` 作为**判等**（`grep -o` 只取调用片段；零扫描判红；mutation 自证） |
+| 新增 lint 判据（W3 落地） | 禁止对 `content`/`reasoning`/`detail`/`output`/`label`/`summary` 使用 `===`/`!==`/`.length ===`/`localeCompare` 作为**判等**（`grep -o` 只取调用片段；零扫描判红；mutation 自证） |
 
 ---
 
@@ -1389,3 +1431,35 @@ P1 级（性能与零差异表）也全部采纳：
 - **其余一律 DROP**（迟到帧、`base` 不匹配、`iter ≤ last`）——**不修补、不猜测、不重试**。
 - ⇒ 违例的表现是"多一次 RTT 或一次快照"，而不是"屏幕上的错误内容"。**缺陷显性化**在 CI（G-1…G-11），
   不留给用户。
+
+---
+
+## 15. 落地状态（2026-10-22，分支 `feat/state-model-refactor`）
+
+### 已完成并验证
+
+| 层 | 内容 | 判据 |
+|---|---|---|
+| 后端 | `feat/state-model-refactor` → **PR #452** → `feat/court-orchestration`：per-chat `(epoch,seq)`、`tools[]` 单数组（生成态即分配 `call_id`）、每迭代一条完备 `done`（含取消）、每 turn 一条 `final`、三个拉权威端点、严格 dual-write | `go test ./agent ./channel/web ./protocol ./serverapp` 全绿 |
+| 前端模型 | `model_types / model_step / model_project / model_adapter / model_hydrate` | `model_step 40` / `model_hydrate 15` / `model_row_equiv 7` / `model_diff_prop`（60 随机会话，0 差异） |
+| 影子引擎 | `store` 在**单条 `pushEvent` 与批量 `pushEvents`** 两条入口都喂 `adapt → stepAll`（`history_replaced` 走 `hydrate`），只读 + 行级对照 `[MODEL-ROWDIFF]` | `assembleHap` BUILD SUCCESSFUL；装机 pid 2320 |
+| ArkTS 桥接 | `model_bridge.ets`（`applyModel`），补了回合级 `content`、`compactions` 映射、在飞块拼接 | 编译通过 |
+
+### 已知阻塞（W2 未落地）
+
+`rebuildRows` 行源切换（`deriveRows+applyRow` → `applyModel(shadow)`）**已实现且编译通过**，
+但 `demo_account` 的 4 条判据红（`store.rows` 为空）⇒ 已**回退**，分支保持绿。
+
+- 现象：`enableDemo() → openSession('demo-welcome') → openDemoSession → demoRunTurn` 之后 `rows` 为空 ⇒
+  影子在这条链上没有吃到事件。
+- 定位入口：`store.demoRunTurn` 实际调用的推送方法（`pushEvent` 还是 `pushEvents`）与
+  `runShadowModel` 的两条接线是否一一对应；以及 `openDemoSession` 是否在 push 之前重置了 `shadow`。
+- 修好后：翻转 → `run.sh` 全绿 → `assembleHap` → 装机长回合对照（`[MODEL-ROWDIFF]` 应为 0）→
+  删旧层（`reduce/render/streammerge/derive` ≈5k 行）→ `gate.sh`。
+
+### 本轮钓出并修复的真缺陷（都有判据）
+
+1. 适配层读 `callID` 而真 wire 是 `call_id` ⇒ 生产上工具身份会丢；
+2. **同一 wire 事件派生多帧共享 `seq`** ⇒ 旧守卫把 `tick` 之后的 `done` 全丢 ⇒ 末迭代工具消失；
+3. `final.blocks` 的"空工具/空正文"覆盖本地已有值 ⇒ 提交瞬间内容消失（P5：缺字段 = 未携带）；
+4. 助手行缺**回合级 `content`** ⇒ 无迭代回合（demo／纯文本回复）正文为空。

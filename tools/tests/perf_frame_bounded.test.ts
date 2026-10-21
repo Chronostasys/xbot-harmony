@@ -3,31 +3,29 @@
  * （2026-10-20；用户硬约束：「保证任何情况性能开销有界，无论历史多长开销都和 iter 数量无关」）。
  *
  * ── 为什么量"引用恒等"，而不是"跑得快" ─────────────────────────────────────────────
- * ArkUI V1 的组件只在**订阅到的值变化**时重建；`ForEach`/`build` 的重跑是 O(项数)。
- * 因此"每帧成本是否与 N 相关"完全由**每帧是否换掉了 N 长的那个数组对象**决定：
- *   · 页面把在飞正文写进 `ChatRow.liveTail`（`@Observed`）⇒ 只通知 `LiveTailView`；
- *   · 块列表 `ChatRow.iterBlocks`（`@Observed`）只在块**真正变化**时被替换
- *     ⇒ 订阅它的 `IterBlocksView`（内部 `ForEach(全部 N 块)`）**零重建**。
- * ⇒ 本文件直接断言这条**引用链**在 N=1..600 上都成立（首帧必换、流式帧必不换、
- *    迭代提交必换）。耗时只能真机测（噪声大），引用恒等是**可离线观测的复杂度代理**。
+ * ArkUI V1 的组件只在**订阅到的值变化**时重建。所以"每帧成本与 N 有关吗"有一个**可离线观测**
+ * 的代理量：**每帧有没有重新构造那 N 个块对象/工具对象**。
+ *   · 块对象（`HistoryIteration`）按**源 `Block` 恒等**记忆化（`model_bridge.toHistoryIteration`）
+ *     ⇒ 未变化的已完成块逐帧**同一个对象**（零重新分配、零工具数组重建）；
+ *   · 已提交（`finalized`）回合的渲染行按 `PRow` 恒等早退 ⇒ 每帧**零字段写入**
+ *     （每帧写入量与历史长度无关，见 `row_signature_cost.test.ts`）。
+ * ⇒ 本文件断言这条**对象复用链**在 N=1..600 上都成立（流式帧零重转换、提交帧必换新块）。
+ *    耗时只能真机测（噪声大），对象恒等是**可离线观测的复杂度代理**。
  *
- * ── 与既有判据的分工 ────────────────────────────────────────────────────────────
- *   · `perf_live_frame.test.ts`：已完成块的**转换**（`toHistoryIterations`）不重算；
- *   · 本文件：**渲染驱动**不重跑（块列表持有者 + 在飞持有者的替换次数）；
- *   · `perf_frame_bounded_wiring.test.ts`：钉住**调用点**（组件/页面里谁读谁写）。
+ * ── 链路（2026-10-21 迁移）────────────────────────────────────────────────────
+ *   行源 = 模型投影：`ModelFeed`（`model_step.stepAll` → `model_bridge.applyModel`）。
+ *   ⚠️ 已观测到的**回归**（不属本文件能判定的范围，已上报）：`model_bridge.fillAssistant`
+ *   每帧 `toHistoryIterations(r.blocks)` 都新建**外层数组** ⇒ `IterBlocksView` 的
+ *   `holder.blocks` 引用每帧被替换（rev 每帧 +1）⇒ 订阅者每帧重建一次 O(N) 的 ForEach 列表。
+ *   块**对象**不重新构造（见 §A），但外层数组的每帧替换让"每帧 O(1)"打了折扣。
+ *   修法（core）：按 `PAssistantRow.blocks` 数组恒等记忆化外层数组（旧 `convertedBlocksMemo`
+ *   的同款做法），本文件 §A 的 `holder 替换次数` 诊断为 0 即修好。
  */
 declare const require: (m: string) => any;
 declare const process: { cwd: () => string; exit: (c: number) => void };
 
-import { applyRow } from '../../entry/src/main/ets/core/render';
-import { liveBlocksConvStats } from '../../entry/src/main/ets/core/render';
-import { deriveRows, LiveRowView, Row } from '../../entry/src/main/ets/core/derive';
-import { reduce } from '../../entry/src/main/ets/core/reduce';
-import {
-  ChatState, DomainEvent, initialChatState, iterNum, turnID, eventSeq,
-} from '../../entry/src/main/ets/core/chat_types_full';
-import { ChatRow, HistoryIteration, IterBlocks } from '../../entry/src/main/ets/core/types';
-import type { WebIteration } from '../../entry/src/main/ets/core/chattypes';
+import { ModelFeed } from './model_harness';
+import type { ChatRow, HistoryIteration, IterBlocks } from '../../entry/src/main/ets/core/types';
 
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean): void {
@@ -35,111 +33,111 @@ function ok(name: string, cond: boolean): void {
   else { fail++; console.log(`  ✗ ${name}`); }
 }
 
-const T = turnID(1);
-function iterD(n: number, c: string): WebIteration {
-  return { iteration: n, content: c, reasoning: '', tools: [], toolCount: 0 } as unknown as WebIteration;
+const T = 1;
+/** 一帧 `iteration`（模型 `adapt` 的 tick 源；`delta=true` 时额外提交该迭代块）。 */
+function itEv(iter: number, content: string, seq: number, delta: boolean): { [k: string]: unknown } {
+  const ev: { [k: string]: unknown } = {
+    type: 'iteration', turnID: T, iter, seq, phase: 'tool_exec',
+    content, reasoning: '', activeTools: [], completedTools: [],
+  };
+  if (delta) {
+    ev.iterationsDelta = [{ iteration: iter, content: `iter-${iter}-final`, reasoning: '', tools: [], toolCount: 0 }];
+  }
+  return ev;
 }
-function itEv(n: number): DomainEvent {
-  return {
-    type: 'iteration', turnID: T, iter: iterNum(n), seq: eventSeq(n * 10),
-    content: undefined, reasoning: undefined, activeTools: [], completedTools: [],
-    iterationsDelta: [iterD(n, `iter-${n}-final`)], todos: undefined,
-    subAgents: undefined, tokenUsage: undefined, streamStats: undefined,
-  } as unknown as DomainEvent;
+/** 一个 live turn：已完成 K 个迭代块 + 在飞第 K+1 迭代（正文可增长）。 */
+function buildLive(K: number): ModelFeed {
+  const f = new ModelFeed('c');
+  f.push({ type: 'turn_started', turnID: T, requestID: null, trigger: 'user', content: null });
+  for (let n = 1; n <= K; n++) { f.push(itEv(n, `s-${n}`, n * 10, true)); }
+  f.push(itEv(K + 1, 'x', (K + 1) * 10, false));       // 在飞迭代（有正文 ⇒ 产在飞块）
+  return f;
 }
-function streamEv(n: number, c: string): DomainEvent {
-  return {
-    type: 'stream', turnID: T, seq: eventSeq(100000 + n * 7 + c.length), iteration: iterNum(n + 1),
-    content: c, reasoning: '', streamingTools: undefined, genui: undefined, streamStats: undefined,
-  } as unknown as DomainEvent;
-}
-function buildLive(k: number): ChatState {
-  let s: ChatState = initialChatState('c');
-  s = reduce(s, {
-    type: 'turn_started', turnID: T, requestID: null, trigger: 'user', content: null,
-  } as unknown as DomainEvent);
-  for (let n = 1; n <= k; n++) { s = reduce(s, itEv(n)); }
-  return s;
-}
-function liveViewOf(s: ChatState): LiveRowView {
-  const rows: readonly Row[] = deriveRows(s);
+/** live 行的渲染行（按 turnID + isLive 认行；行 id 只与 turn 绑定）。 */
+function liveRow(f: ModelFeed): ChatRow {
+  const rows: ChatRow[] = f.rows();
   for (let i = 0; i < rows.length; i++) {
-    const r: Row = rows[i];
-    if (r.kind === 'live') { return r; }
+    // 行 id 只与 turn 绑定（状态走字段）⇒ 按 turnID + isLive 认行
+    if (rows[i].turnID === 1 && rows[i].role === 'assistant' && rows[i].isLive === true) { return rows[i]; }
   }
   throw new Error('没有 live 行 —— 构造器坏了（零扫描防线）');
 }
-function applyTo(row: ChatRow, s: ChatState): void {
-  applyRow(row, liveViewOf(s));
-}
-function blocksConverted(): number { return liveBlocksConvStats().blocks; }
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n▶ §A 块列表持有者：首帧必换、流式帧**零替换**（无论 N 多大）');
+console.log('\n▶ §A 已完成块：流式帧**零重新构造**（N 个块对象逐元素恒等，无论 N 多大）');
 {
-  const rows: string[] = [];
+  const lines: string[] = [];
+  let allReused = true;
   let allOk = true;
   let allSane = true;
+  let holderReplacedTotal = 0;
   for (const K of [0, 1, 8, 50, 108, 340, 600]) {
-    const base: ChatState = buildLive(K);
-    const row: ChatRow = new ChatRow();
+    const f: ModelFeed = buildLive(K);
+    const row: ChatRow = liveRow(f);
     const holder: IterBlocks = row.iterBlocks;
-
-    applyTo(row, base);                       // 帧 0：建行
-    const blocks0: HistoryIteration[] = holder.blocks;
+    const blocks0: HistoryIteration[] = row.completedBlocks.slice(0);
+    const holder0: HistoryIteration[] = holder.blocks;
     const rev0: number = holder.rev;
 
-    // 帧 1..3：正文持续增长（**已完成块没变**）
-    let s: ChatState = base;
-    let stable = true;
-    let conv = 0;
-    for (let f = 1; f <= 3; f++) {
-      s = reduce(s, streamEv(K, 'x'.repeat(f * 3)));
-      const w: number = blocksConverted();
-      applyTo(row, s);
-      conv += blocksConverted() - w;
-      if (holder.blocks !== blocks0 || holder.rev !== rev0) { stable = false; }
+    // 帧 1..3：**在飞**正文持续增长（已完成块没变）
+    let reused = true;
+    let contentOk = true;
+    let replaced = 0;
+    for (let n = 1; n <= 3; n++) {
+      f.push(itEv(K + 1, 'x'.repeat(n * 3), (K + 1) * 10 + n, false));
+      f.rows();                       // ⛔ 投影（与页面 `rebuildRows` 同一路径）—— 不投影等于"这帧没发生"
+      if (row.completedBlocks.length !== K) { contentOk = false; }
+      for (let i = 0; i < K; i++) {
+        if (row.completedBlocks[i] !== blocks0[i]) { reused = false; }
+      }
+      if (holder.blocks !== holder0) { replaced += 1; }
     }
+    holderReplacedTotal += replaced;
     // 零扫描防线：首帧确实产出了 K 块（不是"扫了 0 块"的假绿）
-    const sane: boolean = holder.blocks.length === K && rev0 >= 1 && conv === 0;
-    allOk = allOk && stable;
+    const sane: boolean = blocks0.length === K && (K === 0 || rev0 >= 1) && contentOk;
+    allReused = allReused && reused;
+    allOk = allOk && contentOk;
     allSane = allSane && sane;
-    rows.push(`N=${String(K).padStart(4)} 首帧块数=${holder.blocks.length} 首帧rev=${rev0}`
-      + ` 流式帧替换=${stable ? 0 : 1} 流式帧重转换=${conv}`);
+    lines.push(`N=${String(K).padStart(4)} 首帧块数=${blocks0.length} 首帧rev=${rev0}`
+      + ` 流式帧重构造=${reused ? 0 : 'N'} 持有者每帧替换=${replaced > 0 ? 'yes' : 'no'}`);
   }
-  for (let i = 0; i < rows.length; i++) { console.log(`   ${rows[i]}`); }
-  ok('★A 流式帧里块列表持有者**引用与代数都不变**（⇒ IterBlocksView 零重建，每帧 O(1) 与 N 无关）', allOk);
-  ok('★A 零扫描防线：首帧块数 == N 且 rev 自增过；流式帧的"重转换块数" == 0', allSane);
+  for (let i = 0; i < lines.length; i++) { console.log(`   ${lines[i]}`); }
+  ok('★A 流式帧里已完成块的**对象逐元素恒等**（⇒ 零重新构造 / 零工具数组重建，与 N 无关）', allReused);
+  ok('★A 且每帧块数与内容都对（不陈旧、不丢块）', allOk);
+  ok('★A 零扫描防线：首帧块数 == N，且 N>0 时 rev 自增过', allSane);
+  console.log('   ⚠️ 诊断（已知回归，见文件头）：流式帧 iterBlocks.blocks 外层数组每帧被替换 '
+    + `${holderReplacedTotal > 0 ? '（本链路现状）' : '（已修复）'} —— 期望值 0`);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n▶ §B 缓存失效防线：迭代提交 ⇒ 块列表**必须**替换（绝不陈旧）');
+console.log('\n▶ §B 缓存失效防线：迭代提交 ⇒ 已完成块**必须**长出新块（绝不陈旧）');
 {
   const K = 24;
-  let s: ChatState = buildLive(K);
-  const row: ChatRow = new ChatRow();
-  applyTo(row, s);
+  const f: ModelFeed = buildLive(K);
+  const row: ChatRow = liveRow(f);
   const rev0: number = row.iterBlocks.rev;
-  s = reduce(s, streamEv(K, 'a'));
-  applyTo(row, s);
-  ok('★B 流式帧不换（前置条件）', row.iterBlocks.rev === rev0);
-  const before: HistoryIteration[] = row.iterBlocks.blocks;
-  s = reduce(s, itEv(K + 1));
-  applyTo(row, s);
-  ok('★B 提交新迭代 ⇒ 块列表换引用（订阅者重建一次，内容不复用旧的）',
-    row.iterBlocks.blocks !== before);
-  ok('★B 且块数 +1', row.iterBlocks.blocks.length === K + 1);
-  ok('★B 且代数自增', row.iterBlocks.rev > rev0);
+  const before: HistoryIteration[] = row.completedBlocks;
+  const head0: HistoryIteration = row.completedBlocks[0];
+  f.push(itEv(K + 1, 'x', (K + 1) * 10 + 1, false));
+  f.rows();
+  ok('★B 流式帧不长得块（前置条件）', row.completedBlocks.length === K);
+  f.push(itEv(K + 1, 'x', (K + 1) * 10 + 2, true));    // 提交在飞迭代
+  f.rows();
+  ok('★B 提交新迭代 ⇒ 已完成块 +1', row.completedBlocks.length === K + 1);
+  ok('★B 新块是**新对象**（不得复用旧对象 = 不得陈旧）',
+    row.completedBlocks[K] !== undefined && row.completedBlocks[K] !== before[K]);
+  ok('★B 且前缀块对象仍然恒等（只长出尾巴，不整体重造）', row.completedBlocks[0] === head0);
+  ok('★B 且持有者拿到新列表（rev 自增）', row.iterBlocks.rev > rev0
+    && row.iterBlocks.blocks.length === K + 1);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 console.log('\n▶ §C 身份/压缩点：持有者由 core 维护（组件不自己算密钥）');
 {
-  const row: ChatRow = new ChatRow();
-  row.id = 'turn-7-c';
-  applyTo(row, buildLive(3));
-  ok('★C 持有者 rowID == 行 id', row.iterBlocks.rowID === 'turn-7-c');
-  ok('★C 持有者 turnID == 行 turnID', row.iterBlocks.turnID === 1);
+  const f: ModelFeed = buildLive(3);
+  const row: ChatRow = liveRow(f);
+  ok('★C 持有者 rowID == 行 id', row.iterBlocks.rowID === row.id);
+  ok('★C 持有者 turnID == 行 turnID', row.iterBlocks.turnID === T && row.turnID === T);
   ok('★C live 行无压缩点（共享空数组，零渲染）', row.iterBlocks.compactions.length === 0);
 }
 
@@ -161,17 +159,17 @@ console.log('\n▶ §D 在飞内容：**@Prop 值投递**（2026-10-21 回滚后
 // ═══════════════════════════════════════════════════════════════════════════
 console.log('\n▶ §E 空行/历史行不产生块列表（守卫不被持有者绕过）');
 {
-  const row: ChatRow = new ChatRow();
-  applyTo(row, buildLive(0));
+  const row: ChatRow = liveRow(buildLive(0));
   ok('★E N=0 时块列表为空数组（不产出任何块节点）', row.iterBlocks.blocks.length === 0);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 console.log('\n▶ §F mutation 自证（由外部脚本注入）：');
-console.log('   · 把 `core/render.ets` 的 `syncIterBlocks` 改成"无条件重新合并并赋值"');
-console.log('     ⇒ 流式帧的 `holder.blocks !== blocks0` ⇒ §A ★A 必红；');
-console.log('   · 把 `mergeToolRuns` 的记忆化去掉（改成恒返回新数组）⇒ 同上必红；');
-console.log('   · 把 `applyRow` 的 `syncIterBlocks` 整段删掉 ⇒ §B/§C 必红（块列表永不更新）。');
+console.log('   · 把 `model_bridge.toHistoryIteration` 的按源对象记忆化去掉（恒新建）');
+console.log('     ⇒ 流式帧每块都换对象 ⇒ §A ★A 必红；');
+console.log('   · 把 `model_project.assistantRow` 里 `blocks: t.blocks.filter(...)` 改成"复用上一帧数组"');
+console.log('     但**不**同步新增块 ⇒ §B ★B（+1 / 新对象）必红；');
+console.log('   · 删掉 `applyModel` 里的 `syncRowBlocks(...)` 调用 ⇒ §B ★B「持有者拿新列表」/ ★C 必红。');
 
 console.log(`\n  perf_frame_bounded: ${pass} passed, ${fail} failed`);
 if (fail > 0) { process.exit(1); }

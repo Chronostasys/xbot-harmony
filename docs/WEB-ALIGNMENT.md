@@ -30,7 +30,7 @@
 | `components/agent/normalize.ts`（`normalizeWebIteration`/`parseWebIterations`/`historyProgressToLive`/legacy normalizeIteration） | `core/agent_normalize.ts` | 逐字一致 |
 | `chat/normalize.ts` `normalizeEvent`（每个 `case`：progress_structured→turn_started/iteration/phase_done/stream、stream_content、text、session、user_echo/inject_user、queue_state） | `core/normalize.ts` | 逐字一致（`HistProgress` 改为内联接口 —— `.ts` 禁止 import ArkTS `.ets`，字段与协议一致） |
 | `chat/reduce.ts` `reduce`（case：session_idle/session_running/turn_started/iteration/stream/phase_done/text_final/session_fields/session/history_replaced/iterations_loaded/user_sent/user_echo/user_ack/user_fail/queue_state；不变量 I1–I6） | `core/reduce.ts` | 逐字一致 |
-| `chat/derive.ts` `deriveRows`（UserRowView/LiveRowView/FrozenRowView/CommittedRowView + memo） | `core/derive.ts` | 逐字一致 |
+| `chat/derive.ts` `deriveRows`（UserRowView/LiveRowView/FrozenRowView/CommittedRowView + memo） | `derive.ts`（W3 已删除） | 逐字一致 |
 | `chat/integrate.ts` `historyToReplaced`/`rowsToChatMessages`/`liveProgressFromState`/`snapshotToLive` | `core/integrate.ts` | 逐字一致 |
 | `AgentPanel.tsx:713` busy 三元公式 `currentSession.running \|\| snapshot.streaming \|\| (activeTurn!==null)` | `core/store.ets` `get busy()` | 逐字一致（额外 `&& askUser===null`，见下） |
 | `useChatMessages`：渲染行 = `rowsToChatMessages(deriveRows(state))` | `core/store.ets` `rebuildRows()` + `core/render.ts` `applyRow` | 逐字一致（就地更新保 @ObjectLink 恒等，等价 web 的对象恒等 memo） |
@@ -3924,7 +3924,7 @@ WebView 之下、点击坐标易落到 composer（本轮误触弹出键盘）⇒
   401**（§21.69 + §21.72 #3）。
 - **但**：`xbot.genui` 在后端恒为 `state=error`（`activation failed: fork/exec ./bin/genui-plugin:
   no such file or directory`，见 §21.68）⇒ 插件不激活 ⇒ 其工具不注册 ⇒ `ui_mode="genui"` 的结果
-  **在实际会话里产生不出来**，`genuiContent` 恒空（`core/derive.ts:422` 的判据恒 false）。
+  **在实际会话里产生不出来**，`genuiContent` 恒空（`derive.ts（W3 已删除）:422` 的判据恒 false）。
 - ⇒ **结论**：genui 的端到端验收被**后端缺 sidecar 二进制**阻塞（与 §21.68 同因）。原生侧不写
   "无法验证的投机代码"（本仓铁律：判据要有判别力），改为**在此记账**；待后端补 `bin/genui-plugin`
   后，按 §21.69 的同一通路（插件宿主页 + WebSurface）接 `GenUIPanel` 等价外壳（标题/折叠/全屏）。
@@ -4480,7 +4480,7 @@ web 仓 `npm ci`（node_modules 缺 `@tiptap/*` ⇒ 不装依赖 `tsc -b` 直接
 **修复（对齐 web `hooks/useChatMessages.ts:200-221`）**：在**边缘**（`toChatMessages`）把
 `turn_user` 还原成常规 user 行、**插在该 assistant 行之前** —— 下游（`historyToReplaced` 建 turn /
 derive / rewind / 加载更多）**零改动**；是否渲染仍由 derive 的「窗口未覆盖迭代 1 ⇒ user 行不渲染」
-规则决定（`core/derive.ts:287 userHiddenByFold`，本仓**早已有**，无需改）。两个必须钉住的细节：
+规则决定（`derive.ts（W3 已删除）:287 userHiddenByFold`，本仓**早已有**，无需改）。两个必须钉住的细节：
 
 - ⛔ **`dbID` 必须取 user 行自己**的 id（`tu.id ?? i+1`），**绝不能**回落成 assistant 行的 id
   ——否则 rewind 会把这条 user msg 回滚到 assistant 行上（web 同处 CR 抓到的 bug）；
@@ -4504,7 +4504,7 @@ web `src/chat/derive.ts:336-346 windowCompactions` 的规则：`afterIteration =
 turn 第一条迭代**之前** ⇒ 紧随 user msg）的横线，只有窗口**覆盖到迭代 1**（`regionsBefore` 归零）
 时才允许渲染；否则它会浮在一个**尚未加载的缺口**正上方（= 又一处不连续）。本仓 `derive.ts` 的
 端口**没有**这条过滤（`compactions` 裸透传），而 `MessageRow` 又在 `compactionsAt(0)` 处**无条件**
-渲染 ⇒ 真缺陷。**修复**：把 `windowCompactions` **逐字移植**进 `entry/src/main/ets/core/derive.ts`
+渲染 ⇒ 真缺陷。**修复**：把 `windowCompactions` **逐字移植**进 `entry/src/main/ets/derive.ts（W3 已删除）`
 并在 committed 分支应用 —— 与 `deriveRows` 里 user 行的隐藏规则**同源同处**（都在 derive）
 ⇒ 任何时刻「要么完整时间线，要么什么都不渲染」。
 
@@ -4665,9 +4665,9 @@ dynamic 视图行也深链。mutation 自证：深链分支失效 ⇒ 6 条红�
 ### 取证（零猜测，file:line 可查）
 
 - **原生侧**：`genuiContent` 管线**全在、但 UI 零消费**——
-  `core/integrate.ts:225 genui: live.genuiContent ?? ''` → `core/derive.ts:327/365` →
+  `core/integrate.ts:225 genui: live.genuiContent ?? ''` → `derive.ts（W3 已删除）:327/365` →
   `core/chattypes.ts:190 genuiContent` / `chat_types_full.ts:90 genui`，
-  且 `core/derive.ts:449` 只用它判「这块非空」。`grep -rn "genuiContent|\.genui" components/ pages/`
+  且 `derive.ts（W3 已删除）:449` 只用它判「这块非空」。`grep -rn "genuiContent|\.genui" components/ pages/`
   ⇒ **命中数 0**（只有注释），`grep -rn "ui_mode|uiMode" components/ pages/` ⇒ **命中数 0**，
   全仓**无 `GenUIBlock`**（`chattypes.ts:51` 的注释是**照抄 web 的注释**，属"文档说有、代码没有"）。
   ⇒ 这就是 AGENTS.md 记的**「死消费」形态**（第 4 例）：管线搬运、无人渲染 ⇒ 用户看不到。

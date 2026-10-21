@@ -33,7 +33,7 @@ eq('长度不等时只比公共前缀（身份变化走 reload）',
 // 复现 bug ① 的页面侧根因：同一对象被就地更新后，changedRowIndices(old, new) 恒为空。
 const a1 = row('a', 1);
 const liveOld = [a1];
-a1.rev = 2; // 就地更新（模拟 core/render.ets applyRow + touch）
+a1.rev = 2; // 就地更新（模拟 core/model_bridge.ets applyModel 就地写行 + touch）
 eq('⛔ 就地更新后 changedRowIndices 恒为空（对象别名陷阱）', changedRowIndices(liveOld, [a1]), []);
 eq('⛔ 键快照能判出变化（数据源修法）', changedByKeys(['a#1'], [a1]), [0]);
 eq('键快照：未变化不通知', changedByKeys(['a#2'], [a1]), []);

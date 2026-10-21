@@ -10,7 +10,8 @@
  * ② **窗口可见性**（「消息不连续」零容忍判据 A，用户 2026-10-11）：`afterIteration === 0`
  *    的压缩点位于该 turn **第一条迭代之前**（紧随 user msg）—— 只有窗口覆盖到迭代 1
  *    （`regionsBefore` 归零）时才允许渲染，否则它会浮在一个**尚未加载的缺口**正上方。
- *    web 同处 `src/chat/derive.ts:336-346 windowCompactions`（本仓 `core/derive.ts` 同源移植）。
+ *    web 同处 `src/chat/derive.ts:336-346 windowCompactions`（本仓现由 `core/model_project.ts`
+ *    的投影规则承担；旧 `derive.ts` 已随 W3 删除）。
  *
  * 判别力（mutation 自证）：
  *   · 删掉 `store.ets:toChatMessages` 里的 `toHistoryCompactions(...)` ⇒ A1/A2 红；

@@ -1,6 +1,8 @@
 /**
  * 2026-10-20 状态审计：
- * ① 发送成功仍显示「发送中」——`applyRow` 在派生 Row **同引用就地改 sending/queued** 时必须刷新；
+ * ① 发送成功仍显示「发送中」——**user 行的 sending 必须跟随模型状态结算**
+ *    （旧链路：`applyRow` 在派生 Row 同引用就地改 sending/queued 时必须刷新；
+ *      新链路：行源 = `model_bridge.applyModel`，`local.pending` 按 **requestID** 精确退役）；
  * ② cancel 重复点击不能静默 resolve（复用同一个在飞 Promise）；
  * ③ 会话隔离：附件/goal 草稿/旧会话 draft timer 必须随切换作废。
  */
@@ -8,9 +10,8 @@ declare const require: (m: string) => any;
 declare const process: { cwd: () => string; exit: (c: number) => void };
 const fs = require('fs');
 const path = require('path');
-import { ChatRow } from '../../entry/src/main/ets/core/types';
-import { applyRow } from '../../entry/src/main/ets/core/render';
-import type { UserRowView } from '../../entry/src/main/ets/core/derive';
+import { ModelFeed } from './model_harness';
+import type { ChatRow } from '../../entry/src/main/ets/core/types';
 
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean): void {
@@ -19,18 +20,44 @@ function ok(name: string, cond: boolean): void {
 const index = fs.readFileSync(path.join(process.cwd(), 'entry/src/main/ets/pages/Index.ets'), 'utf8');
 const store = fs.readFileSync(path.join(process.cwd(), 'entry/src/main/ets/core/store.ets'), 'utf8');
 
-// ① 可变 Row：同一个派生对象上的 sending 从 true → false，必须触发 ChatRow 更新。
-const row = new ChatRow();
-const liveUser = {
-  kind: 'user', id: 'u-1', content: '你好', timestamp: 't', isNotification: false,
-  queued: false, sending: true, dbID: undefined, turnID: 0,
-} as UserRowView;
-applyRow(row, liveUser);
-ok('发送中初始落行', row.sending === true);
-(liveUser as unknown as { sending: boolean }).sending = false;
-const changed = applyRow(row, liveUser);
-ok('派生 Row 同引用改 sending ⇒ applyRow 返回 changed', changed === true);
-ok('发送成功后 ChatRow.sending 必须变 false', row.sending === false);
+// ── ① 行源 = 模型投影：sending 必须随状态结算，且**同一行对象**要被就地刷新 ──────
+// ⛔ 旧判据钉的是 `applyRow(row, sameView) === true`（布尔早退协议）；该协议随旧链路删除。
+//   新链路里"同一行是否被刷新"的可观测等价物 = **ChatRow 对象恒等 + 字段已更新**
+//   （`applyModel` 复用 `rowCache` 里的行对象，只写字段 ⇒ @ObjectLink 订阅者拿到新值）。
+const feed = new ModelFeed('chat_audit');
+feed.push({
+  type: 'user_sent',
+  row: {
+    id: 'u-1', content: '你好', timestamp: 't', isNotification: false,
+    queued: false, sending: true, requestID: 'req-1',
+  },
+});
+const pendingRows: ChatRow[] = feed.rows();
+ok('发送中初始落行', pendingRows.length === 1 && pendingRows[0].sending === true);
+
+// 送达权威信号：turn_started 携带同一 requestID ⇒ pending 退役、user 行 sending=false。
+feed.push({ type: 'turn_started', turnID: 1, requestID: 'req-1', trigger: 'user', content: '你好' });
+const settled: ChatRow[] = feed.rows();
+const userRows = settled.filter((r) => r.role === 'user');
+ok('发送成功后 user 行 sending 必须变 false', userRows.length === 1 && userRows[0].sending === false);
+ok('乐观 pending 行已退役（不残留幽灵 user 行）', settled.every((r) => r.id !== 'u-1'));
+
+// 同一行 id 的 ChatRow **对象恒等**（LazyForEach 不重建行）且字段逐帧跟随。
+// ⚠️ 帧形状用 `iteration`（带 `iter`，模型 `adapt` 的 tick 源）：老 wire 的 `stream`
+//    事件用 `iteration` 字段（不是 `iter`），`adapt` 只认 `ev.iter` ⇒ 它不产生 tick。
+feed.push({
+  type: 'iteration', turnID: 1, iter: 1, seq: 10, phase: 'thinking',
+  content: '第一段', reasoning: '', activeTools: [], completedTools: [],
+});
+const liveA = feed.rows().find((r) => r.turnID === 1 && r.role === 'assistant' && r.isLive === true) as ChatRow;
+feed.push({
+  type: 'iteration', turnID: 1, iter: 1, seq: 11, phase: 'thinking',
+  content: '第一段+第二段', reasoning: '', activeTools: [], completedTools: [],
+});
+const liveB = feed.rows().find((r) => r.turnID === 1 && r.role === 'assistant' && r.isLive === true) as ChatRow;
+ok('同一行 id ⇒ 同一 ChatRow 对象（身份稳定，不整表重建）', liveA === liveB);
+ok(`同一行对象上的内容必须就地刷新（不得冻在首帧）[got=${JSON.stringify(liveB !== undefined ? liveB.content : null)}]`,
+  liveA !== undefined && liveB !== undefined && liveB.content === '第一段+第二段' && liveA.content === liveB.content);
 
 // ② cancel 在飞复用同一个 Promise，不能 silent return。
 ok('cancel 使用 cancelInFlight 复用 Promise',
