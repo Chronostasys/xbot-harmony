@@ -2227,8 +2227,11 @@ struct Index {
         //   旧实现在滚动/触摸时整拍 return ⇒ 手指按在屏上/标志卡住时**永不检测 stall**
         //   ⇒ busy 永久卡死（用户 2026-10-21 亲报「一直显示 busy，为什么不触发 resync」）。
         this.checkLiveSignalStall();
-        // 浮层/滚动/触摸期：只跳过装饰性写（`sweepX` 是页级 @State，写它会把整页标脏）。
-        if (this.anyModalOpen() || this.userScrolling || this.userTouchActive) {
+        // 浮层期：只跳过装饰性写（`sweepX` 是页级 @State，写它会把整页标脏）。
+        if (this.anyModalOpen()) {
+          return;
+        }
+        if (this.userScrolling || this.userTouchActive) {
           return;
         }
         // 同一拍顺手推进流光位置（避免为装饰再开一个定时器）
