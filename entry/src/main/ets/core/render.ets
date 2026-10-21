@@ -81,7 +81,7 @@ export function toToolProgress(t: WebToolProgress): ToolProgress {
  *     服务端点名此过滤必须由前端承担：`agent/engine_wire.go:2436-2445`）。
  *    用户亲报症状：「所有 tool 都渲染为排队 / executing 的 tool 被渲染成排队」。
  */
-export function isCurrentIterTool(t: WebToolProgress, maxCompletedIter: number): boolean {
+export function isCurrentIterTool(t: WebToolProgress, currentIter: number): boolean {
   // ⛔ **在飞的工具永不按迭代号过滤**（2026-10-12 真机 P0 用户实拍：迭代里
   //    `tool1(排队) tool2(排队)` 而**没有任何 executing**）：
   //    服务端整批先标 `pending` 且**可能带着上一迭代的号**（`agent/engine_run_tools.go:49-64`
@@ -95,10 +95,19 @@ export function isCurrentIterTool(t: WebToolProgress, maxCompletedIter: number):
     return true;
   }
   const it: number | undefined = t.iteration;
-  if (it === undefined) {
+  // 未盖迭代号（0/缺省）= 无法证明陈旧 ⇒ 保留（服务端要求每枚都盖号，缺号属旧序列化）。
+  if (it === undefined || it === 0) {
     return true;
   }
-  return it > maxCompletedIter;
+  // ⛔ 2026-10-21 P0 根治（用户实机：「live 迭代的工具执行完成的**一瞬间**，这个迭代消失」）：
+  //   旧判据是 `it > maxCompletedIter`（maxCompletedIter = 已提交块的最大迭代号）。
+  //   工具完成时服务端 `snapshotCompletedIteration(N)` 把**当前这个迭代**记进历史并推送
+  //   ⇒ `maxCompletedIter` 从 N-1 跳到 N ⇒ 该 `done` 工具（iteration = N）不再满足
+  //   `N > N` ⇒ 被滤掉 ⇒ 纯工具迭代变成 content=''/reasoning=''/tools=[] ⇒ 渲染层整块丢弃
+  //   ⇒ 用户看到"完成的一瞬间整块消失"。
+  //   正确语义：**成员资格 = 是否属于当前在飞迭代**（`it >= currentIter`）；只有
+  //   `it < currentIter` 才是"过去迭代残留的 pending/running"（那正是本过滤要清掉的东西）。
+  return it >= currentIter;
 }
 
 /** `WebToolProgress[]` → `ToolProgress[]`（页面 live 尾块的工具列表用）。 */
@@ -289,20 +298,16 @@ export function inFlightBlock(r: LiveRowView, completed: HistoryIteration[]): Hi
   //    ⇒ 缺第 ① 步时，**过去迭代的 `pending` 工具永久渲染在最新在飞块**，看起来就是
   //      「所有 tool 都在排队」，且把真正在执行的 tool 挤成同一档。
   //    判据与渲染同源：过滤逻辑收敛在 `isCurrentIterTool`（导出的纯函数，可脱机断言）。
-  let maxCompletedIter: number = -1;
-  for (let i = 0; i < completed.length; i++) {
-    if (completed[i].iteration > maxCompletedIter) {
-      maxCompletedIter = completed[i].iteration;
-    }
-  }
+  // 参考值 = **当前在飞迭代号**（不是已提交块的最大号 —— 见 isCurrentIterTool 的 P0 注释）。
+  const currentIter: number = r.lastIter;
   const live: ToolProgress[] = [];
   for (let i = 0; i < r.streamingTools.length; i++) {
-    if (isCurrentIterTool(r.streamingTools[i], maxCompletedIter)) {
+    if (isCurrentIterTool(r.streamingTools[i], currentIter)) {
       live.push(toToolProgress(r.streamingTools[i]));
     }
   }
   for (let i = 0; i < r.activeTools.length; i++) {
-    if (isCurrentIterTool(r.activeTools[i], maxCompletedIter)) {
+    if (isCurrentIterTool(r.activeTools[i], currentIter)) {
       live.push(toToolProgress(r.activeTools[i]));
     }
   }
@@ -313,7 +318,7 @@ export function inFlightBlock(r: LiveRowView, completed: HistoryIteration[]): Hi
   //   兜底 `?? []`：部分手写/旧序列化的 live 行没有该字段（防御，避免整表崩）。
   const cTools: readonly WebToolProgress[] = r.completedTools !== undefined ? r.completedTools : [];
   for (let i = 0; i < cTools.length; i++) {
-    if (isCurrentIterTool(cTools[i], maxCompletedIter)) {
+    if (isCurrentIterTool(cTools[i], currentIter)) {
       live.push(toToolProgress(cTools[i]));
     }
   }
