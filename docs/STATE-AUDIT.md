@@ -267,7 +267,7 @@
 
 **未修（明账，均有明确判据/复现路径）**：
 1. `ChatState.busy` 字段本身未删（需改 14 处写点 + 测试夹具；已保证不分叉）。
-2. `rewindTo` 的 `resetStateMachine` 在 send 之前仍会清掉本地乐观行（依赖 loadHistory 重灌）。
+2. ~~`rewindTo` 的 `resetStateMachine` 在 send 之前仍会清掉本地乐观行~~ ⇒ **已删**：`loadHistory()` 会用 `history_replaced` 整体替换，reset 只是先清空一帧（可见闪烁），语义等价（`7c8c50a`）。
 3. 后端 `emitSessionIdleIfNoActiveRun` 的检查/发送仍非原子（客户端有 turn_started 单调门 +
    freshFrame + 探针三重兜底，最坏一次极短抖动）。
 4. `stream_delta` / `reasoning_stream_delta` 仍不消费（后端 `delta_push` 默认关且恒发全量）。
