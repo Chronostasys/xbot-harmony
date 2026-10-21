@@ -107,7 +107,9 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   两条 user msg 邻接 + turn 结束卡 busy）：后台任务完成可能在主 turn 仍在跑时注入
   `turn_started(trigger=notification)`。旧实现无条件 `activeTurn := 通知 turn` ⇒ 主 turn 被收尸成空壳、
   无 turn_id 的 stream/text 落到通知 turn（回答渲染在通知 user 行后）、通知 turn 永不收尾 ⇒ busy。
-  修法见 `core/reduce.ts:attachNotificationWhileLive`（只插 frozen user-only 空壳，不动
+  （⛔ 2026-10-21 该旧函数已删除：服务端只在**回合收尾后** drain 通知，客户端不再冻结主 turn；
+  见 `tools/tests/reduce.test.ts` 的 REPRO 2026-10-18 与 `docs/STATE-AUDIT.md §4.2 F2`）
+  ~~修法见 `core/reduce.ts:attachNotificationWhileLive`~~（只插 frozen user-only 空壳，不动
   activeTurn/lastSeq/sessionRunning）+ `text_final` 权威收尾时清 sessionRunning；web 同源修法在
   `web/src/chat/reduce.ts`；判据 `tools/tests/reduce.test.ts`（REPRO 2026-10-18）。
 - **⛔ i18n 不是“把字符串包上 `i18nT`”就完了**（2026-10-18 用户三连报）：

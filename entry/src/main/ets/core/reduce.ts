@@ -2545,53 +2545,6 @@ function settlePendingSending(s: ChatState, atTurnEnd: boolean): ChatState {
   return { ...s, pendingUsers: s.pendingUsers.map((u, i) => (i === idx ? { ...u, sending: false } : u)) }
 }
 
-/**
- * 通知 turn 通常没有 assistant 产出（后端只注入 user 行）；把它做成 frozen 空壳 ⇒ derive
- * 只渲染 user 行、跳过 assistant；主 turn 的 activeTurn/lastSeq/sessionRunning 原样保留，
- * 后续事件（含无 turn_id 的 stream/text）仍归属主 turn。若通知被注入到**当前 turn**
- * 本身（turnID 相同），不能占用唯一 user 槽 ⇒ 作为 pending 沉底。
- */
-function attachNotificationWhileLive(
-  s: ChatState,
-  ev: Extract<DomainEvent, { type: 'turn_started' }>,
-): ChatState {
-  const content = nonEmptyStr(ev.content)
-  if (content === null) {
-    return s
-  }
-  const row: NonNullable<Turn['user']> = {
-    id: `notif-${ev.turnID}`,
-    content,
-    timestamp: new Date().toISOString(),
-    isNotification: true,
-    queued: false,
-    sending: false,
-    requestID: null,
-    turnHint: undefined,
-    dbID: undefined,
-  }
-  if (ev.turnID === s.activeTurn) {
-    // 注入到当前 turn：保留其真实 user（唯一槽）—— 通知作为 pending 沉底。
-    return { ...s, pendingUsers: [...s.pendingUsers, row] }
-  }
-  const existing = s.turns.get(ev.turnID)
-  if (existing !== undefined) {
-    if (existing.user !== null) {
-      return s
-    }
-    const turns = new Map(s.turns)
-    turns.set(ev.turnID, { ...existing, user: row })
-    return { ...s, turns }
-  }
-  const turns = new Map(s.turns)
-  turns.set(ev.turnID, {
-    id: ev.turnID,
-    user: row,
-    phase: { kind: 'frozen', data: { ...EMPTY_LIVE, streaming: false } },
-    requestID: ev.requestID,
-  })
-  return { ...s, turns }
-}
 
 /** in-flight 工具折叠（"已渲染内容永不消失"）—— foldPhase（turn_started 收尸）
  * 与 text_final（权威 finalizer）共用：running/generating/pending 工具从未完成
