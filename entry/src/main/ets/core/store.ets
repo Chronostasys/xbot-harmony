@@ -3124,6 +3124,10 @@ export class ChatStore {
     //   **写回** ⇒ 肉眼看到"消失了一瞬间又出现"。⇒ 先清 + 记 id 抑制回填，再发请求；
     //   失败才把问题**还回来**（可重试，并撤销抑制）—— ⛔ 不假装成功。
     const rid: string = prompt.request_id !== undefined && prompt.request_id !== null ? prompt.request_id : '';
+    // ⛔ 审计确证（fe-store-audit）：失败回填必须带**会话/代数身份** —— 否则回答失败/超时期间
+    //   切到别的会话，旧会话的问题面板会弹在**新会话**上，一作答就把答案发到新会话（串台）。
+    const raGen: number = this.chatGen;
+    const raChat: string = this.currentChatId;
     this.answeredAskId = rid;
     this.askUser = null;
     this.onUpdate();
@@ -3131,9 +3135,11 @@ export class ChatStore {
       await this.http.post('/api/ask_user/respond', new AskRespondReq(
         this.channel, this.wireChatId(), firstQ, single, answers, cancelled));
     } catch (e) {
-      this.answeredAskId = '';
-      this.askUser = prompt;
-      this.onUpdate();
+      if (raGen === this.chatGen && raChat === this.currentChatId) {
+        this.answeredAskId = '';
+        this.askUser = prompt;
+        this.onUpdate();
+      }
       // ⛔ ArkTS 禁 `throw <任意类型>`（arkts-limited-throw）⇒ 包成 `Error` 再抛（调用方只读 message）。
       const msg: string = e instanceof Error ? e.message : String(e);
       throw new Error(msg); // 调用方（页面）负责可读提示 —— 与既有 catch 路径一致
