@@ -1514,6 +1514,14 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
 
     // ── text_final：权威 finalizer —— live/frozen → committed（I2 构造） ──
     case 'text_final': {
+      // ⛔ 审计确证（state-check-2 F2）：`text_final` 在**任何归属/新鲜度校验之前**就全局清算
+      //   `sending`（`settlePendingSending(s, true)` 会清掉**所有** pending 的 sending）。
+      //   回放/迟到的旧 turn `text_final` 因此会把**新发的、仍在途中的**消息显示成"已发送"；
+      //   若那条 POST 随后失败，`user_fail` 把整行删掉（消息静默消失）。
+      //   ⇒ 与 `turn_started` 同一条单调门：比已知最大 turn 更旧的 text_final 整帧丢弃。
+      if (ev.turnID !== null && ev.turnID < lastTurnIDOf(s)) {
+        return s
+      }
       s = settlePendingSending(s, true)
       // ⚠️ turnID 为 null 的 text_final = **命令回复**（`!cmd` bang / slash 命令）：
       // 后端命令分发（chatWorker 的 Concurrent 分支）按设计**不分配 turn**
