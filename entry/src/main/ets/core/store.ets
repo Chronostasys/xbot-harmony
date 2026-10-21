@@ -3315,6 +3315,16 @@ export class ChatStore {
       clearTimeout(this.sessionPollTimer);
       this.sessionPollTimer = -1;
     }
+    // ⛔ 审计确证（state-check-8 F6 残留）：dispose 还漏了**回前台重载的 15s fail-safe** 与
+    //   `sse.onState` 回调 —— 前者到点仍会 `release()`（解除挂起 + 重建行），后者在
+    //   `sse.close()` 内部 `setState('idle')` 时仍会跑一次 `loadSessions()`。
+    if (this.resumeResyncTimer >= 0) {
+      clearTimeout(this.resumeResyncTimer);
+      this.resumeResyncTimer = -1;
+    }
+    this.sse.onState = (state: string) => {
+      // 已释放：不再因 SSE 状态变化触发任何拉取（幂等）
+    };
     // ⛔ **解除所有外部回调**（登录/登出死循环的根因）：
     //   dispose 只 close SSE 不清回调时，**已 dispose 的 store 的 in-flight 请求/重连**
     //   仍会把 401 送回页面 → 用户重新登录成功后，又一条迟到 401 触发
