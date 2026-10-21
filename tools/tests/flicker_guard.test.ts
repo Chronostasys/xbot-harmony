@@ -23,7 +23,7 @@
  *   钉**调用点/形态**（剥注释后扫描，零扫描判红）；mutation 自证：删守卫 / 改回 @State
  *   写入 / 删去重 ⇒ 各断言必红；还原 ⇒ 绿。
  */
-declare const process: { exit: (c: number) => void };
+declare const process: { exit: (c: number) => void; cwd: () => string };
 declare const require: (m: string) => any;
 declare const __dirname: string;
 const path = require('path');
@@ -61,7 +61,19 @@ const idx: string = stripComments(fs.readFileSync(path.join(REPO, 'entry/src/mai
 // ── ① P0-A 主刀：对账守卫（running 缺字段=false，但新鲜意图可覆盖）──────────────
 // 2026-10-17 口径收敛：服务端 `running` 已去掉 omitempty（false 总在），客户端判据
 // 统一到 `core/streammerge.runningAfterReconcile`（= HTTP 权威 + 15s 意图窗口）。
-const guard: number = countOf(store, 'runningAfterReconcile(runNode.running === true');
+// ⛔ 判据修订（2026-10-21，用户规则优先）：「**session tree 是整体的粗粒度状态，它根本就不能
+//   影响单个会话的状态**，变 busy 也不行」。所以对账路径**必须不写状态机** —— 旧判据要求它
+//   调 `runningAfterReconcile(...)`（那是"写"的形态），与本规则相反。改钉新不变量：
+//   ① 对账块里**没有** pushEvent/session_running 写入；
+//   ② `runningAfterReconcile` 仍被显式标记为"不在此处使用"（防止有人把它加回来）。
+const reconcileBlockStart: number = store.indexOf('if (runNode !== null) {');
+const reconcileBlockEnd: number = reconcileBlockStart >= 0 ? store.indexOf('\n    }', reconcileBlockStart) : -1;
+const reconcileBlock: string = (reconcileBlockStart >= 0 && reconcileBlockEnd > reconcileBlockStart)
+  ? store.slice(reconcileBlockStart, reconcileBlockEnd) : '';
+const guard: number = (reconcileBlock.length > 0
+  && !reconcileBlock.includes('pushEvent')
+  && !reconcileBlock.includes('session_running')
+  && store.includes('void runningAfterReconcile')) ? 1 : 0;
 const barePush: number = countOf(store, "running: runNode !== null && runNode.running === true");
 console.log(`  flicker: 对账守卫=${guard} 旧裸对账=${barePush} rowLimit=${countOf(row, 'this.rowLimit()')} widen写行=${countOf(row, 'this.row.blockLimit = next')} 去重=${countOf(store, 'fetchSessionsOnce')} 自愈=${countOf(idx, 'st.loadHistory()')}`);
 
@@ -80,7 +92,13 @@ ok('② 窗口函数族已从 MessageRow 移除（== 0）', noWindow === 0);
 ok('② 哨兵行已删除（== 0）', noSentinel === 0);
 ok('② 行键不含 rev（== 1）', keyNoRev === 1);
 ok('② 旧含 rev 键已移除（== 0）', keyWithRev === 0);
-ok('② shownIters 直返全部（>= 1）', countOf(row, 'return this.itersFor();') >= 1);
+// 迭代块直返全部：渲染已迁到 `IterBlocksView`（MessageRow 只做消息壳）⇒ 在那里找同一形态，
+// 并保留"MessageRow 不再持有一份自己的迭代窗口"的反向断言（防两处各写一份）。
+const iterBlocksSrc: string = fs.readFileSync(
+  path.join(process.cwd(), 'entry/src/main/ets/components/IterBlocksView.ets'), 'utf8');
+ok('② 迭代块直返全部（>= 1，落点 IterBlocksView）',
+  countOf(row, 'return this.itersFor();') + countOf(iterBlocksSrc, 'this.iters.blocks') >= 1);
+ok('② MessageRow 不再自持迭代窗口（== 0）', countOf(row, 'return this.itersFor();') === 0);
 
 // ── ③ P0-B：loadSessions 并发去重 ──────────────────────────────────────────────────
 const dedup: number = countOf(store, 'fetchSessionsOnce');
