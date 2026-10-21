@@ -1080,8 +1080,11 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       //   后端的 `emitTodosProgress` 是 phase="" / iteration=0 的轻量 progress，
       //   若 activeTurn 已 committed/被收尸，后面的 replay 分支会直接 return s
       //   ⇒ TodoWrite 成功但 todo 列表永远不出现（用户 2026-10-20 P0）。
+      // ⛔ 审计确证（state-gate-6-2 C-1/C-2）：`s0` = 本帧进入时的状态。陈旧/不可归属的帧
+      //   **一个字段都不该写**（含会话级 todos/goal），丢弃时必须返回它；而 `sending` 只能由
+      //   **可归属且新鲜**的帧结算（否则一条别的 turn 的帧就让"发送中…"提前消失）。
+      const s0 = s
       s = applySessionFields(s, ev.todos, ev.goal)
-      s = settlePendingSending(s, false)
       // ⛔ `ev.iter === null` = 事件未携带迭代号（**不是迭代 1**）。保留 prev.iter，
       //   不触发 `advanced`、不参与 gap 判据、也**不解除** committed/frozen 遮蔽
       //   （后者需要"更大迭代号"作为活动证据）。
@@ -1159,8 +1162,12 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
           s = lazyAdoptLive(s, target)
         }
       }
+      // "只带会话级字段的轻帧"（服务端 `emitTodosProgress`：phase="" / iteration=0）必须
+      // **照旧生效**（否则 TodoWrite 成功但列表永不出现，用户 2026-10-20 P0）。
+      const lightweightOnly: boolean = evIter === null && ev.iterationsDelta.length === 0
+        && !ev.toolsCarried && ev.content === '' && ev.reasoning === ''
       const t = s.turns.get(target)
-      if (!t || t.phase.kind !== 'live') return s
+      if (!t || t.phase.kind !== 'live') return lightweightOnly ? s : s0
 
       const prev = t.phase.data
       // ⛔ SSE 也可能**乱序**：当前 live 已经到 iter N+1，但一条 iter N 的迟到
@@ -1172,9 +1179,13 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       //   正确规则：**没有新迭代信息才丢**；带 `iterationsDelta` 的帧必须 union（append-only），
       //   只是**不允许**把它的正文/思考写进更靠前的 live 快照（见下方 `older`）。
       const olderIter: boolean = evIter !== null && evIter < prev.iter
-      if (olderIter && ev.iterationsDelta.length === 0) return s
+      if (olderIter && ev.iterationsDelta.length === 0) return lightweightOnly ? s : s0
       // I5：重放丢弃（seq ≤ 水位 **且** 无新迭代信息 —— 见 isStaleSeq 的 Run 重启说明）。
-      if (isStaleSeq(s.lastSeq, ev.seq, prev, { iter: ev.iter, iterationsDelta: ev.iterationsDelta })) return s
+      if (isStaleSeq(s.lastSeq, ev.seq, prev, { iter: ev.iter, iterationsDelta: ev.iterationsDelta })) {
+        return lightweightOnly ? s : s0
+      }
+      // 只有**新鲜且可归属**的帧才是「这条消息已送达」的证据（见 C-1）。
+      s = settlePendingSending(s, false)
       // ⛔ `ev.iter === null` = 事件未携带迭代号（**不是迭代 1**）。此时保留 prev.iter，
       //   不触发 `advanced`，也不参与 gap 判据 —— 否则会把无号事件应用/覆盖到第 1 迭代。
       const advanced = evIter !== null && evIter > prev.iter
@@ -1325,8 +1336,8 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
     case 'stream': {
       // ⛔ 会话级字段（todos/goal）必须在任何闸门之前应用 —— 流式帧也一样
       //   （用户 2026-10-21：todo_write 那个迭代就该更新，不能等 turn end）。
+      const s0 = s
       s = applySessionFields(s, ev.todos, ev.goal)
-      s = settlePendingSending(s, false)
       const target = ev.turnID !== null ? ev.turnID : s.activeTurn
       if (target === null) return s
       if (s.turns.has(target)) {
@@ -1379,14 +1390,16 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
           }
         }
       } else {
-        if (s.activeTurn !== null) return s // 已有别的活动 turn —— 事件属旧 turn，丢弃
+        if (s.activeTurn !== null) return s0 // 已有别的活动 turn —— 事件属旧 turn，丢弃
         s = lazyAdoptLive(s, target)
       }
       const t = s.turns.get(target)
-      if (!t || t.phase.kind !== 'live') return s
+      if (!t || t.phase.kind !== 'live') return s0
       const prev = t.phase.data
       // ⛔ 迟到的旧迭代 stream 绝不能覆盖当前迭代（同一乱序问题见 iteration case）。
-      if (ev.iteration !== null && ev.iteration < prev.iter) return s
+      if (ev.iteration !== null && ev.iteration < prev.iter) return s0
+      // ⛔ 审计确证（state-gate-6-2 C-1）：`sending` 只能由**可归属且新鲜**的帧结算。
+      s = settlePendingSending(s, false)
       // 迭代前进（后端 stamp 的 iteration > 当前 iter）：清空流式字段 —— 否则
       // 迭代 N+1 的 stream 到达时，若 content 尚未产出，迭代 N 的旧 content
       // /reasoning 残留到新迭代（"老 content 到新迭代"竞态，用户报告）。
