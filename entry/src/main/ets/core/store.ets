@@ -1975,7 +1975,13 @@ export class ChatStore {
     //    `/api/history`/SSE 直接 404「session not found」。页面在点击会话时
     //    已经拿到 `SessionItem.channel` ⇒ 用显式 hint；列表仍作为无 hint 时的回退。
     const parsedAgent: ParsedAgentChatID | undefined = parseAgentChatID(chatId);
-    const agentChannel: string = parsedAgent !== undefined ? parsedAgent.parentChannel : '';
+    // ⛔ 子代理会话的渠道是 **`agent`**（web `AgentPanel.tsx:140`:
+    //   `messageChannel = params.agentChatID ? 'agent' : …`）——**不是**父会话的 parentChannel。
+    //   写错 ⇒ `/api/history` 与 SSE 都去查 `web:<agentKey>` 这个不存在的租户 ⇒ 子代理窗口
+    //   **只看到 user 行、任何 agent 消息都看不到**（用户 2026-10-22 亲报）。
+    //   服务端 `canonicalChatID('agent', 'agent:web:chatX/explore:inst')` 会剥掉 `agent:` 前缀
+    //   得到真实 tenant chatID，与 web 逐字一致。
+    const agentChannel: string = parsedAgent !== undefined ? 'agent' : '';
     const listedChannel: string = this.sessions.length > 0
       ? channelForChat(this.sessions, chatId) : '';
     this.channel = channelHint.length > 0
@@ -2290,12 +2296,15 @@ export class ChatStore {
       parsed.parentChannel, parsed.parentChatID, parsed.role, parsed.instance);
     // ① 先试 get_agent_session_dump（内存 registry，含 iterations）
     let messages: Object[] = [];
+    // ⛔ 子代理的**正文在 `iterations` 里**（v55 数据模型：assistant.content 常为空）⇒
+    //   它在 dump 里必须一起取出来并交给 parse（否则窗口只剩 user 行，用户 2026-10-22 亲报）。
+    let dumpIts: Object[] = [];
     try {
       const dump: AgentSessionDump = await rpc<AgentSessionDump>(this.http, RPC_GET_AGENT_SESSION_DUMP, params);
       if (!this.stillSame(gen, forChat)) { return; }
       console.info(`[SUBAGENT] get_agent_session_dump response: dump=${dump !== null ? 'non-null' : 'null'} messages=${dump !== null && dump.messages !== undefined ? dump.messages.length : 0} iterations=${dump !== null && dump.iterations !== undefined ? dump.iterations.length : 0}`);
       const dumpMsgs: Object[] = dump !== null && dump.messages !== undefined && dump.messages !== null ? dump.messages : [];
-      const dumpIts: Object[] = dump !== null && dump.iterations !== undefined && dump.iterations !== null ? dump.iterations : [];
+      dumpIts = dump !== null && dump.iterations !== undefined && dump.iterations !== null ? dump.iterations : [];
       if (dumpMsgs.length > 0 || dumpIts.length > 0) {
         messages = dumpMsgs;
       }
@@ -2315,39 +2324,82 @@ export class ChatStore {
     }
     if (!this.stillSame(gen, forChat)) { return; }
     // 解析 SubAgentMsg[] → ChatMessage[]（逐字对齐 web `parseSubAgentMessages`）
-    const chatMsgs: ChatMessage[] = this.parseSubAgentMessages(messages);
+    const chatMsgs: ChatMessage[] = this.parseSubAgentMessages(messages, dumpIts);
     console.info(`[SUBAGENT] parsed ${chatMsgs.length} messages from ${messages.length} raw`);
     this.history = chatMsgs;
     this.pushEvent(historyToReplaced(chatMsgs, null));
     this.onUpdate();
   }
 
-  /** 把 SubAgentMsg[]（简单 role/content 对）转成 ChatMessage[]。 */
-  private parseSubAgentMessages(raw: Object[]): ChatMessage[] {
+  /**
+   * `SubAgentMsg[]`（role/content 对）+ dump 的 `iterations` → `ChatMessage[]`。
+   *
+   * ⛔ 逐字对齐 web `useChatMessages.ts:303-326 parseSubAgentMessages`：
+   *   ① **空正文行不渲染**（工具调用行等 `content === ''` 的消息）；
+   *   ② 角色：`user` 保持 user，其余（assistant/agent/…）一律 assistant；
+   *   ③ `turnID: 0` —— 子代理会话没有 turn 概念，整批走 `historyToReplaced` 的 legacy 段；
+   *   ④ **`iterations` 挂到最后一条 assistant 行**；没有任何 assistant 行 ⇒ 追加一条
+   *      只带 iterations 的行（`content: ''`）。
+   *   ⛔ ④ 是「子代理窗口只看得到 user 行」的根因（用户 2026-10-22 亲报）：v55 数据模型里
+   *      子代理的正文/思考/工具都在 `iterations`，`messages[].content` 常常为空 —— 丢掉
+   *      iterations 就等于把 agent 的全部输出丢了。
+   */
+  private parseSubAgentMessages(raw: Object[], rawIterations?: Object[]): ChatMessage[] {
+    const iters: WebIteration[] = [];
+    const srcIts: Object[] = rawIterations !== undefined && rawIterations !== null ? rawIterations : [];
+    for (let i = 0; i < srcIts.length; i++) {
+      const w: WebIteration | null = normalizeWebIteration(srcIts[i] as HistoryIteration);
+      if (w !== null) {
+        iters.push(w);
+      }
+    }
     const out: ChatMessage[] = [];
     for (let i = 0; i < raw.length; i++) {
-      const m: Object = raw[i];
-      const role: string = (m as Record<string, Object>)['role'] as string;
-      const content: string = (m as Record<string, Object>)['content'] as string;
-      if (role === undefined || content === undefined) {
+      const m: Record<string, Object> = raw[i] as Record<string, Object>;
+      const role: string = m['role'] !== undefined && m['role'] !== null ? m['role'] as string : '';
+      const content: string = m['content'] !== undefined && m['content'] !== null ? m['content'] as string : '';
+      if (content.trim().length === 0) {
         continue;
       }
       out.push({
         id: `sa-${i}`,
-        role: role === 'assistant' ? 'assistant' : 'user',
+        role: role === 'user' ? 'user' : 'assistant',
         content: content,
         iterations: [],
         turnID: 0,
         isNotification: false,
         timestamp: '',
         isPartial: false,
-        // ⛔ **合成 dbID 必填**（血债，2026-10-16）：`historyToReplaced`（`core/integrate.ts:57`）
-        //   对 `dbID === undefined` 的行**全部 `continue`**（过滤乐观/echo 副本）⇒ 不给 dbID
-        //   会导致**整批子代理消息被丢弃** ⇒ 历史仍空。子代理会话不需要 rewind/分页，
-        //   故合成一个递增 id（唯一即可）安全。
+        // ⛔ 合成 dbID 必填（血债，2026-10-16）：`historyToReplaced` 对 `dbID === undefined`
+        //   的行**全部 continue**（过滤乐观/echo 副本）⇒ 不给 dbID 会导致整批消息被丢弃。
         dbID: i + 1,
       });
     }
+    if (iters.length === 0) {
+      return out;
+    }
+    let lastAssistant: number = -1;
+    for (let i = out.length - 1; i >= 0; i--) {
+      if (out[i].role === 'assistant') {
+        lastAssistant = i;
+        break;
+      }
+    }
+    if (lastAssistant >= 0) {
+      out[lastAssistant].iterations = iters;
+      return out;
+    }
+    out.push({
+      id: 'sub-iterations',
+      role: 'assistant',
+      content: '',
+      iterations: iters,
+      turnID: 0,
+      isNotification: false,
+      timestamp: '',
+      isPartial: false,
+      dbID: 900000 + out.length,
+    });
     return out;
   }
 

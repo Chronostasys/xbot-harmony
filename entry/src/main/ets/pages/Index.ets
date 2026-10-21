@@ -3480,7 +3480,10 @@ struct Index {
     const chHint: string = channelHint.length > 0
       ? channelHint
       : (parsedAgent !== undefined
-        ? parsedAgent.parentChannel
+        // ⛔ 与 web 一致：子代理会话走 `agent` 渠道（`AgentPanel.tsx:140`）。
+        //   传 parentChannel（web/cli）⇒ 历史与 SSE 都落到不存在的 `web:<agentKey>` 租户
+        //   ⇒ 子代理窗口只剩 user 行。
+        ? 'agent'
         : channelForChatIndexed(this.sessions, this.channelIdx(), chatId));
     const alreadyOpen: boolean = target.currentChatId === chatId;
     const prevStore: ChatStore | null = this.store;
@@ -10776,8 +10779,15 @@ struct Index {
     if (store === null) {
       return;
     }
-    // 目标行**用时查得**（单一来源：只存行 id）。行已不在（会话切换/行被替换）⇒ 放弃本次提交。
-    const row: ChatRow | undefined = rowById(this.rows, this.rewindEditRowId);
+    // 目标行**用时查得**（单一来源：只存行 id）。
+    // ⛔ 查 **store 全量行**，不是页面窗口 `this.rows`（后者只含尾部 `rowLimit` 条）：
+    //   被编辑的消息一旦滚出窗口就查不到 ⇒ 这里会**静默 `cancelRewindEdit()`** ⇒
+    //   用户看到「点了发送没反应、也没退回该消息」（2026-10-22 亲报的回归）。
+    //   web 同款：编辑态在完整 `agentChat.messages` 里按 id 查找（`AgentPanel.tsx:900+`）。
+    let row: ChatRow | undefined = rowById(this.rows, this.rewindEditRowId);
+    if (row === undefined) {
+      row = rowById(store.rows, this.rewindEditRowId);
+    }
     if (row === undefined) {
       this.cancelRewindEdit();
       return;
@@ -10796,6 +10806,11 @@ struct Index {
         return;
       }
       this.buzz(HAPTIC_EVENT_CONFIRM);
+      // ⛔ web 同款（`AgentPanel.tsx:941` 注释：`sendMessage` 会 followResetToken ⇒ 视口回到底部）：
+      //   rewind 删掉了这条消息之后的所有回复，若停在原滚动位置会**悬空/看不到新回复**
+      //   ⇒ 必须立刻跟随到底（用户 2026-10-22：「发送后应该立刻退回到被编辑的会话」）。
+      this.followBottom = true;
+      this.listScroller.scrollEdge(Edge.Bottom);
       this.toast(i18nT('已回退并重发'));
     } catch (e) {
       if (this.store === store && store.gen === rwGen && store.currentChatId === rwChat) {
