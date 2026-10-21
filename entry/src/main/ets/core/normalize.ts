@@ -446,7 +446,10 @@ function normalizeText(env: Record<string, unknown>): readonly DomainEvent[] | n
       turnID: turn !== null ? turnID(turn) : null,
       content: nonEmptyStr(content),
       progressHistory,
-      cancelled: env.cancelled === true,
+      // ⛔ 审计确证（state-gate-7-5）：后端把 `cancelled` 放在 `metadata` 且值是**字符串** `"true"`
+//   （`agent/agent.go:3669`）⇒ 只读顶层布尔恒为 false（TURNDROP 诊断把每次取消都记成
+//   `cancelled=false`，排障时误导）。三态兼容：顶层布尔 / metadata 字符串 / metadata 布尔。
+cancelled: env.cancelled === true || meta?.cancelled === 'true' || meta?.cancelled === true,
     },
   ]
 }
