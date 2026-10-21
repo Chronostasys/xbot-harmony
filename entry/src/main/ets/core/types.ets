@@ -317,72 +317,6 @@ export interface IterList {
   iterations: HistoryIteration[];
 }
 
-/**
- * **高频在飞内容**的可观察持有者（`@Observed`）—— 流式期逐帧变化的那部分。
- *
- * ⛔ 为什么必须独立成一个对象（2026-10-20 性能根因，见 `docs/PERF-BOUNDS.md §3`）：
- *   旧实现把 `liveText/liveReasoning/liveTools` 放在**页面 `@State`**、再由页面投给
- *   `MessageRowView` 的 `@Prop` ⇒ 每次投递都会让**整页** rebuild（页面 build 是万行级
- *   函数，含会话列表/抽屉/浮层分支），并以 ≤10Hz 重复 ⇒ 与滚动/手势抢主线程。
- *   现在：写这个对象的属性**只通知订阅它的 `LiveTailView`**（`@ObjectLink`），
- *   页面与行组件都不重建 ⇒ 每帧成本与页规模、迭代数量无关（O(1) 属性写）。
- *
- * 约定（不变量，判据见 `tools/tests/perf_frame_bounded.test.ts`）：
- *   · 只由页面 `syncLiveTail()` 按**投递节流**写（保持既有的可见性/浮层/滚动闸门语义）；
- *   · 组件侧**只读**；
- *   · `rev` 每次投递 +1（保证"值没变但需要重渲"也能通知到；工具数组是就地变更的）。
- */
-@Observed
-export class LiveTailState {
-  /** 在飞正文（已收到的全量，未裁剪） */
-  text: string = '';
-  /** 在飞思考 */
-  reasoning: string = '';
-  /** 在飞工具列表（引用可能恒定、元素就地变更 ⇒ 依赖 `rev` 触发重渲） */
-  tools: ToolProgress[] = [];
-  /** 投递代数（每次真正投递 +1） */
-  rev: number = 0;
-
-  /** 组件侧读的"是否有在飞内容"（判据与行挂载同源）。 */
-  hasContent(): boolean {
-    return this.text.length > 0 || this.reasoning.length > 0 || this.tools.length > 0;
-  }
-
-  /**
-   * **一次性**写入在飞内容（页面投递的唯一入口）。
-   *
-   * ⛔ 为什么必须聚合成一个方法（2026-10-21 P0「思考动画/字数卡死 5 秒」）：
-   *   `@Observed` 的每个属性赋值都会通知订阅者 ⇒ 逐个写 `text`/`reasoning`/`tools`/`rev`
-   *   会让 `LiveTailView` **连续重建 3–4 次**（每次都重跑 `onDidBuild → onSource → toRunes`
-   *   + MarkdownView 重建）；叠加 20Hz 打字机与 600ms 脉冲，主线程被成串重建塞满 ⇒
-   *   光球动画（Canvas）与「思考 N 字」一起静止数秒。
-   *   ⇒ 聚合成**一次**方法调用：内容与代数在同一"写事务"里落定，订阅者只重建一次。
-   *   内容没变时不写任何字段（零通知）。
-   */
-  setContent(text: string, reasoning: string, tools: ToolProgress[]): boolean {
-    const sameText: boolean = this.text === text;
-    const sameReason: boolean = this.reasoning === reasoning;
-    const sameTools: boolean = this.tools === tools;
-    if (sameText && sameReason && sameTools) {
-      return false;
-    }
-    if (!sameText) { this.text = text; }
-    if (!sameReason) { this.reasoning = reasoning; }
-    if (!sameTools) { this.tools = tools; }
-    this.rev = this.rev + 1;
-    return true;
-  }
-}
-
-/**
- * **已完成迭代块列表**的可观察持有者（`@Observed`）—— 只在块列表真正变化时替换 `blocks`。
- *
- * ⛔ 为什么（同一性能根因）：旧实现让**行组件**（`MessageRowView`）的 build 里直接
- *   `ForEach(shownIters())`。行对象是 `@ObjectLink` 订阅的，而 `applyRow` 在 live 分支
- *   **每个 SSE 事件**都会写行字段（正文/迭代/代际）⇒ 行组件逐帧 rebuild ⇒ 那个 `ForEach`
- *   逐帧对**全部 N 个块**重算 key（O(N)）。现在块列表被搬进独立组件（`IterBlocksView`），
- *   它只订阅这个持有者：正文流式增长**不换块数组** ⇒ 该组件**零重建** ⇒ 每帧 O(1)。
- */
 @Observed
 export class IterBlocks {
   /** 已完成（已跨迭代合并）的块列表 */
@@ -472,12 +406,6 @@ export class ChatRow implements IterList {
    * 字段本身无 UI 语义（纯触发器）；赋值即通知，无需被 build 读取。
    */
   themeGen: number = 0;
-  /**
-   * **高频在飞内容**持有者（`@Observed`）—— 只通知订阅它的 `LiveTailView`。
-   * ⛔ 行组件/页面**不读也不写**它的属性（读了不会建立订阅，写了会误判订阅源）。
-   * 见 `LiveTailState` 的根因说明。
-   */
-  liveTail: LiveTailState = new LiveTailState();
   /**
    * **已完成块列表**持有者（`@Observed`）—— 只通知订阅它的 `IterBlocksView`。
    * 由 `core/render.ets:applyRow` 维护（仅在块列表/压缩点真正变化时替换）。

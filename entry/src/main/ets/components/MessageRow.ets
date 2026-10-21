@@ -96,7 +96,7 @@ export struct MessageRowView {
   /**
    * live 行**是否有在飞内容**（正文/思考/工具非空）—— 决定末尾在飞块是否挂载。
    *
-   * 由页面按**变化时才写**（`liveTail.hasContent()` 的布尔镜像）⇒ 每迭代最多翻转两次
+   * 由页面按**变化时才写**（`liveActive` 布尔）⇒ 每迭代最多翻转两次
    * （起首 / 收尾），不参与逐帧路径。判据与 `rowHasInFlightSignal` 同源。
    */
   @Prop liveActive: boolean = false;
@@ -415,7 +415,7 @@ export struct MessageRowView {
       // ── 在飞迭代块：**同一气泡内的最后一块**（对齐 web TurnBody 的 LiveIteration）──
       // 真机 bug ② 根治点：live 迭代不再是自己一个气泡/一个 ListItem，而是这条
       // assistant 消息气泡里的最后一块，与已完成迭代共用同一套块渲染（仅带打字机）。
-      // ⛔ 内容来自 **@ObjectLink liveTail**（页面按投递节流写它）—— 不是"从被就地修改的
+      // ⛔ 内容来自 **@Prop**（页面按投递节流写）—— 不是"从被就地修改的
       //   行对象里读"（那条路不产生 ArkUI 能看见的「值变化」⇒ 组件永不重建 ⇒ 流式期间全空）。
       if (this.liveActive) {
         this.LiveIterationBlock()
@@ -460,7 +460,7 @@ export struct MessageRowView {
    * + 思考头），但**不带自己的气泡 chrome**（背景/边框/圆角/外边距都在外层
    * AssistantBlock 上）⇒ 与已完成迭代在同一个气泡里。
    *
-   * ⛔ **无参**：内容全部读 `@ObjectLink live`（`LiveTailState` 持有者，页面按节流写）。
+   * ⛔ **无参**：内容全部读 `@Prop liveText/liveReasoning/liveTools`（页面按节流写）。
    *   绝不再从 `row.iterations` 里找那一块 —— 行对象就地更新、引用恒定，读它不产生
    *   「值变化」⇒ 组件不重建（P55 回归：流式期间全空）。
    */

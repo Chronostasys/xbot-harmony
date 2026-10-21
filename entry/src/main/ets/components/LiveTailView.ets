@@ -11,7 +11,7 @@
  *   · 正文是 Markdown，逐字裁剪要按拍重解析整段文本（贵）⇒ 推进每拍做，
  *     **上屏节奏按文本长度自适应**（≤300 码点每拍；更长每 N 拍，N=ceil(len/300)）。
  */
-import { LiveTailState, ToolProgress } from '../core/types';
+import { ToolProgress } from '../core/types';
 import { advanceVisible, clipRunes, isCJK, isTyping, runeCount, toRunes } from '../core/typewriter';
 import { foldPills } from '../core/streammerge';
 import { Palette, paletteOf, Effects, effectsOf, shadowRadiusOf } from '../core/theme';

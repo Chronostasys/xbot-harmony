@@ -321,10 +321,6 @@ export class ChatStore {
   usage: TokenUsage | undefined = undefined;
   /** 工作目录 */
   cwd: string = '';
-  /** todos（服务端权威） */
-  todos: TodoItem[] = [];
-  /** 目标（来自结构化进度事件的 goal） */
-  goal: GoalInfo | undefined = undefined;
 
   sessions: SessionItem[] = [];
 

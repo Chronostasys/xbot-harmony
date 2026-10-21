@@ -783,7 +783,7 @@ export function applyRow(row: ChatRow, r: Row): boolean {
     syncIterBlocks(row, EMPTY_BLOCKS, NO_COMPACTIONS, r.turnID);
   } else if (r.kind === 'live') {
     // live 行的已完成块 = `applyRow` 上面按源数组记忆化得到的 `row.completedBlocks`
-    //（**不含**末尾在飞块 —— 在飞内容由 `LiveTailState` 承载）。
+    //（**不含**末尾在飞块 —— 在飞内容由页面 `liveText/liveReasoning/liveTools` 承载）。
     syncIterBlocks(row, row.completedBlocks, NO_COMPACTIONS, r.turnID);
   } else if (r.kind === 'frozen') {
     syncIterBlocks(row, completedBlocks(row), NO_COMPACTIONS, r.turnID);

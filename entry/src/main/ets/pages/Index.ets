@@ -150,7 +150,6 @@ import {
   AskUserPrompt,
   ChatRow,
   HistoryIteration,
-  LiveTailState,
   QueueItem,
   SearchHit,
   SessionItem,
@@ -1286,8 +1285,8 @@ struct Index {
   /**
    * live 行**是否有在飞内容**（正文/思考/工具非空）—— 决定末尾在飞块是否挂载。
    *
-   * ⛔ 这里**只放一个布尔**，逐帧正文/思考/工具走 `ChatRow.liveTail`
-   *   （`@Observed LiveTailState`，只有 `LiveTailView` 订阅）—— 见 `docs/PERF-BOUNDS.md §3`。
+   * ⛔ 这里**只放一个布尔**；逐帧正文/思考/工具走页面的 `liveText/liveReasoning/liveTools`
+   *   三个 `@State`（`@Prop` 值投递，见 `LiveTailView` 的回滚说明）。
    *   历史（两次回归的根因，别再走回去）：
    *   · 「只从行对象读在飞内容」⇒ 行是就地更新的（引用恒定）⇒ ArkUI 看不到值变化 ⇒
    *     流式期间渲染输入冻结（P55：第一条 SSE 到达就消失、commit 才一次性出现）；
@@ -1300,7 +1299,7 @@ struct Index {
   /**
    * 在飞正文/思考/工具（**值投递**给 `MessageRowView → LiveTailView`）。
    *
-   * ⛔ 2026-10-21 回滚：曾改成写 `LiveTailState` 持有者（@ObjectLink）以避免整页 rebuild，
+   * ⛔ 2026-10-21 回滚：曾改成写独立 @Observed 持有者（@ObjectLink）以避免整页 rebuild，
    *   但实测出现「光球与『思考 N 字』一起静止数秒、N 卡在 3/39」的 P0（用户亲报）。
    *   ⇒ 回到这组经过长期验证的 `@State`：**多一点 rebuild，换正确与流畅**。
    */
@@ -2621,7 +2620,7 @@ struct Index {
       // ⛔ 不重投 `@State rows`、不跑 `applyRows` diff（那是 O(rows)）——内容由
       //   `@Observed ChatRow` + `@ObjectLink` 直接送达行组件。**但仍必须**跑一次
       //   `syncRowDs()` 的轻量段：它负责（a）`liveRowRef/hasLiveRow` 身份，
-      //   （b）把在飞内容写进 `LiveTailState` 持有者 —— 否则流式内容不再前进。
+      //   （b）把在飞内容写进页面三项 `@State` —— 否则流式内容不再前进。
       //   该段在 busy 且行数未变时是 O(1) 早退（见 `syncRowDs` 顶部）。
       this.syncRowDs();
     }
