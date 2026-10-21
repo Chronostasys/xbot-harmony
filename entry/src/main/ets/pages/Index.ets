@@ -10033,11 +10033,10 @@ struct Index {
           this.liveSubAgents = [];
         }
       } else {
-        // `row.completedBlocks` 由 `convertedBlocksMemo` 按源数组恒等缓存 ⇒
-        // 同一份已完成块在流式帧之间是**同一个数组引用** ⇒ 这里赋值是 no-op。
-        if (this.liveBlocks !== this.liveRowRef.completedBlocks) {
-          this.liveBlocks = this.liveRowRef.completedBlocks;
-        }
+        // 结构投递的唯一门控 = 上面那把**整数代际**（`liveRevision`）。这里直接赋值：
+        // `completedBlocks` 由 `convertedBlocksMemo` 按源数组恒等缓存 ⇒ 同引用时赋值是 no-op，
+        // 不再需要第二道"数组恒等"比较（那是同一个事实的第二个判据 —— 判据只该有一处）。
+        this.liveBlocks = this.liveRowRef.completedBlocks;
         const subs: WebSubAgentProgress[] = this.liveRowRef.subAgents;
         if (this.liveSubAgents !== subs) {
           this.liveSubAgents = subs;
@@ -10099,7 +10098,10 @@ struct Index {
     // 值投递（内容未变时不赋值 ⇒ 不产生多余重建）
     if (this.liveText !== text) { this.liveText = text; }
     if (this.liveReasoning !== reasoning) { this.liveReasoning = reasoning; }
-    if (this.liveTools !== tools) { this.liveTools = tools; }
+    // ⛔ 判据只该有一处：投递门控 = 上方的整数代际（`liveRevision`）。这里直接赋值 ——
+    //   "数组恒等"是同一个事实的第二道判据，且它正是「tool 生成中 x 字不更新」的根因
+    //   （行对象就地更新时引用可能不变）⇒ 删掉比较，别无脑复制旧形态。
+    this.liveTools = tools;
     const active: boolean = text.length > 0 || reasoning.length > 0 || tools.length > 0;
     if (this.liveActive !== active) {
       this.liveActive = active;

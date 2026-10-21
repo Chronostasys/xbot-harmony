@@ -51,9 +51,9 @@ ok(coreSrc.indexOf('t.detail.length') >= 0 && coreSrc.indexOf('|${t.name}:${stat
   '签名**只取 detail 长度**（⛔ 不拼全文：避免每帧上千字符的串）');
 
 // ── 页面接线：2026-10-17 起改**整数代际**门控（⛔ 字符串签名已从生产移除）────────
-ok(pageSrc.indexOf('if (rev === this.liveContentRev)') >= 0,
-  'syncLiveTail 用整数代际门控（liveContentRev）');
-ok(pageSrc.indexOf('this.liveContentRev = rev;') >= 0, '代际变化才投递');
+ok(pageSrc.indexOf('if (rev !== this.liveRevision)') >= 0,
+  'syncLiveTail 用整数代际门控（liveRevision）');
+ok(pageSrc.indexOf('this.liveRevision = rev;') >= 0, '代际变化才投递');
 ok(pageSrc.indexOf('this.liveTools = tools;') >= 0,
   '投递工具列表（渲染层每次更新已产新数组；⛔ 零字符串内容比较）');
 ok(pageSrc.indexOf('if (this.liveTools !== tools) {') < 0,
