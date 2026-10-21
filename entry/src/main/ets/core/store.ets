@@ -1202,7 +1202,13 @@ export class ChatStore {
     //   `session_running(false)` 分支 —— 正是用户 2026-10-16 P0「长工具被误标失败 / 迭代整行
     //   消失」的根因：冻结后 `foldInFlightToIterations` 把在飞工具标 `error`，下一条事件又提回 live。
     //   权威路径（本帧 `hasFreshPhaseDone` 命中，已按 turnID 归属校验）才允许即刻收尾。
-    if (!authoritative && this.state.sessionRunning && this.state.activeTurn !== null) {
+    // ⛔ 审计确证（state-check-9 C1/C2）：判据曾是「sessionRunning && activeTurn !== null」，
+    //   而"已停流但指针仍在"**正是**幽灵 busy 的形态 ⇒ 唯一兜底（探针的"后端明确 idle"）
+    //   被自己的闸门挡死，且这里**静默丢弃**（不排队，违反字段注释的契约）⇒ 永久「思考中」。
+    //   ⇒ 判据收敛到「live 且 streaming」（与 hasLiveTurn / watchBusyWithoutLiveTurn 同源），
+    //   被挡下时也排队补判。
+    if (!authoritative && this.hasLiveTurn()) {
+      this.scheduleIdleRetry(chatId);
       return;
     }
     // ⛔ 只有**真正被接受**的 idle 才写意图窗口：写在闸门之前会让一条被拒绝的陈旧 idle
@@ -1753,7 +1759,7 @@ export class ChatStore {
     //   ⛔ 失败**绝不影响**切会话主流程（与下方 `loadStatus` 同款吞异常）。
     this.notifyServerSwitch(chatId).then((res: ChatSwitchResult) => {
       // 切会话即刻恢复 TODO —— 仅当**仍是当前会话**时套用（用户已切走 ⇒ 丢弃，避免串台）。
-      if (this.currentChatId === chatId && res.todos.length >= 0) {
+      if (this.currentChatId === chatId && res.todos.length > 0) {
         this.state = applySessionFields(this.state, toStateTodos(res.todos), undefined);
         this.onUpdate();
       }
