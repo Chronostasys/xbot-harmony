@@ -186,6 +186,44 @@
 | F15 | 后端 `activeTurnID` 只写不复位 ⇒ 回合外事件带旧 turn 归属 | 收尾 `clearActiveTurn()` |
 | F16 | goal 的 cleared 只在一次性事件，快照无 tombstone ⇒ 跨客户端/重载后清不掉 | `GoalManager` 墓碑 + 快照回填 |
 
+## §4.2 第三轮盲审（10 个同题子代理）修复与本轮未闭环
+
+**已修（均带判据/回归）**：
+
+| 来源 | 缺陷 | 修法 |
+|---|---|---|
+| final-1 确证-1 | 用 `activeTurn === null` 当"没在跑"，而权威 idle 有意保留 `activeTurn` ⇒ 快照里的 todos/goal 永不采信 | 抽 `liveRunningIn()`（live && streaming，与 `store.hasLiveTurn` 同源） |
+| final-1 确证-2 | `turn_started` 无单调门（无 seq 字段）⇒ 回放里旧 turn_started 收尸在跑回合 | `ev.turnID < lastTurnIDOf(s) ⇒ return s` |
+| final-1 确证-3 | 被时间窗挡下的 idle 被**丢弃**（兜底又不能关 busy）⇒ 永久「思考中」 | `scheduleIdleRetry()` 2100ms 后补判一次 |
+| final-1 确证-5（后端） | `ClearGoal` 顺手回写 todos（与 todo 无关的操作会清空面板） | 只写 goal 字段 |
+| final-8 C1 | 出口不变量顺序反了 ⇒ 一次迟到 idle 后下一帧清掉**所有** pending 的 sending | 先 `satisfyRunningInvariant` 再 `settleSendingInvariant` |
+| final-8 C2 | `session_idle` 与 `session` 不对称（前者不清 running）⇒ 永久 cancel | 对称复位 |
+| final-8 C3 | `history_rewound` 用 `initialChatState` 清掉 goal/todos/running | 改走 `resetStateMachine()` |
+| final-8 C4 | 探针用 `authoritative=true` 绕过 live-turn 闸 ⇒ 长工具期误关 busy | 改走非权威路径 |
+| final-2 C1 | `user_sent` 当帧被"idle ⇒ 清所有 sending"抹掉 ⇒ **空闲后第一条**不显示「发送中」 | `user_sent` 当帧跳过该清理 |
+| final-2 C2 | `history_replaced` 幂等短路漏比 `goal`/`standalone` ⇒ 目标更新被吞 | 加入短路条件 |
+| final-5 F3 | `stream` 无条件 `streaming:true` ⇒ **重放帧**复活 busy（web 有 freshFrame 守卫） | `seq <= lastSeq` 不复活 |
+| final-5 F5 | 快照采信用**旧** `activeTurn` ⇒ 切回运行中会话时旧快照覆盖新事件值（闪一下） | 用合并后的 `turns[activeTurn]` |
+| final-5 F6 | `busy` 与 `sessionRunning` 可被写成相反值 | 同值 |
+| final-9 / final-3 | **会话级字段帧（todos/goal）被当成 turn 活动事件** ⇒ 清空在飞工具 + 复活 busy | `normalize` 前置判定 → `session_fields` |
+
+**本轮仍未闭环（明账）**：
+
+1. **F1（final-5）** `normalize` 把缺失的 `active_tools`/`completed_tools` 折成 `[]`（三态丢失）。
+   现状：真正缺这两个字段的帧（todos/goal-only）已被上表最后一条**分流到 `session_fields`**，
+   不再进入 `iteration` 分支；引擎侧结构帧恒填这两个数组 ⇒ 当前无可达触发路径。
+   若将来有新发射点不带这两个字段，需把 `normalize` 改为保留 `undefined`、`reduce` 走 `prev`。
+2. **F2（final-5/final-10 C1）** `attachNotificationWhileLive`（通知 turn 不得抢 activeTurn）
+   **仍是零调用**。尝试接线会打红 `reduce.test.ts` 的 REPRO 2026-10-18（"回合结束后 dequeue 的
+   通知 turn **应当**接管 activeTurn"）⇒ 需要移植 web 的**幂等去重**判据（区分"主 turn 仍在
+   流式" vs "上一回合已结束"），不能只按 `trigger==='notification'` 分支。**未修**。
+3. **F4（final-5）** reduce 侧粗粒度 idle 的 `if (s.sessionRunning) return s` 闸门**有意不恢复**：
+   与用户 2026-10-21 的硬规则「后端明确 idle 必须复位 busy」冲突。迟到的旧轮 idle 由
+   ①`turn_started` 单调门 ②`stream` freshFrame 守卫 ③探针三重条件（服务端无在飞 + busy + 静默 3s）
+   共同兜住，最坏只造成一次极短抖动（下一帧自愈）。
+4. **final-10 C3** `settlePendingSending` 在非 turn-end 分支清"第一条"、尾部收编"最后一条"
+   （顺序不一致）。当前影响局限于"两条同发 + ack 缺失"的极少见组合。**未修**（需先补判别力用例）。
+
 ## §5 审计结论与本轮修复
 
 ### §5.1 后端（`fix/state-protocol-audit` 分支）
