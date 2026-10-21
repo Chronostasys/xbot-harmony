@@ -2100,6 +2100,24 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
           incomingUserCount.set(k, (incomingUserCount.get(k) !== undefined ? incomingUserCount.get(k) as number : 0) + 1)
         }
       }
+      // ⛔ 审计确证（state-gate-7-6 C4）：**内容相等不能当身份**。「继续」「好」「再试一次」
+      //   这类短语会与会话里**已有**的 user 消息逐字相同 ⇒ 只按内容配对会把刚发出的气泡误退役
+      //   （用户看到"消息闪一下又出现"）。⇒ 只有"快照里**最新那条** user 消息"与本次内容相同，
+      //   才允许作为落地证据（我们刚发的消息必然是最新的那条）；身份主判据仍是 requestID/dbID。
+      let newestUserContent: string = ''
+      let hasNewestUser: boolean = false
+      for (const t of ev.turns) {
+        if (t.user !== null && !t.user.isNotification) {
+          newestUserContent = t.user.content
+          hasNewestUser = true
+        }
+      }
+      for (const l of ev.legacy) {
+        if (l.role === 'user') {
+          newestUserContent = l.content
+          hasNewestUser = true
+        }
+      }
       const pendingUsers = s.pendingUsers.filter((u) => {
         if (u.turnHint !== undefined && turns.has(turnID(u.turnHint))) return false
         if (u.requestID !== null && [...turns.values()].some((t) => t.user?.requestID === u.requestID)) return false
@@ -2107,7 +2125,7 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
         if (!u.queued) {
           const n: number = incomingUserCount.get(u.content) !== undefined
             ? incomingUserCount.get(u.content) as number : 0
-          if (n > 0) {
+          if (n > 0 && hasNewestUser && u.content === newestUserContent) {
             incomingUserCount.set(u.content, n - 1)
             return false
           }
