@@ -71,9 +71,15 @@ console.log(`  ansi-scan ${TV}: ansiFgOf(=${tvFg} ansiBgOf(=${tvBg} labelSpans=$
 console.log(`  ansi-scan ${SC}: ansiSpansIfAny(=${scCalls} import=${scImport} ansiFgOf(=${scFg} ansiBgOf(=${scBg}`);
 console.log(`  ansi-scan ${LTV}: ansiSpansIfAny(=${ltvCalls} import=${ltvImport} labelSpans=${ltvSlot}`);
 
-// ── ① MessageRow：真 import + `ansiSpansIfAny(` 生产调用点 ────────────────────────────
-ok(`MessageRow 真 import core/ansi（${msgImport} ≥ 1）`, msgImport >= 1);
-ok(`MessageRow 有 ansiSpansIfAny( 生产调用点（${msgCalls} ≥ 1）`, msgCalls >= 1);
+// ── ① MessageRow：**不得**自己渲染工具标签 ────────────────────────────────────────────
+// ⛔ 判据修正（2026-10-21，代码事实优先）：`MessageRow.ets` 里 `label` 出现 **0** 次 ——
+//   工具标签/输出全部由 `ToolVisual`（pill）+ `SyntheticCard`（注入型正文）渲染，MessageRow
+//   只做消息壳。原判据要求 MessageRow 必须 import `core/ansi` 且调 `ansiSpansIfAny(`，
+//   在"它根本不渲染标签"的事实下**不可满足**（要么为过判据凭空造 UI，要么把判据当摆设）。
+//   ⇒ 改钉**真正会泄漏 raw 转义**的条件：只要 MessageRow 开始渲染标签，就必须走同一入口。
+const msgLabelUses: number = countOf(msgSrc, 'label');
+ok(`MessageRow 不渲染工具标签（label 出现 ${msgLabelUses} 次 = 0）；一旦渲染必须走 ansiSpansIfAny(`,
+  msgLabelUses === 0 ? true : (msgImport >= 1 && msgCalls >= 1));
 
 // ── ② ToolVisual（唯一 pill 视觉）：逐 span 取色 + span 入口 ─────────────────────────
 ok(`ToolVisual 逐 span 取前景色 ansiFgOf(（${tvFg} ≥ 1）`, tvFg >= 1);
