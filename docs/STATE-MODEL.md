@@ -1405,3 +1405,35 @@ P1 级（性能与零差异表）也全部采纳：
 - **其余一律 DROP**（迟到帧、`base` 不匹配、`iter ≤ last`）——**不修补、不猜测、不重试**。
 - ⇒ 违例的表现是"多一次 RTT 或一次快照"，而不是"屏幕上的错误内容"。**缺陷显性化**在 CI（G-1…G-11），
   不留给用户。
+
+---
+
+## 15. 落地状态（2026-10-22，分支 `feat/state-model-refactor`）
+
+### 已完成并验证
+
+| 层 | 内容 | 判据 |
+|---|---|---|
+| 后端 | `feat/state-model-refactor` → **PR #452** → `feat/court-orchestration`：per-chat `(epoch,seq)`、`tools[]` 单数组（生成态即分配 `call_id`）、每迭代一条完备 `done`（含取消）、每 turn 一条 `final`、三个拉权威端点、严格 dual-write | `go test ./agent ./channel/web ./protocol ./serverapp` 全绿 |
+| 前端模型 | `model_types / model_step / model_project / model_adapter / model_hydrate` | `model_step 40` / `model_hydrate 15` / `model_row_equiv 7` / `model_diff_prop`（60 随机会话，0 差异） |
+| 影子引擎 | `store` 在**单条 `pushEvent` 与批量 `pushEvents`** 两条入口都喂 `adapt → stepAll`（`history_replaced` 走 `hydrate`），只读 + 行级对照 `[MODEL-ROWDIFF]` | `assembleHap` BUILD SUCCESSFUL；装机 pid 2320 |
+| ArkTS 桥接 | `model_bridge.ets`（`applyModel`），补了回合级 `content`、`compactions` 映射、在飞块拼接 | 编译通过 |
+
+### 已知阻塞（W2 未落地）
+
+`rebuildRows` 行源切换（`deriveRows+applyRow` → `applyModel(shadow)`）**已实现且编译通过**，
+但 `demo_account` 的 4 条判据红（`store.rows` 为空）⇒ 已**回退**，分支保持绿。
+
+- 现象：`enableDemo() → openSession('demo-welcome') → openDemoSession → demoRunTurn` 之后 `rows` 为空 ⇒
+  影子在这条链上没有吃到事件。
+- 定位入口：`store.demoRunTurn` 实际调用的推送方法（`pushEvent` 还是 `pushEvents`）与
+  `runShadowModel` 的两条接线是否一一对应；以及 `openDemoSession` 是否在 push 之前重置了 `shadow`。
+- 修好后：翻转 → `run.sh` 全绿 → `assembleHap` → 装机长回合对照（`[MODEL-ROWDIFF]` 应为 0）→
+  删旧层（`reduce/render/streammerge/derive` ≈5k 行）→ `gate.sh`。
+
+### 本轮钓出并修复的真缺陷（都有判据）
+
+1. 适配层读 `callID` 而真 wire 是 `call_id` ⇒ 生产上工具身份会丢；
+2. **同一 wire 事件派生多帧共享 `seq`** ⇒ 旧守卫把 `tick` 之后的 `done` 全丢 ⇒ 末迭代工具消失；
+3. `final.blocks` 的"空工具/空正文"覆盖本地已有值 ⇒ 提交瞬间内容消失（P5：缺字段 = 未携带）；
+4. 助手行缺**回合级 `content`** ⇒ 无迭代回合（demo／纯文本回复）正文为空。
