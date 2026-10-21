@@ -2778,6 +2778,11 @@ struct Index {
     //    就不动页面镜像**，沿用上一会话已确认的浅色值。
     if (store.settingsFresh && store.settings !== this.settings) {
       this.settings = store.settings;
+      // ⛔ 审计确证（ui-state-audit）：`fontScaleV`/`wrapCodeV` 是以 `@Prop` 投进 LazyForEach 的
+      //   item builder 的 ⇒ 已存在行**永远不会**更新（改字号/换行只影响输入框，历史消息不动）。
+      //   ⇒ 与主题同一条纪律：**组件自己订阅** AppStorage（值变化 ⇒ 每个实例各自重渲染）。
+      AppStorage.setOrCreate('appFontScale', this.fontScale());
+      AppStorage.setOrCreate('appWrapCode', this.wrapCode());
     }
     // ⛔ 主题**单一真源** = markdown 主题（服务端 `web:ui:md-theme`，与 web 同一项）。
     // web 权威 `providers/theme.tsx:101-113`：应用明暗 = `modeForTheme(mdTheme)` **派生**，

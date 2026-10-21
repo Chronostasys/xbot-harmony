@@ -86,6 +86,17 @@ export struct MessageRowView {
   @Prop mdTheme: string = 'vscode-dark';
   @Prop fontScaleV: number = 1;
   @Prop wrapCodeV: boolean = true;
+  /** ⛔ LazyForEach 的 item builder 只在新建时执行 ⇒ `@Prop fontScaleV/wrapCodeV` 对**已存在行**
+   *  永远是创建那一刻的快照（改字号/换行后历史消息不变）。⇒ 行**自己订阅** AppStorage
+   *  （与 `appTheme` 同一条纪律）；未发布时（测试/独立预览）回落到 `@Prop`。 */
+  @StorageProp('appFontScale') appFontScale: number = 0;
+  @StorageProp('appWrapCode') appWrapCode: boolean = false;
+  private fsNow(): number {
+    return this.appFontScale > 0 ? this.appFontScale : this.fontScaleV;
+  }
+  private wrapNow(): boolean {
+    return this.appFontScale > 0 ? this.appWrapCode : this.wrapCodeV;
+  }
   /** 应用是否在后台（打字机在后台挂起 —— 与 LiveTailView 同款） */
   @Prop paused: boolean = false;
   /**
@@ -361,7 +372,7 @@ export struct MessageRowView {
             },
             // B6：复制反馈落点**透传**页面品牌 toast（与 live 侧、LiveTailView 同一落点）。
             onToast: this.onToast,
-            fontScale: this.fontScaleV,
+            fontScale: this.fsNow(),
             wrapCode: this.wrapCodeV,
             theme: this.themeId(),
             mdTheme: this.mdTheme,
@@ -377,8 +388,8 @@ export struct MessageRowView {
       IterBlocksView({
         iters: this.row.iterBlocks,
         mdTheme: this.mdTheme,
-        fontScaleV: this.fontScaleV,
-        wrapCodeV: this.wrapCodeV,
+        fontScaleV: this.fsNow(),
+        wrapCodeV: this.wrapNow(),
         subAgentOpenable: this.subAgentOpenable,
         onImage: (src: string) => {
           this.onImage(src);
@@ -476,7 +487,7 @@ export struct MessageRowView {
         tools: this.liveTools,
         paused: this.paused,
         theme: this.themeId(),
-        fontScale: this.fontScaleV,
+        fontScale: this.fsNow(),
         wrapCode: this.wrapCodeV,
         orb: this.orb,
         // live 在飞迭代的归属（与 committed 侧同构 ⇒ `reasoningKey(turnID, iteration)` 同键）。
