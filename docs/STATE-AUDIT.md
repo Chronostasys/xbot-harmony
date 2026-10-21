@@ -318,6 +318,29 @@
 
 **当前状态**：全量 388 个测试文件 **0 失败**；`bash tools/gate.sh` ⇒ `GATE_EXIT=0`（全绿）。
 
+## §4.7 第七轮盲审（10 份）修复与**刻意保留的取舍**
+
+第七轮 10 份独立盲审**全部**报出了确证项（⇒ 该轮不算通过）。已修：
+
+| 来源 | 缺陷 | 修法 |
+|---|---|---|
+| 7-6 C1 | `history_replaced` 里 `busy` 与 `sessionRunning` 写成相反值（且不可自愈：`session(busy)` 幂等键用 `sessionRunning`） | 两者取同一权威值 |
+| 7-6 C2 | `settlePendingSending(atTurnEnd=false)` 从未被调用（半死语义） | 删除（-19 行） |
+| 7-6 C4 | 乐观行退役用**内容相等**当身份 ⇒ 「继续/好」等同文消息被误退役（气泡闪一下消失又出现） | 内容配对只认"快照里**最新那条** user 消息"；身份仍是 requestID/dbID |
+| 7-1 C2 | 会话级轻帧丢掉服务端 `Seq` ⇒ 唯一没有排序闸门的状态写入（todo/goal 跳回旧值） | 轻帧带水位，陈旧零写入，与另外三条路径同源 |
+| 7-2 A2 | `cancel()` 的乐观 idle 不带 turn 身份 ⇒ 取消 A 时把已 dequeue 的 B 判 idle | 只在"发起取消那一轮仍是当前轮"时推，并带 `turnID` |
+| 7-8 C1 ★ | `sending` 出口不变量在**任何**非 `user_sent` 事件上收敛 ⇒ POST 途中被标"已发送"，失败后 `user_fail` 删行 = **消息静默消失** | 只允许"送达/收尾证据"事件触发兜底 |
+| 7-8 C2 | `cancelInFlight` 跨会话单例、`beginSwitch` 不复位 ⇒ B 的取消请求根本没发 | 记 `chat+gen` 身份，切换时复位 |
+
+### 刻意保留的取舍（不是漏修，是判据冲突下的选择）
+
+**7-2 A1：无 `turn_id` 的 `session(idle)` 仍会降级正在流式的回合。**
+理由：把它改成"无身份就不降级"会**打破 3 条既有判据**（`reduce` 跨会话 idle、`state_invariants`
+的 idle 语义、`send_optimistic_running` ②），那些判据守的是**幽灵 busy**（更严重的用户症状：
+永久「思考中」、输入框卡 cancel）。⇒ 正确方向是**让服务端每条 idle 都带 `turn_id`**
+（`emitSessionIdleIfCurrent` 已带；`emitSessionIdleIfNoActiveRun` 按定义没有在跑轮次），
+而不是在客户端放宽降级条件。已登记为服务端后续项。
+
 ## §5 审计结论与本轮修复
 
 ### §5.1 后端（`fix/state-protocol-audit` 分支）
