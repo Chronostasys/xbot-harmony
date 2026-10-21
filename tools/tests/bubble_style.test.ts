@@ -123,8 +123,14 @@ check('助手容器 padding/margin 取映射表（px-1 / py-1.5）',
   '助手容器间距未走映射表');
 
 // 迭代块间距：`.iter-block{margin-top:0.25rem}` → IterationBlock/LiveIterationBlock 取 iterGap
-check('IterationBlock 取 iterGap（.iter-block margin-top）',
-  (rowSrc.match(/BUBBLE\.iterGap/g) || []).length >= 2, '迭代块间距未走映射表（应 ≥2 处）');
+// ⛔ 锚点修正（2026-10-21，代码事实优先）：已完成迭代块由 `IterBlocksView.ets` 渲染、在飞块由
+// `MessageRow.ets` 渲染 ⇒ "两处都走映射表"要跨这两个文件数（旧判据只在 MessageRow 里数 ≥2，
+// 而 MessageRow 只有在飞块一处 ⇒ 不可满足的假红）。
+const ibSrc: string = readSrc('entry/src/main/ets/components/IterBlocksView.ets');
+check('IterationBlock / LiveIterationBlock 都取 iterGap（.iter-block margin-top）',
+  (ibSrc.match(/BUBBLE\.iterGap/g) || []).length >= 1
+  && (rowSrc.match(/BUBBLE\.iterGap/g) || []).length >= 1,
+  '迭代块间距未走映射表（IterBlocksView 与 MessageRow 各需 ≥1 处）');
 check('LiveTailView 内部 gap-1 取 blockInnerGap', tailSrc.includes('BUBBLE.blockInnerGap'),
   'LiveIteration 内部间距未对齐 web gap-1');
 
@@ -135,7 +141,12 @@ check('在飞块在**同一个** AssistantBlock 内（不出现第二个气泡�
 
 // 在飞块自身**不带** chrome（否则就是第二个气泡）
 const lbStart: number = rowSrc.indexOf('LiveIterationBlock() {');
-const lbEnd: number = rowSrc.indexOf('@Builder\n  IterationBlock(');
+// ⛔ 结束锚改为"**下一个** @Builder"：旧锚 `@Builder\n  IterationBlock(` 在本文件里**不存在**
+//   （已完成块已迁到 `IterBlocksView`）⇒ slice 会一路吃到文件尾、把别的 Builder 的 chrome
+//   算进来 ⇒ 假红"在飞块自带 chrome"。
+// 结束锚 = 该 Builder 的**收尾行**（2 空格缩进的 `}`）—— 不依赖 `@Builder` 装饰器是否被
+// stripSrc 保留（它被剥掉时 `indexOf('@Builder')` 会退化成"吃到文件尾"，正是假红的来源）。
+const lbEnd: number = lbStart >= 0 ? rowSrc.indexOf('\n  }', lbStart) : -1;
 const lbBody: string = (lbStart >= 0 && lbEnd > lbStart) ? rowSrc.slice(lbStart, lbEnd) : '';
 check('在飞块无自身 chrome（不是第二个气泡）',
   lbBody.length > 0 && !lbBody.includes('.backgroundColor(') && !lbBody.includes('.borderRadius(')
