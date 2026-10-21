@@ -127,7 +127,7 @@ import { SSE_STATE_FAILED } from '../core/sse';
 import { WIDGET_EVENT_WEB } from '../core/widgetsview';
 // 插件桥 page→native 的消息类型（协议权威 = `core/webbridge.ets`）
 import { BridgeMessage, HostNavEvent, HOST_NAV_TITLE, HOST_NAV_READY, HOST_NAV_OPEN_FILE } from '../core/webbridge';
-import { listItemCount, nextFollowBottom, shouldAutoScroll, followSuppressUntil, FOLLOW_SUPPRESS_MS, markUserScrollFrame, followAfterScrollStop, anchoredIndexAfterPrepend, setUiScrolling, setAppPaused } from '../core/listfollow';
+import { listItemCount, nextFollowBottom, shouldAutoScroll, followSuppressUntil, FOLLOW_SUPPRESS_MS, markUserScrollFrame, followAfterScrollStop, anchoredIndexAfterPrepend, setUiScrolling, setAppPaused, setTailPaused } from '../core/listfollow';
 import { hasOverlay, OverlayCode, OverlayState, topOverlay } from '../core/overlays';
 import {
   currentTodo, modelText, todoProgress, usageText,
@@ -2495,7 +2495,10 @@ struct Index {
     }
     // 看门狗：`onScrollStop` 若被丢（App 切后台/列表替换），`userScrolling` 会永久 true
     // ⇒ 行重建永久挂起（界面看起来卡死）。超过 2s 没有新的用户滚动帧就强制恢复一次。
-    if (this.userScrolling && Date.now() - this.lastUserScrollAtMs > 2000) {
+    // ⛔ 审计确证（fe-render-1 #5）：判据"2s 内没有滚动帧"与"手指是否还在屏上"正交 ——
+    //   手指按住**不动**（阅读常见姿势）不产生滚动帧 ⇒ 2s 后误判手势结束 ⇒ 打字机又开始推进、
+    //   store 恢复就地改行 ⇒ 手指按着时行高自己变。⇒ 触摸期间一律不恢复。
+    if (this.userScrolling && !this.userTouchActive && Date.now() - this.lastUserScrollAtMs > 2000) {
       this.userScrolling = false;
       setUiScrolling(false);
       const s: ChatStore | null = this.store;
@@ -7212,6 +7215,10 @@ struct Index {
         if (event.type === TouchType.Down) {
           this.userTouchActive = true;
           setUiScrolling(true);
+          // ⛔ 审计确证（fe-render-1 #3）：`setTailPaused` 此前**零调用点**（声明了三路暂停真源，
+          //   实际只接了两路）⇒ "按住列表停读"时打字机仍推进（行高在手指下继续变化）。
+          //   这里补齐第三路：手指在屏上就不推进，抬手恢复。
+          setTailPaused(true);
           // 手指一落地就挂起行重建：否则 16ms 内的 SSE 帧仍会就地改 ChatRow（@ObjectLink）
           // ⇒ 行高变化 ⇒ 用户拖动时高度抖动。
           if (st !== null) {
@@ -7219,6 +7226,7 @@ struct Index {
           }
         } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
           this.userTouchActive = false;
+          setTailPaused(false);
           // 没进入滚动（只是点按）⇒ 抬手即恢复；滚动中则等 onScrollStop（惯性结束）再恢复。
           if (!this.userScrolling) {
             setUiScrolling(false);
