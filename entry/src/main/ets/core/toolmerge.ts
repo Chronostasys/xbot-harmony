@@ -96,3 +96,16 @@ export function mergeActiveStatus<T extends ActiveToolLike>(prev: readonly T[] |
   }
   return replaced ? out : n;
 }
+
+/**
+ * **详情请求应使用哪个迭代号**（web `FoldedToolGroup.tsx:564` 逐字：`tool.iteration ?? iterationNumber`）。
+ *
+ * ⛔ 为什么必须这样做：`mergeToolRuns` 把相邻的"纯工具迭代"并成一块，块的 `iteration`
+ *   只是 **head 号**；被吸收的工具属于**另一个迭代**。若用块号去 `/api/iteration_detail`
+ *   （后端按 `(turn_id, iteration)` 返回），拿到的是**别的迭代**的详情 ⇒ 用户看到的永远是
+ *   "第一条有详情、其余暂无详情"；更糟的是查找键对不上 ⇒ 连请求都不发。
+ *   ⇒ 唯一规则：**工具自带号优先**，缺失才回落到块号（老数据兼容）。
+ */
+export function detailIterationOf(toolIter: number | undefined | null, blockIter: number): number {
+  return toolIter !== undefined && toolIter !== null && toolIter > 0 ? toolIter : blockIter;
+}

@@ -1,6 +1,8 @@
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { KeyboardAvoidMode, UIContext, window } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import fs from '@ohos.file.fs';
+import { setSseWriter } from '../core/sse_recorder';
 import { BusinessError } from '@kit.BasicServicesKit';
 import {
   PENDING_ACTION_KEY,
@@ -103,6 +105,45 @@ export default class EntryAbility extends UIAbility {
     setSessionClearedHook(() => {
       cancelReconcileScheduled();
     });
+    // SSE 全量录制目录根（用户要求「日志旁边给个开关，dump 全 sse」）。
+    AppStorage.setOrCreate<string>('xbotFilesDir', this.context.filesDir);
+    // SSE 全量录制的**写盘实现**（core 是纯 TS，不能 import @ohos.file.fs ⇒ 由宿主注入）。
+    {
+      const dir: string = `${this.context.filesDir}/sse`;
+      try {
+        if (!fs.accessSync(dir)) {
+          fs.mkdirSync(dir, true);
+        }
+      } catch (e) {
+        hilog.warn(DOMAIN, TAG, 'sse dir: %{public}s', JSON.stringify(e));
+      }
+      let curPath: string = '';
+      let bytes: number = 0;
+      let part: number = 0;
+      setSseWriter((line: string): void => {
+        try {
+          if (curPath.length === 0 || bytes > 8 * 1024 * 1024) {
+            part++;
+            const now = new Date();
+            const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
+              + `-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+            const chat = AppStorage.get<string>('sseChatKey') ?? 'session';
+            curPath = `${dir}/${chat}-${stamp}${part > 1 ? '.' + part : ''}.jsonl`;
+            bytes = 0;
+            hilog.info(DOMAIN, TAG, 'SSE-REC → %{public}s', curPath);
+          }
+          const f = fs.openSync(curPath, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.APPEND);
+          fs.writeSync(f.fd, line);
+          fs.closeSync(f);
+          bytes += line.length;
+        } catch (e) {
+          hilog.warn(DOMAIN, TAG, 'SSE-REC write: %{public}s', JSON.stringify(e));
+        }
+      });
+    }
+    if (AppStorage.get<boolean>('sseRecord') === undefined) {
+      AppStorage.setOrCreate<boolean>('sseRecord', true);
+    }
     hilog.info(DOMAIN, TAG, 'EntryAbility onCreate');
   }
 

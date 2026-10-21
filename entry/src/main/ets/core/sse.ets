@@ -12,6 +12,7 @@
  *     本客户端**不声明**这两个编码，让服务端回明文。
  */
 import { http } from '@kit.NetworkKit';
+import { recordSseFrame } from './sse_recorder';
 import { util } from '@kit.ArkTS';
 import { BusinessError } from '@kit.BasicServicesKit';
 // SSE 录制器（纯逻辑；开关**默认关**，关闭时 push 立即返回 ⇒ 零额外开销）。
@@ -736,6 +737,8 @@ export class SseClient {
   }
 
   private dispatch(block: string): void {
+    // ⛔ 全量录制（用户要求「一个不漏」）：在**解析之前**落盘原始帧，含心跳/控制帧。
+    recordSseFrame(`${this.baseUrl}|${this.channel}|${this.chatId}`, block);
     const lines: string[] = block.split('\n');
     let event: string = 'message';
     let data: string = '';

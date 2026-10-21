@@ -73,6 +73,10 @@ export interface ToolProgress {
   /** generating 状态下参数已生成的字符数（服务端 ToolProgress.GenChars） */
   gen_chars?: number;
   call_id?: string;
+  /** 该工具**归属的迭代号**（web `WebToolProgress.iteration`）。
+   *  ⛔ 详情必须按"工具自己的号"取（`/api/iteration_detail` 按 `(turn_id, iteration)` 返回）：
+   *    合并块（`mergeToolRuns`）的 `iteration` 只是 head 号，用它会把**别的迭代**的详情拉回来。 */
+  iteration?: number;
   ui_mode?: string;
   ui_libs?: string[];
   /** 工具提示（PostToolUse hook 产出的 markdown，含 ```diff 围栏）—— diff 卡的**唯一数据源**。 */

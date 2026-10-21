@@ -18,6 +18,7 @@
 import { HistoryIteration, IterBlocks, ToolProgress } from '../core/types';
 import { WebCompaction } from '../core/chattypes';
 import { displayContent, displayReasoning, foldPills, PillSlice } from '../core/streammerge';
+import { detailIterationOf } from '../core/toolmerge';
 import { runeCount } from '../core/typewriter';
 import { Palette, paletteOf, shadowRadiusOf } from '../core/theme';
 import { BUBBLE, withAlpha } from '../core/bubble';
@@ -78,7 +79,7 @@ export struct IterBlocksView {
   };
   onOpenToolsCtx: (iter: number) => void = (iter: number) => {
   };
-  onToggleTool: (iter: number, toolName: string) => void = (iter: number, toolName: string) => {
+  onToggleTool: (iter: number, toolName: string, toolIter?: number) => void = (iter: number, toolName: string, toolIter?: number) => {
   };
   onOpenSubAgent: (sessionKey: string) => void = (sessionKey: string) => {
   };
@@ -201,6 +202,16 @@ export struct IterBlocksView {
 
   private groupHideCount(group: ToolProgress[]): number {
     return foldPills(group).hideCount;
+  }
+
+  /** `+N` 里被收起的工具（打开徽标时按需取它们各自迭代的详情）。 */
+  private groupHidden(group: ToolProgress[]): ToolProgress[] {
+    const shown: number = foldPills(group).shown.length;
+    const out: ToolProgress[] = [];
+    for (let i = shown; i < group.length; i++) {
+      out.push(group[i]);
+    }
+    return out;
   }
 
   /** 工具在 `it.tools` 里的**原始下标**（pill 唯一键的兜底）。 */
@@ -346,6 +357,12 @@ export struct IterBlocksView {
                     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                     .onClick(() => {
                       this.overIter = this.overIter === it.iteration ? -1 : it.iteration;
+                      // ⛔ 断点 C（web `ToolCardGated` 同义）：`+N` 里是**轻字段**（folded 详情未下发）
+                      //   ⇒ 打开列表前先按"工具自己的号"逐迭代取详情，否则每行都显示「暂无详情」。
+                      const hid: ToolProgress[] = this.groupHidden(group);
+                      if (hid.length > 0) {
+                        this.onToggleTool(detailIterationOf(hid[0].iteration, it.iteration), hid[0].name, hid[0].iteration);
+                      }
                     })
                     .bindPopup(this.overIter === it.iteration, {
                       builder: this.OverflowPopBody,
@@ -435,7 +452,7 @@ export struct IterBlocksView {
     .clip(true)
     .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
     .onClick(() => {
-      this.onToggleTool(it.iteration, t.name);
+      this.onToggleTool(detailIterationOf(t.iteration, it.iteration), t.name, t.iteration);
       const key: string = this.pillKeyOf(it, t, ti);
       this.popKey = this.popKey === key ? '' : key;
     })

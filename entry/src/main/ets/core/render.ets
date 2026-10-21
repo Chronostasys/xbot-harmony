@@ -61,6 +61,7 @@ export function toToolProgress(t: WebToolProgress): ToolProgress {
     detail: t.detail,
     args: t.args,
     call_id: t.callID,
+    iteration: t.iteration,
     ui_mode: t.uiMode,
     gen_chars: t.genChars,
     tool_hints: t.toolHints,
@@ -447,6 +448,7 @@ export function liveBlocksConvStats(): LiveBlocksConvStats {
  *   （phase_done / commit 后窗口）⇒ 追加会让同一迭代号出现两块（重复渲染 +
  *   块数回退，真机 bug ① 的形态）。
  */
+
 function liveIterations(r: LiveRowView): HistoryIteration[] {
   // 已完成部分走**按源数组记忆化**（未变化 ⇒ 每帧 0 分配）。
   // `slice()` 必需：下面可能 push 在飞块，而缓存数组是**共享**的（只读）。

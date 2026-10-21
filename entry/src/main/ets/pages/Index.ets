@@ -228,6 +228,7 @@ import { TodoPayloadRow, removeTodoAt, renameTodoAt, todoPayloadRows, toggleTodo
 import { genuiPayloadTooLarge } from '../core/genui';
 import { WebSubAgentProgress } from '../core/chattypes';
 import { EMPTY_BLOCKS } from '../core/render';
+import { detailIterationOf } from '../core/toolmerge';
 import { withAlpha } from '../core/bubble';
 // 实况窗（Live View Kit）：判据/文案在 `core/liveview.ets`（纯逻辑，可脱机单测），
 // 系统调用在 `components/LiveViewBridge.ets`（全仓唯一 `@kit.LiveViewKit` 引用点）。
@@ -594,6 +595,10 @@ struct Index {
   @State showSplash: boolean = false;
   /** 自绘 in-app toast（单槽；`msg` 非空 = 可见）。唯一判据来源 = `core/toast.ets`（⛔ 不另立）。 */
   @State toastState: ToastState = emptyToast();
+  /** SSE 全量录制开关（用户 2026-10-21：「日志旁边给个开关，dump 全 sse，一个不漏」）。 */
+  @StorageLink('sseRecord') sseRecord: boolean = true;
+  /** 详情拉取的 in-flight 去重键（`turnID:iteration`；web AgentPanel 同语义）。 */
+  private detailInFlight: Set<string> = new Set<string>();
   /** 「应用日志」浮层开关（用户 2026-10-16 要求「给一个看应用日志的窗口」）。 */
   @State showLog: boolean = false;
   /** 日志刷新计数（打开/清空时自增 ⇒ 让 `LogSheet` 的 ForEach key 变化、重建列表）。 */
@@ -2447,6 +2452,18 @@ struct Index {
           .fontWeight(FontWeight.Bold)
           .fontColor(this.pal().textPrimary)
           .layoutWeight(1)
+        Row({ space: SP_1 }) {
+          Text('SSE REC')
+            .fontSize(FS_CAPTION)
+            .fontColor(this.sseRecord ? this.pal().accentText : this.pal().textMuted)
+          Toggle({ type: ToggleType.Switch, isOn: this.sseRecord })
+            .onChange((on: boolean) => {
+              this.sseRecord = on;
+              AppStorage.setOrCreate<boolean>('sseRecord', on);
+              this.toast(on ? 'SSE REC ON' : 'SSE REC OFF');
+            })
+        }
+        .margin({ right: SP_2 })
         Text(i18nT('复制'))
           .fontSize(FS_CAPTION).fontColor(this.pal().accentText)
           .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -4810,10 +4827,57 @@ struct Index {
 
 
   /** 行组件回调入口：按 (迭代号, 工具名) 找到工具后沿用 toggleTool 的语义。 */
-  private async toggleToolByKey(row: ChatRow, iter: number, name: string): Promise<void> {
+  /**
+   * **按需取工具详情**（web `ToolCardGated`/`useIterationDetailGate` 同义）：
+   * `+N` 里的每枚工具可能属于**不同迭代**（合并块只保留 head 号），folded 载荷又把 detail 抹掉
+   * ⇒ 打开列表时按"工具自己的号"逐迭代拉取；键用 `detailIterationOf` 保证与 web 逐字一致。
+   * in-flight 去重（web `AgentPanel.tsx:472-495`）：并发点开同一迭代只发一次。
+   */
+  private async needToolDetails(row: ChatRow, iter: number, tools: ToolProgress[]): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null) {
+      return;
+    }
+    for (let i = 0; i < tools.length; i++) {
+      const t: ToolProgress = tools[i];
+      if (t.detail !== undefined && t.detail.length > 0) {
+        continue;
+      }
+      const itNum: number = detailIterationOf(t.iteration, iter);
+      const key: string = `${row.turnID}:${itNum}`;
+      if (this.detailInFlight.has(key)) {
+        continue;
+      }
+      this.detailInFlight.add(key);
+      try {
+        await store.fetchIterationDetail(row.turnID, itNum);
+      } finally {
+        this.detailInFlight.delete(key);
+      }
+    }
+  }
+
+  private async toggleToolByKey(row: ChatRow, iter: number, name: string, toolIter?: number): Promise<void> {
+    // ⛔ 断点 A 修复（web `FoldedToolGroup.tsx:564`）：**工具自带号优先**。合并块（mergeToolRuns）
+    //   的 `it.iteration` 只是 head 号，被吸收的工具属另一个迭代 ⇒ 旧实现 `it.iteration === iter`
+    //   找不到它 ⇒ 一次请求都不发 ⇒ 用户看到"只有第一个工具有详情"。
+    const want: number = detailIterationOf(toolIter, iter);
     for (let i = 0; i < row.iterations.length; i++) {
       const it: HistoryIteration = row.iterations[i];
-      if (it.iteration !== iter || it.tools === undefined) {
+      if (it.iteration !== want || it.tools === undefined) {
+        continue;
+      }
+      for (let k = 0; k < it.tools.length; k++) {
+        if (it.tools[k].name === name) {
+          await this.toggleTool(row, it, it.tools[k]);
+          return;
+        }
+      }
+    }
+    // 兜底：极老的载荷没有 tool.iteration（或号被归一成 0）⇒ 全表按名字找第一枚可展开的。
+    for (let i = 0; i < row.iterations.length; i++) {
+      const it: HistoryIteration = row.iterations[i];
+      if (it.tools === undefined) {
         continue;
       }
       for (let k = 0; k < it.tools.length; k++) {
@@ -11407,8 +11471,8 @@ struct Index {
         onOpenToolsCtx: (iter: number) => {
           this.openToolsCtx(row.id, iter);
         },
-        onToggleTool: (iter: number, name: string) => {
-          this.toggleToolByKey(row, iter, name);
+        onToggleTool: (iter: number, name: string, toolIter?: number) => {
+          this.toggleToolByKey(row, iter, name, toolIter);
         },
         onRowLongPress: () => {
           this.openCtx('row', row.id, 0, '');
