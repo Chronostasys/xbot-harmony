@@ -2900,9 +2900,13 @@ export class ChatStore {
     if (!hasActive && this.busy && silentNow) {
       log('state', `探针：服务端明确 idle（${reason}）⇒ 收尾 busy（事件静默已满 3s）`);
       // ⛔ 审计确证（C4）：`authoritative=true` 会**绕过** live-turn 闸 ⇒ 长工具执行期（没有新帧）
-      //   一次"快照缺失"就把 busy 关掉，下一帧又拉回（抽搐）。REST 快照缺失 ≠ 权威 idle 事件
-      //   ⇒ 走非权威路径，让它受「live && 在跑 ⇒ 不收尾」保护。
-      this.applyLocalIdle(this.currentChatId, false);
+      //   一次"快照缺失"就把 busy 关掉，下一帧又拉回（抽搐）。
+      // ⛔ 审计确证（state-gate-8-9）：但走**非权威**路径时它又被 `hasLiveTurn()` 恒拒（本会话
+      //   有 live 且 streaming）⇒ **漏掉 true idle 后永久「思考中」**，探针打枪也无用。
+      //   ⇒ 判据收敛成一条可验证的条件：**本地没有在飞工具**（`activeTools` 为空）时，服务端
+      //   "明确无在飞 + 静默 ≥3s"就是权威收尾证据；有在飞工具时仍走非权威路径（保护长工具）。
+      const probeAuth: boolean = this.liveProgress().activeTools.length === 0;
+      this.applyLocalIdle(this.currentChatId, probeAuth);
       return;
     }
     const verdict: string = liveProbeVerdict(this.busy, localTurn, localIter,
