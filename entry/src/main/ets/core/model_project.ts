@@ -66,7 +66,12 @@ function assistantRow(t: TurnRec, live: LiveIter | null): PAssistantRow {
     turnID: t.id,
     content: t.final !== null ? t.final.content : (liveHere !== null ? liveHere.content : ''),
     cancelled: t.final !== null && t.final.cancelled,
-    blocks: t.blocks,
+    // ⛔ **空壳块不渲染**（旧管线 `[ITER-DROP]` 同源规则）：无正文/无思考/无工具/无子代理的块
+    //   只是一条没有任何可见信息的记录；渲染它会得到一张"空气卡"（真机实测：整屏空白 +
+    //   一个悬浮 pill）。这是**投影规则**，不是去重/合并。
+    blocks: t.blocks.filter((b) => b.cancelled
+      || b.content.length > 0 || b.reasoning.length > 0
+      || b.tools.length > 0 || b.subAgents.length > 0),
     inflight,
     phase: t.phase,
     streaming: t.streaming,
