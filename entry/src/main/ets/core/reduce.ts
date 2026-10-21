@@ -789,6 +789,8 @@ function satisfyRunningInvariant(s: ChatState, ev: DomainEvent): ChatState {
 }
 
 function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
+  // 入参原引用：任何"整帧丢弃"的 return 都必须返回它（state-gate-6 C1：判陈旧的帧一个字段都不许写）。
+  const s0: ChatState = s;
   switch (ev.type) {
     // ── turn_started：收尸旧 active + 新 turn 进 live + 绑定 user ──
     // ── 权威 idle（session(idle) / agent-idle）───────────────────────────────
@@ -884,16 +886,19 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
     }
 
     case 'turn_started': {
-      // ⛔ C1：本帧携带的会话级字段先应用（缺省 = 不动）。
-      s = applySessionFields(s, ev.todos, ev.goal)
       // ⛔ 审计确证（state-final-1 确证-2）：`turn_started` 是**唯一指定 turn 身份**的事件，
       //   却没有单调性闸门（它没有 seq 字段，I5 重放门禁对它不适用）⇒ 断线重连的**回放**里
       //   只要含上一回合的 `turn_started`，就会把正在跑的 live 回合 `foldPhase` 掉
       //   （用户看到"文字定格、思考中消失"），甚至先造出一个空白假 busy。
       //   回合号在状态机里是按单调量使用的 ⇒ 这里必须丢弃"比已知最大更旧"的 turn_started。
       if (ev.turnID < lastTurnIDOf(s)) {
-        return s
+        // ⛔ 审计确证（state-gate-6 C1）：**被判陈旧的帧一个字段都不许写** —— 返回**入参原引用**，
+        //   而不是经由已应用过 `applySessionFields` 的 `s`（否则回放帧会把 todos/goal 打回旧值，
+        //   而状态机自己却认为"已整帧丢弃"）。
+        return s0
       }
+      // 会话级字段：闸门之后才应用（缺省 = 不动）。
+      s = applySessionFields(s, ev.todos, ev.goal)
       // ⚠️ notification / queued user 都是**服务端在上一回合收尾后**才 dequeue 的新 turn
       //（`drainAndProcessNotifications` 只在 idle/回合结束调用；运行中通知走 tool message）。
       // ⇒ 必须走正常 turn_started：收尸旧 live、物化新 turn 的 user 行、把 activeTurn 指到
