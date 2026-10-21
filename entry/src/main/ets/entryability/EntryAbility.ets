@@ -144,6 +144,12 @@ export default class EntryAbility extends UIAbility {
     if (AppStorage.get<boolean>('sseRecord') === undefined) {
       AppStorage.setOrCreate<boolean>('sseRecord', true);
     }
+    // 调试入口（用户要求「你能自己点」）：`aa start … --ps replay true` ⇒ 自动打开 SSE 重放页。
+    // 只置一次性标记，页面消费后立刻清掉（不影响正常冷启动）。
+    const rp: Object | undefined = want.parameters !== undefined ? want.parameters['replay'] : undefined;
+    if (rp !== undefined && String(rp) === 'true') {
+      AppStorage.setOrCreate<boolean>('openSseReplay', true);
+    }
     hilog.info(DOMAIN, TAG, 'EntryAbility onCreate');
   }
 

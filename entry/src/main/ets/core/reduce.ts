@@ -162,7 +162,13 @@ function mergeIterations(
     const prev = byNum.get(it.iteration)
     // 四象限：incoming 轻 ⇒ prev 胜（prev 轻=引用稳定；prev 完整=★不倒退）；
     // incoming 完整 ⇒ incoming 胜（浮层/区域段 hydrate 与既有权威方向一致）。
-    if (prev !== undefined && isFolded(it)) continue
+    // ⛔ 2026-10-21 同上：`isFolded` 只说明"详情被剥离"，**不等于"没有工具"**。
+    //   纯工具迭代的真条目在旧后端一律 folded ⇒ 旧写法让**空壳**（未 folded）永久胜出
+    //   ⇒ 工具消失。⇒ 仅当 incoming **确实没有 payload**（无正文/无思考/无工具）时才让 prev 胜。
+    if (prev !== undefined && isFolded(it)
+      && (it.content === undefined || it.content === '')
+      && (it.reasoning === undefined || it.reasoning === '')
+      && (it.tools === undefined || it.tools.length === 0)) continue
     // ⛔ **已渲染的工具绝不消失**（用户 2026-10-21 P0「两个迭代进入执行中然后消失了，
     //   重启后又出现」）：服务端提交某迭代时**可能不带它的工具**（工具的权威副本在
     //   `active_tools`/`completed_tools` 里，或提交帧只补了迭代壳），而客户端按
@@ -1328,7 +1334,9 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       // Δiterations 每条的 (号:工具数) + 本帧工具数组长度 —— 若某个纯工具迭代的
       // delta 从未出现（或工具数为 0），这里立刻可见。
       console.info(`[ITER-APPLY] turn=${target} evIter=${ev.iter}`
-        + ` delta=[${ev.iterationsDelta.map((it) => `${it.iteration}:${it.tools.length}`).join(',')}]`
+        + ` delta=[${ev.iterationsDelta.map((it) => `${it.iteration}:${it.tools.map((x) => `${x.name}@${x.iteration !== undefined ? x.iteration : -1}`).join('+')}`).join(',')}]`
+        + ` active=[${ev.activeTools.map((x) => `${x.name}@${x.iteration !== undefined ? x.iteration : -1}`).join('+')}]`
+        + ` completed=[${ev.completedTools.map((x) => `${x.name}@${x.iteration !== undefined ? x.iteration : -1}`).join('+')}]`
         + ` carried=${ev.toolsCarried} activeN=${ev.activeTools.length} completedN=${ev.completedTools.length}`
         + ` heldMax=${prev.iterations.length > 0 ? prev.iterations[prev.iterations.length - 1].iteration : 0}`
         + ` seq=${ev.seq}`);
@@ -1680,7 +1688,7 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       // 两条 commit 路径的 in-flight 折叠语义永不分叉。append 传 ('','')：
       // finalText 覆盖逻辑（下方 inFlightIter map/追加）统一处理新迭代的
       // content 写入。
-      const iterations = foldInFlightToIterations(live.activeTools, live.streamingTools, iterations0, live.iter, '', '')
+      const iterations = foldInFlightToIterations(live.activeTools, live.streamingTools, live.completedTools ?? [], iterations0, live.iter, '', '')
       // 最终回复文本：text 顶层 content（v55 唯一权威值）> cancel 定格 content。
       const finalText = ev.content !== null ? ev.content : nonEmptyStr(live.content)
       // v55 渲染层 hasIterations=true 时不渲染顶层 content —— 最终回复必须存在于
@@ -2679,6 +2687,7 @@ function settlePendingSending(s: ChatState, atTurnEnd: boolean): ChatState {
 function foldInFlightToIterations(
   activeTools: readonly WebToolProgress[],
   streamingTools: readonly WebToolProgress[],
+  completedTools: readonly WebToolProgress[],
   iterations: readonly WebIteration[],
   lastIter: IterNum,
   appendContent: string,
@@ -2686,20 +2695,54 @@ function foldInFlightToIterations(
 ): readonly WebIteration[] {
   const inFlight = [...activeTools, ...streamingTools].filter((t) =>
     t.status === 'running' || t.status === 'generating' || t.status === 'pending')
-  if (inFlight.length === 0) return iterations
-  const errTools = inFlight.map((t) => ({ ...t, status: 'error' as const }))
+  // ⛔ P0（2026-10-21 用户实机：「task_wait 完成后从历史消失」）+ 必要条件（该迭代只有 toolcall）：
+  //   旧实现只折 active/streaming，**从不折 completedTools** ⇒ 工具已经 `done`（服务端已把它
+  //   移入 `completed_tools`）但对应迭代的 `iterations_delta` 还没到（或那份 delta 是完成**前**
+  //   拍的快照）时，提交（text_final / 收尸）会把这条工具**直接丢掉**：
+  //     · 有正文/思考的迭代 → 块还在、少一个 pill；
+  //     · **只有 toolcall 的迭代 → 整块变空 → 从界面消失**（用户原话）。
+  //   ⇒ 结构性规则：提交时把 live 里**所有尚未落入 iterations 的工具**按**工具自己的
+  //     `iteration`** 折进去（不是一律塞 lastIter —— 被吸收的工具属于它自己的迭代）。
+  //     `completed` 保持原状态（done/error），在飞的标 error（"已渲染内容永不消失"）。
+  const folds: WebToolProgress[] = []
+  for (let i = 0; i < completedTools.length; i++) {
+    folds.push(completedTools[i])
+  }
+  for (let i = 0; i < inFlight.length; i++) {
+    folds.push({ ...inFlight[i], status: 'error' })
+  }
+  if (folds.length === 0) return iterations
   const arr = [...iterations]
-  const idx = arr.findIndex((it) => it.iteration === lastIter)
-  if (idx >= 0) {
-    arr[idx] = {
-      ...arr[idx],
-      tools: [...arr[idx].tools, ...errTools],
-      toolCount: (arr[idx].toolCount ?? 0) + errTools.length,
+  for (let i = 0; i < folds.length; i++) {
+    const t = folds[i]
+    const owner: number = typeof t.iteration === 'number' && t.iteration > 0 ? t.iteration : lastIter
+    const idx = arr.findIndex((it) => it.iteration === owner)
+    if (idx >= 0) {
+      const has = arr[idx].tools.some((x) => sameToolKey(x, t))
+      if (has) continue
+      arr[idx] = {
+        ...arr[idx],
+        tools: [...arr[idx].tools, t],
+        toolCount: (arr[idx].toolCount ?? 0) + 1,
+      }
+    } else {
+      arr.push({
+        iteration: owner,
+        content: owner === lastIter ? appendContent : '',
+        reasoning: owner === lastIter ? appendReasoning : '',
+        tools: [t],
+        toolCount: 1,
+      })
     }
-  } else {
-    arr.push({ iteration: lastIter, content: appendContent, reasoning: appendReasoning, tools: errTools, toolCount: errTools.length })
   }
   return arr
+}
+
+/** 两枚线格式工具是否同一条（callID 优先，缺失退化为 name#label）。 */
+function sameToolKey(a: WebToolProgress, b: WebToolProgress): boolean {
+  const ka = a.callID !== undefined && a.callID !== '' ? a.callID : `${a.name}#${a.label !== undefined ? a.label : ''}`
+  const kb = b.callID !== undefined && b.callID !== '' ? b.callID : `${b.name}#${b.label !== undefined ? b.label : ''}`
+  return ka === kb
 }
 
 // ─── foldPhase：live 数据 → committed/frozen（turn_started 收尸） ──
@@ -2721,7 +2764,7 @@ function mergeTurnData(cur: Turn, h: Turn): Turn {
   //   与 `foldPhase`（turn_started 收尸）**共用同一 `foldInFlightToIterations`** ⇒ 两条收尸路同语义。
   if (cur.phase.kind !== 'committed') {
     curIts = foldInFlightToIterations(
-      cur.phase.data.activeTools, cur.phase.data.streamingTools,
+      cur.phase.data.activeTools, cur.phase.data.streamingTools, cur.phase.data.completedTools ?? [],
       curIts, cur.phase.data.iter, cur.phase.data.content, cur.phase.data.reasoning)
   }
   const incIts = h.phase.kind === 'committed' ? h.phase.payload.iterations : h.phase.data.iterations
@@ -2795,7 +2838,7 @@ function foldPhase(data: LiveSnapshot): Turn['phase'] {
   // streamingTools，从未完成，不在 iteration_history）若不折进 committed 的
   // 迭代就从渲染消失。追加新迭代时 content/reasoning 写进迭代（v55 渲染
   // hasIterations 时不渲染顶层 content —— 流式文本必须存在于迭代内）。
-  const iterations = foldInFlightToIterations(data.activeTools, data.streamingTools, data.iterations, data.iter, data.content, data.reasoning)
+  const iterations = foldInFlightToIterations(data.activeTools, data.streamingTools, data.completedTools ?? [], data.iterations, data.iter, data.content, data.reasoning)
   const its = nonEmptyArr(iterations)
   if (its !== null) return { kind: 'committed', payload: commitViaFold(its, data.content, 0, undefined, data.regionsBefore) }
   const text = nonEmptyStr(data.content)

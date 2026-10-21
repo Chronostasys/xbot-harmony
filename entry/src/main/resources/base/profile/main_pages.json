@@ -1,3 +1,8 @@
 {
-  "src": ["pages/Index", "pages/Fallback", "pages/SplashPreview"]
+  "src": [
+    "pages/Index",
+    "pages/Fallback",
+    "pages/SplashPreview",
+    "pages/SseReplay"
+  ]
 }

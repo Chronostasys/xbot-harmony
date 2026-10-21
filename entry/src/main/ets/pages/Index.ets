@@ -1,4 +1,5 @@
 import { common, ConfigurationConstant } from '@kit.AbilityKit';
+import router from '@ohos.router';
 import { fileIo, picker } from '@kit.CoreFileKit';
 import { componentSnapshot, componentUtils, display, window } from '@kit.ArkUI';
 import { image } from '@kit.ImageKit';
@@ -1418,6 +1419,7 @@ struct Index {
   // ── 生命周期 ──────────────────────────────────────────────────────────────
 
   aboutToAppear(): void {
+    this.maybeOpenSseReplay();
     // 组件级订阅的**首值**：所有 `@StorageProp('appLocale')` 的文本组件靠它同步刷新。
     // EntryAbility 已在首帧前 `initLocale(本地缓存)`，这里只是把同一值放进 AppStorage。
     AppStorage.setOrCreate<string>('appLocale', getLocale());
@@ -2427,6 +2429,22 @@ struct Index {
   }
 
   /** 日志快照（新→旧）。 */
+  /** 消费「打开 SSE 重放页」的一次性标记（`aa start --ps replay true`，调试用）。 */
+  private maybeOpenSseReplay(): void {
+    const want: boolean | undefined = AppStorage.get<boolean>('openSseReplay');
+    if (want === true) {
+      AppStorage.setOrCreate<boolean>('openSseReplay', false);
+      // 延到首帧后再跳（`aboutToAppear` 里直接 pushUrl 会在页面尚未挂载时抛错 ⇒ 白屏/被弹回）
+      setTimeout(() => {
+        try {
+          router.pushUrl({ url: 'pages/SseReplay' });
+        } catch (e) {
+          console.warn(`[replay] push failed: ${JSON.stringify(e)}`);
+        }
+      }, 300);
+    }
+  }
+
   private logLines(): LogLine[] {
     return logLinesNewestFirst();
   }
@@ -2464,6 +2482,12 @@ struct Index {
             })
         }
         .margin({ right: SP_2 })
+        Text('REPLAY')
+          .fontSize(FS_CAPTION).fontColor(this.pal().accentText)
+          .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
+          .onClick(() => {
+            router.pushUrl({ url: 'pages/SseReplay' });
+          })
         Text(i18nT('复制'))
           .fontSize(FS_CAPTION).fontColor(this.pal().accentText)
           .padding({ left: SP_3, right: SP_3, top: SP_2, bottom: SP_2 })
@@ -11552,8 +11576,11 @@ struct Index {
         onOpenToolsCtx: (iter: number) => {
           this.openToolsCtx(this.liveRowRef.id, iter);
         },
-        onToggleTool: (iter: number, name: string) => {
-          this.toggleToolByKey(this.liveRowRef, iter, name);
+        onToggleTool: (iter: number, name: string, toolIter?: number) => {
+          // ⛔ 2026-10-21：live 路径此前**漏传第三个参数**（只剩 committed 路径带 `toolIter`）
+          //   ⇒ 在飞块的详情按"块 head 号"取 ⇒ 被吸收的工具点开看不到自己的详情。
+          //   与 committed 路径逐字对齐（同一出口 `toggleToolByKey` 同一签名）。
+          this.toggleToolByKey(this.liveRowRef, iter, name, toolIter);
         },
         onRowLongPress: () => {
           this.openCtx('row', this.liveRowRef.id, 0, '');

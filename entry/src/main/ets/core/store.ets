@@ -20,6 +20,7 @@ import { ChatState, DomainEvent, EventSeq, initialChatState, iterNum, NonEmptyS,
 import { demoAnswerFor, demoFirstIteration, demoReasoningFor, demoSeedPrompt, demoSessions, demoToolFor } from './demo';
 import { reduce, applySessionFields } from './reduce';
 import { invariantViolations } from './state_invariants';
+import { setDiagSink } from './diag';
 import { liveRunningIn, withSessionRunning } from './chat_types_full';
 import type { GoalInfo as ChatGoalInfo, TodoItem as ChatTodoItem } from './chattypes';
 import { deriveRows, Row } from './derive';
@@ -156,6 +157,11 @@ function newRequestID(): string {
   globalReqSeq++;
   return `req-${Date.now()}-${globalReqSeq}-${Math.floor(Math.random() * 1000000)}`;
 }
+
+// 核心诊断 sink：把 core 里的 diag() 接进**应用内日志面板**（用户要求可见）。
+setDiagSink((tag: string, msg: string): void => {
+  log(tag, msg);
+});
 
 export class ChatStore {
   /** resync 重载的最小间隔（ms）——**合并**冗余的 `resync_required`（见 SSE 分支的注释）。 */

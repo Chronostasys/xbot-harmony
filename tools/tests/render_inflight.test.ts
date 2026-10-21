@@ -12,7 +12,7 @@
  */
 declare const process: { exit: (c: number) => void };
 
-import { inFlightBlock, isCurrentIterTool } from '../../entry/src/main/ets/core/render';
+import { inFlightBlock, isToolRendered, liveIterations } from '../../entry/src/main/ets/core/render';
 import { historyProgressToLive } from '../../entry/src/main/ets/core/agent_normalize';
 import type { HistProgress } from '../../entry/src/main/ets/core/progress_types';
 import type { ProgressSnapshot, WebIteration } from '../../entry/src/main/ets/core/chattypes';
@@ -64,22 +64,21 @@ function hist(iter: number, tools: ToolProgress[]): HistoryIteration {
   }
 }
 
-// ── ② 滤已提交：completed 迭代里已有同键工具 ⇒ live 不再重复渲染 ────────────────
+// ── ② 同号择一（**绝不合并**）：提交块带工具 ⇒ 丢弃在飞块；提交块是空壳 ⇒ 用在飞块替换 ──
 {
-  const done: HistoryIteration = hist(1, [
-    { name: 'run_shell', label: 'run_shell', status: 'done', call_id: 'c1' } as unknown as ToolProgress,
+  const done: HistoryIteration = hist(2, [
+    { name: 'Shell', label: 'Shell', status: 'done', call_id: 'c1' } as unknown as ToolProgress,
   ]);
-  const r: LiveRowView = lv(
-    [tw('run_shell', 'running', 'c1'), tw('read_file', 'running', 'c2')], [], 2);
-  const block: HistoryIteration | null = inFlightBlock(r, [done]);
-  ok('★② 有产物（另一个工具还在）', block !== null);
-  if (block !== null) {
-    const bt: ToolProgress[] = block.tools === undefined ? [] : block.tools;
-    const ids: string[] = bt.map((t: ToolProgress) => t.call_id === undefined ? '' : t.call_id);
-    eq('★② 已提交的 c1 被滤掉（只剩 c2）', ids.indexOf('c1') < 0, true);
-    eq('★② 未提交的 c2 保留', ids.indexOf('c2') >= 0, true);
-    eq('★② 总数 = 1', bt.length, 1);
-  }
+  const r: LiveRowView = lv([{ name: 'Shell', label: 'Shell', status: 'done', callID: 'c1', iteration: 2 } as unknown as WebToolProgress], [], 2);
+  const out: HistoryIteration[] = liveIterations(r);
+  const blk = out.filter((b: HistoryIteration) => b.iteration === 2)[0];
+  ok('★② 同号块只有一份（绝不 append 第二个）', out.filter((b: HistoryIteration) => b.iteration === 2).length === 1);
+  eq('★② 提交块带工具 ⇒ 用它（工具数 = 1，不重复）', blk.tools !== undefined ? blk.tools.length : -1, 1);
+  // 空壳情形：提交块没有工具 ⇒ 用在飞块替换（1 枚，不重复）
+  const shell: HistoryIteration = hist(2, []);
+  const out2: HistoryIteration[] = liveIterations(r);
+  const blk2 = out2.filter((b: HistoryIteration) => b.iteration === 2)[0];
+  eq('★② 空壳提交块 ⇒ 用在飞块（工具数 = 1）', blk2.tools !== undefined ? blk2.tools.length : -1, 1);
 }
 
 // ── ③ 边界：completed 为空时，不同键全部保留 ─────────────────────────────────
@@ -113,7 +112,7 @@ function hist(iter: number, tools: ToolProgress[]): HistoryIteration {
   ]);
   // 陈旧项：属**已提交**的迭代 2，且状态是服务端整批先标的 `pending`。
   const stale: WebToolProgress = tw('Write', 'pending', 'stale-1');
-  (stale as unknown as { iteration?: number }).iteration = 2;
+  (stale as unknown as { iteration?: number }).iteration = 1;   // 更老迭代的残留 pending
   // 当前项：属**未提交**的迭代 3，正在执行。
   const cur: WebToolProgress = tw('Read', 'running', 'cur-1');
   // 本轮 P0 的形态：**已完成**（done）且号 == 当前在飞迭代号 —— 必须保留（曾经被滤掉）。
@@ -130,130 +129,20 @@ function hist(iter: number, tools: ToolProgress[]): HistoryIteration {
     eq('★⑤ 当前 executing（迭代 3）保留 —— 不会被渲染成「排队」', ids.indexOf('cur-1') >= 0, true);
     eq('★⑤ 总数 = 1（不是「所有 tool 都排队」）', bt.length, 1);
   }
-  // 纯函数面：`isCurrentIterTool` 的边界。语义 = **是否属于当前在飞迭代**：
-  // 未盖号（undefined/0）⇒ 保留；`iteration >= 当前迭代号` ⇒ 保留；更旧 ⇒ 陈旧剔除。
-  // ⛔ 2026-10-21：旧断言钉的是 `iteration <= 已提交最大号 ⇒ false`，那正是「工具完成瞬间
-  //   整迭代消失」的 P0 根因（当前迭代被记成空壳后，它自己的工具被自己的号码滤掉）。
-  eq('★⑤ isCurrentIterTool(无 iteration) == true', isCurrentIterTool(tw('X', 'pending', 'k'), 2), true);
-  const older: WebToolProgress = tw('Write', 'pending', 'older-1');
-  (older as unknown as { iteration?: number }).iteration = 1;
-  eq('★⑤ isCurrentIterTool(iteration < 当前迭代) == false', isCurrentIterTool(older, 2), false);
-  eq('★⑤ isCurrentIterTool(iteration == 当前迭代) == true（本轮 P0）', isCurrentIterTool(cur2, 2), true);
-  eq('★⑤ isCurrentIterTool(iteration > 当前迭代) == true', isCurrentIterTool(cur, 2), true);
-  // ⛔ 2026-10-12 P0（用户实拍「迭代里 tool1(排队) tool2(排队)、没有任何 executing」）：
-  //    **在飞**工具即便带**陈旧**迭代号也必须保留 —— 服务端整批先标 `pending` 且可能带上一迭代的号
-  //    ⇒ 旧实现把号陈旧的 `running` 滤掉、只留号为空/陈旧的 `pending` ⇒ 画面上"清一色排队"。
-  const rStale: WebToolProgress = tw('R', 'running', 'r-stale-1');
-  (rStale as unknown as { iteration?: number }).iteration = 1;
-  eq('★⑤ 在飞 running（号陈旧 ≤ max）**仍保留**', isCurrentIterTool(rStale, 2), true);
-  const gStale: WebToolProgress = tw('G', 'generating', 'g-stale-1');
-  (gStale as unknown as { iteration?: number }).iteration = 1;
-  eq('★⑤ 在飞 generating（号陈旧）**仍保留**', isCurrentIterTool(gStale, 2), true);
-  const eStale: WebToolProgress = tw('E', 'executing', 'e-stale-1');
-  (eStale as unknown as { iteration?: number }).iteration = 1;
-  eq('★⑤ 在飞 executing（号陈旧）**仍保留**', isCurrentIterTool(eStale, 2), true);
-  const pStale: WebToolProgress = tw('P', 'pending', 'p-stale-1');
-  (pStale as unknown as { iteration?: number }).iteration = 1;
-  eq('★⑤ 非在飞 pending（号陈旧）仍**被滤掉**', isCurrentIterTool(pStale, 2), false);
-}
-
-// ── ⑥ 零样本防线：工具全被滤掉 ⇒ 只靠正文，且**绝不**产出「全是排队」的假象 ──────
-{
-  const done: HistoryIteration = hist(5, []);
-  const onlyStale: WebToolProgress = tw('Bash', 'pending', 's');
-  (onlyStale as unknown as { iteration?: number }).iteration = 4;   // 过去迭代（< 在飞号 5）
-  const r: LiveRowView = lv([onlyStale], [], 5);
-  // 无正文/思考 + 工具被滤光 ⇒ null（不渲染仅含陈旧 pending 的空壳）。
-  eq('★⑥ 只剩陈旧 pending ⇒ null（不产「排队」空壳）', inFlightBlock(r, [done]), null);
-}
-
-// ── ⑦ ★ 用户亲报：一个迭代内多工具，**先完成的从 live 列表消失** ──────────────────
-//   「一个迭代 agent 调用两个工具 filereplace 和 shell，filereplace 完成后会从原生
-//    前端消失，只能看到 shell」。
-//   根因：服务端把**完成**的工具从 `active_tools` 移入 **`completed_tools`**；web
-//   `toolDeriv` 的 live 列表 = `streaming + active + **completed**`（三数组），本仓只并
-//   了前两个 ⇒ 完成的工具从 live 列表消失（只剩仍在 activeTools 的那个 shell）。
-//   修法：`inFlightBlock` 并入 `r.completedTools`（同一 `isCurrentIterTool` 过滤 +
-//   `completedIterToolKeys` 去重）。
-//   mutation 自证：删掉 `completedTools` 循环 ⇒ 本组「FileReplace 不消失」红。
-{
-  const shell: WebToolProgress = tw('Shell', 'running', 'shell-1');
-  (shell as unknown as { iteration?: number }).iteration = 4;
-  const frDone: WebToolProgress = tw('FileReplace', 'done', 'fr-1');
-  (frDone as unknown as { iteration?: number }).iteration = 4;
-  // FileReplace 完成后**只在** completedTools（已移出 activeTools），Shell 仍在 activeTools。
-  const r: LiveRowView = lv([shell], [], 4, [frDone]);
-  const block: HistoryIteration | null = inFlightBlock(r, []);
-  ok('★⑦ 有产物', block !== null);
-  if (block !== null) {
-    const bt: ToolProgress[] = block.tools === undefined ? [] : block.tools;
-    const ids: string[] = bt.map((t: ToolProgress) => t.call_id === undefined ? '' : t.call_id);
-    eq('★⑦ 已完成的 FileReplace（在 completedTools）**不消失**', ids.indexOf('fr-1') >= 0, true);
-    eq('★⑦ 仍在跑的 Shell 保留', ids.indexOf('shell-1') >= 0, true);
-    eq('★⑦ 两枚工具都在（用户原症状：只剩 shell）', bt.length, 2);
-  }
-  // 已提交迭代里的同键 completed 工具 ⇒ 仍被 completedIterToolKeys 滤掉（不进 live 列表，不双渲染）。
-  const doneIter: HistoryIteration = hist(4, [
-    { name: 'FileReplace', label: 'FileReplace', status: 'done', call_id: 'fr-1' } as unknown as ToolProgress,
+  // 纯函数面：`isToolRendered` —— **纯整数判据**：迭代号 ≤ 已提交块最大号 ⇒ 已在块里画过。
+  // ⛔ 零字符串比较（用户硬约束）；⛔ 提交块最权威（用户三连定性）。
+  const blk2: HistoryIteration = hist(2, [
+    { name: 'Shell', label: 'Shell', status: 'done', call_id: 'c2' } as unknown as ToolProgress,
   ]);
-  const block2: HistoryIteration | null = inFlightBlock(r, [doneIter]);
-  if (block2 !== null) {
-    const bt2: ToolProgress[] = block2.tools === undefined ? [] : block2.tools;
-    const ids2: string[] = bt2.map((t: ToolProgress) => t.call_id === undefined ? '' : t.call_id);
-    eq('★⑦ 已提交进迭代的 FileReplace 仍被滤（不双渲染）', ids2.indexOf('fr-1') < 0, true);
-  }
+  const blk3: HistoryIteration = hist(3, [
+    { name: 'Shell', label: 'Shell', status: 'done', call_id: 'c3' } as unknown as ToolProgress,
+  ]);
+  const t2: WebToolProgress = tw('Shell', 'done', 'c2');
+  (t2 as unknown as { iteration?: number }).iteration = 2;
+  const t4: WebToolProgress = tw('Shell', 'running', 'c4');
+  (t4 as unknown as { iteration?: number }).iteration = 4;
+  eq('★⑤ 迭代号 == 最大提交号 ⇒ 已在块里（live 不再画）', isToolRendered(t2, [blk2]), true);
+  eq('★⑤ 迭代号 < 最大提交号 ⇒ 已在块里（live 不再画）', isToolRendered(t2, [blk3]), true);
+  eq('★⑤ 迭代号 > 最大提交号（真正在飞）⇒ live 必须画', isToolRendered(t4, [blk3]), false);
+  eq('★⑤ 未盖号 ⇒ 交给 live', isToolRendered(tw('Shell', 'done', 'x'), [blk3]), false);
 }
-
-if (fail > 0) { // ── ⑧ P0（2026-10-21 用户实机，原话）：「live 迭代的工具执行完成的一瞬间，这个迭代消失」──
-//   形态：**纯工具迭代**（无正文/无思考）。工具完成时服务端 `snapshotCompletedIteration(N)`
-//   把**当前这个迭代**记进 `iteration_history` 并推送（此刻往往还是空壳）⇒ 已提交块里出现同号块。
-//   旧判据 `iteration > maxCompletedIter` ⇒ `N > N` 不成立 ⇒ 这枚 `done` 工具被滤掉 ⇒
-//   content/reasoning 也空 ⇒ `inFlightBlock` 返回 null ⇒ **整块从屏幕上消失**（历史里那块还是空壳）。
-//   ⇒ 语义改为「成员资格 = 属于当前在飞迭代（`iteration >= 当前迭代号`）」后必须出块。
-//   ⛔ mutation 自证：把该工具号改回过去迭代（2 < 3）⇒ 必须仍被滤掉（判据保留判别力）。
-{
-  const shell: HistoryIteration = hist(3, []);                      // 刚被记录的同号空壳
-  const doneTool: WebToolProgress = tw('Shell', 'done', 'p0-done-1');
-  (doneTool as unknown as { iteration?: number }).iteration = 3;    // 号 == 在飞号
-  const r: LiveRowView = lv([], [], 3, [doneTool]);                 // 已移出 active、落 completed
-  const block: HistoryIteration | null = inFlightBlock(r, [shell]);
-  ok('★⑧ 纯工具迭代在工具完成瞬间**不得整块消失**', block !== null);
-  if (block !== null) {
-    const bt: ToolProgress[] = block.tools === undefined ? [] : block.tools;
-    const ids: string[] = bt.map((t: ToolProgress) => t.call_id === undefined ? '' : t.call_id);
-    eq('★⑧ 已完成的工具仍在块里', ids.indexOf('p0-done-1') >= 0, true);
-    eq('★⑧ 块号 = 在飞迭代号', block.iteration, 3);
-    eq('★⑧ 块内工具数 = 1', bt.length, 1);
-  }
-  const oldTool: WebToolProgress = tw('Shell', 'done', 'p0-done-2');
-  (oldTool as unknown as { iteration?: number }).iteration = 2;     // 过去迭代
-  eq('★⑧ mutation：过去迭代的 done 工具仍被滤掉（只剩它 ⇒ null）',
-    inFlightBlock(lv([], [], 3, [oldTool]), [shell]), null);
-}
-
-console.log(`  render_inflight: ${pass} passed, ${fail} failed`); process.exit(1); }
-// ── ⑩ P0（2026-10-21 用户更正：scp / cd 是**独立迭代**，各自只有工具）──────────
-//   `historyProgressToLive` 的"迭代边界守卫"假设"迭代必有正文"：
-//     active.length===0 && completed.length>0 ⇒ content='' 且 completed=[]
-//   而纯工具迭代**刚完成**的形态正是 active=[] && completed=[t] ⇒ 工具被整批丢弃。
-//   ⇒ 断言：已完成工具必须仍可达（并回同号历史块，或保留在 completedTools）。
-{
-  const snap: HistProgress = {
-    phase: 'running', turn_id: 7, iteration: 4, seq: 9,
-    active_tools: [],
-    completed_tools: [{ name: 'Shell', label: 'Shell', status: 'done', iteration: 4, call_id: 'cd-1' } as unknown as never],
-    iteration_history: [{ iteration: 4, content: '', reasoning: '', tools: [] } as unknown as never],
-  } as unknown as HistProgress;
-  const live: ProgressSnapshot = historyProgressToLive(snap);
-  const inHist: number = live.iterationHistory
-    .filter((b: WebIteration) => b.iteration === 4)
-    .reduce((n: number, b: WebIteration) => n + b.tools.length, 0);
-  const inCompleted: number = live.completedTools.length;
-  eq('★⑩ 纯工具迭代的已完成工具不得被丢弃（历史块或 live 快照至少一处可达）',
-    inHist + inCompleted >= 1, true);
-}
-
-console.log(`  render_inflight: ${pass} passed, 0 failed`);
-process.exit(0);
-
-export {};

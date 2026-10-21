@@ -25,7 +25,7 @@ import { BUBBLE, withAlpha } from '../core/bubble';
 import { R_LG, SP_1, SP_2, SP_3, FS_CAPTION, FS_META } from '../core/tokens';
 import {
   ELEV_OVERLAY, GAP_PILL, INSET_PILL_Y, PILL_MAX_W, POPOVER_W, POPOVER_W_OVERFLOW,
-  PRESS_OPACITY, RADIUS_CARD, RADIUS_FULL, SPACE_HAIR, colorOf, elevationColorOf, surfaceFillOf,
+  PRESS_OPACITY, RADIUS_CARD, RADIUS_FULL, SPACE_HAIR, colorOf, elevationColorOf, surfaceFillOf, typeOf,
 } from '../core/design';
 import { anchorsAt, COMPACTED_LABEL, compactionAnchors, splitMarker } from '../core/compaction';
 import { MarkdownView } from './MarkdownView';
@@ -58,6 +58,8 @@ export struct IterBlocksView {
   /** 已完成块列表 + 归属身份（只在块真正变化时替换 ⇒ 本组件零重建）。 */
   @ObjectLink iters: IterBlocks;
   /** 显式主题覆盖（测试/独立预览） */
+  /** 迭代号标记开关（开发者设置；默认关 = 与改造前逐像素一致）。 */
+  @StorageProp('xbotIterBadge') iterBadgeOn: boolean = false;
   @Prop theme: string = 'dark';
   /** 全局主题订阅（生产唯一真源；与 MessageRowView 同根因同机制）。 */
   @StorageProp('appTheme') appTheme: string = '';
@@ -296,6 +298,27 @@ export struct IterBlocksView {
   @Builder
   IterationBlock(it: HistoryIteration) {
     Column({ space: BUBBLE.blockInnerGap }) {
+      // ── 迭代号标记（开发者设置开关；关 = 完全不渲染，与改造前逐像素一致）──
+      if (this.iterBadgeOn) {
+      // 目的：真机上一眼看出「哪一块是哪一轮、带几枚工具、是否在飞」，不必依赖日志/重放。
+      // 形态：极弱色小字，放在块首、不占独立行高（与思考行同基线附近）。
+      Row({ space: SPACE_HAIR }) {
+        Text(`#${it.iteration}`)
+          .fontSize(typeOf('type.micro').size)
+          .fontColor(colorOf(this.pal(), 'iconMuted'))
+        if (it.live === true) {
+          Text('live')
+            .fontSize(typeOf('type.micro').size)
+            .fontColor(colorOf(this.pal(), 'accentSoft'))
+        }
+        if (it.tools !== undefined && it.tools.length > 0) {
+          Text(`${it.tools.length}t`)
+            .fontSize(typeOf('type.micro').size)
+            .fontColor(colorOf(this.pal(), 'iconMuted'))
+        }
+      }
+      .width('100%')
+      }
       if (displayReasoning(it).length > 0) {
         ThinkingLine({
           label: `思考 ${runeCount(displayReasoning(it))} 字`,

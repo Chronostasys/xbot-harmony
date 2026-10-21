@@ -547,8 +547,17 @@ export function dedupeIterationsByNumber(iters: readonly WebIteration[]): WebIte
     }
     const prevFolded = prev.toolsFolded === true
     const curFolded = it.toolsFolded === true
+    // ⛔ 2026-10-21 P0（用户：「只有 toolcall 的迭代一定消失」）：
+    //   "有没有内容"必须把 **tools** 算进去 —— 纯工具迭代的 content/reasoning **必然为空**，
+    //   只看正文/思考时 `prevHas === curHas === false` ⇒ 落到下面"轻/完整"分支；而
+    //     · 先到的**空壳**（工具还没跑完）没有工具 ⇒ `tools_folded=false` = 被当成"完整"；
+    //     · 后到的**真条目**（带 Shell）在旧后端一律 `tools_folded=true` = 被当成"轻"；
+    //     · 规则 `!prevFolded && curFolded ⇒ keep prev` ⇒ **保留空壳、真工具永久丢弃** ⇒ 该迭代
+    //       渲染成空块 ⇒ 从界面消失（有正文的迭代因为走 `curHas && !prevHas` 而毫发无损）。
     const prevHas = (prev.content ?? '').length > 0 || (prev.reasoning ?? '').length > 0
-    const curHas = (it.content ?? '').length > 0 || (it.reasoning ?? '').length > 0
+      || (prev.tools !== undefined && prev.tools.length > 0)
+    const curHas = (it.content ?? '').length > 0 || (it.reasoning ?? '').length
+      || (it.tools !== undefined && it.tools.length > 0)
     // 空壳不得覆盖有内容的；有内容的更新（同号修正）应当生效。
     if (curHas && !prevHas) {
       byNum.set(it.iteration, it)

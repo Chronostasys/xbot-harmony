@@ -25,7 +25,14 @@ import type { IterationSnapshot, IterationTool, ToolProgress } from './progress_
 export function normalizeWebIteration(raw: unknown): WebIteration | null {
   if (!raw || typeof raw !== 'object') return null
   const r = raw as Record<string, unknown>
-  const rawTools = Array.isArray(r.tools) ? r.tools : Array.isArray(r.completed_tools) ? r.completed_tools : []
+  // ⛔ 2026-10-21 P0（用户两条实机结论反向修正）：
+  //   · 「只有 toolcall 的迭代消失」⇒ `tools` 为**空数组**时不能挡住 `completed_tools`（空 ≠ 有值）；
+  //   · 「set_goal_complete 被算了两次」⇒ 也不能**并集**（同一工具在两个数组里各一份、又没有
+  //     `call_id` 时去重失效 ⇒ 算两遍）。
+  //   ⇒ 唯一规则：**`tools` 非空就用它**（它是对该迭代的记录快照），**否则**退回 `completed_tools`。
+  const toolsArr: unknown[] = Array.isArray(r.tools) ? (r.tools as unknown[]) : []
+  const doneArr: unknown[] = Array.isArray(r.completed_tools) ? (r.completed_tools as unknown[]) : []
+  const rawTools: unknown[] = toolsArr.length > 0 ? toolsArr : doneArr
   const tools = rawTools.map(normalizeWebTool).filter(Boolean) as WebToolProgress[]
   // ── 诊断（用户 2026-10-21 亲报「漏迭代」；只打计数，不含正文，低频）──────────
   // 目的：区分"条目到客户端时就空了"与"到了但渲染被判空"。

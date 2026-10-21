@@ -42,7 +42,7 @@ import {
 import {
   RPC_EXPORT_SESSION, RPC_EXPORT_SESSION_JSONL, SessionSelectorParams, readableRpcError, rpc,
 } from '../core/rpc';
-import { colorOf, HIT_TARGET_MIN, PRESS_OPACITY } from '../core/design';
+import { colorOf, HIT_TARGET_MIN, PRESS_OPACITY, SPACE_SM, typeOf } from '../core/design';
 import { SettingsPanelHeader, SettingsToolRow, SettingsButton } from './SettingsRows';
 import { animBase } from './anim';
 import { t as i18nT } from '../core/i18n';
@@ -101,6 +101,8 @@ export function previewText(s: string, max: number): string {
 
 @Component
 export struct SettingsDeveloper {
+  /** 迭代号标记开关（默认关；`@StorageProp` ⇒ 与 `IterBlocksView` 共享同一真源）。 */
+  @StorageProp('xbotIterBadge') iterBadgeOn: boolean = false;
   // 语言切换订阅：所有存量组件实例在 setLocale 后自行 rebuild（@StorageProp 组件级订阅，
   // 不依赖父级 ForEach/LazyForEach 重投递）。
   @StorageProp('appLocale') @Watch('onLocaleStamp') localeStamp: string = '';
@@ -597,6 +599,31 @@ export struct SettingsDeveloper {
       .onClick(() => {
         this.onOpenLog();
       })
+
+      // ── 迭代号标记开关（用户 2026-10-21：「把迭代号这个搞成开关，在开发者里搞个设置，关掉就不显示」）──
+      // 与「应用日志」同一分区；写入 `AppStorage('xbotIterBadge')`，`IterBlocksView` 用
+      // `@StorageProp` 自己订阅 ⇒ 切换后**已存在行**立即跟随（不必重进会话）。
+      Row({ space: SPACE_SM }) {
+        Column({ space: 2 }) {
+          Text(i18nT('显示迭代号'))
+            .fontSize(typeOf('type.body').size)
+            .fontColor(this.pal().textPrimary)
+          Text(i18nT('在每个迭代块左上角显示 #号、是否在飞、工具数（排障用）'))
+            .fontSize(typeOf('type.caption').size)
+            .fontColor(this.pal().textMuted)
+            .maxLines(2)
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+        Toggle({ type: ToggleType.Switch, isOn: this.iterBadgeOn })
+          .onChange((on: boolean) => {
+            this.iterBadgeOn = on;
+            AppStorage.setOrCreate<boolean>('xbotIterBadge', on);
+          })
+      }
+      .width('100%')
+      .height(HIT_TARGET_MIN)
+      .alignItems(VerticalAlign.Center)
 
       // ── 实况窗（Live View Kit）自检 + 手动测试 ──
       this.LiveViewSection()

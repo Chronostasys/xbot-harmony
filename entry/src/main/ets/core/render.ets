@@ -32,7 +32,13 @@ const NO_COMPACTIONS: WebCompaction[] = [];
 function syncIterBlocks(row: ChatRow, blocks: HistoryIteration[], comps: WebCompaction[],
   turnID: number): void {
   const holder: IterBlocks = row.iterBlocks;
-  const merged: HistoryIteration[] = mergeToolRuns(blocks);
+  // ⛔ 2026-10-21 **停止"吸收相邻纯工具迭代"**（用户：「每个 tool 是一个单独的迭代」——
+  //   三个纯工具迭代被 `mergeToolRuns` 并成一块 `#1`（显示 3 枚 pill）⇒ 用户读作
+  //   "后面两个迭代消失了"，且 busy 期"只看到第一个"（并进去的那两枚要等各自帧到达才出现）。
+  //   吸收是 web 的**排版优化**，本仓不需要它来保证正确性 ⇒ 直接把迭代列表原样交给渲染：
+  //   每个迭代一块、块号即界面上可见的号，归属与丢失一眼可判。
+  //   （`mergeToolRuns` 仍保留给判据/测试用，页面渲染不再经过它。）
+  const merged: HistoryIteration[] = blocks;
   if (holder.blocks !== merged) {
     holder.blocks = merged;
     holder.rev = holder.rev + 1;
@@ -82,33 +88,39 @@ export function toToolProgress(t: WebToolProgress): ToolProgress {
  *     服务端点名此过滤必须由前端承担：`agent/engine_wire.go:2436-2445`）。
  *    用户亲报症状：「所有 tool 都渲染为排队 / executing 的 tool 被渲染成排队」。
  */
-export function isCurrentIterTool(t: WebToolProgress, currentIter: number): boolean {
-  // ⛔ **在飞的工具永不按迭代号过滤**（2026-10-12 真机 P0 用户实拍：迭代里
-  //    `tool1(排队) tool2(排队)` 而**没有任何 executing**）：
-  //    服务端整批先标 `pending` 且**可能带着上一迭代的号**（`agent/engine_run_tools.go:49-64`
-  //    到 goroutine 启动才翻 `running`；`engine_wire.go:2436-2445` 点名"必须由前端按 iteration
-  //    过滤"），于是 **`running` 但号陈旧的那一个被滤掉，而号为空(`null`)的 `pending` 全留下**
-  //    ⇒ 画面上就是"清一色排队"💥。而 `running`/`generating` 按定义**就是此刻在执行的那一个**
-  //    ①它必须可见 ②用户明确要求"不可能所有 tool 都在排队"。
-  //    ⇒ 只有**非在飞**（`pending`/终态）才走迭代号过滤（那正是滤掉"过去迭代残留 pending"的本意）。
-  const s: string = t.status !== undefined ? t.status : '';
-  if (s === 'running' || s === 'executing' || s === 'generating') {
-    return true;
+/**
+ * **这枚工具是否"已经画过"** —— live 块只补**还没画过**的。
+ *
+ * ⛔ 2026-10-21 P0（用户两连报：「只有 toolcall 的迭代一定消失」→ 我改错后「busy 不渲染 / idle 重复」）：
+ *   判据只有一条能同时满足两边：
+ *     **已画过 ⟺ `iterations[]` 里同号块的 tools 中确实存在这枚工具**（按 `call_id` 判身份，
+ *     缺 `call_id` 时用 `name#label`）。
+ *     · 同号块存在但**没有**这枚（服务端只记了空壳）⇒ 未画过 ⇒ live 必须补 ⇒ 不会消失；
+ *     · 同号块里**已有**这枚 ⇒ 已画过 ⇒ live 不再补 ⇒ 不会重复。
+ *   ⛔ 反对的两个旧判据（都错）：
+ *     · `it > maxCompletedIter` / `it >= currentIter`：把"号"当身份 ⇒ 空壳窗口里两边都不画；
+ *     · 跨迭代 `name#label` 去重：label 是截断前缀 ⇒ 连续同名 Shell 互相误杀。
+ *   ⇒ 只按"同号块里有没有这一枚"判，不跨迭代、不比号大小。
+ */
+export function isToolRendered(t: WebToolProgress, committed: readonly HistoryIteration[]): boolean {
+  // ── **唯一判据（纯整数，零字符串比较）** ─────────────────────────────────────
+  //   提交块最权威（用户三连定性）⇒ 只要这枚工具的迭代号 **≤ 已提交块的最大号**，它就已经
+  //   在块里画过了 ⇒ live tail **不得再画**（这正是"同一工具画两次"的唯一来源：
+  //   块画一次 + live tail 画一次）。
+  //   只有**比最大提交号更新**的迭代（真正还没提交的那一轮）才由 live tail 承载。
+  //   ⛔ 不再做任何 `call_id`/name/label 比较；⛔ 不再有"更老迭代残留"分支（被本条覆盖）。
+  const it0 = t.iteration
+  if (it0 === undefined || it0 === 0) {
+    return false            // 未盖号 ⇒ 无法判定 ⇒ 交给 live（宁可多画一次，不丢）
   }
-  const it: number | undefined = t.iteration;
-  // 未盖迭代号（0/缺省）= 无法证明陈旧 ⇒ 保留（服务端要求每枚都盖号，缺号属旧序列化）。
-  if (it === undefined || it === 0) {
-    return true;
+  let maxCommitted: number = 0
+  for (let i = 0; i < committed.length; i++) {
+    const n: number = committed[i].iteration
+    if (n > maxCommitted) {
+      maxCommitted = n
+    }
   }
-  // ⛔ 2026-10-21 P0 根治（用户实机：「live 迭代的工具执行完成的**一瞬间**，这个迭代消失」）：
-  //   旧判据是 `it > maxCompletedIter`（maxCompletedIter = 已提交块的最大迭代号）。
-  //   工具完成时服务端 `snapshotCompletedIteration(N)` 把**当前这个迭代**记进历史并推送
-  //   ⇒ `maxCompletedIter` 从 N-1 跳到 N ⇒ 该 `done` 工具（iteration = N）不再满足
-  //   `N > N` ⇒ 被滤掉 ⇒ 纯工具迭代变成 content=''/reasoning=''/tools=[] ⇒ 渲染层整块丢弃
-  //   ⇒ 用户看到"完成的一瞬间整块消失"。
-  //   正确语义：**成员资格 = 是否属于当前在飞迭代**（`it >= currentIter`）；只有
-  //   `it < currentIter` 才是"过去迭代残留的 pending/running"（那正是本过滤要清掉的东西）。
-  return it >= currentIter;
+  return it0 <= maxCommitted
 }
 
 /** `WebToolProgress[]` → `ToolProgress[]`（页面 live 尾块的工具列表用）。 */
@@ -299,16 +311,15 @@ export function inFlightBlock(r: LiveRowView, completed: HistoryIteration[]): Hi
   //    ⇒ 缺第 ① 步时，**过去迭代的 `pending` 工具永久渲染在最新在飞块**，看起来就是
   //      「所有 tool 都在排队」，且把真正在执行的 tool 挤成同一档。
   //    判据与渲染同源：过滤逻辑收敛在 `isCurrentIterTool`（导出的纯函数，可脱机断言）。
-  // 参考值 = **当前在飞迭代号**（不是已提交块的最大号 —— 见 isCurrentIterTool 的 P0 注释）。
-  const currentIter: number = r.lastIter;
+  // live 块只补**还没画过**的工具（判据 = `isToolRendered`：同号块的 tools 里是否已有这一枚）。
   const live: ToolProgress[] = [];
   for (let i = 0; i < r.streamingTools.length; i++) {
-    if (isCurrentIterTool(r.streamingTools[i], currentIter)) {
+    if (!isToolRendered(r.streamingTools[i], completed)) {
       live.push(toToolProgress(r.streamingTools[i]));
     }
   }
   for (let i = 0; i < r.activeTools.length; i++) {
-    if (isCurrentIterTool(r.activeTools[i], currentIter)) {
+    if (!isToolRendered(r.activeTools[i], completed)) {
       live.push(toToolProgress(r.activeTools[i]));
     }
   }
@@ -319,29 +330,23 @@ export function inFlightBlock(r: LiveRowView, completed: HistoryIteration[]): Hi
   //   兜底 `?? []`：部分手写/旧序列化的 live 行没有该字段（防御，避免整表崩）。
   const cTools: readonly WebToolProgress[] = r.completedTools !== undefined ? r.completedTools : [];
   for (let i = 0; i < cTools.length; i++) {
-    if (isCurrentIterTool(cTools[i], currentIter)) {
+    if (!isToolRendered(cTools[i], completed)) {
       live.push(toToolProgress(cTools[i]));
     }
   }
   const deduped: ToolProgress[] = mergeTools([], live);
-  // 已提交迭代的**工具键集合** —— 用 `Set` 而非数组 `indexOf`：后者对每枚在飞工具线性扫全表
-  // ⇒ O(在飞工具数 × 已提交工具键数)。live 行**每帧**都跑此段（`liveIterations`），真实单行
-  // 已完成工具数可达数十枚 ⇒ 这是随 turn 增长的每帧成本。`Set` 的成员判定是 O(1)。
-  // ⛔ **输出逐字节不变**：键比较同为字符串全等（`Set.has` ≡ `indexOf(...) < 0` 的取反）。
-  const completedKeys: Set<string> = new Set<string>();
-  for (let i = 0; i < completed.length; i++) {
-    const it: HistoryIteration = completed[i];
-    if (it.tools === undefined) {
-      continue;
-    }
-    for (let j = 0; j < it.tools.length; j++) {
-      completedKeys.add(toolKey(it.tools[j]));
-    }
-  }
+  // ⛔ 2026-10-21 **结构性删除**（用户：「为什么你要加这么多去重」）：这里原先有一层
+  //   "跨迭代同名去重"（把 live 工具与**已提交迭代里**同名同 label 的工具比，命中就丢弃）。
+  //   它是**冗余且有害**的：
+  //     · 冗余 —— 上面的 `isToolRendered` 已保证 live 块只补**还没画过**的工具，
+  //       而已提交块只由 `iterations[]` 出图 ⇒ "未提交"与"已提交"互斥 ⇒ **不可能重复**；
+  //     · 有害 —— 它用 `toolKey`，而 `toolKey` 在缺 `call_id` 时退化为 `name#label`，
+  //       而 label 是服务端**截断的同一前缀**（`Shell: timeout 60 ssh 1101box 'F=/...`）⇒
+  //       后面每一枚同名 Shell 都被判"已提交里已有"而滤掉 ⇒ **只有 toolcall 的迭代**（其工具
+  //       只活在 live 块）被整个清空 ⇒ 该迭代从界面消失（有正文的迭代看不出来）。
+  //   ⇒ 同一事实只保留**一处**判据：`isToolRendered`。这里直接全收。
   for (let i = 0; i < deduped.length; i++) {
-    if (!completedKeys.has(toolKey(deduped[i]))) {
-      tools.push(deduped[i]);
-    }
+    tools.push(deduped[i]);
   }
   if (content.length === 0 && reasoning.length === 0 && tools.length === 0) {
     // ── 诊断（用户 2026-10-21「漏迭代」）：整块空 ⇒ 这里丢弃。若日志出现本行而
@@ -449,24 +454,18 @@ export function liveBlocksConvStats(): LiveBlocksConvStats {
  *   块数回退，真机 bug ① 的形态）。
  */
 
-function liveIterations(r: LiveRowView): HistoryIteration[] {
+export function liveIterations(r: LiveRowView): HistoryIteration[] {
   // 已完成部分走**按源数组记忆化**（未变化 ⇒ 每帧 0 分配）。
   // `slice()` 必需：下面可能 push 在飞块，而缓存数组是**共享**的（只读）。
   const out: HistoryIteration[] = convertedBlocksMemo(r.iterations).slice();
-  let maxCompleted: number = 0;
-  let shellSameNum: boolean = false;
-  for (let i = 0; i < out.length; i++) {
-    const it: HistoryIteration = out[i];
-    if (it.iteration > maxCompleted) {
-      maxCompleted = it.iteration;
-    }
-    if (it.iteration === r.lastIter && isShell(it)) {
-      shellSameNum = true;
-    }
-  }
-  if (!(r.lastIter > maxCompleted || shellSameNum)) {
-    return out;
-  }
+  // ⛔ 2026-10-21 结构性删除（用户：「只有 toolcall 的迭代一定消失」）：
+  //   这里原有早退 `if (!(r.lastIter > maxCompleted || shellSameNum)) return out;`
+  //   —— `shellSameNum` 只在"同号已提交块是**空壳**"时为真（`isShell` 在**有工具**时返回 false），
+  //   而 `maxCompleted` 是已提交块的最大号。于是当服务端**已把当前在飞迭代记进 iterations[]**
+  //   （哪怕只带工具/或带空工具）时：`lastIter > maxCompleted` 为假、`shellSameNum` 也为假
+  //   ⇒ **在飞块根本不构造** ⇒ 该迭代只剩那个已提交块；它的工具若被任一环节削掉 ⇒ 什么都不剩。
+  //   ⇒ 这条门是**多余**的：`inFlightBlock` 自身在"无正文/无思考/无工具"时返回 null（真正的空判据）。
+  //   无条件构造 ⇒ "有未提交工具就一定有渲染位"，不再依赖两个间接量的组合。
   const block: HistoryIteration | null = inFlightBlock(r, out);
   if (block !== null) {
     // ⛔ **同号 = 同一迭代** ⇒ 已存在同号块时必须**就地合并**，绝不 append 第二个
@@ -484,16 +483,24 @@ function liveIterations(r: LiveRowView): HistoryIteration[] {
     if (idx >= 0) {
       const prevIt: HistoryIteration = out[idx];
       const prevTools: ToolProgress[] = prevIt.tools !== undefined ? prevIt.tools : [];
-      out[idx] = {
-        iteration: prevIt.iteration,
-        content: (block.content !== undefined && block.content.length > 0)
-          ? block.content : (prevIt.content !== undefined ? prevIt.content : ''),
-        reasoning: (block.reasoning !== undefined && block.reasoning.length > 0)
-          ? block.reasoning : (prevIt.reasoning !== undefined ? prevIt.reasoning : ''),
-        tools: mergeTools(prevTools, block.tools),
-        tools_folded: prevIt.tools_folded,
-        live: true,
-      };
+      // ⛔ 2026-10-21（用户三连定性：「提交的是最权威的」「凭什么要合并」「不能做字符串比较」）：
+      //   **同号提交块存在 ⇒ 在飞块整块丢弃** —— 不合并、不比对、不替换。
+      //   唯一例外：提交块是**三空占位**（无正文/无思考/无工具）⇒ 用 live 块顶上位
+      //   （否则该迭代什么都不画；判据只有"是否全空"，纯布尔，无任何字符串比较）。
+      const prevEmpty: boolean = (prevIt.content === undefined || prevIt.content === '')
+        && (prevIt.reasoning === undefined || prevIt.reasoning === '')
+        && (prevIt.tools === undefined || prevIt.tools.length === 0);
+      if (prevEmpty) {
+        out[idx] = {
+          iteration: prevIt.iteration,
+          content: block.content !== undefined ? block.content : '',
+          reasoning: block.reasoning !== undefined ? block.reasoning : '',
+          tools: block.tools !== undefined ? block.tools : [],
+          tools_folded: prevIt.tools_folded,
+          live: true,
+        };
+      }
+      // 非空 ⇒ 保持提交块（权威），live 块丢弃。
     } else {
       out.push(block);
     }
