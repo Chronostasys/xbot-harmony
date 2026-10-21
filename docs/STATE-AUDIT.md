@@ -214,9 +214,14 @@
    不再进入 `iteration` 分支；引擎侧结构帧恒填这两个数组 ⇒ 当前无可达触发路径。
    若将来有新发射点不带这两个字段，需把 `normalize` 改为保留 `undefined`、`reduce` 走 `prev`。
 2. **F2（final-5/final-10 C1）** `attachNotificationWhileLive`（通知 turn 不得抢 activeTurn）
-   **仍是零调用**。尝试接线会打红 `reduce.test.ts` 的 REPRO 2026-10-18（"回合结束后 dequeue 的
-   通知 turn **应当**接管 activeTurn"）⇒ 需要移植 web 的**幂等去重**判据（区分"主 turn 仍在
-   流式" vs "上一回合已结束"），不能只按 `trigger==='notification'` 分支。**未修**。
+   **结论：按设计不接线（不是漏修）**。
+   · 服务端保证只在**回合收尾后** drain 通知/排队消息（`agent/agent.go` 的 drain 点都以 busy
+     为闸门），期间注入走 tool message；
+   · 本仓 `reduce.test.ts` 的 REPRO 2026-10-18 明确钉住"回合结束后 dequeue 的通知 turn
+     **必须**接管 activeTurn 并物化 user 行"——这正是旧实现（用该函数冻结）造成的 P0；
+   · 因此若主 turn 真在流式中收到 notification `turn_started`，那是**服务端 bug**
+     （按用户规则：后端乱发就修后端），客户端不应以冻结主 turn 的方式兜底。
+   若将来服务端引入"回合中注入"，必须先在协议上加显式 `mid_turn` 标记再接线。
 3. **F4（final-5）** reduce 侧粗粒度 idle 的 `if (s.sessionRunning) return s` 闸门**有意不恢复**：
    与用户 2026-10-21 的硬规则「后端明确 idle 必须复位 busy」冲突。迟到的旧轮 idle 由
    ①`turn_started` 单调门 ②`stream` freshFrame 守卫 ③探针三重条件（服务端无在飞 + busy + 静默 3s）
