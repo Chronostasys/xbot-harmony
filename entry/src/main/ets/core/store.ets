@@ -3642,14 +3642,30 @@ export class ChatStore {
     //   不是 replace ⇒ 不回退掉的消息会**留在列表里**（用户症状：编辑并重发后，被回退的几条
     //   回复仍在、时间线错乱，刷新才消失）。见 state-gate-7-7。）
     this.resetStateMachine();
-    // ③ reload 必须在 send 之前（否则乐观行被新历史抹掉）
-    await this.loadHistory();
+    // ③ reload 必须在 send 之前（否则乐观行被新历史抹掉）。
+    //    ⛔ 必须**强制**：`loadHistory()` 在"同一代已有一份在飞"时只置 `historyReloadPending`
+    //    然后 return ⇒ rewind 之后历史压根没重拉 ⇒ 被删掉的消息仍在屏幕上
+    //    （用户 2026-10-22：「被我 rewind 掉的消息还显示」）。
+    await this.reloadHistoryNow();
     if (rwGen !== this.chatGen || rwChat !== this.currentChatId || this.disposed) {
       return false;
     }
     // ④ 发送编辑后的内容
     await this.send(editedContent);
     return true;
+  }
+
+  /**
+   * **强制**权威重载（破坏性重置后用：rewind）。
+   *
+   * 与 `loadHistory()` 的唯一区别：清掉"同一代最多一份在飞"的去重态，保证**这一次真的发请求**。
+   * 「破坏性操作之后必须重新对齐权威」——用户 2026-10-22 点名要求（不许靠合并/补丁原地修）。
+   */
+  private async reloadHistoryNow(): Promise<void> {
+    this.historyLoading = false;
+    this.historyReloadPending = false;
+    this.historyLoadGen = -1;
+    await this.loadHistory();
   }
 
   /**
@@ -3707,6 +3723,13 @@ export class ChatStore {
     const keepTodos = this.state.todos;
     const keepRunning = this.state.sessionRunning;
     this.resetRows();
+    // ⛔ **模型影子必须一起清**（用户 2026-10-22：「rewind 提交之后历史居然没有刷新，被我
+    //   rewind 掉的消息还显示」/「不要打补丁，确保状态对」）：影子是行源的唯一状态，
+    //   只清旧管线（`resetRows`）等于**状态没重置** —— `hydrate` 的 prev 仍带着被删回合，
+    //   任何"保留在飞/保留本地"的判据都会把它们救回来。
+    //   推进 `epoch`：旧世的迟到帧/live 判据一律失效（位置帧幂等的前提）。
+    this.shadow = emptyState(this.currentChatId, this.shadow.epoch + 1, 0);
+    this.shadowRows = new Map<string, ChatRow>();
     this.history = [];
     this.hasMore = false;
     this.oldestId = 0;

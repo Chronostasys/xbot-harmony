@@ -273,23 +273,13 @@ export function hydrate(prev: State, messages: readonly WireHistoryMessage[], se
       genui: snap.genui !== undefined ? snap.genui : '',
     };
   }
-  // ⛔ **在飞回合不能被"迟到的空/滞后历史"抹掉**：历史重载是权威，但它只描述**已落库**的行；
-  //   正在跑的回合还没落库（服务端 `history` 里没有它）⇒ 若整表替换后 `live.turn` 不在
-  //   `turns` 里，模型就有一条指向空气的 live（投影遍历 `turns` ⇒ 无行 ⇒ 页面"正文全没了"）。
-  //   修法：把上一帧的那一轮**原样保留**（它的块/live 由 tick 继续驱动），仅当历史确实包含该
-  //   回合时才以历史为准。
-  // ⛔ **历史滞后不得丢刚收尾的回合**：`/api/history` 可能还没落库刚结束的 turn（服务端写入延迟，
-  //   或本端先收到 `text_final`）。整表替换会把用户刚看到的消息**抹掉**（判据 `user_row_integrity`
-  //   「历史合并后仍恰 1 条 user 行」）。判据只用**回合号**（历史里最大的 turn）——不比内容。
-  let maxHistoryTurn: number = 0;
-  turns.forEach((_t, id) => {
-    if (id > maxHistoryTurn) maxHistoryTurn = id;
-  });
-  prev.turns.forEach((t, id) => {
-    if (t.final !== null && id > maxHistoryTurn) {
-      turns.set(id, t);
-    }
-  });
+  // ⛔ **历史是权威替换**（不是合并）：本函数只负责"这份快照描述的状态"。
+  //   「快照是否过时」由**调用方**用单调性判据拒绝（`model_bridge.isStaleSnapshot`：
+  //   回合不丢、同回合块数不减 —— append-only 不变量），**不在这里做内容/回合合并**
+  //   （那类 merge 是补丁，会让状态与权威分叉：用户 2026-10-22「不要打补丁，确保状态对」）。
+  //
+  //   唯一保留项：**正在飞的回合**。它尚未落库 ⇒ 快照里必然没有它 ⇒ 整表替换会让
+  //   投影遍历时找不到 live 指向的回合（页面「正文全没了」）。
   if (live !== null && !turns.has(live.turn)) {
     const kept: TurnRec | undefined = prev.turns.get(live.turn);
     if (kept !== undefined) {

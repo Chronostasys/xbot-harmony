@@ -16,7 +16,7 @@ import type { WebIteration, WebSubAgentProgress } from './chattypes';
 import type { DomainEvent, LegacyRow, Turn } from './chat_types_full';
 import type { PRow, PAssistantRow, PUserRow } from './model_project';
 import type { Block } from './model_types';
-import type { State, ToolRec, SubAgentNode } from './model_types';
+import type { State, ToolRec, SubAgentNode, TurnRec } from './model_types';
 import type { Effect } from './model_types';
 import type { WireHistoryMessage, WireHistoryIteration } from './model_hydrate';
 import { project } from './model_project';
@@ -180,6 +180,61 @@ export function historyEventToWire(ev: DomainEvent): WireHistoryMessage[] {
   return out;
 }
 
+/**
+ * 快照是否**落后于本地状态**（单调性判据：回合不丢、同回合块数不减）。
+ *
+ * ⛔ 为什么必须有（用户 2026-10-22 P0）：「终止 turn 后发新消息 ⇒ 被终止 turn 的 agent 消息
+ *   消失几秒又出现」。这是**过时快照整表替换**造成的缩表：cancel 之后 `send` 触发的 resync
+ *   可能拿到 cancel 之前抓的快照（缺该 turn 的 assistant 块）。
+ *   历史是权威，但权威**不能倒退**（append-only：回合单调增、同回合块数单调不减）⇒
+ *   落后的快照必须**丢弃**，等下一份更新的。
+ * ⛔ 判据只用**结构**（回合是否出现、块数是否减少），不比内容、不比字符串。
+ * ⛔ 这里**不做合并**（合并会让本地与权威分叉 = 补丁）；丢弃是 fail-safe：不刷新也不缩表。
+ * ⛔ 唯一允许"缩表"的路径是**显式破坏性重置**（rewind / 切会话）：那条路径由
+ *   `store.resetStateMachine()` 清空模型影子（`st.turns.size === 0`）⇒ 本判据不生效。
+ */
+export function isStaleSnapshot(st: State, wire: readonly WireHistoryMessage[]): boolean {
+  if (st.turns.size === 0) {
+    return false;
+  }
+  const incTurns = new Set<number>();
+  const incBlocks = new Map<number, number>();
+  for (let i = 0; i < wire.length; i++) {
+    const m: WireHistoryMessage = wire[i];
+    const tid: number = m.turnID !== undefined && m.turnID !== null ? m.turnID : 0;
+    if (tid <= 0) {
+      continue;
+    }
+    incTurns.add(tid);
+    const n: number = m.iterations !== undefined ? m.iterations.length : 0;
+    const prev: number | undefined = incBlocks.get(tid);
+    incBlocks.set(tid, (prev !== undefined ? prev : 0) + n);
+  }
+  // ⛔ 只对**最近 3 个回合**判单调性：更早的回合可能被服务端窗口（`/api/history` 默认 100 条 /
+  //   上拉分页）自然截断，拿它们判定会把"窗口差异"误判成"快照落后"⇒ 历史永不刷新。
+  //   而用户报的闪烁只发生在最近回合（刚被 cancel 的那一轮）。
+  const ids: number[] = [];
+  st.turns.forEach((_t: TurnRec, id: number) => { ids.push(id); });
+  ids.sort((a: number, b: number) => b - a);
+  const scope: number = ids.length < 3 ? ids.length : 3;
+  for (let i = 0; i < scope; i++) {
+    const id: number = ids[i];
+    const t: TurnRec = st.turns.get(id) as TurnRec;
+    const hasOutput: boolean = t.blocks.length > 0 || (t.final !== null && t.final.content.length > 0);
+    if (!hasOutput) {
+      continue;   // 刚 turn_started 的空回合不参与判定
+    }
+    if (!incTurns.has(id)) {
+      return true;          // 整回合缺失 ⇒ 快照落后（缩表）
+    }
+    const inc: number | undefined = incBlocks.get(id);
+    if (inc === undefined || inc < t.blocks.length) {
+      return true;          // 同回合块数减少 ⇒ 快照落后
+    }
+  }
+  return false;
+}
+
 /** 一帧的模型步进结果（`state` 供下一帧/投影；`effects` 由调用方处置——实时侧拉权威）。 */
 export interface ModelStep {
   readonly state: State;
@@ -193,8 +248,14 @@ export interface ModelStep {
 export function stepEvent(st: State, ev: DomainEvent, chat: string): ModelStep {
   if (ev.type === 'history_replaced') {
     const act = ev.active;
+    const wire: WireHistoryMessage[] = historyEventToWire(ev);
+    // ⛔ 权威快照**不能倒退**（append-only）：落后的快照整份丢弃，绝不拿它缩表
+    //   （用户 2026-10-22：「终止 turn 后发新消息 ⇒ 被终止 turn 的 agent 消息消失几秒又出现」）。
+    if (isStaleSnapshot(st, wire)) {
+      return { state: st, effects: [] };
+    }
     const seq: number = ev.lastSeq === null || ev.lastSeq === undefined ? st.seq : ev.lastSeq;
-    const next: State = hydrate(st, historyEventToWire(ev), seq,
+    const next: State = hydrate(st, wire, seq,
       act === null || act === undefined ? null : { turnID: act.turnID, snapshot: act.snapshot as never });
     return { state: next, effects: [] };
   }
