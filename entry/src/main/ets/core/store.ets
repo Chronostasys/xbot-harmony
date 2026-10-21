@@ -3242,8 +3242,16 @@ export class ChatStore {
    * @returns send 是否真的插话成功（`interrupted===true`）
    */
   async interjectQueued(msgId: string, content: string): Promise<boolean> {
+    // ⛔ 审计确证（state-gate-7-7）：`cancelQueued` 有网络往返；期间若切了会话，后面的 `send()`
+    //   会把正文发进**新会话**，而原会话的队列项已被取消 ⇒ **那条消息永久丢失**。
+    //   ⇒ 入口快照身份，回包后不符则不发送（返回 false，页面提示"会话已切换"）。
+    const iqGen: number = this.chatGen;
+    const iqChat: string = this.currentChatId;
     // ① 先从队列移除（already_processing=true 不是错误 —— 见上）
     await this.cancelQueued(msgId);
+    if (iqGen !== this.chatGen || iqChat !== this.currentChatId) {
+      return false;
+    }
     // ② 以 interrupt=true 重发**完整**内容
     return await this.send(content, undefined, undefined, undefined, true);
   }
