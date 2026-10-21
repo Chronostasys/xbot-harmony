@@ -1664,6 +1664,12 @@ export class ChatStore {
     this.subagents = [];
     this.lastWidgetEvent = '';
     this.lastWidgetContent = '';
+    // ⛔ 审计确证（state-gate-7-8 C2）：取消态也是**会话级**的 —— 身份切换必须复位，
+    //   否则 B 会继承 A 的"取消中"（按钮一直转圈，且 B 的停止请求被跨会话早退吞掉）。
+    this.cancelling = false;
+    this.cancelInFlight = null;
+    this.cancelInFlightChat = '';
+    this.cancelInFlightGen = 0;
     // 会话级订阅（模型/上下文徽章）与终端列表同属会话态 ⇒ 身份切换时清掉，
     // 否则 B 会短暂显示 A 的模型徽章/终端（load* 的代数守卫负责迟到的回包）。
     this.sessionSubState = 'idle';
@@ -2977,22 +2983,37 @@ export class ChatStore {
    *   ⛔ 顺序不可反：`session` 的 idle 分支在 `sessionRunning` 仍为 true 时是 **no-op**（`:1226`）。
    */
   private cancelInFlight: Promise<void> | null = null;
+  /** 在飞取消请求**属于哪个会话/代数**（⛔ 否则跨会话早退会把 B 的取消静默吞掉）。 */
+  private cancelInFlightChat: string = '';
+  private cancelInFlightGen: number = 0;
 
   cancel(): Promise<void> {
     // ⛔ 重复点击必须**复用同一个在飞 Promise**，不能静默 return：
     //   UI 的 `cancelSpinHold` 会把"立即 resolve"当成取消成功、停止转圈，
     //   但请求其实没发/没完成（用户亲报：按钮不转圈、点很多次都没用）。
-    if (this.cancelInFlight !== null) {
-      return this.cancelInFlight;
+    // ⛔ 审计确证（state-gate-7-8 C2）：`cancelInFlight` 是跨会话单例 —— 在 A 点停止、请求未返回
+    //   时切到 B 再点停止，旧实现**无条件返回 A 的 Promise** ⇒ B 的取消请求根本没发（B 的回合
+    //   继续跑，用户只能再点一次）。⇒ 早退必须带**会话/代数身份**守卫。
+    const inFlight: Promise<void> | null = this.cancelInFlight;
+    if (inFlight !== null && this.cancelInFlightChat === this.currentChatId
+      && this.cancelInFlightGen === this.chatGen) {
+      return inFlight;
     }
     const p: Promise<void> = this.performCancel();
     this.cancelInFlight = p;
+    this.cancelInFlightChat = this.currentChatId;
+    this.cancelInFlightGen = this.chatGen;
     return p;
   }
 
   private async performCancel(): Promise<void> {
     const chatAt: string = this.currentChatId;
     const genAt: number = this.chatGen;
+    // ⛔ 审计确证（state-gate-7-2 A2）：取消意图是**针对某一轮**的。此前乐观 idle 不带任何
+    //   身份 ⇒ 取消 A 轮期间服务端若已收尾并 dequeue 下一条（`turn_started` 已到），这条
+    //   idle 会把**没被取消的新一轮**标成 idle（"思考中"被瞬间掐掉、composer 从停止翻回发送）。
+    //   ⇒ 记下发起取消时的那一轮，回包后只在"它仍是当前轮"时才推乐观 idle。
+    const cancelTurn: TurnID | null = this.state.activeTurn;
     this.cancelling = true;
     this.onUpdate();
     try {
@@ -3007,10 +3028,14 @@ export class ChatStore {
       if (genAt !== this.chatGen || chatAt !== this.currentChatId) {
         return;
       }
+      // 已经有新一轮占住 activeTurn ⇒ 这次取消与它无关，绝不把它标 idle。
+      if (this.state.activeTurn !== cancelTurn) {
+        return;
+      }
       this.intentIdleAt = Date.now();
       this.pushEvents([
         { type: 'session_running', running: false },
-        { type: 'session', busy: false },
+        { type: 'session', busy: false, turnID: cancelTurn !== null ? cancelTurn : undefined },
       ]);
     } finally {
       this.cancelling = false;
