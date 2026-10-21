@@ -158,8 +158,18 @@ if (zero.length > 0) {
 //    本判据用"符号名在其它文件的词边界出现"做消费代理 ⇒ 对**只在自身模块内使用**、
 //    或**经别名/包装导出**、或**仅为测试而导出**的符号会**误报**（19 条里应含不少这类）。
 //    ⇒ 下一步（下轮）：逐条 triage ⇒ 真·死代码报调度者；有意/假阳性进 DELIBERATE_ZERO_USE 附理由。
-const KNOWN_ZERO_USE_COUNT: number = 10;   // 11 → 10：`extractEventChatID` 已被 store 的 SSE 前置 chat 过滤消费
-eq(`零消费导出数 = 台账（首版基线；⛔ 只准删不准加）实测 ${zero.length}`, zero.length, KNOWN_ZERO_USE_COUNT);
+const KNOWN_ZERO_USE_COUNT: number = 9;   // 11 → 10：`extractEventChatID` 已被 store 的 SSE 前置 chat 过滤消费
+// ⛔ 台账语义 = **上界**（"只准删不准加"）：实测**小于**基线是删掉了死代码（好事）；
+//   只有**变大**才判红。旧写法 `eq(got, want)` 把"改善"也判红（本轮清死代码后 got 9 / want 10）。
+if (zero.length > KNOWN_ZERO_USE_COUNT) {
+  fail++;
+  console.log(`  ✗ 零消费导出数**增加**了（台账只准删不准加）实测 ${zero.length} > 台账 ${KNOWN_ZERO_USE_COUNT}`);
+} else {
+  pass++;
+  if (zero.length < KNOWN_ZERO_USE_COUNT) {
+    console.log(`  ✓ 零消费导出数 ${zero.length} < 台账 ${KNOWN_ZERO_USE_COUNT}（死代码已减少；可下调台账）`);
+  }
+}
 
 if (fail > 0) { console.log(`  ✗ core_module_consumed: ${pass} passed, ${fail} failed`); process.exit(1); }
 console.log(`  ✅ core_module_consumed: ${pass} passed, 0 failed（${CORE_TS.length} 模块 / ${total} 导出）`);
