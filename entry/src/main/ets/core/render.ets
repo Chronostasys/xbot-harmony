@@ -841,6 +841,22 @@ export function applyRow(row: ChatRow, r: Row): boolean {
   return true;
 }
 
+/**
+ * 供**桥接**复用：按行种类填充 `iterBlocks`（与 `applyRow` 内同一规则，⛔ 不复制第二份逻辑）。
+ *
+ * ⛔ 为什么必须调它：`row.iterBlocks` 是 `IterBlocksView` 的唯一数据源；`applyRow` 在写入
+ * `row.iterations/completedBlocks` **之后**调用 `syncIterBlocks` 才把块交给视图。
+ * 桥接若只写 `row.iterations` 而不调本函数 ⇒ 视图拿到空块列表 ⇒ **整屏空白**
+ * （真机实测：翻转后只剩一个悬浮 pill）。
+ */
+export function syncRowBlocks(row: ChatRow, live: boolean, turnID: number): void {
+  if (live) {
+    syncIterBlocks(row, row.completedBlocks, NO_COMPACTIONS, turnID);
+  } else {
+    syncIterBlocks(row, completedBlocks(row), row.compactions, turnID);
+  }
+}
+
 /** 空迭代列表（供迭代详情合并的兜底）。 */
 export function emptyIterList(): IterList {
   return { iterations: [] };

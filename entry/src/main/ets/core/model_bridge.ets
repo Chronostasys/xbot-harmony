@@ -10,6 +10,7 @@
  *     未变化的行/块 ⇒ 引用不变 ⇒ 组件零重建（不需要任何字符串指纹）。
  */
 import { ChatRow, HistoryIteration, ToolProgress } from './types';
+import { syncRowBlocks } from './render';
 import { WebCompaction } from './chattypes';
 import type { PRow, PAssistantRow, PUserRow } from './model_project';
 import type { Block } from './model_types';
@@ -162,7 +163,12 @@ export function applyModel(state: State, cache: RowCache): ChatRow[] {
       if (r.kind === 'user') {
         fillUser(row, r as PUserRow);
       } else {
-        fillAssistant(row, r as PAssistantRow, (r as PAssistantRow).finalized === false);
+        const pa: PAssistantRow = r as PAssistantRow;
+        const isLive: boolean = pa.finalized === false;
+        fillAssistant(row, pa, isLive);
+        // ⛔ 视图的唯一数据源是 `row.iterBlocks`（由 `applyRow` 内的 `syncIterBlocks` 填充）；
+        //   桥接必须显式调一次，否则块列表为空 ⇒ 整屏空白（真机实证）。
+        syncRowBlocks(row, isLive, pa.turnID);
       }
     }
     out.push(row);
