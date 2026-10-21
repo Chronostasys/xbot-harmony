@@ -2337,7 +2337,12 @@ struct Index {
     //    流式期每帧 syncFrom ⇒ 整棵树重渲与抽屉滚动抢帧 ⇒ 掉帧。抽屉开着：**不进 16ms
     //    派发**（连 delay 都不排——最省），数据停留在 pendingSync 积累；关闭瞬间由
     //    onDrawerChanged 一次性刷回（「关闭一瞬间刷回来」= 用户给的方案）。
+    // ⛔ 2026-10-21（state-gate-10-5 确证）：冻结的必须是**行投影/流式内容**，
+    //   不能连抽屉自己的数据源一起冻 —— 否则用户在抽屉里 delete/rename/reorder 之后
+    //   toast 说"已删除"但行还在（再点它就切到已删会话报错），别人的新会话也永远看不见。
+    //   ⇒ 抽屉开时只做 O(sessions) 的会话树镜像（会话树本来就是抽屉的数据源）。
     if (this.showDrawer) {
+      this.mirrorSessions(store);
       return;
     }
     if (this.syncScheduled) {
@@ -2831,7 +2836,7 @@ struct Index {
         //    冻结在旧色板（「iter1000 前白字、新 iter 正确」的分裂症状；重载会话 = chatId
         //    变化走 needsFullReload ⇒ 正常——同机制的反证）。此处带新主题当场投一次 ⇒
         //    键变 + reload 通知齐发 ⇒ 框架重读全部行键 ⇒ 全表重建（与重载会话等效，保滚动位）。
-        this.rowDs.applyRows(tailRows(this.rows, this.rowLimit), this.currentChat, nextTheme);
+        this.feedRowDs(nextTheme);
       }
       // md 主题**同时推给全局订阅**（`@StorageProp('appMdTheme')`，消费点 `components/MarkdownView`）：
       // md 主题只影响代码块/行内码配色，而历史行由 `LazyForEach` 承载 ⇒ 只靠 `@Prop mdTheme` 投递
@@ -8970,7 +8975,7 @@ struct Index {
       //    `structural`（theme 变）⇒ `onDataReloaded` ⇒ 框架同帧重读全部行键 ⇒ 整窗重建。
       //    成本 O(窗口)：`tailRows` 只切尾窗、`onDataReloaded` 一发、重建仅已实例化项 ——
       //    ⛔ 不触碰全历史（2026-10-17 性能红线「整个窗口没有任何 O(n)，无论历史多长」）。
-      this.rowDs.applyRows(tailRows(this.rows, this.rowLimit), this.currentChat, this.themeName);
+      this.feedRowDs(this.themeName);
     }
     try {
       await store.saveSettings(pairs);
@@ -8995,7 +9000,7 @@ struct Index {
           appPaletteForMdTheme(settingOf(this.settings, KEY_MD_THEME)), this.accentHex());
         AppStorage.setOrCreate<string>('appMdTheme', this.mdThemeId());
         this.syncSystemTheme();
-        this.rowDs.applyRows(tailRows(this.rows, this.rowLimit), this.currentChat, this.themeName);
+        this.feedRowDs(this.themeName);
       }
       this.toast(`保存失败: ${errText(e as Object)}`);
     }
@@ -9820,6 +9825,43 @@ struct Index {
 
   private fingerprintRows(rows: ChatRow[], chatId: string): string {
     return rowsFpOf(rows, chatId);   // 纯函数在 core/rowdiff（带会话身份，有判别测试）
+  }
+
+  /**
+   * **只镜像会话树**（抽屉开着时的轻量投影）。
+   *
+   * 抽屉的数据源就是 `this.sessions`；行投影/流式内容的冻结**不能**连带它一起冻
+   * （否则用户在抽屉里 delete/rename/reorder 后行还在、别人的新会话永远看不见 ——
+   * state-gate-10-5 确证）。O(sessions) 无重活，可每帧跑。
+   */
+  private mirrorSessions(store: ChatStore): void {
+    if (store !== this.store) {
+      return;
+    }
+    const fp: string = this.fingerprintSessions(store.sessions, store.currentChatId);
+    if (fp !== this.sessionsFp) {
+      this.sessionsFp = fp;
+      this.sessions = store.sessions.slice();
+    }
+  }
+
+  /**
+   * **唯一出口**：把当前行集喂给 `LazyForEach` 数据源（**排除 live 行** —— live 行走非懒尾项
+   * 渲染，见 `syncRowDs`）。主题/强调色强刷路径也必须走它。
+   *
+   * ⛔ 2026-10-21（state-gate-10-5 确证）：强刷处原先各自拼 `tailRows(this.rows, …)` ——
+   *   **把 live 行也塞进数据源** ⇒ 切主题那一刻最后一条 assistant 消息渲染**两份**
+   *   （列表一份 + 页面 `LiveRowBody` 一份），idle 保留 live 行时能持续到下一次 store 更新。
+   *   同一事实两套规则 ⇒ 抽成这一个出口，调用点不再自拼。
+   */
+  private feedRowDs(theme: string): void {
+    const rest: ChatRow[] = [];
+    for (let i = 0; i < this.rows.length; i++) {
+      if (!this.rows[i].isLive) {
+        rest.push(this.rows[i]);
+      }
+    }
+    this.rowDs.applyRows(tailRows(rest, this.rowLimit), this.currentChat, theme);
   }
 
   private fingerprintSessions(items: SessionItem[], chatId: string): string {

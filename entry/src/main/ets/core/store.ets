@@ -748,6 +748,22 @@ export class ChatStore {
   }
 
   /** 把一批 DomainEvent 依次喂给状态机，然后重建渲染行。 */
+  /**
+   * **发送意图窗内的 `session_running(false)` 是滞后证据** —— 必须丢弃，不得进状态机。
+   *
+   * ⛔ 为什么（2026-10-21 结构性收口，与 `applyLocalIdle` 同一条规则）：
+   *   客户端的 `sending` 证据集里有 `session_running`（第 7-8 轮为了让"卡住的发送中"能收敛）。
+   *   但用户**刚点发送**时，REST 对账/乐观状态可能立刻推一条 `session_running(false)`
+   *   （turn 还没 announce，session-tree 仍是 idle）⇒ 状态机据此把**所有** pending 的
+   *   `sending` 清掉 ⇒ 气泡提前显示"已发送"；若那条 POST 随后失败，`user_fail` 删行
+   *   ⇒ **消息静默消失**（用户以为已发出）。
+   *   ⇒ 唯一真源判断在 store（它知道 POST 在飞）：窗内的 `running=false` 一律不进状态机。
+   *   真实收尾不会丢：窗结束后 ack/turn_started/text_final/对账都会再来。
+   */
+  private staleRunningFrame(ev: DomainEvent): boolean {
+    return ev.type === 'session_running' && !ev.running && this.sendIntentActive();
+  }
+
   private pushEvents(evs: readonly DomainEvent[] | null): void {
     // ⛔ 审计确证（确证-1）：主 SSE 入口是**批量** `pushEvents`（单条 `pushEvent` 只是其中一支）。
     //   此前只有单条入口刷新 `lastEventAtMs` ⇒ 三处「事件静默」闸门（探针/看门狗/迟到 idle）
@@ -765,6 +781,11 @@ export class ChatStore {
     for (let i = 0; i < evs.length; i++) {
       const prev: ChatState = next;
       this.settleIntentOnAuthoritative(evs[i]);
+      // ⛔ 发送意图窗内的 `session_running(false)` 是滞后证据（见 `staleRunningFrame`）：
+      //   不丢给状态机，否则在途气泡会被提前标成"已发送"（POST 失败后删行 = 消息消失）。
+      if (this.staleRunningFrame(evs[i])) {
+        continue;
+      }
       next = reduce(next, evs[i]);
       // 记录本批最后一个 turn finalizer；最终统一用 next 的 activeTurn 判定
       // 「busy 是否属于后续 turn」，避免一批里 turn A 结束 + turn B 启动时误 resync。
@@ -809,6 +830,10 @@ export class ChatStore {
 
   /** 单事件便捷。 */
   private pushEvent(ev: DomainEvent): void {
+    // ⛔ 发送意图窗内的 `session_running(false)` 是滞后证据（见 `staleRunningFrame`）。
+    if (this.staleRunningFrame(ev)) {
+      return;
+    }
     // ⛔ 审计确证（state-audit-8）：`lastEventAtMs` 曾是**死字段**（只读不写）⇒ 两处
     //   "事件静默 ≥3s"闸门恒成立（`Date.now() - 0` 永远很大）⇒
     //   ① `watchBusyWithoutLiveTurn` 的静默判据失效；② 探针的"服务端明确 idle 才收尾"
@@ -1264,7 +1289,7 @@ export class ChatStore {
       //   的权威事实，若在这条路径上被当成非权威（`false`），2.1s 后又会因 `hasLiveTurn` 被
       //   无限期推迟 ⇒ 回合已结束但输入框仍 cancel/「思考中」。
       this.applyLocalIdle(chatId, authoritative);
-    }, 2100);
+    }, wait);
   }
 
   private applyLocalIdle(chatId: string, authoritative: boolean = false): void {
@@ -1765,6 +1790,21 @@ export class ChatStore {
     this.sessionSubscription = '';
     this.sessionModel = '';
     this.terminals = [];
+    // ⛔ 2026-10-21（state-gate-10-7 确证）：会话级字段复位**漏项**——下列每一项都属于
+    //   "某个会话的事实"，跨会话复用会产生可见错乱：
+    //   · loadingMore/loadMoreErr/historyReloadPending ⇒ B 头项卡在"正在加载更早…"、
+    //     或弹出 A 的加载错误、或反复触发 A 的重载；
+    //   · lastBgOutput/lastBgOutputSeq ⇒ B 的后台任务详情混入 A 的输出/去重失效；
+    //   · pendingGoalUntilMs ⇒ B 的 goal 被 A 的抑制窗压住（最长 3s 不刷新）；
+    //   · answeredAskId ⇒ B 里同一 ask 被当成"已回答"而不再弹。
+    //   ⇒ 这四项按"会话级"登记在这里（与上面的队列/AskUser 同一条纪律）。
+    this.loadingMore = false;
+    this.loadMoreErr = '';
+    this.historyReloadPending = false;
+    this.lastBgOutput = '';
+    this.lastBgOutputSeq = -1;
+    this.pendingGoalUntilMs = 0;
+    this.answeredAskId = '';
     // 切会话身份：settings 旧缓存「不算数」——loadSettings 完成前主题不动（防旧深值回写）。
     this.settingsFresh = false;
     this.onUpdate();
@@ -3397,10 +3437,20 @@ export class ChatStore {
    * @returns 是否执行了回退（false = 目标不可用/未落库）
    */
   async rewindToMessage(target: RewindTarget, editedContent: string): Promise<boolean> {
+    // ⛔ 身份快照（state-gate-10-7 确证）：`loadHistory()` 是网络往返，回来后可能已经切到
+    //   另一个会话（同一 store 被 `openSession` 重开）⇒ 此时 `this.history` 属**另一个 chat**，
+    //   用它解出的 dbID 交给 `rewindTo` 会**删掉别的会话里的消息**（服务端不可逆）。
+    //   ⇒ 与所有异步回包同一条纪律：await 之前存 gen+chat，回来比对，不符即放弃。
+    const gen: number = this.chatGen;
+    const forChat: string = this.currentChatId;
     let id: number = rewindTargetDBID(this.history, target);
     if (id <= 0) {
       // 新鲜快照兜底：`user_echo` 在入队时发出、dbID 只随历史重载下发。
       await this.loadHistory();
+      if (gen !== this.chatGen || forChat !== this.currentChatId) {
+        log('rewind', `放弃：await 期间会话已切换 gen ${gen}→${this.chatGen}`);
+        return false;
+      }
       id = rewindTargetDBID(this.history, target);
     }
     if (id <= 0) {

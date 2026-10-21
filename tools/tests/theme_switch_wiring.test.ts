@@ -58,10 +58,13 @@ const syncTheme: number = countOf(seg, 'this.themeName = renderThemeKey(');
 const branch: number = countOf(seg, 'if (key === KEY_MD_THEME || key === KEY_ACCENT)');
 const sysTheme: number = countOf(seg, 'this.syncSystemTheme()');
 // 2026-10-17 P0 第五修（用户五连怒报「不能有哪怕一秒看不清」）：主题分支**只写 themeName 不够** ——
-// LazyForEach 行键（themableRowKey 含 @theme）只在数据源通知时被重读：setSetting 不投 rowDs ⇒
-// 历史行冻结旧色板、直到下一次 SSE 驱动的常规投递才恢复（用户症状「一个迭代结束才恢复正常」）。
+// LazyForEach 数据源只在被通知时重读：setSetting 不投 rowDs ⇒ 历史行冻结旧色板、
+// 直到下一次 SSE 驱动的常规投递才恢复（用户症状「一个迭代结束才恢复正常」）。
 // 钉**调用点计数**（乐观路径 + 保存失败回滚路径，== 2）。
-const rowPush: number = countOf(seg, 'this.rowDs.applyRows(tailRows(this.rows, this.rowLimit), this.currentChat, this.themeName)');
+// ⛔ 2026-10-21：投递改成**唯一出口** `feedRowDs(theme)`（强刷处原先各自拼
+//   `tailRows(this.rows, …)`，会把 live 行也塞进数据源 ⇒ 切主题那刻最后一条 assistant
+//   渲染两份，state-gate-10-5 确证）⇒ 判据改为钉该唯一出口的调用点数。
+const rowPush: number = countOf(seg, 'this.feedRowDs(this.themeName)');
 console.log(`  theme_switch: setSetting 片段=${seg.length} 同步themeName=${syncTheme} 分支=${branch} syncSystem=${sysTheme} rowDs投递=${rowPush}`);
 
 ok('setSetting 片段取到（非空）', seg.length > 0);

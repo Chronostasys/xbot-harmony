@@ -837,11 +837,23 @@ function isStaleBySeq(s: ChatState, ev: DomainEvent): boolean {
   }
   const tgt: number | null = eventTurnOf(ev)
   if (tgt !== null) {
-    if (s.activeTurn === null) {
-      return false
-    }
-    if (tgt !== s.activeTurn) {
-      return tgt < s.activeTurn
+    // ⛔ 回合进行中：目标轮 ≠ 当前轮 ⇒ 不是同一个 run（更旧才判陈旧，更新则放行并重置水位）。
+    if (s.activeTurn !== null) {
+      if (tgt !== s.activeTurn) {
+        return tgt < s.activeTurn
+      }
+    } else {
+      // 没有活动轮次（回合刚收尾 / 权威 idle 只清了 streaming）：水位仍残留上一轮。
+      //   · 目标轮**更旧** ⇒ 回放/补发帧（后端每帧必带会话级字段）⇒ 陈旧，零写入；
+      //   · 目标轮**更新** ⇒ 这是**新一轮**（lazy 采纳，`turn_started` 丢了）⇒ per-run seq
+      //     重置 ⇒ 不可比，放行（`lazyAdoptLive` 会把水位清 null）。
+      const lastTurn: number = lastTurnIDOf(s)
+      if (tgt < lastTurn) {
+        return true
+      }
+      if (tgt > lastTurn) {
+        return false
+      }
     }
   }
   return seq <= s.lastSeq
@@ -1579,14 +1591,17 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
 
     // ── text_final：权威 finalizer —— live/frozen → committed（I2 构造） ──
     case 'text_final': {
-      // ⛔ 审计确证（state-check-2 F2）：`text_final` 在**任何归属/新鲜度校验之前**就全局清算
-      //   `sending`（`settlePendingSending(s, true)` 会清掉**所有** pending 的 sending）。
-      //   回放/迟到的旧 turn `text_final` 因此会把**新发的、仍在途中的**消息显示成"已发送"；
-      //   若那条 POST 随后失败，`user_fail` 把整行删掉（消息静默消失）。
-      //   ⇒ 与 `turn_started` 同一条单调门：比已知最大 turn 更旧的 text_final 整帧丢弃。
-      if (ev.turnID !== null && ev.turnID < lastTurnIDOf(s)) {
-        return s
-      }
+      // ⛔ 审计确证（state-check-2 F2）：`text_final` 的 `settlePendingSending(s, true)` 会清掉
+      //   **所有** pending 的 sending ⇒ 回放/迟到的旧 turn `text_final` 会把"新发的、仍在途中的"
+      //   消息显示成"已发送"（POST 失败后 `user_fail` 删行 = 消息静默消失）。
+      //   ⛔ 但**整帧丢弃**是错的（2026-10-21 state-gate-10-9 对照 web 权威确证）：
+      //   web `reduce.ts:1161-1306` 允许 `text_final` 修复**任何**回合（committed 并入
+      //   progressHistory、frozen→committed），因为"迟到 idle 把老回合冻住"之后，这条修复帧
+      //   是老回合唯一的收尾机会。整帧丢弃 ⇒ 老回合**永不提交**（assistant 行缺失），
+      //   发下一条消息后上一回合的最后迭代/最后回复消失（= web 2026-09-16 P0 原形）。
+      //   ⇒ 单调门**只作用于结算**（settle 是"用户回合终态"的副作用，必须新鲜），
+      //     提交/并入逻辑逐字照 web，不设门。
+      const freshFinalizer: boolean = ev.turnID === null || ev.turnID >= lastTurnIDOf(s)
       // ⛔ 2026-10-21（state-gate-9-5 确证）：结算必须放在**命令回复早退之后** ——
       //   `!cmd`/slash 的命令回复不是"用户回合收尾"（后端命令分发不分配 turn、
       //   与在途 POST 无关），旧顺序会在命令输出到达的瞬间把**仍在 POST 途中**的
@@ -1637,7 +1652,10 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
       //（后端 gap / 重启恢复丢 turn_id 的普通回复必须并入正在跑的 turn，而不是
       // 变成底部独立行 —— 见上方 P1-1 注释）。
       // ⇒ 到这里才是**用户回合的终态**：此时才允许把 pending 的「发送中」结算掉。
-      s = settlePendingSending(s, true)
+      //   但仍要求这条 finalizer 是**新鲜**的（迟到的旧轮 text_final 不能结算在途消息）。
+      if (freshFinalizer) {
+        s = settlePendingSending(s, true)
+      }
       const target = ev.turnID !== null ? ev.turnID : s.activeTurn
       if (target === null) return s
       const t = s.turns.get(target)
@@ -2311,7 +2329,16 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
         hasLiveTurn = at !== undefined && at.phase.kind === 'live'
           && at.phase.data.streaming === true;
       }
-      const authoritativeRunning: boolean = ev.active !== null || hasLiveTurn;
+      // ⛔ 2026-10-21（state-gate-10-9 对照 web 权威确证）：历史快照**不得**在"回合进行中"
+      //   降级 busy。`hasLiveTurn` 要求 `streaming === true`，而权威 idle **有意保留**
+      //   `activeTurn` 只把 streaming 置 false ⇒ 那条窗口里任何一次重载（ack 对账/回前台/
+      //   探针/gap）都会把 running 打成 false ⇒ 输入框「停止」→「发送」、占位符消失，
+      //   下一帧又被活动事件拉回 ⇒ **busy 抽搐**（若 `text_final` 丢失则该回合永久半死：
+      //   live + busy=false + 永不 commit）。
+      //   web `reduce.ts:1729-1731` 的历史快照对 busy **零写入**；本仓需要"清幽灵 busy"这条
+      //   能力，因此保留降级、只加硬条件：**只有"没有活动轮次"时才允许降级**。
+      const authoritativeRunning: boolean =
+        ev.active !== null || hasLiveTurn || (s.sessionRunning && s.activeTurn !== null);
 
       if (
         sameTurnMap(turns, s.turns) &&
