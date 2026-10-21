@@ -9838,6 +9838,17 @@ struct Index {
    */
   private structFp: string = '';
   private sessionsFp: string = '';
+  /**
+   * 尾部窗口的**行键签名**（`id + sending/queued`）。
+   *
+   * ⛔ 2026-10-21（state-gate-12-5 确证）：`sending`/`queued`/`getLocale()` 只存在于
+   *   LazyForEach 的**行键**里（键由 `applyRows` 重算 + `onDataChange` 下发）。而 busy 期的
+   *   快路径以"历史行数不变"为由整段跳过 `applyRows` ⇒ 回合进行中用户气泡可整轮停在
+   *   「发送中…／排队中…」（ack/turn_started 改的是键、不是行数，一帧都通知不到）；
+   *   busy 期切语言同理（历史行通知正文不重译）。⇒ 快路径前先比这个签名（O(窗口)，与
+   *   `applyRows` 同阶），变了就照走完整路径。
+   */
+  private tailKeySigCache: string = '';
   private queueFp: string = '';
   private todosFp: string = '';
   /**
@@ -9929,6 +9940,17 @@ struct Index {
     return scopedFingerprint(chatId, parts);
   }
 
+  /** 尾部窗口的行键签名（`id` + `sending`/`queued` + 是否 live）—— 只用于"键是否脏"的判据。 */
+  private tailKeySig(): string {
+    const tail: ChatRow[] = tailRows(this.rows, this.rowLimit + 1);
+    let out: string = '';
+    for (let i = 0; i < tail.length; i++) {
+      const r: ChatRow = tail[i];
+      out += r.id + (r.sending ? 'S' : '') + (r.queued ? 'Q' : '') + (r.isLive ? 'L' : '') + '|';
+    }
+    return out;
+  }
+
   /** 把「当前该显示的行」推给数据源（行窗口 + 真虚拟化两层叠加）。 */
   private syncRowDs(): boolean {
     // ⛔ 2026-10-15 streaming 掉帧终极修复：busy 且历史行数量不变时——
@@ -9950,7 +9972,11 @@ struct Index {
       }
       this.syncLiveTail();
       // 历史行数量 = this.rowDs.count()（不变）⇒ 跳过 applyRows + tailRows + 遍历
-      if (this.rows.length - (live !== undefined ? 1 : 0) === this.rowDs.count()) {
+      // ⛔ 但**行键**可能变了（sending/queued/locale 不进行数）⇒ 先比签名，变了就必须走完整路径。
+      const keySig: string = this.tailKeySig();
+      const keysDirty: boolean = keySig !== this.tailKeySigCache;
+      this.tailKeySigCache = keySig;
+      if (!keysDirty && this.rows.length - (live !== undefined ? 1 : 0) === this.rowDs.count()) {
         // ⛔ 2026-10-20 滚动人机对抗修复：流式期行数不变 ⇒ 未调 applyRows ⇒
         //   未触发 onDataReloaded ⇒ List 滚动位置自然保持 ⇒ 返回 false 告知 syncFrom
         //   **不要** scrollTo（旧像素偏移在新内容高度下指向错误位置 → 视角跳跃）。
