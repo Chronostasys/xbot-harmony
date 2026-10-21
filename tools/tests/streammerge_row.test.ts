@@ -50,7 +50,8 @@ function twoIters(): ModelFeed {
 }
 
 function liveRow(f: ModelFeed): ChatRow | undefined {
-  return f.row(`turn-${TURN}-live`);
+  // 行 id 只与 turn 绑定（状态走字段）⇒ 按 turnID + isLive 认行
+  return f.rows().filter((r: ChatRow) => r.turnID === TURN && r.role === 'assistant' && r.isLive === true)[0];
 }
 
 describe('live 行：已完成迭代在列表、在飞快照在末尾块（互不重叠）', () => {

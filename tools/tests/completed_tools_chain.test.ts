@@ -93,7 +93,7 @@ describe('completed_tools_chain（用户亲报 bug 的端到端链路）', () =>
     f.push(iterEvent(1, 1,
       [tw('Shell', 'running', 'shell-1', 1)],
       [tw('FileReplace', 'done', 'fr-1', 1)], 2))
-    const row = f.row('turn-1-live')
+    const row = f.rows().filter((r: ChatRow) => r.turnID === 1 && r.role === 'assistant')[0]
     expect(row !== undefined, '应有 live 行').toBe(true)
     const ts = liveTools(row)
     expect(ids(ts).indexOf('fr-1') >= 0, 'FileReplace 不消失').toBe(true)
@@ -106,7 +106,7 @@ describe('completed_tools_chain（用户亲报 bug 的端到端链路）', () =>
     f.push(started(1))
     // 事件**不带** completedTools 键（真机旧序列化/手写形状）。
     f.push(iterEvent(1, 1, [tw('Shell', 'running', 'shell-1', 1)], undefined, 2))
-    const row = f.row('turn-1-live')
+    const row = f.rows().filter((r: ChatRow) => r.turnID === 1 && r.role === 'assistant')[0]
     expect(row !== undefined, '缺 completedTools 字段也不崩').toBe(true)
     const ts = liveTools(row)
     expect(ids(ts).indexOf('shell-1') >= 0, 'activeTools 照常渲染').toBe(true)

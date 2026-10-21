@@ -53,11 +53,12 @@ function buildLive(K: number): ModelFeed {
   f.push(itEv(K + 1, 'x', (K + 1) * 10, false));       // 在飞迭代（有正文 ⇒ 产在飞块）
   return f;
 }
-/** live 行的渲染行（`turn-1-live`）。 */
+/** live 行的渲染行（按 turnID + isLive 认行；行 id 只与 turn 绑定）。 */
 function liveRow(f: ModelFeed): ChatRow {
   const rows: ChatRow[] = f.rows();
   for (let i = 0; i < rows.length; i++) {
-    if (rows[i].id === 'turn-1-live') { return rows[i]; }
+    // 行 id 只与 turn 绑定（状态走字段）⇒ 按 turnID + isLive 认行
+    if (rows[i].turnID === 1 && rows[i].role === 'assistant' && rows[i].isLive === true) { return rows[i]; }
   }
   throw new Error('没有 live 行 —— 构造器坏了（零扫描防线）');
 }

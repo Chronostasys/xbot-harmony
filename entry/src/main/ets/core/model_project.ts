@@ -82,9 +82,13 @@ function assistantRow(t: TurnRec, live: LiveIter | null): PAssistantRow {
   const inflight = liveHere === null ? null : blockOfLive(liveHere);
   const row: PAssistantRow = {
     kind: 'assistant',
-    // ⛔ 行 id 与旧 `derive` 逐字一致（页面用 id 找导航锚点/滚动目标）：
-    //   live ⇒ `turn-N-live`；committed ⇒ `turn-N`；cancelled ⇒ `turn-N-c`
-    id: t.final === null ? `turn-${t.id}-live` : (t.final.cancelled ? `turn-${t.id}-c` : `turn-${t.id}`),
+    // ⛔ 行 id **只与 turn 绑定、终身不变**：live/cancelled 是**字段**，绝不编码进 id。
+    //   LazyForEach + 最小通知数据源按 key 认行 —— 若 cancel/收尾时 id 从 `turn-N-live` 变成
+    //   `turn-N-c`，数据源会"删旧条目 + 在**末尾**插新条目" ⇒ **已渲染内容被整体搬到末尾**
+    //   （用户 2026-10-22：「cancel 之后重新发消息，上一 turn 的迭代跑到最新 turn」），
+    //   且新行是新建对象 ⇒ 块投递时序错乱（"历史里少几个迭代"）。
+    //   ⛔ 已渲染内容只要不重载就不得变 —— 状态变化只能改字段，不能改身份。
+    id: `turn-${t.id}`,
     turnID: t.id,
     content: t.final !== null ? t.final.content : (liveHere !== null ? liveHere.content : ''),
     cancelled: t.final !== null && t.final.cancelled,
@@ -185,12 +189,12 @@ export function project(s: State): readonly PRow[] {
   // legacy：DB 历史前缀（只读）
   for (let i = 0; i < s.legacy.length; i++) out.push(legacyRow(s.legacy[i]));
 
-  // turns：**严格按插入序**输出（Map 插入序 = turn 号单调 —— 由 `model_step` 在入口保证：
-  //   逆序 turn 一律拒绝）。⛔ 这里**绝不排序**：排序会在渲染层"事后修补"，一旦上游漏收一个
-  //   逆序帧，用户看到的就是**已渲染内容被挪位置**（用户 2026-10-22：「已渲染内容只要不重载
-  //   就不能变」）。有问题就在入口丢帧，不在出口掩盖。
+  // turns：Map 插入序在真实事件流里已按 turn 单调；异常时按号排序（O(T log T) 仅此一次）
   const ids: TurnID[] = [];
   for (const id of s.turns.keys()) ids.push(id);
+  let ordered = true;
+  for (let i = 1; i < ids.length; i++) if (ids[i] < ids[i - 1]) ordered = false;
+  if (!ordered) ids.sort((a, b) => a - b);
 
   for (let i = 0; i < ids.length; i++) {
     const t = s.turns.get(ids[i]) as TurnRec;

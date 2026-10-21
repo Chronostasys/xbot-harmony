@@ -49,12 +49,12 @@ feed.push({
   type: 'iteration', turnID: 1, iter: 1, seq: 10, phase: 'thinking',
   content: '第一段', reasoning: '', activeTools: [], completedTools: [],
 });
-const liveA = feed.rows().find((r) => r.id === 'turn-1-live') as ChatRow;
+const liveA = feed.rows().find((r) => r.turnID === 1 && r.role === 'assistant' && r.isLive === true) as ChatRow;
 feed.push({
   type: 'iteration', turnID: 1, iter: 1, seq: 11, phase: 'thinking',
   content: '第一段+第二段', reasoning: '', activeTools: [], completedTools: [],
 });
-const liveB = feed.rows().find((r) => r.id === 'turn-1-live') as ChatRow;
+const liveB = feed.rows().find((r) => r.turnID === 1 && r.role === 'assistant' && r.isLive === true) as ChatRow;
 ok('同一行 id ⇒ 同一 ChatRow 对象（身份稳定，不整表重建）', liveA === liveB);
 ok(`同一行对象上的内容必须就地刷新（不得冻在首帧）[got=${JSON.stringify(liveB !== undefined ? liveB.content : null)}]`,
   liveA !== undefined && liveB !== undefined && liveB.content === '第一段+第二段' && liveA.content === liveB.content);

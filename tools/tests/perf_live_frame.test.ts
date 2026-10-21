@@ -63,7 +63,7 @@ function buildLive(K: number): ModelFeed {
 function liveRow(f: ModelFeed): ChatRow {
   const rows: ChatRow[] = f.rows();
   for (let i = 0; i < rows.length; i++) {
-    if (rows[i].id === 'turn-1-live') { return rows[i]; }
+    if (rows[i].turnID === 1 && rows[i].role === 'assistant' && rows[i].isLive === true) { return rows[i]; }
   }
   throw new Error('没有 live 行 —— 构造器坏了（零扫描防线）');
 }

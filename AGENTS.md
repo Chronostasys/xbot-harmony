@@ -88,6 +88,15 @@ hdc -t 127.0.0.1:5555 shell "aa force-stop com.chronostasys.xbot"; hdc -t 127.0.
   只看 content/tools 会漏掉"只有思考流"的帧 ⇒ 行里没有在飞块 ⇒ **页面停在「思考中…」**
   （用户 2026-10-20 亲报现场，2026-10-21 在桥接层复现并修复）。判据
   `tools/tests/live_cache_lifecycle.test.ts`（①b/② 必红形态）+ `tool_status_rowrebuild.test.ts`（①d）。
+- **⛔ 行 id 不得编码状态（`turn-N-live` / `turn-N-c` 是错的设计）**：页面用
+  `LazyForEach` + 数据源**按 key 最小通知**（`id#rev`，`core/rowdiff.ets`）。若 turn 收尾
+  （cancel / `text_final`）把行 id 从 `turn-N-live` 改成 `turn-N-c`，数据源会认为
+  **旧条目消失 + 新条目出现** ⇒ 删旧、在**末尾**插入新 ⇒ **整行被搬到列表最后**，
+  用户看到的是「cancel turn0 后发 turn1，**turn0 的全部迭代全部跑到 turn1 后面**」
+  （用户 2026-10-22 亲报，实锤）。且新行是新建对象 ⇒ 块投递时序错乱（"历史里少几个迭代"）。
+  ⇒ **行 id 只与 turn 绑定**（`turn-N`），live / cancelled **只走字段**；"已渲染内容只要
+  不重载就不得变"是硬不变量（状态变化只能改字段，不能改身份）。判据找行也一律按
+  `turnID + isLive` 而非 id 后缀。
 - **⛔ `LazyForEach` + 「最小通知键」⇒ 已存在行永不更新**（本轮两起事故的同一根因，我各踩一次）：
   `LazyForEach(ds, …)` 的 item builder **只在新建时执行**；此后父级 `@State` 变化**不会**重新投递 `@Prop`。
   若数据源按 `id#rev` 之类的键做最小通知（`ChatRowDataSource.applyRows`），**主题变更不改变任何键 ⇒ 零通知

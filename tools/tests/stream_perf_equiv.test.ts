@@ -222,7 +222,7 @@ console.log('\n▶ §5 零样本防线（防止"优化成空操作"的假绿）'
     activeTools: [{ name: 'R', label: 'R', status: 'running', call_id: 'keep' }],
   });
   const rows5: ChatRow[] = f5.rows();
-  const live5: ChatRow = rows5.filter((r) => r.id === 'turn-1-live')[0];
+  const live5: ChatRow = rows5.filter((r) => (r.turnID === 1 && r.role === 'assistant' && r.isLive === true))[0];
   const its5: HistoryIteration[] = live5.iterations;
   const blk: HistoryIteration | undefined = its5.length > 0 ? its5[its5.length - 1] : undefined;
   ok('★5 有产物（在飞块存在，不是恒空）', blk !== undefined && its5.length === 1);
@@ -383,7 +383,7 @@ console.log('\n▶ §10 行源 = 模型投影：同一状态重复投影**零新
   const liveRow10 = (f: ModelFeed): ChatRow => {
     const rows: ChatRow[] = f.rows();
     for (let i = 0; i < rows.length; i++) {
-      if (rows[i].id === 'turn-1-live') { return rows[i]; }
+      if (rows[i].turnID === 1 && rows[i].role === 'assistant' && rows[i].isLive === true) { return rows[i]; }
     }
     throw new Error('§10 无 live 行 —— 构造器坏了（零扫描防线）');
   };
@@ -397,7 +397,7 @@ console.log('\n▶ §10 行源 = 模型投影：同一状态重复投影**零新
     const row: ChatRow = liveRow10(f);
     const cb0: HistoryIteration[] = row.completedBlocks.slice(0);
     const its0: unknown = row.iterations;
-    const otherBefore = f.rows().filter((r) => r.id !== 'turn-1-live');
+    const otherBefore = f.rows().filter((r) => !(r.turnID === 1 && r.role === 'assistant' && r.isLive === true));
 
     // ① 同一状态重复投影：行对象、iterations、completedBlocks **全部同一引用**
     const again = liveRow10(f);
@@ -415,7 +415,7 @@ console.log('\n▶ §10 行源 = 模型投影：同一状态重复投影**零新
     for (let i = 0; i < K; i++) {
       if (live.completedBlocks[i] !== cb0[i]) { onlyLiveChanged = false; }
     }
-    const othersAfter = rowsAfter.filter((r) => r.id !== 'turn-1-live');
+    const othersAfter = rowsAfter.filter((r) => !(r.turnID === 1 && r.role === 'assistant' && r.isLive === true));
     if (othersAfter.length !== otherBefore.length) { onlyLiveChanged = false; }
     for (let i = 0; i < othersAfter.length; i++) {
       if (othersAfter[i] !== otherBefore[i]) { onlyLiveChanged = false; }

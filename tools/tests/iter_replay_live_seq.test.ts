@@ -101,8 +101,8 @@ f.push(ev(140, [], [tw140], [], true));
 // ④ **渲染层**断言（用户要求：看渲染结果）
 //    页面 `syncLiveTail` 读的就是 `row.iterations`（在飞块在末尾）。
 {
-  const row: ChatRow | undefined = f.row('turn-1-live');
-  ok('有 live 渲染行（turn-1-live）', row !== undefined && row.isLive === true);
+  const row: ChatRow | undefined = f.rows().filter((r: ChatRow) => r.turnID === 1 && r.role === 'assistant')[0];
+  ok('有 live 渲染行（turn-1）', row !== undefined && row.isLive === true);
   if (row !== undefined) {
     const its: HistoryIteration[] = row.iterations;
     eq('渲染: iter138 块含 Shell', names(its, 138).indexOf('Shell') >= 0, true);
@@ -122,7 +122,7 @@ f.push(ev(140, [], [tw140], [], true));
   const b = (t !== undefined ? t.blocks : []).filter((x) => x.iteration === 139)[0];
   eq('state: phase_done(finalIteration=139,tools=[]) **不得**抹掉 iter139 的 Shell',
     b !== undefined && b.tools.map((x) => x.meta.name).indexOf('Shell') >= 0, true);
-  const row: ChatRow | undefined = f.row('turn-1-live');
+  const row: ChatRow | undefined = f.rows().filter((r: ChatRow) => r.turnID === 1 && r.role === 'assistant')[0];
   eq('渲染: 同上（行里 iter139 仍带 Shell）',
     row !== undefined && names(row.iterations, 139).indexOf('Shell') >= 0, true);
 }

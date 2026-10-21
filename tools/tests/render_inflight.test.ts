@@ -79,7 +79,7 @@ function block(iter: number, tools: Record<string, Object>[]): Record<string, Ob
 
 /** 渲染行末尾在飞块的工具（页面 `LiveTailView` 的唯一数据源）。 */
 function inflightTools(f: ModelFeed): ToolProgress[] {
-  const row: ChatRow | undefined = f.row('turn-1-live');
+  const row: ChatRow | undefined = f.rows().filter((r: ChatRow) => r.turnID === 1 && r.role === 'assistant' && r.isLive === true)[0];
   if (row === undefined) {
     return [];
   }
@@ -97,7 +97,7 @@ function ids(ts: ToolProgress[]): string[] {
 
 /** 整行里某 call 出现的次数（重复渲染判据）。 */
 function occurrences(f: ModelFeed, call: string): number {
-  const row: ChatRow | undefined = f.row('turn-1-live');
+  const row: ChatRow | undefined = f.rows().filter((r: ChatRow) => r.turnID === 1 && r.role === 'assistant' && r.isLive === true)[0];
   if (row === undefined) {
     return 0;
   }
@@ -130,7 +130,7 @@ function occurrences(f: ModelFeed, call: string): number {
     { iter: 2, seq: 3, active: [tw('Shell', 'done', 'c1', 2)] },
     { iter: 2, seq: 4, delta: [block(2, [tw('Shell', 'done', 'c1', 2)])] },
   ]);
-  const row = f.row('turn-1-live');
+  const row = f.rows().filter((r: ChatRow) => r.turnID === 1 && r.role === 'assistant' && r.isLive === true)[0];
   const its: HistoryIteration[] = row === undefined ? [] : row.iterations;
   eq('★② 同号块只有一份（T5a 严格递增 ⇒ 绝不第二块）', its.length, 2);
   eq('★② 同号块号不重复', its.length === 2 ? [its[0].iteration, its[1].iteration] : [], [1, 2]);
@@ -149,7 +149,7 @@ function occurrences(f: ModelFeed, call: string): number {
 // ── ④ 空 live（无工具无正文）⇒ 不产空壳块 ──────────────────────────────────────
 {
   const f = feed('d4', [{ iter: 1, seq: 2 }]);
-  const row = f.row('turn-1-live');
+  const row = f.rows().filter((r: ChatRow) => r.turnID === 1 && r.role === 'assistant' && r.isLive === true)[0];
   ok('★④ live 行存在（回合已开）', row !== undefined);
   eq('★④ 空 live ⇒ 行里没有任何块（不产空壳）', row === undefined ? -1 : row.iterations.length, 0);
 }

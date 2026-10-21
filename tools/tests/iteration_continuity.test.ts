@@ -99,7 +99,7 @@ function iterTools(f: ModelFeed, iter: number): string[] {
 
 /** 渲染行末尾在飞块的工具（页面 `LiveTailView` 的唯一数据源）。 */
 function liveToolIds(f: ModelFeed): string[] {
-  const row: ChatRow | undefined = f.row(`turn-${TURN}-live`);
+  const row: ChatRow | undefined = f.rows().filter((r: ChatRow) => r.turnID === TURN && r.role === 'assistant')[0];
   if (row === undefined) {
     return [];
   }
