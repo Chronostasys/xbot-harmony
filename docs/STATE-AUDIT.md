@@ -229,6 +229,25 @@
 4. **final-10 C3** `settlePendingSending` 在非 turn-end 分支清"第一条"、尾部收编"最后一条"
    （顺序不一致）。当前影响局限于"两条同发 + ack 缺失"的极少见组合。**未修**（需先补判别力用例）。
 
+## §4.3 **收敛后的唯一契约表**（2026-10-21 夜间定稿，一次性收敛，不再打补丁）
+
+> 用户要求「不要一直叠补丁」。下面把此前来回改过的地方**一次定死** —— 每个事实只有一个真源、
+> 一张写入者表；实现只有一处。⛔ 以后任何改动必须先改这张表，再改代码。
+
+| 事实 | 唯一真源 | **全部**写入者（穷举） | 明确禁止 |
+|---|---|---|---|
+| `busy` | `ChatState.sessionRunning` | ① `turn_started` / `stream`（fresh）/ `iteration` ⇒ 开（出口的不变量统一开）；② `phase_done`/`text_final`（同 turn）⇒ 关；③ 后端 idle（`session`/`session_idle`/`session_running(false)`）⇒ 关（发送意图/静默窗口内**排队**补判，不丢弃）；④ `history_replaced` ⇒ `ev.active !== null`（**快照权威**，无 OR）；⑤ 发送乐观 `session_running(true)` | 会话树轮询、看门狗、`resync`、`resetStateMachine`（同会话保留）**均不得**写 |
+| `sending` | `pendingUsers[].sending` / `turns[].user.sending` | 开：仅 `user_sent`；关：任一送达证据（`turn_started` 四条绑定 / `iteration` / `stream` / `text_final` / 后端 idle / 权威快照里已有同内容 user）+ 出口不变量 ①（有产出的 turn 的 user 不得 sending）。**非 turn-end 只结算 FIFO 第一条** | 不得 map 全清；不得在 `user_sent` 当帧清 |
+| `goal` | `ChatState.goal`（会话级） | ① progress 帧（含流式/turn_started）三态；② `get_goal` 补写（`seenGoal` 守卫，**null 不清**）；③ 用户 ✕（`clearGoalLocal`）；④ 快照 `history_replaced`（仅无 live-streaming 时采信） | ⛔ `liveProgress().goal`、`resetStateMachine`、空 objective 当清除 |
+| `todos` | `ChatState.todos` | ① progress 帧三态（含流式帧）；② `get_goal` 同款的 REST 补写（`seenTodos` 守卫、无 live 才采信）；③ 本地编辑闸（3s TTL）；④ 快照（仅无 live-streaming，`todosAuthoritative` 才采信） | ⛔ 缺字段折成 `[]`；⛔ 有 live turn 时被 REST/快照覆盖 |
+| `activeTurn` | `ChatState.activeTurn` | `turn_started`（单调门：更旧整帧丢弃）/ lazy 采纳；清：`phase_done`/`text_final`/后端 idle | 快照不得把**已结束**的 turn 复活成 live（棘轮） |
+
+**实现位置**：`reduce.ts:liveRunningIn`（唯一"真在飞"判据，`store.hasLiveTurn()` 同源）、
+`reduce.ts:settleSendingInvariant`（唯一 sending 出口不变量）、
+`reduce.ts:satisfyRunningInvariant`（唯一"活动 ⇒ 开 busy"出口）、
+`store.ts:applyLocalIdle`（唯一"关 busy"路径，含排队补判）、
+`normalize.ts`（唯一三态归一：缺失=undefined / 空=清空 / 值=覆盖）。
+
 ## §5 审计结论与本轮修复
 
 ### §5.1 后端（`fix/state-protocol-audit` 分支）
