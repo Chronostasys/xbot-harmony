@@ -516,6 +516,9 @@ export type DomainEvent =
       readonly type: 'session_fields'
       readonly todos?: readonly TodoItem[]
       readonly goal?: GoalInfo | null
+      /** 会话级轻帧也有水位（服务端 `emitTodosProgress`/`ClearGoal`/`emitGoalProgress` 都盖
+       *  同一个每会话单调 `Seq`）—— 没有它，这条路径是唯一**没有排序闸门**的状态写入。 */
+      readonly seq?: EventSeq | null
     }
   | {
       readonly type: 'session'

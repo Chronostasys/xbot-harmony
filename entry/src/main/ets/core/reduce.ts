@@ -1712,8 +1712,18 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
     // ── session_fields：会话级字段的本地水合（get_goal RPC 兜底） ──
     // 只走 applySessionFields（与 iteration/phase_done 同一 helper）—— 不碰 turn
     // 状态，不推进 I5 基准。三态与 structured 事件一致（undefined = 不改）。
-    case 'session_fields':
+    case 'session_fields': {
+      // ⛔ 审计确证（state-gate-7-1 C2）：会话级轻帧此前**没有水位闸门** —— 而服务端给它们盖的
+      //   是与结构化帧同一个**每会话单调** `Seq`（`emitTodosProgress`/`ClearGoal`/`emitGoalProgress`）。
+      //   丢掉它 ⇒ 断线回放/并发写者的旧轻帧会把 todo/goal 覆盖回旧值（保持到下一帧正确值到达）。
+      //   ⇒ 与其它三条会话级写入路径同源：陈旧（seq ≤ 水位）**零写入**；新鲜则推进水位。
+      const sfSeq = ev.seq !== undefined && ev.seq !== null ? ev.seq : null
+      if (sfSeq !== null) {
+        if (s.lastSeq !== null && sfSeq <= s.lastSeq) return s
+        return applySessionFields({ ...s, lastSeq: sfSeq }, ev.todos, ev.goal)
+      }
       return applySessionFields(s, ev.todos, ev.goal)
+    }
 
     // ── session：busy/idle —— idle 是 live 的收尾兜底（幽灵行灭绝） ──
     case 'session': {

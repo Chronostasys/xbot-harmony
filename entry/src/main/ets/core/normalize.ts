@@ -323,10 +323,13 @@ function normalizeProgress(env: Record<string, unknown>): readonly DomainEvent[]
     const onlyTodos = Array.isArray(p.todos)
     const onlyGoal = p.goal !== undefined && p.goal !== null
     if (onlyTodos || onlyGoal) {
+      const sfSeq: ReturnType<typeof eventSeq> | null =
+        typeof p.seq === 'number' ? eventSeq(p.seq) : null
       return [{
         type: 'session_fields',
         todos: optTodos(p.todos),
         goal: optGoal(p.goal),
+        seq: sfSeq,
       }]
     }
   }
