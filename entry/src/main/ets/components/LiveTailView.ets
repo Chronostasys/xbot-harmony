@@ -412,14 +412,15 @@ return renderKind(t.status, t.exit_code, true);
     //   直接显示全文 ⇒ **没有打字机特效**（真机症状，2026-10-10）。只有"追赶未完成"决定开关。
     const over: boolean = this.runes.length > LT_TYPEWRITER_MAX_RUNES
       || this.reasonRunes.length > LT_TYPEWRITER_MAX_RUNES;
-    // ⛔ 不再把 `tailIsPaused()` 写进开关（fe-render-1 #1）：暂停的语义是"不推进"，
-    //   由 `tick()` 早退表达即可；停表会让 `shownText()` 回退到全文 ⇒ 行高跳涨再回退。
+    // 暂停 ⇒ 停表（不推进、也不空转 50ms 定时器）。⛔ 这样"停表"**不会**再导致正文回退：
+    //   `shownText()/shownReason()` 的回退判据是"打字机**从未启动过**"（`startedText/Reason`），
+    //   不是"此刻没有定时器" —— 两处必须同时成立才不跳（fe-render-1 #1 的完整修法）。
     if (over) {
       // 超长文本放弃打字机（直接全文）：此时必须让回退分支生效，否则会卡在 vis 处截断。
       this.startedText = false;
       this.startedReason = false;
     }
-    const on: boolean = !over && (this.typingText() || this.typingReason());
+    const on: boolean = !over && !tailIsPaused() && (this.typingText() || this.typingReason());
     if (on && this.timer < 0) {
       if (this.typingText()) {
         this.startedText = true;
