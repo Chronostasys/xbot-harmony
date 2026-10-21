@@ -211,7 +211,11 @@ export class ChatStore {
   /** 当前在飞的 `/api/history` 所属 chatGen（同一代最多一份，跨代允许切换重载）。 */
   private historyLoadGen: number = -1;
   /** 是否当前页面正在展示这个 store（后台 tab 的 SSE 重连不得触发 history 重载） */
-  private resumeActive: boolean = false;
+  // ⛔ 结构性：**默认 active** —— 一个被直接构造/使用的 store（页面自己持有的那个、或测试里
+  //   直接 new 的）按定义就是 active；只有"进池/退到后台"才由调用方显式 `setResumeActive(false)`
+  //   （`Index.ets` 的池化与挂起路径都会显式置 false）。默认 false 会造成"谁忘了置 true 就永远
+  //   收不到 SSE"这一类静默失败（判据层要额外知道池的存在才能写测试 = 隐式耦合）。
+  private resumeActive: boolean = true;
 
   /** 页面切到/离开本 store 时设置；只有 active store 才允许在 SSE 重连时做 history resync。 */
   setResumeActive(active: boolean): void {
