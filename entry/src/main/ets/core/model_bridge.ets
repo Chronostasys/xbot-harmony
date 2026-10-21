@@ -99,9 +99,18 @@ function fillAssistant(row: ChatRow, r: PAssistantRow, isLive: boolean): void {
   row.turnID = r.turnID;
   // 顶层 content 只承载**在飞正文**（已提交正文在各块里，⛔ 不重复）
   row.content = r.inflight === null ? '' : r.inflight.content;
-  const blocks: HistoryIteration[] = toHistoryIterations(r.blocks);
+  // 行内块 = 已提交块 ⊕ 在飞块（**与旧 `liveIterations` 同形**：在飞块只在有产出时追加）。
+  // ⛔ 这不是"合并/去重"——`project` 已保证二者迭代号不重叠，这里只做**形状拼接**。
+  const committed: HistoryIteration[] = toHistoryIterations(r.blocks);
+  const blocks: HistoryIteration[] = [];
+  for (let i = 0; i < committed.length; i++) {
+    blocks.push(committed[i]);
+  }
+  if (r.inflight !== null && (r.inflight.content.length > 0 || r.inflight.tools.length > 0)) {
+    blocks.push(toHistoryIteration(r.inflight));
+  }
   row.iterations = blocks;
-  row.completedBlocks = blocks;
+  row.completedBlocks = committed;
   row.isLive = isLive;
   row.isNotification = false;
   row.sending = false;
