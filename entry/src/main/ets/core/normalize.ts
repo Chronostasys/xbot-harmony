@@ -260,6 +260,11 @@ function normalizeProgress(env: Record<string, unknown>): readonly DomainEvent[]
     const started: DomainEvent = {
       type: 'turn_started', turnID: turnID(turn),
       requestID: optStr(ts?.request_id) ?? null, trigger, content: optStr(ts?.content) ?? null,
+      // ⛔ 审计确证（state-check-5 C1）：后端 `emitTurnStarted` **已携带** todos/goal（B1 修复），
+      //   但本分支此前只读 turn 字段 ⇒ 重连后只回放到 turn_started 时，todo/goal 保持旧值/空，
+      //   直到第一个结构化迭代帧（长思考时体感很差）。⇒ 三态原样带上。
+      todos: optTodos(p.todos),
+      goal: optGoal(p.goal),
     }
     // ⛔ 审计：本分支此前直接 return，**丢掉并存的流式载荷**（与 done / iteration 分支不对称）。
     //   服务端在"turn_started + 第一段流式内容"合帧时会因此丢字。现在按同一规则：先 stream 后 start。

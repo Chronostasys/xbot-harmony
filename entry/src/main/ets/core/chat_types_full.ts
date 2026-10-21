@@ -373,6 +373,10 @@ export type DomainEvent =
     }
   | {
       readonly type: 'turn_started'
+
+      /** 会话级字段（后端 `emitTurnStarted` 已携带；缺省 = 未携带）。 */
+      readonly todos?: readonly TodoItem[]
+      readonly goal?: GoalInfo | null | undefined
       readonly turnID: TurnID
       readonly requestID: string | null
       readonly trigger: 'user' | 'resume' | 'notification'

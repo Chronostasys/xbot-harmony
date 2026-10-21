@@ -316,6 +316,30 @@ function liveRunningIn(s: ChatState): boolean {
   return t !== undefined && t.phase.kind === 'live' && t.phase.data.streaming === true
 }
 
+/**
+ * todos 的**结构等价比**（长度 + 每项 text/status）。
+ *
+ * ⛔ 审计确证（state-check-5 C2）：`history_replaced` 的幂等短路用 `sameItems`（逐元素**引用**），
+ *   而 `integrate.historyToReplaced` 每次快照都 `.map(...)` 新建对象 ⇒ 短路几乎恒不成立
+ *   ⇒ 内容没变也返回新 state ⇒ 整表行重建（"每发一条消息/每次 ack 抖一下"）。
+ */
+function sameTodos(a: readonly TodoItem[], b: readonly TodoItem[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].text !== b[i].text || a[i].status !== b[i].status) return false
+  }
+  return true
+}
+
+/** goal 的结构等价比（objective/status；null/undefined 视为等价）。 */
+function sameGoal(a: GoalInfo | null | undefined, b: GoalInfo | null | undefined): boolean {
+  const an = a === null || a === undefined
+  const bn = b === null || b === undefined
+  if (an || bn) return an === bn
+  return a.objective === b.objective && a.status === b.status
+}
+
 function maxHeldIteration(iterations: readonly WebIteration[]): number {
   let max = 0
   for (const it of iterations) if (it.iteration > max) max = it.iteration
@@ -880,6 +904,8 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
     }
 
     case 'turn_started': {
+      // ⛔ C1：本帧携带的会话级字段先应用（缺省 = 不动）。
+      s = applySessionFields(s, ev.todos, ev.goal)
       // ⛔ 审计确证（state-final-1 确证-2）：`turn_started` 是**唯一指定 turn 身份**的事件，
       //   却没有单调性闸门（它没有 seq 字段，I5 重放门禁对它不适用）⇒ 断线重连的**回放**里
       //   只要含上一回合的 `turn_started`，就会把正在跑的 live 回合 `foldPhase` 掉
@@ -2168,10 +2194,10 @@ function reduceInner(s: ChatState, ev: DomainEvent): ChatState {
         activeTurn === s.activeTurn &&
         lastSeq === s.lastSeq &&
         authoritativeRunning === s.sessionRunning &&
-        sameItems(todos, s.todos) &&
-        // ⛔ 审计确证（C2）：短路漏比 `goal`/`standalone` ⇒ 只要其它字段逐项相同，
-        //   快照里的**目标更新/清除**与 `standalone` 新行会被静默吞掉（横幅停旧值）。
-        (ev.goal === undefined ? s.goal === s.goal : (ev.goal === s.goal))
+        sameTodos(todos, s.todos) &&
+        // ⛔ 审计确证（C2）：短路漏比 `goal`/`standalone` ⇒ 目标更新/清除会被静默吞掉。
+        //   且必须用**结构**等价比（快照每帧新建对象，引用比较恒不成立 ⇒ 白重建整表）。
+        (ev.goal === undefined || sameGoal(ev.goal, s.goal))
         && sameItems(ev.standalone ?? s.standalone, s.standalone) &&
         // 「无法追赶的 gap」形状变化时必须返回新 state（否则 gapReloadToken 的自增被
         // 短路吞掉，面板拿不到"重载该会话"的信号）。
