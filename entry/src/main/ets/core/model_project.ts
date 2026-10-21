@@ -27,6 +27,8 @@ export interface PAssistantRow {
   readonly kind: 'assistant';
   readonly id: string;
   readonly turnID: number;
+  /** **回合级正文**（= `final.content`；在飞时 = live.content）。旧 derive 的 committed/live 行同名字段。 */
+  readonly content: string;
   readonly cancelled: boolean;
   /** 已提交块：**原样**（每个迭代一块）。 */
   readonly blocks: readonly Block[];
@@ -60,6 +62,7 @@ function assistantRow(t: TurnRec, live: LiveIter | null): PAssistantRow {
     kind: 'assistant',
     id: `turn-${t.id}-assistant`,
     turnID: t.id,
+    content: t.final !== null ? t.final.content : (liveHere !== null ? liveHere.content : ''),
     cancelled: t.final !== null && t.final.cancelled,
     blocks: t.blocks,
     inflight,
@@ -118,7 +121,7 @@ function legacyRow(l: LegacyLine): PRow {
     };
   }
   return {
-    kind: 'assistant', id: l.id, turnID: 0, cancelled: false, blocks: l.blocks,
+    kind: 'assistant', id: l.id, turnID: 0, content: l.content, cancelled: false, blocks: l.blocks,
     inflight: null, phase: 'done', streaming: false, stats: null, usage: null,
     compactions: [], droppedBefore: l.droppedBefore !== undefined ? l.droppedBefore : 0,
     regionsBefore: l.regionsBefore !== undefined ? l.regionsBefore : 0, finalized: true,

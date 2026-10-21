@@ -98,8 +98,9 @@ function fillUser(row: ChatRow, r: PUserRow): void {
 function fillAssistant(row: ChatRow, r: PAssistantRow, isLive: boolean): void {
   row.role = 'assistant';
   row.turnID = r.turnID;
-  // 顶层 content 只承载**在飞正文**（已提交正文在各块里，⛔ 不重复）
-  row.content = r.inflight === null ? '' : r.inflight.content;
+  // 顶层 content = **回合级正文**（旧 `applyRow` 的 committed/live 行同名字段；
+  // 无迭代的回合——例如 demo / 纯文本回复——正文只在这里）。
+  row.content = r.content;
   // 行内块 = 已提交块 ⊕ 在飞块（**与旧 `liveIterations` 同形**：在飞块只在有产出时追加）。
   // ⛔ 这不是"合并/去重"——`project` 已保证二者迭代号不重叠，这里只做**形状拼接**。
   const committed: HistoryIteration[] = toHistoryIterations(r.blocks);
