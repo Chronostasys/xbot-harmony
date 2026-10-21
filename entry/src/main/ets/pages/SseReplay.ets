@@ -18,6 +18,8 @@ import { initialChatState } from '../core/chat_types_full';
 import type { ChatState, DomainEvent } from '../core/chat_types_full';
 import { deriveRows } from '../core/derive';
 import { applyRow } from '../core/render';
+import { colorOf } from '../core/design';
+import { paletteOf } from '../core/theme';
 import { mergeToolRuns } from '../core/streammerge';
 import { ChatRow } from '../core/types';
 import type { HistoryIteration, ToolProgress } from '../core/types';
@@ -74,6 +76,8 @@ struct SseReplay {
   @State private summary: string = '（loading…）';
   @State private lines: DumpLine[] = [];
   @State private picked: string = '';
+  /** 主题名（与全站同一真源；调试页也要跟随主题，⛔ 不写死色值）。 */
+  @StorageProp('appTheme') themeName: string = 'dark';
   private curPick: number = 0;
 
   aboutToAppear(): void {
@@ -252,6 +256,6 @@ struct SseReplay {
     .padding(12)
     .width('100%')
     .height('100%')
-    .backgroundColor('#0B0B0E')
+    .backgroundColor(colorOf(paletteOf(this.themeName), 'surface'))
   }
 }

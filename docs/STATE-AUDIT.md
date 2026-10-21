@@ -178,6 +178,7 @@
 | F6 | `disposed` 只声明不赋值 ⇒ 已淘汰 store 仍每 5/30s 轮询 | dispose 置位 + 轮询链自检 |
 | F7 | 退役乐观行的"快照已有"计数取自**合并后** turns（含本地 live turn） | 只从 `ev.turns` 计数 |
 | F8 | 任一 iteration/stream 清掉**所有** pending 的 `sending`（A 送达 ≠ B 送达） | 只结算 FIFO 第一条 |
+| F12 | **busy→idle 后最后一个工具渲染两次**（用户 2026-10-21 真机）：`inFlightBlock` 的判据 `isToolRendered` 对"未盖号"工具返回 false（"交给 live"），而服务端 `completed_tools` 的终态条目可缺 `iteration`（`omitempty`）⇒ 已提交块画一次 + live 尾块再画一次 | ① `isToolRendered` 增第三参 `currentIter`：**缺号 ⇒ 归属当前在飞迭代**，再走同一条整数判据（`currentIter <= maxCommitted` ⇒ 不画）；② `foldInFlightToIterations` 在**唯一折叠入口**给工具盖块号（`iteration = owner`，T5-c：块内工具号 == 块号）。判据 `render_inflight` 的 ★⑥（mutation：摘掉第三参 ⇒ 立即红） |
 | F9 | `turn_started` 绑定顺序让位置启发式优先于内容匹配 ⇒ 两条在飞消息内容对调 | 内容匹配提前 |
 | F10 | busy 迁移日志 `wasBusy` 在赋值**之后**读 ⇒ 恒不触发 | 与 `lastLoggedBusy` 比较 |
 | F11 | 切会话恢复 todos 的 `length > 0` 把"服务端明确清空"当"没有" | 按三态 |

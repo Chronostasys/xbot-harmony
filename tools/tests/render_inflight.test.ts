@@ -144,5 +144,34 @@ function hist(iter: number, tools: ToolProgress[]): HistoryIteration {
   eq('★⑤ 迭代号 == 最大提交号 ⇒ 已在块里（live 不再画）', isToolRendered(t2, [blk2]), true);
   eq('★⑤ 迭代号 < 最大提交号 ⇒ 已在块里（live 不再画）', isToolRendered(t2, [blk3]), true);
   eq('★⑤ 迭代号 > 最大提交号（真正在飞）⇒ live 必须画', isToolRendered(t4, [blk3]), false);
-  eq('★⑤ 未盖号 ⇒ 交给 live', isToolRendered(tw('Shell', 'done', 'x'), [blk3]), false);
+  eq('★⑤ 未盖号 ⇒ 归属=当前在飞迭代；当前迭代已提交(3) ⇒ 已在块里', isToolRendered(tw('Shell', 'done', 'x'), [blk3], 3), true);
+  eq('★⑤ 未盖号 + 当前迭代未提交(4) ⇒ live 必须画', isToolRendered(tw('Shell', 'done', 'x'), [blk3], 4), false);
+}
+
+// ── ⑥ busy→idle 后「最后一个工具画两次」（用户 2026-10-21 真机）────────────────
+// 形态：turn 已 idle（live 仍在、streaming=false），最后一个迭代**已进 `iterations`**
+// （delta 到达：块里有这枚工具），而 live 快照里的同一枚工具**没有盖号**（服务端
+// `completed_tools` 的终态条目可缺 `iteration`）。
+// 旧判据「缺号 ⇒ 交给 live」⇒ 提交块画一次 + live 尾块再画一次 = **重复**。
+// 结构性规则：**未盖号 ⇒ 归属 = 当前在飞迭代**（live 里的工具只可能属于当前迭代或
+// 更早的已提交迭代）⇒ 当前迭代已提交时它必然已在块里 ⇒ live 不得再画。
+// ⛔ 零字符串比较（只用整数号）；⛔ 不改「提交块最权威」。
+{
+  const blk: HistoryIteration = hist(2, [
+    { name: 'Shell', label: 'Shell', status: 'done', call_id: 'c9' } as unknown as ToolProgress,
+  ]);
+  const unnumbered: WebToolProgress = tw('Shell', 'done', 'c9');   // 故意不带 iteration
+  // ① 纯函数面：当前迭代 = 2（已提交）
+  eq('★⑥ 缺号 + 当前迭代已提交 ⇒ 已画（不得重复）', isToolRendered(unnumbered, [blk], 2), true);
+  eq('★⑥ 缺号 + 当前迭代未提交（3）⇒ live 必须画', isToolRendered(unnumbered, [blk], 3), false);
+  // ② 渲染面：live 尾块不得再含这枚工具
+  const r: LiveRowView = lv([], [], 2, [unnumbered]);
+  const block: HistoryIteration | null = inFlightBlock(r, [blk]);
+  const bt: ToolProgress[] = block === null || block.tools === undefined ? [] : block.tools;
+  eq('★⑥ live 尾块不重复画已提交的工具（工具数 = 0）', bt.length, 0);
+  // ③ 反向：当前迭代真的未提交（3）⇒ 必须画（不能把在飞工具吞掉）
+  const r3: LiveRowView = lv([], [], 3, [unnumbered]);
+  const block3: HistoryIteration | null = inFlightBlock(r3, [blk]);
+  const bt3: ToolProgress[] = block3 === null || block3.tools === undefined ? [] : block3.tools;
+  eq('★⑥ 在飞工具（当前迭代未提交）必须保留', bt3.length, 1);
 }

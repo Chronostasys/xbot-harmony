@@ -2716,13 +2716,18 @@ function foldInFlightToIterations(
   for (let i = 0; i < folds.length; i++) {
     const t = folds[i]
     const owner: number = typeof t.iteration === 'number' && t.iteration > 0 ? t.iteration : lastIter
+    // ⛔ **盖号**（T5-c：块内工具号 == 块号）：服务端 `completed_tools` 的终态条目可缺
+    //   `iteration`（`omitempty`）；不盖号时它落进块后仍是无号工具 ⇒ 渲染层"缺号 ⇒ 归属
+    //   当前迭代"的判据只能靠**当前迭代号**兜（2026-10-21 用户真机：busy→idle 后最后一个
+    //   工具画两次）。在**唯一的折叠入口**把归属固定成 `owner`，块内数据自此自洽。
+    const stamped: WebToolProgress = { ...t, iteration: owner as IterNum }
     const idx = arr.findIndex((it) => it.iteration === owner)
     if (idx >= 0) {
-      const has = arr[idx].tools.some((x) => sameToolKey(x, t))
+      const has = arr[idx].tools.some((x) => sameToolKey(x, stamped))
       if (has) continue
       arr[idx] = {
         ...arr[idx],
-        tools: [...arr[idx].tools, t],
+        tools: [...arr[idx].tools, stamped],
         toolCount: (arr[idx].toolCount ?? 0) + 1,
       }
     } else {
@@ -2730,7 +2735,7 @@ function foldInFlightToIterations(
         iteration: owner,
         content: owner === lastIter ? appendContent : '',
         reasoning: owner === lastIter ? appendReasoning : '',
-        tools: [t],
+        tools: [stamped],
         toolCount: 1,
       })
     }

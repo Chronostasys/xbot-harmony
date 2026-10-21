@@ -102,16 +102,25 @@ export function toToolProgress(t: WebToolProgress): ToolProgress {
  *     · 跨迭代 `name#label` 去重：label 是截断前缀 ⇒ 连续同名 Shell 互相误杀。
  *   ⇒ 只按"同号块里有没有这一枚"判，不跨迭代、不比号大小。
  */
-export function isToolRendered(t: WebToolProgress, committed: readonly HistoryIteration[]): boolean {
-  // ── **唯一判据（纯整数，零字符串比较）** ─────────────────────────────────────
-  //   提交块最权威（用户三连定性）⇒ 只要这枚工具的迭代号 **≤ 已提交块的最大号**，它就已经
-  //   在块里画过了 ⇒ live tail **不得再画**（这正是"同一工具画两次"的唯一来源：
-  //   块画一次 + live tail 画一次）。
-  //   只有**比最大提交号更新**的迭代（真正还没提交的那一轮）才由 live tail 承载。
-  //   ⛔ 不再做任何 `call_id`/name/label 比较；⛔ 不再有"更老迭代残留"分支（被本条覆盖）。
-  const it0 = t.iteration
-  if (it0 === undefined || it0 === 0) {
-    return false            // 未盖号 ⇒ 无法判定 ⇒ 交给 live（宁可多画一次，不丢）
+/**
+ * **这枚工具是否"已经画过"** —— live 块只补**还没画过**的。
+ *
+ * 判据（**纯整数，零字符串比较**）：`工具所属迭代号 <= 已提交块的最大号` ⇒ 它已在块里画过。
+ *
+ * ⛔ **未盖号不等于"没画过"**（2026-10-21 用户真机 P0：「busy→idle 之后最后一个工具渲染两次」）：
+ *   live 快照里的工具**只可能**属于「当前在飞迭代」或「更早已提交迭代」——
+ *   服务端 `completed_tools` 的终态条目可以缺 `iteration`（`omitempty`），此时旧实现
+ *   `return false`（"交给 live"）⇒ **提交块画一次 + live 尾块再画一次 = 重复**。
+ *   ⇒ 结构性规则：缺号 ⇒ **归属 = 当前在飞迭代**（调用方传 `currentIter`），
+ *   再走同一条整数判据。当前迭代已提交时 `currentIter <= maxCommitted` ⇒ 不画（不重复）；
+ *   当前迭代还没提交时 `currentIter > maxCommitted` ⇒ 照画（不丢工具）。
+ */
+export function isToolRendered(t: WebToolProgress, committed: readonly HistoryIteration[],
+  currentIter: number = 0): boolean {
+  const raw: number | undefined = t.iteration
+  const it0: number = raw !== undefined && raw > 0 ? raw : currentIter
+  if (it0 <= 0) {
+    return false            // 连当前迭代号都不知道 ⇒ 交给 live（宁可多画，不丢）
   }
   let maxCommitted: number = 0
   for (let i = 0; i < committed.length; i++) {
@@ -313,13 +322,15 @@ export function inFlightBlock(r: LiveRowView, completed: HistoryIteration[]): Hi
   //    判据与渲染同源：过滤逻辑收敛在 `isCurrentIterTool`（导出的纯函数，可脱机断言）。
   // live 块只补**还没画过**的工具（判据 = `isToolRendered`：同号块的 tools 里是否已有这一枚）。
   const live: ToolProgress[] = [];
+  // ⛔ 第四个参数 = **当前在飞迭代号**：工具缺 `iteration` 时按它归属（否则 busy→idle 后
+  //   最后一个工具会「提交块画一次 + live 尾块再画一次」，用户 2026-10-21 真机 P0）。
   for (let i = 0; i < r.streamingTools.length; i++) {
-    if (!isToolRendered(r.streamingTools[i], completed)) {
+    if (!isToolRendered(r.streamingTools[i], completed, r.lastIter)) {
       live.push(toToolProgress(r.streamingTools[i]));
     }
   }
   for (let i = 0; i < r.activeTools.length; i++) {
-    if (!isToolRendered(r.activeTools[i], completed)) {
+    if (!isToolRendered(r.activeTools[i], completed, r.lastIter)) {
       live.push(toToolProgress(r.activeTools[i]));
     }
   }
@@ -330,7 +341,7 @@ export function inFlightBlock(r: LiveRowView, completed: HistoryIteration[]): Hi
   //   兜底 `?? []`：部分手写/旧序列化的 live 行没有该字段（防御，避免整表崩）。
   const cTools: readonly WebToolProgress[] = r.completedTools !== undefined ? r.completedTools : [];
   for (let i = 0; i < cTools.length; i++) {
-    if (!isToolRendered(cTools[i], completed)) {
+    if (!isToolRendered(cTools[i], completed, r.lastIter)) {
       live.push(toToolProgress(cTools[i]));
     }
   }
