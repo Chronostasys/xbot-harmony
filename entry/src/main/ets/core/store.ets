@@ -876,6 +876,8 @@ export class ChatStore {
       log('state', `running ${wasRunning ? 1 : 0}→${this.state.sessionRunning ? 1 : 0}`
         + ` cause=${this.lastBusyCause} turn=${this.state.activeTurn !== null ? this.state.activeTurn : 0}`);
     }
+    // 与批量入口同源的不变量体检（真机上单事件路径同样要能抓到非法终态）。
+    this.checkStateInvariants(`ev:${ev.type}`);
     this.rebuildRows();
     this.watchTurnEndedWhileBusy(prev, this.state, ev);
     this.watchBusyWithoutLiveTurn(this.state);
