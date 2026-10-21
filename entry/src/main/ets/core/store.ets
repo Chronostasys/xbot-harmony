@@ -3275,10 +3275,11 @@ export class ChatStore {
     if (rwGen !== this.chatGen || rwChat !== this.currentChatId || this.disposed) {
       return false;
     }
-    // ② 不再 `resetStateMachine()`：`loadHistory()` 会用 `history_replaced` **整体替换**
-    //   turns/legacy（`historyToReplaced`），reset 只是把列表**先清空一帧**（可见闪烁），
-    //   且会顺手丢掉同会话的 goal/todos（虽然 resetStateMachine 已保留它们，但多一层不必要的
-    //   状态写入 = 多一处可能分叉的地方）。语义等价、少一层。
+    // ② 必须先 reset 状态机（⛔ 我上一版按"loadHistory 会整体替换"删掉了它 —— **错**：
+    //   `history_replaced` 是 **union 合并**（`reduce.ts` 会保留 DB 里已删的 committed turn），
+    //   不是 replace ⇒ 不回退掉的消息会**留在列表里**（用户症状：编辑并重发后，被回退的几条
+    //   回复仍在、时间线错乱，刷新才消失）。见 state-gate-7-7。）
+    this.resetStateMachine();
     // ③ reload 必须在 send 之前（否则乐观行被新历史抹掉）
     await this.loadHistory();
     if (rwGen !== this.chatGen || rwChat !== this.currentChatId || this.disposed) {
