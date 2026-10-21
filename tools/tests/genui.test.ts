@@ -135,7 +135,11 @@ describe('GenUI 面板接线形态（目标④「面板我们看不到」）', (
   const count = (s: string, sub: string): number => s.split(sub).length - 1;
 
   const cardRaw: string = readOr('components/GenuiPanelCard.ets');
-  const msgRaw: string = readOr('components/MessageRow.ets');
+  // ⛔ 落点修正（2026-10-21，代码事实优先）：committed 迭代块已迁到 `IterBlocksView`
+  //   （`GenuiPanelCard` 与 `genuiRenderable(` 都在那里渲染）；`MessageRow` 只做消息壳。
+  //   旧判据扫 MessageRow 恒 0 次 ⇒ ①②③ 全假红（"面板我们看不到"的原始诉求仍由本判据守住：
+  //   live 与 committed 两条渲染路径各自 import/实例化/判据同源，一处缺失即红）。
+  const msgRaw: string = readOr('components/IterBlocksView.ets');
   const liveRaw: string = readOr('components/LiveTailView.ets');
   const idxRaw: string = readOr('pages/Index.ets');
   const storeRaw: string = readOr('core/store.ets');
@@ -158,9 +162,11 @@ describe('GenUI 面板接线形态（目标④「面板我们看不到」）', (
   });
 
   it('③ 动作只上报：两个渲染路径都透传 `onOpenGenui`（组件内不发请求）', () => {
-    // MessageRow：声明 1 处 + 透传给 LiveTailView 1 处 = 2。
-    expect(count(msgRaw, 'onOpenGenui:')).toBe(2);
-    // LiveTailView：声明 1 处（卡片里是**调用** `this.onOpenGenui(...)`，不是键）。
+    // 两条渲染路径的**同款形态**：各声明 1 处 prop + 各调用 1 次 `this.onOpenGenui(...)`。
+    // （旧判据要求 committed 侧有 2 处 `onOpenGenui:`，那是"MessageRow 透传给 LiveTailView"
+    //  时代的形态；committed 块迁到 `IterBlocksView` 后是"自己声明 + 自己调"，语义等价。）
+    expect(count(msgRaw, 'onOpenGenui:')).toBe(1);
+    expect(count(msgRaw, 'this.onOpenGenui(')).toBe(1);
     expect(count(liveRaw, 'onOpenGenui:')).toBe(1);
     expect(count(liveRaw, 'this.onOpenGenui(')).toBe(1);
     // ⛔ 组件层**不 import store**（分层铁律：动作/IO 留页面）。
