@@ -17,7 +17,7 @@
  * ✅ 扫描器自证：打印**扫了哪些文件 + 每个文件的调用点计数**；**零扫描判红**（总计数 0 ⇒ 红）。
  * ⚠️ 结尾必须 `process.exit(...)`：`tools/tests/run.sh` 用 `set -e` 且逐文件 `node`。
  */
-declare const process: { exit: (c: number) => void };
+declare const process: { exit: (c: number) => void; cwd: () => string };
 declare const require: (m: string) => any;
 declare const __dirname: string;
 const path = require('path');
@@ -60,7 +60,11 @@ console.log(`  K-scan dir=${CDIR}`);
 console.log(`  K-scan files: ${LIVE}, ${MSG}, ${LINE}`);
 
 const liveKeys: number = countOf(liveSrc, 'reasoningKey(');
-const msgKeys: number = countOf(msgSrc, 'reasoningKey(');
+// ⛔ 落点修正（2026-10-21）：committed 侧的迭代块已迁到 `IterBlocksView`（`reasoningKey(...)`
+//   在那里造键，与 live 侧同构）；`MessageRow` 只做消息壳 ⇒ 旧判据扫 MessageRow 恒 0 ⇒ 假红。
+const ibSrc2: string = fs.readFileSync(
+  require('path').join(process.cwd(), 'entry/src/main/ets/components/IterBlocksView.ets'), 'utf8');
+const msgKeys: number = countOf(msgSrc, 'reasoningKey(') + countOf(ibSrc2, 'reasoningKey(');
 const lineGets: number = countOf(lineSrc, 'getReasoningOpen(');
 const lineSets: number = countOf(lineSrc, 'setReasoningOpen(');
 // 逐文件计数（自证）
