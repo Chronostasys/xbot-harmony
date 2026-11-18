@@ -161,20 +161,34 @@ export struct GenuiPanelCard {
     }
   }
 
-  /** 内联面板（标题栏 + 真正的 ArkWeb 内容区）。 */
+  /**
+ * 内联面板 —— **只有 web 自带的那一个 header**（用户 2026-11-18：「看起来有两个 header」）。
+ *
+ * ⛔ 原生标题行已删除：web 分享页自带「🎨 UI rendered … Shared from xbot」标题栏，
+ *   再叠一行原生标题（同样的 title + 「打开面板」）就是**双 header** 的观感来源。
+ *   动作移到**内容下方一行**（不遮挡面板，也不与 web header 打架）：
+ *   左「复制链接」四态（busy/ok/err/idle）+ 右「打开面板」。
+ */
   @Builder
   InlinePanel() {
     Column({ space: SPACE_XS }) {
+      // ⚠️ 高度**有界**（同 web 的 `max-h-[70vh]`）：面板自己滚动，不把消息流撑爆。
+      WebSurface({
+        url: this.inlineUrl,
+        theme: this.themeId(),
+        chrome: false,
+        chatId: '',
+        channel: 'web',
+      })
+        .width('100%')
+        .height(GENUI_INLINE_H)
+        .borderRadius(RADIUS_CARD)
+        .clip(true)
+
+      // ── 动作行（原先在原生 header 里；现在不遮挡面板内容）─────────────────
       Row({ space: SPACE_SM }) {
-        SymbolGlyph($r('sys.symbol.rectangle_on_rectangle'))
-          .fontSize(GENUI_ICON).fontColor([this.col('accentSoft')])
-        Text(this.title)
-          .fontSize(typeOf('type.callout').size).fontWeight(typeOf('type.callout').weight)
-          .fontColor(this.col('title'))
-          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-          .constraintSize({ maxWidth: '100%' })
-          .layoutWeight(1)
-        // 全屏 = 既有浮层（`onOpen`）；内联态仍保留分享以外的唯一逃生口。
+        this.ShareChip()
+        Blank()
         Row() {
           Text(GENUI_OPEN_LABEL)
             .fontSize(typeOf('type.caption').size).fontColor(this.col('accentSoft'))
@@ -188,19 +202,6 @@ export struct GenuiPanelCard {
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
-
-      // ⚠️ 高度**有界**（同 web 的 `max-h-[70vh]`）：面板自己滚动，不把消息流撑爆。
-      WebSurface({
-        url: this.inlineUrl,
-        theme: this.themeId(),
-        chrome: false,
-        chatId: '',
-        channel: 'web',
-      })
-        .width('100%')
-        .height(GENUI_INLINE_H)
-        .borderRadius(RADIUS_CARD)
-        .clip(true)
     }
     .width('100%')
     .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XS, bottom: SPACE_XS })
@@ -271,6 +272,32 @@ export struct GenuiPanelCard {
     });
   }
 
+  /**
+   * **分享 chip 的唯一实现**（紧凑卡与内联态共用）。
+   *
+   * ⛔ 同一视觉只许一份实现（仓规）：两处各写一遍会让文案/色/热区/动效漂移，
+   *   而且 `motion_budget` 台账会把 `animation` 记成两次。
+   * ⛔ 热区 = 真实 ≥44 布局盒（`responseRegion` 外扩真机无效 ⇒ 仓内铁律）。
+   */
+  @Builder
+  ShareChip() {
+    Row() {
+      Text(shareLabelOf(this.shareState))
+        .fontSize(typeOf('type.caption').size)
+        // 丝滑动画：分享状态切换时文字颜色缓动
+        .animation(animBase())
+        // done=successText / error=dangerText（语义 role，非自造色）
+        .fontColor(this.shareState === SHARE_DONE ? this.col('successText')
+          : (this.shareState === SHARE_ERR ? this.col('dangerText') : this.col('accentSoft')))
+    }
+    .constraintSize({ minHeight: HIT_TARGET_MIN })
+    .alignItems(VerticalAlign.Center)
+    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+    .onClick(() => {
+      this.shareClicked();
+    })
+  }
+
   /** 紧凑卡（未就绪 / 生成中 / 建链接失败）—— 保留「打开面板」逃生口。 */
   @Builder
   CompactCard() {
@@ -309,24 +336,8 @@ export struct GenuiPanelCard {
       //    整卡仍可点（onOpen）；chip 独立 onClick（ArkUI 不冒泡，双触发不存在）。
       Row({ space: SPACE_XS }) {
         if (!this.live) {
-          // 热区 = 真实 ≥44 布局盒（`responseRegion` 外扩真机无效 ⇒ 仓内铁律；hit_target_pad
-          // 判 A 类：裸可点 Text 靠 padding 撑高 <44 ⇒ 必须有布局盒承载）。
-          Row() {
-            Text(shareLabelOf(this.shareState))
-              .fontSize(typeOf('type.caption').size)
-              // ⚡ 2026-10-20 丝滑动画：分享状态切换时文字颜色缓动
-              .animation(animBase())
-              // done=successText / error=dangerText（web：绿底 rgba(34,197,94,.15)+字 inherit、
-              // error 字 #dc2626 —— 原生透明动作片用色字表达，色对权威 successText/dangerText 记档）
-              .fontColor(this.shareState === SHARE_DONE ? this.col('successText')
-                : (this.shareState === SHARE_ERR ? this.col('dangerText') : this.col('accentSoft')))
-          }
-          .constraintSize({ minHeight: HIT_TARGET_MIN })
-          .alignItems(VerticalAlign.Center)
-          .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
-          .onClick(() => {
-            this.shareClicked();
-          })
+          // 唯一实现见 `ShareChip()`（文案/色/热区/动效同源）。
+          this.ShareChip()
         }
         Text(GENUI_OPEN_LABEL)
           .fontSize(typeOf('type.caption').size).fontColor(this.col('accentSoft'))

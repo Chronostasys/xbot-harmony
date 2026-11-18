@@ -101,6 +101,20 @@ describe('分享 chip 接线形态（钉「调用点计数」，⛔ 不钉方法
     expect(occ(s, "'dangerText'")).toBe(1);
   });
 
+  it('GenuiPanelCard：内联态也有分享入口 + 只有一个 header（用户 2026-11-18）', () => {
+    const s: string = srcOf(CARD);
+    // 用户：「看起来有两个 header」——内联态必须**删掉原生标题行**（web 自带 header 已表达标题/来源）
+    const inline: string = s.substring(s.indexOf('InlinePanel() {'), s.indexOf('CompactCard() {'));
+    // ⛔ 只钉**渲染**（Text(this.title)）；`this.onOpen(this.code, this.title)` 是参数，不算标题行
+    expect(inline.indexOf('Text(this.title)')).toBe(-1);
+    expect(inline.indexOf('rectangle_on_rectangle')).toBe(-1); // 原生图标也不出现
+    // 用户：「复制分享按钮根本无效」——内联态必须有分享 chip，且与紧凑卡**共用同一实现**
+    expect(inline.indexOf('this.ShareChip()')).toBeGreaterThanOrEqual(0);
+    expect(occ(s, 'this.ShareChip()')).toBe(2);   // 紧凑卡 + 内联态各一处调用
+    expect(occ(s, 'ShareChip() {')).toBe(1);      // 实现**唯一**（只有声明带花括号）
+    expect(occ(s, 'this.ShareChip()')).toBe(2);   // 紧凑卡 + 内联态各一处调用
+  });
+
   it('GenuiPanelCard：反向断言——组件不 IO（分层铁律，⛔ 建链不得泄进组件）', () => {
     const s: string = srcOf(CARD);
     expect(occ(s, 'shareGenuiPanel')).toBe(0);
