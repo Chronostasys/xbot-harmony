@@ -47,6 +47,13 @@ export interface BusySignals {
    *   "进行中"指示器一律让位**（composer 的 cancel **不受影响** —— 会话确实在跑）。
    */
   splashUp: boolean;
+  /**
+   * 尾部在飞块里**有运行中的工具**（`running/pending/…`）⇒ 工具 pill 本身已经在表达
+   * "正在干活"，列表**不得**再叠一条「思考中…」。
+   *
+   * ⛔ 用户 2026-10-28（截图）：`task_wait: 执行中` 下面紧跟一条「思考中…」= 两条进度语义打架。
+   */
+  hasRunningTool?: boolean;
 }
 
 /**
@@ -71,6 +78,10 @@ export function busyNow(o: BusySignals): boolean {
  * splash 自己就是"正在准备"的反馈，见 `BusySignals.splashUp`。
  */
 export function showsBusyPlaceholder(o: BusySignals): boolean {
+  // ⛔ 有运行中工具 ⇒ 不叠「思考中…」（用户 2026-10-28：两者一起出现）。
+  if (o.hasRunningTool === true) {
+    return false;
+  }
   return !o.splashUp && busyNow(o) && !(o.loading && o.rowsLen === 0)
     && !o.tailShowsIndicator && o.sending !== true;
 }

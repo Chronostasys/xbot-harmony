@@ -24,8 +24,12 @@ export class ModelFeed {
   }
 
   /** 喂一帧（wire 事件；`history_replaced` 走权威水合）。 */
-  push(ev: unknown): ModelFeed {
-    this.st = stepEvent(this.st, ev as never, this.st.chat).state;
+  /**
+   * @param cancelTurn 可选的**取消归属**（模拟 store 的 `cancelTargetTurn`）：
+   *   turn-less 的 cancel ack 只能收尾"用户按下取消时正在跑的那一轮"。
+   */
+  push(ev: unknown, cancelTurn?: number): ModelFeed {
+    this.st = stepEvent(this.st, ev as never, this.st.chat, cancelTurn).state;
     return this;
   }
 

@@ -1,0 +1,30 @@
+{
+  "id": "xbot.phone",
+  "name": "Phone Control",
+  "version": "1.0.0",
+  "description": "Control the paired HarmonyOS phone (UI dump / tap / swipe / input / screenshot) via the xbot-harmony client's on-device bridge.",
+  "author": "xbot",
+  "runtime": "stdio",
+  "entry": "/Users/bobli/.nvm/versions/node/v22.13.1/bin/node main.js",
+  "activationEvents": [
+    "onStart"
+  ],
+  "permissions": [
+    "rpc",
+    "config",
+    "tools.register"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "Phone Control",
+      "properties": {
+        "bridgeUrl": {
+          "type": "string",
+          "label": "Bridge URL",
+          "description": "xbot-harmony 客户端上的执行端点（默认 http://<phone-ip>:8790）",
+          "default": "http://192.168.31.203:8790"
+        }
+      }
+    }
+  }
+}

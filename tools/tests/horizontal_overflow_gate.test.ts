@@ -333,10 +333,17 @@ const KNOWN_OK: string[] = [
   // **已证良性**：diff 视图的 `+/-` 标记列 —— 内容宽度**固定**（±/空格三态），且**必须**无
   // `layoutWeight`（要按固定列宽才能与代码列纵向对齐）⇒ 不可能顶出屏（词表靠 `.marker` 命中属过报）。
   'components/ToolPopover.ets :: H1 :: ANCHOR:splitHunk(ln.text).marker',
+  // **已证良性**：`+N` 溢出徽标 —— 内容恒为 `+` + 一到两位数字（**宽度固定**），
+  //   且外层是 `Flex({wrap:Wrap})`（放不下就换行）⇒ 不可能顶出屏宽。
+  //   2026-11-17 改：徽标数字改为 `badgeCount(group, it, gi)`（浮层打开期间与列表同长），
+  //   表达式变"带参调用"后被 H1 扫到 ⇒ 按良性登记（不是放宽规则）。
+  'components/IterBlocksView.ets :: H1 :: ANCHOR:`+${this.badgeCount(group, it, gi)}`',
   // **有意（有据）**：diff 正文行 —— 源码注明"不折行（web `whitespace-pre`）：长行由 **diff 卡整体
   // 横向滚动**承担" ⇒ `wordBreak(NORMAL)` 是**对齐 web 的有意选择**，不是"忘了 BREAK_ALL"。
   // 长行由外层横向 `Scroll` 消化（该 `Scroll` 的 `clip` 属 §A2 的警告级台账）。
-  "components/ToolPopover.ets :: H3 :: ANCHOR:ln.text.length > 0 ? ln.text : ' '",
+  // ⚡ 2026-11-18：diff 正文去掉了 `layoutWeight(1)`（长行**绝不折行**，横向滚动承担）⇒
+  //   命中规则从 H3 变为 H1（仍属"已证良性"：内容按自然宽度渲染、由外层横向 Scroll 承接）。
+  "components/ToolPopover.ets :: H1 :: ANCHOR:ln.text.length > 0 ? ln.text : ' '",
   // （H0 的台账见 §A2 的 `H0_PENDING_SPEC`；⛔ 不混进本表的 measured 多重集）
 ];
 /** `PENDING_SPEC`：本线**禁改**的文件（归他人）—— ⛔ 只许缩短。 */

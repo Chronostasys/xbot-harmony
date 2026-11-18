@@ -1,29 +1,18 @@
 #!/usr/bin/env bash
-# 全量单测（**聚合、不早退**）—— `tools/gate.sh` 第 ① 步调用的执行器。
+# 全量单测（**聚合、不早退、增量编译、单进程执行**）—— `tools/gate.sh` 第 ① 步的入口。
 #
-# 为什么要有它（当前最大的协作摩擦）：
-#   `tools/tests/run.sh` 用 `set -e` 顺序执行 ⇒ **遇到第一个红测试就整体中止**。多条线同改一个
-#   工作树时，只要**任何一条线**的在途改动让某个测试红，**所有线**都拿不到自己的判定与全貌，
-#   也无法区分"是谁的红"。
-#
-# 目标语义（**判据不变，只是变全量**）：
-#   · PASS/FAIL 语义**完全不变** —— 只要有任一测试红（或 tsc 编译失败）⇒ 退出码非 0（仍判红，
-#     ⛔ 绝不因"聚合"而变宽容）；
-#   · 不再早退 —— 把所有测试**跑完**，最后汇总：`共 N 个测试文件，M 个失败`，并逐条列出
-#     **失败测试名 + 失败断言行**；
-#   · **编译失败（tsc 层）与断言失败分开归类**，编译失败打印错误尾部（对"谁是罪魁"最关键）。
-#
-# ⚠️ 编译环境与 `run.sh` **逐项等价**（core/*.ets⇒.ts + core/*.ts + 全部测试 + 非测试辅助件 +
-#    stubs + sed 路径改写 + @kit.*/prism4j/notify mock + 同款 find_tsc）⇒ 判定可信。
-# ⛔ 本脚本**不改** `run.sh`（它的既有外部行为不变；共享套件仍是最终判据）。
-set -uo pipefail  # ⛔ 刻意**不用** -e：本脚本的职责就是"跑完全部再汇总"
+# 硬约束（用户 2026-11-08）：**一次全量必须在 5 秒内跑完**（旧实现 3–5 分钟不可接受）。
+# 慢的两个根因与对策：
+#   ① 每次都全量 `tsc` 编译 428 个测试 + core 全量  ⇒ **持久缓存 + 增量**（源没变直接跳过编译）；
+#   ② 每个测试起一个 `node` 进程（428 次进程启动）  ⇒ **单进程 require 全部**（`run-all-fast.js`）。
+# ⛔ 覆盖面对齐旧实现：**所有** `*.test.ts` 都参与编译与执行，没有抽样/跳过；PASS/FAIL 语义不变
+#    （任一测试红或编译失败 ⇒ 退出码非 0）。
+set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 export NODE_OPTIONS="--require $HERE/i18n_normalize.js${NODE_OPTIONS:+ $NODE_OPTIONS}"
 ROOT="$(cd "$HERE/../.." && pwd)"
-OUT="$HERE/.out-all.$$"
-
-rm -rf "$OUT"
-trap 'rm -rf "$OUT"' EXIT
+CACHE="$HERE/.build-cache"
+STAMP="$CACHE/.stamp"
 
 find_tsc() {
   if [ -n "${TSC:-}" ] && [ -x "$TSC" ]; then echo "$TSC"; return; fi
@@ -33,129 +22,85 @@ find_tsc() {
   done
   echo "npx --yes -p typescript@5 tsc"
 }
-TSC_BIN="$(find_tsc)"
 
-# ── 编译环境（与 run.sh 逐项相同）────────────────────────────────────────────
-mkdir -p "$OUT"
-for f in "$ROOT"/entry/src/main/ets/core/*.ets "$ROOT"/entry/src/main/ets/core/*.ts; do
-  [ -f "$f" ] || continue
-  b="$(basename "$f")"
-  case "$b" in
-    *.ets) cp "$f" "$OUT/${b%.ets}.ts" ;;
-    *.ts)  cp "$f" "$OUT/$b" ;;
-  esac
-done
-for t in "$HERE"/*.test.ts; do
-  [ -f "$t" ] || continue
-  sed 's#\.\./\.\./entry/src/main/ets/core/#./#g' "$t" > "$OUT/$(basename "$t")"
-done
-for h in "$HERE"/*.ts; do
-  case "$(basename "$h")" in
-    *.test.ts) ;;
-    *) cp "$h" "$OUT/$(basename "$h")" ;;
-  esac
-done
-cp "$ROOT/tools/typecheck/stubs/"*.d.ts "$OUT/"
-
-# ── 编译一次（失败 ⇒ 归为「编译失败」，打印尾部，退出非 0）────────────────────
-TSC_LOG="$(mktemp -t xbot-run-all-tsc.XXXXXX)"
-if ! $TSC_BIN "$OUT"/*.ts --module commonjs --target ES2021 --strict --skipLibCheck --experimentalDecorators --outDir "$OUT/js" >"$TSC_LOG" 2>&1; then
-  echo "══ 纯逻辑测试（聚合）══"
-  echo "❌ 归类：**编译失败**（tsc 非 0）—— 断言层未执行"
-  echo "   错误尾部："
-  tail -30 "$TSC_LOG" | sed 's/^/     /'
-  rm -f "$TSC_LOG"
-  echo ""
-  echo "共 0 个测试文件，0 个失败（但**编译失败** ⇒ 判红）"
-  exit 1
-fi
-rm -f "$TSC_LOG"
-
-# ── 装 mock（与 run.sh 逐项相同）─────────────────────────────────────────────
-mkdir -p "$OUT/js/node_modules/@kit.NetworkKit"
-cp "$HERE/mocks/NetworkKit.js" "$OUT/js/node_modules/@kit.NetworkKit/index.js"
-mkdir -p "$OUT/js/node_modules/@kit.ArkTS"
-cp "$HERE/mocks/ArkTS.js" "$OUT/js/node_modules/@kit.ArkTS/index.js"
-# core/pushreg.ets 在模块顶层 import @kit.PushKit（2026-10-17 新增）⇒ 聚合 harness 也必须装，
-# 否则 pushreg 测试 MODULE_NOT_FOUND（run.sh / run-one.sh 早已有，run-all.sh 漏了）。
-mkdir -p "$OUT/js/node_modules/@kit.PushKit"
-cp "$HERE/mocks/PushKit.js" "$OUT/js/node_modules/@kit.PushKit/index.js"
-cat > "$OUT/js/node_modules/@kit.PushKit/package.json" <<'PKGPUSH'
-{ "name": "@kit.PushKit", "version": "0.0.0", "main": "index.js" }
-PKGPUSH
-mkdir -p "$OUT/js/node_modules/@kit.BasicServicesKit"
-cp "$HERE/mocks/BasicServicesKit.js" "$OUT/js/node_modules/@kit.BasicServicesKit/index.js"
-cat > "$OUT/js/node_modules/@kit.BasicServicesKit/package.json" <<'PKGBSK'
-{ "name": "@kit.BasicServicesKit", "version": "0.0.0", "main": "index.js" }
-PKGBSK
-cat > "$OUT/js/node_modules/@kit.ArkTS/package.json" <<'PKG2'
-{ "name": "@kit.ArkTS", "version": "0.0.0", "main": "index.js" }
-PKG2
-cat > "$OUT/js/node_modules/@kit.NetworkKit/package.json" <<'PKG'
-{ "name": "@kit.NetworkKit", "version": "0.0.0", "main": "index.js" }
-PKG
-mkdir -p "$OUT/js/node_modules/@hxa-atpc/noties_prism4j"
-cp "$HERE/mocks/prism4j.js" "$OUT/js/node_modules/@hxa-atpc/noties_prism4j/index.js"
-cat > "$OUT/js/node_modules/@hxa-atpc/noties_prism4j/package.json" <<'PKG3'
-{ "name": "@hxa-atpc/noties_prism4j", "version": "0.0.0", "main": "index.js" }
-PKG3
-install_notify_sdk() {
-  local name="$1"
-  mkdir -p "$OUT/js/node_modules/${name}"
-  cp "$HERE/mocks/notify_sdk.js" "$OUT/js/node_modules/${name}/index.js"
-  printf '{ "name": "%s", "version": "0.0.0", "main": "index.js" }\n' "${name}" \
-    > "$OUT/js/node_modules/${name}/package.json"
+# ── 增量判定：任何输入比 stamp 新 ⇒ 需要重新编译 ─────────────────────────────
+need_build() {
+  [ -f "$STAMP" ] || return 0
+  local newer
+  newer="$(find "$ROOT/entry/src/main/ets/core" "$HERE" "$ROOT/tools/typecheck/stubs" \
+      -maxdepth 2 \( -name '*.ts' -o -name '*.ets' -o -name '*.js' -o -name '*.d.ts' \) \
+      -newer "$STAMP" 2>/dev/null | grep -v '/\.build-cache/' | head -1)"
+  [ -n "$newer" ]
 }
-install_notify_sdk '@ohos.notificationManager'
-install_notify_sdk '@ohos.app.ability.wantAgent'
-install_notify_sdk '@ohos.resourceschedule.backgroundTaskManager'
-cp "$HERE/mocks/decorators.js" "$OUT/js/__decorators.js"
 
-# ── 跑**全部**测试，边跑边汇总（不早退）──────────────────────────────────────
-total=0
-failed=0
-failed_names=()
-FAIL_DETAIL="$(mktemp -t xbot-run-all-fail.XXXXXX)"
+build() {
+  local OUT="$CACHE"
+  rm -rf "$OUT"
+  mkdir -p "$OUT"
+  # core/*.ets ⇒ .ts（与旧实现逐项相同）
+  for f in "$ROOT"/entry/src/main/ets/core/*.ets "$ROOT"/entry/src/main/ets/core/*.ts; do
+    [ -f "$f" ] || continue
+    b="$(basename "$f")"
+    case "$b" in
+      *.ets) cp "$f" "$OUT/${b%.ets}.ts" ;;
+      *.ts)  cp "$f" "$OUT/$b" ;;
+    esac
+  done
+  # 测试：把 `../../entry/src/main/ets/core/` 改写成同目录相对路径
+  for t in "$HERE"/*.test.ts; do
+    [ -f "$t" ] || continue
+    sed 's#\.\./\.\./entry/src/main/ets/core/#./#g' "$t" > "$OUT/$(basename "$t")"
+  done
+  for h in "$HERE"/*.ts; do
+    case "$(basename "$h")" in
+      *.test.ts) ;;
+      *) cp "$h" "$OUT/$(basename "$h")" ;;
+    esac
+  done
+  cp "$ROOT/tools/typecheck/stubs/"*.d.ts "$OUT/"
+
+  local LOG
+  LOG="$(mktemp -t xbot-run-all-tsc.XXXXXX)"
+  if ! "$(find_tsc)" "$OUT"/*.ts --module commonjs --target ES2021 --strict --skipLibCheck \
+      --experimentalDecorators --outDir "$OUT/js" >"$LOG" 2>&1; then
+    echo "══ 纯逻辑测试（聚合）══"
+    echo "❌ 归类：**编译失败**（tsc 非 0）—— 断言层未执行"
+    tail -30 "$LOG" | sed 's/^/     /'
+    rm -f "$LOG"
+    echo ""
+    echo "共 0 个测试文件，0 个失败（但**编译失败** ⇒ 判红）"
+    return 1
+  fi
+  rm -f "$LOG"
+
+  # mock（与旧实现逐项相同）
+  local NM="$OUT/js/node_modules"
+  mkdir -p "$NM/@kit.NetworkKit" "$NM/@kit.ArkTS" "$NM/@kit.PushKit" "$NM/@kit.BasicServicesKit" \
+           "$NM/@hxa-atpc/noties_prism4j" "$NM/@ohos.notificationManager" \
+           "$NM/@ohos.app.ability.wantAgent" "$NM/@ohos.resourceschedule.backgroundTaskManager"
+  cp "$HERE/mocks/NetworkKit.js" "$NM/@kit.NetworkKit/index.js"
+  cp "$HERE/mocks/ArkTS.js" "$NM/@kit.ArkTS/index.js"
+  cp "$HERE/mocks/PushKit.js" "$NM/@kit.PushKit/index.js"
+  cp "$HERE/mocks/BasicServicesKit.js" "$NM/@kit.BasicServicesKit/index.js"
+  cp "$HERE/mocks/prism4j.js" "$NM/@hxa-atpc/noties_prism4j/index.js"
+  cp "$HERE/mocks/notify_sdk.js" "$NM/@ohos.notificationManager/index.js"
+  cp "$HERE/mocks/notify_sdk.js" "$NM/@ohos.app.ability.wantAgent/index.js"
+  cp "$HERE/mocks/notify_sdk.js" "$NM/@ohos.resourceschedule.backgroundTaskManager/index.js"
+  for m in '@kit.NetworkKit' '@kit.ArkTS' '@kit.PushKit' '@kit.BasicServicesKit'; do
+    printf '{ "name": "%s", "version": "0.0.0", "main": "index.js" }\n' "$m" > "$NM/$m/package.json"
+  done
+  for m in '@hxa-atpc/noties_prism4j' '@ohos.notificationManager' \
+           '@ohos.app.ability.wantAgent' '@ohos.resourceschedule.backgroundTaskManager'; do
+    printf '{ "name": "%s", "version": "0.0.0", "main": "index.js" }\n' "$m" > "$NM/$m/package.json"
+  done
+  cp "$HERE/mocks/decorators.js" "$OUT/js/__decorators.js"
+  touch "$STAMP"
+  return 0
+}
 
 echo "══ 纯逻辑测试（聚合 · 跑完全部）══"
-for t in "$OUT"/js/*.test.js; do
-  [ -f "$t" ] || continue
-  total=$((total + 1))
-  b="$(basename "$t" .test.js)"
-  out="$(node -r "$OUT/js/__decorators.js" "$t" 2>&1)"
-  rc=$?
-  if [ "$rc" -eq 0 ]; then
-    # 通过的测试：原样打印它的自述（与 run.sh 的可读性对齐）
-    printf '%s\n' "${out}"
-  else
-    failed=$((failed + 1))
-    failed_names+=("${b}")
-    printf '❌ %s（exit %s）\n' "${b}" "${rc}"
-    printf '%s\n' "${out}" | tail -8 | sed 's/^/     /'
-    # 汇总明细：测试名 + 失败断言行（`✗` 开头）或错误行
-    {
-      printf '── %s（exit %s）──\n' "${b}" "${rc}"
-      hits="$(printf '%s\n' "${out}" | grep -E '✗|Error|error:|AssertionError' | head -12)"
-      if [ -n "${hits}" ]; then
-        printf '%s\n' "${hits}" | sed 's/^/   /'
-      else
-        printf '%s\n' "${out}" | tail -6 | sed 's/^/   /'
-      fi
-    } >> "$FAIL_DETAIL"
-  fi
-done
-
-# ── 汇总 ────────────────────────────────────────────────────────────────────
-echo ""
-echo "════════ 聚合结果 ════════"
-if [ "${failed}" -eq 0 ]; then
-  echo "✅ 共 ${total} 个测试文件，0 个失败"
-  rm -f "$FAIL_DETAIL"
-  exit 0
+if need_build; then
+  build || exit 1
+  echo "（编译完成）"
 fi
-echo "❌ 共 ${total} 个测试文件，${failed} 个失败"
-echo "   失败测试：${failed_names[*]}"
-echo "-------- 失败明细（谁的红）--------"
-cat "$FAIL_DETAIL"
-rm -f "$FAIL_DETAIL"
-exit 1
+node -r "$CACHE/js/__decorators.js" "$HERE/run-all-fast.js" "$CACHE/js"

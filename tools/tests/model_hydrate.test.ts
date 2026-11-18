@@ -26,7 +26,7 @@ function eq(name: string, got: unknown, want: unknown): void {
 const base: State = emptyState('c1', 7, 42);
 const withSession: State = {
   ...base,
-  sess: { running: true, todos: ['a'], goal: { kind: 'value', objective: 'g', status: 'doing' }, queue: [] },
+  sess: { running: true, runningTurn: 0 as never, todos: ['a'], goal: { kind: 'value', objective: 'g', status: 'doing' }, queue: [] },
   live: { turn: 9, iteration: 3, content: 'live', reasoning: '', tools: [], genui: '' },
 };
 

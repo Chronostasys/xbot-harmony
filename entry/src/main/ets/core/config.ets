@@ -237,3 +237,20 @@ export function readCachedLocale(context: common.Context): string {
     return '';
   }
 }
+
+/**
+ * **同步**读已保存的后端地址（同 `readCachedLocale`：不依赖登录态/网络）。
+ *
+ * 用途：手机操作命令拉取器（`probe/phoneclient.ets`）在**登录完成之前**也要能定位
+ * 命令口（否则 App 冷启动后要等用户进到会话页才开始长轮询）。`currentLinkBase()`
+ * 依赖 `XbotHttp` 的构造，登录前为空 ⇒ 这里做兜底。
+ */
+export function readCachedServerUrl(context: common.Context): string {
+  try {
+    const options: preferences.Options = { name: STORE_NAME };
+    const s: preferences.Preferences = preferences.getPreferencesSync(context, options);
+    return s.getSync(KEY_SERVER, '') as string;
+  } catch (e) {
+    return '';
+  }
+}

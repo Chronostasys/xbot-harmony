@@ -30,9 +30,26 @@ import {
   GENUI_OPEN_LABEL, SHARE_BUSY, SHARE_DONE, SHARE_ERR, SHARE_IDLE, shareLabelOf,
 } from '../core/genui';
 import { animBase } from './anim';
+import { WebSurface } from './WebSurface';
 
 /** 指示器/图标尺寸（与同层 pill 视觉同档）。 */
 const GENUI_ICON: number = 14;
+
+/**
+ * 内联面板高度（vp）。同 web `GenUIPanel.tsx:203` 的 `max-h-[70vh] overflow-auto`：
+ * **有界**高度 + 面板内部自己滚动 ⇒ 不把消息流撑爆（长表格/图表也不会顶穿一行）。
+ */
+const GENUI_INLINE_H: number = 320;
+
+/**
+ * 同时**内联挂载**的面板上限。
+ *
+ * 为什么必须有：一个 ArkWeb 实例是重资源（独立渲染进程/内存）。历史会话里可能有十几张
+ * `display_html` 面板 —— 全部"免点击自动展示"会把内存和滚动都拖死。超限的卡片退回紧凑卡
+ * （仍可点「打开面板」全屏看），**不是丢功能**。
+ */
+const GENUI_INLINE_MAX: number = 3;
+let genuiInlineMounted: number = 0;
 
 @Component
 export struct GenuiPanelCard {
@@ -43,7 +60,7 @@ export struct GenuiPanelCard {
   /** 面板源码（`core/genui.genuiCode` 的结果）—— 点「打开面板」时原样交上层。 */
   @Prop code: string = '';
   /** 是否"在飞"（生成中）—— 决定指示器形态。 */
-  @Prop live: boolean = false;
+  @Prop @Watch('onLiveChanged') live: boolean = false;
   @Prop theme: string = 'dark';
   /**
    * **生效主题的全局订阅**（§21.124 用户亲报「切主题后老文字颜色不变、新的才变」）。
@@ -77,6 +94,121 @@ export struct GenuiPanelCard {
    * 自身的交互态，上层不管视觉）——同 `ShareablePanel` 的 useState。
    */
   @State shareState: string = SHARE_IDLE;
+
+  // ── 免点击直接展示（用户 2026-11-06：「display html 画出的窗口，不需要用户点开就能展示」）──
+  /**
+   * 面板在**本卡片内**内联渲染的地址（空 = 还没准备好，落 compact 卡片 + 「打开面板」）。
+   * web 的对应行为：`GenUIPanel.tsx:196-203` 把 `SandboxedUI` **直接挂在消息流里**
+   * （`max-h-[70vh] overflow-auto`），不是"一枚按钮"。
+   */
+  @State private inlineUrl: string = '';
+  /** 正在建分享（首帧/重建时短促；文案走 `GENUI_PREPARING_LABEL`）。 */
+  @State private preparing: boolean = false;
+
+  /**
+   * 组件挂载即**自动**准备面板（不点也展示）。
+   * ⛔ 分层铁律不变：组件**不发请求** —— 只调上层给的 `onShare`（页面建分享 + 进程级 cookie），
+   *    页面按 `genuiPanelKey(code)` 缓存 ⇒ 反复挂载只建一次分享。
+   */
+  aboutToAppear(): void {
+    this.ensureInline();
+  }
+
+  /** `live → false`（提交）后自动准备 —— 生成中的半截源码不建分享。 */
+  private onLiveChanged(): void {
+    this.ensureInline();
+  }
+
+  /**
+   * **唯一的 `onShare` 调用点**（分享 chip 与「免点击自动准备」共用）。
+   *
+   * ⛔ 为什么收敛成一处：分层铁律是"组件不 IO" —— 这里只是把上层回调转成 Promise；
+   *    而 `tools/tests/genui_share.test.ts` 钉「onShare 回调**恰 1 处调用**」以防它被写成
+   *    死消费。自动展示若另起一处调用会破坏该判据的判别力 ⇒ 两条路径都走本方法。
+   */
+  private requestUrl(): Promise<string> {
+    return this.onShare(this.code, this.title);
+  }
+
+  private ensureInline(): void {
+    if (this.live || this.inlineUrl.length > 0 || this.preparing) {
+      return;
+    }
+    if (this.code.length === 0) {
+      return;
+    }
+    // 并发内联上限（ArkWeb 是重资源；超限退回紧凑卡，仍可手动全屏）
+    if (genuiInlineMounted >= GENUI_INLINE_MAX) {
+      return;
+    }
+    this.preparing = true;
+    this.requestUrl().then((url: string) => {
+      this.preparing = false;
+      // 失败（空串）⇒ 保持紧凑卡片，用户仍可点「打开面板」重试（可见失败，不静默）。
+      if (url.length > 0) {
+        this.inlineUrl = url;
+        genuiInlineMounted++;
+      }
+    }).catch(() => {
+      this.preparing = false;
+    });
+  }
+
+  /** 卸载时归还内联名额（列表回收/切会话）。 */
+  aboutToDisappear(): void {
+    if (this.inlineUrl.length > 0) {
+      genuiInlineMounted = genuiInlineMounted > 0 ? genuiInlineMounted - 1 : 0;
+    }
+  }
+
+  /** 内联面板（标题栏 + 真正的 ArkWeb 内容区）。 */
+  @Builder
+  InlinePanel() {
+    Column({ space: SPACE_XS }) {
+      Row({ space: SPACE_SM }) {
+        SymbolGlyph($r('sys.symbol.rectangle_on_rectangle'))
+          .fontSize(GENUI_ICON).fontColor([this.col('accentSoft')])
+        Text(this.title)
+          .fontSize(typeOf('type.callout').size).fontWeight(typeOf('type.callout').weight)
+          .fontColor(this.col('title'))
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          .constraintSize({ maxWidth: '100%' })
+          .layoutWeight(1)
+        // 全屏 = 既有浮层（`onOpen`）；内联态仍保留分享以外的唯一逃生口。
+        Row() {
+          Text(GENUI_OPEN_LABEL)
+            .fontSize(typeOf('type.caption').size).fontColor(this.col('accentSoft'))
+        }
+        .constraintSize({ minHeight: HIT_TARGET_MIN })
+        .alignItems(VerticalAlign.Center)
+        .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+        .onClick(() => {
+          this.onOpen(this.code, this.title);
+        })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
+      // ⚠️ 高度**有界**（同 web 的 `max-h-[70vh]`）：面板自己滚动，不把消息流撑爆。
+      WebSurface({
+        url: this.inlineUrl,
+        theme: this.themeId(),
+        chrome: false,
+        chatId: '',
+        channel: 'web',
+      })
+        .width('100%')
+        .height(GENUI_INLINE_H)
+        .borderRadius(RADIUS_CARD)
+        .clip(true)
+    }
+    .width('100%')
+    .padding({ left: INSET_ROW_X, right: INSET_ROW_X, top: SPACE_XS, bottom: SPACE_XS })
+    .backgroundColor(this.col('card'))
+    .borderRadius(RADIUS_CARD)
+    .border({ width: STROKE_HAIRLINE, color: this.col('rule') })
+    .alignItems(HorizontalAlign.Start)
+  }
 
   /**
    * 色板缓存（`theme` 变化才重算）。
@@ -122,7 +254,7 @@ export struct GenuiPanelCard {
       return;
     }
     this.shareState = SHARE_BUSY;
-    this.onShare(this.code, this.title).then((url: string) => {
+    this.requestUrl().then((url: string) => {
       if (url.length === 0) {
         this.shareState = SHARE_ERR;
         return;
@@ -139,7 +271,9 @@ export struct GenuiPanelCard {
     });
   }
 
-  build() {
+  /** 紧凑卡（未就绪 / 生成中 / 建链接失败）—— 保留「打开面板」逃生口。 */
+  @Builder
+  CompactCard() {
     Row({ space: SPACE_SM }) {
       // ── 标记：生成中 = 会动的原生指示器；就绪 = 面板图标 ────────────────────────
       Stack() {
@@ -208,5 +342,15 @@ export struct GenuiPanelCard {
     .onClick(() => {
       this.onOpen(this.code, this.title);
     })
+  }
+
+  build() {
+    // 免点击展示：URL 就绪 ⇒ 直接在内联 `WebSurface` 里渲染面板；
+    // 否则落紧凑卡（生成中 / 建链接中 / 建链接失败可重试）。
+    if (this.inlineUrl.length > 0) {
+      this.InlinePanel()
+    } else {
+      this.CompactCard()
+    }
   }
 }

@@ -332,3 +332,37 @@ profile: default_xbot-harmony_...p7b  mtime 2026-10-19 14:07:20
 
 
 
+
+## § 实况窗后台更新：为什么停更、以及 2026-11-11 的决策变更
+
+**真机实证（2026-11-11）**：应用进后台后被系统冻结 ——
+
+```
+SUSPEND_MANAGER: Doze 20020264_com.chronostasys.xbot
+SUSPEND_MANAGER: FreezeFreezeUnit, Freeze 20020264_com.chronostasys.xbot
+```
+
+冻结后 `liveViewManager.updateLiveView()` 再也调不出去 ⇒ 实况窗**内容停在最后一帧**
+（注意：横幅上的"秒数"是系统 `LiveView.timer` 渲染的，所以会出现"计时在走、内容不动"）。
+
+**决策变更（用户 2026-11-11 明确）**：私人使用、不上架、可以 hack，但
+**不许静音播放音频**（会抢音频焦点、打断听歌）⇒ 改用 **`DATA_TRANSFER` 长时任务**保活：
+
+| 项 | 值 |
+|---|---|
+| 权限 | `ohos.permission.KEEP_BACKGROUND_RUNNING`（**normal + system_grant**，无需 ACL） |
+| module.json5 | ability `"backgroundModes": ["dataTransfer"]` |
+| 代码 | `components/BgTask.ets`：`ensureDataTransferTask()` / `stopDataTransferTask()` |
+| 接线 | `EntryAbility.onBackground`（回合在跑时）+ 短时任务；`onForeground` 释放 |
+
+**上限（必须记住）**：`DATA_TRANSFER` 在**10 分钟无真实数据传输**时被系统取消
+（`@ohos.resourceschedule.backgroundTaskManager.d.ts:1116-1133`），且会挂一条常驻通知。
+所以它是"3 分钟 → 10 分钟量级"的改善，**不是永久**。
+
+**永久方案只有两条**：① AGC 申请「实况窗（Live View）」正式权益，走服务端 Push
+（`plugins/xbot-harmony-push` 的 hook 已实现，当前被 `80300002 权益未开通` 挡住）；
+② 静音音频（已否决）。
+
+**切换会话必须换内容**：快照里此前没有会话身份 ⇒ 新旧会话指标恰好相同会被
+`sameLiveView` 判等而不推送（用户亲报「切会话，实况窗显示内容没变」）。
+现规则：`LiveViewInput.title` = 会话名，**标题变化视作结构事件恒推**（`liveview.test.ts ④`）。

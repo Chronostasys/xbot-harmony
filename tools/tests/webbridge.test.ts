@@ -253,8 +253,10 @@ eq('(n) javascript: ⇒ block（注入面）', newWindowAction('javascript:alert
 eq('(n) data: ⇒ block（注入面）', newWindowAction('data:text/html,<script>1</script>', PAGE, BASE), NEW_WINDOW_BLOCK);
 eq('(n) file: ⇒ block', newWindowAction('file:///etc/passwd', PAGE, BASE), NEW_WINDOW_BLOCK);
 eq('(n) 空 ⇒ block', newWindowAction('', PAGE, BASE), NEW_WINDOW_BLOCK);
-eq('(n) 裸相对（拼不出绝对）⇒ block（宁可拒绝也不猜地址）',
-  newWindowAction('foo/bar.html', PAGE, BASE), NEW_WINDOW_BLOCK);
+// 2026-10-27 契约变更（用户要求「相对地址自动拼 host」）：裸相对地址按服务端 base 解析 ⇒
+// 与 page 同源 ⇒ **in-web**（绝不再外跳）。无 base 时才 block。
+eq('(n) 裸相对（按 base 拼成同源绝对地址）⇒ in-web',
+  newWindowAction('foo/bar.html', PAGE, BASE), NEW_WINDOW_IN_WEB);
 eq('(n) 无 pageUrl 时绝对外链仍可外跳', newWindowAction('https://x.com/', '', BASE), NEW_WINDOW_EXTERNAL);
 eq('(n) 无 pageUrl 时同源地址判不出同源 ⇒ external（fail-safe：不外跳自己的 SPA 由上层兜底）',
   newWindowAction('http://127.0.0.1:8082/x', '', BASE), NEW_WINDOW_EXTERNAL);

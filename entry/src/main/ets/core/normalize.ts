@@ -177,9 +177,28 @@ export function normalizeEvent(raw: unknown, chatID: string): readonly DomainEve
 }
 
 /** channel 前缀剥离（"web:chat-1" vs "chat-1" 兼容）。 */
+const CHANNEL_PREFIXES: readonly string[] = ['web:', 'agent:', 'cli:', 'feishu:', 'qq:', 'wecom:', 'dingtalk:', 'debug:']
+
 function stripChannel(chatID: string): string {
-  const i = chatID.indexOf(':')
-  return i >= 0 ? chatID.slice(i + 1) : chatID
+  // ⛔ 必须**循环剥到稳定**：子代理全键形如 `agent:web:chat_T/explore:inst`（两段渠道前缀）。
+  //    旧实现只剥第一个冒号 ⇒ `agent:web:chat_T/…` → `web:chat_T/…`，对面 `web:chat_T/…`
+  //    → `chat_T/…` ⇒ 两侧错位 ⇒ **进度包在 normalize 阶段就被丢掉**，子代理视图收不到 SSE
+  //    （用户 2026-11-14：「不是收不到而是包被过滤了/丢了」）。
+  //    判据 `subagent_sse_filter.test.ts`（修复前实测 2 条红）。
+  let out: string = chatID
+  let changed: boolean = true
+  while (changed) {
+    changed = false
+    for (let i = 0; i < CHANNEL_PREFIXES.length; i++) {
+      const pre: string = CHANNEL_PREFIXES[i]
+      if (out.startsWith(pre)) {
+        out = out.substring(pre.length)
+        changed = true
+        break
+      }
+    }
+  }
+  return out
 }
 
 // ─── progress_structured → turn_started / iteration / phase_done / stream ──

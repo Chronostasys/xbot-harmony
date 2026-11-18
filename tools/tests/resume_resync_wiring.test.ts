@@ -33,20 +33,23 @@ ok('loadHistory 同一 chatGen 在飞合并（不重复请求/解析）', /histo
 // ⛔ 锚点修正（2026-10-21）：`resyncAfterResume` 现在有**第二参**（authoritative）⇒ 旧正则要求
 //   `resyncAfterResume('sse-reopen')` 后紧跟 `)` 恒不匹配 ⇒ 三条假红。改成"允许可选第二参"。
 const RS = (tag: string): string => `resyncAfterResume\\(['"]${tag}['"](?:\\s*,\\s*[^)]*)?\\)`;
-ok('SSE reconnect 不再先 loadSessions 再 resync 重复会话树',
-  new RegExp(`if \\(reconnected && this\\.resumeActive\\)[\\s\\S]{0,500}${RS('sse-reopen')}[\\s\\S]{0,500}else[\\s\\S]{0,300}loadSessions\\(\\)`).test(store));
-ok('SSE 重连（open 且断线过）触发 resync',
-  new RegExp(`state === 'open'[\\s\\S]{0,900}${RS('sse-reopen')}`).test(store));
+// ⛔ 2026-10-22 契约演进（用户：「重新连接也必须看情况触发 resync」）：重连**不再**无条件
+//   `resyncAfterResume`，改为走唯一连续性判据 `resumeContinuity('sse-reopen')`
+//   （NONE 只对账会话树 / GAP 补洞 / RELOAD 才权威重载）。判据见 `resume_verdict`。
+ok('SSE 重连（open 且断线过）走连续性判据（不再无条件重载）',
+  new RegExp(`state === 'open'[\\s\\S]{0,1200}resumeContinuity\\(\\s*['"]sse-reopen['"]`).test(store));
+ok('重连分支不再直接 resyncAfterResume(sse-reopen)',
+  !new RegExp(`state === 'open'[\\s\\S]{0,1200}${RS('sse-reopen')}`).test(store));
 ok('断线标记只在曾 open 后置位', /sseOpenedOnce[\s\S]{0,200}sseHadDisconnect\s*=\s*true/.test(store));
-ok('onPageShow 调用 resyncAfterResume(page-show)', /resyncAfterResume\(['"]page-show['"]\)/.test(index));
+ok('onPageShow 走连续性判据(page-show)', /resumeContinuity\(['"]page-show['"]\)/.test(index));
 ok('页面订阅 appResumedAt 并 @Watch', /@StorageProp\('appResumedAt'\)\s*@Watch\('onAppResumed'\)/.test(index));
 // 用**函数边界**截取（⛔ 不用定长窗：中间插几行注释就会把锚推出窗口 —— AGENTS 的教训）。
 const appResumedStart: number = index.indexOf('private onAppResumed()');
 const appResumedNext: number = appResumedStart >= 0 ? index.indexOf('private ', appResumedStart + 30) : -1;
 const appResumedBody: string = (appResumedStart >= 0 && appResumedNext > appResumedStart)
   ? index.slice(appResumedStart, appResumedNext) : '';
-ok('onAppResumed 走同一 resync',
-  new RegExp(RS('ability-foreground')).test(appResumedBody));
+ok('onAppResumed 走同一连续性判据',
+  /resumeContinuity\(['"]foreground['"]\)/.test(appResumedBody));
 ok('EntryAbility.onForeground 写 appResumedAt', /onForeground\(\)[\s\S]{0,400}AppStorage\.setOrCreate<number>\('appResumedAt'/.test(ability));
 
 console.log(`resume_resync_wiring: ${pass} passed, ${fail} failed`);

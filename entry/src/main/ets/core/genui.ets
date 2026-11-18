@@ -223,6 +223,27 @@ export function genuiPanelUrl(host: string, path: string): string {
   return `${root}/${p}`;
 }
 
+/**
+ * 面板源码的**稳定缓存键**（同源码 ⇒ 同键；不同源码 ⇒ 不同键）。
+ *
+ * 为什么需要：面板"免点击直接展示"后，卡片会被反复挂载（列表复用/滚动重建）——
+ * 每次挂载都去 `POST /api/share/create` 会**制造一堆垃圾分享**。页面按本键缓存 URL，
+ * 同一面板只建一次分享。
+ *
+ * 实现：`长度 + FNV-1a 32bit`（`长度` 让截断/拼接类误撞直接失效；同会话内足够）。
+ * ⛔ 只用于**缓存键**，不参与任何渲染判定（渲染仍按源码全量比较）。
+ */
+export function genuiPanelKey(code: string): string {
+  const s: string = code !== undefined && code !== null ? code : '';
+  let h: number = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    // FNV prime 16777619（>>> 0 保持 32bit 无符号）
+    h = (h * 16777619) >>> 0;
+  }
+  return `${s.length.toString(36)}-${h.toString(36)}`;
+}
+
 // ── 分享按钮四态（web `plugins/genui/index.tsx:122-181` ShareablePanel 的原生对等物）──
 // web 的分享按钮是**插件自己的 UI**（absolute 定位在面板右上角）：点按 → ctx.share.create
 // → clipboard.writeText(absolute URL)。zh-CN.ts 中无 share* 的 i18n key（grep 0 命中）

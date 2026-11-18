@@ -88,8 +88,25 @@ console.log('\n▶ §D 独立块组件的订阅语义（必须是 @ObjectLink，
 {
   ok('★D `IterBlocksView` 声明 `@ObjectLink iters: IterBlocks`',
     /@ObjectLink iters: IterBlocks;/.test(iterView));
-  ok('★D 它 `ForEach` 的源 = 持有者 `this.iters.blocks`（唯一一处）',
-    count(iterView, 'ForEach(this.iters.blocks') === 1);
+  // ⛔ 2026-10-25：`ForEach` 的源允许是**由持有者派生的有界视图**（`mergedBlocks()`），
+  //   但必须同时满足：① 只此一处；② 派生函数**直接**读持有者的 `this.iters.blocks`；
+  //   ③ 合并只做**归并**（长度只减不增）⇒ 帧内渲染量仍被持有者长度上界约束。
+  //   为什么需要派生：折叠（>8 ⇒ 前 7 + `+N`）必须作用在"一次回复里连续的纯工具迭代"上，
+  //   否则服务端"一次工具调用=一个迭代"会让阈值永不触发（用户 2026-10-25 截图：20 行 Shell）。
+  // ⚡ 2026-11-18：live 行改为**值投递**（`@Prop blocksOverride`）⇒ 派生视图的源可能是
+  //   `this.blocksOverride`（上限仍是持有者长度：它来自页面对同一份块的快照）。
+  // ⚡ 2026-11-18：live 行改为**值投递**（`@Prop blocksOverride`）——真机日志证明
+  //   `@ObjectLink iters` 驱动不了 `IterBlocksView.build()`（`[ITR] view` 整回合只 1 条）⇒
+  //   已提交块区冻结、idle 后才出现。派生视图的源 = `src`（`blocksOverride` 优先，否则持有者），
+  //   上限仍由持有者长度约束（override 就是同一份块的快照）。
+  const srcOk: boolean = count(iterView, 'ForEach(this.mergedBlocks()') === 1
+    && /const src: HistoryIteration\[\] = this\.blocksOverride\.length > 0 \? this\.blocksOverride : this\.iters\.blocks;/.test(iterView)
+    && /mergeToolOnlyIterations\(src\)/.test(iterView);
+  ok('★D 它 `ForEach` 的源 = 有界派生视图（持有者/值投递快照，唯一一处）', srcOk);
+  if (count(iterView, 'ForEach(this.mergedBlocks()') === 1) {
+    ok('★D 派生视图必须有界：合并函数只读持有者 blocks 且只做归并（<= length）',
+      /mergeToolOnlyIterations\(src\)/.test(iterView));
+  }
 }
 
 console.log('\n▶ §E 在飞内容：**@Prop 值投递**（2026-10-21 回滚后的事实口径）');

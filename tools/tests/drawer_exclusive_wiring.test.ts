@@ -91,7 +91,8 @@ const FLAGS: string[] = [
   'this.showNewSession = false;', 'this.showQueue = false;', 'this.showPlugins = false;',
   'this.showSkills = false;', 'this.showFiles = false;', 'this.showSelfCheck = false;',
   'this.showStatus = false;', 'this.showModel = false;', 'this.showSettingsPanel = false;',
-  'this.showPanels = false;', 'this.showTaskDetail = false;', 'this.showTerminal = false;',
+  // 2026-10-22：面板收起收敛到唯一出口 `closePanels()`（内部置 false + 退订通信视图 SSE）
+  'this.closePanels();', 'this.showTaskDetail = false;', 'this.showTerminal = false;',
   'this.showSearchHits = false;', 'this.showPluginHost = false;', 'this.showSessionStats = false;',
   "this.sessMenuId = '';", 'this.ctxOpen = false;', "this.panelUrl = '';", "this.pluginPageUrl = '';",
 ];

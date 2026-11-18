@@ -16,6 +16,12 @@ export enum MdBlockKind {
   Quote = 4,
   Divider = 5,
   Table = 6,
+  /**
+   * 块公式 `$$…$$`（web `remark-math` + KaTeX 的 `math` 节点）。
+   * ⛔ 原生**没有** JS 引擎 ⇒ 不跑 KaTeX：正文原样保存（`code`），渲染成等宽公式块。
+   *    "能力对齐"= 结构/边界与 web 一致（识别、去定界符、流式裁剪），**不是**排版一致。
+   */
+  Math = 7,
 }
 
 export class MdBlock {
@@ -75,6 +81,172 @@ export class MdSpan {
   link: string = '';
   /** 非空表示这是一张图片（存 src）——xbot 的图片引用是 cookie 鉴权端点，需自行取字节渲染 */
   image: string = '';
+  /**
+   * 行内公式 `$…$`（web `remark-math` 的 `inlineMath`）。
+   * ⛔ 不跑 KaTeX ⇒ 渲染成"等宽 + 强调底色"的公式片段（结构性对齐，排版不承诺）。
+   */
+  math: boolean = false;
+}
+
+/**
+ * 剥掉**文档开头**的 YAML frontmatter（web `lib/markdown.ts:stripFrontmatter` 的对等物）。
+ *
+ * 为什么必须：SKILL.md / 一些模型输出以 `---\nkey: value\n---` 开头；CommonMark 会把
+ * 文档中部的 `---` 当 setext 标题下划线 ⇒ frontmatter 被渲染成一个吞掉 YAML 的标题。
+ * web 在解析前剥掉（`MarkdownRenderer.tsx:515` 的 `stripFrontmatter(content)`）⇒ 原生对齐。
+ *
+ * 口径与 web 一致：**只**认文档开头的成对 `---`；中部的 `---`（水平线）与未闭合的头部原样保留。
+ */
+export function stripFrontmatter(src: string): string {
+  if (src === undefined || src === null) {
+    return '';
+  }
+  const m: RegExpExecArray | null = /^---\r?\n([\s\S]*?)(?:\r?\n)?---(?:\r?\n|$)/.exec(src);
+  if (m === null) {
+    return src;
+  }
+  const rest: string = src.substring(m[0].length);
+  // 块后通常还有一个空行（`---\n\n# 标题`）⇒ 吃掉一个，避免顶部多出一条空行
+  return rest.startsWith('\n') ? rest.substring(1) : rest;
+}
+
+/**
+ * TeX 定界符归一（web `normalizeMathDelimiters`，`MarkdownRenderer.tsx:351-375` 逐条对等）。
+ *
+ * 模型常写 `\(…\)` / `\[…\]`，而 remark-math 只认 `$…$` / `$$…$$` ⇒ web 在解析前统一。
+ * **只**在代码围栏与行内代码**之外**替换（否则代码里的 `\(` 会被改写）。
+ */
+export function normalizeMathDelimiters(src: string): string {
+  if (src === undefined || src === null || src.length === 0) {
+    return '';
+  }
+  const lines: string[] = src.split('\n');
+  let fence: string = '';
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line: string = lines[i];
+    const nextFence: string = fenceAfterLine(line, fence);
+    if (fence.length > 0 || nextFence.length > 0) {
+      fence = nextFence;
+      out.push(line);
+      continue;
+    }
+    // 行内代码段按 `(`+`…`+`)` 切开：奇数下标是代码，原样保留
+    const parts: string[] = line.split(/(`+[^`]*`+)/g);
+    const rebuilt: string[] = [];
+    for (let p = 0; p < parts.length; p++) {
+      if (p % 2 === 1) {
+        rebuilt.push(parts[p]);
+        continue;
+      }
+      rebuilt.push(parts[p]
+        .split('\\[').join('$$')
+        .split('\\]').join('$$')
+        .split('\\(').join('$')
+        .split('\\)').join('$'));
+    }
+    out.push(rebuilt.join(''));
+  }
+  return out.join('\n');
+}
+
+/** 围栏状态推进（`fence` 为空 = 在围栏外；返回"处理完本行后"的围栏标记）。 */
+function fenceAfterLine(line: string, fence: string): string {
+  const m: RegExpExecArray | null = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+  if (m === null) {
+    return fence;
+  }
+  const marker: string = m[1];
+  const suffix: string = m[2];
+  if (fence.length === 0) {
+    // 开围栏：``` 后紧跟反引号是非法的 info string（CommonMark）⇒ 不视为围栏
+    return marker.charAt(0) === '`' && suffix.indexOf('`') >= 0 ? '' : marker;
+  }
+  const sameChar: boolean = marker.charAt(0) === fence.charAt(0);
+  const longEnough: boolean = marker.length >= fence.length;
+  const bare: boolean = /^[ \t]*$/.test(suffix);
+  return sameChar && longEnough && bare ? '' : fence;
+}
+
+/**
+ * 流式期裁掉**未闭合**的公式尾部（web `clipTrailingUnclosedMath`，
+ * `MarkdownRenderer.tsx:397-467` 逐条对等）。
+ *
+ * 为什么：`$$` 未闭合时，web 的 remark-math 会把到结尾的内容全吞进 KaTeX；原生虽然不跑
+ * KaTeX，但半截 TeX（`\begin{aligned}` / `&` / `\\`）会以纯文本一直往上堆 —— 同样难看。
+ * web 的口径是"只显示**完整**公式"：裁到最后一个未配对的 `$$`（或末行未配对的 `$`）。
+ *
+ * ⛔ 绝不返回空串：`$$` 落在内容最前面时 `slice(0,0)===''` ⇒ 整条消息空白（web 的
+ *    `:429-436` 踩过这个坑）⇒ 此时把定界符**转义成普通文本**，其余内容照常显示。
+ */
+export function clipTrailingUnclosedMath(src: string): string {
+  if (src === undefined || src === null || src.length === 0) {
+    return '';
+  }
+  const lines: string[] = src.split('\n');
+  let fence: string = '';
+  let openBlockAt: number = -1;
+  let offset: number = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line: string = lines[i];
+    const lineStart: number = offset;
+    offset += line.length + 1;
+    const nextFence: string = fenceAfterLine(line, fence);
+    if (fence.length > 0 || nextFence.length > 0) {
+      fence = nextFence;
+      continue;
+    }
+    const parts: string[] = line.split(/(`+[^`]*`+)/g);
+    let col: number = 0;
+    for (let p = 0; p < parts.length; p++) {
+      const part: string = parts[p];
+      const partStart: number = lineStart + col;
+      col += part.length;
+      if (p % 2 === 1) {
+        continue;
+      }
+      let idx: number = part.indexOf('$$');
+      while (idx !== -1) {
+        openBlockAt = openBlockAt === -1 ? partStart + idx : -1;
+        idx = part.indexOf('$$', idx + 2);
+      }
+    }
+  }
+  if (openBlockAt !== -1) {
+    const clipped: string = src.substring(0, openBlockAt);
+    if (clipped.trim().length === 0) {
+      return '\\$\\$' + src.substring(openBlockAt + 2);
+    }
+    return clipped;
+  }
+  // 没有未闭合的块公式 ⇒ 看**最后一行**有没有未闭合的行内 `$`（remark-math 只按行配对）
+  const lastLine: string = lines.length > 0 ? lines[lines.length - 1] : '';
+  const parts: string[] = lastLine.split(/(`+[^`]*`+)/g);
+  let lastSingleDollar: number = -1;
+  let col: number = 0;
+  for (let p = 0; p < parts.length; p++) {
+    const part: string = parts[p];
+    const partStart: number = col;
+    col += part.length;
+    if (p % 2 === 1) {
+      continue;
+    }
+    let idx: number = part.indexOf('$');
+    while (idx !== -1) {
+      if (part.startsWith('$$', idx)) {
+        idx = part.indexOf('$', idx + 2);
+        continue;
+      }
+      lastSingleDollar = partStart + idx;
+      idx = part.indexOf('$', idx + 1);
+    }
+  }
+  if (lastSingleDollar !== -1) {
+    const cut: number = src.length - (lastLine.length - lastSingleDollar);
+    const head: string = src.substring(0, cut);
+    return head.endsWith('\n') ? head.substring(0, head.length - 1) : head;
+  }
+  return src;
 }
 
 export function parseMarkdown(src: string): MdBlock[] {
@@ -141,6 +313,45 @@ export function parseMarkdown(src: string): MdBlock[] {
         i++;
       }
       b.code = body.join('\n');
+      blocks.push(b);
+      continue;
+    }
+
+    // 块公式 `$$…$$`（web `remark-math` 的 `math` 节点）—— 必须在"段落/分隔线"之前判，
+    // 否则 `$$` 行会被当普通段落吞掉（原生此前就是纯文本上屏）。
+    if (line.trim().startsWith('$$')) {
+      flushPara();
+      const b: MdBlock = new MdBlock();
+      b.kind = MdBlockKind.Math;
+      b.start = lineOff[i];
+      const head: string = line.trim().substring(2);
+      if (head.endsWith('$$') && head.length >= 2) {
+        // 单行形态：`$$E=mc^2$$`
+        b.code = head.substring(0, head.length - 2).trim();
+        i++;
+      } else {
+        // 多行形态：收集到以 `$$` 结尾的行（未闭合 ⇒ 吃到文档尾，由流式裁剪兜底）
+        const body: string[] = [];
+        if (head.trim().length > 0) {
+          body.push(head);
+        }
+        i++;
+        while (i < lines.length) {
+          const l: string = lines[i];
+          if (l.trim().endsWith('$$')) {
+            const cut: string = l.trim();
+            const inner: string = cut.substring(0, cut.length - 2);
+            if (inner.trim().length > 0) {
+              body.push(inner);
+            }
+            i++;
+            break;
+          }
+          body.push(l);
+          i++;
+        }
+        b.code = body.join('\n').replace(/^\n+/, '').replace(/\n+$/, '');
+      }
       blocks.push(b);
       continue;
     }
@@ -280,14 +491,86 @@ export function parseMarkdown(src: string): MdBlock[] {
  *    ⇒ 把"每拍对**全体**块重编号"（O(总块数)，随文档增长 = O(n²)）降为 O(尾部块数)。
  *    判据：`tools/tests/stream_perf_equiv.test.ts`（尾部重编号 ≡ 全量重编号，逐块 key 相等）。
  */
+/**
+ * 块**内容指纹**（FNV-1a，O(内容)；`assignKeys` 与解析同阶，不引入额外数量级）。
+ *
+ * ⛔ 为什么必须含逐项/逐格内容（用户 2026-10-27 亲报「打字机遇列表/表格漏字」）：
+ *   旧 sig 只有 `items.length` / `rows.length` / `text.length` —— 列表项或表格单元格**内容增长**
+ *   （条目数、行数、`text` 都不变）时块 key 一模一样 ⇒ ArkUI `ForEach` **复用旧子树、不重跑
+ *   item builder** ⇒ 已经上屏的那一项/那一格永远停在旧文本，新打的字**不上屏**（= 漏字）。
+ *   web 用「整篇解析成 DOM，只裁文本节点」（`MarkdownRenderer.tsx:clipTextNodes`）没有这个失效面。
+ */
+function blockContentHash(b: MdBlock): number {
+  let h: number = 2166136261;
+  const feed = (s: string): void => {
+    for (let i = 0; i < s.length; i++) {
+      h = (h ^ s.charCodeAt(i)) >>> 0;
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    h = (h ^ 0x1f) >>> 0;   // 段分隔（避免 ["ab",""] 与 ["a","b"] 同哈希）
+  };
+  feed(b.text);
+  feed(b.code);
+  feed(b.lang);
+  for (let i = 0; i < b.items.length; i++) {
+    feed(b.items[i]);
+  }
+  for (let i = 0; i < b.header.length; i++) {
+    feed(b.header[i]);
+  }
+  for (let i = 0; i < b.rows.length; i++) {
+    const r: string[] = b.rows[i];
+    for (let k = 0; k < r.length; k++) {
+      feed(r[k]);
+    }
+    feed('|');
+  }
+  return h;
+}
+
 function assignKeys(blocks: MdBlock[], from: number = 0): void {
   for (let k = from; k < blocks.length; k++) {
     const b: MdBlock = blocks[k];
-    const sig: string = `${b.kind}|${b.level}|${b.text.length}|${b.items.length}|${b.code.length}|${b.header.length}|${b.rows.length}`;
+    // 内容哈希覆盖 text/items/header/rows 的**实际字符**（见 `blockContentHash` 的漏字注释）；
+    // `items.length`/`rows.length` 保留在 sig 里只为可读性（哈希已包含它们的产物）。
+    const sig: string = `${b.kind}|${b.level}|${b.text.length}|${b.items.length}|${b.code.length}`
+      + `|${b.header.length}|${b.rows.length}|${b.aligns.length}|${blockContentHash(b)}`;
     b.key = `md-${sig}-${k}`;
   }
 }
 
+/**
+ * 找**等长**的反引号 run（CommonMark 的 code span 配对规则：开 n 个反引号就必须用 n 个闭合）。
+ * 返回 run 的起始下标；找不到 ⇒ `-1`。
+ */
+function backtickRunAt(s: string, from: number, n: number): number {
+  let i: number = from;
+  while (i < s.length) {
+    if (s.charCodeAt(i) !== 96) {
+      i++;
+      continue;
+    }
+    let run: number = 0;
+    while (i + run < s.length && s.charCodeAt(i + run) === 96) {
+      run++;
+    }
+    if (run === n) {
+      return i;
+    }
+    i += run;
+  }
+  return -1;
+}
+
+/**
+ * 切表格行（GFM）：**尊重行内代码**，`|` 只有**不在 code span 内**才是列分隔符。
+ *
+ * ⛔ 为什么必须这样（用户 2026-11-07 截图）：旧实现裸 `split('|')` —— 单元格里的
+ *    `` `git diff --stat | head` `` 被切成两半，每半边只剩一个反引号 ⇒ **永远配不成对**
+ *    ⇒ 反引号原样上屏（"inline code 有时候没渲染"的真因之一）。
+ *    web 走 remark-gfm 的表格切分，**天然**不会在 code span 内切列。
+ * 另外处理 GFM 的 `\|` 转义（单元格内的字面竖线）。
+ */
 function splitRow(line: string): string[] {
   let s: string = line.trim();
   if (s.startsWith('|')) {
@@ -296,12 +579,44 @@ function splitRow(line: string): string[] {
   if (s.endsWith('|')) {
     s = s.substring(0, s.length - 1);
   }
-  const cells: string[] = s.split('|');
-  const out: string[] = [];
-  for (let k = 0; k < cells.length; k++) {
-    out.push(cells[k].trim());
+  const cells: string[] = [];
+  let cur: string = '';
+  let i: number = 0;
+  while (i < s.length) {
+    const ch: string = s.charAt(i);
+    // `\|` = 单元格内的字面 `|`（GFM 转义）⇒ 吃掉反斜杠，不切列
+    if (ch === '\\' && i + 1 < s.length && s.charAt(i + 1) === '|') {
+      cur += '|';
+      i += 2;
+      continue;
+    }
+    if (ch === '`') {
+      let n: number = 0;
+      while (i + n < s.length && s.charAt(i + n) === '`') {
+        n++;
+      }
+      const close: number = backtickRunAt(s, i + n, n);
+      if (close >= 0) {
+        // 整个 code span 原样并入当前单元格（其中的 `|` 不切列）
+        cur += s.substring(i, close + n);
+        i = close + n;
+        continue;
+      }
+      cur += s.substring(i, i + n);
+      i += n;
+      continue;
+    }
+    if (ch === '|') {
+      cells.push(cur.trim());
+      cur = '';
+      i++;
+      continue;
+    }
+    cur += ch;
+    i++;
   }
-  return out;
+  cells.push(cur.trim());
+  return cells;
 }
 
 /**
@@ -328,14 +643,123 @@ export function alignOf(aligns: number[], ci: number): number {
   return ci >= 0 && ci < aligns.length ? aligns[ci] : 0;
 }
 
-/** 行内解析：粗体 / 斜体 / 行内码 / 删除线 / 链接。 */
+/**
+ * 裸链/尖括号 URL 的**终止字符**（GFM autolink literal 的边界口径）：
+ * 空白、尖/引号、行内代码反引号、以及中文标点（中文正文里 URL 后面**不加空格**就接标点，
+ * 不切断会把「，」「。」吃进链接 —— 用户截图里就出现过这类长串）。
+ */
+const URL_STOP: string = ' \t\r\n<>"\'`，。、；：！？）】》」』…—';
+
+/** `i` 处是否是一个**裸链**起点（http:// / https:// / www.）且前一个字符是合法边界。 */
+function urlStartAt(text: string, i: number): boolean {
+  const prev: string = i === 0 ? '' : text.charAt(i - 1);
+  const okPrev: boolean = prev === ''
+    || ' \t\r\n([{<（【「《\'"“，。：；！？、'.indexOf(prev) >= 0;
+  if (!okPrev) {
+    return false;
+  }
+  return text.startsWith('https://', i) || text.startsWith('http://', i) || text.startsWith('www.', i);
+}
+
+/**
+ * 从 `i` 扫到裸链结尾（不含），并削掉 GFM 会剥离的**尾随标点**：
+ * `.,;:!?` 与**未配对**的右括号（`(https://a/x)` 的 `)` 不算 URL 的一部分）。
+ * 返回 `-1` 表示这里不是合法裸链。
+ */
+function urlEndAt(text: string, i: number): number {
+  if (!urlStartAt(text, i)) {
+    return -1;
+  }
+  let end: number = i;
+  while (end < text.length && URL_STOP.indexOf(text.charAt(end)) < 0) {
+    end++;
+  }
+  // host 部分必须非空（`https://` 后面跟终止符 ⇒ 不是链接）
+  const schemeLen: number = text.startsWith('https://', i) ? 8 : (text.startsWith('http://', i) ? 7 : 4);
+  if (end <= i + schemeLen) {
+    return -1;
+  }
+  while (end > i) {
+    const ch: string = text.charAt(end - 1);
+    if ('.,;:!?'.indexOf(ch) >= 0) {
+      end--;
+      continue;
+    }
+    if (ch === ')') {
+      let open: number = 0;
+      let close: number = 0;
+      for (let k = i; k < end; k++) {
+        const c2: string = text.charAt(k);
+        if (c2 === '(') { open++; }
+        if (c2 === ')') { close++; }
+      }
+      if (close > open) {
+        end--;
+        continue;
+      }
+    }
+    break;
+  }
+  return end > i + schemeLen ? end : -1;
+}
+
+/** `<https://…>` / `<mailto:…>` 的括号内是否是可自动链接的绝对地址。 */
+function isAngleAutolink(inner: string): boolean {
+  if (inner.length === 0 || /\s/.test(inner)) {
+    return false;
+  }
+  return inner.startsWith('https://') || inner.startsWith('http://') || inner.startsWith('mailto:');
+}
+
+/** 强调块内部的标记触发字符（只有含这些才递归解析；纯文本仍走"一个 span"快路径）。 */
+const EMPH_NESTED: RegExp = /[`$]/;
+
+/**
+ * 强调内部**递归解析**（CommonMark：`**`x`**` = `<strong><code>x</code></strong>`）。
+ *
+ * ⛔ 根因（用户 2026-11-07 截图）：旧实现把 `**…**` / `~~…~~` / `*…*` 的内部文本整段吃成
+ *    **一个纯文本 span** ⇒ 里面的 `` `x` `` 不解析、反引号原样上屏
+ *    （截图里 `` `ebc178d0b2` `` 就是这样：模型把它加粗了）。
+ */
+function pushEmphasis(spans: MdSpan[], inner: string, kind: string): void {
+  if (!EMPH_NESTED.test(inner)) {
+    const s: MdSpan = new MdSpan();
+    s.text = inner;
+    if (kind === 'bold') {
+      s.bold = true;
+    } else if (kind === 'strike') {
+      s.strike = true;
+    } else {
+      s.italic = true;
+    }
+    spans.push(s);
+    return;
+  }
+  const sub: MdSpan[] = parseInline(inner);
+  for (let k = 0; k < sub.length; k++) {
+    const s: MdSpan = sub[k];
+    if (kind === 'bold') {
+      s.bold = true;
+    } else if (kind === 'strike') {
+      s.strike = true;
+    } else {
+      s.italic = true;
+    }
+    spans.push(s);
+  }
+}
+
+/** 行内解析：粗体 / 斜体 / 行内码 / 删除线 / 链接 / **自动链接**。 */
 export function parseInline(text: string): MdSpan[] {
   const spans: MdSpan[] = [];
   // ⛔ 廉价前置判据（**不改语义**，2026-10-11 round3）：文本里若**没有任何行内标记字符**
   //    （` ! [ * _ ~），则逐字符循环的每个分支都不会命中 ⇒ 唯一产物就是"整段一个纯文本 span"
   //    （`buf` 累积全文 + 末尾 `pushPlain`）。直接产出该结果、跳过 O(len) 分支扫描。
   //    空串仍返回 `[]`（旧实现末尾 `pushPlain` 因 `buf.length === 0` 不 push）⇒ 必须 `length > 0`。
-  if (text.length > 0 && !/[`!\[*_~]/.test(text)) {
+  //    2026-11-06：新增自动链接后，含 `<scheme:…>` / `http(s)://` / `www.` 的文本也必须走扫描。
+  if (text.length > 0 && !/[`!\[*_~$]/.test(text)
+    && !/<[^\s<>]+:/.test(text) && text.indexOf('http://') < 0
+    && text.indexOf('https://') < 0 && text.indexOf('www.') < 0) {
     const s: MdSpan = new MdSpan();
     s.text = text;
     spans.push(s);
@@ -370,22 +794,95 @@ export function parseInline(text: string): MdSpan[] {
   while (i < text.length) {
     const c: number = text.charCodeAt(i);
     // ① 快路径：非标记字符（不可能开启任何分支）⇒ 原样并入当前普通文本段。
-    if (c !== 96 && c !== 33 && c !== 91 && c !== 42 && c !== 95 && c !== 126) {
+    //    2026-11-06 自动链接：`<`(60) 可能开 `<url>`；`h`(104)/`w`(119) 可能开裸链
+    //    （只在 `http://`/`https://`/`www.` 且前字符是边界时才成链接，见 `urlEndAt`）。
+    if (c !== 96 && c !== 33 && c !== 91 && c !== 42 && c !== 95 && c !== 126
+      && c !== 60 && c !== 104 && c !== 119 && c !== 36) {
       i++;
       continue;
     }
-    // 行内代码
-    if (c === 96) {
-      const end: number = text.indexOf('`', i + 1);
+    // 自动链接 ①：`<https://…>` / `<mailto:…>`（CommonMark autolink）
+    if (c === 60) {
+      const close: number = text.indexOf('>', i + 1);
+      if (close > i + 1) {
+        const inner: string = text.substring(i + 1, close);
+        if (isAngleAutolink(inner)) {
+          pushPlain(i);
+          const s: MdSpan = new MdSpan();
+          // `mailto:a@b` 的**上屏文本**是地址本身（与 CommonMark/GFM 一致），href 保留 scheme。
+          s.text = inner.startsWith('mailto:') ? inner.substring(7) : inner;
+          s.link = inner;
+          spans.push(s);
+          i = close + 1;
+          bufStart = i;
+          continue;
+        }
+      }
+    }
+    // 自动链接 ②：裸链（GFM autolink literal）—— `http://` / `https://` / `www.`
+    if (c === 104 || c === 119) {
+      const end: number = urlEndAt(text, i);
       if (end > i) {
         pushPlain(i);
+        const raw: string = text.substring(i, end);
         const s: MdSpan = new MdSpan();
-        s.text = text.substring(i + 1, end);
-        s.code = true;
+        s.text = raw;
+        s.link = raw.startsWith('www.') ? 'http://' + raw : raw;
         spans.push(s);
-        i = end + 1;
+        i = end;
         bufStart = i;
         continue;
+      }
+    }
+    // 行内代码（CommonMark：开 n 个反引号 ⇒ 必须用 n 个闭合；支持 ``` ``a`b`` ``` 这种嵌套）
+    if (c === 96) {
+      let run: number = 0;
+      while (i + run < text.length && text.charCodeAt(i + run) === 96) {
+        run++;
+      }
+      const close: number = backtickRunAt(text, i + run, run);
+      if (close > i) {
+        pushPlain(i);
+        let content: string = text.substring(i + run, close);
+        // CommonMark：内容两端各有一个空格且不全为空格 ⇒ 各去掉一个（`` ` a ` `` ⇒ `a`）
+        if (content.length > 2 && content.startsWith(' ') && content.endsWith(' ')
+          && content.trim().length > 0) {
+          content = content.substring(1, content.length - 1);
+        }
+        const s: MdSpan = new MdSpan();
+        s.text = content;
+        s.code = true;
+        spans.push(s);
+        i = close + run;
+        bufStart = i;
+        continue;
+      }
+    }
+    // 行内公式 `$…$`（web `remark-math` inlineMath）。
+    // 配对口径对齐 remark-math：开括号后**不能**是空白；闭括号前不能是空白；
+    // 闭括号后**不能是数字**（否则 `$5 元` 这类金额会被误判）。
+    if (c === 36) {
+      const nextCode: number = i + 1 < text.length ? text.charCodeAt(i + 1) : 32;
+      const nextIsBlank: boolean = i + 1 >= text.length || nextCode === 32
+        || nextCode === 9 || nextCode === 10;
+      if (nextCode !== 36 && !nextIsBlank) {
+        const end: number = text.indexOf('$', i + 1);
+        if (end > i + 1) {
+          const prevCh: string = text.charAt(end - 1);
+          const after: string = end + 1 < text.length ? text.charAt(end + 1) : '';
+          const okPrev: boolean = prevCh !== ' ' && prevCh !== '\t' && prevCh !== '\n';
+          const okAfter: boolean = after.length === 0 || !/[0-9]/.test(after);
+          if (okPrev && okAfter) {
+            pushPlain(i);
+            const s: MdSpan = new MdSpan();
+            s.text = text.substring(i + 1, end);
+            s.math = true;
+            spans.push(s);
+            i = end + 1;
+            bufStart = i;
+            continue;
+          }
+        }
       }
     }
     // 图片 ![alt](src)
@@ -428,10 +925,7 @@ export function parseInline(text: string): MdSpan[] {
       const end: number = text.indexOf(marker, i + 2);
       if (end > i) {
         pushPlain(i);
-        const s: MdSpan = new MdSpan();
-        s.text = text.substring(i + 2, end);
-        s.bold = true;
-        spans.push(s);
+        pushEmphasis(spans, text.substring(i + 2, end), 'bold');
         i = end + 2;
         bufStart = i;
         continue;
@@ -442,10 +936,7 @@ export function parseInline(text: string): MdSpan[] {
       const end: number = text.indexOf('~~', i + 2);
       if (end > i) {
         pushPlain(i);
-        const s: MdSpan = new MdSpan();
-        s.text = text.substring(i + 2, end);
-        s.strike = true;
-        spans.push(s);
+        pushEmphasis(spans, text.substring(i + 2, end), 'strike');
         i = end + 2;
         bufStart = i;
         continue;
@@ -458,10 +949,7 @@ export function parseInline(text: string): MdSpan[] {
         const end: number = text.indexOf(ch, i + 1);
         if (end > i + 1) {
           pushPlain(i);
-          const s: MdSpan = new MdSpan();
-          s.text = text.substring(i + 1, end);
-          s.italic = true;
-          spans.push(s);
+          pushEmphasis(spans, text.substring(i + 1, end), 'italic');
           i = end + 1;
           bufStart = i;
           continue;
@@ -480,7 +968,7 @@ export function markdownToPlain(src: string): string {
   const out: string[] = [];
   for (let i = 0; i < blocks.length; i++) {
     const b: MdBlock = blocks[i];
-    if (b.kind === MdBlockKind.Code) {
+    if (b.kind === MdBlockKind.Code || b.kind === MdBlockKind.Math) {
       out.push(b.code);
     } else if (b.kind === MdBlockKind.List) {
       out.push(b.items.join(' '));
@@ -545,9 +1033,22 @@ let mdParseChars: number = 0;
 let mdLastSrc: string = '';
 let mdLastBlocks: MdBlock[] = [];
 
+/**
+ * 渲染前的**源级预处理**（web `MarkdownRenderer.tsx:515-516` 的同一顺序）：
+ *   ① 剥 frontmatter → ② TeX 定界符归一 → ③（仅流式）裁掉未闭合公式尾部。
+ * ⛔ 顺序不能换：frontmatter 必须在 math 归一之前（YAML 里的 `$` 不当定界符，
+ *    闭合的 `---` 会被当 setext 标题下划线）；裁剪必须在归一之后（`\[` 已变成 `$$` 才数得准）。
+ */
+export function prepareMarkdown(src: string, streaming: boolean): string {
+  const normalized: string = normalizeMathDelimiters(stripFrontmatter(src));
+  return streaming ? clipTrailingUnclosedMath(normalized) : normalized;
+}
+
 /** 解析 Markdown（带缓存 + **按块增量复用**）。渲染路径一律走这个。 */
-export function parseMarkdownCached(src: string): MdBlock[] {
-  const hit: MdBlock[] | undefined = mdBlockCache.get(src);
+export function parseMarkdownCached(src: string, streaming: boolean = false): MdBlock[] {
+  // 预处理后的文本才是**解析真值**（缓存键也用它：同源必然同键）
+  const prepared: string = prepareMarkdown(src, streaming);
+  const hit: MdBlock[] | undefined = mdBlockCache.get(prepared);
   if (hit !== undefined) {
     mdCacheHits++;
     mdLastSrc = src;
@@ -566,12 +1067,12 @@ export function parseMarkdownCached(src: string): MdBlock[] {
   //    web `MarkdownView` 每次都对**完整字符串**解析，故无此问题 ⇒ 对齐 web：
   //    只有**源串逐字相同**才复用上一次结果（`mdBlockCache` 命中），否则全量解析。
   let blocks: MdBlock[];
-  blocks = parseMarkdown(src);
-  mdLastSrc = src;
+  blocks = parseMarkdown(prepared);
+  mdLastSrc = prepared;
   mdLastBlocks = blocks;
-  mdBlockCache.set(src, blocks);
-  mdBlockOrder.push(src);
-  mdBlockChars += src.length;
+  mdBlockCache.set(prepared, blocks);
+  mdBlockOrder.push(prepared);
+  mdBlockChars += prepared.length;
   // 淘汰：至少保留刚写入的一条（单条超预算时不能把自己也删了）
   while (mdBlockChars > MD_CACHE_MAX_CHARS && mdBlockOrder.length > 1) {
     const oldest: string = mdBlockOrder[0];

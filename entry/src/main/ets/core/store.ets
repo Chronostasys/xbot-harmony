@@ -27,6 +27,7 @@ import { emptyState } from './model_types';
 import type { State as ModelState } from './model_types';
 import { allToolCalls } from './model_project';
 import { applyModel, stepEvent } from './model_bridge';
+import { shouldKeepStateOnReopen } from './statekeep';
 import { hydrate } from './model_hydrate';
 import type { WireHistoryMessage, WireHistoryIteration } from './model_hydrate';
 import { invariantViolations } from './state_invariants';
@@ -45,7 +46,10 @@ import { liveProbeVerdict, probePhaseActive, PROBE_STALL } from './liveprobe';
 import { normalizeLocale, setLocale, t as i18nT } from './i18n';
 import { moveOrders, parseSearchHits, searchBody, SEARCH_LIMIT_DEFAULT, SearchBody, chatSwitchPath, chatSwitchChannel, ChatSwitchResult, parseChatSwitch } from './sessionops';
 import { RewindReq, RewindTarget, gapTopBefore, rewindTargetDBID } from './msgops';
-import { activeSubAgentNodes, BgTask, CronJob, resolveSessionNode, KillBgTaskParams, RunnerRow, SubAgentRow, subAgentRowOf, isWidgetEvent } from './panels';
+import { activeSubAgentNodes, allSubAgentRows, BgTask, CronJob, resolveSessionNode, KillBgTaskParams, RunnerRow, SubAgentRow, subAgentRowOf, isWidgetEvent } from './panels';
+import { appendCourtMessage, CourtEventPayload, CourtGroup, CourtMember, CourtMessage, parseCourtEvent } from './court';
+import { ResumeLive, ResumeMark, resumeVerdict, RESUME_GAP, RESUME_RELOAD, ResumeVerdict } from './resume';
+import { gapIterationEvents, gapTailEvent } from './resume_fill';
 import { PromoteShellParams, PromoteShellResult, promoteSessionKey } from './toolshell';
 import { TerminalInfo } from './termproto';
 import { serverKey, toLocalSettings, KEY_ACCENT } from './settings';
@@ -413,6 +417,29 @@ export class ChatStore {
   rowsRev: number = 0;
   /** 最近一次 SSE/store 事件时刻（毫秒）—— 非权威 idle 的"事件静默"闸门用。 */
   lastEventAtMs: number = 0;
+  // ── 连续性（后台恢复 / SSE 重连的唯一判据底座）────────────────────────────────
+  //   用户 2026-10-22：「转后台要记录当前 iter + turn id，转回来请求 live 信息对比，
+  //   gap 补 hole、换 turn 重加载」+「重新连接也必须看情况触发 resync」。
+  /** 转后台那一刻的基线（`null` = 没有基线）。 */
+  private bgMark: ResumeMark | null = null;
+  /**
+   * 「帧间隔 ≥ 这个值」⇒ 判定为**恢复边沿**（被冻结/断流过），触发一次连续性对账。
+   * 取值依据：SSE 心跳 15s 一发 ⇒ 10s 保证"解锁后第一帧必命中"，又不会把正常抖动当恢复。
+   * ⛔ 这是**阈值**，不是轮询周期：没有任何定时器按这个周期醒来。
+   */
+  private static readonly SSE_GAP_RESUME_MS: number = 10000;
+  /**
+   * 用户**按下取消**时正在跑的那一轮（turn-less cancel ack 的**唯一**合法归属）。
+   * ⛔ 2026-10-24：归属不明时"取最早未收尾"会杀掉刚出队的新轮（排队消息静默消失）。
+   * 这里记的是**已知事实**，不是启发式；被消费或新一轮开始后自动清零。
+   */
+  private cancelTargetTurn: number = 0;
+  /** `silence` 分支的节流时刻（见 `resumeContinuity`）。 */
+  private lastSilenceResumeAt: number = 0;
+  /** `get_active_progress` 的**共享**缓存（探针/恢复同一枪 ⇒ 回前台只打一次 RPC）。 */
+  private snapCacheAt: number = 0;
+  private snapCacheFor: string = '';
+  private snapCacheVal: ProgressEvent | null = null;
   /** **最近一次 busy/running 迁移的原因**（事件类型或路径名）—— 页面迁移日志用它。 */
   lastBusyCause: string = '';
   /** `busy-without-live-turn` 只读重载的冷却时间戳（30s 一次，防与重载形成抽搐）。 */
@@ -937,6 +964,45 @@ export class ChatStore {
     this.watchGapReload();
   }
 
+  /** `pullIter` 的合并（同一 (turn,iter) 在 2s 内只拉一次；跨会话回包由 `fetchIterationDetail` 守卫）。 */
+  private pullIterAt: Map<string, number> = new Map<string, number>();
+
+  private pullIterationDetail(turn: number, iter: number): void {
+    if (turn <= 0 || iter <= 0) {
+      return;
+    }
+    const key: string = `${turn}#${iter}`;
+    const now: number = Date.now();
+    const last: number | undefined = this.pullIterAt.get(key);
+    if (last !== undefined && now - last < 2000) {
+      return;
+    }
+    this.pullIterAt.set(key, now);
+    // 已有的权威拉取入口：结果经 `iterations_loaded` 回到**同一条**事件管道
+    this.fetchIterationDetail(turn, iter).catch(() => {
+      // 失败静默：下一帧仍会再发 effect（合并窗过后）
+    });
+  }
+
+  /** `pullTurn` 的合并（同一轮 3s 内只重载一次；-1 = 整体不可信，走 10s 冷却）。 */
+  private pullTurnAt: Map<number, number> = new Map<number, number>();
+
+  private pullTurnAuthoritative(turn: number): void {
+    const now: number = Date.now();
+    const win: number = turn > 0 ? 3000 : 10000;
+    const last: number | undefined = this.pullTurnAt.get(turn);
+    if (last !== undefined && now - last < win) {
+      return;
+    }
+    this.pullTurnAt.set(turn, now);
+    if (this.pullTurnAt.size > 32) {
+      this.pullTurnAt.clear();
+      this.pullTurnAt.set(turn, now);
+    }
+    log('model', `effect⇒权威重载 turn=${turn}（合并窗 ${win}ms）`);
+    this.resyncAfterResume(`model-pull-turn-${turn}`, true);
+  }
+
   /**
    * **新模型影子引擎**（`docs/STATE-MODEL.md` §8 W1）。
    * 同一事件流并行跑 `adapt → stepAll`，把结果投影成行（`applyModel`），与旧管线的
@@ -965,16 +1031,34 @@ export class ChatStore {
       this.shadowRows = new Map<string, ChatRow>();
     }
     // ⛔ 唯一入口 `stepEvent`：`history_replaced` = 权威水合（构造），其余 = wire 帧。
-    const res = stepEvent(this.shadow, ev, this.currentChatId);
+    const cancelTarget: number = this.cancelTargetTurn;
+    const res = stepEvent(this.shadow, ev, this.currentChatId, cancelTarget);
+    // turn-less 收尾帧用掉归属后清零（幂等：目标轮已收尾时 bridge 会丢弃，这里同样清零）
+    if (this.cancelTargetTurn > 0 && ev.type === 'text_final'
+      && (ev.turnID === undefined || ev.turnID === null)) {
+      this.cancelTargetTurn = 0;
+    }
+    if (this.cancelTargetTurn > 0 && ev.type === 'turn_started'
+      && (ev.turnID as number) > this.cancelTargetTurn) {
+      this.cancelTargetTurn = 0;
+    }
     this.shadow = res.state;
     for (let i = 0; i < res.effects.length; i++) {
       const e = res.effects[i];
       if (e.kind === 'pullIter') {
         log('model', `effect=pullIter turn=${e.turn} iter=${e.iteration}`);
+        // ⛔ **必须真的去拉**（2026-10-22 真机：「重连后卡死在老 turn 不 resync」的主根因）：
+        //   模型对外只有一个通道 = effect（`docs/STATE-MODEL.md` §8 W1）；旧实现只打日志
+        //   ⇒ 缺口永远补不上 ⇒ 模型每帧重复发出同一个 effect（真机日志 `effect=pullTurn
+        //   turn=1127` 刷屏）、`live` 永远停在旧轮。按 (turn,iter) 合并，防每次重放都打一枪。
+        this.pullIterationDetail(e.turn as number, e.iteration as number);
       } else if (e.kind === 'pullTurn') {
         log('model', `effect=pullTurn turn=${e.turn}`);
+        // 整轮不可信 ⇒ 走唯一权威重载出口（按 turn 合并：同一轮 3s 内只重载一次）
+        this.pullTurnAuthoritative(e.turn as number);
       } else {
         log('model', 'effect=snapshot（整体不可信）');
+        this.pullTurnAuthoritative(-1);
       }
     }
     // ── 结构比对（零差异才算通过 W1）──
@@ -1159,7 +1243,13 @@ export class ChatStore {
           //（用户 2026-10-19 实测）。后台 store 切回来时 openSession 会自己加载。
           // 重连是状态可能已分叉的边界：不能被 1.2s 节流吞掉（否则只更新
           // session-tree，正文/live 永远不重新对齐）。
-          this.resyncAfterResume('sse-reopen', true);
+          // ⛔ 2026-10-22 用户亲报「重新连接时历史推进到下一个 turn 有 bug」：
+          //   旧实现**无条件**权威重载 ⇒ ①每断必重历史（慢/闪）；②与服务端快照错位时
+          //   （旧轮被水合成 running）表现更糟。⇒ 重连也走**同一处连续性判据**：
+          //   NONE 只对账会话树、GAP 只补洞、RELOAD（换轮/服务端要求/后台期间跑完）才重载。
+          this.resumeContinuity('sse-reopen').catch(() => {
+            // 恢复失败不阻断重连本身（SSE 仍会继续投递新事件）
+          });
         } else {
           this.loadSessions().catch(() => {
             // 对账失败不影响连接本身
@@ -1256,6 +1346,10 @@ export class ChatStore {
       subs.push(subAgentRowOf(actives[i]));
     }
     this.subagents = subs;
+    // 全量（含 idle）+ 层级：面板「代理」tab 用这一份（`allSubAgentRows` 内做稳定排序）
+    // ⛔ 必须同时传 `orphan_subagents`：后端可能给出**没有父亲的子代理**（或脏数据里
+    //   某节点不在任何 children 下）⇒ 只从 `root.children` 出发会把它们整条丢掉。
+    this.subagentsAll = allSubAgentRows(node, data.orphan_subagents);
     // 会话树的 `running` 是服务端权威忙碌标记 —— 本地 busy 只是 SSE 事件的快路径，
     // 错过一条 idle（断线重连/切后台）就会永远显示"运行中"。每次拉到会话树都对账一次。
     // 例外：刚发送的 3 秒内不对账（乐观 busy 先行，服务端标记 running 有一个 RTT 窗口）。
@@ -1358,7 +1452,16 @@ export class ChatStore {
     }, wait);
   }
 
-  private applyLocalIdle(chatId: string, authoritative: boolean = false): void {
+  private applyLocalIdle(chatId: string, authoritative: boolean = false, turnHint: number = 0): void {
+    // ⛔ **turn 水位闸门**（P0，2026-10-24）：这条 idle 若属于**比当前在跑更旧**的一轮 ⇒ 丢弃。
+    //   为什么必须在 store 这一层再加一道：`applyLocalIdle` 被**探针/心跳**直接调用，
+    //   绕过了 `reduce.session` 里已有的 idleTurn 校验 ⇒ 旧轮迟到 idle 能把在跑的新轮压成 idle
+    //   （用户点名的「排队消息立刻出队 ⇒ 恢复 busy」竞态里，最容易被踩的就是这一枪）。
+    if (turnHint > 0 && this.state.activeTurn !== null
+      && turnHint < (this.state.activeTurn as number)) {
+      log('idle', `丢弃陈旧 idle（turn=${turnHint} < active=${this.state.activeTurn as number}）`);
+      return;
+    }
     // ⛔ 发送意图窗口内绝不收尾：重载/对账在 turn_started 之前看到的 running=false 是
     //   **滞后证据**（用户 2026-10-21 日志：`resume(send-ack-sync)` 之后紧跟
     //   `running 1→0 cause=ev:session_running`，再被 `history_replaced` 拉回 ⇒ 抽搐）。
@@ -1415,16 +1518,27 @@ export class ChatStore {
    * `label` 可选：**空/未给 ⇒ 不发 label 字段**（服务端自动生成，与本改动前的行为逐字节一致）；
    * 非空 ⇒ 透传（web `NewSessionDialog.tsx:54` 的同口径：`label.trim() || undefined`）。
    * 判据见 `tools/tests/parity_defer.test.ts`（加性：零参调用仍成立）。
+   *
+   * ⛔ 2026-10-22 用户亲报「新建后不自动切过去 / 侧栏不刷新」的根因：旧实现把
+   *   「建 + 刷列表 + `openSession`」揉在一起，而 `openSession` 用的渠道是**当前 store 的
+   *   `this.channel`**（新建会话服务端恒落在 `web`）⇒ 非 web 会话里新建 ⇒ 打开错误租户
+   *   （`/api/history` 404）⇒ 看着像"没跳"。⇒ 本方法**只建会话 + 刷列表，返回新 id**；
+   *   切换身份一律走页面唯一出口 `switchSession(id, 'web')`（池/SSE/splash/当前标记同一条路）。
+   * ⛔ 服务端回包是**平铺** `{ok:true, chat_id}`（`web_api.go:handleChats` POST）。
    */
-  async createSession(label?: string): Promise<void> {
+  async createSession(label?: string): Promise<string> {
     const created: SessionItem = await this.http.postAs<SessionItem>(
       '/api/chats/create', new CreateChatReq(label));
     await this.loadSessions();
     // ⚠️ 外来 JSON：字段可能是 null（服务端 nil → null）⇒ 三态判空，否则 `.length` 会炸
     const newId: string | null | undefined = created.chat_id;
-    if (newId !== undefined && newId !== null && newId.length > 0) {
-      await this.openSession(newId, this.channel);
+    // ⛔ 缺 id 不抛（历史判据 `store_null.test.ts ⑤`：服务端回 `chat_id:null` 时
+    //   **绝不能抛**——旧实现 `created.chat_id.length` 直接炸）。返回空串，由调用方
+    //   决定提示（页面：新建成功但没拿到 id ⇒ 给出可读 toast，绝不再"看起来切过去了"）。
+    if (newId === undefined || newId === null || newId.length === 0) {
+      return '';
     }
+    return newId;
   }
 
   // ── P8 面板数据（定时任务 / 后台任务 / Runner；子代理取会话树） ──────────────
@@ -1439,6 +1553,29 @@ export class ChatStore {
   runners: RunnerRow[] = [];
   /** 子代理（会话树的 orphan_subagents） */
   subagents: SubAgentRow[] = [];
+  /**
+   * **全量**子代理行（含 idle / 完成 / 历史），带层级深度 —— 面板「代理」tab 的真源。
+   * 2026-10-26 用户：「子代理视图要展示层级，也要能看到 idle 的子代理」。
+   * ⛔ 与 `subagents`（仅活跃，tab 角标/侧栏用）并存：两者判据不同，别合并。
+   */
+  subagentsAll: SubAgentRow[] = [];
+
+  // ── 通信视图（web `/court`）──────────────────────────────────────────────
+  //   数据源 = `GET /api/groups` / `/members` / `/messages` + SSE `group.message`
+  //   （`channel/web/web_group.go`）。⛔ 失败**不伪造数据**（web CourtConsole 同口径：
+  //   真实页面从空态开始，只有 `/court-demo` 才用内置演示数据）。
+  courtGroups: CourtGroup[] = [];
+  courtMembers: CourtMember[] = [];
+  courtMessages: CourtMessage[] = [];
+  /** 当前选中的群组 id（空 = 无群组/未加载）。 */
+  courtGroupId: string = '';
+  courtLoading: boolean = false;
+  /** 可读错误（空 = 无错误）。 */
+  courtError: string = '';
+  /** `group.message` 实时订阅是否在线。 */
+  courtLive: boolean = false;
+  /** 面板自己的 SSE（⛔ 不能复用主 `sse`：它按 chat 单订阅，换目标会互相踢）。 */
+  private courtSse: SseClient | null = null;
 
   /**
    * 用户设置（服务端权威；键为**本地键名**）。
@@ -1649,6 +1786,166 @@ export class ChatStore {
     await this.loadBgTasks();
   }
 
+  // ── 通信视图（web `/court`，`components/court/CourtConsole.tsx` 同源）──────────
+
+  /**
+   * 加载通信视图：群列表 → **首个可见群** → 成员（组织树）→ 消息（keyset 首页）。
+   *
+   * ⛔ 失败必须落在 `courtError` 上并**清空数据**（绝不伪造演示内容）：web 的 `/court`
+   *   在 API 失败时显示错误 + 空视图，只有 `/court-demo` 才用内置 seed（用户 2026-10-20 明确要求）。
+   * ⛔ await 之后必须校验**会话身份**（同 `loadCronTasks`）：面板在飞期间切会话/重开 store
+   *   时，旧回包不得写进新会话。
+   */
+  async loadCourt(): Promise<void> {
+    if (this.disposed) {
+      return;
+    }
+    const gen: number = this.chatGen;
+    const forChat: string = this.currentChatId;
+    this.courtLoading = true;
+    this.courtError = '';
+    this.onUpdate();
+    try {
+      const groupsRaw: Record<string, Object> = await this.http.getAs<Record<string, Object>>('/api/groups');
+      if (gen !== this.chatGen || forChat !== this.currentChatId) {
+        return;
+      }
+      const groups: CourtGroup[] = arrOrEmpty(groupsRaw['groups'] as CourtGroup[]);
+      if (groups.length === 0) {
+        this.courtGroups = [];
+        this.courtGroupId = '';
+        this.courtMembers = [];
+        this.courtMessages = [];
+        this.courtError = '当前账号还没有可见群组';
+        return;
+      }
+      const g: CourtGroup = groups[0];
+      const gid: string = g.id !== undefined && g.id !== null ? g.id : '';
+      const membersRaw: Record<string, Object> = await this.http.getAs<Record<string, Object>>(
+        `/api/groups/${encodeURIComponent(gid)}/members`);
+      const msgsRaw: Record<string, Object> = await this.http.getAs<Record<string, Object>>(
+        `/api/groups/${encodeURIComponent(gid)}/messages?limit=200`);
+      if (gen !== this.chatGen || forChat !== this.currentChatId) {
+        return;
+      }
+      this.courtGroups = groups;
+      this.courtGroupId = gid;
+      this.courtMembers = arrOrEmpty(membersRaw['members'] as CourtMember[]);
+      this.courtMessages = arrOrEmpty(msgsRaw['items'] as CourtMessage[]);
+      if (this.courtMessages.length === 0) {
+        this.courtError = '该群在当前会话视角没有消息';
+      }
+    } catch (e) {
+      if (gen !== this.chatGen || forChat !== this.currentChatId) {
+        return;
+      }
+      this.courtError = readableRpcError((e as Error).message);
+      this.courtGroups = [];
+      this.courtGroupId = '';
+      this.courtMembers = [];
+      this.courtMessages = [];
+    } finally {
+      if (gen === this.chatGen && forChat === this.currentChatId) {
+        this.courtLoading = false;
+        this.onUpdate();
+      }
+    }
+  }
+
+  /** 切到另一个可见群（成员 + 消息一起换；实时订阅跟着换）。 */
+  async selectCourtGroup(groupID: string): Promise<void> {
+    if (groupID.length === 0 || groupID === this.courtGroupId) {
+      return;
+    }
+    const gen: number = this.chatGen;
+    const forChat: string = this.currentChatId;
+    this.courtGroupId = groupID;
+    this.courtLoading = true;
+    this.courtError = '';
+    this.courtMembers = [];
+    this.courtMessages = [];
+    this.onUpdate();
+    try {
+      const membersRaw: Record<string, Object> = await this.http.getAs<Record<string, Object>>(
+        `/api/groups/${encodeURIComponent(groupID)}/members`);
+      const msgsRaw: Record<string, Object> = await this.http.getAs<Record<string, Object>>(
+        `/api/groups/${encodeURIComponent(groupID)}/messages?limit=200`);
+      if (gen !== this.chatGen || forChat !== this.currentChatId || this.courtGroupId !== groupID) {
+        return;
+      }
+      this.courtMembers = arrOrEmpty(membersRaw['members'] as CourtMember[]);
+      this.courtMessages = arrOrEmpty(msgsRaw['items'] as CourtMessage[]);
+      if (this.courtMessages.length === 0) {
+        this.courtError = '该群在当前会话视角没有消息';
+      }
+    } catch (e) {
+      if (gen === this.chatGen && forChat === this.currentChatId && this.courtGroupId === groupID) {
+        this.courtError = readableRpcError((e as Error).message);
+      }
+    } finally {
+      if (gen === this.chatGen && forChat === this.currentChatId) {
+        this.courtLoading = false;
+        this.onUpdate();
+      }
+    }
+    // 实时订阅必须跟着新群走（服务端按 (channel, chat) 路由，群过滤在客户端做）。
+    if (this.courtLive) {
+      this.openCourtLive();
+    }
+  }
+
+  /**
+   * 订阅 `group.message`（实时追加新群消息）。
+   *
+   * ⛔ 为什么必须**独立** SseClient：主 `this.sse` 是「一个 chat 一个订阅」
+   *   （`SseClient.connect` 换目标会 close 旧连接 + 清续传游标）⇒ 复用会**踢掉**聊天流。
+   *   与 web `components/court/api.ts:subscribeGroupMessages` 同款（它也是独立 EventSource）。
+   * ⛔ 收下的消息**只按 id 幂等追加**（`appendCourtMessage`），不改历史、不合并正文。
+   */
+  openCourtLive(): void {
+    if (this.disposed || this.courtGroupId.length === 0) {
+      return;
+    }
+    this.closeCourtLive();
+    const client: SseClient = new SseClient(this.http.baseUrl);
+    this.courtSse = client;
+    client.connect(this.wireChatId(), this.channel, this.http.cookieHeaderForStream(),
+      (event: string, data: string) => {
+        if (event !== 'group.message') {
+          return;
+        }
+        const payload: CourtEventPayload | null = parseCourtEvent(data);
+        if (payload === null) {
+          return;
+        }
+        const p: CourtEventPayload = payload;
+        if (p.group_id !== this.courtGroupId) {
+          return; // 别的群：面板只画当前群
+        }
+        const before: CourtMessage[] = this.courtMessages;
+        const next: CourtMessage[] = appendCourtMessage(before, p.message);
+        if (next === before) {
+          return; // 同 id 重复（SSE 重连回放）：零渲染
+        }
+        this.courtMessages = next;
+        this.onUpdate();
+      });
+    this.courtLive = true;
+    this.onUpdate();
+  }
+
+  /** 停止 `group.message` 订阅（面板关闭 / dispose）。 */
+  closeCourtLive(): void {
+    const c: SseClient | null = this.courtSse;
+    this.courtSse = null;
+    if (this.courtLive) {
+      this.courtLive = false;
+    }
+    if (c !== null) {
+      c.close();
+    }
+  }
+
   /**
    * 把**正在执行的前台 shell** 转入后台（RPC `promote_shell`，参数 `{session_key, tool_call_id}`）
    * —— web `ShellPromoteBar`（`components/agent/ToolRender.tsx:491-516`）同源。
@@ -1728,12 +2025,19 @@ export class ChatStore {
 
   /**
    * 会话分支（`POST /api/chats/fork` body `{source_channel, source_chat_id, label?}`）。
-   * @returns 新会话 id（服务端 `{chat_id}`）
+   *
+   * ⛔ 2026-10-22 用户亲报「分叉后不自动跳到新会话」的根因：`source_channel` 用了**当前 store
+   *   的渠道**、`source_chat_id` 用了会话树里的**原值**（可能是 `web:chat_X` 幽灵键）；且调用方
+   *   （页面）在清掉菜单态之后才去读源会话 ⇒ 恒拿不到源会话。⇒ 本方法显式收**源会话自己的**
+   *   `sourceChannel`，并对 id 做 `canonicalChatId` 归一（剥渠道前缀，只剥一层，兼容已写坏的值）。
+   * 成功后**刷新会话列表**（新行立刻进侧栏），返回新 id；切换身份由页面 `switchSession` 完成。
    */
-  async forkSession(chatId: string, label: string): Promise<string> {
+  async forkSession(chatId: string, sourceChannel: string, label: string): Promise<string> {
+    const ch: string = sourceChannel !== undefined && sourceChannel !== null && sourceChannel.length > 0
+      ? sourceChannel : this.channel;
     const body: Record<string, string> = {
-      'source_channel': this.channel,
-      'source_chat_id': chatId,
+      'source_channel': ch,
+      'source_chat_id': canonicalChatId(ch, chatId),
       'label': label,
     };
     const res: ForkResult = await this.http.postAs<ForkResult>('/api/chats/fork', body);
@@ -1741,6 +2045,7 @@ export class ChatStore {
     if (id === undefined || id.length === 0) {
       throw new Error('服务端未返回新会话 id');
     }
+    await this.loadSessions();
     return id;
   }
 
@@ -1768,12 +2073,26 @@ export class ChatStore {
     return parseSearchHits(res);
   }
 
-  async deleteSession(chatId: string): Promise<void> {
+  /**
+   * 删除会话（`POST /api/chats/{id}/delete` body `{channel}`）。
+   *
+   * ⛔ 2026-10-22 用户亲报「删除只有按钮没作用」的根因：`channel` 用了**当前 store 的**
+   *   `this.channel`、`id` 用了会话树里的**原值**。跨渠道会话（`cli`/`agent`/`feishu`）⇒
+   *   打到 `web:<other-id>` 这个不存在的租户 ⇒ 服务端 `canAccessSession` 403 / `ChatDelete`
+   *   400，列表当然不变（用户观感=按钮无效）。带 `web:` 前缀的幽灵行同理。
+   *   ⇒ 本方法显式收**该行自己的** `channel`，id 用 `canonicalChatId` 归一。
+   *
+   * @param channelHint 该会话所属渠道（页面从 `SessionItem.channel` 取；缺省回落当前渠道）
+   */
+  async deleteSession(chatId: string, channelHint?: string): Promise<void> {
+    const ch: string = channelHint !== undefined && channelHint !== null && channelHint.length > 0
+      ? channelHint : this.channel;
+    const id: string = canonicalChatId(ch, chatId);
     // 服务端 handleChatDeletePOST 只认 `{channel}`（chat_id 在路径上）——
     // 严格解码下多发一个 chat_id 就是 400
-    await this.http.post('/api/chats/' + encodeURIComponent(chatId) + '/delete',
-      new ChannelReq(this.channel));
-    if (chatId === this.currentChatId) {
+    await this.http.post('/api/chats/' + encodeURIComponent(id) + '/delete',
+      new ChannelReq(ch));
+    if (id === canonicalChatId(this.channel, this.currentChatId)) {
       // ⛔ 2026-10-21（state-gate-12-7 S4）：删**当前**会话必须走统一身份闸 ——
       //   旧实现只 `currentChatId=''` + 清 rows + 关 SSE，**不自增 chatGen、不复位状态机、
       //   不清 rowCache** ⇒ 任何一次 onUpdate 的 `rebuildRows()` 都会从旧 state 回填 ⇒
@@ -1781,9 +2100,8 @@ export class ChatStore {
       //   （fork/同名），旧 turn 直接被继承。
       //   ⇒ 身份变更只有一条路：`beginSwitch`（自增代数 + `initialChatState` + 清缓存/队列/游标）。
       this.beginSwitch('');
-    } else {
-      // 删的是别的会话：不动身份。
     }
+    // 权威列表刷新（侧栏据此移除该行；页面另有乐观移除，失败时会再拉回来）
     await this.loadSessions();
   }
 
@@ -1806,6 +2124,11 @@ export class ChatStore {
    *    非 web 会话 `/api/history` 404，真机实测），必须留在 `openSession` 的列表就绪之后。
    */
   beginSwitch(chatId: string): void {
+    // ⛔ **重开同一会话不清模型**（用户 2026-10-29 P0：「重连后还是丢迭代」）：
+    //   `openSession` 无条件走这里，旧实现把 `shadow` 清空 ⇒ 只能拿窗口化的 `/api/history`
+    //   重建 ⇒ 窗口之外的迭代直接消失（重启才回来）。同一 chat 且模型里已有回合 ⇒ 保留，
+    //   只重连 SSE + 拉历史做**增量合并**（`hydrate` 本就是回合级合并）。
+    const keepState: boolean = shouldKeepStateOnReopen(this.shadow.chat, this.shadow.turns.size, chatId);
     this.currentChatId = chatId;
     // 新会话从“不挂起”开始（旧 store 可能停在滚动挂起态）。
     this.uiSuspended = false;
@@ -1822,19 +2145,23 @@ export class ChatStore {
     // ⛔ **立刻整体复位状态机**（不是只清 rows）：从 beginSwitch 到 openSession 复位之间
     //   有一段窗口，旧实现仍持有**上一个会话**的 turns/busy/sessionRunning ⇒ 页面读到
     //   旧值（切会话瞬间按钮/进度错乱），且旧会话的迟到事件会落进"新会话身份"。            
-    this.state = initialChatState(chatId);
-    this.shadow = emptyState(chatId, 1, 0);
-    this.shadowRows = new Map<string, ChatRow>();
+    if (!keepState) {
+      this.state = initialChatState(chatId);
+      this.shadow = emptyState(chatId, 1, 0);
+      this.shadowRows = new Map<string, ChatRow>();
+    }
     this.gapReloadSeenKey = '';
     this.gapReloadSeenToken = 0;
     // 上一会话的 SSE 意图窗口不属于新会话：不清会让 `runningAfterReconcile` 把
     // **空闲的新会话**误判 running（最长 15s 显示 cancel）。
     this.intentBusyAt = 0;
     this.intentIdleAt = 0;
-    this.rows = [];
-    this.rowCache = new Map();
-    // 分页累积也必须清：否则切会话后 `loadMore` 会把旧会话的 history 与新会话混在一起。
-    this.history = [];
+    if (!keepState) {
+      this.rows = [];
+      this.rowCache = new Map();
+      // 分页累积也必须清：否则切会话后 `loadMore` 会把旧会话的 history 与新会话混在一起。
+      this.history = [];
+    }
     this.hasMore = false;
     this.oldestId = 0;
     this.historyError = '';
@@ -1846,6 +2173,7 @@ export class ChatStore {
     this.usage = undefined;
     this.cwd = '';
     this.subagents = [];
+    this.subagentsAll = [];
     this.lastWidgetEvent = '';
     this.lastWidgetContent = '';
     // ⛔ 审计确证（state-gate-7-8 C2）：取消态也是**会话级**的 —— 身份切换必须复位，
@@ -2324,11 +2652,72 @@ export class ChatStore {
     }
     if (!this.stillSame(gen, forChat)) { return; }
     // 解析 SubAgentMsg[] → ChatMessage[]（逐字对齐 web `parseSubAgentMessages`）
-    const chatMsgs: ChatMessage[] = this.parseSubAgentMessages(messages, dumpIts);
+    const chatMsgs: ChatMessage[] = ChatStore.parseSubAgentMessages(messages, dumpIts);
     console.info(`[SUBAGENT] parsed ${chatMsgs.length} messages from ${messages.length} raw`);
     this.history = chatMsgs;
     this.pushEvent(historyToReplaced(chatMsgs, null));
     this.onUpdate();
+  }
+
+  /**
+   * **按 role/instance 加载子代理转录**（web `useChatMessages.ts:489-522` 的同源入口）。
+   *
+   * ⛔ 用户 2026-10-26 P0：「子代理历史视图只看得到 user 消息，看不到任何 agent 消息」。
+   *   根因：运行面板点一行是 `switchSession(chat_id)` ⇒ 走 `/api/history`；而子代理会话在
+   *   v55 数据模型里 **assistant 正文存在 iteration_history**、session_messages 只留**空壳占位**，
+   *   且子代理会话常常没有 turn 结构（`turnIterMap` 取不到）⇒ 回来的 assistant 行
+   *   `content==='' && iterations==[]` ⇒ 被 `toChatMessages` 的空行规则丢掉 ⇒ **只剩 user 行**。
+   *   web 的权威做法正是：`role/instance` 型子代理**不走** `/api/history`，而是
+   *   `get_agent_session_dump`（含 `messages` + `iterations`），失败再退 `get_session_messages`。
+   *   ⇒ 这里把同一条路径暴露成**按 role/instance 打开**（不需要把 `currentChatId` 编码成
+   *   `agent:` 伪键，那条路只服务历史遗留的 chat 键）。
+   *
+   * @param parentChatID 宿主会话（子代理的父 chat，dump 的查询键）
+   */
+  async loadSubAgentTranscript(parentChatID: string, role: string, instance: string,
+    liveTail: boolean = false): Promise<boolean> {
+    if (parentChatID.length === 0 || role.length === 0) {
+      return false;
+    }
+    const gen: number = this.chatGen;
+    const forChat: string = this.currentChatId;
+    const params: SubAgentHistoryParams = new SubAgentHistoryParams(
+      this.channel, parentChatID, role, instance);
+    let messages: Object[] = [];
+    let dumpIts: Object[] = [];
+    try {
+      const dump: AgentSessionDump = await rpc<AgentSessionDump>(this.http, RPC_GET_AGENT_SESSION_DUMP, params);
+      if (!this.stillSame(gen, forChat)) { return false; }
+      const dumpMsgs: Object[] = dump !== null && dump.messages !== undefined && dump.messages !== null
+        ? dump.messages : [];
+      dumpIts = dump !== null && dump.iterations !== undefined && dump.iterations !== null
+        ? dump.iterations : [];
+      if (dumpMsgs.length > 0 || dumpIts.length > 0) {
+        messages = dumpMsgs;
+      }
+    } catch (e) {
+      // registry 不在（已完成/oneshot）⇒ 走下面的持久化兜底
+    }
+    if (messages.length === 0) {
+      try {
+        const msgs: SubAgentMsg[] = await rpc<SubAgentMsg[]>(this.http, RPC_GET_SESSION_MESSAGES, params);
+        if (!this.stillSame(gen, forChat)) { return false; }
+        messages = msgs !== null && msgs !== undefined && Array.isArray(msgs) ? msgs as Object[] : [];
+      } catch (e) {
+        return false;
+      }
+    }
+    if (!this.stillSame(gen, forChat)) { return false; }
+    // liveTail=true（该子代理**正在运行**）⇒ 尾部在飞迭代交给 SSE；idle ⇒ 全保留。
+    const chatMsgs: ChatMessage[] = ChatStore.parseSubAgentMessages(messages, dumpIts, liveTail);
+    if (chatMsgs.length === 0) {
+      return false;   // 没拿到任何东西 ⇒ 调用方回落到常规 `/api/history`
+    }
+    this.history = chatMsgs;
+    this.pushEvent(historyToReplaced(chatMsgs, null));
+    this.onUpdate();
+    log('subagent', `转录加载完成 parent=${parentChatID} role=${role}/${instance} msgs=${chatMsgs.length} iters=${dumpIts.length}`);
+    return true;
   }
 
   /**
@@ -2344,7 +2733,20 @@ export class ChatStore {
    *      子代理的正文/思考/工具都在 `iterations`，`messages[].content` 常常为空 —— 丢掉
    *      iterations 就等于把 agent 的全部输出丢了。
    */
-  private parseSubAgentMessages(raw: Object[], rawIterations?: Object[]): ChatMessage[] {
+  /**
+   * `SubAgentMsg[]`（role/content 对）+ dump 的 `iterations` → `ChatMessage[]`。
+   *
+   * ⛔ 用户 2026-10-27 P0：「agent 历史渲染在用户消息**上方**，正确应是 用户消息 → agent 历史」。
+   *   根因：旧实现把所有行 `turnID: 0`（整批进 `historyToReplaced` 的 **legacy 段**），而 legacy
+   *   在渲染上**排在 turns 之前**（锚点无效即沉底）⇒ 顺序必然错。
+   *   ⇒ 必须按 dump 的行序**建 turn**：`user` 开一轮（`turnSeq++`），其后的 `assistant` 归该轮；
+   *     连续多条 assistant 合并进同一条（同一 turn 只渲染一个 assistant 槽）。
+   *   `iterations` 挂最后一条 assistant；该轮没有 assistant（v55 空壳被跳过）⇒ **追加到当前 turn**，
+   *   保证顺序是「user → assistant(iterations)」而不是反过来。
+   *   ⛔ 逐字纪律保留：空正文行不渲染（工具调用空壳）；`dbID` 必须给（否则 `historyToReplaced`
+   *     会把整批当乐观/echo 副本丢弃）；`role` 非 user 一律 assistant。
+   */
+  static parseSubAgentMessages(raw: Object[], rawIterations?: Object[], liveTail: boolean = false): ChatMessage[] {
     const iters: WebIteration[] = [];
     const srcIts: Object[] = rawIterations !== undefined && rawIterations !== null ? rawIterations : [];
     for (let i = 0; i < srcIts.length; i++) {
@@ -2354,47 +2756,113 @@ export class ChatStore {
       }
     }
     const out: ChatMessage[] = [];
+    let turnSeq: number = 0;
+    // 当前 turn 的 assistant 槽（连续多条 assistant 合并进它；user 行会把它清空）
+    let curAssistant: ChatMessage | null = null;
     for (let i = 0; i < raw.length; i++) {
       const m: Record<string, Object> = raw[i] as Record<string, Object>;
       const role: string = m['role'] !== undefined && m['role'] !== null ? m['role'] as string : '';
       const content: string = m['content'] !== undefined && m['content'] !== null ? m['content'] as string : '';
       if (content.trim().length === 0) {
+        // 空壳行（v55 只留占位）不渲染；其正文在 iterations 里，由下面的挂载逻辑承载。
         continue;
       }
-      out.push({
+      // ⛔ **只认 user / assistant 两种角色**（用户 2026-11-04 真机截图：user 任务跑到最下面）。
+      //   根因：后端 `formatAgentSessionMessages` 会把 **system prompt 作为第一条消息**下发
+      //   （`agent/interactive.go:3093-3096`）。旧实现"非 user 一律当 assistant" ⇒
+      //   system 变成 `assistant@1` ⇒ user 任务被挤到 turn 2 ⇒ iterations 挂到 turn 1 的
+      //   assistant 上 ⇒ 渲染成「迭代在前、user 任务在最后」。
+      //   ⇒ `system` / `tool` / 其它角色**直接跳过**（它们的语义已在 iterations 里）。
+      if (role !== 'user' && role !== 'assistant') {
+        continue;
+      }
+      if (role === 'user') {
+        turnSeq += 1;
+        curAssistant = null;
+        out.push({
+          id: `sa-${i}`,
+          role: 'user',
+          content: content,
+          iterations: [],
+          turnID: turnSeq,
+          isNotification: false,
+          timestamp: '',
+          isPartial: false,
+          dbID: i + 1,
+        });
+        continue;
+      }
+      // assistant（agent 的任何非 user 角色）
+      if (turnSeq === 0) {
+        turnSeq = 1;   // 首行就是 assistant ⇒ 也要有 turn 身份（否则又回 legacy）
+      }
+      if (curAssistant !== null) {
+        // 同一 turn 的多条 assistant 合并（一个 turn 只渲染一个 assistant 槽）
+        curAssistant.content = curAssistant.content.length > 0
+          ? `${curAssistant.content}\n\n${content}` : content;
+        continue;
+      }
+      const row: ChatMessage = {
         id: `sa-${i}`,
-        role: role === 'user' ? 'user' : 'assistant',
+        role: 'assistant',
         content: content,
         iterations: [],
-        turnID: 0,
+        turnID: turnSeq,
         isNotification: false,
         timestamp: '',
         isPartial: false,
-        // ⛔ 合成 dbID 必填（血债，2026-10-16）：`historyToReplaced` 对 `dbID === undefined`
-        //   的行**全部 continue**（过滤乐观/echo 副本）⇒ 不给 dbID 会导致整批消息被丢弃。
         dbID: i + 1,
-      });
+      };
+      out.push(row);
+      curAssistant = row;
     }
     if (iters.length === 0) {
       return out;
     }
-    let lastAssistant: number = -1;
+    // ⛔ 用户 2026-11-04 Bug 1：「子代理视图不会渲染 live progress」。
+    //   根因：dump 的 `iterations` 包含**当前在飞迭代** ⇒ 被 `hydrate` 提交成块后，SSE 的 `onTick`
+    //     看到 `f.iteration <= last` ⇒ 丢弃 ⇒ live 永远不被设置。
+    //   修法：**丢掉最后一个迭代**——SSE 会接管它；已完成的迭代会在下次 resync 时补回。
+    //   ⚠️ 如果只有一个迭代且它有正文（已完成）⇒ 保留（否则用户看到空壳）。
+    // ⛔ 只有**该子代理正在运行**（liveTail）才丢弃尾部迭代 —— 它由 SSE 接管。
+    //    idle（跑完/无 SSE）必须**全部保留**，否则最终回复会永久丢失
+    //    （用户 2026-11-14：「打开 idle 的子代理视图，看不到最后输出的最后回复」）。
+    const safeIters: WebIteration[] = liveTail && iters.length > 1
+      ? iters.slice(0, iters.length - 1)
+      : iters;
+    if (safeIters.length === 0) {
+      return out;
+    }
+    // ⛔ iterations 必须挂在**最后一个 user 所在的 turn**（用户 2026-11-04 截图实证：
+    //   「子代理视图 user 消息无条件出现在最后」——整段迭代在 user 上面）。
+    //   旧实现挂"最后一条 assistant"：若那条 assistant 属于**更早的 turn**（dump 里 assistant
+    //   排在 user 之前 / 存在多条 user），iterations 就落在较早 turn ⇒ 渲染在 user 之前
+    //   ⇒ 用户看到"任务消息跑到了最后"。
+    //   子代理语义固定为：任务(user) → 全部 iterations ⇒ 一律并入**最后一个 user 的 turn**。
+    let lastUserTurn: number = 0;
+    let lastUserIdx: number = -1;
     for (let i = out.length - 1; i >= 0; i--) {
-      if (out[i].role === 'assistant') {
-        lastAssistant = i;
+      if (out[i].role === 'user') {
+        lastUserTurn = out[i].turnID;
+        lastUserIdx = i;
         break;
       }
     }
-    if (lastAssistant >= 0) {
-      out[lastAssistant].iterations = iters;
-      return out;
+    const targetTurn: number = lastUserTurn > 0 ? lastUserTurn : (turnSeq > 0 ? turnSeq : 1);
+    // 该 turn 内已有 assistant 槽 ⇒ 复用（同一 turn 不出现两条 assistant）
+    for (let i = out.length - 1; i > lastUserIdx; i--) {
+      if (out[i].role === 'assistant' && out[i].turnID === targetTurn) {
+        out[i].iterations = safeIters;
+        return out;
+      }
     }
+    // 追加到**最后一个 user 的 turn**（顺序 = user → assistant(iterations)）
     out.push({
       id: 'sub-iterations',
       role: 'assistant',
       content: '',
-      iterations: iters,
-      turnID: 0,
+      iterations: safeIters,
+      turnID: targetTurn,
       isNotification: false,
       timestamp: '',
       isPartial: false,
@@ -2797,6 +3265,9 @@ export class ChatStore {
       iterations: merged,
       regionsBefore: isPresent(data.regions_before) ? data.regions_before : 0,
     });
+    // ⛔ 同一个'详情代数'：任何一条详情进模型都要唤醒等详情的浮层（用户 2026-11-18 P0）。
+    const rGen: number = AppStorage.get<number>('toolDetailGen') ?? 0;
+    AppStorage.setOrCreate('toolDetailGen', rGen + 1);
   }
 
   /** 按需拉取某迭代的完整工具详情（折叠视图下 summary/args/detail 默认不下发）。 */
@@ -2819,8 +3290,19 @@ export class ChatStore {
       }
       const w: WebIteration | null = normalizeWebIteration(it);
       if (w !== null) {
+        // ⛔ 详情**覆盖层**（用户 2026-11-17：「+N 第一次点开看不到参数/输出，关闭再打开才有」）：
+        //   `bindPopup` 的子内容在**打开那一刻**构建，之后模型换了新工具对象也不会重建 ⇒
+        //   只能关闭重开。⇒ 把刚取回的详情按身份记进 `core/streammerge` 的覆盖层，并自增
+        //   `AppStorage('toolDetailGen')`：浮层组件自己订阅这个代数 ⇒ 自渲染时合上覆盖层。
         // 同号权威覆盖（regionsBefore 缺省 = 不变 —— 详情 hydrate 不动区域计数）。
+        // ⛔ **先** push（`onDetail` 会把详情写进覆盖层），**再**自增代数（浮层订阅它 ⇒ 自渲染时
+        //   覆盖层已就绪 ⇒ 一次渲染就拿到数据；顺序颠倒会出现"先渲染、后写入"的一次空帧）。
         this.pushEvent({ type: 'iterations_loaded', turnID, iterations: [w] });
+        // ⛔ **同步重建行**（用户 2026-11-18 批注：严禁轮询）：`await fetchIterationDetail()`
+        //   决议时必须保证**投影已更新** ⇒ 调用方可以直接捕获/打开浮层，不需要任何等待/轮询。
+        this.rebuildRows();
+        const gen: number = AppStorage.get<number>('toolDetailGen') ?? 0;
+        AppStorage.setOrCreate('toolDetailGen', gen + 1);
       }
       return it;
     } catch (e) {
@@ -3146,6 +3628,167 @@ export class ChatStore {
     }
   }
 
+  /** 共享的 `get_active_progress` 快照（1s TTL + 按会话缓存；失败也缓存，避免风暴）。 */
+  private async activeSnapshotCached(): Promise<ProgressEvent | null> {
+    const key: string = this.wireChatId();
+    const now: number = Date.now();
+    if (this.snapCacheFor === key && now - this.snapCacheAt < 1000) {
+      return this.snapCacheVal;
+    }
+    let snap: ProgressEvent | null = null;
+    try {
+      snap = await rpc<ProgressEvent | null>(this.http, RPC_GET_ACTIVE_PROGRESS,
+        new ActiveProgressReq(this.channel, key), false);
+    } catch (e) {
+      snap = null;   // 旧服务端/弱网：当作"无快照"（判据会保守 NONE）
+    }
+    this.snapCacheFor = key;
+    this.snapCacheAt = now;
+    this.snapCacheVal = snap;
+    return snap;
+  }
+
+  /** 当前本地最大回合号（判据"本地领先"用；纯结构）。 */
+  private localMaxTurn(): number {
+    let mx: number = 0;
+    this.state.turns.forEach((_t, id: TurnID) => {
+      if ((id as number) > mx) {
+        mx = id as number;
+      }
+    });
+    return mx;
+  }
+
+  /**
+   * 当前本地连续性基线（在飞回合 + 该轮最后落地的迭代号）。
+   *
+   * ⛔ **以模型影子为准**（2026-10-22 真机：「重连后卡死在老 turn 不 resync」的半个根因）：
+   *   **行源是模型**（`applyModel`）；legacy `state.activeTurn` 可能已经 idle（`session/idle`
+   *   早到、或 legacy 分支没接住），而模型 `shadow.live` 仍指着旧轮。旧实现只读 legacy
+   *   ⇒ 基线 turnID=0 ⇒ 判据落 `!live.active && mark.turnID===0` ⇒ **NONE（不重载）**
+   *   ⇒ 旧 live 永远不落定。取"两者中更新/仍在飞的那一个"即可自愈。
+   */
+  private currentMark(): ResumeMark {
+    const m: ResumeMark = new ResumeMark();
+    // ① 模型影子（行源）
+    const sh: ModelState = this.shadow;
+    if (sh.live !== null) {
+      m.turnID = sh.live.turn as number;
+      m.iter = sh.live.iteration as number;
+    }
+    // ② legacy 状态机（更旧的权威；模型没有 live 时才用它）
+    const t: number | null = this.state.activeTurn;
+    if (t !== null && (m.turnID === 0 || (t as number) > m.turnID)) {
+      m.turnID = t as number;
+      const rec = this.state.turns.get(turnID(t));
+      m.iter = rec !== undefined && rec.phase.kind === 'live' ? rec.phase.data.iter : m.iter;
+    }
+    m.atMs = Date.now();
+    return m;
+  }
+
+  /**
+   * **转后台**：记录「当前 iter + turn id」（用户 2026-10-22 定向）。
+   *
+   * ⛔ 为什么必须**此刻**记：进程被冻结期间本地状态可能被丢帧污染，
+   *   回前台时再"读当前本地状态"当基线就是拿被污染的值去比 ⇒ 分不清"我落后"与"服务端没进展"。
+   */
+  markBackground(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.bgMark = this.currentMark();
+    log('resume', `转后台基线 chat=${this.currentChatId} turn=${this.bgMark.turnID} iter=${this.bgMark.iter}`);
+  }
+
+  /**
+   * **连续性恢复**（后台→前台 / SSE 重连**共用**；判据唯一 = `core/resume.resumeVerdict`）。
+   *
+   *  · NONE  ⇒ 不动历史（只做一次轻量会话树对账：重连/回前台都可能错过 `idle`）；
+   *  · GAP   ⇒ **只补洞**（用快照的 `iteration_history` 走既有事件管道；⛔ 不重历史）；
+   *  · RELOAD⇒ 走唯一权威重载出口 `resyncAfterResume`（换轮 / 服务端要求 / 后台期间跑完）。
+   *
+   * ⛔ 这里**不自己合并历史**：补洞只喂 `iteration` 帧（`adapt → step`），投影仍由状态机/模型算。
+   */
+  async resumeContinuity(reason: string = 'resume'): Promise<void> {
+    if (this.disposed || this.currentChatId.length === 0 || this.demoMode) {
+      return;
+    }
+    // ⛔ `silence` 由 **600ms 页级脉冲**驱动（锁屏恢复时唯一不依赖生命周期回调的入口）⇒
+    //   必须自带节流，否则每跳一枪（虽然快照有 1s 缓存，但 RELOAD 会反复触发重历史）。
+    const rcNow: number = Date.now();
+    if (reason === 'silence' && rcNow - this.lastSilenceResumeAt < 5000) {
+      return;
+    }
+    if (reason === 'silence') {
+      this.lastSilenceResumeAt = rcNow;
+    }
+    const gen: number = this.chatGen;
+    const forChat: string = this.currentChatId;
+    const mark: ResumeMark = this.bgMark !== null ? this.bgMark : this.currentMark();
+    const snap: ProgressEvent | null = await this.activeSnapshotCached();
+    if (gen !== this.chatGen || forChat !== this.currentChatId) {
+      return;
+    }
+    const hasActive: boolean = snap !== null && snap !== undefined && probePhaseActive(snap.phase);
+    const live: ResumeLive = {
+      turnID: snap !== null && snap !== undefined && snap.turn_id !== undefined ? snap.turn_id : 0,
+      iter: snap !== null && snap !== undefined && snap.iteration !== undefined ? snap.iteration : 0,
+      active: hasActive,
+      resyncRequired: snap !== null && snap !== undefined && snap.resync_required === true,
+    };
+    const v: ResumeVerdict = resumeVerdict(mark, live, this.localMaxTurn());
+    log('resume', `连续性 chat=${this.currentChatId} reason=${reason} action=${v.action} why=${v.reason}`
+      + ` mark=${mark.turnID}/${mark.iter} live=${live.turnID}/${live.iter} active=${hasActive ? 1 : 0}`);
+    if (v.action === RESUME_RELOAD) {
+      this.bgMark = null;
+      this.resyncAfterResume(`resume-${reason}-${v.reason}`, true);
+      return;
+    }
+    if (v.action === RESUME_GAP && snap !== null && snap !== undefined) {
+      const filled: number = this.fillIterationGap(snap, v);
+      if (filled === 0) {
+        // 服务端说"落后了 N 个迭代"却没给增量（超窗口截断）⇒ 只有权威历史能补
+        log('resume', `补洞无增量 ⇒ 升级为权威重载 chat=${this.currentChatId} from=${v.fromIter} to=${v.toIter}`);
+        this.resyncAfterResume(`resume-${reason}-gap-empty`, true);
+        return;
+      }
+    }
+    // 会话树仍然对账（running / 子代理 / 列表）——轻量，且与历史无关
+    this.loadSessions().catch(() => {
+      // 对账失败不影响连续性本身
+    });
+  }
+
+  /**
+   * 用快照的 `iteration_history` 补洞（`[fromIter .. toIter]`），并把**尾部**（当前迭代的
+   * 流式正文/工具）作为一次 tick 落地。
+   *
+   * @returns 实际补进去的迭代条数（0 ⇒ 服务端没给增量，调用方升级为权威重载）
+   */
+  private fillIterationGap(snap: ProgressEvent, v: ResumeVerdict): number {
+    const turnIDRaw: number = snap.turn_id !== undefined ? snap.turn_id : 0;
+    if (turnIDRaw <= 0) {
+      return 0;
+    }
+    const hist: readonly HistoryIteration[] = snap.iteration_history !== undefined ? snap.iteration_history : [];
+    const seq: number = snap.seq !== undefined ? snap.seq : 0;
+    // ⛔ 事件构造在 `core/resume_fill.ts`（纯 TS）：`DomainEvent` 是**联合接口**，
+    //   在 `.ets` 里写字面量会踩 `arkts-no-untyped-obj-literals`（门禁 ④ 实测）。
+    const events: DomainEvent[] = gapIterationEvents(turnIDRaw, v.fromIter, v.toIter, hist, seq);
+    for (let i = 0; i < events.length; i++) {
+      this.pushEvent(events[i]);
+    }
+    const filled: number = events.length;
+    // 尾部：当前迭代的累积正文 + 在飞工具（`content` ⇒ tick 全文替换语义）
+    this.pushEvent(gapTailEvent(turnIDRaw, v.toIter,
+      snap.content !== undefined ? snap.content : '',
+      snap.reasoning !== undefined ? snap.reasoning : '',
+      snap.tools !== undefined ? snap.tools : [], seq));
+    log('resume', `补洞完成 chat=${this.currentChatId} turn=${turnIDRaw} iters=${filled} tail=${v.toIter}`);
+    return filled;
+  }
+
   /**
    * **轻量 liveness 探针**（用户 2026-10-21 定向：切回前台必须立刻查一次是否 stall）。
    *
@@ -3166,10 +3809,11 @@ export class ChatStore {
     }
     const gen: number = this.chatGen;
     const forChat: string = this.currentChatId;
+    // ⛔ 与 `resumeContinuity` **共用**同一发快照（1s TTL）：回前台/重连时探针与连续性
+    //   判定是同一时刻的同一事实，打两枪既慢又会互相错位（第二枪可能已经前进一轮）。
     let snap: ProgressEvent | null = null;
     try {
-      snap = await rpc<ProgressEvent | null>(this.http, RPC_GET_ACTIVE_PROGRESS,
-        new ActiveProgressReq(this.channel, this.wireChatId()), false);
+      snap = await this.activeSnapshotCached();
     } catch (e) {
       return;   // 旧服务端/弱网：静默（不是 stall 的证据）
     }
@@ -3214,7 +3858,7 @@ export class ChatStore {
       //   ⇒ 判据收敛成一条可验证的条件：**本地没有在飞工具**（`activeTools` 为空）时，服务端
       //   "明确无在飞 + 静默 ≥3s"就是权威收尾证据；有在飞工具时仍走非权威路径（保护长工具）。
       const probeAuth: boolean = this.liveProgress().activeTools.length === 0;
-      this.applyLocalIdle(this.currentChatId, probeAuth);
+      this.applyLocalIdle(this.currentChatId, probeAuth, serverTurn);
       return;
     }
     const verdict: string = liveProbeVerdict(this.busy, localTurn, localIter,
@@ -3373,6 +4017,8 @@ export class ChatStore {
     //   idle 会把**没被取消的新一轮**标成 idle（"思考中"被瞬间掐掉、composer 从停止翻回发送）。
     //   ⇒ 记下发起取消时的那一轮，回包后只在"它仍是当前轮"时才推乐观 idle。
     const cancelTurn: TurnID | null = this.state.activeTurn;
+    // ⛔ 记下"取消的是哪一轮"（turn-less cancel ack 的归属，见 `cancelTargetTurn` 注释）
+    this.cancelTargetTurn = cancelTurn !== null ? cancelTurn as number : 0;
     this.cancelling = true;
     this.onUpdate();
     try {
@@ -3979,6 +4625,18 @@ export class ChatStore {
   }
 
   private onSse(event: string, data: string): void {
+    // ⛔ 2026-10-24 P0（锁屏恢复卡在旧 turn）：恢复判定的**唯一正确触发点**是「帧到达的边沿」，
+    //   **不是定时器/脉冲轮询**（用户明令：轮询是最丑陋的东西）。
+    //   语义：上一帧距今已隔一个"长静默"⇒ 说明我们被冻结/断流过（心跳 15s 一发 ⇒ 解锁后
+    //   第一帧即命中）⇒ **这一次事件就是恢复边沿**，立刻对账一次；无事时零唤醒、零定时器。
+    //   ⛔ 天然限频：判定后本帧会刷新 `lastEventAtMs`（下方统一入口），下次触发必须再隔一个长静默。
+    const gapNow: number = Date.now();
+    if (this.lastEventAtMs > 0 && gapNow - this.lastEventAtMs >= ChatStore.SSE_GAP_RESUME_MS) {
+      log('resume', `帧间隔 ${gapNow - this.lastEventAtMs}ms ≥ ${ChatStore.SSE_GAP_RESUME_MS}ms ⇒ 视为恢复边沿，对账`);
+      this.resumeContinuity('silence-gap').catch(() => {
+        // 失败静默：下一帧仍会按同一判据重试（长静默窗口已重置）
+      });
+    }
     if (event === SseEventType.heartbeat) {
       return;
     }

@@ -62,6 +62,8 @@ export struct ToolPill {
   @Prop live: boolean = false;
   /** 是否是当前打开浮层的那一枚（提亮一档）。 */
   @Prop selected: boolean = false;
+  /** 正在为该枚预取详情（点开后显示转圈；与 `+N` 徽标同口径）。 */
+  @Prop pending: boolean = false;
   @Prop theme: string = 'dark';
   /**
    * **生效主题的全局订阅**（§21.124 用户亲报「切主题后老文字颜色不变、新的才变」）。
@@ -159,6 +161,16 @@ export struct ToolPill {
           .margin({ left: SPACE_XXS })
           // 名称**可收缩**（长参数截断出省略号），状态标记/chip 不可收缩 ⇒ chip 永不被挤掉
           .flexShrink(1)
+      }
+
+      // ⛔ 预取详情期间显示转圈（与 `+N` 徽标同口径）：点击后到浮层打开之间给一个明确的"在取"信号。
+      if (this.pending) {
+        LoadingProgress()
+          .width(typeOf(TYPE_CHIP).size + 4)
+          .height(typeOf(TYPE_CHIP).size + 4)
+          .color(coreStatusColorOf(this.kind, this.themeId()))
+          .margin({ left: SPACE_XXS })
+          .flexShrink(0)
       }
 
       if (this.chip.length > 0) {

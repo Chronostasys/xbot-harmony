@@ -5,6 +5,7 @@ import { nonEmpty } from './guards';
 // ⛔ ArkTS `arkts-no-misplaced-imports`：**所有 import 必须在文件顶部**（不能放中间）。
 //    `toolmerge` 是**纯 `.ts`**（`reduce.ts` 也要用它，而 `core/*.ts` 禁 import `.ets`）。
 import { mergeActiveStatus, toolRank } from './toolmerge';
+import { isSyntheticToolName } from './synthhints';
 
 /**
  * **会话树对账后的权威 running**（web `useSessionStore.ts:1012-1027` 语义逐字移植）。
@@ -639,6 +640,9 @@ export function foldPills(tools: ToolProgress[]): PillSlice {
   const overflow: boolean = tools.length > PILL_INLINE_MAX;
   const shown: ToolProgress[] = [];
   const hidden: ToolProgress[] = [];
+  // ⛔ 用户 2026-10-29 口径：「新工具完成 ⇒ +N 数字加一，别的不变」。
+  //   shown = **前 PILL_INLINE_HEAD 枚**（稳定不变）；新完成的工具自然进 hidden ⇒ 徽标 +1。
+  //   ⛔ 不做「前 N + 最新 1」——那会让新工具替代 shown 末位，用户看到"替代"而非"+1"。
   for (let i = 0; i < tools.length; i++) {
     if (overflow && i >= PILL_INLINE_HEAD) {
       hidden.push(tools[i]);
@@ -649,11 +653,147 @@ export function foldPills(tools: ToolProgress[]): PillSlice {
   return { shown, hidden, overflow, hideCount: hidden.length };
 }
 
+/**
+ * `+N` 徽标视图的**唯一取数口径**（用户 2026-11-14 P0：「`+N` 的工具列表里的工具是错的，
+ * 和真实的对不上」）。
+ *
+ * ⛔ 之前三处各算一遍：直出 pill 走 `foldPills(group).shown` **再去重**；徽标 N 走
+ *   `foldPills(group).hideCount`（**不去重**）；溢出列表走 `foldPills(块内全部).hidden`
+ *   （**整块重算 + 位置切片**）。只要组里有"同一调用的残留副本"（服务端 `active_tools`
+ *   跨帧残留；`call_id` 每迭代从 `call_0` 重编号，同迭代同 id = 同一枚），三处就对不上：
+ *   数字比列表多、列表里冒出"已经直出在上面那枚"、真工具被重复副本挤出列表。
+ *
+ * 权威口径（web `MergedPills` + `OverflowPillsMenu`，`FoldedToolGroup.tsx:541-586`）：
+ *   **一个数组 → 一次去重 → 一次切片**。`shown`/`hidden`/`hideCount` 都从同一结果派生
+ *   ⇒ 天然对齐（"看到的 N" = "展开后的条数" = "总数 − 直出数"）。
+ *
+ * 去重键（⛔ 与 `pillmerge` 同源，绝不按内容去重 —— 两次真实同名调用必须保留）：
+ *   · 有 `call_id` ⇒ `迭代号 + call_id`（`call_id` 跨迭代复用，必须带号）；
+ *   · 无 `call_id` ⇒ `迭代号 + 名字 + 同名序号`（序号按出现顺序，两次真调用各占一个号）。
+ */
+export function pillView(tools: ToolProgress[]): PillSlice {
+  const cached: PillSlice | undefined = PILL_VIEW_MEMO.get(tools);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const keep: ToolProgress[] = [];
+  const seen: Set<string> = new Set<string>();
+  const ordinal: Map<string, number> = new Map<string, number>();
+  for (let i = 0; i < tools.length; i++) {
+    const t: ToolProgress = tools[i];
+    const iter: number = t.iteration !== undefined && t.iteration !== null && t.iteration > 0 ? t.iteration : 0;
+    const cid: string = t.call_id !== undefined && t.call_id !== null ? t.call_id : '';
+    let id: string;
+    if (cid.length > 0) {
+      id = `c:${iter}#${cid}`;
+    } else {
+      const k: string = `${iter}#${t.name}`;
+      const n: number = ordinal.get(k) !== undefined ? (ordinal.get(k) as number) : 0;
+      ordinal.set(k, n + 1);
+      id = `n:${k}#${n}`;
+    }
+    if (seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    keep.push(t);
+  }
+  const out: PillSlice = foldPills(keep);
+  PILL_VIEW_MEMO.set(tools, out);
+  return out;
+}
+
+/** `pillView` 的记忆化（组数组由 `toolPillGroups` 记忆化 ⇒ 数组身份稳定 ⇒ 高命中）。 */
+const PILL_VIEW_MEMO: WeakMap<ToolProgress[], PillSlice> = new WeakMap<ToolProgress[], PillSlice>();
+const PILL_GROUPS_MEMO: WeakMap<ToolProgress[], ToolProgress[][]> = new WeakMap<ToolProgress[], ToolProgress[][]>();
+
+/**
+ * 工具的**身份键**（跨帧稳定）—— 与 `pillView` 的去重键同源：
+ *   · 有 `call_id` ⇒ `迭代号 + call_id`（`call_id` 跨迭代复用 ⇒ 必须带号）；
+ *   · 否则 ⇒ `迭代号 + 名字 + label`（同迭代同名同 label 的两次真调用会被视作同一身份，
+ *     只影响"溢出浮层刷新"这一个用途，不影响渲染/去重）。
+ */
+export function pillIdentityKey(t: ToolProgress): string {
+  const iter: number = t.iteration !== undefined && t.iteration !== null && t.iteration > 0 ? t.iteration : 0;
+  const cid: string = t.call_id !== undefined && t.call_id !== null ? t.call_id : '';
+  if (cid.length > 0) {
+    return `c:${iter}#${cid}`;
+  }
+  const label: string = t.label !== undefined && t.label !== null ? t.label : '';
+  return `n:${iter}#${t.name}#${label}`;
+}
+
+/** 工具信息量（参数/输出/摘要；同身份两份里取更完整的那一份）。 */
+function toolWeight(t: ToolProgress): number {
+  const a: string = t.args !== undefined && t.args !== null ? t.args : '';
+  const d: string = t.detail !== undefined && t.detail !== null ? t.detail : '';
+  const sm: string = t.summary !== undefined && t.summary !== null ? t.summary : '';
+  return a.length + d.length + sm.length;
+}
+
+/**
+ * `+N` 浮层的**取数口径**：成员/顺序 = `captured`（点击那一刻的身份集合），
+ * 对象 = `current` 里同身份的最新一份（详情回填后立刻可见，无需关闭重开）。
+ *
+ * ⛔ 用户 2026-11-17：「第一次点开看不到详细参数和输出，再关闭打开一次才有」——
+ *   浮层若把当时那批**轻字段对象**冻住，`/api/iteration_detail` 回来也渲染不到 ⇒ 必须按身份
+ *   到当前表里重新取。反过来若实时重算成员，流式期新增工具会挤进/挤出列表 ⇒ 徽标 N 与
+ *   列表条数对不上（同一用户的「N 多 1 个」）。⇒ 两者同时满足：**身份冻结 + 数据保鲜**。
+ */
+export function resolveByKeys(current: ToolProgress[], captured: ToolProgress[]): ToolProgress[] {
+  if (captured.length === 0) {
+    return [];
+  }
+  const idx: Map<string, ToolProgress> = new Map<string, ToolProgress>();
+  for (let i = 0; i < current.length; i++) {
+    const key: string = pillIdentityKey(current[i]);
+    const prev: ToolProgress | undefined = idx.get(key);
+    idx.set(key, prev === undefined || toolWeight(current[i]) >= toolWeight(prev) ? current[i] : prev);
+  }
+  const out: ToolProgress[] = [];
+  for (let i = 0; i < captured.length; i++) {
+    const c: ToolProgress = captured[i];
+    const hit: ToolProgress | undefined = idx.get(pillIdentityKey(c));
+    out.push(hit !== undefined ? hit : c);
+  }
+  return out;
+}
+
+/**
+ * 一个块内的工具按**渲染顺序**分组：连续真工具一组、假工具（`isSyntheticToolName`）单独一组。
+ *
+ * ⛔ 记忆化理由（`perf_frame_bounded_wiring`）：`+N` 徽标/浮层/详情预取都要按组取数，
+ *   若每帧重算分组会不断分配数组 ⇒ ForEach key 抖动。按 `tools` 数组身份缓存。
+ */
+export function toolPillGroups(all: ToolProgress[]): ToolProgress[][] {
+  const cached: ToolProgress[][] | undefined = PILL_GROUPS_MEMO.get(all);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const groups: ToolProgress[][] = [];
+  let current: ToolProgress[] = [];
+  for (let i = 0; i < all.length; i++) {
+    if (isSyntheticToolName(all[i].name)) {
+      if (current.length > 0) {
+        groups.push(current);
+        current = [];
+      }
+      groups.push([all[i]]);
+    } else {
+      current.push(all[i]);
+    }
+  }
+  if (current.length > 0) {
+    groups.push(current);
+  }
+  PILL_GROUPS_MEMO.set(all, groups);
+  return groups;
+}
+
 /** 该迭代是否"含工具"（web `mergeToolRuns.hasTools`）。 */
 function iterHasTools(it: HistoryIteration): boolean {
   return it.tools !== undefined && it.tools.length > 0;
 }
-
 /** 该迭代是否"纯工具"（含工具且无正文且无推理）——可被前一个含工具迭代吸收（web `absorbs`）。 */
 function iterAbsorbable(it: HistoryIteration): boolean {
   return iterHasTools(it) && !nonEmpty(it.content) && !nonEmpty(it.reasoning);

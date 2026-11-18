@@ -181,7 +181,6 @@ function drifts(m: Map<string, string>, exempt: string[]): Drift[] {
 /** `PENDING_SPEC`：本线**禁改**的文件 —— ⛔ 只许缩短。 */
 const PENDING_SPEC: string[] = [
   // `components/LiveTailView.ets` 归 chat-surface-ux：pill 最大宽应走 `PILL_MAX_W`
-  'components/LiveTailView.ets :: constraintSize{maxWidth: 240} == PILL_MAX_W(240)',
   // `pages/Index.ets` 归 chat-surface-ux：注册按钮最小高应走 `HIT_TARGET_MIN`（本轮报了两次，因 44 同时等于 ROW_MIN_H）
   'pages/Index.ets :: constraintSize{minHeight: 44} == HIT_TARGET_MIN(44)',
   'pages/Index.ets :: constraintSize{minHeight: 44} == ROW_MIN_H(44)',

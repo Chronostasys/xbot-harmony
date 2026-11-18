@@ -20,6 +20,8 @@ export interface OverlayState {
   model: boolean;
   prefs: boolean;
   panels: boolean;
+  /** 通信视图（web `/court` 面板）。可选：既有调用方/判据不必同步补字段。 */
+  court?: boolean;
   sessMenu: boolean;
   searchHits: boolean;
   ctxMenu: boolean;
@@ -31,7 +33,7 @@ export interface OverlayState {
 export type OverlayCode =
   | ''
   | 'webPanel' | 'image' | 'ctxMenu' | 'searchHits' | 'sessMenu'
-  | 'panels' | 'prefs' | 'model' | 'status' | 'selfCheck'
+  | 'panels' | 'court' | 'prefs' | 'model' | 'status' | 'selfCheck'
   | 'plugins' | 'queue' | 'settings' | 'drawer';
 
 /**
@@ -51,6 +53,8 @@ export function topOverlay(o: OverlayState): OverlayCode {
   if (o.ctxMenu) return 'ctxMenu';
   if (o.searchHits) return 'searchHits';
   if (o.sessMenu) return 'sessMenu';
+  // 通信视图渲染在 `panels` **之后**（后渲染者盖在上层）⇒ 返回键先关它。
+  if (o.court) return 'court';
   if (o.panels) return 'panels';
   if (o.prefs) return 'prefs';
   if (o.model) return 'model';

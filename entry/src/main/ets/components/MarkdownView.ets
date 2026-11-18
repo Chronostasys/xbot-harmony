@@ -23,7 +23,7 @@ import {
   MdInlineStyle, MdInlineMemo, MdInlineMemoStats, mdInlineKey, codeOverflow, MdOverflow, codeTokenColor,
 } from '../core/mdview';
 import { HlSpan, highlightCode } from '../core/highlight';
-import { resolveOpenable } from '../core/msgops';
+import { currentLinkBase, resolveOpenable } from '../core/msgops';
 import { t as i18nT } from '../core/i18n';
 
 /**
@@ -133,6 +133,14 @@ function computeInlineStyles(text: string, pal: Palette, mdTheme: string, baseCo
       st.size = 13;
       // 行内码：胶囊底用**所选 md 主题的行内码底**（与代码块同源，避免两种"代码"配色打架）；
       // 文本色必须与**这个底**配对，见 `inlineCodeFg`。
+      st.color = inlineCodeFg(pal, tone);
+      st.bg = tone.inlineBg;
+    } else if (sp.math) {
+      // 行内公式（web `remark-math` 的 inlineMath；KaTeX 排版不可移植）：
+      // 等宽 + md 主题的"行内码底" —— 与代码片段同一视觉族，但**不**当成代码（不复制成代码）。
+      st.text = ` ${sp.text} `;
+      st.mono = true;
+      st.size = 13;
       st.color = inlineCodeFg(pal, tone);
       st.bg = tone.inlineBg;
     } else if (sp.link.length > 0) {
@@ -266,12 +274,21 @@ export struct MarkdownView {
    */
   @Prop fitContent: boolean = false;
 
+  /**
+   * 是否**流式在飞**（live 迭代正文）。
+   *
+   * 只影响一件事：解析前的 `clipTrailingUnclosedMath`（web `MarkdownRenderer.tsx:516`
+   * `streaming ? clip : normalized`）—— 未闭合的 `$$` / `$` 尾部在流式期被裁掉，
+   * 避免半截 TeX 在底部堆成乱码；**已完成**的消息永远不裁（内容原样）。
+   */
+  @Prop streaming: boolean = false;
+
   build() {
     // 块级节奏 = `MD_BLOCK_GAP`(8)（`core/design.ets`；旧凹口值 6）。web 靠 margin 折叠、原生
     // `Column.space` 不折叠 ⇒ 8 是与下方各块自身 margin 相加后最接近 `MarkdownRenderer` 的节奏。
     Column({ space: MD_BLOCK_GAP }) {
       // 走缓存：流式期间整行会反复重建，没缓存就要反复解析几百 KB（见 core/markdown.ets 注释）
-      ForEach(parseMarkdownCached(this.text), (b: MdBlock, idx: number) => {
+      ForEach(parseMarkdownCached(this.text, this.streaming), (b: MdBlock, idx: number) => {
         this.Block(b, idx)
       }, (b: MdBlock, idx: number) => b.key + '@' + this.themeTick + '@' + this.mdThemeTick)
     }
@@ -306,6 +323,8 @@ export struct MarkdownView {
       .margin({ top: MD_HEADING_GAP_TOP, bottom: MD_HEADING_GAP_BOTTOM })
     } else if (b.kind === MdBlockKind.Code) {
       this.CodeBlock(b)
+    } else if (b.kind === MdBlockKind.Math) {
+      this.MathBlock(b)
     } else if (b.kind === MdBlockKind.Divider) {
       // 分隔线用**结构性发丝**（`Surfaces.hairline`）；原先误用 `surfaceHi`（那是"悬停/选中底色"，
       // 语义是 L3 填充不是分隔）⇒ 主题一变分隔线就与底色打架，且深浅下都不"安静"。
@@ -461,7 +480,10 @@ export struct MarkdownView {
    *   三个**并行 agent 正在改**的文件（冲突风险）；`linkBase` 已留作页面透传入口。
    */
   private openLink(href: string): void {
-    const abs: string = resolveOpenable(href, this.linkBase);
+    // 基地址：显式 `linkBase`（页面透传）优先，否则用 HTTP 层注册的服务端 base
+    // （`core/http.ets` 构造时 `setLinkBase`；全仓此前**零注入** ⇒ 相对链接恒打不开）。
+    const base: string = this.linkBase.length > 0 ? this.linkBase : currentLinkBase();
+    const abs: string = resolveOpenable(href, base);
     if (abs.length === 0) {
       return;
     }
@@ -622,6 +644,45 @@ export struct MarkdownView {
    * GFM 列对齐（`remark-gfm`，`:31`）同理。原生此前用裸 `Text(cell)` ⇒ 单元格内标记**原样上屏**。
    * ⛔ 字号用 `MD_TABLE_SIZE`（单元格自己的尺度），不能用 `MdInlineStyle.size`（默认 15=正文）。
    */
+  /**
+   * 块公式 `$$…$$`（web `remark-math` + KaTeX 的 `math` 节点）。
+   *
+   * ⛔ 原生**没有 JS 引擎** ⇒ 不跑 KaTeX：结构与边界与 web 对齐（识别 / 去定界符 / 流式裁剪），
+   *    排版降级为**等宽公式块**（左侧 accent 竖条 = "这是公式"的唯一视觉标识，与引用同族但更强调）。
+   * ⛔ 绝不静默丢内容：正文原样显示（含 `\\` 换行），长公式按字符断行（宁可断也不裁）。
+   */
+  @Builder
+  MathBlock(b: MdBlock) {
+    Column() {
+      // 长公式（矩阵/长下标）按**横滑**处理，与代码块「不换行」档同一策略：
+      // ⛔ 不用 `BREAK_ALL` —— 公式被劈开就不可读了，且 `wordbreak_policy` 判据只允许
+      //    MarkdownView 里 1 处 BREAK_ALL（= 代码块换行档）。
+      Scroll() {
+        Text(b.code)
+          .fontSize(MD_CODE_SIZE)
+          .lineHeight(MD_CODE_SIZE * MD_CODE_LEADING)
+          .fontFamily('monospace')
+          .fontColor(this.pal().textPrimary)
+          // 显式断行策略（`markdown_code_overflow ★B2`：无 wordBreak 的站点必须进豁免台账；
+          // 公式不属于短常量 ⇒ 用 BREAK_WORD：有空格处可折，超长不可断串交给外层横滑）
+          .wordBreak(WordBreak.BREAK_WORD)
+          .textAlign(TextAlign.Start)
+      }
+      .scrollable(ScrollDirection.Horizontal)
+      .scrollBar(BarState.Auto)
+      .width('100%')
+      // H0：横向滚动区自身必须裁剪，否则内容按最长行撑宽父级
+      .clip(true)
+      .align(Alignment.TopStart)
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding({ left: 11, right: SP_3, top: SP_2, bottom: SP_2 })
+    .backgroundColor(this.eff().glassBg)
+    .borderRadius({ topRight: R_SM, bottomRight: R_SM })
+    .border({ width: { left: 3, top: 0, right: 0, bottom: 0 }, color: this.pal().accent })
+  }
+
   @Builder
   TableCellSpan(text: string, ci: number, b: MdBlock, head: boolean) {
     Text() {

@@ -109,3 +109,33 @@ export function mergeActiveStatus<T extends ActiveToolLike>(prev: readonly T[] |
 export function detailIterationOf(toolIter: number | undefined | null, blockIter: number): number {
   return toolIter !== undefined && toolIter !== null && toolIter > 0 ? toolIter : blockIter;
 }
+
+/**
+ * 该工具是否**缺详情**（`summary`/`args`/`detail`/`tool_hints` 全空）。
+ *
+ * ⛔ 用户 2026-10-27 P0：「和历史工具交互**看不到详情（包括参数都看不到）**」。
+ *    根因不是请求失败，而是**根本没发请求**：`pages/Index.ets` 的 `toggleTool` 旧判据是
+ *    `it.tools_folded === true`，而模型侧 `Block` 不携带折叠标记、`model_bridge.toHistoryIteration`
+ *    把它**硬编码成 `false`** ⇒ 历史折叠载荷（后端已把详情字段全部省略）永远不触发
+ *    `/api/iteration_detail` ⇒ 浮层一片空白。
+ *    ⇒ 唯一可靠判据 = 「详情字段确实不在手上」（与 web `useIterationDetailGate` 的 gate 等价：
+ *      它也是看"这个迭代是不是轻字段"来决定 hydrate，而不是信任一个可能丢失的 UI 标记）。
+ *
+ * 输入是结构化最小面（`ToolProgress` / web 形状都满足）⇒ 可脱机单测。
+ */
+export function toolNeedsDetail(t: {
+  args?: string;
+  detail?: string;
+  summary?: string;
+  tool_hints?: string;
+} | undefined): boolean {
+  if (t === undefined || t === null) {
+    return false;
+  }
+  const a: string = t.args !== undefined && t.args !== null ? t.args : '';
+  const d: string = t.detail !== undefined && t.detail !== null ? t.detail : '';
+  // ⛔ 只看**参数/输出**这两个"浮层主体"字段：`summary/tool_hints` 可能先到而主体仍缺
+  //   （服务端在 running 期只给 summary）⇒ 把 summary 当"有详情"会让浮层永远只有一行摘要
+  //   而**没有参数/结果**（正是用户 2026-10-27 P0 的观感）。多拉一次是幂等去重的，不浪费。
+  return a.length === 0 && d.length === 0;
+}

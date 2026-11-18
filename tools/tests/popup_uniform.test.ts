@@ -154,7 +154,9 @@ for (const f of files) {
 // ── 台账（自证：扫了哪些文件、逐处三个值）──────────────────────────────────
 console.log(`▶ bindPopup 统一口径台账（${sites} 处）：`);
 for (const l of ledger) { console.log(`    · ${l}`); }
-ok(`扫到 bindPopup 调用点 ≥ 7（实得 ${sites}）—— 零扫描判红`, sites >= 7);
+// ⚡ 2026-11-18：`+N` 溢出列表改**内联**（popup builder 不重建 ⇒ 详情回来不刷新/永久卡 loading）
+//   ⇒ bindPopup 少一处（6 而非 7）；零扫描判红仍守住`sites > 0`。
+ok(`扫到 bindPopup 调用点 > 0（实得 ${sites}）—— 零扫描判红`, sites > 0);
 
 if (violations.length === 0) {
   ok('全部 bindPopup 的 面/圆角/柔影 均取自设计系统口径', true);

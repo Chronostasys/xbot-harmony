@@ -95,9 +95,110 @@ export function isOpenableScheme(href: string): boolean {
 }
 
 /**
+ * **全局链接基地址**（服务端 base URL；唯一写入点 = `core/http.ets` 的 `XbotHttp` 构造函数）。
+ *
+ * 为什么需要：`MarkdownView` 里的链接解析此前依赖 `@Prop linkBase`，而全仓**没有任何调用点**
+ * 传它（恒 `''`）⇒ 相对链接 100% 打不开（用户 2026-10-27 亲报：「后端的链接是相对地址，
+ * 用户要打开自动拼上 host」）。基地址是 HTTP 层的既定事实，不该由 UI 层层透传。
+ */
+let linkBaseGlobal: string = '';
+
+export function setLinkBase(base: string): void {
+  linkBaseGlobal = base !== undefined && base !== null ? base.trim() : '';
+}
+
+/** 当前链接基地址（相对链接解析兜底用；空串 = 未知 ⇒ 相对链接不可打开）。 */
+export function currentLinkBase(): string {
+  return linkBaseGlobal;
+}
+
+/** base 的协议（`https:` / `http:`）。 */
+function linkSchemeOf(base: string): string {
+  return base.indexOf('https://') === 0 ? 'https:' : 'http:';
+}
+
+/** base 的 origin（`scheme://authority`；不可解析 ⇒ 空串）。 */
+function linkOriginOf(base: string): string {
+  const i: number = base.indexOf('://');
+  if (i < 0) {
+    return '';
+  }
+  const rest: string = base.substring(i + 3);
+  const slash: number = rest.indexOf('/');
+  return base.substring(0, i + 3) + (slash >= 0 ? rest.substring(0, slash) : rest);
+}
+
+/** base 的路径部分（总以 `/` 开头；无路径 ⇒ `/`）。 */
+function linkPathOf(base: string): string {
+  const i: number = base.indexOf('://');
+  if (i < 0) {
+    return '/';
+  }
+  const rest: string = base.substring(i + 3);
+  const slash: number = rest.indexOf('/');
+  return slash >= 0 ? rest.substring(slash) : '/';
+}
+
+/** 目录形式：`/a/b` ⇒ `/a/`；已以 `/` 结尾则原样。 */
+function linkDirOf(path: string): string {
+  if (path.length === 0) {
+    return '/';
+  }
+  if (path.charAt(path.length - 1) === '/') {
+    return path;
+  }
+  const cut: number = path.lastIndexOf('/');
+  return cut >= 0 ? path.substring(0, cut + 1) : '/';
+}
+
+/**
+ * RFC 3986 §5.2.4 `remove_dot_segments`（相对地址合并后的路径归一）。
+ *
+ * 只处理**路径部分**：`?query` / `#fragment` 原样接回（不参与 `.`/`..` 计算）。
+ */
+export function normalizeRefPath(ref: string): string {
+  let path: string = ref;
+  let suffix: string = '';
+  const q: number = ref.indexOf('?');
+  const h: number = ref.indexOf('#');
+  const cut: number = q < 0 ? h : (h < 0 ? q : (q < h ? q : h));
+  if (cut >= 0) {
+    path = ref.substring(0, cut);
+    suffix = ref.substring(cut);
+  }
+  const segs: string[] = path.split('/');
+  const out: string[] = [];
+  for (let i = 0; i < segs.length; i++) {
+    const s: string = segs[i];
+    if (s === '.') {
+      continue;
+    }
+    if (s === '..') {
+      if (out.length > 0) {
+        out.splice(out.length - 1, 1);
+      }
+      continue;
+    }
+    out.push(s);
+  }
+  let joined: string = out.join('/');
+  if (joined.length === 0 || joined.charAt(0) !== '/') {
+    joined = `/${joined}`;
+  }
+  return joined + suffix;
+}
+
+/**
  * 解析出可打开的绝对地址（相对地址按 base 拼成绝对地址；不在白名单返回空串）。
  *
- * 为什么要 base：消息里的 `/api/files/download?...` 是同源相对链接，直接交给浏览器会打不开。
+ * 为什么要 base：消息里的 `/api/files/download?...`、`docs/guide.md`、`../x.png` 都是
+ * **相对链接**，直接交给系统浏览器会打不开。语义对齐浏览器（RFC 3986 §5.2 合并 + 去点段）：
+ *   · `http(s)://…` / `mailto:` ⇒ 原样；
+ *   · `//host/path` ⇒ 补 base 协议；
+ *   · `/path` ⇒ base 的 origin + path；
+ *   · `path` / `./path` / `../path` ⇒ base **所在目录** + path（再去 `.`/`..`）；
+ *   · `?q` / `#frag` ⇒ 保留 base 的路径；
+ *   · 其它显式协议（`javascript:`/`data:`/`file:`…）⇒ 拒绝。
  */
 export function resolveOpenable(href: string, base: string): string {
   const h: string = href.trim();
@@ -107,28 +208,35 @@ export function resolveOpenable(href: string, base: string): string {
   if (isOpenableScheme(h)) {
     return h;
   }
+  const b: string = base !== undefined && base !== null && base.trim().length > 0
+    ? base.trim() : linkBaseGlobal;
+  if (b.length === 0) {
+    // 无基地址 ⇒ 相对地址**不可**解析（宁可拒绝，也不要打开一个猜出来的地址）
+    return '';
+  }
   if (h.indexOf('//') === 0) {
     // 协议相对（//host/path）：补上 base 的协议
-    const scheme: string = base.indexOf('https://') === 0 ? 'https:' : 'http:';
-    const abs: string = `${scheme}${h}`;
+    const abs: string = `${linkSchemeOf(b)}${h}`;
     return isOpenableScheme(abs) ? abs : '';
   }
-  if (h.indexOf('/') === 0) {
-    // 同源绝对路径
-    const b: string = stripTrailingSlash(base);
-    const abs: string = `${b}${h}`;
-    return isOpenableScheme(abs) ? abs : '';
+  // 其它显式协议（含 javascript:/data:/file:/tel:）⇒ 一律拒绝
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(h)) {
+    return '';
   }
-  // 其余相对地址：不做拼接（宁可拒绝，也不要打开一个猜出来的地址）
-  return '';
-}
-
-function stripTrailingSlash(s: string): string {
-  let out: string = s;
-  while (out.length > 0 && out.endsWith('/')) {
-    out = out.substring(0, out.length - 1);
+  const origin: string = linkOriginOf(b);
+  if (origin.length === 0) {
+    return '';
   }
-  return out;
+  let merged: string;
+  if (h.charAt(0) === '/') {
+    merged = h;
+  } else if (h.charAt(0) === '?' || h.charAt(0) === '#') {
+    merged = linkPathOf(b) + h;
+  } else {
+    merged = linkDirOf(linkPathOf(b)) + h;
+  }
+  const abs: string = origin + normalizeRefPath(merged);
+  return isOpenableScheme(abs) ? abs : '';
 }
 
 /**

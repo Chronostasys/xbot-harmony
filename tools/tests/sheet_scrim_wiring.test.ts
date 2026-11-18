@@ -120,5 +120,21 @@ ok('④ 非 show* 的三项也在内（ctxOpen/sessMenuId/askUser）',
 const catchers = countOcc(src, ".width('100%').height('100%').onClick");
 ok(`⑤ 捕获层仍保留点击收起（${catchers} 处 ≥ 10）`, catchers >= 10);
 
+// ── ⑥ 关面板唯一出口 `closePanels()` 必须**置位**，不得自递归 ────────────────────
+//   ⛔ 2026-10-22 真机 100% 崩溃根因：批量把 `this.showPanels = false;` 替换成
+//   `this.closePanels();` 时，把函数体里那一行也换了 ⇒ `closePanels()` 里再调
+//   `this.closePanels()` ⇒ 无限递归（关面板必崩）。判据只钉"函数体内部"这一处。
+{
+  const iCp = src.indexOf('private closePanels(): void {');
+  ok('⑥ 找得到 closePanels()', iCp >= 0);
+  const iEnd = iCp >= 0 ? src.indexOf('\n  }', iCp) : -1;
+  const cpBody: string = iCp >= 0 && iEnd > iCp ? src.substring(iCp, iEnd) : '';
+  ok(`⑥ 切片非空（零扫描判红）len=${cpBody.length}`, cpBody.length > 60);
+  ok('⑥ closePanels() 内必须真的置位（this.showPanels = false;）',
+    cpBody.indexOf('this.showPanels = false;') >= 0);
+  ok('⑥ closePanels() 内不得自递归（this.closePanels()）',
+    cpBody.indexOf('this.closePanels()') < 0);
+}
+
 console.log(`  sheet_scrim_wiring: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

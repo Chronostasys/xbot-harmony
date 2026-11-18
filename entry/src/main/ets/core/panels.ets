@@ -75,6 +75,22 @@ export class SubAgentRow {
   /** 服务端给的预览行（有则优先当副行，web 同口径）。 */
   preview: string = '';
   historical: boolean = false;
+  /**
+   * **层级深度**（1 = 当前会话的直接子代理，2 = 孙代理…）。
+   * 2026-10-26 用户：「子代理视图要能展示层级」——按会话树 `children` 的 DFS 深度缩进。
+   */
+  depth: number = 1;
+  /** 是否为其父的**最后一个**孩子（画 `└─` 而不是 `├─`）。 */
+  last: boolean = true;
+  /**
+   * 每一层祖先是否需要延续竖线（`true` = 该层还有后续兄弟 ⇒ 画竖线）。
+   * 长度 = `depth - 1`；与 `last` 组合即可画出标准树线（无闭包递归）。
+   */
+  rails: boolean[] = [];
+  /** 父代理显示名（`''` = 直接挂在当前会话下）。副行用它写「上级 · xxx」。 */
+  parentLabel: string = '';
+  /** 无父节点的孤立子代理（`orphan_subagents` / 后端脏数据）—— 仍要渲染，副行标注「无上级」。 */
+  orphan: boolean = false;
 }
 
 /**
@@ -228,9 +244,220 @@ export function activeSubAgentNodes(root: SessionItem | null | undefined): Sessi
   return out;
 }
 
+/**
+ * 会话树 → **全量子代理行**（含 idle / 完成 / 历史），带层级深度。
+ *
+ * 2026-10-26 用户：「子代理视图改回来，但要能展示层级、也要能看到 idle 的子代理」。
+ *   · 旧实现只取 `activeSubAgentNodes`（running / waiting_input / pending）⇒ **idle 一律不可见**；
+ *   · 层级来自会话树 `children` 的 **DFS 前序深度**（与 `flattenSubAgentNodes` 同序，子节点紧跟父节点）；
+ *   · 排序：**运行中优先**，其次 interrupted（可续跑），再 idle/完成；同级内保持 DFS 顺序（稳定可断言）。
+ */
+export const SUB_TREE_MAX_DEPTH: number = 5;
+export const SUB_TREE_MAX_RAILS: number = 4;
+
+function subKeyOf(n: SessionItem | null | undefined): string {
+  if (n === undefined || n === null) {
+    return '';
+  }
+  const ch: string = n.channel !== undefined && n.channel !== null ? n.channel : '';
+  const id: string = n.chat_id !== undefined && n.chat_id !== null ? n.chat_id : '';
+  return `${ch}#${id}`;
+}
+
+/** 同 key 多行（幽灵行 vs 真身行）时的优选：children 多 → running → 非历史。 */
+function betterSubNode(a: SessionItem, b: SessionItem): boolean {
+  const ca: number = arrOrEmpty(a.children).length;
+  const cb: number = arrOrEmpty(b.children).length;
+  if (ca !== cb) {
+    return ca > cb;
+  }
+  if ((a.running === true) !== (b.running === true)) {
+    return a.running === true;
+  }
+  return (a.historical === true) === false && (b.historical === true) === true;
+}
+
+/**
+ * 会话树 → **全量子代理行**（含 idle / 完成 / 历史），带层级深度与树线信息。
+ *
+ * ⛔ **必须能渲染任何后端畸形数据**（用户 2026-10-26：「后端可能会出 bug，可能有没父亲的子节点，
+ *   任何情况前端渲染都要支持」）：
+ *   · **无父节点的孤立子代理**（`orphan_subagents`，或某节点根本没挂在 root.children 下）⇒
+ *     作为**额外根**参与渲染（depth=1、`orphan=true`），⛔ 不能因为"找不到父"就整条丢失；
+ *   · **同 chat_id 多行**（幽灵行 `children=0` + 真身行 `children=N`）⇒ **择优**（children 多者优先，
+ *     再按 running / 非历史），否则会把整棵子树渲染成空；
+ *   · **缺 chat_id / channel** 的空壳节点 ⇒ 仍渲染（key 用序号兜底），主行有 `(未命名子代理)` 文案；
+ *   · **自引用 / 成环 / 超深** ⇒ `seen` 去重 + `SUB_TREE_MAX_DEPTH` 截断（不递归爆栈、不无限缩进）；
+ *   · **children 为 null/undefined** ⇒ 视作叶子（`arrOrEmpty`）。
+ */
+export function allSubAgentRows(root: SessionItem | null | undefined,
+  orphans?: SessionItem[] | null): SubAgentRow[] {
+  // ── ① 节点级择优：先把所有可达节点按 key 选出一份"真身"
+  const best: Map<string, SessionItem> = new Map<string, SessionItem>();
+  const rootList: SessionItem[] = [];
+  const scan: SessionItem[] = [];
+  const topRoots: SessionItem[] = root === null || root === undefined ? [] : arrOrEmpty(root.children);
+  for (let i = 0; i < topRoots.length; i++) {
+    rootList.push(topRoots[i]);
+    scan.push(topRoots[i]);
+  }
+  const extra: SessionItem[] = arrOrEmpty(orphans);
+  for (let i = 0; i < extra.length; i++) {
+    rootList.push(extra[i]);
+    scan.push(extra[i]);
+  }
+  const seenScan: string[] = [];
+  while (scan.length > 0) {
+    const n: SessionItem = scan.pop() as SessionItem;
+    if (n === undefined || n === null) {
+      continue;
+    }
+    const key: string = subKeyOf(n);
+    const prev: SessionItem | undefined = best.get(key);
+    if (prev === undefined) {
+      best.set(key, n);
+    } else if (betterSubNode(n, prev)) {
+      best.set(key, n);
+    }
+    if (seenScan.indexOf(key) >= 0) {
+      continue;   // 环：扫描阶段只走一次
+    }
+    seenScan.push(key);
+    const kids: SessionItem[] = arrOrEmpty(n.children);
+    for (let j = kids.length - 1; j >= 0; j--) {
+      scan.push(kids[j]);
+    }
+  }
+
+  // ── ② 从根集合 DFS（择优后的节点展开），去重 + 深度截断
+  const out: SubAgentRow[] = [];
+  const seen: string[] = [];
+  const nodes: SessionItem[] = [];
+  const depths: number[] = [];
+  const lasts: boolean[] = [];
+  const rails: boolean[][] = [];
+  const parents: string[] = [];
+  const orphanFlags: boolean[] = [];
+  for (let i = rootList.length - 1; i >= 0; i--) {
+    const key: string = subKeyOf(rootList[i]);
+    const chosen: SessionItem = best.get(key) !== undefined ? best.get(key) as SessionItem : rootList[i];
+    nodes.push(chosen);
+    depths.push(1);
+    lasts.push(i === rootList.length - 1);
+    rails.push([]);
+    parents.push('');
+    orphanFlags.push(i >= topRoots.length);
+  }
+  while (nodes.length > 0) {
+    const n: SessionItem = nodes.pop() as SessionItem;
+    const d: number = depths.pop() as number;
+    const isLast: boolean = lasts.pop() as boolean;
+    const railRow: boolean[] = rails.pop() as boolean[];
+    const parentLabel: string = parents.pop() as string;
+    const orphan: boolean = orphanFlags.pop() as boolean;
+    if (n === undefined || n === null) {
+      continue;
+    }
+    const key: string = subKeyOf(n);
+    if (seen.indexOf(key) >= 0) {
+      continue;
+    }
+    seen.push(key);
+    const row: SubAgentRow = subAgentRowOf(n, d);
+    row.last = isLast;
+    // 视觉上限：只保留前 4 层竖线（更深的层级不再继续缩进，避免"树线错位"）
+    row.rails = railRow.length > SUB_TREE_MAX_RAILS ? railRow.slice(0, SUB_TREE_MAX_RAILS) : railRow;
+    row.parentLabel = parentLabel;
+    row.orphan = orphan;
+    out.push(row);
+    if (d >= SUB_TREE_MAX_DEPTH) {
+      continue;   // 深度截断（后端的环/超深数据不再展开）
+    }
+    const kids: SessionItem[] = arrOrEmpty(n.children);
+    const myName: string = subagentPrimary(row);
+    for (let j = kids.length - 1; j >= 0; j--) {
+      const kidKey: string = subKeyOf(kids[j]);
+      const kidNode: SessionItem = best.get(kidKey) !== undefined ? best.get(kidKey) as SessionItem : kids[j];
+      nodes.push(kidNode);
+      depths.push(d + 1);
+      lasts.push(j === kids.length - 1);
+      const nextRails: boolean[] = [];
+      for (let r = 0; r < railRow.length; r++) {
+        nextRails.push(railRow[r]);
+      }
+      nextRails.push(!isLast);
+      rails.push(nextRails);
+      parents.push(myName);
+      orphanFlags.push(false);
+    }
+  }
+
+  // ── ③ **全局前瞻**重算树线与折角（⛔ 不能用"按父节点"的局部 last —— 真机实测：
+  //   孤儿子代理排在末尾时，上一棵子树的 `└─` 会让主干**断半行** ⇒ "下面两个没和上面连一起"）。
+  //   规则（只看顺序与深度，纯结构）：
+  //     · 本行折角竖线（第 depth-1 列）继续 ⇔ **后面还有 depth ≥ 本行 depth 的行**；
+  //     · 祖先第 k 列竖线继续 ⇔ **后面还有 depth ≥ k+2 的行**；
+  //     · ⇒ 只有"整表最后一行"才是 `└─`；中间出现 `└─` 只在同层确实没有后续兄弟时。
+  const rowCount: number = out.length;
+  for (let i = 0; i < rowCount; i++) {
+    const d: number = out[i].depth;
+    const railsLen: number = d - 1 < SUB_TREE_MAX_RAILS ? d - 1 : SUB_TREE_MAX_RAILS;
+    const railOut: boolean[] = [];
+    for (let k = 0; k < railsLen; k++) {
+      let cont: boolean = false;
+      for (let j = i + 1; j < rowCount; j++) {
+        if (out[j].depth >= k + 2) {
+          cont = true;
+          break;
+        }
+      }
+      railOut.push(cont);
+    }
+    out[i].rails = railOut;
+    let laterSame: boolean = false;
+    for (let j = i + 1; j < rowCount; j++) {
+      if (out[j].depth >= d) {
+        laterSame = true;
+        break;
+      }
+    }
+    out[i].last = !laterSame;
+  }
+  return out;
+}
+
+/**
+ * 子代理**状态短标签**（不含 preview）—— 树图右侧的状态胶囊用。
+ * 与 `subagentSubText` 的区别：后者优先展示 preview（内容摘要），这里只要状态。
+ */
+export function subagentStatusText(s: SubAgentRow): string {
+  const st: string = s.status !== undefined ? s.status.trim() : '';
+  if (st === 'waiting_input') {
+    return '待输入';
+  }
+  if (st === 'interrupted') {
+    return '可续跑';
+  }
+  if (st === 'unloaded') {
+    return '已卸载';
+  }
+  if (st === 'pending') {
+    return '排队';
+  }
+  if (s.running === true) {
+    return '运行中';
+  }
+  if (s.historical === true) {
+    return '历史';
+  }
+  // ⛔ 后端可能给出**未知状态**（新旧版本/脏数据）⇒ 原样显示，别谎报成"空闲"
+  return st.length > 0 ? st : '空闲';
+}
+
 /** 会话节点 → 面板行（字段三态取值：服务端字符串可能是 JSON `null`）。 */
-export function subAgentRowOf(s: SessionItem): SubAgentRow {
+export function subAgentRowOf(s: SessionItem, depth: number = 1): SubAgentRow {
   const r: SubAgentRow = new SubAgentRow();
+  r.depth = depth > 0 ? depth : 1;
   r.chat_id = s.chat_id !== undefined && s.chat_id !== null ? s.chat_id : '';
   r.label = s.label !== undefined && s.label !== null ? s.label : '';
   r.role = s.role !== undefined && s.role !== null ? s.role : '';
@@ -615,7 +842,9 @@ export function subagentPrimary(s: SubAgentRow): string {
   if (label.length > 0) {
     return label;
   }
-  return s.chat_id !== undefined ? s.chat_id : '';
+  const id: string = s.chat_id !== undefined ? s.chat_id.trim() : '';
+  // ⛔ 后端可能给"没有 chat_id 的空壳节点" ⇒ 主行也不能是空白（否则一行字都没有）
+  return id.length > 0 ? id : '(未命名子代理)';
 }
 
 /** 子代理·副行 = 预览 / 等待输入 / 排队中 / 运行中 / 历史 / 完成（纯文字，无 emoji —— §2.8）。 */
@@ -627,6 +856,15 @@ export function subagentSubText(s: SubAgentRow): string {
   const st: string = s.status !== undefined ? s.status.trim() : '';
   if (st === 'waiting_input') {
     return '等待输入';
+  }
+  // 2026-10-22 后端新增（`agent/interactive_persist.go` 的四态）：重启后上一进程的
+  // goroutine 已消失 ⇒ `interrupted`（可续跑）/`unloaded`（已级联卸载）**都不是运行中**，
+  // 但必须与"完成"区分开 —— 否则用户看到失败/中断的子代理显示「完成」（测谎）。
+  if (st === 'interrupted') {
+    return '已中断 · 可续跑';
+  }
+  if (st === 'unloaded') {
+    return '已卸载';
   }
   if (st === 'pending') {
     return '排队中';

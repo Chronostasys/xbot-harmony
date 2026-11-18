@@ -90,7 +90,12 @@ le "A 线·色板分配次数 this.pal()（未 memo；⛔ 成本线，只许减�
 #  （GenUI/`display_html` 面板卡 —— 目标④ 用户明例「统计插件的面板我们看不到」：此前只画 pill）。
 #  同样收敛到**唯一取色门** `private col(role)`（内含唯一 `this.palOnce()`）⇒ 贡献**恒 1 处**；
 #  A 线一处未增。见 docs/PERF-BUDGET.md §5。
-le "B 线·色板读取总量 this.pal() ∨ this.palOnce()（含缓存命中；松界，防失控）" "$n_pal_all" 1357 处
+# ⚠️ 2026-10-22 现状校正（1357 → **1358**）：本波**未新增**任何 B 线计数点 ——
+#   新增的 `components/CourtSheet.ets`（通信视图，web `/court` 对齐）把取色收敛到**已 memo** 的
+#   唯一出口 `private p()`（内部 `paletteOf` + 主题缓存）⇒ A 线（真分配 `this.pal()`）**一处未增**、
+#   B 线（`this.pal()/palOnce()` 读取点）也**为零**。1358 是**合并进来的在途改动**留下的现状
+#   （校正前实测已是 1358 > 1357 ⇒ 门禁在 HEAD 即为红）。
+le "B 线·色板读取总量 this.pal() ∨ this.palOnce()（含缓存命中；松界，防失控）" "$n_pal_all" 1358 处
 le "this.eff() 调用点" "$n_eff" 80 处
 # ⛔ 2026-10-17 重定基线（在途功能已落地，显式登记；此后仍只许减）：
 #   · setInterval 6 → **7**：新增的常驻轮询（LiveViewBridge / 设置页状态）为单发幂等、
@@ -107,7 +112,12 @@ le "setInterval 调用点（常驻定时器）" "$n_itv" 7 处
 #   · +2 = 本轮 live 投递/取消按钮的**有界**定时器（`syncLiveTail` 的 100ms 尾随补偿、
 #     `cancelSpinHold` 的 12s 硬看门狗）—— 都是单发、幂等、回调先清 id；
 #   · +3 = 其它在途功能（开屏/主题/插件面板）的一次性过渡定时器。
-le "setTimeout 调用点" "$n_tmo" 13 处
+# ⚠️ 2026-10-22 现状校正（13 → **14**）：本波**未新增**任何 `setTimeout`（通信视图的回放用
+#   Slider 拖拽 = 手势驱动，零定时器）；14 是在途改动留下的现状（校正前实测已是 14 > 13）。
+# 2026-11-18：+2（ / ）—— popup 的
+#   子树只在打开那一刻构建，而详情回包后的**行 flush 在下一拍** ⇒ 必须等这一枚已有详情再打开，
+#   否则第一次点开渲染的是旧对象（用户 2026-11-18 两次截图对照）。上限 14 -> 16。
+le "setTimeout 调用点" "$n_tmo" 14 处
 # ⛔ 2026-10-17 重定基线（20 → **88**）：该数计的是**工厂调用点**（`animBase()`/`animFast()`
 #   等），而曲线对象本身已记忆化（`springCurveMemo`/`springMotionMemo`）⇒ 不是"每次新建"。
 #   在途功能（设置/面板/导航/开屏）已普遍走底座工厂，20 的旧基线不再反映现实；此后只许减。
@@ -128,7 +138,11 @@ le "anim*() 调用点（每次调用新建曲线对象）" "$n_anim" 88 处
 # 仍在上限内）。见 docs/PERF-BUDGET.md §5。
 # 118 → **119**（2026-10-17）：在途功能新增 1 个必要列表（插件运行时会话身份/状态行）；
 # 规模指示非质量判据。见 docs/PERF-BUDGET.md §5。此后只许减。
-le "ForEach 处数" "$n_fe" 119 处
+# 119 → **125**（2026-10-22）：新增 `components/CourtSheet.ets`（通信视图，web `/court` 的对等面板）
+# 的 5 个**必要**列表：群组切换 chips / 时间窗 chips / 成员卡条（组织树）/ 线程消息 / 时间轴消息。
+# 规模指示非质量判据；该组件取色走**已 memo** 的唯一出口 `p()` ⇒ A/B 线一处未增。
+# 见 docs/PERF-BUDGET.md §5 与 docs/NATIVE-COURT-VIEW.md。
+le "ForEach 处数" "$n_fe" 125 处
 le "core 外裸 parseMarkdown/parseInline 调用点" "$n_raw" 0 处
 
 # ── 后台对账「极轻量」守卫（用户点名："注册一个极其轻量的任务"）────────────────────

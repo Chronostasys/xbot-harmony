@@ -3,11 +3,15 @@ import { KeyboardAvoidMode, UIContext, window } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import fs from '@ohos.file.fs';
 import { setSseWriter } from '../core/sse_recorder';
+import { OperateDemo, operateDemo } from '../probe/hdcdemo';
+import { startPhoneClient } from '../probe/phoneclient';
+import { ensureDataTransferTask, stopDataTransferTask } from '../components/BgTask';
 import { BusinessError } from '@kit.BasicServicesKit';
 import {
   PENDING_ACTION_KEY,
   PENDING_CHAT_KEY,
   PENDING_CHAT_SEQ_KEY,
+  beginTurnKeepAlive,
   endTurnKeepAlive,
   ensureEnabled,
   initSlots,
@@ -151,6 +155,14 @@ export default class EntryAbility extends UIAbility {
       AppStorage.setOrCreate<boolean>('openSseReplay', true);
     }
     hilog.info(DOMAIN, TAG, 'EntryAbility onCreate');
+    // ⚠️ 临时：手机操作自检（App → hdcd 自连 → uitest：dump → 点击 → 再 dump 验证）
+    //    结果打 hilog（tag=HDC-OP），验证完成后收敛成正式工具。
+    void operateDemo(this.context, '设置').then((r: OperateDemo) => {
+      hilog.info(DOMAIN, TAG, `HDC-OP ok=${r.ok} ${r.log}`);
+    });
+    // 手机操作**命令拉取器**：客户端主动拉服务端命令（长轮询），执行后回传。
+    // ⛔ 不用手机内网 IP 被直连；⛔ 不走 Mac 上的 hdc CLI。
+    startPhoneClient(this.context);
   }
 
   /**
@@ -235,11 +247,23 @@ export default class EntryAbility extends UIAbility {
     AppStorage.setOrCreate<number>('appResumedAt', Date.now());
     // 用户已经回来了：短时任务不再需要（幂等），角标/通知一并清掉。
     endTurnKeepAlive();
+    void stopDataTransferTask(this.context);
     reconcileOnForeground();
   }
 
   onBackground(): void {
     setAppForeground(false);
+    // ⛔ 实况窗在后台"停更"的真因（真机日志实证）：应用被系统 **Freeze**
+    //    （`SUSPEND_MANAGER: Freeze com.chronostasys.xbot`）⇒ 冻结后调不了
+    //    `liveViewManager.updateLiveView` ⇒ 实况窗停在最后一帧。
+    //    现有保活只有**短时任务**（`requestSuspendDelay` ≤3 分钟），且此前只在"发送成功那一刻"
+    //    申请 —— 用户在前台待久了窗口早已过期，一进后台立刻被冻。
+    //    ⇒ 进后台时若**回合仍在跑**，从这里重新申请一次，窗口才从"进后台那一刻"起算。
+    if (AppStorage.get<boolean>('turnBusy') === true) {
+      beginTurnKeepAlive();
+      // 短时任务只有 ≤3 分钟 ⇒ 再加一条 DATA_TRANSFER 长时任务撑住进程（不播音频）。
+      void ensureDataTransferTask(this.context);
+    }
   }
 
   /**
@@ -250,6 +274,10 @@ export default class EntryAbility extends UIAbility {
     this.captureOpenChat(want);
     // 深链命令（ability 已在运行时走这里；与冷启动同一条通路）。
     this.captureCommandUri(want);
+    // ⚠️ 临时：热启动也跑一次手机操作自检（`aa start` 命中这里，避免 force-stop）
+    void operateDemo(this.context, '设置').then((r: OperateDemo) => {
+      hilog.info(DOMAIN, TAG, `HDC-OP ok=${r.ok} ${r.log}`);
+    });
   }
 
   /**

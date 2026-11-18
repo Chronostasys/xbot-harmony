@@ -59,8 +59,10 @@ console.log('\n▶ §C 接线：切回前台**先**打探针（轻量），脉�
     /probeActiveStall\('foreground'\)/.test(page));
   ok('★C `onPageShow` 也调（两条 show 路径都覆盖）',
     /probeActiveStall\('pageshow'\)/.test(page));
-  ok('★C 探针在 `loadHistory` 之前（`resyncAfterResume` 里先 loadSessions→loadHistory，探针更早触发）',
-    page.indexOf("probeActiveStall('foreground')") < page.indexOf("store.resyncAfterResume('ability-foreground')"));
+  // ⛔ 2026-10-22：回前台的权威动作换成连续性判据 `resumeContinuity('foreground')`
+  //   （判据内部才决定 GAP 补洞 / RELOAD 重载），探针仍必须**早于**它打。
+  ok('★C 探针在恢复动作之前（先轻量探活，再决定补洞/重载）',
+    page.indexOf("probeActiveStall('foreground')") < page.indexOf("store.resumeContinuity('foreground')"));
   ok('★C 脉冲里 `checkLiveSignalStall()` **先于**滚动/触摸早退',
     /this\.checkLiveSignalStall\(\);[\s\S]{0,200}if \(this\.userScrolling \|\| this\.userTouchActive\)/.test(page));
   ok('★C store 用轻量 RPC `RPC_GET_ACTIVE_PROGRESS`（不是重历史）',

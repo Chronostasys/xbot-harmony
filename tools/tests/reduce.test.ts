@@ -225,9 +225,11 @@ it('REPRO: !cmd 完整时序（ack 无 turn_id + 历史刷新）不得让 user �
     type: 'text_final', turnID: null, content: '```\n/root\n```' as never, progressHistory: [], cancelled: false, commandReply: true,
   })
   // ⛔ 行断言已删除（4 条）—— 新链路无等价物：
-  //   ① 命令回复的 `text_final` 在 `model_adapter` 里 **turnID<=0 ⇒ 返回 []**（"由驱动层写
-  //      standalone"，见 `model_adapter.ts:280`）；`step`/`project` 都不产命令回复行 ⇒
-  //      "命令回复可见"在新链路**由 store（驱动层）负责**，模型侧无落点。
+  //   ① 命令回复的 `text_final`（**显式** `commandReply=true`）在 `model_adapter` 里
+  //      **返回 []**（"由驱动层写 standalone"，见 `model_adapter.ts` 的 text_final 分支）；
+  //      `step`/`project` 都不产命令回复行 ⇒ "命令回复可见"在新链路**由 store（驱动层）负责**，
+  //      模型侧无落点。（⛔ 只有**显式标记**的命令回复如此；缺 turn_id 的**普通**收尾帧
+  //      会被归属到未收尾回合 —— 判据 `tools/tests/cancel_final_turnless.test.ts`。）
   //   ② 乐观 user 行在 `user_ack` 后按 requestID **退役**（不是"留在原地"）⇒
   //      "ack+回复后 user 行应仍在"在模型侧不成立（同一 user 行由后续 `turn_started` 重建）。
   //   ⇒ 该用例的状态机部分（上面三条 reduce 转移）保留；行判据待驱动层接线后在新入口重写。
@@ -2613,9 +2615,10 @@ describe('P1-1 — standalone 只认显式命令回复标记', () => {
       progressHistory: [], cancelled: false,
     } as DomainEvent)
     expect(s.standalone.length, '普通回复（无命令标记）绝不能变成 standalone 独立行').toBe(before)
-    // ⛔ 行断言已删除：新链路 `model_adapter` 对 `text_final{turnID<=0}` **不产生任何帧**
-    //   （`turn <= 0 ⇒ return []`，命令回复由驱动层写 standalone）⇒ "并入 activeTurn"
-    //   的客户端兜底在模型侧不存在（无 turn_id 的普通回复会被丢弃）。已上报。
+    // ⛔ 行断言已删除：新链路里**命令回复**（显式 `commandReply=true`）在 `model_adapter`
+    //   返回空帧（行由驱动层写 standalone）；而**缺 turn_id 的普通收尾帧**会归属到
+    //   未收尾回合（2026-10-22 修复，判据 `cancel_final_turnless`）—— reduce 侧这条
+    //   "并入 activeTurn" 的语义与模型侧现已一致。
     expect(s.standalone.length, 'reduce 侧判据保持（普通回复绝不变成 standalone）').toBe(before)
   })
 
@@ -2628,7 +2631,7 @@ describe('P1-1 — standalone 只认显式命令回复标记', () => {
     expect(s.standalone.length, '命令回复必须成为独立行（turnID 保持 0 + standalone 标记）').toBe(1)
     expect(s.standalone[0].standalone).toBe(true)
     // ⛔ 两条行断言已删除：命令回复的渲染行由**驱动层**（store 写 `State.standalone`）
-    //   产生，`model_adapter`/`model_step` 对 `text_final{turnID<=0}` 返回空帧
+    //   产生，`model_adapter` 对显式命令回复（`commandReply=true`）返回空帧
     //   ⇒ 模型投影里没有 standalone 行的入口（`project` 支持 `s.standalone`，但没人写）。
     //   reduce 侧的两条（`standalone.length === 1` + `standalone[0].standalone`）保留。
   })

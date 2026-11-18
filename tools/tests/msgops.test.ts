@@ -47,7 +47,10 @@ eq('同源相对按 base 拼', resolveOpenable('/api/files/download?key=a', 'htt
 eq('base 末尾斜杠不重复', resolveOpenable('/a', 'https://x.com/'), 'https://x.com/a');
 eq('协议相对补 https', resolveOpenable('//cdn.com/a.png', 'https://x.com'), 'https://cdn.com/a.png');
 eq('协议相对补 http', resolveOpenable('//cdn.com/a.png', 'http://x.com'), 'http://cdn.com/a.png');
-eq('裸相对地址拒绝（不猜）', resolveOpenable('foo/bar', 'https://x.com'), '');
+// 2026-10-27 契约变更（用户要求「相对地址自动拼 host」）：裸相对地址**按 base 目录解析**，
+// 不再"拒绝不猜"；无 base 时才 fail-closed（见 `tools/tests/link_resolve.test.ts`）。
+eq('裸相对地址按 base 拼', resolveOpenable('foo/bar', 'https://x.com'), 'https://x.com/foo/bar');
+eq('裸相对地址无 base ⇒ 拒绝', resolveOpenable('foo/bar', ''), '');
 eq('javascript 拒绝', resolveOpenable('javascript:1', 'https://x.com'), '');
 eq('空地址拒绝', resolveOpenable('', 'https://x.com'), '');
 

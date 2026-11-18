@@ -363,7 +363,23 @@ export const NATIVE_ZH: string[] = [
   "① 冷启动品牌开屏（SplashOverlay）——点「播放」全屏重放，点「T2」看让位淡出",
   "② 切会话加载态（SessionLoadingSplash，与 Index.ets 同一组件）",
   "③ 对比主题（浅/深）",
+  // ── 通信视图（web `/court` 面板，2026-10-22 原生补齐）────────────────────────
+  "通信视图",
+  "实时",
+  "离线",
+  "过滤",
+  "回放",
+  "暂无通信数据",
+  "当前时间窗内没有消息",
+  "← 返回时间轴",
+  "返回时间轴",
+  "线程",
+  "已分叉出新会话",
+  "新建失败: 服务端未返回会话 id",
 
+  // 2026-10-23：「+N」溢出徽标的无障碍文案（组件唯一实现 OverflowPillBadge）
+  "还有",
+  "个工具",
 ];
 export const NATIVE_EN: string[] = [
   "#RRGGBB (e.g. #7C3AED)",
@@ -725,7 +741,23 @@ export const NATIVE_EN: string[] = [
   "① Cold-start brand splash (SplashOverlay) — tap Play to replay full-screen, tap T2 to preview the handoff fade",
   "② Session-switch loading state (SessionLoadingSplash, same component as Index.ets)",
   "③ Theme comparison (light/dark)",
+  // ── Communication view (web `/court` panel, native parity 2026-10-22) ──────
+  "Communication",
+  "Live",
+  "Offline",
+  "Filter",
+  "Replay",
+  "No communication data yet",
+  "No messages in this time window",
+  "← Back to timeline",
+  "Back to timeline",
+  "Thread",
+  "Forked into a new session",
+  "Create failed: server did not return a chat id",
 
+  // 2026-10-23: a11y text for the "+N" overflow badge (single impl OverflowPillBadge)
+  "and",
+  "more tools",
 ];
 export const NATIVE_JA: string[] = [
   "#RRGGBB（例: #7C3AED）",
@@ -1087,5 +1119,21 @@ export const NATIVE_JA: string[] = [
   "① コールドスタートのブランドスプラッシュ（SplashOverlay）— 「再生」で全画面リプレイ、「T2」でフェードアウトを確認",
   "② セッション切替の読み込み状態（SessionLoadingSplash、Index.ets と同一コンポーネント）",
   "③ テーマ比較（ライト/ダーク）",
+  // ── 通信ビュー（web `/court` パネル、2026-10-22 ネイティブ対応）──────────────
+  "コミュニケーション",
+  "リアルタイム",
+  "オフライン",
+  "フィルタ",
+  "リプレイ",
+  "通信データがありません",
+  "この時間枠にメッセージはありません",
+  "← タイムラインに戻る",
+  "タイムラインに戻る",
+  "スレッド",
+  "新しいセッションに分岐しました",
+  "作成に失敗しました: サーバーがセッション ID を返しませんでした",
 
+  // 2026-10-23：「+N」オーバーフローバッジのアクセシビリティ文言
+  "あと",
+  "個のツール",
 ];

@@ -106,6 +106,26 @@ for (let i = 0; i < fields.length; i++) {
 }
 ok('prev=null ⇒ false（未推过就不算相同）', sameLiveView(null, base) === false);
 
+// ── ④ 会话身份（用户 2026-11-11 亲报「切会话，实况窗显示内容没变」）──────────
+console.log('\n▶ ④ 会话身份');
+{
+  const a = new LiveViewInput();
+  a.busy = true; a.iteration = 1; a.toolLabel = 'Shell'; a.toolStatus = 'running';
+  a.runes = 10; a.startedAtMs = 1000; a.title = '会话A';
+  const b = new LiveViewInput();
+  b.busy = true; b.iteration = 1; b.toolLabel = 'Shell'; b.toolStatus = 'running';
+  b.runes = 10; b.startedAtMs = 1000; b.title = '会话B';
+  const sa = liveViewSnapshotOf(a, 2000);
+  const sb = liveViewSnapshotOf(b, 2000);
+  eq('④ 快照标题取自输入（会话名）', sa.title, '会话A');
+  ok('④ 仅标题不同 ⇒ 快照不等（其余指标完全相同）', JSON.stringify(sa) !== JSON.stringify(sb));
+  ok('④ 仅标题变化 ⇒ 立刻推送（同毫秒、不受 1s 节流）', shouldPushLiveView(sa, sb, 2000, 2000) === true);
+  ok('④ 反向：同快照同毫秒 ⇒ 不推（节流仍生效）', shouldPushLiveView(sa, sa, 2000, 2000) === false);
+  const c = new LiveViewInput();
+  c.busy = true;
+  eq('④ 无会话名 ⇒ 回落 xbot', liveViewSnapshotOf(c, 1).title, 'xbot');
+}
+
 if (fail > 0) {
   console.log(`  liveview: ${pass} passed, ${fail} failed`);
   process.exit(1);

@@ -31,9 +31,11 @@ function eq(name: string, got: unknown, want: unknown): void {
 // ── 名字判定：8 真名 + bg_subagent_ 前缀族；真工具不误判 ──────────────────────
 eq('SYNTHETIC_TOOL_NAMES 长度 = 8', SYNTHETIC_TOOL_NAMES.length, 8);
 const REAL_NAMES: string[] = ['Shell', 'Read', 'FileReplace', 'Grep', 'Glob', 'TodoWrite', 'background', 'user'];
-for (const n of SYNTHETIC_TOOL_NAMES) { eq(`isSyntheticToolName(${n})`, isSyntheticToolName(n), true); }
-eq('bg_subagent_ 前缀（非精确名）', isSyntheticToolName('bg_subagent_explore'), true);
-eq('bg_subagent_ 前缀（带实例）', isSyntheticToolName('bg_subagent_explore/mem-1'), true);
+// ⛔ 2026-10-28 用户裁决：注入型工具**一律按普通工具渲染**（专用卡 = 「无论怎样都没详情」的
+//   观感来源）⇒ 判据恒 false；名字集合仍保留（`inferSyntheticKind` 解析 hints 用）。
+for (const n of SYNTHETIC_TOOL_NAMES) { eq(`渲染判据恒 false（${n}）`, isSyntheticToolName(n), false); }
+eq('bg_subagent_ 前缀也按普通工具渲染', isSyntheticToolName('bg_subagent_explore'), false);
+eq('bg_subagent_ 前缀（带实例）同样', isSyntheticToolName('bg_subagent_explore/mem-1'), false);
 for (const n of REAL_NAMES) { eq(`真工具 ${n} ⇒ 不误判`, isSyntheticToolName(n), false); }
 eq('空名 ⇒ 不误判', isSyntheticToolName(''), false);
 

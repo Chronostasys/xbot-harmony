@@ -175,10 +175,46 @@ export class LiveViewBridge {
       }
       // ⛔ 每次推送都必须换一个新的 sequence（系统侧要求严格递增，否则 update 被拒）。
       this.seq = this.seq + 1;
-      const v: liveViewManager.LiveView = this.build(next);
-      const res: liveViewManager.LiveViewResult = this.live
-        ? await liveViewManager.updateLiveView(v)
-        : await liveViewManager.startLiveView(v);
+      let v: liveViewManager.LiveView = this.build(next);
+      let res: liveViewManager.LiveViewResult = { resultCode: 0, message: '' };
+      let startFailed: boolean = false;
+      let startCode: number = 0;
+      if (this.live) {
+        res = await liveViewManager.updateLiveView(v);
+      } else {
+        try {
+          res = await liveViewManager.startLiveView(v);
+        } catch (e) {
+          const err0: BusinessError = e as BusinessError;
+          startFailed = true;
+          startCode = err0 !== undefined && err0 !== null ? err0.code : -1;
+        }
+        if (startFailed) {
+          if (startCode === 1003500006) {
+            // 1003500006 = The liveView already exists.
+            // 进程重启后系统里仍挂着同一 LV_ID 的实况窗，此时 startLiveView 永远失败；
+            // 而 live 是本进程状态（重启后必为 false）⇒ 每次只重试 start、永远不更新
+            // （用户 2026-11-11 亲报「重启 App 后完全不更新」）。改判为已存在 ⇒ 直接 update。
+            this.live = true;
+            this.seq = this.seq + 1;
+            v = this.build(next);
+            res = await liveViewManager.updateLiveView(v);
+            log('liveview', '实况窗已存在（1003500006）⇒ 转 update（不再反复 start）');
+          } else if (startCode === 1003500004 || startCode === 1003500003 || startCode === 401) {
+            if (this.cap !== LV_CAP_NO) {
+              log('liveview', `实况窗不可用（code=${startCode}），已降级不再尝试`);
+            }
+            this.cap = LV_CAP_NO;
+            this.live = false;
+            return;
+          } else {
+            log('liveview', `实况窗调用失败 code=${startCode}`);
+            this.last = next;
+            this.lastPushMs = nowMs;
+            return;
+          }
+        }
+      }
       if (!this.live) {
         const code: number = res !== undefined && res !== null ? res.resultCode : 0;
         log('liveview', `startLiveView 成功 code=${code} id=${LV_ID} event=${LV_EVENT}`);

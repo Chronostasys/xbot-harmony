@@ -33,6 +33,13 @@ import {
 } from '../core/diffparse';
 import { animBase } from './anim';
 import { t as i18nT } from '../core/i18n';
+import { toolNeedsDetail } from '../core/toolmerge';
+import { withToolDetail } from '../core/toollayer';
+
+/** 状态点直径（折叠面板行首）。 */
+/** 展开区的 loading 指示器尺寸（与状态点同档，视觉不抢内容）。 */
+const LOADING_ICON: number = 16;
+const OVERFLOW_DOT: number = 7;
 
 /** 内容区最大高度（vp）—— 屏 ≈844vp；限制在 ~1/3 ⇒ 浮层朝上朝下都放得下。 */
 const BODY_MAX_H: number = 260;
@@ -198,6 +205,27 @@ export function toolDetailVM(t: ToolProgress | undefined, statusColor: string, s
       vm.detail = sp.output;
     }
   }
+  // ⛔ 注入型工具（`background_task_result` / `bg_subagent_*` / `pre_turn_end` …）**没有**
+  //   args/detail，只有 `tool_hints` 里的结构化载荷；而 hints 只在是 diff 时才被渲染
+  //   ⇒ 用户点开永远「暂无详情」（2026-10-28 截图实证）。⇒ 非 diff 的 hints 直接当"输出"展示
+  //   （宁可露出原始 JSON，也不能让浮层空着——那是"没有详情"的假象）。
+  if (vm.detail.length === 0 && vm.args.length === 0 && vm.summary.length === 0
+    && hints.length > 0 && !hasDiffBody(hints)) {
+    vm.detail = hints;
+  }
+  // ⛔ **绝不出现「暂无详情」**（用户 2026-10-28：「有时候还是暂无详情，这是严重 bug」）：
+  //   注入型工具（`background_task_result` / `bg:*` / `task_wait` …）常常只有 `label`
+  //   （结构化载荷就在 label 里，如 `background_task_result: {}`），而 args/detail/hints 全空。
+  //   ⇒ 兜底顺序：`tool_hints`（非 diff）→ **label**（它本身带载荷）→ 状态行。
+  //   绝不会只剩一句"暂无详情"。
+  if (vm.detail.length === 0 && vm.args.length === 0 && vm.summary.length === 0
+    && vm.content.length === 0 && !hasDiffBody(hints)) {
+    if (vm.title.length > 0) {
+      vm.detail = vm.title;
+    } else if (vm.status.length > 0) {
+      vm.detail = vm.status;
+    }
+  }
   vm.hasAny = vm.args.length > 0 || vm.detail.length > 0 || vm.summary.length > 0
     || vm.content.length > 0 || hasDiffBody(hints);
   return vm;
@@ -346,7 +374,8 @@ export struct ToolPopoverCard {
   @Builder
   SectionHead(label: string, body: string, what: string) {
     Row({ space: SP_1 }) {
-      Text(label).fontSize(typeOf(TYPE_CHIP).size).fontColor(this.pal().textMuted).layoutWeight(1)
+      Text(label).fontSize(typeOf(TYPE_CHIP).size).fontColor(this.pal().textMuted)
+        .fontWeight(FontWeight.Medium).layoutWeight(1)
       // ⛔ 命中区：真机实测 `responseRegion` 负偏移外扩**无效** ⇒ 真实 44×44 布局盒承载 `onClick`
       //    （左邻 = 标签 `Text`（`layoutWeight(1)`，**不可点**）⇒ 盒宽 ≥44 不抢他人命中区）；
       //    图标视觉尺寸不变（仍 `MARKER_GLYPH`，盒内居中）。
@@ -468,8 +497,12 @@ export struct ToolPopoverCard {
       //   整卡改为**单一纵向 Scroll**（对齐 web 根 `overflow-y-auto`）⇒ 纵向只一个滚动源、
       //   嵌套滚动冲突消除；代码长行仍横滑（内层 `Column` 不设宽 ⇒ 列宽 = 最长行）。
       .scrollable(ScrollDirection.Horizontal)
+      // ⛔ 内层（横向）先消费手势：整卡外层是纵向 Scroll，ArkUI 默认嵌套里外层优先 ⇒ 右侧被裁却滑不动、滚动条也不出现（用户 2026-11-13）。
+      .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
       .scrollBar(BarState.Auto)
       .width('100%')
+      // ⛔ 内容短于视口时 `Scroll` 默认**居中**（用户 2026-11-18：task_wait 这类短输出居中不对）⇒ 一律 TopStart
+      .align(Alignment.TopStart)
       // ⛔ 超宽内容**裁在块内**（长行/长 JSON/长路径 ⇒ 否则撑宽父级 ⇒ "字超出屏幕"）。
       .clip(true)
       // 内边距对齐 web `ToolCallBlock.tsx:66`（JSON 参数块 `px-2.5 py-1.5` = 左右 10 / 上下 6）
@@ -499,8 +532,12 @@ export struct ToolPopoverCard {
         .alignItems(HorizontalAlign.Start)
       }
       .scrollable(ScrollDirection.Horizontal)
+      // ⛔ 内层（横向）先消费手势：整卡外层是纵向 Scroll，ArkUI 默认嵌套里外层优先 ⇒ 右侧被裁却滑不动、滚动条也不出现（用户 2026-11-13）。
+      .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
       .scrollBar(BarState.Auto)
       .width('100%')
+      // ⛔ 内容短于视口时 `Scroll` 默认**居中**（用户 2026-11-18：task_wait 这类短输出居中不对）⇒ 一律 TopStart
+      .align(Alignment.TopStart)
       .clip(true)
       // 内边距对齐 web `ToolCallBlock.tsx:98`（终端输出块 `px-2.5 py-1.5` = 左右 10 / 上下 6）
       .padding({ left: 10, right: 10, top: 6, bottom: 6 })
@@ -535,9 +572,10 @@ export struct ToolPopoverCard {
         // ⛔ 不折行（web `whitespace-pre`）：长行由 diff 卡整体横向滚动承担
         .wordBreak(WordBreak.NORMAL)
         .maxLines(1)
-        // ⛔ **水平溢出**：与行号列/标记列同一 Row ⇒ 正文必须能收缩（`layoutWeight(1)` 取余下宽度），
-        //    否则长行把**整个 diff Row 顶出屏宽**（横向滚动区若未裁剪更会撑宽父级）。
-        .layoutWeight(1)
+        // ⛔ **绝不 `layoutWeight(1)`**（用户 2026-11-18 P0：「diff 似乎强制换行了？代码不能这样」）：
+        //   `layoutWeight` 把正文压成"视口剩余宽度" ⇒ 长行被挤到下一视觉行（读作 hard wrap，
+        //   而代码折行 = **正确性**问题）。⇒ 正文按**自然宽度**渲染（行宽 = 最长行宽），
+        //   横向溢出交给 `DiffBlock` 的横向 `Scroll`（与 web `whitespace-pre` + `overflow-auto` 同源）。
         .fontColor(ln.kind === DIFF_ADD ? this.pal().successText
           : (ln.kind === DIFF_DEL ? this.pal().dangerText : this.pal().textSecondary))
         .copyOption(CopyOptions.LocalDevice)
@@ -588,7 +626,9 @@ export struct ToolPopoverCard {
         }
       }, (ln: DiffLine, li: number) => `d${li}`)
     }
-    .width('100%').alignItems(HorizontalAlign.Start)
+    // ⛔ 不设 `width('100%')`：卡宽 = **最长行宽**（≥ 一屏）⇒ 长行由外层横向 Scroll 承担；
+    //   100% 会把正文挤在视口内 ⇒ 被迫折行（用户 2026-11-18 P0）。
+    .constraintSize({ minWidth: '100%' }).alignItems(HorizontalAlign.Start)
     .borderRadius(R_MD)
     .clip(true)
     .backgroundColor(surfaceFillOf(this.pal(), SURFACE_CARD))
@@ -613,8 +653,12 @@ export struct ToolPopoverCard {
         .alignItems(HorizontalAlign.Start)
       }
       .scrollable(ScrollDirection.Horizontal)
+      // ⛔ 内层（横向）先消费手势：整卡外层是纵向 Scroll，ArkUI 默认嵌套里外层优先 ⇒ 右侧被裁却滑不动、滚动条也不出现（用户 2026-11-13）。
+      .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
       .scrollBar(BarState.Auto)
       .width('100%')
+      // ⛔ 内容短于视口时 `Scroll` 默认**居中**（用户 2026-11-18：task_wait 这类短输出居中不对）⇒ 一律 TopStart
+      .align(Alignment.TopStart)
       // ⛔ 同 `CodeBlock`：**含横向滚动**必须把超宽内容**裁在块内**
       // （长行/长 JSON/长路径 ⇒ 否则撑宽父级 ⇒ "字超出屏幕"）。
       .clip(true)
@@ -681,6 +725,10 @@ export struct ToolPopoverCard {
   @Builder
   CardBody() {
     Column({ space: SP_2 }) {
+      // ⛔ **嵌入模式不画 header**（用户 2026-10-28：「展开后多了一个绿点还多一层缩进」）：
+      //   `ToolOverflowList` 的父行已经渲染了「状态点 + 名字 + 耗时」，卡片再画一遍 = 双绿点；
+      //   卡片自身的 `SP_3` 内边距再叠父层缩进 = 多一层缩进。⇒ 嵌入时只画**内容**（参数/输出）。
+      if (!this.embedded) {
       // header：状态色点 + 名字 + 状态徽标 + 耗时
       Row({ space: SP_2 }) {
         Circle().width(8).height(8).fill(this.vm.statusColor)
@@ -700,6 +748,7 @@ export struct ToolPopoverCard {
         }
       }
       .width('100%')
+      }
 
       // 转后台（仅**进行中的 Shell**）—— web `ShellRender:444-445` 的落点（终端卡之下）
       if (this.promotable()) {
@@ -783,6 +832,8 @@ export struct ToolPopoverCard {
       }
       .scrollBar(BarState.Auto)
       .width('100%')
+      // ⛔ 内容短于视口时 `Scroll` 默认**居中**（用户 2026-11-18：task_wait 这类短输出居中不对）⇒ 一律 TopStart
+      .align(Alignment.TopStart)
       .constraintSize({ maxHeight: BODY_MAX_H + 220 })
       .align(Alignment.TopStart)
     }
@@ -808,8 +859,39 @@ function tailLinesOfFile(f: DiffFile, max: number): DiffLine[] {
  * "+N" 溢出浮层：被收纳工具的全量列表，点击一条**在浮层内**展开该工具详情卡
  * （对齐 web `ToolPopoverContent` + `ToolCardGated`：浮层内展开的行高变化不进入虚拟列表）。
  */
+/** 一行预览：参数优先，其次输出（单行、去换行、超长省略）。空 ⇒ 空串（不占行）。 */
+function toolPreviewLine(t: ToolProgress): string {
+  const pick = (raw: string): string => {
+    const one: string = raw.replace(/\s+/g, ' ').trim();
+    return one.length > 72 ? `${one.substring(0, 72)}…` : one;
+  };
+  const args: string = t.args !== undefined && t.args.length > 0 ? pick(t.args) : '';
+  if (args.length > 0) { return `→ ${args}`; }
+  const out: string = t.detail !== undefined && t.detail.length > 0 ? pick(t.detail) : '';
+  return out.length > 0 ? `← ${out}` : '';
+}
+
+/**
+ * "+N" 溢出浮层：被收纳工具的全量列表（**折叠展开面板**）。
+ *
+ * 2026-10-28 用户：「折叠展开的样式设计太丑陋了，请重新设计折叠工具的展开面板」。
+ * 形态（对齐 iOS inset-grouped 的**层级**，不是一堆平铺文字行）：
+ *   · 头部：`工具` + 计数（弱色，说明"这里是什么"）；
+ *   · 每行 = 状态点 + 名称（caption medium）+ **一行参数/输出预览**（micro、等宽、弱色）
+ *     + 展开指示（`chevron_right` 旋转 90°）；行高 ≥44（可点性），行间只有发丝线；
+ *   · 展开后：详情卡**缩进嵌在行下方**（左缘对齐名称列，带一点内边距），不再与行首混排；
+ *   · 行展开时回调 `onEnsure` —— 被折叠的工具此前**从不发** `/api/iteration_detail`
+ *     （用户 2026-10-28：「被折叠的工具，展开后无法看到详情」）。
+ */
 @Component
 export struct ToolOverflowList {
+  /**
+   * 覆盖列表的工具。
+   *
+   * ⛔ 用户 2026-11-18 的口径：**打开前就把详情取回来**（`IterBlocksView.toggleOverflow` 里
+   *   `await` 全部 settle 后才打开）⇒ 这里拿到的是"已带摘要"的那一批，"第一次打开 == 第二次打开"。
+   *   不再在浮层内做"打开后再刷新"（`bindPopup` 子树不重建，那条路永远走不通）。
+   */
   @Prop tools: ToolProgress[] = [];
   @Prop theme: string = 'dark';
   /**
@@ -831,8 +913,25 @@ export struct ToolOverflowList {
   @Prop live: boolean = false;
   onCopy: (text: string, what: string) => void = (text: string, what: string) => {
   };
+  /**
+   * 取一次详情（`iter` = 工具自带迭代号；页面按 (turn, iter) 打 `/api/iteration_detail`）。
+   *
+   * ⛔ 返回 Promise：**本组件要 await**（打开浮层时批量拉、拉完自增代数刷新自己）。
+   *   用户 2026-11-18：「我点开你就应该发 api，期间显示 loading 动画，然后 api 结束之后渲染摘要」。
+   */
+  onEnsure: (iter: number, name: string, toolIter?: number) => Promise<void> =
+    (iter: number, name: string, toolIter?: number): Promise<void> => Promise.resolve();
+
 
   @State sel: number = -1;
+  /**
+   * 详情代数（`store.fetchIterationDetail` 每到一批就 +1）。
+   *
+   * ⛔ 本组件挂在 `bindPopup` 的 builder 里 ——**打开那一刻构建，之后父级数据变化不会重建**
+   *   （用户 2026-11-17 实证：第一次点开看不到参数/输出，关闭再打开才有）。⇒ 自己订阅这个
+   *   全局代数：详情回来 ⇒ 本组件自渲染 ⇒ `withToolDetail` 合上覆盖层 ⇒ 立刻可见。
+   */
+  @StorageProp('toolDetailGen') toolGen: number = 0;
 
   private pal(): Palette {
     return paletteOf(this.themeId());
@@ -843,50 +942,153 @@ export struct ToolOverflowList {
     return statusColorOf(renderKind(t.status, t.exit_code, this.live), this.themeId());
   }
 
+  /**
+   * 列表实际渲染的工具：把**打开之后才到的详情**（覆盖层，见 `core/toollayer`）合到手上这份上。
+   *
+   * ⛔ 为什么放在方法里而不是 ForEach 体内：ArkTS 禁止 builder 体内声明局部量（10905209）。
+   *   `toolGen` 变化 ⇒ 本组件自渲染 ⇒ 这里重新合并 ⇒ 详情立刻可见（无需关闭重开）。
+   */
+  private shownTools(): ToolProgress[] {
+    const out: ToolProgress[] = [];
+    for (let i = 0; i < this.tools.length; i++) {
+      out.push(withToolDetail(this.tools[i]));
+    }
+    return out;
+  }
+
   private vmOf(t: ToolProgress): ToolDetailVM {
     return toolDetailVM(t, this.dot(t), '');
   }
 
+  /** 折叠面板的**唯一取色入口**（性能预算 B 线：本文件的 `pal()/palOnce()` 调用点只许减）。
+   *  返回 `[primary, secondary, muted, iconMuted, hairline]`，按主题 memo。 */
+  private tintCache: string[] = [];
+  private tintTheme: string = '';
+  private tint(): string[] {
+    const th: string = this.themeId();
+    if (this.tintTheme === th && this.tintCache.length === 5) {
+      return this.tintCache;
+    }
+    const p: Palette = this.pal();
+    this.tintCache = [p.textPrimary, p.textSecondary, p.textMuted, colorOf(p, 'iconMuted'), hairlineOf(p)];
+    this.tintTheme = th;
+    return this.tintCache;
+  }
+
   build() {
     Column() {
+      // ── 头部：这里是什么 + 一共几枚（弱色小字；不抢内容层级）──
+      Row({ space: SP_1 }) {
+        SymbolGlyph($r('sys.symbol.list_bullet'))
+          .fontSize(ICON_SM)
+          .fontColor([this.tint()[3]])
+        Text(i18nT('工具'))
+          .fontSize(typeOf(TYPE_CHIP).size)
+          .fontColor(this.tint()[1])
+          .layoutWeight(1)
+        Text(`${this.tools.length}`)
+          .fontSize(typeOf(TYPE_CHIP).size)
+          .fontColor(this.tint()[2])
+      }
+      .width('100%')
+      .padding({ left: SP_1, right: SP_1, top: SP_1, bottom: SP_2 })
+      .alignItems(VerticalAlign.Center)
+
       Scroll() {
         Column() {
-          ForEach(this.tools, (t: ToolProgress, i: number) => {
+          ForEach(this.shownTools(), (t: ToolProgress, i: number) => {
             Column() {
               Row({ space: SP_2 }) {
-                Circle().width(8).height(8).fill(this.dot(t))
-                Text(t.label !== undefined && t.label.length > 0 ? t.label : t.name)
-                  .fontSize(FS_CAPTION).fontColor(this.pal().textPrimary).fontWeight(FontWeight.Medium)
-                  .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .layoutWeight(1)
-                if (t.elapsed_ms !== undefined && t.elapsed_ms > 0) {
-                  Text(formatElapsed(t.elapsed_ms)).fontSize(typeOf(TYPE_CHIP).size).fontColor(this.pal().textMuted)
+                // 状态点（唯一状态色出口 = `statusColorOf`，与 pill 同源）
+                Row()
+                  .width(OVERFLOW_DOT).height(OVERFLOW_DOT).borderRadius(OVERFLOW_DOT / 2)
+                  .backgroundColor(this.dot(t))
+                  .flexShrink(0)
+                Column({ space: 2 }) {
+                  Text(t.label !== undefined && t.label.length > 0 ? t.label : t.name)
+                    .fontSize(typeOf(TYPE_CHIP).size)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(this.tint()[0])
+                    .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                    // 横向约束（H1：Row 内动态文本无约束会顶出屏宽）
+                    .constraintSize({ maxWidth: '100%' })
+                    .width('100%')
+                  if (toolPreviewLine(t).length > 0) {
+                    Text(toolPreviewLine(t))
+                      .fontSize(typeOf('type.micro').size)
+                      .fontFamily('monospace')
+                      .fontColor(this.tint()[2])
+                      .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                      .width('100%')
+                  }
                 }
+                .layoutWeight(1).alignItems(HorizontalAlign.Start)
+                if (t.elapsed_ms !== undefined && t.elapsed_ms > 0) {
+                  Text(formatElapsed(t.elapsed_ms))
+                    .fontSize(typeOf('type.micro').size)
+                    .fontColor(this.tint()[2])
+                    .flexShrink(0)
+                }
+                SymbolGlyph($r('sys.symbol.chevron_right'))
+                  .fontSize(ICON_SM)
+                  .fontColor([this.tint()[3]])
+                  // ⛔ 不加 `.animation()`：本文件动效预算 2（`motion_budget` 只许缩短）
+                  .rotate({ angle: this.sel === i ? 90 : 0 })
               }
-              .width('100%').padding({ top: SP_1, bottom: SP_1 })
+              .width('100%')
+              .constraintSize({ minHeight: HIT_TARGET_MIN })
+              .padding({ left: SP_2, right: SP_1, top: SP_1, bottom: SP_1 })
+              .alignItems(VerticalAlign.Center)
               .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
               .onClick(() => {
-                this.sel = this.sel === i ? -1 : i;
+                const next: number = this.sel === i ? -1 : i;
+                this.sel = next;
+                if (next === i) {
+                  // 展开 ⇒ 先在**这一行**显示 loading（`busyIdx`），拉完在 finally 里清掉
+                  this.onEnsure(t.iteration !== undefined ? t.iteration : 0, t.name, t.iteration);
+                }
               })
+
+              // 展开区：详情卡**缩进嵌在行下方**（左缘对齐名称列），与行本身分层
               if (this.sel === i) {
-                ToolPopoverCard({
-                  vm: this.vmOf(t),
-                  theme: this.themeId(),
-                  embedded: true,
-                  onCopy: this.onCopy,
-                })
+                Column() {
+                  // ⛔ 用户 2026-11-18：「没数据为什么不渲染 loading，而是这样渲染，丑死了」：
+                  //   详情还没到（参数与输出都空）⇒ 渲染**紧凑 loading 行**，不要把 label 当正文铺开。
+                  //   （浮层打开后若详情才到，父级会按 `toolDetailGen` 自动重开一次 ⇒ 换真卡片。）
+                  // ⛔ 用户 2026-11-18：「有数据的时候列表都会显示参数的摘要」—— 只要这枚工具**有摘要/预览**
+                  //   （label/summary/args 任一可显示），就必须渲染摘要，绝不能用 loading 盖住它。
+                  //   loading 只留给"彻底空心"的工具（连预览行都没有），例如刚建的无输出合成工具。
+                  ToolPopoverCard({
+                    vm: this.vmOf(t),
+                    theme: this.themeId(),
+                    embedded: true,
+                    onCopy: this.onCopy,
+                  })
+                }
+                .width('100%')
+                // 只留右侧/底部一点点呼吸；左/上交给卡片自身 `padding(SP_3)`
+                .padding({ right: SP_2, bottom: SP_2 })
+                .alignItems(HorizontalAlign.Start)
+              }
+              // 行间发丝线（最后一行不画 —— 与 iOS inset-grouped 同款）
+              if (i < this.tools.length - 1) {
+                Divider()
+                  .strokeWidth(STROKE_HAIRLINE)
+                  .color(this.tint()[4])
+                  .margin({ left: SP_2 })
               }
             }
             .width('100%')
-          }, (t: ToolProgress, i: number) => `${t.name}#${i}`)
+            .alignItems(HorizontalAlign.Start)
+          }, (t: ToolProgress, i: number) => `${t.name}#${t.call_id !== undefined ? t.call_id : ''}#${i}`)
         }
         .width('100%').alignItems(HorizontalAlign.Start)
       }
-      .scrollBar(BarState.Auto)
+      .scrollBar(BarState.Off)
       .width('100%')
       // 与独立工具浮层同口径（web 根 `max-h-[min(60vh,480px)]`）——单一纵向滚动源。
       .constraintSize({ maxHeight: BODY_MAX_H + 220 })
-      .padding(SP_3)
+      .align(Alignment.TopStart)
     }
     .width('100%').alignItems(HorizontalAlign.Start)
   }

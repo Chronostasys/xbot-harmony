@@ -16,9 +16,9 @@
  *
  * ⛔ 适配层**只做搬运**：不合并、不去重、不比较内容 —— 所有判据都在 `step.ts` 一处。
  */
-import type { AckIntent, Block, DoneFrame, FailIntent, FinalFrame, Frame, IterNum, OpenFrame, SendIntent,
-  SessionFrame, State, SubAgentNode, TextPatch, TickFrame, ToolMeta, ToolRec, ToolStatus, ToolTick, TurnID,
-  TurnRec, UserLine, LegacyLine, Compaction } from './model_types';
+import type { AckIntent, Block, DetailInput, DoneFrame, FailIntent, FinalFrame, Frame, IterNum, OpenFrame,
+  SendIntent, SessionFrame, State, SubAgentNode, TextPatch, TickFrame, ToolMeta, ToolRec, ToolStatus, ToolTick,
+  TurnID, TurnRec, UserLine, LegacyLine, Compaction } from './model_types';
 import { newTurn, toolStatusOf } from './model_types';
 
 // ─── 老 wire 的最小结构面（结构化类型；避免 import 旧类型文件造成的循环）──
@@ -90,6 +90,8 @@ export interface WireEvent {
   readonly content?: string | undefined | null;
   readonly reasoning?: string | undefined;
   readonly iterationsDelta?: readonly WireIteration[];
+  /** `iterations_loaded`（按需 hydrate 的完整迭代；详情/区域段共用）。 */
+  readonly iterations?: readonly WireIteration[];
   readonly finalIteration?: WireIteration | null;
   readonly activeTools?: readonly WireTool[];
   readonly completedTools?: readonly WireTool[];
@@ -103,6 +105,8 @@ export interface WireEvent {
   readonly requestID?: string | null;
   readonly row?: WireUser;
   readonly cancelled?: boolean;
+  /** `user_ack` 的排队标记（busy 时服务端把消息入队 ⇒ `queued:true`）。 */
+  readonly queued?: boolean;
   readonly commandReply?: boolean;
   readonly progressHistory?: readonly WireIteration[];
   readonly stats?: unknown;
@@ -182,8 +186,12 @@ function fullText(t: string | undefined | null): TextPatch {
 /**
  * 把一个老事件翻译成 0..n 个模型输入（帧/意图）。纯函数、无状态。
  * ⛔ 不消费 `stats/usage` 的具体形状（`unknown` ⇒ 保持 undefined），由驱动层按需透传。
+ *
+ * @param fallbackTurn `text_final` **缺 turn_id** 时的回合归属（由驱动层按状态给出 ——
+ *   唯一需要"看状态"的形状，见该分支的长注释）。0/缺省 ⇒ 没有可归属的回合（丢弃）。
  */
-export function adapt(ev: WireEvent, chat: string, epoch: number): readonly (Frame | SendIntent | AckIntent | FailIntent)[] {
+export function adapt(ev: WireEvent, chat: string, epoch: number,
+  fallbackTurn?: number): readonly (Frame | SendIntent | AckIntent | FailIntent | DetailInput)[] {
   // ⛔ `seq` 是 **transport** 序号（每帧必有）。缺 seq 的输入（demo / 本地合成 / 部分测试）
   //   不得伪造 0 —— 否则会与真实水位冲突（`seq < last ⇒ 丢弃`），把 `text_final` 当迟到帧丢掉。
   //   用 -1 表示"无信封"：`step` 对它跳过 seq 守卫、不推进水位。
@@ -272,9 +280,26 @@ export function adapt(ev: WireEvent, chat: string, epoch: number): readonly (Fra
       return out;
     }
     case 'text_final': {
-      const turn: TurnID = ev.turnID !== undefined && ev.turnID !== null ? ev.turnID : 0;
+      const raw: number = ev.turnID !== undefined && ev.turnID !== null ? ev.turnID : 0;
       const content: string = ev.content !== undefined && ev.content !== null ? ev.content : '';
-      if (turn <= 0) return [];      // 命令回复：由驱动层写 standalone（见 `commandLine`）
+      // ⛔ **命令回复是"无 turn"的唯一合法形态**（后端显式打标 `metadata.command_reply`）：
+      //   由驱动层写 standalone，不进 turn。
+      if (raw <= 0 && ev.commandReply === true) return [];
+      // ⛔ 2026-10-22 用户 P0「cancel 后发新消息 ⇒ 历史变成 user1 user2（iter1-20，busy）」：
+      //   普通回合的 `text_final` **也可能没有 turn_id** —— cancel ack 就是这种
+      //   （`agent/agent_process.go:handleCancelledRun` 返回的 `OutboundMsg` 不带 `TurnID`
+      //   ⇒ SSE 载荷里 `turn_id` 缺省（该字段 `omitempty`，载荷结构沿用后端 `WSMessage`）
+      //   ⇒ `normalizeText` 给 `turnID: null`）。旧实现把"无 turn"一律
+      //   当命令回复丢弃 ⇒ **被取消的回合永远没有 `final`** ⇒ 行停在 `turn-N-live`
+      //   （`finalized=false` ⇒ `isLive=true`）⇒ 页面把这条在飞行**抽出列表末尾**当打字机尾项
+      //   渲染 ⇒ 用户看到「user1 user2 + iter1-20 busy」（assistant1 不在原位）。
+      //   ⇒ 无 turn 的普通收尾帧必须落到**正在收尾的那一轮**（`reduce` 的
+      //   `ev.turnID ?? s.activeTurn` 同语义）；归属由驱动层按状态给出（`fallbackTurn`），
+      //   这里只做形状搬运 —— ⛔ 不在这里猜状态。
+      const turn: TurnID = raw > 0
+        ? raw as TurnID
+        : (fallbackTurn !== undefined && fallbackTurn > 0 ? fallbackTurn as TurnID : 0 as TurnID);
+      if (turn <= 0) return [];
       const blocks: Block[] = [];
       const hist: readonly WireIteration[] = ev.progressHistory !== undefined ? ev.progressHistory : [];
       for (let i = 0; i < hist.length; i++) blocks.push(toBlock(hist[i]));
@@ -288,7 +313,14 @@ export function adapt(ev: WireEvent, chat: string, epoch: number): readonly (Fra
     case 'session':
     case 'session_running': {
       const running: boolean | undefined = ev.type === 'session_running' ? ev.running : (ev.busy === true ? true : false);
-      return [{ kind: 'session', epoch, seq, chat, running } as SessionFrame];
+      // ⛔ 透传归属轮（P0）：旧实现把 `ev.turnID` **丢掉** ⇒ 模型侧无法判断"这条 busy/idle
+      //   属于哪一轮" ⇒ 迟到信号会压掉新轮。`0/缺省` = 未指定（仍按当前轮处理）。
+      const sessTurn: number | undefined = ev.turnID !== undefined && ev.turnID !== null
+        ? ev.turnID as number : undefined;
+      return [{
+        kind: 'session', epoch, seq, chat, running,
+        turn: sessTurn !== undefined && sessTurn > 0 ? sessTurn as TurnID : undefined,
+      } as SessionFrame];
     }
     case 'session_fields': {
       return [{ kind: 'session', epoch, seq, chat, todos: ev.todos, goal: ev.goal } as SessionFrame];
@@ -305,12 +337,39 @@ export function adapt(ev: WireEvent, chat: string, epoch: number): readonly (Fra
     case 'user_ack': {
       const requestID: string = ev.requestID !== undefined && ev.requestID !== null ? ev.requestID : '';
       if (requestID === '') return [];
-      const how: 'delivered' | 'queued' | 'command' = ev.commandReply === true ? 'command' : 'delivered';
+      // ⛔ 2026-10-22 用户亲报「busy 时发消息没被当成排队，按没排队渲染 ⇒ 状态混乱」：
+      //   服务端在**会话忙**时会把消息入队，回包带 `queued:true`（`web_rest.go:113-120`），
+      //   且**同时**带 `turn_id`（"将来要跑的那一轮"）。旧实现只认 command/delivered ⇒
+      //   `queued` 被丢弃 ⇒ `onAck` 走 delivered 分支 ⇒ 把这条**排队消息当成该轮 user 行**
+      //   绑进 turns（`turn === N` 时直接 set，顶掉/伪造该轮 user）⇒ 消息既没进排队区、
+      //   又出现在消息流里，回合归属错乱。
+      //   语义（与 `reduce.ts:2565` / web `useChatMessages.ts:870` 逐字对齐）：
+      //   命令 ⇒ `command`（永无 turn）；排队 ⇒ `queued`（**只退役 pending**，渲染交给
+      //   StagingTray 的 `queue_state`）；否则 `delivered`。
+      const how: 'delivered' | 'queued' | 'command' = ev.commandReply === true
+        ? 'command'
+        : (ev.queued === true ? 'queued' : 'delivered');
       return [{ kind: 'ack', requestID, how, turn: ev.turnID !== undefined && ev.turnID !== null ? ev.turnID : undefined } as AckIntent];
     }
     case 'user_fail': {
       const requestID: string = ev.requestID !== undefined && ev.requestID !== null ? ev.requestID : '';
       return requestID === '' ? [] : [{ kind: 'fail', requestID } as FailIntent];
+    }
+    // ── 按需 hydrate 的**完整迭代**（`/api/iteration_detail`、`/api/regions`）───────────────
+    // ⛔ 这一支此前**不存在** ⇒ 事件落 `default` 被丢弃，而**行源是模型**（`applyModel`）
+    //   ⇒ 详情拉回来了也上不了屏（用户 2026-10-27 P0：历史工具打开全是「暂无详情」，
+    //   只有最后一个工具可见——它是在飞帧带过完整 `meta` 的那一个）。
+    // 语义：按号覆盖（`model_step.onDetail`），不带 seq、不推进水位、不动 live。
+    case 'iterations_loaded': {
+      const turn: TurnID = ev.turnID !== undefined && ev.turnID !== null ? ev.turnID : 0;
+      const src: readonly WireIteration[] | undefined = ev.iterations;
+      if (turn <= 0 || src === undefined || src.length === 0) return [];
+      const blocks: Block[] = [];
+      for (let i = 0; i < src.length; i++) {
+        const w: WireIteration = src[i];
+        if (w.iteration !== undefined && w.iteration > 0) blocks.push(toBlock(w));
+      }
+      return blocks.length === 0 ? [] : [{ kind: 'detail', turn, blocks } as DetailInput];
     }
     default:
       return [];

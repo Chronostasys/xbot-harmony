@@ -296,7 +296,8 @@ eq('MARKER_SLOT = 14', MARKER_SLOT, 14);
 eq('MARKER_GLYPH = 13', MARKER_GLYPH, 13);
 eq('MARKER_GLYPH_DASHED = 12', MARKER_GLYPH_DASHED, 12);
 eq('MARKER_SPINNER = 13', MARKER_SPINNER, 13);
-eq('PILL_MAX_W = 240', PILL_MAX_W, 240);
+// 2026-10-28 用户：「工具渲染改一下宽度，这样一行可以放两个」⇒ 240→168（半宽）。
+eq('PILL_MAX_W = 168（半宽，一行两枚）', PILL_MAX_W, 168);
 // 4) 浮层阴影（语义出口，不再直接 effectsOf）
 eq('阴影档名', [ELEV_CARD, ELEV_RAISED, ELEV_OVERLAY], ['elev1', 'elev2', 'elev3']);
 eq('浮层面 ⇒ overlay 阴影档', elevationLevelOf('surface.overlay'), ELEV_OVERLAY);

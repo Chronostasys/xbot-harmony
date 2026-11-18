@@ -935,7 +935,7 @@ apply(next: Row[]):
 | 9 | 侧边栏 `running` 指示 | `sessionsFp` 比较 `running` | `sess.running`（指针比较） |
 | 10 | **迟到 `idle` 不冻结在飞 turn** | `satisfyRunningInvariant` + `staleRunningFrame` + 15s 窗 | 结构性：`session{running}` **不改 turn 相位**（只改 `sess.running`）；相位只由 `open`/`final` 改 ⇒ 迟到帧无事可做 |
 | 11 | 发送中/排队的 user 行沉底；**失败消息被移除**（不是留在列表里） | `pendingUsers`；`user_fail` **删行**（`reduce.ts:2611-2615`） | `local.pending`（投影末尾）；`fail` 意图 ⇒ **移除**（行为与现状一致） |
-| 12 | 命令回复（`!cmd`/slash）作为**无 turn 独立行**排在 turns 之后 | `text_final.commandReply` → `standalone` 段 | `final(turn=∅, ...)` → `standalone`（`TurnRec` 之外的单列） |
+| 12 | 命令回复（`!cmd`/slash）作为**无 turn 独立行**排在 turns 之后；**普通**收尾帧缺 `turn_id`（cancel ack / 重启恢复）必须落到正在收尾的那一轮 | `text_final.commandReply` → `standalone` 段；缺 `turn_id` 的普通收尾按 `activeTurn` 归属（`reduce.ts`） | `final(turn=∅, commandReply)` → 驱动层写 standalone；**普通** turn-less final 由 `stepEvent` 给 `fallbackTurn`（在飞轮 → 最早未收尾轮）后再 `adapt`（判据 `cancel_final_turnless`） |
 | 13 | goal banner 三态（有 / 无 / 已清除） | `goal?: Goal \| null` + `{objective:"",status:"cleared"}` 墓碑 | P5 三态 + `patch`（`null` = 清除；删墓碑） |
 | 14 | todos 跨 turn 存活 | `sess.todos` | `sess.todos`（`[]` 是值，P5） |
 | 15 | 长 turn 顶部「更早的 N 个区域」分隔条（可动态取回） | `regionsBefore` + `POST /api/regions` | 保留字段（`TurnRec.regionsBefore`），**与模型正交** |

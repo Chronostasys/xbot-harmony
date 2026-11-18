@@ -105,7 +105,7 @@ describe('mergeToolRuns：含 content/reasoning 的迭代阻断合并', () => {
 });
 
 describe('foldPills：同迭代 pill 折叠（对齐 web MergedPills）', () => {
-  it('(c) >8 枚 ⇒ 前 7 枚 + 收起 (N-7) 枚', () => {
+  it('(c) >8 枚 ⇒ 前 7 枚 + 其余收起（+N 数字加一，可见 pill 不变）', () => {
     const ts: ToolProgress[] = [];
     for (let i = 0; i < 11; i++) {
       ts.push(tool(`t${i}`));
@@ -163,7 +163,6 @@ describe('分组不改变工具顺序（顺序不变量）', () => {
   });
 
   it('(e2) 合并再折叠：顺序仍稳定（先出现的在前、被收纳的按原顺序）', () => {
-    // 造 3 个连续纯工具迭代，共 10 枚 ⇒ 合并成一块 10 枚，再折叠成 7 + +3
     const merged = mergeToolRuns([iter(1, ['t0', 't1', 't2']), iter(2, ['t3', 't4']), iter(3, ['t5', 't6', 't7', 't8', 't9'])]);
     expect(merged.length).toBe(1);
     const slice = foldPills(merged[0].tools !== undefined ? merged[0].tools : []);

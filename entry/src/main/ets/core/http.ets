@@ -13,6 +13,7 @@ import { util } from '@kit.ArkTS';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { ApiEnvelope } from './types';
 import { isPresent } from './guards';
+import { setLinkBase } from './msgops';
 
 /** 默认**读**超时（普通 REST）——只对**长耗时**端点（历史/会话树）合适。 */
 export const HTTP_READ_TIMEOUT_MS: number = 120000;
@@ -155,6 +156,9 @@ export class XbotHttp {
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
+    // 链接解析基地址的唯一写入点：消息里的相对链接（`docs/x.md`、`/api/...`、`../a.png`）
+    // 由 `core/msgops.resolveOpenable` 按这里拼成绝对地址（用户 2026-10-27 要求）。
+    setLinkBase(this.baseUrl);
   }
 
   private cookieHeader(): string {

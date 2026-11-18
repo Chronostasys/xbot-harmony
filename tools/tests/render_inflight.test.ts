@@ -171,7 +171,11 @@ function occurrences(f: ModelFeed, call: string): number {
     activeTools: [tw('Write', 'running', 'cur-2', 3)], streamingTools: [], completedTools: [],
     iterationsDelta: [], todos: undefined, subAgents: undefined, tokenUsage: undefined, streamStats: undefined,
   });
-  eq('★⑤ 下一帧换工具 ⇒ 只剩本帧的（不累积并集）', ids(inflightTools(f)), ['cur-2']);
+  // ⛔ 2026-10-29 改判（用户 P0：「generating 之后只能是 running 或 done，**不能 tool 消失**」+
+  //   「generating→running 期间整个 tool 消失一瞬间导致高度跳变」）：同一迭代内工具集
+  //   **只增不减**（服务端分桶/分帧下发时，重建式更新会抹掉其它桶的工具）。
+  //   ⛔ 跨迭代残留仍必须丢（下一段断言）：否则上一迭代的排队条目会复活（2026-10-11 P0）。
+  eq('★⑤ 同一迭代内换帧 ⇒ 已出现的工具不消失（单调增）', ids(inflightTools(f)), ['cur-1', 'cur-2']);
 }
 
 // ── ⑥ 已提交的工具在整行里**恰好一次**（busy→idle 不得画两次）──────────────────

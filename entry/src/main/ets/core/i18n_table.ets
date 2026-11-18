@@ -1039,6 +1039,8 @@ export const I18N_KEYS: string[] = [
   "排队中…",
   "agent.iterationBadge",
   "agent.iterationBadgeHint",
+  "agent.toolDetailLoading",
+  "agent.toolDetailLoadingA11y",
 ];
 export const I18N_ZH: string[] = [
   "批注操作",
@@ -2076,6 +2078,8 @@ export const I18N_ZH: string[] = [
   "排队中…",
   "显示迭代号",
   "在每个迭代块左上角显示 #号、是否在飞、工具数（排障用）",
+  "正在获取参数与输出…",
+  "正在获取工具参数与输出",
 ];
 export const I18N_EN: string[] = [
   "Comment actions",
@@ -3113,6 +3117,8 @@ export const I18N_EN: string[] = [
   "Queued…",
   "Show iteration numbers",
   "Show #iteration, in-flight state and tool count at the top-left of each iteration block (debug)",
+  "Fetching arguments and output…",
+  "Fetching tool arguments and output",
 ];
 export const I18N_JA: string[] = [
   "コメントの操作",
@@ -4150,4 +4156,6 @@ export const I18N_JA: string[] = [
   "待機中…",
   "イテレーション番号を表示",
   "各イテレーションブロックの左上に #番号・実行中かどうか・ツール数を表示（デバッグ用）",
+  "引数と出力を取得中…",
+  "ツールの引数と出力を取得中",
 ];

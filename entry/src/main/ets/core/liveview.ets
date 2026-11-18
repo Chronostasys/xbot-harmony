@@ -48,6 +48,12 @@ export class LiveViewInput {
   runes: number = 0;
   /** 本 turn 开始时刻（ms epoch；0 = 未知 ⇒ 不显示耗时）。 */
   startedAtMs: number = 0;
+  /**
+   * 会话名（横幅标题）。⛔ 必须进快照：否则**切换会话**时若新旧会话的迭代号/工具/字数
+   * 恰好相同，sameLiveView 判等 ⇒ 不推送 ⇒ 实况窗停在旧会话内容
+   * （用户 2026-11-11 亲报「切会话，实况窗显示内容没变」）。空 ⇒ 用 xbot。
+   */
+  title: string = '';
 }
 
 /** 实况窗当下该显示的内容（纯值；与上一份相等 ⇒ 不必打扰系统服务）。 */
@@ -129,7 +135,7 @@ export function liveViewSnapshotOf(i: LiveViewInput, nowMs: number): LiveViewSna
   if (!i.busy) {
     return s;
   }
-  s.title = 'xbot';
+  s.title = i.title.length > 0 ? i.title : 'xbot';
   s.timerMs = i.startedAtMs > 0 ? Math.max(0, nowMs - i.startedAtMs) : 0;
   const iterPart: string = i.iteration > 0 ? `第 ${i.iteration} 轮迭代` : '准备中';
   s.line1 = i.toolLabel.length > 0 ? `${iterPart} · ${i.toolLabel}` : iterPart;
@@ -163,6 +169,10 @@ export function sameLiveView(a: LiveViewSnapshot | null, b: LiveViewSnapshot): b
 export function shouldPushLiveView(prev: LiveViewSnapshot | null, next: LiveViewSnapshot,
   nowMs: number, lastPushMs: number): boolean {
   if (prev === null) {
+    return true;
+  }
+  // ⛔ 标题 = 会话身份：切换会话必须立刻推（结构事件，不受内容节流）。
+  if (prev.title !== next.title) {
     return true;
   }
   if (prev.active !== next.active) {

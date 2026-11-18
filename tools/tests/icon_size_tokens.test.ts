@@ -70,8 +70,11 @@ if (repo.length > 0) {
   //    **本批 shell「转后台」条 2 处**（成功条勾 / 可点条图标）—— 两处都是**真图标站点**
   //    （`SymbolGlyph`），不是文字站点被误换。（同条里的 `LoadingProgress` 走 `.width/.height`，
   //    不计入 `fontSize` 口径。）
-  ok('★② ToolPopover 的 ICON_SM 恰 3 处（3 个真图标站点 ⇒ 多出即文字站点被误换）',
-    count('entry/src/main/ets/components/ToolPopover.ets', 'fontSize(ICON_SM)') === 3);
+  // 2026-10-28 折叠展开面板重设计：新增 2 个**真图标站点**（面板头部的"工具"前导字形 +
+  //   行尾展开指示 `chevron_right`）⇒ 3 → 5。⛔ 该断言的本意不变：多出来的必须是**真图标**
+  //   （`SymbolGlyph`），不能是文字站点被误换成图标档。
+  ok('★② ToolPopover 的 ICON_SM 恰 5 处（5 个真图标站点 ⇒ 多出即文字站点被误换）',
+    count('entry/src/main/ets/components/ToolPopover.ets', 'fontSize(ICON_SM)') === 5);
   // ★③ ICON_XL 已定义且**有消费**（⛔ 不留零消费常量）
   ok('★③ design.ets 定义 ICON_XL = 20', count('entry/src/main/ets/core/design.ets', 'export const ICON_XL: number = 20;') === 1);
   ok('★③ 且被 SelfCheckSheet 的 3 处消费', count('entry/src/main/ets/components/SelfCheckSheet.ets', 'fontSize(ICON_XL)') === 3);

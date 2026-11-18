@@ -133,8 +133,10 @@ ok('L1 ✓ 文字仍保留 `textSecondary`（弱化观感未变）',
 // ════════════════════════════════════════════════════════════════════════════
 ok('L2 ⛔ 已移除旧表达式 `this.overIter === it.iteration ? this.pal().surfaceHi`',
   l2.indexOf('this.overIter === it.iteration ? this.pal().surfaceHi') < 0);
+// ⚡ 2026-11-14：`+N` 徽标的开合条件加了"同组"限定（`&& this.overGroup === gi`，见
+//   `pill_badge_single_source` 判据）⇒ 判据只钉**语义**（展开态底 = surface.card），不钉整行字面量。
 ok("L2 ✓ 新表达式存在：展开态底 = surfaceFillOf(p,'surface.card')",
-  l2.indexOf("this.overIter === it.iteration ? surfaceFillOf(this.pal(), 'surface.card')") >= 0);
+  l2.indexOf("? surfaceFillOf(this.pal(), 'surface.card')") >= 0);
 ok('L2 ✓ 常态底仍是 `pal().surfaceAlt` —— 未误伤',
   l2.indexOf(': this.pal().surfaceAlt)') >= 0);
 ok('L2 ✓ 文字仍保留 `textSecondary`（弱化观感未变）',

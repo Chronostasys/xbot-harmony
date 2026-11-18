@@ -1,0 +1,1 @@
+5b760c416ad986c05d06b377ee057248c56d50d30ec7f38645d54ab98677141e  release/xbot-1.0.0-appgallery.app

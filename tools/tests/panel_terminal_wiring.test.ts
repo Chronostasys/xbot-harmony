@@ -124,8 +124,12 @@ ok(`新空态文案存在（${newEmpty} ≥ 1）`, newEmpty >= 1);
   ok(`①b-2 页签切片非空（零扫描判红，len=${chips.length}）`, chips.length > 100);
   ok('①b-2 选中 = 下划线指示器（`.height(STROKE_RAIL)` 的 Row）',
     chips.indexOf('.height(STROKE_RAIL)') >= 0);
+  // 2026-10-26：指示器取色收敛到唯一出口 `panelIndicatorColor(tab)`（两处 `pal()` → 一处，
+  //   为静态预算 B 线让位）⇒ 断言跟随到该方法体：未选中必须 `transparent`（失败方向安全）。
+  ok('①b-2 页签使用唯一取色出口 panelIndicatorColor(tab)',
+    chips.indexOf('this.panelIndicatorColor(tab)') >= 0);
   ok('①b-2 未选中指示器**透明**（失败方向安全：状态缺失不得读成"已选中"）',
-    chips.indexOf('this.pal().transparent') >= 0);
+    /private panelIndicatorColor\(tab: string\): string \{[\s\S]{0,400}p\.transparent/.test(idxSrc));
   ok('①b-2 选中文字走 `accentSoft`（⛔ `accent` 不得做文字色）',
     chips.indexOf('this.pal().accentSoft') >= 0);
   ok('①b-2 选中文字加重（`FontWeight.Medium`）', chips.indexOf('FontWeight.Medium') >= 0);

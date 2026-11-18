@@ -99,6 +99,7 @@ export interface Compaction {
 
 /** 一个**已提交**迭代：**恰好一块/迭代**，工具号恒等于块号。 */
 export interface Block {
+
   readonly iteration: IterNum;
   readonly content: string;
   readonly reasoning: string;
@@ -175,6 +176,16 @@ export type GoalState = { readonly kind: 'none' } | { readonly kind: 'value'; re
 
 export interface Session {
   readonly running: boolean;
+  /**
+   * **这一条 `running` 归属哪一轮**（turn 水位；`0` = 无）。
+   *
+   * ⛔ 2026-10-24 用户 P0（「状态机没考虑 turn，bug 全是 turn 造成的」）：`running` 是**会话级**字段，
+   *   而 turn 只活在 `turns/live` 里 ⇒ 一条**属于旧轮**的 `session(idle)` 迟到/重放时会把
+   *   **正在跑的新轮**压成 idle（反之 busy 也会被旧轮拉起）。⇒ 归属必须显式：
+   *   `running=true(turn=T)` ⇒ `runningTurn=T`；`running=false(turn=T)` 仅在 `T >= runningTurn`
+   *   （或水位未设）时才生效，`T < runningTurn` 一律丢弃。
+   */
+  readonly runningTurn: TurnID;
   readonly todos: readonly string[];
   readonly goal: GoalState;
   readonly queue: readonly string[];
@@ -289,6 +300,8 @@ export interface SessionFrame {
   readonly seq: Seq;
   readonly chat: ChatID;
   readonly running?: boolean;
+  /** `running` 归属的回合（服务端 `SessionEvent.TurnID`；缺省 = 未指定）。 */
+  readonly turn?: TurnID;
   readonly todos?: readonly string[];
   readonly goal?: { readonly objective: string; readonly status: string; readonly summary?: string } | null;
   readonly queue?: readonly string[];
@@ -325,6 +338,25 @@ export interface FailIntent {
   readonly requestID: string;
 }
 
+/**
+ * **按需 hydrate 的完整迭代**（`POST /api/iteration_detail`、`POST /api/regions` 的产物）。
+ *
+ * 属于"按对象拉权威"（`docs/STATE-MODEL.md §8`），**不是 wire 帧**：不带 seq、不推进水位、
+ * 不动 `live`/`final`/`user` —— 只按 `iteration` 号**同号覆盖**已提交块。
+ *
+ * ⛔ 为什么必须进模型（用户 2026-10-27 P0：「历史工具调用打开全是暂无详情，只有最后一个工具
+ *   能看参数和结果」）：行源是**模型**（`applyModel`），而 `adapt` 此前对 `iterations_loaded`
+ *   **没有分支**（落 `default` ⇒ 丢弃）⇒ 详情虽然拉回来了，却只有旧管线 `reduce` 收到，
+ *   模型块永远没有 `args/detail` ⇒ 浮层恒「暂无详情」；只有最后一条工具因为在飞帧里带过
+ *   完整 `meta` 才可见。⇒ 详情必须作为模型输入走同一条路。
+ */
+export interface DetailInput {
+  readonly kind: 'detail';
+  readonly turn: TurnID;
+  /** 完整块（只覆盖**同号**块；其余块、顺序、`final`、`live` 一律不动）。 */
+  readonly blocks: readonly Block[];
+}
+
 interface ResyncIntent {
   readonly kind: 'resync';
 }
@@ -353,7 +385,7 @@ export function emptyState(chat: ChatID, epoch: number, seq: Seq): State {
     gen: 0,
     turns: new Map<TurnID, TurnRec>(),
     live: null,
-    sess: { running: false, todos: [], goal: { kind: 'none' }, queue: [] },
+    sess: { running: false, runningTurn: 0 as TurnID, todos: [], goal: { kind: 'none' }, queue: [] },
     local: { pending: [] },
     legacy: [],
     standalone: [],

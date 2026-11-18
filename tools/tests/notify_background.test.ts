@@ -1,7 +1,8 @@
 /**
  * notify_background —— 后台「极轻量接收 agent 通知」的**源码/接线形态判据**（判别力）。
  *
- * 覆盖目标① 的落地：**workScheduler 延迟任务对账**（`workreconcile/**`）+ **短时任务窗**（A 档）。
+ * 覆盖目标① 的落地：**workScheduler 延迟任务对账**（`workreconcile/**`）+ **短时任务窗**
+ * + **DATA_TRANSFER 长时任务**（2026-11-11 起，私人使用；见 §A 的决策变更说明）。
  * 为什么读源码而不 import：本面涉及的文件全是 **ArkTS 侧**（`entryability/**`、`workreconcile/**`，
  * 都 `import @ohos.*`）与**配置**（`module.json5`）⇒ 脱机 harness 无法 import，只能做**形态断言**
  * （本仓既有先例：`notify_icon.test.ts` / `notify_group.test.ts`）。
@@ -106,14 +107,20 @@ const abil = stripComments(read('entry/src/main/ets/workreconcile/NotifyReconcil
 const rec = stripComments(read('entry/src/main/ets/core/reconcile.ets'));
 const notify = stripComments(read('entry/src/main/ets/core/notify.ets'));
 
-// ── (A) 零权限 / 零审核：**不许**偷偷引入审核类权限（决策表 A 档的前提）──────
-ok('⛔ module.json5 **不含** KEEP_BACKGROUND_RUNNING（未启用长时任务）',
-  mod.indexOf('KEEP_BACKGROUND_RUNNING') < 0);
+// ── (A) 权限面（**2026-11-11 决策变更**）──────────────────────────────────────
+// 原 §A 钉的是"零审核类权限 + 无 backgroundModes"（A 档：短时任务 ≤3 分钟）。
+// 用户明确改为「私人使用、可以 hack，但**不要**静音播放（会打断听歌）」⇒ 采用
+// **DATA_TRANSFER 长时任务**保活（`KEEP_BACKGROUND_RUNNING` 是 normal + system_grant，
+// 不需要 ACL；DATA_TRANSFER 10 分钟无真实传输会被系统取消 —— 见 docs/NOTIFY.md）。
+// ⛔ 仍守"最小权限面"：只允许**这一个**权限 + **这一个** backgroundMode。
+ok('module.json5 含 KEEP_BACKGROUND_RUNNING（DATA_TRANSFER 长时任务所需）',
+  mod.indexOf('KEEP_BACKGROUND_RUNNING') >= 0);
 ok('⛔ module.json5 不含代理提醒权限 PUBLISH_AGENT_REMINDER', mod.indexOf('PUBLISH_AGENT_REMINDER') < 0);
-ok('⛔ module.json5 **不含** ability `backgroundModes`（长时任务档位）',
-  mod.indexOf('backgroundModes') < 0);
-eq('声明权限数 = 3（INTERNET/GET_NETWORK_INFO/VIBRATE；变动即需复核本文件 §决策表）',
-  countRe(mod, /ohos\.permission\./g), 3);
+ok('⛔ 不申请 location/audioPlayback（只允许 dataTransfer 一种长时任务）',
+  mod.indexOf('"backgroundModes": ["dataTransfer"]') >= 0
+  && mod.indexOf('"location"') < 0 && mod.indexOf('"audioPlayback"') < 0);
+eq('声明权限数 = 4（INTERNET/GET_NETWORK_INFO/VIBRATE + KEEP_BACKGROUND_RUNNING）',
+  countRe(mod, /ohos\.permission\./g), 4);
 
 // ── (B) workScheduler 注册**真的接线**（调用点计数，防"只 import 不调用"假绿）──
 eq('⛔ EntryAbility 里 `ensureReconcileScheduled(` 调用点**恰 1 处**',

@@ -273,7 +273,9 @@ for (const rel of SHEETS) {
   const EMPTIES: string[] = [
     "PanelEmpty($r('sys.symbol.clock'), '暂无定时任务', '定时任务到点会自动执行本会话')",
     "PanelEmpty($r('sys.symbol.hourglass'), '暂无后台任务', '后台命令在服务端持续运行，不受会话切换影响')",
-    "PanelEmpty($r('sys.symbol.person_2'), '暂无子代理', '派发子代理后会出现在这里')",
+    // 2026-10-26：用户要求把子代理视图**改回来**（回滚通信视图入口）⇒ 「代理」tab 恢复列表 +
+    // 自带空态（含 idle 的说明），仍遵守"空态 = 字形 + 主行 + 提示行"。
+    "PanelEmpty($r('sys.symbol.person_2'), '暂无子代理', '派发子代理后会出现在这里（含已空闲的）')",
     // ⚠️ 15d：文案与"行内按钮"解耦（按钮已上移表头）⇒ 不再出现"点「＋ 新建」开一个"
     "PanelEmpty($r('sys.symbol.code'), '暂无终端', '新建终端即可在此设备上运行 shell')",
     // 2026-10-13：机器 tab 的裸 `Text` 也统一到 `PanelEmpty`（字形 `computer`，已核对）

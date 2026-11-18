@@ -1,0 +1,1 @@
+cdd00c9ba3571984e00ba6fb4305c27785a576d5d2ce38138e6f57e0e734df0c  release/xbot-1.0.0-appgallery.hap

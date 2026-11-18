@@ -572,7 +572,13 @@ export const MARKER_SPINNER: number = 13;
 /** pill 外边距（工具行内）。 */
 export const GAP_PILL: number = SPACE_XXS - 1; // 3（光学档，密集行）
 /** pill 最大宽度（超出即截断出省略号）。 */
-export const PILL_MAX_W: number = 240;
+export const PILL_MAX_W: number = 168;
+/**
+ * 工具 pill 的**半宽**（用户 2026-10-28：「工具渲染改一下宽度，一行可以放两个」+ 截图「为什么
+ * 第一行只有一个 tool」）。固定半宽 ⇒ 每行**恰两枚**、列对齐；按内容宽 + maxWidth 会参差换行。
+ * ⛔ 走令牌而不是就地写 `'47%'`：`panel_surface_consistency` D3 明令"零裸百分比宽"。
+ */
+export const PILL_HALF_W: string = '47%';
 
 // ── 4.6 "在飞"的**静态**表达（⛔ 不含任何动画）──────────────────────────────
 //

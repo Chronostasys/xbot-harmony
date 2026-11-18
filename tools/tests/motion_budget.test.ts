@@ -193,6 +193,8 @@ const BUDGET: Map<string, number> = new Map<string, number>([
   ['components/GoalBanner.ets', 3],
   // 2026-10-17 re-baseline（在途功能已落地，显式登记理由：状态/空间关系）。
   ['components/LiveTailView.ets', 1],
+  // 通信视图面板（web `/court` 对齐）：仅 `sheetTransition()` 入场这一处动效面。
+  ['components/CourtSheet.ets', 1],
   // 2026-10-17 re-baseline（在途功能已落地，显式登记理由：状态/空间关系）。
   ['components/SettingsDeveloper.ets', 1],
   // 2026-10-17 re-baseline（在途功能已落地，显式登记理由：状态/空间关系）。

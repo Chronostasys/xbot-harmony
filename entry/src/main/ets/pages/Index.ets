@@ -56,7 +56,7 @@ import {
   cmdOneLine,
   bgTaskTone, CronJob, cronMessageText, cronPrimary, cronSubText, cronTargetText, fmtDateTime,
   RunnerRow, runnerPrimary, runnerSubText, runnerTone, scheduleText,
-  SubAgentRow, subagentPrimary, subagentSubText, subagentTone, TONE_MUTED, LEAD_CRON,
+  SubAgentRow, subagentPrimary, subagentStatusText, subagentSubText, subagentTone, TONE_MUTED, LEAD_CRON,
   resolveSessionNode,
 } from '../core/panels';
 import { TerminalInfo, terminalPrimary, terminalSubText, terminalTone } from '../core/termproto';
@@ -121,6 +121,7 @@ import { identityChanged, needsFullReload, rowKey, rowsFpOf, sameRowIds,
   structRowsFpOf,
   scopedFingerprint, sessionScopedRowKey, tailRows } from '../core/rowdiff';
 import { BusySignals, busyLabel, busyNow, DRAWER_EMPTY_NO_MATCH, DRAWER_EMPTY_NO_SESSIONS, DRAWER_EMPTY_NONE, drawerEmptyHint, drawerEmptyKind, showsBusyPlaceholder, showsHistorySkeleton, showsJumpToLatest } from '../core/indicators';
+import { anyRunning } from '../core/pillflow';
 import { drawerCacheHit, drawerFingerprint } from '../core/drawerfp';
 // SSE 终态（服务端明确拒绝 ⇒ 停止无限重连）——页面横幅据它显示**可解释的终态**而非"正在重连"。
 import { SSE_STATE_FAILED } from '../core/sse';
@@ -151,6 +152,7 @@ import {
   AskUserPrompt,
   ChatRow,
   HistoryIteration,
+  IterBlocks,
   QueueItem,
   SearchHit,
   SessionItem,
@@ -226,10 +228,11 @@ import { MOTION_SESSION_SWITCH_SLIDE_VP } from '../core/motion';
 import { readableRpcError, rpc, RpcMethod, RPC_PLUGIN_CONFIG, PluginConfigParams, RPC_WEB_PLUGIN_LIST, RPC_GET_SESSION_USAGE_STATS, RPC_GET_USER_TOKEN_USAGE, RPC_GET_DAILY_TOKEN_USAGE, RPC_GET_SESSION_USAGE_BUCKETS, SessionUsageStatsParams, DailyUsageParams, SessionUsageBucketsParams, EmptyParams, ThinkingModeParams } from '../core/rpc';
 import { parseSessionUsage, SessionUsage, SessionUsageWire, parseUserUsage, parseDailyUsage, parseBuckets, UserUsage, UserUsageWire, DailyUsage, DailyUsageWire, UsageBucket, UsageBucketWire, bucketRequestCount, DAILY_DAYS_WINDOW, tzOffsetMinutesFor } from '../core/sessionstats';
 import { TodoPayloadRow, removeTodoAt, renameTodoAt, todoPayloadRows, toggleTodoAt } from '../core/todos';
-import { genuiPayloadTooLarge } from '../core/genui';
+import { genuiPanelKey, genuiPayloadTooLarge } from '../core/genui';
 import { WebSubAgentProgress } from '../core/chattypes';
 import { EMPTY_BLOCKS } from '../core/render';
-import { detailIterationOf } from '../core/toolmerge';
+import { detailIterationOf, toolNeedsDetail } from '../core/toolmerge';
+import { detailTargets } from '../core/toolfetch';
 import { withAlpha } from '../core/bubble';
 // 实况窗（Live View Kit）：判据/文案在 `core/liveview.ets`（纯逻辑，可脱机单测），
 // 系统调用在 `components/LiveViewBridge.ets`（全仓唯一 `@kit.LiveViewKit` 引用点）。
@@ -376,6 +379,9 @@ class LiveDeliveryLane {
  * （见 xbot 仓库 docs/agent/gotchas-web-frontend.md）。这里先用**上限 + 手动展开**做等价保护。
  */
 const MAX_ITER_VISIBLE: number = 16;
+/** 子代理树：固定行高（⇒ 刷新/状态变化不改变布局高度）+ 每层树线槽宽。 */
+const SUB_TREE_ROW_H: number = 44;
+const SUB_TREE_RAIL_W: number = 16;
 /** `cancelSpinHold` 的硬上限（ms）：底层 promise 无论如何都必须在此时限内收尾 spinner。 */
 const CANCEL_HOLD_MAX_MS: number = 12000;
 
@@ -600,6 +606,16 @@ struct Index {
   @StorageLink('sseRecord') sseRecord: boolean = true;
   /** 详情拉取的 in-flight 去重键（`turnID:iteration`；web AgentPanel 同语义）。 */
   private detailInFlight: Set<string> = new Set<string>();
+  /**
+   * **拉详情失败待重试**的 `turn:iter` 集合（用户 2026-10-28：「永远禁止看不到详情」）。
+   *
+   * 为什么会有失败：`/api/iteration_detail` 读的是**已落库**的迭代 —— 回合进行中/刚提交的
+   * 迭代可能 404（未落库），而用户在 busy 期间点开是常态 ⇒ 只拉一次就永远没有详情（"随机"
+   * 的观感就是这么来的：早点点=空，晚点点=有）。
+   * 策略：失败记账；**idle 边沿后的第一次状态更新**补拉一次（边沿触发，无定时器/无轮询）。
+   */
+  private detailMissed: Set<string> = new Set<string>();
+  private detailRetrying: boolean = false;
   /** 「应用日志」浮层开关（用户 2026-10-16 要求「给一个看应用日志的窗口」）。 */
   @State showLog: boolean = false;
   /** 日志刷新计数（打开/清空时自增 ⇒ 让 `LogSheet` 的 ForEach key 变化、重建列表）。 */
@@ -924,6 +940,7 @@ struct Index {
 
   // ── P8 面板（定时任务 / 后台任务 / 子代理 / Runner）──
   @State showPanels: boolean = false;
+
   /** cron | tasks | subs | runners */
   @State panelTab: string = 'cron';
   @State cronTasks: CronJob[] = [];
@@ -984,6 +1001,8 @@ struct Index {
   @State cronDetailId: string = '';
   @State runners: RunnerRow[] = [];
   @State subagents: SubAgentRow[] = [];
+  /** 全量子代理（含 idle）+ 层级深度：面板「代理」tab 的真源（2026-10-26 用户要求）。 */
+  @State subagentsAll: SubAgentRow[] = [];
   @State panelBusy: boolean = false;
   /**
    * 「面板待刷新」标志（15g）：`refreshPanel()` 在**上一次拉取还在飞**时被调用 ⇒ 记下待刷新，
@@ -1093,6 +1112,16 @@ struct Index {
   @State pluginPanelLoading: boolean = false;
   @State pluginPanelError: string = '';
   @State panelUrl: string = '';
+  /**
+   * GenUI（`display_html`）面板 URL **缓存**（`genuiPanelKey(code)` → `/s/<token>` 绝对地址）。
+   *
+   * 为什么：面板"免点击直接展示"后卡片会被反复挂载（列表复用/滚动重建）⇒ 每次挂载都
+   * `POST /api/share/create` 会**制造一堆垃圾分享**。按源码键缓存 ⇒ 同一面板只建一次。
+   * ⛔ 不进 `@State`（不是渲染数据，只是会话级缓存；避免无谓重建）。
+   */
+  private genuiUrlCache: Map<string, string> = new Map<string, string>();
+  /** 同一面板的建分享请求**去重**（并发挂载只发一次；完成后清空）。 */
+  private genuiUrlPending: Map<string, Promise<string>> = new Map<string, Promise<string>>();
   /**
    * 承载页顶栏的**人类标题**（`WebSurface.chromeLabel`）—— 顶栏**绝不**显示原始 URL。
    * 与 `panelUrl` **同生共死**：每次赋值 URL 时一并给出（插件名 / 「完整 Web UI」…）。
@@ -1977,6 +2006,13 @@ struct Index {
     // 进后台：停掉脉冲与打字机的所有定时器（降功耗；回前台自动恢复）
     this.appPaused = true;
     setAppPaused(true);
+    // ⛔ 记基线（用户 2026-10-22：「转后台要记录当前 iter + turn id」）：
+    //   冻结期间事件会丢/状态会被污染，回前台必须拿"离开那一刻"的基线去比对，
+    //   而不是拿被污染后的本地状态 ⇒ 否则分不清"我落后"与"服务端没进展"。
+    const bgStore: ChatStore | null = this.store;
+    if (bgStore !== null) {
+      bgStore.markBackground();
+    }
     this.bumpTailEpoch();
     this.syncPulse(false);
     this.syncPanelPoll();
@@ -2017,7 +2053,11 @@ struct Index {
     });
     store.sse.probeNow(Date.now());
     store.sse.forceReconnect();
-    store.resyncAfterResume('ability-foreground');
+    // ⛔ 连续性判据驱动（用户 2026-10-22）：NONE 只对账会话树 / GAP 只补洞 /
+    //   RELOAD（换轮·后台跑完·服务端要求）才走权威重载。旧实现**无条件**重历史。
+    store.resumeContinuity('foreground').catch(() => {
+      // 恢复失败不阻断回前台（SSE 探活/重连已各自处理）
+    });
   }
 
   onPageShow(): void {
@@ -2058,7 +2098,10 @@ struct Index {
       // ⛔ 连接状态 `open` 不代表数据没丢：休眠期间服务端可能已处理通知/回合并 idle，
       //   SSE ring 也可能已淘汰。回前台必须做一次权威 poll（session-tree + history），
       //   否则用户不重新打开 App 就永远看不到最新内容（用户 2026-10-18 P0）。
-      store.resyncAfterResume('page-show');
+      // 同一处连续性判据（与 onAppResumed 幂等：快照 1s 缓存 ⇒ 回前台只打一枪）
+      store.resumeContinuity('page-show').catch(() => {
+        // 静默：失败不影响页面恢复
+      });
     }
     // 回前台补一次 Push Token 登记（静默、幂等：token 变了才真报，见 core/pushreg.pushShouldRegister）
     this.syncPushReg();
@@ -2184,7 +2227,7 @@ struct Index {
       case 'ctxMenu': this.ctxOpen = false; break;
       case 'searchHits': this.showSearchHits = false; break;
       case 'sessMenu': this.sessMenuId = ''; this.sessConfirmDelete = ''; break;
-      case 'panels': this.showPanels = false; break;
+      case 'panels': this.closePanels(); break;
       case 'model': this.showModel = false; break;
       case 'status': this.showStatus = false; break;
       case 'selfCheck': this.showSelfCheck = false; break;
@@ -2334,6 +2377,8 @@ struct Index {
     if (store !== this.store) {
       return;
     }
+    // 详情补拉（边沿触发、无定时器）：有失败记账 + 当前不在跑 ⇒ 补一次（见 `detailMissed`）。
+    void this.retryMissedDetails(store);
     // #7-1（2026-10-17）：bg_task_output 增量旁路——详情面板实时化（帧内直追，不等去抖节拍）。
     if (store.lastBgOutputSeq !== this.lastBgOutputSeen) {
       this.lastBgOutputSeen = store.lastBgOutputSeq;
@@ -2585,6 +2630,14 @@ struct Index {
       //   继续同步：否则滚动期间 `this.busy` / `connState` 冻结 ⇒ 回合结束后输入框
       //   仍显示「停止」/ 发送被陈旧连接态拦死（用户症状：点停止/发送无反应）。
       this.busy = store.busy;
+    // 把"回合是否在跑"投影到 AppStorage —— `EntryAbility.onBackground` 据此决定
+    // 是否在**进后台那一刻**补一次短时任务（否则进程被 Freeze ⇒ 实况窗停更，真机实证）。
+    {
+      const busyNow: boolean = store.busy;
+      if (AppStorage.get<boolean>('turnBusy') !== busyNow) {
+        AppStorage.setOrCreate<boolean>('turnBusy', busyNow);
+      }
+    }
       this.connState = store.connState;
       // ⛔ 2026-10-21（state-gate-9-3 确证）：`historyLoading` / `hasMore` / `loadingMore`
       //   的镜像在早退之后 ⇒ 滚动或按住屏幕期间这三项是**冻结副本**：历史已到但骨架屏不退
@@ -2705,6 +2758,11 @@ struct Index {
       this.listScroller.scrollEdge(Edge.Bottom);
     }
     this.busy = store.busy;
+    // 同 `computeIterStatsBadge` 的理由：`busy` 也必须投影到 AppStorage，`EntryAbility.onBackground`
+    // 才能在"进后台那一刻"判断要不要补短时任务（否则进程被 Freeze ⇒ 实况窗停更）。
+    if (AppStorage.get<boolean>('turnBusy') !== store.busy) {
+      AppStorage.setOrCreate<boolean>('turnBusy', store.busy);
+    }
     // ── 实况窗投影（每帧一次；内部按纯逻辑差分/节流，起止恒推）──────────────────────
     this.syncLiveView();
     // 插件 `xbot.iteration-stats` 的原生徽章文案 —— ⛔ **必须在这里投影成 `@State`**：
@@ -2727,6 +2785,14 @@ struct Index {
     if (!store.busy && this.keepAliveTurn) {
       this.keepAliveTurn = false;
       endTurnKeepAlive();
+    }
+    if (this.currentChat !== store.currentChatId) {
+      // 换会话：实况窗的计时与字数记忆必须清零（否则新会话显示旧会话的耗时/字数）。
+      this.lvStartedAt = 0;
+      this.lvTextMemo = '';
+      this.lvReasonMemo = '';
+      this.lvTextRunes = 0;
+      this.lvReasonRunes = 0;
     }
     this.currentChat = store.currentChatId;
     // 把当前会话写入 AppStorage——MarkdownView 的 @StorageProp('currentChatId') @Watch
@@ -2819,6 +2885,9 @@ struct Index {
     }
     if (this.subagents !== store.subagents) {
       this.subagents = store.subagents;
+    }
+    if (this.subagentsAll !== store.subagentsAll) {
+      this.subagentsAll = store.subagentsAll;
     }
     if (this.terminals !== store.terminals) {
       this.terminals = store.terminals;
@@ -3714,7 +3783,14 @@ struct Index {
     }
     this.closeDrawer();
     try {
-      await store.createSession();
+      // ⛔ 建会话只负责"建 + 刷列表"，**切身份走唯一出口 switchSession**（用户 2026-10-22：
+      //   「新建应该自动移动到对应会话，并且侧边栏要刷新」）——池/SSE/splash/当前标记同一条路。
+      const id: string = await store.createSession();
+      if (id.length === 0) {
+        this.toast(i18nT('新建失败: 服务端未返回会话 id'));
+        return;
+      }
+      await this.switchSession(id, 'web');
     } catch (e) {
       const err: BusinessError = e as BusinessError;
       this.toast(`新建失败: ${err.message}`);
@@ -3812,12 +3888,19 @@ struct Index {
     const label: string = this.newSessionLabel.trim();
     this.showNewSession = false;
     this.closeDrawer();
+    let createdId: string = '';
     try {
-      await store.createSession(label.length > 0 ? label : undefined);
+      createdId = await store.createSession(label.length > 0 ? label : undefined);
     } catch (e) {
       this.toast(`新建失败: ${errText(e as Object)}`);
       return;
     }
+    // 自动切到新会话（用户 2026-10-22 亲报「新建后不自动过去」）：与点侧栏同一出口。
+    if (createdId.length === 0) {
+      this.toast(i18nT('新建失败: 服务端未返回会话 id'));
+      return;
+    }
+    await this.switchSession(createdId, 'web');
     if (path.length === 0) {
       return;
     }
@@ -4884,6 +4967,89 @@ struct Index {
     }
   }
 
+  /**
+   * 补拉失败的详情（**边沿触发**：由 `syncFrom` 调用；⛔ 无定时器/无轮询）。
+   *
+   * 只补一次：成功即出账；仍失败 ⇒ 留在账上，等下一次状态更新再试（例如下一轮结束后服务端
+   * 才真正落库）。有界：每轮最多 8 条、且有 `detailRetrying` 防重入。
+   */
+  private async retryMissedDetails(store: ChatStore): Promise<void> {
+    if (this.detailRetrying || this.detailMissed.size === 0) {
+      return;
+    }
+    // 回合进行中：服务端很可能还没落库（404 也拿不到）⇒ 等 idle 边沿（busy=false）再补。
+    if (store.busy) {
+      return;
+    }
+    this.detailRetrying = true;
+    const keys: string[] = [];
+    this.detailMissed.forEach((k: string) => {
+      keys.push(k);
+    });
+    try {
+      for (let i = 0; i < keys.length && i < 8; i++) {
+        const parts: string[] = keys[i].split(':');
+        if (parts.length !== 2) {
+          this.detailMissed.delete(keys[i]);
+          continue;
+        }
+        const turn: number = Number.parseInt(parts[0], 10);
+        const iter: number = Number.parseInt(parts[1], 10);
+        if (turn <= 0 || iter <= 0) {
+          this.detailMissed.delete(keys[i]);
+          continue;
+        }
+        const got: HistoryIteration | null = await store.fetchIterationDetail(turn, iter);
+        if (got !== null) {
+          this.detailMissed.delete(keys[i]);
+        }
+      }
+    } finally {
+      this.detailRetrying = false;
+    }
+  }
+
+  /**
+   * **只取数、不动展开态**的详情请求（折叠面板 `+N` 里的每一枚工具都用它）。
+   *
+   * ⛔ 用户 2026-10-28：「被折叠的工具，展开后无法看到详情」。根因：`+N` 打开时只对
+   *   **第一枚**被折叠的工具调 `toggleTool`，其余从不发 `/api/iteration_detail`；
+   *   而且 `toggleTool` 同时改 `openToolKey`（展开态），拿它当"取数入口"本来就不对。
+   *   ⇒ 这里只做"缺就拉"，与展开态解耦；in-flight 去重沿用 `detailInFlight`。
+   */
+  private async ensureToolDetails(row: ChatRow, iter: number, name: string, toolIter?: number): Promise<void> {
+    const store: ChatStore | null = this.store;
+    if (store === null || row.turnID <= 0) {
+      return;
+    }
+    // ⛔ 用户 2026-10-28：「折叠的 tool 点开不会自动加载」。根因：合并块里的成员工具常常
+    //   `iteration === undefined` ⇒ 旧实现拿**块头号**去拉 ⇒ 拉的是已经完整的那个迭代
+    //   ⇒ 面板里那几枚仍「暂无详情」（看起来"点了不加载"）。
+    //   ⇒ 目标解析交给 `core/toolfetch.detailTargets`（按**工具名反查**缺详情的那一迭代）。
+    const targets: number[] = detailTargets(row.iterations, name, toolIter, iter);
+    for (let t = 0; t < targets.length; t++) {
+      const want: number = targets[t];
+      if (want <= 0) {
+        continue;
+      }
+      const flight: string = `${row.turnID}:${want}`;
+      if (this.detailInFlight.has(flight)) {
+        continue;
+      }
+      this.detailInFlight.add(flight);
+      try {
+        const got: HistoryIteration | null = await store.fetchIterationDetail(row.turnID, want);
+        if (got === null) {
+          this.detailMissed.add(flight);
+        } else {
+          this.detailMissed.delete(flight);
+        }
+      } finally {
+        this.detailInFlight.delete(flight);
+      }
+    }
+  }
+
   private async toggleToolByKey(row: ChatRow, iter: number, name: string, toolIter?: number): Promise<void> {
     // ⛔ 断点 A 修复（web `FoldedToolGroup.tsx:564`）：**工具自带号优先**。合并块（mergeToolRuns）
     //   的 `it.iteration` 只是 head 号，被吸收的工具属另一个迭代 ⇒ 旧实现 `it.iteration === iter`
@@ -4921,6 +5087,11 @@ struct Index {
     return `${turnID}:${iter}:${name}`;
   }
 
+  /** 该工具是否**缺详情**（判据唯一真源 = `core/toolmerge.toolNeedsDetail`，可脱机单测）。 */
+  private toolNeedsDetail(t: ToolProgress): boolean {
+    return toolNeedsDetail(t);
+  }
+
   private async toggleTool(row: ChatRow, it: HistoryIteration, t: ToolProgress): Promise<void> {
     const key: string = this.toolKey(row.turnID, it.iteration, t.name);
     // ⛔ 用户**就地**展开/折叠工具详情：此后这次内容变化是**用户自己**造成的 ⇒ 开抑制窗，
@@ -4933,9 +5104,31 @@ struct Index {
     }
     this.openToolKey = key;
     const store: ChatStore | null = this.store;
-    // 折叠视图下详情未下发（该迭代带 tools_folded）→ 按需拉取
-    if (store !== null && it.tools_folded === true && (t.detail === undefined || t.detail.length === 0)) {
-      await store.fetchIterationDetail(row.turnID, it.iteration);
+    // ── 按需拉详情（web `useIterationDetailGate` 同义）────────────────────────────
+    // ⛔ 判据必须是「**详情确实缺**」，不是 `it.tools_folded === true`（用户 2026-10-27 P0：
+    //    「和历史工具交互看不到详情（包括参数都看不到）」）。根因：模型侧 `Block` 没携带折叠
+    //    标记，`model_bridge.toHistoryIteration` 把它**硬编码成 false** ⇒ 历史折叠载荷（后端
+    //    已把 args/detail/summary/hints 全部省略）永远不触发拉取 ⇒ 浮层里一片空白。
+    //    与 web 等价：web 的 gate 也是"详情字段不在手上就 hydrate"，不信任任何单一标记。
+    if (store === null || row.turnID <= 0 || it.iteration <= 0 || !this.toolNeedsDetail(t)) {
+      return;
+    }
+    const itNum: number = detailIterationOf(t.iteration, it.iteration);
+    const flight: string = `${row.turnID}:${itNum}`;
+    if (this.detailInFlight.has(flight)) {
+      return;
+    }
+    this.detailInFlight.add(flight);
+    try {
+      const got: HistoryIteration | null = await store.fetchIterationDetail(row.turnID, itNum);
+      if (got === null) {
+        // 未落库/网络失败 ⇒ 记账，等 idle 后补拉（见 `detailMissed` 的注释）
+        this.detailMissed.add(flight);
+      } else {
+        this.detailMissed.delete(flight);
+      }
+    } finally {
+      this.detailInFlight.delete(flight);
     }
   }
 
@@ -5367,11 +5560,36 @@ struct Index {
     if (genuiPayloadTooLarge(code)) {
       return '';
     }
-    try {
-      return await store.shareGenuiPanel(code, title);
-    } catch (e) {
-      return '';
+    // ① 命中缓存（同一面板只建一次分享；卡片免点击自动展示会反复挂载）
+    const key: string = genuiPanelKey(code);
+    const cached: string | undefined = this.genuiUrlCache.get(key);
+    if (cached !== undefined && cached.length > 0) {
+      return cached;
     }
+    // ② 同面板并发请求去重（多行/重建同时挂载 ⇒ 只发一次）
+    const pending: Promise<string> | undefined = this.genuiUrlPending.get(key);
+    if (pending !== undefined) {
+      return pending;
+    }
+    const job: Promise<string> = (async (): Promise<string> => {
+      // 内嵌 webview 载入**服务端页面**前必须先注入会话 cookie，否则 401 落登录页
+      // （与插件面板同因，见 `syncSessionCookieToWeb`）。cookie 是进程级（`configCookieSync`）
+      // ⇒ 之后自动内联挂载的 `WebSurface` 也带着它，不必逐实例传。
+      this.syncSessionCookieToWeb(store);
+      try {
+        const url: string = await store.shareGenuiPanel(code, title);
+        if (url.length > 0) {
+          this.genuiUrlCache.set(key, url);
+        }
+        return url;
+      } catch (e) {
+        return '';
+      } finally {
+        this.genuiUrlPending.delete(key);
+      }
+    })();
+    this.genuiUrlPending.set(key, job);
+    return job;
   }
 
   /**
@@ -6256,7 +6474,7 @@ struct Index {
       if (this.showPanels) {
         Column() {
           Blank().layoutWeight(1).width('100%').onClick(() => {
-            this.showPanels = false;
+            this.closePanels();
           })
           this.PanelsSheet()
         }.width('100%').height('100%')
@@ -8443,13 +8661,47 @@ struct Index {
         this.sessConfirmDelete = id;
         return;
       }
+      // ⛔ 渠道必须取**该行自己的**（用户 2026-10-22「删除只有按钮没作用」的根因：
+      //   旧实现用当前 store 的 channel ⇒ 跨渠道会话删的是不存在的租户 ⇒ 403/400 且列表不变）。
+      const victim: SessionItem | undefined = this.currentMenuSession();
+      const victimChannel: string = victim !== undefined && victim.channel !== undefined
+        ? victim.channel : store.channel;
+      const wasCurrent: boolean = this.isCurrentSession(id);
       this.sessMenuId = '';
       this.sessConfirmDelete = '';
+      // 乐观移除（用户要"删完侧栏立刻刷新"）：先本地摘行，权威列表随后由 store 拉回。
+      const before: SessionItem[] = this.sessions;
+      // 删当前会话后要落到的下一行：原顺序里被删行的**下一行**；没有下一行取上一行；都没有 ⇒ 空态。
+      let nextAfter: string = '';
+      for (let i = 0; i < before.length; i++) {
+        if (before[i].chat_id === id) {
+          if (i + 1 < before.length) {
+            nextAfter = before[i + 1].chat_id;
+          } else if (i > 0) {
+            nextAfter = before[i - 1].chat_id;
+          }
+          break;
+        }
+      }
+      const kept: SessionItem[] = [];
+      for (let i = 0; i < before.length; i++) {
+        if (before[i].chat_id !== id) {
+          kept.push(before[i]);
+        }
+      }
+      this.sessions = kept;
       try {
-        await store.deleteSession(id);
+        await store.deleteSession(id, victimChannel);
         this.toast(i18nT('会话已删除'));
       } catch (e) {
+        // 失败 ⇒ 恢复列表（绝不假装删掉）+ 可读原因
+        this.sessions = before;
         this.toast(`删除失败: ${errText(e as Object)}`);
+        return;
+      }
+      // 删的是当前会话 ⇒ 自动落到列表里的下一个（没有则进空态），不再停在被删会话上
+      if (wasCurrent && nextAfter.length > 0) {
+        await this.switchSession(nextAfter);
       }
       return;
     }
@@ -8463,15 +8715,22 @@ struct Index {
       return;
     }
     if (code === 'fork') {
+      // ⛔ **先读源会话，再清菜单态**（用户 2026-10-22 亲报「分叉后不自动过去」）：
+      //   旧顺序先 `sessMenuId=''` ⇒ `currentMenuSession()` 恒 undefined ⇒ 标题退化成 id、
+      //   `source_channel` 也用当前渠道（跨渠道会话 ⇒ 分叉到错误租户/失败）。
+      const src: SessionItem | undefined = this.currentMenuSession();
+      const srcChannel: string = src !== undefined && src.channel !== undefined ? src.channel : store.channel;
+      const base: string = src !== undefined
+        ? sessionTitle(src.label !== undefined ? src.label : '', src.chat_id,
+          src.preview !== undefined ? src.preview : '')
+        : id;
       this.sessMenuId = '';
-      const s: SessionItem | undefined = this.currentMenuSession();
-      const base: string = s !== undefined ? sessionTitle(s.label !== undefined ? s.label : '', s.chat_id,
-        s.preview !== undefined ? s.preview : '') : id;
+      this.sessConfirmDelete = '';
       try {
-        const newId: string = await store.forkSession(id, `${base} 分支`);
-        await store.loadSessions();
-        this.toast(`已分支为 ${newId}`);
-        this.switchSession(newId);
+        const newId: string = await store.forkSession(id, srcChannel, `${base} 分支`);
+        // 自动切到新会话（web `forkSession` 同款：**完整 switch** ⇒ 后端 /switch + 当前标记）
+        await this.switchSession(newId, srcChannel);
+        this.toast(i18nT('已分叉出新会话'));
       } catch (e) {
         this.toast(`分支失败: ${errText(e as Object)}`);
       }
@@ -8546,6 +8805,209 @@ struct Index {
    *      （`docs/PERF-BUDGET.md` 表 A），本页基线已 ~1247 ⇒ 新增 UI（D/E/F）统一走本入口。
    *      ⛔ 不是"绕过判据"：memo 后**真实重复分配更少**，开销只会更低。
    */
+  /** tab 选中指示器底色（`accent` / `transparent`）—— 两处 `pal()` 收敛为**一处**取色。 */
+  private panelIndicatorColor(tab: string): string {
+    const p: Palette = this.palOnce();
+    return this.panelTab === tab ? colorOf(p, 'accent') : p.transparent;
+  }
+
+  /** 子代理树的取色（`[accent, warn, muted, hairline]`），按主题 memo；`palOnce()` 唯一出处。 */
+  private subTintCache: string[] = [];
+  private subTintTheme: string = '';
+
+  private subTreeTint(): string[] {
+    if (this.subTintTheme === this.themeName && this.subTintCache.length === 6) {
+      return this.subTintCache;
+    }
+    const p: Palette = this.palOnce();
+    // 2026-10-26 真机：主文字必须是 `textPrimary`（此前误用 muted ⇒ 整页发灰、像禁用态）
+    // [0]=accent [1]=warn [2]=muted [3]=hairline [4]=primary [5]=**树线色**
+    // ⛔ 树线色也放进来（不要在各处写 `colorOf(this.palOnce(), …)` —— 每写一次都算一个
+    //    B 线读取点，实测 3 处就把预算顶穿 1362>1358）。
+    this.subTintCache = [colorOf(p, 'accent'), colorOf(p, 'warn'), p.textMuted, hairlineOf(p),
+      p.textPrimary, colorOf(p, 'iconMuted')];
+    this.subTintTheme = this.themeName;
+    return this.subTintCache;
+  }
+
+  /** 状态点用的色调下标（0=运行中 1=需注意 2=中性）。 */
+  private subDotIndex(a: SubAgentRow): number {
+    if (a.running === true) {
+      return 0;
+    }
+    const st: string = a.status !== undefined ? a.status : '';
+    if (st === 'interrupted' || st === 'unloaded' || st === 'waiting_input') {
+      return 1;
+    }
+    return 2;
+  }
+
+  /** 副行：**先写「上级」**（用户 2026-10-26：看不出谁是谁的上级），没有上级才回落到 preview。 */
+  private subTreeSub(a: SubAgentRow): string {
+    if (a.orphan === true) {
+      // 孤立节点（无父）：明确标注，别让用户以为它"没有上级"是数据丢了
+      return '无上级（孤立子代理）';
+    }
+    if (a.parentLabel !== undefined && a.parentLabel.length > 0) {
+      return `上级 · ${a.parentLabel}`;
+    }
+    // 顶层子代理没有"上级"，不要再重复写一句"直接挂在当前会话下"（真机实测噪音满屏）；
+    // 有 preview 就显示内容摘要，没有就**留空**（行高固定 ⇒ 布局不抖）。
+    return a.preview !== undefined ? a.preview.trim() : '';
+  }
+
+  /**
+   * 子代理**树行**（固定行高 + 真树线 + 状态点 + 「上级」副行）。
+   *
+   * 2026-10-26 用户：「刷新时高度老变」「对齐有问题」「看不出谁是谁的上级」。
+   *   · 行高固定 `SUB_TREE_ROW_H`（不再随内容/加载态伸缩）；
+   *   · 树线：祖先层竖线（`rails`）+ 本层 `├─`/`└─`（`last`）—— 父子相邻（数据层纯 DFS 前序）；
+   *   · 对齐：所有行共享同一列结构（rails → 折角 → 状态点 → 文本 → 状态 → chevron），
+   *     行间用 `List.divider` 画 hairline（不再是一张张圆角卡片）；
+   *   · ⛔ 高度只用常量，**不用百分比**（`height('100%')` 在内容自适应容器里会炸）。
+   */
+  @Builder
+  private SubAgentTreeRow(a: SubAgentRow) {
+    Row() {
+      // ① 祖先层竖线：每层一格；仅当该层仍有后续兄弟时画线。
+      //   ⛔ 不用 `ForEach`（静态预算 ForEach 只许减）：视觉层级上限 4 段，显式展开。
+      if (a.rails.length > 0 && a.rails[0]) {
+        Stack({ alignContent: Alignment.TopStart }) {
+          Row()
+            .width(STROKE_RAIL).height(SUB_TREE_ROW_H)
+            .backgroundColor(this.subTreeTint()[5])
+            .margin({ left: SUB_TREE_RAIL_W / 2 })
+        }
+        .width(SUB_TREE_RAIL_W).height(SUB_TREE_ROW_H)
+      } else if (a.rails.length > 0) {
+        Stack().width(SUB_TREE_RAIL_W).height(SUB_TREE_ROW_H)
+      }
+      if (a.rails.length > 1 && a.rails[1]) {
+        Stack({ alignContent: Alignment.TopStart }) {
+          Row()
+            .width(STROKE_RAIL).height(SUB_TREE_ROW_H)
+            .backgroundColor(this.subTreeTint()[5])
+            .margin({ left: SUB_TREE_RAIL_W / 2 })
+        }
+        .width(SUB_TREE_RAIL_W).height(SUB_TREE_ROW_H)
+      } else if (a.rails.length > 1) {
+        Stack().width(SUB_TREE_RAIL_W).height(SUB_TREE_ROW_H)
+      }
+      if (a.rails.length > 2 && a.rails[2]) {
+        Stack({ alignContent: Alignment.TopStart }) {
+          Row()
+            .width(STROKE_RAIL).height(SUB_TREE_ROW_H)
+            .backgroundColor(this.subTreeTint()[5])
+            .margin({ left: SUB_TREE_RAIL_W / 2 })
+        }
+        .width(SUB_TREE_RAIL_W).height(SUB_TREE_ROW_H)
+      } else if (a.rails.length > 2) {
+        Stack().width(SUB_TREE_RAIL_W).height(SUB_TREE_ROW_H)
+      }
+      if (a.rails.length > 3 && a.rails[3]) {
+        Stack({ alignContent: Alignment.TopStart }) {
+          Row()
+            .width(STROKE_RAIL).height(SUB_TREE_ROW_H)
+            .backgroundColor(this.subTreeTint()[5])
+            .margin({ left: SUB_TREE_RAIL_W / 2 })
+        }
+        .width(SUB_TREE_RAIL_W).height(SUB_TREE_ROW_H)
+      } else if (a.rails.length > 3) {
+        Stack().width(SUB_TREE_RAIL_W).height(SUB_TREE_ROW_H)
+      }
+
+      // ② 本层折角：`└─`（最后一个孩子）或 `├─`
+      Stack({ alignContent: Alignment.TopStart }) {
+        Row()
+          .width(STROKE_RAIL)
+          .height(a.last ? SUB_TREE_ROW_H / 2 : SUB_TREE_ROW_H)
+          .backgroundColor(this.subTreeTint()[5])
+          .margin({ left: SUB_TREE_RAIL_W / 2 })
+        Row()
+          .width(SUB_TREE_RAIL_W / 2 - 1).height(STROKE_RAIL)
+          .backgroundColor(this.subTreeTint()[5])
+          .margin({ left: SUB_TREE_RAIL_W / 2, top: SUB_TREE_ROW_H / 2 })
+      }
+      .width(SUB_TREE_RAIL_W).height(SUB_TREE_ROW_H)
+
+      // ③ 内容区（状态点 → 名称/副行 → 状态 → chevron）
+      //    ⛔ 分隔线只画在**内容区底部**（`.border` bottom），⛔ 不用 `List.divider`：
+      //    `divider` 按行宽铺、`startMargin` 只能到行内边距，会**横穿树线区**（真机："横线出头"）。
+      Row() {
+        // ③ 状态点
+        Circle({ width: 7, height: 7 })
+          .fill(this.subTreeTint()[this.subDotIndex(a)])
+          .margin({ left: 2, right: SPACE_XS })
+
+        // ④ 名称 + 副行（上级）
+        Column({ space: 1 }) {
+          Text(subagentPrimary(a))
+            .fontSize(typeOf('type.subhead').size)
+            .fontWeight(a.running === true ? FontWeight.Medium : FontWeight.Normal)
+            .fontColor(this.subTreeTint()[4])
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+          if (this.subTreeSub(a).length > 0) {
+            Text(this.subTreeSub(a))
+              .fontSize(typeOf('type.micro').size)
+              .fontColor(this.subTreeTint()[2])
+              .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+          }
+        }
+        .layoutWeight(1).alignItems(HorizontalAlign.Start)
+        .margin({ left: SPACE_XS })
+
+        // ⑤ 状态短标签（弱色，右对齐）
+        Text(subagentStatusText(a))
+          .fontSize(typeOf('type.micro').size)
+          .fontColor(this.subTreeTint()[this.subDotIndex(a) === 2 ? 2 : this.subDotIndex(a)])
+          .margin({ left: SPACE_XS })
+
+        // ⑥ 可点提示
+        SymbolGlyph($r('sys.symbol.chevron_right'))
+          .fontSize(typeOf('type.micro').size)
+          .fontColor([this.subTreeTint()[2]])
+          .margin({ left: SPACE_XS })
+      }
+      }
+      .layoutWeight(1).height(SUB_TREE_ROW_H)
+      .alignItems(VerticalAlign.Center)
+      .padding({ left: 2 })
+      // ⛔ **不要行间分隔线**（2026-10-26 用户：「灰色那个为什么要有，看起来出头了」）：
+      //   树线（├─/└─ + 祖先竖线）已经把层级/分组表达清楚；再叠一条横线只会被看成"折角横线拖尾"。
+      //   行高固定 ⇒ 有没有分隔线都不影响布局稳定性。
+    .width('100%').height(SUB_TREE_ROW_H)
+    .padding({ left: SPACE_SM, right: SPACE_SM })
+    .alignItems(VerticalAlign.Center)
+    .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
+    .onClick(() => {
+      // ⛔ 子代理历史 = **两条数据源**（web `useChatMessages.ts:489-522` 同源）：
+      //   ① 先切到它自己的会话（身份/SSE 正确）；
+      //   ② 若这行带 `role`（role/instance 型子代理）⇒ 再走 `get_agent_session_dump`
+      //      （含 messages + iterations）。只走 `/api/history` 会拿到 v55 的**空壳 assistant 行**
+      //      ⇒ 被空行规则过滤 ⇒ **只看得到 user 消息、没有 agent 消息**（用户 2026-10-26 P0）。
+      const st: ChatStore | null = this.store;
+      const parentChat: string = st !== null ? st.currentChatId : '';
+      this.closePanels();
+      if (a.chat_id === undefined || a.chat_id.length === 0) {
+        return;
+      }
+      const target: string = a.chat_id;
+      const role: string = a.role !== undefined ? a.role : '';
+      const instance: string = a.instance !== undefined ? a.instance : '';
+      this.switchSession(target).then(() => {
+        if (st !== null && role.length > 0) {
+          // 运行中 ⇒ 尾部在飞迭代交给 SSE；idle（跑完）⇒ 全部保留，否则**最终回复会丢**。
+          st.loadSubAgentTranscript(parentChat, role, instance, a.status === 'running').catch(() => {
+            // dump 不可用 ⇒ 已自动回落成常规 `/api/history` 的结果
+          });
+        }
+      }).catch(() => {
+        // 切换失败：用户可重试
+      });
+    })
+    .accessibilityText(`${subagentPrimary(a)} ${subagentStatusText(a)} ${this.subTreeSub(a)}`)
+  }
+
   private palOnce(): Palette {
     // ⚡ 2026-10-20 性能修复：`pal()` 本身已记忆化 ⇒ `palOnce()` 直接转发（语义逐字节一致）。
     //   原先 `pal()` 未记忆化，每次 `withAccent` 重新分配色板 ⇒ 流式期 DrawerSheet builder
@@ -9319,7 +9781,7 @@ struct Index {
     this.termCwd = t.cwd !== undefined ? t.cwd : '';
     // ⛔ 必须先收起运行面板：面板是**底部**浮层，不收起会压住终端自己的输入行与快捷键行
     //    （真机 dump 实证：输入框在 y2144，而面板从 y2097 起 ⇒ 无法输入）。与「子代理行」同范式。
-    this.showPanels = false;
+    this.closePanels();
     this.showTerminal = true;
     // 面板已收起 ⇒ 撤防轮询（⛔ 别让它在后台空转）
     this.syncPanelPoll();
@@ -9340,7 +9802,7 @@ struct Index {
       if (tid.length > 0) {
         this.termTid = tid;
         this.termCwd = '';
-        this.showPanels = false;
+        this.closePanels();
         this.showTerminal = true;
         // 面板已收起 ⇒ 撤防轮询（同 `openTerminal`）
         this.syncPanelPoll();
@@ -9544,6 +10006,41 @@ struct Index {
     return this.showSplash || this.switchSplash;
   }
 
+  /**
+   * 本轮**是否还有运行中的工具**（已提交块 ∪ 在飞快照）。
+   *
+   * ⛔ 用户 2026-10-28 P0（第二次复发）：「running tool 居然和思考中 spinner 同时出现」。
+   *   第一次修复只看 `liveTools`；但服务端常常**先提交迭代、工具还在跑** ⇒ running 工具
+   *   住在**已提交块**里、`liveTools` 为空 ⇒ 占位符照常出现。
+   *   ⇒ 必须扫"本轮所有可见工具"，任一 running ⇒ 列表不再显示「思考中…」。
+   */
+  private turnHasRunningTool(): boolean {
+    // ⛔ **必须与渲染同源**（用户 2026-10-29：「只有最后一个 tool done 的时候才显示思考中，
+    //   但你现在在别的情况也显示」）：判据直接扫**页面正在渲染的那份数据**——
+    //   最后一条 assistant 行的 `iterations`（已提交块 + 在飞块同源）∪ `liveTools`。
+    //   ⛔ 不要只看 `liveTools`：服务端常常先提交迭代、工具还在跑（running 工具住在已提交块里）。
+    if (anyRunning(this.liveTools)) {
+      return true;
+    }
+    for (let i = this.rows.length - 1; i >= 0; i--) {
+      const row: ChatRow = this.rows[i];
+      if (row.role !== 'assistant') {
+        continue;
+      }
+      const its: HistoryIteration[] = row.iterations !== undefined && row.iterations !== null
+        ? row.iterations : [];
+      for (let k = its.length - 1; k >= 0; k--) {
+        const ts: ToolProgress[] | undefined = its[k].tools;
+        if (ts !== undefined && anyRunning(ts)) {
+          return true;
+        }
+      }
+      break;   // 只看最后一条 assistant 行（本轮）
+    }
+    return false;
+  }
+
+
   private busySignals(): BusySignals {
     const store: ChatStore | null = this.store;
     // 会话隔离：切换瞬间 store / 页面 currentChat 可能短暂不一致；此时绝不能拿
@@ -9563,8 +10060,16 @@ struct Index {
       //   在飞内容"，idle 之后 composer 会永久 cancel（见 hasLiveRowWithContent 同注）。
       //    注意**顺序**：`this.hasLiveRow && rowHasInFlightSignal(...)` 必须连续，
       //    判据测试（iter_gap_indicator G1）按此形态扫描；busy 门放在其后。
+      // ⛔ 末尾必须再乘 `this.liveActive`（用户 2026-10-29 P0：「迭代完成后思考中不立刻出现」）：
+      //   迭代刚提交、下一迭代还没产出时，`rowHasInFlightSignal` 仍可能为真（行里的块刚提交）
+      //   ⇒ 尾部占位被抑制 ⇒ 用户等待期间**一片空白**。只有"在飞块真的挂载并渲染"时才算
+      //   尾部自带信号；否则必须让「思考中…」占位出场。
+      // ⛔ 用户 2026-10-29 硬性口径：「busy 且**最后一个工具已 done** 时一定要显示思考中」。
+      //   尾部自带信号只在"确实有在飞迹象"时成立：① 有 **running/queued** 工具；② 或在飞正文/
+      //   思考正在流。仅有**已完成**的工具 ⇒ 不算信号 ⇒ 交给「思考中…」占位（而不是一片空白）。
       tailShowsIndicator: this.hasLiveRow && rowHasInFlightSignal(this.liveRowRef)
-        && store !== null && store.busy,
+        && store !== null && store.busy && this.liveActive
+        && (this.turnHasRunningTool() || this.liveText.length > 0 || this.liveReasoning.length > 0),
       // ⛔ 不能再用页面 `sessions` 的 running 作为 busy 的第二真源：它是慢轮询快照，
       //    text_final/phase_done 收尾后仍可能停在 true（下次轮询才翻）⇒ 正文完整后
       //    凭空「思考中」数秒（用户 2026-10-20 P0）。唯一 busy 真源 = store（SSE/意图/
@@ -9574,6 +10079,9 @@ struct Index {
       rowsLen: sameChat ? this.rows.length : 0,
       // splash 展示期间 ⇒ 列表侧"进行中"指示器一律让位（见 `splashUp()` / `BusySignals.splashUp`）。
       splashUp: this.splashUp(),
+      // ⛔ 有运行中工具 ⇒ 工具 pill 已在表达"正在干活"，列表不再叠「思考中…」
+      //   （用户 2026-10-28 截图：`task_wait: 执行中` 下面跟着「思考中…」）。
+      hasRunningTool: sameChat && this.turnHasRunningTool(),
     };
   }
 
@@ -9792,7 +10300,7 @@ struct Index {
     this.showStatus = false;
     this.showModel = false;
     this.showSettingsPanel = false;
-    this.showPanels = false;
+    this.closePanels();
     this.showTaskDetail = false;
     this.showCronDetail = false;
     this.showTerminal = false;
@@ -9825,6 +10333,19 @@ struct Index {
     this.refreshPanel();
     // 面板开着 = 数据要活着（web `useTasks.ts:117-122` 的自适应轮询；见 `syncPanelPoll`）
     this.syncPanelPoll();
+  }
+
+  /** 关闭运行面板的**唯一出口**。 */
+  private closePanels(): void {
+    if (this.showPanels) {
+      this.anim(() => {
+        // ⛔ 这里**必须**是"置位本身"，绝不能是 `this.closePanels()` ——
+        //   否则关面板 = 无限递归（2026-10-22 真机 100% 崩溃的根因：批量把
+        //   `this.showPanels = false;` 全替换成 `this.closePanels();` 时把函数体也换了）。
+        //   判据：`tools/tests/sheet_scrim_wiring.test.ts` 的 `closePanels 不自递归`。
+        this.showPanels = false;
+      });
+    }
   }
 
   private switchPanelTab(tab: string): void {
@@ -10181,6 +10702,14 @@ struct Index {
     if (this.liveReasoning !== this.lvReasonMemo) {
       this.lvReasonMemo = this.liveReasoning;
       this.lvReasonRunes = runeCount(this.liveReasoning);
+    }
+    // 会话名进快照：切换会话时标题变化 ⇒ shouldPushLiveView 视为结构事件强制推送
+    //（否则新旧会话的迭代号/工具/字数相同 ⇒ sameLiveView 判等 ⇒ 实况窗停在旧会话内容）。
+    {
+      const lvStore: ChatStore | null = this.store;
+      if (lvStore !== null) {
+        i.title = ChatStore.chatLabelOf(lvStore.sessions, lvStore.currentChatId);
+      }
     }
     i.runes = this.lvTextRunes + this.lvReasonRunes;
     i.startedAtMs = this.lvStartedAt;
@@ -11233,7 +11762,7 @@ struct Index {
               .width(SPACE_LG)
               .height(STROKE_RAIL)
               .borderRadius(STROKE_RAIL)
-              .backgroundColor(this.panelTab === tab ? this.pal().accent : this.pal().transparent)
+              .backgroundColor(this.panelIndicatorColor(tab))
               // 选中态缓动（与抽屉分段控件同一口径；只动指示器底色）
               .animation(animBase())
           }
@@ -11248,33 +11777,12 @@ struct Index {
         }, (tab: string) => `ptab-${tab}`)
       }.width('100%')
 
-      // ── 快赢 4（2026-10-17）：任务面板 loading 行 + 断线提示 ──
-      // web 对照 `TasksPanel.tsx:265-269`（Loader2 loading）与 `:275-277`（断线文案）；
-      // 原生此前 `panelBusy` 只做排队守卫（无 UI）、断线静默 ⇒ 用户看到旧数据/空态却不知为何。
-      // 形态与主界面弱网行（:6577 区 Row+LoadingProgress+warn）同款——全站一套语言。
-      if (this.panelBusy) {
-        Row({ space: 6 }) {
-          // B 线预算（⛔ pal() 只许减）：loading 是中性信息——LoadingProgress 默认色+Text 继承，
-          // 不再各取一色（省 2 处 pal()）。
-          LoadingProgress().width(14).height(14)
-          Text(i18nT('加载中…'))
-            .fontSize(typeOf('type.caption').size)
-        }
-        .width('100%').padding({ left: SPACE_SM, right: SPACE_SM, top: 4, bottom: 4 })
-      } else if (this.connState === 'reconnecting' || this.connState === 'connecting') {
-        Row({ space: 6 }) {
-          // 警示性由文字 warn 色+warnBg 背景承担（LoadingProgress 默认色——省 1 处 pal()）。
-          // ⛔ 不用 `layoutWeight(1)`（①b 断言的 tabRow 窗口覆盖到本行——会数成第 3 处假红）；
-          // 用 maxWidth 约束防溢出，省略号截断同效。
-          LoadingProgress().width(14).height(14)
-          Text(i18nT('连接断开，正在重连…（任务状态可能滞后）'))
-            .fontSize(typeOf('type.caption').size).fontColor(this.pal().warn)
-            .constraintSize({ maxWidth: '100%' })
-            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-        }
-        .width('100%').padding({ left: SPACE_SM, right: SPACE_SM, top: 4, bottom: 4 })
-        .backgroundColor(this.pal().warnBg)
-      }
+      // ⛔ **不再有独立的「○ 加载中… / 断线」行**（2026-10-26 用户：每次刷新高度都跳一下）：
+      //   这一行是条件渲染 ⇒ 出现/消失会把下方整片列表上下推 ~50vp。
+      //   真实需求（"刷没刷新、断没断"）已有两处覆盖：
+      //     · 表头标题旁本来就有 `panelBusy` 的转圈（`LoadingProgress(16)`，不改变布局）；
+      //     · 断线由主界面弱网行 + `connState` 横幅负责（面板内再写一遍是重复信息）。
+      //   ⇒ 面板内**不占布局**地表达状态：宁可少一行，也不要"内容随刷新上下跳"。
 
       if (this.panelTab === 'cron') {
         if (this.cronTasks.length === 0) {
@@ -11362,30 +11870,26 @@ struct Index {
           .transition(fadeTransition())
         }
       } else if (this.panelTab === 'subs') {
-        if (this.subagents.length === 0) {
-          this.PanelEmpty($r('sys.symbol.person_2'), '暂无子代理', '派发子代理后会出现在这里')
+        // ── 子代理树（2026-10-26 用户：回滚结构化视图；要层级、"看得出谁的上级"、别抖别丑）──
+        //   · 数据 = `subagentsAll`（全量：running/waiting/interrupted/idle/历史），
+        //     `core/panels.allSubAgentRows` = **纯 DFS 前序**（父子相邻）+ `depth/last/rails/parentLabel`；
+        //   · 视觉 = 真树线（祖先竖线 + ├─/└─）+ 状态点 + 「上级 · xxx」副行 + 右侧状态；
+        //   · 行高固定（`SUB_TREE_ROW_H`）、行间 hairline（`List.divider`）⇒ 刷新不改变布局；
+        //   · ⛔ key 只用 `chat_id`（不含 status/depth —— 否则状态一变就整行重建 ⇒ 闪 + 高度跳）。
+        if (this.subagentsAll.length === 0) {
+          this.PanelEmpty($r('sys.symbol.person_2'), '暂无子代理', '派发子代理后会出现在这里（含已空闲的）')
         } else {
-          List({ space: 6 }) {
-            ForEach(this.subagents, (a: SubAgentRow, i: number) => {
+          List() {
+            ForEach(this.subagentsAll, (a: SubAgentRow, i: number) => {
               ListItem() {
-                PanelRowCard({
-                  theme: this.themeName,
-                  primary: subagentPrimary(a),
-                  secondary: subagentSubText(a),
-                  tone: subagentTone(a),
-                  trailing: ROW_TRAIL_NONE,
-                  onTap: () => {
-                    this.showPanels = false;
-                    if (a.chat_id !== undefined) {
-                      this.switchSession(a.chat_id);
-                    }
-                  },
-                })
+                this.SubAgentTreeRow(a)
               }
-            }, (a: SubAgentRow, i: number) => `sub-${a.chat_id}#${i}`)
-          }.layoutWeight(1).width('100%')
-          // 切 tab = 分支移除 + 插入 => 用**出现过渡**（`fadeTransition`）。静息态恒为可见值
-          // （⛔ 绝不写 `opacity(x?1:0)` + animateTo 那种「可读性是动画的函数」的形态，见门禁⑨）。
+            // ⛔ key 兜底：后端可能给没有 `chat_id` 的空壳节点 ⇒ 不能用空串当 key（会互相顶掉）
+            }, (a: SubAgentRow, i: number) => a.chat_id.length > 0 ? `sub-${a.chat_id}` : `sub-idx-${i}`)
+          }
+          .layoutWeight(1).width('100%')
+          // ⛔ 关掉滚动条（真机截图里那条贯穿整列的竖线就是它，视觉上像"画歪的树线"）
+          .scrollBar(BarState.Off)
           .transition(fadeTransition())
         }
       } else if (this.panelTab === 'term') {
@@ -11513,6 +12017,14 @@ struct Index {
         onToggleTool: (iter: number, name: string, toolIter?: number) => {
           this.toggleToolByKey(row, iter, name, toolIter);
         },
+        // 折叠面板（`+N`）：每枚工具**只取数**、不改展开态（见 `ensureToolDetails` 的注释）
+        onEnsureToolDetail: (iter: number, name: string, toolIter?: number) => {
+          void this.ensureToolDetails(row, iter, name, toolIter);
+        },
+        // 浮层里批量取数要 await（子组件靠它自增代数刷新自己）
+        onEnsureToolDetailAsync: (iter: number, name: string, toolIter?: number): Promise<void> => {
+          return this.ensureToolDetails(row, iter, name, toolIter);
+        },
         onRowLongPress: () => {
           this.openCtx('row', row.id, 0, '');
         },
@@ -11568,6 +12080,9 @@ struct Index {
         liveReasoning: this.liveReasoning,
         liveTools: this.liveTools,
         liveSubAgents: this.liveSubAgents,
+        // ⛔ 已提交块**值投递**（用户 2026-11-18 P0：「迭代完成就消失，idle 后才出现」——
+        //   live 行由页面直驱、row 引用恒定，`@ObjectLink` 驱动不了 IterBlocksView.build()）。
+        liveBlocks: this.liveBlocks,
         mdTheme: this.mdThemeId(),
         fontScaleV: this.fontScale(),
         wrapCodeV: this.wrapCode(),
@@ -11596,6 +12111,13 @@ struct Index {
           //   ⇒ 在飞块的详情按"块 head 号"取 ⇒ 被吸收的工具点开看不到自己的详情。
           //   与 committed 路径逐字对齐（同一出口 `toggleToolByKey` 同一签名）。
           this.toggleToolByKey(this.liveRowRef, iter, name, toolIter);
+        },
+        onEnsureToolDetail: (iter: number, name: string, toolIter?: number) => {
+          void this.ensureToolDetails(this.liveRowRef, iter, name, toolIter);
+        },
+        // 浮层里批量取数要 await（子组件靠它自增代数刷新自己）
+        onEnsureToolDetailAsync: (iter: number, name: string, toolIter?: number): Promise<void> => {
+          return this.ensureToolDetails(this.liveRowRef, iter, name, toolIter);
         },
         onRowLongPress: () => {
           this.openCtx('row', this.liveRowRef.id, 0, '');
@@ -12762,7 +13284,7 @@ struct Index {
                       .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                     if (this.modelBusy === `${g.subId}#${e.model}`) {
                       LoadingProgress().width(14).height(14).color(this.pal().accent)
-                    } else if (e.model === this.currentModelName()) {
+                    } else if (e.model === this.currentModelName() && g.subId === this.currentModelSubId()) {
                       Text(i18nT('当前')).fontSize(typeOf('type.caption').size).fontColor(this.pal().successText)
                     }
                   }
@@ -13023,6 +13545,15 @@ struct Index {
     const store: ChatStore | null = this.store;
     const sess: string = store !== null ? store.sessionModel : '';
     return modelBadgeText(sess, this.llmCfg, modelText(this.usage));
+  }
+
+  /**
+   * 当前生效模型的**订阅 ID**（用户 2026-11-04：「同名模型全显示选中」——只比模型名会命中
+   * 不同订阅下的同名模型；必须同时比 `subId`）。
+   */
+  private currentModelSubId(): string {
+    const store: ChatStore | null = this.store;
+    return store !== null ? store.sessionSubscription : '';
   }
 
   /** 上下文上限文本（拿不到则空串）。 */

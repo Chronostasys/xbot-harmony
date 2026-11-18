@@ -25,3 +25,16 @@
 # 脱机测试的编译产物（run.sh 每次重建；绝不入库。新版目录名带 PID）
 tools/tests/.out*/
 **/build.*
+
+# 临时：hdc 自连实验用的主机私钥（⛔ 绝不入库）
+entry/src/main/resources/rawfile/hdckey.pem
+entry/src/main/resources/rawfile/hdckey.pub.pem
+
+# 本地 agent 工作目录（skills/agents；不入库）
+.xbot/
+
+# 测试构建缓存（含增量签名；不入库）
+tools/tests/.build-cache/
+
+# 临时产物
+tmp/

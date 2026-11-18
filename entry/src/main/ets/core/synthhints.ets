@@ -67,10 +67,14 @@ export const SYNTHETIC_TOOL_NAMES: string[] = [
 
 /** 工具名是否是后端注入的假工具（`bg_subagent_` 前缀族 + 精确名集）。 */
 export function isSyntheticToolName(name: string): boolean {
-  if (name.indexOf('bg_subagent_') === 0) { return true; }
-  for (let i = 0; i < SYNTHETIC_TOOL_NAMES.length; i++) {
-    if (SYNTHETIC_TOOL_NAMES[i] === name) { return true; }
-  }
+  // ⛔ 2026-10-28 用户裁决：「background_task / subagent done / pre_turn_end 之类的，
+  //   **都改成普通工具渲染**」。原来它们被渲染成专用卡（`SyntheticCard`），卡片里只有
+  //   一句"历史记录未包含结构化详情"、点开浮层永远「暂无详情」——与普通工具两套观感、
+  //   两套取数，用户看到的就是"无论怎样都有没详情的"。
+  //   ⇒ 唯一判据恒 false：所有注入型工具一律走**普通 pill + 浮层**（与真工具同一条取数/
+  //   渲染路径，`tool_hints` 里的结构化载荷仍在浮层的 hints 区正常展示）。
+  //   ⚠️ `SYNTHETIC_TOOL_NAMES` 保留：`inferSyntheticKind`/`parseSyntheticHints` 还在用它们
+  //   解析 hints（形态判据），只是**不再据此切换渲染形态**。
   return false;
 }
 

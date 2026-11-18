@@ -66,7 +66,10 @@ eq('纯文本无链接', linksOf('没有链接的句子').length, 0);
 // 组件形态：链接 span 必须挂 onClick 且有打开逻辑
 has(mdSrc, '.onClick(() => {', '组件里存在 onClick（链接点击）');
 has(mdSrc, 'this.openLink(s.link)', '链接 span 点击调用 openLink');
-has(mdSrc, 'resolveOpenable(href, this.linkBase)', '打开链接走协议白名单 resolveOpenable');
+has(mdSrc, 'resolveOpenable(href, base)', '打开链接走协议白名单 resolveOpenable');
+// 相对链接基地址：显式 prop 优先，否则用 HTTP 层注册的服务端 base（全仓此前零注入 ⇒ 相对链接恒打不开）
+has(mdSrc, 'this.linkBase.length > 0 ? this.linkBase : currentLinkBase()',
+  'linkBase 为空时回落 HTTP 层注册的服务端基地址（用户 2026-10-27：相对地址自动拼 host）');
 has(mdSrc, "action: 'ohos.want.action.viewData'", '打开手段 = 系统 viewData（对齐 web <a target=_blank>）');
 
 // ══════════════════════════════════════════════════════════════════════════════

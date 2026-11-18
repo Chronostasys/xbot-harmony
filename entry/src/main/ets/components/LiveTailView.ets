@@ -11,15 +11,16 @@
  *   · 正文是 Markdown，逐字裁剪要按拍重解析整段文本（贵）⇒ 推进每拍做，
  *     **上屏节奏按文本长度自适应**（≤300 码点每拍；更长每 N 拍，N=ceil(len/300)）。
  */
-import { ToolProgress } from '../core/types';
+import { ToolProgress  } from '../core/types';
 import { advanceVisible, clipRunes, isCJK, isTyping, runeCount, toRunes } from '../core/typewriter';
-import { foldPills } from '../core/streammerge';
+import { pillView, resolveByKeys } from '../core/streammerge';
 import { Palette, paletteOf, Effects, effectsOf, shadowRadiusOf } from '../core/theme';
 import { BUBBLE } from '../core/bubble';
 import { R_MD, R_XL, R_LG, SP_1, SP_2, SP_5, FS_CAPTION } from '../core/tokens';
 import {
   ELEV_OVERLAY, GAP_PILL, INSET_PILL_Y, POPOVER_W_OVERFLOW, PRESS_OPACITY, RADIUS_CARD, RADIUS_PILL,
   SPACE_HAIR, SPACE_XXS, STROKE_RAIL, elevationColorOf, surfaceFillOf, SURFACE_CHIP, HIT_TARGET_MIN,
+  PILL_HALF_W,
 } from '../core/design';
 import { animBase } from './anim';
 import { MarkdownView } from './MarkdownView';
@@ -31,6 +32,7 @@ import { GenuiPanelCard } from './GenuiPanelCard';
 import { genuiCardSubtitle, genuiCardTitle, genuiCode, genuiRenderable } from '../core/genui';
 import { LlmErrorNotice } from './LlmErrorNotice';
 import { isSyntheticToolName } from '../core/synthhints';
+import { shouldShowThinking } from '../core/pillflow';
 import { looksLikeLlmError } from '../core/llmerror';
 import { reasoningKey } from '../core/reasoningopen';
 import { uiIsScrolling, appIsPaused, tailIsPaused } from '../core/listfollow';
@@ -107,6 +109,15 @@ export struct LiveTailView {
   loadImage: (src: string) => Promise<ArrayBuffer> = async (s: string) => {
     return new ArrayBuffer(0);
   };
+  /**
+   * **在飞 pill 打开时按需取详情**（用户 2026-10-28：「最后一个完成的工具看不到详情」）。
+   *
+   * ⛔ 根因：一轮**最后一次**迭代通常还挂在 `live`（提交只来轻快照或尚未提交），而 onDetail
+   *   旧实现只补 `t.blocks`；同时这条渲染路径（`LiveTailView` 自带 popup）**从不通知页面去拉详情**
+   *   ⇒ 该 pill 恒无参数/输出。⇒ 打开浮层时回调页面（走 `toggleToolByKey` → `fetchIterationDetail`）。
+   */
+  onNeedDetail: (iter: number, name: string, toolIter?: number) => void = (iter: number, name: string, toolIter?: number) => {
+  };
   onToolLongPress: (name: string) => void = (name: string) => {
   };
   /**
@@ -130,6 +141,10 @@ export struct LiveTailView {
    * 「转后台」动作（页面注入：RPC `promote_shell` + toast）—— 透传给工具浮层卡片
    * （`ToolPopoverCard.onPromote`）。用户插话「跟 web 一样支持 promote shell to background」。
    */
+  /** 异步取详情（浮层批量取数要 await；页面注入真实实现，默认空）。 */
+  onEnsureToolDetailAsync: (iter: number, name: string, toolIter?: number) => Promise<void> =
+    (iter: number, name: string, toolIter?: number): Promise<void> => Promise.resolve();
+
   onPromoteShell: (callId: string) => Promise<string> = async (callId: string) => {
     return '';
   };
@@ -154,6 +169,10 @@ export struct LiveTailView {
   @State popIdx: number = -1;
   /** "+N" 溢出浮层开关。 */
   @State overOpen: boolean = false;
+  /** 打开「+N」浮层那一刻捕获的 hidden 快照（浮层只渲染它；徽标在打开期间也用它 ⇒ 两者恒等）。 */
+  @State overList: ToolProgress[] = [];
+  /** 溢出列表数据持有者（`@Observed`/@ObjectLink ⇒ 源变 UI 变）。 */
+
   // 2026-10-17：打字机光标已整体移除（用户要求：不单独闪；逐字显示即效果）
   // ⇒ `caretAlpha` 状态与每拍计算一并删除（否则是"算了但没人消费"的死代码，
   //   仍会让判据误以为存在第二个呼吸源）。
@@ -524,23 +543,37 @@ return renderKind(t.status, t.exit_code, true);
     return out;
   }
 
+  /** 真工具的过滤结果缓存（按 `this.tools` 数组身份）—— `pillView` 靠数组身份记忆化，
+   *  每帧新建数组会让它每次都全量重算（折叠 + 去重），且 `+N` 的三处取数必须命中同一份。 */
+  private realMemo: WeakMap<ToolProgress[], ToolProgress[]> = new WeakMap<ToolProgress[], ToolProgress[]>();
+
   /** 真工具（非假工具）—— pill 折叠只作用于它们。 */
   private realList(): ToolProgress[] {
+    const hit: ToolProgress[] | undefined = this.realMemo.get(this.tools);
+    if (hit !== undefined) {
+      return hit;
+    }
     const out: ToolProgress[] = [];
     for (let i = 0; i < this.tools.length; i++) {
       if (!isSyntheticToolName(this.tools[i].name)) { out.push(this.tools[i]); }
     }
+    this.realMemo.set(this.tools, out);
     return out;
   }
 
   /** 直出的 pill（≤8 全量；>8 前 7 枚）。 */
   private shownList(): ToolProgress[] {
-    return foldPills(this.realList()).shown;
+    return pillView(this.realList()).shown;
   }
 
-  /** `+N` 的 N（收起枚数）。 */
+  /** `+N` 的 N（收起枚数）—— 浮层打开期间与浮层里那一份**同长**（见 `badgeN`）。 */
   private hideN(): number {
-    return foldPills(this.realList()).hideCount;
+    return pillView(this.realList()).hideCount;
+  }
+
+  /** 徽标实际显示的数字：浮层开着 ⇒ 用捕获快照的长度（否则会出现"数字比列表多 1"）。 */
+  private badgeN(): number {
+    return this.overOpen && this.overList.length > 0 ? this.overList.length : this.hideN();
   }
 
   /** 当前浮层对应的工具（按下标从 shown 里取 —— 与 pill 的下标一致）。 */
@@ -572,7 +605,7 @@ return renderKind(t.status, t.exit_code, true);
   /** "+N" 徽标：被收起的工具枚数（点击弹溢出全量列表）。 */
   @Builder
   OverflowBadge() {
-    Text(`+${this.hideN()}`)
+    Text(`+${this.badgeN()}`)
       .constraintSize({ minHeight: HIT_TARGET_MIN })
       .fontSize(FS_CAPTION)
       // 可点（点开溢出全量浮层）⇒ 弱档 `textMuted` 在 porcelain 对 chip 仅 2.27:1 < 3 ⇒ 用达标档 `textSecondary`
@@ -589,7 +622,10 @@ return renderKind(t.status, t.exit_code, true);
       .borderRadius(RADIUS_PILL)
       .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
       .onClick(() => {
-        this.overOpen = !this.overOpen;
+        const next: boolean = !this.overOpen;
+        this.overOpen = next;
+        // ⛔ 与徽标同刻：捕获这一份 hidden，浮层只渲染它（列表不随流式逐帧变）。
+        this.overList = next ? pillView(this.realList()).hidden : [];
       })
       .bindPopup(this.overOpen, {
         builder: this.OverflowPopBody,
@@ -611,9 +647,15 @@ return renderKind(t.status, t.exit_code, true);
   @Builder
   OverflowPopBody() {
     ToolOverflowList({
-      tools: foldPills(this.realList()).hidden,
+      // 成员冻结（`overList`）+ 数据保鲜（按身份取当前在飞列表里的最新对象）
+      tools: this.overList,
       theme: this.themeId(),
       live: true,
+      // 打开即批量取详情（用户口径）；子组件 await 后自增代数刷新自己。
+      onEnsure: (iter: number, name: string, toolIter?: number): Promise<void> => {
+        this.onEnsureToolDetailAsync(iter, name, toolIter);
+        return Promise.resolve();
+      },
     })
   }
 
@@ -672,8 +714,11 @@ return renderKind(t.status, t.exit_code, true);
           },
         })
       } else if (this.orb) {
+        // ⛔ 用户 2026-10-28：「思考中可能和运行中工具一起出现」。有运行中工具时不显示这条
+        //    "思考中"（工具 pill 已在表达"正在干活"）；判据唯一真源 = core/pillflow。
         // 无思考行时（正在写正文 / 工具在飞 / 刚起头）：光球仍作在飞指示，独占块首一行。
         // 与思考行内的光球**同值同种子**（尺寸/相位一致）⇒ 思考到来时"就地长出文字"，不跳位置/尺寸。
+        if (shouldShowThinking(this.text, this.reasoning, this.tools)) {
         Row() {
           AssistantOrb({
             theme: this.themeId(),
@@ -690,6 +735,7 @@ return renderKind(t.status, t.exit_code, true);
           })
         }
         .padding({ left: SP_1 })
+        }
       }
       if (this.text.length > 0) {
         Column({ space: SPACE_HAIR }) {
@@ -707,6 +753,8 @@ return renderKind(t.status, t.exit_code, true);
               wrapCode: this.wrapCode,
               theme: this.themeId(),
               mdTheme: this.mdTheme,
+              // 在飞正文 = 流式：未闭合的 `$$`/`$` 尾部要裁掉（web `MarkdownRenderer.tsx:516` 同款）
+              streaming: true,
             })
           }
           // 打字机光标已移除（用户要求：光标单独占一行闪烁→去掉光标，打字机逐字显示即效果）
@@ -721,7 +769,7 @@ return renderKind(t.status, t.exit_code, true);
             SyntheticCard({ tool: t, theme: this.themeId() })
           }, (t: ToolProgress) => `lt-syn#${t.name}#${t.call_id !== undefined ? t.call_id : ''}`)
           // ── 真工具：每工具一枚 pill；>8 枚时前 7 枚 + "+N"（对齐 web `MergedPills`）──
-          if (this.shownList().length > 0 || this.hideN() > 0) {
+          if (this.shownList().length > 0 || this.badgeN() > 0) {
             Flex({ wrap: FlexWrap.Wrap }) {
               ForEach(this.shownList(), (t: ToolProgress, i: number) => {
                 // ── GenUI（`display_html`）⇒ **面板卡**（不是 pill）────────────────
@@ -760,13 +808,20 @@ return renderKind(t.status, t.exit_code, true);
                 }
                 // 硬约束宽度：生成中的 label 是**流式参数**（可能几百字符），
                 // 不给上限就会撑得比屏幕还长（真机铁证）
-                .constraintSize({ maxWidth: 240 })
+                // 半宽**固定**（用户 2026-10-28：「一行可以放两个」）；**奇数额外的最后一枚占满
+                // 整行**，否则最后一行只剩左半枚（用户同日：「又有排版问题」）。
+                .width(PILL_HALF_W)
                 .margin(GAP_PILL)
                 .clip(true)
                 .stateStyles({ pressed: { .opacity(PRESS_OPACITY) }, normal: { .opacity(1) } })
                 .onClick(() => {
                   // 点 pill **弹浮层**（对齐 web），再点同枚 = 关闭。
-                  this.popIdx = this.popIdx === i ? -1 : i;
+                  const opening: boolean = this.popIdx !== i;
+                  this.popIdx = opening ? i : -1;
+                  if (opening) {
+                    // 在飞 pill 的详情可能只在服务端（提交帧是轻快照）⇒ 通知页面按需拉取。
+                    this.onNeedDetail(this.iteration, t.name, t.iteration);
+                  }
                 })
                 .bindPopup(this.popIdx === i, {
                   builder: this.ToolPopBody,
@@ -791,7 +846,8 @@ return renderKind(t.status, t.exit_code, true);
                 //    条目不重跑 item builder，`ToolPill` 的 `@Prop` 永远停在创建那一刻 ⇒ chip
                 //    文字冻结（2026-10-16 用户亲报「生成中 x 字不更新」）。
                 + `#${t.status !== undefined ? t.status : ''}#${t.gen_chars !== undefined ? t.gen_chars : 0}`)
-              if (this.hideN() > 0) {
+                // ⛔ key 必须含 status/gen_chars（否则 ForEach 复用旧节点 ⇒ 状态/字数不更新）
+              if (this.badgeN() > 0) {
                 this.OverflowBadge()
               }
             }

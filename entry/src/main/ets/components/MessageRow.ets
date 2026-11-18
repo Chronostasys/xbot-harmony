@@ -10,7 +10,7 @@
  *   · 与页面解耦：只接原始类型 + 回调，避免组件持有 store/页面引用；
  *   · 三个 @Builder（Assistant/Iteration/ToolPill）与 7 个 helper 由页面**整块搬入**（原样语义）。
  */
-import { ChatRow, ToolProgress } from '../core/types';
+import { ChatRow, HistoryIteration, ToolProgress } from '../core/types';
 import { WebSubAgentProgress } from '../core/chattypes';
 import { rowIsEmpty } from '../core/streammerge';
 import { Palette, paletteOf, Effects, effectsOf } from '../core/theme';
@@ -61,6 +61,9 @@ export const EMPTY_RESPONSE_SENTINEL: string = '(empty response)';
 export const NOTICE_KIND_EMPTY: string = 'empty';
 /** 异常态档：服务端标记的空/异常响应（升一档颜色 + 一枚状态图标）。 */
 export const NOTICE_KIND_FAILED: string = 'failed';
+
+/** 空块列表哨兵（`@Prop` 默认值；引用判等用，⛔ 不是容器）。 */
+const EMPTY_ITERATIONS: HistoryIteration[] = [];
 
 @Component
 export struct MessageRowView {
@@ -117,6 +120,14 @@ export struct MessageRowView {
   @Prop liveTools: ToolProgress[] = [];
   @Prop liveSubAgents: WebSubAgentProgress[] = [];
   /**
+   * 已提交块的**值投递**（页面 `syncLiveTail` 每代际赋值）。
+   *
+   * ⛔ live 行由页面直驱（非 LazyForEach），`row` 引用恒定 ⇒ ArkUI 看不到"值变化"；
+   *   `@ObjectLink iters` 在真机上又没能驱动 `IterBlocksView.build()`（`[ITR] view` 只 1 条）
+   *   ⇒ 已提交块区必须靠这条 **@Prop 值通道**重建（用户 2026-11-18 P0）。
+   */
+  @Prop liveBlocks: HistoryIteration[] = [];
+  /**
    * 宿主是否提供「点开 SubAgent 会话」能力（决定展平行上 `openable`）。
    * 对齐 web `SubAgentProgressTree.tsx:65`：`onOpen={openTab ? openSubAgent : undefined}`
    * —— 无回调时卡片 `disabled`（点了无操作）。
@@ -154,8 +165,22 @@ export struct MessageRowView {
   onShareGenui: (code: string, title: string) => Promise<string> = (code: string, title: string): Promise<string> => {
     return Promise.resolve('');
   };
-  onToggleTool: (iter: number, toolName: string) => void = (iter: number, toolName: string) => {
+  /** `toolIter` = 工具**自带**的迭代号（合并块里的 head 号不可靠；透传给页面按号拉详情）。 */
+  onToggleTool: (iter: number, toolName: string, toolIter?: number) => void = (iter: number, toolName: string, toolIter?: number) => {
   };
+  /**
+   * **只取数、不改展开态**的详情请求（折叠面板 `+N` 用）。
+   * ⛔ 与 `onToggleTool` 分开：后者会翻转 `openToolKey`（展开态），拿它当批量取数入口会造成
+   *   "打开一个关一个"的假象（用户 2026-10-28：「被折叠的工具，展开后无法看到详情」）。
+   */
+  onEnsureToolDetail: (iter: number, toolName: string, toolIter?: number) => void = (iter: number, toolName: string, toolIter?: number) => {
+  };
+  /** 异步版（溢出浮层批量取数要 await，回来后自增代数刷新自己）。 */
+  onEnsureToolDetailAsync: (iter: number, toolName: string, toolIter?: number) => Promise<void> =
+    (iter: number, toolName: string, toolIter?: number): Promise<void> => {
+      this.onEnsureToolDetail(iter, toolName, toolIter);
+      return Promise.resolve();
+    };
   onRowLongPress: () => void = () => {
   };
   /** 复制文本（页面对接系统剪贴板；组件不做 IO/系统调用） */
@@ -387,6 +412,8 @@ export struct MessageRowView {
       //   **真正变化**时替换 ⇒ 流式期间该子树**零重建** ⇒ 每帧 O(1)（docs/PERF-BOUNDS.md §3）。
       IterBlocksView({
         iters: this.row.iterBlocks,
+        // live 行：已提交块走**值投递**（`@Prop`）⇒ 块一变就重建；普通行传空 ⇒ 仍由持有者驱动。
+        blocksOverride: this.row.isLive ? this.liveBlocks : EMPTY_ITERATIONS,
         mdTheme: this.mdTheme,
         fontScaleV: this.fsNow(),
         wrapCodeV: this.wrapNow(),
@@ -407,8 +434,14 @@ export struct MessageRowView {
         onOpenToolsCtx: (iter: number) => {
           this.onOpenToolsCtx(iter);
         },
-        onToggleTool: (iter: number, name: string) => {
-          this.onToggleTool(iter, name);
+        onToggleTool: (iter: number, name: string, toolIter?: number) => {
+          this.onToggleTool(iter, name, toolIter);
+        },
+        onEnsureToolDetail: (iter: number, name: string, toolIter?: number) => {
+          this.onEnsureToolDetail(iter, name, toolIter);
+        },
+        onEnsureToolDetailAsync: (iter: number, name: string, toolIter?: number): Promise<void> => {
+          return this.onEnsureToolDetailAsync(iter, name, toolIter);
         },
         onOpenSubAgent: (k: string) => {
           this.onOpenSubAgent(k);
@@ -466,6 +499,24 @@ export struct MessageRowView {
     }))
   }
 
+
+
+  /**
+   * 展示用的在飞快照工具 = `liveTools` 去掉**同迭代**已提交块里已有的那一枚。
+   * （ArkTS 禁止 arrow 里用 `this` ⇒ 循环写在类方法里；判据见 `committedHasSameIterCall`。）
+   */
+  private liveToolsShown(): ToolProgress[] {
+    const iters: HistoryIteration[] = this.row.iterations;
+    const out: ToolProgress[] = [];
+    for (let i = 0; i < this.liveTools.length; i++) {
+      const t: ToolProgress = this.liveTools[i];
+      if (!committedHasSameIterCall(iters, t)) {
+        out.push(t);
+      }
+    }
+    return out;
+  }
+
   /**
    * 在飞迭代块 —— 同气泡内的最后一块。内容走 `LiveTailView`（打字机 + 工具 pill
    * + 思考头），但**不带自己的气泡 chrome**（背景/边框/圆角/外边距都在外层
@@ -484,7 +535,11 @@ export struct MessageRowView {
         //   （用户 P0）⇒ 不再用。
         text: this.liveText,
         reasoning: this.liveReasoning,
-        tools: this.liveTools,
+        // ⛔ **跨容器去重（窄口径，绝不删数据）**：只有当某个**同迭代**的已提交块里已经有
+        //   同一个 call 时，才把这枚在飞副本从 live 里去掉（服务端 `active_tools` 残留会在
+        //   迭代边界把同一枚同时留在块与 live 里 ⇒ 两个容器各画一次）。
+        //   ⚠️ 不改模型、不跨迭代比较（`call_id` 可能跨迭代复用，按 id 全局删 = 丢工具）。
+        tools: this.liveToolsShown(),
         paused: this.paused,
         theme: this.themeId(),
         fontScale: this.fsNow(),
@@ -501,6 +556,11 @@ export struct MessageRowView {
         },
         onToolLongPress: (name: string) => {
           this.onOpenCtx(liveIterationNo(this.row.iterations), name);
+        },
+        // 在飞 pill 打开 ⇒ 页面按需拉详情（与 committed 侧**同一个出口** `onToggleTool`）：
+        // 一轮最后一次迭代常还在 live（提交是轻快照）⇒ 不拉就永远没有参数/输出。
+        onNeedDetail: (iter: number, name: string, toolIter?: number) => {
+          this.onToggleTool(iter, name, toolIter);
         },
         // B6：live 在飞正文里的代码块复制 —— 落点**透传**页面品牌 toast。
         onToast: this.onToast,
@@ -626,4 +686,31 @@ struct EmptyNotice {
     .width('100%')
     .alignItems(VerticalAlign.Top)
   }
+}
+
+/**
+ * 该在飞工具是否已被**同迭代**的已提交块收录（跨容器去重的唯一判据）。
+ *
+ * ⛔ 只在"同迭代 + 同 call"时返回 true：不同迭代的同名/id 工具是**不同调用**，
+ *   按 id 全局去重会删掉真工具（用户 2026-10-28 P0「不是渲染重复了，是渲染丢了，tool 不见了」）。
+ */
+function committedHasSameIterCall(iters: HistoryIteration[], t: ToolProgress): boolean {
+  const iter: number = t.iteration !== undefined && t.iteration > 0 ? t.iteration : 0;
+  for (let i = 0; i < iters.length; i++) {
+    const it: HistoryIteration = iters[i];
+    if (it.live === true || it.iteration !== iter || it.tools === undefined) {
+      continue;
+    }
+    for (let k = 0; k < it.tools.length; k++) {
+      const o: ToolProgress = it.tools[k];
+      if (o.call_id !== undefined && t.call_id !== undefined && t.call_id.length > 0
+        && o.call_id === t.call_id) {
+        return true;
+      }
+      if (t.call_id === undefined && o.name === t.name) {
+        return true;   // 无 call_id 时按"同迭代同名"兜底（残留副本的形态）
+      }
+    }
+  }
+  return false;
 }

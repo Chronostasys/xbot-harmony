@@ -19,6 +19,7 @@
         "startWindowBackground": "$color:start_window_background",
         "startWindow": "$profile:startWindow",
         "exported": true,
+        "backgroundModes": ["dataTransfer"],
         "skills": [
           {
             "entities": ["entity.system.home"],
@@ -30,7 +31,8 @@
     "requestPermissions": [
       { "name": "ohos.permission.INTERNET" },
       { "name": "ohos.permission.GET_NETWORK_INFO" },
-      { "name": "ohos.permission.VIBRATE" }
+      { "name": "ohos.permission.VIBRATE" },
+      { "name": "ohos.permission.KEEP_BACKGROUND_RUNNING" }
     ],
     "metadata": [
       {

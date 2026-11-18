@@ -438,13 +438,21 @@ console.log('\n▶ §10 行源 = 模型投影：同一状态重复投影**零新
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n▶ §11 parseInline：charCode 快路径 + run-slice ≡ 旧实现（旧算法即 oracle）');
+console.log('\n▶ §11 parseInline：charCode 快路径 + run-slice ≡ **规格的慢实现**（oracle）');
+//   ⚠️ 2026-11-07 规格变更（对齐 web / CommonMark，用户亲报「inline code 有时候没渲染」）：
+//      · 多反引号 code span（`` ``a`b`` ``，等长配对 + 两端各去一个空格）；
+//      · 强调内部递归（`**`x`**` ⇒ bold + code 两个标记同时成立）；
+//      · `<url>` 自动链接 / 裸链 / 行内公式 `$…$`。
+//   ⇒ oracle **同步改成新规格的慢实现**（不是放水）：本判据守的仍是"优化实现 ≡ 朴素实现"，
+//      只是朴素实现现在按新规格写（每个构造都独立重写，不调用被测函数）。
 //   旧实现（round4 前）**逐字复刻**为 oracle ⇒ 改坏新实现（漏分支、把 `*_` 当偶对、
 //   普通文本段切错起点、未闭合标记吞字符…）都会**逐字段不等** ⇒ 红。
 {
   const oracleInline = (text: string): MdSpan[] => {
     const spans: MdSpan[] = [];
-    if (text.length > 0 && !/[`!\[*_~]/.test(text)) {
+    const hasMark: boolean = /[`!\[*_~$]/.test(text) || /<[^\s<>]+:/.test(text)
+      || text.indexOf('http://') >= 0 || text.indexOf('https://') >= 0 || text.indexOf('www.') >= 0;
+    if (text.length > 0 && !hasMark) {
       const s: MdSpan = new MdSpan(); s.text = text; spans.push(s); return spans;
     }
     let buf: string = '';
@@ -454,13 +462,123 @@ console.log('\n▶ §11 parseInline：charCode 快路径 + run-slice ≡ 旧实�
       const s: MdSpan = new MdSpan(); s.text = buf; s.bold = bold; s.italic = italic; s.strike = strike;
       spans.push(s); buf = '';
     };
+    // ── 新规格（2026-11-07，CommonMark/GFM 对齐）的独立实现 ────────────────────
+    // 语料里出现的每个新构造都在这里**重新写一遍**（不调用被测实现）：
+    //   · 多反引号 code span（等长配对 + 两端各去一个空格）
+    //   · 强调内部递归（`**`x`**` 里的 code 也要解析）
+    //   · `<url>` 自动链接 / 裸链 / 行内公式 `$…$`
+    const stopChars: string = ' \t\r\n<>"\'`，。、；：！？）】》」』…—';
+    const boundaryOk = (at: number): boolean => {
+      const prev: string = at === 0 ? '' : text.charAt(at - 1);
+      return prev === '' || ' \t\r\n([{<（【「《\'"“，。：；！？、'.indexOf(prev) >= 0;
+    };
+    const urlEndAt = (at: number): number => {
+      if (!boundaryOk(at)) { return -1; }
+      const isHttps: boolean = text.startsWith('https://', at);
+      const isHttp: boolean = text.startsWith('http://', at);
+      const isWww: boolean = text.startsWith('www.', at);
+      if (!isHttps && !isHttp && !isWww) { return -1; }
+      const schemeLen: number = isHttps ? 8 : (isHttp ? 7 : 4);
+      let end: number = at;
+      while (end < text.length && stopChars.indexOf(text.charAt(end)) < 0) { end++; }
+      if (end <= at + schemeLen) { return -1; }
+      while (end > at) {
+        const ch: string = text.charAt(end - 1);
+        if ('.,;:!?'.indexOf(ch) >= 0) { end--; continue; }
+        if (ch === ')') {
+          let open: number = 0;
+          let close: number = 0;
+          for (let k = at; k < end; k++) {
+            const cc: string = text.charAt(k);
+            if (cc === '(') { open++; }
+            if (cc === ')') { close++; }
+          }
+          if (close > open) { end--; continue; }
+        }
+        break;
+      }
+      return end > at + schemeLen ? end : -1;
+    };
+    const runAt = (from: number, n: number): number => {
+      let j: number = from;
+      while (j < text.length) {
+        if (text.charCodeAt(j) !== 96) { j++; continue; }
+        let r: number = 0;
+        while (j + r < text.length && text.charCodeAt(j + r) === 96) { r++; }
+        if (r === n) { return j; }
+        j += r;
+      }
+      return -1;
+    };
+    const emph = (inner: string, kind: string): void => {
+      const applyFlag = (s: MdSpan): void => {
+        if (kind === 'bold') { s.bold = true; } else if (kind === 'strike') { s.strike = true; } else { s.italic = true; }
+      };
+      if (!/[`$]/.test(inner)) {
+        const s: MdSpan = new MdSpan(); s.text = inner; applyFlag(s); spans.push(s); return;
+      }
+      const sub: MdSpan[] = oracleInline(inner);
+      for (let k = 0; k < sub.length; k++) { applyFlag(sub[k]); spans.push(sub[k]); }
+    };
     while (i < text.length) {
       if (text.charAt(i) === '`') {
-        const end: number = text.indexOf('`', i + 1);
+        let n: number = 0;
+        while (i + n < text.length && text.charCodeAt(i + n) === 96) { n++; }
+        const close: number = runAt(i + n, n);
+        if (close > i) {
+          pushPlain(false, false, false);
+          let content: string = text.substring(i + n, close);
+          if (content.length > 2 && content.startsWith(' ') && content.endsWith(' ')
+            && content.trim().length > 0) {
+            content = content.substring(1, content.length - 1);
+          }
+          const s: MdSpan = new MdSpan(); s.text = content; s.code = true; spans.push(s);
+          i = close + n; continue;
+        }
+      }
+      // `<https://…>` / `<mailto:…>` 自动链接
+      if (text.charAt(i) === '<') {
+        const close: number = text.indexOf('>', i + 1);
+        if (close > i + 1) {
+          const inner: string = text.substring(i + 1, close);
+          const isUrl: boolean = inner.length > 0 && !/\s/.test(inner)
+            && (inner.startsWith('https://') || inner.startsWith('http://') || inner.startsWith('mailto:'));
+          if (isUrl) {
+            pushPlain(false, false, false);
+            const s: MdSpan = new MdSpan();
+            s.text = inner.startsWith('mailto:') ? inner.substring(7) : inner;
+            s.link = inner; spans.push(s); i = close + 1; continue;
+          }
+        }
+      }
+      // 裸链（GFM autolink literal）
+      if (text.charAt(i) === 'h' || text.charAt(i) === 'w') {
+        const end: number = urlEndAt(i);
         if (end > i) {
           pushPlain(false, false, false);
-          const s: MdSpan = new MdSpan(); s.text = text.substring(i + 1, end); s.code = true; spans.push(s);
-          i = end + 1; continue;
+          const raw: string = text.substring(i, end);
+          const s: MdSpan = new MdSpan();
+          s.text = raw; s.link = raw.startsWith('www.') ? 'http://' + raw : raw;
+          spans.push(s); i = end; continue;
+        }
+      }
+      // 行内公式 `$…$`
+      if (text.charAt(i) === '$') {
+        const nextCode: number = i + 1 < text.length ? text.charCodeAt(i + 1) : 32;
+        const nextBlank: boolean = i + 1 >= text.length || nextCode === 32 || nextCode === 9 || nextCode === 10;
+        if (nextCode !== 36 && !nextBlank) {
+          const end: number = text.indexOf('$', i + 1);
+          if (end > i + 1) {
+            const prevCh: string = text.charAt(end - 1);
+            const after: string = end + 1 < text.length ? text.charAt(end + 1) : '';
+            const prevOk: boolean = prevCh !== ' ' && prevCh !== '\t' && prevCh !== '\n';
+            const afterOk: boolean = after.length === 0 || !/[0-9]/.test(after);
+            if (prevOk && afterOk) {
+              pushPlain(false, false, false);
+              const s: MdSpan = new MdSpan(); s.text = text.substring(i + 1, end); s.math = true;
+              spans.push(s); i = end + 1; continue;
+            }
+          }
         }
       }
       if (text.charAt(i) === '!' && text.charAt(i + 1) === '[') {
@@ -490,7 +608,7 @@ console.log('\n▶ §11 parseInline：charCode 快路径 + run-slice ≡ 旧实�
         const end: number = text.indexOf(marker, i + 2);
         if (end > i) {
           pushPlain(false, false, false);
-          const s: MdSpan = new MdSpan(); s.text = text.substring(i + 2, end); s.bold = true; spans.push(s);
+          emph(text.substring(i + 2, end), 'bold');
           i = end + 2; continue;
         }
       }
@@ -498,7 +616,7 @@ console.log('\n▶ §11 parseInline：charCode 快路径 + run-slice ≡ 旧实�
         const end: number = text.indexOf('~~', i + 2);
         if (end > i) {
           pushPlain(false, false, false);
-          const s: MdSpan = new MdSpan(); s.text = text.substring(i + 2, end); s.strike = true; spans.push(s);
+          emph(text.substring(i + 2, end), 'strike');
           i = end + 2; continue;
         }
       }
@@ -507,7 +625,7 @@ console.log('\n▶ §11 parseInline：charCode 快路径 + run-slice ≡ 旧实�
         const end: number = text.indexOf(ch, i + 1);
         if (end > i + 1) {
           pushPlain(false, false, false);
-          const s: MdSpan = new MdSpan(); s.text = text.substring(i + 1, end); s.italic = true; spans.push(s);
+          emph(text.substring(i + 1, end), 'italic');
           i = end + 1; continue;
         }
       }
@@ -527,6 +645,9 @@ console.log('\n▶ §11 parseInline：charCode 快路径 + run-slice ≡ 旧实�
     '*a*b*c*', '`a``b`', '~~a~~b~~c~~', '_*mixed*_', '*_mixed_*', '__(_)_', '`**not bold**`',
     '**`code`**', 'a'.repeat(300) + '**x**' + 'b'.repeat(300), '**' + 'x'.repeat(500) + '**',
     '| `a` | *b* | [c](d) |', 'text with trailing _', '_leading', 'a_', '**a *b* c**', '*a **b** c*',
+    // 2026-11-07 新规格（对齐 web/CommonMark）：多反引号、强调内 code、自动链接、行内公式
+    '``a`b``', '**`code`**', '*`code`*', '~~`code`~~', '<https://a.com/x>', 'see https://a.com/x。',
+    '$x^2$', '价格 $5 元', '`a|b`', '**`ebc178d0b2`** → https://a.com/x',
     // ⛔ 专攻「粗体判据必须是**同一字符偶对**」的语料：混对 `*_`/`_*` 若被当偶对 ⇒ 结果分叉
     '*_*_', '_*_*', '*_*', '_*_', '**__', '__**', 'a*_b_*c', '_*_*_', '*_*_*', '__*_*__', '*___*',
   ];

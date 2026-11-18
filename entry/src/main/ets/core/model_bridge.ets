@@ -16,7 +16,7 @@ import type { WebIteration, WebSubAgentProgress } from './chattypes';
 import type { DomainEvent, LegacyRow, Turn } from './chat_types_full';
 import type { PRow, PAssistantRow, PUserRow } from './model_project';
 import type { Block } from './model_types';
-import type { State, ToolRec, SubAgentNode, TurnRec } from './model_types';
+import type { State, ToolRec, SubAgentNode, TurnID, TurnRec } from './model_types';
 import type { Effect } from './model_types';
 import type { WireHistoryMessage, WireHistoryIteration } from './model_hydrate';
 import { project } from './model_project';
@@ -197,42 +197,97 @@ export function isStaleSnapshot(st: State, wire: readonly WireHistoryMessage[]):
   if (st.turns.size === 0) {
     return false;
   }
-  const incTurns = new Set<number>();
-  const incBlocks = new Map<number, number>();
+  // ⛔ **只按回合单调性判落后**（用户 2026-10-28 P-1：「别的端看得到的消息我们看不到」）。
+  //   旧实现还比较"每回合块数是否减少"，但块数**不可靠**：
+  //     · `/api/history` 是窗口化的（100 条 / 上拉分页），快照天然比本地少块；
+  //     · 服务端压缩/区域滚动会让块数变少；
+  //     · 本地 `onFinal` 的并集、`pending` 落地都会抬高块数。
+  //   ⇒ 一旦本地块数多于服务端，**之后每一份权威快照都被判"落后"并整份丢弃** ⇒
+  //     别的端的消息永远进不来（永久卡死，正是本次 P-1 的形态）。
+  //   ⇒ 新判据只看"谁更新"：快照最新回合 **<** 本地最新回合，且本地最新回合**已收尾** ⇒ 落后；
+  //     其余一律接受（宁可让权威快照覆盖，也不要卡死在旧状态）。
+  let incMaxTurn: number = 0;
+  const incTurns: Set<number> = new Set<number>();
   for (let i = 0; i < wire.length; i++) {
-    const m: WireHistoryMessage = wire[i];
-    const tid: number = m.turnID !== undefined && m.turnID !== null ? m.turnID : 0;
+    const tid: number = wire[i].turnID !== undefined && wire[i].turnID !== null
+      ? (wire[i].turnID as number) : 0;
     if (tid <= 0) {
       continue;
     }
     incTurns.add(tid);
-    const n: number = m.iterations !== undefined ? m.iterations.length : 0;
-    const prev: number | undefined = incBlocks.get(tid);
-    incBlocks.set(tid, (prev !== undefined ? prev : 0) + n);
-  }
-  // ⛔ 只对**最近 3 个回合**判单调性：更早的回合可能被服务端窗口（`/api/history` 默认 100 条 /
-  //   上拉分页）自然截断，拿它们判定会把"窗口差异"误判成"快照落后"⇒ 历史永不刷新。
-  //   而用户报的闪烁只发生在最近回合（刚被 cancel 的那一轮）。
-  const ids: number[] = [];
-  st.turns.forEach((_t: TurnRec, id: number) => { ids.push(id); });
-  ids.sort((a: number, b: number) => b - a);
-  const scope: number = ids.length < 3 ? ids.length : 3;
-  for (let i = 0; i < scope; i++) {
-    const id: number = ids[i];
-    const t: TurnRec = st.turns.get(id) as TurnRec;
-    const hasOutput: boolean = t.blocks.length > 0 || (t.final !== null && t.final.content.length > 0);
-    if (!hasOutput) {
-      continue;   // 刚 turn_started 的空回合不参与判定
-    }
-    if (!incTurns.has(id)) {
-      return true;          // 整回合缺失 ⇒ 快照落后（缩表）
-    }
-    const inc: number | undefined = incBlocks.get(id);
-    if (inc === undefined || inc < t.blocks.length) {
-      return true;          // 同回合块数减少 ⇒ 快照落后
+    if (tid > incMaxTurn) {
+      incMaxTurn = tid;
     }
   }
-  return false;
+  if (incTurns.size === 0) {
+    // 只有 turn<=0 的 legacy 行（DB 截断/老会话）：无法判断新旧 ⇒ 接受
+    return false;
+  }
+  let maxLocal: number = 0;
+  st.turns.forEach((_t: TurnRec, id: number) => {
+    if (id > maxLocal) {
+      maxLocal = id;
+    }
+  });
+  if (incMaxTurn >= maxLocal) {
+    return false;   // 快照不旧于本地 ⇒ 接受
+  }
+  const latest: TurnRec | undefined = st.turns.get(maxLocal);
+  if (latest !== undefined && latest.final === null) {
+    // 本地最新回合**仍在跑**（还没落库）⇒ 快照只是还没看到它 ⇒ 接受
+    return false;
+  }
+  // 快照确实更旧（最新回合更小、本地最新已收尾）⇒ 丢弃，避免回退
+  return true;
+}
+
+/**
+ * **收尾帧的回合归属**（`text_final` 缺 turn_id 时的唯一判据）。
+ *
+ * ⛔ 为什么需要（用户 2026-10-22 P0「cancel 后发新消息 ⇒ 历史变成 user1 user2 +
+ *   iter1-20 busy」）：cancel ack 的 `OutboundMsg` **不带 `TurnID`**
+ *   （`agent/agent_process.go:handleCancelledRun`）⇒ SSE 载荷里 `turn_id` 缺省
+ *   （字段 `omitempty`；载荷结构沿用后端 `WSMessage`）⇒ `normalizeText` 给 `turnID: null`。模型若把它当"命令回复"丢弃，被取消的那一轮
+ *   **永远没有 `final`** ⇒ 行恒 `turn-N-live`（`finalized=false` ⇒ `isLive=true`）
+ *   ⇒ 页面把这条"在飞"行抽出列表末尾当打字机尾项渲染 ⇒ 用户看到
+ *   「user1 user2 + iter1-20 busy」（assistant1 不在原位）。
+ *
+ * 判据（只用结构，不比内容）：
+ *   ① 有在飞迭代（`live`）⇒ 就是它所在的那一轮（唯一正在产出的一轮）；
+ *   ② 否则取**最早仍未收尾**（`final === null`）的一轮 —— 被取消的那一轮必定先于
+ *      之后 `turn_started` 的新一轮打开，而新轮绝不会比它还早。
+ *      （取"最早"而不是"最晚"：cancel ack 可能与新一轮的 `turn_started` 竞争，
+ *      最晚的会误伤**新轮**；收尾后该轮不再是 `final === null`，不会被重复命中。）
+ */
+function endingTurnOf(st: State): number {
+  // ⛔ **只认"此刻确实在飞"的那一轮**（`live` 指向、且该轮 live+streaming）。
+  //   2026-10-24：旧实现还有一条"取最早未收尾"的兜底 ⇒ 在「cancel(T1) 后排队消息立刻出队成
+  //   T2」的竞态里（cancel ack 无 turn_id 且晚于 `turn_started(T2)`），T1 已被 `phase_done`
+  //   收尾 ⇒ 兜底会落到 **T2** ⇒ 把刚出队的那一轮标成 cancelled/final ⇒ 之后 T2 的 tick 全被
+  //   当"迟到帧"丢弃 ⇒ 消息静默消失。⇒ 归属不明时**不许猜**，交回驱动层做权威重载。
+  if (st.live === null) {
+    return 0;
+  }
+  const t: TurnRec | undefined = st.turns.get(st.live.turn);
+  if (t === undefined || t.final !== null) {
+    return 0;
+  }
+  if (t.streaming !== true) {
+    return 0;
+  }
+  return st.live.turn as number;
+}
+
+/**
+ * 是否"缺 turn_id 的收尾帧"（是否**属于命令回复**由 `adapt` 判 —— 那条规则只该有一处：
+ * 命令回复是唯一合法的"无 turn"形态，由驱动层写 standalone；这里只描述"没有 turn 可用"这个事实）。
+ */
+function needsEndingTurn(ev: DomainEvent): boolean {
+  if (ev.type !== 'text_final') {
+    return false;
+  }
+  const t: number | null = ev.turnID;
+  return t === null || t === undefined || (t as number) <= 0;
 }
 
 /** 一帧的模型步进结果（`state` 供下一帧/投影；`effects` 由调用方处置——实时侧拉权威）。 */
@@ -245,7 +300,7 @@ export interface ModelStep {
  * 单帧喂进模型。`history_replaced` 是**权威历史**（走 `hydrate` 构造，不是增量帧）；
  * 其余事件按 wire 语义 `adapt → stepAll`。⛔ 绝不在这里做去重/兜底——语义全在 `model_step`。
  */
-export function stepEvent(st: State, ev: DomainEvent, chat: string): ModelStep {
+export function stepEvent(st: State, ev: DomainEvent, chat: string, cancelTurn?: number): ModelStep {
   if (ev.type === 'history_replaced') {
     const act = ev.active;
     const wire: WireHistoryMessage[] = historyEventToWire(ev);
@@ -277,7 +332,33 @@ export function stepEvent(st: State, ev: DomainEvent, chat: string): ModelStep {
       return { state: st, effects: [] };
     }
   }
-  const res = stepAll(st, adapt(ev as never, chat, st.epoch) as never, new Date().toISOString());
+  // ⛔ 缺 turn_id 的普通收尾帧（cancel ack / 重启恢复）必须落到"正在收尾的那一轮"
+  //   （见 `endingTurnOf` 的长注释）——否则该轮永不 `final`，行恒 `isLive`。
+  const fallbackTurn: number = needsEndingTurn(ev) ? endingTurnOf(st) : 0;
+  // ⛔ **取消的归属**（2026-10-24 用户点名的竞态）：turn-less 的 cancel ack 只能收尾
+  //   "用户按下取消时正在跑的那一轮" —— 那个轮号**客户端自己知道**（`store.performCancel`
+  //   记的 `cancelTurn`），不需要猜。
+  //   · 目标轮仍未被收尾 ⇒ 就收它（哪怕此刻 live 已经指向刚出队的新轮）；
+  //   · 目标轮**已经收尾** ⇒ 这是重复/迟到的 ack ⇒ **幂等丢弃**（⛔ 不得顺手去收尾 live 新轮）。
+  const ct: number = cancelTurn !== undefined && cancelTurn !== null ? cancelTurn : 0;
+  if (needsEndingTurn(ev) && ct > 0) {
+    const target: TurnRec | undefined = st.turns.get(ct as TurnID);
+    if (target !== undefined && target.final !== null) {
+      return { state: st, effects: [] };   // 已经收过尾：幂等
+    }
+    if (target !== undefined) {
+      return stepAll(st, adapt(ev as never, chat, st.epoch, ct) as never, new Date().toISOString());
+    }
+    return { state: st, effects: [{ kind: 'snapshot', chat: st.chat }] };
+  }
+  // ⛔ 归属不明（没有在飞轮 / 在飞轮已收尾）⇒ **不猜、也不丢**：交给驱动层做一次权威重载
+  //   （`snapshot` effect ⇒ store 的 `pullTurnAuthoritative(-1)`）。丢掉会让该轮永不 final；
+  //   猜成"最早未收尾"会杀掉刚出队的新轮（2026-10-24 用户点名的竞态）。
+  if (needsEndingTurn(ev) && fallbackTurn <= 0) {
+    return { state: st, effects: [{ kind: 'snapshot', chat: st.chat }] };
+  }
+  const res = stepAll(st, adapt(ev as never, chat, st.epoch, fallbackTurn) as never,
+    new Date().toISOString());
   return { state: res.state, effects: res.effects };
 }
 
