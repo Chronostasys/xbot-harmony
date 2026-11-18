@@ -38,3 +38,6 @@ tools/tests/.build-cache/
 
 # 临时产物
 tmp/
+
+# release 下的构建产物（HAP 二进制；文档保留）
+release/*.hap

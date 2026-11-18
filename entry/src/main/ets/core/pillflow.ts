@@ -32,8 +32,12 @@ function isRunningStatus(status: string | undefined): boolean {
   if (s.length === 0) {
     return false;
   }
+  // ⛔ 用户 2026-11-18：「tool 显示『生成 xxx 字』（= generating）时，下方还渲染一条「思考中」」。
+  //   根因：本函数漏了 `generating` ⇒ `anyRunning`=false ⇒ `turnHasRunningTool()`=false
+  //   ⇒ `showsBusyPlaceholder` 照常出「思考中…」 ⇒ 两条进度语义打架（与 2026-10-28 同一纪律）。
+  //   `executing` 同罪：`core/toolstatus.ets` 把 `executing` 归入 running 档，这里也必须算在飞。
   return s === 'running' || s === 'pending' || s === 'streaming' || s === 'queued'
-    || s === 'in_progress' || s === 'started';
+    || s === 'in_progress' || s === 'started' || s === 'generating' || s === 'executing';
 }
 
 /** 任一工具仍在跑。 */

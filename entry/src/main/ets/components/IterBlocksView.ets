@@ -566,10 +566,9 @@ export struct IterBlocksView {
       }));
     }
     Promise.all(settle).then((): void => {
-      // ⛔ **等模型落地再打开**（用户 2026-11-18：「第一次打开必须就是第二次打开的样子」）：
-      //   `fetchIterationDetail` 的 pushEvent 同步，但**页面行 flush 在下一拍** ⇒ 立刻重新捕获
-      //   拿到的仍是旧对象（= 第一张截图）。⇒ 等这一组"已有详情"再捕获/打开，最多 ~120ms。
-      // 同上：`rebuildRows()` 已同步 ⇒ 直接按当前块重新捕获并打开（不等待、不轮询）。
+      // ⛔ **禁止轮询/超时**（用户 2026-11-18 批注）：`store.fetchIterationDetail` 在
+      //   `pushEvent` 之后**同步** `rebuildRows()` ⇒ 这里的 `mergedBlocks()` 已是最新 ⇒
+      //   直接按当前块重新捕获并打开（打开时捕获到的就是"已经带摘要"的那一批）。
       const freshBlocks: HistoryIteration[] = this.mergedBlocks();
       let opened: boolean = false;
       for (let i = 0; i < freshBlocks.length; i++) {
@@ -590,6 +589,10 @@ export struct IterBlocksView {
         this.overList = hid;
         this.overPending = false;
       }
+    }).catch((): void => {
+      // ⛔ 失败方向也必须安全：`overPending` 只由"在飞"决定 ⇒ **任何异常都要清掉**，
+      //   否则徽标永久转圈（本仓 2026-11-18 踩过一次同类：loading 是数据内容的函数 ⇒ 永不结束）。
+      this.overPending = false;
     });
   }
 
