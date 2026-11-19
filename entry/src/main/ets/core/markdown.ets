@@ -711,8 +711,8 @@ function isAngleAutolink(inner: string): boolean {
   return inner.startsWith('https://') || inner.startsWith('http://') || inner.startsWith('mailto:');
 }
 
-/** 强调块内部的标记触发字符（只有含这些才递归解析；纯文本仍走"一个 span"快路径）。 */
-const EMPH_NESTED: RegExp = /[`$]/;
+/** 强调体内部的标记触发字符（含任一才递归解析）。⛔ 2026-11-20：必须含 [（链接）—— 否则 **加粗里的 [文字](url)** 会被当纯文本上屏。 */
+const EMPH_NESTED: RegExp = /[`$[!*_~<]/;
 
 /**
  * 强调内部**递归解析**（CommonMark：`**`x`**` = `<strong><code>x</code></strong>`）。

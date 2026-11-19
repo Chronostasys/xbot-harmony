@@ -514,7 +514,11 @@ console.log('\n▶ §11 parseInline：charCode 快路径 + run-slice ≡ **规�
       const applyFlag = (s: MdSpan): void => {
         if (kind === 'bold') { s.bold = true; } else if (kind === 'strike') { s.strike = true; } else { s.italic = true; }
       };
-      if (!/[`$]/.test(inner)) {
+      // ⛔ 2026-11-20 有意的语义变更（用户报障：`**[文字](url)**` 不渲染成链接）：
+      //   强调体递归判据必须覆盖所有会开启内联分支的字符（链接 `[`、图片 `!`、嵌套强调 `*`/`_`、
+      //   删除线 `~`、自动链接 `<`）。旧 oracle 只认反引号/公式符 ⇒ 加粗里的链接被当纯文本。
+      //   ⇒ oracle 同步新权威（CommonMark：`**[a](b)**` = strong>a），否则 ★11 会长期红。
+      if (!/[`$[!*_~<]/.test(inner)) {
         const s: MdSpan = new MdSpan(); s.text = inner; applyFlag(s); spans.push(s); return;
       }
       const sub: MdSpan[] = oracleInline(inner);
