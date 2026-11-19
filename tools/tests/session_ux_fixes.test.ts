@@ -68,8 +68,10 @@ ok(msgRowSrc.indexOf("Text(`更早的 ${this.row.regionsBefore} 个区域`).font
   '两处同字号（FS_META）');
 
 // ── ② 压缩点越界挂起（不在不存在的两迭代之间画线）──────────────────────────────
-ok(compactionSrc.indexOf('iterNums[iterNums.length - 1] < after') >= 0,
-  'compaction.ets 有「afterIteration 超出末迭代 ⇒ 挂起」守卫');
+// 2026-11-20 语义收紧：after === last+1（紧凑末尾，真机 iters=1,4,5,8,9 comps=10）必须**渲染**
+// （锚到末迭代），否则用户永远看不到胶囊；挂起的只剩 after > lastIter + 1。
+ok(compactionSrc.indexOf('after > lastIter + 1') >= 0,
+  'compaction.ets 有「afterIteration 远超末迭代 ⇒ 挂起」守卫');
 ok(compactionSrc.indexOf('iterNums[0] > after') >= 0,
   '原「窗口外（早于首迭代）⇒ 挂起」守卫仍在（web :1003 同源）');
 ok(compactionSrc.indexOf('anchor = n') >= 0, '锚定扫描（max{n ≤ after}）仍在（web 逐字）');

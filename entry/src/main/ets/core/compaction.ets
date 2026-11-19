@@ -88,9 +88,31 @@ export function compactionAnchors(
     //    权威：web `TurnBody.tsx:997-1003` 的窗口守卫 + `derive.ts:333-344` 的「要么完整时间线、
     //    要么什么都不渲染」；`afterIteration === 0`（真·turn 开头压缩）**不受本条约束**（它是
     //    合法下界，由上方 ②/`windowCompactions` 管）。
-    if (after > 0 && iterNums.length > 0 && iterNums[iterNums.length - 1] < after) {
-      continue;
+    if (after > 0 && iterNums.length > 0) {
+      const lastIter: number = iterNums[iterNums.length - 1];
+      // ⛔ 用户 2026-11-20（真机 `[CPT] render iters=1,4,5,8,9 comps=10 anchors= kept=0/1`）：
+      //   压缩点 `afterIteration = 10` 而该 turn 的可见块只到 **9** ⇒ 旧守卫（`last < after` ⇒ 丢弃）
+      //   把它误杀，界面永远没有胶囊。
+      //   语义纠正：`after === last + 1` 表示「压缩紧跟本 turn 最后一个迭代之后」⇒ 锚到 `last`
+      //   （turn 末尾）**就是唯一正确的显示位置**，必须渲染。
+      //   ⛔ 仍然挂起的是 `after > last + 1`（远超末尾）：那是 cancel/重提交让迭代列表变短的
+      //     形态（2026-10-14 报障「压缩跑到最下方」），此时锚定会落在末迭代 ⇒ 画在错误位置 ⇒
+      //     与 ② 同源（「要么完整时间线、要么什么都不画」）。
+      if (after > lastIter + 1) {
+        continue;
+      }
+      if (after === lastIter + 1) {
+        // 紧跟末尾之后 ⇒ 锚到末迭代（不走下方 max{ n ≤ after } 扫描，语义等价且更明确）。
+        const arrTail: WebCompaction[] | undefined = map.get(lastIter);
+        if (arrTail !== undefined) {
+          arrTail.push(c);
+        } else {
+          map.set(lastIter, [c]);
+        }
+        continue;
+      }
     }
+
     // ① anchor = max{ n ∈ iterNums | n ≤ after }（0 为下界兜底）。
     let anchor: number = 0;
     for (let j = 0; j < iterNums.length; j++) {

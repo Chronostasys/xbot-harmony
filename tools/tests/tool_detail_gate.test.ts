@@ -15,6 +15,7 @@ declare const process: { exit: (c: number) => void };
 declare const __dirname: string;
 
 import { toolNeedsDetail } from '../../entry/src/main/ets/core/toolmerge';
+import { detailTargets } from '../../entry/src/main/ets/core/toolfetch';
 
 let pass = 0, fail = 0;
 function eq(name: string, got: unknown, want: unknown): void {
@@ -30,8 +31,13 @@ eq('空对象 ⇒ 缺详情（历史折叠载荷的典型形态）', toolNeedsDe
 eq('undefined ⇒ false（没有工具不请求）', toolNeedsDetail(undefined), false);
 eq('null ⇒ false', toolNeedsDetail(null as unknown as undefined), false);
 eq('只有 name ⇒ 仍缺详情', toolNeedsDetail({ name: 'shell' } as unknown as { args?: string }), true);
-eq('有 args ⇒ 不缺', toolNeedsDetail({ args: '{"cmd":"ls"}' }), false);
-eq('有 detail ⇒ 不缺', toolNeedsDetail({ detail: 'output' }), false);
+// ⛔ 2026-11-20 语义收紧（用户：「点开第一次只有参数，第二次才有输出」）：
+//   旧判据「args 空 **&&** detail 空才算缺」把「只有参数」当已完整 ⇒ 不再请求 ⇒ 输出永远缺。
+//   ⇒ 任一主体字段缺失都要再拉（`/api/iteration_detail` 幂等 + 页面有 (turn,iter) in-flight 去重）。
+eq('只有 args（无输出）⇒ 仍要拉（否则永远看不到输出）',
+  toolNeedsDetail({ args: '{"cmd":"ls"}' }), true);
+eq('只有 detail（无参数）⇒ 仍要拉', toolNeedsDetail({ detail: 'output' }), true);
+eq('args + detail 都有 ⇒ 不缺', toolNeedsDetail({ args: 'a', detail: 'd' }), false);
 eq('只有 summary（主体仍缺）⇒ 仍要拉', toolNeedsDetail({ summary: '列目录' }), true);
 eq('只有 tool_hints（主体仍缺）⇒ 仍要拉', toolNeedsDetail({ tool_hints: '```diff\n+x\n```' }), true);
 eq('空串不算"有"', toolNeedsDetail({ args: '', detail: '', summary: '', tool_hints: '' }), true);
@@ -54,6 +60,19 @@ ok('in-flight 去重仍在（并发点同一迭代只发一次）', idx.indexOf(
 // 根因留档：模型侧 Block 没有折叠标记（所以不能靠它当判据）
 ok('根因仍在源码可见：toHistoryIteration 的 tools_folded 来自 Block（当前恒 false）',
   bridge.indexOf('tools_folded: false') >= 0);
+
+// ── ★ 端到端：args-only 的工具**必须**仍然产生去拉详情的目标（用户 2026-11-20）────────
+// 旧判据下这种工具被判已完整 ⇒ ensureToolDetails 早退 ⇒ 输出永远缺（第二次打开才有）。
+{
+  const iters = [
+    { iteration: 3, tools: [{ name: 'Shell', args: '{"cmd":"ls"}' }] },   // 只有参数、没有输出
+  ];
+  eq('★ args-only ⇒ 有拉取目标（点开就会请求）', detailTargets(iters, 'Shell', 3, 3), [3]);
+  const full = [
+    { iteration: 4, tools: [{ name: 'Shell', args: '{"cmd":"ls"}', detail: 'out' }] },
+  ];
+  eq('★ args+detail 都有 ⇒ 不再请求（省一次）', detailTargets(full, 'Shell', 4, 4), []);
+}
 
 console.log(`tool_detail_gate: ${pass} passed, ${fail} failed`);
 if (fail > 0) { process.exit(1); }

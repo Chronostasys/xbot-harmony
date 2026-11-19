@@ -99,6 +99,8 @@ console.log('\n▶ §D 独立块组件的订阅语义（必须是 @ObjectLink，
   //   `@ObjectLink iters` 驱动不了 `IterBlocksView.build()`（`[ITR] view` 整回合只 1 条）⇒
   //   已提交块区冻结、idle 后才出现。派生视图的源 = `src`（`blocksOverride` 优先，否则持有者），
   //   上限仍由持有者长度约束（override 就是同一份块的快照）。
+  // ⚡ 2026-11-20：`compactionMap()` 也调用 `mergedBlocks()`（压缩点锚点必须与渲染同源），
+  //   所以 'this.mergedBlocks()' 出现次数 > 1 是**正确**的；渲染入口（ForEach）仍须唯一。
   const srcOk: boolean = count(iterView, 'ForEach(this.mergedBlocks()') === 1
     && /const src: HistoryIteration\[\] = this\.blocksOverride\.length > 0 \? this\.blocksOverride : this\.iters\.blocks;/.test(iterView)
     && /mergeToolOnlyIterations\(src\)/.test(iterView);

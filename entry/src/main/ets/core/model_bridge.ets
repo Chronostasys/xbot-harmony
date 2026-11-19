@@ -18,7 +18,7 @@ import type { PRow, PAssistantRow, PUserRow } from './model_project';
 import type { Block } from './model_types';
 import type { State, ToolRec, SubAgentNode, TurnID, TurnRec } from './model_types';
 import type { Effect } from './model_types';
-import type { WireHistoryMessage, WireHistoryIteration } from './model_hydrate';
+import type { WireCompaction, WireHistoryIteration, WireHistoryMessage } from './model_hydrate';
 import { project } from './model_project';
 import { adapt } from './model_adapter';
 import { stepAll } from './model_step';
@@ -157,6 +157,10 @@ export function historyEventToWire(ev: DomainEvent): WireHistoryMessage[] {
       iterations: wireIters(l.iterations),
       timestamp: l.timestamp, dbID: l.dbID,
       regionsBefore: l.regionsBefore,
+      // ⛔ 无 turn 行的身份/锚点（`!cmd` 命令输出、压缩标记回落形态）——丢这两个字段会让
+      //   `hydrate` 把命令输出画成 user 气泡、把压缩标记挂到 turn 0 而整段消失。
+      standalone: l.standalone,
+      anchorTurnID: l.anchorTurnID,
     });
   }
   const turns: readonly Turn[] = ev.turns !== undefined ? ev.turns : [];
@@ -172,9 +176,23 @@ export function historyEventToWire(ev: DomainEvent): WireHistoryMessage[] {
       ? t.phase.payload.iterations : t.phase.data.iterations;
     const text: string = t.phase.kind === 'committed' ? t.phase.payload.content : t.phase.data.content;
     const rb: number | undefined = t.phase.kind === 'committed' ? t.phase.payload.regionsBefore : undefined;
+    // ⛔ **turn 内压缩点必须搬**（用户 2026-11-20）：`/api/history` 唯一的压缩下发通道就是
+    //   这条字段；在此丢弃 ⇒ `TurnRec.compactions` 恒空 ⇒ 界面永远没有「上下文已压缩」胶囊。
+    // `compactions` 只存在于 committed/fold 的 payload（`LiveSnapshot` 没有该字段）。
+    // `compactions` 只存在于 committed/fold 的 payload（`LiveSnapshot` 没有该字段）。
+    const compsSrc: readonly WebCompaction[] | undefined = t.phase.kind === 'committed'
+      ? t.phase.payload.compactions : undefined;
+    const wireComps: WireCompaction[] = [];
+    if (compsSrc !== undefined) {
+      for (let ci = 0; ci < compsSrc.length; ci++) {
+        const cc: string | undefined = compsSrc[ci].content;
+        wireComps.push({ after_iteration: compsSrc[ci].afterIteration, content: cc !== undefined && cc !== null ? cc : '' });
+      }
+    }
     out.push({
       id: `turn-${t.id}-assistant`, role: 'assistant', content: text, turnID: t.id,
       iterations: wireIters(its), regionsBefore: rb,
+      compactions: wireComps.length > 0 ? wireComps : undefined,
     });
   }
   return out;

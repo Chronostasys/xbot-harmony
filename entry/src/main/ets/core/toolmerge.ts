@@ -137,5 +137,10 @@ export function toolNeedsDetail(t: {
   // ⛔ 只看**参数/输出**这两个"浮层主体"字段：`summary/tool_hints` 可能先到而主体仍缺
   //   （服务端在 running 期只给 summary）⇒ 把 summary 当"有详情"会让浮层永远只有一行摘要
   //   而**没有参数/结果**（正是用户 2026-10-27 P0 的观感）。多拉一次是幂等去重的，不浪费。
-  return a.length === 0 && d.length === 0;
+  // ⛔ 用户 2026-11-20：「点开工具第一次只看得到参数，第二次打开才看得到详细输出」——
+  //   旧判据 `args 空 && detail 空` 把「**只有参数**」当成已完整 ⇒ 第一次点开拿到 args 后
+  //   `ensureToolDetails` 就**不再请求** ⇒ 输出永远缺（除非别处触发一次重载）。
+  //   ⇒ 任一主体字段缺失都要再请求（`/api/iteration_detail` 幂等，`Index.ensureToolDetails`
+  //     有按 (turn, iter) 的 in-flight 去重 ⇒ 不会风暴；只在"点开/展开"这一刻触发）。
+  return a.length === 0 || d.length === 0;
 }

@@ -9,12 +9,18 @@
  *   （或删掉窗口外挂起那行），本文件的锚定用例**必红**（见下方 ④⑤ 与 ⑦）。
  */
 declare const process: { exit: (c: number) => void };
+declare function require(m: 'fs'): { readFileSync(p: string, e: string): string };
+declare function require(m: 'path'): { join(...p: string[]): string };
+declare const __dirname: string;
 
 import {
   anchorsAt, COMPACTED_LABEL, compactionAnchors, CompactMarker, DEFAULT_MARKER_TITLE,
   hasExpandableBody, NO_COMPACTIONS, splitMarker,
 } from '../../entry/src/main/ets/core/compaction';
 import { WebCompaction } from '../../entry/src/main/ets/core/chattypes';
+
+const fs = require('fs');
+const pathMod = require('path');
 
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean): void {
@@ -110,7 +116,11 @@ ok('undefined ⇒ 不可展开', !hasExpandableBody(undefined));
   //    —— 旧行为把它锚到**末块**（= turn 末尾）⇒ 横线画在不存在的"后面"。
   //    新规则（web `TurnBody.tsx:997-1003` 窗口守卫 + `derive.ts:333-344` 的「不连续零容忍」）：
   //    `afterIteration` 超出本 turn **现有**末块 ⇒ 该压缩点属于更靠后的未下发内容 ⇒ 挂起。
-  eq('after=5 超过末块 ⇒ 挂起（不在 4 之后画线）', dump(compactionAnchors([1, 3, 4], [mk(5)])), '');
+  // ⚡ 2026-11-20 语义收紧（用户真机：`iters=1,4,5,8,9 comps=10` ⇒ 旧守卫把紧凑末尾的压缩点
+  //   误杀 ⇒ 永远看不到胶囊）。`after = last + 1` 表示「压缩紧跟本 turn 最后一个迭代之后」
+  //   ⇒ 锚到 last（turn 末尾）是唯一正确位置，**必须渲染**；仍挂起的是 `after > last + 1`
+  //   （cancel/重提交让迭代列表变短那种形态）。
+  eq('after=5 = 末块+1 ⇒ 锚到末块（末尾压缩必须可见）', dump(compactionAnchors([1, 3, 4], [mk(5)])), '4:[5]');
 }
 
 // ── ⑧ 窗口外挂起（web TurnBody.tsx:996-1003）：after 落在全部已渲染块之前 ⇒ 不渲染 ──
@@ -152,8 +162,27 @@ ok('undefined ⇒ 不可展开', !hasExpandableBody(undefined));
   ok('缺 content ⇒ 不可展开', !hasExpandableBody(c));
 }
 
+// ── ★ 锚点必须与渲染**同源**（用户 2026-11-20 真机：[CPT] anchors=10 kept=1/1 但无胶囊）──
+// 渲染遍历 `ForEach(this.mergedBlocks())`（纯工具迭代被 pillmerge 合并 ⇒ head 号会变）；
+// 若锚点仍按**未合并**的 `this.iters.blocks` 迭代号算，`compactionsAt(head)` 恒查不到 ⇒
+// 压缩点「算出来了但不渲染」。⛔ 判据钉调用点，不钉"函数存在"。
+{
+  const viewSrc: string = fs.readFileSync(
+    pathMod.join(__dirname, '..', '..', '..', '..', 'entry/src/main/ets/components/IterBlocksView.ets'), 'utf8');
+  const i2: number = viewSrc.indexOf('private compactionMap(): Map<number, WebCompaction[]> {');
+  ok('★ 找得到 compactionMap()', i2 >= 0);
+  const body: string = i2 >= 0 ? viewSrc.substring(i2, i2 + 900) : '';
+  ok('★ 锚点用 mergedBlocks()（与 ForEach 同源）', body.indexOf('this.mergedBlocks()') >= 0);
+  ok('★ 锚点不得再用未合并的 iters.blocks', body.indexOf('this.iters.blocks') < 0);
+}
+
+// ── ★ 压缩点紧跟末尾之后（after = last + 1）必须锚到末尾（用户 2026-11-20 真机）────────
+// 真机： ⇒ 旧守卫 last(9) < after(10) 直接丢弃。
+{
+  eq('★ after = last+1 ⇒ 锚到末迭代（末尾）', dump(compactionAnchors([1, 4, 5, 8, 9], [mk(10)])), '9:[10]');
+  eq('★ after 远超末尾 ⇒ 仍挂起（不画错位置）', dump(compactionAnchors([1, 2], [mk(99)])), '');
+  eq('★ after 在中间 ⇒ 锚到 ≤after 的最大块', dump(compactionAnchors([1, 4, 5, 8, 9], [mk(4)])), '4:[4]');
+}
 console.log(`\ncompaction.test: ${pass} passed / ${fail} failed`);
 if (fail > 0) { process.exit(1); }
 process.exit(0);
-
-export {};

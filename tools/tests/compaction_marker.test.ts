@@ -27,9 +27,11 @@ export {};
 
 declare const process: { exit: (c: number) => void };
 
-import { emptyState } from '../../entry/src/main/ets/core/model_types';
+import { emptyState  } from '../../entry/src/main/ets/core/model_types';
 import type { State, TurnRec, UserLine } from '../../entry/src/main/ets/core/model_types';
 import { hydrate } from '../../entry/src/main/ets/core/model_hydrate';
+import { historyEventToWire } from '../../entry/src/main/ets/core/model_bridge';
+import type { DomainEvent, LegacyRow, Turn } from '../../entry/src/main/ets/core/chat_types_full';
 import type { WireHistoryMessage } from '../../entry/src/main/ets/core/model_hydrate';
 import { applyModel } from '../../entry/src/main/ets/core/model_bridge';
 import type { ChatRow } from '../../entry/src/main/ets/core/types';
@@ -121,6 +123,39 @@ const MARK = '[Compacted context]\n\n早前的对话摘要：用户要求训练�
   const t5: TurnRec | undefined = twice.turns.get(5);
   eq('④ 重复水合不重复挂压缩点', t5 !== undefined ? t5.compactions.length : -1, 1);
   ok('④b 真实 user 仍在', t5 !== undefined && t5.user !== null && (t5.user as UserLine).content === 'q');
+}
+
+// ── ⑤ 端到端： → wire 必须**带上** compactions / standalone（真因）──────
+// ⛔ 用户 2026-11-20：「看不到压缩点位，看不到展开按钮」。真因 = 
+//   把  与 legacy 的 standalone/anchor 丢了 ⇒ hydrate 永远收不到。
+{
+  const legacyRow: LegacyRow = {
+    id: 'cmp9', role: 'user', content: MARK, iterations: [], timestamp: 't', dbID: 9100,
+    standalone: true, anchorTurnID: 7,
+  };
+  const turn: Turn = {
+    id: 7 as never,
+    user: { content: '继续', timestamp: 't', isNotification: false } as never,
+    phase: {
+      kind: 'committed',
+      payload: {
+        via: 'text', content: '正文', iterations: [],
+        compactions: [{ afterIteration: 2, content: MARK }],
+        regionsBefore: 0,
+      },
+    } as never,
+  } as never;
+  const ev: DomainEvent = {
+    type: 'history_replaced', lastSeq: null, legacy: [legacyRow], turns: [turn], standalone: [],
+  } as never;
+  const wire = historyEventToWire(ev);
+  const asst = wire.filter((w) => w.role ===
+    'assistant');
+  ok('⑤ wire 的 assistant 行必须带 compactions',
+    asst.length > 0 && asst[0].compactions !== undefined && (asst[0].compactions as unknown[]).length === 1);
+  const lg = wire.filter((w) => w.id === 'cmp9');
+  ok('⑤b wire 的 standalone 行必须带 standalone + anchorTurnID',
+    lg.length > 0 && lg[0].standalone === true && lg[0].anchorTurnID === 7);
 }
 
 console.log(`compaction_marker: ${pass} passed, ${fail} failed`);

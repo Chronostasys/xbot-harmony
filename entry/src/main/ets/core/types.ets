@@ -148,6 +148,15 @@ export interface HistoryMessage {
   iterations?: HistoryIteration[];
   regions_before?: number;
   /**
+   * 显式"无 turn"行（后端 `HistoryMessage.Standalone`）：命令行 `!cmd` 输出、
+   * 以及**压缩标记的回落形态**（`[Compacted context]\n\n<summary>`）。
+   */
+  standalone?: boolean;
+  /** 无 turn 行的排序锚点（该行到达时已知的最大 turn id；0 = 尚无 turn）。 */
+  anchor_turn_id?: number;
+  /** turn 内压缩点（`protocol/events.go:317 HistoryCompaction`）。 */
+  compactions?: HistoryCompaction[];
+  /**
    * 该 turn 的 user 行 —— **仅当**该 turn 只下发了尾部区域窗口（`regions_before > 0`）时，
    * 服务端转换层把它**从消息流里摘出来**挂在这里（`protocol/events.go:302-310`
    * `TurnUser`、`channel/subscription.go:712 relocateIncompleteTurnUsers`；后端 `5c3aec7b`）。
@@ -160,16 +169,6 @@ export interface HistoryMessage {
    * （`core/derive.ts:287 userHiddenByFold`）。
    */
   turn_user?: HistoryMessage;
-  /**
-   * 该 turn **内部**发生过的上下文压缩点（`protocol/events.go:301/317`；`compactions`）。
-   *
-   * ⛔ 本仓此前**零消费**（`HistoryMessage` 没有这个字段 ⇒ JSON 被直接丢弃 ⇒ 历史 turn 的
-   * 「上下文已压缩」横线**从不内联出现**）。消费链：`store.ets:toChatMessages`
-   * （经 `core/compaction.ets:toHistoryCompactions`）→ `ChatMessage.compactions`
-   * → `integrate.ts` 建 turn → `derive.ts` 的 `windowCompactions` 窗口过滤
-   * → `MessageRow` 的「锚定迭代之后」内联渲染。web 同源：`hooks/useChatMessages.ts:250`。
-   */
-  compactions?: HistoryCompaction[];
 }
 
 /** `/api/history` 的 data。 */

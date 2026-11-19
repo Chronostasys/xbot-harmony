@@ -415,6 +415,8 @@ export class ChatStore {
    *   `@State rows`）= 行集合变了。二者不再混用，O(1) 整数比较。
    */
   rowsRev: number = 0;
+  /** 上次广播压缩点时的签名（见 rebuildRows 里的 compactionGen 广播）。 */
+  private compactionSig: string = '';
   /** 最近一次 SSE/store 事件时刻（毫秒）—— 非权威 idle 的"事件静默"闸门用。 */
   lastEventAtMs: number = 0;
   // ── 连续性（后台恢复 / SSE 重连的唯一判据底座）────────────────────────────────
@@ -1140,6 +1142,24 @@ export class ChatStore {
     if (structural) { this.rowsGen = this.rowsGen + 1; }
     this.rowsRev = this.rowsRev + 1;
     this.rows = next;
+    // ⛔ 压缩点代数（用户 2026-11-20：真机  仍无胶囊）：
+    //    的  在本机**驱动不了 build()**（同 2026-11-18
+    //   「迭代完成即消失」那条 P0）⇒ 压缩点写进持有者也不会重绘。
+    //   ⇒ 这里用**组件级**代数（ 在普通组件里可靠）：压缩点集合一变就 +1，
+    //     订阅它的视图自己重渲染。只在**签名变化**时发（不逐帧打扰）。
+    let csig: string = '';
+    for (let i = 0; i < next.length; i++) {
+      const cps = next[i].compactions;
+      if (cps === undefined || cps.length === 0) {
+        continue;
+      }
+      csig += `${next[i].id}:${cps.length}:${cps[0].afterIteration};`;
+    }
+    if (csig !== this.compactionSig) {
+      this.compactionSig = csig;
+      const cg: number = AppStorage.get<number>('compactionGen') ?? 0;
+      AppStorage.setOrCreate('compactionGen', cg + 1);
+    }
     this.onUpdate();
     // ⛔ 切会话诊断：只在真正切会话时打日志，避免 rebuildRows 每帧刷屏淹没关键日志
     if (this.sid !== this.lastLoggedSid) {
@@ -3116,6 +3136,11 @@ export class ChatStore {
         isPartial: false,
         dbID: m.id,
         compactions: comps.length > 0 ? comps : undefined,
+        // ⛔ 压缩标记的回落形态靠这两个字段定位（`protocol/events.go` 的 standalone /
+        //   anchor_turn_id）；不搬 ⇒ 压缩点挂到 turn 0 ⇒ 整段消失（用户 2026-11-20 亲报）。
+        standalone: m.standalone === true ? true : undefined,
+        anchorTurnID: m.anchor_turn_id !== undefined && m.anchor_turn_id !== null
+          && (m.anchor_turn_id as number) > 0 ? (m.anchor_turn_id as number) : undefined,
         regionsBefore: m.regions_before !== undefined && m.regions_before !== null
           ? m.regions_before : undefined,
       };

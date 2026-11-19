@@ -60,6 +60,14 @@ const NO_ANCHORS: Map<number, WebCompaction[]> = new Map();
 @Component
 export struct IterBlocksView {
   /** 已完成块列表 + 归属身份（只在块真正变化时替换 ⇒ 本组件零重建）。 */
+  /**
+   * 压缩点代数（`core/render.ets:syncIterBlocks` 在 `compactions` 变化时 +1）。
+   *
+   * ⛔ 为什么需要它：`@ObjectLink iters` 在本机**驱动不了 build()**（同 2026-11-18 P0）⇒
+   *   压缩点写进持有者也不会重绘（真机 `[CPT] render anchors=0 kept=1/1` 而界面上没有胶囊）。
+   *   `@StorageProp` 是**组件级状态**，变化必定重渲染 ⇒ 读一次即建立依赖。
+   */
+  @StorageProp('compactionGen') @Watch('onCompactionGen') cpGen: number = 0;
   @ObjectLink iters: IterBlocks;
   /**
    * **值投递**的已完成块快照（live 行专用）。
@@ -165,6 +173,8 @@ export struct IterBlocksView {
   private bandCache: SweepBand = new SweepBand();
   /** 压缩点锚定表（按 `iters.rev` 记忆化） */
   private anchorsRev: number = -1;
+  /** 上一次算 anchors 时的压缩点代数（见 `cpGen`）。 */
+  private anchorsGen: number = -1;
   private anchorsCache: Map<number, WebCompaction[]> = new Map();
 
   private themeId(): string {
@@ -257,7 +267,17 @@ export struct IterBlocksView {
    * 压缩点锚定表（`afterIteration` → 实际渲染块）—— 对齐 web `TurnBody.compactionByIter`。
    * ⛔ 按 `iters.rev` 记忆化：块列表未变 ⇒ 零重算（O(1) 早退在无压缩点时）。
    */
+  /** 压缩点代数变化 ⇒ 丢弃 anchors 缓存（下一次 build 重算并渲染胶囊）。 */
+  private onCompactionGen(): void {
+    this.anchorsRev = -1;
+  }
+
   private compactionMap(): Map<number, WebCompaction[]> {
+    const gen: number = this.cpGen;   // 读一次 @StorageProp ⇒ 建立渲染依赖（见字段注释）
+    if (gen !== this.anchorsGen) {
+      this.anchorsGen = gen;
+      this.anchorsRev = -1;           // 强制重算（压缩点变了）
+    }
     const comps: WebCompaction[] = this.iters.compactions;
     if (comps.length === 0) {
       return NO_ANCHORS;
@@ -265,12 +285,24 @@ export struct IterBlocksView {
     if (this.anchorsRev === this.iters.rev) {
       return this.anchorsCache;
     }
-    const blocks: HistoryIteration[] = this.iters.blocks;
+    // ⛔ 用**合并后的块**（与渲染遍历**同一份**派生视图，见下方 ForEach）：纯工具迭代被 `pillmerge`
+    //   合并后 head 迭代号会变，若锚点仍按未合并号算，`compactionsAt(head)` 恒查不到 ⇒
+    //   压缩点「算出来了但不渲染」（真机 `[CPT] render anchors=10 kept=1/1` 而无胶囊）。
+    const blocks: HistoryIteration[] = this.mergedBlocks();
     const nums: number[] = [];
     for (let i = 0; i < blocks.length; i++) {
       nums.push(blocks[i].iteration);
     }
     this.anchorsCache = compactionAnchors(nums, comps);
+    // [CPT] 渲染层取证：压缩点是否被窗口/越界守卫丢弃（仅在**确有压缩点**时打印，低频）
+    {
+      const keys: string[] = [];
+      this.anchorsCache.forEach((_v: WebCompaction[], k: number): void => { keys.push('' + k); });
+      const afterList: string[] = [];
+      for (let ci2 = 0; ci2 < comps.length; ci2++) { afterList.push('' + comps[ci2].afterIteration); }
+      const h0v: WebCompaction[] | undefined = this.anchorsCache.get(0);
+      console.info(`[CPT] render iters=${nums.join(',')} comps=${afterList.join(',')} anchors=${keys.join(',')} kept=${keys.length}/${comps.length} head0=${h0v === undefined ? 0 : h0v.length}`);
+    }
     this.anchorsRev = this.iters.rev;
     return this.anchorsCache;
   }

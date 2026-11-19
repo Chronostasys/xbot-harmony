@@ -27,7 +27,9 @@ interface FetchIterLike {
 function lacksDetail(t: FetchToolLike): boolean {
   const a: string = t.args !== undefined && t.args !== null ? t.args : '';
   const d: string = t.detail !== undefined && t.detail !== null ? t.detail : '';
-  return a.length === 0 && d.length === 0;
+  // ⛔ 与 `core/toolmerge.toolNeedsDetail` **必须同义**：任一主体字段为空就算缺
+  //   （「只有参数」不再被视为已完整，见 2026-11-20 用户报障）。
+  return a.length === 0 || d.length === 0;
 }
 
 /**

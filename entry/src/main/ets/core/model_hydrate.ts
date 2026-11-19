@@ -25,7 +25,7 @@ export interface WireHistoryMessage {
   readonly regionsBefore?: number;
   readonly droppedBefore?: number;
   /** turn 内压缩点（`HistoryCompaction`：`after_iteration`/`content`/`timestamp`）。 */
-  readonly compactions?: readonly { readonly after_iteration?: number; readonly content?: string }[];
+  readonly compactions?: readonly WireCompaction[];
   /**
    * 显式"无 turn"行（后端 `HistoryMessage.Standalone`）。
    *
@@ -37,6 +37,12 @@ export interface WireHistoryMessage {
   readonly standalone?: boolean;
   /** 无 turn 行的排序锚点（该行到达时已知的最大 turn id；0 = 尚无 turn）。 */
   readonly anchorTurnID?: number;
+}
+
+/** turn 内压缩点（`protocol/events.go:317 HistoryCompaction` 的线格式）。 */
+export interface WireCompaction {
+  readonly after_iteration?: number;
+  readonly content?: string;
 }
 
 export interface WireHistoryIteration {
@@ -578,6 +584,15 @@ export function hydrate(prev: State, messages: readonly WireHistoryMessage[], se
   //   （真机 `[MODEL-DIFF]` 直接钓出：`live=1→0`、`iter=288→0`）。
   // ⛔ 被越过的在飞记忆必须**作废**（同上单调性）：否则行仍是 `turn-N-live`（isLive），
   //   页面把它当"在飞尾项"渲染，而新的那一轮反而不流式（用户 2026-10-22 现场）。
+  // [CPT] 压缩点取证：数据到底有没有到（切会话刷新后再读一次 hilog）
+  {
+    let nComp: number = 0;
+    turns.forEach((t: TurnRec): void => { if (t.compactions.length > 0) nComp += t.compactions.length; });
+    console.info(`[CPT] hydrate msgs=${messages.length} standalone=${messages.filter((m: WireHistoryMessage) => m.standalone === true).length}`
+      + ` marker=${messages.filter((m: WireHistoryMessage) => (m.content !== undefined ? m.content : '').indexOf('[Compacted context]') === 0).length}`
+      + ` turnsWithComp=${nComp} orphan=${orphanCompactions.length}`);
+  }
+
   let live: LiveIter | null = liveOvertaken ? null : prev.live;
   if (active !== undefined && active !== null) {
     const snap: WireLiveSnapshot = active.snapshot;
