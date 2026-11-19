@@ -26,6 +26,17 @@ export interface WireHistoryMessage {
   readonly droppedBefore?: number;
   /** turn 内压缩点（`HistoryCompaction`：`after_iteration`/`content`/`timestamp`）。 */
   readonly compactions?: readonly { readonly after_iteration?: number; readonly content?: string }[];
+  /**
+   * 显式"无 turn"行（后端 `HistoryMessage.Standalone`）。
+   *
+   * 两种来源：① 命令行 `!cmd` 落库行；② **turn 内压缩的回落形态** —— 后端
+   * `channel/subscription.go:attachCompactions` 在该 turn 的行不在本次窗口时，把压缩标记
+   * 写成 `role:"user"` + `standalone:true` + `content:"[Compacted context]\n\n<summary>"` +
+   * `anchor_turn_id`。
+   */
+  readonly standalone?: boolean;
+  /** 无 turn 行的排序锚点（该行到达时已知的最大 turn id；0 = 尚无 turn）。 */
+  readonly anchorTurnID?: number;
 }
 
 export interface WireHistoryIteration {
@@ -383,9 +394,45 @@ export function hydrate(prev: State, messages: readonly WireHistoryMessage[], se
   //   而切会话走的是另一条装配路径（回合内配对）所以看起来正常。
   //   ⇒ 先在本地**暂存**，遇到下一个带号 assistant 回合时认领为它的 `user`；
   //   到最后仍无人认领的（真正的独立消息 / 通知）才落 `legacy`（保持原语义）。
+  /**
+   * **压缩标记的回落形态**（后端把 turn 内压缩写成 standalone user 行时）。
+   *
+   * ⛔ 用户 2026-11-19：「我们怎么不渲染压缩呀？压缩后应该有个可展开的东西」。
+   *   真因：`model_hydrate` 只认 `message.compactions`（turn 内形态），**没有** standalone 回落形态的
+   *   处理 ⇒ 这行（`role:"user"` + `content:"[Compacted context]…"`）被当成**该 turn 的 user 消息**
+   *   ⇒ 既顶掉真实 user 气泡（web `chat/integrate.ts:78` 记录的 P0 2026-09-26 同一形态），
+   *   又让压缩点整段消失。
+   *   ⇒ 收集起来，循环结束后挂到锚点 turn 的 `compactions`（`afterIteration = 0` ⇒ 渲染在该 turn
+   *     顶部，复用既有 `CompactionDividerRow`（可展开摘要））。⛔ 绝不当 user 行。
+   */
+  const orphanCompactions: { readonly turn: number; readonly content: string }[] = [];
   for (let i = 0; i < messages.length; i++) {
     const m: WireHistoryMessage = messages[i];
     const turn: number = m.turnID !== undefined && m.turnID !== null ? m.turnID : 0;
+    // ⛔ 压缩标记行（**不论**有没有 standalone 标记）：内容以 `[Compacted context]` 开头即认定。
+    //   web `chat/integrate.ts:35 isCompactMarkerRow` 同款；旧后端/存量数据可能没有 standalone 标记。
+    const rawContent: string = m.content !== undefined && m.content !== null ? m.content : '';
+    const isCompactMarker: boolean = m.role === 'user'
+      && rawContent.trimStart().indexOf('[Compacted context]') === 0;
+    if (isCompactMarker) {
+      orphanCompactions.push({
+        turn: m.anchorTurnID !== undefined && m.anchorTurnID !== null && m.anchorTurnID > 0
+          ? m.anchorTurnID : turn,
+        content: rawContent,
+      });
+      continue;   // ⛔ 不进 user 槽、也不落 legacy（落 legacy 会画成 user 气泡）
+    }
+    // ⛔ 其它 standalone 行（命令行 `!cmd`）：无 turn 归属 ⇒ 落 legacy，但**带 standalone 标记**
+    //   （渲染层据此跳过 turn 绑定并按锚点排序）。旧实现当成普通 user 行 ⇒ 命令输出被画成用户消息。
+    if (m.standalone === true) {
+      legacy.push({
+        id: m.id, role: m.role === 'user' ? 'user' : 'assistant', content: rawContent,
+        blocks: [], timestamp: m.timestamp !== undefined ? m.timestamp : '', dbID: m.dbID,
+        standalone: true,
+        anchorTurn: m.anchorTurnID !== undefined && m.anchorTurnID !== null ? m.anchorTurnID : 0,
+      });
+      continue;
+    }
     if (turn <= 0) {
       if (m.role === 'user') {
         legacy.push({
@@ -501,6 +548,31 @@ export function hydrate(prev: State, messages: readonly WireHistoryMessage[], se
       regionsBefore: m.regionsBefore !== undefined ? m.regionsBefore : rec.regionsBefore,
     });
   }
+  // 压缩点（standalone 回落形态）⇒ 挂到锚点 turn 的 `compactions`（`afterIteration=0`）。
+  // 锚点 turn 不在当前窗口 ⇒ 跳过（数据仍在服务端；窗口到了会再下发），⛔ 绝不画成 user 气泡。
+  for (let i = 0; i < orphanCompactions.length; i++) {
+    const oc = orphanCompactions[i];
+    const rec2: TurnRec | undefined = turns.get(oc.turn);
+    if (rec2 === undefined) {
+      continue;
+    }
+    const merged: Compaction[] = [];
+    for (let k = 0; k < rec2.compactions.length; k++) {
+      merged.push(rec2.compactions[k]);
+    }
+    let dup: boolean = false;
+    for (let k = 0; k < merged.length; k++) {
+      if (merged[k].afterIteration === 0 && merged[k].content === oc.content) {
+        dup = true;
+        break;
+      }
+    }
+    if (!dup) {
+      merged.push({ afterIteration: 0, content: oc.content });
+      turns.set(oc.turn, { ...rec2, compactions: merged });
+    }
+  }
+
   // ⛔ **在飞态必须从  恢复**（老管线同源）：`history_replaced` 的 `active.snapshot`
   //   是"这一轮正在跑"的权威快照；不恢复 ⇒ 打字机/工具 pill/迭代进度在打开会话时消失
   //   （真机 `[MODEL-DIFF]` 直接钓出：`live=1→0`、`iter=288→0`）。

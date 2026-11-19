@@ -170,6 +170,7 @@ import {
 import { SplashOverlay } from '../components/SplashOverlay';
 import { SessionLoadingSplash } from '../components/SessionLoadingSplash';
 import { Lightbox } from '../components/Lightbox';
+import { resetGenuiInlineBudget } from '../components/GenuiPanelCard';
 import { Toast } from '../components/Toast';
 import {
   TOAST_KIND_COPY, TOAST_KIND_NOTICE, ToastState, emptyToast, nextToast,
@@ -3585,6 +3586,11 @@ struct Index {
     //    + 进 loading：头部立刻换成新会话标题、消息区立刻进历史骨架。
     //    ⛔ 会话列表的补齐**下沉**到 `openSession()`（它本来就会补一次），此处不再单独 await。
     if (!alreadyOpen) {
+      // ⛔ 用户 2026-11-18：「切会话再切回来，这个渲染面板就看不到了」。
+      //   根因：内联面板的并发名额计数只在 `aboutToDisappear` 归还，而切会话不保证触发
+      //   ⇒ 计数单调上涨、撞上限后**所有** GenUI 面板永久退化成紧凑卡（只剩 header bar）。
+      //   ⇒ 切会话时整体归还（旧面板实例随行数据离开）。
+      resetGenuiInlineBudget();
       target.beginSwitch(chatId);
     }
     // #7-4（2026-10-17）：切会话自动对账终端列表（web `useTerminal.ts:315-317` restoreFromBackend

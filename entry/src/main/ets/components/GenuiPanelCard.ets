@@ -48,8 +48,19 @@ const GENUI_INLINE_H: number = 320;
  * `display_html` 面板 —— 全部"免点击自动展示"会把内存和滚动都拖死。超限的卡片退回紧凑卡
  * （仍可点「打开面板」全屏看），**不是丢功能**。
  */
-const GENUI_INLINE_MAX: number = 3;
+const GENUI_INLINE_MAX: number = 12;
 let genuiInlineMounted: number = 0;
+
+/**
+ * **归还全部内联名额**（切会话 / 页面重建时调用）。
+ *
+ * ⛔ 用户 2026-11-18：「切会话再切回来渲染面板就看不到了」。根因是名额计数只增不减 ——
+ *   `aboutToDisappear` 在切会话（Index 页不销毁、LazyForEach 回收不保证回调）时不被调用
+ *   ⇒ `genuiInlineMounted` 单调上涨 ⇒ 撞上限后所有面板永久退化成紧凑卡（只看得到 header bar）。
+ */
+export function resetGenuiInlineBudget(): void {
+  genuiInlineMounted = 0;
+}
 
 @Component
 export struct GenuiPanelCard {
@@ -58,7 +69,13 @@ export struct GenuiPanelCard {
   /** 卡片副标题（`core/genui.genuiCardSubtitle` 的结果；空 ⇒ 不渲染该行）。 */
   @Prop subtitle: string = '';
   /** 面板源码（`core/genui.genuiCode` 的结果）—— 点「打开面板」时原样交上层。 */
-  @Prop code: string = '';
+  /**
+   * 面板源码。
+   *
+   * ⛔ `@Watch` 是刚需：切会话重建行时 `@Prop` 可能**后于** `aboutToAppear` 到位，
+   *   只尝试一次就会永远停在紧凑卡（用户 2026-11-18：「只看得到 header bar，看不到内容」）。
+   */
+  @Prop @Watch('onCodeChanged') code: string = '';
   /** 是否"在飞"（生成中）—— 决定指示器形态。 */
   @Prop @Watch('onLiveChanged') live: boolean = false;
   @Prop theme: string = 'dark';
@@ -128,6 +145,11 @@ export struct GenuiPanelCard {
    */
   private requestUrl(): Promise<string> {
     return this.onShare(this.code, this.title);
+  }
+
+  /** `code` 到位/变化 ⇒ 重新尝试内联（幂等：已有 url / preparing / live 都会早退）。 */
+  private onCodeChanged(): void {
+    this.ensureInline();
   }
 
   private ensureInline(): void {
@@ -265,6 +287,12 @@ export struct GenuiPanelCard {
         pasteboard.getSystemPasteboard().setData(data);
       } catch (e) {
         // 剪贴板不可用（web :143-147 同款吞）：链接已建成不算失败，仍落 done。
+      }
+      // ⛔ 用户 2026-11-18：「希望无论什么时候 display_html 都渲染 inline 面板」。
+      //   建链成功说明 URL 可用 ⇒ 紧凑卡就地切成内联（不必再点一次「打开面板」）。
+      if (this.inlineUrl.length === 0 && genuiInlineMounted < GENUI_INLINE_MAX) {
+        this.inlineUrl = url;
+        genuiInlineMounted++;
       }
       this.shareState = SHARE_DONE;
     }).catch(() => {
