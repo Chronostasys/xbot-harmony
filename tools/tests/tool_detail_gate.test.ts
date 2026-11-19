@@ -74,5 +74,22 @@ ok('根因仍在源码可见：toHistoryIteration 的 tools_folded 来自 Block�
   eq('★ args+detail 都有 ⇒ 不再请求（省一次）', detailTargets(full, 'Shell', 4, 4), []);
 }
 
+// ── ★ 组件层：单枚 pill **必须先取数、后打开**（用户 2026-11-20：「点开就能请求接口然后显示输出」）──
+// `bindPopup` 的 builder 只在打开那一刻构建（子树永不重建）⇒ 若先打开再请求，第一次只会渲染
+// 打开瞬间的轻字段（只有参数/没有输出），必须关掉重开才有 → 用户亲报的形态。
+{
+  const viewPath: string = __dirname + '/../../../../entry/src/main/ets/components/IterBlocksView.ets';
+  const view: string = fs.readFileSync(viewPath, 'utf8');
+  const i0: number = view.indexOf('private toggleToolPop(');
+  ok('★ 找得到 toggleToolPop()', i0 >= 0);
+  const body: string = i0 >= 0 ? view.substring(i0, i0 + 1400) : '';
+  const iReq: number = body.indexOf('this.onEnsureToolDetailAsync(');
+  const iOpen: number = body.indexOf('this.popAt = slot;');
+  ok('★ 先发请求（onEnsureToolDetailAsync）', iReq >= 0);
+  ok('★ 请求之后才打开浮层（popAt 赋值位置在请求之后）', iReq >= 0 && iOpen > iReq);
+  ok('★ 请求失败也要打开（有 catch ⇒ 不吞掉交互）', body.indexOf('.catch(') >= 0);
+  ok('★ 取数期间显示转圈（popPendingSlot）', body.indexOf('this.popPendingSlot = slot;') >= 0);
+}
+
 console.log(`tool_detail_gate: ${pass} passed, ${fail} failed`);
 if (fail > 0) { process.exit(1); }
