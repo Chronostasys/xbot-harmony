@@ -166,7 +166,7 @@ function textSites(src: string): TSite[] {
 }
 /** **短常量/结构性**站点豁免（无 `wordBreak` 也安全）—— ⛔ 只许缩短，每条附理由。 */
 const NO_WB_EXEMPT: string[] = [
-  "b.ordered ? `${k + 1}.` : '•'",         // 列表标记：定长（`N.`/`•`），无长串
+  "b.ordered ? `${this.liNumber(b, k)}.` : '•'",   // 列表标记：定长（N. / 圆点），无长串（2026-11-20 改用原始序号 liNumber）
   "b.lang.length > 0 ? b.lang : 'code'",    // 代码语言标签：短标识符 + 已有 layoutWeight(1) 约束宽度
   "'复制'",                                  // 固定短常量
 ];

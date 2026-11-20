@@ -56,6 +56,14 @@ export class MdBlock {
    * 原生此前把 `[ ]` 当**字面文本**上屏（缺失）。修见 `parseMarkdown` 列表分支。
    */
   itemChecked: number[] = [];
+  /**
+   * 与 `items` 一一对应的**有序项原始序号**（无序项为 0）。
+   *
+   * ⛔ 用户 2026-11-20（截图：`2. 评论 #3` 之后的无序子项被渲染成 `3. 4. 5.` 连续编号）：
+   *   渲染层原来用 `块内下标 + 1` ⇒ 一旦块里混入不同层级/不同类型的项，编号就串了。
+   *   ⇒ 解析时记下 `2.`/`3.` 的真实号，渲染直接用它（GFM 的 `start` 语义）。
+   */
+  itemNumbers: number[] = [];
   /** 代码围栏语言 */
   lang: string = '';
   /** 代码正文 */
@@ -430,6 +438,16 @@ export function parseMarkdown(src: string): MdBlock[] {
         if (m === null) {
           break;
         }
+        // ⛔ **列表类型/层级一变就切块**（对齐 web/remark：有序→无序、顶层→嵌套 各自成表）。
+        //   否则一个块里混着 `2.` 与 `-` 时渲染层只能沿用首项的 ordered ⇒ 无序列出成连续编号
+        //   （用户 2026-11-20 截图：「评论意见/已修改」被编成 3./4./5.，嵌套也被拍平）。
+        const itemLevelNow: number = Math.floor(m[1].length / 2);
+        const orderedNow: boolean = /\d/.test(m[2]);
+        // ⛔ 只在**类型**变化时切块（有序↔无序）：层级变化由  逐项表达（渲染按 level 缩进），
+        //   不能按 level 切块 —— 否则既有"单块逐项级别"语义（[A,A1,A2,B] / [0,1,2,0]）被打散。
+        if (b.items.length > 0 && orderedNow !== b.ordered) {
+          break;
+        }
         // 任务列表项（GFM）：`[ ]`/`[x]`/`[X]` 前缀 ⇒ 记勾选态并从正文剥掉前缀。
         // web 走 remark-gfm（`MarkdownRenderer.tsx:31`）渲染成 checkbox；原生此前当字面文本上屏。
         let text: string = m[3];
@@ -445,6 +463,8 @@ export function parseMarkdown(src: string): MdBlock[] {
         // 逐项嵌套级别（按缩进宽度 / 2）——不再只用首项级别（否则嵌套被拍平）。
         b.itemLevels.push(Math.floor(m[1].length / 2));
         b.itemChecked.push(checked);
+        // 有序项的**原始序号**（`2.` ⇒ 2）；无序项记 0。
+        b.itemNumbers.push(orderedNow ? (parseInt(m[2], 10) || 0) : 0);
         i++;
       }
       blocks.push(b);

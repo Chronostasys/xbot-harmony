@@ -369,7 +369,9 @@ export struct MarkdownView {
                 .margin({ top: SPACE_HAIR })
                 .flexShrink(0)
             } else {
-              Text(b.ordered ? `${k + 1}.` : '•')
+              // ⛔ 对齐 web（GFM 的 start 语义）：有序项用**原始序号**，不再用「块内下标+1」——
+              //   否则一旦块里混入其它层级/类型，编号就串（用户 2026-11-20 截图：3./4./5.）。
+              Text(b.ordered ? `${this.liNumber(b, k)}.` : '•')
                 .fontSize(typeOf('type.callout').size)
                 .fontColor(this.pal().textSecondary)
                 .margin({ top: SPACE_HAIR })
@@ -823,6 +825,12 @@ export struct MarkdownView {
   /** 列表项 k 的嵌套级别（数组长度兜底 ⇒ 老数据/异常不越界）。 */
   private liLevel(b: MdBlock, k: number): number {
     return k < b.itemLevels.length ? b.itemLevels[k] : b.level;
+  }
+
+  /** 列表项 k 的**显示序号**（有序项优先用原始号  ⇒ 2；缺省回落块内下标+1）。 */
+  private liNumber(b: MdBlock, k: number): number {
+    const n: number = k < b.itemNumbers.length ? b.itemNumbers[k] : 0;
+    return n > 0 ? n : k + 1;
   }
 
   /** 列表项 k 的勾选态（`-1` = 非任务项）。 */
