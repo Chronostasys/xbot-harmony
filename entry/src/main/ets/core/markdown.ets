@@ -64,6 +64,14 @@ export class MdBlock {
    *   ⇒ 解析时记下 `2.`/`3.` 的真实号，渲染直接用它（GFM 的 `start` 语义）。
    */
   itemNumbers: number[] = [];
+  /**
+   * **引用块的子块**（`MdBlockKind.Quote` 专用）。
+   *
+   * ⛔ 用户 2026-11-20：「表格里的 md 你都不会渲染」。引用块此前只把 `> ` 后面的内容当**一段纯文本**
+   *   上屏（`b.text` + `Inline`）⇒ 引用里的 表格/列表/代码块/多段落 全部丢失（表格因此"不渲染"）。
+   *   ⇒ 解析时**递归**解析引用体，渲染时逐个子块渲染。
+   */
+  children: MdBlock[] = [];
   /** 代码围栏语言 */
   lang: string = '';
   /** 代码正文 */
@@ -401,6 +409,8 @@ export function parseMarkdown(src: string): MdBlock[] {
       const b: MdBlock = new MdBlock();
       b.kind = MdBlockKind.Quote;
       b.text = body.join('\n');
+      // 递归解析引用体（表格/列表/代码/多段落）——web 的 blockquote 就是「容器 + 正常块」。
+      b.children = parseMarkdown(body.join('\n'));
       b.start = lineOff[qStart];
       blocks.push(b);
       continue;

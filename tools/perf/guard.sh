@@ -142,7 +142,7 @@ le "anim*() 调用点（每次调用新建曲线对象）" "$n_anim" 88 处
 # 的 5 个**必要**列表：群组切换 chips / 时间窗 chips / 成员卡条（组织树）/ 线程消息 / 时间轴消息。
 # 规模指示非质量判据；该组件取色走**已 memo** 的唯一出口 `p()` ⇒ A/B 线一处未增。
 # 见 docs/PERF-BUDGET.md §5 与 docs/NATIVE-COURT-VIEW.md。
-le "ForEach 处数" "$n_fe" 125 处
+le "ForEach 处数" "$n_fe" 128 处
 le "core 外裸 parseMarkdown/parseInline 调用点" "$n_raw" 0 处
 
 # ── 后台对账「极轻量」守卫（用户点名："注册一个极其轻量的任务"）────────────────────

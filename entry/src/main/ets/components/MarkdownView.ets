@@ -342,7 +342,17 @@ export struct MarkdownView {
       Column() {
         // 引用正文走 textSecondary（web `index.css:190/567`）—— 层次**弱于正文**，
         // 让 3px accent 竖条成为唯一的"强调"，而不是引用块里外都是同一档字色。
-        this.Inline(b.text, this.pal().textSecondary)
+        //
+        // ⛔ 2026-11-20（用户：「表格里的 md 你都不会渲染」）：引用体必须**按块递归渲染**，
+        //   否则 `> | a | b |` 的表格、`> - x` 的列表、`> ```code``` ` 全部退化成一段纯文本。
+        if (b.children.length > 0) {
+          // ⛔ @Builder 里只能写 UI 语法（普通 for 循环 = ArkTS 10905209）⇒ 必须用 ForEach。
+          ForEach(b.children, (c: MdBlock, ci: number) => {
+            this.Block(c, ci)
+          }, (c: MdBlock, ci: number) => `q-${b.key}-${ci}`)
+        } else {
+          this.Inline(b.text, this.pal().textSecondary)
+        }
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
